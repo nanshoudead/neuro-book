@@ -1024,6 +1024,17 @@ export class PluginHostImpl implements PluginHost {
             signal: scope.stopSignal,
             remote: this.#remoteAccess(attempt, record, plugin, entry),
             declarations: this.#declarations,
+            activation: {
+                // 绑的是这一代次的作用域而不只是插件 id：旧上下文在同 id 重新登记之后不能借新登记触发。存活核对与
+                // 派发之间没有 await，核对通过时激活已经开始。
+                trigger: (event, options = {}) => {
+                    if (!isAlive(scope)) {
+                        return Promise.resolve({status: "rejected", event, reason: "requester-stopped"});
+                    }
+                    const signal = options.signal === undefined ? scope.stopSignal : anySignal([options.signal, scope.stopSignal]);
+                    return this.triggerActivationEvent(event, {requester: plugin, signal});
+                },
+            },
             services: {
                 require: <T>(key: ServiceKey<T>): T => {
                     if (!required.has(key.name)) {

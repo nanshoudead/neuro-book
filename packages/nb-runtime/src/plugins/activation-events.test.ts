@@ -5,7 +5,7 @@ import type {Scope} from "../lifecycle/lifecycle";
 import {createServiceAssembly} from "../services/services";
 
 import {createPluginHost} from "./plugins";
-import type {PluginDefinition, PluginDiagnostic, PluginHost} from "./plugins";
+import type {ActivationContext, PluginDefinition, PluginDiagnostic, PluginHost} from "./plugins";
 
 interface Fixture {
     readonly root: Scope;
@@ -15,29 +15,41 @@ interface Fixture {
     readonly activated: string[];
 }
 
-function setup(): Fixture {
-    const runtime = createRuntimeInstance({location: "server", instanceId: "server-1"});
+function setup(location: "server" | "browser" = "server"): Fixture {
+    const runtime = createRuntimeInstance({location, instanceId: `${location}-1`});
     runtime.root.open();
     const diagnostics: PluginDiagnostic[] = [];
     const host = createPluginHost(runtime, createServiceAssembly(runtime, {}), {observer: {diagnosticRecorded: (diagnostic) => diagnostics.push(diagnostic)}});
     return {root: runtime.root, host, diagnostics, activated: []};
 }
 
-/** 一个拥有若干前缀、本身也可被事件激活的插件。 */
-function plugin(fixture: Fixture, id: string, options: {readonly prefixes?: ReadonlyArray<string>; readonly events?: ReadonlyArray<string>}): PluginDefinition {
+/** 一个拥有若干前缀、本身也可被事件激活的插件；`onContext` 拿到每次激活的上下文。 */
+function plugin(fixture: Fixture, id: string, options: {
+    readonly prefixes?: ReadonlyArray<string>;
+    readonly events?: ReadonlyArray<string>;
+    readonly location?: "server" | "browser";
+    readonly onContext?: (context: ActivationContext) => void;
+}): PluginDefinition {
     return {
         id,
         activationEventPrefixes: options.prefixes,
         entries: [{
             id: "main",
-            location: "server",
+            location: options.location ?? "server",
             activationEvents: options.events,
-            activate: () => {
+            activate: (context) => {
                 fixture.activated.push(id);
+                options.onContext?.(context);
                 return {};
             },
         }],
     };
+}
+
+function openedChild(parent: Scope, label: string): Scope {
+    const child = parent.createChild(label);
+    child.open();
+    return child;
 }
 
 describe("Spec plugins 输出 21：拥有者定义的激活事件", () => {
@@ -113,5 +125,63 @@ describe("Spec plugins 输出 21：拥有者定义的激活事件", () => {
 
         expect(await host.triggerActivationEvent("onFoo", {requester: "listener"})).toMatchObject({status: "rejected", reason: "invalid-event"});
         expect(diagnostics).toContainEqual(expect.objectContaining({reason: "invalid-activation-event", contribution: "onFoo"}));
+    });
+});
+
+describe("Spec plugin-api 激活上下文：context.activation.trigger", () => {
+    for (const location of ["server", "browser"] as const) {
+        it(`${location}：以入口所属插件的身份触发；非拥有者的上下文被拒`, async () => {
+            const fixture = setup(location);
+            const {host, root} = fixture;
+            const contexts = new Map<string, ActivationContext>();
+            host.register(plugin(fixture, "owner", {location, prefixes: ["onFoo"], onContext: (context) => contexts.set("owner", context)}), {scope: root});
+            host.register(plugin(fixture, "listener", {location, events: ["onFoo:x"], onContext: (context) => contexts.set("listener", context)}), {scope: root});
+            await host.activate({plugin: "owner", entry: "main"});
+
+            expect(await contexts.get("owner")!.activation.trigger("onFoo:x")).toMatchObject({status: "triggered", results: [{status: "activated", plugin: "listener"}]});
+            expect(await contexts.get("listener")!.activation.trigger("onFoo:x")).toMatchObject({status: "rejected", reason: "not-prefix-owner"});
+        });
+
+        it(`${location}：代次停止后、同一插件 id 重新登记之后，旧上下文的触发被拒且不激活任何入口`, async () => {
+            const fixture = setup(location);
+            const {host, root} = fixture;
+            const contexts: ActivationContext[] = [];
+            const first = openedChild(root, "owner-1");
+            host.register(plugin(fixture, "owner", {location, prefixes: ["onFoo"], onContext: (context) => contexts.push(context)}), {scope: first});
+            host.register(plugin(fixture, "listener", {location, events: ["onFoo:x"]}), {scope: root});
+            await host.activate({plugin: "owner", entry: "main"});
+            const stale = contexts[0]!;
+            await first.close();
+
+            expect(await stale.activation.trigger("onFoo:x")).toEqual({status: "rejected", event: "onFoo:x", reason: "requester-stopped"});
+            host.register(plugin(fixture, "owner", {location, prefixes: ["onFoo"], onContext: (context) => contexts.push(context)}), {scope: openedChild(root, "owner-2")});
+            expect(await stale.activation.trigger("onFoo:x")).toMatchObject({status: "rejected", reason: "requester-stopped"});
+            expect(fixture.activated).toEqual(["owner"]);
+        });
+    }
+
+    it("调用方的 signal 只结束等待，激活照常完成", async () => {
+        const fixture = setup();
+        const {host, root} = fixture;
+        let release: () => void = () => undefined;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let owner: ActivationContext | null = null;
+        host.register(plugin(fixture, "owner", {prefixes: ["onFoo"], onContext: (context) => {
+            owner = context;
+        }}), {scope: root});
+        host.register({id: "slow", entries: [{id: "main", location: "server", activationEvents: ["onFoo:x"], activate: async () => {
+            await gate;
+            return {};
+        }}]}, {scope: root});
+        await host.activate({plugin: "owner", entry: "main"});
+
+        const controller = new AbortController();
+        const waiting = owner!.activation.trigger("onFoo:x", {signal: controller.signal});
+        controller.abort();
+        expect(await waiting).toMatchObject({status: "triggered", results: [{status: "cancelled", plugin: "slow"}]});
+        release();
+        expect(await host.activate({plugin: "slow", entry: "main"})).toMatchObject({status: "activated"});
     });
 });

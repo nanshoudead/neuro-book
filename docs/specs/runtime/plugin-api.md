@@ -91,6 +91,7 @@ owners:
 | `ctx.services.require(键)` | 两端 | 取得 `dependencies` 中声明的必需依赖，返回服务本身；键是提供方 `shared/contracts.ts` 里定义的服务键对象（[ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)）。未声明或只声明为可选的键抛错：这是写错了入口定义，不是运行期的失败 |
 | `ctx.services.resolve(键)` | 两端 | 解析声明过的依赖（含可选依赖），返回结构化结果，用法见上文“可选功能” |
 | `ctx.remote` | 各位置 | `use(合同).at(目标)` 调用与订阅任意实例的远程服务；`lookup(合同, 目标?)` 不激活提供方地查询目标实例是否提供这份合同；本入口的远程提供项经激活产出的 `remote` 交出（[远程服务与 RPC 协议](plugin-channel.md)） |
+| `ctx.activation.trigger(事件, {signal?})` | 两端 | 以本入口所属插件的身份触发自己前缀下的激活事件（[`runtime.plugins`](plugins.md) 输出 21），返回同 `triggerActivationEvent`；本代次停止后（包括同一插件 id 之后重新登记）调用得到 `rejected {reason: "requester-stopped"}`，不激活任何入口；`signal` 与本代次的停止信号任一触发都只结束等待 |
 | `ctx.workers.run(module, input, options)` | 两端 | 见下文 worker 池 |
 | `ctx.setTimeout`、`ctx.setInterval`、`ctx.run(promise)` | 两端 | 作用域登记的定时器与异步包装：其中抛出的错误记入本插件诊断，入口停止时自动清理 |
 | `ctx.diagnostics` | 两端 | 写本插件的诊断记录，按插件 id 归类并脱敏 |

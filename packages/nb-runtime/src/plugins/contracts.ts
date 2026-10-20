@@ -72,6 +72,14 @@ export interface ActivationContext {
     readonly remote: PluginRemoteAccess;
     /** 此刻已接受的贡献声明（runtime.plugins 输出第 23 条），与贡献点校验函数拿到的是同一个查询。 */
     readonly declarations: ContributionDeclarations;
+    readonly activation: {
+        /**
+         * 以本入口所属插件的身份触发 `<前缀>:<参数>`（runtime.plugins 输出第 21 条）。触发口跟着这一次激活：本代次
+         * 停止后（包括同一插件 id 之后重新登记）调用得到 `rejected {reason: "requester-stopped"}`，不激活任何入口；
+         * `signal` 与本代次的停止信号任一触发都只结束等待，不取消已开始的激活。
+         */
+        trigger(event: ActivationEvent, options?: {readonly signal?: AbortSignal}): Promise<TriggerActivationResult>;
+    };
     readonly services: {
         /** 必需依赖已在激活前解析完成；未声明或可选的键抛 TypeError。 */
         require<T>(key: ServiceKey<T>): T;
@@ -387,9 +395,10 @@ export type TriggerActivationResult =
     | {readonly status: "triggered"; readonly event: ActivationEvent; readonly results: ReadonlyArray<ActivationResult>}
     /**
      * invalid-event：不是 `<前缀>:<参数>`；reserved-prefix：内核保留的前缀；not-prefix-owner：发起者不是
-     * 前缀的存活拥有者；prefix-conflict：两个以上存活插件声明了同一前缀，两者都不生效。
+     * 前缀的存活拥有者；prefix-conflict：两个以上存活插件声明了同一前缀，两者都不生效；requester-stopped：经
+     * `context.activation.trigger` 触发时发起的那一代次已经停止。
      */
-    | {readonly status: "rejected"; readonly event: ActivationEvent; readonly reason: "invalid-event" | "reserved-prefix" | "not-prefix-owner" | "prefix-conflict"};
+    | {readonly status: "rejected"; readonly event: ActivationEvent; readonly reason: "invalid-event" | "reserved-prefix" | "not-prefix-owner" | "prefix-conflict" | "requester-stopped"};
 
 export type PluginDiagnosticStage = "register" | "activate" | "publish" | "revoke" | "recover" | "close";
 
