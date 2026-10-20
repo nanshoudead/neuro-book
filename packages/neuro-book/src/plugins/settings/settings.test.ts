@@ -21,7 +21,7 @@ import {defineSetting, SETTINGS_POINT} from "nbook/shared/settings";
 import type {SettingsService} from "nbook/shared/settings";
 
 import {RELOAD_DELAY_MS} from "./backend/layer-owner";
-import {projectSettingsContract, settingsKey, userSettingsContract} from "./shared/contracts";
+import {APPEARANCE_SECTION, projectSettingsContract, SETTINGS_SECTIONS_POINT, settingsKey, userSettingsContract} from "./shared/contracts";
 import type {SettingsContract} from "./shared/contracts";
 import {FIRST_SNAPSHOT_MS} from "./shared/instance";
 import {settingsWorld} from "./testing/world";
@@ -201,6 +201,23 @@ describe("合成与跨实例分发", () => {
         await writeFile(created.userFile, "{\"x.ui/theme\": \"nbook\"}");
         await settle(created, "窗口看到层恢复", () => status.value === "ok");
         expect(notified).toEqual([]);
+    });
+});
+
+describe("list 分区（settings-window.md“分区声明”）", () => {
+    it("写在描述顶层的 list 分区在服务端、项目实例与窗口都登记、都被接受", async () => {
+        const hub = probes();
+        const created = await world({}, hub);
+        const section = {capability: SETTINGS_SECTIONS_POINT, id: "x.ui.main", declaration: {title: {"zh-CN": "界面", "en-US": "UI"}, icon: "i-lucide-square", category: "plugins"}};
+        const withSection = (location: "project" | "browser", set: {ui: Probe; other: Probe}) => both(location, set).map((definition) => definition.id === "x.ui" ? {...definition, contributions: [...(definition.contributions ?? []), section]} : definition);
+        const project = await created.project(1, withSection("project", probes()));
+        const window = await created.window("w-sections", withSection("browser", probes()));
+        for (const [name, app] of [["server", created.hub], ["project", project], ["browser", window.app]] as const) {
+            expect(app.plugins.contribution(SETTINGS_SECTIONS_POINT, APPEARANCE_SECTION)[0]?.validation, name).toEqual({status: "accepted"});
+        }
+        for (const [name, app] of [["project", project], ["browser", window.app]] as const) {
+            expect(app.plugins.contribution(SETTINGS_SECTIONS_POINT, "x.ui.main")[0]?.validation, name).toEqual({status: "accepted"});
+        }
     });
 });
 

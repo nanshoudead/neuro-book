@@ -11,7 +11,7 @@ owners:
 
 ## 目标与非目标
 
-**目标**：给用户一个查看与修改配置项（[`settings.configuration`](configuration.md)）的窗口。左栏列出分区，右边一次显示一个分区；插件经贡献点 `settings.sections` 贡献分区：list 分区由窗口按配置项的声明画出控件，page 分区由贡献方自己画，窗口只画标题与说明。绑定作品的窗口里，“用户 | 本作品”两个标签分别编辑用户层与项目层。通用列表经用户编辑路径（configuration 输出 19）写入；page 分区经自己插件的配置服务写自己声明的项。给页面用的 `SettingsRow` 与 `SettingsPageList` 让各插件的页面与通用列表看起来一致。
+**目标**：给用户一个查看与修改配置项（[`settings.configuration`](configuration.md)）的窗口。左栏列出分区，右边一次显示一个分区；插件经两个贡献点贡献分区：`settings.sections` 的 list 分区由窗口按配置项的声明画出控件，`settings.pages` 的 page 分区由贡献方自己画，窗口只画标题与说明。绑定作品的窗口里，“用户 | 本作品”两个标签分别编辑用户层与项目层。通用列表经用户编辑路径（configuration 输出 19）写入；page 分区经自己插件的配置服务写自己声明的项。给页面用的 `SettingsRow` 与 `SettingsPageList` 让各插件的页面与通用列表看起来一致。
 
 **不承诺**：
 
@@ -23,8 +23,8 @@ owners:
 
 ## 术语与参与者
 
-- **分区**：左栏的一项；贡献点 `settings.sections` 上一条已接受的声明，贡献 id 就是分区 id。
-- **list 分区**、**page 分区**：前者窗口按配置项的声明画控件，后者贡献方交出页面组件。
+- **分区**：左栏的一项；贡献点 `settings.sections` 或 `settings.pages` 上一条已接受的声明，贡献 id 就是分区 id。
+- **list 分区**、**page 分区**：前者是 `settings.sections` 的声明，窗口按配置项的声明画控件；后者是 `settings.pages` 的贡献，贡献方交出页面组件。
 - **小组**：list 分区里带小标题的一组配置项。小组 id 是分区声明的公开合同，别的插件的配置项按 id 引用。
 - **标签**：窗口顶部的“用户 | 本作品”，决定编辑哪一层；未绑定作品的窗口只有用户层，没有标签。
 - **书名**：窗口绑定的作品的显示名：书名，没有书名时是目录原名（[`runtime.projects`](../runtime/projects.md) 术语）；不是地址栏用的短名。覆盖提示（输出 11）与页面上下文的 `projectTitle` 用它。
@@ -36,25 +36,34 @@ owners:
 
 ### 分区声明
 
-贡献点 `settings.sections`，只接受浏览器入口的贡献：
+两个贡献点，拥有者都是 `nbook.settings`：
+
+- `settings.sections`：list 分区，**顶层声明式贡献**（写在插件描述的 `contributions` 里，没有实现）。三个运行位置的 `nbook.settings` 都定义这个贡献点，每个实例都登记、都知道全部 list 分区。
+- `settings.pages`：page 分区，只接受浏览器入口的贡献，实现是 `{load()}`。
 
 ```ts
+// settings.sections
 interface SettingsSectionDeclaration {
     readonly title: LocalizedText;
     readonly description?: LocalizedText;          // 分区标题下的一行说明
     readonly icon: string;                         // 图标类名，例如 i-lucide-palette
     readonly category: "app" | "ai" | "plugins";   // 左栏分组：应用、AI、插件
     readonly order?: number;                       // 组内顺序，缺省 0，同值按 id
-    readonly kind: "list" | "page";
-    readonly groups?: ReadonlyArray<{readonly id: string; readonly title: LocalizedText}>;  // 只给 list
-    readonly layout?: "column" | "fill";           // 只给 page，缺省 column
-    readonly layers?: ReadonlyArray<"user" | "project">;   // 只给 page：在哪些标签下可用，缺省两者
+    readonly groups?: ReadonlyArray<{readonly id: string; readonly title: LocalizedText}>;
 }
-// page 分区的实现
+// settings.pages
+interface SettingsPageDeclaration {
+    readonly title: LocalizedText;
+    readonly description?: LocalizedText;
+    readonly icon: string;
+    readonly category: "app" | "ai" | "plugins";
+    readonly order?: number;
+    readonly layout?: "column" | "fill";           // 缺省 column
+    readonly layers?: ReadonlyArray<"user" | "project">;   // 在哪些标签下可用，缺省两者
+}
 interface SettingsPageImplementation {
     load(): Promise<Component>;                    // 只取得组件定义；实例由窗口创建；props：{context: SettingsPageContext}
 }
-// list 分区交空对象 {}：内核要求入口贡献都给出实现，窗口不读它
 interface SettingsPageContext {
     readonly id: string;
     readonly layer: Readonly<Ref<"user" | "project">>;    // 当前标签；页面只编辑这一层
@@ -64,12 +73,13 @@ interface SettingsPageContext {
 
 | 规则 | 不满足时 |
 |---|---|
-| 贡献写在浏览器入口下 | 写在插件顶层为 `implementation-required`；不是浏览器入口的贡献为 `invalid-declaration` |
+| `settings.sections` 写在插件描述的顶层；`settings.pages` 写在浏览器入口下 | 前者写在入口下为 `implementation-not-accepted`；后者写在顶层为 `implementation-required`，不是浏览器入口的贡献为 `invalid-declaration` |
 | 分区 id 是点分的小写段（`a-z`、`0-9`、`-`，每段以字母开头，至少两段）、至多 128 个字符；`nbook.*` 插件写 `nbook.<名>`，其它插件以自己的插件 id 加 `.` 开头 | `invalid-declaration` |
-| `title`、`description` 两种语言都非空；`icon` 非空；`category`、`kind`、`layout`、`layers` 取上面的值；`order` 在 -1000000 到 1000000 之间 | 同上 |
-| `groups` 只给 list：小组 id 是一个小写段、至多 64 个字符，同一分区里不重复 | 同上 |
-| `layout`、`layers` 只给 page；`layers` 非空、不重复 | 同上 |
-| 声明不认识的字段 | 同上 |
+| `title`、`description` 两种语言都非空；`icon` 非空；`category`、`layout`、`layers` 取上面的值；`order` 在 -1000000 到 1000000 之间 | 同上 |
+| 小组 id 是一个小写段、至多 64 个字符，同一分区里不重复 | 同上 |
+| `layers` 非空、不重复 | 同上 |
+| 声明不认识的字段（包括已删除的 `kind`，以及 list 写 `layout`、`layers`，page 写 `groups`） | 同上 |
+| 同一分区 id 出现在两个贡献点上（内核按贡献点分别去重，不跨点查重） | 这个 id 的分区都不显示，记一条诊断，与登记顺序无关；指向它的配置项按“分区不存在”归入“其它” |
 
 配置项一侧的 `section`、`group`、`order`、`choices`、`applies` 见 [`settings.configuration`](configuration.md)“声明”。
 
@@ -93,7 +103,7 @@ interface SettingsPageContext {
 
 ## 输出与可观察行为
 
-1. **左栏**：窗口从已接受的分区声明取得左栏，未交付实现的 page 分区也在其中，左栏不随交付先后跳动。分三组，自上而下应用、AI、插件，组间一条分隔线、没有组标题；组内按 `order`（缺省 0），同值按分区 id。“其它”排在插件组的最后，没有项时不出现。左栏宽约 180px，右边一次只显示一个分区。没有可列的项的 list 分区在左栏停用，以“这个分区还没有设置项”作提示。
+1. **左栏**：窗口从两个贡献点上已接受的分区声明取得左栏，未交付实现的 page 分区也在其中，左栏不随交付先后跳动。分三组，自上而下应用、AI、插件，组间一条分隔线、没有组标题；组内按 `order`（缺省 0），同值按分区 id。“其它”排在插件组的最后，没有项时不出现。左栏宽约 180px，右边一次只显示一个分区。没有可列的项的 list 分区在左栏停用，以“这个分区还没有设置项”作提示。
 2. **配置项落到分区**：配置项按 `section` 落到 list 分区；分区里先列没写 `group` 的项（没有小标题），再按分区声明的顺序列各小组（有小标题）；同一小组内按 `order`（缺省 0），同值按键。`group` 指向分区没有声明的小组时按没写处理，记一条诊断。没写 `section` 的项、`section` 指向不存在的分区的项（记一条诊断）归入“其它”，按声明者插件分小组。指向 page 分区的项不在列表里画，由页面负责。
 3. **外壳画什么**：每个分区顶部的标题与说明由窗口画。list 分区与 `layout: "column"` 的页面放在同一个内容列里（同样的内边距与封顶宽度，内容列滚动）；`layout: "fill"` 的页面拿到标题下面的整块区域（外边距同内容列，不封顶），自己分栏、自己滚动。
 4. **page 的交付状态**：page 分区处于下列之一，在右边原位呈现：
@@ -168,7 +178,7 @@ page 分区的交付状态：
 
 ## 边界与兼容
 
-- 公开接口：贡献点 `settings.sections` 与 `SettingsSectionDeclaration`、命令 id `OPEN_SETTINGS_COMMAND` 与公开键 `SETTINGS_WINDOW_OPEN_KEY`（`nbook/plugins/settings/shared/contracts`）；`SettingsPageImplementation`、`SettingsPageContext`（`nbook/plugins/settings/web/contracts`）；`SettingsRow`、`SettingsPageList`（`nbook/ui/settings/`）；命令 `nbook.settings.open`；公开键 `nbook.settings/windowOpen`。分区声明与页面上下文只增不改，新增可选字段不影响旧插件；小组 id 是分区的公开合同，改名等于删掉旧小组。
+- 公开接口：贡献点 `settings.sections` 与 `SettingsSectionDeclaration`、`settings.pages` 与 `SettingsPageDeclaration`、命令 id `OPEN_SETTINGS_COMMAND` 与公开键 `SETTINGS_WINDOW_OPEN_KEY`（`nbook/plugins/settings/shared/contracts`）；`SettingsPageImplementation`、`SettingsPageContext`（`nbook/plugins/settings/web/contracts`）；`SettingsRow`、`SettingsPageList`（`nbook/ui/settings/`）；命令 `nbook.settings.open`；公开键 `nbook.settings/windowOpen`。分区声明与页面上下文只增不改，新增可选字段不影响旧插件；小组 id 是分区的公开合同，改名等于删掉旧小组。
 - 用户编辑路径与窗口的数据来源只给 `nbook.settings` 自己（configuration 输出 19），别的插件的页面只能写自己声明的项。
 - 信任边界：页面组件跑在工作台的 Vue 应用里，错误边界只覆盖 Vue 调用路径；组件自己发起、没有交给 Vue 的异步错误由所属插件处理。
 
@@ -187,7 +197,7 @@ Smoke 入口：`e2e/settings.e2e.ts`（扩展到设置窗口）。
 ## 实现合同
 
 - **公开入口**：`nbook/plugins/settings/shared/contracts`（贡献点 `SETTINGS_SECTIONS_POINT`、`SETTINGS_SECTION_CATEGORIES` 与 `SettingsSectionDeclaration`，命令 id `OPEN_SETTINGS_COMMAND`，公开键 `SETTINGS_WINDOW_OPEN_KEY`）；`nbook/plugins/settings/web/contracts`（`SettingsPageImplementation`、`SettingsPageContext`）；`nbook/ui/settings/SettingsRow.vue`、`nbook/ui/settings/SettingsPageList.vue`。窗口模型 `createSettingsWindow`、分区注册表与窗口数据来源是 `nbook.settings` 的内部实现，数据来源经服务只发给 `nbook.settings` 自己的入口。
-- **owner 与依赖方向**：`nbook.settings` 的浏览器侧有两个相关入口。配置核心入口持有配置实例、`settings.sections` 的接收者（分区注册表，经宿主能力 `window.plugins` 查入口状态与重试）与窗口数据来源；窗口入口持有窗口模型，贡献打开命令、公开键、活动栏底部条目（`workbench.activitybar-items`）与页面浮层（`workbench.overlays`），依赖工作台的通知与 Storage（窗口尺寸记录）。工作台依赖配置核心，窗口因此不在核心入口里，免得服务装配的静态环。通用列表经层拥有者的用户编辑写入（[`settings.configuration`](configuration.md) 输出 19）；page 分区的贡献方只引用上面的公开入口，写入走自己插件的配置服务。书架右上角的齿轮由 `nbook.projects` 画，只读公开键、执行命令（[`workbench.bookshelf`](../workbench/bookshelf.md) 输出 1）。
+- **owner 与依赖方向**：`nbook.settings` 的浏览器侧有两个相关入口。配置核心入口持有配置实例、`settings.pages` 的接收者（分区注册表，经宿主能力 `window.plugins` 查入口状态与重试）与窗口数据来源；窗口入口持有窗口模型，贡献打开命令、公开键、活动栏底部条目（`workbench.activitybar-items`）与页面浮层（`workbench.overlays`），依赖工作台的通知与 Storage（窗口尺寸记录）。工作台依赖配置核心，窗口因此不在核心入口里，免得服务装配的静态环。通用列表经层拥有者的用户编辑写入（[`settings.configuration`](configuration.md) 输出 19）；page 分区的贡献方只引用上面的公开入口，写入走自己插件的配置服务。书架右上角的齿轮由 `nbook.projects` 画，只读公开键、执行命令（[`workbench.bookshelf`](../workbench/bookshelf.md) 输出 1）。
 - **关键不变量**：
   - 窗口数据来源（含用户编辑的写入路径）只发给 `nbook.settings` 自己、没有经过代理的入口；层的拥有者对用户编辑再按内核填写的调用方核对一次（`web/sections.test.ts`“设置窗口的数据来源只给 nbook.settings 自己”，`settings.test.ts`“用户编辑”）。
   - page 分区的页面实例与已加载的组件定义归窗口模型，不归组件：交付撤回时同步作废（撤回与再次交付挨在同一轮也换用新句柄），窗口关闭时作废进行中的加载；一次加载的结果只在它的代次仍是最新、实例仍在加载时生效（输出 4、5，`window.test.ts`“page 分区的加载”）。

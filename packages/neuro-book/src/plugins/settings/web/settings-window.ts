@@ -21,9 +21,9 @@ import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/local
 import type {SettingDefinition, SettingLayer, SettingsFailure, SettingsService, SettingUpdateOptions, SettingWriteResult} from "nbook/shared/settings";
 
 import {SETTINGS_SECTION_CATEGORIES} from "../shared/contracts";
-import type {SettingsSectionCategory, SettingsSectionDeclaration} from "../shared/contracts";
+import type {SettingsSectionCategory} from "../shared/contracts";
 import type {SettingsPageContext} from "./contracts";
-import type {SettingsPageDelivery} from "./sections";
+import type {SettingsPageDelivery, SettingsSectionEntry} from "./sections";
 import type {SettingsWindowSource, WindowSetting} from "./window-source";
 
 /** “其它”分区的 id：不是贡献，取一个分区声明写不出来的 id（只有一段），不会与贡献撞名。 */
@@ -205,7 +205,7 @@ function placed(list: ReadonlyArray<CatalogSection>): {readonly list: ReadonlyAr
 
 /** 左栏与配置项的落位（输出 1、2）：分区按组、`order`、id 排；配置项按 `section`、`group` 落位，落不进去的进“其它”。 */
 function buildCatalog(source: SettingsWindowSource, report: (message: string) => void): ReadonlyArray<CatalogSection> {
-    const declared = new Map(source.sections().map((entry) => [entry.id, entry.declaration]));
+    const declared = new Map(source.sections().map((entry) => [entry.id, entry]));
     const listed = new Map<string, Map<string | null, WindowSetting[]>>();
     const other = new Map<string, WindowSetting[]>();
     const place = (map: Map<string | null, WindowSetting[]>, group: string | null, setting: WindowSetting): void => {
@@ -223,30 +223,35 @@ function buildCatalog(source: SettingsWindowSource, report: (message: string) =>
         if (section.kind === "page") continue;
         const groups = listed.get(declaration.section!) ?? new Map<string | null, WindowSetting[]>();
         listed.set(declaration.section!, groups);
-        const known = declaration.group !== undefined && (section.groups ?? []).some((group) => group.id === declaration.group);
+        const known = declaration.group !== undefined && (section.declaration.groups ?? []).some((group) => group.id === declaration.group);
         if (declaration.group !== undefined && !known) report(`配置项 ${key} 指向分区 ${declaration.section!} 没有声明的小组 ${declaration.group}，排在分区最前`);
         place(groups, known ? declaration.group! : null, setting);
     }
 
-    const fromDeclaration = (id: string, declaration: SettingsSectionDeclaration): CatalogSection => {
-        const groups = listed.get(id) ?? new Map<string | null, WindowSetting[]>();
-        return {
+    const fromEntry = (entry: SettingsSectionEntry): CatalogSection => {
+        const {id, declaration} = entry;
+        const heading = {
             id,
             title: declaration.title,
             description: declaration.description ?? null,
             icon: declaration.icon,
             category: declaration.category,
             order: declaration.order ?? 0,
-            kind: declaration.kind,
-            layout: declaration.layout ?? "column",
-            layers: declaration.layers ?? LAYERS,
+        };
+        if (entry.kind === "page") return {...heading, kind: "page", layout: entry.declaration.layout ?? "column", layers: entry.declaration.layers ?? LAYERS, groups: []};
+        const groups = listed.get(id) ?? new Map<string | null, WindowSetting[]>();
+        return {
+            ...heading,
+            kind: "list",
+            layout: "column",
+            layers: LAYERS,
             groups: [
                 {id: null, title: null, settings: [...(groups.get(null) ?? [])].sort(settingOrder)},
-                ...(declaration.groups ?? []).map((group) => ({id: group.id, title: group.title, settings: [...(groups.get(group.id) ?? [])].sort(settingOrder)})),
+                ...(entry.declaration.groups ?? []).map((group) => ({id: group.id, title: group.title, settings: [...(groups.get(group.id) ?? [])].sort(settingOrder)})),
             ],
         };
     };
-    const sections = [...declared].map(([id, declaration]) => fromDeclaration(id, declaration));
+    const sections = [...declared.values()].map(fromEntry);
     const ordered = SETTINGS_SECTION_CATEGORIES.flatMap((category) => sections.filter((section) => section.category === category).sort((left, right) => left.order - right.order || byCodeUnit(left.id, right.id)));
     if (other.size === 0) return ordered;
     return [...ordered, {
@@ -390,7 +395,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     scope.run(() => {
         // 交付撤回：卸掉组件、丢弃已加载的定义（输出 4 的状态表）。同步执行，见模块头。
         for (const entry of source.sections()) {
-            if (entry.declaration.kind !== "page") continue;
+            if (entry.kind !== "page") continue;
             watch(() => source.delivery(entry.id).kind === "available", (available) => {
                 const instance = pages.get(entry.id);
                 if (available || instance === undefined || instance.status === "waiting") return;

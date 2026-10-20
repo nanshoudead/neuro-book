@@ -25,7 +25,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {definitionAt} from "nbook/manifest";
-import {localeSetting, SETTINGS_POINT, SETTINGS_SECTIONS_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import {localeSetting, SETTINGS_PAGES_POINT, SETTINGS_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import type {SettingsService} from "nbook/shared/settings";
 
 import {descriptor} from "../plugins/snippets/plugin";
@@ -105,7 +105,7 @@ describe("场景 6：设置的 page 分区", () => {
 
         // 接收者是 `nbook.settings` 的浏览器入口（设置窗口的数据在它那里）。实现只有 `load()`：页面组件到第一次显示这个分区
         // 时才加载，这里不调用它（Bun 不能加载 `.vue`）。
-        const section = window.plugins.contribution(SETTINGS_SECTIONS_POINT, SNIPPETS_SECTION)[0];
+        const section = window.plugins.contribution(SETTINGS_PAGES_POINT, SNIPPETS_SECTION)[0];
         expect(section?.validation).toEqual({status: "accepted"});
         expect(section).toMatchObject({status: "available", delivery: {status: "delivered", receiver: {plugin: "nbook.settings", entry: "browser"}}});
         expect(section?.status === "available" && typeof (section.implementation as {readonly load?: unknown}).load).toBe("function");
@@ -119,11 +119,11 @@ describe("场景 6：设置的 page 分区", () => {
         const window = await stage.window(router, "w1", {plugins: []});
         // 把片段插件装进可以单独停止的作用域（产品里对应停用插件）。
         const snippets = await stage.attach(window, definitionAt("browser", descriptor, snippetsBrowserPlugin), "browser");
-        expect(window.plugins.contribution(SETTINGS_SECTIONS_POINT, SNIPPETS_SECTION)[0]).toMatchObject({status: "available"});
+        expect(window.plugins.contribution(SETTINGS_PAGES_POINT, SNIPPETS_SECTION)[0]).toMatchObject({status: "available"});
 
         expect((await snippets.stop()).status).toBe("closed");
         // 内核撤回实现（原因 `scope-closed`），设置窗口随之把这个分区显示为已停止、写出原因（settings-window.md 输出第 4 条）。
-        expect(window.plugins.contribution(SETTINGS_SECTIONS_POINT, SNIPPETS_SECTION)[0]).toMatchObject({status: "revoked", reason: "scope-closed"});
+        expect(window.plugins.contribution(SETTINGS_PAGES_POINT, SNIPPETS_SECTION)[0]).toMatchObject({status: "revoked", reason: "scope-closed"});
         expect(server.plugins.contribution(SETTINGS_POINT, itemsSetting.key)[0]?.validation).toEqual({status: "accepted"});
     });
 

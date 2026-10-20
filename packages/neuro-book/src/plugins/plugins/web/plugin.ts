@@ -11,8 +11,8 @@ import type {Component, PropType} from "vue";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {displayLocale, SETTINGS_SECTIONS_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
-import type {SettingsSectionDeclaration} from "nbook/plugins/settings/shared/contracts";
+import {displayLocale, SETTINGS_PAGES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import type {SettingsPageDeclaration} from "nbook/plugins/settings/shared/contracts";
 import type {SettingsPageContext, SettingsPageImplementation} from "nbook/plugins/settings/web/contracts";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
@@ -23,12 +23,11 @@ import type {PluginsRegistry} from "../shared/contracts";
 /** 设置分区 id：内置插件以 `nbook.` 开头，点分小写段。 */
 export const PLUGINS_SECTION = "nbook.plugins.installed";
 
-const SECTION: SettingsSectionDeclaration = {
+const SECTION: SettingsPageDeclaration = {
     title: {"zh-CN": "插件", "en-US": "Plugins"},
     description: {"zh-CN": "安装与管理第三方插件", "en-US": "Install and manage third-party plugins"},
     icon: "i-lucide-puzzle",
     category: "plugins",
-    kind: "page",
     layout: "column",
     layers: ["user"],
 };
@@ -41,7 +40,7 @@ export const pluginsBrowserPlugin: PluginDefinition = {
         // 设置窗口的左栏来自已激活入口的贡献；还没有“打开设置才激活”的事件，只能启动即激活。
         activationEvents: ["onStartup"],
         dependencies: [{key: settingsKey}],
-        contributions: [{capability: SETTINGS_SECTIONS_POINT, id: PLUGINS_SECTION, declaration: SECTION}],
+        contributions: [{capability: SETTINGS_PAGES_POINT, id: PLUGINS_SECTION, declaration: SECTION}],
         activate: (context) => {
             const settings = context.services.require(settingsKey);
             const registry = context.remote.use(pluginsRegistryContract);
@@ -49,7 +48,7 @@ export const pluginsBrowserPlugin: PluginDefinition = {
             const page: SettingsPageImplementation = {
                 load: async () => withRegistry((await import("./components/PluginsPage.vue")).default, registry, locale),
             };
-            return {contributions: {[SETTINGS_SECTIONS_POINT]: {[PLUGINS_SECTION]: page}}};
+            return {contributions: {[SETTINGS_PAGES_POINT]: {[PLUGINS_SECTION]: page}}};
         },
     })],
 };

@@ -1,6 +1,6 @@
 /**
- * `nbook.settings` 的服务键与远程服务合同（docs/specs/settings/configuration.md），以及设置分区贡献点
- * `settings.sections` 的声明（docs/specs/settings/settings-window.md）。
+ * `nbook.settings` 的服务键与远程服务合同（docs/specs/settings/configuration.md），以及设置分区的两个贡献点
+ * `settings.sections`、`settings.pages` 的声明（docs/specs/settings/settings-window.md）。
  *
  * 两份远程合同的方法与事件相同，只是层不同：`nbook.settings/user` 由服务端实例提供，`nbook.settings/project` 由项目
  * 实例提供。写入的调用方身份由内核填写，输入里没有插件字段。拥有者一侧的失败统一以业务失败码 `settings-failed`
@@ -20,9 +20,11 @@ import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/local
 import {defineSetting, SETTINGS_FAILURES, SETTINGS_POINT} from "nbook/shared/settings";
 import type {SettingDefinition, SettingsFailure, SettingsService} from "nbook/shared/settings";
 
+import type {SettingsSectionDeclaration} from "./sections";
+
 export {SETTINGS_POINT};
-export {SETTINGS_SECTION_CATEGORIES, SETTINGS_SECTIONS_POINT} from "./sections";
-export type {SettingsSectionCategory, SettingsSectionDeclaration} from "./sections";
+export {SETTINGS_PAGES_POINT, SETTINGS_SECTION_CATEGORIES, SETTINGS_SECTIONS_POINT} from "./sections";
+export type {SettingsPageDeclaration, SettingsSectionCategory, SettingsSectionDeclaration} from "./sections";
 
 /** 插件依赖它取得按调用方生成的配置服务。 */
 export const settingsKey: ServiceKey<SettingsService> = defineServiceKey<SettingsService>("nbook.settings/settings");
@@ -33,6 +35,21 @@ export const OPEN_SETTINGS_COMMAND = "nbook.settings.open";
 /** 公开状态：本页的设置窗口开着时为真；齿轮据此画成按下。 */
 export const SETTINGS_WINDOW_OPEN_KEY = "nbook.settings/windowOpen";
 
+export const APPEARANCE_SECTION = "nbook.appearance";
+
+/** 外观分区：工作台的主题、明暗（小组 ui）与本插件的界面语言（小组 language）按 `section` 指向它。 */
+export const APPEARANCE_SECTION_DECLARATION: SettingsSectionDeclaration = {
+    title: {"zh-CN": "外观", "en-US": "Appearance"},
+    description: {"zh-CN": "界面的主题、明暗与语言", "en-US": "Theme, appearance and language of the interface"},
+    icon: "i-lucide-palette",
+    category: "app",
+    order: 10,
+    groups: [
+        {id: "ui", title: {"zh-CN": "界面", "en-US": "Interface"}},
+        {id: "language", title: {"zh-CN": "语言", "en-US": "Language"}},
+    ],
+};
+
 /** 界面语言：平台级设置，只允许用户层（项目文件可能来自别人的仓库，不该替用户换语言）。 */
 export const localeSetting = defineSetting({
     plugin: "nbook.settings",
@@ -41,7 +58,7 @@ export const localeSetting = defineSetting({
     default: "zh-CN",
     title: {"zh-CN": "界面语言", "en-US": "Display Language"},
     layers: ["user"],
-    section: "nbook.appearance",
+    section: APPEARANCE_SECTION,
     group: "language",
     order: 10,
     // 语言名用它自己的语言写，换到看不懂的语言后也找得回来。

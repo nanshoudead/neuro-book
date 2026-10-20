@@ -40,8 +40,8 @@ import {createWindowPlugins} from "nbook/web/host/window-plugins";
 
 import {RELOAD_DELAY_MS} from "./backend/layer-owner";
 import {descriptor} from "./plugin";
-import {SETTINGS_SECTIONS_POINT, settingsKey} from "./shared/contracts";
-import type {SettingsSectionDeclaration} from "./shared/contracts";
+import {SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT, settingsKey} from "./shared/contracts";
+import type {SettingsPageDeclaration, SettingsSectionDeclaration} from "./shared/contracts";
 import {settingsWorld} from "./testing/world";
 import type {SettingsWorld} from "./testing/world";
 import type {SettingsPageImplementation} from "./web/contracts";
@@ -130,27 +130,39 @@ afterAll(async () => {
 interface Toggle {
     fail: boolean;
     context: ActivationContext | null;
-    implementation: SettingsPageImplementation | Record<string, never>;
+    implementation: SettingsPageImplementation;
 }
 
 function toggle(overrides: Partial<Toggle> = {}): Toggle {
-    return {fail: false, context: null, implementation: {}, ...overrides};
+    return {fail: false, context: null, implementation: {load: async () => ({render: () => null})}, ...overrides};
 }
 
-/** 贡献分区的测试插件；配置项是插件顶层的声明。 */
-function contributor(id: string, sections: Readonly<Record<string, SettingsSectionDeclaration>>, control: Toggle, settings: ReadonlyArray<SettingDefinition<unknown>> = [], extra: Partial<PluginEntryDefinition> = {}): PluginDefinition {
+type SectionSpec =
+    | {readonly kind: "list"; readonly declaration: SettingsSectionDeclaration}
+    | {readonly kind: "page"; readonly declaration: SettingsPageDeclaration};
+
+/**
+ * 贡献分区的测试插件，同产品的写法：配置项与 list 分区是插件顶层的声明，page 分区是浏览器入口的贡献。有分区就有入口，
+ * list 分区不看这个入口的状态。
+ */
+function contributor(id: string, sections: Readonly<Record<string, SectionSpec>>, control: Toggle, settings: ReadonlyArray<SettingDefinition<unknown>> = [], extra: Partial<PluginEntryDefinition> = {}): PluginDefinition {
+    const all = Object.entries(sections);
+    const pages = all.filter(([, spec]) => spec.kind === "page");
     return {
         id,
-        contributions: settings.map((setting) => setting.contribution),
-        entries: Object.keys(sections).length === 0 ? [] : [{
+        contributions: [
+            ...settings.map((setting) => setting.contribution),
+            ...all.filter(([, spec]) => spec.kind === "list").map(([section, spec]) => ({capability: SETTINGS_SECTIONS_POINT, id: section, declaration: spec.declaration})),
+        ],
+        entries: all.length === 0 ? [] : [{
             id: "browser",
             location: "browser",
             activationEvents: ["onStartup"],
-            contributions: Object.entries(sections).map(([section, declaration]) => ({capability: SETTINGS_SECTIONS_POINT, id: section, declaration})),
+            contributions: pages.map(([section, spec]) => ({capability: SETTINGS_PAGES_POINT, id: section, declaration: spec.declaration})),
             activate: (context) => {
                 if (control.fail) throw new Error("样例入口按开关激活失败");
                 control.context = context;
-                return {contributions: {[SETTINGS_SECTIONS_POINT]: Object.fromEntries(Object.keys(sections).map((section) => [section, control.implementation]))}};
+                return {contributions: {[SETTINGS_PAGES_POINT]: Object.fromEntries(pages.map(([section]) => [section, control.implementation]))}};
             },
             ...extra,
         }],
@@ -185,8 +197,8 @@ async function start(plugins: ReadonlyArray<PluginDefinition>, bound = false): P
     return {application, probe, diagnostics: store};
 }
 
-const list = (overrides: Partial<SettingsSectionDeclaration> = {}): SettingsSectionDeclaration => ({title: title("列表"), icon: "i-lucide-square", category: "plugins", kind: "list", ...overrides});
-const pageSection = (overrides: Partial<SettingsSectionDeclaration> = {}): SettingsSectionDeclaration => ({title: title("页面"), icon: "i-lucide-square", category: "plugins", kind: "page", ...overrides});
+const list = (overrides: Partial<SettingsSectionDeclaration> = {}): SectionSpec => ({kind: "list", declaration: {title: title("列表"), icon: "i-lucide-square", category: "plugins", ...overrides}});
+const pageSection = (overrides: Partial<SettingsPageDeclaration> = {}): SectionSpec & {readonly kind: "page"} => ({kind: "page", declaration: {title: title("页面"), icon: "i-lucide-square", category: "plugins", ...overrides}});
 
 const notes = {
     alpha: defineSetting({plugin: "x.notes", name: "alpha", schema: Type.Boolean(), default: false, title: title("甲"), section: "x.notes.main", group: "basics", order: 2}),
@@ -446,7 +458,7 @@ describe("page 分区的加载（输出 4–6）", () => {
      */
     it("撤回后同一分区再次交付：新句柄，重新加载；撤回与发布挨在一起也不沿用旧组件", async () => {
         const Second = defineComponent({name: "PageV2", render: () => null});
-        const host = createSettingsHost({settings: [], sections: [{id: "x.notes.page", plugin: "x.notes", declaration: pageSection()}], notify: () => undefined, report: () => undefined});
+        const host = createSettingsHost({settings: [], sections: [{id: "x.notes.page", plugin: "x.notes", ...pageSection()}], notify: () => undefined, report: () => undefined});
         disposers.push(() => host.dispose());
         host.publish("x.notes.page", async () => Page);
         host.window.openWindow({section: "x.notes.page"});

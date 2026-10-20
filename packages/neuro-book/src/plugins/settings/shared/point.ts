@@ -1,8 +1,9 @@
 /**
- * 贡献点 `settings.properties` 的定义与已接受声明的查询（docs/specs/settings/configuration.md 输出 1–3）。三个位置的
- * `nbook.settings` 定义都带这个贡献点：声明写在各插件的描述里，每个实例都登记，所以每个实例都能校验与合成。
+ * `nbook.settings` 拥有的贡献点（docs/specs/settings/configuration.md 输出 1–3，settings-window.md“分区声明”）与已接受
+ * 声明的查询。
  *
- * 分区贡献点 `settings.sections`（docs/specs/settings/settings-window.md）只在浏览器的定义里：分区只接受浏览器入口的贡献。
+ * `settings.properties` 与 list 分区的 `settings.sections` 是写在描述里的顶层声明，三个位置的定义都带它们，每个实例
+ * 都能校验；page 分区的 `settings.pages` 要有浏览器入口交出的实现，只在浏览器的定义里。
  */
 
 import type {ContributionDeclarations, ContributionPointDefinition} from "@notnotype/nb-runtime/plugins";
@@ -11,8 +12,8 @@ import {freezeJson, SETTINGS_POINT, settingDeclarationProblem} from "nbook/share
 import type {SettingDeclaration} from "nbook/shared/settings";
 
 import type {DeclaredSetting} from "./layers";
-import {SETTINGS_SECTIONS_POINT, validateSectionContribution} from "./sections";
-import type {SettingsSectionDeclaration} from "./sections";
+import {SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT, validatePageContribution, validateSectionContribution} from "./sections";
+import type {SettingsPageDeclaration, SettingsSectionDeclaration} from "./sections";
 
 export const settingsPoint: ContributionPointDefinition<SettingDeclaration> = {
     id: SETTINGS_POINT,
@@ -20,14 +21,17 @@ export const settingsPoint: ContributionPointDefinition<SettingDeclaration> = {
     validate: (descriptor) => settingDeclarationProblem(descriptor.plugin, descriptor.id, descriptor.declaration),
 };
 
-/**
- * 内核只能对整个贡献点规定要不要实现，分不出 list 与 page：点设为要实现，list 分区交空对象，page 分区交 `load()`，
- * 由接收者在加载时核对（`web/sections.ts`）。
- */
 export const sectionsPoint: ContributionPointDefinition<SettingsSectionDeclaration> = {
     id: SETTINGS_SECTIONS_POINT,
-    implementation: "required",
+    implementation: "none",
     validate: validateSectionContribution,
+};
+
+/** page 分区交 `{load()}`；交出的实现没有 `load()` 由接收者在加载时核对（`web/sections.ts`）。 */
+export const pagesPoint: ContributionPointDefinition<SettingsPageDeclaration> = {
+    id: SETTINGS_PAGES_POINT,
+    implementation: "required",
+    validate: validatePageContribution,
 };
 
 /**

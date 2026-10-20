@@ -16,7 +16,6 @@ export const EDITOR_SECTION_DECLARATION: SettingsSectionDeclaration = {
     icon: "i-lucide-square-pen",
     category: "app",
     order: 30,
-    kind: "list",
     groups: [{id: "tabs", title: {"zh-CN": "标签", "en-US": "Tabs"}}],
 };
 

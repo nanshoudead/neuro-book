@@ -6,9 +6,8 @@
 import {defineComponent, h} from "vue";
 import type {Component} from "vue";
 
-import {localeSetting} from "nbook/plugins/settings/shared/contracts";
+import {APPEARANCE_SECTION, APPEARANCE_SECTION_DECLARATION, localeSetting} from "nbook/plugins/settings/shared/contracts";
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
-import {APPEARANCE_SECTION, APPEARANCE_SECTION_DECLARATION} from "nbook/plugins/settings/web/plugin";
 import {appearanceSetting, themeSetting} from "nbook/plugins/workbench/shared/contracts";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import type {SettingDefinition, SettingsService} from "nbook/shared/settings";
@@ -33,9 +32,9 @@ export const SCENE_SETTINGS: ReadonlyArray<SceneSetting> = [
 ] as ReadonlyArray<SceneSetting>;
 
 const SECTIONS: ReadonlyArray<HostSection> = [
-    {id: APPEARANCE_SECTION, plugin: "nbook.settings", declaration: APPEARANCE_SECTION_DECLARATION},
-    {id: MODELS_SECTION, plugin: "example.models", declaration: {title: {"zh-CN": "模型服务", "en-US": "Model Providers"}, description: {"zh-CN": "写作助手用的模型与服务商", "en-US": "Models and providers used by the assistant"}, icon: "i-lucide-server", category: "ai", kind: "page", layout: "fill", layers: ["user"]}},
-    {id: SNIPPETS_SECTION, plugin: "example.snippets", declaration: {title: {"zh-CN": "常用片段", "en-US": "Snippets"}, description: {"zh-CN": "写作时常用的固定文字", "en-US": "Fixed text you insert often"}, icon: "i-lucide-text-quote", category: "plugins", kind: "page"}},
+    {id: APPEARANCE_SECTION, plugin: "nbook.settings", kind: "list", declaration: APPEARANCE_SECTION_DECLARATION},
+    {id: MODELS_SECTION, plugin: "example.models", declaration: {title: {"zh-CN": "模型服务", "en-US": "Model Providers"}, description: {"zh-CN": "写作助手用的模型与服务商", "en-US": "Models and providers used by the assistant"}, icon: "i-lucide-server", category: "ai", layout: "fill", layers: ["user"]}, kind: "page"},
+    {id: SNIPPETS_SECTION, plugin: "example.snippets", declaration: {title: {"zh-CN": "常用片段", "en-US": "Snippets"}, description: {"zh-CN": "写作时常用的固定文字", "en-US": "Fixed text you insert often"}, icon: "i-lucide-text-quote", category: "plugins"}, kind: "page"},
 ];
 
 /** 场景里那部作品的书名与项目层文件的位置。 */

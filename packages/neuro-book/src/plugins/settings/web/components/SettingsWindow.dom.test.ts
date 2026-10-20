@@ -179,7 +179,7 @@ describe("page 页面的寿命（输出 6）", () => {
         const created = createSettingsHost({
             settings: [{plugin: "nbook.workbench", definition: themeSetting as SettingDefinition<unknown>}],
             sections: [
-                {id: "x.page.main", plugin: "x.page", declaration: {title: {"zh-CN": "页面", "en-US": "Page"}, icon: "i-lucide-square", category: "plugins", kind: "page"}},
+                {id: "x.page.main", plugin: "x.page", kind: "page", declaration: {title: {"zh-CN": "页面", "en-US": "Page"}, icon: "i-lucide-square", category: "plugins"}},
             ],
             project: {},
             notify: () => undefined,

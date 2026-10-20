@@ -11,11 +11,12 @@ import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import type {ContributionDescriptor, ContributionHandle, EntryState, RevokeReason} from "@notnotype/nb-runtime/plugins";
 
-import type {SettingsSectionDeclaration} from "nbook/plugins/settings/shared/contracts";
+import {SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT} from "nbook/plugins/settings/shared/contracts";
+import type {SettingsPageDeclaration, SettingsSectionDeclaration} from "nbook/plugins/settings/shared/contracts";
 import {createSettingsInstance} from "nbook/plugins/settings/shared/instance";
 import type {SettingsInstance} from "nbook/plugins/settings/shared/instance";
 import type {DeclaredSetting} from "nbook/plugins/settings/shared/layers";
-import type {SettingsSectionImplementation} from "nbook/plugins/settings/web/contracts";
+import type {SettingsPageImplementation} from "nbook/plugins/settings/web/contracts";
 import {SettingsSectionRegistry} from "nbook/plugins/settings/web/sections";
 import {createSettingsWindow} from "nbook/plugins/settings/web/settings-window";
 import type {SettingsWindow, SettingsWindowSize} from "nbook/plugins/settings/web/settings-window";
@@ -36,11 +37,10 @@ export interface HostLayer {
     readonly path?: string;
 }
 
-export interface HostSection {
-    readonly id: string;
-    readonly plugin: string;
-    readonly declaration: SettingsSectionDeclaration;
-}
+/** 场景里的分区：list 来自 `settings.sections`，page 来自 `settings.pages`。 */
+export type HostSection =
+    | {readonly id: string; readonly plugin: string; readonly kind: "list"; readonly declaration: SettingsSectionDeclaration}
+    | {readonly id: string; readonly plugin: string; readonly kind: "page"; readonly declaration: SettingsPageDeclaration};
 
 export interface SettingsHostOptions {
     /** 已接受的配置项：声明者插件与定义。 */
@@ -110,10 +110,12 @@ export function createSettingsHost(options: SettingsHostOptions): SettingsHost {
     };
 
     const abort = new AbortController();
-    const descriptors: ContributionDescriptor<SettingsSectionDeclaration>[] = options.sections.map((section) => ({capability: "settings.sections", id: section.id, plugin: section.plugin, entry: "browser", location: "browser", declaration: section.declaration}));
-    const registry = new SettingsSectionRegistry(descriptors, plugins, options.report, abort.signal);
+    // 同产品：list 分区是顶层声明（没有入口），page 分区是浏览器入口的贡献。
+    const lists: ContributionDescriptor<SettingsSectionDeclaration>[] = options.sections.flatMap((section) => section.kind === "list" ? [{capability: SETTINGS_SECTIONS_POINT, id: section.id, plugin: section.plugin, entry: null, location: "browser", declaration: section.declaration}] : []);
+    const pages: ContributionDescriptor<SettingsPageDeclaration>[] = options.sections.flatMap((section) => section.kind === "page" ? [{capability: SETTINGS_PAGES_POINT, id: section.id, plugin: section.plugin, entry: "browser", location: "browser", declaration: section.declaration}] : []);
+    const registry = new SettingsSectionRegistry(lists, pages, plugins, options.report, abort.signal);
     const receiver = registry.receiver();
-    const handles = new Map<string, ContributionHandle<SettingsSectionDeclaration, SettingsSectionImplementation> & {published: boolean}>();
+    const handles = new Map<string, ContributionHandle<SettingsPageDeclaration, SettingsPageImplementation> & {published: boolean}>();
     let generation = 0;
 
     const source = createSettingsWindowSource({
@@ -176,12 +178,12 @@ export function createSettingsHost(options: SettingsHostOptions): SettingsHost {
         service,
         publish: (sectionId, load) => {
             const section = options.sections.find((candidate) => candidate.id === sectionId);
-            if (section === undefined) throw new Error(`场景没有分区 ${sectionId}`);
+            if (section?.kind !== "page") throw new Error(`场景没有 page 分区 ${sectionId}`);
             revoke(sectionId, "scope-closed");
             setEntry(section.plugin, "available", null);
             generation += 1;
-            const implementation: SettingsSectionImplementation = {load};
-            const handle = {capability: "settings.sections", id: sectionId, plugin: section.plugin, entry: "browser", generation, kind: "entry" as const, declaration: section.declaration, published: true, implementation: () => {
+            const implementation: SettingsPageImplementation = {load};
+            const handle = {capability: SETTINGS_PAGES_POINT, id: sectionId, plugin: section.plugin, entry: "browser", generation, kind: "entry" as const, declaration: section.declaration, published: true, implementation: () => {
                 if (!handle.published) throw new Error("句柄已撤回");
                 return implementation;
             }};

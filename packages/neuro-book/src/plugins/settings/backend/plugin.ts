@@ -20,7 +20,7 @@ import {currentProjectKey} from "nbook/shared/projects";
 import {descriptor} from "../plugin";
 import {projectSettingsContract, settingsKey, userSettingsContract} from "../shared/contracts";
 import {createSettingsInstance, FIRST_SNAPSHOT_MS, provideSettings, recordTo} from "../shared/instance";
-import {acceptedSettings, settingsPoint} from "../shared/point";
+import {acceptedSettings, sectionsPoint, settingsPoint} from "../shared/point";
 import {remoteLayerLink} from "../shared/remote-link";
 import {createLayerOwner} from "./layer-owner";
 import {ownerLink, remoteLayer} from "./owner-link";
@@ -71,7 +71,7 @@ function layerEntry(location: "server" | "project", placement: ServiceKey<unknow
 
 export const settingsBackendPlugin: PluginDefinition = {
     id: descriptor.id,
-    contributionPoints: [settingsPoint],
+    contributionPoints: [settingsPoint, sectionsPoint],
     entries: [
         layerEntry("server", stateRootKey, (context) => join(context.services.require(stateRootKey).path, "settings.json")),
         layerEntry("project", currentProjectKey, (context) => join(context.services.require(currentProjectKey).root, ".nbook", "settings.json")),

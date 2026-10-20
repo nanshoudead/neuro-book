@@ -30,12 +30,11 @@ import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 import type {SettingLayer} from "nbook/shared/settings";
 
 import {descriptor} from "../plugin";
-import {displayLocale, localeSetting, OPEN_SETTINGS_COMMAND, projectSettingsContract, SETTINGS_SECTIONS_POINT, SETTINGS_WINDOW_OPEN_KEY, settingsKey, switchSetting, userSettingsContract} from "../shared/contracts";
-import type {SettingsSectionDeclaration} from "../shared/contracts";
+import {displayLocale, localeSetting, OPEN_SETTINGS_COMMAND, projectSettingsContract, SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT, SETTINGS_WINDOW_OPEN_KEY, settingsKey, switchSetting, userSettingsContract} from "../shared/contracts";
+import type {SettingsPageDeclaration, SettingsSectionDeclaration} from "../shared/contracts";
 import {createSettingsInstance, FIRST_SNAPSHOT_MS, provideSettings, recordTo} from "../shared/instance";
-import {acceptedSettings, sectionsPoint, settingsPoint} from "../shared/point";
+import {acceptedSettings, pagesPoint, sectionsPoint, settingsPoint} from "../shared/point";
 import {remoteLayerEditor, remoteLayerLink} from "../shared/remote-link";
-import type {SettingsSectionImplementation} from "./contracts";
 import {SettingsSectionRegistry} from "./sections";
 import {createSettingsWindow} from "./settings-window";
 import type {SettingsWindowSizeStore} from "./settings-window";
@@ -80,25 +79,6 @@ export const OPEN_SETTINGS_DECLARATION: CommandDeclaration = {
 export const settingsWindowState = definePublicState(descriptor.id, {
     windowOpen: {type: "boolean", unready: false, reason: {"zh-CN": "设置窗口没有打开", "en-US": "The settings window is not open"}},
 });
-
-export const APPEARANCE_SECTION = "nbook.appearance";
-
-/** 外观分区：工作台的主题、明暗（小组 ui）与本插件的界面语言（小组 language）按 `section` 指向它。 */
-export const APPEARANCE_SECTION_DECLARATION: SettingsSectionDeclaration = {
-    title: {"zh-CN": "外观", "en-US": "Appearance"},
-    description: {"zh-CN": "界面的主题、明暗与语言", "en-US": "Theme, appearance and language of the interface"},
-    icon: "i-lucide-palette",
-    category: "app",
-    order: 10,
-    kind: "list",
-    groups: [
-        {id: "ui", title: {"zh-CN": "界面", "en-US": "Interface"}},
-        {id: "language", title: {"zh-CN": "语言", "en-US": "Language"}},
-    ],
-};
-
-/** list 分区没有要实现的东西，内核仍要求入口贡献给出实现（`web/contracts.ts`）。 */
-const LIST_SECTION: SettingsSectionImplementation = Object.freeze({});
 
 /**
  * 工作台活动栏最下面的齿轮（docs/specs/ui/workbench-shell.md 输出 40）：在头像占位（900）之下；窗口开着时画成按下。
@@ -177,15 +157,14 @@ export const settingsWindowEntry = defineEntry({
 
 export const settingsBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
-    contributionPoints: [settingsPoint, sectionsPoint],
+    contributionPoints: [settingsPoint, sectionsPoint, pagesPoint],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
         dependencies: [{key: diagnosticsKey}, {key: clockKey}, {key: windowConnectionKey}, {key: windowProjectKey}, {key: windowPluginsKey, required: false}],
         provides: [settingsKey, settingsWindowSourceKey],
-        receives: [SETTINGS_SECTIONS_POINT],
+        receives: [SETTINGS_PAGES_POINT],
         remoteDelegates: [userSettingsContract, projectSettingsContract],
-        contributions: [{capability: SETTINGS_SECTIONS_POINT, id: APPEARANCE_SECTION, declaration: APPEARANCE_SECTION_DECLARATION}],
         activate: async (context) => {
             const bound = context.services.require(windowProjectKey).project !== null;
             const diagnostics = context.services.require(diagnosticsKey);
@@ -205,6 +184,7 @@ export const settingsBrowserPlugin: PluginDefinition = {
             const plugins = await context.services.resolve(windowPluginsKey);
             const sections = new SettingsSectionRegistry(
                 context.declarations.list<SettingsSectionDeclaration>(SETTINGS_SECTIONS_POINT),
+                context.declarations.list<SettingsPageDeclaration>(SETTINGS_PAGES_POINT),
                 plugins.status === "resolved" ? plugins.instance : null,
                 (message) => diagnostics.record({level: "warn", event: "settings.sections", message, source: {plugin: descriptor.id}}),
                 context.signal,
@@ -221,8 +201,7 @@ export const settingsBrowserPlugin: PluginDefinition = {
             await instance.ready;
             return {
                 services: [provideSettings(instance), provideSettingsWindowSource(windowSource, descriptor.id)],
-                receivers: {[SETTINGS_SECTIONS_POINT]: sections.receiver()},
-                contributions: {[SETTINGS_SECTIONS_POINT]: {[APPEARANCE_SECTION]: LIST_SECTION}},
+                receivers: {[SETTINGS_PAGES_POINT]: sections.receiver()},
             };
         },
     }), defineEntry({

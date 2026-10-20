@@ -29,9 +29,10 @@ import {defineSetting, SETTINGS_POINT} from "nbook/shared/settings";
 import {createWindowPlugins} from "nbook/web/host/window-plugins";
 
 import {descriptor} from "../plugin";
-import {SETTINGS_SECTIONS_POINT} from "../shared/contracts";
-import type {SettingsSectionDeclaration} from "../shared/contracts";
-import type {SettingsSectionImplementation} from "./contracts";
+import {SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT} from "../shared/contracts";
+import type {SettingsPageDeclaration, SettingsSectionDeclaration} from "../shared/contracts";
+import {validatePageContribution} from "../shared/sections";
+import type {SettingsPageImplementation} from "./contracts";
 import {settingsBrowserCore} from "./plugin";
 import {settingsWindowSourceKey} from "./window-source";
 import type {SettingsWindowSource} from "./window-source";
@@ -45,18 +46,25 @@ afterEach(async () => {
 
 const title = {"zh-CN": "分区", "en-US": "Section"};
 
-function page(overrides: Partial<SettingsSectionDeclaration> = {}): SettingsSectionDeclaration {
-    return {title, icon: "i-lucide-square", category: "plugins", kind: "page", ...overrides};
+/** 一个分区与它投向的贡献点；声明可以故意写错。 */
+interface SectionSpec {
+    readonly kind: "list" | "page";
+    readonly declaration: unknown;
 }
 
-function list(overrides: Partial<SettingsSectionDeclaration> = {}): SettingsSectionDeclaration {
-    return {title, icon: "i-lucide-square", category: "plugins", kind: "list", ...overrides};
+function page(overrides: Partial<SettingsPageDeclaration> | Record<string, unknown> = {}): SectionSpec {
+    return {kind: "page", declaration: {title, icon: "i-lucide-square", category: "plugins", ...overrides}};
+}
+
+function list(overrides: Partial<SettingsSectionDeclaration> | Record<string, unknown> = {}): SectionSpec {
+    return {kind: "list", declaration: {title, icon: "i-lucide-square", category: "plugins", ...overrides}};
 }
 
 interface Control {
     fail: boolean;
     context: ActivationContext | null;
-    implementation: SettingsSectionImplementation;
+    /** 空对象用来验“交出的实现没有 load()”。 */
+    implementation: SettingsPageImplementation | Readonly<Record<string, never>>;
 }
 
 const Sample = defineComponent({name: "SamplePage", render: () => null});
@@ -65,23 +73,32 @@ function control(overrides: Partial<Control> = {}): Control {
     return {fail: false, context: null, implementation: {load: async () => Sample}, ...overrides};
 }
 
-/** 贡献分区的测试插件：按开关失败，激活时把同一份实现交给它声明的每个分区。 */
-function contributor(id: string, sections: Readonly<Record<string, unknown>>, toggle: Control, extra: Partial<PluginEntryDefinition> = {}, top: Partial<PluginDefinition> = {}): PluginDefinition {
+/**
+ * 贡献分区的测试插件，同产品的写法：list 分区是插件顶层的声明，page 分区是浏览器入口的贡献；入口按开关失败，激活时把
+ * 同一份实现交给它的每个 page 分区。
+ */
+function contributor(id: string, sections: Readonly<Record<string, SectionSpec>>, toggle: Control, extra: Partial<PluginEntryDefinition> = {}, top: Partial<PluginDefinition> = {}): PluginDefinition {
+    const all = Object.entries(sections);
+    const pages = all.filter(([, spec]) => spec.kind === "page");
     return {
         id,
+        ...top,
+        contributions: [
+            ...all.filter(([, spec]) => spec.kind === "list").map(([section, spec]) => ({capability: SETTINGS_SECTIONS_POINT, id: section, declaration: spec.declaration})),
+            ...(top.contributions ?? []),
+        ],
         entries: [{
             id: "browser",
             location: "browser",
             activationEvents: ["onStartup"],
-            contributions: Object.entries(sections).map(([section, declaration]) => ({capability: SETTINGS_SECTIONS_POINT, id: section, declaration})),
+            contributions: pages.map(([section, spec]) => ({capability: SETTINGS_PAGES_POINT, id: section, declaration: spec.declaration})),
             activate: (context) => {
                 if (toggle.fail) throw new Error("样例入口按开关激活失败");
                 toggle.context = context;
-                return {contributions: {[SETTINGS_SECTIONS_POINT]: Object.fromEntries(Object.keys(sections).map((section) => [section, toggle.implementation]))}};
+                return {contributions: {[SETTINGS_PAGES_POINT]: Object.fromEntries(pages.map(([section]) => [section, toggle.implementation]))}};
             },
             ...extra,
         }],
-        ...top,
     };
 }
 
@@ -141,24 +158,26 @@ async function stopEntry(toggle: Control): Promise<void> {
 }
 
 describe("分区的登记校验", () => {
-    it("id 规则同视图：nbook.* 写 nbook.<名>，其它插件以自己的插件 id 加点开头；不合格的只拒这一条，同插件的其它分区照常", async () => {
+    it("id 规则同视图：nbook.* 写 nbook.<名>，其它插件以自己的插件 id 加点开头；两个贡献点相同；不合格的只拒这一条", async () => {
         const {application, source} = await start([
-            contributor("x.notes", {"x.notes.main": page(), "other.page": page(), "x.notes": page(), "x.notes.Upper": page(), [`x.notes.${"a".repeat(121)}`]: page()}, control()),
+            contributor("x.notes", {"x.notes.main": page(), "other.page": page(), "x.notes": page(), "x.notes.Upper": page(), [`x.notes.${"a".repeat(121)}`]: page(), "x.notes.list": list(), "other.list": list()}, control()),
             contributor("nbook.extra", {"nbook.extra-page": page(), "x.notes.stolen": page()}, control()),
         ]);
-        expect(validation(application, SETTINGS_SECTIONS_POINT, "x.notes.main")).toEqual({status: "accepted"});
-        expect(validation(application, SETTINGS_SECTIONS_POINT, "nbook.extra-page")).toEqual({status: "accepted"});
-        expect(validation(application, SETTINGS_SECTIONS_POINT, "other.page")).toMatchObject({status: "rejected", reason: "invalid-declaration", detail: "插件 x.notes 的分区 id 必须以 x.notes. 开头：other.page"});
-        expect(validation(application, SETTINGS_SECTIONS_POINT, "x.notes.stolen")).toMatchObject({status: "rejected", detail: "插件 nbook.extra 的分区 id 必须以 nbook. 开头：x.notes.stolen"});
-        for (const id of ["x.notes", "x.notes.Upper", `x.notes.${"a".repeat(121)}`]) expect(validation(application, SETTINGS_SECTIONS_POINT, id), id).toMatchObject({status: "rejected", reason: "invalid-declaration"});
+        expect(validation(application, SETTINGS_PAGES_POINT, "x.notes.main")).toEqual({status: "accepted"});
+        expect(validation(application, SETTINGS_PAGES_POINT, "nbook.extra-page")).toEqual({status: "accepted"});
+        expect(validation(application, SETTINGS_SECTIONS_POINT, "x.notes.list")).toEqual({status: "accepted"});
+        expect(validation(application, SETTINGS_PAGES_POINT, "other.page")).toMatchObject({status: "rejected", reason: "invalid-declaration", detail: "插件 x.notes 的分区 id 必须以 x.notes. 开头：other.page"});
+        expect(validation(application, SETTINGS_SECTIONS_POINT, "other.list")).toMatchObject({status: "rejected", reason: "invalid-declaration", detail: "插件 x.notes 的分区 id 必须以 x.notes. 开头：other.list"});
+        expect(validation(application, SETTINGS_PAGES_POINT, "x.notes.stolen")).toMatchObject({status: "rejected", detail: "插件 nbook.extra 的分区 id 必须以 nbook. 开头：x.notes.stolen"});
+        for (const id of ["x.notes", "x.notes.Upper", `x.notes.${"a".repeat(121)}`]) expect(validation(application, SETTINGS_PAGES_POINT, id), id).toMatchObject({status: "rejected", reason: "invalid-declaration"});
         // 被拒的分区不进目录；入口照常激活，接受的分区照常交付。
-        expect(source.sections().map((section) => section.id)).toEqual(["nbook.appearance", "nbook.extra-page", "x.notes.main"]);
+        expect(source.sections().map((section) => section.id)).toEqual(["nbook.appearance", "nbook.extra-page", "x.notes.list", "x.notes.main"]);
         expect(source.delivery("x.notes.main")).toEqual({kind: "available"});
     });
 
-    it("kind 与 groups、layout、layers 的组合：groups 只给 list，layout 与 layers 只给 page；小组 id 合规且不重复，layers 非空不重复", async () => {
+    it("字段：groups 只给 list，layout 与 layers 只给 page；小组 id 合规且不重复，layers 非空不重复；已删除的 kind 是未知字段", async () => {
         const groups = [{id: "ui", title}, {id: "more-ui", title}];
-        const cases: Readonly<Record<string, unknown>> = {
+        const cases: Readonly<Record<string, SectionSpec>> = {
             "x.combo.list-ok": list({groups}),
             "x.combo.page-ok": page({layout: "fill", layers: ["user"]}),
             "x.combo.list-layout": list({layout: "column"}),
@@ -168,30 +187,49 @@ describe("分区的登记校验", () => {
             "x.combo.dup-group": list({groups: [{id: "ui", title}, {id: "ui", title}]}),
             "x.combo.empty-layers": page({layers: []}),
             "x.combo.dup-layers": page({layers: ["user", "user"]}),
-            "x.combo.bad-kind": {...page(), kind: "tabs"},
-            "x.combo.bad-category": {...page(), category: "editor"},
-            "x.combo.no-icon": {...page(), icon: " "},
-            "x.combo.order": page({order: 2_000_000}),
-            "x.combo.extra": {...page(), minimumWidth: 600},
-            "x.combo.title": {...page(), title: {"zh-CN": "只有中文"}},
+            "x.combo.list-kind": list({kind: "list"}),
+            "x.combo.page-kind": page({kind: "page"}),
+            "x.combo.bad-category": page({category: "editor"}),
+            "x.combo.no-icon": page({icon: " "}),
+            "x.combo.order": list({order: 2_000_000}),
+            "x.combo.extra": page({minimumWidth: 600}),
+            "x.combo.title": list({title: {"zh-CN": "只有中文"}}),
         };
         const {application} = await start([contributor("x.combo", cases, control())]);
+        const pointOf = (id: string) => (cases[id]!.kind === "list" ? SETTINGS_SECTIONS_POINT : SETTINGS_PAGES_POINT);
         expect(validation(application, SETTINGS_SECTIONS_POINT, "x.combo.list-ok")).toEqual({status: "accepted"});
-        expect(validation(application, SETTINGS_SECTIONS_POINT, "x.combo.page-ok")).toEqual({status: "accepted"});
+        expect(validation(application, SETTINGS_PAGES_POINT, "x.combo.page-ok")).toEqual({status: "accepted"});
         for (const id of Object.keys(cases).filter((id) => !id.endsWith("-ok"))) {
-            expect(validation(application, SETTINGS_SECTIONS_POINT, id), id).toMatchObject({status: "rejected", reason: "invalid-declaration"});
+            expect(validation(application, pointOf(id), id), id).toMatchObject({status: "rejected", reason: "invalid-declaration"});
         }
         expect(application.plugins.entryState({plugin: "x.combo", entry: "browser"})?.status).toBe("available");
     });
 
-    it("只接受浏览器入口的贡献：写在插件顶层为 implementation-required", async () => {
+    it("写错位置：list 写在入口下为 implementation-not-accepted，page 写在顶层为 implementation-required，page 不在浏览器入口被拒", async () => {
         const {application, source} = await start([{
             id: "x.top",
-            contributions: [{capability: SETTINGS_SECTIONS_POINT, id: "x.top.main", declaration: list()}],
-            entries: [{id: "browser", location: "browser", activate: () => ({})}],
+            contributions: [{capability: SETTINGS_PAGES_POINT, id: "x.top.page", declaration: page().declaration}],
+            entries: [{id: "browser", location: "browser", contributions: [{capability: SETTINGS_SECTIONS_POINT, id: "x.top.list", declaration: list().declaration}], activate: () => ({})}],
         }]);
-        expect(validation(application, SETTINGS_SECTIONS_POINT, "x.top.main")).toMatchObject({status: "rejected", reason: "implementation-required"});
+        expect(validation(application, SETTINGS_SECTIONS_POINT, "x.top.list")).toMatchObject({status: "rejected", reason: "implementation-not-accepted"});
+        expect(validation(application, SETTINGS_PAGES_POINT, "x.top.page")).toMatchObject({status: "rejected", reason: "implementation-required"});
         expect(source.sections().map((section) => section.id)).toEqual(["nbook.appearance"]);
+        // 浏览器实例里装不进服务端入口，直接用拥有者的校验函数验。
+        expect(validatePageContribution({capability: SETTINGS_PAGES_POINT, id: "x.top.page", plugin: "x.top", entry: "server", location: "server", declaration: page().declaration})).toBe(`${SETTINGS_PAGES_POINT} 只接受浏览器入口的贡献`);
+    });
+
+    it("同一 id 出现在两个贡献点上：两者都不进目录，记一条诊断，指向它的配置项归入“其它”", async () => {
+        const pointed = defineSetting({plugin: "x.twin", name: "flag", schema: Type.Boolean(), default: false, title, section: "x.twin.main"});
+        const twin: PluginDefinition = {
+            ...contributor("x.twin", {"x.twin.main": page()}, control()),
+            contributions: [pointed.contribution, {capability: SETTINGS_SECTIONS_POINT, id: "x.twin.main", declaration: list().declaration}],
+        };
+        const {application, source, diagnostics} = await start([twin]);
+        expect(validation(application, SETTINGS_SECTIONS_POINT, "x.twin.main")).toEqual({status: "accepted"});
+        expect(validation(application, SETTINGS_PAGES_POINT, "x.twin.main")).toEqual({status: "accepted"});
+        expect(source.sections().map((section) => section.id)).toEqual(["nbook.appearance"]);
+        expect(diagnostics.query({}).records.filter((record) => record.event === "settings.sections").map((record) => record.message)).toEqual(["分区 id x.twin.main 同时出现在 list 与 page 两个贡献点上，两者都不显示"]);
+        expect(await source.load("x.twin.main")).toEqual({status: "stale"});
     });
 });
 
@@ -202,13 +240,13 @@ describe("分区目录与交付状态", () => {
         expect(source.sections().find((section) => section.id === "nbook.appearance")).toEqual({
             id: "nbook.appearance",
             plugin: "nbook.settings",
+            kind: "list",
             declaration: {
                 title: {"zh-CN": "外观", "en-US": "Appearance"},
                 description: {"zh-CN": "界面的主题、明暗与语言", "en-US": "Theme, appearance and language of the interface"},
                 icon: "i-lucide-palette",
                 category: "app",
                 order: 10,
-                kind: "list",
                 groups: [{id: "ui", title: {"zh-CN": "界面", "en-US": "Interface"}}, {id: "language", title: {"zh-CN": "语言", "en-US": "Language"}}],
             },
         });
@@ -327,7 +365,7 @@ describe("配置项界面字段的登记校验（configuration.md 输出 21）",
             raw("badApplies", {applies: "later"}),
             raw("restart", {restart: true}),
         ];
-        const {application} = await start([contributor("x.ui", {"x.ui.main": list({groups: [{id: "look", title}]})}, control({implementation: {}}), {}, {contributions: [good.contribution, ...bad]})]);
+        const {application} = await start([contributor("x.ui", {"x.ui.main": list({groups: [{id: "look", title}]})}, control(), {}, {contributions: [good.contribution, ...bad]})]);
         expect(validation(application, SETTINGS_POINT, good.key)).toEqual({status: "accepted"});
         expect(validation(application, SETTINGS_SECTIONS_POINT, "x.ui.main")).toEqual({status: "accepted"});
         for (const contribution of bad) {

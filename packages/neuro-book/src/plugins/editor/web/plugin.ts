@@ -15,7 +15,7 @@ import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, menuImplementatio
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {dialectTable, MARKDOWN_DIALECTS_POINT, markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import type {DialectDeclaration, MarkdownService} from "nbook/plugins/markdown/shared/contracts";
-import {displayLocale, SETTINGS_SECTIONS_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {breadcrumbsSetting, EDITOR_SECTION, EDITOR_SECTION_DECLARATION, enablePreviewSetting, wrapTabsSetting} from "../shared/settings";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
@@ -92,7 +92,6 @@ export const editorBrowserPlugin: PluginDefinition = {
             ...Object.entries(EDITOR_STATUS_ITEMS).map(([id, declaration]) => ({capability: WORKBENCH_STATUSBAR_ITEMS_POINT, id, declaration})),
             ...Object.entries(BUILTIN_EDITORS).map(([id, declaration]) => ({capability: EDITOR_EDITORS_POINT, id, declaration})),
             ...MONACO_LANGUAGES.map(({id, declaration}) => ({capability: EDITOR_LANGUAGES_POINT, id, declaration})),
-            {capability: SETTINGS_SECTIONS_POINT, id: EDITOR_SECTION, declaration: EDITOR_SECTION_DECLARATION},
         ],
         activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
@@ -259,8 +258,6 @@ export const editorBrowserPlugin: PluginDefinition = {
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
                     [WORKBENCH_STATUSBAR_ITEMS_POINT]: editorStatusItems(session.area, locale, context.services.require(clockKey), languages, dialectTable(context.declarations.list<DialectDeclaration>(MARKDOWN_DIALECTS_POINT))),
                     [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(EDITOR_TITLEBAR_MENU_ITEMS),
-                    // list 分区没有要实现的东西，设置窗口照声明画配置项（docs/specs/settings/settings-window.md）。
-                    [SETTINGS_SECTIONS_POINT]: {[EDITOR_SECTION]: Object.freeze({})},
                 },
             };
         },

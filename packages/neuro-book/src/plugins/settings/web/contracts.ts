@@ -3,7 +3,7 @@ import type {Component, Ref} from "vue";
 import type {SettingLayer} from "nbook/shared/settings";
 
 /**
- * `nbook.settings` 的浏览器合同里依赖 Vue 的部分：设置分区（贡献点 `settings.sections`）的实现与页面上下文
+ * `nbook.settings` 的浏览器合同里依赖 Vue 的部分：page 分区（贡献点 `settings.pages`）的实现与页面上下文
  * （docs/specs/settings/settings-window.md）。贡献点 id 与分区声明在 `shared/contracts.ts`，别的插件在运行时引用那里，
  * 这里的类型用 `import type`。
  */
@@ -13,10 +13,6 @@ export interface SettingsPageImplementation {
     load(): Promise<Component>;
 }
 
-/**
- * 分区贡献交出的实现。内核要求入口贡献都给出实现，list 分区没有要实现的东西，交空对象；设置窗口不读它。
- */
-export type SettingsSectionImplementation = SettingsPageImplementation | Readonly<Record<string, never>>;
 
 /** page 分区的组件经只读的 `context` 属性收到它。 */
 export interface SettingsPageContext {

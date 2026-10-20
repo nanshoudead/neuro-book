@@ -167,7 +167,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | SQLite 机制 | [`platform/sqlite.md`](platform/sqlite.md) | 具名资源 owner、连接借用、单库事务、代次与关闭，不自动迁移；**实现迁移中** |
 | Storage 插件记录 | [`storage/persistence.md`](storage/persistence.md) | `nbook.storage` 的记录定义、user 与 project 分区、读取分类、条件保存与订阅 |
 | 配置 | [`settings/configuration.md`](settings/configuration.md) | 配置项声明（含给设置窗口用的字段）、默认值与用户层、项目层的合成、外部改文件即时生效、只写自己声明的项、用户编辑的写入路径、跨实例分发与就绪；密钥与本机层只定合同 |
-| 设置窗口 | [`settings/settings-window.md`](settings/settings-window.md) | 分区贡献点 `settings.sections` 与 page 的交付状态、通用控件、“用户 \| 本作品”两个标签、已修改与覆盖提示、层状态与写入失败、打开命令与窗口尺寸、给页面用的 `SettingsRow` 与 `SettingsPageList` |
+| 设置窗口 | [`settings/settings-window.md`](settings/settings-window.md) | 分区贡献点 `settings.sections`（list）、`settings.pages`（page）与 page 的交付状态、通用控件、“用户 \| 本作品”两个标签、已修改与覆盖提示、层状态与写入失败、打开命令与窗口尺寸、给页面用的 `SettingsRow` 与 `SettingsPageList` |
 | 菜单项 | [`workbench/menus.md`](workbench/menus.md) | 插件把命令放进别的插件拥有的菜单位置：菜单项的形状、显示与可用、排序与分隔、勾选、按后缀过滤与参数；四处位置（标题栏菜单、视图标题、资源管理器右键、编辑区标题） |
 | 项目与项目实例 | [`runtime/projects.md`](runtime/projects.md) | 项目身份与登记表、项目子进程与进程间链路、宽限期与崩溃、客户端绑定、`projectsKey` 与租约、`{project}` 访问规则 |
 | 书架页 | [`workbench/bookshelf.md`](workbench/bookshelf.md) | 没有项目时的首页：案头（统计、最近写到、看板娘）、卡片与列表、封面、新建与打开已有作品、修改信息与移出书架、新鲜度与刷新 |
