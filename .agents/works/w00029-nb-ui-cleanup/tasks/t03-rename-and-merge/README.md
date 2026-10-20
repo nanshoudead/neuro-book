@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t03-rename-and-merge
-status: active
+status: done
 updated: 2026-10-20
 ---
 
@@ -44,4 +44,4 @@ updated: 2026-10-20
 
 ## 下一步
 
-合入 master 后接 t04（弹出列表收成一套，先出静态稿）。
+已合入 master（合并提交 `dc2d2f09b`，未推送）。接 t04：弹出列表收成一套，先出静态稿。
