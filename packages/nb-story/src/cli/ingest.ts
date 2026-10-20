@@ -12,13 +12,13 @@ import {basename, extname} from "node:path";
 import {StoryError} from "../core/errors";
 import {coordinatedLibrary, runnerTable} from "../ingest/coordinator";
 import type {IngestEvent, JobOutcome} from "../ingest/job";
-import {startIngest, type Runner} from "../ingest/runner";
+import {modelChoice, startIngest, type Runner} from "../ingest/runner";
 import {planFromText, type IngestPlan} from "../ingest/start";
 import {ingestStatus, ingestStatuses, lineCost, sumCosts, type IngestStatus, type UsageTotals} from "../ingest/status";
 import {STEP_NAMES} from "../ingest/chapter";
 import {decodeUtf8, MAX_SOURCE_BYTES} from "../ingest/text";
 import type {Library} from "../core/library";
-import {ingestModel, loadQaConfig} from "../qa/config";
+import {ingestModel, loadQaConfig, recallModel} from "../qa/config";
 import {QaError} from "../qa/errors";
 import {NEXT_STEP, type CliIo} from "./main";
 
@@ -205,6 +205,7 @@ async function run(
 ): Promise<number> {
     const config = await loadQaConfig(...(input.config === undefined ? [] : [input.config]));
     const model = ingestModel(config);
+    const recall = recallModel(config);
     const costs: ChapterCosts = [];
     let chapterStart = Date.now();
     const {plan, runner} = await startIngest({
@@ -212,8 +213,8 @@ async function run(
         ...(input.text === undefined ? {} : {text: input.text}),
         ...(input.title === undefined ? {} : {title: input.title}),
         ...(input.id === undefined ? {} : {id: input.id}),
-        endpoint: {baseUrl: model.baseUrl, model: model.id, apiKeyEnv: model.apiKeyEnv, maxTokens: model.maxTokens},
-        price: model.price,
+        ...modelChoice(model),
+        recall: recall === null ? null : modelChoice(recall),
         runner: "cli",
         onEvent: event => {
             if (event.type === "chapter") {

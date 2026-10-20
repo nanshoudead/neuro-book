@@ -10,12 +10,17 @@ import {Library} from "../core/library";
 import {runIngest, type IngestEvent, type JobOutcome} from "./job";
 import {IngestStore, type Price} from "./store";
 
+type Endpoint = {baseUrl: string; model: string; apiKeyEnv: string; maxTokens: number};
+
+const withKey = (endpoint: Endpoint) => ({baseUrl: endpoint.baseUrl, model: endpoint.model, apiKey: process.env[endpoint.apiKeyEnv] ?? "", maxTokens: endpoint.maxTokens});
+
 export interface WorkerStart {
     type: "start";
     libraryRoot: string;
     id: string;
-    endpoint: {baseUrl: string; model: string; apiKeyEnv: string; maxTokens: number};
+    endpoint: Endpoint;
     price: Price | null;
+    recall: {endpoint: Endpoint; price: Price | null} | null;
     run: string;
     /** 一个 Int32：非 0 表示要停。 */
     stop: SharedArrayBuffer;
@@ -39,8 +44,9 @@ self.onmessage = (message: MessageEvent<WorkerInbound>) => {
     void runIngest({
         library,
         store: new IngestStore(library, data.id),
-        endpoint: {baseUrl: data.endpoint.baseUrl, model: data.endpoint.model, apiKey: process.env[data.endpoint.apiKeyEnv] ?? "", maxTokens: data.endpoint.maxTokens},
+        endpoint: withKey(data.endpoint),
         price: data.price,
+        recall: data.recall ? {endpoint: withKey(data.recall.endpoint), price: data.recall.price} : null,
         run: data.run,
         signal: controller.signal,
         stopRequested: () => Atomics.load(flag, 0) !== 0,

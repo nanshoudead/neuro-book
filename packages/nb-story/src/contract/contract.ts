@@ -498,7 +498,7 @@ const IngestStatusSchema = Type.Object({
     current: Type.Union([
         Type.Object({
             chapter: Type.Union([Type.Integer(), Type.Null()]),
-            step: Type.Union([oneOf(["beats", "draft", "review", "repair", "consolidation"] as const), Type.Null()]),
+            step: Type.Union([oneOf(["recall", "beats", "draft", "review", "repair", "consolidation"] as const), Type.Null()]),
             retry: Type.Union([Type.Object({attempt: Type.Integer(), waitMs: Type.Number(), until: Type.String()}), Type.Null()]),
         }),
         Type.Null(),

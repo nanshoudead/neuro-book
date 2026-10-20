@@ -1,13 +1,18 @@
 /**
  * “已有记录”：抽下一章之前，由截至上一章已提交的记忆图生成、放进模型请求的一段文字（docs/specs/story/ingest.md 输出 4）。
  *
- * 搬自 w00005 t27 `context.ts` 与它用到的 `query.ts` 函数，文字逐字不变：抽取的质量是用这份文字验证的，改一个标点
- * 都要重新验证。所以这里不改用 `core/projection.ts` 的视图（那边按查询接口的合同算，出处写成“章.段—章.段”，
- * 这里写“章.段-段”），两边重叠的几个函数各管各的。
+ * 搬自 w00005 t27 `context.ts` 与它用到的 `query.ts` 函数。不传 `focus` 时（整理用）文字与 t34 当时发出的逐字相同，
+ * `context.test.ts` 对照；每一行的写法也沿用它。抽取的质量是用这份文字验证的，改写法要另做质量对照。所以这里不改用
+ * `core/projection.ts` 的视图（那边按查询接口的合同算，出处写成“章.段—章.段”，这里写“章.段-段”），两边重叠的几个
+ * 函数各管各的。
+ *
+ * 传 `focus` 时（抽普通章）只详列与这一章相关的行，让请求的大小不随全书增长（w00024 t10，各节怎么选见 `selectFor`）。
+ * 选法的依据是旧管线的引用实测，质量由 t10 的回归验证。
  */
 
-import type {Dataset, Entity, Knowledge, KnowledgeState, LedgerEntry, Position, Question, Secret, Span, TimeAnchor} from "../core/dataset";
+import type {Dataset, Entity, Knowledge, KnowledgeState, LedgerEntry, Position, Question, Secret, Span, Statement, TimeAnchor} from "../core/dataset";
 import {comparePosition, formatPosition, visibleAt} from "../core/position";
+import {occurrenceFinder} from "./text-match";
 
 const KIND_ZH: Record<string, string> = {person: "人物", persona: "身份", group: "组织", place: "地点", item: "物品", concept: "概念", task: "任务", other: "其他"};
 const PART_ZH: Record<string, string> = {dawn: "凌晨", morning: "早晨", forenoon: "上午", noon: "中午", afternoon: "下午", dusk: "傍晚", evening: "晚上", night: "深夜"};
@@ -15,10 +20,26 @@ const STATE_ZH: Record<string, string> = {knows: "知道", believes: "相信", s
 
 const formatSpan = (span: Span): string => (span.from === span.to ? `${span.chapter}.${span.from}` : `${span.chapter}.${span.from}-${span.to}`);
 
+/** 这次要抽的章：`text` 是它的原文，用来找相关对象；`statements` 给了就照它列说法（挑选的结果），没给按规则缩减。 */
+export interface ContextFocus {
+    text: string;
+    statements?: readonly string[];
+}
+
+/** 最近几章有提及的对象也算相关：本章原文里没写出称呼、只用代称的，多半是刚出场过的。 */
+const RECENT_CHAPTERS = 3;
+/** 疑问只列最近这么多章里提出或有进展的：旧管线的引用 97% 在这个范围里（t10 README）。 */
+const QUESTION_WINDOW = 20;
+/** 时间点只列最后这么多个：旧管线几乎只引用最新的一两个。 */
+const TIME_LIMIT = 20;
+/** 按规则缩减时说法一节的字数上限。 */
+export const STATEMENT_BUDGET = 8000;
+
 /** 生成“写下一章草稿之前要看的已有记录”：截至第 `afterChapter` 章末。 */
-export function renderContext(dataset: Dataset, afterChapter: number): string {
+export function renderContext(dataset: Dataset, afterChapter: number, focus?: ContextFocus): string {
     const last = dataset.sources.find(item => item.chapter === afterChapter);
     const readAt: Position = {chapter: afterChapter, paragraph: last?.paragraphs.length ?? 1};
+    const selected = focus ? selectFor(dataset, afterChapter, readAt, focus) : null;
     const unique = uniqueNames(dataset, readAt);
     const name = (id: string) => {
         if (id === "reader") return "读者";
@@ -27,16 +48,29 @@ export function renderContext(dataset: Dataset, afterChapter: number): string {
     };
     const lines: string[] = [`# 截至第 ${afterChapter} 章的已有记录`, ""];
 
-    lines.push("## 对象名册", "", "编号｜类别｜当前称呼｜整理标签｜书里出现过的称呼");
+    lines.push("## 对象名册", "");
+    if (selected) lines.push("只详列本章原文里出现了称呼、或最近 3 章出现过的对象；其余的在下面“其他对象”里。");
+    lines.push("编号｜类别｜当前称呼｜整理标签｜书里出现过的称呼");
+    const others: Entity[] = [];
     for (const entity of dataset.entities) {
         if (!visibleAt(entity.at, readAt)) continue;
+        if (selected && !selected.entities.has(entity.id)) {
+            others.push(entity);
+            continue;
+        }
         const names = entity.names.filter(item => visibleAt(item.at, readAt)).map(item => (item.note ? `${item.text}（${item.note}）` : item.text));
         lines.push(`${entity.id}｜${KIND_ZH[entity.kind]}｜${displayName(entity, readAt)}｜${entity.label}｜${names.join("、") || "无"}${entity.note ? `｜${entity.note}` : ""}`);
     }
 
-    const secrets = dataset.secrets.filter(item => visibleAt(item.at, readAt));
+    if (others.length) {
+        lines.push("", "## 其他对象", "", "本章原文里没有出现、最近 3 章也没有出现的对象。本章遇到它们时沿用编号，不要另建。", "编号｜类别｜当前称呼｜整理标签");
+        for (const entity of others) lines.push(`${entity.id}｜${KIND_ZH[entity.kind]}｜${displayName(entity, readAt)}｜${entity.label}`);
+    }
+
+    const secrets = dataset.secrets.filter(item => visibleAt(item.at, readAt) && (!selected || selected.secrets.has(item.id)));
     if (secrets.length) {
         lines.push("", "## 秘密与知情", "", "每章都要留意：有没有人得知、起疑，或者表现出仍不知道。标了“推断”的知情判断，本章出现新依据（支持或反驳）时，补一条引用本章原文的知情记录。");
+        if (selected) lines.push("只列与本章相关对象有关的秘密。");
         for (const secret of secrets) {
             lines.push("", `${secret.id}　${secret.title}（相关说法：${secret.statements.join("、") || "无"}）`);
             for (const row of secretTable(dataset, secret, readAt)) {
@@ -48,15 +82,17 @@ export function renderContext(dataset: Dataset, afterChapter: number): string {
         }
     }
 
-    const open = dataset.questions.filter(item => visibleAt(item.at, readAt)).map(item => ({item, state: questionState(item, readAt)})).filter(entry => entry.state !== "answered");
+    const open = dataset.questions.filter(item => visibleAt(item.at, readAt) && (!selected || selected.questions.has(item.id))).map(item => ({item, state: questionState(item, readAt)})).filter(entry => entry.state !== "answered");
     if (open.length) {
         lines.push("", "## 未解的疑问", "");
+        if (selected) lines.push(`只列最近 ${QUESTION_WINDOW} 章里提出或有进展的。本章解答或再提起更早的疑问时，新建一条疑问，在疑问的文字里写清它接的是哪件事。`, "");
         for (const {item, state} of open) lines.push(`${item.id}　${item.text}（${formatPosition(item.at)} 提出${state === "partial" ? "，已有部分解答" : ""}）`);
     }
 
-    const tracks = ledgerState(dataset, readAt);
+    const tracks = ledgerState(dataset, readAt).filter(track => !selected || selected.entities.has(track.owner));
     if (tracks.length) {
         lines.push("", "## 当前状态", "", "同一个量要沿用下面的名字。");
+        if (selected) lines.push("只列本章相关对象的量；别的对象的量出现变化时，量的名字照原文写。");
         for (const track of tracks) {
             const parts: string[] = [];
             // 数量是程序逐笔累加出来的，原文里不一定出现过这个数，所以注明。
@@ -68,9 +104,10 @@ export function renderContext(dataset: Dataset, afterChapter: number): string {
         }
     }
 
-    const times = dataset.times.filter(item => visibleAt(item.at, readAt));
+    const times = dataset.times.filter(item => visibleAt(item.at, readAt) && (!selected || selected.times.has(item.id)));
     if (times.length) {
         lines.push("", "## 时间点", "");
+        if (selected) lines.push(`只列最近的 ${TIME_LIMIT} 个。`, "");
         for (const time of [...times].sort((a, b) => a.order - b.order)) {
             const {clock, date} = timeFacts(time, readAt);
             lines.push(`${time.id}　${time.day !== undefined ? `第 ${time.day} 天` : "主线之前"}${time.part ? ` ${PART_ZH[time.part]}` : ""}${clock ? ` ${clock}` : ""}${date ? `（${date}）` : ""}　${time.label}`);
@@ -84,12 +121,129 @@ export function renderContext(dataset: Dataset, afterChapter: number): string {
     }
 
     // 不针对具体对象的说法（世界设定、作者声明）也要列出，后面的章节才能引用它们。
-    const statements = dataset.statements.filter(item => visibleAt(item.at, readAt)).slice(-400);
+    const visibleStatements = dataset.statements.filter(item => visibleAt(item.at, readAt));
+    const statements = selected ? visibleStatements.filter(item => selected.statements.has(item.id)) : visibleStatements.slice(-400);
     if (statements.length) {
         lines.push("", "## 已有的说法", "", "后文印证、反驳或修正这些说法时，用编号指向它们。");
+        if (selected) lines.push(focus?.statements ? "只列挑出来的与本章可能相关的说法。" : "只列一部分：挂在上面秘密与疑问上的、不针对具体对象的，以及最近的说法。");
         for (const item of statements) lines.push(`${item.id}　${item.text}`);
     }
     return `${lines.join("\n")}\n`;
+}
+
+interface Selection {
+    /** 详列的对象；其余的进“其他对象”。“当前状态”也只列它们的量。 */
+    entities: Set<string>;
+    secrets: Set<string>;
+    questions: Set<string>;
+    times: Set<string>;
+    statements: Set<string>;
+}
+
+/** 与这一章相关的对象，与跟着它们、跟着时间窗口列出的秘密和疑问。普通章的已有记录与挑选说法的候选共用。 */
+interface Relevance {
+    entities: Set<string>;
+    secrets: Secret[];
+    questions: Question[];
+}
+
+/**
+ * 相关对象是本章原文里出现了称呼的（同一称呼属于几个对象时都算），加上最近几章有提及的；秘密跟着相关对象走，疑问
+ * 按时间窗口（ingest.md 输出 4）。
+ */
+function relevanceFor(dataset: Dataset, afterChapter: number, readAt: Position, text: string): Relevance {
+    const names = dataset.entities
+        .filter(entity => visibleAt(entity.at, readAt))
+        .flatMap(entity => entity.names.filter(name => visibleAt(name.at, readAt) && [...name.text].length >= 2).map(name => ({entity: entity.id, text: name.text})));
+    const found = occurrenceFinder(names.map(name => name.text))(text);
+    // 最近的提及只要求对象此时可见，不要求它有可见的称呼：只用代称出现过的对象也算（实现审查第 7 条）。
+    const visibleIds = new Set(dataset.entities.filter(entity => visibleAt(entity.at, readAt)).map(entity => entity.id));
+    const entities = new Set(names.filter(name => found.has(name.text)).map(name => name.entity));
+    for (const mention of dataset.mentions) {
+        if (mention.at.chapter > afterChapter - RECENT_CHAPTERS && visibleAt(mention.at, readAt) && visibleIds.has(mention.entity)) entities.add(mention.entity);
+    }
+
+    const knowers = new Map<string, Set<string>>();
+    for (const item of dataset.knowledge) {
+        if (!visibleAt(item.at, readAt)) continue;
+        const who = knowers.get(item.about) ?? new Set<string>();
+        who.add(item.who);
+        knowers.set(item.about, who);
+    }
+    // 知情记录可以指向秘密本身，也可以指向它列的说法（与 secretTable 的目标相同）。
+    const knowsAbout = (secret: Secret) => [secret.id, ...secret.statements].some(target => [...(knowers.get(target) ?? [])].some(id => entities.has(id)));
+    const secrets = dataset.secrets.filter(secret => visibleAt(secret.at, readAt) && (secret.about.some(id => entities.has(id)) || knowsAbout(secret)));
+
+    const since = afterChapter - QUESTION_WINDOW;
+    // 只要会列出的：已解答的不列，它的答案也不算“列出的疑问的答案”（实现审查第 4 条）。
+    const questions = dataset.questions.filter(question => visibleAt(question.at, readAt) && questionState(question, readAt) !== "answered" && (question.at.chapter > since || question.updates.some(update => visibleAt(update.at, readAt) && update.at.chapter > since)));
+    return {entities, secrets, questions};
+}
+
+/** 挂在列出的秘密、疑问上的说法编号：秘密列的说法、说法自己标的秘密不在这里（见 `linkedTo`），疑问的答案。 */
+function linkedIds(relevance: Relevance, readAt: Position): Set<string> {
+    return new Set([
+        ...relevance.secrets.flatMap(secret => secret.statements),
+        ...relevance.questions.flatMap(question => question.updates.filter(update => visibleAt(update.at, readAt)).map(update => update.answer).filter((id): id is string => id !== undefined)),
+    ]);
+}
+
+/** 说法挂在列出的秘密、疑问上。 */
+function linkedTo(relevance: Relevance, linked: Set<string>): (item: Statement) => boolean {
+    const secrets = new Set(relevance.secrets.map(secret => secret.id));
+    return item => linked.has(item.id) || (item.secret !== undefined && secrets.has(item.secret));
+}
+
+/** 不针对任何对象、秘密的说法（世界设定、作者声明）：没有别的途径会被选中，所以排在最前（样例书全书 3 条）。 */
+const unattached = (item: Statement) => item.about.length === 0 && item.source.by === null && item.holder === null && item.secret === undefined;
+
+/** 按顺序从几组里取说法，合计不超过 `budget` 字（按已有记录里的一行算）；每组取到放不下为止。 */
+function takeWithin(groups: Statement[][], budget: number): Statement[] {
+    const taken: Statement[] = [];
+    let used = 0;
+    for (const group of groups) {
+        for (const item of group) {
+            const size = `${item.id}　${item.text}\n`.length;
+            if (used + size > budget) break;
+            used += size;
+            taken.push(item);
+        }
+    }
+    return taken;
+}
+
+function selectFor(dataset: Dataset, afterChapter: number, readAt: Position, focus: ContextFocus): Selection {
+    const relevance = relevanceFor(dataset, afterChapter, readAt, focus.text);
+    const times = new Set(dataset.times.filter(time => visibleAt(time.at, readAt)).sort((a, b) => a.order - b.order).slice(-TIME_LIMIT).map(time => time.id));
+    let statements: Set<string>;
+    if (focus.statements) statements = new Set(focus.statements);
+    else {
+        // 先放不针对具体对象的与挂在列出的秘密、疑问上的，再用最近的补满。旧管线的跨章说法引用在 8,000 字时全部
+        // 留住，只取最近的会丢一些（t10 README 决定 9）。
+        const linked = linkedTo(relevance, linkedIds(relevance, readAt));
+        const newestFirst = dataset.statements.filter(item => visibleAt(item.at, readAt)).sort((a, b) => comparePosition(b.at, a.at));
+        statements = new Set(takeWithin([newestFirst.filter(unattached), newestFirst.filter(item => !unattached(item) && linked(item)), newestFirst.filter(item => !unattached(item) && !linked(item))], STATEMENT_BUDGET).map(item => item.id));
+    }
+    return {entities: relevance.entities, secrets: new Set(relevance.secrets.map(secret => secret.id)), questions: new Set(relevance.questions.map(question => question.id)), times, statements};
+}
+
+/** 挑选说法的候选合计的字数上限：挑选那一步的请求大小由它定。 */
+export const RECALL_CANDIDATE_BUDGET = 25_000;
+
+/**
+ * 挑选相关说法的候选（ingest.md 输出 4）：不针对具体对象的先放，再放挂在列出的秘密、疑问上的，再放涉及相关对象
+ * （`about`、说话人、持有人）的，各自从新到旧，合计到上限为止。按原文先后返回。
+ */
+export function recallCandidates(dataset: Dataset, afterChapter: number, text: string): {id: string; text: string}[] {
+    const last = dataset.sources.find(item => item.chapter === afterChapter);
+    const readAt: Position = {chapter: afterChapter, paragraph: last?.paragraphs.length ?? 1};
+    const relevance = relevanceFor(dataset, afterChapter, readAt, text);
+    const linked = linkedTo(relevance, linkedIds(relevance, readAt));
+    const involved = (item: Statement) => item.about.some(id => relevance.entities.has(id)) || (item.source.by !== null && relevance.entities.has(item.source.by)) || (item.holder !== null && relevance.entities.has(item.holder));
+    const newestFirst = dataset.statements.filter(item => visibleAt(item.at, readAt)).sort((a, b) => comparePosition(b.at, a.at));
+    const rest = newestFirst.filter(item => !unattached(item));
+    const taken = new Set(takeWithin([newestFirst.filter(unattached), rest.filter(linked), rest.filter(item => !linked(item) && involved(item))], RECALL_CANDIDATE_BUDGET));
+    return dataset.statements.filter(item => taken.has(item)).map(item => ({id: item.id, text: item.text}));
 }
 
 /** 对象在某个阅读位置的显示名：取此时最新的主要称呼；还没有称呼时用整理标签并加括号标明。 */

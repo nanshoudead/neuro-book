@@ -22,6 +22,19 @@ const PriceSchema = Type.Object({
     currency: Type.String({minLength: 1}),
 });
 
+/** 抽取用的一个模型。推理档由程序按步骤固定，所以不收 `thinking`（写了就是配置不对，而不是悄悄不用）。 */
+const IngestModelSchema = Type.Object(
+    {
+        baseUrl: Type.String({minLength: 1}),
+        id: Type.String({minLength: 1}),
+        apiKeyEnv: Type.String({minLength: 1}),
+        contextWindow: Type.Optional(Type.Integer({minimum: 1})),
+        maxTokens: Type.Optional(Type.Integer({minimum: 1})),
+        price: Type.Optional(PriceSchema),
+    },
+    {additionalProperties: false},
+);
+
 const ConfigSchema = Type.Object({
     model: Type.Object({
         baseUrl: Type.String({minLength: 1}),
@@ -32,22 +45,11 @@ const ConfigSchema = Type.Object({
         thinking: Type.Optional(Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high"), Type.Literal("xhigh")])),
         price: Type.Optional(PriceSchema),
     }),
-    // 抽取的推理档由程序按步骤固定，所以这一节不收 `thinking`（写了就是配置不对，而不是悄悄不用）。
     ingest: Type.Optional(
         Type.Object({
-            model: Type.Optional(
-                Type.Object(
-                    {
-                        baseUrl: Type.String({minLength: 1}),
-                        id: Type.String({minLength: 1}),
-                        apiKeyEnv: Type.String({minLength: 1}),
-                        contextWindow: Type.Optional(Type.Integer({minimum: 1})),
-                        maxTokens: Type.Optional(Type.Integer({minimum: 1})),
-                        price: Type.Optional(PriceSchema),
-                    },
-                    {additionalProperties: false},
-                ),
-            ),
+            model: Type.Optional(IngestModelSchema),
+            // 挑选相关说法（docs/specs/story/ingest.md 输出 4）：默认关；开着时用 `model`，没写就用抽取的模型。
+            recall: Type.Optional(Type.Object({enabled: Type.Optional(Type.Boolean()), model: Type.Optional(IngestModelSchema)}, {additionalProperties: false})),
         }),
     ),
     qa: Type.Optional(
@@ -141,16 +143,22 @@ export interface IngestModel {
     source: "ingest.model" | "model";
 }
 
+/** 挑选相关说法用的模型；多一种来源 `ingest.recall.model`。 */
+export type RecallModel = Omit<IngestModel, "source"> & {source: IngestModel["source"] | "ingest.recall.model"};
+
 /** 抽取用的模型：`ingest.model`，没有时用问答的 `model`（其中的 `thinking` 不用）。 */
 export function ingestModel(config: QaConfig): IngestModel {
     const own = config.ingest?.model;
-    const model = own ?? config.model;
-    return {
-        baseUrl: model.baseUrl,
-        id: model.id,
-        apiKeyEnv: model.apiKeyEnv,
-        maxTokens: model.maxTokens ?? DEFAULT_INGEST_MAX_TOKENS,
-        price: model.price ?? null,
-        source: own ? "ingest.model" : "model",
-    };
+    return {...asModel(own ?? config.model), source: own ? "ingest.model" : "model"};
+}
+
+/** 挑选相关说法用的模型；没开（默认）时为 null。整节继承：`ingest.recall.model`，没有时用抽取的模型。 */
+export function recallModel(config: QaConfig): RecallModel | null {
+    const recall = config.ingest?.recall;
+    if (recall?.enabled !== true) return null;
+    return recall.model ? {...asModel(recall.model), source: "ingest.recall.model"} : ingestModel(config);
+}
+
+function asModel(model: Static<typeof IngestModelSchema> | QaConfig["model"]): Omit<IngestModel, "source"> {
+    return {baseUrl: model.baseUrl, id: model.id, apiKeyEnv: model.apiKeyEnv, maxTokens: model.maxTokens ?? DEFAULT_INGEST_MAX_TOKENS, price: model.price ?? null};
 }

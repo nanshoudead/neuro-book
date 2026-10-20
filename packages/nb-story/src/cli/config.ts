@@ -7,7 +7,7 @@
 
 import {access} from "node:fs/promises";
 
-import {defaultConfigPath, ingestModel, loadQaConfig, parseQaConfig, qaLimits, saveQaConfig, type QaConfig} from "../qa/config";
+import {defaultConfigPath, ingestModel, loadQaConfig, parseQaConfig, qaLimits, recallModel, saveQaConfig, type QaConfig} from "../qa/config";
 import {ConfigEditError, echoable, setConfigField, unsetConfigField} from "../qa/config-edit";
 import {QaError} from "../qa/errors";
 import {EXIT_INTERRUPTED, EXIT_QA_FAILED, runInterruptible} from "./ask";
@@ -40,6 +40,18 @@ function describe(path: string, config: QaConfig, env: NodeJS.ProcessEnv): strin
         ...(model.price === undefined ? [] : [`价格（每百万 token）：输入 ${model.price.input}，输出 ${model.price.output}${model.price.cacheRead === undefined ? "" : `，缓存读取 ${model.price.cacheRead}`}，${model.price.currency}`]),
         `图当目录最多读 ${limits.maxChapters} 章；全读上限 ${limits.fullReadMaxChars} 字`,
         ingestLine(config, env),
+        recallLine(config, env),
+    ].join("\n");
+}
+
+function recallLine(config: QaConfig, env: NodeJS.ProcessEnv): string {
+    const model = recallModel(config);
+    if (model === null) return "挑相关说法：关（ingest.recall.enabled）";
+    if (model.source !== "ingest.recall.model") return "挑相关说法：开，用抽取模型";
+    return [
+        `挑相关说法：开，模型 ${model.id}（${model.baseUrl}）`,
+        `挑选的密钥环境变量：${model.apiKeyEnv}（${env[model.apiKeyEnv] ? "已设置" : "没有设置"}）`,
+        ...(model.price === null ? [] : [`挑选的价格（每百万 token）：输入 ${model.price.input}，输出 ${model.price.output}${model.price.cacheRead === undefined ? "" : `，缓存读取 ${model.price.cacheRead}`}，${model.price.currency}`]),
     ].join("\n");
 }
 
@@ -84,8 +96,13 @@ export async function configCommand(options: ConfigOptions, io: CliIo): Promise<
             case "show": {
                 const config = await loadQaConfig(path);
                 const ingest = ingestModel(config);
+                const recall = recallModel(config);
                 return done(
-                    {path, config, apiKeySet: Boolean(process.env[config.model.apiKeyEnv]), ingest: {source: ingest.source, id: ingest.id, apiKeySet: Boolean(process.env[ingest.apiKeyEnv])}},
+                    {
+                        path, config, apiKeySet: Boolean(process.env[config.model.apiKeyEnv]),
+                        ingest: {source: ingest.source, id: ingest.id, apiKeySet: Boolean(process.env[ingest.apiKeyEnv])},
+                        recall: recall === null ? null : {source: recall.source, id: recall.id, apiKeySet: Boolean(process.env[recall.apiKeyEnv])},
+                    },
                     describe(path, config, process.env),
                 );
             }
@@ -199,16 +216,21 @@ async function test(path: string, signal: AbortSignal, io: CliIo, json: boolean,
 
 /**
  * 用抽取实际用的模型，按抽取固定的两档各发一个最小请求（docs/specs/story/qa.md 输出 23），走抽取同一条传输路径
- * （ingest/model.ts），所以通过就说明抽取发得出去。每档只试一次，不按抽取的延迟表等着重发；不降档。
+ * （ingest/model.ts），所以通过就说明抽取发得出去。挑选相关说法开着时，再用挑选的模型发一个 `minimal` 的。每档只试
+ * 一次，不按抽取的延迟表等着重发；不降档。
  */
 async function testIngest(path: string, signal: AbortSignal, io: CliIo, json: boolean, done: Done, fail: Fail): Promise<number> {
     const config = await loadQaConfig(path);
     const model = ingestModel(config);
+    const recall = recallModel(config);
     const {callModel, ModelAborted, ModelError} = await import("../ingest/model");
-    const endpoint = {baseUrl: model.baseUrl, model: model.id, apiKey: process.env[model.apiKeyEnv] ?? "", maxTokens: model.maxTokens};
-    type Result = {effort: "minimal" | "medium"; ok: true; ms: number; usage: {input: number; output: number}} | {effort: "minimal" | "medium"; ok: false; kind: string; message: string};
+    const endpointOf = (choice: {baseUrl: string; id: string; apiKeyEnv: string; maxTokens: number}) => ({baseUrl: choice.baseUrl, model: choice.id, apiKey: process.env[choice.apiKeyEnv] ?? "", maxTokens: choice.maxTokens});
+    type Trial = {effort: "minimal" | "medium"; for: "ingest" | "recall"};
+    type Result = Trial & ({ok: true; ms: number; usage: {input: number; output: number}} | {ok: false; kind: string; message: string});
+    const trials: Trial[] = [{effort: "minimal", for: "ingest"}, {effort: "medium", for: "ingest"}, ...(recall === null ? [] : [{effort: "minimal", for: "recall"} as const])];
     const results: Result[] = [];
-    for (const effort of ["minimal", "medium"] as const) {
+    for (const {effort, for: target} of trials) {
+        const endpoint = endpointOf(target === "recall" ? recall! : model);
         const started = Date.now();
         let usage = {input: 0, output: 0};
         try {
@@ -218,19 +240,20 @@ async function testIngest(path: string, signal: AbortSignal, io: CliIo, json: bo
                 effort, signal, maxAttempts: 1,
                 onAttempt: attempt => (usage = {input: attempt.usage.input, output: attempt.usage.output}),
             });
-            results.push({effort, ok: true, ms: Date.now() - started, usage});
+            results.push({effort, for: target, ok: true, ms: Date.now() - started, usage});
         } catch (error) {
             if (error instanceof ModelAborted) return fail("cancelled", "已取消", EXIT_INTERRUPTED);
             if (!(error instanceof ModelError)) throw error;
-            results.push({effort, ok: false, kind: error.kind, message: error.message});
+            results.push({effort, for: target, ok: false, kind: error.kind, message: error.message});
         }
     }
-    const lines = results.map(result => (result.ok ? `通过：${result.effort} 档正常回话（${(result.ms / 1000).toFixed(1)} 秒，输入 ${result.usage.input}、输出 ${result.usage.output} token）` : `失败：${result.effort} 档（${result.kind}）${result.message}`));
+    const label = (result: Result) => `${result.for === "recall" ? "挑选 " : ""}${result.effort} 档`;
+    const lines = results.map(result => (result.ok ? `通过：${label(result)}正常回话（${(result.ms / 1000).toFixed(1)} 秒，输入 ${result.usage.input}、输出 ${result.usage.output} token）` : `失败：${label(result)}（${result.kind}）${result.message}`));
     const failed = results.find((result): result is Extract<Result, {ok: false}> => !result.ok);
-    const head = `抽取模型：${model.id}（${model.baseUrl}，取自 ${model.source}）`;
-    const data = {path, model: model.id, source: model.source, efforts: results};
+    const head = [`抽取模型：${model.id}（${model.baseUrl}，取自 ${model.source}）`, ...(recall === null ? [] : [`挑选模型：${recall.id}（${recall.baseUrl}，取自 ${recall.source}）`])].join("\n");
+    const data = {path, model: model.id, source: model.source, efforts: results.filter(result => result.for === "ingest"), recall: recall === null ? null : {model: recall.id, source: recall.source, efforts: results.filter(result => result.for === "recall")}};
     if (!failed) return done(data, [head, ...lines].join("\n"));
-    const message = `${failed.effort} 档：${failed.message}${failed.kind === "provider" ? "（模型不接受这一档时换模型；抽取不降档）" : ""}`;
+    const message = `${label(failed)}：${failed.message}${failed.kind === "provider" ? "（模型不接受这一档时换模型；抽取不降档）" : ""}`;
     // 失败时两档的结果都要给（qa 输出 23“分别报告”）：JSON 的失败对象另带 data。
     if (json) {
         io.stdout(JSON.stringify({ok: false, error: {code: "model_failed", message, kind: failed.kind}, data}));
