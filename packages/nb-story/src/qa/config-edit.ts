@@ -61,6 +61,11 @@ export function envNameProblem(text: string): string | undefined {
     return ENV_NAME.test(text) ? undefined : "密钥环境变量名只能是字母、数字、下划线（例如 OPENAI_API_KEY），这里要填变量名，不是密钥本身";
 }
 
+/** 这个字段的值能不能原样回显：整组的 JSON 里可能有贴进来的密钥（哪怕最后被同名键覆盖），只回显字段名。 */
+export function echoable(name: string): boolean {
+    return fieldOf(name).kind !== "json";
+}
+
 function fieldOf(name: string): FieldSpec {
     // 只认表里自己的键：`toString` 之类从原型继承来的名字不是字段。
     const field = Object.hasOwn(CONFIG_FIELDS, name) ? CONFIG_FIELDS[name] : undefined;
@@ -88,7 +93,8 @@ function decode(name: string, field: FieldSpec, text: string): unknown {
             try {
                 value = JSON.parse(text) as unknown;
             } catch {
-                throw new ConfigEditError(`${name} 要写 JSON，例如 ${field.example ?? "{}"}：${text}`);
+                // 不带原文：整组里可能有贴进来的密钥（实现审查 S4 第 1 条）。
+                throw new ConfigEditError(`${name} 要写合法的 JSON，例如 ${field.example ?? "{}"}`);
             }
             // 整组写入时组里的密钥环境变量名同样要查：把密钥本身贴进来会落进配置文件。
             const apiKeyEnv = typeof value === "object" && value !== null ? (value as {apiKeyEnv?: unknown}).apiKeyEnv : undefined;

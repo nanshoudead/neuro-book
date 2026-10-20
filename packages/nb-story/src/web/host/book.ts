@@ -3,9 +3,10 @@
  * （docs/specs/story/viewer.md 输出 4、5、21 与“状态与转换”）。
  *
  * 抽取中的书（输出 39）：每 5 秒查一次这本书的抽取进度（`ingest`）。又提交了新的章时只记下“落后了”（`behind`），
- * 不换数据；用户点更新、或做了要取新数据的操作（换位置、换页面、打开对象、翻页）时 `refresh()` 换成新的：重取
- * `info`、数据版本加一，各处的查询按版本重取（查询 hook 把版本当参数），阅读位置、页面、对象与视角都不变。查询
- * 本身不固定版本，所以“点之前不变”只对已经显示的内容成立；之后发出的请求都读到新数据，由这里保证先换 `info`。
+ * 不换数据；用户点更新、或做了要取新数据的操作（换位置、换页面、打开对象、翻页）时先 `refresh()` 换成新的：重取
+ * `info`、数据版本加一，各处的查询按版本在后台重取、回来后替换（不先清空，正在看的内容不跳），阅读位置、页面、
+ * 对象与视角都不变。查询本身不固定版本：视角、筛选这类页面里直接改的参数，落后时发出的请求读到的是书库里的新数据，
+ * 而 `info` 与徽标还是旧的，直到下一次 refresh。
  *
  * 状态只在这里改；地址与保存都从状态派生：
  * - 地址：状态一变就 router.replace；地址被外部改了（后退、手改）就按地址改状态。两边比较后才写，不会来回触发。
@@ -54,8 +55,8 @@ export interface BookSession {
     readonly ingest: ShallowRef<IngestStatusView | null>;
     /** 书库里已经提交了比显示的数据更多的章（徽标提示“点这里更新”）。 */
     readonly behind: ComputedRef<boolean>;
-    /** 换成书库里最新的数据；正在换时再调用等同一次。 */
-    refresh(): Promise<void>;
+    /** 换成书库里最新的数据；正在换时再调用等同一次。没换成时写 `notice` 并 resolve 为 false，不 reject。 */
+    refresh(): Promise<boolean>;
     readonly at: Ref<PositionInput>;
     readonly atLabel: ComputedRef<string>;
     /** 读到了抽取到的最后位置（显示“全部读完”，输出 5）。 */
@@ -79,7 +80,8 @@ export interface BookSession {
     jump(page: Page, target: JumpTarget): void;
     /** 取走发给这一类目标的定位（只取一次）。 */
     takeJump<K extends JumpTarget["kind"]>(kind: K): string | null;
-    setAt(at: PositionInput): void;
+    /** 换阅读位置；`"end"` 是抽取到的最后位置（落后时按换成新数据之后的终点算）。 */
+    setAt(at: PositionInput | "end"): void;
     goPage(page: Page): void;
     openCard(entity: string, tab?: Tab): void;
     openSource(ref: string): void;
@@ -309,21 +311,35 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
     const dataVersion = ref(0);
     const ingest = shallowRef<IngestStatusView | null>(null);
     const behind = computed(() => ingest.value !== null && ingest.value.committed > infoRef.value.chapters);
-    let refreshing: Promise<void> | null = null;
-    function refresh(): Promise<void> {
+    let refreshing: Promise<boolean> | null = null;
+    function refresh(): Promise<boolean> {
         refreshing ??= (async () => {
             try {
                 infoRef.value = await client.call("book.info", {book: bookId});
                 dataVersion.value += 1;
+                return true;
+            } catch (error) {
+                if (!(error instanceof StoryCallError)) throw error;
+                notice.value = `没能换成新的数据（${error.message}），还是之前的内容`;
+                return false;
             } finally {
                 refreshing = null;
             }
         })();
         return refreshing;
     }
-    /** 要取新数据的操作之前调用：落后了就先换成新数据。 */
-    function freshen(): Promise<void> {
-        return behind.value ? refresh() : Promise.resolve();
+    /**
+     * 要取新数据的操作（换位置、换页面、打开对象）经这里：不落后就立刻做；落后了先换成新数据再做，没换成就不做
+     * （notice 已经说明）。所以换页面时不会先按旧数据取一轮、再被版本变化作废。
+     */
+    function afterFresh(action: () => void): void {
+        if (!behind.value) {
+            action();
+            return;
+        }
+        void refresh().then(ok => {
+            if (ok) action();
+        });
     }
     // 没有抽取记录（导入数据文件得来的书）时停止轮询；有记录时一直查，抽完之后追加新章也看得到。
     let polling: ReturnType<typeof setInterval> | null = null;
@@ -368,9 +384,10 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
         lastDrawer,
         wideRecords: ref(null),
         jump(next, target) {
-            void freshen();
-            pendingJump.value = target;
-            page.value = next;
+            afterFresh(() => {
+                pendingJump.value = target;
+                page.value = next;
+            });
         },
         takeJump(kind) {
             const target = pendingJump.value;
@@ -382,30 +399,25 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
             if (drawer.value === null && lastDrawer.value !== null) drawer.value = lastDrawer.value;
         },
         setAt(next) {
-            void freshen().then(() => {
-                if (validAt(infoRef.value, next)) void moveTo(next);
+            afterFresh(() => {
+                const target = next === "end" ? {chapter: infoRef.value.extractedThrough.chapter} : next;
+                if (validAt(infoRef.value, target)) void moveTo(target);
             });
         },
-        // 换页面、打开对象：落后了先换成新数据（版本一变，新页面与抽屉的查询都按新数据重取）。
         goPage(next) {
-            void freshen();
-            page.value = next;
+            afterFresh(() => (page.value = next));
         },
         openCard(entityId, tabName = "summary") {
-            void freshen();
-            drawer.value = {kind: "card", entity: entityId, tab: tabName};
+            afterFresh(() => (drawer.value = {kind: "card", entity: entityId, tab: tabName}));
         },
         openSource(refText) {
-            void freshen();
-            drawer.value = {kind: "source", ref: refText};
+            afterFresh(() => (drawer.value = {kind: "source", ref: refText}));
         },
         openParagraph(chapter, paragraph) {
-            void freshen();
-            drawer.value = {kind: "para", chapter, paragraph};
+            afterFresh(() => (drawer.value = {kind: "para", chapter, paragraph}));
         },
         openNode(id, label) {
-            void freshen();
-            drawer.value = {kind: "node", id, label};
+            afterFresh(() => (drawer.value = {kind: "node", id, label}));
         },
         closeDrawer() {
             if (drawer.value !== null) lastDrawer.value = drawer.value;

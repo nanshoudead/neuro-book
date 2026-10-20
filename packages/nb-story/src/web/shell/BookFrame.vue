@@ -219,18 +219,18 @@ watch(notice, value => {
                 <button
                     v-if="book.behind.value" type="button" class="ingest-pill ingest-pill-update shrink-0" data-testid="ingest-update"
                     :title="`第 ${book.ingest.value!.committed} 章已抽完，点这里换成新数据`" @click="book.refresh()"
-                ><span class="i-lucide-refresh-cw" />第 {{ book.ingest.value!.committed }} 章已抽完<span v-if="tier !== 'phone'">，点这里更新</span></button>
+                ><span class="i-lucide-refresh-cw" /><span>第 {{ book.ingest.value!.committed }} 章已抽完{{ tier === "phone" ? " · 更新" : "，点这里更新" }}</span></button>
                 <RouterLink
-                    v-else-if="ingestPill" :to="`/ingest/${encodeURIComponent(book.bookId)}`" class="ingest-pill shrink-0" :class="ingestPill.tone === 'danger' ? 'ingest-pill-danger' : ''"
+                    v-else-if="ingestPill" :to="`/ingest/${encodeURIComponent(book.bookId)}`" class="ingest-pill shrink-0" :class="`ingest-pill-${ingestPill.tone}`" :data-state="book.ingest.value!.state"
                     data-testid="ingest-pill" :title="'打开抽取进度'"
-                ><span v-if="ingestPill.dot" class="ingest-dot" />{{ ingestPill.text }} {{ book.ingest.value!.committed }} / {{ book.ingest.value!.total }}</RouterLink>
+                ><span v-if="ingestPill.dot" class="ingest-dot" /><span>{{ ingestPill.text }} {{ book.ingest.value!.committed }} / {{ book.ingest.value!.total }}</span></RouterLink>
                 <template v-if="tier === 'phone'">
                     <SearchBox class="ml-auto" compact />
                     <DropdownMenu :items="themeItems" compact align="end" @select="setTheme"><IconButton size="sm" :icon-class="themeIcon" aria-label="明暗" data-testid="theme-menu" /></DropdownMenu>
                     <IconButton size="sm" icon-class="i-lucide-panel-bottom-open" aria-label="打开详情面板" :disabled="!drawerOpen && !book.lastDrawer.value" @click="toggleDrawer" />
                 </template>
             </div>
-            <ReadingControl :class="tier === 'phone' ? 'w-full' : 'shrink-0'" :at="book.at.value" :paragraphs="book.info.paragraphs" :end="book.info.extractedThrough.chapter" :at-end="book.atEnd.value" :compact="tier !== 'wide'" @update:at="book.setAt" />
+            <ReadingControl :class="tier === 'phone' ? 'w-full' : 'shrink-0'" :at="book.at.value" :paragraphs="book.info.paragraphs" :end="book.info.extractedThrough.chapter" :at-end="book.atEnd.value" :compact="tier !== 'wide'" @update:at="book.setAt" @to-end="book.setAt('end')" />
             <div v-if="tier !== 'phone'" class="ml-auto flex min-w-0 items-center gap-1">
                 <SearchBox :compact="tier === 'tablet'" />
                 <!-- 平板放不下整句：只留图标，文字给悬停与读屏（审查 F03：整句会把右侧栏开关挤出屏外） -->
@@ -341,6 +341,10 @@ watch(notice, value => {
 }
 .ingest-pill:hover {
     background: var(--bg-hover);
+}
+/* 颜色与 IngestBadge 同一套：运行中强调色，已停下中性，失败停下警示色。 */
+.ingest-pill-neutral {
+    color: var(--text-secondary);
 }
 .ingest-pill-danger {
     color: var(--status-danger);

@@ -4,7 +4,8 @@
  * 一本且没有在抽的书时直接打开它；从书里点“回到书架”过来（应用内导航，history.state.back 有值）时照常列出。地址里
  * 的书不在了时，书的外壳会带着 `missing` 回到这里（viewer F2）。
  *
- * 有没抽完的书时每 5 秒查一次抽取进度；第 1 章还没提交的书只在抽取进度里，置灰、点不开。
+ * 一直每 3 秒查一次书与抽取进度（别处开始的抽取也看得到，输出 36 要求 5 秒内跟上）；第 1 章还没提交的书只在
+ * 抽取进度里，置灰、点不开。
  */
 import {Button, Progress} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef} from "vue";
@@ -55,10 +56,13 @@ async function load(): Promise<void> {
 }
 
 let timer: ReturnType<typeof setInterval> | null = null;
-const POLL_MS = 5000;
+let disposed = false;
+const POLL_MS = 3000;
 onMounted(async () => {
     try {
         await load();
+        // 第一次加载期间就离开了：不再自动打开书，也不起轮询。
+        if (disposed) return;
         const fromApp = typeof (window.history.state as {back?: unknown} | null)?.back === "string";
         if (books.value!.length === 1 && !unfinished.value && !missing && !fromApp) {
             await router.replace(`/book/${encodeURIComponent(books.value![0]!.id)}`);
@@ -70,7 +74,6 @@ onMounted(async () => {
         return;
     }
     timer = setInterval(() => {
-        if (!unfinished.value) return;
         load().catch((caught: unknown) => {
             // 一次没查到不影响书架，下一轮再查。
             console.warn({error: caught}, "刷新书架失败");
@@ -78,6 +81,7 @@ onMounted(async () => {
     }, POLL_MS);
 });
 onBeforeUnmount(() => {
+    disposed = true;
     if (timer !== null) clearInterval(timer);
 });
 </script>
@@ -94,17 +98,18 @@ onBeforeUnmount(() => {
             <p v-else-if="books && rows.length === 0">书库里还没有书。点“导入原文”选一个 TXT，或在终端里用 <code>nbstory ingest &lt;原文.txt&gt;</code> 导入。</p>
             <ul v-else-if="books" class="flex flex-col gap-1">
                 <li v-for="row in rows" :key="row.id" data-testid="shelf-row" :data-book="row.id">
-                    <div class="shelf-item flex flex-col gap-1.5 rounded-[var(--radius-control)] px-3 py-2">
+                    <!-- 能打开的行整行可点：书名链接的 ::after 铺满整行，“进度”链接浮在它上面。 -->
+                    <div class="relative flex flex-col gap-1.5 rounded-[var(--radius-control)] px-3 py-2" :class="row.book ? 'shelf-item' : ''">
                         <div class="flex items-baseline gap-3">
                             <span class="i-lucide-book self-center text-[var(--text-secondary)]" />
-                            <RouterLink v-if="row.book" :to="`/book/${encodeURIComponent(row.id)}`" class="min-w-0 truncate font-[var(--weight-strong)] hover:underline" data-testid="shelf-open">{{ row.title }}</RouterLink>
+                            <RouterLink v-if="row.book" :to="`/book/${encodeURIComponent(row.id)}`" class="shelf-open min-w-0 truncate font-[var(--weight-strong)]" data-testid="shelf-open">{{ row.title }}</RouterLink>
                             <b v-else class="min-w-0 truncate text-[var(--text-secondary)]" title="抽完第 1 章后可以打开">{{ row.title }}</b>
                             <IngestBadge v-if="row.ingest" :status="row.ingest" class="self-center" />
                             <span class="ml-auto shrink-0 text-[length:var(--text-sm)] text-[var(--text-muted)]">
                                 <template v-if="row.ingest && row.ingest.state !== 'done'">抽完 {{ row.ingest.committed }} / {{ row.ingest.total }} 章</template>
                                 <template v-else-if="row.book">{{ row.book.chapters }} 章 · 抽取到 {{ row.book.extractedThrough.chapter }}.{{ row.book.extractedThrough.paragraph }}</template>
                             </span>
-                            <RouterLink v-if="row.ingest && row.ingest.state !== 'done'" :to="`/ingest/${encodeURIComponent(row.id)}`" class="shrink-0 text-[length:var(--text-sm)] text-[var(--accent-text)]" data-testid="shelf-progress">进度</RouterLink>
+                            <RouterLink v-if="row.ingest && row.ingest.state !== 'done'" :to="`/ingest/${encodeURIComponent(row.id)}`" class="relative z-10 shrink-0 text-[length:var(--text-sm)] text-[var(--accent-text)]" data-testid="shelf-progress">进度</RouterLink>
                         </div>
                         <template v-if="row.ingest && row.ingest.state !== 'done'">
                             <Progress :model-value="row.ingest.committed" :max="row.ingest.total" size="sm" :tone="row.ingest.stopReason?.kind === 'failed' ? 'danger' : 'accent'" class="ml-7" />
@@ -124,5 +129,12 @@ onBeforeUnmount(() => {
 <style scoped>
 .shelf-item:hover {
     background: var(--bg-hover);
+}
+/* 盖住整行（进度条也是定位元素，所以要有层级），只让“进度”链接（z-10）露在上面。 */
+.shelf-open::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
 }
 </style>

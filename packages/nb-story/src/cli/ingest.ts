@@ -10,7 +10,7 @@ import {readFile, stat} from "node:fs/promises";
 import {basename, extname} from "node:path";
 
 import {StoryError} from "../core/errors";
-import {coordinatedLibrary} from "../ingest/coordinator";
+import {coordinatedLibrary, runnerTable} from "../ingest/coordinator";
 import type {IngestEvent, JobOutcome} from "../ingest/job";
 import {startIngest, type Runner} from "../ingest/runner";
 import {planFromText, type IngestPlan} from "../ingest/start";
@@ -56,11 +56,12 @@ export async function ingestCommand(options: IngestOptions, io: CliIo): Promise<
     const {params, json} = options;
     const problem = usageProblem(params);
     if (problem !== null) {
+        if (json) io.stdout(JSON.stringify({ok: false, error: {code: "invalid_params", message: problem}}));
         io.stderr(`${problem}\n用法：nbstory ingest <原文文件> [--title <书名>] [--id <书 id>] [--preview] | ingest --book <书 id> | ingest --status [--book <书 id>]`);
         return EXIT_USAGE;
     }
     const runners = new Map<string, Runner>();
-    const library = coordinatedLibrary(options.library, runners);
+    const library = coordinatedLibrary(options.library, runnerTable(runners));
 
     const fail = (code: string, message: string, exit: number, kind?: string): number => {
         if (json) io.stdout(JSON.stringify({ok: false, error: {code, message, ...(kind === undefined ? {} : {kind})}}));
@@ -92,16 +93,24 @@ export async function ingestCommand(options: IngestOptions, io: CliIo): Promise<
     }
 }
 
-/** 读原文：先看大小，超过上限不读进内存。 */
+/** 读原文：先看大小，超过上限不读进内存。读不了（不存在、是目录、没有权限）一律 invalid_params。 */
 async function readSource(file: string): Promise<string> {
-    let size: number;
+    const unreadable = (error: unknown) => new StoryError("invalid_params", `读不了原文文件 ${file}`, {cause: error});
+    let info: Awaited<ReturnType<typeof stat>>;
     try {
-        size = (await stat(file)).size;
+        info = await stat(file);
     } catch (error) {
-        throw new StoryError("invalid_params", `读不了原文文件 ${file}`, {cause: error});
+        throw unreadable(error);
     }
-    if (size > MAX_SOURCE_BYTES) throw new StoryError("ingest_bad_text", `原文文件有 ${(size / 1024 / 1024).toFixed(1)} MiB，超过 32 MiB 的上限`);
-    return decodeUtf8(await readFile(file));
+    if (!info.isFile()) throw new StoryError("invalid_params", `${file} 不是文件`);
+    if (info.size > MAX_SOURCE_BYTES) throw new StoryError("ingest_bad_text", `原文文件有 ${(info.size / 1024 / 1024).toFixed(1)} MiB，超过 32 MiB 的上限`);
+    let bytes: Buffer;
+    try {
+        bytes = await readFile(file);
+    } catch (error) {
+        throw unreadable(error);
+    }
+    return decodeUtf8(bytes);
 }
 
 function planData(plan: IngestPlan): Omit<IngestPlan, "source"> {

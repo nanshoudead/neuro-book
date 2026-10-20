@@ -8,7 +8,7 @@
 import {access} from "node:fs/promises";
 
 import {defaultConfigPath, ingestModel, loadQaConfig, parseQaConfig, qaLimits, saveQaConfig, type QaConfig} from "../qa/config";
-import {ConfigEditError, setConfigField, unsetConfigField} from "../qa/config-edit";
+import {ConfigEditError, echoable, setConfigField, unsetConfigField} from "../qa/config-edit";
 import {QaError} from "../qa/errors";
 import {EXIT_INTERRUPTED, EXIT_QA_FAILED, runInterruptible} from "./ask";
 import type {CliIo} from "./main";
@@ -95,7 +95,7 @@ export async function configCommand(options: ConfigOptions, io: CliIo): Promise<
                 const field = params.field as string;
                 const changed = action === "set" ? setConfigField(config, field, params.value as string, ` ${path} `) : unsetConfigField(config, field, ` ${path} `);
                 await saveQaConfig(path, changed);
-                return done({path, config: changed}, action === "set" ? `已改 ${field} = ${String(params.value)}` : `已去掉 ${field}`);
+                return done({path, config: changed}, action === "set" ? (echoable(field) ? `已改 ${field} = ${String(params.value)}` : `已改 ${field}`) : `已去掉 ${field}`);
             }
             case "init":
                 return await init(params, path, io, json, done, usageError);
@@ -228,7 +228,14 @@ async function testIngest(path: string, signal: AbortSignal, io: CliIo, json: bo
     const lines = results.map(result => (result.ok ? `通过：${result.effort} 档正常回话（${(result.ms / 1000).toFixed(1)} 秒，输入 ${result.usage.input}、输出 ${result.usage.output} token）` : `失败：${result.effort} 档（${result.kind}）${result.message}`));
     const failed = results.find((result): result is Extract<Result, {ok: false}> => !result.ok);
     const head = `抽取模型：${model.id}（${model.baseUrl}，取自 ${model.source}）`;
-    if (!failed) return done({path, model: model.id, source: model.source, efforts: results}, [head, ...lines].join("\n"));
-    if (!json) io.stderr([head, ...lines].join("\n"));
-    return fail("model_failed", `${failed.effort} 档：${failed.message}${failed.kind === "provider" ? "（模型不接受这一档时换模型；抽取不降档）" : ""}`, EXIT_QA_FAILED, failed.kind);
+    const data = {path, model: model.id, source: model.source, efforts: results};
+    if (!failed) return done(data, [head, ...lines].join("\n"));
+    const message = `${failed.effort} 档：${failed.message}${failed.kind === "provider" ? "（模型不接受这一档时换模型；抽取不降档）" : ""}`;
+    // 失败时两档的结果都要给（qa 输出 23“分别报告”）：JSON 的失败对象另带 data。
+    if (json) {
+        io.stdout(JSON.stringify({ok: false, error: {code: "model_failed", message, kind: failed.kind}, data}));
+        return EXIT_QA_FAILED;
+    }
+    io.stderr([head, ...lines].join("\n"));
+    return fail("model_failed", message, EXIT_QA_FAILED, failed.kind);
 }

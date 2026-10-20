@@ -1,25 +1,28 @@
 <script setup lang="ts">
 /**
- * 导入页 `/import`（docs/specs/story/viewer.md 输出 37、40、F6）：选一个 TXT，在浏览器里按 UTF-8 严格解码检查，书名
- * 默认取文件名；按 `ingest.preview` 写明会做哪一种，开始后进入这本书的进度页。
+ * 导入页 `/import`（docs/specs/story/viewer.md 输出 37、40、F6）：选一个 TXT，先在浏览器里查大小与 UTF-8（不合格就地
+ * 说明、不上传），书名默认取文件名；按 `ingest.preview` 写明会做哪一种，开始后进入这本书的进度页。
  *
- * 预览与开始都把文件的字节（base64）交给服务，服务再解码、切章；浏览器里的解码只为了就地说明“只收 UTF-8”。改书名
- * 会换书 id，所以停手 400 毫秒后重新预览；只认最后一次预览的结果。
+ * 预览与开始都把文件的字节（base64，浏览器原生的 FileReader 编，不占主线程）交给服务，服务再解码、切章。改书名会
+ * 换书 id：一改就作废当前的预览（不能开始），停手 400 毫秒后重新预览；新预览开始时中止旧的，离开页面时全部停掉。
  */
 import {Button, Input, Table} from "@notnotype/nb-ui/components";
-import {computed, ref, shallowRef, watch} from "vue";
+import {computed, onBeforeUnmount, ref, shallowRef, watch} from "vue";
 import {useRouter} from "vue-router";
 
 import type {IngestPlanView} from "../../contract/contract";
 import {StoryCallError, useStoryClient} from "../host/client";
-import {toBase64} from "../host/ingest";
 
 const client = useStoryClient();
 const router = useRouter();
 
+/** 与服务端相同的上限（ingest.md“原文与切章”）。 */
+const MAX_SOURCE_BYTES = 32 * 1024 * 1024;
+
 const fileInput = ref<HTMLInputElement | null>(null);
 const file = shallowRef<{name: string; bytes: number; content: string} | null>(null);
 const fileError = ref<string | null>(null);
+const reading = ref(false);
 const title = ref("");
 const plan = shallowRef<IngestPlanView | null>(null);
 const previewError = shallowRef<StoryCallError | null>(null);
@@ -43,58 +46,105 @@ const shownChapters = computed(() => {
 const totalChars = computed(() => (plan.value?.chapters ?? []).reduce((sum, chapter) => sum + chapter.chars, 0));
 const remaining = computed(() => (plan.value ? plan.value.chapters.length - plan.value.committed : 0));
 const startLabel = computed(() => (plan.value?.action === "new" ? "开始抽取" : `接着抽 ${remaining.value} 章`));
+const titleEmpty = computed(() => title.value.trim() === "");
 
 function sizeText(bytes: number): string {
-    return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MiB` : `${Math.max(1, Math.round(bytes / 1024))} KiB`;
 }
 
+/** 文件的 base64：FileReader 在浏览器里异步编码，几十 MB 也不卡页面。 */
+function readBase64(chosen: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).slice(String(reader.result).indexOf(",") + 1));
+        reader.onerror = () => reject(reader.error ?? new Error("读不了文件"));
+        reader.readAsDataURL(chosen);
+    });
+}
+
+let previewController: AbortController | null = null;
+let titleTimer: ReturnType<typeof setTimeout> | null = null;
+/** 书名由选文件设上的：这次变化不必再预览（选文件后马上就预览）。 */
+let titleFromFile = false;
+
 async function pick(event: Event): Promise<void> {
-    const chosen = (event.target as HTMLInputElement).files?.[0];
+    const input = event.target as HTMLInputElement;
+    const chosen = input.files?.[0];
+    // 清掉选择：原地另存为 UTF-8 后再选同一个文件，浏览器才会再发 change。
+    input.value = "";
     if (!chosen) return;
     fileError.value = null;
+    file.value = null;
     plan.value = null;
     previewError.value = null;
     startError.value = null;
-    const bytes = new Uint8Array(await chosen.arrayBuffer());
-    try {
-        new TextDecoder("utf-8", {fatal: true}).decode(bytes);
-    } catch {
-        file.value = null;
-        fileError.value = `“${chosen.name}”不是 UTF-8 编码。只收 UTF-8 的 TXT：先用文本编辑器另存为 UTF-8 再选。`;
+    if (chosen.size > MAX_SOURCE_BYTES) {
+        fileError.value = `“${chosen.name}”有 ${sizeText(chosen.size)}，超过 32 MiB 的上限：分成几个文件，或先导入前一部分，之后用多出新章的文件追加。`;
         return;
     }
-    file.value = {name: chosen.name, bytes: bytes.byteLength, content: toBase64(bytes)};
+    reading.value = true;
+    try {
+        try {
+            new TextDecoder("utf-8", {fatal: true}).decode(await chosen.arrayBuffer());
+        } catch {
+            fileError.value = `“${chosen.name}”不是 UTF-8 编码。只收 UTF-8 的 TXT：先用文本编辑器另存为 UTF-8 再选。`;
+            return;
+        }
+        file.value = {name: chosen.name, bytes: chosen.size, content: await readBase64(chosen)};
+    } finally {
+        reading.value = false;
+    }
+    titleFromFile = true;
     title.value = chosen.name.replace(/\.[^.]+$/u, "");
     void preview();
 }
 
-let previewToken = 0;
 async function preview(): Promise<void> {
-    if (!file.value || title.value.trim() === "") return;
-    const token = ++previewToken;
+    if (titleTimer !== null) clearTimeout(titleTimer);
+    titleTimer = null;
+    previewController?.abort();
+    plan.value = null;
+    previewError.value = null;
+    if (!file.value || titleEmpty.value) {
+        previewing.value = false;
+        return;
+    }
+    const current = new AbortController();
+    previewController = current;
     previewing.value = true;
     startError.value = null;
     try {
-        const result = await client.call("ingest.preview", {content: file.value.content, title: title.value.trim()});
-        if (token !== previewToken) return;
+        const result = await client.call("ingest.preview", {content: file.value.content, title: title.value.trim()}, {signal: current.signal});
+        if (current.signal.aborted) return;
         plan.value = result;
-        previewError.value = null;
     } catch (caught) {
-        if (token !== previewToken) return;
+        if (current.signal.aborted) return;
         if (!(caught instanceof StoryCallError)) throw caught;
-        plan.value = null;
         previewError.value = caught;
     } finally {
-        if (token === previewToken) previewing.value = false;
+        if (previewController === current) previewing.value = false;
     }
 }
 
-let titleTimer: ReturnType<typeof setTimeout> | null = null;
 const TITLE_DEBOUNCE_MS = 400;
 watch(title, (value, old) => {
+    if (titleFromFile) {
+        titleFromFile = false;
+        return;
+    }
     if (!file.value || value === old) return;
+    // 书名一变，当前的预览就不对应要开始的那本了：先作废，等新的预览回来才能开始。
+    previewController?.abort();
+    plan.value = null;
+    previewError.value = null;
+    previewing.value = !titleEmpty.value;
     if (titleTimer !== null) clearTimeout(titleTimer);
     titleTimer = setTimeout(() => void preview(), TITLE_DEBOUNCE_MS);
+});
+
+onBeforeUnmount(() => {
+    if (titleTimer !== null) clearTimeout(titleTimer);
+    previewController?.abort();
 });
 
 const START_HINT: Record<string, string> = {
@@ -132,10 +182,10 @@ async function start(): Promise<void> {
             <section class="flex items-center gap-3 rounded-[var(--radius-control)] border border-dashed border-[var(--divider)] px-4 py-3">
                 <span class="i-lucide-file-text text-[length:var(--text-lg)] text-[var(--text-secondary)]" />
                 <div class="min-w-0 flex-1">
-                    <div class="truncate font-[var(--weight-strong)]">{{ file ? file.name : "还没有选文件" }}</div>
-                    <div class="text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ file ? `${sizeText(file.bytes)} · UTF-8 · ` : "" }}只收 UTF-8 的 TXT，不超过 32 MB</div>
+                    <div class="truncate font-[var(--weight-strong)]">{{ file ? file.name : reading ? "正在读取……" : "还没有选文件" }}</div>
+                    <div class="text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ file ? `${sizeText(file.bytes)} · UTF-8 · ` : "" }}只收 UTF-8 的 TXT，不超过 32 MiB</div>
                 </div>
-                <Button size="sm" :variant="file ? 'secondary' : 'primary'" @click="fileInput?.click()">{{ file ? "换一个文件" : "选择文件" }}</Button>
+                <Button size="sm" :variant="file ? 'secondary' : 'primary'" :disabled="reading" @click="fileInput?.click()">{{ file ? "换一个文件" : "选择文件" }}</Button>
             </section>
             <p v-if="fileError" class="text-[length:var(--text-sm)] text-[var(--status-danger)]" role="alert" data-testid="import-file-error">{{ fileError }}</p>
 
@@ -144,12 +194,13 @@ async function start(): Promise<void> {
                     <label class="text-[length:var(--text-sm)] text-[var(--text-secondary)]" for="import-title">书名</label>
                     <Input id="import-title" v-model="title" data-testid="import-title" />
                     <span class="text-[length:var(--text-sm)] text-[var(--text-secondary)]">书 id</span>
-                    <span class="min-w-0 truncate text-[length:var(--text-sm)] text-[var(--text-muted)]" data-testid="import-id">{{ plan ? `${plan.id}（由书名得到）` : previewing ? "正在切章……" : "—" }}</span>
+                    <span class="min-w-0 truncate text-[length:var(--text-sm)] text-[var(--text-muted)]" data-testid="import-id">{{ plan ? `${plan.id}（由书名得到）` : titleEmpty ? "填一个书名" : previewing ? "正在切章……" : "—" }}</span>
                 </section>
 
                 <section v-if="previewError" class="flex flex-col gap-1 rounded-[var(--radius-control)] border border-[var(--status-danger)] px-4 py-3 text-[length:var(--text-sm)]" data-testid="import-problem" :data-code="previewError.code">
                     <div class="text-[var(--status-danger)]"><span class="i-lucide-circle-x mr-1 align-[-2px]" />{{ previewError.message }}</div>
                     <div v-if="previewError.code === 'ingest_text_changed'" class="text-[var(--text-muted)]">改稿重抽不支持：换一个书名重新抽（得到新的一本），或在终端里用 <code>nbstory remove</code> 删掉这本后重抽。</div>
+                    <!-- 大小与编码已在浏览器里查过，服务端再报这个码时是切不出章。 -->
                     <div v-else-if="previewError.code === 'ingest_bad_text'" class="text-[var(--text-muted)]">检查章标题的写法：每章以“第 N 章”或“序章”“番外”这类标题单独起一行。</div>
                 </section>
 
@@ -162,21 +213,21 @@ async function start(): Promise<void> {
                     <div v-else-if="plan.action === 'resume'"><span class="i-lucide-play-circle mr-1 align-[-2px] text-[var(--accent-text)]" />这本书已抽完 <b>{{ plan.committed }} / {{ plan.chapters.length }}</b> 章，接着抽第 {{ plan.committed + 1 }} 到 {{ plan.chapters.length }} 章。</div>
                     <div v-else><span class="i-lucide-circle-check mr-1 align-[-2px] text-[var(--status-success)]" />这本书已经全部抽完（{{ plan.chapters.length }} 章）。<RouterLink :to="`/book/${encodeURIComponent(plan.id)}`" class="text-[var(--accent-text)]">打开书</RouterLink></div>
                     <div v-if="plan.action !== 'done'" class="text-[var(--text-muted)]">
-                        <template v-if="plan.model">抽取模型 {{ plan.model.id }}（来自配置文件）。</template>
+                        <template v-if="plan.model">抽取模型 {{ plan.model.id }}{{ plan.model.source === "ingest.model" ? "（配置文件的 ingest.model）" : "（没有配置 ingest.model，用的是问答的模型）" }}。</template>
                         <template v-else>还没有配置抽取用的模型：先在终端里运行 <code>nbstory config init</code>。</template>
-                        每章约 4 到 5 分钟，抽完第 1 章就能打开；随时可以停下，之后接着抽。
+                        {{ plan.action === "new" ? "每章约 4 到 5 分钟，抽完第 1 章就能打开；随时可以停下，之后接着抽。" : "每章约 4 到 5 分钟，随时可以停下，之后接着抽。" }}
                     </div>
                 </section>
 
                 <section v-if="plan" class="flex flex-col gap-2">
                     <h2 class="text-[length:var(--text-sm)] font-[var(--weight-strong)]">切章结果 <span class="font-normal text-[var(--text-muted)]">（{{ showAll || plan.chapters.length <= PREVIEW_ROWS ? `共 ${numberText(plan.chapters.length)} 章` : `前 ${PREVIEW_ROWS} 章，共 ${numberText(plan.chapters.length)} 章` }}）</span></h2>
                     <Table :columns="COLUMNS" :rows="shownChapters" row-key="chapter" density="compact" data-testid="import-chapters" />
-                    <button v-if="!showAll && plan.chapters.length > PREVIEW_ROWS" type="button" class="self-start text-[length:var(--text-sm)] text-[var(--accent-text)]" @click="showAll = true">展开全部 {{ numberText(plan.chapters.length) }} 章</button>
+                    <Button v-if="!showAll && plan.chapters.length > PREVIEW_ROWS" class="self-start" size="sm" variant="ghost" @click="showAll = true">展开全部 {{ numberText(plan.chapters.length) }} 章</Button>
                 </section>
 
                 <p v-if="startError" class="text-[length:var(--text-sm)] text-[var(--status-danger)]" role="alert" data-testid="import-start-error">{{ startError }}</p>
                 <div class="flex flex-wrap items-center gap-2">
-                    <Button v-if="plan && plan.action !== 'done'" icon-class="i-lucide-play" :disabled="previewing || starting" data-testid="import-start" @click="start">{{ startLabel }}</Button>
+                    <Button v-if="plan && plan.action !== 'done'" icon-class="i-lucide-play" :disabled="previewing || starting || titleEmpty" data-testid="import-start" @click="start">{{ startLabel }}</Button>
                     <Button variant="ghost" @click="router.push('/')">取消</Button>
                     <span v-if="plan && plan.action !== 'done'" class="text-[length:var(--text-xs)] text-[var(--text-muted)]">开始后可以离开这一页，进度在书架和进度页上</span>
                 </div>

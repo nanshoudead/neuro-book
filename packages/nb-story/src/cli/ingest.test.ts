@@ -164,8 +164,16 @@ describe("预览、改稿与已抽完（输出 2，验收 2）", () => {
             const result = await run([...args, ...env.common]);
             expect(result.code).toBe(2);
         }
-        const missing = await run(["ingest", join(env.dir, "nope.txt"), ...env.common, "--json"]);
-        expect({code: missing.code, error: json(missing.stdout).error!.code}).toEqual({code: 1, error: "invalid_params"});
+        // --json 时用法错误也只输出一个失败对象（退出码仍是 2）。
+        for (const args of [["ingest"], ["ingest", "a.txt", "--book", "x"]]) {
+            const result = await run([...args, ...env.common, "--json"]);
+            expect({code: result.code, error: json(result.stdout).error!.code}).toEqual({code: 2, error: "invalid_params"});
+        }
+        // 文件不存在、是目录：invalid_params，--json 时是一个失败对象，不是堆栈。
+        for (const path of [join(env.dir, "nope.txt"), env.dir]) {
+            const result = await run(["ingest", path, "--preview", ...env.common, "--json"]);
+            expect({code: result.code, error: json(result.stdout).error!.code}).toEqual({code: 1, error: "invalid_params"});
+        }
     }, 60_000);
 });
 
@@ -243,6 +251,15 @@ describe("抽取模型的配置（验收 9，qa 输出 23）", () => {
         const key = await run(["config", "set", "ingest.model", JSON.stringify({baseUrl: "http://127.0.0.1:1/v1", id: "x", apiKeyEnv: pasted}), ...config]);
         expect(key.code).toBe(2);
         expect(`${key.stdout}${key.stderr}`).not.toContain(pasted);
+        // JSON 写坏了（末尾多一个逗号）：说明不带原文。
+        const malformed = await run(["config", "set", "ingest.model", `{"baseUrl":"http://127.0.0.1:1/v1","id":"x","apiKeyEnv":"${pasted}",}`, ...config]);
+        expect(malformed.code).toBe(2);
+        expect(`${malformed.stdout}${malformed.stderr}`).not.toContain(pasted);
+        // 合法 JSON 里先贴了密钥、后面同名键又写对了：写进去的是对的那个，成功提示不回显原文。
+        const duplicate = await run(["config", "set", "ingest.model", `{"baseUrl":"http://127.0.0.1:1/v1","id":"x","apiKeyEnv":"${pasted}","apiKeyEnv":"${KEY_ENV}"}`, ...config]);
+        expect(duplicate.code).toBe(0);
+        expect(`${duplicate.stdout}${duplicate.stderr}`).not.toContain(pasted);
+        expect(await readFile(env.config, "utf8")).not.toContain(pasted);
     }, 60_000);
 });
 
@@ -269,6 +286,10 @@ describe("config test --ingest（qa 输出 23）", () => {
         expect(result.stderr).toContain("通过：medium 档");
         expect(result.stderr).toContain("错误（model_failed，provider）");
         expect(endpoint.bodies.map(body => body.reasoning_effort)).toEqual(["minimal", "medium"]);
+        // --json 时失败对象里也有两档各自的结果。
+        const asJson = await run(["config", "test", "--ingest", "--config", env.config, "--json"]);
+        const parsed = JSON.parse(asJson.stdout) as {ok: boolean; error: {code: string; kind: string}; data: {efforts: {effort: string; ok: boolean}[]}};
+        expect({code: asJson.code, ok: parsed.ok, error: [parsed.error.code, parsed.error.kind], efforts: parsed.data.efforts.map(item => [item.effort, item.ok])}).toEqual({code: 4, ok: false, error: ["model_failed", "provider"], efforts: [["minimal", false], ["medium", true]]});
     }, 60_000);
 
     test("--ingest 只用于 test", async () => {

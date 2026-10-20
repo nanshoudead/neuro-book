@@ -7,6 +7,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
+import {existsSync, watch} from "node:fs";
 import {mkdir, readdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
@@ -19,6 +20,7 @@ import {startEndpoint, type Endpoint, type EndpointReply} from "../../testing/op
 import {CLI, loginCookie, rpc, startServe, type ServeProcess} from "../../testing/processes";
 import {makeSampleRoot, sampleSourceText} from "../../testing/sample";
 import {Library} from "../core/library";
+import {tryLock} from "../platform/flock";
 import type {IngestStatusView} from "../contract/contract";
 import {INGEST_BODY_LIMIT} from "./http";
 
@@ -49,6 +51,7 @@ interface Env {
     endpoint: Endpoint;
     childEnv: Record<string, string>;
     serve: ServeProcess;
+    cookie: string;
     call(method: string, params: unknown): Promise<{status: number; body: unknown}>;
     status(book: string): Promise<IngestStatusView>;
 }
@@ -74,7 +77,7 @@ async function setup(override?: (key: ReplayKey, nth: number) => EndpointReply |
         if (result.status !== 200) throw new Error(`ingest.status 失败：${JSON.stringify(result.body)}`);
         return (result.body as {books: IngestStatusView[]}).books[0]!;
     };
-    return {dir, library, played, endpoint, childEnv, serve, call, status};
+    return {dir, library, played, endpoint, childEnv, serve, cookie, call, status};
 }
 
 const errorCode = (result: {body: unknown}) => (result.body as {code?: string}).code;
@@ -119,6 +122,26 @@ describe("预览、发起、停止、继续（viewer 验收 9 的服务部分）
         expect({status: gbk.status, code: errorCode(gbk)}).toEqual({status: 400, code: "ingest_bad_text"});
         const huge = await env.call("ingest.preview", JSON.stringify({content: "A".repeat(INGEST_BODY_LIMIT), title: "x"}));
         expect({status: huge.status, code: errorCode(huge)}).toEqual({status: 400, code: "ingest_bad_text"});
+        // 分块传输（没有 Content-Length）同样按上限拒绝：正文是合法的小原文加超出上限的空白。
+        const small = JSON.stringify({content: base64(await sampleSourceText(1)), title: "x"});
+        const padding = INGEST_BODY_LIMIT - small.length + 1024;
+        const encoder = new TextEncoder();
+        let sent = 0;
+        const body = new ReadableStream<Uint8Array>({
+            pull(controller) {
+                if (sent === 0) controller.enqueue(encoder.encode(small.slice(0, -1)));
+                const size = Math.min(1024 * 1024, padding - sent);
+                if (size <= 0) {
+                    controller.enqueue(encoder.encode("}"));
+                    controller.close();
+                    return;
+                }
+                controller.enqueue(encoder.encode(" ".repeat(size)));
+                sent += size;
+            },
+        });
+        const chunked = await fetch(`${env.serve.base}/api/rpc/ingest.preview`, {method: "POST", headers: {"content-type": "application/json", cookie: env.cookie}, body});
+        expect({status: chunked.status, code: ((await chunked.json()) as {code: string}).code}).toEqual({status: 400, code: "ingest_bad_text"});
         // 没有配置时预览照常，只是不写模型；开始得到 qa_unconfigured。
         await rm(join(env.childEnv.XDG_CONFIG_HOME!, "nbstory", "config.json"));
         const content = base64(await sampleSourceText(2));
@@ -164,6 +187,50 @@ describe("删除与服务停止（验收 8，输出 11）", () => {
         expect((await env.call("ingest.start", {content, title: "要删的书", id: "doomed"})).body).toEqual({id: "doomed", action: "new"});
     }, 120_000);
 
+    test("发起还在启动（已拿到锁、还没有任务）时删除：等它启动完、停下，再删；书与抽取记录都不在", async () => {
+        const env = await setup(() => hang);
+        await mkdir(join(env.library, ".locks"), {recursive: true});
+        let removal: Promise<{status: number; body: unknown}> | null = null;
+        // 锁文件一出现就删除：这时发起已经拿到锁，任务还没交回给服务。
+        const watcher = watch(join(env.library, ".locks"), (_event, name) => {
+            if (removal === null && name === "early.lock") removal = env.call("book.remove", {book: "early"});
+        });
+        cleanups.push(() => watcher.close());
+        const started = await env.call("ingest.start", {content: base64(await sampleSourceText(2)), title: "早删", id: "early"});
+        expect(started.status).toBe(200);
+        await waitUntil("删除发起", () => removal !== null, {timeoutMs: 30_000});
+        expect((await removal!).status).toBe(200);
+        expect((await env.call("ingest.status", {})).body).toEqual({books: []});
+        expect((await env.call("books.list", {})).body).toEqual({books: []});
+    }, 60_000);
+
+    test("服务正在启动一个发起时停服：等它启动完再停下、放锁，再撤销登记、退出；之后报用户停止", async () => {
+        const env = await setup(() => hang);
+        await mkdir(join(env.library, ".locks"), {recursive: true});
+        let stopping: Promise<number> | null = null;
+        const watcher = watch(join(env.library, ".locks"), (_event, name) => {
+            if (stopping === null && name === "racing.lock") stopping = env.serve.stop("SIGTERM");
+        });
+        cleanups.push(() => watcher.close());
+        // 登记一被撤销就去拿这本书的锁：停服的顺序是先停任务、放锁，再撤销登记，所以这时一定拿得到。
+        const atWithdraw: {lockFree: boolean | null} = {lockFree: null};
+        const registration = watch(env.library, (_event, name) => {
+            if (atWithdraw.lockFree !== null || name !== ".serve.json" || existsSync(join(env.library, ".serve.json"))) return;
+            const lock = tryLock(join(env.library, ".locks", "racing.lock"));
+            atWithdraw.lockFree = lock !== null;
+            lock?.release();
+        });
+        cleanups.push(() => registration.close());
+        // 停服可能先于回包：这次请求失败不要紧，看停服之后书库里的状态。
+        await env.call("ingest.start", {content: base64(await sampleSourceText(2)), title: "抢着停", id: "racing"}).catch(() => null);
+        await waitUntil("停服发起", () => stopping !== null, {timeoutMs: 30_000});
+        expect(await stopping!).toBe(0);
+        expect(atWithdraw.lockFree).toBe(true);
+        const {ingestStatus} = await import("../ingest/status");
+        const status = await ingestStatus(new Library(env.library), "racing");
+        expect({state: status?.state, reason: status?.stopReason}).toEqual({state: "stopped", reason: {kind: "user"}});
+    }, 60_000);
+
     test("服务停止：先停下本服务的任务、放锁，再退出；之后报用户停止，可以接着抽", async () => {
         const env = await setup(key => (key.chapter === 2 ? hang : undefined));
         await env.call("ingest.start", {content: base64(await sampleSourceText(5)), title: "sample"});
@@ -180,8 +247,11 @@ describe("抽取期间照常可用（验收 10）", () => {
      * 前 98 章用 t34 的最终草稿直接提交，只回放第 99、100 章（第 100 章是末章，带整理）。我们编译出的前 98 章与 t34
      * 当时不完全相同（S1 的三处有意改动），核对之后剩下的问题也就不同，t34 没有修复的章这里可能要修复：给一个空补丁，
      * 剩下的由兜底丢弃。这个用例只看服务响应，不看抽取结果。
+     *
+     * 慢（约 6 分钟，性能基准）：98 章的书编译一次约 25 秒，第 99 章的兜底丢弃要反复编译全书，提交前约 5 分钟。正是要
+     * 在这样的重负载下看服务还应不应答，所以不能缩小。
      */
-    test("100 章的书抽第 99、100 章：每次提交前后另一本书的查询与进度都在 1 秒内返回；停止后 5 秒起不再请求模型、不再提交", async () => {
+    test("100 章的书抽第 99 章：提交前后另一本书的查询与进度都在 1 秒内返回；第 100 章中停止，5 秒起不再请求模型、不再提交", async () => {
         /** 端点收到每个请求的时刻。 */
         const arrivals: number[] = [];
         const env = await setup(
@@ -200,28 +270,37 @@ describe("抽取期间照常可用（验收 10）", () => {
         const latencies: {method: string; ms: number; committed: number}[] = [];
         let committed = 98;
         let polling = true;
+        let pollFailure: unknown = null;
+        // 每次都要成功：快速返回的错误不算“照常可用”。
         const timed = async (method: string, params: unknown) => {
             const started = performance.now();
             const result = await env.call(method, params);
             latencies.push({method, ms: performance.now() - started, committed});
+            if (result.status !== 200) throw new Error(`${method} 失败：${result.status} ${JSON.stringify(result.body)}`);
             return result;
         };
         // 不停地查另一本书与进度，直到任务结束；每次都记下用时。
         const poller = (async () => {
             while (polling) {
-                await timed("book.info", {book: "other"});
-                await timed("entities.list", {book: "other", limit: 20});
+                expect(((await timed("book.info", {book: "other"})).body as {title: string}).title).toBe("另一本");
+                expect(((await timed("entities.list", {book: "other", limit: 20})).body as {items: unknown[]}).items).toHaveLength(20);
                 const status = await timed("ingest.status", {book: "long"});
                 committed = (status.body as {books: IngestStatusView[]}).books[0]?.committed ?? committed;
             }
-        })();
+        })().catch((error: unknown) => {
+            pollFailure = error;
+        });
+        /** 查询一失败就让正在等的地方立刻失败，不等到超时。 */
+        const healthy = () => {
+            if (pollFailure !== null) throw pollFailure;
+        };
         cleanups.push(async () => {
             polling = false;
             await poller;
         });
 
         expect((await env.call("ingest.start", {book: "long"})).body).toEqual({id: "long", action: "resume"});
-        await waitUntil("第 99 章提交", () => committed >= 99, {timeoutMs: 300_000});
+        await waitUntil("第 99 章提交", () => (healthy(), committed >= 99), {timeoutMs: 600_000});
         // 第 100 章刚开始就停止：这时抽取线程多半在编译（98 章的书一次约 20 秒）。
         await waitUntil("第 100 章的请求", () => env.played.seen.some(key => key.chapter === 100), {timeoutMs: 120_000});
         const stoppedAt = performance.now();
@@ -229,14 +308,11 @@ describe("抽取期间照常可用（验收 10）", () => {
         await waitUntil("停下", async () => (await env.status("long")).state === "stopped", {timeoutMs: 30_000});
         expect((await env.status("long")).committed).toBe(99);
         expect(arrivals.filter(at => at > stoppedAt + 5_000)).toEqual([]);
-
-        expect((await env.call("ingest.start", {book: "long"})).body).toEqual({id: "long", action: "resume"});
-        await waitUntil("抽完", async () => (await env.status("long")).state === "done", {timeoutMs: 300_000});
         polling = false;
         await poller;
+        healthy();
 
         expect(env.played.unknown).toEqual([]);
-        expect(env.played.seen.filter(key => key.step === "consolidation").map(key => key.chapter)).toEqual([100]);
         expect(latencies.filter(item => item.committed === 98).length).toBeGreaterThan(0);
         expect(latencies.filter(item => item.committed === 99).length).toBeGreaterThan(0);
         expect(latencies.filter(item => item.ms >= 1000)).toEqual([]);

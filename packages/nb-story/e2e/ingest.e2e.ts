@@ -55,6 +55,10 @@ test("导入页预览、开始、进度页；第 1 章提交后能打开，第 2
     await page.goto(server.base);
     await page.getByTestId("go-import").click();
     await expect(page).toHaveURL(/\/import$/u);
+    const previews: string[] = [];
+    page.on("request", request => {
+        if (request.url().endsWith("/api/rpc/ingest.preview")) previews.push(request.url());
+    });
     await page.getByTestId("import-file").setInputFiles(file);
     await expect(page.getByTestId("import-title")).toHaveValue("灰烬");
     const plan = page.getByTestId("import-plan");
@@ -63,19 +67,23 @@ test("导入页预览、开始、进度页；第 1 章提交后能打开，第 2
     await expect(plan).toContainText("抽取模型 replay-model");
     const id = ((await page.getByTestId("import-id").textContent()) ?? "").replace(/（由书名得到）$/u, "");
     expect(id).not.toBe("");
+    // 选一次文件只预览一次（书名由选文件设上，不再因书名变化重新预览）。
+    await page.waitForLoadState("networkidle");
+    expect(previews).toHaveLength(1);
 
     // 开始后进入进度页，显示当前章与步骤；第 1 章提交后可以打开书。
     await page.getByTestId("import-start").click();
     await expect(page).toHaveURL(new RegExp(`/ingest/${id}$`, "u"));
     await expect(page.getByTestId("ingest-steps")).toBeVisible();
-    await expect(page.getByTestId("ingest-count")).toContainText("1/ 10 章", {timeout: 60_000});
+    await expect(page.getByTestId("ingest-count")).toHaveAttribute("data-committed", "1", {timeout: 60_000});
     await expect(page.getByTestId("ingest-current")).toContainText("第 2 章");
 
     // 书架上这本书可以点开；打开后停在第 1 章（抽到这里），顶栏有抽取徽标。
     await page.goto(server.base);
     const row = page.locator(`[data-testid="shelf-row"][data-book="${id}"]`);
     await expect(row.getByTestId("ingest-badge")).toHaveAttribute("data-state", "running");
-    await row.getByTestId("shelf-open").click();
+    // 整行都能点开（不只是书名）。
+    await row.click();
     await expect(page.getByTestId("book-frame")).toBeVisible();
     await expect(page.getByTestId("reading-label")).toContainText("全部读完");
     await expect(page.getByTestId("ingest-pill")).toContainText("抽取中 1 / 10");
@@ -97,13 +105,26 @@ test("导入页预览、开始、进度页；第 1 章提交后能打开，第 2
     await expect(page).toHaveURL(/at=2(&|$)/u);
     await expect(page.getByTestId("page-roster")).not.toHaveText(before);
 
-    // 进度页：停止后显示已停下，继续后接着抽（第 3 章的闸门还关着，任务等在那里）。
+    // 原文页往下读到一半时第 3 章提交：点了更新，正在读的位置不跳（内容在后台重取、回来后替换，不先清空）。
+    await page.locator('nav[aria-label="页面"] [data-page="source"]').click();
+    const scroller = page.getByTestId("page-source").locator("div.story-scroll-y.flex-1");
+    await expect(scroller).toBeVisible();
+    await scroller.evaluate(element => (element.scrollTop = 1200));
+    await replay.close("4/beats");
+    await replay.open("3/beats");
+    await expect(page.getByTestId("ingest-update")).toContainText("第 3 章已抽完", {timeout: 60_000});
+    await page.getByTestId("ingest-update").click();
+    await expect(page.getByTestId("ingest-pill")).toContainText("抽取中 3 / 10");
+    await page.waitForLoadState("networkidle");
+    expect(await scroller.evaluate(element => element.scrollTop)).toBe(1200);
+
+    // 进度页：停止后显示已停下，继续后接着抽（第 4 章的闸门还关着，任务等在那里）。
     await page.getByTestId("ingest-pill").click();
     await expect(page).toHaveURL(new RegExp(`/ingest/${id}$`, "u"));
     await page.getByTestId("ingest-stop").click();
-    await expect(page.getByTestId("ingest-stopped")).toContainText("已停下", {timeout: 30_000});
+    await expect(page.getByTestId("ingest-stopped")).toContainText("手动停下了", {timeout: 30_000});
     await page.getByTestId("ingest-resume").click();
-    await expect(page.getByTestId("ingest-current")).toContainText("第 3 章");
+    await expect(page.getByTestId("ingest-current")).toContainText("第 4 章");
     await page.getByTestId("ingest-stop").click();
     await expect(page.getByTestId("ingest-stopped")).toBeVisible({timeout: 30_000});
 

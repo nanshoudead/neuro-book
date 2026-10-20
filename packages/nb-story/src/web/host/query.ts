@@ -30,7 +30,8 @@ export function useStoryQuery<M extends StoryMethod>(method: M, params: () => No
     const loading = ref(false);
     let controller: AbortController | null = null;
 
-    async function run(next: Params<M> | null): Promise<void> {
+    /** `keep`：只是书换了新数据（版本变了），位置与参数没变，旧结果留着直到新的回来。 */
+    async function run(next: Params<M> | null, keep = false): Promise<void> {
         controller?.abort();
         if (next === null) {
             data.value = null;
@@ -42,7 +43,8 @@ export function useStoryQuery<M extends StoryMethod>(method: M, params: () => No
         loading.value = true;
         error.value = null;
         // 参数（阅读位置、视角、筛选）一变先清掉旧结果：新数据回来之前显示“正在取”，不让旧位置的内容留在新位置的页面上。
-        data.value = null;
+        // 只是版本变了时位置没变、可见范围也没变，留着旧的，免得正在读的页面先空一下、滚回顶部（viewer 输出 39）。
+        if (!keep) data.value = null;
         try {
             const result = await client.call(method, {at: book.at.value, ...next, book: book.bookId} as StoryParams<M>, {signal: current.signal});
             if (current.signal.aborted) return;
@@ -62,7 +64,11 @@ export function useStoryQuery<M extends StoryMethod>(method: M, params: () => No
     }
 
     // 数据版本也是参数：书换成新数据（抽取又提交了一章、用户点了更新）时重取。
-    const stop = watch(() => ({params: params(), at: book.at.value, version: book.dataVersion.value}), value => void run(value.params), {immediate: true, deep: true});
+    const stop = watch(
+        () => ({params: params(), at: book.at.value, version: book.dataVersion.value}),
+        (value, old) => void run(value.params, old !== undefined && value.version !== old.version && JSON.stringify([value.params, value.at]) === JSON.stringify([old.params, old.at])),
+        {immediate: true, deep: true},
+    );
     onScopeDispose(() => {
         stop();
         controller?.abort();
@@ -98,14 +104,15 @@ export function usePagedQuery<M extends PagedMethod>(method: M, params: () => No
     let current: Params<M> | null = null;
     let controller: AbortController | null = null;
 
-    async function fetchPage(reset: boolean): Promise<void> {
+    /** `limit`：只是版本变了时，一次取回与已显示的一样多的条目（至多 500），列表长度不缩、滚动位置不跳。 */
+    async function fetchPage(reset: boolean, limit = pageSize): Promise<void> {
         if (current === null) return;
         const signalOwner = new AbortController();
         if (reset) controller?.abort();
         controller = signalOwner;
         loading.value = true;
         try {
-            const result = await client.call(method, {at: book.at.value, ...current, book: book.bookId, limit: pageSize, ...(reset || cursor === null ? {} : {cursor})} as StoryParams<M>, {signal: signalOwner.signal});
+            const result = await client.call(method, {at: book.at.value, ...current, book: book.bookId, limit, ...(reset || cursor === null ? {} : {cursor})} as StoryParams<M>, {signal: signalOwner.signal});
             if (signalOwner.signal.aborted) return;
             const page = result as unknown as {items: PageItem<M>[]; total: number; next: string | null};
             items.value = reset ? page.items : [...items.value, ...page.items];
@@ -129,16 +136,25 @@ export function usePagedQuery<M extends PagedMethod>(method: M, params: () => No
 
     const stop = watch(
         () => ({params: params(), at: book.at.value, version: book.dataVersion.value}),
-        value => {
+        (value, old) => {
             current = value.params;
             cursor = null;
+            // 只是版本变了：旧列表留着，按已显示的条数重取第一页，回来后整体替换（见 useStoryQuery）。
+            const keep = old !== undefined && value.version !== old.version && JSON.stringify([value.params, value.at]) === JSON.stringify([old.params, old.at]);
+            if (current === null) {
+                controller?.abort();
+                items.value = [];
+                total.value = null;
+                hasMore.value = false;
+                return;
+            }
+            if (keep) {
+                void fetchPage(true, Math.min(500, Math.max(pageSize, items.value.length)));
+                return;
+            }
             items.value = [];
             total.value = null;
             hasMore.value = false;
-            if (current === null) {
-                controller?.abort();
-                return;
-            }
             void fetchPage(true);
         },
         {immediate: true, deep: true},

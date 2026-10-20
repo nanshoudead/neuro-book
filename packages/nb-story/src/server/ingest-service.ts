@@ -2,7 +2,8 @@
  * 独立服务里的抽取（docs/specs/story/ingest.md 的“网页”、输出 11、12 与“状态与转换”）：`ingest.*` 方法、本服务运行
  * 的任务表，以及服务停止时的收口。
  *
- * 任务表与书库的协调者共用（serve.ts 用同一张表构造书库）：删除一本书时先停这里的任务。
+ * 删除一本书时书库的协调者经 `stopLocal` 先停这里这个 id 的任务：正在启动的先等它拿到任务（启动期间它已持锁，
+ * 不能当成别的进程在抽），再停、等放锁（实现审查 S5 第 5 条）。
  *
  * 停止服务的顺序（计划审查第 7 条）：`close()` 先同步关上接纳的门，之后的 `ingest.start` 得到 `ingest_running`；
  * 再等已经接纳、还在启动中的发起结束（它们拿到的任务一启动就停掉），停下表里全部任务，等它们放锁。调用方在这之后
@@ -11,7 +12,7 @@
 
 import {schemaProblems} from "../core/api";
 import {StoryError, type StoryErrorCode} from "../core/errors";
-import type {Library} from "../core/library";
+import {bookIdFromTitle, type Library} from "../core/library";
 import {INGEST_METHODS, type IngestMethod, type ViewerParams, type ViewerResult} from "../contract/contract";
 import type {Runner} from "../ingest/runner";
 import {startIngest} from "../ingest/runner";
@@ -25,6 +26,8 @@ export type IngestOutcome<M extends IngestMethod> = {ok: true; value: ViewerResu
 
 export interface IngestService {
     call<M extends IngestMethod>(method: M, params: unknown): Promise<IngestOutcome<M>>;
+    /** 停下这个 id 在本服务里的任务（含正在启动的）并等它放锁；没有就什么也不做。 */
+    stopLocal(id: string): Promise<void>;
     /** 关门、停下本服务的全部任务并等它们放锁；可以多次调用。 */
     close(): Promise<void>;
 }
@@ -47,11 +50,12 @@ function titleOf(params: {title?: string; id?: string}): string {
     return title;
 }
 
-export function createIngestService(options: {library: Library; runners: Map<string, Runner>; configPath?: string}): IngestService {
-    const {library, runners} = options;
+export function createIngestService(options: {library: Library; configPath?: string}): IngestService {
+    const {library} = options;
+    const runners = new Map<string, Runner>();
     let closing: Promise<void> | null = null;
-    /** 已经接纳、还没拿到任务（或失败）的发起。 */
-    const starting = new Set<Promise<unknown>>();
+    /** 已经接纳、还没拿到任务（或失败）的发起，按书 id。 */
+    const starting = new Map<string, Promise<unknown>>();
 
     const loadConfig = (): Promise<QaConfig> => loadQaConfig(...(options.configPath === undefined ? [] : [options.configPath]));
 
@@ -81,9 +85,11 @@ export function createIngestService(options: {library: Library; runners: Map<str
 
     async function start(params: ViewerParams<"ingest.start">): Promise<ViewerResult<"ingest.start">> {
         if (closing) throw new StoryError("ingest_running", "服务正在停止，不再接受新的抽取");
+        const source = "book" in params ? {id: params.book} : {text: decodeContent(params.content), title: titleOf(params), ...(params.id === undefined ? {} : {id: params.id})};
+        const id = source.id ?? bookIdFromTitle("title" in source ? source.title : "");
+        if (starting.has(id) || runners.has(id)) throw new StoryError("ingest_running", `书 ${id} 已有抽取任务在运行`);
         const launched = (async () => {
             const model = ingestModel(await loadConfig());
-            const source = "book" in params ? {id: params.book} : {text: decodeContent(params.content), title: titleOf(params), ...(params.id === undefined ? {} : {id: params.id})};
             return startIngest({
                 library,
                 ...source,
@@ -92,12 +98,12 @@ export function createIngestService(options: {library: Library; runners: Map<str
                 runner: "serve",
             });
         })();
-        starting.add(launched);
+        starting.set(id, launched);
         let result: {plan: IngestPlan; runner: Runner | null};
         try {
             result = await launched;
         } finally {
-            starting.delete(launched);
+            starting.delete(id);
         }
         if (result.runner) {
             register(result.runner);
@@ -149,9 +155,18 @@ export function createIngestService(options: {library: Library; runners: Map<str
                 throw error;
             }
         },
+        async stopLocal(id) {
+            const pending = starting.get(id);
+            // 启动失败由发起它的请求报给它的调用方；这里只等它结束，结束了就没有要停的。
+            if (pending) await pending.catch(() => undefined);
+            const runner = runners.get(id);
+            if (!runner) return;
+            runner.stop();
+            await runner.done;
+        },
         close() {
             closing ??= (async () => {
-                await Promise.allSettled([...starting]);
+                await Promise.allSettled([...starting.values()]);
                 const all = [...runners.values()];
                 for (const runner of all) runner.stop();
                 await Promise.all(all.map(runner => runner.done));

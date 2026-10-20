@@ -8,11 +8,16 @@ import {Library, type IdCoordinator} from "../core/library";
 import type {Runner} from "./runner";
 import {IngestStore} from "./store";
 
-export function ingestCoordinator(library: () => Library, localRunners?: ReadonlyMap<string, Runner>): IdCoordinator {
+/** 本进程里的抽取任务：删除前停下这个 id 的任务（含正在启动的）并等它放锁。 */
+export interface LocalTasks {
+    stop(id: string): Promise<void>;
+}
+
+/** 只有已经启动的任务时（命令行）：按任务表停。 */
+export function runnerTable(runners: ReadonlyMap<string, Runner>): LocalTasks {
     return {
-        lock: id => new IngestStore(library(), id).tryLock(),
-        async stopLocal(id) {
-            const local = localRunners?.get(id);
+        async stop(id) {
+            const local = runners.get(id);
             if (!local) return;
             local.stop();
             await local.done;
@@ -20,8 +25,15 @@ export function ingestCoordinator(library: () => Library, localRunners?: Readonl
     };
 }
 
-/** 带协调者的书库：命令行与独立服务都这样构造。`localRunners` 是本进程里正在运行的任务，删除时先停它们。 */
-export function coordinatedLibrary(root?: string, localRunners?: ReadonlyMap<string, Runner>): Library {
-    const library: Library = new Library(root, {coordinator: ingestCoordinator(() => library, localRunners)});
+export function ingestCoordinator(library: () => Library, local?: LocalTasks): IdCoordinator {
+    return {
+        lock: id => new IngestStore(library(), id).tryLock(),
+        stopLocal: id => local?.stop(id) ?? Promise.resolve(),
+    };
+}
+
+/** 带协调者的书库：命令行与独立服务都这样构造。`local` 是本进程里的抽取任务，删除时先停它们。 */
+export function coordinatedLibrary(root?: string, local?: LocalTasks): Library {
+    const library: Library = new Library(root, {coordinator: ingestCoordinator(() => library, local)});
     return library;
 }

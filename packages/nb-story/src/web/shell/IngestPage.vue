@@ -25,8 +25,8 @@ const stopping = ref(false);
 const resuming = ref(false);
 const shownRows = ref(10);
 
-// 手机宽度只留章、用时、费用三列（输出 40）：标题列在 390px 下会被挤成一字一行。
-const narrowQuery = window.matchMedia("(max-width: 640px)");
+// 手机宽度（与书的外壳同一个界线，720 以下）：四格排成两列，章明细只留章、用时、费用三列（输出 40）。
+const narrowQuery = window.matchMedia("(max-width: 719.98px)");
 const narrow = ref(narrowQuery.matches);
 const onNarrow = (event: MediaQueryListEvent): void => {
     narrow.value = event.matches;
@@ -56,18 +56,22 @@ const hiddenRows = computed(() => Math.max(0, (status.value?.chapters.length ?? 
 const dropped = computed(() => (status.value?.chapters ?? []).reduce((sum, chapter) => sum + chapter.dropped, 0));
 const remainingText = computed(() => {
     const value = status.value;
-    if (!value || !value.average || value.state === "done") return null;
+    if (!value || !value.average || value.state !== "running") return null;
     return `按每章平均估计，剩下的还要约 ${formatDuration(value.average.ms * (value.total - value.committed))}`;
 });
 const tiles = computed(() => {
     const value = status.value;
     if (!value) return [];
-    const atLeast = (complete: boolean) => (complete ? "" : "至少 ");
+    // 用量拿不到的请求让合计成了下界：已花与每章平均（由历次合计折算）都写“至少”。
+    const atLeast = value.allRuns.complete ? "" : "至少 ";
     const spent = formatCosts(value.allRuns.costs);
-    const average = value.average ? `${formatDuration(value.average.ms)}${formatCosts(value.average.costs) ? ` · ${formatCosts(value.average.costs)}` : ""}` : "—";
+    const averageCost = value.average ? formatCosts(value.average.costs) : null;
+    const average = value.average ? `${formatDuration(value.average.ms)}${averageCost ? ` · ${atLeast}${averageCost}` : ""}` : "—";
+    // 有了 token 却没有费用，才是没配价格；一次用量都还没有时写“—”。
+    const unpriced = value.allRuns.input + value.allRuns.output > 0 ? "没配价格" : "—";
     return [
         {label: "本次用时", value: formatDuration(value.thisRun.ms)},
-        {label: "已花（合计）", value: spent ? `${atLeast(value.allRuns.complete)}${spent}` : "没配价格"},
+        {label: "已花（合计）", value: spent ? `${atLeast}${spent}` : unpriced},
         {label: "每章平均", value: average},
         {label: "丢弃记录", value: `${dropped.value} 条`},
     ];
@@ -76,10 +80,18 @@ const tokenText = computed(() => {
     const usage = status.value?.allRuns;
     if (!usage) return "";
     const hit = usage.input > 0 ? `（缓存命中 ${Math.round((usage.cacheRead / usage.input) * 100)}%）` : "";
-    const price = usage.costs.length ? "价格来自配置文件" : "没配价格，只显示 token";
-    return `token：${usage.complete ? "" : "至少 "}输入 ${formatTokens(usage.input)}${hit}、输出 ${formatTokens(usage.output)}。${price}。`;
+    const price = usage.costs.length ? "价格来自配置文件" : usage.input + usage.output > 0 ? "没配价格，只显示 token" : "";
+    return `token：${usage.complete ? "" : "至少 "}输入 ${formatTokens(usage.input)}${hit}、输出 ${formatTokens(usage.output)}。${price ? `${price}。` : ""}`;
 });
 const currentStep = computed(() => status.value?.current?.step ?? null);
+/** 四步（整理时加第五步）与各自的状态：当前一步之前的已做完，之后的还没开始。 */
+const stepStates = computed(() => {
+    const step = currentStep.value;
+    if (step === null) return [];
+    const steps = step === "consolidation" ? [...STEPS, "consolidation" as const] : STEPS;
+    const index = steps.indexOf(step);
+    return steps.map((item, position) => ({step: item, state: position < index ? "done" : position === index ? "current" : "todo"}));
+});
 const retryText = computed(() => {
     const retry = status.value?.current?.retry;
     if (!retry) return null;
@@ -161,7 +173,7 @@ async function resume(): Promise<void> {
                 <p v-if="actionError" class="text-[length:var(--text-sm)] text-[var(--status-danger)]" role="alert" data-testid="ingest-action-error">{{ actionError }}</p>
 
                 <section class="flex flex-col gap-2">
-                    <div class="flex flex-wrap items-baseline gap-x-2" data-testid="ingest-count">
+                    <div class="flex flex-wrap items-baseline gap-x-2" data-testid="ingest-count" :data-committed="status.committed">
                         <span class="text-[length:var(--text-sm)] text-[var(--text-muted)]">抽完</span><b class="text-[length:var(--text-lg)]">{{ status.committed }}</b><span class="whitespace-nowrap text-[var(--text-muted)]">/ {{ status.total }} 章</span>
                         <span v-if="remainingText" class="ml-auto text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ remainingText }}</span>
                     </div>
@@ -175,8 +187,8 @@ async function resume(): Promise<void> {
                         <template v-if="status.runner === 'cli'">（由命令行运行）</template>
                     </div>
                     <ol v-if="currentStep" class="flex flex-wrap gap-2 text-[length:var(--text-xs)]" data-testid="ingest-steps" :data-step="currentStep">
-                        <li v-for="step in currentStep === 'consolidation' ? [...STEPS, 'consolidation' as const] : STEPS" :key="step" class="flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5" :class="step === currentStep ? 'step-current' : 'text-[var(--text-muted)]'">
-                            <span :class="step === currentStep ? 'i-lucide-loader' : 'i-lucide-circle'" />{{ STEP_LABELS[step] }}
+                        <li v-for="item in stepStates" :key="item.step" class="flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5" :class="item.state === 'current' ? 'step-current' : item.state === 'done' ? 'text-[var(--text-muted)]' : 'text-[var(--text-muted)] opacity-60'">
+                            <span :class="item.state === 'current' ? 'i-lucide-loader' : item.state === 'done' ? 'i-lucide-check' : 'i-lucide-circle'" />{{ STEP_LABELS[item.step] }}
                         </li>
                     </ol>
                     <div v-if="retryText" class="text-[length:var(--text-xs)] text-[var(--status-warning)]"><span class="i-lucide-refresh-cw mr-1 align-[-2px]" />{{ retryText }}</div>
@@ -184,13 +196,13 @@ async function resume(): Promise<void> {
                 </section>
                 <section v-else-if="status.state === 'stopped'" class="flex flex-col gap-1 rounded-[var(--radius-control)] px-4 py-3 text-[length:var(--text-sm)]" :class="status.stopReason?.kind === 'failed' ? 'border border-[var(--status-danger)]' : 'bg-[var(--bg-subtle)]'" data-testid="ingest-stopped">
                     <div :class="status.stopReason?.kind === 'failed' ? 'text-[var(--status-danger)]' : ''">
-                        <span v-if="status.stopReason?.kind === 'failed'" class="i-lucide-circle-x mr-1 align-[-2px]" />{{ stopText(status) }}。抽完的 {{ status.committed }} 章都保留。
+                        <span v-if="status.stopReason?.kind === 'failed'" class="i-lucide-circle-x mr-1 align-[-2px]" />{{ stopText(status) }}。<template v-if="status.committed > 0">抽完的 {{ status.committed }} 章都保留。</template>
                     </div>
                     <div v-if="status.stopReason?.kind === 'failed'" class="break-words text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ status.stopReason.message }}</div>
                     <div class="text-[var(--text-muted)]">{{ nextStepText(status) ?? "点“继续”接着抽。" }}</div>
                 </section>
 
-                <section class="grid grid-cols-2 gap-3 sm:grid-cols-4" data-testid="ingest-tiles">
+                <section class="grid gap-3" :class="narrow ? 'grid-cols-2' : 'grid-cols-4'" data-testid="ingest-tiles">
                     <div v-for="tile in tiles" :key="tile.label" class="min-w-0 rounded-[var(--radius-control)] border border-[var(--divider)] px-3 py-2">
                         <div class="text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ tile.label }}</div>
                         <div class="truncate font-[var(--weight-strong)]" :title="tile.value">{{ tile.value }}</div>
@@ -201,7 +213,7 @@ async function resume(): Promise<void> {
                 <section v-if="status.chapters.length" class="flex flex-col gap-2">
                     <h2 class="text-[length:var(--text-sm)] font-[var(--weight-strong)]">抽完的章 <span class="font-normal text-[var(--text-muted)]">（新的在前）</span></h2>
                     <Table :columns="columns" :rows="rows" row-key="chapter" density="compact" data-testid="ingest-chapters" />
-                    <button v-if="hiddenRows" type="button" class="self-start text-[length:var(--text-sm)] text-[var(--accent-text)]" @click="shownRows += 20">再显示 {{ Math.min(20, hiddenRows) }} 章</button>
+                    <Button v-if="hiddenRows" class="self-start" size="sm" variant="ghost" @click="shownRows += 20">再显示 {{ Math.min(20, hiddenRows) }} 章</Button>
                 </section>
             </template>
         </div>

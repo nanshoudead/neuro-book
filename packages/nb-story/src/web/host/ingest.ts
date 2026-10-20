@@ -1,6 +1,6 @@
 /**
  * 网页上抽取的显示规则（docs/specs/story/viewer.md 输出 36 到 40）：状态徽标、停下的原因与下一步、用时、费用与
- * token 的写法，以及把原文文件编成 base64（docs/specs/story/ingest.md 的“网页”）。书架、导入页、进度页与书的顶栏共用。
+ * token 的写法。书架、导入页、进度页与书的顶栏共用。
  */
 
 import type {IngestStatusView} from "../../contract/contract";
@@ -35,7 +35,8 @@ const KIND_TEXT: Record<string, string> = {
 export function stopText(status: IngestStatusView): string | null {
     if (status.state !== "stopped") return null;
     const reason = status.stopReason;
-    if (!reason || reason.kind === "user") return "已停下";
+    // 徽标已经写着“已停下”，这里说是怎么停的。
+    if (!reason || reason.kind === "user") return "手动停下了";
     if (reason.kind === "exited") return "运行它的进程已退出";
     const what = reason.code === "ingest_bad_reply" ? "模型的回复不成形" : (reason.errorKind ? KIND_TEXT[reason.errorKind] : undefined) ?? reason.code;
     return `第 ${status.committed + 1} 章失败：${what}`;
@@ -78,8 +79,9 @@ export function formatCosts(costs: {currency: string; amount: number}[]): string
     if (costs.length === 0) return null;
     return costs.map(cost => {
         const sign = CURRENCY_SIGN[cost.currency];
-        const amount = cost.amount < 1 ? cost.amount.toFixed(cost.amount < 0.01 ? 4 : 2) : cost.amount.toFixed(2);
-        return sign ? `${sign}${amount}` : `${amount} ${cost.currency}`;
+        const write = (amount: string) => (sign ? `${sign}${amount}` : `${amount} ${cost.currency}`);
+        if (cost.amount < 0.0001) return `不到 ${write("0.0001")}`;
+        return write(cost.amount.toFixed(cost.amount < 0.01 ? 4 : 2));
     }).join(" + ");
 }
 
@@ -88,12 +90,4 @@ export function formatTokens(count: number): string {
     if (count < 10_000) return count.toLocaleString("zh-CN");
     const wan = count / 10_000;
     return `${wan >= 100 ? Math.round(wan).toLocaleString("zh-CN") : wan.toFixed(1)} 万`;
-}
-
-/** 原文文件的字节 → base64（`ingest.preview`、`ingest.start` 的 content）。按块转，避免一次展开几千万个参数。 */
-export function toBase64(bytes: Uint8Array): string {
-    let binary = "";
-    const CHUNK = 0x8000;
-    for (let index = 0; index < bytes.length; index += CHUNK) binary += String.fromCharCode(...bytes.subarray(index, index + CHUNK));
-    return btoa(binary);
 }

@@ -20,7 +20,7 @@ import {createStoryApi} from "../core/api";
 import {StoryError} from "../core/errors";
 import {Library} from "../core/library";
 import {readCommitted} from "./job";
-import {ingestCoordinator} from "./coordinator";
+import {ingestCoordinator, runnerTable} from "./coordinator";
 import {startIngest, type Runner} from "./runner";
 import {ingestStatus, ingestStatuses} from "./status";
 
@@ -37,7 +37,7 @@ async function setup(name: string, override?: (key: ReplayKey, nth: number) => E
     cleanups.push(() => rm(root, {recursive: true, force: true}));
     const runners = new Map<string, Runner>();
     let library!: Library;
-    library = new Library(join(root, "library"), {coordinator: ingestCoordinator(() => library, runners)});
+    library = new Library(join(root, "library"), {coordinator: ingestCoordinator(() => library, runnerTable(runners))});
     const played: Replay = replay(await loadReplay(), override);
     const endpoint: Endpoint = startEndpoint(played.responder);
     cleanups.push(() => endpoint.stop());

@@ -9,7 +9,7 @@ import type {PositionInput} from "../../contract/contract";
  * 一步跳到终点的按钮（viewer 输出 5）。`end` 是抽取到的最后一章。
  */
 const props = defineProps<{at: PositionInput; paragraphs: readonly number[]; end: number; atEnd: boolean; compact?: boolean}>();
-const emit = defineEmits<{"update:at": [PositionInput]}>();
+const emit = defineEmits<{"update:at": [PositionInput]; "to-end": []}>();
 
 const chapters = computed(() => props.paragraphs.length);
 const fine = ref(props.at.paragraph !== undefined);
@@ -50,7 +50,7 @@ function toggleFine(): void {
             <template v-else>读到 <b>第 {{ chapterDraft }} 章</b><span class="text-[var(--text-muted)]"> / {{ chapters }}</span></template>
         </span>
         <IconButton size="xs" icon-class="i-lucide-chevron-right" aria-label="下一章" :disabled="props.at.chapter >= chapters" @click="commitChapter(props.at.chapter + 1)" />
-        <IconButton v-if="!props.atEnd" size="xs" icon-class="i-lucide-chevrons-right" aria-label="读完（跳到最后）" title="读完（跳到最后）" data-testid="reading-end" @click="emit('update:at', {chapter: props.end})" />
+        <IconButton v-if="!props.atEnd" size="xs" icon-class="i-lucide-chevrons-right" aria-label="读完（跳到最后）" title="读完（跳到最后）" data-testid="reading-end" @click="emit('to-end')" />
         <div class="reading-slider" :class="props.compact ? 'is-short' : ''">
             <Slider v-model="chapterDraft" :min="1" :max="chapters" size="sm" aria-label="读到第几章" @value-commit="(value: number | number[]) => commitChapter(scalar(value))" />
         </div>
