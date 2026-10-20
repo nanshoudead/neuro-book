@@ -14,6 +14,8 @@ defineProps<{
     rows: readonly {chapter: number; statements: number; knowledge: number; episodes: number; ledger: number}[];
     /** 全书章数，决定横轴。必填。 */
     total: number;
+    /** 不画的类（例如书关掉了数值时的 "ledger"）：柱、悬停文字与图例里都没有它，其余各类颜色不变。默认都画。 */
+    hidden?: readonly ("statements" | "knowledge" | "episodes" | "ledger")[];
 }>();
 defineEmits<{
     /** 点了一章。 */

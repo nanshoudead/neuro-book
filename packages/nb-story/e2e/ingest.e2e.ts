@@ -160,6 +160,76 @@ test("导入页预览、开始、进度页；第 1 章提交后能打开，第 2
     expect(await overflow()).toBeLessThanOrEqual(0);
 });
 
+test("新书关掉数值与秘密（ingest.md 输出 18）：进度页写明设置；书里没有这两页，直接地址与存下的状态都落到总览并提示；总览、统计、全书图里没有对应项", async ({page}) => {
+    await replay.close("2/beats");
+    const quiet = join(root, "静水.txt");
+    await writeFile(quiet, await sampleSourceText(3));
+    await page.goto(`${server.base}/import`);
+    await page.getByTestId("import-file").setInputFiles(quiet);
+    await expect(page.getByTestId("import-plan")).toHaveAttribute("data-action", "new");
+    const id = ((await page.getByTestId("import-id").textContent()) ?? "").replace(/（由书名得到）$/u, "");
+    await page.getByTestId("import-ledger").click();
+    await page.getByTestId("import-secrets").click();
+    await page.getByTestId("import-start").click();
+    await expect(page).toHaveURL(new RegExp(`/ingest/${id}$`, "u"));
+    await expect(page.getByTestId("ingest-features")).toHaveText("不记数值、秘密");
+    await expect(page.getByTestId("ingest-count")).toHaveAttribute("data-committed", "1", {timeout: 60_000});
+
+    // 导入页对这本已有的书：没有开关，只写保存的设置。
+    await page.goto(`${server.base}/import`);
+    await page.getByTestId("import-file").setInputFiles(quiet);
+    await expect(page.getByTestId("import-plan")).toHaveAttribute("data-action", "resume");
+    await expect(page.getByTestId("import-features")).toHaveCount(0);
+    await expect(page.getByTestId("import-saved-features")).toContainText("不记数值、秘密");
+
+    // 直接地址：落到总览并提示，地址改写成总览。
+    await page.goto(`${server.base}/book/${id}/ledger`);
+    await expect(page.getByTestId("page-overview")).toBeVisible();
+    await expect(page.getByTestId("notice")).toContainText("这本书没有记录数值");
+    await expect(page).toHaveURL(new RegExp(`/book/${id}/overview`, "u"));
+    const nav = page.locator('nav[aria-label="页面"]');
+    await expect(nav.locator('[data-page="roster"]')).toBeVisible();
+    await expect(nav.locator('[data-page="secrets"]')).toHaveCount(0);
+    await expect(nav.locator('[data-page="ledger"]')).toHaveCount(0);
+    await expect(page.getByTestId("page-overview")).not.toContainText("身份秘密");
+    await expect(page.getByTestId("page-overview")).not.toContainText("秘密矩阵");
+
+    // 存下的状态停在秘密页（例如开关之前存的）：打开时同样落到总览。先离开书页：离开时它会把自己的状态存一次，
+    // 等那次保存落定再写，免得被它盖掉。
+    await page.goto(server.base);
+    await expect.poll(async () => ((await (await page.request.post(`${server.base}/api/rpc/reading.get`, {data: {book: id}})).json()) as {view: {page?: string} | null}).view?.page).toBe("overview");
+    const saved = await page.request.post(`${server.base}/api/rpc/reading.set`, {data: {book: id, position: {chapter: 1}, view: {page: "secrets", entity: null, tab: null, perspective: "reader"}}});
+    expect(saved.ok()).toBe(true);
+    await page.goto(`${server.base}/book/${id}`);
+    await expect(page.getByTestId("notice")).toContainText("这本书没有记录秘密");
+    await expect(page.getByTestId("page-overview")).toBeVisible();
+
+    // 同一本书里改地址（后退、手改）指向关掉的页：也落到总览。
+    await nav.locator('[data-page="stats"]').click();
+    await expect(page.getByTestId("visible-stats")).toBeVisible();
+    await expect(page.getByTestId("visible-stats")).not.toContainText("数值流水");
+    await expect(page.getByTestId("visible-stats")).not.toContainText("秘密");
+    await expect(page.getByTestId("stats-charts")).not.toContainText("数值");
+    await page.evaluate(path => {
+        history.pushState({}, "", path);
+        dispatchEvent(new PopStateEvent("popstate"));
+    }, `/book/${id}/secrets`);
+    await expect(page.getByTestId("page-overview")).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/book/${id}/overview`, "u"));
+
+    await nav.locator('[data-page="book-graph"]').click();
+    await expect(page.getByTestId("page-book-graph")).toBeVisible();
+    // 类型开关在“按关联”的排布里。
+    await page.getByTestId("page-book-graph").getByText("按关联").click();
+    await expect(page.getByTestId("page-book-graph").locator(".story-chip", {hasText: "悬念"})).toBeVisible();
+    await expect(page.getByTestId("page-book-graph").locator(".story-chip", {hasText: "秘密"})).toHaveCount(0);
+
+    await page.goto(`${server.base}/ingest/${id}`);
+    await page.getByTestId("ingest-stop").click();
+    await expect(page.getByTestId("ingest-stopped")).toBeVisible({timeout: 30_000});
+    await replay.open("2/beats");
+});
+
 test("导入页：不是 UTF-8 的文件就地说明只收 UTF-8", async ({page}) => {
     const gbk = join(root, "旧书.txt");
     await writeFile(gbk, Buffer.from([0xb5, 0xda, 0xd2, 0xbb, 0xd5, 0xc2, 0x0a, 0xd5, 0xfd, 0xce, 0xc4]));

@@ -72,7 +72,7 @@ function openNode(id: string): void {
             <SegmentedControl v-model="arrange" size="xs" :options="[{value: 'storyline', label: '按章节'}, {value: 'force', label: '按关联'}]" aria-label="排布" />
             <template v-if="arrange === 'force'">
                 <SegmentedControl v-model="grain" size="xs" :options="[{value: 'arc', label: '按主线'}, {value: 'episode', label: '逐段情节'}]" aria-label="情节的粒度" />
-                <button v-for="type in TYPES.filter(item => item.id !== (grain === 'arc' ? 'episode' : 'arc'))" :key="type.id" type="button" class="story-chip" :class="hidden.includes(type.id) ? '' : 'is-on'" :aria-pressed="!hidden.includes(type.id)" @click="toggle(type.id)">{{ type.label }}</button>
+                <button v-for="type in TYPES.filter(item => item.id !== (grain === 'arc' ? 'episode' : 'arc') && (item.id !== 'secret' || book.info.features.secrets))" :key="type.id" type="button" class="story-chip" :class="hidden.includes(type.id) ? '' : 'is-on'" :aria-pressed="!hidden.includes(type.id)" @click="toggle(type.id)">{{ type.label }}</button>
                 <Checkbox v-model="neighborhood" label="只看选中的周边" />
                 <span class="text-[length:var(--text-2xs)] text-[var(--text-secondary)]">单击选中 · 双击打开 · 右键更多 · F 只看周边</span>
                 <div class="ml-auto w-40"><Input v-model="search" size="sm" icon-class="i-lucide-search" placeholder="在图里找" /></div>

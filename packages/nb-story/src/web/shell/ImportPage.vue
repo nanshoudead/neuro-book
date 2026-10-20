@@ -5,8 +5,12 @@
  *
  * 预览与开始都把文件的字节（base64，浏览器原生的 FileReader 编，不占主线程）交给服务，服务再解码、切章。改书名会
  * 换书 id：一改就作废当前的预览（不能开始），停手 400 毫秒后重新预览；新预览开始时中止旧的，离开页面时全部停掉。
+ *
+ * 记不记数值与秘密（ingest.md 输出 18）：新书的选择存在 `choice`，只在开始一本新书时随 `ingest.start` 发出；预览不带它，
+ * 所以书名换到一本已有的书时不会因设置不同而失败，页面改为写出那本书保存的设置（`plan.features`）。两份分开存，换书名
+ * 不会互相覆盖。预览之后别处先建了同 id 的书、设置又不同时，开始得到 invalid_params，就地写明原因。
  */
-import {Button, Input, Table} from "@notnotype/nb-ui/components";
+import {Button, Input, Switch, Table} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, ref, shallowRef, watch} from "vue";
 import {useRouter} from "vue-router";
 
@@ -30,6 +34,15 @@ const previewing = ref(false);
 const starting = ref(false);
 const startError = ref<string | null>(null);
 const showAll = ref(false);
+/** 新书记不记数值与秘密；默认都记。 */
+const choice = ref({ledger: true, secrets: true});
+/** 已有的书保存的设置，一句话。 */
+const savedSetting = computed(() => {
+    const features = plan.value?.features;
+    if (!features) return "";
+    const off = [...(features.ledger ? [] : ["数值"]), ...(features.secrets ? [] : ["秘密"])];
+    return off.length === 0 ? "这本书记录数值与秘密（新建时定的，不能改）。" : `这本书不记${off.join("、")}（新建时定的，不能改）。`;
+});
 
 const PREVIEW_ROWS = 8;
 const COLUMNS = [
@@ -158,7 +171,7 @@ async function start(): Promise<void> {
     starting.value = true;
     startError.value = null;
     try {
-        const result = await client.call("ingest.start", {content: file.value.content, title: title.value.trim()});
+        const result = await client.call("ingest.start", {content: file.value.content, title: title.value.trim(), ...(plan.value.action === "new" ? {features: {...choice.value}} : {})});
         await router.push(`/ingest/${encodeURIComponent(result.id)}`);
     } catch (caught) {
         if (!(caught instanceof StoryCallError)) throw caught;
@@ -224,6 +237,19 @@ async function start(): Promise<void> {
                     <Table :columns="COLUMNS" :rows="shownChapters" row-key="chapter" density="compact" data-testid="import-chapters" />
                     <Button v-if="!showAll && plan.chapters.length > PREVIEW_ROWS" class="self-start" size="sm" variant="ghost" @click="showAll = true">展开全部 {{ numberText(plan.chapters.length) }} 章</Button>
                 </section>
+
+                <section v-if="plan && plan.action === 'new'" class="flex flex-col gap-2" data-testid="import-features">
+                    <label class="flex items-center gap-3 text-[length:var(--text-sm)]">
+                        <Switch v-model="choice.ledger" size="sm" aria-label="记录数值" data-testid="import-ledger" />
+                        <span>记录数值<span class="ml-1 text-[var(--text-muted)]">钱、道具、任务进度</span></span>
+                    </label>
+                    <label class="flex items-center gap-3 text-[length:var(--text-sm)]">
+                        <Switch v-model="choice.secrets" size="sm" aria-label="记录秘密" data-testid="import-secrets" />
+                        <span>记录秘密<span class="ml-1 text-[var(--text-muted)]">身份秘密与谁知道</span></span>
+                    </label>
+                    <p class="text-[length:var(--text-xs)] text-[var(--text-muted)]">用不上的可以关掉，省一些费用；开始后不能再改。</p>
+                </section>
+                <p v-else-if="plan" class="text-[length:var(--text-sm)] text-[var(--text-secondary)]" data-testid="import-saved-features">{{ savedSetting }}</p>
 
                 <p v-if="startError" class="text-[length:var(--text-sm)] text-[var(--status-danger)]" role="alert" data-testid="import-start-error">{{ startError }}</p>
                 <div class="flex flex-wrap items-center gap-2">

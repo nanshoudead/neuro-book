@@ -78,6 +78,36 @@ describe("查询工具（输出 2、3）", () => {
     });
 });
 
+describe("按书的开关提供查询（输出 2，ingest.md 输出 18）", () => {
+    test("关掉数值与秘密的书：模型拿不到 ledger、track、knows，提示词不提数值，调用它们是工具错误；同时问全开的书照旧", async () => {
+        const dataset = await smallDataset(40, "小书");
+        dataset.book.features = {ledger: false, secrets: false};
+        dataset.ledger = [];
+        dataset.secrets = [];
+        const quiet = await openTestBook("qa-engine-quiet", dataset);
+        try {
+            const steps = (): ScriptedInput[] => [[toolCall("c1", "ledger", {}), toolCall("c2", "info", {}), toolCall("c3", "card", {entity: "苏天晴"})], [read("r1", {chapter: 38, paragraph: 55}, {chapter: 38, paragraph: 55})], answer()];
+            const [closed, open] = await Promise.all([askScripted(quiet, steps(), {at: P}), askScripted(book, steps(), {at: P})]);
+            const toolNames = (ask: typeof closed) => (ask.model.requests[0]!.tools ?? []).map(tool => tool.name);
+            for (const name of ["ledger", "track", "knows"]) {
+                expect({name, closed: toolNames(closed).includes(name), open: toolNames(open).includes(name)}).toEqual({name, closed: false, open: true});
+            }
+            const prompt = (ask: typeof closed) => [ask.model.requests[0]!.systemPrompt ?? []].flat().join("\n");
+            expect(prompt(closed)).toContain("情节、悬念、时间线");
+            expect(prompt(open)).toContain("情节、数值、悬念、时间线");
+            const [closedLedger, closedInfo, closedCard] = toolResults(closed.model, 1);
+            expect({ledger: closedLedger!.isError, info: closedInfo!.isError}).toEqual({ledger: true, info: false});
+            const [openLedger, , openCard] = toolResults(open.model, 1);
+            expect(openLedger!.isError).toBe(false);
+            // 人物卡的文字（命令行与问答共用）：没有秘密时不出“秘密：”这一节。
+            expect({closed: closedCard!.text.includes("秘密："), open: openCard!.text.includes("秘密：")}).toEqual({closed: false, open: true});
+            expect([closed.outcome.record.status, open.outcome.record.status]).toEqual(["answered", "answered"]);
+        } finally {
+            await quiet.close();
+        }
+    });
+});
+
 describe("防剧透（输出 4、验收 1）", () => {
     test("读原文只到 P；P 之后的章是工具错误；引用晚于 P 被退回", async () => {
         const {model, outcome} = await askScripted(
