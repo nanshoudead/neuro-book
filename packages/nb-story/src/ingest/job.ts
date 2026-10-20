@@ -15,7 +15,7 @@ import {randomUUID} from "node:crypto";
 import type {Dataset, SourceChapter} from "../core/dataset";
 import {StoryError} from "../core/errors";
 import type {Library} from "../core/library";
-import {consolidate, extractChapter, IngestBadReply, type ChapterRun, type Step} from "./chapter";
+import {consolidate, extractChapter, IngestBadReply, type ChapterRun, type RecallSource, type Step} from "./chapter";
 import {compile} from "./compile";
 import type {RawDraft} from "./draft-tools";
 import {ModelAborted, ModelError, type Attempt, type ModelEndpoint} from "./model";
@@ -33,8 +33,10 @@ export interface CommittedChapter {
     chapter: number;
     /** 兜底丢弃的记录条数。 */
     dropped: number;
-    /** 留下的问题：编译警告、跳过的整理。 */
+    /** 留下的问题：编译警告、跳过的整理、挑选退回规则。 */
     problems: string[];
+    /** 说法怎么选的（w00024 t10 起）；没有这一项的章是之前的做法（全部已有记录），不用迁移。 */
+    recall?: {source: RecallSource; ids: string[]};
 }
 
 export type IngestEvent =
@@ -51,6 +53,8 @@ export interface JobOptions {
     store: IngestStore;
     endpoint: ModelEndpoint;
     price: Price | null;
+    /** 挑相关说法用的模型；null 时不挑（默认）。用量按它自己的单价记。 */
+    recall: {endpoint: ModelEndpoint; price: Price | null} | null;
     /** 这次任务的编号（用量记账用）。 */
     run: string;
     signal: AbortSignal;
@@ -140,7 +144,7 @@ async function extractAll(options: JobOptions, ledger: Ledger, markChapter: (cha
         let consolidations = data.consolidations;
         let dataset = result.dataset;
         let issues = result.issues;
-        const problems = result.remaining.map(issue => issue.message);
+        const problems = [...result.notes, ...result.remaining.map(issue => issue.message)];
         if (chapter % CONSOLIDATE_EVERY === 0 || chapter === total) {
             const outcome = await consolidate(chapter, dataset, candidate => compile(book, sources, drafts, [...consolidations, candidate]), run);
             problems.push(...outcome.problems);
@@ -155,7 +159,7 @@ async function extractAll(options: JobOptions, ledger: Ledger, markChapter: (cha
         if (errors.length) throw new IngestBadReply("repair", `第 ${chapter} 章提交前书的数据仍有错误：${errors.map(issue => issue.message).join("；")}`);
         await ledger.settle();
         checkStop();
-        const next: ExtractionData = {through: chapter, drafts, consolidations, chapters: [...data.chapters, {chapter, dropped: result.dropped, problems}]};
+        const next: ExtractionData = {through: chapter, drafts, consolidations, chapters: [...data.chapters, {chapter, dropped: result.dropped, problems, recall: result.recall}]};
         const commit = await library.commitExtraction({id: store.id, title: source.title, generation, dataset, through: chapter, extraction: JSON.stringify(next)});
         markChapter(null, "committed");
         generation = commit.generation;
@@ -171,6 +175,7 @@ function chapterRun(options: JobOptions, chapter: number, checkStop: () => void,
     const key = (step: Step, attempt: number) => `${step}:${attempt}`;
     return {
         endpoint: options.endpoint,
+        ...(options.recall ? {recallEndpoint: options.recall.endpoint} : {}),
         signal: options.signal,
         ...(options.sleep ? {sleep: options.sleep} : {}),
         ...(options.fetch ? {fetch: options.fetch} : {}),
@@ -189,7 +194,7 @@ function chapterRun(options: JobOptions, chapter: number, checkStop: () => void,
             const line: UsageLine = {
                 kind: "end", id: ids.get(key(step, attempt.attempt)) ?? randomUUID(), run: options.run, chapter, step, attempt: attempt.attempt,
                 at: new Date().toISOString(), ms: attempt.ms, input: attempt.usage.input, output: attempt.usage.output, cacheRead: attempt.usage.cacheRead,
-                complete: attempt.usage.complete, error: attempt.error?.message ?? null, price: options.price,
+                complete: attempt.usage.complete, error: attempt.error?.message ?? null, price: step === "recall" && options.recall ? options.recall.price : options.price,
             };
             options.onEvent({type: "usage", line});
             ledger.remember(options.store.appendUsage(line));

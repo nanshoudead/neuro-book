@@ -1,6 +1,6 @@
 /**
- * 抽一章（docs/specs/story/ingest.md 输出 4、5、7、10）：写时间点与段落块 → 写其余记录 → 按程序开出的清单核对补漏 →
- * 只修结构问题 → 仍修不好的记录丢弃。到了整理的章，提交前再做一次整理。
+ * 抽一章（docs/specs/story/ingest.md 输出 4、5、7、10）：（开着时）挑相关说法 → 写时间点与段落块 → 写其余记录 → 按程序
+ * 开出的清单核对补漏 → 只修结构问题 → 仍修不好的记录丢弃。到了整理的章，提交前再做一次整理。
  *
  * 搬自 w00005 t29 `v2/run-v2.ts` 的单章、单份草稿路径（核对与修复各至多一轮），请求文字与处理顺序不变。不同的是：
  * - 各步的回复成不成形在这里按各步自己的形状判断（段落块步骤要有本章与段落块，草稿要有本章，核对与修复要是补丁
@@ -13,15 +13,16 @@
 
 import type {Dataset, SourceChapter} from "../core/dataset";
 import type {CompileResult, Issue} from "./compile";
-import {renderContext} from "./context";
+import {recallCandidates, renderContext} from "./context";
 import {ConsolidationSchema, parseWith} from "./draft-schema";
 import {applyPatch, checkDraft, dropOffending, fixBeats, fixPositions, normalizeDraft, sanitizeConsolidation, type Problem, type RawDraft} from "./draft-tools";
 import {callModel, type Attempt, type CallOptions, type IngestEffort, type ModelEndpoint, type ModelError, type ModelReply} from "./model";
 import {beatsTask, consolidationPrompt, draftTask, prefixFor, reviewTask, system, systemV2} from "./prompts";
+import {llmRecaller, RECALL_LIMIT} from "./recall";
 import {buildChecklist} from "./reconcile";
 
 /** 一章里的几步；进度里显示它，用量按它记账。 */
-export type Step = "beats" | "draft" | "review" | "repair" | "consolidation";
+export type Step = "recall" | "beats" | "draft" | "review" | "repair" | "consolidation";
 
 /** 模型的回复重发一次后仍不成形，或兜底之后书的数据仍有错误（F5）。 */
 export class IngestBadReply extends Error {
@@ -36,6 +37,8 @@ export class IngestBadReply extends Error {
 
 export interface ChapterRun {
     endpoint: ModelEndpoint;
+    /** 挑相关说法用的端点；不给时不挑（默认），说法按规则缩减。 */
+    recallEndpoint?: ModelEndpoint;
     signal?: AbortSignal;
     sleep?: CallOptions["sleep"];
     fetch?: CallOptions["fetch"];
@@ -56,8 +59,15 @@ export interface ChapterInput {
     compileWith: (candidate: RawDraft) => CompileResult;
 }
 
+/** 这一章的说法怎么选的：按规则缩减（挑选关着）、模型挑的、挑选的回复不成形退回规则、没有候选。 */
+export type RecallSource = "rule" | "model" | "fallback" | "none";
+
 export interface ChapterResult {
     draft: RawDraft;
+    /** 说法怎么选的；模型挑的时 `ids` 是选中的编号，其余为空（规则缩减可以由已提交的数据重算）。 */
+    recall: {source: RecallSource; ids: string[]};
+    /** 留给这一章的说明（挑选退回规则）；编译出的问题另在 `remaining`。 */
+    notes: string[];
     /** 每一轮核对或修复：清单与模型说不用改的条目。 */
     rounds: {step: "review" | "repair"; checklist: string[]; skipped: unknown[]}[];
     /** 兜底丢弃的记录条数。 */
@@ -87,14 +97,14 @@ function chapterIssues(issues: Issue[], chapter: number): Issue[] {
 
 const asProblem = (issue: Issue): Problem => ({message: issue.message, subject: issue});
 
-type Ask = (step: Step, systemPrompt: string, user: string, effort: IngestEffort, valid: (reply: ModelReply) => boolean) => Promise<unknown>;
+type Ask = (step: Step, systemPrompt: string, user: string, effort: IngestEffort, valid: (reply: ModelReply) => boolean, endpoint?: ModelEndpoint) => Promise<unknown>;
 
-/** 一步的请求：渠道失败由 callModel 重发；回复不成形重发一次，仍不成形抛 `IngestBadReply`。 */
+/** 一步的请求：渠道失败由 callModel 重发；回复不成形重发一次，仍不成形抛 `IngestBadReply`。不给端点时用抽取的。 */
 function asker(run: ChapterRun, chapter: number): Ask {
-    return async (step, systemPrompt, user, effort, valid) => {
+    return async (step, systemPrompt, user, effort, valid, endpoint = run.endpoint) => {
         run.onStep?.(step);
         for (let round = 1; ; round++) {
-            const reply = await callModel(run.endpoint, {
+            const reply = await callModel(endpoint, {
                 system: systemPrompt, user, effort, signal: run.signal, sleep: run.sleep, fetch: run.fetch,
                 // 请求头里的身份：章、步骤、这一步的第几次（不成形时重发算下一次；渠道重发不变）。
                 tag: `${chapter}/${step}/${round}`,
@@ -111,7 +121,7 @@ function asker(run: ChapterRun, chapter: number): Ask {
     };
 }
 
-export const STEP_NAMES: Record<Step, string> = {beats: "写时间点与段落块", draft: "写其余记录", review: "核对补漏", repair: "修复", consolidation: "整理"};
+export const STEP_NAMES: Record<Step, string> = {recall: "挑相关说法", beats: "写时间点与段落块", draft: "写其余记录", review: "核对补漏", repair: "修复", consolidation: "整理"};
 
 /** 回复里本章的那一份：单章时就是回复本身，要写明本章章号（与原管线的 splitByChapter 相同）。 */
 const forChapter = (json: unknown, chapter: number): Record<string, unknown> | null => {
@@ -127,8 +137,29 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
     const paragraphs = source.paragraphs;
     const ask = asker(run, chapter);
     const targets = [{chapter, paragraphs}];
+    const text = paragraphs.join("\n");
+    const notes: string[] = [];
+    let recall: ChapterResult["recall"] = {source: run.recallEndpoint ? "none" : "rule", ids: []};
+    let statements: string[] | undefined;
+    if (prior && run.recallEndpoint) {
+        const candidates = recallCandidates(prior, chapter - 1, text);
+        if (!candidates.length) statements = [];
+        else {
+            const endpoint = run.recallEndpoint;
+            const recaller = llmRecaller((systemPrompt, user, valid) => ask("recall", systemPrompt, user, "minimal", reply => valid(reply.json), endpoint));
+            try {
+                statements = await recaller.select({chapter, paragraphs, candidates, limit: RECALL_LIMIT});
+                recall = {source: "model", ids: statements};
+            } catch (error) {
+                // 只有回复不成形退回规则；停止、渠道失败、记账写不进去照常往外抛，与其他步骤相同（输出 9、10）。
+                if (!(error instanceof IngestBadReply)) throw error;
+                recall = {source: "fallback", ids: []};
+                notes.push(`${error.message}，这一章的说法按规则缩减`);
+            }
+        }
+    }
     // 只构造一次：核对、修复与兜底丢弃都沿用同一个前缀（同一章的几次请求才可能命中缓存）。
-    const prefix = prefixFor({context: prior ? renderContext(prior, chapter - 1, {text: paragraphs.join("\n")}) : "", targets});
+    const prefix = prefixFor({context: prior ? renderContext(prior, chapter - 1, {text, ...(statements === undefined ? {} : {statements})}) : "", targets});
     const previousBeats = prior ? prior.beats.filter(item => item.chapter === chapter - 1).slice(-2).map(item => `${item.id}（时间点 ${item.time ?? "无"}）　${item.gist}`).join("\n") : "";
 
     const structureReply = await ask("beats", systemV2, prefix + beatsTask({targets, previousBeats, first: !prior}), "minimal", reply => {
@@ -186,7 +217,7 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
     const final = input.compileWith(draft);
     const errors = chapterIssues(final.issues, chapter).filter(issue => issue.level === "error");
     if (errors.length) throw new IngestBadReply("repair", `第 ${chapter} 章仍有错误：${errors.map(issue => issue.message).join("；")}`);
-    return {draft, rounds, dropped, remaining: final.issues.filter(issue => issue.chapter === chapter), dataset: final.dataset, issues: final.issues};
+    return {draft, recall, notes, rounds, dropped, remaining: final.issues.filter(issue => issue.chapter === chapter), dataset: final.dataset, issues: final.issues};
 }
 
 /**

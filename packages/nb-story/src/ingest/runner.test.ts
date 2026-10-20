@@ -42,12 +42,14 @@ async function setup(name: string, override?: (key: ReplayKey, nth: number) => E
     const endpoint: Endpoint = startEndpoint(played.responder);
     cleanups.push(() => endpoint.stop());
     const api = createStoryApi({library});
-    const start = async (input: {text?: string; title?: string; id?: string; currency?: string}) => {
-        const {currency, ...rest} = input;
+    /** `recall` 给了就开挑相关说法：用同一个端点、另一个模型名与币种，记账看得出是哪一步。 */
+    const start = async (input: {text?: string; title?: string; id?: string; currency?: string; recall?: boolean}) => {
+        const {currency, recall, ...rest} = input;
         const result = await startIngest({
             library, ...rest, title: input.title ?? "转生反派萝莉，找茬魔法少女",
             endpoint: {baseUrl: endpoint.url, model: "gpt-6-luna", apiKeyEnv: KEY_ENV, maxTokens: 32_000},
             price: {input: 1, output: 4, cacheRead: 0.02, currency: currency ?? "CNY"},
+            recall: recall ? {endpoint: {baseUrl: endpoint.url, model: "recall-model", apiKeyEnv: KEY_ENV, maxTokens: 4_000}, price: {input: 0.5, output: 1, currency: "USD"}} : null,
             runner: "serve",
         });
         if (result.runner) {
@@ -110,6 +112,33 @@ describe("新建、停止、接着抽（验收 1）", () => {
         expect({state: done?.state, committed: done?.committed, chapters: done?.chapters.length, complete: done?.allRuns.complete}).toEqual({state: "done", committed: 10, chapters: 10, complete: false});
         expect(done?.allRuns.costs.map(cost => cost.currency)).toEqual(["CNY"]);
         expect(done?.allRuns.costs[0]!.amount).toBeGreaterThan(0);
+    }, 120_000);
+});
+
+describe("挑相关说法开着（输出 4、13）", () => {
+    test("每章先挑选；结果随章保存；挑选的用量按它自己的模型与单价记；第 3 章草稿请求中停下，接着抽时这一章重新挑选", async () => {
+        let holdChapter3 = true;
+        const env = await setup("recall", key => {
+            if (key.step === "recall") return {kind: "text", text: JSON.stringify({ids: []})};
+            return holdChapter3 && key.chapter === 3 && key.step === "draft" ? hang : undefined;
+        });
+        // 5 章：末章要整理，录下的整理在第 5 章。
+        const text = await sampleSourceText(5);
+        const first = await env.start({text, recall: true});
+        await waitUntil("第 3 章草稿请求", () => env.played.seen.some(key => key.chapter === 3 && key.step === "draft"), {timeoutMs: 30_000});
+        first.runner!.stop();
+        expect(await first.runner!.done).toEqual({kind: "stopped"});
+        holdChapter3 = false;
+        const second = await env.start({text, recall: true});
+        expect(await second.runner!.done).toEqual({kind: "done"});
+        expect(env.played.unknown).toEqual([]);
+
+        // 第 1 章没有已提交的记录可挑，不发挑选请求；第 3 章两次尝试各挑一次。
+        expect(env.played.seen.filter(key => key.step === "recall").map(key => key.chapter)).toEqual([2, 3, 3, 4, 5]);
+        const {data} = await readCommitted(env.library, first.plan.id);
+        expect(data.chapters.map(chapter => chapter.recall)).toEqual([{source: "none", ids: []}, ...Array(4).fill({source: "model", ids: []})]);
+        const status = await ingestStatus(env.library, first.plan.id);
+        expect(status?.allRuns.costs.map(cost => cost.currency).sort()).toEqual(["CNY", "USD"]);
     }, 120_000);
 });
 

@@ -12,7 +12,7 @@ import {gunzipSync} from "node:zlib";
 
 import type {EndpointReply, Responder} from "./openai-endpoint";
 
-export type ReplayStep = "beats" | "draft" | "review-1" | "repair-1" | "consolidation";
+export type ReplayStep = "recall" | "beats" | "draft" | "review-1" | "repair-1" | "consolidation";
 
 export interface ReplayKey {
     chapter: number;
@@ -42,7 +42,7 @@ export async function loadReplay(): Promise<Record<string, Record<string, Record
 
 /** 请求头里的身份：`章/步骤/第几次`；步骤是 beats、draft、review、repair、consolidation。 */
 export function stepOf(headers: Headers): ReplayKey | null {
-    const match = /^(\d+)\/(beats|draft|review|repair|consolidation)\/(\d+)$/u.exec(headers.get("x-nbstory-step") ?? "");
+    const match = /^(\d+)\/(recall|beats|draft|review|repair|consolidation)\/(\d+)$/u.exec(headers.get("x-nbstory-step") ?? "");
     if (!match) return null;
     const step = match[2] === "review" ? "review-1" : match[2] === "repair" ? "repair-1" : (match[2] as ReplayStep);
     return {chapter: Number(match[1]), step, round: Number(match[3])};
