@@ -44,6 +44,8 @@ export {default as CheckboxGroup} from "./form/CheckboxGroup.vue";
 export {default as ColorSwatches} from "./form/ColorSwatches.vue";
 export {default as Checkbox} from "./form/Checkbox.vue";
 export {default as Field} from "./form/Field.vue";
+export {NB_FIELD_CONTEXT_KEY, useFieldContext} from "./form/field-context";
+export type {FieldContext} from "./form/field-context";
 export {default as Input} from "./form/Input.vue";
 export {default as NumberInput} from "./form/NumberInput.vue";
 export {default as Select} from "./form/Select.vue";

@@ -17,7 +17,7 @@
 - 点击开关在开启/关闭之间切换；受控模式下通过 `update:modelValue` 请求父组件回写，非受控模式下由上游原语暂存变化。
 - 键盘激活行为、焦点移动与 `role="switch"` 的语义由 Reka Switch 原语负责；组件提供可见焦点环。
 - `disabled` 为真时不可点击或键盘激活，轨道降低透明度。
-- `name` 传给原语用于表单关联；`ariaLabel` 为开关提供可访问名称，默认是“开关”。组件挂载或卸载时不主动转移焦点。
+- `name` 传给原语用于表单关联；`ariaLabel` 为开关提供可访问名称，没有缺省值：缺省的名称会盖过字段标签。放在 `Field` 里时，开关的 id 取字段上下文的 `inputId`，名字经 `<label for>` 来自字段标签，`aria-describedby` 与出错时的 `aria-invalid` 也来自上下文；不在 `Field` 里时由调用方给 `ariaLabel` 或外层 `<label>`。组件挂载或卸载时不主动转移焦点。
 
 ## 数据
 
@@ -35,7 +35,7 @@ type SwitchProps = {
     size?: SwitchSize;
     /** 原生表单名称；默认 undefined */
     name?: string;
-    /** 可访问名称；默认 "开关" */
+    /** 可访问名称；没有缺省值，放在 Field 里时名字来自字段标签 */
     ariaLabel?: string;
 };
 

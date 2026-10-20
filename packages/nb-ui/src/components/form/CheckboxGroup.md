@@ -15,6 +15,7 @@
 - 点击选项切换该项值，发出包含完整选中 value 集合的 `update:modelValue`。组的选择顺序按添加顺序保留，取消选择移除对应 value。
 - `disabled` 禁用整组；选项自身也可通过 `disabled` 禁用。
 - 每个选项使用 `Checkbox` 的原生 checkbox 输入和标签；箭头键是否形成跨选项组导航未由本包装保证。焦点离开组后的去向由调用方决定。
+- 组根是 `role="group"`。放在 `Field` 的组形态里时，组根读字段上下文：`id`、`aria-labelledby`（字段标签）、`aria-describedby` 与出错时的 `aria-invalid` 都标在组上；组里的每个 `Checkbox` 看不到字段上下文（组用 null 盖住它），不会都拿到字段的 id、各自标红（docs/specs/ui/forms.md 输出 27）。
 
 ## 数据
 

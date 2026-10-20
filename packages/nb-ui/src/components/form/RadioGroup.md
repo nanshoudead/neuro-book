@@ -14,6 +14,8 @@
 
 点击可用选项会选中该项并发出 `update:modelValue`。组级 `disabled` 禁用整组；`RadioOption.disabled` 禁用单项。方向键导航、焦点与单选语义由 Reka UI RadioGroup 提供；具体按键行为不由本组件另行定义。
 
+放在 `Field` 的组形态（`group`）里时，组根读字段上下文：`id` 是 `inputId`，`aria-labelledby` 指向字段标签（`labelId`），`aria-describedby` 指向说明与错误，出错时写 `aria-invalid`，字段的 `required` 并入组的必填。`Field` 的普通形态根是 `<label>`，里面放一组单选读屏读不出组名，所以单选组要用组形态（docs/specs/ui/forms.md 输出 27）。
+
 ## 数据
 
 ```ts

@@ -4,6 +4,8 @@ import {
     SwitchThumb,
 } from "reka-ui";
 
+import {useFieldContext} from "../form/field-context";
+
 export type SwitchSize = "sm" | "md" | "lg";
 
 const props = withDefaults(defineProps<{
@@ -19,12 +21,15 @@ const props = withDefaults(defineProps<{
     disabled: false,
     size: "md",
     name: undefined,
-    ariaLabel: "开关",
+    // 没有缺省名称：缺省的“开关”会盖过字段标签。名字来自 `Field` 的标签（经上下文的 id 与 `<label for>`）或调用方。
+    ariaLabel: undefined,
 });
 
 const emit = defineEmits<{
     (e: "update:modelValue", value: boolean): void;
 }>();
+
+const field = useFieldContext();
 </script>
 
 <template>
@@ -33,7 +38,10 @@ const emit = defineEmits<{
         :default-value="props.defaultValue"
         :disabled="props.disabled"
         :name="props.name"
+        :id="field?.inputId.value"
         :aria-label="props.ariaLabel"
+        :aria-describedby="field?.ariaDescribedby.value"
+        :aria-invalid="field?.invalid.value ? 'true' : undefined"
         class="nb-ui-focus-ring relative inline-flex shrink-0 items-center rounded-full border border-transparent transition-colors [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 bg-[color-mix(in_srgb,var(--text-main)_16%,transparent)] data-[state=checked]:bg-[var(--accent-main)]"
         :class="[
             // 内边距必须与那 1px 透明边框（焦点环靠它上色）一起算：内容高 = 轨道高 − 2×边框 − 2×内边距。

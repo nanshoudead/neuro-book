@@ -5,6 +5,8 @@ import {
     RadioGroupRoot,
 } from "reka-ui";
 
+import {useFieldContext} from "./field-context";
+
 export interface RadioOption {
     value: string;
     label: string;
@@ -37,6 +39,9 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
     (e: "update:modelValue", value: string): void;
 }>();
+
+/** 组的名字来自字段的标签（`Field` 的组形态，docs/specs/ui/forms.md 输出 27）。 */
+const field = useFieldContext();
 </script>
 
 <template>
@@ -45,8 +50,12 @@ const emit = defineEmits<{
         :default-value="props.defaultValue"
         :name="props.name"
         :disabled="props.disabled"
-        :required="props.required"
+        :required="props.required || field?.required.value === true"
         :orientation="props.orientation"
+        :id="field?.inputId.value"
+        :aria-labelledby="field?.labelId.value"
+        :aria-describedby="field?.ariaDescribedby.value"
+        :aria-invalid="field?.invalid.value ? 'true' : undefined"
         class="flex"
         :class="props.orientation === 'horizontal' ? 'flex-row flex-wrap gap-4' : 'flex-col gap-2.5'"
         @update:model-value="(val) => emit('update:modelValue', (val ?? '') as string)"
