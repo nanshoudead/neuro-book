@@ -29,7 +29,7 @@ updated: 2026-10-20
 
 静态稿三轮已定（决定 1 到 6），实施计划 [`plan.md`](plan.md) 开发者 2026-10-20 确认（定位改经 reka 的 Popover 原语也已确认）；omp 计划审查 13 条全部处理（[`evidences/plan-review.txt`](evidences/plan-review.txt)）。
 
-实施在 worktree `.worktree/w00029-t04-popup-lists`（分支 `refactor/w00029-t04-popup-lists`），六片已提交：S1 菜单一族、S2 Select 与 QuickPick、S3 共用滚动、S4 `SuggestionMenu`、S5 Composer 改用它、S6 Spec 与规范。实施中对计划的调整写在 `plan.md` 第 5、6 节的“实施中的调整”。
+实施在 worktree `.worktree/w00029-t04-popup-lists`（分支 `refactor/w00029-t04-popup-lists`），六片加审查修正与图标列都已提交：S1 菜单一族、S2 Select 与 QuickPick、S3 共用滚动、S4 `SuggestionMenu`、S5 Composer 改用它、S6 Spec 与规范。实施中对计划的调整写在 `plan.md` 第 5、6 节的“实施中的调整”。
 
 - Sonnet 前端实现审查 13 条（重要 3、建议 10），逐条处理见 [`evidences/impl-review.txt`](evidences/impl-review.txt)：F05 接受取舍（reka 层级的键盘滚动由浏览器的聚焦规则决定），F12d 从代码推断不成立，其余都已改并补用例。
 - 真实浏览器里查到并修掉两处改动前就有的问题：右键菜单与菜单栏的子菜单偏离父项一百多像素（外观层的 `backdrop-filter` 成了它们的包含块）。整套 e2e 查到一处本次引起的回归并修掉：右键菜单改成外层定位后，直角的外层接住了紧挨菜单左上角的按下（原来圆角外的那一点落到页面上），编辑器“拖固定标签到正文中央”因此起不了拖；外层改为不接收指针，nb-ui 验收补了这一点。
@@ -39,6 +39,6 @@ updated: 2026-10-20
 
 ## 下一步
 
-合入 master，发布对照产物（改后的图已按图标列重拍）。
+已合入 master（`da0a5e168`），对照产物发布为 compare v1；实现 worktree 与分支已删。草稿 worktree `.worktree/w00029-t04-drafts`（分支 `t04/drafts`，草稿场景未提交）待清理。
 
 依赖本 Task 的：[w00027 t07](../../../w00027-plugin-platform/tasks/t07-low-code-forms/README.md) 的 S2 起（新增可搜索下拉 `SearchSelect`，用本 Task 统一后的列表项样式、截断与滚动；改 `Select` 的只读与出错）等本 Task 合入 master 后开始（开发者 2026-10-20 定）。
