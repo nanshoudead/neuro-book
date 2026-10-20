@@ -19,6 +19,8 @@ updated: 2026-10-20
 - 2026-10-20：开工。读了 t29 `v2/` 与它依赖的 t27 编译、规则、提示词（都只在 w00005 的 worktree 里，没有提交过，合计约 2,500 到 3,000 行）。会话里向开发者列了六个问题，决定见下文 3 到 8。
 - 2026-10-20：写了 [`story/ingest.md`](../../../../../docs/specs/story/ingest.md)（planned，7dbc7c183），queries 加“抽取进度”，cli-skill、qa 同步。omp 设计审查 15 条（阻断 5、重要 10，报告 [evidences/design-review.txt](evidences/design-review.txt)）全部成立，Spec 已修订（5c4ab8f49）：章的单一提交点；整理结果随章保存、追加时不重做；称呼不跨章前移（编译程序原来会把后文才交代的代号回填到前文，已导入的 100 章样例书也有）；跨进程删除正在抽的书得到 `ingest_running`；不成形回复重发一次后 `ingest_bad_reply`；用量拿不到时标“不完整”；切章规则补词边界；`ingest.model` 整节写入；`config test --ingest` 按两档探测；回归改为三次合计 360/477（原写的单次 360 超过单次满分 159）。
 - 2026-10-20：网页导入与进度的评审板第 1 轮已发布（`artifacts/review/`，四道题），草稿在 `.worktree/w00024-t06-drafts`（分支 `chore/w00024-t06-drafts`，不合并）。
+- 2026-10-20：omp 计划审查 16 条（阻断 7、重要 9，[evidences/plan-review.txt](evidences/plan-review.txt)）全部成立，计划与 Spec 已修订（d63f876fa）。最大的改动：抽取的模型调用从 nb-harness 改为 `openai` SDK（实测 OMP 一次调用里自带最多 6 次重试、端点拒绝 `minimal` 时自动降成 `low`，都关不掉）；id 锁放在不随书删除的位置、由主线程持有；停止用共享内存标志。Work 分支 `feat/w00024-nb-story`（worktree `.worktree/w00024-nb-story`）开工。
+- 2026-10-20：S1 完成（Work 分支 d2447e4ee）：切章、草稿 schema（TypeBox）、编译、“已有记录”。100 章重新编译与样例书只在三处有意改动上不同；第 2 到 10 章的“已有记录”与 t34 当时发出的逐字相同；三处改动都有变异检查。切章补了“章标题前可带同一行的卷标题”（Spec 同步）。
 
 ## 决定
 
