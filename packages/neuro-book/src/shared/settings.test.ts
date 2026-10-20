@@ -190,6 +190,12 @@ describe("动态选项与界面提示（输出 21）", () => {
         expect(settingDeclarationProblem("x.ai", "x.ai/note", declaration({schema: text, default: "", ui: {label: "x"}}))).toContain("形状");
         expect(settingDeclarationProblem("x.ai", "x.ai/note", declaration({schema: text, default: "", ui: {placeholder: "只有一种语言"}}))).toContain("形状");
         expect(settingDeclarationProblem("x.ai", "x.ai/size", declaration({schema: Type.Integer(), default: 1, ui: {widget: "multiline"}}))).toContain("multiline");
+        // 动态选项对应 x-form.options：有它时文字的下拉成立，写多行反而不生效。
+        const dynamic = (widget: string) => declaration({schema: text, default: "", choices: {from: "x.ai.models"}, ui: {widget}});
+        expect(settingDeclarationProblem("x.ai", "x.ai/model", dynamic("select"))).toBeNull();
+        expect(settingDeclarationProblem("x.ai", "x.ai/model", dynamic("search-select"))).toBeNull();
+        expect(settingDeclarationProblem("x.ai", "x.ai/model", dynamic("multiline"))).toContain("multiline");
+        expect(settingDeclarationProblem("x.ai", "x.ai/note", declaration({schema: text, default: "", ui: {widget: "select"}}))).toContain("select");
         const rows = Type.Array(Type.Object({name: Type.String()}));
         expect(settingDeclarationProblem("x.ai", "x.ai/rows", declaration({schema: rows, default: [], ui: {itemLabel: "name"}}))).toBeNull();
         expect(settingDeclarationProblem("x.ai", "x.ai/rows", declaration({schema: rows, default: [], ui: {itemLabel: "title"}}))).toContain("itemLabel");

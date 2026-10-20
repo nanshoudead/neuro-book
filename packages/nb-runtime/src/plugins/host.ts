@@ -1031,8 +1031,12 @@ export class PluginHostImpl implements PluginHost {
                     if (!isAlive(scope)) {
                         return Promise.resolve({status: "rejected", event, reason: "requester-stopped"});
                     }
-                    const signal = options.signal === undefined ? scope.stopSignal : anySignal([options.signal, scope.stopSignal]);
-                    return this.triggerActivationEvent(event, {requester: plugin, signal});
+                    if (options.signal === undefined) {
+                        return this.triggerActivationEvent(event, {requester: plugin, signal: scope.stopSignal});
+                    }
+                    // 入口的停止信号与本代次同寿命，每次触发挂上去的监听要随这次触发结算解除，否则反复触发会一直累积。
+                    const linked = linkedSignal([options.signal, scope.stopSignal]);
+                    return this.triggerActivationEvent(event, {requester: plugin, signal: linked.signal}).finally(linked.dispose);
                 },
             },
             services: {
@@ -1832,6 +1836,32 @@ function refusedRemote(code: "unavailable" | "denied", detail: string): RemoteAc
         {get: (_target, property) => (property === "then" ? undefined : property === "events" ? events : property === "at" ? () => client : failure)},
     );
     return {use: () => client as never, lookup: failure, instances: failure};
+}
+
+/**
+ * 任一信号触发即触发，`dispose` 解除挂在上游信号上的监听。上游比派生信号活得久时调用方要在用完后 dispose（原生的
+ * `AbortSignal.any` 同样可能被上游的监听保持，docs/standards/code/languages/typescript.md）。
+ */
+function linkedSignal(signals: ReadonlyArray<AbortSignal>): {readonly signal: AbortSignal; dispose(): void} {
+    const controller = new AbortController();
+    const detach: Array<() => void> = [];
+    const dispose = (): void => {
+        for (const remove of detach.splice(0)) remove();
+    };
+    for (const signal of signals) {
+        if (signal.aborted) {
+            controller.abort(signal.reason);
+            dispose();
+            break;
+        }
+        const onAbort = (): void => {
+            controller.abort(signal.reason);
+            dispose();
+        };
+        signal.addEventListener("abort", onAbort, {once: true});
+        detach.push(() => signal.removeEventListener("abort", onAbort));
+    }
+    return {signal: controller.signal, dispose};
 }
 
 /** 任一信号触发即触发。 */

@@ -20,7 +20,8 @@ import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
-import {defineEntry} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
+import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ActivationContext, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -383,6 +384,24 @@ describe("按需激活（输出 4）：窗口显示 page 分区时触发 onSetti
         window.openWindow({section: "x.notes.page"});
         await waitUntil("加载完", () => window.page("x.notes.page").status === "ready");
         expect(stateOf(started.application, "x.slow")).toBe("activating");
+    });
+
+    it("停在这个分区时所属入口从受阻恢复：不用切换分区就激活并加载", async () => {
+        const dependency = defineServiceKey<object>("x.dep/service");
+        let broken = true;
+        const provider: PluginDefinition = {id: "x.dep", entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], provides: [dependency], activate: () => {
+            if (broken) throw new Error("依赖启动失败");
+            return {services: [provide(dependency, {})]};
+        }}]};
+        const page = contributor("x.notes", {"x.notes.page": pageSection()}, toggle({implementation: {load: async () => Page}}), [], {...onPage("x.notes.page"), dependencies: [{key: dependency}]});
+        const started = await start([provider, page]);
+        const {window} = windowFor(started.probe, false);
+        window.openWindow({section: "x.notes.page"});
+        expect(stateOf(started.application, "x.notes")).toBe("blocked");
+        broken = false;
+        expect((await started.application.plugins.recover({plugin: "x.dep", entry: "browser"})).status).toBe("reset");
+        expect((await started.application.plugins.activate({plugin: "x.dep", entry: "browser"})).status).toBe("activated");
+        await waitUntil("恢复后激活并加载完", () => window.page("x.notes.page").status === "ready");
     });
 
     it("等待中关窗口不取消：激活照常完成，再打开时直接是可用", async () => {

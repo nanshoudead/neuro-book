@@ -245,7 +245,7 @@ export function settingDeclarationProblem(plugin: string, key: string, declarati
         if (problem !== null) return `配置项 ${key} 的 choices ${problem}`;
     }
     if (fields.ui !== undefined) {
-        const problem = uiProblem(fields.schema as TSchema, fields.ui);
+        const problem = uiProblem(fields.schema as TSchema, fields.ui, fields.choices);
         if (problem !== null) return `配置项 ${key} 的 ui ${problem}`;
     }
     if (!(SETTING_APPLIES as ReadonlyArray<unknown>).includes(fields.applies)) return `配置项 ${key} 的 applies 必须是 ${SETTING_APPLIES.join("、")} 之一`;
@@ -305,11 +305,12 @@ function choicesProblem(schema: TSchema, choices: unknown): string | null {
 
 /**
  * `ui` 的形状，以及写的控件能不能用在这个 schema 上：后者交给 `ui.forms` 的描述检查（它的 `widget-mismatch`），设置不另
- * 记一份“哪种值能用哪个控件”。
+ * 记一份“哪种值能用哪个控件”。动态选项 `{from}` 对应 `x-form.options`：有它时文字的下拉才成立，写多行反而不生效。
  */
-function uiProblem(schema: TSchema, ui: unknown): string | null {
+function uiProblem(schema: TSchema, ui: unknown, choices: unknown): string | null {
     if (!Value.Check(SettingUiHintsSchema, ui)) return "的形状不对：只能有 widget、placeholder、unit、rows、searchable、itemLabel，文字要中英两份";
-    const check = checkDescription({...schema, "x-form": ui});
+    const from = typeof choices === "object" && choices !== null && !Array.isArray(choices) ? (choices as Partial<SettingChoiceSource>).from : undefined;
+    const check = checkDescription({...schema, "x-form": {...(ui as SettingUiHints), ...(from === undefined ? {} : {options: from})}});
     const mismatch = check.problems.find((problem) => problem.code === "widget-mismatch" || problem.code === "item-label-unknown");
     if (mismatch !== undefined) return mismatch.code === "widget-mismatch" ? `的控件 ${String((ui as SettingUiHints).widget)} 用不到这种值上` : `的 itemLabel 不是列表项的字段`;
     return null;
