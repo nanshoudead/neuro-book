@@ -625,7 +625,7 @@ export const labFixtures: LabFixture[] = [
             {id: "reply", label: "一条完整的回复（各方言）", input: {props: {text: DISPLAY_REPLY, locale: "zh-CN"}}},
             {id: "streaming", label: "流式追加", input: {props: {text: DISPLAY_REPLY, locale: "zh-CN"}}},
             {id: "conversation", label: "100 条消息的长对话", input: {props: {text: DISPLAY_REPLY, locale: "zh-CN"}}},
-            {id: "plain", label: "只有普通 Markdown", input: {props: {text: "## 小结\n\n- 第一章节奏偏快\n- 第二章的伏笔可以提前\n\n```ts\nconst answer = 42;\n```\n\n| 章 | 字数 |\n|---|---|\n| 一 | 3200 |", locale: "zh-CN"}}},
+            {id: "plain", label: "只有普通 Markdown", input: {props: {text: "## 小结\n\n- 第一章节奏**偏快**\n- 第二章的*伏笔*可以提前，~~旧的开头~~删掉\n\n#### 细节\n\n---\n\n```ts\nconst answer = 42;\n```\n\n| 章 | 字数 |\n|---|---|\n| 一 | 3200 |", locale: "zh-CN"}}},
             {id: "empty", label: "空文本", input: {props: {text: "", locale: "zh-CN"}}},
         ],
         load: async () => (await import("./MarkdownDisplayFixture.vue")).default,

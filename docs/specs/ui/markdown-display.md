@@ -99,7 +99,7 @@ interface MarkdownDisplayEmits {
 3. Given 同一份含全部方言的语料，When 分别用展示器与编辑器显示，Then 方言元素的结构与类名按输出 2 的规则一致。
 4. Given 一条含已渲染 `<html>` 块的回复，When 流式更新替换掉它、再卸载展示器，Then 页面上不再有它的监听与沙箱，图片的地址都已释放。
 
-Smoke：`packages/neuro-book/src/plugins/markdown/web/components/MarkdownDisplay.dom.test.ts` 运行场景 1、3、4 与输出 5、6；场景 1、2 在本机 Chrome 上由 `packages/neuro-book/e2e/lab-markdown.e2e.ts` 运行（Lab 场景 `MarkdownDisplay` 的 `streaming`、`conversation`）。
+Smoke：`packages/neuro-book/src/plugins/markdown/web/components/MarkdownDisplay.dom.test.ts` 运行场景 1、3、4 与输出 5、6；场景 1、2 在本机 Chrome 上由 `packages/neuro-book/e2e/lab-markdown.e2e.ts` 运行（Lab 场景 `MarkdownDisplay` 的 `streaming`、`conversation`）；同一文件按 `plain` 场景核对输出 2 里普通 Markdown 的样子（粗体、斜体、删除线、四级标题与分割线的计算样式）。
 
 ## 实现合同
 
@@ -116,4 +116,4 @@ Smoke：`packages/neuro-book/src/plugins/markdown/web/components/MarkdownDisplay
 - 批准依据：开发者 2026-10-16 的决定，记录在主工作区 master 的 `.agents/works/w00025-editor/tasks/t07-markdown-plugins/README.md`（“开发者的决定”1、3、4）与同目录的 `plan.md`、`evidences/display-perf.md`。
 - 实现入口：[`MarkdownDisplay.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownDisplay.vue)、[`display/renderer.ts`](../../../packages/neuro-book/src/plugins/markdown/web/display/renderer.ts)（按块生成与更新）、[`display/static-views.ts`](../../../packages/neuro-book/src/plugins/markdown/web/display/static-views.ts)（提示块、可渲染 HTML 与图片的静态视图）
 - 合同测试：[`MarkdownDisplay.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownDisplay.dom.test.ts)（场景 1、3、4，输出 2、3、5–8 与“失败与恢复”）
-- Smoke：[`lab-markdown.e2e.ts`](../../../packages/neuro-book/e2e/lab-markdown.e2e.ts)（场景 1、2，本机 Chrome）
+- Smoke：[`lab-markdown.e2e.ts`](../../../packages/neuro-book/e2e/lab-markdown.e2e.ts)（场景 1、2 与输出 2 的普通 Markdown 样子，本机 Chrome）
