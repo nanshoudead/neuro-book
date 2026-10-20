@@ -136,7 +136,7 @@ type QaConfig = {
 20. **写入规则。** 写之前整份配置过校验，不通过就不写、原文件不变（`qa_unconfigured`，写明哪个字段）；通过的写同目录临时文件再改名，正在读它的 `ask` 读到的要么是旧的整份、要么是新的整份；写不进去报 `qa_config_write_failed`（F7）。配置里只有环境变量名，密钥值不出现在配置文件、输出与错误里。
 21. **test。** 用配置里的模型、推理档和密钥环境变量，经与问答相同的路径向模型发一个最小请求：通过时输出模型名、用时、用量，以及配置里写的推理档；失败按 `ask` 的归类以 `model_failed` 失败，退出码 4；取消 130。请求带推理档当且仅当配置写了。输出只报告配置里写的推理档，不声称服务端已按该档思考。
 22. **config 的退出码。** 0 成功；1 配置不合格或写失败（`qa_unconfigured`、`qa_config_write_failed`）；2 用法错误（未知动作、参数个数不对、字段名或值的写法不对、缺必填项又不在终端、已有配置而没有 `--force`）；`test` 失败为 4，取消为 130。
-23. **抽取模型。** `show` 另显示抽取用的模型（[`story.ingest`](ingest.md#抽取模型) 的 `ingest.model`，没有时写明用 `model`）。`config set ingest.model '<JSON>'` 整节写入（必须一次给齐 `baseUrl`、`id`、`apiKeyEnv`，不收 `thinking`），之后 `ingest.model.<字段>` 可以逐个改；`config unset ingest.model` 整节去掉，抽取回到 `model`。`config test --ingest` 用抽取实际用的模型，按抽取固定的两档（`minimal`、`medium`）各发一个最小请求，分别报告通过或失败；模型不接受某一档时报 `model_failed`（`provider`），不降档。
+23. **抽取模型。** `show` 另显示抽取用的模型（[`story.ingest`](ingest.md#抽取模型) 的 `ingest.model`，没有时写明用 `model`）。`config set ingest.model '<JSON>'` 整节写入（必须一次给齐 `baseUrl`、`id`、`apiKeyEnv`，不收 `thinking`），之后 `ingest.model.<字段>` 可以逐个改；`config unset ingest.model` 整节去掉，抽取回到 `model`。`config test --ingest` 用抽取实际用的模型，按抽取固定的两档（`minimal`、`medium`）各发一个最小请求，分别报告通过或失败；模型不接受某一档时报 `model_failed`（`provider`），不降档。挑相关说法（[`story.ingest`](ingest.md#抽取模型) 的 `ingest.recall`）：`show` 写明开没开、用哪个模型；`config set ingest.recall.enabled true|false` 开关；`ingest.recall.model` 的写法同 `ingest.model`（整节写入后才能逐个改，`unset` 整节去掉后回到抽取模型）；`ingest.recall` 里没有字段了整节去掉。开着时 `config test --ingest` 再用挑选的模型发一个 `minimal` 的请求，单独报告。
 
 ## 状态与转换
 
