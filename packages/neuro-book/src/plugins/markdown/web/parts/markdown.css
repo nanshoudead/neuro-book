@@ -30,6 +30,41 @@
     font-weight: 600;
 }
 
+/*
+ * 应用入口的全局样式重置（`the-new-css-reset`）把元素的默认样式都清掉了：浏览器自带的粗体、斜体、删除线、标题字重与分割线
+ * 在这里一一补回，新加的元素同样要在这里给样子。
+ */
+.nb-markdown h4,
+.nb-markdown h5,
+.nb-markdown h6 {
+    font-size: 1em;
+    font-weight: 600;
+}
+
+.nb-markdown h6 {
+    color: var(--text-secondary);
+}
+
+.nb-markdown strong,
+.nb-markdown b,
+.nb-markdown th {
+    font-weight: 700;
+}
+
+.nb-markdown em,
+.nb-markdown i {
+    font-style: italic;
+}
+
+.nb-markdown s,
+.nb-markdown del {
+    text-decoration: line-through;
+}
+
+.nb-markdown hr {
+    border-top: 1px solid var(--divider);
+}
+
 .nb-markdown ul,
 .nb-markdown ol {
     padding-left: 1.5em;
