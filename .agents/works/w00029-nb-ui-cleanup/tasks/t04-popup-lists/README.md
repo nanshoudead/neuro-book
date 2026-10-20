@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t04-popup-lists
-status: active
+status: done
 updated: 2026-10-20
 ---
 
