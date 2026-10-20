@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: story.queries
 owners:
   - nb-story
@@ -211,6 +211,20 @@ type RelationEdge = {
 
 Smoke：在真实书库与独立服务上，用 100 章样例书跑场景 1、7、8、11。
 
+## 实现合同
+
+- **公开入口**：包 `@notnotype/nb-story` 的核心库入口（`createStoryApi`、`Library` 与数据类型）；方法清单与 schema `@notnotype/nb-story/contract` 的 `STORY_METHODS`（插件通道用的 `storyContract` 同在其中）；独立服务 `nbstory serve` 的 `POST /api/rpc/<方法名>` 与登录链接。
+- **owner 与依赖方向**：nb-story。核心库（`src/core`）只依赖本包的合同、TypeBox 与 `@notnotype/nb-runtime/remote`，不依赖命令行、服务、网页、问答与抽取；它们都经 `createStoryApi` 调用核心库。
+- **关键不变量**：
+  - 所有查询只经同一个按阅读位置投影的只读视图取数；记录的成立位置取它自身位置与全部出处终点里最晚的那个，引用不可见记录的字段整项省略（`spoiler.test.ts`、`projection.test.ts`）。
+  - 一次查询在开始时固定书的一代与数据版本；导入把写好的整个书目录一次改名放进书库，抽取的每次提交是 `book.json` 的一次改名，查询读不到半份数据（`library.test.ts` 的固定一代、导入中途结束进程）。
+  - 游标只编码“代号:数据版本”、参数摘要与偏移，不含进程状态，所以跨进程、跨服务重启都有效（`api.test.ts` 的游标四组）。
+  - 身份合并只按确定的身份连接；角色视角另按这个角色对身份连接的最新知情状态重算（`identity.test.ts`）。
+  - 进程内调用与 HTTP 走同一份方法实现与 schema 校验，结果逐字段相同（`server.test.ts` 的 RPC 一组）。
+
 ## 证据
 
 - 批准依据：[剧情图谱第一版提案](../../proposals/novel-story-app.md)（accepted，含 2026-10-15 的范围调整）、[V9 小说记忆图提案](../../proposals/novel-memory-v9.md)；开发者 2026-10-13 至 2026-10-15 在 w00024 t01、t02 的决定。
+- 实现入口：[`core/api.ts`](../../../packages/nb-story/src/core/api.ts)、[`core/library.ts`](../../../packages/nb-story/src/core/library.ts)、[`core/projection.ts`](../../../packages/nb-story/src/core/projection.ts)、[`contract/contract.ts`](../../../packages/nb-story/src/contract/contract.ts)、[`server/http.ts`](../../../packages/nb-story/src/server/http.ts)
+- 合同测试：[`core/spoiler.test.ts`](../../../packages/nb-story/src/core/spoiler.test.ts)、[`core/api.test.ts`](../../../packages/nb-story/src/core/api.test.ts)、[`core/library.test.ts`](../../../packages/nb-story/src/core/library.test.ts)、[`core/identity.test.ts`](../../../packages/nb-story/src/core/identity.test.ts)、[`core/projection.test.ts`](../../../packages/nb-story/src/core/projection.test.ts)、[`core/queries/`](../../../packages/nb-story/src/core/queries/) 下按组的各份测试、[`server/server.test.ts`](../../../packages/nb-story/src/server/server.test.ts)、[`e2e/login.e2e.ts`](../../../packages/nb-story/e2e/login.e2e.ts)
+- Smoke：场景 1、7 由 [`core/spoiler.test.ts`](../../../packages/nb-story/src/core/spoiler.test.ts) 与 [`core/queries/source.test.ts`](../../../packages/nb-story/src/core/queries/source.test.ts) 在 100 章样例书上跑；场景 8 由 [`server/server.test.ts`](../../../packages/nb-story/src/server/server.test.ts) 起真实 `serve` 子进程跑；场景 11 由 [`e2e/login.e2e.ts`](../../../packages/nb-story/e2e/login.e2e.ts) 在真实服务与 Chromium 上跑
