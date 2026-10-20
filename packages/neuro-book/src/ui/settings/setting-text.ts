@@ -28,8 +28,10 @@ const SUMMARY_LIMIT = 80;
 export function settingChoices(declaration: SettingDeclaration, locale: DisplayLocale): ReadonlyArray<{readonly value: SettingLiteral; readonly label: string}> | null {
     const literals = literalUnionValues(declaration.schema);
     if (literals === null) return null;
+    // 动态选项（`{from}`）不在这里：它的 schema 是字符串，上面已经返回 null。
+    const named = Array.isArray(declaration.choices) ? declaration.choices : [];
     return literals.map((value) => {
-        const choice = declaration.choices?.find((candidate) => candidate.value === value);
+        const choice = named.find((candidate) => candidate.value === value);
         return {value, label: choice === undefined ? String(value) : localize(choice.title, locale)};
     });
 }

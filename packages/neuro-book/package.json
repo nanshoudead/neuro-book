@@ -29,6 +29,7 @@
         "perf:files": "bun scripts/perf/files-perf.ts"
     },
     "dependencies": {
+        "@notnotype/nb-form": "workspace:*",
         "@notnotype/nb-runtime": "workspace:*",
         "@tiptap/extension-list": "3.27.3",
         "@vue/reactivity": "^3.5.39",

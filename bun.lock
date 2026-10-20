@@ -373,6 +373,7 @@
       "name": "@notnotype/neuro-book",
       "version": "0.1.0",
       "dependencies": {
+        "@notnotype/nb-form": "workspace:*",
         "@notnotype/nb-runtime": "workspace:*",
         "@tiptap/extension-list": "3.27.3",
         "@vue/reactivity": "^3.5.39",

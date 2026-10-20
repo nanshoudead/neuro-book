@@ -48,7 +48,16 @@ export const themeSetting = defineSetting({
     title: {"zh-CN": "主题", "en-US": "Theme"},
 });
 // plugins/workbench/plugin.ts：描述 contributions 里放 themeSetting.contribution
+
+// 一个插件的多条：插件 id 只写一次，名是键；每项的值类型由它自己的 schema 推出
+export const {settings: codeSettings, contributions: codeContributions} = defineSettings("nbook.editor", {
+    "code.fontSize": {schema: Type.Integer({minimum: 8, maximum: 40}), default: 14, title: {"zh-CN": "字号", "en-US": "Font Size"}},
+    "code.wordWrap": {schema: Type.Boolean(), default: true, title: {"zh-CN": "自动换行", "en-US": "Word Wrap"}},
+});
+// 描述 contributions 里放 ...codeContributions；读写用 codeSettings["code.fontSize"]
 ```
+
+`defineSettings(plugin, items)` 返回 `{settings, contributions}`：`settings` 按名给出与逐条 `defineSetting` 相同的定义，`contributions` 按声明顺序；有一项不合规则时整体抛 `TypeError`。
 
 | 字段 | 规则 |
 |---|---|
@@ -60,7 +69,8 @@ export const themeSetting = defineSetting({
 | `section` | 可选，设置窗口里所在的分区 id（[`settings.window`](settings-window.md) 的分区 id 写法）；可以是别的插件贡献的分区 |
 | `group` | 可选，分区里的小组 id（一个小写段，至多 64 个字符）；只能和 `section` 一起写 |
 | `order` | 可选，小组内的顺序，-1000000 到 1000000 之间的数；同值按键 |
-| `choices` | 可选，`[{value, title, description?}]`：`schema` 是若干字面量的联合（`Type.Union` 的成员全是字符串、有限数或布尔的 `Type.Literal`）时，给每个字面量一个中英标题，与字面量一一对应 |
+| `choices` | 可选。`[{value, title, description?}]`：`schema` 是若干字面量的联合（`Type.Union` 的成员全是字符串、有限数或布尔的 `Type.Literal`）时，给每个字面量一个中英标题，与字面量一一对应。或 `{from: "<选项提供者 id>"}`：动态选项，只用在字符串的 `schema` 上，提供者 id 的写法同分区 id，存不存在不在登记时核对 |
+| `ui` | 可选，设置窗口画这一项的界面提示，`ui.forms` 的 `x-form` 里与单个字段有关的几项（[`ui.forms`](../ui/forms.md)）：`widget`、`placeholder`、`unit`（中英两份）、`rows`（1 到 50 的整数）、`searchable`、`itemLabel`；写的控件要能用在这种值上（同 `ui.forms` 输出 2），`itemLabel` 要是列表项的字段 |
 | `applies` | `"now"`（缺省）、`"next-run"`、`"next-session"`、`"restart"`：改动什么时候完全生效 |
 | `secret` | 本期声明 `true` 被拒（密钥存储尚未实现） |
 
@@ -78,7 +88,7 @@ interface SettingsService {
     get<T>(setting: SettingDefinition<T>): DeepReadonly<T>;
     inspect<T>(setting: SettingDefinition<T>): SettingInspection<T>;
     onDidChange(listener: (keys: ReadonlySet<string>) => void): () => void;
-    update<T>(setting: SettingDefinition<T>, value: T | undefined, options?: {layer?: "user" | "project" | "auto"}): Promise<SettingWriteResult>;
+    update<T>(setting: SettingDefinition<T>, value: NoInfer<T> | undefined, options?: {layer?: "user" | "project" | "auto"}): Promise<SettingWriteResult>;
 }
 interface SettingInspection<T> {
     value: DeepReadonly<T>;
@@ -114,7 +124,7 @@ type SettingWriteResult = {ok: true} | {ok: false; code: SettingsFailure; detail
 
 ## 输出与可观察行为
 
-1. **登记期校验**：声明的键前缀不是贡献方插件 id、名不合规则、`schema` 不能 JSON 序列化、`default` 不是 JSON 能如实表示的值或不符合 schema、`layers` 为空或含未知层、`title` 缺语言、`secret: true`，各使这一条声明以 `invalid-declaration` 被拒，原因可查；同一插件的其它贡献照常。
+1. **登记期校验**：声明的键前缀不是贡献方插件 id、名不合规则、`schema` 不能 JSON 序列化、`default` 不是 JSON 能如实表示的值或不符合 schema、`layers` 为空或含未知层、`title` 缺语言、`choices` 或 `ui` 不合上表的规则、`secret: true`，各使这一条声明以 `invalid-declaration` 被拒，原因可查；同一插件的其它贡献照常。
 2. **同键**：两条声明用同一个键时两条都被拒，与登记顺序无关。
 3. **每个实例都知道全部声明**：声明在描述里，服务端、项目实例与窗口都登记全部插件的声明，不论声明者在本位置有没有入口、入口是否已激活。
 4. **层的校验**：拥有者逐键校验文件内容：已声明、符合 schema、本层允许的键进入层快照；不符合 schema 或本层不允许的键被丢弃，记一条诊断（键与原因，不含值），同一份文件内容只记一次；没有声明的键（插件未装或已停用）留在文件里、不进层快照、不报错。
@@ -143,7 +153,7 @@ type SettingWriteResult = {ok: true} | {ok: false; code: SettingsFailure; detail
 
 ### 界面字段
 
-21. **界面字段的登记期校验**：`section` 不是分区 id 的写法、`group` 不是小组 id 的写法或没有 `section`、`order` 不是范围内的有限数、`choices` 用在不是字面量联合的 `schema` 上或与字面量不一一对应（少一个、多一个、值不是字面量、同一值出现两次）或选项的 `title`、`description` 缺语言、`applies` 不是四个值之一，以及声明了字段表以外的字段（包括已删除的 `restart`），各使这一条声明以 `invalid-declaration` 被拒，原因可查；同一插件的其它贡献照常（同输出 1）。
+21. **界面字段的登记期校验**：`section` 不是分区 id 的写法、`group` 不是小组 id 的写法或没有 `section`、`order` 不是范围内的有限数、`choices` 用在不是字面量联合的 `schema` 上或与字面量不一一对应（少一个、多一个、值不是字面量、同一值出现两次）或选项的 `title`、`description` 缺语言、动态选项 `{from}` 用在不是字符串的 `schema` 上或提供者 id 写法不对、`ui` 有表外的键或文字缺语言或控件用不到这种值上或 `itemLabel` 不是列表项的字段、`applies` 不是四个值之一，以及声明了字段表以外的字段（包括已删除的 `restart`），各使这一条声明以 `invalid-declaration` 被拒，原因可查；同一插件的其它贡献照常（同输出 1）。
 
 ### 本机层（planned）
 
