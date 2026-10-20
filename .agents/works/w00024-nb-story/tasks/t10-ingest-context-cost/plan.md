@@ -6,9 +6,9 @@
 
 开发者 2026-10-20 的决定见 README“决定”一节：对象、疑问、时间点、秘密用简单规则；说法由可配置的 LLM 从规则缩小后的候选里挑，挑选方式可替换（以后接 decision 模型）；数值与秘密开关在 t11；不加判分模型；不改图结构；真实模型预算已批准。
 
-omp 设计审查（报告 [evidences/plan-review.txt](evidences/plan-review.txt)，14 条全部成立）之后的修订见下文各节；第 3 条（整理仍全量）的范围由开发者定，见“待开发者确认”。
+omp 设计审查（报告 [evidences/plan-review.txt](evidences/plan-review.txt)，14 条全部成立）之后的修订见下文各节。开发者随后定（2026-10-20）：整理不在本 Task（另立 t12）；挑选做成可开关、默认关；默认模式下说法也不再整 400 条进上下文，按规则缩减（见第一节“已有的说法”）。
 
-**范围（待确认第 1 项）**：本 Task 只让普通章的请求（时间点与段落块、其余记录、核对补漏、修复、挑选说法）的输入有界。整理（每 5 章一次）照旧全量：它每次从头重写主线与主要对象的归纳，要看全书；第 98 章时一次整理的已有记录加情节概括约 8.3 万字，300 章约 25 万字，会超出上下文。整理改成增量另立 Task。
+**范围**：本 Task 只让普通章的请求（时间点与段落块、其余记录、核对补漏、修复、挑选说法）的输入有界。整理（每 5 章一次）照旧全量：它每次从头重写主线与主要对象的归纳，要看全书；第 98 章时一次整理的已有记录加情节概括约 8.3 万字，300 章约 25 万字，会超出上下文。整理改成增量另立 t12。
 
 ## 关键设计
 
@@ -23,7 +23,8 @@ omp 设计审查（报告 [evidences/plan-review.txt](evidences/plan-review.txt)
 - **未解的疑问**：最近 20 章里提出或有进展的才列。
 - **时间点**：按先后取最后 20 个。
 - **最近的情节**：不变。
-- **已有的说法**：列 `focus.statements`（挑选的结果，见下一节），按原来的先后。
+- **已有的说法**：挑选关着（默认）时按规则缩减：先放“优先组”，即挂在本次列出的秘密上的（秘密的 `statements`、说法的 `secret`）、本次列出的疑问的答案（`updates[].answer`）、不挂任何对象秘密疑问的（世界设定、作者声明）；再按从新到旧补，合计到 8,000 字为止（优先组本身超过时也截在 8,000 字，从新到旧）。挑选开着时列挑选的结果（见下一节）。两种都按原来的先后输出。
+  实测（旧最终稿 99 章里 16 次跨章说法引用）：这个规则在 8,000 字时 16 次全保住，6,000 字 15 次；只取最近的同样 8,000 字只保住 13 次。第 98 章优先组 90 条、约 3,600 字。样本只有 16 次，长书评估再看。
 - 被筛过的节标题下各加一句说明（例如名册：“只详列本章出现与最近 3 章出现过的对象；本章遇到‘其他对象’里的，沿用它的编号”），措辞随回归定。
 
 ### 二、`src/ingest/recall.ts`（新）：挑相关的说法
@@ -31,7 +32,7 @@ omp 设计审查（报告 [evidences/plan-review.txt](evidences/plan-review.txt)
 ```ts
 interface RecallCandidate { id: string; text: string }
 interface RecallInput { chapter: number; text: string; candidates: RecallCandidate[]; limit: number }
-interface RecallResult { ids: string[]; source: "model" | "fallback" | "none" }
+interface RecallResult { ids: string[]; source: "rule" | "model" | "fallback" | "none" }
 interface Recaller { select(input: RecallInput, run: RecallRun): Promise<RecallResult> }
 ```
 
@@ -40,8 +41,9 @@ interface Recaller { select(input: RecallInput, run: RecallRun): Promise<RecallR
 - **候选**（审查第 2 条）：规则缩小。(a) `about`、`source.by`、`holder` 含相关对象的；(b) 挂在本次列出的秘密上（秘密的 `statements`、说法的 `secret`）或是本次列出的疑问的答案（`updates[].answer`）的；(c) 不挂任何对象、秘密、疑问的说法（世界设定、作者声明；样例书全书 3 条）全部进候选。按从新到旧取，到 2.5 万字为止；(c) 先放，不受截断。
 - **没有候选**时不发请求，`source: "none"`。
 - **LLM 实现**：一次请求，推理档 `minimal`，回复 `{"ids": [...]}`。程序边界（审查第 13 条）：`ids` 不是数组、或数组里有非字符串，算回复不成形（与其他步骤一样重发一次）；字符串里不在候选里的丢掉、重复的去掉；按候选原来的先后排序后取前 `limit`（40）条；合法地选空（`[]`）就是空。
-- **失败矩阵**（审查第 4 条）：回复两次不成形（`IngestBadReply`）时这一章退回旧做法“最近 400 条说法”（审查第 5 条：最近 40 条只覆盖已观察引用的一半；400 条是验证过质量的旧行为），`source: "fallback"`，这一章的问题里记一笔。停止（`ModelAborted`、停止检查）、渠道失败与重试用完（`ModelError`：认证、额度、缺密钥、拒绝推理档、网络）、本地记账写盘失败一律照常往外抛，与其他步骤的失败合同相同（输出 9、10，F4、F5）。
-- **保存**（审查第 9 条）：`CommittedChapter` 加可选字段 `recall?: {source: "model" | "fallback" | "none"; ids: string[]}`，随这一章原子提交。旧书没有这个字段，表示那一章是旧做法，不需要迁移。没提交的章停下后接着抽，从头重做，重新挑选、重新记用量（现行合同：没提交的那一章作废）。同一次章尝试里只挑一次，核对、修复、兜底丢弃的重编译都沿用同一个前缀。
+- **开关**：配置 `ingest.recall.enabled`，默认 `false`；关着时不发挑选请求，说法按第一节的规则缩减，`source: "rule"`。
+- **失败矩阵**（审查第 4 条）：回复两次不成形（`IngestBadReply`）时这一章退回默认模式的规则缩减（审查第 5 条：只退回最近 40 条会丢一半已观察引用），`source: "fallback"`，这一章的问题里记一笔。停止（`ModelAborted`、停止检查）、渠道失败与重试用完（`ModelError`：认证、额度、缺密钥、拒绝推理档、网络）、本地记账写盘失败一律照常往外抛，与其他步骤的失败合同相同（输出 9、10，F4、F5）。
+- **保存**（审查第 9 条）：`CommittedChapter` 加可选字段 `recall?: {source: "rule" | "model" | "fallback" | "none"; ids: string[]}`，随这一章原子提交。旧书没有这个字段，表示那一章是旧做法，不需要迁移。没提交的章停下后接着抽，从头重做，重新挑选、重新记用量（现行合同：没提交的那一章作废）。同一次章尝试里只挑一次，核对、修复、兜底丢弃的重编译都沿用同一个前缀。
 
 ### 三、`src/ingest/chapter.ts`
 
@@ -49,8 +51,8 @@ interface Recaller { select(input: RecallInput, run: RecallRun): Promise<RecallR
 
 ### 四、配置与传参（审查第 8 条）
 
-- **配置**：`ingest.recall.model`，与 `ingest.model` 同形的整节（`baseUrl`、`id`、`apiKeyEnv`、`maxTokens`、`price`；不接受 `thinking`）。继承链 `ingest.recall.model → ingest.model → model`，整节继承，不逐字段混用。校验与 `ingest.model` 相同，包括嵌套的 `apiKeyEnv` 不能像密钥。
-- **命令**：`config set/unset ingest.recall.model.<字段>` 与整节，规则同 `ingest.model`（没有这一节时不能逐项改）；`config show` 列出挑选用的模型与来源；`config test --ingest` 另外对挑选模型试一次 `minimal`。
+- **配置**：`ingest.recall.enabled`（默认 `false`）与 `ingest.recall.model`，后者与 `ingest.model` 同形的整节（`baseUrl`、`id`、`apiKeyEnv`、`maxTokens`、`price`；不接受 `thinking`）。继承链 `ingest.recall.model → ingest.model → model`，整节继承，不逐字段混用。校验与 `ingest.model` 相同，包括嵌套的 `apiKeyEnv` 不能像密钥。
+- **命令**：`config set/unset ingest.recall.model.<字段>` 与整节，规则同 `ingest.model`（没有这一节时不能逐项改）；`config show` 列出挑选用的模型与来源；`config test --ingest` 在挑选开着时另外对挑选模型试一次 `minimal`。
 - **传参**：`qa/config.ts` 的 `ingestModel` 旁加 `recallModel`；命令行 `ingest`、服务的 `ingest-service`、`runner.ts`、`worker.ts`、`job.ts` 多传一份 endpoint 与 price；密钥照旧在 Worker 里按环境变量名读。每一行用量记的是那一步实际用的模型的单价。
 
 ### 五、进度与回放（审查第 10 条）
@@ -68,9 +70,9 @@ interface Recaller { select(input: RecallInput, run: RecallRun): Promise<RecallR
 
 ## 切片
 
-1. **S1 规则筛选**：`text-match.ts`、`context.ts`（`focus` 只含原文，说法仍是最近 400 条），小书用例，字数表。
-2. **S2 挑选**：`recall.ts`、`chapter.ts`、`job.ts`、配置与命令、传参、进度枚举、回放协议，确定性测试，Spec。
-3. **S3 真实模型**：前 20 章回归三次；长书评估（见“验证”）。不过判据回到 S1、S2 调整，最多三轮，仍不过交开发者。
+1. **S1 规则筛选**：`text-match.ts`、`context.ts`（含说法的规则缩减，即默认模式）、`chapter.ts` 传 `focus`，小书用例，字数表。
+2. **S2 挑选（可开关，默认关）**：`recall.ts`、`chapter.ts`、`job.ts`、配置与命令、传参、进度枚举、回放协议，确定性测试，Spec。
+3. **S3 真实模型**：默认模式（挑选关）跑前 20 章回归三次与长书评估；挑选开着的一遍长书评估作对照（不设通过门槛，结果交开发者决定以后是否默认打开）。不过判据回到 S1、S2 调整，最多三轮，仍不过交开发者。
 4. **S4 收尾**：实现审查（后端 omp）、合入、Task 记录。
 
 ## 验收映射
@@ -95,10 +97,5 @@ interface Recaller { select(input: RecallInput, run: RecallRun): Promise<RecallR
 
 ## 不做与风险
 
-- 不做：decision 模型（另立 Task）；数值与秘密开关（t11）；整理改成增量（待确认第 1 项）；改图结构；时间点与段落块那一步的单独精简。
-- 风险：规则漏掉的对象可能被重复新建（“其他对象”带标签兜底，长书评估量）；超过 20 章的疑问被解答时会新建疑问；挑选漏掉该印证的旧说法；**缓存命中好时挑选这一步净增费用**（审查第 12 条：按计划参数估算，已有记录部分无缓存时净降约 41%，缓存良好时只降约 12%，其中挑选说法一项在缓存良好时净增），挑选的价值主要在上下文有界与跨章关联的质量。
-
-## 待开发者确认
-
-1. **整理不在本 Task**：普通章的请求有界，整理仍全量、另立 Task 改成增量（第 98 章一次整理约 8.3 万字，300 章约 25 万字会超出上下文）。还是把整理也放进本 Task？
-2. **挑选在缓存良好时会净增费用**：仍按决定做（主要换上下文有界与关联质量），还是把挑选做成可关、默认关，先只上规则筛选？
+- 不做：decision 模型（另立 Task）；数值与秘密开关（t11）；整理改成增量（t12）；改图结构；时间点与段落块那一步的单独精简。
+- 风险：规则漏掉的对象可能被重复新建（“其他对象”带标签兜底，长书评估量）；超过 20 章的疑问被解答时会新建疑问；挑选漏掉该印证的旧说法；**缓存命中好时挑选这一步净增费用**（审查第 12 条：按计划参数估算，已有记录部分无缓存时净降约 41%，缓存良好时只降约 12%，其中挑选说法一项在缓存良好时净增），挑选的价值主要在跨章关联的质量，所以默认关。
