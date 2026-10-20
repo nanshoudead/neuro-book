@@ -13,9 +13,16 @@ updated: 2026-10-20
 
 合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
 
+## 开发者的决定
+
+评审板 [`artifacts/review/`](artifacts/review/index.html)。
+
+1. （2026-10-20，r1-highlight）高亮（悬停项与键盘当前项）统一用中性叠色 `--overlay-item-active`；Menubar 与右键菜单补上高亮，Composer 候选菜单不再用强调色淡底。
+2. （2026-10-20，r1-selection）选中统一用左侧勾选列：每行在图标前留一列给勾，底色不变；Select 去掉选中项的强调色淡底与中等字重，DropdownMenu 的 `active` 与勾选项合成一种。
+
 ## 当前状态
 
-第 1 轮静态稿在做：草稿 worktree `.worktree/w00029-t04-drafts`（分支 `t04/drafts`，不合并），问列表项的高亮与选中各统一成哪一种；先并排画出六个弹出列表的现状。原图放本地 `.local/agent/works/w00029-nb-ui-cleanup/tasks/t04-popup-lists/shots/`。
+第 1 轮已定（见上）。第 1 轮静态稿：草稿 worktree `.worktree/w00029-t04-drafts`（分支 `t04/drafts`，不合并），问列表项的高亮与选中各统一成哪一种；先并排画出六个弹出列表的现状。原图放本地 `.local/agent/works/w00029-nb-ui-cleanup/tasks/t04-popup-lists/shots/`。
 
 ## 下一步
 
