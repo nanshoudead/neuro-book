@@ -15,8 +15,13 @@ updated: 2026-10-20
 
 ## 当前状态
 
-2026-10-20 经 nbdev 新建，尚未开工。
+尚未开工。2026-10-20 先做了一次只读审查（Sonnet），作为整理的输入：报告产物 [`artifacts/spec-review/`](artifacts/spec-review/index.html)，原文 [`evidences/spec-review.txt`](evidences/spec-review.txt)。43 条（重要 26、建议 17），要点：
+
+- `ui-development-spec.md` 的 4.2 节逐个复述组件参数，与组件同名 `.md` 重复，已有 4 处直接冲突；`Select` 的浮层配方在文内抄了 4 到 7 遍。
+- 4.3、4.4 两节被已接受的提案 `docs/proposals/workbench-view-host.md` 引用，只能搬、不能删；重排前要先清点至少 21 处按章节号、锚点或标题引用这几份文档的地方。
+- `design-language.md` 第八、九节（约 600 行的踩坑与检查表）有历史叙述、已删组件与和现状相反的条目。
+- `authoring-themes.md` 与 nb-ui README 还残留已拆掉的主题组件替换机制，README 的示例不能编译。
 
 ## 下一步
 
-待补充。
+开工前先请开发者定三处文档与代码的分歧（报告 F04、F05、F10/F43）：浮层投影几层；暗色玻璃要不要压暗；浮层外观的唯一来源是 CSS 类还是 `useDropdownSurfaceStyle` 里的常量。t04 定下的列表项样式也要写进规范，t05 排在 t04 之后。
