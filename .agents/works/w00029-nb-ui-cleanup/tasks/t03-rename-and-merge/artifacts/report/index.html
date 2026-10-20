@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nb-ui 改名与合并：外观变化</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef;
+    --warn: #b45309; --warn-soft: #fdf1df; --ok: #15803d; --ok-soft: #e4f4e8;
+    --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123b37;
+        --warn: #fbbf24; --warn-soft: #3a2e12; --ok: #86efac; --ok-soft: #173322; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+p, li { max-width: 900px; }
+.lead p { color: var(--muted); margin: 6px 0; }
+.round { margin-top: 40px; font-size: 19px; font-weight: 700; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+section.q { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.badge.todo { background: var(--warn-soft); color: var(--warn); }
+.badge.done { background: var(--ok-soft); color: var(--ok); }
+.opts { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 10px 0; }
+.opt { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.opt.rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.opt p { margin: 4px 0 0; color: var(--muted); }
+.rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.rec-note b { color: var(--accent); }
+figure { margin: 12px 0; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; border-top: 0; }
+</style>
+<style>
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.pair.narrow { grid-template-columns: repeat(2, 240px); }
+@media (max-width: 760px) { .pair, .pair.narrow { grid-template-columns: 1fr; } }
+figure img.bar { width: auto; max-width: 100%; }
+</style>
+</head>
+<body>
+<main>
+<h1>nb-ui 改名与合并：外观变化</h1>
+<div class="lead">
+<p>w00029 t03，已合入 master（<code>dc2d2f09b</code>）。这一批大部分是改名，界面不变；这里只列外观有变化的四处，每处左边是改动前（master <code>64d7e884e</code>），右边是改动后。都是 Lab 里的真实组件，夜间配色。</p>
+<p>没有截图的一处：dev-panel 顶栏的横幅也改用了 <code>Banner</code>，样子与下面第 2 节相同；“知道了”从文字按钮变成了右侧的关闭按钮，读屏念的名字仍是“知道了”。</p>
+</div>
+
+<section class="q">
+<h2>1. 编辑组顶部的状态条</h2>
+<p>原来是手写的一行彩色文字，现在用 nb-ui 的 <code>Banner</code>：有色调底色与图标，正文用次要文字色。冲突、写不出、保存失败用红色（读屏立即播报），文件已删除、磁盘有变化用黄色。</p>
+<div class="pair">
+<figure><img src="r1/editor-before-900.webp" alt="改动前：900px 宽的编辑组"><figcaption>改动前</figcaption></figure>
+<figure><img src="r1/editor-after-900.webp" alt="改动后：900px 宽的编辑组"><figcaption>改动后</figcaption></figure>
+</div>
+<p>编辑组最窄（220px）时差别最大：原来按钮占住右边，文字被挤成一列；现在文字放不下就把按钮整组换到下一行。</p>
+<div class="pair narrow">
+<figure><img src="r1/editor-before-220.webp" alt="改动前：220px 宽的编辑组"><figcaption>改动前，220px</figcaption></figure>
+<figure><img src="r1/editor-after-220.webp" alt="改动后：220px 宽的编辑组"><figcaption>改动后，220px</figcaption></figure>
+</div>
+</section>
+
+<section class="q">
+<h2>2. Banner 本身</h2>
+<p>原来没有人用它。现在改成紧凑排版（12px 字），动作区可以放几个按钮，图标可以换成说明具体事情的（第三张用的是刷新图标）。</p>
+<figure><img src="r1/banner-actions-640.webp" alt="带两个动作按钮的错误横幅"><figcaption>错误，带两个动作</figcaption></figure>
+<figure><img src="r1/banner-warning-640.webp" alt="带标题的警告横幅"><figcaption>警告，带标题</figcaption></figure>
+<figure><img src="r1/banner-icon-640.webp" alt="换了图标的提示横幅"><figcaption>提示，换了图标</figcaption></figure>
+<figure><img src="r1/banner-info-640.webp" alt="可关闭的提示横幅"><figcaption>提示，可关闭</figcaption></figure>
+<div class="pair narrow">
+<figure><img src="r1/banner-actions-220.webp" alt="220px 宽的横幅"><figcaption>220px：按钮换到第二行</figcaption></figure>
+</div>
+</section>
+
+<section class="q">
+<h2>3. JSON 查看器的模式切换</h2>
+<p>原来用 <code>ToggleGroup</code> 的单选（再点一次当前项会清空，代码里要挡），现在用 <code>SegmentedControl</code>：选中项是实心的强调色块，切换时滑动。</p>
+<div class="pair">
+<figure><img src="r1/json-before.webp" alt="改动前的 JSON 查看器"><figcaption>改动前</figcaption></figure>
+<figure><img src="r1/json-after.webp" alt="改动后的 JSON 查看器"><figcaption>改动后</figcaption></figure>
+</div>
+</section>
+
+<section class="q">
+<h2>4. Lab 顶栏的画布宽度</h2>
+<p>同样从 <code>ToggleGroup</code> 换成 <code>SegmentedControl</code>，和同一条栏上的场景切换一个样子。第二行是手动拖出的尺寸（不属于任何预设），三项都不选中。</p>
+<div class="pair">
+<figure><img class="bar" src="r1/bar-before-free.webp" alt="改动前：随窗口"><figcaption>改动前：随窗口</figcaption></figure>
+<figure><img class="bar" src="r1/bar-after-free.webp" alt="改动后：随窗口"><figcaption>改动后：随窗口</figcaption></figure>
+<figure><img class="bar" src="r1/bar-before-500x300.webp" alt="改动前：自定尺寸"><figcaption>改动前：自定尺寸</figcaption></figure>
+<figure><img class="bar" src="r1/bar-after-500x300.webp" alt="改动后：自定尺寸"><figcaption>改动后：自定尺寸</figcaption></figure>
+</div>
+<p><code>ToggleGroup</code> 自己的样子没变，只是去掉了单选，现在只做可叠加的开关：</p>
+<div class="pair narrow">
+<figure><img src="r1/toggle-after-multiple.webp" alt="ToggleGroup 格式开关"><figcaption>格式开关，按下了粗体</figcaption></figure>
+</div>
+</section>
+</main>
+</body>
+</html>
