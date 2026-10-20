@@ -17,8 +17,8 @@ updated: 2026-10-20
 
 ## 当前状态
 
-2026-10-20 经 nbdev 新建，[计划](plan.md)已起草、待开发者确认与设计审查；排在 t02 S1 之后（要 `secret` 声明），t02 S3 在它之后接设置窗口。
+2026-10-20 搁置。[计划](plan.md)起草后经 omp 设计审查（[evidences/design-review-omp.txt](evidences/design-review-omp.txt)，15 条）修订，计划越改越重：加密、主密钥、系统密钥库的子进程与原生模块交付、四种存储状态与重置事务。调研（[evidences/credential-storage-research.md](evidences/credential-storage-research.md)）显示命令行 Agent 工具在 Linux 上普遍用 0600 明文文件。开发者 2026-10-20 决定：暂时没有加密的需求，凭据先不做，API Key 用明文的普通配置项；`secret: true` 维持登记时被拒。
 
 ## 下一步
 
-计划确认后按 S0–S3 实施；S1 第一步验证原生模块能否打进产物。
+需要时重开。届时的起点：按插件隔离的键值密钥库（同 VS Code `SecretStorage`），声明式密钥项是它上面一层、动态服务商自己拼键；先做 0600 文件后端加可替换的后端接口，加密与系统密钥库以后再接。本计划的审查结论（重置事务、快照顺序、子进程寿命、写入校验等）到时按需取用。

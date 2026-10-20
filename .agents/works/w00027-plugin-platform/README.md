@@ -32,10 +32,10 @@ updated: 2026-10-17
 | [t03](tasks/t03-manifest-and-install/README.md) | S1：清单校验与第三方插件安装、`nbook.plugins` 与设置页 |
 | [t04](tasks/t04-browser-loading-sdk/README.md) | S2–S3：浏览器入口装载、插件文件端点与 SDK 构建预设 |
 | [t05](tasks/t05-author-experience/README.md) | S4：脚手架、作者文档与完整示例 |
-| [t02](tasks/t02-settings-completion/README.md) | 设置补齐：通用编辑、密钥项的声明与界面（存储在 t08）、搜索、页面未保存保护、动态选项、声明 API 易用性；开发者 2026-10-20 定提前到 t04 之前、不并行 |
+| [t02](tasks/t02-settings-completion/README.md) | 设置补齐：通用编辑、搜索、页面未保存保护、动态选项、声明 API 易用性；开发者 2026-10-20 定提前到 t04 之前、不并行 |
 | [t07](tasks/t07-low-code-forms/README.md) | 低代码：全项目共用的 schema 表单与表单组件（nb-ui 控件统一合同、补缺）；排在 t02 之前 |
 | [t06](tasks/t06-settings-ui-polish/README.md) | 设置界面的样式收口：按设计稿重新收口设置窗口与设置组件的外观（t02 之后） |
-| [t08](tasks/t08-secret-store/README.md) | 密钥存储：独立的密钥服务与远程合同，主密钥放系统密钥库或本人可读的文件，丢失时显式重置；从 t02 拆出，排在 t02 S1 之后 |
+| [t08](tasks/t08-secret-store/README.md) | 密钥存储（搁置）：开发者 2026-10-20 定暂时不做加密，API Key 用明文的普通配置项；计划、审查与调研留作重开时的参考 |
 
 ## 关键现状
 
@@ -47,6 +47,7 @@ updated: 2026-10-17
 
 - 缺的贡献点：编辑器的补全与悬停（例如人物名补全、悬停显示人物卡）、编辑区正文的右键菜单、文件树装饰（徽标、字数）、快速打开的提供者（命令面板里搜人物与地点）、主题与配色贡献（现在主题是写死的两个选项）。
 - 内置插件都没有提供按需激活的事件，所有入口启动即激活；t02 先补“设置分区被显示时激活”。
+- 凭据的加密存储（t08 搁置）：需要时按插件隔离的键值密钥库重开，起点见 t08 的“下一步”。
 - 生成式视图：Agent 对话流里 LLM 生成的 TSX 可视化程序，在不同源的沙箱 iframe 里运行，只做 Web；复用 t07 的表单组件；随 Agent 对话流重建，先写提案（开发者 2026-10-20 定名）。
 - `nbdev worktree new` 只能建 Task 级 worktree，要补 Work 级的（`.worktree/<Work 编号>-<短名>`、`{type}/<Work 编号>-<slug>`）。
 
