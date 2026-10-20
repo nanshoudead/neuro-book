@@ -31,9 +31,12 @@ const FIXTURES = join(import.meta.dir, "..", "tests", "fixtures", "ingest");
 
 let recorded: Record<string, Record<string, Recorded>> | undefined;
 
-/** 录下的回复：章号 → 步骤 → 回复。进程内只解压一次。 */
+/** 录下的回复：章号 → 步骤 → 回复（第 1 到 10 章与第 99、100 章）。进程内只解压一次。 */
 export async function loadReplay(): Promise<Record<string, Record<string, Recorded>>> {
-    recorded ??= JSON.parse(gunzipSync(await readFile(join(FIXTURES, "replay-ch001-010.json.gz"))).toString("utf8")) as Record<string, Record<string, Recorded>>;
+    if (!recorded) {
+        const files = await Promise.all(["replay-ch001-010.json.gz", "replay-ch099-100.json.gz"].map(async name => JSON.parse(gunzipSync(await readFile(join(FIXTURES, name))).toString("utf8")) as Record<string, Record<string, Recorded>>));
+        recorded = Object.assign({}, ...files) as Record<string, Record<string, Recorded>>;
+    }
     return recorded;
 }
 

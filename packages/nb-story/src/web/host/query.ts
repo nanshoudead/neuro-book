@@ -61,7 +61,8 @@ export function useStoryQuery<M extends StoryMethod>(method: M, params: () => No
         }
     }
 
-    const stop = watch(() => ({params: params(), at: book.at.value}), value => void run(value.params), {immediate: true, deep: true});
+    // 数据版本也是参数：书换成新数据（抽取又提交了一章、用户点了更新）时重取。
+    const stop = watch(() => ({params: params(), at: book.at.value, version: book.dataVersion.value}), value => void run(value.params), {immediate: true, deep: true});
     onScopeDispose(() => {
         stop();
         controller?.abort();
@@ -114,6 +115,11 @@ export function usePagedQuery<M extends PagedMethod>(method: M, params: () => No
             error.value = null;
         } catch (caught) {
             if (signalOwner.signal.aborted) return;
+            // 书换了新数据、游标作废（抽取又提交了一章）：换成新数据，列表从第一页重来（book.refresh 让版本变）。
+            if (caught instanceof StoryCallError && caught.code === "cursor_invalid") {
+                void book.refresh();
+                return;
+            }
             error.value = caught instanceof StoryCallError ? caught : new StoryCallError("internal", "请求没有完成");
             if (!(caught instanceof StoryCallError)) console.error({method, error: caught}, "查询出错");
         } finally {
@@ -122,7 +128,7 @@ export function usePagedQuery<M extends PagedMethod>(method: M, params: () => No
     }
 
     const stop = watch(
-        () => ({params: params(), at: book.at.value}),
+        () => ({params: params(), at: book.at.value, version: book.dataVersion.value}),
         value => {
             current = value.params;
             cursor = null;
@@ -148,7 +154,10 @@ export function usePagedQuery<M extends PagedMethod>(method: M, params: () => No
         loading,
         hasMore,
         more() {
-            if (!loading.value && hasMore.value) void fetchPage(false);
+            if (loading.value || !hasMore.value) return;
+            // 落后了：游标属于旧数据，先换成新数据（列表随版本从第一页重来），不接着翻旧的。
+            if (book.behind.value) void book.refresh();
+            else void fetchPage(false);
         },
         reload() {
             if (!loading.value) void fetchPage(items.value.length === 0);

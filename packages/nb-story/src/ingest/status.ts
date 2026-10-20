@@ -15,6 +15,7 @@ import {join} from "node:path";
 
 import {StoryError, systemErrorCode} from "../core/errors";
 import {isValidBookId, type Library} from "../core/library";
+import type {Step} from "./chapter";
 import {readCommitted} from "./job";
 import {IngestStore, type ActivityLine, type RunnerKind, type StopReason, type UsageLine} from "./store";
 
@@ -45,7 +46,7 @@ export interface IngestStatus {
     stopReason: StopReason | null;
     total: number;
     committed: number;
-    current: {chapter: number | null; step: string | null; retry: {attempt: number; waitMs: number; until: string} | null} | null;
+    current: {chapter: number | null; step: Step | null; retry: {attempt: number; waitMs: number; until: string} | null} | null;
     /** 这次任务与历次合计：用时（毫秒）与用量。 */
     thisRun: UsageTotals & {ms: number};
     allRuns: UsageTotals & {ms: number};

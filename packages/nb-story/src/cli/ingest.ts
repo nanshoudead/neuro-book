@@ -132,7 +132,7 @@ function usageText(usage: UsageTotals & {ms: number}): string {
 function stateText(status: IngestStatus): string {
     if (status.state === "done") return "已全部抽完";
     if (status.state === "running") {
-        const where = status.current?.chapter ? `，正在第 ${status.current.chapter} 章${status.current.step ? `${STEP_NAMES[status.current.step as keyof typeof STEP_NAMES] ?? status.current.step}` : ""}` : "";
+        const where = status.current?.chapter ? `，正在第 ${status.current.chapter} 章${status.current.step ? STEP_NAMES[status.current.step] : ""}` : "";
         const retry = status.current?.retry ? `，等第 ${status.current.retry.attempt} 次失败后的重发（到 ${status.current.retry.until}）` : "";
         return `运行中（由${status.runner === "cli" ? "命令行" : "独立服务"}运行）${where}${retry}`;
     }

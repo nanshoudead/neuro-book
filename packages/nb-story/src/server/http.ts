@@ -13,9 +13,11 @@ import type {StoryApi} from "../core/api";
 import {HTTP_STATUS} from "../core/errors";
 import {INSTANCE_HEADER} from "../cli/registration";
 import type {ServeAuth} from "./auth";
+import {isIngestMethod, type IngestService} from "./ingest-service";
 
 export interface HandlerOptions {
     api: StoryApi;
+    ingest: IngestService;
     auth: ServeAuth;
     instance: string;
     /** 网页构建产物的目录；不存在时页面请求给出“还没有构建”的提示。 */
@@ -42,10 +44,37 @@ async function isFile(path: string): Promise<boolean> {
     }
 }
 
+/** `ingest.*` 的请求体上限：32 MiB 的原文经 base64 约 43 MiB，加上书名等字段。 */
+export const INGEST_BODY_LIMIT = 48 * 1024 * 1024;
+
+/** 问答配置的失败码（抽取发起时读配置）对应的 HTTP 状态码。 */
+const QA_HTTP_STATUS: Record<string, number> = {qa_unconfigured: 400, qa_config_write_failed: 500, full_read_unavailable: 400};
+
 export function createHandler(options: HandlerOptions): (request: Request) => Promise<Response> {
-    const {api, auth, instance, webRoot} = options;
+    const {api, ingest, auth, instance, webRoot} = options;
+
+    async function ingestRpc(request: Request, method: Parameters<IngestService["call"]>[0]): Promise<Response> {
+        const length = Number(request.headers.get("content-length") ?? "0");
+        if (length > INGEST_BODY_LIMIT) return json(HTTP_STATUS.ingest_bad_text, {code: "ingest_bad_text", message: "原文文件超过 32 MiB 的上限"});
+        let params: unknown;
+        try {
+            params = await request.json();
+        } catch {
+            return json(HTTP_STATUS.invalid_params, {code: "invalid_params", message: "请求体不是 JSON"});
+        }
+        try {
+            const outcome = await ingest.call(method, params);
+            if (outcome.ok) return json(200, outcome.value);
+            const status = (HTTP_STATUS as Record<string, number>)[outcome.error.code] ?? QA_HTTP_STATUS[outcome.error.code] ?? 400;
+            return json(status, outcome.error);
+        } catch (error) {
+            console.error({method, error}, "抽取接口出错");
+            return json(500, {code: "internal", message: "服务内部出错，详情见服务的日志"});
+        }
+    }
 
     async function rpc(request: Request, method: string): Promise<Response> {
+        if (isIngestMethod(method)) return ingestRpc(request, method);
         let params: unknown;
         try {
             params = await request.json();

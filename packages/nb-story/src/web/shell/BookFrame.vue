@@ -11,6 +11,7 @@ import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, rea
 import {useRouter} from "vue-router";
 
 import {BOOK_SESSION, type BookSession, type DrawerContent, type Page} from "../host/book";
+import {ingestBadge} from "../host/ingest";
 import {StoryCallError, useStoryClient} from "../host/client";
 import {readDrawerWidth, readNavCollapsed, writeDrawerWidth, writeNavCollapsed, type ThemeChoice} from "../host/prefs";
 import {LAYOUT_MOTION} from "../host/motion";
@@ -192,6 +193,8 @@ function toggleDrawer(): void {
     else book.reopenDrawer();
 }
 
+const ingestPill = computed(() => (book.ingest.value ? ingestBadge(book.ingest.value) : null));
+
 const notice = book.notice;
 watch(notice, value => {
     if (value) setTimeout(() => {
@@ -212,6 +215,15 @@ watch(notice, value => {
                         <span class="i-lucide-chevron-down shrink-0 text-[var(--text-muted)]" />
                     </button>
                 </DropdownMenu>
+                <!-- 抽取中的书（输出 39）：平时是进度徽标、点开进度页；又提交了一章时变成“点这里更新”，点了才换数据。 -->
+                <button
+                    v-if="book.behind.value" type="button" class="ingest-pill ingest-pill-update shrink-0" data-testid="ingest-update"
+                    :title="`第 ${book.ingest.value!.committed} 章已抽完，点这里换成新数据`" @click="book.refresh()"
+                ><span class="i-lucide-refresh-cw" />第 {{ book.ingest.value!.committed }} 章已抽完<span v-if="tier !== 'phone'">，点这里更新</span></button>
+                <RouterLink
+                    v-else-if="ingestPill" :to="`/ingest/${encodeURIComponent(book.bookId)}`" class="ingest-pill shrink-0" :class="ingestPill.tone === 'danger' ? 'ingest-pill-danger' : ''"
+                    data-testid="ingest-pill" :title="'打开抽取进度'"
+                ><span v-if="ingestPill.dot" class="ingest-dot" />{{ ingestPill.text }} {{ book.ingest.value!.committed }} / {{ book.ingest.value!.total }}</RouterLink>
                 <template v-if="tier === 'phone'">
                     <SearchBox class="ml-auto" compact />
                     <DropdownMenu :items="themeItems" compact align="end" @select="setTheme"><IconButton size="sm" :icon-class="themeIcon" aria-label="明暗" data-testid="theme-menu" /></DropdownMenu>
@@ -315,6 +327,33 @@ watch(notice, value => {
 </template>
 
 <style scoped>
+.ingest-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin-left: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border: var(--border-w) solid var(--divider);
+    border-radius: 999px;
+    font-size: var(--text-xs);
+    color: var(--accent-text);
+    white-space: nowrap;
+}
+.ingest-pill:hover {
+    background: var(--bg-hover);
+}
+.ingest-pill-danger {
+    color: var(--status-danger);
+}
+.ingest-pill-update {
+    border-color: var(--accent-text);
+}
+.ingest-dot {
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 999px;
+    background: currentColor;
+}
 .nav-item {
     color: var(--text-secondary);
 }

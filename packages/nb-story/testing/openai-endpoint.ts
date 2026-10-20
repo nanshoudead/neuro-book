@@ -23,7 +23,9 @@ export type EndpointReply =
     /** 回错误状态码；`echoKey` 时错误正文里原样带上收到的认证头。 */
     | {kind: "status"; status: number; echoKey?: boolean}
     /** 不回应，直到请求被取消。 */
-    | {kind: "hang"};
+    | {kind: "hang"}
+    /** 等 `ready` 完成后照 `reply` 回复；等的时候请求被取消就结束。 */
+    | {kind: "after"; ready: Promise<void>; reply: EndpointReply};
 
 export interface Endpoint {
     readonly url: string;
@@ -57,7 +59,12 @@ export function startEndpoint(replies: EndpointReply[] | Responder): Endpoint {
             signalFirst();
             const body = JSON.parse(await request.text()) as Record<string, unknown>;
             bodies.push(body);
-            const reply = typeof replies === "function" ? replies(body, bodies.length - 1, request.headers) : replies.shift() ?? {kind: "text", text: "脚本用完了"};
+            let reply = typeof replies === "function" ? replies(body, bodies.length - 1, request.headers) : replies.shift() ?? {kind: "text", text: "脚本用完了"};
+            while (reply.kind === "after") {
+                const aborted = new Promise<"aborted">(resolve => request.signal.addEventListener("abort", () => resolve("aborted"), {once: true}));
+                if ((await Promise.race([reply.ready.then(() => "ready" as const), aborted])) === "aborted") return new Response(null, {status: 499});
+                reply = reply.reply;
+            }
             const usage = {choices: [], usage: {prompt_tokens: 100, completion_tokens: 10, total_tokens: 110}};
             const encoder = new TextEncoder();
             switch (reply.kind) {

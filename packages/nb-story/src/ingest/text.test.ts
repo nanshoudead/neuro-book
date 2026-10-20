@@ -4,6 +4,7 @@
 
 import {describe, expect, test} from "bun:test";
 
+import {sampleDataset, sampleSourceText} from "../../testing/sample";
 import {StoryError} from "../core/errors";
 import {countChars, decodeUtf8, MAX_SOURCE_BYTES, splitChapters} from "./text";
 
@@ -39,6 +40,9 @@ describe("切章（验收 6）", () => {
         "第六章 他说「好」",
         "第七章 重名",
         "正文一段。",
+        "第八章 抓猫！",
+        "第九章 一如往常？",
+        "第十章 然后……",
         "第七章 重名",
         "番外 一",
         "尾声",
@@ -55,14 +59,23 @@ describe("切章（验收 6）", () => {
             [6, "第一卷 小丑 第四章 笔记", ["第一卷 小丑 第四章 笔记"]],
             [7, fortyChars, [fortyChars, fortyOneChars, "第六章 他说「好」"]],
             [8, "第七章 重名", ["第七章 重名", "正文一段。"]],
-            [9, "第七章 重名", ["第七章 重名"]],
-            [10, "番外 一", ["番外 一"]],
-            [11, "尾声", ["尾声"]],
+            [9, "第八章 抓猫！", ["第八章 抓猫！"]],
+            [10, "第九章 一如往常？", ["第九章 一如往常？"]],
+            [11, "第十章 然后……", ["第十章 然后……"]],
+            [12, "第七章 重名", ["第七章 重名"]],
+            [13, "番外 一", ["番外 一"]],
+            [14, "尾声", ["尾声"]],
         ]);
         expect(result.preambleChars).toBe(countChars("诡秘之主简介：一个关于蒸汽与机械的故事。"));
         expect(result.volumeLines).toBe(1);
         expect(countChars(fortyChars)).toBe(40);
         expect(result.chapters[0]!.sha256).toMatch(/^[0-9a-f]{64}$/u);
+    });
+
+    test("样例书 100 章拼回的原文切回 100 章，每章的段落与数据集里的原文相同", async () => {
+        const sample = await sampleDataset();
+        const result = splitChapters(await sampleSourceText(100));
+        expect(result.chapters.map(chapter => chapter.paragraphs)).toEqual(sample.sources.map(source => source.paragraphs));
     });
 
     test("一个章标题也没有：ingest_bad_text", () => {

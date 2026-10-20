@@ -12,7 +12,9 @@ import {sourceChapter} from "./compile";
 export const MAX_SOURCE_BYTES = 32 * 1024 * 1024;
 
 const TITLE_MAX_CHARS = 40;
-const SENTENCE_END = /[。！？…”」』]$/u;
+// 只排除句号与收尾的引号：网文的章标题常以“！”“？”“…”结尾（样例书的“第36章 抓猫！”），按句末标点一并排除会把
+// 这些章并进上一章。
+const SENTENCE_END = /[。”」』]$/u;
 const NUMBER = "[0-9０-９零〇一二三四五六七八九十百千万两]+";
 // 章标题前面可以带同一行的卷标题：“第一卷 小丑 第一章 绯红”。
 const CHAPTER_HEADING = new RegExp(`^(?:第\\s*${NUMBER}\\s*卷[^第]{0,20}?\\s*)?第\\s*${NUMBER}\\s*([章回节])(.?)`, "u");

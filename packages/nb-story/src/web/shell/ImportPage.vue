@@ -1,0 +1,186 @@
+<script setup lang="ts">
+/**
+ * 导入页 `/import`（docs/specs/story/viewer.md 输出 37、40、F6）：选一个 TXT，在浏览器里按 UTF-8 严格解码检查，书名
+ * 默认取文件名；按 `ingest.preview` 写明会做哪一种，开始后进入这本书的进度页。
+ *
+ * 预览与开始都把文件的字节（base64）交给服务，服务再解码、切章；浏览器里的解码只为了就地说明“只收 UTF-8”。改书名
+ * 会换书 id，所以停手 400 毫秒后重新预览；只认最后一次预览的结果。
+ */
+import {Button, Input, Table} from "@notnotype/nb-ui/components";
+import {computed, ref, shallowRef, watch} from "vue";
+import {useRouter} from "vue-router";
+
+import type {IngestPlanView} from "../../contract/contract";
+import {StoryCallError, useStoryClient} from "../host/client";
+import {toBase64} from "../host/ingest";
+
+const client = useStoryClient();
+const router = useRouter();
+
+const fileInput = ref<HTMLInputElement | null>(null);
+const file = shallowRef<{name: string; bytes: number; content: string} | null>(null);
+const fileError = ref<string | null>(null);
+const title = ref("");
+const plan = shallowRef<IngestPlanView | null>(null);
+const previewError = shallowRef<StoryCallError | null>(null);
+const previewing = ref(false);
+const starting = ref(false);
+const startError = ref<string | null>(null);
+const showAll = ref(false);
+
+const PREVIEW_ROWS = 8;
+const COLUMNS = [
+    {key: "chapter" as const, label: "章", width: "64px", align: "right" as const},
+    {key: "title" as const, label: "标题"},
+    {key: "chars" as const, label: "字数", width: "96px", align: "right" as const},
+];
+const numberText = (value: number) => value.toLocaleString("zh-CN");
+const charsText = (value: number) => (value >= 10_000 ? `${(value / 10_000).toFixed(value >= 1_000_000 ? 0 : 1)} 万` : numberText(value));
+const shownChapters = computed(() => {
+    const all = plan.value?.chapters ?? [];
+    return (showAll.value ? all : all.slice(0, PREVIEW_ROWS)).map(chapter => ({...chapter, chars: numberText(chapter.chars)}));
+});
+const totalChars = computed(() => (plan.value?.chapters ?? []).reduce((sum, chapter) => sum + chapter.chars, 0));
+const remaining = computed(() => (plan.value ? plan.value.chapters.length - plan.value.committed : 0));
+const startLabel = computed(() => (plan.value?.action === "new" ? "开始抽取" : `接着抽 ${remaining.value} 章`));
+
+function sizeText(bytes: number): string {
+    return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+async function pick(event: Event): Promise<void> {
+    const chosen = (event.target as HTMLInputElement).files?.[0];
+    if (!chosen) return;
+    fileError.value = null;
+    plan.value = null;
+    previewError.value = null;
+    startError.value = null;
+    const bytes = new Uint8Array(await chosen.arrayBuffer());
+    try {
+        new TextDecoder("utf-8", {fatal: true}).decode(bytes);
+    } catch {
+        file.value = null;
+        fileError.value = `“${chosen.name}”不是 UTF-8 编码。只收 UTF-8 的 TXT：先用文本编辑器另存为 UTF-8 再选。`;
+        return;
+    }
+    file.value = {name: chosen.name, bytes: bytes.byteLength, content: toBase64(bytes)};
+    title.value = chosen.name.replace(/\.[^.]+$/u, "");
+    void preview();
+}
+
+let previewToken = 0;
+async function preview(): Promise<void> {
+    if (!file.value || title.value.trim() === "") return;
+    const token = ++previewToken;
+    previewing.value = true;
+    startError.value = null;
+    try {
+        const result = await client.call("ingest.preview", {content: file.value.content, title: title.value.trim()});
+        if (token !== previewToken) return;
+        plan.value = result;
+        previewError.value = null;
+    } catch (caught) {
+        if (token !== previewToken) return;
+        if (!(caught instanceof StoryCallError)) throw caught;
+        plan.value = null;
+        previewError.value = caught;
+    } finally {
+        if (token === previewToken) previewing.value = false;
+    }
+}
+
+let titleTimer: ReturnType<typeof setTimeout> | null = null;
+const TITLE_DEBOUNCE_MS = 400;
+watch(title, (value, old) => {
+    if (!file.value || value === old) return;
+    if (titleTimer !== null) clearTimeout(titleTimer);
+    titleTimer = setTimeout(() => void preview(), TITLE_DEBOUNCE_MS);
+});
+
+const START_HINT: Record<string, string> = {
+    ingest_running: "这本书正在抽取（可能在命令行里）：去它的进度页看，或在运行它的地方停下后再来。",
+    qa_unconfigured: "还没有配置抽取用的模型：先在终端里运行 nbstory config init 配好模型。",
+    book_exists: "书架上已有同名的书是导入数据文件得来的，不能抽取：换一个书名。",
+};
+
+async function start(): Promise<void> {
+    if (!file.value || !plan.value) return;
+    starting.value = true;
+    startError.value = null;
+    try {
+        const result = await client.call("ingest.start", {content: file.value.content, title: title.value.trim()});
+        await router.push(`/ingest/${encodeURIComponent(result.id)}`);
+    } catch (caught) {
+        if (!(caught instanceof StoryCallError)) throw caught;
+        startError.value = START_HINT[caught.code] ?? caught.message;
+    } finally {
+        starting.value = false;
+    }
+}
+</script>
+
+<template>
+    <main class="story-scroll-y h-full" data-testid="import-page">
+        <div class="mx-auto flex max-w-[720px] flex-col gap-4 p-4 sm:p-6">
+            <nav class="flex items-center gap-1 text-[length:var(--text-sm)] text-[var(--text-muted)]">
+                <RouterLink to="/" class="flex items-center gap-1 hover:text-[var(--text-secondary)]"><span class="i-lucide-library" />书架</RouterLink>
+                <span class="i-lucide-chevron-right" />导入原文
+            </nav>
+            <h1 class="text-[length:var(--text-lg)] font-[var(--weight-strong)]">导入原文</h1>
+
+            <input ref="fileInput" type="file" accept=".txt,text/plain" class="hidden" data-testid="import-file" @change="pick" />
+            <section class="flex items-center gap-3 rounded-[var(--radius-control)] border border-dashed border-[var(--divider)] px-4 py-3">
+                <span class="i-lucide-file-text text-[length:var(--text-lg)] text-[var(--text-secondary)]" />
+                <div class="min-w-0 flex-1">
+                    <div class="truncate font-[var(--weight-strong)]">{{ file ? file.name : "还没有选文件" }}</div>
+                    <div class="text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ file ? `${sizeText(file.bytes)} · UTF-8 · ` : "" }}只收 UTF-8 的 TXT，不超过 32 MB</div>
+                </div>
+                <Button size="sm" :variant="file ? 'secondary' : 'primary'" @click="fileInput?.click()">{{ file ? "换一个文件" : "选择文件" }}</Button>
+            </section>
+            <p v-if="fileError" class="text-[length:var(--text-sm)] text-[var(--status-danger)]" role="alert" data-testid="import-file-error">{{ fileError }}</p>
+
+            <template v-if="file">
+                <section class="grid grid-cols-[72px_1fr] items-center gap-x-3 gap-y-2">
+                    <label class="text-[length:var(--text-sm)] text-[var(--text-secondary)]" for="import-title">书名</label>
+                    <Input id="import-title" v-model="title" data-testid="import-title" />
+                    <span class="text-[length:var(--text-sm)] text-[var(--text-secondary)]">书 id</span>
+                    <span class="min-w-0 truncate text-[length:var(--text-sm)] text-[var(--text-muted)]" data-testid="import-id">{{ plan ? `${plan.id}（由书名得到）` : previewing ? "正在切章……" : "—" }}</span>
+                </section>
+
+                <section v-if="previewError" class="flex flex-col gap-1 rounded-[var(--radius-control)] border border-[var(--status-danger)] px-4 py-3 text-[length:var(--text-sm)]" data-testid="import-problem" :data-code="previewError.code">
+                    <div class="text-[var(--status-danger)]"><span class="i-lucide-circle-x mr-1 align-[-2px]" />{{ previewError.message }}</div>
+                    <div v-if="previewError.code === 'ingest_text_changed'" class="text-[var(--text-muted)]">改稿重抽不支持：换一个书名重新抽（得到新的一本），或在终端里用 <code>nbstory remove</code> 删掉这本后重抽。</div>
+                    <div v-else-if="previewError.code === 'ingest_bad_text'" class="text-[var(--text-muted)]">检查章标题的写法：每章以“第 N 章”或“序章”“番外”这类标题单独起一行。</div>
+                </section>
+
+                <section v-if="plan" class="flex flex-col gap-1 rounded-[var(--radius-control)] bg-[var(--bg-subtle)] px-4 py-3 text-[length:var(--text-sm)]" data-testid="import-plan" :data-action="plan.action">
+                    <template v-if="plan.action === 'new'">
+                        <div><span class="i-lucide-sparkles mr-1 align-[-2px] text-[var(--accent-text)]" />新书：切出 <b>{{ numberText(plan.chapters.length) }}</b> 章，共 <b>{{ charsText(totalChars) }}</b>字，从第 1 章开始抽。</div>
+                        <div class="text-[var(--text-muted)]">第一个章标题之前的 {{ numberText(plan.preambleChars) }} 字（书名、简介）不算正文<template v-if="plan.volumeLines">；{{ plan.volumeLines }} 个卷标题行不计入</template>。</div>
+                    </template>
+                    <div v-else-if="plan.action === 'append'"><span class="i-lucide-plus-circle mr-1 align-[-2px] text-[var(--accent-text)]" />已抽完 <b>{{ plan.committed }} / {{ plan.chapters.length - plan.newChapters }}</b> 章；文件多出 <b>{{ plan.newChapters }}</b> 章，接着抽第 {{ plan.committed + 1 }} 到 {{ plan.chapters.length }} 章。</div>
+                    <div v-else-if="plan.action === 'resume'"><span class="i-lucide-play-circle mr-1 align-[-2px] text-[var(--accent-text)]" />这本书已抽完 <b>{{ plan.committed }} / {{ plan.chapters.length }}</b> 章，接着抽第 {{ plan.committed + 1 }} 到 {{ plan.chapters.length }} 章。</div>
+                    <div v-else><span class="i-lucide-circle-check mr-1 align-[-2px] text-[var(--status-success)]" />这本书已经全部抽完（{{ plan.chapters.length }} 章）。<RouterLink :to="`/book/${encodeURIComponent(plan.id)}`" class="text-[var(--accent-text)]">打开书</RouterLink></div>
+                    <div v-if="plan.action !== 'done'" class="text-[var(--text-muted)]">
+                        <template v-if="plan.model">抽取模型 {{ plan.model.id }}（来自配置文件）。</template>
+                        <template v-else>还没有配置抽取用的模型：先在终端里运行 <code>nbstory config init</code>。</template>
+                        每章约 4 到 5 分钟，抽完第 1 章就能打开；随时可以停下，之后接着抽。
+                    </div>
+                </section>
+
+                <section v-if="plan" class="flex flex-col gap-2">
+                    <h2 class="text-[length:var(--text-sm)] font-[var(--weight-strong)]">切章结果 <span class="font-normal text-[var(--text-muted)]">（{{ showAll || plan.chapters.length <= PREVIEW_ROWS ? `共 ${numberText(plan.chapters.length)} 章` : `前 ${PREVIEW_ROWS} 章，共 ${numberText(plan.chapters.length)} 章` }}）</span></h2>
+                    <Table :columns="COLUMNS" :rows="shownChapters" row-key="chapter" density="compact" data-testid="import-chapters" />
+                    <button v-if="!showAll && plan.chapters.length > PREVIEW_ROWS" type="button" class="self-start text-[length:var(--text-sm)] text-[var(--accent-text)]" @click="showAll = true">展开全部 {{ numberText(plan.chapters.length) }} 章</button>
+                </section>
+
+                <p v-if="startError" class="text-[length:var(--text-sm)] text-[var(--status-danger)]" role="alert" data-testid="import-start-error">{{ startError }}</p>
+                <div class="flex flex-wrap items-center gap-2">
+                    <Button v-if="plan && plan.action !== 'done'" icon-class="i-lucide-play" :disabled="previewing || starting" data-testid="import-start" @click="start">{{ startLabel }}</Button>
+                    <Button variant="ghost" @click="router.push('/')">取消</Button>
+                    <span v-if="plan && plan.action !== 'done'" class="text-[length:var(--text-xs)] text-[var(--text-muted)]">开始后可以离开这一页，进度在书架和进度页上</span>
+                </div>
+            </template>
+        </div>
+    </main>
+</template>

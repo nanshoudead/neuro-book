@@ -1,54 +1,123 @@
 <script setup lang="ts">
 /**
- * 书架（docs/specs/story/viewer.md 输出 35）：列出书库里的书。登录后落到这里、书库里只有一本时直接打开它；从书里
- * 点“回到书架”过来（应用内导航，history.state.back 有值）时照常列出。地址里的书不在了时，书的外壳会带着
- * `missing` 回到这里（viewer F2）。
+ * 书架（docs/specs/story/viewer.md 输出 35、36）：列出书库里的书与有抽取记录的书 id。登录后落到这里、书库里只有
+ * 一本且没有在抽的书时直接打开它；从书里点“回到书架”过来（应用内导航，history.state.back 有值）时照常列出。地址里
+ * 的书不在了时，书的外壳会带着 `missing` 回到这里（viewer F2）。
+ *
+ * 有没抽完的书时每 5 秒查一次抽取进度；第 1 章还没提交的书只在抽取进度里，置灰、点不开。
  */
-import {onMounted, ref} from "vue";
+import {Button, Progress} from "@notnotype/nb-ui/components";
+import {computed, onBeforeUnmount, onMounted, ref, shallowRef} from "vue";
 import {useRoute, useRouter} from "vue-router";
 
-import type {StoryResult} from "../../contract/contract";
+import type {IngestStatusView, StoryResult} from "../../contract/contract";
 import {StoryCallError, useStoryClient} from "../host/client";
+import {STEP_LABELS, stopText} from "../host/ingest";
+import IngestBadge from "../parts/IngestBadge.vue";
+
+type Book = StoryResult<"books.list">["books"][number];
+interface Row {
+    id: string;
+    title: string;
+    book: Book | null;
+    ingest: IngestStatusView | null;
+}
 
 const client = useStoryClient();
 const route = useRoute();
 const router = useRouter();
-const books = ref<StoryResult<"books.list">["books"] | null>(null);
+const books = shallowRef<Book[] | null>(null);
+const ingests = shallowRef<IngestStatusView[]>([]);
 const error = ref<string | null>(null);
 const missing = typeof route.query.missing === "string" ? route.query.missing : null;
 
+const rows = computed<Row[]>(() => {
+    const byId = new Map<string, Row>();
+    for (const book of books.value ?? []) byId.set(book.id, {id: book.id, title: book.title, book, ingest: null});
+    for (const status of ingests.value) {
+        const row = byId.get(status.id);
+        if (row) row.ingest = status;
+        else byId.set(status.id, {id: status.id, title: status.title, book: null, ingest: status});
+    }
+    return [...byId.values()];
+});
+const unfinished = computed(() => ingests.value.some(status => status.state !== "done"));
+
+function note(status: IngestStatusView): string | null {
+    if (status.state === "running" && status.current?.chapter) return `第 ${status.current.chapter} 章${status.current.step ? ` · ${STEP_LABELS[status.current.step]}` : ""}`;
+    return stopText(status);
+}
+
+async function load(): Promise<void> {
+    const [list, statuses] = await Promise.all([client.call("books.list", {}), client.call("ingest.status", {})]);
+    books.value = list.books;
+    ingests.value = statuses.books;
+}
+
+let timer: ReturnType<typeof setInterval> | null = null;
+const POLL_MS = 5000;
 onMounted(async () => {
     try {
-        const result = await client.call("books.list", {});
+        await load();
         const fromApp = typeof (window.history.state as {back?: unknown} | null)?.back === "string";
-        if (result.books.length === 1 && !missing && !fromApp) {
-            await router.replace(`/book/${encodeURIComponent(result.books[0]!.id)}`);
+        if (books.value!.length === 1 && !unfinished.value && !missing && !fromApp) {
+            await router.replace(`/book/${encodeURIComponent(books.value![0]!.id)}`);
             return;
         }
-        books.value = result.books;
     } catch (caught) {
         if (!(caught instanceof StoryCallError)) throw caught;
         error.value = caught.message;
+        return;
     }
+    timer = setInterval(() => {
+        if (!unfinished.value) return;
+        load().catch((caught: unknown) => {
+            // 一次没查到不影响书架，下一轮再查。
+            console.warn({error: caught}, "刷新书架失败");
+        });
+    }, POLL_MS);
+});
+onBeforeUnmount(() => {
+    if (timer !== null) clearInterval(timer);
 });
 </script>
 
 <template>
-    <main class="mx-auto flex h-full max-w-[720px] flex-col gap-4 p-6" data-testid="library">
-        <h1 class="flex items-center gap-2 text-[length:var(--text-lg)] font-[var(--weight-strong)]"><span class="i-lucide-library text-[var(--accent-text)]" />书架</h1>
-        <p v-if="missing" class="text-[var(--text-secondary)]" data-testid="book-missing">书“{{ missing }}”不在书库里了。</p>
-        <p v-if="error" class="text-[var(--status-danger)]">{{ error }}</p>
-        <p v-else-if="books && books.length === 0">书库里还没有书。用 <code>nbstory import &lt;文件&gt; --title &lt;书名&gt;</code> 导入。</p>
-        <ul v-else-if="books" class="flex flex-col gap-1">
-            <li v-for="book in books" :key="book.id">
-                <RouterLink :to="`/book/${encodeURIComponent(book.id)}`" class="shelf-item flex items-baseline gap-3 rounded-[var(--radius-control)] px-3 py-2">
-                    <span class="i-lucide-book self-center text-[var(--text-secondary)]" />
-                    <b class="min-w-0 truncate">{{ book.title }}</b>
-                    <span class="ml-auto shrink-0 text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ book.chapters }} 章 · 抽取到 {{ book.extractedThrough.chapter }}.{{ book.extractedThrough.paragraph }}</span>
-                </RouterLink>
-            </li>
-        </ul>
-        <p v-if="books && books.length > 0" class="text-[length:var(--text-xs)] text-[var(--text-muted)]">再导入一本：<code>nbstory import &lt;文件&gt; --title &lt;书名&gt;</code>。同时看几本书时各开一个浏览器标签。</p>
+    <main class="story-scroll-y h-full" data-testid="library">
+        <div class="mx-auto flex max-w-[720px] flex-col gap-4 p-4 sm:p-6">
+            <div class="flex items-center gap-2">
+                <h1 class="flex items-center gap-2 text-[length:var(--text-lg)] font-[var(--weight-strong)]"><span class="i-lucide-library text-[var(--accent-text)]" />书架</h1>
+                <Button class="ml-auto" size="sm" icon-class="i-lucide-file-plus" data-testid="go-import" @click="router.push('/import')">导入原文</Button>
+            </div>
+            <p v-if="missing" class="text-[var(--text-secondary)]" data-testid="book-missing">书“{{ missing }}”不在书库里了。</p>
+            <p v-if="error" class="text-[var(--status-danger)]">{{ error }}</p>
+            <p v-else-if="books && rows.length === 0">书库里还没有书。点“导入原文”选一个 TXT，或在终端里用 <code>nbstory ingest &lt;原文.txt&gt;</code> 导入。</p>
+            <ul v-else-if="books" class="flex flex-col gap-1">
+                <li v-for="row in rows" :key="row.id" data-testid="shelf-row" :data-book="row.id">
+                    <div class="shelf-item flex flex-col gap-1.5 rounded-[var(--radius-control)] px-3 py-2">
+                        <div class="flex items-baseline gap-3">
+                            <span class="i-lucide-book self-center text-[var(--text-secondary)]" />
+                            <RouterLink v-if="row.book" :to="`/book/${encodeURIComponent(row.id)}`" class="min-w-0 truncate font-[var(--weight-strong)] hover:underline" data-testid="shelf-open">{{ row.title }}</RouterLink>
+                            <b v-else class="min-w-0 truncate text-[var(--text-secondary)]" title="抽完第 1 章后可以打开">{{ row.title }}</b>
+                            <IngestBadge v-if="row.ingest" :status="row.ingest" class="self-center" />
+                            <span class="ml-auto shrink-0 text-[length:var(--text-sm)] text-[var(--text-muted)]">
+                                <template v-if="row.ingest && row.ingest.state !== 'done'">抽完 {{ row.ingest.committed }} / {{ row.ingest.total }} 章</template>
+                                <template v-else-if="row.book">{{ row.book.chapters }} 章 · 抽取到 {{ row.book.extractedThrough.chapter }}.{{ row.book.extractedThrough.paragraph }}</template>
+                            </span>
+                            <RouterLink v-if="row.ingest && row.ingest.state !== 'done'" :to="`/ingest/${encodeURIComponent(row.id)}`" class="shrink-0 text-[length:var(--text-sm)] text-[var(--accent-text)]" data-testid="shelf-progress">进度</RouterLink>
+                        </div>
+                        <template v-if="row.ingest && row.ingest.state !== 'done'">
+                            <Progress :model-value="row.ingest.committed" :max="row.ingest.total" size="sm" :tone="row.ingest.stopReason?.kind === 'failed' ? 'danger' : 'accent'" class="ml-7" />
+                            <div class="ml-7 flex flex-wrap items-center gap-x-2 text-[length:var(--text-xs)] text-[var(--text-muted)]">
+                                <span :class="row.ingest.stopReason?.kind === 'failed' ? 'text-[var(--status-danger)]' : ''">{{ note(row.ingest) }}</span>
+                                <span v-if="!row.book">· 抽完第 1 章后可以打开</span>
+                            </div>
+                        </template>
+                    </div>
+                </li>
+            </ul>
+            <p class="text-[length:var(--text-xs)] text-[var(--text-muted)]">也可以在终端里用 <code>nbstory ingest &lt;原文.txt&gt;</code> 导入；导入现成的记忆图数据用 <code>nbstory import</code>。同时看几本书时各开一个浏览器标签。</p>
+        </div>
     </main>
 </template>
 

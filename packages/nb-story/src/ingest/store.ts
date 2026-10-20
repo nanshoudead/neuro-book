@@ -24,6 +24,7 @@ import type {SourceChapter} from "../core/dataset";
 import {StoryError, systemErrorCode} from "../core/errors";
 import type {Library} from "../core/library";
 import {tryLock, type FileLock} from "../platform/flock";
+import type {Step} from "./chapter";
 
 export interface IngestSource {
     id: string;
@@ -38,8 +39,8 @@ export type Price = {input: number; output: number; cacheRead?: number; currency
 
 /** 一次 HTTP 尝试的用量记账：发出前写 `start`，结束后写 `end`（同一个 `id`）。价格记下当时的，以后改了配置也不改历史费用。 */
 export type UsageLine =
-    | {kind: "start"; id: string; run: string; chapter: number; step: string; attempt: number; at: string}
-    | {kind: "end"; id: string; run: string; chapter: number; step: string; attempt: number; at: string; ms: number; input: number; output: number; cacheRead: number; complete: boolean; error: string | null; price: Price | null};
+    | {kind: "start"; id: string; run: string; chapter: number; step: Step; attempt: number; at: string}
+    | {kind: "end"; id: string; run: string; chapter: number; step: Step; attempt: number; at: string; ms: number; input: number; output: number; cacheRead: number; complete: boolean; error: string | null; price: Price | null};
 
 /** 任务与每章每次尝试的起止。章的 `outcome`：提交、停下、失败。 */
 export type ActivityLine =
@@ -62,7 +63,7 @@ export interface IngestState {
     /** `running` 只是“写下时在运行”；是否真在运行以锁为准（status.ts）。 */
     state: "running" | "stopped";
     chapter: number | null;
-    step: string | null;
+    step: Step | null;
     retry: {attempt: number; waitMs: number; until: string} | null;
     stopReason: StopReason | null;
     updatedAt: string;

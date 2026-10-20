@@ -2,16 +2,21 @@
  * 一本书在查看器里的会话：阅读位置、视角、当前页、抽屉里打开的东西，以及它们与地址、书库里阅读状态的同步
  * （docs/specs/story/viewer.md 输出 4、5、21 与“状态与转换”）。
  *
+ * 抽取中的书（输出 39）：每 5 秒查一次这本书的抽取进度（`ingest`）。又提交了新的章时只记下“落后了”（`behind`），
+ * 不换数据；用户点更新、或做了要取新数据的操作（换位置、换页面、打开对象、翻页）时 `refresh()` 换成新的：重取
+ * `info`、数据版本加一，各处的查询按版本重取（查询 hook 把版本当参数），阅读位置、页面、对象与视角都不变。查询
+ * 本身不固定版本，所以“点之前不变”只对已经显示的内容成立；之后发出的请求都读到新数据，由这里保证先换 `info`。
+ *
  * 状态只在这里改；地址与保存都从状态派生：
  * - 地址：状态一变就 router.replace；地址被外部改了（后退、手改）就按地址改状态。两边比较后才写，不会来回触发。
  * - 保存：最后一次变化后 1 秒存一次整份阅读状态；同时只有一次在途，在途时又变了就记下，等它完成再存最新的一份。
  *   页面隐藏或关闭时立即用 keepalive 发出。保存的返回不改动界面；失败时 saveFailed 为真，下次变化时重试。
  */
 
-import {computed, inject, ref, watch, type ComputedRef, type InjectionKey, type Ref} from "vue";
+import {computed, inject, ref, shallowRef, watch, type ComputedRef, type InjectionKey, type Ref, type ShallowRef} from "vue";
 import type {Router} from "vue-router";
 
-import type {PositionInput, StoryResult} from "../../contract/contract";
+import type {IngestStatusView, PositionInput, StoryResult} from "../../contract/contract";
 import {sendKeepalive, StoryCallError, type StoryClient} from "./client";
 
 export const PAGES = ["overview", "relations", "book-graph", "roster", "secrets", "ledger", "questions", "timeline", "episodes", "source", "stats"] as const;
@@ -41,8 +46,16 @@ interface SavedView {
 
 export interface BookSession {
     readonly bookId: string;
-    /** 全书的信息（章数、各章段数）；不带阅读位置取，目录标题另按位置取。 */
+    /** 全书的信息（章数、各章段数）；不带阅读位置取，目录标题另按位置取。`refresh()` 后换成新的（读它的地方是响应式的）。 */
     readonly info: StoryResult<"book.info">;
+    /** 数据版本：`refresh()` 一次加一。查询 hook 把它当参数，变了就重取。 */
+    readonly dataVersion: Ref<number>;
+    /** 这本书的抽取进度；没有抽取记录时为 null。 */
+    readonly ingest: ShallowRef<IngestStatusView | null>;
+    /** 书库里已经提交了比显示的数据更多的章（徽标提示“点这里更新”）。 */
+    readonly behind: ComputedRef<boolean>;
+    /** 换成书库里最新的数据；正在换时再调用等同一次。 */
+    refresh(): Promise<void>;
     readonly at: Ref<PositionInput>;
     readonly atLabel: ComputedRef<string>;
     /** 读到了抽取到的最后位置（显示“全部读完”，输出 5）。 */
@@ -133,7 +146,9 @@ const SAVE_DELAY_MS = 1000;
  * 再返回会话。页面数据在这之后才取。
  */
 export async function openBookSession(client: StoryClient, router: Router, bookId: string): Promise<BookSession> {
-    const info = await client.call("book.info", {book: bookId});
+    const infoRef = shallowRef(await client.call("book.info", {book: bookId}));
+    // 打开时的检查用打开那一刻的信息；之后的读取都经 infoRef（refresh 会换它）。
+    const info = infoRef.value;
     const saved = await client.call("reading.get", {book: bookId});
     const route = router.currentRoute.value;
     const query = route.query;
@@ -176,7 +191,7 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
     const drawer = ref<DrawerContent | null>(entity === null ? null : {kind: "card", entity, tab});
     const notice = ref<string | null>(notices.length ? notices.join("；") : null);
     const saveFailed = ref(false);
-    const atEnd = computed(() => isEnd(info, at.value));
+    const atEnd = computed(() => isEnd(infoRef.value, at.value));
     const atLabel = computed(() => (atEnd.value ? "全部读完" : at.value.paragraph === undefined ? `第 ${at.value.chapter} 章` : `第 ${at.value.chapter} 章第 ${at.value.paragraph} 段`));
     const pendingJump = ref<JumpTarget | null>(null);
 
@@ -206,10 +221,10 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
         if (to.params.id !== bookId) return;
         if (isPage(to.params.page) && to.params.page !== page.value) page.value = to.params.page;
         const nextAt = parseAt(to.query.at);
-        if (validAt(info, nextAt) && formatAt(nextAt) !== formatAt(at.value)) void moveTo(nextAt);
+        if (validAt(infoRef.value, nextAt) && formatAt(nextAt) !== formatAt(at.value)) void moveTo(nextAt);
         if (typeof to.query.perspective === "string" && to.query.perspective !== perspectiveRef.value) perspectiveRef.value = to.query.perspective;
         const chapter = typeof to.query.chapter === "string" && /^\d+$/u.test(to.query.chapter) ? Number(to.query.chapter) : null;
-        if (chapter !== sourceChapter.value && (chapter === null || chapter <= info.chapters)) sourceChapter.value = chapter;
+        if (chapter !== sourceChapter.value && (chapter === null || chapter <= infoRef.value.chapters)) sourceChapter.value = chapter;
     });
 
     // ---- 换阅读位置 ----
@@ -290,9 +305,56 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
     // 地址覆盖了存下的状态（或去掉了不存在的对象）时，打开的这一刻就已经是一次变化，照样存。
     if (JSON.stringify({position: at.value, view: viewState()}) !== JSON.stringify({position: saved.position, view: saved.view})) scheduleSave();
 
+    // ---- 抽取中的书：进度与更新（输出 39） ----
+    const dataVersion = ref(0);
+    const ingest = shallowRef<IngestStatusView | null>(null);
+    const behind = computed(() => ingest.value !== null && ingest.value.committed > infoRef.value.chapters);
+    let refreshing: Promise<void> | null = null;
+    function refresh(): Promise<void> {
+        refreshing ??= (async () => {
+            try {
+                infoRef.value = await client.call("book.info", {book: bookId});
+                dataVersion.value += 1;
+            } finally {
+                refreshing = null;
+            }
+        })();
+        return refreshing;
+    }
+    /** 要取新数据的操作之前调用：落后了就先换成新数据。 */
+    function freshen(): Promise<void> {
+        return behind.value ? refresh() : Promise.resolve();
+    }
+    // 没有抽取记录（导入数据文件得来的书）时停止轮询；有记录时一直查，抽完之后追加新章也看得到。
+    let polling: ReturnType<typeof setInterval> | null = null;
+    async function poll(): Promise<void> {
+        try {
+            ingest.value = (await client.call("ingest.status", {book: bookId})).books[0] ?? null;
+        } catch (error) {
+            if (!(error instanceof StoryCallError)) throw error;
+            if (error.code === "book_not_found") {
+                ingest.value = null;
+                if (polling !== null) clearInterval(polling);
+                polling = null;
+                return;
+            }
+            // 一次没查到（例如服务暂时不通）不影响阅读，下一轮再查。
+            console.warn({error}, "查抽取进度失败");
+        }
+    }
+    const INGEST_POLL_MS = 5000;
+    polling = setInterval(() => void poll(), INGEST_POLL_MS);
+    void poll();
+
     return {
         bookId,
-        info,
+        get info() {
+            return infoRef.value;
+        },
+        dataVersion,
+        ingest,
+        behind,
+        refresh,
         at,
         atLabel,
         atEnd,
@@ -306,6 +368,7 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
         lastDrawer,
         wideRecords: ref(null),
         jump(next, target) {
+            void freshen();
             pendingJump.value = target;
             page.value = next;
         },
@@ -319,21 +382,29 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
             if (drawer.value === null && lastDrawer.value !== null) drawer.value = lastDrawer.value;
         },
         setAt(next) {
-            if (validAt(info, next)) void moveTo(next);
+            void freshen().then(() => {
+                if (validAt(infoRef.value, next)) void moveTo(next);
+            });
         },
+        // 换页面、打开对象：落后了先换成新数据（版本一变，新页面与抽屉的查询都按新数据重取）。
         goPage(next) {
+            void freshen();
             page.value = next;
         },
         openCard(entityId, tabName = "summary") {
+            void freshen();
             drawer.value = {kind: "card", entity: entityId, tab: tabName};
         },
         openSource(refText) {
+            void freshen();
             drawer.value = {kind: "source", ref: refText};
         },
         openParagraph(chapter, paragraph) {
+            void freshen();
             drawer.value = {kind: "para", chapter, paragraph};
         },
         openNode(id, label) {
+            void freshen();
             drawer.value = {kind: "node", id, label};
         },
         closeDrawer() {
@@ -341,6 +412,8 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
             drawer.value = null;
         },
         dispose() {
+            if (polling !== null) clearInterval(polling);
+            polling = null;
             stopWatch();
             stopChapter();
             stopRoute();

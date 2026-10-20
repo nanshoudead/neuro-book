@@ -91,7 +91,8 @@ export const PERSPECTIVE_METHODS: ReadonlySet<StoryMethod> = new Set(["entities.
 
 const compiled = new Map<TSchema, ReturnType<typeof Compile<TSchema>>>();
 
-function problems(schema: TSchema, value: unknown): string | null {
+/** 按 schema 校验，返回前几处问题的说明；合格时为 null。编译结果按 schema 缓存。 */
+export function schemaProblems(schema: TSchema, value: unknown): string | null {
     let check = compiled.get(schema);
     if (!check) compiled.set(schema, (check = Compile(schema)));
     if (check.Check(value)) return null;
@@ -207,10 +208,10 @@ export function createStoryApi(options: {library?: Library | string} = {}): Stor
         try {
             if (!isMethod(method)) throw new StoryError("invalid_params", `没有方法 ${String(method)}`);
             const spec = STORY_METHODS[method];
-            const invalid = problems(spec.input, params);
+            const invalid = schemaProblems(spec.input, params);
             if (invalid) throw new StoryError("invalid_params", `参数不符合 ${method} 的 schema：${invalid}`);
             const value = await run(params as Record<string, unknown>);
-            const broken = problems(spec.output, value);
+            const broken = schemaProblems(spec.output, value);
             if (broken) throw new Error(`${method} 的结果不符合合同：${broken}`);
             return {ok: true, value: value as StoryResult<M>};
         } catch (error) {
