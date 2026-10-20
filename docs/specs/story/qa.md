@@ -40,13 +40,14 @@ owners:
 | `nbstory ask <问题> [--at <章或章.段>] [--mode graph\|full] [--book <书>] [--config <文件>] [--json]` | 问一个问题 |
 | `nbstory qa [<记录 id>] [--book <书>] [--json]` | 不给 id：列出这本书的问答记录，新的在前；给 id：显示这条记录 |
 | `nbstory qa rm <记录 id> [--book <书>]` | 删除一条问答记录 |
+| `nbstory config init\|show\|set <字段> <值>\|unset <字段>\|test [--config <文件>] [--json]` | 写、看、改配置并检查它能不能用，见输出 18 到 22 |
 
 - 不给 `--at` 时读到全书已抽取的最后位置，同 [`story.queries`](queries.md#阅读位置的规则)；`--book` 的省略规则相同。
 - 三条命令都接受 `--library <目录>`。
 
 ### 配置
 
-配置文件默认在 `$XDG_CONFIG_HOME/nbstory/config.json`（未设置时为 `~/.config/nbstory/config.json`），`--config` 可另指定。只有 `ask` 读它。
+配置文件默认在 `$XDG_CONFIG_HOME/nbstory/config.json`（未设置时为 `~/.config/nbstory/config.json`），`--config` 可另指定。`ask` 读它，`nbstory config` 维护它（也可以手编，字段规则相同）。
 
 ```ts
 type QaConfig = {
@@ -130,6 +131,11 @@ type QaConfig = {
 15. **每问一条记录。** 一问结束时（交卷、失败或中断）写下一条记录：问题、书、这一代的代号、P、做法、状态（已答、失败、中断）、答案（只在已答时）、失败码与错误归类（只在失败时）、读过的章、用量、用时、模型名、开始时间。中断与失败的记录没有答案，不留半条答案。
 16. **查看与删除。** `nbstory qa` 列出这本书当前一代的记录（id、时间、状态、问题、P），新的在前；`nbstory qa <id>` 按 `ask` 的格式显示一条；`nbstory qa rm <id>` 删除它。别的一代的记录不列出、不能显示（`qa_record_not_found`）。读不成记录的文件（损坏）列在最后、标为损坏，不影响其余记录；显示它得到 `qa_record_broken`，可以用 `qa rm` 删除。
 17. **密钥不落地。** 密钥只从配置指定的环境变量读出交给 HTTP 客户端，不出现在记录、会话日志、标准输出与标准错误里；模型服务的错误正文回显了密钥时也一样（错误归类与状态码照常保留）。
+18. **配置命令。** `nbstory config` 的 `show` 显示配置文件路径与各字段，并说明密钥环境变量设没设置，不打印密钥；`set <字段> <值>` 改一个字段，`unset <字段>` 去掉一个可选字段（服务地址、模型名、密钥环境变量名不能去掉）。字段用点路径：`model.baseUrl`、`model.id`、`model.apiKeyEnv`、`model.contextWindow`、`model.maxTokens`、`model.thinking`、`model.price`（值写 JSON）、`qa.maxChapters`、`qa.fullReadMaxChars`。配置文件不存在时 `show`、`set`、`unset` 以 `qa_unconfigured` 失败，下一步指向 `config init`。所有动作都接受 `--config` 与 `--json`。
+19. **init。** `--base-url`、`--model`、`--api-key-env` 三项给齐就直接写（可加 `--thinking`）；缺的在终端里交互问，已有配置的值作默认，选项里给了的不再问。密钥环境变量名这一项只收环境变量名的写法，把密钥本身贴进来会被拒绝并说明。已有配置文件时：交互里先确认覆盖（默认不覆盖），非交互需要 `--force`；覆盖时没给的字段保留原值。不在终端里（或加了 `--json`）而缺必填项：用法错误，不等待输入。交互中取消：退出码 130，不写盘。
+20. **写入规则。** 写之前整份配置过校验，不通过就不写、原文件不变（`qa_unconfigured`，写明哪个字段）；通过的写同目录临时文件再改名，正在读它的 `ask` 读到的要么是旧的整份、要么是新的整份；写不进去报 `qa_config_write_failed`（F7）。配置里只有环境变量名，密钥值不出现在配置文件、输出与错误里。
+21. **test。** 用配置里的模型、推理档和密钥环境变量，经与问答相同的路径向模型发一个最小请求：通过时输出模型名、用时、用量，以及配置里写的推理档；失败按 `ask` 的归类以 `model_failed` 失败，退出码 4；取消 130。请求带推理档当且仅当配置写了。输出只报告配置里写的推理档，不声称服务端已按该档思考。
+22. **config 的退出码。** 0 成功；1 配置不合格或写失败（`qa_unconfigured`、`qa_config_write_failed`）；2 用法错误（未知动作、参数个数不对、字段名或值的写法不对、缺必填项又不在终端、已有配置而没有 `--force`）；`test` 失败为 4，取消为 130。
 
 ## 状态与转换
 
@@ -162,18 +168,19 @@ type QaConfig = {
 
 | 编号 | 码 | 含义 | 调用方怎么办 |
 |---|---|---|---|
-| F1 | `qa_unconfigured` | 没有配置文件，或缺少必填字段（服务地址、模型名、密钥环境变量名） | 按“配置”写好配置文件 |
+| F1 | `qa_unconfigured` | 没有配置文件，或缺少必填字段（服务地址、模型名、密钥环境变量名），或字段值不合格 | 用 `nbstory config init` 写好，或按“配置”手编 |
 | F2 | `model_failed` | 模型请求失败；`kind` 取 [`agent.harness`](../agent/harness.md#失败与恢复) 的错误归类（`auth` 含密钥环境变量没有设置，另有 `quota`、`rate_limit`、`network`、`context_overflow`、`provider`、`local`） | 按 `kind`：设好密钥、等额度或限流恢复、重试；`context_overflow` 时改用图当目录或调小上限 |
 | F3 | `full_read_unavailable` | P 以前的原文超过全读上限 | 改用图当目录，或调大 `fullReadMaxChars` |
 | F4 | `no_answer` | 提醒两次后仍没有交出通过校验的答案 | 重问 |
 | F5 | `qa_record_not_found` | 记录不存在、已删除，或属于别的一代 | 用 `nbstory qa` 查 |
 | F6 | `qa_record_broken` | 记录文件损坏，读不成一条记录 | 用 `nbstory qa rm <id>` 删除 |
+| F7 | `qa_config_write_failed` | `nbstory config` 写不了配置文件（目录不可写、路径被文件占着等） | 换 `--config` 指定的位置，或修好目录权限 |
 
 查询类失败（`book_not_found`、`book_ambiguous`、`position_out_of_range` 等）沿用 [`story.queries`](queries.md#失败与恢复) 的码，在调用模型之前报出。
 
 ## 边界与兼容
 
-- **公开接口**：`ask`、`qa` 命令与参数、`--json` 的输出形状、退出码、配置文件格式、问答记录的字段。新增可选字段不算破坏兼容。
+- **公开接口**：`ask`、`qa`、`config` 命令与参数、`--json` 的输出形状、退出码、配置文件格式、问答记录的字段。新增可选字段不算破坏兼容。
 - **引擎**：`ask` 与以后的网页问答页、NeuroBook 插件调用同一个问答函数；Profile `story-qa` 与工具随包提供。
 - **信任边界**：模型只经工具读书库，工具只读；模型的输出在作答工具处校验，不经校验的内容不进记录的答案。
 
@@ -195,6 +202,10 @@ type QaConfig = {
    3. 全读答知情、身份 16 题各一次，只记录结果，不设门槛；
    4. 每题记下读过的章数、被退回的次数、用量与费用；
    5. 三批都要完整：任何一份没答、没判分，或答案没有出处、提到阅读位置之后的内容，这次回归不算通过。
+
+10. **配置命令（确定性）。** `config init` 选项给齐写出的文件，`show` 读得回、`ask` 读得进；缺必填项又不在终端、已有配置而没有 `--force`、字段名不认识、值写法不对、去掉必填字段都是退出码 2，文件不变；`qa.maxChapters` 设 21 是 `qa_unconfigured`（退出码 1），文件不变；写不进去是 `qa_config_write_failed`。
+11. **init 的交互（确定性）。** 在带按键输入的终端里依次问地址、模型名、密钥环境变量名、推理档，返回的配置与按键一致；贴进密钥形状的值被拒绝，改填变量名后通过；已有配置时默认不覆盖，选“不写”推理档会去掉原来的；中途取消不写盘。
+12. **test（确定性）。** 对本机端点：通过时端点收到的请求带配置里的推理档（配置没写则请求里没有推理档字段）和密钥；端点回 401 且正文回显密钥：退出码 4、归类 `auth`，输出里没有密钥；密钥环境变量没设置：退出码 4，不向端点发请求。
 
 Smoke：在真实书库上用 100 章样例书与真实模型跑 `nbstory ask` 一问（图当目录），答案带出处、记录可以用 `nbstory qa` 列出与显示。
 

@@ -3,11 +3,11 @@
  * 环境变量名。
  */
 
-import {readFile} from "node:fs/promises";
+import {mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {homedir} from "node:os";
-import {join} from "node:path";
+import {dirname, join} from "node:path";
 
-import {defineModel, type ResolvedModel} from "@notnotype/nb-harness";
+import {defineModel, type HarnessOptions, type ResolvedModel} from "@notnotype/nb-harness";
 import {Type, type Static} from "typebox";
 import {Compile} from "typebox/compile";
 
@@ -51,13 +51,22 @@ export function defaultConfigPath(env: NodeJS.ProcessEnv = process.env): string 
     return join(env.XDG_CONFIG_HOME || join(homedir(), ".config"), "nbstory", "config.json");
 }
 
+/** 按配置的 schema 校验；不对时报 `qa_unconfigured`，写明是哪个字段（最多三处）。`source` 说明这份配置从哪来。 */
+export function parseQaConfig(value: unknown, source: string): QaConfig {
+    if (!checkConfig.Check(value)) {
+        const problems = [...checkConfig.Errors(value)].slice(0, 3).map(item => `${item.instancePath || "/"} ${item.message}`);
+        throw new QaError("qa_unconfigured", `问答配置${source}不对：${problems.join("；")}`);
+    }
+    return value;
+}
+
 /** 读并校验配置；文件不在、不是 JSON 或字段不对都报 `qa_unconfigured`，写明是哪个字段。 */
 export async function loadQaConfig(path: string = defaultConfigPath()): Promise<QaConfig> {
     let text: string;
     try {
         text = await readFile(path, "utf8");
     } catch (error) {
-        throw new QaError("qa_unconfigured", `读不到问答配置 ${path}：先按 docs/specs/story/qa.md 的“配置”写好它`, {cause: error});
+        throw new QaError("qa_unconfigured", `读不到问答配置 ${path}：先用 nbstory config init 写好它（字段见 docs/specs/story/qa.md 的“配置”）`, {cause: error});
     }
     let value: unknown;
     try {
@@ -65,11 +74,34 @@ export async function loadQaConfig(path: string = defaultConfigPath()): Promise<
     } catch (error) {
         throw new QaError("qa_unconfigured", `问答配置 ${path} 不是 JSON`, {cause: error});
     }
-    if (!checkConfig.Check(value)) {
-        const problems = [...checkConfig.Errors(value)].slice(0, 3).map(item => `${item.instancePath || "/"} ${item.message}`);
-        throw new QaError("qa_unconfigured", `问答配置 ${path} 不对：${problems.join("；")}`);
+    return parseQaConfig(value, ` ${path} `);
+}
+
+/**
+ * 校验后写盘。先写同目录的临时文件再改名，读者（正在跑的 `ask`）要么读到旧的整份，要么读到新的整份；校验不过
+ * 或写失败时原文件不动。密钥不在配置里（只有环境变量名），所以文件用普通权限。
+ */
+export async function saveQaConfig(path: string, config: unknown): Promise<QaConfig> {
+    const valid = parseQaConfig(config, ` ${path} `);
+    const temporary = `${path}.${process.pid}.tmp`;
+    const reason = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+    const failed = (error: unknown, note = ""): QaError => new QaError("qa_config_write_failed", `写不了问答配置 ${path}：${reason(error)}${note}`, {cause: error});
+    try {
+        await mkdir(dirname(path), {recursive: true});
+    } catch (error) {
+        throw failed(error);
     }
-    return value;
+    let created = false;
+    try {
+        await writeFile(temporary, `${JSON.stringify(valid, null, 4)}\n`);
+        created = true;
+        await rename(temporary, path);
+    } catch (error) {
+        // 原文件没动过。临时文件写出来了就清理；清理也失败时照样报写失败，不让清理的错误盖掉它，留下的临时文件写进说明。
+        const leftover = created ? await rm(temporary, {force: true}).then(() => null, (cleanup: unknown) => cleanup) : null;
+        throw failed(error, leftover === null ? "" : `；临时文件 ${temporary} 没能删掉：${reason(leftover)}`);
+    }
+    return valid;
 }
 
 /**
@@ -89,6 +121,11 @@ export function configuredModel(config: QaConfig): ResolvedModel {
         ...(model.maxTokens === undefined ? {} : {maxTokens: model.maxTokens}),
         ...(model.price === undefined ? {} : {price: model.price}),
     });
+}
+
+/** 配置的推理档 → `createHarness` 的选项；OMP 的思考档是字符串值的 const enum（"low"、"medium"、"high" 等），配置里的字符串就是它的值。不写就不传，请求里没有推理档。 */
+export function thinkingOption(config: QaConfig): Pick<HarnessOptions, "thinkingLevel"> {
+    return config.model.thinking === undefined ? {} : {thinkingLevel: config.model.thinking as NonNullable<HarnessOptions["thinkingLevel"]>};
 }
 
 export function qaLimits(config: QaConfig): {maxChapters: number; fullReadMaxChars: number} {
