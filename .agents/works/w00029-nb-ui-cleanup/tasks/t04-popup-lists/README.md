@@ -30,4 +30,7 @@ updated: 2026-10-20
 
 ## 下一步
 
+依赖本 Task 的：[w00027 t07](../../../w00027-plugin-platform/tasks/t07-low-code-forms/README.md) 的 S2 起（新增可搜索下拉 `SearchSelect`，用本 Task 统一后的列表项样式、截断与滚动；改 `Select` 的只读与出错）等本 Task 合入 master 后开始（开发者 2026-10-20 定）。
+
+
 第 1 轮图出来后写评审板、发布给开发者；之后几轮问圆角、浮动滑块与截断高度、不抢焦点的候选菜单（含 Composer 候选菜单要不要去掉按键提示的页脚）。
