@@ -22,6 +22,8 @@ updated: 2026-10-20
 - `design-language.md` 第八、九节（约 600 行的踩坑与检查表）有历史叙述、已删组件与和现状相反的条目。
 - `authoring-themes.md` 与 nb-ui README 还残留已拆掉的主题组件替换机制，README 的示例不能编译。
 
+另做了一次 nb-ui 作为 UI 库的合格性审查（Sonnet，2026-10-20）：原文 [`evidences/lib-review.txt`](evidences/lib-review.txt)，24 条（重要 11）。开发者同意的处理：第 1 步的小修放 [w00029 t07](../t07-lib-review-quick-fixes/README.md)；第 2 到 4 步（CSS layer、弹出列表共用零件、公开 API 对齐）另开 [w00030](../../../w00030-nb-ui-library-structure/README.md)，先写计划；布局引擎拆包以后再说。本 Task 整理文档时以这两处的结果为准。
+
 ## 下一步
 
 先后（开发者 2026-10-20 在 w00027 定）：本 Task 排在 [w00027 t07](../../../w00027-plugin-platform/tasks/t07-low-code-forms/README.md)（低代码表单）的 S3 之后。t07 改 nb-ui 的表单控件（`Field` 的组形态与上下文导出、`RadioGroup` 横排、`SearchSelect`、`SecretInput`、统一的只读与出错合同），合同先写在 `docs/specs/ui/forms.md`；本 Task 重排 nb-ui 规范时把“表单控件合同”并进第 5 节。
