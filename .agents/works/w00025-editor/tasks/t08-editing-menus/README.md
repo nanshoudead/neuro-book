@@ -30,8 +30,8 @@ updated: 2026-10-20
 
 2026-10-16 开发者定：下一个先做本 Task。现状与旧应用的对照见 [research.md](research.md)。2026-10-20 定了范围与注意力排序（决定 1–4）。第 1 轮静态稿已发布到[评审板](artifacts/review/index.html)（工具栏放哪些按钮、样子，块左侧两个按钮）；草稿在 worktree `.worktree/w00025-t08-drafts`（分支 `t08/drafts`，不合并），原图在本地 `.local/agent/works/w00025-editor/tasks/t08-editing-menus/shots/`。
 
-搭稿时发现：Markdown 编辑器与展示器里粗体、斜体、删除线、四到六级标题、分割线都没有样式（计算出的字重 400、无斜体、无删除线、`hr` 边框 0）。原因是 `src/web/boot.ts` 引入的 `the-new-css-reset` 把这些元素的默认样式清掉了，`markdown/web/parts/markdown.css` 没有补回来。
+搭稿时发现（已由 t14 修好）：Markdown 编辑器与展示器里粗体、斜体、删除线、四到六级标题、分割线都没有样式（计算出的字重 400、无斜体、无删除线、`hr` 边框 0）。原因是 `src/web/boot.ts` 引入的 `the-new-css-reset` 把这些元素的默认样式清掉了，`markdown/web/parts/markdown.css` 没有补回来。
 
 ## 下一步
 
-第 2 轮：改块左侧按钮（决定 8），并出选区浮动菜单与斜杠菜单的稿；之后定块菜单与正文右键菜单，再写计划。
+第 2 轮已发布（块按钮离文字的距离、选区浮动菜单放什么、斜杠菜单），等答复；之后定块菜单与正文右键菜单，再写计划。
