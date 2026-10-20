@@ -271,7 +271,10 @@ export async function installedManifest(directory: string): Promise<ManifestFile
     }
     const read = readPluginManifest(raw, {versions: npmVersions});
     if (read.status !== "valid") {
-        return {ok: false, code: "manifest-invalid", detail: "清单不符合 runtime.plugin-manifest", problems: read.problems.map((problem) => `${problem.path === "" ? "（根）" : problem.path}：${problem.message}`), raw};
+        const problems = read.problems.map((problem) => `${problem.path === "" ? "（根）" : problem.path}：${problem.message}`);
+        // 启动时的“没有登记”原因只有这一句（不带问题列表），写出第一处问题。
+        const more = problems.length > 1 ? `，另有 ${String(problems.length - 1)} 处` : "";
+        return {ok: false, code: "manifest-invalid", detail: `清单有错误：${problems[0] ?? ""}${more}`, problems, raw};
     }
     return {ok: true, raw, manifest: read.manifest};
 }

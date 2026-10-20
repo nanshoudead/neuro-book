@@ -50,6 +50,7 @@ export type PluginListItem = Static<typeof PluginListItemSchema>;
 const ListSchema = Type.Object({
     /** 本次启动是否为安全模式（plugin-install 输出 7）。 */
     safeMode: Type.Boolean(),
+    /** 内置插件在前、第三方插件在后，各自按 id 排序；界面照这个顺序画。 */
     plugins: Type.Array(PluginListItemSchema),
 }, {additionalProperties: false});
 

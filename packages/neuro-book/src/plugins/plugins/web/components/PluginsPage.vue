@@ -3,13 +3,14 @@
  * 设置窗口的插件页（同名 .md）：列出第三方与内置插件，从服务端上的文件夹安装（先预览），启用、禁用与卸载；全部在下一次
  * 启动生效（docs/specs/runtime/plugin-install.md 输出 1–4、7–9）。
  */
-import {Badge, Banner, Button, Dialog, FormInput, Spinner, Switch} from "@notnotype/nb-ui/components";
-import {computed, nextTick, onMounted, ref, watch} from "vue";
+import type {RemoteFailureCode} from "@notnotype/nb-runtime/remote";
+import {Badge, Button, Dialog, FormInput, Spinner, Switch} from "@notnotype/nb-ui/components";
+import {computed, nextTick, onMounted, ref} from "vue";
 
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
-import type {InstallPreview, PendingChange, PluginListItem, PluginsRegistry} from "../../shared/contracts";
+import type {InstallPreview, PendingChange, PluginFailureCode, PluginListItem, PluginsRegistry} from "../../shared/contracts";
 
 defineOptions({name: "PluginsPage"});
 
@@ -66,8 +67,10 @@ const NOT_LOADED: Record<NotLoadedCode, {readonly text: LocalizedText; readonly 
     "entries-not-loaded": {text: {"zh-CN": "部分功能暂不可用", "en-US": "Some features unavailable"}, tone: "neutral", showDetail: false},
 };
 
-/** 业务失败码（plugin-install 的失败码表）与常见的路由层失败码。 */
-const FAILURE_TEXT: Record<string, LocalizedText> = {
+type FailureCode = PluginFailureCode | RemoteFailureCode;
+
+/** 业务失败码（plugin-install 的失败码表）都有文字；路由层失败码只写常见的三个，其余显示“操作没有完成”与详情。 */
+const FAILURE_TEXT: Readonly<Record<PluginFailureCode, LocalizedText> & Partial<Record<RemoteFailureCode, LocalizedText>>> = {
     "manifest-invalid": {"zh-CN": "插件的清单无效", "en-US": "The plugin manifest is invalid"},
     "reserved-id": {"zh-CN": "第三方插件的 id 不能以 nbook. 开头", "en-US": "Third-party plugin ids cannot start with nbook."},
     "incompatible-engine": {"zh-CN": "插件与当前版本的 NeuroBook 不兼容", "en-US": "The plugin is not compatible with this version of NeuroBook"},
@@ -85,11 +88,11 @@ const FAILURE_TEXT: Record<string, LocalizedText> = {
 };
 
 /** 服务端详情能补充信息的码；其余的码固定文字已经说全，详情只会重复。 */
-const DETAIL_CODES = new Set(["manifest-invalid", "path-rejected", "copy-failed", "entry-missing", "registry-failed", "incompatible-engine"]);
+const DETAIL_CODES: ReadonlySet<FailureCode> = new Set<FailureCode>(["manifest-invalid", "path-rejected", "copy-failed", "entry-missing", "registry-failed", "incompatible-engine"]);
 /** 失败后列表可能已过时的码：写出原因之后重新读列表。 */
-const STALE_CODES = new Set(["unknown-outcome", "not-installed", "uninstall-pending", "already-installed"]);
+const STALE_CODES: ReadonlySet<FailureCode> = new Set<FailureCode>(["unknown-outcome", "not-installed", "uninstall-pending", "already-installed"]);
 
-type Failure = {readonly ok: false; readonly code: string; readonly detail?: unknown};
+type Failure = {readonly ok: false; readonly code: FailureCode; readonly detail?: unknown};
 type Problem = {readonly serial: number; readonly code: string; readonly reason: string; readonly lines: ReadonlyArray<string>};
 
 const text = (value: LocalizedText): string => localize(value, props.locale);
@@ -105,10 +108,15 @@ const problem = ref<Problem | null>(null);
 let serial = 0;
 const path = ref("");
 const pathInput = ref<{$el?: Element} | null>(null);
+const problemRegion = ref<HTMLElement | null>(null);
+const retryButton = ref<{$el?: Element} | null>(null);
+// 对话框的开合与内容分开：关闭时内容留到下一次打开再换，淡出动画里不会先变成空壳。
+const previewOpen = ref(false);
 const preview = ref<InstallPreview | null>(null);
 const previewPath = ref("");
+const uninstallOpen = ref(false);
 const uninstalling = ref<PluginListItem | null>(null);
-/** 卸载成功后焦点的落点（第三方插件的小标题）；函数 ref 记下。 */
+/** 打开对话框的控件不在了时焦点的落点（第三方插件的小标题）；函数 ref 记下。 */
 let thirdPartyTitle: HTMLElement | null = null;
 function rememberTitle(key: string, element: unknown): void {
     if (key === "third-party") thirdPartyTitle = element instanceof HTMLElement ? element : null;
@@ -131,71 +139,92 @@ function detailOf(failure: Failure): {readonly detail: string; readonly problems
     };
 }
 
-function report(failure: Failure): void {
-    const known = FAILURE_TEXT[failure.code];
+/** 写出失败说明并让它进入视野（行内操作的失败可能发生在滚下去的位置）；列表可能已过时时等重新读完。 */
+async function report(failure: Failure): Promise<void> {
+    const known: LocalizedText | undefined = FAILURE_TEXT[failure.code];
     const {detail, problems} = detailOf(failure);
-    const showDetail = known === undefined || DETAIL_CODES.has(failure.code);
+    // 出错字段（清单无效）本身就是原因；没有时才用服务端的一句话。
+    const lines = problems.length > 0 ? problems : [detail].filter((line) => line !== "");
     serial += 1;
-    problem.value = {serial, code: failure.code, reason: text(known ?? TEXT.unknownFailure), lines: showDetail ? [detail, ...problems].filter((line) => line !== "") : []};
-    if (STALE_CODES.has(failure.code)) void refresh();
+    problem.value = {serial, code: failure.code, reason: text(known ?? TEXT.unknownFailure), lines: known === undefined || DETAIL_CODES.has(failure.code) ? lines : []};
+    await nextTick();
+    problemRegion.value?.scrollIntoView({block: "nearest"});
+    if (STALE_CODES.has(failure.code)) await refresh();
 }
 
-async function refresh(): Promise<void> {
+// 只采用最新一次读取的结果；读取途中又完成了写操作时重新读，旧结果不会盖掉写操作刚换上的行。
+let generation = 0;
+let reading = false;
+
+/** 读列表；返回这次读取之后页面的状态（被更新的一次读取取代时为 null）。 */
+async function refresh(): Promise<"failed" | "ready" | null> {
+    generation += 1;
+    const mine = generation;
+    reading = true;
     const result = await props.registry.list({});
+    if (mine !== generation) return null;
+    reading = false;
     if (!result.ok) {
         const known = FAILURE_TEXT[result.code];
         const {detail} = detailOf(result);
         loadFailure.value = [text(known ?? TEXT.unknownFailure), detail].filter((line) => line !== "").join(" · ");
         state.value = "failed";
-        return;
+        return "failed";
     }
     items.value = result.value.plugins;
     safeMode.value = result.value.safeMode;
     state.value = "ready";
+    return "ready";
 }
 
 async function retry(): Promise<void> {
     state.value = "loading";
-    await refresh();
+    const after = await refresh();
+    // “重试”随失败块一起被换掉了：焦点放到新的“重试”或第三方插件的小标题，不落到 body。
+    await nextTick();
+    if (after === "failed") focusComponent(retryButton.value);
+    else if (after === "ready") thirdPartyTitle?.focus();
 }
 
 function replace(item: PluginListItem): void {
     items.value = items.value.map((current) => (current.id === item.id ? item : current));
+    if (reading) void refresh();
 }
 
-function focusPath(): void {
-    const element = pathInput.value?.$el;
-    const input = element instanceof HTMLInputElement ? element : element?.querySelector("input");
-    input?.focus();
+function focusComponent(component: {$el?: Element} | null): void {
+    const element = component?.$el;
+    const target = element instanceof HTMLInputElement || element instanceof HTMLButtonElement ? element : element?.querySelector("input, button");
+    if (target instanceof HTMLElement) target.focus();
 }
 
 async function startInstall(): Promise<void> {
     if (busy.value !== null) return;
     const source = path.value.trim();
     if (source === "") {
-        focusPath();
+        focusComponent(pathInput.value);
         return;
     }
     busy.value = "preview";
     const result = await props.registry.inspect({path: source});
     busy.value = null;
     if (!result.ok) {
-        report(result);
+        await report(result);
         return;
     }
     problem.value = null;
     previewPath.value = source;
     preview.value = result.value;
+    previewOpen.value = true;
 }
 
 async function confirmInstall(): Promise<void> {
-    if (busy.value !== null || preview.value === null) return;
+    if (busy.value !== null || !previewOpen.value) return;
     busy.value = "install";
     const result = await props.registry.install({path: previewPath.value});
     busy.value = null;
-    preview.value = null;
+    previewOpen.value = false;
     if (!result.ok) {
-        report(result);
+        await report(result);
         return;
     }
     problem.value = null;
@@ -209,14 +238,17 @@ async function toggle(item: PluginListItem, enabled: boolean): Promise<void> {
     const result = enabled ? await props.registry.enable({id: item.id}) : await props.registry.disable({id: item.id});
     busy.value = null;
     if (!result.ok) {
-        report(result);
+        await report(result);
         return;
     }
     problem.value = null;
     replace(result.value.plugin);
 }
 
-let focusAfterUninstall = false;
+/** 这一行还画着“卸载”（第三方插件、不在卸载中）。 */
+function hasUninstall(id: string): boolean {
+    return items.value.some((item) => item.id === id && item.source === "third-party" && item.state !== "uninstalling");
+}
 
 async function confirmUninstall(): Promise<void> {
     const item = uninstalling.value;
@@ -224,24 +256,19 @@ async function confirmUninstall(): Promise<void> {
     busy.value = `uninstall:${item.id}`;
     const result = await props.registry.uninstall({id: item.id});
     busy.value = null;
-    if (!result.ok) {
-        uninstalling.value = null;
-        report(result);
-        return;
+    uninstallOpen.value = false;
+    if (result.ok) {
+        problem.value = null;
+        replace(result.value.plugin);
+    } else {
+        await report(result);
     }
-    problem.value = null;
-    focusAfterUninstall = true;
-    uninstalling.value = null;
-    replace(result.value.plugin);
+    // 卸载成功，或失败后重读的列表里这一行已在卸载中、已不在：打开对话框的“卸载”没了，对话框还不了焦点。
+    if (!hasUninstall(item.id)) {
+        await nextTick();
+        thirdPartyTitle?.focus();
+    }
 }
-
-// 卸载成功后这一行的“卸载”不再显示，对话框还不了焦点：等对话框关掉、DOM 更新之后，把焦点放到第三方插件的小标题。
-watch(uninstalling, async (now) => {
-    if (now !== null || !focusAfterUninstall) return;
-    focusAfterUninstall = false;
-    await nextTick();
-    thirdPartyTitle?.focus();
-}, {flush: "post"});
 
 /** 只停用别的写控件：正在操作的那个保持可聚焦（键盘用户不丢焦点），重复操作由处理函数忽略。 */
 function blockedFor(key: string): boolean {
@@ -252,12 +279,17 @@ function pendingText(change: PendingChange): string {
     return change.kind === "upgrade" ? format(PENDING_TEXT.upgrade, {version: change.version}) : text(PENDING_TEXT[change.kind]);
 }
 
+function openUninstall(item: PluginListItem): void {
+    uninstalling.value = item;
+    uninstallOpen.value = true;
+}
+
 function closePreview(open: boolean): void {
-    if (!open && busy.value !== "install") preview.value = null;
+    if (!open && busy.value !== "install") previewOpen.value = false;
 }
 
 function closeUninstall(open: boolean): void {
-    if (!open && busy.value === null) uninstalling.value = null;
+    if (!open && busy.value === null) uninstallOpen.value = false;
 }
 
 onMounted(() => {
@@ -267,8 +299,15 @@ onMounted(() => {
 
 <template>
     <div class="plugins-page" data-plugins-page :data-plugins-state="state">
-        <Banner :tone="hasPending ? 'warning' : 'info'" :message="text(hasPending ? TEXT.pendingNote : TEXT.restartNote)" data-plugins-restart />
-        <Banner v-if="safeMode" tone="warning" :message="text(TEXT.safeMode)" data-plugins-safe-mode />
+        <!-- 与设置窗口画在分区顶部的层状态说明同一种写法：一行图标加文字，不画框。 -->
+        <p class="plugins-page__note" :class="{'plugins-page__note--warning': hasPending}" role="status" data-plugins-restart>
+            <span :class="hasPending ? 'i-lucide-triangle-alert' : 'i-lucide-info'" class="plugins-page__note-icon" aria-hidden="true"></span>
+            <span>{{ text(hasPending ? TEXT.pendingNote : TEXT.restartNote) }}</span>
+        </p>
+        <p v-if="safeMode" class="plugins-page__note plugins-page__note--warning" data-plugins-safe-mode>
+            <span class="i-lucide-shield-alert plugins-page__note-icon" aria-hidden="true"></span>
+            <span>{{ text(TEXT.safeMode) }}</span>
+        </p>
 
         <form class="plugins-page__install" @submit.prevent="startInstall">
             <label class="plugins-page__label" for="nbook-plugins-path">{{ text(TEXT.pathLabel) }}</label>
@@ -278,22 +317,22 @@ onMounted(() => {
             </div>
         </form>
 
-        <div class="plugins-page__problem" role="alert" :data-plugin-problem="problem?.code">
+        <div ref="problemRegion" class="plugins-page__problem" role="alert" :data-plugin-problem="problem?.code">
             <template v-if="problem !== null">
                 <p :key="problem.serial" class="plugins-page__problem-reason" :title="problem.code">{{ problem.reason }}</p>
                 <p v-for="line in problem.lines" :key="`${problem.serial}:${line}`" class="plugins-page__problem-line">{{ line }}</p>
             </template>
         </div>
 
-        <div v-if="state === 'loading'" class="plugins-page__notice plugins-page__notice--delayed" role="status" aria-busy="true">
-            <Spinner size="sm" :label="text(TEXT.loading)" />
-            <span>{{ text(TEXT.loading) }}</span>
+        <!-- Spinner 自己是带名称的 status；aria-busy 标出正在加载的区域。 -->
+        <div v-if="state === 'loading'" class="plugins-page__notice plugins-page__notice--delayed" aria-busy="true">
+            <Spinner size="sm" :label="text(TEXT.loading)" show-label />
         </div>
         <div v-else-if="state === 'failed'" class="plugins-page__notice" role="alert" data-plugins-load-failure>
             <span>{{ loadFailure }}</span>
-            <Button size="sm" variant="secondary" data-plugins-retry @click="retry">{{ text(TEXT.retry) }}</Button>
+            <Button ref="retryButton" size="sm" variant="secondary" data-plugins-retry @click="retry">{{ text(TEXT.retry) }}</Button>
         </div>
-        <template v-else>
+        <div v-else class="plugins-page__groups">
             <section v-for="group in groups" :key="group.key" class="plugins-page__group" :data-plugin-group="group.key">
                 <h3 :ref="(element) => rememberTitle(group.key, element)" class="plugins-page__group-title" tabindex="-1">{{ text(group.heading) }}</h3>
                 <p v-if="group.items.length === 0" class="plugins-page__muted" data-plugins-empty>{{ text(TEXT.noThirdParty) }}</p>
@@ -323,7 +362,7 @@ onMounted(() => {
                                 :disabled="busy !== null"
                                 :aria-label="format(TEXT.uninstallNamed, {id: item.id})"
                                 data-plugin-uninstall
-                                @click="uninstalling = item"
+                                @click="openUninstall(item)"
                             >
                                 {{ text(TEXT.uninstall) }}
                             </Button>
@@ -331,10 +370,10 @@ onMounted(() => {
                     </li>
                 </ul>
             </section>
-        </template>
+        </div>
 
         <Dialog
-            :model-value="preview !== null"
+            :model-value="previewOpen"
             size="sm"
             :title="preview === null ? '' : text(PREVIEW_TEXT[preview.relation].title)"
             :busy="busy === 'install'"
@@ -347,13 +386,13 @@ onMounted(() => {
                 <p class="plugins-page__path">{{ previewPath }}</p>
             </template>
             <template #footer="{cancel}">
-                <Button variant="secondary" :disabled="busy === 'install'" @click="cancel">{{ text(TEXT.cancel) }}</Button>
-                <Button :loading="busy === 'install'" data-plugin-install-confirm @click="confirmInstall">{{ preview === null ? "" : text(PREVIEW_TEXT[preview.relation].confirm) }}</Button>
+                <Button class="flex-1" variant="secondary" :disabled="busy === 'install'" @click="cancel">{{ text(TEXT.cancel) }}</Button>
+                <Button class="flex-1" :loading="busy === 'install'" data-plugin-install-confirm @click="confirmInstall">{{ preview === null ? "" : text(PREVIEW_TEXT[preview.relation].confirm) }}</Button>
             </template>
         </Dialog>
 
         <Dialog
-            :model-value="uninstalling !== null"
+            :model-value="uninstallOpen"
             size="sm"
             :title="text(TEXT.uninstallTitle)"
             :busy="busy !== null && busy.startsWith('uninstall:')"
@@ -361,8 +400,8 @@ onMounted(() => {
         >
             <p class="plugins-page__dialog-text">{{ uninstalling === null ? "" : format(TEXT.uninstallBody, {id: uninstalling.id}) }}</p>
             <template #footer="{cancel}">
-                <Button variant="secondary" :disabled="busy !== null" @click="cancel">{{ text(TEXT.cancel) }}</Button>
-                <Button variant="danger" :loading="busy !== null && busy.startsWith('uninstall:')" data-plugin-uninstall-confirm @click="confirmUninstall">{{ text(TEXT.uninstall) }}</Button>
+                <Button class="flex-1" variant="secondary" :disabled="busy !== null" @click="cancel">{{ text(TEXT.cancel) }}</Button>
+                <Button class="flex-1" variant="danger" :loading="busy !== null && busy.startsWith('uninstall:')" data-plugin-uninstall-confirm @click="confirmUninstall">{{ text(TEXT.uninstall) }}</Button>
             </template>
         </Dialog>
     </div>
@@ -382,12 +421,37 @@ onMounted(() => {
     margin: 0;
 }
 
+.plugins-page__note {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    margin: 0;
+    font-size: var(--text-xs);
+    line-height: var(--leading-ui);
+    color: var(--text-secondary);
+}
+
+.plugins-page__note--warning {
+    color: var(--status-warning);
+}
+
+.plugins-page__note-icon {
+    width: var(--text-sm);
+    height: var(--text-sm);
+    flex-shrink: 0;
+}
+
 .plugins-page__label,
 .plugins-page__muted {
     margin: 0;
     font-size: var(--text-xs);
     line-height: var(--leading-ui);
     color: var(--text-muted);
+}
+
+/* 标签是表单里唯一的说明，不用最淡的字色。 */
+.plugins-page__label {
+    color: var(--text-secondary);
 }
 
 .plugins-page__install-row {
@@ -401,7 +465,7 @@ onMounted(() => {
     min-width: 0;
 }
 
-/* 播报区常驻：平时空着不占高度，读屏只播报其中的变化。 */
+/* 空着时不占高度；`display: none` 让它暂时不在无障碍树里，第一次失败时容器与文字一起出现，靠 alert 角色出现时的播报。 */
 .plugins-page__problem:empty {
     display: none;
 }
@@ -424,7 +488,7 @@ onMounted(() => {
     margin: 0;
     font-size: var(--text-xs);
     line-height: var(--leading-ui);
-    color: var(--text-muted);
+    color: var(--text-secondary);
 }
 
 .plugins-page__notice {
@@ -455,6 +519,14 @@ onMounted(() => {
     to {
         visibility: visible;
     }
+}
+
+/* 组与组、安装区与第一组之间用设置列表的分组间距（SettingsListSection）。 */
+.plugins-page__groups {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-7);
+    margin-top: calc(var(--space-7) - var(--space-4));
 }
 
 .plugins-page__group {
@@ -513,9 +585,15 @@ onMounted(() => {
     min-width: 0;
 }
 
-/* 徽标默认不换行；长文字（英文的“重启后升级到 x”）在窄行里允许折行，不压到右边的控件。 */
+/*
+ * 徽标默认不换行、高度只有一行；长文字（英文的“重启后升级到 x”、很长的版本号）在窄行里允许折行，高度随之撑开，
+ * 不压到右边的控件、不溢出底框。
+ */
 .plugins-page__badge {
     max-width: 100%;
+    height: auto;
+    min-height: calc(var(--control-h-sm) * 0.68);
+    padding-block: 1px;
     white-space: normal;
 }
 
@@ -534,7 +612,7 @@ onMounted(() => {
     margin: 0;
     font-size: var(--text-xs);
     line-height: var(--leading-ui);
-    color: var(--text-muted);
+    color: var(--text-secondary);
     overflow-wrap: anywhere;
 }
 
@@ -572,7 +650,7 @@ onMounted(() => {
     margin: 0;
     font-family: var(--font-mono);
     font-size: var(--text-xs);
-    color: var(--text-muted);
+    color: var(--text-secondary);
     overflow-wrap: anywhere;
 }
 </style>
