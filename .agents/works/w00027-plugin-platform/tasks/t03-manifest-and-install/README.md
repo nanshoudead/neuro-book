@@ -23,7 +23,7 @@ updated: 2026-10-17
 
 - 代码装载、入口激活与 SDK（[t04](../t04-browser-loading-sdk/README.md)）。
 - 启用／禁用即时生效：本轮只写登记表，下次启动生效，界面标明（开发者 2026-10-17 确认）。
-- 热升级与回滚：不同版本安装本轮返回明确失败，要求先卸载；私有数据的删除选项、影响预览、文件选择器。
+- 热升级与回滚（升级与降级本轮在下一次启动生效）；私有数据的删除选项、升级后受阻的依赖插件预览、文件选择器；工作台上常驻的安全模式标识（Spec 输出 7 的“持续显示”，本轮只在插件页显示）。
 
 ## 行为合同
 
@@ -36,13 +36,15 @@ updated: 2026-10-17
 
 ## 当前状态
 
-2026-10-17 建 Task，同日开发者确认计划与设计审查后的修订（[plan.md](plan.md)），在 worktree `.worktree/w00027-t03-manifest-and-install`（分支 `feat/w00027-t03-manifest-and-install`，未 push、未合入）实施完 S1a–S1e，并按两份实现审查修订：
+2026-10-17 建 Task，同日开发者确认计划与设计审查后的修订（[plan.md](plan.md)），在 worktree `.worktree/w00027-t03-manifest-and-install`（分支 `feat/w00027-t03-manifest-and-install`，未 push、未合入）实施完 S1a–S1e，并按两轮实现审查修订：
 
-- 提交：`b41cc5025`（实现）、`3cce46618`（真实浏览器 e2e）、`98db53316`（插件页分组）、`fea2c9410`（后端审查修正）、`7ec47e9d8`（插件页按界面审查重做）。
-- 实现审查：后端与内核交 omp（[evidences/impl-review-omp.txt](evidences/impl-review-omp.txt)，9 条：重要 8、建议 1），插件页交 Sonnet（[evidences/impl-review-ui.txt](evidences/impl-review-ui.txt)，17 条：重要 9、建议 8）。处理见 plan.md 的“实施记录”。
+- 提交：`b41cc5025`（实现）、`3cce46618`（真实浏览器 e2e）、`98db53316`（插件页分组）、`fea2c9410`（后端审查修正）、`7ec47e9d8`（插件页按界面审查重做）、`724ceb465`（后端第二轮审查修正）、`c3ee307de`（插件页第二轮审查修正）。
+- 第一轮实现审查：后端与内核交 omp（[evidences/impl-review-omp.txt](evidences/impl-review-omp.txt)，9 条：重要 8、建议 1），插件页交 Sonnet（[evidences/impl-review-ui.txt](evidences/impl-review-ui.txt)，17 条：重要 9、建议 8）。
+- 第二轮（开发者 2026-10-20 要求）：omp（[evidences/impl-review-r2-omp.txt](evidences/impl-review-r2-omp.txt)，8 条：重要 6、建议 2），Sonnet（[evidences/impl-review-r2-ui.txt](evidences/impl-review-r2-ui.txt)，23 条：重要 3、建议 20）。两轮的处理见 plan.md 的“实现审查的处理”与“第二轮实现审查的处理”。
+- 第二轮之后：`src/backend/plugins` 与 `src/plugins/plugins` 的 `bun test` 34 例、插件页与 Lab 的 Vitest 61 例通过，`typecheck` 通过；`e2e/plugins.e2e.ts` 重新构建后在 Chrome 上通过；7 处后端修正与 6 处插件页修正逐一做过变异检查，改回去测试都会失败。
 - 验证（修订后）：内核 `bun test` 342 例、应用 `bun test` 1545 例、Vitest 372 例通过；两包 typecheck；`docs:check`、`governance:check` 无失败；`e2e/plugins.e2e.ts` 在 Chrome 上通过（含键盘切换与卸载后的焦点）。修订前另跑过 `settings`、`browser-host`、`rpc` 三组 e2e，22 例通过。`markdown/asset-urls.test.ts` 的失同步用例在 master 上也约一半概率超时，与本次无关。
-- 本机 `/tmp` 的用户配额被别的会话占满时，Chrome 报 `Disk quota exceeded`；这次给 Playwright 设 `TMPDIR` 到家目录下绕开，没有动别的会话的文件。
+- 本机 `/tmp` 的用户配额被别的会话占满时，Chrome 报 `Disk quota exceeded`；当时给 Playwright 设 `TMPDIR` 到家目录下绕开。2026-10-20 起 `/tmp` 在根分区上、没有配额，第二轮的 e2e 不设 `TMPDIR` 照常通过。
 
 ## 下一步
 
-开发者决定是否对审查后的修订再审一轮，然后合入 master；之后去掉 Spec 里本次实现条目的“（planned）”并补实现合同（晋升由开发者批准），再开 t04。
+开发者知悉第二轮中接受取舍、不改的几条（plan.md 的“第二轮实现审查的处理”）后合入 master；之后去掉 Spec 里本次实现条目的“（planned）”并补实现合同（晋升由开发者批准），再开 t04。
