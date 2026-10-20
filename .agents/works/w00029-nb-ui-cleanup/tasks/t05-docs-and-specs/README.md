@@ -29,4 +29,4 @@ updated: 2026-10-20
 先后（开发者 2026-10-20 在 w00027 定）：本 Task 排在 [w00027 t07](../../../w00027-plugin-platform/tasks/t07-low-code-forms/README.md)（低代码表单）的 S3 之后。t07 改 nb-ui 的表单控件（`Field` 的组形态与上下文导出、`RadioGroup` 横排、`SearchSelect`、`SecretInput`、统一的只读与出错合同），合同先写在 `docs/specs/ui/forms.md`；本 Task 重排 nb-ui 规范时把“表单控件合同”并进第 5 节。
 
 
-开工前先请开发者定三处文档与代码的分歧（报告 F04、F05、F10/F43；2026-10-20 发在评审板 `artifacts/decisions/` v1，带截图）：浮层投影几层；暗色玻璃要不要压暗；浮层外观的唯一来源是 CSS 类还是 `useDropdownSurfaceStyle` 里的常量。t04 定下的列表项样式也要写进规范，t05 排在 t04 之后。
+开工前先请开发者定三处文档与代码的分歧（报告 F04、F05、F10/F43；2026-10-20 发在评审板 `artifacts/decisions/` v1，带截图）。开发者 2026-10-20 答复，都取推荐：F04 保留现在的多层投影，文档照实改、数值只留在 token 与主题变量；F05 暗色玻璃保持 `brightness(1.0)`，坑 7 的判据改为“暗色档要有自己的配方”；F10/F43 浮层外观只认 CSS 类，`usePopoverLayer.ts` 里的内联材质常量删掉（代码改动在 w00030 t03，t05 先按这个写规范）：浮层投影几层；暗色玻璃要不要压暗；浮层外观的唯一来源是 CSS 类还是 `useDropdownSurfaceStyle` 里的常量。t04 定下的列表项样式也要写进规范，t05 排在 t04 之后。
