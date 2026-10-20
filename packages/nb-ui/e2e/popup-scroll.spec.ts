@@ -35,7 +35,7 @@ async function cutOffset(viewport: Locator): Promise<number> {
 const scrollState = (viewport: Locator): Promise<{top: number; max: number}> =>
     viewport.evaluate((element) => ({top: element.scrollTop, max: element.scrollHeight - element.clientHeight}));
 
-test("项超过 8 个时截在第 9 项中点（菜单含分隔线、选择器含两行项）；8 项时取自然高度、没有滑块", async ({page}) => {
+test("项超过 8 个时截在第 9 项中点（菜单含分隔线、选择器含带说明的项）；8 项时取自然高度、没有滑块", async ({page}) => {
     await gotoLong(page);
 
     await page.locator("[data-fixture-long-dropdown-trigger]").click();
@@ -65,7 +65,7 @@ test("项超过 8 个时截在第 9 项中点（菜单含分隔线、选择器�
     await selectViewport.evaluate((element) => {
         element.scrollTop = 0;
     });
-    expect(Math.abs(await cutOffset(selectViewport)), "两行项混排时同样截在第 9 项中点").toBeLessThanOrEqual(1);
+    expect(Math.abs(await cutOffset(selectViewport)), "带说明的项混排时同样截在第 9 项中点").toBeLessThanOrEqual(1);
 });
 
 test("空间不够时按可用空间收矮，不越出窗口", async ({page}) => {

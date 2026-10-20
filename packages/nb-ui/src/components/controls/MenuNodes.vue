@@ -25,10 +25,15 @@ const emit = defineEmits<{
     (e: "hover", item: T | null, trigger: HTMLElement, immediate: boolean): void;
 }>();
 
-/** 这一级有可勾选项时，每行都留出左侧勾选列，名称才对得齐。 */
-const checkColumn = computed(() => props.items.some((item) => item.type === "radio" || item.type === "checkbox" || item.checked !== undefined));
-/** 这一级有一项带图标时，没有图标的项也留出图标列，名称左边对齐。 */
-const iconColumn = computed(() => props.items.some((item) => item.iconClass));
+/**
+ * 左侧一列，勾与图标共用（Task 决定 8）：勾选的项画勾，其它项画自己的图标。这一级有可勾选项或有一项带图标时，
+ * 每行都留出这一列，名称才对得齐。
+ */
+const leadColumn = computed(() => props.items.some((item) => isCheckable(item) || item.iconClass));
+
+function isCheckable(item: T): boolean {
+    return item.type === "radio" || item.type === "checkbox" || item.checked !== undefined;
+}
 
 /** 普通按钮项里当前聚焦的那一项（下标）；reka 的项自己挂高亮，不经这里。 */
 const focusedIndex = ref<number | null>(null);
@@ -108,9 +113,7 @@ function common(item: T): Record<string, unknown> {
             @mouseenter="emit('hover', hasChildren(item) ? item : null, $event.currentTarget as HTMLElement, false)"
             @keydown="onKeydown(item, $event)"
         >
-            <span v-if="checkColumn" class="nb-ui-menu-item__check" aria-hidden="true"><span v-if="item.checked" class="i-lucide-check h-3.5 w-3.5"></span></span>
-            <span v-if="item.iconClass" :class="[item.iconClass, 'nb-ui-menu-item__icon']" aria-hidden="true"></span>
-            <span v-else-if="iconColumn" class="nb-ui-menu-item__icon" aria-hidden="true"></span>
+            <span v-if="leadColumn" :class="['nb-ui-menu-item__icon', item.checked ? 'i-lucide-check' : item.iconClass]" aria-hidden="true"></span>
             <slot name="item" :item="item"><span class="nb-ui-menu-item__label">{{ item.label }}</span></slot>
             <span v-if="hasChildren(item)" class="i-lucide-chevron-right nb-ui-menu-item__chevron" aria-hidden="true"></span>
             <slot v-else name="item-right" :item="item"><span v-if="item.shortcut" class="nb-ui-menu-item__hint" data-menu-shortcut>{{ item.shortcut }}</span></slot>
@@ -130,9 +133,7 @@ function common(item: T): Record<string, unknown> {
             @click="onButtonClick(item, $event)"
             @keydown="onKeydown(item, $event)"
         >
-            <span v-if="checkColumn" class="nb-ui-menu-item__check" aria-hidden="true"><span v-if="item.checked" class="i-lucide-check h-3.5 w-3.5"></span></span>
-            <span v-if="item.iconClass" :class="[item.iconClass, 'nb-ui-menu-item__icon']" aria-hidden="true"></span>
-            <span v-else-if="iconColumn" class="nb-ui-menu-item__icon" aria-hidden="true"></span>
+            <span v-if="leadColumn" :class="['nb-ui-menu-item__icon', item.checked ? 'i-lucide-check' : item.iconClass]" aria-hidden="true"></span>
             <slot name="item" :item="item"><span class="nb-ui-menu-item__label">{{ item.label }}</span></slot>
             <span v-if="hasChildren(item)" class="i-lucide-chevron-right nb-ui-menu-item__chevron" aria-hidden="true"></span>
             <slot v-else name="item-right" :item="item"><span v-if="item.shortcut" class="nb-ui-menu-item__hint" data-menu-shortcut>{{ item.shortcut }}</span></slot>

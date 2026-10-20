@@ -254,7 +254,7 @@ input.nb-ui-native-input[type="number"] {
  * 这种误用留的，正常路径上永远取不到。
  *
  * 弹出列表的一行（w00029 t04）。六个列表的项结构不同（reka 的菜单项与选择项、普通按钮、受控的 option），共用的是行的
- * 外观：一档行高与字号、同心圆角、中性叠色的高亮、左侧勾选列。
+ * 外观：一档行高与字号、同心圆角、中性叠色的高亮、勾与图标共用的左侧一列。
  *
  * 高亮只认 [data-highlighted]，不写 :hover：鼠标与键盘指向同一项，不会一个停在悬停处、一个停在键盘当前项。
  * reka 的项自己挂这个属性；普通按钮项与受控列表由组件挂（MenuNodes、QuickPick、SuggestionMenu）。
@@ -290,7 +290,7 @@ input.nb-ui-native-input[type="number"] {
     opacity: 0.4;
 }
 
-/* 带第二行或允许换行的项：最矮一档行高，由内容撑高；上下留白让单行时仍是一档行高。 */
+/* 调用方明确允许换行的项（DropdownMenu 的 `wrap`）：最矮一档行高，由内容撑高；上下留白让单行时仍是一档行高。 */
 .nb-ui-menu-item--multiline {
     align-items: flex-start;
     height: auto;
@@ -304,25 +304,15 @@ input.nb-ui-native-input[type="number"] {
     color: var(--status-danger);
 }
 
-/* 左侧勾选列：同一面板里有可勾选项时每行都留这一列，勾只画在选中的那一项；列与图标之间比项内其它间隔窄。 */
-.nb-ui-menu-item:has(> .nb-ui-menu-item__check) {
-    padding-left: 6px;
-}
-
-.nb-ui-menu-item__check {
-    display: inline-flex;
-    flex-shrink: 0;
-    justify-content: center;
-    width: 14px;
-    margin-right: -4px;
-}
-
 /*
- * 图标与图标列的占位同宽，名称才对得齐。图标自身的类（UnoCSS 的 `i-lucide-*`）写 `width: 1em`，在应用里排在本文件之后、
- * 同一优先级时会把它改成字号大小，所以这里多带一级父类。
+ * 左侧一列，勾与图标共用：勾选的项画勾，其它项画图标，没有的留空占位，名称才对得齐。图标自身的类（UnoCSS 的
+ * `i-lucide-*`）写 `width: 1em`，在应用里排在本文件之后、同一优先级时会把它改成字号大小，所以这里多带一级父类。
  */
 .nb-ui-menu-item > .nb-ui-menu-item__icon {
+    display: inline-flex;
     flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
     width: 16px;
     height: 16px;
 }

@@ -114,8 +114,8 @@
 
 #### 5. `Select`（下拉选择器与长列表规范）
 - **浮层外框**：`.nb-ui-popover-surface .nb-ui-menu-surface`，内边距 `--menu-pad`（缺省 6px，nbook 4px），内圈圆角（`--nb-popover-inner-radius`）由外框圆角减描边与内边距推出；`:side-offset="7"` 避免遮挡 Trigger 聚焦发光圈；`@close-auto-focus` 消除二次弹回闪烁。浮层另内联的一份材质（8px 模糊、130% 饱和度、四层投影）与外框类不一致，以哪边为准待 w00029 t05 定。
-- **选项**：弹出列表共用的一行（`.nb-ui-menu-item`，`--menu-item-h` 28px、`--menu-item-font` 13px，与触发器的 `size` 无关）；带 `description` 的项由内容撑高；选中只在左侧勾选列画勾，底色与字重不变。
-- **截断与滚动**（`usePopupScroll`，六个弹出列表共用）：项超过 8 个时视口截在第 9 项的中点（按真实盒子量，分组标题、分隔线、两行项照实计入），不超过 8 个时取自然高度；外框按可用空间夹紧（`--reka-popper-available-height`），视口是唯一能收缩的一块；打开时停在选中项上。挂载与内容变化时即时重新测量，未到底时顶底 22px 渐隐（中点 8px 处 35% 透光消散）。
+- **选项**：弹出列表共用的一行（`.nb-ui-menu-item`，`--menu-item-h` 28px、`--menu-item-font` 13px，与触发器的 `size` 无关）；`description` 放在同一行右侧的次要文字，所有项一样高；选中项在左侧一列画勾（替代它的图标），底色与字重不变。
+- **截断与滚动**（`usePopupScroll`，六个弹出列表共用）：项超过 8 个时视口截在第 9 项的中点（按真实盒子量，分组标题、分隔线、换行项照实计入），不超过 8 个时取自然高度；外框按可用空间夹紧（`--reka-popper-available-height`），视口是唯一能收缩的一块；打开时停在选中项上。挂载与内容变化时即时重新测量，未到底时顶底 22px 渐隐（中点 8px 处 35% 透光消散）。
 - **滚动条**：4px 悬浮胶囊滑块（内部零件 `PopupScrollbar`），只在可滚动时出现，视口右侧让出 6px；按住拖动（指针捕获、按 CSS 像素折算，Lab 画布缩放下也跟手）。
 
 #### 6. `Input` & `NumberInput`（输入框规范）
@@ -124,8 +124,8 @@
 
 #### 7. `DropdownMenu`（下拉菜单与动作浮层规范）
 - **外框与层级**：`.nb-ui-popover-surface .nb-ui-menu-surface`，内边距 `--menu-pad`；层级由 `usePopoverLayer` 给（在 `Dialog` 里跟随它注入的层级）。组件里不写死圆角、面色、描边与内边距。
-- **截断与滚动**：与 `Select` 同一份 `usePopupScroll`：项超过 8 个时视口截在第 9 项的中点（按真实盒子量，分组标题、分隔线、两行项照实计入），不超过 8 个时取自然高度；外框按可用空间夹紧（`--reka-popper-available-height`），视口是唯一能收缩的一块。级联子菜单的每一级（`MenuLevelPanel`）同样截断与滚动；某一级一滚动，它展开的更深层级收起，焦点在被收起的层级里时回到展开它的那一项。
-- **菜单项与破坏性动作**：项是 `.nb-ui-menu-item`（28px、13px），高亮只认 `data-highlighted`，底色 `var(--overlay-item-active)`，不写 `:hover` 底色，鼠标与键盘指向同一项；reka 的项自己挂这个属性，手工级联与右键菜单的普通按钮项由 `MenuNodes` 在指针移动时聚焦、聚焦时挂上。展开了子菜单的父项保持高亮。同一级有勾选项时每行留出左侧勾选列，有一项带图标时每行留出图标列，名称左边对齐；六个弹出列表都这样。危险项（`tone: "danger"`）的 `.nb-ui-menu-item-danger` 只换文字与图标的颜色，高亮底色与其它项相同；分隔线 `.nb-ui-menu-separator`，分组标题 `.nb-ui-menu-label`。
+- **截断与滚动**：与 `Select` 同一份 `usePopupScroll`：项超过 8 个时视口截在第 9 项的中点（按真实盒子量，分组标题、分隔线、换行项照实计入），不超过 8 个时取自然高度；外框按可用空间夹紧（`--reka-popper-available-height`），视口是唯一能收缩的一块。级联子菜单的每一级（`MenuLevelPanel`）同样截断与滚动；某一级一滚动，它展开的更深层级收起，焦点在被收起的层级里时回到展开它的那一项。
+- **菜单项与破坏性动作**：项是 `.nb-ui-menu-item`（28px、13px），高亮只认 `data-highlighted`，底色 `var(--overlay-item-active)`，不写 `:hover` 底色，鼠标与键盘指向同一项；reka 的项自己挂这个属性，手工级联与右键菜单的普通按钮项由 `MenuNodes` 在指针移动时聚焦、聚焦时挂上。展开了子菜单的父项保持高亮。勾与图标共用左侧一列（16px）：勾选的项画勾，其它项画图标；同一级有勾选项或有一项带图标时每行都留出这一列，名称左边对齐。勾选项与带图标的项通常不放在同一级。同一个列表里行高一致：说明、分类、路径都放进同一行右侧的次要文字（`__hint`，放不下时先截它），只有调用方明确要换行（DropdownMenu 的 `wrap`）的项由内容撑高。六个弹出列表都这样。危险项（`tone: "danger"`）的 `.nb-ui-menu-item-danger` 只换文字与图标的颜色，高亮底色与其它项相同；分隔线 `.nb-ui-menu-separator`，分组标题 `.nb-ui-menu-label`。
 - **菜单结构契约**：平面项、分隔线与任意层级子菜单（`children`：父项只展开、不执行 select；每一级都继续展开）。右键菜单、按钮下拉菜单和窗口菜单栏共用 `menu-cascade.ts`：第一项与父项同一行，两个面板之间留 6px 间隙，靠近视口边缘时翻到另一侧。子菜单默认不显示：悬停父项停满 300ms 才展开，左键点击或键盘进入则立即展开；已经展开后，同级切换不等待。每一级只保留一个面板：第一次展开用缩放淡入；之后在同级两个有子菜单的项之间切换时，这个面板移动并改变尺寸，内容快速淡入淡出；移到没有子菜单的项时立刻收起。入场和退场都取 `--motion-fast`。`type: "radio" | "checkbox"` 用对应原语渲染勾选态，`checked` 是**受控**值——组件只发 select，勾选永远由宿主改；radio 的同组互斥用 `group` 声明，同组连排合成一个 RadioGroup，缺 group 的贡献按单项独立成组并给开发诊断。
 - **受控展开**：`open` 传入即受控（宿主不改就不变），不传则由原语自管；两种用法都会发 `update:open`，宿主据此在活动对象切换时关掉旧菜单。菜单关闭时清空已展开的子级，再次打开只显示第一级。触发按钮可以保留按下缩放；浮层按抵消缩放后的按钮外框定位，不跟着形变移动。
 - **无障碍与焦点管理**：完整的键盘导航（ArrowDown/Up 循环、Home/End、Right/Left 进出子菜单、Enter/Space 选择、Tab/Esc 关闭），关闭后焦点由 Reka 原语归还给触发器；外部点击关闭时焦点随用户落点，不被抢回。
@@ -241,7 +241,7 @@
 - **Tier 2: 交互菜单与下拉选择（DropdownMenu / Select / Menubar · 黄金标准）**：
   - **单一真相源**：所有弹出列表（`DropdownMenu`、`Select`、`Menubar`、`ContextMenu`、`QuickPick`、`SuggestionMenu`）的外框用 `.nb-ui-popover-surface .nb-ui-menu-surface`，项用 `.nb-ui-menu-item`，滚动用 `usePopupScroll`，严禁在组件内写死圆角、面色、模糊、投影或内边距；
   - **同心几何律（Concentric Geometry）**：项的圆角 = 外框圆角（`--radius-menu`）− 描边 − 内边距（`--menu-pad`）。nbook：10 − 1 − 4 = **5px**；macOS：12 − 1 − 6 = **5px**；
-  - **截断视口**：项超过 8 个时视口截在第 9 项的中点（按真实盒子量，分组标题、分隔线、两行项照实计入），不超过 8 个时取自然高度；外框按可用空间夹紧（`--reka-popper-available-height`），视口是唯一能收缩的一块；
+  - **截断视口**：项超过 8 个时视口截在第 9 项的中点（按真实盒子量，分组标题、分隔线、换行项照实计入），不超过 8 个时取自然高度；外框按可用空间夹紧（`--reka-popper-available-height`），视口是唯一能收缩的一块；
   - **双向虚化遮罩与 macOS 极简悬浮滑块**：
     - 视口自带 22px 光学散焦双向遮罩（`nb-ui-popover-scroll-fade-*`，中点 8px 处 35% 透光消散），未到底时呈现后续半项透光虚化，滑到底部虚化平滑撤销；
     - 4px 悬浮微胶囊滑块（`PopupScrollbar`）独立绝对定位在外层，常态半透明、悬停加深，按住拖动，内容溢出时出现，视口右侧让出 6px。

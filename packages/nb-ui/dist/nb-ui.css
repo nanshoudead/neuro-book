@@ -1177,10 +1177,6 @@
   --tw-leading: calc(var(--spacing) * 4);
   line-height: calc(var(--spacing) * 4);
 }
-.leading-\[14px\] {
-  --tw-leading: 14px;
-  line-height: 14px;
-}
 .leading-none {
   --tw-leading: 1;
   line-height: 1;
@@ -2170,18 +2166,11 @@ input.nb-ui-native-input[type="number"] {
 .nb-ui-menu-item-danger {
   color: var(--status-danger);
 }
-.nb-ui-menu-item:has(> .nb-ui-menu-item__check) {
-  padding-left: 6px;
-}
-.nb-ui-menu-item__check {
+.nb-ui-menu-item > .nb-ui-menu-item__icon {
   display: inline-flex;
   flex-shrink: 0;
+  align-items: center;
   justify-content: center;
-  width: 14px;
-  margin-right: -4px;
-}
-.nb-ui-menu-item > .nb-ui-menu-item__icon {
-  flex-shrink: 0;
   width: 16px;
   height: 16px;
 }

@@ -20,7 +20,7 @@ async function expectRowGeometry(item: Locator): Promise<void> {
     await expect(item, `${label} 的圆角`).toHaveCSS("border-radius", "5px");
 }
 
-/** 名称的左边缘：同一级的名称应当对齐（勾选列、图标列有一项用到就每项都留）。 */
+/** 名称的左边缘：同一级的名称应当对齐（勾与图标共用的左侧一列，有一项用到就每项都留）。 */
 async function labelLeft(item: Locator): Promise<number> {
     return (await item.locator(".nb-ui-menu-item__label").boundingBox())!.x;
 }
@@ -52,7 +52,9 @@ test("下拉菜单：外框 10px、内边距 4px，项高 28px、字 13px、圆�
     const checked = menu.getByRole("menuitemcheckbox", {name: /自动换行/});
     await expect(checked.locator(".i-lucide-check")).toHaveCount(1);
     await expect(checked.locator("[data-menu-shortcut]")).toHaveText("Alt+Z");
-    // 同一面板里没勾的项也留出勾选列，没图标的项也留出图标列，名称才对得齐。
+    // 勾与图标共用左侧一列（决定 8）：勾画在图标的位置；没勾、没图标的项也留出这一列，名称才对得齐。
+    const iconLeft = async (item: Locator, icon: string): Promise<number> => (await item.locator(icon).boundingBox())!.x;
+    expect(await iconLeft(checked, ".i-lucide-check"), "勾与图标在同一列").toBeCloseTo(await iconLeft(menu.getByRole("menuitem", {name: /重命名/}), ".i-lucide-pencil"), 0);
     const nameLeft = (name: RegExp): Promise<number> => labelLeft(menu.getByRole("menuitem", {name}).or(menu.getByRole("menuitemcheckbox", {name})));
     expect(await nameLeft(/排序方式/)).toBeCloseTo(await nameLeft(/自动换行/), 0);
     expect(await nameLeft(/自动换行/), "没图标的项与带图标的项名称对齐").toBeCloseTo(await nameLeft(/重命名/), 0);
@@ -135,7 +137,7 @@ test("菜单栏：手工级联里的普通按钮项在悬停时高亮", async ({
     await expect(page.locator(".nb-menu-level")).toHaveCount(0);
 });
 
-test("Select：单行项 28px、带说明的项由内容撑高；选中只画左侧的勾，底色不变", async ({page}) => {
+test("Select：所有项 28px，说明在同一行右侧；选中项在左侧一列画勾、替代它的图标，底色不变", async ({page}) => {
     await page.goto("/acceptance/popup-lists?scene=select&theme=nbook&colorway=nbook-light");
     await page.locator("[data-fixture-select]").click();
     const listbox = page.getByRole("listbox");
@@ -144,11 +146,11 @@ test("Select：单行项 28px、带说明的项由内容撑高；选中只画左
     const markdown = page.getByRole("option", {name: /Markdown/});
     const text = page.getByRole("option", {name: /纯文本/});
     await expectRowGeometry(markdown);
-    const textBox = (await text.boundingBox())!;
-    expect(textBox.height, "带说明的项比一档行高高").toBeGreaterThan(28);
-    await expect(text).toHaveCSS("border-radius", "5px");
+    await expectRowGeometry(text);
+    await expect(text.locator(".nb-ui-menu-item__hint"), "说明在同一行右侧").toHaveText("不带格式，换行照原样保留");
 
     await expect(text.locator(".i-lucide-check")).toHaveCount(1);
+    await expect(text.locator(".i-lucide-file"), "选中项的勾替代它的图标").toHaveCount(0);
     await expect(markdown.locator(".i-lucide-check")).toHaveCount(0);
     expect(await labelLeft(page.getByRole("option", {name: /PDF/})), "没图标的项留出图标列").toBeCloseTo(await labelLeft(markdown), 0);
     // reka 打开时把焦点与高亮放在选中项上；把指针移到别的项，选中项就只剩勾。
@@ -158,7 +160,7 @@ test("Select：单行项 28px、带说明的项由内容撑高；选中只画左
     await expect(text, "选中项不加粗").toHaveCSS("font-weight", "400");
 });
 
-test("QuickPick：项 28px、带说明的项由内容撑高；高亮跟着指针移动，只亮一项", async ({page}) => {
+test("QuickPick：所有项 28px，分类与说明在同一行右侧；高亮跟着指针移动，只亮一项", async ({page}) => {
     await page.goto("/acceptance/popup-lists?scene=quick-pick&theme=nbook&colorway=nbook-light");
     const panel = page.locator("[data-fixture-quick-pick]");
     await settled(panel);
@@ -169,7 +171,8 @@ test("QuickPick：项 28px、带说明的项由内容撑高；高亮跟着指针
     const settings = page.getByRole("option", {name: /设置/});
     await expectRowGeometry(open);
     await expectRowGeometry(settings);
-    expect((await chapter.boundingBox())!.height, "带说明的项比一档行高高").toBeGreaterThan(28);
+    await expectRowGeometry(chapter);
+    await expect(chapter.locator(".nb-ui-menu-item__hint"), "说明在同一行右侧").toHaveText("在当前卷末尾");
     expect(await highlightedLabels(page)).toEqual(["打开项目Ctrl+O"]);
     expect(await labelLeft(page.getByRole("option", {name: /导出/})), "没图标的项留出图标列").toBeCloseTo(await labelLeft(open), 0);
 

@@ -3,7 +3,6 @@ import {computed, inject, useAttrs} from "vue";
 import {
     SelectContent,
     SelectItem,
-    SelectItemIndicator,
     SelectItemText,
     SelectPortal,
     SelectRoot,
@@ -107,8 +106,20 @@ const allowSideFlip = computed(() => props.dropdownDirection === "auto");
 
 const selectedOption = computed(() => props.options.find((option) => option.value === props.modelValue));
 const selectedLabel = computed(() => selectedOption.value?.label ?? "");
-/** 有一项带图标或状态圆点时，其余项也留出这一列，名称左边对齐。 */
-const iconColumn = computed(() => props.options.some((option) => option.indicatorClass || option.iconClass));
+/**
+ * 左侧一列，勾与图标共用（Task 决定 8）：选中项画勾，其它项画自己的图标或状态点。要画勾或有一项带图标时每行都留这一列，
+ * 名称左边对齐。
+ */
+const leadColumn = computed(() => !props.hideCheckmark || props.options.some((option) => option.indicatorClass || option.iconClass));
+
+function showsCheck(option: SelectOption): boolean {
+    return !props.hideCheckmark && option.value === props.modelValue;
+}
+function leadClass(option: SelectOption): string | string[] {
+    if (showsCheck(option)) return "i-lucide-check";
+    if (option.iconClass && !option.indicatorClass) return [option.iconClass, "text-[var(--text-secondary)]"];
+    return "";
+}
 
 function handleUpdate(value: unknown): void {
     emit("update:modelValue", typeof value === "string" ? value : "");
@@ -188,21 +199,12 @@ function handleCloseAutoFocus(event: Event): void {
                         :data-value="option.value"
                         :disabled="option.disabled"
                         class="nb-ui-menu-item"
-                        :class="{'nb-ui-menu-item--multiline': Boolean(option.description)}"
                     >
-                        <span v-if="!props.hideCheckmark" class="nb-ui-menu-item__check">
-                            <SelectItemIndicator class="inline-flex"><span class="i-lucide-check h-3.5 w-3.5" aria-hidden="true"></span></SelectItemIndicator>
+                        <span v-if="leadColumn" class="nb-ui-menu-item__icon" :class="leadClass(option)" aria-hidden="true">
+                            <span v-if="option.indicatorClass && !showsCheck(option)" class="h-1.5 w-1.5 rounded-full shadow-sm" :class="option.indicatorClass"></span>
                         </span>
-                        <span v-if="option.indicatorClass" class="nb-ui-menu-item__icon inline-flex items-center justify-center" aria-hidden="true"><span class="h-1.5 w-1.5 rounded-full shadow-sm" :class="option.indicatorClass"></span></span>
-                        <span v-else-if="option.iconClass" class="nb-ui-menu-item__icon text-[var(--text-secondary)]" :class="option.iconClass" aria-hidden="true"></span>
-                        <span v-else-if="iconColumn" class="nb-ui-menu-item__icon" aria-hidden="true"></span>
-                        <span class="nb-ui-menu-item__label">
-                            <SelectItemText class="block truncate">{{ option.label }}</SelectItemText>
-                            <span
-                                v-if="option.description"
-                                class="mt-0.5 block truncate text-[11px] leading-[14px] text-[var(--text-muted)]"
-                            >{{ option.description }}</span>
-                        </span>
+                        <SelectItemText class="nb-ui-menu-item__label">{{ option.label }}</SelectItemText>
+                        <span v-if="option.description" class="nb-ui-menu-item__hint">{{ option.description }}</span>
                     </SelectItem>
                 </SelectViewport>
 
