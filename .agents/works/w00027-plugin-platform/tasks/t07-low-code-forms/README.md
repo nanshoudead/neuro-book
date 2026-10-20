@@ -43,7 +43,15 @@ updated: 2026-10-20
 - S2b（`6b4dcb8ba`）：各表单控件加同名的 `invalid`（与字段上下文取或）；`Switch`、`Checkbox`、`CheckboxGroup`、`RadioGroup`、`Select` 加只读：可聚焦、写 `aria-readonly`，值由组件给定、交互不发出变化，下拉不打开浮层；出错时单选圆钮、开关轨道描红，复选组里的框经包内注入只描红（`aria-invalid` 只在组上）；`Input` 的“清空输入”、`NumberInput` 的“增加”“减少”改为可覆盖的属性（“展开选项”现行代码里已经没有）；新组件 `SearchSelect`（combobox 输入框加 `SuggestionMenu`，列表就是 t04 统一后的弹出列表）；Lab 加只读、出错场景与 `SearchSelect` 场景；`dist/nb-ui.css` 重新生成。
   - 偏离计划：`SecretInput` 不做（凭据搁置，没有使用方），Spec 输出 31 改为 planned，`writeOnly` 与 `secret` 的字段在此之前按文字画（master `b13673166`）；下拉只读时原想拦“逐字查找”，真实浏览器里浮层关着时 Reka 的逐字查找本就不生效，删掉了这道到不了的拦截，由 Lab 的 e2e 守住“只读时值不变”。
   - 验证：nb-ui 518 例（`readonly-matrix.test.ts` 10 例、`SearchSelect.test.ts` 6 例，只读的四处拦截各做变异都被拦下）；dev-panel、nb-story、应用的类型检查；nb-story 284 例与 e2e 19 例；应用 Vitest 382 例；设置、书架、插件与 Lab 各组 e2e 71 例，其中新增下拉只读、`SearchSelect` 两条；改动的六个控件在 nbook、macos × 浅、深 × 手机、自由画布下截图 288 张，没有溢出、焦点被裁或页面报错，截图在 `.local/agent/works/w00027-plugin-platform/tasks/t07-low-code-forms/reports/s2b-shots/`。看图时补了两处：`SearchSelect` 的输入框关掉拼写检查；单选组、开关、复选组原来出错时只有属性没有外观。
-  - 审查：Sonnet 界面审查进行中。
+  - 审查：Sonnet 界面审查（[evidences/impl-review-s2-sonnet.txt](evidences/impl-review-s2-sonnet.txt)，16 条：重要 9、建议 7），`2d4ce992c` 处理 15 条：
+    - 下拉以只读挂载、再改成可编辑后打不开（reka 在 setup 时定受控与否）：浮层开合改由组件持有、始终受控；开关、单选组同一机制，改成始终受控，没给值时自己记；
+    - 没给值的复选组勾第二项丢第一项、复选框原生状态与值分叉：组件自己记勾选，受控而调用方不采纳时把原生框摆回去；
+    - 勾选后出错不红（与选中色同特指度）：描红用 important，真实浏览器里量过边框是出错色；
+    - `SearchSelect`：打开时全选已选项的名字（原来打字接在名字后面）；组字中不筛选、Enter 与方向键交给输入法；外框上的放大镜与箭头可以开合且不失焦；不继承属性，`aria-*` 转给输入框；列表的名字缺省指向字段标签（`SuggestionMenu` 加可选的 `labelledby`）；当前值行尾打勾（`SuggestionMenuItem` 加可选的 `checked`）；`name` 改在隐藏输入框上提交值；字重与 `Select` 一致；
+    - 只读的开关、单选组、下拉不再画成可点，只读下拉鼠标点击也能聚焦；复选组的组上不写 `aria-readonly`（`group` 角色不支持），`aria-invalid` 留在组上（ARIA 1.2 里是全局属性，Spec 输出 27 定了标在组上）；删掉复选组里到不了的第二道只读拦截；
+    - 五份文档“没有只读、出错状态”的旧话改成实际表现；补上审查指出的测试空白（下拉只读切可编辑、非受控的开关与单选组、非受控复选组累计、`SearchSelect` 的出错与全选与组字与外框与名字与隐藏值、字段必填到单选组、字段说明到开关），e2e 改用逐字键入并点箭头；Lab 加已勾选出错的复选框与出错的复选组。
+    - 不改 1 条（第 12 条，`Field` 组形态误用在单个控件上会丢名字）：组形态只给组合控件，S3 的渲染层按种类选形态；给单个控件也补 `aria-labelledby` 会让名字里多出必填的星号，在 `Field.md` 写明适用范围。
+    - 修正后 nb-ui 528 例、应用 Vitest 382 例、dev-panel 与 nb-story 类型检查、Lab 的 nb-ui e2e 12 例、设置、书架、插件、Lab 场景等 e2e 33 例通过。
 
 ## 下一步
 
