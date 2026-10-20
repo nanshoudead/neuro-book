@@ -251,16 +251,21 @@ test("折叠内容只在高度动画进行中裁切：展开与收起时打上 d
 
     await openScene(page, "c=Collapsible&s=closed");
     await record();
+    // 点击后动画要过一帧才开始：先等展开动画结束（日志里出现 open:off），再判静止，否则会量到动画开始之前。
     await trigger().click();
+    await expect.poll(log).toEqual(expect.arrayContaining(["open:on", "open:off"]));
     await settled();
     expect(await openOverflow()).toBe("visible");
     await trigger().click();
     await expect.poll(log).toEqual(expect.arrayContaining(["open:on", "open:off", "closed:on", "closed:off"]));
     await settled();
 
-    // 快速开合：展开、收起、再展开连着点，收起的动画被重新展开打断（animationcancel），等重新展开的动画开始再等它结束，同样不留标记。
-    const before = (await log()).length;
+    // 快速开合：先展开并等它静止，再连点两次——收起的动画被重新展开打断（animationcancel）；之后日志里第一个 open:on
+    // 就是重新展开的那次，等它开始再等它结束，同样不留标记。
     await trigger().click();
+    await expect.poll(async () => (await log()).at(-1)).toBe("open:off");
+    await settled();
+    const before = (await log()).length;
     await trigger().click();
     await trigger().click();
     await expect.poll(async () => (await log()).slice(before)).toContain("open:on");
