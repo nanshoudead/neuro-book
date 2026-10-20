@@ -63,13 +63,13 @@
 - `commitExtraction(id, …)`：书不存在时按现有导入流程建目录（临时目录改名，新的一代）；已存在时写新数据文件、改名替换 `book.json`，再回收旧数据文件。回收与 `pinBook` 的重试配合：读到旧版本、还没打开时文件没了，重试即可。
 - 书目录的不变量从“从不原地改写”改为“只有 `book.json` 与数据文件按上面的顺序替换”，模块头同步改写。
 - 游标、索引缓存的键改为 `(id, generation, revision)`；每次查询照常读 `book.json`，所以别的进程提交后，本进程的新查询拿到新版本。
-- id 的占用两边都靠整目录改名：导入改名成 `<书 id>/`，抽取新建改名成 `.ingest/<书 id>/`；各自改名成功后再看一眼对方，看到了就退回，两边同时发生时至少一边退回（计划审查第 8 条）。（实施中改：原计划让导入也拿 id 锁，但核心库只能用 Node 的 API，flock 要经 bun:ffi，进不了核心。）
+- id 的占用：导入、抽取的发起与删除都拿同一把 id 锁，在锁里查对方再改名。核心库只能用 Node 的 API，flock 要经 bun:ffi，所以锁由调用方注入：`Library` 接受一个 `IdCoordinator`（`src/ingest/coordinator.ts`，命令行与独立服务构造书库时传入），只读的用法不传。（实施中两次改：S3 先改成“改名后互查、看到对方就退回”，实现审查第 9 条发现导入改名后到退回之前书已经能被查询读到，改为注入锁。）
 
 ### 停止与删除
 
 - 命令行：`onProcessInterrupt`（nb-harness 已有）→ `runner.stop()`。
 - serve：进程内的 Runner 表加一个“接纳”门禁。服务停止时先同步关闭门禁（之后的 `ingest.start` 得到“服务正在停止”），再停全部已接纳的 Runner（含正在启动的）、等它们放锁，再撤销登记、停监听（计划审查第 7 条）。
-- `book.remove`：核心库的 `Library` 接受一个注入的 `removeGuard`（`src/ingest/guard.ts`，命令行与独立服务构造书库时传入）：先停本进程里这个 id 的 Runner；再非阻塞地拿 id 锁，拿不到（别的进程在抽）得到 `ingest_running`；拿到后在持锁期间删书目录与抽取记录，再放锁。锁文件本身不删。
+- `book.remove`：经上面的 `IdCoordinator`：先停本进程里这个 id 的 Runner；再非阻塞地拿 id 锁，拿不到（别的进程在抽）得到 `ingest_running`；拿到后在持锁期间重新读书与抽取记录（等待期间第 1 章可能刚好提交，实现审查第 1 条），删书目录与抽取记录，再放锁。锁文件本身不删。
 
 ### packages/nb-story/src/qa/config.ts、config-edit.ts、cli/config.ts
 

@@ -1,0 +1,209 @@
+# w00024/t06-ingest S1 到 S3 只读实现审查
+### 1. 首章发布期间删除会成功返回，却留下无法继续抽取的书
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/nb-story/src/core/library.ts:347`、`:354`；`packages/nb-story/src/ingest/job.ts:115`、`:118`。
+- **现象**：`removeBook` 先读 `meta` 与 `ingest`，然后才等待本进程任务停止、取得锁。首章正在写 `.importing-*` 时，`meta` 为 null；任务已经通过提交前的停止检查，仍会完成首章发布。删除拿到锁后继续使用旧的 `meta === null`，只删 `.ingest/<id>`，返回成功，但正式书目录仍在。实际运行 10 次，10 次都是 `removed.ok=true, books=1, source=false`。
+- **为什么是问题**：违反 ingest 输出 16、验收 8：删除成功后书还存在，抽取记录已丢失；同 id 再发起会得到 `book_exists`，无法按 `new` 开始。旧书不是事后重建，而是被请求删除的任务自己发布的。
+- **如何核实**：`bun --no-env-file /tmp/review-w00024-t06-impl/scratch/storage.ts remove-first`。真实 `startIngest`、Bun Worker、HTTP 协议端点、`ingestRemoveGuard`、书库与文件系统；`fs.watch` 观察首章 `.importing-*` 目录出现后调用真实 `removeBook`，不替换实现、不伪造 Worker 事件。输出根目录 `/tmp/review-w00024-t06-impl/scratch/remove-first-1792477519729`。base 没有抽取任务与首章前状态，此路径为本次新增。
+- **建议改法**：停止本进程任务并取得 id 锁之后，重新读取书与抽取记录，再决定删除哪些目录；不要跨等待保留存在性判断。补首章发布中删除与提交前停止的真实运行时用例。
+
+### 2. 进度读取会在正常章提交时打开已经回收的抽取文件
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/ingest/job.ts:68`、`:75`；`packages/nb-story/src/ingest/status.ts:79`；`packages/nb-story/src/core/library.ts:290`、`:292`。
+- **现象**：`readCommitted` 先读 `book.json`，再按路径读取 `extraction-N.json`，没有固定文件句柄或重试。两步之间提交可发布 N+1 并删除 N，导致正常 `ingestStatus` 抛 `ENOENT`。150 次连续真实提交、并发读取进度 620 次，出现 1 次 `open .../race/extraction-91.json` 的 `ENOENT`。
+- **为什么是问题**：抽取期间的进度查询不能稳定返回；S5 的轮询会把合法提交显示为失败。`pinBook` 已专门处理同一种“读 meta 后旧文件被回收”的窗口，但进度走了另一套读取协议。不能只依赖主线程或 id 锁：`ingestStatus` 不持有写锁，其他进程也可查询。
+- **如何核实**：`bun --no-env-file /tmp/review-w00024-t06-impl/scratch/storage.ts status-race`。持真实 flock 的写者依次调用真实 `commitExtraction`，并发调用真实 `ingestStatus`，无 mock 或人为替换文件操作。输出 `reads=620, failures=1`；实验书库 `/tmp/review-w00024-t06-impl/scratch/status-race-1792477519766`。base 没有 `readCommitted` 与版本回收，本次新增。
+- **建议改法**：为提交清单提供与图相同的固定快照读取协议：读 meta、打开文件、重验 generation/revision；因回收导致打开失败时重试，已固定的句柄读完即关。status 必须使用该协议；补与真实章提交并发的测试。
+
+### 3. 未知格式的书库仍会写抽取记录并发送模型请求
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/ingest/runner.ts:62`、`:71`；`packages/nb-story/src/ingest/store.ts:106`；`packages/nb-story/src/core/library.ts:261`。
+- **现象**：`startIngest` 在验证书库格式之前创建 `.locks`、占用 `.ingest/<id>` 并启动 Worker；只有整章抽完、调用 `commitExtraction` 才执行 `assertWritable`。实际给 `library.json` 写 `format:99` 后，发起返回 `action:new`，端点已收到 3 次 HTTP，原文已保存在书库；任务最后才以 `unsupported_format` 失败。
+- **为什么是问题**：ingest“副作用与数据”要求不认识的格式只读不写、发起直接得到 `unsupported_format`。现路径既改变未知版本书库，又让用户为注定不能提交的一章付费。append 同样能先替换保存的原文；resume/done 的判定也不经写门禁。
+- **如何核实**：`bun --no-env-file /tmp/review-w00024-t06-impl/scratch/storage.ts unknown-format`。真实 start/Worker/SDK/本机 HTTP，假密钥；输出 `action:new, requests:3, sourceExists:true, outcome.code:unsupported_format`。实验书库 `/tmp/review-w00024-t06-impl/scratch/unknown-format-1792477519756`。base 的导入与删除在入口先 `assertWritable`，本次新增抽取入口没有沿用。
+- **建议改法**：提供核心库拥有的写入准入检查，start 在任何书库写入与模型请求之前调用；取得 id 锁后再按需要复核。已有单书格式也应在提交前检查，而不能只检查根 `library.json`。补未知格式下新建、追加与续抽都不写业务数据、不发 HTTP 的用例。
+
+### 4. 真正的 TCP 断流被归成本机错误，不执行任何渠道重试
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/ingest/model.ts:121`、`:139`、`:143`；`packages/nb-story/src/ingest/chapter.test.ts:168`。
+- **现象**：SDK 只把建立连接阶段的失败包装成 `APIConnectionError`；读取已开始的 SSE 时，Bun 的断线错误直接从响应体迭代器抛出，被 `classify` 的末尾归为 `local`。真实 TCP 端点先发送 200、一个 SSE delta，再断开未结束的 chunked 响应；结果 `kind:local, received:1, waits:[]`。
+- **为什么是问题**：ingest 输出 9 明确连接或流中断按 30/60/120/180/300 秒重试，最多 6 次；当前最常见的传输断流反而一次就终止。现有“流没有结束原因就断了”测试用的是正常 EOF（`cut` 返回完整 HTTP Response），不能覆盖响应体读取抛错的实际断线。
+- **如何核实**：`bun --no-env-file /tmp/review-w00024-t06-impl/scratch/model-cases.ts socket-reset`，真实 `node:net` 服务器、Bun fetch、OpenAI SDK 与 `callModel`；未注入 fetch 或错误对象。端点实际只收到 1 次 HTTP，错误原文 `The socket connection was closed unexpectedly. For more information, pass \`verbose: true\` in the second argument to fetch()`。来源的模型客户端使用另一条传输路径；本次新 SDK 适配引入。
+- **建议改法**：在网络/流边界按错误类型和稳定错误码识别真实传输错误，不按错误文案；将响应体断线归为 `network`。保留正常 EOF 测试，另经真实断开的 TCP 响应核对 6 次上限和退避参数。
+
+### 5. SDK 的 timeout 只管收到响应头，流一旦开始就没有超时
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/ingest/model.ts:97`、`:164`、`:207`；依赖 `openai/src/client.ts:809-814`。
+- **现象**：`timeout:600_000` 被当成请求超时，但 SDK 在 fetch 返回 Response（收到响应头）后立即 `clearTimeout`；后面的 `for await` 没有计时器。服务发出一小段非空内容后不再发送，也不结束连接时，任务永远停在这一步，不重试。用真实 SDK 将同一 timeout 选项缩短为 50 ms，端点发 1 个 SSE chunk 后挂住，305 ms 时仍 `ended:false, chunks:1`；随后主动 abort 才结束。
+- **为什么是问题**：输出 9 的超时恢复在流读取阶段不存在；跑飞检测也挡不住停止输出或慢到不产生 2000 个空白的连接。把 timeout 从 50 ms 改为产品里的 600000 ms 不改变其生命周期。实际产品请求没有独立的总时限或流空闲时限。
+- **如何核实**：`bun --no-env-file /tmp/review-w00024-t06-impl/scratch/model-cases.ts sdk-timeout`；真实本机 HTTP 与未改 SDK。额外读取 `/home/notnotype/CodeRepository/neuro-book/node_modules/openai/src/client.ts:781-815`，确认计时器确实只包住 fetch；未等待产品的 10 分钟阈值，产品永久等待结论来自同一 SDK 控制流。实验的 300 ms 是观察超时是否生效的截止时间，不是仓库测试的固定等待。
+- **建议改法**：抽取传输层持有覆盖整个 SSE 消费过程的超时控制器，完成、失败、停止都清计时器；计时器触发须归 `network` 并进入同一重试预算。用真实 SSE 挂起端点验证，不只测响应头迟到。
+
+### 6. SDK 在解析坏 SSE 时直接打印原始数据，绕过密钥遮盖
+
+- **严重程度**：重要；**类别**：安全与性能。
+- **位置**：`packages/nb-story/src/ingest/model.ts:160`、`:207`；依赖 `openai/src/core/streaming.ts:61-66`。
+- **现象**：OpenAI SDK 的 SSE JSON 解析失败时，用 logger 直接输出原始 `sse.data` 和 `sse.raw`；本层的 `classify` 脱敏发生得更晚，只遮盖最后的 Error.message。端点在不合法 JSON 中回显假密钥 `FAKE_REVIEW_SECRET_012345` 后，标准错误出现 2 次完整假密钥：`Could not parse message into JSON: {bad FAKE_REVIEW_SECRET_012345` 与 `From chunk: [ "data: {bad FAKE_REVIEW_SECRET_012345" ]`。
+- **为什么是问题**：违反 ingest 的“密钥不出现在输出与错误里”以及边界输入不打印原文的约定。401 回显密钥测试通过不能证明 SDK 自己的日志安全；渠道返回异常流或开启 SDK 日志时仍可把真实密钥写入 CLI/serve 日志。
+- **如何核实**：`bun --no-env-file /tmp/review-w00024-t06-impl/scratch/model-cases.ts sse-secret`，真实 SDK、HTTP、`callModel`，未开启 debug，也没替换 console；只用了可辨认的假密钥，没有读取真实密钥。最后抛出的 `ModelError` 本身不含密钥，但此前的原始日志已经泄露。本次新增 SDK 路径。
+- **建议改法**：为 SDK 提供受控的脱敏 logger，所有级别的所有参数都按本次密钥清洗，或禁掉 SDK 原始日志、由传输层仅输出脱敏诊断。补坏 SSE 回显假密钥的真实子进程 stdout/stderr 检查。
+
+### 7. 收到 finish 与 usage 后中止流，会把被中止请求记成完整成功
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/ingest/model.ts:229`、`:243-257`。
+- **现象**：SDK 的 SSE 迭代器遇到 AbortError 会正常返回，不一定进入本层 catch。如果服务已发 `finish_reason:stop` 与 usage，但还没结束 HTTP 响应，此时用户停止，循环正常退出；`attemptOnce` 没有在循环后检查 signal，仍 `record(null)` 并返回成功。实测中止后返回 `ok:true, json:{ok:true}`，记账为 `error:null, complete:true, input:10`。
+- **为什么是问题**：ingest 输出 13 明确中止请求的合计要标不完整；现有 stop 场景只中止尚未收到 finish 的请求，掩盖这条合法时序。外层任务的提交前 stop 检查可以阻止提交，但不能修正已经写入 usage.jsonl 的完整性标记。
+- **如何核实**：`bun --no-env-file /tmp/review-w00024-t06-impl/scratch/model-cases.ts abort-after-finish`。真实本机 SSE 发出 finish 与 usage 后保持连接；fetch 透传响应体，只观察该批字节已到达，在下一轮事件中 abort；真实 SDK 与模型调用未修改。依赖 `openai/src/core/streaming.ts:91-98` 确认 AbortError 被吞为正常迭代结束。来源未使用此 SDK，非原管线既有问题。
+- **建议改法**：所有离开流迭代的路径统一检查外部停止信号；被停止时先 `usage.complete=false`、记录中止，再抛 `ModelAborted`，不要只依赖 catch。覆盖 finish 前和 finish 后、usage 前后的停止顺序。
+
+### 8. 核对和修复的请求完全相同时，回放端点把修复当成重试
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：`packages/nb-story/testing/ingest-replay.ts:68-81`；`packages/nb-story/src/ingest/chapter.ts:143-175`。
+- **现象**：端点靠同章上一次核对正文是否相同来区别渠道重试和 repair；真实管线里，清单只有结构问题、review 返回 `{}` 时，repair 的 system/user/effort 与 review 完全相同。实际 extractChapter 执行了 review、repair 两步，端点却记成 `review-1, review-1`，`unknown=[]`；准备好的 repair 回复从未使用，最后兜底丢掉 1 条说法。
+- **为什么是问题**：计划审查的“请求识别补充”已经指出这个歧义，但实施仍采用该算法。它既会用错回复，又能在 unknown 为空的条件下报告成功；重启同一章还共享旧的 lastCheck 状态。现有十章录制没有 repair 请求，逐字对照通过也锁不住修复路径。
+- **如何核实**：`bun --no-env-file /tmp/review-w00024-t06-impl/scratch/chapter-cases.ts replay`。真实 extractChapter、compile、SDK、HTTP 与 replay；第 1 章有一条缺 by 的 speech，说法触发结构清单，录制的 review=`{}`、repair=`{"remove":["s1-1"]}`。输出 `checkRequests:2, firstTwoSame:true, played:[review-1,review-1], unknown:[], dropped:1`。这不是伪造同文请求，而是实际单章流水线自然生成。
+- **建议改法**：不要从正文相等推断逻辑调用身份。为传输适配器传入章、步骤、轮次与内容重试身份，用测试端点约定的请求元数据辨认，渠道重发保留同一身份；不改变生产提示词文字。补“review 不改草稿、紧接同文 repair”与“同章停止后重做”的回放验收。
+
+### 9. 导入在竞争失败前已经对查询可见，改名后的互查不是原子占用
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/nb-story/src/core/library.ts:318`、`:327-329`；`packages/nb-story/src/ingest/store.ts:113`、`:120-126`。
+- **现象**：导入先把目录改成正式书目录，之后才检查抽取是否占用同 id、决定是否撤回。真实导入与抽取争 id 的 15 次实验里，15 次均是抽取成功、导入报 `book_exists`，但撤回之前 `readMeta('shared')` 已成功返回失败导入的书名“已导入的数据”；导入失败后 `listBooks()` 又为空。
+- **为什么是问题**：queries 的时序合同要求导入完成前对任何调用方不可见，导入失败不能发布书；ingest 输出 1 要求首章前书库里没有书。改名加互查虽然这次让至少一边退回，却先发布了注定失败的导入；此时被杀还会来不及撤回。[INFERENCE] 查询或问答能把这份最终未成功导入的数据固定下来，单靠之后撤回目录不能撤回已返回的结果。
+- **如何核实**：恢复前已执行 `bun --no-env-file /tmp/review-w00024-t06-impl/scratch/id-race.ts`。真实 `Library.importBook`、`startIngest`、Worker、flock、文件系统与本机端点；看到 `.importing-*` 出现才开始同 id 抽取，看到正式目录出现便调用真实 `readMeta`。15 次输出均有 `imported.ok:false, started.ok:true, probe.visible:true, probe.title:已导入的数据, books:[], ingest:true`；实验根 `/tmp/review-w00024-t06-impl/scratch/id-race-1792478752463`。base 的导入在 rename 后不会再因另一条占用路径失败，这个发布后撤回窗口为本次新增。
+- **建议改法**：导入、抽取占用和删除使用同一个可原子争夺的 id 凭据；核心保持 Node API 不等于只能在发布之后补检查，可由宿主注入共享协调门禁或设计共同的原子占用记录。正式书目录只能在所有可能的 id 冲突判定完成后发布，补竞争中查询与强杀的组合验收。
+
+### 10. 进程被强杀时在途请求从账本消失，合计反而标成完整零用量
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/ingest/model.ts:189`；`packages/nb-story/src/ingest/job.ts:147-157`；`packages/nb-story/src/ingest/status.ts:55-70`。
+- **现象**：用量只在一次 HTTP 尝试结束回调时落盘。端点已经收到请求并开始 SSE、子进程此时被 `SIGKILL` 后，没有任何用量条目记录这次已发出的请求；进度正确识别 `stopped/exited`，却给 `thisRun` 与 `allRuns` 都报 `input:0, output:0, complete:true`。
+- **为什么是问题**：ingest 输出 13 要求拿不到用量的中止、断流等尝试让对应合计标为不完整，不能当作精确的 0；强杀恢复也是明确支持的路径。旧的完整合计会掩盖这次已经可能计费的请求；续抽成功后仍没有证据把合计改回“不完整”。这与第 7 条的正常停止时序不同：本条是持久化协议根本没记在途请求。
+- **如何核实**：恢复前已执行 `bun --no-env-file /tmp/review-w00024-t06-impl/scratch/progress.ts crash-usage`。真实 `testing/ingest-child.ts`、Worker、SDK 与 HTTP 端点，端点确认收到请求并发出 SSE 后才杀进程；没有手工构造状态或用量。结果 `stopReason:{kind:exited}, committed:0, thisRun.complete:true, allRuns.complete:true`，根 `/tmp/review-w00024-t06-impl/scratch/progress-crash-usage-1792478820400`。本次新抽取账本路径，非搬迁源既有查询回归。
+- **建议改法**：按稳定请求身份记录“已开始但未结算”的尝试，结束时补用量；恢复时未结算尝试必须污染本次、历次与对应章的完整性。正常停止或失败也要等待用量写入收口，再发布任务结束、放锁。
+
+### 11. 整理能把已提交历史变成错误图，当前门禁仍把这一章提交为成功
+
+- **严重程度**：阻断；**类别**：正确性。
+- **位置**：`packages/nb-story/src/ingest/chapter.ts:208`；`packages/nb-story/src/ingest/job.ts:104-118`。
+- **现象**：整理的错误检查只收 `issue.chapter === 当前章`，而合并对象可能让旧章账本产生错误；job 最后两次 compile 又都直接丢掉 issues。真实抽取 5 章：第 1 章对象余额设为 10，第 2 章另一个同名对象增加 2、原文余额为 2，各自编译无错误；第 5 章整理合并两对象后，第 2 章的累加值变成 12，与记录的 2 冲突。任务仍返回 `done`、提交到 5，保存了该整理，章问题清单为空。
+- **为什么是问题**：直接违反 ingest 输出 5“提交时整份数据没有错误”和输出 7“不合格整理跳过”。错误已经写进权威图，不是短暂的读取状态；下一章的本章过滤同样看不到这个旧章错误。这里报告的是本次承诺新增的全图门禁仍未落实，不把原编译器合并会重算账本这一既有语义当作迁移回归。
+- **如何核实**：`bun --no-env-file /tmp/review-w00024-t06-impl/scratch/consolidation.ts`。真实 start、Worker、SDK、HTTP、逐章编译与提交，无假 compile 回调。输出 `outcome:done, committed:5, before:[], after:[{chapter:2,code:ledger,...累加结果是 12}], requests:11, problems:[]`，根 `/tmp/review-w00024-t06-impl/scratch/consolidation-1792479735141`。来源 `t29/v2/run-v2.ts:151-154` 只检查整理形状；计划已要求改成全图无错，本次新增检查仍错误地按当前章过滤。
+- **建议改法**：整理候选必须检查整份图的全部 error，不限章归属；引入任何错误就跳过本次整理，保留未整理的合法数据。发布前再统一执行整份图零错误门禁，不能用“只检查涉及当前章”代替最终提交检查。把“合并引出旧章错误”补入现有整理失败测试。
+
+### 12. 续抽更换币种后把不同币种直接相加，并标成第一种币种
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/ingest/status.ts:55-63`。
+- **现象**：每笔用量虽然保存了当时的币种，`totals` 却直接累加所有数值，只用 `currency ??=` 保留第一种币种。真实首章停止后换模型价格续抽：第一次已知费用为 `0.00012 USD`，第二次为 `0.00234 CNY`；状态把历次、章与平均费用都显示为 `0.00246 USD`。
+- **为什么是问题**：配置允许任意币种，停止后换模型/价格再续抽是合法路径；没有汇率时不能把人民币当美元相加。这也使保留“当时单价与币种”的账本不能正确转成输出 13 所需的合计。不能借用量不完整标记来解释量纲错误。
+- **如何核实**：`bun --no-env-file /tmp/review-w00024-t06-impl/scratch/progress-real.ts`。真实 start/Worker/SDK/HTTP/usage.jsonl；第 1 次成功完成段落块请求、在草稿请求中停止，第 2 次以另一币种续抽到 done，未手工写状态。输出 `byCurrency:{USD:0.00012,CNY:0.00234}`，但 `allRuns.cost:0.00246,currency:USD`；根 `/tmp/review-w00024-t06-impl/scratch/progress-real-1792479837509`。此汇总为 S3 新增，非原管线的固定人民币计算。
+- **建议改法**：费用按币种分组合计；若当前接口只能返回单一币种，混合币种时费用返回 null 并明确说明，不制造换算。当前任务与每章/历次合计使用同一规则，补换币种续抽用例。
+
+### 13. 进度的用时只累计 HTTP 时长，章平均又漏掉此前作废的整章尝试
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/ingest/job.ts:98`、`:116`；`packages/nb-story/src/ingest/status.ts:65`、`:92`、`:105`。
+- **现象**：`thisRun.ms/allRuns.ms` 仅加每条 usage 的 HTTP 时长，完全不含退避、编译、检查和提交；每章 ms 只保存最后成功那次 `Date.now()-started`，average 也只加这些值。实际停止再续抽的一章，第一次从 chapter 事件到停下为 13 ms，第二次成功章保存 38 ms；结果章用时与平均都只为 38 ms，历次用时却为 17 ms，本次用时为 9 ms，连成功这一章自身的 38 ms 都没覆盖。
+- **为什么是问题**：ingest 输出 13 要求这次与历次任务用时、每章用时含作废尝试，平均分子含失败与作废尝试。接口注释把任务用时缩成“模型请求的用时合计”没有实现合同；一次退避就可漏掉 30000 到 300000 ms，100 章的多轮同步编译也全部不在任务合计里。
+- **如何核实**：同一真实实验 `bun --no-env-file /tmp/review-w00024-t06-impl/scratch/progress-real.ts`，无固定等待或假时钟；具体输出 `firstChapterElapsed:13, chapters[0].ms:38, average.ms:38, thisRun.ms:9, allRuns.ms:17`。与源码公式交叉核对，没有用手写的使用量构造时序。此任务与章计时模型是 S3 新增。
+- **建议改法**：单独记录任务与章尝试的实际活动时段，在正常停止/失败与恢复时结算；HTTP 请求耗时可保留为另一指标，不能替代任务用时。章明细汇总历次尝试，平均使用同一实际用时分子；重试等待和同步编译都应计入。
+
+### 14. 把提交顺序改成先发布 book.json，现有 S3 测试仍全部通过
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：`packages/nb-story/src/ingest/runner.test.ts:196-218`；验收 3、计划 S3。
+- **现象**：在指定 scratch 的完整副本里，把 `commitExtraction` 的 graph/extraction 两次写入移到 `rename(book.json)` 之后，故意制造“权威 meta 指向还不存在或未写完文件”的非原子提交。运行整份 runner.test.ts 仍是 `9 pass, 0 fail, 56 expect()`。测试名说“提交写到一半”，实际先正常停任务，再手工写入无人引用的坏文件，没有触达真正提交窗口。
+- **为什么是问题**：验收 3 的核心判据没有被锁住；现有用例只能证明“读者忽略未引用文件”，证明不了图、元信息与抽取记录的共同提交。提交各阶段强杀、末章发布后 state 尚未更新、预热进程在提交中的读取，不能由这个手工残留场景替代。缺口正好允许一个颠倒发布顺序的消费者可见错误通过。
+- **如何核实**：仅复制 `src/`、`testing/`、`tests/` 到 `/tmp/review-w00024-t06-impl/scratch/mutation-nb-story/`；仅在副本的 library.ts 把原 285-286 行移到原 290 行之后。命令：`env TMPDIR=/tmp/review-w00024-t06-impl/scratch NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00024-t06-impl/scratch bun --no-env-file test src/ingest/runner.test.ts`，工作目录为该副本，输出上述 9/0/56，耗时 10.15 秒。没有修改、恢复或重新暂存仓库文件；副本保留可复查。
+- **建议改法**：保留“未引用文件”恢复场景，另经真实子进程在 graph、extraction、meta 发布、旧版回收边界强杀，随后查询/status/resume 同时核对同一进度；并用这个已验证存活的变异确认新测试必然失败。不能只增加最终完成后的断言。
+
+### 15. 书 id 在拿锁之后才校验，拒绝非法输入前已能越界创建文件
+
+- **严重程度**：重要；**类别**：安全与性能。
+- **位置**：`packages/nb-story/src/ingest/runner.ts:59-66`；`packages/nb-story/src/ingest/store.ts:87-90`；`packages/nb-story/src/ingest/start.ts:35`。
+- **现象**：`startIngest` 先把原始 id 拼进锁路径并 `openSync(...,"a")`，之后才走 `planFromText` 的 BOOK_ID 校验。输入 `../../escaped` 最后虽返回 `invalid_params`，但已经在指定书库的上一级创建 `escaped.lock`。从保存原文发起的路径也没有在锁前验证 id。
+- **为什么是问题**：非法外部输入必须在文件系统副作用前拒绝；锁文件又按设计永不删除，拒绝请求会留下书库之外的永久文件。[INFERENCE] 按宿主写权限还可占用书库之外的同名 `.lock`，不能把“后面会报 invalid_params”当成路径边界防护。这里没有声称能覆盖任意文件内容，实测是越界创建空文件。
+- **如何核实**：仓库根实际执行：`bun --no-env-file -e 'import {mkdir,stat} from "node:fs/promises";import {join} from "node:path";import {Library} from "./packages/nb-story/src/core/library.ts";import {startIngest} from "./packages/nb-story/src/ingest/runner.ts";const parent="/tmp/review-w00024-t06-impl/scratch/id-input-"+Date.now();const root=join(parent,"library");await mkdir(root,{recursive:true});const result=await startIngest({library:new Library(root),id:"../../escaped",title:"测试",text:"第一章\n正文。",endpoint:{baseUrl:"http://127.0.0.1:1/v1",model:"m",apiKeyEnv:"REVIEW_NON_EXISTING_KEY",maxTokens:100},price:null,runner:"serve"}).then(()=>({ok:true}),e=>({ok:false,code:e.code}));console.log(JSON.stringify({parent,result,outsideFile:(await stat(join(parent,"escaped.lock"))).isFile()}));'`。输出 `result.code:invalid_params, outsideFile:true`；文件只在指定 scratch 内。base 的 `importBook` 是先校验 id 才产生对应目录，新抽取入口顺序不同。
+- **建议改法**：书 id 在任何锁、路径或状态访问之前统一验证，new/resume/append/status/remove 都消费已验证的 id；至少先修 startIngest 的入口顺序。补非法 id 被拒绝且书库及其父目录没有新增文件的黑盒场景。
+
+### 16. 任务测试每次留下 9 个临时书库，失败路径也没有等子进程退出
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/nb-story/src/ingest/runner.test.ts:29-30`、`:43-49`、`:241`。
+- **现象**：setup 创建的 root 没有登记删除；afterEach 只停 Runner 和端点。真实仓库测试与隔离变异测试各跑一次后，指定 scratch 的 agent/ 下留下 18 个 `ingest-*` 测试根；仅后一次的 9 个根合计 10222870 字节。强杀测试的失败清理还只调用 child.kill，没有 await child.exited；只有正常断言路径才等待退出。
+- **为什么是问题**：违反仓库“测试自身清理临时根、子进程失败时也收口”的约定。重复运行会持续积累原文与图文件；失败时发出 kill 不等于已经退出，不能把后续端点停止或全局 24 小时扫旧当作该用例的资源收口。
+- **如何核实**：已运行真实 `bun --no-env-file test src/ingest src/core` 与副本的 `bun --no-env-file test src/ingest/runner.test.ts`，均通过；随后 `read /tmp/review-w00024-t06-impl/scratch/agent/` 看见两组各 9 个目录。后一次根的 `.nbook-tmp.json` 显示相应用例 purpose，例如 `nb-story-5UDGDn` 为 `ingest-conflict`；`du -scb` 对这 9 个目录统计为 10222870 字节。子进程失败收口缺少等待是源码核实，未故意制造测试失败冒充已观察到的进程泄漏。
+- **建议改法**：资源 owner 在 afterEach 中按“停止并等待全部 Runner/子进程、停止端点、最后删除 root”收口；某一项失败仍继续清理其余资源，最后汇总抛错。强杀子进程也必须 await exited。
+
+## 补充覆盖与来源边界
+
+- **独立提交与固定快照烟测**：`bun --no-env-file /tmp/review-w00024-t06-impl/scratch/atomic.ts`，在 graph、extraction、meta 临时文件、meta 发布、旧版回收这 5 个观察点各做 3 次强杀尝试。15 次里 11 次实际被 `SIGKILL`，4 次子进程先完成；这 4 次不冒充杀到了窗口。查询、status 与 readCommitted 的章数每次都一致，只出现 2 或 3；提交前打开的图始终为 2 章，恢复提交后与不中断的 3 章结果逐字相同。实验根 `/tmp/review-w00024-t06-impl/scratch/atomic-1792480081678`。这是提交 API 的真实进程/文件系统 smoke，不是完整 CLI 验收；并发删除、占用与进度读取的独立缺陷仍见 1、2、9。
+- **格式 1 归一**：同一个 atomic.ts 以真实旧布局（book.json 没有 revision/graph、图名 graph.json）读取，得到 `revision:1, graph:graph.json, chapters:2`；元信息读取前后的 SHA-256 相同，没有偷偷改写磁盘。
+- **真实 Worker 崩溃与隔离**：`bun --no-env-file /tmp/review-w00024-t06-impl/scratch/worker-smoke.ts`。只在 scratch 的第二份源码副本给 worker 模块启动插入一次受环境开关控制的 throw；主线程 Runner、锁、状态、job 均使用未修改实现。真实 onerror 得到 `model_failed/local`，status 为 stopped，锁可以重新取得；关闭故障开关后同 id 为 resume，抽完后能删，锁文件 inode 未改变。随后真实同时运行 a、b 两个挂起请求，删除 a 后 `a:null, b:running`。端点、Runner 都在 finally 停止并等待。没有手工派发 error/close 事件；这不等于穷尽了运行中 native I/O 与 15 秒强制结束的所有交错。
+- **搬迁文字**：新旧 rules.md 的 SHA-256 都是 `414048072011a73d8dd74d63d291c3d64e9206c6b21b412c9930d32467d91acf`；原样规则正文一致。现有 context/chapter 回放对照覆盖前 10 章模型请求、草稿与两批整理，TypeBox 校验说明按计划单列差异；不把这一结论扩展到没有录制回复的修复路径，见 8。
+- **来源已经有的错误，未计回归**：固定的 100 章最终草稿重编译，新旧编译器都报 1 个 `time` 全图错误；没有把样例历史数据本身算成本次引入的问题。结构化环归属、仅丢本章记录、称呼限制在本章、回补秘密与知情的成立位置由既有用例覆盖。原管线重复全量编译和宽松补丁处理也不是本次才出现，不另凑回归条目；11、14 分别针对本次明确承诺却没守住的提交门禁与验收门禁。
+
+## 编译次数与性能实测
+
+命令：`bun --no-env-file /tmp/review-w00024-t06-impl/scratch/compile-cost.ts`。
+
+- 同一份 100 章最终草稿/整理输入，新 compile 单次 **23868 ms**，来源 compile 单次 **17857 ms**；两者都是 1 个已知 time 错误。各测一次，不据此判定 33.7% 的稳定回归，也不把旧审查的约 10 秒当本次最新测量。
+- 第 10 章真实回放中，extractChapter 的 compileWith 实际执行 **3 次**，整理校验执行 **1 次**；job 的整理前、成功整理后又各编译 **1 次**，正常整理章共 **6 次**全量编译。没有整理的正常章为 **4 次**；进入 repair 或兜底还会增加。
+- [INFERENCE] 如果 6 次都接近此次单次 100 章规模，仅编译约为 **143208 ms**，不含模型；这是规模推算，不是一次完整第 100 章抽取的实测。这里确有重复计算：extractChapter 和 consolidate 已得到 CompileResult，却只交回草稿/整理，job 再编一遍。可让结果携带已验证的数据复用；原管线也反复编译，未把它单独列为新回归或擅自扩大为增量编译改造。
+
+## 已执行验证与未覆盖项
+
+审查范围为 `010ab9929..43a3500a9` 的 3 个提交。证据按执行阶段区分：
+
+| 阶段 | 实际命令与工作目录 | 结果 |
+|---|---|---|
+| 恢复前，真实包 | 包目录执行 `env TMPDIR=/tmp/review-w00024-t06-impl/scratch NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00024-t06-impl/scratch bun --no-env-file test src/ingest src/core` | **158 pass、0 fail、3235 expect()，22 个文件，33.39 秒** |
+| 恢复前，真实包 | 包目录执行 `env TMPDIR=/tmp/review-w00024-t06-impl/scratch NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00024-t06-impl/scratch bun --no-env-file test src/qa` | **26 pass、0 fail、88 expect()，2 个文件，1323 ms** |
+| 恢复前，真实包 | 包目录执行 `bun --no-env-file run typecheck` | tsc、core tsc、vue-tsc、e2e tsc 全部退出 0，26.32 秒；不是运行 e2e |
+| 恢复后，故意改坏的 scratch 副本 | 副本目录执行带同样临时根环境的 `bun --no-env-file test src/ingest/runner.test.ts` | **9 pass、0 fail、56 expect()**；这是检出测试缺口的证据，不是产品新增验证通过，见 14 |
+| 恢复后，真实文件系统与进程 | `bun --no-env-file /tmp/review-w00024-t06-impl/scratch/atomic.ts` | 15 次提交阶段观察；11 次真正强杀；没有章数或固定快照分歧，旧格式只读归一通过 |
+| 恢复后，隔离故障注入 | `bun --no-env-file /tmp/review-w00024-t06-impl/scratch/worker-smoke.ts` | 崩溃后 stopped、可重拿锁、resume/done、可删除、锁 inode 稳定、两书停止隔离通过 |
+| 恢复后，真实五章任务 | `bun --no-env-file /tmp/review-w00024-t06-impl/scratch/consolidation.ts` | 复现 11：合并使旧章新增 error，仍 done/提交到 5 |
+| 恢复后，真实停止续抽 | `bun --no-env-file /tmp/review-w00024-t06-impl/scratch/progress-real.ts` | 复现 12、13：币种错加、耗时漏计 |
+
+- 第 1 到 10 条各自列出的原始实验与输出发生在中断前；恢复后先读了已有报告，没有把它们改写成“本次重跑”。续写的 9、10 同样明确标为恢复前实验。实验脚本与隔离书库均保留在指定 scratch 内。
+- 新增测试文件中未发现 mock、spy、假计时器、跳过/聚焦测试或非零固定等待；等待真实端点/进度用 waitUntil。SDK timeout 实验的 300 ms 是专门观察计时器失效的截止时间，不是新增仓库测试的等待写法。
+- 没有运行 e2e、nbstory serve、网页或开发服务；没有调用真实模型、真实评分或读取真实密钥。最小本机协议端点仅用于这些隔离实验，已停止。没有覆盖 S4 CLI 接线、S5 服务/网页接线、S6 真实模型；没有声称完成独立服务 100 章响应延迟验收。
+- Worker error/close/outcome/停止宽限期的所有极端先后没有穷举。代码里的 finished 门禁是幂等的，但 terminate/close 不应被不加区分地当作所有 native I/O 已结束的证明；本次没有构造出该处独立的产品失败，因此不列未经核实的缺陷。
+- 只读边界：仓库内唯一写入是本地报告的创建与后续追加；没有改产品、测试、Spec、计划、Task 或治理文件，没有 commit、push、stash、切分支、删除仓库文件或开启子审查。所有代码改动均只在 scratch 副本中。
+
+## 回写建议（未执行）
+
+| 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|
+| 踩坑 | SDK 的 timeout 在响应头后清除，坏 SSE 的 SDK 原始日志先于本层脱敏发生 | 修复时在模块职责说明中明确：抽取层拥有整个流的超时和所有 SDK 日志的脱敏，不能只配置 client timeout、只清洗最终 Error.message | `packages/nb-story/src/ingest/model.ts` 模块头与相邻行为测试 |
+
+现有“外部边界、资源所有权、真实依赖验证”的通用规则已覆盖其余原则，不建议再加一套全局约束；未回写任何规则或源码。
+
+## 未发现问题的方面
+
+- **独立章提交的发布顺序与旧快照寿命**：在上述真实强杀观察点没有发现图、meta、提交清单在恢复后分歧；已打开的旧图不受回收影响。这里不包含 1、2、9 的并发缺陷，也不把 smoke 当作原子性测试覆盖已经合格。
+- **正常的删除重建与版本固定**：既有真实跨进程反复删除/导入测试通过，没有发现 generation/revision 复核把不同代的数据拼接的反例；格式 1 缺省字段只读补齐已实测。计划中“保留 inode 核对”没有原样落实，但本次未据此猜测一个没有运行证据的 ABA 故障。
+- **锁的基本排他与身份**：实际同一进程第一次 tryLock 成功、第二次返回 null、release 后可再拿；锁在主线程，锁文件未随删除回收；真实 Worker 启动崩溃与两任务隔离 smoke 通过。没有只用 PID 是否存在来判断旧任务。
+- **重试上限、固定推理档、跑飞的已测路径**：现有端点计数锁住一直 503 合计 6 次、退避参数、401 一次、minimal 拒绝不降档、连续空白取消后重发；无状态码 upstream_error 按已更新计划走 network。实际断线与流超时的遗漏仍分别见 4、5。
+- **已测的编译可见性修正**：称呼不跨章前移、后建秘密和回补知情读完写下那章才可见、全图时间环只归属环上节点、仅丢弃本章新增时间点并保留旧章，现有真实编译加查询/回放测试均通过。
+- **已有阅读状态、问答快照与恢复批次**：既有查询/问答测试和停止续抽/追加测试通过；没有发现本次 revision 参与缓存/游标后，又把同代阅读状态或已保存整理批次重置的独立问题。S4/S5 尚未接线的行为未计实现遗漏。
+
+## 各级数量与按影响排序的编号列表
+
+- **阻断：1 条**（11）。
+- **重要：14 条**（1、2、3、4、5、6、7、8、9、10、12、13、14、15）。
+- **建议：1 条**（16）。
+- **合计：16 条**。原有 8 条保持不变，本次续写 8 条；发现编号连续，三级标题数量从 8 只增至 16。
+
+按影响排序：**11 → 1 → 9 → 6 → 15 → 2 → 3 → 4 → 5 → 10 → 12 → 7 → 13 → 14 → 8 → 16**。
+
+其中 11 优先修最终全图门禁；1、9 是发布/删除的一致性；6、15 是密钥和路径边界；2 到 5 是正常运行中的查询/发起/渠道恢复；10、12、7、13 是账本真实性；14、8、16 是测试有效性与收口。
