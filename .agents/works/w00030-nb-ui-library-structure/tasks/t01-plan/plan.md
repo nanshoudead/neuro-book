@@ -1,6 +1,6 @@
 # 实施计划：nb-ui 库结构整理（w00030）
 
-2026-10-20 起草；同日开发者在评审板上确认“待开发者确认”的第 1 到 4 项与其余部分（都取推荐），第 5 项见 w00029 t05 的评审板。
+2026-10-20 起草；同日开发者在评审板上确认“待开发者确认”的第 1 到 4 项与其余部分（都取推荐），第 5 项在 w00029 t05 的评审板上定为“只认 CSS 类”；随后在会话里把第 1 项改定为统一用 Tailwind v4（t02 一节已按此重写）。
 
 ## Context
 
@@ -19,7 +19,7 @@
 
 w00027 t07（低代码表单）在 Work 分支 `feat/w00027-plugin-platform` 上改了 nb-ui：S2a、S2b 共 29 个文件，包括 `Field`、只读、`invalid`、`SearchSelect` 和读屏名称属性。这些改动还没进 master；它的 S3 到 S5 在 nb-form 与设置页里大量调用 nb-ui。本 Work 改的正是同一批组件的模板与公开属性，因此：
 
-- **t02（样式前缀）、t03（弹出列表零件）**：等 w00027 t07 的 S2a、S2b 进 master 后开工，否则模板几乎每行都会冲突。这两个 Task 不改公开 API，nb-form 不受影响。
+- **t02（统一 Tailwind）、t03（弹出列表零件）**：等 w00027 t07 的 S2a、S2b 进 master 后开工，否则模板几乎每行都会冲突。这两个 Task 不改公开 API，nb-form 不受影响。
 - **t04（公开 API 对齐）**：等 w00027 t07 完成（S5，设置改用 `SchemaField`）并合入后开工，nb-form 与设置页一起列进迁移表。提前做的话，w00027 要按新名字返工一遍。
 - **w00029 t05（规范文档整理）**：仍排在 w00027 t07 S3 之后。t02、t03 不改规范的结构；t04 改的是组件同名 `.md` 与规范里的词表一节，t05 若先做，t04 只追加改动。
 
@@ -29,44 +29,43 @@ w00027 t07（低代码表单）在 Work 分支 `feat/w00027-plugin-platform` 上
 
 | Task | 内容 | 报告条目 |
 |---|---|---|
-| t02 | 样式产物去掉与宿主同名的原子类；滚动条 token | L01、L06、L18 的产物部分 |
+| t02 | 全仓统一用 Tailwind v4，宿主编译 nb-ui 源码；滚动条 token | L01、L06、L18 的产物部分 |
 | t03 | 弹出列表一族搬目录，级联键盘、方向键漫游、行组件各收成一份；浮层材质只走 CSS 类 | L24、L03、L21、L22、L04 的内部部分、F43 |
 | t04 | 公开 API 一次对齐，附迁移表 | L05、L10、L08、L12、L16、L04 的数据形状、L07 第 2、4 点、L14 第 4、5 点、L19 的同名类型 |
 
 每个 Task 一条分支、一个 worktree，验证后合入 master 再开下一个。
 
-### t02：原子类加前缀（`packages/nb-ui/src/tailwind.css`、全部组件模板）
+### t02：统一用 Tailwind v4，宿主编译 nb-ui（`packages/nb-ui`、`packages/neuro-book`、nb-story、dev-panel）
 
-**做法**：Tailwind v4 的前缀，`@import "tailwindcss/utilities.css" prefix(nb)`、`theme.css` 同样带 `prefix(nb)`。
+开发者 2026-10-20 改定（取代评审板第 1 题的“加前缀”）：全仓统一用 Tailwind v4，nb-ui 不再发预编译的原子类产物，宿主的 Tailwind 直接扫描 nb-ui 源码，一个页面只有一个引擎、一份输出。根因是同一页面上并存 UnoCSS（neuro-book，ADR 0023 沿用旧应用）与 Tailwind（nb-ui、nb-story、dev-panel）两套引擎，L01、坑 58、neuro-book 的位移类封禁名单、nb-story 与 dev-panel 的分层迁就都是它的症状。旧应用靠 `dist/nb-ui.css` 拿样式，产物删掉后它的样式失效，开发者定不管它。
 
-- 组件里的原子类全部改成 `nb:` 开头（`nb:flex`、`nb:hover:bg-[…]`）。
-- 产物只含 `.nb\:*` 原子类与 `.nb-ui-*` 语义类。宿主的 UnoCSS 与 Tailwind 不认 `nb:`，不会产出同名规则。
-- Tailwind 的主题变量随前缀变成 `--nb-*`，nb-ui 的 token `--text-sm`、`--leading-tight`、`--font-mono` 不再与之同名（报告“主题与 token”一段）。
+**nb-ui 的样式入口**：新导出 `@notnotype/nb-ui/tailwind.css`，取代 `./styles.css` 与 `dist/nb-ui.css`。宿主写：
 
-**不选 `@layer nb-ui`**：同名类时，宿主无层的 `.text-sm` 总是赢过有层的 nb-ui 规则，L01 第 3 点的“组件字号随宿主变”照旧，坑 58 的图标尺寸问题也会回来。
+```css
+@import "tailwindcss";
+@import "@notnotype/nb-ui/tailwind.css";
+```
 
-**语义类保持无层**：`.nb-ui-*` 保持无层，`tailwind.css` 第 2 条取舍的理由不变（`invalid` 边框要靠特异性压过悬停边框）。
+这个入口里放：
 
-**迁移脚本**：`scripts/nb-ui/prefix-classes.ts`，一次性使用，跑完删掉，不入库。
+- `@source` 指向 nb-ui 的 `src/components`、`src/composables`（相对入口文件，排除测试），宿主不用知道 nb-ui 的目录。
+- `@theme`：nb-ui 与 Tailwind 主题键同名的 token（`--text-*`、`--leading-*`、`--font-*` 等）在这里声明成主题值，`text-sm` 就明确是 nb-ui 的 13px，不再靠样式顺序碰巧取到。具体保留、清空哪些 Tailwind 缺省刻度，S1 列出清单。
+- token（`tokens.css`）进 `@layer base`；主题包的 `vars.css` 照旧无层、靠特异性覆盖，不受影响。
+- 语义类（`styles.css`）进 `@layer components`：调用方给组件传的原子类在 `utilities` 层，自然能覆盖它，这是 Tailwind 的标准用法。
+- 图标：`@iconify/tailwind4` 插件与遮罩垫片由这个入口提供，垫片放 `@layer base`，宿主不再各写一份。垫片的 `width: 1em` 在 base 层，输给 components 层的菜单图标尺寸，坑 58 不会再出现；宿主自己的图标类也走同一个插件。
 
-- 用 Tailwind 的编译接口判断一个词是不是工具类，只给是的词加前缀。
-- 扫描面与 `@source` 相同，即 `components/**/*.vue|ts`、`composables/**/*.ts`。
-- 要处理的写法：模板的 `class`、`:class` 里的字符串字面量，`.ts` 里的类名常量（例如 `Badge.vue` 的 `sizeClass`）。
-- 图标类 `i-lucide-*` 不加前缀，它由 iconify 插件按自己的选择器生成。
+**分层后要换写法的地方**：`tailwind.css` 现在第 2 条取舍说的 `invalid` 边框（语义类 `.nb-ui-control-invalid:hover` 靠特异性压过模板里的 `hover:border-…`）分层后会被悬停边框盖住，改成模板里的 `aria-invalid:` 变体写在 utilities 层。S2 开头扫一遍语义类与模板原子类同时设同一属性的地方，逐处列出并改写。
 
-**等价性检查**：
+**删掉的东西**：`dist/nb-ui.css`、`build:css`、`src/dist-css.test.ts`、`package.json` 的 `./styles.css` 导出、Nuxt 模块的 `injectCss`（只有 playground 用，它改为在自己的样式入口导入 nb-ui 的入口）；neuro-book 的 `uno.config.ts`、`unocss` 依赖与 `boot.ts` 的导入顺序约定；nb-story、dev-panel 的“preflight 进 layer、utilities 不进 layer”拆分写法。L18 的入库产物随之解决。
 
-- 脚本跑完后，比较两份产物：迁移前的产物，以及迁移后去掉 `nb\:` 前缀的产物。两者逐条规则的声明应当相同。
-- 不同的只允许是“靠 token 覆盖了 Tailwind 主题键”的那几类：`text-sm`、`text-xs`、`leading-tight`、`font-mono`，报告统计 23 个文件用到。这些改写成显式 token 写法（`nb:text-[length:var(--text-sm)]`），让渲染值保持现在的 13px 等。
-- 这一步出的差异逐条列进 Task 记录。
+**neuro-book 从 UnoCSS 换到 Tailwind v4**（粗略统计：124 个 `.vue`；v3 到 v4 含义变了的写法约 250 处，例如不带后缀的 `shadow`、`rounded`、`ring`，`flex-shrink`，缺省边框颜色；`i-lucide-*` 339 处）：
 
-**宿主删补丁**：
+- `presetWind3` 的写法与 Tailwind v3 基本一致，先用官方的 `@tailwindcss/upgrade` 处理 v3 到 v4 的改名，剩下的逐处改；`presetIcons` 改为 nb-ui 入口带的 `@iconify/tailwind4`。
+- 类名写在 `.ts` 里的（视图描述的 `icon` 等）：Tailwind 的自动扫描覆盖 `.ts`；运行时才拼出来的图标名两边都扫不到，S1 先查现有做法再定。
+- 宿主自己的 `text-sm` 等从 Uno 的 14px 变成 nb-ui token 的 13px，属于按设计变化；按截图逐页核对，需要保留原尺寸的地方改成显式写法。
+- ADR 0023“前端”一条把 UnoCSS 改为 Tailwind v4，并写明宿主编译 nb-ui 源码；`docs/modules/monorepo-boundaries.md` 与 dev-panel 需求里“平台提供 UnoCSS”的说法同步改。
 
-- neuro-book 的 `uno.config.ts` 删掉 `nbUiTransformClasses` 与 `blocklist`。
-- nb-story、dev-panel 的 `app.css` 改回标准的 `@import "tailwindcss"`（preflight 与 utilities 都进 layer）。
-- `boot.ts` 的导入顺序注释按新情况改写：图标遮罩仍是两边同名，顺序仍有意义。
-
-**测试里的类名断言**：报告统计 48 处，按新类名改写。断言的应当是行为或计算样式的，顺手改成读计算样式，不按类名。
+**测试里的类名断言**：报告统计 48 处，原子类名不变（不加前缀），只有层的变化可能翻转结果；断言计算样式的不受影响，按类名断言的顺手改成读计算样式。
 
 **滚动条 token（L06）**：
 
@@ -74,7 +73,6 @@ w00027 t07（低代码表单）在 Work 分支 `feat/w00027-plugin-platform` 上
 - 加 `.nb-ui-scrollbar-thin`（原生细滚动条加同一组颜色）。三个宿主各自手写的 `* { scrollbar-width… }` 改为挂这个类。
 - `overlay-scrollbar.ts` 的 `thumbGeometry` 与 `usePopupScroll` 的滑块几何合成一个函数，最短滑块取一个值。
 
-**产物入库（L18）**：`dist/nb-ui.css` 继续入库，宿主直接吃编译产物的做法不变；加 `.gitattributes` 把它标成 `linguist-generated`，合并冲突时一律重建。
 
 ### t03：弹出列表（新目录 `packages/nb-ui/src/components/popup/`）
 
@@ -181,9 +179,10 @@ w00027 t07（低代码表单）在 Work 分支 `feat/w00027-plugin-platform` 上
 
 | 文件 | 改什么 |
 |---|---|
-| `packages/nb-ui/README.md`、`src/tailwind.css` 头注释 | t02：前缀与宿主接入方式；三条取舍改写 |
+| `docs/adr/0023-v2-frontend-backend-stack.md` | t02：前端的原子 CSS 改为 Tailwind v4，宿主编译 nb-ui 源码 |
+| `packages/nb-ui/README.md`、样式入口头注释、`docs/modules/monorepo-boundaries.md` | t02：宿主接入方式（两行导入）；原来的三条取舍改写 |
 | `ui-development-spec.md` | t02：滚动条 token 一节；t04：浮层合同、关闭原因、尺寸与语调词表、文案属性命名 |
-| `design-language.md` 踩过的坑 58 | t02：同名原子类的根因已消除，改写判据 |
+| `design-language.md` 踩过的坑 58 | t02：根因（两套引擎、无层产物）已消除，改写为分层后的判据 |
 | 各组件同名 `.md` | t03：路径；t04：属性与事件 |
 | `docs/standards/code/components.md` | t03：新增弹出列表零件时用 `MenuRow` 与 `useMenuCascade`，不再手写行 |
 
@@ -191,9 +190,11 @@ w00027 t07（低代码表单）在 Work 分支 `feat/w00027-plugin-platform` 上
 
 | 片 | 内容 | 提交边界 | 自跑验证 |
 |---|---|---|---|
-| t02 S1 | 前缀迁移脚本与等价性检查；token 覆盖类的显式改写 | 组件模板、`tailwind.css`、产物、测试断言 | nb-ui typecheck、单测、e2e；等价性检查输出为空（除登记的差异） |
-| t02 S2 | 宿主删补丁 | `uno.config.ts`、nb-story 与 dev-panel 的 `app.css`、`boot.ts` | 三个宿主 typecheck 与单测；neuro-book 整套 e2e；nb-story e2e |
-| t02 S3 | 滚动条 token 与 `.nb-ui-scrollbar-thin`，滑块几何合一 | nb-ui 与三个宿主的样式 | nb-ui 单测、e2e；Lab 截图两主题明暗 |
+| t02 S1 | nb-ui 的样式入口（`@theme`、分层、图标）；playground 改用它；删产物与 `build:css` | nb-ui | nb-ui typecheck、单测、e2e；playground 截图对照改前 |
+| t02 S2 | 分层后语义类与原子类的冲突逐处改写（`invalid` 边框等） | nb-ui | 同上；`invalid` 悬停的计算样式断言 |
+| t02 S3 | neuro-book 换 Tailwind v4（升级工具加逐处修改），删 `uno.config.ts`；ADR 0023 修订 | neuro-book、ADR | neuro-book typecheck、Vitest、整套 e2e；Lab 全部组件场景改前改后截图对照 |
+| t02 S4 | nb-story、dev-panel 改用 nb-ui 入口，删拆分写法 | 两个包的样式入口 | 各自 typecheck、单测、e2e；截图对照 |
+| t02 S5 | 滚动条 token 与 `.nb-ui-scrollbar-thin`，滑块几何合一 | nb-ui 与三个宿主的样式 | nb-ui 单测、e2e；Lab 截图两主题明暗 |
 | t03 S1 | 搬目录 | 只有移动与导入路径 | nb-ui typecheck、单测 |
 | t03 S2 | 级联键盘与外部判定收进 `useMenuCascade` | `popup/` | `popup-lists.spec.ts`、`popup-scroll.spec.ts`；Lab 缩放下的级联尺寸新断言 |
 | t03 S3 | `roving.ts`；`Tabs`、`SegmentedControl`、`QuickPick` 改用 | | nb-ui 单测、e2e |
@@ -209,8 +210,8 @@ w00027 t07（低代码表单）在 Work 分支 `feat/w00027-plugin-platform` 上
 | 行为 | 覆盖 |
 |---|---|
 | 同一组件在 neuro-book（UnoCSS）与 playground、nb-story（Tailwind）里字号、位移相同 | t02：Lab 与 playground 里读 `IconButton`、`Switch` 滑块、`Select` chevron 的计算样式，e2e 各一条 |
-| 产物没有无前缀的原子类 | t02：`dist-css.test.ts` 加一条：除 `.nb-ui-*`、图标与 `:root` 外不出现别的类选择器 |
-| 宿主不需要补丁 | t02：删掉 blocklist 后 neuro-book 整套 e2e 通过 |
+| 页面上只有一个原子 CSS 引擎 | t02：仓库里不再有 `unocss` 依赖；nb-ui 不再导出预编译产物（包导出表的测试） |
+| 宿主不需要补丁 | t02：删掉封禁名单与导入顺序约定后 neuro-book 整套 e2e 通过；调用方传的原子类能覆盖组件的语义类（Lab 里一条计算样式断言） |
 | 弹出列表键盘行为不变 | t03：现有 `popup-lists.spec.ts`、`popup-scroll.spec.ts`、`lab-nb-ui.e2e.ts` 原样通过 |
 | 浮层关闭原因与 `closed` 对每个浮层成立 | t04：一张表驱动测试，每个浮层 × 每种关闭方式 |
 | `Dialog` 的关闭不随监听器变化 | t04：挂一个空的 `request-close` 监听，点遮罩仍关闭 |
@@ -228,13 +229,15 @@ w00027 t07（低代码表单）在 Work 分支 `feat/w00027-plugin-platform` 上
   - L11（主题应用流程）、L13 与 L23（数值输入与选项泛型）、L15（Tabs 拆分）、L17（表单合同，w00027 已做）、L19 的单例改造、L20（布局引擎拆包）；
   - 调用方的列表导航零件。
 - **风险**：
-  - **前缀迁移漏改动态拼接的类名**：例如模板字符串里的 `` `w-${n}` ``，脚本认不出。等价性检查会把缺失的规则报出来，再逐处改写。
+  - **UnoCSS 到 Tailwind 漏改的写法**：升级工具认不出的（Uno 独有的简写、动态拼接的类名）没有规则就静默失效。靠 Lab 全部场景的改前改后截图对照找出来，逐处改写。
+  - **neuro-book 的字号整体从 14px 变 13px**：宿主自己的 `text-sm` 跟随 nb-ui token，按设计变化，截图核对；与 w00027 S3 起在应用里新写的界面一起核对。
+  - **旧应用**：样式失效，开发者定不管。
   - **宿主改回标准 Tailwind 分层后行为变化**：nb-story、dev-panel 自己的原子类进了 layer，原来靠“无层赢”的地方会翻转。按它们自己的 e2e 与截图核对。
   - **t04 的改动面大**：按迁移表逐项列出“按设计变化”的断言，不放宽断言。
 
 ## 待开发者确认
 
-1. t02 用 Tailwind 前缀，不用 `@layer`（理由见 t02 一节）。
+1. t02 的做法：评审板上答的是“加前缀”，同日开发者在会话里改定为统一用 Tailwind v4、宿主编译 nb-ui 源码，旧应用不管（见 t02 一节）。
 2. 先后：t02、t03 等 w00027 t07 的 S2a、S2b 进 master；t04 等 w00027 t07 做完。
 3. t04 不留旧名别名，调用方同一提交改完，靠打开未知属性检查兜住。
 4. `Dialog` 拆出 `FloatingWindow`。
