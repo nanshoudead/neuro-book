@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t11-book-feature-switches
-status: planned
+status: in-progress
 updated: 2026-10-20
 ---
 
@@ -11,12 +11,21 @@ updated: 2026-10-20
 
 导入时可按书关闭数值（状态变动）与秘密，默认都开；关掉后抽取不写、已有记录不列、查看器隐藏对应页面
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：[`story.ingest`](../../../../../docs/specs/story/ingest.md)、[`story.queries`](../../../../../docs/specs/story/queries.md)、[`story.viewer`](../../../../../docs/specs/story/viewer.md)、[`story.qa`](../../../../../docs/specs/story/qa.md) 各加条目，见 [plan.md](plan.md) 的“Spec 与文档改动”。
+
+## 决定
+
+开发者 2026-10-20 确认（“全部同意”）：
+
+1. 开关只在新建时设，之后不改；要换就删书重抽。
+2. 关掉秘密时，指向说法的知情记录照常抽取与生成，只去掉秘密、说法的 `secret` 字段与指向秘密的知情。
+3. 系统提示词（规则全文与示例）不变，只改每次请求末尾的【任务】；模型仍写出的关掉的记录在编译前去掉，记一条问题说明，不计入丢弃数。
+4. 批准一次真实模型评测：gpt-6-luna 抽样例书前 20 章、两项都关，约 1.5 元，不设门槛。
 
 ## 当前状态
 
-2026-10-20 经 nbdev 新建，尚未开工。
+计划已确认，待设计审查。
 
 ## 下一步
 
-待补充。
+omp 设计审查 → 按 plan.md 的切片实施。
