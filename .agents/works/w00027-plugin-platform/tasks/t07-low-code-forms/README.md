@@ -64,6 +64,15 @@ updated: 2026-10-20
   - 过程中的发现：Lab 与设置的写回都会换成副本（经过 JSON 或 RPC），只等一个渲染周期焦点会落空，按对象比较也认不出自己发出的修改，Lab 的 e2e 暴露后改成按内容认领、采纳时再移焦点，happy-dom 里补了“晚些、以副本传回”和“不采纳”的用例。
   - 验证：nb-form 核心 94 例、渲染层 46 例（新增 19 例）与两份类型检查；列表身份、草稿随路径换位、自定义控件提交时机、折叠不挂载、焦点等采纳五处变异都被拦下；应用类型检查与 Lab 的 Vitest 48 例；`docs:check`、`governance:check`；Lab 的 nb-form、nb-ui、场景与 Lab 四组 e2e 36 例（nb-form 8 例）；截图 120 张没有溢出或报错，看图后收窄了展示态的复制按钮。截图在 `.local/agent/works/w00027-plugin-platform/tasks/t07-low-code-forms/reports/s3b-shots/`。
 
+- S3 审查（S3a 加 S3b，`2d4ce992c..b7825184a`）：omp 审接口与核心衔接（[evidences/impl-review-s3-omp.txt](evidences/impl-review-s3-omp.txt)，19 条：重要 17、建议 2），Sonnet 审界面（[evidences/impl-review-s3-sonnet.txt](evidences/impl-review-s3-sonnet.txt)，23 条：阻断 1、重要 9、建议 13），两份都在真实挂载或 Chrome 里复现过。`a7827d7f8` 处理 41 条，1 条转 t06：
+  - 字段、草稿与“碰过”改按所有者登记（omp 3、10、18）：路径只是当前位置，列表项移动后不串、卸载时无条件撤；路径用内容不变就不换的计算值，避免列表每次渲染新节点引起的无限更新（修的时候踩到）。
+  - 只读在统一的提交入口检查（omp 1、9）：会改到只读成员的提交被拒并报新码 `read-only`；字段变得不可改时丢掉草稿；`SchemaField` 的 `commit()`、`reset()` 作用到全部成员并显示全部问题（omp 2、7）。
+  - 聚焦问题（omp 8、12，Sonnet 2、3、20）：先找精确路径，没挂载时请折叠的分组、列表分页、左列表右详情打开（新的“露出”登记），移不过去不发 `focus-issue`；`focusIssue`、`focusFirstIssue` 改为返回 Promise；汇总按布局与实际下标排、写出项标题；被条件隐藏的字段上的问题不进汇总（开发者 2026-10-20 定）。
+  - 列表（omp 5、6、13、14、16、17，Sonnet 11、13）：待采纳改成队列；用“是不是本表单最近发出的值”分辨成员编辑与外部整体替换；重复项取核心 `unique-items` 的下标；页码收回范围；`Alt+↑ / ↓` 在项的捕获阶段处理并避开多行文字框与下拉（不再先让数字框步进）；左列表右详情的选中调整挂在共用的钩子上，按钮与快捷键一致；连着两次同样的播报也念。
+  - 其余：可为 null 的对象加“填写”（omp 4）；内建控件按实际画法分派（omp 11）；多选显示默认项（omp 19）；依赖机检认副作用与动态导入、按真实位置判断相对路径，扫描器自身有用例（omp 15）；自己画的按钮的焦点外观改用 `--focus-ring` 阴影（Sonnet 9，原写法无效）；清除后焦点回控件、清除在 DOM 里排到控件后（Sonnet 4、10）；对象、列表、左列表右详情的组带说明与出错（Sonnet 5）；字符串列表项有名字（Sonnet 1）；单位、警告前缀、组合控件的必填进读屏文字（Sonnet 8、12、15）；`bare` 不再引用不存在的说明、新增 `describedby`（Sonnet 16）；`aria-controls` 不悬空、提交后播报问题数（Sonnet 17）；补全所有问题码的文案、JSON 里的问题带位置（Sonnet 6）；展示态按钮名带字段名、去掉值上的 `role="group"`（Sonnet 14）；列表按钮放大并把删除隔开、触屏 40px（Sonnet 18）；分组标题大一档、内容带层级线（Sonnet 19）；Lab 加“结构里的问题”场景、去掉没有名字的 `bare` 场景（Sonnet 21）；e2e 补焦点外观、只读与停用的 Tab、列表项名字与重复播报、汇总进列表项与折叠分组、手机画布（Sonnet 22）；组件文档补“无障碍”一节并改正 `data-nb-widget` 的位置与展示态的停靠点（Sonnet 23）。
+  - 转 t06（Sonnet 7）：只读与可编辑看不出差别要一种统一的只读外观，归设置外观收口；`NumberInput` 只读时套了停用的变淡，这次去掉了（`dist/nb-ui.css` 不变）。
+  - 验证：nb-form 核心 95 例、渲染层 70 例（新增 24 例，审查者的 23 个缺陷实验对修正后的代码全部不再成立）；同长度保留身份、认领后清空队列、不请容器打开、不查只读成员、变只读不丢草稿、捕获阶段不停止传播六处变异都被拦下；nb-ui 528 例；应用类型检查与 Lab 的 Vitest 48 例；Lab 的 nb-form e2e 13 例与 nb-ui、场景、Lab 三组 28 例；`docs:check`、`governance:check`；截图 120 张没有溢出或报错（`reports/s3-review-shots/`）。Spec 输出 4、5、14、19、接口与失败码表同步。
+
 ## 下一步
 
-S3 的审查：Sonnet 审渲染层（界面、交互、可访问性），omp 审接口与核心衔接（提交、草稿、身份、自定义控件合同），并行。处理完做 S4（命令参数检查、隔离测试）与 S5（设置改用 `SchemaField`）。计划见 [plan.md](plan.md)。
+S4：应用里检查所有已登记命令的 `args` 都能被 `checkDescription` 接受；隔离测试（空文档、不 provide，挂每种字段）。之后 S5：设置窗口改用 `SchemaField`、删掉 `SettingsControl`。计划见 [plan.md](plan.md)。

@@ -1,0 +1,241 @@
+# w00027 t07 S3 接口与核心衔接只读实现审查
+
+范围：`git diff 2d4ce992c..b7825184a`，提交 `b68fda7ad`、`b7825184a`。依据为主工作区 master 的 `docs/specs/ui/forms.md`、t07 `plan.md`、Task 的 S3a/S3b 已确认决定与两份核心审查报告。不重新讨论已经确认的产品决定；外观、可访问性与组件文档不作全面审查。
+
+源码位置相对于 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/`。实验仅放 `/tmp/neuro-book/review-w00027-t07-s3/lab/`；运行时问题通过真实挂载组件核实，不将直接调用内部函数的推测作为运行证据。问题核实后逐条追加，不重写已有条目。
+
+### 1. JSON 覆盖只检查容器自身的 readOnly，可以改掉其中的只读成员
+
+- **严重程度**：重要；**类别**：正确性 / 不变量。
+- **位置**：`packages/nb-form/src/vue/NodeField.vue:84,146-148,223-233`、`packages/nb-form/src/vue/controls/JsonControl.vue:15-27`、`packages/nb-form/src/vue/scope.ts:176-181`。
+- **现象**：`config` 是对象、其中 `id` 声明 `readOnly:true`，在 `config` 上指定 `x-form.widget:"json"`。把 `{"id":"locked","name":"a"}` 改成 `{"id":"changed","name":"b"}` 后失焦，组件发出包含 `id:"changed"` 的新根值。
+- **为什么是问题**：Spec 输出 5 明确要求结构操作与 JSON 编辑也不能改只读字段。JSON 字段只把容器的 `readOnly` 传给文本框，提交入口也不检查被替换子树中的只读节点；“只读”约束在换一种控件后消失。输入值被冻结仍能复现，问题不是原地修改，而是提交了合同禁止的新值。
+- **如何核实**：在 `packages/nb-form` 运行 `bunx vitest run /tmp/neuro-book/review-w00027-t07-s3/lab/field.dom.test.ts --config /tmp/neuro-book/review-w00027-t07-s3/lab/vitest.config.ts`，用例 `JSON 对象覆盖能改掉只读成员` 真实挂载 `SchemaForm`、经 `textarea` 输入并实际失焦，断言发出 `[[{config:{id:"changed",name:"b"}}]]`，原输入的 id 仍是 `locked`。4 个挂载实验全部通过，其中此断言刻意记录当前缺陷。
+- **建议改法**：在共享的更新入口按模型校验整支替换是否改变、删除只读节点；JSON、父对象清除与列表结构操作共用这个约束，不只在具体输入控件上禁用。补“可编辑兄弟可改、只读后代不能被替换”的真实行为用例。
+
+### 2. SchemaField 的 commit/reset 只找根句柄，对象与列表成员的草稿完全不处理
+
+- **严重程度**：重要；**类别**：正确性 / 接口。
+- **位置**：`packages/nb-form/src/vue/SchemaField.vue:85-89`、`packages/nb-form/src/vue/NodeField.vue:167-173`、`packages/nb-form/src/vue/controls/ObjectControl.vue:24-27`。
+- **现象**：用 `SchemaField` 画 `{a:string,b:integer}`，把 a 写成尚未失焦的 `new`。调用公开 `commit()` 返回 true，但没有 `update:modelValue`；接着 `reset()`，输入框仍为 `new`。根是对象/列表时，根控件没有 commit/reset，真正的草稿句柄登记在后代路径上，两个 API 都静默跳过它们；后代写坏数字时同样会返回 true。
+- **为什么是问题**：SchemaField 的 schema 没有限定为标量，S5 设置正要接入对象与列表；输出 16 要求显式提交/重置这个字段的草稿，公开接口不能把“无根控件方法”解释为“所有成员提交成功”。SchemaForm 已遍历句柄并 batch 成一个根值，SchemaField 却走另一条不等价路径。
+- **如何核实**：同一 `field.dom.test.ts` 的 `SchemaField 对象根 commit/reset 应作用到成员草稿`，真实挂载、输入保持焦点后调用 expose，断言当前返回 true、事件数组为空、reset 后显示仍为 `new`。该用例通过，确认不是只读内部函数推演。
+- **建议改法**：SchemaField 与 SchemaForm 共用“提交/重置整个作用域”的实现，遍历所有已挂载句柄，提交用 batch 合成一个根值并汇总解析失败；不要给各结构控件再补一层转发递归。
+
+### 3. 两个有坏草稿的列表项换位，按路径撤旧报新会删掉另一项的问题
+
+- **严重程度**：重要；**类别**：正确性 / 状态与时序。
+- **位置**：`packages/nb-form/src/vue/draft.ts:79-98`、`packages/nb-form/src/vue/scope.ts:202-210`。
+- **现象**：两项的可选数字都写成 `-` 并失焦，汇总为 `2 个问题`。把第一项下移，两个输入框仍各显示 `-`，汇总却只剩 `1 个问题`。
+- **为什么是问题**：草稿随稳定组件身份移动，但登记表只有 Pointer，没有草稿所有者。一项先撤 `/rows/0/n`、报 `/rows/1/n`，另一项随后撤 `/rows/1/n`，会把前一项刚报的新状态一起删掉；相同 state 与问题数量的去重还会把覆盖误当成同一状态。坏草稿仍在而问题丢了，调用方收到的 `draft-state` 也无法准确反映现存问题。已有测试只有第三项一个草稿，没有测两项都占用新旧路径。
+- **如何核实**：`bunx vitest run /tmp/neuro-book/review-w00027-t07-s3/lab/list.dom.test.ts --config /tmp/neuro-book/review-w00027-t07-s3/lab/vitest.config.ts`，用例 `两个坏草稿排序后仍都应留在汇总中` 真实挂载、逐项输入失焦、点击下移，断言两个框都是 `-`、汇总从 2 变 1；该用例通过。该文件另一条 minItems 焦点实验的假设失败，不用它支持本发现。
+- **建议改法**：草稿登记以稳定所有者 token 为键，Pointer 只是其当前位置；更新与注销核对所有者，再从所有草稿生成问题。避免用路径清除其他组件的状态，也不要只按 state 与 issues.length 去重。补两项互换、删除前项后三个相邻坏草稿同时移位的行为用例。
+
+### 4. 可为 null 的对象清除后没有恢复入口，填写成员全部静默丢失
+
+- **严重程度**：重要；**类别**：正确性 / 核心衔接。
+- **位置**：`packages/nb-form/src/vue/controls/ObjectControl.vue:24-27`、`packages/nb-form/src/vue/NodeField.vue:105-106,146-148`、`packages/nb-form/src/vue/scope.ts:176-181`。
+- **现象**：`SchemaField` 的 schema 为对象与 null 的联合，当前值 null。界面仍画可编辑的成员输入框；输入 `filled` 后失焦，没有根值事件，文字回到空白。已填写的 nullable 对象通过“清除”写成 null 后，也会进入同一个无法再填写的状态。
+- **为什么是问题**：Spec 输出 1 支持 nullable 对象，输出 4 规定其清除写 null，不是把它永久变成只读。后代直接对 null 中间节点调用核心 setAt；核心按输出 3 拒绝穿过基本值/空值，渲染层没有先建立对象，也没有“设置对象”的动作。不能为修 UI 而放宽核心的非法路径合同。
+- **如何核实**：`field.dom.test.ts` 的 `nullable 对象为 null 时子控件无法写入`，真实挂载 nullable 对象、实际 focus/input/blur；断言事件为 0、显示回到空串，实验通过。
+- **建议改法**：为 nullable 结构值提供显式建立对象的入口，或在结构编辑边界把一次成员编辑提升为一次合法的完整对象替换；清除后能再次设置。保留核心 setAt 遇到 null 原样返回的合同。
+
+### 5. 两次操作在第一次 RPC 返回前发出，第一份回包会清掉第二次的待采纳身份
+
+- **严重程度**：重要；**类别**：正确性 / 状态与时序。
+- **位置**：`packages/nb-form/src/vue/list.ts:69-81,116-119,159-178`。
+- **现象**：当前列表 `[a,b,c]`，调用方暂不传回值。依次把第二项上移、第三项上移，收到两次提议 `[b,a,c]`、`[a,c,b]`；再按顺序以 JSON 副本传回两份结果，最终值为 `[a,c,b]`，三个组件 id 却仍按最初 `[a,b,c]` 的位置排列，没有随采纳的项移动。
+- **为什么是问题**：一格 pending 被第二次操作覆盖。第一份回包不等于最新 pending，就走“不匹配”分支，无条件清空 pending；第二份回包再也无法认领身份与焦点。S5 的 RPC 写回不是同步 v-model，用户在第一个响应前还能操作。此时既不满足“采纳后身份跟着项走”，也不满足“不同外部替换应重建身份”，有草稿的组件将落在别的值上。
+- **如何核实**：`list.dom.test.ts` 的 `两次快速操作后第二次副本晚到时身份不能失联`，真实挂载、通过两个上移按钮发出操作；按发出顺序 setProps 两份独立 JSON 副本。该实验断言最终 input 值为 `[a,c,b]` 而 id 顺序等于初始顺序，通过；并未伪造内部钩子调用顺序。
+- **建议改法**：明确待采纳操作的并发合同：保存按发出结果可匹配的待采纳记录，或在尚未采纳时暂停结构操作。回包不匹配某一次记录不能无条件丢掉其他仍在等待的记录；拒绝/修订也应明确清理，而不是把单个 watch 回调当作整个异步请求的结束。
+
+### 6. 不匹配的同长度外部数组保留旧身份，违反整体替换时重建的合同
+
+- **严重程度**：重要；**类别**：正确性 / 不变量。
+- **位置**：`packages/nb-form/src/vue/list.ts:4-7,72-81`。
+- **现象**：外部把 `[{n:1},{n:2}]` 整体换成 `[{n:10},{n:20}]`，没有任何待采纳操作，两个 `data-nb-list-item` id 却全部保持不变。watch 只有长度不同时才重建；同长度的不同数据或外部排序都沿用原位置的组件。
+- **为什么是问题**：Spec“时序与寿命”要求与最近发出值不同的外部整体替换重建身份，不能只按长度猜“只是改了成员”。这会把控件局部状态留给另一个外部条目；有焦点时草稿按输出 16 不会被普通外部值变化清掉，因而更不能把组件身份固定在位置上。
+- **如何核实**：`list.dom.test.ts` 的 `长度相同外部替换后必须丢弃原列表项坏草稿`，真实挂载列表、记录两个 id、setProps 一份同长度不同内容的完整数组，断言两个 id 顺序与值都等于原 id，通过。该实验只证明身份未重建；不把无焦点字段的旧草稿声称为必然保留。
+- **建议改法**：区分由本作用域的成员编辑产生、已知保留身份的数组与真正的外部替换；不匹配已发出结果的外部数组按合同重建，即使长度相同。不能为保留正常成员编辑而把所有同长度变更都当作同一批项。
+
+### 7. SchemaField.commit 不揭示必填问题，且没有约定的 focus-issue 接口
+
+- **严重程度**：重要；**类别**：正确性 / 接口。
+- **位置**：`packages/nb-form/src/vue/SchemaField.vue:58-62,85-89`、`packages/nb-form/src/vue/scope.ts:158-160`。
+- **现象**：独立字符串字段缺值，初始不标错；调用公开 `commit()` 后仍不标错。它既不调用 `revealAll()`，也没有 SchemaForm 的 `focus-issue` emit（Spec 说明 SchemaField 其余同上，仅排除 layout、summary，并另列 expose）。
+- **为什么是问题**：输出 14 明确把调用方 commit 作为必填问题的揭示时机，与先失焦才标红是两条独立路径。设置窗口用 bare SchemaField，不能靠先提交来要求它显示缺值。接口中未实现的事件也让调用方照 Spec 使用时静默失效；若该事件确实不属于独立字段，应明确修正合同，而不是由实现悄悄省略。
+- **如何核实**：`field.dom.test.ts` 的 `SchemaField commit 没有揭示根必填缺失` 真实挂载缺值 Type.String，调用公开 commit 后等待 Vue 更新，`aria-invalid` 仍 undefined，实验通过；事件缺失直接对照 Spec 接口与 defineEmits，没有声称不存在的事件已在 UI 触发。
+- **建议改法**：提交前揭示当前作用域问题，并统一 SchemaField 与 SchemaForm 的问题相关接口合同；独立字段若只承诺 focus 而不发问题事件，先在 Spec 明确这个差异，并给 bare 的调用方可用的问题展示契约。
+
+### 8. focusIssue 丢掉列表项路径，也不会展开未挂载的问题目标，却照样报告聚焦成功
+
+- **严重程度**：重要；**类别**：正确性 / 接口与时序。
+- **位置**：`packages/nb-form/src/vue/SchemaForm.vue:80-85,103-112`、`packages/nb-form/src/vue/order.ts:9-16,19-25`、`packages/nb-form/src/vue/LayoutItem.vue:40-42`。
+- **现象**：要求聚焦 `rows[1].b` 的 type 问题，实际焦点落在第一项的“下移”按钮；错误目标虽然已有完整路径句柄，却被 nearestField 截成列表路径。问题在折叠分组时，`focusFirstIssue()` 返回 true、发出一条 focus-issue，但分组仍关闭、输入框没有挂载、焦点仍在 body。未选中的详情、未展开列表与其他分页里的问题也没有打开路径。
+- **为什么是问题**：输出 14 承诺问题汇总或公开方法把焦点移到问题字段；事件只应在因此移动焦点时发出。fieldOrder 只遍历 children、不处理 item，而 focusIssue 先把真实动态路径降成静态祖先；对折叠目标又没有“先打开再等待渲染”的协调。这不是选择不佳的焦点落点，而是公开 API 与事件报告了没有发生的行为。
+- **如何核实**：`bunx vitest run /tmp/neuro-book/review-w00027-t07-s3/lab/interfaces.dom.test.ts --config /tmp/neuro-book/review-w00027-t07-s3/lab/vitest.config.ts`，`聚焦列表指定的问题却落在列表首个控件` 与 `聚焦折叠分组问题仍无挂载目标却发出事件` 经真实挂载调用 expose；修正第一个实验为观察到的“第一项下移按钮”后，7 个实验全部通过。未选详情/分页的影响是由相同无打开入口的代码推断，没有伪称已单独运行。
+- **建议改法**：先找精确路径的已挂载句柄；未挂载时由布局/列表提供打开并定位该路径的能力，展开分组、选中详情与切页，等渲染后聚焦。无法聚焦时不要发“已聚焦”的事件；顺序索引不应承担剪掉实际目标路径的职责。
+
+### 9. 字段变成只读后，先前的草稿仍可经公开提交或失焦写出
+
+- **严重程度**：重要；**类别**：正确性 / 状态与时序。
+- **位置**：`packages/nb-form/src/vue/draft.ts:63-72`、`packages/nb-form/src/vue/controls/CustomControl.vue:35-50`、`packages/nb-form/src/vue/scope.ts:176-181`。
+- **现象**：普通字符串先输入 `new`、保持焦点，再把 readonly 设为 true，公开 commit 仍发出 `new`。自定义控件真实使用 readonly 的原生 input，同样先输入、再变只读，实际失焦仍提交 `new`。两个控件都没有在只读状态伪造用户输入。
+- **为什么是问题**：输出 5、18 的“不能改”只在当前控件 DOM 上执行；原来留下的草稿与提交入口不再检查当前模式/权限。设置行切换为沿用、宿主关闭编辑权限后仍可写入之前的草稿。自定义控件已经正确遵守 readonly，也挡不住包装层稍后提交。
+- **如何核实**：`interfaces.dom.test.ts` 的 `只读切换后此前草稿在 commit 时仍提交`、`自定义控件按合同收到只读却草稿仍会被提交`，真实挂载、真实 focus/input/blur，均断言发出 `[['new']]`；7 个接口实验通过。
+- **建议改法**：在共享更新/提交边界检查当前可编辑性，对变成 readonly、disabled、view 后未提交草稿明确选择丢弃或保留但禁止提交；不要只靠每个自定义组件自行检查，也不要给纯 DOM 输入事件加补丁。
+
+### 10. 列表删除后“碰过”的必填门槛仍留在旧下标，已显示的问题会重新消失
+
+- **严重程度**：重要；**类别**：正确性 / 状态。
+- **位置**：`packages/nb-form/src/vue/scope.ts:129,158-160,220-222`、`packages/nb-form/src/vue/NodeField.vue:179-182`。
+- **现象**：两项都缺必填数字，先让第二项实际获得/失去焦点，它标出必填错误。删除第一项后，同一个稳定身份的第二项移到下标 0，必填标记和问题汇总却消失，像从没碰过。
+- **为什么是问题**：Spec 输出 14 的门槛是字段是否失过焦点，不是某个数组下标是否曾失焦。touched 只按 Pointer 存且永不迁移/注销，列表项变位后既会让已触碰字段丢掉状态，也会把旧路径的状态交给后来占该下标的另一项。这与列表草稿保持稳定身份的规则不一致。
+- **如何核实**：`bunx vitest run /tmp/neuro-book/review-w00027-t07-s3/lab/transitions.dom.test.ts --config /tmp/neuro-book/review-w00027-t07-s3/lab/vitest.config.ts`，`列表删除后碰过状态应跟着同一项而非下标` 使用真实焦点与删除按钮；断言移动前 aria-invalid 为 true、删除后为 undefined、汇总为 none，通过。该文件 input 模式的初始 clean 事件假设另有失败，不用于支持本发现。
+- **建议改法**：把 touched 归属于稳定字段/列表项身份，登记时随当前路径投影，卸载时清理；与草稿登记使用相同所有权模型。新项不能继承已删除项的触碰记录。
+
+### 11. 未登记控件名只替换外层选型，内建控件仍读取旧 node.widget，回退结果不一致
+
+- **严重程度**：重要；**类别**：正确性 / 核心衔接。
+- **位置**：`packages/nb-form/src/vue/widgets.ts:66-74`、`packages/nb-form/src/vue/NodeField.vue:71-73,140-141,223-232`、`packages/nb-form/src/vue/controls/ChoiceControl.vue:40-51`。
+- **现象**：两项单选 schema 指定未登记的 `unknown`。resolveWidget 已退到 `radio-row`，根标记也写 radio-row，实际界面却是 Select，没有 radiogroup。ChoiceControl 继续读取原来的 `node.widget`（一个 custom 对象），绕过 radio 与 search-select 分支。同类问题影响 searchable 的未知自定义控件回退。
+- **为什么是问题**：输出 22 明确要求没登记的名字按该种类的内建画法，而不是换成任意选择控件；外层判定与控件内部判定成了两个真相源。现有回退测试只测 number，这一控件不再按 node.widget 分派，因此掩盖了错误。
+- **如何核实**：`interfaces.dom.test.ts` 的 `未登记名字退回 radio-row 后实际仍画 Select` 真实挂载 `SchemaField`，断言标记 radio-row、radiogroup 不存在、combobox 存在，实验通过。没有使用 mocked nb-ui 控件。
+- **建议改法**：把“已解析的实际控件”作为单一结果传给内部控件，或给它归一化后的 node，内部不能再读未解析的 widget 做第二次分派。测试同时覆盖两项单选与 searchable 回退。
+
+### 12. 问题顺序只按 schema 属性排，忽略调用方 layout 的实际顺序
+
+- **严重程度**：重要；**类别**：正确性 / 接口。
+- **位置**：`packages/nb-form/src/vue/order.ts:9-16,28-30`、`packages/nb-form/src/vue/IssueSummary.vue:19`、`packages/nb-form/src/vue/SchemaForm.vue:109`。
+- **现象**：schema 属性顺序是甲、乙，layout 明确排乙、甲；界面输入框确实是乙、甲，但问题汇总仍是甲、乙，focusFirstIssue 把焦点跳到第二个输入框。列表项的错误全部退到列表同一个顺序号，调用方 issues 的输入顺序也无法转换成实际字段顺序。
+- **为什么是问题**：Spec 输出 14 的依据是字段在表单里的先后，而非 schema 写法；layout 是公开接口、允许重排根字段。fieldOrder 只有 root 参数，根本拿不到布局和运行时列表，后续调用无法满足合同。
+- **如何核实**：`interfaces.dom.test.ts` 的 `layout 倒排后汇总和 focusFirstIssue 仍按 schema 排`，真实挂载倒序 layout，断言 DOM 值为 `[y,x]`、汇总为 `[甲,乙]`、focusFirstIssue 聚焦第二个框，通过。列表顺序部分来自同一排序实现的代码推断，未单独运行一份乱序 caller issues 实验。
+- **建议改法**：从最终 layout 构建根字段顺序，再结合实际数组项与嵌套字段顺序生成稳定索引；汇总与 focusFirstIssue 共用这份可观察的显示顺序，而不是只遍历静态 schema.children。
+
+### 13. 列表重复标记按 JSON 文本比较，与核心 unique-items 对对象等值的判定不同
+
+- **严重程度**：重要；**类别**：正确性 / 核心衔接。
+- **位置**：`packages/nb-form/src/vue/list.ts:103-113`、`packages/nb-form/src/vue/controls/ListControl.vue:67,90`。
+- **现象**：uniqueItems 对象列表为 `[{a:"x",b:"y"},{b:"y",a:"x"}]`，核心汇总报 `1 个问题`，第二项却没有“重复”标记。两个对象只有属性插入顺序不同，在 JSON Schema 里是同值。
+- **为什么是问题**：输出 19 要在重复项上标问题；核心已经按等值报错，渲染层又用另一种判据自行重算，导致整体错误和项标记互相矛盾。TypeBox 的对象哈希先按键排序，JSON.stringify 保留插入顺序。单个字符串列表的现有测试无法保护对象列表。
+- **如何核实**：`list.dom.test.ts` 的 `uniqueItems 同值不同键顺序也应标重复` 真实挂载、直接观察汇总与重复标记数量，断言前者 1 个问题、后者 0，通过；已读安装的 TypeBox `schema/engine/uniqueItems.mjs:33-49` 与 `system/hashing/hash.mjs:142-147`，没有改全局比较策略。
+- **建议改法**：消费核心 unique-items 的 duplicateItems 下标，或把与核心相同的等值规则收在核心供渲染层复用；不要为标记再维护一份 JSON 文本相等逻辑。补对象键顺序相反的行为用例。
+
+### 14. 删掉最后一页后 page 没有收回范围，出现“第 3 / 2 页”，上一页第一次点击不换页
+
+- **严重程度**：重要；**类别**：正确性 / 状态。
+- **位置**：`packages/nb-form/src/vue/list.ts:85,94-100,150-156`、`packages/nb-form/src/vue/controls/ListControl.vue:106-109`、`packages/nb-form/src/vue/controls/MasterDetailControl.vue:130-133`。
+- **现象**：101 项列表展开并翻到第 3 页，删掉唯一的第 101 项，界面显示“第 3 / 2 页”。visible 计算临时夹到第二页，page 本身仍是 2；点击一次“上一页”只把 page 改为 1，仍显示第二页同样内容，还需再点一次才到第一页。
+- **为什么是问题**：输出 19 的分页需要页码、内容、翻页动作一致；现在这三个状态分叉。删除后的邻项也可能在另一页尚未挂载，焦点落点计算没有切页配合。这不是只显示错一个数字，第一下翻页确实不生效。
+- **如何核实**：`list.dom.test.ts` 的 `分页最后一项删掉后上页只需一次` 真实挂载 101 项、点击展开/下一页/删除，断言页码为 `第 3 / 2 页`，再点击上一页后首项仍为 x50，通过。焦点跨页影响从 remove 的 DOM 查找推断，未把 happy-dom 对非可聚焦 li 的行为当成真实浏览器证据。
+- **建议改法**：数组被采纳或外部换短后把 page 本身收回合法范围；增删排序的采纳步骤同时决定需要显示哪一页，然后渲染、聚焦。不要只在 visible 里临时夹下标。
+
+### 15. 渲染层依赖机检漏掉动态导入与单行 script，所有相对路径还可直接跨包
+
+- **严重程度**：建议；**类别**：测试 / 依赖边界。
+- **位置**：`packages/nb-form/src/boundary.test.ts:10-12,23-29`。
+- **现象**：本轮扩展的扫描器只识别行首的 import/export…from；`import("node:fs")`、`import "node:fs"`、`<script>import {…} from "node:fs";…</script>` 都没有被查到。`../../../neuro-book/src/x` 这样的跨包源码导入也直接被 RELATIVE 放行。普通非 setup script 若把 import 写在下一行，会被查到，不能笼统说所有非 setup 块漏检。
+- **为什么是问题**：包宣称这条检查保障 Vue 层只依赖 vue、nb-ui 与核心，给沙箱隔离提供门禁；实际常见的合法语法和相对深导入都能绕过。当前产品源码没有查到这些越界导入，所以这是具体的门禁缺口，不声称已发生宿主依赖泄漏。静态正则对动态/副作用导入的缺口 base 已有，本次把它沿用到新增的 .vue 检查。
+- **如何核实**：`bunx vitest run /tmp/neuro-book/review-w00027-t07-s3/lab/boundary.dom.test.ts --config /tmp/neuro-book/review-w00027-t07-s3/lab/vitest.config.ts`，提取当前测试文件自己的扫描函数，写 6 个真实源文件作为输入；仅普通 import 与换行 script 的 2 个越界文件被报出，另外 4 个均漏过，1 个实验通过。不把复制一份正则的自证当成机检证据。
+- **建议改法**：用 TypeScript AST 与 Vue SFC script/scriptSetup 内容解析 import/export、动态字面量与副作用导入；相对 specifier resolve 后校验真实路径仍在允许的包边界内。给扫描器加入这些正反例，不只通过临时插入一条常规 from-import 做变异。
+
+### 16. MasterDetail 的 Alt 排序绕过自己的 move，选中的项随快捷键变成另一项
+
+- **严重程度**：重要；**类别**：正确性 / 状态与时序。
+- **位置**：`packages/nb-form/src/vue/controls/MasterDetailControl.vue:74-79,97-104,125`、`packages/nb-form/src/vue/list.ts:181-185`。
+- **现象**：列表为甲、乙、丙，选中乙，在乙的选中按钮上按 Alt+↑；根值正确变为乙、甲、丙，但右边详情变成甲，aria-current 也留在第二项。点击上移按钮走局部 move，会调整选中索引；键盘冒泡却直接走 useList.onItemKeydown，其 move 没有选中项 adopt 钩子。
+- **为什么是问题**：输出 19 要快捷键与按钮排序一致、焦点/身份跟着原项，输出 20 要详情展示选中项。这里没有外部 selected 或 RPC 时序干扰，单次普通 v-model 操作就改变了选中的业务对象。
+- **如何核实**：`bunx vitest run /tmp/neuro-book/review-w00027-t07-s3/lab/edges.dom.test.ts --config /tmp/neuro-book/review-w00027-t07-s3/lab/vitest.config.ts`，`主从列表 Alt 上移没有采用选中项钩子` 真实挂载、点击乙、对该按钮派发 Alt+↑，断言发出乙/甲/丙而详情为甲，通过；4 个边界实验全部通过。
+- **建议改法**：让共用键盘解析只返回移动意图，由结构控件自己的同一个 move 入口执行；或把 MasterDetail 的 adopt 钩子绑定为 useList 的统一选项。按钮与快捷键不能各有一条不同的状态转换路径。
+
+### 17. 在数字字段按 Alt+↑ 排序会先步进数字，移动完成后失焦又提交被误改的值
+
+- **严重程度**：重要；**类别**：正确性 / 控件衔接。
+- **位置**：`packages/nb-form/src/vue/controls/NumberControl.vue:48-61`、`packages/nb-form/src/vue/controls/ListControl.vue:57-62`、`packages/nb-form/src/vue/list.ts:181-185`；上游 `packages/nb-ui/src/components/form/NumberInput.vue:74-89`。
+- **现象**：对象列表的数字为 1、2，焦点在第二项数字框，按一次 Alt+↑。列表先正确提交为 2、1，但移动后的输入框已经显示 3；实际失焦再发出 3、1。一次“排序”额外把业务数值加了 1。
+- **为什么是问题**：NumberInput 对所有 ArrowUp/Down 都步进，不排除 altKey；同一事件冒泡到 li 又被解释为排序。父层只 preventDefault，无法撤销子层已产生的草稿。nb-ui 本身在 base 就有普通方向键步进，本轮新增列表 Alt 快捷键形成了集成冲突；不能归为已有组件独立缺陷。
+- **如何核实**：`edges.dom.test.ts` 的 `数字框 Alt 上移先执行步进再把项移动` 真实挂载，给第二个真实 input 焦点、派发一次带 altKey 的 ArrowUp、等待采纳，再实际 blur；断言第一份根值为 2/1、显示为 3/1、最后根值为 3/1，通过。没有直接调用步进或排序内部函数。
+- **建议改法**：在数字输入的键盘合同中排除 Alt 修饰的方向键，或由列表在 capture 阶段独占该快捷键并阻止子控件处理；保留普通方向键步进。加一条经数字输入入口的排序行为用例，同时断言顺序与值不被改。
+
+### 18. reset 后同一任务内卸载字段，clean 上报被取消，旧 unparseable 永久留在汇总
+
+- **严重程度**：重要；**类别**：不变量 / 资源与登记收口。
+- **位置**：`packages/nb-form/src/vue/draft.ts:45-49,79-98`、`packages/nb-form/src/vue/scope.ts:202-210`。
+- **现象**：数字 n 写成 `-` 并失焦，汇总有 1 条 unparseable。调用 SchemaForm.reset()，紧接着把 schema/value 换成仅有合法字符串 s 的新表单，更新完成后汇总仍是 error。旧数字控件已经卸载，新值也不违反 schema。
+- **为什么是问题**：reset 只同步改局部 state，清除作用域登记靠异步 watch 上报；同任务的父级更新会先卸载控件、取消这个 watch。onBeforeUnmount 又看当前 state 已是 clean，就不撤销旧登记，形成没有字段可修复的幽灵问题。只测试直接卸载坏草稿，没有覆盖先 reset/成功提交再卸载。
+- **如何核实**：`bunx vitest run /tmp/neuro-book/review-w00027-t07-s3/lab/extra.dom.test.ts --config /tmp/neuro-book/review-w00027-t07-s3/lab/vitest.config.ts`，`先 reset 同一个任务内又卸载字段不应遗留坏草稿问题` 真实挂载、输入、失焦、调用 expose 并替换 props；期望 none 的断言失败，实际 error。该失败是本次发现的证据，不是既有测试失败。
+- **建议改法**：草稿登记的撤销由登记寿命负责，卸载时无条件撤销本控件曾登记的所有权，不由当前草稿是否 clean 决定；drop/reset 也可同步撤销。与第 3 条一起用所有者 token 管理，避免异步 watch 取消后漏清理。
+
+补充核实第 6 条：`extra.dom.test.ts` 的 `同长度外部替换把有焦点的旧草稿留给新的项` 已通过。第二项 n=2 正在编辑 `-` 时，外部整体换成 n=10、20，焦点仍在原组件、两个框显示 `10`、`-`；旧草稿实际留给了新的 n=20，不再只是由身份未重建推断影响。
+
+### 19. 多选字段缺值时不显示声明的数组默认值
+
+- **严重程度**：建议；**类别**：正确性 / 核心衔接。
+- **位置**：`packages/nb-form/src/vue/NodeField.vue:98-103`。
+- **现象**：可选的多选数组声明 `default:["a"]`，当前缺值；控件没有预选，这是正确的，但标题旁也没有“默认”标记。代码明确把数组 default 排除，后面没有多选的处理分支。
+- **为什么是问题**：Spec 输出 4 要求选择类不预选、在标题旁写默认值，多选同样是选择类。用户无法得知未设置时会使用哪个默认选项。不是要求把默认值写入 model，也不是要求预选。
+- **如何核实**：`extra.dom.test.ts` 的 `多选数组默认值标题仍不显示默认标记` 真实挂载 TypeBox uniqueItems 字面量数组、default 为 `["a"]`、model 为空对象，断言多选字段内没有“默认”，通过。
+- **建议改法**：按当前选项的标签格式化数组 default，使用已有默认提示机制；继续保持缺值时不预选、不发值事件。
+
+## 按影响排序的处理索引
+
+本报告按规则逐条追加，保留核实编号；阅读与修复优先级按下表，不按追加时间。
+
+| 顺序 | 发现编号 | 影响 |
+|---|---|---|
+| 1 | 17 | 排序快捷键额外修改实际业务数值 |
+| 2 | 1、9 | JSON 与状态转换绕过只读限制 |
+| 3 | 2、4 | SchemaField 结构提交/重置无效、nullable 对象清除后不能再编辑 |
+| 4 | 5、6、16 | RPC 并发/外部替换的列表身份失效、键盘排序切错详情 |
+| 5 | 3、18 | 坏草稿问题丢失或留下没有字段的幽灵问题 |
+| 6 | 7、8、10、12 | 必填揭示、精确问题聚焦、触碰门槛与顺序合同不成立 |
+| 7 | 11、13、14 | 内建回退不一致、重复标记不一致、分页状态越界 |
+| 8 | 15、19 | 依赖机检缺口、多选默认提示遗漏 |
+
+## 未发现问题的方面
+
+- **值所有权与同任务连续提交**：冻结值与未改动分支引用的既有用例通过；追加 `ownership.dom.test.ts` 真实宿主用 `ref()`，同一任务连续触发两个输入/Enter，第二份根值保留第一次修改。调用方拒绝后，下一任务的提交回到 props；同步写回 JSON 副本也正常。`chained` 不把异步未采纳结果长期冒充受控值，这个取舍本轮未报为问题。
+- **合并提交**：SchemaForm 的 batch 把几个已挂载字段的可解析草稿合成一个根值；另一个草稿不可解析时返回 false，已解析部分只发一份根值。真实 `ref()` 宿主的公开组件 ref 实验同样通过。没有把 SchemaField 根结构的第 2 条误称成所有 commit 都失效。
+- **数字与 JSON 解析**：真实挂载输入覆盖数字 `1.`、`-` 不提交，`1e5`、`.5` 提交；必填非 nullable 空串不可解析，可选空串删键，nullable 空串写 null。JSON 的 `1.`、`-`、`.5` 不解析、`1e5` 解析；坏草稿在提交失败前不报告 unparseable 的既有路径通过。nullable 必填空串写 null 与该联合允许 null 一致，不重复报为解析问题。
+- **input 模式的 synced**：真实数字字段写 `1.50` 时保持原文字并只发数值 1.5；调用方不采纳、实际失焦后回到 props 的 1，不再重复发值。初始即 clean、从 clean 到 clean 不发 draft-state 是观察到的现行为，未把“每次输入必须再发 clean”当合同强加。
+- **外部值/revision 与焦点**：既有外部 revision、无焦点丢草稿、有焦点保留、条件隐藏不卸载等测试通过。第 18 条是 reset 后卸载的同任务收口缺口，不否定直接卸载坏草稿的正常路径。
+- **问题合并**：schema、caller、已尝试坏草稿的问题在普通固定路径合并显示，caller warning 不把字段标成 error；现有事件/聚焦实验通过。路径随列表身份变化的例外列在第 3、10 条。
+- **普通列表采纳**：单次添加/删除/排序、延迟以 JSON 副本传回、未采纳时不抢焦点的既有用例通过。删除后句柄的所有者检查没有草稿登记那样的同路径误删：三个节点删掉前项后 reset 全部当前字段，实验通过。
+- **自定义控件**：显式名字、无显式名时正分择优的代码路径，以及重名 FormWidgetError、草稿等 commit/失焦再发的既有测试通过；传入 id、labelledby、options、meta、issues 的桥接未见额外宿主依赖。没有给可信 score/component 额外强加吞异常的安全边界。
+- **model 重算与 hints**：从代码可确认 computed 依赖 schema/layout（SchemaField 另含 hints），不是每次 locale、modelValue、issues 变化都重建 resolveForm。withHints 只盖同名 x-form 键，核心 nullable 注解归一化继续合并内外层。未做耗时基准，不以猜测性能列问题。
+- **widgetLayout**：narrow/medium/wide/content 的映射分别覆盖数字、下拉、单行、开关/横排单选，与计划的 120/220/320/按内容可映射；具体像素由 S5 宿主决定，未把未接入的设置宽度声称为已验证。
+- **依赖与登记**：当前生产导入没有看到跨包源码深导入或应用服务；`./lab-sources` 经公开 exports 供 Lab 使用，Vite 专用合同已注明，调用方没有新增跨包源码路径。check-documentation 对第二个 barrel 的新增 fixture 测试直接观察缺文档失败，属于行为测试；其逻辑沿用既有格式规则，未发现本轮回归。工作流补 nb-form、nb-story 路径不改变表单运行时行为。
+
+## 实验校正与未采纳候选
+
+- minItems 删除后的焦点实验原先假设焦点会完全离开列表；happy-dom 实际把无 tabindex 的 li 设为 activeElement。没有运行真实浏览器，不能用这个 DOM 实现差异给产品定严重程度，该候选未列入问题。`list.dom.test.ts` 因该探索性断言退出 1，其余 5 例通过；不把它混成既有套件失败。
+- 两个初始实验假设已按观察校正：列表 focusIssue 实际落在首项下移按钮而不是首项 input；子组件 expose 应从宿主的公开 ref 取，test-utils 的 findComponent().vm 不等价。修正实验入口后接口 7 例全部通过。
+- input 模式初始 clean 事件的假设被状态不变化所否定；仅调整这一实验的预期，5 例转换实验通过，没有修改产品代码或既有测试。
+- 第 18 条增加了“新字段确为 ok、展开汇总只剩 n：无法解析”的前置断言，再定向运行仍只在期望 none 的最后一条断言失败；是保留的真实失败证据。
+
+## 实际验证
+
+以下命令的 cwd 均为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/nb-form`，依赖全部使用现有安装；实验测试从绝对路径导入产品组件与真实 nb-ui。
+
+| 实际命令 | 结果 |
+|---|---|
+| `bun run test` | 退出 0；Bun 94 pass、0 fail、177 expect()；Vitest 3 个文件、46 pass。约 7.18 秒 |
+| `bun run typecheck` | 退出 0；`tsc --noEmit && vue-tsc --noEmit -p tsconfig.vue.json` 无诊断。约 12.07 秒 |
+| `bunx vitest run /tmp/neuro-book/review-w00027-t07-s3/lab/field.dom.test.ts --config /tmp/neuro-book/review-w00027-t07-s3/lab/vitest.config.ts` | 退出 0；4 pass。对象根提交/重置、必填揭示、JSON 只读后代、nullable 对象 |
+| `bunx vitest run /tmp/neuro-book/review-w00027-t07-s3/lab/list.dom.test.ts --config /tmp/neuro-book/review-w00027-t07-s3/lab/vitest.config.ts` | 退出 1；5 pass、1 fail。失败是未采纳的 minItems 焦点假设；5 个问题实验通过 |
+| `bunx vitest run /tmp/neuro-book/review-w00027-t07-s3/lab/interfaces.dom.test.ts --config /tmp/neuro-book/review-w00027-t07-s3/lab/vitest.config.ts` | 初次 5 pass、2 fail，校正真实焦点落点与公开 ref 入口后退出 0、7 pass |
+| `bunx vitest run /tmp/neuro-book/review-w00027-t07-s3/lab/transitions.dom.test.ts --config /tmp/neuro-book/review-w00027-t07-s3/lab/vitest.config.ts` | 初次 4 pass、1 fail，校正初始 clean 事件假设后退出 0、5 pass |
+| `bunx vitest run /tmp/neuro-book/review-w00027-t07-s3/lab/boundary.dom.test.ts --config /tmp/neuro-book/review-w00027-t07-s3/lab/vitest.config.ts` | 退出 0；1 pass，6 个真实源文件仅 2 个越界被查到 |
+| `bunx vitest run /tmp/neuro-book/review-w00027-t07-s3/lab/edges.dom.test.ts --config /tmp/neuro-book/review-w00027-t07-s3/lab/vitest.config.ts` | 退出 0；4 pass。两种 Alt 排序缺陷、数字 nullable/可选清空、JSON 写法 |
+| `bunx vitest run /tmp/neuro-book/review-w00027-t07-s3/lab/extra.dom.test.ts --config /tmp/neuro-book/review-w00027-t07-s3/lab/vitest.config.ts` | 退出 1；2 pass、1 fail。reset 后卸载残留问题的正确性断言失败，支持第 18 条 |
+| `bunx vitest run /tmp/neuro-book/review-w00027-t07-s3/lab/extra.dom.test.ts --config /tmp/neuro-book/review-w00027-t07-s3/lab/vitest.config.ts -t '先 reset'` | 增强前置断言后仍退出 1；1 fail、2 个被过滤的用例。新字段值 ok、汇总仍只列 n：无法解析，最后期望 none 失败 |
+| `bunx vitest run /tmp/neuro-book/review-w00027-t07-s3/lab/ownership.dom.test.ts --config /tmp/neuro-book/review-w00027-t07-s3/lab/vitest.config.ts` | 退出 0；1 pass，真实 ref 宿主验证连续提交、JSON 副本与拒绝采纳后回到 props |
+
+没有运行 e2e、开发服务、真实浏览器、构建、全仓测试、docs:check、governance:check、scripts 测试或真实 Provider/Model。文档检查新增测试与 workflow 仅阅读；不把作者 Task 里的旧结果当作本轮执行证据。没有做源码变异检查；只读要求下没有修改产品、既有测试或配置，也没有安装依赖、commit、push、stash、切换分支、删除文件或开启子审查。实验与扫描 fixture 保留在指定 lab 目录供复现。
+
+## 数量
+
+**共 19 条：阻断 0，重要 17，建议 2。** 逐条追加后的 `grep -c '^### '` 从 1 递增至 19；严重程度统计分别是重要 17、建议 2，没有条目减少或整文件重写。按影响的阅读顺序见上面的处理索引。
+
+规则回写建议：没有新增通用规则。实验中纠正的微小包装与类型断言写法已有规范覆盖，不重复新增；其余均为本轮具体实现缺陷，交实施者核实修正，不擅自改 Spec 或接受产品取舍。
+

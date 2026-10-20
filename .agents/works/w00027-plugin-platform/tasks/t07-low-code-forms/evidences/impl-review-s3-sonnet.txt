@@ -1,0 +1,247 @@
+# w00027 t07 S3 界面审查（Sonnet）
+
+审查对象：`2d4ce992c..b7825184a` 里 `packages/nb-form/src/vue/` 与 Lab 场景、e2e。截图以 s3b-shots 为准（s3a 是 S3a 阶段，没有分组与列表）。实验文件在 `/tmp/neuro-book/review-w00027-t07-s3/sonnet/exp/`（用 vitest + happy-dom 在 worktree 的组件上跑，未改仓库）。条目按发现顺序追加，最后的“汇总”一节给出按影响排序的索引。
+
+### 1. 字符串列表项的输入框没有可访问名称
+- 严重程度：重要
+- 类别：可访问性
+- 位置：`packages/nb-form/src/vue/controls/ListControl.vue:88`（`NodeField bare :labelledby`）、`FieldShell.vue:46,64-68`（bare 形态）；nb-ui 的 `Input.vue:66-84` 不读 `labelId`
+- 现象：字符串列表每项画成 `NodeField bare`，名字来源只给了 `labelledby`（指向 sr-only 的“第 N 项”）。bare 外壳不画 `<label for>`；而 `Input`、`Textarea`、`NumberInput`、`Select`、`Switch` 只读 Field 上下文的 `inputId`、`ariaDescribedby`，不读 `labelId`（只有 `RadioGroup`、`CheckboxGroup`、`SearchSelect` 的列表读）。所以单个控件的 `<input>` 既没有 label，也没有 `aria-labelledby`、`aria-label`。
+- 为什么是问题：Spec 验收 6 要求“每种控件的可访问名称是字段标签”，`SchemaField.md` 也写了“bare 时单个控件用调用方的 `<label for>`”，字符串列表是表单自己的 bare，没有调用方补 label。读屏用户在“停止词”组里听到的是一个没有名字的编辑框，Tab 到第 2、3 项无法区分。那个 `${prefix}-${entry.id}` 的 sr-only 节点只被写出来、从未被引用。e2e 没有检查字符串列表项的名字，所以没拦住。
+- 如何核实：在 worktree 里挂载 `SchemaForm`，schema `{stops: Array(String, {minItems: 2})}`、值 `{stops: ["a"]}`，输出的 `<input id="nb-form-v-4" type="text" placeholder="" required minlength="1" …>` 没有任何 aria-*，也没有对应 `label[for]`（实验 `exp/b.exp.test.ts`，输出 `exp/out-b.html` 第 18 行）。真实浏览器里 `getByRole("textbox", {name: /第 1 项/})` 应该找不到。
+- 建议改法：bare 且有 `labelledby` 时，由 `FieldShell` 或 `TextControl` 等单控件在传给 nb-ui 的位置上补 `aria-labelledby`（`Input`、`Textarea`、`NumberInput`、`Select` 接受 attrs 的转发，或在 nb-ui 里统一读 `labelId`，与 `RadioGroup` 对齐）；字符串列表项的名字写成“<列表标签>：第 N 项”更好。在 e2e 的列表场景加 `getByRole("textbox", {name: "第 1 项"})` 断言。
+
+### 2. 问题汇总里列表项内的问题：标签丢失项与字段名，点击聚焦到错误的元素
+- 严重程度：重要
+- 类别：交互
+- 位置：`packages/nb-form/src/vue/order.ts:21-34`（`nearestField`、`fieldLabel`）、`SchemaForm.vue:80-85`（`focusIssue`）、`NodeField.vue` 的 `focus()`（兜底选择器）
+- 现象：字段树里列表只有一个节点（`children` 为空，项由 `itemNode` 即时生成），问题路径 `["characters", 1, "name"]` 走不进树，`nearestField` 退到 `/characters`，`fieldLabel` 也只返回“人物”。结果：汇总写成“人物：至少 2 个字符”，看不出是第几项的哪个字段；点这一条，`NodeField.focus()` 找不到带字段 id 的元素，退到“列表里第一个 `button:not([disabled])`”，焦点落在第 1 项的“下移：林照”按钮上。左列表右详情未选中项、对象列表里的必填缺失同理。
+- 为什么是问题：Spec 输出 14 写“点一条聚焦到字段”，输出 19 的列表里问题是主要的使用场景。现在点汇总会把焦点放到另一项的操作按钮上，再按回车就是移动那一项。汇总文字也没法让用户找到出错的位置。
+- 如何核实：`exp/c.exp.test.ts` 第一个用例：schema `{characters: Array(Object({name: String({minLength: 2})}), {itemLabel: "name"})}`，值 `[{name:"林照"},{name:"x"}]`；展开汇总只有一条“人物：至少 2 个字符”；点击后 `document.activeElement` 是 `BUTTON[下移：林照]`。
+- 建议改法：`fieldLabel` 对列表项补“项标题 + 字段名”（“人物 · x：名字：至少 2 个字符”）；`focusIssue` 对列表路径先让列表控件找到对应项（对象列表按 `data-nb-list-item` 的下标找、左列表右详情先选中再聚焦），找不到时不要退到随便一个按钮。
+
+### 3. 汇总里点折叠分组内的问题：没有任何反应，却照样发出 `focus-issue`
+- 严重程度：重要
+- 类别：交互
+- 位置：`packages/nb-form/src/vue/SchemaForm.vue:80-85`；`LayoutItem.vue:44-50`（折叠时不挂载）
+- 现象：分组折叠时里面的字段不挂载，`scope.handle(...)` 取不到，`?.focus()` 静默什么都不做，分组也不展开，随后仍发出 `focus-issue`。同样的情况：左列表右详情里未选中项、超过 50 项折叠的列表里的项、被分页挡住的项。
+- 为什么是问题：折叠的分组在标题旁写“含 N 个问题”正是为了引导用户去处理；用户点了汇总里对应的那条，表单毫无反应。Spec 输出 14 说“表单因为一条问题把焦点移到字段时发出 `focus-issue`”，这里没移动也发了，调用方（例如放自己固定位置的宿主）会误以为已定位。`focusFirstIssue()` 返回 true 同样不可信。
+- 如何核实：`exp/c.exp.test.ts` 第二个用例：布局里 `/b` 在 `collapsed: true` 的分组中、值违反 `minLength`；展开汇总点唯一一条，`document.activeElement` 仍是原来的输入框，`aria-expanded` 仍是 `false`，`focus-issue` 发出 1 次。
+- 建议改法：聚焦前先让包含该字段的折叠分组展开（`LayoutItem` 把展开状态提升到 scope 里按指针登记），等挂载后再聚焦；做不到定位时不发 `focus-issue`、`focusFirstIssue()` 返回 false。
+
+### 4. 点“清除”后焦点掉到 `<body>`
+- 严重程度：重要
+- 类别：交互 / 可访问性
+- 位置：`packages/nb-form/src/vue/NodeField.vue:105-106`（`clearable`）、`FieldShell.vue:83`（清除按钮，`v-if` 随值消失）
+- 现象：“清除”按钮在值被清掉后立刻不再渲染（`clearable` 变 false），按钮正有焦点，所以焦点回到 `document.body`；键盘与读屏用户失去位置，Spec 输出 19 只规定了列表，清除这条没有写落点，实现里也没有处理。
+- 为什么是问题：设置类表单里清除是高频动作；读屏用户按下后没有播报、焦点丢失，只能从页首重新 Tab。
+- 如何核实：`exp/c.exp.test.ts` 第三个用例：可选字符串字段有值，聚焦“清除：备注”后点击，`document.activeElement` 变成 `BODY`。
+- 建议改法：清除后把焦点移到该字段的控件（`focus()` 已有）；并考虑让“清除”在 DOM 里排在控件之后（见第 10 条）。
+
+### 5. 列表、对象、左列表右详情没有说明与出错标记：`aria-describedby`、`aria-invalid` 与出错外观都缺
+- 严重程度：重要
+- 类别：可访问性 / 外观
+- 位置：`controls/ListControl.vue:49`、`controls/MasterDetailControl.vue:89`、`controls/ObjectControl.vue:25`；外壳 `FieldShell.vue:48-51,76-78`
+- 现象：这三类控件的根只写了 `role="group"` 与 `aria-labelledby`，既不读 `ariaDescribedby` 上下文，也不用 `invalid` prop（`ControlProps` 里有，但这三个组件没有消费）。外壳照样把说明 `<p id=…-help>` 与错误 `<span id=…-error>` 画出来，但组上没有任何元素引用它们。
+- 为什么是问题：Spec 输出 14“字段只标出错（`aria-invalid`），第一条错误的文字给读屏”，验收 6“说明是字段说明，出错时有错误信息”。列表的 `minItems`、`uniqueItems`、`required`，对象的 `minProperties`、`dependentRequired` 都是字段级错误，用户只能去汇总里看；读屏用户在列表组里既听不到说明也听不到错误。外观上也没有红框：同一表单里标量字段是红框，列表只有“重复”小字。
+- 如何核实：`exp/b.exp.test.ts`（输出 `exp/out-b.html` 第 11、53、104 行）：`stops: ["a"]`（minItems 2）、`people: [{…}]`、`opts: {}`（minProperties 1）三组都有 `id=…-error` 的 sr-only 文字“至少 2 项”，但 `.nb-form-list`、`.nb-form-object` 根上没有 `aria-describedby`、`aria-invalid`。
+- 建议改法：三个控件读 `useFieldContext()` 的 `ariaDescribedby` 与 `invalid`，写到根上；有错误时给根一条出错的描边（与 nb-ui 控件同色），对象与列表的外层线条在出错时用 `--status-danger`。
+
+### 6. 内置问题文案缺码：汇总与读屏会念出内部码“不符合要求（min-properties）”
+- 严重程度：重要
+- 类别：正确性（文案）
+- 位置：`packages/nb-form/src/vue/messages.ts:92-110,152-170`（`codes` 表）；核心 `validate.ts:38-62`（`CODES`）与 `validate.ts:81-84`（未收录的关键字原样作码）
+- 现象：Spec 输出 8 明确要校验对象的 `minProperties`、`dependentRequired`，数组的 `contains` 等，JSON 字段内的任何关键字也会作码上报（`additional-property`、`min-properties`、`max-properties`、`contains`、`min-contains`、`dependent-required`、`property-names` 等）。`codes` 表只有 16 个，其余走 `fallback`：“不符合要求（min-properties）”，英文是“Invalid (min-properties)”。
+- 为什么是问题：汇总是唯一看得见的问题文字，用户读到的是带连字符的内部码，没有“需要至少几个属性”的数字，也不知道在哪。JSON 字段里违反 `additionalProperties:false` 是验收 1 的“扩展参数”路径上很可能出现的错误。
+- 如何核实：`exp/out-b.html` 第 122 行：“选项组”（`minProperties: 1`，值 `{}`）的错误文字是“不符合要求（min-properties）”。
+- 建议改法：补全 `min-properties`、`max-properties`、`dependent-required`、`additional-property`、`contains`、`min-contains`、`max-contains` 等码的中英文案，并给 `fallback` 带上 `at`（JSON 内位置）；加一条测试枚举核心可能产出的码都有文案。
+
+### 7. 只读与编辑态几乎没有视觉差别，数字输入的“只读”却画得像停用
+- 严重程度：重要
+- 类别：外观
+- 位置：截图 `s3b-shots/nbook/SchemaForm__readonly__free__light.png`、`…__dark.png`（与 `controls` 同名场景对比；s3a 同结果）、`s3b-shots/nbook/SchemaForm__conditional__free__light.png`（顶部的只读“ID”）；nb-ui `NumberInput.vue`（`props.disabled || props.readonly ? 'opacity-60'`）
+- 现象：用 `magick compare -metric AE` 比较 `readonly` 与 `controls` 两张全图：浅色 543 像素、深色 420 像素不同，差异范围只有一个 539×32 的区域，即“超时”数字输入（它按 `opacity-60` 画得和停用一样）。开关、单选、下拉、可搜索下拉、复选组、单行文字、多行文字与编辑态逐像素相同。服务商连接里只读的“ID”也与旁边可改的“名称”一样。
+- 为什么是问题：用户点了、打字了不改，不知道是只读还是出了故障；同一表单里数字框像停用而文字框像可编辑，前后矛盾。Spec 输出 18/26/28 规定了行为但“外观细节另有 Task（t06）”，这里是“难用”：至少需要一个统一的只读标记（弱化背景或锁形图标），且数字输入与其它控件一致。
+- 如何核实：复现命令：`magick compare -metric AE s3b-shots/nbook/SchemaForm__controls__free__light.png s3b-shots/nbook/SchemaForm__readonly__free__light.png null:` 并 `-trim` 差异图，只在 y=501..533 有差异。
+- 建议改法：nb-ui 里把“只读”做成独立外观（背景用 `--control-surface` 的弱化、不用整体 opacity，文字保持可读）；`NumberInput` 的 readonly 不再套 `opacity-60`。若归 t06，请在 t06 记录里登记。
+
+### 8. 数字的单位只画在输入框外，不进可访问名称或说明
+- 严重程度：建议
+- 类别：可访问性
+- 位置：`controls/NumberControl.vue:63,80`（`.nb-form-number__unit`）；`NodeField.vue` 的 `help`/`label`
+- 现象：单位“秒”“px”是 `<span>`，不在 `<label>`、`aria-describedby` 或 `aria-label` 里。读屏的表单模式下，“超时，编辑，30”，听不到单位。
+- 为什么是问题：数值字段的单位是值含义的一部分（30 秒还是 30 毫秒），Spec 输出 2 只说“画在输入框右边”，验收 6 要求说明是字段说明，没有把单位排除，但读屏用户得到的信息少于视觉用户。
+- 如何核实：`NumberControl.vue` 模板里单位 span 没有 id，也不在 `ariaDescribedby` 里。
+- 建议改法：给单位 span 一个 id 并追加进 `aria-describedby`（外壳的 `describedby` 后接单位），或在标签的读屏名称里带上单位。
+
+### 9. 自画的按钮没有可见的键盘焦点：`outline: 2px solid var(--focus-ring)` 写法无效
+- 严重程度：阻断
+- 类别：可访问性 / 外观
+- 位置：`FieldShell.vue:153`（“清除”）、`LayoutItem.vue:94`（分组标题）、`IssueSummary.vue:105`（汇总开关与每一条）、`ViewValue.vue:113`（展开、复制）、`controls/ListActions.vue:92`（上移、下移、删除）、`controls/ListControl.vue:214`（展开、上一页、下一页）、`controls/MasterDetailControl.vue:221`（选中按钮、展开、翻页）
+- 现象：这 7 处都把 `--focus-ring` 当颜色写进 `outline`。nb-ui 的 `--focus-ring` 是一串 `box-shadow` 值（`packages/nb-ui/src/tokens.css:147`、`themes/nbook/vars.css:336`、`themes/macos/vars.css:142` 都是 `0 0 0 1px …, 0 0 0 3.5px …, 0 1px 6px …`），代入 `outline` 后在计算时无效，整条声明作废，计算样式 `outline-style: none`。nb-ui 自己的控件用的是基座类 `.nb-ui-focus-ring`（`box-shadow: var(--focus-ring)` 加 `--focus-outline` 描边，`styles.css:33`）。
+- 为什么是问题：用键盘 Tab 到这些按钮时没有任何焦点标记。这些恰是 Spec 输出 14、19、20 的键盘通路：汇总里点一条、列表项的上移下移删除、分组折叠、展示态的展开与复制。nb-ui 规范 5.5 与“同类交互状态一致”清单也要求复用同一基座类。单元测试与 e2e 都不看计算后的焦点样式，所以没人发现。
+- 如何核实：在 Chrome 里做了一个静态页（`/tmp/neuro-book/review-w00027-t07-s3/sonnet/exp/focus.html`，用 nbook 主题 `--focus-ring` 的值）：按钮写 `outline: 2px solid var(--focus-ring); outline-offset: 1px`，Tab 聚焦后 `getComputedStyle().outlineStyle === "none"`（`exp/probe.mjs`）。没有跑 e2e 或开发服务。主 Agent 可在 Lab 里 Tab 到“清除”确认。
+- 建议改法：这些按钮改用 nb-ui 的 `IconButton`、`Button`（`variant` 与 `focusRing`），或给元素加 `nb-ui-focus-ring` 基座类（沙箱里需要的话在 nb-form 里复制那条 `box-shadow: var(--focus-ring)` 规则，不要用 `outline`）；填满所在条、四周没有余地的（汇总条目、选中按钮）用 `nb-ui-focus-ring-inset`。再在 e2e 里补一条 Tab 到“清除”后断言计算出来的焦点样式非空（`box-shadow` 不为 `none`）。
+
+### 10. “清除”按钮排在控件之前，Tab 与读屏先遇到它；且有无值会改变 Tab 顺序
+- 严重程度：建议
+- 类别：交互
+- 位置：`FieldShell.vue:83-85`（标题行里的 `button.nb-form-field__clear`，`<slot>` 在其后）
+- 现象：单行、数字、多行、下拉这类字段的 DOM 顺序是：标签、清除、控件。Tab 进入字段先停在“清除：名称”上，再到输入框；只有开关（控件在标题行里）顺序是控件在前。清除只在可选字段有值时出现，所以同一页上的 Tab 次数随数据变化。
+- 为什么是问题：键盘填表的用户最常做的是从上一个字段直接进入输入框，每个可选字段多停一次破坏节奏；与 nb-ui `Field` 的习惯（动作在控件之后）也不一致。“清除后焦点掉到 body”（第 4 条）与此是同一个位置问题。
+- 如何核实：`FieldShell.vue` 模板顺序；`exp/c.exp.test.ts` 第三个用例里聚焦的是“清除”按钮而不是输入框。
+- 建议改法：视觉上仍放在标题行右端，DOM 上放到控件之后，用 CSS `order` 或绝对定位排版；或者保持 DOM 顺序但把清除按钮设 `tabindex=-1`、只留指针与读屏的路径（需要在 Spec 里确认键盘路径是否必须）。无论哪种，清除后聚焦到控件。
+
+### 11. 列表播报：同一句话连续出现第二次，读屏不会再念
+- 严重程度：重要
+- 类别：可访问性
+- 位置：`packages/nb-form/src/vue/list.ts:118`（`submit` 里 `announcement.value = message`）、`controls/ListControl.vue:114`、`controls/MasterDetailControl.vue:143`（`aria-live="polite"` 的 span）
+- 现象：播报靠改一个固定 span 的文字。连续两次删除第 1 项，两次的文字都是“已删除第 1 项”，Vue 看到文字没变不更新 DOM，live region 没有变化，第二次不会被念出。连续在同一位置上移后再下移也可能碰到同一句（“第 2 项移到第 1 位”之后又是同一句）。文字也一直留在 DOM 里，没有清除。
+- 为什么是问题：Spec 输出 19 与验收 4 要求“读屏播报移动结果”，删除和排序恰是会连续做的动作。e2e 只断言了一次的文字，抓不到。
+- 如何核实：`exp/e.exp.test.ts`：三项的字符串列表连点两次“删除”，live region 上的 MutationObserver 只记到 1 次变化，两次读到的文字都是“已删除第 1 项”（`exp/out-e.txt`）。
+- 建议改法：每次播报换一个节点（`:key` 用递增计数）或在文字后追加不可见的零宽空格交替；定时清空（例如 1 秒后）也行。在 e2e 与 dom 测试里补“连续两次相同操作”的断言。
+
+### 12. 警告在读屏与汇总里和说明、错误混在一起：“警告”文案定义了却没用
+- 严重程度：建议
+- 类别：可访问性
+- 位置：`FieldShell.vue:49,67,88`（`warningId` 的 sr-only span，文字只有警告内容）、`FieldShell.vue:79`（图标 `aria-hidden`）、`messages.ts:32,76,136`（`warning: "警告"` 从未被引用）、`IssueSummary.vue:44`（`data-severity` 没有任何样式）
+- 现象：字段的 `aria-describedby` 是“错误 警告 说明”三段，警告那段只念警告正文（“说明偏长，列表里会被截断”），没有“警告”前缀，读屏用户分不出它是警告、错误还是字段说明；图标又是 `aria-hidden` 加 `title`。汇总展开后的每一条按钮样式一致，警告条目与错误条目看不出差别（`data-severity` 属性没有 CSS，条目的文字色都是 `--text-main`），只有顶部开关的颜色在“有错误”时变红。“已不存在”的警告同理，只靠标签里的“（已不存在）”与图标。
+- 为什么是问题：Spec 输出 14“警告不标出错，用图标与色调”，但文字上也该让读屏知道这是警告；视觉上汇总里 4 条里只有 3 条是错误，用户无从得知哪条可以不管。`messages.warning` 已准备好却是死字段，说明这里原本就打算用。
+- 如何核实：`grep -n "messages.warning\|\.warning" packages/nb-form/src/vue`：除了定义没有引用。`SchemaForm__issues__free__light.png`：说明字段旁只有一个小三角，汇总里没有条目级标记。
+- 建议改法：sr-only 文字写成“警告：…”；汇总条目前加与严重度对应的小图标或文字前缀（图标 + 色调，不单靠颜色），警告条目用警告色；分组与列表头部的“含 N 个问题”只在有错误时用 `--status-danger`（`LayoutItem.vue:106`、`ListControl.vue:182-184` 现在无论警告还是错误都用危险色）。
+
+### 13. `Alt+↑ / ↓` 在整张列表项上截获，会盖住输入框与下拉自己的这组按键（从代码推断）
+- 严重程度：建议
+- 类别：交互
+- 位置：`packages/nb-form/src/vue/list.ts:182-186`（`onItemKeydown`）；`controls/ListControl.vue:62`、`controls/MasterDetailControl.vue:103`（`@keydown` 挂在 `<li>` 上）
+- 现象：处理器挂在列表项根上，不看按键来自哪个元素，`Alt+↑/↓` 一律 `preventDefault` 并移动整项。对象列表项里可以有多行文字（`Textarea`）与下拉（`Select`、`SearchSelect`）：macOS 上 `Option+↑/↓` 在多行文本里是移到段首/段尾；ARIA 组合框的惯例是 `Alt+↓` 打开列表。在这些控件上按下时，项被移动，原有的行为被吞掉（下拉的打开键因为 reka 在目标上先处理、再冒泡到 `<li>`，可能是“打开又移动”）。e2e 只测了单行输入框。
+- 为什么是问题：Spec 输出 19 规定的是“Alt+↑/↓”，但没说在多行文本和组合框里也生效；用户在备注框里想跳段首，整项被挪走并播报“第 2 项移到第 1 位”，难以察觉原因。这条没有在浏览器里验证。
+- 如何核实：看 `list.ts:182-186` 与两个 `<li>` 的 `@keydown`；主 Agent 在 Lab 的“列表”场景里往人物卡片加一个多行字段，按 `Alt+↑` 观察。
+- 建议改法：事件目标是 `textarea`、`[role=combobox]`、`select` 时不处理（或只在目标是按钮、单行输入框时处理）；并在 SchemaForm.md 的“列表”写明。
+
+### 14. 展示态的“展开 / 复制”按钮名字不带字段名；每个静态值还套一层 `role="group"`
+- 严重程度：建议
+- 类别：可访问性
+- 位置：`ViewValue.vue:57-62`（按钮文字“展开/收起/复制”）、`ViewValue.vue:53`（`role="group" aria-labelledby`）
+- 现象：审批展示里有多个值时，读屏的按钮列表是“复制、收起、复制”（e2e 断言的正是这个顺序），分不出哪个值。同表单的“清除”和列表按钮都带了字段名或项标题（“清除：名称”“删除：林”），这里不一致。另外，每个静态值外面包了 `role="group"`（带 `aria-labelledby`），加上根与对象、列表，一张审批表单里 group 嵌 3–4 层；读屏到每个值先念“名称，组”，再念内容。
+- 为什么是问题：审批是用户要逐项核对再同意的场景，按钮名字需要独立可辨；静态文字不是控件，`group` 不提供额外信息却增加播报。nb-ui 规范 5.4“图标按钮必须有非空 aria-label”虽然不适用文字按钮，但一致性值得对齐。
+- 如何核实：`exp/out-f.json` 的 `viewHtml`：`<div id=… class="nb-form-view__text" role="group" aria-labelledby="…-label">v</div>`；`e2e/lab-nb-form.e2e.ts` 展示态用例里 stops 的期望值。
+- 建议改法：按钮用 `aria-label="复制：<标签>"`（与“清除：<标签>”一致）；静态值用 `<p>` 或让标签与值成对（`<dl>`/`aria-describedby`），去掉 `role="group"`；至少说明“展开/复制”无障碍名称的约定。
+
+### 15. 必填只靠 `*`（`aria-hidden`）表达：复选组、对象、列表这类 `role="group"` 的控件读屏听不到必填
+- 严重程度：建议
+- 类别：可访问性
+- 位置：`FieldShell.vue:73`（`*` 带 `aria-hidden`）；`controls/ObjectControl.vue:25`、`ListControl.vue:49`、`MasterDetailControl.vue:89`；nb-ui `CheckboxGroup.vue`（不读 `field.required`）
+- 现象：单行、数字、下拉、单选组的控件会拿到 `required`（`aria-required`），所以没问题。多选（复选组）、对象、列表、左列表右详情的根是 `role="group"`，不能带 `aria-required`，也没有别的渠道说“必填”；视觉上标题旁有红 `*`，读屏上没有。
+- 为什么是问题：Spec 输出 26 要求 `required` 从 Field 上下文合并；复选组“至少选一项”是 nbdev 多选题的验收（验收 2）的核心约束，读屏用户读到的组名里没有必填。
+- 如何核实：`exp/out-d.txt`：必填的 `tags` 组是 `role=group id=… aria-labelledby=… aria-describedby=…-error aria-invalid=true`，没有任何必填提示；单选组有 `aria-required=true`。
+- 建议改法：外壳在标题里带 sr-only 的“（必填）”文字，或把“必填”并入 `aria-describedby` 里的某个 sr-only 节点；`*` 保持 `aria-hidden`。
+
+### 16. `bare` 形态下 `aria-describedby` 引用了不存在的 `-help` 节点
+- 严重程度：建议
+- 类别：可访问性
+- 位置：`FieldShell.vue:47,51,64-68`（`helpId` 参与 `ariaDescribedby`，bare 分支不画 `<p>`）；`SchemaField.md` 的 `bare` 说明
+- 现象：schema 有 `description` 时，bare 的控件 `aria-describedby="x-error x-help"`，而页面上没有 `x-help`。文档说“标签、说明由调用方画”，但组件仍然引用。
+- 为什么是问题：悬空引用在 axe 的 `aria-valid-attr-value` 里是 needs review/违规；调用方想用自己的说明节点时，也没有接口把它接进 `describedby`（`SchemaField` 没有 `describedby` 属性）。
+- 如何核实：`exp/out-f.json`：`describedby: ["x-error","x-help"]`，`resolved: ["至少 3 个字符", null]`。
+- 建议改法：bare 时 `helpId` 为 undefined；给 `SchemaField` 一个 `describedby` 属性（调用方说明节点的 id），拼在错误之后。
+
+### 17. `aria-controls` 指向折叠后不在 DOM 里的元素；问题数变化也没有播报
+- 严重程度：建议
+- 类别：可访问性
+- 位置：`LayoutItem.vue:35`（分组标题，内容 `v-if`）、`IssueSummary.vue:36`（汇总开关，列表 `v-if`）
+- 现象：折叠的分组与未展开的汇总，按钮的 `aria-controls` 指的 id 此时不存在；汇总的“N 个问题”是普通按钮文字，问题数变化（提交失败后出现、改对后消失）没有任何播报。
+- 为什么是问题：前者是 ARIA 校验警告，后者是读屏用户提交后得不到“还有几个问题”的反馈：字段下不插文字是已定的决定，但数量变化可以不占版面地播报。
+- 如何核实：`LayoutItem.vue`、`IssueSummary.vue` 模板；`exp/out-b.html` 末行汇总开关带 `aria-controls=nb-form-issues-…` 而列表未渲染。
+- 建议改法：折叠时去掉 `aria-controls`（或始终渲染并用 `hidden`）；汇总行加一个 `aria-live="polite"` 的 sr-only 文字，只在 `commit()`、失焦提交失败等用户动作之后更新（`input` 提交模式不要每键播报）。
+
+### 18. 列表按钮点击区只有 26×26、间距 2px，窄屏手指容易误点“删除”
+- 严重程度：建议
+- 类别：交互 / 外观
+- 位置：`controls/ListActions.vue:65,70-71,87`（`gap: var(--space-1)`、`width/height: var(--control-h-sm, 24px)`、停用 `opacity: 0.35`）；截图 `s3b-shots/nbook/SchemaForm__lists__phone__light.png`
+- 现象：nbook 与 macos 主题的 `--control-h-sm` 是 26px，`--space-1` 是 2px；上移、下移、删除三个按钮相邻 26×26，窄屏（388 宽）下三个并排在行尾，没有确认也没有撤销。nb-ui 没有粗指针（`pointer: coarse`）的放大规则。图标 14px，浅色下的上移/下移停用态 `opacity: .35`，与删除的差别不大。
+- 为什么是问题：满足 WCAG 2.5.8 的 24px 下限，但手指点“下移”误中“删除”的代价是丢一项数据；列表是本轮的重点交互。
+- 如何核实：截图里行尾三个按钮的间距；主 Agent 可在 390×844 里实际点。
+- 建议改法：窄屏或 `@media (pointer: coarse)` 把按钮放大到 36–44px 并加大间距；或把“删除”与移动按钮之间多隔一段；停用的按钮不用 `opacity` 而是只换色。
+
+### 19. 折叠分组的标题层级弱：与字段标题几乎同级，内容也没有缩进或边界
+- 严重程度：建议
+- 类别：外观
+- 位置：`LayoutItem.vue:77-100`（`.nb-form-group__title`）；截图 `s3b-shots/nbook/SchemaForm__conditional__free__light.png`、`…__dark.png`
+- 现象：“高级”是 14px、`--weight-medium`、`--text-secondary` 色的一行，前面一个 14px 的箭头；下面的“超时/重试”“扩展参数”与外面的字段同宽、同样不缩进，没有分隔线。字段标签是 `--text-main`、同字号同字重。视觉上“高级”像一个浅色的字段标签。折叠后的“含 N 个问题”只有 12px 红字，没有图标。对象成员有左侧细线，分组却没有，层级表达不一致。
+- 为什么是问题：用户扫表单时看不出哪些字段属于“高级”，折叠后一行很不起眼，问题数提示（Spec 输出 14 要求“头部标出含 N 个问题”）容易漏看。外观细节归 t06，这里只指出“看不出层级”。
+- 如何核实：上述两张截图（深色里“高级”只比“API 密钥”标签略暗）。
+- 建议改法：分组内容与标题用同一套层级线索（与对象成员相同的左细线或缩进），标题加大一档或加分隔线；“含 N 个问题”前加警示图标。
+
+### 20. 被条件隐藏的字段的错误照样进汇总，用户看不到也改不了它
+- 严重程度：重要
+- 类别：交互
+- 位置：`packages/nb-form/src/vue/IssueSummary.vue:19-26`（汇总取 `scope.shownIssues`，不看字段是否显示）；`NodeField.vue:98`（`visible`）；Spec 输出 13“隐藏只影响显示：值保留，完整的 schema 照样校验”
+- 现象：值里留着一个违反约束的 `proxy`，接口格式切到 anthropic 后代理字段隐藏（`display: none`、`inert`），汇总却写“1 个问题”“代理：至少 5 个字符”；点这一条没有任何反应（隐藏的字段焦点移不进去）。
+- 为什么是问题：验收 1 的场景正是“切换格式时代理显示与隐藏、填过的值保留”。用户看到一个界面上不存在的字段在报错，不知道从哪改；要改只能切回格式再找。Spec 说“照样校验”是为了值保持合法，并没有要求把不可见字段的错误展示成可点的汇总条目。
+- 如何核实：`exp/g.exp.test.ts`：`format: "anthropic"`、`proxy: "ab"`（`minLength: 5`、`visibleWhen format const openai`），汇总文字“1 个问题”，条目“代理：至少 5 个字符”，点击后焦点没有移动，字段容器 `style.display === "none"`（`exp/out-g.json`）。
+- 建议改法：汇总里隐藏字段的问题要么不列（`issues` 对外仍然包含，调用方自己决定是否阻止提交），要么点击时自动满足条件再聚焦（做不到，所以前者更合适）；需要开发者在 Spec 输出 13 与 14 之间选定一句话。
+
+### 21. Lab 场景缺口：验收 1、3、4、6 之外的状态没有场景可看，bare 场景本身没有名字
+- 严重程度：建议
+- 类别：测试
+- 位置：`packages/neuro-book/src/plugins/lab/web/fixtures/nb-form.ts:130-190`（`scenes`）、`:181-186`（SchemaField 的 `bare` 场景）
+- 现象：对照 Spec 验收 1、3、4、6 与输出 14、19、20，有的状态在 Lab 里摆不出来：
+  - 列表：没有“到 `minItems`/`maxItems` 停用删除或添加”的场景（`stops` 是 2 项，上限 6、下限 1，都没到）；没有 `uniqueItems` 重复项“重复”标记；没有超过 50 项折叠成“N 项”再分页；没有列表整体的错误（本评审第 5 条）。
+  - 分组与汇总：没有 `collapsed: true` 的分组带“含 N 个问题”；左列表右详情里没有某项含问题（`nb-form-md__mark`）；没有嵌套对象（`ObjectControl` 左侧层级线在所有场景里都没出现，截图里看不到）。
+  - 展示态：没有带警告或“已不存在”的展示（展示态不渲染它们，见下）；展示态里 `master-detail` 与折叠分页的按钮也是 Tab 停靠点（第 23 条）。
+  - 条件显示隐藏后的问题（本评审第 20 条）。
+  - SchemaField 的 `bare` 场景传了 `id` 但没有对应的 `<label for>`，场景里的输入框没有可访问名称，演示的恰是合同要求调用方补上的那一块；组合控件的 `labelledby` 也没有场景。
+- 为什么是问题：Lab 是外观与合同的确定性证据；这些缺口正好对应本评审里的几处缺陷（第 2、3、5、20 条）没有被现有场景暴露。
+- 如何核实：读 `nb-form.ts` 的 `scenes`。
+- 建议改法：补场景（或在 `lists` 里放一个超限的 `stops`、给 `characters` 一项含 `minLength` 违规），`bare` 场景加一行 `<label for>` 的外壳（或在场景输入里给 `labelledby`）。
+
+### 22. e2e 没有断言的行为：键盘焦点样式、窄屏、只读与停用、SchemaField、列表项的名称与汇总定位
+- 严重程度：建议
+- 类别：测试
+- 位置：`packages/neuro-book/e2e/lab-nb-form.e2e.ts`
+- 现象：逐条对照说明里的“重点”，e2e 里没有：
+  1. 任何一处计算样式的断言，因此第 9 条（焦点样式无效）、第 7 条（只读无外观）都过得去。
+  2. 视口永远是 `1440×1200`（`openScene` 里写死）；`390×844` 一次都没有，`SchemaForm.md` 却写“`390×844` 下同样一列，横排按宽度换行，不出横向滚动”，components.md 的完成标准也要求。
+  3. `readonly`、`disabled` 场景没有测试：只读控件可聚焦、`aria-readonly`、停用的不进 Tab 顺序（Spec 输出 18、28）。happy-dom 只能看属性，看不到真实的 Tab 顺序。
+  4. 没有任何 `SchemaField` 的用例；没有字符串列表项的名字断言（第 1 条会被它抓到）；没有汇总点列表项、折叠分组、隐藏字段里的问题（第 2、3、20 条）。
+  5. 列表只测了“添加、删除、上移”各一次、`Alt+↑` 一次，没有连续两次相同操作的播报（第 11 条）、没有 `Alt+↓`、没有“删除其余项的草稿不串位”（验收 4 的最后半句只在 happy-dom 里测）。
+  6. 清除后焦点（第 4 条）、警告的读屏文字（第 12 条）没有断言；“出错”用例只测了 `aria-invalid` 与一条错误描述，没测警告字段的 `accessibleDescription`。
+- 断言本身的质量：用 `toHaveAccessibleDescription`、`toBeFocused`、`toHaveText`（live region）、按真实 Tab 属性算停靠点，都是在判定行为而不是碰巧通过；展示态的 `toEqual(["BUTTON:复制","BUTTON:收起","BUTTON:复制"])` 也有效。未发现“空断言”（例如复选框 id 那一条，`ids` 是空数组，只剩“不等于字段 id”半句有效，建议把“复选框没有 id”也断言出来）。
+- 如何核实：读该文件；`grep -n "SchemaField\|390\|readonly\|disabled" lab-nb-form.e2e.ts` 只命中视口那一行与 Tab 键。
+- 建议改法：补上述几条（都需要真实浏览器，主 Agent 跑 e2e）；第 9 条用 `getComputedStyle(el).boxShadow !== "none"`；窄屏用例沿用 `lab-commands.e2e.ts` 的 390 做法。
+
+### 23. 组件文档与实现不一致或遗漏：`data-nb-widget` 的位置、展示态 Tab 停靠点、无障碍名称合同
+- 严重程度：建议
+- 类别：文档
+- 位置：`packages/nb-form/src/vue/SchemaField.md`“数据”末段、`SchemaForm.md`“交互”的展示态一条与“数据”末段
+- 现象：
+  1. `SchemaField.md`：“attrs 落在字段的根元素上，根带 `data-nb-widget`”。实际 `SchemaField` 的根是 `div.nb-form-node`（attrs 落在它上），`data-nb-widget` 在里层的 `div.nb-form-field`（`NodeField.vue` 模板与 `FieldShell.vue:64,68`）。按文档用 attrs 的 `data-*` 或选择器定位会不一致。`SchemaForm.md`“每个字段的根带 `data-nb-widget`”同样。
+  2. `SchemaForm.md` 展示态：“Tab 只停在这两种按钮上”（展开、复制）。实际展示态里左列表右详情的选中按钮、折叠列表的“展开”、分页按钮、分组标题按钮（折叠分组在展示态也能折叠）都是 Tab 停靠点（`MasterDetailControl.vue:105-112`、`ListControl.vue:53,92-96`、`LayoutItem.vue:35`），Spec 输出 17 也这么写；对结构化的展示态需要在文档与 Spec 里改成“除结构导航外”。
+  3. components.md 要求“无障碍名称、角色与关联关系写入布局或交互一节”：现在没写根 `role="group"` 没有名字（调用方可经 attrs 传 `aria-label`，文档没提）、单个控件靠 `<label for>`、组合控件靠 `aria-labelledby`、`aria-describedby` 的顺序（错误、警告、说明）、列表与对象组的名字来源、展示态值的 `role="group"`、两处 `aria-live`（列表、复制）——这些恰是本评审第 1、5、14、15 条涉及的合同。
+  4. 能力标签：`SchemaForm` 自身没有 Teleport 或剪贴板调用，`env:portal`、`env:clipboard` 来自子组件（nb-ui 的下拉、`ViewValue`）；按“声明是对实现的如实描述”的规则大概是对的，文档的隐藏通道理由已经写了来源，不再算问题。
+- 为什么是问题：读文档的人按它做测试选择器、按它理解展示态的键盘行为，会得到与实现不同的结果。
+- 如何核实：`NodeField.vue` 模板第一个 `div.nb-form-node` 与 `FieldShell` 的 `data-nb-widget`；`MasterDetailControl.vue` 在 `scope.mode==='view'` 时仍渲染 `button.nb-form-md__select`。
+- 建议改法：改 1、2、3 三处文档（或让实现与文档一致：把 `data-nb-widget` 放到根上）；无障碍合同补一小节。
+
+## 未发现问题的方面
+
+- 单个控件（开关、单选组、下拉、可搜索下拉、单行、数字、多行、JSON）的可访问名称：`<label for>` 或 `aria-labelledby` 来源正确，e2e 与 dom 测试的断言能成立；组里复选框不读字段上下文，`aria-invalid` 写在组上。
+- `aria-describedby` 的顺序（错误、警告、说明）与第一条错误的文字只给读屏、字段下不插文字，与已确认决定一致；必填缺失在失焦后才显示、`unparseable` 提交失败一次后才标红，行为与说明一致。
+- 增删排序的焦点落点逻辑（添加进新项第一个控件、删除到下一项同类控件、没有就上一项、列表空了到“添加”、移到边界落到另一个方向的按钮）与 Spec 输出 19 一致，`structure.dom.test.ts` 与 e2e 各有覆盖。
+- 展示态只有展开与复制是停靠点这一点对非结构字段成立，`e2e` 的断言有效；复制失败时有读屏文字与按钮文字。
+- 390×844：`report.json` 里 s3a、s3b 两个主题、浅深色全部 `overflowX: 0`、`offenders: []`、`clippedFocus: []`；`row` 并排的“超时/重试”在窄屏换行正常；单位“秒”在 388 宽下贴着右边缘（未见明显裁切）。
+- 浅深色、nbook 与 macos 两个主题下：出错红框、警告三角、停用（透明度 0.6）、加载中、“已不存在”、“默认：X”与“默认”标记都能分辨；停用在深色下偏弱但仍可见（文字亮度 0.92 到 0.61）。
+- 复选框 `id` 不重复；`bun run test`（94 个 bun 测试加 46 个 vitest 用例）与 `bun run typecheck` 在 `packages/nb-form` 里全部通过。
+- 能力标签与实现大体一致。
+
+## 汇总
+
+条数：共 23 条。阻断 1、重要 9、建议 13。
+
+按影响排序的索引：
+- 阻断：9（自画按钮没有可见的键盘焦点）。
+- 重要：1（字符串列表项没有名称）、2（汇总点列表项里的问题聚焦到错误元素，标签丢失）、3（汇总点折叠分组里的问题没反应）、20（隐藏字段的错误进汇总却改不了）、5（列表、对象没有说明与出错标记）、11（相同播报文字不重复念）、4（清除后焦点丢失）、6（问题文案缺码）、7（只读没有视觉差别）。
+- 建议：10（清除在控件前）、12（警告与错误、说明分不清，“警告”文案没用）、13（Alt+方向键截获）、14（展示态按钮名字、`role=group` 噪音）、15（必填对 group 控件读不出）、16（bare 悬空 describedby）、17（aria-controls 悬空、问题数不播报）、18（列表按钮点击区小）、19（分组层级弱）、8（单位不进名称）、21（Lab 场景缺口）、22（e2e 缺口）、23（文档）。
+
+实验文件：`/tmp/neuro-book/review-w00027-t07-s3/sonnet/exp/`（`b`、`c`、`d`、`e`、`f`、`g` 的 `.exp.test.ts` 与 `out-*`、`focus.html`、`probe.mjs`），未改动仓库。
