@@ -1,0 +1,337 @@
+w00029 nb-ui 作为 UI 库的合格性审查（Claude Sonnet 子代理，只读，2026-10-20）
+审查对象：master 上的 packages/nb-ui 及 neuro-book、nb-story 对它的用法；重点为复用、耦合、可维护性、API 形状
+审查说明：/tmp/review-w00029-nbui-lib/brief.md（未入库）
+审查者自跑：nb-ui typecheck 通过、test 498 条通过
+主 Agent 核实：L09 成立（--overlay-scrim 只在 AlertDialog.vue、Drawer.vue 被引用，src、themes、neuro-book 里都没有声明）；L07 中 Drawer 不提供 NB_POPOVER_Z_INDEX 成立（只有 Dialog、Popover、Tooltip 提供或读取）。其余条目尚未逐条核实。
+
+# w00029 nb-ui 作为 UI 库的实现审查报告
+
+说明：条目按核实顺序追加，编号 L01 起；按影响排序的索引与整改顺序在文末。所有数字均为本次核实时 `grep` / 读文件所得（2026-10-20，master）。
+
+---
+
+### L01 [重要][耦合] `dist/nb-ui.css` 带着 ~450 条无层的 Tailwind 原子类，与调用方自己的原子 CSS 同名竞争，同一个 nb-ui 组件在不同宿主里渲染不同
+
+- **位置**：`packages/nb-ui/src/tailwind.css:1-30`（三条“刻意取舍”）；`packages/nb-ui/dist/nb-ui.css:3`、`:1138`（`.text-sm`）、`:1913`（`:root` token）；`packages/neuro-book/src/web/boot.ts:7-12`（样式顺序注释）；`packages/neuro-book/uno.config.ts:7-31`（blocklist 补丁）；`packages/nb-story/src/web/app.css:1-6`、`packages/dev-panel/src/web/app.css:1-6`（同款迁就）。
+- **现象**：
+  1. 产物里有约 453 条 `.xxx { }` 原子类规则（`.flex`、`.hidden`、`.text-sm`、`.rounded`、`.shadow-lg` 等），全部不在 `@layer` 里（`grep -c "@layer"` 只有两处，都是 Tailwind 的 `properties`）。这是为了“让 UnoCSS 消费方也能吃”（`tailwind.css:10-15`）。
+  2. 调用方因此反过来迁就 nb-ui：neuro-book 用 `uno.config.ts` 读 nb-ui 的 css、正则抽出所有 `translate/scale/rotate/skew` 类名做 `blocklist`（否则位移翻倍：Switch 滑块溢出轨道、chevron 转 360°）；nb-story、dev-panel 为了不被 nb-ui 的 `.flex` 压过，被迫放弃 `@import "tailwindcss"` 的 `@layer utilities`，手拆成 preflight 进 layer、utilities 不进 layer；`boot.ts` 的导入顺序注释里写了“UnoCSS 在 nb-ui 之后，否则 nb-ui 的 `i-lucide-*` 规则盖掉图标遮罩”。已知的 `i-lucide-* width:1em` 那一例就是这套机制的又一个后果（t04 后的坑 58），不是孤例。
+  3. 语义不同的同名类：nb-ui 组件模板里直接写 `text-sm`（`IconButton.vue:45`、`Table.vue:69`、`EmptyState.vue:20`、`Notification.vue:53,70`、`Textarea.vue:50` 等 8 处）、`shadow-lg`（`Notification.vue:53`）。nb-ui.css 里 `.text-sm` 是 `font-size: var(--text-sm)`（= tokens 的 13px，因 `tokens.css` 的 `:root` 在同一文件里排在 Tailwind `@theme` 的 `:root` 之后，覆盖了 Tailwind 的 `--text-sm: 0.875rem`），而 neuro-book 的 UnoCSS（`presetWind3`）里 `.text-sm` 是 `0.875rem / 1.25rem`（14px），并且 `virtual:uno.css` 排在 nb-ui.css 之后，neuro-book 自己用了 58 处 `text-sm`，所以这个类一定会生成并盖掉 nb-ui 的。结果：IconButton / EmptyState / Table / Notification / Textarea 在 neuro-book 里是 14px，在 playground 与 nb-story（Tailwind）里是 13px，同一组件的字号随宿主原子 CSS 引擎而变。同理 `leading-tight`（token 1.3 对 Uno 1.25）、`font-mono`（token 栈对 Uno 栈）。
+- **为什么是问题**：库的外观合同依赖于“宿主的原子 CSS 引擎碰巧不产出同名类、或碰巧排在前面”。每加一个宿主（第三个包），就要重新发现一遍“有哪些类同名、谁盖谁”，补丁散在宿主里（uno blocklist、app.css 注释），库自己无法保证渲染一致；nb-ui 的内部写法（用 Tailwind 原子类）被迫变成了公开 CSS 面。
+- **如何核实**：`grep -c "^\.[a-z]" packages/nb-ui/dist/nb-ui.css`；`sed -n 1138,1145p dist/nb-ui.css`；在 neuro-book 开发页里看 `IconButton` 计算后的 `font-size`（从代码推断，未在浏览器验证，但 `boot.ts` 的导入顺序与 Uno 的 `text-sm` 定义是确定的）。
+- **建议改法**：目标形状是“产物只含 nb-ui 自己的类”。(a) 组件模板里的结构性原子类改成 `.nb-ui-*` 语义类或 Vue `<style>`/`@apply` 编出的有前缀类（Tailwind v4 支持 `@import "tailwindcss/utilities.css" prefix(nb)`，把产物里所有原子类变成 `nb:flex` 这种有前缀的类，宿主零冲突，`uno.config.ts` 的 blocklist 与两个 app.css 的迁就全部删除）；(b) 把整个产物包进 `@layer nb-ui`，宿主任何无层规则或自己的层都能覆盖，不再需要“排在后面”的约定。(a) 比 (b) 更彻底；(b) 一条改动就解决 i-lucide width 与层序，但无层的宿主 CSS 会压过库样式，需要把 `.nb-ui-control-invalid` 这类依赖特异性的规则（`tailwind.css:10-15` 说的）一起检视。两者择一即可，不要两者并存。
+
+---
+
+### L02 [建议][可维护性] `src/styles.css` 里至少 8 组样式没有任何使用方（死 CSS），并带着旧应用的业务词；且无条件覆盖宿主页面的 `html`
+
+- **位置**：`packages/nb-ui/src/styles.css:6-8`（`html { scrollbar-gutter: stable }`）；`:630-638`（`.animate-accordion-*` / `.animate-collapsible-*`，带 `nb-accordion-content`）；`:717-731`（`.nb-crystal-glow`）；`:733-747`（`.nb-pop-in`）；`:749-764`（`.scheme-fade-*`）；`:778-796`（`.nb-ui-switch-*`，注释里写“设置外壳的区段、Provider 导轨→详情、Agent Profile 的 Profile 切换”）；`:14-16`（`.nb-ui-scrollbar-center`）；`:68`（`.nb-ui-control-h-lg`）；`:407-413` 里的 `.nb-popover-enter-active` / `-leave-active` 选择器。
+- **现象**：对 `packages/nb-ui/{src,themes}`、`packages/neuro-book/src`、`packages/nb-story/src`、`packages/dev-panel/src` 逐名 `grep`（排除 styles.css 自己与 `.md`），`scheme-fade`、`nb-crystal-glow`、`nb-pop-in`、`animate-accordion`、`animate-collapsible`、`nb-ui-switch-enter`、`nb-ui-scrollbar-center`、`nb-ui-control-h-lg`、`nb-popover-enter-active` 均 0 处使用；`nb-accordion-content` 在库里没有 Accordion 组件，只剩 Collapsible 的 `nb-collapsible-content`。`.nb-ui-switch-*` 的注释指向的是旧应用的界面（设置外壳、Provider 导轨、Agent Profile），这是库里残留的业务概念。`html { scrollbar-gutter: stable }` 对任何 `import styles.css` 的宿主页面生效，不是组件作用域内的规则。
+- **为什么是问题**：死规则进了公开产物（影响 `dist/nb-ui.css` 体积与阅读），而且 `README.md` 与 `ui-development-spec.md` 把它们当作“全库微物理动效”登记，调用方会以为能用。全局 `html` 规则会让不需要稳定滚动条槽位的宿主（如全屏画布）无法关掉。
+- **如何核实**：`for c in scheme-fade nb-crystal-glow nb-pop-in animate-accordion nb-ui-switch-enter nb-ui-scrollbar-center nb-ui-control-h-lg; do grep -rln -- "$c" packages/*/src packages/nb-ui/themes | grep -v styles.css; done` 全空。
+- **建议改法**：删除上述死规则与对应关键帧（净删约 90 行）；`html { scrollbar-gutter }` 删掉，保留 `.nb-ui-scrollbar-stable` 让宿主自己挂到根上（dev-panel 已经这么用，`dev-panel/src/web/app.css`）。
+
+### L03 [重要][复用] 级联菜单的键盘与“滚动收起子级”逻辑在三个入口各写一遍，`useMenuCascade` 自称“三个菜单入口共用”实际只被两个完整使用
+
+- **位置**：`packages/nb-ui/src/composables/useMenuCascade.ts:69-113`（`levelKeydown`）与 `:60-66`（`focusNewLevel` 监听）；`packages/nb-ui/src/components/feedback/ContextMenuPanel.vue:24-33`（`collapseBelow`）、`:44-100`（整套 `onKeydown` + `focusNewLevel` + `itemsIn`）；`packages/nb-ui/src/components/controls/DropdownMenu.vue:91-95,121-131`；`packages/nb-ui/src/components/controls/Menubar.vue:104-117`。
+- **现象**：
+  1. `collapseBelow(depth)`（“第 depth 级滚动了：收起更深层，焦点在被收起的层里就回到展开它的那一项”）函数体在 DropdownMenu、Menubar、ContextMenuPanel 里各一份，共 3 份，只在“怎么找到展开它的那一项”那一行不同。
+  2. “reka 一级菜单里，键盘在父项上展开子菜单则预约把焦点移进新一级”（`aria-haspopup === "menu" && ["ArrowRight","Enter"," "].includes(key)` → `cascade.expectKeyboardOpen()`）：DropdownMenu 与 Menubar 逐字相同（两份），`useMenuCascade.levelKeydown` 与 ContextMenuPanel 里又各有一份同条件判断，共 4 处。
+  3. `useMenuCascade.levelKeydown`（ArrowDown/Up/Home/End 循环移动、ArrowLeft 收起并还焦点、ArrowRight 预约焦点）与 `ContextMenuPanel.onKeydown`（同样的 switch，同样的循环取模、同样的 `focusNewLevel` 监听）是同一套逻辑的两份拷贝；`useMenuCascade` 的文件头注释写“三个菜单入口共用”，但右键菜单只用了它的 `levels/schedule/truncate` 状态部分，键盘部分自己又写了一遍。原因是右键菜单的第 0 级不是 `MenuLevelPanel` 而是 `role="menu"` 根，`levelKeydown` 要求 `panels[depth]` 存在。
+  4. 把 ref 解包成元素的写法 `element && typeof element === "object" && "$el" in element ? element.$el : element` 在 5 处各写一遍：`DropdownMenu.vue:99,106`、`ContextMenu.vue:83`、`usePopupScroll.ts:170`、`useMenuCascade.ts:118`。
+- **为什么是问题**：菜单键盘合同（ARIA menu 模式）是最容易出细微差别的地方；两份拷贝已经在细节上分叉：`levelKeydown` 的 ArrowRight 分支同时认 Enter/空格，ContextMenuPanel 的只认 ArrowRight；ArrowLeft 找展开项用 `[aria-expanded='true']`，ContextMenuPanel 版带 `:scope >`。以后改一处（例如加 typeahead），另两处不会跟。
+- **如何核实**：对比 `useMenuCascade.ts:69-113` 与 `ContextMenuPanel.vue:44-100`；`grep -n collapseBelow packages/nb-ui/src -r`（3 个文件）。
+- **建议改法**：让 `useMenuCascade` 把“第 0 级容器”作为参数（`rootPanel: () => HTMLElement | null`，ContextMenu 传 `role="menu"` 根，DropdownMenu/Menubar 传 reka 内容），`levelKeydown` 与 `collapseBelow(depth)` 都收进 composable，三个入口只调用；`ContextMenuPanel` 的 `onKeydown` 整段删掉（约 60 行），`DropdownMenu`/`Menubar` 的 `collapseBelow`、`onContentKeydown` 删掉。`$el` 解包抽成 `utils` 里的一个 `elementOf(ref)`。
+
+---
+
+### L04 [重要][复用][API 形状] 弹出列表的“一行”只共用了 CSS，行的标记与数据形状在 6 个组件里各自拼；同一个概念有 6 套字段名
+
+- **位置**：`MenuNodes.vue:100-108` 与 `:125-133`（同一模板在“reka 项”和“普通按钮”两个分支里逐字复制）；`Select.vue:158-176`；`SuggestionMenu.vue:200-212`；`QuickPick.vue`（列表行，3 处引用 `nb-ui-menu-item__*`）；数据类型：`controls/dropdown-menu.types.ts`、`feedback/context-menu.types.ts`、`controls/Menubar.vue:14-27`、`form/Select.vue:30-40`、`feedback/QuickPick.vue:29-39`、`feedback/suggestion-menu.ts:6-16`。
+- **现象**：
+  1. `nb-ui-menu-item__check/__icon/__label/__hint` 这组类被 MenuNodes（8 处）、Select（5 处）、SuggestionMenu（3 处）、QuickPick（3 处）各自手写标记；“有一项带图标则其余项留空图标列”的 `iconColumn` 计算在 4 个组件里各写一遍（`MenuNodes.vue:31`、`SuggestionMenu.vue:79`、`QuickPick.vue:88`、`Select.vue:111`），“有可勾选项则留勾选列”只在 MenuNodes 算。
+  2. 同样是“一行菜单项”，6 个数据类型的字段名不统一：右侧次要文字叫 `shortcut`（DropdownMenu、ContextMenu、Menubar、QuickPick）或 `hint`（SuggestionMenu）；第二行说明叫 `description`（Select、QuickPick）；标识叫 `value`（Dropdown、Menubar、Select）或 `id`（QuickPick、Suggestion）或根本没有（ContextMenu 用 `action` 回调）；勾选类型叫 `type: "item"|"radio"|"checkbox"`（Dropdown）、`"item"|"checkbox"`（ContextMenu）、`"default"|"checkbox"|"radio"`（Menubar，同样是“普通项”却是 `default` 而不是 `item`）；危险项 `tone: "default"|"danger"` 只有菜单类三个有。`MenuNodes` 为了吃下三种菜单项用泛型约束写了一个由 9 个可选字段拼成的“伪接口”（`generic="T extends {label?; title?; disabled?; ...}"`），等于承认没有共同类型。
+  3. 把样式类塞进数据：`iconClass`（出现在 22 个组件文件里：Button、IconButton、Input、Dropdown、ContextMenu、Menubar、Select、QuickPick、Suggestion、Tree、Tabs、Segmented、ToggleGroup、Badge、Banner、Notification、EmptyState、Breadcrumb、DropFeedbackOverlay 等）、`rightIconClass`（Dropdown）、`indicatorClass`（Select，文档要求传 `bg-emerald-500` 这类 Tailwind/Uno 类名）。这让图标的生成责任落在调用方构建上（README 自己写了“调用方传的 iconClass 仍由调用方构建生成”），并且类名字符串无法被库校验或换图标集。
+- **为什么是问题**：想给“再加一种弹出列表”（例如 mention 列表、历史下拉）的人没有可复用零件：既不能拿现成的“行”组件，也没有共同的 item 类型，只能抄第七份。调用方在不同列表之间切换数据要写适配（neuro-book 里确实有适配代码，见 L09）。`indicatorClass: "bg-emerald-500"` 把调用方的原子 CSS 引擎写进了公开数据。
+- **如何核实**：`grep -rn "nb-ui-menu-item__label" packages/nb-ui/src --include=*.vue`；对比六个类型定义。
+- **建议改法**：先抽一个内部行组件 `MenuRow.vue`（props：`label / description / hint / checked / icon / tone / disabled / multiline`，内部持有“勾选列/图标列”的占位逻辑，由父级一次性给 `checkColumn`、`iconColumn`），MenuNodes 的两个分支、Select、SuggestionMenu、QuickPick 都渲染它。数据层统一一个基础形状 `MenuEntry = {id, label, description?, hint?, icon?, tone?, disabled?}`，各组件在此基础上加自己独有的（children、group、labelMatches）；`shortcut` 与 `hint` 择一（建议 `hint`，因为它承载路径、说明而不只是快捷键）。`iconClass` 保留是合理取舍（Iconify 类名是行业通行），但 `indicatorClass` 改成 `tone`（`success|warning|danger|neutral`）由库映射到 token 色，不让调用方传色类。
+
+---
+
+### L05 [重要][API 形状] “浮层是否打开”在 11 个组件里有 5 种写法，“为什么关闭”的原因有 3 套互不相同的词表
+
+- **位置**：`feedback/Dialog.vue:43`（`modelValue: boolean` 必填 + `request-close`）；`AlertDialog.vue:22`、`Drawer.vue:19`、`Popover.vue:18`、`DropdownMenu.vue:38`、`layout/Collapsible.vue:11`（可选 `open?` + `update:open`）；`QuickPick.vue:42`（必填 `open` + `update:open` + `close(reason)` + `closed`）；`ContextMenu.vue:11`（`visible` + `close(reason)`，没有 `update:visible`）；`Menubar.vue:39`（`modelValue?: string` 是当前打开的菜单 id）；`SuggestionMenu.vue`（没有打开态，`anchor !== null` 即打开）；`Tooltip.vue:49`（内部自管）。
+- **现象**：
+  1. 打开态：`modelValue`（Dialog）、`open`（5 个 + QuickPick）、`visible`（ContextMenu）、`anchor`（SuggestionMenu）各一种。同为“可选受控”的组件，`open?: boolean` 默认 `undefined` 的写法统一，但 Dialog 不支持非受控，QuickPick 的 `open` 必填。
+  2. 关闭原因词表：`DialogCloseReason = "overlay"|"cancel"|"close-button"|"esc"`；`ContextMenuCloseReason = "select"|"escape"|"tab"|"outside"`；`QuickPickCloseReason = "escape"|"outside"`。Escape 在两处叫 `escape`、一处叫 `esc`；“点外面”在 Dialog 叫 `overlay`，在另两处叫 `outside`。AlertDialog/Drawer/Popover 没有关闭原因，只有 `update:open`，宿主无法区分 Escape 与外部点击来决定焦点去向（ContextMenu 的类型注释自己就写了“宿主据此决定焦点去向”）。
+  3. 关闭交接事件：只有 QuickPick 有 `closed`（真实关闭交接，`close-handoff.ts`）；Dialog、AlertDialog、Drawer 没有，宿主要自己等动画。
+  4. 受控/非受控：`Switch`、`Slider`、`RadioGroup`、`ToggleGroup`、`CheckboxGroup`、`Tree`、`Menubar` 的 `modelValue` 默认 `undefined`（可非受控）；`Input`、`Textarea`、`NumberInput`、`Select` 默认 `""`，`Checkbox` 默认 `false`，`Progress` 默认 `0`，`Dialog` 必填：同样叫 `modelValue`，有的组件省略后是“未受控”，有的是“受控为空”，调用方无法从名字判断能否省略。
+- **为什么是问题**：调用方要为每个浮层记各自的受控方式和关闭语义；通用的“焦点归还”逻辑（宿主根据关闭原因决定焦点去向）写不出统一代码。新增浮层时没有可照抄的标准。
+- **如何核实**：`grep -nE "^\s+(open|visible|modelValue)\??:" -r packages/nb-ui/src/components --include=*.vue`；`grep -rn "CloseReason" packages/nb-ui/src`。
+- **建议改法**：定一份“浮层合同”：打开态一律 `open?: boolean` + `update:open`（Dialog 的 `modelValue` 保留为别名可以，但 `open` 为准；ContextMenu 的 `visible` → `open`），一律可选受控（用 `@vueuse/core` 的 `useVModel`/`useControlledRef` 或 Vue 3.4 的 `defineModel`，库里 0 处用 `defineModel`，全是手写 `withDefaults + emit`）；统一一个 `OverlayCloseReason = "escape" | "outside" | "action" | "tab" | "button"`，Dialog 的 `overlay`→`outside`、`esc`→`escape`、`cancel/close-button`→`button`/`action`，所有浮层的 `update:open` 之前先 emit `close(reason)`；`closed` 交接事件上提到 Dialog/AlertDialog/Drawer 一并提供（用已有的 `useCloseHandoff`）。
+
+---
+
+### L06 [建议][复用][耦合] 滚动条有 3 套内部实现各写一套滑块颜色，库不提供“滚动条”token；3 个调用方各自手写同一段全局滚动条 CSS，并要撤销 nb-ui 的全局 `html` 规则
+
+- **位置**：`components/layout/ScrollArea.vue:39,47`（滑块 `--text-main` 20%/35%）；`components/layout/OverlayScrollbar.vue:188,193,197`（32%/45%/55%）；`components/layout/PopupScrollbar.vue:21`（45%/70%/75%，宽 4px，位置靠 `usePopupScroll`）；调用方：`packages/neuro-book/src/web/styles.css:19-23`、`packages/nb-story/src/web/app.css:28-31`、`packages/dev-panel/src/web/app.css:24-36`；`packages/nb-ui/src/styles.css:6-8`（`html { scrollbar-gutter: stable }`）。
+- **现象**：
+  1. 同一个“细滑块”视觉三处各取一组不同的透明度和宽度（轨道 10px/滑块 6px；轨道 10px/ScrollArea 滑块 flex；4px），`src/tokens.css`、`themes/*/vars.css`、`src/theme/tokens.ts` 里没有任何 scrollbar 相关 token（`grep scrollbar` 全空），主题无法统一调整滚动条。
+  2. 三个应用各自手写一遍 `* { scrollbar-width: thin; scrollbar-color: color-mix(... var(--text-muted) 55%, transparent) transparent }`，dev-panel 还写了 `html { scrollbar-gutter: auto }` 专门撤销 nb-ui 的全局规则，并在注释里说“nb-ui 的全局 `html { scrollbar-gutter: stable }` 在这里只会留下右缘一条空带”——这是库的全局副作用（见 L02）造成的调用方补丁。
+  3. 对调用方而言，什么时候用 `ScrollArea`（reka；neuro-book、nb-story、dev-panel 合计 1 处调用 `SettingsWindow.vue:163`）、`OverlayScrollbar`（neuro-book 2 处）、还是原生（自己写 CSS）没有结论；上一轮文档审查 F24 已指出“没说各自何时用”，但代码层面的分叉是：`ScrollArea` 的滑块是 reka 元素，`OverlayScrollbar` 靠 `target` 元素和 MutationObserver 自测，`PopupScrollbar` 靠 `usePopupScroll`，三者没有共用滑块几何（`overlay-scrollbar.ts` 的 `thumbGeometry`/`dragScrollTop`（滑块最短 `MIN_THUMB_PX = 20`）与 `usePopupScroll.ts:26-27,125-131,222` 的轨道/滑块长度与拖动换算（`MIN_THUMB = 24`、`TRACK_INSET = 6`）各一份，同一个“滑块几何”算了两遍、下限还不一致）。
+- **为什么是问题**：想统一滚动条观感（macOS 主题常见需求）要改 6 个位置；应用侧每新增一个入口都要抄一段全局 CSS。
+- **如何核实**：`grep -rn "scrollbar" packages/nb-ui/src/tokens.css packages/nb-ui/themes`（空）；对比三个 app 的 css。
+- **建议改法**：在 `tokens.css` 加 `--scrollbar-thumb`、`--scrollbar-thumb-hover`、`--scrollbar-w` 三个主题可改的变量，三套滑块都从这里取；`styles.css` 提供一个 `.nb-ui-scrollbar-thin`（原生细滚动条 + 同一组颜色），应用用类而不是各抄全局 `*` 规则；`thumbGeometry` 与 `usePopupScroll` 的滑块几何合成一个函数。
+
+---
+
+### L07 [重要][耦合][API 形状] 浮层层级合同只有 `Dialog` 兑现：`Drawer` 里的下拉/提示会落在抽屉后面；`Tooltip` 用了 popover 档而登记的 `tooltip: 70` 无人使用；三条取层级的路径各写一遍
+
+- **位置**：`components/feedback/Drawer.vue:59,65`（遮罩与内容 `zIndex: NB_Z_INDEX.dialog`，不 provide 任何层级）；`components/feedback/Dialog.vue:141`（唯一的 `provide(NB_POPOVER_Z_INDEX, …)`，全库 `grep NB_POPOVER_Z_INDEX` 只有这一处 provide）；`components/feedback/Tooltip.vue:13`、`Popover.vue:14`（直接 `inject(NB_POPOVER_Z_INDEX, NB_Z_INDEX.popover)`）；`composables/usePopoverLayer.ts:8-11`（同一行为又包了一遍，DropdownMenu/Select/Menubar/SuggestionMenu/ColorSwatches 用）；`theme/z-index.ts:14`（`tooltip: 70`）。
+- **现象**：
+  1. `Drawer` 是 slot 里放任意内容的模态面板，层级固定 9000，也没有向内容树提供 `NB_POPOVER_Z_INDEX`，所以放在抽屉里的 `Select` / `DropdownMenu` / `Popover` / `Tooltip` 取到缺省的 `NB_Z_INDEX.popover = 60`，被 9000 的抽屉内容盖住（它们由 reka 传送到 `body`，z-index 比较发生在 body 级）。`Dialog` 当初就是为这个问题加的 provide（`Dialog.vue:130-141` 注释写得清楚）。`Drawer` 同时不进 `useModalLayer`，与 `Dialog`/`AlertDialog` 同为 9000 档却不参与“按打开顺序叠放”：从抽屉里打开确认框（AlertDialog 同层 9000）靠 DOM 顺序决定谁在上，而 `useModalLayer` 的文件头正是在说“层级不能靠 DOM 顺序”。（从代码推断，未在浏览器验证；`Drawer` 在 neuro-book 里没有调用点，dev-panel 有 2 处（`App.vue:425` 导航、`DocsPage.vue:99` 文档树），内容目前没有下拉，所以尚未触发。）
+  2. `NB_Z_INDEX.tooltip = 70` 登记了，但 `Tooltip` 实际用 `popover` 档（60，对话框里则是注入的档），`grep "NB_Z_INDEX.tooltip"` 全仓 0 处使用；规范里“提示压在菜单之上”的先后没有被实现，菜单上的 `Tooltip`（例如菜单项 title）与菜单同档靠 DOM 顺序。
+  3. 取“局部浮层层级”的路径 3 种：`Popover`、`Tooltip` 内联 `inject(...)`（注释一字不差地复制了两遍）；`usePopoverLayer()`；`ContextMenu`/`QuickPick`/`NotificationStack`/`DropFeedbackOverlay` 直接读 `NB_Z_INDEX.xxx`。`usePopoverLayer` 里还多了一个 `hasInjectionContext()` 判断，另两种没有。
+  4. 同样的分叉在传送目标上：Dialog/AlertDialog/Drawer/QuickPick 走 `useTeleportTarget`（可被宿主改写），`ContextMenu`/`SuggestionMenu` 各有自己的 `teleportTarget` prop（缺省 `"body"`，不读宿主提供的目标），`Menubar`、`DropFeedbackOverlay` 写死 `<Teleport to="body">`，reka 系的 `DropdownMenu`/`Select`/`Popover`/`Tooltip` 没有任何传送出口。宿主（Lab 画布）要把浮层收进画布时，只有“居中类”生效，其余仍落到 body。
+- **为什么是问题**：“放进抽屉的下拉不见了”这类缺陷会在第一个把表单放进 `Drawer` 的调用方身上出现，而修复点（让 `Drawer` provide）和 `Dialog` 里一样，只是被漏了；层级登记簿里的 `tooltip` 档给读者的承诺（提示在最上）与实现不符。
+- **如何核实**：`grep -rn "NB_POPOVER_Z_INDEX" packages/nb-ui/src`；`grep -rn "NB_Z_INDEX.tooltip" packages`。可在 playground 里写一个 `Drawer` 内含 `Select`，打开后看下拉是否出现在抽屉上方。
+- **建议改法**：(a) 把“向内容树提供局部浮层层级”做成一个 `provideOverlayLayer(zIndex)` 小函数，`Dialog` 与 `Drawer` 都调用（`Drawer` 也进 `useModalLayer`，层级随打开顺序）；(b) `Popover`/`Tooltip` 改用 `usePopoverLayer()`，删除两处复制的 inject；`Tooltip` 用 `max(popoverZ, NB_Z_INDEX.tooltip)` 或删掉 `tooltip` 档并在规范里说明；(c) 传送目标统一走 `useTeleportTarget`，`ContextMenu`/`SuggestionMenu` 的 `teleportTarget` prop 保留为显式覆盖但缺省改读注入值。
+
+---
+
+### L08 [建议][API 形状] 12 个组件内置中文默认文案，其中至少 8 处没有任何覆盖入口；`Drawer` 的关闭按钮没有可访问名称
+
+- **位置**：有覆盖 prop 的：`AlertDialog.vue:32-35`、`Dialog.vue:113-115`、`Tabs.vue:46`、`Banner.vue:20`、`Notification.vue:22`、`NotificationStack.vue:17`、`Spinner.vue:14`、`InfoTip.vue:16`、`Table.vue:28`、`EmptyState.vue:9`、`Switch.vue:22`、`Toolbar.vue:12`；没有覆盖入口的：`NumberInput.vue:145-146,156-157`（“增加”“减少”）、`Input.vue:105`（“清空输入”）、`ColorPickerPanel.vue:132,145`（“颜色值”“预设颜色”）、`Breadcrumb.vue:23`（“面包屑导航”）、`Slider.vue:125`（`滑块 ${index}`）、`Splitter.vue:612`（`调整 ${id} 与 ${id} 的宽度`）、`Drawer.vue:93-95`（关闭按钮只有图标，无 `aria-label`）。
+- **现象**：库没有统一的文案入口（`provide`/`locale`），每个组件各给一个 `xxxLabel` / `xxxText` / `ariaLabel` / `label` prop，命名不一致（`closeLabel` 在 Dialog/Banner/Notification 是关闭按钮名，`cancelLabel` 与 `cancelText`、`confirmLabel` 与 `confirmText` 在 Dialog 与 AlertDialog 之间不同名）；没有 prop 的 8 处用户无法改成别的语言或改措辞。
+- **为什么是问题**：对“NeuroBook 衍生项目共用”的库，英文或术语不同的调用方只能 fork。更实际的是命名分叉：同一个“确认/取消”在 Dialog 是 `confirmLabel/cancelLabel`，在 AlertDialog 是 `confirmText/cancelText`，`ColorSwatches` 用 `autoLabel`/`customLabel`，`Table` 用 `emptyText`。
+- **如何核实**：`grep -rnE "aria-label=\"[^\"]*[一-龥]" packages/nb-ui/src/components --include=*.vue`；读 `Drawer.vue:93-95`。
+- **建议改法**：统一后缀：按钮/可访问名一律 `xxxLabel`，说明文字一律 `xxxText`；AlertDialog 的 `confirmText/cancelText` 改 `confirmLabel/cancelLabel`（与 Dialog 一致）；补一个 `NB_UI_MESSAGES` 的 provide（键 → 文案，缺省中文），没有 prop 的 8 处读它；`Drawer` 关闭按钮补 `aria-label` 与 `closeLabel` prop。
+
+---
+
+
+---
+
+### L09 [重要][耦合][测试] `--overlay-scrim` 在整个仓库里没有任何声明：`AlertDialog` 与 `Drawer` 的遮罩背景色是无效值，测试没有守住“用到的变量都有声明”
+
+- **位置**：`components/feedback/AlertDialog.vue:88`、`components/feedback/Drawer.vue:60`（`bg-[color-mix(in_srgb,var(--overlay-scrim)_80%,transparent)]`）；声明处缺失：`src/tokens.css`、`src/colorway/colorway-contract.ts`、`themes/*/vars.css`、`themes/*/colorways.ts`、`packages/neuro-book/src`、`nb-story`、`dev-panel` 均无；对照 `components/feedback/Dialog.vue:209` 用的是已登记的 `--overlay-bg`。
+- **现象**：`grep -rn -e overlay-scrim` 在 `packages/`（排除 legacy 与 node_modules）只有这两处使用和 `dist` 里编出的规则，没有任何一处定义。自定义属性未定义时 `color-mix(... var(--overlay-scrim) ...)` 在计算值阶段无效，`background-color` 回到初始值 `transparent`，所以这两个遮罩只有 4px 的 `backdrop-blur`、没有压暗层（同一套 modal 的 `Dialog` 却有 `--overlay-bg` 的压暗）。此外 `--space-1-5`（`Badge.vue:40`）与 `--weight-semibold`（`Badge.vue:45`）也不是登记的 token（登记的是 `--space-1..8`、`--weight-strong`），分别靠 `var(--x, fallback)` 的缺省值勉强生效。（遮罩无色一条从代码推断，未在浏览器核实）
+- **为什么是问题**：`token-consumption.test.ts` 守了字面圆角、字面色、`transition-all` 等六条规则，却没有“组件里 `var(--x)` 的 x 必须在 `tokens.css`/配色契约/组件自己的作用域里声明”这一条，所以新增一个 token 引用打错了名字没有任何东西报错；主题作者按 `authoring-themes.md` 能覆盖的变量表里也找不到 scrim，调不了。
+- **如何核实**：`grep -rn -e overlay-scrim packages --include=*.css --include=*.ts --include=*.vue | grep -v legacy`；在 playground 打开 `AlertDialog` 看遮罩是否压暗。
+- **建议改法**：AlertDialog、Drawer 与 Dialog 共用一个遮罩（见 L16 的“模态外壳”），统一用 `--overlay-bg`，删掉 `--overlay-scrim`；在 `token-consumption.test.ts` 加一条规则：扫描 `components/**/*.vue` 与 `styles.css` 里所有 `var(--名)`，名必须出现在 `tokens.css` 的声明、`colorway-contract.ts`、或同文件内 `--名:` 定义里（`--reka-*`、`--tw-*` 白名单）。我用 `grep -hoE "var\(--[a-z0-9-]+"` 做过一次这个检查，只发现上面三个无声明的名字，规则可以直接上线。
+
+---
+
+### L10 [重要][API 形状] 尺寸、语调、方向、放置的词表各组件各一套：同样的概念至少 5 种写法
+
+- **位置**（均为 `components/` 下）：`controls/IconButton.vue:5-6`、`controls/Button.vue:5-6`、`controls/SegmentedControl.vue:15-16`、`controls/Tabs.vue:23`、`form/Input.vue:7`、`form/Select.vue:29-30`、`form/NumberInput.vue:5`、`feedback/Banner.vue:5`、`feedback/Notification.vue:5`、`display/Badge.vue:14-16`、`display/Progress.vue:8`、`feedback/AlertDialog.vue:19`、`layout/Splitter.vue:36`、`controls/ToggleGroup.vue:27`。
+- **现象**：
+  1. **尺寸档位**：`sm|md|lg`（Button、Switch、ToggleGroup、Spinner、Slider、Progress、Kbd，共 7 个）；`2xs|xs|sm|md|lg`（IconButton）；`xs|sm`（SegmentedControl）；`sm|md`（Tabs、Badge、RadioGroup、ColorSwatches）；`default|sm`（Select、NumberInput）；`default|sm|md`（Input）；Dialog 另有 `sm|default|md|lg|xl|full`。`default` 在 Select/NumberInput/Input 里等于别处的 `md`；Input 的 `md` 与 `default` 在实现里完全相同（`Input.vue:52` 只判断 `=== "sm"`），是个无效别名。同一个 `sm` 在 Tabs、Segmented、Button 里高度都不同，却都叫 `sm`，而库已有统一的 `--control-h-sm/md/lg`。
+  2. **语调**：`Banner`/`Notification` 用 `info|success|warning|error`；`Badge`/`Progress`/`Button`/`AlertDialog` 用 `accent|success|warning|danger`；菜单项用 `tone: default|danger`；`SegmentedControl` 用 `default|accent|warning`。`error` 与 `danger` 是同一个意思的两个名字，`info` 与 `accent`/`neutral` 也不对应。另有 `variant` 与 `tone` 并存：`Button.variant` 含 `danger`，`IconButton.variant` 含 `danger|accent|secondary`，`Badge` 则是 `variant`（solid/soft/outline）与 `tone` 两个轴。
+  3. **方向**：`orientation` 在 ToggleGroup、RadioGroup、CheckboxGroup、Slider、Separator、ScrollArea 里是 `horizontal|vertical`（ScrollArea 多一个 `both`），`Splitter` 同样的取值叫 `direction`，`Drawer.direction` 却是 `top|bottom|left|right` 的出现边，`Select.dropdownDirection` 是 `auto|up|down`；弹出层的位置有 `Popover.side/align`、`DropdownMenu.side/align`、`Tooltip.placement`、`InfoTip.placement`、`SuggestionMenu.placement: auto|top|bottom`，`up|down` 与 `top|bottom` 并存。
+  4. **样式透传**：`contentClass`（Popover、Drawer）、`menuClass`+`rootClass`+`popoverStyle`+`contentProps`（DropdownMenu）、`bodyClass`+`headerClass`（Dialog）。DropdownMenu 的 `popoverStyle`、`contentProps` 在 neuro-book、nb-story、dev-panel 里 0 处使用（只在测试里），`menuClass` 1 处、`rootClass` 2 处。
+- **为什么是问题**：调用方要逐个查表；跨组件换一种控件（Select 换成 SegmentedControl）要重新对一遍词表；增长中的新组件无从取齐。
+- **如何核实**：`grep -rnE "export type [A-Za-z]*(Size|Tone|Variant|Placement|Direction)" packages/nb-ui/src/components`。
+- **建议改法**：定三份共享类型放在 `components/shared-types.ts` 并从入口导出：`ControlSize = "xs"|"sm"|"md"|"lg"`（`default` 全部改 `md`；Input/Select/NumberInput 的 `default` 保留为过渡别名并在 `.md` 标废弃）、`Tone = "neutral"|"accent"|"info"|"success"|"warning"|"danger"`（`error`→`danger`，每个组件声明自己支持哪几个子集）、`Orientation`（Splitter 的 `direction`→`orientation`）。弹出层方位统一 `side`+`align`（`Tooltip.placement` 保留为 `side` 的别名即可）。删掉 `popoverStyle`、`contentProps`。
+
+---
+
+### L11 [重要][复用][可维护性] 主题与配色的“应用到文档根”流程在 3 个宿主里各抄一份；库里的两个 store 只有 playground 在用；为不存在的“主题市场”建了约 770 行基础设施
+
+- **位置**：宿主侧：`packages/neuro-book/src/ui/theme/document-theme.ts:1-59` + `install-theme-packs.ts` + `product-themes.ts`、`packages/nb-story/src/web/host/theme.ts:1-47`、`packages/dev-panel/src/web/host/theme.ts:1-34`；库侧：`src/colorway/colorway-store.ts`、`src/theme/theme-store.ts`、`src/theme/theme-loader.ts`（336 行）、`src/theme/theme-manifest.ts`（66）、`src/theme/semver-range.ts`（97）、`src/theme/svg-defs.ts`（161）。
+- **现象**：
+  1. 宿主要做的事一模一样：`installTheme(nbookTheme)`、在 `<html>` 上写 `dataset.nbTheme` / `dataset.nbAppearance`、`applyColorway(root, 主题自带配色[明暗])`、监听 `prefers-color-scheme`。nb-story 的 `theme.ts` 注释写着“照 dev-panel 的 host/theme.ts”，两份几乎逐行相同；neuro-book 另写了一份更复杂的（`createDocumentThemeWriter`，还要自己记下写过哪些变量好清理，并额外给 `document.body` 再套一次配色）。`data-nb-theme` / `data-nb-appearance` 这两个属性名只存在于主题 CSS 选择器（`:root[data-nb-theme="…"]`）与这三份宿主代码里，库没有导出写它们的函数，宿主得凭文档知道。
+  2. 库提供了 `createColorwayStore`（含 localStorage 持久化与已下线配色别名迁移）和 `createThemeStore`，全仓只有 `packages/nb-ui/playground` 使用（`playground/app/composables/useColorway.ts`、`useTheme.ts`）；Lab 的 `lab-theme.ts:16-20` 明确写“不直接使用 createThemeStore / createColorwayStore”，三个真实宿主也都没用。`installTheme` 对重复 id 抛错，宿主为此另写 `installThemePacks`（“缺则装、已装则复用”）绕开全局注册表的这条规则。
+  3. 主题加载器按“主题市场”设计：manifest 必须是纯数据以便“不执行代码索引”（`theme-manifest.ts:5-9`）、`hostVersion` 用自带的 semver 子集解析器校验（`semver-range.ts`）、SVG 资源按标签白名单净化（`svg-defs.ts`）、装载时拒绝越权的 `declares`（`theme-loader.ts`）。实际只有 4 个同仓一方主题（nbook、macos、editorial、aurora），`hostVersion` 都是 `^0.2.0` 且靠 `NB_UI_VERSION` 常量与 `package.json` 版本手工保持一致（`version.ts` + 一条测试守着）。主题文档里“插件档：本轮不做”，市场不存在。
+- **为什么是问题**：第四个宿主会再抄一份；一处改（例如要给 `<html>` 加 `color-scheme`，neuro-book 的版本加了，另两份没加）就会出现三份行为不同的实现。770 行加三个测试文件（`theme-loader.test.ts` 232、`theme-packages.test.ts` 227、`semver-range.test.ts`）是需要被维护的面，换来的只是“假如将来有第三方主题”的防御。
+- **如何核实**：`diff packages/nb-story/src/web/host/theme.ts packages/dev-panel/src/web/host/theme.ts`；`grep -rn "createColorwayStore\|createThemeStore" packages --include=*.ts --include=*.vue | grep -v "nb-ui/src"`（仅 playground 与一行注释）。
+- **建议改法**：在库里提供一个 `applyDocumentTheme(root, {themeId, appearance, colorway})`（写属性、`color-scheme`、配色变量，并返回 `clear()`）和 `followSystemAppearance(cb)`，三个宿主各自删到 10 行以内；`installTheme` 改成对同 id 的重复安装幂等（返回已装项）并删掉 `installThemePacks`；两个 store 若仍要保留给 playground，移到 `playground/` 目录，不进入包的公开入口。`semver-range.ts` 与 manifest 的纯数据约束在出现第一个外部主题之前不需要，`hostVersion` 可降级为“同一 monorepo 内的主题不校验”，把 97+约 100 行测试与那条同步 `NB_UI_VERSION` 的规则一起去掉。
+
+---
+
+### L12 [重要][API 形状] `Dialog` 的行为随“宿主有没有订阅某个事件”而变；一个组件承担模态与浮动窗口两种用法，约 30 个 prop 里一半只对其中一种生效
+
+- **位置**：`components/feedback/Dialog.vue:248-266`（`hasListener`、`closeImmediate`、`requestClose`、`handleConfirm`）；props `:40-100`；`:40-41` `modelValue` 与 `modal`。
+- **现象**：
+  1. `requestClose` 先 `emit("request-close")`，然后用 `instance.vnode.props` 判断宿主**有没有挂** `onRequestClose` 监听：没挂就自己 `emit("update:modelValue", false)` 并 `emit("cancel")`，挂了就由宿主负责关。`confirm` 同理看 `onConfirm`。也就是说“给 `<Dialog>` 加一个 `@request-close` 日志监听”会让它从“自动关闭”变成“永远关不掉”；经一层包装组件转发（`v-bind="$attrs"` 或 `@request-close="$emit('request-close', $event)"`）也会改变行为。这是靠内部 vnode 判断的隐含合同，没有写在 props 里。（`Dialog.md:47` 有写，说明它是有意的设计，但组件签名里看不出来，类型层面 `request-close` 与 `update:modelValue` 都是普通事件。）
+  2. 自动关闭路径会 `emit("cancel")`，所以点遮罩、按 Esc、点关闭按钮都会发 `cancel`，与“取消按钮”无法区分，`DialogCloseReason`（`overlay|cancel|close-button|esc`）里的 `cancel` 实际是按钮点击，而 `cancel` 事件是所有关闭路径。
+  3. 同一个组件两种用法：窗口模式独有的 `resizable`、`minWidth`、`minHeight`、`update:width`、`update:height`，模态独有的 `overlayType`、`closeOnOverlay`、`size`（窗口模式只靠 `width/height`），`teleportTarget` 在两种模式下含义不同（窗口里 `false` 表示不传送）。`modal` 打开期间不能切换（注释自己写了）。文件 501 行，其中有 `useFloatingWindow`（260 行）、遮罩“最上层判定”（`onTop` 用 `document.querySelectorAll("[data-dismissable-layer]")` 读 reka 内部属性再逐个比较 `getComputedStyle().zIndex`）、滚动分隔线观察器、页脚状态行。
+  4. 默认值把“一个应用的设计结论”写进组件：`closable: false`（注释引 Apple UI Kit）、`overlayType: "opaque"`、`cancelLabel: "取消"`。
+- **为什么是问题**：(1) 是会把调用方埋进去的隐含合同；(2)(3) 让 Dialog 成为全库最难改的文件，而浮动窗口（只有 neuro-book 一个入口使用）与对话框的重叠只是外框。
+- **如何核实**：给任意 `<Dialog v-model="open">` 加 `@request-close="() => {}"`，点遮罩，对话框不再关闭；`grep -n "hasListener" Dialog.vue`。
+- **建议改法**：(1) 去掉 `hasListener`：要么 `closeOnRequest: "auto" | "emit"`（显式 prop，缺省 `auto`），要么永远只发 `request-close`，由 `v-model` 关闭由宿主决定；`cancel` 只在取消按钮路径发；(2) 把窗口模式拆成 `FloatingWindow`（复用同一个内部外框 `DialogSurface`），模态 `Dialog` 去掉窗口 prop；(3) `onTop()` 改为用 `useModalLayer` 里已有的叠放序号判断，不读 reka 的 `data-dismissable-layer`。
+
+---
+
+### L13 [建议][API 形状][复用] `NumberInput` 与 `Input type="number"` 重复，且全用字符串；调用方为此自己做数字适配
+
+- **位置**：`components/form/NumberInput.vue:6-32`（`modelValue?: string`、`min/max/step?: string`）、`components/form/Input.vue:6-30`（`type: "number"`、同样的 `min/max/step`）；调用方：`packages/neuro-book/src/plugins/settings/web/components/SettingsControl.vue:105-113`（`String(control.min)`、`String(control.max)`、`String(control.step)`、草稿字符串加 `Number()` 解析）。
+- **现象**：库里有两个能输数字的控件：`Input` 支持 `type="number"`（`styles.css` 里还专门写了一段去掉原生微调器的 CSS），`NumberInput` 自带微调按钮。后者的值、最小、最大、步长全是字符串（为了“保留中间态如空字符串、负号”）；`SettingsControl` 因此保留一个 `draft` 字符串、`commit` 时再 `Number()` 解析与校验，把 `min/max/step` 逐个 `String()` 转换。`Input` 的 `size` 还有一个无效的 `md`（见 L10）。
+- **为什么是问题**：想要“数字输入”的调用方没有一个返回 `number` 的组件，转换与草稿逻辑每个调用方都要写一遍；两个组件的 size/readonly/step 行为需要同步维护。
+- **如何核实**：对比 `SettingsControl.vue:43-67`（草稿与解析）与 `NumberInput.vue:60-90`（字符串步进）。
+- **建议改法**：`NumberInput` 的值改为 `number | null`（`null` 即空），内部持有输入中的文本草稿，在 blur/Enter/步进时才 emit 数值；`min/max/step` 用 `number`；`Input` 去掉 `type: "number"` 与 `min/max/step`，数字一律走 `NumberInput`。这样 `SettingsControl` 的数字分支能删到绑定一行。
+
+---
+
+### L14 [重要][耦合][可维护性] 公开入口与 Nuxt 模块让内部零件和死代码成为公开面；`package.json` 有未使用的依赖，并把 Nuxt 设为非 Nuxt 调用方的 peer 依赖
+
+- **位置**：`package.json:3-17,34-41`（exports 13 项、peerDependencies、dependencies）；`src/module.ts:34-52`；`src/components/layout/index.ts:11-99`；`src/composables/index.ts`；`src/utils/index.ts`；`src/index.ts`。
+- **现象**：
+  1. **Nuxt 模块把内部零件注册成公开组件**：`addComponentsDir({path: ./components, pathPrefix: false, extensions: ["vue"]})` 与 `addImportsDir(./composables)` 把整个目录自动导入，包括 `index.ts` 明确没导出的内部零件（`MenuNodes`、`MenuLevelPanel`、`PopupViewport`、`PopupScrollbar`、`ContextMenuPanel`、`ColorPickerPanel`、`GridBranchRenderer`、`DropIndicator` 共 8 个 `.vue`，以及 `useMenuCascade`、`usePopupScroll`、`usePopoverLayer`、`useModalLayer`、`useSashGesture`、`useFloatingWindow` 六个 composable）。`README.md`/`PopupScrollbar.vue` 头注释写着“内部零件，不从包入口导出”，Nuxt 用户却能直接用全局名 `MenuNodes`。全仓 3 个真实宿主（neuro-book、nb-story、dev-panel）都不是 Nuxt，模块只服务 `playground` 与旧应用。
+  2. **peerDependencies 写了 `nuxt ^4.3.1`，dependencies 带了 `@nuxt/kit`**，非 Nuxt 的消费者（上面三个）安装 nb-ui 时都要装得下 Nuxt 的 peer 与 `@nuxt/kit`；真正需要它们的只有 `src/module.ts` 这一个文件，应该是它自己的可选入口（`peerDependenciesMeta: {nuxt: {optional: true}}`）。
+  3. **没有任何使用方的公开 API**（在 neuro-book、nb-story、dev-panel 以及 nb-ui 自己的源码里都 0 处调用，只有自己的测试）：`useAnchoredPopup`（80 行，头注释引用旧应用的“对照页 `.sc-panel`”“时间选择器”）、`useResizablePanel`（133 行）、`resolveApiErrorMessage`（`$fetch`/H3 专用）、`utils/focus-trap.ts`（61 行，注释写“供模态 Dialog 使用”，Dialog 实际用 reka 的焦点锁定）。依赖层面：`class-variance-authority` 在 `src` 与 `playground` 里 0 处导入；`clsx`、`tailwind-merge` 只被 `cn()` 使用，而 `cn()` 只被 `Select.vue` 一个组件调用，其余组件（Button、IconButton、Input 等）对调用方传入的 `class` 用拼接，所谓“`cn` 保证调用方覆盖默认”的合同（`cn.ts:5-13` 注释）只有 Select 兑现。
+  4. **`./layout` 入口把求解器内部件导出**：`layout/index.ts` 显式导出 `EPSILON`、`round`、`finite`、`allocateAxis`、`clampAxis`、`normCollapse`、`solveSashDrag`、`sashHitKey` 等约 40 个名字；我抽查的 39 个里 37 个在三个宿主里 0 处使用（只有 `resolveGridInsertion` 等拖放几何与 `createGrid` 一族在用）。`round`、`finite` 这类通用名字作为包的公开导出，将来任何调整都是破坏性变更。同一批符号在 `./components`（只导出 `grid`、`grid-splitter`、`createGridGestureSession`）、`./layout`（上面）、`./grid`（`grid.ts` 一个文件）三个入口里以不同子集出现，宿主三个入口都有人用（`@notnotype/nb-ui/layout` 22 处、`/grid` 2 处、`/components` 126 处）。
+  5. 根入口 `.` 导出 `colorway + version + composables + theme + utils`，不含组件；`README.md` 的示例和 126 个调用点都走 `/components`，根入口让人以为 `import {Button} from "@notnotype/nb-ui"` 能用。
+- **为什么是问题**：Nuxt 模块是唯一一个“把整个目录当公开面”的入口，一旦有人（包括旧应用）用了自动导入的内部零件，内部重构就成了破坏性变更；peer 依赖让每个新宿主多装一个它不用的框架；死 API 占用维护与测试。
+- **如何核实**：`grep -n "addComponentsDir\|addImportsDir" src/module.ts`；`grep -rlw useAnchoredPopup packages/*/src`；`grep -rn "class-variance-authority" packages/nb-ui/src`（空）。
+- **建议改法**：Nuxt 模块改用 `addComponent({name, filePath})` 按 `components/index.ts` 的导出逐个登记；`nuxt` 与 `@nuxt/kit` 移到 `peerDependenciesMeta` 的可选项（或拆成 `@notnotype/nb-ui-nuxt`）；删除 `useAnchoredPopup`、`useResizablePanel`、`resolveApiErrorMessage`、`focus-trap.ts` 与 `class-variance-authority`，`cn()` 要么推广到全部带 `class` 透传的组件，要么删掉连同 `clsx`/`tailwind-merge`；`./layout` 只导出三宿主在用的几何函数与类型，求解器保持包内部，需要时测试用相对路径导入；`./grid` 与 `./layout` 合并为一个入口加上“不带 Vue 的子路径”的说明。
+
+---
+
+### L15 [建议][API 形状] `Tabs` 的一半配置只服务工作台一类调用方；真正的编辑器标签栏没有用它而是另写一遍
+
+- **位置**：`components/controls/Tabs.vue:11-42`（`TabsItem.id/controls/attrs`、`baseline`、`overflow`、`maxItemWidth`、`moreLabel`）；调用方：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:503`、`WorkbenchToolPartHost.vue:81-88`；对照 `packages/neuro-book/src/plugins/editor/web/components/EditorTabBar.vue:161-210`（手写 `role="tablist"`、只借用 `nb-ui-focus-ring-inset` 类）。
+- **现象**：`Tabs` 有 8 个 prop 外加每项 3 个附加字段，其中 `baseline`（“工作台平铺的工具区标题行”）、`overflow="adapt"` + `maxItemWidth` + `moreLabel`（逐级让位、收进更多）、`item.attrs`（Lab 夹具里传 `data-drag-container`、`aria-description: "按空格拿起并拖动"`，是工作台拖拽语义）在 4 个调用点里只有 2 个工作台入口用得到；`nb-story` 的 `DrawerCard` 只用 `size` 与 `modelValue`/`items`。另一方面编辑器标签栏（可关闭、可拖动、可换行）没有复用 `Tabs`，自己实现了一整套 tablist 的 ARIA、roving 焦点，只借了一个样式类。`Tabs` 又内嵌了 `DropdownMenu` 做“更多”，所以 Tabs → DropdownMenu → 整套菜单子系统是一条隐含依赖。
+- **为什么是问题**：`attrs: Record<string,string>` 这样的通用逃生口是“库缺了合同又不想加合同”的标志；标签栏有第二种实现意味着键盘、`aria-selected`、焦点环这些合同需要在两处各维护。
+- **如何核实**：`grep -rn "<Tabs" packages --include=*.vue | grep -v fixtures`（3 处）；读 `EditorTabBar.vue` 的 `onKeydown` 并与 `Tabs.vue` 的方向键处理比较。
+- **建议改法**：把 `Tabs` 拆为无外观的 `TabsList`（roving 焦点 + 方向键 + `aria-*`，插槽自定义每个标签）和有外观的 `Tabs`；编辑器标签栏改用 `TabsList`；`attrs` 换成每个标签一个具名插槽或 `data-*` 透传 `v-bind`，不再用 `Record<string,string>`。优先级低于 L03、L04。
+
+---
+
+### L16 [建议][复用] 四个“模态”浮层（`Dialog`、`AlertDialog`、`Drawer`、`QuickPick`）各自拼 Portal + 遮罩 + 层级 + 关闭交接；遮罩和入退场用了 dist 里不存在的类；`AlertDialog.tone` 有三档只有一档有效果
+
+- **位置**：`components/feedback/Dialog.vue:326-352`、`AlertDialog.vue:82-125`、`Drawer.vue:57-72`、`QuickPick.vue:286-292`；`AlertDialog.vue:88` 与 `Drawer.vue:60` 的 `data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0`；`AlertDialog.vue:19,121`（`tone`）。
+- **现象**：
+  1. 遮罩：Dialog 用 `--overlay-bg` + 自己的指针按下/抬起判定；AlertDialog、Drawer 复制粘贴同一串类（`bg-[color-mix(in_srgb,var(--overlay-scrim)_80%,transparent)] backdrop-blur-[4px] …`，见 L09，变量未定义）；QuickPick 是透明遮罩。层级：Dialog / AlertDialog 走 `useModalLayer`，Drawer 固定 `dialog` 与 `dialog - 1`，QuickPick 固定 `commandPalette`。传送目标：4 个都读 `useTeleportTarget`，但 Dialog 另有 `teleportTarget` 的 `false` 档，QuickPick 另有字符串档，AlertDialog、Drawer 两个都写死 `useTeleportTarget(() => undefined)`（不提供 prop，调用方只能用宿主 provide）。关闭交接：只有 AlertDialog、QuickPick 用 `useCloseHandoff` 发 `closed`（L05）。
+  2. `animate-in`、`animate-out`、`fade-in-0`、`fade-out-0` 这些类来自 shadcn 的 `tw-animate-css`，nb-ui 既没有引入也没有定义：`grep "animate-in\|fade-in-0" dist/nb-ui.css` 为空。AlertDialog / Drawer 遮罩上这 4 个变体类是空操作，退场只剩 `transition-opacity`（Reka 的 Presence 靠 CSS animation 判断何时卸载，没有 animation 就立刻卸载，遮罩退场不过渡）。（从产物推断，未在浏览器验证。）
+  3. `AlertDialogTone = "danger" | "warning" | "accent"`，但模板里只有 `props.tone === 'danger' ? 'danger' : 'primary'`：`warning` 与 `accent` 渲染结果完全相同，README 却写“支持 danger / warning / accent 语调”。
+  4. `AlertDialog` 与 `Dialog` 的外框已经共用 `.nb-ui-dialog-surface`、`.nb-ui-dialog-title`、`.nb-ui-dialog-footer` 三个 CSS 类，但行为层（Portal + 遮罩 + 叠放 + 焦点 + 关闭交接）没有共用，AlertDialog 的“不可点遮罩关闭”只是 reka AlertDialog 的语义差别。
+- **为什么是问题**：每个模态要独立保证“层级、遮罩、焦点归还、关闭交接、传送目标”五件事，现状是各缺一两件（L05、L07）。
+- **如何核实**：`grep -c "animate-in" packages/nb-ui/dist/nb-ui.css`（0）；读 `AlertDialog.vue:121`。
+- **建议改法**：抽一个内部 `ModalShell`（props：`open`、`dismissible`、`layer: "modal" | "palette" | "drawer"`、`teleportTarget`、`overlay: "dim" | "none"`；负责 Portal、遮罩、`useModalLayer`、`provide(NB_POPOVER_Z_INDEX)`、`useCloseHandoff`、`closed` 事件），四个组件都只写自己的内容；遮罩用一个 `.nb-ui-overlay` 类（`--overlay-bg`、`--overlay-blur`）+ 一对关键帧；`AlertDialog.tone` 删到 `danger | default`，或让三档真有区别（`warning` 图标/色）。AlertDialog 改成 `Dialog` 的薄包装（`role="alertdialog"`、`closeOnOverlay=false`、初始焦点在取消）也可以，前提是 `Dialog` 先加 `role` 选项。
+
+---
+
+### L17 [建议][API 形状] 表单合同不统一：`Field` 的 id/描述/无效态只对 5 个控件生效；`readonly` 只有输入类三件有；`Field` 把整个字段包进一个 `<label>`
+
+- **位置**：`components/form/field-context.ts`；读取 `useFieldContext` 的只有 `Input`、`Textarea`、`NumberInput`、`Select`、`Checkbox`；未读取：`RadioGroup`、`CheckboxGroup`、`Slider`、`ColorSwatches`、`Switch`、`ToggleGroup`、`SegmentedControl`；`components/form/Field.vue:30-45`。
+- **现象**：
+  1. `Field` 提供 `inputId`、`descriptionId`、`ariaDescribedby`、`invalid`、`required`，在 `Field` 里放 `RadioGroup` / `Slider` / `ColorSwatches` / `Switch` 时这些全部丢失：没有 `aria-describedby`、没有 `aria-invalid`、`<label for>` 指向一个不存在的元素 id。分组类控件语义上要的是 `fieldset/legend` 或 `role="group"` + `aria-labelledby`，`Field` 只有 `label` 一种形态。
+  2. `Field` 的根是 `<label>`，其中放入按钮型控件（`Select` 的触发器、`Switch`）或带自己交互的组（`ColorSwatches`），点击说明文字或空白会被 label 转发给第一个可标记元素；这是一个会对 `ColorSwatches`、`SegmentedControl` 这类带多个按钮的控件产生意外激活的结构（从代码推断，未在浏览器验证）。
+  3. `readonly`：`Input`、`Textarea`、`NumberInput`、`ColorPickerPanel` 有，`Select`、`Checkbox`、`Switch`、`Slider`、`RadioGroup`、`CheckboxGroup`、`SegmentedControl` 都没有（只有 `disabled`），一个“只读设置页”要么全部 disabled（读屏读成不可用，且样式变灰），要么调用方自己加遮罩。
+- **为什么是问题**：无障碍合同需要对所有表单控件成立才可靠；`Field` 被当成“表单控件的统一外壳”，调用方不会去核对哪些控件读它。
+- **如何核实**：`grep -ln useFieldContext packages/nb-ui/src/components -r`（5 个文件）；在 `Field` 内放 `RadioGroup` 检查 DOM。
+- **建议改法**：`Field` 增加 `as="label" | "fieldset"`（组控件自动用 `fieldset` + `legend`），并把 `useFieldContext` 的消费放进一个 `useFormControl()` 小函数，所有控件统一调用（返回 `id`、`describedby`、`invalid`、`required`、`disabled`、`readonly`）；`readonly` 作为表单控件的共同 prop 补齐到 `Select`/`Checkbox`/`Switch`/`Slider`/`RadioGroup`。
+
+---
+
+### L18 [建议][可维护性] 新增一个组件要同时改至少 6 处；`.md` 里手抄一份类型声明；`dist/nb-ui.css` 入库产物让每次样式改动都带一份 86 KB 的衍生 diff
+
+- **位置**：`src/components/<组>/<名>.vue`、`<名>.md`、`src/components/index.ts`（值导出与类型导出各一行）、`README.md`（组件清单）、`packages/neuro-book/src/plugins/lab/web/fixtures/nb-ui/<组>.ts`（Lab 场景）、`dist/nb-ui.css`；`src/dist-css.test.ts`。
+- **现象**：
+  1. 登记点：`.vue`、`.md`（frontmatter 标签必填，治理脚本检查）、`components/index.ts` 的值与类型两处、README 清单、Lab 夹具（在另一个包里）、`bun run build:css` 后提交的 `dist/nb-ui.css`（`dist-css.test.ts` 会在单测里派生 `tailwindcss` CLI 现编一份与入库产物逐字节比较，限时 60 秒）。规范审查已提到 README 清单漏登，实际原因是登记点太多且没有一处机检；`components/index.ts` 无机检（`.vue` 不在入口里不会报错，8 个内部零件靠人记）。
+  2. 52 / 53 份组件 `.md` 里各有一个手抄的 `ts` 代码块（`ButtonProps`、`DialogEmits`、`DialogSlots` 等），是 `.vue` 里 `defineProps/defineEmits` 的第二份副本。我用脚本比对其中的 prop 名与 `.vue` 的 `defineProps` 名，目前基本一致（只有 `DropIndicator`、`DropIndicatorLabel` 两份有差，是未导出的内部零件），说明现在维护得好，但没有任何检查守着。
+  3. `dist/nb-ui.css` 入库（README：因为调用方走 `github:`/`link:` 安装、没有发布步骤）。`git log -- dist/nb-ui.css` 近 8 次几乎都是跟着组件改动同提交；该测试注释自己说“忘了重建时新应用的 UnoCSS 会补出大部分工具类，截图看不出来”（L01 的同一个机制）。
+- **为什么是问题**：登记点越多，漏登概率越高；入库的衍生产物让每个 PR 的 diff 被生成物淹没、并行分支必然在这个文件上冲突。
+- **如何核实**：看 `docs/standards/code/components.md` 与 `README.md` 的新增组件步骤；`git log --oneline -8 -- packages/nb-ui/dist/nb-ui.css`。
+- **建议改法**：`components/index.ts` 由脚本生成，或改写一条治理检查“每个 `.vue` 要么在 index 里、要么在 `INTERNAL = [...]` 清单里”；`.md` 里的类型块改成 `<!-- generated -->` 区段由 `vue-tsc` 的提取工具生成（或直接删，改为链接到 `.vue`）；`dist/nb-ui.css` 若保留入库，至少在 `.gitattributes` 标 `linguist-generated` 并在合并冲突时一律重建；更好的是解决 L01 之后改为让宿主在构建时编译（`@source` 指向 nb-ui 源码），去掉产物。
+
+---
+
+### L19 [建议][耦合] 进程级共享状态与两个同名类型：`useNotification()` 默认队列、`useModalLayer` 层序、主题注册表都是模块级单例；`NotificationTone` 在两个公开入口各定义一份
+
+- **位置**：`composables/useNotification.ts:159`（`const defaultQueue = createNotificationQueue()`）；`composables/useModalLayer.ts:12`（`openLayers` 全应用一份）；`theme/theme-loader.ts:57`（`installed` Map）；`components/feedback/Notification.vue:5` 与 `composables/useNotification.ts:4`（两份 `NotificationTone`）；`components/layout/sash-feedback.ts:33-34`（按 `Document` 的 WeakMap 注入 `<style>`）。
+- **现象**：
+  1. 三个模块级可变单例没有重置入口（`useNotification` 有 `clearAll()` 但默认队列本身不可替换；`openLayers`、`installed` 没有）：测试之间要自己清（`useNotification.test.ts` 用 `clearAll()` 收尾，`openLayers`、`installed` 连这个入口都没有）；库同时提供 Nuxt 模块（`src/module.ts`），SSR 时模块级状态会在请求之间共享。（`installed` 的装载还会往文档写 fallback 层与 SVG，`installThemePacks` 的存在就是被这条全局规则逼出来的，见 L11。）
+  2. `NotificationTone = "info"|"success"|"warning"|"error"` 在 `Notification.vue`（经 `./components` 导出）和 `useNotification.ts`（经 `./composables` 导出）各写一遍；一边加语调，另一边不会报错，只有 `NotificationStack` 把两者接起来时才在类型上暴露。`BannerTone` 又是第三份同样的联合。
+  3. `OverlayScrollbar` 的 `target: HTMLElement | null` 是调用方传入的原生元素，组件在 `attach` 里直接给这个元素加 class（`nb-ui-scrollbar-none`）并监听其父元素的 pointerenter/leave（`OverlayScrollbar.vue:62-80`）：组件改了不属于自己的 DOM，且依赖“父元素要定位、与组件同一个父元素”这类文档约束（`:6` 注释），调用方漏了会静默错位。
+- **为什么是问题**：components.md 把“渲染到树外、注册全局监听、读写全局状态”算作隐藏通道、要在 `.md` 里声明理由；这些单例的存在在各自 `.md` 的标签里有写，但“进程内只有一份”这条没有出现在任何组件 `.md` 的调用方须知中。
+- **如何核实**：`grep -nE "^(const|let) .* = (shallowRef|new Map|createNotificationQueue)" packages/nb-ui/src -r`；对比两份 `NotificationTone`。
+- **建议改法**：`NotificationTone` 只在 `useNotification.ts` 定义，`Notification.vue` 从那里 import 并重导出；`useModalLayer` 的层序做成可由宿主 provide 的 `ModalLayerRegistry`，缺省才用模块单例；`OverlayScrollbar` 把 `target` 换成默认插槽包住滚动元素（组件自己渲染滚动容器），去掉对外部元素的 class 注入。
+
+---
+
+### L20 [建议][API 形状][可维护性] `Splitter` 同时是公开组件与 `NestedGrid` 的内部件：公开 props 里有“Grid 内部用”的字段，受控与独立两种模式共用一个 787 行的文件
+
+- **位置**：`components/layout/Splitter.vue:44-68`（`branchId`、`sashLineEnds`、`sashSizes`、`sizesPx`）；`components/layout/index.ts` 与 `components/index.ts`（`Splitter`、`NestedGrid`、`grid`、`grid-splitter` 同时导出）；`composables/useSashGesture.ts`（665 行）。
+- **现象**：`sashLineEnds` 的注释是“Grid 内部用：本分支的分隔线沿长轴两端挨着的外层分隔线”，`branchId` 注释“所属 Grid 的分支 id；独立使用时省略”，这些是 `NestedGrid` 传给 `Splitter` 的内部协议，却写在公开 props 里，独立使用 `Splitter`（nb-story 的 `BookFrame.vue:248`、dev-panel 的 `App.vue:366` 共 2 处）的人会看到并可能误用。两种模式：`sizesPx` 给了就是受控、不给就在自己的 scope 里分配，文件头注释写明“两种用法共用一个组件”，但两种模式的状态机（`localSizes`、`localSnapshot`、`lastState`、`collapseMotion`）在同一份脚本里交织。`components/layout` 目录合计非测试代码 6534 行（含 51 个文件），约占库内全部非测试源码 15277 行的 43%，测试 4463 行约占全部测试 9155 行的 49%；该目录对 `feedback/ controls/ form/` 等没有任何 import（检查过：0 处），是自包含的子系统。
+- **为什么是问题**：布局引擎（可序列化拆分树、sash 求解器、拖放几何）与“Button/Dialog 这类 UI 原语”不是同一种东西，体量却占库的近一半，任何只想用 Dialog 的调用方也要接受它的变更节奏；`./layout`、`./grid`、`./components` 三个入口各露出一部分（L14）也是这种混放的副作用。
+- **如何核实**：`wc -l` 与 `grep -rn "from \"\.\./\(feedback\|controls\|form\|display\|navigation\)" components/layout`（空）。
+- **建议改法**：把 `components/layout` 的 grid/sash/Splitter/NestedGrid/DropFeedbackOverlay 整体搬到独立包（例如 `packages/nb-grid`，nb-ui 从中重导出 `Splitter` 以保持调用点不变）；`Splitter` 拆成纯受控的 `SplitterPanes`（只吃 `sizesPx`）与带自己状态的 `Splitter`，`branchId`/`sashLineEnds` 只出现在前者的内部类型里。体量大、收益是长期的，优先级低于 L01 到 L05。
+
+---
+
+### L21 [建议][复用] 浮层定位有 5 套机制；级联菜单没用上游的子菜单而是手工量几何（取舍有理由，但代价需要显式算上）
+
+- **位置**：`components/feedback/menu-cascade.ts:60-129`（`computeCascadePosition`、`measureCascadePanel`）、`:43`（`clampMenuPosition`）；`composables/useMenuCascade.ts`；`composables/useAnchoredPopup.ts`（死代码，见 L14）；`components/feedback/SuggestionMenu.vue:112-140`（`autoSide` 的 rAF 轮询）；`composables/useFloatingWindow.ts`；`components/feedback/popover-anchor.ts`。
+- **现象**：同样是“把一块东西摆到锚点旁边并避让视口”，库里有：(1) reka Popper / floating-ui（DropdownMenu、Select、Popover、Tooltip、Menubar、SuggestionMenu、ColorSwatches，共 7 个）；(2) `clampMenuPosition`（右键菜单主面板，只做钳进视口）；(3) `computeCascadePosition` + `measureCascadePanel`（三个菜单的级联面板，自带翻面与钳制，用 `getBoundingClientRect` 量父项、再读 `getComputedStyle` 的 padding/border 手算尺寸）；(4) `useAnchoredPopup`（无人使用）；(5) `useFloatingWindow`（窗口拖动与夹紧）。SuggestionMenu 为了“下方还有 96px 就留在下方”用 `requestAnimationFrame` 逐帧读锚点矩形（理由在文件注释里，合理）。`measureCascadePanel` 里又有第 6 处 `$el` 解包（变体写法，`menu-cascade.ts:100`），并且量的是 client 像素直接写成 CSS `width/height`；`usePopupScroll.ts:29-36` 为 Lab 的 CSS `zoom` 专门做了 `rectScale` 换算，这里没有，所以画布缩放时级联面板的尺寸是否正确要靠 Lab 实测（从代码推断，未验证）。
+- **为什么是取舍**：`DropdownMenu.md:130` 写明级联面板“接不到上游的菜单上下文”，且产品要求的是“同级持久面板、悬停 300ms 才展开、同级切换不重开”这套交互，reka 的 `DropdownMenuSub` 做不到，所以手工级联是有理由的，不建议回退。代价是三个菜单各有一堆“指针或焦点进了级联面板不算点了外部”的补丁：`DropdownMenu.vue:85-90`（`keepOpenForCascade`）、`Menubar.vue:72-92`（`keepOpen`，三种情况）、ContextMenu 的 `@click.stop`，这些补丁形状相同但各写各的。
+- **如何核实**：读 `Menubar.vue:72-92` 与 `DropdownMenu.vue:85-90`；`grep -rn "getBoundingClientRect" packages/nb-ui/src/components/feedback packages/nb-ui/src/composables | wc -l`。
+- **建议改法**：保留手工级联，但把 “级联感知的外部判定” 与 “位置计算” 收进 L03 里建议的 `useMenuCascade`（它已持有 `panels`，应当提供 `isInside(target)`；三个入口的 `keepOpen…` 缩成一行调用）；删除 `useAnchoredPopup`；`measureCascadePanel` 加 `rectScale` 换算并补一条 Lab 缩放下的 e2e 断言。
+
+---
+
+### L22 [重要][复用] 方向键漫游与“当前项高亮”没有共用零件：库内 5 处手写、调用方 7 处手写，高亮有 3 种模型
+
+- **位置**：库内：`components/controls/Tabs.vue:69-98`、`components/controls/SegmentedControl.vue:96-125`（同一个 handler 的两份拷贝）、`components/feedback/ContextMenuPanel.vue:44-100`、`composables/useMenuCascade.ts:69-113`（L03）、`components/feedback/QuickPick.vue`（`onPanelKeydown` + `form/option-highlight.ts`）；调用方：`packages/neuro-book/src/plugins/projects/web/components/ShelfCards.vue:90`、`FileBrowser.vue:91`、`src/ui/settings/SettingsPageList.vue:43-47` 与 `plugins/settings/web/components/SettingsWindow.vue:69-73`（两份几乎逐字相同）、`plugins/editor/web/components/EditorTabBar.vue:131-141`、`plugins/explorer/web/tree/keys.ts`、`packages/dev-panel/src/web/parts/PanelNav.vue:93-96`。
+- **现象**：
+  1. `Tabs.handleKeydown` 与 `SegmentedControl.handleKeydown` 都是“取启用项 → 方向键/Home/End 算下标并取模 → 选中 → `nextTick` 后按 `data-*` 找到按钮聚焦”，只在细节上分叉（Segmented 响应上下键、无选中项时从头/尾开始；Tabs 只响应左右）。reka 已作依赖，`RovingFocusGroup`、`TabsRoot`、`RadioGroupRoot` 都提供这套漫游，nb-ui 的 `RadioGroup`、`ToggleGroup` 用的是 reka，`Tabs`、`SegmentedControl` 却自己写。
+  2. 调用方手写了 7 份“上下键/Home/End 在列表里移动并聚焦”的 handler（`ShelfCards`、`FileBrowser`、`SettingsPageList`、`SettingsWindow`、`EditorTabBar`、`ExplorerTree` 的 `keys.ts`、`PanelNav`），其中 `SettingsPageList` 与 `SettingsWindow` 的实现逐字相同。库没有给“竖向单选列表 / 网格选择”这类零件（`Tree`、`Tabs` 之外），所以每个页面自己写 `role="listbox"` + `tabindex="0"`/roving。
+  3. “当前项”高亮有 3 种模型：焦点即高亮（`MenuNodes` 的按钮分支用 `focusedIndex` 复制 reka 的做法；reka 项自己挂 `data-highlighted`）；`aria-activedescendant` 加宿主控制的 `activeId`（`QuickPick`、`SuggestionMenu`，焦点留在输入框）；原生 `Select` 的 reka 内部模型。三者的 DOM 标记统一到 `data-highlighted`，但“谁来移动高亮”“指针移动是否抢高亮”（`SuggestionMenu.onPointermove` 发 `highlight`，`MenuNodes` 聚焦元素，`QuickPick` 另写）各不相同；`moveHighlight` 只被 QuickPick 使用，却放在 `form/option-highlight.ts`（头注释写“QuickPick 等共用”），`SuggestionMenu` 要求宿主自己用 `suggestionMenuOptions` 实现上下键（`suggestion-menu.ts` 注释），neuro-book 的 `PromptEditor.vue` 里确实有一份。
+- **为什么是问题**：键盘合同在 ≥12 个地方各自维护；每一处对“循环 / 夹住”“禁用项”“IME 组合输入”“RTL”的处理略不同（`SettingsPageList` 夹在两端，`Tabs` 循环），同一个应用里列表导航手感不一致，也无法一次性修一个 bug。
+- **如何核实**：`grep -rln "ArrowDown" packages/nb-ui/src packages/neuro-book/src packages/dev-panel/src | grep -v test`；对比 `Tabs.vue:69-98` 与 `SegmentedControl.vue:96-125`。
+- **建议改法**：加一个纯函数 `moveRoving(items, current, key, {loop, orientation})` 到 `utils`（或直接用 reka 的 `RovingFocusGroup`），`Tabs`、`SegmentedControl`、`useMenuCascade`、`QuickPick`、`SuggestionMenu` 的宿主指引都改用它；再补一个公开的 `ListNav`/`Listbox` 零件（单选竖向列表，roving 或 activedescendant 两种焦点模式二选一）吃掉 `ShelfCards`、`FileBrowser`、`SettingsPageList`、`SettingsWindow`、`PanelNav` 五份。`option-highlight.ts` 移到 `utils/` 并改名 `roving.ts`。
+
+---
+
+### L23 [建议][API 形状] 选项类控件的值类型写死为 `string`：`Select`、`RadioGroup`、`Tabs`、`CheckboxGroup` 都不是泛型，调用方自己做序号映射
+
+- **位置**：`components/form/Select.vue:30-40,45`（`SelectOption.value: string`、`modelValue: string` 默认 `""`）；`form/RadioGroup.vue`、`controls/Tabs.vue:12,28`、`form/CheckboxGroup.vue`（`string` / `string[]`）；`controls/SegmentedControl.vue:15-30`（`SegmentedControlValue` 联合）；全库只有 `Table`（`Row`）和内部的 `MenuNodes` 用了 `generic=`；调用方：`packages/neuro-book/src/plugins/settings/web/components/SettingsControl.vue:35-41`。
+- **现象**：`SettingsControl` 的下拉选项值是任意字面量（数字、布尔、字符串），因为 `Select` 的值只能是字符串，它用选项**序号**当值、选中后再换回字面量（注释原话：“下拉的值只能是字符串：用选项的序号作值，选中后换回字面量”），分段选择则把值强转 `as SegmentedControlValue`。`Select` 用空串表示“未选择”，所以值为 `""` 的合法选项无法表达；`SegmentedControl` 的值类型却是联合 `string | number | boolean | null`（`SegmentedControl.vue:13`），同类控件的值类型各写各的（`string`、`string | number | boolean | null`），都没有泛型；`SegmentedControlOption` 里还有 `testId`（测试钩子进了公开数据形状）。
+- **为什么是问题**：每个想用非字符串值的调用方都要写一遍“序号映射”，且映射出错时没有类型保护；`""` 作为哨兵让空字符串选项（常见的“无”）不可用。
+- **如何核实**：读 `SettingsControl.vue:35-41`。
+- **建议改法**：`Select<T extends string | number | boolean = string>`、`RadioGroup<T>`、`Tabs<T>` 加泛型，`modelValue?: T | null`（`null` 表示未选择），内部用 `String(index)` 与 reka 交互；`SegmentedControlValue` 改成同一个 `T`。`SettingsControl` 的序号映射随之可删。
+
+---
+
+### L24 [建议][可维护性] 弹出列表一族（t04 整理后）的文件散在 5 个目录，目录分类与依赖方向对不上；`composables/` 反向依赖 `components/`
+
+- **位置**：`components/controls/{DropdownMenu,Menubar,MenuNodes,MenuLevelPanel}.vue` 与 `dropdown-menu.types.ts`、`components/feedback/{ContextMenu,ContextMenuPanel,QuickPick,SuggestionMenu,menu-cascade.ts,popover-anchor.ts,suggestion-menu.ts,context-menu.types.ts}`、`components/form/{Select.vue,option-highlight.ts}`、`components/layout/{PopupViewport,PopupScrollbar}.vue`、`composables/{useMenuCascade,usePopupScroll,usePopoverLayer}.ts`；反向依赖：`composables/useMenuCascade.ts:2` 导入 `../components/feedback/menu-cascade`，而 `menu-cascade.ts:1` 又导入 `../../composables/usePopupScroll`。
+- **现象**：t04 把六个弹出列表收成一套（行、滚动、截断），但文件仍按“控件 / 反馈 / 表单 / 布局”的分类摆放。`feedback/ContextMenuPanel` 导入 `controls/MenuNodes` 与 `controls/MenuLevelPanel`；`controls/DropdownMenu` 导入 `feedback/popover-anchor`；`form/Select` 与 `feedback/QuickPick` 导入 `layout/PopupScrollbar`；`feedback/QuickPick` 导入 `form/option-highlight`；`PopupScrollbar` 放在 `layout/` 却是弹出列表专用；上面 15 条跨目录导入里 11 条属于这一族。`composables/` 本应是被 `components/` 依赖的底层，`useMenuCascade` 却向上依赖 `components/feedback/menu-cascade`。
+- **为什么是问题**：想理解或修改“弹出列表”的人要在 5 个目录之间跳，同名 `.md` 与 `index.ts` 的登记也分散；`composables → components` 的反向导入使 composable 无法脱离组件目录单独测试或复用，也是 L03 里“键盘逻辑拆不进 composable”的结构原因之一。
+- **如何核实**：`grep -rn "from \"\.\./\(controls\|feedback\|form\|layout\)" packages/nb-ui/src/components` 只有 15 行，其中 11 行属于上述文件。
+- **建议改法**：新建 `components/popup/`，把 `components/` 下的这 17 个文件（`controls/` 的 5 个含 `dropdown-menu.types.ts`、`feedback/` 的 8 个、`form/` 的 2 个、`layout/` 的 2 个）移入（`index.ts` 的导出路径随之改，公开名字不变）；`menu-cascade.ts` 的纯几何部分移到 `composables/` 同级的 `utils/popup-geometry.ts`，使依赖单向为 `components → composables → utils`。这一条是机械搬迁，应放在 L03/L04 之前做，之后的合并 diff 才干净。
+---
+
+## 主题与 token、打包与导出（各一两句，不单列编号）
+
+- **主题与 token 的扩展方式**：新增一个 token 要同时改三处——`src/tokens.css`（取值）、`src/theme/tokens.ts`（名单，靠 `tokens.test.ts` 兜底）、有配色含义的还要改 `colorway/colorway-contract.ts`；组件里新引用的变量没有任何检查（L09 已有一个无声明的 `--overlay-scrim`）。主题是 `manifest.ts + vars.css + index.ts` 三件套，靠 `:root[data-nb-theme]`（特异性 0,2,0）压过 `:root` 基线，这个机制本身干净；问题在两头：入口处要求宿主自己写 `data-nb-theme` / `data-nb-appearance` 属性（L11），出口处 Tailwind 主题键与 nb-ui token 同名（`--text-sm`、`--leading-tight`、`--font-mono`，L01）。`colorway-contract.ts:9`、`presets.ts:8` 的注释仍写“与 NeuroBook 主仓 `app/utils/theme/` 对齐、主仓那份是事实源”，旧应用已冻结，事实源指向过期。Lab 因为库里的表面角色（`--toolbar-surface` 30%、`--sidebar-surface` 26%、`--overlay-surface` 14%）透明度低于可读下限而自建了 `--lab-surface`（`lab-shell.css:15-70`），`docs/proposals/nb-ui-surface-model.md` 已立项，属于已知缺口。
+- **打包与导出**：13 个 `exports` 项。neuro-book 与 nb-story 对 nb-ui 的导入共 184 处，全部走包名与公开入口，我没有找到任何深导入 `nb-ui/src/*`，这一点是合格的；`@notnotype/nb-ui/lab-sources` 把“按目录结构 glob 文档”的需求收在库里，也是对的做法。问题集中在入口之间的子集重叠与内部件外露（L14）、Nuxt 模块的自动导入面（L14）、`styles.css` 产物与宿主 CSS 的先后依赖（L01、L18）。库的注册表里还夹着宿主专用档位：`NB_Z_INDEX.inspectorProbe`（Lab 检查框）、`dragFeedback`（工作台拖影）、`provideTeleportTarget` 的 `contained` 选项（Lab 画布），这些是“宿主要把库组件收进某个容器”的通用需求被用宿主名字登记，建议改成中性命名（`overlay-probe`、`scoped-root`），不影响行为。
+
+## 未发现问题的方面
+
+- **对 reka-ui 的耦合没有泄漏进公开 props 与类型**：公开 API 里没有 reka 类型；`DropdownMenu.contentProps`（`Record<string, unknown>`）是唯一的透传口，且 0 处使用（L10）。内部有 4 处依赖 reka 的私有细节——`Dialog.vue:308` 读 `[data-dismissable-layer]`、`SuggestionMenu.vue` 的 `stripDialogSemantics` 去掉 Popover 写死的三个属性、`ColorSwatches.vue:79` 的 `injectListboxRootContext`、`Menubar.vue` 对 `MenubarRoot` 事件类型的收窄——`SuggestionMenu.test.ts` 已有“reka 升级后会失败”的守卫，其余三处我没有逐一核实有无对应的守卫测试，`reka-ui` 依赖写的是 `^2.10.1`（可升次版本），升级时需要把这四处列入核对清单。
+- **库内业务数据模型**：组件 props 里没有 NeuroBook 的数据概念（章节、作品、会话等）；残留只在注释与 CSS 注释里（L02 的“设置外壳、Provider 导轨、Agent Profile”，`Tree.vue:101` 的“章节树”举例），不影响 API。
+- **能力标签与源码的一致性**（`components.md` 的明面/隐藏通道规则）：用脚本按“Teleport/Portal、inject、document/window 监听”启发式比对 53 份 `.md` 的 `标签:`，只有 3 份缺 `state:inject`（`AlertDialog.md`、`Drawer.md`、`QuickPick.md`，它们读 `useTeleportTarget`/`useModalLayer`），其余一致。
+- **既有测试**：`bun run --cwd packages/nb-ui typecheck` 退出 0；`test` 为 498 项全过（10 秒）；`dist-css.test.ts` 能守住产物过期。测试里有 48 处 `.classes()` 断言（`components.test.ts` 39、`form-controls.contract.test.ts` 9），其中约 9 条断言 Tailwind 工具类字面量（如 `bg-[var(--status-danger)]`、`hover:text-[var(--status-danger)]`），做 L01 的类名改造时会成片失败，需要改成断言计算样式或语义类。
+- **上一轮文档审查已覆盖的条目**（未重复）：SPEC/DL/AT/README 与代码的不一致、Tooltip 无尖角、`useDropdownSurfaceStyle` 的 JS 常量第二登记处（F10、F43，本报告 L07 只在层级角度提到 `popoverInlineSurfaceStyle` 周边）、Checkbox/Badge/浮层投影数值等。
+
+## 各级数量
+
+- **重要 11 条**：L01、L03、L04、L05、L07、L09、L10、L11、L12、L14、L22
+- **建议 13 条**：L02、L06、L08、L13、L15、L16、L17、L18、L19、L20、L21、L23、L24
+- 合计 24 条（类别见各条标题，一条可能同时属于两类）。
+
+## 按影响排序的索引
+
+1. 耦合与 API 合同（先看）：L01（产物与宿主 CSS 同名竞争）→ L09（`--overlay-scrim` 未声明，现成缺陷）→ L07（Drawer 内浮层层级、`tooltip` 档无人使用）→ L05（打开态与关闭原因词表）→ L12（Dialog 靠监听器有无改行为）→ L10（尺寸/语调/方向词表）→ L14（入口外露与 Nuxt 模块）。
+2. 复用与可维护性：L22（键盘漫游）→ L03（级联菜单键盘/滚动三份）→ L04（弹出列表行与数据形状）→ L11（主题应用流程三份）→ L16（模态外壳）→ L21（定位机制）→ L06（滚动条与 token）→ L24、L02、L18、L20。
+3. 其余：L08、L13、L15、L17、L19、L23。
+
+## 建议的整改顺序
+
+1. **先做两件小而独立、没有争议的事（一个提交各一条）**：L09（修 scrim + 给 `token-consumption.test.ts` 加“用到的变量必须有声明”一条）和 L02 + L14 的死代码/死依赖/Nuxt 自动导入范围（删 `useAnchoredPopup`、`useResizablePanel`、`resolveApiErrorMessage`、`focus-trap.ts`、`class-variance-authority`、10 组死 CSS、`html { scrollbar-gutter }`；Nuxt 模块改按导出登记）。L07 第 1、3 点（`Drawer` 补 provide 与 `useModalLayer`、`Popover`/`Tooltip` 改用 `usePopoverLayer`）也是十几行的修复，可并入同批。
+2. **L01 单独成一轮（含 L18 的产物、L06 的滚动条 token、L02 的 html 规则）**：它决定组件模板怎么写（原子类用什么前缀、产物进不进 `@layer`），后面所有组件改造的测试断言、`dist` 与宿主的 `uno.config.ts`/`app.css` 都受它影响，所以放在大规模改 API 之前。做之前先定“是前缀化还是进 layer”（L01 建议改法二选一），并同时改 48 处类名断言。
+3. **L24（目录搬迁）→ L03/L21/L22/L04（菜单与列表零件）**：先把 17 个文件搬进 `components/popup/`，再依次合并 `useMenuCascade` 与 `ContextMenuPanel` 的键盘（L03）、抽出 `moveRoving`（L22）、抽出 `MenuRow` 与统一 item 形状（L04）；这四条改的是同一批文件，同一个 worktree 里连做，最后一次性跑 `popup-lists.spec.ts`、`popup-scroll.spec.ts` 两个 e2e。
+4. **L05 + L10 + L08 + L12 + L16 作为一次“公开 API 对齐”**（都是破坏性改名，调用方要一起改；`Dialog`、`AlertDialog`、`Drawer`、`QuickPick` 的 `ModalShell` 与关闭原因/`open` 命名同时落地，否则会改两次）。这批会影响 neuro-book 126 个调用点，需要提前列迁移表，并保留一个版本的旧名别名。
+5. **可并行、互不阻塞**：L11（主题 helper，三个宿主各删约 30 行）；L13 + L23（`NumberInput` 数值化与选项泛型，一起做才能删 `SettingsControl` 的转换）；L17（表单合同）；L19、L15、L20 放在最后，L20（拆出布局引擎包）体量最大、收益最长远，建议单独立 Work。
