@@ -35,7 +35,11 @@ updated: 2026-10-20
 
 - 可维护性整理（`53047e3ff`，开发者 2026-10-20 同意）：`x-form` 的形状收成一份 TypeBox schema（`hints.ts`），读取与检查共用；“哪种字段能写哪个控件”收成 `model.ts` 的一张表，`selectWidget` 与检查共用；共用守卫放 `guards.ts`，`fromPointer`、TypeBox 路径写法放 `path.ts`；校验拆成 `walkJson`、`walkObject`、`ownerOf` 等有名字的步骤，三处读 TypeBox 错误共用 `codeOf`。91 例通过，10 处变异检查都被测试拦下。omp 实现审查（[evidences/impl-review-refactor-omp.txt](evidences/impl-review-refactor-omp.txt)，9 条：重要 5、建议 4），`a06ffd603` 处理：引用字段里对象的必填与额外属性归到该字段（原来被整值检查丢掉，非法值零问题）；JSON 字段里不满足普通联合报新码 `no-match`，`not-in-choices` 只留给选项；写了却没生效的内建控件都报 `widget-mismatch`（检查对照选中的结果，控件表不再公开）；文字字段有 `options` 时写的 `select`、`search-select` 生效；`FormHints` 的数组与数组项都只读；`readHints` 仍收 schema；`schema-walk` 用共用守卫；补空多语言文字与非整数行数的测试。属性名带 `/` 时整值检查的去重有歧义（第 2 条）接受为限制：值仍至少有一条问题，写进注释。Spec 输出 2、8 与失败码表同步。93 例通过，8 处变异检查都被拦下。
 
-S2 起等 w00029 t04 合入 master。
+- 2026-10-20 合入 master（`da4e006af`，见 Work 的“分支”一节），合进来的 master 已含 w00029 t04，S2 起开工。
+- S2a（`a578d7d9c`）：`Field` 加组形态（根是 `div`，标题带 id），上下文加 `labelId`，`useFieldContext`、`NB_FIELD_CONTEXT_KEY`、`FieldContext` 从 `@notnotype/nb-ui/components` 导出；`RadioGroup`、`CheckboxGroup` 的组根读上下文写 `id`、`aria-labelledby`、`aria-describedby`、`aria-invalid`，`CheckboxGroup` 补 `role="group"`（Reka 的根不带角色，没有它 `aria-labelledby` 不算组名）并用 null 盖住给组里复选框的上下文；`Switch` 去掉缺省名称“开关”，id 取上下文的 `inputId`；`SegmentedControl` 根改 `role="radiogroup"`、去掉 `aria-pressed`。`RadioGroup` 本来就有横排，计划里的“加横排”不用做。
+  - 影响清单：`Field` 的调用方 dev-panel 的 `NewWorkForm`、`NewTaskForm`（包着单选组的两处改成组形态，名字从读不出变成字段标签）、`AnswerForm`、应用的 `ProjectInfoDialog`，普通形态不变；`Switch` 的四处调用方（dev-panel `DocsSidebar`、应用的 `SettingsControl`、`PluginsPage`、Lab 的 `SampleSnippetsPage`）都自己给名字，不变；`SegmentedControl` 的二十多处调用方只按属性用，依赖旧 `role="group"`、`aria-pressed` 的只有 nb-ui 自己的一条测试，已按新角色改；`CheckboxGroup`、`RadioGroup` 只有 dev-panel 用（`QuestionControl` 不在 `Field` 里，接入低代码时再命名，见 w00022 followups）。
+  - 验证：nb-ui 502 例（新 `field-names.test.ts`，3 处变异都被拦下）、dev-panel 461 例、nb-story 284 例与各自类型检查；应用类型检查、Vitest 382 例；设置、书架、nb-ui Lab、插件、Lab 场景五组 e2e 28 例。
+  - 偏离计划：可访问名称在组件测试里核对 `aria-labelledby` 指向的元素与文字，没有写 Lab 的 Playwright 用例（Lab 场景的插槽只有一份预设内容，做不出组形态的场景）。
 
 ## 下一步
 
