@@ -1,6 +1,6 @@
 # 实施计划：设置补齐（t02）
 
-2026-10-20 起草，待开发者确认。依赖排在它之前的低代码 Task（待建，见“前置：低代码”）。
+2026-10-20 起草；同日按 t07（低代码）的接口修订，开发者 2026-10-20 同意先做不依赖表单控件的切片（S0 的相关部分、S1、S2、S6）。
 
 ## Context
 
@@ -10,16 +10,15 @@
 - Spec：[`settings/configuration.md`](../../../../../docs/specs/settings/configuration.md)（输出 1、11、19、20 与“声明”“接口”两节）、[`settings/settings-window.md`](../../../../../docs/specs/settings/settings-window.md)（输出 1–9、14、18）、[`runtime/plugins.md`](../../../../../docs/specs/runtime/plugins.md) 输出 21（拥有者定义的激活事件）、[`runtime/plugin-api.md`](../../../../../docs/specs/runtime/plugin-api.md)（密钥、`secret-unreadable`）。
 - 开发者 2026-10-20 的决定：t02 提前到 t04 之前、不并行，在 Work 分支 `feat/w00027-plugin-platform` 上做；密钥本轮就做，方案 A（加密存状态根，主密钥放系统密钥库，没有时退回状态根下只有本人可读的密钥文件）；排版设置只做 Monaco，Markdown 正文留给 w00025；外观收口另在 t06；“低代码”做宽、整个项目共用一套，排在 t02 之前先实现。
 
-## 前置：低代码
+## 前置：低代码（t07）
 
-t02 不自己写控件。设置的 list 分区、`SettingsRow` 里的控件，改由低代码 Task 提供的表单渲染器按 schema 画。t02 假定低代码提供（具体接口以那个 Task 的计划为准，定下来后回改本计划）：
+t02 不自己写控件。设置窗口改用 [t07](../t07-low-code-forms/plan.md) 的 `@notnotype/nb-form`（行为合同 [`ui.forms`](../../../../../docs/specs/ui/forms.md)）：
 
-- 按 JSON Schema（TypeBox）加界面提示画一个值的编辑控件：布尔、字面量联合（分段或下拉）、数字、单行与多行字符串、字符串数组、对象数组、对象、兜底的 JSON 编辑；
-- 选项由调用方在运行时给出（动态选项）；
-- 草稿与校验：控件给出“当前草稿是否合 schema”与错误位置；
-- 控件类型可以由使用方登记扩展（密钥控件由 t02 登记）。
+- 设置窗口的通用列表与 `SettingsRow` 里的控件改用 `SchemaField`（`bare` 形态），删掉 `SettingsControl`：这一步在 t07 的 S5 做；短选项从分段控件改为横排 `RadioGroup`（`ui-development-spec.md` 4.5）。
+- 本计划用到的 t07 能力：多行、数组、对象与 JSON 的编辑（`ui.forms` 输出 1、2）；密钥输入 `SecretInput` 与带外状态 `meta`（输出 10、31）；动态选项源（输出 11、12）；草稿与提交（输出 15、16）。
+- 配置项的声明经适配器转成 schema 与 `x-form`：`choices` → `x-form.choices`，`choices.from` → `x-form.options`，`secret: true` → `writeOnly`，`ui` → `x-form` 的其余键。
 
-本计划里凡写“低代码渲染”的地方都指它。
+先后：S1、S2、S6 不依赖 t07 的界面，现在做；S3、S4、S5、S7 等 t07 完成后做。
 
 ## 关键设计
 
@@ -104,7 +103,7 @@ page 分区之外，窗口给每一层一个“设置文件（JSON）”视图�
 ## Spec 与文档改动
 
 - `settings/configuration.md`：声明字段（`secret` 规则、`choices.from`、`ui`）；`defineSettings`；输出 20 密钥从 planned 写成完整合同（存储、主密钥、`keyStore`、迁移、接口、远程合同 v2）；接口一节加 `secretStatus`、`readSecret`；失败码加 `secret-unreadable`；拥有者的 `readText`、`writeText`。
-- `settings/settings-window.md`：分区拆成 `settings.sections`（list，顶层）与 `settings.pages`（page，入口）；输出 4、5 加按需激活；输出 9 的控件改为“由低代码按 schema 与 `ui` 画”，去掉两条 planned；新增搜索、设置文件视图、未保存保护、动态选项、密钥项的输出条目；“不承诺”删去已做的搜索、密钥界面、打开设置文件。
+- `settings/settings-window.md`：分区拆成 `settings.sections`（list，顶层）与 `settings.pages`（page，入口）；输出 4、5 加按需激活（S1 时改）；输出 9 的控件改由 `ui.forms` 选择（t07 S5 时改）；新增搜索、设置文件视图、未保存保护、动态选项、密钥项的输出条目，“不承诺”删去这几项（随 S3–S5 改）。
 - `runtime/plugin-api.md`：密钥的读取改写成 `readSecret`。
 - 组件文档：`SettingsRow.md`、`SettingsControl.md`（或被低代码取代后删除）、`SettingsWindow.md`、`SettingsListSection.md`。
 - `examples/README.md` 与示例 snippets 的讲解：`defineSettings`、`settingsPage`、`onSettingsPage`。
@@ -113,16 +112,16 @@ page 分区之外，窗口给每一层一个“设置文件（JSON）”视图�
 
 | 片 | 内容 | 关键设计 | 自跑验证 |
 |---|---|---|---|
-| S0 | 改两份 Spec 与 plugin-api | Spec 改动 | `docs:check` |
+| S0 | 改两份 Spec 与 plugin-api：现在只改 S1、S2、S6 涉及的条目，其余随各自的切片改 | Spec 改动 | `docs:check` |
 | S1 | 声明 API 与分区拆分、`settingsPage`、按需激活 | 声明 API；分区；页面拿到服务；按需激活 | 设置的合同测试、`sections.test.ts`、示例场景测试 |
 | S2 | 密钥存储与接口（先实测密钥库） | 密钥 | 真实文件系统与真实进程的测试；密钥库的实测记进证据 |
-| S3 | 设置控件改用低代码，密钥控件、动态选项 | 前置；密钥；动态选项 | Vitest、Lab 截图 |
-| S4 | 未保存保护、搜索 | 未保存保护；搜索 | Vitest、Lab |
-| S5 | 设置文件视图 | 设置文件视图 | 拥有者测试、Vitest |
+| S3 | （t07 之后）密钥控件接入设置窗口、动态选项 | 前置；密钥；动态选项 | Vitest、Lab 截图 |
+| S4 | （t07 之后）未保存保护、搜索 | 未保存保护；搜索 | Vitest、Lab |
+| S5 | （t07 之后）设置文件视图 | 设置文件视图 | 拥有者测试、Vitest |
 | S6 | Monaco 排版设置、显示清单文件 | Monaco；资源管理器 | 编辑器与资源管理器测试 |
-| S7 | Lab“模型服务”示例、e2e | Lab 示例 | `settings.e2e.ts` 扩充 |
+| S7 | （t07 之后）Lab“模型服务”示例、e2e | Lab 示例 | `settings.e2e.ts` 扩充 |
 
-每片一个提交，在 Work 分支上；S3 与 S7 之后各一轮实现审查（后端交 omp，界面交 Sonnet）。
+每片一个提交，在 Work 分支上；S2 之后交 omp 审查（声明 API、分区拆分、按需激活与密钥存储），S7 之后再一轮（后端交 omp，界面交 Sonnet）。
 
 ## 验收映射
 
