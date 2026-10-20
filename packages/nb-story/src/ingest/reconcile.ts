@@ -11,7 +11,8 @@ import type {Dataset} from "../core/dataset";
 import {visibleAt as visible} from "../core/position";
 import type {RawDraft} from "./draft-tools";
 
-export interface ReconcileInput { draft: RawDraft; chapter: number; paragraphs: string[]; prior: Dataset | null; structural: string[] }
+/** `features`：这本书关掉的类不开对应的条目（docs/specs/story/ingest.md 输出 18）；不给时两项都开，清单与原来逐字相同。 */
+export interface ReconcileInput { draft: RawDraft; chapter: number; paragraphs: string[]; prior: Dataset | null; structural: string[]; features?: { ledger: boolean; secrets: boolean } }
 export interface Checklist { items: string[]; counts: Record<string, number> }
 
 const LIMITS = { 对账: 8, 任务: 5, 归属: 8, 身份: 4, 工具: 3 };
@@ -42,6 +43,7 @@ const snippet = (text: string, keyword: string, width = 28): string => {
 
 export function buildChecklist(input: ReconcileInput): Checklist {
     const { draft, chapter, paragraphs, prior } = input;
+    const features = input.features ?? { ledger: true, secrets: true };
     const items: string[] = [];
     const counts: Record<string, number> = {};
     const push = (kind: keyof typeof LIMITS | "结构", text: string) => {
@@ -74,13 +76,14 @@ export function buildChecklist(input: ReconcileInput): Checklist {
     // 对账：原文里带钱数、粉丝数的段落，账本里要有记录引用它。量的名字来自已有的账本，再加上这本书一定会出现的“神典石”。
     const trackWords = new Set<string>(["神典石", "粉丝", "关注者"]);
     if (prior) for (const entry of prior.ledger) if (entry.running !== undefined) trackWords.add(entry.track);
-    paragraphs.forEach((text, index) => {
+    // 关掉数值的书不对账：草稿里本来就不该有 ledger（编译前已去掉），对账只会要求写被关掉的记录。
+    if (features.ledger) paragraphs.forEach((text, index) => {
         const paragraph = index + 1;
         const word = [...trackWords].find(item => text.includes(item));
         if (!word || !NUMBER.test(text) || ledgerParas.has(paragraph)) return;
         push("对账", `第 ${chapter}.${paragraph} 段提到“${word}”和数字（${snippet(text, word)}），账本里没有引用这一段的记录：是余额、收入、支出或购买就补一笔 ledger；不是就在 skip 里说明。`);
     });
-    paragraphs.forEach((text, index) => {
+    if (features.ledger) paragraphs.forEach((text, index) => {
         const paragraph = index + 1;
         if (!text.includes("任务") || !TASK_HINT.test(text) || taskParas.has(paragraph)) return;
         push("任务", `第 ${chapter}.${paragraph} 段提到任务（${snippet(text, "任务")}），没有任务进度记录引用这一段：有发布、接受、进展或完成就记一条 track 为“任务：任务名”的 ledger；不是就 skip。`);
@@ -120,7 +123,7 @@ export function buildChecklist(input: ReconcileInput): Checklist {
         if (!IDENTITY_HINT.test(text) || identityParas.has(paragraph)) return;
         const hit = allNames.filter(name => text.includes(name));
         if (new Set(hit).size < 2) return;
-        push("身份", `第 ${chapter}.${paragraph} 段像是在把两个身份连起来（${snippet(text, hit[0]!)}），但没有 identity 说法引用这一段：确实揭示了身份就补 identity 说法、建秘密并写知情；不是就 skip。`);
+        push("身份", `第 ${chapter}.${paragraph} 段像是在把两个身份连起来（${snippet(text, hit[0]!)}），但没有 identity 说法引用这一段：确实揭示了身份就补 identity 说法、${features.secrets ? "建秘密并写知情" : "写指向它的知情"}；不是就 skip。`);
     });
 
     // 工具写成了消耗：use 只用于用掉就没有的东西。

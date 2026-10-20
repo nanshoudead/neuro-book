@@ -140,7 +140,7 @@ async function extractAll(options: JobOptions, ledger: Ledger, markChapter: (cha
         options.onEvent({type: "chapter", chapter, total});
         const run = chapterRun(options, chapter, checkStop, ledger);
         const sources = sourcesThrough(chapter);
-        const result = await extractChapter({source: source.chapters[chapter - 1]!, prior, compileWith: candidate => compile(book, sources, [...data.drafts, candidate], data.consolidations)}, run);
+        const result = await extractChapter({source: source.chapters[chapter - 1]!, prior, features: book.features, compileWith: candidate => compile(book, sources, [...data.drafts, candidate], data.consolidations)}, run);
         const drafts = [...data.drafts, result.draft];
         let consolidations = data.consolidations;
         let dataset = result.dataset;

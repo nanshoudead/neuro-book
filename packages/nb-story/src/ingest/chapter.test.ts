@@ -21,7 +21,7 @@ import type {Dataset, SourceChapter} from "../core/dataset";
 import {consolidate, extractChapter, IngestBadReply, type ChapterRun, type Step} from "./chapter";
 import {compile, sourceChapter} from "./compile";
 import {recallCandidates, renderContext} from "./context";
-import type {RawDraft} from "./draft-tools";
+import {stripDisabled, type RawDraft} from "./draft-tools";
 import {ModelAborted, ModelError, RETRY_DELAYS_MS, type Attempt} from "./model";
 import {RECALL_LIMIT} from "./recall";
 
@@ -132,6 +132,51 @@ describe("回放前 10 章（输出 4、7）", () => {
         // 实际发出的请求与 t10 合入时逐字相同。
         expect(requestHashes(requests)).toEqual(await requestBaseline("replay-ch001-010"));
     }, 120_000);
+});
+
+describe("按书关闭数值与秘密（输出 18）", () => {
+    // 第 4 章录下的回复里四类都有：数值 5 条、秘密 1 个（一条说法挂在它上面）、指向秘密的知情 3 条、指向说法的知情 4 条、疑问进展 4 条。
+    const combos = [
+        {ledger: false, secrets: true},
+        {ledger: true, secrets: false},
+        {ledger: false, secrets: false},
+    ];
+    for (const features of combos) {
+        test(`数值${features.ledger ? "开" : "关"}、秘密${features.secrets ? "开" : "关"}：关掉的那类不进书，开着的照旧；指向说法的知情与疑问进展都在；去掉的条数记进说明、不算丢弃；请求里没有关掉那类的条目`, async () => {
+            const sample = await sampleDataset();
+            const final = await gunzipJson<{drafts: RawDraft[]}>("run-med-100-final.json.gz");
+            const book = {...sample.book, features};
+            const sources = (through: number) => sample.sources.filter(source => source.chapter <= through);
+            const priorDrafts = final.drafts.slice(0, 3).map(draft => stripDisabled(draft, features).draft);
+            const prior = compile(book, sources(3), priorDrafts).dataset;
+            const played = replay(await loadReplay());
+            const {run, requests} = serve(played.responder, () => played.seen.at(-1));
+            const result = await extractChapter({source: sample.sources[3]!, prior, features, compileWith: candidate => compile(book, sources(4), [...priorDrafts, candidate])}, run);
+            expect(played.unknown).toEqual([]);
+
+            const own = <T extends {id: string}>(items: T[]) => items.filter(item => item.id.startsWith("l4-") || item.id.startsWith("x4-") || item.id.startsWith("k4-") || item.id.startsWith("s4-"));
+            const ledger = own(result.dataset.ledger).length;
+            const secrets = own(result.dataset.secrets).length;
+            const knowledge = own(result.dataset.knowledge);
+            expect({ledger: ledger > 0, secrets: secrets > 0}).toEqual(features);
+            expect(own(result.dataset.statements).some(item => item.secret !== undefined)).toBe(features.secrets);
+            expect(knowledge.some(item => item.about.startsWith("s"))).toBe(true);
+            expect(knowledge.some(item => item.about.startsWith("x"))).toBe(features.secrets);
+            expect(result.dataset.questions.some(question => question.updates.some(update => update.at.chapter === 4))).toBe(true);
+            expect(result.dropped).toBe(0);
+            expect(result.notes).toEqual([expect.stringMatching(/^按书的设置去掉了/u)]);
+            if (!features.ledger) expect(result.notes[0]).toContain("5 条数值记录");
+            if (!features.secrets) expect(result.notes[0]).toContain("1 个秘密");
+            expect(result.remaining.some(issue => issue.code === "secret-missing")).toBe(false);
+
+            const draft = requests.find(request => request.key === "4:draft")!.user;
+            const later = requests.filter(request => /^4:(review|repair)/u.test(request.key)).map(request => request.user).join("\n");
+            expect({ledgerNote: draft.includes("这本书不记数值"), ledgerItem: draft.includes("- 账本："), reconcile: later.includes("[对账]")}).toEqual({ledgerNote: !features.ledger, ledgerItem: features.ledger, reconcile: later.includes("[对账]") && features.ledger});
+            expect({secretNote: draft.includes("这本书不记秘密"), secretItem: draft.includes("本章有没有新的秘密"), askSecret: later.includes("建秘密")}).toEqual({secretNote: !features.secrets, secretItem: features.secrets, askSecret: later.includes("建秘密") && features.secrets});
+            // 已有记录里不列关掉的那一节。
+            expect({secrets: draft.includes("## 秘密与知情"), ledger: draft.includes("## 当前状态")}).toEqual({secrets: draft.includes("## 秘密与知情") && features.secrets, ledger: draft.includes("## 当前状态") && features.ledger});
+        }, 60_000);
+    }
 });
 
 describe("挑相关说法（输出 4、9、10）", () => {

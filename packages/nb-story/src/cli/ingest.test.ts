@@ -213,6 +213,8 @@ describe("按书关闭数值与秘密（输出 18）", () => {
         expect({code: resumed.code, committed: json(resumed.stdout).data!.committed}).toEqual({code: 0, committed: 5});
         expect(resumed.stderr).toContain("不记数值");
         expect(await featuresOf("sample")).toEqual({status: off, book: off});
+        // 录下的回复里有数值记录，提交前都去掉了。
+        expect(json((await run(["ledger", "--book", "sample", "--library", env.library, "--json"])).stdout).data!.tracks).toEqual([]);
 
         // 已抽完、追加：不同的值都在判定之前拒绝，不调用模型。
         const done = await run(["ingest", file, "--no-secrets", ...env.common, "--json"]);
@@ -231,6 +233,11 @@ describe("按书关闭数值与秘密（输出 18）", () => {
         early.kill("SIGINT");
         expect(await early.exited).toBe(130);
         expect(json((await run(["ingest", "--status", "--book", "early", "--library", env.library, "--json"])).stdout).data!.committed).toBe(0);
+        // 开关之前的抽取记录没有 features：按都开算。
+        const earlySource = join(env.library, ".ingest", "early", "source.json");
+        const {features: _features, ...legacy} = JSON.parse(await readFile(earlySource, "utf8")) as Record<string, unknown>;
+        await writeFile(earlySource, JSON.stringify(legacy));
+        expect((await featuresOf("early")).status).toEqual({ledger: true, secrets: true});
         const changed = await run(["ingest", "--book", "early", "--no-ledger", ...env.common, "--json"]);
         expect({code: changed.code, error: json(changed.stdout).error!.code}).toEqual({code: 2, error: "invalid_params"});
 

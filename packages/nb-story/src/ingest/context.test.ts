@@ -123,6 +123,18 @@ describe("抽普通章时只详列相关的行", () => {
         expect(section(full, "未解的疑问").join("\n")).toContain("q1-1");
     });
 
+    test("书关掉了数值或秘密时，普通章与整理的已有记录都不列对应的一节（ingest.md 输出 18）", () => {
+        const dataset = longBook();
+        const chapter25 = dataset.sources.find(source => source.chapter === 25)!.paragraphs.join("\n");
+        const titles = (features: {ledger: boolean; secrets: boolean}) => {
+            const book = {...dataset, book: {...dataset.book, features}};
+            return [renderContext(book, 24, {text: chapter25}), renderContext(book, 24)].map(text => ({secrets: text.includes("## 秘密与知情"), ledger: text.includes("## 当前状态")}));
+        };
+        expect(titles({ledger: true, secrets: true})).toEqual([{secrets: true, ledger: true}, {secrets: true, ledger: true}]);
+        expect(titles({ledger: false, secrets: true})).toEqual([{secrets: true, ledger: false}, {secrets: true, ledger: false}]);
+        expect(titles({ledger: true, secrets: false})).toEqual([{secrets: false, ledger: true}, {secrets: false, ledger: true}]);
+    });
+
     test("说法按规则缩减：样例书第 98 章不超过上限，挂在列出的秘密上的与作者声明都在", async () => {
         const sample = await sampleDataset();
         const chapter99 = sample.sources.find(source => source.chapter === 99)!.paragraphs.join("\n");
