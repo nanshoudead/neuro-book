@@ -94,6 +94,11 @@ test("下拉选择的长列表：收起成截半高度，键盘走到最后一�
     // 带说明与不带说明的项一样高：说明在同一行右侧（决定 9）。
     const heights = await viewport.evaluate((element) => [...new Set([...element.querySelectorAll('[role="option"]')].map((option) => Math.round(option.getBoundingClientRect().height)))]);
     expect(heights).toEqual([28]);
+    // 放不下时先截右侧的说明，名称完整（说明还有字时名称一点都不缩）。
+    const word = page.getByRole("option").filter({hasText: "Word 文档"});
+    const clipped = (selector: string): Promise<boolean> => word.locator(selector).evaluate((element) => element.scrollWidth > element.clientWidth);
+    expect(await clipped(".nb-ui-menu-item__hint"), "说明被截").toBe(true);
+    expect(await clipped(".nb-ui-menu-item__label"), "名称完整").toBe(false);
 
     // End 一步走到最后一项。reka 在 keydown 之后才挪焦点（setTimeout），连按方向键不等焦点移动会合并成一步。
     await page.keyboard.press("End");
