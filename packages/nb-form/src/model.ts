@@ -139,22 +139,21 @@ function nullableInner(schema: JsonSchema): JsonSchema | null {
     return null;
 }
 
-function hasRef(schema: unknown): boolean {
-    if (Array.isArray(schema)) return schema.some(hasRef);
-    if (!isRecord(schema)) return false;
-    if (Object.hasOwn(schema, "$ref") || Object.hasOwn(schema, "$defs") || Object.hasOwn(schema, "definitions")) return true;
-    return Object.entries(schema).some(([key, value]) => key !== "x-form" && hasRef(value));
+/** 这一层自己是引用（只看这一层：引用的字段自己用 JSON 编辑，不连累兄弟与父级）。 */
+function isReference(schema: JsonSchema): boolean {
+    return Object.hasOwn(schema, "$ref") || Object.hasOwn(schema, "$dynamicRef");
 }
 
+/** 有属性、没有按名字模式或按 schema 约束的额外属性（`additionalProperties` 省略与写 `true` 一样，都是允许）。 */
 function isStructuredObject(schema: JsonSchema): boolean {
     return schema.type === "object" && isRecord(schema.properties) && Object.keys(schema.properties).length > 0
-        && schema.patternProperties === undefined && (schema.additionalProperties === undefined || schema.additionalProperties === false);
+        && schema.patternProperties === undefined && !isRecord(schema.additionalProperties);
 }
 
 /** 一个 schema 的种类（不看 `x-form`）。 */
 export function kindOf(input: object, depth = 0): FieldKind {
     const schema = input as JsonSchema;
-    if (depth >= MAX_DEPTH || hasRef(schema)) return "json";
+    if (depth >= MAX_DEPTH || isReference(schema)) return "json";
     const inner = nullableInner(schema);
     if (inner !== null) return kindOf(inner, depth);
     if (literalValues(schema) !== null) return "choice";
@@ -171,9 +170,10 @@ export function kindOf(input: object, depth = 0): FieldKind {
         case "array": {
             const items = schema.items;
             if (!isRecord(items) || Array.isArray(schema.prefixItems)) return "json";
-            if (literalValues(items) !== null) return "multi";
+            // 只有不许重复的字面量数组是多选：允许重复时重复次数与顺序是数据的一部分，复选组表达不了。
+            if (literalValues(items) !== null) return schema.uniqueItems === true ? "multi" : "json";
             if (items.type === "string") return "string-list";
-            if (items.type === "object" && isStructuredObject(items) && depth + 1 < MAX_DEPTH && !hasRef(items)) return "object-list";
+            if (items.type === "object" && isStructuredObject(items) && depth + 1 < MAX_DEPTH && !isReference(items)) return "object-list";
             return "json";
         }
         default:
@@ -213,6 +213,8 @@ function choicesOf(values: ReadonlyArray<ChoiceValue>, hints: FormHints): FormCh
 export function selectWidget(kind: FieldKind, hints: FormHints, schema: JsonSchema, choiceCount: number): FieldNode["widget"] {
     const asked = hints.widget;
     if (asked !== undefined && !WRITABLE_WIDGETS.has(asked) && !(BUILTIN_WIDGETS as readonly string[]).includes(asked)) return {custom: asked};
+    // 显式 json 对任何种类都成立：作者可以主动选择 JSON 编辑一个能结构化的值。
+    if (asked === "json") return "json";
     switch (kind) {
         case "boolean":
             return asked === "confirm" ? "confirm" : "switch";
@@ -248,12 +250,26 @@ interface BuildContext {
     readonly readOnly: boolean;
 }
 
+/**
+ * `T` 与 `null` 的联合：外层与内层的注解合并成一份（外层优先），控件选择、字段标志与提示都用合并后的结果，免得
+ * 写在外层的 `writeOnly` 或写在内层的 `x-form` 被丢掉。
+ */
+function mergeNullable(outer: JsonSchema, inner: JsonSchema): JsonSchema {
+    const merged: Record<string, unknown> = {...inner};
+    for (const key of ["title", "description", "default", "readOnly", "writeOnly"]) if (Object.hasOwn(outer, key)) merged[key] = outer[key];
+    const outerHints = isRecord(outer["x-form"]) ? outer["x-form"] : {};
+    const innerHints = isRecord(inner["x-form"]) ? inner["x-form"] : {};
+    if (Object.keys(outerHints).length + Object.keys(innerHints).length > 0) merged["x-form"] = {...innerHints, ...outerHints};
+    return merged;
+}
+
 function buildNode(schema: JsonSchema, path: FieldPath, name: string, required: boolean, depth: number, context: BuildContext): FieldNode {
-    const nullable = nullableInner(schema);
-    const effective = nullable ?? schema;
-    const hints = readHints(schema);
+    const inner = nullableInner(schema);
+    const effective = inner === null ? schema : mergeNullable(schema, inner);
+    const nullable = inner;
+    const hints = readHints(effective);
     const kind = kindOf(effective, depth);
-    const readOnly = context.readOnly || schema.readOnly === true || effective.readOnly === true;
+    const readOnly = context.readOnly || effective.readOnly === true;
     const values = kind === "choice" ? literalValues(effective) ?? [] : kind === "multi" && isRecord(effective.items) ? literalValues(effective.items) ?? [] : [];
     const choices = choicesOf(values, hints);
     const children: FieldNode[] = [];
@@ -268,8 +284,8 @@ function buildNode(schema: JsonSchema, path: FieldPath, name: string, required: 
     if ((kind === "object-list" || kind === "string-list") && isRecord(effective.items)) {
         item = buildNode(effective.items, [...path, 0], "", true, depth + 1, {readOnly});
     }
-    const titled = typeof effective.title === "string" ? effective.title : typeof schema.title === "string" ? schema.title : name;
-    const described = typeof effective.description === "string" ? effective.description : typeof schema.description === "string" ? schema.description : undefined;
+    const titled = typeof effective.title === "string" ? effective.title : name;
+    const described = typeof effective.description === "string" ? effective.description : undefined;
     const help = hints.help ?? described;
     return {
         path,
@@ -280,7 +296,7 @@ function buildNode(schema: JsonSchema, path: FieldPath, name: string, required: 
         ...(help === undefined ? {} : {help}),
         required,
         readOnly,
-        writeOnly: effective.writeOnly === true || schema.writeOnly === true,
+        writeOnly: effective.writeOnly === true,
         nullable: nullable !== null,
         choices,
         widget: selectWidget(kind, hints, effective, choices.length),
@@ -303,7 +319,7 @@ export function itemNode(list: FieldNode, index: number): FieldNode | undefined 
     return relocate(template);
 }
 
-/** 按 JSON Pointer 找字段（布局用；列表里的字段不能单独放进布局）。 */
+/** 按 JSON Pointer 找字段（列表里的字段不能这样找：它们的下标随值变化）。 */
 export function findNode(root: FieldNode, pointer: string): FieldNode | undefined {
     if (pointer === "") return root;
     const segments = pointer.split("/").slice(1).map((segment) => segment.replaceAll("~1", "/").replaceAll("~0", "~"));
@@ -320,10 +336,18 @@ function layoutFields(layout: FormLayout, into: Set<string>): void {
     else for (const item of layout.items) layoutFields(item, into);
 }
 
-/** 解析描述。根不是对象时整张表单只有一个字段（根自己）。 */
+/**
+ * 解析描述。根不是对象时整张表单只有一个字段（根自己）。布局只排根上的字段，嵌套对象的成员按属性顺序排在对象里。
+ * 解析从不抛异常：描述坏到连字段树都建不起来时，整张表单是一个 JSON 字段。
+ */
 export function resolveForm(input: object, options: {readonly layout?: FormLayout} = {}): FormModel {
     const schema = input as JsonSchema;
-    const root = buildNode(schema, [], "", true, 0, {readOnly: false});
+    let root: FieldNode;
+    try {
+        root = buildNode(schema, [], "", true, 0, {readOnly: false});
+    } catch {
+        root = {path: [], kind: "json", schema, hints: {}, label: "", required: true, readOnly: false, writeOnly: false, nullable: false, choices: [], widget: "json", children: []};
+    }
     const automatic: FormLayout = root.kind === "object"
         ? {type: "column", items: root.children.map((child) => ({type: "field", path: toPointer(child.path)}))}
         : {type: "column", items: [{type: "field", path: ""}]};

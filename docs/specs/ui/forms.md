@@ -59,7 +59,7 @@ owners:
 
 ### 布局
 
-可选。`{type: "field", path}`、`{type: "column" | "row", items}`、`{type: "group", label, collapsed?, items}`。没有布局时按对象属性的顺序排成一列。布局与提示都不写宽度、颜色这类外观。
+可选。`{type: "field", path}`、`{type: "column" | "row", items}`、`{type: "group", label, collapsed?, items}`。布局只排根上的字段（`path` 是根字段的 JSON Pointer），嵌套对象的成员按属性顺序排在对象里；布局漏写的根字段补在末尾。没有布局时按对象属性的顺序排成一列。布局与提示都不写宽度、颜色这类外观。
 
 ### 接口
 
@@ -69,7 +69,7 @@ resolveForm(schema, {layout?}): FormModel
 checkDescription(schema, {layout?, policy?: "trusted" | "agent"}): {status: "structured" | "json" | "invalid", problems: DescriptionProblem[]}
 validateForm(model, value, {meta?}): FormIssue[]
 setAt(value, path, next), removeAt(value, path)
-fallbackWidget(widget): BuiltinWidget          // 终端里的退回控件（输出 25）
+fallbackWidget(widget: BuiltinWidget): TerminalWidget   // 终端里的退回画法（输出 25）
 
 // Vue 渲染层（@notnotype/nb-form/vue）
 <SchemaForm  :schema :layout? v-model :mode? :readonly? :disabled? :issues? :meta? :options? :widgets? :locale :commit? :revision? @draft-state @focus-issue />
@@ -81,25 +81,25 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 
 ### 种类与控件
 
-1. **支持的写法**：描述按下表推出每个字段的种类。表外的写法（`Record` 即 `patternProperties`、没有 `properties` 的开放对象、元组、其它联合、其它数组、`$ref`）与超过深度上限 6 层的部分，用 JSON 编辑；`checkDescription` 把描述分成“可结构化编辑”“要用 JSON 编辑”“不合格”三类，不合格时返回问题列表，不抛异常。
+1. **支持的写法**：描述按下表推出每个字段的种类。表外的写法（`Record` 即 `patternProperties`、`additionalProperties` 是 schema 的对象、没有 `properties` 的开放对象、元组、允许重复的字面量数组、其它联合、其它数组、引用 `$ref`）与超过深度上限 6 层的部分，用 JSON 编辑；只降级这一个字段，不连累兄弟与父级。`additionalProperties` 省略与写 `true` 一样。`checkDescription` 把描述分成“可结构化编辑”“要用 JSON 编辑”“不合格”三类，不合格时返回问题列表，不抛异常。
 
 | 写法 | 种类 |
 |---|---|
 | `boolean` | 布尔 |
 | 字面量联合（`anyOf` 的 `const`，或 `enum`），值为字符串、数或布尔 | 单选 |
-| 上面那种联合的数组（`uniqueItems`） | 多选 |
+| 上面那种联合的数组，且 `uniqueItems: true` | 多选 |
 | `number`、`integer` | 数字 |
 | `string`（`format` 只认 `uri`、`email`） | 文字 |
 | 字符串数组 | 字符串列表 |
 | 有 `properties` 的对象 | 对象 |
 | 元素是上一种对象的数组 | 对象列表 |
-| `T` 与 `null` 的联合 | 按 `T`，清除写 `null` |
+| `T` 与 `null` 的联合 | 按 `T`，清除写 `null`；两层的注解合并，外层优先 |
 
-2. **控件选择**：没有 `widget` 时按种类选；有就用它。单选 3 项以内用横排单选组，多于 3 项用下拉，多于 15 项或 `searchable` 用可搜索的下拉；布尔用开关，`confirm` 用“是 / 否”单选组；多选用复选组；文字用单行输入，`multiline` 用多行，`writeOnly` 或 `secret` 用密钥输入；对象画成一组字段；对象列表画成可增删排序的列表，`master-detail` 画成左列表右详情；JSON 用等宽文本框。分段控件不用于表单。
+2. **控件选择**：没有 `widget` 时按种类选；有就用它，`json` 对任何种类都成立，其余内建控件要与种类相配（不配时 `checkDescription` 报 `widget-mismatch`）。单选 3 项以内用横排单选组，多于 3 项用下拉，多于 15 项或 `searchable` 用可搜索的下拉；布尔用开关，`confirm` 用“是 / 否”单选组；多选用复选组；文字用单行输入，`multiline` 用多行，`writeOnly` 或 `secret` 用密钥输入；对象画成一组字段；对象列表画成可增删排序的列表，`master-detail` 画成左列表右详情；JSON 用等宽文本框。分段控件不用于表单。
 
 ### 值
 
-3. **受控**：表单不持有值。每次提交出一个新的根值；未改动的分支保持原引用，传入冻结的值也能用，表单从不原地修改传入的值。
+3. **受控**：表单不持有值。每次提交出一个新的根值；未改动的分支保持原引用，传入冻结的值也能用，表单从不原地修改传入的值。路径与值的形状不合（数组上的字符串段、小数或负数下标、越过末尾超过一位、中间遇到基本类型）时，`setAt`、`removeAt` 不改值、原样返回。
 4. **缺失与清除**：表单不补默认值。缺值时，文字与数字的占位文字写“默认：X”（有 `default` 时），选择类不预选、在标题旁写“默认：X”，开关显示 `default` 的状态并标“默认”。可选字段有值时外壳给“清除”，清除删去这个键（不写 `undefined`、`0`、`""`）；必填字段没有清除。
 5. **只读**：`readOnly` 的字段，以及父级 `readOnly` 下的全部成员，不能改；结构操作与 JSON 编辑同样不能改它们。
 6. **路径**：对外的路径是按 RFC 6901 转义的 JSON Pointer（属性名里的 `~`、`/` 转义），由表单自己生成；属性名 `"a/b"` 与嵌套的 `a.b` 是两个不同的路径。
@@ -107,7 +107,7 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 ### 校验与问题
 
 7. **问题的形状**：`{path, code, params, severity: "error" | "warning", source: "schema" | "caller", message?}`。schema 的问题不带文字，显示时按 `code` 与 `params` 以当前语言写出；调用方的问题可以带 `message`。
-8. **校验**：`validateForm` 逐个字段对自己的子 schema 校验：必填缺失报在缺的那个字段上（`required`），字面量联合只报一条 `not-in-choices`，其余约束各有自己的码；最后整值检查，归不到字段的问题记在根上。校验中的任何异常（例如写错的正则）记为根上的 `schema-error`，不抛出。
+8. **校验**：`validateForm` 逐个字段校验：必填缺失报在缺的那个字段上（`required`，包括 `required` 里有、`properties` 里没有的键）；每个字段自身的约束（对象的 `minProperties`、`dependentRequired`，数组的 `minItems`、`contains` 等）都报，字面量联合的分支错误只报一条 `not-in-choices`；最后对整值检查一次，字段树没有表达的约束（JSON 字段与引用里的）按位置报在那个 JSON 字段上，归不到字段的记在根上；同一位置同一个码只报一次。校验中的异常（例如写错的正则）记为出错的那个字段上的 `schema-error`，不抛出。
 9. **调用方的问题**：跨字段、异步、服务端的校验由调用方算好，经 `issues` 交给表单，与 schema 的问题一起显示；表单不调用调用方的校验函数。异步结果过期由调用方按值的版本丢弃。
 10. **带外状态**：`meta` 按路径给出值之外的状态。`writeOnly` 的字段在 `meta` 说“已设置”时不报必填。
 
@@ -118,7 +118,7 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 
 ### 条件与显示
 
-13. **条件显示**：`visibleWhen.field` 指同一个对象里的兄弟字段（数组项里是同一项的兄弟），以 `/` 开头时指根上的字段；那个字段的值满足 `schema` 时显示。求值只做 schema 检查，不执行任何代码；字段缺值时按缺值检查。隐藏只影响显示：值保留，完整的 schema 照样校验。必填字段上不许写 `visibleWhen`（`checkDescription` 报不合格）。隐藏的字段不卸载，草稿与折叠状态在重新显示后还在。
+13. **条件显示**：`visibleWhen.field` 指同一个对象里的兄弟字段（数组项里是同一项的兄弟），以 `/` 开头时指根上的字段；那个字段的值满足 `schema` 时显示。求值只做 schema 检查，不执行任何代码；字段缺值时按缺值检查。隐藏只影响显示：值保留，完整的 schema 照样校验。必填字段上不许写 `visibleWhen`（`checkDescription` 报不合格），条件里写错的正则、指向不存在的字段同样报不合格；运行时条件求值仍出错时按显示处理。隐藏的字段不卸载，草稿与折叠状态在重新显示后还在。
 14. **问题的显示**：字段只标出错（`aria-invalid`），第一条错误的文字给读屏；警告不标出错，用图标与色调。看得见的文字集中在一个固定位置：`SchemaForm` 底部一行问题汇总（“N 个问题”，展开列出，点一条聚焦到字段）；调用方可以关掉它，经 `focus-issue` 与 `focusFirstIssue()` 放到自己的固定位置。字段下不插文字，排版不因校验结果跳动。折叠的分组与列表项在头部标出“含 N 个问题”。
 
 ### 提交与草稿
@@ -146,7 +146,7 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 
 ### Agent 生成的描述
 
-23. **Agent 策略**：`checkDescription(…, {policy: "agent"})` 只接受这个子集：根是对象；种类限于布尔、单选、多选、数字、文字、字符串列表、一层嵌套对象、对象列表；不许 `pattern`、`patternProperties`、`writeOnly`、`$ref`、`$defs`、自定义控件，`format` 只认 `uri`、`email`；节点至多 100、联合宽度至多 50、深度至多 3、描述 JSON 至多 32 KB、每段文字至多 2000 字符。不合格时返回问题，从不抛异常。可信作者写的 `pattern` 照常支持，异常按输出 8 处理。
+23. **Agent 策略**：`checkDescription(…, {policy: "agent"})` 只接受这个子集：根是对象；种类限于布尔、单选、多选、数字、文字、字符串列表、对象、对象列表，不许要用 JSON 编辑的字段；根对象之下至多一层对象（对象列表的元素算一层）；不许 `pattern`、`patternProperties`、`writeOnly`、`$ref`、`$defs`、`allOf`、`oneOf`、`not`、`if`、`contains`、`propertyNames`、`prefixItems`、`dependentSchemas` 与自定义控件、`secret` 控件，`format` 只认 `uri`、`email`；schema 嵌套至多 8 层（`anyOf` 等组合器的每一层都算），节点至多 100、联合宽度至多 50、描述 JSON 至多 32 KB、每段文字至多 2000 字符，布局一起计入节点、字节与文字长度。关键字只在 schema 的位置上识别，名叫 `pattern` 的字段不算；条件里的 schema 同样检查。不合格时返回问题，从不抛异常。可信作者写的 `pattern` 照常支持，异常按输出 8 处理。
 
 ### 文字
 
@@ -217,7 +217,7 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 ## 验收与 Smoke
 
 1. **服务商连接**：一份含只读 ID、名称、API 地址、两种接口格式、密钥、并排的超时与重试、只在某种格式下显示的代理、扩展参数 JSON 的描述：控件按输出 2 选出；切换格式时代理显示与隐藏、填过的值保留；密钥只显示状态；超时输入 `1.` 时不提交；扩展参数写坏时报 `unparseable` 并在汇总里列出，点击聚焦到它。
-2. **nbdev 四种题**：单选、多选（至少选一项）、文字（非空、至多 10000 字）、确认（未答是缺值）各一份描述，与 nbdev 现有的答复校验在合法与非法的边界上一致。
+2. **nbdev 四种题**：单选、多选（至少选一项）、文字（非空、至多 10000 字）、确认（未答是缺值）各一份描述，加上 nbdev 的适配器以调用方问题报告的规则（文字按 UTF-16 计长度、去空白后非空、不许控制字符），与 nbdev 现有的答复校验在合法与非法的边界上一致。
 3. **审批展示**：一份带长路径与多行文字的参数在展示态里完整可见、可复制，Tab 只停在展开与复制按钮上。
 4. **列表编辑**：对象列表添加、删除中间项、上移，焦点落点与读屏播报符合输出 19，删除后其余项的草稿不串位。
 5. **Agent 策略**：带灾难性正则、超宽联合、`$ref`、密钥、自定义控件的描述都被拒绝，不抛异常。

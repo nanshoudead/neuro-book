@@ -39,6 +39,16 @@ describe("路径与值（输出 3、4、6）", () => {
         expect(getAt(rows, ["rows", 1, "k"])).toBe("z");
     });
 
+    it("路径与值的形状不合时不改，原样返回", () => {
+        const value = deepFreeze({rows: ["a", "b"], a: 1});
+        expect(removeAt(value, ["rows", "0"])).toBe(value);
+        expect(removeAt(value, ["rows", 0.5])).toBe(value);
+        expect(setAt(value, ["rows", -1], "x")).toBe(value);
+        expect(setAt(value, ["rows", 4], "x")).toBe(value);
+        expect(setAt(value, ["a", "x"], 1)).toBe(value);
+        expect(setAt(value, ["rows", 2], "c")).toEqual({rows: ["a", "b", "c"], a: 1});
+    });
+
     it("清除删键，不写 undefined；数组移除一项；不存在的路径原样返回", () => {
         const value = deepFreeze({a: 1, b: 2, rows: ["x", "y", "z"]});
         const removed = removeAt(value, ["a"]) as Record<string, unknown>;
@@ -105,6 +115,44 @@ describe("校验与问题（输出 7–10）", () => {
     it("JSON 编辑的字段：错误都标在它自己上", () => {
         const schema = Type.Object({extra: Type.Record(Type.String(), Type.Integer())});
         expect(codes(validateForm(resolveForm(schema), {extra: {a: 1, b: "x"}}))).toEqual(["/extra type"]);
+    });
+
+    it("字段有错时，对象与列表自身的约束照样报出", () => {
+        const object = Type.Object({a: Type.String({minLength: 2}), b: Type.Optional(Type.String())}, {minProperties: 2});
+        expect(codes(validateForm(resolveForm(object), {a: "x"}))).toEqual([" min-properties", "/a min-length"]);
+        const list = Type.Object({rows: Type.Array(Type.String({minLength: 2}), {contains: {const: "ok"}})});
+        expect(codes(validateForm(resolveForm(list), {rows: ["x"]}))).toEqual(["/rows contains", "/rows/0 min-length"]);
+    });
+
+    it("选项字段上并列的约束不被选项检查盖掉", () => {
+        const schema = Type.Object({c: Type.Union([Type.Literal("x"), Type.Literal("yy")], {minLength: 2})});
+        expect(codes(validateForm(resolveForm(schema), {c: "x"}))).toEqual(["/c min-length"]);
+    });
+
+    it("required 里有、properties 里没有的键缺了也报，不能借 meta 豁免", () => {
+        const schema = {type: "object", properties: {name: {type: "string"}}, required: ["key"]};
+        expect(codes(validateForm(resolveForm(schema), {name: "x"}, {meta: {"/key": {secret: "set"}}}))).toEqual(["/key required"]);
+    });
+
+    it("密钥的父属性名里有 / 时 meta 照样生效；根是密钥时也生效", () => {
+        const schema = Type.Object({"a/b": Type.Object({key: Type.String({writeOnly: true})})});
+        expect(codes(validateForm(resolveForm(schema), {"a/b": {}}, {meta: {"/a~1b/key": {secret: "set"}}}))).toEqual([]);
+        const root = Type.String({writeOnly: true});
+        expect(codes(validateForm(resolveForm(root), undefined, {meta: {"": {secret: "set"}}}))).toEqual([]);
+    });
+
+    it("JSON 字段接受 schema 允许的 null", () => {
+        for (const schema of [Type.Null(), {}, Type.Union([Type.String(), Type.Number(), Type.Null()]), {type: ["string", "null"]}]) {
+            expect(validateForm(resolveForm(Type.Object({v: schema as never})), {v: null})).toEqual([]);
+        }
+    });
+
+    it("引用只让它所在的字段用 JSON 编辑，引用里的约束报在那个字段上", () => {
+        const schema = {$defs: {n: {type: "integer", minimum: 3}}, type: "object", properties: {name: {type: "string"}, extra: {$ref: "#/$defs/n"}}};
+        const model = resolveForm(schema);
+        expect(model.root.kind).toBe("object");
+        expect(model.root.children.map((child) => child.kind)).toEqual(["text", "json"]);
+        expect(codes(validateForm(model, {name: "x", extra: 1}))).toEqual(["/extra minimum"]);
     });
 
     it("根缺值报根上的 required", () => {

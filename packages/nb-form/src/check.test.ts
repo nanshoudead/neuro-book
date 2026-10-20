@@ -7,6 +7,7 @@ import {Type} from "typebox";
 
 import {checkDescription} from "./check";
 import {resolveForm} from "./model";
+import type {FormLayout} from "./model";
 import {toPointer} from "./path";
 import {validateForm} from "./validate";
 
@@ -49,6 +50,31 @@ describe("可信作者的描述", () => {
         expect(codesOf(checkDescription(schema, {layout}))).toEqual(["/a layout-duplicate-field", "/zz layout-unknown-field", "/b layout-missing-field", "/c layout-missing-field"]);
     });
 
+    it("x-form 的坏形状逐键报出，不被悄悄丢掉", () => {
+        const schema = Type.Object({s: Type.Optional(Type.String({"x-form": {visibleWhen: "bad", widget: 3, rows: -1, searchable: "yes", options: 42, choices: [{value: {}, label: "x"}]}}))});
+        const keys = checkDescription(schema).problems.filter((entry) => entry.code === "bad-hint").map((entry) => entry.params.key);
+        expect(keys).toEqual(["widget", "options", "searchable", "rows", "choices", "visibleWhen"]);
+    });
+
+    it("条件里写错的正则、指向不存在的根字段都报出来", () => {
+        const schema = Type.Object({x: Type.String(), s: Type.Optional(Type.String({"x-form": {visibleWhen: {field: "x", schema: {type: "string", pattern: "["}}}})), t: Type.Optional(Type.String({"x-form": {visibleWhen: {field: "/missing", schema: {const: 1}}}}))});
+        expect(codesOf(checkDescription(schema))).toEqual(["/s visible-when-bad-pattern", "/t visible-when-unknown-field"]);
+    });
+
+    it("显式 json 对任何种类都成立", () => {
+        for (const schema of [Type.String(), Type.Boolean(), Type.Integer(), Type.Object({a: Type.String()}), Type.Array(Type.String())]) {
+            const described = {...schema, "x-form": {widget: "json"}};
+            expect(resolveForm(described).root.widget).toBe("json");
+            expect(checkDescription(Type.Object({f: described as never})).problems.filter((entry) => entry.code === "widget-mismatch")).toEqual([]);
+        }
+    });
+
+    it("布局只排根上的字段", () => {
+        const schema = Type.Object({o: Type.Object({x: Type.String(), y: Type.String()}), z: Type.String()});
+        const layout = {type: "column", items: [{type: "field", path: "/o/x"}, {type: "field", path: "/o"}, {type: "field", path: "/z"}]} as const;
+        expect(codesOf(checkDescription(schema, {layout}))).toEqual(["/o/x layout-nested-field"]);
+    });
+
     it("不是对象的输入不抛异常", () => {
         expect(checkDescription(null).status).toBe("invalid");
         expect(checkDescription("x").status).toBe("invalid");
@@ -57,6 +83,7 @@ describe("可信作者的描述", () => {
 
 describe("Agent 策略（输出 23）", () => {
     const agent = (schema: unknown) => checkDescription(schema, {policy: "agent"});
+    const agent_ = (schema: unknown, layout: FormLayout) => checkDescription(schema, {policy: "agent", layout});
 
     it("常见的提问描述通过", () => {
         const schema = Type.Object({
@@ -82,12 +109,29 @@ describe("Agent 策略（输出 23）", () => {
         expect(codesOf(agent(conditional))).toContain(" keyword-not-allowed");
     });
 
+    it("布局一起计入字节、文字长度与节点数", () => {
+        const schema = Type.Object({a: Type.String()});
+        const layout = {type: "group", label: "x".repeat(40_000), items: [{type: "field", path: "/a"}]} as const;
+        expect(codesOf(agent_(schema, layout))).toEqual(expect.arrayContaining([" too-large", " text-too-long"]));
+    });
+
+    it("名叫 pattern、writeOnly、$ref 的业务字段不是关键字", () => {
+        for (const name of ["pattern", "writeOnly", "$ref"]) {
+            expect(agent({type: "object", properties: {[name]: {type: "string"}}})).toEqual({status: "structured", problems: []});
+        }
+    });
+
     it("超宽的联合、过深、过大、根不是对象、要用 JSON 编辑的字段都被拒", () => {
         const wide = Type.Object({c: Type.Union(Array.from({length: 51}, (_, index) => Type.Literal(index)))});
         expect(codesOf(agent(wide))).toContain(" union-too-wide");
-        let deep: unknown = Type.String();
-        for (let level = 0; level < 5; level += 1) deep = Type.Object({x: deep as never});
-        expect(codesOf(agent(deep))).toContain(" too-deep");
+        // 根之下只许一层对象（对象列表的元素也算一层）。
+        expect(agent(Type.Object({a: Type.Object({b: Type.String()})})).status).toBe("structured");
+        expect(codesOf(agent(Type.Object({a: Type.Object({b: Type.Object({c: Type.String()})})})))).toContain("/a/b too-deep");
+        expect(codesOf(agent(Type.Object({rows: Type.Array(Type.Object({inner: Type.Object({c: Type.String()})}))})))).toContain("/rows/0/inner too-deep");
+        // schema 的嵌套层数把组合器也算上：20 层 anyOf 包在条件里也拦得住。
+        let nested: Record<string, unknown> = {const: "x"};
+        for (let level = 0; level < 20; level += 1) nested = {anyOf: [nested]};
+        expect(codesOf(agent(Type.Object({a: Type.String(), b: Type.Optional(Type.String({"x-form": {visibleWhen: {field: "a", schema: nested}}}))})))).toContain(" too-deep");
         const big = Type.Object({s: Type.String({description: "x".repeat(40_000)})});
         expect(codesOf(agent(big))).toEqual(expect.arrayContaining([" too-large", " text-too-long"]));
         expect(codesOf(agent(Type.String()))).toContain(" root-not-object");
@@ -96,8 +140,9 @@ describe("Agent 策略（输出 23）", () => {
 });
 
 describe("给 nbdev 的映射（Spec“给下游的接口”）", () => {
-    // nbdev 的四种题与答复校验见 packages/dev-panel/src/core/questions.ts；这里钉住映射本身的边界，接入时由 dev-panel
-    // 对照它真实的 validateAnswerValue 再测一次。
+    // nbdev 的四种题与答复校验见 packages/dev-panel/src/core/questions.ts。这里只钉住标准 JSON Schema 能表达的部分；
+    // nbdev 特有的规则（文字按 UTF-16 计长度、去空白后非空、不许控制字符）由 nbdev 的适配器以调用方问题报告，接入时
+    // 在 dev-panel 里对照真实的 validateAnswerValue 测（核心不能依赖 dev-panel）。
     const options = Type.Union([Type.Literal("fix"), Type.Literal("skip"), Type.Literal("discuss")], {"x-form": {widget: "radio", recommend: ["fix"]}});
     const schema = Type.Object({
         single: options,

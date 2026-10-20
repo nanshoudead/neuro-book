@@ -22,12 +22,14 @@ describe("种类：TypeBox 生成的写法与手写 JSON", () => {
         ["数", Type.Number(), "number"],
         ["文字", Type.String(), "text"],
         ["可为 null 的文字", Type.Union([Type.String(), Type.Null()]), "text"],
-        ["字面量联合的数组", Type.Array(Type.Union([Type.Literal("x"), Type.Literal("y")]), {uniqueItems: true}), "multi"],
+        ["不许重复的字面量联合数组", Type.Array(Type.Union([Type.Literal("x"), Type.Literal("y")]), {uniqueItems: true}), "multi"],
+        ["允许重复的字面量联合数组", Type.Array(Type.Union([Type.Literal("x"), Type.Literal("y")])), "json"],
         ["字符串数组", Type.Array(Type.String()), "string-list"],
         ["对象", Type.Object({a: Type.String()}), "object"],
         ["对象数组", Type.Array(Type.Object({a: Type.String()})), "object-list"],
         ["Record", Type.Record(Type.String(), Type.String()), "json"],
         ["开放对象", Type.Object({}), "json"],
+        ["写明 additionalProperties: true 与省略一样", {type: "object", properties: {name: {type: "string"}}, additionalProperties: true}, "object"],
         ["整数数组", Type.Array(Type.Integer()), "json"],
         ["其它联合", Type.Union([Type.String(), Type.Number()]), "json"],
         ["引用", {$defs: {n: {type: "string"}}, $ref: "#/$defs/n"}, "json"],
@@ -63,9 +65,21 @@ describe("字段树", () => {
         expect(child(child(root, "meta"), "note")).toMatchObject({readOnly: true, path: ["meta", "note"]});
     });
 
-    it("可为 null 的字段按内层的种类，标为 nullable", () => {
-        const root = resolveForm(Type.Object({n: Type.Union([Type.Integer(), Type.Null()])})).root;
+    it("可为 null 的字段按内层的种类，标为 nullable；内外两层的注解合并", () => {
+        const root = resolveForm(Type.Object({
+            n: Type.Union([Type.Integer(), Type.Null()]),
+            key: Type.Union([Type.String(), Type.Null()], {writeOnly: true}),
+            note: Type.Union([Type.String({"x-form": {widget: "multiline"}}), Type.Null()], {title: "备注"}),
+        })).root;
         expect(child(root, "n")).toMatchObject({kind: "number", nullable: true});
+        expect(child(root, "key")).toMatchObject({writeOnly: true, widget: "secret"});
+        expect(child(root, "note")).toMatchObject({widget: "multiline", label: "备注"});
+    });
+
+    it("自引用的 JS 对象不让解析抛异常", () => {
+        const schema: Record<string, unknown> = {type: "string"};
+        schema.default = schema;
+        expect(resolveForm(schema).root.kind).toBe("text");
     });
 
     it("列表元素的字段按实际下标定位", () => {
