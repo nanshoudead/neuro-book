@@ -50,10 +50,12 @@ S1（Work 分支，2026-10-20）：
 - 验证：内核 347 例、nb-form 93 例、应用 Bun 1559 例、Vitest 382 例、类型检查、`docs:check`、`governance:check` 通过；settings、plugins、browser-host、bookshelf 四组 e2e 24 例通过（插件页的 e2e 经设置窗口打开分区，走过真实浏览器里的按需激活）。按需激活、触发口寿命、三处登记做过变异检查。
 - omp 实现审查（[evidences/impl-review-s1-omp.txt](evidences/impl-review-s1-omp.txt)，3 条，都是重要、都成立），`ccfc2052f` 处理：带 `signal` 的 `ctx.activation.trigger` 每次在入口的停止信号上留一个监听（100 次触发留 100 个），改为组合信号随触发结算解除（监听数不经替身观察不到，没有加测试）；`ui` 的控件校验漏了 `choices.from` 对应的 `options`，有动态选项时写下拉被拒、写多行反被接受，已修并补用例；停在分区时所属入口从受阻恢复不会再触发，窗口改为分区或交付状态变化时都再看一次，补真实内核用例（去掉修正时这条失败）。修正后内核 347 例、应用 Bun 1560 例、Vitest 382 例、类型检查通过。
 
+S6（`57bc5eedc`，2026-10-20）：编辑器分区加“代码编辑器”小组（`defineSettings` 声明八项：字体、字号、行高、Tab 宽度、推测缩进、行号、缩略图、换行）。编辑器区把配置读成响应式选项注入源码编辑器控件；实例的选项 `updateOptions`、不重建；缩进是模型的选项，每个模型记下上次应用的缩进设置，设置没变时切走再切回不重新推测。新 e2e `editor-code-settings.e2e.ts` 在真实应用里按 Tab、保存、读磁盘：两格、四格、制表符各插入自己的缩进；关掉推测后当前与停放的文件都按新的 Tab 宽度；再打开推测时重新推测；字号、行号、缩略图即时生效且编辑器 DOM 不换。去掉“进入模型时应用缩进”这条 e2e 失败。设置、编辑器区、文件类型、Lab 编辑器等 e2e 45 例通过；Bun 1560 例、Vitest 382 例（一次跑出一例偶发失败，重跑两次全过）。
+
 - 开发者 2026-10-20 定：低代码（[t07](../t07-low-code-forms/README.md)）排在 t02 之前实现，t02 的控件改用低代码的字段；[plan.md](plan.md) 已按此起草，待 t07 的接口定下后回改，再交开发者确认。
 
 说明页：[设置分区的两种画法，与旧应用的 provider 设置](artifacts/settings-sections/index.html)。
 
 ## 下一步
 
-做 S6（Monaco 排版设置）；S3–S5、S7 等 t07 完成后做（[plan.md](plan.md)“切片”）。
+S3–S5、S7 等 t07 完成后做（[plan.md](plan.md)“切片”）。
