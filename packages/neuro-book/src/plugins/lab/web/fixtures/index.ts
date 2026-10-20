@@ -67,6 +67,7 @@ import type ViewportCanvas from "../components/ViewportCanvas.vue";
 import type {LabInputOf, LabJsonPropOf, LabSlotOf, LabSubjectProps} from "../lab-subject";
 
 import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
+import {nbFormFixtures} from "./nb-form";
 import {nbUiFixtures} from "./nb-ui";
 import {PROMPT_LAB_THUMBNAILS, promptAttachmentStripScenes, promptEditorScenes, promptPasteFrameScenes, promptTextViewScenes} from "./prompt-scene/scenes";
 import {SHELF_COVER_SRC, SHELF_ITEMS, SHELF_ITEM_REVISING, SHELF_NOW} from "./shelf-fixture-data";
@@ -861,6 +862,7 @@ export const labFixtures: LabFixture[] = [
     ...shelfFixtures(),
     ...settingsFixtures(),
     ...nbUiFixtures,
+    ...nbFormFixtures,
 ];
 
 /** 书架页（docs/specs/workbench/bookshelf.md）：静态稿给开发者看，也是页面接上真实数据之后的回归场景。 */

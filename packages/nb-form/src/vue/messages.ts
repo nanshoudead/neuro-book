@@ -1,0 +1,139 @@
+/**
+ * 表单自己的文字（docs/specs/ui/forms.md 输出 24）与 schema 问题的写法（输出 7）。中英两份；其它语言取英文，与
+ * `FormText` 的回退一致。
+ */
+
+import {FALLBACK_LOCALE, resolveText} from "../text";
+import type {FormIssue} from "../validate";
+
+interface Messages {
+    readonly clear: string;
+    readonly stale: string;
+    readonly recommended: string;
+    readonly default: string;
+    readonly defaultValue: (value: string) => string;
+    readonly yes: string;
+    readonly no: string;
+    readonly set: string;
+    readonly unset: string;
+    readonly loading: string;
+    readonly noSource: string;
+    readonly issueCount: (count: number) => string;
+    readonly expand: string;
+    readonly collapse: string;
+    readonly copy: string;
+    readonly copied: string;
+    readonly copyFailed: string;
+    readonly empty: string;
+    readonly increment: string;
+    readonly decrement: string;
+    readonly clearInput: string;
+    readonly noMatch: string;
+    readonly warning: string;
+    /** schema 问题按码写出；`params` 是 TypeBox 给的参数（`limit`、`format` 等）。没有的码用 `fallback`。 */
+    readonly codes: Readonly<Record<string, (params: Readonly<Record<string, unknown>>) => string>>;
+    readonly fallback: (code: string) => string;
+}
+
+const ZH: Messages = {
+    clear: "清除",
+    stale: "已不存在",
+    recommended: "推荐",
+    default: "默认",
+    defaultValue: (value) => `默认：${value}`,
+    yes: "是",
+    no: "否",
+    set: "已设置",
+    unset: "未设置",
+    loading: "加载中…",
+    noSource: "没有选项来源",
+    issueCount: (count) => `${String(count)} 个问题`,
+    expand: "展开",
+    collapse: "收起",
+    copy: "复制",
+    copied: "已复制",
+    copyFailed: "复制失败",
+    empty: "（空）",
+    increment: "增加",
+    decrement: "减少",
+    clearInput: "清空输入",
+    noMatch: "没有匹配的选项",
+    warning: "警告",
+    codes: {
+        "required": () => "必填",
+        "type": () => "类型不对",
+        "min-length": (params) => `至少 ${String(params.limit)} 个字符`,
+        "max-length": (params) => `至多 ${String(params.limit)} 个字符`,
+        "pattern": () => "格式不对",
+        "format": () => "格式不对",
+        "minimum": (params) => (params.comparison === ">" ? `必须大于 ${String(params.limit)}` : `不能小于 ${String(params.limit)}`),
+        "maximum": (params) => (params.comparison === "<" ? `必须小于 ${String(params.limit)}` : `不能大于 ${String(params.limit)}`),
+        "multiple-of": (params) => `必须是 ${String(params.multipleOf)} 的倍数`,
+        "min-items": (params) => `至少 ${String(params.limit)} 项`,
+        "max-items": (params) => `至多 ${String(params.limit)} 项`,
+        "unique-items": () => "有重复的项",
+        "not-in-choices": () => "不是可选的值",
+        "no-match": () => "不符合任何一种写法",
+        "unparseable": () => "无法解析",
+        "schema-error": () => "描述有误，无法校验",
+    },
+    fallback: (code) => `不符合要求（${code}）`,
+};
+
+const EN: Messages = {
+    clear: "Clear",
+    stale: "No longer available",
+    recommended: "Recommended",
+    default: "Default",
+    defaultValue: (value) => `Default: ${value}`,
+    yes: "Yes",
+    no: "No",
+    set: "Set",
+    unset: "Not set",
+    loading: "Loading…",
+    noSource: "No option source",
+    issueCount: (count) => (count === 1 ? "1 issue" : `${String(count)} issues`),
+    expand: "Expand",
+    collapse: "Collapse",
+    copy: "Copy",
+    copied: "Copied",
+    copyFailed: "Copy failed",
+    empty: "(empty)",
+    increment: "Increase",
+    decrement: "Decrease",
+    clearInput: "Clear input",
+    noMatch: "No matching options",
+    warning: "Warning",
+    codes: {
+        "required": () => "Required",
+        "type": () => "Wrong type",
+        "min-length": (params) => `At least ${String(params.limit)} characters`,
+        "max-length": (params) => `At most ${String(params.limit)} characters`,
+        "pattern": () => "Invalid format",
+        "format": () => "Invalid format",
+        "minimum": (params) => (params.comparison === ">" ? `Must be greater than ${String(params.limit)}` : `Must be at least ${String(params.limit)}`),
+        "maximum": (params) => (params.comparison === "<" ? `Must be less than ${String(params.limit)}` : `Must be at most ${String(params.limit)}`),
+        "multiple-of": (params) => `Must be a multiple of ${String(params.multipleOf)}`,
+        "min-items": (params) => `At least ${String(params.limit)} items`,
+        "max-items": (params) => `At most ${String(params.limit)} items`,
+        "unique-items": () => "Contains duplicates",
+        "not-in-choices": () => "Not one of the options",
+        "no-match": () => "Does not match any allowed form",
+        "unparseable": () => "Cannot be parsed",
+        "schema-error": () => "The description is invalid and cannot be checked",
+    },
+    fallback: (code) => `Invalid (${code})`,
+};
+
+const TABLE: Readonly<Record<string, Messages>> = {"zh-CN": ZH, "en-US": EN};
+
+export function messagesFor(locale: string): Messages {
+    return TABLE[locale] ?? TABLE[FALLBACK_LOCALE]!;
+}
+
+/** 一条问题显示出来的文字：调用方的问题用它自己的文字，schema 的问题按码写。 */
+export function issueText(issue: FormIssue, locale: string): string {
+    if (issue.message !== undefined) return resolveText(issue.message, locale);
+    const messages = messagesFor(locale);
+    return messages.codes[issue.code]?.(issue.params) ?? messages.fallback(issue.code);
+}
