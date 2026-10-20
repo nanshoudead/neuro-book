@@ -27,9 +27,7 @@ import type {DropdownMenuItemData} from "./dropdown-menu.types";
 const props = withDefaults(defineProps<{
     items: DropdownMenuItemData[];
     menuClass?: string;
-    menuMaxHeight?: string;
     rootClass?: string;
-    compact?: boolean;
     align?: "start" | "center" | "end";
     side?: "top" | "right" | "bottom" | "left";
     sideOffset?: number;
@@ -43,9 +41,7 @@ const props = withDefaults(defineProps<{
     wrap?: boolean;
 }>(), {
     menuClass: undefined,
-    menuMaxHeight: undefined,
     rootClass: "",
-    compact: false,
     align: "start",
     side: "bottom",
     sideOffset: 7,
@@ -184,41 +180,10 @@ const {
     isScrollable,
     isDragging,
 } = useDropdownFloating({
-    size: computed(() => props.compact ? "sm" : "default"),
     sideOffset: computed(() => props.sideOffset),
     popoverStyle: computed(() => props.popoverStyle),
-    explicitMaxHeight: computed(() => props.menuMaxHeight),
-    maxHeightLimit: computed(() => props.menuMaxHeight && !isNaN(parseInt(props.menuMaxHeight, 10)) ? parseInt(props.menuMaxHeight, 10) : undefined),
 });
-const resolvedMenuClass = computed(() => [props.menuClass ?? (props.compact ? "min-w-[160px]" : "min-w-[200px]"), props.wrap ? "max-w-[320px]" : ""]);
-
-
-
-
-/** 项级几何：与滚动视口同心贴边，密度随 compact 档切换。 */
-const itemBaseClass = "nb-ui-popover-item flex flex-nowrap w-full justify-between text-left outline-none cursor-pointer select-none transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] motion-reduce:transition-none data-[disabled]:opacity-40 data-[disabled]:cursor-not-allowed data-[state=open]:bg-[var(--overlay-item-active)]";
-
-function itemClass(item: DropdownMenuItemData): string {
-    if (item.tone === "danger") {
-        return "text-[var(--status-danger)] hover:bg-[color-mix(in_srgb,var(--status-danger)_12%,transparent)] data-[highlighted]:bg-[color-mix(in_srgb,var(--status-danger)_12%,transparent)] data-[highlighted]:text-[var(--status-danger)]";
-    }
-    if (item.active) {
-        return "bg-[color-mix(in_srgb,var(--accent-main)_14%,transparent)] text-[var(--text-main)] font-medium";
-    }
-    return "text-[var(--text-main)] hover:bg-[var(--overlay-item-active)] data-[highlighted]:bg-[var(--overlay-item-active)]";
-}
-
-function itemClassList(item: DropdownMenuItemData): (string | Record<string, boolean>)[] {
-    // 换行时高度随内容，上下内边距补出单行时的高度；不换行时固定高度、单行截断。
-    const height = props.wrap ? (props.compact ? "min-h-[24px] py-1 whitespace-normal items-start" : "min-h-[var(--control-h-sm)] py-1.5 whitespace-normal items-start") : (props.compact ? "h-[24px] whitespace-nowrap items-center" : "h-[var(--control-h-sm)] whitespace-nowrap items-center");
-    return [
-        itemBaseClass,
-        height,
-        props.compact ? "px-2 gap-2 mb-0.5 last:mb-0 text-[length:var(--text-xs)]" : "px-2.5 gap-2.5 mb-0.5 last:mb-0 text-xs",
-        itemClass(item),
-    ];
-}
-
+const resolvedMenuClass = computed(() => [props.menuClass ?? "min-w-[160px]", props.wrap ? "max-w-[320px]" : ""]);
 
 
 const cascade = useMenuCascade<DropdownMenuItemData>();
@@ -274,7 +239,6 @@ watch(() => cascade.levels.value.length, async (length, previous) => {
                     <MenuNodes
                         :items="props.items"
                         :active="cascade.levels.value[0]?.value"
-                        :item-class="itemClassList"
                         :item-component="DropdownMenuItem"
                         :wrap="props.wrap"
                         @select="handleSelect"
@@ -306,13 +270,13 @@ watch(() => cascade.levels.value.length, async (length, previous) => {
                 :key="depth"
                 :ref="(element) => cascade.setPanel(depth, element)"
                 role="menu"
-                class="nb-ui-popover-surface nb-ui-menu-surface nb-menu-level fixed overflow-hidden p-1.5"
+                class="nb-ui-popover-surface nb-ui-menu-surface nb-menu-level fixed overflow-hidden"
                 :data-switching="level.switching"
                 :style="level.style"
                 @keydown="(event: KeyboardEvent) => onLevelKeydown(depth, event)"
             >
                 <div class="nb-menu-level-content">
-                    <MenuNodes :items="level.value.children ?? []" :active="cascade.levels.value[depth + 1]?.value" :item-class="itemClassList" @select="handleCascadeSelect" @hover="(item, trigger, immediate) => scheduleSubmenu(item, trigger, depth + 1, immediate)" />
+                    <MenuNodes :items="level.value.children ?? []" :active="cascade.levels.value[depth + 1]?.value" :wrap="props.wrap" @select="handleCascadeSelect" @hover="(item, trigger, immediate) => scheduleSubmenu(item, trigger, depth + 1, immediate)" />
                 </div>
             </div>
         </DropdownMenuPortal>

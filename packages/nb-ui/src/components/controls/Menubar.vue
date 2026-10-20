@@ -71,9 +71,10 @@ watch(() => props.modelValue, (value) => {
 });
 
 /**
- * 菜单内容的“外部点击”“焦点移出”是否要关掉菜单栏。两种情况不关：
+ * 菜单内容的“外部点击”“焦点移出”是否要关掉菜单栏。三种情况不关：
  * - 这一组已经关了、只是还在退场动画里：它的外部处理仍挂着，会把紧接着打开的另一组也关掉（真实 Chrome 复现：关掉
  *   “帮助”后立刻点“编辑”，焦点进了“编辑”的菜单内容，退场中的“帮助”把这当成焦点移出，整条菜单栏关掉）；
+ * - 指针或焦点进了级联面板：面板在 reka 的菜单内容之外，但属于这个菜单（指针移到面板的项上会把焦点带过去）；
  * - 按在菜单栏的组标题上：组标题自己负责切换。reka 只对焦点做了这个判断，没管指针。
  */
 function keepOpen(menuId: string, event: Event): void {
@@ -82,6 +83,10 @@ function keepOpen(menuId: string, event: Event): void {
         return;
     }
     const target = event.target as Element | null;
+    if (target !== null && cascade.panels.value.some((panel) => panel?.contains(target) === true)) {
+        event.preventDefault();
+        return;
+    }
     // reka 的 MenubarRoot 不一定渲染成单个元素，按角色找组标题：菜单栏里带弹出菜单的那一项。
     if (target?.closest("[role='menubar'] [role='menuitem'][aria-haspopup='menu']") != null) event.preventDefault();
 }
@@ -119,7 +124,7 @@ function scheduleLevel(item: MenubarItemData | null, trigger: HTMLElement, depth
                     :style="{zIndex: popoverZIndex}"
                     @pointer-down-outside="(event) => keepOpen(menu.id, event)"
                     @focus-outside="(event) => keepOpen(menu.id, event)"
-                    class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion min-w-[200px] p-1.5 text-[var(--text-main)] outline-none select-none"
+                    class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion min-w-[200px] text-[var(--text-main)] outline-none select-none"
                 >
                     <MenuNodes :items="menu.items" :active="cascade.levels.value[0]?.value" :item-component="MenubarItem" @select="handleItemClick" @hover="(item, trigger, immediate) => scheduleLevel(item, trigger, 0, immediate)" />
                 </MenubarContent>
@@ -130,7 +135,7 @@ function scheduleLevel(item: MenubarItemData | null, trigger: HTMLElement, depth
             :key="depth"
             :ref="(element) => cascade.setPanel(depth, element)"
             role="menu"
-            class="nb-ui-popover-surface nb-ui-menu-surface nb-menu-level fixed overflow-hidden p-1.5"
+            class="nb-ui-popover-surface nb-ui-menu-surface nb-menu-level fixed overflow-hidden"
             :data-switching="level.switching"
             :style="{...level.style, zIndex: popoverZIndex + depth + 1}"
         >

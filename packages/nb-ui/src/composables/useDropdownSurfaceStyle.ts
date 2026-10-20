@@ -7,14 +7,12 @@ import {NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../theme/z-index";
  * 规范职责：
  * 1. 唯一真相源材质：以 Select 调优的黄金标准为唯一样式规范，提供
  *    4 层立体微反光环境投影（外发散 + 内边沿微光）与 130% 饱和度滤波；
- * 2. 几何与同心律：严格保证四周 6px 等宽对齐（p-1.5），视口圆角严格绑定 --nb-popover-inner-radius；
+ * 2. 几何与同心律：四周内边距取 --menu-pad，视口圆角严格绑定 --nb-popover-inner-radius；
  * 3. 规避遮挡与防闪烁：默认 7px side-offset 避让 Trigger 发光圈，提供 closeAutoFocus 阻止二次弹焦；
  * 4. 动态层级：感知 Dialog 注入的 NB_POPOVER_Z_INDEX，未挂载于弹窗时平滑回退到系统 popover 层级。
  */
 
 export interface DropdownSurfaceOptions {
-    /** 浮层尺寸档位（'sm' 时内边距紧凑化为 p-1） */
-    size?: MaybeRefOrGetter<"sm" | "default" | undefined>;
     /** 外部自定义的补充样式（将合并至 Popover 浮层） */
     popoverStyle?: MaybeRefOrGetter<Record<string, string | number> | undefined>;
     /** 浮层距离触发器的偏移（像素，默认 7px，防止遮挡聚焦发光环） */
@@ -34,7 +32,7 @@ export interface DropdownSurfaceReturn {
     popoverZIndex: number;
     /** 4 层高精度立体微反光磨砂与滤波样式对象（直接绑定至 DropdownMenuContent / SelectContent :style） */
     popoverStyle: ComputedRef<Record<string, string | number>>;
-    /** 统一外层浮层容器类名（包含 .nb-ui-popover-surface 与 p-1.5 对称留白） */
+    /** 统一外层浮层容器类名（包含 .nb-ui-popover-surface 与 .nb-ui-menu-surface） */
     popoverClasses: string;
     /** 统一视口容器类名（包含 .nb-ui-popover-scroll） */
     viewportClasses: string;
@@ -96,8 +94,8 @@ export function useDropdownSurfaceStyle(options: DropdownSurfaceOptions = {}): D
         event.preventDefault();
     };
 
-    const isSm = toValue(options.size) === "sm";
-    const popoverClasses = `nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion relative overflow-hidden ${isSm ? "p-1" : "p-1.5"}`;
+    // 内边距由 .nb-ui-menu-surface 按 --menu-pad 给出，与同心圆角的公式同一个数。
+    const popoverClasses = "nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion relative overflow-hidden";
 
     return {
         popoverZIndex,

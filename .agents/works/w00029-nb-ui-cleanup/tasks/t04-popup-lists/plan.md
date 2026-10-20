@@ -25,7 +25,7 @@
 - 危险项：`.nb-ui-menu-item-danger` 只给危险色文字与图标，高亮时底色同样是中性叠色；去掉它现在的 `:hover` 与 `.is-active` 红底规则，`DropdownMenu` 的内联危险色一并去掉。
 - 子元素：`__check`（左侧 14px 勾选列，选中时画 `i-lucide-check`；整个面板没有可勾选项时不留这一列）、`__icon`、`__label`（单行截断）、`__hint`（快捷键或路径，右对齐、`--text-muted`，放不下时先截它）。
 - `.nb-ui-menu-label`（分组标题）、`.nb-ui-menu-separator`（分隔线）。
-- `.nb-ui-popover-item` 并进 `.nb-ui-menu-item` 后删掉；删除与所有使用方的迁移在同一片里（切片 S1）。
+- `.nb-ui-popover-item` 并进 `.nb-ui-menu-item` 后删掉；删除与最后的使用方（`Select`、`QuickPick`）的迁移在同一片里（切片 S2）。
 
 ### 3. 高亮属性由谁挂（`packages/nb-ui/src/components/`）
 
@@ -92,8 +92,8 @@
 
 | 片 | 对应设计 | 提交边界 | 自跑验证 |
 |---|---|---|---|
-| S1 | 第 1、2、3 节；第 4 节的菜单一族 | token、列表项的类与高亮状态；`MenuNodes`、`DropdownMenu`、`Menubar`、`ContextMenu` 改用它（含 `compact`、`active`、`menuMaxHeight` 的去掉与 8 处调用方），`.nb-ui-popover-item` 删掉 | nb-ui、neuro-book、nb-story 的 `typecheck` 与 `test`；nb-ui Playwright 验收（新增菜单一族的验收页） |
-| S2 | 第 4 节的 `Select`、`QuickPick` | 两者改用列表项的类 | 同 S1 |
+| S1 | 第 1、2、3 节；第 4 节的菜单一族 | token、列表项的类与高亮状态；`MenuNodes`、`DropdownMenu`、`Menubar`、`ContextMenu` 改用它（含 `compact`、`active`、`menuMaxHeight` 的去掉与 9 处调用方，另有 nb-ui `Tabs` 1 处） | nb-ui、neuro-book、nb-story 的 `typecheck` 与 `test`；nb-ui Playwright 验收（新增菜单一族的验收页） |
+| S2 | 第 4 节的 `Select`、`QuickPick` | 两者改用列表项的类，`.nb-ui-popover-item` 删掉 | 同 S1 |
 | S3 | 第 5 节 | `usePopupScroll`、`PopupScrollbar`、`usePopoverLayer`，接上已有的五个列表；级联父级滚动收起子菜单；三个旧组合函数删掉 | 同 S1 |
 | S4 | 第 6 节 | `SuggestionMenu` 与 Lab 场景、验收页 | nb-ui `test` 与 Playwright 验收 |
 | S5 | 第 7 节 | Composer 改用它，`PromptMenuPanel` 删掉 | neuro-book `typecheck`、`test`；`lab-markdown.e2e.ts` |

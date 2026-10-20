@@ -21,6 +21,8 @@ afterEach(() => {
 });
 
 const focused = (): string | undefined => document.activeElement?.textContent?.trim();
+/** 挂着高亮的项：普通按钮项的高亮跟着焦点走，任何时候最多一项。 */
+const highlighted = (): (string | undefined)[] => Array.from(document.querySelectorAll("[data-highlighted]"), (item) => item.textContent?.trim());
 const press = async (key: string): Promise<void> => {
     document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", {key, bubbles: true, cancelable: true}));
     await flushPromises();
@@ -39,8 +41,10 @@ describe("ContextMenu 键盘", () => {
     it("打开即聚焦首个可用项；上下方向键跳过禁用项与分隔线并循环；Home/End 到首末项", async () => {
         await open();
         expect(focused()).toBe("新建");
+        expect(highlighted()).toEqual(["新建"]);
         await press("ArrowDown");
         expect(focused()).toBe("更多");
+        expect(highlighted()).toEqual(["更多"]);
         await press("ArrowDown");
         expect(focused()).toBe("删除");
         await press("ArrowDown");
@@ -70,18 +74,20 @@ describe("ContextMenu 键盘", () => {
         expect(wrapper.emitted("close")).toEqual([["select"]]);
     });
 
-    it("勾选项画成 menuitemcheckbox，aria-checked 跟着 checked；禁用项的 title 也是读屏描述", async () => {
+    it("勾选项画成 menuitemcheckbox，aria-checked 跟着 checked，勾与快捷键同时显示；禁用项的 title 也是读屏描述", async () => {
         const wrapper = mount(ContextMenu, {props: {visible: true, x: 10, y: 10, items: [
-            {label: "显示隐藏文件", type: "checkbox", checked: true, action: () => chosen.push("勾")},
+            {label: "显示隐藏文件", type: "checkbox", checked: true, shortcut: "Ctrl+H", action: () => chosen.push("勾")},
             {label: "导出", disabled: true, title: "没有选中的章节"},
         ]}, attachTo: document.body});
         mounted.push(wrapper);
         await flushPromises();
         const items = Array.from(document.querySelectorAll<HTMLElement>("[role^=menuitem]"));
         expect(items.map((item) => [item.textContent?.trim(), item.getAttribute("role"), item.getAttribute("aria-checked"), item.getAttribute("aria-description")])).toEqual([
-            ["显示隐藏文件", "menuitemcheckbox", "true", null],
+            ["显示隐藏文件Ctrl+H", "menuitemcheckbox", "true", null],
             ["导出", "menuitem", null, "没有选中的章节"],
         ]);
+        expect(items[0]!.querySelector(".i-lucide-check")).not.toBeNull();
+        expect(items[1]!.querySelector(".i-lucide-check")).toBeNull();
     });
 
     it("关闭原因：Tab（阻止默认的焦点移动）、Escape、菜单外点击各自带上", async () => {

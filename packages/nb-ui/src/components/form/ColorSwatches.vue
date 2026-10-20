@@ -153,7 +153,7 @@ const layout = computed(() => (props.columns > 0 ? {gridTemplateColumns: `repeat
                         align="start"
                         :side-offset="6"
                         :style="popoverStyle"
-                        class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion p-3 text-[var(--text-main)] outline-none select-none"
+                        class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion [--menu-pad:var(--space-5)] text-[var(--text-main)] outline-none select-none"
                         data-color-swatches-panel
                         @close-auto-focus="onPanelCloseAutoFocus"
                     >

@@ -27,7 +27,7 @@ export interface DropdownFloatingOptions
 export interface DropdownFloatingReturn {
     /** 浮层容器样式（已包含 zIndex、4 阶环境阴影与滤波） */
     popoverStyle: ComputedRef<Record<string, string | number>>;
-    /** 浮层容器类名（包含 .nb-ui-popover-surface、.nb-ui-menu-surface 与 p-1.5 对称留白） */
+    /** 浮层容器类名（包含 .nb-ui-popover-surface 与 .nb-ui-menu-surface） */
     popoverClasses: string;
     /** 浮层 Popper 基础属性对象 */
     popperProps: DropdownSurfaceReturn["popperProps"];

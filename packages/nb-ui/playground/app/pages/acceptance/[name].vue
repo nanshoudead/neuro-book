@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 组件手势验收页：`/acceptance/<组件>?scene=&theme=&colorway=`。只承载需要真实指针与布局引擎的验收（嵌套分栏、
- * 多栏分割、勾选框聚焦时的滚动，见 e2e/nested-grid.spec.ts、e2e/splitter.spec.ts、e2e/checkbox.spec.ts）；
+ * 多栏分割、勾选框聚焦时的滚动、弹出列表的尺寸与高亮，见 e2e/ 下的 spec）；
  * 组件的场景登记在新应用的 Component Lab。
  *
  * 页面给出三样东西：按地址应用主题与配色、装 fixture 的画布、一直可见的事件日志（只收定义里登记的事件）。
@@ -12,6 +12,7 @@ import {useRoute} from "vue-router";
 
 import CheckboxFocusFixture from "../../acceptance/CheckboxFocusFixture.vue";
 import NestedGridFixture from "../../acceptance/NestedGridFixture.vue";
+import PopupListsFixture from "../../acceptance/PopupListsFixture.vue";
 import SplitterFixture from "../../acceptance/SplitterFixture.vue";
 import {ACCEPTANCE_DEFINITIONS} from "../../acceptance/definitions";
 import {useColorway} from "../../composables/useColorway";
@@ -21,6 +22,7 @@ const FIXTURES: Record<string, Component> = {
     "nested-grid": NestedGridFixture,
     "splitter": SplitterFixture,
     "checkbox-focus": CheckboxFocusFixture,
+    "popup-lists": PopupListsFixture,
 };
 
 const route = useRoute();

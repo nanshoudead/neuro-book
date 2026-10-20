@@ -12,7 +12,6 @@ describe("useDropdownSurfaceStyle", () => {
 
         expect(popoverClasses).toContain("nb-ui-popover-surface");
         expect(popoverClasses).toContain("nb-ui-menu-surface");
-        expect(popoverClasses).toContain("p-1.5");
         expect(itemBaseClass).toBe("nb-ui-popover-item mb-1 last:mb-0");
         expect(viewportClasses).toBe("nb-ui-popover-scroll w-full");
         expect(viewportBaseStyle.borderRadius).toBe("var(--nb-popover-inner-radius)");

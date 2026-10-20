@@ -8,7 +8,7 @@
 
 ## 布局
 
-组件由触发器、主菜单浮层和零个或多个级联子菜单组成。默认菜单项高为 `--control-h-sm`（约 32px），`compact` 使用紧凑密度（约 24px 高）；主菜单默认宽度至少 200px，紧凑模式至少 160px，调用方可以用 `menuClass` 改写。菜单内容在内部滚动视口中，长列表显示悬浮胶囊滚动条；视口高度默认按密度计算，普通/紧凑模式分别完整显示约 6/5 项并露出下一项的一部分，传 `menuMaxHeight` 可改为显式上限。
+组件由触发器、主菜单浮层和零个或多个级联子菜单组成。条目是弹出列表共用的一行（`.nb-ui-menu-item`）：高 `--menu-item-h`（28px）、字 `--menu-item-font`（13px），圆角由外框圆角减内边距推出；同一级里有 radio/checkbox 时每行留出左侧勾选列，勾只画在 `checked` 的项上，快捷键照常显示在右侧。主菜单默认宽度至少 160px，调用方可以用 `menuClass` 改写。菜单内容在内部滚动视口中，长列表显示悬浮胶囊滚动条；视口完整显示约 6 项并露出下一项的一部分。
 
 浮层通过 `DropdownMenuPortal` 脱离触发器所在 stacking context。`side`、`align`、`sideOffset` 控制锚点关系，默认在底部、起点对齐并留 7px 间距；碰撞时由上游定位原语按 8px 边界向视口内调整。级联菜单与父项保留 6px 间隙并在空间不足时翻到另一侧。
 
@@ -35,12 +35,8 @@ type DropdownMenuProps = {
     items: DropdownMenuItemData[];
     /** 主菜单补充 class；默认 undefined */
     menuClass?: string;
-    /** 菜单视口最大高度；默认 undefined；非空 CSS 字符串直接作为视口 max-height，空字符串按密度计算 */
-    menuMaxHeight?: string;
     /** 触发器补充 class；默认 "" */
     rootClass?: string;
-    /** 是否使用紧凑项密度；默认 false */
-    compact?: boolean;
     /** 浮层相对触发器的横向对齐；默认 "start" */
     align?: "start" | "center" | "end";
     /** 浮层出现在触发器哪一侧；默认 "bottom" */
@@ -73,7 +69,7 @@ type DropdownMenuSlots = {
     default?: () => unknown;
     /** 自定义条目主体；slot props 为 { item: DropdownMenuItemData } */
     item?: (props: {item: DropdownMenuItemData}) => unknown;
-    /** 自定义条目右侧内容；slot props 为 { item: DropdownMenuItemData }；有 children 或 checked 时相应的箭头/勾选优先显示 */
+    /** 自定义条目右侧内容；slot props 为 { item: DropdownMenuItemData }；有 children 时显示箭头，不渲染这个插槽 */
     "item-right"?: (props: {item: DropdownMenuItemData}) => unknown;
 };
 
@@ -82,8 +78,6 @@ interface DropdownMenuItemData {
     label: string;
     /** 菜单项稳定值；必填，也用作分隔项 key */
     value: string;
-    /** 是否以强调样式呈现；默认 undefined/false */
-    active?: boolean;
     /** 是否禁用选择；默认 false */
     disabled?: boolean;
     /** 左侧装饰图标 class；默认不显示 */
@@ -94,7 +88,7 @@ interface DropdownMenuItemData {
     shortcut?: string;
     /** 原生提示与读屏描述（`aria-description`），例如禁用原因；禁用项同样带上；默认 undefined */
     title?: string;
-    /** 视觉语气；默认 "default" */
+    /** 视觉语气；"danger" 只换文字与图标的颜色，高亮底色与其它项相同；默认 "default" */
     tone?: "default" | "danger";
     /** 是否显示分隔线；默认 false */
     separator?: boolean;
@@ -111,13 +105,14 @@ interface DropdownMenuItemData {
 type DropdownMenuItemType = "item" | "radio" | "checkbox";
 ```
 
-省略 `open` 时由上游维护展开状态；传入时由父组件回写 `update:open` 才能改变显示，两种模式都上报更新。`menuMaxHeight` 非空时直接作为 CSS 最大高度；省略或空字符串时按密度计算。radio `group` 缺失会输出开发诊断，但当前菜单节点不执行分组或互斥，勾选仍完全由 `checked` 控制。
+省略 `open` 时由上游维护展开状态；传入时由父组件回写 `update:open` 才能改变显示，两种模式都上报更新。radio `group` 缺失会输出开发诊断，但当前菜单节点不执行分组或互斥，勾选仍完全由 `checked` 控制。
 
 组件没有 `expose` API。未声明的 attribute、`class` 与 `style` 按 Vue 默认规则落到根菜单原语；Portal 中的菜单属性使用 `contentProps` 指定，不应依赖根节点透传。没有业务请求、store 或持久化能力。
 
 ## 状态
 
-- 默认：触发器可用、菜单关闭；打开时按 `items` 渲染，`active` 项使用强调样式。
+- 默认：触发器可用、菜单关闭；打开时按 `items` 渲染。
+- 高亮：悬停项与键盘当前项是同一项，底色为中性叠色 `--overlay-item-active`；展开了子菜单的父项保持高亮。
 - 禁用：`disabled` 禁用触发器；条目的 `disabled` 阻止选择并降低不透明度，级联仍由其它可用项控制。
 - 受控展开：`open=false` 时内容不渲染，但会发出打开请求；`open=true` 时按输入显示菜单。
 - 空数据：`items=[]` 时仍可打开空菜单，不会产生选择事件。
