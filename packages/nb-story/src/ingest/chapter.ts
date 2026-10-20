@@ -232,7 +232,7 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
         removed.knowledge ? `${removed.knowledge} 条指向秘密的知情` : "",
         removed.secretRefs ? `${removed.secretRefs} 条说法上的秘密` : "",
     ].filter(Boolean);
-    if (removedNote.length) notes.push(`按书的设置去掉了${removedNote.join("、")}`);
+    if (removedNote.length) notes.push(`按书的设置去掉了 ${removedNote.join("、")}`);
     const final = input.compileWith(draft);
     const errors = chapterIssues(final.issues, chapter).filter(issue => issue.level === "error");
     if (errors.length) throw new IngestBadReply("repair", `第 ${chapter} 章仍有错误：${errors.map(issue => issue.message).join("；")}`);
