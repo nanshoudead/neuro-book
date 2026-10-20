@@ -167,7 +167,11 @@ describe("读取与外部修改", () => {
         await writeFile(path, "{\"x.ui/size\": 1}");
         await waitUntil("第一次写入的事件排上重读", () => clock.pending > 0);
         const scheduled = clock.scheduled;
-        await writeFile(path, "{\"x.ui/size\": 2}");
+        // 第二次写成“写临时文件再改名替换”：前一个事件刚送到就原地再写同一个文件时，Bun 的 `fs.watch` 有时不给这次写入
+        // 任何事件（Linux btrfs 上实测，间隔 0 毫秒时十次丢四到六次，间隔 2 毫秒起不丢）。产品不受影响：重读在静止 50 毫秒
+        // 之后，读到的已是这次写入的内容；这里要的是“第二个事件让计时重新开始”，所以换成一定有事件的写法。
+        await writeFile(`${path}.tmp`, "{\"x.ui/size\": 2}");
+        await rename(`${path}.tmp`, path);
         await waitUntil("第二次写入的事件重新计时", () => clock.scheduled > scheduled);
         // 期望值按 Spec 输出 9 的 50 毫秒写死，不取实现的常量。
         clock.advance(49);
