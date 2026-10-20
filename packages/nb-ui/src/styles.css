@@ -1,12 +1,8 @@
 /*
- * 全局滚动条槽位（scrollbar-gutter 规范）。
- * 预留滚动条空间，防止内容溢出时造成视口与卡片宽度跳变。
- * 针对需要内容居中的容器，可使用 .nb-ui-scrollbar-center (scrollbar-gutter: stable both-edges)。
+ * 滚动条槽位（scrollbar-gutter 规范）：预留滚动条空间，内容溢出时视口与卡片宽度不跳。
+ * 库不给 `html` 写全局规则：整页不滚的宿主（外壳铺满视口）会因此在右缘留一条空带。整页会滚的宿主自己在根上挂
+ * `.nb-ui-scrollbar-stable` 或写同一条声明；需要内容居中的容器用 `.nb-ui-scrollbar-center`（两侧对称预留）。
  */
-html {
-    scrollbar-gutter: stable;
-}
-
 .nb-ui-scrollbar-stable {
     scrollbar-gutter: stable;
 }
@@ -63,10 +59,6 @@ html {
 
 .nb-ui-control-h-md {
     height: var(--control-h-md);
-}
-
-.nb-ui-control-h-lg {
-    height: var(--control-h-lg);
 }
 
 .nb-ui-control-px {
@@ -371,12 +363,9 @@ input.nb-ui-native-input[type="number"] {
  * 浮层入退场 modifier（合同见 design-language.md 动效节）：
  * 菜单入场 = opacity + scale(0.96 → 1)，--motion-fast；退场同配方。
  *
- * 两条挂载通道共用这个登记处：
- * 1. Reka 原语（Select 等）——内容树由原语的 Presence 持有，挂 [data-state]，
- *    Presence 等到 animationend 才卸载；缩放原点消费原语算好的
- *    --reka-*-content-transform-origin（它已经处理了碰撞翻转，不要自己推方向）。
- * 2. 手写 v-if 浮层（DropdownMenu）——配 Vue <Transition name="nb-popover"> 使用，
- *    enter/leave-active 期间直接播同两条 keyframes，原点给 top center 兜底。
+ * 挂在 Reka 原语（Select、DropdownMenu、Popover 等）的内容上：内容树由原语的 Presence 持有，挂 [data-state]，
+ * Presence 等到 animationend 才卸载；缩放原点消费原语算好的 --reka-*-content-transform-origin（它已经处理了
+ * 碰撞翻转，不要自己推方向），都没有时给 top center 兜底。
  *
  * 已有自己过渡的浮层（ContextMenu / Tooltip / Dialog）
  * 不挂这个 modifier，避免两层动画叠加。
@@ -399,13 +388,11 @@ input.nb-ui-native-input[type="number"] {
     transform-origin: var(--reka-popover-content-transform-origin, var(--reka-hover-card-content-transform-origin, var(--reka-menubar-content-transform-origin, var(--reka-select-content-transform-origin, var(--reka-dropdown-menu-content-transform-origin, top center)))));
 }
 
-.nb-ui-popover-motion[data-state="open"],
-.nb-ui-popover-motion.nb-popover-enter-active {
+.nb-ui-popover-motion[data-state="open"] {
     animation: nb-popover-in var(--motion-fast) var(--ease-standard);
 }
 
-.nb-ui-popover-motion[data-state="closed"],
-.nb-ui-popover-motion.nb-popover-leave-active {
+.nb-ui-popover-motion[data-state="closed"] {
     animation: nb-popover-out var(--motion-fast) var(--ease-standard);
 }
 
@@ -599,37 +586,27 @@ input.nb-ui-native-input[type="number"] {
    全库组件微物理动效与关键帧动画（Micro-physics & Keyframe Animations）
    ========================================================================== */
 
-/* 手风琴与折叠容器展开/收起动画 */
-@keyframes nb-accordion-down {
+/* 折叠容器展开、收起 */
+@keyframes nb-collapsible-down {
     from {
         height: 0;
         opacity: 0;
     }
     to {
-        height: var(--reka-accordion-content-height, var(--reka-collapsible-content-height, auto));
+        height: var(--reka-collapsible-content-height, auto);
         opacity: 1;
     }
 }
 
-@keyframes nb-accordion-up {
+@keyframes nb-collapsible-up {
     from {
-        height: var(--reka-accordion-content-height, var(--reka-collapsible-content-height, auto));
+        height: var(--reka-collapsible-content-height, auto);
         opacity: 1;
     }
     to {
         height: 0;
         opacity: 0;
     }
-}
-
-.animate-accordion-down,
-.animate-collapsible-down {
-    animation: nb-accordion-down var(--motion-base) var(--ease-standard);
-}
-
-.animate-accordion-up,
-.animate-collapsible-up {
-    animation: nb-accordion-up var(--motion-base) var(--ease-standard);
 }
 
 /*
@@ -640,19 +617,16 @@ input.nb-ui-native-input[type="number"] {
  * 里面控件的焦点光环有完整的空间。不用“内边距加等量负外边距”把裁切盒往外放：那样外框比父容器宽，
  * 放进可横向滚动的容器时多出一截滚动距离。
  */
-.nb-collapsible-content[data-animating],
-.nb-accordion-content[data-animating] {
+.nb-collapsible-content[data-animating] {
     overflow: hidden;
 }
 
-.nb-collapsible-content[data-state="open"],
-.nb-accordion-content[data-state="open"] {
-    animation: nb-accordion-down var(--motion-base) var(--ease-standard);
+.nb-collapsible-content[data-state="open"] {
+    animation: nb-collapsible-down var(--motion-base) var(--ease-standard);
 }
 
-.nb-collapsible-content[data-state="closed"],
-.nb-accordion-content[data-state="closed"] {
-    animation: nb-accordion-up var(--motion-base) var(--ease-standard);
+.nb-collapsible-content[data-state="closed"] {
+    animation: nb-collapsible-up var(--motion-base) var(--ease-standard);
 }
 
 /* 骨架屏与占位高光流动 Shimmer 动画 */
@@ -709,55 +683,6 @@ input.nb-ui-native-input[type="number"] {
     }
 }
 
-/* 悬浮微晶发光弥散 Pulse 动画 */
-@keyframes nb-crystal-glow {
-    0%, 100% {
-        box-shadow: 0 0 8px 1px color-mix(in srgb, var(--accent-main) 25%, transparent),
-                    0 2px 12px color-mix(in srgb, var(--shadow-color) 12%, transparent);
-    }
-    50% {
-        box-shadow: 0 0 18px 4px color-mix(in srgb, var(--accent-main) 45%, transparent),
-                    0 4px 20px color-mix(in srgb, var(--shadow-color) 20%, transparent);
-    }
-}
-
-.nb-crystal-glow {
-    animation: nb-crystal-glow 2.8s var(--ease-standard) infinite;
-}
-
-/* 弹入微动效 */
-@keyframes nb-pop-in {
-    0% {
-        transform: scale(0.92);
-        opacity: 0;
-    }
-    100% {
-        transform: scale(1);
-        opacity: 1;
-    }
-}
-
-.nb-pop-in {
-    animation: nb-pop-in var(--motion-enter) var(--ease-standard);
-}
-
-/* 方案与内容平滑交替过渡 */
-.scheme-fade-enter-active,
-.scheme-fade-leave-active {
-    transition: opacity var(--motion-base) var(--ease-standard),
-                transform var(--motion-base) var(--ease-standard);
-}
-
-.scheme-fade-enter-from {
-    opacity: 0;
-    transform: translateY(6px) scale(0.985);
-}
-
-.scheme-fade-leave-to {
-    opacity: 0;
-    transform: translateY(-6px) scale(0.985);
-}
-
 /*
  * 装饰性关键帧动画同样服从降级偏好：`tokens.css` 只把三个时长 token 归零，
  * 覆盖不到 `animation`。骨架脉冲与微光是纯粹的氛围，降级时直接停掉。
@@ -773,7 +698,7 @@ input.nb-ui-native-input[type="number"] {
 /*
  * 内容切换：一次只动一块内容（配合 <Transition mode="out-in">），两段各取 --motion-fast，
  * 合计正好是浮层入场档 --motion-enter 的量级——「眼睛追踪一层新内容出现」的上限。
- * 用同一个类名的地方必须同一配方：设置外壳的区段、Provider 导轨→详情、Agent Profile 的 Profile 切换。
+ * 用同一个类名的地方必须同一配方（例如设置页切换区段、列表切到详情）。
  */
 .nb-ui-switch-enter-active,
 .nb-ui-switch-leave-active {

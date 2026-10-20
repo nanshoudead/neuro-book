@@ -2008,9 +2008,6 @@
     --motion-reveal-out: 0ms !important;
   }
 }
-html {
-  scrollbar-gutter: stable;
-}
 .nb-ui-scrollbar-stable {
   scrollbar-gutter: stable;
 }
@@ -2043,9 +2040,6 @@ html {
 }
 .nb-ui-control-h-md {
   height: var(--control-h-md);
-}
-.nb-ui-control-h-lg {
-  height: var(--control-h-lg);
 }
 .nb-ui-control-px {
   padding-inline: var(--control-px);
@@ -2219,10 +2213,10 @@ input.nb-ui-native-input[type="number"] {
 .nb-ui-popover-motion {
   transform-origin: var(--reka-popover-content-transform-origin, var(--reka-hover-card-content-transform-origin, var(--reka-menubar-content-transform-origin, var(--reka-select-content-transform-origin, var(--reka-dropdown-menu-content-transform-origin, top center)))));
 }
-.nb-ui-popover-motion[data-state="open"], .nb-ui-popover-motion.nb-popover-enter-active {
+.nb-ui-popover-motion[data-state="open"] {
   animation: nb-popover-in var(--motion-fast) var(--ease-standard);
 }
-.nb-ui-popover-motion[data-state="closed"], .nb-ui-popover-motion.nb-popover-leave-active {
+.nb-ui-popover-motion[data-state="closed"] {
   animation: nb-popover-out var(--motion-fast) var(--ease-standard);
 }
 .nb-menu-level {
@@ -2293,19 +2287,19 @@ input.nb-ui-native-input[type="number"] {
     -webkit-mask-image: none !important;
   }
 }
-@keyframes nb-accordion-down {
+@keyframes nb-collapsible-down {
   from {
     height: 0;
     opacity: 0;
   }
   to {
-    height: var(--reka-accordion-content-height, var(--reka-collapsible-content-height, auto));
+    height: var(--reka-collapsible-content-height, auto);
     opacity: 1;
   }
 }
-@keyframes nb-accordion-up {
+@keyframes nb-collapsible-up {
   from {
-    height: var(--reka-accordion-content-height, var(--reka-collapsible-content-height, auto));
+    height: var(--reka-collapsible-content-height, auto);
     opacity: 1;
   }
   to {
@@ -2313,20 +2307,14 @@ input.nb-ui-native-input[type="number"] {
     opacity: 0;
   }
 }
-.animate-accordion-down, .animate-collapsible-down {
-  animation: nb-accordion-down var(--motion-base) var(--ease-standard);
-}
-.animate-accordion-up, .animate-collapsible-up {
-  animation: nb-accordion-up var(--motion-base) var(--ease-standard);
-}
-.nb-collapsible-content[data-animating], .nb-accordion-content[data-animating] {
+.nb-collapsible-content[data-animating] {
   overflow: hidden;
 }
-.nb-collapsible-content[data-state="open"], .nb-accordion-content[data-state="open"] {
-  animation: nb-accordion-down var(--motion-base) var(--ease-standard);
+.nb-collapsible-content[data-state="open"] {
+  animation: nb-collapsible-down var(--motion-base) var(--ease-standard);
 }
-.nb-collapsible-content[data-state="closed"], .nb-accordion-content[data-state="closed"] {
-  animation: nb-accordion-up var(--motion-base) var(--ease-standard);
+.nb-collapsible-content[data-state="closed"] {
+  animation: nb-collapsible-up var(--motion-base) var(--ease-standard);
 }
 @keyframes nb-shimmer {
   0% {
@@ -2367,43 +2355,6 @@ input.nb-ui-native-input[type="number"] {
   .nb-ui-indeterminate-runner {
     animation: none;
   }
-}
-@keyframes nb-crystal-glow {
-  0%, 100% {
-    box-shadow: 0 0 8px 1px color-mix(in srgb, var(--accent-main) 25%, transparent), 0 2px 12px color-mix(in srgb, var(--shadow-color) 12%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 18px 4px color-mix(in srgb, var(--accent-main) 45%, transparent), 0 4px 20px color-mix(in srgb, var(--shadow-color) 20%, transparent);
-  }
-}
-.nb-crystal-glow {
-  animation: nb-crystal-glow 2.8s var(--ease-standard) infinite;
-}
-@keyframes nb-pop-in {
-  0% {
-    transform: scale(0.92);
-    opacity: 0;
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-.nb-pop-in {
-  animation: nb-pop-in var(--motion-enter) var(--ease-standard);
-}
-.scheme-fade-enter-active, .scheme-fade-leave-active {
-  transition: opacity var(--motion-base) var(--ease-standard), transform var(--motion-base) var(--ease-standard);
-}
-.scheme-fade-enter-from {
-  opacity: 0;
-  transform: translateY(6px) scale(0.985);
-}
-.scheme-fade-leave-to {
-  opacity: 0;
-  transform: translateY(-6px) scale(0.985);
-}
-@media (prefers-reduced-motion: reduce) {
   .nb-shimmer::after, .animate-pulse {
     animation: none !important;
   }

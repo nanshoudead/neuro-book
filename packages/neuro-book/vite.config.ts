@@ -33,7 +33,6 @@ export default defineConfig({
             // nb-ui 的运行依赖（nb-ui 本身是 workspace 源码，不预构建）
             "reka-ui",
             "@vueuse/core",
-            "class-variance-authority",
             "clsx",
             "tailwind-merge",
             // JsonViewer、MarkdownView

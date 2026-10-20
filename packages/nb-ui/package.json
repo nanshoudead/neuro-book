@@ -29,13 +29,20 @@
         "test:e2e": "playwright test"
     },
     "peerDependencies": {
+        "@nuxt/kit": "^4.3.1",
         "nuxt": "^4.3.1",
         "vue": "^3.5.24"
     },
+    "peerDependenciesMeta": {
+        "@nuxt/kit": {
+            "optional": true
+        },
+        "nuxt": {
+            "optional": true
+        }
+    },
     "dependencies": {
-        "@nuxt/kit": "^4.3.1",
         "@vueuse/core": "^14.3.0",
-        "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "reka-ui": "^2.10.1",
         "tailwind-merge": "^3.6.0"
@@ -46,6 +53,7 @@
         "@playwright/test": "^1.62.1",
         "@iconify/tailwind4": "^1.2.3",
         "@nuxt/cli": "^3.36.1",
+        "@nuxt/kit": "^4.3.1",
         "@tailwindcss/cli": "^4.3.3",
         "@tailwindcss/vite": "^4.3.3",
         "@vitejs/plugin-vue": "^6.0.7",

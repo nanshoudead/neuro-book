@@ -50,7 +50,7 @@ export default defineNuxtConfig({
 });
 ```
 
-The module auto-registers Vue components and composables.
+The module auto-registers the components exported from `@notnotype/nb-ui/components` and the composables exported from `@notnotype/nb-ui/composables`; internal parts are not registered. `nuxt` and `@nuxt/kit` are optional peer dependencies, needed only by this entry.
 
 ## Manual imports
 

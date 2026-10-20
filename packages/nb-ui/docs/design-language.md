@@ -927,7 +927,7 @@ Combobox 用原本就在的 `<ul role="listbox">`），外框只剩 `overflow: h
 根因：`animate-*` 的可选键来自 UnoCSS 主题的 `theme.animation`，本项目用的是 `presetUno()`，
 里面只有 `spin` / `ping` / `pulse` / `bounce`。`animate-collapsible-down` 这个键不存在，
 于是 `data-[state=open]:animate-collapsible-down` 一条 CSS 都不生成。`src/styles.css` 里
-手写的 `.animate-collapsible-*` 因此从来没有被用上，是死代码。
+手写的 `.animate-collapsible-*` 因此从来没有被用上，是死代码（w00029 t07 已删）。
 判据：展开后读内容元素，`getAnimations()` 必须非空且 `animationName` 是登记的 keyframes 名。
 修法：动画写在样式表里用状态属性驱动（`.nb-collapsible-content[data-state="open"] { animation: … }`），
 不依赖消费方主题里恰好存在同名 key。**凡是"写了却可能不生成"的类，都要用计算样式或 `getAnimations()` 证伪一次。**
