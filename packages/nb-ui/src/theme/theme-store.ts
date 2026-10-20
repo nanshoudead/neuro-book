@@ -1,6 +1,5 @@
 import {computed, readonly, ref} from "vue";
 import type {ComputedRef, Ref} from "vue";
-import type {Component} from "vue";
 import {getInstalledTheme, getInstalledThemes} from "./theme-loader";
 import type {InstalledTheme} from "./theme-loader";
 
@@ -23,7 +22,6 @@ export type ThemeStore = {
     /** 已装主题列表（按装载顺序） */
     themes: ComputedRef<InstalledTheme[]>;
     /** 当前主题提供的组件覆盖表，未激活时是空对象 */
-    components: ComputedRef<Record<string, Component>>;
     setTheme: (id: string | null) => void;
     /** app 根组件挂载时调用一次：从 localStorage 恢复上次选择并应用 */
     initTheme: () => void;
@@ -51,7 +49,6 @@ export function createThemeStore(options: ThemeStoreOptions): ThemeStore {
         void revision.value;
         return current.value === null ? undefined : getInstalledTheme(current.value);
     });
-    const components = computed(() => active.value?.components ?? {});
 
     /**
      * 只写 `data-nb-theme`。明暗分档由配色 store 写的 `data-nb-appearance` 承担——
@@ -109,7 +106,6 @@ export function createThemeStore(options: ThemeStoreOptions): ThemeStore {
         current: readonly(current) as Readonly<Ref<string | null>>,
         active,
         themes,
-        components,
         setTheme,
         initTheme,
     };

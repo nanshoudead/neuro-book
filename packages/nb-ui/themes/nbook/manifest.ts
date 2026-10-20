@@ -208,9 +208,4 @@ export const manifest: NbThemeManifest = {
     ],
     providesColorways: ["nbook-light", "nbook-dark"],
     defaultColorway: {light: "nbook-light", dark: "nbook-dark"},
-    /*
-     * 第一档（声明式）：变量声明 + 取值 + 自带配色 + SVG 资源，没有组件覆盖。
-     * 产品默认主题不需要第二档能力——换控件实现是主题市场的扩展点，不是默认体验的一部分。
-     * 对照页里「切到 macOS 时间选择器变成滚轮、切到 nbook 变回下拉」正是这条边界的现场。
-     */
 };

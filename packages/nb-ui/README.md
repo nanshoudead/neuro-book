@@ -57,7 +57,7 @@ The module auto-registers Vue components and composables.
 Components can also be imported explicitly:
 
 ```ts
-import {Button, Dialog, IconButton, Notification, Panel, SegmentedControl} from "@notnotype/nb-ui/components";
+import {Button, Dialog, IconButton, Notification, SegmentedControl} from "@notnotype/nb-ui/components";
 import {useNotification} from "@notnotype/nb-ui/composables";
 ```
 
@@ -67,48 +67,33 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - `Button`：primary / secondary / subtle / danger / ghost 变体，`sm` (26px) / `md` (32px) / `lg` (38px) 尺寸，支持 block、loading 与反色文字。
 - `IconButton`：紧凑图标操作按钮，`sm` / `md` / `lg` 尺寸，高精度触觉反馈与零尺寸抖动。
 - `Menubar`：桌面应用级主菜单栏（文件/编辑/视图/写作/帮助），支持横向方向键无缝穿梭与子菜单快捷键。
-- `Editable`：行内即时编辑组件（大纲章节名/角色名就地重命名，Enter/Blur 提交，Esc 撤销）。
-- `Stepper`：步骤向导器（作品新建向导、多格式电子书导出流程与发布流水线指示）。
 - `SegmentedControl`：分段选择器，支持智能隐藏相邻分隔线、阻尼滑动高亮与多选模式。
 - `ToggleGroup`：单选 / 多选切换按钮组，适配富文本排版操作栏。
-- `Switch` / `SwitchField`：现代胶囊开关控件与带标签的表单开关字段。
+- `Switch`：现代胶囊开关控件。
 - `Slider`：连续与离散滑动条（支持单值/范围双滑块、垂直/水平方向、`sm`/`md`/`lg` 尺寸）。
 - `RadioGroup`：单选选项组，支持纵向/横向排布与富描述文本。
 - `CheckboxGroup`：复选框受控组合容器（支持水平/垂直排布）。
-- `FormField` / `FormInput` / `FormNumberInput` / `FormSelect` / `FormTextarea` / `FormCheckbox` / `Combobox` / `Autocomplete` / `TagInput` / `PinInput`：全套无障碍表单控件与就地自动联想输入。
-- `DatePicker` / `DateRangePicker` / `Calendar` / `RangeCalendar`：复合日期选择器、区间选择器、网格日历与起止区间日历。
-- `DateField` / `DateRangeField` / `TimeField` / `TimeRangeField`：分段日期/时间精准光标输入框（支持 Tab 快速段落跳转与微调）。
-- `MonthPicker` / `MonthRangePicker` / `YearPicker` / `YearRangePicker`：宏观月份/年份网格与跨月/跨年代区间聚合选择器。
-- `Listbox`：高级无障碍列表选择框（支持多选、Shift 连选与即时搜索过滤）。
-- `ColorPicker`：取色器：触发器显示当前颜色，面板是饱和度与明度面、色相条、颜色值输入与预设色。
+- `FormField` / `FormInput` / `FormNumberInput` / `FormSelect` / `FormTextarea` / `FormCheckbox`：无障碍表单控件。
 - `ColorSwatches`：单选色板，可带“自动”（值为 null）与“自定义”（旁边打开取色面板）。
-- `TimePicker`：`HH:mm` 字符串 `v-model`，支持 min / max / step、disabled / invalid、ArrowUp/Down、Enter、Escape 和关闭后焦点归还；主题可通过 `time-picker@1` 契约替换实现。
 
 ### 工作区布局与导航 (Layout & Navigation)
-- `Panel`：标准面板容器，支持 `subtle` / `solid` / `glass` 质感与 `none` / `sm` / `md` / `lg` 内边距。
 - `Splitter`：多栏可调节分割面板（受控 `sizesPx` / 独立自分配两种用法），支持水平/垂直方向、收起策略与拖拽吸附；常驻 1px `--divider` 接缝与悬停/拖动高亮分层，零宽接缝不画线。几何一律 CSS px，拖动/命中/键盘由 nb-ui 自己的 `useSashGesture` 输入层与 `sash-drag` 求解器承担。
 - `createGrid`（`grid` / `grid-splitter`）：领域无关的可序列化拆分树——两轴几何、增删/移动/拆分叶、批量手势原子提交（`resizeBranches`）与快照 v2；`buildGridBranchPanels` / `gridBranchSizesPx` 只是把布局投影成面板配置，数值算法只有 `grid-geometry` / `sash-drag` 一份。
 - `GridRenderer`：把布局树递归渲染成 `Splitter`（分支一层一个、叶走插槽），独占一份手势会话：拖动中发布预览布局，松手把一次 `GridGestureCommit` 交给宿主的 `onGestureCommit` 同步接纳。
 - `DropIndicator` / `DropIndicatorLabel` / `DropFeedbackOverlay`：从 `@notnotype/nb-ui/components` 导入的拖放反馈层。前两个是纯视觉原语：`DropIndicator` 接收 `variant: "area" | "entry" | "line"` 与默认插槽，`DropIndicatorLabel` 接收 `label` / 可选 `iconClass`。`DropFeedbackOverlay` 是共享覆盖层：吃宿主给的 `preview`（边缘带 / 中央整片叶 / 条目 / 插入线 + 轴），自己负责 body Teleport、fixed 定位、6px（区域）与 2px（线）比例内缩、提示药丸的测量与视口夹紧、`aria-live` 播报和观察器生命周期；业务种类与数量由调用方以 `data-*` 透传到覆盖层根（`<Teleport>` 下手动 `useAttrs`）。纯几何入口 `@notnotype/nb-ui/layout` 另有 `resolveGridInsertion`（边缘插入带 / 中央保持布局 + 插入线）与 `resolveListInsertion`（列表插入位：同一插入位只有一条线）。Lab 的 `drop-indicator` 提供五种静态演示，并可在同一场景里打开共享覆盖层对照。
 - `ScrollArea`：平滑滚动容器，内置自适应悬浮滚动条。
-- `Accordion`：手风琴折叠面板（支持单选/多选展开，平滑高度动效与旋转角标）。
 - `Collapsible`：受控折叠展开容器。
-- `CollapsibleSection`：折叠区段（标准标题行 + 可折叠内容），设置页区段用。
-- `AspectRatio`：固定宽高比容器（默认 16:9）。
 - `Separator`：水平 / 垂直语义分隔线。
-- `NavigationMenu`：多栏视口形变导航菜单（支持鼠标移动共享视口平滑位移与宽高渐变过渡）。
-- `Tree`：通用无限层级虚拟化大纲树（支持几万节点高性能渲染与快捷键盘遍历）。
+- `Tree`：通用层级树（章节、分类这类不带文件语义的内容），单选或多选、键盘遍历。
 - `Breadcrumb`：面包屑导航栏。
-- `FileTree`：受控文件与大纲目录树。
 - `FileBrowser`：一层目录的浏览（面包屑 + 条目、选中与键盘），数据来源由宿主经事件给；选目录、另存为这类选择器在它外面包窗口。
-- `Tabs` / `Pagination`：选项卡栏与分页控制器。
+- `Tabs`：选项卡栏。
 
 ### 弹层与反馈 (Feedback & Overlays)
 - `Dialog`：对话框，一个组件两种用法：缺省模态（遮罩、焦点锁定、背景不可交互、点遮罩与 Escape 关闭，同时打开的按打开顺序叠放）；`modal=false` 是浮动窗口（无遮罩、标题栏可拖动、`resizable` 时六个缩放手柄与键盘调整）。外框只有一份。
 - `AlertDialog`：二次确认/破坏性操作警示弹窗（支持 `danger` / `warning` / `accent` 语调）。
 - `Drawer`：侧边抽屉面板（支持 `top` / `bottom` / `left` / `right` 四向弹出与遮罩模糊）。
 - `Popover`：通用气泡卡片，消费磨砂浮层材质基座。
-- `HoverCard`：划词/悬浮卡片（适用于设定集词条、人物资料与超链接预览）。
 - `Tooltip` / `ContextMenu`：延迟/即时提示框与右键上下文菜单。
 - `InfoTip`：字段标签旁的问号说明图标，悬停或聚焦时用 Tooltip 显示说明。
 - `QuickInput`：全局快速输入浮层（S4 命令面板基座）；纯受控候选项/查询/活动项，`>` 命令与 `:` 行号等前缀解析归宿主。模态键盘与焦点合同、`closed` 真实关闭交接事件、`NB_Z_INDEX.commandPalette`（9200）层级。
@@ -117,9 +102,7 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 
 ### 数据展示 (Display)
 - `Badge`：超椭圆现代状态徽章（支持 `dot` 发光点、`iconClass` 与温润深琥珀 Warning 调色）。
-- `Avatar`：头像组件（支持图片加载失败平滑降级 Fallback 与 `squircle` / `circle` 形态）。
 - `Progress`：进度条（支持 `accent` / `success` / `warning` / `danger` 语调与平滑位移动效）。
-- `Rating`：星级评分组件（支持半星与悬浮微缩放弹性动效）。
 - `Kbd`：实体键盘键帽快捷键展示组件（`sm` / `md` / `lg`）。
 - `Table` / `Spinner` / `Skeleton` / `EmptyState`：数据表格与异步骨架/空状态指示。
 
@@ -128,7 +111,7 @@ Icons used inside nb-ui components need no registration by the host app. nb-ui s
 shim, so the host works whether it uses Tailwind, UnoCSS, or no utility framework at all.
 
 The one exception is icons **you** pass in: `iconClass` on `Badge` / `Dropdown` / `Tabs` /
-`SegmentedControl` / `ContextMenu` / `EmptyState` / `FileTree` takes an arbitrary class from your code,
+`SegmentedControl` / `ContextMenu` / `EmptyState` / `Tree` takes an arbitrary class from your code,
 and generating that class is still your build's job.
 
 > **Breaking change in 0.2.0-alpha.** The `@notnotype/nb-ui/uno` export and its `NB_UI_ICON_SAFELIST`
@@ -138,7 +121,7 @@ and generating that class is still your build's job.
 Shared style registries (register instead of copying values):
 
 - `NB_Z_INDEX` (`@notnotype/nb-ui/theme`) — overlay z-indexes; bind via `:style`.
-- `.nb-ui-popover-surface` (`styles.css`) — floating panel border/background/shadow/backdrop base (Dropdown, Combobox, ContextMenu, Tooltip, Dialog).
+- `.nb-ui-popover-surface` (`styles.css`) — floating panel border/background/shadow/backdrop base (Dropdown, FormSelect, ContextMenu, Tooltip, Dialog).
 - `.nb-ui-tooltip-surface` (`styles.css`) — compact paper Tooltip modifier: control-radius surface, short attached arrow, and theme-aware text/padding.
 - `.nb-ui-menu-surface` — menu/dropdown radius modifier; consumes `--radius-menu` and keeps nested items concentric.
 - `.nb-ui-surface-rim` — opt-in Liquid Glass edge sheen for complete Dialog surfaces (modal and window); nbook small popovers leave it off.

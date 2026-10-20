@@ -1,11 +1,10 @@
 /**
- * ColorSwatches 与 ColorPicker（同名 .md）：选中状态与发出的值、“自定义”打开取色面板、面板发出小写 `#rrggbb`、
- * 明度压到 0 再抬起来色相不丢、禁用时打不开。真实组件挂在 happy-dom 里，键盘操作代替拖动（没有布局）。
+ * ColorSwatches（同名 .md）：选中状态与发出的值、“自定义”打开取色面板、面板发出小写 `#rrggbb`、
+ * 明度压到 0 再抬起来色相不丢、禁用时面板不改值。真实组件挂在 happy-dom 里，键盘操作代替拖动（没有布局）。
  */
 import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
-import ColorPicker from "./ColorPicker.vue";
 import ColorSwatches from "./ColorSwatches.vue";
 
 const COLORS = ["#2f5d8a", "#3b7a57", "#8f3f2e"];
@@ -85,34 +84,31 @@ describe("ColorSwatches", () => {
     });
 });
 
-describe("ColorPicker", () => {
-    async function openPicker(modelValue: string, props: Record<string, unknown> = {}) {
-        const wrapper = mount(ColorPicker, {props: {modelValue, ...props}, attachTo: document.body});
-        mounted.push(wrapper);
-        wrapper.get("[data-color-picker-trigger]").element.dispatchEvent(new MouseEvent("click", {bubbles: true}));
+describe("ColorSwatches 的取色面板", () => {
+    async function openPanel(modelValue: string) {
+        const wrapper = mountSwatches(modelValue);
+        swatch("custom").click();
         await flushPromises();
         return wrapper;
     }
 
-    it("颜色值输入回车后发出去掉透明度的小写 #rrggbb；点预设色发出它", async () => {
-        const wrapper = await openPicker("#2f5d8a");
+    it("颜色值输入回车后发出去掉透明度的小写 #rrggbb；写错的值不发出，输入框恢复为当前颜色", async () => {
+        const wrapper = await openPanel("#123456");
         const input = document.body.querySelector<HTMLInputElement>("[data-color-panel-input]")!;
         input.value = "#AABBCC80";
         input.dispatchEvent(new Event("input", {bubbles: true}));
         await press(input, "Enter");
-        document.body.querySelector<HTMLElement>("[data-color-panel-swatch][data-color='#8f3f2e']")?.click();
-        await flushPromises();
-        expect(wrapper.emitted("update:modelValue")).toEqual([["#aabbcc"], ["#8f3f2e"]]);
-        // 写错的值不发出，输入框恢复为当前颜色。
+        expect(wrapper.emitted("update:modelValue")).toEqual([["#aabbcc"]]);
+        await wrapper.setProps({modelValue: "#aabbcc"});
         input.value = "不是颜色";
         input.dispatchEvent(new Event("input", {bubbles: true}));
         await press(input, "Enter");
-        expect(wrapper.emitted("update:modelValue")).toHaveLength(2);
-        expect(input.value.toLowerCase()).toBe("#8f3f2e");
+        expect(wrapper.emitted("update:modelValue")).toHaveLength(1);
+        expect(input.value.toLowerCase()).toBe("#aabbcc");
     });
 
     it("明度压到 0 再抬起来，色相还是原来的蓝，不跳成红或灰", async () => {
-        const wrapper = await openPicker("#2f5d8a");
+        const wrapper = await openPanel("#2f5d8a");
         const area = document.body.querySelector<HTMLElement>("[data-color-panel] [role='slider']")!;
         area.focus();
         await press(area, "ArrowDown", 60);
@@ -123,11 +119,5 @@ describe("ColorPicker", () => {
         const [r, g, b] = [1, 3, 5].map((start) => Number.parseInt(last.slice(start, start + 2), 16)) as [number, number, number];
         expect(b).toBeGreaterThan(r);
         expect(b).toBeGreaterThan(g);
-    });
-
-    it("disabled 时触发器是禁用的按钮，点了不打开面板", async () => {
-        await openPicker("#2f5d8a", {disabled: true});
-        expect(document.body.querySelector<HTMLButtonElement>("[data-color-picker-trigger]")?.disabled).toBe(true);
-        expect(document.body.querySelector("[data-color-panel]")).toBeNull();
     });
 });

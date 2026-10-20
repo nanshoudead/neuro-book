@@ -3,7 +3,7 @@
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
-import type {AlertDialog, Banner, ContextMenu, Dialog, Drawer, HoverCard, InfoTip, Notification, NotificationViewport, Popover, QuickInput, Tooltip} from "@notnotype/nb-ui/components";
+import type {AlertDialog, Banner, ContextMenu, Dialog, Drawer, InfoTip, Notification, NotificationViewport, Popover, QuickInput, Tooltip} from "@notnotype/nb-ui/components";
 
 import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
@@ -81,15 +81,6 @@ export const feedbackFixtures: LabFixture[] = [
             {id: "left", label: "左侧、非模态", input: {props: {direction: "left", title: "素材", modal: false}, model: {open: false}, slots: {trigger: true, default: true}}},
         ],
         subject: nbUiSubject("Drawer"),
-    }),
-    defineSubjectFixture<typeof HoverCard>({
-        component: "HoverCard",
-        slotPresets: {trigger: trigger("沈屿"), default: paragraph("沈屿：港口巡夜人，第三章登场。性格沉默，怕水。")},
-        scenes: [
-            {id: "default", label: "悬停打开", input: {props: {side: "bottom", align: "start", openDelay: 300, closeDelay: 150, arrow: true}, model: {open: false}, slots: {trigger: true, default: true}}},
-            {id: "open", label: "已打开（右侧）", input: {props: {side: "right", align: "center", arrow: false}, model: {open: true}, slots: {trigger: true, default: true}}},
-        ],
-        subject: nbUiSubject("HoverCard"),
     }),
     defineSubjectFixture<typeof Popover>({
         component: "Popover",
