@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t07-lib-review-quick-fixes
-status: active
+status: done
 updated: 2026-10-20
 ---
 
