@@ -50,9 +50,9 @@ html {
 
 /*
  * 表单控件状态基座（单一来源）。
- * 所有字段类控件（FormInput/FormNumberInput/FormSelect/FormTextarea/Combobox/TagInput）
+ * 所有字段类控件（FormInput/FormNumberInput/FormSelect/FormTextarea）
  * 的边框与聚焦辉光都从这里出，invalid 由组件根据 FormField context 追加 .nb-ui-control-invalid。
- * 同一条规则用 :focus 覆盖原生控件、:focus-within 覆盖包装容器（Combobox/TagInput）。
+ * 同一条规则用 :focus 覆盖原生控件、:focus-within 覆盖包装容器。
  *
  * 尺寸类也在这里登记，而不是依赖 Tailwind 的 arbitrary value：Tailwind v4 不会为运行时
  * `h-[var(--control-h-*)]` 生成稳定 utility，主题密度必须有静态消费点。
@@ -152,9 +152,9 @@ input.nb-ui-native-input[type="number"] {
 
 /*
  * 浮层面板外观基座（与 theme/z-index.ts 的 NB_Z_INDEX 对称的登记处）。
- * Dropdown / Combobox / ContextMenu / Tooltip / Dialog / TimePicker 的浮层面板统一从这里取
+ * Dropdown / FormSelect / ContextMenu / Tooltip / Dialog 的浮层面板统一从这里取
  * 边框、圆角、底色、阴影与磨砂；新增浮层组件请消费此类，不要再复制这一组属性。
- * 例外：Panel 的页面表面投影刻意不同，自己维护；对话框的两种用法都在这一层之上只加 `.nb-ui-dialog-surface` 换圆角与投影。
+ * 对话框的两种用法都在这一层之上只加 `.nb-ui-dialog-surface` 换圆角与投影。
  *
  * 五个取值全部走主题变量，且默认值逐项对齐改动前的写死值——
  * --panel-outline → --border-color、--overlay-surface → --bg-panel、--overlay-blur → none、
@@ -262,7 +262,7 @@ input.nb-ui-native-input[type="number"] {
  * 2. 手写 v-if 浮层（Dropdown）——配 Vue <Transition name="nb-popover"> 使用，
  *    enter/leave-active 期间直接播同两条 keyframes，原点给 top center 兜底。
  *
- * 已有自己过渡的浮层（Combobox / ContextMenu / Tooltip / Dialog / TimePicker）
+ * 已有自己过渡的浮层（ContextMenu / Tooltip / Dialog）
  * 不挂这个 modifier，避免两层动画叠加。
  */
 @keyframes nb-popover-in {

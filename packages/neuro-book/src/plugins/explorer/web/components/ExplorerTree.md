@@ -5,7 +5,7 @@
 
 # ExplorerTree
 
-资源管理器的虚拟树（[`workbench/files-explorer.md`](../../../../../../../docs/specs/workbench/files-explorer.md) 的“焦点”与验收 1、3）：几千行的目录只渲染视口内的行与上下各 10 行余量，焦点行滚出视口也保持挂载。键盘焦点留在树的列表元素上，当前行经 `aria-activedescendant` 指出；按键交给宿主的 `handleKey` 决定，宿主处理了才阻止默认行为，宿主要求开菜单时在焦点行下方发出 `row-context`。正在内联输入的行与焦点行一样保持挂载。nb-ui 的 `FileTree` 单选、行高 32px、没有虚拟化，所以这里另写。
+资源管理器的虚拟树（[`workbench/files-explorer.md`](../../../../../../../docs/specs/workbench/files-explorer.md) 的“焦点”与验收 1、3）：几千行的目录只渲染视口内的行与上下各 10 行余量，焦点行滚出视口也保持挂载。键盘焦点留在树的列表元素上，当前行经 `aria-activedescendant` 指出；按键交给宿主的 `handleKey` 决定，宿主处理了才阻止默认行为，宿主要求开菜单时在焦点行下方发出 `row-context`。正在内联输入的行与焦点行一样保持挂载。nb-ui 的 `Tree` 没有虚拟化与文件语义，所以这里另写。
 
 ## 布局
 

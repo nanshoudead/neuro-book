@@ -6,36 +6,16 @@
  */
 
 import type {
-    Autocomplete,
-    Calendar,
     CheckboxGroup,
-    ColorPicker,
     ColorSwatches,
-    Combobox,
-    DateField,
-    DatePicker,
-    DateRangeField,
-    DateRangePicker,
     FormCheckbox,
     FormField,
     FormInput,
     FormNumberInput,
     FormSelect,
     FormTextarea,
-    Listbox,
-    MonthPicker,
-    MonthRangePicker,
-    PinInput,
     RadioGroup,
-    RangeCalendar,
     Slider,
-    TagInput,
-    TimeField,
-    TimePicker,
-    TimePickerDefault,
-    TimeRangeField,
-    YearPicker,
-    YearRangePicker,
 } from "@notnotype/nb-ui/components";
 import {h} from "vue";
 
@@ -81,18 +61,6 @@ const STATUS_OPTIONS = [
     {value: "review", label: "待校对", indicatorClass: "bg-[var(--status-info)]", description: "交给编辑"},
     {value: "done", label: "定稿", indicatorClass: "bg-[var(--status-success)]", description: "不再改动"},
 ];
-
-const CHARACTER_OPTIONS = ["沈屿", "林晚", "老港主", "灯塔看守", "无名船夫"].map((name) => ({value: name, label: name}));
-
-/** 日期类组件的共同场景：空值、英文、只读、禁用。值不是 JSON，`model` 层留空，组件非受控。 */
-function dateScenes(extra: {size?: "sm" | "md" | "lg"} = {}) {
-    return [
-        {id: "default", label: "空值（中文）", input: {props: {locale: "zh-CN", ...extra}, model: {}}},
-        {id: "en", label: "英文", input: {props: {locale: "en-US", ...extra}, model: {}}},
-        {id: "readonly", label: "只读", input: {props: {locale: "zh-CN", readonly: true, ...extra}, model: {}}},
-        {id: "disabled", label: "禁用", input: {props: {locale: "zh-CN", disabled: true, ...extra}, model: {}}},
-    ];
-}
 
 export const formFixtures: LabFixture[] = [
     defineSubjectFixture<typeof FormInput>({
@@ -167,27 +135,6 @@ export const formFixtures: LabFixture[] = [
         ],
         subject: nbUiSubject("FormField"),
     }),
-    defineSubjectFixture<typeof Autocomplete>({
-        component: "Autocomplete",
-        events: ["select"],
-        class: "w-full max-w-[320px]",
-        scenes: [
-            {id: "default", label: "人物名", input: {props: {options: CHARACTER_OPTIONS, placeholder: "输入人物名"}, model: {modelValue: ""}}},
-            {id: "typed", label: "已输入", input: {props: {options: CHARACTER_OPTIONS, placeholder: "输入人物名", size: "sm"}, model: {modelValue: "沈"}}},
-            {id: "disabled", label: "禁用", input: {props: {options: CHARACTER_OPTIONS, disabled: true}, model: {modelValue: "林晚"}}},
-        ],
-        subject: nbUiSubject("Autocomplete"),
-    }),
-    defineSubjectFixture<typeof Combobox>({
-        component: "Combobox",
-        class: "w-full max-w-[320px]",
-        scenes: [
-            {id: "default", label: "可检索的选项", input: {props: {options: SELECT_OPTIONS, placeholder: "选择语言"}, model: {modelValue: "zh-CN"}}},
-            {id: "strings", label: "纯字符串选项", input: {props: {options: ["第一卷", "第二卷", "第三卷"], placeholder: "选择卷", size: "sm"}, model: {modelValue: null}}},
-            {id: "disabled", label: "禁用", input: {props: {options: SELECT_OPTIONS, disabled: true}, model: {modelValue: "en-US"}}},
-        ],
-        subject: nbUiSubject("Combobox"),
-    }),
     defineSubjectFixture<typeof CheckboxGroup>({
         component: "CheckboxGroup",
         scenes: [
@@ -206,16 +153,6 @@ export const formFixtures: LabFixture[] = [
         ],
         subject: nbUiSubject("RadioGroup"),
     }),
-    defineSubjectFixture<typeof ColorPicker>({
-        component: "ColorPicker",
-        scenes: [
-            {id: "default", label: "自带预设", input: {props: {size: "md"}, model: {modelValue: "#2f5d8a"}}},
-            {id: "custom-swatches", label: "给定预设、小号", input: {props: {swatches: ["#8a3b2f", "#2f5d8a", "#3b7a57", "#b8860b", "#6b4f8a", "#2e2a26"], size: "sm"}, model: {modelValue: "#8a3b2f"}}},
-            {id: "readonly", label: "只读", input: {props: {readonly: true}, model: {modelValue: "#3b7a57"}}},
-            {id: "disabled", label: "禁用", input: {props: {disabled: true}, model: {modelValue: "#3b7a57"}}},
-        ],
-        subject: nbUiSubject("ColorPicker"),
-    }),
     defineSubjectFixture<typeof ColorSwatches>({
         component: "ColorSwatches",
         scenes: [
@@ -226,27 +163,6 @@ export const formFixtures: LabFixture[] = [
             {id: "disabled", label: "禁用", input: {props: {colors: BOOK_SWATCHES, autoLabel: "自动", customLabel: "自定义", disabled: true}, model: {modelValue: "#2f63a8"}}},
         ],
         subject: nbUiSubject("ColorSwatches"),
-    }),
-    defineSubjectFixture<typeof Listbox>({
-        component: "Listbox",
-        class: "w-full max-w-[360px]",
-        scenes: [
-            {id: "default", label: "单选", input: {props: {options: GENRES, variant: "compact", size: "md"}, model: {modelValue: "mystery"}}},
-            {id: "card", label: "卡片、多选与操作条", input: {props: {options: GENRES.map((genre, index) => (index === 0 ? {...genre, badge: "常用", badgeTone: "accent" as const} : genre)), variant: "card", multiple: true, showActionBar: true}, model: {modelValue: ["mystery", "romance"]}}},
-            {id: "groups", label: "分组与筛选", input: {props: {groups: [{id: "main", label: "主要人物", options: CHARACTER_OPTIONS.slice(0, 2)}, {id: "minor", label: "次要人物", options: CHARACTER_OPTIONS.slice(2)}], showFilter: true, filterPlaceholder: "筛选人物"}, model: {modelValue: "沈屿"}}},
-            {id: "disabled", label: "禁用", input: {props: {options: GENRES, variant: "compact", size: "md", disabled: true}, model: {modelValue: "mystery"}}},
-        ],
-        subject: nbUiSubject("Listbox"),
-    }),
-    defineSubjectFixture<typeof PinInput>({
-        component: "PinInput",
-        events: ["complete"],
-        scenes: [
-            {id: "default", label: "六位数字", input: {props: {length: 6, type: "number"}, model: {modelValue: []}}},
-            {id: "masked", label: "遮蔽", input: {props: {length: 4, type: "number", mask: true}, model: {modelValue: ["1", "2"]}}},
-            {id: "disabled", label: "禁用", input: {props: {length: 4, disabled: true}, model: {modelValue: ["9", "9", "9", "9"]}}},
-        ],
-        subject: nbUiSubject("PinInput"),
     }),
     defineSubjectFixture<typeof Slider>({
         component: "Slider",
@@ -259,45 +175,4 @@ export const formFixtures: LabFixture[] = [
         ],
         subject: nbUiSubject("Slider"),
     }),
-    defineSubjectFixture<typeof TagInput>({
-        component: "TagInput",
-        class: "w-full max-w-[360px]",
-        scenes: [
-            {id: "default", label: "标签", input: {props: {placeholder: "回车添加标签"}, model: {modelValue: ["伏笔", "第三卷"]}}},
-            {id: "accent", label: "强调色、小号", input: {props: {tone: "accent", size: "sm", placeholder: "回车添加标签"}, model: {modelValue: ["主线"]}}},
-            {id: "empty", label: "空", input: {props: {placeholder: "回车添加标签"}, model: {modelValue: []}}},
-            {id: "disabled", label: "禁用", input: {props: {disabled: true}, model: {modelValue: ["不可改"]}}},
-        ],
-        subject: nbUiSubject("TagInput"),
-    }),
-    defineSubjectFixture<typeof TimePicker>({
-        component: "TimePicker",
-        scenes: [
-            {id: "default", label: "时间", input: {props: {placeholder: "提醒时间", step: 15}, model: {modelValue: "21:30"}}},
-            {id: "range", label: "限定范围", input: {props: {min: "08:00", max: "18:00", step: 30}, model: {modelValue: "09:00"}}},
-            {id: "invalid", label: "不合法", input: {props: {invalid: true}, model: {modelValue: "25:00"}}},
-            {id: "disabled", label: "禁用", input: {props: {disabled: true}, model: {modelValue: "07:00"}}},
-        ],
-        subject: nbUiSubject("TimePicker"),
-    }),
-    defineSubjectFixture<typeof TimePickerDefault>({
-        component: "TimePickerDefault",
-        scenes: [
-            {id: "default", label: "时间", input: {props: {placeholder: "提醒时间", step: 15}, model: {modelValue: "21:30"}}},
-            {id: "disabled", label: "禁用", input: {props: {disabled: true}, model: {modelValue: "08:00"}}},
-        ],
-        subject: nbUiSubject("TimePickerDefault"),
-    }),
-    defineSubjectFixture<typeof Calendar>({component: "Calendar", events: ["update:modelValue"], scenes: dateScenes(), subject: nbUiSubject("Calendar")}),
-    defineSubjectFixture<typeof RangeCalendar>({component: "RangeCalendar", events: ["update:modelValue"], scenes: dateScenes(), subject: nbUiSubject("RangeCalendar")}),
-    defineSubjectFixture<typeof DateField>({component: "DateField", events: ["update:modelValue"], scenes: dateScenes({size: "md"}), subject: nbUiSubject("DateField")}),
-    defineSubjectFixture<typeof DatePicker>({component: "DatePicker", events: ["update:modelValue"], scenes: dateScenes({size: "md"}), subject: nbUiSubject("DatePicker")}),
-    defineSubjectFixture<typeof DateRangeField>({component: "DateRangeField", events: ["update:modelValue"], scenes: dateScenes({size: "md"}), subject: nbUiSubject("DateRangeField")}),
-    defineSubjectFixture<typeof DateRangePicker>({component: "DateRangePicker", events: ["update:modelValue"], scenes: dateScenes({size: "md"}), subject: nbUiSubject("DateRangePicker")}),
-    defineSubjectFixture<typeof MonthPicker>({component: "MonthPicker", events: ["update:modelValue"], scenes: dateScenes(), subject: nbUiSubject("MonthPicker")}),
-    defineSubjectFixture<typeof MonthRangePicker>({component: "MonthRangePicker", events: ["update:modelValue"], scenes: dateScenes(), subject: nbUiSubject("MonthRangePicker")}),
-    defineSubjectFixture<typeof YearPicker>({component: "YearPicker", events: ["update:modelValue"], scenes: dateScenes(), subject: nbUiSubject("YearPicker")}),
-    defineSubjectFixture<typeof YearRangePicker>({component: "YearRangePicker", events: ["update:modelValue"], scenes: dateScenes(), subject: nbUiSubject("YearRangePicker")}),
-    defineSubjectFixture<typeof TimeField>({component: "TimeField", events: ["update:modelValue"], scenes: dateScenes({size: "md"}), subject: nbUiSubject("TimeField")}),
-    defineSubjectFixture<typeof TimeRangeField>({component: "TimeRangeField", events: ["update:modelValue"], scenes: dateScenes({size: "md"}), subject: nbUiSubject("TimeRangeField")}),
 ];

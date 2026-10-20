@@ -15,12 +15,6 @@ onMounted(() => {
     theme.initTheme();
 });
 
-const navItems = [
-    {to: "/", label: "主题对照"},
-    {to: "/workbench", label: "工作台"},
-    {to: "/components", label: "组件画廊"},
-    {to: "/manual-import", label: "手动导入"},
-];
 </script>
 
 <template>
@@ -39,19 +33,6 @@ const navItems = [
                 <span class="i-lucide-shapes h-4 w-4" style="color: var(--accent-main)"></span>
                 <span style="font-weight: 600">nb-ui 设计实验室</span>
             </div>
-
-            <nav class="flex items-center gap-1">
-                <NuxtLink
-                    v-for="item in navItems"
-                    :key="item.to"
-                    :to="item.to"
-                    class="rounded px-2 py-1"
-                    active-class="nb-lab-nav-active"
-                    style="color: var(--text-secondary)"
-                >
-                    {{ item.label }}
-                </NuxtLink>
-            </nav>
 
             <div class="ml-auto flex min-w-0 max-w-full flex-wrap items-center gap-x-5 gap-y-2">
                 <!-- 主题轴。名称与简介直接读各包的 manifest，playground 不再手抄一份 -->
@@ -102,10 +83,3 @@ const navItems = [
     </div>
 </template>
 
-<style>
-.nb-lab-nav-active {
-    background: var(--bg-subtle);
-    color: var(--text-main) !important;
-    font-weight: 600;
-}
-</style>

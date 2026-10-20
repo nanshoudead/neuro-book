@@ -264,7 +264,7 @@ Save Dialog `0 36px 100px`（后者是上一轮从同一份文件的 Dialogs 页
 `--glass-rim`，但只有整块的 Dialog（模态与浮动窗口两种用法）显式挂 `.nb-ui-surface-rim`。nbook 保持
 `--overlay-sheen: none`，小浮层继续 8px 纯 blur、无面渐变。
 
-菜单、ContextMenu、Combobox、FormSelect、默认 TimePicker 与 macOS 滚轮 TimePicker 都必须挂
+菜单、ContextMenu、FormSelect 都必须挂
 `.nb-ui-menu-surface`；Dialog 叠挂 `.nb-ui-dialog-surface`。Tooltip 独立消费
 `.nb-ui-tooltip-surface`，由该 modifier 负责实心面板底（`--bg-panel`）、正文色（`--text-main`）、
 控件圆角、舒适内边距与无尖角平滑微投影卡片，不吃大浮层的半透明玻璃配方，彻底规避三角箭头的几何与阴影瑕疵。
@@ -353,7 +353,7 @@ rounded-[max(2px,calc(var(--radius-control)_-_var(--border-w)_-_2px))]   <!-- �
 `calc()` 会算出负值，而**负的 `border-radius` 是非法值，整条声明被丢弃**——
 表现是圆角控件突然变成方角，且没有任何报错。
 
-内层形状不贴角就不必同心。`FileTree` 的展开箭头离行首至少 8px，`Badge`、`TagInput` 的芯片、
+内层形状不贴角就不必同心。`Tree` 的展开箭头离行首至少 8px，`Badge`、
 `FormCheckbox` 都是这种情况，它们保持自己的圆角是对的，别为了「统一」去套这条式子。
 
 ### 控件圆角只有 `--radius-control` 一个来源
@@ -642,7 +642,7 @@ editorial 同裸基线。这些数值是**目测决定，没有可引的规范**
    若原语行为变了（不再等待），退回 Vue `<Transition>` 包装，并在坑节记录。
 5. 共享实现只有一个登记处：`src/styles.css` 的 `.nb-ui-popover-motion` modifier，
    挂在浮层基座（`.nb-ui-popover-surface`）之上。已有自己过渡的浮层
-   （Combobox / ContextMenu / Tooltip / TimePicker / Dialog）不挂它，
+   （ContextMenu / Tooltip / Dialog）不挂它，
    避免两层动画叠加；它们的配方同样服从本节第 1–3 条。
 6. **模态命令浮层（S4）关闭不带走动画。** 退场动画会把「下一层什么时候拿到焦点/按键」
    押在 `animationend` 上，交接时刻由动画时长决定而不是状态本身。`QuickInput` 与
@@ -1191,7 +1191,7 @@ Bun 下 CDP 握手超时。探针脚本一律 `node xxx.mjs`。
       不写死白或黑
 
 **几何**
-- [ ] 控件外框圆角一律 `rounded-[var(--radius-control)]`；不贴外框角的内部形状和 Skeleton / Notification / Panel 的独立圆角不纳入此项——
+- [ ] 控件外框圆角一律 `rounded-[var(--radius-control)]`；不贴外框角的内部形状和 Skeleton / Notification 的独立圆角不纳入此项——
       写死的 Tailwind 常量不能让 `--radius-control` 负责控件外框（坑 #44）
 - [ ] 贴着外框四角的内层形状（浮层里的项、分段控件的段）按
       `外框 − 描边 − 内边距` 推半径，且用 `max()` 兜底（负半径会让整条声明作废，变方角）

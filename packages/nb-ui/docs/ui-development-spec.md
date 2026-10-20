@@ -144,14 +144,11 @@
 - **滑块 Thumb**：面板底色 + 14% 环境微边框 + 双层轻微柔影；悬停轻微放大 `scale(1.1)`，按压缩放 `scale(0.95)`，禁用严格禁用缩放。
 - **多维度支持**：支持单数值与范围双滑块、水平与垂直方向、`sm` / `md` / `lg` 尺寸。
 
-#### 10. `Accordion` & `Collapsible`（折叠面板规范）
-- **手风琴（Accordion）**：平滑高度折叠动效（`--motion-base` + `--ease-standard`），右侧 Chevron 箭头 180° 平滑翻转，支持单选/多选展开模式。
-- **折叠器（Collapsible）**：无侵入受控容器，原生支持 `data-[state=open]` 高度自适应动效。
-- **折叠区段（CollapsibleSection）**：`Collapsible` 之上的标准标题行——「图标 + 标题 + meta 插槽 + chevron」，供设置页区段使用。标题行是「一节」而不是「单元」：静止态不画描边与填色，悬停只给半量底色，图标与 chevron 在悬停 / 展开时转 accent。整行（含底色与图标）左右各留 8px 内缩，不贴列边缘；需要裸触发器时继续用 `Collapsible`。
+#### 10. `Collapsible`（折叠规范）
+- **折叠器（Collapsible）**：无侵入受控容器，原生支持 `data-[state=open]` 高度自适应动效（`--motion-base` + `--ease-standard`）。
 
-#### 11. `Popover` & `HoverCard`（气泡与悬浮卡片规范）
+#### 11. `Popover`（气泡规范）
 - **材质基座**：消费统一的 `.nb-ui-popover-surface` 磨砂玻璃基底（75% 半透底色 + 12px~14px 模糊 + 130% 饱和度 + 1px 环境边框 + 立体柔影），禁用时 `close-auto-focus` 防止二次聚焦闪烁。
-- **长文写作场景**：`HoverCard` 预设 250ms 打开延迟与 200ms 关闭平滑过渡，为设定集词条、人名档案与外部链接提供即时轻量预览。
 
 #### 12. `Splitter`（多栏可调节工作区规范）
 - **双向分割**：支持水平（`horizontal`）与垂直（`vertical`）多栏分配；`Splitter` 内部不再使用 reka-ui 的分割原语，拖动、命中、键盘与收起全部走 nb-ui 自己的纯函数（`grid-geometry` / `sash-drag`）与 `useSashGesture` 输入层，`Enter` 折叠/恢复与拖动共用同一份收起策略。
@@ -196,9 +193,8 @@
   - **内边距只有一层**：body 自带的内边距是对话框给的那一层；内容自带页面节律（导航轨 / 内容列各有自己的 `--space-*` 边距）时，宿主必须传 `body-class="!p-0"` 把这层交出去。两层叠起来会到 24–32px，读起来像内容被挤在中间。
 - **AlertDialog**：居中破坏性二次确认模态窗，强制提供有明确意图的按钮出口（取消/确认），支持 `danger` / `warning` / `accent` 语调；受控模式可不提供 `trigger` slot，组件不得为无触发器实例渲染空的 `AlertDialogTrigger`。
 
-#### 14. `Progress` & `Avatar` & `Kbd`（数据反馈与微排版组件规范）
+#### 14. `Progress` & `Kbd`（数据反馈与微排版组件规范）
 - **Progress**：全胶囊圆角，消费 `--motion-base` 平滑 `translateX` 进度位移，支持 4 种语义状态色。
-- **Avatar**：支持现代超椭圆（`squircle`）与圆形，图片加载缺失时 0 延迟即时呈现大写 Fallback 字母，加载时提供防闪烁机制。
 - **Kbd**：等宽微浮雕物理键帽质感，`--control-outline` 边框 + 实体微底影，支持 `sm` / `md` / `lg` 三档字号与高宽排布。
 
 #### 15. `ScrollArea` 与跨平台极简滚动条体系规范
@@ -235,18 +231,7 @@
     2. **100% 绝对可见 macOS 4px 悬浮微胶囊滑块**：独立绝对定位在 `SelectContent` 表面（Viewport 外侧），完全避开渐隐遮罩裁切，不受底层原语影响；常态半透明、悬停加深、支持鼠标按住 1:1 拖拽；
     3. **内容避让**：视口在内容溢出时自动分配 6px 避让槽（`pr-1.5`），杜绝滑块与选项高亮底色或选中对勾图标重合。
 
-#### 16. `Listbox`（高级列表选择框与实体卡片规范）
-- **设计定位**：就地常驻展开（Inline）的多选/单选容器，与下拉弹层式 `Select` 形成互补；专用于长篇写作大纲分卷多选、世界观词条/人物档案实体选择与标签池。
-- **四大展示与交互方案体系**：
-  1. **方案 1：macOS 经典紧凑检查器（`variant="compact"` · 推荐）**：单行高 28px~32px，单选为经典高斯蓝底（`var(--accent-main)`）高亮，多选为左侧实心超椭圆微 Checkbox + 右侧状态标签，集成即时搜索与底部快捷全选/反选/清空状态栏；
-  2. **方案 2：现代富实体卡片（`variant="card"`）**：独立微卡片排版，支持左侧大图标/头像插槽、粗体主标题、2 行副标题描述与右侧状态胶囊徽章（Badge），选中态带有 `0 0 0 1.5px var(--accent-main)` 柔光微外框；
-  3. **方案 3：分段多组折叠大纲（`grouped`）**：基于 `ListboxGroup` / `ListboxGroupLabel`，支持粘性磨砂组头、组内数量指示与「切换全选本组」快捷操作；
-  4. **方案 4：双栏穿梭流转分配器（Shuttle Transfer）**：待选章节池 vs 本次导出目标双栏，支持 `>` `<` `>>` `<<` 穿梭流转与导出顺序上下调整。
-- **搜索与操作状态栏**：
-  - 顶部内嵌 `ListboxFilter` 即时搜索栏，支持跨标题、描述、徽标与分组多字段模糊匹配；
-  - 底部提供 `showActionBar` 状态操作栏（`已选 N / M 项`、全选、反选、清空）。
-
-#### 17. 浮层体系分级架构（Surface Tier Architecture）与黄金基座规范
+#### 16. 浮层体系分级架构（Surface Tier Architecture）与黄金基座规范
 
 全库浮层彻底告别分散硬编码，统一划分为 4 档标准分层模型（Tier 1 ~ Tier 4），由全局基座与专用 Composables 严格约束：
 
@@ -288,7 +273,7 @@
      - 统一为 **`blur(8px) saturate(130%) brightness(1.0)`**；
      - 彻底纠正 `brightness(0.72)` 压暗 28% 导致的发脏浑浊，实现通透晶莹的现代玻璃质感。
 
-#### 18. `QuickInput`（全局快速输入浮层 · S4 规范）
+#### 17. `QuickInput`（全局快速输入浮层 · S4 规范）
 - **定位**：全局命令面板 / 快速输入的受控浮层原语；候选项、查询、活动项与执行语义全由宿主提供，组件不持有命令注册表、不做匹配与执行决策——`>` 命令、`:` 行号等前缀解析属宿主。props/emits 之外无自定义 slot、无 expose。
 - **层级与 role（S4）**：消费 `NB_Z_INDEX.commandPalette`（9200，S4 全局命令面板角色）；模态 Dialog 语义（`DialogRoot` modal + `disableOutsidePointerEvents`），透明遮罩与 Content 同为 9200、Content 在后；外点被遮罩消费，不穿透底层。可访问名称来自 sr-only 的 `DialogTitle`；面板没有描述节点，Content 默认不带 `aria-describedby`（不指向不存在的描述 id），宿主经 attrs 显式传入时以宿主为准。
 - **几何**：视口顶部居中，宽 `min(640px, calc(100vw - 24px))`，`top: clamp(16px, 8vh, 72px)`，`max-height: min(560px, calc(100dvh - 48px))`；圆角为 **14px**（`rounded-[14px]`），输入区与底部提示固定、列表 `flex:1; min-height:0` 自滚动；390px 宽仍留左右 12px。
@@ -354,8 +339,8 @@
 ## 5. 表单与无障碍
 
 1. 字段组件接入 `FormField` context：生成或接受 `id`，连接 `aria-describedby`，合并 `required`，错误时输出 `aria-invalid`。
-2. 表单受控/非受控契约：所有表单控件（`FormInput`, `FormSelect`, `FormCheckbox`, `FormNumberInput`, `FormTextarea`, `Combobox`）的 `modelValue` 声明为可选并使用 `withDefaults` 赋予安全默认值，杜绝静态展示或非受控场景下的控制台告警。
-3. nb-ui 持有的原生 input（公共组件内部 input 与 playground 自建控件）使用 `.nb-ui-native-input` 标记。`src/styles.css` 对 search decoration 和 number spinner 的抑制必须以该标记为作用域；未标记的宿主原生 input 保留浏览器默认伪元素。`PinInput type="number"` 保持 Reka 的 `type="text"`、`inputmode="numeric"`、`pattern="[0-9]*"` 数字键盘合同。
+2. 表单受控/非受控契约：所有表单控件（`FormInput`, `FormSelect`, `FormCheckbox`, `FormNumberInput`, `FormTextarea`）的 `modelValue` 声明为可选并使用 `withDefaults` 赋予安全默认值，杜绝静态展示或非受控场景下的控制台告警。
+3. nb-ui 持有的原生 input（公共组件内部 input 与 playground 自建控件）使用 `.nb-ui-native-input` 标记。`src/styles.css` 对 search decoration 和 number spinner 的抑制必须以该标记为作用域；未标记的宿主原生 input 保留浏览器默认伪元素。
 4. 可见标签优先。图标按钮必须有非空 `aria-label`；tooltip 不能替代可访问名称。
    反过来也成立：**说明「这一页 / 这一节是什么、会写到哪里」的元信息不该单独占一行**——它走 tooltip 或标题旁的 info 图标，只有影响判断的正文才占行。区段标题下挂一句 20 字以上的灰色说明是最常见的违反形态。
 5. 复合选择控件必须暴露正确角色和状态，并支持预期方向键、Home/End、Enter、Escape。关闭浮层后焦点回到触发器。
@@ -395,7 +380,7 @@ nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/
 依据 `frontend-ui-engineering` 标准，全库 48 个组件已完成逐一深度优化与物理动效装配：
 
 1. **按压物理回弹（Active Spring）**：
-   - 交互按钮类（`Button`, `IconButton`, `SegmentedControl`, `ToggleGroup`, `Pagination`, `CalendarPrev/Next`）统一装配 `not-disabled:active:scale-[0.93~0.975]` 物理弹性回弹；
+   - 交互按钮类（`Button`, `IconButton`, `SegmentedControl`, `ToggleGroup`）统一装配 `not-disabled:active:scale-[0.93~0.975]` 物理弹性回弹；
    - 禁用态（`disabled`）严格通过 `disabled:active:transform-none` 屏蔽位移与缩放，杜绝误导性交互反馈。
 2. **GPU 加速与平滑位移（Hardware Accelerated Transforms）**：
    - 滑块（`SegmentedControl`, `Switch`, `Slider`, `Progress`）指示物统一使用 GPU 硬件加速的 `transform: translateX(...)` / `translateY(...)` 进行位移，杜绝 `left`/`top` 引发的重排重绘；
@@ -404,7 +389,7 @@ nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/
    - 过渡属性必须显式枚举（如 `transition-[background-color,color,transform,box-shadow]`），禁止使用 `transition-all`；
    - 100% 通过 `token-consumption.test.ts` 静态扫描。
 4. **WCAG 2.1 AA 键盘导航与焦点管理**：
-   - `Tabs`, `SegmentedControl`, `Dropdown`, `Menubar`, `Tree`, `Listbox`, `Combobox` 等复合组件全面支持 `ArrowUp/Down/Left/Right`, `Home/End`, `Enter/Space`, `Escape` 键盘导航并联动焦点环（`.nb-ui-focus-ring` / `--focus-ring`）。
+   - `Tabs`, `SegmentedControl`, `Dropdown`, `Menubar`, `Tree` 等复合组件全面支持 `ArrowUp/Down/Left/Right`, `Home/End`, `Enter/Space`, `Escape` 键盘导航并联动焦点环（`.nb-ui-focus-ring` / `--focus-ring`）。
    - `Tree` 的 `modelValue` 对外始终使用节点 `id`：单选为 `string | undefined`，多选为 `string[]`；组件内部负责把 id 映射为 Reka TreeRoot 所需的节点对象，并把更新事件映射回 id，调用方不得持有原语内部节点对象。
    - `Tree` 的选中行使用整行淡强调底、强调文字与中等字重，不使用常驻左边框或指示条；层级只由缩进与展开箭头表达，焦点继续由 `.nb-ui-focus-ring` 独立表达。
 

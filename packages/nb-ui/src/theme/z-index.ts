@@ -7,7 +7,7 @@
 import type {InjectionKey} from "vue";
 
 export const NB_Z_INDEX = {
-    /** Dropdown / Combobox 等局部浮层（不在对话框里时） */
+    /** Dropdown / FormSelect 等局部浮层（不在对话框里时） */
     popover: 60,
     tooltip: 70,
     /** 拖放落点提示（`DropFeedbackOverlay`），与局部浮层同档：拖放时不会同时开着下拉 */

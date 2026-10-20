@@ -96,7 +96,7 @@ type FormSelectSlots = {
 
 ## 不支持
 
-- 不支持多选、搜索输入、异步加载、分页或自由文本创建；需要这些能力时使用相应的 Combobox/Listbox 或宿主组合。
+- 不支持多选、搜索输入、异步加载、分页或自由文本创建；需要这些能力时由宿主组合。
 - 不支持父组件控制 open 状态或自定义 Portal 目标。
 - 不支持选项级 slot、footer、empty 或 loading slot；`leading` 只作用于触发器。
 - 选择事件不执行命令、不写 store、不发请求，也不替宿主修改业务数据。

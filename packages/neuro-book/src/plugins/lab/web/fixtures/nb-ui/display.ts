@@ -1,6 +1,6 @@
-/** nb-ui 展示类（`display/`）与导航类（`navigation/`）的场景。`Avatar` 会加载图片地址（`io:read`），按标签不可挂载。 */
+/** nb-ui 展示类（`display/`）与导航类（`navigation/`）的场景。 */
 
-import type {Badge, Breadcrumb, EmptyState, FileBrowser, FileTree, Kbd, NavigationMenu, Progress, Rating, Skeleton, Spinner, Table, Tree} from "@notnotype/nb-ui/components";
+import type {Badge, Breadcrumb, EmptyState, FileBrowser, Kbd, Progress, Skeleton, Spinner, Table, Tree} from "@notnotype/nb-ui/components";
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
@@ -28,39 +28,12 @@ const CHAPTER_COLUMNS = [
     {key: "updated" as const, label: "修改", width: "64px", align: "center" as const},
 ];
 
-const FILE_NODES = [
-    {id: "manuscript", label: "manuscript", kind: "directory" as const, children: [
-        {id: "volume-1", label: "第一卷", kind: "directory" as const, children: [
-            {id: "ch-1", label: "第一章 灯塔.md", kind: "file" as const},
-            {id: "ch-2", label: "第二章 雾中城.md", kind: "file" as const},
-        ]},
-        {id: "volume-2", label: "第二卷", kind: "directory" as const, children: []},
-    ]},
-    {id: "lorebook", label: "lorebook", kind: "directory" as const, children: [
-        {id: "shen-yu", label: "沈屿.md", kind: "file" as const},
-        {id: "locked", label: "只读素材.md", kind: "file" as const, disabled: true},
-    ]},
-    {id: "readme", label: "README.md", kind: "file" as const},
-];
-
 const TREE_ITEMS = [
     {id: "outline", title: "大纲", iconClass: "i-lucide-list-tree", children: [
         {id: "act-1", title: "第一幕：雾港", children: [{id: "scene-1", title: "灯塔熄灭"}, {id: "scene-2", title: "巡夜人"}]},
         {id: "act-2", title: "第二幕：雪线", children: [{id: "scene-3", title: "渡口", disabled: true}]},
     ]},
     {id: "characters", title: "人物", iconClass: "i-lucide-users", children: [{id: "shen-yu", title: "沈屿"}, {id: "lin-wan", title: "林晚"}]},
-];
-
-const NAV_ITEMS = [
-    {id: "write", label: "写作", links: [
-        {title: "继续写作", description: "回到上次停下的章节", iconClass: "i-lucide-pen-line"},
-        {title: "新建章节", description: "在当前卷末尾", iconClass: "i-lucide-file-plus"},
-    ]},
-    {id: "world", label: "世界", links: [
-        {title: "人物", description: "角色卡与关系", iconClass: "i-lucide-users"},
-        {title: "地点", description: "地图与场景", iconClass: "i-lucide-map"},
-    ]},
-    {id: "docs", label: "文档", href: "#docs"},
 ];
 
 export const displayFixtures: LabFixture[] = [
@@ -105,15 +78,6 @@ export const displayFixtures: LabFixture[] = [
             {id: "danger", label: "超出（危险色）", input: {props: {modelValue: 96, max: 100, tone: "danger", size: "lg"}}},
         ],
         subject: nbUiSubject("Progress"),
-    }),
-    defineSubjectFixture<typeof Rating>({
-        component: "Rating",
-        scenes: [
-            {id: "default", label: "可评分", input: {props: {max: 5, size: "md"}, model: {modelValue: 3}}},
-            {id: "half", label: "半星", input: {props: {max: 5, size: "lg", allowHalf: true}, model: {modelValue: 3.5}}},
-            {id: "readonly", label: "只读", input: {props: {max: 5, size: "sm", readonly: true}, model: {modelValue: 4}}},
-        ],
-        subject: nbUiSubject("Rating"),
     }),
     defineSubjectFixture<typeof Skeleton>({
         component: "Skeleton",
@@ -176,27 +140,6 @@ export const displayFixtures: LabFixture[] = [
             {id: "error", label: "读不出", input: {props: {segments: [{label: "/", path: "/"}, {label: "root", path: "/root"}], entries: [], error: "目录不可读：/root"}, model: {selectedId: null}}},
         ],
         subject: nbUiSubject("FileBrowser"),
-    }),
-    defineSubjectFixture<typeof FileTree>({
-        component: "FileTree",
-        events: ["select", "activate", "move", "contextmenu"],
-        writeBack: {select: {layer: "props", key: "selectedId"}},
-        class: "h-full w-full",
-        scenes: [
-            {id: "default", label: "目录与文件", input: {props: {nodes: FILE_NODES, selectedId: "ch-2", ariaLabel: "项目文件", draggable: true, indent: 12}, model: {expandedIds: ["manuscript", "volume-1"]}}},
-            {id: "collapsed", label: "全部收起", input: {props: {nodes: FILE_NODES, selectedId: null, ariaLabel: "项目文件"}, model: {expandedIds: []}}},
-            {id: "empty", label: "空", input: {props: {nodes: [], ariaLabel: "项目文件"}, model: {expandedIds: []}}},
-        ],
-        subject: nbUiSubject("FileTree"),
-    }),
-    defineSubjectFixture<typeof NavigationMenu>({
-        component: "NavigationMenu",
-        events: ["select"],
-        scenes: [
-            {id: "horizontal", label: "横向", input: {props: {items: NAV_ITEMS, orientation: "horizontal"}, model: {modelValue: ""}}},
-            {id: "vertical", label: "纵向", input: {props: {items: NAV_ITEMS, orientation: "vertical"}, model: {modelValue: "write"}}},
-        ],
-        subject: nbUiSubject("NavigationMenu"),
     }),
     defineSubjectFixture<typeof Tree>({
         component: "Tree",

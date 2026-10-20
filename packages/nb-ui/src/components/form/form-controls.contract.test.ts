@@ -7,7 +7,6 @@ import FormCheckbox from "./FormCheckbox.vue";
 import FormInput from "./FormInput.vue";
 import FormNumberInput from "./FormNumberInput.vue";
 import FormSelect from "./FormSelect.vue";
-import PinInput from "./PinInput.vue";
 
 describe("phase 2 form control contracts", () => {
     it("keeps FormInput numeric attributes, prefix slot and focus event", async () => {
@@ -41,18 +40,6 @@ describe("phase 2 form control contracts", () => {
         expect(wrapped.get("input").classes()).toContain("nb-ui-native-input");
         await bare.get("input").setValue("updated");
         expect(bare.emitted("update:modelValue")?.at(-1)).toEqual(["updated"]);
-    });
-
-    it("marks numeric PinInput cells while preserving numeric keyboard semantics", () => {
-        const wrapper = mount(PinInput, {props: {length: 2, type: "number"}});
-        const inputs = wrapper.findAll("input[inputmode='numeric']");
-
-        expect(inputs).toHaveLength(2);
-        for (const input of inputs) {
-            expect(input.classes()).toContain("nb-ui-native-input");
-            expect(input.attributes("type")).toBe("text");
-            expect(input.attributes("pattern")).toBe("[0-9]*");
-        }
     });
 
     it("scopes every native search and number pseudo-element selector to the marker", () => {
