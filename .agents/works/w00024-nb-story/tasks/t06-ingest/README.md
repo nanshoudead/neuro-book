@@ -17,6 +17,8 @@ updated: 2026-10-20
 
 - 2026-10-15：经 nbdev 新建（建时 slug 误写成 `t06-ingest`，生成了 `t06-t06-ingest`，已改名）。排在 [t05 问答](../t05-qa/README.md)之后。
 - 2026-10-20：开工。读了 t29 `v2/` 与它依赖的 t27 编译、规则、提示词（都只在 w00005 的 worktree 里，没有提交过，合计约 2,500 到 3,000 行）。会话里向开发者列了六个问题，决定见下文 3 到 8。
+- 2026-10-20：写了 [`story/ingest.md`](../../../../../docs/specs/story/ingest.md)（planned，7dbc7c183），queries 加“抽取进度”，cli-skill、qa 同步。omp 设计审查 15 条（阻断 5、重要 10，报告 [evidences/design-review.txt](evidences/design-review.txt)）全部成立，Spec 已修订（5c4ab8f49）：章的单一提交点；整理结果随章保存、追加时不重做；称呼不跨章前移（编译程序原来会把后文才交代的代号回填到前文，已导入的 100 章样例书也有）；跨进程删除正在抽的书得到 `ingest_running`；不成形回复重发一次后 `ingest_bad_reply`；用量拿不到时标“不完整”；切章规则补词边界；`ingest.model` 整节写入；`config test --ingest` 按两档探测；回归改为三次合计 360/477（原写的单次 360 超过单次满分 159）。
+- 2026-10-20：网页导入与进度的评审板第 1 轮已发布（`artifacts/review/`，四道题），草稿在 `.worktree/w00024-t06-drafts`（分支 `chore/w00024-t06-drafts`，不合并）。
 
 ## 决定
 
