@@ -1,6 +1,6 @@
 ---
 schema: nbook.task/v2
-taskId: t02-t02-tailwind-unify
+taskId: t02-tailwind-unify
 status: planned
 updated: 2026-10-20
 ---
