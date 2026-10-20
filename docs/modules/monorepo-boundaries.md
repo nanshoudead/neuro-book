@@ -14,6 +14,7 @@ NeuroBook 以一个 monorepo 维护应用、共享合同与可独立维护的包
 | 内核 | `packages/nb-runtime` | 新应用的后端与浏览器宿主（第 3 步起） | 运行时依赖只有 TypeBox，每个机制一个子路径入口；行为合同见 `docs/specs/runtime/` 的 lifecycle、services、plugins、application、diagnostics；典型用法见应用包的示例插件 [`packages/neuro-book/examples/`](../../packages/neuro-book/examples/README.md) |
 | 旧应用 | `packages/neuro-book-legacy` | 只读参照 | 依赖照装，不参加类型检查、测试与治理检查；包内含 w00017 阶段 1 的内核与宿主实现、ADR 0001–0021、legacy `.agents/tasks/` |
 | Workspace 自治包 | `packages/nb-history/`、`nb-workflow/`、`nb-memory/`、`nb-ui/`、`neuro-agent-harness/`、`llmlint/` | 各包公开 exports、包内测试和应用消费者 | 各包独立 owner；`neuro-agent-harness` 已冻结，只服务 `llmlint`，待由 `nb-harness` 取代后退役 |
+| Schema 表单 | `packages/nb-form/` | 核心（`.`，只依赖 TypeBox）与 Vue 渲染层（`./vue`，依赖 nb-ui）；验证命令见包内 [`AGENTS.md`](../../packages/nb-form/AGENTS.md) | w00027 t07 新建；应用与 dev-panel 都可以用；不依赖应用包；行为合同见 [`ui/forms.md`](../specs/ui/forms.md) |
 | Agent harness 重构 | `packages/nb-harness/`、`nb-profile/`、`nb-session/` | 包内测试 | w00002 新建；`nb-harness` 将作为 Agent 内置插件的基础 |
 | 通用基础包 | `packages/owned-process/`、`file-snapshot-cache/`、`neuro-book-test-support/`、`neuro-book-contracts/` | 各包公开 exports | `neuro-book-contracts` 的交付链出口不再维护，旧应用退出时一并清理 |
 | 开发工具 | `packages/dev-panel/` | `nbdev` 命令行（用户级 shim 指向主工作区）、开发者面板、根 `scripts/ci/dev-panel-records.test.ts` | 开发工具，不是产品功能：不进产品与发布产物；不依赖应用包、不导入根 `scripts/`；读写主工作区的 `.agents/works/` 与 `.local/agent/` |

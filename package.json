@@ -20,6 +20,7 @@
     "packages/nb-profile",
     "packages/nb-session",
     "packages/nb-runtime",
+    "packages/nb-form",
     "packages/llmlint",
     "packages/dev-panel",
     "packages/nb-story",

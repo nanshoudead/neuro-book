@@ -1,0 +1,22 @@
+{
+    "name": "@notnotype/nb-form",
+    "private": true,
+    "version": "0.1.0",
+    "description": "按数据 schema 画表单：核心（描述、字段树、校验与问题、条件、Agent 策略）只依赖 TypeBox；Vue 渲染层用 nb-ui 的控件。",
+    "license": "AGPL-3.0-only",
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "test": "bun test",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "typebox": "^1.3.6"
+    },
+    "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3"
+    }
+}

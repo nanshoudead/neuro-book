@@ -212,6 +212,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 剧情图谱：命令行与 Skill | [`story/cli-skill.md`](story/cli-skill.md) | `nbstory` 命令与查询方法一一对应、`serve`、给外部 Agent 的 Skill |
 | 剧情图谱：导入原文并抽取 | [`story/ingest.md`](story/ingest.md) | TXT 切章、逐章抽取、随抽随看、停止与接着抽、追加新章、进度 |
 | Agent harness | [`agent/harness.md`](agent/harness.md) | 只经 Profile 运行：生效工具集与会话快照、渲染即上下文、一次运行的结果与错误归类、收尾工具、单次请求、按配置给模型 |
+| Schema 表单 | [`ui/forms.md`](ui/forms.md) | 按数据 schema 画表单：支持的写法与控件选择、受控值与缺失、校验与问题的显示、选项、条件显示、草稿与提交、展示态、列表编辑、自定义控件、Agent 策略、终端退回；nb-ui 表单控件的合同 |
 
 ## 旧应用的规范与 Reference（只作参照）
 

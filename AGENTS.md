@@ -64,6 +64,7 @@ neuro-book/
 │   ├── nb-history/                 # 操作日志、事件溯源与内容寻址快照
 │   ├── nb-workflow/                # 可重放的脚本化 Workflow Kernel
 │   ├── nb-ui/                      # 共享 Vue UI 基础组件
+│   ├── nb-form/                    # 按数据 schema 画表单：核心只依赖 TypeBox，Vue 层用 nb-ui（w00027）
 │   ├── llmlint/skill/              # llmlint Skill 单一源
 │   ├── owned-process/              # 受管子进程托管
 │   ├── file-snapshot-cache/        # 文件快照缓存
