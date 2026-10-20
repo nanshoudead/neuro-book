@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nb-ui 规范：三处文档与代码的分歧</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef;
+    --warn: #b45309; --warn-soft: #fdf1df; --ok: #15803d; --ok-soft: #e4f4e8;
+    --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123b37;
+        --warn: #fbbf24; --warn-soft: #3a2e12; --ok: #86efac; --ok-soft: #173322; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+p, li { max-width: 900px; }
+.lead p { color: var(--muted); margin: 6px 0; }
+.round { margin-top: 40px; font-size: 19px; font-weight: 700; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+section.q { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.badge.todo { background: var(--warn-soft); color: var(--warn); }
+.badge.done { background: var(--ok-soft); color: var(--ok); }
+.opts { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 10px 0; }
+.opt { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.opt.rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.opt p { margin: 4px 0 0; color: var(--muted); }
+.rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.rec-note b { color: var(--accent); }
+figure { margin: 12px 0; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; border-top: 0; }
+
+
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.pair.narrow { grid-template-columns: repeat(2, 240px); }
+@media (max-width: 760px) { .pair, .pair.narrow { grid-template-columns: 1fr; } }
+figure img.bar { width: auto; max-width: 100%; }
+</style>
+</head>
+<body>
+<main>
+<h1>nb-ui 规范：三处文档与代码的分歧</h1>
+<div class="lead">
+<p>w00029 t05（规范文档整理）开工前要定的三件事。依据是上一轮文档审查（<code>evidences/spec-review.txt</code> 的 F04、F05、F10、F43）。三处都是文档和代码说法不一致，要定以哪边为准，另一边跟着改。</p>
+<p>截图来自 Lab 里的真实组件，nbook 主题，2 倍像素。背后铺了条纹和文字，玻璃与投影的差别才看得出来；“另一种”是在页面上临时改变量或去掉内联样式得到的，没有改源码。</p>
+</div>
+
+<section class="q" data-nbdev-question="f04-shadow" data-nbdev-type="single" data-nbdev-recommend="keep">
+<h2>F04：浮层投影有几层 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>现在三处文档三种说法：<code>design-language.md</code> 坑 38 说外阴影只能两条（一条发丝轮廓加一条环境投影，出现第三条就是踩坑）；规范一处写“4 阶”，另一处给了另一组数值。代码是一圈 1px 外环加三层柔影（浮层 <code>--elevation-popover</code>），菜单是细边加两层（<code>--elevation-menu</code>）。差别很小，主要在浮层下沿远处那一圈影子。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="keep" data-nbdev-label="保留现在的多层投影，文档照实改">
+<h3>保留现在的多层投影，文档照实改（推荐）</h3>
+<figure><img src="img/f04-current.webp" alt="现在的投影"><figcaption>上：亮色（左菜单、右浮层）；下：暗色</figcaption></figure>
+<p>不改代码。坑 38 改写为现状的分工与判据，数值只留在 <code>tokens.css</code> 与主题 <code>vars.css</code>，规范里删掉抄出来的两组数值。</p>
+</div>
+<div class="opt" data-nbdev-option="two" data-nbdev-label="改成 Apple 式两条，改代码">
+<h3>改成 Apple 式两条，改代码</h3>
+<figure><img src="img/f04-two.webp" alt="两条投影"><figcaption>发丝轮廓 <code>0 0 0.3px 0.3px</code> 加一条环境投影（浮层 48px、菜单 40px 模糊）</figcaption></figure>
+<p>所有浮层与菜单的投影都会变；数值要按截图再调一轮。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐保留现在的。</b>两种看起来差别不大，改代码会动全部浮层，还要再调数值；菜单的投影是 t79、t86 评审定下来的（远投影是为了在暖白侧栏上看得出浮起）。问题只在文档写错了。</div>
+</section>
+
+<section class="q" data-nbdev-question="f05-dark-glass" data-nbdev-type="single" data-nbdev-recommend="keep">
+<h2>F05：暗色的玻璃要不要压暗 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>坑 7 要求暗色时 <code>backdrop-filter</code> 的 <code>brightness</code> 小于 1（举例 0.76）；规范与代码都是 <code>1.0</code>，规范还写了“彻底纠正 0.72”。下图左菜单、右 Select，都是暗色。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="keep" data-nbdev-label="保持 1.0，不压暗">
+<h3>保持 1.0，不压暗（推荐）</h3>
+<figure><img src="img/f05-current.webp" alt="不压暗"></figure>
+<p>不改代码。坑 7 的判据改为“暗色档要有自己的配方，不照抄亮色”。</p>
+</div>
+<div class="opt" data-nbdev-option="dim" data-nbdev-label="压暗到 0.76">
+<h3>压暗到 0.76</h3>
+<figure><img src="img/f05-dim.webp" alt="压暗"></figure>
+<p>背后的文字透出来更暗、面更沉；改主题的 <code>--overlay-blur</code> 一处。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐保持 1.0。</b>现在的暗色浮层已经靠 <code>--overlay-surface</code> 的不透明度压住了背景，再压暗面会发闷；规范上一轮是有意改成 1.0 的。</div>
+</section>
+
+<section class="q" data-nbdev-question="f43-surface-source" data-nbdev-type="single" data-nbdev-recommend="css">
+<h2>F10/F43：浮层外观以哪里为准 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>设计文档说浮层外观只有一个登记处：CSS 类 <code>.nb-ui-popover-surface</code>（加菜单的 <code>.nb-ui-menu-surface</code>），主题经变量改它。规范却要求组件调用一个函数套外观。代码里 Select 与 ColorSwatches 的投影和模糊写死在 JS 常量里（现在在 <code>usePopoverLayer.ts</code>），以内联样式盖过 CSS 类：它们不跟主题走，暗色下用的仍是亮色那组投影，与同样是下拉的 DropdownMenu 不一样。这一项也是 w00030 计划的第 5 项。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="css" data-nbdev-label="只认 CSS 类，删掉 JS 常量">
+<h3>只认 CSS 类，删掉 JS 常量（推荐）</h3>
+<figure><img src="img/f43-css.webp" alt="只走 CSS 类的 Select"><figcaption>Select 去掉内联材质后（左亮、右暗），与下面的 DropdownMenu 同一套</figcaption></figure>
+<figure><img src="img/f43-menu.webp" alt="DropdownMenu 对照"><figcaption>对照：DropdownMenu，本来就只走 CSS 类</figcaption></figure>
+<p>组合函数只管行为（层级、截断高度、定位参数）。<code>token-consumption.test.ts</code> 去掉对这份常量的放行。代码改动在 w00030 t03 做，t05 先按这个写规范。</p>
+</div>
+<div class="opt" data-nbdev-option="js" data-nbdev-label="以组合函数里的常量为准">
+<h3>以组合函数里的常量为准</h3>
+<figure><img src="img/f43-current.webp" alt="现在的 Select"><figcaption>现在的 Select（左亮、右暗）</figcaption></figure>
+<p>所有下拉都改成绑这份内联样式；主题就改不了下拉的投影与模糊，设计文档“唯一登记处是 CSS 类”一节要改写。</p>
+</div>
+</div>
+<div class="rec-note"><b>推荐只认 CSS 类。</b>截图上差别很小（Select 暗色的投影略重），但只有 CSS 类这条路能让主题改下拉外观；两条“唯一来源”并存，后人照哪条写都会和另一条冲突。</div>
+</section>
+</main>
+</body>
+</html>
