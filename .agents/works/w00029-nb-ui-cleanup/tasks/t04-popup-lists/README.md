@@ -22,7 +22,7 @@ updated: 2026-10-20
 
 ## 当前状态
 
-第 1 轮已定（见上）。第 1 轮静态稿：草稿 worktree `.worktree/w00029-t04-drafts`（分支 `t04/drafts`，不合并），问列表项的高亮与选中各统一成哪一种；先并排画出六个弹出列表的现状。原图放本地 `.local/agent/works/w00029-nb-ui-cleanup/tasks/t04-popup-lists/shots/`。
+第 1 轮已定（见上）。第 2 轮（列表项的圆角、行高与字号）已发到评审板，等答复；草稿这轮由主会话自己写。静态稿：草稿 worktree `.worktree/w00029-t04-drafts`（分支 `t04/drafts`，不合并），问列表项的高亮与选中各统一成哪一种；先并排画出六个弹出列表的现状。原图放本地 `.local/agent/works/w00029-nb-ui-cleanup/tasks/t04-popup-lists/shots/`。
 
 ## 下一步
 
