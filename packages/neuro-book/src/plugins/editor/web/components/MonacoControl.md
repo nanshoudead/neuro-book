@@ -35,6 +35,7 @@ type Emits = {
 - Monaco 的模型把换行统一成一种、把 BOM 单独存放：交给文档的正文是换入模型时的原文与模型内容按行三方合并的结果（`source-merge.ts`），没改的行连同自己的换行符原样保留，模型文本取时带上 BOM（`getValue(undefined, true)`）。只打开、切走、切回不会变 dirty。
 - 组件重挂时编辑器实例重建（撤销栈在模型里，不丢）；焦点由编辑器区在重挂后交还给活动视图，控件自己不抢焦点。
 - 上次的光标（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 30）：第一次为这份文档建模型、标签记着光标时，把光标放到记下的行列（正文变短时夹到末尾）并滚到中间；光标停下 1 秒、失焦或换文档时把行列交给 `binding.remember`。
+- 排版（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 52 的“代码编辑器”小组）：编辑器区经 `provide` 交来一份随配置变化的选项（`code/options.ts`），没有时（Lab）用缺省值。字体、字号、行高、行号、缩略图、换行是编辑器实例的选项，变化时 `updateOptions`，实例不重建；字体留空时取文档根上的 `--font-mono`。缩进是模型的选项：每个模型记下上次按哪份缩进设置应用过，进入模型时设置变了才重新应用（推测打开时 `detectIndentation`，关掉时固定 Tab 宽度与空格），当前模型在设置变化时立即应用；设置没变时切走再切回不重新推测。
 - 句柄：聚焦、撤销、重做、行号导航（`revealLineInCenter` 并把光标放到行首）、光标位置与语言。
 
 `state:local`：编辑器实例与当前绑定。`env:global`：观察文档根的属性（主题与明暗换了重新生成 Monaco 的主题），卸载时断开。

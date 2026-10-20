@@ -8,6 +8,8 @@ import type {DisplayLocale} from "nbook/shared/localized-text";
 import type {EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../area";
 import {editorLanguagesKey} from "../code/languages";
 import {loadMonaco, modelUri} from "../code/load-monaco";
+import {codeEditorOptionsKey, DEFAULT_CODE_EDITOR_OPTIONS} from "../code/options";
+import type {CodeEditorOptions} from "../code/options";
 import type {MonacoApi} from "../code/load-monaco";
 import {buildMonacoTheme, MONACO_THEME} from "../code/monaco-theme";
 import type {EditorControlEmits} from "../control";
@@ -25,6 +27,8 @@ const emit = defineEmits<EditorControlEmits>();
  */
 interface CodeViewState {
     readonly model: Monaco.editor.ITextModel;
+    /** 这个模型上次按哪份缩进设置应用过；设置没变时进入不再推测，切走再切回缩进不变。 */
+    indentation: string | null;
     view: Monaco.editor.ICodeEditorViewState | null;
     confirmed: number;
     held: boolean;
@@ -34,6 +38,33 @@ interface CodeViewState {
 
 /** 贡献点登记的语言（编辑器区提供）；Lab 这类没有提供的场合只有 Monaco 自带的纯文本与 JSON。 */
 const languages = inject(editorLanguagesKey, null);
+
+/** 编辑器区交来的排版选项（随配置变化）；没有交时（Lab）用缺省值。 */
+const codeOptions = inject(codeEditorOptionsKey, null);
+const options = (): CodeEditorOptions => codeOptions?.value ?? DEFAULT_CODE_EDITOR_OPTIONS;
+
+/** 排版选项里属于编辑器实例的部分：变化时 `updateOptions`，编辑器不重建。字体留空时取主题的等宽字体。 */
+const editorOptionsOf = (value: CodeEditorOptions): Monaco.editor.IEditorOptions => ({
+    fontFamily: value.fontFamily.trim() === "" ? getComputedStyle(document.documentElement).getPropertyValue("--font-mono").trim() || undefined : value.fontFamily,
+    fontSize: value.fontSize,
+    lineHeight: value.lineHeight,
+    lineNumbers: value.lineNumbers,
+    minimap: {enabled: value.minimap},
+    wordWrap: value.wordWrap ? "on" : "off",
+});
+
+/**
+ * 缩进是模型的选项，不随编辑器实例：推测打开时按内容推测，推测不出时用 Tab 宽度与空格；关掉时一律用 Tab 宽度与空格
+ * （同 VS Code 的 editor.detectIndentation）。
+ */
+const applyIndentation = (state: CodeViewState): void => {
+    const {tabSize, detectIndentation} = options();
+    const key = `${String(detectIndentation)}:${String(tabSize)}`;
+    if (state.indentation === key) return;
+    state.indentation = key;
+    if (detectIndentation) state.model.detectIndentation(true, tabSize);
+    else state.model.updateOptions({tabSize, indentSize: tabSize, insertSpaces: true});
+};
 
 const root = ref<HTMLElement | null>(null);
 const failed = ref<string | null>(null);
@@ -100,13 +131,14 @@ const enter = (binding: TextEditorBinding): void => {
     const wanted = wantedLanguage(binding);
     if (state === null) {
         const model = monaco.editor.createModel(binding.text.value, wanted ?? undefined, modelUri(monaco, binding.address.value));
-        state = {model, view: null, confirmed: binding.revision.value, held: false, source: binding.text.value, base: valueOf(model)};
+        state = {model, indentation: null, view: null, confirmed: binding.revision.value, held: false, source: binding.text.value, base: valueOf(model)};
         binding.slot.state = state;
         binding.slot.dispose = () => model.dispose();
     } else {
         if (!state.held && state.confirmed !== binding.revision.value) adopt(binding, state);
         if (wanted !== null && state.model.getLanguageId() !== wanted) monaco.editor.setModelLanguage(state.model, wanted);
     }
+    applyIndentation(state);
     editor.setModel(state.model);
     if (state.view !== null) editor.restoreViewState(state.view);
     // 第一次为这份文档建模型、标签记着上次的光标：放回去并滚到它（输出 30）。Monaco 按模型校正位置，正文变短时自己夹到
@@ -176,6 +208,12 @@ watch(() => (props.binding === null ? null : wantedLanguage(props.binding)), (wa
 });
 
 watch(() => props.readonly, (readonly) => editor?.updateOptions({readOnly: readonly}));
+// 排版设置变了：编辑器实例的选项就地更新；缩进用到当前模型，停放的模型在下次进入时补上（`applyIndentation`）。
+watch(options, (value) => {
+    editor?.updateOptions(editorOptionsOf(value));
+    const state = bound === null ? null : stateOf(bound);
+    if (state !== null) applyIndentation(state);
+});
 watch(() => props.visible, (visible) => {
     if (visible) editor?.layout();
 });
@@ -239,9 +277,7 @@ onMounted(async () => {
     editor = monaco.editor.create(root.value, {
         model: null,
         automaticLayout: true,
-        minimap: {enabled: false},
-        wordWrap: "on",
-        fontSize: 14,
+        ...editorOptionsOf(options()),
         scrollBeyondLastLine: false,
         theme: MONACO_THEME,
         ariaLabel: props.label,

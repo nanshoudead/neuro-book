@@ -16,7 +16,7 @@ import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {dialectTable, MARKDOWN_DIALECTS_POINT, markdownKey} from "nbook/plugins/markdown/shared/contracts";
 import type {DialectDeclaration, MarkdownService} from "nbook/plugins/markdown/shared/contracts";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
-import {breadcrumbsSetting, EDITOR_SECTION, EDITOR_SECTION_DECLARATION, enablePreviewSetting, wrapTabsSetting} from "../shared/settings";
+import {breadcrumbsSetting, codeSettings, enablePreviewSetting, wrapTabsSetting} from "../shared/settings";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {quickPickKey, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
@@ -29,6 +29,8 @@ import {descriptor} from "../plugin";
 import {CODE_EDITOR, documentCoordinatorKey, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT, MARKDOWN_EDITOR, validateEditorContribution, validateEditorPageContribution, validateEditorTabContextItem, validateEditorTitleItem, validateLanguageContribution} from "../shared/contracts";
 import type {EditorImplementation, EditorTabContextItemDeclaration, EditorTitleItemDeclaration} from "../shared/contracts";
 import {editorLanguagesKey, LanguageRegistry, monacoLanguageImplementation} from "./code/languages";
+import {codeEditorOptionsKey} from "./code/options";
+import type {CodeEditorOptions} from "./code/options";
 import {MONACO_LANGUAGES} from "./code/monaco-languages";
 import {CLOSE_COMMAND, copyTabPath, EDITOR_COMMAND_DECLARATIONS, editorCommands, SAVE_COMMAND, SPLIT_RIGHT_COMMAND} from "./commands";
 import {EditorPageRegistry} from "./pages";
@@ -100,6 +102,16 @@ export const editorBrowserPlugin: PluginDefinition = {
             const settings = context.services.require(settingsKey);
             const project = context.services.require(windowProjectKey).project;
             const locale = computed(() => displayLocale(settings));
+            const codeOptions = computed((): CodeEditorOptions => ({
+                fontFamily: settings.get(codeSettings["code.fontFamily"]),
+                fontSize: settings.get(codeSettings["code.fontSize"]),
+                lineHeight: settings.get(codeSettings["code.lineHeight"]),
+                tabSize: settings.get(codeSettings["code.tabSize"]),
+                detectIndentation: settings.get(codeSettings["code.detectIndentation"]),
+                lineNumbers: settings.get(codeSettings["code.lineNumbers"]),
+                minimap: settings.get(codeSettings["code.minimap"]),
+                wordWrap: settings.get(codeSettings["code.wordWrap"]),
+            }));
             const report = (error: unknown): void => {
                 diagnostics.record({level: "error", event: "editor.error", message: error instanceof Error ? error.message : String(error), error, source: {plugin: descriptor.id}});
             };
@@ -231,6 +243,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                         props: {context: {type: Object as PropType<EditorAreaContext>, required: true}},
                         setup: () => {
                             provideToChildren(editorLanguagesKey, languages);
+                            provideToChildren(codeEditorOptionsKey, codeOptions);
                             return () => (session.area.value === null ? null : h(EditorArea, {area: session.area.value, locale: locale.value, control, pages: pages.source(pageContext), emptyTips: tips(), titleActions: titleActions(), tabMenu, wrapTabs: settings.get(wrapTabsSetting), breadcrumbs: settings.get(breadcrumbsSetting), workTitle: project?.title ?? null, onTabMenu: (tabId: string, key: string) => {
                             session.area.value?.activeHandle.value?.flushPendingChange();
                             tabMenuModel.run(tabId, key);
