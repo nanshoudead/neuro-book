@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t06-ingest
-status: active
+status: done
 updated: 2026-10-20
 ---
 
@@ -49,7 +49,10 @@ updated: 2026-10-20
 
 ## 下一步
 
-写抽取 Spec（含 queries 的“同一代内追加章节”改动），先把假设列给开发者确认；网页导入与进度出一轮静态稿；再写 `plan.md`（含技术选型）。
+已完成，2026-10-20 合入 master（a0284ce64，合入前把 master 并进 Work 分支后重跑了 typecheck、283 个测试与 19 条 e2e）。留给开发者的：
+
+- Spec 晋升 `implemented`：`story/ingest.md`、viewer 输出 36 到 40 与验收 9、queries 的“抽取进度”、qa 输出 23。晋升时补实现合同与证据。
+- 长书的编译性能（见上文 S6 的风险）另立 Task；`ingest.status` 只要进度的参数（前端审查第 15 条）随它一起考虑。
 
 开发者 2026-10-20 在会话里定：
 
