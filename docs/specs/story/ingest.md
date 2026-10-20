@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: story.ingest
 owners:
   - nb-story
@@ -199,6 +199,20 @@ type IngestConfig = {
 
 Smoke：在真实书库与独立服务上，网页导入样例书前 3 章的原文，用真实模型抽完，抽取中途停止一次再继续，抽完后在查看器里打开。
 
+## 实现合同
+
+- **公开入口**：命令行 `nbstory ingest`（包 `@notnotype/nb-story` 的 bin）；独立服务 `nbstory serve` 的 `ingest.preview`、`ingest.start`、`ingest.stop`、`ingest.status`（合同 `INGEST_METHODS`，与查询方法同一份 `src/contract/contract.ts`）；配置的 `ingest.model` 与 `nbstory config test --ingest`。
+- **owner 与依赖方向**：nb-story。抽取（`src/ingest`）依赖本包的核心库（`src/core`，只经注入的 id 协调者与它交互）与 `openai` SDK；不依赖 nb-harness，抽取线程与 `nbstory ingest` 不加载 OMP。核心库不依赖抽取。
+- **关键不变量**：
+  - 一章的提交是书目录里 `book.json` 的一次改名，新版本的数据文件先写好；提交前整本书编译没有错误（`runner.test.ts` 的提交先后、`chapter.test.ts` 的整理带来的错误）。
+  - 导入、抽取的发起与删除拿同一把不随书删除的 id 锁，锁由主线程持有；删除先停本进程这个 id 的任务（含正在启动的）（`runner.test.ts`、`server/ingest.test.ts` 的删除与停服分组）。
+  - 发给模型的文字（提示词、规则、已有记录）与抽取管线定型时录下的请求逐字相同（`context.test.ts`、`chapter.test.ts` 的回放）。
+  - 每次 HTTP 尝试先写“开始”再发请求，结束再结算；拿不到用量的合计标不完整（`runner.test.ts` 的强行结束、用量与用时分组）。
+  - 密钥只在发请求时从环境变量读取，不进抽取记录、书的数据、日志与任何输出（`model.test.ts`、`cli/ingest.test.ts`）。
+
 ## 证据
 
 - 批准依据：[剧情图谱第一版提案](../../proposals/novel-story-app.md) 2026-10-15 的决策记录（抽取搬进 nb-story，命令行与网页都能导入、看进度、追加新章）；[V9 记忆图提案](../../proposals/novel-memory-v9.md)的“抽取管线”与第十二节第 9 到 11 小节（称呼只认本章段落的修法见第 10 小节）；开发者 2026-10-20 在 [w00024 t06](../../../.agents/works/w00024-nb-story/tasks/t06-ingest/README.md) 的决定 3 到 8 与会话里确认的八条假设；验收 11 的尺子是 V9 记忆图提案第十二节第 9 小节所述的 53 条关键记录尺子与 20 章样例原文，随 w00024 t06 迁入该 Task 的脚本目录（来源 w00005 t33）。
+- 实现入口：[`runner.ts`](../../../packages/nb-story/src/ingest/runner.ts)、[`job.ts`](../../../packages/nb-story/src/ingest/job.ts)、[`cli/ingest.ts`](../../../packages/nb-story/src/cli/ingest.ts)、[`server/ingest-service.ts`](../../../packages/nb-story/src/server/ingest-service.ts)
+- 合同测试：[`runner.test.ts`](../../../packages/nb-story/src/ingest/runner.test.ts)、[`chapter.test.ts`](../../../packages/nb-story/src/ingest/chapter.test.ts)、[`model.test.ts`](../../../packages/nb-story/src/ingest/model.test.ts)、[`text.test.ts`](../../../packages/nb-story/src/ingest/text.test.ts)、[`cli/ingest.test.ts`](../../../packages/nb-story/src/cli/ingest.test.ts)、[`server/ingest.test.ts`](../../../packages/nb-story/src/server/ingest.test.ts)、[`e2e/ingest.e2e.ts`](../../../packages/nb-story/e2e/ingest.e2e.ts)
+- Smoke：[`smoke-web.mjs`](../../../.agents/works/w00024-nb-story/tasks/t06-ingest/scripts/smoke-web.mjs)（真实模型、网页导入前 3 章、停一次再继续）与 [`regress-20.sh`](../../../.agents/works/w00024-nb-story/tasks/t06-ingest/scripts/regress-20.sh)（验收 11；2026-10-20 三次合计 378，[结果](../../../.agents/works/w00024-nb-story/tasks/t06-ingest/evidences/regress-20/README.md)）
