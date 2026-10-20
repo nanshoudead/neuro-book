@@ -111,7 +111,7 @@ async function open(client: Registry, locale: "zh-CN" | "en-US" = "zh-CN") {
     return wrapper;
 }
 
-/** 路径输入框：`data-plugin-path` 落在 `FormInput` 的根上，根可能就是 input。 */
+/** 路径输入框：`data-plugin-path` 落在 `Input` 的根上，根可能就是 input。 */
 function pathInput(wrapper: Awaited<ReturnType<typeof open>>) {
     const root = wrapper.find("[data-plugin-path]");
     return root.element.tagName === "INPUT" ? root : root.find("input");

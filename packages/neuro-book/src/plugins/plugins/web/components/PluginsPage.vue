@@ -4,7 +4,7 @@
  * 启动生效（docs/specs/runtime/plugin-install.md 输出 1–4、7–9）。
  */
 import type {RemoteFailureCode} from "@notnotype/nb-runtime/remote";
-import {Badge, Button, Dialog, FormInput, Spinner, Switch} from "@notnotype/nb-ui/components";
+import {Badge, Button, Dialog, Input, Spinner, Switch} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onMounted, ref} from "vue";
 
 import {formatText, localize} from "nbook/shared/localized-text";
@@ -312,7 +312,7 @@ onMounted(() => {
         <form class="plugins-page__install" @submit.prevent="startInstall">
             <label class="plugins-page__label" for="nbook-plugins-path">{{ text(TEXT.pathLabel) }}</label>
             <div class="plugins-page__install-row">
-                <FormInput id="nbook-plugins-path" ref="pathInput" v-model="path" :placeholder="text(TEXT.pathPlaceholder)" spellcheck="false" data-plugin-path />
+                <Input id="nbook-plugins-path" ref="pathInput" v-model="path" :placeholder="text(TEXT.pathPlaceholder)" spellcheck="false" data-plugin-path />
                 <Button type="submit" :disabled="blockedFor('preview')" :aria-busy="busy === 'preview' ? 'true' : undefined" data-plugin-install>{{ text(TEXT.install) }}</Button>
             </div>
         </form>
