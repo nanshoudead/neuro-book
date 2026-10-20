@@ -9,9 +9,6 @@ import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 export const PROMPT_TEXT = {
     menuLoading: {"zh-CN": "正在加载", "en-US": "Loading"},
     menuEmpty: {"zh-CN": "没有匹配项", "en-US": "No matches"},
-    menuNavigate: {"zh-CN": "选择", "en-US": "Select"},
-    menuConfirm: {"zh-CN": "确认", "en-US": "Confirm"},
-    menuClose: {"zh-CN": "关闭", "en-US": "Close"},
     historyTitle: {"zh-CN": "输入历史", "en-US": "Input history"},
     historySearch: {"zh-CN": "搜索已发送的内容", "en-US": "Search sent messages"},
     historyEmpty: {"zh-CN": "没有已发送的内容", "en-US": "Nothing sent yet"},

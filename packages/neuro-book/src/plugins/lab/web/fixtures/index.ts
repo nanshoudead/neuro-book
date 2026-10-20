@@ -16,7 +16,6 @@ import type MarkdownDisplay from "nbook/plugins/markdown/web/components/Markdown
 import type MarkdownImage from "nbook/plugins/markdown/web/components/MarkdownImage.vue";
 import type PromptAttachmentStrip from "nbook/plugins/markdown/web/components/prompt/PromptAttachmentStrip.vue";
 import type PromptEditor from "nbook/plugins/markdown/web/components/prompt/PromptEditor.vue";
-import type PromptMenuPanel from "nbook/plugins/markdown/web/components/prompt/PromptMenuPanel.vue";
 import type PromptPasteFrame from "nbook/plugins/markdown/web/components/prompt/PromptPasteFrame.vue";
 import type PromptTextView from "nbook/plugins/markdown/web/components/prompt/PromptTextView.vue";
 import type BookCard from "nbook/plugins/projects/web/components/BookCard.vue";
@@ -68,7 +67,7 @@ import type {LabInputOf, LabJsonPropOf, LabSlotOf, LabSubjectProps} from "../lab
 
 import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
 import {nbUiFixtures} from "./nb-ui";
-import {PROMPT_LAB_THUMBNAILS, promptAttachmentStripScenes, promptEditorScenes, promptMenuPanelScenes, promptPasteFrameScenes, promptTextViewScenes} from "./prompt-scene/scenes";
+import {PROMPT_LAB_THUMBNAILS, promptAttachmentStripScenes, promptEditorScenes, promptPasteFrameScenes, promptTextViewScenes} from "./prompt-scene/scenes";
 import {SHELF_COVER_SRC, SHELF_ITEMS, SHELF_ITEM_REVISING, SHELF_NOW} from "./shelf-fixture-data";
 import {SETTINGS_WINDOW_SCENES, snippetsSettings} from "./settings-scene/scene-settings";
 import {defineSubjectFixture} from "./subject-fixture";
@@ -650,14 +649,6 @@ export const labFixtures: LabFixture[] = [
         subject: () => import("nbook/plugins/markdown/web/components/prompt/PromptAttachmentStrip.vue"),
         events: ["activate", "remove", "retry", "hover"],
         writeBack: {hover: {layer: "props", key: "highlighted"}},
-        class: "w-full",
-    }),
-    defineSubjectFixture<typeof PromptMenuPanel>({
-        component: "PromptMenuPanel",
-        scenes: promptMenuPanelScenes,
-        subject: () => import("nbook/plugins/markdown/web/components/prompt/PromptMenuPanel.vue"),
-        events: ["select", "highlight", "search", "search-keydown"],
-        writeBack: {highlight: {layer: "props", key: "activeId"}, search: {layer: "props", key: "search"}},
         class: "w-full",
     }),
     defineSubjectFixture<typeof PromptPasteFrame>({
