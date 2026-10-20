@@ -59,10 +59,10 @@ owners:
 
 | 方法 | 主要参数 | 结果里必须有的字段 |
 |---|---|---|
-| `books.list` | — | 每本书：`id`、`title`、`generation`、`chapters`、`extractedThrough` |
+| `books.list` | — | 每本书：`id`、`title`、`generation`、`chapters`、`extractedThrough`、`features`（记不记数值与秘密，见“边界与兼容”） |
 | `book.import` | `file`、`title`、可选 `id` | `id`、`generation` |
 | `book.remove` | `book` | — |
-| `book.info` | — | `title`、`source`、`chapters`、`paragraphs`（各章段数）、`toc`（P 所在章及之前各章的标题，之后的章只有章号）、`extractedThrough` |
+| `book.info` | — | `title`、`source`、`chapters`、`paragraphs`（各章段数）、`toc`（P 所在章及之前各章的标题，之后的章只有章号）、`extractedThrough`、`features` |
 | `book.stats` | — | `visible`（P 时各类可见记录的条数）、`chapters`（第 1 章到 P 所在章逐章的可见记录数）、`cast`（主要人物逐章的出场次数）、`extraction`（全书抽取统计，见输出 2） |
 | `reading.get`、`reading.set` | `set`：`position`、`view` | `position`、`view`、`savedAt` |
 | `chapter.digest` | `chapter` | 情节、新出现的对象、揭晓的秘密、数值变动、新提出与有进展的悬念，各带出处 |
@@ -175,7 +175,7 @@ type RelationEdge = {
 | F1 | `book_not_found` | 404 | 书不存在、已删除或还在导入 | 用 `books.list` 查可用的书 |
 | F2 | `book_ambiguous` | 400 | 省略了 `book`，书库里有不止一本 | 指定 `book` |
 | F3 | `book_exists` | 409 | 导入时书 id 已被占用（含还在抽取、第 1 章没提交的 id，见 [`story.ingest`](ingest.md)） | 换书名或指定新 id |
-| F4 | `unsupported_format` | 415 | 导入文件不是 V9 记忆图，或书库版本不认识 | 换文件；升级程序 |
+| F4 | `unsupported_format` | 415 | 导入文件不是 V9 记忆图，或它的 `book.features` 关掉了数值（或秘密）却带着这类记录；或书库版本不认识 | 换文件；升级程序 |
 | F5 | `position_out_of_range` | 400 | 阅读位置超出全书范围或不合法 | 改正位置 |
 | F6 | `beyond_position` | 403 | 请求了阅读位置之后的章 | 先把阅读位置往后拨 |
 | F7 | `entity_not_found` | 404 | 对象在这本书里不存在，或在阅读位置还没出现 | 用 `entities.list` 或 `search` 查 |
@@ -188,6 +188,7 @@ type RelationEdge = {
 ## 边界与兼容
 
 - **公开接口**：方法清单与各方法参数、结果的 schema；新增方法与可选字段不算破坏兼容。
+- **按书开关**：书的数据里可选的 `book.features: {ledger?: boolean, secrets?: boolean}` 说这本书记不记数值与秘密，由 [`story.ingest`](ingest.md) 输出 18 在新建时定；缺这一项或缺某一项时按开算，所以开关之前的书与不写它的数据文件照旧。`books.list`、`book.info` 的 `features` 是补齐后的生效值。书里没有关掉的那类记录（导入时由 F4 保证），其余方法不按开关另做判断：`secrets.matrix` 没有行，`ledger.tracks` 没有轨道，`ledger.track` 给任何轨道名都得到 `entity_not_found`。
 - **独立服务的 HTTP**：
   - `POST /api/rpc/<方法名>`，请求体是参数的 JSON；成功返回 200 与结果，失败返回上表的 HTTP 状态码与 `{code, message}`（`entity_ambiguous` 另带 `candidates`）。
   - 登录链接是 `http://127.0.0.1:<端口>/login?token=<口令>`。这是唯一不要求会话的地址：口令对时建立会话（浏览器 Cookie，只供 HTTP、同站）并跳转到查看器首页；口令不对时返回 401 页面。
