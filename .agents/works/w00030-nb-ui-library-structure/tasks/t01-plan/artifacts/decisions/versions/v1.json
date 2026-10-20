@@ -1,0 +1,129 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00030-nb-ui-library-structure",
+    "taskId": "t01-plan",
+    "artifactId": "decisions",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "w00030 nb-ui 库结构整理：计划要定的事",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "4709bf322c948319d1b1a7dd879f8a8f0211e3b674047d41dbcf05648e273d23",
+    "files": [
+        "index.html"
+    ],
+    "questions": [
+        {
+            "id": "css-strategy",
+            "type": "single",
+            "label": "1. 原子类怎么和宿主隔开",
+            "options": [
+                {
+                    "value": "prefix",
+                    "label": "原子类加 nb: 前缀"
+                },
+                {
+                    "value": "layer",
+                    "label": "整个产物包进 @layer nb-ui"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "prefix"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "order-w00027",
+            "type": "single",
+            "label": "2. 和 w00027 t07（低代码表单）谁先",
+            "options": [
+                {
+                    "value": "after",
+                    "label": "等 w00027：t02、t03 等它的 nb-ui 改动进 master，t04 等它做完"
+                },
+                {
+                    "value": "first",
+                    "label": "w00030 先做，w00027 之后按新名字和新写法改"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "after"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "old-names",
+            "type": "single",
+            "label": "3. t04 改名后旧名留不留",
+            "options": [
+                {
+                    "value": "none",
+                    "label": "不留别名，调用方同一个提交改完"
+                },
+                {
+                    "value": "alias",
+                    "label": "保留一个版本的旧名别名"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "none"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "floating-window",
+            "type": "single",
+            "label": "4. Dialog 的浮动窗口用法要不要拆出来",
+            "options": [
+                {
+                    "value": "split",
+                    "label": "拆出 FloatingWindow，Dialog 只做模态"
+                },
+                {
+                    "value": "keep",
+                    "label": "保留一个组件，只修关闭行为"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "split"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "plan-rest",
+            "type": "confirm",
+            "label": "计划的其余部分是否同意",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-20T13:42:52.424Z"
+}
