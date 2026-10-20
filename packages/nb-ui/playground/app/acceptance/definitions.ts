@@ -64,6 +64,13 @@ export const ACCEPTANCE_DEFINITIONS: Record<string, LabComponentDefinition> = {
         controls: [],
         events: [],
     },
+    "suggestion-menu": {
+        id: "suggestion-menu",
+        label: "SuggestionMenu",
+        scenes: [{id: "caret", label: "贴光标"}, {id: "header", label: "与输入框同宽、顶部搜索框"}, {id: "wide", label: "锚点比窗口宽"}],
+        controls: [],
+        events: [],
+    },
     "checkbox-focus": {
         id: "checkbox-focus",
         label: "Checkbox",

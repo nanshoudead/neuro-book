@@ -13,6 +13,7 @@ import {useRoute} from "vue-router";
 import CheckboxFocusFixture from "../../acceptance/CheckboxFocusFixture.vue";
 import NestedGridFixture from "../../acceptance/NestedGridFixture.vue";
 import PopupListsFixture from "../../acceptance/PopupListsFixture.vue";
+import SuggestionMenuFixture from "../../acceptance/SuggestionMenuFixture.vue";
 import SplitterFixture from "../../acceptance/SplitterFixture.vue";
 import {ACCEPTANCE_DEFINITIONS} from "../../acceptance/definitions";
 import {useColorway} from "../../composables/useColorway";
@@ -23,6 +24,7 @@ const FIXTURES: Record<string, Component> = {
     "splitter": SplitterFixture,
     "checkbox-focus": CheckboxFocusFixture,
     "popup-lists": PopupListsFixture,
+    "suggestion-menu": SuggestionMenuFixture,
 };
 
 const route = useRoute();

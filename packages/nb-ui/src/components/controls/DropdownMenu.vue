@@ -13,6 +13,7 @@ import PopupScrollbar from "../layout/PopupScrollbar.vue";
 import {useMenuCascade} from "../../composables/useMenuCascade";
 import {usePopoverLayer} from "../../composables/usePopoverLayer";
 import {focusPopupItem, usePopupScroll} from "../../composables/usePopupScroll";
+import {toPopoverReference} from "../feedback/popover-anchor";
 import type {DropdownMenuItemData} from "./dropdown-menu.types";
 /**
  * 下拉菜单。浮层外观由 `.nb-ui-popover-surface` 与 `.nb-ui-menu-surface` 给出，滚动（截在第 9 项中间、悬浮滑块、
@@ -152,20 +153,7 @@ function setTriggerRef(element: unknown): void {
     const node = element && typeof element === "object" && "$el" in element ? (element as { $el?: HTMLElement }).$el : element;
     triggerRef.value = node && typeof node === "object" && "getBoundingClientRect" in node ? (node as HTMLElement) : null;
 }
-const unscaledAnchor = computed(() => {
-    const trigger = triggerRef.value;
-    if (!trigger || !("getBoundingClientRect" in trigger)) return undefined;
-    return {getBoundingClientRect: () => unscaledRect(trigger)};
-});
-
-function unscaledRect(element: HTMLElement): DOMRect {
-    const rect = element.getBoundingClientRect();
-    const scale = new DOMMatrix(getComputedStyle(element).transform).a || 1;
-    if (scale === 1) return rect;
-    const width = rect.width / scale;
-    const height = rect.height / scale;
-    return new DOMRect(rect.left - (width - rect.width) / 2, rect.top - (height - rect.height) / 2, width, height);
-}
+const unscaledAnchor = computed(() => toPopoverReference(triggerRef.value));
 const {zIndex} = usePopoverLayer();
 const scroll = usePopupScroll();
 const resolvedMenuClass = computed(() => [props.menuClass ?? "min-w-[160px]", props.wrap ? "max-w-[320px]" : ""]);

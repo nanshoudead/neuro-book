@@ -61,7 +61,8 @@
 - **数据与 id**：`groups: ReadonlyArray<{id, label?, items: SuggestionMenuItem[]}>`，项：`id`、`label`、`iconClass?`、`hint?`、`disabled?`。项的 `id` 在整个菜单里唯一；组按输入顺序渲染、不合并不重排。每个可选项的 DOM id 由导出的纯函数 `suggestionOptionId(menuId, index)` 给出，`index` 是跨组累计、只数可选项的位置，与宿主键盘移动用的扁平顺序相同；宿主的 `aria-activedescendant` 用同一个函数。`activeId` 不在当前项里时不挂高亮，宿主应清掉 `aria-activedescendant`。
 - **其余属性**：`activeId`、`loading`、`loadingText`、`emptyText`、`anchor`、`placement`（`"auto" | "top" | "bottom"`，缺省 `"auto"`）、`matchAnchorWidth`、`id`、`teleportTarget`。事件：`select(id)`、`highlight(id)`（只在鼠标真的移动时发）。插槽 `header`：放标题或搜索框，**可以接收焦点**；“按下鼠标不夺焦点”（`mousedown` 的 `preventDefault`）只加在项列表与非交互区。暴露 `contains(node)`，宿主判断失焦时把浮层算进去（浮层是传送出去的，不在宿主的 DOM 里）。
 - **定位用 reka 的 Popover 原语**（`PopoverRoot` 非模态、`PopoverAnchor` 的 `reference`、`PopoverPortal`、`PopoverContent`），与 `DropdownMenu` 走同一条路，而不是直接调 `@floating-ui/dom`：reka 底层就是 floating-ui，现成提供
-  - 渲染目标：`useTeleportTarget`（Lab 画布与 `Dialog` 提供的落点，没有时落到 body），层级取第 5 节的 `usePopoverLayer`；
+  - 渲染目标：传送到 `body`，`teleportTarget` 写明了才传到那里，与 `DropdownMenu`、`Select` 相同；层级取第 5 节的 `usePopoverLayer`。（实施时查实：`useTeleportTarget` 的落点只有 Lab 画布提供，`Dialog` 不提供；Lab 画布用 CSS `zoom`，浮层进了画布会被一起缩放、坐标也要换算，所以不跟它。）
+  - 夹紧用 `sticky: "always"`：reka 缺省的 `"partial"` 为了贴着锚点，会让菜单越过 12px 的边距（光标贴在窗口边上时实测越出 2px）；
   - Lab 画布 CSS `zoom` 下的锚点换算：沿用 `DropdownMenu` 的 `unscaledRect`，挪成内部工具共用；
   - 翻转与夹紧：`avoidCollisions`、`collisionPadding: 12`；
   - 可用空间：`--reka-popper-available-height`、`--reka-popper-available-width`，外框 `max-height`、`max-width` 取它们（`matchAnchorWidth` 时宽度取锚点宽与可用宽的较小者，项文字与提示截断）；

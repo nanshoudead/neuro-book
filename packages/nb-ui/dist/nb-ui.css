@@ -57,6 +57,9 @@
 .relative {
   position: relative;
 }
+.sticky {
+  position: sticky;
+}
 .inset-0 {
   inset: 0px;
 }
@@ -423,6 +426,9 @@
 .w-\[calc\(var\(--control-h-sm\)\*0\.64\)\] {
   width: calc(var(--control-h-sm) * 0.64);
 }
+.w-\[min\(var\(--reka-popper-anchor-width\)\,var\(--reka-popper-available-width\)\)\] {
+  width: min(var(--reka-popper-anchor-width), var(--reka-popper-available-width));
+}
 .w-\[var\(--control-h-sm\)\] {
   width: var(--control-h-sm);
 }
@@ -446,6 +452,9 @@
 }
 .max-w-\[calc\(100vw-32px\)\] {
   max-width: calc(100vw - 32px);
+}
+.max-w-\[min\(420px\,var\(--reka-popper-available-width\)\)\] {
+  max-width: min(420px, var(--reka-popper-available-width));
 }
 .max-w-full {
   max-width: 100%;
@@ -488,6 +497,9 @@
 }
 .min-w-\[min\(12em\,100\%\)\] {
   min-width: min(12em, 100%);
+}
+.min-w-\[min\(220px\,var\(--reka-popper-available-width\)\)\] {
+  min-width: min(220px, var(--reka-popper-available-width));
 }
 .flex-1 {
   flex: 1;
@@ -1041,6 +1053,9 @@
 .px-6 {
   padding-inline: calc(var(--spacing) * 6);
 }
+.px-\[10px\] {
+  padding-inline: 10px;
+}
 .px-\[calc\(var\(--control-px\)\*0\.6\)\] {
   padding-inline: calc(var(--control-px) * 0.6);
 }
@@ -1085,6 +1100,9 @@
 }
 .py-10 {
   padding-block: calc(var(--spacing) * 10);
+}
+.py-\[6px\] {
+  padding-block: 6px;
 }
 .pe-\[var\(--space-3\)\] {
   padding-inline-end: var(--space-3);
@@ -1154,6 +1172,10 @@
 }
 .text-\[length\:var\(--text-xs\)\] {
   font-size: var(--text-xs);
+}
+.leading-4 {
+  --tw-leading: calc(var(--spacing) * 4);
+  line-height: calc(var(--spacing) * 4);
 }
 .leading-\[14px\] {
   --tw-leading: 14px;
