@@ -84,19 +84,22 @@ export async function loadQaConfig(path: string = defaultConfigPath()): Promise<
 export async function saveQaConfig(path: string, config: unknown): Promise<QaConfig> {
     const valid = parseQaConfig(config, ` ${path} `);
     const temporary = `${path}.${process.pid}.tmp`;
-    const failed = (error: unknown): QaError => new QaError("qa_config_write_failed", `写不了问答配置 ${path}：${error instanceof Error ? error.message : String(error)}`, {cause: error});
+    const reason = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+    const failed = (error: unknown, note = ""): QaError => new QaError("qa_config_write_failed", `写不了问答配置 ${path}：${reason(error)}${note}`, {cause: error});
     try {
         await mkdir(dirname(path), {recursive: true});
     } catch (error) {
         throw failed(error);
     }
+    let created = false;
     try {
         await writeFile(temporary, `${JSON.stringify(valid, null, 4)}\n`);
+        created = true;
         await rename(temporary, path);
     } catch (error) {
-        // 临时文件可能已经写出来了；清理它，原文件没动过。
-        await rm(temporary, {force: true});
-        throw failed(error);
+        // 原文件没动过。临时文件写出来了就清理；清理也失败时照样报写失败，不让清理的错误盖掉它，留下的临时文件写进说明。
+        const leftover = created ? await rm(temporary, {force: true}).then(() => null, (cleanup: unknown) => cleanup) : null;
+        throw failed(error, leftover === null ? "" : `；临时文件 ${temporary} 没能删掉：${reason(leftover)}`);
     }
     return valid;
 }

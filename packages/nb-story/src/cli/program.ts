@@ -6,8 +6,8 @@
  * `decodeArguments` 检查），未知选项和多余的参数照收，留给这里按“没有选项 --x”报。commander 不退出进程：
  * `exitOverride` 把它的退出变成异常，输出经 `CliIo`。
  *
- * 每条命令和根命令都声明 `--library`、`--json`：commander 在遇到根命令不认识的选项（例如 `--at`）之后，把剩下的
- * 全部交给子命令，所以写在后面的 `--library` 只有子命令认得。
+ * `--library`、`--json` 在根命令和每条命令上都声明，取值时两处都看：commander 默认在命令名之后也认根命令的选项，
+ * 值有时记在根命令上、有时记在子命令上，取决于它与命令名、未知选项的先后。
  */
 
 import {Command, CommanderError} from "commander";
@@ -98,6 +98,30 @@ function buildProgram(io: CliIo, picked: {value: ParsedCommandLine | null}, unkn
 }
 
 /**
+ * 交给 commander 之前，把命令行整理成它能按旧规则解析的样子。换 commander 之前的手写解析器允许两种写法，commander
+ * 不认，这里改写过去：
+ *
+ * - 命令专属的选项写在命令名前（`--at 38 info`）：根命令不认识 `--at`，会把它当成命令名。所以先按旧规则找出命令名
+ *   提到最前面：不在 `FLAGS` 里的 `--x` 不带 `=` 时吃掉下一个词作值，第一个既不是选项也不是选项值的词是命令名。
+ * - 开关带等号（`--json=false`）：旧版不看等号后面，一律当作打开；commander 的开关不收值，会报未知选项。
+ */
+function normalizeArgv(argv: readonly string[]): string[] {
+    const tokens = argv.map(token => {
+        const flag = /^--([^=]+)=/u.exec(token)?.[1];
+        return flag !== undefined && FLAGS.has(flag) ? `--${flag}` : token;
+    });
+    for (let index = 0; index < tokens.length; index += 1) {
+        const token = tokens[index]!;
+        if (!token.startsWith("--")) {
+            if (index > 0) tokens.unshift(...tokens.splice(index, 1));
+            break;
+        }
+        if (!token.includes("=") && !FLAGS.has(token.slice(2))) index += 1;
+    }
+    return tokens;
+}
+
+/**
  * 解析命令行。用法错误（未知命令或选项、缺少值）输出提示和用法，返回退出码 2；`--help` 输出帮助，返回 0；不给命令
  * 输出用法，返回 2。参数个数与取值的检查在 `decodeArguments`，由调用方继续。
  */
@@ -106,7 +130,7 @@ export function parseCommandLine(argv: readonly string[], io: CliIo): ParsedComm
     const unknownCommand: {name: string | null} = {name: null};
     const program = buildProgram(io, picked, unknownCommand);
     try {
-        program.parse(argv as string[], {from: "user"});
+        program.parse(normalizeArgv(argv), {from: "user"});
     } catch (error) {
         if (error instanceof CommanderError) {
             if (error.code === "commander.helpDisplayed") return {exit: 0};

@@ -6,7 +6,7 @@
  */
 
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
-import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {chmod, mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {PassThrough} from "node:stream";
 
@@ -14,7 +14,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {startEndpoint, type Endpoint, type EndpointReply} from "../../testing/openai-endpoint";
 import {CLI} from "../../testing/processes";
-import {initInteractively} from "./config-init";
+import {confirmOverwrite, initInteractively} from "./config-init";
 
 const KEY_ENV = "NBSTORY_CONFIG_TEST_CREDENTIAL";
 const FAKE_KEY = "fake-credential-for-config-test-0042";
@@ -109,21 +109,50 @@ describe("init、show、set、unset", () => {
         expect((await written(path) as {model: object}).model).not.toHaveProperty("thinking");
 
         const before = await readFile(path, "utf8");
-        for (const args of [["set", "model.nope", "1"], ["set", "qa.maxChapters", "多"], ["set", "model.thinking", "max"], ["unset", "model.id"], ["set", "model.id"], ["bogus"], []]) {
-            expect((await run(["config", ...args, "--config", path])).code).toBe(2);
-        }
+        // 都不写盘，并行跑：每个都是一个命令行进程。`toString` 是普通对象从原型继承来的名字，也不是字段。
+        const wrong = [["set", "model.nope", "1"], ["unset", "toString"], ["set", "qa.maxChapters", "多"], ["set", "model.thinking", "max"], ["unset", "model.id"], ["set", "model.id"], ["bogus"], []];
+        const codes = await Promise.all(wrong.map(async args => (await run(["config", ...args, "--config", path])).code));
+        expect(codes).toEqual(wrong.map(() => 2));
         const outOfRange = await run(["config", "set", "qa.maxChapters", "21", "--config", path, "--json"]);
         expect(outOfRange.code).toBe(1);
         expect((JSON.parse(outOfRange.stdout) as {error: {code: string}}).error.code).toBe("qa_unconfigured");
         expect(await readFile(path, "utf8")).toBe(before);
     });
 
-    test("写不进去（目录位置是个文件）：qa_config_write_failed，退出码 1", async () => {
+    test("密钥环境变量名写成了别的（像是贴了密钥）：init 与 set 都是用法错误（2），不写盘，输出里没有原文", async () => {
+        const pasted = "sk-pasted-credential-0042";
+        const path = freshPath();
+        const init = await run(["config", "init", "--base-url", "http://127.0.0.1:1/v1", "--model", "m1", "--api-key-env", pasted, "--config", path]);
+        expect(init.code).toBe(2);
+        expect(await readdir(join(path, "..")).catch(() => [])).toEqual([]);
+
+        await run(["config", "init", ...INIT_FLAGS, "--config", path]);
+        const before = await readFile(path, "utf8");
+        const set = await run(["config", "set", "model.apiKeyEnv", pasted, "--config", path, "--json"]);
+        expect(set.code).toBe(2);
+        expect(await readFile(path, "utf8")).toBe(before);
+        for (const result of [init, set]) expect(`${result.stdout}${result.stderr}`).not.toContain(pasted);
+    });
+
+    test("写不进去（目录位置是个文件、目录进不去）：qa_config_write_failed，退出码 1，--json 时照样输出 JSON", async () => {
         const blocker = join(root, "blocker");
         await writeFile(blocker, "x");
         const result = await run(["config", "init", ...INIT_FLAGS, "--config", join(blocker, "config.json")]);
         expect(result.code).toBe(1);
         expect(result.stderr).toContain("qa_config_write_failed");
+
+        // 只读且不可进入：写临时文件失败，清理它也会失败，报的仍是写失败。
+        const locked = join(root, "locked");
+        await mkdir(locked);
+        await chmod(locked, 0o444);
+        try {
+            const json = await run(["config", "init", ...INIT_FLAGS, "--config", join(locked, "config.json"), "--json"]);
+            expect(json.code).toBe(1);
+            expect(JSON.parse(json.stdout)).toEqual({ok: false, error: expect.objectContaining({code: "qa_config_write_failed"})});
+        } finally {
+            await chmod(locked, 0o755);
+        }
+        expect(await readdir(locked)).toEqual([]);
     });
 });
 
@@ -137,11 +166,11 @@ async function configWithEndpoint(replies: EndpointReply[], thinking?: string): 
 }
 
 describe("config test", () => {
-    test("模型回话即通过；请求带配置里的推理档和认证；输出不含密钥", async () => {
-        const {path, endpoint} = await configWithEndpoint([{kind: "text", text: "好"}], "xhigh");
+    test("模型回话即通过；请求带配置里的推理档和认证；模型回话里回显了密钥，输出里也没有", async () => {
+        const {path, endpoint} = await configWithEndpoint([{kind: "text", text: `好，${FAKE_KEY}`}], "xhigh");
         const result = await run(["config", "test", "--config", path]);
         expect(result.code).toBe(0);
-        expect(result.stdout).toContain("通过：test-model 回复“好”");
+        expect(result.stdout).toContain("通过：test-model");
         expect(result.stdout).toContain("推理档：xhigh");
         expect(endpoint.bodies.map(body => body.reasoning_effort)).toEqual(["xhigh"]);
         expect(endpoint.authorizations).toEqual([`Bearer ${FAKE_KEY}`]);
@@ -174,63 +203,104 @@ describe("config test", () => {
 });
 
 describe("init 的交互", () => {
-    /** 把按键一段一段喂给提示：clack 一次只读一个提示的输入，等它画出来再喂。 */
+    /**
+     * 把按键一段一段喂给提示：clack 一次只读一个提示的输入，等它画出来再喂。`close` 结束输入输出：断言失败时还在
+     * 等输入的提示不会留到后面的用例里。
+     */
     function terminal() {
         const input = Object.assign(new PassThrough(), {isTTY: true, setRawMode: () => undefined}) as unknown as PassThrough & NodeJS.ReadStream;
         const output = new PassThrough();
         let screen = "";
         output.on("data", chunk => (screen += String(chunk)));
         const type = async (keys: string, expectScreen: string): Promise<void> => {
-            const deadline = Date.now() + 5000;
+            const deadline = Date.now() + 4000;
             while (!screen.includes(expectScreen)) {
                 if (Date.now() > deadline) throw new Error(`屏幕上等不到“${expectScreen}”：${screen}`);
                 await Bun.sleep(10);
             }
             input.write(keys);
         };
-        return {input, output, type};
+        const close = (): void => {
+            input.destroy();
+            output.destroy();
+        };
+        return {streams: {input, output}, type, close};
     }
 
     test("依次问地址、模型名、密钥环境变量名、推理档，返回新配置", async () => {
         const term = terminal();
-        const result = initInteractively({path: "/x/config.json", filePresent: false, existing: null, flags: {}, streams: {input: term.input, output: term.output}});
-        await term.type("http://h/v1\r", "OpenAI 兼容服务的地址");
-        await term.type("m9\r", "模型名");
-        await term.type("MY_KEY\r", "存密钥的环境变量名");
-        await term.type("\u001b[B\u001b[B\u001b[B\u001b[B\r", "推理档");
-        expect(await result).toEqual({model: {baseUrl: "http://h/v1", id: "m9", apiKeyEnv: "MY_KEY", thinking: "xhigh"}});
+        try {
+            const result = initInteractively({path: "/x/config.json", confirmOverwrite: false, existing: null, flags: {}, streams: term.streams});
+            await term.type("http://h/v1\r", "OpenAI 兼容服务的地址");
+            await term.type("m9\r", "模型名");
+            await term.type("MY_KEY\r", "存密钥的环境变量名");
+            await term.type("\u001b[B\u001b[B\u001b[B\u001b[B\r", "推理档");
+            expect(await result).toEqual({model: {baseUrl: "http://h/v1", id: "m9", apiKeyEnv: "MY_KEY", thinking: "xhigh"}});
+        } finally {
+            term.close();
+        }
     });
 
     test("贴进来的是密钥而不是变量名：拒绝并说明，改填变量名后通过", async () => {
         const term = terminal();
-        const result = initInteractively({path: "/x/config.json", filePresent: false, existing: null, flags: {"model.baseUrl": "http://h/v1", "model.id": "m"}, streams: {input: term.input, output: term.output}});
-        await term.type("sk-abc-123\r", "存密钥的环境变量名");
-        await term.type("\u0015MY_KEY\r", "不是密钥本身");
-        await term.type("\r", "推理档");
-        expect(await result).toEqual({model: {baseUrl: "http://h/v1", id: "m", apiKeyEnv: "MY_KEY"}});
+        try {
+            const pasted = "sk-abc-123";
+            const result = initInteractively({path: "/x/config.json", confirmOverwrite: false, existing: null, flags: {"model.baseUrl": "http://h/v1", "model.id": "m"}, streams: term.streams});
+            await term.type(`${pasted}\r`, "存密钥的环境变量名");
+            await term.type(`${"\u007f".repeat(pasted.length)}MY_KEY\r`, "不是密钥本身");
+            await term.type("\r", "推理档");
+            expect(await result).toEqual({model: {baseUrl: "http://h/v1", id: "m", apiKeyEnv: "MY_KEY"}});
+        } finally {
+            term.close();
+        }
     });
 
     test("中途取消返回 null，调用方不写盘", async () => {
         const term = terminal();
-        const result = initInteractively({path: "/x/config.json", filePresent: false, existing: null, flags: {}, streams: {input: term.input, output: term.output}});
-        await term.type("\u0003", "OpenAI 兼容服务的地址");
-        expect(await result).toBeNull();
+        try {
+            const result = initInteractively({path: "/x/config.json", confirmOverwrite: false, existing: null, flags: {}, streams: term.streams});
+            await term.type("\u0003", "OpenAI 兼容服务的地址");
+            expect(await result).toBeNull();
+        } finally {
+            term.close();
+        }
     });
 
     test("已有配置：默认不覆盖，选否即取消；选是后保留没问到的字段，推理档选“不写”会去掉原来的", async () => {
         const existing = {model: {baseUrl: "http://old/v1", id: "old", apiKeyEnv: "OLD_KEY", thinking: "high" as const}, qa: {maxChapters: 5}};
         const refused = terminal();
-        const first = initInteractively({path: "/x/config.json", filePresent: true, existing, flags: {}, streams: {input: refused.input, output: refused.output}});
-        await refused.type("\r", "覆盖");
-        expect(await first).toBeNull();
+        try {
+            const first = initInteractively({path: "/x/config.json", confirmOverwrite: true, existing, flags: {}, streams: refused.streams});
+            await refused.type("\r", "覆盖");
+            expect(await first).toBeNull();
+        } finally {
+            refused.close();
+        }
 
         const term = terminal();
-        const result = initInteractively({path: "/x/config.json", filePresent: true, existing, flags: {}, streams: {input: term.input, output: term.output}});
-        await term.type("y", "覆盖");
-        await term.type("\r", "OpenAI 兼容服务的地址");
-        await term.type("\r", "模型名");
-        await term.type("\r", "存密钥的环境变量名");
-        await term.type("\u001b[A\u001b[A\u001b[A\r", "推理档");
-        expect(await result).toEqual({model: {baseUrl: "http://old/v1", id: "old", apiKeyEnv: "OLD_KEY"}, qa: {maxChapters: 5}});
+        try {
+            const result = initInteractively({path: "/x/config.json", confirmOverwrite: true, existing, flags: {}, streams: term.streams});
+            await term.type("y", "覆盖");
+            await term.type("\r", "OpenAI 兼容服务的地址");
+            await term.type("\r", "模型名");
+            await term.type("\r", "存密钥的环境变量名");
+            await term.type("\u001b[A\u001b[A\u001b[A\r", "推理档");
+            expect(await result).toEqual({model: {baseUrl: "http://old/v1", id: "old", apiKeyEnv: "OLD_KEY"}, qa: {maxChapters: 5}});
+        } finally {
+            term.close();
+        }
+    });
+
+    test("字段都在选项里给了：只确认覆盖，默认不覆盖", async () => {
+        for (const [keys, expected] of [["\r", false], ["y", true]] as const) {
+            const term = terminal();
+            try {
+                const answer = confirmOverwrite("/x/config.json", term.streams);
+                await term.type(keys, "覆盖");
+                expect(await answer).toBe(expected);
+            } finally {
+                term.close();
+            }
+        }
     });
 });

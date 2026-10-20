@@ -13,7 +13,7 @@ export class ConfigEditError extends Error {
     }
 }
 
-type Kind = "text" | "integer" | "thinking" | "json";
+type Kind = "text" | "envName" | "integer" | "thinking" | "json";
 
 interface FieldSpec {
     kind: Kind;
@@ -25,7 +25,7 @@ interface FieldSpec {
 export const CONFIG_FIELDS: Readonly<Record<string, FieldSpec>> = {
     "model.baseUrl": {kind: "text", required: true},
     "model.id": {kind: "text", required: true},
-    "model.apiKeyEnv": {kind: "text", required: true},
+    "model.apiKeyEnv": {kind: "envName", required: true},
     "model.contextWindow": {kind: "integer", required: false},
     "model.maxTokens": {kind: "integer", required: false},
     "model.thinking": {kind: "thinking", required: false},
@@ -36,8 +36,19 @@ export const CONFIG_FIELDS: Readonly<Record<string, FieldSpec>> = {
 
 const THINKING_LEVELS = ["low", "medium", "high", "xhigh"];
 
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+
+/**
+ * 密钥环境变量名的写法不对时的说明，对时为 undefined。常见的错是把密钥本身贴进来，那样密钥就落进配置文件、又被
+ * 输出回显，所以写法不对一律拒绝，说明里也不带原文。交互的 `init` 用同一条检查。
+ */
+export function envNameProblem(text: string): string | undefined {
+    return ENV_NAME.test(text) ? undefined : "密钥环境变量名只能是字母、数字、下划线（例如 OPENAI_API_KEY），这里要填变量名，不是密钥本身";
+}
+
 function fieldOf(name: string): FieldSpec {
-    const field = CONFIG_FIELDS[name];
+    // 只认表里自己的键：`toString` 之类从原型继承来的名字不是字段。
+    const field = Object.hasOwn(CONFIG_FIELDS, name) ? CONFIG_FIELDS[name] : undefined;
     if (!field) throw new ConfigEditError(`没有配置字段 ${name}；可用的：${Object.keys(CONFIG_FIELDS).join("、")}`);
     return field;
 }
@@ -46,6 +57,11 @@ function decode(name: string, field: FieldSpec, text: string): unknown {
     switch (field.kind) {
         case "text":
             return text;
+        case "envName": {
+            const problem = envNameProblem(text);
+            if (problem !== undefined) throw new ConfigEditError(`${name}：${problem}`);
+            return text;
+        }
         case "integer":
             if (!/^-?\d+$/u.test(text)) throw new ConfigEditError(`${name} 要写整数：${text}`);
             return Number(text);

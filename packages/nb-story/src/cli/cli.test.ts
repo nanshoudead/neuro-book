@@ -95,11 +95,15 @@ describe("退出码与失败（输出 2、7，F1、F2）", () => {
         expect(one.stdout).not.toContain("人物卡");
     });
 
-    test("选项写在命令前后、写成 --名=值都一样", async () => {
+    test("选项写在命令前后、写成 --名=值都一样；开关带等号也算打开", async () => {
         const trailing = await runCli(["card", "e1-1", "--at", "38", "--library", book.library, "--json"]);
-        const leading = await runCli(["--library", book.library, "--json", "card", "e1-1", "--at=38"]);
         expect(trailing.code).toBe(0);
-        expect(leading.stdout).toBe(trailing.stdout);
+        const variants = [
+            ["--library", book.library, "--json", "card", "e1-1", "--at=38"],
+            ["--at", "38", "--library", book.library, "card", "e1-1", "--json=true"],
+            ["--at=38", "--json", "card", "--library", book.library, "e1-1"],
+        ];
+        for (const result of await Promise.all(variants.map(args => runCli(args)))) expect(result.stdout).toBe(trailing.stdout);
     });
 
     test("名字对应几个对象时列出候选", async () => {

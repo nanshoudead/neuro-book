@@ -1,6 +1,8 @@
 /**
  * 用问答配置向模型发一个最小请求（`nbstory config test`，docs/specs/story/qa.md 的“配置”）：证明服务地址、模型名、
  * 密钥环境变量和推理档能被服务接受。不证明服务端真的按推理档思考。
+ *
+ * 结果不带模型回的正文：要证明的只是连通，而正文是上游给的任意文字（可能回显请求里的密钥），不该进命令输出。
  */
 
 import {createHarness, createToolRegistry, type HarnessOptions, type RunError, type TurnResult} from "@notnotype/nb-harness";
@@ -10,7 +12,7 @@ import {configuredModel, thinkingOption, type QaConfig} from "./config";
 import probeProfile from "./probe.profile";
 
 export type ProbeResult =
-    | {ok: true; text: string; ms: number; usage: TurnResult["usage"]}
+    | {ok: true; ms: number; usage: TurnResult["usage"]}
     | {ok: false; reason: "failed"; error: RunError; ms: number}
     | {ok: false; reason: "aborted"; ms: number}
     | {ok: false; reason: "not_finished"; stopReason: TurnResult["stopReason"]; ms: number};
@@ -32,7 +34,7 @@ export async function probeModel(config: QaConfig, options: {signal?: AbortSigna
         if (result.stopReason === "error") return {ok: false, reason: "failed", error: result.error!, ms};
         if (result.stopReason === "aborted") return {ok: false, reason: "aborted", ms};
         if (result.stopReason !== "stop") return {ok: false, reason: "not_finished", stopReason: result.stopReason, ms};
-        return {ok: true, text: result.text.trim(), ms, usage: result.usage};
+        return {ok: true, ms, usage: result.usage};
     } finally {
         await harness.close();
     }

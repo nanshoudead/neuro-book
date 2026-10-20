@@ -105,7 +105,7 @@ async function exists(path: string): Promise<boolean> {
 
 /**
  * 写配置。三个必填项（服务地址、模型名、密钥环境变量名）在选项里给齐就直接写，缺的在终端里交互问；已有配置只在
- * `--force` 或交互里确认后才改，没给的字段保留原值。不在终端里又缺必填项，是用法错误，不挂起等输入。
+ * `--force` 或终端里确认后才改，没给的字段保留原值。
  */
 async function init(params: Record<string, unknown>, path: string, io: CliIo, json: boolean, done: Done, usageError: (message: string) => number): Promise<number> {
     const present = await exists(path);
@@ -119,29 +119,37 @@ async function init(params: Record<string, unknown>, path: string, io: CliIo, js
     }
     const flags = {"model.baseUrl": params.baseUrl, "model.id": params.model, "model.apiKeyEnv": params.apiKeyEnv, "model.thinking": params.thinking} as Record<string, string | undefined>;
     const missing = existing ? [] : (["model.baseUrl", "model.id", "model.apiKeyEnv"] as const).filter(name => flags[name] === undefined);
-    // 需要问人：没有配置而缺必填项，或已有配置而一个字段选项都没给。
+    // 要问字段：没有配置而缺必填项，或已有配置而一个字段选项都没给。要确认覆盖：已有文件而没加 --force。两件事都要
+    // 问人，只有在终端里（且没加 --json）才能问，否则是用法错误，不挂起等输入。
     const needsInput = existing ? Object.values(flags).every(text => text === undefined) : missing.length > 0;
-    const interactive = needsInput && !json && process.stdin.isTTY === true;
+    const needsConfirm = present && params.force !== true;
+    const canPrompt = !json && process.stdin.isTTY === true;
 
-    if (present && params.force !== true && !interactive) return usageError(`已有配置 ${path}：加 --force 覆盖其中给出的字段（没给的保留），或用 nbstory config set 改单个字段`);
-    if (needsInput && !interactive) {
+    if (needsConfirm && !canPrompt) return usageError(`已有配置 ${path}：加 --force 覆盖其中给出的字段（没给的保留），或用 nbstory config set 改单个字段`);
+    if (needsInput && !canPrompt) {
         const names = {"model.baseUrl": "--base-url", "model.id": "--model", "model.apiKeyEnv": "--api-key-env"} as const;
         const wanted = existing ? "至少给一个字段选项（--base-url、--model、--api-key-env、--thinking）" : `缺少 ${missing.map(name => names[name]).join("、")}`;
         return usageError(`${wanted}${json ? "" : "；在终端里运行可以交互填写"}`);
     }
+    const cancelled = (): number => {
+        io.stderr("已取消，没有写配置");
+        return EXIT_INTERRUPTED;
+    };
 
     let config: QaConfig;
-    if (interactive) {
+    if (needsInput) {
         const {initInteractively} = await import("./config-init");
-        const answered = await initInteractively({path, filePresent: present, existing, flags});
-        if (answered === null) {
-            io.stderr("已取消，没有写配置");
-            return EXIT_INTERRUPTED;
-        }
+        const answered = await initInteractively({path, confirmOverwrite: needsConfirm, existing, flags});
+        if (answered === null) return cancelled();
         config = answered;
     } else {
+        // 先按选项算出新配置：写法不对在确认覆盖之前就报。
         config = existing ?? parseQaConfig({model: {baseUrl: flags["model.baseUrl"], id: flags["model.id"], apiKeyEnv: flags["model.apiKeyEnv"]}}, ` ${path} `);
         for (const [name, text] of Object.entries(flags)) if (text !== undefined) config = setConfigField(config, name, text, ` ${path} `);
+        if (needsConfirm) {
+            const {confirmOverwrite} = await import("./config-init");
+            if (!(await confirmOverwrite(path))) return cancelled();
+        }
     }
     await saveQaConfig(path, config);
     const warning = process.env[config.model.apiKeyEnv] ? "" : `\n· 环境变量 ${config.model.apiKeyEnv} 现在没有设置，问答前要先设置它`;
@@ -161,10 +169,10 @@ async function test(path: string, signal: AbortSignal, io: CliIo, json: boolean,
     if (result.ok) {
         const seconds = (result.ms / 1000).toFixed(1);
         const text = [
-            `通过：${config.model.id} 回复“${result.text}”（${seconds} 秒，输入 ${result.usage.input}、输出 ${result.usage.output} token）`,
+            `通过：${config.model.id} 正常回话（${seconds} 秒，输入 ${result.usage.input}、输出 ${result.usage.output} token）`,
             `推理档：${thinkingText(config)}。这里只说明配置里写了什么，一个小请求证明不了服务端是否按这个档思考`,
         ].join("\n");
-        return done({path, model: config.model.id, thinking: config.model.thinking ?? null, text: result.text, ms: result.ms, usage: result.usage}, text);
+        return done({path, model: config.model.id, thinking: config.model.thinking ?? null, ms: result.ms, usage: result.usage}, text);
     }
     io.stderr(`· ${config.model.baseUrl} ${config.model.id}`);
     if (result.reason === "aborted") return fail("cancelled", "已取消", EXIT_INTERRUPTED);
