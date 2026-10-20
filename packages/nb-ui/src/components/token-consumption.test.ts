@@ -2,6 +2,7 @@ import {readdirSync, readFileSync} from "node:fs";
 import {join} from "node:path";
 import {describe, expect, it} from "vitest";
 
+import {nbColorwayVarKeys} from "../colorway/colorway-contract";
 import {nbTypographyTokens} from "../theme/tokens";
 
 /**
@@ -17,6 +18,9 @@ import {nbTypographyTokens} from "../theme/tokens";
  *    当成颜色，`text-[var(--text-xs)]` 编译成 `color: var(--text-xs)`，字号没设上，颜色也作废。
  * 6. 排版 token 不写进 `font-[…]`：Tailwind v4 把 `font-[var(--weight-medium)]` 当字重，UnoCSS 当字体族
  *    （`font-family: var(--weight-medium)`），带类型提示也一样；用任意属性 `[font-weight:var(--weight-*)]`。
+ * 7. 组件与 `styles.css` 里 `var(--x)` 的 x 必须有声明：`tokens.css`、`styles.css`、配色契约，或组件自己（样式、
+ *    Tailwind 任意属性、`:style` 的键、`style.setProperty`）。没有声明的变量在计算值阶段无效，整条声明退回初始值，不报任何错
+ *    （`--overlay-scrim` 曾让 AlertDialog 与 Drawer 的遮罩完全没有压暗）。宿主可选的覆盖点登记在 HOST_HOOK_VARS。
  *
  * 凡是「扫源码找有没有出现 X」的断言都必须先剥注释——本仓同一形状的坑已经踩过两次
  * （见 theme-packages.test.ts 里 readVarsDeclarations 的注释），扫的是代码不是散文。
@@ -39,6 +43,16 @@ const LITERAL_COLOR_ALLOWLIST = new Map<string, string>([
 const LITERAL_COLOR_VALUE_ALLOWLIST = new Map<string, ReadonlySet<string>>([
     ["form/Checkbox.vue", new Set(["#000000"])],
 ]);
+
+/** 规则 7 的豁免：组件读、库里不声明、由宿主按需设置的变量。每个都带缺省值（`var(--x, 缺省)`），没设时组件照常工作。 */
+const HOST_HOOK_VARS = new Map<string, string>([
+    ["--nb-splitter-seam", "Splitter 接缝颜色，工作台外壳按卡片或平铺设置（Splitter.vue 的注释）"],
+    ["--nb-splitter-seam-inset", "Splitter 接缝两端的缩进，缺省铺满"],
+    ["--nb-popover-scroll-fade", "弹出列表顶底渐隐的高度，缺省 22px"],
+]);
+
+/** 规则 7 不管的前缀：reka 在运行时写到元素上的尺寸、Tailwind 自己的内部变量。 */
+const RUNTIME_VAR_PREFIXES = ["--reka-", "--tw-"];
 
 function collectVueFiles(dir: string): string[] {
     const out: string[] = [];
@@ -164,6 +178,33 @@ describe("组件 token 消费静态扫描", () => {
         const allowed = ["[font-weight:var(--weight-medium)]", "data-[selected]:[font-weight:var(--weight-medium)]", "[font-family:var(--font-mono)]", "font-medium", "font-mono"];
         expect(flagged.filter((sample) => !TYPOGRAPHY_IN_FONT_UTILITY.test(sample))).toEqual([]);
         expect(allowed.filter((sample) => TYPOGRAPHY_IN_FONT_UTILITY.test(sample))).toEqual([]);
+    });
+
+    it("用到的 CSS 变量都有声明", () => {
+        const stylesheets = ["../tokens.css", "../styles.css"].map((rel) => join(COMPONENTS_DIR, rel));
+        const sources = [...stylesheets, ...files].map((path) => ({path, text: stripComments(readFileSync(path, "utf-8"))}));
+        // 声明：样式里的 `--x:`、Tailwind 任意属性 `[--x:…]`、`:style` 对象的键 `"--x":`、`style.setProperty("--x", …)`
+        const declared = new Set<string>(nbColorwayVarKeys);
+        for (const {text} of sources) {
+            for (const match of text.matchAll(/["']?(--[a-z0-9-]+)["']?\s*:|setProperty\(\s*["'](--[a-z0-9-]+)["']/g)) declared.add((match[1] ?? match[2])!);
+        }
+        const undeclared: string[] = [];
+        for (const {path, text} of sources) {
+            const rel = path.slice(COMPONENTS_DIR.length + 1).replaceAll("\\", "/");
+            for (const match of text.matchAll(/var\(\s*(--[a-z0-9-]+)/g)) {
+                const name = match[1]!;
+                if (declared.has(name) || HOST_HOOK_VARS.has(name) || RUNTIME_VAR_PREFIXES.some((prefix) => name.startsWith(prefix))) continue;
+                undeclared.push(`${rel} 用了没有声明的 ${name}`);
+            }
+        }
+        expect(undeclared).toEqual([]);
+    });
+
+    it("宿主覆盖点仍有组件在读（防止豁免变成死条目）", () => {
+        const text = [join(COMPONENTS_DIR, "../styles.css"), ...files].map((path) => readFileSync(path, "utf-8")).join("\n");
+        for (const name of HOST_HOOK_VARS.keys()) {
+            expect(text.includes(`var(${name}`), `${name} 已没有组件读取，应从 HOST_HOOK_VARS 移除`).toBe(true);
+        }
     });
 
     it("豁免清单里的文件仍然存在（防止豁免变成死条目）", () => {

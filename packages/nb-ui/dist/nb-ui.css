@@ -645,9 +645,6 @@
 .gap-\[var\(--space-1\)\] {
   gap: var(--space-1);
 }
-.gap-\[var\(--space-1-5\,0\.375rem\)\] {
-  gap: var(--space-1-5,0.375rem);
-}
 .gap-\[var\(--space-2\)\] {
   gap: var(--space-2);
 }
@@ -847,12 +844,6 @@
   background-color: var(--bg-panel);
   @supports (color: color-mix(in lab, red, red)) {
     background-color: color-mix(in srgb,var(--bg-panel) 90%,transparent);
-  }
-}
-.bg-\[color-mix\(in_srgb\,var\(--overlay-scrim\)_80\%\,transparent\)\] {
-  background-color: var(--overlay-scrim);
-  @supports (color: color-mix(in lab, red, red)) {
-    background-color: color-mix(in srgb,var(--overlay-scrim) 80%,transparent);
   }
 }
 .bg-\[color-mix\(in_srgb\,var\(--text-inverse\)_20\%\,transparent\)\] {
@@ -1204,8 +1195,8 @@
 .\[font-weight\:var\(--weight-medium\)\] {
   font-weight: var(--weight-medium);
 }
-.\[font-weight\:var\(--weight-semibold\,600\)\] {
-  font-weight: var(--weight-semibold,600);
+.\[font-weight\:var\(--weight-strong\)\] {
+  font-weight: var(--weight-strong);
 }
 .break-words {
   overflow-wrap: break-word;

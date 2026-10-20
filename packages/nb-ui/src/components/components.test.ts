@@ -1547,6 +1547,40 @@ describe("nb-ui dialog anatomy", () => {
         wrapper.unmount();
     });
 
+    it("keeps drawer popovers above the drawer and stacks a later modal above it", async () => {
+        const drawer = mount(Drawer, {
+            props: {open: true, title: "设定详情"},
+            slots: {
+                default: () => h(Select, {
+                    modelValue: "one",
+                    options: [{label: "第一项", value: "one"}, {label: "第二项", value: "two"}],
+                }),
+            },
+            attachTo: document.body,
+        });
+        const alert = mount(AlertDialog, {props: {open: false, title: "删除设定？"}, attachTo: document.body});
+        try {
+            await nextTick();
+            const zIndexOf = (element: Element | null) => Number((element as HTMLElement | null)?.style.zIndex);
+            const drawerZ = zIndexOf(document.querySelector(".nb-ui-dialog-surface"));
+            expect(drawerZ).toBeGreaterThanOrEqual(9000);
+
+            // 抽屉里的下拉传送到 body，与抽屉在同一层比较；它要压过抽屉，否则打开后看不见
+            document.querySelector<HTMLElement>("[role='combobox']")!.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+            await nextTick();
+            await nextTick();
+            expect(zIndexOf(document.querySelector(".nb-ui-menu-surface"))).toBeGreaterThan(drawerZ);
+
+            // 从抽屉里打开的确认框压在抽屉上面，靠打开顺序而不是 DOM 顺序
+            await alert.setProps({open: true});
+            await nextTick();
+            expect(zIndexOf(document.querySelector("[role='alertdialog']"))).toBeGreaterThan(drawerZ);
+        } finally {
+            alert.unmount();
+            drawer.unmount();
+        }
+    });
+
     it("renders progress bar with tone and aria value", () => {
         const wrapper = mount(Progress, {
             props: {

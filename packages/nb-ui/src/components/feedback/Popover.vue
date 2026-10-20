@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import {inject} from "vue";
 import {
     PopoverArrow,
     PopoverClose,
@@ -8,10 +7,9 @@ import {
     PopoverRoot,
     PopoverTrigger,
 } from "reka-ui";
-import {NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
+import {usePopoverLayer} from "../../composables/usePopoverLayer";
 
-/** 对话框或浮动窗口里的浮层跟随它们的层级（由 Dialog 注入）；不在里面时回退到普通页面层级。 */
-const popoverZIndex = inject(NB_POPOVER_Z_INDEX, NB_Z_INDEX.popover);
+const {zIndex: popoverZIndex} = usePopoverLayer();
 
 
 const props = withDefaults(defineProps<{
