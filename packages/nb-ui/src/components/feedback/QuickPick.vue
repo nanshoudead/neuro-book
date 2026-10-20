@@ -10,6 +10,8 @@ import {
 import {computed, nextTick, ref, useId, watch} from "vue";
 import {NB_Z_INDEX} from "../../theme/z-index";
 import {useTeleportTarget} from "../../composables/useTeleportTarget";
+import {usePopupScroll} from "../../composables/usePopupScroll";
+import PopupScrollbar from "../layout/PopupScrollbar.vue";
 import Kbd from "../display/Kbd.vue";
 import Spinner from "../display/Spinner.vue";
 import {moveHighlight, type HighlightAction} from "../form/option-highlight";
@@ -97,13 +99,14 @@ watch(() => props.focusRequest, () => {
     if (props.open) inputRef.value?.focus();
 });
 
-// 活动项更新后滚进视野；空列表与非活动项都不动滚动位置
+const scroll = usePopupScroll();
+
+// 活动项更新后滚进视野（只滚候选列表这一层）；空列表与非活动项都不动滚动位置
 watch(() => props.activeId, async () => {
     await nextTick();
     const id = activeDescendant.value;
     if (id === undefined) return;
-    const option = document.getElementById(id);
-    if (typeof option?.scrollIntoView === "function") option.scrollIntoView({block: "nearest"});
+    scroll.reveal(document.getElementById(id));
 });
 
 function optionId(itemId: string): string {
@@ -314,7 +317,7 @@ function isLowSurrogate(code: number): boolean {
                     @input="onQueryInput"
                 >
 
-                <div class="nb-ui-popover-scroll min-h-0 flex-1">
+                <div :ref="scroll.setViewport" class="nb-ui-popover-scroll" :class="scroll.fadeClass.value" :style="scroll.viewportStyle.value" @scroll="scroll.onScroll">
                     <ul :id="listboxId" role="listbox" :aria-label="props.title" class="list-none p-0 m-0">
                         <li
                             v-for="item in props.items"
@@ -352,6 +355,7 @@ function isLowSurrogate(code: number): boolean {
                         class="px-[var(--space-2)] py-3 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]"
                     >{{ props.emptyText }}</p>
                 </div>
+                <PopupScrollbar :scroll="scroll" />
 
                 <div class="flex shrink-0 items-center gap-[var(--space-2)] text-[length:var(--text-xs)] text-[var(--text-muted)]" role="status" aria-live="polite">
                     <Spinner v-if="props.loading" size="sm" />

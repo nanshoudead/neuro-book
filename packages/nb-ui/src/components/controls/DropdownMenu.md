@@ -1,5 +1,5 @@
 ---
-标签: [state:local, state:inject, env:portal, env:global, env:timer]
+标签: [state:local, state:inject, env:portal, env:timer]
 ---
 
 # DropdownMenu
@@ -8,7 +8,7 @@
 
 ## 布局
 
-组件由触发器、主菜单浮层和零个或多个级联子菜单组成。条目是弹出列表共用的一行（`.nb-ui-menu-item`）：高 `--menu-item-h`（28px）、字 `--menu-item-font`（13px），圆角由外框圆角减内边距推出；同一级里有 radio/checkbox 时每行留出左侧勾选列，勾只画在 `checked` 的项上，快捷键照常显示在右侧。主菜单默认宽度至少 160px，调用方可以用 `menuClass` 改写。菜单内容在内部滚动视口中，长列表显示悬浮胶囊滚动条；视口完整显示约 6 项并露出下一项的一部分。
+组件由触发器、主菜单浮层和零个或多个级联子菜单组成。条目是弹出列表共用的一行（`.nb-ui-menu-item`）：高 `--menu-item-h`（28px）、字 `--menu-item-font`（13px），圆角由外框圆角减内边距推出；同一级里有 radio/checkbox 时每行留出左侧勾选列，勾只画在 `checked` 的项上，快捷键照常显示在右侧。主菜单默认宽度至少 160px，调用方可以用 `menuClass` 改写。菜单内容在内部滚动视口中：项超过 8 个时视口截在第 9 项的中间、露出半项提示还能滚（按真实盒子量，分隔线与换行项照实计入），不超过 8 个时取自然高度；外框按可用空间夹紧，空间不够时视口跟着收矮。可滚动时显示悬浮胶囊滑块，视口右侧给它让出 6px。级联子菜单每一级同样截断与滚动。
 
 浮层通过 `DropdownMenuPortal` 脱离触发器所在 stacking context。`side`、`align`、`sideOffset` 控制锚点关系，默认在底部、起点对齐并留 7px 间距；碰撞时由上游定位原语按 8px 边界向视口内调整。级联菜单与父项保留 6px 间隙并在空间不足时翻到另一侧。
 
@@ -23,7 +23,8 @@
 - 级联面板的键盘：键盘展开时焦点进新一级的第一项；上下键、Home、End 在本级可用项之间移动（跳过分隔线与禁用项）；ArrowRight 在父项上展开下一级；ArrowLeft 收起本级、焦点回到展开它的那一项；Escape 关掉整个菜单、焦点还给触发器。
 - 级联面板在上游菜单内容之外：面板里的指针按下与焦点不算“点了外部”，菜单不关；在面板里选中一项后整个菜单收起（非受控时由组件自己关，受控时经 `update:open` 报 `false`）。
 - 菜单关闭时 `update:open` 报告 `false`，上游负责把焦点归还触发器；打开后的方向键、Escape、Home/End 等菜单漫游行为由 Reka UI 负责。组件声明的 `focus` 事件当前实现没有发出路径，见「已知偏差」。
-- 菜单内容溢出时可滚动；拖动右侧悬浮滑块滚动，拖动手势结束或组件销毁时解除窗口监听。
+- 菜单内容溢出时可滚动；拖动右侧悬浮滑块滚动（指针捕获在滑块上，按下不夺焦点、不关菜单）。键盘移到看不见的项时只滚动这一级的视口，滚最少的距离。
+- 某一级滚动时（滚轮或拖滑块），它展开的更深层级收起；焦点在被收起的层级里时回到展开它的那一项。
 
 ## 数据
 
@@ -45,7 +46,7 @@ type DropdownMenuProps = {
     sideOffset?: number;
     /** 是否禁用触发器；默认 false */
     disabled?: boolean;
-    /** 补充浮层 style；默认 undefined；当前实现未应用，见「已知偏差」 */
+    /** 补充浮层 style，与组件给的层级（`zIndex`）合并到主菜单浮层上；默认 undefined */
     popoverStyle?: Record<string, string | number>;
     /** 展开态；传入时受控，不传时由上游原语维护；默认 undefined */
     open?: boolean;
@@ -133,10 +134,8 @@ Reka UI 负责菜单角色、Escape/outside dismiss、焦点归还、受控展�
 - `state:inject`：从 `NB_POPOVER_Z_INDEX` 读取所属 `Dialog` 的浮层层级，避免菜单被窗口表面遮挡；没有提供方时回退到普通 popover 层级。
 - `env:portal`：菜单必须脱离触发器祖先的局部 stacking context 才能覆盖页面内容；渲染位置由 Reka Portal 决定，组件不提供目标配置。目标位置及不可用表现本地源码未核实。
 - `env:timer`：首次悬停级联菜单使用 300ms 延迟以减少误展开；关闭或切换时取消待执行任务。
-- `env:global`：滚动条拖动期间在 `window` 监听 `mousemove` / `mouseup`，以支持指针离开滑块后的连续拖动；手势结束或卸载时解除监听。
 
 ## 已知偏差
 
 - `focus` 事件在 `defineEmits` 中声明，但组件没有调用 `emit("focus", ...)` 的路径；使用方不能依赖它报告焦点。
 - `DropdownMenuItemData.rightIconClass` 有类型定义但 `MenuNodes` 未渲染；右侧自定义内容使用 `item-right` slot。
-- `popoverStyle` 被传入浮层 composable，但模板未绑定其返回的浮层样式；该 prop 当前不改变显示样式，可通过 `contentProps` 传原生浮层属性。

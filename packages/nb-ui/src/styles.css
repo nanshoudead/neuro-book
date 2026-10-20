@@ -497,14 +497,21 @@ input.nb-ui-native-input[type="number"] {
  * 所以浮层本体只管外观并 overflow: hidden，滚动交给内部这一层，并让它比外框缩进一圈：
  * 切口因此落在描边内侧，是一条正常的滚动截断，而不是压在圆角上的破口。
  *
- * 滚动条本身用标准属性染色（Chromium 121+ 与 Firefox 都认），取值从 --text-main 派生，
- * 所以任何配色下都不会剩一条系统默认的亮色滚动条压在暗色玻璃上。
+ * 原生滚动条藏起来，滑块由 PopupScrollbar 画（usePopupScroll 给几何）：原生滚动条在视口盒子里面，
+ * 会被顶底渐隐的 mask 一起吞掉。视口是外框纵向 flex 里唯一能收缩的一块（min-height: 0），
+ * 外框按可用空间夹紧时由它让出高度；圆角取同心公式推出的内圈半径。
  */
 .nb-ui-popover-scroll {
+    min-height: 0;
+    overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
-    scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--text-main) 24%, transparent) transparent;
+    border-radius: var(--nb-popover-inner-radius, 6px);
+    scrollbar-width: none;
+}
+
+.nb-ui-popover-scroll::-webkit-scrollbar {
+    display: none;
 }
 
 /*

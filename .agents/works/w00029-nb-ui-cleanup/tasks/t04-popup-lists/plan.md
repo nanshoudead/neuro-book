@@ -52,6 +52,7 @@
   - **所有权**：只操作现有的那一个视口，不另包滚动层；`Select` 仍由 reka 的 `SelectViewport` 滚动、打开时由 reka 滚到选中项，组合函数不在初始化时重置 `scrollTop`。挂载、视口换实例与卸载时各自清理观察器与拖动监听。
 - 新内部零件 `layout/PopupScrollbar.vue`：悬浮滑块的模板只写这一份。多级菜单的每一级各有自己的视口、滑块与组合函数实例。不从包入口导出。
 - **级联菜单的父级滚动**：父级面板一滚动（滚轮或拖滑块），收起它展开的子菜单，焦点留在父级；子菜单的位置与高度取父级受约束后的真实盒子（`menu-cascade.ts` 的测量对象改为视口）。这是 macOS 菜单的做法，比跟着重新定位简单，也不会出现父项已滚出视口、子菜单还挂着的情况。
+- **实施中的调整**（S3）：组合函数不收参数，视口经模板 ref 交给它（`usePopupScroll().setViewport`），截断量法另导出为纯函数 `measurePopupTruncation`，级联面板的测量复用它；级联的每一级是新内部零件 `controls/MenuLevelPanel.vue`（自带视口与滑块）。真实 Chrome 里发现右键菜单与 Menubar 的子菜单位置偏了一百多像素（本次之前就有）：外观层的 `backdrop-filter` 成了 fixed 子菜单的包含块。右键菜单改为外层只管定位、外观层与子菜单并列；Menubar 的子菜单传送到 `body`。
 - `useDropdownSurfaceStyle`：浮层外观的静态常量（底色、模糊、阴影）查实与 `.nb-ui-popover-surface` 一致后并回 CSS 类，对不上的留给 t05 由开发者定（t05 审查 F04、F05、F10、F43）；动态的部分——经 `NB_POPOVER_Z_INDEX` 注入的层级、reka 的 popper 参数——保留在一个组合函数里，改名为 `usePopoverLayer`。
 
 ### 6. 不抢焦点的候选菜单：新组件 `SuggestionMenu`（`packages/nb-ui/src/components/feedback/`）

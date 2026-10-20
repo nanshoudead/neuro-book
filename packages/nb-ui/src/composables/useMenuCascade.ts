@@ -13,6 +13,8 @@ export function useMenuCascade<T>(): {
     panels: {value: Array<HTMLElement | null>};
     setPanel(depth: number, element: unknown): void;
     schedule(value: T | null, trigger: HTMLElement, depth: number, immediate: boolean, hasChildren: boolean): void;
+    /** 只留前 `depth` 级（`depth` 为 0 时全部收起），等待中的展开一并取消。 */
+    truncate(depth: number): void;
     reset(): void;
 } {
     const levels = shallowRef<MenuCascadeLevel<T>[]>([]);
@@ -53,6 +55,12 @@ export function useMenuCascade<T>(): {
         },
         schedule(value, trigger, depth, immediate, hasChildren) {
             scheduler.schedule(() => void open(value, trigger, depth, hasChildren), {immediate, hasOpenSibling: Boolean(levels.value[depth])});
+        },
+        truncate(depth) {
+            scheduler.cancel();
+            if (levels.value.length <= depth) return;
+            levels.value = levels.value.slice(0, depth);
+            openedPanels.length = depth;
         },
         reset() {
             scheduler.cancel();

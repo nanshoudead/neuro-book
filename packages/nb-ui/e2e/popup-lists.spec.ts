@@ -66,7 +66,7 @@ test("右键菜单：悬停与方向键都只亮一项；危险项高亮也是�
     await page.locator("[data-fixture-context-area]").click({button: "right"});
     const panel = page.locator("[data-menu-panel]");
     await settled(panel);
-    for (const item of await panel.locator(":scope > .nb-menu-level-content > [role^='menuitem']").all()) await expectRowGeometry(item);
+    for (const item of await panel.locator("[role='menu']").first().locator(".nb-menu-level-content > [role^='menuitem']").all()) await expectRowGeometry(item);
 
     const create = panel.getByRole("menuitem", {name: /新建/});
     const remove = panel.getByRole("menuitem", {name: /删除/});
@@ -102,6 +102,11 @@ test("菜单栏：手工级联里的普通按钮项在悬停时高亮", async ({
     await markdown.hover();
     expect(await highlightedLabels(page)).toEqual(["Markdown"]);
     await expectRowGeometry(markdown);
+    // 子菜单按窗口定位：第一项与父项同一行，在父级右侧。
+    const parentBox = (await exportItem.boundingBox())!;
+    const childBox = (await markdown.boundingBox())!;
+    expect(Math.abs(childBox.y - parentBox.y), "子菜单第一项与父项同一行").toBeLessThanOrEqual(1);
+    expect(childBox.x).toBeGreaterThan(parentBox.x + parentBox.width);
 });
 
 test("Select：单行项 28px、带说明的项由内容撑高；选中只画左侧的勾，底色不变", async ({page}) => {

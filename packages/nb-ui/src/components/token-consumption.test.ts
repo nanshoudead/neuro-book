@@ -109,7 +109,7 @@ const RULES: Rule[] = [
     {
         name: "浮层材质统一走 token 与 composable，禁内联写死 backdropFilter/boxShadow/surface",
         pattern: /\b(?:backdropFilter|WebkitBackdropFilter)\s*:|\bbackgroundColor\s*:\s*['"]color-mix\(in srgb, var\(--bg-panel\)/,
-        reason: "浮层材质必须统一消费 --overlay-surface / --overlay-blur / --elevation-popover 或 useDropdownSurfaceStyle / useDropdownFloating（ui-development-spec §9）",
+        reason: "浮层材质必须统一消费 --overlay-surface / --overlay-blur / --elevation-popover ，或 usePopoverLayer.ts 里登记的内联材质（ui-development-spec §9）",
     },
     {
         name: "字号类带 length: 类型提示",

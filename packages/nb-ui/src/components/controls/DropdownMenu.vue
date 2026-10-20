@@ -7,16 +7,16 @@ import {
     DropdownMenuRoot,
     DropdownMenuTrigger,
 } from "reka-ui";
+import MenuLevelPanel from "./MenuLevelPanel.vue";
 import MenuNodes from "./MenuNodes.vue";
-import {useDropdownFloating} from "../../composables/useDropdownFloating";
+import PopupScrollbar from "../layout/PopupScrollbar.vue";
 import {useMenuCascade} from "../../composables/useMenuCascade";
+import {usePopoverLayer} from "../../composables/usePopoverLayer";
+import {focusPopupItem, usePopupScroll} from "../../composables/usePopupScroll";
 import type {DropdownMenuItemData} from "./dropdown-menu.types";
 /**
- * 下拉菜单（DropdownMenu · 规范化黄金 Surface、同心圆角与 N.5 齐腰截半露底视口）。
- *
- * 浮层接入 `useDropdownFloating` 单一真相源，
- * 严格对齐 Select 黄金微反光立体投影与 130% 饱和滤波，
- * 支持 4px 悬浮 macOS 胶囊滚动条与自适应双向渐隐。
+ * 下拉菜单。浮层外观由 `.nb-ui-popover-surface` 与 `.nb-ui-menu-surface` 给出，滚动（截在第 9 项中间、悬浮滑块、
+ * 顶底渐隐）由 `usePopupScroll` 给出；外框按 reka 给的可用高度夹紧，视口在里面收缩。
  *
  * 结构覆盖平面项、分隔线、任意层级子菜单与受控 radio / checkbox；
  * 一级菜单的键盘漫游（上下键、Home、End、首字母、跳过禁用项）与关闭后焦点归还由 Reka 菜单原语承担。级联面板是手工
@@ -109,7 +109,7 @@ function onLevelKeydown(depth: number, event: KeyboardEvent): void {
     if (index < 0) return;
     const move = (next: HTMLElement | undefined): void => {
         event.preventDefault();
-        next?.focus();
+        focusPopupItem(next);
     };
     switch (event.key) {
         case "ArrowDown":
@@ -134,7 +134,7 @@ function onLevelKeydown(depth: number, event: KeyboardEvent): void {
             const trigger = parent?.querySelector<HTMLElement>("[aria-expanded='true']") ?? null;
             event.preventDefault();
             if (trigger !== null) cascade.schedule(null, trigger, depth, true, false);
-            trigger?.focus();
+            focusPopupItem(trigger);
             return;
         }
     }
@@ -166,27 +166,31 @@ function unscaledRect(element: HTMLElement): DOMRect {
     const height = rect.height / scale;
     return new DOMRect(rect.left - (width - rect.width) / 2, rect.top - (height - rect.height) / 2, width, height);
 }
-// 统一浮层材质、同心律视口、黄金截半高度与 macOS 悬浮滚动条单一真相源
-const {
-    popoverStyle: floatingPopoverStyle,
-    popoverClasses,
-    setViewportRef,
-    viewportStyle,
-    viewportClasses,
-    handleViewportScroll,
-    handleThumbMouseDown,
-    scrollThumbTop,
-    scrollThumbHeight,
-    isScrollable,
-    isDragging,
-} = useDropdownFloating({
-    sideOffset: computed(() => props.sideOffset),
-    popoverStyle: computed(() => props.popoverStyle),
-});
+const {zIndex} = usePopoverLayer();
+const scroll = usePopupScroll();
 const resolvedMenuClass = computed(() => [props.menuClass ?? "min-w-[160px]", props.wrap ? "max-w-[320px]" : ""]);
 
 
 const cascade = useMenuCascade<DropdownMenuItemData>();
+
+/**
+ * 第 `depth` 级（0 为主菜单）滚动了：收起它展开的更深层级。焦点在被收起的层级里时回到展开它的那一项，
+ * 不让焦点随面板一起消失。
+ */
+function collapseBelow(depth: number): void {
+    if (cascade.levels.value.length <= depth) return;
+    const deeper = cascade.panels.value.slice(depth);
+    const focusInside = deeper.some((panel) => panel?.contains(document.activeElement) === true);
+    const level = depth === 0 ? contentEl.value : cascade.panels.value[depth - 1]?.querySelector(".nb-menu-level-content");
+    const trigger = level?.querySelector<HTMLElement>("[aria-expanded='true']") ?? null;
+    cascade.truncate(depth);
+    if (focusInside) trigger?.focus({preventScroll: true});
+}
+
+function onMainScroll(): void {
+    scroll.onScroll();
+    collapseBelow(0);
+}
 function warnMissingRadioGroup(items: readonly DropdownMenuItemData[]): void {
     for (const item of items) {
         if (item.type === "radio" && item.group === undefined) console.warn(`[nb-ui/DropdownMenu] radio 项「${item.value}」缺少 group，已按单项独立成组渲染。`);
@@ -202,7 +206,7 @@ watch(() => cascade.levels.value.length, async (length, previous) => {
     if (!focusNewLevel || length <= (previous ?? 0)) return;
     focusNewLevel = false;
     await nextTick();
-    itemsIn(cascade.panels.value[length - 1]?.querySelector(".nb-menu-level-content"))[0]?.focus();
+    focusPopupItem(itemsIn(cascade.panels.value[length - 1]?.querySelector(".nb-menu-level-content"))[0]);
 });
 </script>
 
@@ -222,19 +226,19 @@ watch(() => cascade.levels.value.length, async (length, previous) => {
                 :side-offset="props.sideOffset"
                 :avoid-collisions="true"
                 :collision-padding="8"
-                :class="[popoverClasses, resolvedMenuClass]"
+                class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion relative flex max-h-[var(--reka-popper-available-height)] flex-col overflow-hidden"
+                :class="resolvedMenuClass"
+                :style="{zIndex, ...props.popoverStyle}"
                 v-bind="props.contentProps"
                 @interact-outside="keepOpenForCascade"
                 @keydown.capture="onContentKeydown"
             >
-                <!-- 滚动视口（自适应双向渐隐 + 隐藏原生滚动条） -->
                 <div
-                    :ref="setViewportRef"
-                    class="clean-dropdown-viewport w-full"
-                    :class="[viewportClasses, isScrollable ? 'pr-1.5' : '']"
-                    :style="viewportStyle"
-                    @scroll="handleViewportScroll"
-
+                    :ref="scroll.setViewport"
+                    class="nb-ui-popover-scroll w-full"
+                    :class="scroll.fadeClass.value"
+                    :style="scroll.viewportStyle.value"
+                    @scroll="onMainScroll"
                 >
                     <MenuNodes
                         :items="props.items"
@@ -249,48 +253,19 @@ watch(() => cascade.levels.value.length, async (length, previous) => {
                     </MenuNodes>
                 </div>
 
-                <!-- 100% 绝对可见、100% 鼠标完全可按住拖拽的 macOS 4px 悬浮胶囊滑块 -->
-                <div
-                    v-if="isScrollable"
-                    class="absolute right-[3px] top-1.5 bottom-1.5 w-1 z-20 flex flex-col justify-start"
-                >
-                    <div
-                        class="w-1 rounded-full cursor-pointer transition-colors"
-                        :class="isDragging ? 'bg-[color-mix(in_srgb,var(--text-main)_75%,transparent)]' : 'bg-[color-mix(in_srgb,var(--text-main)_45%,transparent)] hover:bg-[color-mix(in_srgb,var(--text-main)_70%,transparent)]'"
-                        :style="{
-                            height: `${scrollThumbHeight}px`,
-                            transform: `translateY(${scrollThumbTop}px)`,
-                        }"
-                        @mousedown="handleThumbMouseDown"
-                    ></div>
-                </div>
+                <PopupScrollbar :scroll="scroll" />
             </DropdownMenuContent>
-            <div
+            <MenuLevelPanel
                 v-for="(level, depth) in cascade.levels.value"
                 :key="depth"
                 :ref="(element) => cascade.setPanel(depth, element)"
-                role="menu"
-                class="nb-ui-popover-surface nb-ui-menu-surface nb-menu-level fixed overflow-hidden"
-                :data-switching="level.switching"
-                :style="level.style"
+                :panel-style="{...level.style, zIndex: zIndex + depth + 1}"
+                :switching="level.switching"
                 @keydown="(event: KeyboardEvent) => onLevelKeydown(depth, event)"
+                @scroll="collapseBelow(depth + 1)"
             >
-                <div class="nb-menu-level-content">
-                    <MenuNodes :items="level.value.children ?? []" :active="cascade.levels.value[depth + 1]?.value" :wrap="props.wrap" @select="handleCascadeSelect" @hover="(item, trigger, immediate) => scheduleSubmenu(item, trigger, depth + 1, immediate)" />
-                </div>
-            </div>
+                <MenuNodes :items="level.value.children ?? []" :active="cascade.levels.value[depth + 1]?.value" :wrap="props.wrap" @select="handleCascadeSelect" @hover="(item, trigger, immediate) => scheduleSubmenu(item, trigger, depth + 1, immediate)" />
+            </MenuLevelPanel>
         </DropdownMenuPortal>
     </DropdownMenuRoot>
 </template>
-
-<style scoped>
-.clean-dropdown-viewport {
-    overflow-y: auto;
-    overflow-x: hidden;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-}
-.clean-dropdown-viewport::-webkit-scrollbar {
-    display: none;
-}
-</style>

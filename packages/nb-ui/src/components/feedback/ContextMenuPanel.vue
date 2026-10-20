@@ -2,7 +2,10 @@
 import {nextTick, ref, watch} from "vue";
 import {NB_Z_INDEX} from "../../theme/z-index";
 import {useMenuCascade} from "../../composables/useMenuCascade";
+import {focusPopupItem, usePopupScroll} from "../../composables/usePopupScroll";
+import MenuLevelPanel from "../controls/MenuLevelPanel.vue";
 import MenuNodes from "../controls/MenuNodes.vue";
+import PopupScrollbar from "../layout/PopupScrollbar.vue";
 import type {ContextMenuItem} from "./context-menu.types";
 
 const props = defineProps<{
@@ -15,6 +18,22 @@ const emit = defineEmits<{
 }>();
 
 const cascade = useMenuCascade<ContextMenuItem>();
+const scroll = usePopupScroll();
+
+/** 第 `depth` 级（0 为主菜单）滚动了：收起它展开的更深层级，焦点在被收起的层级里时回到展开它的那一项。 */
+function collapseBelow(depth: number): void {
+    if (cascade.levels.value.length <= depth) return;
+    const focusInside = cascade.panels.value.slice(depth).some((panel) => panel?.contains(document.activeElement) === true);
+    const level = depth === 0 ? root.value?.querySelector(".nb-menu-level-content") : cascade.panels.value[depth - 1]?.querySelector(".nb-menu-level-content");
+    const trigger = level?.querySelector<HTMLElement>(":scope > [aria-expanded='true']") ?? null;
+    cascade.truncate(depth);
+    if (focusInside) trigger?.focus({preventScroll: true});
+}
+
+function onMainScroll(): void {
+    scroll.onScroll();
+    collapseBelow(0);
+}
 
 function selectItem(item: ContextMenuItem): void {
     if (item.disabled || item.children?.length) return;
@@ -38,7 +57,7 @@ function onKeydown(event: KeyboardEvent): void {
     if (index < 0) return;
     const move = (next: HTMLElement | undefined): void => {
         event.preventDefault();
-        next?.focus();
+        focusPopupItem(next);
     };
     switch (event.key) {
         case "ArrowDown":
@@ -65,7 +84,7 @@ function onKeydown(event: KeyboardEvent): void {
             const trigger = parent?.querySelector<HTMLElement>(":scope > [aria-expanded='true']") ?? null;
             event.preventDefault();
             if (trigger !== null) cascade.schedule(null, trigger, depth, true, false);
-            trigger?.focus();
+            focusPopupItem(trigger);
             return;
         }
     }
@@ -75,7 +94,7 @@ watch(() => cascade.levels.value.length, async (length, previous) => {
     if (!focusNewLevel || length <= (previous ?? 0)) return;
     focusNewLevel = false;
     await nextTick();
-    itemsIn(root.value?.querySelector(`[data-menu-level="${String(length - 1)}"] .nb-menu-level-content`) ?? null)[0]?.focus();
+    focusPopupItem(itemsIn(root.value?.querySelector(`[data-menu-level="${String(length - 1)}"] .nb-menu-level-content`) ?? null)[0]);
 });
 </script>
 
@@ -84,39 +103,45 @@ watch(() => cascade.levels.value.length, async (length, previous) => {
         ref="root"
         data-menu-panel
         :data-menu-depth="props.depth"
-        role="menu"
-        class="nb-ui-popover-surface nb-ui-menu-surface fixed min-w-[170px] text-[var(--text-main)]"
+        class="fixed"
         :style="{zIndex: NB_Z_INDEX.contextMenu + props.depth}"
         @click.stop
         @contextmenu.prevent
         @keydown="onKeydown"
     >
-        <div class="nb-menu-level-content">
-            <MenuNodes
-                :items="props.items"
-                :active="cascade.levels.value[0]?.value"
-                @select="selectItem"
-                @hover="(item, trigger, immediate) => cascade.schedule(item, trigger, 0, immediate, Boolean(item?.children?.length))"
-            />
+        <!--
+            外层只是定位与“算在菜单里”的范围（外部点击按它判断），不画外观：外观层有 backdrop-filter，会成为 fixed 后代的
+            包含块，子菜单放在它里面就按它而不是窗口定位。所以主菜单的外观层与各级子菜单是并列的兄弟。
+            （注释写在根元素里面：写在外面组件就成了多根，宿主给的定位样式落不到根上。）
+        -->
+        <div role="menu" class="nb-ui-popover-surface nb-ui-menu-surface relative flex max-h-[calc(100dvh-16px)] min-w-[170px] flex-col overflow-hidden text-[var(--text-main)]">
+            <div :ref="scroll.setViewport" class="nb-ui-popover-scroll w-full" :class="scroll.fadeClass.value" :style="scroll.viewportStyle.value" @scroll="onMainScroll">
+                <div class="nb-menu-level-content">
+                    <MenuNodes
+                        :items="props.items"
+                        :active="cascade.levels.value[0]?.value"
+                        @select="selectItem"
+                        @hover="(item, trigger, immediate) => cascade.schedule(item, trigger, 0, immediate, Boolean(item?.children?.length))"
+                    />
+                </div>
+            </div>
+            <PopupScrollbar :scroll="scroll" />
         </div>
-        <div
+        <MenuLevelPanel
             v-for="(level, depth) in cascade.levels.value"
             :key="depth"
             :ref="(element) => cascade.setPanel(depth, element)"
-            role="menu"
             :data-menu-level="depth"
-            class="nb-ui-popover-surface nb-ui-menu-surface nb-menu-level fixed overflow-hidden"
-            :data-switching="level.switching"
-            :style="{...level.style, zIndex: NB_Z_INDEX.contextMenu + props.depth + depth + 1}"
+            :panel-style="{...level.style, zIndex: NB_Z_INDEX.contextMenu + props.depth + depth + 1}"
+            :switching="level.switching"
+            @scroll="collapseBelow(depth + 1)"
         >
-            <div class="nb-menu-level-content">
-                <MenuNodes
-                    :items="level.value.children ?? []"
-                    :active="cascade.levels.value[depth + 1]?.value"
-                        @select="selectItem"
-                    @hover="(item, trigger, immediate) => cascade.schedule(item, trigger, depth + 1, immediate, Boolean(item?.children?.length))"
-                />
-            </div>
-        </div>
+            <MenuNodes
+                :items="level.value.children ?? []"
+                :active="cascade.levels.value[depth + 1]?.value"
+                @select="selectItem"
+                @hover="(item, trigger, immediate) => cascade.schedule(item, trigger, depth + 1, immediate, Boolean(item?.children?.length))"
+            />
+        </MenuLevelPanel>
     </div>
 </template>
