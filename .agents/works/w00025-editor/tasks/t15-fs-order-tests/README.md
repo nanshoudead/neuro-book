@@ -25,4 +25,4 @@ t14 验证时 neuro-book 的 Bun 测试有 3 例失败，master 上同样失败�
 
 ## 下一步
 
-合入 master。
+已合入 master（合并提交 `feb45174a`，未推送）。
