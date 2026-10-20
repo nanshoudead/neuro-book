@@ -1,9 +1,9 @@
 /**
  * 抽一章（docs/specs/story/ingest.md 输出 4、5、7、9、10，验收 5）。请求经真实的 OpenAI SDK 与 HTTP 发往本机端点。
  *
- * 回放：端点给出 w00005 t34 抽样例书时录下的回复（testing/ingest-replay.ts）。管线搬得对，发出的每个请求就与当时的
- * 逐字相同、各章最终草稿与整理稿也相同。唯一允许的差别是核对清单里“格式不对：”后面的校验说明（原来是 zod 的措辞，
- * 现在是 TypeBox 的）。
+ * 回放：端点给出 w00005 t34 抽样例书时录下的回复（testing/ingest-replay.ts）。管线搬得对，各章最终草稿与整理稿就与
+ * 当时相同；发出的请求除了“已有记录”只详列与本章相关的行（w00024 t10），其余逐字相同：把“已有记录”换回全量，就与当时
+ * 录下的逐字相同。另一处允许的差别是核对清单里“格式不对：”后面的校验说明（原来是 zod 的措辞，现在是 TypeBox 的）。
  *
  * 故障：在回放上替换某一步的回复，等待由注入的函数记下，不真的等。
  */
@@ -20,6 +20,7 @@ import {sampleDataset} from "../../testing/sample";
 import type {Dataset, SourceChapter} from "../core/dataset";
 import {consolidate, extractChapter, IngestBadReply, type ChapterRun, type Step} from "./chapter";
 import {compile, sourceChapter} from "./compile";
+import {renderContext} from "./context";
 import type {RawDraft} from "./draft-tools";
 import {ModelError, RETRY_DELAYS_MS, type Attempt} from "./model";
 
@@ -38,13 +39,12 @@ afterEach(() => {
 
 /** 起端点并记下每次请求：认出的步骤、系统提示词加用户消息的摘要、推理档。 */
 function serve(respond: Responder, keyOf?: () => ReplayKey | undefined) {
-    const requests: {key: string; sha256: string; normalized: string; effort: unknown}[] = [];
+    const requests: {key: string; system: string; user: string; effort: unknown}[] = [];
     endpoint = startEndpoint((body, index, headers) => {
         const reply = respond(body, index, headers);
         const messages = body.messages as {content: string}[];
         const key = keyOf?.();
-        const full = `${messages[0]!.content}\n\u0000\n${messages[1]!.content}`;
-        requests.push({key: key ? `${key.chapter}:${key.step}` : String(index), sha256: sha256(full), normalized: sha256(withoutSchemaDetails(full)), effort: body.reasoning_effort});
+        requests.push({key: key ? `${key.chapter}:${key.step}` : String(index), system: messages[0]!.content, user: messages[1]!.content, effort: body.reasoning_effort});
         return reply;
     });
     const waits: number[] = [];
@@ -81,7 +81,7 @@ async function extractBook(sample: Dataset, count: number, run: ChapterRun) {
 
 
 describe("回放前 10 章（输出 4、7）", () => {
-    test("发出的每个请求、各章最终草稿与整理稿都与 t34 那次相同", async () => {
+    test("各章最终草稿与整理稿与 t34 那次相同；请求里的已有记录换回全量后与当时逐字相同，整理的请求原样相同", async () => {
         const sample = await sampleDataset();
         const data = await loadReplay();
         const final = await gunzipJson<{drafts: unknown[]; consolidations: unknown[]}>("run-med-100-final.json.gz");
@@ -97,14 +97,28 @@ describe("回放前 10 章（输出 4、7）", () => {
 
         // 每一步都发了，而且只发了一次；推理档与当时相同。
         expect(requests.map(request => request.key).sort()).toEqual(Object.entries(recordedRequests).flatMap(([chapter, steps]) => Object.keys(steps).map(step => `${chapter}:${step}`)).sort());
+        const priorOf = (chapter: number) => compile(sample.book, sample.sources.filter(source => source.chapter < chapter), drafts.slice(0, chapter - 1), consolidations.filter(item => (item as {through: number}).through < chapter)).dataset;
+        let narrowed = 0;
         for (const request of requests) {
             const [chapter, step] = request.key.split(":") as [string, string];
             const recorded = recordedRequests[chapter]![step]!;
             expect({key: request.key, effort: request.effort}).toEqual({key: request.key, effort: recorded.effort});
+            let user = request.user;
+            if (!step.startsWith("consolidation") && chapter !== "1") {
+                const open = "【已有记录】\n";
+                const close = `\n\n【第 ${chapter} 章原文】`;
+                const sent = user.slice(user.indexOf(open) + open.length, user.indexOf(close));
+                const full = renderContext(priorOf(Number(chapter)), Number(chapter) - 1);
+                if (sent !== full) narrowed += 1;
+                user = user.replace(`${open}${sent}${close}`, `${open}${full}${close}`);
+            }
+            const text = `${request.system}\n\u0000\n${user}`;
             // 逐字相同；不同时只能是核对清单里的校验说明不同，而且只在核对类请求里。
-            const same = request.sha256 === recorded.sha256 ? "same" : request.normalized === recorded.normalized && step === "review-1" ? "schema details only" : "different";
+            const same = sha256(text) === recorded.sha256 ? "same" : sha256(withoutSchemaDetails(text)) === recorded.normalized && step === "review-1" ? "schema details only" : "different";
             expect({key: request.key, same}).not.toEqual({key: request.key, same: "different"});
         }
+        // 第 2 章起的普通请求确实只带了一部分已有记录。
+        expect(narrowed).toBeGreaterThan(0);
     }, 120_000);
 });
 

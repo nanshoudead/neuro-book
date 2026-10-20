@@ -127,7 +127,8 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
     const paragraphs = source.paragraphs;
     const ask = asker(run, chapter);
     const targets = [{chapter, paragraphs}];
-    const prefix = prefixFor({context: prior ? renderContext(prior, chapter - 1) : "", targets});
+    // 只构造一次：核对、修复与兜底丢弃都沿用同一个前缀（同一章的几次请求才可能命中缓存）。
+    const prefix = prefixFor({context: prior ? renderContext(prior, chapter - 1, {text: paragraphs.join("\n")}) : "", targets});
     const previousBeats = prior ? prior.beats.filter(item => item.chapter === chapter - 1).slice(-2).map(item => `${item.id}（时间点 ${item.time ?? "无"}）　${item.gist}`).join("\n") : "";
 
     const structureReply = await ask("beats", systemV2, prefix + beatsTask({targets, previousBeats, first: !prior}), "minimal", reply => {
