@@ -30,7 +30,7 @@ import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 import type {SettingLayer} from "nbook/shared/settings";
 
 import {descriptor} from "../plugin";
-import {displayLocale, localeSetting, OPEN_SETTINGS_COMMAND, projectSettingsContract, SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT, SETTINGS_WINDOW_OPEN_KEY, settingsKey, switchSetting, userSettingsContract} from "../shared/contracts";
+import {displayLocale, localeSetting, OPEN_SETTINGS_COMMAND, projectSettingsContract, SETTINGS_PAGE_ACTIVATION_PREFIX, SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT, SETTINGS_WINDOW_OPEN_KEY, settingsKey, switchSetting, userSettingsContract} from "../shared/contracts";
 import type {SettingsPageDeclaration, SettingsSectionDeclaration} from "../shared/contracts";
 import {createSettingsInstance, FIRST_SNAPSHOT_MS, provideSettings, recordTo} from "../shared/instance";
 import {acceptedSettings, pagesPoint, sectionsPoint, settingsPoint} from "../shared/point";
@@ -158,6 +158,8 @@ export const settingsWindowEntry = defineEntry({
 export const settingsBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
     contributionPoints: [settingsPoint, sectionsPoint, pagesPoint],
+    // 设置窗口显示 page 分区时触发 `onSettingsPage:<分区 id>`（settings-window.md 输出 4）。
+    activationEventPrefixes: [SETTINGS_PAGE_ACTIVATION_PREFIX],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
@@ -188,6 +190,7 @@ export const settingsBrowserPlugin: PluginDefinition = {
                 plugins.status === "resolved" ? plugins.instance : null,
                 (message) => diagnostics.record({level: "warn", event: "settings.sections", message, source: {plugin: descriptor.id}}),
                 context.signal,
+                (event) => context.activation.trigger(event),
             );
             const windowSource = createSettingsWindowSource({
                 sections,

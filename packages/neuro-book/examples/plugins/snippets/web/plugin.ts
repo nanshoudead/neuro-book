@@ -6,25 +6,23 @@
  *    片段是对象的数组，要增删改、排顺序，只能由插件自己画，所以向 `settings.pages` 贡献 page 分区。值是普通开关、选项时，
  *    写 `section` 指向一个 list 分区（或干脆不写，落到“其它”）就够了，不要为它写页面。list 分区是向 `settings.sections`
  *    的顶层声明，写在插件描述里，没有实现，也就不需要入口。
- * 2. **页面怎样拿到配置服务**：页面组件里不能解析服务。入口激活时拿到**本插件自己的**配置服务（`settingsKey`），在
- *    `load()` 交出的组件里把它传给页面。页面只能用它写本插件声明的项（configuration.md 输出第 11 条）。
- * 3. **交付与撤回**：分区的声明在入口激活前就在设置窗口的左栏里（显示“正在等待……启动”）；入口激活后实现交给设置窗口，
- *    第一次显示这个分区时才调用 `load()`；入口停止时内核撤回实现，窗口原位显示停止原因
- *    （settings-window.md 输出第 1、4、5 条）。
+ * 2. **页面怎样拿到配置服务**：页面组件里不能解析服务。入口激活时拿到**本插件自己的**配置服务（`settingsKey`），用
+ *    `settingsPage` 包出实现，页面除了 `context` 还收到 `settings`。页面只能用它写本插件声明的项（configuration.md
+ *    输出第 11 条）。
+ * 3. **按需激活、交付与撤回**：分区的声明在入口激活前就在设置窗口的左栏里。入口声明激活事件
+ *    `onSettingsPage:<分区 id>`，不启动即激活：用户在设置窗口里打开这个分区时，`nbook.settings` 触发这个事件，入口这时
+ *    才激活（窗口显示“正在等待……启动”）；实现交给设置窗口，第一次显示时才调用 `load()`；入口停止时内核撤回实现，窗口
+ *    原位显示停止原因（settings-window.md 输出第 1、4、5 条）。
  *
  * 对应的场景：`scenarios/06-settings-page.test.ts`。
  */
 
-import {defineComponent, h} from "vue";
-import type {Component, PropType} from "vue";
-
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {SETTINGS_PAGES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import {SETTINGS_PAGES_POINT, settingsKey, settingsPageEvent} from "nbook/plugins/settings/shared/contracts";
 import type {SettingsPageDeclaration} from "nbook/plugins/settings/shared/contracts";
-import type {SettingsPageContext, SettingsPageImplementation} from "nbook/plugins/settings/web/contracts";
-import type {SettingsService} from "nbook/shared/settings";
+import {settingsPage} from "nbook/ui/settings/settings-page";
 
 import {descriptor} from "../plugin";
 import {SNIPPETS_SECTION} from "../shared/contracts";
@@ -51,29 +49,16 @@ export const snippetsBrowserPlugin: PluginDefinition = {
     entries: [defineEntry({
         id: "browser",
         location: "browser",
-        // 还没有“打开设置窗口时才激活”的激活事件，只能启动即激活；不激活，实现就不会交给设置窗口，分区一直是“正在等待”。
-        activationEvents: ["onStartup"],
+        // 打开这个分区时才激活：没打开过设置的窗口不启动这个入口。前缀 `onSettingsPage` 归 `nbook.settings`，只有它能触发。
+        activationEvents: [settingsPageEvent(SNIPPETS_SECTION)],
         dependencies: [{key: settingsKey}],
         contributions: [{capability: SETTINGS_PAGES_POINT, id: SNIPPETS_SECTION, declaration: SECTION}],
         activate: (context) => {
             const settings = context.services.require(settingsKey);
-            const page: SettingsPageImplementation = {
-                // 页面组件按需加载：设置窗口第一次显示这个分区时才调用，没打开过设置的窗口不下载它。
-                load: async () => withSettings((await import("./SnippetsPage.vue")).default, settings),
-            };
+            // 页面组件按需加载：设置窗口第一次显示这个分区时才调用 `load()`。`.vue` 只在这里动态导入：场景测试在 Bun 里
+            // 导入本文件，Bun 不能加载 `.vue`。
+            const page = settingsPage(() => import("./SnippetsPage.vue"), () => ({settings}));
             return {contributions: {[SETTINGS_PAGES_POINT]: {[SNIPPETS_SECTION]: page}}};
         },
     })],
 };
-
-/**
- * 设置窗口只给页面一个属性 `context`；配置服务由这里包一层补上。用渲染函数写：场景测试在 Bun 里导入本文件，Bun 不能
- * 加载 `.vue`，`.vue` 只在 `load()` 里动态导入。
- */
-function withSettings(page: Component, settings: SettingsService): Component {
-    return defineComponent({
-        name: "SnippetsSettingsPage",
-        props: {context: {type: Object as PropType<SettingsPageContext>, required: true}},
-        setup: (props) => () => h(page, {context: props.context, settings}),
-    });
-}

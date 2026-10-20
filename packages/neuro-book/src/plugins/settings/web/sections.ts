@@ -10,16 +10,21 @@
  * 句柄之外的状态（入口受阻、激活失败、已停止）从宿主能力 `window.plugins` 查；它的变化通知不精确，所以交付状态每次
  * 都重新求，句柄优先：有仍 published 的句柄才是 `available`。
  *
+ * 按需激活（输出 4）：窗口显示一个 page 分区时调 `activate`。触发前先看所属入口是否声明了 `onSettingsPage:<id>`：
+ * 事件参数只是字符串，别的入口也可以声明同一个事件，触发结果非空不代表这个分区的入口会被激活。触发之后分区的状态只
+ * 看它自己入口的状态与句柄，不等整个事件的结果（别的监听者可能一直不结束）。
+ *
  * page 分区交出的实现没有 `load()` 时，接收者记一条诊断，加载按失败处理，原位显示错误。
  */
 
 import {shallowRef} from "@vue/reactivity";
 import type {Component} from "vue";
 
-import type {ContributionDescriptor, ContributionHandle, ContributionReceiver, EntryState, RevokeReason} from "@notnotype/nb-runtime/plugins";
+import type {ContributionDescriptor, ContributionHandle, ContributionReceiver, EntryState, RevokeReason, TriggerActivationResult} from "@notnotype/nb-runtime/plugins";
 
 import type {WindowPluginRetry, WindowPlugins} from "nbook/shared/host";
 
+import {settingsPageEvent} from "../shared/sections";
 import type {SettingsPageDeclaration, SettingsSectionDeclaration} from "../shared/sections";
 import type {SettingsPageImplementation} from "./contracts";
 
@@ -28,6 +33,8 @@ export type SettingsPageDelivery =
     | {readonly kind: "entry-blocked"; readonly reason: string}
     | {readonly kind: "entry-failed"; readonly reason: string}
     | {readonly kind: "entry-stopped"; readonly reason: RevokeReason | "stopped"}
+    /** 所属入口还没激活，且不会被 `onSettingsPage:<id>` 激活：没声明这个事件，或触发被拒。 */
+    | {readonly kind: "entry-not-activatable"; readonly reason: string}
     | {readonly kind: "available"};
 
 /** 一次加载的结果。stale：结果回来时句柄已撤回、换了或注册表已停止，这次结果作废，不算失败。 */
@@ -62,6 +69,9 @@ export class SettingsSectionRegistry {
     readonly #report: (message: string) => void;
     readonly #handles = new Map<string, PageHandle>();
     readonly #revoked = new Map<string, RevokeReason>();
+    readonly #trigger: ((event: string) => Promise<TriggerActivationResult>) | null;
+    /** 本窗口试过按需激活、但不会激活所属入口的 page 分区与原因。 */
+    readonly #notActivatable = new Map<string, string>();
     /** 交付状态的响应式版本号：句柄或入口状态变了就加一，读交付状态的 computed 因此重算。 */
     readonly #version = shallowRef(0);
     #stopped = false;
@@ -72,7 +82,9 @@ export class SettingsSectionRegistry {
         plugins: WindowPlugins | null,
         report: (message: string) => void,
         signal: AbortSignal,
+        trigger: ((event: string) => Promise<TriggerActivationResult>) | null = null,
     ) {
+        this.#trigger = trigger;
         const pageIds = new Set(pages.map((descriptor) => descriptor.id));
         const clashing = new Set(lists.map((descriptor) => descriptor.id).filter((id) => pageIds.has(id)));
         for (const id of [...clashing].sort()) report(`分区 id ${id} 同时出现在 list 与 page 两个贡献点上，两者都不显示`);
@@ -110,7 +122,34 @@ export class SettingsSectionRegistry {
         const revoked = this.#revoked.get(sectionId);
         if (revoked !== undefined) return {kind: "entry-stopped", reason: revoked};
         if (state?.status === "stopping" || state?.status === "closed") return {kind: "entry-stopped", reason: "stopped"};
+        const unreachable = this.#notActivatable.get(sectionId);
+        if (unreachable !== undefined && state?.status === "registered") return {kind: "entry-not-activatable", reason: unreachable};
         return {kind: "declared"};
+    }
+
+    /**
+     * 按需激活：所属入口处于“已登记、未激活”时触发 `onSettingsPage:<id>`。每次进入分区都可以调用；内核把同一代次的激活
+     * 合并成一次。离开分区或关窗口不取消：激活照常完成，再进入时按当时的状态呈现。
+     */
+    activate(sectionId: string): void {
+        const known = this.#entries.get(sectionId);
+        const entry = this.#pageEntries.get(sectionId) ?? null;
+        if (this.#stopped || known?.kind !== "page" || entry === null || this.#plugins === null) return;
+        const ref = {plugin: known.plugin, entry};
+        if (this.#plugins.entryState(ref)?.status !== "registered") return;
+        const event = settingsPageEvent(sectionId);
+        const unreachable = (reason: string): void => {
+            if (this.#notActivatable.get(sectionId) !== reason) this.#report(`page 分区 ${sectionId} 不能按需激活：${reason}`);
+            this.#notActivatable.set(sectionId, reason);
+            this.#bump();
+        };
+        if (!(this.#plugins.activationEvents(ref) ?? []).includes(event)) return unreachable(`入口 ${known.plugin}/${entry} 没有声明 ${event}`);
+        if (this.#trigger === null) return unreachable("窗口没有触发激活事件的出口");
+        this.#notActivatable.delete(sectionId);
+        void this.#trigger(event).then((result) => {
+            if (result.status === "rejected") unreachable(`触发 ${event} 被拒（${result.reason}）`);
+            else this.#bump();
+        }, (error: unknown) => unreachable(`触发 ${event} 出错：${error instanceof Error ? error.message : String(error)}`));
     }
 
     /** `settings.pages` 的接收者；跨点撞名的 page 分区不在目录里，它的句柄不收。 */

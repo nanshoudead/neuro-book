@@ -3,7 +3,8 @@
  *
  * 要说明的事：
  * - 配置项写在插件描述里，宿主把它登记进服务端、项目实例与窗口；page 分区的声明写在浏览器入口上，内核校验通过后进入
- *   设置窗口的左栏。入口激活后实现（`load()`）交给设置窗口，入口停止时内核撤回。
+ *   设置窗口的左栏。入口不启动即激活：设置窗口显示这个分区时触发 `onSettingsPage:<分区 id>`，入口这时激活，实现
+ *   （`load()`）交给设置窗口；入口停止时内核撤回。
  * - 页面按层写：带 `{layer}` 分别写用户层与本作品层，`inspect` 读回各层自己的值，`get` 读有效值（本作品层写了就用
  *   它，没写就沿用用户层）；不带 `{layer}` 时按 `"auto"` 选层，这正是页面要避开的。删掉本作品层的键就回到沿用。
  * - 插件只能写自己声明的项：写别人的项为 `denied`；值不合 schema 为 `invalid-value`，页面把它写在状态行里。
@@ -25,7 +26,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {definitionAt} from "nbook/manifest";
-import {localeSetting, SETTINGS_PAGES_POINT, SETTINGS_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import {localeSetting, SETTINGS_PAGES_POINT, SETTINGS_POINT, settingsKey, settingsPageEvent} from "nbook/plugins/settings/shared/contracts";
 import type {SettingsService} from "nbook/shared/settings";
 
 import {descriptor} from "../plugins/snippets/plugin";
@@ -96,12 +97,25 @@ async function world() {
     };
 }
 
+/**
+ * 用户在设置窗口里打开片段分区：窗口（`nbook.settings` 的入口）这时触发 `onSettingsPage:<分区 id>`。场景的窗口里没有
+ * 设置窗口的界面，这里以 `nbook.settings` 的身份触发同一个事件；窗口本身怎样在显示分区时触发，见
+ * `src/plugins/settings/window.test.ts`。前缀归 `nbook.settings`，别的插件触发会被拒。
+ */
+async function openSection(window: Awaited<ReturnType<typeof world>>["window"]): Promise<void> {
+    const result = await window.plugins.triggerActivationEvent(settingsPageEvent(SNIPPETS_SECTION), {requester: "nbook.settings"});
+    expect(result).toMatchObject({status: "triggered", results: [{status: "activated", plugin: "example.snippets", entry: "browser"}]});
+}
+
 describe("场景 6：设置的 page 分区", () => {
-    it("配置项在三处都被接受；分区声明被接受，入口激活后实现交给设置窗口", async () => {
+    it("配置项在三处都被接受；分区声明被接受；打开分区时入口才激活，实现交给设置窗口", async () => {
         const {server, project, window} = await world();
         for (const app of [server, project, window]) {
             expect(app.plugins.contribution(SETTINGS_POINT, itemsSetting.key)[0]?.validation).toEqual({status: "accepted"});
         }
+        // 启动后入口没有激活：分区在左栏里，显示为“正在等待……启动”。
+        expect(window.plugins.entryState({plugin: "example.snippets", entry: "browser"})?.status).toBe("registered");
+        await openSection(window);
 
         // 接收者是 `nbook.settings` 的浏览器入口（设置窗口的数据在它那里）。实现只有 `load()`：页面组件到第一次显示这个分区
         // 时才加载，这里不调用它（Bun 不能加载 `.vue`）。
@@ -119,6 +133,7 @@ describe("场景 6：设置的 page 分区", () => {
         const window = await stage.window(router, "w1", {plugins: []});
         // 把片段插件装进可以单独停止的作用域（产品里对应停用插件）。
         const snippets = await stage.attach(window, definitionAt("browser", descriptor, snippetsBrowserPlugin), "browser");
+        await openSection(window);
         expect(window.plugins.contribution(SETTINGS_PAGES_POINT, SNIPPETS_SECTION)[0]).toMatchObject({status: "available"});
 
         expect((await snippets.stop()).status).toBe("closed");

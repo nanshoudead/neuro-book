@@ -64,6 +64,10 @@ interface SettingsPageDeclaration {
 interface SettingsPageImplementation {
     load(): Promise<Component>;                    // 只取得组件定义；实例由窗口创建；props：{context: SettingsPageContext}
 }
+// 包页面：load 可以交模块（() => import("./Page.vue")）或组件；props() 在渲染时求值，补上 context 之外的属性
+function settingsPage(load: () => Promise<Component | {default: Component}>, props?: () => Record<string, unknown>): SettingsPageImplementation;
+// page 分区的入口按需激活时写进 activationEvents 的事件：`onSettingsPage:<分区 id>`（前缀归 nbook.settings）
+function settingsPageEvent(sectionId: string): string;
 interface SettingsPageContext {
     readonly id: string;
     readonly layer: Readonly<Ref<"user" | "project">>;    // 当前标签；页面只编辑这一层
@@ -113,8 +117,11 @@ interface SettingsPageContext {
    | `entry-blocked` | 所属入口受阻 | 受阻原因，无动作 |
    | `entry-failed` | 所属入口激活失败 | 失败原因与“重试” |
    | `entry-stopped` | 已交付的实现被撤回 | 停止原因 |
+   | `entry-not-activatable` | 所属入口还没激活，且不会被按需激活：没声明这个分区的激活事件，或触发被拒 | “插件没有声明打开分区时激活”与原因，无动作 |
    | `available` | 句柄已发布 | 页面内容 |
    list 分区只靠声明呈现，不看贡献方入口的状态，总是可用。
+
+   **按需激活**：窗口每次显示一个 page 分区（窗口开着、它是当前分区、当前标签下可用），所属入口处于“已登记、未激活”时，先看这个入口是否声明了 `onSettingsPage:<分区 id>`：声明了就以 `nbook.settings` 的身份触发它（[`runtime.plugins`](../runtime/plugins.md) 输出 21），没声明就是 `entry-not-activatable` 并记一条诊断，不触发。别的入口声明了同一个事件不算数。触发之后分区的状态只看它自己的入口与交付句柄，不等事件的全部结果，别的监听者一直不结束也不影响它。内核把同一代次的激活合并成一次，反复进入不重复激活；等待中离开或关窗口不取消，激活照常完成，再进入时按当时的状态呈现。入口同时声明 `onStartup` 时启动就激活，与此无关。
 5. **page 的加载与失败**：page 分区第一次显示时调用一次 `handle.implementation().load()`，取得组件后创建实例并交给它 `context`；结果回来时句柄已不是当前句柄、已不处于 `published` 或窗口已关闭，就丢弃这次结果，不挂组件，也不记为加载失败。`load()` 失败或交出的实现没有 `load()` 时原位显示错误摘要与“重新加载”（后者另记一条诊断）；组件渲染出错原位显示错误摘要与“重试”（卸载并重建这个页面）。一个分区的失败不影响别的分区与窗口。“重试”经宿主能力 `window.plugins` 恢复并重新激活该分区所属的入口（同 [`workbench.views`](../workbench/views.md) 输出 8）。
 6. **页面上下文**：切换标签时 `context.layer` 变化，页面不重建；页面用自己插件的配置服务读写自己声明的项，写入带 `{layer: context.layer.value}`。离开分区时页面卸载，回到分区时重新创建（交付句柄没变时不重新加载组件定义）。
 7. **标签**：绑定作品的窗口在窗口标题下、左栏上方显示“用户 | 本作品”分段控件，缺省“用户”；未绑定作品的窗口不显示，只编辑用户层。
@@ -178,7 +185,7 @@ page 分区的交付状态：
 
 ## 边界与兼容
 
-- 公开接口：贡献点 `settings.sections` 与 `SettingsSectionDeclaration`、`settings.pages` 与 `SettingsPageDeclaration`、命令 id `OPEN_SETTINGS_COMMAND` 与公开键 `SETTINGS_WINDOW_OPEN_KEY`（`nbook/plugins/settings/shared/contracts`）；`SettingsPageImplementation`、`SettingsPageContext`（`nbook/plugins/settings/web/contracts`）；`SettingsRow`、`SettingsPageList`（`nbook/ui/settings/`）；命令 `nbook.settings.open`；公开键 `nbook.settings/windowOpen`。分区声明与页面上下文只增不改，新增可选字段不影响旧插件；小组 id 是分区的公开合同，改名等于删掉旧小组。
+- 公开接口：贡献点 `settings.sections` 与 `SettingsSectionDeclaration`、`settings.pages` 与 `SettingsPageDeclaration`、命令 id `OPEN_SETTINGS_COMMAND` 与公开键 `SETTINGS_WINDOW_OPEN_KEY`（`nbook/plugins/settings/shared/contracts`）；`SettingsPageImplementation`、`SettingsPageContext`（`nbook/plugins/settings/web/contracts`）；`settingsPage`（`nbook/ui/settings/settings-page`）；`settingsPageEvent` 与激活事件前缀 `onSettingsPage`（`nbook/plugins/settings/shared/contracts`）；`SettingsRow`、`SettingsPageList`（`nbook/ui/settings/`）；命令 `nbook.settings.open`；公开键 `nbook.settings/windowOpen`。分区声明与页面上下文只增不改，新增可选字段不影响旧插件；小组 id 是分区的公开合同，改名等于删掉旧小组。
 - 用户编辑路径与窗口的数据来源只给 `nbook.settings` 自己（configuration 输出 19），别的插件的页面只能写自己声明的项。
 - 信任边界：页面组件跑在工作台的 Vue 应用里，错误边界只覆盖 Vue 调用路径；组件自己发起、没有交给 Vue 的异步错误由所属插件处理。
 
@@ -208,6 +215,6 @@ Smoke 入口：`e2e/settings.e2e.ts`（扩展到设置窗口）。
 ## 证据
 
 - 批准依据：开发者批准的 t80 实施计划（记录在主工作区 master 的 `.agents/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/plan.md`）“关键设计”第 2、4 节；窗口尺寸由开发者改为缺省 960×640（2026-10-12）；每项的混合排法（输出 9）由开发者确认（2026-10-12，t80 README 待定第 11 条）；开发者 2026-10-13 批准晋升为 `implemented`。
-- 实现入口：[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/settings/web/plugin.ts)（配置核心入口与窗口入口：分区贡献点、打开命令、公开键、活动栏齿轮与窗口浮层）、[`web/settings-window.ts`](../../../packages/neuro-book/src/plugins/settings/web/settings-window.ts)（窗口模型）、[`web/sections.ts`](../../../packages/neuro-book/src/plugins/settings/web/sections.ts)（分区注册表与交付状态）、[`web/components/SettingsWindow.vue`](../../../packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue)、[`src/ui/settings/`](../../../packages/neuro-book/src/ui/settings/)（`SettingsRow`、`SettingsPageList`）
-- 合同测试：[`window.test.ts`](../../../packages/neuro-book/src/plugins/settings/window.test.ts)（落位、打开命令、尺寸、page 加载、写入与层的说明，真实内核与真实设置文件）、[`web/sections.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/sections.test.ts)（分区的登记校验与交付状态）、[`commands.test.ts`](../../../packages/neuro-book/src/plugins/settings/commands.test.ts)（打开命令的登记、参数与公开键）、[`web/setting-controls.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/setting-controls.test.ts)（通用控件的选择）、组件测试 [`SettingsWindow.dom.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.dom.test.ts)、[`SettingsRow.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsRow.dom.test.ts)、[`SettingsPageList.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsPageList.dom.test.ts)；[`06-settings-page.test.ts`](../../../packages/neuro-book/examples/scenarios/06-settings-page.test.ts)（示例插件 [snippets](../../../packages/neuro-book/examples/plugins/snippets/) 的 page 分区：声明、交付与撤回、按层写入、越权写入）
+- 实现入口：[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/settings/web/plugin.ts)（配置核心入口与窗口入口：分区贡献点、打开命令、公开键、活动栏齿轮与窗口浮层）、[`web/settings-window.ts`](../../../packages/neuro-book/src/plugins/settings/web/settings-window.ts)（窗口模型）、[`web/sections.ts`](../../../packages/neuro-book/src/plugins/settings/web/sections.ts)（分区注册表与交付状态）、[`web/components/SettingsWindow.vue`](../../../packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue)、[`src/ui/settings/`](../../../packages/neuro-book/src/ui/settings/)（`SettingsRow`、`SettingsPageList`、`settingsPage`）
+- 合同测试：[`window.test.ts`](../../../packages/neuro-book/src/plugins/settings/window.test.ts)（落位、打开命令、尺寸、按需激活、page 加载、写入与层的说明，真实内核与真实设置文件）、[`web/sections.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/sections.test.ts)（分区的登记校验与交付状态）、[`commands.test.ts`](../../../packages/neuro-book/src/plugins/settings/commands.test.ts)（打开命令的登记、参数与公开键）、[`web/setting-controls.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/setting-controls.test.ts)（通用控件的选择）、组件测试 [`SettingsWindow.dom.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.dom.test.ts)、[`SettingsRow.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsRow.dom.test.ts)、[`SettingsPageList.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsPageList.dom.test.ts)、[`settings-page.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/settings-page.dom.test.ts)；[`06-settings-page.test.ts`](../../../packages/neuro-book/examples/scenarios/06-settings-page.test.ts)（示例插件 [snippets](../../../packages/neuro-book/examples/plugins/snippets/) 的 page 分区：声明、交付与撤回、按层写入、越权写入）
 - Smoke：[`settings.e2e.ts`](../../../packages/neuro-book/e2e/settings.e2e.ts)（验收 1–4、6：工作台与书架的齿轮、`Ctrl+,`、`Esc` 后焦点回到打开前的位置，两个页面即时变化，本作品覆盖与移除，恢复默认后的文件，文件改坏与修好，尺寸跨关闭与刷新、每次打开居中）；[`bookshelf.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf.e2e.ts)（“作品”分区的目录选择器叠在窗口上）；Lab 场景 `SettingsWindow`、`SettingsRow`、`SettingsPageList`、`SettingsControl`

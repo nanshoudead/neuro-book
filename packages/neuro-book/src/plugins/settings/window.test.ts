@@ -40,7 +40,7 @@ import {createWindowPlugins} from "nbook/web/host/window-plugins";
 
 import {RELOAD_DELAY_MS} from "./backend/layer-owner";
 import {descriptor} from "./plugin";
-import {SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT, settingsKey} from "./shared/contracts";
+import {SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT, settingsKey, settingsPageEvent} from "./shared/contracts";
 import type {SettingsPageDeclaration, SettingsSectionDeclaration} from "./shared/contracts";
 import {settingsWorld} from "./testing/world";
 import type {SettingsWorld} from "./testing/world";
@@ -337,6 +337,75 @@ describe("打开窗口（输出 15、16）", () => {
         const remembered = recorder.size.value;
         window.resize({width: 1100});
         expect(recorder.size.value).toBe(remembered);
+    });
+});
+
+describe("按需激活（输出 4）：窗口显示 page 分区时触发 onSettingsPage", () => {
+    const Page = defineComponent({name: "OnDemandPage", render: () => null});
+    const onPage = (id: string) => ({activationEvents: [settingsPageEvent(id)]});
+    const stateOf = (application: Application, plugin: string) => application.plugins.entryState({plugin, entry: "browser"})?.status;
+
+    it("入口声明了这个分区的事件：启动后不激活，打开窗口到这个分区时才激活、交付并加载；离开再回来不重复激活", async () => {
+        const control = toggle({implementation: {load: async () => Page}});
+        const started = await start([contributor("x.notes", {"x.notes.page": pageSection()}, control, [], onPage("x.notes.page"))]);
+        const {window} = windowFor(started.probe, false);
+        expect(stateOf(started.application, "x.notes")).toBe("registered");
+        window.openWindow({section: "nbook.appearance"});
+        expect(stateOf(started.application, "x.notes")).toBe("registered");
+        window.select("x.notes.page");
+        await waitUntil("激活并加载完", () => window.page("x.notes.page").status === "ready");
+        expect(started.application.plugins.entryState({plugin: "x.notes", entry: "browser"})?.generation).toBe(1);
+        window.select("nbook.appearance");
+        window.select("x.notes.page");
+        expect(started.application.plugins.entryState({plugin: "x.notes", entry: "browser"})?.generation).toBe(1);
+    });
+
+    it("所属入口没声明这个事件、只有别的入口声明了：不触发，原位写“没有声明打开分区时激活”，别的入口也不被激活", async () => {
+        const other: PluginDefinition = {id: "x.other", entries: [{id: "browser", location: "browser", activationEvents: [settingsPageEvent("x.notes.page")], activate: () => ({})}]};
+        const started = await start([contributor("x.notes", {"x.notes.page": pageSection()}, toggle(), [], {activationEvents: []}), other]);
+        const {window, recorder} = windowFor(started.probe, false);
+        window.openWindow({section: "x.notes.page"});
+        expect(window.page("x.notes.page").delivery).toEqual({kind: "entry-not-activatable", reason: "入口 x.notes/browser 没有声明 onSettingsPage:x.notes.page"});
+        expect(stateOf(started.application, "x.other")).toBe("registered");
+        expect(started.diagnostics.query({}).records.some((record) => record.event === "settings.sections" && record.message.includes("不能按需激活"))).toBe(true);
+        // 之后入口经别的途径激活了：按它的状态呈现。
+        await started.application.plugins.activate({plugin: "x.notes", entry: "browser"});
+        expect(window.page("x.notes.page").delivery).toEqual({kind: "available"});
+        expect(recorder.notices).toEqual([]);
+    });
+
+    it("同一事件的另一个监听者一直不结束：这个分区的入口激活后照常交付并加载", async () => {
+        // 一直挂着，直到入口停止（测试收尾时）才结束。
+        const hang = (context: ActivationContext) => new Promise<never>((_resolve, reject) => context.signal.addEventListener("abort", () => reject(new Error("已停止")), {once: true}));
+        const other: PluginDefinition = {id: "x.slow", entries: [{id: "browser", location: "browser", activationEvents: [settingsPageEvent("x.notes.page")], activate: hang}]};
+        const started = await start([contributor("x.notes", {"x.notes.page": pageSection()}, toggle({implementation: {load: async () => Page}}), [], onPage("x.notes.page")), other]);
+        const {window} = windowFor(started.probe, false);
+        window.openWindow({section: "x.notes.page"});
+        await waitUntil("加载完", () => window.page("x.notes.page").status === "ready");
+        expect(stateOf(started.application, "x.slow")).toBe("activating");
+    });
+
+    it("等待中关窗口不取消：激活照常完成，再打开时直接是可用", async () => {
+        let release: () => void = () => undefined;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const control = toggle({implementation: {load: async () => Page}});
+        const slow = contributor("x.notes", {"x.notes.page": pageSection()}, control, [], onPage("x.notes.page"));
+        const entry = slow.entries[0]!;
+        const gated: PluginDefinition = {...slow, entries: [{...entry, activate: async (context) => {
+            await gate;
+            return entry.activate(context);
+        }}]};
+        const started = await start([gated]);
+        const {window} = windowFor(started.probe, false);
+        window.openWindow({section: "x.notes.page"});
+        expect(window.page("x.notes.page").delivery).toEqual({kind: "declared"});
+        window.close();
+        release();
+        await waitUntil("激活完成", () => stateOf(started.application, "x.notes") === "available");
+        window.openWindow({});
+        expect(window.page("x.notes.page").delivery).toEqual({kind: "available"});
     });
 });
 

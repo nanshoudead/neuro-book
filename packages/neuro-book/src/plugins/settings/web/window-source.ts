@@ -40,6 +40,8 @@ export interface SettingsWindowSource {
     delivery(sectionId: string): SettingsPageDelivery;
     load(sectionId: string): Promise<SettingsPageLoad>;
     retry(sectionId: string): Promise<WindowPluginRetry>;
+    /** 窗口显示一个 page 分区时调用：所属入口还没激活就按需激活它（`sections.ts`）。 */
+    activate(sectionId: string): void;
     /** 把任何已声明项的这一层设为 `value`；成功返回时本窗口已应用写后的层快照。 */
     edit(key: string, layer: SettingLayer, value: unknown): Promise<SettingWriteResult>;
     /** 从这一层删掉这个键（恢复默认、移除本作品的设置）。 */
@@ -83,6 +85,7 @@ export function createSettingsWindowSource(options: SettingsWindowSourceOptions)
         delivery: (sectionId) => options.sections.delivery(sectionId),
         load: (sectionId) => options.sections.load(sectionId),
         retry: (sectionId) => options.sections.retry(sectionId),
+        activate: (sectionId) => options.sections.activate(sectionId),
         edit: (key, layer, value) => write(key, layer, {kind: "set", value}),
         unset: (key, layer) => write(key, layer, {kind: "delete"}),
     };

@@ -19,6 +19,14 @@ import {isSettingsGroupId, isSettingsSectionId, SETTINGS_ORDER_LIMIT, SETTINGS_S
 export const SETTINGS_SECTIONS_POINT = "settings.sections";
 export const SETTINGS_PAGES_POINT = "settings.pages";
 
+/** `nbook.settings` 拥有的激活事件前缀：设置窗口显示一个 page 分区时触发 `onSettingsPage:<分区 id>`。 */
+export const SETTINGS_PAGE_ACTIVATION_PREFIX = "onSettingsPage";
+
+/** page 分区的贡献方入口写进 `activationEvents` 的事件：设置窗口显示这个分区时才激活入口。 */
+export function settingsPageEvent(sectionId: string): string {
+    return `${SETTINGS_PAGE_ACTIVATION_PREFIX}:${sectionId}`;
+}
+
 /** 左栏的三组，自上而下：应用、AI、插件。 */
 export const SETTINGS_SECTION_CATEGORIES = ["app", "ai", "plugins"] as const;
 

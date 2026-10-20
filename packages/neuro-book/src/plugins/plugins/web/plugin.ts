@@ -11,7 +11,7 @@ import type {Component, PropType} from "vue";
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {displayLocale, SETTINGS_PAGES_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import {displayLocale, SETTINGS_PAGES_POINT, settingsKey, settingsPageEvent} from "nbook/plugins/settings/shared/contracts";
 import type {SettingsPageDeclaration} from "nbook/plugins/settings/shared/contracts";
 import type {SettingsPageContext, SettingsPageImplementation} from "nbook/plugins/settings/web/contracts";
 import type {DisplayLocale} from "nbook/shared/localized-text";
@@ -37,8 +37,8 @@ export const pluginsBrowserPlugin: PluginDefinition = {
     entries: [defineEntry({
         id: "browser",
         location: "browser",
-        // 设置窗口的左栏来自已激活入口的贡献；还没有“打开设置才激活”的事件，只能启动即激活。
-        activationEvents: ["onStartup"],
+        // 打开设置窗口的“插件”分区时才激活（settings-window.md 输出 4）。
+        activationEvents: [settingsPageEvent(PLUGINS_SECTION)],
         dependencies: [{key: settingsKey}],
         contributions: [{capability: SETTINGS_PAGES_POINT, id: PLUGINS_SECTION, declaration: SECTION}],
         activate: (context) => {

@@ -104,6 +104,8 @@ export function createSettingsHost(options: SettingsHostOptions): SettingsHost {
             return () => void listeners.delete(listener);
         },
         retry: (ref) => retry(sectionOf.get(ref.plugin) ?? ""),
+        // 场景的入口状态由场景直接给出（激活中、受阻、失败、可用），不经激活事件。
+        activationEvents: () => [],
     };
     const changed = (): void => {
         for (const listener of [...listeners]) listener();

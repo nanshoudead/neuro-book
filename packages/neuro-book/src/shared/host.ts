@@ -84,6 +84,8 @@ export interface WindowPlugins {
     onChange(listener: () => void): () => void;
     /** 只对激活失败的入口：恢复后重新激活。 */
     retry(ref: EntryRef): Promise<WindowPluginRetry>;
+    /** 入口声明的激活事件；未登记、或运行实例还没建立时为 null。按需激活前用它判断某个入口会不会被这个事件激活。 */
+    activationEvents(ref: EntryRef): ReadonlyArray<string> | null;
 }
 
 /** 一份没保存的正文：文件地址与正文。 */

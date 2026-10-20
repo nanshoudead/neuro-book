@@ -403,6 +403,15 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
                 Object.assign(instance, {status: "waiting", component: null, error: null});
             });
         }
+        // 按需激活（输出 4）：每次显示一个 page 分区（窗口开着、它是当前分区、当前标签下可用）都请注册表看一次。
+        watch(() => {
+            if (!open.value) return null;
+            const id = section.value;
+            const entry = id === null ? undefined : sectionOf(id);
+            return entry?.kind === "page" && entry.layers.includes(layer.value) ? entry.id : null;
+        }, (id) => {
+            if (id !== null) source.activate(id);
+        }, {immediate: true});
         // 第一次显示时加载（输出 5）：窗口开着、它是当前分区、当前标签下可用、句柄已发布。
         watch(() => {
             // 先看开着与否：关着时不读当前分区，落位不必提前算。

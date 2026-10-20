@@ -1777,6 +1777,7 @@ export class PluginHostImpl implements PluginHost {
             dependencies: (record.definition.dependencies ?? []).map((dependency) => ({key: dependency.key.name, required: dependency.required ?? true})),
             provides: (record.definition.provides ?? []).map((key) => key.name),
             receives: [...(record.definition.receives ?? [])],
+            activationEvents: [...(record.definition.activationEvents ?? [])],
             contributions: record.contributions.map((contribution) => this.#contributionState(contribution)),
             state: this.#stateOf(record, blocked.get(`${record.plugin}/${record.definition.id}`) ?? null),
         };

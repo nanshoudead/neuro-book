@@ -23,7 +23,7 @@ import type {SettingDefinition, SettingsFailure, SettingsService} from "nbook/sh
 import type {SettingsSectionDeclaration} from "./sections";
 
 export {SETTINGS_POINT};
-export {SETTINGS_PAGES_POINT, SETTINGS_SECTION_CATEGORIES, SETTINGS_SECTIONS_POINT} from "./sections";
+export {SETTINGS_PAGE_ACTIVATION_PREFIX, SETTINGS_PAGES_POINT, SETTINGS_SECTION_CATEGORIES, SETTINGS_SECTIONS_POINT, settingsPageEvent} from "./sections";
 export type {SettingsPageDeclaration, SettingsSectionCategory, SettingsSectionDeclaration} from "./sections";
 
 /** 插件依赖它取得按调用方生成的配置服务。 */

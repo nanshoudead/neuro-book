@@ -366,6 +366,8 @@ export interface EntryDescription {
     /** 对外提供的服务键名。 */
     readonly provides: ReadonlyArray<string>;
     readonly receives: ReadonlyArray<string>;
+    /** 入口声明的激活事件（`onStartup` 或 `<前缀>:<参数>`），原样列出，含格式不对或无人拥有的。 */
+    readonly activationEvents: ReadonlyArray<ActivationEvent>;
     readonly contributions: ReadonlyArray<ContributionState>;
     readonly state: EntryState;
 }
