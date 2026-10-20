@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 设置窗口通用列表的控件（同名 .md）：按控件描述画 nb-ui 控件；输入类保留草稿，离开或回车才提交。 */
-import {FormInput, FormNumberInput, FormSelect, SegmentedControl, Switch} from "@notnotype/nb-ui/components";
+import {Input, NumberInput, Select, SegmentedControl, Switch} from "@notnotype/nb-ui/components";
 import type {SegmentedControlValue} from "@notnotype/nb-ui/components";
 import {computed, ref, watch} from "vue";
 
@@ -99,10 +99,10 @@ const summary = computed(() => {
         @update:model-value="(value: SegmentedControlValue) => { if (value !== modelValue) emit('update:modelValue', value); }"
     />
     <div v-else-if="control.kind === 'select'" class="settings-control settings-control--select" data-settings-control="select">
-        <FormSelect :id="id" :model-value="selectValue" :options="selectOptions" :disabled="disabled" @update:model-value="onSelect" />
+        <Select :id="id" :model-value="selectValue" :options="selectOptions" :disabled="disabled" @update:model-value="onSelect" />
     </div>
     <div v-else-if="control.kind === 'number'" class="settings-control settings-control--number" data-settings-control="number" @focusout="onFocusOut">
-        <FormNumberInput
+        <NumberInput
             :id="id"
             v-model="draft"
             :disabled="disabled"
@@ -113,7 +113,7 @@ const summary = computed(() => {
         />
     </div>
     <div v-else-if="control.kind === 'text'" class="settings-control settings-control--text" data-settings-control="text" @focusout="onFocusOut" @keydown.enter.prevent="commit">
-        <FormInput :id="id" v-model="draft" :disabled="disabled" :minlength="control.minLength" :maxlength="control.maxLength" />
+        <Input :id="id" v-model="draft" :disabled="disabled" :minlength="control.minLength" :maxlength="control.maxLength" />
     </div>
     <div v-else class="settings-control settings-control--readonly" data-settings-control="readonly">
         <span class="settings-control__file-only">{{ localize(TEXT.fileOnly, locale) }}</span>

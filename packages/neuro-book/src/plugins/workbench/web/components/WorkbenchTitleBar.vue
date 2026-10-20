@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 标题栏（同名 .md）：品牌标志、项目切换、应用菜单、命令搜索、布局按钮与条目区；只发事件。 */
-import {Button, Dropdown, IconButton, Menubar} from "@notnotype/nb-ui/components";
-import type {DropdownItem, MenubarItemData, MenubarMenuData} from "@notnotype/nb-ui/components";
+import {Button, DropdownMenu, IconButton, Menubar} from "@notnotype/nb-ui/components";
+import type {DropdownMenuItemData, MenubarItemData, MenubarMenuData} from "@notnotype/nb-ui/components";
 import {useElementSize} from "@vueuse/core";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
@@ -137,7 +137,7 @@ function itemOf(entry: MenuEntry): MenubarItemData {
     };
 }
 
-function dropdownItemOf(entry: MenuEntry): DropdownItem {
+function dropdownItemOf(entry: MenuEntry): DropdownMenuItemData {
     return {
         label: entry.label,
         value: entry.id,
@@ -160,13 +160,13 @@ const menubar = computed<MenubarMenuData[]>(() => menus.value.map((group) => ({
 })));
 
 /** 收成 ≡ 后（M1）：一组一行，悬停或方向键展开它的子菜单，同完整菜单栏的分组。 */
-const compactItems = computed<DropdownItem[]>(() => menus.value.map((group) => ({
+const compactItems = computed<DropdownMenuItemData[]>(() => menus.value.map((group) => ({
     label: group.label,
     value: `${GROUP_PREFIX}${group.id}`,
     children: sectioned(group.sections, dropdownItemOf, (index) => ({label: "", value: `${group.id}-sep-${String(index)}`, separator: true})),
 })));
 
-const projectItems = computed<DropdownItem[]>(() => [{label: text(TEXT.openProject), value: OPEN_PROJECT}]);
+const projectItems = computed<DropdownMenuItemData[]>(() => [{label: text(TEXT.openProject), value: OPEN_PROJECT}]);
 
 function select(value: string): void {
     if (value === OPEN_PROJECT) {
@@ -311,22 +311,22 @@ onBeforeUnmount(() => {
         <div class="workbench-titlebar__start">
             <NeuroBookLockup v-if="showLockup" class="workbench-titlebar__brand" />
             <NeuroBookMark v-else class="workbench-titlebar__mark" />
-            <Dropdown v-if="project !== null" :items="projectItems" align="start" @select="select">
+            <DropdownMenu v-if="project !== null" :items="projectItems" align="start" @select="select">
                 <Button variant="ghost" size="sm" class="workbench-titlebar__button workbench-titlebar__project" :title="project" :aria-label="`${text(TEXT.project)}：${project}`" data-titlebar-project>
                     <span class="i-lucide-book-open workbench-titlebar__project-icon h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
                     <span v-if="showProjectName" class="workbench-titlebar__project-name">{{ project }}</span>
                     <span class="i-lucide-chevron-down h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
                 </Button>
-            </Dropdown>
+            </DropdownMenu>
             <Button v-else variant="ghost" size="sm" class="workbench-titlebar__button" :title="text(TEXT.openProject)" :aria-label="text(TEXT.openProject)" data-titlebar-project @click="emit('open-project')">
                 <span class="i-lucide-book-open workbench-titlebar__project-icon h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
                 <span v-if="showProjectName">{{ text(TEXT.openProject) }}</span>
             </Button>
             <span class="workbench-titlebar__divider" aria-hidden="true"></span>
             <Menubar v-if="showMenubar" v-model="menubarOpen" :menus="menubar" size="sm" variant="flat" data-titlebar-menu-entry @select="(item) => select(item.value)" />
-            <Dropdown v-else :items="compactItems" align="start" @select="select" @update:open="(open: boolean) => { dropdownOpen = open; }">
+            <DropdownMenu v-else :items="compactItems" align="start" @select="select" @update:open="(open: boolean) => { dropdownOpen = open; }">
                 <IconButton size="sm" icon-class="i-lucide-menu" :aria-label="text(TEXT.menu)" :title="text(TEXT.menu)" class="workbench-titlebar__button" data-titlebar-menu-entry />
-            </Dropdown>
+            </DropdownMenu>
         </div>
 
         <div class="workbench-titlebar__center">

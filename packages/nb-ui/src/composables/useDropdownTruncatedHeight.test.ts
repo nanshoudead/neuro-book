@@ -9,7 +9,7 @@ import {
 } from "./useDropdownTruncatedHeight";
 
 describe("useDropdownTruncatedHeight", () => {
-    it("returns FormSelect default golden height (229px) when size is default", () => {
+    it("returns Select default golden height (229px) when size is default", () => {
         const {viewportMaxHeight, resolvedItemHeight, resolvedItemGap, resolvedVisibleCount} =
             useDropdownTruncatedHeight({size: "default"});
 
@@ -19,7 +19,7 @@ describe("useDropdownTruncatedHeight", () => {
         expect(resolvedVisibleCount.value).toBe(6);
     });
 
-    it("returns FormSelect sm golden height (160px) when size is sm", () => {
+    it("returns Select sm golden height (160px) when size is sm", () => {
         const {viewportMaxHeight, resolvedItemHeight, resolvedVisibleCount} =
             useDropdownTruncatedHeight({size: "sm"});
 

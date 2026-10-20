@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Button, FormField, FormInput, FormTextarea, RadioGroup} from "@notnotype/nb-ui/components";
+import {Button, Field, Input, Textarea, RadioGroup} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 import {SLUG_PATTERN} from "../../core/ids.js";
 import {controlCharProblem, titleProblem} from "../../core/text-rules.js";
@@ -35,28 +35,28 @@ const complete = computed(() => ["slug", "title", "goal", "taskSlug"].every((key
 <template>
     <form class="flex flex-col gap-3" @submit.prevent="complete && !pending && !disabledReason && emit('submit')">
         <fieldset class="grid grid-cols-1 gap-3 md:grid-cols-2" :disabled="pending || disabledReason !== null">
-            <FormField label="短名" description="kebab-case，进 Work id，例如 dev-panel" :error="errors.slug ?? ''" required>
-                <FormInput :model-value="modelValue.slug" @update:model-value="(value: string) => update('slug', value)" />
-            </FormField>
-            <FormField label="标题" :error="errors.title ?? ''" required>
-                <FormInput :model-value="modelValue.title" @update:model-value="(value: string) => update('title', value)" />
-            </FormField>
-            <FormField label="目标" description="写进 README 的“目标”一节" :error="errors.goal ?? ''" required class="md:col-span-2">
-                <FormTextarea :model-value="modelValue.goal" :rows="4" @update:model-value="(value: string) => update('goal', value)" />
-            </FormField>
-            <FormField label="Issue（可选）" :error="errors.issue ?? ''">
-                <FormInput :model-value="modelValue.issue" inputmode="numeric" @update:model-value="(value: string) => update('issue', value)" />
-            </FormField>
+            <Field label="短名" description="kebab-case，进 Work id，例如 dev-panel" :error="errors.slug ?? ''" required>
+                <Input :model-value="modelValue.slug" @update:model-value="(value: string) => update('slug', value)" />
+            </Field>
+            <Field label="标题" :error="errors.title ?? ''" required>
+                <Input :model-value="modelValue.title" @update:model-value="(value: string) => update('title', value)" />
+            </Field>
+            <Field label="目标" description="写进 README 的“目标”一节" :error="errors.goal ?? ''" required class="md:col-span-2">
+                <Textarea :model-value="modelValue.goal" :rows="4" @update:model-value="(value: string) => update('goal', value)" />
+            </Field>
+            <Field label="Issue（可选）" :error="errors.issue ?? ''">
+                <Input :model-value="modelValue.issue" inputmode="numeric" @update:model-value="(value: string) => update('issue', value)" />
+            </Field>
             <div />
-            <FormField label="首个 Task 的短名" :error="errors.taskSlug ?? ''" required>
-                <FormInput :model-value="modelValue.taskSlug" @update:model-value="(value: string) => update('taskSlug', value)" />
-            </FormField>
-            <FormField label="首个 Task 的标题（可选，缺省同 Work 标题）" :error="errors.taskTitle ?? ''">
-                <FormInput :model-value="modelValue.taskTitle" @update:model-value="(value: string) => update('taskTitle', value)" />
-            </FormField>
-            <FormField label="首个 Task 的状态">
+            <Field label="首个 Task 的短名" :error="errors.taskSlug ?? ''" required>
+                <Input :model-value="modelValue.taskSlug" @update:model-value="(value: string) => update('taskSlug', value)" />
+            </Field>
+            <Field label="首个 Task 的标题（可选，缺省同 Work 标题）" :error="errors.taskTitle ?? ''">
+                <Input :model-value="modelValue.taskTitle" @update:model-value="(value: string) => update('taskTitle', value)" />
+            </Field>
+            <Field label="首个 Task 的状态">
                 <RadioGroup :model-value="modelValue.taskStatus" :options="STATUS_OPTIONS" orientation="horizontal" size="sm" @update:model-value="(value: string) => update('taskStatus', value as WorkFormValue['taskStatus'])" />
-            </FormField>
+            </Field>
         </fieldset>
         <div class="flex flex-wrap items-center gap-2">
             <Button type="submit" :loading="pending" :disabled="!complete || disabledReason !== null">新建 Work</Button>

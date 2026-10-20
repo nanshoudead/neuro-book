@@ -1,6 +1,6 @@
 /**
- * 命令面板（workbench.quick-open 场景 1–6）：真实的 nb-ui QuickInput、真实的命令表与面板宿主。
- * QuickInput 的关闭交接跨一个宏任务，测试等可观察的结果（焦点归还、执行记录），不推进假时钟。
+ * 命令面板（workbench.quick-open 场景 1–6）：真实的 nb-ui QuickPick、真实的命令表与面板宿主。
+ * QuickPick 的关闭交接跨一个宏任务，测试等可观察的结果（焦点归还、执行记录），不推进假时钟。
  */
 
 import {mount} from "@vue/test-utils";

@@ -23,12 +23,14 @@ Issue 承载重大或长期交付的公开目标、总体范围与验收；Propo
 
 ## Worktree 与分支
 
-Work 与 Task 的记录只放主工作区 `master` 的 `.agents/works/`，在主工作区路径限定提交，实现分支不改它（见 [记录只放主工作区](../../.agents/works/README.md#记录只放主工作区)）。独立 worktree 承载代码，获授权后以 PR 合入 master，不因本地交付强制建报告或 PR。
+Work 与 Task 的记录只放主工作区 `master` 的 `.agents/works/`，在主工作区路径限定提交，实现分支不改它（见 [记录只放主工作区](../../.agents/works/README.md#记录只放主工作区)）。代码在 Work 的分支上完成，获授权后合入 master，不因本地交付强制建报告或 PR。
 
-- 需要隔离代码改动时，一个 Task 一个 worktree：`.worktree/<Work 编号>-<Task 编号>-<短名>`；分支使用 `{type}/{refs}-{slug}`，refs 写 Work 与 Task 编号。几个 Task 共用一条集成分支时在 Work README 写明。开发者明确指定既有 worktree/branch 时沿用该身份并在报告中记录。
-- 默认路径已属于其它仓库、Task 或不匹配 branch 时报告冲突并停止，不覆盖或自动改名；保持主工作区在master，不覆盖用户改动。
+- 通常一个 Work 一条分支、一个 worktree：从本地 `master` 创建 `.worktree/<Work 编号>-<短名>`，分支使用 `{type}/{Work 编号}-{slug}`，例如 `.worktree/w00027-plugin-platform` 与 `feat/w00027-plugin-platform`。Work 的各个 Task 依次在这条分支上提交。开发者明确指定既有 worktree/branch 时沿用该身份并在报告中记录。
+- 验证在 Work 分支上进行：构建、测试、e2e 与开发者试用都对着 Work 分支，不为验证先合入 master。合入 master 的时机由开发者决定。
+- 不同 Work 的分支各自并行推进。
+- 同一个 Work 里多个 Agent 并行做几个 Task 时，按是否冲突选位置：改动的文件与合同不重叠（例如一个写前端组件、一个写后端接口）时都在 Work 分支上做，各自路径限定提交；会改同一批文件或同一份合同时，基于 Work 分支另开 worktree `.worktree/<Work 编号>-<Task 编号>-<短名>`（`nbdev worktree new … --from <Work 分支>`），分支 `{type}/{Work 编号}-{Task 编号}-{slug}`，做完合回 Work 分支。Task 有依赖时顺序推进，不为并行而拆 Task。
+- 默认路径已属于其它仓库、Work 或不匹配 branch 时报告冲突并停止，不覆盖或自动改名；保持主工作区在master，不覆盖用户改动。
 - 直接改主工作区前先看 `git status`：目标文件已有他人未提交改动时改到 worktree，不覆盖、不 stash、不改他人改动；主工作区定位与保护要求见根 [AGENTS.md](../../AGENTS.md#git-注意事项)。
-- Task 有依赖时顺序推进；已知独立任务在 owner、文件和合同不冲突时并行，不为并行而拆 Task。
 - 只提交Task范围文件，使用可审查的Conventional Commit，不force push共享分支。
 - 用 `git rm`、`git mv` 改过暂存区后，提交别的片之前先用 `git diff --cached --stat` 核对暂存区只有本片的文件。
 - 删除合进非 master 分支的本地分支时，先用 `git merge-base --is-ancestor <分支> <目标分支>` 确认已包含，再用 `git branch -D`：`-d` 只和该分支的上游比较，没有上游时和执行命令处检出的分支比较，在主工作区执行就是拿 master 比。

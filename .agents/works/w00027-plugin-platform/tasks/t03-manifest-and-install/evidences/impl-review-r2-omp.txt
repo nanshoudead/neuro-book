@@ -1,0 +1,167 @@
+# w00027 t03 第二轮实现审查
+
+范围：`98db53316..HEAD` 的修订及其与 `21f226396..HEAD` 的配合；源码位置相对 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t03-manifest-and-install/`。不审 `packages/neuro-book/src/plugins/plugins/web/` 与 Lab 界面，不开子审查。实验仅写 `/tmp/neuro-book/review-w00027-t03-impl-r2/lab/`。
+
+## 第一轮修正核实
+
+1. **成立**：排除目录先剪枝再检查链接，原“排除项下有链接”的行为测试已通过；本轮另查显式 glob 与链接的组合。
+2. **不成立**：非法 id/version 导致整表不可用的修正成立，但 `ownedPath` 仅检查字面路径，不能保证删改目标仍在安装根内，根外数据仍可被删除，见发现 1。
+3. **成立**：已移除声明环境变量，实际安装后经服务端、真实项目子进程传输了 150235 与 800235 字节的描述，取得租约且两次正常退出 0。
+4. **不成立**：`commit` 仍只在 `mkdir → rm → rename` 之前核对一次锁，写表失败的回滚 `rm` 也不验锁；不是计划声称的每次删除、改名前核对，详见后续发现。
+5. **成立**：语法校验与兼容判断均用 npm semver，内核经必填 `VersionSyntax` 注入，无原版本正则残留，46 条内核相关测试通过；比较相等版本的上层分类另查。
+6. **成立**：替换 pending 的删除已移进登记锁内、放在成功写表之后，写表失败不会进入这段删除，旧 pending 仍被旧表引用。
+7. **成立**：`locatedDefinitions` 现在独立核对每份定义自身的 `id`，不再只与 descriptor 同源比较，内置对齐测试已通过。
+8. **成立（原报告的具体输入）**：`README.md`、`LICENSE`、`main:index.js` 的总包含与 `+(dist|lib)` 的明确拒绝已有通过的行为测试；不等于 npm 全部复制边界已对齐，本轮变体另列。
+9. **成立（原报告的具体输入）**：已比较本进程启动版本与最新目标版本，并合并已被其它进程移除的启动项，现有跨启动列表测试通过；启动时没有该插件等其它组合另查。
+
+## 发现
+
+### 1. `ownedPath` 不核对符号链接，安装与启动回收仍会删除安装根之外的数据
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/neuro-book/src/backend/plugins/record.ts:163-166`；`inventory.ts:240-246`；`startup.ts:195-206`。
+- **现象**：把安装根的 `example.probe` 目录替换为指向根外 `user-data` 的链接，其中已有 `2.0.0/keep.txt`；安装 2.0.0 返回成功，却删除了根外的 `keep.txt` 并将新插件移入根外。把 `.staging` 换成指向根外 `user-data` 的链接，启动准备直接删除其 `draft/keep.txt` 所在的整个 `draft` 目录，且无诊断。
+- **为什么是问题**：`resolve`/前缀比较只约束字面路径；`mkdir`、`rm(root/id/version)`、`readdir(root/.staging)` 会跟随中间目录链接。修正承诺的是“删除与回收只能动自己拥有的目录”，不是仅拒绝 `../`；完全信任插件不等于允许恢复程序误删根外作品数据。第一轮路径穿越已挡住，但新增归属保护仍没有兑现。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/path-probe.ts`；经真实 `createPluginInventory.install` 与 `prepareInstalledPlugins`，分别输出 `outside-keep false outside-manifest true`、`outside-draft-exists false`。所有受害文件都在实验根内，不涉及真实用户数据。
+- **建议改法**：对安装根内逐段 `lstat`，拒绝以链接充当插件目录、版本目录的祖先或 `.staging`；回收只移除链接本身，不遍历它指向的目录。根路径先规范化，核对物理归属后再删改，补两个真实文件系统场景。
+
+### 2. 失锁保护仍跨过三个异步步骤，接管者已提交的安装仍会被旧持有者覆盖
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/neuro-book/src/backend/plugins/inventory.ts:241-246,254-261`。
+- **现象**：A 在创建 `example.race/` 后暂停 11 秒；B 接管 stale 锁，成功安装同一 id/版本、清单标记为 B；A 恢复后仍删除 B 的版本目录并移入自己的目录，最终报 `registry-failed / LockLost`，登记表保留 B 的成功记录，磁盘清单却已变成 A。
+- **为什么是问题**：修订只把一次 `assertHeld` 提到 `mkdir` 前面，没有在 `rm` 和 `rename` 各自之前核对。此次暂停点在 `mkdir` 已完成、target 尚不存在时，不是已接受的“验锁与紧接的一次操作之间的微小窗口”；中间隔着另一个异步文件系统操作。新增“不回滚 LockLost”避免了最后再删一次，却保留了覆盖后的错误产物。另外，写表发生普通 I/O 错误时的回滚 `rm(target)` 仍未重新核对锁，这是同一缺口的另一条代码路径，未另做故障注入。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/takeover.ts`，真实安装子进程、`fs.watch` 观察 `mkdir` 后 `SIGSTOP`、实际等 11000 ms、B 真实接管、再 `SIGCONT`；输出 `paused-target-exists false`、B `ok:true`、A `ok:false,code:registry-failed`、`installed-marker A`。没有改产品文件、伪造锁或替换文件系统 API。
+- **建议改法**：在每次共享目标的 `rm`、`rename` 与失败回滚前重新 `assertHeld`；回滚中也把失锁当作停止删改的原因。仅留下当前操作独有且未被引用的目录供下一次持锁回收。至少保留本场景作为可手工运行的回归证据，不能把一组异步操作前的一次验锁写成“每次操作之前”。
+
+### 3. npm 总包含项被当作目录递归展开，复制了 `files` 之外的整棵目录
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/backend/plugins/copy.ts:97-101,150-154`。
+- **现象**：`files:[]`、`main:"lib"` 时，npm 只打包 `package.json`，安装器却复制 `lib/index.js` 与 `lib/data.txt`；`bin:"tools"` 同样多复制整个 `tools/`；根目录存在名为 `README.md` 的目录时，安装器也递归复制其内容，npm 不包含它。
+- **为什么是问题**：总包含规则指向“文件”，不能复用“files 命中目录则递归”的 `include` 规则。调用方用空 `files` 明确限制范围后，普通 npm 元数据仍会扩大它；这不仅多复制文件，还会把本来不在范围内的目录链接纳入符号链接检查并拒绝安装。修订第一轮复制范围时引入了这条额外扩张路径。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/npm-probe.ts`；npm `12.1.0`，每个样本先跑实际 `npm pack --dry-run --json --ignore-scripts`，再走 `createPluginInventory.install`。`main-directory`、`bin-directory`、`readme-directory` 的 npm 文件数均为 1，安装器分别为 3、3、2。
+- **建议改法**：把“files 项命中目录递归”与“npm 总包含普通文件”分开；总包含项只接收实际普通文件，不递归目录。用同一份样本对照 npm；保留文件与祖先路径的符号链接检查。
+
+### 4. 扩展 glob 检测误拒绝含未配对 `@(`、`!(` 的合法字面文件名
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/backend/plugins/copy.ts:25,53-56`。
+- **现象**：`files:["x@(draft.txt"]` 且文件确实存在时，npm 正常包含该文件，安装器返回 `manifest-invalid`；`x!(draft.txt` 同样被误拒绝。
+- **为什么是问题**：`/[?*+@!]\(/` 只检测两个相邻字符，没有判断是否形成扩展 glob 表达式。没有闭合 `)` 的字面路径不属于开发者已决定拒绝的扩展 glob，当前实现把合同支持的普通文件名也收窄了。
+- **如何核实**：同一 `npm-probe.ts` 的 `literal-at-open`、`literal-bang-open` 两例；npm 分别列出 `package.json` 与该字面文件，安装器两例均 `manifest-invalid`，没有复制产物。
+- **建议改法**：按 glob 词法识别配对且未转义的扩展表达式；对不构成表达式的字面名走普通路径分支，不用两个字符的正则近似。增加上述 2 个对照场景，同时保留真正 `+(dist|lib)` 的拒绝。
+
+### 5. 启动时没有该插件时，列表漏掉待切换版本，显示的下一次安装版本错误
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/backend/plugins/inventory.ts:112-120`。
+- **现象**：A 启动时没有 `example.probe`；B 安装 1.0.0 后，在重启前再装 2.0.0，登记表为 `version:1.0.0,pendingVersion:2.0.0`。A 的列表却是 `version:1.0.0,pending:[{kind:"install"}]`，完全没有 2.0.0；实际重启加载 2.0.0。单个进程“首次安装后再升级、尚未重启”也出现同样错误。
+- **为什么是问题**：修订把输出 upgrade 的条件加成 `running !== null`，却没有在没有 running 时把行的版本改成 `target`。于是“重启后安装”显示 1.0.0，实际待生效目标是 2.0.0，违反输出 9 与提交点表；第一轮修复了“启动时有插件”的分支，却破坏了原来会输出 pendingVersion 的新装分支。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/list-matrix.ts`；先经公开 `list()` 穷举 40 组输入，再用真实安装器完成上述流程，无手写登记表：`real-A-before-restart` 返回 1.0.0 且只有 install，`real-B-restart` 的真实启动集合为 2.0.0。矩阵中的“启动无 × 登记 enabled/disabled × 含 pending”均漏掉目标版本。
+- **建议改法**：没有启动版本时，列表的安装版本直接用 `entry.pendingVersion ?? entry.version`；或保留独立目标版本/upgrade 项，保证列表能表达真实重启目标。补首次安装、尚未重启就换版本的 enabled 与 disabled 两种场景。
+
+### 6. 安装请求没有绑定预览结果，并发变更后会把用户确认的升级变成未提示的降级
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/backend/plugins/inventory.ts:179-193,233-253`；`packages/neuro-book/src/plugins/plugins/shared/contracts.ts:71-73,103-104`。
+- **现象**：A 预览安装 2.0.0，得到“当前 1.0.0、upgrade”；确认期间 B 安装并启动 3.0.0；A 随后提交同一个路径，成功把共享登记表从 3.0.0 改为待切换 2.0.0，下次启动实际降到 2.0.0。整个 A 流程没有返回要求重新确认的结果。另外，预览后同一路径的清单从 `example.probe@1.0.0` 变成 `example.other@0.5.0`，安装器也直接安装后者。
+- **为什么是问题**：新 `inspect` 是给确认界面用的，但 `install` 只接收 `path`；重新读清单与登记表只证明“现在可以安装”，没有证明“现在执行的仍是刚才告知并确认的操作”。`commit` 的复核仅检查同版本与卸载冲突，未核对预览时的 id/version/current 版本。多进程共用状态根是支持的正常场景，Spec 输出 8.1 要求降级时额外提示已迁移数据，这条竞态绕过该提示。
+- **如何核实**：在 `packages/neuro-book` 执行 `bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/preview-probe.ts`；用真实安装、`inspect`、`prepareInstalledPlugins` 完成状态变化，不改写中间登记表；输出 `confirmed-preview ... relation:upgrade`、`other-server-loaded ... 3.0.0`、`install-after-state-changed ... ok:true`、`actual-next-startup ... 2.0.0`。源清单替换例输出预览 probe、实际安装 other；没有运行或审查 UI。
+- **建议改法**：安装请求携带确认所依据的源 id/version 与登记表当前/待切换版本等前置条件；提交锁内不一致则拒绝，要求重新预览与确认。源清单也要与确认对象核对，不能仅因为路径相同就沿用旧确认。
+
+### 7. 同优先级 semver 被一律分类为降级，版本别名还能绕过同版本拒绝
+
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/backend/plugins/inventory.ts:78-81,192`；`versions.ts:11-13,22-23`。
+- **现象**：已安装 1.0.0 时预览 1.0.0+abc，`semver.compare` 返回 0，`inspect` 却返回 `relation:"downgrade"`；1.0.0 的 `v1.0.0` 与首尾空白写法也同样被允许安装并标为降级。
+- **为什么是问题**：`compare > 0 ? upgrade : downgrade` 漏了相等分支；构建元数据不改变 semver 优先级，相等不代表降低。`semver.valid` 接受并可规范化 v/空白别名，但实现只取布尔值、保留原字符串，冲突检查又按原字符串比较，同一实际版本因此变成多个安装目录，绕过“已安装相同版本”的拒绝。
+- **如何核实**：同一 `preview-probe.ts`，三种输入均先 `inspect`、再走真实安装，三次 `relation:downgrade` 且三次 `ok:true`。另直接实测 `compareVersions("1.0.0+abc","1.0.0") === 0`；不是 semver 库比较错误。
+- **建议改法**：明确定义等优先级的另一构建版本如何展示，不落入“低于当前”的分支；对 v/空白版本别名先规范化或明确拒绝，冲突检查、目录名、列表与清单一致使用规范化身份，同时不要误把不同 build 元数据的策略混同为降级。
+
+### 8. `bin` 的 npm 路径规范化没有复用，部分总包含文件被静默遗漏
+
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/backend/plugins/copy.ts:43-49,108-112`。
+- **现象**：源根有 `cli.js`、`files:[]`、`bin:"../cli.js"` 时，npm 把 bin 规范化为根内 `cli.js` 并打包它，本实现把这一项丢弃，安装成功但只复制 `package.json`。
+- **为什么是问题**：新增总包含规则以“npm 的 bin”为依据，却在本地 `relativeItem` 中直接按原始字符串解释；npm 对 bin 有自己的安全路径规范化，不是去读取父目录里的 cli.js。忽略该字段不是 npm 行为，会让复制产物少文件；若 NeuroBook 入口正是该文件，则入口校验也会失败。这里不建议允许读取根外路径。
+- **如何核实**：`npm-probe.ts` 的 `bin-upward`；npm 的实际文件列表为 `["cli.js","package.json"]`，安装器产物为 `["package.json"]`。普通 `bin` 字符串、对象、带 `./`、指向被 files 排除的文件均已在同一批对照，均能正确总包含。
+- **建议改法**：复用 npm 对 bin 的规范化结果，再对规范化后的源根内普通文件应用本产品边界；或明确以 `manifest-invalid` 拒绝不支持的 bin 写法并调整合同，不要静默把声明过的总包含项丢掉。
+
+## 补充实验与核实
+
+- **发现 3 的失败表现已实测**：`bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/recovery-probe.ts` 的 `main:"lib",files:[]` 样本，`lib/` 里有链接；npm 仅包含 `package.json`，安装器却返回 `path-rejected`，具体路径为 `lib/link.json`。
+- **发现 4 不只是误拒绝**：`bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/extglob-probe.ts` 实测 `files:["!(src)"]` 返回 `ok:true`，并未按已确认决定报 `manifest-invalid`；`copy.ts:129-130` 在检测前先把首个 `!` 当排除号剥掉。其它 4 种 `@(…)`、`?(…)`、`*(…)`、`+(…)` 均被拒绝。这与发现 4 同属扩展表达式识别不正确，应一起用完整词法识别修正。
+- **发现 5、6 已通过真实合同重现**：`bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/rpc-state.ts`，4 个实际 `startServer` 宿主实例、各自真实 WebSocket 客户端和内核 RPC；A 的远程列表仍显示新装 1.0.0 而不是 pending 2.0.0；C 预览 2.0.0→3.0.0 为 upgrade，另一个宿主已切到 4.0.0 后，C 的原确认请求仍成功，下次启动切到 3.0.0。4 个服务端均正常退出 0，客户端运行实例均停止、socket 均关闭。这里是 4 个同进程宿主实例，不冒充 4 个 OS 服务端进程；跨进程锁另由真实安装子进程实验覆盖。
+- **第一轮第 6 条失败路径已实测**：`recovery-probe.ts` 在实际写登记表的临时文件创建后收紧实验根权限，使最终写表以 `EACCES` 失败；返回 `registry-failed`，登记表仍指当前 1.0.0、pending 2.0.0，磁盘只剩 `1.0.0/`、`2.0.0/`，3.0.0 已撤回，未提前删除被替换的旧 pending。
+- **第一轮第 7 条变异已被抓住**：仅在 lab 测试进程内把 `serverPluginDefinitions["nbook.state"].id` 改为 `example.wrong` 后装载原对齐测试，`bun test /tmp/neuro-book/review-w00027-t03-impl-r2/lab/alignment-mutation.test.ts` 得到 **13 pass、1 fail，退出 1**；失败正是 `nbook.state` 对齐用例，报定义自身 id 与清单不一致。没有改仓库文件。
+
+## IPC 实测、时序与边界
+
+1. **超过 128 KB 的实际项目启动**：`bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/project-smoke.ts`；合法清单的字符串默认值分别为 150000、800000 字节，真实子进程在插件装配回调观察到完整描述 JSON 长度 150235、800235，默认值长度原样保留；两次服务端 ready、取得项目租约、关闭退出 0。未用环境变量、文件代传或内部函数替代 IPC。
+2. **Bun 和 Node 的监听前行为不同，不能笼统声称 IPC 都会排队**：`bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/ipc-queue.ts`，子进程先向父进程报告“尚未注册监听”，故意让出事件循环 100 ms，父进程在此期间发送 16、150000、800000 字节三条消息。Bun `1.4.2` 的子进程收到 **0 条、退出 2**；Node `v26.10.0` 的子进程在注册监听后收到 **3 条、退出 0**。这是运行时边界实验，不是当前产品入口丢消息的证明：实际入口在首次异步等待之前同步注册 message 监听，两条真实大清单流程均成功。以后若把首次监听移到异步初始化之后，不能依赖 Bun 排队。
+3. **错误消息与父进程断开的实际结果**：`bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/ipc-failure.ts`；真实 Bun 项目进程与真实路由完成握手，格式错的 `plugins` 不会用空集合继续，进程在等待；先发 `stop`、未发 plugins 也仍在等待。实验观察 150 ms 后断开父通道，两例都结束等待、正常退出 0；握手后没发 plugins 就断开也退出 0；握手前断开则退出 1，stderr 有 `project.connect.failed / disconnected`。前两例在等待期间 stderr/stdout 无诊断，非法消息的 warn 只写入尚未建立文件出口的诊断存储；从管理器代码推断，父通道保持但一直不发合法 plugins 时会到 `startMs` 后被强杀，父进程只得到“没有报告启动结果”的超时原因，本实验没有冒充已经实测这段默认 30000 ms 截止。
+4. **方向与顺序的代码核对**：父管理器拒绝来自子进程的 `plugins`/`stop`，只记 `project.ipc.invalid`，不会改父集合；子进程先注册 message/disconnect 回调再 `node.connect`，成功握手之后仍等 descriptors，只有应用 startup available 才报告 `started:available`。`stop` 先到会记录 pendingStop，应用建立后转交；disconnect 会 settle 未收到的 descriptors 并关闭链路。这些方向性分支为代码核实，未另做伪造子进程 messages 的产品测试。
+
+## 状态组合核对
+
+`list-matrix.ts` 经过公开 `list()` 枚举 **40 组**：启动 absent/enabled/disabled/uninstalling；登记 absent/enabled/disabled/uninstalling；登记存在时版本同、版本不同、存在 pending 三种；登记 absent 不重复排列无意义版本。
+
+| 启动快照 | 最新登记 | 版本/状态组合的实际输出 | 判断 |
+|---|---|---|---|
+| 无 | 无 | 不列出 | 未发现问题 |
+| 无 | 有、未卸载 | install；disabled 时另有 disable | 无 pending 时目标正确；有 pending 时目标版本丢失，见发现 5 |
+| 有、enabled/disabled | 无 | 保留启动版本，uninstall | 第一轮问题已修正 |
+| 有、enabled/disabled | 有、未卸载 | 行保留启动版本；目标不同则 upgrade；状态不同时另有 enable/disable | 覆盖版本同/不同与 pending，未发现新增问题 |
+| 有 | 有、uninstalling | 只有 uninstall，不再同时报升级或启停 | 未发现问题 |
+| 启动记录为 uninstalling | 有、未卸载 | 按没有运行插件的 install 处理 | 有 pending 时同样受发现 5 影响 |
+| 启动记录为 uninstalling | 无或仍卸载中 | 继续显示 uninstall | 属于启动记录仍保留的卸载中行；未把它误报为运行版本已经生效 |
+
+`inspect.relation` 以**共享登记表的当前版本**为比较基准，列表的 upgrade 项以**本进程启动版本**为基准，两个标签不是同一件事。实测 A 启动于 1.0.0、其它宿主已把共享当前切到 3.0.0 时，A 预览 2.0.0 为 downgrade，而本进程的列表 pending 为升级到 2.0.0；降级提示在数据可能已经由另一宿主迁移的前提下有意义，不将这组保守提示本身计为问题。真正的缺口是确认后该基准还能改变且提交不验前置条件，见发现 6。
+
+## 未发现问题的方面
+
+- **登记表语义校验的整表失败与恢复**：`path-probe.ts` 真实验证合法表混入一个非法 id 后，启动不加载任何第三方、list/uninstall 均返回 `registry-failed`；磁盘修回原表后，同一 inventory 的 list 立即恢复，不需要重启。插件页不能自行修坏表，但这不是新卡死缺陷：Spec 的失败码表已明确要求用户修复或移走损坏登记表，不授权管理接口覆盖未知引用。非法版本、保留命名空间与 pendingVersion 同样有结构/语义检查，后几项为代码核对。
+- **正常提交顺序**：替换 pending 在新登记表提交后、仍持同一登记锁时删除，实测写表失败保留原 pending，正常状态转换和两个真实安装子进程同时安装的合同测试通过。startup 的卸载删除、回收 remove 与 writeRecord 的最终 rename 前均有 assertHeld；剩余缺口集中在发现 2 的安装 commit 与普通错误回滚。
+- **回收范围的普通项**：真实回收实验删除临时登记表文件与 `.staging` 下的普通残留文件，保留安装根下不认识的普通文件；带有效准备锁的目录保留，现有合同测试也覆盖。`*.lock` 名字本身被跳过，未把新建、仍被视为活跃的锁目录当成 stale 清理证据。符号链接祖先的越界问题单列发现 1。
+- **npm 标准必含文件与明确点名链接**：README/ReadMe/readme、LICENSE.txt、licence.MD 的大小写与扩展名变体与 npm 一致；bin 字符串/对象、`./` 前缀、bin 指向被 files 排除的文件均正确包含；缺失 main 不凭空复制，不读 `main:"../index.js"` 指向的外部文件。显式 `link.js`、中间链接 `linked/a.js`、`linked/*.js` 与递归 glob 命中 `dist/linked.js` 均正确 `path-rejected`，排除剪枝没有放过本次实测的 4 种范围内链接。
+- **semver 与预发布兼容**：应用版本判断使用 npm semver 默认严格模式，没有 `loose` 选项；`01.0.0`、`=1.0.0`、`1.0.0-01` 均拒绝，正常预发布合法；`v1.0.0`、首尾空白版本接受，后者的身份/分类问题单列发现 7。产品 0.1.0 对 `>=0.1.0-0` 为 true，对 `^0.2.0-beta` 为 false；合法范围首尾空白、`1.0.0 ||`、`||` 接受，`not a range` 拒绝且不匹配产品。内核清单模块无版本正则残留，生产调用方已传必填 `versions`，两包类型检查通过。
+- **宿主与信任接线**：原有服务端关闭、项目绑定/退出、浏览器引导和窗口宿主合同测试通过；第三方不因缺少浏览器内置定义被误判为内置版本不兼容，原 nbook.* 版本检查仍在。没有重新质疑重启生效、完全信任、内置清单对齐测试、产品 0.1.0、跨进程共享登记锁、不能撤销 pending 等已确认决定。第三方代码装载与依赖受阻详情归 t04，不按缺实现报告本轮问题。
+- **错误分支与包边界**：审阅的修订未发现按错误文案分支或新增产品跨包源码深导入；业务错误按码映射到远程合同，Node errno 与 `LockLost` 类型各自分支。暂时读取异常的处理没有以降级成成功的方式掩盖写表失败。
+
+## 实际验证与未运行项
+
+全部命令均已运行；工作目录除另有说明外为 worktree 的 `packages/neuro-book`。普通合同测试合计 **156 pass、0 fail、779 个断言，10 个文件**，变异检验另计。
+
+| 工作目录 | 命令 | 实际结果 |
+|---|---|---|
+| `packages/neuro-book` | `bun test src/backend/plugins src/plugins/plugins/plugins.test.ts src/builtin-manifest.test.ts src/server/projects/manager.test.ts src/server/server-projects.test.ts` | 55 pass、0 fail、439 个断言，5 个文件，7.71 s |
+| `packages/nb-runtime` | `bun test src/plugin-manifest src/remote/delegation.test.ts` | 46 pass、0 fail、133 个断言，2 个文件，172 ms |
+| `packages/neuro-book` | `bun test src/server/server.test.ts src/server/browser-bootstrap.test.ts src/web/host/window.test.ts` | 55 pass、0 fail、207 个断言，3 个文件，7.24 s |
+| `packages/neuro-book` | `bun run typecheck` | 退出 0，tsc 与两份 vue-tsc 均完成 |
+| `packages/nb-runtime` | `bun run typecheck` | 退出 0，普通与浏览器两份 tsc 均完成 |
+| `packages/neuro-book` | `bun test /tmp/neuro-book/review-w00027-t03-impl-r2/lab/alignment-mutation.test.ts` | 预期失败：13 pass、1 fail、退出 1，错误定义 id 被原对齐测试抓到 |
+| `packages/neuro-book` | `bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/project-smoke.ts` | 两个合法大清单均经真实 IPC 进入项目、取得租约、服务端退出 0 |
+| `packages/neuro-book` | `bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/path-probe.ts` | 两种链接祖先越界删除均复现；坏表失败及磁盘修复后 list 恢复均观察到 |
+| `packages/neuro-book` | `bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/takeover.ts` | 真实暂停 11000 ms 与 stale 接管，B 成功后仍被 A 覆盖，12.07 s |
+| `packages/neuro-book` | `bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/npm-probe.ts` | 13 组 npm pack/实际安装对照与 4 组链接拒绝 |
+| `packages/neuro-book` | `bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/list-matrix.ts` | 40 组公开列表输入、真实安装/启动流程及预览基准差异 |
+| `packages/neuro-book` | `bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/preview-probe.ts` | 等优先级误分类、确认时登记状态变化、确认时源身份变化均复现 |
+| `packages/neuro-book` | `bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/rpc-state.ts` | 真实 WebSocket/远程合同复现发现 5、6，4 个宿主退出码均 0 |
+| `packages/neuro-book` | `bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/recovery-probe.ts` | 写表 EACCES 保留旧 pending、新版本回滚；目录型 main 的范围外链接误拒绝；普通回收范围 |
+| `packages/neuro-book` | `bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/extglob-probe.ts` | 6 组，`!(src)` 被错误接受，其余 5 组拒绝 |
+| `packages/neuro-book` | `bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/ipc-queue.ts` | Bun 延迟注册丢 3 条，Node 延迟注册收到 3 条 |
+| `packages/neuro-book` | `bun /tmp/neuro-book/review-w00027-t03-impl-r2/lab/ipc-failure.ts` | 格式错/先 stop 时等待；断开后退出；握手前后断开退出码与诊断如上 |
+
+未运行：e2e、开发服务、生产构建、全量测试、真实 Provider/Model、浏览器 UI/视觉检查。没有运行已知不稳定的 markdown 失同步用例；没有把第一轮报告里的旧测试结果当作本轮证据。没有穷举磁盘满、全部提交崩溃点或每个失锁回滚时序；仅对上表实际覆盖的路径作运行结论，其余已标代码核实/推断。
+
+审查未修改仓库源码、依赖、分支或 Task 快照，没有 commit、push、stash、checkout、删除仓库文件或安装依赖；实验文件与 npm 缓存只在指定 lab 根，唯一指定的报告按追加方式维护。暂停过的自建子进程已恢复并退出；主动建立的宿主、客户端与项目子进程均已收口。普通测试仍按仓库自带临时根规则建立和清理自身 fixture。
+
+## 数量
+
+- **阻断：0 条**
+- **重要：6 条**（第 1–6 条）
+- **建议：2 条**（第 7、8 条）
+- **合计：8 条**
+
+第一轮的 9 条均已逐条核实，其中第 2、4 条修正不完整；其余具体原始输入的修正成立，本轮的新增边界问题见对应发现。没有待开发者授权的修改动作，本报告仅提供审查数据。

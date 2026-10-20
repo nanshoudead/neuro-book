@@ -2,11 +2,11 @@
 /**
  * 命令面板：`host` 状态的受控视图，行为合同见同名 `.md` 与 workbench.quick-open。
  *
- * 一次 accept 只执行一次：记下命令、参数与打开时捕获的目标，关闭面板，等 QuickInput 的 `closed`（焦点已归还）
+ * 一次 accept 只执行一次：记下命令、参数与打开时捕获的目标，关闭面板，等 QuickPick 的 `closed`（焦点已归还）
  * 再执行。先关后执行是为了让命令自己转移的焦点（聚焦编辑器、跳到某行）不被归还焦点夺回。选择模式同理：
  * 选中的结果由宿主在 `closed` 之后才交给发起选择的命令。
  */
-import {QuickInput} from "@notnotype/nb-ui/components";
+import {QuickPick} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, ref, watch} from "vue";
 
 import {currentKeyPlatform, formatKeybinding} from "nbook/plugins/commands/shared/contracts";
@@ -166,7 +166,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <QuickInput
+    <QuickPick
         :open="host.open.value"
         :query="host.query.value"
         :items="items"

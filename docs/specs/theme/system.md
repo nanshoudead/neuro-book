@@ -94,7 +94,7 @@ Plot / Workspace / Reference chip 分类色板是类别识别色，不迁移为�
 
 Reference chip 的外观只由 `app/styles/reference-chips.css` 管理，组件只输出 `is-chapter`、`is-character` 等语义 class。Profile template 节点类型 accent、Markdown 正文颜色选择器、JsonViewer / Monaco 语法高亮和备用 Markdown 内容主题属于内容或第三方编辑器色板，不进入配色契约；只要求其周边普通 UI 使用主题状态色、文本色和阴影变量。
 
-NotificationViewport 挂在页面根节点之外，但配色变量写在 `<html>` 上，所以它直接消费 nb-ui 的配色变量（不再需要 JS 侧混色快照）。
+NotificationStack 挂在页面根节点之外，但配色变量写在 `<html>` 上，所以它直接消费 nb-ui 的配色变量（不再需要 JS 侧混色快照）。
 
 ## 验证
 

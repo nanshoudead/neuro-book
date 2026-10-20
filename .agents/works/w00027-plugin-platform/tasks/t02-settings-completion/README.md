@@ -25,12 +25,23 @@ updated: 2026-10-17
 
 ## 当前状态
 
-2026-10-17 建 Task，未开工。现状：
+2026-10-17 建 Task；2026-10-20 开始写计划。现状：
 
 - 已实现：顶层 `settings.properties` 声明、默认值／用户层／项目层合成、TypeBox 校验、JSONC 保格式编辑、文件监视、跨实例快照、设置窗口（`settings.sections` 的 list 与 page 两类分区）、独立用户编辑授权、`nbook.settings.open` 与 `Mod+,`。
 - 已声明配置：`nbook.settings/locale`、`nbook.workbench/theme`、`nbook.workbench/appearance`、`nbook.editor/{enablePreview,wrapTabs,breadcrumbs}`、`nbook.explorer/{indentGuides,hideMarkdownExtension}`、`nbook.projects/library`。
 - 未实现：`secret`、本机层、`multiline` 等声明字段与通用多值编辑、设置内搜索。
 
+开发者 2026-10-20 的决定：
+
+- t02 提前到 t04 之前做，不与 t04 并行；在 Work 分支 `feat/w00027-plugin-platform` 上做。
+- 本轮范围：数组、对象、多行文本的通用编辑；设置内搜索；打开设置文件；页面的未保存保护；动态选项；“设置分区被显示时激活”的激活事件；声明 API 的易用性（按插件批量声明、list 分区不交空实现、页面直接拿到配置服务）；密钥；Monaco 代码编辑器的排版设置（字体、字号、行高、Tab 宽度、行号、小地图）。Markdown 正文的排版设置不做，留给 w00025。
+- 密钥本轮就做：服务端加密后存在状态根下，主密钥放系统密钥库（Linux 为 Secret Service），没有密钥库时退回状态根下只有本人可读的密钥文件（方案 A）。用 Lab 的“模型服务”示例验证。
+- 设置界面的外观收口另建 [t06](../t06-settings-ui-polish/README.md)，不在本轮。
+
+- 开发者 2026-10-20 定：低代码（[t07](../t07-low-code-forms/README.md)）排在 t02 之前实现，t02 的控件改用低代码的字段；[plan.md](plan.md) 已按此起草，待 t07 的接口定下后回改，再交开发者确认。
+
+说明页：[设置分区的两种画法，与旧应用的 provider 设置](artifacts/settings-sections/index.html)。
+
 ## 下一步
 
-等 t01 与开发者确定本轮落点；开工时先修订 `settings/configuration.md`、`settings-window.md` 的相关条目，再写 `plan.md`。
+写 `plan.md`（先修订 `settings/configuration.md`、`settings-window.md` 的相关条目），要点交开发者确认后交设计审查，再开工。

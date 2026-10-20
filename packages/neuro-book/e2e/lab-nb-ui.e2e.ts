@@ -44,7 +44,7 @@ const popperSide = (page: Page) => page.locator("[data-reka-popper-content-wrapp
 
 test("下拉选择：Enter 展开、向下展开、页面不锁、禁用项选不中、Escape 关闭", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 1200});
-    await openScene(page, "c=FormSelect&s=default");
+    await openScene(page, "c=Select&s=default");
     // 列表打开时 reka 把列表之外的元素标成 aria-hidden，按角色就找不到触发器了，所以用属性选择器。
     const trigger = stage(page).locator('[role="combobox"]');
     await trigger.focus();
@@ -68,7 +68,7 @@ test("下拉选择：Enter 展开、向下展开、页面不锁、禁用项选�
 
 test("下拉选择：指定向上展开时浮层在上方", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 1200});
-    await openScene(page, "c=FormSelect&s=up");
+    await openScene(page, "c=Select&s=up");
     await stage(page).getByRole("combobox").click();
     await expect(page.getByRole("listbox")).toBeVisible();
     await expect(popperSide(page)).toHaveAttribute("data-side", "top");
@@ -76,7 +76,7 @@ test("下拉选择：指定向上展开时浮层在上方", async ({page}) => {
 
 test("下拉选择的长列表：收起成截半高度，键盘走到最后一项时它滚进可见区；富选项带图标与说明", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 1200});
-    await openScene(page, "c=FormSelect&s=long");
+    await openScene(page, "c=Select&s=long");
     await stage(page).locator('[role="combobox"]').click();
     const viewport = page.locator("[data-reka-select-viewport]");
     await expect(viewport).toBeVisible();
@@ -199,7 +199,7 @@ test("菜单栏：方向键在项之间移动并跳过禁用项，禁用项带�
 
 test("下拉菜单：方向键跳过禁用项，禁用项带原因，Enter 选中", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 1000});
-    await openScene(page, "c=Dropdown&s=default&tab=events");
+    await openScene(page, "c=DropdownMenu&s=default&tab=events");
     await stage(page).getByRole("button", {name: "更多操作"}).click();
     const menu = page.getByRole("menu");
     await expect(menu).toBeVisible();
@@ -219,7 +219,7 @@ test("下拉菜单：方向键跳过禁用项，禁用项带原因，Enter 选�
     await expect.poll(() => recordedEvents(page)).toContain("copy-path");
 });
 
-test("内嵌焦点线：键盘聚焦 Tabs 的标签与 Accordion 的标题行时只画一圈 1.5px 的内阴影，没有外扩的光环（t78）", async ({page}) => {
+test("内嵌焦点线：键盘聚焦 Tabs 的标签时只画一圈 1.5px 的内阴影，没有外扩的光环（t78）", async ({page}) => {
     // 计算样式里的 box-shadow 按层拆开（颜色函数里的逗号不算）。
     const focusedShadow = () => page.evaluate(() => getComputedStyle(document.activeElement!).boxShadow.split(/,(?![^(]*\))/u).map((layer) => layer.trim()));
     await openScene(page, "c=Tabs&s=default");
@@ -227,12 +227,6 @@ test("内嵌焦点线：键盘聚焦 Tabs 的标签与 Accordion 的标题行时
     // 方向键换标签：焦点随之移动，是键盘带来的焦点（:focus-visible）。
     await page.keyboard.press("ArrowRight");
     await expect(stage(page).getByRole("tab", {selected: true})).toBeFocused();
-    await expect.poll(focusedShadow).toEqual([expect.stringMatching(/0px 0px 0px 1\.5px inset$/u)]);
-
-    await openScene(page, "c=Accordion&s=single");
-    await stage(page).getByRole("button", {name: /第一卷/u}).focus();
-    await page.keyboard.press("ArrowDown");
-    await expect(stage(page).getByRole("button", {name: /第二卷/u})).toBeFocused();
     await expect.poll(focusedShadow).toEqual([expect.stringMatching(/0px 0px 0px 1\.5px inset$/u)]);
 });
 
@@ -252,28 +246,36 @@ test("折叠内容只在高度动画进行中裁切：展开与收起时打上 d
     const settled = async (): Promise<void> => {
         await expect.poll(() => stage(page).locator("[data-animating]").count()).toBe(0);
     };
-    const openOverflow = () => stage(page).locator(".nb-accordion-content[data-state=\"open\"]").evaluate((content) => getComputedStyle(content).overflow);
+    const openOverflow = () => stage(page).locator(".nb-collapsible-content[data-state=\"open\"]").evaluate((content) => getComputedStyle(content).overflow);
+    const trigger = () => stage(page).getByRole("button", {name: "修订说明"});
 
-    await openScene(page, "c=Accordion&s=single");
+    await openScene(page, "c=Collapsible&s=closed");
     await record();
-    await stage(page).getByRole("button", {name: /第二卷/u}).click();
-    await expect.poll(log).toEqual(expect.arrayContaining(["open:on", "open:off", "closed:on", "closed:off"]));
+    // 点击后动画要过一帧才开始：先等展开动画结束（日志里出现 open:off），再判静止，否则会量到动画开始之前。
+    await trigger().click();
+    await expect.poll(log).toEqual(expect.arrayContaining(["open:on", "open:off"]));
     await settled();
     expect(await openOverflow()).toBe("visible");
+    await trigger().click();
+    await expect.poll(log).toEqual(expect.arrayContaining(["open:on", "open:off", "closed:on", "closed:off"]));
+    await settled();
 
-    // 快速开合：收起的动画被重新展开打断（animationcancel），等重新展开的动画开始再等它结束，同样不留标记。
-    const second = stage(page).getByRole("button", {name: /第二卷/u});
+    // 快速开合：先展开并等它静止，再连点两次——收起的动画被重新展开打断（animationcancel）；之后日志里第一个 open:on
+    // 就是重新展开的那次，等它开始再等它结束，同样不留标记。
+    await trigger().click();
+    await expect.poll(async () => (await log()).at(-1)).toBe("open:off");
+    await settled();
     const before = (await log()).length;
-    await second.click();
-    await second.click();
+    await trigger().click();
+    await trigger().click();
     await expect.poll(async () => (await log()).slice(before)).toContain("open:on");
     await settled();
     expect(await openOverflow()).toBe("visible");
 
     await page.emulateMedia({reducedMotion: "reduce"});
-    await openScene(page, "c=Accordion&s=single");
-    await stage(page).getByRole("button", {name: /第二卷/u}).click();
-    await expect(stage(page).locator(".nb-accordion-content[data-state=\"open\"]")).toContainText("北上的渡口");
+    await openScene(page, "c=Collapsible&s=closed");
+    await trigger().click();
+    await expect(stage(page).locator(".nb-collapsible-content[data-state=\"open\"]")).toContainText("第三次修订");
     await settled();
     expect(await openOverflow()).toBe("visible");
 });

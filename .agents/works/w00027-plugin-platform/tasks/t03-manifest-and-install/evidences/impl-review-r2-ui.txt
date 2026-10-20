@@ -1,0 +1,300 @@
+# w00027 t03 插件页界面审查（第二轮）
+
+审查对象：提交 `7ec47e9d8` 的界面部分（worktree `.worktree/w00027-t03-manifest-and-install`）。实验脚本与截图在 `/tmp/neuro-book/review-w00027-t03-ui-r2/lab/`，均对着 `http://127.0.0.1:4417/` 的 Lab 运行，只改浏览器里的 DOM，不改仓库。组件测试 `bunx vitest run src/plugins/plugins/web/components/PluginsPage.dom.test.ts` 9 条全过。
+
+## 第一轮修正核实
+
+1. 键盘切换开关、对话框关闭后的焦点：成立。开关进行中保持可聚焦（`blockedFor`），安装成功、取消、Esc 后焦点回到打开前的元素（Lab 实测：Enter 打开时回到输入框），卸载成功后到“第三方插件”小标题（Lab 实测 `H3 第三方插件`）。失败后重读列表的路径另列为发现 2。
+2. 读取失败与加载态：成立。三态、失败块带“重试”与 `role="alert"`、加载指示约 200ms 后出现；“还没有安装第三方插件。”只在就绪时出现。“重试”后焦点丢失另列为发现 6。
+3. 失败说明的文字：基本成立。按码给文字、只在 `DETAIL_CODES` 显示详情、未知码给通用文字与字符串详情、`problems` 分行；“固定位置”部分作者接受推动一行的取舍，理由站得住。清单无效仍有复读与 Spec 编号，另列为发现 4。
+4. 结果未知不重读：成立。四个码写出原因后重读列表。
+5. 卸载确认用主色：成立。确认按钮 `variant="danger"`（浅色 5.44:1、深色 4.92:1），行内“卸载”改为 `secondary`。对话框页脚的排法另列为发现 5。
+6. 组件放错目录、没有 Lab 场景：成立。移到 `web/components/`，登记了 9 个场景。
+7. “卸载”的可访问名称：成立。`aria-label="卸载 {id}"`，测试第 134 行覆盖。
+8. 390px 下英文徽标溢出：不成立（只修了一半）。徽标改成可折行，但 nb-ui `Badge` 的高度是写死的，折成两行后文字溢出徽标的底框，另列为发现 1。
+9. 安装确认不区分升级、降级：成立。新增 `inspect` 预览，三种标题与降级提示都有，测试第 162 行覆盖降级。
+10. `.md` 与实现不一致：基本成立。重写后与实现大体一致；残留的几处另列为发现 10。
+11. 每行一个描边框、组标题样式：成立。行改为分割线，组标题与 `SettingsListSection` 的字号、字重、颜色、下划线一致；组间距没有沿用，另列为发现 11。
+12. 安全模式徽标用危险红、“只加载了声明”：成立。改为中性色与“部分功能暂不可用”。
+13. 卸载中的行显示“关”的开关、确认框没说不能撤回：成立。
+14. 三层说明、占位文字当说明、Enter 无反应：成立。分区说明缩到 10 字，标签写明“服务端上的”，Enter 经 `<form @submit.prevent>` 预览。
+15. 英文界面混入中文标点与详情：成立（取舍部分作者已说明）。分隔符改为分行；详情仍为中文是接受的取舍。Spec 编号仍会显示，并入发现 4。
+16. 组件测试缺进行中、取消、读取失败、未知码：成立。补了 5 条；覆盖缺口另列为发现 9。
+17. 失败说明的播报：基本成立。播报区常驻、按序号重挂文字；`:empty` 时 `display: none` 的影响另列为发现 7。
+
+## 发现
+
+### 1. 待生效徽标折成两行后文字溢出徽标（第一轮第 8 条只修了一半）
+
+- **严重程度**：重要
+- **类别**：布局
+- **位置**：`packages/neuro-book/src/plugins/plugins/web/components/PluginsPage.vue:516-520`（`.plugins-page__badge {max-width: 100%; white-space: normal}`）；根因在 `packages/nb-ui/src/components/display/Badge.vue` 的 `sizeClass`（`size="sm"` 时高度固定为 `calc(var(--control-h-sm)*0.68)`）
+- **现象**：页面把徽标改成可以折行，但 `Badge` 的高度是写死的一行高。Lab `long` 场景、手机画布，把待生效徽标换成 `Upgrade to 12.341.0-beta.10+build.20261017.sha.abcdef on restart`（semver 允许预发布段加构建元数据）后实测：徽标 `height 17.67px`、`clientHeight 16`、`scrollHeight 24`，第二行“on restart”画在徽标的底框外面，压到行的分割线上（截图 `/tmp/neuro-book/review-w00027-t03-ui-r2/lab/badge-wrap-phone.png`）。中文“重启后升级到 {version}”遇到同样长的版本号也一样。现有截图里没有暴露，是因为 9 个场景的版本号都短于一行。
+- **为什么是问题**：第一轮第 8 条要的是“窄屏不溢出、不重叠”；现在从“压到开关下面”变成“溢出徽标、压到分割线”，`.md` 布局一节写的“左边的文字与徽标放不下时换行”在徽标内部并不成立。
+- **如何核实**：`node /tmp/neuro-book/review-w00027-t03-ui-r2/lab/badge-wrap.mjs http://127.0.0.1:4417/ "<长文字>" phone <输出.png>`（只改浏览器里的 DOM）。
+- **建议改法**：二选一：给 `.plugins-page__badge` 同时放开高度（`height: auto; min-height: <原高>; padding-block: 1px`），或者不让徽标折行，改为 `max-width: 100%; overflow: hidden; text-overflow: ellipsis` 并把完整文字放进 `title`。更好的做法是让 nb-ui `Badge` 自己支持“可折行”或“省略”（改 `Badge.md`），页面不用覆盖组件内部的 `whitespace-nowrap`。Lab `long` 场景的升级版本号换成带构建元数据的长版本，让截图能看到这种情况。
+
+### 2. 卸载失败后重读列表、这一行的“卸载”消失时，焦点落到 body
+
+- **严重程度**：重要
+- **类别**：可访问性
+- **位置**：`PluginsPage.vue:221-244`（`confirmUninstall` 的失败分支只把 `uninstalling` 置空，`focusAfterUninstall` 仍为 false）、`:140`（`STALE_CODES` 重读）、`:312`（`item.state !== 'uninstalling'` 时才画操作区）
+- **现象**：焦点落点只在成功路径上处理。卸载返回 `uninstall-pending`（另一个服务端已经卸载）、`not-installed`（已经不在）或 `unknown-outcome`（其实已经生效）时，页面写出原因并重读列表；新列表里这一行没有“卸载”或整行消失，对话框把焦点还给已经不在文档里的按钮，焦点落到 body。实测（在测试文件里临时加用例，跑完已 `git checkout` 还原）：聚焦第一个“卸载”→ 确认，替身返回 `uninstall-pending`，下一次 `list` 返回该行为 `uninstalling`，结束时 `document.activeElement` 是 `BODY`；对照的成功路径是 `H3 第三方插件`。
+- **为什么是问题**：第一轮第 1 条要的是“卸载后显式把焦点放到稳定落点”。这三种失败正是“列表已过时”的情形，读屏用户这时刚听到一条失败说明，焦点却丢了，下一次 Tab 从页面开头重来。`unknown-outcome` 在写请求链路中断时一定出现，不是只在理论上存在的路径。
+- **如何核实**：在 `PluginsPage.dom.test.ts` 里临时加一条：`button.focus(); button.click()`，`fake.answerNext({ok: false, code: "uninstall-pending", ...})`，`fake.failNextList({ok: true, value: {safeMode: false, plugins: [BUILTIN, {...HELLO, state: "uninstalling", pending: [{kind: "uninstall"}]}]}})`，确认后等对话框关闭，读 `document.activeElement`。
+- **建议改法**：把“焦点落点”从“卸载成功”放宽为“卸载对话框关闭之后，若打开它的按钮已不在文档里”。例如对话框关闭后、列表重读完成后（`refresh()` 返回之后）检查 `document.activeElement === document.body` 或原按钮 `!isConnected`，是则聚焦第三方插件小标题。同样的检查也覆盖开关所在行在重读后进入卸载中的情况。补一条失败路径的组件测试。
+
+### 3. 深色配色下待生效徽标与“清单无效”“不兼容”徽标的对比度不足
+
+- **严重程度**：重要
+- **类别**：可访问性
+- **位置**：`PluginsPage.vue:307-308`（`size="sm" variant="soft"`，`tone="warning"` 与 `tone="danger"`）；根因在 `packages/nb-ui/src/components/display/Badge.vue:82-93`（`.nb-badge--warning` 的文字是 `color-mix(var(--status-warning) 80%, black)`，深浅两种配色共用）
+- **现象**：Lab 实测（文字色与合成后的背景色，11px、字重 600）：
+  - 深色：待生效徽标（“重启后升级到 …”“重启后安装”）`rgb(204,127,8)` 对 `rgb(73,56,32)`，**3.52:1**；“清单无效”“不兼容” `rgb(255,69,58)` 对 `rgb(69,43,39)`，**3.78:1**。
+  - 浅色：待生效 5.98:1；“清单无效”“不兼容” **4.46:1**（略低于 4.5）。
+  - 对照：中性的“内置”“安全模式未加载”深色 8.09:1、浅色 6.9:1。
+  截图 `PluginsPage__pending__1280x900__dark.png`、`PluginsPage__not-loaded__phone__dark.png` 里琥珀色字在棕底上发糊。
+- **为什么是问题**：11px 的徽标文字按 WCAG AA 需要 4.5:1。这两类徽标是本页最重要的信息（重启后会发生什么、哪个插件没有加载），恰恰是最难读的。警示色在深色下还要再掺黑，是 `Badge` 的写法只按浅色调过。
+- **如何核实**：`node /tmp/neuro-book/review-w00027-t03-ui-r2/lab/contrast.mjs http://127.0.0.1:4417/ pending,not-loaded light,dark`。
+- **建议改法**：根因在 nb-ui：`Badge` 的 soft 色调按配色区分（深色下警示与危险用 `--status-warning` / `--status-danger` 原色，或与 `--text-main` 混合提亮），并在 `Badge.md` 写明两种配色下的最低对比度。本任务不改 nb-ui 时，至少登记为后续事项；页面不要自己覆盖徽标颜色。
+
+### 4. “清单无效”仍然复读原因，并向用户显示 Spec 编号
+
+- **严重程度**：建议
+- **类别**：文案
+- **位置**：`PluginsPage.vue:88`（`manifest-invalid` 在 `DETAIL_CODES` 里）、`:139`（`lines = [detail, ...problems]`）；详情来源 `src/backend/plugins/startup.ts:270`（`"清单不符合 runtime.plugin-manifest"`）、`src/backend/plugins/inventory.ts:177`
+- **现象**：按代码拼出的实际文字：
+  - 一般的清单错误：第一行“插件的清单无效”，第二行“清单不符合 runtime.plugin-manifest”，之后才是出错字段。第二行把第一行再说一遍，还带着 Spec 编号；英文界面里是英文原因下面跟这句中文。
+  - `files` 不是字符串数组：第二行“package.json 的 files 必须是字符串数组”，第三行“files：必须是字符串数组”，同一句话说两遍（第一轮第 3 条举过这个例子）。
+  组件测试第 175 行的替身用的正是 `"清单不符合 runtime.plugin-manifest"`，只断言了原因和字段，没有断言它不出现。
+- **为什么是问题**：第一轮第 3 条的修正目标是“详情只在能补充信息时显示”。对清单无效来说，能补充信息的是 `problems`，`detail` 永远只是“清单无效”的另一种说法。第一轮第 15 条要求不向用户显示 Spec 编号，作者接受的取舍只涉及“补充说明是中文”，不包括编号。
+- **如何核实**：对照 `startup.ts:270`、`inventory.ts:177` 与 `report()` 的拼接；或在 Lab 里让 `inspect` 返回这两种失败。
+- **建议改法**：`manifest-invalid` 有 `problems` 时只显示 `problems`、不显示 `detail`（`problems` 为空时才退回 `detail`）；服务端那句改成不带编号的说法。测试补一条“清单无效不显示 detail”的断言。
+
+### 5. 两个确认框的按钮挤在左下角，与仓库里所有对话框的页脚排法都不同
+
+- **严重程度**：建议
+- **类别**：布局
+- **位置**：`PluginsPage.vue:349-352`、`:363-366`（自定义 `footer` 插槽，按钮没有 `flex-1`，也没有右对齐的容器）；`packages/nb-ui/src/components/feedback/Dialog.vue:215`、`:400-404`（`size="sm"` 时页脚不加 `justify-end`，靠默认按钮的 `flex-1` 填满一行）
+- **现象**：截图 `shots-dialog/PluginsPage__pending__phone__light.png` 与 `__1280x900__light.png`：“取消”“卸载”两颗按钮贴在对话框左下角，右边空着大半行；安装预览框同样（`/tmp/neuro-book/review-w00027-t03-ui-r2/lab/preview-open.png`）。仓库里其它对话框：`sm`、`default` 的默认页脚两颗按钮等宽填满一行（`Dialog.md` “页脚”一条）；`AlertDialog`（书架移除、资源管理器删除这两处危险确认都用它）与自定义页脚（`EditorArea.vue:176`、`FilesExplorerView.vue:244`、`:302`）都靠右。
+- **为什么是问题**：危险确认是注意力最集中的地方，按钮位置与别处不同，用户要重新找；左对齐也让“卸载”落在通常放“取消”的位置附近。另外 `Dialog.md` 的“不支持”一节写着不替代 `AlertDialog` 做破坏性二次确认；这里因为 `AlertDialog` 没有 busy 而改用 `Dialog`，理由成立，但页面 `.md` 没写这个取舍。
+- **如何核实**：看上面两张截图；读 `Dialog.vue:215` 与 `:423-425`。
+- **建议改法**：自定义页脚里给两颗按钮加 `class="flex-1"`（与 `sm` 的默认页脚一致），或包一层 `flex justify-end gap-2`（与 `AlertDialog` 一致），两个确认框取同一种。在 `PluginsPage.md` 的注意事项写一句“卸载确认用 `Dialog` 而不是 `AlertDialog`：要在结算前保持打开、显示进行中”。长期看给 `AlertDialog` 补 busy 更好，可登记为 nb-ui 后续事项。
+
+### 6. 键盘按“重试”之后焦点落到 body
+
+- **严重程度**：建议
+- **类别**：可访问性
+- **位置**：`PluginsPage.vue:157-160`（`retry` 先把 `state` 置为 `loading`）、`:292-295`（失败块连同“重试”按钮被 `v-if` 卸掉）
+- **现象**：Lab `failed` 场景（读取总是失败），聚焦“重试”按 Enter，结束时 `document.activeElement` 是 `BODY`，页面重新显示失败块与一个新的“重试”按钮，但焦点不在它上面。读取成功时同样落到 body（列表里没有可以接住焦点的元素）。
+- **为什么是问题**：键盘用户要连续重试时每次都得从页面开头 Tab 回来；读屏用户重试失败时焦点不在任何地方。
+- **如何核实**：`node /tmp/neuro-book/review-w00027-t03-ui-r2/lab/dialog-close.mjs` 第 3 段，输出 `after retry, focus: BODY ... state: failed`。
+- **建议改法**：重试结束后若焦点在 body，失败时聚焦新的“重试”，成功时聚焦“第三方插件”小标题（已有 `tabindex="-1"` 与函数 ref，可以复用）。或者重试期间不卸掉失败块，只把“重试”置为 `loading`，读完再换。
+
+### 7. 失败说明区空着时是 `display: none`，“常驻的播报区”实际上不在无障碍树里
+
+- **严重程度**：建议
+- **类别**：可访问性
+- **位置**：`PluginsPage.vue:281-286`、`:404-407`（`.plugins-page__problem:empty {display: none}`，注释写“播报区常驻”）；`PluginsPage.md:16`
+- **现象**：`display: none` 的元素不进无障碍树。第一次失败时，`role="alert"` 的容器与文字在同一次渲染里一起出现；成功操作把 `problem` 清空后容器又被移出，下一次失败再一起出现。这正是第一轮第 17 条要避免的“live region 与文字同时出现”。按序号重挂文字只在容器已经可见（连续两次失败、中间没有成功）时起作用。
+- **为什么是问题**：`role="alert"` 在多数浏览器里出现时会触发一次 alert 事件，所以大概率仍会播报，但这依赖 alert 角色的特殊处理，换成 `status`、或在 VoiceOver 与 Safari 组合下不一定成立；注释和 `.md` 的“常驻”与实际不符，后来的人会照着注释以为可以把角色换成 `status`。（从代码推断，未用读屏实测。）
+- **如何核实**：读第 281、405 行；在 Chrome 的无障碍面板里看，没有失败时找不到这个 alert 节点。
+- **建议改法**：容器始终在无障碍树里，空着时不占高度：例如不用 `:empty {display: none}`，改为把失败说明区放进不参与 `gap` 的包装里（或空时 `margin-top` 抵消 `gap`），或用视觉隐藏而非 `display: none`。改不了时把注释与 `.md` 改成如实描述（“依赖 alert 角色出现时的播报”）。
+
+### 8. 加载指示的读屏文字重复，且 `aria-busy` 让它基本不会被播报
+
+- **严重程度**：建议
+- **类别**：可访问性
+- **位置**：`PluginsPage.vue:288-291`；对照 `packages/nb-ui/src/components/display/Spinner.vue`（根是 `role="status"` 加 `aria-label`）与 `src/plugins/settings/web/components/SettingsPageFrame.vue:75-77`
+- **现象**：外层 `div role="status" aria-busy="true"` 里套了 `Spinner :label="正在读取插件…"`（它自己又是一个 `role="status"`，名称是同一句话），后面再跟一个写着同一句话的 `span`。读屏读外层时会读到“正在读取插件… 正在读取插件…”；而 `aria-busy="true"` 的语义是“正在更新，先别播报”，这一块在 busy 解除之前就被 `v-if` 卸掉了，所以多数读屏不会主动播报它。
+- **为什么是问题**：两个嵌套的 status 与重复文字是噪音；同一窗口的 `SettingsPageFrame` 用的是不传 `label` 的 `Spinner`，两处写法不一致（那边的默认名称“加载中”还是写死的中文）。本页的加载只出现在打开分区与“重试”时，影响小。
+- **如何核实**：读模板；`Spinner.vue` 第 30 行。
+- **建议改法**：`Spinner` 的图标在已有可见文字时不该再当 status：要么只留外层 status 加可见文字、把 Spinner 的图标标成 `aria-hidden`（需要 `Spinner` 提供“装饰用”的开关），要么去掉外层的文字只用 `Spinner` 的 `show-label`。`aria-busy` 应放在被更新的区域（列表）上，而不是放在提示自己身上。这一条与 `SettingsPageFrame` 一起改更合适，可登记为后续事项。
+
+### 9. 组件测试：第一轮修正里有六处行为改掉也不会有测试失败
+
+- **严重程度**：建议
+- **类别**：测试
+- **位置**：`packages/neuro-book/src/plugins/plugins/web/components/PluginsPage.dom.test.ts`
+- **现象**：逐个对 `PluginsPage.vue` 做变异、跑组件测试、立即 `git checkout` 还原（结束时 `git status` 对这个文件为空）：
+  - 会被抓到（1 到 3 条失败）：进行中停用全部写控件、不移焦点到小标题、失败后不重读列表、总是显示详情、卸载中仍画开关、表单不提交。
+  - **不会被抓到（9 条全过）**：
+    1. 卸载确认按钮从 `danger` 改回 `primary`（用例标题写着“确认按钮是危险操作”，但没有断言）；
+    2. `closePreview` 去掉 `busy !== "install"` 的守卫（安装进行中按 Esc 或点遮罩会关掉预览框；`Dialog` 的 `busy` 也拦一层，但页面自己的守卫没有测试）；
+    3. 安全模式徽标从中性改回危险色（用例标题写着“中性的”，只断言了存在）；
+    4. 路径为空也调 `inspect`（`.md` 写“路径为空时只把焦点放进输入框”）；
+    5. 加载态去掉 `role="status" aria-busy="true"`（没有任何用例停在加载态）；
+    6. 失败说明不按序号重挂（第一轮第 17 条的修正）。
+  - 另外：没有用例覆盖结算前对话框保持打开（`busy` 期间确认按钮 `loading`、取消停用）、安装失败后对话框关闭并写原因、降级以外的“升级”标题。
+- **为什么是问题**：第一轮第 16 条要求为这些行为补测试；上面 1、3 两条的用例标题声称测了，实际没有断言，读测试的人会误以为有保护。
+- **如何核实**：例如 `sed -i 's/variant="danger" :loading/variant="primary" :loading/' PluginsPage.vue`，跑 `bunx vitest run src/plugins/plugins/web/components/PluginsPage.dom.test.ts`，9 条全过，然后 `git checkout -- PluginsPage.vue`。
+- **建议改法**：卸载用例断言确认按钮的危险外观（按对外可见的 class 或 `data-variant`，看 `Button` 暴露了哪一种）；安全模式用例断言色调；加一条“挂起的 `install` 期间按 Esc，对话框仍在、确认按钮显示进行中，结算后关闭”；加一条“`list` 挂起时根是 `loading`、有 `role=status`”；加一条“空路径提交不调用 `inspect`、焦点在输入框”；同一失败连续两次，第二次的文字节点是新节点。
+
+### 10. `PluginsPage.md` 残留的几处与实现不一致；Lab 替身的顺序与“按 id 排序”矛盾
+
+- **严重程度**：建议
+- **类别**：文档
+- **位置**：`PluginsPage.md:16`、`:17`、`:26`、`:48`、`:67`；`src/plugins/lab/web/fixtures/PluginsPageFixture.vue:26-31`、`:50`
+- **现象**：
+  1. 第 17 行“组内按 id 排序”：页面不排序，只按 `list` 返回的顺序分组（`PluginsPage.vue:119-122`）；排序是服务端 `inventory.ts:296,299` 做的，合同 `contracts.ts` 的 `ListSchema` 没有写列表有序。Lab 的 `pending` 场景按 hello、notes-lite、quiet、gone 的顺序摆，截图 `PluginsPage__pending__*.png` 里“example.gone”排在最后，与 `.md` 不符；替身安装成功后把新插件插到最前（`:50`）。
+  2. 第 26 行“关闭后焦点回到‘安装…’”：在输入框按 Enter 打开时，关闭后焦点回到输入框（Lab 实测 `INPUT data-plugin-path`），只有点按钮打开时才回到“安装…”。行为本身合理，是文档写窄了。
+  3. 第 48 行 data 属性清单漏了实现与测试都在用的 `data-plugin-install-confirm`、`data-plugin-uninstall-confirm`；也没说明 `data-plugin-problem` 只在有失败时出现（没有失败时选不到这个区域）。
+  4. 第 67 行说详情在“路由层失败”时显示：实际只有不认识的码显示详情，`unavailable`、`timeout`、`unknown-outcome` 有固定文字、不显示详情（`PluginsPage.vue:82-88`）。
+  5. 第 16 行“常驻的读屏播报区”，见发现 7。
+- **为什么是问题**：`components.md`：文档描述的是当前应该成立的行为，实现与之不符即为缺陷；照 `.md` 写 e2e 选择器或验收的人会先失败一次。
+- **如何核实**：逐条对照上面的行号；看 `pending` 场景截图的行顺序。
+- **建议改法**：二选一：页面自己按 id 排序（不依赖服务端的未写明行为），或把“按 id 排序”写进合同 `list` 的注释、`.md` 改成“按服务端给的顺序（按 id）”；Lab 替身的第三方插件按 id 排好。其余几处按实现改写，补两个确认按钮的 data 属性。
+
+### 11. 组与组、安装区与第一组之间只有 8px，没有沿用设置列表的分组节奏
+
+- **严重程度**：建议
+- **类别**：布局
+- **位置**：`PluginsPage.vue:372-376`（根 `gap: var(--space-4)`，即 8px，横幅、安装区、失败说明、两组共用）、`:465-474`（组标题没有 `margin-bottom`）；对照 `src/plugins/settings/web/components/SettingsListSection.vue` 的 `.settings-list-section {gap: var(--space-7)}`（24px）与组标题 `margin: 0 0 var(--space-2)`
+- **现象**：截图 `PluginsPage__pending__phone__light.png`：“第三方插件”的最后一行分割线（约 y=278）与“内置插件”小标题（约 y=295）、小标题自己的下划线（约 y=309）挤在 30px 里，看起来像两条线夹着一行字，而不是一个新的分组开始；安装输入框底边（约 y=98）到“第三方插件”只有 8px，安装区与列表读成一体。同一窗口其它分区的组间距是 24px。
+- **为什么是问题**：第一轮第 11 条的修正把组标题样式对齐了设置列表，但分组靠的是间距，间距没对齐，分组感仍然弱；用户在两种分区之间切换时节奏不一致。
+- **如何核实**：看截图；对照两份样式。
+- **建议改法**：两组放进一个 `gap: var(--space-7)` 的容器（或给 `.plugins-page__group + .plugins-page__group` 加上外边距），安装区与第一组之间也用同样的间距；组标题补 `margin-bottom: var(--space-2)`。更好的是把组标题样式抽成两处共用的类，免得以后再漂移。
+
+### 12. 关闭确认框时内容先被清空，淡出的 120ms 里对话框塌成空壳
+
+- **严重程度**：建议
+- **类别**：布局
+- **位置**：`PluginsPage.vue:339`（`preview === null ? ''`）、`:343`（`v-if="preview !== null"`）、`:351`（确认按钮文字）、`:362`（`uninstalling === null ? ""`）；`Dialog.vue` 的 `nb-dialog-out` 动画（`--motion-fast`，120ms）
+- **现象**：两个对话框的开合都由同一个数据（`preview`、`uninstalling`）驱动，关闭时这个数据立刻置为 null，正文、标题与确认按钮的文字在淡出动画开始前就没了，面板高度按内容收缩。Lab 实测：卸载确认点“卸载”后 30ms 截图，对话框里只剩标题“卸载插件”与两颗按钮，正文已空、面板变矮（`/tmp/neuro-book/review-w00027-t03-ui-r2/lab/uninstall-closing.png`）；安装预览框关闭时标题变成空的 `sr-only`“对话框”、确认按钮变成没有文字的空按钮。
+- **为什么是问题**：每次确认或取消都会闪一下“缩水的空对话框”，正好在用户视线所在的位置；动画本来是为了让关闭平滑，现在反而制造了一次跳动。开了“减少动态效果”的用户不受影响。
+- **如何核实**：`node /tmp/neuro-book/review-w00027-t03-ui-r2/lab/dialog-close.mjs` 第 2 段生成的截图。
+- **建议改法**：开合与内容分开：用一个 `open` 布尔量控制 `model-value`，`preview`、`uninstalling` 保留到对话框真正关闭之后再清（`Dialog` 没有 `closed` 事件的话，在下一次打开时覆盖即可，内容不需要清）。
+
+### 13. 失败码到文字、详情、重读的三张表都是 `string` 键，合同加码或写错码时编译器不报
+
+- **严重程度**：建议
+- **类别**：代码质量
+- **位置**：`PluginsPage.vue:70`（`FAILURE_TEXT: Record<string, LocalizedText>`）、`:88`、`:90`（`new Set([...])` 推断为 `Set<string>`）；合同 `src/plugins/plugins/shared/contracts.ts:94`（`PluginFailureCode`）、`nb-runtime/src/remote/protocol.ts:28-39`（`REMOTE_FAILURE_CODES`）
+- **现象**：逐一核对，当前三张表与合同一一对应：业务码 11 个全有文字；路由层码给了 `unavailable`、`timeout`、`unknown-outcome` 三个，其余 7 个（`invalid-input`、`denied`、`target-gone`、`not-provided`、`version-changed`、`cancelled`、`provider-error`）落到“操作没有完成”加字符串详情，符合 `.md`；`DETAIL_CODES`、`STALE_CODES` 里没有拼错的码。但这只是现在碰巧对：合同以后加一个业务码，页面会静默显示“操作没有完成”；把 `"uninstall-pending"` 拼错成 `"uninstall-pendng"` 也能编译通过，只是那个码不再重读列表。
+- **为什么是问题**：这三张表是页面失败处理的全部依据，第一轮第 3、4 条的修正都落在它们身上；合同已经导出了 `PluginFailureCode`，用上它没有成本。
+- **如何核实**：读第 70、88、90 行的类型。
+- **建议改法**：业务码的文字写成 `satisfies Record<PluginFailureCode, LocalizedText>`（漏码即报错），路由层码单独一张 `Partial<Record<RemoteFailureCode, LocalizedText>>`；两个集合写成 `ReadonlySet<PluginFailureCode | RemoteFailureCode>`。
+
+### 14. 进行中的反馈：预览与切换没有可见指示；确认按钮的 `loading` 会把它自己停用，焦点掉出对话框
+
+- **严重程度**：建议
+- **类别**：可访问性
+- **位置**：`PluginsPage.vue:277`（“安装…”只有 `aria-busy`）、`:313-319`（开关进行中没有任何变化）、`:351`、`:365`（确认按钮 `:loading`）；`packages/nb-ui/src/components/controls/Button.vue:63`（`:disabled="props.disabled || props.loading"`）
+- **现象**：
+  1. 预览进行中，“安装…”看起来与平时完全一样（`aria-busy` 不可见）；`inspect` 要在服务端读清单、核对登记表，远程部署或磁盘慢时用户会以为没点上而再点或再按 Enter（处理函数会忽略，但用户得不到反馈）。
+  2. 切换开关时开关是受控的，请求结算前它停在旧位置、不动也不转圈，看起来像没点上。
+  3. 两个确认按钮用 `loading`，而 `Button` 的 `loading` 会设 `disabled`。用键盘在确认按钮上按 Enter 后，按钮立刻停用，按浏览器的焦点修正规则焦点落到 body（第一轮第 1 条在 Chrome 里实测过同一机制），直到对话框关闭才由 `Dialog` 还给打开它的元素。安装要复制整个插件文件夹，这段时间可以有几秒。（第 3 点从代码推断：Lab 的替身立即结算，没有在浏览器里看到挂起的中间态。）
+- **为什么是问题**：第一轮第 1 条修正的原则是“正在操作的控件保持可聚焦，重复操作由处理函数忽略”，开关做到了，确认按钮没有；ui-development-spec 要求进行中有可见状态。
+- **如何核实**：读上面几行与 `Button.vue:63`；在真实服务上安装一个较大的插件文件夹，键盘确认后在开发者工具里看 `document.activeElement`。
+- **建议改法**：“安装…”在预览进行中用 `loading` 的外观但不停用（nb-ui `Button` 目前做不到，需要一个“只显示进行中、不停用”的选项，或页面在按钮里自己放 `Spinner`）；确认按钮同理，重复点击已由 `confirmInstall`、`confirmUninstall` 开头的 `busy` 判断挡住。开关进行中可在旁边显示一个小 `Spinner`，或给开关加 `aria-busy`。
+
+### 15. 重读列表不占用 `busy`、也不按代次丢弃过期结果，可能用旧列表盖掉刚完成的写操作
+
+- **严重程度**：建议
+- **类别**：正确性
+- **位置**：`PluginsPage.vue:140`（`void refresh()`）、`:143-155`（`refresh` 直接覆盖 `items`）、`:201-203`（安装成功后 `busy` 已为 null 再 `await refresh()`）、`:216`、`:235`（写操作成功后 `replace`）
+- **现象**：安装成功或失败码在 `STALE_CODES` 里时，页面发出 `list`，同时 `busy` 已经是 null，开关与“卸载”都可用。若用户在列表回来之前切了一个开关，而服务端处理 `list` 时读到的是切换之前的登记表（服务端的 `list` 不进写操作的串行队列，见 `inventory.ts:291`），`list` 的结果晚于切换的结果到达时会整体覆盖 `items`，刚出现的“重启后禁用”徽标消失，开关跳回旧值，但登记表已经改了。连按两次“重试”或重试与失败后的重读并发时，两个 `list` 的结果也可能乱序落地。（从代码推断，窗口只有一次往返，未复现。）
+- **为什么是问题**：列表与登记表不一致，而页面不会再自己重读；用户看到的开关状态是错的，再切一次会得到与预期相反的结果。
+- **如何核实**：读 `refresh`、`toggle`、`replace` 的先后；在组件测试里让 `list` 挂起、期间完成一次 `disable`、再结算 `list` 为旧列表即可复现。
+- **建议改法**：`refresh` 记一个递增代次，只接受最新一次的结果，且写操作完成时让进行中的读作废（或写完再读一次）；或者重读期间也占用 `busy`（例如 `busy = "refresh"`），与写操作互斥。
+
+### 16. 浅色下几处承载关键信息的 11px 淡色字只有 3.5:1
+
+- **严重程度**：建议
+- **类别**：可访问性
+- **位置**：`PluginsPage.vue:385-391`（输入框标签与空组说明用 `--text-muted`、`--text-xs`）、`:533-539`（“清单无效”“不兼容”的原因行）、`:571-577`（确认框里的安装路径）、`:423-428`（失败详情行）
+- **现象**：Lab 实测浅色配色：输入框标签“服务端上的插件文件夹”、版本号、原因行（“要求 NeuroBook >=2.0.0，当前是 0.1.0”）、空组说明，都是 `rgb(139,133,123)` 对 `rgb(254,250,243)`，**3.52:1**；确认框里的路径 **3.55:1**（11px 等宽）。深色下是 4.29:1 与 4.24:1。
+- **为什么是问题**：版本号是元信息，淡一些可以接受；但标签是表单里唯一的说明，原因行告诉用户插件为什么没加载、该怎么办，确认框里的路径是用户最后核对“装的是不是这个文件夹”的地方，三者都低于小字的 4.5:1。设置窗口里别的分区同样用 `--text-muted` 写说明，所以这是一贯的写法，但本页的这几处不是可有可无的补充。
+- **如何核实**：`node /tmp/neuro-book/review-w00027-t03-ui-r2/lab/contrast.mjs http://127.0.0.1:4417/ not-loaded,empty light`；`dialog-contrast.mjs`。
+- **建议改法**：标签、原因行、失败详情改用 `--text-secondary`（与组标题同色，浅色 7.37:1）；确认框里的路径用 `--text-secondary` 或 `--text-main` 的 `--text-sm`。版本号保持淡色。
+
+### 17. Lab 与组件测试的替身用 `as unknown as` 关掉了与合同的形状核对
+
+- **严重程度**：建议
+- **类别**：测试
+- **位置**：`src/plugins/lab/web/fixtures/PluginsPageFixture.vue:84-85`、`PluginsPage.dom.test.ts:18`、`:76`
+- **现象**：做了替换检查（改完即 `git checkout` 还原）：
+  - Lab 替身把 `as unknown as PluginsRegistry` 换成类型标注后，`vue-tsc` 只报一处：`list: () => Promise<unknown>`，原因是 `loading` 场景的 `new Promise(() => undefined)` 推断成 `Promise<unknown>`，把整个 `list` 的返回类型拉成了 `unknown`。其余五个方法的形状都与合同相符。也就是说，强转掩盖的不是真实的形状错误，而是一处很容易修的推断问题；但注释“类型按合同客户端核对输入输出的形状”与实际相反，强转之后什么都没核对。
+  - 测试替身的 `Outcome` 把失败码写成 `string`、成功值写成 `unknown`，换成 `satisfies Registry` 后报错。当前用到的失败（`manifest-invalid` 带 `problems`、`denied` 带字符串详情、`registry-failed`、`unknown-outcome`、`uninstall-pending`）都符合合同，没有发现掩盖了错误形状。
+- **为什么是问题**：合同的输出以后变了（例如 `InstallPreview` 加字段、`notLoaded` 改形状），Lab 场景与组件测试照样编译通过，界面在替身上看起来正常，真实服务上才出错。仓库测试规范要求“替身要与真实实现对过契约”。
+- **如何核实**：把 `PluginsPageFixture.vue:85` 改成 `const registry: PluginsRegistry = client;`，跑 `bunx vue-tsc --noEmit -p tsconfig.web.json`，只有上面一处错误；测试文件同理用 `tsconfig.browser-test.json`。
+- **建议改法**：Lab 替身写 `new Promise<never>(() => undefined)`，去掉强转、改为类型标注，让注释成真；测试替身的 `Outcome` 用 `RemoteResult<unknown, PluginFailureCode>` 的失败分支类型，`write` 按方法的返回类型泛型化，或至少对每个方法单独 `satisfies PluginsRegistry[方法名]`。
+
+### 18. Lab 场景摆不出失败说明、进行中与两个确认框，第一轮最主要的几处修正都没法截图核对
+
+- **严重程度**：建议
+- **类别**：测试
+- **位置**：`src/plugins/lab/web/fixtures/index.ts`（PluginsPage 的 9 个场景）、`src/plugins/lab/web/fixtures/PluginsPageFixture.vue:55-83`（写方法全部立即成功）
+- **现象**：`.md` 的“状态”一节列了加载中、读取失败、空、进行中、安全模式、卸载中，布局一节还有“失败说明区”。9 个场景覆盖了前者中的 5 个，但：
+  - **失败说明区**没有任何场景能摆出来：替身的 `inspect`、`install`、`enable`、`disable`、`uninstall` 永远成功。第一轮第 3、15、17 条的修正（按码给文字、详情分行、英文界面的混排、长路径折行）都落在这里，却只能读代码。
+  - **进行中**没有场景：替身立即结算，看不到“只停用别的写控件”的外观，也看不到发现 14 说的确认按钮停用。
+  - **安装预览框**要先输入路径，`lab:shot` 做不到（审查说明里也提到了）；降级场景因此只能在测试里看文字，看不到排版。
+- **为什么是问题**：ui-development-spec 4.4 的接线清单要求新区段登记 Lab 场景，目的是每个状态都能看、能截图、能跑溢出与焦点环机检；现在机检只覆盖了列表本身。
+- **如何核实**：读 fixture 的写方法；`bun run lab:shot -- -c PluginsPage` 的输出里没有失败说明与对话框。
+- **建议改法**：加一个“写操作失败”场景，开关与“卸载”返回 `manifest-invalid` 之类带 `problems` 的失败（配合 `lab:shot --click "[data-plugin-toggle]"` 即可截到失败说明，中英各一）；加一个“进行中”场景，写方法永不结算；预览框可以让 fixture 在场景 `preview-upgrade`、`preview-downgrade` 挂载后自动提交一个示例路径（或给 `lab:shot` 加一个 `--fill <选择器>=<值>`），让截图脚本能打开它。
+
+### 19. Spec 输出 7 的“界面持续显示安全模式标识”只在插件页里成立，没有记为不做
+
+- **严重程度**：建议
+- **类别**：文档
+- **位置**：`PluginsPage.vue:271`（安全模式横幅只在本页）；`docs/specs/runtime/plugin-install.md` 输出 7；`PluginsPage.md:8`（声明实现输出 7）与“不支持”一节；Task `README.md` 的非目标
+- **现象**：Spec 输出 7 写“界面持续显示‘安全模式’标识”。全仓库只有本页读 `safeMode` 并画横幅（`grep -rln safeMode packages/neuro-book/src` 里界面文件只有 `PluginsPage.vue`），用户不打开“设置 → 插件”就不知道这次是安全模式启动，第三方插件的界面与命令为什么都不见了。`.md` 却说本页实现了输出 7，“不支持”一节与 Task 的非目标都没有提这一点。
+- **为什么是问题**：安全模式是插件拖垮启动之后的恢复手段，用户进来时往往正困惑“东西去哪了”；只在一个二级页面里提示，等于没有“持续显示”。现在安全模式只能用环境变量进入，影响暂时小，但缺口应当被记下来，而不是被 `.md` 的“实现输出 7”盖住。
+- **如何核实**：`grep -rln "safeMode" packages/neuro-book/src`；对照 Spec 输出 7。
+- **建议改法**：本轮不做全局标识的话，在 `PluginsPage.md` 的“不支持”与 Task 记录里写明“全局的安全模式标识（例如状态栏）不在本页，归某个后续 Task”，并回指 Spec 输出 7；做的话，由工作台在状态栏或标题栏常驻一个“安全模式”标记，数据可以复用 `list` 的 `safeMode` 或引导响应。顺带：Task `README.md` 的非目标仍写“不同版本安装本轮返回明确失败，要求先卸载”，与现在的升级、降级预览不符，应同步。
+
+### 20. 组件测试不卸载挂载的组件，打开着的对话框留在全局的模态栈里
+
+- **严重程度**：建议
+- **类别**：测试
+- **位置**：`PluginsPage.dom.test.ts:13-15`（`afterEach` 只清 `document.body.innerHTML`）、`:92-96`（`mount(..., {attachTo: document.body})` 的返回值没有登记卸载）、`:162-170`（降级用例结束时预览框仍然打开）
+- **现象**：每条用例挂一个 `PluginsPage`，结束时只清空 DOM，不调 `wrapper.unmount()`。Vue 实例、`watch`、reka 在 `document` 上的 Escape 与外部点击监听、焦点范围栈，以及 nb-ui `Dialog` 的“全应用一份的已打开模态列表”（`Dialog.md` 的 `env:global` 一条）都留到后面的用例里。降级用例结束时预览框是打开的，之后卸载用例再打开对话框时，模态列表里多了一个已经没有 DOM 的旧对话框，层级与焦点栈都受它影响。同目录别的组件测试（`WorksSettingsPage.dom.test.ts:27-30`、`SettingsWindow.dom.test.ts:26-29`）都在 `afterEach` 里先逐个卸载再清 DOM。
+- **为什么是问题**：现在 9 条都过，但卸载后焦点落到小标题这类断言依赖焦点栈与对话框关闭的时序，残留实例会让结果取决于用例顺序；以后加“Esc 不关闭进行中的对话框”之类的用例时，旧实例的 Escape 监听也会响应。
+- **如何核实**：读第 13-15、92-96 行；在降级用例末尾打印 `document.querySelectorAll("[role=dialog]").length` 为 1，`afterEach` 之后 DOM 被清，但实例没有卸载。
+- **建议改法**：与同目录测试一致：`open()` 把 `wrapper` 推进一个清理列表，`afterEach` 里先 `unmount()` 再清 DOM。
+
+### 21. 安装、卸载成功后读屏用户听不到结果；卸载后的焦点落点不说明发生了什么
+
+- **严重程度**：建议
+- **类别**：可访问性
+- **位置**：`PluginsPage.vue:201-203`（安装成功只清空输入框并重读）、`:232-235`、`:239-244`（卸载成功后聚焦小标题）、`:270`（说明横幅是 `Banner`，`role="status"`）
+- **现象**：成功时页面不写任何播报文字。读屏用户能听到的只有：说明横幅从“安装、卸载……在下一次启动后生效”换成“有待生效的变化……”（`Banner` 是 `role="status"`，文字变化会播报）——但这只在第一次出现待生效变化时发生，之后再安装、卸载，横幅文字不变，什么也听不到。卸载成功后焦点落到“第三方插件”小标题，读屏念“第三方插件，标题 3”，听不出卸载有没有成功，要自己往下找那一行的“重启后卸载”徽标。
+- **为什么是问题**：失败有 `role="alert"` 的说明，成功却完全静默，键盘与读屏用户只能靠猜；卸载是不可撤回的操作，确认之后最需要一句“已经记下”。
+- **如何核实**：读上面几行；成功路径上 `problem` 被置为 null，没有别的播报区写入文字。
+- **建议改法**：失败说明区扩展为“操作结果”播报区，成功时写一句中性的确认（例如“已记下：重启后卸载 example.hello”，`role="status"`，与失败的 `alert` 分开）；或者卸载后把焦点放到这一行本身（`li` 加 `tabindex="-1"` 与可访问名称），读屏会念出 id 与“重启后卸载”。
+
+### 22. 两条 `Banner` 放在设置窗口的内容列里面，不在容器顶边；需要真实窗口的截图核对
+
+- **严重程度**：建议
+- **类别**：布局
+- **位置**：`PluginsPage.vue:270-271`；`packages/nb-ui/src/components/feedback/Banner.md` 第 7、11 行（“满宽、平铺”“只有一层底边线，没有圆角与投影：它是容器顶部的一节”）
+- **现象**：`Banner` 按合同是贴着容器顶边、左右满宽的一节，只有底边线。本页是 `layout: "column"` 的 page 分区，设置窗口在它上面画分区标题与说明，左右有内容列的内边距（`settings-window.md` 输出 3）。于是横幅落在说明文字下面、两侧留白之间，成了一块左右和上边都没有边、只有底线的色块；安全模式下两条叠在一起，是两块各带一条底线的色块。Lab 的画布没有设置窗口的外框，36 张截图里横幅贴着画布顶边，看不出这个问题。（从代码与合同推断，未在真实设置窗口里截图。）
+- **为什么是问题**：用错位置的 `Banner` 读起来像没画完的卡片；设置窗口其它分区的状态说明（`settings-window.md` 输出 13 的“分区顶部一行说明”）用的是一行文字，不是横幅。
+- **如何核实**：请主 Agent 在开发服务里打开“设置 → 插件”截一张 1280x900 与一张安全模式下的图（`NEURO_BOOK_SAFE_MODE=1`），看横幅与分区说明、内容列边距的关系。
+- **建议改法**：截图确认问题后二选一：改用带圆角与四边描边的内联提示（nb-ui 若有 `Callout`/`Alert` 一类组件就用它，没有就按设计语言“什么时候画框”用 `--status-*-bg` 加 `--radius-md`），或者把“下一次启动生效”的常驻说明并入分区说明（设置窗口已经画了它），只在有待生效变化与安全模式时出现提示。
+
+### 23. 行内操作失败时，失败说明写在页面顶部，列表滚下去以后看不到
+
+- **严重程度**：建议
+- **类别**：正确性
+- **位置**：`PluginsPage.vue:281-286`（失败说明区在安装区下方、列表上方）、`:206-217`、`:221-236`（开关与卸载的失败都写到这里）
+- **现象**：开关或“卸载”失败时，原因只写在页面顶部。设置窗口的内容列会滚动；第三方插件多、或窗口矮（手机画布 844px 高时顶部横幅、安装区之后大约能放 15 行）时，用户在下方某一行上操作失败，屏幕上看不到任何变化：开关停在原位（受控值没变），失败说明在视口之外。读屏用户有 `role="alert"` 不受影响，受影响的是看屏幕的用户。
+- **为什么是问题**：第一轮第 3 条接受“推动一行”的取舍时，默认失败说明在视野里；行内操作的失败离操作点最远，恰恰最容易被错过，用户会以为点了没反应而反复点。
+- **如何核实**：读模板；在 Lab 里把内置插件之前的第三方插件加到 20 个以上、让写操作失败即可看到（需要发现 18 的“写操作失败”场景）。
+- **建议改法**：行内操作失败时把失败说明区 `scrollIntoView({block: "nearest"})`；或者行内操作的失败在这一行下面另起一行显示（与“清单无效”的原因行同样的位置），顶部的说明区只给安装用。
+
+## 未发现问题的方面
+
+- 焦点：开关进行中保持可聚焦，重复切换被忽略（测试第 206 行，变异检查会失败）；安装预览框取消、Esc、确认成功后焦点回到打开它的元素（Lab 实测）；卸载成功后焦点到小标题（Lab 与测试都成立）；`inspect` 进行中重复按 Enter 被 `startInstall` 开头的判断挡住，不发第二个请求。
+- 对话框：两个确认框在 `busy` 时 `Dialog` 拦下 Esc、遮罩与关闭按钮，页面自己的 `closePreview`、`closeUninstall` 也有守卫，自定义的“取消”在进行中停用；卸载确认的危险按钮对比度浅色 5.44:1、深色 4.92:1；降级提示浅色 5.27:1、深色 7.05:1；按钮顺序“取消、卸载”与 `AlertDialog` 一致；标题与正文区分安装、升级、降级，降级另有数据提示，完全信任的说明三种情况都有。
+- 失败码：业务码 11 个都有文字；`DETAIL_CODES`、`STALE_CODES` 与合同一一对应，没有拼错或多余的码；未知码显示通用文字加字符串详情；读取列表失败与写操作失败分开呈现。
+- 布局：300px、手机与 1280 宽下无溢出（`lab:shot` 报告溢出 0、越界 0、焦点环被裁 0）；超长 id 与版本正常折行；控件在放不下时换到下一行靠右；加载块在不可见的 200ms 里也占住高度，出现时不推动布局；减少动态效果时延时仍然保留（动画没有用 `--motion-*`）。
+- `plugin.ts`：分区声明符合 page 分区要求，`.vue` 只在 `load()` 里动态导入，语言经 `computed` 响应式传入。
+- Lab 替身除 `list` 的返回类型推断外，形状与合同相符；测试没有固定时长等待与假计时器。
+- 类型检查：`bun run typecheck` 通过（worktree 里另有别人未提交的后端改动，结果包含它们）。
+
+## 数量
+
+- 阻断：0
+- 重要：3（第 1–3 条）
+- 建议：20（第 4–23 条）

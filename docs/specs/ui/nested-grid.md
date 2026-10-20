@@ -40,7 +40,7 @@ owners:
 - 逻辑sash保持1 CSS px，fine/coarse热区边距5/15；可见线为居中3px覆盖层，不挤压内容。有效悬停立即显示width→ew-resize、height→ns-resize、同scope双轴→move；连续命中同一获胜scope满250ms后opacity渐显，交汇增减命中不重置计时、不闪烁。
 - pointerdown成功和键盘focus-visible立即全亮，active离开线盒仍保持。reduced-motion取消渐变但保留hover延迟。非active仅buttons=0可占hover/cursor，拖View/Editor Tab/选择文本经过热区不得抢光标；退出/失焦/禁用/卸载清临时document cursor与timer。
 - pointer按原始baselineBoundary+累计delta求绝对边界；收起/展开只改约束，不以记忆尺寸重锚。低于min−24收起，回到max(min,collapsedSize+24)且容量允许时展开；可行展开区线与指针减grabOffset误差≤1 CSS px。按钮/Enter显式恢复才用restoreSize。
-- 每个公共GridRenderer独占scope；hover/capture按composedPath由内向外共用有效命中赢家。最内无命中或禁用才让外层；同scope最多双轴一场，不跨独立scope拼事务。
+- 每个公共NestedGrid独占scope；hover/capture按composedPath由内向外共用有效命中赢家。最内无命中或禁用才让外层；同scope最多双轴一场，不跨独立scope拼事务。
 
 ## 状态与转换
 
@@ -101,7 +101,7 @@ nb-ui 拥有领域无关的类型、算法和交互边界；主应用/插件拥�
 
 结构操作补齐**拆分叶**：`splitLeaf(targetId, {branchId, orientation, side, leaf, ratio})` 把一个叶原位换成新分支——新分支继承目标的外部分配意图，两个子叶按 `ratio` 分掉目标在新轴上的意图（新轴意图为 0 时两端取统一正权重，均分不塌成 0）。只开放比例、不开放 `size`：否则初始意图会出现两个 authority。`left/top → before`、`right/bottom → after` 的宿主词汇映射留在交互层。节点数与嵌套深度上限由结构操作与快照恢复共用同一判定，拆分失败不改树。
 
-渲染层是 nb-ui 的 `GridRenderer`：每个分支一个 `Splitter`、叶交给插槽，几何只有 CSS px 一种口径（`gridBranchSizesPx` / `buildGridBranchPanels` 只是把布局投影成面板配置）。`GridRenderer` 独占一份 `useSashGesture` 会话：一次按下命中的最多两根轴属于同一场手势，拖动中发布预览布局（子树随父盒实时变化），松手把一次 `GridGestureCommit` 交给宿主的 `onGestureCommit`，由宿主用 `grid.resizeBranches(changes)` 一次原子落账；不再有百分比换算、`resizeBranch` 逐分支提交或 Reka 拖动通道。主工作台宿主与编辑器工作区宿主共用同一份实现。编辑器工作区当前只消费单组（一个叶）路径；真实产品的多编辑组及其会话、存储合同是后续独立能力，不因共用渲染层而成立。
+渲染层是 nb-ui 的 `NestedGrid`：每个分支一个 `Splitter`、叶交给插槽，几何只有 CSS px 一种口径（`gridBranchSizesPx` / `buildGridBranchPanels` 只是把布局投影成面板配置）。`NestedGrid` 独占一份 `useSashGesture` 会话：一次按下命中的最多两根轴属于同一场手势，拖动中发布预览布局（子树随父盒实时变化），松手把一次 `GridGestureCommit` 交给宿主的 `onGestureCommit`，由宿主用 `grid.resizeBranches(changes)` 一次原子落账；不再有百分比换算、`resizeBranch` 逐分支提交或 Reka 拖动通道。主工作台宿主与编辑器工作区宿主共用同一份实现。编辑器工作区当前只消费单组（一个叶）路径；真实产品的多编辑组及其会话、存储合同是后续独立能力，不因共用渲染层而成立。
 
 ## 证据
 

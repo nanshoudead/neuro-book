@@ -1,0 +1,19 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00029-nb-ui-cleanup",
+    "taskId": "t05-docs-and-specs",
+    "artifactId": "spec-review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "report",
+    "title": "nb-ui 规范文档审查报告",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "336edaa2fa94ea068422492e72be066d4b602aac6936f747c5a87ebc38096d97",
+    "files": [
+        "index.html"
+    ],
+    "questions": [],
+    "publishedAt": "2026-10-20T05:05:03.855Z"
+}

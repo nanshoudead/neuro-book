@@ -23,7 +23,7 @@ owners:
 
 - **去处**：一条提示该显示在哪：表单、通知、原位。判据是“用户能对它做什么”。
 - **通知服务**：`nbook.workbench` 提供的服务 `nbook.workbench/notifications`（`notificationsKey`），插件在入口依赖里声明后经 `notify` 发出通知。
-- **视口**：nb-ui 的 `NotificationViewport`，挂在工作台两个内置页面的根上，显示本窗口的队列。
+- **视口**：nb-ui 的 `NotificationStack`，挂在工作台两个内置页面的根上，显示本窗口的队列。
 - 参与者：发出通知的插件（书架、编辑器、文件等）；工作台（队列、视口）；用户（关闭、点动作）。
 
 ## 输入与前置条件
@@ -85,7 +85,7 @@ owners:
 ## 边界与兼容
 
 - 公开接口：`notificationsKey`、`Notifications`、`NotificationInput`、`NotificationHandle`（`nbook/plugins/workbench/shared/contracts`）。
-- nb-ui 侧：`createNotificationQueue`、`NotificationViewport` 的 `queue`、`Notification` 的 `progress`、`Banner`（`@notnotype/nb-ui`）。
+- nb-ui 侧：`createNotificationQueue`、`NotificationStack` 的 `queue`、`Notification` 的 `progress`、`Banner`（`@notnotype/nb-ui`）。
 - 信任边界：文字按纯文本渲染，不解释 HTML。
 
 ## 验收与 Smoke
@@ -94,11 +94,11 @@ owners:
 2. Given 两个内置页面，When 在 `/` 发出通知后导航到 `/workbench`，Then 通知仍在。
 3. Given 一条带进度的通知，When 发出方推进到 100 并改成 success，Then 进度条走到头、通知在 3.2 秒后消失。
 
-Smoke：`notifications.dom.test.ts`（真实队列与视口，验收 3）；`shelf-page.test.ts` 的刷新失败一组（验收 1）；`mount.dom.test.ts`（验收 2：真实窗口、内核与工作台插件，经路由导航换页面。产品里还没有站内去 `/workbench` 的入口，真实浏览器的验收等入口出现时补）；Lab 场景 `NotificationViewport`、`Notification`（进度）、`Banner`。
+Smoke：`notifications.dom.test.ts`（真实队列与视口，验收 3）；`shelf-page.test.ts` 的刷新失败一组（验收 1）；`mount.dom.test.ts`（验收 2：真实窗口、内核与工作台插件，经路由导航换页面。产品里还没有站内去 `/workbench` 的入口，真实浏览器的验收等入口出现时补）；Lab 场景 `NotificationStack`、`Notification`（进度）、`Banner`。
 
 ## 实现合同
 
-- **公开入口**：服务键与类型 `notificationsKey`、`Notifications`、`NotificationInput`、`NotificationHandle`（`nbook/plugins/workbench/shared/contracts`）；nb-ui 的 `createNotificationQueue`（`@notnotype/nb-ui/notifications`）与组件 `NotificationViewport`、`Notification`、`Banner`。
+- **公开入口**：服务键与类型 `notificationsKey`、`Notifications`、`NotificationInput`、`NotificationHandle`（`nbook/plugins/workbench/shared/contracts`）；nb-ui 的 `createNotificationQueue`（`@notnotype/nb-ui/notifications`）与组件 `NotificationStack`、`Notification`、`Banner`。
 - **owner 与依赖方向**：`nbook.workbench` 的浏览器入口持有本窗口的队列并提供服务，两个内置页面各挂一个视口显示它；发出方只依赖服务键，不引用工作台的界面。常驻与时长规则在服务里定，nb-ui 的队列只认折算后的时长。
 - **关键不变量**：
   - 队列随入口激活建立、停止时清空，不随页面挂载与卸载（输出 7，验收 2）。
@@ -108,6 +108,6 @@ Smoke：`notifications.dom.test.ts`（真实队列与视口，验收 3）；`she
 ## 证据
 
 - 批准依据：开发者 2026-10-11 在 t76 的设计讨论中决定通知按三个去处分工、形式补足到 nb-ui 与应用的通用组件（[t76 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t76-bookshelf-polish/plan.md)）；2026-10-12 同意晋升为 `implemented`，验收 2 先由入口级测试覆盖。
-- 实现入口：[`web/notifications.ts`](../../../packages/neuro-book/src/plugins/workbench/web/notifications.ts)（服务与常驻规则）、[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/workbench/web/plugin.ts)（队列与入口同寿）、[`web/home-page.ts`](../../../packages/neuro-book/src/plugins/workbench/web/home-page.ts)（两个页面挂视口）、[`WorkbenchNotifications.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchNotifications.vue)；nb-ui [`useNotification.ts`](../../../packages/nb-ui/src/composables/useNotification.ts)（队列、计时与悬停暂停）、[`NotificationViewport.vue`](../../../packages/nb-ui/src/components/feedback/NotificationViewport.vue)
-- 合同测试：[`notifications.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/notifications.dom.test.ts)（输出 2 到 5、验收 3）、[`useNotification.test.ts`](../../../packages/nb-ui/src/composables/useNotification.test.ts)（输出 3 的时长与悬停）、[`NotificationViewport.test.ts`](../../../packages/nb-ui/src/components/feedback/NotificationViewport.test.ts)、[`shelf-page.test.ts`](../../../packages/neuro-book/src/plugins/projects/shelf-page.test.ts)（验收 1）
-- Smoke：[`mount.dom.test.ts`](../../../packages/neuro-book/src/web/mount.dom.test.ts)（验收 2）；Lab 场景 `NotificationViewport`、`Notification`、`Banner`
+- 实现入口：[`web/notifications.ts`](../../../packages/neuro-book/src/plugins/workbench/web/notifications.ts)（服务与常驻规则）、[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/workbench/web/plugin.ts)（队列与入口同寿）、[`web/home-page.ts`](../../../packages/neuro-book/src/plugins/workbench/web/home-page.ts)（两个页面挂视口）、[`WorkbenchNotifications.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchNotifications.vue)；nb-ui [`useNotification.ts`](../../../packages/nb-ui/src/composables/useNotification.ts)（队列、计时与悬停暂停）、[`NotificationStack.vue`](../../../packages/nb-ui/src/components/feedback/NotificationStack.vue)
+- 合同测试：[`notifications.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/notifications.dom.test.ts)（输出 2 到 5、验收 3）、[`useNotification.test.ts`](../../../packages/nb-ui/src/composables/useNotification.test.ts)（输出 3 的时长与悬停）、[`NotificationStack.test.ts`](../../../packages/nb-ui/src/components/feedback/NotificationStack.test.ts)、[`shelf-page.test.ts`](../../../packages/neuro-book/src/plugins/projects/shelf-page.test.ts)（验收 1）
+- Smoke：[`mount.dom.test.ts`](../../../packages/neuro-book/src/web/mount.dom.test.ts)（验收 2）；Lab 场景 `NotificationStack`、`Notification`、`Banner`

@@ -173,7 +173,7 @@ export const COMMANDS: readonly CommandSpec[] = [
             },
         ],
     }),
-    command({name: "serve", method: null, summary: "启动查看器的独立服务", book: false, paged: false, options: {port: {decode: integer}}}),
+    command({name: "serve", method: null, summary: "启动查看器的独立服务", book: false, paged: false, options: {port: {decode: integer}, open: {decode: () => true}}}),
     command({
         name: "ask",
         method: null,
@@ -194,12 +194,64 @@ export const COMMANDS: readonly CommandSpec[] = [
             {name: "记录 id", decode: value => ({second: value}), optional: true},
         ],
     }),
+    command({
+        name: "config",
+        method: null,
+        summary: "问答配置：init、show、set <字段> <值>、unset <字段>、test",
+        book: false,
+        paged: false,
+        positionals: [
+            {name: "动作", decode: value => ({action: value}), optional: true},
+            {name: "字段", decode: value => ({field: value}), optional: true},
+            {name: "值", decode: value => ({value}), optional: true},
+        ],
+        options: {
+            config: {decode: value => resolve(value)},
+            "base-url": {decode: text},
+            model: {decode: text},
+            "api-key-env": {decode: text},
+            thinking: {decode: text},
+            force: {decode: () => true},
+        },
+    }),
 ];
 
 /** 所有命令都接受的选项（不进方法参数）。 */
 export const GLOBAL_OPTIONS = new Set(["library", "json", "help"]);
 /** 不带值的开关。 */
-export const FLAGS = new Set(["json", "help", "open"]);
+export const FLAGS = new Set(["json", "help", "open", "force"]);
+
+/** 选项在 `--help` 里的说明；同名选项在各命令里含义相同，所以按名字写一份。 */
+export const OPTION_HELP: Record<string, string> = {
+    library: "书库目录（默认用户级书库）",
+    json: "标准输出只给一个 JSON",
+    help: "显示用法",
+    book: "书的 id 或书名；书库只有一本书时可省略",
+    at: "阅读位置：章或章.段；不给就读到全书已抽取的最后位置",
+    limit: "每页条数",
+    cursor: "上一页给出的续页标记；去掉就从第一页取",
+    title: "书名",
+    id: "新书的 id",
+    kind: "对象类别",
+    kinds: "类别，逗号分隔",
+    perspective: "用这个对象的视角看",
+    state: "只看这个状态",
+    query: "只看含这些字的",
+    sort: "排序方式",
+    order: "story（故事时间）或 source（出现顺序）",
+    arc: "只看这条主线",
+    owner: "这一项数值的持有者",
+    "min-together": "至少同场几次才算",
+    port: "监听端口",
+    open: "启动后在浏览器里打开",
+    mode: "graph（图当目录，默认）或 full（全读）",
+    config: "配置文件（默认 ~/.config/nbstory/config.json）",
+    "base-url": "OpenAI 兼容服务的地址",
+    model: "模型名",
+    "api-key-env": "存密钥的环境变量名（密钥本身不进配置）",
+    thinking: "推理档：low、medium、high、xhigh；不写则请求不带推理档",
+    force: "覆盖已有的配置文件",
+};
 
 export function camelCase(name: string): string {
     return name.replace(/-([a-z])/gu, (_match, letter: string) => letter.toUpperCase());
@@ -215,7 +267,7 @@ export function decodeArguments(spec: CommandSpec, positionals: readonly string[
     const params: Record<string, unknown> = {};
     positionals.forEach((value, index) => Object.assign(params, spec.positionals[index]!.decode(value)));
     for (const [name, value] of options) {
-        if (GLOBAL_OPTIONS.has(name) || (name === "open" && spec.name === "serve")) continue;
+        if (GLOBAL_OPTIONS.has(name)) continue;
         const option = spec.options[name];
         if (!option) throw new UsageError(`${spec.name} 没有选项 --${name}`);
         params[option.param ?? camelCase(name)] = option.decode(value, `--${name}`);
@@ -237,5 +289,6 @@ export function usage(): string {
         "",
         "通用选项：--library <目录>、--json；书级命令另有 --book <书>、--at <章或章.段>；列表命令另有 --limit、--cursor。",
         "ask 另有 --mode graph|full（图当目录或全读，默认 graph）、--config <配置文件>。",
+        "config 的动作：init（交互或用 --base-url --model --api-key-env 写配置）、show、set <字段> <值>、unset <字段>、test。",
     ].join("\n");
 }

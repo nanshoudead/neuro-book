@@ -10,7 +10,7 @@ import {
 } from "../../../src/components/layout/grid";
 import {useGridLayout} from "../../../src/composables/useGridLayout";
 import {useLayoutExtent} from "../../../src/composables/useLayoutExtent";
-import GridRenderer from "../../../src/components/layout/GridRenderer.vue";
+import NestedGrid from "../../../src/components/layout/NestedGrid.vue";
 import type {GridBranchChange} from "../../../src/components/layout/grid-gesture";
 import type {GridSashRef} from "../../../src/components/layout/sash-gesture";
 import type {SplitterGestureCancelReason, SplitterGestureSource} from "../../../src/components/layout/splitter-gesture";
@@ -463,7 +463,7 @@ function formatPx(val?: number): string {
 
             <!-- 分割工作区：#nb-lab-target 是测试注入与观测的容器 -->
             <div id="nb-lab-target" ref="containerRef" class="flex-1 min-h-0 w-full relative overflow-hidden">
-                <GridRenderer
+                <NestedGrid
                     :node="layoutTree"
                     :layout="layout"
                     :disabled="disabled"
@@ -524,7 +524,7 @@ function formatPx(val?: number): string {
                             </div>
                         </div>
                     </template>
-                </GridRenderer>
+                </NestedGrid>
             </div>
 
             <!-- 底部状态栏与事实汇报区 -->

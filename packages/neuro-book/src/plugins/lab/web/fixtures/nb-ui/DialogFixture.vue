@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Button, Dialog, FormSelect} from "@notnotype/nb-ui/components";
+import {Button, Dialog, Select} from "@notnotype/nb-ui/components";
 import {ref} from "vue";
 
 import LabFixtureControls from "../../LabFixtureControls.vue";
@@ -27,7 +27,7 @@ const withStack = (): boolean => props.scene === "stacked";
             <div class="space-y-3 text-sm">
                 <p>把《长夜行》从书架移除后，作品目录与其中的文件都不会被删除，以后可以再加入书架。</p>
                 <p class="text-[var(--text-muted)]">关闭、取消与确认都记在事件页签。</p>
-                <FormSelect v-if="withSelect()" v-model="genre" :options="GENRES" data-lab-dialog-select />
+                <Select v-if="withSelect()" v-model="genre" :options="GENRES" data-lab-dialog-select />
                 <Button v-if="withStack()" size="sm" variant="secondary" data-lab-dialog-stack @click="stackedOpen = true">再开一层…</Button>
             </div>
         </template>

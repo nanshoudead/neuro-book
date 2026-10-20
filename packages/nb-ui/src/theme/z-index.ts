@@ -7,7 +7,7 @@
 import type {InjectionKey} from "vue";
 
 export const NB_Z_INDEX = {
-    /** Dropdown / Combobox 等局部浮层（不在对话框里时） */
+    /** DropdownMenu / Select 等局部浮层（不在对话框里时） */
     popover: 60,
     tooltip: 70,
     /** 拖放落点提示（`DropFeedbackOverlay`），与局部浮层同档：拖放时不会同时开着下拉 */
@@ -22,7 +22,7 @@ export const NB_Z_INDEX = {
     notification: 9050,
     /** 右键菜单；子菜单用 contextMenu + 1 */
     contextMenu: 9100,
-    /** S4 全局命令面板角色：QuickInput 的遮罩与面板同档，面板在后绘制 */
+    /** S4 全局命令面板角色：QuickPick 的遮罩与面板同档，面板在后绘制 */
     commandPalette: 9200,
     /** 组件 Lab 的检查框：要压住被检查的一切，包括对话框与命令面板 */
     inspectorProbe: 9900,

@@ -7,7 +7,7 @@
  *
  * 1. 不引 preflight。库不该 reset 宿主应用的元素样式，reset 由消费方自己负责。
  * 2. utilities 不进 @layer。UnoCSS 今天产出的原子类是无层的，若这里包进 @layer utilities，
- *    styles.css 的 `.nb-ui-control.nb-ui-control-invalid:hover` 就会输给 Combobox 上的
+ *    styles.css 的 `.nb-ui-control.nb-ui-control-invalid:hover` 就会输给控件上的
  *    `hover:border-[var(--border-strong)]`（跨层比较不看特异性），invalid 边框在悬停时失效。
  *    保持无层 + styles.css 排在后面 ⇒ 仍按「特异性优先、同分看顺序」裁决，与替换前一致。
  * 3. 图标走 @iconify/tailwind4 预生成模式，选择器模板对齐现有 `i-lucide-*` 写法，
@@ -45,8 +45,8 @@
  * 两点边界：
  * - loader-2 / check-circle-2 / alert-triangle 在 @iconify-json/lucide 里是 alias 而非 icon，
  *   已实测确认预生成模式会为 alias 输出规则；不存在的图标名则静默渲染为空，不报错。
- * - `iconClass` 是 Badge / Dropdown / Tabs / SegmentedControl / ContextMenu / EmptyState /
- *   FileTree 的公开 prop，消费方传进来的图标类仍由消费方自己的构建负责生成，本产物只包
+ * - `iconClass` 是 Badge / DropdownMenu / Tabs / SegmentedControl / ContextMenu / EmptyState /
+ *   Tree 的公开 prop，消费方传进来的图标类仍由消费方自己的构建负责生成，本产物只包
  *   nb-ui 内部用到的 15 个。
  */
 

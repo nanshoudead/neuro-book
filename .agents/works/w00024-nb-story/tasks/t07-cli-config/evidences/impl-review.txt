@@ -1,0 +1,121 @@
+# w00024/t07-cli-config 实现审查
+
+### 1. 命令专属选项放在命令名前不再可用
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/cli/program.ts:68-70,90-94`。
+- **现象**：`--at 38 info`、`--at=38 info`、`--limit 2 find x`、`--book b info` 都以 2 退出，首个选项被当作未知命令；根上的 `--library`、`--json` 不受影响。
+- **为什么是问题**：base 的 `parse()` 在整条参数流上收集选项，允许上述组合；计划明确要求选项在命令前后的兼容行为不变。新增测试只覆盖了根上恰好声明的 `--library`、`--json`，未覆盖命令专属选项。
+- **如何核实**：`bun /tmp/review-w00024-t07-impl/scratch/compat.ts`。脚本从 `git show 653a4839b:packages/nb-story/src/cli/main.ts` 生成仓库外基线入口（只将相对 import 改指向当前相邻模块），与真实入口 `packages/nb-story/src/cli.ts` 比较；空隔离书库中基线对上述输入进入查询并退出 1（`book_not_found`），HEAD 退出 2（`没有命令 --at` 等）。脚本不接触真实书库或模型。
+- **建议改法**：让 commander 在命令确定前也能收集命令表声明的选项，确定命令后仍按该命令的选项集合校验；补命令专属选项前置与通用选项混排的进程测试，不只注册两个通用选项。
+
+### 2. 开关的等号写法由成功变成用法错误
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/cli/program.ts:34-35,90-91`。
+- **现象**：`books --json=true`、`--json=false books`、`books --json --json=false` 在 base 均退出 0、输出 JSON，HEAD 均退出 2；旧版对开关忽略等号后的文本，始终视为打开。
+- **为什么是问题**：本次明确要求保留现有参数与退出码，计划还单列 `--x=y` 与重复选项为兼容风险。commander 的无值选项不接受 `=值`，后置被判为未知选项，前置被判为未知命令。
+- **如何核实**：`bun /tmp/review-w00024-t07-impl/scratch/compat.ts` 的上述 3 组真实进程对照。
+- **建议改法**：解析前仅对命令表中已声明的无值开关规范化 `--开关=文本` 为 `--开关`，保留旧语义；补含重复开关的回归用例。
+
+### 3. 新增的密钥误贴交互测试实际失败，输入任务还会泄漏到后续用例
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：`packages/nb-story/src/cli/config.test.ts:178-190,204-217`。
+- **现象**：`bun test src/cli src/qa` 得到 80 pass、1 fail（5 个文件、81 个测试、31.38 秒）。“贴进来的是密钥而不是变量名”在 5000ms 超时，另有 Unhandled error；屏幕保留了 `sk-abc-123`，`\u0015MY_KEY` 被追加为普通字符，没有清空输入，永远到不了“推理档”。
+- **为什么是问题**：真实 clack 不把该流上的 Ctrl-U 当作清空；测试未完成就超时后，没有取消并等待已启动的 `initInteractively`，也没有关闭输入输出流。新增验收测试不通过，超时还留下活动提示。
+- **如何核实**：在 `packages/nb-story` 执行 `bun test src/cli src/qa`；失败输出已观察，不重复运行以确认。原始输出工具产物 `artifact://8`。
+- **建议改法**：用真实库支持的按键删除已有字符再输入变量名；每个提示实验用 `try/finally` 取消并等待结果、释放流，断言失败时也完成收口。
+
+### 4. 非交互 init 与 set 不校验环境变量名，误贴密钥会直接落盘并回显
+
+- **严重程度**：阻断；**类别**：安全与性能。
+- **位置**：`packages/nb-story/src/qa/config-edit.ts:28,45-48`；`packages/nb-story/src/cli/config.ts:143-148,79-81`。
+- **现象**：`config init --api-key-env sk-fake-secret-123` 成功（0），文件的 `model.apiKeyEnv` 保存该值，标准输出的“环境变量 … 现在没有设置”再次打印；`config set model.apiKeyEnv sk-fake-secret-456 --json` 同样成功并在 JSON 回显，随后 `show` 继续打印。
+- **为什么是问题**：输出 19 明确要求误贴密钥被拒绝，输出 20 要求密钥不进配置与输出。正则 `ENV_NAME` 只用于交互提示，CLI 的 flags 与 set 都走纯文本解码、schema 又只有 minLength，绕开了整个安全边界。这里使用的都是编造的假密钥，没有读取真实密钥。
+- **如何核实**：`bun /tmp/review-w00024-t07-impl/scratch/config-boundaries.ts`，真实 CLI 的 init、set、show 以及写后文件内容均包含上述假值。
+- **建议改法**：在配置编辑的公共字段解码边界统一验证 `model.apiKeyEnv` 的环境变量名写法，init 的选项在构造配置之前也走同一校验；拒绝返回用法错误 2，信息不能插入原值。交互仅复用该校验，不另维护一份规则。补非交互 init 与 set 的拒绝、不落盘、不回显测试。
+
+### 5. 写失败后的清理异常覆盖错误，破坏 qa_config_write_failed 和 JSON 输出
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/qa/config.ts:96-99`。
+- **现象**：配置父目录权限为 `0444`（可读但不可进入、不可写）时，写临时文件先失败，随后的 `rm(..., {force:true})` 也以 EACCES 失败；CLI 退出 1，但 `--json` 标准输出为空，标准错误是 `[Uncaught Exception] Error: EACCES ... rm ...tmp`，没有 `qa_config_write_failed`。`0555` 目录则正常得到该错误码且无临时文件。
+- **为什么是问题**：F7 要求目录不可写返回 `qa_config_write_failed`；清理不能覆盖原始写入错误。`force:true` 只忽略不存在，不忽略权限错误，导致异常越过 `configCommand` 的 QaError 分支并破坏 JSON 合同。
+- **如何核实**：`bun /tmp/review-w00024-t07-impl/scratch/config-boundaries.ts` 创建并 chmod 两个隔离目录，经真实 CLI 分别核实 `0555` 与 `0444`，finally 恢复权限；两个目录结束后均无临时文件。
+- **建议改法**：独立捕获临时文件清理失败，最终仍抛 QaError(`qa_config_write_failed`)；保留原始写失败与清理失败诊断，不能以清理失败替换错误合同。只在确实创建过临时文件时尝试清理可进一步减少该失败面。
+
+### 6. 字段白名单接受 Object 原型成员，未知字段反而被写进配置
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/qa/config-edit.ts:39-42,65-70,83-89`。
+- **现象**：`config unset toString --config <文件>` 退出 0，打印“已去掉 toString”，但实际上给配置新增顶层 `"toString": {}`。
+- **为什么是问题**：普通对象上的 `CONFIG_FIELDS[name]` 会读到继承的 Object.prototype.toString，truthy 检查把它当成合法 FieldSpec；随后 locate 把不含点的名字写成顶层对象。输出 18 限定字段集合，输出 22 与验收 10 要求未知字段退出 2、原文件不变，这里两项都违反。当前测试只试 `model.nope`，未试对象原型成员。
+- **如何核实**：`bun /tmp/review-w00024-t07-impl/scratch/config-boundaries.ts` 中真实 CLI 的 `unset toString` 以及写后文件内容。
+- **建议改法**：在 fieldOf 中用 `Object.hasOwn(CONFIG_FIELDS, name)` 验证成员后再取值，或用 Map 表达白名单；不要让 locate 接受尚未通过自身成员校验的路径。补原型成员未知字段的进程测试。
+
+### 7. 终端中已有配置只要给了字段选项，就跳过交互覆盖确认并报用法错误
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/cli/config.ts:121-126`。
+- **现象**：真实伪终端中，已有配置时 `config init --model new` 和给齐三个必填选项的 init 都直接退出 2，要求 `--force`，没有进入确认提示。仅在所有字段选项都没给时才会进入交互。
+- **为什么是问题**：开发者决定与输出 19 要求已有配置时交互确认覆盖（默认不覆盖），只有非交互才必须 `--force`。代码把“是否还需要询问字段”和“是否需要确认覆盖”绑成同一个 needsInput，因而终端里给了选项也无法安全确认覆盖；直接调用 initInteractively 的测试绕过了这层选择条件。
+- **如何核实**：`python /tmp/review-w00024-t07-impl/scratch/terminal-init.py` 前两个场景用 pty.openpty 为真实 CLI 提供 TTY；两者退出 2，文件保持 old，没有 clack 确认界面。
+- **建议改法**：把 TTY/JSON 决定的“可以交互”与“缺少字段”分开；已有文件且没给 --force 时，TTY 中独立确认覆盖，非 TTY 才报 2。字段询问只处理缺少的字段。给齐字段后的覆盖确认也走同一流程，不增加另一套写盘路径。
+
+### 8. config test 将上游成功响应正文直接输出，回显的密钥没有脱敏
+
+- **严重程度**：重要；**类别**：安全与性能。
+- **位置**：`packages/nb-story/src/qa/probe.ts:35`；`packages/nb-story/src/cli/config.ts:163-167`。
+- **现象**：本机兼容端点返回 HTTP 200、正常完成的 SSE，正文包含这次认证使用的假密钥 `review-only-fake-probe-key` 时，`config test --json` 退出 0，`data.text` 原样输出密钥；人类输出也使用同一个 result.text。
+- **为什么是问题**：输出 20 要求密钥值不出现在输出与错误，现有 harness 只遮盖 AssistantMessage.errorMessage，正常 content 不经过遮盖。本次新增的成功输出直接展示 provider 正文，给上游回显打开了一条未经保护的输出路径；现有测试只测 401 错误正文，不测成功响应。旧 ask 的回答输出是否具有同类边界风险不纳入本次回归；这里核实的是本次新加的 config test 成功路径。
+- **如何核实**：`bun /tmp/review-w00024-t07-impl/scratch/probe-smoke.ts` 的 echo-success 场景，经真实 CLI、harness、provider、HTTP，端点回正常 SSE 文本；标准输出的 JSON 含该假密钥。全程未使用真实密钥或模型。
+- **建议改法**：输出 21 只要求模型、推理档、用时、用量，不要求回显模型正文；直接移除人类输出与 JSON 中的 text，成功只报告连通性与元数据，可同时减少输出合同与泄密面。若决定保留正文，须在命令输出边界对实际使用的密钥统一遮盖，覆盖成功与失败两条路径。
+
+### 9. Spec 中“只有 ask 调用模型”与新增 config test 自相矛盾
+
+- **严重程度**：建议；**类别**：文档。
+- **位置**：`docs/specs/story/cli-skill.md:18,82-86,113`。
+- **现象**：“明确不承诺”仍写只有 ask 调用模型，其余命令不调用；同页边界已改为 ask 和 config test。新插入的帮助条目与原有 Skill 防剧透条目都编号 13，而且把原有 Skill 的防剧透、提醒两项移到了“用法与帮助”标题下面。
+- **为什么是问题**：调用模型的权限边界在同一份真相源里有两种说法；重复编号导致“输出 13”不再能唯一定位，Skill 两项的归属也改变了。这是本次新增命令、插入小节引入的文档不一致，不是 base 原有矛盾。
+- **如何核实**：对照 `git diff 653a4839b..HEAD -- docs/specs/story/cli-skill.md` 与当前上述行；运行的本机 config test 请求证明新增命令确实发模型协议请求。
+- **建议改法**：非目标段同步列 ask、config test；保留 Skill 条目在原小节与原编号，把帮助放在其后并使用未占用的输出编号，同步本次新增引用。
+
+## 审查范围与验证
+
+- 审查范围：`653a4839b..HEAD`；位置字段的相对路径基准为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-t07-cli-config/`。按要求先读 `src/cli/config.test.ts`、`src/qa/config.test.ts`、`src/cli/cli.test.ts`、`src/cli/ask.test.ts`，再读实现、相邻调用链和 base 解析器。未开启子审查。
+- `bun test src/cli src/qa`（工作目录为该 worktree 的 `packages/nb-story`）：退出 1，80 pass、1 fail，81 个测试、5 个文件；失败详见第 3 条。没有运行 server 测试，不涉及已知 SIGTERM/143 偶发失败。
+- `bun run typecheck`（同上）：退出 0；实际执行 `tsc --noEmit && tsc --noEmit -p tsconfig.core.json && vue-tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p e2e/tsconfig.json`，无诊断，49.21 秒。
+- `bun /tmp/review-w00024-t07-impl/scratch/compat.ts`：25 组参数各跑基线入口和当前真实 CLI；核实前置选项、等号、负整数值、重复选项、分隔符、短选项、未知命令/选项、缺参数。除第 1、2 条外，额外观察到 `books --` 从旧版用法错误 2 变为成功 0，缺值文案从中文变为中英混合（仍含“用法：nbstory”）；这两项作为同一兼容迁移的补充证据，不另计发现。原始输出 `artifact://7`。
+- `bun /tmp/review-w00024-t07-impl/scratch/config-boundaries.ts`：init/set 的环境变量名、未知字段、不可写与不可进入目录、缺配置的 test 错误码；实验路径只在指定 scratch 下。脚本现用每次运行独立目录，避免重复运行被已有文件覆盖保护挡住。原始输出 `artifact://11`。
+- `python /tmp/review-w00024-t07-impl/scratch/terminal-init.py`：真实 pty/真实 CLI，不是内部 helper；给字段选项的覆盖确认问题见第 7 条。未给字段时默认不覆盖、在地址提示按 Ctrl-C 两种场景都实测退出 130，文件仍为 old、maxChapters 仍为 7。首轮 pty 未配置窗口尺寸，提示被按单字符换行而未匹配；为 pty 设置 30×160 后仅补跑未判定的取消场景，不把实验终端尺寸问题算产品缺陷。原始输出 `artifact://15`、`artifact://19`。
+- `bun /tmp/review-w00024-t07-impl/scratch/probe-smoke.ts`：真实 CLI/harness/provider、本机端点、编造的假密钥。成功 0、401 认证失败 4、请求中 SIGINT 130；响应正文回显密钥见第 8 条。所有端点在 finally 停止，子进程正常退出或由 finally 收口。原始输出 `artifact://18`。
+- 未运行 e2e、开发服务、真实模型、变异测试、跨平台终端测试或跨进程读写压力测试；未读取真实密钥环境变量的值。仓库源文件未修改，未 commit、push、stash 或切换分支；报告仅在指定报告路径追加，实验文件只放在指定 scratch 目录。
+
+## 未发现问题的方面
+
+以下“未发现”不抵消前面的具体发现：
+
+- **已验证**：既有查询命令与方法的 JSON 数据一致性、不剧透、导入行为，以及 ask 的成功、认证失败、密钥错误正文脱敏、SIGINT 记录收口、qa 列表/显示/删除，在本次局部测试中通过。
+- **已验证**：config set/unset 的常规字段、model.price 整组 JSON、禁止 unset 必填项、校验失败原文件不变、缺目录自动创建、父路径是文件时 F7、正常写入后没有临时文件；不把未覆盖的原型成员边界混入此结论。
+- **已验证**：config test 的请求没有工具声明，只有系统提示和最小用户消息；配置有 thinking 时请求带 reasoning_effort，没有时不带（后者在局部测试中通过）；401 回显的假密钥被遮盖，缺密钥时不发请求；成功、失败、中断均能结束进程。
+- **已验证**：真实终端 init 默认拒绝覆盖、中途取消均退出 130，不改已有文件；非终端缺项不会等待输入，--force 覆盖保留未给字段（局部测试通过）。
+- **从代码推断**：同目录临时文件加 rename 保证 POSIX 上 reader 看到旧整份或新整份；未做并发压力实验。probe 使用内存 sessionLog，finally 关闭 harness，没有写书库记录的路径。
+- **额外观察，未另计本次回归**：本机探测的成功、失败、中断均未创建指定 library，但都会留下隔离 HOME 下 `.omp/logs/omp.<日期>.<pid>.log` 与 `.omp.<pid>-audit.json` 两个 OMP 日志文件（另有 Bun 自身缓存）；不能声称 config test 对用户目录零落盘。该行为来自与旧 ask 共用的 provider 依赖，未把它当成这次独立引入的回归。未把正常响应文本的脱敏缺口与此日志现象混为一谈。
+- **从代码核对**：未发现本次新增的跨包源码深导入、按错误文案分支、mock/spy/假计时器或测试专用产品分支。交互测试里的固定轮询等待与失败收口问题已包含在第 3 条，不算通过项。
+
+## 按影响排序与数量
+
+1. 第 4 条：非交互 init/set 将误贴密钥落盘、回显（阻断）。
+2. 第 8 条：config test 成功响应回显密钥未遮盖（重要）。
+3. 第 1 条：前置命令专属选项不兼容（重要）。
+4. 第 5 条：清理异常打破 F7/JSON 错误合同（重要）。
+5. 第 7 条：终端带字段选项无法确认覆盖（重要）。
+6. 第 6 条：原型成员绕过字段白名单并改变配置（重要）。
+7. 第 2 条：无值开关的等号写法不兼容（重要）。
+8. 第 3 条：交互验收测试失败且提示未收口（重要）。
+9. 第 9 条：Spec 权限边界自相矛盾、输出编号重复（建议）。
+
+共 9 条：阻断 1，重要 7，建议 1。
+
+证据引用勘误：上文 compat.ts 一项的 `artifact://7` 引用撤回；该次工具输出没有提供此产物编号。该项证据是本会话实际显示的 25 组进程对照输出及可重跑的 compat.ts，不以该未核实的编号作为证据。其余显式工具返回的产物引用不变。

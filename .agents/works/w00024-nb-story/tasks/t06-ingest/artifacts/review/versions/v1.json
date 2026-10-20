@@ -1,0 +1,128 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t06-ingest",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "导入原文与抽取进度",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "19812afcc74bf99842ca093d12165f394622a026d4f4add980853fc31e9db070",
+    "files": [
+        "index.html",
+        "r1/book-badge-light.webp",
+        "r1/import-append-light.webp",
+        "r1/import-changed-light.webp",
+        "r1/import-dialog-light.webp",
+        "r1/import-page-light.webp",
+        "r1/progress-cli-light.webp",
+        "r1/progress-dark.webp",
+        "r1/progress-failed-light.webp",
+        "r1/progress-light.webp",
+        "r1/progress-phone.webp",
+        "r1/shelf-a-light.webp",
+        "r1/shelf-b-light.webp"
+    ],
+    "questions": [
+        {
+            "id": "import-entry",
+            "type": "single",
+            "label": "1. 导入原文：单独一页，还是书架上的对话框？",
+            "options": [
+                {
+                    "value": "page",
+                    "label": "单独一页（推荐）"
+                },
+                {
+                    "value": "dialog",
+                    "label": "书架上的对话框"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "page"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "progress-place",
+            "type": "single",
+            "label": "2. 抽取进度：每本书一个进度页，还是直接展开在书架上？",
+            "options": [
+                {
+                    "value": "page",
+                    "label": "进度页（推荐）"
+                },
+                {
+                    "value": "shelf",
+                    "label": "展开在书架上"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "page"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "book-refresh",
+            "type": "single",
+            "label": "3. 正在看一本抽取中的书时，又抽完一章，怎么换数据？",
+            "options": [
+                {
+                    "value": "prompt",
+                    "label": "顶栏提示，点了才换（推荐）"
+                },
+                {
+                    "value": "auto",
+                    "label": "自动换"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "prompt"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "rest-ok",
+            "type": "single",
+            "label": "4. 其余细节照稿子写进查看器的 Spec，行吗？",
+            "options": [
+                {
+                    "value": "go",
+                    "label": "照稿子写"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要调整"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "go"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-20T04:53:14.722Z"
+}

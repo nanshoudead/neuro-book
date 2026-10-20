@@ -20,6 +20,10 @@ updated: 2026-10-17
 - 已确认不做（[ADR 0022](../../../docs/adr/0022-extensible-platform-and-plugin-trust.md)）：插件市场、在线分发、签名、权限沙箱；第一版完全信任，安装即告知插件可访问全部作品、服务器与本机资源。不支持多个用户各自安装插件。
 - 内置插件仍随产品构建静态装配；本 Work 不把它们迁出仓库。
 
+## 分支
+
+本 Work 的代码在 worktree `.worktree/w00027-plugin-platform`、分支 `feat/w00027-plugin-platform` 上（2026-10-20 按“一个 Work 一条分支”由 t03 的分支改名而来），各 Task 依次在这条分支上提交、在这条分支上验证；合入 master 的时机由开发者决定（2026-10-20：先不合入，继续往后做）。
+
 ## 任务
 
 | Task | 当前范围 |
@@ -28,11 +32,22 @@ updated: 2026-10-17
 | [t03](tasks/t03-manifest-and-install/README.md) | S1：清单校验与第三方插件安装、`nbook.plugins` 与设置页 |
 | [t04](tasks/t04-browser-loading-sdk/README.md) | S2–S3：浏览器入口装载、插件文件端点与 SDK 构建预设 |
 | [t05](tasks/t05-author-experience/README.md) | S4：脚手架、作者文档与完整示例 |
-| [t02](tasks/t02-settings-completion/README.md) | 设置补齐：先做长文本／数组／对象的通用编辑，密钥与搜索随后（插件平台之后） |
+| [t02](tasks/t02-settings-completion/README.md) | 设置补齐：通用编辑、密钥、搜索、页面未保存保护、动态选项、声明 API 易用性；开发者 2026-10-20 定提前到 t04 之前、不并行 |
+| [t07](tasks/t07-low-code-forms/README.md) | 低代码：全项目共用的 schema 表单与表单组件（nb-ui 控件统一合同、补缺）；排在 t02 之前 |
+| [t06](tasks/t06-settings-ui-polish/README.md) | 设置界面的样式收口：按设计稿重新收口设置窗口与设置组件的外观（t02 之后） |
 
 ## 关键现状
 
 平台设计已 acceptance，机制部分已实现，但外部插件的运行路径完全没有：应用只用代码里的静态 `productPlugins` 装配内置插件，没有从目录发现、安装或执行外部代码的入口（`packages/neuro-book/src/manifest.ts`、`server/plugins.ts`、`web/plugins.ts`）。详见 [t01](tasks/t01-requirements/README.md)。
+
+## 后续事项
+
+开发者 2026-10-20 确认记为本 Work 的后续，按插件需求再排，还没有建 Task：
+
+- 缺的贡献点：编辑器的补全与悬停（例如人物名补全、悬停显示人物卡）、编辑区正文的右键菜单、文件树装饰（徽标、字数）、快速打开的提供者（命令面板里搜人物与地点）、主题与配色贡献（现在主题是写死的两个选项）。
+- 内置插件都没有提供按需激活的事件，所有入口启动即激活；t02 先补“设置分区被显示时激活”。
+- 生成式视图：Agent 对话流里 LLM 生成的 TSX 可视化程序，在不同源的沙箱 iframe 里运行，只做 Web；复用 t07 的表单组件；随 Agent 对话流重建，先写提案（开发者 2026-10-20 定名）。
+- `nbdev worktree new` 只能建 Task 级 worktree，要补 Work 级的（`.worktree/<Work 编号>-<短名>`、`{type}/<Work 编号>-<slug>`）。
 
 ## 范围外发现
 

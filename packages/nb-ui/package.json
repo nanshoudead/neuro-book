@@ -17,7 +17,6 @@
         "./colorway": "./src/colorway/index.ts",
         "./theme": "./src/theme/index.ts",
         "./themes/*": "./themes/*/index.ts",
-        "./testing": "./src/testing/index.ts",
         "./utils": "./src/utils/index.ts",
         "./styles.css": "./dist/nb-ui.css"
     },

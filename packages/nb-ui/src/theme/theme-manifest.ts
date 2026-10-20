@@ -1,4 +1,3 @@
-import type {Component} from "vue";
 import type {NbColorwayVars} from "../colorway/colorway-contract";
 import type {ColorwayMeta} from "../colorway/colorway-store";
 
@@ -28,11 +27,6 @@ export type NbThemeManifest = {
     providesColorways?: string[];
     /** 推荐默认配色，按明暗给。是**默认值不是约束**——用户仍可任选配色 */
     defaultColorway?: {light: string; dark: string};
-    /**
-     * 覆盖了哪些组件：组件 key → 契约 id，例 `{"time-picker": "time-picker@1"}`。
-     * **只写契约 id，不写实现**——实现在运行期入口里，manifest 保持纯数据。
-     */
-    overrides?: Record<string, string>;
 };
 
 export type NbThemeVarDeclaration = {
@@ -51,8 +45,7 @@ export type NbThemeVarDeclaration = {
 };
 
 /**
- * 主题包的运行期入口。第一档（声明式主题）只需要 manifest + vars.css；
- * `components` 是第二档（组件实现包）才有的东西。
+ * 主题包的运行期入口：manifest + vars.css，可带自己的配色与 SVG 资源。主题不能替换组件的实现。
  *
  * 约定：入口模块自己 `import "./vars.css"`，样式交给打包器，加载器不碰 CSS 文本。
  */
@@ -67,9 +60,7 @@ export type NbThemeModule = {
      * 例：Liquid Glass 的边缘折射要靠 `feDisplacementMap`，CSS 只能写 `url("#nb-lens")`。
      *
      * 仍然是**纯数据**（一段 SVG 标记），不是代码——装载器按标签白名单校验后注入，
-     * 越界的标签或 on* 属性一律拒绝装载。第一档主题因此也能带资源，不必升到插件档。
+     * 越界的标签或 on* 属性一律拒绝装载。声明式主题因此也能带资源，不必升到插件档。
      */
     svgDefs?: string;
-    /** 组件覆盖实现，key 必须出现在 manifest.overrides 且在契约登记表里 */
-    components?: Record<string, Component>;
 };

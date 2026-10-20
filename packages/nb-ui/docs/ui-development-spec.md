@@ -31,7 +31,7 @@
    - 面板里再放一个面时，多数情况的正确答案是**不给面**（靠间距与分隔线成组），需要框住才层级 +1。**不要为它新开一档材质。**
    - **当前库里两条轴尚未落地**：现有 8 个表面变量仍按部件命名，`--toolbar-surface` / `--sidebar-surface` / `--overlay-surface` 属材质轴，`--panel-surface` / `--strip-surface` 属层级轴，nbook 把 `--strip-surface` 定成半透明是按新模型的一处错。目标形态、取值下限与迁移清单见 [表面模型提案](../../../docs/proposals/nb-ui-surface-model.md)（`accepted`）。**新写组件时按两条轴选角色，不要新增按部件命名的表面变量。**
 2. 组件不得写字面颜色。颜色来自配色变量；形状、密度、装饰和角色映射来自主题 token。纯黑或纯白的低透明度光照层仅可在主题包内使用。
-3. 组件不得直接引用某套主题私有变量。公共组件只消费配色合同、`nbDesignTokens`、`nbThemeTokens` 或 manifest 声明且具备 fallback 的变量。`FormCheckbox` 渐变中的 `#000000` 仅作为 `color-mix()` 的纯黑计算端点，不承担组件配色语义；静态规则只豁免这一文件中的这一字面值。
+3. 组件不得直接引用某套主题私有变量。公共组件只消费配色合同、`nbDesignTokens`、`nbThemeTokens` 或 manifest 声明且具备 fallback 的变量。`Checkbox` 渐变中的 `#000000` 仅作为 `color-mix()` 的纯黑计算端点，不承担组件配色语义；静态规则只豁免这一文件中的这一字面值。
 4. 只有 raised、popover、dialog 三档层级。阴影消费 `--elevation-*`；普通页面区块不以阴影代替结构。**这三档是阴影的档，与第 1 条层级轴的色阶各管各的**，不要互相推导——Material Design 3 曾把面色绑在 elevation 上，后来主动解绑（"not tied to elevation"）。
 5. 浮层使用 `.nb-ui-popover-surface`。菜单叠加 `.nb-ui-menu-surface`；大块玻璃面按设计语言要求显式叠加 `.nb-ui-surface-rim`。组件不得复制这些属性。
 6. 新公共 token 至少有两个独立消费点或明确的跨组件角色。单组件差异留在组件内部，第三方主题专用差异走 manifest `declares`。
@@ -104,7 +104,7 @@
 - **动效**：消费 `var(--motion-base)`（300ms 舒缓物理阻尼曲线 `cubic-bezier(0.22, 1, 0.36, 1)`），连续平滑滑向目标项。
 - **多选支持**：支持富文本样式（B/I/U/S）等独立多选组合，各激活项独立高亮。
 
-#### 4. `FormCheckbox`（复选框与单选 · 实心超椭圆规范）
+#### 4. `Checkbox`（复选框与单选 · 实心超椭圆规范）
 - **形态与圆角**：`20px × 20px`，`rounded-[8px]` 饱满超椭圆（Squircle）实心质感，无杂乱外边框。
 - **未选中态**：`18%` 柔和半透深灰实心底座。
 - **选中态（Checked）**：纯正 Apple 蓝底 + 加粗纯白 Apple SF Pro 矢量对勾 `[✓]`。
@@ -112,18 +112,18 @@
 - **层级缩进**：树状子项支持 `32px` 显式绝对层级缩进。
 - **单选按钮（Radio）**：圆形深灰实心底座，选中为蓝底 + 居中纯白小实心圆点。
 
-#### 5. `FormSelect`（下拉选择器与长列表规范）
+#### 5. `Select`（下拉选择器与长列表规范）
 - **浮层材质与同心对称性**：65% 底色不透明度 + 8px 高斯模糊 + 130% 饱和度 + 1.0 亮度；外层容器四周统一为严格对称的 6px 等宽内边距（`p-1.5`），内部视口常态零额外边距，确保上下左右均为严格相等的 6px，内圈圆角（`--nb-popover-inner-radius`）与外圈完美同心；`:side-offset="7"` 避免遮挡 Trigger 聚焦发光圈；`@close-auto-focus` 消除二次弹回闪烁。
 - **黄金截断高度（50% 齐腰截半）**：单项槽总高 `32px + 3.6px = 35.6px`（sm 档 `26px + 3.6px = 29.6px`）；视口高度锁定为 **`228px`**（6.5 项严格截半）或 **`194px`**（5.5 项轻巧截半，露出 50%），精准横截文字躯干，杜绝整项露出事故或脏边感知。
 - **即时感知与双向透光虚化**：挂载与尺寸变动时即时计算（`setViewportRef`），无需等待用户滚动即可直接呈现底部虚化与滚动条；渐隐遮罩调优至 **`22px`**（中点 8px 处 35% 透光消散），确保露出的半个 item 完整处于柔润透光的散焦渐隐中，强烈暗示“下方还有内容”。
 - **滚动条**：内置 4px 悬浮 macOS 胶囊滑块（仅在内容溢出时为视口动态分配 `pr-1.5`，支持自由鼠标拖拽），底层逻辑抽取为 `useFloatingScrollbar.ts`。
 
-#### 6. `FormInput` & `FormNumberInput`（输入框规范）
+#### 6. `Input` & `NumberInput`（输入框规范）
 - **状态准则**：常态与悬停态素雅不抖动（不主动改变边框颜色，仅依赖指针样式反馈），聚焦态统一点亮 Apple 原生 Focus 蓝光扩散光晕（`--focus-ring`）；控件填满所在的条、四周没有余地时（标签、状态栏条目、整行标题），改画内嵌焦点线（`.nb-ui-focus-ring-inset`，`Button`/`IconButton` 的 `focusRing="inset"`），同一焦点描边色。
 - **数值微调**：步进按钮支持滚轮、键盘上下键与 clamp 边界保护。
 
-#### 7. `Dropdown`（下拉菜单与动作浮层规范）
-- **浮层材质单一真相源（强制对齐 FormSelect 黄金标准）**：所有 Dropdown 及其派生菜单（包括动作下拉、选择菜单、工作区工具栏下拉）**唯一保留并严格继承 `FormSelect.vue` 已经调好的 Surface 体系**，严禁在组件内写死 `10px` 圆角、`65%` 面色或独立描边。
+#### 7. `DropdownMenu`（下拉菜单与动作浮层规范）
+- **浮层材质单一真相源（强制对齐 Select 黄金标准）**：所有 DropdownMenu 及其派生菜单（包括动作下拉、选择菜单、工作区工具栏下拉）**唯一保留并严格继承 `Select.vue` 已经调好的 Surface 体系**，严禁在组件内写死 `10px` 圆角、`65%` 面色或独立描边。
 - **底层 Composables 架构规范**：
   1. `useDropdownSurfaceStyle`：统一输出 4 层微反光立体环境投影（`0 0 0 1px ... + 3 阶环境柔影`）、130% 饱和度多阶微滤波（`blur(8px) saturate(130%) brightness(1.0)`）、四周对称 6px 内边距（`p-1.5`）、同心内圆角（`--nb-popover-inner-radius`）与 `:side-offset="7"`；
   2. `useDropdownTruncatedHeight`：统一输出 N.5 项（默认 6.5 项 228px，轻巧 5.5 项 194px，紧凑 160px）齐腰截半露底高度计算，精准横截文字躯干提供可滚动潜意识线索；
@@ -144,14 +144,11 @@
 - **滑块 Thumb**：面板底色 + 14% 环境微边框 + 双层轻微柔影；悬停轻微放大 `scale(1.1)`，按压缩放 `scale(0.95)`，禁用严格禁用缩放。
 - **多维度支持**：支持单数值与范围双滑块、水平与垂直方向、`sm` / `md` / `lg` 尺寸。
 
-#### 10. `Accordion` & `Collapsible`（折叠面板规范）
-- **手风琴（Accordion）**：平滑高度折叠动效（`--motion-base` + `--ease-standard`），右侧 Chevron 箭头 180° 平滑翻转，支持单选/多选展开模式。
-- **折叠器（Collapsible）**：无侵入受控容器，原生支持 `data-[state=open]` 高度自适应动效。
-- **折叠区段（CollapsibleSection）**：`Collapsible` 之上的标准标题行——「图标 + 标题 + meta 插槽 + chevron」，供设置页区段使用。标题行是「一节」而不是「单元」：静止态不画描边与填色，悬停只给半量底色，图标与 chevron 在悬停 / 展开时转 accent。整行（含底色与图标）左右各留 8px 内缩，不贴列边缘；需要裸触发器时继续用 `Collapsible`。
+#### 10. `Collapsible`（折叠规范）
+- **折叠器（Collapsible）**：无侵入受控容器，原生支持 `data-[state=open]` 高度自适应动效（`--motion-base` + `--ease-standard`）。
 
-#### 11. `Popover` & `HoverCard`（气泡与悬浮卡片规范）
+#### 11. `Popover`（气泡规范）
 - **材质基座**：消费统一的 `.nb-ui-popover-surface` 磨砂玻璃基底（75% 半透底色 + 12px~14px 模糊 + 130% 饱和度 + 1px 环境边框 + 立体柔影），禁用时 `close-auto-focus` 防止二次聚焦闪烁。
-- **长文写作场景**：`HoverCard` 预设 250ms 打开延迟与 200ms 关闭平滑过渡，为设定集词条、人名档案与外部链接提供即时轻量预览。
 
 #### 12. `Splitter`（多栏可调节工作区规范）
 - **双向分割**：支持水平（`horizontal`）与垂直（`vertical`）多栏分配；`Splitter` 内部不再使用 reka-ui 的分割原语，拖动、命中、键盘与收起全部走 nb-ui 自己的纯函数（`grid-geometry` / `sash-drag`）与 `useSashGesture` 输入层，`Enter` 折叠/恢复与拖动共用同一份收起策略。
@@ -159,16 +156,16 @@
 - **sash 几何**：默认每条占主轴 1px；`sashSizes` 按边界提供实际像素。零值不占布局且不可交互，也不渲染装饰；非法值诊断后回退，主轴守恒不依赖 CSS 隐藏。设备像素对齐只作用在装饰层的内联几何上，**不移动 separator 的命中盒**，也不改子节点布局。常驻接缝厚度为 1 CSS px、近端边对齐设备像素；交互装饰带最多 3px，按相邻面板与 sash 可用空间夹紧，收起边界不因 overflow 裁窄。
 - **拖拽触感**：静止态为常驻的 1px `--divider` 分界线，悬浮/拖动时在其上点亮品牌色指示带；命中边距 fine 5px / coarse 15px，且 hover、光标、按下与高亮读同一份命中结果——T/十字处两条线会一起点亮。相同命中 scope 连续停留约 250ms 后渐显，离开淡出；`prefers-reduced-motion: reduce` 保留延迟但取消中间渐变。
 - **悬停线的样子归主题**：线芯的颜色、厚度、圆角与发光取 `--sash-line-color`、`--sash-line-size`、`--sash-line-radius`、`--sash-line-glow`，缺省是铺满装饰带的 3px 强调色实线；比装饰带细的线芯对齐静止接缝（近端边对齐设备像素），不在装饰带里居中。长轴两端：自由端按 `--sash-line-inset` 缩进，碰到另一条同时亮着的线的一端连着（T 形交汇时两条连成一体，只亮一条时两端都缩）。网格按树结构把每个分支的线两端挨着哪条外层边界传给 `Splitter`（`sashLineEnds`）。
-- **手势边界**：一个公开 `GridRenderer` 独占一份会话，一次按下命中的最多两根轴（一根 width + 一根 height）属于同一场手势：`gesture-update` 携带预览布局让整棵子树按父盒实时变化，松手只发一次 `gesture-end(commit)`，`commit.changes` 里每项是该分支全部直接子节点沿主轴的 px（`baseline`/`target`/`active`/`compensated`/`collapsed`），宿主用 `grid.resizeBranches(changes)` 一次原子落账。独立 `Splitter` 仍用单分支 `SplitterGestureState`（`sizesPx` + `collapsed`）。
+- **手势边界**：一个公开 `NestedGrid` 独占一份会话，一次按下命中的最多两根轴（一根 width + 一根 height）属于同一场手势：`gesture-update` 携带预览布局让整棵子树按父盒实时变化，松手只发一次 `gesture-end(commit)`，`commit.changes` 里每项是该分支全部直接子节点沿主轴的 px（`baseline`/`target`/`active`/`compensated`/`collapsed`），宿主用 `grid.resizeBranches(changes)` 一次原子落账。独立 `Splitter` 仍用单分支 `SplitterGestureState`（`sizesPx` + `collapsed`）。
 - **边界规则**：基线在用户开始时捕获，一次指针操作或一次键盘连发只结束一次；`keyup` 或失焦结束键盘手势；
 -  `Escape`、`pointercancel`、窗口失焦、卸载与 panel 身份/约束/方向/禁用变化取消且不产生保存意图，并同时复位上游拖动状态；挂载、约束变化与视口重算仍只发 `layout`。
 - **主动与补偿**：`active` 只含 sash 两侧相对基线实际改变的面板；相邻候选触界未变化时不冒充主动字段，被推着让出空间的远端兄弟记为 `compensated`。
 - **收起与恢复**：指针按**按下基线 + 累计位移**的绝对边界求解，吸附只改约束、不用记忆尺寸重锚，展开跟随指针坐标——同一个鼠标位置永远对应同一个状态；低于 `minimum − 24` 吸附到 `collapsedSize`，回到 `max(minimum, collapsedSize + 24)` 且容量允许时展开。记忆尺寸只服务按钮 / `Enter` 的显式恢复（恢复空间不足时保持收起并给诊断）。会话提交的就是最后发布的那份几何，`finish` 不拿最后一次位移重解。
 
-##### 拖放反馈：`DropIndicator` / `DropIndicatorLabel` / `DropFeedbackOverlay`
+##### 拖放反馈：`DropFeedbackOverlay` / `DropIndicatorLabel`
 
-- 三个组件从 `@notnotype/nb-ui/components` 导出。`DropIndicator` 接收 `variant: "area" | "entry" | "line"` 和默认插槽，单根 div；`DropIndicatorLabel` 接收 `label: string` / `iconClass?: string`，空白文案不渲染药丸；`DropFeedbackOverlay` 接收 `preview: DropFeedbackPreview | null` / `label` / 可选 `iconClass`，是自己 Teleport 到 body 的共享覆盖层。
-- 前两个原语只渲染，不拥有手势、落点登记、业务状态或 Teleport；position、坐标、宽高与 z-index 由宿主提供。根均为 `aria-hidden`、不可选且不接管指针。
+- `DropFeedbackOverlay` 与 `DropIndicatorLabel` 从 `@notnotype/nb-ui/components` 导出；画区域、条目与插入线的 `DropIndicator`（`variant: "area" | "entry" | "line"` 和默认插槽，单根 div）是覆盖层的内部件，不导出。`DropIndicatorLabel` 接收 `label: string` / `iconClass?: string`，空白文案不渲染药丸；`DropFeedbackOverlay` 接收 `preview: DropFeedbackPreview | null` / `label` / 可选 `iconClass`，是自己 Teleport 到 body 的共享覆盖层。
+- `DropIndicator` 与 `DropIndicatorLabel` 只渲染，不拥有手势、落点登记、业务状态或 Teleport；position、坐标、宽高与 z-index 由宿主提供。根均为 `aria-hidden`、不可选且不接管指针。
 - `DropFeedbackPreview` 是宿主落点解析器给出的**语义命中几何**（viewport client 坐标）：`areaRect`（边缘插入带 / 中央整片叶 / 空容器整个内容盒）、`entryRect`（高亮条目）、`indicator`（插入线）、`orientation`（容器主轴）。覆盖层只画，不改写这份几何：内缩只进绘制盒，命中、序位与提交都用原始矩形。
 - 覆盖层合同：`preview` 里一份有效几何都没有就不渲染；有有效 `areaRect` 时**不画插线**（区域已承诺落点，两条边叠起来会被读成两个落点），只有拿不出区域、只剩插入位的落点（列表插入位、原位锚点）才画线；中央保持布局的 `keep` 只给整片叶区域、没有锚点与插入线，调用方释放时也不提交。区域四边内缩 `min(6, 尺寸/4)`、插线只缩长轴 `min(2, 长轴/4)` 以保住窄/折叠目标的正面积。公共标记为 `data-drop-feedback` 与 `data-drop-feedback-area|-line|-entry|-label|-live`；attrs 透传到覆盖层根（`<Teleport>` 不会自动继承，组件内手动 `useAttrs`），落点种类、轴、并入数量一类业务语义由调用方写成 `data-*`。
 - 提示药丸放在独立 fixed 包装里（不嵌进 2px 线或小条目盒，不被裁掉），有合法反馈且文案非空就显示：区域容得下「药丸 + 16px」时居中，否则贴锚点外侧并夹紧进视口 8px；只有插入线时宿主可给 `labelAt: "line-end"`，药丸贴在线的末端，用在线下方紧挨着一行标题的地方；提交后宿主可给 `settling: true` 的预览做收尾，区域滑到最终矩形再淡出，淡完（或减少动效、没有区域时立即）发 `settled`；尺寸由 `ResizeObserver` 缓存，坐标变化只重排不重读布局，反馈消失即断开观察。无障碍播报是独立的 `aria-live="polite"` 区域，只随文案变化更新，不逐像素播报。
@@ -177,7 +174,7 @@
 - 几何入口在 `@notnotype/nb-ui/layout`：`resolveGridInsertion` 沿目标轴前/后 20% 返回插入位、`targetId`（命中叶）和 `halfRect`（该叶对应半区），中央 60% 返回 `keep`；是否呈现 keep 由宿主行为决定。叶间隙归后一叶，非末叶后缘仍归它自己。`resolveListInsertion` 给列表插入位，一位一线；前一项后半、间隙、后一项前半归同一位。内部线居中、追加锚末个可用成员后缘、空列表锚内容盒前缘。
 - `resolveListInsertion` 可选 `edgeGap`（默认0）仅给首个可见成员前与末个可见成员后留白，内部间隙仍居中，空列表不偏移；空间不足时夹紧，负数/非有限退为0。Editor 标签带与 Workbench 容器切换器条目带都传4px（Editor 配合标签左右6px外边距、内部为5px/2px/5px；Workbench 条目相邻、只在首尾留白）；内容区的边缘插入带不消费它，默认几何不变。
 - 区域及其居中提示首次出现按 `--motion-fast` / `--ease-standard` 淡入；连续换区保留同一节点，矩形的left/top/width/height与提示的left/top按 `--motion-base` / `--ease-standard` 过渡，文案立即更新，不重放淡入。过渡只影响fixed装饰盒，不改变命中、提交或正文布局；插线即时定位，取消立即卸载，无离场残留；reduced-motion取消动画和过渡。
-- 几何与视觉分开：Editor 与 Workbench 的反馈均使用公共覆盖层的 fixed viewport 布局；不要另写业务私有区域框、线宽、提示标签或几何过渡。只需静态/local示意时才直接用绘制原语。Component Lab 的 `DropIndicator`（area、entry、line）、`DropIndicatorLabel` 与 `DropFeedbackOverlay` 场景提供对照，共享覆盖层按真实矩形落位。
+- 几何与视觉分开：Editor 与 Workbench 的反馈均使用公共覆盖层的 fixed viewport 布局；不要另写业务私有区域框、线宽、提示标签或几何过渡。只需画一个静态的提示药丸时才直接用 `DropIndicatorLabel`。Component Lab 的 `DropIndicatorLabel` 与 `DropFeedbackOverlay` 场景提供对照，共享覆盖层按真实矩形落位。
 - 新接入步骤：宿主先定义来源、目标与原子提交意图；dnd-kit 只管理输入和手势生命周期，纯解析器一次返回动作与预览，宿主只在释放时提交。列表用 `resolveListInsertion`，四边/中心用 `resolveGridEdgeDrop`；不要用默认 `useSortable` 的乐观 DOM 排序来替代“显示落点、释放提交”的合同。
 - Editor 原位落点显示插入线、正文中央保留整区反馈，均以 `action:null` 表示释放不提交。Workbench 展开内容区传 `edgeRatio: 0.5`，前后各半都可提交，中点归后半；非法方向无反馈。全部可见成员收成细条时，剩余内容区作为一个落点，不拆细条。容器原位换序可以 `noop` 显示一条插入线，View 投 Switcher 则创建新容器。Workbench 边缘消费 `halfRect`，条目反馈只有线、没有额外高亮。
 - 登记真实元素，统一使用可见 client 矩形并检查浮层遮挡；过滤拖动反馈与占位节点，不以它们作为排序成员。源码示例为主应用 `EditorDragProvider.vue` / `useEditorTabDrag.ts`；它复用工作台既有的 DOM reader 与输入门槛。需要稳定来源几何时使用 `DragOverlay`，不要误以为 `Feedback` 的 `clone` 模式会让原元素留在原位。
@@ -196,9 +193,8 @@
   - **内边距只有一层**：body 自带的内边距是对话框给的那一层；内容自带页面节律（导航轨 / 内容列各有自己的 `--space-*` 边距）时，宿主必须传 `body-class="!p-0"` 把这层交出去。两层叠起来会到 24–32px，读起来像内容被挤在中间。
 - **AlertDialog**：居中破坏性二次确认模态窗，强制提供有明确意图的按钮出口（取消/确认），支持 `danger` / `warning` / `accent` 语调；受控模式可不提供 `trigger` slot，组件不得为无触发器实例渲染空的 `AlertDialogTrigger`。
 
-#### 14. `Progress` & `Avatar` & `Kbd`（数据反馈与微排版组件规范）
+#### 14. `Progress` & `Kbd`（数据反馈与微排版组件规范）
 - **Progress**：全胶囊圆角，消费 `--motion-base` 平滑 `translateX` 进度位移，支持 4 种语义状态色。
-- **Avatar**：支持现代超椭圆（`squircle`）与圆形，图片加载缺失时 0 延迟即时呈现大写 Fallback 字母，加载时提供防闪烁机制。
 - **Kbd**：等宽微浮雕物理键帽质感，`--control-outline` 边框 + 实体微底影，支持 `sm` / `md` / `lg` 三档字号与高宽排布。
 
 #### 15. `ScrollArea` 与跨平台极简滚动条体系规范
@@ -208,7 +204,7 @@
   - 弃用沉重的 JavaScript 虚拟滑块与绝对定位 DOM 模拟，优先采用纯 CSS 声明式滚动（`.nb-ui-popover-scroll`），实现 0 运行时开销、丝滑的原生滚动惯性与全键盘/触控板原生兼容。
 - **两类滚动条场景与 `scrollbar-gutter` 决策规约**：
   1. **场景 A：静态确定型元素（不会在「溢出」与「不溢出」状态之间频繁切换）**：
-     - **典型代表**：下拉选择框浮层（`FormSelect`）、菜单列表（`Dropdown` / `ContextMenu`）、固定设置表单等；
+     - **典型代表**：下拉选择框浮层（`Select`）、菜单列表（`DropdownMenu` / `ContextMenu`）、固定设置表单等；
      - **处理原则**：遵循浏览器原生的 **`scrollbar-gutter: auto`**；
      - **设计考量**：这类容器在打开时选项数量是静态确定的（要么不足 5 项不溢出，要么超过截断高度溢出），且在交互期间不会动态追加或删除元素。未溢出时不预留槽位、保持内容两端绝对对称纯净；溢出时由原生细滚动条自然承载，避免盲目声明 `stable` 导致短列表单侧凭空悬空。
   2. **场景 B：动态切换型元素（会在「溢出」与「不溢出」状态之间频繁动态切换）**：
@@ -225,7 +221,7 @@
 - **单层滚动权与外框贴边原则（Single Scroll Responsibility）**：
   - 滚动权归拥有完整视图高度的最外层容器所有，内部子组件与空状态（如 `AgentChatEmptyState`）严禁重复声明 `overflow-y: auto` 与 `h-full`，杜绝产生双层嵌套滚动与陷在内部的孤立滚动条；
   - 内部子组件不堆叠外层宿主已有的内边距（例如宿主已有 `p-4`，内部通过 `w-full my-auto` 自适应居中与延展），保证滚动条始终完整贴合最外层物理面板边缘。
-- **FormSelect 与 Dropdown 双向虚化与 macOS 悬浮滑块体系**：
+- **Select 与 DropdownMenu 双向虚化与 macOS 悬浮滑块体系**：
   - 下拉弹出层明确声明 `:body-lock="false"`，杜绝打开下拉组件时锁死页面滚动条导致的全局布局跳跃；
   - **为何不用纯 CSS 原生滚动**：
     1. Reka UI 的 `SelectViewport` 原语刻意在内部注入了 `scrollbar-width: none`，原生滚动条在各浏览器被强行隐匿；
@@ -235,18 +231,7 @@
     2. **100% 绝对可见 macOS 4px 悬浮微胶囊滑块**：独立绝对定位在 `SelectContent` 表面（Viewport 外侧），完全避开渐隐遮罩裁切，不受底层原语影响；常态半透明、悬停加深、支持鼠标按住 1:1 拖拽；
     3. **内容避让**：视口在内容溢出时自动分配 6px 避让槽（`pr-1.5`），杜绝滑块与选项高亮底色或选中对勾图标重合。
 
-#### 16. `Listbox`（高级列表选择框与实体卡片规范）
-- **设计定位**：就地常驻展开（Inline）的多选/单选容器，与下拉弹层式 `Select` 形成互补；专用于长篇写作大纲分卷多选、世界观词条/人物档案实体选择与标签池。
-- **四大展示与交互方案体系**：
-  1. **方案 1：macOS 经典紧凑检查器（`variant="compact"` · 推荐）**：单行高 28px~32px，单选为经典高斯蓝底（`var(--accent-main)`）高亮，多选为左侧实心超椭圆微 Checkbox + 右侧状态标签，集成即时搜索与底部快捷全选/反选/清空状态栏；
-  2. **方案 2：现代富实体卡片（`variant="card"`）**：独立微卡片排版，支持左侧大图标/头像插槽、粗体主标题、2 行副标题描述与右侧状态胶囊徽章（Badge），选中态带有 `0 0 0 1.5px var(--accent-main)` 柔光微外框；
-  3. **方案 3：分段多组折叠大纲（`grouped`）**：基于 `ListboxGroup` / `ListboxGroupLabel`，支持粘性磨砂组头、组内数量指示与「切换全选本组」快捷操作；
-  4. **方案 4：双栏穿梭流转分配器（Shuttle Transfer）**：待选章节池 vs 本次导出目标双栏，支持 `>` `<` `>>` `<<` 穿梭流转与导出顺序上下调整。
-- **搜索与操作状态栏**：
-  - 顶部内嵌 `ListboxFilter` 即时搜索栏，支持跨标题、描述、徽标与分组多字段模糊匹配；
-  - 底部提供 `showActionBar` 状态操作栏（`已选 N / M 项`、全选、反选、清空）。
-
-#### 17. 浮层体系分级架构（Surface Tier Architecture）与黄金基座规范
+#### 16. 浮层体系分级架构（Surface Tier Architecture）与黄金基座规范
 
 全库浮层彻底告别分散硬编码，统一划分为 4 档标准分层模型（Tier 1 ~ Tier 4），由全局基座与专用 Composables 严格约束：
 
@@ -256,7 +241,7 @@
   - **无尖角原则（No-Arrow Principle）**：不使用 SVG/伪元素三角形尖角，依靠间隙与 Reka Popper 翻转表达空间关系；
   - **A11y 与交互**：配置 `pointer-events: none` 穿透，严禁与浏览器原生 `title` 双重冒出。
 
-- **Tier 2: 交互菜单与下拉选择（Dropdown / FormSelect / Menubar · 黄金标准）**：
+- **Tier 2: 交互菜单与下拉选择（DropdownMenu / Select / Menubar · 黄金标准）**：
   - **单一真相源**：所有下拉与弹出菜单统一接入 `useDropdownFloating`，严禁在组件内写死内联 `backgroundColor: 65%`、`backdropFilter`、`boxShadow` 或 `borderRadius: 10px`；
   - **同心几何律（Concentric Geometry）**：
     - 外框圆角精确锁定 **12px**（`--nb-popover-radius: 12px`）；
@@ -271,7 +256,7 @@
   - **阴影轻量化**：禁止机械套用小浮层的高浓度深散焦阴影，应收敛黑度至 18% 以内并清除子卡片嵌套阴影；
   - **基准对齐与呼吸感**：与宿主保持 ≥ 12px 间隙；从带 padding 的容器弹出时，使用负边距抵消内边距，使浮层与宿主外边框在垂直线上严格平齐。
 
-- **Tier 3: 悬浮命令面板与快速输入（QuickInput / WorkbenchCommandPalette · 全局输入）**：
+- **Tier 3: 悬浮命令面板与快速输入（QuickPick / WorkbenchCommandPalette · 全局输入）**：
   - **几何重构**：外框圆角明确锁定为 **14px**（`--nb-popover-radius: 14px`），彻底移除对 20px 巨角 `--radius-panel` 的盲目继承；与内部 8px 输入框（`rounded-lg`）达成黄金同心比例；
   - **纯净现代通透质感**：直接消费全局 `.nb-ui-popover-surface`，彻底清除顶部生硬塑料白光条（消除日光灯管反光），在 640px 宽度上呈现深邃柔和的环境悬浮投影与纯净毛玻璃底。
 
@@ -288,7 +273,7 @@
      - 统一为 **`blur(8px) saturate(130%) brightness(1.0)`**；
      - 彻底纠正 `brightness(0.72)` 压暗 28% 导致的发脏浑浊，实现通透晶莹的现代玻璃质感。
 
-#### 18. `QuickInput`（全局快速输入浮层 · S4 规范）
+#### 17. `QuickPick`（输入筛选、挑选一项的浮层 · S4 规范）
 - **定位**：全局命令面板 / 快速输入的受控浮层原语；候选项、查询、活动项与执行语义全由宿主提供，组件不持有命令注册表、不做匹配与执行决策——`>` 命令、`:` 行号等前缀解析属宿主。props/emits 之外无自定义 slot、无 expose。
 - **层级与 role（S4）**：消费 `NB_Z_INDEX.commandPalette`（9200，S4 全局命令面板角色）；模态 Dialog 语义（`DialogRoot` modal + `disableOutsidePointerEvents`），透明遮罩与 Content 同为 9200、Content 在后；外点被遮罩消费，不穿透底层。可访问名称来自 sr-only 的 `DialogTitle`；面板没有描述节点，Content 默认不带 `aria-describedby`（不指向不存在的描述 id），宿主经 attrs 显式传入时以宿主为准。
 - **几何**：视口顶部居中，宽 `min(640px, calc(100vw - 24px))`，`top: clamp(16px, 8vh, 72px)`，`max-height: min(560px, calc(100dvh - 48px))`；圆角为 **14px**（`rounded-[14px]`），输入区与底部提示固定、列表 `flex:1; min-height:0` 自滚动；390px 宽仍留左右 12px。
@@ -338,7 +323,7 @@
   「Extraneous non-props attributes」警告，布局随之静默消失。需要承载滚动、内边距的组件，
   把这两件事写在**它自己的根**上，不要指望调用点。
   `sections/**` 的机械保证见 `sections-single-root.contract.test.ts`。
-  父组件的 scoped 样式同理，只命中子组件的单一根；把 class 转发到内部元素的组件（例如 `FormSelect` 交给触发器），
+  父组件的 scoped 样式同理，只命中子组件的单一根；把 class 转发到内部元素的组件（例如 `Select` 交给触发器），
   带不上父组件的作用域属性，宽度这类布局给外层包裹元素。
 - **布局类随内容走，不随选中态走**。外壳给内容区套的布局类（`overflow`、内边距、`layout` 模式）
   必须挂在**当前被渲染的那一份内容**上（过渡内的 keyed 子元素）。挂在随「已选中区段」立即翻转的
@@ -351,11 +336,21 @@
   4. i18n 键归位：导航用 `settings.section.*`，视图内文案用 `settings.panels.*`；
   5. 在 Component Lab 登记场景（同名 `.md` 与场景登记）。
 
+### 4.5 同类零件的分工
+
+几个“从一组里选”的零件按用途分，不按长相分：
+
+- `Tabs` 换去处：选中哪一项，下面就换成哪一块内容（设置的分页、面板里的几页）。
+- `SegmentedControl` 换模式：内容还是同一份，换个看法（列表 / 网格、文本 / 树形）；当前状态不对应任何一项时可以一个都不选中（例如手动拖出的画布尺寸）。
+- `RadioGroup` 在表单里选一个值，每项可以带说明，跟别的字段一起提交。
+- `ToggleGroup` 是一组可以叠加的开关（粗体、斜体），可以同时按下几个，也可以都不按下；不做单选。
+- `Select` 从一列值里选一个，收在下拉框里；`DropdownMenu` 点按钮弹出一列动作，选了就执行，不保留选中值。
+
 ## 5. 表单与无障碍
 
-1. 字段组件接入 `FormField` context：生成或接受 `id`，连接 `aria-describedby`，合并 `required`，错误时输出 `aria-invalid`。
-2. 表单受控/非受控契约：所有表单控件（`FormInput`, `FormSelect`, `FormCheckbox`, `FormNumberInput`, `FormTextarea`, `Combobox`）的 `modelValue` 声明为可选并使用 `withDefaults` 赋予安全默认值，杜绝静态展示或非受控场景下的控制台告警。
-3. nb-ui 持有的原生 input（公共组件内部 input 与 playground 自建控件）使用 `.nb-ui-native-input` 标记。`src/styles.css` 对 search decoration 和 number spinner 的抑制必须以该标记为作用域；未标记的宿主原生 input 保留浏览器默认伪元素。`PinInput type="number"` 保持 Reka 的 `type="text"`、`inputmode="numeric"`、`pattern="[0-9]*"` 数字键盘合同。
+1. 字段组件接入 `Field` context：生成或接受 `id`，连接 `aria-describedby`，合并 `required`，错误时输出 `aria-invalid`。
+2. 表单受控/非受控契约：所有表单控件（`Input`, `Select`, `Checkbox`, `NumberInput`, `Textarea`）的 `modelValue` 声明为可选并使用 `withDefaults` 赋予安全默认值，杜绝静态展示或非受控场景下的控制台告警。
+3. nb-ui 持有的原生 input（公共组件内部 input 与 playground 自建控件）使用 `.nb-ui-native-input` 标记。`src/styles.css` 对 search decoration 和 number spinner 的抑制必须以该标记为作用域；未标记的宿主原生 input 保留浏览器默认伪元素。
 4. 可见标签优先。图标按钮必须有非空 `aria-label`；tooltip 不能替代可访问名称。
    反过来也成立：**说明「这一页 / 这一节是什么、会写到哪里」的元信息不该单独占一行**——它走 tooltip 或标题旁的 info 图标，只有影响判断的正文才占行。区段标题下挂一句 20 字以上的灰色说明是最常见的违反形态。
 5. 复合选择控件必须暴露正确角色和状态，并支持预期方向键、Home/End、Enter、Escape。关闭浮层后焦点回到触发器。
@@ -363,7 +358,7 @@
 7. `prefers-reduced-motion` 与 `prefers-reduced-transparency` 的公共降级规则优先于主题。动效只解释出现、消失、位置或状态变化，不承担必要信息。
 8. **校验结果不改变表单的排版**：出错时不在字段下插入文字，否则错误一多，表单每提交一次就换一次样子。
    - 能事先防住的不报错：必填项没填、格式不对时提交按钮不可用；长度靠输入上限，取值靠选择控件。
-   - 提交之后才知道的错（服务端拒绝、选的文件不合规）：对应字段标红并得到焦点（`FormField` 的 `error` 只标红、把原因交给读屏），看得见的原因写在一个固定位置。对话框里是页脚左侧的状态行（`Dialog` 的 `status`），一次只写一条。
+   - 提交之后才知道的错（服务端拒绝、选的文件不合规）：对应字段标红并得到焦点（`Field` 的 `error` 只标红、把原因交给读屏），看得见的原因写在一个固定位置。对话框里是页脚左侧的状态行（`Dialog` 的 `status`），一次只写一条。
    - 字段旁的计数、说明这类辅助信息也不占新行：计数贴在标签行右端，说明走标签旁的说明图标。
 
 ## 6. 测试与交付
@@ -382,7 +377,7 @@
 
 ## 7. Component Lab
 
-nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/component-lab`](../../../docs/specs/ui/component-lab.md)，登记写法见 `packages/neuro-book/src/plugins/lab/web/fixtures/README.md`。playground 的 `/lab` 已删除；需要真实浏览器（真实指针与布局引擎）的验收（嵌套分栏、多栏分割、勾选框聚焦时不滚动外层容器）在 playground 的 `/acceptance/<组件>` 页，由 `e2e/nested-grid.spec.ts`、`e2e/splitter.spec.ts`、`e2e/form-checkbox.spec.ts` 驱动。
+nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/component-lab`](../../../docs/specs/ui/component-lab.md)，登记写法见 `packages/neuro-book/src/plugins/lab/web/fixtures/README.md`。playground 的 `/lab` 已删除；需要真实浏览器（真实指针与布局引擎）的验收（嵌套分栏、多栏分割、勾选框聚焦时不滚动外层容器）在 playground 的 `/acceptance/<组件>` 页，由 `e2e/nested-grid.spec.ts`、`e2e/splitter.spec.ts`、`e2e/checkbox.spec.ts` 驱动。
 
 1. **登记位置**：`packages/neuro-book/src/plugins/lab/web/fixtures/nb-ui/` 按组件目录分文件（控制、展示、反馈、表单、布局）。只需绑定输入与记录事件的用 `defineSubjectFixture`，需要组合演示的手写 fixture 并用 `defineLabFixture<typeof C>`。
 2. **一个场景一个组件**：场景表达组件的一种状态或输入组合，不在一个场景里平铺多套设计方案；设计实验不是组件合同。
@@ -395,7 +390,7 @@ nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/
 依据 `frontend-ui-engineering` 标准，全库 48 个组件已完成逐一深度优化与物理动效装配：
 
 1. **按压物理回弹（Active Spring）**：
-   - 交互按钮类（`Button`, `IconButton`, `SegmentedControl`, `ToggleGroup`, `Pagination`, `CalendarPrev/Next`）统一装配 `not-disabled:active:scale-[0.93~0.975]` 物理弹性回弹；
+   - 交互按钮类（`Button`, `IconButton`, `SegmentedControl`, `ToggleGroup`）统一装配 `not-disabled:active:scale-[0.93~0.975]` 物理弹性回弹；
    - 禁用态（`disabled`）严格通过 `disabled:active:transform-none` 屏蔽位移与缩放，杜绝误导性交互反馈。
 2. **GPU 加速与平滑位移（Hardware Accelerated Transforms）**：
    - 滑块（`SegmentedControl`, `Switch`, `Slider`, `Progress`）指示物统一使用 GPU 硬件加速的 `transform: translateX(...)` / `translateY(...)` 进行位移，杜绝 `left`/`top` 引发的重排重绘；
@@ -404,13 +399,13 @@ nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/
    - 过渡属性必须显式枚举（如 `transition-[background-color,color,transform,box-shadow]`），禁止使用 `transition-all`；
    - 100% 通过 `token-consumption.test.ts` 静态扫描。
 4. **WCAG 2.1 AA 键盘导航与焦点管理**：
-   - `Tabs`, `SegmentedControl`, `Dropdown`, `Menubar`, `Tree`, `Listbox`, `Combobox` 等复合组件全面支持 `ArrowUp/Down/Left/Right`, `Home/End`, `Enter/Space`, `Escape` 键盘导航并联动焦点环（`.nb-ui-focus-ring` / `--focus-ring`）。
+   - `Tabs`, `SegmentedControl`, `DropdownMenu`, `Menubar`, `Tree` 等复合组件全面支持 `ArrowUp/Down/Left/Right`, `Home/End`, `Enter/Space`, `Escape` 键盘导航并联动焦点环（`.nb-ui-focus-ring` / `--focus-ring`）。
    - `Tree` 的 `modelValue` 对外始终使用节点 `id`：单选为 `string | undefined`，多选为 `string[]`；组件内部负责把 id 映射为 Reka TreeRoot 所需的节点对象，并把更新事件映射回 id，调用方不得持有原语内部节点对象。
    - `Tree` 的选中行使用整行淡强调底、强调文字与中等字重，不使用常驻左边框或指示条；层级只由缩进与展开箭头表达，焦点继续由 `.nb-ui-focus-ring` 独立表达。
 
-## 9. Dropdown 与 Popover 浮层 Surface 黄金标准规范（FormSelect 唯一样式源）
+## 9. DropdownMenu 与 Popover 浮层 Surface 黄金标准规范（Select 唯一样式源）
 
-全库所有下拉菜单（`Dropdown`）、选择器（`FormSelect`）、命令面板（`QuickInput` / `WorkbenchCommandPalette`）与弹出浮层必须严格以 `FormSelect` 的黄金调优标准为唯一样式规范：
+全库所有下拉菜单（`DropdownMenu`）、选择器（`Select`）、命令面板（`QuickPick` / `WorkbenchCommandPalette`）与弹出浮层必须严格以 `Select` 的黄金调优标准为唯一样式规范：
 
 1. **底色与对比度（65% 温润白底 / 75% 烟熏深底）**：
    - 亮色模式：`--overlay-surface: color-mix(in srgb, var(--bg-panel) 65%, transparent);`，提供一层温润半透明白底，保证浮层内文字具有充分对比度与可读性，杜绝过薄透明（如 14%）导致的底层正文透光干扰与眩光；

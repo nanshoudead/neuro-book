@@ -264,7 +264,7 @@ Save Dialog `0 36px 100px`（后者是上一轮从同一份文件的 Dialogs 页
 `--glass-rim`，但只有整块的 Dialog（模态与浮动窗口两种用法）显式挂 `.nb-ui-surface-rim`。nbook 保持
 `--overlay-sheen: none`，小浮层继续 8px 纯 blur、无面渐变。
 
-菜单、ContextMenu、Combobox、FormSelect、默认 TimePicker 与 macOS 滚轮 TimePicker 都必须挂
+菜单、ContextMenu、Select 都必须挂
 `.nb-ui-menu-surface`；Dialog 叠挂 `.nb-ui-dialog-surface`。Tooltip 独立消费
 `.nb-ui-tooltip-surface`，由该 modifier 负责实心面板底（`--bg-panel`）、正文色（`--text-main`）、
 控件圆角、舒适内边距与无尖角平滑微投影卡片，不吃大浮层的半透明玻璃配方，彻底规避三角箭头的几何与阴影瑕疵。
@@ -301,7 +301,7 @@ Save Dialog `0 36px 100px`（后者是上一轮从同一份文件的 Dialogs 页
 | 面板圆角 | 18px | 20px |
 | 菜单外圈圆角 | 12px | 12px |
 
-`FormInput`、`FormNumberInput`、`FormSelect` 的默认单行高度分别消费 `.nb-ui-control-h-md`，
+`Input`、`NumberInput`、`Select` 的默认单行高度分别消费 `.nb-ui-control-h-md`，
 水平内边距消费 `.nb-ui-control-px`，因此实际命中两套主题同为 32px 与同为 14px 的
 `--control-px`。这几个静态类在 `src/styles.css` 登记，
 不依赖 Tailwind 对 arbitrary value 的扫描。
@@ -353,8 +353,8 @@ rounded-[max(2px,calc(var(--radius-control)_-_var(--border-w)_-_2px))]   <!-- �
 `calc()` 会算出负值，而**负的 `border-radius` 是非法值，整条声明被丢弃**——
 表现是圆角控件突然变成方角，且没有任何报错。
 
-内层形状不贴角就不必同心。`FileTree` 的展开箭头离行首至少 8px，`Badge`、`TagInput` 的芯片、
-`FormCheckbox` 都是这种情况，它们保持自己的圆角是对的，别为了「统一」去套这条式子。
+内层形状不贴角就不必同心。`Tree` 的展开箭头离行首至少 8px，`Badge`、
+`Checkbox` 都是这种情况，它们保持自己的圆角是对的，别为了「统一」去套这条式子。
 
 ### 控件圆角只有 `--radius-control` 一个来源
 
@@ -642,10 +642,10 @@ editorial 同裸基线。这些数值是**目测决定，没有可引的规范**
    若原语行为变了（不再等待），退回 Vue `<Transition>` 包装，并在坑节记录。
 5. 共享实现只有一个登记处：`src/styles.css` 的 `.nb-ui-popover-motion` modifier，
    挂在浮层基座（`.nb-ui-popover-surface`）之上。已有自己过渡的浮层
-   （Combobox / ContextMenu / Tooltip / TimePicker / Dialog）不挂它，
+   （ContextMenu / Tooltip / Dialog）不挂它，
    避免两层动画叠加；它们的配方同样服从本节第 1–3 条。
 6. **模态命令浮层（S4）关闭不带走动画。** 退场动画会把「下一层什么时候拿到焦点/按键」
-   押在 `animationend` 上，交接时刻由动画时长决定而不是状态本身。`QuickInput` 与
+   押在 `animationend` 上，交接时刻由动画时长决定而不是状态本身。`QuickPick` 与
    `AlertDialog` 关闭时立即卸载，把「关闭完成」交给原语的真实卸载事件（`closed`）表达；
    宿主在收到该事件后才执行命令或激活下一个交互层。入场仍走第 1 条配方。
 
@@ -868,9 +868,9 @@ Apple 的做法里**面上没有渐变**：Materials 那页从头到尾没提过
 修法：项挂 `.nb-ui-popover-item`，半径由 `--nb-popover-inner-radius` 从外框推出来
 （20 − 1 − 6 = 13px），见第三节。**别去调 6px 这个数**——它每次都得跟着外框和内边距变，
 写死一个数就是把同一个约束抄进 N 个模板。
-连带的一处：`.nb-ui-popover-scroll` 挂在浮层自己身上的组件（Dropdown / Combobox）
+连带的一处：`.nb-ui-popover-scroll` 挂在浮层自己身上的组件（DropdownMenu / Combobox）
 本来就是坑 #24 那一条，滚动条会画进圆角里；本轮只统一了内边距，那条债还在。
-**这条债已在下一轮还掉**：两个组件都把滚动下沉到内层（Dropdown 用 `role="none"` 的包装，
+**这条债已在下一轮还掉**：两个组件都把滚动下沉到内层（DropdownMenu 用 `role="none"` 的包装，
 Combobox 用原本就在的 `<ul role="listbox">`），外框只剩 `overflow: hidden`。
 
 **43. 玻璃上的选中态用了实心 hover 色，成了挖进材料里的补丁**
@@ -1191,7 +1191,7 @@ Bun 下 CDP 握手超时。探针脚本一律 `node xxx.mjs`。
       不写死白或黑
 
 **几何**
-- [ ] 控件外框圆角一律 `rounded-[var(--radius-control)]`；不贴外框角的内部形状和 Skeleton / Notification / Panel 的独立圆角不纳入此项——
+- [ ] 控件外框圆角一律 `rounded-[var(--radius-control)]`；不贴外框角的内部形状和 Skeleton / Notification 的独立圆角不纳入此项——
       写死的 Tailwind 常量不能让 `--radius-control` 负责控件外框（坑 #44）
 - [ ] 贴着外框四角的内层形状（浮层里的项、分段控件的段）按
       `外框 − 描边 − 内边距` 推半径，且用 `max()` 兜底（负半径会让整条声明作废，变方角）

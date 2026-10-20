@@ -11,9 +11,10 @@ import type {StoryMethod} from "../contract/contract";
 import {createStoryApi} from "../core/api";
 import type {StoryApi} from "../core/api";
 import type {StoryErrorCode} from "../core/errors";
-import {COMMANDS, decodeArguments, FLAGS, usage, UsageError} from "./commands";
+import {decodeArguments, usage, UsageError} from "./commands";
 import type {CommandSpec} from "./commands";
 import {formatResult} from "./format";
+import {parseCommandLine} from "./program";
 import {liveRegistration} from "./registration";
 
 export interface CliIo {
@@ -61,37 +62,6 @@ const VIEWER_PAGE: Record<string, {page: string; tab?: string}> = {
     para: {page: "source"},
 };
 
-interface Parsed {
-    command: string | null;
-    positionals: string[];
-    options: Map<string, string>;
-}
-
-function parse(argv: readonly string[]): Parsed {
-    const options = new Map<string, string>();
-    const positionals: string[] = [];
-    let command: string | null = null;
-    for (let index = 0; index < argv.length; index += 1) {
-        const token = argv[index]!;
-        if (token.startsWith("--")) {
-            const [rawName, inline] = token.slice(2).split(/=(.*)/su, 2) as [string, string | undefined];
-            if (FLAGS.has(rawName)) {
-                options.set(rawName, "true");
-                continue;
-            }
-            const value = inline ?? argv[index + 1];
-            if (value === undefined) throw new UsageError(`选项 --${rawName} 缺少值`);
-            if (inline === undefined) index += 1;
-            options.set(rawName, value);
-        } else if (command === null) {
-            command = token;
-        } else {
-            positionals.push(token);
-        }
-    }
-    return {command, positionals, options};
-}
-
 function formatAt(at: unknown): string | null {
     if (typeof at !== "object" || at === null || !("chapter" in at)) return null;
     const {chapter, paragraph} = at as {chapter: number; paragraph?: number};
@@ -128,17 +98,11 @@ async function viewerUrl(api: StoryApi, spec: CommandSpec, params: Record<string
 }
 
 export async function main(argv: readonly string[], io: CliIo = processIo): Promise<number> {
-    let parsed: Parsed;
-    let spec: CommandSpec | undefined;
+    const parsed = parseCommandLine(argv, io);
+    if ("exit" in parsed) return parsed.exit;
+    const {spec, library} = parsed;
     let params: Record<string, unknown>;
     try {
-        parsed = parse(argv);
-        if (parsed.options.has("help") || parsed.command === null) {
-            io.stdout(usage());
-            return parsed.command === null && !parsed.options.has("help") ? 2 : 0;
-        }
-        spec = COMMANDS.find(item => item.name === parsed.command);
-        if (!spec) throw new UsageError(`没有命令 ${parsed.command}`);
         params = decodeArguments(spec, parsed.positionals, parsed.options);
     } catch (error) {
         if (!(error instanceof UsageError)) throw error;
@@ -146,22 +110,25 @@ export async function main(argv: readonly string[], io: CliIo = processIo): Prom
         return 2;
     }
 
-    const library = parsed.options.get("library");
     if (spec.name === "serve") {
         const {serveCommand} = await import("../server/serve");
-        return serveCommand({library, port: params.port as number | undefined, open: parsed.options.has("open"), json: parsed.options.has("json")}, io);
+        return serveCommand({library, port: params.port as number | undefined, open: params.open === true, json: parsed.json}, io);
     }
     if (spec.name === "ask") {
         const {askCommand} = await import("./ask");
-        return askCommand({library, params, json: parsed.options.has("json")}, io);
+        return askCommand({library, params, json: parsed.json}, io);
+    }
+    if (spec.name === "config") {
+        const {configCommand} = await import("./config");
+        return configCommand({params, json: parsed.json}, io);
     }
     if (spec.name === "qa") {
         const {qaCommand} = await import("./qa");
-        return qaCommand({library, params, json: parsed.options.has("json")}, io);
+        return qaCommand({library, params, json: parsed.json}, io);
     }
     if (spec.method === null) throw new Error(`命令 ${spec.name} 没有对应的方法，也没有单独分派`);
 
-    const json = parsed.options.has("json");
+    const json = parsed.json;
     const api = createStoryApi(library === undefined ? {} : {library});
     const method: StoryMethod = spec.method;
     const outcome = await api.call(method, params);

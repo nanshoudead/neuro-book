@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
- * 取色面板（内部部件，不从入口导出；行为写在 ColorPicker.md 与 ColorSwatches.md 里）：饱和度与明度面、色相条、
- * 颜色值输入与可选的预设色板。`ColorPicker` 把它放进自己的弹层，`ColorSwatches` 的“自定义”色块也用它。
+ * 取色面板（内部部件，不从入口导出；行为写在 ColorSwatches.md 里）：饱和度与明度面、色相条、
+ * 颜色值输入与可选的预设色板。`ColorSwatches` 的“自定义”色块用它。
  *
  * 面板内部按 HSB 保存当前颜色，三个控件都改这一个对象，不经 hex 来回转换：饱和度或明度为 0 时 hex 里没有色相，
  * 来回转一次色相就丢了，色相条会跳回红色。对外只发出不带透明度的小写 `#rrggbb`。

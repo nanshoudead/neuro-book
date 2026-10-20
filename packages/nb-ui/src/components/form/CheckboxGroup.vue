@@ -2,7 +2,7 @@
 import {
     CheckboxGroupRoot,
 } from "reka-ui";
-import FormCheckbox from "./FormCheckbox.vue";
+import Checkbox from "./Checkbox.vue";
 
 export interface CheckboxOption {
     value: string;
@@ -61,7 +61,7 @@ function handleToggle(val: string, checked: boolean): void {
             :key="opt.value"
             class="flex items-start gap-2"
         >
-            <FormCheckbox
+            <Checkbox
                 :model-value="isChecked(opt.value)"
                 :label="opt.label"
                 :description="opt.description"

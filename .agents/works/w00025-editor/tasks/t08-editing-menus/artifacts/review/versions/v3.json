@@ -1,0 +1,171 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00025-editor",
+    "taskId": "t08-editing-menus",
+    "artifactId": "review",
+    "version": 3,
+    "supersedes": 2,
+    "action": "supersede",
+    "kind": "design",
+    "title": "编辑命令与菜单评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "0806afde124187f2a21c1a50bdbe5917a90e32d645b90786836d677f79ba229f",
+    "files": [
+        "index.html",
+        "r1/compact-card-light.webp",
+        "r1/compact-flat-dark.webp",
+        "r1/compact-flat-light.webp",
+        "r1/context.webp",
+        "r1/full-card-dark.webp",
+        "r1/full-flat-dark.webp",
+        "r1/full-flat-light.webp",
+        "r1/gutter-handle.webp",
+        "r1/gutter-plus.webp",
+        "r2/bubble-block-dark.webp",
+        "r2/bubble-block-light.webp",
+        "r2/bubble-inline-dark.webp",
+        "r2/bubble-inline-light.webp",
+        "r2/gutter-14-dark.webp",
+        "r2/gutter-14-handle-light.webp",
+        "r2/gutter-14-light.webp",
+        "r2/gutter-20-dark.webp",
+        "r2/gutter-20-light.webp",
+        "r2/slash-dark.webp",
+        "r2/slash-light.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-set",
+            "type": "single",
+            "label": "工具栏放哪些按钮",
+            "options": [
+                {
+                    "value": "full",
+                    "label": "完整（19 个）"
+                },
+                {
+                    "value": "compact",
+                    "label": "精简（9 个）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "compact"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-surface",
+            "type": "single",
+            "label": "工具栏的样子",
+            "options": [
+                {
+                    "value": "flat",
+                    "label": "平铺"
+                },
+                {
+                    "value": "card",
+                    "label": "卡片"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "flat"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-gutter",
+            "type": "confirm",
+            "label": "块左侧的两个按钮这样画",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": {
+                "kind": "superseded",
+                "in": 3,
+                "by": {
+                    "workId": "w00025-editor",
+                    "taskId": "t08-editing-menus",
+                    "artifactId": "review",
+                    "questionId": "r2-gutter"
+                }
+            }
+        },
+        {
+            "id": "r2-gutter",
+            "type": "single",
+            "label": "块左侧按钮离文字多远",
+            "options": [
+                {
+                    "value": "g14",
+                    "label": "14px"
+                },
+                {
+                    "value": "g20",
+                    "label": "20px"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "g14"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-bubble",
+            "type": "single",
+            "label": "选中文字时的浮动菜单放什么",
+            "options": [
+                {
+                    "value": "inline",
+                    "label": "只放行内格式"
+                },
+                {
+                    "value": "block",
+                    "label": "加块类型"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "inline"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-slash",
+            "type": "confirm",
+            "label": "斜杠菜单这样做",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-20T01:55:07.410Z"
+}

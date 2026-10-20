@@ -2,7 +2,7 @@
 import type {Component} from "vue";
 
 /**
- * 一级菜单的条目，Dropdown、Menubar 与右键菜单共用。
+ * 一级菜单的条目，DropdownMenu、Menubar 与右键菜单共用。
  *
  * 在 reka 的菜单内容里，宿主传入对应的菜单项原语（`DropdownMenuItem`、`MenubarItem`）：条目成为 reka 集合里的项，
  * 上下键、Home、End、首字母跳转、高亮与跳过禁用项都由 reka 负责。手工级联面板与右键菜单不在 reka 的菜单内容里

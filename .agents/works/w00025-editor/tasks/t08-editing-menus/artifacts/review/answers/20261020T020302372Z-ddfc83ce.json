@@ -1,0 +1,23 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00025-editor",
+    "taskId": "t08-editing-menus",
+    "artifactId": "review",
+    "answerId": "20261020T020302372Z-ddfc83ce",
+    "artifactVersion": 3,
+    "contentHash": "0806afde124187f2a21c1a50bdbe5917a90e32d645b90786836d677f79ba229f",
+    "submittedAt": "2026-10-20T02:03:01.988Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r2-gutter": "g14",
+        "r2-bubble": "inline",
+        "r2-slash": true
+    },
+    "comments": {
+        "r2-slash": "下面的按键提示可以不要。这个组件是否使用了 nb-ui 的组件或者的规范（关心 nb-ui 的建设和优化）？为什么我看不到滚动条呢？这个组件的 surface 是不是磨砂半透明的（和 nb-ui 的 dropdown 一样）？"
+    },
+    "note": null
+}

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Button, Dialog, FormTextarea} from "@notnotype/nb-ui/components";
+import {Button, Dialog, Textarea} from "@notnotype/nb-ui/components";
 import {computed, ref, watch} from "vue";
 import {HERDR_STATUS_LABEL, shortSession, taskLabel, workLabel} from "../host/format.js";
 import type {NotifyCandidate, NotifyJob} from "../host/types.js";
@@ -39,7 +39,7 @@ function send(): void {
                 <dd class="break-all"><code>{{ compose.target.sessionKey }}</code>（pane {{ compose.target.paneId }}，{{ compose.target.agent ?? "Agent" }}，{{ HERDR_STATUS_LABEL[compose.target.status] ?? compose.target.status }}）</dd>
             </dl>
             <p class="nbdev-note">{{ shortSession(compose.target.sessionKey) }} 没有提过这道题，所以不发 [nbdev] 通知（那一句规则只让提问者照做），而是以你的名义发下面这段普通消息，它按普通的用户消息处理。可以先改；发之前同样核对它是否空闲、输入框是否为空。<template v-if="replaced">不通知的话，提问的会话下次读答复时也会看到。</template></p>
-            <FormTextarea v-model="draft" :rows="6" :maxlength="MAX" aria-label="要发的消息" />
+            <Textarea v-model="draft" :rows="6" :maxlength="MAX" aria-label="要发的消息" />
             <p class="nbdev-danger nbdev-small" v-if="problem">{{ problem }}</p>
         </div>
         <template #footer>

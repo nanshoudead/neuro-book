@@ -3,12 +3,13 @@
  */
 
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
-import {rm, writeFile} from "node:fs/promises";
+import {readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {defaultConfigPath, loadQaConfig, qaLimits} from "./config";
+import {defaultConfigPath, loadQaConfig, parseQaConfig, qaLimits, saveQaConfig} from "./config";
+import {CONFIG_FIELDS, ConfigEditError, setConfigField, unsetConfigField} from "./config-edit";
 import {QaError} from "./errors";
 
 let root = "";
@@ -53,5 +54,83 @@ describe("问答配置", () => {
         expect(await codeFor(JSON.stringify({model: {...model, maxTokens: "多"}}))).toBe("qa_unconfigured");
         for (const maxChapters of [0, 21, 2.5]) expect(await codeFor(JSON.stringify({model, qa: {maxChapters}}))).toBe("qa_unconfigured");
         expect(await codeFor(JSON.stringify({model, qa: {maxChapters: 20, fullReadMaxChars: 1}}))).toBe("ok");
+    });
+});
+
+describe("写配置（config 命令）", () => {
+    const base = parseQaConfig({model}, "");
+
+    test("写出的文件能原样读回；目录不存在时建出来，目录里不留临时文件", async () => {
+        const dir = join(root, "nested", "dir");
+        const path = join(dir, "config.json");
+        await saveQaConfig(path, {model, qa: {maxChapters: 5}});
+        expect(await loadQaConfig(path)).toEqual({model, qa: {maxChapters: 5}});
+        expect(await readdir(dir)).toEqual(["config.json"]);
+    });
+
+    test("校验不过：qa_unconfigured，已有的文件一个字不动，也不留临时文件", async () => {
+        const dir = join(root, "keep");
+        const path = join(dir, "config.json");
+        await saveQaConfig(path, {model});
+        const before = await readFile(path, "utf8");
+        const failure = await saveQaConfig(path, {model: {...model, id: ""}}).catch((error: unknown) => error);
+        expect(failure).toBeInstanceOf(QaError);
+        expect((failure as QaError).code).toBe("qa_unconfigured");
+        expect(await readFile(path, "utf8")).toBe(before);
+        expect(await readdir(dir)).toEqual(["config.json"]);
+    });
+
+    test("写不进去（父路径是个文件）：qa_config_write_failed", async () => {
+        const file = join(root, "plain-file");
+        await writeFile(file, "x");
+        const failure = await saveQaConfig(join(file, "config.json"), {model}).catch((error: unknown) => error);
+        expect((failure as QaError).code).toBe("qa_config_write_failed");
+    });
+
+    test("每个可改字段都能 set，改完整份仍过 schema；原配置对象不变", () => {
+        const values: Record<string, string> = {
+            "model.baseUrl": "http://x/v1",
+            "model.id": "other",
+            "model.apiKeyEnv": "OTHER_ENV",
+            "model.contextWindow": "128000",
+            "model.maxTokens": "64000",
+            "model.thinking": "xhigh",
+            "model.price": '{"input":1,"output":4,"currency":"USD"}',
+            "qa.maxChapters": "10",
+            "qa.fullReadMaxChars": "100000",
+        };
+        expect(Object.keys(values).sort()).toEqual(Object.keys(CONFIG_FIELDS).sort());
+        let config = base;
+        for (const [name, text] of Object.entries(values)) config = setConfigField(config, name, text, "");
+        expect(config).toEqual({
+            model: {baseUrl: "http://x/v1", id: "other", apiKeyEnv: "OTHER_ENV", contextWindow: 128000, maxTokens: 64000, thinking: "xhigh", price: {input: 1, output: 4, currency: "USD"}},
+            qa: {maxChapters: 10, fullReadMaxChars: 100000},
+        });
+        expect(base).toEqual({model});
+    });
+
+    test("字段不认识、值写不对：ConfigEditError；值合法但越界：qa_unconfigured", () => {
+        expect(() => setConfigField(base, "model.nope", "1", "")).toThrow(ConfigEditError);
+        expect(() => setConfigField(base, "qa.maxChapters", "多", "")).toThrow(ConfigEditError);
+        expect(() => setConfigField(base, "model.thinking", "max", "")).toThrow(ConfigEditError);
+        expect(() => setConfigField(base, "model.price", "{", "")).toThrow(ConfigEditError);
+        for (const [name, text] of [["qa.maxChapters", "21"], ["model.price", '{"input":1}']] as const) {
+            const failure = (() => {
+                try {
+                    return setConfigField(base, name, text, "");
+                } catch (error) {
+                    return error;
+                }
+            })();
+            expect((failure as QaError).code).toBe("qa_unconfigured");
+        }
+    });
+
+    test("unset 去掉可选字段，qa 里没有字段了整段去掉；必填字段不能去掉", () => {
+        const full = setConfigField(setConfigField(base, "model.thinking", "high", ""), "qa.maxChapters", "5", "");
+        expect(unsetConfigField(full, "model.thinking", "")).toEqual({model, qa: {maxChapters: 5}});
+        expect(unsetConfigField(full, "qa.maxChapters", "")).toEqual({model: {...model, thinking: "high"}});
+        expect(unsetConfigField(base, "qa.maxChapters", "")).toEqual({model});
+        expect(() => unsetConfigField(base, "model.id", "")).toThrow(ConfigEditError);
     });
 });

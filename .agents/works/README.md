@@ -61,13 +61,14 @@ Work 的五位序号在项目内唯一，名称不同也不能复用同一序号
 - **决定以文字入库**：答复是讨论记录；开发者的决定由 Agent 摘成文字写进 Task README。
 - **答复只追加**：写进对应产物的 `answers/`，不改已有的答复。
 - **图片有体积上限**：入库的图片（产物引用的图与证据截图）单张约 300 KB 以内，每个 Task 合计约 5 MB 以内；超出时转成 WebP 或缩小，原图留在本地 `shots/`。能用 HTML 直接表达的不截图。
+- **富内容经 nbdev 交给开发者**：会话窗口适合纯文字的交流。要给开发者看图片、并排比较、长报告、复杂表格这类富内容时，做成 Task 的产物（待定的设计问题用 `design`，交付、讲解与报告用 `report`），用 `nbdev artifact publish` 汇总发布，回复里写要点并指向产物；不在回复里列本地路径让开发者自己去项目目录里找。
 - **已入库的不动**：历史里的文件删了也不会让仓库变小，不为瘦身删除已入库的证据或改写历史；本规则从 2026-10-12 起对新内容生效。
 
 ## 创建与执行
 
 主 Agent 按当前已知结果创建 Work 与至少一个可执行 Task，可直接执行或按独立边界委派。开发者确认要做、还没开工的后续工作可以先建 Task 防止遗忘：快照写目标、来源、已知范围与前置，标明未开工；开工时按当时的结果修订范围再写计划。不为依赖未知结果的设想预建 Task 链。非平凡 Task 的实施计划按 [implementation-planning](../skills/implementation-planning/SKILL.md) 写在 Task 目录的 `plan.md`，开发者确认后再实施；Task README 只链接计划并记录进展。CLI 使用 `--work <workId>`，需要具体 Task 时追加 `--task <taskId>`；`governance:context` 输出 `nbook.governance-context/v2`，不再接受 `--role` 或返回角色字段。
 
-需要隔离代码改动时，一个 Task 一个 worktree：从具备所需源码的本地 `master` 创建 `.worktree/<Work 编号>-<Task 编号>-<短名>`，例如 `.worktree/w00017-t80-settings-ui`；branch 使用根规则的 `{type}/{refs}-{slug}`，`refs` 写 Work 与 Task 编号，例如 `feat/w00017-t80-settings-ui`。几个 Task 需要共用一条集成分支时，在 Work README 写明。恢复时在 worktree 里运行 `governance:context` 记录实际 worktree 与 branch；路径已属于其它仓库、Task 或不匹配 branch 时报告冲突并停止，不覆盖或另建第二身份。执行位置写在 Task README 正文，不写入 frontmatter。
+代码改动通常一个 Work 一条分支、一个 worktree：从本地 `master` 创建 `.worktree/<Work 编号>-<短名>`，branch 为 `{type}/{Work 编号}-{slug}`，例如 `.worktree/w00027-plugin-platform` 与 `feat/w00027-plugin-platform`，Work README 写明这条分支。各个 Task 在这条分支上提交，验证也在这条分支上做，不为验证先合入 `master`。同一 Work 里多个 Agent 并行、改动会冲突时，才基于 Work 分支另开 Task 级 worktree（`.worktree/<Work 编号>-<Task 编号>-<短名>`），做完合回 Work 分支；何时同分支、何时另开见 [仓库维护流程](../../docs/standards/repository-workflow.md#worktree-与分支)。恢复时在 worktree 里运行 `governance:context` 记录实际 worktree 与 branch；路径已属于其它仓库、Work 或不匹配 branch 时报告冲突并停止，不覆盖或另建第二身份。执行位置写在 Task README 正文，不写入 frontmatter。
 
 Work README 开头写“目标”一节。Task README 只保留当前快照：目标／范围与非目标、当前状态、授权来源与限制、下一步或阻塞、合同与有效证据链接；状态取值写在 frontmatter，正文写具体情况。长期行为在 Spec／组件文档，Work 保存总体目标、范围与授权，Task 引用而不复制。
 
@@ -79,6 +80,6 @@ Work README 开头写“目标”一节。Task README 只保留当前快照：�
 
 ## 收尾与清理
 
-- Work 的全部 Task 合入 `master` 后，把 Work 的 `status` 改为 `done`，并在正文记一行：`已收尾：<master 上的合入提交号>；待清理：<worktree 路径>、<branch>`；未全部合入时不写，改在快照里继续。
+- Work 分支（及其全部 Task）合入 `master` 后，把 Work 的 `status` 改为 `done`，并在正文记一行：`已收尾：<master 上的合入提交号>；待清理：<worktree 路径>、<branch>`；未全部合入时不写，改在快照里继续。
 - `governance:worktree` 报告的 `cleanup: "待清理"` 是清单来源：分支已是 `master` 祖先的 worktree 会被标记（判定为 `git merge-base --is-ancestor <branch> refs/heads/master`）；报告只读，不执行删除。
 - 清理 worktree 与分支是受限动作：需开发者明确授权，且只清理 Work README 清单内的项；删除前逐项确认没有未提交改动；清单外的 worktree 一律保留并报告。

@@ -36,4 +36,4 @@ updated: 2026-10-17
 
 ## 下一步
 
-t03 完成并合入后开工；先验证真实页面的 CSP 与 `new Function` 可用性，再做 SDK 与装载器。
+2026-10-20 按 t03 的实施结果重写 [plan.md](plan.md)，待开发者确认后交设计审查，再在 Work 分支 `feat/w00027-plugin-platform` 上开工。

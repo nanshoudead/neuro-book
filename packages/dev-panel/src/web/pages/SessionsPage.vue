@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Badge, Button, FormSelect} from "@notnotype/nb-ui/components";
+import {Badge, Button, Select} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {useRoute, useRouter} from "vue-router";
 import {ApiError, getJson} from "../host/api.js";
@@ -227,7 +227,7 @@ const phoneDetail = computed(() => tier.value === "phone" && showDetailOnPhone.v
                 </aside>
                 <section v-if="tier !== 'phone' || showDetailOnPhone" class="flex min-h-0 min-w-0 flex-col overflow-hidden" :class="phoneDetail ? 'nbdev-phone-detail' : 'nbdev-surface'" aria-label="详情">
                     <div v-if="tier === 'switch'" class="nbdev-divider shrink-0 border-b px-3 py-2">
-                        <FormSelect :model-value="switchValue" :options="switchOptions" placeholder="切换会话" aria-label="切换会话" size="sm" @update:model-value="onSwitch" />
+                        <Select :model-value="switchValue" :options="switchOptions" placeholder="切换会话" aria-label="切换会话" size="sm" @update:model-value="onSwitch" />
                     </div>
                     <div v-if="phoneDetail" class="nbdev-divider flex shrink-0 items-center gap-2 border-b px-3 py-2">
                         <button type="button" class="nbdev-accent flex shrink-0 items-center gap-0.5" @click="backToList"><span class="i-lucide-chevron-left size-4" aria-hidden="true" />会话</button>

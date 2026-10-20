@@ -4,8 +4,8 @@
  * 配置。值由 LabShell 持有并写进偏好；这里只呈现与转发。
  */
 import {computed, ref, watch} from "vue";
-import {FormSelect as NbFormSelect} from "@notnotype/nb-ui/components";
-import type {FormSelectOption} from "@notnotype/nb-ui/components";
+import {Select as NbSelect} from "@notnotype/nb-ui/components";
+import type {SelectOption} from "@notnotype/nb-ui/components";
 
 import {labColorwayMeta, labThemes} from "./lab-theme";
 import {labPageBackdrops} from "./stage-backdrops";
@@ -30,18 +30,18 @@ const emit = defineEmits<{
     reset: [];
 }>();
 
-const themeOptions: FormSelectOption[] = labThemes.map((theme) => ({
+const themeOptions: SelectOption[] = labThemes.map((theme) => ({
     value: theme.manifest.id,
     label: theme.manifest.name,
     description: theme.manifest.tagline,
 }));
-const colorwayOptions = computed<FormSelectOption[]>(() =>
+const colorwayOptions = computed<SelectOption[]>(() =>
     Object.entries(labColorwayMeta).map(([id, meta]) => ({
         value: id,
         label: meta.label,
         description: meta.appearance === "dark" ? "深色" : "浅色",
     })));
-const pageBackdropOptions: FormSelectOption[] = labPageBackdrops.map((item) => ({value: item.id, label: item.label}));
+const pageBackdropOptions: SelectOption[] = labPageBackdrops.map((item) => ({value: item.id, label: item.label}));
 
 const wallpaperInput = ref<HTMLInputElement | null>(null);
 
@@ -77,14 +77,14 @@ watch(pageBackdrop, (id) => {
             所以同样 shrink-0；空间不够时先藏左边的计数、再收窄这三个下拉（见样式里的容器查询）。
         -->
         <div class="lab-bar__controls flex min-w-0 flex-wrap items-center gap-[var(--space-5)]">
-            <NbFormSelect
+            <NbSelect
                 v-model="themeId"
                 :options="themeOptions"
                 size="sm"
                 class="lab-bar__theme shrink-0"
                 aria-label="主题"
             />
-            <NbFormSelect
+            <NbSelect
                 v-model="colorwayId"
                 :options="colorwayOptions"
                 size="sm"
@@ -93,7 +93,7 @@ watch(pageBackdrop, (id) => {
             />
             <!-- 桌面与画布底是两层不同的东西，别合成一个控件：这个改的是整页最底下那一层，
                  中栏工具条上的「画布底」改的是被测组件背后那一层。取值都在 stage-backdrops.ts。 -->
-            <NbFormSelect
+            <NbSelect
                 v-model="pageBackdrop"
                 :options="pageBackdropOptions"
                 size="sm"

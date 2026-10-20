@@ -1,7 +1,7 @@
 /**
  * 手势验收页的组件定义：场景、场景属性控件与事件日志收录的事件。原来在 playground 的组件 Lab 注册表里；组件实验
  * 改到新应用的 Component Lab 登记之后，只有需要真实指针与布局引擎的验收留在 playground：两个手势验收与一个
- * 勾选框聚焦滚动验收（见 e2e/nested-grid.spec.ts、e2e/splitter.spec.ts、e2e/form-checkbox.spec.ts）。
+ * 勾选框聚焦滚动验收（见 e2e/nested-grid.spec.ts、e2e/splitter.spec.ts、e2e/checkbox.spec.ts）。
  */
 
 export type LabControlType = "boolean" | "text" | "select";
@@ -57,9 +57,9 @@ export const ACCEPTANCE_DEFINITIONS: Record<string, LabComponentDefinition> = {
         ],
         events: ["layout", "gesture-start", "gesture-update", "gesture-end", "gesture-cancel", "restore"],
     },
-    "form-checkbox-focus": {
-        id: "form-checkbox-focus",
-        label: "FormCheckbox",
+    "checkbox-focus": {
+        id: "checkbox-focus",
+        label: "Checkbox",
         scenes: [{id: "default", label: "滚动列表底部聚焦"}],
         controls: [],
         events: [],

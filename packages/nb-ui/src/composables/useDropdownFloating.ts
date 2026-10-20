@@ -12,10 +12,10 @@ import {
 } from "./useDropdownSurfaceStyle";
 
 /**
- * Dropdown 浮层一站式装配 Composable。
+ * DropdownMenu 浮层一站式装配 Composable。
  *
  * 整合三大基础能力：
- * 1. Surface 材质（useDropdownSurfaceStyle · FormSelect 4 层微反光立体投影 + 130% 滤波）；
+ * 1. Surface 材质（useDropdownSurfaceStyle · Select 4 层微反光立体投影 + 130% 滤波）；
  * 2. 齐腰截半露底高度计算（useDropdownTruncatedHeight · 53%~64% 黄金截断线索）；
  * 3. macOS 4px 悬浮胶囊滚动条与自适应渐隐（useFloatingScrollbar · 挂载即时感知）。
  */

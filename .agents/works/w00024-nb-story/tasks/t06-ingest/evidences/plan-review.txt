@@ -1,0 +1,201 @@
+# w00024/t06-ingest 实施计划只读设计审查
+
+### 1. 先读元信息再打开图文件，与提交后立即删旧文件存在必现的合法交错
+
+- **严重程度**：阻断；**类别**：不变量。
+- **位置**：`.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md:51-58`；`packages/nb-story/src/core/library.ts:153-176`。
+- **现象**：按计划，查询先读到 revision=2 的 `book.json`；写者发布 revision=3 并删 `graph.2.json`；查询这才打开 `graph.2.json`，得到 ENOENT。POSIX 只保护“已经打开”的句柄，不保护读过文件名、还没有打开的读者。计划没有失败重试与重验元信息的协议。
+- **为什么是问题**：正常提交能令书仍存在时的查询失败；跨进程同样成立，进程内缓存或 Runner 不能解决。删除后同 id 重建还会复用 `graph.1.json` 等名字，若不重验 generation/目录身份，能把旧元信息与新一代的图拼起来。上一轮修订要求的“单一提交点”已经有了，本条针对本计划选定的读取/回收算法，不重复要求 Spec 再定义提交点。
+- **如何核实**：静态核对当前 `pinBook` 是先 open 再读 meta、最后核对 inode；计划明确反转顺序并立即删除旧文件。上述 3 步均为真实异步文件操作的合法调度，不依赖伪造内部函数或假计时器。
+- **建议改法**：写清完整 pin 协议：读取 meta → 打开对应图 → 验证仍属同一 generation/revision/目录；旧图被回收时重读 meta 重试，关闭所有失败轮的句柄。用真实跨进程读写验证元信息与图始终配对，另覆盖删除重建复用 revision。
+
+### 2. Worker 退出不会关闭它打开的 flock 文件描述符，任务崩溃后同进程永远认为仍在运行
+
+- **严重程度**：阻断；**类别**：不变量。
+- **位置**：`.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md:23-24,43-47,64-65`；`packages/nb-story/src/server/registry.ts:43-65`。
+- **现象**：计划把持锁者从独立进程换成 Worker，却继续用“运行者死了内核放锁”的进程保证。真实 Worker 打开锁后，主线程 `await worker.terminate()`，主线程再次调用真实 `acquireServeLock` 返回 null；锁没有释放。只有整个 serve 进程退出才会由内核兜底。
+- **为什么是问题**：Worker 异常退出、被强制终止或退出路径漏 finally 后，serve 仍活着；status 会一直报 running，续抽和删除一直报 `ingest_running`。仅监听 Worker error/close 不能关闭主线程不知道的 fd，`terminate()` 也不是释放资源的代用品。
+- **如何核实**：运行隔离脚本 `env -i PATH=/usr/bin:/bin:/home/notnotype/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home PI_CODING_AGENT_DIR=/tmp/review-w00024-t06-plan/scratch/home/agent bun --no-env-file /tmp/review-w00024-t06-plan/scratch/runtime.ts stream`。真实 harness/provider 在 Worker 中接收 SSE 并取消后强制结束 Worker，输出 `lockAfterWorkerTerminated:false`。使用真实 registry 的 `openSync`+flock，无 mock、真实密钥或外网。
+- **建议改法**：由主线程 Runner 持有任务锁、直到 Worker 确认不再写并退出才 release；异常/error/close 全部进入同一个幂等收口路径。若选 Worker 持锁，至少须有主线程可收回的明确 fd 所有权和双重关闭防护；不能继续依赖进程死亡语义。补“Worker 崩溃但 serve 继续存活后能判 stopped、能继续与删除”的真实运行时验收。
+
+### 3. 把锁文件和抽取记录一起删掉会制造两个互不排他的锁
+
+- **严重程度**：阻断；**类别**：不变量。
+- **位置**：`.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md:43,65`。
+- **现象**：锁路径是 `.ingest/<id>/lock`，删除却在持有此锁时删除整个 `.ingest/<id>/`。另一个进程重新建立该目录与 lock 文件时拿到的是新 inode，旧持锁者与新持锁者可同时成功。
+- **为什么是问题**：flock 锁 inode，不锁路径名。删除过程中的新任务、已经打开旧锁等待调度的任务、同 id 再发起不能形成同一排他域；“持锁删完再放锁”并不能保证计划声称的旧任务不会再写。首章还未提交时正式书目录甚至不存在，尤其不能借书目录 rename 补这个排他缺口。
+- **如何核实**：上述 `runtime.ts stream` 另用真实 libc flock 演示 open A → flock A → unlink 路径 → open B → flock B，输出 `twoLocksSamePath:{first:0,second:0}`（两次都成功）。没有修改或删除仓库文件，unlink 只作用于 scratch 实验文件。
+- **建议改法**：把按书 id 的协调锁放在不会随书/抽取记录删除的稳定目录，保持 inode 身份；或给打开、拿锁后复核 inode 的完整协议，避免旧等待者复活。删除、发起、首次提交、同 id 导入统一使用这一协调域，补删除中重新发起与旧 fd 等待者的跨进程组合验收。
+
+### 4. “关掉或计入 provider 重试”没有可用接口，既定重试次数和等待表无法由所选调用层兑现
+
+- **严重程度**：阻断；**类别**：合同。
+- **位置**：`.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md:20,25,41,103,135`；`packages/nb-harness/src/harness.ts:32-43,192-200`。
+- **现象**：`createHarness` 不公开 retry、fetch、providerRetryWait 等控制；结果只给用量完整性，不给实际 HTTP 次数。底层 `postOpenAIStream` 把 `maxAttempts` 固定成 6；外层 replay-safe wrapper 还会重发一次 provider 错误、两次空回复。手写再套 6 次不是“只一层”，也不能只看 usage.complete 推算用了几次。
+- **为什么是问题**：一次 harness.turn 已经能把“503、503、成功”全吃掉，抽取层没有机会按 30、60 秒发出那两次重试进度。全 503 时底层单轮最多 6 次、replay-safe 层可再来一轮，抽取外层再做 6 轮可达 72 次 HTTP 尝试（最终数受 provider 的超时/归类限制），不是合同的 6 次。即使上层按总数截断，provider 自己的等待也不是 Spec 固定延迟表。计划把根本接口缺口留到 S2 末尾实测，再限定只在 model.ts 补齐，会返工跨包合同。
+- **如何核实**：真实 Worker+harness+OMP+本机端点的 `runtime.ts retry`（与第 2 条相同隔离前缀）得到 `count:3`、`stop:stop`、`complete:false`，调用方只 turn 一次。源码 `node_modules/@oh-my-pi/pi-ai/src/utils/openai-http.ts:33,92-105` 固定 6；`utils/empty-completion-retry.ts:21,150-173` 及 `providers/openai-completions.ts:1549-1554` 给出另两类预算。72 是由这些上限的乘积推断，未真实发 72 次。
+- **建议改法**：在 S2 之前明确可执行的单层方案与允许改动的依赖边界：公开可关闭所有内层重试并控制实际 fetch 的 harness/provider 能力，或选择可精确控制的传输入口，同时保留现成归类、脱敏与用量。端点计数、实际等待参数、每次重试进度都作为验收，不能只写“关掉或计入”。
+
+### 5. OMP 会把不支持的 minimal 自动换成 low，计划要求的立即失败被底层吞掉
+
+- **严重程度**：阻断；**类别**：合同。
+- **位置**：`.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md:20,41,69-71,103,135`；`docs/specs/story/ingest.md:90,115`；`docs/specs/story/qa.md:139`。
+- **现象**：真实端点拒绝 minimal、错误正文列出支持 low/medium，OMP 在同一次 harness.turn 中重发 low，最后返回成功。计划只要求向 createHarness 传 thinkingLevel，并在自己拿到“拒绝推理档”时不重试，阻止不了这次降档。
+- **为什么是问题**：抽取必须固定 minimal/medium，不降档、不省略；`config test --ingest` 也必须探测这两个精确值。按现计划可把不支持 minimal 的服务报为通过，实际抽取悄悄改用 low，直接改变已定管线，不只是重试总数问题。
+- **如何核实**：运行隔离的 `runtime.ts effort`，端点对 `reasoning_effort:minimal` 返回 HTTP 400、code=`unsupported_value`、param=`reasoning_effort`，其余返回真实 SSE。输出 `count:2, efforts:["minimal","low"]`、`stop:stop`。对应源码 `node_modules/@oh-my-pi/pi-ai/src/providers/openai-completions.ts:846-857` 与 `openai-reasoning-fallback.ts:336-340,393-407`。未调用真实模型。
+- **建议改法**：给抽取与探测选定能禁止 reasoning fallback 的真实接口，并证明拒绝 minimal/medium 时端点只收到一次请求、没有低档或无档重发、结果是 model_failed/provider。该能力应作为依赖前置，不留给真实模型 smoke 后才发现。
+
+### 6. 只用消息通知 Worker 停止，100 章编译期间无法兑现 5 秒停止界限
+
+- **严重程度**：阻断；**类别**：合同。
+- **位置**：`.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md:24,44-45,63-64,104,106`；`docs/specs/story/ingest.md:120-121`。
+- **现象**：计划让主线程发停止、Worker 收消息，但编译仍是不可分割的同步调用。真实 100 章 compile 时，主线程已发 stop，Worker 直到 9512 ms 后才收到；编译完成时 `stopped:false`。若编译返回后直接提交，停止请求超过 5 秒仍可发布新章。
+- **为什么是问题**：Worker 只解决主线程不被编译堵塞，不自动解决 Worker 自己不能处理停止消息。CLI 的 onProcessInterrupt 最多等 10 秒，长书同步阶段超过该上限还会来不及正常收口；强制 terminate 又触发第 2 条的 fd 泄漏。计划的服务响应测试只写 1 秒返回，不能证明任务 5 秒后不再请求/提交。
+- **如何核实**：运行 `env -i PATH=/usr/bin:/bin:/home/notnotype/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home bun --no-env-file /tmp/review-w00024-t06-plan/scratch/compile-stop.ts`。真实 Bun Worker 读录制的 100 章草稿/整理稿，调用未改动实验 compile；主线程收到 compiling 消息即 post stop，无固定等待、忙循环替代或模型调用。输出 compile=9512 ms、stopDeliveryMs=9512、编译结束尚未收到 stop。实验只验证消息送达边界，未声称未实现的 ingest 已实际提交。
+- **建议改法**：明确非消息队列的停止标志（如 SharedArrayBuffer/Atomics），模型调用前和原子提交前同步检查；或定义 5 秒内强制结束 Worker 的策略并先解决锁/fd 所有权。书库发布必须接受停止门禁，不能只在外层循环开头看 signal。补真实同步编译中停止、预发布停止与 Ctrl-C 的组合验收，并明确 stop 返回与 Worker 退出两个不同边界。
+
+### 7. serve 先等当前 Runner 停完再停监听，关服期间仍能接纳新任务
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md:64,79`；`packages/nb-story/src/server/serve.ts:92-111`；`packages/nb-story/src/server/http.ts:81-100`。
+- **现象**：计划的停止顺序是遍历 Map 停任务、等放锁，之后撤登记、停监听。等待期间 HTTP 仍能调用 ingest.start；计划没有服务 stopping 门禁，也没有让“已经开始解析但尚未登记 Runner”的 start 加入关停屏障。
+- **为什么是问题**：另一个请求可在 Map 快照/遍历结束后启动 Worker，旧关停流程随后关闭监听并退出；新任务既没被正常停止、状态也未正常结算。两个并发 remove/start 同样缺乏本进程准入屏障。当前 serve 的 stopping 仅防信号处理重复进入，并未传给 handler；不能按已有变量名字推断已保护请求入口。
+- **如何核实**：逐行核对当前 serve 的闭包 stopping 与 createHandler 的路由；二者之间没有停服状态/接纳门禁接口。按计划给出的顺序，stop-all 与新的 RPC start 可合法重叠；这是新生命周期设计遗漏，不是 Work README 已记录的偶发 SIGTERM 143（本次未复跑该失败）。
+- **建议改法**：先同步关闭新任务准入，再取消并等待已接纳的所有启动/任务、正常结算状态，最后撤登记/断连接/放服务锁。明确 Map 登记与 Worker ready 的顺序、启动失败如何撤回、error/close 如何拒绝等待者；补关服与 start 同时到达的真实进程测试。
+
+### 8. importBook 的抽取记录存在检查与正式目录 rename 不共享排他，首章前仍可抢占同 id
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md:46,59,65`；`packages/nb-story/src/core/library.ts:182-221`；`docs/specs/story/ingest.md:98-103,136`。
+- **现象**：计划让 importBook 检查 `.ingest/<id>/` 是否存在，随后仍靠正式书目录 rename 排他；发起抽取却先创建抽取记录，首章前没有正式书目录。交错是 import 检查没有抽取记录 → ingest 检查没有书、创建 source 并开始请求 → import 改名正式书目录成功。
+- **为什么是问题**：这两个写入口竞争的不是同一个 rename 目标，不能由“两条路都靠书目录改名”保证从发起时起 id 被抽取占用。import 可以成功占用已经运行/花费的任务，首章到提交时才得到 book_exists；输出 1 要求的双向 id 排他失效。删除持锁移走旧书后、尚未删抽取记录时，import 也没有加入删除的协调域。
+- **如何核实**：当前 importBook 在读取、解析、校验、写临时目录后才 rename，整个过程没有锁；计划没有给它拿抽取锁，只加存在检查。两个路径均合法且存在异步间隙，上述交错不需要伪造调用或真实模型。第 3 条解决锁身份，本条解决即使锁身份稳定、import 仍没加入排他的问题。
+- **建议改法**：在同一个稳定 id 协调域内重判书/抽取记录并完成占用发布；import、ingest 新建/追加与 remove 都加入协议。明确谁先占用谁成功，不把首章发布时失败当作发起互斥。补 import 在存在检查后被 ingest 抢先占用、首章发布中的 remove/import 竞争。
+
+### 9. 状态读取只看 state.json，不能恢复 book.json 已提交而状态尚未更新的窗口
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md:43-47,51,56`；`docs/specs/story/ingest.md:109,125-130,154-155`。
+- **现象**：book.json 是唯一提交点，但独立的 state.json 保存状态、当前章与步骤；status 的算法只写“读 state.json，再用锁判断真的在运行”。末章 book.json 已替换、state.json 还写 running/旧章时被杀，status 按这套算法会报 stopped（进程退出），而不是已经全部提交的 done；普通章同理可报旧进度。
+- **为什么是问题**：查询与续抽已按 extraction.revision 前进，status/网页却按另一份没有共同提交的事实回退。committed/<revision>/ 的恢复不能只清理多写目录：还要从被 book.json 引用的那一份重建章明细、整理结果与进度，不能把 state.json 的旧章当成真相。首章前没有 book.json 时还须有明确的零进度状态。
+- **如何核实**：逐条对照 plan 的 store/status/job 描述：job 明确从 book.json 恢复，status 未读它；书的 commit API 输入含 committedDir 却未定义被引用提交记录的验证/恢复步骤。进程在 rename book.json 与写 state 之间被强杀是 Spec 明确要求覆盖的真实文件系统窗口，不需要真实模型。
+- **建议改法**：明确 status/start 的共同恢复算法：以 book.json 的 generation/revision/through 为权威，读取对应 committed 清单；state 只补瞬时步骤/停止原因。定义未引用的新目录丢弃、已引用目录缺失/不完整时的明确失败，绝不静默跳章。补末章提交后、state 更新前强杀的 done/查询/续抽一致性验收，以及 revision 目录重用前的清理顺序。
+
+### 10. 把全图错误加入清单还不够，照搬的兜底丢弃会在跨章时间环上原样返回错误章
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md:34,40,42`；实验 `t29-v9-ingest/draft-tools.ts:195-206,225-249`；`t27-v9-schema-gold/compile.ts:527-532`（实验路径均在指定 W5 worktree）。
+- **现象**：计划的唯一改动是把“本章新带来的全图错误”纳入修复/兜底，仍照搬 dropOffending。该函数从错误文字取第一个记录 id；时间环信息按全图顺序列出 id，先列旧章的 t1-1、本章 t2-1 在后。函数只尝试删本章草稿中的 t1-1，找不到就 changed=false、直接返回 clean；错误并没有消失。
+- **为什么是问题**：新修复没有给错误结构化归因，也没有定义兜底仍有 error 时如何阻止提交。旧章必须不改，不能靠删错误里第一个 id；称“已把全图错误纳入”不能继承“每章合格”的保证。本条针对修订后的处理算法缺口，不重复上一轮“全图错误被过滤掉”的发现。
+- **如何核实**：运行隔离的 `edges.ts`：第 1 章午间 t1-1；第 2 章 t2-1 既写早晨又写在 t1-1 之后。真实 compile 报 `时间点的先后关系自相矛盾：t1-1、t2-1`；真实 dropOffending 的 evaluate 回调调用真实 checkDraft+compile，兜底后 `remainingTimes:["t2-1"]`，同一个全图 error 仍在。没有替换编译器、mock 模型或造运行时不存在的事件。
+- **建议改法**：让编译错误带参与记录/边，兜底只删或摘本章引入的依赖；无法安全消除时保留旧快照、明确失败，不发布。提交前最后对含整理结果的整份图做 error=0 门禁；测试必须覆盖“时间环先列旧 id”和“兜底无进展”。
+
+### 11. 逐字搬编译器没有实现知情回补的成立时点，验收 7 的后半段必然失败
+
+- **严重程度**：阻断；**类别**：正确性。
+- **位置**：`.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md:14,34,38,102,118`；`docs/specs/story/ingest.md:108,194`；实验 `t27-v9-schema-gold/compile.ts:229-234,264-270`。
+- **现象**：修订后 Spec 已保留回补知情，但要求“从它被写下的这一章起才可见”。计划仍把编译器改动限定为称呼前移，没改 knowledge.at。旧编译器把 at 直接设为旧章 evidence 的末尾；后建秘密引用旧说法时，secret.at 也回到旧章，核心的关联可见性过滤挡不住。
+- **为什么是问题**：第 2 章新增 k2-1、引用第 1 章证据，查询第 1 章就能看到它，违反修订后不剧透与验收 7 后半段。计划的验收 7 描述只写了称呼，没有为知情声明另一个可见时点。这是计划没落实已修订合同，不重新讨论上一轮是否保留回补的决定。
+- **如何核实**：隔离脚本 `edges.ts` 经真实 compile → Library.importBook → StoryApi.call('entity.knowledge')。第 2 章建立 x2-1 并引用第 1 章 s1-1，k2-1 的出处为 1.2；编译 0 个 error，编译出的 k2-1.at 是 1.2，第 1 章查询返回 k2-1（total=1）。所有数据为 scratch 自建极小小说，不调用模型。
+- **建议改法**：在 compile 的迁移合同中显式区分证据位置与本章写下的成立位置；knowledge.at 不得早于新增它的章，evidence 保持旧章原文。同步已有记录生成与查询对照的预期差异，把验收 7 的知情回补场景落实到 S1/S3，而非继续声称只有三种差别。
+
+### 12. 只搬 100 章运行的前 8 章回复，根本没有 6/8 章末尾整理及 100 章服务回放所需资产
+
+- **严重程度**：重要；**类别**：验收。
+- **位置**：`.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md:87-90,103-106`；`docs/specs/story/ingest.md:107,188-189,197`。
+- **现象**：计划选 run-med-100 前 8 章全部录制回复作为回放夹具。但该运行的整理只发生在 5 的倍数章/100 章，没有第 6、8 章整理请求或回复。新产品只给 8 章时必须整理第 8 章；“6 章抽完再追加 7、8”的场景还必须先整理第 6 章。S5 又要求回放 100 章，计划的原文与回复只搬 8 章。
+- **为什么是问题**：按“未知请求立即失败”，8 章 happy path 最后一章就失败，无法拿它验证停止/恢复/追加。不能临时跳过末章整理或拿第 5 章整理改 through 顶替，否则验收的是另一条管线，旧末章整理保留与对象 id 不变都没有可信基线。100 章服务响应测试也没有足够请求回放输入。
+- **如何核实**：只读 glob 指定 run-med-100 的 `consolidation-*.json`，实际 20 份，编号为 005、010、…、100；前 8 章子目录只有 ch005 含 consolidation.request/response。run-v2.ts:142-154 也按 through/5 决定是否调用。前 8 章没有 repair-* 录制，不能把新增修复请求当成现成资产。
+- **建议改法**：在 S2 前补齐可版本化回放场景：8 章末尾整理、6 章结束后追加与新产生的修复路径，并说明如何取得/校验回复；100 章性能路径迁入完整合法资产或单独构造真实协议端点的确定性测试数据。分别标明“原录制逐字对照”和“新合同语义场景”，不让未经录制的回复冒充历史对照。
+
+### 13. viewer 只安排徽标，没有覆盖新操作前的版本切换与所有已挂载查询的失效
+
+- **严重程度**：重要；**类别**：合同。
+- **位置**：`.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md:81-83,106,124`；`docs/specs/story/viewer.md:104,150`；`packages/nb-story/src/web/host/query.ts:47-64,100-113,124-138`；`web/host/book.ts:42-46,135-147`。
+- **现象**：新 Spec 已规定：更新前保留已显示内容，但翻页/换页/换位置/开对象等需要再取数的操作先切新版本。因此无需为网页无限保留旧图。计划却仍把网页写成“等评审板定稿”，没有给 BookSession 加可变 info/当前数据版本，也没有让 query composable 监听 revision 或在旧游标翻页前整体刷新。
+- **为什么是问题**：仅加徽标会出现：位置参数没变，点击更新后 watch 不触发、人物页不重取；旧游标直接 more 得到 cursor_invalid；主区刷新而已开的抽屉保留旧计数；点击之后旧在途请求又写回旧数据。当前 info 是只读固定对象、watch 只看 params/at，现有机制不会自然兑现更新。删旧图并不是本条的根因，缺的是新版 Spec 规定的统一客户端切换门禁。
+- **如何核实**：核对现有 host/book、host/query、host/client 与 viewer 输出 39 的完整文字，当前请求没有客户端数据版本/epoch；计划 S5 的文字与验收映射仍未更新到已定输出 36—40、验收 9，未列上述接口改造。未运行浏览器或开发服务，结论来自接口与真实实现的静态核对。
+- **建议改法**：把已定网页方案写进计划，定义 host 层统一 refresh：更新 info 与 revision/epoch，取消旧请求并丢弃旧回包，清空所有旧游标，保持 at/page/entity/perspective 后重取各已显示面板。取数操作前先走这一门禁（游标失效也可触发），不依赖 5 秒轮询恰好先看到提交。S5 e2e 明确覆盖“没点徽标就翻页”“点击刷新但参数不变”“旧请求晚到”。
+
+### 14. callModel 没有步骤参数，却要用“缺章/没有段落块”统一判废所有回复
+
+- **严重程度**：重要；**类别**：合同。
+- **位置**：`.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md:41-42`；实验 `t29-v9-ingest/v2/prompts-v2.ts:30-40,87-93`；`t27-v9-schema-gold/schema.ts:235-240`。
+- **现象**：计划的 callModel 输入只有 system/user/effort/signal/sleep，但承诺在这个函数内判“缺本章、没有段落块”并重发后报 ingest_bad_reply。合法 draft 请求明确不输出 times/beats；核对与修复是 replace/remove/rewrite/skip 补丁，没有顶层 chapter/beats；整理是 through/merges/summaries/arcs，也没有这些字段。
+- **为什么是问题**：照统一检查写会把正常草稿/补丁/整理误判成坏回复；不做该检查又无法兑现整体不成形的黑盒行为。整理回复不合格还须跳过整理、章照常提交，不能统一第二次后终止任务。此接口没有把不同失败策略交给拥有步骤语义的一层。
+- **如何核实**：原提示词的三种输出形状与整理 schema 即可证实；指定 run-med-100/ch002/review-1.response.json 的真实 content 也是 replace 补丁。计划只有一个通用函数签名，没有 expectedChapter/stage/validator 或差异化调用方协议。
+- **建议改法**：传输层只负责渠道预算、流取消、用量与 JSON 解析；每个步骤在 chapter 层按自己的 schema/预期章号判断完整性，并明确内容重发预算的拥有者。段落块检查只用于结构步骤，draft 与结构合并后才检查合法章；整理失败单列为跳过策略。补正常补丁不带章/段落块和坏整理不阻断章的真实回放。
+
+### 15. 书库格式仍为 1，却把 revision/graph 设为必填，已有导入书没有迁移或缺省读取协议
+
+- **严重程度**：重要；**类别**：合同。
+- **位置**：`.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md:55-58,104,134`；`packages/nb-story/src/core/library.ts:34,39-52,155,203-220,283-287`。
+- **现象**：旧书的 book.json 没有 revision/graph，图文件叫 graph.json。计划让 pinBook 直接按 meta.graph 打开，并称所有导入书 revision=1，却只说明新导入时如何写，没有定义已经导入的书如何读。计划非目标还明确保留现有 100 章样例书。
+- **为什么是问题**：升级后书库版本没变，旧书仍会被 listBooks/readMeta 接纳，但文件名是 undefined、缓存键也是缺失版本，正常查询直接失效。不能通过给 BookMeta 类型加必填字段把磁盘旧数据补出来；也不能让查询偷偷写回，因为读接口和未知格式只读合同仍在。旧游标是否继续有效也需与缺省 revision 对齐。
+- **如何核实**：现有 importBook 的落盘字段与 graph.json 文件名可逐行验证，readMetaOrNull 只查 id/generation，不校验新字段；计划的 S3 要求既有 queries/qa 测试不改断言通过，但没有任何旧书布局迁移/读测条目。此处未修改或重建用户已有书库。
+- **建议改法**：明确格式 1 的旧元信息在读取边界归一为 revision=1、graph=graph.json（这是格式兼容，不是第二套业务入口），或提供显式、原子、可恢复迁移。新增书统一新格式；保留无写权限旧书可查，并补真实旧布局书库的查询、问答记录写入和游标测试。
+
+### 16. 40 MiB JSON 请求体容不下合同允许的 32 MiB TXT
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md:27,79`；`docs/specs/story/ingest.md:61,170`。
+- **现象**：计划理由写“32 MiB 一次放得下”，但 JSON 会转义双引号、反斜杠和控制字符。合法 UTF-8 原文不超过 32 MiB，不等于 `{text:...}` 的 HTTP 请求体不超过 40 MiB。
+- **为什么是问题**：同一份满足上限、含合法章标题的 TXT，CLI 可以抽，网页却会在 preview/start 被请求体上限拒绝，改变已定输入边界；错误发生在 RPC 解析之前，不能靠 ingest_bad_text 的 32 MiB 检查收口。无需极端字符，超过 8 MiB 的转义增量就够触发。
+- **如何核实**：只在内存构造第一行为“第一章”、其余正文为反斜杠的 UTF-8 文本，紧凑 JSON 序列化实测：原文 33554432 字节，JSON 请求体 67108863 字节，超过计划 41943040 字节上限 25165823 字节。未启动开发服务或发超大请求。
+- **建议改法**：明确按解码前原文字节校验 32 MiB，并把 RPC 传输包络上限定为足以容纳 JSON 最坏转义及元数据的数值；或者改变传输编码但不改变原文上限。补具有大量转义字符的临界输入验收，HTTP 超限返回也走明确错误通道。
+
+- **第 16 条数字校正**：本次实际输出的 JSON 请求体是 **67108866** 字节，超出 40 MiB **25165826** 字节；上文两处分别少写了 3 字节，正确值以此为准。原文 33554432 字节不变，不影响判断。
+
+- **第 12、14 条的请求识别补充**：`run-v2.ts:228,243-244` 的核对与修复都调用同一个 `reviewTask`、同一 system/effort。若核对清单只有结构项且回复不改草稿，紧接着的 repair 可拥有完全相同的请求文本；轮号 `review-1`/`repair-1` 只是实验落盘文件名，不在模型输入里。不能假定端点天然读得到步骤/轮次。建议把 chapter/stage/round/content-attempt 明确传到传输适配器，用测试端点约定的请求元数据辨认，不改生产提示词；渠道重试重放同一个逻辑调用，停止重启后不得靠全局“第 N 次请求”继续猜。
+
+- **逐字对照的范围补充**：固定的 100 章最终草稿/整理稿可以做确定性编译对照，但这条路径不执行新加入的全图丢弃，因此不能证明新管线的最终图仍与旧 dataset 只差称呼；真实 100 章数据本次重编译仍有 1 个 error，第 10 条证明去错会改变草稿及其引用。计划应把“编译器迁移对照（固定输入）”与“新错误处理后的管线语义回归（允许显式记录/引用闭包变化）”分开，不能把修复连锁差异都逐行硬编码成迁移真值。前 8 章的精确对照仍可保留，但必须先补第 8 章整理以及新增请求的资产；没有实际新管线输出前，本报告不宣称连锁差异已有多少条。
+
+
+## 未发现问题的方面
+
+- **Worker 可加载这些依赖，不是兼容性阻断。** 本次真实 Bun Worker 已成功加载 nb-harness、OMP provider 及其传递的原生依赖，调用 bun:ffi 的 flock，并经本机 OpenAI 兼容 SSE 完成一次 turn。问题是生命周期与控制接口，不是“这些包根本不能在 Worker 里跑”。
+- **subscribe 确实给逐段文字，能触发取消。** `message_update.assistantMessageEvent.text_delta` 在完成前送达；本次接到 2101 字符后 abort，结果 aborted、usage.complete=false。可以在其上实现 2000 个尾随空白计数，不必换回手写客户端来取得流式文字。这个实验不证明渠道已立即停止计费，也不证明未实现的 ingest 已有完整跑飞重试。
+- **已经成功 pin 的旧文件和内存索引可以跨提交继续使用。** POSIX 保护已打开句柄；`openBookIndex` 读取后把索引放内存，`StoryApi.openBook` 的 BookSession 固定此索引，QA 一问已有复用它的结构。第 1 条针对“尚未 open”的窗口，不否认已经 pin 的快照寿命。
+- **问答记录写门禁不应绑定 revision。** 当前 writableBook/QaRecords.save 前后只复核 generation；章提交不换 generation、不搬书目录时，旧快照的一问可以保存到同一本书，不需要强迫问答随新章取消。计划继续保留 qa/ 与 reading.json 的方向和已定合同一致。
+- **book.json 作为唯一发布点本身可实现。** 先写不可变图和 committed 记录、再换引用是有效的构造；本报告针对读取回收、状态恢复、排他与停止门禁缺口，不要求再次改变 Spec 的提交合同。
+- **viewer 不需要一直向已删除的旧图发新查询。** 修订后的输出 39 已明确：需要新数据的操作先更新，因此正确补齐客户端 refresh 门禁即可；不能再沿用旧审查直觉要求服务提供无限寿命的网页旧版本读取接口。
+- **已定产品取舍没有重新审议。** 只收 UTF-8 TXT、固定两档、长书费用不优化、CLI 前台/网页随 serve 生命周期、整理批次追加时保留、整节配置创建与删除均按决定 3—12 接受。配置整节写入也符合现有 config-edit 的原子整份校验模式。
+- **没有新增产品待决项。** 计划仍标“网页等定稿”，但决定 9—12 和 viewer 输出 36—40 已经存在；应更新计划，不应再把相同选择交开发者重选。
+
+## 验证记录与边界
+
+审查对象确认：`2443d81ae` 的 plan.md 与工作区文件 SHA-256 一致，均为 `3c96ee6d72c6f9242bdfd2ef3fb0e3afefa7b107c3f72fac2e00415af195ea8a`。已运行：
+
+1. `/usr/bin/git show 2443d81ae:.agents/works/w00024-nb-story/tasks/t06-ingest/plan.md | sha256sum`；`sha256sum .agents/works/w00024-nb-story/tasks/t06-ingest/plan.md`：结果一致。只读，没有切分支或读写暂存区。
+2. 以下三条均以真实 Bun Worker、真实 harness/provider、只监听回环地址的最小协议端点运行；不是 nbstory serve 或开发服务：
+   ```sh
+   env -i PATH=/usr/bin:/bin:/home/notnotype/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home PI_CODING_AGENT_DIR=/tmp/review-w00024-t06-plan/scratch/home/agent bun --no-env-file /tmp/review-w00024-t06-plan/scratch/runtime.ts stream
+   env -i PATH=/usr/bin:/bin:/home/notnotype/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home PI_CODING_AGENT_DIR=/tmp/review-w00024-t06-plan/scratch/home/agent bun --no-env-file /tmp/review-w00024-t06-plan/scratch/runtime.ts retry
+   env -i PATH=/usr/bin:/bin:/home/notnotype/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home PI_CODING_AGENT_DIR=/tmp/review-w00024-t06-plan/scratch/home/agent bun --no-env-file /tmp/review-w00024-t06-plan/scratch/runtime.ts effort
+   ```
+   stream：1 次 HTTP、delta=2101、aborted、complete=false；retry：单次 turn 内收到 3 次 HTTP 后成功；effort：收到 minimal、low 两次请求后成功。三次均观察到 Worker 终止后主线程拿不到其未释放锁；同路径换 inode 的两把 flock 都成功。stream 在修正 scratch 类型后又跑一次，结果一致。
+3. `env -i PATH=/usr/bin:/bin:/home/notnotype/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home bun --no-env-file /tmp/review-w00024-t06-plan/scratch/compile-stop.ts`：真实 100 章编译 9512 ms，stop 消息延迟 9512 ms，编译结束时 stopped=false；全图 1 个 time error。
+4. `env -i PATH=/usr/bin:/bin:/home/notnotype/.bun/bin HOME=/tmp/review-w00024-t06-plan/scratch/home bun --no-env-file /tmp/review-w00024-t06-plan/scratch/edges.ts`：跨章时间环经现有 dropOffending 后仍在；后建秘密/知情编译 0 个 error，但第 1 章查询可见第 2 章写下的 k2-1。
+5. 内存 UTF-8/JSON 大小计算：原文 33554432，JSON 67108866，超出计划请求体上限 25165826 字节；没有发送超大 HTTP 请求。
+6. 每次新增发现立即以追加模式写本报告，并执行 `grep -c '^### ' /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t06-ingest/reports/plan-review.md` 核对，累计由 1 增至 16，没有覆盖已有报告内容。
+
+未运行：nb-story 单元测试、e2e、开发服务、浏览器、真实模型、真实评分与真实密钥读取。没有修改主工作区或 W5 worktree 的产品、Spec、计划、Task 文件；唯一仓库内写入为授权的本地报告，实验及隔离书库都在指定 scratch 内。没有 commit、push、stash、切换分支或开启子审查。最小实验资源随执行进程结束；初版锁身份实验仅 unlink 了 scratch 自建 inode-lock，最终可复现脚本已改用 rename 保留该文件。未删除仓库文件或他人的文件。
+
+上述实验验证的是计划依赖的真实运行时机制；未把实验当成 planned ingest 已实现或已通过验收。未实测的并发交错、上限乘积与升级路径均在发现中明确说明为静态核实/推断。
+
+## 回写建议（未执行）
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| 1 | 踩坑 | Worker 退出后 openSync+flock 的 fd 仍留在宿主进程；OMP 还会自动重试并改推理档 | 在依赖能力说明中新增：把进程任务迁到 Worker 时，必须重新核实资源所有权与信号收口；“进程退出释放”不等于“线程退出释放”。模型协议控制必须验证最终 HTTP，而不是只看 harness 的配置值与一次 turn 结果。 | `packages/nb-harness/docs/omp-capabilities.md` 的“陷阱” |
+
+其余发现的回写目标就是各条列出的 t06 实施计划和验收资产，不另立通用规则；是否采纳由主 Agent/开发者决定，本次只报告。
+
+## 数量与按影响排序的编号
+
+- **阻断：7 条**（1、2、3、4、5、6、11）。
+- **重要：9 条**（7、8、9、10、12、13、14、15、16）。
+- **建议：0 条**。
+- **合计：16 条**。
+
+按影响排序：**11 → 3 → 2 → 1 → 4 → 5 → 6 → 8 → 7 → 10 → 9 → 14 → 12 → 13 → 15 → 16**。

@@ -8,7 +8,7 @@
  * 已经是新列表（配置服务的写入返回时，本窗口已应用新值，docs/specs/settings/configuration.md 输出第 15 条）；失败时
  * 是层里原来的值，输入框回到实际值，不留下没存进去的字。
  */
-import {Button, FormInput, FormTextarea, IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {Button, Input, Textarea, IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import {ref, watch} from "vue";
 
 import {localize} from "nbook/shared/localized-text";
@@ -76,10 +76,10 @@ function commitField(index: number, field: keyof Snippet): void {
         <!-- 片段没有 id、名字可以重名，只能按位置作 key。 -->
         <div v-for="(item, index) in drafts" :key="index" class="snippets-editor__item" :data-snippet="index">
             <div class="snippets-editor__name" @focusout="commitField(index, 'name')">
-                <FormInput v-model="item.name" :disabled="disabled" :aria-label="text(TEXT.name)" :maxlength="40" size="sm" />
+                <Input v-model="item.name" :disabled="disabled" :aria-label="text(TEXT.name)" :maxlength="40" size="sm" />
             </div>
             <div class="snippets-editor__text" @focusout="commitField(index, 'text')">
-                <FormTextarea v-model="item.text" :disabled="disabled" :aria-label="text(TEXT.text)" :rows="2" :maxlength="2000" />
+                <Textarea v-model="item.text" :disabled="disabled" :aria-label="text(TEXT.text)" :rows="2" :maxlength="2000" />
             </div>
             <div class="snippets-editor__actions">
                 <Tooltip :text="text(TEXT.up)">

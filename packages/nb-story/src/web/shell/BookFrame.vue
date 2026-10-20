@@ -4,8 +4,8 @@
  * 明暗、抽屉开关）、左侧导航、主区、右侧抽屉。宽度三档按外壳自己的宽度算：宽屏三栏可拖；平板导航收成图标条、
  * 抽屉浮在主区右侧；手机顶栏两行、底部常用页签、抽屉从底部拉起。
  */
-import {Dropdown, IconButton, Splitter} from "@notnotype/nb-ui/components";
-import type {DropdownItem} from "@notnotype/nb-ui/components";
+import {DropdownMenu, IconButton, Splitter} from "@notnotype/nb-ui/components";
+import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import type {SplitterPanelConfig} from "@notnotype/nb-ui/components";
 import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, readonly, ref, watch} from "vue";
 import {useRouter} from "vue-router";
@@ -160,7 +160,7 @@ const THEMES: ReadonlyArray<{value: ThemeChoice; label: string; icon: string}> =
     {value: "light", label: "亮色", icon: "i-lucide-sun"},
     {value: "dark", label: "暗色", icon: "i-lucide-moon"},
 ];
-const themeItems = computed<DropdownItem[]>(() => THEMES.map(theme => ({value: theme.value, label: theme.label, iconClass: theme.icon, type: "radio", group: "theme", checked: appearance.choice.value === theme.value})));
+const themeItems = computed<DropdownMenuItemData[]>(() => THEMES.map(theme => ({value: theme.value, label: theme.label, iconClass: theme.icon, type: "radio", group: "theme", checked: appearance.choice.value === theme.value})));
 const themeIcon = computed(() => THEMES.find(theme => theme.value === appearance.choice.value)!.icon);
 function setTheme(value: string): void {
     const theme = THEMES.find(item => item.value === value);
@@ -177,7 +177,7 @@ onMounted(async () => {
         console.warn({error}, "取书单失败，换书菜单只剩回到书架");
     }
 });
-const bookItems = computed<DropdownItem[]>(() => [
+const bookItems = computed<DropdownMenuItemData[]>(() => [
     ...otherBooks.value.map(item => ({value: item.id, label: item.title, iconClass: "i-lucide-book"})),
     {value: "", label: "全部书（书架）", iconClass: "i-lucide-library", separator: otherBooks.value.length > 0},
 ]);
@@ -206,15 +206,15 @@ watch(notice, value => {
             <div class="flex min-w-0 items-center gap-1" :class="tier === 'phone' ? 'w-full' : ''">
                 <IconButton v-if="tier === 'phone'" size="sm" icon-class="i-lucide-menu" aria-label="打开导航" @click="navSheet = true" />
                 <IconButton size="sm" icon-class="i-lucide-library" aria-label="回到书架" title="回到书架" data-testid="go-shelf" @click="switchBook('')" />
-                <Dropdown :items="bookItems" compact menu-class="min-w-[220px]" @select="switchBook">
+                <DropdownMenu :items="bookItems" compact menu-class="min-w-[220px]" @select="switchBook">
                     <button type="button" class="book-title flex min-w-0 items-center gap-1 rounded-[var(--radius-control)] px-1.5 py-0.5" title="换一本书" data-testid="book-switcher">
                         <span class="truncate font-[var(--weight-strong)]" data-testid="book-title">{{ book.info.title }}</span>
                         <span class="i-lucide-chevron-down shrink-0 text-[var(--text-muted)]" />
                     </button>
-                </Dropdown>
+                </DropdownMenu>
                 <template v-if="tier === 'phone'">
                     <SearchBox class="ml-auto" compact />
-                    <Dropdown :items="themeItems" compact align="end" @select="setTheme"><IconButton size="sm" :icon-class="themeIcon" aria-label="明暗" data-testid="theme-menu" /></Dropdown>
+                    <DropdownMenu :items="themeItems" compact align="end" @select="setTheme"><IconButton size="sm" :icon-class="themeIcon" aria-label="明暗" data-testid="theme-menu" /></DropdownMenu>
                     <IconButton size="sm" icon-class="i-lucide-panel-bottom-open" aria-label="打开详情面板" :disabled="!drawerOpen && !book.lastDrawer.value" @click="toggleDrawer" />
                 </template>
             </div>
@@ -223,7 +223,7 @@ watch(notice, value => {
                 <SearchBox :compact="tier === 'tablet'" />
                 <!-- 平板放不下整句：只留图标，文字给悬停与读屏（审查 F03：整句会把右侧栏开关挤出屏外） -->
                 <span v-if="book.saveFailed.value" class="save-failed whitespace-nowrap" role="status" title="阅读位置没存上" aria-label="阅读位置没存上" data-testid="save-failed"><span class="i-lucide-triangle-alert" /><span v-if="tier === 'wide'">阅读位置没存上</span></span>
-                <Dropdown :items="themeItems" compact align="end" @select="setTheme"><IconButton size="sm" :icon-class="themeIcon" aria-label="明暗" title="明暗" data-testid="theme-menu" /></Dropdown>
+                <DropdownMenu :items="themeItems" compact align="end" @select="setTheme"><IconButton size="sm" :icon-class="themeIcon" aria-label="明暗" title="明暗" data-testid="theme-menu" /></DropdownMenu>
                 <IconButton
                     size="sm" :icon-class="drawerOpen ? 'i-lucide-panel-right-close' : 'i-lucide-panel-right-open'" :aria-label="drawerOpen ? '收起右侧栏' : '展开右侧栏'"
                     :title="drawerOpen ? '收起右侧栏' : book.lastDrawer.value ? '展开右侧栏' : '还没有打开过内容'" :disabled="!drawerOpen && !book.lastDrawer.value" data-testid="toggle-drawer" @click="toggleDrawer"

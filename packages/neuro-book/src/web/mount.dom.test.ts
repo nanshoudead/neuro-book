@@ -197,7 +197,7 @@ describe("窗口界面的挂载", () => {
         const plugin = notifier();
         const {browserWindow, container, history} = await mountAt("/", {plugins: [plugin]});
         const root = (): Element | null => container.querySelector("[data-workbench-root]");
-        const shown = (): boolean => [...root()?.querySelectorAll("[data-notification-viewport] [role='status']") ?? []].some((node) => node.textContent?.includes("导出完成") === true);
+        const shown = (): boolean => [...root()?.querySelectorAll("[data-notification-stack] [role='status']") ?? []].some((node) => node.textContent?.includes("导出完成") === true);
         // 没有项目时 `/` 是书架首页，`/workbench` 从不用首页贡献：据此分辨两个页面。
         expect(root()?.hasAttribute("data-workbench-home")).toBe(true);
         const home = root();

@@ -9,17 +9,12 @@
 | 词 | 是什么 |
 | --- | --- |
 | **配色** colorway | 一组颜色变量取值。33 个变量，见 `src/colorway/colorway-contract.ts` |
-| **主题** theme | 一个包：变量声明 + 取值 + 若干配色 + 资源 + 可选的组件覆盖。本文讲的就是它 |
+| **主题** theme | 一个包：变量声明 + 取值 + 若干配色 + 资源。本文讲的就是它 |
 | **插件** plugin | 主题 + 任意 JS，单独安装与授权。**尚未开放** |
 
-能力分三档，与 VS Code（theme / extension 分离）、WordPress（theme / plugin 分离）同构：
-
-1. **声明式主题**——只有 CSS 变量取值和静态资源。无门槛，运行期装载。
-2. **组件实现包**——额外替换某些组件的实现。需要声明 `hostVersion` 与契约版本，构建期产物。
-3. **插件**——任意 JS。**本版本不开放**，因为在同一个 Vue app context 里安全执行第三方
-   组件没有成熟的沙箱方案，安全边界只能靠市场侧的审核与签名来立。
-
-下面讲第一档和第二档。
+主题是声明式的：只有 CSS 变量取值、配色和静态资源，运行期装载；不能替换组件的实现，也不能带 JS。
+与 VS Code（theme / extension 分离）、WordPress（theme / plugin 分离）同构，任意 JS 属于插件，**本版本不开放**：
+在同一个 Vue app context 里安全执行第三方组件没有成熟的沙箱方案，安全边界只能靠市场侧的审核与签名来立。
 
 本文讲的是**格式**：能改什么、怎么装、装不上时看哪里。至于产品默认主题为什么长成那样、
 哪些做法已经被实测证伪，见 [设计语言](./design-language.md)——那篇的「踩过的坑」一节
@@ -130,8 +125,8 @@ installTheme(myTheme);
 
 ### 浮层 Surface（`--overlay-surface`）透明度规范
 
-浮层（`Dropdown` / `Popover` / `CommandPalette`）必须承担清晰的内容承载与文字阅读职责，严禁追求极致透明度而损害可读性：
-- **亮色模式**：基准为 `color-mix(in srgb, var(--bg-panel) 65%, transparent)`（65% 温润半透明白底，与 FormSelect 黄金标准一致）；
+浮层（`DropdownMenu` / `Popover` / `CommandPalette`）必须承担清晰的内容承载与文字阅读职责，严禁追求极致透明度而损害可读性：
+- **亮色模式**：基准为 `color-mix(in srgb, var(--bg-panel) 65%, transparent)`（65% 温润半透明白底，与 Select 黄金标准一致）；
 - **暗色模式**：基准为 `color-mix(in srgb, var(--bg-panel) 75%, transparent)`（75% 烟熏深底，保证文字高对比度）；
 - **严禁降低到 14% 等过低不透明度**：过薄透明会导致底层正文、按钮严重透光穿透，彻底破坏实体面板感；
 - **机械守门**：全库由 `token-consumption.test.ts` 静态扫描守门，禁止任何组件在模板中内联硬编码 `backgroundColor: color-mix(...)` 或 `backdropFilter`。
@@ -242,54 +237,8 @@ export default {
 `<script>`、`<foreignObject>`、任何 `on*` 事件属性、指向外部 URL 的 `href`
 **一律拒绝装载并指出是哪一个**。
 
-这不是沙箱，也不冒充沙箱——它只把第一档主题的资源面收窄到「静态图形定义」，
+这不是沙箱，也不冒充沙箱——它只把声明式主题的资源面收窄到「静态图形定义」，
 好处是想做玻璃折射这类效果不必升到插件档。
-
-## 替换组件实现（第二档）
-
-主题可以换掉某个组件的实现。当前只有一个组件开放覆盖：
-
-| 组件 key | 契约 id |
-| --- | --- |
-| `time-picker` | `time-picker@1` |
-
-白名单极小起步是刻意的：市场一旦跑起来，登记过的组件 API 就不能随便改了，这是这个方向
-真正的长期成本。等阶段 2 的组件重写完再逐个放开。
-
-```ts
-// manifest.ts —— 只写契约 id，不写实现
-overrides: {"time-picker": "time-picker@1"},
-```
-
-```ts
-// index.ts
-import TimePickerWheel from "./components/TimePickerWheel.vue";
-
-export default {manifest, components: {"time-picker": TimePickerWheel}} satisfies NbThemeModule;
-```
-
-契约钉的是 **props / emits / 键盘 / a11y**，不钉 DOM 结构。直接反例：Radix Themes
-的公开 props 一个没改，内部 HTML 重构照样破坏了依赖它的覆盖。所以你可以把下拉列表换成
-滚轮、换成表盘、换成什么都行，只要 `v-model` 和键盘行为一致。
-
-契约版本变了（`time-picker@2`）意味着 props / emits / 键盘行为变了，你的主题会被**明确拒绝装载**，
-而不是渲染出一个半坏的控件。
-
-### 自证：跑契约测试
-
-```ts
-import {runTimePickerContract} from "@notnotype/nb-ui/testing";
-import MyTimePicker from "./components/MyTimePicker.vue";
-
-runTimePickerContract("my-wheel", MyTimePicker);
-```
-
-这是与库默认实现**完全同一份**用例。全绿才算真的实现了 `time-picker@1`。
-
-### 一条硬规矩
-
-**切换主题不应让用户丢失核心功能**（WordPress 的原话）。这里的落法是：主题只能**替换**实现，
-不能取消——解析永远返回一个可渲染的组件，你没覆盖的组件仍然是库默认的。
 
 ## 已知边界
 
@@ -297,7 +246,6 @@ runTimePickerContract("my-wheel", MyTimePicker);
   靠 `[data-nb-theme]` 选中。
 - **`hostVersion` 不支持复合范围。** 支持 `*`、精确版本、`^x.y.z`、`~x.y.z`、`>=x.y.z`；
   写 `>=1.0.0 <2.0.0` 会被拒绝并说明不支持，而不是猜一个结果。
-- **SSR 未解决。** 运行期切换主题组件会带来 hydration 不一致。当前消费方都是 `ssr: false`。
 - **减少动效只覆盖库的三个时长变量。** 你自己新增的动效变量（例如 `macos` 的 `--glass-lift`）
   要自己在 `@media (prefers-reduced-motion: reduce)` 里关掉——库不知道它们叫什么。
 - **边缘折射（`backdrop-filter: url(#…)`）只有 Chromium 支持。** Safari / Firefox 都不支持，
@@ -315,9 +263,6 @@ runTimePickerContract("my-wheel", MyTimePicker);
 | `host-version` | `hostVersion` 与当前 nb-ui 版本不匹配，或用了不支持的范围写法 |
 | `declaration-missing-fallback` | `declares` 里有一项没写 fallback |
 | `declaration-collides` | 重复声明了配色契约或设计 token 已有的变量 |
-| `unknown-component` | 覆盖了不在白名单里的组件 |
-| `contract-mismatch` | 契约版本与宿主不符 |
-| `override-mismatch` | manifest 与入口对不上（声明了没实现，或实现了没声明） |
 | `colorway-mismatch` | 自带配色对不上，或 `defaultColorway` 指向不存在 / 明暗不符的配色 |
 | `unsafe-svg-defs` | `svgDefs` 含白名单以外的标签、事件属性或外部引用 |
 | `svg-defs-id-collides` | `svgDefs` 里的 id 与另一套已装主题重名。SVG 的 id 是全文档级的，`url(#id)` 会取先装的那一套且不报错，所以每套主题的 id 都要带自己的前缀 |
@@ -327,7 +272,7 @@ runTimePickerContract("my-wheel", MyTimePicker);
 
 | 包 | 演示了什么 |
 | --- | --- |
-| `themes/editorial/` | 最小主题：零新增变量、零配色、零资源、零覆盖 |
+| `themes/editorial/` | 最小主题：零新增变量、零配色、零资源 |
 | `themes/aurora/` | 新增一个变量并带 fallback |
-| `themes/macos/` | 格式天花板：10 个新变量、自带亮暗两套配色、SVG 资源、覆盖一个组件、把窗口左上角判给侧栏 |
+| `themes/macos/` | 格式天花板：10 个新变量、自带亮暗两套配色、SVG 资源、把窗口左上角判给侧栏 |
 | `themes/nbook/` | 产品默认主题：从 `macos` 衍生，17 个新变量、自带亮暗两套配色、自带 SVG 资源。示范两件事——① 「主题的论点写在变量里」：「稿面比桌面亮」不是写死一个亮色值，而是 `--page-surface` 取 `--bg-panel`，再由配色表保证 panel 恒亮于 main，所以换任何配色这条都成立；② **衍生主题是同级不是继承**，两套各自自包含，删掉任一套另一套照常装载 |

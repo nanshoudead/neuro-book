@@ -3,11 +3,10 @@ import {computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef
 import {Value} from "typebox/value";
 import {useRouter} from "vue-router";
 import {
-    FormSelect as NbFormSelect,
+    Select as NbSelect,
     SegmentedControl as NbSegmentedControl,
-    ToggleGroup as NbToggleGroup,
 } from "@notnotype/nb-ui/components";
-import type {FormSelectOption, ToggleGroupOption} from "@notnotype/nb-ui/components";
+import type {SegmentedControlOption, SegmentedControlValue, SelectOption} from "@notnotype/nb-ui/components";
 import type {Component} from "vue";
 import LabNavPanel from "./LabNavPanel.vue";
 import LabToolbar from "./LabToolbar.vue";
@@ -144,7 +143,7 @@ const sceneOptions = computed<Array<{value: string; label: string}>>(() =>
     (fixture.value?.scenes ?? []).map((item) => ({value: item.id, label: item.label})));
 
 
-const backdropOptions: FormSelectOption[] = labBackdrops.map((item) => ({value: item.id, label: item.label}));
+const backdropOptions: SelectOption[] = labBackdrops.map((item) => ({value: item.id, label: item.label}));
 
 // ——— 自定义桌面壁纸 ———
 //
@@ -197,13 +196,13 @@ onMounted(async () => {
     session.start();
 });
 onBeforeUnmount(() => setWallpaper(null));
-const zoomOptions: FormSelectOption[] = labZooms.map((value) => ({
+const zoomOptions: SelectOption[] = labZooms.map((value) => ({
     value: String(value),
     label: `${Math.round(value * 100)}%`,
 }));
 const zoomValue = computed(() => Number(canvasZoom.value) || 1);
 
-const presetOptions: ToggleGroupOption[] = [
+const presetOptions: SegmentedControlOption[] = [
     {value: "free", label: "随窗口"},
     {value: "tablet", label: "平板"},
     {value: "phone", label: "手机"},
@@ -215,7 +214,8 @@ const activePreset = computed(() => {
             return id;
         }
     }
-    return "";
+    // 手动拖出来的尺寸不对应任何预设：一个都不选中。
+    return null;
 });
 
 // ——— 主题：nb-ui 的配色 + 主题包两条轴 ———
@@ -478,9 +478,7 @@ onBeforeUnmount(() => {
 
 // ——— 场景 ———
 
-// reka 的单选组再次点击当前项会把值清空，画布必须始终有一个尺寸档，因此挡住空值。
-// nb-ui 声明的类型是 string | string[]，但运行时确实会给 undefined，两处都要挡。
-function applyPreset(value: string | string[]): void {
+function applyPreset(value: SegmentedControlValue): void {
     const size = typeof value === "string" ? presetSizes[value] : undefined;
     if (!size) {
         return;
@@ -726,7 +724,7 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
                         <span v-if="selectedDetail" class="lab-bar__detail lab-note min-w-0 truncate" :title="selectedDetail">{{ selectedDetail }}</span>
                         <label v-if="sceneOptions.length > 4" class="lab-field shrink-0">
                             <span class="lab-bar__label lab-note">场景</span>
-                            <NbFormSelect
+                            <NbSelect
                                 v-model="selectedScene"
                                 :options="sceneOptions"
                                 size="sm"
@@ -751,15 +749,15 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
                         **画布里**的（宽度、画布底、缩放）。视口预设原来在顶栏，可它只改画布，
                         于是看组件的四个旋钮分居两条栏，找一个要跳两个地方。
 
-                        ToggleGroup 自带边框与内衬底，外面不能再套 Toolbar：那是第二层容器，
+                        SegmentedControl 自带边框与内衬底，外面不能再套 Toolbar：那是第二层容器，
                         而一个只装一件东西的工具栏也不是工具栏。
 
                         这几个是这条栏上唯一不可替代的东西，所以它们 shrink-0；空间不够时先牺牲
                         左边的名字与别名、再收窄场景下拉（见样式里的容器查询），它们不参与让位。
                     -->
                     <div class="lab-bar__controls flex min-w-0 flex-wrap items-center gap-2">
-                        <NbToggleGroup
-                            size="sm"
+                        <NbSegmentedControl
+                            size="xs"
                             :options="presetOptions"
                             :model-value="activePreset"
                             aria-label="画布宽度"
@@ -768,7 +766,7 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
                         />
                         <label class="lab-field shrink-0">
                             <span class="lab-bar__label lab-note">画布底</span>
-                            <NbFormSelect
+                            <NbSelect
                                 v-model="canvasBackdrop"
                                 :options="backdropOptions"
                                 size="sm"
@@ -780,7 +778,7 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
                         </label>
                         <label class="lab-field shrink-0">
                             <span class="lab-bar__label lab-note">缩放</span>
-                            <NbFormSelect
+                            <NbSelect
                                 v-model="canvasZoom"
                                 :options="zoomOptions"
                                 size="sm"

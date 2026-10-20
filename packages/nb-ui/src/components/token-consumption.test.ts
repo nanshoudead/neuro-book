@@ -30,16 +30,14 @@ const COMPONENTS_DIR = import.meta.dirname;
 const LITERAL_RADIUS_ALLOWLIST = new Map<string, string>([
     ["display/Skeleton.vue", "坑 #44：Skeleton 保留各自圆角，不纳入控件圆角判据"],
     ["feedback/Notification.vue", "坑 #44：Notification 保留各自圆角，不纳入控件圆角判据"],
-    ["layout/Panel.vue", "坑 #44：Panel 保留各自圆角，不纳入控件圆角判据"],
 ]);
 
 const LITERAL_COLOR_ALLOWLIST = new Map<string, string>([
-    ["form/ColorPicker.vue", "ColorPicker 是取色器与调色板，预设色板需要字面色彩常量"],
     ["form/ColorPickerPanel.vue", "取色面板读不懂传入的颜色时要落回一个具体颜色，是取色器本身的需要"],
 ]);
 
 const LITERAL_COLOR_VALUE_ALLOWLIST = new Map<string, ReadonlySet<string>>([
-    ["form/FormCheckbox.vue", new Set(["#000000"])],
+    ["form/Checkbox.vue", new Set(["#000000"])],
 ]);
 
 function collectVueFiles(dir: string): string[] {

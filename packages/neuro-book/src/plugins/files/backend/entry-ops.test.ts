@@ -144,7 +144,7 @@ describe("Spec workspace.files 文件操作：排他新建与移动", () => {
         expect(codeOf(moveEntry(await entry(root, "book"), await slot(root, "book/part/book")))).toBe("into-itself");
         expect(codeOf(moveEntry(await entry(root, "book"), await slot(root, "alias/part/book")))).toBe("into-itself");
         expect(codeOf(moveEntry(await entry(root, "book"), await slot(root, "alias/book")))).toBe("into-itself");
-        expect(await readdir(join(dir, "book"))).toEqual(["index.md", "part"]);
+        expect((await readdir(join(dir, "book"))).sort()).toEqual(["index.md", "part"]);
         expect(moveEntry(await entry(root, "book"), await slot(root, "moved"))).toEqual({ok: true});
         expect(await readFile(join(dir, "moved", "index.md"), "utf8")).toBe("BODY");
     });

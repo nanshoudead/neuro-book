@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Button, FormSelect} from "@notnotype/nb-ui/components";
+import {Button, Select} from "@notnotype/nb-ui/components";
 import {computed, nextTick, ref, watch} from "vue";
 import {statusLabel} from "../host/format.js";
 
@@ -67,7 +67,7 @@ const selectOptions = computed(() => props.options.map((value) => ({value, label
         <Button v-else-if="!editing" data-status-toggle size="sm" variant="ghost" icon-class="i-lucide-pencil-line" @click="startEdit">改状态</Button>
         <template v-else>
             <div ref="selectBox" class="w-32">
-                <FormSelect :model-value="choice ?? status ?? ''" :options="selectOptions" aria-label="改状态" placeholder="未标" size="sm" :disabled="pending" @update:model-value="(value: string) => (choice = value === status ? null : value)" />
+                <Select :model-value="choice ?? status ?? ''" :options="selectOptions" aria-label="改状态" placeholder="未标" size="sm" :disabled="pending" @update:model-value="(value: string) => (choice = value === status ? null : value)" />
             </div>
             <template v-if="choice">
                 <span>把 {{ subject }} 改成{{ statusLabel(choice) }}？</span>

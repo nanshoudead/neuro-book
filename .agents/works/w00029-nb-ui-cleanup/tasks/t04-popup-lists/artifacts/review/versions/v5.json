@@ -1,0 +1,207 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00029-nb-ui-cleanup",
+    "taskId": "t04-popup-lists",
+    "artifactId": "review",
+    "version": 5,
+    "supersedes": 4,
+    "action": "publish",
+    "kind": "design",
+    "title": "弹出列表收成一套：评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "c7bd9378f38dde76f0df3be91c6639d2b7259fcaf0174b9c679d20f75811b423",
+    "files": [
+        "index.html",
+        "r1/highlight-dark.webp",
+        "r1/highlight-light.webp",
+        "r1/narrow-highlight-accent-solid.webp",
+        "r1/narrow-highlight-accent-tint.webp",
+        "r1/narrow-highlight-neutral.webp",
+        "r1/narrow-selection-accent.webp",
+        "r1/narrow-selection-check-left.webp",
+        "r1/narrow-selection-check-right.webp",
+        "r1/now-dark.webp",
+        "r1/now-light.webp",
+        "r1/selection-dark.webp",
+        "r1/selection-light.webp",
+        "r2/density-dark.webp",
+        "r2/density-light.webp",
+        "r2/narrow-density-two.webp",
+        "r2/narrow-radius-r5.webp",
+        "r2/radius-dark.webp",
+        "r2/radius-light.webp",
+        "r3/footer-dark.webp",
+        "r3/footer-light.webp",
+        "r3/narrow-footer-drop.webp",
+        "r3/rows-dark.webp",
+        "r3/rows-light.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-highlight",
+            "type": "single",
+            "label": "高亮用哪一种",
+            "options": [
+                {
+                    "value": "neutral",
+                    "label": "A 中性叠色"
+                },
+                {
+                    "value": "accent-tint",
+                    "label": "B 强调色淡底"
+                },
+                {
+                    "value": "accent-solid",
+                    "label": "C 强调色实底"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "neutral"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-selection",
+            "type": "single",
+            "label": "选中用哪一种",
+            "options": [
+                {
+                    "value": "check-left",
+                    "label": "A 左侧勾选列"
+                },
+                {
+                    "value": "check-right",
+                    "label": "B 右侧勾"
+                },
+                {
+                    "value": "accent",
+                    "label": "C 强调色淡底加勾"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "check-right"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r2-radius",
+            "type": "single",
+            "label": "列表项的圆角",
+            "options": [
+                {
+                    "value": "r2",
+                    "label": "A 外框 8、内边距 6：项 2px"
+                },
+                {
+                    "value": "r5",
+                    "label": "B 外框 10、内边距 4：项 5px"
+                },
+                {
+                    "value": "r7",
+                    "label": "C 外框 14、内边距 6：项 7px"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "r5"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-density",
+            "type": "single",
+            "label": "列表项的行高与字号",
+            "options": [
+                {
+                    "value": "one-28",
+                    "label": "A 一档：28px、13px 字"
+                },
+                {
+                    "value": "two",
+                    "label": "B 两档"
+                },
+                {
+                    "value": "one-32",
+                    "label": "C 一档：32px、13px 字"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "one-28"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r3-rows",
+            "type": "single",
+            "label": "长列表最多显示几项",
+            "options": [
+                {
+                    "value": "6",
+                    "label": "A 6 项半"
+                },
+                {
+                    "value": "8",
+                    "label": "B 8 项半"
+                },
+                {
+                    "value": "10",
+                    "label": "C 10 项半"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "8"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 4,
+            "outcome": null
+        },
+        {
+            "id": "r3-footer",
+            "type": "single",
+            "label": "Composer 候选菜单要不要底部的按键提示",
+            "options": [
+                {
+                    "value": "keep",
+                    "label": "A 保留"
+                },
+                {
+                    "value": "drop",
+                    "label": "B 去掉"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "drop"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 4,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-20T05:31:09.091Z"
+}

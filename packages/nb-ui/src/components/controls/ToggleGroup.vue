@@ -3,6 +3,7 @@ import {
     ToggleGroupItem,
     ToggleGroupRoot,
 } from "reka-ui";
+import type {AcceptableValue} from "reka-ui";
 
 export interface ToggleGroupOption {
     value: string;
@@ -14,10 +15,13 @@ export interface ToggleGroupOption {
 
 export type ToggleGroupSize = "sm" | "md" | "lg";
 
+/**
+ * 只做多选（可叠加的开关，例如格式按钮）：“几个里选一个”用 SegmentedControl，那边始终有一个选中项，
+ * 不会像上游单选模式那样再点一次就清空。
+ */
 const props = withDefaults(defineProps<{
-    modelValue?: string | string[];
-    defaultValue?: string | string[];
-    type?: "single" | "multiple";
+    modelValue?: string[];
+    defaultValue?: string[];
     disabled?: boolean;
     size?: ToggleGroupSize;
     orientation?: "horizontal" | "vertical";
@@ -25,7 +29,6 @@ const props = withDefaults(defineProps<{
 }>(), {
     modelValue: undefined,
     defaultValue: undefined,
-    type: "single",
     disabled: false,
     size: "md",
     orientation: "horizontal",
@@ -33,8 +36,13 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-    (e: "update:modelValue", value: string | string[]): void;
+    (e: "update:modelValue", value: string[]): void;
 }>();
+
+// 上游的事件类型是单选与多选共用的联合；本组件固定多选，运行时总是数组，项目值也都是字符串。
+function onUpdate(value: AcceptableValue | AcceptableValue[]): void {
+    emit("update:modelValue", Array.isArray(value) ? value.map(String) : []);
+}
 
 function sizeClass(): string {
     if (props.size === "sm") return "h-6 px-2 text-[12px] min-w-[24px] gap-1";
@@ -47,12 +55,12 @@ function sizeClass(): string {
     <ToggleGroupRoot
         :model-value="props.modelValue"
         :default-value="props.defaultValue"
-        :type="props.type as any"
+        type="multiple"
         :disabled="props.disabled"
         :orientation="props.orientation"
         class="inline-flex items-center gap-0.5 rounded-[var(--radius-control)] border border-[color-mix(in_srgb,var(--text-main)_10%,transparent)] bg-[color-mix(in_srgb,var(--text-main)_4%,transparent)] p-0.5 select-none"
         :class="props.orientation === 'vertical' ? 'flex-col' : 'flex-row'"
-        @update:model-value="(val) => emit('update:modelValue', val as any)"
+        @update:model-value="onUpdate"
     >
         <template v-if="props.options.length > 0">
             <ToggleGroupItem

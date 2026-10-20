@@ -274,6 +274,7 @@
         "nbstory": "./src/cli.ts",
       },
       "dependencies": {
+        "@clack/prompts": "^1.0.0",
         "@notnotype/nb-harness": "workspace:*",
         "@notnotype/nb-profile": "workspace:*",
         "@notnotype/nb-runtime": "workspace:*",
@@ -281,6 +282,7 @@
         "@notnotype/nb-ui": "workspace:*",
         "@sigma/node-border": "3.0.0",
         "@sigma/utils": "3.0.0",
+        "commander": "^14.0.2",
         "graphology": "0.26.0",
         "graphology-layout-forceatlas2": "0.10.1",
         "graphology-layout-noverlap": "0.4.2",

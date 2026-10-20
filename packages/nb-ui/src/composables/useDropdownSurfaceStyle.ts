@@ -5,7 +5,7 @@ import {NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../theme/z-index";
  * 下拉菜单/选择器高精度立体磨砂 Surface 材质契约 Composable。
  *
  * 规范职责：
- * 1. 唯一真相源材质：以 FormSelect 调优的黄金标准为唯一样式规范，提供
+ * 1. 唯一真相源材质：以 Select 调优的黄金标准为唯一样式规范，提供
  *    4 层立体微反光环境投影（外发散 + 内边沿微光）与 130% 饱和度滤波；
  * 2. 几何与同心律：严格保证四周 6px 等宽对齐（p-1.5），视口圆角严格绑定 --nb-popover-inner-radius；
  * 3. 规避遮挡与防闪烁：默认 7px side-offset 避让 Trigger 发光圈，提供 closeAutoFocus 阻止二次弹焦；

@@ -39,12 +39,32 @@ test("场景 1：流式播到结束，提示块的元素始终是同一个、保
     await expect.poll(() => labState(page)).toMatchObject({ready: true, scene: "streaming"});
     const display = page.locator("[data-lab-stage] [data-markdown-display]");
     await expect(display.locator(".nb-callout")).toHaveCount(1, {timeout: 20_000});
+    // 提示块自己还在追加时内容在变，按输出 6 会被替换；等它后面的一块出现、它不再变了，再记下它的元素。
+    await expect(display).toContainText("改写示例", {timeout: 20_000});
     await display.locator(".nb-callout").evaluate((element) => {
         (window as unknown as {__callout: Element}).__callout = element;
     });
     await expect(display.locator(".nb-markdown-display__cursor")).toHaveCount(0, {timeout: 30_000});
     await expect(display).toContainText("写作手册");
     expect(await display.locator(".nb-callout").evaluate((element) => element === (window as unknown as {__callout: Element}).__callout && element.getAttribute("data-callout-folded") === "true")).toBe(true);
+});
+
+test("输出 2：普通 Markdown 的粗体、斜体、删除线、四级标题与分割线有各自的样子（应用的全局样式重置清掉了浏览器自带的）", async ({page}) => {
+    await page.goto(`${dev.pageUrl}lab?c=MarkdownDisplay&s=plain&vp=1200x900`);
+    await expect.poll(() => labState(page)).toMatchObject({ready: true, scene: "plain"});
+    const display = page.locator("[data-lab-stage] [data-markdown-display]");
+    const style = (selector: string) => display.locator(selector).first().evaluate((element) => {
+        const computed = getComputedStyle(element);
+        const body = getComputedStyle(element.closest("[data-markdown-display]") ?? element);
+        return {weight: Number(computed.fontWeight), bodyWeight: Number(body.fontWeight), style: computed.fontStyle, line: computed.textDecorationLine, border: computed.borderTopWidth};
+    });
+    const strong = await style("strong");
+    expect(strong.weight).toBeGreaterThan(strong.bodyWeight);
+    expect((await style("em")).style).toBe("italic");
+    expect((await style("del, s")).line).toContain("line-through");
+    const heading = await style("h4");
+    expect(heading.weight).toBeGreaterThan(heading.bodyWeight);
+    expect((await style("hr")).border).not.toBe("0px");
 });
 
 test("场景 2：100 条消息的长对话，宽度来回改 40 次，每次改完强制布局的耗时中位数在 5 毫秒以内", async ({page}) => {

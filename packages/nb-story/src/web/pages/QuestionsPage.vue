@@ -4,7 +4,7 @@
  * 带条数）、按字或人物搜；每条带状态标签与“进展几次、最近一次”；展开看相关情节与从提出到每次进展的历程。琐碎的悬念
  * 收在“琐碎”一组里，默认折叠。从别的页点进来时（book.jump）展开并滚到那一条。
  */
-import {Badge, FormInput, SegmentedControl} from "@notnotype/nb-ui/components";
+import {Badge, Input, SegmentedControl} from "@notnotype/nb-ui/components";
 import {computed, nextTick, ref, watch} from "vue";
 
 import {useBook} from "../host/book";
@@ -87,7 +87,7 @@ function toggle(id: string): void {
             <div class="flex flex-wrap items-center gap-2">
                 <SegmentedControl v-model="state" size="xs" :options="stateOptions" aria-label="按状态筛" />
                 <SegmentedControl v-model="sort" size="xs" :options="[{value: 'recent', label: '最近有进展'}, {value: 'raised', label: '按提出顺序'}]" aria-label="排序" />
-                <div class="w-44"><FormInput v-model="text" size="sm" icon-class="i-lucide-search" placeholder="按字或人物搜" /></div>
+                <div class="w-44"><Input v-model="text" size="sm" icon-class="i-lucide-search" placeholder="按字或人物搜" /></div>
             </div>
             <PagedList class="mt-2" :items="main" :total="list.total.value" :loading="list.loading.value" :has-more="list.hasMore.value" :error="list.error.value?.message ?? null" empty-text="没有悬念" @more="list.more()" @retry="list.reload()">
                 <template #item="{item}">

@@ -1,9 +1,7 @@
 import {readFileSync} from "node:fs";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
-import {defineComponent, h} from "vue";
 import {NB_UI_VERSION} from "../version";
-import {NB_COMPONENT_CONTRACTS} from "./contracts";
 import {
     NbThemeInstallError,
     getInstalledTheme,
@@ -14,7 +12,6 @@ import {
 } from "./theme-loader";
 import type {NbThemeModule} from "./theme-manifest";
 
-const Stub = defineComponent({setup: () => () => h("div")});
 
 function themeModule(overrides: Partial<NbThemeModule["manifest"]> = {}, rest: Partial<NbThemeModule> = {}): NbThemeModule {
     return {
@@ -80,24 +77,19 @@ describe("nb-ui theme loader", () => {
         expect(document.getElementById("nb-theme-var-fallbacks")).toBeNull();
     });
 
-    it("keeps colorways and component implementations on the installed entry", () => {
+    it("keeps colorways on the installed entry", () => {
         const entry = installTheme(
             themeModule(
-                {
-                    providesColorways: ["probe-dark"],
-                    overrides: {"time-picker": NB_COMPONENT_CONTRACTS["time-picker"]},
-                },
+                {providesColorways: ["probe-dark"]},
                 {
                     colorways: {"probe-dark": {"--color-scheme": "dark", "--bg-main": "#000"}},
                     colorwayMeta: {"probe-dark": {label: "Probe Dark", appearance: "dark"}},
-                    components: {"time-picker": Stub},
                 },
             ),
         );
 
         expect(entry.colorways["probe-dark"]?.["--bg-main"]).toBe("#000");
         expect(entry.colorwayMeta["probe-dark"]?.appearance).toBe("dark");
-        expect(entry.components["time-picker"]).toBe(Stub);
     });
 });
 
@@ -132,31 +124,6 @@ describe("nb-ui theme loader rejections", () => {
         );
         expect(() => installTheme(themeModule({declares: [{name: "--radius-control", fallback: "4px"}]}))).toThrow(
             /已经在配色契约或设计 token 里/,
-        );
-    });
-
-    it("rejects overriding a component that is not on the whitelist", () => {
-        expect(() =>
-            installTheme(themeModule({overrides: {dialog: "dialog@1"}}, {components: {dialog: Stub}})),
-        ).toThrow(/不在可覆盖登记表里/);
-    });
-
-    it("rejects a contract version the host does not speak", () => {
-        expect(() =>
-            installTheme(
-                themeModule({overrides: {"time-picker": "time-picker@2"}}, {components: {"time-picker": Stub}}),
-            ),
-        ).toThrow(/宿主当前是 "time-picker@1"/);
-    });
-
-    // manifest 是市场唯一能读到的东西，它和入口对不上就等于市场展示的能力是假的
-    it("rejects a manifest and entry that disagree about overrides", () => {
-        expect(() =>
-            installTheme(themeModule({overrides: {"time-picker": "time-picker@1"}})),
-        ).toThrow(/没有提供对应实现/);
-
-        expect(() => installTheme(themeModule({}, {components: {"time-picker": Stub}}))).toThrow(
-            /manifest 没有声明/,
         );
     });
 

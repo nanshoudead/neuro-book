@@ -93,12 +93,31 @@ test.describe("引用小块", () => {
     test("行尾用输入法打字：上屏的字写在链接后面", async ({page}) => {
         await openFile(page, "notes/link-ime.md", "[123](project://123)\n");
         await prose(page).locator("p").first().click();
-    await expect(prose(page)).toBeFocused();
+        await expect(prose(page)).toBeFocused();
         await page.keyboard.press("End");
         await compose(page, "hou", "后");
         await save(page);
         await expect.poll(() => disk("notes/link-ime.md")).toBe("[123](project://123)后\n");
     });
+});
+
+test("按快捷键打出的粗体、斜体、删除线在正文里看得出来，写回对应的写法", async ({page}) => {
+    await typeInto(page, "notes/marks.md", "看\n", "End", ["Control+b"], "粗");
+    await page.keyboard.press("Control+b");
+    await page.keyboard.press("Control+i");
+    await page.keyboard.type("斜");
+    await page.keyboard.press("Control+i");
+    await page.keyboard.press("Control+Shift+s");
+    await page.keyboard.type("删");
+    await save(page);
+    await expect.poll(() => disk("notes/marks.md")).toBe("看**粗***斜*~~删~~\n");
+    const style = (selector: string) => prose(page).locator(selector).evaluate((element) => {
+        const computed = getComputedStyle(element);
+        return {weight: Number(computed.fontWeight), style: computed.fontStyle, line: computed.textDecorationLine};
+    });
+    expect((await style("strong")).weight).toBeGreaterThanOrEqual(600);
+    expect((await style("em")).style).toBe("italic");
+    expect((await style("s")).line).toContain("line-through");
 });
 
 test("源码编辑器里写链接、换回富文本后接着打字：字写在链接后面（开发者 2026-10-16 报告的路径）", async ({page}) => {

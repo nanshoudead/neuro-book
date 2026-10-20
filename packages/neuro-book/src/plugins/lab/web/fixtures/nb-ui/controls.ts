@@ -5,15 +5,11 @@ import {h} from "vue";
 import {Button as NbButton, IconButton as NbIconButton} from "@notnotype/nb-ui/components";
 import type {
     Button,
-    Dropdown,
-    Editable,
+    DropdownMenu,
     IconButton,
     Menubar,
-    Pagination,
     SegmentedControl,
-    Stepper,
     Switch,
-    SwitchField,
     Tabs,
     ToggleGroup,
     Toolbar,
@@ -57,12 +53,6 @@ const MENUBAR_MENUS = [
         {label: "显示面板", value: "panel", type: "checkbox" as const, checked: false},
     ]},
     {id: "help", label: "帮助", disabled: true, items: []},
-];
-
-const STEPS = [
-    {step: 1, title: "选择目录", description: "作品放在哪里", iconClass: "i-lucide-folder"},
-    {step: 2, title: "书名与简介", description: "以后可以修改", iconClass: "i-lucide-book"},
-    {step: 3, title: "模板", description: "初始的卷与章节", iconClass: "i-lucide-layout-template"},
 ];
 
 const TABS = [
@@ -113,8 +103,8 @@ export const controlsFixtures: LabFixture[] = [
         ],
         subject: nbUiSubject("IconButton"),
     }),
-    defineSubjectFixture<typeof Dropdown>({
-        component: "Dropdown",
+    defineSubjectFixture<typeof DropdownMenu>({
+        component: "DropdownMenu",
         events: ["select"],
         slotPresets: {default: () => h(NbButton, {variant: "secondary", size: "sm", iconClass: "i-lucide-ellipsis"}, () => "更多操作")},
         scenes: [
@@ -124,7 +114,7 @@ export const controlsFixtures: LabFixture[] = [
             {id: "disabled", label: "禁用", input: {props: {items: DROPDOWN_ITEMS, disabled: true, align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
             {id: "wrap", label: "长文字换行", input: {props: {items: [{label: "未保存的文档：未保存 3 个（第一章.md、第二章.md、第三章.md）", value: "unsaved"}, {label: "字数：12,345 字", value: "words", disabled: true}, ...DROPDOWN_ITEMS.slice(0, 2)], wrap: true, align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
         ],
-        subject: nbUiSubject("Dropdown"),
+        subject: nbUiSubject("DropdownMenu"),
     }),
     defineSubjectFixture<typeof Menubar>({
         component: "Menubar",
@@ -137,27 +127,6 @@ export const controlsFixtures: LabFixture[] = [
         ],
         subject: nbUiSubject("Menubar"),
     }),
-    defineSubjectFixture<typeof Editable>({
-        component: "Editable",
-        events: ["submit", "cancel"],
-        scenes: [
-            {id: "default", label: "点按编辑", input: {props: {placeholder: "未命名章节", size: "md", showEditTrigger: true}, model: {modelValue: "第十七章 雪线"}}},
-            {id: "empty", label: "空值占位", input: {props: {placeholder: "未命名章节", size: "md"}, model: {modelValue: ""}}},
-            {id: "auto-resize", label: "随内容变宽", input: {props: {placeholder: "书名", size: "lg", autoResize: true}, model: {modelValue: "长夜行"}}},
-            {id: "readonly", label: "只读", input: {props: {readonly: true, size: "md"}, model: {modelValue: "只读的标题"}}},
-            {id: "disabled", label: "禁用", input: {props: {disabled: true, size: "sm"}, model: {modelValue: "不可编辑"}}},
-        ],
-        subject: nbUiSubject("Editable"),
-    }),
-    defineSubjectFixture<typeof Pagination>({
-        component: "Pagination",
-        scenes: [
-            {id: "middle", label: "中间页", input: {props: {pageCount: 24, siblingCount: 1, ariaLabel: "章节分页"}, model: {page: 8}}},
-            {id: "first", label: "第一页", input: {props: {pageCount: 24, ariaLabel: "章节分页"}, model: {page: 1}}},
-            {id: "few", label: "只有三页", input: {props: {pageCount: 3, ariaLabel: "章节分页"}, model: {page: 2}}},
-        ],
-        subject: nbUiSubject("Pagination"),
-    }),
     defineSubjectFixture<typeof SegmentedControl>({
         component: "SegmentedControl",
         scenes: [
@@ -169,16 +138,6 @@ export const controlsFixtures: LabFixture[] = [
         ],
         subject: nbUiSubject("SegmentedControl"),
     }),
-    defineSubjectFixture<typeof Stepper>({
-        component: "Stepper",
-        class: "w-full",
-        scenes: [
-            {id: "horizontal", label: "横向", input: {props: {steps: STEPS, orientation: "horizontal", linear: true}, model: {modelValue: 2}}},
-            {id: "vertical", label: "纵向", input: {props: {steps: STEPS, orientation: "vertical", linear: false}, model: {modelValue: 1}}},
-            {id: "disabled", label: "禁用", input: {props: {steps: STEPS, orientation: "horizontal", disabled: true}, model: {modelValue: 3}}},
-        ],
-        subject: nbUiSubject("Stepper"),
-    }),
     defineSubjectFixture<typeof Switch>({
         component: "Switch",
         scenes: [
@@ -188,16 +147,6 @@ export const controlsFixtures: LabFixture[] = [
             {id: "disabled", label: "禁用", input: {props: {ariaLabel: "自动保存", size: "md", disabled: true}, model: {modelValue: true}}},
         ],
         subject: nbUiSubject("Switch"),
-    }),
-    defineSubjectFixture<typeof SwitchField>({
-        component: "SwitchField",
-        class: "w-full",
-        scenes: [
-            {id: "default", label: "标签与说明", input: {props: {label: "自动保存", description: "停止输入两秒后写入磁盘"}, model: {modelValue: true}}},
-            {id: "long", label: "长说明换行", input: {props: {label: "离开时提醒未保存的修改", description: "关闭窗口、切换项目或刷新页面时，如果还有没写入磁盘的修改，先询问是否保存。这条说明故意写得很长，看换行时开关是否仍与标签对齐。"}, model: {modelValue: false}}},
-            {id: "disabled", label: "禁用", input: {props: {label: "同步到云端", description: "这一版还没有", disabled: true}, model: {modelValue: false}}},
-        ],
-        subject: nbUiSubject("SwitchField"),
     }),
     defineSubjectFixture<typeof Tabs>({
         component: "Tabs",
@@ -219,10 +168,10 @@ export const controlsFixtures: LabFixture[] = [
     defineSubjectFixture<typeof ToggleGroup>({
         component: "ToggleGroup",
         scenes: [
-            {id: "single", label: "单选", input: {props: {type: "single", options: [{value: "left", iconClass: "i-lucide-align-left", title: "左对齐"}, {value: "center", iconClass: "i-lucide-align-center", title: "居中"}, {value: "right", iconClass: "i-lucide-align-right", title: "右对齐"}], size: "md"}, model: {modelValue: "left"}}},
-            {id: "multiple", label: "多选", input: {props: {type: "multiple", options: [{value: "bold", iconClass: "i-lucide-bold", title: "粗体"}, {value: "italic", iconClass: "i-lucide-italic", title: "斜体"}, {value: "strike", iconClass: "i-lucide-strikethrough", title: "删除线"}], size: "md"}, model: {modelValue: ["bold"]}}},
-            {id: "labels", label: "文字选项", input: {props: {type: "single", options: [{value: "shelf", label: "书架"}, {value: "list", label: "列表"}], size: "sm"}, model: {modelValue: "shelf"}}},
-            {id: "vertical", label: "纵向", input: {props: {type: "single", orientation: "vertical", options: [{value: "a", label: "第一卷"}, {value: "b", label: "第二卷"}, {value: "c", label: "第三卷", disabled: true}], size: "md"}, model: {modelValue: "a"}}},
+            {id: "multiple", label: "格式开关", input: {props: {options: [{value: "bold", iconClass: "i-lucide-bold", title: "粗体"}, {value: "italic", iconClass: "i-lucide-italic", title: "斜体"}, {value: "strike", iconClass: "i-lucide-strikethrough", title: "删除线"}], size: "md"}, model: {modelValue: ["bold"]}}},
+            {id: "labels", label: "文字选项", input: {props: {options: [{value: "notes", label: "批注"}, {value: "changes", label: "修订"}], size: "sm"}, model: {modelValue: ["notes", "changes"]}}},
+            {id: "none", label: "都没按下", input: {props: {options: [{value: "bold", iconClass: "i-lucide-bold", title: "粗体"}, {value: "italic", iconClass: "i-lucide-italic", title: "斜体"}], size: "md"}, model: {modelValue: []}}},
+            {id: "vertical", label: "纵向", input: {props: {orientation: "vertical", options: [{value: "a", label: "第一卷"}, {value: "b", label: "第二卷"}, {value: "c", label: "第三卷", disabled: true}], size: "md"}, model: {modelValue: ["a"]}}},
         ],
         subject: nbUiSubject("ToggleGroup"),
     }),
