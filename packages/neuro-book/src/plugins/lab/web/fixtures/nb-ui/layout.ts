@@ -1,6 +1,6 @@
-/** nb-ui 布局类（`layout/`）的场景。`GridRenderer` 的布局由宿主算出，在 `WorkbenchShellLayout` 的集成场景里观察。 */
+/** nb-ui 布局类（`layout/`）的场景。`NestedGrid` 的布局由宿主算出，在 `WorkbenchShellLayout` 的集成场景里观察。 */
 
-import type {Collapsible, DropFeedbackOverlay, DropIndicator, DropIndicatorLabel, OverlayScrollbar, ScrollArea, Separator, Splitter} from "@notnotype/nb-ui/components";
+import type {Collapsible, DropFeedbackOverlay, DropIndicatorLabel, OverlayScrollbar, ScrollArea, Separator, Splitter} from "@notnotype/nb-ui/components";
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
@@ -35,17 +35,6 @@ export const layoutFixtures: LabFixture[] = [
             {id: "none", label: "没有落点", input: {props: {preview: null, label: ""}}},
         ],
         subject: nbUiSubject("DropFeedbackOverlay"),
-    }),
-    defineSubjectFixture<typeof DropIndicator>({
-        component: "DropIndicator",
-        class: "h-[160px] w-full max-w-[360px]",
-        slotPresets: {default: () => "放到这里"},
-        scenes: [
-            {id: "area", label: "区域", input: {props: {variant: "area"}, slots: {default: true}}},
-            {id: "entry", label: "条目", input: {props: {variant: "entry"}, slots: {default: true}}},
-            {id: "line", label: "线", input: {props: {variant: "line"}, slots: {default: false}}},
-        ],
-        subject: nbUiSubject("DropIndicator"),
     }),
     defineSubjectFixture<typeof DropIndicatorLabel>({
         component: "DropIndicatorLabel",

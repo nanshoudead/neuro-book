@@ -47,7 +47,7 @@ function runAction(item: NotificationItem): void {
 </script>
 
 <template>
-    <div class="pointer-events-none fixed flex w-full max-w-md flex-col gap-2 px-4" :style="{zIndex: NB_Z_INDEX.notification}" :class="positionClass" data-notification-viewport>
+    <div class="pointer-events-none fixed flex w-full max-w-md flex-col gap-2 px-4" :style="{zIndex: NB_Z_INDEX.notification}" :class="positionClass" data-notification-stack>
         <TransitionGroup name="nb-notice">
             <Notification
                 v-for="item in notifications"

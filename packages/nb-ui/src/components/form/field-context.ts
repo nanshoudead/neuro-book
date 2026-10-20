@@ -1,7 +1,7 @@
 import {inject} from "vue";
 import type {ComputedRef, InjectionKey} from "vue";
 
-export type FormFieldContext = {
+export type FieldContext = {
     inputId: ComputedRef<string | undefined>;
     descriptionId: ComputedRef<string | undefined>;
     errorId: ComputedRef<string | undefined>;
@@ -10,8 +10,8 @@ export type FormFieldContext = {
     invalid: ComputedRef<boolean>;
 };
 
-export const NB_FORM_FIELD_CONTEXT_KEY: InjectionKey<FormFieldContext> = Symbol("nb-form-field-context");
+export const NB_FIELD_CONTEXT_KEY: InjectionKey<FieldContext> = Symbol("nb-field-context");
 
-export function useFormFieldContext(): FormFieldContext | null {
-    return inject(NB_FORM_FIELD_CONTEXT_KEY, null);
+export function useFieldContext(): FieldContext | null {
+    return inject(NB_FIELD_CONTEXT_KEY, null);
 }

@@ -1,9 +1,9 @@
-/** NotificationViewport（同名 .md）：点动作执行并移除通知；动作抛错时同样移除，错误交给 Vue 的错误处理。 */
+/** NotificationStack（同名 .md）：点动作执行并移除通知；动作抛错时同样移除，错误交给 Vue 的错误处理。 */
 import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {createNotificationQueue} from "../../composables/useNotification";
-import NotificationViewport from "./NotificationViewport.vue";
+import NotificationStack from "./NotificationStack.vue";
 
 const mounted: Array<{unmount(): void}> = [];
 afterEach(() => {
@@ -13,11 +13,11 @@ afterEach(() => {
 
 const button = (label: string): HTMLButtonElement | undefined => [...document.body.querySelectorAll("button")].find((node) => node.textContent?.trim() === label);
 
-describe("NotificationViewport", () => {
+describe("NotificationStack", () => {
     it("动作抛错时通知仍移除，错误交给 Vue 的错误处理", async () => {
         const queue = createNotificationQueue();
         const errors: unknown[] = [];
-        const wrapper = mount(NotificationViewport, {props: {queue}, attachTo: document.body, global: {config: {errorHandler: (error) => {
+        const wrapper = mount(NotificationStack, {props: {queue}, attachTo: document.body, global: {config: {errorHandler: (error) => {
             errors.push(error);
         }}}});
         mounted.push(wrapper);

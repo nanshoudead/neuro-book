@@ -10,12 +10,12 @@ import {
 import MenuNodes from "./MenuNodes.vue";
 import {useDropdownFloating} from "../../composables/useDropdownFloating";
 import {useMenuCascade} from "../../composables/useMenuCascade";
-import type {DropdownItem} from "./dropdown.types";
+import type {DropdownMenuItemData} from "./dropdown-menu.types";
 /**
- * 下拉菜单（Dropdown · 规范化黄金 Surface、同心圆角与 N.5 齐腰截半露底视口）。
+ * 下拉菜单（DropdownMenu · 规范化黄金 Surface、同心圆角与 N.5 齐腰截半露底视口）。
  *
  * 浮层接入 `useDropdownFloating` 单一真相源，
- * 严格对齐 FormSelect 黄金微反光立体投影与 130% 饱和滤波，
+ * 严格对齐 Select 黄金微反光立体投影与 130% 饱和滤波，
  * 支持 4px 悬浮 macOS 胶囊滚动条与自适应双向渐隐。
  *
  * 结构覆盖平面项、分隔线、任意层级子菜单与受控 radio / checkbox；
@@ -25,7 +25,7 @@ import type {DropdownItem} from "./dropdown.types";
  */
 
 const props = withDefaults(defineProps<{
-    items: DropdownItem[];
+    items: DropdownMenuItemData[];
     menuClass?: string;
     menuMaxHeight?: string;
     rootClass?: string;
@@ -73,13 +73,13 @@ function handleOpenChange(value: boolean): void {
 }
 
 /** 子菜单父项不走这里：它只展开子菜单，不执行自己的动作。 */
-function handleSelect(item: DropdownItem): void {
+function handleSelect(item: DropdownMenuItemData): void {
     if (item.disabled) return;
     emit("select", item.value);
 }
 
 /** 级联面板里的选中：执行后关掉整个菜单，焦点由 Reka 还给触发器。 */
-function handleCascadeSelect(item: DropdownItem): void {
+function handleCascadeSelect(item: DropdownMenuItemData): void {
     if (item.disabled) return;
     handleSelect(item);
     handleOpenChange(false);
@@ -198,7 +198,7 @@ const resolvedMenuClass = computed(() => [props.menuClass ?? (props.compact ? "m
 /** 项级几何：与滚动视口同心贴边，密度随 compact 档切换。 */
 const itemBaseClass = "nb-ui-popover-item flex flex-nowrap w-full justify-between text-left outline-none cursor-pointer select-none transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] motion-reduce:transition-none data-[disabled]:opacity-40 data-[disabled]:cursor-not-allowed data-[state=open]:bg-[var(--overlay-item-active)]";
 
-function itemClass(item: DropdownItem): string {
+function itemClass(item: DropdownMenuItemData): string {
     if (item.tone === "danger") {
         return "text-[var(--status-danger)] hover:bg-[color-mix(in_srgb,var(--status-danger)_12%,transparent)] data-[highlighted]:bg-[color-mix(in_srgb,var(--status-danger)_12%,transparent)] data-[highlighted]:text-[var(--status-danger)]";
     }
@@ -208,7 +208,7 @@ function itemClass(item: DropdownItem): string {
     return "text-[var(--text-main)] hover:bg-[var(--overlay-item-active)] data-[highlighted]:bg-[var(--overlay-item-active)]";
 }
 
-function itemClassList(item: DropdownItem): (string | Record<string, boolean>)[] {
+function itemClassList(item: DropdownMenuItemData): (string | Record<string, boolean>)[] {
     // 换行时高度随内容，上下内边距补出单行时的高度；不换行时固定高度、单行截断。
     const height = props.wrap ? (props.compact ? "min-h-[24px] py-1 whitespace-normal items-start" : "min-h-[var(--control-h-sm)] py-1.5 whitespace-normal items-start") : (props.compact ? "h-[24px] whitespace-nowrap items-center" : "h-[var(--control-h-sm)] whitespace-nowrap items-center");
     return [
@@ -221,15 +221,15 @@ function itemClassList(item: DropdownItem): (string | Record<string, boolean>)[]
 
 
 
-const cascade = useMenuCascade<DropdownItem>();
-function warnMissingRadioGroup(items: readonly DropdownItem[]): void {
+const cascade = useMenuCascade<DropdownMenuItemData>();
+function warnMissingRadioGroup(items: readonly DropdownMenuItemData[]): void {
     for (const item of items) {
-        if (item.type === "radio" && item.group === undefined) console.warn(`[nb-ui/Dropdown] radio 项「${item.value}」缺少 group，已按单项独立成组渲染。`);
+        if (item.type === "radio" && item.group === undefined) console.warn(`[nb-ui/DropdownMenu] radio 项「${item.value}」缺少 group，已按单项独立成组渲染。`);
         if (item.children) warnMissingRadioGroup(item.children);
     }
 }
 warnMissingRadioGroup(props.items);
-function scheduleSubmenu(item: DropdownItem | null, trigger: HTMLElement, depth = 0, immediate = false): void {
+function scheduleSubmenu(item: DropdownMenuItemData | null, trigger: HTMLElement, depth = 0, immediate = false): void {
     cascade.schedule(item, trigger, depth, immediate, Boolean(item?.children?.length));
 }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {FormInput} from "@notnotype/nb-ui/components";
+import {Input} from "@notnotype/nb-ui/components";
 import {computed, ref} from "vue";
 import {useRouter} from "vue-router";
 import {loadStateOf, useResource} from "../host/panel-data.js";
@@ -31,7 +31,7 @@ const filtered = computed(() => {
 <template>
     <PageShell :crumbs="[{label: '首页', href: '/'}, {label: '产物'}]" title="产物" @navigate="navigate">
         <template #actions>
-            <div class="w-full max-w-sm"><FormInput v-model="filter" placeholder="按 Work、Task 或标题过滤" aria-label="过滤产物" /></div>
+            <div class="w-full max-w-sm"><Input v-model="filter" placeholder="按 Work、Task 或标题过滤" aria-label="过滤产物" /></div>
         </template>
         <LoadState v-bind="loadStateOf(list)" label="正在读取产物" @retry="list.reload()" />
         <ArtifactList v-if="filtered" :artifacts="filtered.artifacts" :documents="filtered.documents" :evidences="filtered.evidences" @navigate="navigate" />

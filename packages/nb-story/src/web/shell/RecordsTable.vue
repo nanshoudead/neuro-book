@@ -2,7 +2,7 @@
 /**
  * 人物卡记录“在主区打开”的宽表格（docs/specs/story/viewer.md 输出 10）：筛选与人物卡相同，多出“怎么知道的”一列。
  */
-import {FormInput, IconButton, SegmentedControl} from "@notnotype/nb-ui/components";
+import {Input, IconButton, SegmentedControl} from "@notnotype/nb-ui/components";
 import {ref} from "vue";
 
 import {useBook} from "../host/book";
@@ -33,7 +33,7 @@ const statements = usePagedQuery("entity.statements", () => (kind.value === "sta
             <div class="mb-2 flex flex-wrap items-center gap-2">
                 <SegmentedControl v-model="kind" size="xs" :options="[{value: 'knowledge', label: '他知道的'}, {value: 'statements', label: '关于他的'}]" aria-label="记录的种类" />
                 <SegmentedControl v-if="kind === 'knowledge'" v-model="state" size="xs" :options="STATES" aria-label="按状态筛" />
-                <div class="w-44"><FormInput v-model="text" size="sm" icon-class="i-lucide-search" placeholder="按字搜" /></div>
+                <div class="w-44"><Input v-model="text" size="sm" icon-class="i-lucide-search" placeholder="按字搜" /></div>
             </div>
             <table class="story-table w-full">
                 <thead>

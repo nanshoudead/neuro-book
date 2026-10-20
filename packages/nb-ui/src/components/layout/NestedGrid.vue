@@ -4,7 +4,7 @@
  *
  * - 递归渲染交给私有 `GridBranchRenderer`，只有本组件持有 `useSashGesture` scope，
  *   因此一次按下命中的**最多两根轴**（一根 width + 一根 height）属于同一场手势、只提交一次；
- *   叶槽里再嵌一个公开 `GridRenderer` 会得到自己的 scope，不会继承外层拖动成员。
+ *   叶槽里再嵌一个公开 `NestedGrid` 会得到自己的 scope，不会继承外层拖动成员。
  * - 手势期间发布预览布局给整棵子树（编辑器等内容随父盒实时变化），松手时才把冻结的
  *   `GridGestureCommit` 交给宿主的 `onGestureCommit`；宿主拒绝就地回滚并给出诊断。
  * - 这里没有百分比往返、不读存储、不写意图：几何算法全在 `grid-geometry` / `sash-drag`。
@@ -20,7 +20,7 @@ import type {GridBranchChange as GridBranchChangeType} from "./grid-gesture";
 import type {GridSashRef, SashGestureBinding, SashGestureHost} from "./sash-gesture";
 import type {SplitterGestureCancelReason, SplitterGestureSource} from "./splitter-gesture";
 
-defineOptions({name: "GridRenderer"});
+defineOptions({name: "NestedGrid"});
 
 const props = withDefaults(defineProps<{
     /** 当前树上这一层：分支递归渲染、叶交给插槽、`null` 交给 `empty` 插槽。 */

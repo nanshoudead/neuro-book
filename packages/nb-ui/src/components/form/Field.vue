@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed, provide, useId} from "vue";
-import {NB_FORM_FIELD_CONTEXT_KEY} from "./form-field-context";
+import {NB_FIELD_CONTEXT_KEY} from "./field-context";
 
 const props = withDefaults(defineProps<{
     label?: string;
@@ -23,7 +23,7 @@ const errorId = computed(() => props.error ? `${inputId.value}-error` : undefine
 const ariaDescribedby = computed(() => [errorId.value, descriptionId.value].filter(Boolean).join(" ") || undefined);
 const invalid = computed(() => Boolean(props.error));
 
-provide(NB_FORM_FIELD_CONTEXT_KEY, {
+provide(NB_FIELD_CONTEXT_KEY, {
     inputId,
     descriptionId,
     errorId,

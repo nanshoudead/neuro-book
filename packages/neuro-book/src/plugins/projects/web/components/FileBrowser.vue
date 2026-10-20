@@ -1,9 +1,8 @@
 <script setup lang="ts">
 // 文件与目录浏览的纯展示控件：面包屑 + 一层条目。数据来源、进入目录后列什么都由宿主经事件决定，组件只管选中与键盘。
 import {computed, ref, watch} from "vue";
-import Breadcrumb from "./Breadcrumb.vue";
-import type {BreadcrumbItemData} from "./Breadcrumb.vue";
-import Spinner from "../display/Spinner.vue";
+import {Breadcrumb, Spinner} from "@notnotype/nb-ui/components";
+import type {BreadcrumbItemData} from "@notnotype/nb-ui/components";
 
 export interface FileBrowserSegment {
     /** 面包屑上的文字 */

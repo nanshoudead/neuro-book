@@ -95,7 +95,7 @@ type SplitterSlots = {
 ## 隐藏通道理由
 
 - `state:local`：独立模式的当前分配、拖动预览、折叠过渡与手势 scope 属于本实例；卸载即丢弃。Grid 受控模式的布局事实仍在宿主。
-- `state:inject`：可选读取外层 `GridRenderer` 提供的 sash scope，使 Grid 内各 Splitter 共用一场跨分支手势；没有提供方时回退为本地 scope。由树级 scope 仲裁交叉命中并一次提交，比各分支独立提交能保持同一手势的几何一致。
+- `state:inject`：可选读取外层 `NestedGrid` 提供的 sash scope，使 Grid 内各 Splitter 共用一场跨分支手势；没有提供方时回退为本地 scope。由树级 scope 仲裁交叉命中并一次提交，比各分支独立提交能保持同一手势的几何一致。
 - `env:global`：手势 composable 在窗口和文档监听 blur、scroll、resize 与 Escape，并在手势根监听指针捕获事件；窗口尺寸/滚动还会触发设备像素对齐重算。手势结束或组件卸载时均解除监听，不留下常驻监听。
 
 ## 上游边界

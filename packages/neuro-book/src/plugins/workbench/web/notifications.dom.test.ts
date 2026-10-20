@@ -8,7 +8,7 @@ import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {h} from "vue";
 
-import {NotificationViewport} from "@notnotype/nb-ui/components";
+import {NotificationStack} from "@notnotype/nb-ui/components";
 
 import {createNotifications} from "./notifications";
 
@@ -21,9 +21,9 @@ afterEach(() => {
 function world() {
     const reports: string[] = [];
     const notifications = createNotifications((message) => reports.push(message));
-    const wrapper = mount({render: () => h(NotificationViewport, {queue: notifications.queue, position: "bottom-right"})}, {attachTo: document.body});
+    const wrapper = mount({render: () => h(NotificationStack, {queue: notifications.queue, position: "bottom-right"})}, {attachTo: document.body});
     mounted.push(wrapper);
-    const texts = (): string[] => [...document.body.querySelectorAll("[data-notification-viewport] [role='status']")].map((node) => node.textContent?.replace(/\s+/g, " ").trim() ?? "");
+    const texts = (): string[] => [...document.body.querySelectorAll("[data-notification-stack] [role='status']")].map((node) => node.textContent?.replace(/\s+/g, " ").trim() ?? "");
     return {notifications, texts, reports};
 }
 

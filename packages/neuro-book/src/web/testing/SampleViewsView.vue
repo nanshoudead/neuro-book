@@ -8,7 +8,7 @@ const counters = {next: 1};
  * `test.sample-views` 的视图组件：自己持有输入与滚动，显示实例编号、代际、是否可见与所在区域，供 e2e 判断实例没有
  * 重建、代际只在重试时变。开关 `FAIL_RENDER` 列出的视图在渲染时抛错。
  */
-import {FormInput} from "@notnotype/nb-ui/components";
+import {Input} from "@notnotype/nb-ui/components";
 import {ref} from "vue";
 
 import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
@@ -29,7 +29,7 @@ const lines = Array.from({length: 60}, (_, index) => `${props.context.id} · 第
     <!-- 内边距取外框给的值（fill 时是外框的内边距，scroll 时是 0）：样例甲（fill）与其余样例（scroll）的文字起点对齐。 -->
     <div class="flex h-full min-h-0 flex-col gap-2 text-sm" style="padding: var(--view-inset-block, 0px) var(--view-inset-inline, 0px)" :data-sample-view="context.id" :data-instance="instance" :data-generation="context.generation" :data-visible="context.visible.value ? 'true' : 'false'" :data-location="context.location.value" :data-focused-part="focusedPart">
         <div class="text-xs text-[var(--text-muted)]">实例 #{{ instance }} · 代际 {{ context.generation }} · {{ context.location.value }}</div>
-        <div data-sample-input><FormInput v-model="draft" size="sm" placeholder="样例输入" /></div>
+        <div data-sample-input><Input v-model="draft" size="sm" placeholder="样例输入" /></div>
         <div class="min-h-0 flex-1 overflow-auto" data-sample-scroll>
             <p v-for="line in lines" :key="line" class="py-0.5 text-[var(--text-secondary)]">{{ line }}</p>
         </div>

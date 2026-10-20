@@ -27,7 +27,7 @@ export type NotificationItem = Required<Pick<NotificationInput, "tone" | "durati
 };
 
 /**
- * 一份通知队列：发出、更新、移除与自动关闭计时。视口（`NotificationViewport`）从它读列表、经它关闭；悬停时暂停计时。
+ * 一份通知队列：发出、更新、移除与自动关闭计时。视口（`NotificationStack`）从它读列表、经它关闭；悬停时暂停计时。
  * 列表只经这里的方法改，对外是只读的 ref。
  */
 export interface NotificationQueue {
@@ -159,7 +159,7 @@ export function createNotificationQueue(): NotificationQueue {
 const defaultQueue = createNotificationQueue();
 
 /**
- * 模块级的缺省通知队列：宿主应用只挂一个 `NotificationViewport` 就能显示各处发出的通知。
+ * 模块级的缺省通知队列：宿主应用只挂一个 `NotificationStack` 就能显示各处发出的通知。
  * 要隔离的队列（一个窗口一份、测试、Lab 场景）用 `createNotificationQueue()` 自建，再传给视口的 `queue`。
  */
 export function useNotification(): NotificationQueue {

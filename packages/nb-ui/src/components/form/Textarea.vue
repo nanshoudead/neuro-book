@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {useFormFieldContext} from "./form-field-context";
+import {useFieldContext} from "./field-context";
 
 const props = withDefaults(defineProps<{
     modelValue?: string;
@@ -29,7 +29,7 @@ const emit = defineEmits<{
     (e: "update:modelValue", value: string): void;
 }>();
 
-const field = useFormFieldContext();
+const field = useFieldContext();
 </script>
 
 <template>

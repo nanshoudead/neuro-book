@@ -1,10 +1,11 @@
 ---
 标签: []
+验证入口: DropFeedbackOverlay
 ---
 
 # DropIndicator
 
-`DropIndicator` 是拖放反馈的无障碍隐藏装饰容器，以 `variant` 标记区域、条目或插入线三种语义形状。它只负责提供稳定的包裹节点和插槽，不计算落点、不定位，也不决定颜色或尺寸。
+`DropIndicator` 是 [`DropFeedbackOverlay`](DropFeedbackOverlay.md) 的内部件，不从包入口导出：拖放反馈要画区域、条目或插入线时用覆盖层，不直接用它。它是无障碍隐藏的装饰容器，以 `variant` 标记区域、条目或插入线三种语义形状。它只负责提供稳定的包裹节点和插槽，不计算落点、不定位，也不决定颜色或尺寸。
 
 ## 数据
 

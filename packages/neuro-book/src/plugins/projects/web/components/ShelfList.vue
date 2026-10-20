@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 书架的列表视图（同名 .md）：一行一部作品；只发事件。 */
-import {Dropdown, IconButton} from "@notnotype/nb-ui/components";
-import type {DropdownItem} from "@notnotype/nb-ui/components";
+import {DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
+import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
@@ -62,7 +62,7 @@ function when(item: ShelfItem): string {
     return parts.length === 0 ? "—" : parts.join(" · ");
 }
 
-function menu(): DropdownItem[] {
+function menu(): DropdownMenuItemData[] {
     return [
         {value: "open-new-window", label: text(TEXT.openNewWindow)},
         {value: "edit", label: text(TEXT.edit)},
@@ -89,9 +89,9 @@ function onMenu(item: ShelfItem, value: string): void {
                 <span class="shelf-list__counts">{{ counts(item) }}</span>
                 <span class="shelf-list__when" :class="{'shelf-list__when--running': item.state !== 'stopped'}">{{ when(item) }}</span>
             </button>
-            <Dropdown :items="menu()" align="end" root-class="shelf-list__more" @select="onMenu(item, $event)">
+            <DropdownMenu :items="menu()" align="end" root-class="shelf-list__more" @select="onMenu(item, $event)">
                 <IconButton size="sm" icon-class="i-lucide-ellipsis" :aria-label="text(TEXT.more)" />
-            </Dropdown>
+            </DropdownMenu>
         </li>
         <!-- 末行的“新建作品”：不带 data-shelf-row，按行数数作品与找第一行的地方不把它算进去。 -->
         <li class="shelf-list__row shelf-list__row--create">

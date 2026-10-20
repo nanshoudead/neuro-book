@@ -7,7 +7,7 @@
  * 撤销栈自己维护：浏览器原生的输入框撤销没有可调用的接口（`execCommand` 已废弃）。输入即时交给宿主，
  * 没有缓冲，所以 `flushPendingChange` 是空操作。
  */
-import {FormTextarea} from "@notnotype/nb-ui/components";
+import {Textarea} from "@notnotype/nb-ui/components";
 import {onMounted, ref} from "vue";
 
 import type {CommandEditorHandle} from "./editor-binding";
@@ -85,7 +85,7 @@ onMounted(() => emit("ready", handle));
 </script>
 
 <template>
-    <FormTextarea
+    <Textarea
         ref="field"
         :model-value="text"
         :readonly="props.readonly"

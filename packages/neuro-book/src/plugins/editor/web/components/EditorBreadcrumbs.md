@@ -5,7 +5,7 @@
 
 # EditorBreadcrumbs
 
-编辑组标签条下面的一行路径（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 60）：作品名（`user://` 下为“用户资产”）› 目录 › 文件，Markdown 文件再接光标所在的标题。每一段都是一个下拉的触发器（nb-ui 的 `Dropdown`，紧凑密度）：
+编辑组标签条下面的一行路径（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 60）：作品名（`user://` 下为“用户资产”）› 目录 › 文件，Markdown 文件再接光标所在的标题。每一段都是一个下拉的触发器（nb-ui 的 `DropdownMenu`，紧凑密度）：
 
 - 作品名与目录段：列出这个目录的子项；目录项点了在下拉里进入下一层（列表换成它的子项，下拉不关），文件项点了交出 `open`；符号链接、其它类型与缺失的项显示但不可选。读取中一行“正在读取”，空目录一行“空”，失败一行原因加“重试”。
 - 文件段：列出同级（读它所在的目录），当前文件打勾。
@@ -59,6 +59,6 @@ type Emits = {
 
 ## 交互
 
-段是 roving tabindex 的一组按钮：←/→ 换段，Enter、空格或 ↓ 打开下拉（`Dropdown` 的键盘），下拉里 ↑/↓ 选、Enter 确认、Escape 关；下拉都关着时 Escape 交出 `escape`。悬停段时浅底色。
+段是 roving tabindex 的一组按钮：←/→ 换段，Enter、空格或 ↓ 打开下拉（`DropdownMenu` 的键盘），下拉里 ↑/↓ 选、Enter 确认、Escape 关；下拉都关着时 Escape 交出 `escape`。悬停段时浅底色。
 
 `state:local`：打开着的是哪一段、目录下拉当前列的是哪个目录、它的读取状态与请求序号。

@@ -221,7 +221,7 @@ Config 与 Storage 的归属、有效 Project 上下文及插件消费边界按 
 - 非空 left 的整个 header（当前容器标题、空白与动作区）不接受投递，标题仅保留整容器拖动源；容器切换与接收归活动栏。非空 Panel/right 的带落点只覆盖 selector，外侧动作区不接收。两类来源共用拖动激活、命中、会话、预览和提交路径，按来源保留移动 View、移动容器与整组并入的语义差别。
 - 空 Switcher 指该区域没有任何容器 Tab，不等同于当前容器无可见 View。空 Switcher 保留条目带接收能力，内容区显示“将视图拖动到此处显示”并登记整区落点；两处均接收单个 View 或整个容器。取消或被拒绝不得先留下空容器／新 Tab。目标自身后代不算外部遮挡。
 - Editor 与 Workbench 共用 nb-ui 的拖影与落点反馈皮肤，动作语义各自拥有。区域反馈只用于有效分屏、空态接收或全收起后的剩余内容区，内容区不叠加插线；展开内容区前后各 50%，中点归后半。Switcher 只画插入线，不叠加条目高亮或底部横线；源拖影与有效区域提示须可读且不拦截指针。坐标变化不重复播报，结束后清除反馈和观察器。
-- Editor 的标签排序、跨组移动与四边分屏共用独立 dnd-kit 会话；仅发原有 move/transfer/split 意图，宿主仍是编辑会话与Grid的唯一写者。标签列表用公共 `resolveListInsertion` 统一间隙及末尾锚点，一个插入位只画一条线。其他场景后续接入遵守 [nb-ui拖放反馈规范](../../../../packages/nb-ui/docs/ui-development-spec.md#拖放反馈dropindicator--dropindicatorlabel--dropfeedbackoverlay)，不另造样式。
+- Editor 的标签排序、跨组移动与四边分屏共用独立 dnd-kit 会话；仅发原有 move/transfer/split 意图，宿主仍是编辑会话与Grid的唯一写者。标签列表用公共 `resolveListInsertion` 统一间隙及末尾锚点，一个插入位只画一条线。其他场景后续接入遵守 [nb-ui拖放反馈规范](../../../../packages/nb-ui/docs/ui-development-spec.md#拖放反馈dropfeedbackoverlay--dropindicatorlabel)，不另造样式。
 - Workbench 每个宿主提供唯一 Custom DragOverlay，容器 Tab 与 ActivityBar 容器项统一显示图标和文字；源 View 标题、容器标签及活动条目保持可见、矩形与不透明度不变，不插 placeholder、不实时重排。两类源共用 Switcher 插入位，首尾插线留 4px；容器原位插入仍显示线但不提交。
 - Editor源Tab保持可见且布局不动，使用Custom DragOverlay，不插占位；默认多行，固定/普通各自独立换行且有可见模式切换按钮，显式单行固定区拒绝拖入。固定区不铺灰底，图钉为独立可访问的取消固定按钮。正文中央整区高亮但释放无操作，跨组移动走标签栏。原位落点仍显示插线但不提交移动；插线首尾留4px、内部12px槽居中。区域/居中提示首次淡入，连续换区复用单节点并平滑改变位置/尺寸，命中与提交即时更新；插线不动画，取消立即清除，减少动效时取消过渡。
 

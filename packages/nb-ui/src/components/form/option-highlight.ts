@@ -1,6 +1,6 @@
 /**
  * 浮层选项列表的高亮移动计算（纯函数，便于单测）。
- * QuickInput 等"高亮 + 键盘导航"组件共用。
+ * QuickPick 等"高亮 + 键盘导航"组件共用。
  */
 export type HighlightAction = "next" | "prev" | "first" | "last";
 

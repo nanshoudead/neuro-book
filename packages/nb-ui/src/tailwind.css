@@ -45,7 +45,7 @@
  * 两点边界：
  * - loader-2 / check-circle-2 / alert-triangle 在 @iconify-json/lucide 里是 alias 而非 icon，
  *   已实测确认预生成模式会为 alias 输出规则；不存在的图标名则静默渲染为空，不报错。
- * - `iconClass` 是 Badge / Dropdown / Tabs / SegmentedControl / ContextMenu / EmptyState /
+ * - `iconClass` 是 Badge / DropdownMenu / Tabs / SegmentedControl / ContextMenu / EmptyState /
  *   Tree 的公开 prop，消费方传进来的图标类仍由消费方自己的构建负责生成，本产物只包
  *   nb-ui 内部用到的 15 个。
  */

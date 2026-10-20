@@ -3,7 +3,7 @@
 import {Button, Dialog, DropFeedbackOverlay} from "@notnotype/nb-ui/components";
 import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 import {useGridLayout, useLayoutExtent} from "@notnotype/nb-ui/composables";
-import {GridRenderer} from "@notnotype/nb-ui/layout";
+import {NestedGrid} from "@notnotype/nb-ui/layout";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 
@@ -130,7 +130,7 @@ const dialog = computed(() => props.area.dialog.value);
             <span class="min-w-0 flex-1">{{ area.notice.value }}</span>
             <Button size="sm" variant="ghost" @click="area.dismissNotice()">{{ editorText(locale, "dismiss") }}</Button>
         </p>
-        <GridRenderer
+        <NestedGrid
             v-if="host.node.value !== null"
             :node="host.node.value"
             :layout="host.layout.value"
@@ -157,7 +157,7 @@ const dialog = computed(() => props.area.dialog.value);
                     @title-action="(key) => emit('title-action', key)"
                 />
             </template>
-        </GridRenderer>
+        </NestedGrid>
         <Teleport to="body">
             <div v-if="ghost !== null" class="editor-drag-ghost" :style="{left: `${ghost.x + 12}px`, top: `${ghost.y + 12}px`, zIndex: NB_Z_INDEX.dragFeedback}" aria-hidden="true" data-editor-drag-ghost>
                 <FileIcon v-if="ghost.icon !== null" :icon="ghost.icon" />

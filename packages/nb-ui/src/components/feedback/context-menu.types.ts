@@ -1,5 +1,5 @@
 /**
- * 右键菜单项。与 DropdownItem 的区别：动作用 action 回调（而非 value + select 事件）、
+ * 右键菜单项。与 DropdownMenuItemData 的区别：动作用 action 回调（而非 value + select 事件）、
  * 支持任意层级 children 与 shortcut 快捷键展示。每一级都走共享菜单几何。
  */
 export interface ContextMenuItem {

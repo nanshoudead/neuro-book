@@ -67,7 +67,7 @@ export {
     type SashPanel,
 } from "./grid-geometry";
 export {default as Splitter} from "./Splitter.vue";
-export {default as GridRenderer} from "./GridRenderer.vue";
+export {default as NestedGrid} from "./NestedGrid.vue";
 export type {SplitterPanelConfig} from "./Splitter.vue";
 export {SASH_GESTURE_SCOPE_KEY, useSashScope} from "./sash-scope";
 export {createSplitterSession, type SplitterGestureChange, type SplitterGestureSession} from "./splitter-session";

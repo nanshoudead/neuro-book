@@ -76,7 +76,7 @@ onMounted(() => {
         </header>
 
         <NuxtPage class="flex-1" />
-        <NotificationViewport />
+        <NotificationStack />
     </div>
 </template>
 

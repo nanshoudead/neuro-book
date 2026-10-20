@@ -3,7 +3,7 @@
  * 活动栏（同名 .md）：上段是 Sidebar 的容器切换按钮（放不下时末尾的收进“更多”），底段是贡献来的全局项；点了只发 `select`
  * 或 `run-item`，切换、打开 Sidebar 与执行命令由宿主做。
  */
-import {Dropdown, IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {DropdownMenu, IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref} from "vue";
 
 import {layoutStrip} from "../items/item-strip";
@@ -98,9 +98,9 @@ const moreItems = computed(() => props.containers.filter((container) => strip.va
                     @click="emit('select', container.id)"
                 />
             </Tooltip>
-            <Dropdown v-if="moreItems.length > 0" :items="moreItems" side="right" align="end" compact @select="(id: string) => emit('select', id)">
+            <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" side="right" align="end" compact @select="(id: string) => emit('select', id)">
                 <IconButton size="lg" icon-class="i-lucide-ellipsis" :aria-label="moreLabel" class="workbench-activity-bar__item" data-activity-more />
-            </Dropdown>
+            </DropdownMenu>
         </div>
         <div class="workbench-activity-bar__footer" data-activity-items>
             <template v-for="item in items" :key="item.id">

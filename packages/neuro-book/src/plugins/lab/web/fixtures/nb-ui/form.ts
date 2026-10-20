@@ -8,18 +8,18 @@
 import type {
     CheckboxGroup,
     ColorSwatches,
-    FormCheckbox,
-    FormField,
-    FormInput,
-    FormNumberInput,
-    FormSelect,
-    FormTextarea,
+    Checkbox,
+    Field,
+    Input,
+    NumberInput,
+    Select,
+    Textarea,
     RadioGroup,
     Slider,
 } from "@notnotype/nb-ui/components";
 import {h} from "vue";
 
-import {FormInput as NbFormInput} from "@notnotype/nb-ui/components";
+import {Input as NbInput} from "@notnotype/nb-ui/components";
 
 import type {LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
@@ -63,8 +63,8 @@ const STATUS_OPTIONS = [
 ];
 
 export const formFixtures: LabFixture[] = [
-    defineSubjectFixture<typeof FormInput>({
-        component: "FormInput",
+    defineSubjectFixture<typeof Input>({
+        component: "Input",
         events: ["clear", "focus"],
         class: "w-full max-w-[360px]",
         slotPresets: {prefix: () => h("span", {class: "i-lucide-book-open shrink-0 text-[var(--text-muted)]", "aria-hidden": "true"})},
@@ -76,10 +76,10 @@ export const formFixtures: LabFixture[] = [
             {id: "disabled", label: "禁用", input: {props: {disabled: true, placeholder: "不可用"}, model: {modelValue: ""}}},
             {id: "prefix", label: "前缀插槽", input: {props: {placeholder: "书名"}, model: {modelValue: "长夜行"}, slots: {prefix: true}}},
         ],
-        subject: nbUiSubject("FormInput"),
+        subject: nbUiSubject("Input"),
     }),
-    defineSubjectFixture<typeof FormNumberInput>({
-        component: "FormNumberInput",
+    defineSubjectFixture<typeof NumberInput>({
+        component: "NumberInput",
         events: ["submit"],
         class: "w-full max-w-[200px]",
         scenes: [
@@ -87,20 +87,20 @@ export const formFixtures: LabFixture[] = [
             {id: "small", label: "小号", input: {props: {size: "sm", min: "1", max: "10"}, model: {modelValue: "3"}}},
             {id: "disabled", label: "禁用", input: {props: {disabled: true}, model: {modelValue: "12"}}},
         ],
-        subject: nbUiSubject("FormNumberInput"),
+        subject: nbUiSubject("NumberInput"),
     }),
-    defineSubjectFixture<typeof FormTextarea>({
-        component: "FormTextarea",
+    defineSubjectFixture<typeof Textarea>({
+        component: "Textarea",
         class: "w-full max-w-[420px]",
         scenes: [
             {id: "default", label: "简介", input: {props: {placeholder: "一句话简介", rows: 4, maxlength: 200}, model: {modelValue: "港口城市终年大雾。巡夜人沈屿在灯塔熄灭的那一夜，捡到一封写给自己的信。"}}},
             {id: "empty", label: "空", input: {props: {placeholder: "一句话简介", rows: 3}, model: {modelValue: ""}}},
             {id: "readonly", label: "只读", input: {props: {readonly: true, rows: 2}, model: {modelValue: "只读的长文本。"}}},
         ],
-        subject: nbUiSubject("FormTextarea"),
+        subject: nbUiSubject("Textarea"),
     }),
-    defineSubjectFixture<typeof FormSelect>({
-        component: "FormSelect",
+    defineSubjectFixture<typeof Select>({
+        component: "Select",
         events: ["focus"],
         class: "w-full max-w-[280px]",
         scenes: [
@@ -111,10 +111,10 @@ export const formFixtures: LabFixture[] = [
             {id: "long", label: "长列表（14 项，截半收起）", input: {props: {options: EXPORT_FORMATS, placeholder: "导出格式", dropdownDirection: "down"}, model: {modelValue: "docx"}}},
             {id: "rich", label: "富选项：状态点与说明", input: {props: {options: STATUS_OPTIONS, placeholder: "章节状态"}, model: {modelValue: "review"}}},
         ],
-        subject: nbUiSubject("FormSelect"),
+        subject: nbUiSubject("Select"),
     }),
-    defineSubjectFixture<typeof FormCheckbox>({
-        component: "FormCheckbox",
+    defineSubjectFixture<typeof Checkbox>({
+        component: "Checkbox",
         events: ["focus"],
         scenes: [
             {id: "checked", label: "已勾选", input: {props: {label: "显示清单文件", description: "内容文件夹里的 _manifest.json"}, model: {modelValue: true}}},
@@ -123,17 +123,17 @@ export const formFixtures: LabFixture[] = [
             {id: "disabled", label: "禁用", input: {props: {label: "同步到云端", disabled: true}, model: {modelValue: false}}},
             {id: "no-label", label: "没有标签：显示勾选值", input: {props: {}, model: {modelValue: true}}},
         ],
-        subject: nbUiSubject("FormCheckbox"),
+        subject: nbUiSubject("Checkbox"),
     }),
-    defineSubjectFixture<typeof FormField>({
-        component: "FormField",
+    defineSubjectFixture<typeof Field>({
+        component: "Field",
         class: "w-full max-w-[360px]",
-        slotPresets: {default: () => h(NbFormInput, {modelValue: "长夜行", placeholder: "书名"})},
+        slotPresets: {default: () => h(NbInput, {modelValue: "长夜行", placeholder: "书名"})},
         scenes: [
             {id: "default", label: "标签与说明", input: {props: {label: "书名", description: "显示在书架与标题栏", required: true}, slots: {default: true}}},
             {id: "error", label: "错误", input: {props: {label: "作品目录", description: "作品文件放在这里", error: "目录不存在或没有写入权限"}, slots: {default: true}}},
         ],
-        subject: nbUiSubject("FormField"),
+        subject: nbUiSubject("Field"),
     }),
     defineSubjectFixture<typeof CheckboxGroup>({
         component: "CheckboxGroup",

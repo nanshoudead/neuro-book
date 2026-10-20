@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 书架页（同名 .md）：标题栏、案头、卡片与列表两种视图；只呈现数据、发出用户动作。 */
-import {Button, FormSelect, IconButton, SegmentedControl, Skeleton} from "@notnotype/nb-ui/components";
+import {Button, Select, IconButton, SegmentedControl, Skeleton} from "@notnotype/nb-ui/components";
 import {useElementSize} from "@vueuse/core";
 import {computed, ref} from "vue";
 
@@ -161,9 +161,9 @@ defineExpose({focusShelf});
                         </h2>
                         <div class="bookshelf-page__tools">
                             <SegmentedControl v-if="!narrow" :model-value="view" :options="viewOptions" :aria-label="text(TEXT.view)" @update:model-value="onView" />
-                            <!-- FormSelect 是多根组件，scoped 的宽度类落不到它的触发器上；触发器全宽，宽度由这个外框给。 -->
+                            <!-- Select 是多根组件，scoped 的宽度类落不到它的触发器上；触发器全宽，宽度由这个外框给。 -->
                             <div class="bookshelf-page__sort">
-                                <FormSelect id="bookshelf-sort" :model-value="sort" :options="sortOptions" size="sm" :aria-label="text(TEXT.sort)" @update:model-value="onSort" />
+                                <Select id="bookshelf-sort" :model-value="sort" :options="sortOptions" size="sm" :aria-label="text(TEXT.sort)" @update:model-value="onSort" />
                             </div>
                             <span class="bookshelf-page__gap" aria-hidden="true"></span>
                             <Button variant="secondary" size="sm" data-shelf-add @click="emit('add-existing')">{{ text(TEXT.addExisting) }}</Button>

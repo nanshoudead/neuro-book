@@ -52,7 +52,7 @@ const tiers: SurfaceTier[] = [
     },
     {
         /*
-         * 这一档不在库里。它是 FormSelect 用内联 style 写死的，也是实测下来唯一
+         * 这一档不在库里。它是 Select 用内联 style 写死的，也是实测下来唯一
          * 能在复杂背景上读清文字的配方——所以它是「盒子规范」要登记的那一档。
          *
          * 与上面四档玻璃的三处差别，每一处都指向可读性：
@@ -64,7 +64,7 @@ const tiers: SurfaceTier[] = [
         label: "下拉实测",
         surface: "color-mix(in srgb, var(--bg-panel) 65%, transparent)",
         blur: "blur(8px) saturate(130%) brightness(1.0)",
-        note: "FormSelect 内联写死的值。65% 面板底 + blur(8px) sat(130%) bright(1.0)",
+        note: "Select 内联写死的值。65% 面板底 + blur(8px) sat(130%) bright(1.0)",
         unregistered: true,
     },
 ];
@@ -141,7 +141,7 @@ const probes: SurfaceProbe[] = [
             <p><strong>实测结论（2026-09-02，复杂照片背景下）：</strong></p>
             <ul>
                 <li><strong>前四档全部读不了</strong>——工具栏 30%、侧栏 26%、浮层 14%、窄条 38%，都要盯着才能认出字。</li>
-                <li><strong>只有「下拉实测」那一档读得清</strong>，而它库里根本没登记，是 FormSelect 用内联 style 写死的。</li>
+                <li><strong>只有「下拉实测」那一档读得清</strong>，而它库里根本没登记，是 Select 用内联 style 写死的。</li>
                 <li>三处差别都指向可读性：面 65%、底取暖而亮的 <code>--bg-panel</code>、饱和降到 130% 且亮度不加。</li>
             </ul>
         </div>

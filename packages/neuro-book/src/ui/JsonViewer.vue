@@ -8,8 +8,8 @@
  * <JsonViewer :value="someObject" />
  * <JsonViewer :value="someObject" mode="text" :max-height="200" />
  */
-import {IconButton as NbIconButton, ToggleGroup as NbToggleGroup} from "@notnotype/nb-ui/components";
-import type {ToggleGroupOption} from "@notnotype/nb-ui/components";
+import {IconButton as NbIconButton, SegmentedControl as NbSegmentedControl} from "@notnotype/nb-ui/components";
+import type {SegmentedControlOption, SegmentedControlValue} from "@notnotype/nb-ui/components";
 import {computed, ref, watch} from "vue";
 import JsonEditorVue from "json-editor-vue";
 import {Mode} from "vanilla-jsoneditor";
@@ -100,7 +100,7 @@ const canToggleExpand = computed(() => currentMode.value !== Mode.table);
 /**
  * 模式切换按钮定义。
  */
-const modeButtons: ToggleGroupOption[] = [
+const modeButtons: SegmentedControlOption[] = [
     { value: Mode.text, iconClass: "i-lucide-file-json-2", title: "切换到文本模式" },
     { value: Mode.tree, iconClass: "i-lucide-git-branch", title: "切换到树形模式" },
     { value: Mode.table, iconClass: "i-lucide-table-properties", title: "切换到表格模式" },
@@ -108,16 +108,9 @@ const modeButtons: ToggleGroupOption[] = [
 
 /**
  * 切换查看模式。
- * ToggleGroup 单选模式下再次点击当前项会发出空值取消选择，而查看器必须始终处于某个模式，
- * 因此空值保持原模式不变。
  */
-function switchMode(value: string | string[] | undefined) {
-    const next = Array.isArray(value) ? value[0] : value;
-    if (!next) {
-        return;
-    }
-
-    currentMode.value = next as JsonViewerMode;
+function switchMode(value: SegmentedControlValue) {
+    currentMode.value = value as JsonViewerMode;
 }
 
 /**
@@ -186,8 +179,9 @@ function handleEditorUpdate(value: unknown): void {
     <div class="json-viewer" :class="{'json-viewer--readonly': props.readOnly}" :style="containerStyle">
         <!-- 自定义工具栏 -->
         <div v-if="props.mainMenuBar" class="json-viewer__toolbar">
-            <NbToggleGroup
+            <NbSegmentedControl
                 size="sm"
+                aria-label="查看模式"
                 :options="modeButtons"
                 :model-value="currentMode"
                 @update:model-value="switchMode"

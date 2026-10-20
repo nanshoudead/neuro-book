@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Badge, FormSelect} from "@notnotype/nb-ui/components";
+import {Badge, Select} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 import type {CheckoutRef} from "../host/types.js";
 
@@ -19,7 +19,7 @@ const current = computed(() => props.checkouts.find((checkout) => checkout.key =
 
 <template>
     <div class="flex min-w-0 flex-wrap items-center gap-2">
-        <div class="min-w-48 flex-1"><FormSelect :model-value="modelValue" :options="options" aria-label="看哪个 checkout 的文档" @update:model-value="(value: string) => emit('update:modelValue', value)" /></div>
+        <div class="min-w-48 flex-1"><Select :model-value="modelValue" :options="options" aria-label="看哪个 checkout 的文档" @update:model-value="(value: string) => emit('update:modelValue', value)" /></div>
         <Badge v-if="current && !current.isMain" tone="warning" variant="soft" size="sm" icon-class="i-lucide-git-branch">不是 master：{{ current.branch ?? current.key }}</Badge>
     </div>
 </template>

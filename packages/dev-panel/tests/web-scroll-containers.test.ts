@@ -5,7 +5,7 @@ import {join, relative} from "node:path";
 /**
  * 滚动容器要做绝对定位后代的包含块（t15 阶段 4 第 1 批）。起因：nb-ui 复选框里 `sr-only`（`position: absolute`）的 input
  * 包含块落到外面 Splitter 那一格（`overflow: hidden`），点选项聚焦它时浏览器去滚那一格，整页内容被推出视野（多选题点了页面变空白）。
- * nb-ui 已在 label 上修好（t17，见 FormCheckbox.md），这条留作面板的防御性约定：别的绝对定位后代聚焦时也不会去滚外面的格子。
+ * nb-ui 已在 label 上修好（t17，见 Checkbox.md），这条留作面板的防御性约定：别的绝对定位后代聚焦时也不会去滚外面的格子。
  * 布局在测试环境里量不到，这里按源码钉住约定。
  */
 const WEB = join(import.meta.dir, "../src/web");

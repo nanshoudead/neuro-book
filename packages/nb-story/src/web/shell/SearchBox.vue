@@ -3,7 +3,7 @@
  * 顶栏的全局搜索（docs/specs/story/viewer.md 输出 1、18）：按停止输入后的文字搜对象、说法、原文，结果浮在输入框下面；
  * 点对象打开人物卡，点说法或原文打开出处原文。窄宽度下收成按钮，点了再展开输入框。
  */
-import {FormInput, IconButton} from "@notnotype/nb-ui/components";
+import {Input, IconButton} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, ref, watch} from "vue";
 
 import {useBook} from "../host/book";
@@ -63,7 +63,7 @@ function onKey(event: KeyboardEvent): void {
     <div ref="root" class="search-box relative" @keydown="onKey">
         <IconButton v-if="compact && !expanded" size="sm" icon-class="i-lucide-search" aria-label="搜索" @click="expanded = true" />
         <div v-else :class="compact ? 'w-[200px]' : 'w-[280px]'">
-            <FormInput v-model="text" size="sm" icon-class="i-lucide-search" placeholder="搜人物、称呼、说法、原文" aria-label="搜索" data-testid="search-input" @focus="open = query !== ''" />
+            <Input v-model="text" size="sm" icon-class="i-lucide-search" placeholder="搜人物、称呼、说法、原文" aria-label="搜索" data-testid="search-input" @focus="open = query !== ''" />
         </div>
         <div v-if="open" class="search-results absolute overflow-y-auto right-0 top-full z-40 mt-1 max-h-[60vh] w-[360px] max-w-[90vw] rounded-[var(--radius-control)] border border-[var(--divider)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-panel)]" data-testid="search-results">
             <p class="pb-1 text-[length:var(--text-2xs)] text-[var(--text-muted)]">

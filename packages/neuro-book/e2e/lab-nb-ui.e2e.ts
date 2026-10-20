@@ -44,7 +44,7 @@ const popperSide = (page: Page) => page.locator("[data-reka-popper-content-wrapp
 
 test("下拉选择：Enter 展开、向下展开、页面不锁、禁用项选不中、Escape 关闭", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 1200});
-    await openScene(page, "c=FormSelect&s=default");
+    await openScene(page, "c=Select&s=default");
     // 列表打开时 reka 把列表之外的元素标成 aria-hidden，按角色就找不到触发器了，所以用属性选择器。
     const trigger = stage(page).locator('[role="combobox"]');
     await trigger.focus();
@@ -68,7 +68,7 @@ test("下拉选择：Enter 展开、向下展开、页面不锁、禁用项选�
 
 test("下拉选择：指定向上展开时浮层在上方", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 1200});
-    await openScene(page, "c=FormSelect&s=up");
+    await openScene(page, "c=Select&s=up");
     await stage(page).getByRole("combobox").click();
     await expect(page.getByRole("listbox")).toBeVisible();
     await expect(popperSide(page)).toHaveAttribute("data-side", "top");
@@ -76,7 +76,7 @@ test("下拉选择：指定向上展开时浮层在上方", async ({page}) => {
 
 test("下拉选择的长列表：收起成截半高度，键盘走到最后一项时它滚进可见区；富选项带图标与说明", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 1200});
-    await openScene(page, "c=FormSelect&s=long");
+    await openScene(page, "c=Select&s=long");
     await stage(page).locator('[role="combobox"]').click();
     const viewport = page.locator("[data-reka-select-viewport]");
     await expect(viewport).toBeVisible();
@@ -199,7 +199,7 @@ test("菜单栏：方向键在项之间移动并跳过禁用项，禁用项带�
 
 test("下拉菜单：方向键跳过禁用项，禁用项带原因，Enter 选中", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 1000});
-    await openScene(page, "c=Dropdown&s=default&tab=events");
+    await openScene(page, "c=DropdownMenu&s=default&tab=events");
     await stage(page).getByRole("button", {name: "更多操作"}).click();
     const menu = page.getByRole("menu");
     await expect(menu).toBeVisible();

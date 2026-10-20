@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 一个编辑组（同名 .md）：标签条、状态条、进度条与控件。 */
-import {Button, ContextMenu, Kbd} from "@notnotype/nb-ui/components";
-import type {ContextMenuItem} from "@notnotype/nb-ui/components";
+import {Banner, Button, ContextMenu, Kbd} from "@notnotype/nb-ui/components";
+import type {BannerTone, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 
@@ -154,9 +154,9 @@ const returnFocus = (): void => {
 };
 const crumbFocus = computed(() => (props.area.breadcrumbFocus.value?.group === props.groupId ? props.area.breadcrumbFocus.value.seq : 0));
 
-type Banner = {readonly tone: "danger" | "warning" | "info"; readonly text: string; readonly actions: ReadonlyArray<{readonly id: string; readonly label: string; readonly run: () => void}>};
+type GroupBanner = {readonly tone: BannerTone; readonly text: string; readonly actions: ReadonlyArray<{readonly id: string; readonly label: string; readonly run: () => void}>};
 
-const banner = computed((): Banner | null => {
+const banner = computed((): GroupBanner | null => {
     const current = file.value;
     if (current === null) return null;
     const t = (key: Parameters<typeof editorText>[1], values?: Readonly<Record<string, string>>): string => editorText(props.locale, key, values);
@@ -169,22 +169,22 @@ const banner = computed((): Banner | null => {
     const blocked = binding.value?.kind === "text" ? current.blocked.value.get(binding.value.token) : undefined;
     if (blocked !== undefined) {
         const excerpt = blocked.excerpt === "" ? "" : t("unrepresentableExcerpt", {excerpt: blocked.excerpt});
-        return {tone: "danger", text: t("unrepresentable", {index: String(blocked.index), excerpt}), actions: [
+        return {tone: "error", text: t("unrepresentable", {index: String(blocked.index), excerpt}), actions: [
             {id: "locate", label: t("locate"), run: () => props.area.locate(props.groupId)},
             {id: "adopt", label: t("adopt"), run: () => props.area.unblock(props.groupId)},
         ]};
     }
     if (current.conflict.value !== null) {
-        return {tone: "danger", text: t("conflict"), actions: [
+        return {tone: "error", text: t("conflict"), actions: [
             {id: "reload", label: t("reload"), run: () => void props.area.revert()},
             {id: "overwrite", label: t("overwrite"), run: () => void props.area.overwrite()},
         ]};
     }
-    if (current.ended.value !== null) return {tone: "danger", text: t("ended", {reason: current.ended.value}), actions: []};
+    if (current.ended.value !== null) return {tone: "error", text: t("ended", {reason: current.ended.value}), actions: []};
     if (current.status.value === "deleted") return {tone: "warning", text: current.dirty.value ? t("deleted") : t("deletedClean"), actions: []};
     if (current.diskChanged.value) return {tone: "warning", text: t("diskChanged"), actions: [{id: "reload", label: t("reload"), run: () => void props.area.revert()}]};
     const problem = current.saveProblem.value;
-    if (problem !== null) return {tone: "danger", text: problem.code === "unknown-outcome" ? t("saveUnknown") : t("saveFailed", {reason: problem.detail || problem.code}), actions: []};
+    if (problem !== null) return {tone: "error", text: problem.code === "unknown-outcome" ? t("saveUnknown") : t("saveFailed", {reason: problem.detail || problem.code}), actions: []};
     return null;
 });
 
@@ -301,16 +301,11 @@ export interface EditorGroupTitleActions {
         </div>
         <!-- 进度条本身只是装饰：同一时刻给读屏一句可播报的“正在读取”。 -->
         <p v-if="area.progress(groupId)" class="sr-only" role="status">{{ editorText(locale, "loading") }}</p>
-        <div
-            v-if="banner !== null"
-            class="flex shrink-0 flex-wrap items-center gap-2 border-b border-[color:var(--divider)] px-3 py-1.5 text-xs"
-            :class="banner.tone === 'danger' ? 'text-[var(--status-danger)]' : banner.tone === 'warning' ? 'text-[var(--status-warning)]' : 'text-[var(--text-secondary)]'"
-            role="status"
-            data-editor-banner
-        >
-            <span class="min-w-0 flex-1">{{ banner.text }}</span>
-            <Button v-for="action in banner.actions" :key="action.id" size="sm" variant="secondary" :data-editor-banner-action="action.id" @click="action.run()">{{ action.label }}</Button>
-        </div>
+        <Banner v-if="banner !== null" class="shrink-0" :tone="banner.tone" :message="banner.text" data-editor-banner>
+            <template v-if="banner.actions.length > 0" #actions>
+                <Button v-for="action in banner.actions" :key="action.id" size="sm" variant="secondary" :data-editor-banner-action="action.id" @click="action.run()">{{ action.label }}</Button>
+            </template>
+        </Banner>
         <div class="relative min-h-7 flex-1" :aria-busy="area.progress(groupId) ? 'true' : undefined" data-editor-content>
             <div v-if="activeTab === null" class="editor-group__empty" data-editor-empty>
                 <NeuroBookMark class="editor-group__mark" aria-hidden="true" />

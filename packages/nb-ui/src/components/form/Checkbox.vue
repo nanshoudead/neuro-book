@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import {computed} from "vue";
-import {useFormFieldContext} from "./form-field-context";
+import {useFieldContext} from "./field-context";
 
 /**
- * 复选框（FormCheckbox · macOS 原生微拟物 Squircle 规范）。
+ * 复选框（Checkbox · macOS 原生微拟物 Squircle 规范）。
  *
  * 视觉特征：
  * 1. 形态：18px × 18px 饱满超椭圆（rounded-[5px] / Squircle）；
@@ -37,7 +37,7 @@ const emit = defineEmits<{
     (e: "focus", event: FocusEvent): void;
 }>();
 
-const field = useFormFieldContext();
+const field = useFieldContext();
 const isIndeterminate = computed(() => props.indeterminate || props.modelValue === "indeterminate");
 const isChecked = computed(() => props.modelValue === true && !isIndeterminate.value);
 const displayLabel = computed(() => props.label || (isChecked.value ? "true" : "false"));

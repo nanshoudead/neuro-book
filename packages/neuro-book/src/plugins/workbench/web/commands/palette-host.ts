@@ -60,7 +60,7 @@ export interface PaletteHost {
     openPick(request: QuickPickRequest): Promise<QuickPickResult>;
     /** 选择模式里提交：记下结果并关闭面板，等关闭完成再结算。 */
     choosePick(result: Extract<QuickPickResult, {kind: "item" | "text"}>): void;
-    /** 浮层关闭完成（QuickInput 的 `closed`，焦点已归还）：结算选择模式。没有选择时什么也不做。 */
+    /** 浮层关闭完成（QuickPick 的 `closed`，焦点已归还）：结算选择模式。没有选择时什么也不做。 */
     closed(): void;
     closePalette(): void;
     remember(id: string): void;

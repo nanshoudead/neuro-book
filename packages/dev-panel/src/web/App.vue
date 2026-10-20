@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Badge, Button, Drawer, FormInput, IconButton, Popover, Splitter, Tooltip, type SplitterGestureState, type SplitterPanelConfig} from "@notnotype/nb-ui/components";
+import {Badge, Banner, Button, Drawer, Input, IconButton, Popover, Splitter, Tooltip, type BannerTone, type SplitterGestureState, type SplitterPanelConfig} from "@notnotype/nb-ui/components";
 import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect} from "vue";
 import {RouterLink, RouterView, useRoute, useRouter} from "vue-router";
@@ -319,7 +319,7 @@ const statusLabel = computed(() => (statusProblem.value ? `状态：${statusProb
 /**
  * 顶栏下面的横幅（t15 阶段 2d）：要开发者做点什么、或者显示的东西可能不对的情形。正常时没有横幅。
  */
-type Banner = {key: string; tone: "accent" | "danger" | "warning"; icon: string; text: string; dismiss?: () => void};
+type ShellBanner = {key: string; tone: BannerTone; icon: string; text: string; dismiss?: () => void};
 /**
  * 审计有两类“没开”：`not_initialized` 是这台机器的配置（多半有意不用通知与代打字），横幅可以“知道了”，关掉后只在状态点的
  * 详情里留一行；初始化过又坏了的（`bad_owner`、`bad_mode`、`not_regular`、`unreadable`）是故障，横幅常驻、不能关。
@@ -335,13 +335,13 @@ function dismissAudit(): void {
     auditDismissed.value = auditKey.value;
     writeDismissedAudit(auditKey.value);
 }
-const banners = computed<Banner[]>(() => {
+const banners = computed<ShellBanner[]>(() => {
     const data = meta.data.value;
-    const list: Banner[] = [];
-    if (data?.codeChanged) list.push({key: "code", tone: "accent", icon: "i-lucide-refresh-cw", text: restartHint.value});
-    if (data?.build.failed) list.push({key: "build", tone: "danger", icon: "i-lucide-triangle-alert", text: `前端构建失败，用的是旧版${data.build.message ? `：${data.build.message}` : ""}`});
+    const list: ShellBanner[] = [];
+    if (data?.codeChanged) list.push({key: "code", tone: "info", icon: "i-lucide-refresh-cw", text: restartHint.value});
+    if (data?.build.failed) list.push({key: "build", tone: "error", icon: "i-lucide-triangle-alert", text: `前端构建失败，用的是旧版${data.build.message ? `：${data.build.message}` : ""}`});
     if (data && !data.audit.enabled) {
-        if (data.audit.reason !== "not_initialized") list.push({key: "audit", tone: "danger", icon: "i-lucide-shield-alert", text: `审计不可用：不发通知，也不能替你打字或按键。${data.audit.detail}`});
+        if (data.audit.reason !== "not_initialized") list.push({key: "audit", tone: "error", icon: "i-lucide-shield-alert", text: `审计不可用：不发通知，也不能替你打字或按键。${data.audit.detail}`});
         else if (auditDismissed.value !== auditKey.value) list.push({key: "audit", tone: "warning", icon: "i-lucide-shield-off", text: "审计未开启：不发通知，也不能替你打字或按键。运行 bun run --cwd packages/dev-panel audit-init 开启", dismiss: dismissAudit});
     }
     for (const [name, part] of Object.entries(data?.parts ?? {})) {
@@ -350,7 +350,6 @@ const banners = computed<Banner[]>(() => {
     }
     return list;
 });
-const BANNER_CLASS: Record<Banner["tone"], string> = {accent: "nbdev-accent", danger: "nbdev-danger", warning: "nbdev-warn"};
 </script>
 
 <template>
@@ -380,7 +379,7 @@ const BANNER_CLASS: Record<Banner["tone"], string> = {accent: "nbdev-accent", da
                     <IconButton v-if="narrow" icon-class="i-lucide-menu" aria-label="打开导航" data-shell="open-nav" @click="drawerOpen = true" />
                     <Tooltip v-else-if="navCollapsed" text="展开左栏"><IconButton icon-class="i-lucide-panel-left-open" aria-label="展开左栏" data-shell="expand-nav" @click="setNavCollapsed(false, true)" /></Tooltip>
                     <form ref="searchForm" class="min-w-0 max-w-xl flex-1 basis-48" role="search" @submit.prevent="submitSearch">
-                        <FormInput v-model="query" placeholder="搜索 Work、Task、产物、会话与文件（/ 或 Ctrl+K）" aria-label="搜索" aria-keyshortcuts="/ Control+K" />
+                        <Input v-model="query" placeholder="搜索 Work、Task、产物、会话与文件（/ 或 Ctrl+K）" aria-label="搜索" aria-keyshortcuts="/ Control+K" />
                     </form>
                     <div class="ml-auto flex items-center gap-2 nbdev-note">
                         <RouterLink v-if="attention > 0" to="/live/sessions?view=notify" aria-label="有要处理的通知，去会话页"><Badge tone="warning" variant="soft" size="sm" icon-class="i-lucide-bell">通知要处理 {{ attention }}</Badge></RouterLink>
@@ -401,12 +400,17 @@ const BANNER_CLASS: Record<Banner["tone"], string> = {accent: "nbdev-accent", da
                         <Tooltip :text="appearanceLabel"><IconButton :icon-class="appearance === 'dark' ? 'i-lucide-moon' : appearance === 'light' ? 'i-lucide-sun' : 'i-lucide-sun-moon'" :aria-label="appearanceLabel" @click="cycleAppearance" /></Tooltip>
                     </div>
                 </header>
-                <div v-if="banners.length > 0" role="status" class="shell-banners nbdev-divider nbdev-small flex flex-col border-b">
-                    <div v-for="banner in banners" :key="banner.key" class="flex items-start gap-2 px-3 py-1.5">
-                        <span :class="[banner.icon, BANNER_CLASS[banner.tone]]" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-                        <span class="min-w-0 flex-1 break-words">{{ banner.text }}</span>
-                        <Button v-if="banner.dismiss" size="sm" variant="ghost" @click="banner.dismiss">知道了</Button>
-                    </div>
+                <div v-if="banners.length > 0" class="flex flex-col">
+                    <Banner
+                        v-for="banner in banners"
+                        :key="banner.key"
+                        :tone="banner.tone"
+                        :icon-class="banner.icon"
+                        :message="banner.text"
+                        :dismissible="banner.dismiss !== undefined"
+                        close-label="知道了"
+                        @dismiss="banner.dismiss?.()"
+                    />
                 </div>
                 <!-- 一页一个竖向滚动者：流式页面由 main 滚，铺满的页面（文档页）由它的分栏各自滚（路由元信息 layout）。 -->
                 <main id="nbdev-main" ref="mainEl" tabindex="-1" class="relative min-h-0 flex-1" :class="route.meta.layout === 'fill' ? 'overflow-hidden' : 'nbdev-scroll-y'">
@@ -434,10 +438,6 @@ const BANNER_CLASS: Record<Banner["tone"], string> = {accent: "nbdev-accent", da
 }
 .shell-toolbar {
     background: var(--toolbar-surface, var(--bg-main));
-}
-.shell-banners {
-    background: var(--bg-subtle);
-    color: var(--text-main);
 }
 .nbdev-status:hover, .nbdev-status:focus-visible {
     background: var(--bg-hover);

@@ -31,7 +31,7 @@ export function parseLineNumber(text: string): number | null {
 type Range = readonly [number, number];
 
 /**
- * 面板的一项，与 nb-ui `QuickInputItem` 同形（面板组件原样交给 QuickInput，vue-tsc 检查两者一致）。
+ * 面板的一项，与 nb-ui `QuickPickItem` 同形（面板组件原样交给 QuickPick，vue-tsc 检查两者一致）。
  * 不直接引用那个类型：它定义在 `.vue` 里，本模块要能被 `bun test` 与后端的 tsc 直接加载。
  */
 export type PaletteItem = Readonly<{
@@ -127,7 +127,7 @@ function compareMru(left: number, right: number): number {
 }
 
 /**
- * 把候选命令折成 QuickInput 的项：标题与 id 都参与匹配、取较低分，只有标题命中才渲染片段；
+ * 把候选命令折成 QuickPick 的项：标题与 id 都参与匹配、取较低分，只有标题命中才渲染片段；
  * 排序为“匹配分为主、MRU 为次、同分按 id”，空查询因此只按 MRU 与 id 排。
  * 调用方先过滤掉 `expose.human === false` 与当前不可用的命令，本函数不解释可见性。
  */

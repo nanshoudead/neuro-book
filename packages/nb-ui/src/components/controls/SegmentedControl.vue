@@ -19,7 +19,7 @@ export type SegmentedControlOption = {
     count?: number | string;
     disabled?: boolean;
     iconClass?: string;
-    label: string;
+    label?: string;
     testId?: string;
     title?: string;
     tone?: SegmentedControlTone;
@@ -61,6 +61,15 @@ const selectedIndex = computed(() => props.options.findIndex((opt) => opt.value 
 const enabledOptions = computed(() => props.options.filter((opt) => !opt.disabled));
 
 /**
+ * 键盘进入组时停在哪一项：选中项；当前值不对应任何一项时（例如 Lab 手动拖出的画布尺寸）停在第一个启用项，
+ * 否则整组没有 Tab 停靠点，键盘进不来。
+ */
+const tabStopKey = computed(() => {
+    const option = props.options[selectedIndex.value] ?? enabledOptions.value[0];
+    return option === undefined ? null : optionKey(option);
+});
+
+/**
  * 段宽规则：各段等宽，宽度随内容时取最宽一段的自然宽度。指示块按「内容宽 ÷ 段数」定宽、按整段平移，
  * 只有段段等宽它才对得上。
  *
@@ -92,10 +101,11 @@ function handleKeydown(event: KeyboardEvent): void {
     const currentIdx = enabled.findIndex((opt) => opt.value === props.modelValue);
     let nextIdx: number | null = null;
 
+    // 没有选中项时，向后从第一项开始、向前从最后一项开始。
     if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-        nextIdx = (currentIdx + 1) % enabled.length;
+        nextIdx = currentIdx < 0 ? 0 : (currentIdx + 1) % enabled.length;
     } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-        nextIdx = (currentIdx - 1 + enabled.length) % enabled.length;
+        nextIdx = currentIdx < 0 ? enabled.length - 1 : (currentIdx - 1 + enabled.length) % enabled.length;
     } else if (event.key === "Home") {
         nextIdx = 0;
     } else if (event.key === "End") {
@@ -145,7 +155,7 @@ function handleKeydown(event: KeyboardEvent): void {
             :data-value="String(option.value)"
             :aria-pressed="isSelected(option) ? 'true' : 'false'"
             :aria-checked="isSelected(option)"
-            :tabindex="isSelected(option) ? 0 : -1"
+            :tabindex="optionKey(option) === tabStopKey ? 0 : -1"
             :disabled="option.disabled"
             :aria-label="option.title || option.label || undefined"
             :title="option.title || option.label"

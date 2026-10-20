@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
- * NotificationViewport 的夹具：自建一份队列传给视口，场景只调位置。视口是固定定位的，这里给它一个 `contain: layout`
+ * NotificationStack 的夹具：自建一份队列传给视口，场景只调位置。视口是固定定位的，这里给它一个 `contain: layout`
  * 的框当“视口”，通知落在框里而不是整页的角落。控制区能发四种色调与一条带进度的通知，看堆叠、消失与进度。
  */
 import {computed, onBeforeUnmount} from "vue";
 
-import {Button, NotificationViewport} from "@notnotype/nb-ui/components";
+import {Button, NotificationStack} from "@notnotype/nb-ui/components";
 import type {NotificationPosition} from "@notnotype/nb-ui/components";
 import {createNotificationQueue} from "@notnotype/nb-ui/composables";
 
@@ -44,7 +44,7 @@ function startProgress(): void {
     <div class="flex w-full flex-col gap-3">
         <div class="relative h-[360px] w-full overflow-hidden rounded-[var(--radius-panel)] border border-[var(--divider)] bg-[var(--bg-main)] [contain:layout]" data-lab-subject>
             <p class="p-4 text-sm text-[var(--text-muted)]">这块框代替窗口：通知按 position 固定在框的边缘。</p>
-            <NotificationViewport :queue="queue" :position="position" />
+            <NotificationStack :queue="queue" :position="position" />
         </div>
         <LabFixtureControls>
             <Button size="sm" variant="secondary" @click="queue.success('已保存', {title: '第十七章 雪线'})">成功</Button>
