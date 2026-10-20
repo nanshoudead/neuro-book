@@ -8,7 +8,7 @@
 
 import {isRecord} from "./guards";
 import {hintProblems} from "./hints";
-import {findNode, isBuiltinWidget, resolveForm, WIDGETS_FOR_KIND} from "./model";
+import {findNode, isBuiltinWidget, resolveForm, widgetHonored} from "./model";
 import type {FieldNode, FormLayout} from "./model";
 import {toPointer} from "./path";
 import {badPatterns, walkSchema} from "./schema-walk";
@@ -52,13 +52,13 @@ function ownBadPatterns(node: FieldNode): string[] {
 /** 一个字段的提示与 schema 的配合。 */
 function checkNode(node: FieldNode, root: FieldNode, policy: "trusted" | "agent", into: DescriptionProblem[]): void {
     const at = toPointer(node.path);
-    for (const hint of hintProblems(node.schema["x-form"])) into.push(problem(at, hint.code, hint.params));
+    for (const hint of hintProblems(node.schema)) into.push(problem(at, hint.code, hint.params));
     const widget = node.hints.widget;
     if (widget !== undefined) {
         if (!isBuiltinWidget(widget)) {
             if (policy === "agent") into.push(problem(at, "custom-widget-not-allowed", {widget}));
-        } else if (widget !== "json" && !WIDGETS_FOR_KIND[node.kind].has(widget)) {
-            into.push(problem(at, "widget-mismatch", {widget, kind: node.kind}));
+        } else if (!widgetHonored(node)) {
+            into.push(problem(at, "widget-mismatch", {widget, kind: node.kind, selected: node.widget}));
         }
         if (policy === "agent" && widget === "secret") into.push(problem(at, "secret-not-allowed"));
     }

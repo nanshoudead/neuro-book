@@ -42,6 +42,20 @@ describe("可信作者的描述", () => {
     it("x-form 写了不认识的键或形状不对的文字", () => {
         const check = checkDescription(Type.Object({a: Type.String({"x-form": {lable: "x", help: 3}})}));
         expect(codesOf(check)).toEqual(["/a unknown-hint", "/a bad-hint"]);
+        // 空的多语言文字、不是整数的行数也是坏形状；非空的多语言文字与正整数合格。
+        const edges = checkDescription(Type.Object({a: Type.String({"x-form": {label: {}, rows: 1.5}}), b: Type.String({"x-form": {label: {en: "B"}, rows: 2}})}));
+        expect(edges.problems.filter((entry) => entry.code === "bad-hint").map((entry) => `${entry.path} ${String(entry.params.key)}`)).toEqual(["/a label", "/a rows"]);
+    });
+
+    it("写了却没有生效的内建控件报 widget-mismatch：文字的下拉没有 options、有 options 时写多行", () => {
+        const schema = Type.Object({
+            plain: Type.String({"x-form": {widget: "select"}}),
+            multi: Type.String({"x-form": {widget: "multiline", options: "models"}}),
+            picked: Type.String({"x-form": {widget: "select", options: "models", searchable: true}}),
+            listed: Type.Array(Type.String(), {"x-form": {widget: "list"}}),
+        });
+        expect(codesOf(checkDescription(schema))).toEqual(["/plain widget-mismatch", "/multi widget-mismatch"]);
+        expect(resolveForm(schema).root.children.map((child) => child.widget)).toEqual(["text", "select", "select", "string-list"]);
     });
 
     it("布局：不存在、重复的字段为错误，漏写的字段为警告", () => {

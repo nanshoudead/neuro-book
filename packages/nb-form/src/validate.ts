@@ -56,12 +56,15 @@ const CODES: Readonly<Record<string, string>> = {
     dependentRequired: "dependent-required",
     const: "not-in-choices",
     enum: "not-in-choices",
-    anyOf: "not-in-choices",
+    anyOf: "no-match",
     required: "required",
     additionalProperties: "additional-property",
 };
 
-/** 必填与额外属性由字段树按对象展开（它知道哪些是已设置的密钥），整值检查不再报。 */
+/**
+ * 必填与额外属性由字段树按对象展开（它知道哪些是已设置的密钥），整值检查不再报；JSON 字段里的除外：字段树没有
+ * 展开它的成员。
+ */
 const FIELD_TREE_CODES = new Set(["required", "additional-property"]);
 
 interface TypeBoxError {
@@ -72,8 +75,8 @@ interface TypeBoxError {
 }
 
 /**
- * 一条 TypeBox 错误的问题码。字面量联合的分支错误（`schemaPath` 里带 `anyOf/<n>`）返回 undefined：联合本身的
- * `not-in-choices` 已经说明了问题，一个值不必报好几条。
+ * 一条 TypeBox 错误的问题码。联合的分支错误（`schemaPath` 里带 `anyOf/<n>`）返回 undefined：联合本身的
+ * `no-match` 已经说明了问题，一个值不必报好几条。单选与多选的字段由字段树直接报 `not-in-choices`。
  */
 function codeOf(error: TypeBoxError): string | undefined {
     if (/\/anyOf\/\d+/u.test(error.schemaPath)) return undefined;
@@ -132,7 +135,7 @@ function shallow(schema: JsonSchema): JsonSchema {
 }
 
 const NO_CODES = new Set<string>();
-const CHOICE_CODES = new Set(["not-in-choices", "type"]);
+const CHOICE_CODES = new Set(["not-in-choices", "no-match", "type"]);
 const OBJECT_CODES = new Set(["required", "additional-property", "type"]);
 const LIST_CODES = new Set(["type"]);
 
@@ -233,29 +236,29 @@ function walk(node: FieldNode, value: unknown, context: WalkContext): void {
     }
 }
 
-/** 根自己是密钥、且已设置时不报缺值。 */
-function rootSecretSet(model: FormModel, meta: FormMeta): boolean {
-    return model.root.writeOnly && meta[""]?.secret === "set";
-}
-
 export function validateForm(model: FormModel, value: unknown, options: {readonly meta?: FormMeta} = {}): FormIssue[] {
     const meta = options.meta ?? {};
-    if (value === undefined) return rootSecretSet(model, meta) ? [] : [issue([], "required")];
+    if (value === undefined) {
+        // 根自己是密钥、且已设置时不报缺值。
+        return model.root.writeOnly && meta[""]?.secret === "set" ? [] : [issue([], "required")];
+    }
     const context: WalkContext = {meta, issues: [], jsonFields: []};
     walk(model.root, value, context);
     context.issues.push(...leftovers(model, value, context));
     return context.issues;
 }
 
-/** 整值检查的一条错误归到哪个字段：包含它的 JSON 字段（只有一个时），否则根。 */
-function ownerOf(instancePath: string, jsonFields: WalkContext["jsonFields"]): FieldPath {
+/** 包含整值检查的一条错误的 JSON 字段；没有或不止一个（属性名里有 `/` 时路径有歧义）时为 undefined。 */
+function jsonOwnerOf(instancePath: string, jsonFields: WalkContext["jsonFields"]): FieldPath | undefined {
     const owners = jsonFields.filter((field) => instancePath === field.typeboxPath || instancePath.startsWith(`${field.typeboxPath}/`));
-    return owners.length === 1 ? owners[0]!.path : [];
+    return owners.length === 1 ? owners[0]!.path : undefined;
 }
 
 /**
- * 整值检查里字段树没有报到的错误（见模块头），按 `ownerOf` 归位，同一字段同一个码只报一次。去重用 TypeBox 的路径
- * 写法：字段树报过的问题与整值检查的错误都换成它再比。
+ * 整值检查里字段树没有报到的错误（见模块头）：归到包含它的 JSON 字段，归不到的记在根上，同一字段同一个码只报一次。
+ *
+ * 去重用 TypeBox 的路径写法，它不转义：一个属性名带 `/` 的字段与一个同样拼写的嵌套字段同时以同一个码出错时，后者
+ * 会被当成已报过。这时表单仍至少有一条问题，值不会被当成合法，所以接受这个限制，不为它在根上下文里逐字段重新校验。
  */
 function leftovers(model: FormModel, value: unknown, context: WalkContext): FormIssue[] {
     const result = errorsOf(model.schema, value);
@@ -265,8 +268,12 @@ function leftovers(model: FormModel, value: unknown, context: WalkContext): Form
     const added: FormIssue[] = [];
     for (const error of result.errors) {
         const code = codeOf(error);
-        if (code === undefined || FIELD_TREE_CODES.has(code) || reported.has(`${error.instancePath}|${code}`)) continue;
-        const path = ownerOf(error.instancePath, context.jsonFields);
+        if (code === undefined || reported.has(`${error.instancePath}|${code}`)) continue;
+        // 字段树在同一处报过 `not-in-choices`：单选与多选的联合不再报 `no-match`。
+        if (code === "no-match" && reported.has(`${error.instancePath}|not-in-choices`)) continue;
+        const owner = jsonOwnerOf(error.instancePath, context.jsonFields);
+        if (owner === undefined && FIELD_TREE_CODES.has(code)) continue;
+        const path = owner ?? [];
         const key = `${typeboxPath(path)}|${code}`;
         if (reported.has(key)) continue;
         reported.add(key);

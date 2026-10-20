@@ -38,10 +38,10 @@ export const BUILTIN_WIDGETS = [
 export type BuiltinWidget = (typeof BUILTIN_WIDGETS)[number];
 
 /**
- * 每种种类在描述里能写的控件（输出 2）；`json` 对任何种类都能写，不在表里。`selectWidget` 只采用表里有的，
- * `checkDescription` 对表外的报 `widget-mismatch`。`list` 是列表的缺省画法的别名。
+ * 每种种类在描述里能写的控件（输出 2）；`json` 对任何种类都能写，不在表里。`list` 是列表的缺省画法的别名。
+ * `selectWidget` 只采用表里有的；写了却没有生效的控件由 `checkDescription` 对照选中的结果报出（`widgetHonored`）。
  */
-export const WIDGETS_FOR_KIND: Readonly<Record<FieldKind, ReadonlySet<string>>> = {
+const WIDGETS_FOR_KIND: Readonly<Record<FieldKind, ReadonlySet<string>>> = {
     "boolean": new Set(["confirm"]),
     "choice": new Set(["radio", "select", "search-select"]),
     "multi": new Set(["checkboxes"]),
@@ -184,11 +184,22 @@ export function selectWidget(kind: FieldKind, hints: FormHints, schema: JsonSche
     if (kind === "text") {
         if (schema.writeOnly === true || wanted === "secret") return "secret";
         // 动态选项的值是字符串：选项由调用方运行时给出（输出 11），没有选项来源时写了下拉也画成输入框。
-        if (hints.options !== undefined) return wanted === "search-select" || hints.searchable === true ? "search-select" : "select";
+        if (hints.options !== undefined) {
+            if (wanted === "select" || wanted === "search-select") return wanted;
+            return hints.searchable === true ? "search-select" : "select";
+        }
         return wanted === "multiline" ? "multiline" : "text";
     }
     if (wanted !== undefined && wanted !== "list") return wanted as BuiltinWidget;
     return defaultWidget(kind, hints, choiceCount);
+}
+
+/** 字段上写的内建控件是否生效：与种类不配，或缺少它要的提示（例如文字的下拉没有 `options`）时不生效。 */
+export function widgetHonored(node: FieldNode): boolean {
+    const asked = node.hints.widget;
+    if (asked === undefined || !isBuiltinWidget(asked)) return true;
+    if (asked === "list") return node.kind === "string-list" || node.kind === "object-list";
+    return node.widget === asked;
 }
 
 /** 没写控件（或写的是 `list`）时每种种类的画法。 */
@@ -238,7 +249,7 @@ function buildNode(schema: JsonSchema, path: FieldPath, name: string, required: 
     const inner = nullableInner(schema);
     const effective = inner === null ? schema : mergeNullable(schema, inner);
     const nullable = inner;
-    const hints = readHints(effective["x-form"]);
+    const hints = readHints(effective);
     const kind = kindOf(effective, depth);
     const readOnly = context.readOnly || effective.readOnly === true;
     const values = kind === "choice" ? literalValues(effective) ?? [] : kind === "multi" && isRecord(effective.items) ? literalValues(effective.items) ?? [] : [];

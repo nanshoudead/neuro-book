@@ -117,9 +117,11 @@ describe("校验与问题（输出 7–10）", () => {
         expect(codes(validateForm(resolveForm(schema), {extra: {a: 1, b: "x"}}))).toEqual(["/extra type"]);
     });
 
-    it("JSON 字段里一个值不合联合只报一条，不报每个分支的错误", () => {
+    it("JSON 字段里一个值不合联合只报一条 no-match，不报每个分支的错误；enum 仍是 not-in-choices", () => {
         const schema = Type.Object({extra: Type.Record(Type.String(), Type.Union([Type.String({minLength: 3}), Type.Integer()]))});
-        expect(codes(validateForm(resolveForm(schema), {extra: {a: "x"}}))).toEqual(["/extra not-in-choices"]);
+        expect(codes(validateForm(resolveForm(schema), {extra: {a: "x"}}))).toEqual(["/extra no-match"]);
+        const listed = Type.Object({extra: Type.Record(Type.String(), Type.String({enum: ["a", "b"]}))});
+        expect(codes(validateForm(resolveForm(listed), {extra: {k: "z"}}))).toEqual(["/extra not-in-choices"]);
     });
 
     it("字段有错时，对象与列表自身的约束照样报出", () => {
@@ -158,6 +160,10 @@ describe("校验与问题（输出 7–10）", () => {
         expect(model.root.kind).toBe("object");
         expect(model.root.children.map((child) => child.kind)).toEqual(["text", "json"]);
         expect(codes(validateForm(model, {name: "x", extra: 1}))).toEqual(["/extra minimum"]);
+        // 引用里的对象缺必填、多了不许有的属性，同样报在引用它的字段上。
+        const objects = {$defs: {item: {type: "object", properties: {k: {type: "string"}}, required: ["k"], additionalProperties: false}}, type: "object", properties: {ref: {$ref: "#/$defs/item"}}};
+        expect(codes(validateForm(resolveForm(objects), {ref: {}}))).toEqual(["/ref required"]);
+        expect(codes(validateForm(resolveForm(objects), {ref: {k: "ok", extra: 1}}))).toEqual(["/ref additional-property"]);
     });
 
     it("根缺值报根上的 required", () => {

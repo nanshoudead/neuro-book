@@ -43,15 +43,21 @@ const HintsSchema = Type.Object({
 export type ChoiceValue = Static<typeof ChoiceValueSchema>;
 export type FormChoice = Readonly<Static<typeof ChoiceSchema>>;
 export type VisibleWhen = Readonly<Static<typeof VisibleWhenSchema>>;
-export type FormHints = Readonly<Static<typeof HintsSchema>>;
+
+type RawHints = Static<typeof HintsSchema>;
+/** 按联合的每一支分别处理（`T[] | undefined` 整体不是数组）：数组与数组项都只读。 */
+type ReadonlyHint<T> = T extends ReadonlyArray<infer Item> ? ReadonlyArray<Readonly<Item>> : Readonly<T>;
+/** 调用方可以交冻结的描述，拿到的提示也不该被改。 */
+export type FormHints = {readonly [K in keyof RawHints]: ReadonlyHint<RawHints[K]>};
 
 const HINT_KEYS = Object.keys(HintsSchema.properties) as Array<keyof FormHints>;
 
 /** 数组提示逐项判断：一项写错只丢掉（或报出）那一项，不连累整组。 */
 const HINT_ITEMS: Partial<Record<keyof FormHints, TSchema>> = {choices: ChoiceSchema, recommend: ChoiceValueSchema};
 
-/** 读 `x-form`：只留形状合格的键，数组键只留合格的项。是否报问题由 `checkDescription` 决定。 */
-export function readHints(raw: unknown): FormHints {
+/** 读 schema 上的 `x-form`：只留形状合格的键，数组键只留合格的项。是否报问题由 `checkDescription` 决定。 */
+export function readHints(schema: object): FormHints {
+    const raw = (schema as Record<string, unknown>)["x-form"];
     if (!isRecord(raw)) return {};
     const hints: Record<string, unknown> = {};
     for (const key of HINT_KEYS) {
@@ -69,8 +75,9 @@ export interface HintProblem {
     readonly params: Readonly<{key?: string; index?: number}>;
 }
 
-/** `x-form` 里不合格的地方：不是对象、不认识的键、形状不对的键；数组键逐项报。 */
-export function hintProblems(raw: unknown): HintProblem[] {
+/** schema 上的 `x-form` 里不合格的地方：不是对象、不认识的键、形状不对的键；数组键逐项报。 */
+export function hintProblems(schema: object): HintProblem[] {
+    const raw = (schema as Record<string, unknown>)["x-form"];
     if (raw === undefined) return [];
     if (!isRecord(raw)) return [{code: "hints-not-object", params: {}}];
     const problems: HintProblem[] = [];

@@ -6,8 +6,9 @@ import {describe, expect, it} from "bun:test";
 import {Type} from "typebox";
 
 import {fallbackWidget} from "./fallback";
+import {readHints} from "./hints";
 import {findNode, itemNode, kindOf, MAX_DEPTH, resolveForm} from "./model";
-import type {FieldKind, FieldNode} from "./model";
+import type {ChoiceValue, FieldKind, FieldNode, FormChoice, FormHints} from "./model";
 import {optionKey, optionValue} from "./options";
 
 const child = (node: FieldNode, name: string) => node.children.find((entry) => entry.path[entry.path.length - 1] === name)!;
@@ -100,6 +101,23 @@ describe("字段树", () => {
         const node = resolveForm(schema).root;
         expect(node.choices).toEqual([{value: "a", label: "甲"}, {value: "b", label: "b"}]);
         expect(node.hints.recommend).toEqual(["b"]);
+    });
+
+    it("readHints 读 schema 上的 x-form；提示收只读的数组，也不许经结果改它们", () => {
+        expect(readHints(Type.String({"x-form": {widget: "multiline", label: "Note"}}))).toEqual({widget: "multiline", label: "Note"});
+        const choices: ReadonlyArray<FormChoice> = Object.freeze([Object.freeze({value: "a", label: "A"})]);
+        const recommend: ReadonlyArray<ChoiceValue> = Object.freeze(["a"]);
+        const hints: FormHints = {choices, recommend};
+        // 只做类型检查，不执行：冻结的数组在运行时会抛错。
+        const mutate = (target: FormHints) => {
+            // @ts-expect-error 提示里的数组是只读的
+            target.choices?.push({value: "b", label: "B"});
+            const first = target.choices?.[0];
+            // @ts-expect-error 数组项也是只读的
+            if (first !== undefined) first.disabled = true;
+        };
+        expect(typeof mutate).toBe("function");
+        expect(hints.recommend).toEqual(["a"]);
     });
 
     it("按 JSON Pointer 找字段：属性名里的 / 与 ~ 要转义", () => {

@@ -95,7 +95,7 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 | 元素是上一种对象的数组 | 对象列表 |
 | `T` 与 `null` 的联合 | 按 `T`，清除写 `null`；两层的注解合并，外层优先 |
 
-2. **控件选择**：没有 `widget` 时按种类选；有就用它，`json` 对任何种类都成立，其余内建控件要与种类相配（不配时 `checkDescription` 报 `widget-mismatch`）。单选 3 项以内用横排单选组，多于 3 项用下拉，多于 15 项或 `searchable` 用可搜索的下拉；布尔用开关，`confirm` 用“是 / 否”单选组；多选用复选组；文字用单行输入，`multiline` 用多行，`writeOnly` 或 `secret` 用密钥输入；对象画成一组字段；对象列表画成可增删排序的列表，`master-detail` 画成左列表右详情；JSON 用等宽文本框。分段控件不用于表单。
+2. **控件选择**：没有 `widget` 时按种类选；有就用它，`json` 对任何种类都成立，其余内建控件要与种类相配、带上它要的提示（文字的下拉要有 `options`）；写了却没有生效的（与种类不配，或被别的规则盖过，例如有 `options` 时写 `multiline`、`writeOnly` 时写 `multiline`）按没写选，`checkDescription` 报 `widget-mismatch`。单选 3 项以内用横排单选组，多于 3 项用下拉，多于 15 项或 `searchable` 用可搜索的下拉；布尔用开关，`confirm` 用“是 / 否”单选组；多选用复选组；文字用单行输入，`multiline` 用多行，`writeOnly` 或 `secret` 用密钥输入；对象画成一组字段；对象列表画成可增删排序的列表，`master-detail` 画成左列表右详情；JSON 用等宽文本框。分段控件不用于表单。
 
 ### 值
 
@@ -107,7 +107,7 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 ### 校验与问题
 
 7. **问题的形状**：`{path, code, params, severity: "error" | "warning", source: "schema" | "caller", message?}`。schema 的问题不带文字，显示时按 `code` 与 `params` 以当前语言写出；调用方的问题可以带 `message`。
-8. **校验**：`validateForm` 逐个字段校验：必填缺失报在缺的那个字段上（`required`，包括 `required` 里有、`properties` 里没有的键）；每个字段自身的约束（对象的 `minProperties`、`dependentRequired`，数组的 `minItems`、`contains` 等）都报，字面量联合的分支错误只报一条 `not-in-choices`；最后对整值检查一次，字段树没有表达的约束（JSON 字段与引用里的）按位置报在那个 JSON 字段上，归不到字段的记在根上；同一位置同一个码只报一次。校验中的异常（例如写错的正则）记为出错的那个字段上的 `schema-error`，不抛出。
+8. **校验**：`validateForm` 逐个字段校验：必填缺失报在缺的那个字段上（`required`，包括 `required` 里有、`properties` 里没有的键）；每个字段自身的约束（对象的 `minProperties`、`dependentRequired`，数组的 `minItems`、`contains` 等）都报；单选与多选的值不是选项之一报一条 `not-in-choices`，JSON 字段里不满足联合任何一支报一条 `no-match`（`enum` 与 `const` 仍是 `not-in-choices`），都不报每一支的错误；最后对整值检查一次，字段树没有表达的约束（JSON 字段与引用里的，包括引用里对象的必填与额外属性）按位置报在那个 JSON 字段上，归不到字段的记在根上；同一位置同一个码只报一次。校验中的异常（例如写错的正则）记为出错的那个字段上的 `schema-error`，不抛出。
 9. **调用方的问题**：跨字段、异步、服务端的校验由调用方算好，经 `issues` 交给表单，与 schema 的问题一起显示；表单不调用调用方的校验函数。异步结果过期由调用方按值的版本丢弃。
 10. **带外状态**：`meta` 按路径给出值之外的状态。`writeOnly` 的字段在 `meta` 说“已设置”时不报必填。
 
@@ -203,6 +203,7 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 |---|---|---|
 | `required` 等约束码 | 值不满足 schema | 让用户改；表单已经标出 |
 | `not-in-choices` | 值不是选项之一 | 同上 |
+| `no-match` | 值不满足联合里的任何一种写法 | 同上 |
 | `unparseable` | 草稿解析不了 | 等用户改；不提交 |
 | `schema-error` | schema 本身求值出错（例如写错的正则） | 修描述；表单照常显示其余字段 |
 | 描述检查的问题 | 描述不合格或违反 Agent 策略 | 不渲染这份描述，把问题交回给描述的来源 |

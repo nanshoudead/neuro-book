@@ -6,6 +6,8 @@
  * 遍历带已访问集合与深度上限，自引用的 JS 对象不会让它无限递归。
  */
 
+import {isRecord} from "./guards";
+
 /** 值是一个 schema 的关键字。 */
 const SCHEMA_KEYWORDS = ["items", "additionalProperties", "contains", "propertyNames", "not", "if", "then", "else", "additionalItems", "unevaluatedItems", "unevaluatedProperties"] as const;
 /** 值是 schema 数组的关键字。 */
@@ -17,10 +19,6 @@ export interface SchemaVisit {
     readonly node: Readonly<Record<string, unknown>>;
     /** 从根到这里经过的 schema 层数（每进一个子 schema 加一）。 */
     readonly depth: number;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

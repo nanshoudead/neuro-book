@@ -8,7 +8,7 @@ export type {DescriptionCheck, DescriptionProblem} from "./check";
 export {fallbackWidget} from "./fallback";
 export type {TerminalWidget} from "./fallback";
 export {readHints} from "./hints";
-export {BUILTIN_WIDGETS, findNode, isBuiltinWidget, itemNode, kindOf, literalValues, MAX_DEPTH, RADIO_ROW_LIMIT, resolveForm, SEARCH_LIMIT, selectWidget, WIDGETS_FOR_KIND} from "./model";
+export {BUILTIN_WIDGETS, findNode, itemNode, kindOf, literalValues, MAX_DEPTH, RADIO_ROW_LIMIT, resolveForm, SEARCH_LIMIT, selectWidget} from "./model";
 export type {BuiltinWidget, ChoiceValue, FieldKind, FieldNode, FormChoice, FormHints, FormLayout, FormModel, JsonSchema, VisibleWhen} from "./model";
 export {optionKey, optionValue} from "./options";
 export type {OptionSource} from "./options";
