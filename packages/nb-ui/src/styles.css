@@ -317,7 +317,11 @@ input.nb-ui-native-input[type="number"] {
     margin-right: -4px;
 }
 
-.nb-ui-menu-item__icon {
+/*
+ * 图标与图标列的占位同宽，名称才对得齐。图标自身的类（UnoCSS 的 `i-lucide-*`）写 `width: 1em`，在应用里排在本文件之后、
+ * 同一优先级时会把它改成字号大小，所以这里多带一级父类。
+ */
+.nb-ui-menu-item > .nb-ui-menu-item__icon {
     flex-shrink: 0;
     width: 16px;
     height: 16px;

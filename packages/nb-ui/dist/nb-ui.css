@@ -2180,7 +2180,7 @@ input.nb-ui-native-input[type="number"] {
   width: 14px;
   margin-right: -4px;
 }
-.nb-ui-menu-item__icon {
+.nb-ui-menu-item > .nb-ui-menu-item__icon {
   flex-shrink: 0;
   width: 16px;
   height: 16px;

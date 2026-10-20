@@ -33,12 +33,12 @@ updated: 2026-10-20
 
 - Sonnet 前端实现审查 13 条（重要 3、建议 10），逐条处理见 [`evidences/impl-review.txt`](evidences/impl-review.txt)：F05 接受取舍（reka 层级的键盘滚动由浏览器的聚焦规则决定），F12d 从代码推断不成立，其余都已改并补用例。
 - 真实浏览器里查到并修掉两处改动前就有的问题：右键菜单与菜单栏的子菜单偏离父项一百多像素（外观层的 `backdrop-filter` 成了它们的包含块）。整套 e2e 查到一处本次引起的回归并修掉：右键菜单改成外层定位后，直角的外层接住了紧挨菜单左上角的按下（原来圆角外的那一点落到页面上），编辑器“拖固定标签到正文中央”因此起不了拖；外层改为不接收指针，nb-ui 验收补了这一点。
-- 决定 7 已做：DropdownMenu、Menubar、右键菜单（共用 `MenuNodes`）、Select、QuickPick、`SuggestionMenu` 在同一级有一项带图标时，没有图标的项留出空的图标列；nb-ui 验收逐个比较带图标与不带图标的项名称左边缘，菜单栏没有图标的一级不留这一列。
-- 验证：nb-ui 单元 498、e2e 54 通过；neuro-book 整套 e2e 234 条里 233 通过，`lab-scenes` 一条在负载下超时（EditorArea/english 15 秒没挂上），单独重跑通过；图标列改完后相关的五个 e2e 文件 56 条通过；`test:affected --since master --typecheck` 只有 nb-story 一条服务进程收到 SIGTERM 退出码 143 的竞态（与本 Task 无关），单独重跑 223 条通过；`docs:check`、`governance:check` 没有本次范围内的警告。
+- 决定 7 已做：DropdownMenu、Menubar、右键菜单（共用 `MenuNodes`）、Select、QuickPick、`SuggestionMenu` 在同一级有一项带图标时，没有图标的项留出空的图标列；nb-ui 验收逐个比较带图标与不带图标的项名称左边缘，菜单栏没有图标的一级不留这一列。重拍对照图时查到应用里图标类（UnoCSS `i-lucide-*`）的 `width: 1em` 排在 nb-ui 样式之后、盖掉了 `__icon` 的 16px（图标只有 13px，占位 16px，名称差 3px；nb-ui 演练场的样式顺序不同，没暴露），`__icon` 多带一级父类后都是 16px，Lab 的下拉菜单 e2e 补了名称对齐。
+- 验证：nb-ui 单元 498、e2e 54 通过；neuro-book 整套 e2e 234 条里 233 通过，`lab-scenes` 一条在负载下超时（EditorArea/english 15 秒没挂上），单独重跑通过；图标列改完后相关的五个 e2e 文件 56 条通过；`test:affected --since master --typecheck` 只有 nb-story 一条服务进程收到 SIGTERM 退出码 143 的竞态（与本 Task 无关），单独重跑 223 条通过；`docs:check`、`governance:check` 没有本次范围内的警告。图标尺寸修正后 nb-ui e2e 54 条通过，neuro-book 相关六个 e2e 文件 70 条里 68 条通过，失败的两条（编辑器重开光标、工作台换位置保留滚动）与菜单无关，单独重跑通过。
 - 改前改后的对照做成 `report` 产物 [`artifacts/compare/`](artifacts/compare/index.html)（全套截图在本地 `.local/agent/works/w00029-nb-ui-cleanup/tasks/t04-popup-lists/shots/compare/`）。
 
 ## 下一步
 
-合入 master；按图标列重拍改后的对照图，发布对照产物。
+合入 master，发布对照产物（改后的图已按图标列重拍）。
 
 依赖本 Task 的：[w00027 t07](../../../w00027-plugin-platform/tasks/t07-low-code-forms/README.md) 的 S2 起（新增可搜索下拉 `SearchSelect`，用本 Task 统一后的列表项样式、截断与滚动；改 `Select` 的只读与出错）等本 Task 合入 master 后开始（开发者 2026-10-20 定）。

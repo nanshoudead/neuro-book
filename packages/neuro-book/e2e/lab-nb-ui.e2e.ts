@@ -210,6 +210,9 @@ test("下拉菜单：方向键跳过禁用项，禁用项带原因，Enter 选�
     const trash = menu.getByRole("menuitem", {name: "移到回收站"});
     await expect(trash).toHaveAttribute("aria-disabled", "true");
     await expect(trash).toHaveAttribute("aria-description", "根目录不能移到回收站");
+    // 没有图标的项留出图标列：应用的样式顺序里图标类排在 nb-ui 之后，图标与占位要同宽，名称才对齐。
+    const labelLeft = async (name: string): Promise<number> => (await menu.locator(".nb-ui-menu-item__label", {hasText: name}).boundingBox())!.x;
+    expect(await labelLeft("显示隐藏文件")).toBeCloseTo(await labelLeft("重命名"), 0);
 
     await page.keyboard.press("ArrowDown");
     await expect(menu.getByRole("menuitem", {name: "重命名"})).toBeFocused();
