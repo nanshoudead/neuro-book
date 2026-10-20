@@ -248,8 +248,8 @@ describe("抽取期间照常可用（验收 10）", () => {
      * 当时不完全相同（S1 的三处有意改动），核对之后剩下的问题也就不同，t34 没有修复的章这里可能要修复：给一个空补丁，
      * 剩下的由兜底丢弃。这个用例只看服务响应，不看抽取结果。
      *
-     * 慢（约 6 分钟，性能基准）：98 章的书编译一次约 25 秒，第 99 章的兜底丢弃要反复编译全书，提交前约 5 分钟。正是要
-     * 在这样的重负载下看服务还应不应答，所以不能缩小。
+     * 约 15 秒：第 99 章的兜底丢弃要反复编译 98 章的全书（一次约半秒），抽取线程一直满载。正是要在这样的负载下看服务
+     * 还应不应答，所以不能缩小。
      */
     test("100 章的书抽第 99 章：提交前后另一本书的查询与进度都在 1 秒内返回；第 100 章中停止，5 秒起不再请求模型、不再提交", async () => {
         /** 端点收到每个请求的时刻。 */
@@ -300,9 +300,9 @@ describe("抽取期间照常可用（验收 10）", () => {
         });
 
         expect((await env.call("ingest.start", {book: "long"})).body).toEqual({id: "long", action: "resume"});
-        await waitUntil("第 99 章提交", () => (healthy(), committed >= 99), {timeoutMs: 600_000});
-        // 第 100 章刚开始就停止：这时抽取线程多半在编译（98 章的书一次约 20 秒）。
-        await waitUntil("第 100 章的请求", () => env.played.seen.some(key => key.chapter === 100), {timeoutMs: 120_000});
+        await waitUntil("第 99 章提交", () => (healthy(), committed >= 99), {timeoutMs: 120_000});
+        // 第 100 章刚开始就停止。
+        await waitUntil("第 100 章的请求", () => env.played.seen.some(key => key.chapter === 100), {timeoutMs: 60_000});
         const stoppedAt = performance.now();
         expect((await timed("ingest.stop", {book: "long"})).status).toBe(200);
         await waitUntil("停下", async () => (await env.status("long")).state === "stopped", {timeoutMs: 30_000});
@@ -316,5 +316,5 @@ describe("抽取期间照常可用（验收 10）", () => {
         expect(latencies.filter(item => item.committed === 98).length).toBeGreaterThan(0);
         expect(latencies.filter(item => item.committed === 99).length).toBeGreaterThan(0);
         expect(latencies.filter(item => item.ms >= 1000)).toEqual([]);
-    }, 900_000);
+    }, 240_000);
 });
