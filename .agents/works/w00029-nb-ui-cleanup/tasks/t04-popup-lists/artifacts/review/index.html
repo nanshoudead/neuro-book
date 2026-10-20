@@ -63,7 +63,7 @@ code { font-size: 12.5px; }
 
 <section class="q" data-nbdev-question="r3-rows" data-nbdev-type="single" data-nbdev-recommend="8">
 <h2>长列表最多显示几项 <span class="badge todo" data-nbdev-skip>待定</span></h2>
-<p>项多时列表在第 N 项之后截断、可以滚动；截在下一项的中间，露出半项，一眼看出下面还有。右边是悬浮滑块（6px 宽）。现在各组件各算各的：Select 默认 6 项半、紧凑档 5 项，计算时按 32px 行高算，DropdownMenu 实际是 26px，算出来的高度对不上；QuickPick 与候选菜单不截断。定下来后所有弹出列表共用一份计算。</p>
+<p>项多时列表在第 N 项之后截断、可以滚动；截在下一项的中间，露出半项，一眼看出下面还有。右边是悬浮滑块（6px 宽）。现在各组件各算各的：Select 默认 6 项半、紧凑档 5 项，计算时按 32px 行高算，DropdownMenu 实际是 26px，算出来的高度对不上；Composer 候选菜单截在整 8 项（不露半项）；QuickPick 整个浮层最高 560px。定下来后所有弹出列表共用一份计算。</p>
 <figure><img src="r3/rows-light.webp" alt="三种截断高度，浅色"><figcaption>浅色，从左到右 A、B、C</figcaption></figure>
 <figure><img src="r3/rows-dark.webp" alt="三种截断高度，深色"><figcaption>深色</figcaption></figure>
 <div class="three">
@@ -71,7 +71,7 @@ code { font-size: 12.5px; }
 <div class="cand rec" data-nbdev-option="8"><h3>B 8 项半</h3><p>列表高约 246px。</p></div>
 <div class="cand" data-nbdev-option="10"><h3>C 10 项半</h3><p>列表高约 302px。</p></div>
 </div>
-<div class="rec-note"><b>推荐 B。</b>行高从 32px 收到 28px 之后，6 项半只有 190px，章节、设定这类列表一屏看得太少；10 项半在笔记本屏幕上、贴着编辑区下半部弹出时容易放不下，要翻到上方。B 与 VS Code、macOS 菜单常见的一屏 8 到 9 项相当。放不下时仍按可用空间收矮。</div>
+<div class="rec-note"><b>推荐 B。</b>行高从 32px 收到 28px 之后，6 项半只有 190px，章节、设定这类列表一屏看得太少；10 项半在笔记本屏幕上、贴着编辑区下半部弹出时容易放不下，要翻到上方。B 和 Composer 候选菜单现在的 8 项接近。放不下时仍按可用空间收矮。</div>
 </section>
 
 <section class="q" data-nbdev-question="r3-footer" data-nbdev-type="single" data-nbdev-recommend="drop">
