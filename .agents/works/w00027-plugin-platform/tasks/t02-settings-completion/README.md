@@ -38,6 +38,8 @@ updated: 2026-10-17
 - 密钥本轮就做：服务端加密后存在状态根下，主密钥放系统密钥库（Linux 为 Secret Service），没有密钥库时退回状态根下只有本人可读的密钥文件（方案 A）。用 Lab 的“模型服务”示例验证。
 - 设置界面的外观收口另建 [t06](../t06-settings-ui-polish/README.md)，不在本轮。
 
+- 开发者 2026-10-20 定：低代码（[t07](../t07-low-code-forms/README.md)）排在 t02 之前实现，t02 的控件改用低代码的字段；[plan.md](plan.md) 已按此起草，待 t07 的接口定下后回改，再交开发者确认。
+
 说明页：[设置分区的两种画法，与旧应用的 provider 设置](artifacts/settings-sections/index.html)。
 
 ## 下一步
