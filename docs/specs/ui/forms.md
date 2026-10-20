@@ -129,21 +129,21 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 
 ### 模式
 
-17. **展示态**：`mode: "view"` 时文字类的值画成可换行的静态内容，超长时折叠、可展开、可复制；只有展开与复制按钮是 Tab 停靠点。“同意 / 拒绝”这类动作由调用方画。
+17. **展示态**：`mode: "view"` 时文字类的值画成可换行的静态内容，超长时折叠、可展开；多行、JSON 与长的文字（40 字以上或有换行）给“复制”按钮，短值可以直接选中复制；只有展开与复制按钮是 Tab 停靠点。对象与列表照样排成结构，没有结构操作。“同意 / 拒绝”这类动作由调用方画。
 18. **只读与停用**：`readonly` 与 `disabled` 向下传给每个字段；只读的控件可以聚焦、可以复制、不能改，停用的控件不进 Tab 顺序。
 
 ### 列表编辑
 
-19. **增删排序**：列表每项有稳定的身份，不随删除与排序串到别的项；添加后焦点进新项的第一个控件；删除后焦点到下一项的同类控件，没有就上一项，列表空了到“添加”；排序用“上移 / 下移”按钮与 `Alt+↑ / ↓`，焦点跟着被移动的项，读屏播报移动结果。`minItems`、`maxItems` 到界时停用删除或添加；`uniqueItems` 下的重复项标问题；空列表显示“还没有项”与“添加”；超过 50 项默认折叠成“N 项”，展开后分页。
+19. **增删排序**：列表每项有稳定的身份，不随删除与排序串到别的项；添加后焦点进新项的第一个控件；删除后焦点到下一项的同类控件，没有就上一项，列表空了到“添加”；排序用“上移 / 下移”按钮与 `Alt+↑ / ↓`，焦点跟着被移动的项，读屏播报移动结果。焦点在调用方把新数组传回来、渲染出来之后才移；传回来的可以是内容相同的副本（经过 JSON 或 RPC），调用方没采纳时身份与焦点都不动。`minItems`、`maxItems` 到界时停用删除或添加；`uniqueItems` 下的重复项标问题；空列表显示“还没有项”与“添加”；超过 50 项默认折叠成“N 项”，展开后分页。
 20. **左列表右详情**：`v-model:selected` 给出选中项；新增项自动选中并聚焦详情；删除选中项后选中下一项；列表项的选中区与操作按钮并列，不嵌套按钮；项标题取 `itemLabel` 的字段，空时写“第 N 项”。
 
 ### 表单根
 
-21. **根元素**：`SchemaForm` 的根是 `role="group"` 的容器，不是 `<form>`，回车不隐式提交，可以放进调用方自己的 `<form>`。渲染的递归深度与核心的上限相同；折叠的分组与未选中的详情不挂载。
+21. **根元素**：`SchemaForm` 的根是 `role="group"` 的容器，不是 `<form>`，回车不隐式提交，可以放进调用方自己的 `<form>`。渲染的递归深度与核心的上限相同；折叠的分组与未选中的详情不挂载：里面写坏而没能提交的草稿随之丢掉（能解析的草稿在失焦时已提交）。
 
 ### 自定义控件
 
-22. **登记**：`{name, component, score(node) => number | null, fallback}`。组件收到 `{modelValue, node, readonly, disabled, invalid, id, describedby, locale, issues, options, meta}`，发出 `update:modelValue` 与 `commit`，暴露 `focus()`。显式写了 `widget` 时直接选中；没写时参与打分，返回 `null` 表示不适用。与内建名或已登记名重名时登记报错。
+22. **登记**：`{name, component, score(node) => number | null, fallback}`。组件收到 `{modelValue, node, readonly, disabled, invalid, id, labelledby, describedby, locale, issues, options, meta}`（`id` 写在可聚焦的元素上、外壳的 `<label for>` 指向它；由几个元素组成的控件用 `labelledby` 写 `aria-labelledby`），发出 `update:modelValue`（草稿，按输出 15 的时机提交：`change` 时在 `commit` 事件或焦点离开字段时）与 `commit`，暴露 `focus()`。显式写了 `widget` 时直接选中；写的名字没登记时按这个种类的内建控件画；没写时参与打分，返回 `null` 或不大于 0 表示不适用，得分最高的压过内建控件。与内建名或已登记名重名时登记报错（`FormWidgetError`）。
 
 ### Agent 生成的描述
 

@@ -59,6 +59,11 @@ updated: 2026-10-20
   - 顺带：`code-baseline.yml` 的路径清单漏了 `nb-form` 与 `nb-story`（master 上 scripts 的工作流合同测试因此失败），补上。
   - 验证：nb-form 核心 94 例、渲染层 27 例与两份类型检查（数字解析、合并提交、必填延后、卸载撤掉草稿问题四处变异都被拦下，渲染层越界导入也被拦下）；应用类型检查、`bun test` 1560 例、Vitest 382 例；scripts 111 例；`docs:check`、`governance:check`；Lab 的 nb-form、nb-ui、场景与 Lab 四组 e2e 32 例（新增 4 例：可访问名称与说明、汇总聚焦、`1.` 不提交与条件显示保值、展示态 Tab 顺序）；两主题 × 浅、深 × 手机、自由画布截图 96 张没有溢出或报错，看图后把“推荐”从选项名挪到说明。截图在 `.local/agent/works/w00027-plugin-platform/tasks/t07-low-code-forms/reports/s3a-shots/`。
 
+- S3b（`b7825184a`）：结构控件。对象（一组成员、可整个清除）；字符串列表与对象列表（稳定身份、增删排序与 `Alt+↑ / ↓`、焦点落点与读屏播报、上下限、重复项、超过 50 项折叠分页）；左列表右详情（只挂载选中项的详情、新增项选中并聚焦详情、`SchemaField` 的 `v-model:selected`）；JSON 编辑；自定义控件（`defineFormWidgets` 登记、重名报 `FormWidgetError`、按名或按分选、没登记的名字退回内建控件、发出的值按提交时机提交）；分组折叠与“含 N 个问题”；展示态的结构。Lab 补全“服务商连接”，加列表、展示态列表、自定义控件场景。
+  - 开发者 2026-10-20 确认（Spec 输出 17、19、21、22 已同步）：折叠的分组与未选中的详情不挂载，写坏的草稿随之丢掉；列表按内容认领传回的数组、焦点等采纳后再移；自定义控件另收 `labelledby`；展示态的复制只给多行、JSON 与长文字。
+  - 过程中的发现：Lab 与设置的写回都会换成副本（经过 JSON 或 RPC），只等一个渲染周期焦点会落空，按对象比较也认不出自己发出的修改，Lab 的 e2e 暴露后改成按内容认领、采纳时再移焦点，happy-dom 里补了“晚些、以副本传回”和“不采纳”的用例。
+  - 验证：nb-form 核心 94 例、渲染层 46 例（新增 19 例）与两份类型检查；列表身份、草稿随路径换位、自定义控件提交时机、折叠不挂载、焦点等采纳五处变异都被拦下；应用类型检查与 Lab 的 Vitest 48 例；`docs:check`、`governance:check`；Lab 的 nb-form、nb-ui、场景与 Lab 四组 e2e 36 例（nb-form 8 例）；截图 120 张没有溢出或报错，看图后收窄了展示态的复制按钮。截图在 `.local/agent/works/w00027-plugin-platform/tasks/t07-low-code-forms/reports/s3b-shots/`。
+
 ## 下一步
 
-S3b：结构控件（`ObjectFields`、`StringList`、`ObjectList`、`MasterDetail`）、`JsonEditor`、自定义控件合同、分组折叠与条件显示的渲染，补全 Lab 的“服务商连接”；之后 Sonnet（渲染层）加 omp（接口）审查。计划见 [plan.md](plan.md)。
+S3 的审查：Sonnet 审渲染层（界面、交互、可访问性），omp 审接口与核心衔接（提交、草稿、身份、自定义控件合同），并行。处理完做 S4（命令参数检查、隔离测试）与 S5（设置改用 `SchemaField`）。计划见 [plan.md](plan.md)。
