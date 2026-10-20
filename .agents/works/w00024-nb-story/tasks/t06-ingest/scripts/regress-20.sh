@@ -23,10 +23,12 @@ for attempt in 1 2 3 4 5 6 7 8; do
     echo "$(date -Is) attempt $attempt" >> "$LOG"
     if [ "$attempt" = 1 ]; then
         bun --env-file=$REPO/.env "$PKG/src/cli.ts" ingest "$OUT/样例前20章.txt" --id sample20 --library "$OUT/library" --config "$OUT/config.json" >> "$LOG" 2>&1
+        code=$?
     else
         bun --env-file=$REPO/.env "$PKG/src/cli.ts" ingest --book sample20 --library "$OUT/library" --config "$OUT/config.json" >> "$LOG" 2>&1
+        code=$?
     fi
-    echo "$(date -Is) exit $?" >> "$LOG"
+    echo "$(date -Is) exit $code" >> "$LOG"
     bun "$PKG/src/cli.ts" ingest --status --book sample20 --library "$OUT/library" --json > "$OUT/status.json"
     if grep -q '"state":"done"' "$OUT/status.json"; then echo "$(date -Is) $name done" >> "$LOG"; break; fi
     sleep 60
