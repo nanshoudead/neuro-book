@@ -11,23 +11,19 @@ import {
     SelectValue,
     SelectViewport,
 } from "reka-ui";
-import {useDropdownFloating} from "../../composables/useDropdownFloating";
+import PopupScrollbar from "../layout/PopupScrollbar.vue";
+import {popoverInlineSurfaceStyle, usePopoverLayer} from "../../composables/usePopoverLayer";
+import {usePopupScroll} from "../../composables/usePopupScroll";
 import {cn} from "../../utils/cn";
 import {useFieldContext} from "./field-context";
 
 /**
- * 下拉选择（Select · 65% 磨砂、8px 模糊、双向虚化遮罩与 macOS 悬浮滑块体系）。
+ * 下拉选择。弹出层基于 reka 的 Select 原语：键盘漫游、选中、打开时滚到选中项都由 reka 负责。
  *
- * 弹出层基于 Reka Select 原语构建，通过 `.nb-ui-popover-surface` 与 `.nb-ui-menu-surface`
- * 接入 65% 面色 + 8px 高斯模糊 + 130% 饱和度 + 1.0 亮度 与 4 层微反光立体阴影。
- *
- * 视觉与交互规范：
- * 1. 间距对称与空间避让：内容容器四周统一 6px 内边距（p-1.5），内容溢出时视口右侧自动保留 6px（pr-1.5）避让槽，杜绝滚动条与选项高亮/对勾重合；
- * 2. 齐腰截半露底：锁定黄金视口截断高度，精准呈现单行第 5.5 项 / 双行第 3.5 项 50% 截断视觉线索；
- * 3. 动态双向渐隐（后续虚化半个 item）：当有更多未读项时，视口底部通过 16px 精确散焦 mask 呈现柔润透光的虚化半项线索；滑到底部后虚化自动消除；
- * 4. 100% 绝对可见 macOS 悬浮微胶囊滑块：置于 Viewport 外侧、Content 内侧，不受渐隐遮罩切断，不受 Reka UI scrollbar-width:none 影响，自由抓取拖拽；
- * 5. 间距：`:side-offset="7"`，避免遮挡 Trigger 聚焦时的底部发光圈；
- * 6. 尺寸规范：严格消费 nb-ui-control-h-sm / nb-ui-control-h-md 主题高度。
+ * - 选项是弹出列表共用的一行（`.nb-ui-menu-item`）：一档行高与字号，选中只画左侧勾选列的勾、底色不变；
+ * - 滚动由 `usePopupScroll` 给出：截在第 9 项中间、顶底渐隐、悬浮滑块，可滚动时视口右侧给滑块让位；
+ * - 外框按 reka 给的可用高度夹紧；与触发器相距 7px，避开触发器聚焦时的光圈；
+ * - 浮层的内联材质（四层投影、8px 模糊）与 `.nb-ui-popover-surface` 不一致，见 `usePopoverLayer.ts`。
  */
 
 export type SelectSize = "default" | "sm";
@@ -102,10 +98,6 @@ const triggerClass = computed(() => cn(
     isInvalid.value ? "nb-ui-control-invalid" : "",
     attrs.class as string | undefined,
 ));
-const optionSizeClass = computed(() => isSmall.value
-    ? "min-h-[calc(var(--control-h-sm)-var(--space-1))] px-2.5 py-0.5 text-[12px]"
-    : "min-h-[var(--control-h-sm)] px-2.5 py-1.5 text-[13px]");
-
 const popperSide = computed(() => {
     if (props.dropdownDirection === "up") return "top" as const;
     if (props.dropdownDirection === "down") return "bottom" as const;
@@ -115,33 +107,27 @@ const allowSideFlip = computed(() => props.dropdownDirection === "auto");
 
 const selectedOption = computed(() => props.options.find((option) => option.value === props.modelValue));
 const selectedLabel = computed(() => selectedOption.value?.label ?? "");
+/** 有一项带图标或状态圆点时，其余项也留出这一列，名称左边对齐。 */
+const iconColumn = computed(() => props.options.some((option) => option.indicatorClass || option.iconClass));
 
 function handleUpdate(value: unknown): void {
     emit("update:modelValue", typeof value === "string" ? value : "");
 }
 
-// 浮层材质、同心律视口、黄金截半高度、双向虚化渐隐与 macOS 悬浮滑块单一真相源
-const {
-    popoverStyle,
-    popoverClasses,
-    setViewportRef,
-    viewportStyle,
-    viewportClasses,
-    handleViewportScroll,
-    handleThumbMouseDown,
-    handleCloseAutoFocus,
-    scrollThumbTop,
-    scrollThumbHeight,
-    isScrollable,
-    isDragging,
-} = useDropdownFloating({
-    size: computed(() => props.size),
-    sideOffset: 7,
-    popoverStyle: computed(() => ({
-        width: "var(--reka-select-trigger-width)",
-        minWidth: "var(--reka-select-trigger-width)",
-    })),
-});
+const {zIndex} = usePopoverLayer();
+const popoverStyle = {
+    ...popoverInlineSurfaceStyle(zIndex),
+    width: "var(--reka-select-trigger-width)",
+    minWidth: "var(--reka-select-trigger-width)",
+};
+
+/** 滚动只接 reka 的 `SelectViewport`：打开时由 reka 滚到选中项，这里不重置滚动位置。 */
+const scroll = usePopupScroll();
+
+/** 关闭时不把焦点强行弹回触发器（reka 会先弹一次焦点再交还，触发器的焦点环会闪一下）。 */
+function handleCloseAutoFocus(event: Event): void {
+    event.preventDefault();
+}
 </script>
 
 <template>
@@ -185,14 +171,15 @@ const {
                 :body-lock="false"
                 :disable-outside-pointer-events="false"
                 :style="popoverStyle"
-                :class="popoverClasses"
+                class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion relative flex max-h-[var(--reka-popper-available-height)] flex-col overflow-hidden"
                 @close-auto-focus="handleCloseAutoFocus"
             >
                 <SelectViewport
-                    :ref="setViewportRef"
-                    :class="[viewportClasses, '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden']"
-                    :style="viewportStyle"
-                    @scroll="handleViewportScroll"
+                    :ref="scroll.setViewport"
+                    class="nb-ui-popover-scroll w-full"
+                    :class="scroll.fadeClass.value"
+                    :style="scroll.viewportStyle.value"
+                    @scroll="scroll.onScroll"
                 >
                     <SelectItem
                         v-for="option in props.options"
@@ -200,39 +187,26 @@ const {
                         :value="option.value"
                         :data-value="option.value"
                         :disabled="option.disabled"
-                        class="nb-ui-popover-item mb-1 flex cursor-pointer select-none items-center gap-2 outline-none transition-colors last:mb-0 data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--overlay-item-active)] data-[highlighted]:text-[var(--text-main)] data-[state=checked]:bg-[color-mix(in_srgb,var(--accent-main)_14%,transparent)] data-[state=checked]:text-[var(--text-main)] font-normal data-[state=checked]:font-medium"
-                        :class="optionSizeClass"
+                        class="nb-ui-menu-item"
+                        :class="{'nb-ui-menu-item--multiline': Boolean(option.description)}"
                     >
-                        <span v-if="option.indicatorClass" class="h-1.5 w-1.5 shrink-0 rounded-full shadow-sm" :class="option.indicatorClass" aria-hidden="true"></span>
-                        <span v-else-if="option.iconClass" class="h-3.5 w-3.5 shrink-0 text-[var(--text-secondary)]" :class="option.iconClass" aria-hidden="true"></span>
-                        <span class="min-w-0 flex-1">
+                        <span v-if="!props.hideCheckmark" class="nb-ui-menu-item__check">
+                            <SelectItemIndicator class="inline-flex"><span class="i-lucide-check h-3.5 w-3.5" aria-hidden="true"></span></SelectItemIndicator>
+                        </span>
+                        <span v-if="option.indicatorClass" class="nb-ui-menu-item__icon inline-flex items-center justify-center" aria-hidden="true"><span class="h-1.5 w-1.5 rounded-full shadow-sm" :class="option.indicatorClass"></span></span>
+                        <span v-else-if="option.iconClass" class="nb-ui-menu-item__icon text-[var(--text-secondary)]" :class="option.iconClass" aria-hidden="true"></span>
+                        <span v-else-if="iconColumn" class="nb-ui-menu-item__icon" aria-hidden="true"></span>
+                        <span class="nb-ui-menu-item__label">
                             <SelectItemText class="block truncate">{{ option.label }}</SelectItemText>
                             <span
                                 v-if="option.description"
-                                class="mt-[calc(var(--space-1)*0.5)] block truncate text-[length:var(--text-2xs)] font-normal text-[var(--text-muted)] group-data-[state=checked]:text-[var(--accent-text)]"
+                                class="mt-0.5 block truncate text-[11px] leading-[14px] text-[var(--text-muted)]"
                             >{{ option.description }}</span>
                         </span>
-                        <SelectItemIndicator v-if="!props.hideCheckmark" class="shrink-0">
-                            <span class="i-lucide-check h-[1.15em] w-[1.15em] text-[var(--accent-main)]" aria-hidden="true"></span>
-                        </SelectItemIndicator>
                     </SelectItem>
                 </SelectViewport>
 
-                <!-- 100% 绝对可见、100% 鼠标完全可按住拖拽的 macOS 4px 悬浮胶囊滑块（独立避让区，不受 mask 渐隐吞噬） -->
-                <div
-                    v-if="isScrollable"
-                    class="absolute right-[3px] top-1.5 bottom-1.5 w-1 z-20 flex flex-col justify-start pointer-events-auto"
-                >
-                    <div
-                        class="w-1 rounded-full cursor-pointer transition-colors"
-                        :class="isDragging ? 'bg-[color-mix(in_srgb,var(--text-main)_75%,transparent)]' : 'bg-[color-mix(in_srgb,var(--text-main)_45%,transparent)] hover:bg-[color-mix(in_srgb,var(--text-main)_70%,transparent)]'"
-                        :style="{
-                            height: `${scrollThumbHeight}px`,
-                            transform: `translateY(${scrollThumbTop}px)`,
-                        }"
-                        @mousedown="handleThumbMouseDown"
-                    ></div>
-                </div>
+                <PopupScrollbar :scroll="scroll" />
             </SelectContent>
         </SelectPortal>
     </SelectRoot>

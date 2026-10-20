@@ -1,0 +1,423 @@
+# w00027 t07 低代码：设计审查（Sonnet，Vue 渲染层与 nb-ui）
+
+审查对象：`.agents/works/w00027-plugin-platform/tasks/t07-low-code-forms/plan.md`（2026-10-20 起草稿）。依据的代码都在 worktree `.worktree/w00027-plugin-platform`（HEAD ce5d72e45）。实验文件在 `/tmp/neuro-book/review-w00027-t07-design/lab/`（用 nb-ui 现有的 vitest 与 happy-dom 直接挂载真实组件，没有伪造运行时）。
+
+条目按发现顺序追加（文件只追加），严重程度见每条；末尾有按级别排序的索引。
+
+### 1. FormField 给不了“组合控件”一个名字：分段、单选组、复选组、开关接入后读屏读不到标签
+- 严重程度：阻断（计划的验收判据“标签与说明的关联”按计划写的机制做不到）
+- 类别：接口 / 可访问性
+- 位置：计划“Vue 渲染层”的 `FormFieldShell`、“nb-ui 的控件合同”；代码 `packages/nb-ui/src/components/form/FormField.vue`、`form-field-context.ts`
+- 现象：`FormField` 的根是 `<label :for="inputId">`，上下文只有 `inputId / descriptionId / errorId / ariaDescribedby / required / invalid`，没有标签元素的 id。标签与控件的关联完全靠 `for → id`，只对“一个可被 label 标注的原生控件”成立。计划要改的 `SegmentedControl`（`role=group` 的 div）、`RadioGroup`（`role=radiogroup`）、`CheckboxGroup`（`role=group`）、`Slider`（thumb 是 span）、`Listbox` 都没有一个能放 `id` 的、可被 label 标注的元素。`label for="nb-field-…"` 指向文档里不存在的 id，等于没有标签。
+- 为什么是问题：计划把“Switch、SegmentedControl、RadioGroup、CheckboxGroup……接上 FormField 上下文，把 id、aria-describedby、invalid 交给控件”当作统一合同，并把“标签与说明的关联”写进了验收。按字面做，这五类控件仍然没有可访问名称，只是多了 `aria-describedby`。nbdev 的单选、多选、确认三种题（计划“给 nbdev 与 Agent 的映射”）恰好全是这几类，所以主要使用方受影响。
+- 如何核实：读 `FormField.vue` 模板与 `form-field-context.ts`（无 labelId）；`grep -n "id" RadioGroup.vue CheckboxGroup.vue SegmentedControl.vue` 没有任何一处消费 `inputId`。实验：把 `Switch` 放进 `FormField label="Enabled"` 挂载，输出里 `<label for="nb-field-v-0">` 而按钮 `id="x"`（我手写的）、没有 `aria-labelledby`，见 lab/seg.test.ts。
+- 建议改法：给 `FormField` 增加“组”形态，并把 `labelId` 放进上下文。组合控件（分段、单选组、复选组、标签输入的多元素容器、对象数组）读 `labelId` 写 `aria-labelledby`，而不是 `aria-label`。根元素在组形态下用 `div`（或 `fieldset` + `legend`，二选一后写进 `FormField.md`）。推荐 `aria-labelledby`：`RadioGroup`/分段本身已经是 `radiogroup`，外面再套 `fieldset` 会让读屏重复报两层“组”；标签点击聚焦也改成点标签聚焦组里当前项。`ui-development-spec.md` 第 5 节加一条“组合控件用 labelId 命名”。`FormFieldShell` 的 `kind` 由 `selectWidget` 的结果决定用单元素形态还是组形态。
+
+### 2. `Switch` 带固定的 `aria-label="开关"`，放进字段里会盖过字段标签
+- 严重程度：重要
+- 类别：正确性 / 可访问性
+- 位置：计划“nb-ui 的控件合同”（`Switch` 补 readonly 并接上上下文）；代码 `packages/nb-ui/src/components/controls/Switch.vue:10-22`
+- 现象：`ariaLabel` 的缺省值是 `"开关"` 并且无条件写到 `SwitchRoot`。aria-label 的优先级高于 `<label for>`，所以放进 `FormField` 后读屏读到的是“开关”，不是字段标题。
+- 为什么是问题：计划没有提这个缺省值。`SettingsControl` 现在靠显式传 `:aria-label="label"` 绕过，`NbField` 若走统一上下文就会静默回归（读屏全读“开关”）。
+- 如何核实：lab 实验：`FormField label="Enabled"` 里挂 `<Switch id="x"/>`，渲染结果里按钮带 `aria-label="开关"`。
+- 建议改法：去掉缺省值，改为：上下文里有标签（`labelId`）就用 `aria-labelledby`，没有标签又没有 `ariaLabel` 时在开发期 `console.warn` 一次。同名 `.md` 与 Lab 场景同步改，现有调用方（`SettingsControl`、`PluginsPage`、`DocsSidebar`、`SampleSnippetsPage`）都已显式传了名字，不受影响，要在 S2 里逐个核对。
+
+### 3. 上下文的 key 和读取函数没有从 nb-ui 导出，nb-form 是另一个包，做不到“用 FormField 的上下文”
+- 严重程度：重要
+- 类别：接口
+- 位置：计划“Vue 渲染层”的 `FormFieldShell`、自定义控件登记（`widgets`）；代码 `packages/nb-ui/src/components/index.ts`、`form/form-field-context.ts`
+- 现象：`grep -rn "form-field-context" packages/nb-ui/src` 只在 `components/form/` 内部出现，`components/index.ts` 只导出了 `FormField` 组件，没有导出 `NB_FORM_FIELD_CONTEXT_KEY`、`useFormFieldContext`、`FormFieldContext` 类型。`FormField` 的 slot props 里有 `inputId / ariaDescribedby / invalid` 等，但没有 `required`（上下文有，slot props 没有）。
+- 为什么是问题：计划写“字段外壳……用 nb-ui 的 FormField 的上下文把 id、aria-describedby、invalid 交给控件”。外壳要么直接包 `FormField`（然后外壳自己的“问题”区、多条问题、warning 都得塞进 `FormField` 的单个 `error` 字符串，见第 9 条），要么自己 provide 同一个 key，这需要导出 key，而仓库规则不让跨包深导入。自定义控件作者（`widgets` 登记的组件，t02 的密钥控件、将来的 Agent 控件）也需要 `useFormFieldContext` 才能接入，同样没有出口。
+- 如何核实：`grep -n "FormField\|form-field-context" packages/nb-ui/src/components/index.ts` 只有一行。
+- 建议改法：S2 里先决定“外壳 = 包 `FormField`”还是“外壳自己 provide”。无论哪种，都要把 `useFormFieldContext` 与类型从 `@notnotype/nb-ui/components` 导出，并把 `FormField.md` 的“会可选读取这份上下文”一句补齐（现在只写了 4 个消费者，实际是 9 个：`FormInput / FormNumberInput / FormSelect / FormCheckbox / FormTextarea / TagInput / Combobox / TimePickerDefault`，见 grep），否则文档与实现再次背离。
+
+### 4. “要改的控件”清单与现状不符：已接上的写成了没接，该补的又漏了
+- 严重程度：重要
+- 类别：正确性（计划对现状的陈述）/ 遗漏
+- 位置：计划“nb-ui 的控件合同”第一条；代码 `packages/nb-ui/src/components/form/*.vue`、`controls/*.vue`
+- 现象：逐个读源码，现状如下（√ 表示已有）。
+
+| 控件 | FormField 上下文 | invalid 外观 | readonly | disabled |
+|---|---|---|---|---|
+| FormInput / FormTextarea / FormNumberInput | √ | √（`nb-ui-control-invalid`） | √ | √ |
+| FormCheckbox | √ | √（红边与焦点环） | 无 | √ |
+| FormSelect | √ | √ | 无 | √ |
+| Combobox | √（含 `aria-invalid`、`aria-required`） | √ | 无 | √ |
+| TagInput | √ | √ | 无 | √ |
+| Switch | 无 | 无 | 无 | √ |
+| SegmentedControl | 无 | 无 | 无 | 只有每项的 `disabled`，无整体 |
+| RadioGroup / CheckboxGroup | 无 | 无 | 无 | √ |
+| Slider | 无 | 无 | 无 | √ |
+| Listbox | 无 | 无 | 无 | √ |
+
+  计划说 `TagInput`、`Combobox` 要“接上 FormField 上下文”（已接）、`FormInput / FormTextarea / FormNumberInput / FormCheckbox` 要“补 invalid 的外观”（已有）。同时 `FormCheckbox` 缺 `readonly`、不在 readonly 清单里（计划只列它补 invalid）。`CheckboxGroup` 的每一项就是 `FormCheckbox`，复选组的只读靠它，所以这是个真缺口。
+- 为什么是问题：S2 的工作量与风险估计建立在这张表上。把已经完成的当作待办，会重复改动并增加回归面；漏掉的 `FormCheckbox.readonly` 会在 S3 才暴露（复选组与确认题没有只读画法）。
+- 如何核实：`grep -n "useFormFieldContext\|readonly\|invalid" packages/nb-ui/src/components/form/*.vue packages/nb-ui/src/components/controls/{Switch,SegmentedControl}.vue`。
+- 建议改法：把计划那一条换成上表的差集：缺上下文的 6 个（Switch、分段、单选组、复选组、Slider、Listbox）；缺 invalid 外观的 6 个同；缺 readonly 的 11 个（含 FormCheckbox、FormSelect、Combobox、TagInput）；缺整体 disabled 的 1 个（分段）。另外在计划里写明“本 Task 不覆盖”的还有 `Autocomplete / PinInput / Stepper / ToggleGroup / Editable / SwitchField` 与日期、颜色类：它们不接上下文，放进 `FormField` 里会静默没有 id 与 aria-invalid。
+
+### 5. 控件的值类型只能是字符串，计划的 `choices` 允许数字与布尔，转换放在哪没有交代
+- 严重程度：重要
+- 类别：接口 / 遗漏
+- 位置：计划“描述格式”的 `choices?: {value: string | number | boolean …}`、“字段种类：字面量单选”；代码 `RadioGroup.vue`（`RadioOption.value: string`，`update` 里 `val ?? ''`）、`FormSelect.vue`（`handleUpdate` 非字符串一律变 `""`）、`Combobox.vue`、`CheckboxGroup.vue`（`string[]`）、`Listbox.vue`
+- 现象：只有 `SegmentedControl` 的值可以是 `string | number | boolean | null`。其余选择类控件值只能是字符串，且“清空”回成空字符串。`SettingsControl.vue` 现在用“选项序号作值，选中后换回字面量”绕过这一点（`selectOptions` 的 `String(index)`）。nbdev 的确认题（`QuestionControl.vue`）则用 `"true"/"false"` 字符串往返。
+- 为什么是问题：`Type.Union([Type.Literal(1), Type.Literal("1")])` 这类值在字符串化后撞键；`Type.Literal(false)` 的选项值 `"false"` 与空字符串在 `RadioGroup` 里要靠 `''` 才能表示“未选”，布尔字面量选项与“未设置”无法区分。计划说“`selectWidget` 按种类打分”，但没有说谁负责“字面量 ↔ 控件值”的编码，各个自定义控件和 t02 的动态选项都会重复写。
+- 如何核实：读上面几处；`RadioGroup.vue` 的 `emit('update:modelValue', (val ?? '') as string)`。
+- 建议改法：在 nb-form 的 Vue 层写一处统一的“选项编码”：控件拿到的是 `String(index)`（或 JSON 编码的稳定键），出来时按选项表换回字面量；动态选项同样走它。把它写进计划和 `ui.forms` 的“控件选择规则”，并在核心的 `FormModel` 里直接给出带编码键的选项表（TUI 也要同一份）。核心测试覆盖 `1` 与 `"1"`、`true` 与 `"true"` 同时出现。
+
+### 6. 可选字段的 `undefined` 在 nb-ui 控件上直接出问题（已用真实组件复现）
+- 严重程度：重要
+- 类别：正确性 / 遗漏
+- 位置：计划“字段种类”末句“可选属性的值为 `undefined`，表单不补默认值”；代码 `SegmentedControl.vue`、`TagInput.vue`、`Switch`（经 `SettingsControl` 的 `modelValue === true`）
+- 现象（lab/seg.test.ts 的输出）：
+  1. `SegmentedControl` 的 `modelValue` 是必填类型，传 `undefined` 时 Vue 报 prop 类型警告，并且所有分段按钮 `tabindex="-1"`（实测 `[ '-1', '-1' ]`）。只有选中项才有 `tabindex=0`，所以未设置时键盘根本进不去这个控件。
+  2. `TagInput` 的 `modelValue` 必填，传 `undefined` 时挂载即抛 `TypeError: Cannot read properties of undefined (reading 'length')`。
+  3. `FormSelect` / `RadioGroup` 的 `modelValue` 回落为 `""`，选出来之后没有办法清回“未设置”：控件没有“清除”动作，用户一旦选了可选枚举就无法恢复成没有这个键。`Switch` 同理（`undefined` 显示为关，切两次得到 `false`，回不到 `undefined`）。
+- 为什么是问题：计划选择“不补默认值”，那么“值缺失”是一等状态，却没有写：每种控件怎么显示缺失、怎么从有值回到缺失、必填与可选的区别。t02 的设置全是“有默认值”的字段所以不暴露，nbdev 的“推荐”与 Agent 提问的可选字段会暴露。
+- 如何核实：见上，实验脚本在 `/tmp/neuro-book/review-w00027-t07-design/lab/seg.test.ts`。
+- 建议改法：在 `ui.forms` 里明确“缺失态”：渲染层对每个控件做适配（分段给第一个选项 `tabindex=0` 作为入口；数组类控件把 `undefined` 视作 `[]`），并规定“清除”规则：可选字段在控件旁给一个统一的“清除”动作（外壳提供，不改控件），清除后写回 `undefined`（删除键）；必填字段没有清除。把规则写成核心的 `FormModel` 属性（`required`、`clearable`），不让每个控件自己猜。
+
+### 7. “每种控件都有只读画法”没有给出每种控件的只读语义，且 Reka 系控件根本没有 readonly 能力
+- 严重程度：重要
+- 类别：接口 / 可访问性
+- 位置：计划“Vue 渲染层”的 `readonly` 模式、“nb-ui 的控件合同”的 `readonly?: boolean  // 可聚焦、可复制，不能改`；`ui-development-spec.md` 第 5 节第 6 条
+- 现象：`Switch`（Reka `SwitchRoot`）、`RadioGroup`（`RadioGroupRoot`）、`FormSelect`（`SelectRoot`）、`Slider`（`SliderRoot`）都只有 `disabled`，Reka 没有 readonly。原生 `<input type=checkbox>` 与 `<select>` 的 `readonly` 属性无效（HTML 规范只对文本类 input/textarea 生效），所以 `FormCheckbox` 的原生 checkbox 也不能直接写 `readonly`。计划只写“补 `readonly`”，没有一种控件被定义过。
+- 为什么是问题：规范要求“只读不等于禁用，可聚焦、可复制，不提交值变化”。对这些控件必须自己做，而且各不相同：
+  - 开关、复选：保持可聚焦，点击与空格不改值（`preventDefault`），写 `aria-readonly="true"`；
+  - 分段、单选：同上，方向键不移动选中，角色要是 `radiogroup`（现在是 `group` 里套 `role=radio` 的按钮，`aria-readonly` 挂不上，见第 12 条）；
+  - 下拉、可搜索下拉：触发器可聚焦，打开浮层被阻止，`aria-readonly`；“可复制”指选中项文字能选中（`user-select` 现在是 `select-none`）；
+  - 标签输入：标签是文本不是按钮，不渲染删除按钮、不渲染输入框，容器 `tabindex=0`；
+  - 滑块：thumb 保持可聚焦，键盘与指针都不改值。
+  不逐个定义，S2 的测试（“每个控件的 `disabled`、`readonly`、`invalid`”）就没有判据可写，各自实现出来会不一致。
+- 如何核实：读 `Switch.vue`（只传 `disabled`）、`SegmentedControl.vue`（`select-none`）、`FormCheckbox.vue`（原生 checkbox）、`RadioGroup.vue`；Reka 的 `SwitchRoot` / `RadioGroupRoot` / `SelectRoot` / `SliderRoot` 类型定义里没有 readonly。
+- 建议改法：把上面的表放进 `ui-development-spec.md` 的“表单控件合同”一节，每个控件一行（角色、`aria-readonly`、键盘、是否可聚焦、是否可选中文字）。判据写成测试矩阵：控件 × {disabled, readonly}，断言“键盘与指针操作后 `update:modelValue` 无事件；readonly 时 `tabindex` 不为 -1 且能 `focus()`；disabled 时进不了 Tab 顺序”。如果某种控件做不到真正的 readonly（例如 Reka Select），改为渲染成静态文本，并写明。
+
+### 8. “设置改用 NbField、行为不变”：NbField 缺 `id`、`disabled`、无外壳形态、宽度与排法出口
+- 严重程度：重要
+- 类别：接口 / 正确性
+- 位置：计划“第一批使用方·设置”；代码 `packages/neuro-book/src/ui/settings/SettingsRow.vue:117-140`（模板）、`plugins/settings/web/components/SettingsListSection.vue:43-67`、`SettingsControl.vue`；`settings-window.md` 输出 9、13、18
+- 现象：计划给 `NbField` 的属性是 `schema / path? / v-model / mode / issues? / options? / widgets? / locale`，行为要和下面这些一致，但缺的入口如下。
+  1. **标签重复**：`SettingsRow` 已经自己画 `<label :for="controlId">` 标题、说明、已修改竖线，并通过插槽把 `id`、`label`（可访问名称）、`disabled` 交给控件。`NbField` 经 `FormFieldShell` 再画一遍标签与说明，一个设置会出现两个标签；外壳的 `<label for>` 又生成自己的 id，与行传入的 `controlId` 打架。需要一个“无外壳（bare）”形态：只画控件，id 与名称由调用方给。
+  2. **`disabled`**：层 `invalid`、`unavailable`（输出 13）、沿用态的宽控件（`settings-row__wide` 里 `disabled=true`，输出 9 “控件照样画在下面、停用”）都是停用，不是只读。计划的 `mode` 只有 `'edit' | 'readonly'`，而 readonly 被定义为“可聚焦、可复制”，行为不同（停用不进 Tab 顺序）。
+  3. **宽度**：输出 9 逐项写了控件列宽度：下拉 220px、数字框 120px、单行 320px，分段按内容，开关原样；现在由 `.settings-control--select/number/text` 样式给。`x-form` 明说“不放宽度”，`NbField` 也没有 size 参数，`FormSelect`、`FormInput` 的缺省是 `w-full`，不处理就全部撑满。
+  4. **排法选择**：现在 `SettingsListSection` 用 `controlOf(setting).kind === 'readonly'` 决定 `wide`，即外壳向“选出的控件”问宽不宽。计划里 `selectWidget` 返回 `WidgetChoice`，但 `NbField` 没有把“这个控件是宽控件”交出来的出口，`SettingsRow` 的 `wide` 无从得知。数组、对象改成可编辑后，它们必须走宽排法。
+  5. **提示的来源**：`choices` 现在是设置声明里的字段（`settingChoices(declaration, locale)`，输出 9 “选项名取 `choices` 的 `title`”），分段/下拉的阈值 `SEGMENTED_LIMIT = 3`。t02 又要加 `ui`、`secret`、`choices.from`。计划的 `x-form.choices / options` 与它并存，却没有说声明怎么变成 schema 上的 `x-form`，`NbField` 也没有 `hints` 入口（`resolveForm` 有）。阈值 3 没有写进选择打分的规则里，三个字面量选项会不会仍是分段、四个是下拉，没有判据。
+- 为什么是问题：“行为不变”是计划的验收（“设置现有的组件测试与 settings.e2e.ts 照常通过”）。以上 5 点一个都没有落实到接口上，S4 才会发现并回头改 S3 的组件接口。
+- 如何核实：读上述文件；`settings-window.md` 输出 9 的宽度与排法条目；`SettingsRow.vue` 模板里 `<label class="settings-row__title" :for="controlId">`。
+- 建议改法：`NbField` 增加 `id`、`disabled`、`bare`（默认 false；设置里为 true）、`hints`；`mode` 改为独立的 `readonly` 与 `disabled` 两个布尔；`selectWidget` 的结果带 `layout: "inline" | "block"` 与 `width: "narrow" | "medium" | "wide" | "content"`，`NbField` 通过 `defineExpose` 或 slot 的 prop 交给 `SettingsRow`（或提供纯函数 `widgetLayout(schema, hints)` 给 `SettingsListSection` 先问再传 `wide`）。把阈值 3 写进 `ui.forms` 的“控件选择规则”并进核心测试。
+
+### 9. 问题（issues）的展示与 nb-ui 规范第 5 节第 8 条冲突，且 FormField 只有单条 error，容不下多条与 warning
+- 严重程度：重要
+- 类别：不变量 / 接口
+- 位置：计划“旧应用的低代码”表的 `issues` 行（保留 `severity: error / warning` 与路径）、“字段外壳 FormFieldShell：标签、必填、说明、控件、问题”；`ui-development-spec.md` 第 5 节第 8 条；`FormField.vue`
+- 现象：规范写明“校验结果不改变表单的排版：出错时不在字段下插入文字……`FormField` 的 `error` 只标红、把原因交给读屏，看得见的原因写在一个固定位置（对话框是页脚状态行，一次只写一条）”。旧应用的 `LowCodeFieldShell` 恰恰是在控件下面逐条画 `issue.message`（`text-[var(--status-danger)]` / `warning`），计划说“保留”。但：
+  1. `FormField` 的 `error` 是单个字符串，一个字段多条问题（TypeBox 常见：既 `minLength` 又 `pattern`）要先合并；`warning` 没有位置：把 warning 传给 `error` 会令 `aria-invalid=true`、控件标红，等于把警告当错误。
+  2. 嵌套字段：对象数组第 3 项的第 2 个子字段出错，“固定位置”是哪里？表单没有页脚，嵌套外壳逐层标红还是只标最内层？列表项折叠起来了，里面有错，外面看不见。
+  3. 提交前后：规范第 8 条第一小点要求“能事先防住的不报错”，`NbForm` 的 `issues` 是外部传入的，何时给由调用方决定；但表单没有 `touched` 概念，直接渲染所有 `validateForm` 的结果会让用户一打开就满屏红。
+- 为什么是问题：计划没有一句话处理这个冲突。实现者要么违反规范（字段下插文字），要么自己发明“固定位置”。三种使用方（设置、nbdev、Agent 审批）的“固定位置”完全不同。
+- 如何核实：读规范第 5 节与 `FormField.md` 的“布局”；旧应用 `LowCodeFieldShell.vue` 末尾的 `issues` 循环。
+- 建议改法：在 `ui.forms` 里写明“问题汇总”契约：`NbForm` 通过 slot `issues`（或事件 `focus-issue`）把全部问题交给调用方，调用方放在自己的固定位置（设置：通知；nbdev：答复表单的页脚；Agent 审批：对话框状态行）；字段层只标红（`error` 取该字段第一条 error 的文本给读屏）。warning 不进 `invalid`，用 `aria-describedby` 指向一个说明元素，图标和色调区分，不改排版。嵌套字段：折叠项头部加“含 N 个问题”的标记，不展开也看得见；`NbForm` 提供 `focusFirstIssue()`。`touched` 由调用方控制（只传入想显示的 `issues`），文档写明表单不做“何时显示”的判断。
+
+### 10. 表单是“受控”的，但没有定义“提交时机”和“草稿”：数字的中间态、设置的失焦写入、t02 的“草稿加保存”都没有位置
+- 严重程度：重要
+- 类别：接口 / 正确性
+- 位置：计划“Vue 渲染层”（`v-model`）、“关键设计”首句；`settings-window.md` 输出 14；t02 计划“前置：低代码”第 3 条“草稿与校验：控件给出当前草稿是否合 schema 与错误位置”、“Lab 的模型服务示例：详情表单用草稿加保存，用 `context.dirty`”
+- 现象：`SettingsControl` 现在对数字与单行输入保留本地草稿，只在失焦（焦点离开整个控件，步进按钮除外）或回车时才 emit；`NbField` 按计划是纯 `v-model`，每次输入都 emit。后果：
+  1. 设置的“失焦或回车才写”不成立：每敲一个键就会写一次设置文件（输出 14）。
+  2. 数字中间态：schema 为 number 时，受控值是数字，而 `FormNumberInput` 的合同是字符串模型并“保留中间态如空字符串、负号和小数点”。`"1."` 解析成 1 再回传给控件，会把用户刚敲的小数点抹掉。必须有草稿层，但计划里没有。
+  3. t02 假定低代码给出“当前草稿是否合 schema 与错误位置”，并用“草稿加保存”做服务商详情；计划的 `NbForm` 没有 `draft`、`dirty`、`commit` 的概念，下游照字面做会返工。
+  4. 写入失败要“回到实际值”（输出 14）：当前靠 `watch(modelValue)` 重置草稿，而被拒绝的写入没有改变 `modelValue` 时 watch 不触发。现在能工作是因为 `SettingsListSection` 的 `shown()` 在写入期间用了 `pending` 值，结算后值变回去才触发 watch（`SettingsWindow.dom.test.ts` “不合 schema 的值被拒、回到实际值” 依赖这一点）。`NbField` 必须保留同一语义。
+- 为什么是问题：这是“行为不变”能不能做到的核心点，也是表单的基本合同，计划里“表单受控、数据由调用方管”一句话带过了。
+- 如何核实：读 `SettingsControl.vue` 的 `draft / commit / onFocusOut`、`FormNumberInput.vue` 注释“保留中间态”，以及 t02 plan 同名小节。
+- 建议改法：在 `ui.forms` 加“提交时机”：`NbForm / NbField` 有 `commit: "input" | "change"` 属性（缺省 `"change"`：文本类控件失焦或回车才 emit；开关、选择类立即）；文本、数字、JSON 控件内部持有草稿并向外发 `draft-state`（`{valid, issues}`，不合法的草稿不发 `update:modelValue`）。外部 `modelValue` 与草稿不一致且没有焦点时，以外部为准重置草稿（含“同一值重新到来”：靠 `revision` 或在失败时调用 `reset()`）。S3 的测试用真实的 `SettingsWindow` 场景。
+
+### 11. 计划的验收“现有测试与 settings.e2e.ts 照常通过”与计划自己的改动互相矛盾
+- 严重程度：重要
+- 类别：测试
+- 位置：计划“验收映射”末行、“第一批使用方·设置”（“数组、对象改成可编辑”“SettingsControl.vue 删除”）；`SettingsWindow.dom.test.ts:121-143`、`setting-controls.test.ts`、`lab/web/fixtures/index.ts:1086`、`SettingsRowFixture.vue`
+- 现象：
+  - `setting-controls.test.ts` 的 10 余条用例测的是 `settingControl()` 与 `SettingControl` 类型，两者随 `SettingsControl.vue` 一起删除，这些测试要么删要么迁到 nb-form 的核心；
+  - `SettingsWindow.dom.test.ts` “其它分区” 用例断言 `[data-settings-control]` 的种类序列 `["switch","number","switch","text","select","readonly"]`，并断言 `tags` 项在 `[data-settings-row-wide] [data-settings-control='readonly']` 里。数组改成可编辑后“readonly”这一项就不存在了，同时 `data-settings-control` 钩子是 `SettingsControl` 自己的；
+  - Lab 里有 `SettingsControl` 的 `defineSubjectFixture`（7 个场景）、`SettingsRowFixture.vue` 引用 `SettingsControl` 与 `settingControl`，`SettingsControl.md` 也要同步处理（规范“改组件必同步 .md”，删除组件则删文档并改登记）；
+  - 同一用例里“数字框回车提交、`input.value` 回到 `120`”依赖第 10 条的草稿语义。
+- 为什么是问题：“照常通过”不可能；真正要做的是按新行为改这几条测试，并说明哪些旧判据被保留（`SEGMENTED_LIMIT`、范围与步长取 schema、回到实际值）。不列出来，实现者会为了让旧断言过而在产品里加 `data-settings-control="readonly"` 之类的兼容钩子（计划禁止清单正好有“产品代码里加测试专用分支”）。
+- 如何核实：`grep -rn "data-settings-control\|settingControl\|SettingsControl" packages/neuro-book/src packages/neuro-book/e2e`。
+- 建议改法：验收映射改成“设置的行为判据逐条迁到新实现”，列出：开关/分段/下拉/数字/单行的种类与阈值（核心表驱动测试，沿用 `setting-controls.test.ts` 的用例表）、草稿与回到实际值（`SettingsWindow` 的 DOM 测试）、数组/对象可编辑（新增）；删除 `SettingsControl` 的 Lab 场景并把场景迁到 `NbField`；`data-settings-control` 若还要用，由 `NbField` 以稳定的 `data-nb-widget` 提供，而不是测试专用钩子。
+
+### 12. SegmentedControl 的角色和属性不成立，加 readonly/disabled 前先要修
+- 严重程度：重要
+- 类别：可访问性 / 正确性
+- 位置：计划“nb-ui 的控件合同”（`SegmentedControl` 补 `disabled`、`readonly`）；代码 `packages/nb-ui/src/components/controls/SegmentedControl.vue` 模板
+- 现象：根是 `role="group"`，子按钮是 `role="radio"` 同时带 `aria-pressed` 和 `aria-checked`。`role=radio` 需要在 `radiogroup` 里，`aria-pressed` 只属于 toggle button，二者并存是无效组合；组上没有 `aria-orientation`；`aria-readonly`、`aria-required`、`aria-invalid` 都只对 `radiogroup` 有定义，挂不到 `group` 上。方向键同时移动焦点并选中（`selectOption`），readonly 时必须不选中。`select-none` 令只读画法下无法选中文字。
+- 为什么是问题：计划要把它接入 FormField、给它 readonly 与 invalid，等于把这些状态挂在一个角色不对的元素上。
+- 如何核实：读模板的 `role`、`aria-pressed`、`aria-checked`；ARIA 1.2 里 `aria-readonly` 的适用角色不含 `group`。
+- 建议改法：根改为 `role="radiogroup"`，删 `aria-pressed`；`aria-labelledby`（第 1 条）、`aria-readonly`、`aria-invalid`、`aria-required` 加在根上；未选中任何项时第一个可用项取 `tabindex=0`（第 6 条）。S2 的测试断言角色与 `aria-checked`。
+
+### 13. 结构控件（字符串数组、对象数组、master-detail）的交互只有一句话，焦点落点、键盘、嵌套按钮、边界都没定
+- 严重程度：重要
+- 类别：遗漏 / 可访问性
+- 位置：计划“结构控件（递归的）放在本包：对象……字符串数组（逐行列表，增删排序）、对象数组（列表；master-detail 是左列表右详情）”
+- 现象：下列问题计划里都没有答案，而它们决定组件结构。
+  1. **增删后的焦点**：点“删除”的按钮随该行一起从 DOM 里消失，焦点落到 `body`，键盘与读屏用户丢失位置。必须规定：删除后焦点移到下一行同一类控件，没有下一行就到上一行，列表空了到“添加”按钮；添加后焦点进入新行第一个输入。排序后焦点跟着被移动的那一行的“移动”按钮。
+  2. **排序的键盘操作**：计划只写“排序”。没有拖拽的现成实现可复用（资源管理器的拖放是树专用的，`reorder-plan.ts`），所以要么用“上移/下移”按钮，要么 `Alt+↑/↓`。需要选一个并写进规范；读屏要有 live region 播报“第 3 项移到第 2 位”。
+  3. **按钮嵌套**：master-detail 的列表项既要“点击选中”又要“删除/排序”，规范第 10 节有明确一条“可点击卡片内嵌操作防按钮嵌套：主触发区与操作按钮并列为兄弟节点”。计划没有提。
+  4. **边界**：`minItems / maxItems`（到上限时禁用“添加”、到下限时禁用“删除”）、`uniqueItems`（字符串数组重复项如何提示）、空数组的显示（“还没有项”加添加按钮）、空对象（`Type.Object({})`，`additionalProperties` 的键值对编辑是不是支持？`Type.Record` 在字段种类里没有，会落到“未知，兜底 JSON”）、元组（`Type.Tuple`）也是。
+  5. **很长的数组**：一个 1000 项的字符串数组会一次挂 1000 个输入框；没有分页、虚拟化或折叠阈值。readonly（审批）下的长数组同样。设置窗口的 `tags` 类配置今后可能很长。
+  6. **master-detail 的窄屏与选中项**：390px 下“左列表右详情”怎么排计划推给 t06，只“保证能用”，但“能用”没有判据；删除选中项后选中谁（下一项、上一项、无）；新增项后是否自动选中并聚焦详情；详情里的错误如何在列表项上提示（第 9 条）。
+  7. **对象数组的项标题**：`itemLabel` 指向的字段为空时显示什么（“未命名项 N”需要本地化，第 21 条）。
+- 为什么是问题：这些是结构控件的核心行为，不是外观；缺了任何一条，S3 的组件测试没有判据，Lab 截图也看不出（焦点丢失是不可见的）。
+- 如何核实：计划“Vue 渲染层”小节；`ui-development-spec.md` 第 5 节 5/6 条与第 10 节最后一条。
+- 建议改法：在 `ui.forms` 加“列表编辑”小节，逐条写：添加/删除/排序的按钮与键盘、焦点去向、live region 文案、`minItems/maxItems/uniqueItems` 的表现、空态、折叠阈值（例如超过 50 项默认折叠成“N 项”，展开后分页）。测试用真实 DOM 的焦点断言（`document.activeElement`）。
+
+### 14. 列表项没有稳定身份：按下标做 key 会让草稿、折叠、选中状态串到别的项上；受控下的不可变更新与性能没有规定
+- 严重程度：重要
+- 类别：正确性 / 性能
+- 位置：计划“受控 `v-model`”“结构控件”；设置层的值是冻结的（`SettingsRow.vue` 注释“冻结的读取结果可以直接交出去”）
+- 现象：
+  1. **key**：字符串数组的元素是原始值，对象数组的元素是没有 id 的对象。按下标当 `:key`，删除第 2 项后，第 3 项的组件实例（含内部文本草稿、折叠状态、master-detail 的选中、焦点）被复用于“新的第 2 项”，内容会错位；按值当 key，重复字符串与编辑中的字符串（每次按键 key 都变，输入框重建，失去焦点）都会出问题。`TagInput` 现在就以标签文字作 key（唯一性靠去重）。
+  2. **不可变更新**：`v-model` 下 `NbForm` 深层字段的修改要产生新的根值。要求写明：沿路径写时复制（未改动的分支保持原引用）、不对传入值原地修改。设置传入的是冻结的 `DeepReadonly` 值，原地修改会在严格模式抛错；Vue 对冻结对象的响应式也有特殊处理。核心的 `setAtPath` 要有对冻结值的测试。
+  3. **性能**：保持“未改动分支引用不变”后，字段的 `computed(() => get(root, path))` 才不会让整张表单每次按键重绘；但 `validateForm`（TypeBox `Value.Errors` 遍历整个值）、`isVisible`（每个带 `visibleWhen` 的字段）若在每次 `modelValue` 变化时对整个值重跑，1000 项的数组每按一次键就 O(N) 校验。需要规定：校验在 `commit` 时机跑（第 10 条），或者按子树缓存。
+- 为什么是问题：串位是静默的数据错误（改了 A 项的文字，B 项的草稿显示在 A 的位置），不会在 Lab 小样例里出现，只在删除/排序后出现。
+- 如何核实：读 `TagInput.vue` 的 `:key="tag"`；任何以 index 作 key 的实现都可以用“删除中间一项后看第二项的草稿”复现。
+- 建议改法：列表控件内部维护与数组并行的稳定 id 数组（元素 identity 在不可变更新下保持，可用 `WeakMap<object, id>` 给对象项；原始值项用并行 id 数组，外部值整体替换且与最近发出的值不一致时重新生成）。`ui.forms` 写“值不可变、写时复制”的条款，核心测试用 `deepFreeze` 的输入。校验时机见第 10 条。
+
+### 15. `Combobox` 的 `modelValue` 就是输入框里的文字，不能当作“可搜索的选择”使用
+- 严重程度：重要
+- 类别：接口 / 正确性
+- 位置：计划“nb-ui 的控件合同”的要改清单（`Combobox`）、“动态选项”；代码 `packages/nb-ui/src/components/form/Combobox.vue`
+- 现象：`handleInput` 每次输入都 `emit("update:modelValue", value || null)`，`filteredOptions` 用 `modelValue` 做过滤词，`displayValue` 命中选项显示 label、否则显示原文。也就是说它是“可自由输入、带建议”的输入框，输入一半的文字就是值。作为字面量联合或动态选项的选择控件，用户敲了 “gp” 就会把 `"gp"` 写进数据；失焦没选就留下非法值。
+- 为什么是问题：计划把 `Combobox` 列为要改控件，但整套 widget 清单里没有任何一种会用它（第 16 条），而 t02 的“模型服务”需要“从很多选项里搜索选择”，旧应用也有 `combobox` 字段（`LowCodeComboboxField`）。没有明确“限定选择”与“允许自定义”两种语义，t02 会各写一份。
+- 如何核实：读 `Combobox.vue` 的 `handleInput`、`filteredOptions`。
+- 建议改法：给 `Combobox` 增加 `strict`（默认 false，保持现有行为）：strict 时输入文字是内部搜索词，`modelValue` 只在选中选项时变化，失焦恢复显示已选项；计划加一个 widget `"combobox"`（选项多于阈值，或声明 `options` 动态源时的缺省），并规定值不在选项里时的显示（第 20 条）。
+
+### 16. 计划列的控件和 widget 清单对不上：Slider、Listbox、Combobox 没有对应 widget，数字、开关、`json`、`confirm` 没有说用哪个控件
+- 严重程度：建议（范围）
+- 类别：接口 / 遗漏
+- 位置：计划“描述格式”的 `widget` 清单与“nb-ui 的控件合同”的要改清单
+- 现象：`widget` 取值：`multiline / secret / json / radio / segmented / select / checkboxes / tags / list / master-detail / confirm`。对照：
+  - 要改但没有 widget 的控件：`Slider`、`Listbox`、`Combobox`（共 3 个，每个都要补 readonly、上下文、invalid、`.md`、Lab 场景、测试）。`Slider` 的数字范围控件（数值有 min/max 的字段）没有 `slider` widget；`Listbox` 可以是 master-detail 的左列表，但计划没有说；
+  - 有 widget 但没说控件的：`json`（是 `FormTextarea` 等宽字体加解析校验，还是 Monaco？t02 另处写到“排版设置只做 Monaco”），`confirm`（“是/否”，nbdev 现在是 `RadioGroup` 的“同意/不同意”，需要不是 `Switch`，也不是 `FormCheckbox`）；
+  - 内建种类没有写控件的：数字（`FormNumberInput`；`unit` 怎么画，是控件内后缀还是外壳？计划说“FormNumberInput 的 unit”）、布尔（`Switch`，在字段里是 `SwitchField` 还是 `Switch`，两者外观不同）。
+- 为什么是问题：S2 的范围是否包含这三个控件决定工作量；widget 与控件的映射是 `selectWidget` 打分表的内容，核心测试要写。
+- 如何核实：对照计划两处清单。
+- 建议改法：给出一张“种类/widget → nb-ui 控件”的表放进计划；`Slider` 与 `Listbox` 若本 Task 不用，从 S2 范围移除（记为后续），或各补一个 widget 并写判据。`unit` 用 `FormInput` 现有的 `suffix` 插槽组合，不为它改 `FormNumberInput` 的合同。
+
+### 17. “组件不依赖宿主，以后能打包进 iframe”在 nb-ui 现状下只成立一半，也没有可检验的验收
+- 严重程度：重要
+- 类别：不变量 / 测试
+- 位置：计划“Vue 渲染层”末条；Task README 决定 2（“本 Task 只保证表单组件能打包进 iframe 使用”）
+- 现象：读 nb-ui 的 `inject(` 全部用例：`NB_POPOVER_Z_INDEX`、`NB_TELEPORT_TARGET`、`NB_TELEPORT_CONTAINED`、`NB_DIALOG_WINDOW_DEPTH`、`SASH_GESTURE_SCOPE_KEY`、`NB_THEME_COMPONENTS` 都带缺省值，所以“没有 provide 也能挂载”这一半成立。不成立的部分：
+  1. **主题**：颜色等 token 不随组件走，由 `colorway-store` 与 `theme-store` 往 `document.documentElement` 写 CSS 变量与 `data-nb-theme`（`src/colorway/colorway-store.ts:88-91`、`theme/theme-store.ts:62-65`）。iframe 是另一个文档，没人在里面应用这些，控件全部没有颜色。计划写“只用 nb-ui 自己的主题”，没说谁在 iframe 里应用主题。
+  2. **样式与图标**：图标靠 `i-lucide-*` 样式类，随 `dist/nb-ui.css`；iframe 里必须加载同一份 CSS。
+  3. **浮层**：`FormSelect`、`Combobox` 经 Reka portal 到 iframe 自己的 `body`，下拉被限制在 iframe 窗口内；宿主在 iframe 外面看到的下拉会被裁。
+  4. **包形态**：`@notnotype/nb-ui` 是 `private`，`exports` 全指向源码（`./src/*.ts`、`.vue`），`nb-form` 同理。要打进 iframe 需要一条构建管线，计划没有。
+  5. **没有验收**：计划把“能打包进 iframe”写成设计目的，却没有一条验收映射或测试。
+- 为什么是问题：这是开发者决定 2 的唯一约束，没有测试就会随时被破坏（比如有人在 `nb-form/vue` 里 `import` 了应用的通知或路由）。
+- 如何核实：`grep -rn "inject(" packages/nb-ui/src`；读 `colorway-store.ts`、`theme-store.ts`；`packages/nb-ui/package.json` 的 `exports`。
+- 建议改法：把声明收窄为“`nb-form/vue` 不 import 应用代码、不读全局 store、不 `provide` 之外的隐藏通道；主题 token 与 CSS 由宿主在 iframe 文档里应用”；验收加两条：①隔离测试：在空的 happy-dom 文档里不 provide 任何东西，把每种字段种类各挂一遍（含只读）；②依赖检查：`nb-form` 的 import 只允许 `vue`、`typebox`、`@notnotype/nb-ui`（可以做成 `governance:check` 的一条规则）。iframe 的构建与主题注入记为后续，写进 README 的“后续”。
+
+### 18. `SecretInput` 的合同不成立：值不在模型里时 v-model、必填校验、`unreadable` 状态和归属都没有定义
+- 严重程度：重要
+- 类别：接口 / 正确性
+- 位置：计划“新增到 nb-ui 的基础控件：`SecretInput`（已设置／未设置、替换、清除；不显示值）”、`widget: "secret"`、`writeOnly`；t02 计划“密钥”小节
+- 现象：
+  1. **v-model 是什么**：t02 的密钥不在设置值里，由 `secretStatus(setting)`（`set / unset / unreadable`）单独报告，修改经 `editSecret / unsetSecret`。所以表单加载时该字段的值永远是 `undefined`，“已设置”这个事实在数据之外。`NbForm` 的属性里没有给每个路径传“带外状态”的位置。`SecretInput` 的 `modelValue` 是 `string | undefined`（用户键入的新值），“清除”是什么值（空串？`null`？一个事件？）没有定义。
+  2. **必填校验**：`required` 的 `writeOnly` 字符串，按 `validateForm` 校验就永远报“缺少”，因为值从不回读；需要“该路径带外已设置”时跳过必填。
+  3. **`unreadable`**：t02 要求“`unreadable` 时提示‘无法解密，请重新输入’”，计划里的控件只有“已设置／未设置”两态。
+  4. **归属**：t02 写的是“密钥控件由 t02 登记”（登记进低代码），本计划把 `SecretInput` 放进 nb-ui 并内建 `widget: "secret"`。把“已设置／未设置、清除”这类业务状态写进 nb-ui 的通用基础控件，与组件规范“严禁将业务数据模型写死进通用组件”（`ui-development` Skill 二、2）冲突；而另一方面 `FormInput type=password` 已经存在。
+  5. **浏览器行为**：密码管理器自动填充（`autocomplete="new-password"` / `off`）、把值留在 DOM 里的时间、readonly 与审批视图里密钥显示什么，均未写。
+- 为什么是问题：t02 的 S3 会直接用它，接口不定就会返工；`writeOnly` 的必填错误是真实的误报。
+- 如何核实：读 t02 计划“密钥”与“前置：低代码”；`FormInput.vue` 的 `type: "password"`。
+- 建议改法：nb-ui 里只加通用的“可替换的敏感输入”（`SecretInput`：属性 `state: "set" | "unset" | "unreadable"`、`modelValue` 为新值、事件 `clear`），不含业务文案；`NbForm / NbField` 增加 `meta`（按路径给带外状态，如 `{"/apiKey": {secret: "set"}}`），`validateForm` 对 `writeOnly` 字段在 `meta` 为 `set` 时跳过必填；`unreadable` 文案走本地化。同时和 t02 对一次谁登记（建议内建，t02 只传 `meta`）。
+
+### 19. 与下游 t02 的假设不一致：声明字段、草稿状态、“选项已不存在”、`title` 与 `label`
+- 严重程度：重要
+- 类别：接口
+- 位置：计划“描述格式”“核心”；t02 计划“前置：低代码”“声明 API”“动态选项”
+- 现象（按 t02 照字面实现会遇到的）：
+  1. t02 声明字段是 `secret: true`、`choices: {from: "<提供者 id>"}`、`ui: {...}`；t07 的提示在 schema 的 `x-form` 里：`writeOnly: true`、`options: "<源名>"`、`widget / rows / itemLabel`。两边词汇不同，且 t02 说 `ui` 的内容“由低代码校验”，计划里没有校验 `x-form` 内容的函数（`checkDescription` 管 schema 与布局，不管 `x-form` 的字段拼写和值域）。
+  2. t02 要“控件给出当前草稿是否合 schema 与错误位置”（第 10 条）。
+  3. t02：“当前值不在选项里时照常显示并标‘已不存在’”。计划没有这个行为（见第 20 条）。
+  4. t02 的选项是 `{value, title}`，计划是 `{value, label, description?}`，字段名不同；`Text` 本地化形态也不同（t02 提供者给的是 `title`，已本地化？）。
+  5. t02 的“对象数组存服务商列表 + 详情表单用草稿加保存”需要的是第 10 条的草稿提交语义和 master-detail 的“选中项”双向绑定（`selected` 状态）；计划的 master-detail 没有暴露选中项，`NbForm` 的 v-model 之外无 `v-model:selected`。
+- 为什么是问题：计划说“t02 会用本计划的接口”，t02 的回改要等 t07 定稿，但两份文档现在各写各的，S3 之后才发现会损失一轮。
+- 如何核实：并排读两份计划上述小节。
+- 建议改法：t07 确认前，用一张对照表把 t02 的四个假设逐条落成 t07 的接口（或声明不支持并通知 t02 回改）：词汇统一（建议以 `x-form` 为准，t02 的 `secret / choices.from / ui` 在声明层转成它）、`title` 统一为 `label`、`FormModel` 暴露 `draftState`、master-detail 加 `v-model:selected`。
+
+### 20. 旧应用有、计划没有的行为：值不在选项里的提示、选项的 `disabled`、依赖其它字段值的选项、异步选项、默认值显示
+- 严重程度：重要
+- 类别：遗漏（对照参照）
+- 位置：计划“旧应用的低代码”表；旧应用 `LowCodeForm.vue`（`isUnavailableOptionValue`）、`profile-sdk/contracts.ts` 的 `LowCodeFieldOption`、`LowCodeFieldOptionsProvider`、`LowCodeFormResolveContext`、`low-code-form-utils.ts`
+- 现象：逐项对照。
+  | 旧应用 | 计划 |
+  |---|---|
+  | 当前值不在选项里：字段下加 `warning` 提示（`unavailable_option`），选择类控件在值无对应项时仍保留 | 无；FormSelect 会显示空白，数据里却有值；动态选项被删后用户看不出原因 |
+  | 选项带 `disabled`、`description` | 只有 `description`；FormSelect/RadioGroup/CheckboxGroup 本来都支持 `disabled`，丢掉不合理 |
+  | 选项提供者收 `ctx.values`（当前表单值），可以按其它字段联动；返回值可以是 Promise | `options` 是 `Record<名, Ref<数组>>`，没有入参，没有加载中与失败状态；联动只能由调用方在外面自己监听值再改 Ref |
+  | `optionKey = typeof:value` 避免 `1` 与 `"1"`、`true` 与 `"true"` 撞键 | 没有（第 5 条） |
+  | `defaults` 与字段的 `defaultValue`：控件显示默认值，提交时 `withLowCodeFormDefaults` 合并 | 计划说 `default` “只供表单显示‘默认’，不由表单填入”，但没说“显示”是什么：文本框 placeholder？开关显示默认的开关状态？分段显示选中但数据里没有？ |
+  | `required` 在字段上 | 在 schema 的 `required` 里，可选字段 `undefined`（第 6 条） |
+  | `integer` | `Type.Integer`，一致 |
+- 为什么是问题：动态选项“值不在选项里”是 t02 的“服务商删掉后默认模型指向它”的主路径，且旧应用已经为它做了专门的提示，说明是踩过的坑。
+- 如何核实：读旧应用 `LowCodeForm.vue` 的 `isUnavailableOptionValue`、`profile-sdk/contracts.ts:511-541`。
+- 建议改法：选择类控件统一加“值未知”状态：当前值不在选项里时，在选项列表末尾显示该值并标“已不存在”（`warning` 色调，不改排版），保留原值，且不当成校验错误；选项增加 `disabled`；`options` 源允许是 `(values) => Ref<…>` 或带 `{items, loading, error}` 的对象；在 `ui.forms` 明确 `default` 的显示规则（建议：文本类用 placeholder，选择类在标签旁用“默认：X”文字，不预选）。
+
+### 21. 本地化与内建文案：nb-ui 控件里有硬编码中文，nb-form 的新文案没有出处，`LocalizedText` 类型不在核心依赖里
+- 严重程度：建议
+- 类别：遗漏
+- 位置：计划“描述格式”的 `Text = string | LocalizedText`、`:locale`；代码 `packages/neuro-book/src/shared/localized-text.ts`、nb-ui 控件
+- 现象：
+  1. `LocalizedText`、`DisplayLocale` 定义在应用里（`neuro-book/src/shared/localized-text.ts`，`zh-CN / en-US` 两份都必填）。nb-form 核心“只依赖 TypeBox”且在应用之下，需要自己定义同构的类型；nbdev（独立 Vue 应用）和 Agent 生成的描述未必有两份文案，`string` 已经覆盖，但 `LocalizedText` 的形状要在计划里写死，否则被 Agent 当作文案时缺一种语言怎么办（回退顺序）没有说明。
+  2. nb-ui 现有硬编码中文可访问名称 14 处（`grep -rn 'aria-label="…中文' packages/nb-ui/src/components`）：“增加”“减少”“清空输入”“展开选项”“移除标签 X”“开关”。nb-ui 没有 i18n 机制，`NbForm` 的 `locale` 管不到它们，英文界面下读屏会读到中文。
+  3. nb-form 新文案（添加、删除、上移、下移、第 N 项、N 项、已设置、未设置、清除、替换、已不存在、推荐、是/否）放在哪、怎么按 `locale` 取，计划没写。
+- 为什么是问题：设置窗口有 `en-US`，t02 与 Spec 输出 9 都有“en-US”字样；新界面在英文下混着中文。
+- 如何核实：`grep` 如上。
+- 建议改法：nb-form 内建文案做成一张 `LocalizedText` 表（放在 `vue/messages.ts`），经 `locale` 取；nb-ui 控件把这类名称改成可由属性覆盖（`ariaLabel*` 或一个 `labels` 对象），由 `NbForm` 传入。最小做法：本 Task 只覆盖 nb-form 自己新增的文案，nb-ui 现有的在 S2 里把用到的控件（`FormNumberInput`、`TagInput`、`FormInput.clearable`、`Combobox`、`Switch`）改成可覆盖，并在 `ui.forms` 写明。
+
+### 22. 只读（审批）模式用“只读输入框”显示会截断，且让整张表单成为一串 Tab 停靠点
+- 严重程度：建议
+- 类别：正确性 / 可访问性
+- 位置：计划“`readonly` 模式：每种控件都有只读画法，给审批视图用”；`ui-development-spec.md` 第 5 节第 6 条
+- 现象：审批的内容是动作参数：长命令、路径、文件内容。`FormInput readonly` 是单行，超出宽度被截断，长内容看不全，审批者看不到被批准的完整参数；`FormNumberInput`、`TagInput` 同理。每个字段都是 `readonly` 但可聚焦，一份有 20 个参数的审批要按 20 次 Tab。
+- 为什么是问题：审批要“看清楚再同意”，截断是安全相关的显示缺陷；Tab 序列过长是可访问性问题。
+- 如何核实：读 `FormInput.vue` 只读分支（没有自动换行）。
+- 建议改法：`mode: "readonly"` 对文本类字段渲染成静态内容（`dl/dt/dd` 加 `white-space: pre-wrap`，超长折叠“显示全部”），不是禁用的输入框；只保留可交互的“复制”和折叠按钮作为 Tab 停靠点。表单控件自己的 `readonly` 属性仍按规范保留（给需要编辑形态但暂不可改的场景），两种“只读”在文档里分名：`readonly`（控件态）与 `mode="view"`（展示态）。
+
+### 19b（编号 23）. `CheckboxGroup` 放进 `FormField` 就会让每个复选框拿到同一个 id，并各自被标红、标必填；`FormField` 的根 `<label>` 还会形成嵌套 label
+- 严重程度：重要
+- 类别：正确性 / 不变量
+- 位置：计划“结构控件”之外的“字面量多选”字段种类（`widget: "checkboxes"`）与 `FormFieldShell`；代码 `FormCheckbox.vue`（读取字段上下文）、`CheckboxGroup.vue`（内部用 `FormCheckbox`）、`FormField.vue`
+- 现象（lab/nested.test.ts 实测，用真实组件挂载）：
+  - `FormField label="多选"` 里放 `CheckboxGroup`（两个选项），渲染出的两个 `<input type=checkbox>` 的 id **都是** `nb-field-v-0`（重复 id），因为每个 `FormCheckbox` 都从上下文取同一个 `inputId`；同理它们都会拿到整个字段的 `aria-describedby`、`aria-invalid`、`required`，字段出错时每个复选框都标红。
+  - `FormField` 的根 `<label for="nb-field-v-0">` 里嵌了 `FormCheckbox` 自己的 `<label>`：`querySelectorAll("label label").length === 2`。HTML 的 label 内容模型不允许后代 label。`RadioGroup` 的每个选项同样是 `<label>`，实测也是 2 个嵌套 label，且组内没有任何元素带 id，`for` 指向空。
+- 为什么是问题：计划的“字面量多选”“nbdev 多选”“服务商连接”都落在这个组合上；这不是外观问题，重复 id 令 `label for`、`aria-describedby` 引用二义，点击字段说明文字会切换第一个复选框。计划没有提到 `CheckboxGroup` 与上下文的交互。
+- 如何核实：lab 实验输出：`CHECKGROUP nested label count: 2 | label for: nb-field-v-0 | ids: nb-field-v-0,nb-field-v-0`；`RADIO nested label count: 2 | ids in group:  | label for: nb-field-v-0`。
+- 建议改法：`CheckboxGroup` 在内部给每个 `FormCheckbox` 提供“不读取字段上下文”的作用域（`provide(NB_FORM_FIELD_CONTEXT_KEY, null)`，或 `FormCheckbox` 加 `standalone` 属性），把字段上下文只用在组根（`aria-labelledby`、`aria-describedby`、`aria-invalid`）；同时按第 1 条让 `FormField` 在组形态下不再是 `<label>`。S2 的测试加一条：“组里的每个控件 id 唯一，字段错误只标组”。nbdev 的 `NewTaskForm / NewWorkForm` 里已有 `FormField label="状态"` 包 `RadioGroup` 的用法（`for` 指向空），这次顺带受益，要在 S2 里一并核对。
+
+### 24. 波及面：计划风险里漏列 nb-story、llmlint、playground，且有现成测试把将被修改的合同写成了断言
+- 严重程度：重要
+- 类别：测试 / 遗漏
+- 位置：计划“不做与风险”第一条（“设置、插件页、作品页、nbdev 面板，逐个控件改并跑全部组件测试”）
+- 现象：对 `packages/` 下（不含旧应用、不含 nb-ui 自己的 src）全部 `.vue` 的实测数（lab/usage2.sh）：
+  | 控件 | 文件数 | 标签数 | 所在包 |
+  |---|---|---|---|
+  | SegmentedControl | 28 | 39 | dev-panel 3、llmlint 3、nb-story 9、nb-ui playground 4、neuro-book 9 |
+  | FormSelect | 15 | 25 | dev-panel 6、llmlint 2、nb-story 1、playground 3、neuro-book 3 |
+  | FormInput | 24 | 36 | dev-panel 5、nb-story 6、playground 3、neuro-book 10 |
+  | FormTextarea | 10 | 12 | dev-panel 7、neuro-book 3 |
+  | FormCheckbox | 6 | 7 | nb-story 2、playground 3、neuro-book 1 |
+  | Switch / RadioGroup / CheckboxGroup / Slider | 4 / 3 / 1 / 3 | 4 / 4 / 1 / 4 | neuro-book+dev-panel / dev-panel / dev-panel / nb-story |
+  | Combobox / TagInput / Listbox | 1 / 1 / 0 | 1 / 1 / 0 | 只有 playground 用 Combobox、TagInput，没有产品调用方 |
+  计划只列“设置、插件页、作品页、nbdev 面板”，没有 nb-story（9 个文件用 SegmentedControl、3 个用 Slider，e2e 用 `getByRole("radio", {name})` 定位）和 llmlint 的网页（`SettingsDialog.vue` 一个文件就有 8 个 FormSelect）。另外 nb-ui 里已有测试把当前合同写成了断言：`components.test.ts:235-239` 断言 `SegmentedControl` 的 `role="group"` 和 `aria-pressed`，`:1299` 断言 `[role='radio']`。第 12 条的修改会让这些断言变，这是对的，但应该显式写出来，而不是“逐个控件改并跑全部组件测试”。
+- 为什么是问题：Combobox、TagInput、Listbox 没有产品调用方，改它们波及很小（也说明它们没有被真实使用验证过，第 15 条）；相反，SegmentedControl 和 FormSelect 是波及面最大的，却没有被点名；e2e 用无障碍名称定位，对 `aria-label`/`title` 的改动敏感。
+- 如何核实：`bash /tmp/neuro-book/review-w00027-t07-design/lab/usage2.sh`；`grep -rn "getByRole(\"radio\"" packages --include=*.e2e.ts`。
+- 建议改法：S2 开头先写“影响清单”：对每个要改的控件，列出调用方与所依赖的 DOM 契约（角色、`aria-*`、`data-*`），分成“不变”“按设计变化（附新断言）”两类；至少要跑 nb-ui、dev-panel、nb-story 的单测，以及 nb-story、neuro-book 中使用分段控件的 e2e（`viewer.e2e.ts`、`settings.e2e.ts`、`bookshelf.e2e.ts`、`lab*.e2e.ts`），llmlint 网页做类型检查与一次人工看。把“按设计变化”的断言（`radiogroup`、`aria-checked`、无 `aria-pressed`）写进 S2 的测试，不要靠“全部组件测试通过”。
+
+### 25. 自定义控件（`widgets` 登记）的组件接口没有定义，t02 要登记的密钥控件、将来的 Agent 控件无从照写
+- 严重程度：重要
+- 类别：接口
+- 位置：计划“Vue 渲染层”的 `widgets：自定义控件登记（名字、组件、打分函数、退回控件）`
+- 现象：登记项列了名字、组件、打分函数、退回控件，但没说这个“组件”收到什么：`modelValue` 的类型（原始值还是 `FormNode`）、`readonly / disabled / invalid / id / aria-describedby`（还是让它自己 `useFormFieldContext`，而这个函数没有导出，第 3 条）、`issues`、`options`、`locale`、是否可触发 `commit`（第 10 条）、`meta`（第 18 条）、焦点方法（让 `focusFirstIssue` 能聚焦到它）。也没说打分函数的入参与分值域，两个控件打平分时怎么办，登记名与内建 `widget` 名重复时谁赢。
+- 为什么是问题：登记是计划里唯一的扩展点，也是 `checkDescription` 的 `policy`（Agent 不许自定义控件）要拦的东西。接口不定，t02 的密钥控件和 Agent 重建时的 `resource-preset` 都只能猜。
+- 如何核实：读计划该条与 `ui.forms` 的“自定义控件”条目（待写）。
+- 建议改法：把自定义控件定为一个固定的组件合同写进 `ui.forms`：props `{modelValue, node, readonly, disabled, invalid, id, describedby, locale, issues, options}`，emits `update:modelValue`、`commit`、`focus`；`defineExpose({focus})`；打分函数 `(node) => number | null`（`null` 表示不适用），内建控件分值范围固定，自定义控件的 `widget` 显式指定时直接选中；重名登记在登记时报错。用一个最小的自定义控件（Lab 里的“服务商连接”样例）做合同测试。
+
+### 26. `options: Record<名, Ref<数组>>` 把 Vue 的 `Ref` 放进了公共属性：传入 `reactive` 对象时会被自动解包而失效；核心又声明不依赖 Vue
+- 严重程度：建议
+- 类别：接口 / 代码质量
+- 位置：计划“Vue 渲染层”的 `options` 属性、t02“动态选项”（提供者返回 `Readonly<Ref<ReadonlyArray<…>>>`）
+- 现象：Vue 的 `reactive()` 会解包嵌套的 `ref`，调用方把 `reactive({models: ref([...])})` 传给 `:options` 后，`options.models` 已经是数组，实现里 `options[name].value` 取到 `undefined`；手写 `toValue()` 才安全。另外核心“不依赖 Vue”，但 `FormModel` 里若出现 `options: string` 之外的“选项源引用”，其解析发生在 Vue 层；`Ref` 作为公共 API 让 TUI 或服务端使用者没有对应物。
+- 为什么是问题：类型层面看不出来，只有传 `reactive` 时才失败；`FormSelect` 拿到 `undefined` 选项会直接抛错。
+- 如何核实：写一个 `NbForm` 的最小用例，传 `reactive({a: ref([1])})`。（计划没有写这种测试。）
+- 建议改法：属性类型用 `MaybeRefOrGetter<ReadonlyArray<…>>` 的 record，渲染层统一 `toValue()`；核心只出“选项源名”，Vue 层负责把名字解析为数据。顺带支持第 20 条的 `{items, loading, error}`。
+
+### 27. `visibleWhen` 的渲染：`v-if` 会丢草稿与折叠状态，隐藏字段里的错误用户改不了，出现的字段读屏无感知
+- 严重程度：建议
+- 类别：遗漏
+- 位置：计划“核心：`isVisible`”“条件显示（不执行代码）”
+- 现象：（核心对 `visibleWhen` 的求值由另一位审查者看，这里只列渲染层。）
+  1. 条件为假时若用 `v-if` 卸载字段，字段内部的文本草稿、折叠状态、master-detail 选中项都丢了；条件翻回来时是新实例。条件字段通常依赖开关，来回拨很常见。
+  2. 隐藏字段里的值仍在数据里，若 schema 对它 `required` 或有约束，`validateForm` 报的问题落在一个看不见的字段上，用户无从修复；`NbForm` 的“问题汇总”（第 9 条）会列出一个找不到的错误。
+  3. 字段出现时读屏用户没有任何提示（焦点在开关上，下面多出一行字段）。
+- 为什么是问题：条件显示是开发者明确要的能力，三点都会在第一个真实表单（服务商连接：选“自建”才出现 baseUrl）里碰到。
+- 如何核实：读计划；`v-if` 的卸载语义。
+- 建议改法：隐藏用 `v-show` 配 `hidden` + `inert`，或卸载但把草稿存到表单级 Map（按路径）；规定核心 `validateForm` 忽略不可见字段的问题（并在 `ui.forms` 里写），或明确规定它们保留并要求调用方先清值；字段出现时在表单内的 live region 播报“新增 N 个字段”（可选，建议写进可访问性小节）。
+
+### 28. 命令参数（开发者决定 1）在计划里没有位置：映射表、场景和接入都没提
+- 严重程度：建议
+- 类别：遗漏（对照开发者原话）
+- 位置：README“开发者已确认的决定”第 1 条（“命令参数都用它”）；计划“给 nbdev 与 Agent 的映射”表；`packages/neuro-book/src/plugins/commands/shared/contracts.ts:49-75`
+- 现象：命令声明的 `args` 是 TypeBox 对象 schema（必须 `additionalProperties: false`，执行前严格校验，不补默认值，`agent: "confirm"` 时要求用户批准）。计划的映射表有 nbdev 四种题、Agent 提问、审批，没有“命令参数”这一行；Lab 样例也没有。命令面板收参数现在是什么形态（单行引导式 QuickInput，还是整张表单），计划没说，也没说这个 Task 不接入。
+- 为什么是问题：开发者决定 1 点名的五类使用方里，这一类在计划里隐形；`additionalProperties: false`、不补默认值这两条约束正好影响“`default` 只显示不填入”的规则，也影响 `checkDescription` 对“关闭额外属性的对象”的处理。
+- 如何核实：读 `contracts.ts` 与 README 第 1 条。
+- 建议改法：映射表加一行“命令参数：`args` 对象 schema，用 `NbForm`（对话框形态），必填项没填时确认键不可用；`agent: "confirm"` 的批准复用审批行”；明确“本 Task 不接入，记入后续（命令面板）”，并在核心测试里加一条以真实命令声明 `args` 为输入的表驱动用例。
+
+### 29. 验收映射里“标签与说明的关联”“键盘、读屏”用现有测试手段验不了
+- 严重程度：重要
+- 类别：测试
+- 位置：计划“验收映射”“控件合同”行、“验证”第二条（Lab 里看“键盘、读屏（标签与错误的关联）”）
+- 现象：nb-ui 的组件测试跑在 happy-dom 里，仓库里没有安装计算无障碍名称的库（`dom-accessibility-api`、`@testing-library/dom` 均不在 `node_modules`，我在 worktree 里找过），所以“控件的无障碍名称是标签”只能断言 `aria-labelledby` 的 id 存在、`for` 指向存在的元素，不能证明读屏读到什么。Lab 截图看不到可访问性。焦点落点（第 13 条）在 happy-dom 里可以断言 `document.activeElement`，但没有真实的 Tab 顺序。
+- 为什么是问题：第 1、2、12、23 条这类问题恰恰是“结构看着对、读屏不对”，只靠 happy-dom 断言属性不够；“读屏”这一项会变成无人验证的口头验收。
+- 如何核实：`ls node_modules | grep -i "accessibility\|testing-library"` 无结果。
+- 建议改法：在 Lab 的 e2e（`lab-nb-ui.e2e.ts`）里为每种字段种类加一条用真实 Chromium 计算名称的断言：`page.getByRole("radiogroup", {name: "…"})`、`getByRole("switch", {name})`、`getByRole("textbox", {name}).toHaveAccessibleDescription(…)`、`toHaveAccessibleErrorMessage`（Playwright 提供），再加一条键盘路径用例（Tab 顺序、方向键、列表增删后的焦点）。其余用 happy-dom 断言属性与 `document.activeElement`。
+
+### 30. 组件规范与验证流程的缺口：受管组件门禁、Lab 登记位置、四组合取证、CSS 产物、`modelValue` 必填与规范冲突、两种测试运行器
+- 严重程度：重要
+- 类别：文档 / 测试
+- 位置：计划“Spec 与文档改动”“切片”“验证”；`docs/standards/code/components.md`（组件文档）、`docs/testing/README.md`（UI 验收分档）、`ui-development-spec.md` 第 5、6、7 节、`packages/AGENTS.md`
+- 现象：
+  1. **受管组件门禁**：`docs:check` 只对 nb-ui 经 `components/index.ts` 导出的组件强制同名 `.md`；“新应用的通用组件目录随 workbench 底座确定后加入”。nb-form 的组件不在名单里，计划写了“新组件的同名 `.md`”，但没有说要把 nb-form 加入门禁，否则 `NbForm / NbField / FormFieldShell / 结构控件` 缺文档时机检不报。各 `.md` 还需要能力标签（`FormFieldShell` 与自定义控件走 `state:inject`，`FormSelect` 浮层是 `env:portal`），计划没提。
+  2. **Lab 位置**：nb-ui 控件的场景登记在 `neuro-book/src/plugins/lab/web/fixtures/nb-ui/`，用 `defineSubjectFixture`；`NbForm` 的场景（计划列了 8 类）放哪、是否也需要根上的 `data-lab-subject`、"服务商连接"的真实题材数据，都没有定。
+  3. **取证档位**：规范“nb-ui 共享基础组件”档要求“主题轴 × 配色轴四组合（nbook/macos × light/dark）外加 390px 视口，每项给出实测的计算样式、几何、交互前后差异”。S2 的验证只写“nb-ui 组件测试、Lab 截图（只读、出错）”，低于规定档位；而 S2 改的是 11 个共享基础控件。
+  4. **CSS 产物**：规范第 6 节第 7 条“CSS 生成物变更时提交 `dist/nb-ui.css`”。`SecretInput`、只读与出错的新样式类要走 `build:css`，计划没提；第 6 节第 1、4 条要求更新“所有本仓调用方和 barrel 导出”和 README，同样没提。
+  5. **规范冲突**：`ui-development-spec.md` 第 5 节第 2 条要求所有表单控件的 `modelValue` 可选并有安全缺省，现在 `SegmentedControl`、`TagInput` 是必填（实测传 `undefined` 会警告或抛错，第 6 条）；新合同要把这一条扩到全部要改的控件，并写进计划。
+  6. **测试运行器**：`packages/AGENTS.md` 规定“通用包用 `bun test`，应用包按自身 Vitest 配置”。nb-form 核心适合 `bun test`，Vue 层要 happy-dom 和 Vue 插件，nb-ui 自己用 Vitest。计划的 S1 写“核心 `bun test`”，S3 写“Vitest”，同一个包两种运行器，包的 `test` 脚本、`test:affected` 的路由、`typecheck`（`vue-tsc` 与普通 `tsc`）怎么配没写。
+- 为什么是问题：这些是流程性的返工点，S0 骨架没把它们定下来，到 S3、S4 才补会很贵（例如 S2 已提交后才发现缺取证档位）。
+- 如何核实：读上述文档的对应条款。
+- 建议改法：S0 增加：把 nb-form 的组件目录加入 `docs:check` 受管范围；定包的测试脚本（建议核心 `bun test`，Vue 层 Vitest，`test` 脚本顺序跑两者）；在计划里写明 S2 的取证档位和 `build:css`；`ui-development-spec.md` 的新“表单控件合同”一节同时修订第 5 节第 2 条；Lab 场景登记位置在 S3 开头一并确定。
+
+### 31. 杂项：`NbForm` 根元素与提交、递归渲染没有深度保护、`unit` 的实现位置、`recommend` 的展示
+- 严重程度：建议
+- 类别：遗漏 / 接口
+- 位置：计划“Vue 渲染层”“描述格式”（`unit`、`recommend`、`collapsed`）
+- 现象：
+  1. `NbForm` 的根是 `<form>` 还是 `<div>`，回车是否提交，计划未写。dev-panel 的 `NewWorkForm` 等已有 `<form>` 的调用方，嵌套 `<form>` 无效；多行文本里的回车、`TagInput` 里的回车（已 `preventDefault`）和 `FormNumberInput` 的 `submit` 事件（回车触发）都和提交有关。建议根用 `div role="group"`，不隐式提交，由调用方决定。
+  2. 结构控件是递归组件：对象套数组套对象，核心只在 Agent 策略里限制嵌套深度（`checkDescription(…, {policy: "agent"})`），设置、命令参数、nbdev 用内建路径时没有保护；`Type.Recursive` / `$ref` 的自引用 schema 会让 `resolveForm` 或渲染无限展开。渲染层需要深度上限和折叠项懒挂载（折叠的分组、`master-detail` 的未选项不挂载）。
+  3. `unit`：计划说在 `FormNumberInput` 上加 `unit`。`FormInput` 已有 `prefix / suffix` 插槽，`FormNumberInput` 没有；更小的改法是让 `NbField` 在数字控件旁渲染静态单位文字，不改 nb-ui 合同。计划没论证为什么要改控件。
+  4. `recommend`（nbdev 的“推荐”）：nbdev 现在把“（推荐）”拼进选项名（`QuestionControl.vue` 的 `options()`），拼进去的字符串无法本地化也让选项名搜索出错；`recommend` 应该在渲染层用统一的徽标或后缀显示（文案本地化）并有读屏文字，不预选。
+  5. `group` 布局的 `collapsed`：折叠后分组内的问题不可见，需要和第 9 条一起处理；折叠按钮需要 `aria-expanded` 并用 nb-ui 现有的 `Collapsible / Accordion` 而不是自写。
+- 为什么是问题：都是实现时必然遇到、并且各自会让组件结构不同的小决定。
+- 如何核实：读 `NewWorkForm.vue`（外层 `<form>`）、`QuestionControl.vue`、`FormInput.vue` 的插槽。
+- 建议改法：各写一句进 `ui.forms` 或 `NbForm.md`；递归深度上限写成常量并在核心 `resolveForm` 里报“画不了”的 `DescriptionProblem`，而不是只在 Agent 策略里。
+
+## 勘误（文件只追加，这里更正上面几处不精确的写法）
+
+- 第 3 条：读取 `FormField` 上下文的消费者是 8 个（`FormInput / FormNumberInput / FormSelect / FormCheckbox / FormTextarea / TagInput / Combobox / TimePickerDefault`），不是 9 个；`FormField.md` 只列了其中 4 个。
+- 第 4 条：缺 `readonly` 的是 10 个（`FormCheckbox / FormSelect / Combobox / TagInput / Switch / SegmentedControl / RadioGroup / CheckboxGroup / Slider / Listbox`），不是 11 个。
+- 第 1 条：`CheckboxGroup` 本身不读上下文，但它内部的 `FormCheckbox` 读，所以不是“没有消费”，而是被错误地消费（见第 23 条）。第 23 条的标题里写作“19b（编号 23）”，就是第 23 条。
+- 第 8 条：`SettingsRow.vue` 的模板在第 81-130 行，插槽在 109 与 126 行；`SettingsListSection.vue` 里选择排法在第 54 行（`:wide="controlOf(setting).kind === 'readonly'"`），控件在第 57-65 行。
+- 第 24 条：`components.test.ts:1299` 断言的是 `RadioGroup` 的 `[role='radio']`，与分段控件的角色改动无关；会随第 12 条改变的断言只有 `components.test.ts:235-239`（分段的 `role="group"` 与 `aria-pressed`）。
+- 第 16 条的“`unit` 用 `FormInput` 的 `suffix` 插槽组合”这句建议不准确：`FormNumberInput` 没有插槽，应按第 31 条第 3 点的做法让外壳渲染单位。
+
+## 未发现问题的方面
+
+- 开发者已确认的决定逐条覆盖：两种界面（生成式视图不在本 Task）、改造现有组件、语义提示在 schema 里且布局可选、做成包（核心不依赖 Vue）、受控表单、条件写成数据、TUI 只到退回规则，计划里都有对应段落，没有悄悄改变已定项。受控一条的落实有缺口（第 10 条），命令参数一条没有落实（第 28 条）。
+- 旧应用的逐项处理表：作用域继承留给 `SettingsRow` 外壳、`resource-preset` 推迟、`LowCodeFieldShell` 对应“字段”层，这几项的取舍与理由我认为成立，没有发现问题（对照后漏掉的行为见第 20 条）。
+- 技术选型（建在 TypeBox 上、借概念不引包）：本次不审，核心描述格式另有审查者。
+- `x-form` 作为命名空间键与 TypeBox 允许附加关键字：我没有读 TypeBox 实现来核实，留给核心审查者。
+- 我没有跑 e2e 和开发服务；跑过的是 lab 里 5 个挂载真实 nb-ui 组件的 happy-dom 实验（`/tmp/neuro-book/review-w00027-t07-design/lab/`），没有跑现有测试全集，也没有做浏览器里的无障碍名称实测（第 1、2 条的“读屏读到什么”是按 ARIA/HTML 规范推断，属性层面的事实已实测）。
+
+## 数量与最严重的几条
+
+共 31 条：阻断 1、重要 23、建议 7。
+
+按级别索引：
+- 阻断：1（FormField 给不了组合控件名字）。
+- 重要：2、3、4、5、6、7、8、9、10、11、12、13、14、15、17、18、19、20、23、24、25、29、30。
+- 建议：16、21、22、26、27、28、31。
+
+最严重的几条：
+1. 第 1 条：`FormField` 只能给原生可标注控件命名，分段、单选组、复选组都没有名字，计划的“标签与说明的关联”判据按现有机制做不到；
+2. 第 23 条：`CheckboxGroup` 放进 `FormField` 就让两个复选框同 id、各自标红（已实测）；
+3. 第 10 条与第 8 条：受控 `v-model` 没有提交时机与草稿，`NbField` 缺 `id / disabled / 无外壳`，“设置行为不变”做不到；
+4. 第 9 条：问题展示与 nb-ui 规范“出错不在字段下插文字”冲突，且 `FormField` 容不下多条与 warning；
+5. 第 6 条与第 5 条：可选字段的 `undefined` 在 `SegmentedControl`（无 Tab 停靠点）、`TagInput`（直接抛错）上已实测失败，选项值类型只有字符串。

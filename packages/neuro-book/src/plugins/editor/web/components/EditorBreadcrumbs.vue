@@ -205,7 +205,7 @@ watch(() => props.focusSeq, (next, previous) => {
     <nav v-if="segments.length > 0" ref="nav" class="editor-crumbs" :aria-label="t('crumbsLabel')" data-editor-breadcrumbs>
         <template v-for="(segment, index) in segments" :key="segment.address">
             <span v-if="index > 0" class="i-lucide-chevron-right editor-crumbs__separator" aria-hidden="true"></span>
-            <DropdownMenu :items="directoryItems" :open="opened === index" compact menu-max-height="320px" @update:open="(open: boolean) => openSegment(index, open)" @select="select">
+            <DropdownMenu :items="directoryItems" :open="opened === index" @update:open="(open: boolean) => openSegment(index, open)" @select="select">
                 <button
                     type="button"
                     class="editor-crumbs__segment nb-ui-focus-ring-inset"
@@ -223,7 +223,7 @@ watch(() => props.focusSeq, (next, previous) => {
         </template>
         <template v-if="currentHeading !== null">
             <span class="i-lucide-chevron-right editor-crumbs__separator" aria-hidden="true"></span>
-            <DropdownMenu :items="outlineItems" :open="opened === HEADING" compact menu-max-height="320px" @update:open="(open: boolean) => openSegment(HEADING, open)" @select="select">
+            <DropdownMenu :items="outlineItems" :open="opened === HEADING" @update:open="(open: boolean) => openSegment(HEADING, open)" @select="select">
                 <button
                     type="button"
                     class="editor-crumbs__segment nb-ui-focus-ring-inset"

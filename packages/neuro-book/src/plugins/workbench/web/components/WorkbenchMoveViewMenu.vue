@@ -93,7 +93,7 @@ function select(value: string): void {
 </script>
 
 <template>
-    <DropdownMenu :items="items" :open="open" align="end" compact :disabled="disabled" @update:open="setOpen" @select="select">
+    <DropdownMenu :items="items" :open="open" align="end" :disabled="disabled" @update:open="setOpen" @select="select">
         <IconButton size="xs" icon-class="i-lucide-arrow-right-left" :aria-label="label" :title="label" :disabled="disabled" :data-move-view="viewId" />
     </DropdownMenu>
 </template>

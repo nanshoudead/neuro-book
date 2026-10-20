@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00029-nb-ui-cleanup",
+    "taskId": "t04-popup-lists",
+    "artifactId": "review",
+    "ackId": "20261020T052834336Z-378421d0",
+    "answers": [
+        "20261020T052710598Z-1993d324"
+    ],
+    "through": "20261020T052710598Z-1993d324",
+    "included": [
+        ".agents/works/w00029-nb-ui-cleanup/tasks/t04-popup-lists/README.md"
+    ],
+    "ackedAt": "2026-10-20T05:28:34.336Z"
+}

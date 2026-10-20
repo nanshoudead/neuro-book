@@ -70,7 +70,7 @@ owners:
 4. **查看器地址。** 有一个有效的独立服务登记（见“副作用与数据”）时，给人读的输出末尾附上查看器里对应画面的地址，形状按 [`story.viewer`](viewer.md#边界与兼容)；地址里不含登录口令。
 5. **`serve`。** 启动只监听本机的独立服务（不给端口时自动选一个空闲端口），先开始监听、再写下服务登记，然后打印登录链接（形状见 [`story.queries`](queries.md#边界与兼容)）；`--open` 用默认浏览器打开它。服务在前台运行，收到中断信号时停止：先撤销自己的登记，再停止监听，口令与会话随之作废。同一书库同时只允许一个有效的服务。
 6. **`import`。** 成功时输出新书的 id；失败时书库不变。
-7. **退出码。** 0 成功；1 查询失败（错误码见 [`story.queries`](queries.md#失败与恢复)）；2 用法错误（未知命令或参数）；`serve` 启动失败为 3；`ask` 另有 4 与 130，见 [`story.qa`](qa.md) 输出 14；`config` 的退出码见 [`story.qa`](qa.md) 输出 22；`ingest` 的见 [`story.ingest`](ingest.md) 输出 11。
+7. **退出码。** 0 成功；1 查询失败（错误码见 [`story.queries`](queries.md#失败与恢复)）；2 用法错误（未知命令或参数）；`serve` 启动失败为 3；`ask` 另有 4 与 130，见 [`story.qa`](qa.md) 输出 14；`config` 的退出码见 [`story.qa`](qa.md) 输出 22；`ingest` 的见 [`story.ingest`](ingest.md) 输出 15。
 
 ### Skill
 

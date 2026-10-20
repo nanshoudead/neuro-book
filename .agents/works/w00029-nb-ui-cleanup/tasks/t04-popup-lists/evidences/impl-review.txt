@@ -1,0 +1,75 @@
+w00029 t04 实现审查（前端，Claude Sonnet 子代理，只读）
+审查范围：dac2757720..df0dadff6（S1 到 S6）
+审查说明：.local/agent/works/w00029-nb-ui-cleanup/tasks/t04-popup-lists/reports/impl-review/brief.md
+审查者自跑：nb-ui typecheck、nb-ui test（34 文件 497 条）、governance:check、docs:check 均通过；未跑 e2e。
+共 13 条：阻断 0，重要 3，建议 10。（审查者写报告文件时被宿主拒绝，完整内容随交回结果给出，这里按原文整理。）
+
+== 重要 ==
+
+F01 SuggestionMenu 外框里没挡 mousedown 的区域会夺走宿主焦点。
+  位置：SuggestionMenu.vue 外框（内边距 4px）与 header 容器；PromptEditor.vue 的 menuOpen、onContentFocusOut、历史菜单 header。
+  现象：mousedown.prevent 只在列表视口与加载行上。reka PopoverContent 外包的 FocusScope 给内容加了 tabindex="-1"，
+  点内边距或标题行时焦点进了外框：@ / $ 菜单因正文失焦而关掉；输入历史的焦点离开搜索框，方向键、回车、Escape 失效。
+  静态页在 Chrome 核实了前提（tabindex=-1 容器里点内边距与静态文字会夺焦点）。
+  建议：外框统一加 mousedown，目标不是可聚焦元素时 preventDefault；补 e2e。
+
+F02 Menubar 的级联面板：悬停把焦点带进面板，面板却没有键盘处理。
+  位置：Menubar.vue 的 MenuLevelPanel 没有 keydown；MenuNodes.vue 的 onButtonPointermove。
+  现象：base 悬停时焦点留在 reka 内容里；现在焦点进了子菜单按钮，上下、Home、End、左右键都不处理，只有 Escape 能关。
+  建议：Menubar 接和 DropdownMenu 同一套级联键盘，最好抽进 useMenuCascade 三处共用；补 e2e。
+
+F03 同级子菜单换内容时，复用的级联视口保留上一份内容的 scrollTop。
+  位置：useMenuCascade 同级替换；DropdownMenu 的 :key="depth"；usePopupScroll 不重置 scrollTop。
+  现象：长子菜单 A 滚过后切到同样长的同级 B，B 打开就是滚下去的。popup-scroll 的用例是长换短，碰不到。
+  建议：换内容时视口回到顶部；补长换长的 e2e。
+
+== 建议 ==
+
+F04 Menubar 多组菜单共用一份滚动状态，退场中的旧菜单会套上新菜单的截断高度、内边距与渐隐。
+  建议：每组菜单各自持有 usePopupScroll。
+F05 reka 主层级（DropdownMenu 与 Menubar 一级、Select）的键盘导航用原生 focus，越界时把项滚到中间；
+  静态实验：238px 视口里一步滚 133px。级联层用 focusPopupItem 只滚最少距离，两者不一致，文档的“滚最少的距离”只对后者成立。
+  建议：主层级也调 revealPopupItem，或文档只承诺级联层。
+F06 revealPopupItem 不留边距，滚进来的项正好落在 22px 的渐隐里。建议：让开渐隐高度。
+F07 普通按钮项（右键菜单、手工级联）指针离开后高亮不清（没有 pointerleave），与 reka 项不一致。
+  建议：pointerleave 时把焦点交给所在层级的容器。
+F08 拖动滑块中视口被卸载（按住时按 Escape），endDrag 不会被调，下次打开滑块仍是“拖动中”。
+  建议：setViewport 换视口时调 endDrag。
+F09 SuggestionMenu 根是 role="dialog"，带指向不存在的触发器的 aria-labelledby（reka Popover 写死，宿主覆盖不了）。
+F10 Select.md 残留旧实现：窗口监听 mousemove/mouseup、useDropdownFloating、env:global 标签。
+F11 测试：
+  - suggestion-menu.spec.ts“关闭后不再逐帧读锚点”替换 requestAnimationFrame 计数并固定等 300ms，属于 spy 加固定等待；
+  - 计划映射里“追加候选后滑块与渐隐跟着变”“窗口缩放、输入框内滚动后重新定位”“DropdownMenu 与 Select 的键盘移到看不见的项”没有用例；
+  - Menubar 悬停后的键盘（F02）、长换长（F03）、点外框内边距（F01）没有用例；
+  - lab-markdown 输入历史用例的 startsWith(chosen.slice(0, 6)) 太弱；
+  - measurePopupTruncation、revealPopupItem 没有单元测试。
+F12 边界与小问题：
+  a. measurePopupTruncation 对没有布局的视口返回 0，得到 maxHeight: 0px，靠后续观察器自愈；
+  b. measureCascadePanel：项不超过 8 个但窗口矮到被夹紧时宽度没算滑块槽，内容右侧被裁 6px；
+  c. MutationObserver 回调里只 observe 不 unobserve，被替换的子元素一直被观察；
+  d. ContextMenu 打开时的夹紧按没加滑块槽的宽度量，可滚动后右边距从 8px 缩到约 2px。
+
+参照（旧应用 ReferenceSelectorPopover）有、计划与实现没有的：项的第二行说明（新实现映射成右侧 hint，放不下先截）；
+最小宽度不低于锚点矩形宽度（对 0 宽的光标锚点无影响）；前缀标记的标题栏。均为已知取舍，审查者只做标注。
+
+未发现问题的方面：collapseBelow 与 truncate；新结构下的外部点击判定；高亮不会同时亮两项；选项 id 的累计；
+toGroups 与旧分组等价；compact、menuMaxHeight、active 的调用方已迁完；ColorSwatches 内边距不变；trackSide 的启停；
+.nb-ui-menu-surface 写出 padding 后没有别的使用方受影响。
+
+== 处理结果（主 Agent）==
+
+F01 成立，已改：SuggestionMenu 外框统一的 mousedown，只有可聚焦元素照常按下。e2e：suggestion-menu.spec.ts“按在浮层的内边距或分组标题上也不夺走输入处的焦点”、lab-markdown“/ 菜单”里点标题行。
+F02 成立，已改：级联键盘（含焦点跟进新一级）抽进 useMenuCascade.levelKeydown，DropdownMenu 与 Menubar 共用；右键菜单的整套键盘本来就有。e2e：popup-lists.spec.ts“菜单栏”补方向键与左方向键。
+F03 成立，已改：新内部零件 PopupViewport 带 contentKey，级联换了父项时视口回到顶部；三个宿主都传。e2e：popup-scroll.spec.ts“同级换成另一个长子菜单时从顶部开始”。
+F04 成立，已改：Menubar 每组菜单各用一个 PopupViewport（各自一份滚动状态），MenuLevelPanel 也改用它。
+F05 成立，接受取舍：reka 的项由 reka 聚焦，浏览器按聚焦规则滚动；不拦 reka 的聚焦去改滚动距离。DropdownMenu.md 已改成如实描述；e2e 补“一级用键盘往下走，当前项一直在视口里”。
+F06 成立，已改：revealPopupItem 让开 22px 渐隐（视口太矮时按可用余量）。e2e：popup-scroll.spec.ts 右键菜单键盘用例补断言。
+F07 成立，已改：普通按钮项 pointerleave 时把焦点交给所在层级的面板（role="menu"，tabindex="-1"），高亮清掉；面板上的上下键从首末项开始。e2e：popup-lists.spec.ts 右键菜单补“指针离开菜单”。
+F08 成立，已改：setViewport 换视口时先 endDrag。没有补测试（收口语句，低风险）。
+F09 成立，已改：reka 不公开 Popper 与 DismissableLayer（reka-ui/internal 只导出 Menu 原语），仍用 Popover，挂上后去掉 role、aria-labelledby、tabindex；SuggestionMenu.test.ts 补断言，reka 升级后若写回会失败。
+F10 成立，已改：Select.md 四处与标签。
+F11 成立，已改：去掉 requestAnimationFrame 计数用例，改为关闭后重新打开贴着新位置；补候选从少变多、窗口变窄后收窄、DropdownMenu 键盘、F01 到 F03 的用例；lab-markdown 输入历史改为精确比较整条正文。
+  未补：输入框内滚动后重新定位（夹具的光标是 fixed，逐帧读矩形与滚动无关，由“光标移动后跟上”覆盖同一机制）；measurePopupTruncation 与 revealPopupItem 的单元测试（happy-dom 没有布局，量出来全是 0，几何只能在真实浏览器里测，已由 popup-scroll.spec.ts 覆盖）。
+F12 a 成立，已改：第 9 项高度为 0 时返回 null。b 成立，已改：被窗口夹住时也算滑块槽。c 成立，已改：子元素被替换时 unobserve。
+  d 不改：ContextMenu 的夹紧在 nextTick 之后量，视口挂上时同步量出截断与滑块槽，样式在同一次刷新里生效，量到的已是加了滑块槽的宽度（从代码推断，审查者也未复现）。
+参照三项：已知取舍，不改。

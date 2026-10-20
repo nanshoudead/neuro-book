@@ -231,7 +231,7 @@ function selectHidden(value: string): void {
                 <span v-if="item.count !== undefined && !iconOnly(item)" class="rounded-[var(--radius-pill)] bg-[var(--bg-subtle)] px-[var(--space-1)] font-mono text-[length:var(--text-2xs)] text-[var(--text-muted)]">{{ item.count }}</span>
             </button>
         </div>
-        <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" compact align="end" @select="selectHidden">
+        <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" align="end" @select="selectHidden">
             <button type="button" class="nb-ui-focus-ring-inset text-[var(--text-secondary)] hover:text-[var(--text-main)]" :class="tabBoxClass" data-tabs-more>
                 {{ props.moreLabel }} {{ moreItems.length }}<span class="i-lucide-chevron-down h-[1em] w-[1em]" aria-hidden="true"></span>
             </button>

@@ -94,8 +94,9 @@
     --radius-control: 10px;
     --radius-control-lg: var(--radius-pill);
     --radius-panel: 20px;
-    /* 菜单与触发它的按钮（控件圆角的 0.75，约 7.5px）是一对：12px 时浮层比按钮圆一大圈，看着不是一家（t79 第五轮稿选了 8px） */
-    --radius-menu: 8px;
+    /* 外框 10px、内边距 4px，推出列表项 10 − 1 − 4 = 5px（w00029 t04 决定 3）。 */
+    --radius-menu: 10px;
+    --menu-pad: 4px;
     --radius-pill: 999px;
     /*
      * 对话框比菜单大一个数量级，圆角单列一档。26px 是 Apple 官方 macOS 27 UI Kit 里

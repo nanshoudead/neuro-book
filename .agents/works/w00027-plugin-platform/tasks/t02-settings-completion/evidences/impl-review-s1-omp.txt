@@ -1,0 +1,57 @@
+# t02 S1 实现审查
+
+审查范围：worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform`，`a06ffd603..99b9ac7cb`。只读审查；发现经基线与调用链核对，实验仅放 `/tmp/neuro-book/review-w00027-r3/lab/`。本报告逐条追加。
+
+### 1. 显式传入 signal 的触发每次都永久增加上游监听
+
+- **严重程度**：重要；**类别**：不变量、资源寿命。
+- **位置**：`packages/nb-runtime/src/plugins/host.ts:1034`；同文件 `1838–1847`。
+- **现象**：`ctx.activation.trigger(event, {signal})` 每次创建组合信号并在调用方与入口停止信号上各加一个监听；触发完成后两个监听都不移除，即使事件没有任何目标。入口停止后，调用方 signal 上的监听仍保留。
+- **原因与影响**：新触发口复用了已有 `anySignal`，但该实现只有 `once: true`，没有在等待结算时清理，也没有在一方 abort 后解除另一方。长期存活的前缀拥有者反复触发事件，会无限保留 AbortController 与闭包。base 有这个辅助函数，但没有本次新增的逐次 `ctx.activation.trigger` 使用路径；本条指新增 API 引入的无界累积。
+- **验证**：在 `packages/nb-runtime` 运行 `bun /tmp/neuro-book/review-w00027-r3/lab/activation-smoke.ts`。真实 runtime 的 server、browser 两端各连续完成 100 次无目标事件：入口 signal 的 abort 监听均从 1 变为 101，调用方 signal 均为 100；关闭该入口后，调用方仍为 100。两端根作用域最终均为 `closed`。该实验同时证明无需慢目标或未完成等待就会累积。现有 11 条 `activation-events.test.ts` 全通过，没有覆盖完成后的释放。
+- **建议改法**：使用环境已支持的原生 `AbortSignal.any`；或让组合操作返回 dispose，并在触发 Promise 的 finally 中解除两边监听，任一 abort 时也立即解除另一边。补重复完成与一方 abort 后的资源寿命检查，不只断言取消结果。
+
+第 1 条改法补充：`docs/standards/code/languages/typescript.md:10` 已明确原生 `AbortSignal.any` 派生信号在 Bun 中也可能被监听保持；不能把换成原生方法本身当作完成释放。推荐带 dispose 的组合，在操作结算时清理；abort 派发中不要移除正在派发的同一上游 signal 的其它监听。
+
+### 2. ui 校验没有并入 choices.from，合法动态下拉被拒，冲突控件反而被接受
+
+- **严重程度**：重要；**类别**：正确性、接口。
+- **位置**：`packages/neuro-book/src/shared/settings.ts:247–249,310–315`。
+- **现象**：字符串配置项声明 `choices: {from: "x.models.list"}` 时，`ui: {widget: "select"}` 与 `search-select` 都被判为 `invalid-declaration`；同一项改写为 `widget: "multiline"` 却通过。
+- **原因与影响**：`uiProblem` 只把 schema 与 ui 交给 `checkDescription`，漏了计划规定的 `choices.from → x-form.options`。nb-form 必须有 options 才接受文字下拉；存在 options 时 multiline 又会被下拉覆盖，因此应报 widget-mismatch。当前声明边界既拒绝合同允许的控件，也接受合同明确冲突的控件。此处是 S1 新增的声明校验错误，不是要求提前完成 S3 的动态选项提供者与渲染层。
+- **验证**：在 `packages/neuro-book` 运行 `bun /tmp/neuro-book/review-w00027-r3/lab/declaration-smoke.ts`。真实 `settingDeclarationProblem` 对 select/search-select 返回“用不到这种值上”，对 multiline 返回 null；向同一包公开的 `checkDescription` 交入等价的 `x-form.options` 后，前两者均为 structured/无问题，multiline 为 invalid/widget-mismatch。静态 JSON 控件两边均通过。现有声明测试只分别验证 ui、choices.from，没有覆盖组合。base 没有 ui 与动态 choices 的新增路径。
+- **建议改法**：用声明整体构造交给 nb-form 的完整有效提示，把 choices.from 映射到 options，再检查控件是否生效；渲染适配与登记校验复用同一转换规则。补动态 options 与 select/search-select/multiline 的组合用例。
+
+### 3. 当前 page 入口从受阻恢复后不会再次按需激活
+
+- **严重程度**：重要；**类别**：状态转换、恢复路径。
+- **位置**：`packages/neuro-book/src/plugins/settings/web/settings-window.ts:406–414`。
+- **现象**：当前窗口正显示 page 分区，入口因依赖缺失处于 `blocked`；依赖修复并重试后，该入口回到 `registered`，但窗口未再次触发 `onSettingsPage:<id>`，分区保持 `waiting`。用户必须先切走再切回才能激活页面。
+- **原因与影响**：激活 watcher 只追踪 `open`、当前分区与 layer；它不观察所属入口状态。初次显示时入口是 blocked，因此 `SettingsSectionRegistry.activate` 直接返回；依赖恢复的插件状态通知只更新分区交付展示，不重新运行激活 watcher。受阻状态没有用户重试动作，当前页无法自行恢复。
+- **验证**：在 `packages/neuro-book` 运行 `bun /tmp/neuro-book/review-w00027-r3/lab/window-smoke.ts`。输出依次显示 `open-blocked` 时 page 入口 `blocked`、未激活；`dependency-recovered-visible` 时 retry 成功但 page 入口为 `registered`、delivery 为 `declared`、page 为 `waiting`、激活次数仍为 0；离开再进入后入口 `available`、页面 `ready`、激活次数为 1。实施计划要求窗口另验“受阻解除后重新触发”；当前真实 runtime 测试未覆盖此恢复时仍停留当前分区的路径。base 尚无本轮按需激活 watcher。
+- **建议改法**：让按需激活决策也观察所属入口状态变化；页面仍为当前、可用且入口转为 `registered` 时再请求激活，并维持同代次去重。补“受阻恢复时仍停留当前分区”真实内核场景，断言无需切换分区即可交付并加载。
+
+## 未发现问题的方面
+
+以下方面经代码核对或真实 runtime 实验核对，本轮范围内未发现问题：
+
+- **激活触发口的调用时序**：存活检查到 `triggerActivationEvent` 派发之间没有 `await`，核对通过即激活已开始；context 绑定本次入口代次的作用域，停止后旧 context 触发返回 `rejected/requester-stopped`，不能借同 id 的新登记触发（`host.ts:1030` 附近注释与 `activation-smoke.ts` 实验一致）。
+- **触发权限**：内核保留前缀（`reserved-prefix`）、前缀拥有者核对（`not-prefix-owner`、`prefix-conflict`）在 `triggerActivationEvent` 入口统一执行，`ctx.activation.trigger` 复用同一路径，requester 是所属插件而非入口。
+- **并发触发**：一个入口的 activate 尚未返回时触发另一插件的事件可行，两端顺序符合预期（`activation-smoke.ts` 实测）。
+- **分区注册表**：跨 `settings.sections`／`settings.pages` 贡献点重名的分区两条都不进目录、page 句柄不收；published/revoke 句柄管理、load 代次作废（`#current`）、`implementation()` 不缓存、`#notActivatable` 在入口回到 `registered` 的再次激活时清除（`activate` 里 `this.#notActivatable.delete(sectionId)` 在核对通过后执行）都正确。激活只等所属入口，不等整个事件的所有监听者结束。
+- **三位置装配**：`manifest.ts` 的 `pluginsAt` 把有顶层声明贡献的插件登记进所有位置；`nbook.settings` 的描述 `locations: ["server", "project", "browser"]` 且带 `localeSetting.contribution` 与外观 list 分区声明，`settingsBackendPlugin`（server/project）声明 `[settingsPoint, sectionsPoint]`，浏览器定义（`web/plugin.ts`）声明三个点并接收 `settings.pages`，与 `settings-window.md` 对三个位置的要求一致。editor、explorer 的 list 分区与 projects、plugins 的 page 分区均已迁入描述顶层，`pluginsAt` 的过滤器保证 server/project 也能校验这些声明。
+- **`defineSettings` 批量声明**：逐项复用 `defineSetting`，校验与逐条一致（`Bad` 键名测试）；500 项产生 500 个 contribution（实验实测）。`update<T>` 的 `NoInfer` 防止调用方从值侧拓宽类型，写法正确。
+- **类型检查与限定测试**：`bunx tsc --noEmit -p .` 在 `packages/nb-runtime` 与 `packages/neuro-book` 均通过；`activation-events.test.ts`（11 通过）、设置相关 5 个 Bun 测试文件（76 通过）、2 个 DOM 测试文件（10 通过）全绿。
+- **场景 06**：已改为按需激活语义并以 `nbook.settings` 身份触发同一事件，事件归属断言明确；绕过窗口选区触发链是场景注释里写明的取舍，链路本身由 `window.test.ts` 覆盖。
+
+## 数量统计
+
+- 阻断：0
+- 重要：3
+- 建议：0
+
+## 验证限制
+
+- 只跑了包根 `tsc --noEmit`，没有执行完整 `typecheck` 脚本中的 `vue-tsc`；DOM 组件的类型错误可能未被覆盖。
+- 实验场地在 `/tmp/neuro-book/review-w00027-r3/lab/`，导入用绝对路径与仓库根 `node_modules`，均为一次性脚本，不属于交付物。
+- 审查期间未修改 worktree 源码（`git status --short` 无输出，仅此报告写入主工作区 `.local`）。
