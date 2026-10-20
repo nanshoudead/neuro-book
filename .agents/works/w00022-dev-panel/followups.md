@@ -55,3 +55,4 @@
 | 细滚动条收进 nb-ui，两边共用，删掉主应用 `app.vue` 里那一份；补 nb-ui 规范第 15 条的缺口：`html` 预留槽位对内部滚动的应用是反效果，ScrollArea 与原生 CSS 的分工、xterm 等第三方自绘条的例外 | t15 决定 D3：先放面板自己，主应用正被别的会话改 | 待定（交 nb-ui） |
 | nb-ui `FormCheckbox` 的 `<label>` 没有 `relative`，里面 `sr-only`（绝对定位）的 input 聚焦时，包含块落到宿主的滚动容器之外，会把外面 `overflow: hidden` 的格子滚走、整页变空。面板这边已让滚动容器都带 `relative` 绕开；根上的修法是 label 加 `relative`（或 input 改用 `clip`、不绝对定位），并在 nb-ui 的组件测试里钉住，顺带查 `Dialog`、`QuickInput`、`FormField` 里可聚焦的 `sr-only` 元素 | t15 阶段 4 第 1 批（多选题点了页面变空白）与它的实现审查第 2 条 | t17 |
 | 文档页渲染 Markdown 里的外站图片（例如仓库根 `README.md` 的徽章）被面板的 CSP 拦下，控制台报错、图片空着 | t15 阶段 2 浏览器验收时看到 | 并入 t15 阶段 4 第 4 批 |
+| 评审板与面板的提问（单选、多选、文字、确认）改用全项目共用的低代码 schema 表单与 nb-ui 统一控件合同 | 开发者 2026-10-20 在 w00027 定：nbdev 的提问也用这套低代码（[w00027 t07](../w00027-plugin-platform/tasks/t07-low-code-forms/README.md)） | 待 w00027 t07 完成 |
