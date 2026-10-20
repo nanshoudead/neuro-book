@@ -1,0 +1,74 @@
+# w00024 t11 查看器前端审查（提交 810331321）
+
+typecheck（packages/nb-story `bun run typecheck`）通过。未启动服务、未跑 e2e；以下均为从代码推断，标明处另说。
+
+### 1. 全书图自带图例在关掉秘密的书里仍列“秘密”
+- 严重程度：建议
+- 类别：与 Spec 邻近条款不一致 / 残留
+- 位置：packages/nb-story/src/web/graph/StoryNetwork.vue:630-635（`legend`，data 模式）
+- 现象：BookGraphPage 只改了类型开关（chip）一行，StoryNetwork 的 data 模式图例是写死的七项，只按 `hiddenTypes` 去掉“悬念”。关掉秘密的书里，图例仍有一个红色“秘密”色块，图里却永远没有这类点。
+- 为什么是问题：输出 31 要求“没有秘密这类点，类型开关里也没有它”，图例是同一页上对这一类的第二处展示；用户会找图上那个红点。
+- 如何核实：新建关秘密的书，打开全书图“按关联”，看图例。
+- 建议改法：给 StoryNetwork 的 data 模式一个可去掉的类型入参（或把 BookGraphPage 里算出的可用类型传进去），图例和 chip 共用同一份清单；顺手把 BookGraphPage 模板里那一长串内联 filter 提成 computed。
+
+### 2. e2e 只测“两项全关”，且若干分支与断言空转
+- 严重程度：建议
+- 类别：测试覆盖
+- 位置：packages/nb-story/e2e/ingest.e2e.ts:163-230；packages/nb-story/src/web/host/book.ts:255-264
+- 现象与依据：
+  1. 只有“数值、秘密都关”一种组合。混合情况（只关秘密、只关数值）没有覆盖，而 StatsPage 的 `closedKeys`、ChapterBars 的 `hidden`、总览数字块只在单关时才分得清谁该留谁该去（例如只关秘密时数值块、数值图例必须还在）。
+  2. `router.afterEach` 里“当前页已是总览时直接 `syncRoute()`”这一支没有被走到：用例是在 stats 页上手改到 secrets，走的是 `page.value = "overview"` 那一支。这一支是在 afterEach 钩子里调 `router.replace`，时序最特别，只有它没被测。
+  3. 手机“更多”导航单（BookFrame.vue:317-324 的 `nav`）没有 390px 下的断言，只测了宽屏 `nav[aria-label="页面"]`。
+  4. 统计页的断言全是 `not.toContainText`，没有正向断言（例如图例里还有“说法”“知情”“情节”，表里还有“说法”行）。图没渲染出来时这几条同样通过；总览也没有断言数值数字块已消失（“身份秘密”“秘密矩阵”有，“数值”没有）。
+  5. 用例里的 `reading.set` 轮询等待靠的是“库里 view.page 变成 overview”，这在该书从未保存过时成立（本用例就是这种情况），可是写法依赖这个前提，没有注释。
+- 为什么是问题：回退链有三条入口、两个分支，本次变更的主要风险点正在这些边上。
+- 如何核实：读用例；在 afterEach 的 `page.value === "overview"` 分支加一次 `throw`，用例仍通过。
+- 建议改法：加一个“只关秘密”的用例（或把现有用例参数化为两种组合），补手机宽度的“更多”断言、总览已在总览时手改 `/secrets` 一次、统计图例与表的正向断言。
+
+### 3. 总览数字块只剩两三块时，auto-fit 网格把块拉得很宽（未目测）
+- 严重程度：建议
+- 类别：版式
+- 位置：packages/nb-story/src/web/pages/OverviewPage.vue:144-148（`.tiles`，`repeat(auto-fit, minmax(150px, 1fr))`）
+- 现象：auto-fit 会把空列折叠，剩余块平分整行。两项全关时只剩“人物与事物”“未解悬念”两块，在宽屏主区各占约半行；390px 下三块（关一项）排成 2+1，最后一块只占半行。四块时原本的外观不变，所以这是新出现的状态。
+- 为什么是问题：宽屏下数字块与下面的两栏区块宽度关系被打乱；`design-language.md` 自检清单要求宽度随内容的元素不拉满整行（SKILL 三、1）。
+- 如何核实：新建关两项的书，在 ≥1400px 和 390px 各看一次总览（我没有跑，从样式推断）。
+- 建议改法：给 `.tiles` 的块设最大宽度（例如 `minmax(150px, 240px)` 加 `justify-content: start`），或四块以内改固定列数。
+
+### 4. 同样的提示在 8 秒内重复出现时，后一次会被前一次的计时提前清掉
+- 严重程度：建议
+- 类别：状态一致
+- 位置：packages/nb-story/src/web/host/book.ts:257-259（`notice.value = ...`）与 packages/nb-story/src/web/shell/BookFrame.vue:201-205（`watch(notice)`）
+- 现象：同一本书里 8 秒内两次手改地址到关掉的页，第二次给 `notice.value` 赋同一串文字，值没变，`watch` 不触发，计时不重置；第一次的计时到点就清掉它，第二次提示只剩残余时间。
+- 为什么是问题：用户第二次操作后提示可能一闪而过。影响很小，只在手改地址时出现。
+- 如何核实：在 afterEach 里连续两次进入关掉的页，看 `data-testid="notice"` 的存留时间。
+- 建议改法：可以不改（过度防御）；若要改，让提示带递增序号，watch 序号。
+
+### 5. 可读性：ChapterBars 里 `series` 重名，`.md` 描述未提隐藏
+- 严重程度：建议
+- 类别：可维护性 / 文档
+- 位置：packages/nb-story/src/web/parts/ChapterBars.vue:16-27、packages/nb-story/src/web/parts/ChapterBars.md:7
+- 现象：模块级 computed 叫 `series`，`geometry` 里又有局部常量 `SERIES`（大写像常量其实是 `series.value`）和回调参数 `series`，三个同名不同物。`.md` 的描述段仍写“按说法、知情、情节、数值四类堆起来”，只在数据块里加了 `hidden`；`hidden` 也与 HTML 全局属性同名，读的人容易当成属性。
+- 为什么是问题：同名遮蔽使这次改动难审（例如 `reduce((sum, series) => ...)` 读起来像在用 computed）。
+- 如何核实：读文件。
+- 建议改法：computed 改叫 `shownSeries`，回调参数改 `item`；`.md` 描述段补一句“可用 `hidden` 去掉某类”；prop 可改名 `omit`。
+
+## 未发现问题的方面
+- `host/book.ts`：初始页回退、`goPage`/`jump` 拒绝、`router.afterEach` 回退三条入口都经 `closedPage`/`allowedPages` 一份来源；回退后 `page` 先变为总览再由 watch 统一 `syncRoute` + `scheduleSave`，不会把旧页写回地址或 `reading.set`；`page.value === "overview"` 那一支里 `syncRoute()` 先用旧的 `at`/视角算目标，随后 `moveTo`/视角赋值触发的 watch 会再改写一次，最终地址一致（我推演过，没有跑）。
+- 手机底部三个常用页签（总览、人物、关系图）不含这两页，不需要过滤；“更多”和宽屏导航都经 `nav`。
+- 统计页的键集合（`ledger`、`ledgerTotals`、`secrets`）对得上 compile.ts 里 `written`/`generated` 实际写的键。
+- 总览的 `digest` 里“揭晓”“数值”两行本来就按长度 `v-if`；人物卡秘密一节本来就按 `secrets.length` 显示。
+- ImportPage：`choice` 与 `plan.features` 分开存，换书名不互相覆盖；`features` 只在 `plan.action === "new"` 时发出，其余动作写保存的设置；Switch 为 `<label>` 内的 button，点文字可切换，窄屏下 Switch `shrink-0`、说明文字自然折行；IngestPage 的设置一句所在行是 `flex-wrap`。
+- 全书图：`graph.book` 仍请求 `secret` 类，但服务端关秘密的书里没有该类的点，类型开关已去掉。
+
+## 数量
+阻断 0、重要 0、建议 5。
+
+## 处理（主 Agent）
+
+- 第 1 条（全书图图例仍列秘密）：成立，已改。关掉秘密时把 secret 并进传给图的 hiddenTypes，图例按它去掉“秘密”；类型开关提成 computed。
+- 第 2 条（e2e 覆盖）：部分改。补了总览“进行中的任务”消失、已在总览时改地址的分支、统计页与图的正向断言、图例里没有秘密。只关一项的界面组合没有另写 e2e：各处按单个开关独立判断，抽取层的三种组合已有单元测试；手机“更多”与宽屏导航用同一个 computed。
+- 第 3 条（数字块只剩两三块时变宽）：不改。改成 auto-fill 会让四块时也变窄，改变默认外观；块变宽不影响阅读。
+- 第 4 条（同一提示 8 秒内重复）：不改，收益小。
+- 第 5 条（ChapterBars 命名与 .md）：已改。prop 改名 omit，computed 改名 shownSeries，.md 描述段补了一句。
+
+提交：84596bcdc。

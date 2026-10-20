@@ -149,7 +149,7 @@ type IngestConfig = {
 
 ### 按书开关
 
-18. **按书关闭数值与秘密（planned）。** 新建时可以关掉数值（`--no-ledger`，网页 `features.ledger: false`）与秘密（`--no-secrets`，`features.secrets: false`），两项互相独立，默认都开。
+18. **按书关闭数值与秘密。** 新建时可以关掉数值（`--no-ledger`，网页 `features.ledger: false`）与秘密（`--no-secrets`，`features.secrets: false`），两项互相独立，默认都开。
     - 关掉数值：抽取不写状态变动；已有记录不列“当前状态”；核对清单不开对账类的条目（原文有钱数、任务、道具而草稿没记）。
     - 关掉秘密：抽取不写秘密、说法不挂秘密，也不写指向秘密的知情；指向说法的知情与身份类说法照常抽取，程序照常生成知情；已有记录不列“秘密与知情”，也不再提醒“身份说法没有秘密”。
     - 模型仍写出关掉的那类记录时，提交前去掉；这一章的问题里记一条去掉了几条，不计入丢弃的条数（输出 13）。
@@ -234,7 +234,7 @@ Smoke：在真实书库与独立服务上，网页导入样例书前 3 章的原
 
 ## 证据
 
-- 批准依据：[剧情图谱第一版提案](../../proposals/novel-story-app.md) 2026-10-15 的决策记录（抽取搬进 nb-story，命令行与网页都能导入、看进度、追加新章）；[V9 记忆图提案](../../proposals/novel-memory-v9.md)的“抽取管线”与第十二节第 9 到 11 小节（称呼只认本章段落的修法见第 10 小节）；开发者 2026-10-20 在 [w00024 t06](../../../.agents/works/w00024-nb-story/tasks/t06-ingest/README.md) 的决定 3 到 8 与会话里确认的八条假设；验收 11 的尺子是 V9 记忆图提案第十二节第 9 小节所述的 53 条关键记录尺子与 20 章样例原文，随 w00024 t06 迁入该 Task 的脚本目录（来源 w00005 t33）。；开发者 2026-10-20 在 [w00024 t10](../../../.agents/works/w00024-nb-story/tasks/t10-ingest-context-cost/README.md) 的决定 1 到 9（普通章已有记录的选法、挑相关说法默认关、整理改成增量另立 t12），选法的质量由 t10 的真实模型回归验证
+- 批准依据：[剧情图谱第一版提案](../../proposals/novel-story-app.md) 2026-10-15 的决策记录（抽取搬进 nb-story，命令行与网页都能导入、看进度、追加新章）；[V9 记忆图提案](../../proposals/novel-memory-v9.md)的“抽取管线”与第十二节第 9 到 11 小节（称呼只认本章段落的修法见第 10 小节）；开发者 2026-10-20 在 [w00024 t06](../../../.agents/works/w00024-nb-story/tasks/t06-ingest/README.md) 的决定 3 到 8 与会话里确认的八条假设；验收 11 的尺子是 V9 记忆图提案第十二节第 9 小节所述的 53 条关键记录尺子与 20 章样例原文，随 w00024 t06 迁入该 Task 的脚本目录（来源 w00005 t33）。；开发者 2026-10-20 在 [w00024 t10](../../../.agents/works/w00024-nb-story/tasks/t10-ingest-context-cost/README.md) 的决定 1 到 9（普通章已有记录的选法、挑相关说法默认关、整理改成增量另立 t12），选法的质量由 t10 的真实模型回归验证；开发者 2026-10-20 在 [w00024 t11](../../../.agents/works/w00024-nb-story/tasks/t11-book-feature-switches/README.md) 的决定 1 到 4（输出 18：开关只在新建时设、关秘密保留指向说法的知情、系统提示词不变），两项都关的一次真实模型评测见该 Task 的证据
 - 实现入口：[`runner.ts`](../../../packages/nb-story/src/ingest/runner.ts)、[`job.ts`](../../../packages/nb-story/src/ingest/job.ts)、[`cli/ingest.ts`](../../../packages/nb-story/src/cli/ingest.ts)、[`server/ingest-service.ts`](../../../packages/nb-story/src/server/ingest-service.ts)
 - 合同测试：[`runner.test.ts`](../../../packages/nb-story/src/ingest/runner.test.ts)、[`chapter.test.ts`](../../../packages/nb-story/src/ingest/chapter.test.ts)、[`model.test.ts`](../../../packages/nb-story/src/ingest/model.test.ts)、[`text.test.ts`](../../../packages/nb-story/src/ingest/text.test.ts)、[`cli/ingest.test.ts`](../../../packages/nb-story/src/cli/ingest.test.ts)、[`server/ingest.test.ts`](../../../packages/nb-story/src/server/ingest.test.ts)、[`e2e/ingest.e2e.ts`](../../../packages/nb-story/e2e/ingest.e2e.ts)
 - Smoke：[`smoke-web.mjs`](../../../.agents/works/w00024-nb-story/tasks/t06-ingest/scripts/smoke-web.mjs)（真实模型、网页导入前 3 章、停一次再继续）与 [`regress-20.sh`](../../../.agents/works/w00024-nb-story/tasks/t06-ingest/scripts/regress-20.sh)（验收 11；2026-10-20 三次合计 378，[结果](../../../.agents/works/w00024-nb-story/tasks/t06-ingest/evidences/regress-20/README.md)）
