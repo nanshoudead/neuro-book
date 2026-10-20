@@ -40,6 +40,10 @@ type CheckboxProps = {
     disabled?: boolean;
     /** 原生 required；也会与 Field 的 required 合并，默认 false。 */
     required?: boolean;
+    /** 出错外观与 aria-invalid；默认 false，与 Field 上下文的出错取或。 */
+    invalid?: boolean;
+    /** 只读：可以聚焦、写 aria-readonly，点击与空格不切换；默认 false（docs/specs/ui/forms.md 输出 28）。 */
+    readonly?: boolean;
 };
 
 type CheckboxEmits = {

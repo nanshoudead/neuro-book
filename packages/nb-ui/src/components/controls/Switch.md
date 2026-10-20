@@ -31,6 +31,10 @@ type SwitchProps = {
     defaultValue?: boolean;
     /** 是否禁用；默认 false */
     disabled?: boolean;
+    /** 出错：写 aria-invalid，轨道描红；默认 false，与 Field 上下文的出错取或。 */
+    invalid?: boolean;
+    /** 只读：可以聚焦、写 aria-readonly，点击与空格不切换；默认 false（docs/specs/ui/forms.md 输出 28）。 */
+    readonly?: boolean;
     /** 尺寸；默认 "md" */
     size?: SwitchSize;
     /** 原生表单名称；默认 undefined */

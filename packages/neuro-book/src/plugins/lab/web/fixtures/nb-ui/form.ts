@@ -12,6 +12,7 @@ import type {
     Field,
     Input,
     NumberInput,
+    SearchSelect,
     Select,
     Textarea,
     RadioGroup,
@@ -40,6 +41,15 @@ const SELECT_OPTIONS = [
     {value: "ja-JP", label: "日本語", description: "尚未完整翻译", disabled: true},
 ];
 /** 导出格式：长列表（超过五项时下拉按截半高度收起）与富选项（图标、说明、状态点、禁用项）。 */
+/** 可搜索下拉的模型列表：带说明、有一项停用。 */
+const MODEL_OPTIONS = [
+    {value: "gpt", label: "GPT-5", description: "OpenAI"},
+    {value: "claude-opus", label: "Claude Opus", description: "Anthropic"},
+    {value: "claude-instant", label: "Claude Instant", description: "已下线", disabled: true},
+    {value: "deepseek", label: "DeepSeek V4", description: "DeepSeek"},
+    {value: "qwen", label: "Qwen 3 Max", description: "阿里云"},
+];
+
 const EXPORT_FORMATS = [
     {value: "docx", label: "Word 文档（.docx）", iconClass: "i-lucide-file-text", description: "保留标题层级与批注"},
     {value: "epub", label: "EPUB 电子书（.epub）", iconClass: "i-lucide-book-open", description: "按卷生成目录"},
@@ -108,6 +118,8 @@ export const formFixtures: LabFixture[] = [
             {id: "placeholder", label: "未选择", input: {props: {options: SELECT_OPTIONS, placeholder: "选择语言", size: "sm"}, model: {modelValue: ""}}},
             {id: "up", label: "向上展开", input: {props: {options: SELECT_OPTIONS, dropdownDirection: "up"}, model: {modelValue: "en-US"}}},
             {id: "disabled", label: "禁用", input: {props: {options: SELECT_OPTIONS, disabled: true}, model: {modelValue: "zh-CN"}}},
+            {id: "readonly", label: "只读", input: {props: {options: SELECT_OPTIONS, readonly: true}, model: {modelValue: "zh-CN"}}},
+            {id: "invalid", label: "出错", input: {props: {options: SELECT_OPTIONS, invalid: true, placeholder: "选择语言"}, model: {modelValue: ""}}},
             {id: "long", label: "长列表（14 项，截半收起）", input: {props: {options: EXPORT_FORMATS, placeholder: "导出格式", dropdownDirection: "down"}, model: {modelValue: "docx"}}},
             {id: "rich", label: "富选项：状态点与说明", input: {props: {options: STATUS_OPTIONS, placeholder: "章节状态"}, model: {modelValue: "review"}}},
         ],
@@ -121,9 +133,24 @@ export const formFixtures: LabFixture[] = [
             {id: "unchecked", label: "未勾选", input: {props: {label: "显示隐藏文件"}, model: {modelValue: false}}},
             {id: "indeterminate", label: "部分", input: {props: {label: "全选本卷章节", indeterminate: true}, model: {modelValue: "indeterminate"}}},
             {id: "disabled", label: "禁用", input: {props: {label: "同步到云端", disabled: true}, model: {modelValue: false}}},
+            {id: "readonly", label: "只读", input: {props: {label: "同步到云端", readonly: true}, model: {modelValue: true}}},
+            {id: "invalid", label: "出错", input: {props: {label: "同意条款", invalid: true}, model: {modelValue: false}}},
             {id: "no-label", label: "没有标签：显示勾选值", input: {props: {}, model: {modelValue: true}}},
         ],
         subject: nbUiSubject("Checkbox"),
+    }),
+    defineSubjectFixture<typeof SearchSelect>({
+        component: "SearchSelect",
+        class: "w-full max-w-[360px]",
+        scenes: [
+            {id: "default", label: "默认", input: {props: {options: MODEL_OPTIONS, placeholder: "选择模型"}, model: {modelValue: "claude-opus"}}},
+            {id: "empty", label: "未选", input: {props: {options: MODEL_OPTIONS, placeholder: "选择模型", size: "sm"}, model: {modelValue: ""}}},
+            {id: "long", label: "长列表（14 项）", input: {props: {options: EXPORT_FORMATS, placeholder: "导出格式"}, model: {modelValue: "docx"}}},
+            {id: "readonly", label: "只读", input: {props: {options: MODEL_OPTIONS, readonly: true}, model: {modelValue: "gpt"}}},
+            {id: "disabled", label: "禁用", input: {props: {options: MODEL_OPTIONS, disabled: true}, model: {modelValue: "gpt"}}},
+            {id: "invalid", label: "出错", input: {props: {options: MODEL_OPTIONS, invalid: true, placeholder: "选择模型"}, model: {modelValue: ""}}},
+        ],
+        subject: nbUiSubject("SearchSelect"),
     }),
     defineSubjectFixture<typeof Field>({
         component: "Field",
@@ -141,6 +168,7 @@ export const formFixtures: LabFixture[] = [
             {id: "vertical", label: "纵向", input: {props: {options: GENRES, orientation: "vertical"}, model: {modelValue: ["mystery"]}}},
             {id: "horizontal", label: "横向", input: {props: {options: GENRES, orientation: "horizontal"}, model: {modelValue: ["mystery", "romance"]}}},
             {id: "disabled", label: "禁用", input: {props: {options: GENRES, disabled: true}, model: {modelValue: ["fantasy"]}}},
+            {id: "readonly", label: "只读", input: {props: {options: GENRES, readonly: true}, model: {modelValue: ["mystery"]}}},
         ],
         subject: nbUiSubject("CheckboxGroup"),
     }),
@@ -150,6 +178,8 @@ export const formFixtures: LabFixture[] = [
             {id: "vertical", label: "纵向、带说明", input: {props: {options: GENRES, orientation: "vertical", size: "md"}, model: {modelValue: "fantasy"}}},
             {id: "horizontal", label: "横向小号", input: {props: {options: GENRES, orientation: "horizontal", size: "sm"}, model: {modelValue: "mystery"}}},
             {id: "disabled", label: "禁用", input: {props: {options: GENRES, disabled: true}, model: {modelValue: "romance"}}},
+            {id: "readonly", label: "只读", input: {props: {options: GENRES, orientation: "horizontal", size: "sm", readonly: true}, model: {modelValue: "mystery"}}},
+            {id: "invalid", label: "出错", input: {props: {options: GENRES, orientation: "horizontal", size: "sm", invalid: true}, model: {modelValue: ""}}},
         ],
         subject: nbUiSubject("RadioGroup"),
     }),

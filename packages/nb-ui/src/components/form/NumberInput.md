@@ -41,6 +41,11 @@ type NumberInputProps = {
     readonly?: boolean;
     /** 原生 required；默认 false，并与 Field required 合并。 */
     required?: boolean;
+    /** 出错外观与 aria-invalid；默认 false，与 Field 上下文的出错取或。 */
+    invalid?: boolean;
+    /** 微调按钮的读屏名称；默认“增加”“减少”，按显示语言覆盖。 */
+    incrementLabel?: string;
+    decrementLabel?: string;
     /** 原生 autofocus；默认 false。 */
     autofocus?: boolean;
     /** 可解析的最小数值字符串；默认 undefined。 */

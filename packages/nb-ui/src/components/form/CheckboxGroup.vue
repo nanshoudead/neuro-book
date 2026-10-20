@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import {provide} from "vue";
+import {computed, provide} from "vue";
 import {
     CheckboxGroupRoot,
 } from "reka-ui";
 import Checkbox from "./Checkbox.vue";
-import {NB_FIELD_CONTEXT_KEY, useFieldContext} from "./field-context";
+import {NB_CHOICE_GROUP_INVALID_KEY, NB_FIELD_CONTEXT_KEY, useFieldContext} from "./field-context";
 
 export interface CheckboxOption {
     value: string;
@@ -19,12 +19,18 @@ const props = withDefaults(defineProps<{
     options?: CheckboxOption[];
     orientation?: "horizontal" | "vertical";
     disabled?: boolean;
+    /** 出错外观与 `aria-invalid`；与 `Field` 上下文的出错取或。 */
+    invalid?: boolean;
+    /** 只读：可以聚焦、写 `aria-readonly`，交互不改值（docs/specs/ui/forms.md 输出 28）。 */
+    readonly?: boolean;
 }>(), {
     modelValue: undefined,
     defaultValue: () => [],
     options: () => [],
     orientation: "vertical",
     disabled: false,
+    invalid: false,
+    readonly: false,
 });
 
 const emit = defineEmits<{
@@ -36,7 +42,9 @@ const emit = defineEmits<{
  * （docs/specs/ui/forms.md 输出 27）。
  */
 const field = useFieldContext();
+const isInvalid = computed(() => props.invalid || field?.invalid.value === true);
 provide(NB_FIELD_CONTEXT_KEY, null);
+provide(NB_CHOICE_GROUP_INVALID_KEY, isInvalid);
 
 function isChecked(val: string): boolean {
     const list = props.modelValue ?? props.defaultValue;
@@ -44,6 +52,7 @@ function isChecked(val: string): boolean {
 }
 
 function handleToggle(val: string, checked: boolean): void {
+    if (props.readonly) return;
     const current = [...(props.modelValue ?? props.defaultValue)];
     const idx = current.indexOf(val);
     if (checked && idx === -1) {
@@ -65,7 +74,8 @@ function handleToggle(val: string, checked: boolean): void {
         :id="field?.inputId.value"
         :aria-labelledby="field?.labelId.value"
         :aria-describedby="field?.ariaDescribedby.value"
-        :aria-invalid="field?.invalid.value ? 'true' : undefined"
+        :aria-invalid="isInvalid ? 'true' : undefined"
+        :aria-readonly="props.readonly || undefined"
         class="flex gap-3 select-none"
         :class="props.orientation === 'horizontal' ? 'flex-row flex-wrap items-center' : 'flex-col'"
         @update:model-value="(val) => emit('update:modelValue', val as string[])"
@@ -80,6 +90,7 @@ function handleToggle(val: string, checked: boolean): void {
                 :label="opt.label"
                 :description="opt.description"
                 :disabled="props.disabled || opt.disabled"
+                :readonly="props.readonly"
                 @update:model-value="handleToggle(opt.value, $event)"
             />
         </div>

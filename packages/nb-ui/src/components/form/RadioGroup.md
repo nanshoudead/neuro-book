@@ -34,6 +34,8 @@ interface RadioGroupProps {
     name?: string; // 原生表单字段名；默认 undefined。
     disabled?: boolean; // 禁用整组；默认 false。
     required?: boolean; // 原生必填语义；默认 false。
+    invalid?: boolean;  // 出错：组上写 aria-invalid，圆钮描红；默认 false，与 Field 上下文的出错取或。
+    readonly?: boolean; // 只读：可以聚焦当前项、写 aria-readonly，点击与方向键不改选中；默认 false。
     orientation?: "horizontal" | "vertical"; // 排列方向；默认 "vertical"。
     size?: RadioGroupSize; // 圆钮及文字大小；默认 "md"。
     options?: RadioOption[]; // 数据选项；默认 []。非空时优先于默认插槽。

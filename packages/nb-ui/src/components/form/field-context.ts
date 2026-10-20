@@ -21,6 +21,11 @@ export type FieldContext = {
  */
 export const NB_FIELD_CONTEXT_KEY: InjectionKey<FieldContext | null> = Symbol("nb-field-context");
 
+/**
+ * 复选组交给组里复选框的出错外观：出错的属性（`aria-invalid`）只写在组上，每个复选框只描红（输出 26、27）。包内用，不导出。
+ */
+export const NB_CHOICE_GROUP_INVALID_KEY: InjectionKey<ComputedRef<boolean>> = Symbol("nb-choice-group-invalid");
+
 export function useFieldContext(): FieldContext | null {
     return inject(NB_FIELD_CONTEXT_KEY, null);
 }

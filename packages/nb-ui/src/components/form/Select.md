@@ -64,6 +64,10 @@ type SelectProps = {
     disabled?: boolean;
     /** required 语义；默认 false，并与 Field required 合并。 */
     required?: boolean;
+    /** 出错外观与 aria-invalid；默认 false，与 Field 上下文的出错取或。 */
+    invalid?: boolean;
+    /** 只读：触发器可以聚焦、写 aria-readonly，不打开浮层；默认 false（docs/specs/ui/forms.md 输出 28）。 */
+    readonly?: boolean;
     /** 是否隐藏选中勾选标记；默认 false。 */
     hideCheckmark?: boolean;
 };

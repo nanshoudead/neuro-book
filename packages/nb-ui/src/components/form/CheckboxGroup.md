@@ -42,6 +42,10 @@ interface CheckboxGroupProps {
     orientation?: "horizontal" | "vertical";
     /** 禁用全部选项；默认 false。 */
     disabled?: boolean;
+    /** 出错：aria-invalid 写在组上，组里每个框只描红；默认 false，与 Field 上下文的出错取或。 */
+    invalid?: boolean;
+    /** 只读：可以聚焦、写 aria-readonly，交互不改值；默认 false（docs/specs/ui/forms.md 输出 28）。 */
+    readonly?: boolean;
 }
 
 interface CheckboxGroupEmits {

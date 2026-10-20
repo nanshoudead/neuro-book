@@ -155,6 +155,8 @@ export const controlsFixtures: LabFixture[] = [
             {id: "off", label: "关", input: {props: {ariaLabel: "自动保存", size: "md"}, model: {modelValue: false}}},
             {id: "small", label: "小号", input: {props: {ariaLabel: "自动保存", size: "sm"}, model: {modelValue: true}}},
             {id: "disabled", label: "禁用", input: {props: {ariaLabel: "自动保存", size: "md", disabled: true}, model: {modelValue: true}}},
+            {id: "readonly", label: "只读", input: {props: {ariaLabel: "自动保存", size: "md", readonly: true}, model: {modelValue: true}}},
+            {id: "invalid", label: "出错", input: {props: {ariaLabel: "自动保存", size: "md", invalid: true}, model: {modelValue: false}}},
         ],
         subject: nbUiSubject("Switch"),
     }),

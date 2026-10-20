@@ -66,6 +66,47 @@ test("下拉选择：Enter 展开、向下展开、页面不锁、禁用项选�
     await expect(listbox).toBeHidden();
 });
 
+test("下拉选择：只读时触发器可聚焦，Enter、空格与点击都不打开浮层，逐字查找不改值（docs/specs/ui/forms.md 输出 28）", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 1200});
+    await openScene(page, "c=Select&s=readonly");
+    const trigger = stage(page).locator('[role="combobox"]');
+    await expect(trigger).toHaveAttribute("aria-readonly", "true");
+    await trigger.focus();
+    await expect(trigger).toBeFocused();
+    await page.keyboard.press("Enter");
+    await page.keyboard.press(" ");
+    await page.keyboard.type("E");
+    await trigger.click();
+    await expect(page.getByRole("listbox")).toHaveCount(0);
+    await expect(trigger).toContainText("简体中文");
+});
+
+test("可搜索的下拉：打字只筛选，点选才改值；Escape 与失焦恢复已选项；列表是弹出列表共用的行（docs/specs/ui/forms.md 输出 30）", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 1200});
+    await openScene(page, "c=SearchSelect&s=default");
+    const input = stage(page).locator('input[role="combobox"]');
+    await expect(input).toHaveValue("Claude Opus");
+
+    await input.click();
+    await input.fill("deep");
+    const listbox = page.locator('[data-suggestion-menu] [role="listbox"]');
+    await expect(listbox).toBeVisible();
+    await expect(listbox.getByRole("option")).toHaveText(["DeepSeek V4DeepSeek"]);
+    await expect(listbox.getByRole("option").first()).toHaveClass(/nb-ui-menu-item/u);
+    await page.keyboard.press("Escape");
+    await expect(input).toHaveValue("Claude Opus");
+    await expect(listbox).toHaveCount(0);
+
+    await input.fill("qw");
+    await listbox.getByRole("option", {name: /Qwen/u}).click();
+    await expect(input).toHaveValue("Qwen 3 Max");
+    await expect(input).toBeFocused();
+
+    await input.fill("gpt");
+    await page.locator(".lab-main").click({position: {x: 5, y: 5}});
+    await expect(input).toHaveValue("Qwen 3 Max");
+});
+
 test("下拉选择：指定向上展开时浮层在上方", async ({page}) => {
     await page.setViewportSize({width: 1440, height: 1200});
     await openScene(page, "c=Select&s=up");

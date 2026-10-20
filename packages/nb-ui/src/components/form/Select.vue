@@ -51,6 +51,10 @@ const props = withDefaults(defineProps<{
     dropdownDirection?: SelectDirection;
     disabled?: boolean;
     required?: boolean;
+    /** 出错外观与 `aria-invalid`；与 `Field` 上下文的出错取或。 */
+    invalid?: boolean;
+    /** 只读：可以聚焦、写 `aria-readonly`，交互不改值（docs/specs/ui/forms.md 输出 28）。 */
+    readonly?: boolean;
     hideCheckmark?: boolean;
 }>(), {
     modelValue: "",
@@ -61,6 +65,8 @@ const props = withDefaults(defineProps<{
     dropdownDirection: "auto",
     disabled: false,
     required: false,
+    invalid: false,
+    readonly: false,
     hideCheckmark: false,
 });
 
@@ -72,7 +78,7 @@ const emit = defineEmits<{
 const field = useFieldContext();
 const controlId = computed(() => props.id || field?.inputId.value || undefined);
 const isRequired = computed(() => props.required || field?.required.value === true);
-const isInvalid = computed(() => field?.invalid.value === true);
+const isInvalid = computed(() => props.invalid || field?.invalid.value === true);
 const isSmall = computed(() => props.size === "sm");
 const controlSizeClass = computed(() => isSmall.value
     ? "nb-ui-control-h-sm px-[calc(var(--control-px)*0.75)] text-[12px]"
@@ -137,6 +143,7 @@ function handleCloseAutoFocus(event: Event): void {
         :name="props.name || undefined"
         :required="isRequired"
         :modal="false"
+        :open="props.readonly ? false : undefined"
         @update:model-value="handleUpdate"
     >
         <SelectTrigger
@@ -144,6 +151,7 @@ function handleCloseAutoFocus(event: Event): void {
             :id="controlId"
             :aria-describedby="field?.ariaDescribedby.value"
             :aria-invalid="isInvalid || undefined"
+            :aria-readonly="props.readonly || undefined"
             :class="triggerClass"
             @focus="emit('focus', $event)"
         >

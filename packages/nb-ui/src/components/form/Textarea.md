@@ -23,6 +23,7 @@ interface TextareaProps {
     disabled?: boolean;  // 禁止编辑和聚焦；默认 false。
     readonly?: boolean;  // 禁止修改但允许聚焦；默认 false。
     required?: boolean;  // 原生必填；默认 false，并与 Field 的 required 做逻辑或。
+    invalid?: boolean;   // 出错外观与 aria-invalid；默认 false，与 Field 上下文的出错取或。
     autofocus?: boolean; // 请求原生自动聚焦；默认 false。
     rows?: number;       // 初始可见行数；默认 4。
     minlength?: number;  // 原生最小字符数；默认 undefined。
