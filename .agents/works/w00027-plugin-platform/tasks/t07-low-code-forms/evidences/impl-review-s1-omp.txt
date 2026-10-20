@@ -1,0 +1,194 @@
+# w00027 t07 S0–S1 只读实现审查
+
+范围：`git diff 2d2ee4016..HEAD`（`8d4f12cb1`、`b03e9f9a8`）。依据：开发者已确认的主工作区 `plan.md`、两份设计审查及 worktree `docs/specs/ui/forms.md`。不审查尚未实现的 Vue 层与 nb-ui。
+
+所有源码位置相对于 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/`。实验命令的工作目录均为该 worktree 的 `packages/nb-form`；实验文件仅在 `/tmp/neuro-book/review-w00027-t07-s1/lab/`。本报告逐条追加，不修改仓库文件。
+
+### 1. nullable 字段拆包丢掉外层 writeOnly，密钥被选成普通文本输入
+
+- **严重程度**：重要；**类别**：正确性 / 安全与性能。
+- **位置**：`packages/nb-form/src/model.ts:251-286`、`232`；`packages/nb-form/src/check.ts:57-64`。
+- **现象**：`Type.Union([Type.String(), Type.Null()], {writeOnly:true})` 得到 `writeOnly:true`、`nullable:true`，但 `widget:"text"`；`checkDescription` 返回 `structured`。反方向，把 `x-form.widget:"multiline"` 放在联合内的字符串上，得到空 `hints`，提示丢失；外层 `x-form` 则不会被 `checkNode` 的原始提示检查检查到。
+- **为什么是问题**：输出 2 要求 `writeOnly` 选择密钥输入。`buildNode` 保留了合并后的标志，却只把 `effective` 传给 `selectWidget`，两个表示不一致；后续渲染层依赖已选控件会收到普通文字控件。这里已验证核心选型错误，未声称运行了尚未实现的界面。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-t07-s1/lab/safety.ts` 的 `outer-secret`；`bun /tmp/neuro-book/review-w00027-t07-s1/lab/core.ts` 的 `inner-hint`。真实 TypeBox 生成上述联合。
+- **建议改法**：归一化 nullable 时明确外层与内层注解的合并规则，让选型、字段标志、提示检查共享同一个归一化结果；至少用合并后的 `writeOnly` 选控件，并分别校验两层原始提示。
+
+### 2. 只要已有字段错误，整值校验就被跳过，对象与数组约束被漏报
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-form/src/validate.ts:101-121,123-147,178-211`。
+- **现象**：对象分支不校验 `minProperties`、`dependentRequired` 等自身约束；列表分支只留下三种数量/唯一性错误，丢弃 `contains`；choice 分支只查选项成员资格，遗漏并列的 `minLength` 等约束。只有 `issues.length === 0` 才检查整值，兜底又只取第一条。因此 `{a:"x"}` 同时违反 `a.minLength:2` 与 `minProperties:2` 时，只返回 `/a min-length`；同时违反 `dependentRequired` 或列表 `contains` 的实验也一样。选项 `"x"` 违反并列 `minLength:2` 时，独立测试仅报根错误，不能定位选项字段。
+- **为什么是问题**：输出 8 说各个约束都有自己的问题，最后对整值检查、归不到字段的记根；它没有规定“修好一个错误才开始检查其他约束”。调用方的问题数量与一次校验结果都不完整，未选中项/折叠分组也不能得到正确计数。把兜底写成互斥分支并不能保证错误去重。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-t07-s1/lab/core.ts` 的 `object-min-and-leaf`、`object-dependent-and-leaf`、`array-contains-and-leaf`、`choice-extra-constraint`、`two-leftovers`。最后一例同时违反 `dependentRequired`、`minProperties`，只得到前一条。
+- **建议改法**：逐节点保留节点自身的所有约束，choice 把联合成员错误压缩成一条，但不要跳过并列约束；整值校验始终执行，按字段路径与关键字去重，而不是已有任意错误就跳过、或只报第一条。保持对象成员与额外属性的现有稳定顺序。
+
+### 3. meta 的两条密钥必填豁免路径不等价：转义名称误报，非密钥必填可被误豁免
+
+- **严重程度**：重要；**类别**：正确性 / 不变量。
+- **位置**：`packages/nb-form/src/validate.ts:110-114,181,203-208`。
+- **现象**：字段树用 `toPointer(child.path)` 查询 meta；兜底却把未转义的 TypeBox `instancePath` 当成 Pointer，仅转义最后一级键。父属性为 `"a/b"` 或 `"a~b"` 时，已有密钥仍报根上的 `required`；普通父属性正常。另一个方向，兜底只看 meta 的 `secret:"set"`，不核对字段的 `writeOnly`：`{type:"object",properties:{name:{type:"string"}},required:["key"]}` 配 `{"/key":{secret:"set"}}`，`Value.Check` 为 false，`validateForm({name:"x"})` 却返回 `[]`。根为 `writeOnly` 字符串且缺值时，函数又在看 meta 前直接返回 `required`。
+- **为什么是问题**：输出 6 明确禁用 TypeBox 的未转义路径作为字段标识，输出 10 的例外只属于密钥字段，不属于任意缺失属性。同一带外状态的结果不能取决于祖先属性名或字段是否为根。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-t07-s1/lab/safety.ts` 的 `meta-parent` 三组对照与 `fake-meta`；`bun /tmp/neuro-book/review-w00027-t07-s1/lab/core.ts` 的 `secret-root`。
+- **建议改法**：只由字段树建立允许豁免的真实密钥路径集合，使用片段路径生成 Pointer；整值检查复用同一集合与相同判据，不从 `instancePath` 拼接，并处理根密钥。required 未声明在 properties 中的情况不能借 meta 默认豁免。
+
+### 4. JSON 兜底字段一律拒绝 null，合法 JSON 值无法通过校验
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-form/src/validate.ts:95-99`；`packages/nb-form/src/model.ts:133-139`。
+- **现象**：在 switch 进入 JSON 校验前，所有 null 都要求 `node.nullable` 为 true；而该标志只认两个分支、且恰有 `{type:"null"}` 的 anyOf。`Type.Null()`、`{}`、`Type.Union([Type.String(),Type.Number(),Type.Null()])`、`{type:["string","null"]}` 对 null 的真实 `Value.Check` 都是 true，`validateForm` 却都返回一条 `type` 错误。
+- **为什么是问题**：输出 1 的不支持写法是“改用 JSON 编辑”，不是改变其数据 schema。这里 JSON 编辑也无法提交原本合法的 null；问题不限于 nullable 的结构控件。两分支 nullable 对象与 nullable 列表的 null 已实测通过，不将它们误报为问题。
+- **如何核实**：在 `packages/nb-form` 执行 `bun -e 'import {Type} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules/typebox/build/index.mjs"; import {Value} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules/typebox/build/value/index.mjs"; import {resolveForm,validateForm} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/nb-form/src/index.ts"; for(const s of [Type.Null(),{},Type.Union([Type.String(),Type.Number(),Type.Null()]),{type:["string","null"]}])console.log(Value.Check(s,null),validateForm(resolveForm(s),null));'`，4 组均为 `true` 加 `type` 问题。
+- **建议改法**：JSON 字段将 null 同其他值一起交给原 schema 校验；结构化控件也应以 schema 的合法性为准，不让用于 UI 的 nullable 快捷标志成为完整校验规则。
+
+### 5. 一个后代的引用会把整个表单降为 JSON，且普通数据里的 $ref 也被当成引用
+
+- **严重程度**：重要；**类别**：正确性 / 安全与性能。
+- **位置**：`packages/nb-form/src/model.ts:142-157`。
+- **现象**：`kindOf` 在判断当前节点前扫描整个子树；根有 `name` 普通字段、`extra` 引用字段时，根直接变成 `kind:"json"`、`children:[]`，不是只让 `extra` 用 JSON 编辑。`$defs` 即使只在根提供定义，也触发同样结果。扫描不区分 schema、properties 的键表、default 等数据位置，业务属性名 `"$ref"` 也会令整个根降级。
+- **为什么是问题**：输出 1 将表外写法降级为 JSON 的单位是字段/超深的部分；不能因一个复杂字段让普通字段的只读、密钥与选型信息都从字段树消失。全子树扫描还在每个后代重复进行，且绕过了本应限制展开的深度门禁：对 `schema.default = schema` 的自引用 JS 输入，`resolveForm` 会在任何展开前抛 `RangeError`，与包约束“处理描述的函数不因描述写坏抛异常”不符。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-t07-s1/lab/core.ts` 的 `nested-ref`；`bun /tmp/neuro-book/review-w00027-t07-s1/lab/safety.ts` 的 `legal-field-name $ref`。另在 `packages/nb-form` 执行 `bun -e 'import {resolveForm} from "/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/nb-form/src/index.ts"; const s:Record<string,unknown>={type:"string"};s.default=s;try{resolveForm(s)}catch(e){console.log(String(e))}'`，得到 `RangeError: Maximum call stack size exceeded.`。`checkDescription` 本身对循环输入会返回 invalid，不将它混同为该异常。
+- **建议改法**：按当前 schema 节点决定是否可展开，只遍历已知 schema 子位置；引用字段在该节点降级，不向祖先传播。必要的全局预检只做一次，带已访问集合与界限，不扫描 default/const/enum 等值数据。
+
+### 6. Agent 的深度与大小限制存在未计入的入口
+
+- **严重程度**：重要；**类别**：安全与性能 / 文档。
+- **位置**：`packages/nb-form/src/check.ts:125-157,170-183`；`docs/specs/ui/forms.md:149`。
+- **现象**：深度仅在 `type:object/array` 的 `properties/items` 下增加；条件 schema 包 20 层 `anyOf:[…]`（整份描述 382 字节）仍返回 `structured`、无问题。`Type.Object({a:Type.Object({b:Type.Object({c:Type.String()})})})` 含两层嵌套对象，也通过，超过“一层嵌套对象”。`options.layout` 完全没有进入 Agent 的字节、文本、节点计数；group 的 label 为 40000 字符仍无问题，超过单段 2000 字符及整体 32 KB 两条限制。
+- **为什么是问题**：这些是输出 23 给外部输入设的安全界限，不是作者自律约定。条件交给 TypeBox 递归求值、布局交给后续渲染；只限制主字段树无法保证完整描述处于该范围。Spec 没定义深度起点、schema 组合器和布局的计数单位，也使验收无法唯一判定。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-t07-s1/lab/safety.ts` 的 `deep-anyof`、`large-layout`；两层嵌套对象用上述真实 TypeBox 描述调用 `checkDescription(schema,{policy:"agent"})`，结果为 `{status:"structured",problems:[]}`。
+- **建议改法**：为数据对象嵌套与 schema 递归分别定义可判定的计数规则，遍历 `anyOf` 等组合器时计入 schema 深度；将 schema、条件与布局一起做受限预检，达到上限立即停止下钻。Spec 明确根是否计一层、对象列表如何计层，不把“一层嵌套对象”仅寄托在通用 depth 常量上。
+
+### 7. 形状错误的提示被静默丢弃，描述检查仍宣布可用
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-form/src/model.ts:184-201`；`packages/nb-form/src/check.ts:57-64`。
+- **现象**：`x-form:{visibleWhen:"bad",widget:3,rows:-1,searchable:"yes",options:42}` 在必填字符串字段上返回 `structured`、无问题；这些提示都被 `readHints` 删掉了。数组型的 `choices`、`recommend` 还会静默过滤不合法元素，不报告是哪一项写坏；检查器只完整校验四个文字键及未知键。
+- **为什么是问题**：这是接收未知外部描述的边界，不是容错的配置读取器。错误的条件会变成无条件显示，错误的动态选项源会变成普通输入，作者得到的仍是“可结构化编辑”。既丢掉用户意图，也令“描述不合格就拒绝渲染”的恢复通道失效。输出 13 的必填条件禁止也不能诊断形状已经写坏的条件。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-t07-s1/lab/safety.ts` 的 `malformed-visible` 和 `bad-hint-shapes`；后一组仅因 choices 出现在非选择字段而报错，其他坏键不报。在 `packages/nb-form` 用本条第一组提示、`required:["s"]` 的字符串字段调用 `checkDescription`，实测无问题。
+- **建议改法**：先对原始 `x-form` 做完整形状校验，再生成提示模型；不合法键/数组项带键名与下标报告 `bad-hint`，不要用过滤后的结果代替输入校验。nullable 两层原始提示的检查也应共用这一入口。
+
+### 8. 条件 schema 的“预检查”发现不了坏正则，运行时静默变成始终显示
+
+- **严重程度**：重要；**类别**：正确性 / 代码质量。
+- **位置**：`packages/nb-form/src/check.ts:83-91,101-109`；`packages/nb-form/src/visible.ts:20-23`。
+- **现象**：可选字段条件为 `{field:"x",schema:{type:"string",pattern:"["}}` 时，可信策略返回 `structured`、无问题；`x:"hi"` 时 `isVisible` 捕获异常后返回 true，未留下问题/诊断。声明 `{type:"nonsense"}` 的条件也通过检查。绝对路径 `"/missing"` 没有被核对，返回 structured，而兄弟字段 `"missing"` 会被诊断。
+- **为什么是问题**：`Value.Check(condition.schema,undefined)` 只是检查一个测试值，不是验证 schema；字符串类型在 undefined 上短路，根本不会构造正则。“按显示处理”可以作为 UI 安全退路，但不能同时把坏描述宣布有效、且吞掉实际原因；写错条件会永久失去条件行为。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-t07-s1/lab/safety.ts` 的 `invalid-condition-pattern`、`malformed-visible`；前者精确得到 `{status:"structured",problems:[]}` 与 `true`。Agent 的同类正则已被禁用关键字检查拒绝，本条针对可信描述的错误诊断。
+- **建议改法**：在描述阶段验证条件 schema 的结构与正则语法，不依赖一个 undefined 样本触发所有分支；核对绝对 Pointer 的目标字段。保留显示优先的退路时必须有可见的诊断通道，Spec 也应写明该异常时的显示结果。
+
+### 9. 显式 json 控件不能覆盖结构化种类，与输出 2 相反
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-form/src/model.ts:213-243`；`packages/nb-form/src/check.ts:36-44,65-72`；`docs/specs/ui/forms.md:98`。
+- **现象**：对字符串、布尔、数字、有属性对象、字符串列表这 5 种合法 schema 写 `x-form.widget:"json"`，`checkDescription` 全部报 `widget-mismatch`，`resolveForm` 也全部忽略 json，仍选 text/switch/number/object/string-list。
+- **为什么是问题**：Spec 说“有 widget 就用它”，计划的对照也明确“JSON（json 或兜底）”；json 是主动选择 JSON 编辑的入口，不应只有已经属于 JSON 种类的节点才可指定。当前实现让调用方无法主动选择 JSON 编辑合法的结构化值。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-t07-s1/lab/core.ts` 的 5 组 `json-widget`；每组都有检查结果与实际选型。
+- **建议改法**：在按种类选默认控件前处理显式 json，检查器允许该覆盖；其他内建控件的兼容矩阵仍可保留，避免把不相容的覆盖悄悄当默认控件处理。
+
+### 10. additionalProperties:true 与省略该键的等价 schema 推出不同种类
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-form/src/model.ts:149-151`；`docs/specs/ui/forms.md:84-95`。
+- **现象**：`{type:"object",properties:{name:{type:"string"}}}` 是 object；只加上语义等价的 `additionalProperties:true`，就变成 json、没有 children；可信检查结果也从 structured 变成 json，Agent 则拒绝。
+- **为什么是问题**：JSON Schema 省略 additionalProperties 本就允许额外属性。Spec 的支持项是“有 properties 的对象”，JSON 兜底写的是“没有 properties 的开放对象”；没有授权将显式 true 与隐式 true 分成两类。TypeBox 与手写同等 JSON 的稳定性被破坏。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-t07-s1/lab/core.ts` 的 `additional-true` 与 `additional-implicit`，同一个 `{name:"x",other:1}` 在真实 Value.Check 下都通过，但字段模型相反。
+- **建议改法**：遵循已确认的支持矩阵，至少使显式 true 与省略一致；若确实要把所有开放对象降级，应先修改合同并同时处理省略的默认语义，不能只对一种拼写设门槛。
+
+### 11. 没有 uniqueItems 的字面量数组也被选成复选组，丢失多重性
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-form/src/model.ts:171-175`；`docs/specs/ui/forms.md:90`。
+- **现象**：`Type.Array(Type.Union([Type.Literal("a"),Type.Literal("b")]))` 没有 uniqueItems，`["a","a"]` 是合法值，核心却推为 multi、选择 checkboxes；加上 `uniqueItems:true` 时也得到同样模型，尽管后者才禁止重复。
+- **为什么是问题**：支持矩阵特意要求 uniqueItems 才是多选。普通枚举列表的重复次数和顺序是数据的一部分，复选组只有每个选项选/不选，不能表达合法值。不是“多支持了一种写法”，而是选错了数据模型。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-t07-s1/lab/nbdev.ts` 的两组 `nonunique`；真实 Value.Check 对重复值分别为 true/false，而核心都返回 multi、检查都为 structured。
+- **建议改法**：只有 `uniqueItems === true` 的字面量数组选 multi；其余数组按已定合同退到 JSON 编辑，不擅自去重或重排值。测试同时覆盖允许重复与禁止重复的两个真实 TypeBox schema。
+
+### 12. 嵌套字段布局按根字段补漏，会重复包含同一字段
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-form/src/model.ts:306-335`；`packages/nb-form/src/check.ts:114-122,183-186`。
+- **现象**：对象 `o:{x,y}`、根字段 z，显式布局仅列 `/o/x`。findNode 接受该路径，但补漏只与根字段 `/o`、`/z` 做精确字符串比较，最终布局为 `/o/x` 加 `/o` 加 `/z`；它没有补剩下的 `/o/y`。检查只警告 `/o`、`/z` 漏写，不识别 `/o/x` 已被祖先字段覆盖的重复。
+- **为什么是问题**：模型同时包含一个叶子编辑入口及包含该叶子的整个对象入口，无法保证字段在布局中只出现一次；按模型渲染会重复编辑 x，这是从当前布局和对象字段语义推断，尚未运行 Vue。简单根字段的补漏测试不能证明嵌套布局成立；Spec 也没有定义布局祖先/后代的覆盖与冲突规则。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-t07-s1/lab/core.ts` 的 `nested-layout`，直接输出最终布局与检查结果。
+- **建议改法**：选定一种明确合同：允许嵌套布局则按路径树计算已覆盖的叶子并补剩余叶子，拒绝祖先和后代重复覆盖；若只允许根字段，就让 checkDescription 拒绝 `/o/x`，不能一边接受一边补出重复对象。
+
+### 13. nbdev 映射测试未对照真实校验，10000 字上限的计数单位已经不一致
+
+- **严重程度**：重要；**类别**：测试 / 文档。
+- **位置**：`packages/nb-form/src/check.test.ts:98-118`；`packages/dev-panel/src/core/questions.ts:92-97`；`docs/specs/ui/forms.md:220`；主工作区 `plan.md:196`。
+- **现象**：现有测试只用 ASCII 重复字符，且注释把真实 validateAnswerValue 对照推迟到接入时。真实 TypeBox 按 Unicode 码点检查 maxLength，nbdev 按 JS 的 UTF-16 `value.length` 检查：5001 个 😀 为 5001 码点、10002 个代码单元，映射表单返回 `[]`，nbdev 拒绝“文字超过 10000 字”。纯空白、NUL、CR 同样前者通过、后者拒绝；这些后三类已在计划里明确由调用方适配，因此不重新将它们列为核心校验缺陷。
+- **为什么是问题**：本轮验收声称四种题在合法/非法边界一致，单独钉住一份“看似等价”的 schema 并没有证明一致性。Unicode 长度差异不在已列出的 caller 规则中，下游照计划实现仍会提交失败；Spec 的“字”也没有说明计数单位。确认题测试固定 Type.Optional，同样不能证明必答题的未答约束，必答性仍须按题定义映射。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-t07-s1/lab/nbdev.ts`，绝对路径导入真实 `questions.ts` 的 `validateAnswerValue`，无 mock；`emoji-5001` 精确输出 `utf16:10002`、`codepoints:5001`、`form:[]` 与真实拒绝原因。10000 个 ASCII 两者通过，false 两者拒绝文字类型。
+- **建议改法**：测试直接对照真实校验覆盖 Unicode、空白、控制字符、选项重复和缺答边界；保持核心标准 JSON Schema 语义，nbdev 的 UTF-16 长度与文字特有规则交适配器生成 caller 问题，并把这条映射及 required 规则写清。不要为了对齐 nbdev 改坏通用 maxLength。
+
+### 14. Agent 禁用关键字检查把业务属性名当成 schema 关键字
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-form/src/check.ts:145-153`。
+- **现象**：`{type:"object",properties:{pattern:{type:"string"}}}` 不含正则约束，却被 Agent 策略报 `keyword-not-allowed`；属性名 `"writeOnly"` 同样被拒。根因是遍历到 properties 这张名字到 schema 的映射表时，对映射表本身做了 Object.hasOwn 禁用关键字检查。default 等普通值对象也进入同一流程。
+- **为什么是问题**：输出 23 禁的是 schema 构造，不是字段命名；模型合法生成的普通文字字段因名字而无法使用。全量递归确实堵住了隐藏位置的 pattern，但把数据位置和 schema 位置混为一谈，不能作为安全子集的正确解析器。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-t07-s1/lab/safety.ts` 的 3 组 `legal-field-name`。pattern、writeOnly 两组模型本身均为 object，但策略拒绝；`"$ref"` 的名称误判还叠加第 5 条的整表降级。
+- **建议改法**：采用带上下文的 schema 遍历：只在 schema 节点识别关键字，properties/patternProperties/$defs 等映射表只遍历其值，const/default/enum 等位置按数据检查尺寸，不解释为 schema。仍要覆盖 items 数组、prefixItems、contains、propertyNames、条件等全部真实 schema 子位置。
+
+### 15. 路径 API 没定义非法下标语义，removeAt 会把数组变对象或删错项
+
+- **严重程度**：建议；**类别**：正确性 / 文档。
+- **位置**：`packages/nb-form/src/path.ts:28-38,42-53`；`docs/specs/ui/forms.md:64-72,105`。
+- **现象**：`removeAt({rows:["a","b"]},["rows","0"])` 返回 `{rows:{"1":"b"}}`，把数组变成对象；`removeAt({rows:["a","b","c"]},["rows",0.5])` 删除了第一项。setAt 的负数/小数下标变成数组的非索引属性，JSON 序列化后新值消失；越界写 index 4 生成 4 个空洞，序列化为 null。中间值为基本类型时会被直接替换为容器，例如 `{a:1}` 的 `/a/x` 写入后 a 变对象。
+- **为什么是问题**：公开的 FieldPath 允许任意 string/number，但约束没有说明字符串数字与数组索引、非整数、越界的处置。当前返回的结构是合法类型 unknown，却可能丢值或删错项。现有内部字段树产生的是整数路径，未观察到它会主动制造非法路径，因此按公共 API 边界建议报告，不夸大为已发生的产品数据损坏。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-t07-s1/lab/safety.ts` 的 `set-edge`、`remove-edge`、`remove-string-index`；同时验证了 -1/越过末尾删除保持原值。
+- **建议改法**：明确并校验路径段与容器的匹配关系；数组只允许非负整数，定义写入是否允许 index === length，其他越界拒绝或 no-op。字符串键不应用对象 rest 拆散数组；中间基本类型是拒绝还是替换也写进合同。不要通过宽松转换猜测调用方意图。
+
+### 16. schema-error 的路径合同与现有实现、测试直接矛盾
+
+- **严重程度**：建议；**类别**：文档 / 测试。
+- **位置**：`docs/specs/ui/forms.md:110`；`packages/nb-form/src/validate.ts:64-69,150-156`；`packages/nb-form/src/validate.test.ts:99-103`。
+- **现象**：输出 8 明确要求校验异常“记为根上的 schema-error”；实际 `s.pattern:"["` 得到 `path:["s"]`，现有测试也恰好断言 `/s schema-error`。列表元素的坏正则报在该元素路径上，而不是根。
+- **为什么是问题**：两种路径都是可行设计，但不是同一个合同。未来问题汇总与 focusFirstIssue 的调用方会据此选择根错误或具体字段；目前通过的测试实际上保护了与 Spec 相反的结果。
+- **如何核实**：现有 `bun test` 69 例全部通过；`bun /tmp/neuro-book/review-w00027-t07-s1/lab/core.ts` 的 `schema-error-location`、`array-bad-pattern` 显示实际路径，对照输出 8 原文。
+- **建议改法**：明确采用根级还是字段级诊断，再同步 Spec 与行为测试。字段级能够指出坏描述所在位置，可保留该实现，但应修改合同，不宜把测试通过当成已满足现合同。
+
+### 17. fallbackWidget 的公开返回类型写成了另一个不相容的类型
+
+- **严重程度**：建议；**类别**：文档。
+- **位置**：`docs/specs/ui/forms.md:72`；`packages/nb-form/src/fallback.ts:8-30`。
+- **现象**：Spec 的核心接口写 `fallbackWidget(widget):BuiltinWidget`，实际返回独立的 TerminalWidget，例如 json 返回 editor、search-select 返回 pick-one；这两个结果都不属于 BuiltinWidget。
+- **为什么是问题**：输出 25 的职责是提供终端画法，实际实现符合该职责，但公开接口却声称返回 Web 内建控件类型。按 Spec 声明调用方类型会无法消费真实实现，也无法唯一确定“退回”是否可再次传给 Web 控件选择。
+- **如何核实**：读取上述导出的联合类型与映射；现有 `model.test.ts:132-135` 也对 editor、pick-one、masked 作行为断言，`bun test` 已运行通过。
+- **建议改法**：把 Spec 接口修为 `fallbackWidget(widget:BuiltinWidget):TerminalWidget`，列出或链接 TerminalWidget 的含义；不把正确的终端映射改成返回 Web 类型。
+
+## 补充测量
+
+- 第 5 条的重复扫描：`bun /tmp/neuro-book/review-w00027-t07-s1/lab/remaining.ts` 在深度 5、100 个叶子 schema 上给一个无业务含义的键加只计数的 getter，单次 `resolveForm` 读取它 **600 次**，即每个叶子被全子树扫描 6 次。这是访问次数，不是耗时基准；结构展开上限为 6 时不声称一般情况是无界平方复杂度。循环输入的栈溢出是另一个已实测的失败。
+
+## 未发现问题的方面
+
+- **checkDescription 的不抛异常边界已实测**：自引用 JS schema 在 trusted 返回 invalid，在 agent 返回 not-json/description-error；`toJSON` 抛 Error 时 agent 返回 not-json；200000 项普通数组与 200000 项 enum 均没有向外抛异常。enum 被 too-large、union-too-wide 拒绝，单次观察约 38 ms；不把这组测试扩大为任意输入均安全的证明。与第 5 条直接调用 resolveForm 的异常明确区分。
+- **Agent 关键字隐藏位置未发现绕过**：items 数组、prefixItems、contains、propertyNames、dependentSchemas 里的 pattern 都被拒绝；visibleWhen.schema 内的正则也被拒绝。发现的是第 6 条计数遗漏与第 14 条误拒，不是这些隐藏位置漏扫。
+- **路径写入未发现原型污染**：分别实测 `["__proto__","polluted"]`、`["constructor","prototype","polluted"]`、`["a","__proto__","polluted"]`；原值不变，Object.prototype.polluted 始终为 undefined，新值的根原型没有被替换。getAt 会读取继承属性，但此次未观察到 setAt/removeAt 因这些路径污染全局原型。
+- **正常不可变更新成立**：冻结输入可以更新，旧值保留，未修改分支保留原引用；合法整数删除、缺失属性删除、负数/越界删除的既有行为符合现有测试。
+- **嵌套列表定位成立**：列表内对象的嵌套对象再含对象列表，外层 index 2、内层 index 4 得到 `["rows",2,"nested","list",4,"a"]`，没有把两个占位下标一起替换。
+- **绝对条件路径正常**：`/a~1b`、`/x~0y`、`/`（空属性名）与 `/rows/1/flag` 四组都正确解析；同项兄弟条件的现有行为测试通过。
+- **已支持的基础形状与结构空值**：真实 Type.Enum、单个 Type.Literal 正确推为 choice；Type.Optional 由父 required 控制；Type.Intersect、Type.Cyclic 的组合/引用形状退到 JSON，没有无限展开。Type.Readonly 使用的是 TypeBox 内部 `~readonly` 标记，不是 JSON Schema 的 readOnly，当前结构推断不读取它；没有将其当成与手写 `readOnly:true` 等价的运行期注解。标准 readOnly 注解向后代传递已实测。
+- **nullable 结构容器正常**：两分支的对象/null、对象列表/null 对 null 校验通过；第 4 条针对 JSON 兜底，不是这些支持项。
+- **问题与选项基础行为**：双必填展开、含 `/` 字段的路径、联合错值压成一条、数组元素路径、成员错误先于额外属性、值类型编码区分 1 与 `"1"` 等既有行为测试通过。核心未见 default 自动填值。
+- **当前包边界**：已读全部核心源码，运行期导入只有 typebox 与包内模块，没有 Vue、应用包、跨包源码深导入、mock/spy 或测试专用产品分支。边界测试是源码导入检查，不将其等同于打包/iframe 验证。Vue 入口、组件测试配置、受管组件登记与真实接入未实现，属于后续切片，不据此报本轮缺陷。
+
+## 本轮验证
+
+下表命令均在 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/nb-form` 执行。
+
+| 实际命令 | 结果 |
+|---|---|
+| `bun test` | 退出码 0；69 pass、0 fail、114 expect()，4 个测试文件 |
+| `bun run typecheck` | 退出码 0；执行 `tsc --noEmit`，无诊断 |
+| `bun /tmp/neuro-book/review-w00027-t07-s1/lab/core.ts` | 退出码 0；字段模型、校验、nullable、引用、控件与布局实验；脚本去掉宽泛类型断言后重新运行，报告结果仍成立 |
+| `bun /tmp/neuro-book/review-w00027-t07-s1/lab/safety.ts` | 退出码 0；策略、异常、200000 项数组、条件、meta、路径与原型实验 |
+| `bun /tmp/neuro-book/review-w00027-t07-s1/lab/nbdev.ts` | 退出码 0；直接对照真实 validateAnswerValue，另测字面量数组多重性 |
+| `bun /tmp/neuro-book/review-w00027-t07-s1/lab/remaining.ts` | 退出码 0；重复扫描计数、转义绝对路径、冻结更新、200000 项 enum、只读传递 |
+
+未运行：e2e、开发服务、浏览器、构建、全仓测试、docs:check、governance:check、真实 Provider/Model；没有进行变异改写。此次只读审查未修改仓库、未安装依赖、未 commit/push/stash/切换分支；只创建/修改指定 lab 实验与本报告。面向尚未实现的渲染层的影响均注明为推断，不冒充 UI 运行证据。
+
+## 数量
+
+**合计 17 条：阻断 0 条，重要 14 条，建议 3 条。** 每条单独追加后均执行 `grep -c '^### '`，输出从 1 递增至 17，没有重写或减少已有条目。规则回写未执行；本报告内针对 Spec 的建议交实施者核实处理，不构成扩大范围或修改合同的批准。

@@ -31,7 +31,9 @@ updated: 2026-10-20
 
 - 先把 master 合进 Work 分支（`adbcff939`，拿到 w00029 的改名与删除），插件页改用 `Input`（`2d2ee4016`）；合并后应用 `bun test` 1547 例（一例已知的时好时坏用例，重跑通过）、Vitest 380 例、内核 342 例、nb-ui 505 例通过，typecheck 与 `docs:check` 通过。
 - S0（`8d4f12cb1`）：Spec `ui.forms`、新包 `@notnotype/nb-form` 的骨架与登记（根 workspaces、`monorepo-boundaries.md`、根 `AGENTS.md`、包内 `AGENTS.md` 与 `README.md`）。偏离计划：Vue 层的测试配置与 `docs:check` 受管组件目录等 S3 有 Vue 组件时再加；`checkDescription` 返回 `{status, problems}`，Spec 已同步。
-- S1（`b03e9f9a8`）：核心（字段树与控件选择、路径与不可变更新、校验与问题、条件显示、选项键、描述检查与 Agent 策略、终端退回、包边界测试），69 例通过，typecheck 通过；7 处关键行为做过变异检查，改回去测试都会失败。正在交 omp 做 S0–S1 的实现审查。
+- S1（`b03e9f9a8`）：核心（字段树与控件选择、路径与不可变更新、校验与问题、条件显示、选项键、描述检查与 Agent 策略、终端退回、包边界测试），69 例通过，typecheck 通过；7 处关键行为做过变异检查，改回去测试都会失败。omp 的实现审查（[evidences/impl-review-s1-omp.txt](evidences/impl-review-s1-omp.txt)，17 条：重要 14、建议 3）全部成立，`7b0c74652` 修正：可为 null 的字段合并内外注解；引用只降级它所在的字段；每个字段自身的约束都报、整值检查不再跳过；必填完全由字段树处理，密钥豁免不再拼未转义的路径；JSON 字段接受合法的 null；显式 `json` 对任何种类成立；`additionalProperties: true` 与省略一样；允许重复的字面量数组改用 JSON 编辑；描述检查按 schema 结构遍历（名叫 `pattern` 的字段不再被拒）、完整检查 `x-form` 的形状与条件里的正则；Agent 策略计入组合器的嵌套与布局、根之下只许一层对象；布局只排根上的字段；非法路径不改值。Spec 同步（输出 1、2、3、8、13、23、验收 2，`fallbackWidget` 的类型）。nbdev 的文字按 UTF-16 计长度、去空白后非空、控制字符由 nbdev 的适配器以调用方问题报告，接入时在 dev-panel 里对照真实校验测。修正后核心 85 例通过，审查者的实验脚本重跑结果与预期一致。
+
+S2 起等 w00029 t04 合入 master。
 
 ## 下一步
 
