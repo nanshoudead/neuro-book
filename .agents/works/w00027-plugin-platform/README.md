@@ -41,6 +41,10 @@ updated: 2026-10-17
 
 平台设计已 acceptance，机制部分已实现，但外部插件的运行路径完全没有：应用只用代码里的静态 `productPlugins` 装配内置插件，没有从目录发现、安装或执行外部代码的入口（`packages/neuro-book/src/manifest.ts`、`server/plugins.ts`、`web/plugins.ts`）。详见 [t01](tasks/t01-requirements/README.md)。
 
+## 待确认清单
+
+开发者 2026-10-21 指定按 autonomous-delivery 推进 t02：照推荐做、等事后追认的决定记在 [pending-confirmations.md](pending-confirmations.md)。
+
 ## 后续事项
 
 开发者 2026-10-20 确认记为本 Work 的后续，按插件需求再排，还没有建 Task：

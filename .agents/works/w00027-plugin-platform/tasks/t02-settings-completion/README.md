@@ -56,6 +56,8 @@ S6（`57bc5eedc`，2026-10-20）：编辑器分区加“代码编辑器”小组
 
 说明页：[设置分区的两种画法，与旧应用的 provider 设置](artifacts/settings-sections/index.html)。
 
+2026-10-21：t07 完成并合入 master 后，按它实际的接口回改了 [plan.md](plan.md) 的 S3、S4、S5、S7（动态选项改用贡献点 `settings.choices` 直接交 nb-form 的选项源、`onSettingsChoices` 按需激活、`context.options`；未保存保护与搜索的细节；设置文件视图走远程合同 v2 的 `readText`、`writeText`）。开发者同日确认计划，并定三点：设置文件用纯文本框编辑、不做语法高亮；两份设置远程合同升到 version 2；搜索不匹配动态选项的选项名。开发者指定按 autonomous-delivery 推进完 t02，事后一次审查；照推荐做的决定记在 Work 的 [待确认清单](../../pending-confirmations.md)。
+
 ## 下一步
 
-S3–S5、S7 等 t07 完成后做（[plan.md](plan.md)“切片”）。
+计划交 omp 设计审查，处理后依次做 S3、S4、S5、S7（[plan.md](plan.md)“切片”）。
