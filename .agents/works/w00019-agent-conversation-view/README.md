@@ -44,4 +44,6 @@ issueId: null
 - [t04-visual-shell](tasks/t04-visual-shell/README.md)：切片 S2，共享视觉零件与候选方案对比。开发者已确认视觉（第十一轮，含提前做的 S5 工具详情），收尾审查已完成。
 - [t05-lab-dev-tools](tasks/t05-lab-dev-tools/README.md)：Lab 截图调试工具与夹具样板精简（开发者在 t04 复盘后批准）。已完成，开发者已确认。
 - [t06-message-stream](tasks/t06-message-stream/README.md)：切片 S3 剩余部分，滚动、阅读位置、历史分页、原始视图与消息状态。开发者已确认（2026-09-30），细节打磨与动画另列。
-- [t07-prompt-editor](tasks/t07-prompt-editor/README.md)：切片 S6 前一半，独立的提示词编辑器 `PromptEditor`，输入框与历史消息就地编辑共用；与旧编辑器并存。需求已与开发者理清，组件文档、Spec 与数据层提案已更新，待实现。
+- [t07-prompt-editor](tasks/t07-prompt-editor/README.md)：切片 S6 前一半，独立的提示词编辑器 `PromptEditor`，输入框与历史消息就地编辑共用；与旧编辑器并存。开发者四轮试用反馈已处理（第三轮：不拆分、粘贴块展开后可编辑），开发者已确认（2026-10-01）。
+- [t08-lab-governance](tasks/t08-lab-governance/README.md)：Lab 治理六项（开发者在 t07 反馈时批准）：舞台规则统一与测试、共用控制按钮、`__nbLab.events()`、事件按名隐藏、smoke 套件表驱动、`bun run lab`。已实现，待开发者确认。S6 的输入框部分顺延为 t09。
+- [t09-composer](tasks/t09-composer/README.md)：切片 S6 后一半，输入框、历史消息就地编辑、已发送消息的新显示；开始前先把 `app/components/agent/` 按界面区域分目录（开发者 2026-10-01 同意）。进行中。
