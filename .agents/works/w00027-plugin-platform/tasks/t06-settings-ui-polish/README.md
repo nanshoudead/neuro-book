@@ -26,14 +26,25 @@ updated: 2026-10-21
 
 ## 当前状态
 
-2026-10-20 经 nbdev 新建。2026-10-21 t02 合入后开工，按 design-review 走：现状与参照放在评审板 [artifacts/review](artifacts/review/index.html)。nbdev 与仓库里没有 t80 之外的设置外观稿，以 t80 定下的结构为底重新出稿。注意力排序开发者 2026-10-21 已同意（见“设计决定”）。2026-10-21 发过一轮新画法（分组底板、层标签位置），开发者指出 t80 已经定过外观、t06 应当把实现收回 t80 定稿，两道题已撤回；与 t80 定稿的逐项对照见评审板 v5。实施计划见 [plan.md](plan.md)，S1 起在 Work 分支上实施。草稿在 worktree `.worktree/w00027-t06-drafts`（分支 `t06/drafts`，不合并、不推送），草稿组件 `src/plugins/drafts/web/components/settings-look/`；开发服务经 `nbdev dev start` 起在 http://127.0.0.1:4317/。
+2026-10-20 经 nbdev 新建。2026-10-21 t02 合入后开工，按 design-review 走：现状与参照放在评审板 [artifacts/review](artifacts/review/index.html)。nbdev 与仓库里没有 t80 之外的设置外观稿。注意力排序开发者 2026-10-21 已同意（“设计决定”第 1 条）。当天先发过一轮新画法（分组底板、层标签位置），开发者指出 t80 已经定过外观、t06 应当把实现收回定稿，两道题已撤回；与 t80 定稿的逐项对照见评审板 v5，计划见 [plan.md](plan.md)。
+
+实施（Work 分支 `feat/w00027-plugin-platform`，`e59a4112c..c92f53320`，没有合入 master，等开发者看过还原后的外观）：
+
+- S1 `e5a0e5f04`：nb-ui `SegmentedControl` 照表单控件的统一合同（停用、只读、出错，名字与说明来自 `Field` 的组形态）。
+- S2 `e87f0195c`：nb-form 三项以内、都没有说明的单选用分段控件；`ui.forms`、`settings.window` 两份 Spec 与 nb-ui 的“同类零件的分工”随之改（master `b1885f270`）。
+- S3 `ed9ff0bea`：层标签与左栏同宽；分区标题与层提示合成 `SettingsSectionHeading`；单行输入在 200 到 320px 之间随行宽收窄（Spec `94d5d637b`）。
+- S4 `0b48d79e0`：Lab“模型服务”收回 t80 的 fill 页面写法（`SettingsPageList` 加详情，两栏各自滚动）；待确认清单里“改用 nb-form 左列表右详情”一条改判、“不能各自滚动”一条已做。页内列表不支持排序，服务商的上移下移随之去掉。
+- S5 `40755ebde`、`20010fe6d`：`bare` 字段的“已不存在”只在警告行写一次；设置文件视图的主按钮在最右。
+- 实现审查：Sonnet 界面审查 11 条（重要 2、建议 9），全部成立并修正（`1e2ea621a`、`d94655b13`）：模型服务样板改按稳定的键认服务商（原来按下标，解析不了的输入切换后错记、别处增删后详情换人），详情改成标签列加控件列，改过的服务商有圆点，“常规”没改动时不显示操作行；分段控件整组停用只降一次透明度；名字超过 16 个字符的单选不用分段控件（这是开发者选 A 时说的“选项名短”，第一版漏了，Spec `71fe2bb60`）；单行输入按层预留后面按钮的宽度；左栏尺寸收成变量。omp 审查 S1–S2 合同 3 条（都是重要），全部成立并修正（`03e1ca809`）：当前值是停用项时键盘进不了分段控件；分段控件没有 `aria-required`；显式 `widget: "segmented"` 不生效（Spec `widget` 一栏加 `segmented`）。报告见 [evidences/impl-review-sonnet.txt](evidences/impl-review-sonnet.txt)、[evidences/impl-review-omp.txt](evidences/impl-review-omp.txt)。关键修正做过变异检查（撤掉改动测试失败）。
+- 验证（`c92f53320`）：`test:affected --since e59a4112c --typecheck --with-consumers` 全过（dev-panel 461、nb-form 100 加 81、nb-story 320、nb-ui 531、应用 Bun 1598 与 Vitest 405，各包类型检查）；`docs:check`、`governance:check` 没有失败；全量 e2e 255 例通过；设置窗口全部场景在浅、深与 1200×800、600×500 下截图 76 张，没有溢出与被裁的焦点环。
+- 看图时发现：4417 那个手动起的开发服务在启动时预构建了 nb-ui，之后 nb-ui 源码的改动它看不到，截图一度是旧样子；改用 `nbdev dev start` 起在 http://127.0.0.1:4317/。
 
 ## 下一步
 
-找回开发者说的设计稿（问开发者在哪），或按 design-review 重出静态稿；与 t02 新增的控件（多行、列表、JSON、密钥、搜索）一起定外观。
+1. 等开发者在评审板 `r2-accept` 看还原后的外观；认可后合入 master（Work 分支，同 t02 的做法）。
+2. t80 没有定过、要另出静态稿给开发者定的三处：
+   - 只读控件的统一外观（t07 S3 的 Sonnet 界面审查第 7 条，证据 `../t07-low-code-forms/evidences/impl-review-s3-sonnet.txt`）：只读与可编辑几乎看不出差别，不用整体变淡（变淡是停用）。
+   - “其它”分区的小组标题现在是插件 id，要换成插件的名字（插件清单要有给人看的名字）。
+   - 动态选项不可用时的原因写着选项来源的 id（`settings.window` 输出 20 的“选项来源 X …”），同样换成给人看的说法。
 
-一并收口（t07 S3 的 Sonnet 界面审查第 7 条，2026-10-20 记）：nb-ui 的表单控件在只读时与可编辑几乎看不出差别（开关、单选、下拉、文字逐像素相同），需要一种统一的只读外观（例如弱化底色或锁形标记，不用整体变淡，变淡是停用的样子）；`NumberInput` 只读时原来套了停用的变淡，t07 已去掉，与其它控件一致。证据：`../t07-low-code-forms/evidences/impl-review-s3-sonnet.txt`。
-
-一并收口（t07 S5 的 Sonnet 界面审查第 8 条，2026-10-21 记）：设置行里单行输入定宽 320px，标签列 200px 加间距后内容列不到约 544px（改过的行约 580px，多一个“恢复默认”）就整行换到标题下面，同一分区里数字框、下拉仍排在右边，两种对齐混在一起；可以考虑单行输入在 200 到 320px 之间随内容列收窄、放不下才换行。“恢复默认”在窄宽度下也会单独换一行。证据：`../t07-low-code-forms/evidences/impl-review-s5-sonnet.txt`。
-
-一并收口（t02 的界面实现审查第 6、17 条，2026-10-21 记）：Lab“模型服务”是 fill 页面，服务商列表与详情现在随整页一起滚（操作行粘在顶上），滚到详情下面列表就看不见；要让列表与详情各自滚动，nb-form 的左列表右详情得能撑满父容器的高度。设置窗口里 fill 与 column 两个分支各写一份分区标题与层说明的模板，收外观时可以抽成一个组件。证据：`../t02-settings-completion/evidences/impl-review-sonnet.txt`。
+已在本 Task 收口、从这里移走的：单行输入定宽导致两种对齐（t07 S5 审查第 8 条，S3 已改）；“模型服务”列表与详情不能各自滚动、fill 与 column 两份分区标题模板（t02 审查第 6、17 条，S3、S4 已改）。
