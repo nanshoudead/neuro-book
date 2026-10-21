@@ -10,6 +10,7 @@ import {
     SelectValue,
     SelectViewport,
 } from "reka-ui";
+import MenuRow from "./MenuRow.vue";
 import PopupScrollbar from "./PopupScrollbar.vue";
 import {popoverInlineSurfaceStyle, usePopoverLayer} from "../../composables/usePopoverLayer";
 import {usePopupScroll} from "../../composables/usePopupScroll";
@@ -123,11 +124,6 @@ const leadColumn = computed(() => !props.hideCheckmark || props.options.some((op
 function showsCheck(option: SelectOption): boolean {
     return !props.hideCheckmark && option.value === props.modelValue;
 }
-function leadClass(option: SelectOption): string | string[] {
-    if (showsCheck(option)) return "i-lucide-check";
-    if (option.iconClass && !option.indicatorClass) return [option.iconClass, "text-[var(--text-secondary)]"];
-    return "";
-}
 
 function handleUpdate(value: unknown): void {
     emit("update:modelValue", typeof value === "string" ? value : "");
@@ -230,11 +226,11 @@ function handleCloseAutoFocus(event: Event): void {
                         :disabled="option.disabled"
                         class="nb-ui-menu-item"
                     >
-                        <span v-if="leadColumn" class="nb-ui-menu-item__icon" :class="leadClass(option)" aria-hidden="true">
-                            <span v-if="option.indicatorClass && !showsCheck(option)" class="h-1.5 w-1.5 rounded-full shadow-sm" :class="option.indicatorClass"></span>
-                        </span>
-                        <SelectItemText class="nb-ui-menu-item__label">{{ option.label }}</SelectItemText>
-                        <span v-if="option.description" class="nb-ui-menu-item__hint">{{ option.description }}</span>
+                        <MenuRow :lead-column="leadColumn" :checked="showsCheck(option)" :icon="option.indicatorClass ? undefined : option.iconClass" muted-icon :hint="option.description">
+                            <template #lead><span v-if="option.indicatorClass && !showsCheck(option)" class="h-1.5 w-1.5 rounded-full shadow-sm" :class="option.indicatorClass"></span></template>
+                            <!-- 名称格必须是 reka 的 SelectItemText：它在 SelectItem 里登记文字，首字母跳转靠这个。 -->
+                            <template #label><SelectItemText class="nb-ui-menu-item__label">{{ option.label }}</SelectItemText></template>
+                        </MenuRow>
                     </SelectItem>
                 </SelectViewport>
 

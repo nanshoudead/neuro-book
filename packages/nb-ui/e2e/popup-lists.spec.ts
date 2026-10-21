@@ -51,7 +51,7 @@ test("下拉菜单：外框 10px、内边距 4px，项高 28px、字 13px、圆�
 
     const checked = menu.getByRole("menuitemcheckbox", {name: /自动换行/});
     await expect(checked.locator(".i-lucide-check")).toHaveCount(1);
-    await expect(checked.locator("[data-menu-shortcut]")).toHaveText("Alt+Z");
+    await expect(checked.locator(".nb-ui-menu-item__hint")).toHaveText("Alt+Z");
     // 勾与图标共用左侧一列（决定 8）：勾画在图标的位置；没勾、没图标的项也留出这一列，名称才对得齐。
     const iconLeft = async (item: Locator, icon: string): Promise<number> => (await item.locator(icon).boundingBox())!.x;
     expect(await iconLeft(checked, ".i-lucide-check"), "勾与图标在同一列").toBeCloseTo(await iconLeft(menu.getByRole("menuitem", {name: /重命名/}), ".i-lucide-pencil"), 0);

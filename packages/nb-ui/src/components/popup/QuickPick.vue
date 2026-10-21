@@ -11,6 +11,7 @@ import {computed, nextTick, ref, useId, watch} from "vue";
 import {NB_Z_INDEX} from "../../theme/z-index";
 import {useTeleportTarget} from "../../composables/useTeleportTarget";
 import {usePopupScroll} from "../../composables/usePopupScroll";
+import MenuRow from "./MenuRow.vue";
 import PopupScrollbar from "./PopupScrollbar.vue";
 import Kbd from "../display/Kbd.vue";
 import Spinner from "../display/Spinner.vue";
@@ -331,16 +332,17 @@ function isLowSurrogate(code: number): boolean {
                             @pointermove="onItemPointerMove(item)"
                             @click="onItemClick(item)"
                         >
-                            <span v-if="item.iconClass" :class="item.iconClass" class="nb-ui-menu-item__icon" aria-hidden="true"></span>
-                            <span v-else-if="iconColumn" class="nb-ui-menu-item__icon" aria-hidden="true"></span>
-                            <span class="nb-ui-menu-item__label">
-                                <template v-for="(segment, index) in labelSegments(item)" :key="index">
-                                    <span v-if="segment.match" class="font-medium text-[var(--accent-main)]">{{ segment.text }}</span>
-                                    <template v-else>{{ segment.text }}</template>
+                            <MenuRow :lead-column="iconColumn" :icon="item.iconClass" :hint="metaText(item) || undefined">
+                                <template #label>
+                                    <span class="nb-ui-menu-item__label">
+                                        <template v-for="(segment, index) in labelSegments(item)" :key="index">
+                                            <span v-if="segment.match" class="font-medium text-[var(--accent-main)]">{{ segment.text }}</span>
+                                            <template v-else>{{ segment.text }}</template>
+                                        </template>
+                                    </span>
                                 </template>
-                            </span>
-                            <span v-if="metaText(item) !== ''" class="nb-ui-menu-item__hint">{{ metaText(item) }}</span>
-                            <Kbd v-if="item.shortcut" size="sm">{{ item.shortcut }}</Kbd>
+                                <template #trailing><Kbd v-if="item.shortcut" size="sm">{{ item.shortcut }}</Kbd></template>
+                            </MenuRow>
                         </li>
                     </ul>
                     <p

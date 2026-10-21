@@ -1,9 +1,11 @@
 <script setup lang="ts" generic="T extends {label?: string; title?: string; disabled?: boolean; separator?: boolean; iconClass?: string; shortcut?: string; tone?: 'default' | 'danger'; checked?: boolean; type?: string}">
 import {computed, ref, type Component} from "vue";
 import {elementOf} from "../../utils/element-of";
+import MenuRow from "./MenuRow.vue";
 
 /**
- * 一级菜单的条目，DropdownMenu、Menubar 与右键菜单共用。行的外观是 `.nb-ui-menu-item` 一组类（`styles.css`）。
+ * 一级菜单的条目，DropdownMenu、Menubar 与右键菜单共用。行里的几格由 `MenuRow` 画，行的外观是 `.nb-ui-menu-item` 一组类
+ * （`styles.css`）；宿主的 `item`、`item-right` 插槽分别替换名称格与右侧那格。
  *
  * 在 reka 的菜单内容里，宿主传入对应的菜单项原语（`DropdownMenuItem`、`MenubarItem`）：条目成为 reka 集合里的项，
  * 上下键、Home、End、首字母跳转、高亮与跳过禁用项都由 reka 负责。手工级联面板与右键菜单不在 reka 的菜单内容里
@@ -126,10 +128,10 @@ function common(item: T): Record<string, unknown> {
             @mouseenter="emit('hover', hasChildren(item) ? item : null, $event.currentTarget as HTMLElement, false)"
             @keydown="onKeydown(item, $event)"
         >
-            <span v-if="leadColumn" :class="['nb-ui-menu-item__icon', item.checked ? 'i-lucide-check' : item.iconClass]" aria-hidden="true"></span>
-            <slot name="item" :item="item"><span class="nb-ui-menu-item__label">{{ item.label }}</span></slot>
-            <span v-if="hasChildren(item)" class="i-lucide-chevron-right nb-ui-menu-item__chevron" aria-hidden="true"></span>
-            <slot v-else name="item-right" :item="item"><span v-if="item.shortcut" class="nb-ui-menu-item__hint" data-menu-shortcut>{{ item.shortcut }}</span></slot>
+            <MenuRow :label="item.label" :lead-column="leadColumn" :checked="item.checked === true" :icon="item.iconClass" :hint="item.shortcut" :submenu="hasChildren(item)">
+                <template #label><slot name="item" :item="item" /></template>
+                <template #right><slot name="item-right" :item="item" /></template>
+            </MenuRow>
         </component>
         <button
             v-else
@@ -146,10 +148,10 @@ function common(item: T): Record<string, unknown> {
             @click="onButtonClick(item, $event)"
             @keydown="onKeydown(item, $event)"
         >
-            <span v-if="leadColumn" :class="['nb-ui-menu-item__icon', item.checked ? 'i-lucide-check' : item.iconClass]" aria-hidden="true"></span>
-            <slot name="item" :item="item"><span class="nb-ui-menu-item__label">{{ item.label }}</span></slot>
-            <span v-if="hasChildren(item)" class="i-lucide-chevron-right nb-ui-menu-item__chevron" aria-hidden="true"></span>
-            <slot v-else name="item-right" :item="item"><span v-if="item.shortcut" class="nb-ui-menu-item__hint" data-menu-shortcut>{{ item.shortcut }}</span></slot>
+            <MenuRow :label="item.label" :lead-column="leadColumn" :checked="item.checked === true" :icon="item.iconClass" :hint="item.shortcut" :submenu="hasChildren(item)">
+                <template #label><slot name="item" :item="item" /></template>
+                <template #right><slot name="item-right" :item="item" /></template>
+            </MenuRow>
         </button>
     </template>
 </template>

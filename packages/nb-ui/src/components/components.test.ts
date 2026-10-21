@@ -401,6 +401,27 @@ describe("nb-ui components", () => {
             wrapper.unmount();
             });
 
+        it("打开后键入首字母，焦点跳到以它开头的选项（reka 靠名称格的 SelectItemText 登记文字）", async () => {
+            const wrapper = mount(Select, {
+                props: {
+                    modelValue: "md",
+                    options: [
+                        {label: "Markdown", value: "md"},
+                        {label: "Text", value: "txt"},
+                        {label: "PDF", value: "pdf"},
+                    ],
+                },
+                attachTo: document.body,
+            });
+            await wrapper.get("[role='combobox']").trigger("keydown", {key: "Enter"});
+            await flushPromises();
+            const focusedBefore = document.activeElement?.getAttribute("role");
+            document.querySelector("[role='listbox']")?.dispatchEvent(new KeyboardEvent("keydown", {key: "p", bubbles: true, cancelable: true}));
+            await flushPromises();
+            expect([focusedBefore, document.activeElement?.textContent?.trim()]).toEqual(["option", "PDF"]);
+            wrapper.unmount();
+        });
+
         it("takes every item's corner radius from the popover registry, not from an atom class", async () => {
             /*
              * 用户的原话是「他的宽度和圆角没有对齐」。根因是**同心不成立**：
