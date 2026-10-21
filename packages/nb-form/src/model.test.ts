@@ -30,6 +30,7 @@ describe("种类：TypeBox 生成的写法与手写 JSON", () => {
         ["对象数组", Type.Array(Type.Object({a: Type.String()})), "object-list"],
         ["Record", Type.Record(Type.String(), Type.String()), "json"],
         ["开放对象", Type.Object({}), "json"],
+        ["关闭额外属性的空对象（命令的无参数）", Type.Object({}, {additionalProperties: false}), "object"],
         ["写明 additionalProperties: true 与省略一样", {type: "object", properties: {name: {type: "string"}}, additionalProperties: true}, "object"],
         ["整数数组", Type.Array(Type.Integer()), "json"],
         ["其它联合", Type.Union([Type.String(), Type.Number()]), "json"],
