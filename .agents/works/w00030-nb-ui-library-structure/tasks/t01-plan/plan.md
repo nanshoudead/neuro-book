@@ -58,12 +58,7 @@ w00027 t07（低代码表单）在 Work 分支 `feat/w00027-plugin-platform` 上
 
 **删掉的东西**：`dist/nb-ui.css`、`build:css`、`src/dist-css.test.ts`、`package.json` 的 `./styles.css` 导出、Nuxt 模块的 `injectCss`（只有 playground 用，它改为在自己的样式入口导入 nb-ui 的入口）；neuro-book 的 `uno.config.ts`、`unocss` 依赖与 `boot.ts` 的导入顺序约定；nb-story、dev-panel 的“preflight 进 layer、utilities 不进 layer”拆分写法。L18 的入库产物随之解决。
 
-**neuro-book 从 UnoCSS 换到 Tailwind v4**（粗略统计：124 个 `.vue`；v3 到 v4 含义变了的写法约 250 处，例如不带后缀的 `shadow`、`rounded`、`ring`，`flex-shrink`，缺省边框颜色；`i-lucide-*` 339 处）：
-
-- `presetWind3` 的写法与 Tailwind v3 基本一致，先用官方的 `@tailwindcss/upgrade` 处理 v3 到 v4 的改名，剩下的逐处改；`presetIcons` 改为 nb-ui 入口带的 `@iconify/tailwind4`。
-- 类名写在 `.ts` 里的（视图描述的 `icon` 等）：Tailwind 的自动扫描覆盖 `.ts`；运行时才拼出来的图标名两边都扫不到，S1 先查现有做法再定。
-- 宿主自己的 `text-sm` 等从 Uno 的 14px 变成 nb-ui token 的 13px，属于按设计变化；按截图逐页核对，需要保留原尺寸的地方改成显式写法。
-- ADR 0023“前端”一条把 UnoCSS 改为 Tailwind v4，并写明宿主编译 nb-ui 源码；`docs/modules/monorepo-boundaries.md` 与 dev-panel 需求里“平台提供 UnoCSS”的说法同步改。
+**neuro-book 从 UnoCSS 换到 Tailwind v4**：细化与实测的改动面见 [t02 的 plan.md](../t02-tailwind-unify/plan.md)。实测比这里原先的粗估小得多：除图标外没有 Tailwind 编不出的类，要改名的只有 10 处；宿主小字从 14px 变 13px，开发者 2026-10-20 认为影响不大。
 
 **测试里的类名断言**：报告统计 48 处，原子类名不变（不加前缀），只有层的变化可能翻转结果；断言计算样式的不受影响，按类名断言的顺手改成读计算样式。
 
@@ -230,7 +225,6 @@ w00027 t07（低代码表单）在 Work 分支 `feat/w00027-plugin-platform` 上
   - 调用方的列表导航零件。
 - **风险**：
   - **UnoCSS 到 Tailwind 漏改的写法**：升级工具认不出的（Uno 独有的简写、动态拼接的类名）没有规则就静默失效。靠 Lab 全部场景的改前改后截图对照找出来，逐处改写。
-  - **neuro-book 的字号整体从 14px 变 13px**：宿主自己的 `text-sm` 跟随 nb-ui token，按设计变化，截图核对；与 w00027 S3 起在应用里新写的界面一起核对。
   - **旧应用**：样式失效，开发者定不管。
   - **宿主改回标准 Tailwind 分层后行为变化**：nb-story、dev-panel 自己的原子类进了 layer，原来靠“无层赢”的地方会翻转。按它们自己的 e2e 与截图核对。
   - **t04 的改动面大**：按迁移表逐项列出“按设计变化”的断言，不放宽断言。
