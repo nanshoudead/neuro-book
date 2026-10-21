@@ -229,7 +229,7 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
             const written = await writeLayerFile(options.path, (current) => {
                 if (textRevision(current) !== revision) return {ok: false, code: "conflict", detail: "文件在读出之后被别处改过"};
                 const parsed = parseLayerText(text, keysOf(options.declarations()), options.layer);
-                if (parsed.status === "invalid") return {ok: false, code: "invalid-text", detail: parsed.detail, position: parsed.position};
+                if (parsed.status === "invalid") return {ok: false, code: "invalid-text", detail: parsed.reason, position: parsed.position};
                 return {ok: true, text};
             }, report);
             if (!written.ok) return {ok: false, code: written.code as SettingsFailure, detail: written.detail, ...(written.position === undefined ? {} : {position: written.position})};

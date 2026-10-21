@@ -855,7 +855,7 @@ describe("设置文件视图（输出 23）：经远程合同整份读写，真�
         expect(await file.write("{}", read.revision)).toMatchObject({ok: false, code: "conflict"});
         const fresh = await file.read();
         if (!fresh.ok) throw new Error("应能读出");
-        expect(await file.write("{\n  \"a\": 1\n  \"b\": 2\n}", fresh.revision)).toEqual({ok: false, code: "invalid-text", detail: expect.stringContaining("第 3 行"), position: {line: 3, column: 3}});
+        expect(await file.write("{\n  \"a\": 1\n  \"b\": 2\n}", fresh.revision)).toEqual({ok: false, code: "invalid-text", detail: "缺逗号", position: {line: 3, column: 3}});
         expect(await readFile(created.userFile, "utf8")).toBe("// 别处加了注释\n{\"nbook.workbench/theme\": \"nbook\"}");
     });
 

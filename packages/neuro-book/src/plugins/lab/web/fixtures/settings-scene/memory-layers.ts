@@ -180,7 +180,7 @@ export function memoryLayer(options: MemoryLayerOptions): MemoryLayer {
                 if (failure !== null) return {ok: false, code: failure, detail: "场景让写入失败"};
                 if (revision !== revisionOf(text)) return {ok: false, code: "conflict", detail: "文件在读出之后被别处改过"};
                 const parsed = parseLayerText(next, keys, options.layer);
-                if (parsed.status === "invalid") return {ok: false, code: "invalid-text", detail: parsed.detail, position: parsed.position};
+                if (parsed.status === "invalid") return {ok: false, code: "invalid-text", detail: parsed.reason, position: parsed.position};
                 beforeInvalid = null;
                 changeText(next);
                 values = parsed.values;

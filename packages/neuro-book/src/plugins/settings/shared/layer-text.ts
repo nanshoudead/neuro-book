@@ -7,7 +7,7 @@
  * 在语法树上查重复键；编辑之后重新解析，通过与读取相同的检查才交出新文本。
  */
 
-import {applyEdits, createScanner, findNodeAtLocation, getNodeValue, modify, parseTree, printParseErrorCode, SyntaxKind} from "jsonc-parser";
+import {applyEdits, createScanner, findNodeAtLocation, getNodeValue, modify, parseTree, ParseErrorCode, SyntaxKind} from "jsonc-parser";
 import type {FormattingOptions, Node, ParseError} from "jsonc-parser";
 import {Value} from "typebox/value";
 
@@ -28,8 +28,11 @@ export interface TextPosition {
 
 export type ParsedLayer =
     | {readonly status: "ok"; readonly values: Readonly<Record<string, unknown>>; readonly problems: ReadonlyArray<LayerProblem>}
-    /** `position`：出错的地方（语法错误处、不是对象的根、第二次出现的重复键）。 */
-    | {readonly status: "invalid"; readonly detail: string; readonly position: TextPosition};
+    /**
+     * `position`：出错的地方（语法错误处、不是对象的根、第二次出现的重复键）；`reason` 是不带位置的原因，`detail` 在前面
+     * 加上行号（层快照与诊断用它）。
+     */
+    | {readonly status: "invalid"; readonly detail: string; readonly reason: string; readonly position: TextPosition};
 
 /**
  * 解析一层的文件文本：空文本、只有空白或注释为空层；无法解析、根不是对象、任意深度出现重复键为 `invalid`。没有声明的键
@@ -37,7 +40,7 @@ export type ParsedLayer =
  */
 export function parseLayerText(text: string, declarations: ReadonlyMap<string, SettingDeclaration>, layer: SettingLayer): ParsedLayer {
     const tree = parseRoot(text);
-    if (!tree.ok) return {status: "invalid", detail: tree.detail, position: tree.position};
+    if (!tree.ok) return {status: "invalid", detail: tree.detail, reason: tree.reason, position: tree.position};
     const values: Record<string, unknown> = {};
     const problems: LayerProblem[] = [];
     for (const property of tree.root?.children ?? []) {
@@ -93,7 +96,31 @@ export function editLayerText(text: string, key: string, edit: LayerEdit): EditR
     return {ok: true, text: bom ? BOM + next : next};
 }
 
-type RootResult = {readonly ok: true; readonly root: Node | undefined} | {readonly ok: false; readonly detail: string; readonly position: TextPosition};
+type RootResult = {readonly ok: true; readonly root: Node | undefined} | {readonly ok: false; readonly detail: string; readonly reason: string; readonly position: TextPosition};
+
+/** 解析错误的中文原因：用户在设置文件视图里直接看到它（jsonc-parser 只给英文的错误码名）。 */
+const PARSE_ERRORS: Readonly<Record<ParseErrorCode, string>> = {
+    [ParseErrorCode.InvalidSymbol]: "无效的符号",
+    [ParseErrorCode.InvalidNumberFormat]: "数字的写法不对",
+    [ParseErrorCode.PropertyNameExpected]: "这里应当是带引号的键名",
+    [ParseErrorCode.ValueExpected]: "这里缺一个值",
+    [ParseErrorCode.ColonExpected]: "键名后面缺冒号",
+    [ParseErrorCode.CommaExpected]: "缺逗号",
+    [ParseErrorCode.CloseBraceExpected]: "缺右花括号 }",
+    [ParseErrorCode.CloseBracketExpected]: "缺右方括号 ]",
+    [ParseErrorCode.EndOfFileExpected]: "结尾之后还有多余的内容",
+    [ParseErrorCode.InvalidCommentToken]: "注释的写法不对",
+    [ParseErrorCode.UnexpectedEndOfComment]: "注释没有结束",
+    [ParseErrorCode.UnexpectedEndOfString]: "字符串没有结束",
+    [ParseErrorCode.UnexpectedEndOfNumber]: "数字没有结束",
+    [ParseErrorCode.InvalidUnicode]: "Unicode 转义的写法不对",
+    [ParseErrorCode.InvalidEscapeCharacter]: "转义字符不对",
+    [ParseErrorCode.InvalidCharacter]: "无效的字符",
+};
+
+function invalid(reason: string, position: TextPosition): {readonly ok: false; readonly detail: string; readonly reason: string; readonly position: TextPosition} {
+    return {ok: false, detail: `第 ${String(position.line)} 行：${reason}`, reason, position};
+}
 
 /** 解析并做读取的三项检查；根为 undefined 表示空文本或只有注释。BOM 不算位置。 */
 function parseRoot(text: string): RootResult {
@@ -101,14 +128,11 @@ function parseRoot(text: string): RootResult {
     const errors: ParseError[] = [];
     const root = parseTree(body, errors, PARSE_OPTIONS);
     const first = errors[0];
-    if (first !== undefined) {
-        const position = positionOf(body, first.offset);
-        return {ok: false, detail: `第 ${String(position.line)} 行：${printParseErrorCode(first.error)}`, position};
-    }
+    if (first !== undefined) return invalid(PARSE_ERRORS[first.error] ?? String(first.error), positionOf(body, first.offset));
     if (root === undefined) return {ok: true, root: undefined};
-    if (root.type !== "object") return {ok: false, detail: "根不是对象", position: positionOf(body, root.offset)};
+    if (root.type !== "object") return invalid("最外层必须是一个对象 { … }", positionOf(body, root.offset));
     const duplicate = firstDuplicate(root);
-    if (duplicate !== null) return {ok: false, detail: `键 ${duplicate.name} 出现了多次`, position: positionOf(body, duplicate.offset)};
+    if (duplicate !== null) return invalid(`键 ${duplicate.name} 出现了多次`, positionOf(body, duplicate.offset));
     return {ok: true, root};
 }
 
