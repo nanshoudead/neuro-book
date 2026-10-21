@@ -5,17 +5,26 @@ status: active
 updated: 2026-10-21
 ---
 
-# nb-story 问答连续对话
+# nb-story 问答连续对话与可选的 answer
 
 ## 目标与范围
 
-`ask` 现在一问一个 Agent、一个会话（[`story/qa.md`](../../../../../docs/specs/story/qa.md) 输出 1），不能追问。本 Task 让一次对话由若干轮组成，后一轮在前一轮的会话上继续，为网页问答页的连续对话打底。排期在网页问答页之前或同时。
+`ask` 现在一问一个 Agent、一个会话（[`story/qa.md`](../../../../../docs/specs/story/qa.md) 输出 1），不能追问；而且必须用收尾工具 `answer` 交结构化答案，问“你好”这类不需要查书的话也会被提醒两次后以 `no_answer` 失败。本 Task 让一次对话由若干轮组成，后一轮在前一轮的会话上继续，并让模型可以直接用文字回复；为网页问答页（t13）打底。
 
-合同：改 [`story/qa.md`](../../../../../docs/specs/story/qa.md)（`planned`）；网页问答页再改 `story/viewer.md` 的“不做问答”。
+合同：改 [`story/qa.md`](../../../../../docs/specs/story/qa.md) 与 [`story/cli-skill.md`](../../../../../docs/specs/story/cli-skill.md)（`ask --continue`、`qa` 的显示）；网页由 t13 改 `story/viewer.md`。
+
+## 决定
+
+开发者 2026-10-21 定：
+
+1. 不强制模型交结构化答案：`answer` 留作可选工具，模型也可以直接用文字回复（`nbstory ask 你好` 是这次的例子）。
+2. 做连续对话；网页问答页另起 t13，本 Task 先做引擎与命令行。
+3. 回归不重跑，只做真实模型冒烟（问“你好”、一段两轮的指代追问）。
 
 ## 当前状态
 
 - 2026-10-16：开发者定“ask 连续对话”加入后续排期，经 nbdev 新建，尚未开工。
+- 2026-10-21：开工，范围扩大到可选的 `answer`（决定 1 到 3）；写 Spec 改动与 `plan.md`。
 
 ## 要先定的事（2026-10-16 会话里列出，待设计时给开发者）
 
@@ -28,4 +37,4 @@ updated: 2026-10-21
 
 ## 下一步
 
-排期到时：读 t05 的引擎与回归，写 Spec 改动与 `plan.md`，要点先给开发者看。
+写 Spec 改动与 `plan.md`，要点先给开发者看，再交 omp 设计审查。
