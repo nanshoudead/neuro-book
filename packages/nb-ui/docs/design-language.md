@@ -926,6 +926,11 @@ Combobox 用原本就在的 `<ul role="listbox">`），外框只剩 `overflow: h
 根因：层之间的裁决先于特异性：不在任何 `@layer` 里的样式，永远压过 `@layer` 里的样式，不论选择器多弱。原子类在 `utilities` 层，所以宿主里不分层的 reset（`all: unset`、`*`/`html`/`body` 上的声明）一旦匹配到元素就赢，`:where()` 或单个标签的零特异性也一样。
 判据：宿主里特异性低于一个类的全局规则放进 `@layer base`（reset 整份 `@import ... layer(base)`）；宿主自己的语义类（一个类以上）可以不分层，它本来就该压过 nb-ui 的 components 层。验证：在 Lab 或页面里给一个元素写原子类，读它的计算样式，必须是原子类的值；新增全局规则后再读一次。写法见 `src/tailwind.css` 的头注释。
 
+**61. 只在开发构建里加载的代码，它的原子类也进了生产 CSS**
+现象：Lab 只在开发构建里加载，生产 JS 里没有它，生产 CSS 里却有只在 Lab 组件上用到的类（连同 `--lab-*` 这类名字）；`check:dist` 原来只查 JS 里的标记，没报。
+根因：Tailwind 的 `@source` 按目录扫描源码，不看构建图：目录在扫描范围里，文件有没有被打进包都会生成它的类。UnoCSS 只抽构建图里的模块，换成 Tailwind 后才暴露。另外，写了 `@source not` 的目录，之后再写正向的 `@source` 也加不回来。
+判据：只在开发或测试构建里加载的目录，生产入口用 `@source not` 排除；开发服务与测试外壳要用不排除的另一份入口，由构建配置按开发或生产选（neuro-book 的做法见 `packages/neuro-book/src/web/tailwind.product.css` 与 `vite.config.ts`）。验证：生产构建后在产物 CSS 里查这些目录独有的类名或变量名。
+
 ### B. DOM / 组件
 
 **47. `data-[state=…]:animate-*` 变体不会生成，折叠动画静默失效**
