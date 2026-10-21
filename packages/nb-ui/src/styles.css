@@ -642,7 +642,7 @@ input.nb-ui-native-input[type="number"] {
 
 /*
  * 折叠内容的编排由状态属性驱动，不用 `data-[state=open]:animate-*` 变体：
- * `animate-*` 的主题键不在 presetUno 里，变体类不会生成，组件会静默失去动画。
+ * `animate-*` 的主题键里没有折叠动画（Tailwind 默认主题只有 spin、ping、pulse、bounce），变体类不会生成，组件会静默失去动画。
  *
  * 只在高度动画进行中裁切（组件在 animationstart 时打 `data-animating`、结束或取消时去掉）：展开完成后不裁，
  * 里面控件的焦点光环有完整的空间。不用“内边距加等量负外边距”把裁切盒往外放：那样外框比父容器宽，

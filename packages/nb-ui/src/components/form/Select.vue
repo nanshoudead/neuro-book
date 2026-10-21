@@ -89,7 +89,7 @@ const controlSizeClass = computed(() => isSmall.value
  * 调用方传的宽度、aria-label 全部落空。所以这里关掉自动继承，显式转发到触发器。
  *
  * class 单独走 cn()：触发器自带 w-full，与调用方传的宽度是同特指度的两条规则，
- * 拼接的话谁生效取决于样式表先后，而本包的预编译 CSS 与宿主的原子类不在同一张表。
+ * 拼接的话谁生效取决于 Tailwind 输出这两条规则的先后，与 class 属性里的先后无关。
  */
 defineOptions({inheritAttrs: false});
 const attrs = useAttrs();
