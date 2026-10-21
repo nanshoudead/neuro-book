@@ -77,6 +77,12 @@ updated: 2026-10-20
   - 过程中的发现：66 条命令里 36 条是“无参数”（关闭额外属性的空对象），核心原来把它们判成要用 JSON 编辑；Spec 只让开放的空对象走 JSON，改为可结构化编辑、画成没有成员，支持表写明（Spec 验收 7、8 同时补上）。
   - 验证：nb-form 核心 96 例、渲染层 73 例与两份类型检查；改回旧规则时两份测试都失败（命令测试列出 36 条），渲染层多一处找不到的注入时隔离测试失败；应用类型检查、`test:affected` 全部通过；`docs:check`、`governance:check`。
 
+- S5（`4ec30a661`）：设置窗口的通用列表每项改用 `SchemaField`（`bare`，`commit: "change"`）。`setting-form.ts` 把声明转成表单提示（`choices` 的 `title` 改名 `label`、`{from}` 转 `options`、`ui` 照抄），`widgetLayout` 决定宽排法与宽度（下拉 220、数字 120、单行 320、单选组与开关按内容）；`window.write` 返回是否写进，失败时这一项的 `revision` 加一；`SettingsRow` 的插槽加 `labelId`（组合控件的 `aria-labelledby`）与 `describedby`（行的说明）。数组、对象从只读变为可编辑，三项以内的选项从分段控件变为横排单选组（`ui.forms` 不用分段）。删掉 `SettingsControl.vue`、`setting-controls.ts` 与它们的测试、Lab 场景；选择规则的判据核心已有，数字框按范围与步长步进、输入框长度、选项名按语言三条迁到 `SchemaField.dom.test.ts`。Lab 的片段列表补上字段名与项标题。
+  - 过程中的发现：`bare` 的开关根本不渲染（外壳把开关排在标题行里，`bare` 不画标题行），S3 的测试里没有 `bare` 的布尔字段；修正并补用例。
+  - Spec 同步：`settings-window` 输出 9 改为由 `ui.forms` 选控件与排法，两条 planned（多行的声明提示、宽控件的通用编辑）由声明的 `ui` 与本次实现覆盖，去掉；动态选项列出提供者给的选项仍是 planned（提供者贡献点未做，在那之前按来源不可用显示）；输出 14 补上“数字框写的不是数时不写、控件标出错”；接口的插槽属性与证据同步。
+  - 行为变化（`SettingsWindow.dom.test.ts` 按新行为改写的断言）：控件种类改看 `data-nb-widget`，“常用标签”从只读变为可编辑的字符串列表并补“加一项、填写、写进这一层”；单选项的名字从按钮文字改为包着它的 `<label>`；新增单选组经 `aria-labelledby` 指向行标题、开关的 `aria-describedby` 含行说明两条断言。`settings.e2e.ts` 不用改。
+  - 验证：nb-form 核心 96 例、渲染层 77 例与两份类型检查；应用类型检查、`bun test` 1555 例（删 6 例、加 1 例）、Vitest 382 例；`bare` 开关的修正去掉后新用例失败；e2e 设置 9 例、Lab 场景、Lab、nb-form 与代码编辑器设置共 40 例通过，改场景数据后 Lab 场景与设置重跑通过；`docs:check`、`governance:check`；设置窗口与设置行两主题 × 浅、深 × 手机、自由画布截图 104 张没有溢出或报错（`reports/s5-shots/`）。
+
 ## 下一步
 
-S5：设置窗口改用 `SchemaField`、删掉 `SettingsControl`，之后一轮审查。计划见 [plan.md](plan.md)。
+S5 的审查（Sonnet 审界面）；处理完合入 master。计划见 [plan.md](plan.md)。
