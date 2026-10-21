@@ -2,7 +2,7 @@ import {afterAll, beforeAll, describe, expect, test} from "bun:test";
 import {appendFile, readFile, rm} from "node:fs/promises";
 import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-import {createJsonlSessionLog, createMemorySessionLog, type JsonValue, type SessionEntryInput, type SessionLog} from "../src";
+import {createJsonlSessionLog, createMemorySessionLog, parseEntryLine, type JsonValue, type SessionEntry, type SessionEntryInput, type SessionLog} from "../src";
 
 let tmpRoot = "";
 
@@ -101,6 +101,36 @@ describe.each(factories)("%s session log", (_name, createLog) => {
 
         const entries = await log.read();
         expect(entries.map(({seq: _seq, at: _at, ...rest}) => rest)).toEqual(inputs);
+    });
+});
+
+describe("memory session log 从存下的条目开始", () => {
+    test("JSONL 逐行读回的条目原样放入，之后追加的接着编号", async () => {
+        const first = createMemorySessionLog({sessionId: "s1"});
+        await first.append([
+            {kind: "message", role: "user", text: "第一问"},
+            {kind: "message", role: "assistant", text: "第一答"},
+        ]);
+        const jsonl = (await first.read()).map((entry) => JSON.stringify(entry)).join("\n");
+        const restored = jsonl.split("\n").map(parseEntryLine);
+        expect(restored.every((entry) => entry !== null)).toBe(true);
+
+        const log = createMemorySessionLog({sessionId: "s1", entries: restored as SessionEntry[]});
+        await log.append([{kind: "message", role: "user", text: "追问"}]);
+        const entries = await log.read();
+        expect(entries.slice(0, 2)).toEqual([...(await first.read())]);
+        expect(entries.map((entry) => entry.seq)).toEqual([1, 2, 3]);
+        expect(await log.tail()).toMatchObject({seq: 3, text: "追问"});
+    });
+
+    test("seq 不从 1 起连续时拒绝", async () => {
+        const source = createMemorySessionLog({sessionId: "s2"});
+        await source.append([
+            {kind: "message", role: "user", text: "a"},
+            {kind: "message", role: "user", text: "b"},
+        ]);
+        const [, second] = await source.read();
+        expect(() => createMemorySessionLog({sessionId: "s2", entries: [second!]})).toThrow("seq 不连续");
     });
 });
 
