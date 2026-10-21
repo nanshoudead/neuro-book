@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t08-qa-conversation
-status: planned
-updated: 2026-10-16
+status: active
+updated: 2026-10-21
 ---
 
 # nb-story 问答连续对话
