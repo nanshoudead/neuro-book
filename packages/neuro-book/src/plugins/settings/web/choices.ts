@@ -120,11 +120,13 @@ export class ChoiceSourceRegistry {
         return {
             published: (handle: ChoicesHandle) => {
                 this.#handles.set(handle.id, handle);
+                this.#notActivatable.delete(handle.id);
                 this.#bump();
             },
             revoke: (handle: ChoicesHandle) => {
                 if (this.#handles.get(handle.id) !== handle) return;
                 this.#handles.delete(handle.id);
+                this.#notActivatable.delete(handle.id);
                 this.#bump();
             },
         };
@@ -142,6 +144,8 @@ export class ChoiceSourceRegistry {
         const state = known.entry === null ? null : this.#plugins?.entryState({plugin: known.plugin, entry: known.entry}) ?? null;
         if (state?.status === "blocked" || state?.status === "failed") return unavailable(TEXT.unavailable, {id, reason: entryReason(state)});
         if (state?.status === "stopping" || state?.status === "closed") return unavailable(TEXT.stopped, {id});
+        // “不能按需激活”只对这一次登记成立：入口离开“已登记未激活”（激活、停止、重新登记）之后重新核对。
+        if (state?.status !== "registered") this.#notActivatable.delete(id);
         const unreachable = this.#notActivatable.get(id);
         if (unreachable !== undefined && state?.status === "registered") return unavailable(TEXT.notActivatable, {reason: unreachable});
         // 不在 computed 里改状态：触发与它引起的版本号变化放到求值之后。

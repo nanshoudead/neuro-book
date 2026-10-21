@@ -51,6 +51,8 @@ export interface MemoryLayer {
     text(): string;
     /** 在“别处”改文件（同外部编辑器）：按新文本重读，坏了就记为无效、保留上一份值。 */
     setText(text: string): void;
+    /** 之后的整份读取取到调用那一刻的文本，但等放行才返回（模拟链路上读取与文本事件乱序）；返回放行函数。 */
+    holdReads(): () => void;
 }
 
 /** 窗口的连接状态：内存层断开、恢复时切换，实例据此重新订阅。 */
@@ -104,6 +106,7 @@ export function memoryLayer(options: MemoryLayerOptions): MemoryLayer {
     /** 改坏之前的文本：修好时换回来。 */
     let beforeInvalid: string | null = null;
     const watchers = new Set<(revision: string) => void>();
+    let hold: Promise<void> | null = null;
     const keys = new Map([...options.declarations].map(([key, declared]) => [key, declared.declaration]));
     // 一开始就无效：文本同样是坏的（去掉最后的右花括号），修好时换回来。
     if (invalid !== null && options.text === undefined) {
@@ -174,7 +177,12 @@ export function memoryLayer(options: MemoryLayerOptions): MemoryLayer {
             edit: async (key, edit) => apply(key, edit, userEditProblem(key, options.declarations.get(key), edit, options.layer)),
         },
         file: {
-            read: async () => (unreachable ? {ok: false, code: "unavailable", detail: "内存层已断开"} : {ok: true, text, revision: revisionOf(text), exists: text !== ""}),
+            read: async () => {
+                if (unreachable) return {ok: false, code: "unavailable", detail: "内存层已断开"};
+                const current = text;
+                if (hold !== null) await hold;
+                return {ok: true, text: current, revision: revisionOf(current), exists: current !== ""};
+            },
             write: async (next, revision) => {
                 if (unreachable) return {ok: false, code: "unavailable", detail: "内存层已断开"};
                 if (failure !== null) return {ok: false, code: failure, detail: "场景让写入失败"};
@@ -214,6 +222,8 @@ export function memoryLayer(options: MemoryLayerOptions): MemoryLayer {
             if (next) {
                 for (const subscriber of [...subscribers]) subscriber.onEnd("disconnected", true);
                 subscribers.clear();
+                // 文本事件的订阅同样随断开结束（同远程链路），恢复后要调用方重新订阅。
+                watchers.clear();
                 options.connection.set("offline");
             } else {
                 options.connection.set("online");
@@ -221,6 +231,16 @@ export function memoryLayer(options: MemoryLayerOptions): MemoryLayer {
         },
         values: () => values,
         text: () => text,
+        holdReads: () => {
+            let release: () => void = () => undefined;
+            hold = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            return () => {
+                hold = null;
+                release();
+            };
+        },
         setText: (next) => {
             beforeInvalid = null;
             changeText(next);

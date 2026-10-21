@@ -500,6 +500,8 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
 
     const load = async (id: string): Promise<void> => {
         const instance = instanceOf(id);
+        // 新的一次加载是新的一次显示：加载中就给出去的上下文（渲染占位时取的）随之作废。
+        endVisit(id);
         const generation = (instance.generation += 1);
         Object.assign(instance, {status: "loading", component: null, error: null});
         const result = await source.load(id);
@@ -601,6 +603,8 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
 
     const performClose = (): void => {
         open.value = false;
+        // 关窗口结束所有的显示，包括还在加载、从没挂上的页面的上下文。
+        for (const id of [...visits.keys()]) endVisit(id);
         // 搜索词不记（输出 21）。
         query.value = "";
         // 进行中的加载作废（输出 5）：结果回来时不挂组件、不记为失败；实例回到 waiting，重开时按当前句柄重新加载。

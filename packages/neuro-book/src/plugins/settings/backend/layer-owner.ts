@@ -44,9 +44,19 @@ export interface LayerOwnerOptions {
 
 export type OwnerWriteResult = LayerWriteResult;
 
-/** 文本的修订号：原始文本（UTF-8）的 SHA-256。文件不存在时就是空串的摘要。 */
-export function textRevision(text: string): string {
-    return createHash("sha256").update(text, "utf8").digest("hex");
+/** 文本的修订号：文件原始字节的 SHA-256（给字符串时按 UTF-8 编码）。文件不存在时就是空字节的摘要。 */
+export function textRevision(content: string | Uint8Array): string {
+    return typeof content === "string" ? createHash("sha256").update(content, "utf8").digest("hex") : createHash("sha256").update(content).digest("hex");
+}
+
+/** 是不是合法的 UTF-8：整份读写只处理合法的文本，替换字符会让写回改掉用户文件里的字节。 */
+function isUtf8(bytes: Uint8Array): boolean {
+    try {
+        new TextDecoder("utf-8", {fatal: true}).decode(bytes);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 export interface LayerOwner {
@@ -113,9 +123,9 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
         return current;
     };
 
-    /** 读到或写成了这份文本：修订号变了就通知设置文件视图。 */
-    const noteText = (text: string): void => {
-        const revision = textRevision(text);
+    /** 读到或写成了这份文本（原始字节，或刚写下的文本）：修订号变了就通知设置文件视图。 */
+    const noteText = (content: string | Uint8Array): void => {
+        const revision = textRevision(content);
         if (revision === currentText) return;
         currentText = revision;
         for (const listener of [...textListeners]) {
@@ -145,7 +155,7 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
     const reload = async (): Promise<void> => {
         if (closed) return;
         const read = await readLayerFile(options.path);
-        if (read.ok) noteText(read.text);
+        if (read.ok) noteText(read.bytes);
         const before = current;
         const next: LayerContent = read.ok ? fromText(read.text) : {status: "invalid", values: current.values, problems: current.problems, detail: read.detail};
         const after = publish(next);
@@ -215,8 +225,9 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
         return enqueue(async (): Promise<LayerTextRead> => {
             const read = await readLayerFile(options.path);
             if (!read.ok) return {ok: false, code: "read-failed", detail: read.detail};
-            noteText(read.text);
-            return {ok: true, text: read.text, revision: textRevision(read.text), exists: read.exists};
+            noteText(read.bytes);
+            if (!isUtf8(read.bytes)) return {ok: false, code: "read-failed", detail: "设置文件不是合法的 UTF-8 文本"};
+            return {ok: true, text: read.text, revision: textRevision(read.bytes), exists: read.exists};
         }, {ok: false, code: "read-failed", detail: "读取设置文件出错"});
     };
 
@@ -226,8 +237,8 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
         if (denied !== null) return {ok: false, ...denied};
         const result = await enqueue(async (): Promise<LayerTextWrite> => {
             // 比对与解析都以磁盘上的当前文本为准：`writeLayerFile` 持锁后会用锁里读到的文本再做一次。
-            const written = await writeLayerFile(options.path, (current) => {
-                if (textRevision(current) !== revision) return {ok: false, code: "conflict", detail: "文件在读出之后被别处改过"};
+            const written = await writeLayerFile(options.path, (_current, bytes) => {
+                if (textRevision(bytes) !== revision) return {ok: false, code: "conflict", detail: "文件在读出之后被别处改过"};
                 const parsed = parseLayerText(text, keysOf(options.declarations()), options.layer);
                 if (parsed.status === "invalid") return {ok: false, code: "invalid-text", detail: parsed.reason, position: parsed.position};
                 return {ok: true, text};

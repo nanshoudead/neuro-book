@@ -6,6 +6,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
+import {createHash} from "node:crypto";
 import {existsSync, mkdirSync, renameSync, rmSync, writeFileSync} from "node:fs";
 import {chmod, lstat, mkdir, readdir, readFile, readlink, rename, rm, stat, symlink, unlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
@@ -612,6 +613,21 @@ describe("整份读写（输出 24）", () => {
         await owner.close();
         await writeFile(path, "{}");
         expect(revisions.length).toBe(count);
+    });
+
+    it("修订号是文件原始字节的摘要；不是合法 UTF-8 的文件整份读为 read-failed，整份写拿替换字符算的修订号为 conflict、文件字节不变", async () => {
+        const root = await directory();
+        const path = join(root, "settings.json");
+        const bom = Buffer.from("\uFEFF{\"x.ui/theme\": \"nbook\"}\r\n", "utf8");
+        await writeFile(path, bom);
+        const {owner} = await start(path);
+        const read = await owner.readText(self);
+        expect(read).toMatchObject({ok: true, revision: createHash("sha256").update(bom).digest("hex")});
+        const broken = Buffer.from([0x7b, 0x22, 0x61, 0x22, 0x3a, 0x22, 0xc3, 0x28, 0x22, 0x7d]);
+        await writeFile(path, broken);
+        expect(await owner.readText(self)).toMatchObject({ok: false, code: "read-failed", detail: "设置文件不是合法的 UTF-8 文本"});
+        expect(await owner.writeText(self, "{}", textRevision(broken.toString("utf8")))).toMatchObject({ok: false, code: "conflict"});
+        expect(Buffer.compare(await readFile(path), broken)).toBe(0);
     });
 
     it("读不了的文件为 read-failed；停止后为 unavailable", async () => {

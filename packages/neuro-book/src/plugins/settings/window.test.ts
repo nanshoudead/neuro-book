@@ -578,6 +578,27 @@ describe("未保存保护（输出 22）", () => {
         expect(window.unsaved.value).toBe(false);
     });
 
+    it("加载中就关了窗口：那次显示的上下文作废，重开加载完拿到新的上下文（审查发现：原来复用了旧的）", async () => {
+        let release: (component: Component) => void = () => undefined;
+        const control = toggle({implementation: {load: () => new Promise<Component>((resolve) => {
+            release = resolve;
+        })}});
+        const started = await start([contributor("x.notes", {"x.notes.page": pageSection()}, control)], true);
+        const {window} = windowFor(started.probe, true);
+        window.openWindow({section: "x.notes.page"});
+        await waitUntil("开始加载", () => window.page("x.notes.page").status === "loading");
+        const early = window.page("x.notes.page").context;
+        window.close();
+        window.openWindow({});
+        await waitUntil("又开始加载", () => window.page("x.notes.page").status === "loading");
+        release(Page);
+        await waitUntil("加载完", () => window.page("x.notes.page").status === "ready");
+        const context = window.page("x.notes.page").context;
+        expect(context).not.toBe(early);
+        early.dirty(true);
+        expect(window.unsaved.value).toBe(false);
+    });
+
     it("页面不挂了（离开分区、交付撤回）上下文随之作废；没报未保存时离开不用确认", async () => {
         const {window, context} = await dirtyPage();
         context.dirty(false);

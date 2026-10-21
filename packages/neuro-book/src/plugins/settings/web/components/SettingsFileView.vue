@@ -8,6 +8,8 @@
  * - 换行：`textarea.value` 总把换行归一成 `\n`，光标位置也按它算。草稿与原文都存归一后的文本，读到 CRLF 的文件时记下，
  *   保存时换回去，否则一次保存会改掉整个文件的换行。
  * - 只有第一次读时显示“正在读取”；之后的重读原地换文本，文本框不卸载，焦点与滚动位置不丢。
+ * - 读取进行中收到的修订号先记下，读完再和读到的比：读取与事件在链路上可能乱序，读回来的可能已经过时。
+ * - 文本事件的订阅随连接结束：这一层从“连不上”恢复时重新订阅，并重新核对一次（没有改动就重读，有改动就看修订号）。
  */
 import {Button, Spinner, Textarea} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onBeforeUnmount, ref, useId, watch} from "vue";
@@ -81,13 +83,19 @@ const textarea = (): HTMLTextAreaElement | null => root.value?.querySelector<HTM
 /** 每次读都带一个序号：换了标签（换了文件）之后，前一次读的结果作废。 */
 let readToken = 0;
 let stopWatch: (() => void) | null = null;
+/** 读取进行中收到的最新修订号；没有为 null。 */
+let pendingRevision: string | null = null;
 
 async function load(): Promise<void> {
     const token = (readToken += 1);
     const file = props.window.file(props.layer);
     if (file === undefined) return;
     if (state.value.kind !== "ready") state.value = {kind: "loading"};
-    const result = await file.read();
+    pendingRevision = null;
+    reading = true;
+    const result = await file.read().finally(() => {
+        if (token === readToken) reading = false;
+    });
     if (token !== readToken) return;
     failure.value = null;
     changedElsewhere.value = false;
@@ -107,15 +115,27 @@ async function load(): Promise<void> {
     if (area !== null) void nextTick(() => {
         area.scrollTop = scroll;
     });
+    // 读的时候文件又变了：读回来的已经过时，再读一次。
+    if (pendingRevision !== null && pendingRevision !== result.revision) void load();
+}
+
+/** 正在读：这时收到的修订号记下，读完再比。 */
+let reading = false;
+
+/** 收到别处的修订号：读取中先记下；没有改动就重读；有改动只提示。 */
+function onRevision(next: string): void {
+    if (reading) {
+        pendingRevision = next;
+        return;
+    }
+    if (next === revision.value || state.value.kind !== "ready") return;
+    if (dirty.value) changedElsewhere.value = true;
+    else void load();
 }
 
 function follow(): void {
     stopWatch?.();
-    stopWatch = props.window.file(props.layer)?.watch((next) => {
-        if (next === revision.value || state.value.kind === "loading") return;
-        if (dirty.value) changedElsewhere.value = true;
-        else void load();
-    }) ?? null;
+    stopWatch = props.window.file(props.layer)?.watch(onRevision) ?? null;
 }
 
 watch(() => props.layer, () => {
@@ -124,6 +144,10 @@ watch(() => props.layer, () => {
     void load();
 }, {immediate: true});
 watch(dirty, (value) => props.window.fileDirty(value), {immediate: true});
+// 连接恢复：文本事件的订阅已经随断开结束，重新订阅；订阅先推一次当前修订号，`onRevision` 据此核对。
+watch(() => props.window.layerNotice.value?.kind === "unavailable", (unavailable, before) => {
+    if (before === true && !unavailable) follow();
+});
 // 出错的位置是保存那一刻的；改了文本就不再准，标记随之去掉，下次保存再说。
 watch(draft, () => {
     if (failure.value?.code === "invalid-text") failure.value = null;

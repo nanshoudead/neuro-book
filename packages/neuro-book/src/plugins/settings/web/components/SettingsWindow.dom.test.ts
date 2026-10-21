@@ -702,3 +702,29 @@ describe("实现审查补的用例（Sonnet 第 1、2、9、10、13 条，第 5 
         expect(document.body.querySelector("[data-sample-models-changed]")).toBeNull();
     });
 });
+
+describe("实现审查补的用例（omp 第 1、5 条）", () => {
+    const area = (): HTMLTextAreaElement => one("[data-settings-file-text]") as HTMLTextAreaElement;
+
+    it("读取进行中文件又变了：读回来的已经过时，读完再读一次，显示最新的文本", async () => {
+        const {host} = await scene("other");
+        const release = host.user.holdReads();
+        host.window.select("file");
+        await flushPromises();
+        expect(one("[data-settings-file]").dataset.settingsFileState).toBe("loading");
+        host.user.setText("{\"example.notes/interval\": 45}");
+        release();
+        await vi.waitFor(() => expect(area().value).toBe("{\"example.notes/interval\": 45}"));
+    });
+
+    it("连不上期间别处改了文件：恢复连接后重新订阅，没有改动时换成新文本", async () => {
+        const {host} = await scene("file");
+        await vi.waitFor(() => expect(one("[data-settings-file]").dataset.settingsFileState).toBe("ready"));
+        host.user.setUnreachable(true);
+        await vi.waitFor(() => expect(host.window.layerNotice.value?.kind).toBe("unavailable"));
+        host.user.setText("{\"example.notes/interval\": 15}");
+        host.user.setUnreachable(false);
+        await vi.waitFor(() => expect(host.window.layerNotice.value).toBeNull());
+        await vi.waitFor(() => expect(area().value).toBe("{\"example.notes/interval\": 15}"));
+    });
+});
