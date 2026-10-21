@@ -27,6 +27,12 @@ updated: 2026-10-21
   - `measureCascadePanel` 不换算 CSS `zoom`：`zoom: 0.8` 下子菜单首项比父项偏 23px。
   - nb-ui 单测 537、typecheck 通过；e2e `popup-scroll`、`popup-lists` 16 条通过（新增“点击父项展开”“CSS zoom 下级联”两条）。
 
+- S3（分支 `9aaafc648`）：`utils/roving.ts` 的 `moveRoving`、`rovingMove` 取代 `moveHighlight` 与 Tabs、SegmentedControl、`useMenuCascade` 各写的一份，QuickPick、SearchSelect 一并改用。Tabs 当前值不对应标签时右方向键从第一个开始（待确认清单第 1 条）。单测 540、e2e 三份 25 条通过。
+- S4（分支 `64ae66697`）：内部零件 `MenuRow`，MenuNodes 两个分支、Select、SuggestionMenu、QuickPick 改渲染它；Select 补首字母跳转单测（变异检查：名称格换成普通 `span` 时失败）。Lab 弹出列表 68 张截图与改前逐像素相同。
+- S5（分支 `fac385d59`）：删 `usePopoverLayer.ts` 的内联材质，Select、ColorSwatches 只绑层级；投影改随主题的 `--elevation-popover`（计划里写成 `--elevation-menu`，以代码为准）。验收夹具加 `material` 场景，e2e 逐项比三种浮层的材质。截图只有 Select、ColorSwatches 的 16 张有差异，都在外框边缘的投影（macOS 主题的取色面板模糊也改随主题）。
+- `components.md` 讲组件通道与能力标签，不放具体零件的用法：“新列表用 `MenuRow`、级联用 `useMenuCascade`、漫游用 `roving.ts`”写在 `ui-development-spec.md` 的 DropdownMenu 一节（计划原写进 `components.md`）。
+- 收口：nb-ui 整套 e2e 58 条、`test:affected --since master --typecheck` 全部通过。
+
 ## 下一步
 
 按计划 S1 到 S5 实施。
