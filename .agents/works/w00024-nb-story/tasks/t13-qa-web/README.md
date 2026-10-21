@@ -9,7 +9,7 @@ updated: 2026-10-21
 
 ## 目标与范围
 
-把内置问答接进网页查看器：书内问答页（对话列表、流式对话视图、可停止、可追问）与问答配置的设置页；对话视图做成共享包 nb-agent-view，通用零件（useStreamScroll、可折叠的行与卡片、CodeBlock）收进 nb-ui；顺带把查看器里手写的抽屉、搜索浮层、表格、重试按钮换成 nb-ui 组件。依赖 t08。
+把内置问答接进网页查看器：书内问答页（对话列表、流式对话视图、可停止、可追问）、问答配置的设置页与服务端的问答运行和接口；顺带把查看器里手写的抽屉、搜索浮层、表格、重试按钮换成 nb-ui 组件。对话视图用 w00019 做的 `nb-agent-ui`（决定 11）。依赖 t08（已完成）与 w00019 的 [t10](../../../w00019-agent-conversation-view/tasks/t10-migrate-nb-agent-ui/README.md)、[t11](../../../w00019-agent-conversation-view/tasks/t11-complete-view/README.md)。
 
 合同：改 [`story/viewer.md`](../../../../../docs/specs/story/viewer.md) 的“不做问答”，[`story/qa.md`](../../../../../docs/specs/story/qa.md) 补网页入口；对话视图的合同参照已归档的 [`ui/agent-conversation-view.md`](../../../../../docs/archived/specs/ui/agent-conversation-view.md)（w00019），开工时按搬进来的部分重新确认。
 
