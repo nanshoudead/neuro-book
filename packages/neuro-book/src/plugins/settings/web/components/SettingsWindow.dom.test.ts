@@ -515,3 +515,88 @@ describe("设置文件视图（输出 23）", () => {
         expect(document.body.querySelector("[data-settings-layer-notice]")).toBeNull();
     });
 });
+
+describe("Lab“模型服务”：page 分区的草稿、未保存保护与动态选项", () => {
+    const providers = (host: SettingsHost) => host.user.values()["example.models/providers"] as ReadonlyArray<{readonly id: string; readonly name: string}> | undefined;
+    const fill = async (input: HTMLInputElement, value: string): Promise<void> => {
+        input.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
+        input.value = value;
+        input.dispatchEvent(new Event("input"));
+        input.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
+        await flushPromises();
+    };
+    const detailInputs = (): HTMLInputElement[] => all("[data-sample-models] [data-nb-detail] input") as HTMLInputElement[];
+    const action = (label: string): HTMLButtonElement => {
+        const found = all("[data-sample-models-actions] button").find((element) => element.textContent?.trim() === label);
+        if (found === undefined) throw new Error(`没有按钮 ${label}`);
+        return found as HTMLButtonElement;
+    };
+
+    it("打开分区时才激活入口；列出已保存的服务商；默认模型的选项来自它们", async () => {
+        const {host} = await scene("page-fill");
+        await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
+        expect(all("[data-sample-models] [data-nb-list-action='select']").map((element) => element.textContent?.trim())).toEqual(["DeepSeek", "本地 Ollama"]);
+        const source = host.window.options()["example.models.models"];
+        const value = typeof source === "function" ? source() : (source as {value: unknown}).value;
+        expect(value).toMatchObject({status: "ready", items: [{value: "deepseek/deepseek-chat"}, {value: "deepseek/deepseek-reasoner"}, {value: "local/qwen3:8b"}]});
+        expect(one("[data-settings-row='example.models/defaultModel']").textContent).not.toContain("已不存在");
+    });
+
+    it("改动先进草稿、报未保存；新加的一项没填好时保存被拒并写出原因；填好保存后整组写进用户层", async () => {
+        const {host} = await scene("page-fill");
+        await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
+        expect(document.body.querySelector("[data-sample-models-actions]")).toBeNull();
+        (one("[data-sample-models] [data-nb-list-add]") as HTMLButtonElement).click();
+        await flushPromises();
+        expect(host.window.unsaved.value).toBe(true);
+        expect(providers(host)).toHaveLength(2);
+        action("保存").click();
+        await flushPromises();
+        expect(one("[data-sample-models-failure]").textContent).toMatch(/^还没保存：/u);
+        expect(providers(host)).toHaveLength(2);
+        const [id, name, baseUrl, timeout] = detailInputs();
+        await fill(id!, "openai");
+        await fill(name!, "OpenAI");
+        await fill(baseUrl!, "https://api.openai.com/v1");
+        await fill(timeout!, "30");
+        action("保存").click();
+        await flushPromises();
+        expect(providers(host)?.map((provider) => provider.id)).toEqual(["deepseek", "local", "openai"]);
+        expect(host.window.unsaved.value).toBe(false);
+        expect(document.body.querySelector("[data-sample-models-actions]")).toBeNull();
+    });
+
+    it("删掉默认模型所在的服务商并保存：默认模型照常显示、标“已不存在”；放弃改动回到已保存的值", async () => {
+        const {host} = await scene("page-fill");
+        await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
+        (all("[data-sample-models] button").find((element) => element.getAttribute("aria-label") === "删除：DeepSeek") as HTMLButtonElement).click();
+        await flushPromises();
+        action("放弃改动").click();
+        await flushPromises();
+        expect(all("[data-sample-models] [data-nb-list-action='select']")).toHaveLength(2);
+        expect(host.window.unsaved.value).toBe(false);
+        (all("[data-sample-models] button").find((element) => element.getAttribute("aria-label") === "删除：DeepSeek") as HTMLButtonElement).click();
+        await flushPromises();
+        action("保存").click();
+        await flushPromises();
+        expect(providers(host)?.map((provider) => provider.id)).toEqual(["local"]);
+        expect(host.user.values()["example.models/defaultModel"]).toBe("deepseek/deepseek-chat");
+        expect(one("[data-settings-row='example.models/defaultModel']").textContent).toContain("已不存在");
+    });
+
+    it("有未保存的改动时切到别的分区：先弹确认；放弃后离开，回来时是已保存的值", async () => {
+        const {host} = await scene("page-fill");
+        await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
+        await fill(detailInputs()[1]!, "深度求索");
+        expect(host.window.unsaved.value).toBe(true);
+        one("[data-settings-nav='nbook.appearance']").click();
+        await flushPromises();
+        [...one("[role='alertdialog']").querySelectorAll("button")].find((button) => button.textContent?.trim() === "放弃")!.click();
+        await flushPromises();
+        expect(host.window.section.value).toBe("nbook.appearance");
+        host.window.select("example.models.main");
+        await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
+        expect(all("[data-sample-models] [data-nb-list-action='select']")[0]!.textContent?.trim()).toBe("DeepSeek");
+        expect(host.window.unsaved.value).toBe(false);
+    });
+});
