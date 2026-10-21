@@ -44,6 +44,9 @@ export type SettingsSectionCategory = (typeof SETTINGS_SECTION_CATEGORIES)[numbe
 
 const Layer = Type.Union([Type.Literal("user"), Type.Literal("project")]);
 
+/** page 分区的 `keywords` 至多这么多个。 */
+export const SETTINGS_PAGE_KEYWORDS_LIMIT = 20;
+
 /** 两种分区共有的字段：左栏怎样列出它。 */
 const heading = {
     title: LocalizedTextSchema,
@@ -62,6 +65,8 @@ export const SettingsPageDeclarationSchema = Type.Object({
     ...heading,
     layout: Type.Optional(Type.Union([Type.Literal("column"), Type.Literal("fill")])),
     layers: Type.Optional(Type.Array(Layer, {minItems: 1})),
+    /** 设置内搜索时除标题与说明外还比对的词（settings-window.md 输出 21）。 */
+    keywords: Type.Optional(Type.Array(LocalizedTextSchema, {maxItems: SETTINGS_PAGE_KEYWORDS_LIMIT})),
 }, {additionalProperties: false});
 
 /** 选项提供者的声明没有字段：选项都由实现给出。 */

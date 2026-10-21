@@ -6,7 +6,7 @@
 
 import {afterEach, describe, expect, it} from "bun:test";
 
-import {computed, ref} from "@vue/reactivity";
+import {computed, ref, toValue} from "@vue/reactivity";
 
 import type {OptionSource} from "@notnotype/nb-form";
 import {createApplication} from "@notnotype/nb-runtime/application";
@@ -123,7 +123,7 @@ async function start(plugins: ReadonlyArray<PluginDefinition>): Promise<Started>
 /** 读一个选项源当前的值：映射里是 computed，表单同样这样读。 */
 function read(source: SettingsWindowSource, id: string): OptionSource | undefined {
     const entry = source.options()[id];
-    return entry === undefined ? undefined : (typeof entry === "function" ? entry() : entry.value);
+    return entry === undefined ? undefined : toValue(entry);
 }
 
 const reasonOf = (option: OptionSource | undefined): unknown => (option?.status === "unavailable" ? option.reason : null);

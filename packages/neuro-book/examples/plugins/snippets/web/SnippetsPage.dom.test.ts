@@ -88,7 +88,7 @@ async function openPage() {
     if (probe.settings === null) throw new Error("探针入口没有拿到配置服务");
     const layer = ref<SettingLayer>("user");
     const wrapper = mount(SnippetsPage, {
-        props: {context: {id: SNIPPETS_SECTION, layer: readonly(layer), projectTitle: readonly(ref("book")), options: {}}, settings: probe.settings},
+        props: {context: {id: SNIPPETS_SECTION, layer: readonly(layer), projectTitle: readonly(ref("book")), options: {}, dirty: () => undefined}, settings: probe.settings},
         attachTo: document.body,
     });
     mounted.push(wrapper);

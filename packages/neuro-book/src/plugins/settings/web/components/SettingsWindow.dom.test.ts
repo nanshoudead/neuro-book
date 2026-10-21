@@ -318,3 +318,104 @@ describe("page 页面的寿命（输出 6）", () => {
         expect(document.body.querySelector("[data-page-ok]")).not.toBeNull();
     });
 });
+
+describe("搜索与未保存保护（输出 21、22）", () => {
+    it("Mod+F 在窗口里聚焦搜索框；搜到的项可以直接改；框里有字时 Esc 只清空、回到原分区，空了再按才关窗口", async () => {
+        const {host} = await scene("other");
+        one("[data-settings-nav-current]").dispatchEvent(new KeyboardEvent("keydown", {key: "f", ctrlKey: true, bubbles: true, cancelable: true}));
+        const input = one("[data-settings-search] input, input[data-settings-search]") as HTMLInputElement;
+        expect(document.activeElement).toBe(input);
+        input.value = "落款";
+        input.dispatchEvent(new Event("input"));
+        await flushPromises();
+        expect(all("[data-settings-row]").map((row) => row.dataset.settingsRow)).toEqual(["example.notes/signature"]);
+        expect(document.body.querySelector("[data-settings-nav-current]")?.getAttribute("aria-current")).toBeNull();
+        const signature = one("[data-settings-row='example.notes/signature'] input") as HTMLInputElement;
+        signature.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
+        signature.value = "——雾港";
+        signature.dispatchEvent(new Event("input"));
+        signature.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
+        await flushPromises();
+        expect(host.user.values()).toMatchObject({"example.notes/signature": "——雾港"});
+        input.value = "没有这样的设置";
+        input.dispatchEvent(new Event("input"));
+        await flushPromises();
+        expect(one("[data-settings-no-results]").textContent).toBe("没有找到设置");
+        const escape = new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true});
+        input.dispatchEvent(escape);
+        await flushPromises();
+        expect(escape.defaultPrevented).toBe(true);
+        expect(host.window.query.value).toBe("");
+        expect(one("[data-settings-section]").dataset.settingsSection).toBe("other");
+        expect(host.window.open.value).toBe(true);
+    });
+
+    it("换搜索词时搜索结果里留着的不合格值丢掉，回来不复活", async () => {
+        const {host} = await scene("other");
+        host.window.search("常用标签");
+        await flushPromises();
+        const tags = () => one("[data-settings-row='example.notes/tags']");
+        (tags().querySelector("[data-nb-list-add]") as HTMLButtonElement).click();
+        await flushPromises();
+        expect(tags().querySelector("[data-settings-not-saved]")).not.toBeNull();
+        host.window.search("常用标签 ");
+        await flushPromises();
+        host.window.search("常用");
+        await flushPromises();
+        expect(tags().querySelector("[data-settings-not-saved]")).toBeNull();
+        expect(tags().querySelectorAll("[data-nb-list-item]")).toHaveLength(3);
+    });
+
+    it("page 命中给“打开”，点了清空搜索并切到这个分区", async () => {
+        const {host} = await scene("other");
+        host.window.search("片段");
+        await flushPromises();
+        const hit = one("[data-settings-page-hit='example.snippets.main'] button");
+        expect(hit.getAttribute("aria-label")).toBe("打开：常用片段");
+        hit.click();
+        await flushPromises();
+        expect([host.window.query.value, host.window.section.value]).toEqual(["", "example.snippets.main"]);
+    });
+
+    it("页面报了未保存：点左栏别的分区先弹确认；继续编辑留在原处、焦点回到点的位置；放弃后切过去", async () => {
+        let context: SettingsPageContext | null = null;
+        const Dirty = defineComponent({
+            name: "DirtyPage",
+            props: {context: {type: Object as PropType<SettingsPageContext>, required: true}},
+            setup(props) {
+                context = props.context;
+                return () => h("p", {"data-dirty-page": ""}, "草稿");
+            },
+        });
+        const created = createSettingsHost({
+            settings: [{plugin: "nbook.workbench", definition: themeSetting as SettingDefinition<unknown>}],
+            sections: [{id: "x.page.main", plugin: "x.page", kind: "page", declaration: {title: {"zh-CN": "页面", "en-US": "Page"}, icon: "i-lucide-square", category: "plugins"}}],
+            notify: () => undefined,
+            report: () => undefined,
+        });
+        cleanup.push(() => created.dispose());
+        created.publish("x.page.main", async () => Dirty);
+        created.window.openWindow({section: "x.page.main"});
+        render(created.window);
+        await flushPromises();
+        context!.dirty(true);
+        const other = one("[data-settings-nav='other']");
+        other.focus();
+        other.click();
+        await flushPromises();
+        const dialog = one("[role='alertdialog']");
+        expect(dialog.textContent).toContain("放弃未保存的改动？");
+        expect(created.window.section.value).toBe("x.page.main");
+        [...dialog.querySelectorAll("button")].find((button) => button.textContent?.trim() === "继续编辑")!.click();
+        await vi.waitFor(() => expect(document.body.querySelector("[role='alertdialog']")).toBeNull());
+        await vi.waitFor(() => expect(document.activeElement).toBe(other));
+        expect(created.window.pageDirty.value).toBe(true);
+        other.click();
+        await flushPromises();
+        [...one("[role='alertdialog']").querySelectorAll("button")].find((button) => button.textContent?.trim() === "放弃")!.click();
+        await flushPromises();
+        expect(created.window.section.value).toBe("other");
+        expect(created.window.pageDirty.value).toBe(false);
+        expect(document.body.querySelector("[data-dirty-page]")).toBeNull();
+    });
+});

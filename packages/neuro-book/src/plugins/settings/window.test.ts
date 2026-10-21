@@ -48,7 +48,7 @@ import type {SettingsWorld} from "./testing/world";
 import type {SettingsPageImplementation} from "./web/contracts";
 import {settingsBrowserCore} from "./web/plugin";
 import {createSettingsWindow, DEFAULT_SETTINGS_WINDOW_SIZE, MIN_SETTINGS_WINDOW_SIZE, OTHER_SECTION_ID} from "./web/settings-window";
-import type {SettingsWindow, SettingsWindowSize} from "./web/settings-window";
+import type {SettingsLeaveTarget, SettingsWindow, SettingsWindowSize} from "./web/settings-window";
 import {settingsWindowSourceKey} from "./web/window-source";
 import type {SettingsWindowSource, WindowSetting} from "./web/window-source";
 
@@ -425,6 +425,161 @@ describe("按需激活（输出 4）：窗口显示 page 分区时触发 onSetti
         await waitUntil("激活完成", () => stateOf(started.application, "x.notes") === "available");
         window.openWindow({});
         expect(window.page("x.notes.page").delivery).toEqual({kind: "available"});
+    });
+});
+
+describe("搜索（输出 21）", () => {
+    const tones = defineSetting({
+        plugin: "x.notes",
+        name: "tone",
+        schema: Type.Union([Type.Literal("calm"), Type.Literal("tense")]),
+        default: "calm",
+        title: {"zh-CN": "语气", "en-US": "Tone"},
+        description: {"zh-CN": "续写时的整体口吻", "en-US": "Overall voice when continuing"},
+        section: "x.notes.main",
+        choices: [{value: "calm", title: {"zh-CN": "平静", "en-US": "Calm"}}, {value: "tense", title: {"zh-CN": "紧张", "en-US": "Tense"}}],
+    });
+    const keyed = defineSetting({plugin: "x.notes", name: "fontFamily", schema: Type.String(), default: "", title: {"zh-CN": "字体", "en-US": "Font"}, section: "x.notes.main", layers: ["user"]});
+    const onPage = defineSetting({plugin: "x.notes", name: "endpoint", schema: Type.String(), default: "", title: {"zh-CN": "接口地址", "en-US": "Endpoint"}, section: "x.notes.page"});
+
+    async function searching(bound = false) {
+        const sections = {
+            "x.notes.main": list({title: title("笔记")}),
+            "x.notes.page": pageSection({title: {"zh-CN": "模型服务", "en-US": "Model Providers"}, keywords: [{"zh-CN": "密钥", "en-US": "API key"}]}),
+            "x.notes.user": pageSection({title: title("只给用户"), layers: ["user"], keywords: [title("密钥")]}),
+        };
+        const started = await start([contributor("x.notes", sections, toggle(), [tones, keyed, onPage])], bound);
+        const opened = windowFor(started.probe, bound);
+        opened.window.openWindow({section: "x.notes.main"});
+        return opened.window;
+    }
+
+    const results = (window: SettingsWindow) => {
+        const view = window.current.value;
+        if (view?.kind !== "search") throw new Error("应是搜索结果");
+        return {groups: view.list.groups.map((group) => [group.id, group.title, keysOf(group.settings)]), pages: view.pages.map((page) => page.id)};
+    };
+
+    it("比对标题、说明、键与固定选项名，两种语言都比、不分大小写；每个词都要命中；按分区分组", async () => {
+        const window = await searching();
+        for (const query of ["语气", "TONE", "口吻", "x.notes/tone", "紧张", "Tense", "voice continuing"]) {
+            window.search(query);
+            expect(results(window).groups, query).toEqual([["x.notes.main", "笔记", ["x.notes/tone"]]]);
+        }
+        window.search("语气 字体");
+        expect(results(window)).toEqual({groups: [], pages: []});
+        window.search("fontfamily");
+        expect(results(window).groups).toEqual([["x.notes.main", "笔记", ["x.notes/fontFamily"]]]);
+    });
+
+    it("page 分区按标题、说明、keywords 与指向它的配置项命中，只给“打开”；只列当前标签下可用的", async () => {
+        const window = await searching(true);
+        window.search("api KEY");
+        expect(results(window).pages).toEqual(["x.notes.page"]);
+        window.search("密钥");
+        expect(results(window).pages).toEqual(["x.notes.page", "x.notes.user"]);
+        window.search("接口地址");
+        expect(results(window).pages).toEqual(["x.notes.page"]);
+        window.setLayer("project");
+        window.search("密钥");
+        expect(results(window).pages).toEqual(["x.notes.page"]);
+        // 只允许用户层的项在本作品标签下不列出。
+        window.search("fontfamily");
+        expect(results(window).groups).toEqual([]);
+    });
+
+    it("搜索时当前分区不变；清空回到原分区；选一个分区或打开命中的页面时清空搜索；关窗口清空", async () => {
+        const window = await searching();
+        window.search("语气");
+        expect(window.section.value).toBe("x.notes.main");
+        expect(window.current.value?.kind).toBe("search");
+        window.search("");
+        expect(window.current.value?.id).toBe("x.notes.main");
+        window.search("密钥");
+        window.select("x.notes.page");
+        expect([window.query.value, window.current.value?.id]).toEqual(["", "x.notes.page"]);
+        window.search("语气");
+        window.close();
+        window.openWindow({});
+        expect([window.query.value, window.current.value?.id]).toEqual(["", "x.notes.page"]);
+    });
+});
+
+describe("未保存保护（输出 22）", () => {
+    const Page = defineComponent({name: "DirtyPage", render: () => null});
+
+    async function dirtyPage() {
+        const control = toggle({implementation: {load: async () => Page}});
+        const started = await start([contributor("x.notes", {"x.notes.page": pageSection(), "x.notes.other": pageSection()}, control)], true);
+        const {window} = windowFor(started.probe, true);
+        window.openWindow({section: "x.notes.page"});
+        await waitUntil("页面加载完", () => window.page("x.notes.page").status === "ready");
+        const context = window.page("x.notes.page").context;
+        context.dirty(true);
+        expect(window.pageDirty.value).toBe(true);
+        return {window, context};
+    }
+
+    it("切分区、切标签、关窗口、命令打开别的分区、开始搜索：先等确认，原处不变；取消留在原处", async () => {
+        const {window} = await dirtyPage();
+        const attempts: Array<[string, () => void, SettingsLeaveTarget]> = [
+            ["切分区", () => window.select("x.notes.other"), {kind: "section", id: "x.notes.other"}],
+            ["切标签", () => window.setLayer("project"), {kind: "layer", layer: "project"}],
+            ["关窗口", () => window.close(), {kind: "close"}],
+            ["命令", () => void window.openWindow({section: "nbook.appearance"}), {kind: "open", section: "nbook.appearance"}],
+            ["搜索", () => window.search("语气"), {kind: "search", query: "语气"}],
+        ];
+        for (const [name, act, target] of attempts) {
+            act();
+            expect(window.leaving.value, name).toEqual(target);
+            expect([window.open.value, window.section.value, window.layer.value, window.query.value], name).toEqual([true, "x.notes.page", "user", ""]);
+            window.cancelLeave();
+            expect(window.leaving.value).toBeNull();
+            expect(window.pageDirty.value).toBe(true);
+        }
+        // 留在原处的动作不用确认：再选当前分区、命令只聚焦。
+        window.select("x.notes.page");
+        window.openWindow({section: "x.notes.page"});
+        expect(window.leaving.value).toBeNull();
+    });
+
+    it("确认框开着时又来一个离开，等着的换成后来的；放弃后执行它，未保存的标记清掉", async () => {
+        const {window} = await dirtyPage();
+        window.select("x.notes.other");
+        window.close();
+        expect(window.leaving.value).toEqual({kind: "close"});
+        window.confirmLeave();
+        expect([window.open.value, window.section.value, window.pageDirty.value, window.leaving.value]).toEqual([false, "x.notes.page", false, null]);
+    });
+
+    it("放弃后切标签：页面换一个代际重建（草稿丢掉）、拿到新的上下文；旧上下文晚到的 dirty 不算数", async () => {
+        const {window, context} = await dirtyPage();
+        const before = window.page("x.notes.page").generation;
+        window.setLayer("project");
+        window.confirmLeave();
+        expect(window.layer.value).toBe("project");
+        const after = window.page("x.notes.page");
+        expect(after.generation).toBe(before + 1);
+        expect(after.context).not.toBe(context);
+        expect(after.context.layer.value).toBe("project");
+        context.dirty(true);
+        expect(window.pageDirty.value).toBe(false);
+        after.context.dirty(true);
+        expect(window.pageDirty.value).toBe(true);
+        after.context.dirty(false);
+        expect(window.pageDirty.value).toBe(false);
+    });
+
+    it("页面不挂了（离开分区、交付撤回）上下文随之作废；没报未保存时离开不用确认", async () => {
+        const {window, context} = await dirtyPage();
+        context.dirty(false);
+        window.select("x.notes.other");
+        expect(window.leaving.value).toBeNull();
+        expect(window.section.value).toBe("x.notes.other");
+        context.dirty(true);
+        expect(window.pageDirty.value).toBe(false);
+        window.select("x.notes.page");
+        expect(window.page("x.notes.page").context).not.toBe(context);
     });
 });
 

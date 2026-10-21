@@ -3,9 +3,9 @@
  * 设置窗口（同名 .md）：窗口模型的呈现。外框是非模态的 Dialog，左栏分区、标签与右边的分区内容都读模型，操作交回模型
  * （docs/specs/settings/settings-window.md）。
  */
-import {Button, Dialog, ScrollArea, SegmentedControl, Separator} from "@notnotype/nb-ui/components";
+import {AlertDialog, Button, Dialog, Input, ScrollArea, SegmentedControl, Separator} from "@notnotype/nb-ui/components";
 import type {SegmentedControlValue} from "@notnotype/nb-ui/components";
-import {computed, nextTick, ref, watch} from "vue";
+import {computed, nextTick, ref, useId, watch} from "vue";
 
 import {localize} from "nbook/shared/localized-text";
 import type {LocalizedText} from "nbook/shared/localized-text";
@@ -32,6 +32,15 @@ const TEXT = {
     invalid: {"zh-CN": "设置文件有错误，修好前这里不能保存", "en-US": "The settings file has errors; changes can't be saved until it is fixed"},
     unavailable: {"zh-CN": "暂时连不上，不能保存", "en-US": "Temporarily unreachable; changes can't be saved"},
     empty: {"zh-CN": "没有可以显示的设置", "en-US": "There are no settings to show"},
+    search: {"zh-CN": "搜索设置", "en-US": "Search settings"},
+    clearSearch: {"zh-CN": "清空搜索", "en-US": "Clear search"},
+    noResults: {"zh-CN": "没有找到设置", "en-US": "No settings found"},
+    pages: {"zh-CN": "页面", "en-US": "Pages"},
+    openPage: {"zh-CN": "打开", "en-US": "Open"},
+    leaveTitle: {"zh-CN": "放弃未保存的改动？", "en-US": "Discard unsaved changes?"},
+    leaveDescription: {"zh-CN": "这个页面有还没保存的改动，离开后会丢掉。", "en-US": "This page has changes that haven't been saved. They will be lost if you leave."},
+    discard: {"zh-CN": "放弃", "en-US": "Discard"},
+    keepEditing: {"zh-CN": "继续编辑", "en-US": "Keep Editing"},
 } satisfies Record<string, LocalizedText>;
 
 const model = props.window;
@@ -44,12 +53,19 @@ const open = computed(() => model.open.value);
 const size = computed(() => (open.value ? model.size.value : DEFAULT_SETTINGS_WINDOW_SIZE));
 const current = computed(() => model.current.value);
 const page = computed(() => (current.value?.kind === "page" && current.value.unavailable === null ? model.page(current.value.id) : null));
+const searching = computed(() => current.value?.kind === "search");
+const searchId = `settings-search-${useId()}`;
 const fill = computed(() => current.value?.kind === "page" && current.value.layout === "fill" && current.value.unavailable === null);
 
 const tabOptions = computed(() => [
     {value: "user", label: text(TEXT.user)},
     {value: "project", label: text(TEXT.project)},
 ]);
+
+/** 搜索时左栏不标当前项（输出 21）。 */
+function isCurrent(item: SettingsNavItem): boolean {
+    return !searching.value && item.id === model.section.value;
+}
 
 function navDisabled(item: SettingsNavItem): boolean {
     // 当前项在这个标签下不可用时仍可聚焦：它是左栏的 Tab 停靠点，右边原位写着原因。
@@ -79,6 +95,51 @@ function onNavKeydown(event: KeyboardEvent): void {
 
 // 已开着时再执行打开命令：把焦点拉回窗口（输出 15“已开着时只聚焦”）。
 watch(() => model.focusRequest.value, () => void nextTick(focusCurrent));
+
+function searchInput(): HTMLInputElement | null {
+    return root.value?.querySelector<HTMLInputElement>(`#${CSS.escape(searchId)}`) ?? null;
+}
+
+/** `Mod+F` 只在窗口里接住（焦点在窗口外时浏览器与编辑器照旧）；输入法组字时不算。 */
+function onRootKeydown(event: KeyboardEvent): void {
+    if (event.isComposing || event.key.toLowerCase() !== "f" || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+    event.preventDefault();
+    searchInput()?.focus();
+}
+
+/** 框里有字时 `Esc` 只清空；先拦下，窗口的 Esc 关闭看到已处理就不关（输出 21）。 */
+function onSearchKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape" || event.isComposing || model.query.value === "") return;
+    event.preventDefault();
+    model.search("");
+}
+
+function openHit(id: string): void {
+    model.select(id);
+    void nextTick(focusCurrent);
+}
+
+// 确认框打开前焦点在哪：“继续编辑”后放回去（AlertDialog 没有触发器时不自己归还）。
+let beforeLeave: HTMLElement | null = null;
+let leaveConfirmed = false;
+watch(() => model.leaving.value !== null, (leaving) => {
+    if (leaving) beforeLeave = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+});
+
+function onLeaveClosed(): void {
+    const target = beforeLeave;
+    beforeLeave = null;
+    if (!model.open.value) return;
+    if (leaveConfirmed) focusCurrent();
+    else if (target !== null && target.isConnected) target.focus();
+    else focusCurrent();
+    leaveConfirmed = false;
+}
+
+function confirmLeave(): void {
+    leaveConfirmed = true;
+    model.confirmLeave();
+}
 </script>
 
 <template>
@@ -99,7 +160,7 @@ watch(() => model.focusRequest.value, () => void nextTick(focusCurrent));
         @update:width="(width: number) => model.resize({width})"
         @update:height="(height: number) => model.resize({height})"
     >
-        <div ref="root" class="settings-window" data-settings-window>
+        <div ref="root" class="settings-window" data-settings-window @keydown="onRootKeydown">
             <SegmentedControl
                 v-if="model.bound.value"
                 class="settings-window__tabs"
@@ -110,26 +171,43 @@ watch(() => model.focusRequest.value, () => void nextTick(focusCurrent));
                 @update:model-value="(value: SegmentedControlValue) => model.setLayer(value as SettingLayer)"
             />
             <div class="settings-window__split">
-                <nav class="settings-window__nav" :aria-label="text(TEXT.nav)" @keydown="onNavKeydown">
-                    <template v-for="(group, index) in model.nav.value" :key="group.category">
-                        <Separator v-if="index > 0" class="settings-window__nav-separator" data-settings-nav-separator />
-                        <Button
-                            v-for="item in group.items"
-                            :key="item.id"
-                            class="settings-window__nav-item"
-                            :variant="item.id === model.section.value ? 'secondary' : 'ghost'"
-                            :icon-class="item.icon"
-                            :disabled="navDisabled(item)"
-                            :title="item.unavailable ?? undefined"
-                            :tabindex="item.id === model.section.value ? 0 : -1"
-                            :aria-current="item.id === model.section.value ? 'page' : undefined"
-                            :data-settings-nav="item.id"
-                            :data-settings-nav-current="item.id === model.section.value ? '' : undefined"
-                            block
-                            @click="model.select(item.id)"
-                        >{{ item.title }}</Button>
-                    </template>
-                </nav>
+                <div class="settings-window__side">
+                    <label :for="searchId" class="settings-window__visually-hidden">{{ text(TEXT.search) }}</label>
+                    <Input
+                        :id="searchId"
+                        class="settings-window__search"
+                        data-settings-search
+                        type="search"
+                        size="sm"
+                        icon-class="i-lucide-search"
+                        clearable
+                        :clear-label="text(TEXT.clearSearch)"
+                        :placeholder="text(TEXT.search)"
+                        :model-value="model.query.value"
+                        @update:model-value="(value: string) => model.search(value)"
+                        @keydown="onSearchKeydown"
+                    />
+                    <nav class="settings-window__nav" :aria-label="text(TEXT.nav)" @keydown="onNavKeydown">
+                        <template v-for="(group, index) in model.nav.value" :key="group.category">
+                            <Separator v-if="index > 0" class="settings-window__nav-separator" data-settings-nav-separator />
+                            <Button
+                                v-for="item in group.items"
+                                :key="item.id"
+                                class="settings-window__nav-item"
+                                :variant="isCurrent(item) ? 'secondary' : 'ghost'"
+                                :icon-class="item.icon"
+                                :disabled="navDisabled(item)"
+                                :title="item.unavailable ?? undefined"
+                                :tabindex="item.id === model.section.value ? 0 : -1"
+                                :aria-current="isCurrent(item) ? 'page' : undefined"
+                                :data-settings-nav="item.id"
+                                :data-settings-nav-current="item.id === model.section.value ? '' : undefined"
+                                block
+                                @click="model.select(item.id)"
+                            >{{ item.title }}</Button>
+                        </template>
+                    </nav>
+                </div>
                 <Separator orientation="vertical" class="settings-window__divider" />
                 <div v-if="current === null" class="settings-window__empty">{{ text(TEXT.empty) }}</div>
                 <!-- fill 页面拿到标题下面的整块区域，自己滚动；其余放进封顶的内容列，内容列滚动（输出 3）。 -->
@@ -172,6 +250,21 @@ watch(() => model.focusRequest.value, () => void nextTick(focusCurrent));
                             <code v-if="model.layerNotice.value.kind === 'invalid' && model.layerNotice.value.path !== null" class="settings-window__path">{{ model.layerNotice.value.path }}</code>
                         </p>
                         <p v-if="current.unavailable !== null" class="settings-window__unavailable" data-settings-unavailable>{{ current.unavailable }}</p>
+                        <template v-else-if="current.kind === 'search'">
+                            <!-- 换搜索词就重建：留在行里的不合格值随之丢掉（同换分区）。 -->
+                            <SettingsListSection v-if="current.list.groups.length > 0" :key="current.query" :window="model" :view="current.list" />
+                            <section v-if="current.pages.length > 0" class="settings-window__hits" data-settings-page-hits>
+                                <h3 class="settings-window__hits-title">{{ text(TEXT.pages) }}</h3>
+                                <div v-for="hit in current.pages" :key="hit.id" class="settings-window__hit" :data-settings-page-hit="hit.id">
+                                    <div class="settings-window__hit-text">
+                                        <span class="settings-window__hit-title">{{ hit.title }}</span>
+                                        <span v-if="hit.description !== null" class="settings-window__description">{{ hit.description }}</span>
+                                    </div>
+                                    <Button size="sm" variant="secondary" :aria-label="`${text(TEXT.openPage)}：${hit.title}`" @click="openHit(hit.id)">{{ text(TEXT.openPage) }}</Button>
+                                </div>
+                            </section>
+                            <p v-if="current.list.groups.length === 0 && current.pages.length === 0" class="settings-window__unavailable" data-settings-no-results role="status">{{ text(TEXT.noResults) }}</p>
+                        </template>
                         <SettingsListSection v-else-if="current.kind === 'list'" :window="model" :view="current" />
                         <SettingsPageFrame
                             v-else-if="page !== null"
@@ -192,6 +285,18 @@ watch(() => model.focusRequest.value, () => void nextTick(focusCurrent));
                 </ScrollArea>
             </div>
         </div>
+        <AlertDialog
+            :open="model.leaving.value !== null"
+            :title="text(TEXT.leaveTitle)"
+            :description="text(TEXT.leaveDescription)"
+            :confirm-text="text(TEXT.discard)"
+            :cancel-text="text(TEXT.keepEditing)"
+            tone="warning"
+            data-settings-leave
+            @confirm="confirmLeave"
+            @cancel="model.cancelLeave()"
+            @closed="onLeaveClosed"
+        />
     </Dialog>
 </template>
 
@@ -217,15 +322,81 @@ watch(() => model.focusRequest.value, () => void nextTick(focusCurrent));
     flex: 1;
 }
 
+/* 左栏：搜索框在上，分区在下、条目多时自己滚动。 */
+.settings-window__side {
+    display: flex;
+    width: 180px;
+    min-height: 0;
+    flex-shrink: 0;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.settings-window__search {
+    flex-shrink: 0;
+    margin: var(--space-2) var(--space-5) 0 var(--space-2);
+    width: auto;
+}
+
+.settings-window__visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
 /* 左栏四周留出焦点环的余量：它条目多时自己滚动，滚动容器会裁掉贴边的环。 */
 .settings-window__nav {
     display: flex;
-    width: 180px;
-    flex-shrink: 0;
+    min-height: 0;
+    flex: 1;
     flex-direction: column;
     gap: var(--space-1);
     overflow-y: auto;
     padding: var(--space-2) var(--space-5) var(--space-2) var(--space-2);
+}
+
+.settings-window__hits {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+/* 跟在设置项的结果后面时隔开一段，同分区里的小组。 */
+[data-settings-list] + .settings-window__hits {
+    margin-top: var(--space-7);
+}
+
+.settings-window__hits-title {
+    margin: 0;
+    padding-bottom: var(--space-3);
+    border-bottom: var(--border-w) solid var(--divider);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-strong);
+    line-height: var(--leading-ui);
+    color: var(--text-secondary);
+}
+
+.settings-window__hit {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+}
+
+.settings-window__hit-text {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.settings-window__hit-title {
+    font-size: var(--text-sm);
+    line-height: var(--leading-ui);
+    color: var(--text-main);
 }
 
 .settings-window__nav-item {
@@ -330,6 +501,10 @@ watch(() => model.focusRequest.value, () => void nextTick(focusCurrent));
     .settings-window__split {
         flex-direction: column;
         overflow-y: auto;
+    }
+
+    .settings-window__side {
+        width: auto;
     }
 
     .settings-window__nav {

@@ -32,4 +32,9 @@ export interface SettingsPageContext {
     readonly projectTitle: Readonly<Ref<string | null>>;
     /** 全部选项提供者的选项源，按提供者 id；直接交给页面里 `SchemaField`、`SchemaForm` 的 `options`。 */
     readonly options: FormOptionSources;
+    /**
+     * 告诉窗口有没有未保存的改动（输出 22）：有时离开页面先要用户确认。页面自己比较“已保存的值”与草稿；保存成功后报
+     * false。页面卸载后再调用不起作用。
+     */
+    dirty(value: boolean): void;
 }
