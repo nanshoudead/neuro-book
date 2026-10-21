@@ -23,7 +23,7 @@ updated: 2026-10-21
 
 ## 当前状态
 
-2026-10-20 经 nbdev 新建。2026-10-21 t02 合入后开工，按 design-review 走：现状与参照放在评审板 [artifacts/review](artifacts/review/index.html)。nbdev 与仓库里没有 t80 之外的设置外观稿，以 t80 定下的结构为底重新出稿。注意力排序开发者 2026-10-21 已同意（见“设计决定”），下一步在草稿 worktree 出第一轮静态稿。
+2026-10-20 经 nbdev 新建。2026-10-21 t02 合入后开工，按 design-review 走：现状与参照放在评审板 [artifacts/review](artifacts/review/index.html)。nbdev 与仓库里没有 t80 之外的设置外观稿，以 t80 定下的结构为底重新出稿。注意力排序开发者 2026-10-21 已同意（见“设计决定”）。第一轮静态稿（窗口框架：小组的画法、层标签的位置）已发布在评审板 v2，等开发者答复。草稿在 worktree `.worktree/w00027-t06-drafts`（分支 `t06/drafts`，不合并、不推送），草稿组件 `src/plugins/drafts/web/components/settings-look/`；开发服务经 `nbdev dev start` 起在 http://127.0.0.1:4317/。
 
 ## 下一步
 
