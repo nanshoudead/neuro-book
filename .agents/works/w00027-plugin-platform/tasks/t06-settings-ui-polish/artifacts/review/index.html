@@ -47,17 +47,52 @@ pre code { background: none; padding: 0; }
 <body>
 <main>
 <h1>t06 设置界面外观评审板</h1>
-<p class="sub">w00027 t06（设置界面的样式收口），2026-10-21 起。待定的问题放最上面；现在只有现状与参照，第一轮静态稿出来后加在上面。截图取自 Work 分支 <code>feat/w00027-plugin-platform</code>（t02 合入后）的 Component Lab，画布 1200×800。点图看原图。</p>
+<p class="sub">w00027 t06（设置界面的样式收口），2026-10-21 起。待定的问题放最上面，现状与参照在最后。截图取自 Work 分支 <code>feat/w00027-plugin-platform</code>（t02 合入后）的 Component Lab，画布 1200×800。点图看原图。</p>
 
 <div class="toc">
 <b>目录</b>
 <ol>
+<li><a href="#r1">第一轮：窗口框架</a>（待定）</li>
 <li><a href="#now">现状</a></li>
 <li><a href="#diff">与 t80 定稿的差别、t80 之后新增的界面</a></li>
 <li><a href="#ref">参照：w00017 t80 的定稿</a></li>
 <li><a href="#todo">已记下要一并收口的</a></li>
 </ol>
 </div>
+
+
+<h2 id="r1">第一轮：窗口框架（2026-10-21）</h2>
+<p>静态稿用 nb-ui 的真实控件搭成，数据写死，窗口 960×640，NeuroBook 主题浅色。注意力排序已定：先看每项的标题与当前值，其次是改过、恢复默认、本作品覆盖，说明与生效时机放轻，左栏比内容轻。</p>
+<p>两题共同的改动：新画法里左栏选中项只给浅底色与正文色、图标用强调色，不再是按钮底加描边（现状打开窗口时键盘焦点落在选中项上，还会多一圈焦点环）；“其它”的小组标题换成给人看的名字（“笔记”），不显示插件 id。</p>
+
+<section data-nbdev-question="r1-content" data-nbdev-type="single" data-nbdev-recommend="cards">
+<h3><span class="tag warn" data-nbdev-skip>待定</span> 1. 内容区的小组怎么画</h3>
+<p>同一个分区画三种。左图“外观”只有简单控件，右图“其它”有下拉、开关、数字、输入框和一个列表。</p>
+<div class="card" data-nbdev-option="now" data-nbdev-label="现状：小组标题加分隔线">
+<h4>A. 现状：小组标题加分隔线</h4>
+<div class="grid"><figure><a href="r1/content-now-appearance.webp"><img src="r1/content-now-appearance.webp" alt=""></a><figcaption><b>外观</b></figcaption></figure><figure><a href="r1/content-now-other.webp"><img src="r1/content-now-other.webp" alt=""></a><figcaption><b>其它</b>：小组标题是插件 id</figcaption></figure></div>
+</div>
+<div class="card" data-nbdev-option="cards" data-nbdev-label="分组底板：每个小组一块底板，行间细线">
+<h4>B. 分组底板：每个小组一块底板，行间细线</h4>
+<div class="grid"><figure><a href="r1/content-cards-appearance.webp"><img src="r1/content-cards-appearance.webp" alt=""></a><figcaption><b>外观</b></figcaption></figure><figure><a href="r1/content-cards-other.webp"><img src="r1/content-cards-other.webp" alt=""></a><figcaption><b>其它</b></figcaption></figure><figure><a href="r1/content-cards-other-dark.webp"><img src="r1/content-cards-other-dark.webp" alt=""></a><figcaption><b>其它 · 深色</b></figcaption></figure></div>
+</div>
+<div class="card" data-nbdev-option="quiet" data-nbdev-label="不画线：靠字号与留白分层">
+<h4>C. 不画线：靠字号与留白分层</h4>
+<div class="grid"><figure><a href="r1/content-quiet-appearance.webp"><img src="r1/content-quiet-appearance.webp" alt=""></a><figcaption><b>外观</b>：分区标题大一档，小组标题用正文色</figcaption></figure><figure><a href="r1/content-quiet-other.webp"><img src="r1/content-quiet-other.webp" alt=""></a><figcaption><b>其它</b></figcaption></figure></div>
+</div>
+<div class="rec"><b>推荐 B</b>。设置窗口 960 宽，标题在左、控件在右，中间隔着两百多像素，眼睛要横着找。行间的细线把每一项的标题和控件框在一起，底板把一个小组框在一起，扫一遍就知道一组有几项，这也是 macOS 系统设置的画法。已修改的竖线贴在底板的左边缘，不再悬在留白里。代价：高度比现状多一点（“其它”多约 40px）；浅色下底板与输入框的底色接近，选 B 的话下一轮要把底板上的控件底色调开；page 分区（模型服务、常用片段）要跟着用同样的底板，第三轮一起出稿。C 最轻，但行与行之间没有边界，长分区里标题和控件的对应要靠对齐来猜。</div>
+</section>
+
+<section data-nbdev-question="r1-layer" data-nbdev-type="single" data-nbdev-recommend="titlebar">
+<h3><span class="tag warn" data-nbdev-skip>待定</span> 2. “用户 | 本作品”放在哪</h3>
+<p>三张图的内容区都用 B 画法，只换层标签的位置。</p>
+<div class="grid">
+<div data-nbdev-option="now" data-nbdev-label="现状：窗口左上，左栏上面"><figure><a href="r1/layer-now.webp"><img src="r1/layer-now.webp" alt=""></a><figcaption><b>A. 现状</b>：窗口左上、左栏上面，单独占一行</figcaption></figure></div>
+<div data-nbdev-option="header" data-nbdev-label="内容区标题行的右边"><figure><a href="r1/layer-header.webp"><img src="r1/layer-header.webp" alt=""></a><figcaption><b>B. 内容区标题行的右边</b></figcaption></figure></div>
+<div data-nbdev-option="titlebar" data-nbdev-label="窗口标题栏正中"><figure><a href="r1/layer-titlebar.webp"><img src="r1/layer-titlebar.webp" alt=""></a><figcaption><b>C. 窗口标题栏正中</b></figcaption></figure></div>
+</div>
+<div class="rec"><b>推荐 C</b>。层标签管的是整个窗口：切到“本作品”后，左栏每个分区都写进这本作品，放在标题栏正中正好说明它管全窗口；还省出现状那一整行（约 44px），内容和左栏都往上提。B 挨着分区标题，容易读成“只管这一个分区”。没有绑定作品时（书架上打开）三种都不画层标签，C 的标题栏只剩“设置”和关闭。</div>
+</section>
 
 <h2 id="now">1. 现状</h2>
 <div class="grid">
