@@ -21,6 +21,12 @@ updated: 2026-10-21
 
 - worktree：`.worktree/w00030-t03-popup-lists`，分支 `refactor/w00030-t03-popup-lists`
 
+- S1（分支 `b66b68236`）：15 个文件移入 `components/popup/`；`menu-cascade.ts` 拆成 `utils/popup-geometry.ts`（连同 `usePopupScroll` 里不依赖 Vue 的量取函数）与 `useMenuCascade` 里的悬停调度；`option-highlight.ts` 改名 `utils/roving.ts`。nb-ui typecheck、单测 532，neuro-book typecheck、Lab 单测，`docs:check` 通过。
+- S2（分支 `997d16fb0`）：级联键盘、父级滚动收起、外部判定收进 `useMenuCascade`。补测试时发现并修了两个原有缺陷：
+  - reka 的 `select` 事件只交给监听者、不在元素上派发，`currentTarget` 永远是 null：在 DropdownMenu、Menubar 的一级里点击父项或按 Enter、空格，子菜单拿不到父项，没有定位并抛错（截改前基准图时点父项，子菜单就没出来）。MenuNodes 改为自己记下项元素。
+  - `measureCascadePanel` 不换算 CSS `zoom`：`zoom: 0.8` 下子菜单首项比父项偏 23px。
+  - nb-ui 单测 537、typecheck 通过；e2e `popup-scroll`、`popup-lists` 16 条通过（新增“点击父项展开”“CSS zoom 下级联”两条）。
+
 ## 下一步
 
 按计划 S1 到 S5 实施。
