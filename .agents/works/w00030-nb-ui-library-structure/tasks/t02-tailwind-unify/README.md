@@ -28,6 +28,9 @@ neuro-book 从 UnoCSS 换到 Tailwind v4；nb-ui 不再发预编译产物，提�
   - dev-panel 的 `:where(a, button, …):focus-visible` 焦点环进 base 层后，只靠 `outline-none` 的 nb-ui 按钮键盘聚焦时不再多画面板的 2px 轮廓，截图对照时留意。
   - llmlint 的检测页也用 UnoCSS，但它是另一个应用、不用 nb-ui，不在本 Task 范围。
 
+- S2（分支 1c360ee8f）：neuro-book 换成 Tailwind v4（reset 与 `styles.css` 的全局规则进 base 层），`outline-none` 改名 7 处，删 `uno.config.ts`、`unocss` 依赖、nb-ui 的 `dist/nb-ui.css` 与 `./styles.css` 导出。neuro-book typecheck、单测、`build`、`build:e2e` 通过；`test:affected` 只有已知的两项无关失败（llmlint web 依赖、长根路径）。工具 1 的差异只剩计划所列几类（另有几条是对比工具把 `var()` 解析成值造成的假差异）。
+- S4（滚动条 token）已派出：取值统一到 `OverlayScrollbar` 现在的 32%/45%/55%，`ScrollArea`、`PopupScrollbar` 与三个宿主的原生滚动条颜色随之变化；共用类用 `:where()` 连后代一起写（`scrollbar-width` 不继承）。
+
 ## 下一步
 
-S2（neuro-book 换 Tailwind、删 nb-ui 产物）已派出。基准截完后停掉基准开发服务。
+基准截完后，在固定于 S2 提交的 worktree 上截改后一套并对照（只看引擎切换带来的差异）；S4 交回后审查提交；S3 文档最后做。
