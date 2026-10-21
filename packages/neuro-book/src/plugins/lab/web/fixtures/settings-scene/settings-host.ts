@@ -1,26 +1,29 @@
 /**
- * 设置窗口的局部宿主：产品里同一个配置实例（`shared/instance.ts`）、分区注册表、窗口数据来源与窗口模型，配置层换成内存里的
- * 拥有者（`memory-layers.ts`），page 分区的交付由场景按句柄发布、撤回，入口状态由场景给出。场景之间互不影响，卸载时
- * 一起释放。Lab 与设置窗口的组件测试共用。
+ * 设置窗口的局部宿主：产品里同一个配置实例（`shared/instance.ts`）、分区与选项提供者的注册表、窗口数据来源与窗口模型，
+ * 配置层换成内存里的拥有者（`memory-layers.ts`），page 分区与选项提供者的交付由场景按句柄发布、撤回，入口状态与激活事件
+ * 由场景给出，触发激活事件时交给场景处理（例如收到后交付）。场景之间互不影响，卸载时一起释放。Lab 与设置窗口的组件测试共用。
  */
 
 import {ref} from "vue";
-import type {Component} from "vue";
+import type {Component, MaybeRefOrGetter} from "vue";
+
+import type {OptionSource} from "@notnotype/nb-form";
 
 import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
-import type {ContributionDescriptor, ContributionHandle, EntryState, RevokeReason} from "@notnotype/nb-runtime/plugins";
+import type {ContributionDescriptor, ContributionHandle, EntryState, RevokeReason, TriggerActivationResult} from "@notnotype/nb-runtime/plugins";
 
-import {SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT} from "nbook/plugins/settings/shared/contracts";
-import type {SettingsPageDeclaration, SettingsSectionDeclaration} from "nbook/plugins/settings/shared/contracts";
+import {SETTINGS_CHOICES_POINT, SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT} from "nbook/plugins/settings/shared/contracts";
+import type {SettingsChoicesDeclaration, SettingsPageDeclaration, SettingsSectionDeclaration} from "nbook/plugins/settings/shared/contracts";
 import {createSettingsInstance} from "nbook/plugins/settings/shared/instance";
 import type {SettingsInstance} from "nbook/plugins/settings/shared/instance";
 import type {DeclaredSetting} from "nbook/plugins/settings/shared/layers";
-import type {SettingsPageImplementation} from "nbook/plugins/settings/web/contracts";
+import {ChoiceSourceRegistry} from "nbook/plugins/settings/web/choices";
+import type {SettingsChoicesImplementation, SettingsPageImplementation} from "nbook/plugins/settings/web/contracts";
 import {SettingsSectionRegistry} from "nbook/plugins/settings/web/sections";
 import {createSettingsWindow} from "nbook/plugins/settings/web/settings-window";
 import type {SettingsWindow, SettingsWindowSize} from "nbook/plugins/settings/web/settings-window";
-import {createSettingsWindowSource} from "nbook/plugins/settings/web/window-source";
+import {choiceReferences, createSettingsWindowSource} from "nbook/plugins/settings/web/window-source";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import type {WindowPluginRetry, WindowPlugins} from "nbook/shared/host";
 import type {DisplayLocale} from "nbook/shared/localized-text";
@@ -46,6 +49,10 @@ export interface SettingsHostOptions {
     /** 已接受的配置项：声明者插件与定义。 */
     readonly settings: ReadonlyArray<{readonly plugin: string; readonly definition: SettingDefinition<unknown>}>;
     readonly sections: ReadonlyArray<HostSection>;
+    /** 选项提供者：id 与贡献它的插件（贡献在插件的 `browser` 入口上）。 */
+    readonly choices?: ReadonlyArray<{readonly id: string; readonly plugin: string}>;
+    /** 各插件 `browser` 入口声明的激活事件；没给的插件不声明。 */
+    readonly activationEvents?: Readonly<Record<string, ReadonlyArray<string>>>;
     readonly user?: HostLayer;
     /** 给了就是绑定作品的窗口。 */
     readonly project?: HostLayer;
@@ -55,8 +62,8 @@ export interface SettingsHostOptions {
     readonly report: (message: string) => void;
 }
 
-/** page 分区所属入口的状态：场景直接给出，交付状态从它与句柄算出。 */
-export type HostEntryStatus = "activating" | "blocked" | "failed" | "available";
+/** 入口的状态：场景直接给出，交付状态从它与句柄算出。 */
+export type HostEntryStatus = "registered" | "activating" | "blocked" | "failed" | "available";
 
 export interface SettingsHost {
     readonly window: SettingsWindow;
@@ -71,6 +78,13 @@ export interface SettingsHost {
     revoke(sectionId: string, reason: RevokeReason): void;
     /** 分区所属入口的状态（没有句柄时决定交付状态）。 */
     entry(sectionId: string, status: HostEntryStatus, reason?: string): void;
+    /** 插件 `browser` 入口的状态（选项提供者按它所属的插件给）。 */
+    pluginEntry(plugin: string, status: HostEntryStatus, reason?: string): void;
+    /** 交付一个选项提供者：入口转为可用，句柄发布；已有句柄时先撤回它。 */
+    publishChoices(providerId: string, source: () => MaybeRefOrGetter<OptionSource<string>>): void;
+    revokeChoices(providerId: string): void;
+    /** 窗口触发激活事件时调用；缺省什么都不做。 */
+    onTrigger(handler: (event: string) => void): void;
     /** “重试”时要做的事；缺省什么都不做、报告失败。 */
     onRetry(handler: (sectionId: string) => Promise<WindowPluginRetry>): void;
     dispose(): void;
@@ -96,6 +110,7 @@ export function createSettingsHost(options: SettingsHostOptions): SettingsHost {
     const states = new Map<string, EntryState>();
     const listeners = new Set<() => void>();
     let retry: (sectionId: string) => Promise<WindowPluginRetry> = async () => ({status: "failed", reason: "场景没有给重试"});
+    let onTrigger: (event: string) => void = () => undefined;
     const sectionOf = new Map(options.sections.map((section) => [section.plugin, section.id]));
     const plugins: WindowPlugins = {
         entryState: (ref) => states.get(ref.plugin) ?? null,
@@ -104,8 +119,7 @@ export function createSettingsHost(options: SettingsHostOptions): SettingsHost {
             return () => void listeners.delete(listener);
         },
         retry: (ref) => retry(sectionOf.get(ref.plugin) ?? ""),
-        // 场景的入口状态由场景直接给出（激活中、受阻、失败、可用），不经激活事件。
-        activationEvents: () => [],
+        activationEvents: (ref) => options.activationEvents?.[ref.plugin] ?? [],
     };
     const changed = (): void => {
         for (const listener of [...listeners]) listener();
@@ -115,13 +129,23 @@ export function createSettingsHost(options: SettingsHostOptions): SettingsHost {
     // 同产品：list 分区是顶层声明（没有入口），page 分区是浏览器入口的贡献。
     const lists: ContributionDescriptor<SettingsSectionDeclaration>[] = options.sections.flatMap((section) => section.kind === "list" ? [{capability: SETTINGS_SECTIONS_POINT, id: section.id, plugin: section.plugin, entry: null, location: "browser", declaration: section.declaration}] : []);
     const pages: ContributionDescriptor<SettingsPageDeclaration>[] = options.sections.flatMap((section) => section.kind === "page" ? [{capability: SETTINGS_PAGES_POINT, id: section.id, plugin: section.plugin, entry: "browser", location: "browser", declaration: section.declaration}] : []);
-    const registry = new SettingsSectionRegistry(lists, pages, plugins, options.report, abort.signal);
+    // 触发激活事件交给场景；内核的“已触发”结果在这里只用作诊断，场景自己决定交付。
+    const trigger = async (event: string): Promise<TriggerActivationResult> => {
+        onTrigger(event);
+        return {status: "triggered", event: event as TriggerActivationResult["event"], results: []};
+    };
+    const registry = new SettingsSectionRegistry(lists, pages, plugins, options.report, abort.signal, trigger);
     const receiver = registry.receiver();
+    const providers: ContributionDescriptor<SettingsChoicesDeclaration>[] = (options.choices ?? []).map((choice) => ({capability: SETTINGS_CHOICES_POINT, id: choice.id, plugin: choice.plugin, entry: "browser", location: "browser", declaration: {}}));
+    const choices = new ChoiceSourceRegistry(providers, choiceReferences(declarations), plugins, options.report, abort.signal, trigger);
+    const choiceReceiver = choices.receiver();
+    const choiceHandles = new Map<string, ContributionHandle<SettingsChoicesDeclaration, SettingsChoicesImplementation> & {published: boolean}>();
     const handles = new Map<string, ContributionHandle<SettingsPageDeclaration, SettingsPageImplementation> & {published: boolean}>();
     let generation = 0;
 
     const source = createSettingsWindowSource({
         sections: registry,
+        choices,
         declarations,
         editors: {user: user.editor, ...(project === null ? {} : {project: project.editor})},
         instance,
@@ -164,6 +188,14 @@ export function createSettingsHost(options: SettingsHostOptions): SettingsHost {
         changed();
     };
 
+    const revokeChoices = (providerId: string): void => {
+        const handle = choiceHandles.get(providerId);
+        if (handle === undefined) return;
+        handle.published = false;
+        choiceHandles.delete(providerId);
+        choiceReceiver.revoke(handle);
+    };
+
     const revoke = (sectionId: string, reason: RevokeReason): void => {
         const handle = handles.get(sectionId);
         if (handle === undefined) return;
@@ -199,6 +231,25 @@ export function createSettingsHost(options: SettingsHostOptions): SettingsHost {
         },
         onRetry: (handler) => {
             retry = handler;
+        },
+        pluginEntry: (plugin, status, reason) => setEntry(plugin, status, reason ?? null),
+        publishChoices: (providerId, source) => {
+            const provider = options.choices?.find((candidate) => candidate.id === providerId);
+            if (provider === undefined) throw new Error(`场景没有选项提供者 ${providerId}`);
+            revokeChoices(providerId);
+            setEntry(provider.plugin, "available", null);
+            generation += 1;
+            const implementation: SettingsChoicesImplementation = {source};
+            const handle = {capability: SETTINGS_CHOICES_POINT, id: providerId, plugin: provider.plugin, entry: "browser", generation, kind: "entry" as const, declaration: {}, published: true, implementation: () => {
+                if (!handle.published) throw new Error("句柄已撤回");
+                return implementation;
+            }};
+            choiceHandles.set(providerId, handle);
+            choiceReceiver.published(handle);
+        },
+        revokeChoices,
+        onTrigger: (handler) => {
+            onTrigger = handler;
         },
         dispose: () => {
             settingsWindow.dispose();

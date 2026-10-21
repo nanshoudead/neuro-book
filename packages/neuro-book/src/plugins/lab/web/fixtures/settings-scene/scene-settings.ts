@@ -9,6 +9,8 @@ import {Type} from "typebox";
 import {defineSetting} from "nbook/shared/settings";
 
 export const SNIPPETS_SECTION = "example.snippets.main";
+/** “笔记”的选项提供者：新笔记可以套用的模板。 */
+export const TEMPLATES_PROVIDER = "example.notes.templates";
 export const MODELS_SECTION = "example.models.main";
 
 export const notesSettings = {
@@ -29,6 +31,7 @@ export const notesSettings = {
         ],
     }),
     tags: defineSetting({plugin: "example.notes", name: "tags", schema: Type.Array(Type.String({minLength: 1})), default: ["人物", "地点", "伏笔"], title: {"zh-CN": "常用标签", "en-US": "Frequent Tags"}, applies: "restart"}),
+    template: defineSetting({plugin: "example.notes", name: "template", schema: Type.String(), default: "", title: {"zh-CN": "新笔记的模板", "en-US": "Template for New Notes"}, description: {"zh-CN": "选项来自模板库", "en-US": "Options come from the template library"}, choices: {from: TEMPLATES_PROVIDER}}),
     legacy: defineSetting({plugin: "example.notes", name: "legacy", schema: Type.Boolean(), default: false, title: {"zh-CN": "旧版目录结构", "en-US": "Legacy Layout"}, section: "example.missing"}),
 };
 
@@ -69,6 +72,7 @@ export const modelsSettings = {
 
 export type SettingsWindowSceneId =
     | "user" | "project" | "unbound" | "user-invalid" | "project-invalid" | "unreachable" | "write-failed" | "other"
+    | "choices" | "choices-lazy" | "choices-unavailable"
     | "page-declared" | "page-blocked" | "page-failed" | "page-stopped" | "page-load-failed" | "page-column" | "page-fill";
 
 export const SETTINGS_WINDOW_SCENES: ReadonlyArray<{readonly id: SettingsWindowSceneId; readonly label: string}> = [
@@ -80,6 +84,9 @@ export const SETTINGS_WINDOW_SCENES: ReadonlyArray<{readonly id: SettingsWindowS
     {id: "unreachable", label: "本作品层连不上"},
     {id: "write-failed", label: "写入失败（发通知、回到实际值）"},
     {id: "other", label: "“其它”分区：每种控件，含可编辑的字符串列表"},
+    {id: "choices", label: "动态选项：提供者已交付，当前值已不在选项里"},
+    {id: "choices-lazy", label: "动态选项：打开时才激活提供者（先显示加载中）"},
+    {id: "choices-unavailable", label: "动态选项：提供者的入口激活失败"},
     {id: "page-declared", label: "page 分区：入口还在启动"},
     {id: "page-blocked", label: "page 分区：入口受阻"},
     {id: "page-failed", label: "page 分区：入口激活失败（可重试）"},

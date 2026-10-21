@@ -66,7 +66,7 @@ function open(user: HostLayer, library = true) {
         }},
         report: () => undefined,
     });
-    const context: SettingsPageContext = {id: "nbook.works", layer: readonly(ref<SettingLayer>("user")) as Readonly<Ref<SettingLayer>>, projectTitle: readonly(ref(null))};
+    const context: SettingsPageContext = {id: "nbook.works", layer: readonly(ref<SettingLayer>("user")) as Readonly<Ref<SettingLayer>>, projectTitle: readonly(ref(null)), options: {}};
     const wrapper = mount(page, {props: {context}, attachTo: document.body});
     cleanup.push(() => wrapper.unmount());
     return {host, notices, listed, wrapper};

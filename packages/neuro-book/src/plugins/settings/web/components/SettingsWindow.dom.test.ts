@@ -5,7 +5,7 @@
  */
 
 import {flushPromises, mount} from "@vue/test-utils";
-import {afterEach, describe, expect, it} from "vitest";
+import {afterEach, describe, expect, it, vi} from "vitest";
 import {defineComponent, h, onMounted, onUnmounted} from "vue";
 import type {PropType} from "vue";
 
@@ -128,7 +128,7 @@ describe("SettingsWindow", () => {
         const {host, notices} = await scene("other");
         host.window.select("other");
         await flushPromises();
-        expect(all("[data-settings-row]").map(widgetOf)).toEqual(["switch", "number", "switch", "text", "select", "string-list"]);
+        expect(all("[data-settings-row]").map(widgetOf)).toEqual(["switch", "number", "switch", "text", "select", "string-list", "select"]);
         const tags = one("[data-settings-row='example.notes/tags']");
         expect(tags.querySelector("[data-settings-row-wide] [data-nb-widget='string-list']")).not.toBeNull();
         // 控件的名字是行的标题（`<label for>` 指向它），说明经 aria-describedby 接上。
@@ -193,6 +193,33 @@ describe("SettingsWindow", () => {
         expect(notices.at(-1)?.title).toBe("设置没有保存");
         expect(tags.contains(document.activeElement)).toBe(true);
         expect(tags.querySelector("[aria-live='polite']")?.textContent).toBe("刚才的改动没有生效");
+    });
+
+    it("动态选项：列出提供者给的选项，当前值不在选项里时照常显示并标“已不存在”", async () => {
+        const {host} = await scene("choices");
+        const row = one("[data-settings-row='example.notes/template']");
+        expect(row.textContent).toContain("已不存在");
+        const trigger = row.querySelector<HTMLElement>("[data-nb-widget='select'] button, [data-nb-widget='select'] [role='combobox']")!;
+        expect(trigger.hasAttribute("disabled")).toBe(false);
+        expect(host.window.options()["example.notes.templates"]).toBeDefined();
+        const items = host.window.options()["example.notes.templates"];
+        const value = typeof items === "function" ? items() : (items as {value: unknown}).value;
+        expect(value).toMatchObject({status: "ready", items: [{value: "diary"}, {value: "scene"}, {value: "character"}]});
+    });
+
+    it("动态选项：提供者按需激活时先显示加载中、停用，交付后可选；提供者的入口失败时停用并在行里写原因", async () => {
+        await scene("choices-lazy");
+        const row = () => one("[data-settings-row='example.notes/template']");
+        const control = () => row().querySelector<HTMLElement>("[data-nb-widget='select'] button, [data-nb-widget='select'] [role='combobox']")!;
+        expect(control().hasAttribute("disabled") || control().getAttribute("aria-disabled") === "true").toBe(true);
+        await vi.waitFor(() => expect(control().hasAttribute("disabled")).toBe(false), {timeout: 3_000});
+        expect(row().textContent).not.toContain("已不存在");
+        cleanup.splice(0).forEach((dispose) => dispose());
+        document.body.innerHTML = "";
+
+        await scene("choices-unavailable");
+        expect(row().textContent).toContain("选项来源 example.notes.templates 不可用：模板库读不到：权限不足");
+        expect(control().hasAttribute("disabled")).toBe(true);
     });
 
     it("左栏：上下键切到上一个、下一个可用分区，焦点跟着走；关闭按钮关窗口", async () => {

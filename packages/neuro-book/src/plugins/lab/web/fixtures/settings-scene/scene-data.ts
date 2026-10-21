@@ -3,7 +3,9 @@
  * 的每种控件、“其它”分区与 page 的两种排法。每个场景按 id 给出各层的初始内容、标签与要交付的页面。
  */
 
-import {defineComponent, h} from "vue";
+import {defineComponent, h, ref} from "vue";
+
+import {settingsChoicesEvent} from "nbook/plugins/settings/shared/contracts";
 import type {Component} from "vue";
 
 import {APPEARANCE_SECTION, APPEARANCE_SECTION_DECLARATION, localeSetting} from "nbook/plugins/settings/shared/contracts";
@@ -14,7 +16,7 @@ import type {SettingDefinition, SettingsService} from "nbook/shared/settings";
 
 import SampleModelsPage from "./SampleModelsPage.vue";
 import SampleSnippetsPage from "./SampleSnippetsPage.vue";
-import {MODELS_SECTION, modelsSettings, notesSettings, SNIPPETS_SECTION, snippetsSettings} from "./scene-settings";
+import {MODELS_SECTION, modelsSettings, notesSettings, SNIPPETS_SECTION, snippetsSettings, TEMPLATES_PROVIDER} from "./scene-settings";
 import type {SettingsWindowSceneId} from "./scene-settings";
 import {createSettingsHost} from "./settings-host";
 import type {HostLayer, HostSection, SettingsHost} from "./settings-host";
@@ -36,6 +38,16 @@ const SECTIONS: ReadonlyArray<HostSection> = [
     {id: MODELS_SECTION, plugin: "example.models", declaration: {title: {"zh-CN": "模型服务", "en-US": "Model Providers"}, description: {"zh-CN": "写作助手用的模型与服务商", "en-US": "Models and providers used by the assistant"}, icon: "i-lucide-server", category: "ai", layout: "fill", layers: ["user"]}, kind: "page"},
     {id: SNIPPETS_SECTION, plugin: "example.snippets", declaration: {title: {"zh-CN": "常用片段", "en-US": "Snippets"}, description: {"zh-CN": "写作时常用的固定文字", "en-US": "Fixed text you insert often"}, icon: "i-lucide-text-quote", category: "plugins"}, kind: "page"},
 ];
+
+/** 模板库的选项；“已不存在”的场景里当前值是库里删掉的“旧版周记”。 */
+const TEMPLATES = [
+    {value: "diary", label: {"zh-CN": "日记", "en-US": "Diary"}},
+    {value: "scene", label: {"zh-CN": "场景卡", "en-US": "Scene Card"}, description: {"zh-CN": "时间、地点、人物、冲突", "en-US": "Time, place, people, conflict"}},
+    {value: "character", label: {"zh-CN": "人物卡", "en-US": "Character Card"}},
+];
+
+/** 按需激活的场景里，提供者入口收到触发之后过一会儿才交付：看得见“加载中”。 */
+const LAZY_DELIVERY_MS = 800;
 
 /** 场景里那部作品的书名与项目层文件的位置。 */
 export const SCENE_BOOK = "雾港";
@@ -59,6 +71,9 @@ const SPECS: Readonly<Record<SettingsWindowSceneId, SceneSpec>> = {
     "unreachable": {user: {}, project: {...BOOK, unreachable: true}, section: APPEARANCE_SECTION, layer: "project"},
     "write-failed": {user: {values: {"nbook.workbench/theme": "macos"}}, section: APPEARANCE_SECTION},
     "other": {user: {values: {"example.notes/interval": 120, "example.notes/signature": "——写于雾港"}}, project: {values: {"example.notes/autosave": false}}, section: "other"},
+    "choices": {user: {values: {"example.notes/template": "weekly"}}, section: "other"},
+    "choices-lazy": {user: {values: {"example.notes/template": "scene"}}, section: "other"},
+    "choices-unavailable": {user: {}, section: "other"},
     "page-declared": {project: BOOK, section: SNIPPETS_SECTION},
     "page-blocked": {project: BOOK, section: SNIPPETS_SECTION},
     "page-failed": {project: BOOK, section: SNIPPETS_SECTION},
@@ -93,9 +108,21 @@ export function createSettingsScene(id: SettingsWindowSceneId, notify: (input: N
         ...(spec.user === undefined ? {} : {user: spec.user}),
         ...(spec.project === undefined ? {} : {project: spec.project}),
         projectTitle: SCENE_BOOK,
+        choices: [{id: TEMPLATES_PROVIDER, plugin: "example.notes"}],
+        activationEvents: {"example.notes": [settingsChoicesEvent(TEMPLATES_PROVIDER)]},
         notify,
         report,
     });
+    const templates = () => ref({status: "ready" as const, items: TEMPLATES});
+    if (id === "choices-lazy") {
+        host.pluginEntry("example.notes", "registered");
+        host.onTrigger((event) => {
+            if (event !== settingsChoicesEvent(TEMPLATES_PROVIDER)) return;
+            host.pluginEntry("example.notes", "activating");
+            setTimeout(() => host.publishChoices(TEMPLATES_PROVIDER, templates), LAZY_DELIVERY_MS);
+        });
+    } else if (id === "choices-unavailable") host.pluginEntry("example.notes", "failed", "模板库读不到：权限不足");
+    else host.publishChoices(TEMPLATES_PROVIDER, templates);
     const deliver = (): void => {
         host.publish(SNIPPETS_SECTION, async () => page(SampleSnippetsPage, host.service("example.snippets")));
         host.publish(MODELS_SECTION, async () => page(SampleModelsPage, host.service("example.models")));

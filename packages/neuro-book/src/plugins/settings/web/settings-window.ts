@@ -14,6 +14,8 @@ import {computed, effectScope, markRaw, readonly, ref, shallowReactive, watch} f
 import type {ComputedRef, Ref} from "@vue/reactivity";
 import type {Component} from "vue";
 
+import type {FormOptionSources} from "@notnotype/nb-form/vue";
+
 import type {CommandResult} from "nbook/plugins/commands/shared/contracts";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import {formatText, localize, textOf} from "nbook/shared/localized-text";
@@ -133,6 +135,8 @@ export interface SettingsWindow {
     readonly layerNotice: ComputedRef<SettingsLayerNotice | null>;
     /** 给通用列表的 `SettingsRow` 用的配置服务：读同 `settings`，写走用户编辑路径（configuration.md 输出 19）。 */
     readonly editing: SettingsService;
+    /** 选项提供者的选项源（对象本身不变）：通用列表交给每个字段，page 页面经 `context.options` 拿到同一份。 */
+    options(): FormOptionSources;
     /** 命令 `nbook.settings.open`（输出 15）：参数不对时不打开、不改变窗口。 */
     openWindow(args: SettingsWindowOpenArgs): CommandResult<null>;
     close(): void;
@@ -365,7 +369,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     const contextOf = (id: string): SettingsPageContext => {
         let context = contexts.get(id);
         if (context === undefined) {
-            context = markRaw({id, layer: readonlyLayer as Readonly<Ref<SettingLayer>>, projectTitle: projectTitle as Readonly<Ref<string | null>>});
+            context = markRaw({id, layer: readonlyLayer as Readonly<Ref<SettingLayer>>, projectTitle: projectTitle as Readonly<Ref<string | null>>, options: source.options()});
             contexts.set(id, context);
         }
         return context;
@@ -463,6 +467,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
         current,
         layerNotice,
         editing,
+        options: () => source.options(),
         openWindow: (args) => {
             if (args.section !== undefined && sectionOf(args.section) === undefined) return {ok: false, code: "invalid-args", reason: text(TEXT.unknownSection, {section: args.section})};
             if (args.layer === "project" && !options.bound) return {ok: false, code: "unavailable", reason: text(TEXT.noProject)};

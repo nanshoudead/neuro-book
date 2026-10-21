@@ -451,6 +451,8 @@ describe("page 分区的加载（输出 4–6）", () => {
         expect(after.context).toBe(first.context);
         expect(after.context.layer.value).toBe("project");
         expect(after.generation).toBe(first.generation);
+        // 页面拿到的选项源就是窗口的那一份（通用列表也用它）。
+        expect(after.context.options).toBe(window.options());
         // 离开再回来：组件定义不重新加载（句柄没变）。
         window.select("nbook.appearance");
         window.select("x.notes.page");
