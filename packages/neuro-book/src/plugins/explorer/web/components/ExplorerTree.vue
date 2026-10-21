@@ -583,7 +583,7 @@ defineExpose({focus: focusTree});
             aria-multiselectable="true"
             :aria-label="label"
             :aria-activedescendant="activeDescendant"
-            class="explorer-tree relative h-full min-h-0 overflow-y-auto overflow-x-hidden outline-none"
+            class="explorer-tree relative h-full min-h-0 overflow-y-auto overflow-x-hidden outline-hidden"
             :style="{'--explorer-row-height': `${String(rowHeight)}px`, '--explorer-expand-delay': `${String(EXPAND_HOVER_MS)}ms`}"
             data-explorer-tree
             :data-motion="moving ? '' : undefined"

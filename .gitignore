@@ -97,8 +97,6 @@ t16-editor-heat.png
 /packages/nb-ui/.output/
 /packages/nb-ui/.data/
 /packages/nb-ui/dist/*
-!/packages/nb-ui/dist/
-!/packages/nb-ui/dist/nb-ui.css
 /packages/nb-ui/coverage/
 /packages/nb-ui/*.log
 /packages/nb-ui/.agent/

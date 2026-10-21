@@ -129,7 +129,7 @@ watch(() => props.entries, (entries) => {
             ref="list"
             role="listbox"
             tabindex="0"
-            class="m-0 max-h-[var(--nb-file-browser-max-height,232px)] list-none overflow-y-auto p-1.5 outline-none"
+            class="m-0 max-h-[var(--nb-file-browser-max-height,232px)] list-none overflow-y-auto p-1.5 outline-hidden"
             :aria-label="props.label"
             :aria-activedescendant="props.selectedId === null ? undefined : optionId(props.selectedId)"
             @keydown="onKeydown"

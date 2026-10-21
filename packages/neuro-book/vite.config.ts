@@ -4,8 +4,8 @@
 
 import {fileURLToPath} from "node:url";
 
+import tailwindcss from "@tailwindcss/vite";
 import vue from "@vitejs/plugin-vue";
-import UnoCSS from "unocss/vite";
 import {defineConfig} from "vite";
 
 /** 浏览器基线（runtime.browser-host）：内核用到 Promise.withResolvers 与 AbortSignal.any。 */
@@ -16,9 +16,8 @@ const packageRoot = fileURLToPath(new URL(".", import.meta.url));
 export default defineConfig({
     root: `${packageRoot}src/web`,
     cacheDir: `${packageRoot}node_modules/.vite`,
-    // root 是 src/web，UnoCSS 默认在 root 下找配置，所以显式指定包根的 uno.config.ts。
     // `neurobook-*` 是品牌成品里的原生自定义元素（`src/ui/brand/`），不是 Vue 组件，模板编译时不去解析它。
-    plugins: [vue({template: {compilerOptions: {isCustomElement: (tag) => tag.startsWith("neurobook-")}}}), UnoCSS({configFile: `${packageRoot}uno.config.ts`})],
+    plugins: [vue({template: {compilerOptions: {isCustomElement: (tag) => tag.startsWith("neurobook-")}}}), tailwindcss()],
     resolve: {alias: [{find: /^nbook\//u, replacement: `${packageRoot}src/`}]},
     // 关闭依赖发现、预构建清单写死：依赖发现进行中时 Vite 的 close() 不结算（Bun 与 Node 都是），开发监督进程停止时
     // 会卡住。不在清单里的第三方依赖按源码逐个文件提供，其中的 CommonJS 模块（例如 vanilla-jsoneditor 依赖的 ajv）

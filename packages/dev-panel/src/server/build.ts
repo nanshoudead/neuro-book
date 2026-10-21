@@ -34,7 +34,7 @@ async function walk(dir: string, files: string[], skip: ReadonlySet<string>): Pr
 export async function computeBuildHash(packageRoot: string, repoRoot: string): Promise<string> {
     const files: string[] = [];
     await walk(join(packageRoot, "src", "web"), files, new Set(["node_modules"]));
-    // 整个 nb-ui 包目录都算（含 dist/）：与 state.ts 的 CODE_PATHS 按整棵树比较保持一致，面板自己不读 dist/ 里的产物。
+    // 整个 nb-ui 包目录都算：与 state.ts 的 CODE_PATHS 按整棵树比较保持一致，面板自己不读 dist/ 里的产物。
     // Nuxt 的生成目录与 playground 不进面板。
     await walk(join(repoRoot, "packages", "nb-ui"), files, new Set(["node_modules", ".nuxt", ".output", "playground"]));
     files.push(join(packageRoot, "vite.config.ts"), join(packageRoot, "tsconfig.web.json"), join(packageRoot, "package.json"), join(repoRoot, "bun.lock"));

@@ -30,7 +30,6 @@
         "examples/plugins/*/backend",
         "examples/plugins/*/shared",
         "scripts",
-        "uno.config.ts",
         "vite.config.ts",
         "vite.e2e.config.ts",
         "vitest.config.ts"

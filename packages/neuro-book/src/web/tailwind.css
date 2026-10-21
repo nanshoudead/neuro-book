@@ -1,0 +1,22 @@
+/*
+ * 应用的 Tailwind v4 入口，由 `boot.ts` 导入；nb-ui 不发预编译产物，它的原子类在这里一起编译（写法见
+ * `@notnotype/nb-ui/tailwind.css` 的头注释）。
+ *
+ * 为什么不 `@import "tailwindcss"`：它自带 preflight，而应用用 the-new-css-reset。两份 reset 并存会互相抵消，
+ * 所以只取 theme 与 utilities。
+ *
+ * 为什么 reset 要进 base 层：它的 `all: unset` 不分层，会压过所有分层后的原子类。
+ *
+ * 为什么 @source 显式写：Vite 的 root 是 `src/web`，自动探测只覆盖这一棵子树，类名还写在 `src` 下的插件与 ui 里。
+ * 测试里的类名不是应用的样式面，排掉（`*.test.ts` 也包含 `*.dom.test.ts`）。
+ */
+
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "the-new-css-reset/css/reset.css" layer(base);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "@notnotype/nb-ui/tailwind.css";
+
+@source "../";
+@source not "../**/*.test.ts";

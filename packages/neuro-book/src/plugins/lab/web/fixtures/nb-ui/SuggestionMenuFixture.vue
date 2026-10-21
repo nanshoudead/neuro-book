@@ -40,7 +40,7 @@ const text = ref("把伏笔挪到 @第二");
 <template>
     <div class="flex h-full w-full flex-col p-4" :class="props.scene === 'caret-bottom' ? 'justify-end' : 'justify-start'">
         <div ref="box" class="relative w-full max-w-[480px] rounded-[var(--radius-control)] border border-[var(--control-outline)] bg-[var(--bg-panel)] px-3 py-2">
-            <textarea v-model="text" rows="2" class="block w-full resize-none bg-transparent text-[13px] leading-relaxed text-[var(--text-main)] outline-none" aria-label="输入框" @keydown="onKeydown"></textarea>
+            <textarea v-model="text" rows="2" class="block w-full resize-none bg-transparent text-[13px] leading-relaxed text-[var(--text-main)] outline-hidden" aria-label="输入框" @keydown="onKeydown"></textarea>
             <span v-if="caretScene" ref="caret" class="absolute left-[120px] top-[10px] h-4 w-px bg-[var(--text-main)]" aria-hidden="true"></span>
         </div>
         <SuggestionMenu

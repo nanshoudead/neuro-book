@@ -46,13 +46,13 @@ const ATOMIC_EXACT_SET = new Set([
     "truncate", "break-all", "break-words", "whitespace-nowrap",
     "select-none", "select-text", "select-all", "pointer-events-none", "pointer-events-auto",
     "border", "border-t", "border-b", "border-l", "border-r",
-    "rounded", "rounded-sm", "rounded-md", "rounded-lg", "rounded-xl", "rounded-full",
+    "rounded", "rounded-xs", "rounded-sm", "rounded-md", "rounded-lg", "rounded-xl", "rounded-full",
     "shadow", "shadow-sm", "shadow-md", "shadow-lg", "shadow-xs",
     "transition", "transition-all", "transition-colors", "transition-opacity",
     "cursor-pointer", "cursor-not-allowed", "cursor-default",
     "overflow-hidden", "overflow-auto", "overflow-visible", "overflow-scroll",
     "overflow-x-auto", "overflow-y-auto",
-    "outline-none", "box-border",
+    "outline-none", "outline-hidden", "box-border",
 ]);
 
 /** 路径最多回溯几层。在局部容器或 [data-lab-subject] 范围内足够精准，避免长路径爆炸。 */
