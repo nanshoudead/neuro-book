@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t06-settings-ui-polish
-status: planned
-updated: 2026-10-20
+status: active
+updated: 2026-10-21
 ---
 
 # 设置界面的样式收口
@@ -17,7 +17,7 @@ updated: 2026-10-20
 
 ## 当前状态
 
-2026-10-20 经 nbdev 新建，尚未开工；排在 t02 之后。
+2026-10-20 经 nbdev 新建。2026-10-21 t02 合入后开工，按 design-review 走：现状与参照整理在 [current-state.md](current-state.md)，等开发者确认设计稿来源与注意力排序，再在草稿 worktree 出静态稿。
 
 ## 下一步
 
