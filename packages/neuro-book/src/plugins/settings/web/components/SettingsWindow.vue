@@ -17,6 +17,8 @@ import {composing, isModKey} from "../keys";
 import SettingsFileView from "./SettingsFileView.vue";
 import SettingsListSection from "./SettingsListSection.vue";
 import SettingsPageFrame from "./SettingsPageFrame.vue";
+import SettingsSectionHeading from "./SettingsSectionHeading.vue";
+import type {SettingsSectionNotice} from "./SettingsSectionHeading.vue";
 
 defineOptions({name: "SettingsWindow"});
 
@@ -62,11 +64,11 @@ const page = computed(() => (current.value?.kind === "page" && current.value.una
 const searching = computed(() => current.value?.kind === "search");
 
 /** 层的说明（输出 13）：无效时带上原因（第几行、哪里不对）；在设置文件视图里说“在下面改好”，那里正是修的地方。 */
-const noticeText = computed(() => {
-    const notice = model.layerNotice.value;
-    if (notice === null) return "";
-    if (notice.kind === "unavailable") return text(TEXT.unavailable);
-    return `${text(current.value?.kind === "file" ? TEXT.invalidHere : TEXT.invalid)}（${notice.detail}）`;
+const notice = computed((): SettingsSectionNotice | null => {
+    const layer = model.layerNotice.value;
+    if (layer === null) return null;
+    if (layer.kind === "unavailable") return {kind: "unavailable", text: text(TEXT.unavailable), path: null};
+    return {kind: "invalid", text: `${text(current.value?.kind === "file" ? TEXT.invalidHere : TEXT.invalid)}（${layer.detail}）`, path: layer.path};
 });
 const searchId = `settings-search-${useId()}`;
 const fill = computed(() => current.value?.kind === "page" && current.value.layout === "fill" && current.value.unavailable === null);
@@ -215,6 +217,7 @@ function onLeaveOpen(open: boolean): void {
                 v-if="model.bound.value"
                 class="settings-window__tabs"
                 data-settings-tabs
+                full-width
                 :model-value="model.layer.value"
                 :options="tabOptions"
                 :aria-label="text(TEXT.tabs)"
@@ -263,16 +266,7 @@ function onLeaveOpen(open: boolean): void {
                 <div v-if="current === null" class="settings-window__empty">{{ text(TEXT.empty) }}</div>
                 <!-- fill 页面拿到标题下面的整块区域，自己滚动；其余放进封顶的内容列，内容列滚动（输出 3）。 -->
                 <div v-else-if="fill && page !== null" class="settings-window__fill" :data-settings-section="current.id">
-                    <header class="settings-window__heading">
-                        <h2 class="settings-window__title">{{ current.title }}</h2>
-                        <p v-if="current.description !== null" class="settings-window__description">{{ current.description }}</p>
-                    </header>
-                    <p v-if="model.layerNotice.value !== null" class="settings-window__notice" :data-settings-layer-notice="model.layerNotice.value.kind" role="status">
-                        <span class="i-lucide-triangle-alert settings-window__notice-icon" aria-hidden="true"></span>
-                        <span>{{ noticeText }}</span>
-                        <code v-if="model.layerNotice.value.kind === 'invalid' && model.layerNotice.value.path !== null" class="settings-window__path">{{ model.layerNotice.value.path }}</code>
-                        <Button v-if="model.layerNotice.value.kind === 'invalid'" size="sm" variant="secondary" data-settings-open-file @click="model.select(FILE_SECTION_ID)">{{ text(TEXT.openFile) }}</Button>
-                    </p>
+                    <SettingsSectionHeading :title="current.title" :description="current.description" :notice="notice" :open-file-label="text(TEXT.openFile)" @open-file="model.select(FILE_SECTION_ID)" />
                     <div class="settings-window__fill-body">
                         <SettingsPageFrame
                             :locale="locale"
@@ -292,16 +286,7 @@ function onLeaveOpen(open: boolean): void {
                 </div>
                 <ScrollArea v-else type="auto" class="settings-window__scroll">
                     <div class="settings-window__column" :data-settings-section="current.id">
-                        <header class="settings-window__heading">
-                            <h2 class="settings-window__title">{{ current.title }}</h2>
-                            <p v-if="current.description !== null" class="settings-window__description">{{ current.description }}</p>
-                        </header>
-                        <p v-if="model.layerNotice.value !== null" class="settings-window__notice" :data-settings-layer-notice="model.layerNotice.value.kind" role="status">
-                            <span class="i-lucide-triangle-alert settings-window__notice-icon" aria-hidden="true"></span>
-                            <span>{{ noticeText }}</span>
-                            <code v-if="model.layerNotice.value.kind === 'invalid' && model.layerNotice.value.path !== null" class="settings-window__path">{{ model.layerNotice.value.path }}</code>
-                            <Button v-if="model.layerNotice.value.kind === 'invalid' && current.kind !== 'file'" size="sm" variant="secondary" data-settings-open-file @click="model.select(FILE_SECTION_ID)">{{ text(TEXT.openFile) }}</Button>
-                        </p>
+                        <SettingsSectionHeading :title="current.title" :description="current.description" :notice="notice" :open-file-label="current.kind === 'file' ? null : text(TEXT.openFile)" @open-file="model.select(FILE_SECTION_ID)" />
                         <p v-if="current.unavailable !== null" class="settings-window__unavailable" data-settings-unavailable>{{ current.unavailable }}</p>
                         <template v-else-if="current.kind === 'search'">
                             <span class="settings-window__visually-hidden" role="status" aria-live="polite" data-settings-result-count>{{ resultCount }}</span>
@@ -366,9 +351,11 @@ function onLeaveOpen(open: boolean): void {
     container-type: inline-size;
 }
 
+/* 与左栏的搜索框、条目同宽、同一左边缘（t80 定稿）：它管整个窗口写到哪一层，放在左栏上方。 */
 .settings-window__tabs {
     align-self: flex-start;
     flex-shrink: 0;
+    width: calc(180px - var(--space-2) - var(--space-5));
     margin-left: var(--space-2);
 }
 
@@ -494,50 +481,11 @@ function onLeaveOpen(open: boolean): void {
     flex: 1;
 }
 
-.settings-window__heading {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    margin-bottom: var(--space-6);
-}
-
-.settings-window__title {
-    margin: 0;
-    font-size: var(--text-lg);
-    font-weight: var(--weight-strong);
-    line-height: var(--leading-tight);
-    color: var(--text-main);
-}
-
 .settings-window__description {
     margin: 0;
     font-size: var(--text-xs);
     line-height: var(--leading-ui);
     color: var(--text-muted);
-}
-
-.settings-window__notice {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2) var(--space-3);
-    margin: 0 0 var(--space-6);
-    font-size: var(--text-xs);
-    line-height: var(--leading-ui);
-    color: var(--status-warning);
-}
-
-.settings-window__notice-icon {
-    width: var(--text-sm);
-    height: var(--text-sm);
-    flex-shrink: 0;
-}
-
-.settings-window__path {
-    min-width: 0;
-    font-family: var(--font-mono);
-    color: var(--text-secondary);
-    overflow-wrap: anywhere;
 }
 
 .settings-window__unavailable,

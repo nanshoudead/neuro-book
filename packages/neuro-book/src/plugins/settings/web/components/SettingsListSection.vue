@@ -151,9 +151,11 @@ function excludedText(titles: ReadonlyArray<string>): string {
     gap: var(--space-7);
 }
 
+/* 单行输入按小组的宽度收窄（见下），小组是它的尺寸容器。 */
 .settings-list-section__group {
     display: flex;
     flex-direction: column;
+    container-type: inline-size;
 }
 
 .settings-list-section__group-title {
@@ -197,8 +199,12 @@ function excludedText(titles: ReadonlyArray<string>): string {
     width: 220px;
 }
 
+/*
+ * 单行输入 200 到 320px：行宽减去标签列（200px）、两列间距与“恢复默认”的位置之后还剩多少就给多少，剩不到 200px 才整行
+ * 换到标题下面。定宽 320 时内容列稍窄就整行换行，同一分区里与数字框、下拉两种对齐混在一起。
+ */
 .settings-list-section__control[data-settings-width="wide"] {
-    width: 320px;
+    width: clamp(200px, calc(100cqi - 200px - var(--space-7) - var(--space-4) - var(--control-h-sm)), 320px);
 }
 
 .settings-list-section__excluded {

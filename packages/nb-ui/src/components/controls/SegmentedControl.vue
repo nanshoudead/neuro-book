@@ -170,6 +170,7 @@ function handleKeydown(event: KeyboardEvent): void {
         <!-- 舒缓平滑滑动背景指示块（单选且选项固定等分时连续 GPU 硬件滑动） -->
         <div
             v-if="selectedIndex >= 0 && !props.wrap"
+            :class="props.disabled ? 'opacity-45' : ''"
             class="absolute top-[2px] bottom-[2px] left-[2px] rounded-[max(2px,calc(var(--radius-control)-2px))] bg-[var(--accent-main)] text-[var(--text-inverse)] shadow-[0_2px_8px_color-mix(in_srgb,var(--accent-main)_38%,transparent),0_0_0_1px_color-mix(in_srgb,var(--accent-main)_30%,transparent)] pointer-events-none transition-[transform,width,background-color,color,box-shadow] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] will-change-transform"
             :style="{
                 width: `calc((100% - 4px) / ${props.options.length})`,
