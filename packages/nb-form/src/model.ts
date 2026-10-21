@@ -17,8 +17,8 @@ export type {ChoiceValue, FormChoice, FormHints, VisibleWhen} from "./hints";
 
 /** 字段树展开的最深层数；更深的部分用 JSON 编辑，递归的 schema 也在这里停下。 */
 export const MAX_DEPTH = 6;
-/** 单选不超过这么多项时用横排单选组。 */
-export const RADIO_ROW_LIMIT = 3;
+/** 单选不超过这么多项时排成一行：都没有说明用分段控件，有说明用横排单选组。 */
+export const INLINE_CHOICE_LIMIT = 3;
 /** 单选多于这么多项时用可搜索的下拉。 */
 export const SEARCH_LIMIT = 15;
 
@@ -26,7 +26,7 @@ export type FieldKind = "boolean" | "choice" | "multi" | "number" | "text" | "st
 
 export const BUILTIN_WIDGETS = [
     "switch", "confirm",
-    "radio-row", "radio", "select", "search-select",
+    "segmented", "radio-row", "radio", "select", "search-select",
     "checkboxes",
     "number",
     "text", "multiline", "secret",
@@ -178,7 +178,7 @@ function choicesOf(values: ReadonlyArray<ChoiceValue>, hints: FormHints): FormCh
 }
 
 /** 按种类与提示选内建控件；写了不认识的名字时当作自定义控件，由渲染层的登记解析。 */
-export function selectWidget(kind: FieldKind, hints: FormHints, schema: JsonSchema, choiceCount: number): FieldNode["widget"] {
+export function selectWidget(kind: FieldKind, hints: FormHints, schema: JsonSchema, choices: ReadonlyArray<FormChoice>): FieldNode["widget"] {
     const asked = hints.widget;
     if (asked !== undefined && !isBuiltinWidget(asked)) return {custom: asked};
     // 显式 json 对任何种类都成立：作者可以主动选择 JSON 编辑一个能结构化的值。
@@ -195,7 +195,7 @@ export function selectWidget(kind: FieldKind, hints: FormHints, schema: JsonSche
         return wanted === "multiline" ? "multiline" : "text";
     }
     if (wanted !== undefined && wanted !== "list") return wanted as BuiltinWidget;
-    return defaultWidget(kind, hints, choiceCount);
+    return defaultWidget(kind, hints, choices);
 }
 
 /** 字段上写的内建控件是否生效：与种类不配，或缺少它要的提示（例如文字的下拉没有 `options`）时不生效。 */
@@ -207,7 +207,7 @@ export function widgetHonored(node: FieldNode): boolean {
 }
 
 /** 没写控件（或写的是 `list`）时每种种类的画法。 */
-function defaultWidget(kind: Exclude<FieldKind, "text">, hints: FormHints, choiceCount: number): BuiltinWidget {
+function defaultWidget(kind: Exclude<FieldKind, "text">, hints: FormHints, choices: ReadonlyArray<FormChoice>): BuiltinWidget {
     switch (kind) {
         case "boolean":
             return "switch";
@@ -215,8 +215,10 @@ function defaultWidget(kind: Exclude<FieldKind, "text">, hints: FormHints, choic
             if (hints.searchable === true) return "search-select";
             // 动态选项的项数要到运行时才知道：缺省用下拉，项多时搜索由 `searchable` 打开。
             if (hints.options !== undefined) return "select";
-            if (choiceCount > SEARCH_LIMIT) return "search-select";
-            return choiceCount <= RADIO_ROW_LIMIT ? "radio-row" : "select";
+            if (choices.length > SEARCH_LIMIT) return "search-select";
+            if (choices.length > INLINE_CHOICE_LIMIT) return "select";
+            // 分段控件的一段里只放得下选项名；有说明或推荐标记（写在说明里）的要用单选组才画得出来。
+            return choices.some((choice) => choice.description !== undefined) || (hints.recommend?.length ?? 0) > 0 ? "radio-row" : "segmented";
         case "multi":
             return "checkboxes";
         case "number":
@@ -285,7 +287,7 @@ function buildNode(schema: JsonSchema, path: FieldPath, name: string, required: 
         writeOnly: effective.writeOnly === true,
         nullable: nullable !== null,
         choices,
-        widget: selectWidget(kind, hints, effective, choices.length),
+        widget: selectWidget(kind, hints, effective, choices),
         children,
         ...(item === undefined ? {} : {item}),
     };

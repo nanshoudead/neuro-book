@@ -17,6 +17,7 @@ export interface WidgetLayout {
 const LAYOUT: Readonly<Record<BuiltinWidget, WidgetLayout>> = {
     "switch": {block: false, width: "content"},
     "confirm": {block: false, width: "content"},
+    "segmented": {block: false, width: "content"},
     "radio-row": {block: false, width: "content"},
     "radio": {block: true, width: "content"},
     "select": {block: false, width: "medium"},

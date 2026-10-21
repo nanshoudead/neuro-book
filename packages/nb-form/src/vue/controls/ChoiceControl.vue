@@ -1,9 +1,10 @@
 <script setup lang="ts">
 /**
- * 单选字段，包括有动态选项的文字字段：横排或竖排单选组、下拉、可搜索的下拉（docs/specs/ui/forms.md 输出 2、11、12）。
+ * 单选字段，包括有动态选项的文字字段：分段控件、横排或竖排单选组、下拉、可搜索的下拉（docs/specs/ui/forms.md 输出 2、11、12）。
  * 选项与它们的状态由字段算好交进来（`choices`），外壳也要用它写“默认：X”与不可用的原因。
  */
-import {RadioGroup, SearchSelect, Select} from "@notnotype/nb-ui/components";
+import {RadioGroup, SearchSelect, SegmentedControl, Select} from "@notnotype/nb-ui/components";
+import type {SegmentedControlValue} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 
 import {optionKey} from "../../options";
@@ -37,8 +38,17 @@ function onSelect(key: string): void {
 </script>
 
 <template>
+    <SegmentedControl
+        v-if="props.widget === 'segmented'"
+        :model-value="selectedKey"
+        :options="options"
+        :readonly="props.readonly"
+        :disabled="props.disabled"
+        :invalid="props.invalid"
+        @update:model-value="(key: SegmentedControlValue) => onSelect(String(key))"
+    />
     <RadioGroup
-        v-if="props.widget === 'radio-row' || props.widget === 'radio'"
+        v-else-if="props.widget === 'radio-row' || props.widget === 'radio'"
         :orientation="props.widget === 'radio-row' ? 'horizontal' : 'vertical'"
         :model-value="selectedKey"
         :options="options"

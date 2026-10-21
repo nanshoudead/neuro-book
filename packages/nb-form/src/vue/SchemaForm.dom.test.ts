@@ -81,14 +81,14 @@ describe("控件选择（输出 2）", () => {
         });
         const {wrapper} = await mountForm(schema, {});
         const widgets = wrapper.findAll("[data-nb-widget]").map((node) => node.attributes("data-nb-widget"));
-        expect(widgets).toEqual(["switch", "confirm", "radio-row", "select", "search-select", "checkboxes", "number", "text", "multiline"]);
+        expect(widgets).toEqual(["switch", "confirm", "segmented", "select", "search-select", "checkboxes", "number", "text", "multiline"]);
 
         // 单个控件靠 <label for> 命名，组合控件靠 aria-labelledby 指向标题。
         const name = field(wrapper, "text");
         expect(name.get("label").attributes("for")).toBe(name.get("input").attributes("id"));
         const sw = field(wrapper, "switch");
         expect(sw.get("label").attributes("for")).toBe(sw.get("[role='switch']").attributes("id"));
-        for (const [widget, label] of [["radio-row", "格式（必填）"], ["confirm", "同意（必填）"], ["checkboxes", "标签（必填）"]] as const) {
+        for (const [widget, label] of [["segmented", "格式（必填）"], ["confirm", "同意（必填）"], ["checkboxes", "标签（必填）"]] as const) {
             expect(labelled(field(wrapper, widget).get("[role='radiogroup'], [role='group']").attributes("aria-labelledby"))).toBe(label);
         }
     });
@@ -250,8 +250,8 @@ describe("缺失、默认与清除（输出 4、5）", () => {
         });
         const {wrapper, emitted} = await mountForm(schema, {});
         expect(field(wrapper, "text").get("input").attributes("placeholder")).toBe("默认：localhost");
-        expect(field(wrapper, "radio-row").text()).toContain("默认：稳");
-        expect(field(wrapper, "radio-row").findAll("[role='radio'][data-state='checked']")).toHaveLength(0);
+        expect(field(wrapper, "segmented").text()).toContain("默认：稳");
+        expect(field(wrapper, "segmented").findAll("[role='radio'][aria-checked='true']")).toHaveLength(0);
         expect(field(wrapper, "switch").get("[role='switch']").attributes("data-state")).toBe("checked");
         expect(field(wrapper, "switch").text()).toContain("默认");
         expect(emitted).toEqual([]);

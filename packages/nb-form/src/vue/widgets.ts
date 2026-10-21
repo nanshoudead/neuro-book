@@ -69,7 +69,7 @@ export function resolveWidget(node: FieldNode, widgets: ReadonlyArray<FormWidget
         const registered = widgets.find((widget) => widget.name === name);
         if (registered !== undefined) return {custom: registered};
         const {widget: _ignored, ...hints} = node.hints;
-        const fallback = selectWidget(node.kind, hints, node.schema, node.choices.length);
+        const fallback = selectWidget(node.kind, hints, node.schema, node.choices);
         return {builtin: typeof fallback === "string" ? fallback : "json"};
     }
     if (node.hints.widget === undefined) {

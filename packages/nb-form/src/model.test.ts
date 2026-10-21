@@ -142,7 +142,8 @@ describe("控件选择（输出 2）", () => {
     const cases: Array<[string, object, FieldNode["widget"]]> = [
         ["布尔用开关", Type.Boolean(), "switch"],
         ["confirm 用是 / 否", Type.Boolean({"x-form": {widget: "confirm"}}), "confirm"],
-        ["3 项以内横排单选", literals(3), "radio-row"],
+        ["3 项以内、都没有说明用分段控件", literals(3), "segmented"],
+        ["3 项以内、有一项带说明用横排单选组", Type.Union([Type.Literal("a"), Type.Literal("b")], {"x-form": {choices: [{value: "a", label: "稳", description: "少出错"}, {value: "b", label: "快"}]}}), "radio-row"],
         ["4 项用下拉", literals(4), "select"],
         ["16 项用可搜索的下拉", literals(16), "search-select"],
         ["searchable 用可搜索的下拉", Type.Union([Type.Literal("a"), Type.Literal("b")], {"x-form": {searchable: true}}), "search-select"],
@@ -158,7 +159,7 @@ describe("控件选择（输出 2）", () => {
         ["自定义控件", Type.String({"x-form": {widget: "color-swatch"}}), {custom: "color-swatch"}],
         ["list 是列表缺省画法的别名", Type.Array(Type.String(), {"x-form": {widget: "list"}}), "string-list"],
         ["与种类不配的内建控件按没写处理", Type.Integer({"x-form": {widget: "multiline"}}), "number"],
-        ["单选写了复选组也按没写处理", Type.Union([Type.Literal("a"), Type.Literal("b")], {"x-form": {widget: "checkboxes"}}), "radio-row"],
+        ["单选写了复选组也按没写处理", Type.Union([Type.Literal("a"), Type.Literal("b")], {"x-form": {widget: "checkboxes"}}), "segmented"],
     ];
     for (const [name, schema, widget] of cases) {
         it(name, () => expect(widgetOf(schema)).toEqual(widget));

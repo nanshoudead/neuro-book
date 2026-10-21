@@ -10,6 +10,7 @@ export type TerminalWidget = "yes-no" | "pick-one" | "pick-many" | "line" | "edi
 const FALLBACK: Readonly<Record<BuiltinWidget, TerminalWidget>> = {
     "switch": "yes-no",
     "confirm": "yes-no",
+    "segmented": "pick-one",
     "radio-row": "pick-one",
     "radio": "pick-one",
     "select": "pick-one",

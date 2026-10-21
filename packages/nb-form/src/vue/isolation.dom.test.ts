@@ -40,7 +40,8 @@ const widgets = defineFormWidgets([{name: "stars", component: Stars}]);
 const SCHEMA = Type.Object({
     enabled: Type.Boolean({title: "开关"}),
     agreed: Type.Boolean({title: "确认", "x-form": {widget: "confirm"}}),
-    size: Type.Union([Type.Literal("s"), Type.Literal("m")], {title: "横排单选"}),
+    size: Type.Union([Type.Literal("s"), Type.Literal("m")], {title: "分段控件"}),
+    pace: Type.Union([Type.Literal("slow"), Type.Literal("fast")], {title: "横排单选", "x-form": {choices: [{value: "slow", label: "稳", description: "少出错"}, {value: "fast", label: "快"}]}}),
     tone: Type.Union([Type.Literal("a"), Type.Literal("b")], {title: "竖排单选", "x-form": {widget: "radio"}}),
     level: many(6),
     city: many(20),

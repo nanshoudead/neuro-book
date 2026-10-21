@@ -43,6 +43,7 @@ const props = withDefaults(defineProps<{
 const CONTROLS: Readonly<Record<BuiltinWidget, Component>> = {
     "switch": BooleanControl,
     "confirm": BooleanControl,
+    "segmented": ChoiceControl,
     "radio-row": ChoiceControl,
     "radio": ChoiceControl,
     "select": ChoiceControl,
@@ -58,9 +59,9 @@ const CONTROLS: Readonly<Record<BuiltinWidget, Component>> = {
     "object-list": ListControl,
     "master-detail": MasterDetailControl,
 };
-const CHOICE_WIDGETS: ReadonlySet<string> = new Set(["radio-row", "radio", "select", "search-select", "checkboxes"]);
+const CHOICE_WIDGETS: ReadonlySet<string> = new Set(["segmented", "radio-row", "radio", "select", "search-select", "checkboxes"]);
 /** 由几个控件组成：外壳用组形态，控件经 `aria-labelledby` 取名。 */
-const GROUP_WIDGETS: ReadonlySet<string> = new Set(["radio-row", "radio", "checkboxes", "confirm", "object", "string-list", "object-list", "master-detail"]);
+const GROUP_WIDGETS: ReadonlySet<string> = new Set(["segmented", "radio-row", "radio", "checkboxes", "confirm", "object", "string-list", "object-list", "master-detail"]);
 /** 展示态里仍画成结构的控件：成员各自是字段。 */
 const STRUCTURE_WIDGETS: ReadonlySet<string> = new Set(["object", "string-list", "object-list", "master-detail"]);
 const TEXT_KINDS: ReadonlySet<string> = new Set(["text", "multiline"]);
