@@ -17,14 +17,14 @@
 - 公共交互优先由 Reka UI 原语承担；原生元素已经提供完整语义和键盘行为时保留原生实现。
 - 组件只消费已登记的语义 token 与 `src/styles.css` 公共基座。新增变量先判断归属，禁止为单个消费点增加公共 token。
 - playground 调试代码留在 `playground/`，不从包入口导出；完整组合仍在 playground 的 `/components` 验收。组件场景登记在新应用的 Component Lab（[`ui/component-lab`](../../docs/specs/ui/component-lab.md)），登记文件在 `packages/neuro-book/src/plugins/lab/web/fixtures/nb-ui/`；Lab 经公开入口 `@notnotype/nb-ui/lab-sources` 读取组件文档与实现，组件名在 Lab 的全部来源中唯一。
-- `dist/nb-ui.css` 是需提交的构建产物。组件类名、图标、token 或 `src/styles.css` 变化后运行 `bun run build:css`。
+- nb-ui 不发预编译的 CSS 产物：宿主的 Tailwind v4 编译本包源码，入口是 `src/tailwind.css`（导出为 `@notnotype/nb-ui/tailwind.css`），宿主接入写法见 [`README.md`](README.md#styles-in-the-host-app)。组件改了类名、图标、token 或 `src/styles.css` 不需要再生成产物。
 
 ## 完成门禁
 
 验证范围与工具按仓库 [验证门禁](../../docs/testing/README.md#验证门禁) 执行；本包只补条件：
 
 - 组件行为变化运行受影响的 Vitest 合同；公开类型、props/emits 或导出变化运行 `bun run typecheck`。
-- 组件类名、图标、token 或 `src/styles.css` 变化运行 `bun run build:css`，并提交更新的 `dist/nb-ui.css`。
+- 组件类名、图标、token 或 `src/styles.css` 变化不需要生成产物；样式层序与写法的改动，先读 `src/tailwind.css` 的头注释和 [`docs/design-language.md`](docs/design-language.md) 的分层相关条目。
 - 只有改动覆盖的行为有 e2e 专属边界时才运行 `bun run test:e2e`；不因修改位于本包而默认跑全套。
 - 组件组合或公开用法变化时，在 `/components` 检查相应组合。
 - UI 行为/观感变化按 [UI 验收分档](../../docs/testing/README.md#ui-验收分档) 取证；共享基础组件按四种主题/配色组合及 390px 视口验收。真实 playground 的浏览器工具按测试规范的 [浏览器工具](../../docs/testing/README.md#浏览器工具) 选择。

@@ -27,7 +27,7 @@ export interface ChipInput {
     readonly locale: DisplayLocale;
 }
 
-/** 图标：文件图标（catppuccin，按文件名取）或图标类（UnoCSS 的 lucide）。 */
+/** 图标：文件图标（catppuccin，按文件名取）或图标类（Tailwind 的 lucide 图标类）。 */
 export type ChipIcon = {readonly file: CatppuccinIcon} | {readonly className: string};
 
 export interface ChipView {

@@ -16,6 +16,7 @@
 | 设计与主题 token 名 | `src/theme/tokens.ts` |
 | token 基线值 | `src/tokens.css` 的裸 `:root` |
 | 公共控件与浮层外观 | `src/styles.css` |
+| 样式入口与层序（`theme, base, components, utilities`） | `src/tailwind.css` 的头注释；宿主写法见 [`README.md`](../README.md#styles-in-the-host-app) |
 | 组件导出 | `src/components/index.ts` |
 | 主题可覆盖组件 | `src/theme/contracts.ts` |
 | 组件交互合同 | 组件导出的 props/emits/types 与对应行为测试 |
@@ -212,9 +213,14 @@
        - **方式 2（首选推荐）：预留槽位防抖（`scrollbar-gutter: stable`）**：这是整个应用的推荐方案。库不给 `html` 写全局规则：整页会滚的宿主自己在根上挂 `.nb-ui-scrollbar-stable`（或写同一条声明），整页不滚、外壳铺满视口的宿主不挂，否则右缘会留一条空带。在内容尚未溢出时即提前预留出滚动条槽位，一旦内容溢出直接在槽位内绘制滑块，绝不挤占内容宽度，从根源消除跳变；
        - **居中对称变体（`scrollbar-gutter: stable both-edges`）**：若容器内有居中卡片、居中表单或需要绝对视觉对称的内容，使用 `stable both-edges`（工具类 `.nb-ui-scrollbar-center`），在双侧同时预留对称槽位，既防抖又维持居中重心。
   3. **场景 C：工作台视图（侧栏、右栏、面板里的视图，例如资源管理器的树）**：
-     - **处理原则**：用叠加的悬停滚动条 `OverlayScrollbar`（2026-10-14 开发者按 VS Code 的做法定）：原生滚动条隐藏（`.nb-ui-scrollbar-none`），8px 半透明滑块叠在内容上、不占宽度，鼠标在视图上、滚动中或拖动时显示，淡入 100ms，离开 500ms 后 800ms 淡出；
+     - **处理原则**：用叠加的悬停滚动条 `OverlayScrollbar`（2026-10-14 开发者按 VS Code 的做法定）：原生滚动条隐藏（`.nb-ui-scrollbar-none`），半透明滑块（宽 `--scrollbar-w`，缺省 6px）叠在内容上、不占宽度，鼠标在视图上、滚动中或拖动时显示，淡入 100ms，离开 500ms 后 800ms 淡出；
      - **设计考量**：视图常驻屏幕、内容随展开收起频繁在溢出与不溢出之间切换。叠加不占宽度，既没有跳变，也不像 `stable` 那样一直空出一条槽位；不看时整块安静。行的悬停与选中底色延伸到滑块下面，滑块盖在上面。
      - 编辑器正文、弹出列表与设置窗口不在此列，仍按场景 A、B。
+- **滚动条的颜色与粗细只取 token**（`src/tokens.css`，2026-10-21 w00030 t02 统一）：
+  - `--scrollbar-thumb-mix`、`--scrollbar-thumb-hover-mix`、`--scrollbar-thumb-active-mix` 是滑块常态、悬停与拖动时 `--text-main` 混进去的比例（32%、45%、55%，其余透明），随明暗换。token 只存比例，颜色在用到的元素上现场混：存成混好的颜色的话，`var()` 在 `:root` 上就代入了，套了另一套配色的子树会继承根上的颜色。取值照应用主滚动条 `OverlayScrollbar` 原来的，它占的面积最大，别处向它看齐。`OverlayScrollbar`、`ScrollArea`、`PopupScrollbar` 三个自绘滚动条都取这三个，组件里不再写自己的比例；要调整全应用滚动条的观感，改这里。
+  - `--scrollbar-w`（缺省 6px）只是 `OverlayScrollbar` 滑块的粗细（轨道宽是它加 4px）。`ScrollArea` 的轨道尺寸写死；`PopupScrollbar` 有意只有 4px，免得压住弹出列表里的菜单项，两者不取它。
+  - 三个自绘滑块的几何（位置、最短 20px、拖动换算）共用 `src/utils/scrollbar-geometry.ts`，不各写一份。
+  - 原生细滚动条用 `.nb-ui-scrollbar-thin`（`src/styles.css`）：宿主在根元素（`<html>`）上挂这个类，整个应用的原生滚动条按 `--scrollbar-thumb-mix` 混出滑块色，悬停所在容器时按 `--scrollbar-thumb-hover-mix`（原生没有“悬停在滑块上”的选择器，`-active-mix` 只给自绘滑块用）。不必再各抄一段 `* { scrollbar-width: thin; … }`。这条规则的选择器全部在 `:where()` 里，特异性为 0，元素自己的 `.nb-ui-scrollbar-none`、原子类和组件的 scoped 样式都盖得过它。`scrollbar-width` 不继承，所以规则连后代一起写。
 - **单层滚动权与外框贴边原则（Single Scroll Responsibility）**：
   - 滚动权归拥有完整视图高度的最外层容器所有，内部子组件与空状态（如 `AgentChatEmptyState`）严禁重复声明 `overflow-y: auto` 与 `h-full`，杜绝产生双层嵌套滚动与陷在内部的孤立滚动条；
   - 内部子组件不堆叠外层宿主已有的内边距（例如宿主已有 `p-4`，内部通过 `w-full my-auto` 自适应居中与延展），保证滚动条始终完整贴合最外层物理面板边缘。
@@ -365,9 +371,9 @@
 2. 增加或更新覆盖新合同的 happy-dom 测试；
 3. 在 `/components` 组合画廊检查受影响组合；
 4. 同步 README 的公开用法与本文设计规范；
-5. 测试、类型检查、CSS 产物按仓库 [验证门禁](../../../docs/testing/README.md#验证门禁) 与包级条件触发规则运行；
+5. 测试、类型检查按仓库 [验证门禁](../../../docs/testing/README.md#验证门禁) 与包级条件触发规则运行；
 6. UI 行为与视觉验收按 [UI 验收分档](../../../docs/testing/README.md#ui-验收分档) 进行，共享基础组件验证四种主题 × 配色组合及 390px，记录实测计算样式、键盘路径、控制台与页面错误；
-7. CSS 生成物变更时提交 `dist/nb-ui.css`，并明确阶段 2 尚未经 NeuroBook 主仓接入验证。
+7. 样式只改源码，不再有需要提交的 CSS 产物（宿主编译 nb-ui 源码，见 [`README.md`](../README.md#styles-in-the-host-app)）；明确阶段 2 尚未经 NeuroBook 主仓接入验证。
 
 ## 7. Component Lab
 

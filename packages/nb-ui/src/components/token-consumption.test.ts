@@ -14,11 +14,11 @@ import {nbTypographyTokens} from "../theme/tokens";
  * 2. 动效只消费 --motion-* / --ease-standard，不写死时长或缓动（design-language.md 动效节）。
  * 3. 组件不写字面颜色（ui-development-spec §2.2；颜色来自配色变量或 token）。
  * 4. 禁 transition-all / transition: all（属性列表必须显式，动效节禁条）。
- * 5. 排版 token 写进 `text-` 时带 `length:` 类型提示：Tailwind v4 与 UnoCSS 都把方括号里不带提示的 `var()`
+ * 5. 排版 token 写进 `text-` 时带 `length:` 类型提示：Tailwind v4 把方括号里不带提示的 `var()`
  *    当成颜色，`text-[var(--text-xs)]` 编译成 `color: var(--text-xs)`，字号没设上，颜色也作废。
- * 6. 排版 token 不写进 `font-[…]`：Tailwind v4 把 `font-[var(--weight-medium)]` 当字重，UnoCSS 当字体族
- *    （`font-family: var(--weight-medium)`），带类型提示也一样；用任意属性 `[font-weight:var(--weight-*)]`。
- * 7. 组件与 `styles.css` 里 `var(--x)` 的 x 必须有声明：`tokens.css`、`styles.css`、配色契约，或组件自己（样式、
+ * 6. 排版 token 不写进 `font-[…]`：`var()` 在 font 工具类里可能被当字重，也可能被当字体族，靠引擎猜不可靠；用任意属性
+ *    `[font-weight:var(--weight-*)]` 或 `[font-family:var(--font-*)]` 写明。
+ * 7. 组件与 `styles.css` 里 `var(--x)` 的 x 必须有声明：`theme.css`、`tokens.css`、`styles.css`、配色契约，或组件自己（样式、
  *    Tailwind 任意属性、`:style` 的键、`style.setProperty`）。没有声明的变量在计算值阶段无效，整条声明退回初始值，不报任何错
  *    （`--overlay-scrim` 曾让 AlertDialog 与 Drawer 的遮罩完全没有压暗）。宿主可选的覆盖点登记在 HOST_HOOK_VARS。
  *
@@ -133,7 +133,7 @@ const RULES: Rule[] = [
     {
         name: "字重与字体族用任意属性写",
         pattern: TYPOGRAPHY_IN_FONT_UTILITY,
-        reason: "font-[var(--weight-*)] 在 UnoCSS 里编译成 font-family；写 [font-weight:var(--weight-*)] 或 [font-family:var(--font-*)]",
+        reason: "font-[var(--weight-*)] 里 var() 当字重还是字体族靠引擎猜，不可靠；写 [font-weight:var(--weight-*)] 或 [font-family:var(--font-*)]",
     },
 ];
 
@@ -181,7 +181,7 @@ describe("组件 token 消费静态扫描", () => {
     });
 
     it("用到的 CSS 变量都有声明", () => {
-        const stylesheets = ["../tokens.css", "../styles.css"].map((rel) => join(COMPONENTS_DIR, rel));
+        const stylesheets = ["../theme.css", "../tokens.css", "../styles.css"].map((rel) => join(COMPONENTS_DIR, rel));
         const sources = [...stylesheets, ...files].map((path) => ({path, text: stripComments(readFileSync(path, "utf-8"))}));
         // 声明：样式里的 `--x:`、Tailwind 任意属性 `[--x:…]`、`:style` 对象的键 `"--x":`、`style.setProperty("--x", …)`
         const declared = new Set<string>(nbColorwayVarKeys);

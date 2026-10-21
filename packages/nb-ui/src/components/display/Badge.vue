@@ -50,7 +50,7 @@ const sizeClass = computed(() => (props.size === "sm"
         <slot />
         <span
             v-if="props.count !== undefined"
-            class="px-1 py-0.2 rounded font-mono text-[10px] bg-[color-mix(in_srgb,var(--text-inverse)_20%,transparent)] shadow-inner"
+            class="px-1 py-[0.05rem] rounded font-mono text-[10px] bg-[color-mix(in_srgb,var(--text-inverse)_20%,transparent)] shadow-inner"
         >{{ props.count }}</span>
     </span>
 </template>

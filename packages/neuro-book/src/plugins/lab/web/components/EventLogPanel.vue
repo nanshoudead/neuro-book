@@ -63,7 +63,7 @@ function summarize(payload: unknown): string {
                 class="flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-1.5 text-left"
                 :class="entry.payload === undefined
                     ? ''
-                    : 'cursor-pointer transition-colors hover:bg-[var(--bg-hover)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--accent-main)]'"
+                    : 'nb-ui-focus-ring-inset cursor-pointer transition-colors hover:bg-[var(--bg-hover)]'"
                 @click="toggle(entry)"
             >
                 <span class="shrink-0 font-mono text-[11px] text-[var(--text-muted)] tabular-nums">

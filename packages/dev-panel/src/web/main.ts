@@ -1,4 +1,3 @@
-import "@notnotype/nb-ui/styles.css";
 import "./app.css";
 import {createApp} from "vue";
 import App from "./App.vue";

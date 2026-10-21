@@ -1,5 +1,7 @@
 import {computed, getCurrentInstance, nextTick, onBeforeUnmount, ref, type ComputedRef, type Ref} from "vue";
 
+import {dragScrollTop, thumbGeometry, trackLength} from "../utils/scrollbar-geometry";
+
 /**
  * 弹出列表（菜单、下拉、选择器、候选）的滚动：截断高度、悬浮滑块、顶底渐隐与键盘跟随。六个列表与级联菜单的每一级各用一份。
  *
@@ -22,9 +24,8 @@ export const POPUP_VISIBLE_ITEMS = 8;
 /** 可滚动时视口右侧让出的宽度（CSS 像素）：滑块 4px，离外框 3px。 */
 export const POPUP_SCROLLBAR_GUTTER = 6;
 
-/** 滑块轨道上下各让出的距离与滑块的最短长度（CSS 像素）。 */
+/** 滑块轨道上下各让出的距离（CSS 像素）：滑块不贴着外框的圆角。滑块几何与 `OverlayScrollbar` 共用 `scrollbar-geometry`。 */
 const TRACK_INSET = 6;
-const MIN_THUMB = 24;
 
 /** 元素的 CSS 像素与 `getBoundingClientRect` 像素之比：Lab 画布的 CSS `zoom` 与浮层入场的 `scale` 都会让两者不等。 */
 function rectScale(element: HTMLElement): number {
@@ -119,16 +120,15 @@ export function usePopupScroll(): PopupScroll {
     /** 滑块几何只依赖滚动位置与视口尺寸；滚动时只跑这一段。 */
     function syncThumb(element: HTMLElement): void {
         const {scrollTop, scrollHeight, clientHeight} = element;
-        scrollable.value = scrollHeight > clientHeight + 1;
+        const thumb = thumbGeometry({scrollTop, scrollHeight, clientHeight}, {inset: TRACK_INSET});
+        scrollable.value = thumb !== null;
         atTop.value = scrollTop <= 1;
         atBottom.value = scrollTop + clientHeight >= scrollHeight - 1;
         trackTop.value = element.offsetTop + TRACK_INSET;
-        trackHeight.value = Math.max(0, clientHeight - TRACK_INSET * 2);
-        if (!scrollable.value) return;
-        const length = Math.max(MIN_THUMB, trackHeight.value * (clientHeight / scrollHeight));
-        thumbHeight.value = Math.min(length, trackHeight.value);
-        const maxScroll = scrollHeight - clientHeight;
-        thumbTop.value = maxScroll > 0 ? (scrollTop / maxScroll) * (trackHeight.value - thumbHeight.value) : 0;
+        trackHeight.value = trackLength(clientHeight, TRACK_INSET);
+        if (thumb === null) return;
+        thumbHeight.value = thumb.size;
+        thumbTop.value = thumb.offset;
     }
 
     /**
@@ -219,10 +219,9 @@ export function usePopupScroll(): PopupScroll {
     function onDragMove(event: PointerEvent): void {
         const element = viewport.value;
         if (drag === null || element === null || event.pointerId !== drag.pointerId) return;
-        const free = trackHeight.value - thumbHeight.value;
-        if (free <= 0) return;
         const delta = (event.clientY - drag.startY) / rectScale(element);
-        element.scrollTop = drag.startScroll + (delta / free) * (element.scrollHeight - element.clientHeight);
+        const start = {scrollTop: drag.startScroll, clientHeight: element.clientHeight, scrollHeight: element.scrollHeight};
+        element.scrollTop = dragScrollTop(start, delta, {inset: TRACK_INSET});
     }
 
     function endDrag(): void {

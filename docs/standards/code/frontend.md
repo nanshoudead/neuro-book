@@ -16,6 +16,7 @@
 - 普通界面颜色只消费 [`theme.system`](../../specs/theme/system.md) 登记的语义变量；新增变量同步主题文档与全部内置主题。
 - 决定某块区域用玻璃、实心还是不给面时，判据在 [`packages/nb-ui/docs/ui-development-spec.md`](../../../packages/nb-ui/docs/ui-development-spec.md) 第 2 节，取舍理由在 [`packages/nb-ui/docs/design-language.md`](../../../packages/nb-ui/docs/design-language.md)。这两份规范此前只从 nb-ui 内部路由得到，主应用侧改样式的人找不到，材料语言因此被逐页重新发明过。
 - 样式由组件或语义 class 拥有，保持低特异性；动画尊重 reduced motion，文本、焦点环和状态色保持可辨识。
+- 应用的样式入口是 Tailwind v4，层序 `theme, base, components, utilities`，nb-ui 的源码由应用一起编译（写法见 [`packages/neuro-book/src/web/tailwind.css`](../../../packages/neuro-book/src/web/tailwind.css) 与 `packages/nb-ui/src/tailwind.css` 的头注释）。分层的原子类压过 components 层和 nb-ui 的语义类，却会输给不分层的样式：特异性低于一个类的全局规则（reset、`html`/`body`/`*` 上的声明）要放进 `@layer base`，否则它会压过所有原子类。
 - 固定格式控件、面板或网格使用 `min/max`、grid track、`aspect-ratio` 等稳定约束；长文本必须换行或动态收敛，不遮挡相邻内容。
 
 ## 客户端持久化与存储分层

@@ -7,14 +7,13 @@ Shared Vue/Nuxt UI primitives for NeuroBook-derived projects.
 ```bash
 bun install
 bun run dev          # playground on :3004
-bun run build:css    # regenerate dist/nb-ui.css (commit the result)
 bun run test
 bun run typecheck
 ```
 
-`dist/nb-ui.css` is a committed build artifact: consumers install this package over `github:` / `link:`,
-where there is no publish step to build it for them. Rerun `build:css` and commit whenever component
-classes, icons, tokens, or `src/styles.css` change.
+nb-ui ships no compiled CSS: the host compiles nb-ui's source with its own Tailwind (see
+[Styles in the host app](#styles-in-the-host-app)), so changing component classes, icons, tokens, or
+`src/styles.css` needs no build step.
 
 ## Use from a sibling app
 
@@ -107,17 +106,52 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - `Kbd`：实体键盘键帽快捷键展示组件（`sm` / `md` / `lg`）。
 - `Table` / `Spinner` / `Skeleton` / `EmptyState`：数据表格与异步骨架/空状态指示。
 
-Icons used inside nb-ui components need no registration by the host app. nb-ui ships compiled CSS
-(`dist/nb-ui.css`, produced by `bun run build:css`) that already contains the icon rules and the mask
-shim, so the host works whether it uses Tailwind, UnoCSS, or no utility framework at all.
+## Styles in the host app
 
-The one exception is icons **you** pass in: `iconClass` on `Badge` / `Banner` / `DropdownMenu` / `Tabs` /
-`SegmentedControl` / `ContextMenu` / `EmptyState` / `Tree` takes an arbitrary class from your code,
-and generating that class is still your build's job.
+nb-ui is styled with Tailwind v4 and ships no precompiled CSS. The host's CSS imports Tailwind first,
+then nb-ui's entry:
 
-> **Breaking change in 0.2.0-alpha.** The `@notnotype/nb-ui/uno` export and its `NB_UI_ICON_SAFELIST`
-> are gone. They were a UnoCSS-only contract; nb-ui now compiles its own CSS instead. Delete the
-> safelist import from your `uno.config.ts` — no replacement is needed.
+```css
+@import "tailwindcss";
+@import "@notnotype/nb-ui/tailwind.css";
+@source "../";                           /* the host's own sources, when Vite's root is not the package root */
+```
+
+The entry scans nb-ui's components for utility classes, so the host's build emits them and the host
+does not have to scan `node_modules`. The design is explained in the header comment of
+[`src/tailwind.css`](src/tailwind.css); the points a host needs:
+
+- **Layers.** Tailwind's standard order `theme, base, components, utilities`. nb-ui's design tokens
+  (`src/tokens.css`) sit in `base`, its semantic classes (`.nb-ui-*`, `src/styles.css`) in `components`.
+  Utility classes a caller passes to a component are in `utilities`, so they override the semantic
+  classes without any specificity tricks. Colourway and theme variables (`themes/*/vars.css`) are
+  unlayered and win over the `base` tokens by selector specificity.
+- **No preflight.** A library should not reset the host's elements. Use the preflight that
+  `@import "tailwindcss"` brings, or your own reset, and put it in `@layer base`. If you want only
+  Tailwind's theme and utilities, all three parts below are needed; drop the layer statement and
+  utilities end up ordered before nb-ui's `base` and `components`, drop `layer(…)` and they are
+  unlayered. Either way a caller's utility silently loses to nb-ui's semantic classes:
+
+  ```css
+  @layer theme, base, components, utilities;   /* before every @import: layer order is set by first appearance */
+  @import "tailwindcss/theme.css" layer(theme);
+  @import "tailwindcss/utilities.css" layer(utilities);
+  @import "@notnotype/nb-ui/tailwind.css";
+  ```
+- **Global rules go in `base`.** An unlayered rule with specificity below one class (`html`, `body`,
+  `*`, a reset's `all: unset`) beats every layered utility class. Put such rules in `@layer base`.
+- **Type scale.** nb-ui declares `--text-2xs` to `--text-xl`, `--leading-tight|ui|reading` and the
+  `--font-*` families with `@theme static`, so `text-sm` is nb-ui's 13px and `text-md`, `leading-ui`
+  exist as utilities. Tailwind's other scales are untouched.
+- **Native scrollbars.** Put `nb-ui-scrollbar-thin` on the root element (`<html>`) to give the whole
+  app thin native scrollbars coloured by `--text-main` mixed at `--scrollbar-thumb-mix`; the rule has zero specificity, so
+  `nb-ui-scrollbar-none` or any utility overrides it where needed.
+
+Icons used inside nb-ui components need no registration by the host app: the entry generates the icon
+rules (`@iconify/tailwind4`, `i-lucide-*`) and the mask shim itself. The one exception is icons **you**
+pass in: `iconClass` on `Badge` / `Banner` / `DropdownMenu` / `Tabs` / `SegmentedControl` /
+`ContextMenu` / `EmptyState` / `Tree` takes an arbitrary class from your code, and generating that
+class is still your build's job.
 
 Shared style registries (register instead of copying values):
 
@@ -219,9 +253,8 @@ elevation, motion). Values live in `src/tokens.css`; the registry is exported fo
 import {nbDesignTokens, nbTypographyTokens, nbRadiusTokens} from "@notnotype/nb-ui/theme";
 ```
 
-Two things to know if you also use Tailwind: nb-ui sets `--text-sm` to 13px and `--text-lg` to 16px
-(a deliberate control-surface type scale), which changes what the `text-sm` / `text-lg` utilities mean
-in your app; and `--elevation-popover` / `--elevation-dialog` are derived from the colourway's
+Two things to know: nb-ui sets `--text-sm` to 13px and `--text-lg` to 16px (a deliberate
+control-surface type scale), which is what the `text-sm` / `text-lg` utilities mean in your app; and `--elevation-popover` / `--elevation-dialog` are derived from the colourway's
 `--shadow-color`, so never hard-code an rgba shadow.
 
 For the full colourway session (apply + localStorage persistence + startup restore), use

@@ -367,14 +367,14 @@ bun run --cwd packages/dev-panel service:logs --follow
 
 产物不入库（根 `.gitignore` 已忽略 `dist/`），`panel serve` 发现输入变了就先构建：
 
-- 输入：面板的 `src/web/`、`vite.config.ts`、`tsconfig.web.json`、`package.json`，nb-ui 整个包目录（排除 `node_modules`、`.nuxt`、`.output`、`playground`；面板直接用 nb-ui 的源码，还用到它的 `themes/` 与提交在包里的 `dist/nb-ui.css`），根 `bun.lock`。哈希写进 `dist/web/.build-hash`，一致就不构建。
+- 输入：面板的 `src/web/`、`vite.config.ts`、`tsconfig.web.json`、`package.json`，nb-ui 整个包目录（排除 `node_modules`、`.nuxt`、`.output`、`playground`；面板直接用 nb-ui 的源码，还用到它的 `themes/`；nb-ui 不发预编译样式，面板的 Tailwind 一起编译它的源码），根 `bun.lock`。哈希写进 `dist/web/.build-hash`，一致就不构建。
 - 输出到临时目录，成功后改名替换 `dist/web`：正在跑的面板的页面不会指向已被删掉的资源。
 - 失败时有旧产物就用旧的（`/api/meta` 的 `build.failed`、命令的 `build_failed` 警告）；没有旧产物报 `build_failed`（退出码 1）。
 - 合入 `master` 后由主工作区的代码运行，构建产物也在主工作区的包目录里；常驻见“常驻”。
 
 ## 前端
 
-Vue 3 加 Vite（`src/web/`，产物 `dist/web/`），`vue-router` 用 history 模式（服务端回退到 `index.html`）。组件来自 nb-ui，主题是 nbook（`installTheme` 加 `applyColorway`，不经 Nuxt），明暗跟随系统，可在顶栏切换。面板自己的原子类与 nb-ui 一样不分层地引入（`tailwindcss/theme.css` 加 `tailwindcss/utilities.css`，preflight 单独放进 `@layer base`）：nb-ui.css 的原子类不在 `@layer` 里，分层的原子类会输给它，`hidden md:flex` 这类写法就失效了。
+Vue 3 加 Vite（`src/web/`，产物 `dist/web/`），`vue-router` 用 history 模式（服务端回退到 `index.html`）。组件来自 nb-ui，主题是 nbook（`installTheme` 加 `applyColorway`，不经 Nuxt），明暗跟随系统，可在顶栏切换。样式按 Tailwind 的标准分层：`@import "tailwindcss"` 之后导入 `@notnotype/nb-ui/tailwind.css`（见 `src/web/app.css` 的头注释），面板的原子类在 `utilities` 层，压过 nb-ui 的语义类，`hidden md:flex` 这类响应式写法照预期工作。面板不分层的全局规则里特异性低于一个类的（`html, body`、`body`、`*`、焦点环）放进 `@layer base`，否则会压过所有原子类。
 
 | 路由 | 页面 | 依据 |
 |---|---|---|

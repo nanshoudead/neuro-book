@@ -89,7 +89,7 @@ const controlSizeClass = computed(() => isSmall.value
  * 调用方传的宽度、aria-label 全部落空。所以这里关掉自动继承，显式转发到触发器。
  *
  * class 单独走 cn()：触发器自带 w-full，与调用方传的宽度是同特指度的两条规则，
- * 拼接的话谁生效取决于样式表先后，而本包的预编译 CSS 与宿主的原子类不在同一张表。
+ * 拼接的话谁生效取决于 Tailwind 输出这两条规则的先后，与 class 属性里的先后无关。
  */
 defineOptions({inheritAttrs: false});
 const attrs = useAttrs();
@@ -98,7 +98,7 @@ const forwardedAttrs = computed(() => {
     return rest;
 });
 const triggerClass = computed(() => cn(
-    "nb-ui-control flex w-full items-center justify-between gap-1.5 rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] outline-none disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer select-none font-medium shadow-sm transition-[border-color,box-shadow,background-color] [transition-duration:var(--motion-fast)]",
+    "group/select-trigger nb-ui-control flex w-full items-center justify-between gap-1.5 rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] outline-none disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer select-none font-medium",
     controlSizeClass.value,
     isInvalid.value ? "nb-ui-control-invalid" : "",
     // 只读不画成可点：光标与悬停都不变。
@@ -194,8 +194,9 @@ function handleCloseAutoFocus(event: Event): void {
                 </slot>
                 <SelectValue class="min-w-0 truncate text-left" :placeholder="props.placeholder">{{ selectedLabel || props.placeholder }}</SelectValue>
             </span>
+            <!-- 打开态 `data-state` 在触发器上，箭头按触发器的命名 group 转，不受外层同样带 data-state 的元素影响。 -->
             <span
-                class="i-lucide-chevron-down shrink-0 text-[var(--text-muted)] transition-transform [transition-duration:var(--motion-fast)] data-[state=open]:rotate-180"
+                class="i-lucide-chevron-down shrink-0 text-[var(--text-muted)] transition-transform [transition-duration:var(--motion-fast)] group-data-[state=open]/select-trigger:rotate-180"
                 :class="isSmall ? 'h-3.5 w-3.5' : 'h-4 w-4'"
                 aria-hidden="true"
             ></span>

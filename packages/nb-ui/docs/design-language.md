@@ -268,7 +268,7 @@ Save Dialog `0 36px 100px`（后者是上一轮从同一份文件的 Dialogs 页
 `.nb-ui-menu-surface`；Dialog 叠挂 `.nb-ui-dialog-surface`。Tooltip 独立消费
 `.nb-ui-tooltip-surface`，由该 modifier 负责实心面板底（`--bg-panel`）、正文色（`--text-main`）、
 控件圆角、舒适内边距与无尖角平滑微投影卡片，不吃大浮层的半透明玻璃配方，彻底规避三角箭头的几何与阴影瑕疵。
-组件不要复制 surface 属性，也不要往模板里加 `rounded-*`：基座排在 utilities 之后，原子类不会改变实际外圈。
+组件不要复制 surface 属性，也不要往模板里加 `rounded-*`：基座在 components 层，调用方传进来的原子类在 utilities 层，会压过它而改掉实际外圈。
 
 对话框在这个登记处上再叠一条 `.nb-ui-dialog-surface`，只覆盖**两项**：
 
@@ -912,20 +912,26 @@ Combobox 用原本就在的 `<ul role="listbox">`），外框只剩 `overflow: h
 
 **58. 图标类的 `width: 1em` 在应用里盖掉组件写的图标尺寸**
 现象：菜单项的图标列（同一级有一项带图标就每项留出这一列）在 nb-ui 演练场里对齐，在新应用的 Lab 里没有图标的项多缩进 3px：图标只有 13px，空占位是 16px。
-根因：nb-ui 的样式不在 CSS layer 里，同一优先级按出现顺序取后者。图标类（UnoCSS 的 `i-lucide-*`）写 `width: 1em; height: 1em`，在应用里排在 nb-ui 样式之后，把 `.nb-ui-menu-item__icon` 的 16px 改成了字号大小；演练场里两者的先后相反，所以没暴露。
-判据：图标元素同时带图标类与组件的尺寸类时，尺寸写在优先级更高的选择器上（例如多带一级父类）；尺寸与对齐要在新应用（neuro-book Lab）里量，演练场的样式顺序和应用不同。
+根因（分层之前）：nb-ui 的样式不在 CSS layer 里，同一优先级按出现顺序取后者。图标类（当时 UnoCSS 的 `i-lucide-*`）写 `width: 1em; height: 1em`，在应用里排在 nb-ui 样式之后，把 `.nb-ui-menu-item__icon` 的 16px 改成了字号大小；演练场里两者的先后相反，所以没暴露。
+现在的机制：图标遮罩垫片 `[class*="i-lucide-"]`（`width: 1em`）在 `base` 层，`.nb-ui-menu-item__icon` 的 16px 在 `components` 层，调用方的 `size-4` 之类在 `utilities` 层。层序是 `theme, base, components, utilities`，后面的层赢，所以 16px 赢，与书写和加载顺序无关。
+判据：图标的尺寸写在 components 层的语义类或调用方的原子类上，垫片的 `1em` 只是缺省值，必须留在 `base` 层；有人把垫片挪出层，同样的现象会回来。尺寸与对齐仍要在新应用（neuro-book Lab）里量，别只看演练场。
 
 **59. 名称和旁注同行时，名称哪怕只被压窄零点几像素也会出省略号**
 现象：Select 选项把说明放在名称右侧之后，“Word 文档（.docx）”末尾被截成“…”，而说明的 `flex-shrink` 已经是名称的 1000 倍。
 根因：两者都可收缩时，浏览器按收缩系数乘基础宽度分摊不足的宽度，名称仍分到一个很小的非零份额；`text-overflow: ellipsis` 只要内容比盒子宽一点就画省略号。
 判据：一行里的名称与旁注（说明、分类、快捷键提示）不要靠不同的收缩系数分先后。名称取内容宽度（`flex: 0 1 auto`）并用 `margin-right: auto` 把旁注推到右侧，旁注从零宽开始占剩余空间（`flex: 1 1 0%`）；放不下时先截旁注，旁注截完才截名称。
 
+**60. 分层以后，宿主不分层、特异性低的规则会压过所有原子类**
+现象：元素上写了 `p-4`、`size-4`、`flex` 这类原子类，计算样式却还是宿主 reset 或全局规则给的值，改类名没有任何效果；构建不报错，原子类的规则也确实生成了。
+根因：层之间的裁决先于特异性：不在任何 `@layer` 里的样式，永远压过 `@layer` 里的样式，不论选择器多弱。原子类在 `utilities` 层，所以宿主里不分层的 reset（`all: unset`、`*`/`html`/`body` 上的声明）一旦匹配到元素就赢，`:where()` 或单个标签的零特异性也一样。
+判据：宿主里特异性低于一个类的全局规则放进 `@layer base`（reset 整份 `@import ... layer(base)`）；宿主自己的语义类（一个类以上）可以不分层，它本来就该压过 nb-ui 的 components 层。验证：在 Lab 或页面里给一个元素写原子类，读它的计算样式，必须是原子类的值；新增全局规则后再读一次。写法见 `src/tailwind.css` 的头注释。
+
 ### B. DOM / 组件
 
 **47. `data-[state=…]:animate-*` 变体不会生成，折叠动画静默失效**
 现象：`Collapsible` / `Accordion` 展开时内容直接出现，写了动画却没有动画；控制台、构建、单测都不报错。
-根因：`animate-*` 的可选键来自 UnoCSS 主题的 `theme.animation`，本项目用的是 `presetUno()`，
-里面只有 `spin` / `ping` / `pulse` / `bounce`。`animate-collapsible-down` 这个键不存在，
+根因：`animate-*` 的可选键来自主题的 `--animate-*`（Tailwind v4 的默认主题里只有 `spin` / `ping` / `pulse` / `bounce`），
+nb-ui 没有声明 `--animate-collapsible-down`。`animate-collapsible-down` 这个键不存在，
 于是 `data-[state=open]:animate-collapsible-down` 一条 CSS 都不生成。`src/styles.css` 里
 手写的 `.animate-collapsible-*` 因此从来没有被用上，是死代码（w00029 t07 已删）。
 判据：展开后读内容元素，`getAnimations()` 必须非空且 `animationName` 是登记的 keyframes 名。
@@ -1110,15 +1116,11 @@ Bun 下 CDP 握手超时。探针脚本一律 `node xxx.mjs`。
 补测试时先把修复退回去跑一遍——**在 bug 上不失败的回归测试不算测试**
 （本轮那条退回后读到 `['', '', '']`，正是线上的症状）。
 
-**27. 改了 `src/styles.css` 而页面没变，先看是不是在吃编译产物**
-现象：类明明在元素上、规则明明在文件里，计算样式就是不认。
-根因：playground 经 Nuxt module 注入的是 `dist/nb-ui.css`，不是源码 CSS。
-新应用也用这份产物，它的 UnoCSS 会替 nb-ui 组件补出大部分工具类，产物过期只表现为 `bg-[var(--…)]` 这类和
-`src/styles.css` 里的类缺失，看截图难以发现。
-判据：改完跑 `bun run build:css`；dev server 会缓存旧产物，**还要重启它**。nb-ui 的 `bun run test` 会把源码现编的产物
-与入库的逐字节比较，忘了重建的提交在这里失败。
-重启后确认端口——`bun run dev` 会挑第一个空闲端口，主仓的 dev server 停了它就跑去 3000，
-而不是你以为的 3003。查一句：页面里有没有哪个 `<style>` 含新规则。
+**27. 已不适用：改了 `src/styles.css` 而页面没变，不再是产物过期**
+原来的坑：playground 与新应用吃的是预编译产物 `dist/nb-ui.css`，产物过期时类明明在元素上、规则明明在文件里，计算样式就是不认；判据是改完跑 `build:css` 并重启 dev server。
+2026-10-21（w00030 t02）起 nb-ui 不再有预编译产物，`build:css` 与产物已删除：宿主的 Tailwind 直接编译 `src/tailwind.css` 和它导入的源码，改完即时生效，不必重建。
+现在遇到「类在元素上却不认」，先在浏览器的样式面板里看是哪一层、哪条规则赢（面板会标出 `@layer`），多半是坑 #60 那类不分层的宿主规则。
+仍要确认端口——`bun run dev` 会挑第一个空闲端口，主仓的 dev server 停了它就跑去 3000，而不是你以为的 3003。
 
 **39. 扫「不许出现字面色」的断言会被自己的注释绊倒**
 现象：`themes/*/vars.css` 的字面色检查突然红了，报的是 `#DBDBDB` / `#A6A6A6` / `#676767`——
@@ -1276,6 +1278,5 @@ Bun 下 CDP 握手超时。探针脚本一律 `node xxx.mjs`。
       「DOM 说浮层在、图上没有」多半是这个而不是样式（坑 #41）
 - [ ] 涉及裁剪的判据用命中测试，不是 `getBoundingClientRect()`
 - [ ] 切主题 / 开浮层后等了 ≥500ms
-- [ ] 改过 `src/*.css` 的话跑了 `build:css` 并重启了 dev server
 - [ ] 主题 × 配色两轴都跑过，包括「一个主题都没装」这一档
 - [ ] 无障碍那三档在**暗色**下也实测过，不是只看亮色（坑 #31）

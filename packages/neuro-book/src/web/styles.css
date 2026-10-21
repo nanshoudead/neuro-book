@@ -1,25 +1,25 @@
 /*
- * 所有页面共用的基础层，接在 reset 之后：UnoCSS 与 nb-ui 的原子类按 Tailwind 的约定写（`border` 只给宽度、
+ * 所有页面共用的基础层，接在 reset 之后：nb-ui 与应用的原子类按 Tailwind 的约定写（`border` 只给宽度、
  * 不给样式），reset 不管这一层，缺了它带边框的元素一律不显示边框。
+ *
+ * 特异性低于一个类的全局规则必须在 base 层：不分层的规则压过所有分层的声明，包括原子类，
+ * 通配规则里的 `margin: 0` 会让 `m-4`、`p-4` 一律失效。
  */
-*,
-::after,
-::before,
-::backdrop,
-::file-selector-button {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-    border: 0 solid;
-}
+@layer base {
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        border: 0 solid;
+    }
 
-html {
-    scrollbar-gutter: stable;
-}
-
-* {
-    scrollbar-width: thin;
-    scrollbar-color: var(--text-muted) transparent;
+    html {
+        scrollbar-gutter: stable;
+    }
 }
 
 /*
