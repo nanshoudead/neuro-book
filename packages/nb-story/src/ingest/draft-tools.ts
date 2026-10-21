@@ -9,7 +9,7 @@
 
 import {Value} from "typebox/value";
 
-import type {Arc, Dataset, Entity} from "../core/dataset";
+import type {Arc, Dataset, Entity, Facet} from "../core/dataset";
 import {FACETS, FAMILIES} from "../core/dataset";
 import type {IssueSubject} from "./compile";
 import {DRAFT_SECTION_SCHEMAS, DRAFT_SECTIONS, parseWith, type DraftSection} from "./draft-schema";
@@ -358,6 +358,10 @@ export interface ConsolidationScope {
     candidates: readonly (readonly [string, string])[];
 }
 
+/** 归纳各方面的中文名，整理的材料里写在英文键旁边。 */
+export const FACET_ZH: Record<Facet, string> = {overview: "概览", appearance: "外貌", personality: "性格与说话方式", relations: "人际关系", history: "经历", abilities: "能力与道具", goals: "处境与目标"};
+const FACET_KEYS = new Map<string, Facet>(Object.entries(FACET_ZH).map(([key, name]) => [name, key as Facet]));
+
 /** 程序生成的知情编号形如 `k:…`，草稿不能引用；手写的是 `k<章>-<序号>`。 */
 const HANDWRITTEN_KNOWLEDGE = /^k\d{1,4}-\d{1,4}$/u;
 
@@ -405,7 +409,9 @@ export function sanitizeConsolidation(reply: any, chapter: number, dataset: Data
     const existing = new Set(dataset.summaries.map(item => `${item.entity}\u0000${item.facet}`));
     // 模型有时把摘要写成一句一条（entity、facet、text、deps 平铺），这里按对象和方面归并成规定的形状。
     const grouped = new Map<string, {entity: string; facet: string; items: {text: string; deps: string[]}[]}>();
-    for (const summary of Array.isArray(reply?.summaries) ? reply.summaries : []) {
+    for (const raw of Array.isArray(reply?.summaries) ? reply.summaries : []) {
+        // 模型偶尔照材料里的中文写方面名（“概览”），换回英文键。
+        const summary = typeof raw?.facet === "string" && FACET_KEYS.has(raw.facet) ? {...raw, facet: FACET_KEYS.get(raw.facet)} : raw;
         if (!entities.has(summary?.entity) || !(FACETS as readonly string[]).includes(summary?.facet)) {
             dropped.push(`摘要 ${summary?.entity}/${summary?.facet}：对象或方面不存在`);
             continue;

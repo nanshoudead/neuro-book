@@ -10,7 +10,7 @@ import type {Arc, Dataset, Entity, Facet, Position, Summary} from "../core/datas
 import {featuresOf} from "../core/dataset";
 import {formatPosition} from "../core/position";
 import {displayName, KIND_ZH, STATE_ZH, uniqueNames} from "./context";
-import {mergeRefusal, type ConsolidationScope} from "./draft-tools";
+import {FACET_ZH, mergeRefusal, type ConsolidationScope} from "./draft-tools";
 
 /** “这一段”最多回看的章数：连续跳过整理、追加了很长一段时，更早的情节留作未归入主线。 */
 export const LOOKBACK = 10;
@@ -21,7 +21,6 @@ export const SUMMARIZED_LIMIT = 15;
 /** 合并候选最多几对。 */
 export const CANDIDATE_LIMIT = 30;
 
-const FACET_ZH: Record<Facet, string> = {overview: "概览", appearance: "外貌", personality: "性格与说话方式", relations: "人际关系", history: "经历", abilities: "能力与道具", goals: "处境与目标"};
 const LINK_ZH: Record<string, string> = {after: "在其后", continues: "接着", retells: "重述", causes: "起因", motivates: "动机", enables: "前提"};
 const OP_ZH: Record<string, string> = {set: "设为", gain: "增加", spend: "花掉", get: "得到", lose: "失去", use: "用掉"};
 const HANDWRITTEN_KNOWLEDGE = /^k\d{1,4}-\d{1,4}$/u;
@@ -133,7 +132,7 @@ export function consolidationContext(dataset: Dataset, chapter: number, since: n
         if (summarized.size >= SUMMARIZED_LIMIT) break;
         const entity = entityOf.get(id)!;
         const current = latestSummaries(dataset, id);
-        const block = [rosterLine(entity), ...(current.length ? current.map(summary => `  - ${FACET_ZH[summary.facet]}（${summary.facet}）：${summary.items.map(item => `${item.text}〔${item.deps.join("、")}〕`).join("")}`) : ["  - 还没有归纳"])];
+        const block = [rosterLine(entity), ...(current.length ? current.map(summary => `  - ${summary.facet}（${FACET_ZH[summary.facet]}）：${summary.items.map(item => `${item.text}〔${item.deps.join("、")}〕`).join("")}`) : ["  - 还没有归纳"])];
         const size = block.reduce((sum, line) => sum + lineSize(line), 0);
         if (used + size > BUDGETS.summaries) continue;
         used += size;

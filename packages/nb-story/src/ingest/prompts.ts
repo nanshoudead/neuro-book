@@ -108,16 +108,16 @@ export function consolidationPrompt(input: { through: number; context: string; n
     return `【整理材料】
 ${input.context}
 【任务】读到第 ${input.through} 章，做一次整理（规则第四节）。前面已经整理过，这次只写“这一段”带来的变化。只输出：{"through":${input.through},"merges":[…],"summaries":[…],"arcs":[…]}。
-- arcs：
-  - 更新已有主线：写它原来的编号，episodes 只写这一段新归入它的情节（没有就留空），标题、概括、状态写更新后的（不变就照抄）。主线结束了把 status 写成 closed。
+- arcs：“这一段的情节”里的每一段都要归入至少一条主线，不只是第 ${input.through} 章的；一段情节可以属于几条主线。
+  - 更新已有主线：写它原来的编号，episodes 写这一段新归入它的情节（没有就留空），标题、概括、状态写更新后的（不变就照抄）。主线结束了把 status 写成 closed；一条主线已经很长、后面的情节进入了新的阶段时，可以把它标为 closed，另开新主线接着写。
   - 新主线：编号从 ${input.nextArc} 开始，episodes 至少一段。
-  - 没写到的主线原样留下；这一段的情节尽量归入主线，一段情节可以属于几条主线。
-- summaries：给这一段有新内容的主要对象写摘要。写某个方面就写这个方面完整的新文字：原来的句子仍然成立的照抄（连同依据），再加上新的。只有列出了现有归纳的对象可以改写已有的方面；其余对象只能补还没有的方面。每句话的 deps 至少列一条依据的编号（说法、情节、知情或状态变动）。没有变化的方面不要写。
+  - 没写到的主线原样留下。
+- summaries：给这一段有新内容的主要对象写摘要，facet 用英文键（overview、appearance、personality、relations、history、abilities、goals）。写某个方面就写这个方面完整的新文字：原来的句子仍然成立的照抄（连同依据），再加上新的。主要对象还没有的方面，这一段有材料时补上。只有列出了现有归纳的对象可以改写已有的方面；其余对象只能补还没有的方面。每句话的 deps 至少列一条依据的编号（说法、情节、知情或状态变动）。没有变化的方面不要写。
 - merges：只能从“合并候选”里挑确实是同一个且建重了的；马甲和本人不要合并；没有就留空。
-形状示例：
+形状示例（编号只是示意）：
 {"through":${input.through},"merges":[{"keep":"e3-2","drop":"e5-1","reason":"两条都是英雄协会，第 5 章重复建了一个"}],
- "summaries":[{"entity":"e1-1","facet":"overview","items":[{"text":"原来的一句概括。","deps":["s1-2","p1-1"]},{"text":"这一段补上的一句。","deps":["s${input.through}-4"]}]}],
- "arcs":[{"id":"a5-1","title":"已有主线的标题","summary":"更新后的概括。","episodes":["p${input.through}-1"],"status":"ongoing"},{"id":"${input.nextArc}","title":"新主线的标题","summary":"两三句概括。","episodes":["p${input.through}-2"],"status":"ongoing"}]}`;
+ "summaries":[{"entity":"e1-1","facet":"overview","items":[{"text":"原来的一句概括。","deps":["s1-2","p1-1"]},{"text":"这一段补上的一句。","deps":["s9-4","k8-1"]}]}],
+ "arcs":[{"id":"a5-1","title":"已有主线的标题","summary":"更新后的概括。","episodes":["p6-1","p7-2","p9-1"],"status":"ongoing"},{"id":"${input.nextArc}","title":"新主线的标题","summary":"两三句概括。","episodes":["p8-1","p8-2","p10-1"],"status":"ongoing"}]}`;
 }
 
 /** 段落块、草稿、核对与修复共用的系统提示词；整理用上面的 `system`。 */
