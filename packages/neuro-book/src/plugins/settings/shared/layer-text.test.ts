@@ -38,13 +38,15 @@ describe("parseLayerText", () => {
         }
     });
 
-    it("无法解析、根不是对象、任意深度的重复键：invalid，原因可读", () => {
-        expect(parseLayerText("{\"x.ui/theme\": ", declarations, "user")).toMatchObject({status: "invalid", detail: expect.stringContaining("第 1 行")});
+    it("无法解析、根不是对象、任意深度的重复键：invalid，原因可读，带出错的行与列（从 1 起，BOM 不算）", () => {
+        expect(parseLayerText("{\"x.ui/theme\": ", declarations, "user")).toMatchObject({status: "invalid", detail: expect.stringContaining("第 1 行"), position: {line: 1, column: 16}});
+        expect(parseLayerText("\uFEFF{\n    \"x.ui/theme\": \"a\"\n    \"x.ui/locale\": \"b\"\n}", declarations, "user")).toMatchObject({status: "invalid", detail: "第 3 行：缺逗号", reason: "缺逗号", position: {line: 3, column: 5}});
         for (const text of ["[]", "null", "1", "\"macos\""]) {
-            expect(parseLayerText(text, declarations, "user"), text).toEqual({status: "invalid", detail: "根不是对象"});
+            expect(parseLayerText(text, declarations, "user"), text).toEqual({status: "invalid", detail: "第 1 行：最外层必须是一个对象 { … }", reason: "最外层必须是一个对象 { … }", position: {line: 1, column: 1}});
         }
-        expect(parseLayerText("{\"x.ui/theme\": \"nbook\", \"x.ui/theme\": \"macos\"}", declarations, "user")).toEqual({status: "invalid", detail: "键 x.ui/theme 出现了多次"});
-        expect(parseLayerText("{\"x.ui/font\": {\"size\": 1, \"size\": 2, \"family\": \"a\"}}", declarations, "user")).toEqual({status: "invalid", detail: "键 size 出现了多次"});
+        expect(parseLayerText("  \n  []", declarations, "user")).toEqual({status: "invalid", detail: "第 2 行：最外层必须是一个对象 { … }", reason: "最外层必须是一个对象 { … }", position: {line: 2, column: 3}});
+        expect(parseLayerText("{\"x.ui/theme\": \"nbook\", \"x.ui/theme\": \"macos\"}", declarations, "user")).toEqual({status: "invalid", detail: "第 1 行：键 x.ui/theme 出现了多次", reason: "键 x.ui/theme 出现了多次", position: {line: 1, column: 25}});
+        expect(parseLayerText("{\"x.ui/font\": {\n  \"size\": 1,\n  \"size\": 2, \"family\": \"a\"}}", declarations, "user")).toEqual({status: "invalid", detail: "第 3 行：键 size 出现了多次", reason: "键 size 出现了多次", position: {line: 3, column: 3}});
     });
 
     it("不符合 schema、不是 JSON 能如实表示的数（1e400）、本层不允许的键：丢弃并列入问题，不含值", () => {
@@ -124,7 +126,7 @@ describe("editLayerText", () => {
 
     it("原文无效（坏 JSON、根不是对象、重复键）：不编辑，给出原因", () => {
         expect(editLayerText("{\"x.ui/theme\": ", theme.key, {kind: "set", value: "macos"})).toMatchObject({ok: false});
-        expect(editLayerText("[]", theme.key, {kind: "set", value: "macos"})).toEqual({ok: false, detail: "根不是对象"});
-        expect(editLayerText("{\"a\": 1, \"a\": 2}", theme.key, {kind: "delete"})).toEqual({ok: false, detail: "键 a 出现了多次"});
+        expect(editLayerText("[]", theme.key, {kind: "set", value: "macos"})).toEqual({ok: false, detail: "第 1 行：最外层必须是一个对象 { … }"});
+        expect(editLayerText("{\"a\": 1, \"a\": 2}", theme.key, {kind: "delete"})).toEqual({ok: false, detail: "第 1 行：键 a 出现了多次"});
     });
 });

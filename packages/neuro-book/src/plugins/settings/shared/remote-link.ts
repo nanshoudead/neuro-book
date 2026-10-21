@@ -14,7 +14,7 @@ import type {SettingsFailure} from "nbook/shared/settings";
 import {projectSettingsContract, userSettingsContract} from "./contracts";
 import type {SettingsContract} from "./contracts";
 import type {LayerLink} from "./instance";
-import type {LayerEdit, LayerSnapshot, LayerWriteResult} from "./layers";
+import type {LayerEdit, LayerSnapshot, LayerTextPosition, LayerTextRead, LayerTextWrite, LayerWriteResult} from "./layers";
 
 /** 订阅以这些原因结束时不再重订：窗口整体失效，或调用方自己释放。 */
 const TERMINAL_ENDS: ReadonlySet<string> = new Set(["server-restarted", "project-gone", "released"]);
@@ -56,6 +56,53 @@ export function remoteLayerEditor(remote: ActivationContext["remote"], contract:
             return result.ok ? {ok: true, snapshot: frozen(result.value.snapshot as LayerSnapshot)} : fromRemote(result);
         },
     };
+}
+
+/** 设置窗口的“设置文件”视图读写这一层文件全文的路（configuration.md 输出 24）。 */
+export interface LayerFile {
+    read(): Promise<LayerTextRead>;
+    write(text: string, revision: string): Promise<LayerTextWrite>;
+    /** 文本的修订号每变一次调用一次（订阅时先推一次当前的）；返回取消函数。订阅建立不了时不调用，视图照常读写。 */
+    watch(onRevision: (revision: string) => void): () => void;
+}
+
+/** 整份读写同用户编辑：以 `remote` 所属入口自己的身份发出，拥有者只接受 `nbook.settings` 自己、没有经过代理的请求。 */
+export function remoteLayerFile(remote: ActivationContext["remote"], contract: SettingsContract): LayerFile {
+    const own = () => (contract === userSettingsContract ? remote.use(userSettingsContract) : remote.use(projectSettingsContract));
+    return {
+        read: async () => {
+            const result = await own().readText({});
+            return result.ok ? {ok: true, ...result.value} : textFailure(result);
+        },
+        write: async (text, revision) => {
+            const result = await own().writeText({text, revision});
+            return result.ok ? {ok: true, revision: result.value.revision, snapshot: frozen(result.value.snapshot as LayerSnapshot)} : textFailure(result);
+        },
+        watch: (onRevision) => {
+            let released = false;
+            let release: (() => void) | null = null;
+            void own().events.text.subscribe({}, (payload) => {
+                if (!released) onRevision(payload.revision);
+            }).then((result) => {
+                if (!result.ok) return;
+                if (released) result.value.release();
+                else release = () => result.value.release();
+            });
+            return () => {
+                released = true;
+                release?.();
+            };
+        },
+    };
+}
+
+function textFailure(failure: RemoteFailure<string>): {readonly ok: false; readonly code: SettingsFailure; readonly detail: string; readonly position?: LayerTextPosition} {
+    if (failure.code === "settings-failed") {
+        const detail = failure.detail as {readonly code: SettingsFailure; readonly detail: string; readonly position?: LayerTextPosition};
+        return {ok: false, code: detail.code, detail: detail.detail, ...(detail.position === undefined ? {} : {position: detail.position})};
+    }
+    const written = fromRemote(failure);
+    return written.ok ? {ok: false, code: "unavailable", detail: describe(failure)} : written;
 }
 
 /** 链路解码出来的快照是可变的普通对象；与本地拥有者的一样逐层冻结，读取方改不动。 */

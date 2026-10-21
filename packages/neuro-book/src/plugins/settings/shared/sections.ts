@@ -1,10 +1,11 @@
 /**
- * 设置分区的两个贡献点的声明与登记校验（docs/specs/settings/settings-window.md“分区声明”）：
+ * 设置窗口的三个贡献点的声明与登记校验（docs/specs/settings/settings-window.md“分区声明”“选项提供者”）：
  *
  * - `settings.sections`：list 分区，顶层声明式贡献，没有实现；三个位置都登记，所以校验函数只看声明，不看位置。
  * - `settings.pages`：page 分区，只接受浏览器入口的贡献；实现（`load()`）与页面上下文依赖 Vue，在 `web/contracts.ts`。
+ * - `settings.choices`：动态选项的提供者，只接受浏览器入口的贡献；实现（`source()`）同样在 `web/contracts.ts`。
  *
- * 两个点上的 id 规则相同；同一 id 出现在两个点上由设置窗口查（内核只在一个点内去重）。
+ * 三个点上的 id 规则相同；同一 id 出现在两个分区点上由设置窗口查（内核只在一个点内去重）。
  */
 
 import {Type} from "typebox";
@@ -18,6 +19,7 @@ import {isSettingsGroupId, isSettingsSectionId, SETTINGS_ORDER_LIMIT, SETTINGS_S
 
 export const SETTINGS_SECTIONS_POINT = "settings.sections";
 export const SETTINGS_PAGES_POINT = "settings.pages";
+export const SETTINGS_CHOICES_POINT = "settings.choices";
 
 /** `nbook.settings` 拥有的激活事件前缀：设置窗口显示一个 page 分区时触发 `onSettingsPage:<分区 id>`。 */
 export const SETTINGS_PAGE_ACTIVATION_PREFIX = "onSettingsPage";
@@ -27,12 +29,23 @@ export function settingsPageEvent(sectionId: string): string {
     return `${SETTINGS_PAGE_ACTIVATION_PREFIX}:${sectionId}`;
 }
 
+/** `nbook.settings` 拥有的激活事件前缀：设置窗口要一个提供者的选项时触发 `onSettingsChoices:<提供者 id>`。 */
+export const SETTINGS_CHOICES_ACTIVATION_PREFIX = "onSettingsChoices";
+
+/** 选项提供者的贡献方入口写进 `activationEvents` 的事件：设置窗口要它的选项时才激活入口。 */
+export function settingsChoicesEvent(providerId: string): string {
+    return `${SETTINGS_CHOICES_ACTIVATION_PREFIX}:${providerId}`;
+}
+
 /** 左栏的三组，自上而下：应用、AI、插件。 */
 export const SETTINGS_SECTION_CATEGORIES = ["app", "ai", "plugins"] as const;
 
 export type SettingsSectionCategory = (typeof SETTINGS_SECTION_CATEGORIES)[number];
 
 const Layer = Type.Union([Type.Literal("user"), Type.Literal("project")]);
+
+/** page 分区的 `keywords` 至多这么多个。 */
+export const SETTINGS_PAGE_KEYWORDS_LIMIT = 20;
 
 /** 两种分区共有的字段：左栏怎样列出它。 */
 const heading = {
@@ -52,26 +65,33 @@ export const SettingsPageDeclarationSchema = Type.Object({
     ...heading,
     layout: Type.Optional(Type.Union([Type.Literal("column"), Type.Literal("fill")])),
     layers: Type.Optional(Type.Array(Layer, {minItems: 1})),
+    /** 设置内搜索时除标题与说明外还比对的词（settings-window.md 输出 21）。 */
+    keywords: Type.Optional(Type.Array(LocalizedTextSchema, {maxItems: SETTINGS_PAGE_KEYWORDS_LIMIT})),
 }, {additionalProperties: false});
+
+/** 选项提供者的声明没有字段：选项都由实现给出。 */
+export const SettingsChoicesDeclarationSchema = Type.Object({}, {additionalProperties: false});
 
 /** list 分区的声明（`settings.sections`）。 */
 export type SettingsSectionDeclaration = Static<typeof SettingsSectionDeclarationSchema>;
 /** page 分区的声明（`settings.pages`）。 */
 export type SettingsPageDeclaration = Static<typeof SettingsPageDeclarationSchema>;
+/** 选项提供者的声明（`settings.choices`）。 */
+export type SettingsChoicesDeclaration = Static<typeof SettingsChoicesDeclarationSchema>;
 
 /** id 的形状与前缀：内置插件写 `nbook.<名>`，其它插件以自己的插件 id 加 `.` 开头（同视图）。 */
-function idProblem(descriptor: ContributionDescriptor): string | null {
+function idProblem(descriptor: ContributionDescriptor, noun = "分区"): string | null {
     const id = descriptor.id;
-    if (!isSettingsSectionId(id)) return `分区 id 必须是点分的小写段、至多 ${String(SETTINGS_SECTION_ID_MAX_LENGTH)} 个字符：${id}`;
+    if (!isSettingsSectionId(id)) return `${noun} id 必须是点分的小写段、至多 ${String(SETTINGS_SECTION_ID_MAX_LENGTH)} 个字符：${id}`;
     const prefix = descriptor.plugin.startsWith("nbook.") ? "nbook." : `${descriptor.plugin}.`;
-    if (!id.startsWith(prefix)) return `插件 ${descriptor.plugin} 的分区 id 必须以 ${prefix} 开头：${id}`;
+    if (!id.startsWith(prefix)) return `插件 ${descriptor.plugin} 的${noun} id 必须以 ${prefix} 开头：${id}`;
     return null;
 }
 
-function shapeProblem(schema: TSchema, descriptor: ContributionDescriptor): string | null {
+function shapeProblem(schema: TSchema, descriptor: ContributionDescriptor, noun = "分区"): string | null {
     if (Value.Check(schema, descriptor.declaration)) return null;
     const first = [...Value.Errors(schema, descriptor.declaration)][0];
-    return `分区 ${descriptor.id} 的声明不合格：${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}：${first.message}`}`;
+    return `${noun} ${descriptor.id} 的声明不合格：${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}：${first.message}`}`;
 }
 
 /** `settings.sections` 的登记校验：只看这一条声明本身；配置项指向的分区与小组存不存在不在这里核对。 */
@@ -93,4 +113,10 @@ export function validatePageContribution(descriptor: ContributionDescriptor): st
     const layers = (descriptor.declaration as SettingsPageDeclaration).layers;
     if (layers !== undefined && new Set(layers).size !== layers.length) return `分区 ${descriptor.id} 的 layers 有重复`;
     return null;
+}
+
+/** `settings.choices` 的登记校验：只接受浏览器入口的贡献，id 规则同分区（声明里 `choices: {from}` 写的就是它）。 */
+export function validateChoiceContribution(descriptor: ContributionDescriptor): string | null {
+    if (descriptor.location !== "browser") return `${SETTINGS_CHOICES_POINT} 只接受浏览器入口的贡献`;
+    return idProblem(descriptor, "选项提供者") ?? shapeProblem(SettingsChoicesDeclarationSchema, descriptor, "选项提供者");
 }

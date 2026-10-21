@@ -8,6 +8,7 @@
  *   代理的调用方；别的插件解析这个键，门面工厂抛错，解析以初始化失败结束。
  */
 
+import type {FormOptionSources} from "@notnotype/nb-form/vue";
 import {providePerConsumer} from "@notnotype/nb-runtime/plugins";
 import type {ProvidedService} from "@notnotype/nb-runtime/plugins";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
@@ -20,7 +21,8 @@ import type {SettingDefinition, SettingLayer, SettingWriteResult} from "nbook/sh
 import type {InstanceLayerState, SettingsInstance} from "../shared/instance";
 import {userEditProblem} from "../shared/layers";
 import type {DeclaredSetting, LayerEdit} from "../shared/layers";
-import type {LayerEditor} from "../shared/remote-link";
+import type {LayerEditor, LayerFile} from "../shared/remote-link";
+import type {ChoiceSourceRegistry} from "./choices";
 import type {SettingsPageDelivery, SettingsPageLoad, SettingsSectionEntry, SettingsSectionRegistry} from "./sections";
 
 /** 一条已接受的配置项声明：声明者与可交给配置服务读写的定义。 */
@@ -42,19 +44,28 @@ export interface SettingsWindowSource {
     retry(sectionId: string): Promise<WindowPluginRetry>;
     /** 窗口显示一个 page 分区时调用：所属入口还没激活就按需激活它（`sections.ts`）。 */
     activate(sectionId: string): void;
+    /** 选项提供者的选项源（`choices.ts`）：对象本身不变，读其中一项时按需激活它的提供者。 */
+    options(): FormOptionSources;
     /** 把任何已声明项的这一层设为 `value`；成功返回时本窗口已应用写后的层快照。 */
     edit(key: string, layer: SettingLayer, value: unknown): Promise<SettingWriteResult>;
     /** 从这一层删掉这个键（恢复默认、移除本作品的设置）。 */
     unset(key: string, layer: SettingLayer): Promise<SettingWriteResult>;
+    /**
+     * 整份读写这一层的设置文件（设置文件视图）；窗口没有绑定作品时没有项目层，为 undefined。整份写成功返回时本窗口已应用
+     * 写后的层快照。
+     */
+    file(layer: SettingLayer): LayerFile | undefined;
 }
 
 export const settingsWindowSourceKey: ServiceKey<SettingsWindowSource> = defineServiceKey<SettingsWindowSource>("nbook.settings/window-source");
 
 export interface SettingsWindowSourceOptions {
     readonly sections: SettingsSectionRegistry;
+    readonly choices: ChoiceSourceRegistry;
     readonly declarations: ReadonlyMap<string, DeclaredSetting>;
     /** 窗口没有绑定作品时没有项目层。 */
     readonly editors: {readonly user: LayerEditor; readonly project?: LayerEditor};
+    readonly files: {readonly user: LayerFile; readonly project?: LayerFile};
     readonly instance: SettingsInstance;
 }
 
@@ -86,9 +97,31 @@ export function createSettingsWindowSource(options: SettingsWindowSourceOptions)
         load: (sectionId) => options.sections.load(sectionId),
         retry: (sectionId) => options.sections.retry(sectionId),
         activate: (sectionId) => options.sections.activate(sectionId),
+        options: () => options.choices.sources,
         edit: (key, layer, value) => write(key, layer, {kind: "set", value}),
         unset: (key, layer) => write(key, layer, {kind: "delete"}),
+        file: (layer) => {
+            const file = options.files[layer];
+            if (file === undefined) return undefined;
+            return {
+                read: () => file.read(),
+                write: async (text, revision) => {
+                    const result = await file.write(text, revision);
+                    if (result.ok) options.instance.accept(layer, result.snapshot);
+                    return result;
+                },
+                watch: (onRevision) => file.watch(onRevision),
+            };
+        },
     };
+}
+
+/** 配置项声明里 `choices: {from}` 引用的提供者 id：没有人提供的也要在选项源里，显示为不可用。 */
+export function choiceReferences(declarations: ReadonlyMap<string, DeclaredSetting>): ReadonlyArray<string> {
+    return [...declarations.values()].flatMap(({declaration}) => {
+        const choices = declaration.choices;
+        return choices !== undefined && "from" in choices ? [choices.from] : [];
+    });
 }
 
 /** 只发给 `owner` 插件自己、没有经过代理的调用方（见模块头）。 */

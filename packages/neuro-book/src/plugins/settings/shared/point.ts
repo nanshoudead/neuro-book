@@ -3,7 +3,7 @@
  * 声明的查询。
  *
  * `settings.properties` 与 list 分区的 `settings.sections` 是写在描述里的顶层声明，三个位置的定义都带它们，每个实例
- * 都能校验；page 分区的 `settings.pages` 要有浏览器入口交出的实现，只在浏览器的定义里。
+ * 都能校验；page 分区的 `settings.pages` 与选项提供者的 `settings.choices` 要有浏览器入口交出的实现，只在浏览器的定义里。
  */
 
 import type {ContributionDeclarations, ContributionPointDefinition} from "@notnotype/nb-runtime/plugins";
@@ -12,8 +12,8 @@ import {freezeJson, SETTINGS_POINT, settingDeclarationProblem} from "nbook/share
 import type {SettingDeclaration} from "nbook/shared/settings";
 
 import type {DeclaredSetting} from "./layers";
-import {SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT, validatePageContribution, validateSectionContribution} from "./sections";
-import type {SettingsPageDeclaration, SettingsSectionDeclaration} from "./sections";
+import {SETTINGS_CHOICES_POINT, SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT, validateChoiceContribution, validatePageContribution, validateSectionContribution} from "./sections";
+import type {SettingsChoicesDeclaration, SettingsPageDeclaration, SettingsSectionDeclaration} from "./sections";
 
 export const settingsPoint: ContributionPointDefinition<SettingDeclaration> = {
     id: SETTINGS_POINT,
@@ -32,6 +32,13 @@ export const pagesPoint: ContributionPointDefinition<SettingsPageDeclaration> = 
     id: SETTINGS_PAGES_POINT,
     implementation: "required",
     validate: validatePageContribution,
+};
+
+/** 选项提供者交 `{source()}`；交出的实现没有 `source()` 由注册表在取选项时核对（`web/choices.ts`）。只在浏览器的定义里。 */
+export const choicesPoint: ContributionPointDefinition<SettingsChoicesDeclaration> = {
+    id: SETTINGS_CHOICES_POINT,
+    implementation: "required",
+    validate: validateChoiceContribution,
 };
 
 /**

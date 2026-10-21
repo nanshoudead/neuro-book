@@ -8,26 +8,37 @@
  *
  * page 分区的实例在这里而不在组件里：离开分区时页面卸载，回到分区时用缓存的组件定义重新创建（输出 6），缓存要比页面活得
  * 久。交付撤回时同步作废缓存：撤回与再次交付可能挨在同一轮里发生，等到界面刷新再看就分不出句柄换过。
+ *
+ * 页面上下文按“一次显示”给：页面挂着（窗口开着、分区是当前分区、当前标签下可用、没在搜索、页面已就绪）的这段时间用同一个
+ * 上下文，切换标签时不变；这段结束（离开、关窗口、重新加载、撤回）时它作废，未保存的标记随之清掉，旧页面晚到的
+ * `dirty` 调用不再算数。会离开当前页面的动作都经 `requestLeave`：页面报了未保存时先等用户确认（输出 22）。
  */
 
-import {computed, effectScope, markRaw, readonly, ref, shallowReactive, watch} from "@vue/reactivity";
+import {computed, effectScope, markRaw, readonly, ref, shallowReactive, shallowRef, watch} from "@vue/reactivity";
 import type {ComputedRef, Ref} from "@vue/reactivity";
 import type {Component} from "vue";
+
+import type {FormOptionSources} from "@notnotype/nb-form/vue";
 
 import type {CommandResult} from "nbook/plugins/commands/shared/contracts";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import {formatText, localize, textOf} from "nbook/shared/localized-text";
 import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/localized-text";
+import {settingsFailureText} from "nbook/ui/settings/setting-text";
 import type {SettingDefinition, SettingLayer, SettingsFailure, SettingsService, SettingUpdateOptions, SettingWriteResult} from "nbook/shared/settings";
 
 import {SETTINGS_SECTION_CATEGORIES} from "../shared/contracts";
 import type {SettingsSectionCategory} from "../shared/contracts";
+import type {LayerFile} from "../shared/remote-link";
 import type {SettingsPageContext} from "./contracts";
 import type {SettingsPageDelivery, SettingsSectionEntry} from "./sections";
 import type {SettingsWindowSource, WindowSetting} from "./window-source";
 
 /** “其它”分区的 id：不是贡献，取一个分区声明写不出来的 id（只有一段），不会与贡献撞名。 */
 export const OTHER_SECTION_ID = "other";
+
+/** “设置文件”视图的 id（输出 23）：窗口自己的一项，同“其它”只有一段，分区贡献写不出来。 */
+export const FILE_SECTION_ID = "file";
 
 export interface SettingsWindowSize {
     readonly width: number;
@@ -88,10 +99,35 @@ interface SectionHeading {
     readonly unavailable: string | null;
 }
 
+export type SettingsListView = SectionHeading & {
+    readonly kind: "list";
+    readonly groups: ReadonlyArray<SettingsListGroup>;
+    /** 当前标签的层不允许、因此没列出的项的标题（输出 12 的分区末尾说明）。 */
+    readonly excluded: ReadonlyArray<string>;
+};
+
+/** 搜索命中的 page 分区：只给“打开”。 */
+export interface SettingsPageHit {
+    readonly id: string;
+    readonly title: string;
+    readonly description: string | null;
+}
+
 export type SettingsSectionView =
-    /** `excluded`：当前标签的层不允许、因此没列出的项的标题（输出 12 的分区末尾说明）。 */
-    | (SectionHeading & {readonly kind: "list"; readonly groups: ReadonlyArray<SettingsListGroup>; readonly excluded: ReadonlyArray<string>})
-    | (SectionHeading & {readonly kind: "page"; readonly layout: "column" | "fill"});
+    | SettingsListView
+    | (SectionHeading & {readonly kind: "page"; readonly layout: "column" | "fill"})
+    /** 设置文件视图（输出 23）：`layer` 是它编辑的那一层，`path` 是这一层的文件路径（层快照带时，用户层不带）。 */
+    | (SectionHeading & {readonly kind: "file"; readonly layer: SettingLayer; readonly path: string | null})
+    /** 搜索结果（输出 21）：`list` 每个命中的 list 分区一组，组标题是分区名；`id` 是 `search`。 */
+    | (SectionHeading & {readonly kind: "search"; readonly query: string; readonly list: SettingsListView; readonly pages: ReadonlyArray<SettingsPageHit>});
+
+/** 会离开当前页面、因此先要确认放弃未保存改动的动作（输出 22）。 */
+export type SettingsLeaveTarget =
+    | {readonly kind: "section"; readonly id: string}
+    | {readonly kind: "layer"; readonly layer: SettingLayer}
+    | {readonly kind: "close"}
+    | {readonly kind: "open"; readonly section?: string; readonly layer?: SettingLayer}
+    | {readonly kind: "search"; readonly query: string};
 
 /** 当前标签那一层的说明（输出 13）；层正常时为 null。 */
 export type SettingsLayerNotice = {readonly kind: "invalid"; readonly path: string | null; readonly detail: string} | {readonly kind: "unavailable"};
@@ -125,19 +161,38 @@ export interface SettingsWindow {
     /** 已开着时再打开加一：窗口据此把焦点拉回自己。 */
     readonly focusRequest: Readonly<Ref<number>>;
     readonly layer: Readonly<Ref<SettingLayer>>;
-    /** 当前分区 id；没有任何分区时为 null。 */
+    /** 当前分区 id；没有任何分区时为 null。搜索时仍是搜索之前的分区。 */
     readonly section: Readonly<Ref<string | null>>;
+    /** 搜索词；不在搜索时为空串。 */
+    readonly query: Readonly<Ref<string>>;
+    /** 当前显示的页面或设置文件视图有未保存的改动。 */
+    readonly unsaved: ComputedRef<boolean>;
+    /** 等用户确认放弃改动的离开；没有为 null。 */
+    readonly leaving: Readonly<Ref<SettingsLeaveTarget | null>>;
     readonly size: ComputedRef<SettingsWindowSize>;
     readonly nav: ComputedRef<ReadonlyArray<SettingsNavGroup>>;
     readonly current: ComputedRef<SettingsSectionView | null>;
     readonly layerNotice: ComputedRef<SettingsLayerNotice | null>;
     /** 给通用列表的 `SettingsRow` 用的配置服务：读同 `settings`，写走用户编辑路径（configuration.md 输出 19）。 */
     readonly editing: SettingsService;
+    /** 选项提供者的选项源（对象本身不变）：通用列表交给每个字段，page 页面经 `context.options` 拿到同一份。 */
+    options(): FormOptionSources;
     /** 命令 `nbook.settings.open`（输出 15）：参数不对时不打开、不改变窗口。 */
     openWindow(args: SettingsWindowOpenArgs): CommandResult<null>;
+    /** 关窗口；页面有未保存的改动时先确认。 */
     close(): void;
     select(sectionId: string): void;
     setLayer(layer: SettingLayer): void;
+    /** 改搜索词（输出 21）；空串回到原分区。从有未保存改动的页面开始搜索时先确认。 */
+    search(query: string): void;
+    /** 设置文件视图这一层的读写路；窗口没有绑定作品时项目层为 undefined。 */
+    file(layer: SettingLayer): LayerFile | undefined;
+    /** 设置文件视图报告有没有未保存的改动（输出 22、23）；它卸载时报 false。 */
+    fileDirty(value: boolean): void;
+    /** 放弃未保存的改动，执行等着的离开。 */
+    confirmLeave(): void;
+    /** 留在原处。 */
+    cancelLeave(): void;
     resize(size: Partial<SettingsWindowSize>): void;
     /** 通用控件改值：写当前标签那一层；结算之前控件显示这次的值，失败后回到层里的实际值并发通知（输出 14）。 */
     write(setting: WindowSetting, value: unknown): Promise<void>;
@@ -165,13 +220,14 @@ const TEXT = {
     notSavedTitle: {"zh-CN": "设置没有保存", "en-US": "Setting not saved"},
     unknownTitle: {"zh-CN": "设置可能没有保存", "en-US": "Setting may not be saved"},
     notSaved: {"zh-CN": "{title}：{reason}", "en-US": "{title}: {reason}"},
-    unknownOutcome: {"zh-CN": "{title}：可能没有保存，以设置文件为准", "en-US": "{title}: it may not have been saved; the settings file is authoritative"},
-    layerInvalid: {"zh-CN": "设置文件有错误，修好之后才能保存", "en-US": "the settings file has errors; fix it first"},
-    writeFailed: {"zh-CN": "写不进设置文件（{detail}）", "en-US": "could not write the settings file ({detail})"},
-    unavailable: {"zh-CN": "暂时连不上，没有保存", "en-US": "temporarily unreachable; nothing was saved"},
-    invalidValue: {"zh-CN": "这个值不能用（{detail}）", "en-US": "this value cannot be used ({detail})"},
-    otherFailure: {"zh-CN": "{code}：{detail}", "en-US": "{code}: {detail}"},
+    searchTitle: {"zh-CN": "搜索结果", "en-US": "Search Results"},
+    fileTitle: {"zh-CN": "设置文件", "en-US": "Settings File"},
+    fileDescription: {"zh-CN": "直接编辑这一层的设置文件（JSON，可以写注释）", "en-US": "Edit this layer's settings file directly (JSON with comments)"},
+    fileKeyword: {"zh-CN": "settings.json", "en-US": "settings.json"},
 } satisfies Record<string, LocalizedText>;
+
+/** 搜索结果视图的 id：不是分区，与“其它”一样只有一段，分区贡献写不出来。 */
+export const SEARCH_VIEW_ID = "search";
 
 interface CatalogSection {
     readonly id: string;
@@ -180,10 +236,14 @@ interface CatalogSection {
     readonly icon: string;
     readonly category: SettingsSectionCategory;
     readonly order: number;
-    readonly kind: "list" | "page";
+    /** `file`：窗口自己的“设置文件”视图（输出 23）。 */
+    readonly kind: "list" | "page" | "file";
     readonly layout: "column" | "fill";
     readonly layers: ReadonlyArray<SettingLayer>;
     readonly groups: ReadonlyArray<{readonly id: string | null; readonly title: DisplayText | null; readonly settings: ReadonlyArray<WindowSetting>}>;
+    /** page 分区：声明的搜索词与指向它、由页面画的配置项（都只用于搜索）。 */
+    readonly keywords: ReadonlyArray<LocalizedText>;
+    readonly pageSettings: ReadonlyArray<WindowSetting>;
 }
 
 interface PageInstance {
@@ -208,6 +268,7 @@ function buildCatalog(source: SettingsWindowSource, report: (message: string) =>
     const declared = new Map(source.sections().map((entry) => [entry.id, entry]));
     const listed = new Map<string, Map<string | null, WindowSetting[]>>();
     const other = new Map<string, WindowSetting[]>();
+    const paged = new Map<string, WindowSetting[]>();
     const place = (map: Map<string | null, WindowSetting[]>, group: string | null, setting: WindowSetting): void => {
         map.set(group, [...(map.get(group) ?? []), setting]);
     };
@@ -219,8 +280,11 @@ function buildCatalog(source: SettingsWindowSource, report: (message: string) =>
             other.set(setting.plugin, [...(other.get(setting.plugin) ?? []), setting]);
             continue;
         }
-        // 指向 page 分区的项由页面负责，不在列表里画。
-        if (section.kind === "page") continue;
+        // 指向 page 分区的项由页面负责，不在列表里画；搜索时它们命中就列出这个页面。
+        if (section.kind === "page") {
+            paged.set(section.id, [...(paged.get(section.id) ?? []), setting]);
+            continue;
+        }
         const groups = listed.get(declaration.section!) ?? new Map<string | null, WindowSetting[]>();
         listed.set(declaration.section!, groups);
         const known = declaration.group !== undefined && (section.declaration.groups ?? []).some((group) => group.id === declaration.group);
@@ -238,7 +302,7 @@ function buildCatalog(source: SettingsWindowSource, report: (message: string) =>
             category: declaration.category,
             order: declaration.order ?? 0,
         };
-        if (entry.kind === "page") return {...heading, kind: "page", layout: entry.declaration.layout ?? "column", layers: entry.declaration.layers ?? LAYERS, groups: []};
+        if (entry.kind === "page") return {...heading, kind: "page", layout: entry.declaration.layout ?? "column", layers: entry.declaration.layers ?? LAYERS, groups: [], keywords: entry.declaration.keywords ?? [], pageSettings: paged.get(id) ?? []};
         const groups = listed.get(id) ?? new Map<string | null, WindowSetting[]>();
         return {
             ...heading,
@@ -249,11 +313,27 @@ function buildCatalog(source: SettingsWindowSource, report: (message: string) =>
                 {id: null, title: null, settings: [...(groups.get(null) ?? [])].sort(settingOrder)},
                 ...(entry.declaration.groups ?? []).map((group) => ({id: group.id, title: group.title, settings: [...(groups.get(group.id) ?? [])].sort(settingOrder)})),
             ],
+            keywords: [],
+            pageSettings: [],
         };
     };
     const sections = [...declared.values()].map(fromEntry);
     const ordered = SETTINGS_SECTION_CATEGORIES.flatMap((category) => sections.filter((section) => section.category === category).sort((left, right) => left.order - right.order || byCodeUnit(left.id, right.id)));
-    if (other.size === 0) return ordered;
+    const file: CatalogSection = {
+        id: FILE_SECTION_ID,
+        title: TEXT.fileTitle,
+        description: TEXT.fileDescription,
+        icon: "i-lucide-file-json",
+        category: "plugins",
+        order: 0,
+        kind: "file",
+        layout: "column",
+        layers: LAYERS,
+        groups: [],
+        keywords: [TEXT.fileKeyword],
+        pageSettings: [],
+    };
+    if (other.size === 0) return [...ordered, file];
     return [...ordered, {
         id: OTHER_SECTION_ID,
         title: TEXT.otherTitle,
@@ -265,7 +345,27 @@ function buildCatalog(source: SettingsWindowSource, report: (message: string) =>
         layout: "column",
         layers: LAYERS,
         groups: [...other].sort(([left], [right]) => byCodeUnit(left, right)).map(([plugin, settings]) => ({id: plugin, title: plugin, settings: [...settings].sort(settingOrder)})),
-    }];
+        keywords: [],
+        pageSettings: [],
+    }, file];
+}
+
+/** 一项配置在搜索里比对的文字：标题、说明、键与固定选项名，两种语言都在（输出 21）。 */
+function settingText(setting: WindowSetting): string {
+    const {key, declaration} = setting.definition;
+    const texts: Array<LocalizedText | undefined> = [declaration.title, declaration.description];
+    const choices = declaration.choices;
+    if (Array.isArray(choices)) texts.push(...choices.map((choice) => choice.title));
+    return [key, ...texts.flatMap((text) => (text === undefined ? [] : Object.values(text)))].join("\n").toLocaleLowerCase();
+}
+
+function localizedText(texts: ReadonlyArray<LocalizedText | null>): string {
+    return texts.flatMap((text) => (text === null ? [] : Object.values(text))).join("\n").toLocaleLowerCase();
+}
+
+/** 按空白分词、不分大小写，每个词都要出现。 */
+function matches(haystack: string, words: ReadonlyArray<string>): boolean {
+    return words.every((word) => haystack.includes(word));
 }
 
 export function createSettingsWindow(options: SettingsWindowOptions): SettingsWindow {
@@ -285,11 +385,15 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     /** 用户或命令选过的分区；没选过时是左栏的第一个（刷新后回到第一个分区）。 */
     const chosen = ref<string | null>(null);
     const section = computed(() => chosen.value ?? catalog()[0]?.id ?? null);
+    const query = ref("");
+    /** 搜索词拆成的词：空时不在搜索。 */
+    const words = computed(() => query.value.toLocaleLowerCase().split(/\s+/u).filter((word) => word !== ""));
 
     /** 分区在这个标签下不可用的原因（输出 8）；可用为 null。 */
     const unavailableIn = (entry: CatalogSection, tab: SettingLayer): string | null => {
         const reason = tab === "project" ? TEXT.userOnlySection : TEXT.projectOnlySection;
         if (entry.kind === "page") return entry.layers.includes(tab) ? null : text(reason);
+        if (entry.kind === "file") return null;
         const all = entry.groups.flatMap((group) => group.settings);
         if (all.length === 0) return text(TEXT.emptySection);
         return all.some((setting) => setting.definition.declaration.layers.includes(tab)) ? null : text(reason);
@@ -303,6 +407,10 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
             unavailable: unavailableIn(entry, tab),
         };
         if (entry.kind === "page") return {...heading, kind: "page", layout: entry.layout};
+        if (entry.kind === "file") {
+            const state = source.layer(tab);
+            return {...heading, kind: "file", layer: tab, path: state.status === "ok" || state.status === "invalid" ? state.path : null};
+        }
         const allowed = (setting: WindowSetting): boolean => setting.definition.declaration.layers.includes(tab);
         return {
             ...heading,
@@ -320,23 +428,13 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     const writes = shallowReactive(new Map<string, {readonly token: number; readonly value: unknown}>());
     const pendingKey = (tab: SettingLayer, key: string): string => `${tab}\n${key}`;
 
-    const reasonOf = (code: SettingsFailure, detail: string): string => {
-        switch (code) {
-            case "layer-invalid": return text(TEXT.layerInvalid);
-            case "write-failed": return text(TEXT.writeFailed, {detail});
-            case "unavailable": return text(TEXT.unavailable);
-            case "invalid-value": return text(TEXT.invalidValue, {detail});
-            default: return text(TEXT.otherFailure, {code, detail});
-        }
-    };
-
     const notifyFailure = (setting: WindowSetting, code: SettingsFailure, detail: string): void => {
         const title = localize(setting.definition.declaration.title, options.locale.value);
         if (code === "unknown-outcome") {
-            options.notify({tone: "warning", title: text(TEXT.unknownTitle), message: text(TEXT.unknownOutcome, {title})});
+            options.notify({tone: "warning", title: text(TEXT.unknownTitle), message: text(TEXT.notSaved, {title, reason: settingsFailureText(code, detail, options.locale.value)})});
             return;
         }
-        options.notify({tone: "warning", title: text(TEXT.notSavedTitle), message: text(TEXT.notSaved, {title, reason: reasonOf(code, detail)})});
+        options.notify({tone: "warning", title: text(TEXT.notSavedTitle), message: text(TEXT.notSaved, {title, reason: settingsFailureText(code, detail, options.locale.value)})});
     };
 
     const editing: SettingsService = {
@@ -357,18 +455,44 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
      * 每个实例是浅层响应式，界面读它的字段。
      */
     const pages = new Map<string, PageInstance>();
-    /** 上下文在窗口的一生里每个分区一份：切换标签时页面拿到的是同一个对象，`layer` 跟着变（输出 6）。 */
-    const contexts = new Map<string, SettingsPageContext>();
+    /**
+     * 每个分区当前这次显示的上下文（见模块头）：显示期间切换标签时页面拿到的是同一个对象，`layer` 跟着变（输出 6）；这次
+     * 显示结束时从表里删掉，下次显示另建一个。
+     */
+    const visits = new Map<string, {readonly token: number; readonly context: SettingsPageContext}>();
+    let visitToken = 0;
+    /**
+     * 显示结束时加一：`page()` 读它，界面里缓存 `page()` 结果的计算值因此重算、拿到新的上下文。表本身不是响应式的（见上面
+     * 实例表的说明），不读它的话关窗再开、分区与实例都没变，计算值会一直交出作废的上下文。
+     */
+    const visitVersion = shallowRef(0);
+    /** 报了未保存改动的那次显示；没有为 null。 */
+    const dirtyVisit = ref<number | null>(null);
     const projectTitle = readonly(ref(options.projectTitle));
     const readonlyLayer = readonly(layer);
 
     const contextOf = (id: string): SettingsPageContext => {
-        let context = contexts.get(id);
-        if (context === undefined) {
-            context = markRaw({id, layer: readonlyLayer as Readonly<Ref<SettingLayer>>, projectTitle: projectTitle as Readonly<Ref<string | null>>});
-            contexts.set(id, context);
+        let visit = visits.get(id);
+        if (visit === undefined) {
+            const token = (visitToken += 1);
+            const dirty = (value: boolean): void => {
+                // 这次显示已经结束（旧页面晚到的调用）：不算数。
+                if (visits.get(id)?.token !== token) return;
+                if (value) dirtyVisit.value = token;
+                else if (dirtyVisit.value === token) dirtyVisit.value = null;
+            };
+            visit = {token, context: markRaw({id, layer: readonlyLayer as Readonly<Ref<SettingLayer>>, projectTitle: projectTitle as Readonly<Ref<string | null>>, options: source.options(), dirty})};
+            visits.set(id, visit);
         }
-        return context;
+        return visit.context;
+    };
+
+    const endVisit = (id: string): void => {
+        const visit = visits.get(id);
+        if (visit === undefined) return;
+        visits.delete(id);
+        if (dirtyVisit.value === visit.token) dirtyVisit.value = null;
+        visitVersion.value += 1;
     };
 
     const instanceOf = (id: string): PageInstance => {
@@ -382,6 +506,8 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
 
     const load = async (id: string): Promise<void> => {
         const instance = instanceOf(id);
+        // 新的一次加载是新的一次显示：加载中就给出去的上下文（渲染占位时取的）随之作废。
+        endVisit(id);
         const generation = (instance.generation += 1);
         Object.assign(instance, {status: "loading", component: null, error: null});
         const result = await source.load(id);
@@ -418,6 +544,18 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
             if (id !== null) source.activate(id);
         }, {immediate: true});
         // 第一次显示时加载（输出 5）：窗口开着、它是当前分区、当前标签下可用、句柄已发布。
+        // 一次显示的起止（见模块头）：页面挂着时是“分区 + 代际”，不挂时为 null；变了就结束上一次显示。同步执行：卸载与
+        // 新页面的挂载之间，旧上下文已经作废。
+        watch(() => {
+            if (!open.value || words.value.length > 0) return null;
+            const id = section.value;
+            const entry = id === null ? undefined : sectionOf(id);
+            if (entry?.kind !== "page" || !entry.layers.includes(layer.value)) return null;
+            const instance = instanceOf(entry.id);
+            return instance.status === "ready" ? {id: entry.id, generation: instance.generation} : null;
+        }, (next, previous) => {
+            if (previous !== null && previous !== undefined && (next === null || next.id !== previous.id || next.generation !== previous.generation)) endVisit(previous.id);
+        });
         watch(() => {
             // 先看开着与否：关着时不读当前分区，落位不必提前算。
             if (!open.value) return null;
@@ -439,10 +577,80 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
             items: catalog().filter((entry) => entry.category === category).map((entry) => ({id: entry.id, title: localize(entry.title, options.locale.value), icon: entry.icon, unavailable: unavailableIn(entry, layer.value)})),
         }))
         .filter((group) => group.items.length > 0));
+    /** 搜索结果（输出 21）：只列当前标签这一层允许的项与可用的 page 分区。 */
+    const searchView = (tab: SettingLayer): SettingsSectionView => {
+        const allowed = (setting: WindowSetting): boolean => setting.definition.declaration.layers.includes(tab);
+        const groups: SettingsListGroup[] = [];
+        const pageHits: SettingsPageHit[] = [];
+        for (const entry of catalog()) {
+            const title = localize(entry.title, options.locale.value);
+            if (entry.kind === "page" || entry.kind === "file") {
+                if (!entry.layers.includes(tab)) continue;
+                const own = localizedText([entry.title, entry.description, ...entry.keywords]);
+                if (matches(own, words.value) || entry.pageSettings.some((setting) => matches(settingText(setting), words.value))) {
+                    pageHits.push({id: entry.id, title, description: entry.description === null ? null : localize(entry.description, options.locale.value)});
+                }
+                continue;
+            }
+            const hits = entry.groups.flatMap((group) => group.settings).filter((setting) => allowed(setting) && matches(settingText(setting), words.value));
+            if (hits.length > 0) groups.push({id: entry.id, title, settings: hits});
+        }
+        const heading = {id: SEARCH_VIEW_ID, title: text(TEXT.searchTitle), description: null, unavailable: null};
+        return {...heading, kind: "search", query: query.value, list: {...heading, kind: "list", groups, excluded: []}, pages: pageHits};
+    };
     const current = computed(() => {
+        if (words.value.length > 0) return searchView(layer.value);
         const entry = section.value === null ? undefined : sectionOf(section.value);
         return entry === undefined ? null : view(entry, layer.value);
     });
+    const fileUnsaved = ref(false);
+    const unsaved = computed(() => dirtyVisit.value !== null || fileUnsaved.value);
+    const leaving = ref<SettingsLeaveTarget | null>(null);
+
+    const performClose = (): void => {
+        open.value = false;
+        // 关窗口结束所有的显示，包括还在加载、从没挂上的页面的上下文。
+        for (const id of [...visits.keys()]) endVisit(id);
+        // 搜索词不记（输出 21）。
+        query.value = "";
+        // 进行中的加载作废（输出 5）：结果回来时不挂组件、不记为失败；实例回到 waiting，重开时按当前句柄重新加载。
+        for (const instance of pages.values()) {
+            if (instance.status !== "loading") continue;
+            instance.generation += 1;
+            instance.status = "waiting";
+        }
+    };
+
+    const perform = (target: SettingsLeaveTarget): void => {
+        switch (target.kind) {
+            case "section":
+                query.value = "";
+                chosen.value = target.id;
+                return;
+            case "layer":
+                layer.value = target.layer;
+                return;
+            case "close":
+                performClose();
+                return;
+            case "open":
+                if (target.section !== undefined) {
+                    query.value = "";
+                    chosen.value = target.section;
+                }
+                if (target.layer !== undefined) layer.value = target.layer;
+                return;
+            case "search":
+                query.value = target.query;
+                return;
+        }
+    };
+
+    /** 会离开当前页面的动作：页面报了未保存时先等确认；确认框开着时又来一个，等着的换成后来的（输出 22）。 */
+    const requestLeave = (target: SettingsLeaveTarget): void => {
+        if (unsaved.value) leaving.value = target;
+        else perform(target);
+    };
     const layerNotice = computed<SettingsLayerNotice | null>(() => {
         const state = source.layer(layer.value);
         if (state.status === "invalid") return {kind: "invalid", path: state.path, detail: state.detail};
@@ -458,34 +666,66 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
         focusRequest: readonly(focusRequest),
         layer: readonlyLayer,
         section,
+        query: readonly(query),
+        unsaved,
+        leaving: readonly(leaving) as Readonly<Ref<SettingsLeaveTarget | null>>,
         size,
         nav,
         current,
         layerNotice,
         editing,
+        options: () => source.options(),
         openWindow: (args) => {
             if (args.section !== undefined && sectionOf(args.section) === undefined) return {ok: false, code: "invalid-args", reason: text(TEXT.unknownSection, {section: args.section})};
             if (args.layer === "project" && !options.bound) return {ok: false, code: "unavailable", reason: text(TEXT.noProject)};
-            if (args.section !== undefined) chosen.value = args.section;
-            if (args.layer !== undefined) layer.value = args.layer;
-            if (open.value) focusRequest.value += 1;
-            else open.value = true;
+            const target: SettingsLeaveTarget = {kind: "open", ...(args.section === undefined ? {} : {section: args.section}), ...(args.layer === undefined ? {} : {layer: args.layer})};
+            if (open.value) {
+                const moves = (args.section !== undefined && (args.section !== section.value || query.value !== "")) || (args.layer !== undefined && args.layer !== layer.value);
+                if (moves) requestLeave(target);
+                focusRequest.value += 1;
+            } else {
+                perform(target);
+                open.value = true;
+            }
             return {ok: true, value: null};
         },
-        close: () => {
-            open.value = false;
-            // 进行中的加载作废（输出 5）：结果回来时不挂组件、不记为失败；实例回到 waiting，重开时按当前句柄重新加载。
-            for (const instance of pages.values()) {
-                if (instance.status !== "loading") continue;
-                instance.generation += 1;
-                instance.status = "waiting";
-            }
-        },
+        close: () => requestLeave({kind: "close"}),
         select: (id) => {
-            if (sectionOf(id) !== undefined) chosen.value = id;
+            if (sectionOf(id) === undefined) return;
+            if (id === section.value && query.value === "") return;
+            requestLeave({kind: "section", id});
         },
         setLayer: (tab) => {
-            if (tab === "user" || options.bound) layer.value = tab;
+            if ((tab === "user" || options.bound) && tab !== layer.value) requestLeave({kind: "layer", layer: tab});
+        },
+        search: (next) => {
+            if (next === query.value) return;
+            // 从不在搜索变成在搜索会卸载当前页面，要先过未保存保护；只有空白的搜索词不算在搜索（页面还挂着）。
+            const starting = words.value.length === 0 && next.trim() !== "";
+            if (starting) requestLeave({kind: "search", query: next});
+            else query.value = next;
+        },
+        confirmLeave: () => {
+            const target = leaving.value;
+            if (target === null) return;
+            leaving.value = null;
+            // 放弃改动：结束这次显示。切换标签时页面本来不重建，这里换一个代际让它重建，草稿随之丢掉。设置文件视图换了
+            // 标签或卸载时自己丢掉草稿。
+            fileUnsaved.value = false;
+            const id = section.value;
+            if (id !== null && visits.has(id)) {
+                const instance = pages.get(id);
+                if (instance?.status === "ready") instance.generation += 1;
+                endVisit(id);
+            }
+            perform(target);
+        },
+        cancelLeave: () => {
+            leaving.value = null;
+        },
+        file: (tab) => source.file(tab),
+        fileDirty: (value) => {
+            fileUnsaved.value = value;
         },
         resize: (next) => {
             const width = Math.max(MIN_SETTINGS_WINDOW_SIZE.width, Math.round(next.width ?? size.value.width));
@@ -512,6 +752,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
         },
         rowFailed: (setting, failure) => notifyFailure(setting, failure.code, failure.detail),
         page: (id) => {
+            void visitVersion.value;
             const instance = instanceOf(id);
             return {delivery: source.delivery(id), status: instance.status, component: instance.component, error: instance.error, generation: instance.generation, busy: instance.busy, context: contextOf(id)};
         },
@@ -542,6 +783,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
         },
         dispose: () => {
             open.value = false;
+            leaving.value = null;
             scope.stop();
         },
     };
