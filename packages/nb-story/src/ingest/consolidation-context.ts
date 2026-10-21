@@ -99,14 +99,16 @@ export function consolidationContext(dataset: Dataset, chapter: number, since: n
     // ---- 这一段的情节 ----
     const arcsOf = new Map<string, string[]>();
     for (const arc of snapshot.arcs) for (const id of arc.episodes) arcsOf.set(id, [...(arcsOf.get(id) ?? []), arc.id]);
-    const episodeLines = dataset.episodes
-        .filter(item => item.at.chapter > episodeFrom && item.at.chapter <= chapter)
+    const segmentEpisodes = dataset.episodes.filter(item => item.at.chapter > episodeFrom && item.at.chapter <= chapter);
+    const episodeLines = segmentEpisodes
         .map(item => {
             const who = item.who.map(entry => name(entry.e)).join("、");
             const links = item.links.map(link => `${LINK_ZH[link.type] ?? link.type} ${link.to}${arcsOf.has(link.to) ? `（属于 ${arcsOf.get(link.to)!.join("、")}）` : ""}`).join("；");
             return `${item.id}（${formatPosition(item.at)}）${item.title}：${item.summary}｜参与：${who}${links ? `｜${links}` : ""}`;
         });
     const shownEpisodes = head([...episodeLines].reverse(), BUDGETS.episodes).reverse();
+    // 主线只能收列给模型看的这几段（清理按它挡住改写早先情节归属的回复）；列出的是最近的几段，与 `episodeLines` 同序。
+    const episodes = new Set(segmentEpisodes.slice(segmentEpisodes.length - shownEpisodes.length).map(item => item.id));
     lines.push("", "## 这一段的情节", "");
     if (shownEpisodes.length < episodeLines.length) lines.push(`（只列最近的 ${shownEpisodes.length} 段，更早的 ${episodeLines.length - shownEpisodes.length} 段没有列出。）`);
     lines.push(...(shownEpisodes.length ? shownEpisodes : ["没有新的情节。"]));
@@ -120,8 +122,15 @@ export function consolidationContext(dataset: Dataset, chapter: number, since: n
     const related = new Set<string>(mentions.keys());
     for (const entity of dataset.entities) if (inSegment(entity.at)) related.add(entity.id);
     for (const item of statements) for (const id of [...item.about, item.holder, item.source.by]) if (id) related.add(id);
-    for (const item of knowledge) if (item.who !== "reader") related.add(item.who);
-    for (const item of ledger) related.add(item.owner);
+    // 知情还涉及它所指的说法或秘密的对象；状态变动还涉及得到、失去、用掉的那件东西。
+    const statementById = new Map(dataset.statements.map(item => [item.id, item]));
+    const secretById = new Map(dataset.secrets.map(item => [item.id, item]));
+    for (const item of knowledge) {
+        if (item.who !== "reader") related.add(item.who);
+        const statement = statementById.get(item.about);
+        for (const id of statement ? [...statement.about, statement.holder, statement.source.by] : secretById.get(item.about)?.about ?? []) if (id) related.add(id);
+    }
+    for (const item of ledger) for (const id of [item.owner, item.item]) if (id) related.add(id);
     const order = new Map(dataset.entities.map((entity, index) => [entity.id, index]));
     const relevant = [...related].filter(id => entityOf.has(id)).sort((a, b) => (mentions.get(b) ?? 0) - (mentions.get(a) ?? 0) || order.get(a)! - order.get(b)!);
     const rosterLine = (entity: Entity) => `${entity.id}｜${KIND_ZH[entity.kind]}｜${displayName(entity, readAt)}｜${entity.label}`;
@@ -195,5 +204,5 @@ export function consolidationContext(dataset: Dataset, chapter: number, since: n
         for (const [a, b] of shownCandidates) lines.push(`${a}（${names(a)}）｜${b}（${names(b)}）`);
     }
 
-    return {text: `${lines.join("\n")}\n`, scope: {base: snapshot.at, arcs: snapshot.arcs, summarized, candidates: shownCandidates}};
+    return {text: `${lines.join("\n")}\n`, scope: {base: snapshot.at, arcs: snapshot.arcs, episodes, summarized, candidates: shownCandidates}};
 }

@@ -507,8 +507,9 @@ describe("整理带来的错误（输出 5、7）", () => {
 
 describe("增量整理稿的清理（输出 7）", () => {
     /**
-     * 三章的小书。第 1 章有两个“林晚”（e1-1、e1-3，称呼相同、可以合并，但都不是这一段新建的）和阿青（e1-2）；第 2 章整理过
-     * 一次（主线 a2-1，林晚与阿青的概览）；第 3 章只写林晚，有一条手写的知情与一笔状态变动。
+     * 三章的小书。第 1 章有两个“林晚”（e1-1、e1-3，称呼相同、可以合并，但都不是这一段新建的）和阿青（e1-2）；第 2 章写林晚
+     * 独自赶路，整理过一次（主线 a2-1，林晚与阿青的概览）；第 3 章只写林晚，有一条知情（指向第 2 章那条只关于林晚的说法，
+     * 阿青因此不是这一段的相关对象）与一笔状态变动。
      */
     const sources = [
         sourceChapter(1, "第1章", ["第1章", "林晚和阿青上路。"]),
@@ -519,11 +520,11 @@ describe("增量整理稿的清理（输出 7）", () => {
     const day = (n: number) => ({times: [{id: `t${n}-1`, label: `第${n}天早晨`, day: n, part: "morning", at: [`${n}.2`]}], beats: [{id: `b${n}-1`, from: 1, to: 2, gist: "经过。", time: `t${n}-1`}], episodes: [{id: `p${n}-1`, title: `第${n}天`, summary: "林晚赶路。", at: [`${n}.2`], time: `t${n}-1`, who: [{e: "e1-1"}]}]});
     const drafts = [
         {chapter: 1, ...day(1), entities: [person("e1-1", "林晚"), person("e1-2", "阿青"), person("e1-3", "林晚")], statements: [{id: "s1-1", text: "林晚和阿青一起上路", family: "event", about: ["e1-1", "e1-2"], src: {at: ["1.2"], ch: "narrator"}}]},
-        {chapter: 2, ...day(2)},
+        {chapter: 2, ...day(2), statements: [{id: "s2-1", text: "林晚独自赶路", family: "event", about: ["e1-1"], src: {at: ["2.2"], ch: "narrator"}}]},
         {
             chapter: 3,
             ...day(3),
-            knowledge: [{id: "k3-1", who: "e1-1", about: "s1-1", state: "knows", at: ["3.2"]}],
+            knowledge: [{id: "k3-1", who: "e1-1", about: "s2-1", state: "knows", at: ["3.2"]}],
             ledger: [{id: "l3-1", owner: "e1-1", track: "金币", op: "set", value: 3, reason: "有三枚金币", at: ["3.2"]}],
         },
     ];
@@ -538,7 +539,7 @@ describe("增量整理稿的清理（输出 7）", () => {
         arcs: [{id: "a2-1", title: "林晚赶路", summary: "林晚一路赶路。", episodes: ["p1-1", "p2-1"], status: "ongoing"}],
     };
 
-    test("候选之外的合并、改写没列现有归纳的方面拒绝；知情与状态变动可以当依据；中文的方面名换回英文键、写在句子里的依据拆回 deps；主线只改状态、重复写、未知编号各有去处", async () => {
+    test("候选之外的合并、改写没列现有归纳的方面拒绝；知情与状态变动可以当依据；中文的方面名换回英文键、写在句子里的依据拆回 deps；主线只改状态、重复写、未知编号、收早先的情节各有去处", async () => {
         const dataset = compile(book, sources, drafts, [first]).dataset;
         expect(compile(book, sources, drafts, [first]).issues.filter(issue => issue.level === "error")).toEqual([]);
         const reply = {
@@ -546,7 +547,7 @@ describe("增量整理稿的清理（输出 7）", () => {
             merges: [{keep: "e1-1", drop: "e1-3", reason: "同一个林晚"}],
             summaries: [
                 // 第一句照抄材料，依据留在句子里；第二句依据写对了。
-                {entity: "e1-1", facet: "overview", items: [{text: "林晚在赶路。〔p2-1〕", deps: []}, {text: "林晚知道自己和阿青同行，身上有三枚金币。", deps: ["k3-1", "l3-1"]}]},
+                {entity: "e1-1", facet: "overview", items: [{text: "林晚在赶路。〔p2-1〕", deps: []}, {text: "林晚知道自己独自赶路，身上有三枚金币。", deps: ["k3-1", "l3-1"]}]},
                 {entity: "e1-2", facet: "overview", items: [{text: "阿青不见了。", deps: ["s1-1"]}]},
                 {entity: "e1-2", facet: "appearance", items: [{text: "阿青的样子没有交代。", deps: ["s1-1"]}]},
                 // 照材料写了中文的方面名，换回英文键。
@@ -558,6 +559,8 @@ describe("增量整理稿的清理（输出 7）", () => {
                 {id: "a2-1", title: "林晚赶路", summary: "林晚到了目的地。", episodes: [], status: "closed"},
                 {id: "a2-1", title: "林晚赶路", summary: "又写了一次。", episodes: ["p3-1"], status: "ongoing"},
                 {id: "a9-9", title: "林晚的金币", summary: "林晚清点金币。", episodes: ["p3-1"], status: "ongoing"},
+                // 新主线收早先的情节：不是这一段的，不收，这条主线也就没有情节了。
+                {id: "a8-8", title: "林晚第二天", summary: "林晚第二天赶路。", episodes: ["p2-1"], status: "ongoing"},
             ],
         };
         const {run, requests} = serve(() => ({kind: "text", text: JSON.stringify(reply)}));
@@ -585,6 +588,8 @@ describe("增量整理稿的清理（输出 7）", () => {
             "合并 e1-3 到 e1-1 被拒绝：不在这次的合并候选里",
             "摘要 e1-2/overview：这次没有列出它的现有归纳，只能补新的方面",
             "故事线 a2-1：写了两次，只留第一次",
+            "故事线 a8-8：p2-1 不是这一段的情节，不收",
+            "故事线 a8-8：新主线没有有效的情节",
         ]);
         expect(outcome.dataset.arcs.filter(arc => arc.through === 3).map(arc => [arc.id, arc.status, arc.episodes])).toEqual([["a2-1", "closed", ["p1-1", "p2-1"]], ["a3-1", "ongoing", ["p3-1"]]]);
     });

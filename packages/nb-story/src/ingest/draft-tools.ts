@@ -340,11 +340,12 @@ export function dropOffending(draft: RawDraft, evaluate: (candidate: RawDraft) =
 export function mergeRefusal(keep: Entity, drop: Entity, dataset: Dataset): string | null {
     if (keep.id === drop.id) return "是同一个对象";
     if (keep.kind !== drop.kind) return "类别不同";
-    if (dataset.statements.some(item => item.family === "identity" && item.about.includes(keep.id) && item.about.includes(drop.id))) return "两者之间有身份同一的说法，是有意分开的马甲和本人";
     // “任务”“学院”这类两个字的泛称出现在别的称呼里不算数，包含关系要求较短的称呼至少三个字。
     const contains = (long: string, short: string) => [...short].length >= 3 && long.includes(short);
-    const related = keep.names.some(a => drop.names.some(b => a.text === b.text || contains(a.text, b.text) || contains(b.text, a.text)));
-    return related ? null : "没有相同或互相包含的称呼";
+    if (!keep.names.some(a => drop.names.some(b => a.text === b.text || contains(a.text, b.text) || contains(b.text, a.text)))) return "没有相同或互相包含的称呼";
+    // 身份说法要扫全书的说法，放在最后：挑合并候选时大多数对象对在前两条就排除了。
+    if (dataset.statements.some(item => item.family === "identity" && item.about.includes(keep.id) && item.about.includes(drop.id))) return "两者之间有身份同一的说法，是有意分开的马甲和本人";
+    return null;
 }
 
 /** 一次增量整理的范围（context.ts 的 `consolidationContext` 算出，与给模型的输入一致）。 */
@@ -352,6 +353,8 @@ export interface ConsolidationScope {
     /** 接着的那一批主线（最近一批）与它的章号；还没有主线时为空、0。 */
     base: number;
     arcs: readonly Arc[];
+    /** 列给模型看的这一段的情节：主线（已有的与新的）只能收它们，早先情节的归属不改。 */
+    episodes: ReadonlySet<string>;
     /** 输入里列了现有归纳的对象：只有它们能改写已有的方面，别的对象只能补新方面。 */
     summarized: ReadonlySet<string>;
     /** 合并候选，两个对象编号，不分先后。 */
@@ -461,7 +464,9 @@ export function sanitizeConsolidation(reply: any, chapter: number, dataset: Data
     let created = 0;
     for (const arc of Array.isArray(reply?.arcs) ? reply.arcs : []) {
         const old = known.get(arc?.id);
-        const list = [...new Set<string>((Array.isArray(arc?.episodes) ? arc.episodes : []).filter((id: unknown) => typeof id === "string" && episodes.has(id)))].filter(id => !old?.episodes.includes(id));
+        const written = [...new Set<string>((Array.isArray(arc?.episodes) ? arc.episodes : []).filter((id: unknown) => typeof id === "string" && episodes.has(id)))].filter(id => !old?.episodes.includes(id));
+        const list = written.filter(id => scope.episodes.has(id));
+        if (list.length < written.length) dropped.push(`故事线 ${arc?.id}：${written.filter(id => !scope.episodes.has(id)).join("、")} 不是这一段的情节，不收`);
         if (typeof arc?.title !== "string" || !arc.title || typeof arc?.summary !== "string" || !arc.summary) {
             dropped.push(`故事线 ${arc?.id}：缺少标题或概括`);
             continue;

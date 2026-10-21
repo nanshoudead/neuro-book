@@ -107,3 +107,55 @@ describe("增量整理的输入", () => {
         expect(records.some(line => secretTargets.has(line.split("　")[0]!))).toBe(false);
     }, 30_000);
 });
+
+describe("各节超出上限", () => {
+    test("情节太多：只列最近的，注明没列的段数；清理只收列出的那些", async () => {
+        const dataset = structuredClone(await datasetAt(50, 45));
+        const template = dataset.episodes.find(item => item.at.chapter === 50)!;
+        const extra = Array.from({length: 80}, (_, index) => ({...template, id: `p50-${100 + index}`, summary: `${template.summary}`.padEnd(200, "。"), at: {chapter: 50, paragraph: template.at.paragraph}}));
+        dataset.episodes.push(...extra);
+        const {text, scope} = consolidationContext(dataset, 50, 45);
+        const lines = sections(text).get("这一段的情节")!.filter(line => /^p\d+-\d+（/u.test(line));
+        expect(size(lines)).toBeLessThanOrEqual(BUDGETS.episodes);
+        const segment = dataset.episodes.filter(item => item.at.chapter > 45);
+        expect(lines.map(line => line.split("（")[0])).toEqual(segment.slice(segment.length - lines.length).map(item => item.id));
+        expect(text).toContain(`（只列最近的 ${lines.length} 段，更早的 ${segment.length - lines.length} 段没有列出。）`);
+        expect([...scope.episodes]).toEqual(lines.map(line => line.split("（")[0]));
+    }, 30_000);
+
+    test("归纳太长：少列几个对象的归纳，它们归入“其余”；其余也太多时截断并注明", async () => {
+        const dataset = structuredClone(await datasetAt(50, 45));
+        // 每个相关对象都有一段很长的概览，15 个放不下；再加 200 个这一段新建的对象，“其余”放不下。
+        const long = "很长的一句归纳。".repeat(120);
+        const relevant = consolidationContext(dataset, 50, 45).scope.summarized;
+        for (const entity of relevant) dataset.summaries.push({entity, facet: "overview", through: 45, items: [{text: long, deps: ["p1-1"]}], at: {chapter: 45, paragraph: 1}});
+        const template = dataset.entities.find(entity => entity.at.chapter <= 45)!;
+        for (let index = 0; index < 200; index++) dataset.entities.push({...template, id: `e50-${100 + index}`, label: `这一段新出现的路人${index}`.padEnd(30, "。"), names: [], mergedFrom: [], at: {chapter: 50, paragraph: 1}});
+        const {text, scope} = consolidationContext(dataset, 50, 45);
+        const objects = sections(text).get("这一段的对象")!;
+        const others = objects.findIndex(line => line.startsWith("其余的对象"));
+        const summaryPart = objects.slice(2, others);
+        const otherLines = objects.slice(others + 2).filter(line => /^e\d+-\d+｜/u.test(line));
+        expect(size(summaryPart)).toBeLessThanOrEqual(BUDGETS.summaries);
+        expect(scope.summarized.size).toBeLessThan(relevant.size);
+        expect(size(otherLines)).toBeLessThanOrEqual(BUDGETS.others);
+        expect(objects.at(-1)).toMatch(/^（另有 \d+ 个没有列出。）$/u);
+        for (const id of relevant) if (!scope.summarized.has(id)) expect(summaryPart.some(line => line.startsWith(`${id}｜`))).toBe(false);
+    }, 30_000);
+});
+
+describe("相关对象", () => {
+    test("知情指向秘密时算上秘密涉及的对象，状态变动算上得到的那件东西", async () => {
+        const dataset = structuredClone(await datasetAt(50, 45));
+        const before = consolidationContext(dataset, 50, 45).text;
+        // 找两个这一段完全没涉及的对象：一个当秘密的对象，一个当得到的东西。
+        const quiet = dataset.entities.filter(entity => !before.includes(`${entity.id}｜`)).map(entity => entity.id);
+        const [secretAbout, gained] = [quiet[0]!, quiet[1]!];
+        dataset.secrets.push({...dataset.secrets[0]!, id: "x50-99", about: [secretAbout], statements: [], at: {chapter: 50, paragraph: 1}});
+        dataset.knowledge.push({...dataset.knowledge.find(item => /^k\d+-\d+$/u.test(item.id))!, id: "k50-99", who: "e1-1", about: "x50-99", derived: false, at: {chapter: 50, paragraph: 1}});
+        dataset.ledger.push({...dataset.ledger[0]!, id: "l50-99", owner: "e1-1", op: "get", item: gained, at: {chapter: 50, paragraph: 1}});
+        const text = consolidationContext(dataset, 50, 45).text;
+        expect(text).toContain(`${secretAbout}｜`);
+        expect(text).toContain(`${gained}｜`);
+    }, 30_000);
+});
