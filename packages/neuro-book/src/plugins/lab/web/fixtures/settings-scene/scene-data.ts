@@ -46,6 +46,9 @@ const TEMPLATES = [
     {value: "character", label: {"zh-CN": "人物卡", "en-US": "Character Card"}},
 ];
 
+/** “设置文件”场景里用户层的文件：带注释、有一个没有声明的键（别的插件卸载后留下的）。 */
+const USER_FILE_TEXT = "// 我的设置\n{\n    // 主题跟着 macOS\n    \"nbook.workbench/theme\": \"macos\",\n    \"example.notes/interval\": 120,\n    \"retired.plugin/flag\": true\n}\n";
+
 /** 按需激活的场景里，提供者入口收到触发之后过一会儿才交付：看得见“加载中”。 */
 const LAZY_DELIVERY_MS = 800;
 
@@ -74,6 +77,7 @@ const SPECS: Readonly<Record<SettingsWindowSceneId, SceneSpec>> = {
     "choices": {user: {values: {"example.notes/template": "weekly"}}, section: "other"},
     "choices-lazy": {user: {values: {"example.notes/template": "scene"}}, section: "other"},
     "choices-unavailable": {user: {}, section: "other"},
+    "file": {user: {values: {"nbook.workbench/theme": "macos", "example.notes/interval": 120}, text: USER_FILE_TEXT}, project: BOOK, section: "file"},
     "page-declared": {project: BOOK, section: SNIPPETS_SECTION},
     "page-blocked": {project: BOOK, section: SNIPPETS_SECTION},
     "page-failed": {project: BOOK, section: SNIPPETS_SECTION},

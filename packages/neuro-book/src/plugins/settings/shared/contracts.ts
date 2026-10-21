@@ -83,8 +83,14 @@ export const LayerSnapshotSchema = Type.Union([
     Type.Object({status: Type.Literal("invalid"), revision: RevisionSchema, values: ValuesSchema, problems: Type.Array(ProblemSchema), detail: Type.String(), path: Type.Optional(Type.String())}, {additionalProperties: false}),
 ]);
 
-const SettingsFailedDetail = Type.Object({code: Type.Enum(SETTINGS_FAILURES), detail: Type.String()}, {additionalProperties: false});
+const PositionSchema = Type.Object({line: Type.Integer({minimum: 1}), column: Type.Integer({minimum: 1})}, {additionalProperties: false});
+/** `position`：`invalid-text` 时文本里出错的地方。 */
+const SettingsFailedDetail = Type.Object({code: Type.Enum(SETTINGS_FAILURES), detail: Type.String(), position: Type.Optional(PositionSchema)}, {additionalProperties: false});
 const Written = Type.Object({snapshot: LayerSnapshotSchema}, {additionalProperties: false});
+/** 设置文件的全文；`revision` 是原始文本的摘要，文件不存在时 `exists` 为假、`text` 为空串。 */
+const TextRead = Type.Object({text: Type.String(), revision: Type.String(), exists: Type.Boolean()}, {additionalProperties: false});
+const TextInput = Type.Object({text: Type.String(), revision: Type.String()}, {additionalProperties: false});
+const TextWritten = Type.Object({revision: Type.String(), snapshot: LayerSnapshotSchema}, {additionalProperties: false});
 const failures = {"settings-failed": SettingsFailedDetail};
 
 const SetInput = Type.Object({key: Type.String(), value: Type.Unknown()}, {additionalProperties: false});
@@ -93,21 +99,33 @@ const KeyInput = Type.Object({key: Type.String()}, {additionalProperties: false}
 /**
  * `set`、`remove` 只写调用方插件自己声明的项；`edit`、`unset` 是用户编辑（configuration.md 输出 19），写任何已声明项，
  * 只接受内核填写的调用方是 `nbook.settings` 且没有经过代理的请求。成功时都带回写后的层快照，调用方据此先更新本实例
- * 再结算。删除是单独的方法，不靠 JSON 保留 undefined。
+ * 再结算。删除是单独的方法，不靠 JSON 保留 undefined。`readText`、`writeText` 整份读写这一层的设置文件（输出 24），
+ * 同样只接受用户编辑的调用方。
  */
 const methods = {
     set: {input: SetInput, output: Written, effect: "write", errors: failures},
     remove: {input: KeyInput, output: Written, effect: "write", errors: failures},
     edit: {input: SetInput, output: Written, effect: "write", errors: failures},
     unset: {input: KeyInput, output: Written, effect: "write", errors: failures},
+    readText: {input: Type.Object({}, {additionalProperties: false}), output: TextRead, effect: "read", errors: failures},
+    writeText: {input: TextInput, output: TextWritten, effect: "write", errors: failures},
 } as const;
 
-/** 订阅先推一次当前快照，之后层的状态、键值、被丢弃的键或无效原因变化时推送。 */
-const events = {layer: {filter: Type.Object({}, {additionalProperties: false}), payload: LayerSnapshotSchema}} as const;
+const NoFilter = Type.Object({}, {additionalProperties: false});
 
-export const userSettingsContract = defineRemoteService({id: "nbook.settings/user", version: 1, provider: "server", callers: ["browser", "tui", "project"], methods, events});
+/**
+ * `layer`：订阅先推一次当前快照，之后层的状态、键值、被丢弃的键或无效原因变化时推送。`text`：订阅先推一次当前文本的
+ * 修订号，之后文件的原始文本变了就推（只改注释、格式也推），设置文件视图据此知道别处改过。
+ */
+const events = {
+    layer: {filter: NoFilter, payload: LayerSnapshotSchema},
+    text: {filter: NoFilter, payload: Type.Object({revision: Type.String()}, {additionalProperties: false})},
+} as const;
 
-export const projectSettingsContract = defineRemoteService({id: "nbook.settings/project", version: 1, provider: "project", callers: ["browser", "tui"], methods, events});
+/** 版本 2 加了 `readText`、`writeText` 与 `text` 事件（两份合同一起升）。 */
+export const userSettingsContract = defineRemoteService({id: "nbook.settings/user", version: 2, provider: "server", callers: ["browser", "tui", "project"], methods, events});
+
+export const projectSettingsContract = defineRemoteService({id: "nbook.settings/project", version: 2, provider: "project", callers: ["browser", "tui"], methods, events});
 
 export type SettingsContract = typeof userSettingsContract | typeof projectSettingsContract;
 
@@ -166,4 +184,7 @@ const COMMAND_FAILURES: Record<SettingsFailure, CommandFailureCode> = {
     "layer-invalid": "execution-error",
     "write-failed": "execution-error",
     "unknown-outcome": "execution-error",
+    "read-failed": "execution-error",
+    "conflict": "execution-error",
+    "invalid-text": "execution-error",
 };

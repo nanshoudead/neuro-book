@@ -38,6 +38,8 @@ export interface HostLayer {
     readonly invalid?: string;
     readonly unreachable?: boolean;
     readonly path?: string;
+    /** 文件文本；缺省由 `values` 写成。 */
+    readonly text?: string;
 }
 
 /** 场景里的分区：list 来自 `settings.sections`，page 来自 `settings.pages`。 */
@@ -148,6 +150,7 @@ export function createSettingsHost(options: SettingsHostOptions): SettingsHost {
         choices,
         declarations,
         editors: {user: user.editor, ...(project === null ? {} : {project: project.editor})},
+        files: {user: user.file, ...(project === null ? {} : {project: project.file})},
         instance,
     });
     const facades = new Map<string, SettingsService>();

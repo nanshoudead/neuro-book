@@ -65,7 +65,7 @@ const widgetOf = (row: HTMLElement): string | undefined => row.querySelector<HTM
 describe("SettingsWindow", () => {
     it("左栏三组、组间分隔线；绑定作品时有“用户 | 本作品”，没绑定没有；外观分区按小组画控件", async () => {
         await scene("user");
-        expect(navIds()).toEqual(["nbook.appearance", "example.models.main", "example.snippets.main", "other"]);
+        expect(navIds()).toEqual(["nbook.appearance", "example.models.main", "example.snippets.main", "other", "file"]);
         expect(all("[data-settings-nav-separator]")).toHaveLength(2);
         expect(one("[data-settings-nav-current]").dataset.settingsNav).toBe("nbook.appearance");
         expect(document.body.querySelector("[data-settings-tabs]")).not.toBeNull();
@@ -409,13 +409,109 @@ describe("搜索与未保存保护（输出 21、22）", () => {
         [...dialog.querySelectorAll("button")].find((button) => button.textContent?.trim() === "继续编辑")!.click();
         await vi.waitFor(() => expect(document.body.querySelector("[role='alertdialog']")).toBeNull());
         await vi.waitFor(() => expect(document.activeElement).toBe(other));
-        expect(created.window.pageDirty.value).toBe(true);
+        expect(created.window.unsaved.value).toBe(true);
         other.click();
         await flushPromises();
         [...one("[role='alertdialog']").querySelectorAll("button")].find((button) => button.textContent?.trim() === "放弃")!.click();
         await flushPromises();
         expect(created.window.section.value).toBe("other");
-        expect(created.window.pageDirty.value).toBe(false);
+        expect(created.window.unsaved.value).toBe(false);
         expect(document.body.querySelector("[data-dirty-page]")).toBeNull();
+    });
+});
+
+describe("设置文件视图（输出 23）", () => {
+    const area = (): HTMLTextAreaElement => one("[data-settings-file-text]") as HTMLTextAreaElement;
+    const type = async (value: string): Promise<void> => {
+        area().value = value;
+        area().dispatchEvent(new Event("input"));
+        await flushPromises();
+    };
+    const button = (label: string): HTMLButtonElement => {
+        const found = all("[data-settings-file] button").find((element) => element.textContent?.trim() === label);
+        if (found === undefined) throw new Error(`没有按钮 ${label}`);
+        return found as HTMLButtonElement;
+    };
+
+    it("显示这一层文件的全文（注释、没有声明的键都在）；改了才有“保存”“放弃改动”；保存后写进这一层、列表同步", async () => {
+        const {host} = await scene("file");
+        await vi.waitFor(() => expect(one("[data-settings-file]").dataset.settingsFileState).toBe("ready"));
+        expect(area().value).toContain("// 主题跟着 macOS");
+        expect(area().value).toContain("retired.plugin/flag");
+        expect(document.getElementById(one("[data-settings-file] label").getAttribute("for")!)).toBe(area());
+        expect(document.body.querySelector("[data-settings-file-actions]")).toBeNull();
+        await type(area().value.replace("120", "90"));
+        expect(host.window.unsaved.value).toBe(true);
+        button("保存").click();
+        await flushPromises();
+        expect(host.user.values()).toMatchObject({"example.notes/interval": 90});
+        expect(host.user.text()).toContain("retired.plugin/flag");
+        expect(document.body.querySelector("[data-settings-file-actions]")).toBeNull();
+        expect(host.window.unsaved.value).toBe(false);
+        await type("{}");
+        button("放弃改动").click();
+        await flushPromises();
+        expect(area().value).toBe(host.user.text());
+    });
+
+    it("文本不合格：不写，在框下写出行与列、标出错；别处改过：有改动时只提示，保存被拒为冲突，“重新读取”换成新文本", async () => {
+        const {host} = await scene("file");
+        await vi.waitFor(() => expect(one("[data-settings-file]").dataset.settingsFileState).toBe("ready"));
+        await type("{\n  \"a\": 1\n  \"b\": 2\n}");
+        (one("[data-settings-file-text]") as HTMLElement).dispatchEvent(new KeyboardEvent("keydown", {key: "s", ctrlKey: true, bubbles: true, cancelable: true}));
+        await flushPromises();
+        expect(one("[data-settings-file-error]").textContent).toContain("第 3 行第 3 列");
+        expect(area().getAttribute("aria-invalid")).toBe("true");
+        expect(area().getAttribute("aria-describedby")).toBe(one("[data-settings-file-error]").id);
+        expect(host.user.values()).toMatchObject({"example.notes/interval": 120});
+
+        host.user.setText("{\"example.notes/interval\": 300}");
+        await flushPromises();
+        expect(one("[data-settings-file-changed]").textContent).toContain("文件在别处改过了");
+        expect(area().value).toContain("\"b\": 2");
+        await type("{\"example.notes/interval\": 60}");
+        button("保存").click();
+        await flushPromises();
+        expect(one("[data-settings-file-error]").textContent).toContain("文件在别处改过了");
+        expect(host.user.values()).toMatchObject({"example.notes/interval": 300});
+        all("[data-settings-file-error] button")[0]!.click();
+        await flushPromises();
+        expect(area().value).toBe("{\"example.notes/interval\": 300}");
+        // 没有改动时别处又改了：直接换成新文本。
+        host.user.setText("{\"example.notes/interval\": 30}");
+        await flushPromises();
+        expect(area().value).toBe("{\"example.notes/interval\": 30}");
+    });
+
+    it("Tab 插入两个空格，Esc 之后的 Tab 照常移走焦点；有改动时离开先确认", async () => {
+        const {host} = await scene("file");
+        await vi.waitFor(() => expect(one("[data-settings-file]").dataset.settingsFileState).toBe("ready"));
+        area().focus();
+        area().setSelectionRange(0, 0);
+        const tab = new KeyboardEvent("keydown", {key: "Tab", bubbles: true, cancelable: true});
+        area().dispatchEvent(tab);
+        await flushPromises();
+        expect(tab.defaultPrevented).toBe(true);
+        expect(area().value.startsWith("  // 我的设置")).toBe(true);
+        area().dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+        const next = new KeyboardEvent("keydown", {key: "Tab", bubbles: true, cancelable: true});
+        area().dispatchEvent(next);
+        expect(next.defaultPrevented).toBe(false);
+        host.window.select("nbook.appearance");
+        expect(host.window.leaving.value).toEqual({kind: "section", id: "nbook.appearance"});
+    });
+
+    it("层文件无效：说明里有“打开设置文件”，打开看到坏的文本，修好保存后说明消失", async () => {
+        const {host} = await scene("user-invalid");
+        one("[data-settings-open-file]").click();
+        await flushPromises();
+        expect(host.window.section.value).toBe("file");
+        await vi.waitFor(() => expect(one("[data-settings-file]").dataset.settingsFileState).toBe("ready"));
+        expect(area().value.trim().endsWith("}")).toBe(false);
+        await type("{\"nbook.workbench/appearance\": \"dark\"}");
+        button("保存").click();
+        await flushPromises();
+        expect(host.window.layerNotice.value).toBeNull();
+        expect(document.body.querySelector("[data-settings-layer-notice]")).toBeNull();
     });
 });

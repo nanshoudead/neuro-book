@@ -26,6 +26,22 @@ export type LayerEdit = {readonly kind: "set"; readonly value: unknown} | {reado
 /** 拥有者对一次写入的结果：成功带回写后的层快照。 */
 export type LayerWriteResult = {readonly ok: true; readonly snapshot: LayerSnapshot} | {readonly ok: false; readonly code: SettingsFailure; readonly detail: string};
 
+/** 文本里的位置，行与列从 1 起（`invalid-text` 用）。 */
+export interface LayerTextPosition {
+    readonly line: number;
+    readonly column: number;
+}
+
+/** 整份读这一层的设置文件（configuration.md 输出 24）：`revision` 是原始文本的摘要。 */
+export type LayerTextRead =
+    | {readonly ok: true; readonly text: string; readonly revision: string; readonly exists: boolean}
+    | {readonly ok: false; readonly code: SettingsFailure; readonly detail: string};
+
+/** 整份写：成功带回新的修订号与写后的层快照。 */
+export type LayerTextWrite =
+    | {readonly ok: true; readonly revision: string; readonly snapshot: LayerSnapshot}
+    | {readonly ok: false; readonly code: SettingsFailure; readonly detail: string; readonly position?: LayerTextPosition};
+
 export interface LayerProblem {
     readonly key: string;
     readonly reason: "invalid-value" | "layer-not-allowed";

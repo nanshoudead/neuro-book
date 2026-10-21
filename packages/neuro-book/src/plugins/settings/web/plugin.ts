@@ -34,7 +34,7 @@ import {displayLocale, localeSetting, OPEN_SETTINGS_COMMAND, projectSettingsCont
 import type {SettingsChoicesDeclaration, SettingsPageDeclaration, SettingsSectionDeclaration} from "../shared/contracts";
 import {createSettingsInstance, FIRST_SNAPSHOT_MS, provideSettings, recordTo} from "../shared/instance";
 import {acceptedSettings, choicesPoint, pagesPoint, sectionsPoint, settingsPoint} from "../shared/point";
-import {remoteLayerEditor, remoteLayerLink} from "../shared/remote-link";
+import {remoteLayerEditor, remoteLayerFile, remoteLayerLink} from "../shared/remote-link";
 import {ChoiceSourceRegistry} from "./choices";
 import {SettingsSectionRegistry} from "./sections";
 import {createSettingsWindow} from "./settings-window";
@@ -209,6 +209,10 @@ export const settingsBrowserPlugin: PluginDefinition = {
                 editors: {
                     user: remoteLayerEditor(context.remote, userSettingsContract),
                     ...(bound ? {project: remoteLayerEditor(context.remote, projectSettingsContract)} : {}),
+                },
+                files: {
+                    user: remoteLayerFile(context.remote, userSettingsContract),
+                    ...(bound ? {project: remoteLayerFile(context.remote, projectSettingsContract)} : {}),
                 },
                 instance,
             });

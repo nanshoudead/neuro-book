@@ -11,8 +11,9 @@ import {localize} from "nbook/shared/localized-text";
 import type {LocalizedText} from "nbook/shared/localized-text";
 import type {SettingLayer} from "nbook/shared/settings";
 
-import {DEFAULT_SETTINGS_WINDOW_SIZE, MIN_SETTINGS_WINDOW_SIZE} from "../settings-window";
+import {DEFAULT_SETTINGS_WINDOW_SIZE, FILE_SECTION_ID, MIN_SETTINGS_WINDOW_SIZE} from "../settings-window";
 import type {SettingsNavItem, SettingsWindow} from "../settings-window";
+import SettingsFileView from "./SettingsFileView.vue";
 import SettingsListSection from "./SettingsListSection.vue";
 import SettingsPageFrame from "./SettingsPageFrame.vue";
 
@@ -41,6 +42,7 @@ const TEXT = {
     leaveDescription: {"zh-CN": "这个页面有还没保存的改动，离开后会丢掉。", "en-US": "This page has changes that haven't been saved. They will be lost if you leave."},
     discard: {"zh-CN": "放弃", "en-US": "Discard"},
     keepEditing: {"zh-CN": "继续编辑", "en-US": "Keep Editing"},
+    openFile: {"zh-CN": "打开设置文件", "en-US": "Open Settings File"},
 } satisfies Record<string, LocalizedText>;
 
 const model = props.window;
@@ -220,6 +222,7 @@ function confirmLeave(): void {
                         <span class="i-lucide-triangle-alert settings-window__notice-icon" aria-hidden="true"></span>
                         <span>{{ text(model.layerNotice.value.kind === "invalid" ? TEXT.invalid : TEXT.unavailable) }}</span>
                         <code v-if="model.layerNotice.value.kind === 'invalid' && model.layerNotice.value.path !== null" class="settings-window__path">{{ model.layerNotice.value.path }}</code>
+                        <Button v-if="model.layerNotice.value.kind === 'invalid'" size="sm" variant="secondary" data-settings-open-file @click="model.select(FILE_SECTION_ID)">{{ text(TEXT.openFile) }}</Button>
                     </p>
                     <div class="settings-window__fill-body">
                         <SettingsPageFrame
@@ -248,6 +251,7 @@ function confirmLeave(): void {
                             <span class="i-lucide-triangle-alert settings-window__notice-icon" aria-hidden="true"></span>
                             <span>{{ text(model.layerNotice.value.kind === "invalid" ? TEXT.invalid : TEXT.unavailable) }}</span>
                             <code v-if="model.layerNotice.value.kind === 'invalid' && model.layerNotice.value.path !== null" class="settings-window__path">{{ model.layerNotice.value.path }}</code>
+                            <Button v-if="model.layerNotice.value.kind === 'invalid' && current.kind !== 'file'" size="sm" variant="secondary" data-settings-open-file @click="model.select(FILE_SECTION_ID)">{{ text(TEXT.openFile) }}</Button>
                         </p>
                         <p v-if="current.unavailable !== null" class="settings-window__unavailable" data-settings-unavailable>{{ current.unavailable }}</p>
                         <template v-else-if="current.kind === 'search'">
@@ -266,6 +270,7 @@ function confirmLeave(): void {
                             <p v-if="current.list.groups.length === 0 && current.pages.length === 0" class="settings-window__unavailable" data-settings-no-results role="status">{{ text(TEXT.noResults) }}</p>
                         </template>
                         <SettingsListSection v-else-if="current.kind === 'list'" :window="model" :view="current" />
+                        <SettingsFileView v-else-if="current.kind === 'file'" :window="model" :layer="current.layer" :path="current.path" />
                         <SettingsPageFrame
                             v-else-if="page !== null"
                             :locale="locale"

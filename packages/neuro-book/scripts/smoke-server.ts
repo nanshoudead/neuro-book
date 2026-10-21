@@ -10,7 +10,8 @@
  * `project.js` 起项目子进程（它在自己的日志位置建目录），welcome 带项目代次，停止时子进程随服务端收口、以 0 退出；
  * S8 以客户端身份经 `nbook.storage/user` 保存并读回一条记录：打包产物里的 SQLite 分区落在 `<状态根>/storage/user.sqlite`，
  * 停止时关库（WAL 文件收回），重启后读到同一个值；S9 状态根里先放一份带注释的 `settings.json`，以客户端身份经
- * `nbook.settings/user` 写一个键，注释与其余内容保留；文件改坏后服务端照常启动，日志里有“配置文件当前无效”的诊断。
+ * `nbook.settings/user`（合同版本 2）写一个键，注释与其余内容保留；以 `nbook.settings` 的身份整份读出这份文件，拿旧的
+ * 修订号整份写被拒为 `conflict`、文件不变；文件改坏后服务端照常启动，日志里有“配置文件当前无效”的诊断。
  * 任一场景失败或未执行都以非零退出；状态根放在测试临时根下，结束时删除。
  */
 
@@ -119,27 +120,34 @@ function storageCalls(rpcPort: number, origin: string, calls: ReadonlyArray<{rea
     return promise;
 }
 
-/** S9：握手后以插件 `nbook.workbench` 的身份调用一次 `nbook.settings/user` 的 `set`，返回结果；握手失败时为 null。 */
-function settingsSet(rpcPort: number, origin: string, key: string, value: unknown): Promise<unknown> {
-    const {promise, resolve} = Promise.withResolvers<unknown>();
+/**
+ * S9：握手后按顺序调用 `nbook.settings/user`（版本 2）的方法（前一个有结果才发下一个），返回各次的结果；握手失败或连接
+ * 断开时返回已收到的。每次调用自己给出调用方插件：声明者的写入用声明它的插件，整份读写只接受 `nbook.settings`。
+ */
+function settingsCalls(rpcPort: number, origin: string, calls: ReadonlyArray<{readonly plugin: string; readonly method: string; readonly effect: "read" | "write"; readonly input: Record<string, unknown>}>): Promise<unknown[]> {
+    const {promise, resolve} = Promise.withResolvers<unknown[]>();
+    const outcomes: unknown[] = [];
     const socket = new WebSocket(`ws://127.0.0.1:${String(rpcPort)}/`, {headers: {Origin: origin}});
+    const send = (index: number): void => {
+        const call = calls[index]!;
+        socket.send(JSON.stringify({
+            type: "request", id: `settings-${String(index)}`, target: "server", contract: "nbook.settings/user", version: 2, method: call.method, effect: call.effect, input: call.input,
+            $nbConsumer: {instanceId: "smoke-settings", location: "browser", client: "smoke", plugin: call.plugin, entry: "browser", generation: 1, via: null},
+            $nbChain: [],
+        }));
+    };
     socket.addEventListener("open", () => {
         socket.send(JSON.stringify({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance: {id: "smoke-settings", kind: "browser", role: "client", project: null, client: "smoke"}, bind: null, boot: null}));
     });
     socket.addEventListener("message", (event) => {
         const frame = JSON.parse(String(event.data)) as {type?: unknown; outcome?: unknown};
-        if (frame.type === "welcome") {
-            socket.send(JSON.stringify({
-                type: "request", id: "set", target: "server", contract: "nbook.settings/user", version: 1, method: "set", effect: "write", input: {key, value},
-                $nbConsumer: {instanceId: "smoke-settings", location: "browser", client: "smoke", plugin: "nbook.workbench", entry: "browser", generation: 1, via: null},
-                $nbChain: [],
-            }));
-        }
+        if (frame.type === "welcome") send(0);
         if (frame.type !== "result") return;
-        resolve(frame.outcome);
-        socket.close();
+        outcomes.push(frame.outcome);
+        if (outcomes.length < calls.length) send(outcomes.length);
+        else socket.close();
     });
-    socket.addEventListener("close", () => resolve(null));
+    socket.addEventListener("close", () => resolve(outcomes));
     return promise;
 }
 
@@ -282,7 +290,11 @@ async function main(): Promise<number> {
         await writeFile(settingsFile, original);
         const editor = run({NBOOK_STATE_ROOT: s9State, NBOOK_PORT: "0"});
         const editorRpc = await rpcOf(editor);
-        const setOutcome = await settingsSet(editorRpc.port, editorRpc.origin, "nbook.workbench/theme", "macos");
+        const [setOutcome, readOutcome, staleOutcome] = await settingsCalls(editorRpc.port, editorRpc.origin, [
+            {plugin: "nbook.workbench", method: "set", effect: "write", input: {key: "nbook.workbench/theme", value: "macos"}},
+            {plugin: "nbook.settings", method: "readText", effect: "read", input: {}},
+            {plugin: "nbook.settings", method: "writeText", effect: "write", input: {text: "{}", revision: "stale"}},
+        ]);
         const edited = await readFile(settingsFile, "utf8");
         editor.stop("stdin");
         const editorCode = await editor.exit;
@@ -294,10 +306,12 @@ async function main(): Promise<number> {
         const logDir = join(s9State, "logs");
         const logs = (await Promise.all((await readdir(logDir)).filter((name) => name.endsWith(".jsonl")).map((name) => readFile(join(logDir, name), "utf8")))).join("\n");
         const keptComments = edited === original.replace("\"nbook\"", "\"macos\"");
+        const readText = (readOutcome as {ok?: unknown; value?: {text?: unknown}} | undefined)?.value?.text;
+        const staleCode = (staleOutcome as {ok?: unknown; detail?: {code?: unknown}} | undefined)?.detail?.code;
         results.push({
             id: "S9",
-            ok: (setOutcome as {ok?: unknown} | null)?.ok === true && keptComments && editorCode === 0 && brokenHealth === 200 && brokenCode === 0 && logs.includes("settings.layer.invalid"),
-            evidence: `set=${JSON.stringify((setOutcome as {ok?: unknown} | null)?.ok ?? null)} comments-kept=${String(keptComments)} broken-health=${String(brokenHealth)} invalid-logged=${String(logs.includes("settings.layer.invalid"))} exit=${String(editorCode)}/${String(brokenCode)}`,
+            ok: (setOutcome as {ok?: unknown} | undefined)?.ok === true && keptComments && readText === edited && staleCode === "conflict" && editorCode === 0 && brokenHealth === 200 && brokenCode === 0 && logs.includes("settings.layer.invalid"),
+            evidence: `set=${JSON.stringify((setOutcome as {ok?: unknown} | undefined)?.ok ?? null)} comments-kept=${String(keptComments)} read-text=${String(readText === edited)} stale-write=${String(staleCode)} broken-health=${String(brokenHealth)} invalid-logged=${String(logs.includes("settings.layer.invalid"))} exit=${String(editorCode)}/${String(brokenCode)}`,
         });
     } finally {
         await rm(root, {recursive: true, force: true});

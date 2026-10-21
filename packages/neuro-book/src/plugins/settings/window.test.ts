@@ -47,7 +47,7 @@ import {settingsWorld} from "./testing/world";
 import type {SettingsWorld} from "./testing/world";
 import type {SettingsPageImplementation} from "./web/contracts";
 import {settingsBrowserCore} from "./web/plugin";
-import {createSettingsWindow, DEFAULT_SETTINGS_WINDOW_SIZE, MIN_SETTINGS_WINDOW_SIZE, OTHER_SECTION_ID} from "./web/settings-window";
+import {createSettingsWindow, DEFAULT_SETTINGS_WINDOW_SIZE, FILE_SECTION_ID, MIN_SETTINGS_WINDOW_SIZE, OTHER_SECTION_ID} from "./web/settings-window";
 import type {SettingsLeaveTarget, SettingsWindow, SettingsWindowSize} from "./web/settings-window";
 import {settingsWindowSourceKey} from "./web/window-source";
 import type {SettingsWindowSource, WindowSetting} from "./web/window-source";
@@ -228,12 +228,12 @@ describe("左栏与配置项的落位（输出 1、2、8、12）", () => {
         return {...started, ...windowFor(started.probe, bound)};
     }
 
-    it("三组自上而下应用、AI、插件，组内按 order、同值按 id；“其它”排在插件组最后", async () => {
+    it("三组自上而下应用、AI、插件，组内按 order、同值按 id；“其它”与“设置文件”排在插件组最后", async () => {
         const {window} = await catalog();
         expect(window.nav.value.map((group) => [group.category, group.items.map((item) => item.id)])).toEqual([
             ["app", ["x.notes.first", "nbook.appearance"]],
             ["ai", ["x.notes.page"]],
-            ["plugins", ["x.notes.main", "x.notes.user", OTHER_SECTION_ID]],
+            ["plugins", ["x.notes.main", "x.notes.user", OTHER_SECTION_ID, FILE_SECTION_ID]],
         ]);
         // 刷新后回到第一个分区。
         expect(window.section.value).toBe("x.notes.first");
@@ -516,7 +516,7 @@ describe("未保存保护（输出 22）", () => {
         await waitUntil("页面加载完", () => window.page("x.notes.page").status === "ready");
         const context = window.page("x.notes.page").context;
         context.dirty(true);
-        expect(window.pageDirty.value).toBe(true);
+        expect(window.unsaved.value).toBe(true);
         return {window, context};
     }
 
@@ -535,7 +535,7 @@ describe("未保存保护（输出 22）", () => {
             expect([window.open.value, window.section.value, window.layer.value, window.query.value], name).toEqual([true, "x.notes.page", "user", ""]);
             window.cancelLeave();
             expect(window.leaving.value).toBeNull();
-            expect(window.pageDirty.value).toBe(true);
+            expect(window.unsaved.value).toBe(true);
         }
         // 留在原处的动作不用确认：再选当前分区、命令只聚焦。
         window.select("x.notes.page");
@@ -549,7 +549,7 @@ describe("未保存保护（输出 22）", () => {
         window.close();
         expect(window.leaving.value).toEqual({kind: "close"});
         window.confirmLeave();
-        expect([window.open.value, window.section.value, window.pageDirty.value, window.leaving.value]).toEqual([false, "x.notes.page", false, null]);
+        expect([window.open.value, window.section.value, window.unsaved.value, window.leaving.value]).toEqual([false, "x.notes.page", false, null]);
     });
 
     it("放弃后切标签：页面换一个代际重建（草稿丢掉）、拿到新的上下文；旧上下文晚到的 dirty 不算数", async () => {
@@ -563,11 +563,11 @@ describe("未保存保护（输出 22）", () => {
         expect(after.context).not.toBe(context);
         expect(after.context.layer.value).toBe("project");
         context.dirty(true);
-        expect(window.pageDirty.value).toBe(false);
+        expect(window.unsaved.value).toBe(false);
         after.context.dirty(true);
-        expect(window.pageDirty.value).toBe(true);
+        expect(window.unsaved.value).toBe(true);
         after.context.dirty(false);
-        expect(window.pageDirty.value).toBe(false);
+        expect(window.unsaved.value).toBe(false);
     });
 
     it("页面不挂了（离开分区、交付撤回）上下文随之作废；没报未保存时离开不用确认", async () => {
@@ -577,7 +577,7 @@ describe("未保存保护（输出 22）", () => {
         expect(window.leaving.value).toBeNull();
         expect(window.section.value).toBe("x.notes.other");
         context.dirty(true);
-        expect(window.pageDirty.value).toBe(false);
+        expect(window.unsaved.value).toBe(false);
         window.select("x.notes.page");
         expect(window.page("x.notes.page").context).not.toBe(context);
     });
@@ -812,5 +812,76 @@ describe("层的说明（输出 13）", () => {
         expect(window.layerNotice.value).toEqual({kind: "invalid", path: created.projectFile, detail: expect.any(String)});
         window.setLayer("user");
         expect(window.layerNotice.value).toBeNull();
+    });
+});
+
+describe("设置文件视图（输出 23）：经远程合同整份读写，真实设置文件", () => {
+    it("“设置文件”是左栏固定的一项，编辑当前标签那一层；项目层带文件路径，用户层不带", async () => {
+        const {world: created, window} = await world();
+        window.openWindow({section: FILE_SECTION_ID});
+        expect(window.current.value).toMatchObject({kind: "file", id: FILE_SECTION_ID, title: "设置文件", layer: "user", path: null});
+        window.setLayer("project");
+        expect(window.current.value).toMatchObject({kind: "file", layer: "project", path: created.projectFile});
+    });
+
+    it("读出全文，整份写入原样落盘（注释与未声明的键保留），本窗口随即是新值", async () => {
+        const original = "// 我的设置\n{\n    \"nbook.workbench/theme\": \"nbook\",\n    \"other.plugin/kept\": 1\n}\n";
+        const {world: created, window} = await world({user: original});
+        const file = window.file("user")!;
+        const read = await file.read();
+        expect(read).toMatchObject({ok: true, text: original, exists: true});
+        if (!read.ok) return;
+        const next = original.replace("\"nbook\"", "\"macos\"").replace("// 我的设置", "// 改过了");
+        expect(await file.write(next, read.revision)).toMatchObject({ok: true, snapshot: {status: "ok"}});
+        expect(await readFile(created.userFile, "utf8")).toBe(next);
+        expect(window.editing.get(themeSetting)).toBe("macos");
+    });
+
+    it("别处改过为 conflict、文件不变；文本不合格为 invalid-text 带行列；只改注释也通知修订号", async () => {
+        const {world: created, window} = await world({user: "{\"nbook.workbench/theme\": \"nbook\"}"});
+        const file = window.file("user")!;
+        const read = await file.read();
+        if (!read.ok) throw new Error("应能读出");
+        const revisions: string[] = [];
+        const stop = file.watch((revision) => revisions.push(revision));
+        await waitUntil("订阅先推当前修订号", () => revisions.length > 0);
+        expect(revisions[0]).toBe(read.revision);
+        await writeFile(created.userFile, "// 别处加了注释\n{\"nbook.workbench/theme\": \"nbook\"}");
+        await waitUntil("只改注释也通知", () => {
+            created.clock.advance(RELOAD_DELAY_MS);
+            return revisions.length > 1;
+        });
+        stop();
+        expect(await file.write("{}", read.revision)).toMatchObject({ok: false, code: "conflict"});
+        const fresh = await file.read();
+        if (!fresh.ok) throw new Error("应能读出");
+        expect(await file.write("{\n  \"a\": 1\n  \"b\": 2\n}", fresh.revision)).toEqual({ok: false, code: "invalid-text", detail: expect.stringContaining("第 3 行"), position: {line: 3, column: 3}});
+        expect(await readFile(created.userFile, "utf8")).toBe("// 别处加了注释\n{\"nbook.workbench/theme\": \"nbook\"}");
+    });
+
+    it("层文件无效时经它修好：说明消失、控件恢复；项目层同样", async () => {
+        const {window} = await world({user: "{\"nbook.workbench/theme\": ", project: "[]"});
+        window.openWindow({section: "nbook.appearance"});
+        expect(window.layerNotice.value?.kind).toBe("invalid");
+        for (const layer of ["user", "project"] as const) {
+            const file = window.file(layer)!;
+            const read = await file.read();
+            if (!read.ok) throw new Error("应能读出");
+            expect(await file.write("{\"nbook.workbench/theme\": \"macos\"}", read.revision)).toMatchObject({ok: true, snapshot: {status: "ok"}});
+        }
+        expect(window.layerNotice.value).toBeNull();
+        window.setLayer("project");
+        expect(window.layerNotice.value).toBeNull();
+        expect(window.editing.get(themeSetting)).toBe("macos");
+    });
+
+    it("设置文件视图报了未保存：离开它先确认，同 page 页面", async () => {
+        const {window} = await world();
+        window.openWindow({section: FILE_SECTION_ID});
+        window.fileDirty(true);
+        window.select("nbook.appearance");
+        expect(window.leaving.value).toEqual({kind: "section", id: "nbook.appearance"});
+        window.confirmLeave();
+        expect([window.section.value, window.unsaved.value]).toEqual(["nbook.appearance", false]);
     });
 });

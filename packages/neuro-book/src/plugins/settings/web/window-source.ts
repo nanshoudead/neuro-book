@@ -21,7 +21,7 @@ import type {SettingDefinition, SettingLayer, SettingWriteResult} from "nbook/sh
 import type {InstanceLayerState, SettingsInstance} from "../shared/instance";
 import {userEditProblem} from "../shared/layers";
 import type {DeclaredSetting, LayerEdit} from "../shared/layers";
-import type {LayerEditor} from "../shared/remote-link";
+import type {LayerEditor, LayerFile} from "../shared/remote-link";
 import type {ChoiceSourceRegistry} from "./choices";
 import type {SettingsPageDelivery, SettingsPageLoad, SettingsSectionEntry, SettingsSectionRegistry} from "./sections";
 
@@ -50,6 +50,11 @@ export interface SettingsWindowSource {
     edit(key: string, layer: SettingLayer, value: unknown): Promise<SettingWriteResult>;
     /** 从这一层删掉这个键（恢复默认、移除本作品的设置）。 */
     unset(key: string, layer: SettingLayer): Promise<SettingWriteResult>;
+    /**
+     * 整份读写这一层的设置文件（设置文件视图）；窗口没有绑定作品时没有项目层，为 undefined。整份写成功返回时本窗口已应用
+     * 写后的层快照。
+     */
+    file(layer: SettingLayer): LayerFile | undefined;
 }
 
 export const settingsWindowSourceKey: ServiceKey<SettingsWindowSource> = defineServiceKey<SettingsWindowSource>("nbook.settings/window-source");
@@ -60,6 +65,7 @@ export interface SettingsWindowSourceOptions {
     readonly declarations: ReadonlyMap<string, DeclaredSetting>;
     /** 窗口没有绑定作品时没有项目层。 */
     readonly editors: {readonly user: LayerEditor; readonly project?: LayerEditor};
+    readonly files: {readonly user: LayerFile; readonly project?: LayerFile};
     readonly instance: SettingsInstance;
 }
 
@@ -94,6 +100,19 @@ export function createSettingsWindowSource(options: SettingsWindowSourceOptions)
         options: () => options.choices.sources,
         edit: (key, layer, value) => write(key, layer, {kind: "set", value}),
         unset: (key, layer) => write(key, layer, {kind: "delete"}),
+        file: (layer) => {
+            const file = options.files[layer];
+            if (file === undefined) return undefined;
+            return {
+                read: () => file.read(),
+                write: async (text, revision) => {
+                    const result = await file.write(text, revision);
+                    if (result.ok) options.instance.accept(layer, result.snapshot);
+                    return result;
+                },
+                watch: (onRevision) => file.watch(onRevision),
+            };
+        },
     };
 }
 

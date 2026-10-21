@@ -39,22 +39,24 @@ export async function resolveTarget(path: string): Promise<LayerTarget> {
     }
 }
 
-export type ReadLayer = {readonly ok: true; readonly text: string} | {readonly ok: false; readonly detail: string};
+export type ReadLayer = {readonly ok: true; readonly text: string; readonly exists: boolean} | {readonly ok: false; readonly detail: string};
 
-/** 读文件文本：不存在（含悬空链接）为空文本；其它读取错误给出原因，由拥有者把层记为无效。 */
+/** 读文件文本：不存在（含悬空链接）为空文本、`exists` 为假；其它读取错误给出原因，由拥有者把层记为无效。 */
 export async function readLayerFile(path: string): Promise<ReadLayer> {
     try {
-        return {ok: true, text: await readFile(path, "utf8")};
+        return {ok: true, text: await readFile(path, "utf8"), exists: true};
     } catch (error) {
-        if (errno(error) === "ENOENT" || errno(error) === "ENOTDIR") return {ok: true, text: ""};
+        if (errno(error) === "ENOENT" || errno(error) === "ENOTDIR") return {ok: true, text: "", exists: false};
         return {ok: false, detail: `无法读取：${describe(error)}`};
     }
 }
 
-/** 由当前文本算出新文本；不能写时给出原因（例如文件当前无效），原样作为写入失败交回。 */
-export type Transform = (current: string) => {readonly ok: true; readonly text: string} | {readonly ok: false; readonly code: string; readonly detail: string};
+/** 由当前文本算出新文本；不能写时给出原因（例如文件当前无效），原样作为写入失败交回，带上的其它字段（例如出错位置）也照交。 */
+export type Transform = (current: string) => {readonly ok: true; readonly text: string} | TransformFailure;
 
-export type WriteLayer = {readonly ok: true; readonly text: string} | {readonly ok: false; readonly code: string; readonly detail: string};
+export type TransformFailure = {readonly ok: false; readonly code: string; readonly detail: string; readonly position?: {readonly line: number; readonly column: number}};
+
+export type WriteLayer = {readonly ok: true; readonly text: string} | TransformFailure;
 
 /**
  * 写一层：`transform` 在取锁前调用一次，持锁后每次重做时再各调用一次，必须是当前文本的纯函数。失败码 `write-failed`

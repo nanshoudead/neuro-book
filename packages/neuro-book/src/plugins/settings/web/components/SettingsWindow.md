@@ -5,7 +5,7 @@
 
 # SettingsWindow
 
-设置窗口（[`settings/settings-window.md`](../../../../../../../docs/specs/settings/settings-window.md)）：非模态的浮动窗口，左栏列出分区，右边一次显示一个分区；绑定作品的窗口在左栏上方有“用户 | 本作品”两个标签。它是窗口模型（`settings-window.ts` 的 `SettingsWindow`）的呈现：开着与否、当前分区与标签、尺寸、左栏、当前分区的视图、层的说明都从模型读，用户的操作交回模型的方法。list 分区交给 [`SettingsListSection`](SettingsListSection.md)，page 分区交给 [`SettingsPageFrame`](SettingsPageFrame.md)。模型由 `nbook.settings` 的窗口入口持有，组件挂在页面根上（工作台的页面浮层），每个浏览器页面一份。
+设置窗口（[`settings/settings-window.md`](../../../../../../../docs/specs/settings/settings-window.md)）：非模态的浮动窗口，左栏列出分区，右边一次显示一个分区；绑定作品的窗口在左栏上方有“用户 | 本作品”两个标签。它是窗口模型（`settings-window.ts` 的 `SettingsWindow`）的呈现：开着与否、当前分区与标签、尺寸、左栏、当前分区的视图、层的说明都从模型读，用户的操作交回模型的方法。list 分区交给 [`SettingsListSection`](SettingsListSection.md)，page 分区交给 [`SettingsPageFrame`](SettingsPageFrame.md)，左栏最后固定的“设置文件”交给 [`SettingsFileView`](SettingsFileView.md)。模型由 `nbook.settings` 的窗口入口持有，组件挂在页面根上（工作台的页面浮层），每个浏览器页面一份。
 
 ## 布局
 
@@ -25,7 +25,7 @@
 - 左栏：点一项切换分区；焦点在左栏时上下键切到上一个、下一个可用分区，Home、End 到首尾，焦点跟着走；左栏是一个 Tab 停靠点（当前项）。
 - 标签：点“用户”“本作品”切换编辑哪一层；page 页面不重建，只拿到新的层。
 - 拖动调整尺寸：松开时把新的宽、高交给模型记住。
-- 层的说明：当前标签那一层文件无效时写“设置文件有错误，修好前这里不能保存”与文件路径（层快照带路径时），连不上时写“暂时连不上，不能保存”；层恢复后自动消失。
+- 层的说明：当前标签那一层文件无效时写“设置文件有错误，修好前这里不能保存”、文件路径（层快照带路径时）与“打开设置文件”（切到设置文件视图），连不上时写“暂时连不上，不能保存”；层恢复后自动消失。
 
 ## 数据
 
@@ -38,7 +38,7 @@ type Props = {
 };
 ```
 
-没有 emits、slots、expose；attrs 落在 Dialog 的面板上。正文根带 `data-settings-window`，左栏条目带 `data-settings-nav`（分区 id），当前项另带 `data-settings-nav-current`，组间分隔线带 `data-settings-nav-separator`，搜索框带 `data-settings-search`，搜索结果里的页面一组带 `data-settings-page-hits`、每条带 `data-settings-page-hit`（分区 id），没有命中的一句带 `data-settings-no-results`，标签分段带 `data-settings-tabs`，层的说明带 `data-settings-layer-notice`（`invalid` 或 `unavailable`），右边的区域带 `data-settings-section`（分区 id），分区在当前标签下不可用的原因带 `data-settings-unavailable`。
+没有 emits、slots、expose；attrs 落在 Dialog 的面板上。正文根带 `data-settings-window`，左栏条目带 `data-settings-nav`（分区 id），当前项另带 `data-settings-nav-current`，组间分隔线带 `data-settings-nav-separator`，搜索框带 `data-settings-search`，搜索结果里的页面一组带 `data-settings-page-hits`、每条带 `data-settings-page-hit`（分区 id），没有命中的一句带 `data-settings-no-results`，层的说明里“打开设置文件”带 `data-settings-open-file`，标签分段带 `data-settings-tabs`，层的说明带 `data-settings-layer-notice`（`invalid` 或 `unavailable`），右边的区域带 `data-settings-section`（分区 id），分区在当前标签下不可用的原因带 `data-settings-unavailable`。
 
 ## 状态
 
