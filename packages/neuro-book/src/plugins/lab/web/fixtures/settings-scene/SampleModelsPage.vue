@@ -177,6 +177,14 @@ async function writeNow(setting: SettingDefinition<unknown>, value: unknown): Pr
     padding: 0 var(--space-2) var(--space-2);
 }
 
+/* 窄的窗口（手机宽度的画布）：窗口的左栏与内容改成上下、由外层一起滚动（SettingsWindow 的同一档），页面不再自己滚。 */
+@container (max-width: 600px) {
+    .sample-models {
+        height: auto;
+        overflow: visible;
+    }
+}
+
 .sample-models__more {
     display: flex;
     flex-direction: column;

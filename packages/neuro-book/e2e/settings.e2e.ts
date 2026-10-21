@@ -423,7 +423,7 @@ test("设置文件视图：看到带注释的全文，改主题后 Ctrl+S 保存
     await text.press("Control+s");
     await expect.poll(() => readFile(userFile(), "utf8")).toBe(next);
     await expect.poll(() => html(page, "data-nb-theme")).toBe("macos");
-    await expect(page.locator("[data-settings-file-actions]")).toHaveCount(0);
+    await expect(page.locator("[data-settings-file-actions]").getByRole("button", {name: "保存"})).toBeDisabled();
 
     await writeFile(userFile(), "{\"nbook.workbench/theme\": \"nbook\",,}");
     await expect(text).toHaveValue("{\"nbook.workbench/theme\": \"nbook\",,}");
@@ -450,7 +450,7 @@ test("Lab“模型服务”：打开时才激活；加一家服务商没填好�
         await expect(items).toHaveText(["DeepSeek", "本地 Ollama"]);
         // 第一个“添加”是服务商列表的，详情里“模型”列表另有一个。
         await models.locator("[data-nb-list-add]").first().click();
-        await expect(page.locator("[data-sample-models-actions]")).toBeVisible();
+        await expect(page.locator("[data-sample-models-actions]").getByRole("button", {name: "保存"})).toBeEnabled();
         await page.locator("[data-sample-models-actions]").getByRole("button", {name: "保存"}).click();
         await expect(page.locator("[data-sample-models-failure]")).toContainText("还没保存");
         const detail = models.locator("[data-nb-detail]");
@@ -460,7 +460,7 @@ test("Lab“模型服务”：打开时才激活；加一家服务商没填好�
         await detail.getByLabel("超时").fill("30");
         await detail.getByLabel("超时").blur();
         await page.locator("[data-sample-models-actions]").getByRole("button", {name: "保存"}).click();
-        await expect(page.locator("[data-sample-models-actions]")).toHaveCount(0);
+        await expect(page.locator("[data-sample-models-actions]").getByRole("button", {name: "保存"})).toBeDisabled();
         await expect(items).toHaveText(["DeepSeek", "本地 Ollama", "OpenAI"]);
 
         await detail.getByLabel("名称").fill("OpenAI 官方");
