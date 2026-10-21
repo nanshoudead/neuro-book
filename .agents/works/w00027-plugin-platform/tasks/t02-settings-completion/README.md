@@ -66,8 +66,16 @@ S4（`a7bff4c77`，Spec 在 master `3573e2620`）：搜索（输出 21）与未�
 
 S5（`2ee1bb80f`，Spec 在 master `e48c2f74f`）：设置文件视图。两份设置远程合同升到版本 2，加 `readText`、`writeText` 与 `text` 事件，调用方核对同用户编辑；拥有者整份写在写入队列与锁里以磁盘当前文本为准，修订号是原始文本的 SHA-256，对不上为 `conflict`、不合格为 `invalid-text` 带行列，只改注释也推 `text`；新失败码 `read-failed`、`conflict`、`invalid-text`；`layer-text.ts` 从 `backend/` 挪到 `shared/`（Lab 内存层用同一套解析与编辑）；窗口左栏插件组最后固定“设置文件”，`SettingsFileView` 编辑当前标签那一层，层无效的说明加“打开设置文件”。验证：`layer-owner.test.ts` 新增 6 例（真实文件）、`window.test.ts` 新增 5 例（经远程合同版本 2）、`SettingsWindow.dom.test.ts` 新增 4 例、`layer-text.test.ts` 补行列；`smoke:server` 9 个场景通过（S9 发版本 2 帧，验整份读与冲突）；“冲突核对”“有改动时只提示”“Esc 后的 Tab”“单键写入也通知文本”四处变异都被拦下。偏离计划：层快照的 `invalid` 说明没有另带位置（远程合同的快照形状不变，位置只在整份写的失败里给）；搜索把“设置文件”当一个页面命中（按标题、说明与 settings.json）。跑受影响的 Vitest 时 `SnippetsPage.dom.test.ts` 的“本作品”一例在整批负载下失败过一次，单独跑三次、整批再跑两次都通过，没有抓到现场；那条测试直接挂页面组件，不经这次改动的窗口模型。
 
+S7（`e4d6061a4`）：Lab“模型服务”做成 page 分区的样板。`providers`（对象数组，只允许用户层）用 nb-form 的左列表右详情编辑，草稿加“保存/放弃改动”，按值与已保存的值比较报 `context.dirty`；`defaultModel` 的选项来自同一插件的选项提供者 `example.models.models`；入口按 `onSettingsPage`、`onSettingsChoices` 按需激活。`apiKey`、`models` 改为可选（本地服务不用密钥）。过程中的发现：草稿原来是深层的 `ref`，交给配置服务写时是 Vue 代理，结构化复制抛错、保存失败却没有任何提示（未处理的 reject）；改用浅层 `ref`。验证：`SettingsWindow.dom.test.ts` 新增 4 例；`settings.e2e.ts` 新增 3 例（真实应用里 `Ctrl+F` 搜索并改值、设置文件视图 `Ctrl+S` 保存与修好改坏的文件；Lab“模型服务”的保存被拒、保存成功与确认离开，确认框弹出时焦点在“继续编辑”）。
+
+截图时发现并修正（`6e7616438`）：设置文件保存出错写成“第 3 行第 5 列：第 3 行：CommaExpected”，行号重复、原因是英文错误码；解析模块改给中文原因，整份写的 `invalid-text` 详情只带原因、位置另给；层快照的说明随之是“第 N 行：<中文原因>”。
+
+收口验证（合入 master 之后的 Work 分支）：类型检查；应用 Bun 1593 例、Vitest 396 例；nb-form 96 加 80 例；`docs:check`、`governance:check` 无失败；全量 e2e 255 例里 254 例通过，失败的是 `editor-area.e2e.ts`“重新打开回到上次的光标”（Work README 记过的负载下偶发失败），单独重跑三次都通过。截图：`.local/agent/works/w00027-plugin-platform/tasks/t02-settings-completion/reports/impl-shots/`（新场景两种主题 × 浅、深 × 自由画布、手机，48 张，没有溢出与页面错误；`page-fill` 有一处输入框的焦点环在边上差 0.4–1.7px；`flows/` 是真实浏览器里点出来的搜索、确认框、设置文件出错与动态选项的状态）。
+
+实现审查（2026-10-21 启动）：omp 审后端、合同与窗口模型，Sonnet 审界面，说明与报告在上面那个 `reports/` 目录；处理结果待补。
+
 推送备份没有做：Work 分支领先 `origin/master` 656 个提交，含别的会话在本地 master 上还没推送的提交，推这个分支会把它们一起发出去，留给开发者决定。
 
 ## 下一步
 
-S7（Lab“模型服务”与 e2e）；之后收口验证与实现审查（[plan.md](plan.md)“切片”）。
+处理实现审查（omp、Sonnet），修正单独提交；之后向开发者一次汇报，等开发者审查与追认待确认清单。
