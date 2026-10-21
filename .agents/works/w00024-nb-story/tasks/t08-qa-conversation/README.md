@@ -1,21 +1,47 @@
 ---
 schema: nbook.task/v2
 taskId: t08-qa-conversation
-status: planned
-updated: 2026-10-16
+status: active
+updated: 2026-10-21
 ---
 
-# nb-story 问答连续对话
+# nb-story 问答连续对话与可选的 answer
 
 ## 目标与范围
 
-`ask` 现在一问一个 Agent、一个会话（[`story/qa.md`](../../../../../docs/specs/story/qa.md) 输出 1），不能追问。本 Task 让一次对话由若干轮组成，后一轮在前一轮的会话上继续，为网页问答页的连续对话打底。排期在网页问答页之前或同时。
+`ask` 现在一问一个 Agent、一个会话（[`story/qa.md`](../../../../../docs/specs/story/qa.md) 输出 1），不能追问；而且必须用收尾工具 `answer` 交结构化答案，问“你好”这类不需要查书的话也会被提醒两次后以 `no_answer` 失败。本 Task 让一次对话由若干轮组成，后一轮在前一轮的会话上继续，并让模型可以直接用文字回复；为网页问答页（t13）打底。
 
-合同：改 [`story/qa.md`](../../../../../docs/specs/story/qa.md)（`planned`）；网页问答页再改 `story/viewer.md` 的“不做问答”。
+合同：改 [`story/qa.md`](../../../../../docs/specs/story/qa.md) 与 [`story/cli-skill.md`](../../../../../docs/specs/story/cli-skill.md)（`ask --continue`、`qa` 的显示）；网页由 t13 改 `story/viewer.md`。
+
+## 决定
+
+开发者 2026-10-21 定：
+
+1. 不强制模型交结构化答案：`answer` 留作可选工具，模型也可以直接用文字回复（`nbstory ask 你好` 是这次的例子）。
+2. 做连续对话；网页问答页另起 t13，本 Task 先做引擎与命令行。
+3. 回归不重跑，只做真实模型冒烟（问“你好”、一段两轮的指代追问）。
 
 ## 当前状态
 
 - 2026-10-16：开发者定“ask 连续对话”加入后续排期，经 nbdev 新建，尚未开工。
+- 2026-10-21：开工，范围扩大到可选的 `answer`（决定 1 到 3）；[plan.md](plan.md) 开发者确认（`eeae3671d`），qa.md 的 planned 条目（`96cef9e1b`）。
+- 2026-10-21：omp 设计审查，有效发现 8 条（阻断 1、重要 5、建议 2），报告 [evidences/design-review.txt](evidences/design-review.txt)（前半是审查者自己撤回的候选，以文末“有效发现索引”为准）。都成立，计划与 Spec 已改：
+  - A（阻断）记录与会话日志靠两次改名重写，第二次失败就留下旧记录配新日志：每轮写新的日志文件，记录指向它（文件名加摘要），只靠记录那一次改名发布；临时文件名每次唯一。
+  - B `length` 也可能没有文字：`stop`、`length` 都按去掉空白后的文字判，没有文字为 `no_answer`。
+  - C 坏日志能骗过逐行解析、直到发请求才出错：记录存日志摘要，续问先比对，不符为 `qa_not_continuable`；不在 nb-harness 加消息结构校验。
+  - D 文字回复让回归脚本在 `answer.evidence` 上抛错：`qa-eval.ts` 认得 `reply`。
+  - E 续问时章数上限有两个来源（快照里的提示词与当前配置）：记录存对话开始时的上限，续问用它。
+  - F 验收 14 的顺序跑不出来（交卷即结束）：拆成三种走法。
+  - G 补稀疏段与全读的跨轮负例（验收 17）。
+  - H planned 说明把“中断”挤出了状态表：挪到表后。
+- 2026-10-21：开发者确认修订后的计划，开始实现。worktree 合上 master 后：
+  - 切片 1 nb-session（`0d3fa3244`）：`createMemorySessionLog` 可以带着存下的条目开始，导出 `parseEntryLine`。
+  - 切片 2 到 4 合成一个提交（`5d47c119f`）：记录、引擎、命令行互相依赖，分开提交时中间的提交过不了类型检查。对话记录与成对发布、账本跨轮、结束方式与文字回复、`ask --continue`、`qa` 按对话显示、Profile 版本 2。
+  - 回归脚本认得文字回复（master `b87011e74`）：只做了语法检查，没有专门的测试（计划里写的“解析段的确定性 smoke”没做，它是 Task 脚本、没有可单独调用的入口）。
+  - 验证：nb-session 19 个测试、nb-story 336 个测试，类型检查通过。全量跑时 `cli/config.test.ts` 有 1 个超时（5 秒），机器负载约 20；主工作区没改过的代码上同样超时，放宽到 30 秒就过，不是这次的改动。新加的“按轮计数”“稀疏段分开存”两条做过变异检查。
+  - 真实模型冒烟第一次：`ask 你好` 在约 170 秒后得到渠道的 524（Cloudflare 超时），之后 `config test` 也是 `upstream_error`，渠道不可用。
+  - 渠道恢复后重跑（gpt-6-luna xhigh，样例书，独立书库），输出在 [evidences/smoke/](evidences/smoke/)：`ask 你好` 6 秒得到文字回复，已答；`ask "苏天晴是谁？" --at 30` 用 `answer` 交卷（读第 1、2 章，40 秒）；`--continue` 问“她后来呢？”接住指代，仍用 `answer` 交卷，出处都在 30.92 以前，这一轮新读 12 章，60 秒。`qa` 列出两轮，书目录里每个对话只剩记录指向的那一份日志。剧情题仍走 `answer`，但只看了两题，答对率没有回归验证。
+  - omp 实现审查进行中。
 
 ## 要先定的事（2026-10-16 会话里列出，待设计时给开发者）
 
@@ -28,4 +54,4 @@ updated: 2026-10-16
 
 ## 下一步
 
-排期到时：读 t05 的引擎与回归，写 Spec 改动与 `plan.md`，要点先给开发者看。
+写 Spec 改动与 `plan.md`，要点先给开发者看，再交 omp 设计审查。

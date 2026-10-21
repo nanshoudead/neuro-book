@@ -166,8 +166,8 @@ type SettingWriteResult = {ok: true} | {ok: false; code: SettingsFailure; detail
 ### 整份读写
 
 24. **设置文件的全文**：两份远程合同（版本 2）另有 `readText`、`writeText` 与事件 `text`，给设置窗口的“设置文件”视图（[`settings.window`](settings-window.md) 输出 23）。调用方核对同用户编辑（输出 19）：只接受 `nbook.settings` 自己、没有经过代理的请求，别的一律 `denied`。
-    - `readText() → {text, revision, exists}`：这一层文件的原始文本；`revision` 是原始文本（UTF-8）的 SHA-256 十六进制，与层快照的修订号无关；文件不存在时 `exists` 为假、`text` 为空串。文件存在但读不了为 `read-failed`。
-    - `writeText({text, revision}) → {revision, snapshot}`：在拥有者的写入队列与写入锁里，以磁盘上的当前文本为准：当前文本的修订号不是 `revision` 为 `conflict`，文件不变；`text` 按读取的检查不过（语法错误、根不是对象、任意深度的重复键）为 `invalid-text`，失败详情带 `position: {line, column}`（从 1 起，BOM 不算，列按 UTF-16 码元），文件与快照不变。通过后原样写入（注释、格式、未声明的键都照 `text`），不合 schema 或本层不允许的键照写、按输出 5 丢弃并列入问题；成功带回新的修订号与写后的层快照。层 `invalid` 时照样可以写，这是修好文件的路。写盘失败同输出 14。
+    - `readText() → {text, revision, exists}`：这一层文件的原始文本；`revision` 是文件原始字节的 SHA-256 十六进制，与层快照的修订号无关；文件不存在时 `exists` 为假、`text` 为空串、`revision` 是空字节的摘要。文件存在但读不了，或不是合法的 UTF-8，为 `read-failed`（替换字符写回去会改掉用户文件里的字节）。
+    - `writeText({text, revision}) → {revision, snapshot}`：在拥有者的写入队列与写入锁里，以磁盘上的当前文本为准：当前文件原始字节的摘要不是 `revision` 为 `conflict`，文件不变；`text` 按读取的检查不过（语法错误、根不是对象、任意深度的重复键）为 `invalid-text`，失败详情的 `detail` 是不带位置的中文原因、另带 `position: {line, column}`（从 1 起，BOM 不算，列按 UTF-16 码元），文件与快照不变。通过后原样写入（注释、格式、未声明的键都照 `text`），不合 schema 或本层不允许的键照写、按输出 5 丢弃并列入问题；成功带回新的修订号与写后的层快照。层 `invalid` 时照样可以写，这是修好文件的路。写盘失败同输出 14。
     - 事件 `text`：订阅先推一次当前文本的修订号，之后原始文本变了就推（监视到的外部修改与本拥有者的任何写入），只改注释、格式也推；层快照照旧只在内容变了时发布（输出 10）。
 
 ## 状态与转换
