@@ -648,7 +648,8 @@ describe("Lab“模型服务”：page 分区的草稿、未保存保护与动�
         const {host} = await scene("page-fill");
         await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
         await pick("本地 Ollama");
-        const before = providers(host)!;
+        // 配置服务给的是只读值，写回去要一份可改的。
+        const before = host.service("example.models").get(modelsSettings.providers).map(({models, ...rest}) => ({...rest, ...(models === undefined ? {} : {models: [...models]})}));
         await host.service("example.models").update(modelsSettings.providers, [{id: "other", name: "别处加的", baseUrl: "https://example.com", timeout: 10}, ...before], {layer: "user"});
         await flushPromises();
         expect(listTitles()).toEqual(["常规", "别处加的", "DeepSeek", "本地 Ollama"]);
