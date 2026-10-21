@@ -30,7 +30,7 @@
 
 依赖方向变成 `components → composables → utils`，`utils/` 不导入 `composables/` 与 `components/`。`SearchSelect` 是表单控件，留在 `form/`，改从 `popup/` 导入 `SuggestionMenu`。
 
-其余跟着改：`components/index.ts` 的导出路径（导出名不变）；playground 的验收夹具与 `components.test.ts`、`Dialog.test.ts` 的导入；`token-consumption.test.ts` 豁免名单里的路径；Spec [`workbench/quick-open.md`](../../../../../docs/specs/workbench/quick-open.md) 里 `QuickPick.vue`、`QuickPick.test.ts` 的链接（只改路径，随这一片在分支上改，否则分支上 `docs:check` 报断链）。Lab 组件索引按目录分类，这些组件在 Lab 导航里从原分类挪到 popup；Lab 夹具按组件名取组件，不受影响。
+其余跟着改：`components/index.ts` 的导出路径（导出名不变）；playground 的验收夹具与 `components.test.ts`、`Dialog.test.ts` 的导入；`src/lab/sources.ts` 用 glob 取 `components/**`，新目录自动进去，不用改；`token-consumption.test.ts` 豁免名单里的路径；Spec [`workbench/quick-open.md`](../../../../../docs/specs/workbench/quick-open.md) 里 `QuickPick.vue`、`QuickPick.test.ts` 的链接（只改路径，随这一片在分支上改，否则分支上 `docs:check` 报断链）。Lab 组件索引按目录分类，这些组件在 Lab 导航里从原分类挪到 popup；Lab 夹具按组件名取组件，不受影响。
 
 这一片只搬文件和改导入路径，不改任何逻辑。拆文件时函数体原样搬，后面几片的 diff 才干净。
 
@@ -53,13 +53,17 @@ useMenuCascade<T>(options: {
 }
 ```
 
-- `rootKeydown`：右方向键、Enter、空格落在父项（`aria-haspopup="menu"`）上时，预约把焦点移进新展开的那一级。`rootRoving` 为 true 时另处理上下键、Home、End，焦点停在第一级面板本身时上下键从首末项开始（与 `levelKeydown` 同一套）。`expectKeyboardOpen` 不再导出。
+- `rootKeydown`：右方向键、Enter、空格落在父项（`aria-haspopup="menu"`）上时，预约把焦点移进新展开的那一级，不消费这几个键（展开由 MenuNodes 或 reka 做）。`rootRoving` 为 true 时另处理上下键、Home、End（只对这四个键 `preventDefault`），焦点停在第一级面板本身时上下键从首末项开始（与 `levelKeydown` 同一套）。两个处理函数都不碰 Tab、Escape，不调 `stopPropagation`：右键菜单的 Tab、Escape 由 `ContextMenu.vue` 在 document 上的监听处理，reka 的由 reka 处理。`expectKeyboardOpen` 不再导出。
+- 第一级面板（“焦点停在面板本身”的那个元素）按 `rootLevel()?.closest("[role='menu']")` 取：右键菜单是外观层 `div[role=menu]`，DropdownMenu、Menubar 是 reka 的菜单内容。
+- 挂载位置：右键菜单的 `rootKeydown` 挂在外观层 `div[role=menu]` 上，不挂在包住所有面板的外层定位元素上（级联面板在外层里，挂在外层会让同一事件处理两次）；DropdownMenu、Menubar 照旧在 reka 菜单内容上用 `@keydown.capture` 挂，在 reka 自己的处理之前预约焦点。三个入口的 `levelKeydown` 都挂在各级 `MenuLevelPanel` 根上。
 - 找展开项一律 `:scope > [aria-expanded='true']`（只认这一级的直接子项）。三个入口的 `rootLevel`：DropdownMenu 是一级滚动视口（`scroll.viewport`），Menubar 是打开着的那组的 `[data-menubar-level]` 视口，右键菜单是根里的 `.nb-menu-level-content`。三处的条目都是容器的直接子元素。
 - 入口里删掉：`ContextMenuPanel` 的 `onKeydown`、`itemsIn`、`focusNewLevel` 监听与 `collapseBelow`；`DropdownMenu`、`Menubar` 的 `collapseBelow`、`onContentKeydown`。右键菜单的键盘改为第一级挂 `rootKeydown`、每一级面板挂 `levelKeydown`，与另两个入口一样（面板与第一级外观层是兄弟，事件不会处理两次）。
 - 外部判定：`DropdownMenu.keepOpenForCascade` 与 `Menubar.keepOpen` 里“目标在级联面板里”的判断改调 `cascade.contains`；两处各自取事件目标的写法与 Menubar 另两条理由（退场中的组、按在组标题上）留在原处。
 - 行为变化（有意的统一，t01 已定）：右键菜单在父项上按 Enter、空格展开子菜单后，焦点也跟进新的一级（现在只有右方向键会）。
 
 `utils/element-of.ts`：`elementOf(target: unknown): HTMLElement | null`，模板 ref 拿到组件实例时取它的 `$el`。`usePopupScroll.setViewport`、`useMenuCascade.setPanel`、`DropdownMenu` 的两个 ref、`ContextMenu.setMenuRef` 改用它；`measureCascadePanel` 收到的已经是元素，删掉它里面那一处解包。
+
+悬停延迟的定时器随 `useMenuCascade` 的组件卸载取消（`onBeforeUnmount`），待执行的焦点预约一起作废：现在三个入口在首次悬停的 300ms 内整个卸载时，回调仍会去量已经不在的面板。这条不补测试，要等真实的 300ms 才能观察。
 
 `measureCascadePanel` 按 `rectScale` 换算：量到的矩形是窗口像素，写回的 `top`、`left`、`width`、`height` 是面板所在坐标系的 CSS 像素，两者在页面或祖先有 CSS `zoom` 时不等；窗口宽高同样换算。比例取级联面板自己的（它没有入场缩放，只有 `zoom` 会让比例不等于 1）。
 
@@ -75,7 +79,7 @@ export function moveRoving<T>(items: readonly T[], current: number, move: Roving
 ```
 
 - `moveRoving` 就是现在的 `moveHighlight`，参数改成泛型加判定函数，元素列表与数据列表都能用。不加“到端停住”的选项：现在的使用方都循环。
-- 改用它的：`QuickPick`、`SearchSelect`（现在用 `moveHighlight`），`useMenuCascade` 的 `rootKeydown`、`levelKeydown`，`Tabs`（horizontal）、`SegmentedControl`（both）。各组件特有的门槛留在原处：QuickPick 的 Ctrl、Cmd 加 Home、End 留给输入框，SegmentedControl 只有一项时不处理。
+- 改用它的：`QuickPick`、`SearchSelect`（现在用 `moveHighlight`），`useMenuCascade` 的 `rootKeydown`、`levelKeydown`，`Tabs`（horizontal）、`SegmentedControl`（both）。各组件认哪些键、有什么门槛留在原处，不因为 `rovingMove` 认得更多键而扩大：SearchSelect 只认上下键（不调 `rovingMove`，直接传 `next`、`prev`；Home、End 留给输入框移光标），QuickPick 的 Ctrl、Cmd 加 Home、End 留给输入框，SegmentedControl 只有一项时不处理；Tabs、SegmentedControl 现在不看修饰键，照旧。
 - Tabs、SegmentedControl 不换 reka 的 `RovingFocusGroup`：它们是“选中跟随焦点”，`RovingFocusGroup` 只移焦点，换过去要另接选中，改动面大于收益。
 - 行为变化（边界）：Tabs 的当前值不对应任何标签时，右方向键现在跳到第二个标签（`Math.max(0, -1)` 当成第一个再加一），改后从第一个开始，与 SegmentedControl 一致。记进待确认清单。
 
@@ -98,7 +102,12 @@ slots: label（替换整个名称格）、lead（左列里的内容，Select 的
 ```
 
 - 多根（几个并列的 `span`），不继承属性。
-- 使用方：`MenuNodes` 的两个分支（`item`、`item-right` 插槽照旧转给宿主，`data-menu-shortcut` 照旧挂在 hint 上，e2e 用它）、`Select`（名称格用 `SelectItemText`）、`SuggestionMenu`、`QuickPick`（名称格画命中片段）。
+- 插槽替换的是整格，与 `MenuNodes` 现在 `item`、`item-right` 插槽的语义相同（DropdownMenu 公开的 `item` 插槽是“自定义条目主体”，替换整个名称格；`item-right` 替换右侧那格）。不写插槽时 `MenuRow` 画默认的格，格上的类（`__icon`、`__label`、`__hint`、`__chevron`）由它给。`submenu` 时只画箭头，不调用 `right` 插槽。
+- 四个使用方的接线（改后 DOM 与现在逐个元素相同，例外见第一项）：
+  - `MenuNodes` 两个分支：宿主给了 `item` 插槽就转进 `label`，给了 `item-right` 就转进 `right`；没给就不传，用默认格。现在 hint 格上的 `data-menu-shortcut` 只有 e2e `popup-lists` 一处在用（全仓查过），e2e 改按 `.nb-ui-menu-item__hint` 找，属性删掉；这是改后 DOM 与现在唯一的不同。
+  - `Select`：`label` 插槽里放 `<SelectItemText class="nb-ui-menu-item__label">`，与现在相同。`SelectItemText` 要在 `SelectItem` 的内容树里挂载，向它登记文字，键入首字母跳转（typeahead）靠这个；`MenuRow` 放在 `SelectItem` 里面，插槽内容仍在它的内容树里。补一条 typeahead 单测。状态点进 `lead` 插槽。
+  - `QuickPick`：`label` 插槽画带命中片段的名称格；快捷键 `Kbd` 进 `trailing`。
+  - `SuggestionMenu`：默认格；行尾的勾进 `trailing`。
 - 各列表的“留不留左列”仍在列表里算：四处规则不同（Select 要画勾就留，MenuNodes 看勾选项与图标，另两个只看图标），合成一个函数要带开关，不比现在清楚。
 - 外观不变：四个列表的 DOM 结构与类名和现在一一对应，用截图对照确认。
 
@@ -106,7 +115,8 @@ slots: label（替换整个名称格）、lead（左列里的内容，Select 的
 
 - 删掉 `POPOVER_INLINE_BOX_SHADOW`、`POPOVER_INLINE_BACKDROP_FILTER`、`popoverInlineSurfaceStyle` 与文件末尾的待定注释。
 - `Select` 的浮层只绑 `zIndex` 与宽度，`ColorSwatches` 只绑 `zIndex`；材质来自它们已经挂着的 `.nb-ui-popover-surface .nb-ui-menu-surface`（两者的浮层都挂着这两个类）。
-- `token-consumption.test.ts` 的浮层材质规则：理由里删掉“或 `usePopoverLayer.ts` 里登记的内联材质”，规则同时禁 `boxShadow:` 内联。
+- `token-consumption.test.ts` 的浮层材质规则：理由里删掉“或 `usePopoverLayer.ts` 里登记的内联材质”。不加 `boxShadow:` 的禁条：`Dialog.vue` 标题栏、底栏的滚动分隔线合法地内联了 `boxShadow`，它们不是浮层材质。
+- `Select.vue`、`ColorSwatches.vue` 头注释里“另有一份内联材质”的说明一并删掉，改成“材质来自两个类，层级来自 `usePopoverLayer`”。
 - 外观变化（已定的后果）：Select 与 ColorSwatches 的投影改用主题的 `--elevation-menu`、模糊改用 `--overlay-blur`，与 DropdownMenu 一致。
 
 ## Spec 与文档改动
@@ -136,13 +146,16 @@ slots: label（替换整个名称格）、lead（左列里的内容，Select 的
 |---|---|
 | 搬目录不改行为 | S1 前后 nb-ui 单测与 e2e 原样通过 |
 | 三个入口的级联键盘：展开后焦点进第一项、上下循环、左方向键收起回父项 | 现有 `DropdownMenu.test.ts`、`ContextMenu.test.ts` 原样通过；`components.test.ts` 补 Menubar 一例（现在没有） |
-| 右键菜单在父项上按 Enter 展开后焦点进第一项 | `ContextMenu.test.ts` 补一例（先在改前确认它失败） |
+| 父项上按 Enter、空格展开子菜单，焦点进它的第一项，父项不发 select | `ContextMenu.test.ts`：第一级父项 Enter、空格各一例（改前应失败）；`DropdownMenu.test.ts`：reka 一级父项 Enter、空格各一例，手工级联里的父项 Enter 一例 |
+| 右键菜单改挂载后 Tab、Escape 关闭照旧 | 现有 `ContextMenu.test.ts`“关闭原因”一例补“焦点在子菜单项上时” |
+| 焦点停在面板本身时上下键从首末项开始 | `ContextMenu.test.ts` 补第一级面板与级联面板各一例 |
+| Select 的首字母跳转 | `components.test.ts` 的 Select 部分补一例（MenuRow 接线前后都应通过） |
 | 父级滚动收起子菜单，焦点回展开项 | e2e `popup-scroll` 的“级联：父级滚轮或拖滑块时收起”“右键菜单的长子菜单”原样通过 |
 | 页面有 CSS `zoom` 时级联面板贴着父项、尺寸不缩 | `popup-scroll.spec.ts` 新增一条：`zoom: 0.8` 下展开子菜单，面板首项与父项同一行、左边贴父级右边加间隙（先在改前确认它失败） |
 | 漫游函数 | `utils/roving.test.ts`：循环、跳过禁用、起点不在可用项、无可用项、各方向的按键（`components.test.ts` 里 `moveHighlight` 的用例移过来） |
 | Tabs、SegmentedControl、QuickPick、SearchSelect 键盘不变 | 现有单测原样通过；Tabs 补“当前值不对应标签时右方向键到第一个” |
 | 行的外观不变 | e2e `popup-lists` 的尺寸与勾、快捷键断言原样通过；Lab 截图对照无差异 |
-| 浮层材质只走类 | `token-consumption.test.ts` 规则收紧；Select 浮层的计算样式 `box-shadow` 等于 DropdownMenu 的（e2e `popup-lists` 补一条） |
+| 浮层材质只走类 | e2e `popup-lists` 补一条：Select、ColorSwatches 的浮层与 DropdownMenu 的 `background-color`、`backdrop-filter`、`box-shadow`、`border` 计算值逐项相等（ColorSwatches 的内边距是有意的差异，不比）；ColorSwatches 不在验收夹具里，补进 `PopupListsFixture` |
 
 ## 验证
 

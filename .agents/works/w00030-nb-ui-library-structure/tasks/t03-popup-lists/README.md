@@ -15,10 +15,12 @@ updated: 2026-10-21
 
 ## 当前状态
 
-2026-10-21 新建；开发者要求用 autonomous-delivery 推进。实施计划 [plan.md](plan.md) 已写，交 omp 做计划审查。
+2026-10-21 新建；开发者要求用 autonomous-delivery 推进。实施计划 [plan.md](plan.md) 已写。
+- 计划审查（omp 默认模型，11 条：重要 9、建议 2）与处理见 [evidences/design-review.txt](evidences/design-review.txt)：9 条成立、已改计划，1 条半不成立。
+- 改前截图：Lab 里 8 个弹出列表组件的打开态，两主题 × 明暗共 68 张（`/tmp/t03/shots/before/`，脚本 `/tmp/t03/shots/popup-shots.mjs` 只截浮层所在区域）；同一提交截两遍逐像素相同。
 
 - worktree：`.worktree/w00030-t03-popup-lists`，分支 `refactor/w00030-t03-popup-lists`
 
 ## 下一步
 
-处理计划审查，然后按计划 S1 到 S5 实施。
+按计划 S1 到 S5 实施。

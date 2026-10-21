@@ -1,0 +1,163 @@
+# w00030 t03 弹出列表零件设计审查
+
+## 问题
+
+### 1. **严重程度**：重要；**类别**：正确性
+**位置**：计划第 37–59 行；`packages/nb-ui/src/components/feedback/ContextMenuPanel.vue:103-150`；`packages/nb-ui/src/components/controls/MenuLevelPanel.vue:23-35`
+
+**现象**：计划把 `rootLevel` 定义成“第一级的条目容器”，右键菜单实际对应 `.nb-menu-level-content`，但“焦点停在第一级面板本身时从首末项开始”又要求识别外层 `role="menu"`。这两个元素不是同一个元素：右键菜单的 `role="menu"` 在 `.nb-menu-level-content` 的父层；级联面板则是自己的 `role="menu"`，其条目容器仍是内部 `.nb-menu-level-content`。计划没有提供 root panel ref，也没有规定 `rootKeydown` 从 `rootLevel` 如何找到并区分这两个焦点容器。
+
+**为什么是问题**：照字面把 `rootKeydown` 挂到 `rootLevel`，焦点落在右键菜单的 `role="menu"` 时不会命中“面板本身”分支，ArrowUp/ArrowDown/Home/End 会失效。若为覆盖它继续挂回当前外层 `.pointer-events-none` 根节点，该根节点同时包住第一级和所有级联面板，级联面板的 keydown 又会冒泡到它，`rootKeydown` 与 `levelKeydown` 会处理同一事件，违反计划第 58 行“不会处理两次”的前提。
+
+**如何核实**：静态 DOM 关系为 `ContextMenuPanel.root > [role=menu] > .nb-menu-level-content`，以及同一 `root` 下并列的 `MenuLevelPanel[role=menu]`；当前根上的 `@keydown` 正因这个关系同时覆盖两类节点。用真实 DOM 将焦点分别置于右键根菜单、级联面板本身和级联条目，按 ArrowDown/ArrowLeft，记录处理次数与焦点去向。
+
+**建议改法**：把 root panel 作为独立的 composable 参数或明确的派生规则（例如 `rootPanel: () => HTMLElement | null`，而 `rootLevel` 只负责 `:scope >` 找条目），`rootKeydown` 只挂在 root panel，`levelKeydown` 只挂在每个 `MenuLevelPanel` 根；不要挂在包住所有面板的外层。为“焦点在面板本身”补右键根菜单和级联面板两条真实事件测试。
+
+### 2. **严重程度**：重要；**类别**：正确性
+**位置**：计划第 45–60 行；`packages/nb-ui/src/components/controls/DropdownMenu.vue:91-95,148-170`；`packages/nb-ui/src/components/controls/Menubar.vue:103-107,127-155`；`packages/nb-ui/src/components/feedback/ContextMenu.vue:41-49`
+
+**现象**：当前 DropdownMenu、Menubar 的 `@keydown.capture` 明确在 Reka 内容处理前预约 `expectKeyboardOpen()`；计划只写“第一级挂 `rootKeydown`”，没有保留 `.capture` 的要求，也没有规定 `rootKeydown` 对 Enter/Space、ArrowRight、Tab、Escape 是否 `preventDefault` 或 `stopPropagation`。右键菜单还依赖 document 冒泡监听处理 Escape 与 Tab。
+
+**为什么是问题**：实现若把 root handler 改成普通冒泡监听，可能与 Reka 内容的 keydown 处理顺序反转；实现若为复用漫游逻辑而在 root handler 统一 `preventDefault`/`stopPropagation`，会阻断原语的 Enter/Space 选择或 ContextMenu 的 document Escape/Tab 关闭。计划的“改成两处挂载”不是只改监听位置，还改变了事件路径，必须把 Reka 的 capture 顺序和 document 监听边界写成合同。
+
+**如何核实**：读取 Reka `MenuContentImpl.vue` 的根 `@keydown="handleKeyDown"`、现有 nb-ui 内容上的 `@keydown.capture`，以及 `ContextMenu.vue` 在 document 上的 keydown 监听；真实运行时分别按 Dropdown/Menubar 顶层父项的 Enter、Space、ArrowRight，以及右键菜单根项和级联项的 Tab、Escape，检查是否展开/关闭、默认行为和焦点。
+
+**建议改法**：在计划中明确 DropdownMenu、Menubar 的 `rootKeydown` 仍以 capture 方式挂载且只预约焦点，不消费 Reka 负责的键；ContextMenu 的 root/level handler 不处理 Tab/Escape、不调用 `stopPropagation`，由 document 监听关闭。把 Enter 与 Space 各写一条真实测试，不只依赖现有 ArrowRight 测试。
+
+### 3. **严重程度**：重要；**类别**：测试
+**位置**：计划第 66–80、133–145 行；`packages/nb-ui/src/components/form/SearchSelect.vue:157-171`；`packages/nb-ui/src/components/form/SearchSelect.test.ts:75-89`
+
+**现象**：`SearchSelect` 当前只在 ArrowUp/ArrowDown 分支调用 `moveHighlight`，Home/End 不会移动高亮。计划把它列入 `moveRoving` 五个使用方，却只明确保留 QuickPick 的 Ctrl/Cmd Home/End 门槛，没有说明 SearchSelect 的“仅上下键”门槛。新 `rovingMove(key, "vertical")` 按计划第 71 行会认 Home/End。
+
+**为什么是问题**：按计划最自然的接线会让 SearchSelect 新增 Home/End 导航，超出“Tabs 边界之外行为不变”的已声明行为变化；反过来，若实现者自行加门槛，纯函数测试也无法证明调用方没有把 Home/End 放进去。现有 SearchSelect 单测只覆盖 ArrowDown/ArrowUp，不会抓住这个回归。
+
+**如何核实**：挂载 SearchSelect，打开列表后向输入框派发 Home、End、带 Ctrl/Cmd 的 Home/End，比较 activeId、`aria-activedescendant` 与事件是否被消费；对照当前 `onKeydown` 分支。
+
+**建议改法**：二选一并写入计划：保留 SearchSelect 当前仅上下键的行为，在调用方只把 ArrowUp/Down 映射成 `RovingMove`；或明确把 Home/End 列为新的行为变化并更新组件合同。无论选哪种，都补 SearchSelect 的真实键盘测试；同时把 QuickPick 的 Ctrl/Cmd Home/End 和 Tabs、SegmentedControl 的修饰键行为列成调用方门槛。
+
+### 4. **严重程度**：重要；**类别**：测试
+**位置**：计划第 56、60、137–140 行；`packages/nb-ui/src/components/feedback/ContextMenu.test.ts:60-75`；`packages/nb-ui/src/components/controls/DropdownMenu.test.ts:77-110`
+
+**现象**：计划为右键菜单新增“父项 Enter 展开”一例，但级联合同同时要求 Enter 与 Space；现有 DropdownMenu 测试只用 ArrowRight 展开，ContextMenu 测试只用 ArrowRight 进入子菜单，现有 Enter 测试是在子项上选择，不是父项展开。`popup-lists` e2e 也只覆盖悬停、上下和 ArrowLeft，没有 Enter/Space 展开路径。
+
+**为什么是问题**：实现漏掉 Space、或只在 Reka 顶层保留 Enter/Space 而右键/手工级联漏掉其中一个，现有验收仍会通过。Space 还涉及原生 button 的默认 click 与 `focusNewLevel` 预约时序，不能用 ArrowRight 的覆盖替代。
+
+**如何核实**：真实运行时对 DropdownMenu、Menubar、ContextMenu 的顶层级联父项和级联级父项分别派发 Enter、Space，断言父项不 select、子菜单出现且焦点落在第一项；再对非级联叶子确认 Enter/Space 仍选择。
+
+**建议改法**：把三入口的 Enter/Space 展开矩阵加入 S2 验收，至少覆盖右键根级、Dropdown/Menubar Reka 一级、手工级联一级；ContextMenu 的 document Escape/Tab 测试保留并确认新 handler 不截断事件。
+
+### 5. **严重程度**：重要；**类别**：测试
+**位置**：计划第 82–103、138–145 行；`packages/nb-ui/src/components/form/Select.vue:225-238`；`node_modules/reka-ui/src/Select/SelectItem.vue:144-182`；`node_modules/reka-ui/src/Select/SelectItemText.vue:23-61`
+
+**现象**：计划只用文字说明“Select 名称格用 `SelectItemText`”，但 `MenuRow` 是多根组件、label 又是可替换 slot。Reka 的 Select typeahead 不是由 `textValue` 单独保证：`SelectItemText` 还要在 `SelectItem` 提供的上下文中挂载，并通过 `onItemTextChange`/collection 注册文本。现有 Select 代码正是把 `SelectItemText` 放在每个 `SelectItem` 的内容树中。
+
+**为什么是问题**：照字面有多种接线方式，其中一种把 `SelectItemText` 放在 `MenuRow` 外部或让默认 label span 取代它，视觉仍正确、`SelectItem` 仍有 `text-value`/label 文本，但 typeahead 注册会丢失或读到空文本。现有 Select 单测和计划的尺寸/截图验收都不验证 typeahead，因此会把 Reka 上游的隐含前提变成静默回归。
+
+**如何核实**：真实挂载 Select，打开列表后输入某选项首字母，检查高亮/焦点是否跳到对应项；同时检查每个 `SelectItem` 内存在带 `reka-select-item-text` 语义 id 的文本节点，并对多根 `MenuRow` 的 Select 接线运行该场景。
+
+**建议改法**：S4 明确 Select 的唯一接线形状：`SelectItem` 内必须由 `#label` slot 渲染 `SelectItemText`，`MenuRow` 不得吞掉或替换该组件；把 typeahead 加入 Select 的真实组件测试。若希望 API 不能被误用，考虑把 label cell 抽成由调用方包住 `SelectItemText` 的专用插槽，而不是允许 Select 传普通 `label` 字符串。
+
+### 6. **严重程度**：重要；**类别**：正确性
+**位置**：计划第 25–35、112–131 行；`packages/nb-ui/src/components/token-consumption.test.ts:124-127`；`packages/nb-ui/src/components/feedback/Dialog.vue:376,404`
+
+**现象**：计划要求把材质规则“同时禁 `boxShadow:` 内联”，但现有规则扫描整个组件目录，现有 `Dialog.vue` 的 header/footer 滚动分隔线也使用 `:style="{boxShadow: ...}"`。计划没有给这两个非浮层分隔线加例外，也没有把规则范围收窄到浮层根节点或材质属性。
+
+**为什么是问题**：照字面加入 `boxShadow` 正则，S5 的 `token-consumption.test.ts` 会把 Dialog 的合法滚动分隔线当成浮层材质违规；若为让检查通过把 Dialog 的两条线一并改成类或删除，则扩大了 F43 范围并改变现有行为。测试门禁和产品样式合同会互相冲突。
+
+**如何核实**：在当前规则上加入 `\bboxShadow\s*:` 的红翻转，扫描结果至少包含 `feedback/Dialog.vue:376` 与 `feedback/Dialog.vue:404`；对照它们只给 header/footer 分隔线、不在 `.nb-ui-popover-surface` 上。
+
+**建议改法**：规则只禁浮层根的材质内联，或为 Dialog 的两条分隔线建立明确、带理由的精确豁免；不要把“所有 box-shadow 内联”当作 F43 的等价条件。验收同时保留 Dialog 滚动分隔线测试。
+
+### 7. **严重程度**：重要；**类别**：测试
+**位置**：计划第 31–35、124–131 行；`packages/neuro-book/src/plugins/lab/web/inspect.dom.test.ts:139-150`
+
+**现象**：计划的搬迁清单列了 playground、`components.test.ts`、`Dialog.test.ts` 和 Lab 按目录分类，但没有列 Lab 检视测试。该测试把 Select 的源码路径写死为 `packages/nb-ui/src/components/form/Select.vue`；搬到 `components/popup/Select.vue` 后，组件本身可以正常挂载，检视测试仍会按旧路径失败。
+
+**为什么是问题**：这是搬目录的直接消费者，不是 legacy，也不是仅供说明的历史文本。S1 的“typecheck、单测”会在 neuro-book 侧暴露失败，但计划的 S1 自跑验证只写 nb-ui 单测、neuro-book typecheck，没有把这条 Lab 单测列入迁移清单，后续实现者容易漏改或误以为 Lab 只按组件名取模块。
+
+**如何核实**：运行该测试或静态核对断言 `componentFile`；同步检查 `inspect.dom.test.ts` 中其它 nb-ui 路径断言是否也按目录硬编码。
+
+**建议改法**：把 `packages/neuro-book/src/plugins/lab/web/inspect.dom.test.ts` 加入 S1 路径迁移清单，断言改成 `packages/nb-ui/src/components/popup/Select.vue`。同时明确 `src/lab/sources.ts` 是 glob 自动取新目录、`component-index.ts` 不需要人工维护组件名单，避免只改表面分类而漏掉路径断言。
+
+### 8. **严重程度**：建议；**类别**：文档
+**位置**：计划第 31、112–119 行；`docs/proposals/workbench-commands.md:119`；`packages/nb-ui/src/components/form/Select.vue:19-25`；`packages/nb-ui/src/components/form/ColorSwatches.vue:44-45`
+
+**现象**：全仓路径核对还发现活动提案 `docs/proposals/workbench-commands.md:119` 仍直接引用 `packages/nb-ui/src/components/form/option-highlight.ts`；计划只列 `docs/specs/workbench/quick-open.md` 的 QuickPick 链接。S5 删除实现后，Select 与 ColorSwatches 源码注释也仍说明“浮层另有内联材质”，而计划只要求删除 `usePopoverLayer.ts` 末尾注释和更新规范。
+
+**为什么是问题**：提案路径会变成断链/过时事实；源代码注释会在 F43 完成后反向教后来者继续添加第二份材质。`docs:check` 未必覆盖提案中的所有路径，不能把它当作已覆盖证据。
+
+**如何核实**：执行全仓路径搜索（排除 `neuro-book-legacy`）并阅读以上三处；改动后再次检查旧路径和“内联材质待定”文字为零或有明确历史说明。
+
+**建议改法**：S1 把提案链接加入路径迁移表；S5 同步删除/改写 Select、ColorSwatches 的实现注释及仍描述待定内联材质的文档，只保留“材质来自两个 CSS 类、层级来自 usePopoverLayer”的事实。
+
+### 9. **严重程度**：重要；**类别**：测试
+**位置**：计划第 105–110、145–150 行；`packages/nb-ui/src/styles.css:196-207,252-257`；`packages/nb-ui/src/components/form/Select.vue:205-242`；`packages/nb-ui/src/components/form/ColorSwatches.vue:150-161`
+
+**现象**：S5 的验收只有“Select 浮层计算样式 `box-shadow` 等于 DropdownMenu”一条 e2e 加两主题截图；没有断言 `backdrop-filter`、背景色，也没有对 ColorSwatches 的实际取色面板计算样式作等价验证。计划的合同却是“材质只来自 `.nb-ui-popover-surface .nb-ui-menu-surface`”，包含边框、背景、模糊和投影四类 CSS 属性。
+
+**为什么是问题**：只删内联 `boxShadow` 而遗漏 `backgroundColor`/`backdropFilter`，或只修 Select 漏掉 ColorSwatches，当前这条 box-shadow 断言都可能通过；截图差异也难定位是哪一条材质属性未收口。S5 的行为变化因此没有完整黑盒判据。
+
+**如何核实**：真实运行 DropdownMenu、Select、ColorSwatches 的浮层，读取四项计算样式并逐项比较；在浅色/深色主题下确认 `--elevation-menu` 与 `--overlay-blur` 的实际计算值来自类规则。
+
+**建议改法**：把“Select、ColorSwatches 与 DropdownMenu 的 background-color、backdrop-filter、-webkit-backdrop-filter、box-shadow、border 计算值一致”写成真实运行时验收；若 ColorSwatches 的 `[--menu-pad]` 是有意差异，只排除 padding，不排除材质属性。
+
+### 10. **严重程度**：重要；**类别**：不变量
+**位置**：计划第 25–35、37–60 行；`packages/nb-ui/src/components/feedback/menu-cascade.ts:14-35`；`packages/nb-ui/src/composables/useMenuCascade.ts:29-67`
+
+**现象**：计划把 `createSubmenuScheduler` 的定时器搬进 `useMenuCascade`，但没有增加卸载清理。当前 scheduler 用 `window.setTimeout`，`useMenuCascade` 只有 `reset`/`truncate` 时取消；组件或右键菜单在首次悬停的 300ms 内卸载时，待执行回调仍会进入 `open()`，而 composable 已不再有活跃宿主。
+
+**为什么是问题**：浮层关闭通常能走 `reset()`，但整棵组件卸载、路由切换或宿主条件渲染不保证先发关闭事件。遗留 timer 可能在卸载后改写 refs、触发 `nextTick` 和面板测量，造成幽灵展开、测试中跨用例状态或浏览器控制台诊断；把 scheduler 收进 composable 反而明确了它应由 composable 生命周期负责。
+
+**如何核实**：真实挂载 DropdownMenu、Menubar 或 ContextMenu，指针进入有子菜单的项后立即卸载宿主，等待 300ms 并观察 DOM、Vue 警告与定时器回调；静态核对 `useMenuCascade` 没有 `onBeforeUnmount`。
+
+**建议改法**：`useMenuCascade` 创建 scheduler 后注册 `onBeforeUnmount(() => scheduler.cancel())`，同时使待处理的 `focusNewLevel` 失效；加“悬停后立即卸载不再展开/不测量”的组件测试。不要把清理留给三个入口各自猜测。
+
+### 11. **严重程度**：建议；**类别**：代码质量
+**位置**：计划第 82–103 行；`packages/nb-ui/src/components/controls/MenuNodes.vue:105-140`；`packages/nb-ui/src/components/form/Select.vue:225-238`
+
+**现象**：`MenuRow` 的 slot 设计把 `label` 定义为“替换整个名称格”、`right` 定义为“替换 hint 格”，但没有给出四个调用方的精确接线形状，也没有说明旧的 `MenuNodes` `item`/`item-right` slot 是替换 cell 还是只替换 cell 内容。当前 `DropdownMenu` 的公开合同明确说 `item` 是自定义条目主体、`item-right` 在非 children 项上替换右侧内容。
+
+**为什么是问题**：直接把旧 `item` slot 塞进 `MenuRow` 的 `label` slot，若 `MenuRow` 再包一层名称 span，会多出 DOM；若为保持多根而让 slot 自己提供 class，又把原本由 `MenuNodes` 保证的 `.nb-ui-menu-item__label` 责任转给每个宿主。`item-right` 还必须在 children 时完全不调用。照计划文字可以写出多套 DOM，无法满足第 103 行“一一对应”且容易破坏已有 `#item` 合同。
+
+**如何核实**：用现有 `DropdownMenu.test.ts:252-273` 的 `#item` 场景和真实 e2e，逐项对照旧/新 DOM：名称格是否恰有一个 `.nb-ui-menu-item__label`、item-right 是否无额外包装、children 是否只显示 chevron；再检查 Select 的 `SelectItemText` 没被普通 label slot 取代。
+
+**建议改法**：在 S4 计划中给出唯一 DOM 适配规则：`MenuRow` 自己负责 cell 的 class，`label`/`right` slot 只提供 cell 内内容；`MenuNodes` 明确把旧 `item` 映射为 label 内容、旧 `item-right` 映射为 right 内容，并列出 children 分支不渲染 right；Select 另用专门的 `#label` 接线保留 `SelectItemText`。保留现有 `#item` 回归测试，不用截图替代结构合同。
+
+## 未发现问题的方面
+
+- 计划列出的 15 个弹出列表文件与当前目录事实相符：controls 5、feedback 7、form 1、layout 2；`menu-cascade.ts` 与 `option-highlight.ts` 是另两条应拆/搬的路径。
+- 三个 `rootLevel` 的“条目是直接子元素”陈述与当前模板相符：DropdownMenu 是 `scroll.viewport`，Menubar 是带 `data-menubar-level` 的 `PopupViewport`，ContextMenu 是 `.nb-menu-level-content`。问题在于这些容器与“面板本身焦点”不是同一元素，已在问题 1 单列。
+- `measureCascadePanel` 的 CSS zoom 风险判断有代码依据：现实现直接把 `getBoundingClientRect()` 的坐标/尺寸与 `window.innerWidth/innerHeight`、CSS padding 混算，而 `usePopupScroll.rectScale` 与现有 `popup-scroll.spec.ts` 的 `document.documentElement.style.zoom = "0.8"` 已证明仓库把屏幕矩形与 CSS 像素区分处理；计划要求迁移换算方向是对的，缺口是事件/验收细节而不是该判断本身。
+- Reka 菜单项的 `textValue` 通过 `MenuNodes` 显式传入，`MenuRow` 作为 slot 内容放进 `DropdownMenuItem`/`MenubarItem` 在机制上可行；Select 的 `SelectItemText` 也能通过 `SelectItem` 的 provide/inject 工作，问题是计划没有把唯一接线和 typeahead 验收写死。
+- Select 与 ColorSwatches 当前确实都挂有 `.nb-ui-popover-surface` 与 `.nb-ui-menu-surface`，F43 只删内联材质、保留层级/宽度的方向与代码结构一致。
+- 已用 `packages;docs` 范围核对旧路径；除报告列出的当前实现导入、QuickPick 文档链接、活动提案路径和 Lab 检视路径外，没有发现另一个独立包的旧路径导入。
+
+## 验证记录
+
+- `bun run --cwd packages/nb-ui typecheck`：通过，Nuxt prepare 与两次 `vue-tsc --noEmit` 均通过。
+- `bun run --cwd packages/nb-ui test`：35 个测试文件、532 个测试通过。
+- 按任务限制未运行 e2e，未启动开发服务；CSS zoom、真实键盘事件顺序、MenuRow typeahead 与浮层计算样式的浏览器核实已在对应问题的“如何核实”中列出。
+
+## 数量
+
+- 阻断：0
+- 重要：9
+- 建议：2
+
+---
+
+# 处理结果（主会话，2026-10-21）
+
+审查者：omp 默认模型，只读，一轮。11 条：重要 9、建议 2；成立 9 条（含第 8 条的一半），不成立 1 条半。
+
+1. 成立，改计划：第一级面板按 `rootLevel()?.closest("[role='menu']")` 取；右键菜单的 `rootKeydown` 挂在外观层 `div[role=menu]`，不挂在包住各级面板的外层；补“焦点停在面板本身”的两例测试。
+2. 成立，改计划：DropdownMenu、Menubar 照旧 `@keydown.capture`；两个处理函数不碰 Tab、Escape，不调 `stopPropagation`，只对上下键、Home、End `preventDefault`。
+3. 成立，改计划：SearchSelect 只认上下键，不调 `rovingMove`；各组件认哪些键留在原处。
+4. 成立，改计划：验收补 Enter、空格展开的矩阵（右键第一级、reka 一级、手工级联），以及焦点在子菜单项上时的 Tab、Escape。
+5. 成立，改计划：Select 的名称格由 `label` 插槽放 `SelectItemText`；补 typeahead 单测。
+6. 成立，改计划：不加 `boxShadow:` 禁条（Dialog 的滚动分隔线合法地内联了它），只改规则理由。
+7. 不成立：`inspect.dom.test.ts` 里的 `Select.vue` 路径是 `shortenFile`、`nodeReport` 的字符串样例，测试不读文件，搬目录不会失败。补进说明的依据：写明测试里的路径字面量是不是被当成真实文件读。
+8. 一半成立：Select、ColorSwatches 头注释里的内联材质说明随 S5 删掉（已写进计划）。提案 `workbench-commands.md` 第 119 行是当时的调研表，路径本就过时（`navigation/`、`Combobox.vue` 都已不存在），按规则已接受的提案不改正文，不改。
+9. 成立，改计划：e2e 逐项比 Select、ColorSwatches 与 DropdownMenu 的背景、模糊、投影、边框计算值；ColorSwatches 补进验收夹具。
+10. 成立，改计划：悬停定时器随组件卸载取消，焦点预约作废。不补测试：要等真实的 300ms 才能观察，按测试规范不用固定等待。
+11. 成立，改计划：写明插槽替换整格（与 `MenuNodes` 现有插槽语义相同）、默认格的类由 `MenuRow` 给，并逐个写出四个使用方的接线；`data-menu-shortcut` 只有 e2e 在用，改按类名找、属性删掉。
