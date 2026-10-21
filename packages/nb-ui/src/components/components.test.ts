@@ -20,14 +20,13 @@ import Notification from "./feedback/Notification.vue";
 import NotificationStack from "./feedback/NotificationStack.vue";
 import Popover from "./feedback/Popover.vue";
 import Tooltip from "./feedback/Tooltip.vue";
-import ContextMenu from "./feedback/ContextMenu.vue";
-import {clampMenuPosition, computeCascadePosition} from "./feedback/menu-cascade";
-import {moveHighlight} from "./form/option-highlight";
+import ContextMenu from "./popup/ContextMenu.vue";
+import {clampMenuPosition, computeCascadePosition} from "../utils/popup-geometry";
 import Checkbox from "./form/Checkbox.vue";
 import Field from "./form/Field.vue";
 import Input from "./form/Input.vue";
 import NumberInput from "./form/NumberInput.vue";
-import Select from "./form/Select.vue";
+import Select from "./popup/Select.vue";
 import RadioGroup from "./form/RadioGroup.vue";
 import Slider from "./form/Slider.vue";
 import Collapsible from "./layout/Collapsible.vue";
@@ -36,7 +35,7 @@ import Separator from "./layout/Separator.vue";
 import Splitter from "./layout/Splitter.vue";
 import type {SplitterGestureState} from "./layout/splitter-gesture";
 import Breadcrumb from "./navigation/Breadcrumb.vue";
-import Menubar from "./controls/Menubar.vue";
+import Menubar from "./popup/Menubar.vue";
 import CheckboxGroup from "./form/CheckboxGroup.vue";
 import Tree from "./navigation/Tree.vue";
 import {useNotification} from "../composables/useNotification";
@@ -211,6 +210,23 @@ describe("nb-ui components", () => {
         await buttons[0]!.trigger("keydown", {key: "ArrowLeft"});
         await buttons[0]!.trigger("keydown", {key: "ArrowRight"});
         expect(wrapper.emitted("update:modelValue")).toEqual([["phone"], ["free"]]);
+        wrapper.unmount();
+    });
+
+    it("segmented control: 上下键与左右键一样移动，Home、End 到首末项，跳过停用项并循环", async () => {
+        const options = [
+            {label: "随窗口", value: "free"},
+            {label: "平板", value: "tablet", disabled: true},
+            {label: "手机", value: "phone"},
+            {label: "桌面", value: "desktop"},
+        ];
+        const wrapper = mount(SegmentedControl, {props: {modelValue: "free", options}});
+        const root = wrapper.get("[role='radiogroup']");
+        for (const key of ["ArrowDown", "ArrowRight", "ArrowUp", "End", "Home", "ArrowLeft"]) {
+            await root.trigger("keydown", {key});
+            await wrapper.setProps({modelValue: wrapper.emitted<[string]>("update:modelValue")!.at(-1)![0]});
+        }
+        expect(wrapper.emitted("update:modelValue")).toEqual([["phone"], ["desktop"], ["phone"], ["desktop"], ["free"], ["desktop"]]);
         wrapper.unmount();
     });
 
@@ -402,6 +418,27 @@ describe("nb-ui components", () => {
             wrapper.unmount();
             });
 
+        it("打开后键入首字母，焦点跳到以它开头的选项（reka 靠名称格的 SelectItemText 登记文字）", async () => {
+            const wrapper = mount(Select, {
+                props: {
+                    modelValue: "md",
+                    options: [
+                        {label: "Markdown", value: "md"},
+                        {label: "Text", value: "txt"},
+                        {label: "PDF", value: "pdf"},
+                    ],
+                },
+                attachTo: document.body,
+            });
+            await wrapper.get("[role='combobox']").trigger("keydown", {key: "Enter"});
+            await flushPromises();
+            const focusedBefore = document.activeElement?.getAttribute("role");
+            document.querySelector("[role='listbox']")?.dispatchEvent(new KeyboardEvent("keydown", {key: "p", bubbles: true, cancelable: true}));
+            await flushPromises();
+            expect([focusedBefore, document.activeElement?.textContent?.trim()]).toEqual(["option", "PDF"]);
+            wrapper.unmount();
+        });
+
         it("takes every item's corner radius from the popover registry, not from an atom class", async () => {
             /*
              * 用户的原话是「他的宽度和圆角没有对齐」。根因是**同心不成立**：
@@ -532,6 +569,31 @@ describe("nb-ui new primitives", () => {
         await wrapper.setProps({modelValue: "b"});
         await tablist.trigger("keydown", {key: "ArrowRight"});
         expect(wrapper.emitted("update:modelValue")?.[1]).toEqual(["a"]);
+        wrapper.unmount();
+    });
+
+    it("tabs: 左方向键在首个标签上回绕到最后一个可用标签，Home、End 到首末可用标签", async () => {
+        const wrapper = mount(Tabs, {
+            props: {modelValue: "a", items: [{value: "a", label: "A"}, {value: "b", label: "B"}, {value: "c", label: "C", disabled: true}]},
+            attachTo: document.body,
+        });
+        const tablist = wrapper.get("[role='tablist']");
+        await tablist.trigger("keydown", {key: "ArrowLeft"});
+        await tablist.trigger("keydown", {key: "End"});
+        await tablist.trigger("keydown", {key: "Home"});
+        expect(wrapper.emitted("update:modelValue")).toEqual([["b"], ["b"], ["a"]]);
+        wrapper.unmount();
+    });
+
+    it("当前值不对应任何标签时，右方向键选第一个可用标签、左方向键选最后一个", async () => {
+        const wrapper = mount(Tabs, {
+            props: {modelValue: "", items: [{value: "a", label: "A"}, {value: "b", label: "B"}, {value: "c", label: "C", disabled: true}]},
+            attachTo: document.body,
+        });
+        const tablist = wrapper.get("[role='tablist']");
+        await tablist.trigger("keydown", {key: "ArrowRight"});
+        await tablist.trigger("keydown", {key: "ArrowLeft"});
+        expect(wrapper.emitted("update:modelValue")).toEqual([["a"], ["b"]]);
         wrapper.unmount();
     });
 
@@ -699,33 +761,6 @@ describe("nb-ui a11y round", () => {
         vi.useRealTimers();
     });
 
-});
-
-describe("nb-ui option highlight", () => {
-    const options = [{disabled: false}, {disabled: true}, {}, {disabled: true}, {}];
-
-    it("cycles forward and backward skipping disabled options", () => {
-        expect(moveHighlight(options, 0, "next")).toBe(2);
-        expect(moveHighlight(options, 2, "next")).toBe(4);
-        expect(moveHighlight(options, 4, "next")).toBe(0);
-        expect(moveHighlight(options, 0, "prev")).toBe(4);
-    });
-
-    it("starts from the edges when current is not enabled", () => {
-        expect(moveHighlight(options, -1, "next")).toBe(0);
-        expect(moveHighlight(options, -1, "prev")).toBe(4);
-        expect(moveHighlight(options, 1, "next")).toBe(0);
-    });
-
-    it("jumps to first and last enabled options", () => {
-        expect(moveHighlight(options, 2, "first")).toBe(0);
-        expect(moveHighlight(options, 2, "last")).toBe(4);
-    });
-
-    it("returns -1 when nothing is enabled", () => {
-        expect(moveHighlight([{disabled: true}, {disabled: true}], 0, "next")).toBe(-1);
-        expect(moveHighlight([], -1, "first")).toBe(-1);
-    });
 });
 
 describe("nb-ui notification clearAll", () => {

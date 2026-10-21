@@ -9,11 +9,12 @@ import {
 } from "reka-ui";
 import MenuLevelPanel from "./MenuLevelPanel.vue";
 import MenuNodes from "./MenuNodes.vue";
-import PopupScrollbar from "../layout/PopupScrollbar.vue";
+import PopupScrollbar from "./PopupScrollbar.vue";
 import {useMenuCascade} from "../../composables/useMenuCascade";
 import {usePopoverLayer} from "../../composables/usePopoverLayer";
 import {usePopupScroll} from "../../composables/usePopupScroll";
-import {toPopoverReference} from "../feedback/popover-anchor";
+import {elementOf} from "../../utils/element-of";
+import {toPopoverReference} from "./popover-anchor";
 import type {DropdownMenuItemData} from "./dropdown-menu.types";
 /**
  * 下拉菜单。浮层外观由 `.nb-ui-popover-surface` 与 `.nb-ui-menu-surface` 给出，滚动（截在第 9 项中间、悬浮滑块、
@@ -21,8 +22,8 @@ import type {DropdownMenuItemData} from "./dropdown-menu.types";
  *
  * 结构覆盖平面项、分隔线、任意层级子菜单与受控 radio / checkbox；
  * 一级菜单的键盘漫游（上下键、Home、End、首字母、跳过禁用项）与关闭后焦点归还由 Reka 菜单原语承担。级联面板是手工
- * 画的（在 Reka 的菜单内容之外，接不到它的菜单上下文）：键盘漫游、展开与收起由这里处理，面板里的指针与焦点也不算
- * “点了外部”，否则按下指针时菜单先关、点击落空。
+ * 画的（在 Reka 的菜单内容之外，接不到它的菜单上下文）：键盘漫游、展开与收起由 `useMenuCascade` 处理，面板里的指针与焦点
+ * 也不算“点了外部”，否则按下指针时菜单先关、点击落空。
  */
 
 const props = withDefaults(defineProps<{
@@ -84,27 +85,12 @@ function handleCascadeSelect(item: DropdownMenuItemData): void {
 
 /** 指针或焦点进了级联面板：在 Reka 看来是菜单内容之外，但它属于这个菜单。 */
 function keepOpenForCascade(event: Event): void {
-    const target = (event as CustomEvent<{originalEvent?: Event}>).detail?.originalEvent?.target ?? event.target;
-    if (target instanceof Node && cascade.panels.value.some((panel) => panel?.contains(target) === true)) event.preventDefault();
+    if (cascade.contains((event as CustomEvent<{originalEvent?: Event}>).detail?.originalEvent?.target ?? event.target)) event.preventDefault();
 }
-
-/** 一级菜单（Reka 内容）里，键盘在父项上展开子菜单（右方向键、Enter、空格）：焦点跟进新的一级。 */
-function onContentKeydown(event: KeyboardEvent): void {
-    const target = event.target;
-    if (target instanceof HTMLElement && target.getAttribute("aria-haspopup") === "menu" && ["ArrowRight", "Enter", " "].includes(event.key)) cascade.expectKeyboardOpen();
-}
-
-const contentEl = ref<HTMLElement | null>(null);
-function setContentRef(element: unknown): void {
-    const node = element && typeof element === "object" && "$el" in element ? (element as {$el?: unknown}).$el : element;
-    contentEl.value = node instanceof HTMLElement ? node : null;
-}
-
 
 const triggerRef = ref<HTMLElement | null>(null);
 function setTriggerRef(element: unknown): void {
-    const node = element && typeof element === "object" && "$el" in element ? (element as { $el?: HTMLElement }).$el : element;
-    triggerRef.value = node && typeof node === "object" && "getBoundingClientRect" in node ? (node as HTMLElement) : null;
+    triggerRef.value = elementOf(element);
 }
 const unscaledAnchor = computed(() => toPopoverReference(triggerRef.value));
 const {zIndex} = usePopoverLayer();
@@ -112,25 +98,12 @@ const scroll = usePopupScroll();
 const resolvedMenuClass = computed(() => [props.menuClass ?? "min-w-[160px]", props.wrap ? "max-w-[320px]" : ""]);
 
 
-const cascade = useMenuCascade<DropdownMenuItemData>();
-
-/**
- * 第 `depth` 级（0 为主菜单）滚动了：收起它展开的更深层级。焦点在被收起的层级里时回到展开它的那一项，
- * 不让焦点随面板一起消失。
- */
-function collapseBelow(depth: number): void {
-    if (cascade.levels.value.length <= depth) return;
-    const deeper = cascade.panels.value.slice(depth);
-    const focusInside = deeper.some((panel) => panel?.contains(document.activeElement) === true);
-    const level = depth === 0 ? contentEl.value : cascade.panels.value[depth - 1]?.querySelector(".nb-menu-level-content");
-    const trigger = level?.querySelector<HTMLElement>("[aria-expanded='true']") ?? null;
-    cascade.truncate(depth);
-    if (focusInside) trigger?.focus({preventScroll: true});
-}
+/** 一级菜单的条目直接放在滚动视口里；一级的键盘漫游归 reka。 */
+const cascade = useMenuCascade<DropdownMenuItemData>({rootLevel: () => scroll.viewport.value, rootRoving: false});
 
 function onMainScroll(): void {
     scroll.onScroll();
-    collapseBelow(0);
+    cascade.collapseBelow(0);
 }
 function warnMissingRadioGroup(items: readonly DropdownMenuItemData[]): void {
     for (const item of items) {
@@ -153,7 +126,6 @@ function scheduleSubmenu(item: DropdownMenuItemData | null, trigger: HTMLElement
 
         <DropdownMenuPortal v-if="props.open === undefined || props.open">
             <DropdownMenuContent
-                :ref="setContentRef"
                 position="popper"
                 :reference="unscaledAnchor"
                 :align="props.align"
@@ -166,7 +138,7 @@ function scheduleSubmenu(item: DropdownMenuItemData | null, trigger: HTMLElement
                 :style="{zIndex, ...props.popoverStyle}"
                 v-bind="props.contentProps"
                 @interact-outside="keepOpenForCascade"
-                @keydown.capture="onContentKeydown"
+                @keydown.capture="cascade.rootKeydown"
             >
                 <div
                     :ref="scroll.setViewport"
@@ -197,8 +169,8 @@ function scheduleSubmenu(item: DropdownMenuItemData | null, trigger: HTMLElement
                 :panel-style="{...level.style, zIndex: zIndex + depth + 1}"
                 :switching="level.switching"
                 :content-key="level.value"
-                @keydown="(event: KeyboardEvent) => cascade.levelKeydown(depth, event, contentEl)"
-                @scroll="collapseBelow(depth + 1)"
+                @keydown="(event: KeyboardEvent) => cascade.levelKeydown(depth, event)"
+                @scroll="cascade.collapseBelow(depth + 1)"
             >
                 <MenuNodes :items="level.value.children ?? []" :active="cascade.levels.value[depth + 1]?.value" :wrap="props.wrap" @select="handleCascadeSelect" @hover="(item, trigger, immediate) => scheduleSubmenu(item, trigger, depth + 1, immediate)" />
             </MenuLevelPanel>

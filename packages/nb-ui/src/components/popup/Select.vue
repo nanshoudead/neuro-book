@@ -10,11 +10,12 @@ import {
     SelectValue,
     SelectViewport,
 } from "reka-ui";
-import PopupScrollbar from "../layout/PopupScrollbar.vue";
-import {popoverInlineSurfaceStyle, usePopoverLayer} from "../../composables/usePopoverLayer";
+import MenuRow from "./MenuRow.vue";
+import PopupScrollbar from "./PopupScrollbar.vue";
+import {usePopoverLayer} from "../../composables/usePopoverLayer";
 import {usePopupScroll} from "../../composables/usePopupScroll";
 import {cn} from "../../utils/cn";
-import {useFieldContext} from "./field-context";
+import {useFieldContext} from "../form/field-context";
 
 /**
  * 下拉选择。弹出层基于 reka 的 Select 原语：键盘漫游、选中、打开时滚到选中项都由 reka 负责。
@@ -22,7 +23,7 @@ import {useFieldContext} from "./field-context";
  * - 选项是弹出列表共用的一行（`.nb-ui-menu-item`）：一档行高与字号，选中只画左侧勾选列的勾、底色不变；
  * - 滚动由 `usePopupScroll` 给出：截在第 9 项中间、顶底渐隐、悬浮滑块，可滚动时视口右侧给滑块让位；
  * - 外框按 reka 给的可用高度夹紧；与触发器相距 7px，避开触发器聚焦时的光圈；
- * - 浮层的内联材质（四层投影、8px 模糊）与 `.nb-ui-popover-surface` 不一致，见 `usePopoverLayer.ts`。
+ * - 浮层的材质只来自 `.nb-ui-popover-surface` 与 `.nb-ui-menu-surface` 两个类，这里只绑层级与宽度。
  */
 
 export type SelectSize = "default" | "sm";
@@ -123,11 +124,6 @@ const leadColumn = computed(() => !props.hideCheckmark || props.options.some((op
 function showsCheck(option: SelectOption): boolean {
     return !props.hideCheckmark && option.value === props.modelValue;
 }
-function leadClass(option: SelectOption): string | string[] {
-    if (showsCheck(option)) return "i-lucide-check";
-    if (option.iconClass && !option.indicatorClass) return [option.iconClass, "text-[var(--text-secondary)]"];
-    return "";
-}
 
 function handleUpdate(value: unknown): void {
     emit("update:modelValue", typeof value === "string" ? value : "");
@@ -135,7 +131,7 @@ function handleUpdate(value: unknown): void {
 
 const {zIndex} = usePopoverLayer();
 const popoverStyle = {
-    ...popoverInlineSurfaceStyle(zIndex),
+    zIndex,
     width: "var(--reka-select-trigger-width)",
     minWidth: "var(--reka-select-trigger-width)",
 };
@@ -230,11 +226,11 @@ function handleCloseAutoFocus(event: Event): void {
                         :disabled="option.disabled"
                         class="nb-ui-menu-item"
                     >
-                        <span v-if="leadColumn" class="nb-ui-menu-item__icon" :class="leadClass(option)" aria-hidden="true">
-                            <span v-if="option.indicatorClass && !showsCheck(option)" class="h-1.5 w-1.5 rounded-full shadow-sm" :class="option.indicatorClass"></span>
-                        </span>
-                        <SelectItemText class="nb-ui-menu-item__label">{{ option.label }}</SelectItemText>
-                        <span v-if="option.description" class="nb-ui-menu-item__hint">{{ option.description }}</span>
+                        <MenuRow :lead-column="leadColumn" :checked="showsCheck(option)" :icon="option.indicatorClass ? undefined : option.iconClass" muted-icon :hint="option.description">
+                            <template #lead><span v-if="option.indicatorClass && !showsCheck(option)" class="h-1.5 w-1.5 rounded-full shadow-sm" :class="option.indicatorClass"></span></template>
+                            <!-- 名称格必须是 reka 的 SelectItemText：它在 SelectItem 里登记文字，首字母跳转靠这个。 -->
+                            <template #label><SelectItemText class="nb-ui-menu-item__label">{{ option.label }}</SelectItemText></template>
+                        </MenuRow>
                     </SelectItem>
                 </SelectViewport>
 

@@ -87,6 +87,19 @@ describe("SearchSelect", () => {
         expect(highlighted()?.textContent).toBe("GPT-5");
     });
 
+    it("列表开着时 Home、End 留给输入框移光标：不消费、不移动高亮", async () => {
+        const wrapper = await mountSelect({modelValue: "claude"});
+        await input(wrapper).trigger("keydown", {key: "ArrowDown"});
+        await flushPromises();
+        for (const key of ["Home", "End"]) {
+            const event = new KeyboardEvent("keydown", {key, bubbles: true, cancelable: true});
+            input(wrapper).element.dispatchEvent(event);
+            await flushPromises();
+            expect(event.defaultPrevented).toBe(false);
+            expect(highlighted()?.textContent).toContain("Claude Opus");
+        }
+    });
+
     it("点击选项选中它；停用项点了不算", async () => {
         const wrapper = await mountSelect();
         await input(wrapper).trigger("click");

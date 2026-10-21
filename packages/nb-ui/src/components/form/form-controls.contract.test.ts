@@ -6,7 +6,7 @@ import {describe, expect, it} from "vitest";
 import Checkbox from "./Checkbox.vue";
 import Input from "./Input.vue";
 import NumberInput from "./NumberInput.vue";
-import Select from "./Select.vue";
+import Select from "../popup/Select.vue";
 
 describe("phase 2 form control contracts", () => {
     it("keeps Input numeric attributes, prefix slot and focus event", async () => {

@@ -1,8 +1,11 @@
 <script setup lang="ts" generic="T extends {label?: string; title?: string; disabled?: boolean; separator?: boolean; iconClass?: string; shortcut?: string; tone?: 'default' | 'danger'; checked?: boolean; type?: string}">
 import {computed, ref, type Component} from "vue";
+import {elementOf} from "../../utils/element-of";
+import MenuRow from "./MenuRow.vue";
 
 /**
- * 一级菜单的条目，DropdownMenu、Menubar 与右键菜单共用。行的外观是 `.nb-ui-menu-item` 一组类（`styles.css`）。
+ * 一级菜单的条目，DropdownMenu、Menubar 与右键菜单共用。行里的几格由 `MenuRow` 画，行的外观是 `.nb-ui-menu-item` 一组类
+ * （`styles.css`）；宿主的 `item`、`item-right` 插槽分别替换名称格与右侧那格。
  *
  * 在 reka 的菜单内容里，宿主传入对应的菜单项原语（`DropdownMenuItem`、`MenubarItem`）：条目成为 reka 集合里的项，
  * 上下键、Home、End、首字母跳转、高亮与跳过禁用项都由 reka 负责。手工级联面板与右键菜单不在 reka 的菜单内容里
@@ -50,14 +53,28 @@ function onKeydown(item: T, event: KeyboardEvent): void {
     const target = event.currentTarget as HTMLElement | null;
     if (!hasChildren(item) || event.key !== "ArrowRight" || !target || !("getBoundingClientRect" in target)) return;
     event.preventDefault();
+    // reka 的一级菜单（Menubar 的菜单内容）把冒泡上来的右方向键当成“切到下一组”，不看 defaultPrevented：展开了子菜单就不让它
+    // 再冒泡。宿主预约焦点的 rootKeydown 挂在 capture 上，已经先处理过；普通按钮项要冒泡给宿主的级联键盘，不拦。
+    if (props.itemComponent !== undefined) event.stopPropagation();
     target.setAttribute("aria-expanded", "true");
     emit("hover", item, target, true);
 }
+/**
+ * reka 菜单项的元素，按下标。reka 的 `select` 事件只交给监听者、没有在元素上派发，`currentTarget` 永远是 null，
+ * 展开子菜单要的父项元素只能从这里取。
+ */
+const rekaItems = new Map<number, HTMLElement>();
+function setRekaItem(index: number, element: unknown): void {
+    const node = elementOf(element);
+    if (node === null) rekaItems.delete(index);
+    else rekaItems.set(index, node);
+}
 /** reka 的选择（点击、Enter、空格）：级联父项阻止默认的关闭，改为展开下一级。 */
-function onRekaSelect(item: T, event: Event): void {
+function onRekaSelect(item: T, index: number, event: Event): void {
     if (hasChildren(item)) {
         event.preventDefault();
-        emit("hover", item, event.currentTarget as HTMLElement, true);
+        const trigger = rekaItems.get(index);
+        if (trigger !== undefined) emit("hover", item, trigger, true);
         return;
     }
     emit("select", item);
@@ -105,18 +122,19 @@ function common(item: T): Record<string, unknown> {
         <component
             :is="itemComponent"
             v-else-if="itemComponent"
+            :ref="(element: unknown) => setRekaItem(index, element)"
             v-bind="common(item)"
             :disabled="item.disabled"
             :text-value="item.label"
-            @select="onRekaSelect(item, $event)"
+            @select="onRekaSelect(item, index, $event)"
             @pointerenter="emit('hover', hasChildren(item) ? item : null, $event.currentTarget as HTMLElement, false)"
             @mouseenter="emit('hover', hasChildren(item) ? item : null, $event.currentTarget as HTMLElement, false)"
             @keydown="onKeydown(item, $event)"
         >
-            <span v-if="leadColumn" :class="['nb-ui-menu-item__icon', item.checked ? 'i-lucide-check' : item.iconClass]" aria-hidden="true"></span>
-            <slot name="item" :item="item"><span class="nb-ui-menu-item__label">{{ item.label }}</span></slot>
-            <span v-if="hasChildren(item)" class="i-lucide-chevron-right nb-ui-menu-item__chevron" aria-hidden="true"></span>
-            <slot v-else name="item-right" :item="item"><span v-if="item.shortcut" class="nb-ui-menu-item__hint" data-menu-shortcut>{{ item.shortcut }}</span></slot>
+            <MenuRow :label="item.label" :lead-column="leadColumn" :checked="item.checked === true" :icon="item.iconClass" :hint="item.shortcut" :submenu="hasChildren(item)">
+                <template #label><slot name="item" :item="item" /></template>
+                <template #right><slot name="item-right" :item="item" /></template>
+            </MenuRow>
         </component>
         <button
             v-else
@@ -133,10 +151,10 @@ function common(item: T): Record<string, unknown> {
             @click="onButtonClick(item, $event)"
             @keydown="onKeydown(item, $event)"
         >
-            <span v-if="leadColumn" :class="['nb-ui-menu-item__icon', item.checked ? 'i-lucide-check' : item.iconClass]" aria-hidden="true"></span>
-            <slot name="item" :item="item"><span class="nb-ui-menu-item__label">{{ item.label }}</span></slot>
-            <span v-if="hasChildren(item)" class="i-lucide-chevron-right nb-ui-menu-item__chevron" aria-hidden="true"></span>
-            <slot v-else name="item-right" :item="item"><span v-if="item.shortcut" class="nb-ui-menu-item__hint" data-menu-shortcut>{{ item.shortcut }}</span></slot>
+            <MenuRow :label="item.label" :lead-column="leadColumn" :checked="item.checked === true" :icon="item.iconClass" :hint="item.shortcut" :submenu="hasChildren(item)">
+                <template #label><slot name="item" :item="item" /></template>
+                <template #right><slot name="item-right" :item="item" /></template>
+            </MenuRow>
         </button>
     </template>
 </template>

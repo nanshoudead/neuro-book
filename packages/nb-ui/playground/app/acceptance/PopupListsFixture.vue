@@ -1,19 +1,21 @@
 <script setup lang="ts">
 import {computed, ref} from "vue";
 import Button from "../../../src/components/controls/Button.vue";
-import DropdownMenu from "../../../src/components/controls/DropdownMenu.vue";
-import Menubar from "../../../src/components/controls/Menubar.vue";
-import ContextMenu from "../../../src/components/feedback/ContextMenu.vue";
-import type {ContextMenuItem} from "../../../src/components/feedback/context-menu.types";
-import QuickPick, {type QuickPickItem} from "../../../src/components/feedback/QuickPick.vue";
-import Select from "../../../src/components/form/Select.vue";
+import ColorSwatches from "../../../src/components/form/ColorSwatches.vue";
+import DropdownMenu from "../../../src/components/popup/DropdownMenu.vue";
+import Menubar from "../../../src/components/popup/Menubar.vue";
+import ContextMenu from "../../../src/components/popup/ContextMenu.vue";
+import type {ContextMenuItem} from "../../../src/components/popup/context-menu.types";
+import QuickPick, {type QuickPickItem} from "../../../src/components/popup/QuickPick.vue";
+import Select from "../../../src/components/popup/Select.vue";
 import FixtureShell from "./AcceptanceShell.vue";
 import type {LabComponentDefinition} from "./definitions";
 
 /**
  * 弹出列表的验收夹具（w00029 t04，e2e/popup-lists.spec.ts）：行高、字号、圆角、高亮与勾选列要在真实布局与真实指针下量，
  * happy-dom 没有布局也不产生指针移动。场景 `menus` 放菜单一族各一个：DropdownMenu（reka 的项加手工级联）、Menubar、
- * 右键菜单（全是普通按钮项）；`select`、`quick-pick` 各放一个，带说明的项与不带说明的项混排；`long` 与 `quick-pick-long`
+ * 右键菜单（全是普通按钮项）；`select`、`quick-pick` 各放一个，带说明的项与不带说明的项混排；`material` 放 Select、DropdownMenu
+ * 与 ColorSwatches 比浮层材质；`long` 与 `quick-pick-long`
  * 是长列表与多级长级联，验截断、滑块与滚动。
  */
 const props = defineProps<{
@@ -42,6 +44,7 @@ const MENUBAR_MENUS = [
             {label: "EPUB", value: "export-epub"},
         ]},
     ]},
+    {id: "edit", label: "编辑", items: [{label: "撤销", value: "undo", shortcut: "Ctrl+Z"}]},
 ];
 
 const CONTEXT_ITEMS: ContextMenuItem[] = [
@@ -93,6 +96,7 @@ const longFormat = ref("第-20");
 const QUICK_PICK_LONG: QuickPickItem[] = numbered("命令", 30).map(({label, value}) => ({id: value, label}));
 const quickPickLongItems = computed(() => QUICK_PICK_LONG.filter((item) => item.label.includes(quickPickQuery.value)));
 
+const swatch = ref<string | null>("#2e7d55");
 const context = ref<{x: number; y: number} | null>(null);
 const contextItems = computed(() => (props.sceneId === "long" ? LONG_CONTEXT_ITEMS : CONTEXT_ITEMS));
 function openContext(event: MouseEvent): void {
@@ -104,6 +108,14 @@ function openContext(event: MouseEvent): void {
     <FixtureShell v-model:controls="controls" :definition="definition" :scene-id="sceneId">
         <div v-if="props.sceneId === 'select'" id="nb-lab-target" class="popup-lists-stage">
             <Select v-model="format" :options="SELECT_OPTIONS" class="w-[220px]" data-fixture-select />
+        </div>
+        <div v-else-if="props.sceneId === 'material'" id="nb-lab-target" class="popup-lists-stage">
+            <!-- 三种浮层比材质：都只认 .nb-ui-popover-surface 与 .nb-ui-menu-surface 两个类。 -->
+            <Select v-model="format" :options="SELECT_OPTIONS" class="w-[220px]" data-fixture-select />
+            <DropdownMenu :items="DROPDOWN_ITEMS" :content-props="{'data-fixture-dropdown': ''}">
+                <Button variant="secondary" size="sm" data-fixture-dropdown-trigger>下拉菜单</Button>
+            </DropdownMenu>
+            <ColorSwatches v-model="swatch" :colors="['#2e7d55', '#b8423a']" custom-label="自定义" />
         </div>
         <div v-else-if="props.sceneId === 'long'" id="nb-lab-target" class="popup-lists-stage">
             <DropdownMenu :items="LONG_DROPDOWN_ITEMS" :content-props="{'data-fixture-long-dropdown': ''}">

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useAttrs, watch} from "vue";
-import DropdownMenu from "./DropdownMenu.vue";
-import type {DropdownMenuItemData} from "./dropdown-menu.types";
+import DropdownMenu from "../popup/DropdownMenu.vue";
+import type {DropdownMenuItemData} from "../popup/dropdown-menu.types";
+import {moveRoving, rovingMove} from "../../utils/roving";
 import {adaptTabs} from "./tabs-adapt";
 import type {TabsAdaptState} from "./tabs-adapt";
 
@@ -53,8 +54,6 @@ const emit = defineEmits<{
 const attrs = useAttrs();
 const tablistRef = ref<HTMLDivElement | null>(null);
 
-const enabledItems = computed(() => props.items.filter((item) => !item.disabled));
-
 function isSelected(item: TabsItem): boolean {
     return item.value === props.modelValue;
 }
@@ -66,31 +65,14 @@ function select(item: TabsItem): void {
     emit("update:modelValue", item.value);
 }
 
-/** 方向键/Home/End 在启用的标签间移动选中项，并把焦点跟到新标签上 */
+/** 左右键、Home、End 在启用的标签间移动选中项，并把焦点跟到新标签上 */
 function handleKeydown(event: KeyboardEvent): void {
-    const enabled = enabledItems.value;
-    if (enabled.length === 0) {
-        return;
-    }
-    const currentIndex = Math.max(0, enabled.findIndex((item) => item.value === props.modelValue));
-    let nextIndex: number | null = null;
-    if (event.key === "ArrowRight") {
-        nextIndex = (currentIndex + 1) % enabled.length;
-    } else if (event.key === "ArrowLeft") {
-        nextIndex = (currentIndex - 1 + enabled.length) % enabled.length;
-    } else if (event.key === "Home") {
-        nextIndex = 0;
-    } else if (event.key === "End") {
-        nextIndex = enabled.length - 1;
-    }
-    if (nextIndex === null) {
-        return;
-    }
+    const move = rovingMove(event.key, "horizontal");
+    if (move === null) return;
+    const next = moveRoving(props.items, props.items.findIndex((item) => item.value === props.modelValue), move, (item) => item.disabled === true);
+    const nextItem = props.items[next];
+    if (nextItem === undefined) return;
     event.preventDefault();
-    const nextItem = enabled[nextIndex];
-    if (!nextItem) {
-        return;
-    }
     emit("update:modelValue", nextItem.value);
     void nextTick(() => {
         const tabs = Array.from(tablistRef.value?.querySelectorAll<HTMLButtonElement>("[role='tab']") ?? []);

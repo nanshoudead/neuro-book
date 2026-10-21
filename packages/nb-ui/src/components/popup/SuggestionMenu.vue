@@ -2,7 +2,8 @@
 import {computed, nextTick, onBeforeUnmount, ref, useId, watch} from "vue";
 import {PopoverContent, PopoverPortal, PopoverRoot} from "reka-ui";
 import Spinner from "../display/Spinner.vue";
-import PopupScrollbar from "../layout/PopupScrollbar.vue";
+import MenuRow from "./MenuRow.vue";
+import PopupScrollbar from "./PopupScrollbar.vue";
 import {usePopoverLayer} from "../../composables/usePopoverLayer";
 import {usePopupScroll} from "../../composables/usePopupScroll";
 import {toPopoverReference} from "./popover-anchor";
@@ -225,11 +226,9 @@ defineExpose({
                             @pointermove="onPointermove(row.item)"
                             @click="onClick(row.item)"
                         >
-                            <span v-if="row.item.iconClass" :class="row.item.iconClass" class="nb-ui-menu-item__icon text-[var(--text-secondary)]" aria-hidden="true"></span>
-                            <span v-else-if="iconColumn" class="nb-ui-menu-item__icon" aria-hidden="true"></span>
-                            <span class="nb-ui-menu-item__label">{{ row.item.label }}</span>
-                            <span v-if="row.item.hint" class="nb-ui-menu-item__hint">{{ row.item.hint }}</span>
-                            <span v-if="row.item.checked === true" class="i-lucide-check h-3.5 w-3.5 shrink-0 text-[var(--text-secondary)]" aria-hidden="true" data-suggestion-menu-checked></span>
+                            <MenuRow :label="row.item.label" :lead-column="iconColumn" :icon="row.item.iconClass" muted-icon :hint="row.item.hint">
+                                <template #trailing><span v-if="row.item.checked === true" class="i-lucide-check h-3.5 w-3.5 shrink-0 text-[var(--text-secondary)]" aria-hidden="true" data-suggestion-menu-checked></span></template>
+                            </MenuRow>
                         </div>
                     </div>
                     <div v-if="empty" class="px-[10px] py-[6px] text-[12px] leading-4 text-[var(--text-muted)]" data-suggestion-menu-empty>{{ props.emptyText }}</div>

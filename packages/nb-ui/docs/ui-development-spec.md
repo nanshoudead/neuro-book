@@ -114,7 +114,7 @@
 - **单选按钮（Radio）**：圆形深灰实心底座，选中为蓝底 + 居中纯白小实心圆点。
 
 #### 5. `Select`（下拉选择器与长列表规范）
-- **浮层外框**：`.nb-ui-popover-surface .nb-ui-menu-surface`，内边距 `--menu-pad`（缺省 6px，nbook 4px），内圈圆角（`--nb-popover-inner-radius`）由外框圆角减描边与内边距推出；`:side-offset="7"` 避免遮挡 Trigger 聚焦发光圈；`@close-auto-focus` 消除二次弹回闪烁。浮层另内联的一份材质（8px 模糊、130% 饱和度、四层投影）与外框类不一致，以哪边为准待 w00029 t05 定。
+- **浮层外框**：`.nb-ui-popover-surface .nb-ui-menu-surface`，内边距 `--menu-pad`（缺省 6px，nbook 4px），内圈圆角（`--nb-popover-inner-radius`）由外框圆角减描边与内边距推出；`:side-offset="7"` 避免遮挡 Trigger 聚焦发光圈；`@close-auto-focus` 消除二次弹回闪烁。材质（底色、模糊、投影、描边）只来自外框的两个类，组件只绑层级与宽度。
 - **选项**：弹出列表共用的一行（`.nb-ui-menu-item`，`--menu-item-h` 28px、`--menu-item-font` 13px，与触发器的 `size` 无关）；`description` 放在同一行右侧的次要文字，所有项一样高；选中项在左侧一列画勾（替代它的图标），底色与字重不变。
 - **截断与滚动**（`usePopupScroll`，六个弹出列表共用）：项超过 8 个时视口截在第 9 项的中点（按真实盒子量，分组标题、分隔线、换行项照实计入），不超过 8 个时取自然高度；外框按可用空间夹紧（`--reka-popper-available-height`），视口是唯一能收缩的一块；打开时停在选中项上。挂载与内容变化时即时重新测量，未到底时顶底 22px 渐隐（中点 8px 处 35% 透光消散）。
 - **滚动条**：4px 悬浮胶囊滑块（内部零件 `PopupScrollbar`），只在可滚动时出现，视口右侧让出 6px；按住拖动（指针捕获、按 CSS 像素折算，Lab 画布缩放下也跟手）。
@@ -126,8 +126,8 @@
 #### 7. `DropdownMenu`（下拉菜单与动作浮层规范）
 - **外框与层级**：`.nb-ui-popover-surface .nb-ui-menu-surface`，内边距 `--menu-pad`；层级由 `usePopoverLayer` 给（在 `Dialog` 里跟随它注入的层级）。组件里不写死圆角、面色、描边与内边距。
 - **截断与滚动**：与 `Select` 同一份 `usePopupScroll`：项超过 8 个时视口截在第 9 项的中点（按真实盒子量，分组标题、分隔线、换行项照实计入），不超过 8 个时取自然高度；外框按可用空间夹紧（`--reka-popper-available-height`），视口是唯一能收缩的一块。级联子菜单的每一级（`MenuLevelPanel`）同样截断与滚动；某一级一滚动，它展开的更深层级收起，焦点在被收起的层级里时回到展开它的那一项。
-- **菜单项与破坏性动作**：项是 `.nb-ui-menu-item`（28px、13px），高亮只认 `data-highlighted`，底色 `var(--overlay-item-active)`，不写 `:hover` 底色，鼠标与键盘指向同一项；reka 的项自己挂这个属性，手工级联与右键菜单的普通按钮项由 `MenuNodes` 在指针移动时聚焦、聚焦时挂上。展开了子菜单的父项保持高亮。勾与图标共用左侧一列（16px）：勾选的项画勾，其它项画图标；同一级有勾选项或有一项带图标时每行都留出这一列，名称左边对齐。勾选项与带图标的项通常不放在同一级。同一个列表里行高一致：说明、分类、路径都放进同一行右侧的次要文字（`__hint`，放不下时先截它），只有调用方明确要换行（DropdownMenu 的 `wrap`）的项由内容撑高。六个弹出列表都这样。危险项（`tone: "danger"`）的 `.nb-ui-menu-item-danger` 只换文字与图标的颜色，高亮底色与其它项相同；分隔线 `.nb-ui-menu-separator`，分组标题 `.nb-ui-menu-label`。
-- **菜单结构契约**：平面项、分隔线与任意层级子菜单（`children`：父项只展开、不执行 select；每一级都继续展开）。右键菜单、按钮下拉菜单和窗口菜单栏共用 `menu-cascade.ts`：第一项与父项同一行，两个面板之间留 6px 间隙，靠近视口边缘时翻到另一侧。子菜单默认不显示：悬停父项停满 300ms 才展开，左键点击或键盘进入则立即展开；已经展开后，同级切换不等待。每一级只保留一个面板：第一次展开用缩放淡入；之后在同级两个有子菜单的项之间切换时，这个面板移动并改变尺寸，内容快速淡入淡出；移到没有子菜单的项时立刻收起。入场和退场都取 `--motion-fast`。`type: "radio" | "checkbox"` 用对应原语渲染勾选态，`checked` 是**受控**值——组件只发 select，勾选永远由宿主改；radio 的同组互斥用 `group` 声明，同组连排合成一个 RadioGroup，缺 group 的贡献按单项独立成组并给开发诊断。
+- **菜单项与破坏性动作**：项是 `.nb-ui-menu-item`（28px、13px），高亮只认 `data-highlighted`，底色 `var(--overlay-item-active)`，不写 `:hover` 底色，鼠标与键盘指向同一项；reka 的项自己挂这个属性，手工级联与右键菜单的普通按钮项由 `MenuNodes` 在指针移动时聚焦、聚焦时挂上。展开了子菜单的父项保持高亮。勾与图标共用左侧一列（16px）：勾选的项画勾，其它项画图标；同一级有勾选项或有一项带图标时每行都留出这一列，名称左边对齐。勾选项与带图标的项通常不放在同一级。同一个列表里行高一致：说明、分类、路径都放进同一行右侧的次要文字（`__hint`，放不下时先截它），只有调用方明确要换行（DropdownMenu 的 `wrap`）的项由内容撑高。六个弹出列表都这样。行里的几格（勾与图标共用的左列、名称、右侧次要文字或箭头、行尾附加物）由内部零件 `MenuRow` 画，新写的弹出列表用它，不再手写这组 `span`；手工级联（展开、键盘、父级滚动收起、级联面板不算外部）用 `useMenuCascade`，方向键漫游用 `utils/roving.ts`。危险项（`tone: "danger"`）的 `.nb-ui-menu-item-danger` 只换文字与图标的颜色，高亮底色与其它项相同；分隔线 `.nb-ui-menu-separator`，分组标题 `.nb-ui-menu-label`。
+- **菜单结构契约**：平面项、分隔线与任意层级子菜单（`children`：父项只展开、不执行 select；每一级都继续展开）。右键菜单、按钮下拉菜单和窗口菜单栏共用级联几何（`utils/popup-geometry.ts`）与级联状态（`useMenuCascade`）：第一项与父项同一行，两个面板之间留 6px 间隙，靠近视口边缘时翻到另一侧。子菜单默认不显示：悬停父项停满 300ms 才展开，左键点击或键盘进入则立即展开；已经展开后，同级切换不等待。每一级只保留一个面板：第一次展开用缩放淡入；之后在同级两个有子菜单的项之间切换时，这个面板移动并改变尺寸，内容快速淡入淡出；移到没有子菜单的项时立刻收起。入场和退场都取 `--motion-fast`。`type: "radio" | "checkbox"` 用对应原语渲染勾选态，`checked` 是**受控**值——组件只发 select，勾选永远由宿主改；radio 的同组互斥用 `group` 声明，同组连排合成一个 RadioGroup，缺 group 的贡献按单项独立成组并给开发诊断。
 - **受控展开**：`open` 传入即受控（宿主不改就不变），不传则由原语自管；两种用法都会发 `update:open`，宿主据此在活动对象切换时关掉旧菜单。菜单关闭时清空已展开的子级，再次打开只显示第一级。触发按钮可以保留按下缩放；浮层按抵消缩放后的按钮外框定位，不跟着形变移动。
 - **无障碍与焦点管理**：完整的键盘导航（ArrowDown/Up 循环、Home/End、Right/Left 进出子菜单、Enter/Space 选择、Tab/Esc 关闭），关闭后焦点由 Reka 原语归还给触发器；外部点击关闭时焦点随用户落点，不被抢回。
 
@@ -278,7 +278,7 @@
 - **层级与 role（S4）**：消费 `NB_Z_INDEX.commandPalette`（9200，S4 全局命令面板角色）；模态 Dialog 语义（`DialogRoot` modal + `disableOutsidePointerEvents`），透明遮罩与 Content 同为 9200、Content 在后；外点被遮罩消费，不穿透底层。可访问名称来自 sr-only 的 `DialogTitle`；面板没有描述节点，Content 默认不带 `aria-describedby`（不指向不存在的描述 id），宿主经 attrs 显式传入时以宿主为准。
 - **几何**：视口顶部居中，宽 `min(640px, calc(100vw - 24px))`，`top: clamp(16px, 8vh, 72px)`，`max-height: min(560px, calc(100dvh - 48px))`；圆角为 **14px**（`rounded-[14px]`），输入区与底部提示固定、列表 `flex:1; min-height:0` 自滚动；390px 宽仍留左右 12px。
 - **材质**：消费 `.nb-ui-popover-surface` 基座（4 阶立体微反光投影 + 130% 饱和滤波）与 `--nb-popover-pad`，选中项用 `--overlay-item-active`；不叠第二层磨砂、不新开材质档。
-- **键盘与焦点**：输入框 `role=combobox` + `aria-activedescendant`；ArrowUp/Down 走 `moveHighlight`（跳过禁用、首尾回绕）并 `scrollIntoView(block:nearest)`；Enter 在组合输入态（`isComposing`）不提交；Escape 只关闭本层并 `stopPropagation`；Tab 交给 Reka FocusScope 后阻止冒泡——下层 document/window 监听不得收到这些按键。打开时记录触发前焦点，关闭后归还仍连接的元素。
+- **键盘与焦点**：输入框 `role=combobox` + `aria-activedescendant`；ArrowUp/Down、Home/End 走 `utils/roving.ts` 的 `moveRoving`（跳过禁用、首尾回绕；Home、End 带 Ctrl 或 Cmd 时留给输入框）并只滚动候选列表这一层；Enter 在组合输入态（`isComposing`）不提交；Escape 只关闭本层并 `stopPropagation`；Tab 交给 Reka FocusScope 后阻止冒泡——下层 document/window 监听不得收到这些按键。打开时记录触发前焦点，关闭后归还仍连接的元素。
 - **关闭交接（`closed`）**：关闭不加退场动画；`closed` 在内容真实卸载、Reka 焦点栈/滚动锁/指针锁全部释放后按打开周期发一次，供宿主在关闭完成后再执行命令或激活下一个交互层。`AlertDialog` 的同名事件复用同一时序；宿主不得用固定等待毫秒数替代。
 - **打开动效**：挂载时消费 `.nb-ui-popover-motion`（见设计语言「七、动效」的「浮层入退场的编排是固定的」）。
 
@@ -417,7 +417,7 @@ nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/
    - 统一消费 `--elevation-popover`：`0 0 0 1px color-mix(in srgb, var(--text-main) 8%, transparent), 0 6px 16px -2px color-mix(in srgb, var(--shadow-color) 16%, transparent), 0 20px 48px -4px color-mix(in srgb, var(--shadow-color) 28%, transparent), 0 36px 80px -8px color-mix(in srgb, var(--shadow-color) 20%, transparent)`，外发散柔影与 1px 微反光边缘兼备。
    - 菜单与下拉（`.nb-ui-menu-surface`）改读 `--elevation-menu`，缺省等于 `--elevation-popover`；主题可以给菜单单独收小投影（nbook：一圈 0.5px 细边加一层 4px 偏移、14px 模糊的近投影，圆角 `--radius-menu` 为 10px、内边距 `--menu-pad` 为 4px，项的圆角推出 5px）。
 4. **单一样式源**：
-   - 任何涉及下拉与浮层的组件，外观只用 `.nb-ui-popover-surface .nb-ui-menu-surface` 两个类，层级用 `usePopoverLayer`，滚动用 `usePopupScroll`，项用 `.nb-ui-menu-item`；严禁在模板中重复书写内联样式。（`Select`、`ColorSwatches` 另内联的一份材质见 `usePopoverLayer.ts`，以哪边为准待 w00029 t05 定。）
+   - 任何涉及下拉与浮层的组件，外观只用 `.nb-ui-popover-surface .nb-ui-menu-surface` 两个类，层级用 `usePopoverLayer`，滚动用 `usePopupScroll`，项用 `.nb-ui-menu-item`；严禁在模板中重复书写内联样式。
 
 ## 10. 开发后自检与易错清单（Checklist）
 

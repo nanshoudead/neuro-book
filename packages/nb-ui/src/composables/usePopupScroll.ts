@@ -1,5 +1,7 @@
 import {computed, getCurrentInstance, nextTick, onBeforeUnmount, ref, type ComputedRef, type Ref} from "vue";
 
+import {elementOf} from "../utils/element-of";
+import {measurePopupTruncation, POPUP_ITEM_SELECTOR, POPUP_SCROLLBAR_GUTTER, rectScale, revealPopupItem} from "../utils/popup-geometry";
 import {dragScrollTop, thumbGeometry, trackLength} from "../utils/scrollbar-geometry";
 
 /**
@@ -15,65 +17,8 @@ import {dragScrollTop, thumbGeometry, trackLength} from "../utils/scrollbar-geom
  * 这里不重置 `scrollTop`。
  */
 
-/** 算作“列表项”的元素：分组标题、分隔线不算，禁用项算。 */
-export const POPUP_ITEM_SELECTOR = "[role^='menuitem'], [role='option']";
-
-/** 最多完整显示的项数；第 9 项截在中间。 */
-export const POPUP_VISIBLE_ITEMS = 8;
-
-/** 可滚动时视口右侧让出的宽度（CSS 像素）：滑块 4px，离外框 3px。 */
-export const POPUP_SCROLLBAR_GUTTER = 6;
-
 /** 滑块轨道上下各让出的距离（CSS 像素）：滑块不贴着外框的圆角。滑块几何与 `OverlayScrollbar` 共用 `scrollbar-geometry`。 */
 const TRACK_INSET = 6;
-
-/** 元素的 CSS 像素与 `getBoundingClientRect` 像素之比：Lab 画布的 CSS `zoom` 与浮层入场的 `scale` 都会让两者不等。 */
-function rectScale(element: HTMLElement): number {
-    const height = element.offsetHeight;
-    if (height === 0) return 1;
-    const scale = element.getBoundingClientRect().height / height;
-    return Number.isFinite(scale) && scale > 0 ? scale : 1;
-}
-
-/**
- * 视口截在第 9 项中点时的高度（CSS 像素，含视口自己的内边距）；项不超过 8 个时返回 null，视口取自然高度。
- * 按真实盒子量，分组标题、分隔线、两行项与换行项照实计入，不按固定行高乘。
- */
-export function measurePopupTruncation(viewport: HTMLElement): number | null {
-    const items = viewport.querySelectorAll<HTMLElement>(POPUP_ITEM_SELECTOR);
-    const ninth = items[POPUP_VISIBLE_ITEMS];
-    if (ninth === undefined) return null;
-    const rect = ninth.getBoundingClientRect();
-    // 还没有布局（隐藏、未插入文档）时量到的全是 0，返回的高度会是 0；等观察器在有布局后再量。
-    if (rect.height === 0) return null;
-    const scale = rectScale(viewport);
-    const top = viewport.getBoundingClientRect().top;
-    return (rect.top - top) / scale + viewport.scrollTop + rect.height / scale / 2;
-}
-
-/**
- * 顶底渐隐的高度（CSS 像素，与 `styles.css` 的 `--nb-popover-scroll-fade` 缺省值相同）：滚进可见区的项要让到它外面，
- * 否则正好落在半透明的渐隐里。滚到列表两端时那一侧没有渐隐，浏览器把滚动位置夹在端点，项照样贴边。
- */
-const FADE_MARGIN = 22;
-
-/** 把视口里的一项滚进可见区，只滚这个视口、只滚最少的距离（让开渐隐）；键盘移到看不见的项时由列表调用。 */
-export function revealPopupItem(viewport: HTMLElement | null, item: Element | null): void {
-    if (viewport === null || item === null) return;
-    const scale = rectScale(viewport);
-    const view = viewport.getBoundingClientRect();
-    const rect = item.getBoundingClientRect();
-    const margin = Math.min(FADE_MARGIN * scale, Math.max(0, (view.height - rect.height) / 2));
-    if (rect.top < view.top + margin) viewport.scrollTop -= (view.top + margin - rect.top) / scale;
-    else if (rect.bottom > view.bottom - margin) viewport.scrollTop += (rect.bottom - (view.bottom - margin)) / scale;
-}
-
-/** 键盘把焦点移到一项：不让浏览器按聚焦的规则居中滚动，只把它滚进它所在的列表视口。 */
-export function focusPopupItem(item: HTMLElement | null | undefined): void {
-    if (item === null || item === undefined) return;
-    item.focus({preventScroll: true});
-    revealPopupItem(item.closest<HTMLElement>(".nb-ui-popover-scroll"), item);
-}
 
 export interface PopupScroll {
     /** 视口的模板 ref 回调；视口换实例时重新观察。 */
@@ -167,8 +112,7 @@ export function usePopupScroll(): PopupScroll {
     }
 
     function setViewport(element: unknown): void {
-        const node = element !== null && typeof element === "object" && "$el" in element ? (element as {$el: unknown}).$el : element;
-        const next = node instanceof HTMLElement ? node : null;
+        const next = elementOf(element);
         if (next === viewport.value) return;
         // 视口卸载时滑块也跟着离开文档，拖动的 pointerup 再也到不了它：在这里收口，否则下次打开滑块仍是“拖动中”。
         endDrag();

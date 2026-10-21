@@ -11,11 +11,12 @@ import {computed, nextTick, ref, useId, watch} from "vue";
 import {NB_Z_INDEX} from "../../theme/z-index";
 import {useTeleportTarget} from "../../composables/useTeleportTarget";
 import {usePopupScroll} from "../../composables/usePopupScroll";
-import PopupScrollbar from "../layout/PopupScrollbar.vue";
+import MenuRow from "./MenuRow.vue";
+import PopupScrollbar from "./PopupScrollbar.vue";
 import Kbd from "../display/Kbd.vue";
 import Spinner from "../display/Spinner.vue";
-import {moveHighlight, type HighlightAction} from "../form/option-highlight";
-import {useCloseHandoff} from "./close-handoff";
+import {moveRoving, rovingMove, type RovingMove} from "../../utils/roving";
+import {useCloseHandoff} from "../feedback/close-handoff";
 
 /**
  * 输入筛选、挑选一项的浮层（S4 命令面板基座）：纯受控，不持数据。
@@ -171,18 +172,17 @@ function onPanelKeydown(event: KeyboardEvent): void {
             return;
         case "ArrowDown":
         case "ArrowUp":
-            event.preventDefault();
-            event.stopPropagation();
-            moveActive(event.key === "ArrowDown" ? "next" : "prev");
-            return;
         case "Home":
-        case "End":
-            // Ctrl/Cmd 组合留给原生编辑行为
-            if (event.ctrlKey || event.metaKey) return;
+        case "End": {
+            // Home、End 带 Ctrl/Cmd 时留给输入框的原生编辑行为
+            if ((event.key === "Home" || event.key === "End") && (event.ctrlKey || event.metaKey)) return;
+            const move = rovingMove(event.key, "vertical");
+            if (move === null) return;
             event.preventDefault();
             event.stopPropagation();
-            moveActive(event.key === "Home" ? "first" : "last");
+            moveActive(move);
             return;
+        }
         case "Enter":
             // 组合输入态的 Enter 属于输入法提交：不消费、不 accept
             if (event.isComposing) return;
@@ -195,9 +195,9 @@ function onPanelKeydown(event: KeyboardEvent): void {
     }
 }
 
-function moveActive(action: HighlightAction): void {
+function moveActive(action: RovingMove): void {
     const current = props.items.findIndex((item) => item.id === props.activeId);
-    const next = moveHighlight(props.items.map((item) => ({disabled: item.disabled})), current, action);
+    const next = moveRoving(props.items, current, action, (item) => item.disabled === true);
     const nextId = next >= 0 ? props.items[next]!.id : null;
     if (nextId !== props.activeId) emit("update:activeId", nextId);
 }
@@ -335,16 +335,17 @@ function isLowSurrogate(code: number): boolean {
                             @pointermove="onItemPointerMove(item)"
                             @click="onItemClick(item)"
                         >
-                            <span v-if="item.iconClass" :class="item.iconClass" class="nb-ui-menu-item__icon" aria-hidden="true"></span>
-                            <span v-else-if="iconColumn" class="nb-ui-menu-item__icon" aria-hidden="true"></span>
-                            <span class="nb-ui-menu-item__label">
-                                <template v-for="(segment, index) in labelSegments(item)" :key="index">
-                                    <span v-if="segment.match" class="font-medium text-[var(--accent-main)]">{{ segment.text }}</span>
-                                    <template v-else>{{ segment.text }}</template>
+                            <MenuRow :lead-column="iconColumn" :icon="item.iconClass" :hint="metaText(item) || undefined">
+                                <template #label>
+                                    <span class="nb-ui-menu-item__label">
+                                        <template v-for="(segment, index) in labelSegments(item)" :key="index">
+                                            <span v-if="segment.match" class="font-medium text-[var(--accent-main)]">{{ segment.text }}</span>
+                                            <template v-else>{{ segment.text }}</template>
+                                        </template>
+                                    </span>
                                 </template>
-                            </span>
-                            <span v-if="metaText(item) !== ''" class="nb-ui-menu-item__hint">{{ metaText(item) }}</span>
-                            <Kbd v-if="item.shortcut" size="sm">{{ item.shortcut }}</Kbd>
+                                <template #trailing><Kbd v-if="item.shortcut" size="sm">{{ item.shortcut }}</Kbd></template>
+                            </MenuRow>
                         </li>
                     </ul>
                     <p

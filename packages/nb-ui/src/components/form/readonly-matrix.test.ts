@@ -14,7 +14,7 @@ import Input from "./Input.vue";
 import NumberInput from "./NumberInput.vue";
 import RadioGroup from "./RadioGroup.vue";
 import SearchSelect from "./SearchSelect.vue";
-import Select from "./Select.vue";
+import Select from "../popup/Select.vue";
 import Textarea from "./Textarea.vue";
 
 const OPTIONS = [{value: "a", label: "甲"}, {value: "b", label: "乙"}, {value: "c", label: "丙"}];
