@@ -52,6 +52,7 @@ pre code { background: none; padding: 0; }
 <div class="toc">
 <b>目录</b>
 <ol>
+<li><a href="#r2">还原之后</a>（待定）</li>
 <li><a href="#r1">还原 t80 定稿：逐项对照</a></li>
 <li><a href="#now">现状</a></li>
 <li><a href="#diff">与 t80 定稿的差别、t80 之后新增的界面</a></li>
@@ -60,6 +61,28 @@ pre code { background: none; padding: 0; }
 </ol>
 </div>
 
+
+<h2 id="r2">还原之后（2026-10-21）</h2>
+<p>按上一节的逐项对照改完（Work 分支 <code>feat/w00027-plugin-platform</code>，截图来自 Component Lab 与真实应用，窗口 960×640，NeuroBook 主题）。左边是 t80 定稿，右边是现在。</p>
+<div class="grid"><figure><a href="r1/t80-appearance.webp"><img src="r1/t80-appearance.webp" alt=""></a><figcaption><b>t80 定稿 · 外观</b></figcaption></figure><figure><a href="r2/after-appearance.webp"><img src="r2/after-appearance.webp" alt=""></a><figcaption><b>现在 · 外观</b>：三项以内的选项回到分段控件；层标签与左栏同宽。Lab 里左栏当前项的蓝色焦点环是 Lab 打开时没有交互造成的，鼠标点开时没有（见下面真实应用的图）</figcaption></figure>
+<figure><a href="r2/after-app.webp"><img src="r2/after-app.webp" alt=""></a><figcaption><b>现在 · 真实应用</b>：书架上点齿轮打开（没绑定作品，所以没有层标签），左栏当前项是浅灰底</figcaption></figure><figure><a href="r2/after-appearance-dark.webp"><img src="r2/after-appearance-dark.webp" alt=""></a><figcaption><b>现在 · 外观 · 深色</b></figcaption></figure>
+<figure><a href="r1/t80-editor.webp"><img src="r1/t80-editor.webp" alt=""></a><figcaption><b>t80 定稿 · 编辑器</b></figcaption></figure><figure><a href="r2/after-other.webp"><img src="r2/after-other.webp" alt=""></a><figcaption><b>现在 · 其它</b>：单行输入随行宽在 200 到 320px 之间收窄；“已不存在”只在控件下面写一次</figcaption></figure>
+<figure><a href="r2/t80-models.webp"><img src="r2/t80-models.webp" alt=""></a><figcaption><b>t80 交付时 · 模型服务</b>：左边页内列表，右边详情</figcaption></figure><figure><a href="r2/after-models-general.webp"><img src="r2/after-models-general.webp" alt=""></a><figcaption><b>现在 · 模型服务 · 常规</b>：默认模型与推理强度即时写入，没有改动时没有操作行</figcaption></figure>
+<figure><a href="r2/after-models-provider.webp"><img src="r2/after-models-provider.webp" alt=""></a><figcaption><b>现在 · 模型服务 · 一家服务商</b>：字段是标签加控件、按类型定宽；改过的服务商在列表里有圆点；操作行在详情下方，“保存”在最右</figcaption></figure><figure><a href="r2/after-project.webp"><img src="r2/after-project.webp" alt=""></a><figcaption><b>现在 · 本作品标签</b></figcaption></figure>
+<figure><a href="r2/after-invalid.webp"><img src="r2/after-invalid.webp" alt=""></a><figcaption><b>现在 · 设置文件有错误</b>：整组停用的分段控件只降一次透明度，选中项仍读得出</figcaption></figure><figure><a href="r2/after-file.webp"><img src="r2/after-file.webp" alt=""></a><figcaption><b>现在 · 设置文件</b>：“放弃改动”“保存”的顺序与模型服务一致</figcaption></figure>
+</div>
+
+<section data-nbdev-question="r2-accept" data-nbdev-type="confirm">
+<h3><span class="tag warn" data-nbdev-skip>待定</span> 还原后的外观可以了吗</h3>
+<p>可以的话，t06 剩下只读外观等三处 t80 没定过的，另出一轮静态稿（见下）。不可以的话，在评论里写哪里还不对。</p>
+</section>
+
+<h3>还要另出稿的（t80 没有定过）</h3>
+<ul>
+<li>只读控件的统一外观：现在只读与可编辑看不出差别（开关、分段、下拉、文字），停用的变淡不能拿来用。</li>
+<li>“其它”分区的小组标题现在是插件 id（<code>example.notes</code>），要换成插件的名字，插件清单里得有一个给人看的名字。</li>
+<li>动态选项不可用时控件下面那行写着选项来源的 id（“选项来源 example.notes.templates 不可用”），同样要换成给人看的说法。</li>
+</ul>
 
 <h2 id="r1">还原 t80 定稿：逐项对照（2026-10-21）</h2>
 <p>开发者 2026-10-21 指出：t80 已经定过外观，t06 要做的是把实现收回 t80 的定稿，不是重新设计。先前发的“第一轮”（分组底板、层标签位置）已撤回。下面左边是 t80 第四轮定稿（开发者选定的“混合”排法），右边是现在的实现，窗口都是 960×640。</p>
