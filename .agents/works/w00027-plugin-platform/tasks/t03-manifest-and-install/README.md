@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t03-manifest-and-install
-status: planned
-updated: 2026-10-17
+status: done
+updated: 2026-10-21
 ---
 
 # 清单校验与第三方插件安装
