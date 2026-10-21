@@ -7,6 +7,7 @@ import {mount} from "@vue/test-utils";
 import {nextTick} from "vue";
 import {afterEach, describe, expect, it} from "vitest";
 
+import SegmentedControl from "../controls/SegmentedControl.vue";
 import Switch from "../controls/Switch.vue";
 import Checkbox from "./Checkbox.vue";
 import CheckboxGroup from "./CheckboxGroup.vue";
@@ -76,6 +77,25 @@ describe("只读与停用（输出 28）", () => {
         expect(radios.map((item) => item.attributes("aria-checked"))).toEqual(["true", "false", "false"]);
         const disabled = mount(RadioGroup, {props: {modelValue: "a", disabled: true, options: OPTIONS}});
         expect(disabled.findAll("[role='radio']").every((item) => item.attributes("disabled") !== undefined || item.attributes("data-disabled") !== undefined)).toBe(true);
+    });
+
+    it("分段控件：只读时点击别的项、方向键都不改选中，方向键只移动焦点；停用时各项停用", async () => {
+        const wrapper = mount(SegmentedControl, {props: {modelValue: "a", readonly: true, options: OPTIONS}, attachTo: document.body});
+        const group = wrapper.get("[role='radiogroup']");
+        expect(group.attributes("aria-readonly")).toBe("true");
+        const radios = wrapper.findAll("[role='radio']");
+        expect(radios.every((item) => item.attributes("disabled") === undefined)).toBe(true);
+        await radios[1]!.trigger("click");
+        (radios[0]!.element as HTMLElement).focus();
+        await radios[0]!.trigger("keydown", {key: "ArrowRight"});
+        await nextTick();
+        expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+        expect(radios.map((item) => item.attributes("aria-checked"))).toEqual(["true", "false", "false"]);
+        expect(document.activeElement).toBe(radios[1]!.element);
+        const disabled = mount(SegmentedControl, {props: {modelValue: "a", disabled: true, options: OPTIONS}});
+        expect(disabled.findAll("[role='radio']").every((item) => item.attributes("disabled") !== undefined)).toBe(true);
+        await disabled.findAll("[role='radio']")[1]!.trigger("click");
+        expect(disabled.emitted("update:modelValue")).toBeUndefined();
     });
 
     // 浮层一直关着，选项不挂载，也就没有逐字查找；Lab 的真实浏览器用例另验（neuro-book 的 e2e/lab-nb-ui.e2e.ts）。
@@ -167,6 +187,7 @@ describe("统一的属性（输出 26）", () => {
         expect(mount(Checkbox, {props: {modelValue: false, invalid: true}}).get("input").attributes("aria-invalid")).toBe("true");
         expect(mount(Switch, {props: {modelValue: false, invalid: true, ariaLabel: "x"}}).get("button").attributes("aria-invalid")).toBe("true");
         expect(mount(RadioGroup, {props: {options: OPTIONS, invalid: true}}).get("[role='radiogroup']").attributes("aria-invalid")).toBe("true");
+        expect(mount(SegmentedControl, {props: {modelValue: "a", options: OPTIONS, invalid: true}}).get("[role='radiogroup']").attributes("aria-invalid")).toBe("true");
         expect(mount(CheckboxGroup, {props: {options: OPTIONS, invalid: true}}).get("[role='group']").attributes("aria-invalid")).toBe("true");
         expect(mount(Select, {props: {options: OPTIONS, invalid: true}, attachTo: document.body}).get("[role='combobox']").attributes("aria-invalid")).toBe("true");
         const search = mount(SearchSelect, {props: {options: OPTIONS, invalid: true}, attachTo: document.body});
@@ -174,12 +195,14 @@ describe("统一的属性（输出 26）", () => {
         expect(search.get("[data-nb-search-select]").classes()).toContain("nb-ui-control-invalid");
     });
 
-    it("出错有外观：单选圆钮与开关描红；复选组里每个框描红，aria-invalid 只在组上", () => {
+    it("出错有外观：单选圆钮、开关与分段控件的外框描红；复选组里每个框描红，aria-invalid 只在组上", () => {
         const danger = (classes: string) => classes.includes("--status-danger");
         const radio = mount(RadioGroup, {props: {options: OPTIONS, invalid: true}});
         expect(radio.findAll("[role='radio']").every((item) => danger(item.classes().join(" ")))).toBe(true);
         expect(danger(mount(RadioGroup, {props: {options: OPTIONS}}).get("[role='radio']").classes().join(" "))).toBe(false);
         expect(danger(mount(Switch, {props: {invalid: true, ariaLabel: "x"}}).get("button").classes().join(" "))).toBe(true);
+        expect(danger(mount(SegmentedControl, {props: {modelValue: "a", options: OPTIONS, invalid: true}}).get("[role='radiogroup']").classes().join(" "))).toBe(true);
+        expect(danger(mount(SegmentedControl, {props: {modelValue: "a", options: OPTIONS}}).get("[role='radiogroup']").classes().join(" "))).toBe(false);
         const group = mount(CheckboxGroup, {props: {options: OPTIONS, invalid: true}});
         const marks = group.findAll("input[type='checkbox'] + span");
         expect(marks).toHaveLength(3);

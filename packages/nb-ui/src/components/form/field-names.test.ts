@@ -11,6 +11,7 @@ import Switch from "../controls/Switch.vue";
 import {Field, NB_FIELD_CONTEXT_KEY, useFieldContext} from "../index";
 import CheckboxGroup from "./CheckboxGroup.vue";
 import RadioGroup from "./RadioGroup.vue";
+import SegmentedControl from "../controls/SegmentedControl.vue";
 
 const OPTIONS = [{value: "a", label: "甲"}, {value: "b", label: "乙"}];
 
@@ -32,6 +33,20 @@ describe("字段的名字", () => {
         expect(labelledName(wrapper.element, group.element)).toBe("状态");
         const described = group.attributes("aria-describedby") ?? "";
         expect(wrapper.element.querySelector(`[id="${described}"]`)?.textContent).toBe("新建时的状态");
+        wrapper.unmount();
+    });
+
+    it("组形态：分段控件的名字是字段标签，说明与出错接在组上", () => {
+        const wrapper = mount(Field, {
+            attachTo: document.body,
+            props: {label: "明暗", description: "界面的明暗", error: "选一项", group: true},
+            slots: {default: () => h(SegmentedControl, {options: OPTIONS, modelValue: "a"})},
+        });
+        const group = wrapper.get("[role='radiogroup']");
+        expect(labelledName(wrapper.element, group.element)).toBe("明暗");
+        const described = (group.attributes("aria-describedby") ?? "").split(/\s+/u);
+        expect(described.map((id) => wrapper.element.querySelector(`[id="${id}"]`)?.textContent ?? "").join(" ")).toContain("界面的明暗");
+        expect(group.attributes("aria-invalid")).toBe("true");
         wrapper.unmount();
     });
 
