@@ -160,6 +160,34 @@ test("Select：所有项 28px，说明在同一行右侧；选中项在左侧一
     await expect(text, "选中项不加粗").toHaveCSS("font-weight", "400");
 });
 
+test("Select 与 ColorSwatches 的浮层材质与 DropdownMenu 相同：底色、模糊、投影、描边都来自外框类", async ({page}) => {
+    await page.goto("/acceptance/popup-lists?scene=material&theme=nbook&colorway=nbook-dark");
+    const material = (surface: Locator): Promise<Record<string, string>> => surface.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return Object.fromEntries(["background-color", "backdrop-filter", "-webkit-backdrop-filter", "box-shadow", "border-top-width", "border-top-style", "border-top-color"]
+            .map((name) => [name, style.getPropertyValue(name)]));
+    });
+
+    await page.locator("[data-fixture-dropdown-trigger]").click();
+    const dropdown = page.locator("[data-fixture-dropdown]");
+    await settled(dropdown);
+    const expected = await material(dropdown);
+    await page.keyboard.press("Escape");
+    await expect(dropdown).toHaveCount(0);
+
+    await page.locator("[data-fixture-select]").click();
+    const select = page.locator(".nb-ui-popover-surface:has([role='option'])");
+    await settled(select);
+    expect(await material(select), "Select").toEqual(expected);
+    await page.keyboard.press("Escape");
+    await expect(select).toHaveCount(0);
+
+    await page.locator("[data-color-swatch='custom']").click();
+    const swatches = page.locator("[data-color-swatches-panel]");
+    await settled(swatches);
+    expect(await material(swatches), "ColorSwatches").toEqual(expected);
+});
+
 test("QuickPick：所有项 28px，分类与说明在同一行右侧；高亮跟着指针移动，只亮一项", async ({page}) => {
     await page.goto("/acceptance/popup-lists?scene=quick-pick&theme=nbook&colorway=nbook-light");
     const panel = page.locator("[data-fixture-quick-pick]");

@@ -114,7 +114,7 @@
 - **单选按钮（Radio）**：圆形深灰实心底座，选中为蓝底 + 居中纯白小实心圆点。
 
 #### 5. `Select`（下拉选择器与长列表规范）
-- **浮层外框**：`.nb-ui-popover-surface .nb-ui-menu-surface`，内边距 `--menu-pad`（缺省 6px，nbook 4px），内圈圆角（`--nb-popover-inner-radius`）由外框圆角减描边与内边距推出；`:side-offset="7"` 避免遮挡 Trigger 聚焦发光圈；`@close-auto-focus` 消除二次弹回闪烁。浮层另内联的一份材质（8px 模糊、130% 饱和度、四层投影）与外框类不一致，以哪边为准待 w00029 t05 定。
+- **浮层外框**：`.nb-ui-popover-surface .nb-ui-menu-surface`，内边距 `--menu-pad`（缺省 6px，nbook 4px），内圈圆角（`--nb-popover-inner-radius`）由外框圆角减描边与内边距推出；`:side-offset="7"` 避免遮挡 Trigger 聚焦发光圈；`@close-auto-focus` 消除二次弹回闪烁。材质（底色、模糊、投影、描边）只来自外框的两个类，组件只绑层级与宽度。
 - **选项**：弹出列表共用的一行（`.nb-ui-menu-item`，`--menu-item-h` 28px、`--menu-item-font` 13px，与触发器的 `size` 无关）；`description` 放在同一行右侧的次要文字，所有项一样高；选中项在左侧一列画勾（替代它的图标），底色与字重不变。
 - **截断与滚动**（`usePopupScroll`，六个弹出列表共用）：项超过 8 个时视口截在第 9 项的中点（按真实盒子量，分组标题、分隔线、换行项照实计入），不超过 8 个时取自然高度；外框按可用空间夹紧（`--reka-popper-available-height`），视口是唯一能收缩的一块；打开时停在选中项上。挂载与内容变化时即时重新测量，未到底时顶底 22px 渐隐（中点 8px 处 35% 透光消散）。
 - **滚动条**：4px 悬浮胶囊滑块（内部零件 `PopupScrollbar`），只在可滚动时出现，视口右侧让出 6px；按住拖动（指针捕获、按 CSS 像素折算，Lab 画布缩放下也跟手）。
@@ -417,7 +417,7 @@ nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/
    - 统一消费 `--elevation-popover`：`0 0 0 1px color-mix(in srgb, var(--text-main) 8%, transparent), 0 6px 16px -2px color-mix(in srgb, var(--shadow-color) 16%, transparent), 0 20px 48px -4px color-mix(in srgb, var(--shadow-color) 28%, transparent), 0 36px 80px -8px color-mix(in srgb, var(--shadow-color) 20%, transparent)`，外发散柔影与 1px 微反光边缘兼备。
    - 菜单与下拉（`.nb-ui-menu-surface`）改读 `--elevation-menu`，缺省等于 `--elevation-popover`；主题可以给菜单单独收小投影（nbook：一圈 0.5px 细边加一层 4px 偏移、14px 模糊的近投影，圆角 `--radius-menu` 为 10px、内边距 `--menu-pad` 为 4px，项的圆角推出 5px）。
 4. **单一样式源**：
-   - 任何涉及下拉与浮层的组件，外观只用 `.nb-ui-popover-surface .nb-ui-menu-surface` 两个类，层级用 `usePopoverLayer`，滚动用 `usePopupScroll`，项用 `.nb-ui-menu-item`；严禁在模板中重复书写内联样式。（`Select`、`ColorSwatches` 另内联的一份材质见 `usePopoverLayer.ts`，以哪边为准待 w00029 t05 定。）
+   - 任何涉及下拉与浮层的组件，外观只用 `.nb-ui-popover-surface .nb-ui-menu-surface` 两个类，层级用 `usePopoverLayer`，滚动用 `usePopupScroll`，项用 `.nb-ui-menu-item`；严禁在模板中重复书写内联样式。
 
 ## 10. 开发后自检与易错清单（Checklist）
 

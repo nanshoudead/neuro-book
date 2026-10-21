@@ -121,9 +121,9 @@ const RULES: Rule[] = [
         reason: "transition 属性列表必须显式（design-language.md 动效节）",
     },
     {
-        name: "浮层材质统一走 token 与 composable，禁内联写死 backdropFilter/boxShadow/surface",
+        name: "浮层材质只走外框类，禁内联写死 backdropFilter/surface",
         pattern: /\b(?:backdropFilter|WebkitBackdropFilter)\s*:|\bbackgroundColor\s*:\s*['"]color-mix\(in srgb, var\(--bg-panel\)/,
-        reason: "浮层材质必须统一消费 --overlay-surface / --overlay-blur / --elevation-popover ，或 usePopoverLayer.ts 里登记的内联材质（ui-development-spec §9）",
+        reason: "浮层材质只来自 .nb-ui-popover-surface 与 .nb-ui-menu-surface（消费 --overlay-surface / --overlay-blur / --elevation-popover），组件不内联（ui-development-spec 的开发后自检）",
     },
     {
         name: "字号类带 length: 类型提示",

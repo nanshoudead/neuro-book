@@ -12,7 +12,7 @@ import {
 } from "reka-ui";
 import MenuRow from "./MenuRow.vue";
 import PopupScrollbar from "./PopupScrollbar.vue";
-import {popoverInlineSurfaceStyle, usePopoverLayer} from "../../composables/usePopoverLayer";
+import {usePopoverLayer} from "../../composables/usePopoverLayer";
 import {usePopupScroll} from "../../composables/usePopupScroll";
 import {cn} from "../../utils/cn";
 import {useFieldContext} from "../form/field-context";
@@ -23,7 +23,7 @@ import {useFieldContext} from "../form/field-context";
  * - 选项是弹出列表共用的一行（`.nb-ui-menu-item`）：一档行高与字号，选中只画左侧勾选列的勾、底色不变；
  * - 滚动由 `usePopupScroll` 给出：截在第 9 项中间、顶底渐隐、悬浮滑块，可滚动时视口右侧给滑块让位；
  * - 外框按 reka 给的可用高度夹紧；与触发器相距 7px，避开触发器聚焦时的光圈；
- * - 浮层的内联材质（四层投影、8px 模糊）与 `.nb-ui-popover-surface` 不一致，见 `usePopoverLayer.ts`。
+ * - 浮层的材质只来自 `.nb-ui-popover-surface` 与 `.nb-ui-menu-surface` 两个类，这里只绑层级与宽度。
  */
 
 export type SelectSize = "default" | "sm";
@@ -131,7 +131,7 @@ function handleUpdate(value: unknown): void {
 
 const {zIndex} = usePopoverLayer();
 const popoverStyle = {
-    ...popoverInlineSurfaceStyle(zIndex),
+    zIndex,
     width: "var(--reka-select-trigger-width)",
     minWidth: "var(--reka-select-trigger-width)",
 };
