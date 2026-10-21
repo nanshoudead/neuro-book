@@ -17,7 +17,7 @@
 ## 交互
 
 - `entry-failed` 的“重试”发 `retry-entry`；`load()` 失败的“重新加载”发 `reload`；渲染出错的“重试”发 `retry-render`。按钮在 `busy` 时停用，不重复发起。
-- 页面组件以 `generation` 作 key：模型给了新代际就卸掉旧实例、建新实例；`context` 不变（切换标签只改它的 `layer`），页面不重建。
+- 页面组件以 `generation` 作 key：模型给了新代际就卸掉旧实例、建新实例；同一次显示里 `context` 不变（切换标签只改它的 `layer`），页面不重建；新的一次显示模型另给一个 `context`（输出 6、22）。
 
 ## 数据
 

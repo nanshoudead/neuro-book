@@ -1,27 +1,38 @@
 /**
- * 配置文件文本的解析与单键编辑（docs/specs/settings/configuration.md 输出 4、5、13）。只做文本，不碰文件。
+ * 配置文件文本的解析与单键编辑（docs/specs/settings/configuration.md 输出 4、5、13）。只做文本，不碰文件：层的拥有者
+ * （服务端、项目子进程）用它读写文件，Lab 的内存层用它模拟同样的文件，所以放在 `shared/`。
  *
  * 用 `jsonc-parser`（VS Code 用的同一个库），但不照搬它的全部行为：它在出错时仍返回部分对象、对重复键不报错（取最后
  * 一个）、删除最后一个带尾随逗号的键会留下悬空逗号，删除独占一行的键还会重排相邻的缩进。所以解析一律先看错误、再
  * 在语法树上查重复键；编辑之后重新解析，通过与读取相同的检查才交出新文本。
  */
 
-import {applyEdits, createScanner, findNodeAtLocation, getNodeValue, modify, parseTree, printParseErrorCode, SyntaxKind} from "jsonc-parser";
+import {applyEdits, createScanner, findNodeAtLocation, getNodeValue, modify, parseTree, ParseErrorCode, SyntaxKind} from "jsonc-parser";
 import type {FormattingOptions, Node, ParseError} from "jsonc-parser";
 import {Value} from "typebox/value";
 
 import {freezeJson, isJson} from "nbook/shared/settings";
 import type {SettingDeclaration, SettingLayer} from "nbook/shared/settings";
 
-import {canonical} from "../shared/layers";
-import type {LayerEdit, LayerProblem} from "../shared/layers";
+import {canonical} from "./layers";
+import type {LayerEdit, LayerProblem} from "./layers";
 
 const BOM = "﻿";
 const PARSE_OPTIONS = {allowTrailingComma: true, disallowComments: false, allowEmptyContent: true} as const;
 
+/** 文本里的位置：行与列都从 1 起，列按 UTF-16 码元数（同编辑器）。 */
+export interface TextPosition {
+    readonly line: number;
+    readonly column: number;
+}
+
 export type ParsedLayer =
     | {readonly status: "ok"; readonly values: Readonly<Record<string, unknown>>; readonly problems: ReadonlyArray<LayerProblem>}
-    | {readonly status: "invalid"; readonly detail: string};
+    /**
+     * `position`：出错的地方（语法错误处、不是对象的根、第二次出现的重复键）；`reason` 是不带位置的原因，`detail` 在前面
+     * 加上行号（层快照与诊断用它）。
+     */
+    | {readonly status: "invalid"; readonly detail: string; readonly reason: string; readonly position: TextPosition};
 
 /**
  * 解析一层的文件文本：空文本、只有空白或注释为空层；无法解析、根不是对象、任意深度出现重复键为 `invalid`。没有声明的键
@@ -29,7 +40,7 @@ export type ParsedLayer =
  */
 export function parseLayerText(text: string, declarations: ReadonlyMap<string, SettingDeclaration>, layer: SettingLayer): ParsedLayer {
     const tree = parseRoot(text);
-    if (!tree.ok) return {status: "invalid", detail: tree.detail};
+    if (!tree.ok) return {status: "invalid", detail: tree.detail, reason: tree.reason, position: tree.position};
     const values: Record<string, unknown> = {};
     const problems: LayerProblem[] = [];
     for (const property of tree.root?.children ?? []) {
@@ -85,29 +96,54 @@ export function editLayerText(text: string, key: string, edit: LayerEdit): EditR
     return {ok: true, text: bom ? BOM + next : next};
 }
 
-type RootResult = {readonly ok: true; readonly root: Node | undefined} | {readonly ok: false; readonly detail: string};
+type RootResult = {readonly ok: true; readonly root: Node | undefined} | {readonly ok: false; readonly detail: string; readonly reason: string; readonly position: TextPosition};
 
-/** 解析并做读取的三项检查；根为 undefined 表示空文本或只有注释。BOM 由调用方先去掉。 */
+/** 解析错误的中文原因：用户在设置文件视图里直接看到它（jsonc-parser 只给英文的错误码名）。 */
+const PARSE_ERRORS: Readonly<Record<ParseErrorCode, string>> = {
+    [ParseErrorCode.InvalidSymbol]: "无效的符号",
+    [ParseErrorCode.InvalidNumberFormat]: "数字的写法不对",
+    [ParseErrorCode.PropertyNameExpected]: "这里应当是带引号的键名",
+    [ParseErrorCode.ValueExpected]: "这里缺一个值",
+    [ParseErrorCode.ColonExpected]: "键名后面缺冒号",
+    [ParseErrorCode.CommaExpected]: "缺逗号",
+    [ParseErrorCode.CloseBraceExpected]: "缺右花括号 }",
+    [ParseErrorCode.CloseBracketExpected]: "缺右方括号 ]",
+    [ParseErrorCode.EndOfFileExpected]: "结尾之后还有多余的内容",
+    [ParseErrorCode.InvalidCommentToken]: "注释的写法不对",
+    [ParseErrorCode.UnexpectedEndOfComment]: "注释没有结束",
+    [ParseErrorCode.UnexpectedEndOfString]: "字符串没有结束",
+    [ParseErrorCode.UnexpectedEndOfNumber]: "数字没有结束",
+    [ParseErrorCode.InvalidUnicode]: "Unicode 转义的写法不对",
+    [ParseErrorCode.InvalidEscapeCharacter]: "转义字符不对",
+    [ParseErrorCode.InvalidCharacter]: "无效的字符",
+};
+
+function invalid(reason: string, position: TextPosition): {readonly ok: false; readonly detail: string; readonly reason: string; readonly position: TextPosition} {
+    return {ok: false, detail: `第 ${String(position.line)} 行：${reason}`, reason, position};
+}
+
+/** 解析并做读取的三项检查；根为 undefined 表示空文本或只有注释。BOM 不算位置。 */
 function parseRoot(text: string): RootResult {
     const body = text.startsWith(BOM) ? text.slice(BOM.length) : text;
     const errors: ParseError[] = [];
     const root = parseTree(body, errors, PARSE_OPTIONS);
     const first = errors[0];
-    if (first !== undefined) return {ok: false, detail: `第 ${String(lineOf(body, first.offset))} 行：${printParseErrorCode(first.error)}`};
+    if (first !== undefined) return invalid(PARSE_ERRORS[first.error] ?? String(first.error), positionOf(body, first.offset));
     if (root === undefined) return {ok: true, root: undefined};
-    if (root.type !== "object") return {ok: false, detail: "根不是对象"};
+    if (root.type !== "object") return invalid("最外层必须是一个对象 { … }", positionOf(body, root.offset));
     const duplicate = firstDuplicate(root);
-    if (duplicate !== null) return {ok: false, detail: `键 ${duplicate} 出现了多次`};
+    if (duplicate !== null) return invalid(`键 ${duplicate.name} 出现了多次`, positionOf(body, duplicate.offset));
     return {ok: true, root};
 }
 
-function firstDuplicate(node: Node): string | null {
+/** 第一个在同一对象里第二次出现的键与它的位置（按文本先后找的深度优先）。 */
+function firstDuplicate(node: Node): {readonly name: string; readonly offset: number} | null {
     if (node.type === "object") {
         const seen = new Set<string>();
         for (const property of node.children ?? []) {
             const name = property.children?.[0]?.value as string | undefined;
             if (name === undefined) continue;
-            if (seen.has(name)) return name;
+            if (seen.has(name)) return {name, offset: property.offset};
             seen.add(name);
         }
     }
@@ -118,10 +154,15 @@ function firstDuplicate(node: Node): string | null {
     return null;
 }
 
-function lineOf(text: string, offset: number): number {
+function positionOf(text: string, offset: number): TextPosition {
     let line = 1;
-    for (let index = 0; index < offset && index < text.length; index += 1) if (text[index] === "\n") line += 1;
-    return line;
+    let start = 0;
+    for (let index = 0; index < offset && index < text.length; index += 1) {
+        if (text[index] !== "\n") continue;
+        line += 1;
+        start = index + 1;
+    }
+    return {line, column: Math.min(offset, text.length) - start + 1};
 }
 
 /**
