@@ -1,5 +1,6 @@
 import {computed, getCurrentInstance, nextTick, onBeforeUnmount, ref, type ComputedRef, type Ref} from "vue";
 
+import {elementOf} from "../utils/element-of";
 import {measurePopupTruncation, POPUP_ITEM_SELECTOR, POPUP_SCROLLBAR_GUTTER, rectScale, revealPopupItem} from "../utils/popup-geometry";
 import {dragScrollTop, thumbGeometry, trackLength} from "../utils/scrollbar-geometry";
 
@@ -111,8 +112,7 @@ export function usePopupScroll(): PopupScroll {
     }
 
     function setViewport(element: unknown): void {
-        const node = element !== null && typeof element === "object" && "$el" in element ? (element as {$el: unknown}).$el : element;
-        const next = node instanceof HTMLElement ? node : null;
+        const next = elementOf(element);
         if (next === viewport.value) return;
         // 视口卸载时滑块也跟着离开文档，拖动的 pointerup 再也到不了它：在这里收口，否则下次打开滑块仍是“拖动中”。
         endDrag();

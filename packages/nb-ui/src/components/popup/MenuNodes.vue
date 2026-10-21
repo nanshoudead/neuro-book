@@ -1,5 +1,6 @@
 <script setup lang="ts" generic="T extends {label?: string; title?: string; disabled?: boolean; separator?: boolean; iconClass?: string; shortcut?: string; tone?: 'default' | 'danger'; checked?: boolean; type?: string}">
 import {computed, ref, type Component} from "vue";
+import {elementOf} from "../../utils/element-of";
 
 /**
  * 一级菜单的条目，DropdownMenu、Menubar 与右键菜单共用。行的外观是 `.nb-ui-menu-item` 一组类（`styles.css`）。
@@ -53,11 +54,22 @@ function onKeydown(item: T, event: KeyboardEvent): void {
     target.setAttribute("aria-expanded", "true");
     emit("hover", item, target, true);
 }
+/**
+ * reka 菜单项的元素，按下标。reka 的 `select` 事件只交给监听者、没有在元素上派发，`currentTarget` 永远是 null，
+ * 展开子菜单要的父项元素只能从这里取。
+ */
+const rekaItems = new Map<number, HTMLElement>();
+function setRekaItem(index: number, element: unknown): void {
+    const node = elementOf(element);
+    if (node === null) rekaItems.delete(index);
+    else rekaItems.set(index, node);
+}
 /** reka 的选择（点击、Enter、空格）：级联父项阻止默认的关闭，改为展开下一级。 */
-function onRekaSelect(item: T, event: Event): void {
+function onRekaSelect(item: T, index: number, event: Event): void {
     if (hasChildren(item)) {
         event.preventDefault();
-        emit("hover", item, event.currentTarget as HTMLElement, true);
+        const trigger = rekaItems.get(index);
+        if (trigger !== undefined) emit("hover", item, trigger, true);
         return;
     }
     emit("select", item);
@@ -105,10 +117,11 @@ function common(item: T): Record<string, unknown> {
         <component
             :is="itemComponent"
             v-else-if="itemComponent"
+            :ref="(element: unknown) => setRekaItem(index, element)"
             v-bind="common(item)"
             :disabled="item.disabled"
             :text-value="item.label"
-            @select="onRekaSelect(item, $event)"
+            @select="onRekaSelect(item, index, $event)"
             @pointerenter="emit('hover', hasChildren(item) ? item : null, $event.currentTarget as HTMLElement, false)"
             @mouseenter="emit('hover', hasChildren(item) ? item : null, $event.currentTarget as HTMLElement, false)"
             @keydown="onKeydown(item, $event)"

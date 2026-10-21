@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {nextTick, onMounted, onUnmounted, ref, watch} from "vue";
 import {NB_Z_INDEX} from "../../theme/z-index";
+import {elementOf} from "../../utils/element-of";
 import {clampMenuPosition} from "../../utils/popup-geometry";
 import type {ContextMenuCloseReason, ContextMenuItem} from "./context-menu.types";
 import ContextMenuPanel from "./ContextMenuPanel.vue";
@@ -80,8 +81,7 @@ watch(() => [props.visible, props.x, props.y] as const, async ([visible, x, y]) 
 });
 
 function setMenuRef(element: unknown): void {
-    const node = element && typeof element === "object" && "$el" in element ? element.$el : element;
-    menuRef.value = node && typeof node === "object" && "getBoundingClientRect" in node ? node as HTMLElement : null;
+    menuRef.value = elementOf(element);
 }
 </script>
 

@@ -145,6 +145,39 @@ describe("DropdownMenu", () => {
         expect(wrapper.emitted("update:open")?.at(-1)).toEqual([false]);
     });
 
+    it("父项上按 Enter 或空格展开子菜单，焦点进它的第一项；子菜单里的父项按 Enter 同样", async () => {
+        for (const key of ["Enter", " "]) {
+            const wrapper = mountDropdownMenu({
+                items: [
+                    {label: "视图", value: "group:view", children: [
+                        {label: "布局", value: "group:layout", children: [{label: "单栏", value: "single"}, {label: "双栏", value: "double"}]},
+                        {label: "面板", value: "panel"},
+                    ]},
+                    {label: "帮助", value: "help"},
+                ],
+            });
+            await open(wrapper);
+            const parent = document.querySelector<HTMLElement>("[role=menuitem][aria-haspopup=menu]")!;
+            parent.focus();
+            parent.dispatchEvent(new KeyboardEvent("keydown", {key, bubbles: true, cancelable: true}));
+            await flush();
+            expect(document.activeElement?.textContent?.trim(), `按 ${JSON.stringify(key)}`).toBe("布局");
+            expect(wrapper.emitted("select")).toBeUndefined();
+            // 子菜单按父项量好了位置（父项元素没取到时面板没有定位，停在文档流的位置上）。
+            expect(document.querySelector<HTMLElement>(".nb-menu-level")?.style.top).toMatch(/px$/);
+
+            // 手工级联里的父项是普通按钮：Enter 先发 keydown，再由浏览器补一次 click。
+            const nested = document.activeElement as HTMLButtonElement;
+            nested.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+            nested.click();
+            await flush();
+            expect(document.activeElement?.textContent?.trim()).toBe("单栏");
+            expect(wrapper.emitted("select")).toBeUndefined();
+            wrapper.unmount();
+            wrappers.length = 0;
+        }
+    });
+
     it("radio/checkbox 的勾选态只读宿主的 checked，组件不代为切换", async () => {
         const wrapper = mountDropdownMenu({
             items: [

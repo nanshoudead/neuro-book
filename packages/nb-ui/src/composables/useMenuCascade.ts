@@ -1,4 +1,5 @@
-import {nextTick, shallowRef, watch} from "vue";
+import {nextTick, onBeforeUnmount, shallowRef, watch} from "vue";
+import {elementOf} from "../utils/element-of";
 import {focusPopupItem, measureCascadePanel} from "../utils/popup-geometry";
 
 export const MENU_SUBMENU_HOVER_DELAY_MS = 300;
@@ -32,8 +33,26 @@ export interface MenuCascadeLevel<T> {
     switching: boolean;
 }
 
-/** 三个菜单入口共用的持久子面板状态：同级替换、更深层级截断、关闭清空。 */
-export function useMenuCascade<T>(): {
+export interface MenuCascadeOptions {
+    /**
+     * 第一级菜单的条目容器，条目是它的直接子元素：DropdownMenu 的一级滚动视口、Menubar 打开着的那组的视口、右键菜单根里的
+     * `.nb-menu-level-content`。第 0 级子菜单收起（左方向键、第一级滚动）时在这里找展开它的那一项；它所在的
+     * `[role=menu]` 就是第一级面板（焦点停在面板本身时按这个认）。
+     */
+    rootLevel: () => Element | null;
+    /** 第一级的上下键、Home、End 由这里处理：右键菜单的第一级是普通按钮，要；reka 的第一级由 reka 处理，不要。 */
+    rootRoving: boolean;
+}
+
+/**
+ * 三个菜单入口（DropdownMenu、Menubar、右键菜单）共用的手工级联：持久子面板的状态（同级替换、更深层级截断、关闭清空），
+ * 键盘（第一级与各级面板），父级滚动时收起，以及“级联面板不算菜单外部”的判定。
+ *
+ * 挂法：`rootKeydown` 挂在第一级面板上（reka 的菜单内容要用 `@keydown.capture`，赶在 reka 自己的处理之前），`levelKeydown`
+ * 挂在每一级 `MenuLevelPanel` 的根上。两者都不碰 Tab、Escape，也不阻止冒泡：右键菜单的 Tab、Escape 由它在 document 上的
+ * 监听处理，reka 菜单的由 reka 处理。
+ */
+export function useMenuCascade<T>(options: MenuCascadeOptions): {
     levels: {value: MenuCascadeLevel<T>[]};
     panels: {value: Array<HTMLElement | null>};
     setPanel(depth: number, element: unknown): void;
@@ -41,14 +60,17 @@ export function useMenuCascade<T>(): {
     /** 只留前 `depth` 级（`depth` 为 0 时全部收起），等待中的展开一并取消。 */
     truncate(depth: number): void;
     reset(): void;
-    /** 键盘在一级菜单的父项上展开了子菜单（右方向键、Enter、空格）：它出现后焦点进它的第一项。 */
-    expectKeyboardOpen(): void;
+    /** 第一级面板的键盘：父项上的右方向键、Enter、空格展开后焦点跟进新的一级；`rootRoving` 时另管上下、Home、End。 */
+    rootKeydown(event: KeyboardEvent): void;
     /**
-     * 第 `depth` 级面板里的键盘：上下、Home、End 在本级可用项之间移动；右方向键、Enter、空格在父项上展开下一级；
-     * 左方向键收起本级、焦点回到展开它的那一项。焦点停在面板本身（指针离开项后）时，上下键从首末项开始。
-     * `firstLevel` 是一级菜单的条目容器（reka 的菜单内容或它的视口），第 0 级的子菜单收起时在它里面找展开它的那一项。
+     * 第 `depth` 级面板里的键盘：上下、Home、End 在本级可用项之间移动；右方向键、Enter、空格在父项上展开后焦点跟进；
+     * 左方向键收起本级、焦点回到展开它的那一项。
      */
-    levelKeydown(depth: number, event: KeyboardEvent, firstLevel: Element | null | undefined): void;
+    levelKeydown(depth: number, event: KeyboardEvent): void;
+    /** 第 `depth` 级（0 为第一级）滚动了：收起它展开的更深层级，焦点在被收起的层级里时回到展开它的那一项。 */
+    collapseBelow(depth: number): void;
+    /** 目标在某一级级联面板里：面板在 reka 的菜单内容之外，但属于这个菜单。 */
+    contains(target: EventTarget | null): boolean;
 } {
     const levels = shallowRef<MenuCascadeLevel<T>[]>([]);
     const panels = shallowRef<Array<HTMLElement | null>>([]);
@@ -81,83 +103,119 @@ export function useMenuCascade<T>(): {
         scheduler.schedule(() => void open(value, trigger, depth, hasChildren), {immediate, hasOpenSibling: Boolean(levels.value[depth])});
     }
 
+    function truncate(depth: number): void {
+        scheduler.cancel();
+        if (levels.value.length <= depth) return;
+        levels.value = levels.value.slice(0, depth);
+        openedPanels.length = depth;
+    }
+
     /** 键盘展开了子菜单：它出现后把焦点放到它的第一项。 */
     let focusNewLevel = false;
     watch(() => levels.value.length, async (length, previous) => {
         if (!focusNewLevel || length <= previous) return;
         focusNewLevel = false;
         await nextTick();
-        focusPopupItem(levelItems(length - 1)[0]);
+        focusPopupItem(itemsIn(levelContent(length - 1))[0]);
+    });
+    // 首次悬停的展开要等 300ms：宿主在这之前整个卸载时，回调不该再去量已经不在的面板。
+    onBeforeUnmount(() => {
+        scheduler.cancel();
+        focusNewLevel = false;
     });
 
-    /** 第 `depth` 级里可用的项，按显示顺序。 */
-    function levelItems(depth: number): HTMLElement[] {
-        const container = panels.value[depth]?.querySelector(".nb-menu-level-content");
-        return container === null || container === undefined ? [] : [...container.querySelectorAll<HTMLElement>(":scope > [role^='menuitem']:not([disabled])")];
+    /** 第 `depth` 级级联面板的条目容器。 */
+    function levelContent(depth: number): Element | null {
+        return panels.value[depth]?.querySelector(".nb-menu-level-content") ?? null;
     }
 
-    function levelKeydown(depth: number, event: KeyboardEvent, firstLevel: Element | null | undefined): void {
+    /** 第 `depth` 级子菜单的父级条目容器：第 0 级的父级是第一级菜单。 */
+    function parentLevel(depth: number): Element | null {
+        return depth === 0 ? options.rootLevel() : levelContent(depth - 1);
+    }
+
+    /** 容器里可用的项，按显示顺序。 */
+    function itemsIn(container: Element | null): HTMLElement[] {
+        return container === null ? [] : [...container.querySelectorAll<HTMLElement>(":scope > [role^='menuitem']:not([disabled])")];
+    }
+
+    /** 父项上的右方向键、Enter、空格：展开由 MenuNodes 或 reka 做，这里只预约焦点。 */
+    function expectOpen(event: KeyboardEvent): void {
         const target = event.target as HTMLElement;
-        const items = levelItems(depth);
-        const onPanel = target === panels.value[depth];
-        const index = items.indexOf(target);
-        if (index < 0 && !onPanel) return;
-        const move = (next: HTMLElement | undefined): void => {
-            event.preventDefault();
-            focusPopupItem(next);
-        };
+        if (target.getAttribute("aria-haspopup") === "menu" && ["ArrowRight", "Enter", " "].includes(event.key)) focusNewLevel = true;
+    }
+
+    /** 上下、Home、End 在 `items` 里移动；焦点停在面板本身（`onPanel`）时上下键从首末项开始。处理了返回 true。 */
+    function rove(event: KeyboardEvent, items: HTMLElement[], onPanel: boolean): boolean {
+        const index = items.indexOf(event.target as HTMLElement);
+        if (index < 0 && !onPanel) return false;
+        let next: HTMLElement | undefined;
         switch (event.key) {
             case "ArrowDown":
-                move(onPanel ? items[0] : items[(index + 1) % items.length]);
-                return;
+                next = onPanel ? items[0] : items[(index + 1) % items.length];
+                break;
             case "ArrowUp":
-                move(onPanel ? items[items.length - 1] : items[(index - 1 + items.length) % items.length]);
-                return;
+                next = onPanel ? items[items.length - 1] : items[(index - 1 + items.length) % items.length];
+                break;
             case "Home":
-                move(items[0]);
-                return;
+                next = items[0];
+                break;
             case "End":
-                move(items[items.length - 1]);
-                return;
-            case "ArrowRight":
-            case "Enter":
-            case " ":
-                if (target.getAttribute("aria-haspopup") === "menu") focusNewLevel = true;
-                return;
-            case "ArrowLeft": {
-                const parentLevel = depth === 0 ? firstLevel : panels.value[depth - 1]?.querySelector(".nb-menu-level-content");
-                const trigger = parentLevel?.querySelector<HTMLElement>("[aria-expanded='true']") ?? null;
-                event.preventDefault();
-                if (trigger !== null) schedule(null, trigger, depth, true, false);
-                focusPopupItem(trigger);
-                return;
-            }
+                next = items[items.length - 1];
+                break;
+            default:
+                return false;
         }
+        event.preventDefault();
+        focusPopupItem(next);
+        return true;
+    }
+
+    function rootKeydown(event: KeyboardEvent): void {
+        const container = options.rootLevel();
+        if (options.rootRoving && rove(event, itemsIn(container), event.target === container?.closest("[role='menu']"))) return;
+        expectOpen(event);
+    }
+
+    function levelKeydown(depth: number, event: KeyboardEvent): void {
+        if (rove(event, itemsIn(levelContent(depth)), event.target === panels.value[depth])) return;
+        if (event.key !== "ArrowLeft") {
+            expectOpen(event);
+            return;
+        }
+        const trigger = parentLevel(depth)?.querySelector<HTMLElement>(":scope > [aria-expanded='true']") ?? null;
+        event.preventDefault();
+        if (trigger !== null) schedule(null, trigger, depth, true, false);
+        focusPopupItem(trigger);
+    }
+
+    function collapseBelow(depth: number): void {
+        if (levels.value.length <= depth) return;
+        const focusInside = panels.value.slice(depth).some((panel) => panel?.contains(document.activeElement) === true);
+        const trigger = parentLevel(depth)?.querySelector<HTMLElement>(":scope > [aria-expanded='true']") ?? null;
+        truncate(depth);
+        if (focusInside) trigger?.focus({preventScroll: true});
     }
 
     return {
         levels,
         panels,
         setPanel(depth, element) {
-            const node = element && typeof element === "object" && "$el" in element ? element.$el : element;
-            const panel = node && typeof node === "object" && "getBoundingClientRect" in node ? node as HTMLElement : null;
+            const panel = elementOf(element);
             panels.value[depth] = panel;
             openedPanels[depth] = panel;
         },
         schedule,
-        truncate(depth) {
-            scheduler.cancel();
-            if (levels.value.length <= depth) return;
-            levels.value = levels.value.slice(0, depth);
-            openedPanels.length = depth;
-        },
+        truncate,
         reset() {
             scheduler.cancel();
             levels.value = [];
         },
-        expectKeyboardOpen() {
-            focusNewLevel = true;
-        },
+        rootKeydown,
         levelKeydown,
+        collapseBelow,
+        contains(target) {
+            return target instanceof Node && panels.value.some((panel) => panel?.contains(target) === true);
+        },
     };
 }

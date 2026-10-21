@@ -188,6 +188,48 @@ test("级联：父级滚轮或拖滑块时收起它展开的子菜单；同级�
     await expect(levels).toHaveCount(0);
 });
 
+test("下拉菜单：点击父项立即展开子菜单，第一项与父项同一行", async ({page}) => {
+    await gotoLong(page);
+    await page.locator("[data-fixture-long-dropdown-trigger]").click();
+    const dropdown = page.locator("[data-fixture-long-dropdown]");
+    await settled(dropdown);
+    const parent = dropdown.getByRole("menuitem", {name: /短子菜单/});
+    await parent.click();
+    const level = page.locator(".nb-menu-level").first();
+    await expect(level.getByRole("menuitem", {name: "短项 1"})).toBeVisible();
+    await settled(level);
+    const parentBox = (await parent.boundingBox())!;
+    const first = (await level.getByRole("menuitem").first().boundingBox())!;
+    expect(Math.abs(first.y - parentBox.y), "子菜单第一项与父项同一行").toBeLessThanOrEqual(1);
+    expect(first.x, "子菜单在父级右侧").toBeGreaterThan(parentBox.x + parentBox.width);
+});
+
+test("页面 CSS zoom 下级联面板照样贴着父项、装得下全部内容", async ({page}) => {
+    await gotoLong(page);
+    await page.evaluate(() => {
+        document.documentElement.style.zoom = "0.8";
+    });
+    await page.locator("[data-fixture-long-dropdown-trigger]").click();
+    const dropdown = page.locator("[data-fixture-long-dropdown]");
+    await settled(dropdown);
+    const parent = dropdown.getByRole("menuitem", {name: /短子菜单/});
+    await parent.hover();
+    const level = page.locator(".nb-menu-level").first();
+    await expect(level.getByRole("menuitem", {name: "短项 1"})).toBeVisible();
+    await settled(level);
+    const parentBox = (await parent.boundingBox())!;
+    const dropdownBox = (await dropdown.boundingBox())!;
+    const levelBox = (await level.boundingBox())!;
+    const items = level.getByRole("menuitem");
+    const first = (await items.first().boundingBox())!;
+    const last = (await items.last().boundingBox())!;
+    expect(Math.abs(first.y - parentBox.y), "子菜单第一项与父项同一行").toBeLessThanOrEqual(1);
+    // 两级之间的间隙是 6 个 CSS 像素，zoom 0.8 下量到约 4.8。
+    expect(Math.abs(levelBox.x - (dropdownBox.x + dropdownBox.width) - 4.8), "与父级的间隙随 zoom 缩放").toBeLessThanOrEqual(1);
+    expect(last.y + last.height, "最后一项不被面板裁掉").toBeLessThanOrEqual(levelBox.y + levelBox.height);
+    expect(first.x + first.width, "项不比面板宽").toBeLessThanOrEqual(levelBox.x + levelBox.width);
+});
+
 test("右键菜单的长子菜单：位置贴着父项，父级拖滑块时收起", async ({page}) => {
     await gotoLong(page);
     await page.locator("[data-fixture-context-area]").click({button: "right"});

@@ -125,39 +125,51 @@ export function computeCascadePosition(
 }
 
 /**
- * 量出子面板相对父项的位置和含内边距、边框的尺寸。三个菜单入口共用。
+ * 量出子面板相对父项的位置和含内边距、边框的尺寸（面板所在坐标系的 CSS 像素）。三个菜单入口共用。
  *
  * 高度与主菜单同一条规则：项超过 8 个时截在第 9 项中间（量这一级的滚动视口），再夹进窗口；截断了就在右侧给滑块让出位置。
  * 父项取它此刻的真实盒子：父级滚动过，量到的就是滚动后的位置（父级一滚动宿主就收起子菜单，不会拿到过期的位置）。
+ *
+ * `getBoundingClientRect` 量到的是窗口像素，写回面板的 `top`、`left`、`width`、`height` 是 CSS 像素；页面或祖先有 CSS
+ * `zoom` 时两者不等，所以矩形与窗口尺寸都按面板自己的比例（`rectScale`）换回 CSS 像素。面板没有入场缩放，这个比例只来自 zoom。
  */
 export function measureCascadePanel(trigger: HTMLElement, panel: HTMLElement): {x: number; y: number; width: number; height: number} | null {
-    const element = panel && "querySelector" in panel ? panel : (panel as {$el?: HTMLElement} | null)?.$el ?? null;
-    const parent = trigger.closest("[role='menu']")?.getBoundingClientRect();
+    const parentRect = trigger.closest("[role='menu']")?.getBoundingClientRect();
+    const content = panel.querySelector<HTMLElement>(".nb-menu-level-content");
+    const viewport = panel.querySelector<HTMLElement>(".nb-menu-level-viewport");
+    const contentRect = content?.getBoundingClientRect() ?? panel.getBoundingClientRect();
+    if (!parentRect) return null;
+    const scale = rectScale(panel);
+    const css = (value: number): number => value / scale;
     const anchor = trigger.getBoundingClientRect();
-    const content = element?.querySelector<HTMLElement>(".nb-menu-level-content");
-    const viewport = element?.querySelector<HTMLElement>(".nb-menu-level-viewport");
-    const rect = content?.getBoundingClientRect() ?? element?.getBoundingClientRect();
-    if (!parent || !element || !rect) return null;
-    const style = getComputedStyle(element);
+    const style = getComputedStyle(panel);
     const edgeX = ["paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"] as const;
     const edgeY = ["paddingTop", "paddingBottom", "borderTopWidth", "borderBottomWidth"] as const;
     const padX = edgeX.reduce((sum, key) => sum + (Number.parseFloat(style[key]) || 0), 0);
     const padY = edgeY.reduce((sum, key) => sum + (Number.parseFloat(style[key]) || 0), 0);
-    const firstHeight = panel.querySelector("[role^='menuitem']")?.getBoundingClientRect().height ?? anchor.height;
+    const anchorHeight = css(anchor.height);
+    const firstHeight = css(panel.querySelector("[role^='menuitem']")?.getBoundingClientRect().height ?? anchor.height);
     const truncated = viewport ? measurePopupTruncation(viewport) : null;
-    const contentHeight = truncated === null ? rect.height : Math.min(rect.height, truncated);
-    const maxHeight = window.innerHeight - MENU_VIEWPORT_PADDING * 2;
+    const contentHeight = truncated === null ? css(contentRect.height) : Math.min(css(contentRect.height), truncated);
+    const view = {width: css(window.innerWidth), height: css(window.innerHeight)};
+    const maxHeight = view.height - MENU_VIEWPORT_PADDING * 2;
     // 截断了，或者项不多但窗口太矮被夹住：两种情况视口都会滚动、右侧都要给滑块让位，宽度先算进去，否则内容被裁掉一截。
     const scrolls = truncated !== null || contentHeight + padY > maxHeight;
     const size = {
-        width: rect.width + padX + (scrolls ? POPUP_SCROLLBAR_GUTTER : 0),
+        width: css(contentRect.width) + padX + (scrolls ? POPUP_SCROLLBAR_GUTTER : 0),
         height: Math.min(contentHeight + padY, maxHeight),
     };
     const position = computeCascadePosition(
-        {top: anchor.top - (Number.parseFloat(style.paddingTop) || 0) - (firstHeight - anchor.height) / 2, left: anchor.left, right: anchor.right, bottom: anchor.bottom, panelLeft: parent.left, panelRight: parent.right},
+        {
+            top: css(anchor.top) - (Number.parseFloat(style.paddingTop) || 0) - (firstHeight - anchorHeight) / 2,
+            left: css(anchor.left),
+            right: css(anchor.right),
+            bottom: css(anchor.bottom),
+            panelLeft: css(parentRect.left),
+            panelRight: css(parentRect.right),
+        },
         size,
-        {width: window.innerWidth, height: window.innerHeight},
+        view,
     );
     return {x: position.x, y: position.y, width: Math.ceil(size.width), height: Math.ceil(size.height)};
 }
-
