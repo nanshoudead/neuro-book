@@ -17,7 +17,8 @@
 // 作答结果：
 // - 交卷：送判的 answer 是 answerText（结论、表或分点、说明与覆盖），evidence 是三处 refs 的并集，conclusionType 照填；
 //   用量、读过的章、退回次数、记录 id 只留在外层，不送判。
-// - no_answer（提醒两次仍不交卷）：是系统给出的结果，按“（没有交卷）”送判，计入答错一类。
+// - 文字回复（2026-10-21 起 answer 可选）：送判回复正文，evidence 取正文里的出处，conclusionType 写“文字回复”，外层记 kind。
+// - no_answer（提醒两次仍不交卷；2026-10-21 起是既没交卷也没有文字）：是系统给出的结果，按“（没有交卷）”送判，计入答错一类。
 // - model_failed（渠道失败）：最多重试 3 次，仍失败的这一份算没答，回归不算通过；可以之后续跑。
 // 续跑：已有结果文件的跳过；每批目录里的 inputs.json 记下这次的输入（代码提交、模型与请求参数、题集与原文的摘要），
 // 与现在的不同就拒绝续跑，免得把不同输入的结果混在一起。
@@ -109,6 +110,7 @@ async function answerOne(batch: Batch, runName: string, question: Question, log:
     const file = answerFile(batch, runName, question.id);
     if (existsSync(file)) return;
     const {answerText} = (await import(join(NB_STORY, "src/qa/format.ts"))) as {answerText: (answer: unknown) => string};
+    const {refsInText} = (await import(join(NB_STORY, "src/qa/read-ledger.ts"))) as {refsInText: (text: string) => string[]};
     for (let attempt = 1; attempt <= 3; attempt += 1) {
         const started = Date.now();
         const result = await run(["bun", join(NB_STORY, "src/cli.ts"), "ask", question.question, "--at", String(question.requiredPrefix), "--mode", batch.mode, "--config", CONFIG, "--library", LIBRARY, "--json"]);
@@ -125,11 +127,16 @@ async function answerOne(batch: Batch, runName: string, question: Question, log:
         const ms = Date.now() - started;
         if (parsed.ok) {
             const record = parsed.data;
+            // 2026-10-21（w00024 t08）起 answer 可选：模型没交卷、直接用文字回复时 answer 为 null，送判回复正文，
+            // 依据取正文里写成出处形状的内容，并标明是文字回复（没经结构化校验）。
             const answer = record.answer;
-            const evidence = [...new Set([...answer.evidence, ...(answer.knowledge ?? []).flatMap((row: any) => row.refs), ...(answer.points ?? []).flatMap((point: any) => point.refs)])];
+            const reply = record.reply as {text: string; unverifiedRefs: string[]} | null | undefined;
+            const graded = answer
+                ? {answer: answerText(answer), evidence: [...new Set([...answer.evidence, ...(answer.knowledge ?? []).flatMap((row: any) => row.refs), ...(answer.points ?? []).flatMap((point: any) => point.refs)])], conclusionType: answer.conclusionType}
+                : {answer: reply!.text, evidence: [...new Set(refsInText(reply!.text))], conclusionType: "文字回复"};
             await mkdir(join(OUT, batch.name, "answers", runName), {recursive: true});
-            await writeFile(file, JSON.stringify({id: question.id, prefix: question.requiredPrefix, model: MODEL.id, ms, answers: [{id: question.id, answer: answerText(answer), evidence, conclusionType: answer.conclusionType}], run: {status: record.status, recordId: record.id, chaptersRead: record.chaptersRead, rejections: record.rejections, usage: record.usage}}, null, 1));
-            log(`${batch.name} ${runName} ${question.id} 交卷（读 ${record.chaptersRead.length} 章，退回 ${record.rejections} 次，${Math.round(ms / 1000)} 秒）`);
+            await writeFile(file, JSON.stringify({id: question.id, prefix: question.requiredPrefix, model: MODEL.id, ms, answers: [{id: question.id, ...graded}], run: {status: record.status, recordId: record.id, kind: answer ? "answer" : "reply", ...(reply ? {unverifiedRefs: reply.unverifiedRefs} : {}), chaptersRead: record.chaptersRead, rejections: record.rejections, usage: record.usage}}, null, 1));
+            log(`${batch.name} ${runName} ${question.id} ${answer ? "交卷" : "文字回复"}（读 ${record.chaptersRead.length} 章，退回 ${record.rejections} 次，${Math.round(ms / 1000)} 秒）`);
             return;
         }
         const error = parsed.error!;
