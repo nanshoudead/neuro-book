@@ -538,18 +538,21 @@ describe("增量整理稿的清理（输出 7）", () => {
         arcs: [{id: "a2-1", title: "林晚赶路", summary: "林晚一路赶路。", episodes: ["p1-1", "p2-1"], status: "ongoing"}],
     };
 
-    test("候选之外的合并、改写没列现有归纳的方面拒绝；知情与状态变动可以当依据；中文的方面名换回英文键；主线只改状态、重复写、未知编号各有去处", async () => {
+    test("候选之外的合并、改写没列现有归纳的方面拒绝；知情与状态变动可以当依据；中文的方面名换回英文键、写在句子里的依据拆回 deps；主线只改状态、重复写、未知编号各有去处", async () => {
         const dataset = compile(book, sources, drafts, [first]).dataset;
         expect(compile(book, sources, drafts, [first]).issues.filter(issue => issue.level === "error")).toEqual([]);
         const reply = {
             through: 3,
             merges: [{keep: "e1-1", drop: "e1-3", reason: "同一个林晚"}],
             summaries: [
-                {entity: "e1-1", facet: "overview", items: [{text: "林晚在赶路。", deps: ["p2-1"]}, {text: "林晚知道自己和阿青同行，身上有三枚金币。", deps: ["k3-1", "l3-1"]}]},
+                // 第一句照抄材料，依据留在句子里；第二句依据写对了。
+                {entity: "e1-1", facet: "overview", items: [{text: "林晚在赶路。〔p2-1〕", deps: []}, {text: "林晚知道自己和阿青同行，身上有三枚金币。", deps: ["k3-1", "l3-1"]}]},
                 {entity: "e1-2", facet: "overview", items: [{text: "阿青不见了。", deps: ["s1-1"]}]},
                 {entity: "e1-2", facet: "appearance", items: [{text: "阿青的样子没有交代。", deps: ["s1-1"]}]},
                 // 照材料写了中文的方面名，换回英文键。
                 {entity: "e1-1", facet: "外貌", items: [{text: "林晚的样子没有交代。", deps: ["s1-1"]}]},
+                // 两句连同各自的依据写进了一条。
+                {entity: "e1-1", facet: "history", items: [{text: "林晚和阿青出发。〔s1-1〕林晚一路赶路。〔p2-1、p3-1〕", deps: []}]},
             ],
             arcs: [
                 {id: "a2-1", title: "林晚赶路", summary: "林晚到了目的地。", episodes: [], status: "closed"},
@@ -568,9 +571,10 @@ describe("增量整理稿的清理（输出 7）", () => {
             base: 2,
             merges: [],
             summaries: [
-                reply.summaries[0],
+                {entity: "e1-1", facet: "overview", items: [{text: "林晚在赶路。", deps: ["p2-1"]}, reply.summaries[0]!.items[1]]},
                 reply.summaries[2],
                 {...reply.summaries[3], facet: "appearance"},
+                {entity: "e1-1", facet: "history", items: [{text: "林晚和阿青出发。", deps: ["s1-1"]}, {text: "林晚一路赶路。", deps: ["p2-1", "p3-1"]}]},
             ],
             arcs: [
                 {id: "a2-1", title: "林晚赶路", summary: "林晚到了目的地。", episodes: [], status: "closed"},

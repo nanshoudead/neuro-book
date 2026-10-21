@@ -362,6 +362,27 @@ export interface ConsolidationScope {
 export const FACET_ZH: Record<Facet, string> = {overview: "概览", appearance: "外貌", personality: "性格与说话方式", relations: "人际关系", history: "经历", abilities: "能力与道具", goals: "处境与目标"};
 const FACET_KEYS = new Map<string, Facet>(Object.entries(FACET_ZH).map(([key, name]) => [name, key as Facet]));
 
+/**
+ * 整理的材料把旧句写成“句子〔s1-2、p3-1〕”，模型照抄时常把依据留在句子里、`deps` 留空，或把几句连同各自的依据写进一条。
+ * 这里按〔〕拆回一句一条、依据进 `deps`；没有〔〕的原样返回。
+ */
+function inlineDeps(item: any): any[] {
+    if (typeof item?.text !== "string" || !item.text.includes("〔")) return [item];
+    const own = Array.isArray(item.deps) ? item.deps : typeof item.deps === "string" ? [item.deps] : [];
+    const rows: any[] = [];
+    const pattern = /([^〔〕]*)〔([^〕]*)〕/gu;
+    let rest = item.text as string;
+    for (const match of item.text.matchAll(pattern)) {
+        const text = match[1]!.trim();
+        const deps = match[2]!.split(/[、,，\s]+/u).filter(Boolean);
+        if (text) rows.push({text, deps: [...new Set([...deps, ...own])]});
+        else if (rows.length) rows.at(-1).deps.push(...deps);
+        rest = rest.replace(match[0], "");
+    }
+    if (rest.trim()) rows.push({text: rest.trim(), deps: own});
+    return rows;
+}
+
 /** 程序生成的知情编号形如 `k:…`，草稿不能引用；手写的是 `k<章>-<序号>`。 */
 const HANDWRITTEN_KNOWLEDGE = /^k\d{1,4}-\d{1,4}$/u;
 
@@ -421,7 +442,7 @@ export function sanitizeConsolidation(reply: any, chapter: number, dataset: Data
             dropped.push(`摘要 ${summary.entity}/${summary.facet}：这次没有列出它的现有归纳，只能补新的方面`);
             continue;
         }
-        const rows = Array.isArray(summary.items) ? summary.items : [summary];
+        const rows = (Array.isArray(summary.items) ? summary.items : [summary]).flatMap(inlineDeps);
         for (const item of rows) {
             const deps = (Array.isArray(item?.deps) ? item.deps : typeof item?.deps === "string" ? [item.deps] : []).filter((dep: unknown) => typeof dep === "string" && targets.has(dep));
             if (typeof item?.text !== "string" || !item.text || !deps.length) {
