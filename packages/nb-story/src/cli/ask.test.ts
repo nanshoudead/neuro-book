@@ -1,5 +1,5 @@
 /**
- * `nbstory ask` 与 `nbstory qa`（docs/specs/story/qa.md 输出 12 到 17、验收 6 与 8，F1、F2、F5）：跑真实的命令行
+ * `nbstory ask` 与 `nbstory qa`（docs/specs/story/qa.md 输出 12 到 17、26，验收 6、8、13 到 15，F1、F2、F5）：跑真实的命令行
  * 进程，模型请求经真实的 OMP provider 发往本机的 OpenAI 兼容端点。
  *
  * 密钥都是测试里编的假值，只发往本机端点。
@@ -74,13 +74,13 @@ describe("nbstory ask", () => {
         expect(result.stdout).toContain("结论（明说）：读者在 37.8 知道了");
         expect(result.stdout).toContain("读过的章：37");
         expect(endpoint.authorizations).toEqual([`Bearer ${FAKE_KEY}`, `Bearer ${FAKE_KEY}`]);
-        const id = /记录 (\S+)/u.exec(result.stdout)![1]!;
+        const id = /对话 (\S+) 第 1 轮；追问：nbstory ask <问题> --continue \S+/u.exec(result.stdout)![1]!;
 
         const listed = await run(["qa"]);
         expect(listed.stdout).toContain(`${id}`);
-        expect(listed.stdout).toContain("已答  @38.");
+        expect(listed.stdout).toContain("已答  1 轮  @38.");
         const shown = await run(["qa", id, "--json"]);
-        expect(JSON.parse(shown.stdout)).toMatchObject({ok: true, data: {id, status: "answered", answer: {evidence: ["37.8"]}}});
+        expect(JSON.parse(shown.stdout)).toMatchObject({ok: true, data: {id, turns: [{status: "answered", answer: {evidence: ["37.8"]}}]}});
 
         expect((await run(["qa", "rm", id])).code).toBe(0);
         const gone = await run(["qa", id, "--json"]);
@@ -160,7 +160,35 @@ describe("nbstory ask", () => {
         child.kill("SIGINT");
         expect(await child.exited).toBe(130);
         const listed = await run(["qa", "--json"]);
-        const records = (JSON.parse(listed.stdout) as {data: {records: {question: string; status: string; answer: unknown}[]}}).data.records;
-        expect(records.find(record => record.question === "会被取消的问题")).toMatchObject({status: "interrupted", answer: null});
+        const records = (JSON.parse(listed.stdout) as {data: {records: {turns: {question: string; status: string; answer: unknown}[]}[]}}).data.records;
+        expect(records.find(record => record.turns[0]!.question === "会被取消的问题")?.turns).toMatchObject([{status: "interrupted", answer: null}]);
+    });
+});
+
+describe("nbstory ask 的文字回复与追问（输出 10、12、26，验收 13 到 15）", () => {
+    test("文字回复写到标准输出；--continue 追问第二轮，--json 带 turn 与 reply；qa 按轮显示", async () => {
+        const {config} = await configFor([{kind: "text", text: "你好！想问这本书的什么？"}, {kind: "text", text: "可以，问吧"}]);
+        const first = await run(["ask", "你好", "--at", "38", "--config", config]);
+        expect(first.code).toBe(0);
+        expect(first.stdout).toContain("你好！想问这本书的什么？");
+        const id = /对话 (\S+) 第 1 轮/u.exec(first.stdout)![1]!;
+
+        const second = await run(["ask", "能问剧情吗", "--continue", id, "--config", config, "--json"]);
+        expect(second.code).toBe(0);
+        expect(JSON.parse(second.stdout)).toMatchObject({ok: true, data: {id, turn: 2, status: "answered", answer: null, reply: {text: "可以，问吧", truncated: false, unverifiedRefs: []}, at: {chapter: 38}}});
+
+        const shown = await run(["qa", id]);
+        expect(shown.stdout).toContain("2 轮");
+        expect(shown.stdout).toContain("第 2 轮（已答）：能问剧情吗");
+    });
+
+    test("--continue 与 --at 或 --mode 同时写是用法错误；没有这个对话是 qa_record_not_found", async () => {
+        const {config, endpoint} = await configFor([]);
+        expect((await run(["ask", "问", "--continue", "20261016100000000-abcdef", "--at", "38", "--config", config])).code).toBe(2);
+        expect((await run(["ask", "问", "--continue", "20261016100000000-abcdef", "--mode", "full", "--config", config])).code).toBe(2);
+        const missing = await run(["ask", "问", "--continue", "20261016100000000-abcdef", "--config", config, "--json"]);
+        expect(missing.code).toBe(1);
+        expect(JSON.parse(missing.stdout)).toMatchObject({ok: false, error: {code: "qa_record_not_found"}});
+        expect(endpoint.authorizations).toEqual([]);
     });
 });

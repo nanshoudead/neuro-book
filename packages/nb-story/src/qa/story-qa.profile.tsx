@@ -1,6 +1,7 @@
 /** @jsxImportSource @notnotype/nb-profile */
 /**
- * 作答 Agent 的 Profile（docs/specs/story/qa.md 输出 1、9）：系统提示词与工具声明。全读的原文不进 `initial`
+ * 作答 Agent 的 Profile（docs/specs/story/qa.md 输出 1、9）：系统提示词与工具声明。版本 2 起 `answer` 可选、可以追问；
+ * 版本 1 的会话恢复不了（harness 按快照里的版本拒绝），那时的对话不能续问（F8）。全读的原文不进 `initial`
  * （会话快照会整份存下 `initial`），由引擎放在第一条用户消息里。
  */
 
@@ -11,7 +12,7 @@ import {ANSWER_RULES, QA_RULES} from "./rules";
 import {ANSWER_TOOL_ID, OPTIONAL_TOOL_IDS, QUERY_TOOL_IDS} from "./tools";
 
 export default defineProfile({
-    manifest: {key: "story-qa", version: "1", name: "剧情问答", description: "按阅读位置回答小说剧情问题，查图、读原文、用 answer 交卷。"},
+    manifest: {key: "story-qa", version: "2", name: "剧情问答", description: "按阅读位置回答小说剧情问题，查图、读原文、用 answer 交卷；不需要查书的话直接用文字回复。可以追问。"},
     initialSchema: Type.Object({
         title: Type.String(),
         /** 阅读位置，写成“章.段”。 */
