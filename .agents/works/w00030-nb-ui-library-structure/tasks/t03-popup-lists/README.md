@@ -31,8 +31,9 @@ updated: 2026-10-21
 - S4（分支 `64ae66697`）：内部零件 `MenuRow`，MenuNodes 两个分支、Select、SuggestionMenu、QuickPick 改渲染它；Select 补首字母跳转单测（变异检查：名称格换成普通 `span` 时失败）。Lab 弹出列表 68 张截图与改前逐像素相同。
 - S5（分支 `fac385d59`）：删 `usePopoverLayer.ts` 的内联材质，Select、ColorSwatches 只绑层级；投影改随主题的 `--elevation-popover`（计划里写成 `--elevation-menu`，以代码为准）。验收夹具加 `material` 场景，e2e 逐项比三种浮层的材质。截图只有 Select、ColorSwatches 的 16 张有差异，都在外框边缘的投影（macOS 主题的取色面板模糊也改随主题）。
 - `components.md` 讲组件通道与能力标签，不放具体零件的用法：“新列表用 `MenuRow`、级联用 `useMenuCascade`、漫游用 `roving.ts`”写在 `ui-development-spec.md` 的 DropdownMenu 一节（计划原写进 `components.md`）。
-- 收口：nb-ui 整套 e2e 58 条、`test:affected --since master --typecheck` 全部通过。
+- 收口：nb-ui 整套 e2e 58 条、`test:affected --since master --typecheck` 全部通过；neuro-book 整套 e2e 256 条里 255 条通过，`editor-area` 的“给‘走吧。’加粗”一条在整套里选区没建立就断言，单独重跑 3 次都通过，记为偶发。
+- 实现审查（Sonnet）已派出，待处理。
 
 ## 下一步
 
-按计划 S1 到 S5 实施。
+处理实现审查，然后合入 master。
