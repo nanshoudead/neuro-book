@@ -14,7 +14,7 @@
  * `dirty` 调用不再算数。会离开当前页面的动作都经 `requestLeave`：页面报了未保存时先等用户确认（输出 22）。
  */
 
-import {computed, effectScope, markRaw, readonly, ref, shallowReactive, watch} from "@vue/reactivity";
+import {computed, effectScope, markRaw, readonly, ref, shallowReactive, shallowRef, watch} from "@vue/reactivity";
 import type {ComputedRef, Ref} from "@vue/reactivity";
 import type {Component} from "vue";
 
@@ -461,6 +461,11 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
      */
     const visits = new Map<string, {readonly token: number; readonly context: SettingsPageContext}>();
     let visitToken = 0;
+    /**
+     * 显示结束时加一：`page()` 读它，界面里缓存 `page()` 结果的计算值因此重算、拿到新的上下文。表本身不是响应式的（见上面
+     * 实例表的说明），不读它的话关窗再开、分区与实例都没变，计算值会一直交出作废的上下文。
+     */
+    const visitVersion = shallowRef(0);
     /** 报了未保存改动的那次显示；没有为 null。 */
     const dirtyVisit = ref<number | null>(null);
     const projectTitle = readonly(ref(options.projectTitle));
@@ -487,6 +492,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
         if (visit === undefined) return;
         visits.delete(id);
         if (dirtyVisit.value === visit.token) dirtyVisit.value = null;
+        visitVersion.value += 1;
     };
 
     const instanceOf = (id: string): PageInstance => {
@@ -746,6 +752,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
         },
         rowFailed: (setting, failure) => notifyFailure(setting, failure.code, failure.detail),
         page: (id) => {
+            void visitVersion.value;
             const instance = instanceOf(id);
             return {delivery: source.delivery(id), status: instance.status, component: instance.component, error: instance.error, generation: instance.generation, busy: instance.busy, context: contextOf(id)};
         },

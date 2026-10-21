@@ -1,8 +1,10 @@
 /**
  * 设置场景的配置层：内存里的层拥有者（docs/specs/settings/configuration.md 的层快照与写入合同），给 Lab 与组件测试的局部
  * 宿主用。真实的拥有者读写文件、跑在服务端与项目子进程里，浏览器里起不来；这里按同样的合同交出层快照、按同样的顺序核对
- * 写入（`writeProblem`、`userEditProblem`），场景可以把它切到无效、断开或让写入失败。文件文本也在内存里：单键写入用
- * 真实拥有者同一套文本编辑（`editLayerText`），整份读写用同一套解析（`parseLayerText`），修订号是文本的摘要。
+ * 写入（`writeProblem`、`userEditProblem`），场景可以把它切到无效、断开或让写入失败。文件文本也在内存里，给了初始文本时
+ * 层的值、被丢弃的键与无效都由它解析出来：单键写入用真实拥有者同一套文本编辑（`editLayerText`），整份读写与“别处改了”
+ * 用同一套解析（`parseLayerText`），内容没变时不发布层快照（只改注释时只通知文本）。修订号是不透明的记号（这里用文本的
+ * FNV 摘要，真实拥有者用原始字节的 SHA-256），界面只比较相等。
  *
  * 它同时充当窗口的连接：断开时结束订阅（实例把这一层记为不可达），重新连上时实例按连接回到在线重新订阅，与浏览器宿主
  * 的重连一样。
@@ -12,8 +14,8 @@ import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 
 import type {LayerLink} from "nbook/plugins/settings/shared/instance";
 import {editLayerText, parseLayerText} from "nbook/plugins/settings/shared/layer-text";
-import {userEditProblem, writeProblem} from "nbook/plugins/settings/shared/layers";
-import type {DeclaredSetting, LayerEdit, LayerSnapshot, LayerWriteResult} from "nbook/plugins/settings/shared/layers";
+import {sameContent, userEditProblem, writeProblem} from "nbook/plugins/settings/shared/layers";
+import type {DeclaredSetting, LayerContent, LayerEdit, LayerProblem, LayerSnapshot, LayerWriteResult} from "nbook/plugins/settings/shared/layers";
 import type {LayerEditor, LayerFile} from "nbook/plugins/settings/shared/remote-link";
 import type {WindowConnection, WindowConnectionState} from "nbook/shared/host";
 import {freezeJson} from "nbook/shared/settings";
@@ -103,11 +105,22 @@ export function memoryLayer(options: MemoryLayerOptions): MemoryLayer {
     let unreachable = options.unreachable ?? false;
     let failure: SettingsFailure | null = null;
     let text = options.text ?? textOf(values);
+    let problems: ReadonlyArray<LayerProblem> = [];
+    /** 文件在不在：真实存在的空文件也算在（只靠文本是不是空串分不出来）。 */
+    let exists = options.text !== undefined || text !== "";
     /** 改坏之前的文本：修好时换回来。 */
     let beforeInvalid: string | null = null;
     const watchers = new Set<(revision: string) => void>();
     let hold: Promise<void> | null = null;
     const keys = new Map([...options.declarations].map(([key, declared]) => [key, declared.declaration]));
+    // 给了初始文本：值与被丢弃的键都从它来，与真实拥有者读文件一样。
+    if (options.text !== undefined) {
+        const parsed = parseLayerText(options.text, keys, options.layer);
+        if (parsed.status === "ok") {
+            values = parsed.values;
+            problems = parsed.problems;
+        } else invalid = parsed.detail;
+    }
     // 一开始就无效：文本同样是坏的（去掉最后的右花括号），修好时换回来。
     if (invalid !== null && options.text === undefined) {
         beforeInvalid = text;
@@ -117,19 +130,24 @@ export function memoryLayer(options: MemoryLayerOptions): MemoryLayer {
     // 一开始就连不上：连接先离线，恢复时回到在线，实例才会重新订阅。
     if (unreachable) options.connection.set("offline");
 
+    const content = (): LayerContent => (invalid === null ? {status: "ok", values, problems} : {status: "invalid", values, problems, detail: invalid});
+
     const snapshot = (): LayerSnapshot => {
         const located = options.path === undefined ? {} : {path: options.path};
-        const revision = {boot, seq};
-        return invalid === null
-            ? {status: "ok", revision, values, problems: [], ...located}
-            : {status: "invalid", revision, values, problems: [], detail: invalid, ...located};
+        return {...content(), revision: {boot, seq}, ...located};
     };
 
+    let published: LayerContent = content();
+
+    /** 内容变了才换修订号、发布（同真实拥有者）；返回当前快照。 */
     const publish = (): LayerSnapshot => {
+        const next = content();
+        if (sameContent(next, published)) return snapshot();
+        published = next;
         seq += 1;
-        const next = snapshot();
-        for (const subscriber of [...subscribers]) subscriber.onSnapshot(next);
-        return next;
+        const current = snapshot();
+        for (const subscriber of [...subscribers]) subscriber.onSnapshot(current);
+        return current;
     };
 
     const changeText = (next: string): void => {
@@ -149,6 +167,7 @@ export function memoryLayer(options: MemoryLayerOptions): MemoryLayer {
         values = freezeJson(next);
         const edited = editLayerText(text, key, edit);
         changeText(edited.ok ? edited.text : textOf(values));
+        exists = true;
         return {ok: true, snapshot: publish()};
     };
 
@@ -157,6 +176,7 @@ export function memoryLayer(options: MemoryLayerOptions): MemoryLayer {
         const parsed = parseLayerText(text, keys, options.layer);
         if (parsed.status === "ok") {
             values = parsed.values;
+            problems = parsed.problems;
             invalid = null;
         } else invalid = parsed.detail;
         publish();
@@ -181,7 +201,7 @@ export function memoryLayer(options: MemoryLayerOptions): MemoryLayer {
                 if (unreachable) return {ok: false, code: "unavailable", detail: "内存层已断开"};
                 const current = text;
                 if (hold !== null) await hold;
-                return {ok: true, text: current, revision: revisionOf(current), exists: current !== ""};
+                return {ok: true, text: current, revision: revisionOf(current), exists};
             },
             write: async (next, revision) => {
                 if (unreachable) return {ok: false, code: "unavailable", detail: "内存层已断开"};
@@ -191,7 +211,9 @@ export function memoryLayer(options: MemoryLayerOptions): MemoryLayer {
                 if (parsed.status === "invalid") return {ok: false, code: "invalid-text", detail: parsed.reason, position: parsed.position};
                 beforeInvalid = null;
                 changeText(next);
+                exists = true;
                 values = parsed.values;
+                problems = parsed.problems;
                 invalid = null;
                 return {ok: true, revision: revisionOf(text), snapshot: publish()};
             },
@@ -244,6 +266,7 @@ export function memoryLayer(options: MemoryLayerOptions): MemoryLayer {
         setText: (next) => {
             beforeInvalid = null;
             changeText(next);
+            exists = true;
             reread();
         },
     };

@@ -728,3 +728,37 @@ describe("实现审查补的用例（omp 第 1、5 条）", () => {
         await vi.waitFor(() => expect(area().value).toBe("{\"example.notes/interval\": 15}"));
     });
 });
+
+describe("实现审查补的用例（omp 第 4 条）", () => {
+    it("页面就绪后关窗再开：重新挂上的页面拿到新的上下文，在它上面报未保存照常生效", async () => {
+        const contexts: SettingsPageContext[] = [];
+        const Page = defineComponent({
+            name: "ContextPage",
+            props: {context: {type: Object as PropType<SettingsPageContext>, required: true}},
+            setup(props) {
+                contexts.push(props.context);
+                return () => h("p", {"data-context-page": ""}, "页面");
+            },
+        });
+        const created = createSettingsHost({
+            settings: [{plugin: "nbook.workbench", definition: themeSetting as SettingDefinition<unknown>}],
+            sections: [{id: "x.page.main", plugin: "x.page", kind: "page", declaration: {title: {"zh-CN": "页面", "en-US": "Page"}, icon: "i-lucide-square", category: "plugins"}}],
+            notify: () => undefined,
+            report: () => undefined,
+        });
+        cleanup.push(() => created.dispose());
+        created.publish("x.page.main", async () => Page);
+        created.window.openWindow({section: "x.page.main"});
+        render(created.window);
+        await vi.waitFor(() => expect(contexts).toHaveLength(1));
+        created.window.close();
+        await flushPromises();
+        created.window.openWindow({});
+        await vi.waitFor(() => expect(contexts).toHaveLength(2));
+        expect(contexts[1]).not.toBe(contexts[0]);
+        contexts[0]!.dirty(true);
+        expect(created.window.unsaved.value).toBe(false);
+        contexts[1]!.dirty(true);
+        expect(created.window.unsaved.value).toBe(true);
+    });
+});
