@@ -12,8 +12,7 @@ import SuggestionMenu from "../popup/SuggestionMenu.vue";
 import {suggestionMenuOptions, suggestionOptionId} from "../popup/suggestion-menu";
 import type {SuggestionMenuGroup} from "../popup/suggestion-menu";
 import {useFieldContext} from "./field-context";
-import {moveHighlight} from "../../utils/roving";
-import type {HighlightAction} from "../../utils/roving";
+import {moveRoving, type RovingMove} from "../../utils/roving";
 
 export type SearchSelectOption = {
     value: string;
@@ -137,9 +136,9 @@ function choose(value: string): void {
     if (value !== props.modelValue) emit("update:modelValue", value);
 }
 
-function move(action: HighlightAction): void {
+function move(action: RovingMove): void {
     const items = choosable.value;
-    const next = moveHighlight(items, items.findIndex((item) => item.id === activeId.value), action);
+    const next = moveRoving(items, items.findIndex((item) => item.id === activeId.value), action, (item) => item.disabled === true);
     activeId.value = next < 0 ? null : items[next]!.id;
 }
 

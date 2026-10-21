@@ -14,7 +14,7 @@ import {usePopupScroll} from "../../composables/usePopupScroll";
 import PopupScrollbar from "./PopupScrollbar.vue";
 import Kbd from "../display/Kbd.vue";
 import Spinner from "../display/Spinner.vue";
-import {moveHighlight, type HighlightAction} from "../../utils/roving";
+import {moveRoving, rovingMove, type RovingMove} from "../../utils/roving";
 import {useCloseHandoff} from "../feedback/close-handoff";
 
 /**
@@ -171,17 +171,13 @@ function onPanelKeydown(event: KeyboardEvent): void {
             return;
         case "ArrowDown":
         case "ArrowUp":
-            event.preventDefault();
-            event.stopPropagation();
-            moveActive(event.key === "ArrowDown" ? "next" : "prev");
-            return;
         case "Home":
         case "End":
-            // Ctrl/Cmd 组合留给原生编辑行为
-            if (event.ctrlKey || event.metaKey) return;
+            // Home、End 带 Ctrl/Cmd 时留给输入框的原生编辑行为
+            if ((event.key === "Home" || event.key === "End") && (event.ctrlKey || event.metaKey)) return;
             event.preventDefault();
             event.stopPropagation();
-            moveActive(event.key === "Home" ? "first" : "last");
+            moveActive(rovingMove(event.key, "vertical")!);
             return;
         case "Enter":
             // 组合输入态的 Enter 属于输入法提交：不消费、不 accept
@@ -195,9 +191,9 @@ function onPanelKeydown(event: KeyboardEvent): void {
     }
 }
 
-function moveActive(action: HighlightAction): void {
+function moveActive(action: RovingMove): void {
     const current = props.items.findIndex((item) => item.id === props.activeId);
-    const next = moveHighlight(props.items.map((item) => ({disabled: item.disabled})), current, action);
+    const next = moveRoving(props.items, current, action, (item) => item.disabled === true);
     const nextId = next >= 0 ? props.items[next]!.id : null;
     if (nextId !== props.activeId) emit("update:activeId", nextId);
 }

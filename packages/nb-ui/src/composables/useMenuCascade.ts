@@ -1,6 +1,7 @@
 import {nextTick, onBeforeUnmount, shallowRef, watch} from "vue";
 import {elementOf} from "../utils/element-of";
 import {focusPopupItem, measureCascadePanel} from "../utils/popup-geometry";
+import {moveRoving, rovingMove} from "../utils/roving";
 
 export const MENU_SUBMENU_HOVER_DELAY_MS = 300;
 
@@ -145,29 +146,17 @@ export function useMenuCascade<T>(options: MenuCascadeOptions): {
         if (target.getAttribute("aria-haspopup") === "menu" && ["ArrowRight", "Enter", " "].includes(event.key)) focusNewLevel = true;
     }
 
-    /** 上下、Home、End 在 `items` 里移动；焦点停在面板本身（`onPanel`）时上下键从首末项开始。处理了返回 true。 */
+    /**
+     * 上下、Home、End 在 `items`（已是可用项）里移动；焦点停在面板本身（`onPanel`）时没有当前项，上下键从首末项开始。
+     * 处理了返回 true。
+     */
     function rove(event: KeyboardEvent, items: HTMLElement[], onPanel: boolean): boolean {
         const index = items.indexOf(event.target as HTMLElement);
         if (index < 0 && !onPanel) return false;
-        let next: HTMLElement | undefined;
-        switch (event.key) {
-            case "ArrowDown":
-                next = onPanel ? items[0] : items[(index + 1) % items.length];
-                break;
-            case "ArrowUp":
-                next = onPanel ? items[items.length - 1] : items[(index - 1 + items.length) % items.length];
-                break;
-            case "Home":
-                next = items[0];
-                break;
-            case "End":
-                next = items[items.length - 1];
-                break;
-            default:
-                return false;
-        }
+        const move = rovingMove(event.key, "vertical");
+        if (move === null) return false;
         event.preventDefault();
-        focusPopupItem(next);
+        focusPopupItem(items[moveRoving(items, index, move)]);
         return true;
     }
 

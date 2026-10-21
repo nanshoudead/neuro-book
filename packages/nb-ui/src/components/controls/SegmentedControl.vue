@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {computed, nextTick, ref} from "vue";
+import {moveRoving, rovingMove} from "../../utils/roving";
 
 /**
  * 分段选择器（SegmentedControl · 经典 macOS 系统蓝平滑滑动体系）。
@@ -97,25 +98,12 @@ function selectOption(option: SegmentedControlOption): void {
 function handleKeydown(event: KeyboardEvent): void {
     const enabled = enabledOptions.value;
     if (enabled.length <= 1) return;
-
-    const currentIdx = enabled.findIndex((opt) => opt.value === props.modelValue);
-    let nextIdx: number | null = null;
-
-    // 没有选中项时，向后从第一项开始、向前从最后一项开始。
-    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-        nextIdx = currentIdx < 0 ? 0 : (currentIdx + 1) % enabled.length;
-    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-        nextIdx = currentIdx < 0 ? enabled.length - 1 : (currentIdx - 1 + enabled.length) % enabled.length;
-    } else if (event.key === "Home") {
-        nextIdx = 0;
-    } else if (event.key === "End") {
-        nextIdx = enabled.length - 1;
-    }
-
-    if (nextIdx === null) return;
+    const move = rovingMove(event.key, "both");
+    if (move === null) return;
     event.preventDefault();
 
-    const targetOpt = enabled[nextIdx];
+    // 没有选中项时，向后从第一项开始、向前从最后一项开始（moveRoving 的起点规则）。
+    const targetOpt = enabled[moveRoving(enabled, enabled.findIndex((opt) => opt.value === props.modelValue), move)];
     if (targetOpt) {
         selectOption(targetOpt);
         void nextTick(() => {

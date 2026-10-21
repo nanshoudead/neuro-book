@@ -22,7 +22,6 @@ import Popover from "./feedback/Popover.vue";
 import Tooltip from "./feedback/Tooltip.vue";
 import ContextMenu from "./popup/ContextMenu.vue";
 import {clampMenuPosition, computeCascadePosition} from "../utils/popup-geometry";
-import {moveHighlight} from "../utils/roving";
 import Checkbox from "./form/Checkbox.vue";
 import Field from "./form/Field.vue";
 import Input from "./form/Input.vue";
@@ -535,6 +534,18 @@ describe("nb-ui new primitives", () => {
         wrapper.unmount();
     });
 
+    it("当前值不对应任何标签时，右方向键选第一个可用标签、左方向键选最后一个", async () => {
+        const wrapper = mount(Tabs, {
+            props: {modelValue: "", items: [{value: "a", label: "A"}, {value: "b", label: "B"}, {value: "c", label: "C", disabled: true}]},
+            attachTo: document.body,
+        });
+        const tablist = wrapper.get("[role='tablist']");
+        await tablist.trigger("keydown", {key: "ArrowRight"});
+        await tablist.trigger("keydown", {key: "ArrowLeft"});
+        expect(wrapper.emitted("update:modelValue")).toEqual([["a"], ["b"]]);
+        wrapper.unmount();
+    });
+
     it("writes per-tab attrs without overriding the attributes the component owns", () => {
         const wrapper = mount(Tabs, {
             props: {
@@ -699,33 +710,6 @@ describe("nb-ui a11y round", () => {
         vi.useRealTimers();
     });
 
-});
-
-describe("nb-ui option highlight", () => {
-    const options = [{disabled: false}, {disabled: true}, {}, {disabled: true}, {}];
-
-    it("cycles forward and backward skipping disabled options", () => {
-        expect(moveHighlight(options, 0, "next")).toBe(2);
-        expect(moveHighlight(options, 2, "next")).toBe(4);
-        expect(moveHighlight(options, 4, "next")).toBe(0);
-        expect(moveHighlight(options, 0, "prev")).toBe(4);
-    });
-
-    it("starts from the edges when current is not enabled", () => {
-        expect(moveHighlight(options, -1, "next")).toBe(0);
-        expect(moveHighlight(options, -1, "prev")).toBe(4);
-        expect(moveHighlight(options, 1, "next")).toBe(0);
-    });
-
-    it("jumps to first and last enabled options", () => {
-        expect(moveHighlight(options, 2, "first")).toBe(0);
-        expect(moveHighlight(options, 2, "last")).toBe(4);
-    });
-
-    it("returns -1 when nothing is enabled", () => {
-        expect(moveHighlight([{disabled: true}, {disabled: true}], 0, "next")).toBe(-1);
-        expect(moveHighlight([], -1, "first")).toBe(-1);
-    });
 });
 
 describe("nb-ui notification clearAll", () => {
