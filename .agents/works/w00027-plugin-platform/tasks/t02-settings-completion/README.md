@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t02-settings-completion
-status: planned
-updated: 2026-10-17
+status: active
+updated: 2026-10-21
 ---
 
 # 设置插件补齐：结构化值与长文本编辑
@@ -56,6 +56,18 @@ S6（`57bc5eedc`，2026-10-20）：编辑器分区加“代码编辑器”小组
 
 说明页：[设置分区的两种画法，与旧应用的 provider 设置](artifacts/settings-sections/index.html)。
 
+2026-10-21：t07 完成并合入 master 后，按它实际的接口回改了 [plan.md](plan.md) 的 S3、S4、S5、S7（动态选项改用贡献点 `settings.choices` 直接交 nb-form 的选项源、`onSettingsChoices` 按需激活、`context.options`；未保存保护与搜索的细节；设置文件视图走远程合同 v2 的 `readText`、`writeText`）。开发者同日确认计划，并定三点：设置文件用纯文本框编辑、不做语法高亮；两份设置远程合同升到 version 2；搜索不匹配动态选项的选项名。开发者指定按 autonomous-delivery 推进完 t02，事后一次审查；照推荐做的决定记在 Work 的 [待确认清单](../../pending-confirmations.md)。
+
+计划审查（omp，[evidences/design-review-s3-omp.txt](evidences/design-review-s3-omp.txt)，17 条：阻断 2、重要 13、建议 2，都成立）已处理进 plan.md 的“计划审查的处理（2026-10-21）”；照推荐做的产品取舍记在 Work 的待确认清单。
+
+S3（`cde0311f2`，Spec 在 master `2ffc34ac4`）：贡献点 `settings.choices`（只收浏览器入口，id 前缀同分区，声明为空对象）；选项提供者注册表 `web/choices.ts` 给出不变的选项源映射，交付优先、按入口状态给加载中或不可用，`source()` 每次交付只调一次、每次求值在边界里核对形状，出错只让这个源不可用、同一问题只记一次诊断；`onSettingsChoices:<id>` 按需激活（核对所属入口声明、在求值之外触发）；通用列表与 `context.options` 共用；Lab 宿主补提供者与触发，加三个动态选项场景。验证：`choices.test.ts` 8 例（真实内核），设置的 Bun 125 例、Vitest 53 例，类型检查；“求值出错的边界”“激活事件核对”“选项交给控件”三处变异都被拦下。偏离计划：`settingsChoices` 小工具没做（实现就是 `{source}`，包一层没有收益）；`window.options` 是方法（放成对象属性时 Lab 的输入类型把它当成可登记的 JSON 属性）。
+
+S4（`a7bff4c77`，Spec 在 master `3573e2620`）：搜索（输出 21）与未保存保护（输出 22）。page 声明加 `keywords`；页面上下文按一次显示给并加 `dirty`；离开当前页面的动作统一经 `requestLeave`；确认用 nb-ui `AlertDialog`。验证：`window.test.ts` 新增搜索 3 例、未保存保护 4 例，`SettingsWindow.dom.test.ts` 新增 4 例，`sections.test.ts` 补 keywords 的校验；“换词重建”“Esc 先清空”“旧上下文作废”“放弃后切标签重建”四处变异都被拦下。另：指向 page 分区、由页面画的配置项命中时列出这个页面（计划没写，改动小，Spec 已写）。
+
+S5（`2ee1bb80f`，Spec 在 master `e48c2f74f`）：设置文件视图。两份设置远程合同升到版本 2，加 `readText`、`writeText` 与 `text` 事件，调用方核对同用户编辑；拥有者整份写在写入队列与锁里以磁盘当前文本为准，修订号是原始文本的 SHA-256，对不上为 `conflict`、不合格为 `invalid-text` 带行列，只改注释也推 `text`；新失败码 `read-failed`、`conflict`、`invalid-text`；`layer-text.ts` 从 `backend/` 挪到 `shared/`（Lab 内存层用同一套解析与编辑）；窗口左栏插件组最后固定“设置文件”，`SettingsFileView` 编辑当前标签那一层，层无效的说明加“打开设置文件”。验证：`layer-owner.test.ts` 新增 6 例（真实文件）、`window.test.ts` 新增 5 例（经远程合同版本 2）、`SettingsWindow.dom.test.ts` 新增 4 例、`layer-text.test.ts` 补行列；`smoke:server` 9 个场景通过（S9 发版本 2 帧，验整份读与冲突）；“冲突核对”“有改动时只提示”“Esc 后的 Tab”“单键写入也通知文本”四处变异都被拦下。偏离计划：层快照的 `invalid` 说明没有另带位置（远程合同的快照形状不变，位置只在整份写的失败里给）；搜索把“设置文件”当一个页面命中（按标题、说明与 settings.json）。跑受影响的 Vitest 时 `SnippetsPage.dom.test.ts` 的“本作品”一例在整批负载下失败过一次，单独跑三次、整批再跑两次都通过，没有抓到现场；那条测试直接挂页面组件，不经这次改动的窗口模型。
+
+推送备份没有做：Work 分支领先 `origin/master` 656 个提交，含别的会话在本地 master 上还没推送的提交，推这个分支会把它们一起发出去，留给开发者决定。
+
 ## 下一步
 
-S3–S5、S7 等 t07 完成后做（[plan.md](plan.md)“切片”）。
+S7（Lab“模型服务”与 e2e）；之后收口验证与实现审查（[plan.md](plan.md)“切片”）。

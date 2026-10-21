@@ -1,8 +1,8 @@
 /**
  * “已有记录”：抽下一章之前，由截至上一章已提交的记忆图生成、放进模型请求的一段文字（docs/specs/story/ingest.md 输出 4）。
  *
- * 搬自 w00005 t27 `context.ts` 与它用到的 `query.ts` 函数。不传 `focus` 时（整理用）文字与 t34 当时发出的逐字相同，
- * `context.test.ts` 对照；每一行的写法也沿用它。抽取的质量是用这份文字验证的，改写法要另做质量对照。所以这里不改用
+ * 搬自 w00005 t27 `context.ts` 与它用到的 `query.ts` 函数。不传 `focus` 时文字与 t34 当时发出的逐字相同（原来整理用它，
+ * w00024 t12 起整理改用 `consolidation-context.ts`；全量的写法留作回放时换回对照），`context.test.ts` 对照；每一行的写法也沿用它。抽取的质量是用这份文字验证的，改写法要另做质量对照。所以这里不改用
  * `core/projection.ts` 的视图（那边按查询接口的合同算，出处写成“章.段—章.段”，这里写“章.段-段”），两边重叠的几个
  * 函数各管各的。
  *
@@ -15,9 +15,9 @@ import {featuresOf} from "../core/dataset";
 import {comparePosition, formatPosition, visibleAt} from "../core/position";
 import {occurrenceFinder} from "./text-match";
 
-const KIND_ZH: Record<string, string> = {person: "人物", persona: "身份", group: "组织", place: "地点", item: "物品", concept: "概念", task: "任务", other: "其他"};
+export const KIND_ZH: Record<string, string> = {person: "人物", persona: "身份", group: "组织", place: "地点", item: "物品", concept: "概念", task: "任务", other: "其他"};
 const PART_ZH: Record<string, string> = {dawn: "凌晨", morning: "早晨", forenoon: "上午", noon: "中午", afternoon: "下午", dusk: "傍晚", evening: "晚上", night: "深夜"};
-const STATE_ZH: Record<string, string> = {knows: "知道", believes: "相信", suspects: "怀疑", heard: "听说", read: "读到", unaware: "不知道", "can-infer": "可推断", none: "没有记录"};
+export const STATE_ZH: Record<string, string> = {knows: "知道", believes: "相信", suspects: "怀疑", heard: "听说", read: "读到", unaware: "不知道", "can-infer": "可推断", none: "没有记录"};
 
 const formatSpan = (span: Span): string => (span.from === span.to ? `${span.chapter}.${span.from}` : `${span.chapter}.${span.from}-${span.to}`);
 
@@ -257,7 +257,7 @@ export function displayName(entity: Entity, readAt: Position): string {
 }
 
 /** 此时可见的两个对象显示名相同时，各自带上整理标签，列表里才分得清。 */
-function uniqueNames(dataset: Dataset, readAt: Position): Map<string, string> {
+export function uniqueNames(dataset: Dataset, readAt: Position): Map<string, string> {
     const shown = dataset.entities.filter(item => visibleAt(item.at, readAt)).map(item => [item, displayName(item, readAt)] as const);
     const counts = new Map<string, number>();
     for (const [, name] of shown) counts.set(name, (counts.get(name) ?? 0) + 1);

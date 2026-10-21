@@ -1,0 +1,78 @@
+### 1. 清理允许新主线重新归入旧情节，增量批次可改写历史主线归属
+严重程度：重要；类别：正确性、不变量。
+
+位置：packages/nb-story/src/ingest/draft-tools.ts:462-484。
+
+现象：sanitizeConsolidation 只用 dataset.episodes 判断情节编号存在，没有把 episodes 限制在本次“这一段”的情节集合。已有主线更新会接受不属于当前段、但属于另一条旧主线的情节；新主线也能直接引用早期情节。
+
+为什么是问题：增量合同规定主线更新只写这一段新归入的情节，新主线来自这一段材料。当前清理结果会让新批次重新分配历史情节，较早批次与当前批次的主线演进不再是追加关系，查询中的历史主线归属和当前故事线都会被外部回复改写。提示词只列当前段不是信任边界。
+
+如何核实：运行 `bun /tmp/review-w00024-t12-impl/scratch/old-episode.ts`。构造 base=1、当前章=2，p1-1 是旧批主线已有情节、p2-1 是当前情节；回复让旧主线写 p2-1，并让新主线写 p1-1。清理结果 `dropped: []`，两个条目均保留。现有 `chapter.test.ts` 只覆盖重复出现在同一条主线的 p1-1，被 `!old?.episodes.includes(id)` 去掉，未覆盖跨主线旧情节。
+
+建议改法：scope 携带本次允许归入的 episode id 集合（按 since/快照水位与 LOOKBACK 的实际输入定义），清理时已有主线和新主线都只接受集合内编号；超出范围逐条丢弃并记问题。补一个旧情节属于另一条主线、回复将其放进新主线的行为测试。
+
+### 2. 以秘密为依据的知情没有把秘密涉及对象加入相关对象集合
+严重程度：重要；类别：正确性、输入完整性。
+
+位置：packages/nb-story/src/ingest/consolidation-context.ts:117-124。
+
+现象：相关对象集合处理知情时只执行 `related.add(item.who)`；知情的 `about` 若是秘密编号，不会把该秘密的 `about` 对象加入。说法型知情的目标对象通常会被 statements 分支间接加入，但秘密型知情没有这条路径。
+
+为什么是问题：输出 4 要求相关对象包含被这一段知情涉及的对象。当前对象不在前 15 归纳输入里，模型看不到该对象的既有方面；这一段明明有关于它的新知情，整理会漏掉应更新的对象，且记录节与对象节的范围不一致。
+
+如何核实：运行 `bun /tmp/review-w00024-t12-impl/scratch/knowledge-related.ts`。构造 e1-1 知道 x1-1、x1-1 的 about 为 e1-2，当前段只有 k2-1；输出 `scope.summarized` 只有 `e1-1`，对象节没有 e1-2。
+
+建议改法：建立记录目标对象的统一展开函数：知情 about 为秘密时加入 secret.about（必要时再展开其关联说法的 about），为说法时加入该说法的 about/holder/source.by；与记录节使用同一对象关联集合。补秘密型知情只出现、不含名称提及的对象测试。
+
+### 3. 状态变动只登记持有人，漏掉被取得或消耗的对象
+严重程度：重要；类别：正确性、输入完整性。
+
+位置：packages/nb-story/src/ingest/consolidation-context.ts:119-124。
+
+现象：构造相关对象时，ledger 分支只执行 `related.add(item.owner)`，没有加入 `item.item`。`item` 是状态变动中得到、失去、使用的对象编号，记录节却会把它作为本段记录发给模型。
+
+为什么是问题：输出 4 的相关对象并集包括状态变动涉及的对象。道具、任务等被取得或消耗但没有名称提及的对象不会进入前 15 的现有归纳输入，模型只能看到记录里一个编号，无法按合同更新或保留该对象的方面；对象节与记录节不一致。
+
+如何核实：运行 `bun /tmp/review-w00024-t12-impl/scratch/ledger-related.ts`。构造 l2-1 的 owner=e1-1、item=e1-2，输出 `scope.summarized` 只有 `e1-1`，对象节没有 e1-2。
+
+建议改法：状态变动关联同时加入 owner 与 item，并与说法、知情共用目标对象展开逻辑。补得到/失去/使用一件对象但原文没有名称提及时仍出现在对象节的测试。
+
+### 4. 测试没有覆盖情节、对象归纳和其余对象三节的超限截断
+严重程度：重要；类别：测试。
+
+位置：packages/nb-story/src/ingest/consolidation-context.test.ts:38-73、84-97。
+
+现象：验收映射要求五节各自在恰好超限时按规则截断，但现有新增测试只对记录节检查 BUDGETS.records，对主线节另造 120 条主线检查 BUDGETS.arcs；第 20、50、100 章样例中的情节、对象归纳、其余对象都未被构造到超限，也没有分别断言保留最近情节、减少归纳对象、按顺序截断其余对象。第 72 行的总长宽松放行不能替代分节判据。
+
+为什么是问题：episodes、summaries 或 others 的截断循环即使改成全量、排序方向错误、预算常量接错，当前测试仍可能通过，因为样例在这些节未超限。固定上限是本 Task 的核心合同，长书或密集对象输入会直接突破上下文预算或丢错内容。
+
+如何核实：运行 `bun test src/ingest/consolidation-context.test.ts` 通过；阅读用例可见只有主线超限用例造了 120 条长主线，其他用例只断言样例内容未超限。将 episodes、summary blocks 或 other roster 复制到超过各自预算的输入没有对应行为断言。
+
+建议改法：为三节各造超过预算且边界恰好放不下下一行的数据，分别断言情节只保留最新且记录未越界、归纳减少对象并把被排除对象移到“其余”、其余对象按稳定顺序截断并报告未列数量；再覆盖第一行单独超过预算的异常输入。
+
+### 5. 合并候选筛选把身份说法全表扫描放进对象对循环，规模按 F×N×S 增长
+严重程度：建议；类别：安全与性能。
+
+位置：packages/nb-story/src/ingest/consolidation-context.ts:177-188；packages/nb-story/src/ingest/draft-tools.ts:340-347。
+
+现象：每个 fresh 对象与全体对象配对后，mergeRefusal 对每一对都执行一次 `dataset.statements.some(...)`；没有身份说法或身份说法在末尾时，每次都扫描全部说法。候选最终只保留 30 对，但计算在截断前已经完成。
+
+为什么是问题：对象多、说法多时，整理前的纯程序步骤会出现三重乘积，固定请求上限没有限制它。当前样例第 100 章有 18 个 fresh 对象、176 个对象、1,739 条说法，最坏约 5,509,152 次身份说法检查；一个 1,000 对象、100 个 fresh、3,000 条说法的书就是 300,000,000 次。每 5 章运行一次，长书会把整理延迟集中在候选计算而不是模型请求。
+
+如何核实：运行 `bun /tmp/review-w00024-t12-impl/scratch/candidate-complexity.ts`，输出样例规模与 5,509,152 的最坏检查数，实际该次上下文构造耗时 32.4ms；复杂度由两层对象循环和 `mergeRefusal` 的 `statements.some` 直接得到。
+
+建议改法：整理前一次性建立无序对象对的 identity 连接集合，或按对象建立身份邻接集合，让每个候选的拒绝检查变为 O(1)；再按候选优先级生成到 30 对即可停止。保留一个密集对象/说法的性能回归，避免优化时重新扫描全表。
+
+## 未发现问题的方面
+
+- compile.ts 的 latestArcs/latestThrough 在旧空主线批次、跳过批次和后续有效批次之间的水位分离：仔细检查后没有发现新增实现违反已定的“成功水位与主线快照分开”处理；定向 compile 测试通过。
+- carried Arc 的 episodes 数组复制、through/at 版本隔离与旧位置防剧透：仔细检查后没有发现问题；`compile.test.ts` 的第 5/10 章查询断言通过。
+- 归纳重定向放在 `if (redirect.size)` 内的覆盖：所有已登记的实体引用和历史 summaries 都在同一收尾阶段重定向；仔细检查后没有发现遗漏。
+- `job.ts` 的 since 来源、追加与跳过后的整理返回：仔细检查后没有发现问题；`runner.test.ts` 新增的 7→10 场景通过。
+- inlineDeps 对空依据与全角逗号：空依据会被记录为无有效依据而丢弃，全角逗号能拆成多个 deps；仔细检查后没有发现违反清理合同的问题。不成对括号没有定义为必须挽救的输入，当前路径会保留原文字并在缺少有效 deps 时记录丢弃问题。
+- 普通章请求回放逐字合同：目标回放测试通过；普通请求仍对 t10 基线，整理请求对 t12 基线。
+
+数量：阻断 0；重要 4；建议 1；合计 5。
+
+验证：`bun test src/ingest/compile.test.ts src/ingest/consolidation-context.test.ts src/ingest/chapter.test.ts` 44 pass、0 fail、798 expect；`bun test src/ingest/runner.test.ts` 17 pass、0 fail、128 expect；`bun run typecheck` 通过。`bun run test` 未通过：`src/cli/config.test.ts` 在等待“推理档”时 4000ms 超时；未将该包外层 CLI 测试失败归因于本次整理实现。未运行 e2e、开发服务或真实模型。
+
