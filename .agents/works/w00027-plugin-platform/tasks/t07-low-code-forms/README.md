@@ -73,6 +73,10 @@ updated: 2026-10-20
   - 转 t06（Sonnet 7）：只读与可编辑看不出差别要一种统一的只读外观，归设置外观收口；`NumberInput` 只读时套了停用的变淡，这次去掉了（`dist/nb-ui.css` 不变）。
   - 验证：nb-form 核心 95 例、渲染层 70 例（新增 24 例，审查者的 23 个缺陷实验对修正后的代码全部不再成立）；同长度保留身份、认领后清空队列、不请容器打开、不查只读成员、变只读不丢草稿、捕获阶段不停止传播六处变异都被拦下；nb-ui 528 例；应用类型检查与 Lab 的 Vitest 48 例；Lab 的 nb-form e2e 13 例与 nb-ui、场景、Lab 三组 28 例；`docs:check`、`governance:check`；截图 120 张没有溢出或报错（`reports/s3-review-shots/`）。Spec 输出 4、5、14、19、接口与失败码表同步。
 
+- S4（`b4118b0cb`）：应用的 `command-args.test.ts` 从内置插件的全部定义表（产品与开发清单、各运行位置）与清单一级的贡献里收集命令，要求每条的 `args` 经 `checkDescription` 都是可结构化编辑，不合格的按 id 列出；渲染层的 `isolation.dom.test.ts` 在空文档里用裸的 `createApp`（不装插件、不 `provide`）挂出每种内建控件、自定义控件、折叠分组与展示态、只读、停用，打开弹层、加列表项、改值，Vue 的警告与错误、未捕获的异常都算失败。
+  - 过程中的发现：66 条命令里 36 条是“无参数”（关闭额外属性的空对象），核心原来把它们判成要用 JSON 编辑；Spec 只让开放的空对象走 JSON，改为可结构化编辑、画成没有成员，支持表写明（Spec 验收 7、8 同时补上）。
+  - 验证：nb-form 核心 96 例、渲染层 73 例与两份类型检查；改回旧规则时两份测试都失败（命令测试列出 36 条），渲染层多一处找不到的注入时隔离测试失败；应用类型检查、`test:affected` 全部通过；`docs:check`、`governance:check`。
+
 ## 下一步
 
-S4：应用里检查所有已登记命令的 `args` 都能被 `checkDescription` 接受；隔离测试（空文档、不 provide，挂每种字段）。之后 S5：设置窗口改用 `SchemaField`、删掉 `SettingsControl`。计划见 [plan.md](plan.md)。
+S5：设置窗口改用 `SchemaField`、删掉 `SettingsControl`，之后一轮审查。计划见 [plan.md](plan.md)。

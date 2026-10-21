@@ -93,7 +93,7 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 | `number`、`integer` | 数字 |
 | `string`（`format` 只认 `uri`、`email`） | 文字 |
 | 字符串数组 | 字符串列表 |
-| 有 `properties` 的对象 | 对象 |
+| 有 `properties` 的对象；关闭额外属性（`additionalProperties: false`）的空对象也算，画成没有成员（命令的“无参数”） | 对象 |
 | 元素是上一种对象的数组 | 对象列表 |
 | `T` 与 `null` 的联合 | 按 `T`，清除写 `null`；两层的注解合并，外层优先 |
 
@@ -227,6 +227,8 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 4. **列表编辑**：对象列表添加、删除中间项、上移，焦点落点与读屏播报符合输出 19，删除后其余项的草稿不串位。
 5. **Agent 策略**：带灾难性正则、超宽联合、`$ref`、密钥、自定义控件的描述都被拒绝，不抛异常。
 6. **可访问名称**：在真实浏览器里，每种控件的可访问名称是字段标签，说明是字段说明，出错时有错误信息；组里的复选框 id 不重复。
+7. **命令参数**：应用里每条已登记命令的 `args` 经 `checkDescription` 都是可结构化编辑。
+8. **独立运行**：在空文档里不装插件、不 `provide`，每种控件、自定义控件、分组与展示态都能挂出与编辑，没有 Vue 的警告与错误。
 
 Smoke：Component Lab 里 `SchemaForm` 的场景覆盖上面 1、3、4，Playwright 断言可访问名称与焦点；设置窗口改用本表单后 `settings.e2e.ts` 照常通过（断言按新行为改写）。
 
