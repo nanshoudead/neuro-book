@@ -1,0 +1,193 @@
+# w00027/t07 S4、S5 实现审查（Sonnet）
+
+审查范围：`git diff a7827d7f8 4ec30a661`。实验文件在 `/tmp/review-t07-s5/`（用 `bunx vitest run --config /tmp/review-t07-s5/vitest.config.mts <名字>` 在 `packages/neuro-book` 下跑，挂的是真实的 `SettingsWindow` 加设置场景的局部宿主，不是内部函数直调）。只追加，按核实顺序写；末尾有汇总。
+
+---
+
+## 1. 列表的“添加”立即整组写入：对象列表带必填字段时加不进去，字符串列表把空串写进设置文件
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-form/src/vue/controls/ListControl.vue:41`（`blank: () => (isObjectList.value ? {} : "")`），`packages/nb-form/src/vue/list.ts:171-178`（`add`），`packages/neuro-book/src/plugins/settings/web/components/SettingsListSection.vue:39-43`（每次变化即 `window.write`）
+- **现象**：设置里的列表每一步都把整个数组写一次，“添加”写的是带占位项的数组。
+  - 对象列表，条目有必填字段（`Type.Object({name: String({minLength: 1}), age: Integer})`）：点“添加”，写入路径以 `invalid-value` 拒绝，发通知“人物：这个值不能用（值不符合配置项 x.t/people 的 schema）”，新项消失，焦点掉到 `BODY`。用户在设置里**永远加不出第一个新项**：占位项 `{}` 过不了 schema，而用户还没来得及填。
+  - 字符串列表项带 `minLength: 1`：同上（`x.t/tagsMin`）。
+  - 字符串列表项无长度约束：点“添加”就把 `""` 写进了用户设置文件（`{"x.t/tags":["a",""]}`，无通知）；用户不填就离开，空串留在文件里，也会被插件读到。
+- **为什么是问题**：Spec 设置输出 9 说数组、对象“可以直接编辑”，输出 14 说失败发通知、回到实际值。列表的“添加”在语义上是“开始编辑一个新项”，不是“提交一个值”；整组写入把一个中间态当成了值。`SchemaForm` 里这是无害的（草稿在表单里，调用方决定何时保存），但设置的每次变化都落盘，中间态直接成了持久数据或一次失败通知。产品里现在的配置项都是标量，这个缺口要等第一个对象列表设置才会暴露；示例 `snippets` 的 `items`（片段，`name`/`text` 必填）走 page，没有踩到。
+- **如何核实**：`/tmp/review-t07-s5/lists.dom.test.ts` 的 A、B、B2 三例，输出在 `lists.out`：
+  ```
+  A after add items=["甲"] notices=["人物：这个值不能用（值不符合配置项 x.t/people 的 schema）"] file={"x.t/people":[{"name":"甲","age":1}]} active=BODY
+  B file={"x.t/tags":["a",""]} notices=0 items=["a",""]
+  B2 file={"x.t/tagsMin":["a"]} notices=["非空标签：这个值不能用…"] items=["a"] active=BODY
+  ```
+- **建议改法**：设置的列表不该把“添加”的占位项落盘。选项：（a）设置侧对列表类字段（`string-list`、`object-list`）不走 `commit: "change"` 的即时写，而是自己攒一份草稿，有“应用”或离开字段才写（需要 nb-form 暴露列表级草稿，成本较大）；（b）nb-form 给 `commit` 加“结构操作也只作草稿”的语义，`SchemaField.commit()` 已经能一次提交，设置在字段失焦时调用；（c）最小改动：`blank` 不由控件硬编码，按 schema 生成能通过校验的最小项（有 `default` 用 default，必填字段给空值也要过 `minLength`——做不到时先不写，仍是草稿），并在 Spec 里写清“占位项不落盘”。无论选哪个，都要在 `SettingsWindow.dom.test.ts` 补“对象列表加一项后文件里没有残缺项”的判据。这条涉及 nb-form 的设计，应由主 Agent 与开发者定方向。
+
+---
+
+## 2. 写入被拒后列表里的焦点与读屏播报：焦点掉到 `BODY`，已播出“已删除第 2 项”但项又回来了
+
+- **严重程度**：重要；**类别**：无障碍 / 正确性
+- **位置**：`packages/nb-form/src/vue/list.ts:90-104`（`watch(items)`：外部整体替换时重建 id）、`list.ts:155-161`（`submit` 播报）、`packages/neuro-book/src/plugins/settings/web/components/SettingsListSection.vue:60-67`（`shown()` 先显示 pending 值）
+- **现象**：在设置里删（或移动）一项，写入被拒（`write-failed`、`invalid-value`、层 `invalid` 等）时：
+  1. `shown()` 在结算前先显示 pending 的新数组，列表采纳它，焦点移到邻项；播报“已删除第 2 项”；
+  2. 写入失败后 pending 清空，值回到层里的旧数组，长度与 id 数不同，`useList` 判为外部整体替换，**所有项换新 id**，`v-for` 全部重建，焦点元素被卸载，落到 `BODY`；
+  3. 读屏已经播出“已删除第 2 项”，之后没有任何“没有保存”的播报（通知是视觉的，由工作台通知区另管）。
+- **为什么是问题**：ui.forms 输出 19 要求“调用方没采纳时身份与焦点都不动”；这里调用方是先采纳（pending）、再撤销（回到旧值），表单看到的是“先采纳后外部替换”，两条规则都不适用。键盘用户在列表里按“删除”，写入失败后焦点丢到页面顶部，要从头 Tab；读屏用户听到的是“已删除”，实际没删。写入失败不是罕见路径：`layer-invalid`（设置文件被改坏，Spec 设置输出 13）时所有控件已停用，但网络写入失败、`unknown-outcome`、`invalid-value`（见第 1 条）都会走这里。
+- **如何核实**：`/tmp/review-t07-s5/lists.dom.test.ts` 的 C 例（`host.user.failWrites("write-failed")` 后点第 2 项的“删除”），输出：
+  ```
+  C items=["a","b","c"] notices=1 active=BODY/null announce=已删除第 2 项
+  ```
+  对照成功路径 D 例：`after=item-1:a,item-3:c active=BUTTON/remove`，身份与焦点都对。
+- **建议改法**：失败后把焦点交回触发操作的那个按钮或同一项（nb-form 缺一个“调用方撤销了刚才的采纳”的信号；`revision` 加一时可以让 `useList` 保留 id 并把焦点放回上一次操作的落点，而不是重建）。短期可以在 `SettingsListSection` 里不用 pending 值喂给列表控件（列表类字段 `shown()` 直接返回层里的值），让“没采纳”走 Spec 已有的“身份与焦点都不动”分支，但这样慢写入时列表在结算前不动，要看是否可接受。播报需另设失败文案，nb-form 目前没有。
+
+---
+
+## 3. 标题里的“下次会话生效”“重启后生效”进了开关与输入框的可访问名称（开关相对 base 是回归）
+
+- **严重程度**：建议；**类别**：无障碍
+- **位置**：`packages/neuro-book/src/ui/settings/SettingsRow.vue:102-105`（`<label :id="labelId" … :for="controlId">` 里放了标题与 `applies` 两个 span）；`packages/nb-form/src/vue/FieldShell.vue:61-63`；base 的 `SettingsControl.vue` 里 `Switch` 是 `:aria-label="label"`（只有标题）
+- **现象**：真实挂载后按“`aria-labelledby` > `aria-label` > `<label for>`”算名称：
+  ```
+  button[role=switch]  name="开关重启后生效"        （base 是“开关”）
+  input                name="落款下次会话生效"       （base 同样走 label-for，不是新问题）
+  ```
+  两个 span 之间没有分隔，浏览器对 inline-flex 里的 span 是否补空格取决于实现，读屏可能读成“落款下次会话生效”一个词。
+- **为什么是问题**：Spec 设置输出 9 最后一条：“控件的名字是行的标题”。生效时机是附带说明，不是名字；开关与组合控件（单选组、复选组 `aria-labelledby` 指向 `labelId`）也会带上它，读屏每次进控件都念一遍“重启后生效”。base 里只有开关与分段控件用 `aria-label={标题}` 避免了这件事。
+- **如何核实**：`/tmp/review-t07-s5/names.dom.test.ts`，输出 `names.out`。
+- **建议改法**：`SettingsRow` 把标题文字放进单独的带 id 的 `<span>`（`titleId`），`applies` 另放（说明的一部分，接进 `describedby`）；`labelId` 指向仅含标题的元素，`<label for>` 保留。或者 `applies` 放到 `aria-hidden` 之外但移出 `<label>`。
+
+---
+
+## 4. `bare` 把字段的状态文字一并丢掉：动态选项“不可用”的原因、“已不存在”的警告图标，用户只看到一个停用的下拉
+
+- **严重程度**：重要；**类别**：正确性（对 Spec）
+- **位置**：`packages/nb-form/src/vue/FieldShell.vue:50`（`helpId = props.help && !props.bare ? … : undefined`）与 `FieldShell.vue:104`（`<p v-if="helpId">`），`packages/nb-form/src/vue/NodeField.vue:129-133`（`help` 由字段自己的说明与选项源的 `reason` 拼成）；调用方 `packages/neuro-book/src/plugins/settings/web/setting-form.ts:20`（`{from}` → `options`，没有交源）
+- **现象**：`bare` 时外壳不画 `help`，而 `NodeField` 把“选项来源的不可用原因”也拼进了 `help`，于是一起消失。设置里声明了 `choices: {from: "x.t.models"}` 的项（当前设置窗口还没有把选项来源交给表单，所以所有这样的项都属此类）渲染为：下拉停用、显示当前值，**没有任何文字说明为什么停用**。真实挂载输出（去掉 class）：`<button id="m" aria-describedby="desc" role="combobox" disabled …>`，整个组件 `text()` 只有当前值 `a`。同理，“已不存在”的警告图标在标题行里，`bare` 不画标题行，只剩读屏的看不见的文字。
+- **为什么是问题**：`ui.forms` 输出 11 写“不可用时字段停用并显示原因”，输出 12 写“标‘已不存在’（警告）”；设置输出 9 写“动态选项……在那之前按选项来源不可用显示、停用”，`setting-form.ts` 的注释也声明这是预期的显示。现在这个显示缺了“显示原因”，开发者与用户都无法区分“还没实现”“提供者没起”“被禁用”。`bare` 的本意是“标题与说明由调用方画”（FieldShell 注释），但选项源的原因不是调用方的说明，是字段的运行时状态，不该跟着 `help` 一起被 `bare` 吞掉。
+- **如何核实**：`/tmp/review-t07-s5/dyn.dom.test.ts`，输出 `dyn.out`。
+- **建议改法**：`NodeField` 把 `help` 拆成 `help`（字段自己的说明，`bare` 时由调用方画）与 `reason`（选项源的原因），`reason` 在 `bare` 时仍画在控件下面一行；警告图标在 `bare` 时同样要给个位置（控件旁或同一行小字）。加一条 `SchemaField.dom.test.ts` 判据：`bare` + 不可用的选项源，文本里有原因。
+
+---
+
+## 5. 数字框与 JSON 写坏后，设置里只剩一个标红的框，没有任何文字说明“为什么没保存”（相对改造前有退步；Spec 允许）
+
+- **严重程度**：建议；**类别**：正确性 / 外观
+- **位置**：`packages/neuro-book/src/plugins/settings/web/components/SettingsListSection.vue:75-89`（没有接 `draft-state`，也没有 `issues`）；`FieldShell.vue:107`（错误文字 `sr-only`）
+- **现象**：数字框里写 `abc` 失焦后：不写入、不通知，框标红（`aria-invalid="true"`），错误文字“无法解析”是 `nb-form-sr-only`，看不见。改造前同一输入会把原样字符串交给写入路径，被 schema 拒绝，发通知“保存间隔：这个值不能用”，再回到实际值。现在草稿 `abc` 一直留着、标红，没有文案；窗口切走标签或分区时草稿悄悄丢掉（非沿用时同一个行实例还在，沿用时控件被卸载）。必填的数字清空同理（J3：`invalid=true`，`file` 没变，`notices=1` 是上一步留下的）。
+- **为什么是问题**：设置输出 14 与 `ui.forms` 输出 15 明确规定“不写，控件标出错”，所以这是合同内的行为，不算违约；但“标红但不说原因”在设置里没有别处补（`SchemaForm` 有底部汇总，`SchemaField` 没有）。键盘与读屏之外的用户只能猜。
+- **如何核实**：`/tmp/review-t07-s5/err.dom.test.ts` 的 J、K：
+  ```
+  J1 value=abc invalid=true desc=v-2-error v-2-description notices=0 file={"x.t/count":7}
+  J1 errEl=<span id="v-2-error" class="nb-form-sr-only">无法解析</span>
+  ```
+- **建议改法**：设置窗口自己接 `@draft-state`，把 `unparseable` 的一条以小字画在行内（行的说明下面一行，状态色，`role="status"` 之外不重复），不动 nb-form；或在 `SchemaField` 的 `bare` 里提供一个 `issue-text` 插槽。先问开发者要不要，Spec 既然写了“标出错”，也可以认为这是已接受的设计。
+
+---
+
+## 6. 行的 `<label for>` 指向不存在的元素（对象、字符串列表、对象列表）或指向不可标注的 `div`（单选组）
+
+- **严重程度**：建议；**类别**：无障碍
+- **位置**：`packages/neuro-book/src/ui/settings/SettingsRow.vue:102`（`:for="controlId"` 总是写）；`packages/nb-form/src/vue/controls/ListControl.vue:50-60`、`ObjectControl.vue`（组根没有 `id`）
+- **现象**：真实挂载后：
+  ```
+  ROW x.t/cfg   label for=v-2  -> 文档里没有这个 id
+  ROW x.t/tags  label for=v-29 -> 没有
+  ROW x.t/people label for=v-18 -> 没有
+  ROW x.t/mode  label for=v-10 -> DIV role=radiogroup（不是可标注元素）
+  ```
+  这些组合控件靠 `aria-labelledby` 取名（正确），`<label for>` 是空指或指向非表单元素：点标题没有任何效果（单个控件的行点标题会聚焦控件），也是无效的 HTML 关联。`SchemaField` 的属性说明写“控件的 id”，但对象与列表没有任何元素用它，行里传的 `id` 成了摆设。
+- **为什么是问题**：不影响读屏（有 `aria-labelledby`），影响的是点击标题聚焦的一致性与 HTML 校验；也让“行的插槽给 `id` 就能关联”这条合同对组合控件不成立，插槽文档里只说“组合控件用 `labelId`”，没说 `id` 此时无处可用。
+- **如何核实**：`/tmp/review-t07-s5/names.dom.test.ts`，输出 `names.out`（每行 `label for=… ->`）。
+- **建议改法**：二选一：（a）`NodeField` 给结构控件与单选组的组根写上 `id`（现成的 `data-nb-focus-target` 元素），让 `for` 指向可聚焦的组根；（b）`SettingsRow` 的插槽多给一个“这个控件能不能用 for 关联”的信号，不能时不写 `for`。（a）同时让点标题能聚焦到组，与单个控件的行一致。
+
+---
+
+## 7. 横排单选组后面紧跟无外框的“移除本作品的设置”，读起来像第四个选项
+
+- **严重程度**：建议；**类别**：外观
+- **位置**：`packages/neuro-book/src/ui/settings/SettingsRow.vue:116-122`（`variant="ghost"` 的 `Button` 直接排在控件后面，间距 `--space-4`=8px）；截图 `s5-shots/macos/row/SettingsRow__project-set__free__dark.png`、`macos/window/SettingsWindow__project__free__light.png`
+- **现象**：本作品标签下改过的“明暗”行：`○ 浅色  ○ 深色  ○ 跟随系统  移除本作品的设置`，最后一项没有圆钮但字号字重与选项名相近，间距小于选项之间的间距（选项之间约 12–16px，按钮前约 8px 加按钮自己的内边距）。改造前相邻的是分段控件，边界清楚；横排单选组没有外框，边界消失。
+- **为什么是问题**：“移除”是破坏性动作，用户可能把它当作第四个选项去点。
+- **如何核实**：看上面两张截图（我没有重新出图）。
+- **建议改法**：本作品标签下的“移除”不用 `ghost`，改 `secondary` 小按钮（与“在本作品里单独设置”同款，截图 `inherit` 里它有底色），或在单选组与按钮之间加分隔。要不要这样改由 t06 外观收口决定也行，但应登记。
+
+---
+
+## 8. 单行输入 320px 在内容列不足 544px 时整行换到下一行，同一分区里的各行对齐方式不一致
+
+- **严重程度**：建议；**类别**：外观
+- **位置**：`packages/neuro-book/src/plugins/settings/web/components/SettingsListSection.vue:116-131`（`[data-settings-width="wide"] {width: 320px}`），`SettingsRow.vue` 的 `.settings-row__label {width: 200px}` 与 `.settings-row__main {gap: … var(--space-7)}`（24px）
+- **现象**：标签 200 + 间隙 24 + 单行输入 320 = 544px，已修改时再加 8px 间隙与 28px 的恢复按钮约 580px。内容列不到这个宽度时输入框整个换到标题下面（截图“落款”），而同一分区里的数字框（120px）、下拉（220px）仍在标题右侧（“保存间隔”“排序”），读起来是同一列表里两种对齐。自由画布的截图里内容列约 533px，就已触发。窗口下限是 600×400，内容列约 340px，单行输入在默认以下的窗口里永远是换行排法。
+- **为什么是问题**：Spec 设置输出 9 要求“控件紧跟其后、左对齐，宽度按类型定：单行输入 320px（不超过行宽）”，没规定宽度不够时怎么办。换行本身是合理退化，但退化的触发点由三个固定数字相加决定，很不稳定：多一个恢复按钮就换。
+- **如何核实**：看 `s5-shots/macos/window/SettingsWindow__other__free__light.png`、`…__user__free__light.png` 对比；数值由上面的 CSS 算出，没有在真实浏览器里量。
+- **建议改法**：把 320px 改成上限：控件包装 `flex: 1 1 200px; max-width: 320px`，内容列放得下就同排、放不下才收窄，到 200px 以下才换行；数字与下拉保持定宽。留给主 Agent 在真实浏览器里确认。
+
+---
+
+## 9. 新增的 `setting-form.ts` 没有任何测试：`choices` 改名、`description`、`{from}`、`ui` 照抄、`widgetLayout` 的档位都没有被断言
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：`packages/neuro-book/src/plugins/settings/web/setting-form.ts`；被删的 `setting-controls.test.ts` 原有 9 条判据
+- **现象**：`rg "setting-form|settingHints|settingForm" packages/neuro-book/src` 只有源码与 Lab 引用，没有测试。删掉的 `setting-controls.test.ts`（选控件、阈值、范围、`choices` 名字）三条迁到 `SchemaField.dom.test.ts`，但它们测的是 nb-form 自己的选择规则；`setting-form.ts` 这层的映射只靠 `SettingsWindow.dom.test.ts` 间接覆盖了“有 4 个 `choices` 的下拉”与“3 个 `choices` 的单选组”两种。没被任何测试覆盖的行为：
+  - `choices[].description` 是否带进选项；
+  - `{from}` 转成 `options`（现在没有交源，所以会把所有动态选项的项显示为停用，见第 4 条，也没有测试能发现那条）；
+  - `ui` 照抄：设置输出 9“声明的 `ui` 提示照用（例如 `widget: "multiline"` 画多行文本框）”，设置窗口里没有一个 `ui.widget` 的场景断言；`unit`、`rows`、`searchable`、`itemLabel` 同；
+  - `settingForm` 的 `WeakMap` 缓存。
+- **为什么是问题**：这是设置与表单之间唯一的适配层，命名转换（`title`→`label`）一旦漏字段（例如以后给 `SettingChoiceDeclaration` 加字段）不会有任何测试失败。
+- **如何核实**：`grep -rn "settingHints\|settingForm\|setting-form" packages/neuro-book/src packages/neuro-book/examples packages/neuro-book/e2e`。
+- **建议改法**：补一个 `setting-form.test.ts`（bun，纯函数）：表驱动断言 `settingHints` 的输出与 `settingForm` 的 `wide/width`；再在 `SettingsWindow.dom.test.ts` 的“其它”场景里加一个 `ui: {widget: "multiline"}` 的字符串项与一个有 `choices.description` 的项。
+
+---
+
+## 10. `SettingsWindow.dom.test.ts` 没守住 Spec 输出 14 的两处，也没覆盖本次新增的失败路径
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：`packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.dom.test.ts:126-165`
+- **现象**：对照 Spec 设置输出 14 与计划“提交时机与草稿、revision 重置”一行：
+  1. “数字框里写的不是数时不写，控件标出错”：没有断言（只测了 1000 超范围经写入路径被拒）。
+  2. `revision` 加一的路径：只被“1000 被拒回 120”这一例触到，没有覆盖“控件显示值从头到尾没变”的情形，也就是 `SettingsListSection.vue:30-35` 注释里说的那种（写入在下一次渲染前就结算），测试里 `await flushPromises()` 之后才看 `input.value`，不区分是不是 `revision` 起的作用。去掉 `:revision` 一行，这条测试是否仍通过没有验证；我没有改仓库，建议主 Agent 在 worktree 里去掉那一行跑一次。
+  3. 列表：只测了“加一项、填写、失焦”的成功路径，没有“写入失败后列表回到原样、焦点留在页面里”（第 2 条）、也没有“添加一项后文件里没有残缺项”（第 1 条）。
+  4. 行的名称与说明：只断言了开关一行与外观分区的单选组；下拉、数字、单行、多行、字符串列表、对象列表、JSON 的名字与说明没有判据（本次新增的 `labelId`/`describedby` 的主要使用面）。
+- **为什么是问题**：计划里“设置的组件测试里写入失败回到实际值”是这一片的验收项，现在能证明的只有一种失败方式。
+- **如何核实**：对照读测试；第 2 点的反证实验需要在 worktree 里改，见上。
+- **建议改法**：补 1、3、4 三条，每条一个断言；2 用 `/tmp/review-t07-s5/slow.dom.test.ts` 的 delay 写法给 `host.user.editor.edit` 加延迟或立即返回失败，让结算发生在渲染之前。
+
+---
+
+## 11. `command-args.test.ts` 只覆盖内置插件的定义表，示例与测试用插件的命令、其它包的命令不在内；文件头“新加的插件与命令自动在内”说得过满
+
+- **严重程度**：建议；**类别**：测试 / 文档（注释）
+- **位置**：`packages/neuro-book/src/command-args.test.ts:1-9`（文件头）、`:24-37`（`commandDeclarations`）
+- **现象**：收集来源是 `productPlugins`、`developmentPlugins` 的清单贡献，加四张定义表（server、project、browser、development browser）的 `contributions` 与每个入口的 `contributions`。这对“内置插件的命令”是完整的：命令的声明是静态的（`validateCommandContribution` 要求登记时就有 `args`，实现只在激活时按已声明的 id 交），所以“只在运行期登记的命令”不会漏，这一点没有问题（`packages/nb-runtime/src/plugins/contracts.ts` 里贡献是 `contributions` 数组加激活输出的实现表，没有运行时再声明的路径）。会漏的是不在这四张表里的命令：`packages/neuro-book/examples/plugins/counter/backend/plugin.ts:115` 的 `RESET_COMMAND`、`src/web/testing/{test-menus,sample-views,remote-probe}.ts` 的测试命令；其它包以后贡献命令时同样不在内。`args` 的校验合同只要求“关闭额外属性的对象 schema”（`commands/shared/contracts.ts:55`），第三方命令的 `args` 里写 `Record` 或元组，这条测试发现不了。另外 `contribution.declaration as CommandDeclaration` 是类型转换：若某条贡献没有 `declaration`，测试死在 `declaration.args` 的 `TypeError`，看不出是哪条命令。
+- **为什么是问题**：测试的目的是“命令面板以后按 `args` 画表单时每条命令都能画”。内置命令现在都满足，所以不是缺陷；但描述里的“自动”是对内置清单说的，不要让读者以为对所有插件成立。示例插件是文档材料，它们的 `args` 恰好都是空对象，也不会出问题。
+- **如何核实**：`grep -rn "capability: COMMANDS_POINT" packages/neuro-book/src packages/neuro-book/examples`，对比测试里的两个来源。
+- **建议改法**：文件头改成“内置插件的全部命令”，不提“自动”；拿到 `declaration === undefined` 时显式抛“某某插件的某贡献缺声明”。示例插件的命令可顺带加进收集（它们由 `examples/` 的场景测试保证，不必）。
+
+---
+
+## 12. `isolation.dom.test.ts` 的“没有 Vue 警告”能抓住哪几类宿主依赖（核实结果，不是缺陷）
+
+- **严重程度**：（无，记录边界）；**类别**：测试
+- **位置**：`packages/nb-form/src/vue/isolation.dom.test.ts:100-140`（`isolate`）
+- **核实**：在 `/tmp/review-t07-s5/warn.dom.test.ts` 里用同样的 `app.config.warnHandler` 挂一个组件，得到两条：`Missing required prop: "n"`、`injection "never-provided" not found.`。所以：宿主全局注册的组件没注册（`Failed to resolve component`）、没有默认值的 `inject`、必需 prop 缺失，这三类会失败，是真能抓住的。
+- **抓不住的**：`nb-ui` 与 `nb-form` 里所有 `inject(KEY, 默认值)`（`useFieldContext`、`useTeleportTarget`、`usePopoverLayer`、`NB_DIALOG_WINDOW_DEPTH` 等）在宿主缺席时静默退回默认，不会有警告；全局样式与令牌缺失也不会有警告（happy-dom 不算布局）。这些由同一个用例里的行为断言承担（弹层挂到 `body`、选项可点、值能改），所以测试整体是站得住的；只是新增的组件如果在缺宿主时静默走偏，`problems` 为空并不能证明没问题。
+- **建议**：不用改。要补的话，在测试文件头的注释里写明“零警告只证明没有必须由宿主提供的东西，缺宿主时静默退回默认值的依赖靠后面的行为断言”。
+
+---
+
+## 汇总
+
+| 级别 | 数量 | 条目 |
+|---|---|---|
+| 阻断 | 0 | |
+| 重要 | 3 | 1（列表“添加”整组写入，占位项被拒或落盘）、2（写入被拒后列表焦点丢失、播报与结果相反）、4（`bare` 吞掉选项源不可用的原因与“已不存在”警告） |
+| 建议 | 8 | 3（生效时机进可访问名称，开关回归）、5（写坏后只有标红没有文字）、6（`<label for>` 悬空）、7（“移除”按钮像第四个选项）、8（320px 换行阈值）、9（`setting-form.ts` 无测试）、10（组件测试没守住输出 14 与失败路径）、11（命令参数测试的收集范围） |
+| 记录（非缺陷） | 1 | 12（隔离测试的“零警告”边界） |
+
+### 未发现问题的方面
+
+- **`bare` 开关的修正**（`FieldShell.vue:93-94`）：改后开关在 `nb-form-field__control` 里单独一块，截图里与标签列、其它行的控件对齐正常；`inline` 只有 `NodeField` 在 `widget === 'switch'` 时传，非 `bare` 时仍排在标题行（`SchemaField.dom.test.ts`、`SchemaForm.dom.test.ts` 全部通过），没有看到受影响的用法。
+- **`window.write` 返回值与 `revision`**：`result.ok` 作返回值，失败时各分支（含 `invalid-value`）都会 `revision` 加一；真实挂载下“1000 被拒回到 120”（含慢写入 40ms）、慢写入成功、两次连续删除在第一次结算前发出（`slow.out` G）、第一次失败第二次成功（H）都得到一致的最终文件与列表，没有发现身份串位或最终状态不一致；成功路径下增删排序的身份与焦点落点正确（`lists2.out` D、E、F）。
+- **S4 的 `isStructuredObject`**：关闭额外属性的空对象算“可结构化”，`properties` 不是对象、有 `patternProperties` 或 `additionalProperties` 是 schema 时仍退回 JSON；与 Spec `ui.forms` 输出 1 与对照表一致，`model.test.ts` 有对应行；开放的空对象（`Type.Object({})`）仍是 JSON。
+- **相邻功能**：`SettingsRow` 的新插槽属性是增量，`WorksSettingsPage.vue`、`SampleSnippetsPage.vue`、`SampleModelsPage.vue`、`examples/plugins/snippets/web/SnippetsPage.vue` 的现有用法不受影响；`packages/neuro-book` 与 `packages/nb-form` 的单元、组件与类型检查全部通过（`bun run typecheck` 无输出；`nb-form` 96 + 77 个测试、`src/plugins/settings` 与 `src/ui/settings` 18 个组件测试、`command-args.test.ts` 通过）。
+- **异常输入**：`defineSetting` 会在登记时拒绝坏正则；`mixed union`、`Unknown`、`Null`、元组、`Record`、整数数组在设置里都退回 JSON 编辑，不抛异常；单个常量（`Type.Literal("only")`）现在画成只有一个选项的横排单选组（原来是“只能在设置文件里改”的只读文本），可用但略怪，不算问题。
+- **未做**：`e2e`（`settings.e2e.ts` 里 `getByRole("radio", {name: "macOS"})` 等断言，要在真实浏览器里确认横排单选组里每个圆钮的可访问名称取自包着它的 `<label>`）、真实布局下的像素宽度（第 7、8 条的数值来自 CSS 与截图）、第 10 条第 2 点去掉 `:revision` 后的反证。以上需要主 Agent 跑。

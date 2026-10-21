@@ -77,7 +77,10 @@ fallbackWidget(widget: BuiltinWidget): TerminalWidget   // 终端里的退回画
 <SchemaField :schema :hints? v-model :id? :bare? :labelledby? :describedby? v-model:selected? （其余同上，没有 layout、summary、focus-issue） />
             // expose: commit(): boolean、reset()、focus(): Promise<boolean>；commit、reset 作用到字段里的全部成员
 widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wide" | "content"}
+describeIssues(schema, value, issues, locale, hints?): string[]   // 按看得见的先后，每条是“所在字段的名字：问题文字”，根上的没有名字
 ```
+
+`SchemaField` 的 `bare` 只画控件：标签与说明由调用方画，出错的文字只给读屏、没有问题汇总；字段自己的状态（选项源不可用的原因、“已不存在”之类的警告）照样画在控件下面。调用方要在自己的位置写出出错原因时用 `describeIssues`。
 
 ## 输出与可观察行为
 
@@ -135,7 +138,7 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 
 ### 列表编辑
 
-19. **增删排序**：列表每项有稳定的身份，不随删除与排序串到别的项；添加后焦点进新项的第一个控件；删除后焦点到下一项的同类控件，没有就上一项，列表空了到“添加”；排序用“上移 / 下移”按钮与 `Alt+↑ / ↓`，焦点跟着被移动的项，读屏播报移动结果。焦点在调用方把新数组传回来、渲染出来之后才移；传回来的可以是内容相同的副本（经过 JSON 或 RPC）；连着几次操作都在传回之前发出时，身份跟着最后采纳的那次；调用方没采纳时身份与焦点都不动；外部换成长度不同、或不是本表单发出过的数组时重建身份。焦点在多行文字框或下拉上时 `Alt+↑ / ↓` 留给它们。`minItems`、`maxItems` 到界时停用删除或添加；`uniqueItems` 下的重复项标问题（与校验同一种等值判定）；空列表显示“还没有项”与“添加”；超过 50 项默认折叠成“N 项”，展开后分页。
+19. **增删排序**：列表每项有稳定的身份，不随删除与排序串到别的项；添加后焦点进新项的第一个控件；删除后焦点到下一项的同类控件，没有就上一项，列表空了到“添加”；排序用“上移 / 下移”按钮与 `Alt+↑ / ↓`，焦点跟着被移动的项，读屏播报移动结果。焦点在调用方把新数组传回来、渲染出来之后才移；传回来的可以是内容相同的副本（经过 JSON 或 RPC）；连着几次操作都在传回之前发出时，身份跟着最后采纳的那次；调用方没采纳时身份与焦点都不动；调用方先采纳、随后又传回采纳之前的数组（写入失败）时换回原来的身份，焦点留在原处，播报“刚才的改动没有生效”；外部换成长度不同、或不是本表单发出过的数组时重建身份。焦点在多行文字框或下拉上时 `Alt+↑ / ↓` 留给它们。`minItems`、`maxItems` 到界时停用删除或添加；`uniqueItems` 下的重复项标问题（与校验同一种等值判定）；空列表显示“还没有项”与“添加”；超过 50 项默认折叠成“N 项”，展开后分页。
 20. **左列表右详情**：`v-model:selected` 给出选中项；新增项自动选中并聚焦详情；删除选中项后选中下一项；列表项的选中区与操作按钮并列，不嵌套按钮；项标题取 `itemLabel` 的字段，空时写“第 N 项”。
 
 ### 表单根
