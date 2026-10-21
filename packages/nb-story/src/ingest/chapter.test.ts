@@ -1,9 +1,10 @@
 /**
  * 抽一章（docs/specs/story/ingest.md 输出 4、5、7、9、10，验收 5）。请求经真实的 OpenAI SDK 与 HTTP 发往本机端点。
  *
- * 回放：端点给出 w00005 t34 抽样例书时录下的回复（testing/ingest-replay.ts）。管线搬得对，各章最终草稿与整理稿就与
- * 当时相同；发出的请求除了“已有记录”只详列与本章相关的行（w00024 t10），其余逐字相同：把“已有记录”换回全量，就与当时
- * 录下的逐字相同。另一处允许的差别是核对清单里“格式不对：”后面的校验说明（原来是 zod 的措辞，现在是 TypeBox 的）。
+ * 回放：端点给出 w00005 t34 抽样例书时录下的回复（testing/ingest-replay.ts）。管线搬得对，各章最终草稿就与当时相同；
+ * 普通章发出的请求除了“已有记录”只详列与本章相关的行（w00024 t10），其余逐字相同：把“已有记录”换回全量，就与当时录下
+ * 的逐字相同。另一处允许的差别是核对清单里“格式不对：”后面的校验说明（原来是 zod 的措辞，现在是 TypeBox 的）。整理改成
+ * 增量（w00024 t12）后请求换了写法，对照 t12 的基线；第 10 章那次的录音是整批写法，换成手写的增量回复。
  *
  * 故障：在回放上替换某一步的回复，等待由注入的函数记下，不真的等。
  */
@@ -36,8 +37,31 @@ const sha256 = (text: string) => createHash("sha256").update(text).digest("hex")
  * t10 合入时默认路径实际发出的每个请求（系统提示词、用户消息原样，不换回全量已有记录）的 SHA-256，按“章:步骤”。
  * 按书关闭数值与秘密（w00024 t11）之后，两项都开时必须与它逐字相同。
  */
-const requestBaseline = (name: "replay-ch001-010" | "recall-ch010") => readFile(join(FIXTURES, "requests-t10.json"), "utf8").then(text => (JSON.parse(text) as Record<string, Record<string, string>>)[name]!);
+const requestBaseline = async (name: "replay-ch001-010" | "recall-ch010") => {
+    const t10 = (JSON.parse(await readFile(join(FIXTURES, "requests-t10.json"), "utf8")) as Record<string, Record<string, string>>)[name]!;
+    // 整理的请求在 t12 换了写法，用 t12 的基线；普通章仍与 t10 逐字相同。
+    const t12 = (JSON.parse(await readFile(join(FIXTURES, "requests-t12.json"), "utf8")) as Record<string, Record<string, string>>)[name] ?? {};
+    return {...Object.fromEntries(Object.entries(t10).filter(([key]) => !key.endsWith(":consolidation"))), ...t12};
+};
 const requestHashes = (requests: {key: string; system: string; user: string}[]) => Object.fromEntries(requests.map(request => [request.key, sha256(`${request.system}\n\u0000\n${request.user}`)]));
+
+/**
+ * 第 10 章整理的增量回复（手写，代替整批写法的录音）：a5-2 追加第 6 到 8 章的几段，新开一条南嘉鱼的主线；苏天晴的概览
+ * 引用了情节与知情，处境引用了状态变动。
+ */
+const CONSOLIDATION_10 = {
+    through: 10,
+    merges: [],
+    summaries: [
+        {entity: "e1-1", facet: "overview", items: [{text: "苏天晴成为反派魔法少女，暂定代号心月狐，并结识了南嘉鱼。", deps: ["p8-1", "p9-1", "k6-1"]}]},
+        {entity: "e1-1", facet: "goals", items: [{text: "苏天晴想用定身陷阱让风信子出丑。", deps: ["p6-1", "l6-1"]}]},
+    ],
+    arcs: [
+        {id: "a5-2", title: "苏天晴寻找风信子并完成找茬任务", summary: "苏天晴用定身陷阱制住风信子并录下视频，因此得到暂定代号心月狐。", episodes: ["p6-1", "p6-2", "p6-3", "p7-1", "p7-2", "p8-1"], status: "ongoing"},
+        {id: "a10-1", title: "苏天晴与南嘉鱼结为好友", summary: "苏天晴在学校结识南嘉鱼，两人很快成为好友；南嘉鱼暗中是以风信子为目标的反派魔法少女。", episodes: ["p8-2", "p9-1", "p9-4", "p10-1", "p10-2"], status: "ongoing"},
+    ],
+};
+const incremental = (key: ReplayKey): EndpointReply | undefined => (key.chapter === 10 && key.step === "consolidation" ? {kind: "text", text: JSON.stringify(CONSOLIDATION_10)} : undefined);
 
 let endpoint: Endpoint | undefined;
 afterEach(() => {
@@ -81,7 +105,8 @@ async function extractBook(sample: Dataset, count: number, run: ChapterRun, feat
         drafts.push(result.draft);
         if (chapter % 5 === 0) {
             const dataset = compile(book, sources(chapter), drafts, consolidations).dataset;
-            const outcome = await consolidate(chapter, dataset, candidate => compile(book, sources(chapter), drafts, [...consolidations, candidate]), run);
+            const since = (consolidations.at(-1) as {through: number} | undefined)?.through ?? 0;
+            const outcome = await consolidate(chapter, dataset, since, candidate => compile(book, sources(chapter), drafts, [...consolidations, candidate]), run);
             if (outcome.consolidation) consolidations.push(outcome.consolidation);
         }
     }
@@ -90,18 +115,27 @@ async function extractBook(sample: Dataset, count: number, run: ChapterRun, feat
 
 
 describe("回放前 10 章（输出 4、7）", () => {
-    test("各章最终草稿与整理稿与 t34 那次相同；请求里的已有记录换回全量后与当时逐字相同，整理的请求原样相同", async () => {
+    test("各章最终草稿与 t34 那次相同，整理按增量并成一批；普通章请求里的已有记录换回全量后与当时逐字相同", async () => {
         const sample = await sampleDataset();
         const data = await loadReplay();
         const final = await gunzipJson<{drafts: unknown[]; consolidations: unknown[]}>("run-med-100-final.json.gz");
         const recordedRequests = await gunzipJson<Record<string, Record<string, {sha256: string; normalized: string; effort: string}>>>("recorded-requests-ch001-010.json.gz");
-        const played = replay(data);
+        const played = replay(data, incremental);
         const {run, requests} = serve(played.responder, () => played.seen.at(-1));
 
         const {drafts, consolidations, results} = await extractBook(sample, 10, run);
         expect(played.unknown).toEqual([]);
         expect(drafts).toEqual(final.drafts.slice(0, 10) as RawDraft[]);
-        expect(consolidations).toEqual(final.consolidations.slice(0, 2));
+        // 第 5 章是第一次整理，录下的整批回复按增量就是全部新建。第 10 章更新 a5-2、新建 a10-1，没写到的 a5-1、a5-3 照带。
+        expect(consolidations).toEqual([{...(final.consolidations[0] as object), base: 0}, {...CONSOLIDATION_10, base: 5}]);
+        const batch = compile(sample.book, sample.sources.slice(0, 10), drafts, consolidations).dataset.arcs.filter(arc => arc.through === 10);
+        const before = (final.consolidations[0] as {arcs: {id: string; episodes: string[]}[]}).arcs;
+        expect(batch.map(arc => [arc.id, arc.episodes])).toEqual([
+            ["a5-1", before[0]!.episodes],
+            ["a5-2", [...before[1]!.episodes, ...CONSOLIDATION_10.arcs[0]!.episodes]],
+            ["a5-3", before[2]!.episodes],
+            ["a10-1", CONSOLIDATION_10.arcs[1]!.episodes],
+        ]);
         expect(results.map(result => result.dropped)).toEqual(Array(10).fill(0));
         // 挑选关着：第 1 章没有已提交的记录，什么都不用选；之后各章按规则缩减。
         expect(results.map(result => result.recall.source)).toEqual(["none", ...Array(9).fill("rule")]);
@@ -114,6 +148,8 @@ describe("回放前 10 章（输出 4、7）", () => {
             const [chapter, step] = request.key.split(":") as [string, string];
             const recorded = recordedRequests[chapter]![step]!;
             expect({key: request.key, effort: request.effort}).toEqual({key: request.key, effort: recorded.effort});
+            // 整理的请求换了写法（t12），只对照下面的基线。
+            if (step === "consolidation") continue;
             let user = request.user;
             if (!step.startsWith("consolidation") && chapter !== "1") {
                 const open = "【已有记录】\n";
@@ -130,13 +166,13 @@ describe("回放前 10 章（输出 4、7）", () => {
         }
         // 第 2 章起的普通请求确实只带了一部分已有记录。
         expect(narrowed).toBeGreaterThan(0);
-        // 实际发出的请求与 t10 合入时逐字相同。
+        // 普通章的请求与 t10 合入时逐字相同，整理的请求与 t12 的基线逐字相同。
         expect(requestHashes(requests)).toEqual(await requestBaseline("replay-ch001-010"));
     }, 120_000);
 
     test("显式给两项都开（ingest.md 输出 18）：每个请求与不给时逐字相同", async () => {
         const sample = await sampleDataset();
-        const played = replay(await loadReplay());
+        const played = replay(await loadReplay(), incremental);
         const {run, requests} = serve(played.responder, () => played.seen.at(-1));
         await extractBook(sample, 10, run, {ledger: true, secrets: true});
         expect(played.unknown).toEqual([]);
@@ -393,7 +429,7 @@ describe("整理不合格（输出 7）", () => {
         const final = await gunzipJson<{drafts: unknown[]}>("run-med-100-final.json.gz");
         const sources = sample.sources.slice(0, 5);
         const dataset = compile(sample.book, sources, final.drafts.slice(0, 5)).dataset;
-        const outcome = await consolidate(5, dataset, candidate => compile(sample.book, sources, final.drafts.slice(0, 5), [candidate]), run);
+        const outcome = await consolidate(5, dataset, 0, candidate => compile(sample.book, sources, final.drafts.slice(0, 5), [candidate]), run);
         expect(outcome.consolidation).toBeNull();
         expect(outcome.problems.join("")).toContain("整理跳过");
     });
@@ -462,9 +498,87 @@ describe("整理带来的错误（输出 5、7）", () => {
         expect(before.issues.filter(issue => issue.level === "error")).toEqual([]);
         // 第 3 章整理把两个阿青合并：第 2 章那一笔的累加变成 12，与原文的 2 对不上，错误落在第 2 章而不是第 3 章。
         const {run} = serve(() => ({kind: "text", text: JSON.stringify({through: 3, merges: [{keep: "e1-1", drop: "e2-1", reason: "同一个阿青"}]})}));
-        const outcome = await consolidate(3, before.dataset, candidate => compile(book, sources, drafts, [candidate]), run);
+        const outcome = await consolidate(3, before.dataset, 0, candidate => compile(book, sources, drafts, [candidate]), run);
         expect(outcome.consolidation).toBeNull();
         expect(outcome.problems.join("")).toContain("整理稿带来错误");
         expect(outcome.dataset).toBe(before.dataset);
+    });
+});
+
+describe("增量整理稿的清理（输出 7）", () => {
+    /**
+     * 三章的小书。第 1 章有两个“林晚”（e1-1、e1-3，称呼相同、可以合并，但都不是这一段新建的）和阿青（e1-2）；第 2 章整理过
+     * 一次（主线 a2-1，林晚与阿青的概览）；第 3 章只写林晚，有一条手写的知情与一笔状态变动。
+     */
+    const sources = [
+        sourceChapter(1, "第1章", ["第1章", "林晚和阿青上路。"]),
+        sourceChapter(2, "第2章", ["第2章", "林晚赶路。"]),
+        sourceChapter(3, "第3章", ["第3章", "林晚有三枚金币。"]),
+    ];
+    const person = (id: string, name: string) => ({id, kind: "person", label: name, at: "1.2", names: [{text: name, at: "1.2", primary: true}]});
+    const day = (n: number) => ({times: [{id: `t${n}-1`, label: `第${n}天早晨`, day: n, part: "morning", at: [`${n}.2`]}], beats: [{id: `b${n}-1`, from: 1, to: 2, gist: "经过。", time: `t${n}-1`}], episodes: [{id: `p${n}-1`, title: `第${n}天`, summary: "林晚赶路。", at: [`${n}.2`], time: `t${n}-1`, who: [{e: "e1-1"}]}]});
+    const drafts = [
+        {chapter: 1, ...day(1), entities: [person("e1-1", "林晚"), person("e1-2", "阿青"), person("e1-3", "林晚")], statements: [{id: "s1-1", text: "林晚和阿青一起上路", family: "event", about: ["e1-1", "e1-2"], src: {at: ["1.2"], ch: "narrator"}}]},
+        {chapter: 2, ...day(2)},
+        {
+            chapter: 3,
+            ...day(3),
+            knowledge: [{id: "k3-1", who: "e1-1", about: "s1-1", state: "knows", at: ["3.2"]}],
+            ledger: [{id: "l3-1", owner: "e1-1", track: "金币", op: "set", value: 3, reason: "有三枚金币", at: ["3.2"]}],
+        },
+    ];
+    const book = {id: "t", title: "t"};
+    const first = {
+        through: 2,
+        base: 0,
+        summaries: [
+            {entity: "e1-1", facet: "overview", items: [{text: "林晚在赶路。", deps: ["p2-1"]}]},
+            {entity: "e1-2", facet: "overview", items: [{text: "阿青和林晚同行。", deps: ["s1-1"]}]},
+        ],
+        arcs: [{id: "a2-1", title: "林晚赶路", summary: "林晚一路赶路。", episodes: ["p1-1", "p2-1"], status: "ongoing"}],
+    };
+
+    test("候选之外的合并、改写没列现有归纳的方面拒绝；知情与状态变动可以当依据；主线只改状态、重复写、未知编号各有去处", async () => {
+        const dataset = compile(book, sources, drafts, [first]).dataset;
+        expect(compile(book, sources, drafts, [first]).issues.filter(issue => issue.level === "error")).toEqual([]);
+        const reply = {
+            through: 3,
+            merges: [{keep: "e1-1", drop: "e1-3", reason: "同一个林晚"}],
+            summaries: [
+                {entity: "e1-1", facet: "overview", items: [{text: "林晚在赶路。", deps: ["p2-1"]}, {text: "林晚知道自己和阿青同行，身上有三枚金币。", deps: ["k3-1", "l3-1"]}]},
+                {entity: "e1-2", facet: "overview", items: [{text: "阿青不见了。", deps: ["s1-1"]}]},
+                {entity: "e1-2", facet: "appearance", items: [{text: "阿青的样子没有交代。", deps: ["s1-1"]}]},
+            ],
+            arcs: [
+                {id: "a2-1", title: "林晚赶路", summary: "林晚到了目的地。", episodes: [], status: "closed"},
+                {id: "a2-1", title: "林晚赶路", summary: "又写了一次。", episodes: ["p3-1"], status: "ongoing"},
+                {id: "a9-9", title: "林晚的金币", summary: "林晚清点金币。", episodes: ["p3-1"], status: "ongoing"},
+            ],
+        };
+        const {run, requests} = serve(() => ({kind: "text", text: JSON.stringify(reply)}));
+        const outcome = await consolidate(3, dataset, 2, candidate => compile(book, sources, drafts, [first, candidate]), run);
+
+        // 输入只列这一段的对象：阿青第 3 章没有涉及，没有列出她的现有归纳。
+        expect(requests[0]!.user).toContain("“这一段”是第 3 到 3 章。");
+        expect(requests[0]!.user).not.toContain("阿青和林晚同行。");
+        expect(outcome.consolidation).toEqual({
+            through: 3,
+            base: 2,
+            merges: [],
+            summaries: [
+                reply.summaries[0],
+                reply.summaries[2],
+            ],
+            arcs: [
+                {id: "a2-1", title: "林晚赶路", summary: "林晚到了目的地。", episodes: [], status: "closed"},
+                {id: "a3-1", title: "林晚的金币", summary: "林晚清点金币。", episodes: ["p3-1"], status: "ongoing"},
+            ],
+        });
+        expect(outcome.problems).toEqual([
+            "合并 e1-3 到 e1-1 被拒绝：不在这次的合并候选里",
+            "摘要 e1-2/overview：这次没有列出它的现有归纳，只能补新的方面",
+            "故事线 a2-1：写了两次，只留第一次",
+        ]);
+        expect(outcome.dataset.arcs.filter(arc => arc.through === 3).map(arc => [arc.id, arc.status, arc.episodes])).toEqual([["a2-1", "closed", ["p1-1", "p2-1"]], ["a3-1", "ongoing", ["p3-1"]]]);
     });
 });

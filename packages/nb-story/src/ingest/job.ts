@@ -147,7 +147,9 @@ async function extractAll(options: JobOptions, ledger: Ledger, markChapter: (cha
         let issues = result.issues;
         const problems = [...result.notes, ...result.remaining.map(issue => issue.message)];
         if (chapter % CONSOLIDATE_EVERY === 0 || chapter === total) {
-            const outcome = await consolidate(chapter, dataset, candidate => compile(book, sources, drafts, [...consolidations, candidate]), run);
+            // 增量整理接着上一次被接受的整理（输出 7：跳过的那几章由这一次补上）。
+            const since = (consolidations.at(-1) as {through: number} | undefined)?.through ?? 0;
+            const outcome = await consolidate(chapter, dataset, since, candidate => compile(book, sources, drafts, [...consolidations, candidate]), run);
             problems.push(...outcome.problems);
             if (outcome.consolidation !== null) {
                 consolidations = [...consolidations, outcome.consolidation];

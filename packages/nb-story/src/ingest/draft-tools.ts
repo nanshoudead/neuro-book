@@ -9,7 +9,7 @@
 
 import {Value} from "typebox/value";
 
-import type {Dataset} from "../core/dataset";
+import type {Arc, Dataset, Entity} from "../core/dataset";
 import {FACETS, FAMILIES} from "../core/dataset";
 import type {IssueSubject} from "./compile";
 import {DRAFT_SECTION_SCHEMAS, DRAFT_SECTIONS, parseWith, type DraftSection} from "./draft-schema";
@@ -333,50 +333,86 @@ export function dropOffending(draft: RawDraft, evaluate: (candidate: RawDraft) =
 }
 
 /**
- * 清理模型写的整理稿：指向不存在的记录的内容去掉，不稳妥的合并拒绝，其余保留。
- * 合并会改写所有引用，错了很难挽回，所以只接受有把握的：类别相同、称呼相同或一个称呼包含另一个、两者之间没有“身份同一”的说法。
- * 马甲和本人靠身份说法相连，是有意分开的两个对象，不能合并。
+ * 两个对象能不能合并；不能时返回理由。合并会改写所有引用，错了很难挽回，所以只接受有把握的：类别相同、称呼相同或一个
+ * 称呼包含另一个、两者之间没有“身份同一”的说法。马甲和本人靠身份说法相连，是有意分开的两个对象，不能合并。整理的合并
+ * 候选（context.ts）与清理用同一个条件。
  */
-export function sanitizeConsolidation(reply: any, chapter: number, dataset: Dataset): {value: any; dropped: string[]} {
+export function mergeRefusal(keep: Entity, drop: Entity, dataset: Dataset): string | null {
+    if (keep.id === drop.id) return "是同一个对象";
+    if (keep.kind !== drop.kind) return "类别不同";
+    if (dataset.statements.some(item => item.family === "identity" && item.about.includes(keep.id) && item.about.includes(drop.id))) return "两者之间有身份同一的说法，是有意分开的马甲和本人";
+    // “任务”“学院”这类两个字的泛称出现在别的称呼里不算数，包含关系要求较短的称呼至少三个字。
+    const contains = (long: string, short: string) => [...short].length >= 3 && long.includes(short);
+    const related = keep.names.some(a => drop.names.some(b => a.text === b.text || contains(a.text, b.text) || contains(b.text, a.text)));
+    return related ? null : "没有相同或互相包含的称呼";
+}
+
+/** 一次增量整理的范围（context.ts 的 `consolidationContext` 算出，与给模型的输入一致）。 */
+export interface ConsolidationScope {
+    /** 接着的那一批主线（最近一批）与它的章号；还没有主线时为空、0。 */
+    base: number;
+    arcs: readonly Arc[];
+    /** 输入里列了现有归纳的对象：只有它们能改写已有的方面，别的对象只能补新方面。 */
+    summarized: ReadonlySet<string>;
+    /** 合并候选，两个对象编号，不分先后。 */
+    candidates: readonly (readonly [string, string])[];
+}
+
+/** 程序生成的知情编号形如 `k:…`，草稿不能引用；手写的是 `k<章>-<序号>`。 */
+const HANDWRITTEN_KNOWLEDGE = /^k\d{1,4}-\d{1,4}$/u;
+
+/**
+ * 清理模型写的整理稿（docs/specs/story/ingest.md 输出 7）：指向不存在的记录的内容去掉，超出这次范围的（候选之外的合并、
+ * 改写没给出现有归纳的对象的已有方面）拒绝，其余保留，写上 `base`。去掉的都记一句说明。
+ */
+export function sanitizeConsolidation(reply: any, chapter: number, dataset: Dataset, scope: ConsolidationScope): {value: any; dropped: string[]} {
     const dropped: string[] = [];
     const entities = new Map(dataset.entities.map(item => [item.id, item]));
-    const targets = new Set([...dataset.statements.map(item => item.id), ...dataset.episodes.map(item => item.id)]);
+    // 依据与草稿 schema 允许的一致：说法、情节、手写的知情、状态变动。
+    const targets = new Set([
+        ...dataset.statements.map(item => item.id),
+        ...dataset.episodes.map(item => item.id),
+        ...dataset.knowledge.map(item => item.id).filter(id => HANDWRITTEN_KNOWLEDGE.test(id)),
+        ...dataset.ledger.map(item => item.id),
+    ]);
     const episodes = new Set(dataset.episodes.map(item => item.id));
-    const linked = (a: string, b: string) => dataset.statements.some(item => item.family === "identity" && item.about.includes(a) && item.about.includes(b));
+    const pair = (a: string, b: string) => [a, b].sort().join("|");
+    const candidates = new Set(scope.candidates.map(([a, b]) => pair(a, b)));
     const merges: any[] = [];
     for (const item of Array.isArray(reply?.merges) ? reply.merges : []) {
         const keep = entities.get(item?.keep), drop = entities.get(item?.drop);
         const refuse = (why: string) => dropped.push(`合并 ${item?.drop} 到 ${item?.keep} 被拒绝：${why}`);
-        if (!keep || !drop || keep.id === drop.id) {
+        if (!keep || !drop) {
             refuse("对象不存在");
+            continue;
+        }
+        if (!candidates.has(pair(keep.id, drop.id))) {
+            refuse("不在这次的合并候选里");
             continue;
         }
         if (typeof item.reason !== "string" || !item.reason) {
             refuse("没有写理由");
             continue;
         }
-        if (keep.kind !== drop.kind) {
-            refuse("类别不同");
-            continue;
-        }
-        if (linked(keep.id, drop.id)) {
-            refuse("两者之间有身份同一的说法，是有意分开的马甲和本人");
-            continue;
-        }
-        // “任务”“学院”这类两个字的泛称出现在别的称呼里不算数，包含关系要求较短的称呼至少三个字。
-        const contains = (long: string, short: string) => [...short].length >= 3 && long.includes(short);
-        const related = keep.names.some(a => drop.names.some(b => a.text === b.text || contains(a.text, b.text) || contains(b.text, a.text)));
-        if (!related) {
-            refuse("没有相同或互相包含的称呼");
+        const why = mergeRefusal(keep, drop, dataset);
+        if (why) {
+            refuse(why);
             continue;
         }
         merges.push({keep: keep.id, drop: drop.id, reason: item.reason});
     }
+    // 已有归纳的“对象 × 方面”：没给出现有归纳的对象不能改写它们，模型看不到旧句，整段写会把旧内容盖掉。
+    const existing = new Set(dataset.summaries.map(item => `${item.entity}\u0000${item.facet}`));
     // 模型有时把摘要写成一句一条（entity、facet、text、deps 平铺），这里按对象和方面归并成规定的形状。
     const grouped = new Map<string, {entity: string; facet: string; items: {text: string; deps: string[]}[]}>();
     for (const summary of Array.isArray(reply?.summaries) ? reply.summaries : []) {
         if (!entities.has(summary?.entity) || !(FACETS as readonly string[]).includes(summary?.facet)) {
             dropped.push(`摘要 ${summary?.entity}/${summary?.facet}：对象或方面不存在`);
+            continue;
+        }
+        const key = `${summary.entity}\u0000${summary.facet}`;
+        if (!scope.summarized.has(summary.entity) && existing.has(key)) {
+            dropped.push(`摘要 ${summary.entity}/${summary.facet}：这次没有列出它的现有归纳，只能补新的方面`);
             continue;
         }
         const rows = Array.isArray(summary.items) ? summary.items : [summary];
@@ -386,20 +422,39 @@ export function sanitizeConsolidation(reply: any, chapter: number, dataset: Data
                 dropped.push(`摘要 ${summary.entity}/${summary.facet} 的一句话没有有效依据：${String(item?.text).slice(0, 30)}`);
                 continue;
             }
-            const key = `${summary.entity}\u0000${summary.facet}`;
             const group = grouped.get(key) ?? {entity: summary.entity as string, facet: summary.facet as string, items: [] as {text: string; deps: string[]}[]};
             grouped.set(key, group);
             group.items.push({text: item.text, deps});
         }
     }
+    // 主线：沿用最近一批编号的是更新，新情节可以为空（只改标题、概括或结束）；其余是新主线，至少一段情节，重新编号。
+    const known = new Map(scope.arcs.map(arc => [arc.id, arc]));
+    const updated = new Set<string>();
     const arcs: any[] = [];
+    let created = 0;
     for (const arc of Array.isArray(reply?.arcs) ? reply.arcs : []) {
-        const list = (Array.isArray(arc?.episodes) ? arc.episodes : []).filter((id: unknown) => typeof id === "string" && episodes.has(id));
-        if (!list.length || typeof arc?.title !== "string" || typeof arc?.summary !== "string") {
-            dropped.push(`故事线 ${arc?.id}：没有有效的情节或缺少标题`);
+        const old = known.get(arc?.id);
+        const list = [...new Set<string>((Array.isArray(arc?.episodes) ? arc.episodes : []).filter((id: unknown) => typeof id === "string" && episodes.has(id)))].filter(id => !old?.episodes.includes(id));
+        if (typeof arc?.title !== "string" || !arc.title || typeof arc?.summary !== "string" || !arc.summary) {
+            dropped.push(`故事线 ${arc?.id}：缺少标题或概括`);
             continue;
         }
-        arcs.push({id: `a${chapter}-${arcs.length + 1}`, title: arc.title, summary: arc.summary, episodes: list, status: arc.status === "closed" || arc.ongoing === false ? "closed" : "ongoing"});
+        const status = arc.status === "closed" || arc.ongoing === false ? "closed" : "ongoing";
+        if (old) {
+            if (updated.has(old.id)) {
+                dropped.push(`故事线 ${old.id}：写了两次，只留第一次`);
+                continue;
+            }
+            updated.add(old.id);
+            arcs.push({id: old.id, title: arc.title, summary: arc.summary, episodes: list, status});
+            continue;
+        }
+        if (!list.length) {
+            dropped.push(`故事线 ${arc?.id}：新主线没有有效的情节`);
+            continue;
+        }
+        created += 1;
+        arcs.push({id: `a${chapter}-${created}`, title: arc.title, summary: arc.summary, episodes: list, status});
     }
-    return {value: {through: chapter, merges, summaries: [...grouped.values()], arcs}, dropped};
+    return {value: {through: chapter, base: scope.base, merges, summaries: [...grouped.values()], arcs}, dropped};
 }

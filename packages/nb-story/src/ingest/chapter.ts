@@ -13,6 +13,7 @@
 
 import type {BookFeatures, Dataset, SourceChapter} from "../core/dataset";
 import type {CompileResult, Issue} from "./compile";
+import {consolidationContext} from "./consolidation-context";
 import {recallCandidates, renderContext} from "./context";
 import {ConsolidationSchema, parseWith} from "./draft-schema";
 import {applyPatch, checkDraft, dropOffending, fixBeats, fixPositions, normalizeDraft, sanitizeConsolidation, stripDisabled, type Problem, type RawDraft} from "./draft-tools";
@@ -249,21 +250,22 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
 export async function consolidate(
     chapter: number,
     dataset: Dataset,
+    since: number,
     compileWith: (consolidation: unknown) => CompileResult,
     run: ChapterRun,
 ): Promise<{consolidation: unknown | null; problems: string[]; dataset: Dataset; issues: Issue[]}> {
     const ask = asker(run, chapter);
-    const details = dataset.episodes.map(item => `${item.id}（${item.at.chapter}.${item.at.paragraph}）${item.title}：${item.summary}`).join("\n");
-    // 整理稿沿用原管线的系统提示词（不带 v2 的“消息的安排”），也不走本章的共用开头。
+    // 只给上一次整理以来的这一段（w00024 t12）。整理稿沿用原管线的系统提示词（不带 v2 的“消息的安排”），也不走本章的共用开头。
+    const {text, scope} = consolidationContext(dataset, chapter, since);
     let reply: unknown;
     try {
-        reply = await ask("consolidation", system, consolidationPrompt({through: chapter, context: renderContext(dataset, chapter), details, nextArc: `a${chapter}-1`}), "medium", candidate => isObject(candidate.json));
+        reply = await ask("consolidation", system, consolidationPrompt({through: chapter, context: text, nextArc: `a${chapter}-1`}), "medium", candidate => isObject(candidate.json));
     } catch (error) {
         // 整理的回复重发一次后仍不成形：跳过这一次，不让这一章失败（输出 7）。渠道失败与停止照常往外抛。
         if (error instanceof IngestBadReply) return {consolidation: null, problems: [`${error.message}，这一次整理跳过`], dataset, issues: []};
         throw error;
     }
-    const cleaned = sanitizeConsolidation(reply, chapter, dataset);
+    const cleaned = sanitizeConsolidation(reply, chapter, dataset, scope);
     const parsed = parseWith(ConsolidationSchema, cleaned.value);
     if (!parsed.ok) return {consolidation: null, problems: [...cleaned.dropped, `整理稿格式不合格，这一次跳过：${parsed.problems[0]?.path} ${parsed.problems[0]?.message}`], dataset, issues: []};
     const compiled = compileWith(cleaned.value);

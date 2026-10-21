@@ -39,7 +39,12 @@ async function setup(name: string, override?: (key: ReplayKey, nth: number) => E
     let library!: Library;
     library = new Library(join(root, "library"), {coordinator: ingestCoordinator(() => library, runnerTable(runners))});
     const played: Replay = replay(await loadReplay(), override);
-    const endpoint: Endpoint = startEndpoint(played.responder);
+    /** 每次请求的用户消息，与 `played.seen` 一一对应。 */
+    const users: string[] = [];
+    const endpoint: Endpoint = startEndpoint((body, index, headers) => {
+        users.push((body.messages as {content: string}[])[1]!.content);
+        return played.responder(body, index, headers);
+    });
     cleanups.push(() => endpoint.stop());
     const api = createStoryApi({library});
     /** `recall` 给了就开挑相关说法：用同一个端点、另一个模型名与币种，记账看得出是哪一步。 */
@@ -62,7 +67,7 @@ async function setup(name: string, override?: (key: ReplayKey, nth: number) => E
         }
         return result;
     };
-    return {root, library, api, played, endpoint, start};
+    return {root, library, api, played, users, endpoint, start};
 }
 
 const hang: EndpointReply = {kind: "hang"};
@@ -168,6 +173,25 @@ describe("追加、改稿、第 1 章前停下（验收 2）", () => {
         const again = await env.start({text: await sampleSourceText(10)});
         expect({action: again.plan.action, runner: again.runner}).toEqual({action: "done", runner: null});
         expect(env.played.seen.length).toBe(requests);
+    }, 120_000);
+
+    test("末章不是 5 的倍数、中间有整理被跳过：每次整理接着上一次被接受的那次，追加后的那次从旧末章之后算（输出 7）", async () => {
+        // 第 5 章的整理两次都不成形，跳过；7 章的末章整理归一条主线；追加到 10 章后第 10 章用录下的回复。
+        const seventh = {through: 7, arcs: [{id: "a7-1", title: "苏天晴用陷阱制住风信子", summary: "苏天晴布下定身陷阱，制住风信子并录下视频。", episodes: ["p6-1", "p7-1", "p7-2"], status: "ongoing"}]};
+        const env = await setup("append-odd", key => (key.step !== "consolidation" ? undefined : key.chapter === 5 ? {kind: "text", text: "整理不了。"} : key.chapter === 7 ? {kind: "text", text: JSON.stringify(seventh)} : undefined));
+        const seven = await env.start({text: await sampleSourceText(7)});
+        expect(await seven.runner!.done).toEqual({kind: "done"});
+        const ten = await env.start({text: await sampleSourceText(10)});
+        expect(await ten.runner!.done).toEqual({kind: "done"});
+
+        const segment = (chapter: number) => /“这一段”是第 (\d+) 到 (\d+) 章/u.exec(env.users[env.played.seen.findLastIndex(key => key.step === "consolidation" && key.chapter === chapter)]!)?.slice(1).map(Number);
+        expect([segment(5), segment(7), segment(10)]).toEqual([[1, 5], [1, 7], [8, 10]]);
+        const {data} = await readCommitted(env.library, seven.plan.id);
+        expect(data.consolidations.map(item => [(item as {through: number}).through, (item as {base: number}).base])).toEqual([[7, 0], [10, 7]]);
+        expect(data.chapters.find(item => item.chapter === 5)!.problems.join("")).toContain("整理跳过");
+        const arcs = await env.api.call("arcs.list", {book: seven.plan.id, at: {chapter: 10}});
+        expect(arcs.ok && arcs.value.through).toBe(10);
+        expect(arcs.ok && arcs.value.arcs.map(item => item.id)).toContain("a7-1");
     }, 120_000);
 
     test("第 1 章前停下：书库里没有书、进度列出它、id 被占用、再发起是 resume、能删除", async () => {
