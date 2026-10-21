@@ -25,13 +25,21 @@
     color-scheme: var(--color-scheme, light dark);
 }
 
-/* 焦点环走主题装饰 token（--focus-ring/--focus-outline），与对照页 sc-* 同一配方 */
+/*
+ * 焦点环走主题装饰 token（--focus-ring/--focus-outline），与对照页 sc-* 同一配方。
+ *
+ * box-shadow 与 transition 带 !important：本文件在 components 层，控件模板上的原子类（utilities 层）本来压过它，
+ * 而聚焦时的光晕必须显示、并且渐入——Slider 滑块自己的 `shadow-*` 会把光晕整个盖掉，Breadcrumb、Menubar 等的
+ * `transition-colors` 不含 box-shadow，光晕就不再渐入。层内的 !important 压过 utilities 层的普通声明，
+ * 与分层之前这条 :focus-visible 规则靠特异性压过原子类的结果一致。
+ * border-color 不带 !important：Switch、RadioGroup 的出错边框是 `!border-*`，聚焦时要保持出错色。
+ */
 .nb-ui-focus-ring:focus-visible {
     outline: none;
     border-color: var(--focus-outline);
-    box-shadow: var(--focus-ring);
+    box-shadow: var(--focus-ring) !important;
     transition: border-color var(--motion-base) var(--ease-standard),
-                box-shadow var(--motion-base) var(--ease-standard);
+                box-shadow var(--motion-base) var(--ease-standard) !important;
 }
 
 /*
@@ -40,8 +48,8 @@
  */
 .nb-ui-focus-ring-inset:focus-visible {
     outline: none;
-    box-shadow: inset 0 0 0 1.5px var(--focus-outline);
-    transition: box-shadow var(--motion-base) var(--ease-standard);
+    box-shadow: inset 0 0 0 1.5px var(--focus-outline) !important;
+    transition: box-shadow var(--motion-base) var(--ease-standard) !important;
 }
 
 /*
@@ -129,7 +137,10 @@ input.nb-ui-native-input[type="number"] {
     appearance: textfield;
 }
 
-/* 双类选择器抬高特异性，保证 invalid 边框压过组件上的 hover:border-* 原子类 */
+/*
+ * 出错边框。双类选择器是为了在本层内压过上面的 `.nb-ui-control:focus`、`[data-state="open"]` 和只读、禁用的重置规则
+ * （同在 components 层，层内才比特异性）；与控件模板上的原子类无关，那些类在 utilities 层，不设 border-color。
+ */
 .nb-ui-control.nb-ui-control-invalid,
 .nb-ui-control.nb-ui-control-invalid:hover,
 .nb-ui-control.nb-ui-control-invalid:focus,
@@ -159,7 +170,8 @@ input.nb-ui-native-input[type="number"] {
  * `.nb-ui-surface-rim` 才消费 --overlay-sheen；小浮层默认没有面渐变，避免被读成一层塑料膜。
  * 两条都别写回 background 简写：简写会把没写出来的那条重置掉。
  *
- * 这一层排在 utilities 之后且同为单类选择器，所以它会压过组件模板上的 rounded-* 之类原子类。
+ * 这一层在 components 层，调用方传进来的 rounded-* 之类原子类（utilities 层）会压过它，所以组件模板上不要再写
+ * 与它重复的属性：写了就等于让它们压过主题变量（--nb-popover-radius、--radius-dialog 等）。
  * Tooltip 的紧凑纸面与箭头统一走 `.nb-ui-tooltip-surface` modifier，不要在组件模板复制 surface 属性。
  */
 .nb-ui-popover-surface {
@@ -297,8 +309,8 @@ input.nb-ui-native-input[type="number"] {
 }
 
 /*
- * 左侧一列，勾与图标共用：勾选的项画勾，其它项画图标，没有的留空占位，名称才对得齐。图标自身的类（UnoCSS 的
- * `i-lucide-*`）写 `width: 1em`，在应用里排在本文件之后、同一优先级时会把它改成字号大小，所以这里多带一级父类。
+ * 左侧一列，勾与图标共用：勾选的项画勾，其它项画图标，没有的留空占位，名称才对得齐。图标的遮罩垫片
+ * （`i-lucide-*`，nb-ui 入口里 base 层）写 `width: 1em`，本规则在 components 层，所以 16px 赢。
  */
 .nb-ui-menu-item > .nb-ui-menu-item__icon {
     display: inline-flex;

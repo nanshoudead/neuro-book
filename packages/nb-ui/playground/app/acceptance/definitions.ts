@@ -78,6 +78,13 @@ export const ACCEPTANCE_DEFINITIONS: Record<string, LabComponentDefinition> = {
         controls: [],
         events: [],
     },
+    "control-invalid": {
+        id: "control-invalid",
+        label: "输入框出错外观",
+        scenes: [{id: "default", label: "出错与正常对照"}],
+        controls: [],
+        events: [],
+    },
 };
 
 export function getLabScene(definition: LabComponentDefinition, sceneId: string): LabScene {

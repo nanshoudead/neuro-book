@@ -18,12 +18,12 @@
         "./theme": "./src/theme/index.ts",
         "./themes/*": "./themes/*/index.ts",
         "./utils": "./src/utils/index.ts",
-        "./styles.css": "./dist/nb-ui.css"
+        "./styles.css": "./dist/nb-ui.css",
+        "./tailwind.css": "./src/tailwind.css"
     },
     "scripts": {
         "dev": "nuxt dev playground",
-        "build": "bun run build:css && nuxt build playground",
-        "build:css": "tailwindcss -i ./src/tailwind.css -o ./dist/nb-ui.css",
+        "build": "nuxt build playground",
         "typecheck": "nuxt prepare playground && vue-tsc --noEmit && vue-tsc --noEmit -p playground",
         "test": "nuxt prepare playground && vitest run",
         "test:e2e": "playwright test"

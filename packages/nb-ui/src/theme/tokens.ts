@@ -1,8 +1,8 @@
 /**
  * 设计 token 名单（编辑室草案 §4）。
  *
- * 值的事实源是 `src/tokens.css`，这里只登记名字与分组，用途有两个：
- * 给消费方一个可枚举的契约，以及给测试一条「tokens.css 是否声明齐全」的兜底断言。
+ * 值的事实源是 `src/tokens.css` 与 `src/theme.css`（后者装与 Tailwind 主题键同名的字体、字号、行高），
+ * 这里只登记名字与分组，用途有两个：给消费方一个可枚举的契约，以及给测试一条「两个文件是否声明齐全」的兜底断言。
  *
  * 与 `colorway/colorway-contract.ts` 的分工：那边是**随配色变化的颜色**，这边是**主题可以覆盖的形状与节奏**。
  * `--elevation-*` 是唯一的交界处——它是常量公式，但公式里引用了随主题变的 `--shadow-color`。
@@ -62,7 +62,7 @@ export type NbDesignToken = typeof nbDesignTokens[number];
 /*
  * ── 主题层 ──────────────────────────────────────────────────────────────────
  * 上面五组是草案 §4 的设计 token。下面三组是**主题层基线**：主题负责填的变量，
- * 默认取值同样在 src/tokens.css 的 :root 里，主题在 :root[data-nb-theme="<id>"] 覆盖。
+ * 默认取值同样在 src/tokens.css 的 :root 里（--font-display 在 src/theme.css），主题在 :root[data-nb-theme="<id>"] 覆盖。
  *
  * 分成两批登记而不是合成一张表，是因为它们回答的问题不同：
  * nbDesignTokens 回答「这个刻度叫什么」，nbThemeTokens 回答「主题能改什么」。

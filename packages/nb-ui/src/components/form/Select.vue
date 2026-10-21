@@ -98,7 +98,7 @@ const forwardedAttrs = computed(() => {
     return rest;
 });
 const triggerClass = computed(() => cn(
-    "nb-ui-control flex w-full items-center justify-between gap-1.5 rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] outline-none disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer select-none font-medium shadow-sm transition-[border-color,box-shadow,background-color] [transition-duration:var(--motion-fast)]",
+    "nb-ui-control flex w-full items-center justify-between gap-1.5 rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] outline-none disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer select-none font-medium",
     controlSizeClass.value,
     isInvalid.value ? "nb-ui-control-invalid" : "",
     // 只读不画成可点：光标与悬停都不变。

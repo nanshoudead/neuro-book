@@ -122,8 +122,8 @@ type ClassGroup = {file: string; line: number; tokens: string[]};
 /** 模板里每个元素的静态 class 与 :class 里的字符串字面量算一组；脚本与 .ts 里每个含 `nb-ui-` 的字符串字面量算一组。 */
 async function classGroups(): Promise<ClassGroup[]> {
     const groups: ClassGroup[] = [];
-    const scanner = new Scanner({});
-    const tokensOf = (text: string): string[] => scanner.scanFiles([{content: text, extension: "html"}]);
+    // Scanner 只返回它没见过的候选：共用一个实例时，第二次出现的类名会丢，所以每次新建。
+    const tokensOf = (text: string): string[] => new Scanner({}).scanFiles([{content: text, extension: "html"}]);
     for await (const file of new Bun.Glob("{components,composables}/**/*.{vue,ts}").scan({cwd: nbUiSrc, absolute: true})) {
         if (/\.test\.ts$/u.test(file)) continue;
         const source = await readFile(file, "utf8");
