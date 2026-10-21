@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t07-low-code-forms
-status: planned
-updated: 2026-10-20
+status: done
+updated: 2026-10-21
 ---
 
 # 低代码：schema 表单与共用表单组件
