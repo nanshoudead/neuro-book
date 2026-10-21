@@ -98,7 +98,7 @@ const forwardedAttrs = computed(() => {
     return rest;
 });
 const triggerClass = computed(() => cn(
-    "nb-ui-control flex w-full items-center justify-between gap-1.5 rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] outline-none disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer select-none font-medium",
+    "group/select-trigger nb-ui-control flex w-full items-center justify-between gap-1.5 rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] outline-none disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer select-none font-medium",
     controlSizeClass.value,
     isInvalid.value ? "nb-ui-control-invalid" : "",
     // 只读不画成可点：光标与悬停都不变。
@@ -194,8 +194,9 @@ function handleCloseAutoFocus(event: Event): void {
                 </slot>
                 <SelectValue class="min-w-0 truncate text-left" :placeholder="props.placeholder">{{ selectedLabel || props.placeholder }}</SelectValue>
             </span>
+            <!-- 打开态 `data-state` 在触发器上，箭头按触发器的命名 group 转，不受外层同样带 data-state 的元素影响。 -->
             <span
-                class="i-lucide-chevron-down shrink-0 text-[var(--text-muted)] transition-transform [transition-duration:var(--motion-fast)] data-[state=open]:rotate-180"
+                class="i-lucide-chevron-down shrink-0 text-[var(--text-muted)] transition-transform [transition-duration:var(--motion-fast)] group-data-[state=open]/select-trigger:rotate-180"
                 :class="isSmall ? 'h-3.5 w-3.5' : 'h-4 w-4'"
                 aria-hidden="true"
             ></span>
