@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t02-settings-completion
-status: planned
-updated: 2026-10-17
+status: active
+updated: 2026-10-21
 ---
 
 # 设置插件补齐：结构化值与长文本编辑
