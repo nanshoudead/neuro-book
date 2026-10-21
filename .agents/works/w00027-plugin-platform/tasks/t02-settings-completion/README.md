@@ -64,8 +64,10 @@ S3（`cde0311f2`，Spec 在 master `2ffc34ac4`）：贡献点 `settings.choices`
 
 S4（`a7bff4c77`，Spec 在 master `3573e2620`）：搜索（输出 21）与未保存保护（输出 22）。page 声明加 `keywords`；页面上下文按一次显示给并加 `dirty`；离开当前页面的动作统一经 `requestLeave`；确认用 nb-ui `AlertDialog`。验证：`window.test.ts` 新增搜索 3 例、未保存保护 4 例，`SettingsWindow.dom.test.ts` 新增 4 例，`sections.test.ts` 补 keywords 的校验；“换词重建”“Esc 先清空”“旧上下文作废”“放弃后切标签重建”四处变异都被拦下。另：指向 page 分区、由页面画的配置项命中时列出这个页面（计划没写，改动小，Spec 已写）。
 
+S5（`2ee1bb80f`，Spec 在 master `e48c2f74f`）：设置文件视图。两份设置远程合同升到版本 2，加 `readText`、`writeText` 与 `text` 事件，调用方核对同用户编辑；拥有者整份写在写入队列与锁里以磁盘当前文本为准，修订号是原始文本的 SHA-256，对不上为 `conflict`、不合格为 `invalid-text` 带行列，只改注释也推 `text`；新失败码 `read-failed`、`conflict`、`invalid-text`；`layer-text.ts` 从 `backend/` 挪到 `shared/`（Lab 内存层用同一套解析与编辑）；窗口左栏插件组最后固定“设置文件”，`SettingsFileView` 编辑当前标签那一层，层无效的说明加“打开设置文件”。验证：`layer-owner.test.ts` 新增 6 例（真实文件）、`window.test.ts` 新增 5 例（经远程合同版本 2）、`SettingsWindow.dom.test.ts` 新增 4 例、`layer-text.test.ts` 补行列；`smoke:server` 9 个场景通过（S9 发版本 2 帧，验整份读与冲突）；“冲突核对”“有改动时只提示”“Esc 后的 Tab”“单键写入也通知文本”四处变异都被拦下。偏离计划：层快照的 `invalid` 说明没有另带位置（远程合同的快照形状不变，位置只在整份写的失败里给）；搜索把“设置文件”当一个页面命中（按标题、说明与 settings.json）。跑受影响的 Vitest 时 `SnippetsPage.dom.test.ts` 的“本作品”一例在整批负载下失败过一次，单独跑三次、整批再跑两次都通过，没有抓到现场；那条测试直接挂页面组件，不经这次改动的窗口模型。
+
 推送备份没有做：Work 分支领先 `origin/master` 656 个提交，含别的会话在本地 master 上还没推送的提交，推这个分支会把它们一起发出去，留给开发者决定。
 
 ## 下一步
 
-S5（设置文件视图），再 S7（Lab“模型服务”）；之后收口验证与实现审查（[plan.md](plan.md)“切片”）。
+S7（Lab“模型服务”与 e2e）；之后收口验证与实现审查（[plan.md](plan.md)“切片”）。
