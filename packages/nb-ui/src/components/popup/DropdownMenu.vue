@@ -9,11 +9,11 @@ import {
 } from "reka-ui";
 import MenuLevelPanel from "./MenuLevelPanel.vue";
 import MenuNodes from "./MenuNodes.vue";
-import PopupScrollbar from "../layout/PopupScrollbar.vue";
+import PopupScrollbar from "./PopupScrollbar.vue";
 import {useMenuCascade} from "../../composables/useMenuCascade";
 import {usePopoverLayer} from "../../composables/usePopoverLayer";
 import {usePopupScroll} from "../../composables/usePopupScroll";
-import {toPopoverReference} from "../feedback/popover-anchor";
+import {toPopoverReference} from "./popover-anchor";
 import type {DropdownMenuItemData} from "./dropdown-menu.types";
 /**
  * 下拉菜单。浮层外观由 `.nb-ui-popover-surface` 与 `.nb-ui-menu-surface` 给出，滚动（截在第 9 项中间、悬浮滑块、

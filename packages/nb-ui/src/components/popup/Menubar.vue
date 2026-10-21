@@ -3,7 +3,7 @@ import {ref, watch} from "vue";
 import {MenubarContent, MenubarItem, MenubarMenu, MenubarPortal, MenubarRoot, MenubarTrigger} from "reka-ui";
 import MenuLevelPanel from "./MenuLevelPanel.vue";
 import MenuNodes from "./MenuNodes.vue";
-import PopupViewport from "../layout/PopupViewport.vue";
+import PopupViewport from "./PopupViewport.vue";
 import {useMenuCascade} from "../../composables/useMenuCascade";
 import {usePopoverLayer} from "../../composables/usePopoverLayer";
 

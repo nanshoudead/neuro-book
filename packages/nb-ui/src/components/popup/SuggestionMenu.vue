@@ -2,7 +2,7 @@
 import {computed, nextTick, onBeforeUnmount, ref, useId, watch} from "vue";
 import {PopoverContent, PopoverPortal, PopoverRoot} from "reka-ui";
 import Spinner from "../display/Spinner.vue";
-import PopupScrollbar from "../layout/PopupScrollbar.vue";
+import PopupScrollbar from "./PopupScrollbar.vue";
 import {usePopoverLayer} from "../../composables/usePopoverLayer";
 import {usePopupScroll} from "../../composables/usePopupScroll";
 import {toPopoverReference} from "./popover-anchor";

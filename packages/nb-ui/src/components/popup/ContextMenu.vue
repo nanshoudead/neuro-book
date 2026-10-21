@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {nextTick, onMounted, onUnmounted, ref, watch} from "vue";
 import {NB_Z_INDEX} from "../../theme/z-index";
-import {clampMenuPosition} from "./menu-cascade";
+import {clampMenuPosition} from "../../utils/popup-geometry";
 import type {ContextMenuCloseReason, ContextMenuItem} from "./context-menu.types";
 import ContextMenuPanel from "./ContextMenuPanel.vue";
 

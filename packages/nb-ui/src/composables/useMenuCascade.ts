@@ -1,6 +1,30 @@
 import {nextTick, shallowRef, watch} from "vue";
-import {createSubmenuScheduler, measureCascadePanel} from "../components/feedback/menu-cascade";
-import {focusPopupItem} from "./usePopupScroll";
+import {focusPopupItem, measureCascadePanel} from "../utils/popup-geometry";
+
+export const MENU_SUBMENU_HOVER_DELAY_MS = 300;
+
+/** 第一次悬停等待；点击、键盘和已展开后的同级切换不等待。 */
+export function createSubmenuScheduler(): {
+    schedule(open: () => void, options: {immediate: boolean; hasOpenSibling: boolean}): void;
+    cancel(): void;
+} {
+    let timer: number | null = null;
+    return {
+        schedule(open, options) {
+            this.cancel();
+            if (options.immediate || options.hasOpenSibling) {
+                open();
+                return;
+            }
+            timer = window.setTimeout(open, MENU_SUBMENU_HOVER_DELAY_MS);
+        },
+        cancel() {
+            if (timer === null) return;
+            window.clearTimeout(timer);
+            timer = null;
+        },
+    };
+}
 
 export interface MenuCascadeLevel<T> {
     value: T;

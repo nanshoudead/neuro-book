@@ -2,10 +2,11 @@
 import {nextTick, ref, watch} from "vue";
 import {NB_Z_INDEX} from "../../theme/z-index";
 import {useMenuCascade} from "../../composables/useMenuCascade";
-import {focusPopupItem, usePopupScroll} from "../../composables/usePopupScroll";
-import MenuLevelPanel from "../controls/MenuLevelPanel.vue";
-import MenuNodes from "../controls/MenuNodes.vue";
-import PopupScrollbar from "../layout/PopupScrollbar.vue";
+import {usePopupScroll} from "../../composables/usePopupScroll";
+import {focusPopupItem} from "../../utils/popup-geometry";
+import MenuLevelPanel from "./MenuLevelPanel.vue";
+import MenuNodes from "./MenuNodes.vue";
+import PopupScrollbar from "./PopupScrollbar.vue";
 import type {ContextMenuItem} from "./context-menu.types";
 
 const props = defineProps<{

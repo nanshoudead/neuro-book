@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useAttrs, watch} from "vue";
-import DropdownMenu from "./DropdownMenu.vue";
-import type {DropdownMenuItemData} from "./dropdown-menu.types";
+import DropdownMenu from "../popup/DropdownMenu.vue";
+import type {DropdownMenuItemData} from "../popup/dropdown-menu.types";
 import {adaptTabs} from "./tabs-adapt";
 import type {TabsAdaptState} from "./tabs-adapt";
 

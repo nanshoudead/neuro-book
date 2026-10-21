@@ -11,11 +11,11 @@ import {computed, nextTick, ref, useId, watch} from "vue";
 import {NB_Z_INDEX} from "../../theme/z-index";
 import {useTeleportTarget} from "../../composables/useTeleportTarget";
 import {usePopupScroll} from "../../composables/usePopupScroll";
-import PopupScrollbar from "../layout/PopupScrollbar.vue";
+import PopupScrollbar from "./PopupScrollbar.vue";
 import Kbd from "../display/Kbd.vue";
 import Spinner from "../display/Spinner.vue";
-import {moveHighlight, type HighlightAction} from "../form/option-highlight";
-import {useCloseHandoff} from "./close-handoff";
+import {moveHighlight, type HighlightAction} from "../../utils/roving";
+import {useCloseHandoff} from "../feedback/close-handoff";
 
 /**
  * 输入筛选、挑选一项的浮层（S4 命令面板基座）：纯受控，不持数据。

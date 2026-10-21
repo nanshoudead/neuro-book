@@ -8,12 +8,12 @@
  */
 import {computed, ref, useAttrs, useId, watch} from "vue";
 
-import SuggestionMenu from "../feedback/SuggestionMenu.vue";
-import {suggestionMenuOptions, suggestionOptionId} from "../feedback/suggestion-menu";
-import type {SuggestionMenuGroup} from "../feedback/suggestion-menu";
+import SuggestionMenu from "../popup/SuggestionMenu.vue";
+import {suggestionMenuOptions, suggestionOptionId} from "../popup/suggestion-menu";
+import type {SuggestionMenuGroup} from "../popup/suggestion-menu";
 import {useFieldContext} from "./field-context";
-import {moveHighlight} from "./option-highlight";
-import type {HighlightAction} from "./option-highlight";
+import {moveHighlight} from "../../utils/roving";
+import type {HighlightAction} from "../../utils/roving";
 
 export type SearchSelectOption = {
     value: string;

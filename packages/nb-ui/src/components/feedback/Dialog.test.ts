@@ -9,7 +9,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {defineComponent, h, nextTick, ref} from "vue";
 
 import Dialog from "./Dialog.vue";
-import Select from "../form/Select.vue";
+import Select from "../popup/Select.vue";
 
 const mounted: Array<{unmount(): void}> = [];
 afterEach(() => {

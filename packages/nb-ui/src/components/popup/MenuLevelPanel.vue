@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import PopupViewport from "../layout/PopupViewport.vue";
+import PopupViewport from "./PopupViewport.vue";
 
 /**
  * 手工级联菜单的一级面板（内部零件），DropdownMenu、Menubar 与右键菜单共用。位置与尺寸由宿主经 `useMenuCascade` 量好

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed} from "vue";
 import Checkbox from "../../../src/components/form/Checkbox.vue";
-import Select from "../../../src/components/form/Select.vue";
+import Select from "../../../src/components/popup/Select.vue";
 import {getLabScene, type LabComponentDefinition} from "./definitions";
 
 /**

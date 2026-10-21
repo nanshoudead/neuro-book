@@ -98,7 +98,7 @@ owners:
 
 已实现（合同测试、组件测试与真实浏览器验收闭合）：
 
-- 原语：`packages/nb-ui/src/components/feedback/QuickPick.vue`（受控 props/emits、S4 层级 `NB_Z_INDEX.commandPalette`、modal 键盘、`closed` 交接）。
+- 原语：`packages/nb-ui/src/components/popup/QuickPick.vue`（受控 props/emits、S4 层级 `NB_Z_INDEX.commandPalette`、modal 键盘、`closed` 交接）。
 - 面板：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.vue`（同名 `.md`；查询与匹配、行号模式、等 `closed` 后执行、MRU 回写），只依赖面板宿主与命令服务接口，不知道命令表是哪一份。
 - 面板宿主：`src/plugins/workbench/web/commands/palette-host.ts`（开合、查询、捕获的行号目标、会话 MRU、活动编辑器的接入口；选择模式的 `openPick`、`choosePick` 与关闭完成时结算的 `closed`）；文案中英表 `commands/palette-messages.ts`。
 - 选择服务：合同与服务键 `quickPickKey` 在 `src/plugins/workbench/shared/contracts.ts`，由工作台浏览器入口经页面槽位（`commands/open-commands.ts` 的 `PaletteSlot.quickPick`）提供；候选匹配 `command-query.ts` 的 `searchPickItems`。
@@ -107,7 +107,7 @@ owners:
 
 ## 证据
 
-- 实现入口：[`WorkbenchCommandPalette.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.vue)、[`QuickPick.vue`](../../../packages/nb-ui/src/components/feedback/QuickPick.vue)
-- 合同测试：[`command-query.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/command-query.test.ts)；组件测试 [`WorkbenchCommandPalette.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.dom.test.ts)（场景 2–7，真实 QuickPick；场景 7 随 t54）；原语 [`QuickPick.test.ts`](../../../packages/nb-ui/src/components/feedback/QuickPick.test.ts)
+- 实现入口：[`WorkbenchCommandPalette.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.vue)、[`QuickPick.vue`](../../../packages/nb-ui/src/components/popup/QuickPick.vue)
+- 合同测试：[`command-query.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/command-query.test.ts)；组件测试 [`WorkbenchCommandPalette.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.dom.test.ts)（场景 2–7，真实 QuickPick；场景 7 随 t54）；原语 [`QuickPick.test.ts`](../../../packages/nb-ui/src/components/popup/QuickPick.test.ts)
 - Smoke：[`e2e/lab-commands.e2e.ts`](../../../packages/neuro-book/e2e/lab-commands.e2e.ts)（场景 1、7，开发会话中的 Lab 命令场景，真实 Chrome）、[`e2e/commands.e2e.ts`](../../../packages/neuro-book/e2e/commands.e2e.ts)（产品 `/` 页）；运行记录见 [w00017 t49](../../../.agents/works/w00017-application-runtime-architecture/tasks/t49-commands-quick-open/README.md)。
 - 批准依据：[`../../proposals/workbench-commands.md`](../../proposals/workbench-commands.md)（2026-09-14 起草，2026-09-18 需求讨论修订）。

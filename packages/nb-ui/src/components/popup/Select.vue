@@ -10,11 +10,11 @@ import {
     SelectValue,
     SelectViewport,
 } from "reka-ui";
-import PopupScrollbar from "../layout/PopupScrollbar.vue";
+import PopupScrollbar from "./PopupScrollbar.vue";
 import {popoverInlineSurfaceStyle, usePopoverLayer} from "../../composables/usePopoverLayer";
 import {usePopupScroll} from "../../composables/usePopupScroll";
 import {cn} from "../../utils/cn";
-import {useFieldContext} from "./field-context";
+import {useFieldContext} from "../form/field-context";
 
 /**
  * 下拉选择。弹出层基于 reka 的 Select 原语：键盘漫游、选中、打开时滚到选中项都由 reka 负责。

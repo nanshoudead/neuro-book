@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import {computed, ref} from "vue";
 import Button from "../../../src/components/controls/Button.vue";
-import DropdownMenu from "../../../src/components/controls/DropdownMenu.vue";
-import Menubar from "../../../src/components/controls/Menubar.vue";
-import ContextMenu from "../../../src/components/feedback/ContextMenu.vue";
-import type {ContextMenuItem} from "../../../src/components/feedback/context-menu.types";
-import QuickPick, {type QuickPickItem} from "../../../src/components/feedback/QuickPick.vue";
-import Select from "../../../src/components/form/Select.vue";
+import DropdownMenu from "../../../src/components/popup/DropdownMenu.vue";
+import Menubar from "../../../src/components/popup/Menubar.vue";
+import ContextMenu from "../../../src/components/popup/ContextMenu.vue";
+import type {ContextMenuItem} from "../../../src/components/popup/context-menu.types";
+import QuickPick, {type QuickPickItem} from "../../../src/components/popup/QuickPick.vue";
+import Select from "../../../src/components/popup/Select.vue";
 import FixtureShell from "./AcceptanceShell.vue";
 import type {LabComponentDefinition} from "./definitions";
 
