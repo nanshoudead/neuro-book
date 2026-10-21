@@ -3,8 +3,9 @@
  *
  * 回放：端点给出 w00005 t34 抽样例书时录下的回复（testing/ingest-replay.ts）。管线搬得对，各章最终草稿就与当时相同；
  * 普通章发出的请求除了“已有记录”只详列与本章相关的行（w00024 t10），其余逐字相同：把“已有记录”换回全量，就与当时录下
- * 的逐字相同。另一处允许的差别是核对清单里“格式不对：”后面的校验说明（原来是 zod 的措辞，现在是 TypeBox 的）。整理改成
- * 增量（w00024 t12）后请求换了写法，对照 t12 的基线；第 10 章那次的录音是整批写法，换成手写的增量回复。
+ * 的逐字相同。另一处允许的差别是核对清单里“格式不对：”后面的校验说明（原来是 zod 的措辞，现在是 TypeBox 的）。前 10 章
+ * 的整理材料不大，照旧全量重写，请求原样相同；强制走增量（w00024 t12）时对照 t12 的基线，第 10 章那次的录音是整批写法，
+ * 换成手写的增量回复。
  *
  * 故障：在回放上替换某一步的回复，等待由注入的函数记下，不真的等。
  */
@@ -37,9 +38,10 @@ const sha256 = (text: string) => createHash("sha256").update(text).digest("hex")
  * t10 合入时默认路径实际发出的每个请求（系统提示词、用户消息原样，不换回全量已有记录）的 SHA-256，按“章:步骤”。
  * 按书关闭数值与秘密（w00024 t11）之后，两项都开时必须与它逐字相同。
  */
-const requestBaseline = async (name: "replay-ch001-010" | "recall-ch010") => {
+const requestBaseline = async (name: "replay-ch001-010" | "recall-ch010", incremental = false) => {
     const t10 = (JSON.parse(await readFile(join(FIXTURES, "requests-t10.json"), "utf8")) as Record<string, Record<string, string>>)[name]!;
-    // 整理的请求在 t12 换了写法，用 t12 的基线；普通章仍与 t10 逐字相同。
+    if (!incremental) return t10;
+    // 强制走增量整理时，整理的请求对照 t12 的基线；普通章仍与 t10 逐字相同。
     const t12 = (JSON.parse(await readFile(join(FIXTURES, "requests-t12.json"), "utf8")) as Record<string, Record<string, string>>)[name] ?? {};
     return {...Object.fromEntries(Object.entries(t10).filter(([key]) => !key.endsWith(":consolidation"))), ...t12};
 };
@@ -92,7 +94,7 @@ function serve(respond: Responder, keyOf?: () => ReplayKey | undefined) {
 }
 
 /** 按顺序抽前 `count` 章（第 5、10 章后整理），返回各章草稿、整理稿与每章的结果。 */
-async function extractBook(sample: Dataset, count: number, run: ChapterRun, features?: {ledger: boolean; secrets: boolean}) {
+async function extractBook(sample: Dataset, count: number, run: ChapterRun, features?: {ledger: boolean; secrets: boolean}, fullLimit?: number) {
     const book = features ? {...sample.book, features} : sample.book;
     const drafts: RawDraft[] = [];
     const consolidations: unknown[] = [];
@@ -106,7 +108,7 @@ async function extractBook(sample: Dataset, count: number, run: ChapterRun, feat
         if (chapter % 5 === 0) {
             const dataset = compile(book, sources(chapter), drafts, consolidations).dataset;
             const since = (consolidations.at(-1) as {through: number} | undefined)?.through ?? 0;
-            const outcome = await consolidate(chapter, dataset, since, candidate => compile(book, sources(chapter), drafts, [...consolidations, candidate]), run);
+            const outcome = await consolidate(chapter, dataset, since, candidate => compile(book, sources(chapter), drafts, [...consolidations, candidate]), run, fullLimit === undefined ? {} : {fullLimit});
             if (outcome.consolidation) consolidations.push(outcome.consolidation);
         }
     }
@@ -115,27 +117,18 @@ async function extractBook(sample: Dataset, count: number, run: ChapterRun, feat
 
 
 describe("回放前 10 章（输出 4、7）", () => {
-    test("各章最终草稿与 t34 那次相同，整理按增量并成一批；普通章请求里的已有记录换回全量后与当时逐字相同", async () => {
+    test("各章最终草稿与整理稿与 t34 那次相同；请求里的已有记录换回全量后与当时逐字相同，整理的请求原样相同", async () => {
         const sample = await sampleDataset();
         const data = await loadReplay();
         const final = await gunzipJson<{drafts: unknown[]; consolidations: unknown[]}>("run-med-100-final.json.gz");
         const recordedRequests = await gunzipJson<Record<string, Record<string, {sha256: string; normalized: string; effort: string}>>>("recorded-requests-ch001-010.json.gz");
-        const played = replay(data, incremental);
+        const played = replay(data);
         const {run, requests} = serve(played.responder, () => played.seen.at(-1));
 
         const {drafts, consolidations, results} = await extractBook(sample, 10, run);
         expect(played.unknown).toEqual([]);
         expect(drafts).toEqual(final.drafts.slice(0, 10) as RawDraft[]);
-        // 第 5 章是第一次整理，录下的整批回复按增量就是全部新建。第 10 章更新 a5-2、新建 a10-1，没写到的 a5-1、a5-3 照带。
-        expect(consolidations).toEqual([{...(final.consolidations[0] as object), base: 0}, {...CONSOLIDATION_10, base: 5}]);
-        const batch = compile(sample.book, sample.sources.slice(0, 10), drafts, consolidations).dataset.arcs.filter(arc => arc.through === 10);
-        const before = (final.consolidations[0] as {arcs: {id: string; episodes: string[]}[]}).arcs;
-        expect(batch.map(arc => [arc.id, arc.episodes])).toEqual([
-            ["a5-1", before[0]!.episodes],
-            ["a5-2", [...before[1]!.episodes, ...CONSOLIDATION_10.arcs[0]!.episodes]],
-            ["a5-3", before[2]!.episodes],
-            ["a10-1", CONSOLIDATION_10.arcs[1]!.episodes],
-        ]);
+        expect(consolidations).toEqual(final.consolidations.slice(0, 2));
         expect(results.map(result => result.dropped)).toEqual(Array(10).fill(0));
         // 挑选关着：第 1 章没有已提交的记录，什么都不用选；之后各章按规则缩减。
         expect(results.map(result => result.recall.source)).toEqual(["none", ...Array(9).fill("rule")]);
@@ -148,8 +141,6 @@ describe("回放前 10 章（输出 4、7）", () => {
             const [chapter, step] = request.key.split(":") as [string, string];
             const recorded = recordedRequests[chapter]![step]!;
             expect({key: request.key, effort: request.effort}).toEqual({key: request.key, effort: recorded.effort});
-            // 整理的请求换了写法（t12），只对照下面的基线。
-            if (step === "consolidation") continue;
             let user = request.user;
             if (!step.startsWith("consolidation") && chapter !== "1") {
                 const open = "【已有记录】\n";
@@ -166,17 +157,50 @@ describe("回放前 10 章（输出 4、7）", () => {
         }
         // 第 2 章起的普通请求确实只带了一部分已有记录。
         expect(narrowed).toBeGreaterThan(0);
-        // 普通章的请求与 t10 合入时逐字相同，整理的请求与 t12 的基线逐字相同。
+        // 实际发出的请求与 t10 合入时逐字相同。
         expect(requestHashes(requests)).toEqual(await requestBaseline("replay-ch001-010"));
     }, 120_000);
 
     test("显式给两项都开（ingest.md 输出 18）：每个请求与不给时逐字相同", async () => {
         const sample = await sampleDataset();
-        const played = replay(await loadReplay(), incremental);
+        const played = replay(await loadReplay());
         const {run, requests} = serve(played.responder, () => played.seen.at(-1));
         await extractBook(sample, 10, run, {ledger: true, secrets: true});
         expect(played.unknown).toEqual([]);
         expect(requestHashes(requests)).toEqual(await requestBaseline("replay-ch001-010"));
+    }, 120_000);
+
+    test("整理材料超过上限时改用增量（输出 4、7）：第 10 批在第 5 批上合成；普通章请求不变，整理请求与 t12 的基线逐字相同", async () => {
+        const sample = await sampleDataset();
+        const final = await gunzipJson<{consolidations: unknown[]}>("run-med-100-final.json.gz");
+        const played = replay(await loadReplay(), incremental);
+        const {run, requests} = serve(played.responder, () => played.seen.at(-1));
+        const {drafts, consolidations} = await extractBook(sample, 10, run, undefined, 0);
+        expect(played.unknown).toEqual([]);
+        // 第 5 章是第一次整理，录下的整批回复按增量就是全部新建。第 10 章更新 a5-2、新建 a10-1，没写到的 a5-1、a5-3 照带。
+        expect(consolidations).toEqual([{...(final.consolidations[0] as object), base: 0}, {...CONSOLIDATION_10, base: 5}]);
+        const batch = compile(sample.book, sample.sources.slice(0, 10), drafts, consolidations).dataset.arcs.filter(arc => arc.through === 10);
+        const before = (final.consolidations[0] as {arcs: {id: string; episodes: string[]}[]}).arcs;
+        expect(batch.map(arc => [arc.id, arc.episodes])).toEqual([
+            ["a5-1", before[0]!.episodes],
+            ["a5-2", [...before[1]!.episodes, ...CONSOLIDATION_10.arcs[0]!.episodes]],
+            ["a5-3", before[2]!.episodes],
+            ["a10-1", CONSOLIDATION_10.arcs[1]!.episodes],
+        ]);
+        expect(requestHashes(requests)).toEqual(await requestBaseline("replay-ch001-010", true));
+    }, 120_000);
+
+    test("全量与增量按当次的大小切换：第 5 章的全量材料在上限内照旧全量，第 10 章超过改增量，接着第 5 批合成", async () => {
+        const sample = await sampleDataset();
+        const final = await gunzipJson<{consolidations: unknown[]}>("run-med-100-final.json.gz");
+        const played = replay(await loadReplay(), incremental);
+        const {run, requests} = serve(played.responder, () => played.seen.at(-1));
+        // 样例书第 5、10 章全量整理的用户消息约 1.05 万、1.76 万字，上限取在两者之间。
+        const {consolidations} = await extractBook(sample, 10, run, undefined, 14_000);
+        expect(consolidations).toEqual([final.consolidations[0], {...CONSOLIDATION_10, base: 5}]);
+        const user = (key: string) => requests.find(request => request.key === key)!.user;
+        expect(user("5:consolidation")).toContain("【各情节的概括】");
+        expect(user("10:consolidation")).toContain("“这一段”是第 6 到 10 章。");
     }, 120_000);
 });
 
@@ -564,7 +588,8 @@ describe("增量整理稿的清理（输出 7）", () => {
             ],
         };
         const {run, requests} = serve(() => ({kind: "text", text: JSON.stringify(reply)}));
-        const outcome = await consolidate(3, dataset, 2, candidate => compile(book, sources, drafts, [first, candidate]), run);
+        // 小书的全量材料远在上限内，强制走增量。
+        const outcome = await consolidate(3, dataset, 2, candidate => compile(book, sources, drafts, [first, candidate]), run, {fullLimit: 0});
 
         // 输入只列这一段的对象：阿青第 3 章没有涉及，没有列出她的现有归纳。
         expect(requests[0]!.user).toContain("“这一段”是第 3 到 3 章。");

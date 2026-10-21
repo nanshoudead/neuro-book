@@ -101,6 +101,27 @@ export function renderChapter(chapter: number, paragraphs: string[]): string {
 }
 
 /**
+ * 全量整理的请求：t12 之前的写法，逐字不变（回放对照 requests-t10.json）。整理材料不大时用它，从头重写主线与归纳；超过
+ * 上限时改用下面的增量写法（chapter.ts 的 `consolidate`）。
+ */
+export function wholeConsolidationPrompt(input: { through: number; context: string; details: string; nextArc: string }): string {
+    return `【任务】读到第 ${input.through} 章，做一次整理（规则第四节）。只输出：{"through":${input.through},"merges":[…],"summaries":[…],"arcs":[…]}。
+- merges：名册里如果有两个对象其实是同一个且建重了，写出来；马甲和本人不要合并；没有就留空。
+- summaries：给主要对象（主要人物、关键道具、重要设定）按方面写摘要，每句话的 deps 至少列一条依据的说法或情节编号。
+- arcs：把相关情节归成故事线，编号从 ${input.nextArc} 开始。
+形状示例：
+{"through":${input.through},"merges":[{"keep":"e3-2","drop":"e5-1","reason":"两条都是英雄协会，第 5 章重复建了一个"}],
+ "summaries":[{"entity":"e1-1","facet":"overview","items":[{"text":"一句概括。","deps":["s1-2","p1-1"]},{"text":"另一句概括。","deps":["s2-4"]}]},{"entity":"e1-1","facet":"personality","items":[{"text":"……","deps":["s1-10"]}]}],
+ "arcs":[{"id":"${input.nextArc}","title":"故事线标题","summary":"两三句概括。","episodes":["p1-1","p1-2"],"status":"ongoing"}]}
+
+【已有记录】
+${input.context}
+
+【各情节的概括】
+${input.details}`;
+}
+
+/**
  * 增量整理的请求（w00024 t12）：材料由 `consolidationContext` 生成。规则第四节在系统提示词里，也是普通章的前缀，所以不改；
  * 增量的写法只在这里说明。
  */

@@ -16,9 +16,9 @@ import type {CompileResult, Issue} from "./compile";
 import {consolidationContext} from "./consolidation-context";
 import {recallCandidates, renderContext} from "./context";
 import {ConsolidationSchema, parseWith} from "./draft-schema";
-import {applyPatch, checkDraft, dropOffending, fixBeats, fixPositions, normalizeDraft, sanitizeConsolidation, stripDisabled, type Problem, type RawDraft} from "./draft-tools";
+import {applyPatch, checkDraft, dropOffending, fixBeats, fixPositions, normalizeDraft, sanitizeConsolidation, stripDisabled, type ConsolidationScope, type Problem, type RawDraft} from "./draft-tools";
 import {callModel, type Attempt, type CallOptions, type IngestEffort, type ModelEndpoint, type ModelError, type ModelReply} from "./model";
-import {beatsTask, consolidationPrompt, draftTask, prefixFor, reviewTask, system, systemV2} from "./prompts";
+import {beatsTask, consolidationPrompt, draftTask, prefixFor, reviewTask, system, systemV2, wholeConsolidationPrompt} from "./prompts";
 import {llmRecaller, RECALL_LIMIT} from "./recall";
 import {buildChecklist} from "./reconcile";
 
@@ -247,19 +247,32 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
  * 整理稿让整份数据出现任何错误都算不合格，不只看本章：合并对象会改动所有引用，可能让早先各章的账本累加对不上
  * （实现审查第 11 条）。合格时一并交回加上整理稿的数据集与它的全部问题；跳过时 `issues` 为空，调用方用本章的。
  */
+/** 全量整理的用户消息不超过这么多字时照旧全量重写，超过时改用增量（docs/specs/story/ingest.md 输出 4）。 */
+export const FULL_LIMIT = 60_000;
+
 export async function consolidate(
     chapter: number,
     dataset: Dataset,
     since: number,
     compileWith: (consolidation: unknown) => CompileResult,
     run: ChapterRun,
+    options: {fullLimit?: number} = {},
 ): Promise<{consolidation: unknown | null; problems: string[]; dataset: Dataset; issues: Issue[]}> {
     const ask = asker(run, chapter);
-    // 只给上一次整理以来的这一段（w00024 t12）。整理稿沿用原管线的系统提示词（不带 v2 的“消息的安排”），也不走本章的共用开头。
-    const {text, scope} = consolidationContext(dataset, chapter, since);
+    // 先按 t12 之前的写法生成全量请求，不超过上限就用它（短书的整理与以前逐字相同）；超过时只给上一次整理以来的这一段
+    // （w00024 t12）。两种都沿用原管线的系统提示词（不带 v2 的“消息的安排”），也不走本章的共用开头。
+    const details = dataset.episodes.map(item => `${item.id}（${item.at.chapter}.${item.at.paragraph}）${item.title}：${item.summary}`).join("\n");
+    const whole = wholeConsolidationPrompt({through: chapter, context: renderContext(dataset, chapter), details, nextArc: `a${chapter}-1`});
+    let prompt = whole;
+    let scope: ConsolidationScope | null = null;
+    if (whole.length > (options.fullLimit ?? FULL_LIMIT)) {
+        const segment = consolidationContext(dataset, chapter, since);
+        prompt = consolidationPrompt({through: chapter, context: segment.text, nextArc: `a${chapter}-1`});
+        scope = segment.scope;
+    }
     let reply: unknown;
     try {
-        reply = await ask("consolidation", system, consolidationPrompt({through: chapter, context: text, nextArc: `a${chapter}-1`}), "medium", candidate => isObject(candidate.json));
+        reply = await ask("consolidation", system, prompt, "medium", candidate => isObject(candidate.json));
     } catch (error) {
         // 整理的回复重发一次后仍不成形：跳过这一次，不让这一章失败（输出 7）。渠道失败与停止照常往外抛。
         if (error instanceof IngestBadReply) return {consolidation: null, problems: [`${error.message}，这一次整理跳过`], dataset, issues: []};

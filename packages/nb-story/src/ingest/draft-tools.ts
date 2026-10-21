@@ -390,10 +390,11 @@ function inlineDeps(item: any): any[] {
 const HANDWRITTEN_KNOWLEDGE = /^k\d{1,4}-\d{1,4}$/u;
 
 /**
- * 清理模型写的整理稿（docs/specs/story/ingest.md 输出 7）：指向不存在的记录的内容去掉，超出这次范围的（候选之外的合并、
- * 改写没给出现有归纳的对象的已有方面）拒绝，其余保留，写上 `base`。去掉的都记一句说明。
+ * 清理模型写的整理稿（docs/specs/story/ingest.md 输出 7）：指向不存在的记录的内容去掉，不稳妥的合并拒绝，其余保留，去掉的
+ * 都记一句说明。增量整理带着 `scope`：超出这次范围的（候选之外的合并、改写没给出现有归纳的对象的已有方面、不是这一段的
+ * 情节）也拒绝，并写上 `base`。全量整理不带（`null`）：写出的是整批稿，主线全部是新的。
  */
-export function sanitizeConsolidation(reply: any, chapter: number, dataset: Dataset, scope: ConsolidationScope): {value: any; dropped: string[]} {
+export function sanitizeConsolidation(reply: any, chapter: number, dataset: Dataset, scope: ConsolidationScope | null): {value: any; dropped: string[]} {
     const dropped: string[] = [];
     const entities = new Map(dataset.entities.map(item => [item.id, item]));
     // 依据与草稿 schema 允许的一致：说法、情节、手写的知情、状态变动。
@@ -405,7 +406,7 @@ export function sanitizeConsolidation(reply: any, chapter: number, dataset: Data
     ]);
     const episodes = new Set(dataset.episodes.map(item => item.id));
     const pair = (a: string, b: string) => [a, b].sort().join("|");
-    const candidates = new Set(scope.candidates.map(([a, b]) => pair(a, b)));
+    const candidates = scope && new Set(scope.candidates.map(([a, b]) => pair(a, b)));
     const merges: any[] = [];
     for (const item of Array.isArray(reply?.merges) ? reply.merges : []) {
         const keep = entities.get(item?.keep), drop = entities.get(item?.drop);
@@ -414,7 +415,7 @@ export function sanitizeConsolidation(reply: any, chapter: number, dataset: Data
             refuse("对象不存在");
             continue;
         }
-        if (!candidates.has(pair(keep.id, drop.id))) {
+        if (candidates && !candidates.has(pair(keep.id, drop.id))) {
             refuse("不在这次的合并候选里");
             continue;
         }
@@ -441,7 +442,7 @@ export function sanitizeConsolidation(reply: any, chapter: number, dataset: Data
             continue;
         }
         const key = `${summary.entity}\u0000${summary.facet}`;
-        if (!scope.summarized.has(summary.entity) && existing.has(key)) {
+        if (scope && !scope.summarized.has(summary.entity) && existing.has(key)) {
             dropped.push(`摘要 ${summary.entity}/${summary.facet}：这次没有列出它的现有归纳，只能补新的方面`);
             continue;
         }
@@ -458,15 +459,15 @@ export function sanitizeConsolidation(reply: any, chapter: number, dataset: Data
         }
     }
     // 主线：沿用最近一批编号的是更新，新情节可以为空（只改标题、概括或结束）；其余是新主线，至少一段情节，重新编号。
-    const known = new Map(scope.arcs.map(arc => [arc.id, arc]));
+    const known = new Map((scope?.arcs ?? []).map(arc => [arc.id, arc]));
     const updated = new Set<string>();
     const arcs: any[] = [];
     let created = 0;
     for (const arc of Array.isArray(reply?.arcs) ? reply.arcs : []) {
         const old = known.get(arc?.id);
         const written = [...new Set<string>((Array.isArray(arc?.episodes) ? arc.episodes : []).filter((id: unknown) => typeof id === "string" && episodes.has(id)))].filter(id => !old?.episodes.includes(id));
-        const list = written.filter(id => scope.episodes.has(id));
-        if (list.length < written.length) dropped.push(`故事线 ${arc?.id}：${written.filter(id => !scope.episodes.has(id)).join("、")} 不是这一段的情节，不收`);
+        const list = scope ? written.filter(id => scope.episodes.has(id)) : written;
+        if (list.length < written.length) dropped.push(`故事线 ${arc?.id}：${written.filter(id => !list.includes(id)).join("、")} 不是这一段的情节，不收`);
         if (typeof arc?.title !== "string" || !arc.title || typeof arc?.summary !== "string" || !arc.summary) {
             dropped.push(`故事线 ${arc?.id}：缺少标题或概括`);
             continue;
@@ -488,5 +489,5 @@ export function sanitizeConsolidation(reply: any, chapter: number, dataset: Data
         created += 1;
         arcs.push({id: `a${chapter}-${created}`, title: arc.title, summary: arc.summary, episodes: list, status});
     }
-    return {value: {through: chapter, base: scope.base, merges, summaries: [...grouped.values()], arcs}, dropped};
+    return {value: {through: chapter, ...(scope ? {base: scope.base} : {}), merges, summaries: [...grouped.values()], arcs}, dropped};
 }
