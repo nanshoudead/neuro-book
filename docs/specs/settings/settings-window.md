@@ -15,7 +15,7 @@ owners:
 
 **不承诺**：
 
-- 搜索动态选项的选项名；密钥项的界面（随第一个密钥使用者）；本机层（configuration 输出 22）；打开设置文件的按钮；用户自定义快捷键。
+- 搜索动态选项的选项名；密钥项的界面（随第一个密钥使用者）；本机层（configuration 输出 22）；设置文件视图的语法高亮；用户自定义快捷键。
 - 刷新或关闭浏览器页面、页面所属插件停止时拦住未保存的改动（输出 22）。
 - 路径类控件（选择目录）：路径类的项由所属插件贡献 page 分区，自己给选择方式。
 - 手机宽度：只做桌面宽度。
@@ -30,6 +30,7 @@ owners:
 - **标签**：窗口顶部的“用户 | 本作品”，决定编辑哪一层；未绑定作品的窗口只有用户层，没有标签。
 - **书名**：窗口绑定的作品的显示名：书名，没有书名时是目录原名（[`runtime.projects`](../runtime/projects.md) 术语）；不是地址栏用的短名。覆盖提示（输出 11）与页面上下文的 `projectTitle` 用它。
 - **“其它”**：窗口自己的分区，不是贡献；收留没写 `section` 或指向不存在的分区的配置项。
+- **“设置文件”**：窗口自己的一项（id `file`），整份编辑当前标签那一层的设置文件（输出 23）。
 - **交付状态**、**交付句柄**：同 [`workbench.views`](../workbench/views.md) 的定义，只对 page 分区有意义。
 - 参与者：贡献分区的插件入口；声明配置项的插件；`nbook.settings`（贡献点拥有者、窗口、用户编辑的调用方）；`nbook.workbench`（通知、页面浮层与入口按钮）；用户。
 
@@ -159,7 +160,7 @@ function settingsChoicesEvent(providerId: string): string;
 10. **已修改**：当前标签这一层写了这个键就算改过：标题左侧一条强调色竖线，控件后面“恢复默认”，点了从这一层删掉这个键（`unset`），控件回到下一层的值。
 11. **被本作品覆盖**：用户标签里，本作品层写了的项在行下一行用信息色提示“本作品单独设为了 X，这里的改动在《书名》里不生效”。
 12. **本作品标签**：本作品层没写的项显示“沿用用户设置：X”与“在本作品里单独设置”（把当前有效值写进本作品层）；写了的项显示控件与“移除本作品的设置”（`unset`）。只允许用户层的项不列出，分区末尾一行淡色字列出这些项的标题、说明它们只能在用户设置里改（“用户”标签下只允许项目层的项同理，说明只能在本作品里设置）。
-13. **层的状态**：当前标签那一层 `invalid` 时分区顶部一行说明“设置文件有错误，修好前这里不能保存”与这一层的文件路径（层快照带路径时，见 [`settings.configuration`](configuration.md) 输出 23：项目层带，用户层的文件在状态根下、不带），这一层的控件停用并显示上一份有效值；`unavailable` 时说明“暂时连不上，不能保存”，控件停用。层恢复后说明自动消失、控件恢复。
+13. **层的状态**：当前标签那一层 `invalid` 时分区顶部一行说明“设置文件有错误，修好前这里不能保存”、这一层的文件路径（层快照带路径时，见 [`settings.configuration`](configuration.md) 输出 23：项目层带，用户层的文件在状态根下、不带）与“打开设置文件”（切到输出 23 的视图），这一层的控件停用并显示上一份有效值；`unavailable` 时说明“暂时连不上，不能保存”，控件停用。层恢复后说明自动消失、控件恢复。
 14. **写入结果**：成功不提示；写入结算之前控件显示这次的值。失败发工作台通知（[`workbench.notifications`](../workbench/notifications.md)，警告色调，标题“设置没有保存”，正文写哪一项与原因），控件回到层里的实际值；`unknown-outcome` 的通知标题是“设置可能没有保存”，正文“可能没有保存，以设置文件为准”。数字框与单行输入编辑时只改草稿，失去焦点或回车才写；数字框、JSON 里写的内容解析不了时不写，控件标出错，控件下面一行写“还没保存：<原因>”（`ui.forms` 输出 15）。字符串列表、对象、对象列表与 JSON 的新值不合 schema 时（例如刚加的一项还没填）同样不写、留在这一行，同一处写出第一条原因，合格了再写；改回层里原来的值时不写；层里的值变了、切换标签或换分区时丢掉留下的值（开发者 2026-10-21 定）。其余不合 schema 的值由写入路径以 `invalid-value` 拒绝，同样发通知、回到实际值。
 15. **一个页面一个窗口**：`nbook.settings.open` 打开本页的设置窗口，已开着时只聚焦；给了 `section` 跳到这个分区，给了 `layer` 切到这个标签。`section` 不在左栏里时以 `invalid-args` 失败，`layer: "project"` 而窗口没有绑定作品时以 `unavailable` 失败，两种都不打开、不改变窗口。关掉再开回到上次的分区与标签；刷新页面后回到第一个分区、用户标签。
 16. **外框**：非模态浮动窗口，缺省 960×640（不超过页面），可拖动边缘调整大小、下限 600×400，尺寸按客户端记住；切换分区时窗口不变大小；每次打开居中。
@@ -177,6 +178,13 @@ function settingsChoicesEvent(providerId: string): string;
     - 有搜索词时右边换成结果（标题“搜索结果”），左栏照旧但不标当前项；没有命中时写“没有找到设置”。换搜索词时结果重建，结构字段留在行里的值随之丢掉（同换分区，输出 14）。
     - 清空搜索（清除按钮，或框里有字时按 `Esc`）回到原分区；选左栏的分区也清空搜索。搜索词不记，关窗口即清。
 22. **未保存保护**：page 页面经 `context.dirty(true)` 报有未保存的改动（列表的增删排序也算，页面按“已保存的值与草稿”判断），保存成功后报 `false`。页面报了未保存时，会离开它的动作先弹确认“放弃未保存的改动？”（“放弃”“继续编辑”，焦点默认在“继续编辑”）：切到别的分区、切标签、关窗口（关闭按钮、`Esc`）、`nbook.settings.open` 换了分区或标签、在搜索框输入。“继续编辑”留在原处，焦点回到触发的位置；“放弃”执行这个动作，页面卸载、草稿丢掉（切标签时页面重建）。确认框开着时又来一个这样的动作，等着的换成后来的，不叠第二个确认框。页面卸载后旧上下文的 `dirty` 调用不起作用。拦不住的：页面所属入口停止或交付撤回、窗口所属入口停止、刷新或关闭浏览器页面，这些照常卸载页面，改动丢失。list 分区每项即时写入，不涉及；结构字段留在行里的值不算未保存。
+23. **设置文件**：左栏插件组的最后（“其它”之后）固定一项“设置文件”，右边整份编辑当前标签那一层的设置文件，经 [`settings.configuration`](configuration.md) 输出 24 读写。项目层显示文件路径，用户层不显示（状态根不发给浏览器）。
+    - 等宽的多行文本框，不自动换行；`Tab` 插入两个空格，按过 `Esc` 之后的 `Tab` 照常移走焦点。有改动时显示“保存”“放弃改动”，`Mod+S` 保存。
+    - 保存成功：改动的按钮消失，本窗口随即是新值。`invalid-text`：不写，框下写“没有保存：第 N 行第 M 列：<原因>”，文本框标出错。`conflict`：写“没有保存：文件在别处改过了”与“重新读取”（丢掉这里的改动）。
+    - 别处改了文件（文本的修订号变了）：没有改动时直接重读；有改动时只提示“文件在别处改过了”与“重新读取”，不覆盖这里的草稿。
+    - 读不了（`read-failed`）时写原因与“重新读取”；这一层 `unavailable` 时文本框只读。层 `invalid` 时照样可以打开、修好、保存。
+    - 有改动时算未保存，离开它走输出 22 的确认；换标签就是换一个文件，确认后丢掉草稿、重读。
+    - 搜索时它按标题、说明与“settings.json”参与 page 一样的命中（输出 21）。
 
 ## 状态与转换
 
@@ -190,7 +198,7 @@ page 分区的交付状态：
 | `available` | 句柄撤回 | `entry-stopped` | 卸载，丢弃已加载的组件定义 |
 | `entry-stopped` | 同一分区再次交付 | `available` | 新句柄，重新加载 |
 
-窗口：关闭 →（`nbook.settings.open`）打开，`windowOpen` 为真 →（关闭按钮、`Esc`）关闭，`windowOpen` 为假。页面报了未保存时，会离开它的动作先进入“等确认”（输出 22），确认后执行、取消后回到原状态。
+窗口：关闭 →（`nbook.settings.open`，`section` 可以是 `file`）打开，`windowOpen` 为真 →（关闭按钮、`Esc`）关闭，`windowOpen` 为假。页面报了未保存时，会离开它的动作先进入“等确认”（输出 22），确认后执行、取消后回到原状态。
 
 时序与寿命：
 
@@ -254,6 +262,6 @@ Smoke 入口：`e2e/settings.e2e.ts`（扩展到设置窗口）。
 ## 证据
 
 - 批准依据：开发者批准的 t80 实施计划（记录在主工作区 master 的 `.agents/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/plan.md`）“关键设计”第 2、4 节；窗口尺寸由开发者改为缺省 960×640（2026-10-12）；每项的混合排法（输出 9）由开发者确认（2026-10-12，t80 README 待定第 11 条）；开发者 2026-10-13 批准晋升为 `implemented`。
-- 实现入口：[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/settings/web/plugin.ts)（配置核心入口与窗口入口：分区贡献点、打开命令、公开键、活动栏齿轮与窗口浮层）、[`web/settings-window.ts`](../../../packages/neuro-book/src/plugins/settings/web/settings-window.ts)（窗口模型）、[`web/sections.ts`](../../../packages/neuro-book/src/plugins/settings/web/sections.ts)（分区注册表与交付状态）、[`web/choices.ts`](../../../packages/neuro-book/src/plugins/settings/web/choices.ts)（选项提供者注册表）、[`web/components/SettingsWindow.vue`](../../../packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue)、[`src/ui/settings/`](../../../packages/neuro-book/src/ui/settings/)（`SettingsRow`、`SettingsPageList`、`settingsPage`）
-- 合同测试：[`window.test.ts`](../../../packages/neuro-book/src/plugins/settings/window.test.ts)（落位、打开命令、尺寸、按需激活、搜索、未保存保护、page 加载、写入与层的说明，真实内核与真实设置文件）、[`web/sections.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/sections.test.ts)（分区的登记校验与交付状态）、[`web/choices.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/choices.test.ts)（选项提供者的登记校验、状态、出错边界与按需激活）、[`commands.test.ts`](../../../packages/neuro-book/src/plugins/settings/commands.test.ts)（打开命令的登记、参数与公开键）、组件测试 [`SettingsWindow.dom.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.dom.test.ts)、[`SettingsRow.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsRow.dom.test.ts)、[`SettingsPageList.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsPageList.dom.test.ts)、[`settings-page.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/settings-page.dom.test.ts)；[`06-settings-page.test.ts`](../../../packages/neuro-book/examples/scenarios/06-settings-page.test.ts)（示例插件 [snippets](../../../packages/neuro-book/examples/plugins/snippets/) 的 page 分区：声明、交付与撤回、按层写入、越权写入）
+- 实现入口：[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/settings/web/plugin.ts)（配置核心入口与窗口入口：分区贡献点、打开命令、公开键、活动栏齿轮与窗口浮层）、[`web/settings-window.ts`](../../../packages/neuro-book/src/plugins/settings/web/settings-window.ts)（窗口模型）、[`web/sections.ts`](../../../packages/neuro-book/src/plugins/settings/web/sections.ts)（分区注册表与交付状态）、[`web/choices.ts`](../../../packages/neuro-book/src/plugins/settings/web/choices.ts)（选项提供者注册表）、[`web/components/SettingsFileView.vue`](../../../packages/neuro-book/src/plugins/settings/web/components/SettingsFileView.vue)（设置文件视图）、[`web/components/SettingsWindow.vue`](../../../packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue)、[`src/ui/settings/`](../../../packages/neuro-book/src/ui/settings/)（`SettingsRow`、`SettingsPageList`、`settingsPage`）
+- 合同测试：[`window.test.ts`](../../../packages/neuro-book/src/plugins/settings/window.test.ts)（落位、打开命令、尺寸、按需激活、搜索、未保存保护、page 加载、写入与层的说明、设置文件视图，真实内核与真实设置文件）、[`web/sections.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/sections.test.ts)（分区的登记校验与交付状态）、[`web/choices.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/choices.test.ts)（选项提供者的登记校验、状态、出错边界与按需激活）、[`commands.test.ts`](../../../packages/neuro-book/src/plugins/settings/commands.test.ts)（打开命令的登记、参数与公开键）、组件测试 [`SettingsWindow.dom.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.dom.test.ts)、[`SettingsRow.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsRow.dom.test.ts)、[`SettingsPageList.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsPageList.dom.test.ts)、[`settings-page.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/settings-page.dom.test.ts)；[`06-settings-page.test.ts`](../../../packages/neuro-book/examples/scenarios/06-settings-page.test.ts)（示例插件 [snippets](../../../packages/neuro-book/examples/plugins/snippets/) 的 page 分区：声明、交付与撤回、按层写入、越权写入）
 - Smoke：[`settings.e2e.ts`](../../../packages/neuro-book/e2e/settings.e2e.ts)（验收 1–4、6：工作台与书架的齿轮、`Ctrl+,`、`Esc` 后焦点回到打开前的位置，两个页面即时变化，本作品覆盖与移除，恢复默认后的文件，文件改坏与修好，尺寸跨关闭与刷新、每次打开居中）；[`bookshelf.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf.e2e.ts)（“作品”分区的目录选择器叠在窗口上）；Lab 场景 `SettingsWindow`、`SettingsRow`、`SettingsPageList`；通用控件的选择、约束与提交时机由 `ui.forms` 的测试覆盖
