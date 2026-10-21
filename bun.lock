@@ -334,9 +334,7 @@
       "name": "@notnotype/nb-ui",
       "version": "0.2.0-alpha.0",
       "dependencies": {
-        "@nuxt/kit": "^4.3.1",
         "@vueuse/core": "^14.3.0",
-        "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "reka-ui": "^2.10.1",
         "tailwind-merge": "^3.6.0",
@@ -346,6 +344,7 @@
         "@iconify/tailwind4": "^1.2.3",
         "@notnotype/neuro-book-test-support": "workspace:*",
         "@nuxt/cli": "^3.36.1",
+        "@nuxt/kit": "^4.3.1",
         "@playwright/test": "^1.62.1",
         "@tailwindcss/cli": "^4.3.3",
         "@tailwindcss/vite": "^4.3.3",
@@ -360,9 +359,14 @@
         "vue-tsc": "^2.2.0",
       },
       "peerDependencies": {
+        "@nuxt/kit": "^4.3.1",
         "nuxt": "^4.3.1",
         "vue": "^3.5.24",
       },
+      "optionalPeers": [
+        "@nuxt/kit",
+        "nuxt",
+      ],
     },
     "packages/nb-workflow": {
       "name": "@notnotype/nb-workflow",
@@ -2308,8 +2312,6 @@
     "chrome-trace-event": ["chrome-trace-event@1.0.4", "", {}, "sha512-rNjApaLzuwaOTjCiT8lSDdGN1APCiqkChLMJxJPWLunPAt5fy8xgU9/jNOchV84wfIxrA0lRQB7oCT8jrn/wrQ=="],
 
     "citty": ["citty@0.2.2", "", {}, "sha512-+6vJA3L98yv+IdfKGZHBNiGW5KHn22e/JwID0Strsz8h4S/csAu/OuICwxrg44k5MRiZHWIo8XXuJgQTriRP4w=="],
-
-    "class-variance-authority": ["class-variance-authority@0.7.1", "", { "dependencies": { "clsx": "^2.1.1" } }, "sha512-Ka+9Trutv7G8M6WT6SeiRWz792K5qEqIGEGzXKhAE6xOWAY6pPH8U+9IY3oCMv6kqTmLsv7Xh/2w2RigkePMsg=="],
 
     "cliui": ["cliui@9.0.1", "", { "dependencies": { "string-width": "^7.2.0", "strip-ansi": "^7.1.0", "wrap-ansi": "^9.0.0" } }, "sha512-k7ndgKhwoQveBL+/1tqGJYNz097I7WOvwbmmU2AR5+magtbjPWQTS1C5vzGkBC8Ym8UWRzfKUzUUqFLypY4Q+w=="],
 

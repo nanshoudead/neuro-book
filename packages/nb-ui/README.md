@@ -50,7 +50,7 @@ export default defineNuxtConfig({
 });
 ```
 
-The module auto-registers Vue components and composables.
+The module auto-registers the components exported from `@notnotype/nb-ui/components` and the composables exported from `@notnotype/nb-ui/composables`; internal parts are not registered. `nuxt` and `@nuxt/kit` are optional peer dependencies, needed only by this entry.
 
 ## Manual imports
 
@@ -125,7 +125,7 @@ Shared style registries (register instead of copying values):
 - `.nb-ui-popover-surface` (`styles.css`) — floating panel border/background/shadow/backdrop base (DropdownMenu, Select, ContextMenu, Tooltip, Dialog).
 - `.nb-ui-tooltip-surface` (`styles.css`) — compact paper Tooltip modifier: control-radius surface, short attached arrow, and theme-aware text/padding.
 - `.nb-ui-menu-surface` — popup-list modifier (DropdownMenu, Select, Menubar, ContextMenu, QuickPick, SuggestionMenu): consumes `--radius-menu` and writes the `--menu-pad` padding, so nested items stay concentric.
-- `.nb-ui-menu-item` (+ `__check`, `__icon`, `__label`, `__hint`, `--multiline`), `.nb-ui-menu-label`, `.nb-ui-menu-separator` — one popup-list row: `--menu-item-h` / `--menu-item-font`, concentric radius, highlight only on `[data-highlighted]`, left check column.
+- `.nb-ui-menu-item` (+ `__icon`, `__label`, `__hint`, `--multiline`), `.nb-ui-menu-label`, `.nb-ui-menu-separator` — one popup-list row: `--menu-item-h` / `--menu-item-font`, concentric radius, highlight only on `[data-highlighted]`, one leading column shared by the check and the icon.
 - `.nb-ui-surface-rim` — opt-in Liquid Glass edge sheen for complete Dialog surfaces (modal and window); nbook small popovers leave it off.
 - `.nb-ui-menu-item-danger` (`styles.css`) — destructive menu items: danger text and icon colour; the highlight stays neutral.
 

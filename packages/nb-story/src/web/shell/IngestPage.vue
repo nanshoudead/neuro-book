@@ -54,6 +54,12 @@ const rows = computed(() => {
 });
 const hiddenRows = computed(() => Math.max(0, (status.value?.chapters.length ?? 0) - shownRows.value));
 const dropped = computed(() => (status.value?.chapters ?? []).reduce((sum, chapter) => sum + chapter.dropped, 0));
+/** 这本书关掉了哪几类（ingest.md 输出 18）；两项都开时不写。 */
+const settingText = computed(() => {
+    const features = status.value?.features;
+    const off = features ? [...(features.ledger ? [] : ["数值"]), ...(features.secrets ? [] : ["秘密"])] : [];
+    return off.length ? `不记${off.join("、")}` : "";
+});
 const remainingText = computed(() => {
     const value = status.value;
     if (!value || !value.average || value.state !== "running") return null;
@@ -84,11 +90,14 @@ const tokenText = computed(() => {
     return `token：${usage.complete ? "" : "至少 "}输入 ${formatTokens(usage.input)}${hit}、输出 ${formatTokens(usage.output)}。${price ? `${price}。` : ""}`;
 });
 const currentStep = computed(() => status.value?.current?.step ?? null);
-/** 四步（整理时加第五步）与各自的状态：当前一步之前的已做完，之后的还没开始。 */
+/**
+ * 四步（整理时加第五步）与各自的状态：当前一步之前的已做完，之后的还没开始。挑相关说法开着时它在最前，进度里看不出
+ * 开没开，所以只在正挑的时候列出来。
+ */
 const stepStates = computed(() => {
     const step = currentStep.value;
     if (step === null) return [];
-    const steps = step === "consolidation" ? [...STEPS, "consolidation" as const] : STEPS;
+    const steps = step === "consolidation" ? [...STEPS, "consolidation" as const] : step === "recall" ? ["recall" as const, ...STEPS] : STEPS;
     const index = steps.indexOf(step);
     return steps.map((item, position) => ({step: item, state: position < index ? "done" : position === index ? "current" : "todo"}));
 });
@@ -165,6 +174,7 @@ async function resume(): Promise<void> {
                     <h1 class="min-w-0 truncate text-[length:var(--text-lg)] font-[var(--weight-strong)]">{{ status.title }}</h1>
                     <IngestBadge :status="status" />
                     <span v-if="status.state === 'done'" class="text-[length:var(--text-sm)] text-[var(--status-success)]">已全部抽完</span>
+                    <span v-if="settingText" class="text-[length:var(--text-sm)] text-[var(--text-muted)]" data-testid="ingest-features">{{ settingText }}</span>
                     <span class="ml-auto" />
                     <Button v-if="status.committed > 0" size="sm" variant="secondary" icon-class="i-lucide-book-open" data-testid="ingest-open-book" @click="router.push(`/book/${encodeURIComponent(status.id)}`)">打开书（读到第 {{ status.committed }} 章）</Button>
                     <Button v-if="status.state === 'running' && status.runner === 'serve'" size="sm" variant="secondary" icon-class="i-lucide-square" :disabled="stopping" data-testid="ingest-stop" @click="stop">{{ stopping ? "正在停止" : "停止" }}</Button>

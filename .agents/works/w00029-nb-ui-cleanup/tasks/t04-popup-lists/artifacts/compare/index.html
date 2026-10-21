@@ -51,7 +51,7 @@ figure img.bar { width: auto; max-width: 100%; }
 <h1>弹出列表收成一套：改前改后</h1>
 <div class="lead">
 <p>w00029 t04。六个弹出列表（DropdownMenu、Select、Menubar、右键菜单、QuickPick、Composer 的候选菜单）改用同一行外观、同一套截断与滚动；新增不抢焦点的候选菜单 <code>SuggestionMenu</code>，Composer 改用它。都是 Lab 里的真实组件，nbook 主题、浅色、900px 画布；左边改前（改动前的 master），右边改后。</p>
-<p>按评审板的决定：高亮中性叠色（决定 1）、选中只画左侧的勾（决定 2）、外框 10px 内边距 4px 项 5px（决定 3）、28px 行高 13px 字（决定 4）、最多 8 项半（决定 5）、候选菜单不要按键提示（决定 6）、同一级有一项带图标就每项留出图标列（决定 7）。</p>
+<p>按评审板的决定：高亮中性叠色（决定 1）、选中只画左侧的勾（决定 2）、外框 10px 内边距 4px 项 5px（决定 3）、28px 行高 13px 字（决定 4）、最多 8 项半（决定 5）、候选菜单不要按键提示（决定 6）、同一级有一项带图标就每项留出图标列（决定 7）；人工审查后改为勾与图标共用左侧一列（决定 8）、说明放进同一行、所有项一样高（决定 9）。</p>
 </div>
 
 <section class="q">
@@ -59,7 +59,7 @@ figure img.bar { width: auto; max-width: 100%; }
 <p>行高从 32px 收到 28px，字从 12px 到 13px，项与项之间不再留 2px 缝；外框圆角 8px 改 10px、内边距 6px 改 4px。危险项只有文字与图标是红色，高亮时底色与其它项一样。</p>
 <div class="pair">
 <figure><img src="img/dropdown-before.webp" alt="1. 下拉菜单 改前"><figcaption>改前：32px 行、12px 字</figcaption></figure>
-<figure><img src="img/dropdown-after.webp" alt="1. 下拉菜单 改后"><figcaption>改后：28px 行、13px 字；同一级有勾选项，每行留出左侧勾选列；“显示隐藏文件”没有图标，也留出图标列与其它项对齐</figcaption></figure>
+<figure><img src="img/dropdown-after.webp" alt="1. 下拉菜单 改后"><figcaption>改后：28px 行、13px 字；勾与图标共用左侧一列，“显示隐藏文件”没勾上时这一列留空，名称与其它项对齐</figcaption></figure>
 </div>
 </section>
 <section class="q">
@@ -77,10 +77,10 @@ figure img.bar { width: auto; max-width: 100%; }
 </section>
 <section class="q">
 <h2>4. 选择器（Select）</h2>
-<p>选中项原来是右侧蓝勾、强调色淡底与加粗；现在只画左侧的勾，底色不变，高亮跟着指针或键盘走。带说明的两行项由内容撑高。打开时停在选中项上。</p>
+<p>选中项原来是右侧蓝勾、强调色淡底与加粗；现在选中项在左侧一列画勾（替代它的图标），底色不变，高亮跟着指针或键盘走。说明放在同一行右侧的灰色小字，放不下时先截说明，所有项一样高。打开时停在选中项上。</p>
 <div class="pair">
 <figure><img src="img/select-before.webp" alt="4. 选择器（Select） 改前"><figcaption>改前：右侧蓝勾、淡底、加粗；5 项半</figcaption></figure>
-<figure><img src="img/select-after.webp" alt="4. 选择器（Select） 改后"><figcaption>改后：左侧的勾；8 项半，两行项照实计入</figcaption></figure>
+<figure><img src="img/select-after.webp" alt="4. 选择器（Select） 改后"><figcaption>改后：勾替代图标；说明在右侧；8 项半，每项 28px</figcaption></figure>
 </div>
 </section>
 <section class="q">
@@ -101,7 +101,7 @@ figure img.bar { width: auto; max-width: 100%; }
 </section>
 <section class="q">
 <h2>7. 命令面板（QuickPick）</h2>
-<p>外框取菜单的圆角与内边距（原来自己写 14px）；项同样 28px 一行，带说明的两行项由内容撑高；列表最多 8 项半，滑块与顶底渐隐和其它列表一样。</p>
+<p>外框取菜单的圆角与内边距（原来自己写 14px）；项同样 28px 一行，分类与说明放在同一行右侧；列表最多 8 项半，滑块与顶底渐隐和其它列表一样。</p>
 <div class="pair">
 <figure><img src="img/quickpick-before.webp" alt="7. 命令面板（QuickPick） 改前"><figcaption>改前：14px 外框、原生细滚动条、不截断</figcaption></figure>
 <figure><img src="img/quickpick-after.webp" alt="7. 命令面板（QuickPick） 改后"><figcaption>改后：菜单外框；8 项半与悬浮滑块</figcaption></figure>
@@ -132,7 +132,7 @@ figure img.bar { width: auto; max-width: 100%; }
 <h2>10. 留意的地方</h2>
 <ul>
 <li>原来设了 <code>compact</code> 的 9 处菜单（nb-story 顶栏、编辑器面包屑、活动栏“更多”、移动视图、标题栏动作、标签页“更多”等）项变高 2px，最小宽度统一为 160px（原来普通档 200px）。编辑器面包屑的两个下拉原来最高 320px（约 11 项），现在最多 8 项半。</li>
-<li>图标列（决定 7）：同一级里有的项带图标、有的不带时，不带图标的项留出空的图标列，名称与带图标的项对齐（第 1 节的“显示隐藏文件”、第 5 节的“打开项目…”）。顺带修掉一处：应用里图标类的 <code>width: 1em</code> 盖掉了菜单项图标的 16px，图标实际只有 13px；现在都是 16px。</li>
+<li>左侧一列（决定 7、8）：勾与图标共用这一列，同一级里有的项带图标、有的不带时，不带的留空，名称对齐（第 1 节的“显示隐藏文件”、第 5 节的“打开项目…”）。行高（决定 9）：说明不再占第二行，六个列表所有项都是 28px。顺带修掉一处：应用里图标类的 <code>width: 1em</code> 盖掉了菜单项图标的 16px，图标实际只有 13px；现在都是 16px。</li>
 </ul>
 </section>
 </main>

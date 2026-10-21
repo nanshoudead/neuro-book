@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t04-popup-lists
-status: active
+status: done
 updated: 2026-10-20
 ---
 
@@ -39,10 +39,10 @@ updated: 2026-10-20
 - 验证：nb-ui 单元 498、e2e 54 通过；neuro-book 整套 e2e 234 条里 233 通过，`lab-scenes` 一条在负载下超时（EditorArea/english 15 秒没挂上），单独重跑通过；图标列改完后相关的五个 e2e 文件 56 条通过；`test:affected --since master --typecheck` 只有 nb-story 一条服务进程收到 SIGTERM 退出码 143 的竞态（与本 Task 无关），单独重跑 223 条通过；`docs:check`、`governance:check` 没有本次范围内的警告。图标尺寸修正后 nb-ui e2e 54 条通过，neuro-book 相关六个 e2e 文件 70 条里 68 条通过，失败的两条（编辑器重开光标、工作台换位置保留滚动）与菜单无关，单独重跑通过。
 - 改前改后的对照做成 `report` 产物 [`artifacts/compare/`](artifacts/compare/index.html)（全套截图在本地 `.local/agent/works/w00029-nb-ui-cleanup/tasks/t04-popup-lists/shots/compare/`）。
 
+- 决定 8、9 已做（`d3c3da628`）：MenuNodes 与 Select 的勾与图标共用左侧一列；Select 的说明、QuickPick 的分类与说明放进同一行右侧，所有项 28px。重拍对照图时查到名称被摊着截了一点（名称与说明都可收缩，按比例摊下来名称也缩零点几像素就画省略号），改为名称取内容宽度、说明从 0 宽起占剩下的空间（`5b7b3df9b`），Lab 的 Select 长列表 e2e 补了名称完整、说明被截。验证：nb-ui 单元 498、e2e 54 通过；neuro-book 整套 e2e 234 条里 233 通过，失败的一条（编辑器选区加粗）单独重跑通过；`test:affected` 只有 nb-story 的 SIGTERM 竞态与一条 5 秒超时的图片地址单元测试，单独重跑都通过；修截断后相关六个 e2e 文件 38 条通过（`lab-commands` 一次首屏超时，单独重跑 11 条通过）。对照产物发布为 v2。
+
 ## 下一步
 
-按决定 8、9 改（2026-10-20 人工审查后重新打开）：在新 worktree 里改 MenuNodes、Select、QuickPick 与文档、验收，合入后补对照图。
-
-已合入 master（`da0a5e168`），对照产物发布为 compare v1；实现 worktree 与分支已删。草稿 worktree 与分支 `t04/drafts` 开发者同意后已删。
+已合入 master（第一轮 `da0a5e168`、人工审查后一轮 `5b7b3df9b`），对照产物 compare v2；两轮的实现 worktree 与分支都已删。草稿 worktree 与分支 `t04/drafts` 开发者同意后已删。
 
 依赖本 Task 的：[w00027 t07](../../../w00027-plugin-platform/tasks/t07-low-code-forms/README.md) 的 S2 起（新增可搜索下拉 `SearchSelect`，用本 Task 统一后的列表项样式、截断与滚动；改 `Select` 的只读与出错）等本 Task 合入 master 后开始（开发者 2026-10-20 定）。决定 8、9 改了列表项的勾、图标与说明的放法，`SearchSelect` 宜在这一轮合入后照新的样子做。

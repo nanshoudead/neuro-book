@@ -915,6 +915,11 @@ Combobox 用原本就在的 `<ul role="listbox">`），外框只剩 `overflow: h
 根因：nb-ui 的样式不在 CSS layer 里，同一优先级按出现顺序取后者。图标类（UnoCSS 的 `i-lucide-*`）写 `width: 1em; height: 1em`，在应用里排在 nb-ui 样式之后，把 `.nb-ui-menu-item__icon` 的 16px 改成了字号大小；演练场里两者的先后相反，所以没暴露。
 判据：图标元素同时带图标类与组件的尺寸类时，尺寸写在优先级更高的选择器上（例如多带一级父类）；尺寸与对齐要在新应用（neuro-book Lab）里量，演练场的样式顺序和应用不同。
 
+**59. 名称和旁注同行时，名称哪怕只被压窄零点几像素也会出省略号**
+现象：Select 选项把说明放在名称右侧之后，“Word 文档（.docx）”末尾被截成“…”，而说明的 `flex-shrink` 已经是名称的 1000 倍。
+根因：两者都可收缩时，浏览器按收缩系数乘基础宽度分摊不足的宽度，名称仍分到一个很小的非零份额；`text-overflow: ellipsis` 只要内容比盒子宽一点就画省略号。
+判据：一行里的名称与旁注（说明、分类、快捷键提示）不要靠不同的收缩系数分先后。名称取内容宽度（`flex: 0 1 auto`）并用 `margin-right: auto` 把旁注推到右侧，旁注从零宽开始占剩余空间（`flex: 1 1 0%`）；放不下时先截旁注，旁注截完才截名称。
+
 ### B. DOM / 组件
 
 **47. `data-[state=…]:animate-*` 变体不会生成，折叠动画静默失效**
@@ -922,7 +927,7 @@ Combobox 用原本就在的 `<ul role="listbox">`），外框只剩 `overflow: h
 根因：`animate-*` 的可选键来自 UnoCSS 主题的 `theme.animation`，本项目用的是 `presetUno()`，
 里面只有 `spin` / `ping` / `pulse` / `bounce`。`animate-collapsible-down` 这个键不存在，
 于是 `data-[state=open]:animate-collapsible-down` 一条 CSS 都不生成。`src/styles.css` 里
-手写的 `.animate-collapsible-*` 因此从来没有被用上，是死代码。
+手写的 `.animate-collapsible-*` 因此从来没有被用上，是死代码（w00029 t07 已删）。
 判据：展开后读内容元素，`getAnimations()` 必须非空且 `animationName` 是登记的 keyframes 名。
 修法：动画写在样式表里用状态属性驱动（`.nb-collapsible-content[data-state="open"] { animation: … }`），
 不依赖消费方主题里恰好存在同名 key。**凡是"写了却可能不生成"的类，都要用计算样式或 `getAnimations()` 证伪一次。**

@@ -18,6 +18,7 @@ const {runner} = await startIngest({
     title,
     endpoint: {baseUrl: url, model: "m", apiKeyEnv: "INGEST_CHILD_KEY", maxTokens: 32_000},
     price: null,
+    recall: null,
     runner: "cli",
     onEvent: event => {
         if (event.type === "committed") process.stdout.write(`committed ${event.chapter}\n`);

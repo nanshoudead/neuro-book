@@ -1,0 +1,16 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00030-nb-ui-library-structure",
+    "taskId": "t01-plan",
+    "artifactId": "decisions",
+    "ackId": "20261020T140206054Z-b253af0a",
+    "answers": [
+        "20261020T140128220Z-d9496c0a"
+    ],
+    "through": "20261020T140128220Z-d9496c0a",
+    "included": [
+        ".agents/works/w00030-nb-ui-library-structure/tasks/t01-plan/README.md",
+        ".agents/works/w00030-nb-ui-library-structure/tasks/t01-plan/plan.md"
+    ],
+    "ackedAt": "2026-10-20T14:02:06.054Z"
+}

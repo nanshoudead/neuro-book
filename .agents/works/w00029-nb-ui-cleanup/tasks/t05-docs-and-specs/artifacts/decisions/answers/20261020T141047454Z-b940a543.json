@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00029-nb-ui-cleanup",
+    "taskId": "t05-docs-and-specs",
+    "artifactId": "decisions",
+    "answerId": "20261020T141047454Z-b940a543",
+    "artifactVersion": 1,
+    "contentHash": "e0ec4fb0da46607f88277d49984e27ff80335c0848aa43b6ae6cb00b8f1f1fa9",
+    "submittedAt": "2026-10-20T14:10:46.894Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "f04-shadow": "keep",
+        "f05-dark-glass": "keep",
+        "f43-surface-source": "css"
+    },
+    "comments": {},
+    "note": null
+}

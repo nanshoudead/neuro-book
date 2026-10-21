@@ -15,6 +15,7 @@ import {DAY_PARTS, DATASET_SCHEMA} from "../core/dataset";
 import type {Arc, Basis, Beat, Dataset, Entity, Episode, Knowledge, LedgerEntry, Mention, Position, Question, Secret, SourceChapter, Span, Statement, StatementKind, Summary, TimeAnchor} from "../core/dataset";
 import {comparePosition} from "../core/position";
 import {ChapterDraftSchema, ConsolidationSchema, parseWith, type ChapterDraft, type Consolidation} from "./draft-schema";
+import {occurrenceFinder} from "./text-match";
 
 /**
  * 问题指向的记录。草稿记录多数有编号（`records`）；称呼、提及、情节连接与疑问更新没有自己的编号，各用一个字段。
@@ -64,7 +65,7 @@ const DEFAULT_KIND: Record<string, StatementKind> = {narrator: "fact", author: "
 
 type Report = (level: Issue["level"], chapter: number | null, code: string, message: string, subject?: IssueSubject) => void;
 
-export function compile(book: {id: string; title: string}, sources: SourceChapter[], rawDrafts: unknown[], rawConsolidations: unknown[] = []): CompileResult {
+export function compile(book: Dataset["book"], sources: SourceChapter[], rawDrafts: unknown[], rawConsolidations: unknown[] = []): CompileResult {
     const issues: Issue[] = [];
     const issue: Report = (level, chapter, code, message, subject = {}) => {
         issues.push({level, chapter, code, message, ...subject});
@@ -551,8 +552,9 @@ export function compile(book: {id: string; title: string}, sources: SourceChapte
         count(generated, "knowledge");
     }
     // 把马甲和本人连起来的说法，要么挂在一个秘密上，要么说明这层身份是公开的；否则“谁知道、谁不知道”无处可记。
-    // 这是警告而不是错误：记录本身没有写错，只是少了一层。抽取管线把它和错误一起交给修复。
-    for (const item of statements.values()) {
+    // 这是警告而不是错误：记录本身没有写错，只是少了一层。抽取管线把它和错误一起交给修复。关掉秘密的书不查：
+    // 它本来就不记秘密（docs/specs/story/ingest.md 输出 18），提醒只会让修复去写被关掉的记录。
+    if (book.features?.secrets !== false) for (const item of statements.values()) {
         if (item.family !== "identity" || item.kind !== "fact" || item.neg || item.certainty !== "certain" || item.about.length !== 2 || item.secret) continue;
         if (item.label?.includes("公开")) continue;
         const [first, second] = item.about.map(id => entities.get(id));
@@ -757,26 +759,6 @@ export function matchMentions(sources: SourceChapter[], entities: Entity[], note
         });
     }
     return result.sort((a, b) => comparePosition(a.at, b.at) || a.start - b.start);
-}
-
-/**
- * 返回一个函数：给一段文字，找出 `texts` 里在其中出现过的那些。按前两个 UTF-16 码元分桶，扫一遍文字、只在命中的
- * 桶里逐个比，所以用时随文字长度增长，不随字串个数增长。字串至少要有两个码元（称呼至少两个字）。
- */
-function occurrenceFinder(texts: Iterable<string>): (text: string) => Set<string> {
-    const buckets = new Map<string, string[]>();
-    for (const text of new Set(texts)) {
-        const head = text.slice(0, 2);
-        buckets.set(head, [...(buckets.get(head) ?? []), text]);
-    }
-    return text => {
-        const found = new Set<string>();
-        for (let i = 0; i + 1 < text.length; i++) {
-            const bucket = buckets.get(text.slice(i, i + 2));
-            if (bucket) for (const candidate of bucket) if (text.startsWith(candidate, i)) found.add(candidate);
-        }
-        return found;
-    };
 }
 
 /** 按“谁的哪个量”累加，并在原文给出数值的地方核对。 */

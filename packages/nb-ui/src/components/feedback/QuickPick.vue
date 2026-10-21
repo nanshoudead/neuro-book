@@ -329,7 +329,6 @@ function isLowSurrogate(code: number): boolean {
                             :aria-selected="isActive(item) ? 'true' : 'false'"
                             :aria-disabled="item.disabled ? 'true' : undefined"
                             class="nb-ui-menu-item"
-                            :class="{'nb-ui-menu-item--multiline': metaText(item) !== ''}"
                             :data-highlighted="isActive(item) ? '' : undefined"
                             :data-disabled="item.disabled ? '' : undefined"
                             @pointerdown="onItemPointerDown"
@@ -339,17 +338,12 @@ function isLowSurrogate(code: number): boolean {
                             <span v-if="item.iconClass" :class="item.iconClass" class="nb-ui-menu-item__icon" aria-hidden="true"></span>
                             <span v-else-if="iconColumn" class="nb-ui-menu-item__icon" aria-hidden="true"></span>
                             <span class="nb-ui-menu-item__label">
-                                <span class="block truncate">
-                                    <template v-for="(segment, index) in labelSegments(item)" :key="index">
-                                        <span v-if="segment.match" class="font-medium text-[var(--accent-main)]">{{ segment.text }}</span>
-                                        <template v-else>{{ segment.text }}</template>
-                                    </template>
-                                </span>
-                                <span
-                                    v-if="metaText(item) !== ''"
-                                    class="mt-0.5 block truncate text-[11px] leading-[14px] text-[var(--text-muted)]"
-                                >{{ metaText(item) }}</span>
+                                <template v-for="(segment, index) in labelSegments(item)" :key="index">
+                                    <span v-if="segment.match" class="font-medium text-[var(--accent-main)]">{{ segment.text }}</span>
+                                    <template v-else>{{ segment.text }}</template>
+                                </template>
                             </span>
+                            <span v-if="metaText(item) !== ''" class="nb-ui-menu-item__hint">{{ metaText(item) }}</span>
                             <Kbd v-if="item.shortcut" size="sm">{{ item.shortcut }}</Kbd>
                         </li>
                     </ul>

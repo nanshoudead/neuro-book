@@ -232,7 +232,7 @@ const probes: SurfaceProbe[] = [
 
 .tier-label {
     font-size: var(--text-md);
-    font-weight: var(--weight-semibold);
+    font-weight: var(--weight-strong);
     color: var(--text-main);
 }
 
@@ -313,7 +313,7 @@ const probes: SurfaceProbe[] = [
 .probe-label {
     font-family: var(--font-mono);
     font-size: var(--text-sm);
-    font-weight: var(--weight-semibold);
+    font-weight: var(--weight-strong);
     color: var(--text-main);
 }
 

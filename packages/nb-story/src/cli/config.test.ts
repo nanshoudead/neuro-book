@@ -65,7 +65,7 @@ describe("init、show、set、unset", () => {
         expect(unset.stdout).toContain("没有设置");
 
         const json = await run(["config", "show", "--config", path, "--json"]);
-        expect(JSON.parse(json.stdout)).toEqual({ok: true, data: {path, config: await written(path), apiKeySet: true, ingest: {source: "model", id: "m1", apiKeySet: true}}});
+        expect(JSON.parse(json.stdout)).toEqual({ok: true, data: {path, config: await written(path), apiKeySet: true, ingest: {source: "model", id: "m1", apiKeySet: true}, recall: null}});
     });
 
     test("缺必填项又不在终端：用法错误，退出码 2，不写文件，不挂起等输入", async () => {

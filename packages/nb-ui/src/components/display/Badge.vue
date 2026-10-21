@@ -37,12 +37,12 @@ const variantClass = computed(() => `nb-badge--${props.variant}`);
 
 const sizeClass = computed(() => (props.size === "sm"
     ? "h-[calc(var(--control-h-sm)*0.68)] gap-[var(--space-1)] px-[calc(var(--control-px)*0.45)] text-[11px] rounded-[max(2px,calc(var(--radius-control)-2px))]"
-    : "h-[calc(var(--control-h-sm)*0.82)] gap-[var(--space-1-5,0.375rem)] px-[calc(var(--control-px)*0.6)] text-[12px] rounded-[var(--radius-control)]"));
+    : "h-[calc(var(--control-h-sm)*0.82)] gap-[var(--space-3)] px-[calc(var(--control-px)*0.6)] text-[12px] rounded-[var(--radius-control)]"));
 </script>
 
 <template>
     <span
-        class="nb-badge inline-flex shrink-0 items-center whitespace-nowrap [font-weight:var(--weight-semibold,600)] select-none transition-colors [transition-duration:var(--motion-fast)]"
+        class="nb-badge inline-flex shrink-0 items-center whitespace-nowrap [font-weight:var(--weight-strong)] select-none transition-colors [transition-duration:var(--motion-fast)]"
         :class="[toneClass, variantClass, sizeClass]"
     >
         <span v-if="props.dot" class="h-1.5 w-1.5 shrink-0 rounded-full bg-current shadow-[0_0_3px_currentColor]"></span>

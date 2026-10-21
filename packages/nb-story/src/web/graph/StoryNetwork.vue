@@ -631,7 +631,7 @@ const legend = computed(() => {
         return [{label: "人物", color: kindColor("person")}, {label: "组织", color: kindColor("group")}, {label: "物品", color: kindColor("item")},
             {label: "主线", color: kindColor("arc")}, {label: "情节", color: kindColor("episode")}, {label: "秘密", color: kindColor("secret")},
             {label: "悬念", color: kindColor("question")}]
-            .filter((item) => !(item.label === "悬念" && props.hiddenTypes.includes("question")));
+            .filter((item) => !(item.label === "悬念" && props.hiddenTypes.includes("question")) && !(item.label === "秘密" && props.hiddenTypes.includes("secret")));
     }
     const KIND: Record<string, string> = {person: "人物", group: "组织", item: "物品", place: "地点", task: "任务", concept: "概念"};
     const present = new Set(props.nodes.map((node) => node.kind === "persona" ? "person" : node.kind));

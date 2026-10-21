@@ -1,0 +1,271 @@
+# t11 设计审查报告
+
+### 1. `features` 没有落到书库元数据，`books.list` 无法按合同返回
+- 严重程度：阻断
+- 类别：不变量
+- 位置：计划 `plan.md:17-19,42-45`；`packages/nb-story/src/core/library.ts:51-70,227-271,310-344`；`packages/nb-story/src/contract/contract.ts:57-65,367-377`
+- 现象：计划同时要求 `book.features` 写入 V9 数据、`books.list` 与 `book.info` 返回 `features`，但现有 `BookMeta` 没有该字段。`books.list` 只读 `book.json` 元数据，`book.info` 也直接从 `ctx.index.meta` 返回元数据；`book.import` 只把原始 graph 文件写入书目录，`commitExtraction` 只从 Dataset 更新章数、段数和抽取进度。计划没有说明把 features 写入 `BookMeta`，也没有说明导入时如何让列表查询拿到 graph 内的字段。
+- 为什么是问题：照字面只把字段放进 `Dataset.book`，`books.list` 仍无法知道每本书的开关；只把它放进 `BookMeta`，抽取提交与 `book.import` 又没有来源；只在查询时临时打开 graph 读取，会改变 `listBooks` 的轻量元数据路径且没有导入/旧书兼容的原子更新合同。结果至少有一条公开接口缺字段，或不同入口对同一本书显示不一致。
+- 如何核实：读取 `Library.listBooks()` 的返回值和 `bookInfo()` 的取值路径；读取 `importBook()` 与 `commitExtraction()` 的 `BookMeta` 构造，确认当前没有 `features`。再按计划验收 `books.list`、`book.info`，现有合同 schema 也会因缺字段失败。
+- 建议改法：先决定唯一存储源。稳妥做法是给 `BookMeta` 增加可选 `features`，新建抽取提交与 `book.import` 都从 Dataset 归一化后写入，旧 `book.json` 读时补 `{ledger:true,secrets:true}`；`Dataset.book.features` 同样按旧数据默认全开。若坚持只存 graph，则必须明确并实现列表/书信息的原子读取与缓存策略，并补并发提交、导入失败和旧书路径的合同测试。
+
+### 2. 单独关闭一项时，`draftTask` 的固定尾句会禁止另一项
+- 严重程度：阻断
+- 类别：正确性
+- 位置：计划 `plan.md:27-32`；`packages/nb-story/src/ingest/prompts.ts:149-172`
+- 现象：计划要求关闭任一项时在 `draftTask` 末尾追加固定文字“这本书不记数值（ledger）和秘密（secrets）：不要写这两部分，说法也不写 secret 字段”。但设计支持四种状态：两项都开、只关 ledger、只关 secrets、两项都关；只关一项时该句仍说两类都不要写，并且无条件禁止 `statement.secret`。
+- 为什么是问题：只关 ledger 的书仍应抽取秘密与 `secret` 字段，否则秘密查询和“指向秘密的知情”会被静默丢失；只关 secrets 的书仍应抽取 ledger，否则数值功能被错误关闭。这不是模型偶发偏差，而是发给模型的任务合同直接与开关语义相反。若把句子只在“两项都关”时追加，又没有覆盖单项关闭时对应的禁止语句，仍不能满足单项路径。
+- 如何核实：逐项代入 `ledger=false,secrets=true` 与 `ledger=true,secrets=false`，对照计划 `draftTask` 的输出字段和自查条目；当前函数的字符串是单份固定文本，默认不传参数时也没有任何 feature 分派。
+- 建议改法：按两个布尔值生成明确的禁用片段，只声明实际关闭的类别；`secret` 字段只在 `secrets=false` 时禁止。保留默认 `{ledger:true,secrets:true}` 的旧函数输出作为逐字断言，并分别断言两种单项状态仍保留另一类的字段、检查和自查规则。
+
+### 3. 关闭秘密后仍会触发 `secret-missing`，导致每章反复核对或无法提交
+- 严重程度：阻断
+- 类别：正确性
+- 位置：计划 `plan.md:33-40`；`packages/nb-story/src/ingest/compile.ts:554-569`；`packages/nb-story/src/ingest/chapter.ts:90-96,191-220`
+- 现象：现有编译器对每条确定的 identity 说法检查：没有 `secret` 且没有覆盖两端对象的秘密时产生 `secret-missing`；`chapterIssues()` 把这一 warning 特别提升为本章核对问题。计划要求 secrets 关闭时移除所有 `secrets` 与说法的 `secret` 字段，却没有定义关闭状态下禁用这条检查。
+- 为什么是问题：只关 secrets 的正常草稿会留下 identity 说法但不允许建秘密。照现有流程，这些合法记录仍被列入 checklist，review/repa​​ir 还会被要求“补 identity 说法、秘密和知情”；即使模型不补，最终 `remaining` 仍会记录该问题，且修复过程可能把不该写的秘密重新加回来。把记录在编译后再过滤也太晚，因为错误已经影响核对和提交判定。
+- 如何核实：构造一个只含确定 identity statement、不含 `secrets` 的单章 draft，运行 `compile()` 与 `chapterIssues()`；现有实现会得到 code=`secret-missing`，而不是空问题。再按计划把 `secret` 字段删除，条件不变。
+- 建议改法：把 features 作为 compile 的显式输入，并在 `secrets=false` 时跳过 `secret-missing` 规则及所有依赖秘密存在的自动知情/身份提示；同时在关闭状态下对 `statement.secret`、秘密记录和秘密知情做统一过滤后再编译。为“只关 secrets 仍可提交 identity 说法”和“只关 ledger 不改变 secret 校验”各补一条回放测试。
+
+### 4. “编译前去掉”没有定义跨章引用闭合，过滤后会制造新的引用错误
+- 严重程度：重要
+- 类别：正确性
+- 位置：计划 `plan.md:35-40`；`packages/nb-story/src/ingest/compile.ts:119-139,287-307,349-360,390-401,447-457`；`packages/nb-story/src/ingest/draft-tools.ts:200-226,305-359`
+- 现象：计划只列出删除 `secrets`、`statement.secret`、`knowledge.about` 和 `ledger`，没有规定先建立全书的被禁用 id 集，再递归处理引用。现有编译器允许知情记录用 `about` 指向前章说法或后章才建立的秘密，`ConsolidationSchema` 的 `summary.items[].deps` 也会检查 `knowledge` 与 `ledger`；修复路径里的 `applyPatch` 可以再次从 `replace` 添加这些记录，`remove` 只按 id 删除，不会清理引用。
+- 为什么是问题：跨章场景中，前章知情可能指向后章建立的秘密；只按当前章或按编号前缀过滤会漏掉它。过滤秘密后，残留的知情会触发 `ref` 错误，`pruneReference` 对 knowledge 的必填 `about` 只能整条丢弃；整理摘要若保留被删 ledger id 会触发 `summary` 错误。修复回复里重新放回被关闭的 section 也会绕过一次性清理。这样合法的“指向说法的知情”与不合法的“指向秘密的知情”无法靠当前计划的字段清单区分，提交结果依赖修复轮次和丢弃顺序。
+- 如何核实：构造两章草稿：第 1 章 knowledge 指向第 2 章才创建的 secret，第 2 章再关闭 secrets；另构造 consolidation 的 `deps` 含 ledger id，运行 `compile()`。现有 `has()` 和摘要检查分别产生 `ref`/`summary` 问题；读取 `applyPatch()` 可确认 repair 的 `replace` 会重新加入被关闭 section。
+- 建议改法：在抽取管线入口把 features 传入，先扫描所有已提交草稿与候选修复的全书 secret/ledger id，生成禁用 id 集；每次草稿刚生成、每次 patch 后、整理 sanitize 后都按这个集合过滤，并递归清理 `statement.secret`、knowledge 的 `about`、摘要 deps、问题更新中指向被删记录的字段以及 `remove` 造成的引用。过滤条件必须是查表，不是 `x`/`l` 编号前缀；保留指向仍存在 statement 的 knowledge，并为前章知情指向后章秘密补测试。
+
+### 5. 导入的关闭书没有查询层门禁，非空 ledger/secrets 会重新暴露
+- 严重程度：重要
+- 类别：不变量
+- 位置：计划 `plan.md:17-19,42-45`；`packages/nb-story/src/core/dataset.ts:208-226`；`packages/nb-story/src/core/book-index.ts:158-215`；`packages/nb-story/src/core/projection.ts:77-128`；`packages/nb-story/src/core/queries/books.ts:31-55`、`graph.ts:136-178`
+- 现象：计划明确允许 V9 导入数据文件带 `book.features`，但又把“关掉的书本来就没有这类记录，查询自然返回空”当作实现依据。现有 `DatasetSchema` 只校验 `ledger`/`secrets` 数组，`buildBookIndex()` 无 features 过滤，`BookView`、`book.stats`、`chapter.digest` 与 `graph.book` 都直接消费这些数组。
+- 为什么是问题：导入文件是外部输入，不能假设它已经遵守“关闭后绝不含记录”的内部不变量。一个 `features: {ledger:false,secrets:false}` 但数组非空的合法 V9 文件会让 `ledger.tracks`、`secrets.matrix`、统计、章节摘要和全书图继续返回秘密/数值；网页隐藏导航也挡不住 CLI、HTTP 或问答的直接查询。这同时违反“关掉后不列、不提供查询”和导入数据与抽取得来的书用法相同。
+- 如何核实：写一个最小 V9 数据文件，`book.features` 两项为 false，同时放一条 ledger、一条 secret，调用 `Library.import` 后依次调用 `secrets.matrix`、`ledger.tracks`、`book.stats`、`chapter.digest`、`graph.book`；按现有索引/投影路径这些记录都会进入结果，除非实现另加门禁。
+- 建议改法：在导入边界明确合同：要么拒绝 features 关闭但数组非空，要么在导入/索引时规范化丢弃整类记录并闭合引用。更安全的是在 `BookIndex`/`BookView` 的统一出口按 features 过滤，并让 `book.stats`、`chapter.digest`、图和 QA 共享这个投影；旧数据 features 缺省全开。为“关闭但输入数组非空”补核心 API 与 HTTP 同结果测试。
+
+### 6. QA 的静态 Profile 会继续声明关闭的工具，计划列出的文件不足以实现“命令表按书生成”
+- 严重程度：重要
+- 类别：接口与合同
+- 位置：计划 `plan.md:54-56,71-73`；`packages/nb-story/src/qa/story-qa.profile.tsx:7-24`；`packages/nb-story/src/qa/engine.ts:121-132`；`packages/nb-story/src/qa/tools.ts:54-58,84-142`
+- 现象：现有 `story-qa.profile.tsx` 在模块加载时用固定 `QUERY_TOOL_IDS` 把 20 个查询工具全部放进 Profile；`askQuestion()` 创建 Harness 时传入这个静态 profile。`storyQaPlugin()` 虽然每问可拿到 book state，但当前总是注册全部工具。计划只列 `qa/tools.ts`、`qa/engine.ts`，没有处理 Profile 的工具引用、注册时序或 optional 工具机制。
+- 为什么是问题：只在 `tools.ts` 里从 `QUERY_COMMANDS` 过滤并不够：关闭书的 `ledger`/`track`/`knows` 要么仍被模型看到，要么 Profile 引用未注册工具而 Harness 在建会话时报 `tool_unavailable`；把 execute 改成返回“未知命令”也违反“命令表里没有”，且模型仍会调用。系统提示词第 31 行也固定写“人物、身份、谁知道什么、情节、数值、悬念”，不随工具集合变化。
+- 如何核实：读取 `defineProfile()` 的静态 `tools` 与 Harness 的 `createHarness({profile, registry})` 调用；用一个关闭 features 的 `BookSession` 只注册非关闭工具，现有 Profile 仍要求全部 `story.knows`、`story.ledger`、`story.track`，工具解析阶段即不满足。用当前注册全部工具则模型仍收到这三个声明。
+- 建议改法：把 Profile 工具集合改成可按初始 features 派生的定义，或把所有查询引用标为 optional 并让注册插件按书只注册可用工具；同时按 features 生成 QA 系统说明。静态 Profile 与动态工具的实际 API 要先用 nb-harness 的 effective-tools 合同验证，再补“关闭书模型看不到工具、直接调用也得到未知命令”的工具测试。
+
+### 7. 隐藏页的地址回退不在计划列出的外壳文件里，直接地址会渲染空组件
+- 严重程度：重要
+- 类别：正确性
+- 位置：计划 `plan.md:47-52,71-73`；`packages/nb-story/src/web/host/book.ts:23-25,113-115,150-195`；`packages/nb-story/src/web/shell/BookFrame.vue:31-63,264-287`
+- 现象：页面枚举 `PAGES`、地址合法性 `isPage()` 和从 `route.params.page` 初始化当前页都在 `web/host/book.ts`；外壳只是按固定 `NAV` 和 `PAGES[book.page.value]` 渲染。当前 `/book/id/ledger` 会被接受为合法页，外壳也会加载 LedgerPage。计划只列 `BookFrame.vue` 等页面文件，没有列 `host/book.ts` 或地址同步逻辑，却要求地址直达关闭页时回总览并提示。
+- 为什么是问题：只从导航数组移除页不能处理旧链接、手输地址、保存状态中的旧页或全书图/总览跳转产生的目标。直接地址在计划实现前仍打开关闭页；若只改 `NAV` 而不改 host，`book.page` 仍是 `ledger`，页面可能显示空壳/空查询结果，不会按合同回总览。地址回写还可能把旧页再次写回 URL 或 `reading.set`，造成刷新后重复进入。
+- 如何核实：调用 `openBookSession()` 时把当前 route 设为 `/book/<id>/ledger`，观察第 165 行的 `isPage()` 会接受它；`BookFrame` 第 266/287 行直接索引对应页面。现有代码没有任何 features 判断或 fallback 分支。
+- 建议改法：在 host 会话初始化、外部路由变更和保存状态恢复三个入口统一校验 `page` 是否被 features 允许；不允许时原子地设为 overview、清理对应 target/tab，并设置一次性 notice，再同步地址。导航、手机“更多”、全书图节点跳转和保存状态都只从同一份允许页集合生成。计划和 e2e 必须覆盖直接打开、后退/手改地址、旧 reading state 三条路径。
+
+### 8. 统计页和逐章图不在查看器切片中，关闭后仍显示“秘密/数值”空壳
+- 严重程度：重要
+- 类别：遗漏
+- 位置：计划 `plan.md:47-52,71-73`；`packages/nb-story/src/web/pages/StatsPage.vue:19-22,37-65`；`packages/nb-story/src/web/parts/ChapterBars.vue:8-17`；`packages/nb-story/src/contract/contract.ts:73-82`
+- 现象：计划列出的查看器文件没有 `StatsPage.vue`、`ChapterBars.vue`，也没有说明 `book.stats` 的 `visible`、`chapters`、`extraction.written/generated` 如何按开关改标签与图例。现有统计页固定把 `secrets`、`ledger` 放进 LABEL，逐章图固定绘制 `ledger` 系列；API 的统计结果也固定返回两项计数。
+- 为什么是问题：即使核心查询返回 0，关闭两项的“说明与统计”仍会列出“秘密 0”“数值流水 0”“数值”颜色条，用户看到的是被隐藏功能的空壳，且与计划“关掉的项不显示”不一致。若仅删除查询数组而不改 stats schema/组件，图例、堆叠列和全书抽取统计还会出现无意义行；若改 schema 而不改 `StatsPage`，渲染又依赖缺失字段。
+- 如何核实：用现有样例数据调用 `book.stats`，`StatsPage` 对 `Object.entries(stats.visible)` 和固定 LABEL 直接渲染；`ChapterBars` 的 `SERIES` 固定含 ledger。代码路径没有 features 分支。
+- 建议改法：明确 stats 的过滤层和输出合同：关闭时从 visible、逐章 rows、抽取 written/generated 中移除相应键，或保留机器字段但页面必须用 features 过滤；`StatsPage`、`ChapterBars` 和相关文档一并更新。验收应断言两项关闭时统计页没有秘密/数值行、图例和颜色系列，而不是只断言总览没有块。
+
+### 9. 评测计划没有把 53 条尺子变成可复现的 29 条子集，`regress-20.sh` 也不接收开关
+- 严重程度：重要
+- 类别：测试
+- 位置：计划 `plan.md:90-99`；`.agents/works/w00024-nb-story/tasks/t06-ingest/scripts/regress-20.sh:5-29`；`.../scripts/ruler/check.ts:9-19,36-42`；`.../scripts/ruler/score.ts:1-19`
+- 现象：现有回归脚本用法只有 `regress-20.sh <运行名>`，第一次 ingest 没有 `--no-ledger`/`--no-secrets`，后续 `--book` 也没有 feature 参数。尺子检查器支持的只有按显式 id 的 `--only`，计分器按传入结果目录中的所有结果计算；计划只说“去掉秘密、数值两类”而没有固定 id 清单、脚本参数或输出元数据。
+- 为什么是问题：清单共 53 条，其中数值相关 15 条（账本数值 7、道具 3、任务进度 5），秘密/知情相关 9 条（知情 7、秘密存在 2），剩余 29 条。若仍跑完整清单，关闭后的记录必然被判“缺”或因空数组触发错误；若手工用 `--only`，三次运行可能选出不同集合，`score.ts` 也不会验证集合一致，满分和 t10 全量基线不可比。脚本不传开关则连待评估的书都不是关闭配置。
+- 如何核实：运行 `jq -r '.items | group_by(.category)[] | [.[0].category,length] | @tsv' .../checklist-ch1-20.json` 得到上述 11 类数量；读取 `regress-20.sh` 的参数解析和第一次命令，确认没有开关；读取 `check.ts`、`score.ts`，确认没有按类别过滤或集合一致性校验。
+- 建议改法：给回归脚本增加显式 `--no-ledger`、`--no-secrets` 或 `--features` 参数，仅在第一次新建命令传入，并把生效 features 写进输出元数据；为尺子生成固定的 `t11` checklist/`--only` 清单（明确 29 个 id），`score.ts` 校验所有结果目录的 id 集相同、报告 29 条和满分 261/次。报告同时保留与 t10 相同的剩余类别、同一判定方式和 token/费用字段，避免把不同分母的总分误称为可比。
+
+## 核实更正（以下裁定覆盖前文相应表述）
+
+本报告按要求只追加，保留核实过程；最终有效发现按本节的裁定及后续补证统计，不把撤回项计入。
+
+- **第 1 条降为“重要”**：这是 `core/api.ts:180-186` 的书单分派、`Library` 元数据与计划之间的遗漏；不是无法实现。`book.info` 已持有 Dataset，可以直接读取 `ctx.index.dataset.book.features`；需要另行明确的主要是 `books.list` 的数据来源与导入/提交时机。不得仅因计划没有逐个列实现文件就断言必然失败。建议优先补元数据投影与兼容测试，或明确采用 graph 读取方案及成本。
+- **第 2 条降为“重要”**：固定尾句与两条独立开关语义直接冲突，但不属于阻止实现的架构性阻断。
+- **第 3 条降为“重要”**：`secret-missing` 本身不会阻止最后提交。`chapter.ts:207-211,218-221` 的兜底/最终门禁只保留 error，所以无错 identity 会提交；真实问题是合法 identity 会多走 review、repair 两个请求、收到要求建秘密的错误指令，并留下无意义 warning。不能写成“仅凭这条 warning 导致无法提交”。也不应禁用指向 statement 的自动身份知情；已定决定要求它照常生成。
+- **第 4 条撤回**：没有核实到所述跨章死引用问题。合法的抽取草稿 ID 被 `draft-schema.ts:33-43,168-169` 限定为 `x<章>-<序号>` 与 `s<章>-<序号>`，所以按 x 前缀分类秘密知情对合法草稿可靠，跨章并不会改变前缀；关闭从新建起固定，也不可能存在“前章曾开、后章才关闭”的历史。现有 `sanitizeConsolidation()` 已把 deps 限定为当前存在的 statement/episode（`draft-tools.ts:305-309,348-358`），ledger/knowledge deps 会被清掉，不能把它忽略后断言必然残留。`questionUpdates.answer` 只许 statement ID，删除 `statement.secret` 不会删除 statement，因而它不需要随秘密开关被删。计划也已明确每次修复后重新过滤，覆盖 `replace` 后重入。`remove` 被过滤过的 id 是无操作，不会单独新增引用；一般错误引用仍走现有修复。建议补这些边界测试，但不把它们当作已证实缺陷。
+- **第 5 条维持“重要”**：仅针对导入边界的真实缺口。建议优先在导入时拒绝与 features 冲突的数据并定义 `unsupported_format`，避免为合法抽取路径增加整套查询过滤；若选择规范化，才需要同时闭合引用。这里不主张删除普通 statement 中出现的秘密或金额文字。
+- **第 6 条维持“重要”**：已读真实 `nb-harness/src/tools/effective.ts:63-89`：必需引用没登记会抛 `tool_unavailable`。只过滤 registry 确实不足，必须同步处理 Profile。可按每问构造 Profile tools；不要修改模块级 `QUERY_TOOL_IDS` 或共享 Profile 来切书，以免两问串状态。
+- **第 7 条维持“重要”，标题改读为“页面回退必须纳入 host 会话入口与路由同步”**：仅隐藏 NAV 时，现有直达地址会正常渲染原 LedgerPage/SecretsPage，而不是“空组件”；空数据会显示对应空页。计划要明确在 `openBookSession`、`router.afterEach`、`goPage/jump` 与 reading state 恢复时统一回退，不是声称隐藏导航必然破坏组件加载。
+- **第 8 条降为“建议”**：viewer 输出 17 现有合同允许列出各类记录计数，计划只明确改总览、人物卡、图和导航，没有明确禁止统计里的零值。应让作者补定“关闭”和“启用但无数据”在统计中的表达与测试，不能把保留 0 本身判成违反已定决定。
+- **第 9 条维持“重要”，更正分母并补充可比性边界**：29 条的单次满分是 **87**，三次合计才是 **261**，前文“261/次”错误。29 条不是“删除两个 category”即可得到：应删除 `L1-L15` 与 `K1-K9`，保留 `T1-T3,S1-S13,E1-E4,J1-J4,Q1-Q2,P1-P3`。此外 `check.ts:192-239` 的 records 判定会混入 secret、显式 knowledge、ledger 等候选，并截前 80 条；即使 id 集相同，新旧运行的判分材料也不同。应说明比较的是功能裁剪后的端到端结果，保留逐条材料和旧判分，不把一轮结果等同于统计证明“质量没变”。
+
+### 10. 保留“身份”清单时没有裁掉“建秘密”，关闭路径仍向模型下达相反指令
+- 严重程度：重要
+- 类别：正确性
+- 位置：主工作区计划 `plan.md:31,34`；worktree `packages/nb-story/src/ingest/reconcile.ts:116-124`；`src/ingest/prompts.ts:183-187`
+- 现象：计划说“身份”一条照开，因为它要的是 identity，与秘密开关无关；但真实 `buildChecklist()` 第 123 行的完整文字是“确实揭示了身份就补 identity 说法、建秘密并写知情”。计划只要求修改 `reviewTask` 的身份处理原则，没有要求修改这一条来自 checklist 的指令。
+- 为什么是问题：核对请求同时带 `reviewTask` 的原则和 `【程序核对出的清单】`；只改原则并不移除清单中逐项要求“建秘密”的命令。每章至多 4 条身份提示会反复要求写被关闭的 secrets，再被程序删去。这增加输出和问题说明，破坏“只关闭秘密，不妨碍 identity/statement 知情”的任务合同。
+- 如何核实：给 `buildChecklist()` 两个已知称呼及“银面具其实就是林朝”原文，不放 identity 说法；结果 `[身份]` 仍含“建秘密并写知情”。它被 `chapter.ts:194-196` 原样交给 review，而不是被 `reviewTask` 改写。
+- 建议改法：保留身份检测，但用 features 派生提示正文：secrets 开着时逐字保留旧文字；关着时只要求 identity 和指向 statement 的知情。新增测试同时核对身份提示仍会出现、其中不再要求建秘密，默认路径文字不变。
+
+### 11. 现有 CLI 选项适配器不支持 commander 的 `--no-*` 语义，照现有模式登记会丢掉两个开关
+- 严重程度：重要
+- 类别：接口与合同
+- 位置：主工作区计划 `plan.md:21-25,71,82`；worktree `packages/nb-story/src/cli/commands.ts:197-211,238-239,281-294`；`src/cli/program.ts:33-36,84-94,108-120`
+- 现象：CLI 的唯一选项真相源是 `commands.ts`；`program.ts` 按选项名的 camelCase 取值。登记 `"no-ledger"` 后它会读 `getOptionValue("noLedger")`，但 commander 把 `--no-ledger` 的值存在 `ledger=false`，把没传的默认值也存在 `ledger=true`，`noLedger` 始终不存在。`--no-secrets` 同理；计划只列 `cli/ingest.ts`，没有识别这个适配层差异。
+- 为什么是问题：按普通 boolean flag 的既有模式加两个条目，CLI 可以接受参数却不把 false 传给 ingest，新书照常全开。若修成无条件读 ledger 默认值，又会把“没传开关”误当成显式 `{ledger:true}`，接着抽已关闭的书会被错误判定为设置不匹配。
+- 如何核实：已实际运行安装的 commander：不传参数时 opts=`{ledger:true,secrets:true}`；传 `--no-ledger` 时 opts=`{ledger:false,secrets:true}`；四种组合中 `getOptionValue("noLedger")` 与 `getOptionValue("noSecrets")` 都是 undefined。完整复现命令记录于最终验证小节。
+- 建议改法：在命令表/解析适配器显式支持 negated option，并用 `getOptionValueSource("ledger") === "cli"` 区分缺省与显式 false；不要在 ingest 层另写第二套 argv 解析。补真实 CLI 新建、未传 flag 的 resume、单 flag resume 的断言，覆盖两项彼此独立及退出码 2。
+
+### 12. 现有录下请求测试会抹掉普通章的已有记录，不能证明默认请求逐字不变
+- 严重程度：重要
+- 类别：测试
+- 位置：主工作区计划 `plan.md:9,32-34,84,99`；worktree `packages/nb-story/src/ingest/chapter.test.ts:103-121`；`src/ingest/context.test.ts:23-36`；`src/ingest/context.ts:215-246`
+- 现象：计划把“都开时每个请求与现在逐字相同”完全映射到 `chapter.test.ts` 现有断言，并说不改断言。真实测试对第 2 章起的所有普通请求，先把实际发出的 narrowed context 整段替换为重新算出的全量 context，再对 t34 的 SHA-256；它不比较实际发出的那一段。`context.test.ts` 的逐字对照只覆盖不带 focus 的全量 context。
+- 为什么是问题：新增 features 参数正会改动 `renderContext`、说法优先级、recallCandidates 与 compile 的数据传递。如果默认路径错误地少列一条秘密、删掉一条说法、改变两节顺序，测试会把这段差异替换掉，仍可能通过。它证明的是“换回全量后的 t34 兼容”，不是本次要求的“t10 当前真实请求逐字相同”。整理请求已有整份对照，这一盲区主要是普通章与显式 features=true,true 的入口。
+- 如何核实：读测试第 113-116 行：`sent` 不参与 hash，进入 hash 的是 `full`；对它做一次只改 `sent`、不改 `full` 的反事实替换，hash 不变。当前 `selectFor()` 与 `recallCandidates()` 都依赖 secret 关联，正处在本次影响面内。
+- 建议改法：在实施前把当前默认路径实际发出的 system/user/effort（含 narrowed context、review/repair、整理）逐请求固定成只读基线；同一回放分别跑“没有 features”和“显式全开”，直接比较实际请求，不做 context 替换。现有 t34 兼容断言保留、不改；新增断言保护 t11 的硬约束，至少覆盖第 1 章、已有记录非空章、repair、整理和 recall 开启入口。
+
+### 13. `ingest.preview` 承诺返回新书将用的开关，却没有接收这些开关的输入合同
+- 严重程度：重要
+- 类别：接口与合同
+- 位置：主工作区计划 `plan.md:23-25,61,82,87`；worktree `packages/nb-story/src/contract/contract.ts:525-536`；`src/server/ingest-service.ts:62-76`；`src/web/shell/ImportPage.vue:102-143,156-167`
+- 现象：计划只给 `ingest.start` 增加可选输入 `features`，给 preview/status 增加结果 `features`；但要求 preview 对新书“给出将要使用的值”。当前 preview input 是 additionalProperties=false 的 `SourceContent`，里面只有 content/title/id。新书的两个开关在浏览器本地改了以后，preview 无从得知。
+- 为什么是问题：照字面实现，浏览器若把选择传给 preview，会得到 `invalid_params`；不传，则关闭了两项的新书预览仍报全开，与开始时用值不同。现有改书名会作废预览再重新请求，书名从新 id 改到已有 id 时还需要区分“本地新建选择”和“已有书保存值”，否则旧预览回包会把本地选择覆盖或把新值错误套到 resume。
+- 如何核实：当前严格 schema 下向 `ingest.preview` 增加 features 会在 `schemaProblems()` 被拒绝；`ImportPage.preview()` 只发 content/title，`start()` 另发一次请求，两次之间没有传递生效 feature 的机制。计划的 Spec 改动清单也只给 start 加参数。
+- 建议改法：给 preview 同样增加可选 features 输入，并明确 new 使用请求值/默认值、已有记录返回保存值，是否对不同请求值立即报错；start 必须在 id 锁内重新读保存值判定，不能信任 preview。页面分别保留新建选择与有效保存值，切书名/文件、过期回包、preview 后另一个进程先建书的场景都按此执行；补 RPC 严格 schema 与网页真实流程测试。
+
+## 真实路径补证（覆盖原先仅从代码推断的部分）
+
+执行：`cd /tmp/review-w00024-t11-design/scratch && bun --no-env-file --no-install /tmp/review-w00024-t11-design/scratch/check-design.ts`，退出 0；结果保存在 `scratch/check-design-results.json`。脚本只用 worktree 依赖、本机回放端点与临时书库，没有真实模型/密钥。
+
+- 第 3 条：真实 `extractChapter → OpenAI SDK → 本机 HTTP 端点` 发出 `beats,draft,review-1,repair-1` 共 4 次请求；identity 说法保留 1 条，`dropped=0`，剩余 `secret-missing` warning 1 条，程序生成知情的 `about="s1-1"`。因此是多两次请求与错误提示，不是不可提交。
+- 第 5 条：经真实 `book.import → createStoryApi` 导入 features 两项 false、各 1 条记录的数据，`secrets.matrix=1`、`ledger.tracks=1`、`book.stats` 两类均 1、`chapter.digest` 两类均 1、`graph.book` 秘密节点 1；graph 保留 false 设置，`book.json` 没有 features。这证明外部输入不能靠“本来没有记录”假设关闭。
+- 第 4 条撤回补证：`sanitizeConsolidation` 将只依赖 `l1-1` 的摘要句移除；混合 deps `[s1-1,l1-1]` 保留为 `[s1-1]`。`replace` 后 `remove` 相同 ledger/secret id 得到两类长度均 0，未制造额外引用。
+- 第 13 条：现有 preview 严格 schema 返回 `/ must not have additional properties`，计划必须明确新增 input，而不只是 result。
+- 生命周期无缺陷补证：source 已占用但 `committed=0` 时，文件与 saved 两种发起判定都是 `resume`；两个真实 `startIngest` 同时发起恰有 1 个成功、1 个 `ingest_running`；停止后状态 stopped、已提交 0；删掉这个 id 再判断为 new。features 校验应复用这条锁内判定路径。
+- 空结果补证：没有 ledger 时 `ledger.track` 返回 `entity_not_found`，不会“自然返回空对象”；空 secrets 的人物卡经 `formatResult` 仍带 `秘密：` 标题。前者应在计划查询说明中写准确，后者是 CLI/QA 空壳而非网页导航问题。
+
+- 第 6 条进一步实测：`cd /tmp/review-w00024-t11-design/scratch && bun --no-env-file --no-install /tmp/review-w00024-t11-design/scratch/check-qa.ts`，退出 0；真实 `createHarness` 在未发任何模型请求时解析工具。全部共 21 个（20 查询 + answer），移除 3 个后 registry 剩 18 个，静态 Profile 建会话报 `tool_unavailable`，details=`{profile:"story-qa",tool:"story.knows",reason:"unregistered",provider:null}`。结果见 `scratch/check-qa-results.json`。
+- 第 9 条补充工作区：t10 自己的 `scripts/regress-20.sh:9,25-28` 同样不接收开关，而且默认 `PKG` 指向旧评测 worktree `w00024-t10-eval-new`，不能不改参数就拿来评估 t11。必须显式选择本次实现代码与全新运行目录，并在结束时核对 `book.features`；不是只给脚本后面加两个会被忽略的参数。
+- 路径基准：本文 `packages/...` 均相对 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-nb-story/`；计划、Task、Spec 与评测脚本均读 `/home/notnotype/CodeRepository/neuro-book/` 主工作区。
+
+### 14. “讲知情的条目保留”会保留要求 `about` 指向秘密的指令，正常 statement 知情没有可执行写法
+- 严重程度：重要
+- 类别：正确性
+- 位置：主工作区计划 `plan.md:30,37,40`；worktree `packages/nb-story/src/ingest/prompts.ts:155,163-165`；`src/ingest/draft-schema.ts:166-174`
+- 现象：计划要求关秘密时保留讲知情的条目；当前 draftTask 第 163 行明确写“about 是他知道或不知道的那个秘密的编号”，随后完整举例和本人 unaware 规则也都只谈秘密。关闭路径若保留这一条，就一边不让写 secrets/statement.secret，一边要求 knowledge 指向秘密编号。
+- 为什么是问题：开发者决定 2 要求指向说法的知情照常抽取，而不仅是保留程序从 thought/to 派生的知情。照当前指令，模型可以继续写 about=x...，这些知识被过滤后就失去；也可以为了满足禁写秘密而不写显式 knowledge。最终数据没有 secrets、dropped=0 仍会通过当前验收，无法说明“指向说法的知情照常”。
+- 如何核实：对照 draftTask 第 163 行与 KnowledgeDraftSchema 的 `about: statementId | secretId`；现有 schema 确实支持 s 编号，不需要改系统规则或图结构。第 3 条实验也证实程序生成的身份知情在无 secret 时会改指向 s1-1，因此不能把“程序生成还有记录”当作显式抽取已保留的证据。
+- 建议改法：只在 secrets=false 的任务段把此条改为“about 指向本章或前文仍存在的说法编号”，给一条 s 编号例子；删除仅针对 secret 当事人的约束，不删除一般知情要求。默认文字逐字保留。回放至少包含显式 statement 知情、派生 statement 知情和被过滤的 secret 知情三者，并分别核对最终行为。
+
+### 15. 验收只有单个 CLI 开关和两项全关，未保护独立开关、不可变生命周期及网页各处条件
+- 严重程度：重要
+- 类别：测试
+- 位置：主工作区计划 `plan.md:78-88`；worktree `packages/nb-story/e2e/viewer.e2e.ts:8-17`、`e2e/fixtures.ts:24-31,94-120`、`e2e/ingest.e2e.ts:27-42,51-127`
+- 现象：计划只有 8 行映射：CLI 用 `--no-ledger`，管线和 viewer 主要用两项全关；没有 only-secrets-off 运行路径，没有两种“只关一项仍抽另一类”的断言。浏览器映射只验导航、一个 ledger 地址和 start 请求，没有对应总览块、人物卡秘密区、全书图 secret 类型、旧 reading state、secret 地址；没有第 1 章前失败/停止后改设置、append/done、未传设置 resume、并发设置竞争、旧 source.json 兼容和删除后改设置的用例。
+- 为什么是问题：两项全关无法抓第 2、11、14 条的问题；只读 start 参数也不能证明真实 worker 从 source.json 读到的设置被每次 compile/整理带到书里。计划列了“关闭后这些 UI 都消失”，但测试没把结果验证出来。且 viewer.e2e 的现有场地只导入全开样例书，没有可发起 ingest 的配置或回放端点，照现有 fixture 在该文件中测“导入页开关传到真实 start”会得到 `qa_unconfigured`，不能只拦截请求就算通过。
+- 如何核实：逐行把计划的关键设计和第 82-88 行映射对齐；读取 viewer fixture 的 `makeLibrary`（仅 import）与 `startServe`（未传测试配置），对照 ingest.e2e 真实启动 replay 和假 key 的既有流程。浏览器用例可实现，但现有 viewer 场地不能直接承载启动抽取的验收。
+- 建议改法：确定性最小矩阵为 4 个 feature 组合，分别检查禁用类缺失、启用类仍在、statement 知情与 questionUpdates 保留；只新建/未传值继承/显式相同接受/显式不同拒绝，至少覆盖 committed=0、append、done、并发和删除重建。UI 用一份非空对照数据与一份全关小书检查 5 处呈现；导入页从真实点击到 status/book.features 的流程复用 `ingest.e2e.ts` 场地，或给 viewer 独立配置 replay，不绕过运行时。
+
+### 16. 设置不匹配的 `invalid_params` 会走现有“退出 1”分支，计划缺少错误到退出码的收口
+- 严重程度：重要
+- 类别：接口与合同
+- 位置：主工作区计划 `plan.md:24,82`；worktree `packages/nb-story/src/cli/ingest.ts:25-29,79-93`；主工作区 `docs/specs/story/ingest.md:140-141`
+- 现象：计划要求设置不匹配返回 `invalid_params`、CLI 退出 2，但现有 ingestCommand 只有 `usageProblem()` 的静态用法检查返回 2；`startIngest`/planFromText/planFromSaved 抛出的所有 StoryError 都在第 90 行统一映射到 `EXIT_LIBRARY=1`。features 不同是锁内读保存数据之后才能判定，不在目前的静态 usageProblem 范围。
+- 为什么是问题：照自然实现把不匹配作为 `StoryError("invalid_params",...)` 抛出，即使 JSON 错误码正确，命令退出码也会是 1。若挪到锁外预检查以求退出 2，则产生 preview/start 之间的竞态；若直接把所有旧 invalid_params 改成 2，又会改变已有文件读取错误的退出口径。计划必须定义失败来源与分类，而不是只写一个数字。
+- 如何核实：读取第 88 行 `run()` 与第 90 行 catch：由 startIngest 产生的 StoryError 没有按 code/类型区分退出码；现有书库中找不到数值的失败为查询错误 1，不能与输入设置不匹配混用。计划已有测试要断言 2，但未列错误映射策略。
+- 建议改法：在锁内校验 features，使用既有错误类型/码或具名用法错误结果把“不允许改设置”传回 CLI，明确映射为 2、HTTP 为 400；保留其他书库/文件错误的既有口径。测试同时断言 exit=2、error.code=invalid_params、source/已提交内容/用量不变，覆盖 new 后 committed=0 的 resume 与 done。
+
+### 17. “`ledger.*` 自然返回空”不符合现有合同，CLI/QA 人物卡还会留下固定秘密标题
+- 严重程度：建议
+- 类别：接口与合同
+- 位置：主工作区计划 `plan.md:42-45,54-56`；worktree `packages/nb-story/src/core/queries/ledger.ts:111-120`、`src/core/queries/secrets.ts:74-103`、`src/cli/format.ts:65-73`、`src/qa/tools.ts:101-111`
+- 现象：`ledger.tracks` 对无数据返回空 tracks，但 `ledger.track` 对任何不存在轨道返回 `entity_not_found`；`secrets.matrix` 即使无秘密也返回 reader 列与空 rows。人物卡文字格式固定输出“秘密：”，与 secrets 是否为空无关；QA 的 card 工具复用这一 formatter。
+- 为什么是问题：计划说其余查询不改，却笼统保证 `ledger.*` 返回空，实现者可能为了照这个说法修改 track 错误语义，破坏现有调用方。即使不改语义，关闭秘密后的 CLI/QA 人物卡仍是空标题，和网页隐藏秘密区的表现不同。后者是表达完整性问题，不是已定产品决定的阻断。
+- 如何核实：隔离脚本通过真实 `book.import` 后调用 `ledger.track`，得到 `entity_not_found`；调用空 secrets 人物卡并 `formatResult`，`cardContainsSecretHeading=true`。结果见 `scratch/check-design-results.json` 的 `empty-results`。
+- 建议改法：在 queries 文档写清“集合查询为空、按轨道查询沿用不存在错误”，不为开关新增成功形状。若关闭含义还要求 CLI/QA 不出现空秘密段，给 formatter 足够的 features 信息或只在有秘密行时输出标题，并把该行为写进 CLI/QA 合同；默认文字的变更范围与抽取提示词逐字约束分开。
+
+### 18. Spec 改动清单遗漏被新行为覆盖的输出 4、11、12、21、38
+- 严重程度：建议
+- 类别：文档
+- 位置：主工作区计划 `plan.md:49,52,61-66`；主工作区 `docs/specs/story/viewer.md:43,56-57,69,103`；`docs/specs/story/queries.md:76-78`
+- 现象：计划引用总览输出 8、人物卡输出 10、图输出 31、导入页输出 37 的编号是对的；但新规则还覆盖输出 4（上次页面恢复）、11/12（秘密/数值页）、21（打开地址得到同一页）与 38（进度页给出 status 全部内容）。计划只列改输出 2 和边界地址，不给这些旧条目加条件，又说 status 新增 features 而“进度页不改”。
+- 为什么是问题：按清单更新后，Spec 同时承诺“地址打开同一页”和“关闭页转总览”，以及“进度显示 status 全部字段”和“features 不展示”。实现者与测试者会得到两套字面合同，尤其保存的禁用页应回退还是恢复不明确。这里是文档收口遗漏，不要求新增进度 UI。
+- 如何核实：逐条对照 viewer 当前输出 4、11、12、21、38 与计划第 49、52、65 行；没有发现错误输出编号，发现的是受覆盖条目的例外未登记。
+- 建议改法：在旧条目原位加“仅功能启用时”“禁用页面按输出 2 回退”的引用，输出 38 明确 features 只供客户端判断还是也显示一行设置；不重编号、不删公开 `/secrets`、`/ledger` 地址。查询里的空结果/不存在错误另按第 17 条澄清。
+
+## 本次实际验证
+
+1. `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-w00024-t11-design/scratch NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00024-t11-design/scratch/agent-temp bun --no-env-file --no-install test src/ingest/chapter.test.ts src/ingest/context.test.ts`（worktree 的 `packages/nb-story`）：**21 pass，0 fail，173 expect() calls，2 个文件，2.88s**。这是改动前现有代码的验证，不是尚未实施的 features 通过证据。
+2. `bun --no-env-file --no-install /tmp/review-w00024-t11-design/scratch/check-design.ts`（scratch）：退出 0，验证章节抽取、本机 HTTP 回放、真实导入与查询、并发 Runner、停止和删后新建；具体输出见“真实路径补证”。所有写入只在 scratch。
+3. `bun --no-env-file --no-install /tmp/review-w00024-t11-design/scratch/check-qa.ts`（scratch）：退出 0，真实 Harness 的必需工具解析报错符合预期；没有发模型请求。
+4. `bun --no-env-file --no-install src/cli.ts ingest /tmp/review-w00024-t11-design/scratch/nonexistent-input.txt --library /tmp/review-w00024-t11-design/scratch/cli-library --json`（worktree 的 `packages/nb-story`）：**预期退出 1**，JSON code=`invalid_params`。这是第 16 条错误映射的当前行为补证，不是一次测试失败。
+5. commander 四种组合的实测命令（worktree 的 `packages/nb-story`）：
+   ```sh
+   bun --no-env-file --no-install -e 'import {Command} from "commander"; for (const args of [[],["--no-ledger"],["--no-secrets"],["--no-ledger","--no-secrets"]]) { const cli = new Command().option("--no-ledger").option("--no-secrets"); cli.parse(args,{from:"user"}); console.log(JSON.stringify({args,opts:cli.opts(),noLedger:cli.getOptionValue("noLedger")??null,ledger:cli.getOptionValue("ledger")??null,noSecrets:cli.getOptionValue("noSecrets")??null,secrets:cli.getOptionValue("secrets")??null})); }'
+   ```
+   退出 0，否定参数存在于 ledger/secrets，noLedger/noSecrets 四组均不存在。
+6. 默认请求测试的替换逻辑反事实实验：构造两个只有已有记录不同的普通章请求，按 `chapter.test.ts:113-116` 替换为相同 full context；实际请求不同，替换后的 SHA-256 相同，均为 `641c773d5341a8169a51381de7ba35f0a07ec9ca351bbccddf786ba1436c9a4e`。这只证明断言的盲区，**不是在修改后的真实管线上复现回归**；第 12 条据此列为验收缺口。
+7. `jq -c '{all:(.items|length),removed:(.items|map(select((.check.kind|startswith("ledger-")) or .check.kind=="secret-table"))|length),retained:(.items|map(select(((.check.kind|startswith("ledger-")) or .check.kind=="secret-table")|not))|map(.id)),retainedMax:(.items|map(select(((.check.kind|startswith("ledger-")) or .check.kind=="secret-table")|not))|length*3)}' .agents/works/w00024-nb-story/tasks/t06-ingest/scripts/ruler/checklist-ch1-20.json`（主工作区）：**53 条，去掉 24，保留 29，单次满分 87**。保留中 `records=26`、`time-relation=3`。
+8. 读取 t10 `evidences/regress-20/aggregate.md` 的既有逐条结论，按 `对3/部分2/缺1/错0` 对相同 29 个 id 重新求和：旧三次是 **63、63、67 / 87**，合计 **193 / 261**；29 条中 **12 条**三次结论翻转。仅是从既有证据计算，没有重跑评分或模型。一次新评测只能描述相对这三份基线的观察，不能据此“确认质量未下降”。
+
+未运行：typecheck（未改类型或产品源码）、全量测试、浏览器 e2e、开发服务、真实模型、真实评分器；未读取真实密钥。没有仓库文件改动、Git 写操作、依赖安装或子代理。
+
+## 最终问题裁定（交付依据，按影响排序）
+
+追加过程中的第 1-9 条以“核实更正”为准。再作两项收口：
+
+- **第 7 条降为“建议”**：计划已经要求地址回退，因没有列出 `host/book.ts` 就断言设计不能实现并不成立；有效建议是把保存状态、同书路由切换与回退后地址/阅读状态的一致性纳入验收，避免仅隐藏导航。
+- **第 16 条撤回为独立发现**：计划第 24 行已明确 `invalid_params + exit 2`，第 82 行也明确验收退出码 2；不要求设计计划逐个写出 catch 改法。现有 catch 返回 1 是实施时必须处理的差异，保留为第 11、15 条的核实说明，不再重复计一项问题。CLI 不存在文件退出 1 的实验没有证明新增设置不匹配会错误退出。
+
+有效发现顺序如下；编号保持追加时的编号，便于对照证据，不重新制造重复发现。
+
+| 影响顺序 | 原编号 | 严重程度 | 最终有效标题 | 证据级别 |
+| --- | --- | --- | --- | --- |
+| 1 | 11 | 重要 | commander 的否定选项与现有 adapter 不兼容，普通登记会丢失 flags 或丢失“未传”语义 | 已运行安装的 commander；adapter 从代码核实 |
+| 2 | 6 | 重要 | registry 过滤没有同步 Profile 必需引用，建问答会话会报 `tool_unavailable` | 已运行真实 createHarness |
+| 3 | 2 | 重要 | 固定尾句把独立开关写成同时关闭，并在 only-ledger-off 时禁止 secret 字段 | 计划字面冲突 |
+| 4 | 14 | 重要 | 关闭秘密却保留“knowledge.about 必须指向秘密”的任务要求 | 计划与真实任务文字核实 |
+| 5 | 3 | 重要 | `secret-missing` 仍要求补秘密，合法 identity 多走 review/repair 两次请求 | 已运行完整单章抽取至结果 |
+| 6 | 10 | 重要 | 身份核对清单自身仍要求“建秘密”，只改 reviewTask 原则不够 | 已运行 buildChecklist；进入请求的路径从代码核实 |
+| 7 | 5 | 重要 | 导入关闭标记与非空记录没有边界合同，五类查询仍返回记录 | 已运行真实导入与核心 API |
+| 8 | 1 | 重要 | `books.list` 只读元数据，计划的两处存储没闭合到书单返回 | 已运行导入确认 meta 不含字段；分派从代码核实 |
+| 9 | 13 | 重要 | preview 新书“将用值”没有 features 输入，和 start 设置不同步 | 已运行严格 schema；页面状态从代码核实 |
+| 10 | 12 | 重要 | 既有请求断言覆盖不了 t10 实际 narrowed context 的逐字约束 | 已核实断言替换机制；反事实实验说明盲区 |
+| 11 | 15 | 重要 | 缺两种单项关闭、生命周期和 UI 呈现验收；viewer fixture 不能直接启动 ingest | 计划映射与真实 fixture 从代码核实，未跑浏览器 |
+| 12 | 9 | 重要 | 回归脚本不传开关/可能用旧 worktree，29 条子集和同口径判分未固定 | 已统计 53/24/29 与旧基线 63/63/67；未调用模型 |
+| 13 | 7 | 建议 | 页面回退应统一处理初始化、路由变化和保存状态恢复 | 从代码核实，未跑浏览器 |
+| 14 | 8 | 建议 | 明确统计页如何区别“关闭”和“开启但 0 条”，避免无意义图例 | 从代码核实，未跑浏览器 |
+| 15 | 17 | 建议 | 修正 `ledger.*` 空值承诺，处理 CLI/QA 人物卡的空秘密标题 | 已运行核心 API 与 formatter |
+| 16 | 18 | 建议 | 现有 viewer 输出的例外未原位收口，进度“全部字段”与不改页冲突 | 主工作区 Spec 与计划逐条核实 |
+
+原编号 4 已撤回；原编号 16 不再独立计数。**有效发现 16 条：阻断 0、重要 12、建议 4。** 报告中的 `###` 共有 18 个，是追加核实轨迹，不等同于有效发现数；最终严重程度与统计只按本表。
+
+## “不做与风险”逐项判断
+
+1. **“不做事后改开关，也不做从第几章起”**：与开发者决定一致，现有 source 占用和 id 锁足以承载；只须用 source 存在/`action` 判定，而不是把 `committed=0` 当成还能改，并在 `done` 早返回之前完成比较。
+2. **“系统仍有规则与示例，编译前过滤兜底，用真实评测观察”**：已批准的取舍成立，不重新要求改系统提示词；但必须先解决第 3、10、14 条程序/任务仍要求秘密的问题，否则额外产出不是单纯的“模型偶尔没听话”。一次评测只报告观察，不得写成证明自然不写与过滤后质量等价。
+3. **“只省输出 token 和已有记录两节，省不了系统；系统前缀缓存”**：系统文字不变所以不缩短系统输入这一点成立；“只省”不能当节省下界，任务长度、核对/修复请求数和说法选择都会变化，前缀相同也不保证服务端实际命中，费用比较必须同时报告实际 `cacheRead`、请求数和不完整用量。
+
+## 未发现问题的方面
+
+- **四项已定决定**：新建后固定、关秘密保留 statement 知情、系统提示词不改且过滤不计 dropped、只跑一次无门槛真实评测，本次没有建议推翻。Task README 第 4 条已批准评测；计划“要批准”可同步为已批准，但本次审查授权明确不运行，实际未运行。
+- **新建/未提交的 resume/并发/删后重抽机制确实存在**：真实 Runner 实验得到一个成功一个 `ingest_running`；source 已占用而 committed=0 时仍 resume；停止删除后回到 new。没有发现需要重做锁、增加共享全局 features 或第三种生命周期状态的理由。功能比较应留在现有锁内，preview 不能替代 start 再判定。
+- **合法草稿的秘密分类与跨章编号**：`x<章>-<序号>` 和 `s<章>-<序号>` 在草稿 schema 中互斥，指向前文秘密仍是 x 编号，按合法编号分类不会因跨章失效；不能仅查“这一章新增 secrets”判定。编译后的外部 V9 ID 只要求非空字符串，若导入时做规范化应查 secret 表，不能把草稿前缀规则套到 V9 文件。
+- **问题更新不必随秘密一起删**：`questionUpdates.answer` 只能引用 statement；按已定决定保留 identity 等 statement、仅去掉它的 secret 字段，不会破坏问题答案或悬念进展。没有发现应把所有身份说法、含金额的说法、物品/任务对象一起删除的依据，这些都超出本次关闭的记录类别。
+- **修复与整理已有自然处理点**：`applyPatch` 后重新过滤足以覆盖 `replace` 重加；`remove` 指向已过滤 id 是无操作。现有 sanitizer 会删除不存在或不受支持的 summary deps，空 deps 句子直接去掉，混合 deps 留有效项；不需要另建全书递归清理框架。必须在 `checkDraft` 之前过滤关闭类别，才不会把外形异常的关闭记录先算成质量问题。
+- **无秘密仍能保留身份与知情**：实验得到程序生成 knowledge.about=`s1-1`；`book-index.identityLinkOf` 依据 identity statement 而非必须有 secret，角色视角的 `awarenessOfLink` 同时支持 statement 和 secret。因而关闭秘密无需退役身份合并、角色视角或一般 knowledge 工具；未发现必须扩展图结构的理由。
+- **空集合的核心索引/查询路径**：正常无秘密/无数值的数据能导入和查询，没有发现必须为每个 query 新增功能分支的理由；统一保证导入/抽取数据不变量即可。集合为空不意味着单条 `ledger.track` 成功，已在第 17 条澄清。
+- **整理任务正文**：`consolidationPrompt` 只要求 merges/summaries/arcs，deps 文字只列说法或情节，不要求输出 ledger/secrets；不必另复制功能版整理提示词。关闭时已有记录按设置过滤，默认时保留全量 context 和整个整理请求；现有测试已对第 5/10 章整理整份请求做逐字对照。
+- **查看器输出编号**：计划引用 2、8、10、31、37 均与当前主工作区 viewer.md 对应，没有编号错位。需要补的是受影响旧条目的条件与地址优先级例外，不是重新编号。
+- **真实浏览器验收可实现**：现有 ingest.e2e 已用本机回放、真实 serve、真实输入文件、假密钥完成导入/停止/继续；回放按 `X-Nbstory-Step` 而不是任务文字识别，所以功能版任务段不需要伪造 RPC 结果。应复用该场地补缺失判据；本次按限制没有运行浏览器。
+
+## 数量与报告自查
+
+- 最终有效：**阻断 0、重要 12、建议 4，共 16 条**；原编号 4、16 撤回/合并，不计入。
+- 追加后的 `grep -c '^### ' /tmp/review-w00024-t11-design/report.md` 轨迹为 1、2、3、4、5、6、7、8、9、9、10、11、12、13、13、13、14、14、15、16、17、18、18、18、18，单调不减；最终 18 个核实条目标题。最终结论按“最终问题裁定”表，不按初稿严重程度累计。
+- 主工作区计划、Spec 与 worktree 产品代码均只读；报告和实验脚本之外未修改任何仓库文件。
+
+## 交付精度收口
+
+- 第 15 条对 viewer fixture 的失败描述以这里为准：没有显式隔离模型配置时，**未配置的环境会报 `qa_unconfigured`，有用户默认配置的环境则可能意外使用该配置**，不是任何环境都必定报同一个错误。本次没有启动 viewer/e2e，也没有读取用户配置或密钥；这是从代码推断的测试隔离风险。复用 ingest.e2e 的假 key、本机 replay 和专用 XDG_CONFIG_HOME 可消除它。
+- 第 9 条“关掉后全量尺子必然全是缺”的含义不能扩大：例如 L9 是不存在某笔支出的负向断言，空 ledger 也可能得到“对”。准确风险是不同检查会被有意去掉的数据污染，有的判缺、有的无意义地判对，不能把完整 53 条成绩与关闭模式相比。
+- 第 11 条是对计划依赖现有解析机制的核实，不声称尚未实施的 `--no-ledger` 已经在产品 CLI 被接受并失效；已实测的是 commander 值的位置，结合真实 adapter 可以确定“照普通 flag 登记”这条实施路径不成立。
+- 最终有效发现与级别仍为“最终问题裁定”表的 **16 条：阻断 0、重要 12、建议 4**。所有反事实、从代码推断、已有基线与本次真实运行已分开标明。

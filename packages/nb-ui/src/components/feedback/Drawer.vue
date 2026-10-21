@@ -10,7 +10,9 @@ import {
     DrawerTitle,
     DrawerTrigger,
 } from "reka-ui";
-import {NB_Z_INDEX} from "../../theme/z-index";
+import {provide, ref, watch} from "vue";
+import {NB_MODAL_POPOVER_Z_INDEX, NB_POPOVER_Z_INDEX} from "../../theme/z-index";
+import {useModalLayer} from "../../composables/useModalLayer";
 import {useTeleportTarget} from "../../composables/useTeleportTarget";
 
 export type DrawerDirection = "top" | "bottom" | "left" | "right";
@@ -40,6 +42,23 @@ const teleportTo = useTeleportTarget(() => undefined);
 const emit = defineEmits<{
     (e: "update:open", value: boolean): void;
 }>();
+
+/*
+ * 层级与 Dialog、AlertDialog 同一个模态序列：从抽屉里打开的确认框压在抽屉上面，反过来也一样。打开状态受控时跟 open，
+ * 非受控时跟 reka 发出的变化。抽屉内容传送到页面根上，里面的下拉、提示若取普通页面的浮层层级会落在抽屉后面，
+ * 所以向内容树提供模态的局部浮层层级（理由见 NB_MODAL_POPOVER_Z_INDEX）。
+ */
+const opened = ref(props.open ?? props.defaultOpen);
+watch(() => props.open, (value) => {
+    if (value !== undefined) opened.value = value;
+});
+const {zIndex} = useModalLayer(() => opened.value);
+provide(NB_POPOVER_Z_INDEX, NB_MODAL_POPOVER_Z_INDEX);
+
+function onOpenChange(value: boolean): void {
+    opened.value = value;
+    emit("update:open", value);
+}
 </script>
 
 <template>
@@ -48,7 +67,7 @@ const emit = defineEmits<{
         :default-open="props.defaultOpen"
         :swipe-direction="props.direction === 'bottom' ? 'down' : (props.direction === 'top' ? 'up' : props.direction)"
         :modal="props.modal"
-        @update:open="(val) => emit('update:open', val)"
+        @update:open="onOpenChange"
     >
         <DrawerTrigger as-child>
             <slot name="trigger" />
@@ -56,14 +75,12 @@ const emit = defineEmits<{
 
         <DrawerPortal :to="teleportTo()">
             <DrawerOverlay
-                :style="{zIndex: NB_Z_INDEX.dialog - 1}"
-                class="fixed inset-0 bg-[color-mix(in_srgb,var(--overlay-scrim)_80%,transparent)] backdrop-blur-[4px] transition-opacity [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+                :style="{zIndex}"
+                class="fixed inset-0 bg-[var(--overlay-bg)] backdrop-blur-[4px] transition-opacity [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
             />
 
             <DrawerContent
-                :style="{
-                    zIndex: NB_Z_INDEX.dialog,
-                }"
+                :style="{zIndex}"
                 class="nb-ui-popover-surface nb-ui-dialog-surface fixed flex flex-col text-[var(--text-main)] shadow-[var(--elevation-dialog)] transition-transform [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] outline-none border-[color-mix(in_srgb,var(--text-main)_10%,transparent)]"
                 :class="[
                     props.direction === 'right' ? 'inset-y-0 right-0 h-full w-[380px] max-w-[90cqw] border-l' : '',

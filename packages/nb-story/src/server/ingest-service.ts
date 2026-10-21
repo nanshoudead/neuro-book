@@ -15,11 +15,11 @@ import {StoryError, type StoryErrorCode} from "../core/errors";
 import {bookIdFromTitle, type Library} from "../core/library";
 import {INGEST_METHODS, type IngestMethod, type ViewerParams, type ViewerResult} from "../contract/contract";
 import type {Runner} from "../ingest/runner";
-import {startIngest} from "../ingest/runner";
+import {modelChoice, startIngest} from "../ingest/runner";
 import {planFromText, type IngestPlan} from "../ingest/start";
 import {ingestStatus, ingestStatuses} from "../ingest/status";
 import {decodeUtf8, MAX_SOURCE_BYTES} from "../ingest/text";
-import {ingestModel, loadQaConfig, type QaConfig} from "../qa/config";
+import {ingestModel, loadQaConfig, recallModel, type QaConfig} from "../qa/config";
 import {QaError, type QaErrorCode} from "../qa/errors";
 
 export type IngestOutcome<M extends IngestMethod> = {ok: true; value: ViewerResult<M>} | {ok: false; error: {code: StoryErrorCode | QaErrorCode; message: string}};
@@ -60,7 +60,7 @@ export function createIngestService(options: {library: Library; configPath?: str
     const loadConfig = (): Promise<QaConfig> => loadQaConfig(...(options.configPath === undefined ? [] : [options.configPath]));
 
     async function preview(params: ViewerParams<"ingest.preview">): Promise<ViewerResult<"ingest.preview">> {
-        const plan = await planFromText(library, {text: decodeContent(params.content), title: titleOf(params), ...(params.id === undefined ? {} : {id: params.id})});
+        const plan = await planFromText(library, {text: decodeContent(params.content), title: titleOf(params), ...(params.id === undefined ? {} : {id: params.id}), ...(params.features === undefined ? {} : {features: params.features})});
         // 预览不要求配置可用：读不出来时只是不写模型，开始时再报 qa_unconfigured。
         const model = await loadConfig().then(
             config => {
@@ -89,12 +89,14 @@ export function createIngestService(options: {library: Library; configPath?: str
         const id = source.id ?? bookIdFromTitle("title" in source ? source.title : "");
         if (starting.has(id) || runners.has(id)) throw new StoryError("ingest_running", `书 ${id} 已有抽取任务在运行`);
         const launched = (async () => {
-            const model = ingestModel(await loadConfig());
+            const config = await loadConfig();
+            const recall = recallModel(config);
             return startIngest({
                 library,
                 ...source,
-                endpoint: {baseUrl: model.baseUrl, model: model.id, apiKeyEnv: model.apiKeyEnv, maxTokens: model.maxTokens},
-                price: model.price,
+                ...(params.features === undefined ? {} : {features: params.features}),
+                ...modelChoice(ingestModel(config)),
+                recall: recall === null ? null : modelChoice(recall),
                 runner: "serve",
             });
         })();

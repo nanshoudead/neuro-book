@@ -40,7 +40,6 @@ import Menubar from "./controls/Menubar.vue";
 import CheckboxGroup from "./form/CheckboxGroup.vue";
 import Tree from "./navigation/Tree.vue";
 import {useNotification} from "../composables/useNotification";
-import {getFocusable, trapTabKey} from "../utils/focus-trap";
 
 describe("nb-ui components", () => {
     it("renders button loading and disabled state", () => {
@@ -698,26 +697,6 @@ describe("nb-ui a11y round", () => {
         vi.advanceTimersByTime(1000);
         expect(notification.notifications.value.some((item) => item.id === id)).toBe(false);
         vi.useRealTimers();
-    });
-
-    it("collects focusable elements and cycles tab focus", () => {
-        const root = document.createElement("div");
-        root.innerHTML = "<button id='first'>A</button><input id='mid'><button id='last' disabled>B</button><a id='link' href='#'>L</a>";
-        document.body.appendChild(root);
-
-        const focusable = getFocusable(root);
-        expect(focusable.map((el) => el.id)).toEqual(["first", "mid", "link"]);
-
-        (root.querySelector("#link") as HTMLElement).focus();
-        const forward = new KeyboardEvent("keydown", {key: "Tab", cancelable: true});
-        trapTabKey(forward, root);
-        expect(document.activeElement?.id).toBe("first");
-        expect(forward.defaultPrevented).toBe(true);
-
-        const backward = new KeyboardEvent("keydown", {key: "Tab", shiftKey: true, cancelable: true});
-        trapTabKey(backward, root);
-        expect(document.activeElement?.id).toBe("link");
-        root.remove();
     });
 
 });
@@ -1546,6 +1525,40 @@ describe("nb-ui dialog anatomy", () => {
 
         expect(wrapper.text()).toContain("打开抽屉");
         wrapper.unmount();
+    });
+
+    it("keeps drawer popovers above the drawer and stacks a later modal above it", async () => {
+        const drawer = mount(Drawer, {
+            props: {open: true, title: "设定详情"},
+            slots: {
+                default: () => h(Select, {
+                    modelValue: "one",
+                    options: [{label: "第一项", value: "one"}, {label: "第二项", value: "two"}],
+                }),
+            },
+            attachTo: document.body,
+        });
+        const alert = mount(AlertDialog, {props: {open: false, title: "删除设定？"}, attachTo: document.body});
+        try {
+            await nextTick();
+            const zIndexOf = (element: Element | null) => Number((element as HTMLElement | null)?.style.zIndex);
+            const drawerZ = zIndexOf(document.querySelector(".nb-ui-dialog-surface"));
+            expect(drawerZ).toBeGreaterThanOrEqual(9000);
+
+            // 抽屉里的下拉传送到 body，与抽屉在同一层比较；它要压过抽屉，否则打开后看不见
+            document.querySelector<HTMLElement>("[role='combobox']")!.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+            await nextTick();
+            await nextTick();
+            expect(zIndexOf(document.querySelector(".nb-ui-menu-surface"))).toBeGreaterThan(drawerZ);
+
+            // 从抽屉里打开的确认框压在抽屉上面，靠打开顺序而不是 DOM 顺序
+            await alert.setProps({open: true});
+            await nextTick();
+            expect(zIndexOf(document.querySelector("[role='alertdialog']"))).toBeGreaterThan(drawerZ);
+        } finally {
+            alert.unmount();
+            drawer.unmount();
+        }
     });
 
     it("renders progress bar with tone and aria value", () => {

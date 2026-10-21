@@ -13,7 +13,7 @@ import type {LabComponentDefinition} from "./definitions";
 /**
  * 弹出列表的验收夹具（w00029 t04，e2e/popup-lists.spec.ts）：行高、字号、圆角、高亮与勾选列要在真实布局与真实指针下量，
  * happy-dom 没有布局也不产生指针移动。场景 `menus` 放菜单一族各一个：DropdownMenu（reka 的项加手工级联）、Menubar、
- * 右键菜单（全是普通按钮项）；`select`、`quick-pick` 各放一个，带说明的两行项与单行项混排；`long` 与 `quick-pick-long`
+ * 右键菜单（全是普通按钮项）；`select`、`quick-pick` 各放一个，带说明的项与不带说明的项混排；`long` 与 `quick-pick-long`
  * 是长列表与多级长级联，验截断、滑块与滚动。
  */
 const props = defineProps<{
@@ -86,7 +86,7 @@ const LONG_CONTEXT_ITEMS: ContextMenuItem[] = [
     ...numbered("主项", 30).map(({label}) => ({label})),
 ];
 const SHORT_DROPDOWN_ITEMS = numbered("项", 8);
-/** 单行项与带说明的两行项混排：每 4 项有一项带说明。 */
+/** 带说明的项与不带说明的项混排：每 4 项有一项带说明。 */
 const LONG_SELECT_OPTIONS = numbered("第", 30).map((option, index) => ({...option, label: `${option.label} 章`, description: index % 4 === 1 ? "带一行说明" : undefined}));
 const longFormat = ref("第-20");
 

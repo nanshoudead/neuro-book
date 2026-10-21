@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: story.cli
 owners:
   - nb-story
@@ -125,6 +125,19 @@ owners:
 
 Smoke：在真实书库上，用 100 章样例书跑场景 1 到 4；场景 5 用一个外部 Agent 跑一遍并留下答案记录。
 
+## 实现合同
+
+- **公开入口**：命令行 `nbstory`（包 `@notnotype/nb-story` 的 bin）的命令、参数、`--json` 形状与退出码；随包的 Skill（`packages/nb-story/skill/` 下的 `SKILL.md` 与 `references/`）。
+- **owner 与依赖方向**：nb-story。查询命令经核心库的 `createStoryApi` 调方法，不另写查询逻辑；`serve` 装配核心库、HTTP 层与抽取服务。核心库不依赖命令行。
+- **关键不变量**：
+  - 查询命令由一张命令表映射到方法，`--json` 的 `data` 就是这个方法的结果；命令表里没有的方法没有命令（`cli.test.ts` 的命令与方法一致）。
+  - 同一书库的 `serve` 单实例靠对书库里锁文件的操作系统独占锁，进程怎么结束锁都随之释放；登记只由持锁者写，不含口令（`server.test.ts` 的单实例与登记）。
+  - `serve` 的先后：拿锁、开始监听、写登记、装上停止信号的处理，最后才打印登录链接；停止时先停本服务的抽取任务，再撤销登记、停监听、放锁（`server.test.ts` 的启动与 `--json`、`server/ingest.test.ts` 的停服顺序）。
+  - 给人读的输出附查看器地址只在登记有效（地址连得上、实例号相同）时（`server.test.ts` 的命令行查看器地址）。
+
 ## 证据
 
 - 批准依据：[剧情图谱第一版提案](../../proposals/novel-story-app.md)（accepted，含 2026-10-15 第一版不做内置问答、随后改为做内置问答的决定）；开发者 2026-10-15 在 w00024 t02 的决定；内置问答见 [`story.qa`](qa.md)。
+- 实现入口：[`cli/main.ts`](../../../packages/nb-story/src/cli/main.ts)、[`cli/commands.ts`](../../../packages/nb-story/src/cli/commands.ts)、[`server/serve.ts`](../../../packages/nb-story/src/server/serve.ts)、[`server/registry.ts`](../../../packages/nb-story/src/server/registry.ts)、[`skill/SKILL.md`](../../../packages/nb-story/skill/SKILL.md)
+- 合同测试：[`cli/cli.test.ts`](../../../packages/nb-story/src/cli/cli.test.ts)、[`server/server.test.ts`](../../../packages/nb-story/src/server/server.test.ts)、[`e2e/viewer.e2e.ts`](../../../packages/nb-story/e2e/viewer.e2e.ts)（验收 3）
+- Smoke：场景 1、2 由 [`cli/cli.test.ts`](../../../packages/nb-story/src/cli/cli.test.ts) 以子进程跑真实命令；场景 3 由 [`e2e/viewer.e2e.ts`](../../../packages/nb-story/e2e/viewer.e2e.ts) 在真实服务与 Chromium 上跑；场景 4 由 [`server/server.test.ts`](../../../packages/nb-story/src/server/server.test.ts) 起真实 `serve` 子进程跑；场景 5 的评测记录见 [w00024 t03 的 Skill 评测报告](../../../.agents/works/w00024-nb-story/tasks/t03-impl/evidences/skill-eval/report.md)（2026-10-15，一审答错 3/48）

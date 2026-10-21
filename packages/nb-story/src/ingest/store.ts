@@ -20,7 +20,7 @@ import {randomUUID} from "node:crypto";
 import {appendFile, mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
-import type {SourceChapter} from "../core/dataset";
+import type {BookFeatures, SourceChapter} from "../core/dataset";
 import {StoryError, systemErrorCode} from "../core/errors";
 import type {Library} from "../core/library";
 import {tryLock, type FileLock} from "../platform/flock";
@@ -33,6 +33,8 @@ export interface IngestSource {
     preambleChars: number;
     volumeLines: number;
     createdAt: string;
+    /** 新建时定下的开关（w00024 t11 起写），之后不改。没有时按都开算（`featuresOf`）。 */
+    features?: BookFeatures;
 }
 
 export type Price = {input: number; output: number; cacheRead?: number; currency: string};

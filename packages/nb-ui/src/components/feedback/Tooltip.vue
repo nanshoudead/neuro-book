@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {inject, ref, watch} from "vue";
+import {ref, watch} from "vue";
 import {
     TooltipContent,
     TooltipPortal,
@@ -7,10 +7,9 @@ import {
     TooltipRoot,
     TooltipTrigger,
 } from "reka-ui";
-import {NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
+import {usePopoverLayer} from "../../composables/usePopoverLayer";
 
-/** 对话框或浮动窗口里的浮层跟随它们的层级（由 Dialog 注入）；不在里面时回退到普通页面层级。 */
-const popoverZIndex = inject(NB_POPOVER_Z_INDEX, NB_Z_INDEX.popover);
+const {zIndex: popoverZIndex} = usePopoverLayer();
 
 // 悬停提示：hover 延迟显示、focus 即时显示、click 不打断已显示的提示、Esc 关闭。
 // 定位与碰撞翻转交给 reka Popper，不再自己算视口边界。

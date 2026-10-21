@@ -87,6 +87,8 @@ type QaConfig = {
    | `ledger`、`track`、`questions`、`timeline`、`episodes`、`arcs` | 数值、悬念、时间线、情节 |
    | `search`、`read`、`para` | 搜索、原文、引用某段的记录 |
 
+   书在新建时关掉了秘密时没有 `knows`，关掉了数值时没有 `ledger`、`track`（[`story.ingest`](ingest.md) 输出 18）：这一问的会话里不声明它们，模型调用它们得到工具错误；系统提示词里列举图里有什么时也不提数值。
+
    查询失败（例如 `entity_ambiguous`、`entity_not_found`）以工具错误结果返回错误码、说明与候选，这一问继续。
 4. **原文只到 P。** `read` 只返回 P 以前（含 P）的段落：P 所在章里 P 之后的段落不返回（比 [`story.queries`](queries.md) 输出 14 严，那条例外不适用于问答）；请求的范围整个在 P 之后时是工具错误。
 5. **图当目录读原文的章数上限。** 一问里 `read` 返回过段落的不同章，至多 `maxChapters` 个。已经读过的章可以再读；一次调用裁到 P 以后涉及的新章会让总数超过上限时，整次调用是工具错误，写明上限与已读的章，不返回任何段落，也不计入已读。同一条模型消息里的几次 `read` 依次处理，合起来同样不超过上限。全读时没有这条上限。
@@ -136,7 +138,7 @@ type QaConfig = {
 20. **写入规则。** 写之前整份配置过校验，不通过就不写、原文件不变（`qa_unconfigured`，写明哪个字段）；通过的写同目录临时文件再改名，正在读它的 `ask` 读到的要么是旧的整份、要么是新的整份；写不进去报 `qa_config_write_failed`（F7）。配置里只有环境变量名，密钥值不出现在配置文件、输出与错误里。
 21. **test。** 用配置里的模型、推理档和密钥环境变量，经与问答相同的路径向模型发一个最小请求：通过时输出模型名、用时、用量，以及配置里写的推理档；失败按 `ask` 的归类以 `model_failed` 失败，退出码 4；取消 130。请求带推理档当且仅当配置写了。输出只报告配置里写的推理档，不声称服务端已按该档思考。
 22. **config 的退出码。** 0 成功；1 配置不合格或写失败（`qa_unconfigured`、`qa_config_write_failed`）；2 用法错误（未知动作、参数个数不对、字段名或值的写法不对、缺必填项又不在终端、已有配置而没有 `--force`）；`test` 失败为 4，取消为 130。
-23. **抽取模型。** `show` 另显示抽取用的模型（[`story.ingest`](ingest.md#抽取模型) 的 `ingest.model`，没有时写明用 `model`）。`config set ingest.model '<JSON>'` 整节写入（必须一次给齐 `baseUrl`、`id`、`apiKeyEnv`，不收 `thinking`），之后 `ingest.model.<字段>` 可以逐个改；`config unset ingest.model` 整节去掉，抽取回到 `model`。`config test --ingest` 用抽取实际用的模型，按抽取固定的两档（`minimal`、`medium`）各发一个最小请求，分别报告通过或失败；模型不接受某一档时报 `model_failed`（`provider`），不降档。
+23. **抽取模型。** `show` 另显示抽取用的模型（[`story.ingest`](ingest.md#抽取模型) 的 `ingest.model`，没有时写明用 `model`）。`config set ingest.model '<JSON>'` 整节写入（必须一次给齐 `baseUrl`、`id`、`apiKeyEnv`，不收 `thinking`），之后 `ingest.model.<字段>` 可以逐个改；`config unset ingest.model` 整节去掉，抽取回到 `model`。`config test --ingest` 用抽取实际用的模型，按抽取固定的两档（`minimal`、`medium`）各发一个最小请求，分别报告通过或失败；模型不接受某一档时报 `model_failed`（`provider`），不降档。挑相关说法（[`story.ingest`](ingest.md#抽取模型) 的 `ingest.recall`）：`show` 写明开没开、用哪个模型；`config set ingest.recall.enabled true|false` 开关；`ingest.recall.model` 的写法同 `ingest.model`（整节写入后才能逐个改，`unset` 整节去掉后回到抽取模型）；`ingest.recall` 里没有字段了整节去掉。开着时 `config test --ingest` 再用挑选的模型发一个 `minimal` 的请求，单独报告。
 
 ## 状态与转换
 

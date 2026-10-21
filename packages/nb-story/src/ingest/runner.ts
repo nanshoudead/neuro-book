@@ -12,6 +12,7 @@
 
 import {randomUUID} from "node:crypto";
 
+import type {BookFeatures} from "../core/dataset";
 import {StoryError} from "../core/errors";
 import {bookIdFromTitle, isValidBookId, type Library} from "../core/library";
 import type {FileLock} from "../platform/flock";
@@ -30,6 +31,11 @@ export interface EndpointConfig {
     maxTokens: number;
 }
 
+/** 配置里的一个抽取模型 → 发给抽取线程的端点与单价（密钥只带环境变量名）。 */
+export function modelChoice(model: {baseUrl: string; id: string; apiKeyEnv: string; maxTokens: number; price: Price | null}): {endpoint: EndpointConfig; price: Price | null} {
+    return {endpoint: {baseUrl: model.baseUrl, model: model.id, apiKeyEnv: model.apiKeyEnv, maxTokens: model.maxTokens}, price: model.price};
+}
+
 export interface Runner {
     readonly id: string;
     readonly plan: IngestPlan;
@@ -45,8 +51,12 @@ export interface StartInput {
     text?: string;
     title?: string;
     id?: string;
+    /** 请求的开关：新建时生效；已有抽取记录时只核对（与保存值不同报 invalid_params）。 */
+    features?: Partial<BookFeatures>;
     endpoint: EndpointConfig;
     price: Price | null;
+    /** 挑相关说法用的模型；null 时不挑（默认）。 */
+    recall: {endpoint: EndpointConfig; price: Price | null} | null;
     runner: RunnerKind;
     onEvent?: (event: IngestEvent) => void;
 }
@@ -66,7 +76,7 @@ export async function startIngest(input: StartInput): Promise<{plan: IngestPlan;
     if (!lock) throw new StoryError("ingest_running", `书 ${id} 已有抽取任务在运行`);
     try {
         // 判定在锁里做：两个发起者不会都以为是新建。
-        const plan = input.text !== undefined ? await planFromText(input.library, {text: input.text, title: input.title ?? "", id}) : await planFromSaved(input.library, id);
+        const plan = input.text !== undefined ? await planFromText(input.library, {text: input.text, title: input.title ?? "", id, ...(input.features ? {features: input.features} : {})}) : await planFromSaved(input.library, id, input.features);
         if (plan.action === "done") {
             lock.release();
             return {plan, runner: null};
@@ -138,7 +148,7 @@ function launch(input: StartInput, plan: IngestPlan, store: IngestStore, lock: F
     };
     worker.addEventListener("close", () => finish(stopRequested ? {kind: "stopped"} : {kind: "failed", code: "model_failed", errorKind: "local", message: "抽取线程意外退出"}));
 
-    const start: WorkerStart = {type: "start", libraryRoot: input.library.root, id: plan.id, endpoint: input.endpoint, price: input.price, run, stop: stopBuffer};
+    const start: WorkerStart = {type: "start", libraryRoot: input.library.root, id: plan.id, endpoint: input.endpoint, price: input.price, recall: input.recall, run, stop: stopBuffer};
     worker.postMessage(start);
 
     return {

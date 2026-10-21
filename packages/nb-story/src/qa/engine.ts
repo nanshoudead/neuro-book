@@ -119,7 +119,7 @@ export async function askQuestion(input: AskInput): Promise<QaOutcome> {
     // 作答被退回的次数：不只是我们的校验，OMP 的参数校验与“收尾要单独调用”的退回也算，所以按工具结束事件数。
     let rejections = 0;
     const registry = createToolRegistry();
-    registerPlugin(registry, storyQaPlugin(state));
+    registerPlugin(registry, storyQaPlugin(state, info.value.features));
     const sessionLog = createMemorySessionLog({sessionId: id});
 
     let usage = emptyUsage();
@@ -128,7 +128,7 @@ export async function askQuestion(input: AskInput): Promise<QaOutcome> {
     try {
         harness = await createHarness({
             profile,
-            initial: {title: book.meta.title, at: `${at.chapter}.${at.paragraph}`, mode: input.mode, maxChapters: input.mode === "graph" ? limits.maxChapters : null},
+            initial: {title: book.meta.title, at: `${at.chapter}.${at.paragraph}`, mode: input.mode, maxChapters: input.mode === "graph" ? limits.maxChapters : null, ...(info.value.features.ledger ? {} : {ledger: false})},
             registry,
             model,
             sessionLog,

@@ -1,0 +1,25 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00030-nb-ui-library-structure",
+    "taskId": "t01-plan",
+    "artifactId": "decisions",
+    "answerId": "20261020T140128220Z-d9496c0a",
+    "artifactVersion": 1,
+    "contentHash": "4709bf322c948319d1b1a7dd879f8a8f0211e3b674047d41dbcf05648e273d23",
+    "submittedAt": "2026-10-20T14:01:27.809Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "css-strategy": "prefix",
+        "order-w00027": "after",
+        "old-names": "none",
+        "floating-window": "split",
+        "plan-rest": true
+    },
+    "comments": {
+        "css-strategy": "先问一个问题：nb-ui、neuro-book 现在还是用的 unocss，没用 Tailwind 吗？\n"
+    },
+    "note": null
+}

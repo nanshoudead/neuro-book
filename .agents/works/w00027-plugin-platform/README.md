@@ -22,7 +22,7 @@ updated: 2026-10-17
 
 ## 分支
 
-本 Work 的代码在 worktree `.worktree/w00027-plugin-platform`、分支 `feat/w00027-plugin-platform` 上（2026-10-20 按“一个 Work 一条分支”由 t03 的分支改名而来），各 Task 依次在这条分支上提交、在这条分支上验证；合入 master 的时机由开发者决定（2026-10-20：先不合入，继续往后做）。
+本 Work 的代码在 worktree `.worktree/w00027-plugin-platform`、分支 `feat/w00027-plugin-platform` 上（2026-10-20 按“一个 Work 一条分支”由 t03 的分支改名而来），各 Task 依次在这条分支上提交、在这条分支上验证；合入 master 的时机由开发者决定。2026-10-20 开发者同意合入：先把 master 合进 Work 分支（合进了 w00029 t04 的弹出列表），在 Work 分支上验证后 master 快进到 `da4e006af`，内容为 t03、t07 S0 与 S1（含两轮审查修正）、t02 S1 与 S6。合并后的验证：类型检查，应用 Bun 1560 例、Vitest 382 例，内核 347 例，nb-form 93 例，nb-ui 498 例，`docs:check`、`governance:check`，以及设置、插件、代码编辑器设置、编辑器区、书架、浏览器宿主、nb-ui Lab、Markdown 输入八组 e2e 71 例。`editor-area.e2e.ts` 的“重新打开回到上次的光标”在负载重时两次失败、单独与整份重跑共五次通过，没抓到失败现场，原因未查明。之后 Work 分支继续用于后续 Task。
 
 ## 任务
 

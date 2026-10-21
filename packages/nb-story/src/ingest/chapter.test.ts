@@ -1,9 +1,9 @@
 /**
  * 抽一章（docs/specs/story/ingest.md 输出 4、5、7、9、10，验收 5）。请求经真实的 OpenAI SDK 与 HTTP 发往本机端点。
  *
- * 回放：端点给出 w00005 t34 抽样例书时录下的回复（testing/ingest-replay.ts）。管线搬得对，发出的每个请求就与当时的
- * 逐字相同、各章最终草稿与整理稿也相同。唯一允许的差别是核对清单里“格式不对：”后面的校验说明（原来是 zod 的措辞，
- * 现在是 TypeBox 的）。
+ * 回放：端点给出 w00005 t34 抽样例书时录下的回复（testing/ingest-replay.ts）。管线搬得对，各章最终草稿与整理稿就与
+ * 当时相同；发出的请求除了“已有记录”只详列与本章相关的行（w00024 t10），其余逐字相同：把“已有记录”换回全量，就与当时
+ * 录下的逐字相同。另一处允许的差别是核对清单里“格式不对：”后面的校验说明（原来是 zod 的措辞，现在是 TypeBox 的）。
  *
  * 故障：在回放上替换某一步的回复，等待由注入的函数记下，不真的等。
  */
@@ -20,8 +20,10 @@ import {sampleDataset} from "../../testing/sample";
 import type {Dataset, SourceChapter} from "../core/dataset";
 import {consolidate, extractChapter, IngestBadReply, type ChapterRun, type Step} from "./chapter";
 import {compile, sourceChapter} from "./compile";
-import type {RawDraft} from "./draft-tools";
-import {ModelError, RETRY_DELAYS_MS, type Attempt} from "./model";
+import {recallCandidates, renderContext} from "./context";
+import {stripDisabled, type RawDraft} from "./draft-tools";
+import {ModelAborted, ModelError, RETRY_DELAYS_MS, type Attempt} from "./model";
+import {RECALL_LIMIT} from "./recall";
 
 const FIXTURES = join(import.meta.dir, "..", "..", "tests", "fixtures", "ingest");
 const gunzipJson = async <T>(name: string): Promise<T> => JSON.parse(gunzipSync(await readFile(join(FIXTURES, name))).toString("utf8")) as T;
@@ -29,6 +31,13 @@ const gunzipJson = async <T>(name: string): Promise<T> => JSON.parse(gunzipSync(
 /** 核对清单里“格式不对：”后面的校验说明换成固定文字（见模块头）。 */
 const withoutSchemaDetails = (text: string) => text.replace(/格式不对：[^\n]*/gu, "格式不对：…");
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
+
+/**
+ * t10 合入时默认路径实际发出的每个请求（系统提示词、用户消息原样，不换回全量已有记录）的 SHA-256，按“章:步骤”。
+ * 按书关闭数值与秘密（w00024 t11）之后，两项都开时必须与它逐字相同。
+ */
+const requestBaseline = (name: "replay-ch001-010" | "recall-ch010") => readFile(join(FIXTURES, "requests-t10.json"), "utf8").then(text => (JSON.parse(text) as Record<string, Record<string, string>>)[name]!);
+const requestHashes = (requests: {key: string; system: string; user: string}[]) => Object.fromEntries(requests.map(request => [request.key, sha256(`${request.system}\n\u0000\n${request.user}`)]));
 
 let endpoint: Endpoint | undefined;
 afterEach(() => {
@@ -38,13 +47,12 @@ afterEach(() => {
 
 /** 起端点并记下每次请求：认出的步骤、系统提示词加用户消息的摘要、推理档。 */
 function serve(respond: Responder, keyOf?: () => ReplayKey | undefined) {
-    const requests: {key: string; sha256: string; normalized: string; effort: unknown}[] = [];
+    const requests: {key: string; model: unknown; system: string; user: string; effort: unknown}[] = [];
     endpoint = startEndpoint((body, index, headers) => {
         const reply = respond(body, index, headers);
         const messages = body.messages as {content: string}[];
         const key = keyOf?.();
-        const full = `${messages[0]!.content}\n\u0000\n${messages[1]!.content}`;
-        requests.push({key: key ? `${key.chapter}:${key.step}` : String(index), sha256: sha256(full), normalized: sha256(withoutSchemaDetails(full)), effort: body.reasoning_effort});
+        requests.push({key: key ? `${key.chapter}:${key.step}` : String(index), model: body.model, system: messages[0]!.content, user: messages[1]!.content, effort: body.reasoning_effort});
         return reply;
     });
     const waits: number[] = [];
@@ -60,19 +68,20 @@ function serve(respond: Responder, keyOf?: () => ReplayKey | undefined) {
 }
 
 /** 按顺序抽前 `count` 章（第 5、10 章后整理），返回各章草稿、整理稿与每章的结果。 */
-async function extractBook(sample: Dataset, count: number, run: ChapterRun) {
+async function extractBook(sample: Dataset, count: number, run: ChapterRun, features?: {ledger: boolean; secrets: boolean}) {
+    const book = features ? {...sample.book, features} : sample.book;
     const drafts: RawDraft[] = [];
     const consolidations: unknown[] = [];
     const sources = (through: number) => sample.sources.filter(source => source.chapter <= through);
     const results = [];
     for (let chapter = 1; chapter <= count; chapter++) {
-        const prior = chapter > 1 ? compile(sample.book, sources(chapter - 1), drafts, consolidations).dataset : null;
-        const result = await extractChapter({source: sample.sources[chapter - 1]!, prior, compileWith: candidate => compile(sample.book, sources(chapter), [...drafts, candidate], consolidations)}, run);
+        const prior = chapter > 1 ? compile(book, sources(chapter - 1), drafts, consolidations).dataset : null;
+        const result = await extractChapter({source: sample.sources[chapter - 1]!, prior, ...(features ? {features} : {}), compileWith: candidate => compile(book, sources(chapter), [...drafts, candidate], consolidations)}, run);
         results.push(result);
         drafts.push(result.draft);
         if (chapter % 5 === 0) {
-            const dataset = compile(sample.book, sources(chapter), drafts, consolidations).dataset;
-            const outcome = await consolidate(chapter, dataset, candidate => compile(sample.book, sources(chapter), drafts, [...consolidations, candidate]), run);
+            const dataset = compile(book, sources(chapter), drafts, consolidations).dataset;
+            const outcome = await consolidate(chapter, dataset, candidate => compile(book, sources(chapter), drafts, [...consolidations, candidate]), run);
             if (outcome.consolidation) consolidations.push(outcome.consolidation);
         }
     }
@@ -81,7 +90,7 @@ async function extractBook(sample: Dataset, count: number, run: ChapterRun) {
 
 
 describe("回放前 10 章（输出 4、7）", () => {
-    test("发出的每个请求、各章最终草稿与整理稿都与 t34 那次相同", async () => {
+    test("各章最终草稿与整理稿与 t34 那次相同；请求里的已有记录换回全量后与当时逐字相同，整理的请求原样相同", async () => {
         const sample = await sampleDataset();
         const data = await loadReplay();
         const final = await gunzipJson<{drafts: unknown[]; consolidations: unknown[]}>("run-med-100-final.json.gz");
@@ -94,18 +103,197 @@ describe("回放前 10 章（输出 4、7）", () => {
         expect(drafts).toEqual(final.drafts.slice(0, 10) as RawDraft[]);
         expect(consolidations).toEqual(final.consolidations.slice(0, 2));
         expect(results.map(result => result.dropped)).toEqual(Array(10).fill(0));
+        // 挑选关着：第 1 章没有已提交的记录，什么都不用选；之后各章按规则缩减。
+        expect(results.map(result => result.recall.source)).toEqual(["none", ...Array(9).fill("rule")]);
 
         // 每一步都发了，而且只发了一次；推理档与当时相同。
         expect(requests.map(request => request.key).sort()).toEqual(Object.entries(recordedRequests).flatMap(([chapter, steps]) => Object.keys(steps).map(step => `${chapter}:${step}`)).sort());
+        const priorOf = (chapter: number) => compile(sample.book, sample.sources.filter(source => source.chapter < chapter), drafts.slice(0, chapter - 1), consolidations.filter(item => (item as {through: number}).through < chapter)).dataset;
+        let narrowed = 0;
         for (const request of requests) {
             const [chapter, step] = request.key.split(":") as [string, string];
             const recorded = recordedRequests[chapter]![step]!;
             expect({key: request.key, effort: request.effort}).toEqual({key: request.key, effort: recorded.effort});
+            let user = request.user;
+            if (!step.startsWith("consolidation") && chapter !== "1") {
+                const open = "【已有记录】\n";
+                const close = `\n\n【第 ${chapter} 章原文】`;
+                const sent = user.slice(user.indexOf(open) + open.length, user.indexOf(close));
+                const full = renderContext(priorOf(Number(chapter)), Number(chapter) - 1);
+                if (sent !== full) narrowed += 1;
+                user = user.replace(`${open}${sent}${close}`, `${open}${full}${close}`);
+            }
+            const text = `${request.system}\n\u0000\n${user}`;
             // 逐字相同；不同时只能是核对清单里的校验说明不同，而且只在核对类请求里。
-            const same = request.sha256 === recorded.sha256 ? "same" : request.normalized === recorded.normalized && step === "review-1" ? "schema details only" : "different";
+            const same = sha256(text) === recorded.sha256 ? "same" : sha256(withoutSchemaDetails(text)) === recorded.normalized && step === "review-1" ? "schema details only" : "different";
             expect({key: request.key, same}).not.toEqual({key: request.key, same: "different"});
         }
+        // 第 2 章起的普通请求确实只带了一部分已有记录。
+        expect(narrowed).toBeGreaterThan(0);
+        // 实际发出的请求与 t10 合入时逐字相同。
+        expect(requestHashes(requests)).toEqual(await requestBaseline("replay-ch001-010"));
     }, 120_000);
+
+    test("显式给两项都开（ingest.md 输出 18）：每个请求与不给时逐字相同", async () => {
+        const sample = await sampleDataset();
+        const played = replay(await loadReplay());
+        const {run, requests} = serve(played.responder, () => played.seen.at(-1));
+        await extractBook(sample, 10, run, {ledger: true, secrets: true});
+        expect(played.unknown).toEqual([]);
+        expect(requestHashes(requests)).toEqual(await requestBaseline("replay-ch001-010"));
+    }, 120_000);
+});
+
+describe("按书关闭数值与秘密（输出 18）", () => {
+    // 第 4 章录下的回复里四类都有：数值 5 条、秘密 1 个（一条说法挂在它上面）、指向秘密的知情 3 条、指向说法的知情 4 条、疑问进展 4 条。
+    const combos = [
+        {ledger: false, secrets: true},
+        {ledger: true, secrets: false},
+        {ledger: false, secrets: false},
+    ];
+    for (const features of combos) {
+        test(`数值${features.ledger ? "开" : "关"}、秘密${features.secrets ? "开" : "关"}：关掉的那类不进书，开着的照旧；指向说法的知情与疑问进展都在；去掉的条数记进说明、不算丢弃；请求里没有关掉那类的条目`, async () => {
+            const sample = await sampleDataset();
+            const final = await gunzipJson<{drafts: RawDraft[]}>("run-med-100-final.json.gz");
+            const book = {...sample.book, features};
+            const sources = (through: number) => sample.sources.filter(source => source.chapter <= through);
+            const priorDrafts = final.drafts.slice(0, 3).map(draft => stripDisabled(draft, features).draft);
+            const prior = compile(book, sources(3), priorDrafts).dataset;
+            const played = replay(await loadReplay());
+            const {run, requests} = serve(played.responder, () => played.seen.at(-1));
+            const result = await extractChapter({source: sample.sources[3]!, prior, features, compileWith: candidate => compile(book, sources(4), [...priorDrafts, candidate])}, run);
+            expect(played.unknown).toEqual([]);
+
+            const own = <T extends {id: string}>(items: T[]) => items.filter(item => item.id.startsWith("l4-") || item.id.startsWith("x4-") || item.id.startsWith("k4-") || item.id.startsWith("s4-"));
+            const ledger = own(result.dataset.ledger).length;
+            const secrets = own(result.dataset.secrets).length;
+            const knowledge = own(result.dataset.knowledge);
+            expect({ledger: ledger > 0, secrets: secrets > 0}).toEqual(features);
+            expect(own(result.dataset.statements).some(item => item.secret !== undefined)).toBe(features.secrets);
+            // 第 4 章模型写的 4 条指向说法的知情都在（决定 2）。
+            expect(["k4-4", "k4-5", "k4-6", "k4-9"].filter(id => knowledge.some(item => item.id === id && item.about.startsWith("s") && !item.derived))).toEqual(["k4-4", "k4-5", "k4-6", "k4-9"]);
+            expect(knowledge.some(item => item.about.startsWith("x"))).toBe(features.secrets);
+            expect(result.dataset.questions.some(question => question.updates.some(update => update.at.chapter === 4))).toBe(true);
+            expect(result.dropped).toBe(0);
+            expect(result.notes).toEqual([expect.stringMatching(/^按书的设置去掉了/u)]);
+            if (!features.ledger) expect(result.notes[0]).toContain("5 条数值记录");
+            if (!features.secrets) expect(result.notes[0]).toContain("1 个秘密");
+            expect(result.remaining.some(issue => issue.code === "secret-missing")).toBe(false);
+
+            const draft = requests.find(request => request.key === "4:draft")!.user;
+            const later = requests.filter(request => /^4:(review|repair)/u.test(request.key)).map(request => request.user).join("\n");
+            expect({ledgerNote: draft.includes("这本书不记数值"), ledgerItem: draft.includes("- 账本："), reconcile: later.includes("[对账]")}).toEqual({ledgerNote: !features.ledger, ledgerItem: features.ledger, reconcile: later.includes("[对账]") && features.ledger});
+            expect(draft.includes("about 是他知道或不知道的那条说法的编号")).toBe(!features.secrets);
+            expect({secretNote: draft.includes("这本书不记秘密"), secretItem: draft.includes("本章有没有新的秘密"), askSecret: later.includes("建秘密")}).toEqual({secretNote: !features.secrets, secretItem: features.secrets, askSecret: later.includes("建秘密") && features.secrets});
+            // 已有记录里不列关掉的那一节。
+            expect({secrets: draft.includes("## 秘密与知情"), ledger: draft.includes("## 当前状态")}).toEqual({secrets: draft.includes("## 秘密与知情") && features.secrets, ledger: draft.includes("## 当前状态") && features.ledger});
+        }, 60_000);
+    }
+});
+
+describe("按书关闭数值与秘密：修正里又写了关掉的记录（输出 18）", () => {
+    test("核对的修正把数值、秘密、挂秘密的说法与指向秘密的知情加回来：提交前再去掉，计入说明、不算丢弃", async () => {
+        const sample = await sampleDataset();
+        const final = await gunzipJson<{drafts: RawDraft[]}>("run-med-100-final.json.gz");
+        const features = {ledger: false, secrets: false};
+        const book = {...sample.book, features};
+        const sources = (through: number) => sample.sources.filter(source => source.chapter <= through);
+        const priorDrafts = final.drafts.slice(0, 3).map(draft => stripDisabled(draft, features).draft);
+        const prior = compile(book, sources(3), priorDrafts).dataset;
+        // 在录下的那次核对修正上追加：录下的修正照常修好结构问题，不多出录像里没有的修复请求。
+        const data = await loadReplay();
+        const recorded = JSON.parse(data["4"]!["review-1"]!.content) as {replace?: Record<string, unknown[]>};
+        const patch = {
+            ...recorded,
+            replace: {
+                ...recorded.replace,
+                ledger: [...(recorded.replace?.ledger ?? []), {id: "l4-90", owner: "e1-1", track: "神典石", op: "gain", amount: 1, reason: "修正里加的", at: ["4.2"]}],
+                secrets: [...(recorded.replace?.secrets ?? []), {id: "x4-90", title: "修正里加的秘密", about: ["e1-1"]}],
+                knowledge: [...(recorded.replace?.knowledge ?? []), {id: "k4-90", who: "e1-1", about: "x4-90", state: "knows", how: "修正里加的", at: ["4.2"]}],
+            },
+        };
+        const played = replay(data, key => (key.chapter === 4 && key.step === "review-1" ? {kind: "text", text: JSON.stringify(patch)} : undefined));
+        const {run} = serve(played.responder, () => played.seen.at(-1));
+        const result = await extractChapter({source: sample.sources[3]!, prior, features, compileWith: candidate => compile(book, sources(4), [...priorDrafts, candidate])}, run);
+        expect(played.seen.some(key => key.chapter === 4 && key.step === "review-1")).toBe(true);
+        expect({ledger: result.dataset.ledger.length, secrets: result.dataset.secrets.length, knowledge: result.dataset.knowledge.some(item => item.id === "k4-90")}).toEqual({ledger: 0, secrets: 0, knowledge: false});
+        expect(result.dropped).toBe(0);
+        // 初稿录下的 5 条数值、1 个秘密、3 条指向秘密的知情；录下的核对修正又写了 2 条指向秘密的知情；加上追加的各 1 条。
+        expect(result.notes).toEqual(["按书的设置去掉了 6 条数值记录、2 个秘密、6 条指向秘密的知情、1 条说法上的秘密"]);
+    }, 60_000);
+});
+
+describe("挑相关说法（输出 4、9、10）", () => {
+    /** 抽第 10 章（前 9 章用 t34 最终草稿编译），挑选开着，用另一个模型名；挑选的回复由 `recallReply` 给。 */
+    async function chapterTen(recallReply: (nth: number, abort: () => void, candidates: string[]) => EndpointReply) {
+        const sample = await sampleDataset();
+        const final = await gunzipJson<{drafts: RawDraft[]; consolidations: {through: number}[]}>("run-med-100-final.json.gz");
+        const sources = (through: number) => sample.sources.filter(source => source.chapter <= through);
+        const consolidations = final.consolidations.filter(item => item.through <= 9);
+        const prior = compile(sample.book, sources(9), final.drafts.slice(0, 9), consolidations).dataset;
+        const controller = new AbortController();
+        const candidates = recallCandidates(prior, 9, sample.sources[9]!.paragraphs.join("\n"));
+        const ids = candidates.map(item => item.id);
+        const played = replay(await loadReplay(), (key, nth) => (key.step === "recall" ? recallReply(nth, () => controller.abort(), ids) : undefined));
+        const served = serve(played.responder, () => played.seen.at(-1));
+        const run: ChapterRun = {...served.run, recallEndpoint: {...served.run.endpoint, model: "recall-model"}, signal: controller.signal};
+        const outcome = await extractChapter({source: sample.sources[9]!, prior, compileWith: candidate => compile(sample.book, sources(10), [...final.drafts.slice(0, 9), candidate], consolidations)}, run).then(
+            result => ({ok: true as const, result}),
+            (error: unknown) => ({ok: false as const, error}),
+        );
+        /** 某一步请求里已有记录的说法一节：说明那一行与列出的编号。 */
+        const statementsIn = (step: string) => {
+            const user = served.requests.find(request => request.key === `10:${step}`)!.user;
+            const lines = user.slice(user.indexOf("## 已有的说法"), user.indexOf("\n\n【第 10 章原文】")).split("\n");
+            return {note: lines[3] ?? "", ids: lines.map(line => /^(s\d+-\d+)　/u.exec(line)?.[1]).filter(id => id !== undefined)};
+        };
+        return {...served, played, outcome, candidates, statementsIn, steps: (step: ReplayKey["step"]) => played.seen.filter(key => key.step === step).length};
+    }
+    const text = (value: unknown): EndpointReply => ({kind: "text", text: JSON.stringify(value)});
+
+    test("用挑选的模型、minimal 档发一次；去重、去掉候选外的、超过上限按回复的先后留前面的；已有记录只列选中的，结果随章带回", async () => {
+        // 回复：候选倒着排（模型认为越新越相关），夹着重复的与候选外的编号。
+        const run = await chapterTen((_nth, _abort, ids) => {
+            const reversed = [...ids].reverse();
+            return text({ids: ["s999-1", ...reversed, reversed[0], "x1-1"]});
+        });
+        expect(run.candidates.length).toBeGreaterThan(RECALL_LIMIT);
+        expect(run.played.unknown).toEqual([]);
+        expect(run.outcome.ok).toBe(true);
+        const recall = run.requests.filter(request => request.key === "10:recall");
+        expect(recall.map(request => [request.model, request.effort])).toEqual([["recall-model", "minimal"]]);
+        expect(run.requests.filter(request => request.key !== "10:recall").every(request => request.model === "gpt-6-luna")).toBe(true);
+        const expected = run.candidates.slice(-RECALL_LIMIT).map(item => item.id);
+        expect(run.outcome.ok && run.outcome.result.recall).toEqual({source: "model", ids: expected});
+        expect(run.statementsIn("draft")).toEqual({note: "只列挑出来的与本章可能相关的说法。", ids: expected});
+        expect(requestHashes(run.requests)).toEqual(await requestBaseline("recall-ch010"));
+    }, 60_000);
+
+    test("回复两次都不成形：这一章照常抽完，说法退回规则缩减，说明里写明", async () => {
+        const run = await chapterTen(nth => text(nth === 1 ? {ids: null} : {ids: ["s1-1", 3]}));
+        expect(run.outcome.ok).toBe(true);
+        expect(run.steps("recall")).toBe(2);
+        expect(run.outcome.ok && run.outcome.result.recall).toEqual({source: "fallback", ids: []});
+        expect(run.outcome.ok && run.outcome.result.notes).toEqual([expect.stringContaining("挑相关说法")]);
+        expect(run.statementsIn("draft").note).toBe("只列一部分：挂在上面秘密与疑问上的、不针对具体对象的，以及最近的说法。");
+    }, 60_000);
+
+    test("挑选的渠道一直 503：与其他步骤一样以 network 失败，不退回规则、不往下抽", async () => {
+        const run = await chapterTen(() => ({kind: "status", status: 503}));
+        expect(!run.outcome.ok && run.outcome.error instanceof ModelError && run.outcome.error.kind).toBe("network");
+        expect(run.steps("recall")).toBe(6);
+        expect(run.steps("beats")).toBe(0);
+    }, 60_000);
+
+    test("挑选中途停止：以停止结束，不往下抽", async () => {
+        // 端点收到挑选请求时停止，流卡住不结束。
+        const run = await chapterTen((_nth, abort) => {
+            abort();
+            return {kind: "stall", text: "{"};
+        });
+        expect(!run.outcome.ok && run.outcome.error instanceof ModelAborted).toBe(true);
+        expect(run.steps("beats")).toBe(0);
+    }, 60_000);
 });
 
 describe("渠道失败与不成形的回复（输出 9、10，验收 5）", () => {

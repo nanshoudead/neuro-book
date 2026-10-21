@@ -170,6 +170,41 @@ export function checkDraft(draft: RawDraft): {clean: RawDraft; problems: Problem
 }
 
 /** 应用模型给出的修正：按编号整条替换或新增、删除、整段重写没有编号的部分。 */
+/** 草稿里秘密的编号（与 draft-schema.ts 的 secretId 相同）：知情记录的 about 只能是说法或秘密，两者编号互斥。 */
+const SECRET_ID = /^x\d{1,4}-\d{1,4}$/u;
+
+/**
+ * 去掉这本书关掉的那几类记录（docs/specs/story/ingest.md 输出 18）：关数值时去掉 ledger；关秘密时去掉 secrets、
+ * 说法的 secret 字段，以及 about 是秘密编号的知情（指向说法的知情留着）。在检查之前做：关掉的记录不算质量问题，
+ * 不该进核对清单，也不计入兜底丢弃。返回去掉了几条，给这一章的问题说明用。
+ */
+export function stripDisabled(draft: RawDraft, features: {ledger: boolean; secrets: boolean}): {draft: RawDraft; removed: {ledger: number; secrets: number; secretRefs: number; knowledge: number}} {
+    const removed = {ledger: 0, secrets: 0, secretRefs: 0, knowledge: 0};
+    const result: RawDraft = {...draft};
+    if (!features.ledger && draft.ledger?.length) {
+        removed.ledger = draft.ledger.length;
+        delete result.ledger;
+    }
+    if (!features.secrets) {
+        if (draft.secrets?.length) {
+            removed.secrets = draft.secrets.length;
+            delete result.secrets;
+        }
+        if (draft.statements) result.statements = draft.statements.map(item => {
+            if (!item || typeof item !== "object" || !("secret" in item)) return item;
+            removed.secretRefs += 1;
+            const {secret: _secret, ...rest} = item;
+            return rest;
+        });
+        if (draft.knowledge) {
+            const kept = draft.knowledge.filter(item => !(typeof item?.about === "string" && SECRET_ID.test(item.about)));
+            removed.knowledge = draft.knowledge.length - kept.length;
+            result.knowledge = kept;
+        }
+    }
+    return {draft: result, removed};
+}
+
 export function applyPatch(draft: RawDraft, patch: any, chapter: number): RawDraft {
     const next: RawDraft = structuredClone(draft);
     const replace = normalizeDraft(patch?.replace ?? {}, chapter);

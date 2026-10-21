@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: story.queries
 owners:
   - nb-story
@@ -59,10 +59,10 @@ owners:
 
 | 方法 | 主要参数 | 结果里必须有的字段 |
 |---|---|---|
-| `books.list` | — | 每本书：`id`、`title`、`generation`、`chapters`、`extractedThrough` |
+| `books.list` | — | 每本书：`id`、`title`、`generation`、`chapters`、`extractedThrough`、`features`（记不记数值与秘密，见“边界与兼容”） |
 | `book.import` | `file`、`title`、可选 `id` | `id`、`generation` |
 | `book.remove` | `book` | — |
-| `book.info` | — | `title`、`source`、`chapters`、`paragraphs`（各章段数）、`toc`（P 所在章及之前各章的标题，之后的章只有章号）、`extractedThrough` |
+| `book.info` | — | `title`、`source`、`chapters`、`paragraphs`（各章段数）、`toc`（P 所在章及之前各章的标题，之后的章只有章号）、`extractedThrough`、`features` |
 | `book.stats` | — | `visible`（P 时各类可见记录的条数）、`chapters`（第 1 章到 P 所在章逐章的可见记录数）、`cast`（主要人物逐章的出场次数）、`extraction`（全书抽取统计，见输出 2） |
 | `reading.get`、`reading.set` | `set`：`position`、`view` | `position`、`view`、`savedAt` |
 | `chapter.digest` | `chapter` | 情节、新出现的对象、揭晓的秘密、数值变动、新提出与有进展的悬念，各带出处 |
@@ -175,7 +175,7 @@ type RelationEdge = {
 | F1 | `book_not_found` | 404 | 书不存在、已删除或还在导入 | 用 `books.list` 查可用的书 |
 | F2 | `book_ambiguous` | 400 | 省略了 `book`，书库里有不止一本 | 指定 `book` |
 | F3 | `book_exists` | 409 | 导入时书 id 已被占用（含还在抽取、第 1 章没提交的 id，见 [`story.ingest`](ingest.md)） | 换书名或指定新 id |
-| F4 | `unsupported_format` | 415 | 导入文件不是 V9 记忆图，或书库版本不认识 | 换文件；升级程序 |
+| F4 | `unsupported_format` | 415 | 导入文件不是 V9 记忆图，或它的 `book.features` 关掉了数值（或秘密）却带着这类记录；或书库版本不认识 | 换文件；升级程序 |
 | F5 | `position_out_of_range` | 400 | 阅读位置超出全书范围或不合法 | 改正位置 |
 | F6 | `beyond_position` | 403 | 请求了阅读位置之后的章 | 先把阅读位置往后拨 |
 | F7 | `entity_not_found` | 404 | 对象在这本书里不存在，或在阅读位置还没出现 | 用 `entities.list` 或 `search` 查 |
@@ -188,6 +188,7 @@ type RelationEdge = {
 ## 边界与兼容
 
 - **公开接口**：方法清单与各方法参数、结果的 schema；新增方法与可选字段不算破坏兼容。
+- **按书开关**：书的数据里可选的 `book.features: {ledger?: boolean, secrets?: boolean}` 说这本书记不记数值与秘密，由 [`story.ingest`](ingest.md) 输出 18 在新建时定；缺这一项或缺某一项时按开算，所以开关之前的书与不写它的数据文件照旧。`books.list`、`book.info` 的 `features` 是补齐后的生效值。书里没有关掉的那类记录（导入时由 F4 保证），其余方法不按开关另做判断：`secrets.matrix` 没有行，`ledger.tracks` 没有轨道，`ledger.track` 给任何轨道名都得到 `entity_not_found`。
 - **独立服务的 HTTP**：
   - `POST /api/rpc/<方法名>`，请求体是参数的 JSON；成功返回 200 与结果，失败返回上表的 HTTP 状态码与 `{code, message}`（`entity_ambiguous` 另带 `candidates`）。
   - 登录链接是 `http://127.0.0.1:<端口>/login?token=<口令>`。这是唯一不要求会话的地址：口令对时建立会话（浏览器 Cookie，只供 HTTP、同站）并跳转到查看器首页；口令不对时返回 401 页面。
@@ -211,6 +212,20 @@ type RelationEdge = {
 
 Smoke：在真实书库与独立服务上，用 100 章样例书跑场景 1、7、8、11。
 
+## 实现合同
+
+- **公开入口**：包 `@notnotype/nb-story` 的核心库入口（`createStoryApi`、`Library` 与数据类型）；方法清单与 schema `@notnotype/nb-story/contract` 的 `STORY_METHODS`（插件通道用的 `storyContract` 同在其中）；独立服务 `nbstory serve` 的 `POST /api/rpc/<方法名>` 与登录链接。
+- **owner 与依赖方向**：nb-story。核心库（`src/core`）只依赖本包的合同、TypeBox 与 `@notnotype/nb-runtime/remote`，不依赖命令行、服务、网页、问答与抽取；它们都经 `createStoryApi` 调用核心库。
+- **关键不变量**：
+  - 所有查询只经同一个按阅读位置投影的只读视图取数；记录的成立位置取它自身位置与全部出处终点里最晚的那个，引用不可见记录的字段整项省略（`spoiler.test.ts`、`projection.test.ts`）。
+  - 一次查询在开始时固定书的一代与数据版本；导入把写好的整个书目录一次改名放进书库，抽取的每次提交是 `book.json` 的一次改名，查询读不到半份数据（`library.test.ts` 的固定一代、导入中途结束进程）。
+  - 游标只编码“代号:数据版本”、参数摘要与偏移，不含进程状态，所以跨进程、跨服务重启都有效（`api.test.ts` 的游标四组）。
+  - 身份合并只按确定的身份连接；角色视角另按这个角色对身份连接的最新知情状态重算（`identity.test.ts`）。
+  - 进程内调用与 HTTP 走同一份方法实现与 schema 校验，结果逐字段相同（`server.test.ts` 的 RPC 一组）。
+
 ## 证据
 
 - 批准依据：[剧情图谱第一版提案](../../proposals/novel-story-app.md)（accepted，含 2026-10-15 的范围调整）、[V9 小说记忆图提案](../../proposals/novel-memory-v9.md)；开发者 2026-10-13 至 2026-10-15 在 w00024 t01、t02 的决定。
+- 实现入口：[`core/api.ts`](../../../packages/nb-story/src/core/api.ts)、[`core/library.ts`](../../../packages/nb-story/src/core/library.ts)、[`core/projection.ts`](../../../packages/nb-story/src/core/projection.ts)、[`contract/contract.ts`](../../../packages/nb-story/src/contract/contract.ts)、[`server/http.ts`](../../../packages/nb-story/src/server/http.ts)
+- 合同测试：[`core/spoiler.test.ts`](../../../packages/nb-story/src/core/spoiler.test.ts)、[`core/api.test.ts`](../../../packages/nb-story/src/core/api.test.ts)、[`core/library.test.ts`](../../../packages/nb-story/src/core/library.test.ts)、[`core/identity.test.ts`](../../../packages/nb-story/src/core/identity.test.ts)、[`core/projection.test.ts`](../../../packages/nb-story/src/core/projection.test.ts)、[`core/queries/`](../../../packages/nb-story/src/core/queries/) 下按组的各份测试、[`server/server.test.ts`](../../../packages/nb-story/src/server/server.test.ts)、[`e2e/login.e2e.ts`](../../../packages/nb-story/e2e/login.e2e.ts)
+- Smoke：场景 1、7 由 [`core/spoiler.test.ts`](../../../packages/nb-story/src/core/spoiler.test.ts) 与 [`core/queries/source.test.ts`](../../../packages/nb-story/src/core/queries/source.test.ts) 在 100 章样例书上跑；场景 8 由 [`server/server.test.ts`](../../../packages/nb-story/src/server/server.test.ts) 起真实 `serve` 子进程跑；场景 11 由 [`e2e/login.e2e.ts`](../../../packages/nb-story/e2e/login.e2e.ts) 在真实服务与 Chromium 上跑

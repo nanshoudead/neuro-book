@@ -1,0 +1,91 @@
+### 1. 无对象说法并未按合同全部进入挑选候选
+严重程度：重要
+类别：正确性、边界
+位置：`packages/nb-story/src/ingest/context.ts:193-205,230-238`
+
+现象：候选构造把“挂在秘密/疑问上的或不针对对象的”合并为 `preferred`，再把整个组交给 `takeWithin(..., 25_000)`。因此无对象说法也会在 25,000 字预算处被截断；计划与 Spec 的候选规则要求无对象的世界设定、作者声明全部进入候选，只有后续按相关对象补入的部分受候选预算限制。
+
+为什么是问题：世界设定和作者声明是挑选模型唯一能看到的全局背景。当前实现只要这类记录累计超过预算，就会静默丢掉后面的记录，模型无法选中它们；这同时破坏“候选总量有界”和“无对象候选不受截断”两条设计边界，不能靠模型重试或增大 limit 修复。
+
+如何核实：运行 `bun /tmp/review-w00024-t10-impl/scratch/candidate-budget-probe.ts`。脚本用当前真实 `recallCandidates`，构造 300 条可见、无对象/无说话人/无持有人/无秘密的全局说法，每条约 400 字；结果为 `count:61`、总字符 `24757`、最后入选 `s0-61`，其余 239 条被预算截掉。
+
+建议改法：把候选分成明确的无对象组和对象相关组：先完整加入无对象组，再只用剩余预算从相关对象组按从新到旧补入；同时为“无对象组自身无限增长”设独立的产品上限或上下文预算，否则“全部进入”与总请求有界不能同时成立，应把该取舍写入 Spec 并测试两组超过预算的边界。
+### 2. 网页进度在挑选开始后会把 recall 步骤隐藏
+严重程度：重要
+类别：合同、正确性
+位置：`packages/nb-story/src/web/host/ingest.ts:10-12`、`packages/nb-story/src/web/shell/IngestPage.vue:91-96`
+
+现象：网页的固定步骤数组 `STEPS` 仍只有 `beats`、`draft`、`review`、`repair`。`stepStates` 只有在当前步骤正好是 `recall` 时才临时把 recall 插到数组前面；当前步骤进入 `beats`、`draft`、`review`、`repair` 或 `consolidation` 后，列表又恢复为不含 recall 的数组。`STEP_LABELS` 虽然新增了文字，但不参与这些路径的列表构造。
+
+为什么是问题：挑选开启时，用户在第 2 章的 beats 请求阶段或之后看不到已经完成的“挑相关说法”，整理阶段也看不到它；网页步骤列表与计划要求的新增步骤不一致，不能表达“当前步骤之前的已做完、之后的还没开始”。同一个任务的列表会随着当前步骤变化而改变，用户无法判断是否启用了挑选。
+
+如何核实：只读执行当前模板逻辑即可复现：`currentStep === "recall"` 得到 `recall,beats,draft,review,repair`；`currentStep === "beats"` 得到 `beats,draft,review,repair`；`currentStep === "consolidation"` 得到 `beats,draft,review,repair,consolidation`。对应实现就是 `IngestPage.vue:94` 的三分支，服务端新增的 `ingest.status.current.step = "recall"` 只覆盖了挑选请求挂起的瞬间。
+
+建议改法：让状态合同能表达本次任务是否启用 recall（或把启用状态纳入进度视图），由视图在整个任务期间稳定构造步骤列表；开启时始终包含 recall，关闭时始终不包含。不要用“当前恰好处于 recall”推断配置状态。
+### 3. 相关对象对秘密说法的知情记录不会触发秘密列出
+严重程度：重要
+类别：正确性、合同
+位置：`packages/nb-story/src/ingest/context.ts:165-172`
+
+现象：`relevanceFor` 只把 `knowledge.about === secret.id` 的记录放进 `knowers` 查询。秘密的 `statements` 虽然在 `secretTable` 中被视为该秘密的目标（`context.ts:280-283`），但相关对象只对其中一条说法有知情记录、没有直接对秘密 id 有记录时，秘密会被过滤掉，连同这条知情记录一起不进入已有记录。
+
+为什么是问题：Spec 输出 4 要求“秘密的 `about` 含相关对象，或有相关对象的知情记录，才列”。当前实现对合法的 `Knowledge.about` 可以是说法编号的情况没有覆盖；模型看不到相关对象已经知道/不知道该秘密表达的说法，也看不到秘密的说法关联，后续可能重复建秘密或丢失知情变化。这个边界不是空数据的理论情况，V9 合同允许知情记录指向说法，秘密又明确保存了这些说法。
+
+如何核实：运行 `bun /tmp/review-w00024-t10-impl/scratch/secret-minimal-probe.ts`。脚本构造一个可见秘密 `x1-1`（`statements: ["s1-1"]`），相关对象 `e1-1` 对 `s1-1` 有 `knows` 记录，但秘密 `about` 是另一个对象；当前输出为 `hasSecret:false、hasKnowledge:false`。
+
+建议改法：判断秘密的相关知情人时，对 `secret.id` 与 `secret.statements` 建统一目标集合，并用 `knowledge.about` 命中该集合；`secretTable` 已有同样的目标集合，应复用同一语义。补一个“知情记录指向秘密说法而非秘密 id”的普通章测试。
+### 4. 已经解答的疑问仍被当作“本次列出的疑问”进入候选
+严重程度：重要
+类别：正确性、上下文筛选
+位置：`packages/nb-story/src/ingest/context.ts:174-176,179-184,208-220`
+
+现象：`relevanceFor` 把最近 20 章内的所有疑问放入 `relevance.questions`，没有先排除 `questionState(...) === "answered"`。`renderContext` 后面才在 `open` 计算中排除已解答疑问，但 `linkedIds` 直接遍历 `relevance.questions`，把这些已隐藏疑问的 `updates[].answer` 仍加入优先说法/召回候选。
+
+为什么是问题：Spec 的规则是“本次列出的疑问的答案”进入说法优先组和候选；已解答疑问并没有列出。当前实现会把已解答疑问的旧答案提升为候选，即使本章与该疑问无关，消耗 25,000 字候选预算并可能挤掉真正相关的较老说法；普通模式也会把它列入 8,000 字优先组。窗口命中与“列出”语义因此不一致。
+
+如何核实：运行 `bun /tmp/review-w00024-t10-impl/scratch/answered-question-probe.ts`。构造一个最近窗口内已由 `s1-1` 回答的 `q1-1`；当前输出为 `questionShown:false`，但 `candidateIds:["s1-1"]`。将 `s1-1.about` 设为相关对象可排除它作为无对象说法，结果仍会被 `linkedIds` 路径保留。
+
+建议改法：在生成 `Relevance.questions` 时只保留当前状态不是 `answered` 的疑问，或在 `linkedIds` 与 `Selection.questions` 使用同一个“已列出的开放疑问”集合；对 partial/raised 仍保留其可见答案，补“已回答疑问不占候选、开放疑问答案仍保留”的测试。
+### 5. 中止场景用固定 50ms 定时器，测试不符合测试合同且会竞态
+严重程度：建议
+类别：测试
+位置：`packages/nb-story/src/ingest/chapter.test.ts:187-193`
+
+现象：挑选中途停止的测试用 `setTimeout(abort, 50)` 触发取消，再让本机端点返回一个模拟流中断。测试既不等待端点已收到请求，也不在测试结束时收口这个定时器。
+
+为什么是问题：仓库测试合同禁止固定时长等待；50ms 不是被测状态，机器负载或 SDK 调度变化时可能在请求建立前触发、或在请求完成后才触发，导致测试偶发得到不同的异常路径。这个用例的判据是“recall 请求中止后没有 beats 请求”，应由端点收到请求后的可观察事件触发取消，而不是靠时间猜测。
+
+如何核实：`grep -n "setTimeout|sleep(|Bun\\.sleep|waitForTimeout" packages/nb-story/src/ingest/chapter.test.ts ...` 命中 `chapter.test.ts:189 setTimeout(abort, 50)`；`docs/testing/README.md:20,40` 明确要求等待可观察状态并禁止非零固定等待。
+
+建议改法：让 `startEndpoint` 的 responder 在收到 recall 请求后通过测试控制器触发 `AbortController.abort()`，或等待一个明确的“请求已进入流读取”事件，再断言 `ModelAborted`、没有 beats 请求；在 `afterEach` 或 `finally` 中收口端点和控制器。
+### 6. 第 1 章没有挑选却被保存成 `rule` 来源
+严重程度：重要
+类别：正确性、数据合同
+位置：`packages/nb-story/src/ingest/chapter.ts:141-146`
+
+现象：`recall` 的初始值只按 `run.recallEndpoint` 判断：挑选关闭时一律是 `{source: "rule", ids: []}`。因此第 1 章即使没有已提交数据、根本没有执行规则筛选，也会被记录为 `rule`；只有挑选开启时第 1 章才是 `none`。
+
+为什么是问题：Spec 明确第 1 章没有已提交记录时“不挑”，并把 `none` 与规则缩减、模型挑选、坏回复回退区分为不同来源。当前持久化数据会把“未发生挑选”误报成“按规则缩减”，下游回放、费用诊断和质量统计无法区分首章与默认规则模式；这也违反了用户要求核对的“第 1 章与没有候选时的来源”边界。
+
+如何核实：运行 `bun /tmp/review-w00024-t10-impl/scratch/first-source-probe.ts`，经真实 OpenAI SDK 与本机回放端点抽第 1 章、不给 `recallEndpoint`；结果为 `{"recall":{"source":"rule","ids":[]},"unknown":[]}`，但没有发送 recall 请求。挑选开启的现有 Runner 测试则期待第 1 章为 `none`，说明两种配置产生了不一致语义。
+
+建议改法：初始来源按 `prior === null` 优先设为 `none`；仅在有 prior 且挑选关闭时设为 `rule`，有候选且模型成功时设为 `model`，无候选时设为 `none`。补默认关闭的第 1 章提交数据断言。
+### 7. 没有可见称呼但最近有提及的对象不会被视为相关对象
+严重程度：重要
+类别：正确性、边界
+位置：`packages/nb-story/src/ingest/context.ts:155-163`
+
+现象：最近 3 章的提及本应直接把对象加入相关集合，但实现先从可见称呼建立 `visibleIds`，再用 `visibleIds.has(mention.entity)` 过滤提及。因此名称为空、或当前阅读位置尚未有可见名称但 `dataset.mentions` 已通过模型指定归属的对象，永远不会因最近提及进入详列。
+
+为什么是问题：规则写的是“最近 3 章有提及（`dataset.mentions`）的对象”，没有附加“必须已有可见称呼”。这类对象在本章只用代称或没有登记称呼时，正是最近提及兜底要保留的对象；当前实现把它放进“其他对象”，模型看不到完整对象行、秘密和状态，可能新建重复对象或无法沿用编号。
+
+如何核实：运行 `bun /tmp/review-w00024-t10-impl/scratch/recent-mention-probe.ts`。构造一个 `names: []` 但上一章有 `dataset.mentions` 的对象，当前输出把它放到“其他对象”，并显示“本章原文里没有出现、最近 3 章也没有出现的对象”，而不是对象名册详列。
+
+建议改法：最近提及判断直接以可见的 `mention.entity` 集合为依据，只校验对象本身在 `readAt` 可见；不要用 `visibleIds` 作为提及的前置门槛。补无可见称呼、仅有代称提及的测试。
+
+未发现问题的方面：
+- `renderContext` 不传 `focus` 的 t34 逐字兼容回放通过；普通章筛选、召回请求、配置传参、Worker 端点与按步骤价格的受影响测试在本次聚焦运行中均通过其已有场景。
+- `parseRecall` 的候选外编号、重复编号、40 条截断、合法空选择，以及坏回复回退与 503/中止传播的已有确定性场景通过；本报告第 1、4 条是候选集合边界，不是否定这些回复解析场景。
+- 类型表面通过 `bun run typecheck`；未发现密钥进入 Worker 之外的新增传递路径。
+
+数量：阻断 0，重要 6，建议 1，合计 7。

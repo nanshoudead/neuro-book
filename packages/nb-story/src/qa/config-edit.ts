@@ -13,7 +13,7 @@ export class ConfigEditError extends Error {
     }
 }
 
-type Kind = "text" | "envName" | "integer" | "thinking" | "json";
+type Kind = "text" | "envName" | "integer" | "boolean" | "thinking" | "json";
 
 interface FieldSpec {
     kind: Kind;
@@ -27,8 +27,8 @@ const PRICE_EXAMPLE = `'{"input":1,"output":4,"currency":"USD"}'`;
 const INGEST_MODEL_EXAMPLE = `'{"baseUrl":"https://api.example.com/v1","id":"some-model","apiKeyEnv":"OPENAI_API_KEY"}'`;
 
 /**
- * 点路径 → 字段。`model.price` 与 `ingest.model` 是一整组，写成 JSON：只改其中一项会让组不完整。`ingest.model` 的
- * 各项要在整组已经写入之后才能逐个改（docs/specs/story/qa.md 输出 23）。
+ * 点路径 → 字段。`model.price`、`ingest.model` 与 `ingest.recall.model` 是一整组，写成 JSON：只改其中一项会让组不完整。
+ * 组里的各项要在整组已经写入之后才能逐个改（docs/specs/story/qa.md 输出 23）。
  */
 export const CONFIG_FIELDS: Readonly<Record<string, FieldSpec>> = {
     "model.baseUrl": {kind: "text", required: true},
@@ -45,6 +45,14 @@ export const CONFIG_FIELDS: Readonly<Record<string, FieldSpec>> = {
     "ingest.model.contextWindow": {kind: "integer", required: false},
     "ingest.model.maxTokens": {kind: "integer", required: false},
     "ingest.model.price": {kind: "json", required: false, example: PRICE_EXAMPLE},
+    "ingest.recall.enabled": {kind: "boolean", required: false},
+    "ingest.recall.model": {kind: "json", required: false, example: INGEST_MODEL_EXAMPLE},
+    "ingest.recall.model.baseUrl": {kind: "text", required: true},
+    "ingest.recall.model.id": {kind: "text", required: true},
+    "ingest.recall.model.apiKeyEnv": {kind: "envName", required: true},
+    "ingest.recall.model.contextWindow": {kind: "integer", required: false},
+    "ingest.recall.model.maxTokens": {kind: "integer", required: false},
+    "ingest.recall.model.price": {kind: "json", required: false, example: PRICE_EXAMPLE},
     "qa.maxChapters": {kind: "integer", required: false},
     "qa.fullReadMaxChars": {kind: "integer", required: false},
 };
@@ -85,6 +93,9 @@ function decode(name: string, field: FieldSpec, text: string): unknown {
         case "integer":
             if (!/^-?\d+$/u.test(text)) throw new ConfigEditError(`${name} 要写整数：${text}`);
             return Number(text);
+        case "boolean":
+            if (text !== "true" && text !== "false") throw new ConfigEditError(`${name} 只能是 true 或 false：${text}`);
+            return text === "true";
         case "thinking":
             if (!THINKING_LEVELS.includes(text)) throw new ConfigEditError(`${name} 只能是 ${THINKING_LEVELS.join("、")}：${text}`);
             return text;
@@ -106,8 +117,8 @@ function decode(name: string, field: FieldSpec, text: string): unknown {
 }
 
 /**
- * 点路径对应的父对象和键；顶层的一节（例如还没有 `qa`、`ingest`）不存在时建出来。更深的父对象必须已经存在：
- * `ingest.model.<字段>` 只能改已经整组写入的 `ingest.model`。改的是副本。
+ * 点路径对应的父对象和键；不存在的节（例如还没有 `qa`、`ingest`、`ingest.recall`）建出来。整组的字段（表里写成 JSON
+ * 的那些）不建：`ingest.model.<字段>` 只能改已经整组写入的 `ingest.model`。改的是副本。
  */
 function locate(config: Record<string, unknown>, name: string): {parent: Record<string, unknown>; key: string} {
     const path = name.split(".");
@@ -115,9 +126,10 @@ function locate(config: Record<string, unknown>, name: string): {parent: Record<
     let parent = config;
     path.forEach((segment, depth) => {
         const existing = parent[segment];
+        const prefix = path.slice(0, depth + 1).join(".");
         if (typeof existing === "object" && existing !== null) parent = existing as Record<string, unknown>;
-        else if (depth === 0) parent = parent[segment] = {};
-        else throw new ConfigEditError(`还没有 ${path.slice(0, depth + 1).join(".")}：先用 nbstory config set ${path.slice(0, depth + 1).join(".")} '<JSON>' 整组写入，例如 ${INGEST_MODEL_EXAMPLE}`);
+        else if (Object.hasOwn(CONFIG_FIELDS, prefix)) throw new ConfigEditError(`还没有 ${prefix}：先用 nbstory config set ${prefix} '<JSON>' 整组写入，例如 ${CONFIG_FIELDS[prefix]!.example ?? "{}"}`);
+        else parent = parent[segment] = {};
     });
     return {parent, key};
 }
@@ -131,12 +143,14 @@ export function setConfigField(config: QaConfig, name: string, text: string, sou
     return parseQaConfig(copy, source);
 }
 
-/** 去掉一个可选字段；`qa`、`ingest` 里没有字段了就整节去掉。 */
+/** 去掉一个可选字段；`ingest.recall`、`qa`、`ingest` 里没有字段了就整节去掉。 */
 export function unsetConfigField(config: QaConfig, name: string, source: string): QaConfig {
     if (fieldOf(name).required) throw new ConfigEditError(`${name} 是必填字段，只能用 config set 改，不能去掉`);
     const copy = structuredClone(config) as unknown as Record<string, unknown>;
     const {parent, key} = locate(copy, name);
     delete parent[key];
+    const ingest = copy.ingest as Record<string, unknown> | undefined;
+    if (typeof ingest?.recall === "object" && ingest.recall !== null && Object.keys(ingest.recall).length === 0) delete ingest.recall;
     for (const section of ["qa", "ingest"]) {
         const value = copy[section];
         if (typeof value === "object" && value !== null && Object.keys(value).length === 0) delete copy[section];
