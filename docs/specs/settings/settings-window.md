@@ -15,7 +15,8 @@ owners:
 
 **不承诺**：
 
-- 搜索；密钥项的界面（随第一个密钥使用者）；本机层（configuration 输出 22）；打开设置文件的按钮；用户自定义快捷键。
+- 搜索动态选项的选项名；密钥项的界面（随第一个密钥使用者）；本机层（configuration 输出 22）；打开设置文件的按钮；用户自定义快捷键。
+- 刷新或关闭浏览器页面、页面所属插件停止时拦住未保存的改动（输出 22）。
 - 路径类控件（选择目录）：路径类的项由所属插件贡献 page 分区，自己给选择方式。
 - 手机宽度：只做桌面宽度。
 - 入口按钮的样子：工作台活动栏底部的齿轮见 [`ui.workbench-shell`](../ui/workbench-shell.md) 输出 40，书架顶部的齿轮见 [`workbench.bookshelf`](../workbench/bookshelf.md) 输出 1；本 Spec 只定它们执行的命令、读的公开状态与谁贡献它们（“打开窗口”）。
@@ -60,6 +61,7 @@ interface SettingsPageDeclaration {
     readonly order?: number;
     readonly layout?: "column" | "fill";           // 缺省 column
     readonly layers?: ReadonlyArray<"user" | "project">;   // 在哪些标签下可用，缺省两者
+    readonly keywords?: ReadonlyArray<LocalizedText>;      // 设置内搜索时另外比对的词（输出 21），至多 20 个
 }
 interface SettingsPageImplementation {
     load(): Promise<Component>;                    // 只取得组件定义；实例由窗口创建；props：{context: SettingsPageContext}
@@ -73,6 +75,7 @@ interface SettingsPageContext {
     readonly layer: Readonly<Ref<"user" | "project">>;    // 当前标签；页面只编辑这一层
     readonly projectTitle: Readonly<Ref<string | null>>;  // 绑定作品的书名（见术语），没有绑定时为 null
     readonly options: FormOptionSources;                   // 全部选项提供者的选项源（输出 20），交给页面里的 SchemaField、SchemaForm
+    dirty(value: boolean): void;                           // 有没有未保存的改动（输出 22）；页面卸载后再调用不起作用
 }
 ```
 
@@ -80,7 +83,7 @@ interface SettingsPageContext {
 |---|---|
 | `settings.sections` 写在插件描述的顶层；`settings.pages` 写在浏览器入口下 | 前者写在入口下为 `implementation-not-accepted`；后者写在顶层为 `implementation-required`，不是浏览器入口的贡献为 `invalid-declaration` |
 | 分区 id 是点分的小写段（`a-z`、`0-9`、`-`，每段以字母开头，至少两段）、至多 128 个字符；`nbook.*` 插件写 `nbook.<名>`，其它插件以自己的插件 id 加 `.` 开头 | `invalid-declaration` |
-| `title`、`description` 两种语言都非空；`icon` 非空；`category`、`layout`、`layers` 取上面的值；`order` 在 -1000000 到 1000000 之间 | 同上 |
+| `title`、`description` 两种语言都非空；`icon` 非空；`category`、`layout`、`layers` 取上面的值；`order` 在 -1000000 到 1000000 之间；`keywords` 至多 20 个、每个两种语言都非空 | 同上 |
 | 小组 id 是一个小写段、至多 64 个字符，同一分区里不重复 | 同上 |
 | `layers` 非空、不重复 | 同上 |
 | 声明不认识的字段（包括已删除的 `kind`，以及 list 写 `layout`、`layers`，page 写 `groups`） | 同上 |
@@ -146,7 +149,7 @@ function settingsChoicesEvent(providerId: string): string;
 
    **按需激活**：窗口每次显示一个 page 分区（窗口开着、它是当前分区、当前标签下可用），所属入口处于“已登记、未激活”时，先看这个入口是否声明了 `onSettingsPage:<分区 id>`：声明了就以 `nbook.settings` 的身份触发它（[`runtime.plugins`](../runtime/plugins.md) 输出 21），没声明就是 `entry-not-activatable` 并记一条诊断，不触发。别的入口声明了同一个事件不算数。触发之后分区的状态只看它自己的入口与交付句柄，不等事件的全部结果，别的监听者一直不结束也不影响它。内核把同一代次的激活合并成一次，反复进入不重复激活；等待中离开或关窗口不取消，激活照常完成，再进入时按当时的状态呈现。入口同时声明 `onStartup` 时启动就激活，与此无关。
 5. **page 的加载与失败**：page 分区第一次显示时调用一次 `handle.implementation().load()`，取得组件后创建实例并交给它 `context`；结果回来时句柄已不是当前句柄、已不处于 `published` 或窗口已关闭，就丢弃这次结果，不挂组件，也不记为加载失败。`load()` 失败或交出的实现没有 `load()` 时原位显示错误摘要与“重新加载”（后者另记一条诊断）；组件渲染出错原位显示错误摘要与“重试”（卸载并重建这个页面）。一个分区的失败不影响别的分区与窗口。“重试”经宿主能力 `window.plugins` 恢复并重新激活该分区所属的入口（同 [`workbench.views`](../workbench/views.md) 输出 8）。
-6. **页面上下文**：切换标签时 `context.layer` 变化，页面不重建；页面用自己插件的配置服务读写自己声明的项，写入带 `{layer: context.layer.value}`。离开分区时页面卸载，回到分区时重新创建（交付句柄没变时不重新加载组件定义）。
+6. **页面上下文**：切换标签时 `context.layer` 变化，页面不重建；页面用自己插件的配置服务读写自己声明的项，写入带 `{layer: context.layer.value}`。离开分区时页面卸载，回到分区时重新创建（交付句柄没变时不重新加载组件定义）。上下文按一次显示给：页面挂着的这段时间（含切换标签）是同一个对象，页面卸载（离开、关窗口、重新加载、撤回、开始搜索）后它作废，下次显示另给一个。
 7. **标签**：绑定作品的窗口在窗口标题下、左栏上方显示“用户 | 本作品”分段控件，缺省“用户”；未绑定作品的窗口不显示，只编辑用户层。
 8. **分区在标签下可用**：list 分区在“本作品”标签下可用的条件是其中至少一项允许项目层，在“用户”标签下同理看用户层；page 分区看声明的 `layers`（缺省两者），由页面作者让它与页面里配置项的层一致。不可用的分区在左栏停用并以原因作提示；当前分区在新标签下不可用时仍是当前分区，右边原位显示不可用的原因。
 9. **通用控件**：每项用 [`ui.forms`](../ui/forms.md) 的单个字段（`SchemaField`）画，控件按 `ui.forms` 输出 2 从 schema 选出：布尔用开关；字面量联合不超过 3 项用横排单选组，多于 3 项用下拉，选项名取 `choices` 的 `title`，没有 `choices` 时是字面量本身；数字用数字输入框，范围与步长取 schema 的 `minimum`、`maximum`、`multipleOf`；字符串用输入框，长度取 `minLength`、`maxLength`；字符串数组、对象与对象数组画成可以直接编辑的列表与字段组，`ui.forms` 表外的写法用 JSON 编辑。声明的 `ui` 提示照用（例如 `widget: "multiline"` 画多行文本框）。动态选项（`choices: {from}`）的项列出选项提供者给的选项（输出 20）。`applies` 不是 `now` 时标题后标注“下次运行生效”“下次会话生效”或“重启后生效”。每项的排法（混合排法）按选出的控件定（`ui.forms` 的 `widgetLayout`）：
@@ -160,7 +163,7 @@ function settingsChoicesEvent(providerId: string): string;
 14. **写入结果**：成功不提示；写入结算之前控件显示这次的值。失败发工作台通知（[`workbench.notifications`](../workbench/notifications.md)，警告色调，标题“设置没有保存”，正文写哪一项与原因），控件回到层里的实际值；`unknown-outcome` 的通知标题是“设置可能没有保存”，正文“可能没有保存，以设置文件为准”。数字框与单行输入编辑时只改草稿，失去焦点或回车才写；数字框、JSON 里写的内容解析不了时不写，控件标出错，控件下面一行写“还没保存：<原因>”（`ui.forms` 输出 15）。字符串列表、对象、对象列表与 JSON 的新值不合 schema 时（例如刚加的一项还没填）同样不写、留在这一行，同一处写出第一条原因，合格了再写；改回层里原来的值时不写；层里的值变了、切换标签或换分区时丢掉留下的值（开发者 2026-10-21 定）。其余不合 schema 的值由写入路径以 `invalid-value` 拒绝，同样发通知、回到实际值。
 15. **一个页面一个窗口**：`nbook.settings.open` 打开本页的设置窗口，已开着时只聚焦；给了 `section` 跳到这个分区，给了 `layer` 切到这个标签。`section` 不在左栏里时以 `invalid-args` 失败，`layer: "project"` 而窗口没有绑定作品时以 `unavailable` 失败，两种都不打开、不改变窗口。关掉再开回到上次的分区与标签；刷新页面后回到第一个分区、用户标签。
 16. **外框**：非模态浮动窗口，缺省 960×640（不超过页面），可拖动边缘调整大小、下限 600×400，尺寸按客户端记住；切换分区时窗口不变大小；每次打开居中。
-17. **键盘**：打开时焦点在左栏的当前项；焦点在左栏时上下键切换到上一个、下一个可用分区（Home、End 到首尾），焦点跟着走；`Esc` 关窗口，焦点回到打开窗口之前的位置。
+17. **键盘**：打开时焦点在左栏的当前项；焦点在左栏时上下键切换到上一个、下一个可用分区（Home、End 到首尾），焦点跟着走；`Esc` 关窗口（搜索框里有字时先只清空，输出 21），焦点回到打开窗口之前的位置。
 18. **`SettingsRow`**：按传入的设置定义、配置服务与层自己算出并画出：已修改竖线与“恢复默认”（经传入的配置服务以 `update(setting, undefined, {layer})` 删除这一层的键）、用户标签下的“本作品覆盖”提示（输出 11）、本作品标签下的沿用、“在本作品里单独设置”与“移除本作品的设置”（输出 12）、层 `invalid` 或 `unavailable` 时控件停用（输出 13）、声明不允许当前层时不画控件并说明；标题、说明、`applies` 标注与两种排法同通用列表。行自己的写入没有成功时交给调用方（设置窗口发通知）。页面不重写这些规则。通用列表的每一项也是一个 `SettingsRow`，写入换成用户编辑路径。
 19. **`SettingsPageList`**：fill 页面做二级列表用；选中样式与左栏不同（不用左栏的选中底色），免得两层左栏读成一张表。
 20. **选项提供者**：窗口按提供者 id 给出选项源（`ui.forms` 输出 11），通用列表与 page 页面（`context.options`）用同一份，在窗口所属入口的一生里是同一个对象：
@@ -168,6 +171,12 @@ function settingsChoicesEvent(providerId: string): string;
     - 所属入口已登记未激活：先是加载中；入口声明了 `onSettingsChoices:<id>` 时窗口第一次要这个源就触发它（同输出 4 的核对：只看所属入口是否声明，触发之后只看它自己的入口与交付），交付后变成它的选项；没声明或触发被拒时不可用，原因写“插件没有声明打开设置时提供选项”，记诊断。正在激活时是加载中。
     - 所属入口受阻、激活失败时不可用并写原因；入口停止、交付撤回后不可用（“已停止”）；配置项引用了没有人提供的 id 时不可用（“没有选项提供者 X”）。
     - 当前值不在选项里时照常显示并标“已不存在”，值保留；值的校验只看 schema（`ui.forms` 输出 12）。
+21. **搜索**：左栏上方一个搜索框；焦点在窗口里时 `Mod+F` 聚焦它（拦住浏览器的查找，输入法组字时不算；焦点在窗口外时不拦）。不分大小写、按空白分词、每个词都要命中：
+    - list 分区与“其它”里的配置项比对标题、说明、键与固定选项名（两种语言都比），动态选项的选项名不比；只列当前标签这一层允许的项（同输出 12）。结果按分区分组（组标题是分区名），每项照常是一个可以改的行（输出 9–14）。
+    - page 分区比对标题、说明、`keywords` 与指向它、由页面画的配置项；只列当前标签下可用的（同输出 8），每条一个“打开”，点了清空搜索、切到这个分区。
+    - 有搜索词时右边换成结果（标题“搜索结果”），左栏照旧但不标当前项；没有命中时写“没有找到设置”。换搜索词时结果重建，结构字段留在行里的值随之丢掉（同换分区，输出 14）。
+    - 清空搜索（清除按钮，或框里有字时按 `Esc`）回到原分区；选左栏的分区也清空搜索。搜索词不记，关窗口即清。
+22. **未保存保护**：page 页面经 `context.dirty(true)` 报有未保存的改动（列表的增删排序也算，页面按“已保存的值与草稿”判断），保存成功后报 `false`。页面报了未保存时，会离开它的动作先弹确认“放弃未保存的改动？”（“放弃”“继续编辑”，焦点默认在“继续编辑”）：切到别的分区、切标签、关窗口（关闭按钮、`Esc`）、`nbook.settings.open` 换了分区或标签、在搜索框输入。“继续编辑”留在原处，焦点回到触发的位置；“放弃”执行这个动作，页面卸载、草稿丢掉（切标签时页面重建）。确认框开着时又来一个这样的动作，等着的换成后来的，不叠第二个确认框。页面卸载后旧上下文的 `dirty` 调用不起作用。拦不住的：页面所属入口停止或交付撤回、窗口所属入口停止、刷新或关闭浏览器页面，这些照常卸载页面，改动丢失。list 分区每项即时写入，不涉及；结构字段留在行里的值不算未保存。
 
 ## 状态与转换
 
@@ -181,7 +190,7 @@ page 分区的交付状态：
 | `available` | 句柄撤回 | `entry-stopped` | 卸载，丢弃已加载的组件定义 |
 | `entry-stopped` | 同一分区再次交付 | `available` | 新句柄，重新加载 |
 
-窗口：关闭 →（`nbook.settings.open`）打开，`windowOpen` 为真 →（关闭按钮、`Esc`）关闭，`windowOpen` 为假。
+窗口：关闭 →（`nbook.settings.open`）打开，`windowOpen` 为真 →（关闭按钮、`Esc`）关闭，`windowOpen` 为假。页面报了未保存时，会离开它的动作先进入“等确认”（输出 22），确认后执行、取消后回到原状态。
 
 时序与寿命：
 
@@ -236,7 +245,8 @@ Smoke 入口：`e2e/settings.e2e.ts`（扩展到设置窗口）。
 - **关键不变量**：
   - 窗口数据来源（含用户编辑的写入路径）只发给 `nbook.settings` 自己、没有经过代理的入口；层的拥有者对用户编辑再按内核填写的调用方核对一次（`web/sections.test.ts`“设置窗口的数据来源只给 nbook.settings 自己”，`settings.test.ts`“用户编辑”）。
   - page 分区的页面实例与已加载的组件定义归窗口模型，不归组件：交付撤回时同步作废（撤回与再次交付挨在同一轮也换用新句柄），窗口关闭时作废进行中的加载；一次加载的结果只在它的代次仍是最新、实例仍在加载时生效（输出 4、5，`window.test.ts`“page 分区的加载”）。
-  - 页面上下文每个分区一份、在窗口的一生里不变，`layer` 是窗口标签的只读引用：切换标签时页面不重建，离开再回来不重新加载组件定义（输出 6，`window.test.ts`、`SettingsWindow.dom.test.ts`“page 页面的寿命”）。
+  - 页面上下文按一次显示给，`layer` 是窗口标签的只读引用：切换标签时页面不重建、上下文不变，离开再回来不重新加载组件定义；显示结束时上下文作废、未保存的标记清掉（输出 6、22，`window.test.ts`“page 分区的加载”“未保存保护”，`SettingsWindow.dom.test.ts`“page 页面的寿命”）。
+  - 会离开当前页面的动作都经同一个入口，页面报了未保存时先等确认，确认框开着时只记最后一个动作（输出 22）。
   - 选项源的映射在注册表的一生里不变，每项是读交付句柄与入口状态的计算值；提供者给的值每次求值都在边界里核对，出错只让这一个源不可用；按需激活在求值之外触发（输出 20，`web/choices.test.ts`）。
   - `SettingsRow` 的已修改、沿用、覆盖提示与停用只由配置服务的 `inspect` 结果与当前标签算出，通用列表与 page 页面共用这一份规则（输出 10–13、18，`SettingsRow.dom.test.ts`）。
   - 通用控件的写入在结算之前按“标签加键”记下这次的值供控件显示，结算后清掉，控件回到层里的实际值；失败另经通知交给用户（输出 14，`window.test.ts`“通用列表的写入”）。
@@ -245,5 +255,5 @@ Smoke 入口：`e2e/settings.e2e.ts`（扩展到设置窗口）。
 
 - 批准依据：开发者批准的 t80 实施计划（记录在主工作区 master 的 `.agents/works/w00017-application-runtime-architecture/tasks/t80-settings-ui/plan.md`）“关键设计”第 2、4 节；窗口尺寸由开发者改为缺省 960×640（2026-10-12）；每项的混合排法（输出 9）由开发者确认（2026-10-12，t80 README 待定第 11 条）；开发者 2026-10-13 批准晋升为 `implemented`。
 - 实现入口：[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/settings/web/plugin.ts)（配置核心入口与窗口入口：分区贡献点、打开命令、公开键、活动栏齿轮与窗口浮层）、[`web/settings-window.ts`](../../../packages/neuro-book/src/plugins/settings/web/settings-window.ts)（窗口模型）、[`web/sections.ts`](../../../packages/neuro-book/src/plugins/settings/web/sections.ts)（分区注册表与交付状态）、[`web/choices.ts`](../../../packages/neuro-book/src/plugins/settings/web/choices.ts)（选项提供者注册表）、[`web/components/SettingsWindow.vue`](../../../packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue)、[`src/ui/settings/`](../../../packages/neuro-book/src/ui/settings/)（`SettingsRow`、`SettingsPageList`、`settingsPage`）
-- 合同测试：[`window.test.ts`](../../../packages/neuro-book/src/plugins/settings/window.test.ts)（落位、打开命令、尺寸、按需激活、page 加载、写入与层的说明，真实内核与真实设置文件）、[`web/sections.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/sections.test.ts)（分区的登记校验与交付状态）、[`web/choices.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/choices.test.ts)（选项提供者的登记校验、状态、出错边界与按需激活）、[`commands.test.ts`](../../../packages/neuro-book/src/plugins/settings/commands.test.ts)（打开命令的登记、参数与公开键）、组件测试 [`SettingsWindow.dom.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.dom.test.ts)、[`SettingsRow.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsRow.dom.test.ts)、[`SettingsPageList.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsPageList.dom.test.ts)、[`settings-page.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/settings-page.dom.test.ts)；[`06-settings-page.test.ts`](../../../packages/neuro-book/examples/scenarios/06-settings-page.test.ts)（示例插件 [snippets](../../../packages/neuro-book/examples/plugins/snippets/) 的 page 分区：声明、交付与撤回、按层写入、越权写入）
+- 合同测试：[`window.test.ts`](../../../packages/neuro-book/src/plugins/settings/window.test.ts)（落位、打开命令、尺寸、按需激活、搜索、未保存保护、page 加载、写入与层的说明，真实内核与真实设置文件）、[`web/sections.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/sections.test.ts)（分区的登记校验与交付状态）、[`web/choices.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/choices.test.ts)（选项提供者的登记校验、状态、出错边界与按需激活）、[`commands.test.ts`](../../../packages/neuro-book/src/plugins/settings/commands.test.ts)（打开命令的登记、参数与公开键）、组件测试 [`SettingsWindow.dom.test.ts`](../../../packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.dom.test.ts)、[`SettingsRow.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsRow.dom.test.ts)、[`SettingsPageList.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/SettingsPageList.dom.test.ts)、[`settings-page.dom.test.ts`](../../../packages/neuro-book/src/ui/settings/settings-page.dom.test.ts)；[`06-settings-page.test.ts`](../../../packages/neuro-book/examples/scenarios/06-settings-page.test.ts)（示例插件 [snippets](../../../packages/neuro-book/examples/plugins/snippets/) 的 page 分区：声明、交付与撤回、按层写入、越权写入）
 - Smoke：[`settings.e2e.ts`](../../../packages/neuro-book/e2e/settings.e2e.ts)（验收 1–4、6：工作台与书架的齿轮、`Ctrl+,`、`Esc` 后焦点回到打开前的位置，两个页面即时变化，本作品覆盖与移除，恢复默认后的文件，文件改坏与修好，尺寸跨关闭与刷新、每次打开居中）；[`bookshelf.e2e.ts`](../../../packages/neuro-book/e2e/bookshelf.e2e.ts)（“作品”分区的目录选择器叠在窗口上）；Lab 场景 `SettingsWindow`、`SettingsRow`、`SettingsPageList`；通用控件的选择、约束与提交时机由 `ui.forms` 的测试覆盖
