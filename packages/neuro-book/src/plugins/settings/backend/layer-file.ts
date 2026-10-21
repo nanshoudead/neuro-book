@@ -39,22 +39,29 @@ export async function resolveTarget(path: string): Promise<LayerTarget> {
     }
 }
 
-export type ReadLayer = {readonly ok: true; readonly text: string} | {readonly ok: false; readonly detail: string};
+/** `bytes` 是文件的原始字节（整份读写的修订号对它取摘要）；`text` 按 UTF-8 解码，非法的字节换成替换字符。 */
+export type ReadLayer = {readonly ok: true; readonly text: string; readonly bytes: Uint8Array; readonly exists: boolean} | {readonly ok: false; readonly detail: string};
 
-/** 读文件文本：不存在（含悬空链接）为空文本；其它读取错误给出原因，由拥有者把层记为无效。 */
+/** 读文件文本：不存在（含悬空链接）为空文本、`exists` 为假；其它读取错误给出原因，由拥有者把层记为无效。 */
 export async function readLayerFile(path: string): Promise<ReadLayer> {
     try {
-        return {ok: true, text: await readFile(path, "utf8")};
+        const bytes = await readFile(path);
+        return {ok: true, text: bytes.toString("utf8"), bytes, exists: true};
     } catch (error) {
-        if (errno(error) === "ENOENT" || errno(error) === "ENOTDIR") return {ok: true, text: ""};
+        if (errno(error) === "ENOENT" || errno(error) === "ENOTDIR") return {ok: true, text: "", bytes: new Uint8Array(), exists: false};
         return {ok: false, detail: `无法读取：${describe(error)}`};
     }
 }
 
-/** 由当前文本算出新文本；不能写时给出原因（例如文件当前无效），原样作为写入失败交回。 */
-export type Transform = (current: string) => {readonly ok: true; readonly text: string} | {readonly ok: false; readonly code: string; readonly detail: string};
+/**
+ * 由当前文本算出新文本；不能写时给出原因（例如文件当前无效），原样作为写入失败交回，带上的其它字段（例如出错位置）也照交。
+ * `bytes` 是当前文本的原始字节（整份写按它核对修订号）。
+ */
+export type Transform = (current: string, bytes: Uint8Array) => {readonly ok: true; readonly text: string} | TransformFailure;
 
-export type WriteLayer = {readonly ok: true; readonly text: string} | {readonly ok: false; readonly code: string; readonly detail: string};
+export type TransformFailure = {readonly ok: false; readonly code: string; readonly detail: string; readonly position?: {readonly line: number; readonly column: number}};
+
+export type WriteLayer = {readonly ok: true; readonly text: string} | TransformFailure;
 
 /**
  * 写一层：`transform` 在取锁前调用一次，持锁后每次重做时再各调用一次，必须是当前文本的纯函数。失败码 `write-failed`
@@ -73,7 +80,7 @@ export async function writeLayerFile(path: string, transform: Transform, report:
     // 不持锁的预读：新文本与当前相同时，这次写入在“读到的那一刻”已经完成，不必取锁。
     const unlocked = await readLayerFile(file);
     if (unlocked.ok) {
-        const preview = transform(unlocked.text);
+        const preview = transform(unlocked.text, unlocked.bytes);
         if (!preview.ok) return preview;
         if (preview.text === unlocked.text) return {ok: true, text: unlocked.text};
     }
@@ -85,8 +92,9 @@ export async function writeLayerFile(path: string, transform: Transform, report:
     const replaced = await replaceLocked<WriteLayer, string>(file, {
         lockPath: `${file}.lock`,
         decide: (current) => {
-            const text = current === null ? "" : Buffer.from(current.bytes).toString("utf8");
-            const next = transform(text);
+            const bytes = current === null ? new Uint8Array() : current.bytes;
+            const text = Buffer.from(bytes).toString("utf8");
+            const next = transform(text, bytes);
             if (!next.ok || next.text === text) return {done: next.ok ? {ok: true, text} : next};
             return {write: next.text};
         },

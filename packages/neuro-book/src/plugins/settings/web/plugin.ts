@@ -30,16 +30,17 @@ import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 import type {SettingLayer} from "nbook/shared/settings";
 
 import {descriptor} from "../plugin";
-import {displayLocale, localeSetting, OPEN_SETTINGS_COMMAND, projectSettingsContract, SETTINGS_PAGE_ACTIVATION_PREFIX, SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT, SETTINGS_WINDOW_OPEN_KEY, settingsKey, switchSetting, userSettingsContract} from "../shared/contracts";
-import type {SettingsPageDeclaration, SettingsSectionDeclaration} from "../shared/contracts";
+import {displayLocale, localeSetting, OPEN_SETTINGS_COMMAND, projectSettingsContract, SETTINGS_CHOICES_ACTIVATION_PREFIX, SETTINGS_CHOICES_POINT, SETTINGS_PAGE_ACTIVATION_PREFIX, SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT, SETTINGS_WINDOW_OPEN_KEY, settingsKey, switchSetting, userSettingsContract} from "../shared/contracts";
+import type {SettingsChoicesDeclaration, SettingsPageDeclaration, SettingsSectionDeclaration} from "../shared/contracts";
 import {createSettingsInstance, FIRST_SNAPSHOT_MS, provideSettings, recordTo} from "../shared/instance";
-import {acceptedSettings, pagesPoint, sectionsPoint, settingsPoint} from "../shared/point";
-import {remoteLayerEditor, remoteLayerLink} from "../shared/remote-link";
+import {acceptedSettings, choicesPoint, pagesPoint, sectionsPoint, settingsPoint} from "../shared/point";
+import {remoteLayerEditor, remoteLayerFile, remoteLayerLink} from "../shared/remote-link";
+import {ChoiceSourceRegistry} from "./choices";
 import {SettingsSectionRegistry} from "./sections";
 import {createSettingsWindow} from "./settings-window";
 import type {SettingsWindowSizeStore} from "./settings-window";
 import {settingsWindowSizeStore, sizeStorePort} from "./window-size";
-import {createSettingsWindowSource, provideSettingsWindowSource, settingsWindowSourceKey} from "./window-source";
+import {choiceReferences, createSettingsWindowSource, provideSettingsWindowSource, settingsWindowSourceKey} from "./window-source";
 
 export const SWITCH_LOCALE_COMMAND = "nbook.settings.switch-locale";
 
@@ -157,15 +158,16 @@ export const settingsWindowEntry = defineEntry({
 
 export const settingsBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
-    contributionPoints: [settingsPoint, sectionsPoint, pagesPoint],
-    // 设置窗口显示 page 分区时触发 `onSettingsPage:<分区 id>`（settings-window.md 输出 4）。
-    activationEventPrefixes: [SETTINGS_PAGE_ACTIVATION_PREFIX],
+    contributionPoints: [settingsPoint, sectionsPoint, pagesPoint, choicesPoint],
+    // 设置窗口显示 page 分区时触发 `onSettingsPage:<分区 id>`（settings-window.md 输出 4），要一个提供者的选项时触发
+    // `onSettingsChoices:<提供者 id>`（“选项提供者”）。
+    activationEventPrefixes: [SETTINGS_PAGE_ACTIVATION_PREFIX, SETTINGS_CHOICES_ACTIVATION_PREFIX],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
         dependencies: [{key: diagnosticsKey}, {key: clockKey}, {key: windowConnectionKey}, {key: windowProjectKey}, {key: windowPluginsKey, required: false}],
         provides: [settingsKey, settingsWindowSourceKey],
-        receives: [SETTINGS_PAGES_POINT],
+        receives: [SETTINGS_PAGES_POINT, SETTINGS_CHOICES_POINT],
         remoteDelegates: [userSettingsContract, projectSettingsContract],
         activate: async (context) => {
             const bound = context.services.require(windowProjectKey).project !== null;
@@ -192,19 +194,32 @@ export const settingsBrowserPlugin: PluginDefinition = {
                 context.signal,
                 (event) => context.activation.trigger(event),
             );
+            const choices = new ChoiceSourceRegistry(
+                context.declarations.list<SettingsChoicesDeclaration>(SETTINGS_CHOICES_POINT),
+                choiceReferences(declarations),
+                plugins.status === "resolved" ? plugins.instance : null,
+                (message) => diagnostics.record({level: "warn", event: "settings.choices", message, source: {plugin: descriptor.id}}),
+                context.signal,
+                (event) => context.activation.trigger(event),
+            );
             const windowSource = createSettingsWindowSource({
                 sections,
+                choices,
                 declarations,
                 editors: {
                     user: remoteLayerEditor(context.remote, userSettingsContract),
                     ...(bound ? {project: remoteLayerEditor(context.remote, projectSettingsContract)} : {}),
+                },
+                files: {
+                    user: remoteLayerFile(context.remote, userSettingsContract),
+                    ...(bound ? {project: remoteLayerFile(context.remote, projectSettingsContract)} : {}),
                 },
                 instance,
             });
             await instance.ready;
             return {
                 services: [provideSettings(instance), provideSettingsWindowSource(windowSource, descriptor.id)],
-                receivers: {[SETTINGS_PAGES_POINT]: sections.receiver()},
+                receivers: {[SETTINGS_PAGES_POINT]: sections.receiver(), [SETTINGS_CHOICES_POINT]: choices.receiver()},
             };
         },
     }), defineEntry({

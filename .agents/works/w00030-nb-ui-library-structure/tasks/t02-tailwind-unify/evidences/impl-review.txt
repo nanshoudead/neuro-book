@@ -1,0 +1,128 @@
+# w00030 t02 实现审查报告（只读；范围 master..HEAD）
+
+核实方式：在 worktree 里跑了 `build:web`（neuro-book、dev-panel、nb-story）并解析产物 CSS，nb-ui 全量单测（35 文件 532 条通过），ci 的 workspace-workflows 测试通过，`check:dist` 通过；用 Vite `createServer`（中间件模式、不监听端口）读了开发模式下 `tailwind.css` 的输出。未跑 e2e、未起开发服务。
+
+---
+
+## 1. 计划验收表里两行没有对应的 e2e 断言
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：`.agents/works/w00030-nb-ui-library-structure/tasks/t02-tailwind-unify/plan.md` 的“验收”表第 2、3 行；分支新增的 e2e 只有 `packages/nb-ui/e2e/control-invalid.spec.ts`
+- **现象**：计划写明两条验收：
+  - “同一组件在各宿主里外观相同：Lab（neuro-book）与 playground 里读 `IconButton` 字号、`Switch` 滑块位移、`Select` 箭头旋转的计算样式，各一条 e2e 断言”；
+  - “调用方传的原子类能覆盖组件的语义类：Lab 里一条计算样式断言（例如给 `Button` 传 `w-full`）”。
+  `git diff master..HEAD --stat -- '*e2e*'` 只有 `control-invalid.spec.ts` 一个文件，`packages/neuro-book/e2e/lab-nb-ui.e2e.ts` 里也没有读这几项计算样式的用例（grep `rotate|translate|IconButton|fontSize|w-full` 无命中）。README 的进展里也没有写这两条被推迟或取消。
+- **为什么是问题**：这两行正是本 Task 想消灭的症状（L01 字号随宿主变、Switch 滑块溢出轨道、chevron 转 360°）能否回头的唯一机检；现在引擎合一只靠“产物里只有一份”的结构推断，没有行为断言。
+- **如何核实**：`git diff master..HEAD --stat -- '*e2e*' '*.spec.ts' '*.e2e.ts'`。
+- **建议改法**：补上这两条（Lab 里读 `getComputedStyle`，不需要新夹具），或在 README 里明确写“这两行改为截图对照证明”并删计划里的行。
+
+## 2. 分层不变量没有长期守护：冲突扫描工具随 Task 删除，仓库里没有任何机检
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：`scripts/nb-ui/tailwind-migration/scan-layer-conflicts.ts`（Task 完成后删除）；被删的 `packages/nb-ui/src/dist-css.test.ts`
+- **现象**：`dist-css.test.ts` 守的是“入库产物不过期”，产物没了，这条自然作废。但这个 Task 引入了三条新的、悄悄失效的不变量，现在只有那个临时工具在查：
+  1. 宿主入口里不能有不分层、特异性低于一个类的规则（坑 60 的整个内容）；
+  2. nb-ui 的 `styles.css` 必须留在 `components` 层、图标垫片必须留在 `base` 层（坑 58 的判据“有人把垫片挪出层，同样的现象会回来”）；
+  3. 组件模板上不能与语义类重复设同一属性（ADR 0028 的“后果”第二条）。
+  `grep -rn "@layer\|unlayered\|分层" scripts --include='*.ts'` 排除迁移工具后无命中；`packages/*/src` 的测试里也没有检查层的用例。违反时构建不报错、单测不红，表现是某个原子类“没效果”。
+- **为什么是问题**：ADR 0028 与设计文档坑 60 把规则写成了文字，仍然靠人记；这类回归的发现成本很高（前面 S1 的子代理修工具缺陷后，A 类冲突从 21 条变成 168 条，说明肉眼不可靠）。
+- **如何核实**：我对 neuro-book、dev-panel、nb-story 三个生产产物解析了所有不分层规则，没有特异性低于一个类的（结果为空，所以现状是对的）；但同样的脚本不在仓库里。
+- **建议改法**：留一个小的 vitest：用 `@tailwindcss/node` 的 `compile()` 编译 `nb-ui/src/tailwind.css`（或各宿主入口），断言 (a) 层声明顺序，(b) `.nb-ui-*` 规则全在 `components` 层，(c) 不分层顶层规则里没有选择器特异性低于 `(0,1,0)` 的，(d) 图标垫片在 `base`。即使只做 (c) 也比没有强。
+
+## 3. “改动面”只比了 neuro-book 自己的源码；nb-ui 源码里的类以前由 UnoCSS 在 neuro-book 里生成并压过 nb-ui 产物，现在换成 Tailwind v4 的值，这部分差异没有登记
+
+- **严重程度**：建议（外观差异，需要截图时逐项看）；**类别**：正确性 / 文档
+- **位置**：`packages/nb-ui/src/components/` 里的 `shadow-sm`（`Toolbar.vue:20`、`Tree.vue:82`、`Menubar.vue:130`、`RadioGroup.vue:109`、`ToggleGroup.vue:72`、`Select.vue:192,233`）、`Dialog.vue:209` 的 `backdrop-blur-sm`、`Badge.vue:53` 与 `SegmentedControl.vue:183` 的 `py-0.2`；计划“改动面”一节与 README 的“预期差异”清单
+- **现象**：计划里的“改动面”用工具 1 编译的是 neuro-book `src` 下的非测试源码。但迁移前 neuro-book 的 UnoCSS 经 Vite 模块图也会扫到 nb-ui 的 `.vue`（`uno.config.ts` 里的封禁名单注释就是证据），而且 `boot.ts` 里 `virtual:uno.css` 排在 nb-ui 产物之后，同名类 UnoCSS 那份赢。所以 nb-ui 组件在 neuro-book 里的实际外观是 UnoCSS(wind3) 的值。现在只剩 Tailwind v4 的值。我用同一份配置（`presetWind3 + presetIcons`）逐类生成 nb-ui 源码的 490 个类，与新产物对比，真正不同的有：
+  - `shadow-sm`：wind3 是 `0 1px 2px 0 rgb(0 0 0/.05)`；v4 是 `0 1px 3px 0 …/.1, 0 1px 2px -1px …/.1`，更重更大；
+  - `backdrop-blur-sm`：wind3 是 `blur(4px)`；v4 是 `blur(var(--blur-sm))` = 8px（Dialog 的 `overlayType="blur"` 遮罩）；
+  - `py-0.2`：v4 不生成（非 0.25 的整数倍），wind3 生成 `0.05rem`。该类在 `dist/nb-ui.css`（master）里也没有，只是 neuro-book 里以前由 UnoCSS 补上；现在 Badge 与 SegmentedControl 的计数小标签垂直内边距从约 0.8px 变成 0；
+  - `outline-none`：wind3 是 `outline: 2px solid transparent; outline-offset: 2px`，v4 是 `outline-style: none`。nb-ui 里有约 30 处。计划里只改了 neuro-book 自己的 7 处为 `outline-hidden`（保住强制颜色模式下的轮廓），nb-ui 自己的没改，也没有在文档里说明；多数元素带 `.nb-ui-focus-ring`（本来就 `outline: none`），不带的有 `Popover`、`Drawer`、`MenuLevelPanel`、`ContextMenuPanel` 等容器。
+  - `font-mono` 的字体栈少了 `"Courier New"`（计划已写“随 nb-ui token 改变”，这条不用管）。
+- **为什么是问题**：计划的验收最后一行“外观只按预期变化……预期内的差异只有两类”，而这几项不在两类之内，截图对照时会被当成“待查明的意外差异”，或更糟：因为量很小被漏掉。
+- **如何核实**：`/tmp/t02/review/scratch/uno-cmp2.mjs`（用 `bun run` 跑，读 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00030-t02-tailwind/node_modules/unocss`）；输出在 `/tmp/t02/review/scratch/uno-cmp2.out`。
+- **建议改法**：把这几项写进 README 的预期差异；`py-0.2` 在两个组件里改成 `py-[0.05rem]`（或 `py-px`），它本来就是 nb-ui 的死类；`outline-none` 是否换成 `outline-hidden` 请开发者定（强制颜色模式目前没有规范，倾向于记录不改）。
+
+## 4. 滚动条 token 在 `:root` 上算出后继承下去，套了另一套配色的子树里的原生滚动条取到页面根的颜色（dev-panel 终端块是现成的复现点）
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-ui/src/tokens.css` 的 `--scrollbar-thumb*`（`:root` 内，由 `var(--text-main)` 派生）；`packages/nb-ui/src/styles.css:33-41`；`packages/dev-panel/src/web/host/terminal-theme.ts:13`（`applyColorway(container, "nbook-dark")`）与 `packages/dev-panel/src/web/parts/TerminalView.vue:262`（`frameBox`：`overflow-auto bg-[var(--bg-main)]`，就是被套了暗色配色的滚动容器）
+- **现象**：自定义属性里的 `var()` 在声明它的元素上就代入了，子孙拿到的是代入后的值。`--scrollbar-thumb` 声明在 `:root`，代入的是页面根的 `--text-main`。终端块被有意固定为暗色（页面是亮色时也是）：它的 `--text-main` 是浅色，但它里面的 `scrollbar-color: var(--scrollbar-thumb)` 取到的仍是页面根亮色的深色墨 32%。深色底上放深色滑块，几乎看不见。迁移前 dev-panel 写的是 `* { scrollbar-color: color-mix(… var(--text-muted) 55% …) }`，`var()` 在每个元素上各自代入，终端块跟着自己的配色。
+- **为什么是问题**：README 与任务说明里“在 `:root` 上计算”被列为已有取舍，但这里能指出具体出错的地方：套子树配色是 `applyColorway(target)` 的公开用法（它还专门给 target 加 `.nb-ui-colorway` 宿主 class），终端块就是这么用的；这一条是相对迁移前的回退，而不是以前就有的限制。
+- **如何核实**：我用 Chrome（`channel: "chrome"`）读了一个最小页面的计算样式，`/tmp/t02/review/scratch/sb.html` + `sb.mjs`：根 `--text-main:#111`，子容器内联 `--text-main:#eee`，规则同 `styles.css:33-36`。结果子容器的 `scrollbar-color` 与根完全一样，`color(srgb 0.0667 0.0667 0.0667 / 0.32)`（深色），而不是 `#eee` 的 32%。需要在真实页面上由主会话复核：亮色页面打开 dev-panel 的终端页，看终端块右侧滚动条。
+- **建议改法**：把 `--scrollbar-thumb`、`-hover`、`-active` 也声明到 `.nb-ui-colorway`（`applyColorway` 加的 class，`styles.css` 里已有同名规则）上，让套了配色的子树自己重新代入；`:root` 里保留一份给没有宿主 class 的页面（缺省）。也可以不用派生值，改成 `scrollbar-color: color-mix(in srgb, var(--text-main) 32%, transparent) transparent` 直接写在 `:where()` 规则里（`var()` 在元素上代入），自绘滑块的三个组件同理写在各自的样式里；但这样“改一处统一调整”的目标要靠一个 `--scrollbar-alpha` 之类的数值 token 实现，取舍请开发者定。
+
+## 5. `@source "../"` 按目录树扫源码，把只在 Lab 与 e2e 外壳里用到的类也编进了生产 CSS，违背“排除发生在构建图阶段”
+
+- **严重程度**：重要；**类别**：不变量（`docs/specs/ui/component-lab.md` 的验收 10 与“构建、预览与运行时都不得……排除发生在构建图阶段”）
+- **位置**：`packages/neuro-book/src/web/tailwind.css:21`（`@source "../";`）；`packages/neuro-book/scripts/check-dist.ts` 的 `DEVELOPMENT_MARKERS`
+- **现象**：UnoCSS 只抽模块图里实际被打进来的文件，Lab 是 `import.meta.env.DEV` 分支里动态加载的，生产构建里抽不到它。Tailwind 的 `@source` 是按文件系统扫的，`src/plugins/lab/**` 与 `src/web/testing/**`（e2e 外壳的测试插件）全在里面。我用新产物 `dist/web/assets/index-*.css`（143,833 B）做了反查：utilities 层 792 个类里，有 94 条规则（7,182 B，约 5%）的类名只在 `plugins/lab` 或 `web/testing` 里出现、nb-ui 与产品代码里都没有；产物里能 grep 到 `--lab-surface`、`--lab-surface-blur`（例如 `.bg-\[var\(--lab-surface\)\]/75`）。`check:dist` 仍然通过，因为它的识别标记里没有 CSS 层面的标记。
+- **为什么是问题**：验收 10 要求“产物文本中不存在 Lab 模块、fixture……识别标记”，Lab 的设计词汇已经进了可分发产物；体积只是次要的。以后 Lab 里有人写了含敏感路径或内部名的任意类（例如 `content-['…']`），同样会被带进生产 CSS。
+- **如何核实**：`cd packages/neuro-book && bun run build:web`，在 `dist/web/assets/index-*.css` 里 grep `lab-surface`；反查脚本是我写的一次性代码，思路是把 utilities 层规则的类名与 `src/plugins/lab`、`src/web/testing` 之外的所有源码文本比较。
+- **建议改法**：二选一。（a）`@source not "../plugins/lab"` 与 `@source not "../web/testing"` 之后，把 Lab 与测试外壳需要的类放进只在开发构建 / e2e 构建里导入的第二个 CSS 入口（`development-plugins.ts`、`e2e-main.ts` 各 `import` 自己的入口，那个入口再 `@source` 自己的目录并 `@reference` 主入口）；（b）至少把 `lab-surface` 之类放进 `DEVELOPMENT_MARKERS`，让 `check:dist` 能发现，再决定要不要接受这 5%。Lab 里的类名是否会随 (a) 重复生成一份，要实测。
+
+## 6. README 与入口头注释给的“只要 theme 和 utilities”写法，照抄会得到不分层的原子类，或层序变成 `theme, utilities, base, components`
+
+- **严重程度**：重要（只影响照文档接入的新宿主，但失败是无声的，正好是本 Task 想消灭的那类）；**类别**：文档
+- **位置**：`packages/nb-ui/README.md` 的 “No preflight” 一条（`If you want only Tailwind's theme and utilities, import tailwindcss/theme.css and tailwindcss/utilities.css separately instead of tailwindcss`）；`packages/nb-ui/src/tailwind.css` 头注释第 5 行（“只要 theme 与 utilities 时拆开写 tailwindcss/theme.css 与 utilities.css”）；对照写对了的 `packages/neuro-book/src/web/tailwind.css:14-19`
+- **现象**：neuro-book 之所以对，是因为它做了两件文档没提的事：开头先写一行 `@layer theme, base, components, utilities;`，并且两个 import 都带 `layer(theme)`、`layer(utilities)`。我用 `@tailwindcss/node` 的 `compile()` 编译了两种“照文档写”的变体（脚本 `/tmp/t02/review/scratch/tw-compile.mjs`）：
+  1. 只写 `@import "tailwindcss/theme.css"; @import "tailwindcss/utilities.css"; @import "@notnotype/nb-ui/tailwind.css";`：输出里 `.flex` 在顶层（层深度 0），原子类是不分层的，又回到“谁赢看特异性与先后”，与 nb-ui 语义类在 `components` 层这件事互相打架；
+  2. 加上 `layer(theme)`、`layer(utilities)` 但不先写层序语句：层名按首次出现排，nb-ui 入口里的 `@layer theme, base, components, utilities;` 来得太晚，实际层序是 `theme, utilities, base, components`，utilities 比 components 和 base 都低，调用方传的原子类反过来输给语义类。
+- **为什么是问题**：整个 Task 的正确性靠层序，而这一条是对新宿主的唯一说明，两种照抄都不报错、样式表面正常，只是调用方传的类在个别属性上失效。
+- **如何核实**：`bun run /tmp/t02/review/scratch/tw-compile.mjs`（输出两行 “层名序列” 与 “flex depth”：第一种 0，第二种 1 但层序不对）。
+- **建议改法**：README 与入口头注释把完整可抄的三行写出来：
+  ```css
+  @layer theme, base, components, utilities;
+  @import "tailwindcss/theme.css" layer(theme);
+  @import "tailwindcss/utilities.css" layer(utilities);
+  @import "@notnotype/nb-ui/tailwind.css";
+  ```
+  或者把 `@layer theme, base, components, utilities;` 的重要性单独成一条；neuro-book 的 `tailwind.css` 头注释里“@layer 先写”的原因也只写了 boot.ts 里，没写在 CSS 里。
+
+
+## 7. 为 nb-ui-scrollbar-thin 根类没有任何测试或守卫（建议）
+
+- 类别：测试缺口
+- 位置：`packages/nb-ui/src/styles.css` 33-41 行；四处宿主 `index.html` 的 `<html class="nb-ui-scrollbar-thin">`
+- 现象：宿主忘了在 `<html>` 上加这个类，或类名改动，没有任何单测、e2e 或 check 会失败；nb-ui playground 本身也没有加这个类，无法在 nb-ui 内部观察到效果。
+- 为什么重要：原生滚动条的颜色与宽度是 S4 的交付物，退化时只表现为滚动条变回浏览器默认样式，肉眼不易发现。
+- 验证办法：从任一宿主 `index.html` 删掉该类，跑 `test:affected` 与 e2e，均不报错。
+- 建议：在 `control-invalid.spec.ts` 同类的 e2e 里加一条对 `getComputedStyle(scroller).scrollbarColor` 的断言，或在 check 脚本里检查四个宿主入口都带该类。
+
+## 未发现问题的方面
+
+- 生产构建的层序：neuro-book、nb-story、dev-panel 的产物里 `@layer theme, base, components, utilities` 都在最前，层序正确；开发服务的 CSS 注入顺序按代码推断同样成立（未起开发服务验证）。
+- 各宿主生产 CSS 里没有“未入层的低特异性规则”压过分层规则的情况。
+- CI 与 dev-panel 的哈希路径一致，没有遗留对已删产物（预编译的 nb-ui CSS、`uno.config.ts`、`build:css`）的引用。
+- `@theme static` 的 token 与宿主已有 token 没有撞名。
+- nb-ui 内部组件的调用方类名没有发现因 UnoCSS 换成 Tailwind 而翻转的情况（差异只在发现 3 列出的几类取值）。
+- 类型检查、受影响单测与构建在本分支通过。
+- `usePopupScroll` 已经用 `rectScale` 处理了 CSS `zoom`，OverlayScrollbar 的拖动缩放属于既有行为，不是本分支引入，不记发现。
+
+## 更正
+
+- 发现 2 中“A 类从 21 变 168”一句不准：21 与 168 是两种口径统计的数，不能直接相比，以该条里给出的验证脚本重新计数为准。
+
+## 未验证
+
+- nb-ui 源码改动在 Vite 开发服务下的 HMR 行为。
+- 与 master 上新的 w00027 t02 neuro-book 代码合并后的表现。
+- 发现 3（shadow、backdrop-blur、outline 取值差异）与发现 4（浅色模式下 dev-panel 终端滚动条）需要在真实浏览器里截图确认。
+
+## 汇总
+
+阻断 0，重要 5（发现 1 到 5 里的前五条，其中最严重的是 4、5、6 所在组），建议 2。
+
+汇总更正：重要 5 条是发现 1、2、4、5、6；建议 2 条是发现 3、7；阻断 0。最严重的是 4、5、6，其次是 1、2。
+
+---
+
+## 处理结果（主会话，2026-10-21，修正提交 c94b2e2f7）
+
+- 发现 1（验收表两行没有 e2e）：成立，改。`packages/neuro-book/e2e/lab-nb-ui.e2e.ts` 加一条：IconButton 字号 13px、Switch 滑块在轨道内且右移、Select 箭头 `rotate: 180deg` 且 `transform: none`、`nb-ui-popover-surface rounded-full` 的圆角取原子类、根与后代的 `scrollbar-width: thin`。playground 一侧不另加：三个宿主编译同一份入口，跨宿主一致由结构保证，Lab 这条守住最容易回退的宿主。
+- 发现 2（分层不变量没有长期守护）：成立，改。`check:dist` 在产物 CSS 上查层的先后与不分层的低特异性规则（带浏览器私有前缀的伪元素豁免，Monaco 的 `::-ms-clear`），并补单测。组件模板与语义类重复设同一属性一项不做机检：分层后它只是让原子类生效，不再是隐患。
+- 发现 3（nb-ui 源码里以前由 UnoCSS 生成的类换成 v4 的值）：成立，取舍。`shadow-sm`、`backdrop-blur-sm`、`outline-none` 现在是 Tailwind v4 的值，与 nb-ui 在 playground、nb-story、dev-panel 里一直以来的样子一致，是 L01 要的结果，记为预期差异；`py-0.2` v4 不生成，按作者原意改 `py-[0.05rem]`。
+- 发现 4（滚动条 token 在 :root 上算死）：成立，改。先试过在 `.nb-ui-colorway` 上再声明一遍，被 `tokens.test.ts` 的既有守护拦下（`html` 与 `body` 都是配色宿主，在宿主上声明 token 会遮住主题在根上的覆盖）。改为 token 只存比例（`--scrollbar-thumb-mix` 等），颜色在用到的元素上 `color-mix(… var(--text-main) var(--scrollbar-thumb-mix) …)` 现场混。
+- 发现 5（Lab 的类进了生产 CSS）：成立，改。负向 `@source not` 之后再写正向的加不回来（实测），所以拆成完整入口 `src/web/tailwind.css`（开发服务、Vitest、e2e 外壳）与生产入口 `src/web/tailwind.product.css`（导入完整入口再排除 `plugins/lab`、`web/testing`）；`boot.ts` 导入别名 `nbook-tailwind.css`，`vite.config.ts` 在 `serve` 时换成完整入口，`vite.e2e.config.ts` 同样换回。实测生产产物去掉的 153 个类只在 Lab 与测试外壳出现，`check:dist` 加 `--lab-` 标记。
+- 发现 6（照抄文档层序会错）：成立，改。入口头注释与 README 写出完整四行并说明缺哪一步会怎样。
+- 发现 7（细滚动条根类没有守护）：成立，并入发现 1 的 e2e。

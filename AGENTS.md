@@ -103,6 +103,7 @@ neuro-book/
 | 新应用、脚本、包 | [`packages/neuro-book/AGENTS.md`](packages/neuro-book/AGENTS.md)、[`scripts/AGENTS.md`](scripts/AGENTS.md)、[`packages/AGENTS.md`](packages/AGENTS.md) 中匹配的最近入口 |
 | 查旧应用的实现或行为 | [`packages/neuro-book-legacy/AGENTS.md`](packages/neuro-book-legacy/AGENTS.md)；只读，不在旧包里修改 |
 | 新增或修改开发 Agent Skill | [`.agents/skills/README.md`](.agents/skills/README.md) |
+| 开发服务、截图、给开发者看图或报告、查已有产物 | [`packages/dev-panel/docs/cli.md`](packages/dev-panel/docs/cli.md)：用 `nbdev dev start`、`nbdev shot`、`nbdev find`、`nbdev artifact publish`，不直接 `bun run dev`，不在回复里列本地路径 |
 
 ## Git 注意事项
 

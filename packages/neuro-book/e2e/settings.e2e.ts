@@ -389,3 +389,94 @@ test("调整窗口大小后关掉再开、刷新页面仍是这个尺寸，每�
     await settled();
     expect(await width()).toBe(resized);
 });
+
+// ── 搜索、设置文件视图（settings-window.md 输出 21、23）与 Lab“模型服务”（输出 20、22） ──
+
+test("Ctrl+F 聚焦设置里的搜索框；搜到“明暗”直接改掉；Esc 先清空搜索、窗口不关", async ({page}) => {
+    await open(page, "/?project=book");
+    await workbenchGear(page).click();
+    await page.keyboard.press("Control+f");
+    const search = page.locator("[data-settings-search] input");
+    await expect(search).toBeFocused();
+    await search.fill("明暗");
+    const appearance = row(page, "nbook.workbench/appearance");
+    await expect(page.locator("[data-settings-row]")).toHaveCount(1);
+    await appearance.getByRole("radio", {name: "深色"}).click();
+    await expect.poll(() => readSettings(userFile())).toEqual({"nbook.workbench/theme": "nbook", "nbook.workbench/appearance": "dark"});
+    await search.focus();
+    await page.keyboard.press("Escape");
+    await expect(search).toHaveValue("");
+    await expect(settingsWindow(page)).toBeVisible();
+    await expect(page.locator("[data-settings-section='nbook.appearance']")).toBeVisible();
+});
+
+test("设置文件视图：看到带注释的全文，改主题后 Ctrl+S 保存，文件原样落盘、页面跟着变；别处把文件改坏后经它修好", async ({page}) => {
+    const problems: string[] = [];
+    watchConsole(page, problems);
+    await open(page, "/?project=book");
+    await workbenchGear(page).click();
+    await page.locator("[data-settings-nav='file']").click();
+    const text = page.locator("[data-settings-file-text]");
+    await expect(text).toHaveValue(USER_FILE);
+    const next = USER_FILE.replace("\"nbook\"", "\"macos\"");
+    await text.fill(next);
+    await text.press("Control+s");
+    await expect.poll(() => readFile(userFile(), "utf8")).toBe(next);
+    await expect.poll(() => html(page, "data-nb-theme")).toBe("macos");
+    await expect(page.locator("[data-settings-file-actions]").getByRole("button", {name: "保存"})).toBeDisabled();
+
+    await writeFile(userFile(), "{\"nbook.workbench/theme\": \"nbook\",,}");
+    await expect(text).toHaveValue("{\"nbook.workbench/theme\": \"nbook\",,}");
+    await expect(page.locator("[data-settings-layer-notice='invalid']")).toBeVisible();
+    await text.fill("{\n    \"nbook.workbench/theme\": \"nbook\"\n    \"x\": 1\n}");
+    await page.locator("[data-settings-file-actions]").getByRole("button", {name: "保存"}).click();
+    await expect(page.locator("[data-settings-file-error]")).toContainText("第 3 行第 5 列");
+    await text.fill(USER_FILE);
+    await page.locator("[data-settings-file-actions]").getByRole("button", {name: "保存"}).click();
+    await expect(page.locator("[data-settings-layer-notice]")).toHaveCount(0);
+    expect(await readFile(userFile(), "utf8")).toBe(USER_FILE);
+    expect(problems).toEqual([]);
+});
+
+test("Lab“模型服务”：打开时才激活；加一家服务商没填好时保存被拒，填好后保存；有改动时切分区先确认", async ({page}) => {
+    const devRoot = join(tmp, "dev-models");
+    await mkdir(devRoot, {recursive: true});
+    const dev = await startDevSession(devRoot);
+    try {
+        await page.goto(`${dev.pageUrl}lab?c=SettingsWindow&s=page-fill`);
+        const models = page.locator("[data-sample-models]");
+        await expect(models).toBeVisible();
+        const items = models.locator("[data-nb-list-action='select']");
+        await expect(items).toHaveText(["DeepSeek", "本地 Ollama"]);
+        // 第一个“添加”是服务商列表的，详情里“模型”列表另有一个。
+        await models.locator("[data-nb-list-add]").first().click();
+        await expect(page.locator("[data-sample-models-actions]").getByRole("button", {name: "保存"})).toBeEnabled();
+        await page.locator("[data-sample-models-actions]").getByRole("button", {name: "保存"}).click();
+        await expect(page.locator("[data-sample-models-failure]")).toContainText("还没保存");
+        const detail = models.locator("[data-nb-detail]");
+        await detail.getByLabel("标识").fill("openai");
+        await detail.getByLabel("名称").fill("OpenAI");
+        await detail.getByLabel("接口地址").fill("https://api.openai.com/v1");
+        await detail.getByLabel("超时").fill("30");
+        await detail.getByLabel("超时").blur();
+        await page.locator("[data-sample-models-actions]").getByRole("button", {name: "保存"}).click();
+        await expect(page.locator("[data-sample-models-actions]").getByRole("button", {name: "保存"})).toBeDisabled();
+        await expect(items).toHaveText(["DeepSeek", "本地 Ollama", "OpenAI"]);
+
+        await detail.getByLabel("名称").fill("OpenAI 官方");
+        await detail.getByLabel("名称").blur();
+        await page.locator("[data-settings-nav='nbook.appearance']").click();
+        const dialog = page.getByRole("alertdialog");
+        await expect(dialog).toContainText("放弃未保存的改动？");
+        await expect(dialog.getByRole("button", {name: "继续编辑"})).toBeFocused();
+        await dialog.getByRole("button", {name: "继续编辑"}).click();
+        await expect(dialog).toHaveCount(0);
+        await expect(models).toBeVisible();
+        await page.locator("[data-settings-nav='nbook.appearance']").click();
+        await page.getByRole("alertdialog").getByRole("button", {name: "放弃"}).click();
+        await expect(page.locator("[data-settings-section='nbook.appearance']")).toBeVisible();
+    } finally {
+        dev.child.kill("SIGTERM");
+        expect(await dev.exit).toBe(0);
+    }
+});

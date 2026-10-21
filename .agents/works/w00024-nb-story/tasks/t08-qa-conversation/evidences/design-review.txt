@@ -1,0 +1,226 @@
+# w00024 t08 设计审查
+
+审查对象：t08 计划与 docs/specs/story/qa.md 的 planned 条目。以下发现按影响排序。
+## 1. 同一代提交新章节后，续问没有恢复原来的抽取版本
+
+- **严重程度**：重要；**类别**：正确性 / 不变量
+- **位置**：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:59-63,74-75`；`docs/specs/story/qa.md:153,167,186`；现有机制 `packages/nb-story/src/core/library.ts:51-71,315-350,153-159`、`packages/nb-story/src/core/api.ts:224-238`
+- **现象**：计划的新记录只保存 `generation`，没有保存 `revision` 或抽取进度；续问按记录的书 id 重新 `openBook`，而 `openBook` 固定的是当前 `book.json` 指向的版本。书库的 `commitExtraction` 保持同一个 `generation`、只递增 `revision`。
+- **为什么是问题**：第一轮会话、工具结果和 `read` 账本来自旧 revision；第一轮结束后同一本书提交新章节时，续问的图、段数、分页游标和出处校验却来自新 revision。`writableBook` 只核对 generation，既不会发现这个混用，也不会阻止把混用后的日志保存。这样违反既有“固定开始时的抽取进度”合同，且模型看到的历史与当前工具不是同一份书。
+- **如何核实**：先用样例书完成一轮；在同一书 id 上调用 `Library.commitExtraction` 提交下一章（代码中 generation 不变、revision 加一）；再用 `--continue`，在工具实现或脚本化请求中读取 `book.info`/图查询并对比第一轮与第二轮使用的 revision。静态核对命令：`git show 96cef9e1b -- docs/specs/story/qa.md`，再读 `packages/nb-story/src/core/library.ts:315-350` 与 `packages/nb-story/src/core/api.ts:224-238`。
+- **建议改法**：对话记录保存开始时的 `revision`（以及必要的抽取进度/版本文件名或内容指纹），续问必须打开同一 pinned revision；若当前 revision 不再可恢复，返回 `qa_not_continuable`，不要静默切到最新版本。`writableBook`/保存后的复查仍按 generation 执行，并另加 revision 语义。
+
+## 2. `expectTurns` 不是 compare-and-swap，现有固定临时文件还会交叉覆盖两个文件
+
+- **严重程度**：阻断；**类别**：正确性 / 不变量 / 安全与性能
+- **位置**：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:51-76`；`docs/specs/story/qa.md:25,166,244`；现有 `packages/nb-story/src/core/qa-records.ts:129-165`
+- **现象**：计划只是在改名之前读取一次磁盘轮数；检查和两次 `rename` 之间没有原子条件写。现有实现还把所有并发保存者的临时文件固定为 `<id>.json.tmp` 与 `<id>.session.jsonl.tmp`，随后先改名 session、再改名 record。
+- **为什么是问题**：两个进程都从同一轮数开始时，二者都能通过 `expectTurns`，后写者会无条件覆盖先写者；这已经超出计划承认的“核对与写入之间极短窗口”。更糟的是共享 `.tmp` 文件会让 A 写入 B 的临时内容，或让其中一个 `rename` 得到 `ENOENT`。session 先改名、record 后改名还会产生旧 record + 新 session 的窗口；若第二次改名失败，续问会从旧记录读到不匹配的历史。于是“冲突时磁盘上的记录不变”和“记录与会话日志一起重写”都不成立，可能不是丢一轮而是把对话记录与历史配错。
+- **如何核实**：从同一份一轮记录并发启动两个 `save`，在两次 `expectTurns` 读取后用 gate 同时放行；检查两个 `save` 的返回值、`<id>.json` 与 `<id>.session.jsonl` 的轮数和最后一条用户消息是否匹配。也可直接按现有代码运行：`bun test packages/nb-story/src/core/qa-records.test.ts`，再在 `/tmp/review-w00024-t08-design/scratch/` 写两个并发 `save` 调用复现共享 `.tmp`。静态核对 `qa-records.ts:141-150` 已能证明临时文件名不是每次保存唯一的。
+- **建议改法**：不能把一次预读轮数称为并发保护。至少让每次写入使用唯一临时路径并补充混合文件检测；若合同必须保证 record/session 成对且同一对话跨进程串行，需用对话级文件锁或改成可原子替换的单文件/版本目录。若坚持开发者已定的“不加锁”，就必须把可见的配对破坏和覆盖写进合同，不再声称冲突时磁盘记录保持不变，并让续问拒绝校验失败的 session。
+
+## 3. 取消中的 `read` 可能在本轮保存后继续改账本
+
+- **严重程度**：重要；**类别**：正确性 / 不变量
+- **位置**：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:42-50,146-152`；`docs/specs/story/qa.md:142,153,167,228,242`；现有 `packages/nb-story/src/qa/tools.ts:97-118`、`packages/nb-harness/src/tools/bridge.ts:50-79`、`packages/nb-harness/src/harness.ts:388-409`
+- **现象**：harness 的 bridge 在取消时用 `Promise.race` 先把工具调用结算为中断，底层 `impl.execute` 继续运行；harness 的 `close` 等的是 Agent 运行和日志写队列，不等底层工具 Promise。nb-story 的查询工具没有使用执行上下文的 `signal`，`book.call` 返回后仍会执行 `state.ledger.record(...)`。
+- **为什么是问题**：第二轮或取消轮保存 `read` 快照时，底层读取可能尚未完成，账本可能在保存前后任一时刻被改动。结果会出现两种不一致：记录写入了模型从未收到的段/章，或这次实际完成的读取没有进入记录。下一轮恢复的是保存下来的快照，而会话日志只有被中断的工具结果；章数和出处许可因此取决于时序，不能满足“读过的段随记录保存”以及“中断后还能继续”的不变量。harness 保证日志中的调用结果成对，不等于宿主状态更新已停止。
+- **如何核实**：给 `read` 对应的 `book.call` 加一个只在收到取消后才放行的 gate，模型发出 `read` 后取消；观察 `harness.turn` 返回 `aborted`、日志写入中断结果，再让 gate 放行并在引擎保存前后读取 `ledger.chapters()`/记录 `read`。静态证据是 `bridge.ts:71-75` 的 `running.catch` 与 `Promise.race`，以及 `tools.ts:108-117` 在未检查 signal 的异步调用后登记段落。
+- **建议改法**：把 `{signal}` 传到查询层并在返回后再次检查取消，只有模型真正收到成功工具结果才登记账本；或者让 bridge/宿主在关闭时等待实现 Promise。取消验收必须覆盖“模型请求中”和“read 工具在途”两种时序，不能只复用现有 provider hang 场景。
+
+## 4. `length` 分支无条件算“文字回复”，但 harness 可以返回空文字
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:26-38`；`docs/specs/story/qa.md:133-142,241`；`packages/nb-harness/src/harness.ts:337-350`
+- **现象**：计划的结束表只给 `stop` 做“最后一段助手文字不为空”的判断，`length` 无条件写成“已答，带文字回复”。harness 的 `text` 只拼最后一个 assistant message 的 `text` block，不包含 thinking；输出被截断时它可以是空字符串。
+- **为什么是问题**：模型可能在输出上限前只产生 thinking、空内容或工具调用，没有可展示的回答。此时记录会是 `status: answered`、`reply.text: ""`、`truncated: true`，CLI 退出 0，却没有用户可见答案，违反 `文字回复` 定义，也绕过 `no_answer`。同样，只有空白文字时若按“非空字符串”判断也会误算已答。
+- **如何核实**：已在真实 harness + 脚本化 `streamFn` 上运行 `/tmp/review-w00024-t08-design/scratch/length-empty.ts`：`content: []`、`stopReason: "length"` 的 `turn()` 返回 `{"stopReason":"length","text":""}`。也可用 `bun /tmp/review-w00024-t08-design/scratch/length-empty.ts` 重跑。
+- **建议改法**：`length` 也必须先检查 `text.trim()`；没有可展示文字时按 `no_answer` 失败，不能生成空 `reply`。把 thinking-only、工具调用-only、空白文本分别列入确定性场景。
+
+## 5. planned 条目没有真正替换旧合同，Spec 同时规定“提醒”和“不提醒”
+
+- **严重程度**：重要；**类别**：文档 / 测试
+- **位置**：`/home/notnotype/CodeRepository/neuro-book/docs/specs/story/qa.md:14,22-25,131-142,153-154,169-180,184-196,223-244`；计划 `plan.md:106-119`
+- **现象**：输出 10 的旧规范仍写“停下后提醒两次”，下面才追加“取代上一段”；验收 4 仍保留“三次不调 answer、提醒两次”的旧场景，只在正文里写“本场景由场景 13 取代”。输出 15、时序与寿命、副作用落点仍使用“一问结束时写一次记录/日志”的旧表述，而 planned 条目改成“每轮重写”。状态表中 planned 说明插在表格中间，`中断` 行已经脱离 Markdown 表。
+- **为什么是问题**：这些是同一份 Spec 中的规范性文字，不是历史注释。按旧条目实现会继续发提醒、只保存一轮；按 planned 条目实现又会违反旧验收和字段说明。测试作者、t13 实作者和文档工具无法确定哪个是黑盒合同；“取代”只是一句说明，不能消除重复判据。
+- **如何核实**：`git show 96cef9e1b -- docs/specs/story/qa.md` 可看到 planned diff 是追加段落而非替换；执行 Markdown 结构检查并人工逐项查找 `提醒`、`一问结束`、`一问一条记录`，会同时命中旧条目和新条目。
+- **建议改法**：直接改写旧条目，只保留一份输出 10、输出 15、时序与数据合同；验收 4 删除或明确标为历史基线而不属于当前 Spec。把“状态按轮、对话状态取最后一轮”的说明放在表外，并把 `中断` 行放回表内；同步更新输出 14 的 F1 到 F4 范围和实现合同中的旧字段描述。
+
+## 6. 新旧记录与 `--json` 的兼容投影未定义，现有回归脚本会在文字回复上崩溃
+
+- **严重程度**：重要；**类别**：正确性 / 测试 / 接口合同
+- **位置**：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:51-76,95-104,131-144`；`docs/specs/story/qa.md:147,153-154,215`；`.agents/works/w00024-nb-story/tasks/t05-qa/scripts/qa-eval.ts:126-143`；`packages/nb-story/src/cli/qa.ts:39-45`
+- **现象**：计划要求记录读入后统一成 `QaConversation`，并说 `--json` 保留原字段名；但新记录把 `question`、`status`、`answer`、`chaptersRead`、`rejections`、`usage` 等从顶层移进 `turns`，没有定义 `qa --json` 的旧记录投影，也没有定义文字回复时旧 `answer` 字段应为 `null` 还是缺省。现有 `qa-eval.ts` 对每个成功结果直接执行 `record.answer.evidence`，并直接读取顶层 `chaptersRead`、`rejections`、`usage`。
+- **为什么是问题**：如果 `ask --json` 返回规范化对话对象，现有回归脚本在第一份结果就会因 `answer` 不存在而失败；即使保留顶层兼容字段，模型在剧情题上直接文字回复时 `answer` 必然为 `null`，脚本仍会解引用并把结果混入结构化答案评测。`qa` 列表/显示的旧记录若直接返回 normalized conversation，也会改变既有 `--json` 消费者看见的形状。回归不重跑不等于可以让脚本不可执行或悄悄评错。
+- **如何核实**：用现有脚本的真实解析代码给一个 `{"ok":true,"data":{"id":"x","turn":1,"reply":{"text":"你好"},"answer":null}}`，执行 `qa-eval.ts` 同一段逻辑会在 `answer.evidence` 处抛异常；对旧记录运行 `nbstory qa <id> --json`，比较当前 QaRecord 顶层字段与计划的 QaConversation `turns` 形状。
+- **建议改法**：明确并测试两个适配层：`ask --json` 对结构化轮保留现有顶层字段并追加 `turn`/`reply`，对文字轮定义稳定的 `reply` 结果和 `answer: null`；`qa --json` 明确定义旧记录是原形返回还是统一返回，并给出版本/判别字段。同步让 `qa-eval.ts` 遇到 `reply` 时按“无结构化 answer”记录可判定结果，而不是解引用 `null`。
+
+## 7. F8 对工具变化的定义与 harness 的可选工具恢复语义不一致
+
+- **严重程度**：重要；**类别**：接口合同 / 正确性
+- **位置**：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:24-25,39,74,84-93`；`docs/specs/story/qa.md:99,167,209`；`packages/nb-harness/src/harness.ts:105-116`、`packages/nb-harness/src/tools/effective.ts:111-137`、`packages/nb-story/src/qa/tools.ts:56-64,147-154`
+- **现象**：计划把 Profile 版本或工具声明变化、以及恢复失败都归为 `qa_not_continuable`，但实际 `restoreEffectiveTools` 对快照里的可选工具在当前登记表缺失时不会抛 `session_incompatible`，而是创建一个始终返回 `plugin-unavailable` 的句柄；只有必需工具缺失才拒绝。`knows`、`ledger`、`track` 正是按书特性选择登记的可选工具。
+- **为什么是问题**：续问恢复时如果登记表按当前书特性建立，快照中曾有的可选工具可能没有当前句柄；harness 会成功恢复，模型下一轮才收到工具错误，而不是计划和 F8 所说的“模型请求前不能续问”。反过来，如果恢复代码无条件登记全部工具，又没有明确按快照重建，就可能把禁用功能错误暴露给 Profile 上下文或使测试误判。计划没有定义“登记表如何按当前/记录特性生成”与“可选工具缺失是 F8 还是可继续”。
+- **如何核实**：用 `storyQaPlugin` 建一份含 `knows` 的快照，再用不登记 `story.knows` 的 registry 调 `createHarness` 恢复；按 `effective.ts:129-132` 可直接得到恢复成功、调用时 `plugin-unavailable`。再分别用 `--no-secrets`、`--no-ledger` 的书执行同一流程，检查快照工具 id、恢复结果和首个模型请求。
+- **建议改法**：在计划中写死恢复前的 registry 构造和判定：基于记录保存的不可变 feature/revision 重建登记表，并明确快照里的每个工具缺失都是否拒绝。若 t08 要求严格 F8，需在 nb-harness 增加宿主可选的 strict-restore 校验或调整 harness 合同；若接受 `plugin-unavailable`，则把 F8 和验收 15 的文案改成只覆盖 Profile/声明不一致，增加缺失可选工具的真实时序测试。
+
+## 8. 账本快照的区间规范不完整，按章合并容易把未读段保存成已读
+
+- **严重程度**：重要；**类别**：不变量 / 正确性
+- **位置**：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:42-50,58-63,123-125,135-139`；`docs/specs/story/qa.md:39,103,165,242`；现有 `packages/nb-story/src/qa/read-ledger.ts:86-128`
+- **现象**：计划只说 snapshot 是“按章合并的区间 `[章, 起段, 止段][]`”，没有说明同一章允许多个 tuple、端点是否闭区间、是否必须排序，或只合并相邻段还是把同章最小到最大段包成一个区间。现有账本实际按段集合记录，`checkRef` 会逐段检查。
+- **为什么是问题**：若一轮分别读 38.1 和 38.3，按章取最小/最大会保存成 `[38,1,3]`；恢复后 38.2 被当作已读，模型可以在没有收到该段的情况下引用它，直接破坏出处信任边界。跨轮章数计数也需要从“上一轮读过的章集合”而不是区间端点推导。这个形状本身可以无损，但前提是同章的非相邻区间保留为多个 tuple；计划没有把这个前提写成合同。
+- **如何核实**：构造稀疏读取 `read 38.1`、`read 38.3`，保存并恢复；再提交 `answer` 或文字回复引用 38.2。恢复后的 `checkRef("38.2")` 必须仍拒绝。对 `[38,1,3]` 与 `[[38,1,1],[38,3,3]]` 两种快照分别跑同一场景即可暴露差异。
+- **建议改法**：把 `read` 定义为闭区间数组，规定按章排序、同章只合并相邻或重叠区间、非相邻区间必须分别保存，并在读取时验证正整数、范围、无重叠；把稀疏同章、跨章和恢复后引用未读段加入账本合同测试。
+
+## 9. 新记录的外部输入校验没有覆盖对话、轮次和账本嵌套形状
+
+- **严重程度**：建议；**类别**：正确性 / 安全与性能
+- **位置**：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md:58-76`；`docs/specs/story/qa.md:153-167`；现有 `packages/nb-story/src/core/qa-records.ts:240-251`
+- **现象**：计划只说 `recordProblem`“按两种形状核对”，没有给新形状的 discriminator、`turns` 非空规则、每轮 payload/usage/status 的校验，或 `[chapter,start,end]` 的整数与范围校验。现有校验只检查少数顶层字段，甚至不验证旧 `answer`、`chaptersRead` 的元素。
+- **为什么是问题**：`qa --json`、列表格式化和 `--continue` 都把磁盘 JSON 当可信的 `QaRecord` 使用。一个带 `turns: []`、`reply: null` 与 `status: answered` 不一致、负数区间或缺字段的文件可能被列为正常记录；显示时抛异常，续问时恢复出错误账本，或者把损坏数据当成已读。这样违反“损坏记录列最后且不影响其余记录”，也让 F6 不能覆盖实际损坏。
+- **如何核实**：在书的 `qa/<id>.json` 写入多个近似合法但缺 nested 字段的对话 JSON，执行 `nbstory qa --json`、`nbstory qa <id> --json` 和 `ask --continue <id>`，观察是否仍被 `recordProblem` 接受。现有基线 `qa-records.ts:240-251` 已显示校验是浅层的，计划没有列出要补齐的字段。
+- **建议改法**：为旧记录和新对话各定义带版本/判别的 TypeBox schema，完整校验轮次、answer/reply 互斥、状态与错误互斥、usage、时间、区间及非空 `turns`；`read` 的每个区间再按当前书元数据检查。所有失败统一转 F6，不让 formatter 或恢复路径承担校验。
+
+
+## 候选复核更正（前面编号不作为最终有效问题清单）
+
+- 撤销候选 1：旧 Spec 的抽取进度固定范围是“一问”，新计划把一问定义为一轮；不能据此要求整个对话固定 revision。新 revision 使旧分页 cursor 失效是既有查询行为，不能把未约定的跨轮固定版本当作违约。
+- 候选 2 仅保留“固定临时文件和两个文件的配对提交”部分继续核实；预读轮数与写入之间仍会覆盖是开发者已经接受的窗口，不列为新问题，不建议重新讨论加锁。原文“超出计划承认的窗口”的判断不成立。
+- 撤销候选 3：`bridge.ts` 的 race 是 `running` 与 **工具撤回**，并非 `signal` 取消；普通取消仅转发 signal，OMP 的 `executeToolCalls` 等待所有 task 完成，不能据此断言保存后继续改账本。需以真实取消流程为准。
+- 候选 5 收窄：输出 10 明确写“取代上一段”，验收 4 明确由 13 取代；planned 与 implemented 并存本身不是矛盾。仅状态表被中途段落切断是已确认的 Markdown 问题，其余原判断撤销。
+- 候选 6 收窄：plan.md:100 已明确 `ask --json` 返回这一轮、原字段保留，不应推断它返回完整对话。仍核实合法 `answer: null` 文字回复是否使既有回归脚本崩溃。`qa --json` 的结构改变属于已明确的对话展示范围，不独立认定缺陷。
+- 撤销候选 7：每书 features 在创建时固定，同一代按同一个 book.info 重建 registry 即一致；恢复只遍历快照中的工具，额外登记的工具不会暴露。缺失 optional 工具允许 `plugin-unavailable` 是 harness 已有合同，并不证明本方案有可达错误。
+- 候选 8 收为验收建议：区间数组本身能无损保存同章多个不连续区间；不能假定实现会按 min/max 填洞。需要的是稀疏 round-trip 验收。
+- 撤销候选 9：“至少一轮”、answer/reply 形状以及 `recordProblem` 双形状校验已经写在计划；尚未实现，不能把旧浅校验直接算成新设计缺陷。
+
+以下继续追加实际核实的有效发现与结尾清单；最终严重程度与数量以“有效发现索引”为准。
+
+## 有效发现 A：覆盖式双文件提交会把未保存的轮次带进下一轮上下文
+
+- **严重程度**：阻断；**类别**：不变量。
+- **位置**：主工作区 `plan.md:54-55,75`；主工作区 `docs/specs/story/qa.md:153,166-167,184,187`；worktree `packages/nb-story/src/core/qa-records.ts:142-163`。这里的 plan.md 全路径为 `/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t08-qa-conversation/plan.md`，worktree 根为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-nb-story`。
+- **现象**：计划沿用“先替换 session 日志、再替换 record”的保存顺序，但同一个 id 已经有旧 record；session 改名后到 record 改名前，旧 record + 新 session 已经可被续问读到。第二次 rename 失败后该状态永久留下，catch 只删除两个临时文件，不撤回已替换的 session。
+- **为什么是问题**：没有并发也能发生。第二轮报告“没有保存”，磁盘 record 仍是第一轮，但会话日志已经有第二轮问题与回答。下一次 `--continue` 会把第二轮当历史喂给模型，账本却来自第一轮、编号仍从第 2 轮开始。`expectTurns` 查到的仍是旧轮数，检测不到这个错配；t13 进程内串行也挡不住它。这是数据配对破坏，与开发者接受的“预读到改名之间允许丢一轮”窗口不同。并发保存还共用 `<id>.json.tmp` 和 `<id>.session.jsonl.tmp`，预读失败方的临时内容/清理可以影响成功方，需一起消除。
+- **如何核实**：已执行 `bun /tmp/review-w00024-t08-design/scratch/save-pair.ts`（退出 0）。脚本用真实 `Library`、`QaRecords` 和脚本化真实 harness 生成两轮日志，经 strace 只给 `rename(<id>.json.tmp, <id>.json)` 注入 EIO；输出 `recordQuestion: 第一问`、`logHasSecond: true`，child 返回 EIO。对应 trace 是 `/tmp/review-w00024-t08-design/scratch/save-pair-652086/save.trace`。前面未命中的注入尝试不计验证通过。
+- **建议改法**：保持“不加锁”，改成每次保存的日志文件名不可变且唯一，由 record 携带日志文件名/提交标识；先写新日志，再一次 rename 发布引用它的新 record。读者始终按已读 record 指向的日志恢复；失败保留旧配对。若保留固定的日志路径，至少需要等价的配对提交与恢复协议，单纯加轮数检查不够。所有临时文件每次保存唯一，`expectTurns` 检查必须在任何已发布文件替换之前，保存前后保留 generation/格式门禁；缺失、损坏或已删除的目标不得当成零轮重建。验收追加：record rename 失败、两次读跨发布边界、冲突时 record 和日志都保持匹配。
+
+## 有效发现 B：`length` 不保证存在文字，当前结束表会把空回复报为已答
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：主工作区 `plan.md:30-33`；主工作区 `docs/specs/story/qa.md:137-140,241`；worktree `packages/nb-harness/src/harness.ts:337-348`。
+- **现象**：`stop` 分支检查文字，`length` 分支无条件创建文字回复并置为已答。harness 只拼最后一条 assistant 的 text blocks，不包含 thinking；`length` 可以有 0 个 text blocks。
+- **为什么是问题**：模型在思考阶段耗尽输出额度，结果是 `length` + `text: ""`，照表实现后会写出 `answered`、`reply.text: ""`、退出码 0，用户没有得到答案。空白字符串也需定义是否属于“没有文字”。
+- **如何核实**：已执行 `bun /tmp/review-w00024-t08-design/scratch/harness-boundaries.ts`（退出 0）：thinking-only + length 返回 `reason: length, text: "", requests: 1`；stop 空内容返回 `text: ""`；stop 空白返回 `text: "   "`；thinking 加两个 text blocks 只返回 `回答甲回答乙`。更早的 `length-empty.ts` 也复现 length 空文字。没有真实模型调用。
+- **建议改法**：对 stop 与 length 都先按 `text.trim()` 判定是否有可显示文字；无文字走 `no_answer`，有文字且 length 才置 truncated。验收 13 加 thinking-only 的 length 与 stop 空白，不能只测带“半截”的 length。
+
+## 有效发现 C：`parseEntryLine` 加 seq 检查不足以在请求前识别损坏历史
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：主工作区 `plan.md:39,78-81,142`；主工作区 `docs/specs/story/qa.md:167,209`；worktree `packages/nb-session/src/entries.ts:171-178`、`packages/nb-harness/src/harness.ts:105-116`。
+- **现象**：计划的恢复校验只有逐行 `parseEntryLine` 和 seq 从 1 连续。现有解析器对 `agent_message.message` 只检查是非 null object，对 snapshot.initial 只检查存在；harness 恢复将 message 强制当 AgentMessage 放进历史，没有检查 role/content 或模型消息结构。
+- **为什么是问题**：例如合法 JSON 中的 `{role:"assistant",content:null,stopReason:"stop"}`、非对象内容块、无效 user content 都能通过上述检查。`createHarness` 也接受，然后请求时才把坏历史交到 provider 或发生 local 错误，最终保存新失败轮；违反 F8“模型请求前报 qa_not_continuable、不改记录”。这不是要求验真模型内容，而是辨认日志是否为可回放的消息。
+- **如何核实**：已执行 `bun /tmp/review-w00024-t08-design/scratch/malformed-history.ts`（退出 0），在真实 JSONL 会话的 assistant 中只把 content 改为 null，seq/快照不变。结果 `allParse:true, createHarnessAccepted:true, modelRequests:1`，首个 streamFn 请求中的历史含 `content:null`。脚本化模型绕过 provider 编码，但真实 createHarness→turn→render→streamFn 全链路已经证明“请求前校验”未发生。
+- **建议改法**：在拥有 OMP AgentMessage 类型的 nb-harness 提供恢复输入校验（或在 nb-story 恢复边界调用等价 schema），验证支持的 message role、content blocks 与 toolCall/toolResult 配对，验证 snapshot.initial 符合当前 Profile schema；保留 thinking/signature/provider 回放字段，不重新投影丢失字段。结构损坏统一转 `qa_not_continuable`。验收 F8 除版本 1 外增加有效 JSON 但错误消息结构、序号断裂、缺失日志与配对缺失，断言请求 0 次、文件字节不变。
+
+## 有效发现 D：合法文字回复使既有回归脚本的成功分支直接抛异常
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：主工作区 `plan.md:66-67,100,152,162`；主工作区 `.agents/works/w00024-nb-story/tasks/t05-qa/scripts/qa-eval.ts:126-131`。
+- **现象**：`ask --json` 保留 `answer` 字段，但文字回复时它是 null、整体是 `ok:true`。回归脚本对任何成功结果无条件读取 `record.answer.evidence`，而计划断言“回归脚本读得照旧”，没有给该消费端安排适配。
+- **为什么是问题**：开发者允许模型直接文字回复，计划自己也承认剧情题可能走这条路径；因此这是合法成功结果，不是异常输入。第一份这样的结果就使 answerOne 抛 TypeError，Promise.all 的批次被拒绝，没有写出这一题的结果。保留字段名称不等于保留 `ok:true => answer 非 null` 的旧语义。这里不要求重跑 232 份回归，只需让既有脚本可处理新结果。
+- **如何核实**：已执行 `bun /tmp/review-w00024-t08-design/scratch/acceptance-seams.ts`（退出 0）。实验从真实 `qa-eval.ts` 提取当前成功分支中 `const record = parsed.data` 到 evidence 计算的代码，经 Bun.Transpiler 执行新文字回复结果，得到 `null is not an object (evaluating 'answer.evidence')`；没有启动评测入口或真实模型。
+- **建议改法**：在回归消费端区分 answer 与 reply，为文字回复保存正文及“未经结构化校验”的明确状态，并明确证据不足如何记入既有判据；不要伪造 Answer 或把成功文字回复改报 model_failed。给解析层加一条文字回复输入的确定性 smoke 即可，无需重跑回归。
+
+## 有效发现 E：恢复后的 maxChapters 有两个来源，修改配置会让提示词与执行规则分裂
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：主工作区 `plan.md:23-25,42-49,59-70,98-100`；主工作区 `docs/specs/story/qa.md:49,59,103,167`；worktree `packages/nb-story/src/qa/engine.ts:108-117,131`、`packages/nb-story/src/qa/story-qa.profile.tsx:20-21,33`、`packages/nb-harness/src/harness.ts:114`。
+- **现象**：续问仍接受当前配置/另一个 `--config`，记录只固定书、generation、P、mode。harness 恢复使用日志快照里的旧 initial.maxChapters，ReadLedger 则沿用现有引擎路径，按当前 `qaLimits(input.config)` 重建。计划没有说明哪一个拥有后续轮次的章数上限。
+- **为什么是问题**：第一轮 `maxChapters=1`，配置改为 2 后续问，系统提示仍写“一问最多读 1 个不同的章”，工具实际允许新增 2 章；反向改成 1 则模型一直得到和提示词相反的工具拒绝。harness 只比工具声明，不比较句柄闭包里的 limits，恢复不会因这项改变失败。网页设置页会与同一引擎共用配置，这不是只能靠内部调用制造的输入。
+- **如何核实**：已执行 `bun /tmp/review-w00024-t08-design/scratch/acceptance-seams.ts`（退出 0）。先以真实 story Profile 的 `initial.maxChapters=1` 建会话，再按同一书特性建立 ReadLedger(maxChapters=2) 的真实 storyQaPlugin registry 恢复；模型同批 read 两个不同新章均成功，但请求的系统提示仍写最多 1 章。该实验复用了真实 Profile、registry、工具、书库与 harness。
+- **建议改法**：选一条并写入合同：对话章数策略固定时，恢复账本统一从快照 initial.maxChapters 取；若允许每轮配置生效，需提供能在不改写旧历史前提下同步当前轮提示与执行策略的机制。不要只改闭包中的 ledger。验收增加“建对话后把 qa.maxChapters 从 1 改为 2，再续问”的明确预期。
+
+## 有效发现 F：验收 14 按文字顺序无法在一次真实运行中完成
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：主工作区 `docs/specs/story/qa.md:242`；主工作区 `plan.md:135-137`；主工作区 `docs/specs/agent/harness.md:134-136`；worktree `packages/nb-harness/src/harness.ts:224-234,271-275,337-339`。
+- **现象**：场景 14 要第二轮先“引用第 26 章的段落通过校验”，再读第 26 章和第 25 章。出处通过结构化校验意味着 answer 成功，harness 当即 finished，后续读取不再发生；把 answer 和 read 放同批则 answer 被拒绝“收尾工具要单独调用”。
+- **为什么是问题**：该场景把“没有再次读取就能引用上一轮原文”和“上一轮的章重读不占本轮额度”塞在相互冲突的顺序里。为了让测试跑通而只断言结果或直接调用 ledger，会漏掉跨轮还原是否真实生效；若把再读放到 answer 前面，又不能证明该出处仅靠上一轮读过就获准。
+- **如何核实**：已执行 `bun /tmp/review-w00024-t08-design/scratch/acceptance-seams.ts`（退出 0）。脚本给真实 harness 排列 3 步：成功收尾、read、文字；结果 `finished`、请求只有 1 次，后 2 步从未执行。混批退回另由既有 harness 合同定义。
+- **建议改法**：拆成 2 个可运行分支：第一分支第二轮不调 read，直接 answer 引用上一轮段落并成功；第二分支先重读上一轮的章，再读一个新章，再读第二个新章断言拒绝，最后单独 answer。取消后的第三轮恢复另设分支，明确只取消一次 turn。各分支经真实 `askQuestion`/streamFn 调度，不直改账本。
+
+## 有效发现 G：账本 round-trip 的负例与 full 续问未进入验收映射
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：主工作区 `plan.md:42-49,123-124,135-144`；主工作区 `docs/specs/story/qa.md:225,227,242`。
+- **现象**：新验收只验证上一轮读过第 26 章能继续引用，没有跨“保存→解析→恢复”的同章稀疏段负例，也没有 full 模式的两轮恢复。旧验收 3 的分次读取发生在一轮内，旧验收 5 只测试 full 第一轮。
+- **为什么是问题**：`[章,起段,止段][]` 本身能无损表达集合，但若实现误将同章多个不相邻区间合并成最小到最大范围，当前新增验收仍全部通过；恢复后却允许引用未读空洞。full 的现有账本依靠 readAll 虚拟“全读”，内部 #read 未逐段填充，新 snapshot 若只导出 #read，单轮测试也看不出第二轮丢失全文许可。
+- **如何核实**：已执行 acceptance-seams.ts 的真实 ReadLedger 边界：读 1.1、1.3 后 1.2 被拒；full 在 P=2.3 时 1.2 通过、2.4 被拒。计划的 10 行映射没有覆盖该结果经 snapshot 持久化后仍成立；新 snapshot 尚未实现，所以不声称已复现数据丢失。
+- **建议改法**：增加 2 条黑盒验收：graph 第一轮只读同章 1、3 段，保存恢复后引用第 2 段必须退回、引用 1 和 3 通过；full 第二轮不再读取原文，引用 P 之前任意段仍通过、晚于 P 仍拒绝。定义闭区间、仅合并相邻/重叠区间，同章可保留多个 tuple。
+
+## 有效发现 H：planned 段落把“中断”状态行移出了状态表
+
+- **严重程度**：建议；**类别**：文档。
+- **位置**：主工作区 `docs/specs/story/qa.md:173-180`。
+- **现象**：在“失败”表格行与“中断”表格行之间插入空行和 planned 说明段落。
+- **为什么是问题**：渲染出的状态表只有运行中、已答、失败 3 行；中断以普通段落中的管线文本显示，状态表失去本次重点依赖的取消状态。该缺陷由本次 planned diff 引入。
+- **如何核实**：已执行 `bun /tmp/review-w00024-t08-design/scratch/spec-table.ts`（退出 0），使用仓库现有 marked 解析真实 Spec。输出中没有 `<td>中断</td>`，`| 中断 |` 位于 `<p>`。
+- **建议改法**：把 planned 说明挪到完整 4 行状态表后。输出 10 和验收 4 已明确写替代关系，这两处不再作为“新旧矛盾”重复报告。
+
+---
+
+## 有效发现索引（最终采用的 8 条）
+
+本报告按要求只追加。开头候选 1 到 9 中的误判已在“候选复核更正”逐项撤销/收窄；它们不计数、不应作为修改依据。最终发现仅为 A 到 H，下面按影响列出。
+
+| 顺序 | 编号 | 严重程度 | 类别 | 问题 |
+|---|---|---|---|---|
+| 1 | A | 阻断 | 不变量 | 两次 rename 重写破坏记录与日志配对，单进程保存失败即可发生 |
+| 2 | E | 重要 | 正确性 | maxChapters 的快照值与当前配置分别控制提示词和账本 |
+| 3 | C | 重要 | 正确性 | parseEntryLine 的浅校验无法兑现损坏日志请求前拒绝 |
+| 4 | B | 重要 | 正确性 | thinking-only 的 length 会变成无正文的“已答” |
+| 5 | D | 重要 | 正确性 | 合法 reply 使原回归脚本在 answer.evidence 上抛 TypeError |
+| 6 | F | 重要 | 测试 | 验收 14 的先成功交卷再 read 顺序不可能发生 |
+| 7 | G | 建议 | 测试 | 稀疏段与 full 的持久化恢复缺少负例 |
+| 8 | H | 建议 | 文档 | planned 说明切断状态表，“中断”脱离表格 |
+
+A 到 F 的依赖机制已在真实运行时或消费端代码中核实；G 是明确的验收覆盖缺口，未宣称新 snapshot 已存在 bug；H 已实际渲染。E 是设计未规定的配置来源耦合，实验使用计划会复用的当前装配路径，不声称尚未实现的 continue 分支已上线。
+
+## 未发现问题的方面
+
+1. **开发者已定边界**：answer 可选、直接文字回复、连续对话、不重跑真实模型回归、旧记录不能续问、只在保存前核对轮数且不加锁、nb-session 增加 entries、ask JSON 原字段、增量留给 t13，计划均覆盖。没有把这些已定决定重新列为问题。A 的建议保持不加锁，只要求保存成对。
+2. **按书重建工具集**：同一代 features 固定，用 book.info.features 重建 storyQaPlugin registry 即可。真实 story Profile 的关闭 secrets/ledger 书恢复成功，请求中仍没有 knows、ledger、track。restoreEffectiveTools 只遍历快照工具；额外登记不会扩张模型工具集。不要误将“answer 可选调用”理解成必须对工具注册使用 optional()。
+3. **正常取消与工具撤回不同**：工具在途收到普通取消后，OMP 等待工具完成，成功结果保留成对；bridge 的 running/revoked race 只针对撤回。harness-boundaries.ts 已验证 turn 不会早于工具完成 settle。因而候选 3 的保存后写账本判断撤销。
+4. **取消/错误后的历史**：模型请求中取消会记用户消息、aborted 助手边界、run_end；provider 错误保留助手已写的文字及 error。恢复只从 agent_message 重放，不把 run_end 当作模型消息。partial-replay.ts 进一步验证：半截 text 会保留，已到 toolcall_end 的调用补一条结果，未完整调用移除，恢复请求没有未配对工具调用。记录中的中断轮不带 reply 与日志保留原样半截消息是两个合同，不矛盾。
+5. **已有账本和 P 规则**：read 仍为 exclusive，plan→book.call→record 在同一批中按顺序执行；full 的 readAll 在范围/P 校验之后生效，不能因此引用 P 后的段。`[章,起段,止段][]` 允许同章多个区间时能无损表达稀疏集合，形状本身不是缺陷。
+6. **generation 与只读格式门禁**：writableBook 检查库格式、书格式和 generation；save 完成后复查 generation，旧实现已有覆盖。新增 expectTurns 不应替代这两道检查，也不应把 missing/broken 当新建对话。续问期间删书仍可由内存 BookSession 完成回答、保存返回 book_not_found；未知格式仍应回答但不保存。未发现设计明确取消这些既有语义。
+7. **抽取进度**：现行 Spec 固定的是每一问/一轮的抽取进度，未要求整段对话跨轮锁住 revision。不能据此把后续轮重新打开当前 revision 判为违约，候选 1 撤销；跨 revision 旧 cursor 按查询合同失效。
+8. **提醒与结构化结束**：输出 10 明确写 planned 替代旧提醒段，验收 4 明确由 13 取代；这两处有版本区分。answer 的 finish、schema/出处校验、混批退回和成功结果落日志后结束的机制真实存在。剧情题直接文字回复的可观察信号已有 answer:null/reply 非 null，不能声称完全不可观察；无出处文字不会触发 unverifiedRefs 是已接受弱校验的后果，不另增分类器或强制提醒。
+9. **后续 t13**：按对话进程内串行、共享 askQuestion 的方向未发现独立冲突；A 的单次提交失败不受串行保护，E 的设置后续问需要先定来源。事件增量延期是已定边界，不作为遗漏。
+
+## 验证命令与范围
+
+以下在 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-nb-story` 下执行；脚本与产生的数据都在指定 scratch。
+
+| 命令 | 实测结果 |
+|---|---|
+| `git show --format=fuller --find-renames 96cef9e1b -- docs/specs/story/qa.md`（主工作区） | 读取指定 planned diff |
+| `bun /tmp/review-w00024-t08-design/scratch/resume-abort.ts` | 退出 0；早期取消保留用户消息和 run_end，下一轮可重放 |
+| `bun /tmp/review-w00024-t08-design/scratch/length-empty.ts` | 退出 0；length + 空 content 返回空 text |
+| `bun /tmp/review-w00024-t08-design/scratch/save-pair.ts` | 最终版本退出 0；精确注入 record rename EIO，旧 record + 新 log |
+| `bun /tmp/review-w00024-t08-design/scratch/harness-boundaries.ts` | 退出 0；工具在途取消、模型取消、模型 error 恢复与 4 种 text 边界 |
+| `bun /tmp/review-w00024-t08-design/scratch/malformed-history.ts` | 退出 0；坏 content 通过 parse/restore 并发出 1 次脚本模型请求 |
+| `bun /tmp/review-w00024-t08-design/scratch/acceptance-seams.ts` | 退出 0；原评测解析抛错、收尾后不 read、关闭可选工具恢复、策略分裂、P/稀疏边界 |
+| `bun /tmp/review-w00024-t08-design/scratch/spec-table.ts` | 退出 0；中断行渲染到段落 |
+| `bun /tmp/review-w00024-t08-design/scratch/partial-replay.ts` | 退出 0；半截文字保留、完整调用配对、不完整调用移除 |
+
+save-pair 的前 4 次故障注入未命中，实验断言失败，已根据 trace 修正注入方式；不计为产品结果。最终命中 EIO 的 trace 已注明。没有运行 e2e、开发服务、真实模型、232 份回归、包测试套件或 typecheck。没有修改仓库文件，没有 commit/push/stash/切分支。只读审查未改 Task/Spec；没有待用户回答才能给出结论的事项。
+
+## 待确认项的审查判断
+
+plan.md 没有单列待确认项。README 的 2026-10-16 倾向已由本次计划收口：记录改为对话内 turns，P 与 mode 固定，章数按轮计，full 复用第一条消息；真实模型只冒烟、流式增量交 t13，按本次已确认要求不再议。新增必须明确的合同缺口是 E 的 maxChapters 来源；A 的配对提交和 C 的恢复结构校验属于实现计划需补齐的机制，不需要扩大产品范围。
+
+## 数量
+
+有效发现 **8 条：阻断 1 条，重要 5 条，建议 2 条**。开头已撤销的候选不计入；最终编号 A、B、C、D、E、F、G、H。

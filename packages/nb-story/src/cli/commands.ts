@@ -177,16 +177,16 @@ export const COMMANDS: readonly CommandSpec[] = [
     command({
         name: "ask",
         method: null,
-        summary: "内置问答：调用模型回答一个问题",
+        summary: "内置问答：调用模型回答一个问题；--continue 在对话里追问",
         book: true,
         paged: false,
         positionals: [{name: "问题", decode: value => ({question: value})}],
-        options: {mode: {decode: mode}, config: {decode: value => resolve(value)}},
+        options: {mode: {decode: mode}, config: {decode: value => resolve(value)}, continue: {decode: text}},
     }),
     command({
         name: "qa",
         method: null,
-        summary: "问答记录：列出、显示（qa <id>）、删除（qa rm <id>）",
+        summary: "问答记录（一个对话一条）：列出、显示（qa <id>）、删除（qa rm <id>）",
         book: true,
         paged: false,
         positionals: [
@@ -264,6 +264,7 @@ export const OPTION_HELP: Record<string, string> = {
     port: "监听端口",
     open: "启动后在浏览器里打开",
     mode: "graph（图当目录，默认）或 full（全读）",
+    continue: "在这个对话里追问（对话 id 见 nbstory qa）；不能同时写 --at、--mode",
     config: "配置文件（默认 ~/.config/nbstory/config.json）",
     "base-url": "OpenAI 兼容服务的地址",
     model: "模型名",
@@ -312,7 +313,7 @@ export function usage(): string {
         ...lines,
         "",
         "通用选项：--library <目录>、--json；书级命令另有 --book <书>、--at <章或章.段>；列表命令另有 --limit、--cursor。",
-        "ask 另有 --mode graph|full（图当目录或全读，默认 graph）、--config <配置文件>。",
+        "ask 另有 --mode graph|full（图当目录或全读，默认 graph）、--config <配置文件>、--continue <对话 id>（追问）。",
         "config 的动作：init（交互或用 --base-url --model --api-key-env 写配置）、show、set <字段> <值>、unset <字段>、test（加 --ingest 检查抽取模型）。",
         "ingest 另有 --title、--id、--preview、--book <书 id>（用保存的原文接着抽）、--status、--config；新建时可加 --no-ledger（不记数值）、--no-secrets（不记秘密）。",
     ].join("\n");

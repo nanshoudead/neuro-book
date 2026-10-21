@@ -124,6 +124,7 @@ function excludedText(titles: ReadonlyArray<string>): string {
                             :id="row.id"
                             :schema="setting.definition.declaration.schema"
                             :hints="formOf(setting).hints"
+                            :options="window.options()"
                             :model-value="shown(setting, row.value)"
                             :locale="locale"
                             :disabled="row.disabled"

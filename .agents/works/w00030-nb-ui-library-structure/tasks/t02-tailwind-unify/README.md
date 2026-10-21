@@ -19,6 +19,23 @@ neuro-book 从 UnoCSS 换到 Tailwind v4；nb-ui 不再发预编译产物，提�
 
 - worktree：`.worktree/w00030-t02-tailwind`，分支 `refactor/w00030-t02-tailwind`
 
+- S0（2026-10-21）：工具 1 到 4 写好，放在分支的 `scripts/nb-ui/tailwind-migration/`；重测的改动面与分层冲突写进计划的“改动面”“分层后结果会翻转的地方”两节（10-20 的初测处数有误，已改）。切片重排为 S1 到 S4，每个提交都能通过验证：nb-ui 产物在 S1 冻结、S2 neuro-book 换掉 UnoCSS 时删除。
+- 改前基准截图：开发服务开在固定于 master 的 worktree `.worktree/w00030-t02-baseline`（端口 4317），状态根用 `/tmp/t02/state-template` 的副本（登记了示例作品 `book`）；截图在 `/tmp/t02/before/`（Lab 107 个组件 501 个场景 × 两主题 × 明暗，加 4 个页面 × 明暗）。
+
+- S1（分支 2530d26de）：nb-ui 样式入口与分层，playground、nb-story、dev-panel 改用。nb-ui、nb-story、dev-panel 的 typecheck、单测与构建通过；nb-ui e2e 55 条中 `popup-scroll` 一条在截基准图占 CPU 时超时，单独重跑通过。
+  - 子代理修了冲突扫描工具的一处缺陷（共用 `Scanner` 会丢掉见过的候选），修后 A 类远多于 S0 所记的 21 条；主要是焦点环被控件自己的 `shadow-*`、`transition-*` 压过。处理：`.nb-ui-focus-ring` 的 `box-shadow`、`transition` 带 `!important`（层内 important 压过原子类，结果同分层前，也是层机制给必须生效的样式留的写法）；Switch、RadioGroup 补 `focus-visible:` 边框；删分层前就被语义类压掉的死原子类。
+  - `@source` 经 workspace 软链能扫到 nb-ui 组件（nb-story、dev-panel 产物里查到只在 nb-ui 用的类），计划里的这条风险不成立。
+  - dev-panel 的 `:where(a, button, …):focus-visible` 焦点环进 base 层后，只靠 `outline-none` 的 nb-ui 按钮键盘聚焦时不再多画面板的 2px 轮廓，截图对照时留意。
+  - llmlint 的检测页也用 UnoCSS，但它是另一个应用、不用 nb-ui，不在本 Task 范围。
+
+- S2（分支 1c360ee8f）：neuro-book 换成 Tailwind v4（reset 与 `styles.css` 的全局规则进 base 层），`outline-none` 改名 7 处，删 `uno.config.ts`、`unocss` 依赖、nb-ui 的 `dist/nb-ui.css` 与 `./styles.css` 导出。neuro-book typecheck、单测、`build`、`build:e2e` 通过；`test:affected` 只有已知的两项无关失败（llmlint web 依赖、长根路径）。工具 1 的差异只剩计划所列几类（另有几条是对比工具把 `var()` 解析成值造成的假差异）。
+- S4（滚动条 token）已派出：取值统一到 `OverlayScrollbar` 现在的 32%/45%/55%，`ScrollArea`、`PopupScrollbar` 与三个宿主的原生滚动条颜色随之变化；共用类用 `:where()` 连后代一起写（`scrollbar-width` 不继承）。
+
+- S4（分支 464a59905）：滚动条 token 与 `.nb-ui-scrollbar-thin`，滑块几何合成 `utils/scrollbar-geometry.ts`（弹出列表最短滑块 24px → 20px）。nb-ui 单测、四个包的 typecheck、`popup-scroll` e2e 通过。另修 CI 矩阵里 nb-ui 还在跑已删的 `build:css`（5f0b5902b）。
+- S3（分支 4999847d0）：文档。ADR 按仓库规则不改 0023 正文，新增 ADR 0028 部分取代它。`docs:check`、`governance:check` 无新增问题。
+- 截图：改前 2012 张（`/tmp/t02/before/`）；改后在 S2 提交上截（`/tmp/t02/after-s2/`，只看引擎切换的差异）。页面 4 张明暗各一都有几百到一千像素差异，看过书架页：小字 14→13px、分段控件与下拉框恢复 nb-ui 自己的字号与阴影（L01 的修正），属预期。
+- 实现审查已派 Sonnet（报告 `/tmp/t02/review/report.md`）。
+
 ## 下一步
 
-S0：写工具、截改前基准、重跑改动面统计。
+Lab 改后截图完成后逐张对照；处理审查；停掉多余服务跑 neuro-book 与 nb-story 的整套 e2e；合入 master，在 master 上给 `docs/proposals/neuro-book-v2-rebuild.md` 追加决策记录。

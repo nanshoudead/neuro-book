@@ -352,6 +352,12 @@ export const SETTINGS_FAILURES = [
     "write-failed",
     "unavailable",
     "unknown-outcome",
+    /** 整份读写设置文件（设置窗口的“设置文件”视图）：文件存在但读不了。 */
+    "read-failed",
+    /** 整份写入：文件在读出之后被别处改过（修订号对不上）。 */
+    "conflict",
+    /** 整份写入：文本不是合格的设置文件（语法、根不是对象、重复键）。 */
+    "invalid-text",
 ] as const;
 
 export type SettingsFailure = (typeof SETTINGS_FAILURES)[number];

@@ -1,0 +1,186 @@
+# w00027/t02 S3、S4、S5、S7 界面实现审查（Sonnet）
+
+审查对象：`6e7616438`（detached worktree `.worktree/review-t02-impl`）的界面部分。只读审查；没有跑 e2e 与开发服务，需要真实浏览器核实的条目在“如何核实”里写明由主 Agent 跑。
+
+### 1. 设置文件文本框里按 `Esc` 会关窗口（有改动时弹放弃确认），“`Esc` 之后的 `Tab` 照常移走焦点”在真实运行时到不了
+
+- **严重程度**：重要；**类别**：交互 / 无障碍
+- **位置**：`packages/neuro-book/src/plugins/settings/web/components/SettingsFileView.vue:151-153`（`onKeydown` 的 Escape 分支只记 `escaped = true`，不 `preventDefault`）；`packages/nb-ui/src/components/feedback/Dialog.vue:278-282`（`onEscapeKeyDown`）；`SettingsWindow.vue:158`（`@request-close="model.close()"`）
+- **现象**：reka 的 `DismissableLayer` 在 window 上用 `onKeyStroke("Escape")` 监听（`node_modules/reka-ui/dist/DismissableLayer/DismissableLayer.js:72-77`，不看事件目标），`Dialog` 只在 `event.defaultPrevented`、输入法组字或 `keyCode === 229` 时才算“已处理”。文本框的 Escape 分支没有 `preventDefault`，所以焦点在设置文件文本框里按一下 `Esc`：没有改动时设置窗口直接关掉；有改动时弹“放弃未保存的改动？”。`escaped` 标志只有在窗口还在、焦点还在文本框时下一个 `Tab` 才有用，而这两个条件在 `Esc` 之后都不成立（弹确认后选“继续编辑”才碰巧成立）。
+- **为什么是问题**：`Tab` 被文本框拦成插空格，唯一的“键盘出口”就是 `Esc`，而它先关窗口。键盘用户要走到文本框后面的“保存”“放弃改动”“重新读取”按钮，没有可用的前进路径（`Shift+Tab` 只能往回走）；界面上也没有任何文字告诉用户 `Esc`、`Mod+S` 这些键（WCAG 2.1.2 无键盘陷阱要求“告知离开方法”）。Spec 输出 17（`Esc` 关窗口）与输出 23（`Esc` 之后的 `Tab` 移走焦点）在文本框里互相冲突，实现没有解决这个冲突，只在孤立的单元测试里证明了后半句。
+- **如何核实**：真实浏览器里打开设置、进“设置文件”、点进文本框按 `Esc`。DOM 测试 `SettingsWindow.dom.test.ts` 的“Tab 插入两个空格，Esc 之后的 Tab 照常移走焦点”把 `Escape` 事件直接派给 textarea，断言里没有 `host.window.open.value`；补一句 `expect(host.window.open.value).toBe(true)` 会失败（变异检查：删掉这句之外的任何实现都不会让现有用例变红）。
+- **建议改法**：文本框的 `Esc` 在 `escaped` 为假时 `preventDefault()`（`Dialog` 见到已处理就不关），第一次 `Esc` 只“释放 Tab”，再按一次（`escaped` 为真）放行去关窗口；文本框下方加一行小字提示“`Tab` 插入空格，`Esc` 之后 `Tab` 移到下一个控件，`Mod+S` 保存”（或放进 `aria-describedby`）。e2e 补一例：文本框里 `Esc` 后窗口仍在，再 `Tab` 落到“保存”。顺带在 Spec 输出 23 写明与输出 17 的关系。
+
+### 2. 设置文件的草稿对 CRLF 文件会错位插入，保存时还会把换行悄悄改成 LF
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`SettingsFileView.vue:73-80`（`draft.value = result.text` 原样放进 `v-model`）、`:164`（`draft.value.slice(0, start)`）、`:101` 的 `dirty` 比较
+- **现象**：`textarea.value` 的 API 值总是把换行归一成 LF，`selectionStart` 也是按这个归一后的文本算的；而 `draft` 在第一次 `input` 事件之前仍是读出来的原文（带 `\r\n`）。后端明确处理 CRLF 文件（`shared/layer-text.ts:198` 按文件里已有的换行风格插入），所以读出 CRLF 文本是预期输入。
+- **为什么是问题**：(1) 对 CRLF 文件，打开后第一次按 `Tab`：`draft.value.slice(0, start)` 用的是“带 CR 的字符串”和“LF 坐标的光标”，两个空格插在光标之前（偏移量等于光标前的行数）的位置，文本被改坏而不是在光标处插入。(2) 第一次输入之后 `draft` 变成 LF 版本，保存时整份文件换行被改写成 LF，文件 diff 里每一行都变；“文件原样落盘”（e2e 标题里的说法）对 CRLF 文件不成立。(3) 键入一个字符再删掉，文本看起来没变但 `draft !== base`，仍然显示“有改动”。
+- **如何核实**：我在 jsdom 里复现了 API 值归一（`/tmp/review-t02-ui/crlf.mjs`）：文本 `"{\r\n  \"a\": 1,\r\n..."` 设进 textarea 后 `value.length` 由 27 变 23，光标在 LF 偏移 10（`"a": 1` 之后）时，按 `SettingsFileView` 的做法对原文切片，两个空格落在 `"a":` 与 ` 1` 之间。真实浏览器需用一份 CRLF 的 `settings.json` 打开设置文件、光标放在第三行末按 `Tab` 核实。
+- **建议改法**：读到文本时记下换行风格（含 `\r\n` 则为 CRLF），草稿与 `base` 都用 LF 比较；保存时按记下的风格还原。`Tab` 的插入不要手算偏移：用 `document.execCommand("insertText", false, "  ")`（保留撤销栈，见第 11 条），或 `setRangeText` 后同步 `draft`。补 DOM 用例：CRLF 文本读入后按 `Tab`，断言光标处插入且无改动时不出现“保存”。
+
+### 3. 以空白字符开始搜索可以绕过未保存保护，页面草稿静默丢失
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/settings/web/settings-window.ts:706-711`（`search`）、`:395`（`words`）
+- **现象**：`search(next)` 只在 `query.value === "" && next.trim() !== ""` 时走 `requestLeave`。先输入一个空格：`query` 变成 `" "`，`words` 为空，当前仍是原页面，没有任何拦截；再输入 `a`：`query` 不再是空串，走 `query.value = next`，`words` 变成 `["a"]`，页面卸载、`endVisit` 清掉 `dirtyVisit`，草稿直接丢了，没有确认框。设置文件视图同理（`v-else-if` 换成搜索结果，`onBeforeUnmount` 里 `fileDirty(false)`）。
+- **为什么是问题**：Spec 输出 22 明确列出“在搜索框输入”要先确认。`Mod+F` 聚焦搜索框之后先敲空格或粘贴一段以空格开头的文字都能触发；`window.test.ts:530` 只测了“语气”这种直接起手的词。
+- **如何核实**：窗口模型层面就能复现：`context.dirty(true)` 之后 `window.search(" ")`（`leaving` 为 null）、再 `window.search(" a")`，`leaving` 仍为 null 且 `window.unsaved` 变 false。
+- **建议改法**：判据不要写成“`query` 为空 → 非空”，改成“当前是否在搜索视图”：`wasSearching = words.length > 0`，`willSearch = next` 分词后非空，从不搜索变成搜索时 `requestLeave`；其余直接写。补一条：以空格起手的搜索词也拦。
+
+### 4. 页面或文件视图有改动时，“保存”“放弃改动”在可视区之外，用户看不到哪里有未保存的东西
+
+- **严重程度**：重要；**类别**：交互
+- **位置**：`SettingsFileView.vue:206-209`（`v-if="dirty"` 的按钮行在 18 行文本框之后）、`SampleModelsPage.vue:112-118`（按钮行在整个 master-detail 之后）
+- **现象**：证据来自随附截图。`impl-shots/flows/file-invalid-text.png`：保存被拒时“保存 / 放弃改动”被面板下沿截掉一半；`impl-shots/nbook/SettingsWindow__file__free__light.png` 里文本框底边在 y=618，面板内容区底边约 y=660，错误行加按钮行至少还需约 70px，默认 960×640 下就已经要滚动才看得到。`impl-shots/flows/models-dirty.png`：把服务商改名后，列表里已经显示新名字，但可视区里没有任何“保存”“放弃”，也没有未保存标记；`models-save-rejected.png` 要滚到页面底部才看到按钮与“还没保存：第 3 项 · 标识：必填”。
+- **为什么是问题**：未保存保护的前提是用户知道“有东西没保存”。按钮是唯一的未保存提示，它们出现在折叠线下面等于没有提示；文件视图里 `Mod+S` 在 UI 上也没有任何提示，用户不会知道。这个样板被第三方照抄时同样的问题会复制出去。
+- **如何核实**：真实浏览器默认窗口尺寸（960×640）、最小尺寸（600×400）各打开设置文件视图与 Lab“模型服务”改一个字，看按钮是否在可视区。
+- **建议改法**：把操作行做成粘在滚动区下沿的条（`position: sticky; bottom: 0`，带分隔线），或放到标题行右侧；文件视图让文本框占满标题以下的剩余高度（像 fill 页面）而不是固定 18 行，操作行固定在下面。Lab 样板同理，并在样板的注释里写明这是推荐摆法。
+
+### 5. “模型服务”样板教出的做法：别处改了已保存值时静默覆盖，失败原因直接露出内部 `detail`，页面不知道层已失效
+
+- **严重程度**：重要；**类别**：正确性 / 文档（样板）
+- **位置**：`packages/neuro-book/src/plugins/lab/web/fixtures/settings-scene/SampleModelsPage.vue:57-59`（`watch(saved)`）、`:81`（`failure` 用 `result.detail`）、`:54`（`dirty` 用 `JSON.stringify` 比较）
+- **现象**：(a) 有草稿时已保存的值在别处变了（另一个窗口、设置文件视图改了 `example.models/providers`），`watch(saved)` 什么也不做，页面不提示；用户点“保存”，整组草稿覆盖别人的改动，没有“别处改过”的提示或冲突。同一个任务里的设置文件视图专门做了这件事（别处改过的提示、`conflict`、重新读取），样板却是反面教材。(b) 保存失败时写 `TEXT.failed.replace("{reason}", result.detail)`：窗口模型自己对 `layer-invalid`、`unavailable`、`write-failed` 各有中文原因（`settings-window.ts` 的 `reasonOf`），但没有公开，样板拿到的是未翻译的 `detail`；第三方照抄就得各写一份。(c) `SettingsPageContext` 里没有这一层的可用状态：窗口在页面上方写“设置文件有错误”“暂时连不上”，但页面本身不知道、控件不停用，用户编辑一轮才在保存时被拒。(d) `JSON.stringify` 比较对键顺序敏感：表单若交出键序不同的等价对象（例如编辑后改回、可选字段出现又消失），`dirty` 会假阳性（未在真实表单里验证，仅从代码推断）。
+- **为什么是问题**：开发者要求这个样板能被第三方照抄；它同时示范了即时写入与草稿，却没有示范草稿的并发与失败处理。
+- **如何核实**：Lab 里 `page-fill` 场景改一个服务商名字不保存，另用 `host.user.setText` 或设置文件视图改 `providers`，再点“保存”，看是否整组覆盖；`dirty` 的假阳性要在真实表单里改动再改回后看按钮是否仍在。
+- **建议改法**：样板里加“别处改过”的一行提示（草稿与已保存值都变了时），保存时用 `inspect` 的修订或比较“开始编辑时的已保存值”，不同就拒绝并给“重新读取”；平台公开一个把 `SettingsFailure` 转成中文原因的函数（`reasonOf` 提出来放 `nbook/ui/settings`）；`SettingsPageContext` 补 `writable`（或层的可用状态）给页面停用控件。`dirty` 比较改用结构化相等（`nb-form` 若有）而不是 JSON 字符串。
+
+### 6. “模型服务”是 fill 页面，却整页一起滚：滚到详情下面，左边的服务商列表就不见了
+
+- **严重程度**：建议；**类别**：交互 / 外观
+- **位置**：`SampleModelsPage.vue:141-150`（`.sample-models { height: 100%; overflow-y: auto }`）；`SettingsWindow.vue:216-243`（fill 分支）
+- **现象**：`impl-shots/nbook/SettingsWindow__page-fill__free__light.png` 里详情卡片在 API Key 输入框处被面板下沿截掉，下面的“模型”“默认模型”“推理强度”都在折叠线之外；`flows/models-save-rejected.png` 滚下去之后左边的服务商列表已滚出可视区，要换一家得滚回去。Spec 输出 3 对 fill 页面写的是“自己分栏、自己滚动”，这个样板没有做到“分栏各自滚动”，只是整个页面一个滚动条，滚动条在 macOS 主题下又默认不可见，没有任何“下面还有内容”的提示。
+- **为什么是问题**：它是 fill 的标准样板，会被照抄；窗口缩到下限（600×400）时只剩一两行详情可见。
+- **如何核实**：Lab `page-fill`，窗口尺寸 960×640 与 600×400 各滚一次，看列表与详情是否能各自滚动。
+- **建议改法**：服务商的 master-detail 做成撑满剩余高度、列表与详情各自滚动，“默认模型”“推理强度”放到服务商块之上或折叠成另一个分栏；操作行见第 4 条。
+
+### 7. 设置文件无效时，窗口的说明文字在设置文件视图里说错了，具体的错误位置也从没显示
+
+- **严重程度**：建议；**类别**：正确性 / 交互
+- **位置**：`SettingsWindow.vue:252-258`（column 分支的层说明）、`:218-224`；`settings-window.ts:60`（`SettingsLayerNotice.detail`）
+- **现象**：(a) 层说明在文件视图里仍写“设置文件有错误，修好前这里不能保存”，而文件视图恰恰就是修的地方、而且能保存（e2e `设置文件视图：…别处把文件改坏后经它修好` 证明了），文案对这个视图是错的。(b) `layerNotice` 的 `detail`（后端已经给出“第 3 行：缺少逗号”这类原因）在组件里没有任何地方渲染（`grep detail` 在 `components/*.vue` 里只有文件视图自己的 `read-failed`），用户从“设置文件有错误”点进文件视图，看到的是一份没有任何标记的文本，要自己找错在哪一行。(c) 层 `unavailable` 时窗口说明与文件视图的 `<p class="settings-file__notice">` 各写一遍“暂时连不上，不能保存”，重复（`SettingsFileView.vue:197`）。
+- **为什么是问题**：设置文件视图存在的主要理由就是“修好坏文件”，而这条路上既说错话又不指错处。VS Code 的 settings.json 在这里有红色波浪线与问题面板。
+- **如何核实**：Lab `user-invalid` 场景点“打开设置文件”，看说明文字与有没有行号。
+- **建议改法**：文件视图里把窗口说明换成“设置文件有错误：<detail>，改好保存即可”（`kind === "file"` 时用另一句），并显示 `detail`；文件视图在 `invalid` 时把光标/选区定位到 `detail` 对应位置（`LayerTextPosition` 已有）。去掉文件视图里重复的“暂时连不上”。
+
+### 8. 保存被拒后的错误行不随编辑更新；“重新读取”一键丢掉整份草稿，没有确认也没有留底
+
+- **严重程度**：建议；**类别**：交互 / 无障碍
+- **位置**：`SettingsFileView.vue:122-126`（`failure` 只在保存与 `load`、`discard` 里清）、`:197-202`；`SampleModelsPage.vue:81`（同）
+- **现象**：(a) `invalid-text` 失败后用户改好文本，错误行仍写“没有保存：第 3 行第 5 列……”，文本框仍 `aria-invalid="true"`，直到再点一次保存才消失；行列号对应的是保存那一刻的文本，用户编辑后位置已经不准。VS Code 的行为是随输入重新校验。选区也不跳到出错位置，用户要自己数行列。(b) `conflict` 与“别处改过”两处的“重新读取”按钮直接 `load()`，丢掉整份草稿，没有确认、没有“覆盖保存”、没有对比。“别处改过”提示的文字说明了会丢，`conflict` 那条（`TEXT.conflict`）没说。长文件里改了半天被这样一键清掉，唯一挽回办法是事先手动复制。
+- **为什么是问题**：设置文件是用户手写的内容，不是表单里重新填得出来的东西；Spec 只要求“丢掉这里的改动”，没要求不能提示。
+- **如何核实**：文件视图里故意写错保存，再改好，看错误行与 `aria-invalid`；`host.user.setText` 制造冲突后点“重新读取”。
+- **建议改法**：输入时清掉 `invalid-text` 的 `failure`（`aria-invalid` 随之回到假）；保存失败后把选区放到 `position`；冲突时除“重新读取”外再给“仍然覆盖”（带上最新 revision 重发，或先把草稿存在一个 `<details>` 里供复制），至少在 `conflict` 文案里写明“重新读取会丢掉这里的改动”。
+
+### 9. 确认框“放弃”之后焦点一律去左栏；“关闭”类的放弃之后还留着旧标志
+
+- **严重程度**：建议；**类别**：无障碍 / 代码质量
+- **位置**：`SettingsWindow.vue:125-142`（`beforeLeave`、`leaveConfirmed`、`onLeaveClosed`、`confirmLeave`）
+- **现象**：(a) `onLeaveClosed` 里 `leaveConfirmed` 为真就 `focusCurrent()`，不看是什么动作触发的：从搜索框输入触发的放弃（`target.kind === "search"`）之后用户该继续在搜索框里打字，结果焦点到了左栏当前项，要重新点搜索框；从标签（`setLayer`）触发的放弃，焦点也离开了“用户 | 本作品”分段控件。(b) `if (!model.open.value) return;` 在 `leaveConfirmed = false` 之前：放弃并关闭窗口（`close` 目标）后标志还是 true、`beforeLeave` 已清；窗口组件不卸载（只有 Dialog 内容卸载），下次打开后在有改动的页面上按“继续编辑”时，`leaveConfirmed` 仍为真，焦点被送到左栏而不是原来的位置。(c) `:293-303` 的 `AlertDialog` 没有处理 `update:open`，见下一条。
+- **为什么是问题**：Spec 输出 22 对“继续编辑”写了焦点回到触发位置，对“放弃”只写“执行这个动作”，但键盘用户从搜索框起手打字被一个对话框打断后，期望的是回到搜索框，输入内容（`target.query`）还在那里。
+- **如何核实**：DOM 测试：页面 `dirty(true)` 后在搜索框输入一个字、选“放弃”，断言 `document.activeElement` 是搜索框；放弃并关闭后再次打开、再触发再取消，断言焦点回到触发处。
+- **建议改法**：焦点目标按 `leaving` 的 `kind` 定：`search` 回搜索框，`layer` 回分段控件，`section` 去左栏；`leaveConfirmed` 在 `confirmLeave` 里设、在 `onLeaveClosed` 第一行取走并清零（先清再判断 `open`）。
+
+### 10. 放弃确认框里按 `Esc` 没有任何反应
+
+- **严重程度**：建议；**类别**：交互 / 无障碍
+- **位置**：`SettingsWindow.vue:293-303`；`packages/nb-ui/src/components/feedback/AlertDialog.vue:55-58`（`onOpenChange` 只 `emit("update:open")`）
+- **现象**：`AlertDialog` 受控（`:open="model.leaving.value !== null"`），reka 的 `DialogRoot` 在 `open` 不是 undefined 时不是 passive（`node_modules/reka-ui/dist/Dialog/DialogRoot.js:36-39`），`Esc` 只发出 `update:open(false)`，由调用方负责置位。设置窗口没有监听 `@update:open`，`cancel` 也不会因 `Esc` 发出（只有取消按钮的点击会发），于是 `model.leaving` 不变、对话框不关；这时 `Esc` 也不会传给底下的设置窗口（它不是最上层）。同仓库的 `dev-panel/src/web/pages/EditPage.vue:208` 就写了 `@update:open`。
+- **为什么是问题**：放弃确认框按 `Esc` 应当等于“继续编辑”（最安全的选项）；现在它悄悄失效，键盘用户只能 Tab 到按钮。
+- **如何核实**：从代码推断，需真实浏览器：页面报未保存后点别的分区，弹出确认框时按 `Esc`。
+- **建议改法**：`@update:open="(open) => { if (!open) model.cancelLeave(); }"`，并补 DOM 用例。
+
+> 更正（追加，不改前文）：第 1 条里“补一句 `expect(host.window.open.value).toBe(true)` 会失败”是我从代码推断、没有运行的预期，不是跑出来的结果；“变异检查”一句请只读作“现有用例没有覆盖窗口是否关闭”。第 7 条的行号应为：`SettingsWindow.vue:221-227`（fill 分支的层说明）与 `:250-256`（column 分支）、`settings-window.ts:132`（`SettingsLayerNotice`）、`SettingsFileView.vue:195`（重复的“暂时连不上”）。第 10 条的 `AlertDialog.vue` 行号应为 `:56-59`。
+
+### 11. `Tab` 用赋值 `draft` 的方式插空格：清掉浏览器的撤销栈，也不会缩进选中的多行
+
+- **严重程度**：建议；**类别**：交互
+- **位置**：`SettingsFileView.vue:158-165`
+- **现象**：`draft.value = …` 触发 Vue 对 `textarea.value` 重新赋值，浏览器会清空这个文本框的撤销历史，所以按过一次 `Tab` 之后 `Ctrl+Z` 回不到之前的输入。选中多行按 `Tab` 时，选区被两个空格替换（内容被删），不是缩进；`Shift+Tab` 没处理（直接把焦点移走，反方向也没有反缩进）。这个视图是用户手写 JSON 的地方，这几处都是编辑器里的基本行为。
+- **为什么是问题**：误删选区内容且撤销不回来（赋值清栈）是数据丢失类问题，不只是不方便。
+- **如何核实**：真实浏览器：输入几个字、按 `Tab`、再 `Ctrl+Z`；选中两行按 `Tab`。（我只在 jsdom 里确认了赋值路径，撤销栈行为需真实浏览器核实。）
+- **建议改法**：用 `document.execCommand("insertText", false, "  ")` 插入（保留撤销栈，浏览器会触发 `input` 事件让 `v-model` 跟上）；有选区跨行时按行缩进，或者选区非空时放行默认行为不拦 `Tab`。
+
+### 12. 读取、保存、放弃这几个动作会让焦点落到 `body`，别处改文件时还会把正在看的文本框整个卸掉
+
+- **严重程度**：建议；**类别**：无障碍 / 交互
+- **位置**：`SettingsFileView.vue:69-83`（`load` 开头 `state = loading`）、`:88-93`（`follow` 里没改动就 `load()`）、`:203-209`（按钮行 `v-if="dirty"`）、`:172-181`
+- **现象**：(a) 文本框、“保存”“放弃改动”“重新读取”都在 `v-if` 链里：点“保存”或“放弃改动”后 `dirty` 变假，按钮行整行移除，正在聚焦的按钮消失，焦点掉到 `body`；点“重新读取”则整个 `<template v-else>`（含文本框）被换成转圈，读完再重建，焦点、光标、滚动位置都丢。(b) 没有改动时别处改了文件（`follow` 回调 → `load()`）同样卸掉文本框：用户正读着这份文件或光标停在里面，文本框闪一下重建，回到顶部。读屏用户没有任何提示焦点去哪了。
+- **为什么是问题**：键盘与读屏用户每次保存后要从头 Tab；“没有改动就重读”本来是一个对用户透明的同步，却有可见副作用。
+- **如何核实**：键盘 Tab 到“保存”回车，看 `document.activeElement`；真实浏览器里用别的编辑器改 `settings.json` 保存，看文本框是否闪烁、滚动位置是否回顶。
+- **建议改法**：重读时保留文本框、只是换 `draft`/`base` 并把滚动与光标位置夹在范围内（用 `loading` 仅在第一次读时显示）；按钮行用 `disabled` 而不是 `v-if`，或操作后把焦点送回文本框。
+
+### 13. 快捷键的细节：`Mod+F` 的监听范围、`Ctrl` 与 `Meta` 不分平台、`Mod+S` 只挂在文本框上
+
+- **严重程度**：建议；**类别**：交互
+- **位置**：`SettingsWindow.vue:105-110`、`:165`（`@keydown="onRootKeydown"` 在内层根上）；`SettingsFileView.vue:146-150`
+- **现象**：
+  - 监听挂在 `.settings-window` 内层 `div` 上，不在 `Dialog` 面板上：焦点落在面板自身或标题栏、关闭按钮（reka 的内容容器带 `tabindex=-1`，点空白处会聚焦它）时 `Mod+F` 不会被接住，浏览器的查找照常打开。Spec 输出 21 写的是“焦点在窗口里”（从代码推断，需浏览器核实）。
+  - `ctrlKey || metaKey` 在所有平台都算：macOS 上 `Ctrl+F` 是文本框里的“光标前进一格”，会被拦成“聚焦搜索”，文件视图的文本框与每个文本输入行都受影响；Spec 写的是 `Mod`，`commands/shared/keybinding.ts` 已有平台解析可以复用。
+  - 用 `event.key` 比较 `"f"`、`"s"`：俄文、希腊文等布局下按键值不是拉丁字母，快捷键失效；应用 `event.code`（`KeyF`、`KeyS`）。
+  - 在设置文件文本框里，`Mod+F` 被拦去聚焦搜索框，用户失去了浏览器的页内查找，而这份文本是整个窗口里最长、最需要查找的内容，聚焦搜索框还会因为“开始搜索”而触发放弃确认。待追认的“`Mod+F` 语义”可以留，文件视图里建议让它放行。
+  - `Mod+S` 的监听在文本框自己上；焦点在“保存”“放弃改动”按钮或标签上时，`Mod+S` 落给浏览器，弹出“保存网页”。
+  - `onSearchKeydown` 对 `Esc` 只看 `isComposing`；`Dialog` 的 `onEscapeKeyDown` 另外看了 `keyCode === 229`（Safari 组字结束的那次 `keydown` 是 `isComposing=false`、`keyCode=229`），两处判定不一致，Safari 上取消组字会把搜索词一起清掉。
+- **建议改法**：监听挂到 `<Dialog @keydown>`（`$attrs` 落在面板上）；用 `event.code` 加平台判断；文件视图里的 `Mod+F` 放行；`Mod+S` 挂在文件视图根上；`Esc` 判定与 `Dialog` 一致。
+
+### 14. 搜索：结果数量不播报、清空按钮后焦点丢失、“打开”的无障碍名用了全角冒号
+
+- **严重程度**：建议；**类别**：无障碍
+- **位置**：`SettingsWindow.vue:267`（`aria-label`）、`:178-190`（搜索框）；`packages/nb-ui/src/components/form/Input.vue:69-72、101-107`（`handleClear` 与 `v-if` 的清空按钮）
+- **现象**：(a) 输入时结果区只在“没有命中”时有 `role="status"`；有命中时读屏用户听不到数量或变化（VS Code 会播报“N 个设置”）。(b) 清空按钮点了之后 `modelValue` 变空串，按钮被 `v-if` 移除，焦点掉到 `body`，键盘用户（Tab 到清空按钮回车）要重新找搜索框；这是 nb-ui `Input` 的行为，但设置窗口是它的第一个重要用户。(c) 页面命中的“打开”的名字是 `` `${text(TEXT.openPage)}：${hit.title}` ``，英文界面是 “Open：Snippets”（全角冒号）；可见文字“Open”是名字的前缀，满足 WCAG 2.5.3，只是中文标点混进了英文界面。
+- **建议改法**：结果区加一行 `aria-live="polite"` 的隐藏文字“N 个设置、M 个页面”；`Input` 在清空后聚焦输入框（nb-ui 一处改动，其它用 `clearable` 的地方同受益）；冒号走本地化模板（`{open}: {title}`）。
+
+### 15. 测试：关键键盘路径只在孤立事件上断言，与真实 `Dialog` 的交互没有覆盖
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：`web/components/SettingsWindow.dom.test.ts`（新增 4 组）、`e2e/settings.e2e.ts:393-482`
+- **现象**：(1) 第 1 条的 `Esc` 与窗口是否关闭没有任何断言（DOM 与 e2e 都没有在文本框里按 `Esc`）。(2) 第 3 条没有覆盖：`window.test.ts:530` 与 DOM 测试里的“搜索”留保护都是从“语气”这种直接起手的词开始。(3) 文件视图的“有改动时离开先确认”用 `host.window.select()` 直接调模型，绕过了左栏点击、确认框与“放弃”之后草稿是否丢掉、窗口是否切走（只有 Lab 模型服务那条走了界面路径）。(4) 没有 CRLF、保存进行中再按 `Mod+S`（`saving` 的重入保护）、保存进行中别处又改了文件的用例；换标签（`setLayer`）丢草稿与新标签重读也没有用例。(5) 动态选项的 DOM 用例（`choices`、`choices-lazy`）用 `host.window.options()[…]` 取选项源来断言 `items`，是对内部结构的断言，没有从控件里读到选项文字；控件“停用”只检查 `disabled` 或 `aria-disabled`，“已不存在”只检查整行 `textContent` 含这三个字。(6) 键盘用例用 `dispatchEvent(new KeyboardEvent(…))`，不经真实输入法与浏览器默认行为，`Tab` 的默认行为（是否真的移走焦点）没有被验证；e2e 的搜索用例在 `search.focus()` 后 `Escape`，没有覆盖“`Esc` 在输入法组字时不清空”。
+- **如何核实**：对 `SettingsFileView.vue:152` 加 `event.preventDefault()` 或删除 `escaped` 逻辑，现有用例只有第 3 个会变红；把 `Esc` 分支原样保留、只删掉 `Dialog` 的 `onEscapeKeyDown`，所有用例仍全绿。（这是按代码推断的变异结果，我没有实际改文件运行。）
+- **建议改法**：每个键盘行为补一条走真实 `Dialog` 的用例，e2e 补文本框 `Esc` 与 `Tab` 一例；DOM 用例里从控件读选项（点开选择控件读选项文字）。
+
+### 16. Lab 的动态选项场景截图拍不到变化的那一行
+
+- **严重程度**：建议；**类别**：测试 / 外观
+- **位置**：`scene-data.ts` 的 `choices`、`choices-lazy`、`choices-unavailable` 三个场景（`section: "other"`）；`impl-shots/nbook/SettingsWindow__choices__free__light.png`、`…choices-unavailable__free__light.png`
+- **现象**：三张图的可视区完全相同（“其它”分区的顶部：自动保存草稿、保存间隔…常用标签的列表），新增的“新笔记的模板”一行排在键序最后（`example.notes/template` 在 `tags` 之后），在折叠线之下，截图里看不到；`choices` 与 `choices-unavailable` 的截图对不出差别。只有 `flows/choices-stale-row.png`、`choices-unavailable-row.png` 滚下去之后才拍到，那两张的 `choices-lazy`（加载中）则一张都没有。
+- **为什么是问题**：Lab 场景的截图矩阵是之后外观收口（t06）与回归的依据，现在三个场景在矩阵里看起来是同一张图。
+- **建议改法**：给 `template` 声明 `order`（排到“其它”分区最上面）或让这三个场景把窗口打开在只含这一项的小分区；加载中的状态需要在场景里停在 `activating`（不自动交付）才拍得到。
+
+### 17. 代码质量：fill 与 column 两个分支复制了同一段模板；两个组件各写一份层名
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`SettingsWindow.vue:216-243` 与 `:244-296`；`SettingsFileView.vue:41-42` 与 `SettingsWindow.vue:35-36`
+- **现象**：(1) 标题头、层说明（含“打开设置文件”按钮）、`SettingsPageFrame` 的 8 个属性与 4 个事件在 fill 与 column 两个分支各写一遍，已经出现细微不同（column 里的按钮多了 `current.kind !== 'file'` 判断），下一次改说明文字要改两处。(2) 标签名“用户”“本作品”在 `SettingsWindow` 与 `SettingsFileView` 各有一份 `TEXT`。(3) `leaveConfirmed` 与 `beforeLeave` 是组件级可变变量，状态散在 `watch`、`onLeaveClosed`、`confirmLeave` 三处（见第 9 条的缺陷），更适合让模型的 `leaving` 带上“放弃后焦点去哪”。
+- **建议改法**：抽一个 `SettingsSectionHeader`（标题、说明、层说明）与一个只管 page 的 `<SettingsPageFrame v-bind="…">` 小包装；层名由窗口模型给（`window.layerLabel(layer)`）。
+
+## 参照对照（VS Code 设置编辑器、旧应用 provider 设置）
+
+- VS Code 设置搜索会显示“N 个设置”、高亮匹配词，并在目录里只留有命中的分类；这里只有分组结果，没有数量也没有高亮（第 14 条）。
+- VS Code 的 `settings.json` 有错误波浪线与问题列表，保存时不阻拦；这里只有保存后的行列号，且位置会过时（第 7、8 条）。
+- VS Code 的设置项上有“已修改”标记与“在 settings.json 中编辑”入口；设置行与设置文件之间没有互相跳转，用户从列表里的一项要找它在文件里的位置只能靠 `Mod+F` 之外的人工查找（建议项，可不做）。
+- 旧应用 `packages/neuro-book-legacy/app/components/novel-ide/settings/sections/providers/` 有 `ModelDiscoveryDialog.vue`（向服务商拉取模型列表）与 `ModelProviderRail.vue`（左栏服务商，各自带状态）。样板里“模型”只是字符串数组，没有“拉取模型”，也没有连通性检查，这对 Lab 样板可以不做，但“向服务商要选项”恰恰是选项提供者 `loading`/`unavailable` 的典型使用场景，样板里的提供者永远 `ready`，样板没有示范这两种状态在真实页面里怎么写。
+
+## 未发现问题的方面
+
+- 搜索框的名字：`Input` 的 `id` 落在内部 `<input>`，隐藏的 `<label for>` 名字有效；`data-settings-search` 与 `@keydown` 落在容器上，键盘事件从 `<input>` 冒泡可达；浏览器自带的搜索取消按钮由 nb-ui 样式隐藏（`styles.css:111-112`），不会出现两个“x”。
+- `Tab` 停靠点与 `aria-current`：搜索时左栏不标当前项而 `tabindex=0` 仍在原当前项上，焦点环可见，行为自洽。
+- 页面命中的“打开”：名字以可见文字开头，`openHit` 清空搜索并把焦点放到左栏当前项，DOM 测试覆盖。
+- 设置文件文本框的名字（`<label for>`）、出错时 `aria-invalid` 与 `aria-describedby` 指向错误行（DOM 测试覆盖）、保存失败用 `role="alert"`、读取中用 `role="status"`、“别处改过”用 `role="status"`：都合适。
+- 保存进行中再按 `Mod+S`：`saving` 标志拦住了重入，没有发现重复写入。
+- 换标签时丢草稿、旧读取结果作废（`readToken`）：逻辑正确，未发现竞态。
+- `Mod+S` 与工作台快捷键：仓库里没有别的 `Mod+S` 绑定，没有冲突。
+- 动态选项在行里：加载中与不可用时控件停用并写原因、当前值照常显示、“已不存在”只在 `ready` 时标，符合 `nb-form` 的 `choices.ts` 逻辑与 Spec 输出 20。
+
+## 数量
+
+共 17 条：阻断 0，重要 5（第 1、2、3、4、5 条），建议 12（第 6 至 17 条）。分类：正确性 4（2、3、5、7 部分），交互 8，无障碍 6（含交叉），测试 2，代码质量 2，外观 2，文档 1（按主类别计，交叉的不重复计）。
+
+最严重的几条：第 1 条（`Esc` 在设置文件文本框里关窗口，`Tab` 陷阱没有可用出口）、第 2 条（CRLF 文件 `Tab` 错位插入并改写换行）、第 3 条（空白起手的搜索绕过未保存保护）、第 4 条（未保存的操作行在可视区之外）。
+
+## 追加更正（后写的，以此为准）
+
+- 第 14 条的 `Input.vue` 行号应为 `:86-89`（`handleClear`）与 `:108-114`（`v-if` 的清空按钮）。
+- 第 15 条 (1) 应读作：DOM 用例“Tab 插入两个空格，Esc 之后的 Tab 照常移走焦点”确实把 `Escape` 事件派给了 textarea，但没有任何断言看窗口是否仍开着；e2e 没有在文本框里按 `Esc`。该条“如何核实”那一段含糊，应读作：现有用例没有覆盖“`Esc` 之后窗口是否还在”，也没有用例走“空白起手的搜索词”；这两处我没有实际改文件做变异运行，只是读代码得出。
+- “数量”一节的分类应按主类别重算：正确性 4（第 2、3、5、7 条），交互 7（第 1、4、6、8、10、11、13 条），无障碍 3（第 9、12、14 条），测试 2（第 15、16 条），代码质量 1（第 17 条）；合计 17 条，阻断 0、重要 5（第 1 至 5 条）、建议 12（第 6 至 17 条）。

@@ -32,6 +32,7 @@ Work 与 Task 的记录只放主工作区 `master` 的 `.agents/works/`，在主
 - 默认路径已属于其它仓库、Work 或不匹配 branch 时报告冲突并停止，不覆盖或自动改名；保持主工作区在master，不覆盖用户改动。
 - 直接改主工作区前先看 `git status`：目标文件已有他人未提交改动时改到 worktree，不覆盖、不 stash、不改他人改动；主工作区定位与保护要求见根 [AGENTS.md](../../AGENTS.md#git-注意事项)。
 - 只提交Task范围文件，使用可审查的Conventional Commit，不force push共享分支。
+- 验证和提交分成两步：看过验证结果再提交，不把测试与 `git commit` 串在一条命令里。
 - 用 `git rm`、`git mv` 改过暂存区后，提交别的片之前先用 `git diff --cached --stat` 核对暂存区只有本片的文件。
 - 删除合进非 master 分支的本地分支时，先用 `git merge-base --is-ancestor <分支> <目标分支>` 确认已包含，再用 `git branch -D`：`-d` 只和该分支的上游比较，没有上游时和执行命令处检出的分支比较，在主工作区执行就是拿 master 比。
 - push和PR属于远端写入，分别获授权后执行。

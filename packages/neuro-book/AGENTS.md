@@ -42,7 +42,7 @@
 ## 命令
 
 ```text
-bun run dev              # 开发模式：页面 http://127.0.0.1:4217/（RPC 4218、后端 4219；被占用时三个一起加 100），后端改动后有序重启；状态根缺省 .dev-state/
+bun run dev              # 开发模式：页面 http://127.0.0.1:4217/（RPC 4218、后端 4219；被占用时三个一起加 100），后端改动后有序重启；状态根缺省 .dev-state/。给自己或开发者用的开发服务用 nbdev dev start（自动避让端口，以 [dev] backend-ready 判就绪）；手动指定任一端口时三个都不避让，页面返回 200 不代表后端已经起来
 NBDEV_SAMPLE=1 bun run dev   # 另在后端就绪后放样例作品 .dev-sample/sample/（被 Git 忽略，只补缺少的文件），日志打 [dev] open-path /?project=sample；失败打 [dev] sample-failed <原因>，服务照常运行。nbdev dev start --sample 设这个变量（src/server/dev/sample.ts）
 bun run typecheck        # 类型检查：后端 tsc、前端 vue-tsc、组件测试与 e2e 的 vue-tsc
 bun run test             # bun test（合同测试，含真实子进程）后接 Vitest 组件测试

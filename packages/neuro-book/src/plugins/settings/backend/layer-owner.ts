@@ -5,9 +5,12 @@
  *
  * 重读与写入在同一个串行队列里：较早开始的重读不会在写入之后发布旧内容。写入成功后立即按新文本发布，监视器随后
  * 带回的同一内容比较后不再发布（输出 10）。
+ *
+ * 整份读写（`readText`、`writeText`，输出 24）也排在这个队列里。文本的修订号是原始文本的摘要，与层快照的修订号分开：
+ * 层快照只在解析结果变了时换，只改注释、格式时不换；文本的修订号随任何文本变化换，经 `subscribeText` 通知设置文件视图。
  */
 
-import {randomUUID} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 
 
 import type {DiagnosticsService} from "@notnotype/nb-runtime/diagnostics";
@@ -17,9 +20,9 @@ import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 import type {SettingDeclaration, SettingLayer, SettingsFailure} from "nbook/shared/settings";
 
 import {canonical, sameContent, userEditProblem, writeProblem} from "../shared/layers";
-import type {DeclaredSetting, LayerContent, LayerEdit, LayerProblem, LayerSnapshot, LayerWriteResult, WriteProblem} from "../shared/layers";
+import type {DeclaredSetting, LayerContent, LayerEdit, LayerProblem, LayerSnapshot, LayerTextRead, LayerTextWrite, LayerWriteResult, WriteProblem} from "../shared/layers";
 import {readLayerFile, writeLayerFile} from "./layer-file";
-import {editLayerText, parseLayerText} from "./layer-text";
+import {editLayerText, parseLayerText} from "../shared/layer-text";
 import {watchLayer} from "./layer-watch";
 import type {LayerWatch} from "./layer-watch";
 
@@ -41,6 +44,21 @@ export interface LayerOwnerOptions {
 
 export type OwnerWriteResult = LayerWriteResult;
 
+/** 文本的修订号：文件原始字节的 SHA-256（给字符串时按 UTF-8 编码）。文件不存在时就是空字节的摘要。 */
+export function textRevision(content: string | Uint8Array): string {
+    return typeof content === "string" ? createHash("sha256").update(content, "utf8").digest("hex") : createHash("sha256").update(content).digest("hex");
+}
+
+/** 是不是合法的 UTF-8：整份读写只处理合法的文本，替换字符会让写回改掉用户文件里的字节。 */
+function isUtf8(bytes: Uint8Array): boolean {
+    try {
+        new TextDecoder("utf-8", {fatal: true}).decode(bytes);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 export interface LayerOwner {
     /** 第一次读完并开始监视后完成；之前 `snapshot()` 是空层。 */
     readonly ready: Promise<void>;
@@ -51,6 +69,14 @@ export interface LayerOwner {
     write(consumer: ConsumerIdentity, key: string, edit: LayerEdit): Promise<OwnerWriteResult>;
     /** 用户编辑：写任何已声明项，调用方必须是 `source` 插件自己、没有经过代理（输出 19）。 */
     userEdit(consumer: ConsumerIdentity, key: string, edit: LayerEdit): Promise<OwnerWriteResult>;
+    /** 整份读这一层的文件（输出 24）；调用方的核对同用户编辑。 */
+    readText(consumer: ConsumerIdentity): Promise<LayerTextRead>;
+    /** 整份写：`revision` 是读出时的修订号，文件之后被改过为 `conflict`；文本不合格为 `invalid-text`，带位置。 */
+    writeText(consumer: ConsumerIdentity, text: string, revision: string): Promise<LayerTextWrite>;
+    /** 当前文本的修订号；第一次读完之前为 null。 */
+    textRevision(): string | null;
+    /** 之后文本每变一次调用一次；返回取消函数。 */
+    subscribeText(listener: (revision: string) => void): () => void;
     /** 拒绝新的读写，等已接纳的写入结算，关闭监视。幂等。 */
     close(): Promise<void>;
 }
@@ -61,6 +87,8 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
     const located = options.shownPath === undefined ? {} : {path: options.shownPath};
     let current: LayerSnapshot = {status: "ok", revision: {boot, seq}, values: Object.freeze({}), problems: Object.freeze([]), ...located};
     const listeners = new Set<(snapshot: LayerSnapshot) => void>();
+    let currentText: string | null = null;
+    const textListeners = new Set<(revision: string) => void>();
     let closed = false;
     let closing: Promise<void> | null = null;
     /** 已经记过诊断的被丢弃键（规范化文本）：同一份文件内容只记一次。 */
@@ -95,6 +123,20 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
         return current;
     };
 
+    /** 读到或写成了这份文本（原始字节，或刚写下的文本）：修订号变了就通知设置文件视图。 */
+    const noteText = (content: string | Uint8Array): void => {
+        const revision = textRevision(content);
+        if (revision === currentText) return;
+        currentText = revision;
+        for (const listener of [...textListeners]) {
+            try {
+                listener(revision);
+            } catch (error) {
+                record("warn", "settings.layer.listener-failed", "配置层的订阅出错", {layer: options.layer}, error);
+            }
+        }
+    };
+
     /** 由文件文本算出下一份快照：无效时保留上一份有效内容；被丢弃的键同一份内容只记一次诊断。 */
     const fromText = (text: string): LayerContent => {
         const parsed = parseLayerText(text, keysOf(options.declarations()), options.layer);
@@ -113,6 +155,7 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
     const reload = async (): Promise<void> => {
         if (closed) return;
         const read = await readLayerFile(options.path);
+        if (read.ok) noteText(read.bytes);
         const before = current;
         const next: LayerContent = read.ok ? fromText(read.text) : {status: "invalid", values: current.values, problems: current.problems, detail: read.detail};
         const after = publish(next);
@@ -140,14 +183,14 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
         return result;
     };
 
+    /** 用户编辑不核对声明者，调用方是这条路径唯一的授权：先于其它核对，别的调用方不论输入一律 denied。 */
+    const userEditDenied = (consumer: ConsumerIdentity): WriteProblem | null => {
+        if (consumer.plugin === options.source && consumer.via === null) return null;
+        return {code: "denied", detail: `用户编辑只接受 ${options.source} 自己、没有经过代理的请求`};
+    };
+
     const userEdit = async (consumer: ConsumerIdentity, key: string, edit: LayerEdit): Promise<OwnerWriteResult> => {
-        const result = await admitAndWrite(key, edit, () => {
-            // 用户编辑不核对声明者，调用方是这条路径唯一的授权：先于其它核对，别的调用方不论键与值一律 denied。
-            if (consumer.plugin !== options.source || consumer.via !== null) {
-                return {code: "denied", detail: `用户编辑只接受 ${options.source} 自己、没有经过代理的请求`};
-            }
-            return userEditProblem(key, options.declarations().get(key), edit, options.layer);
-        });
+        const result = await admitAndWrite(key, edit, () => userEditDenied(consumer) ?? userEditProblem(key, options.declarations().get(key), edit, options.layer));
         record(result.ok ? "info" : "warn", "settings.write", "配置写入（用户编辑）", {key, layer: options.layer, plugin: consumer.plugin, via: consumer.via?.plugin ?? null, code: result.ok ? "ok" : result.code, userEdit: true});
         return result;
     };
@@ -170,8 +213,42 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
                 if (written.code === "layer-invalid") await reload();
                 return {ok: false, code: written.code as SettingsFailure, detail: written.detail};
             }
+            noteText(written.text);
             return {ok: true, snapshot: publish(fromText(written.text))};
         }, {ok: false, code: "write-failed", detail: "配置写入出错"});
+    };
+
+    const readText = async (consumer: ConsumerIdentity): Promise<LayerTextRead> => {
+        if (closed) return {ok: false, code: "unavailable", detail: "配置层的拥有者已停止"};
+        const denied = userEditDenied(consumer);
+        if (denied !== null) return {ok: false, ...denied};
+        return enqueue(async (): Promise<LayerTextRead> => {
+            const read = await readLayerFile(options.path);
+            if (!read.ok) return {ok: false, code: "read-failed", detail: read.detail};
+            noteText(read.bytes);
+            if (!isUtf8(read.bytes)) return {ok: false, code: "read-failed", detail: "设置文件不是合法的 UTF-8 文本"};
+            return {ok: true, text: read.text, revision: textRevision(read.bytes), exists: read.exists};
+        }, {ok: false, code: "read-failed", detail: "读取设置文件出错"});
+    };
+
+    const writeText = async (consumer: ConsumerIdentity, text: string, revision: string): Promise<LayerTextWrite> => {
+        if (closed) return {ok: false, code: "unavailable", detail: "配置层的拥有者已停止"};
+        const denied = userEditDenied(consumer);
+        if (denied !== null) return {ok: false, ...denied};
+        const result = await enqueue(async (): Promise<LayerTextWrite> => {
+            // 比对与解析都以磁盘上的当前文本为准：`writeLayerFile` 持锁后会用锁里读到的文本再做一次。
+            const written = await writeLayerFile(options.path, (_current, bytes) => {
+                if (textRevision(bytes) !== revision) return {ok: false, code: "conflict", detail: "文件在读出之后被别处改过"};
+                const parsed = parseLayerText(text, keysOf(options.declarations()), options.layer);
+                if (parsed.status === "invalid") return {ok: false, code: "invalid-text", detail: parsed.reason, position: parsed.position};
+                return {ok: true, text};
+            }, report);
+            if (!written.ok) return {ok: false, code: written.code as SettingsFailure, detail: written.detail, ...(written.position === undefined ? {} : {position: written.position})};
+            noteText(written.text);
+            return {ok: true, revision: textRevision(written.text), snapshot: publish(fromText(written.text))};
+        }, {ok: false, code: "write-failed", detail: "配置写入出错"});
+        record(result.ok ? "info" : "warn", "settings.write", "设置文件整份写入", {layer: options.layer, plugin: consumer.plugin, code: result.ok ? "ok" : result.code, text: true});
+        return result;
     };
 
     return {
@@ -185,11 +262,21 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
         },
         write,
         userEdit,
+        readText,
+        writeText,
+        textRevision: () => currentText,
+        subscribeText: (listener) => {
+            textListeners.add(listener);
+            return () => {
+                textListeners.delete(listener);
+            };
+        },
         close: () => {
             closing ??= (async () => {
                 closed = true;
                 watcher?.close();
                 listeners.clear();
+                textListeners.clear();
                 await tail;
             })();
             return closing;

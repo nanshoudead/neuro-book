@@ -18,26 +18,34 @@
   5. 实施派 Sonnet 子代理，批量改动写脚本替换，不逐个文件手改。
 - **先后**：等 w00027 t07 的 S2a、S2b（nb-ui 的 29 个文件）进 master 后开工；2026-10-21 确认已进 master。开工时先在 master 上重跑下面的“改动面”统计。
 
-### 改动面（2026-10-20 在 master 上实测）
+### 改动面（2026-10-21 开工时在 master 上用工具 1、2 重测）
 
-方法：用 neuro-book 现在的 `uno.config.ts` 和 Tailwind v4 分别编译 neuro-book 的源码，按类名对比两份输出。对比脚本是验收工具之一，见“工具”一节。
+方法：用迁移前的 UnoCSS 配置和 Tailwind v4 分别编译 neuro-book `src` 下的非测试源码，按类名对比，`var()` 与 rem 换算成实际值再比（工具 1）；改名处数用工具 2 的 dry run 数。10-20 的初测数字有误（改名与字号类的处数用正则数多了），以本节为准。
 
-- **Tailwind 编不出的类**：除 127 个 `i-lucide-*` 图标外，一个都没有。
-  - UnoCSS 多出来的 45 个“类”，都是它从源码里宽松抽出的杂词，例如 `h1`、`px`、SVG 路径里的数字、从 `max-w-[420px]` 里截出的 `w-[420px]`，或者来自测试文件。
-  - 图标交给 `@iconify/tailwind4`。UnoCSS 的图标规则与 nb-ui 现在的垫片同形（`1em`、遮罩），尺寸不变。
-- **改了含义、要替换的类**（Tailwind v3 到 v4 的刻度改名）：
-
-  | 类 | 处数 | 替换为 |
-  |---|---|---|
-  | `shadow-sm` | 1 | `shadow-xs` |
-  | `rounded-sm` | 1 | `rounded-xs` |
-  | `outline-none` | 8 | `outline-hidden` |
-
-  其余同名类的值相同，例如 `shadow`、`rounded`、`blur`、`leading-5`。没有不带宽度的 `ring`。UnoCSS 的基础样式没有设缺省边框颜色，所以 v4 的边框颜色变化不影响现状。
+- **Tailwind 编不出的类**：图标全部能出（`@iconify/tailwind4`）；剩下 32 个都是 UnoCSS 从源码里宽松抽出的杂词，例如 `h1`、`px`、SVG 路径里的数字、`w00017`。UnoCSS 的图标规则与 nb-ui 现在的垫片同形（`1em`、遮罩），尺寸不变。
+- **改了含义的类**：
+  - `outline-none`：7 处要换成 `outline-hidden`（v3 的“透明轮廓”在 v4 叫这个名字）。
+  - `shadow-sm`、`rounded-sm`：应用里没有当样式用的地方。10-20 数到的各 1 处在 Lab 的 `src/plugins/lab/web/inspect.ts`，那是“哪些类名算原子类”的识别清单，不改名，改为补上 v4 的 `rounded-xs`、`outline-hidden`。
+  - `focus-visible:outline-2`（1 处，Lab 的 `EventLogPanel.vue`）：UnoCSS 只设宽度、没有轮廓样式，所以一直不显示；Tailwind 的宽度类带 `outline-style`，改后会显示出作者本来要的焦点轮廓。预期内的差异。
+  - 其余同名类的实际值相同，例如 `shadow`、`shadow-md`、`rounded-md`、`blur`、`leading-5`。
 - **随 nb-ui token 改变的**：
-  - `text-xs`（100 处）、`text-sm`（69 处）改为 12px、13px，行高跟 Tailwind 的配套值。这一条开发者已接受。
+  - `text-xs`（57 处）、`text-sm`（37 处）改为 12px、13px，行高跟 Tailwind 的配套值。这一条开发者已接受。
   - `font-mono`（18 处）改为 nb-ui 的等宽字体栈。
 - **UnoCSS 专有写法**：没有，`@apply`、`theme()` 这类都没用到。接入点只有三处：`uno.config.ts`、`vite.config.ts` 的插件、`src/web/boot.ts` 里的 `virtual:uno.css`。
+
+### 分层后结果会翻转的地方（工具 3，2026-10-21）
+
+- **nb-ui 内同一元素上语义类与原子类设同一属性**（21 条，S1 一并处理）：
+  - `Breadcrumb.vue` 的 `transition-colors` 与 `.nb-ui-focus-ring:focus-visible` 的 `transition`：分层后原子类赢，焦点光晕不再渐入。改成原子类里带上 `box-shadow`，或去掉原子类改由语义类给。
+  - `ColorPickerPanel.vue` 的 `outline-none` 与 `.nb-ui-control` 只读、禁用态的 `outline`：两边都是不画轮廓，核对后多半无需改。
+  - `Skeleton.vue`、`Tabs.vue` 的几条是伪元素与元素本身的误报（`::after` 上的规则、`after:` 变体）。
+  - 计划里原说的“invalid 边框悬停时被 `hover:border-*` 压过”现在不存在：输入类组件已不再写 `hover:border-*`。只把 `styles.css` 里为它抬特异性的注释与双类选择器理顺。
+- **不分层、特异性低于一个类的宿主规则**（10 条）：分层后它们赢过所有原子类。都要放进 `base` 层：
+  - neuro-book `src/web/styles.css` 开头的通配规则（`margin`、`padding`、`border` 归零，等于一份小 preflight），`html` 的 `scrollbar-gutter`，`*` 的滚动条样式；
+  - `the-new-css-reset` 同理，整份放进 `base` 层，否则它的 `all: unset` 压过所有原子类；
+  - nb-story、dev-panel 的 `html, body`、`body`、`*` 规则；playground `main.css` 的 `html`。
+  - 宿主自己的语义类（例如 `.nb-host-page`、`.story-page-body`）继续不分层：迁移前它们与原子类同特异性、排在后面而赢，不分层后照样赢，结果不变。
+- **与原子类同名的语义类**：只有 `.animate-pulse`（`styles.css` 里减少动效时的 `animation: none !important`）。层里的 `!important` 照样压过普通声明，无需改。
 
 ## 关键设计
 
@@ -73,19 +81,18 @@
 
 语义类进 `components` 层之后，与模板里的原子类设同一属性时，改由原子类赢。现在有意靠语义类赢的地方要改写：
 
-- 已知一处：`.nb-ui-control.nb-ui-control-invalid:hover` 要压过 `hover:border-[…]`，见现在 `tailwind.css` 头注释第 2 条。改成在模板里写 `aria-invalid:` 变体。
-- 其余由“冲突扫描”脚本找出来，见“工具”一节，逐处列进 Task 记录再改。
+- 具体位置见上面“分层后结果会翻转的地方”，由工具 3 列出，随 S1 一起改。
 
 ### 宿主的写法
 
 - **neuro-book**：
   - `vite.config.ts` 的 `UnoCSS(...)` 换成 `@tailwindcss/vite`。
   - 新文件 `src/web/tailwind.css`，依次导入 `tailwindcss/theme.css`、`tailwindcss/utilities.css`、`@notnotype/nb-ui/tailwind.css`，并写 `@source "../"` 覆盖 `src/`。Vite 的 root 是 `src/web`，自动探测不一定覆盖整个 `src`，所以显式写出来。
-  - 不导入 preflight，继续用 `the-new-css-reset`。
+  - 不导入 preflight，继续用 `the-new-css-reset`，但要进 `base` 层；`src/web/styles.css` 里特异性低于一个类的规则也进 `base` 层（见“分层后结果会翻转的地方”）。
   - `boot.ts` 换掉 `virtual:uno.css` 与 nb-ui 的 `styles.css`，导入顺序的注释删掉。
   - 删掉 `uno.config.ts` 与依赖 `unocss`，加 `tailwindcss`、`@tailwindcss/vite`、`@iconify-json/lucide`（版本与 nb-ui 一致）。
   - `build:e2e` 用的构建配置同步改。
-- **nb-story、dev-panel**：`app.css` 现在是“preflight 进 base 层、utilities 不分层”的拆分写法，加了自己的图标插件和垫片，另外导入 nb-ui 的产物。改成标准分层：preflight、theme、utilities，再加 nb-ui 入口。自己那份图标插件和垫片删掉。注释里为分层迁就写的说明一并删掉。
+- **nb-story、dev-panel**：`app.css` 现在是“preflight 进 base 层、utilities 不分层”的拆分写法，加了自己的图标插件和垫片，另外导入 nb-ui 的产物。改成标准分层：preflight、theme、utilities，再加 nb-ui 入口；`html`、`body`、`*` 这类全局规则进 `base` 层。自己那份图标插件和垫片删掉。注释里为分层迁就写的说明一并删掉。
 - **playground**：`main.css` 改为导入 nb-ui 入口，不再靠 Nuxt 模块注入产物。
 
 ### 删掉的东西
@@ -110,7 +117,7 @@
    - 两边都有但声明不同的（只比字号、行高、圆角、阴影、轮廓、滤镜这几类会改观感的属性）；
    - 只有 Tailwind 有的。
 
-   用来在 S3 前后确认改动面没有超出上表。
+   用来在 S2 前后确认改动面没有超出上表。
 2. **改名替换** `rename-classes.ts`：
    - 按上表的映射，只在类名出现的位置替换：`class`、`:class` 的字符串、`.ts` 里写类名的字符串。
    - 识别方式：类名前面是引号、空白或变体冒号，后面是引号或空白，不碰 `var(--…)` 与 CSS 文件里的属性值。
@@ -118,8 +125,9 @@
 3. **冲突扫描** `scan-layer-conflicts.ts`：
    - 读 `styles.css` 的语义类各设了哪些属性；
    - 编译出每个组件模板里的原子类各设了哪些属性；
-   - 列出同一元素上语义类与原子类设同一属性的地方。这些就是分层后结果会翻转的位置。
-4. **截图对照** `shoot-all.ts`：对 Lab 的全部组件场景（nbook、macos 两个主题，明暗各一，900×620）在改前改后各截一套，用 `magick compare -metric AE` 列出有差异的场景与像素数。复用 `scripts/lab-shot.ts` 的打开方式，不另写一套。另外截应用的四个页面：工作台、设置窗口、书架、资源管理器，用 e2e 的启动方式。
+   - 列出同一元素上语义类与原子类设同一属性的地方。这些就是分层后结果会翻转的位置；
+   - 另列各宿主不分层、特异性低于一个类的规则，以及 `styles.css` 里与原子类同名的类。
+4. **截图对照** `shoot-all.ts`：对 Lab 的全部组件场景（nbook、macos 两个主题，明暗各一，900×620）在改前改后各截一套，用 `magick compare -metric AE` 列出有差异的场景与像素数。复用 `scripts/lab-shot.ts` 的打开方式，不另写一套。另外截应用的四个页面（书架、未绑定的工作台、绑定作品的工作台与资源管理器、设置窗口），明暗各一。开发服务用临时状态根和一个登记好的示例作品，改前改后用同一份副本；改前的开发服务开在一个固定在 master 的独立 worktree 里，不占编码的 worktree。
 
 ## 切片与分工
 
@@ -135,12 +143,10 @@
 | 片 | 做什么 | 谁 | 自测 |
 |---|---|---|---|
 | S0 | 写好工具 1 到 4；在 master 上截改前基准；重跑改动面统计 | 主会话 | 工具在 master 上能跑出上面的数字 |
-| S1 | nb-ui 入口、`theme.css`、分层；playground 改用入口；删产物、`build:css`、`dist-css` 测试、`./styles.css` 导出 | 子代理 | nb-ui typecheck、单测、e2e |
-| S2 | 冲突扫描列出的地方逐处改写（`invalid` 边框等） | 子代理 | 同上，加 `invalid` 悬停的计算样式断言 |
-| S3 | neuro-book 换 Tailwind：插件、入口、依赖，改名脚本替换 | 子代理 | neuro-book typecheck、Vitest；工具 1 的输出只剩上表 |
-| S4 | nb-story、dev-panel 改用标准分层加 nb-ui 入口 | 子代理 | 各自 typecheck、单测 |
-| S5 | 文档：ADR 0023、neuro-book 的 `AGENTS.md`、`monorepo-boundaries.md`、nb-ui README、`tailwind.css` 头注释、设计文档坑 47、58 与产物一段（`design-language.md` 1116 行附近） | 子代理 | `docs:check`、`governance:check` |
-| S6 | 滚动条 token | 子代理 | nb-ui 单测、e2e |
+| S1 | nb-ui 入口、`theme.css`、分层，工具 3 列出的 nb-ui 改写；playground、nb-story、dev-panel 改用入口；删 `build:css` 与 `dist-css` 测试，`dist/nb-ui.css` 原样冻结给 neuro-book 用到 S2 | 子代理 | nb-ui、nb-story、dev-panel 的 typecheck、单测；nb-ui e2e |
+| S2 | neuro-book 换 Tailwind：插件、入口、依赖、base 层，改名脚本替换；删 `dist/nb-ui.css`、`./styles.css` 导出与 Nuxt `injectCss` | 子代理 | neuro-book typecheck、Vitest；工具 1 的输出只剩上表 |
+| S3 | 文档：ADR 0023、neuro-book 的 `AGENTS.md`、`monorepo-boundaries.md`、nb-ui README、`tailwind.css` 头注释、设计文档坑 47、58 与产物一段（`design-language.md` 1116 行附近） | 子代理 | `docs:check`、`governance:check` |
+| S4 | 滚动条 token | 子代理 | nb-ui 单测、e2e |
 | 收尾 | 改后截图与对照；全量验证；Sonnet 审实现 | 主会话 | 见“验证” |
 
 ## 验收
@@ -151,7 +157,7 @@
 | 同一组件在各宿主里外观相同 | Lab（neuro-book）与 playground 里读 `IconButton` 字号、`Switch` 滑块位移、`Select` 箭头旋转的计算样式，各一条 e2e 断言 |
 | 调用方传的原子类能覆盖组件的语义类 | Lab 里一条计算样式断言（例如给 `Button` 传 `w-full`） |
 | 菜单图标是 16px（坑 58） | 现有 Lab e2e 断言原样通过 |
-| 出错的输入框悬停时仍是红边框 | S2 新增的计算样式断言 |
+| 出错的输入框悬停时仍是红边框 | S1 新增的计算样式断言（分层后不再靠双类选择器抬特异性） |
 | 外观只按预期变化 | 截图对照：有差异的场景逐个看。预期内的差异只有两类：宿主小字从 14px 变 13px，以及上表三处改名；其余差异都要查明 |
 
 ## 验证
@@ -169,5 +175,5 @@
 ## 风险
 
 - **`@source` 经 workspace 软链解析的路径**：入口里的相对路径按入口文件的真实位置解析，宿主经 `node_modules` 软链导入时要实测能扫到。S1 用 nb-story 先试，不行就改成宿主自己写 `@source` 指向 nb-ui。
-- **Vite 开发模式下 Tailwind 扫描 nb-ui 源码的热更新**：改 nb-ui 组件后宿主页面要跟着更新，S3 手动确认一次。
-- **w00027 合入后新写的 neuro-book 界面**：如果 S3 时 w00027 的后续切片还没合入，那些代码合进来时用工具 1、2 再跑一遍。
+- **Vite 开发模式下 Tailwind 扫描 nb-ui 源码的热更新**：改 nb-ui 组件后宿主页面要跟着更新，S2 手动确认一次。
+- **w00027 合入后新写的 neuro-book 界面**：如果 S2 时 w00027 的后续切片还没合入，那些代码合进来时用工具 1、2 再跑一遍。

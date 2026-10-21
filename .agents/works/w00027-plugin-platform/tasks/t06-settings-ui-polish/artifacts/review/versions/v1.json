@@ -1,0 +1,31 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00027-plugin-platform",
+    "taskId": "t06-settings-ui-polish",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "t06 设置界面外观评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "fb772a6c02938e1dac079c2ccfe2c82074e58ebe1aeb13dc48bf5525e0a2ccd2",
+    "files": [
+        "index.html",
+        "r0/flow-leave-dialog.webp",
+        "r0/flow-search-results.webp",
+        "r0/now-choices-unavailable.webp",
+        "r0/now-file.webp",
+        "r0/now-narrow.webp",
+        "r0/now-other.webp",
+        "r0/now-page-column.webp",
+        "r0/now-page-fill.webp",
+        "r0/now-user-invalid.webp",
+        "r0/now-user.webp",
+        "r0/t80-mixed-agent.webp",
+        "r0/t80-x1-appearance.webp"
+    ],
+    "questions": [],
+    "publishedAt": "2026-10-21T13:08:38.703Z"
+}

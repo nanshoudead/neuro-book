@@ -1,6 +1,7 @@
 /**
  * 设置场景里示例插件的配置项、分区 id 与窗口的场景清单：“笔记”的项都没写分区（有一项指向不存在的分区），落到“其它”，
- * 覆盖通用列表的每种控件；“常用片段”“模型服务”的项指向自己的 page 分区，由页面画。单独放一个轻的模块：场景登记表在
+ * 覆盖通用列表的每种控件；“常用片段”“模型服务”的项指向自己的 page 分区，由页面画（“模型服务”是 page 分区用草稿、
+ * 未保存保护与动态选项的样板）。单独放一个轻的模块：场景登记表在
  * Lab 启动时就加载，示例页面与场景数据也都引用它，场景数据本身要等选中场景才加载。
  */
 
@@ -9,6 +10,8 @@ import {Type} from "typebox";
 import {defineSetting} from "nbook/shared/settings";
 
 export const SNIPPETS_SECTION = "example.snippets.main";
+/** “笔记”的选项提供者：新笔记可以套用的模板。 */
+export const TEMPLATES_PROVIDER = "example.notes.templates";
 export const MODELS_SECTION = "example.models.main";
 
 export const notesSettings = {
@@ -29,6 +32,8 @@ export const notesSettings = {
         ],
     }),
     tags: defineSetting({plugin: "example.notes", name: "tags", schema: Type.Array(Type.String({minLength: 1})), default: ["人物", "地点", "伏笔"], title: {"zh-CN": "常用标签", "en-US": "Frequent Tags"}, applies: "restart"}),
+    // 排在“其它”的最前：动态选项的几个场景截图时这一行在可视区里。
+    template: defineSetting({plugin: "example.notes", name: "template", schema: Type.String(), default: "", order: -1, title: {"zh-CN": "新笔记的模板", "en-US": "Template for New Notes"}, description: {"zh-CN": "选项来自模板库", "en-US": "Options come from the template library"}, choices: {from: TEMPLATES_PROVIDER}}),
     legacy: defineSetting({plugin: "example.notes", name: "legacy", schema: Type.Boolean(), default: false, title: {"zh-CN": "旧版目录结构", "en-US": "Legacy Layout"}, section: "example.missing"}),
 };
 
@@ -50,25 +55,72 @@ export const snippetsSettings = {
     autoInsert: defineSetting({plugin: "example.snippets", name: "autoInsert", schema: Type.Boolean(), default: false, title: {"zh-CN": "输入名字后自动插入", "en-US": "Insert on Name"}, section: SNIPPETS_SECTION}),
 };
 
+/** “模型服务”的选项提供者：已保存的服务商的模型，给“默认模型”用。 */
+export const MODELS_PROVIDER = "example.models.models";
+
+const text = (zh: string, en: string) => ({"zh-CN": zh, "en-US": en});
+
+/** 一家服务商。API Key 是普通的字符串字段（凭据先不做加密，开发者 2026-10-20 定），控件提示写成密钥输入。 */
+export const ProviderSchema = Type.Object({
+    id: Type.String({minLength: 1, pattern: "^[a-z0-9-]+$", "x-form": {label: text("标识", "ID"), help: text("小写字母、数字与连字符，默认模型按它引用", "Lowercase letters, digits and hyphens; the default model refers to it")}}),
+    name: Type.String({minLength: 1, "x-form": {label: text("名称", "Name")}}),
+    baseUrl: Type.String({minLength: 1, "x-form": {label: text("接口地址", "Base URL"), placeholder: "https://api.example.com/v1"}}),
+    timeout: Type.Integer({minimum: 1, maximum: 600, "x-form": {label: text("超时", "Timeout"), unit: text("秒", "s")}}),
+    // 本地服务不用密钥，没有模型的服务商先存着：两项都可以不填。
+    apiKey: Type.Optional(Type.String({"x-form": {label: text("API Key", "API Key"), widget: "secret"}})),
+    models: Type.Optional(Type.Array(Type.String({minLength: 1}), {"x-form": {label: text("模型", "Models")}})),
+}, {additionalProperties: false});
+
+/**
+ * 连接信息与凭据只允许用户层：项目层的文件在作品目录里，可能进 Git、给别人（configuration.md 作者规则）。page 分区的
+ * `layers` 也只写 user。
+ */
 export const modelsSettings = {
+    providers: defineSetting({
+        plugin: "example.models",
+        name: "providers",
+        schema: Type.Array(ProviderSchema),
+        default: [],
+        title: text("服务商", "Providers"),
+        layers: ["user"],
+        section: MODELS_SECTION,
+        ui: {widget: "master-detail", itemLabel: "name"},
+    }),
+    defaultModel: defineSetting({
+        plugin: "example.models",
+        name: "defaultModel",
+        schema: Type.String(),
+        default: "",
+        title: text("默认模型", "Default Model"),
+        description: text("写作助手没有指定模型时用它", "Used when the assistant does not pick a model"),
+        layers: ["user"],
+        section: MODELS_SECTION,
+        choices: {from: MODELS_PROVIDER},
+    }),
     effort: defineSetting({
         plugin: "example.models",
         name: "effort",
         schema: Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high")]),
         default: "medium",
-        title: {"zh-CN": "推理强度", "en-US": "Reasoning Effort"},
+        title: text("推理强度", "Reasoning Effort"),
         layers: ["user"],
         section: MODELS_SECTION,
         choices: [
-            {value: "low", title: {"zh-CN": "低", "en-US": "Low"}},
-            {value: "medium", title: {"zh-CN": "中", "en-US": "Medium"}},
-            {value: "high", title: {"zh-CN": "高", "en-US": "High"}},
+            {value: "low", title: text("低", "Low")},
+            {value: "medium", title: text("中", "Medium")},
+            {value: "high", title: text("高", "High")},
         ],
     }),
 };
 
+/** 默认模型的值：`服务商标识/模型名`。 */
+export function modelChoice(provider: string, model: string): string {
+    return `${provider}/${model}`;
+}
+
 export type SettingsWindowSceneId =
     | "user" | "project" | "unbound" | "user-invalid" | "project-invalid" | "unreachable" | "write-failed" | "other"
+    | "choices" | "choices-lazy" | "choices-unavailable" | "file"
     | "page-declared" | "page-blocked" | "page-failed" | "page-stopped" | "page-load-failed" | "page-column" | "page-fill";
 
 export const SETTINGS_WINDOW_SCENES: ReadonlyArray<{readonly id: SettingsWindowSceneId; readonly label: string}> = [
@@ -80,6 +132,10 @@ export const SETTINGS_WINDOW_SCENES: ReadonlyArray<{readonly id: SettingsWindowS
     {id: "unreachable", label: "本作品层连不上"},
     {id: "write-failed", label: "写入失败（发通知、回到实际值）"},
     {id: "other", label: "“其它”分区：每种控件，含可编辑的字符串列表"},
+    {id: "choices", label: "动态选项：提供者已交付，当前值已不在选项里"},
+    {id: "choices-lazy", label: "动态选项：打开时才激活提供者（先显示加载中）"},
+    {id: "choices-unavailable", label: "动态选项：提供者的入口激活失败"},
+    {id: "file", label: "设置文件：整份编辑用户层的文件（带注释）"},
     {id: "page-declared", label: "page 分区：入口还在启动"},
     {id: "page-blocked", label: "page 分区：入口受阻"},
     {id: "page-failed", label: "page 分区：入口激活失败（可重试）"},
