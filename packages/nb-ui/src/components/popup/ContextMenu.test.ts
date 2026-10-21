@@ -90,6 +90,24 @@ describe("ContextMenu 键盘", () => {
         }
     });
 
+    it("子菜单已经开着时在父项上按右方向键，焦点照样进它的第一项；之后指针打开别的子菜单不抢焦点", async () => {
+        await open();
+        await press("ArrowDown");
+        (document.activeElement as HTMLButtonElement).click();
+        await flushPromises();
+        expect(document.querySelectorAll("[data-menu-level]")).toHaveLength(1);
+        expect(focused()).toBe("更多");
+        await press("ArrowRight");
+        expect(focused()).toBe("子一");
+        // 回到父项、指针再点一次展开：焦点留在父项（预约已经用掉，不会残留到这一次）。
+        await press("ArrowLeft");
+        expect(focused()).toBe("更多");
+        (document.activeElement as HTMLButtonElement).click();
+        await flushPromises();
+        expect(document.querySelectorAll("[data-menu-level]")).toHaveLength(1);
+        expect(focused()).toBe("更多");
+    });
+
     it("焦点停在面板本身（指针离开项后）时，上下键从首末项开始：主菜单与子菜单都是", async () => {
         await open();
         const main = document.querySelector<HTMLElement>("[data-menu-panel] > [role=menu]")!;

@@ -213,6 +213,23 @@ describe("nb-ui components", () => {
         wrapper.unmount();
     });
 
+    it("segmented control: 上下键与左右键一样移动，Home、End 到首末项，跳过停用项并循环", async () => {
+        const options = [
+            {label: "随窗口", value: "free"},
+            {label: "平板", value: "tablet", disabled: true},
+            {label: "手机", value: "phone"},
+            {label: "桌面", value: "desktop"},
+        ];
+        const wrapper = mount(SegmentedControl, {props: {modelValue: "free", options}});
+        const root = wrapper.get("[role='radiogroup']");
+        for (const key of ["ArrowDown", "ArrowRight", "ArrowUp", "End", "Home", "ArrowLeft"]) {
+            await root.trigger("keydown", {key});
+            await wrapper.setProps({modelValue: wrapper.emitted<[string]>("update:modelValue")!.at(-1)![0]});
+        }
+        expect(wrapper.emitted("update:modelValue")).toEqual([["phone"], ["desktop"], ["phone"], ["desktop"], ["free"], ["desktop"]]);
+        wrapper.unmount();
+    });
+
     it("segmented control takes icon-only options named by title", () => {
         const wrapper = mount(SegmentedControl, {
             props: {modelValue: "tree", options: [{value: "text", iconClass: "i-lucide-file-json-2", title: "文本"}, {value: "tree", iconClass: "i-lucide-git-branch", title: "树形"}]},
@@ -552,6 +569,19 @@ describe("nb-ui new primitives", () => {
         await wrapper.setProps({modelValue: "b"});
         await tablist.trigger("keydown", {key: "ArrowRight"});
         expect(wrapper.emitted("update:modelValue")?.[1]).toEqual(["a"]);
+        wrapper.unmount();
+    });
+
+    it("tabs: 左方向键在首个标签上回绕到最后一个可用标签，Home、End 到首末可用标签", async () => {
+        const wrapper = mount(Tabs, {
+            props: {modelValue: "a", items: [{value: "a", label: "A"}, {value: "b", label: "B"}, {value: "c", label: "C", disabled: true}]},
+            attachTo: document.body,
+        });
+        const tablist = wrapper.get("[role='tablist']");
+        await tablist.trigger("keydown", {key: "ArrowLeft"});
+        await tablist.trigger("keydown", {key: "End"});
+        await tablist.trigger("keydown", {key: "Home"});
+        expect(wrapper.emitted("update:modelValue")).toEqual([["b"], ["b"], ["a"]]);
         wrapper.unmount();
     });
 

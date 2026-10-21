@@ -128,6 +128,26 @@ describe("QuickPick 受控合同", () => {
         }
     });
 
+    it("Home、End 移到首末项；带 Ctrl 或 Cmd 时留给输入框，不消费、不移动", async () => {
+        const {wrapper, activeId} = mountHarness({activeId: "export.epub"});
+        try {
+            await ticks();
+            await press("Home");
+            expect(activeId.value).toBe("outline.reorder");
+            await press("End");
+            expect(activeId.value).toBe("theme.toggle");
+            for (const modifier of [{ctrlKey: true}, {metaKey: true}]) {
+                const event = new KeyboardEvent("keydown", {key: "Home", bubbles: true, cancelable: true, ...modifier});
+                inputElement().dispatchEvent(event);
+                await nextTick();
+                expect(event.defaultPrevented).toBe(false);
+                expect(activeId.value).toBe("theme.toggle");
+            }
+        } finally {
+            cleanup(wrapper);
+        }
+    });
+
     it("全禁用列表里方向键清空失效活动项，且提交始终被抑制", async () => {
         const items: readonly QuickPickItem[] = [
             {id: "export.mobi", label: "导出 MOBI（转换器未安装）", disabled: true},

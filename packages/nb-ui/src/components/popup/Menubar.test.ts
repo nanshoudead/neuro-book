@@ -14,6 +14,7 @@ const MENUS = [
         {label: "新建", value: "new"},
         {label: "导出", value: "export", children: [{label: "Markdown", value: "md"}, {label: "EPUB", value: "epub"}]},
     ]},
+    {id: "edit", label: "编辑", items: [{label: "撤销", value: "undo"}]},
 ];
 
 const press = async (key: string): Promise<void> => {
@@ -37,6 +38,8 @@ describe("Menubar 级联键盘", () => {
         parent.focus();
         await press("ArrowRight");
         expect(focused()).toBe("Markdown");
+        // reka 的一级把右方向键当成切到下一组：展开子菜单的这一下不能让它切走。
+        expect(wrapper.emitted("update:modelValue")).toBeUndefined();
         await press("ArrowDown");
         expect(focused()).toBe("EPUB");
         await press("ArrowDown");

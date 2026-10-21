@@ -53,6 +53,9 @@ function onKeydown(item: T, event: KeyboardEvent): void {
     const target = event.currentTarget as HTMLElement | null;
     if (!hasChildren(item) || event.key !== "ArrowRight" || !target || !("getBoundingClientRect" in target)) return;
     event.preventDefault();
+    // reka 的一级菜单（Menubar 的菜单内容）把冒泡上来的右方向键当成“切到下一组”，不看 defaultPrevented：展开了子菜单就不让它
+    // 再冒泡。宿主预约焦点的 rootKeydown 挂在 capture 上，已经先处理过；普通按钮项要冒泡给宿主的级联键盘，不拦。
+    if (props.itemComponent !== undefined) event.stopPropagation();
     target.setAttribute("aria-expanded", "true");
     emit("hover", item, target, true);
 }

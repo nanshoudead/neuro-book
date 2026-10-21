@@ -137,6 +137,18 @@ test("菜单栏：手工级联里的普通按钮项在悬停时高亮", async ({
     await expect(page.locator(".nb-menu-level")).toHaveCount(0);
 });
 
+test("菜单栏：一级里父项上按右方向键只展开子菜单、焦点进它的第一项，不切到下一组", async ({page}) => {
+    await gotoMenus(page);
+    const menubar = page.locator("[data-fixture-menubar]");
+    await menubar.getByRole("menuitem", {name: "文件"}).click();
+    const exportItem = page.getByRole("menuitem", {name: /导出/});
+    await exportItem.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByRole("menuitem", {name: "Markdown"})).toBeFocused();
+    await expect(menubar.getByRole("menuitem", {name: "文件"}), "“文件”这组仍开着").toHaveAttribute("data-state", "open");
+    await expect(menubar.getByRole("menuitem", {name: "编辑"})).toHaveAttribute("data-state", "closed");
+});
+
 test("Select：所有项 28px，说明在同一行右侧；选中项在左侧一列画勾、替代它的图标，底色不变", async ({page}) => {
     await page.goto("/acceptance/popup-lists?scene=select&theme=nbook&colorway=nbook-light");
     await page.locator("[data-fixture-select]").click();

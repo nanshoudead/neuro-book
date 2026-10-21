@@ -278,7 +278,7 @@
 - **层级与 role（S4）**：消费 `NB_Z_INDEX.commandPalette`（9200，S4 全局命令面板角色）；模态 Dialog 语义（`DialogRoot` modal + `disableOutsidePointerEvents`），透明遮罩与 Content 同为 9200、Content 在后；外点被遮罩消费，不穿透底层。可访问名称来自 sr-only 的 `DialogTitle`；面板没有描述节点，Content 默认不带 `aria-describedby`（不指向不存在的描述 id），宿主经 attrs 显式传入时以宿主为准。
 - **几何**：视口顶部居中，宽 `min(640px, calc(100vw - 24px))`，`top: clamp(16px, 8vh, 72px)`，`max-height: min(560px, calc(100dvh - 48px))`；圆角为 **14px**（`rounded-[14px]`），输入区与底部提示固定、列表 `flex:1; min-height:0` 自滚动；390px 宽仍留左右 12px。
 - **材质**：消费 `.nb-ui-popover-surface` 基座（4 阶立体微反光投影 + 130% 饱和滤波）与 `--nb-popover-pad`，选中项用 `--overlay-item-active`；不叠第二层磨砂、不新开材质档。
-- **键盘与焦点**：输入框 `role=combobox` + `aria-activedescendant`；ArrowUp/Down 走 `moveHighlight`（跳过禁用、首尾回绕）并 `scrollIntoView(block:nearest)`；Enter 在组合输入态（`isComposing`）不提交；Escape 只关闭本层并 `stopPropagation`；Tab 交给 Reka FocusScope 后阻止冒泡——下层 document/window 监听不得收到这些按键。打开时记录触发前焦点，关闭后归还仍连接的元素。
+- **键盘与焦点**：输入框 `role=combobox` + `aria-activedescendant`；ArrowUp/Down、Home/End 走 `utils/roving.ts` 的 `moveRoving`（跳过禁用、首尾回绕；Home、End 带 Ctrl 或 Cmd 时留给输入框）并只滚动候选列表这一层；Enter 在组合输入态（`isComposing`）不提交；Escape 只关闭本层并 `stopPropagation`；Tab 交给 Reka FocusScope 后阻止冒泡——下层 document/window 监听不得收到这些按键。打开时记录触发前焦点，关闭后归还仍连接的元素。
 - **关闭交接（`closed`）**：关闭不加退场动画；`closed` 在内容真实卸载、Reka 焦点栈/滚动锁/指针锁全部释放后按打开周期发一次，供宿主在关闭完成后再执行命令或激活下一个交互层。`AlertDialog` 的同名事件复用同一时序；宿主不得用固定等待毫秒数替代。
 - **打开动效**：挂载时消费 `.nb-ui-popover-motion`（见设计语言「七、动效」的「浮层入退场的编排是固定的」）。
 

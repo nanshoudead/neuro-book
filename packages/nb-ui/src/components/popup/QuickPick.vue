@@ -173,13 +173,16 @@ function onPanelKeydown(event: KeyboardEvent): void {
         case "ArrowDown":
         case "ArrowUp":
         case "Home":
-        case "End":
+        case "End": {
             // Home、End 带 Ctrl/Cmd 时留给输入框的原生编辑行为
             if ((event.key === "Home" || event.key === "End") && (event.ctrlKey || event.metaKey)) return;
+            const move = rovingMove(event.key, "vertical");
+            if (move === null) return;
             event.preventDefault();
             event.stopPropagation();
-            moveActive(rovingMove(event.key, "vertical")!);
+            moveActive(move);
             return;
+        }
         case "Enter":
             // 组合输入态的 Enter 属于输入法提交：不消费、不 accept
             if (event.isComposing) return;

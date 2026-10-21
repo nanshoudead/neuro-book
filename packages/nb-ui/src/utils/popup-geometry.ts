@@ -20,6 +20,12 @@ export function rectScale(element: HTMLElement): number {
     return Number.isFinite(scale) && scale > 0 ? scale : 1;
 }
 
+/** 元素所处的 CSS `zoom`（含祖先）；浏览器不提供 `currentCSSZoom`（Chrome 128 之前、测试用的 DOM 实现）时按盒子量。 */
+function cssZoom(element: HTMLElement): number {
+    const zoom = (element as HTMLElement & {currentCSSZoom?: number}).currentCSSZoom;
+    return typeof zoom === "number" && zoom > 0 ? zoom : rectScale(element);
+}
+
 /**
  * 视口截在第 9 项中点时的高度（CSS 像素，含视口自己的内边距）；项不超过 8 个时返回 null，视口取自然高度。
  * 按真实盒子量，分组标题、分隔线、两行项与换行项照实计入，不按固定行高乘。
@@ -131,7 +137,8 @@ export function computeCascadePosition(
  * 父项取它此刻的真实盒子：父级滚动过，量到的就是滚动后的位置（父级一滚动宿主就收起子菜单，不会拿到过期的位置）。
  *
  * `getBoundingClientRect` 量到的是窗口像素，写回面板的 `top`、`left`、`width`、`height` 是 CSS 像素；页面或祖先有 CSS
- * `zoom` 时两者不等，所以矩形与窗口尺寸都按面板自己的比例（`rectScale`）换回 CSS 像素。面板没有入场缩放，这个比例只来自 zoom。
+ * `zoom` 时两者不等，所以矩形与窗口尺寸都按面板所处的 zoom 换回 CSS 像素。zoom 取浏览器给的 `currentCSSZoom`，不用
+ * `rectScale`：后者除以取整的 `offsetHeight`，面板高度不是整数时（同级切换的过渡中途）没有 zoom 也算不出 1。
  */
 export function measureCascadePanel(trigger: HTMLElement, panel: HTMLElement): {x: number; y: number; width: number; height: number} | null {
     const parentRect = trigger.closest("[role='menu']")?.getBoundingClientRect();
@@ -139,7 +146,7 @@ export function measureCascadePanel(trigger: HTMLElement, panel: HTMLElement): {
     const viewport = panel.querySelector<HTMLElement>(".nb-menu-level-viewport");
     const contentRect = content?.getBoundingClientRect() ?? panel.getBoundingClientRect();
     if (!parentRect) return null;
-    const scale = rectScale(panel);
+    const scale = cssZoom(panel);
     const css = (value: number): number => value / scale;
     const anchor = trigger.getBoundingClientRect();
     const style = getComputedStyle(panel);

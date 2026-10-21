@@ -3,10 +3,10 @@ import {elementOf} from "../utils/element-of";
 import {focusPopupItem, measureCascadePanel} from "../utils/popup-geometry";
 import {moveRoving, rovingMove} from "../utils/roving";
 
-export const MENU_SUBMENU_HOVER_DELAY_MS = 300;
+const MENU_SUBMENU_HOVER_DELAY_MS = 300;
 
 /** 第一次悬停等待；点击、键盘和已展开后的同级切换不等待。 */
-export function createSubmenuScheduler(): {
+function createSubmenuScheduler(): {
     schedule(open: () => void, options: {immediate: boolean; hasOpenSibling: boolean}): void;
     cancel(): void;
 } {
@@ -106,23 +106,33 @@ export function useMenuCascade<T>(options: MenuCascadeOptions): {
 
     function truncate(depth: number): void {
         scheduler.cancel();
+        pendingFocus = null;
         if (levels.value.length <= depth) return;
         levels.value = levels.value.slice(0, depth);
         openedPanels.length = depth;
     }
 
-    /** 键盘展开了子菜单：它出现后把焦点放到它的第一项。 */
-    let focusNewLevel = false;
-    watch(() => levels.value.length, async (length, previous) => {
-        if (!focusNewLevel || length <= previous) return;
-        focusNewLevel = false;
+    /**
+     * 键盘在父项上展开了第 `pendingFocus` 级：这一级下一次写入后把焦点放到它的第一项，用掉就清。看每次写入而不只看层数：
+     * 这一级已经开着（指针先展开了它）时再按右方向键，层数不变，焦点也要进去。下一次写入后这一级不在（量不到、被收起）时
+     * 预约作废，不留到之后指针打开的别的子菜单上。
+     *
+     * 先后：DropdownMenu、Menubar 的 `rootKeydown` 在 capture 上，先预约、后展开；右键菜单的按钮项先在自己的 keydown 里
+     * 展开（同步写入 `levels`），再冒泡到这里预约。watch 的回调排在这一轮事件之后执行，两种先后都能看到预约。
+     */
+    let pendingFocus: number | null = null;
+    watch(levels, async (next) => {
+        const depth = pendingFocus;
+        if (depth === null) return;
+        pendingFocus = null;
+        if (next.length <= depth) return;
         await nextTick();
-        focusPopupItem(itemsIn(levelContent(length - 1))[0]);
+        focusPopupItem(itemsIn(levelContent(depth))[0]);
     });
     // 首次悬停的展开要等 300ms：宿主在这之前整个卸载时，回调不该再去量已经不在的面板。
     onBeforeUnmount(() => {
         scheduler.cancel();
-        focusNewLevel = false;
+        pendingFocus = null;
     });
 
     /** 第 `depth` 级级联面板的条目容器。 */
@@ -140,10 +150,10 @@ export function useMenuCascade<T>(options: MenuCascadeOptions): {
         return container === null ? [] : [...container.querySelectorAll<HTMLElement>(":scope > [role^='menuitem']:not([disabled])")];
     }
 
-    /** 父项上的右方向键、Enter、空格：展开由 MenuNodes 或 reka 做，这里只预约焦点。 */
-    function expectOpen(event: KeyboardEvent): void {
+    /** 父项上的右方向键、Enter、空格：展开由 MenuNodes 或 reka 做，这里只预约焦点进它展开的第 `childDepth` 级。 */
+    function expectOpen(event: KeyboardEvent, childDepth: number): void {
         const target = event.target as HTMLElement;
-        if (target.getAttribute("aria-haspopup") === "menu" && ["ArrowRight", "Enter", " "].includes(event.key)) focusNewLevel = true;
+        if (target.getAttribute("aria-haspopup") === "menu" && ["ArrowRight", "Enter", " "].includes(event.key)) pendingFocus = childDepth;
     }
 
     /**
@@ -163,13 +173,13 @@ export function useMenuCascade<T>(options: MenuCascadeOptions): {
     function rootKeydown(event: KeyboardEvent): void {
         const container = options.rootLevel();
         if (options.rootRoving && rove(event, itemsIn(container), event.target === container?.closest("[role='menu']"))) return;
-        expectOpen(event);
+        expectOpen(event, 0);
     }
 
     function levelKeydown(depth: number, event: KeyboardEvent): void {
         if (rove(event, itemsIn(levelContent(depth)), event.target === panels.value[depth])) return;
         if (event.key !== "ArrowLeft") {
-            expectOpen(event);
+            expectOpen(event, depth + 1);
             return;
         }
         const trigger = parentLevel(depth)?.querySelector<HTMLElement>(":scope > [aria-expanded='true']") ?? null;
@@ -198,6 +208,7 @@ export function useMenuCascade<T>(options: MenuCascadeOptions): {
         truncate,
         reset() {
             scheduler.cancel();
+            pendingFocus = null;
             levels.value = [];
         },
         rootKeydown,

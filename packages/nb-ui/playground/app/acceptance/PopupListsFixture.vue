@@ -44,6 +44,7 @@ const MENUBAR_MENUS = [
             {label: "EPUB", value: "export-epub"},
         ]},
     ]},
+    {id: "edit", label: "编辑", items: [{label: "撤销", value: "undo", shortcut: "Ctrl+Z"}]},
 ];
 
 const CONTEXT_ITEMS: ContextMenuItem[] = [

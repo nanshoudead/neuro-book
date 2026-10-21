@@ -54,7 +54,6 @@ const emit = defineEmits<{
 const attrs = useAttrs();
 const tablistRef = ref<HTMLDivElement | null>(null);
 
-
 function isSelected(item: TabsItem): boolean {
     return item.value === props.modelValue;
 }
