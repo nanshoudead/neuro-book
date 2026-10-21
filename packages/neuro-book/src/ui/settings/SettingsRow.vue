@@ -54,14 +54,15 @@ const text = (template: LocalizedText, params: Readonly<Record<string, string>> 
 const controlId = useId();
 const labelId = `${controlId}-label`;
 const descriptionId = `${controlId}-description`;
+const appliesId = `${controlId}-applies`;
 const declaration = computed(() => props.setting.declaration);
 const inspection = computed(() => props.settings.inspect(props.setting));
 const state = computed(() => settingsRowState(inspection.value, declaration.value.layers, props.layer));
 const override = computed(() => projectOverride(inspection.value, declaration.value.layers, props.layer));
 const title = computed(() => localize(declaration.value.title, props.locale));
 const description = computed(() => (declaration.value.description === undefined ? null : localize(declaration.value.description, props.locale)));
-const describedby = computed(() => (description.value === null ? undefined : descriptionId));
 const applies = computed(() => settingAppliesText(declaration.value.applies, props.locale));
+const describedby = computed(() => [applies.value === null ? null : appliesId, description.value === null ? null : descriptionId].filter((id) => id !== null).join(" ") || undefined);
 const modified = computed(() => state.value.kind === "edit" && state.value.written);
 const blocked = computed(() => state.value.kind !== "not-allowed" && state.value.blocked);
 const valueText = (value: unknown): string => settingValueText(declaration.value, value, props.locale);
@@ -99,10 +100,11 @@ async function run(action: RowAction): Promise<void> {
         <div class="settings-row__main">
             <div class="settings-row__label">
                 <span v-if="modified && !wide" class="settings-row__modified" aria-hidden="true"></span>
-                <label :id="labelId" class="settings-row__title" :for="controlId">
-                    <span>{{ title }}</span>
-                    <span v-if="applies !== null" class="settings-row__applies">{{ applies }}</span>
-                </label>
+                <!-- 生效时机不在 `<label>` 里：它不是控件的名字，经 `describedby` 当说明念（审查 S5 Sonnet 3）。 -->
+                <div class="settings-row__title">
+                    <label :id="labelId" :for="controlId">{{ title }}</label>
+                    <span v-if="applies !== null" :id="appliesId" class="settings-row__applies">{{ applies }}</span>
+                </div>
                 <p v-if="description !== null" :id="descriptionId" class="settings-row__description">{{ description }}</p>
             </div>
             <div v-if="wide && modified" class="settings-row__head-action" data-settings-row-head>
@@ -118,7 +120,8 @@ async function run(action: RowAction): Promise<void> {
                         <Tooltip v-if="layer === 'user'" :text="text(TEXT.reset)">
                             <IconButton size="sm" icon-class="i-lucide-rotate-ccw" :aria-label="text(TEXT.reset)" :disabled="blocked || busy !== null" data-settings-row-reset @click="run('reset')" />
                         </Tooltip>
-                        <Button v-else variant="ghost" size="sm" :disabled="blocked || busy !== null" data-settings-row-remove @click="run('remove')">{{ text(TEXT.remove) }}</Button>
+                        <!-- 紧跟在控件后面：用有底色的按钮，免得读成横排单选组的又一项（审查 S5 Sonnet 7）。 -->
+                        <Button v-else variant="secondary" size="sm" :disabled="blocked || busy !== null" data-settings-row-remove @click="run('remove')">{{ text(TEXT.remove) }}</Button>
                     </template>
                 </template>
                 <template v-else-if="state.kind === 'inherit'">

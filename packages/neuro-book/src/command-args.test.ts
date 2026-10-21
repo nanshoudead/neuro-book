@@ -2,8 +2,9 @@
  * 已登记命令的参数都能画成表单（docs/specs/ui/forms.md“给下游的映射”的命令参数）：命令面板以后按 `args` 直接画
  * nb-form 的表单，所以每条命令的 `args` 都要被 `checkDescription` 判为可结构化编辑，不能退回 JSON 编辑或不合格。
  *
- * 命令从内置插件的全部定义表（产品与开发清单、各运行位置）与清单一级的声明式贡献里收集，新加的插件与命令自动在内；
- * 不合格的按“命令 id：分类 问题码”列出。
+ * 收集内置插件的全部命令：产品与开发清单的各运行位置的定义表，加清单一级的声明式贡献；命令的声明是静态的，没有只在
+ * 运行期才登记的。示例插件（`examples/`）与测试用插件不在内，第三方插件的命令要在加载时另行检查。不合格的按“命令
+ * id：分类 问题码”列出。
  */
 
 import {describe, expect, it} from "bun:test";
@@ -34,7 +35,10 @@ function commandDeclarations(): Map<string, CommandDeclaration> {
         for (const entry of definition.entries) contributions.push(...(entry.contributions ?? []));
     }
     // 同一条命令可能在几个运行位置各声明一次，按 id 去重。
-    return new Map(contributions.filter((contribution) => contribution.capability === COMMANDS_POINT).map((contribution) => [contribution.id, contribution.declaration as CommandDeclaration]));
+    return new Map(contributions.filter((contribution) => contribution.capability === COMMANDS_POINT).map((contribution) => {
+        if (contribution.declaration === undefined) throw new Error(`命令 ${contribution.id} 的贡献没有声明`);
+        return [contribution.id, contribution.declaration as CommandDeclaration];
+    }));
 }
 
 describe("命令参数", () => {

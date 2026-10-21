@@ -19,6 +19,11 @@ const props = withDefaults(defineProps<{
     locale: string;
     label?: string;
     help?: string;
+    /**
+     * 字段此刻的状态说明（动态选项不可用的原因）。与 `help` 不同，它不是调用方的说明：`bare` 时外壳照样画出来，连同警告
+     * 一起放在控件下面一行（审查 S5 Sonnet 4）。
+     */
+    status?: string;
     required?: boolean;
     /** 组合控件：标题不是 `<label for>`。 */
     group?: boolean;
@@ -38,6 +43,7 @@ const props = withDefaults(defineProps<{
 }>(), {
     label: "",
     help: undefined,
+    status: undefined,
     required: false,
     group: false,
     bare: false,
@@ -55,8 +61,9 @@ const emit = defineEmits<{(event: "clear"): void}>();
 
 const messages = computed(() => messagesFor(props.locale));
 const labelId = computed(() => (props.bare ? props.labelledby : props.label ? `${props.id}-label` : undefined));
-/** `bare` 时说明由调用方画，外壳不画也不引用（审查 S3 Sonnet 16）。 */
-const helpId = computed(() => (props.help && !props.bare ? `${props.id}-help` : undefined));
+/** `bare` 时说明由调用方画，外壳不画也不引用（审查 S3 Sonnet 16）；状态说明另起一行照画。 */
+const helpText = computed(() => (props.bare ? props.status ?? "" : [props.help, props.status].filter(Boolean).join(" ")));
+const helpId = computed(() => (helpText.value ? `${props.id}-help` : undefined));
 const errorId = computed(() => (props.errorText ? `${props.id}-error` : undefined));
 const warningId = computed(() => (props.warnings.length > 0 ? `${props.id}-warning` : undefined));
 const unitId = computed(() => (props.unit ? `${props.id}-unit` : undefined));
@@ -99,9 +106,11 @@ provide(NB_FIELD_CONTEXT_KEY, {
             :aria-label="props.label ? `${props.clearLabel}：${props.label}` : props.clearLabel"
             @click="emit('clear')"
         >{{ props.clearLabel }}</button>
-        <p v-if="helpId" :id="helpId" class="nb-form-field__help">{{ props.help }}</p>
+        <p v-if="helpId" :id="helpId" class="nb-form-field__help">{{ helpText }}</p>
         <span v-if="errorId" :id="errorId" class="nb-form-sr-only">{{ props.errorText }}</span>
-        <span v-if="warningId" :id="warningId" class="nb-form-sr-only">{{ warningText }}</span>
+        <!-- 警告平时是标题行的图标加这段读屏文字；`bare` 没有标题行，文字直接画出来。 -->
+        <p v-if="warningId && props.bare" :id="warningId" class="nb-form-field__help nb-form-field__help--warning">{{ warningText }}</p>
+        <span v-else-if="warningId" :id="warningId" class="nb-form-sr-only">{{ warningText }}</span>
         <span v-if="unitId" :id="unitId" class="nb-form-sr-only">{{ messages.unit(props.unit ?? "") }}</span>
     </div>
 </template>
@@ -140,6 +149,14 @@ provide(NB_FIELD_CONTEXT_KEY, {
 .nb-form-field__help {
     min-width: 0;
     grid-column: 1 / -1;
+}
+
+.nb-form-field--bare .nb-form-field__help {
+    margin: var(--space-2) 0 0;
+}
+
+.nb-form-field__help--warning {
+    color: var(--status-warning);
 }
 
 .nb-form-field__clear {

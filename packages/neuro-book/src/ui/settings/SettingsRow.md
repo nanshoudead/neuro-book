@@ -60,7 +60,7 @@ type Slots = {
      * 控件。`value` 是这一层显示的值：这一层写了取这一层（层无效时是上一份有效内容里的），没写取下一层；`disabled` 为真时控件
      * 应停用；`id` 给能与标签关联的控件（输入框、下拉的触发器、开关）作 id，行的 `<label for>` 指向它；组合控件（单选组、
      * 复选组）拿不到 `<label for>` 的名字，用 `labelId`（行标题的 id）作 `aria-labelledby`，或用 `label` 文字作
-     * `aria-label`；`describedby` 是行里说明的 id（没有说明时为 undefined），接进控件的 `aria-describedby`。
+     * `aria-label`；`describedby` 是行里生效时机标注与说明的 id（都没有时为 undefined），接进控件的 `aria-describedby`；生效时机不在 `<label>` 里，不进控件的名字。
      * 不允许这一层时不渲染；沿用时只有宽排法渲染，`value` 是沿用的值、`disabled` 为真。
      */
     default(props: {value: unknown; disabled: boolean; id: string; label: string; labelId: string; describedby: string | undefined}): unknown;

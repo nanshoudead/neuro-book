@@ -5,6 +5,8 @@
  *   增删排序时新的 id 列表排进“待采纳”队列，等调用方把那个数组传回来才换上；传回来的往往不是同一个对象（`ref()` 的
  *   代理、经过 JSON 或一次 RPC 的副本），所以按内容比。认领到第几条，它之前的几条就作废（调用方采纳了更新的结果）。
  *   调用方没采纳时 id 不动。
+ * - 退回：调用方先采纳了一次增删排序（例如先显示写入中的值），随后又传回采纳之前的数组（写入失败），换回那时的 id，
+ *   播报“没有生效”；焦点所在的元素因此不被卸载（审查 S5 Sonnet 2）。
  * - 其它变化：本表单最近发出过的值（成员编辑）且长度没变时保留 id；否则是外部的整体替换，重建 id、待采纳全部作废
  *   （审查 S3 omp 5、6）。
  * - 焦点：增删排序的落点（Spec 输出 19）跟待采纳记在一起，采纳、渲染之后才移。
@@ -77,6 +79,8 @@ const KEEPS_ALT_ARROWS = "textarea, select, [role='combobox']";
 interface Pending {
     readonly array: ReadonlyArray<unknown>;
     readonly ids: string[];
+    /** 提交时的数组与 id：调用方退回时换回它们。 */
+    readonly before: {readonly array: ReadonlyArray<unknown>; readonly ids: string[]};
     readonly adopt?: () => void;
     readonly focus: () => void;
 }
@@ -88,14 +92,25 @@ export function useList(options: ListOptions) {
     });
     const ids = ref<string[]>(items.value.map(newId));
     let pending: Pending[] = [];
+    /** 最近采纳的一次增删排序之前的样子；之后的任何别的变化都让它作废。 */
+    let reverting: Pending["before"] | null = null;
     watch(items, (next) => {
         const matched = pending.findIndex((record) => sameContent(next, record.array));
         if (matched !== -1) {
             const record = pending[matched]!;
             pending = pending.slice(matched + 1);
+            reverting = record.before;
             ids.value = record.ids;
             record.adopt?.();
             void nextTick(record.focus);
+            return;
+        }
+        const before = reverting;
+        reverting = null;
+        if (before !== null && sameContent(next, before.array)) {
+            ids.value = before.ids;
+            pending = [];
+            announce(messages.value.notApplied);
             return;
         }
         if (next.length === ids.value.length && options.scope.emittedRecently(options.node().path, next)) return;
@@ -105,6 +120,9 @@ export function useList(options: ListOptions) {
 
     /** 播报的文字与序号：同一句话连着出现两次时序号让节点换新，读屏再念一次（审查 S3 Sonnet 11）。 */
     const announcement = ref({text: "", sequence: 0});
+    const announce = (text: string) => {
+        announcement.value = {text, sequence: announcement.value.sequence + 1};
+    };
     const expanded = ref(false);
     const page = ref(0);
     const messages = computed(() => messagesFor(options.locale()));
@@ -157,8 +175,8 @@ export function useList(options: ListOptions) {
     onBeforeUnmount(removeRevealer);
 
     function submit(next: unknown[], nextIds: string[], message: string, focus: () => void, adopt?: () => void): void {
-        pending.push({array: next, ids: nextIds, focus, ...(adopt === undefined ? {} : {adopt})});
-        announcement.value = {text: message, sequence: announcement.value.sequence + 1};
+        pending.push({array: next, ids: nextIds, before: {array: items.value, ids: ids.value}, focus, ...(adopt === undefined ? {} : {adopt})});
+        announce(message);
         options.emit(next);
     }
 

@@ -112,11 +112,9 @@ const note = computed(() => {
 });
 const clearable = computed(() => scope.editable(props.node) && !disabled.value
     && (props.node.nullable ? value.value !== undefined && value.value !== null : !props.node.required && value.value !== undefined));
-const help = computed(() => {
-    const own = resolveText(props.node.help, locale.value);
-    const reason = choices.value?.status === "unavailable" ? choices.value.reason : "";
-    return [own, reason].filter(Boolean).join(" ");
-});
+const help = computed(() => resolveText(props.node.help, locale.value));
+/** 动态选项不可用的原因：不是字段的说明，`bare` 时也要显示（输出 11）。 */
+const status = computed(() => (choices.value?.status === "unavailable" ? choices.value.reason : ""));
 
 /** 展示态的文字（输出 17）：密钥只说有没有设置，从不显示值。 */
 const viewText = computed(() => {
@@ -206,6 +204,7 @@ function onFocusOut(event: FocusEvent): void {
             :id="id"
             :label="resolveText(props.node.label, locale)"
             :help="help"
+            :status="status"
             :bare="props.bare"
             :labelledby="props.labelledby"
             :describedby="props.describedby"
@@ -225,6 +224,7 @@ function onFocusOut(event: FocusEvent): void {
             :id="id"
             :label="resolveText(props.node.label, locale)"
             :help="help"
+            :status="status"
             :required="props.node.required && props.node.path.length > 0"
             :group="GROUP_WIDGETS.has(widget)"
             :bare="props.bare"

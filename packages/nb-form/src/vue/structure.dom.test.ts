@@ -123,6 +123,24 @@ describe("字符串列表（输出 19）", () => {
         expect(document.activeElement).toBe(wrapper.findAll("input")[0]!.element);
     });
 
+    it("调用方先采纳、又退回原来的数组（写入失败）：换回原来的身份，焦点留在原处，播报没有生效", async () => {
+        const {wrapper} = await mountForm(schema, {tags: ["a", "b", "c"]});
+        const first = wrapper.findAll("input")[0]!.element;
+        await buttonByLabel(wrapper, "删除：第 2 项")!.trigger("click");
+        await flushPromises();
+        const focused = document.activeElement;
+        expect(focused?.getAttribute("aria-label")).toBe("删除：第 2 项");
+        // 写入失败，调用方传回删除之前的值（经过 JSON 的副本）。
+        await wrapper.setProps({modelValue: {tags: ["a", "b", "c"]}});
+        await flushPromises();
+        expect(inputValues(wrapper)).toEqual(["a", "b", "c"]);
+        // 第 1 项的元素没有重建，原来的焦点元素还在页面里、仍有焦点。
+        expect(wrapper.findAll("input")[0]!.element).toBe(first);
+        expect(document.activeElement).toBe(focused);
+        expect(focused?.isConnected).toBe(true);
+        expect(wrapper.get("[aria-live='polite']").text()).toBe("刚才的改动没有生效");
+    });
+
     it("删到 minItems 时删除停用；空列表显示“还没有项”", async () => {
         const {wrapper} = await mountForm(schema, {tags: ["a"]});
         expect(buttonByLabel(wrapper, "删除：第 1 项")!.attributes("disabled")).toBeDefined();

@@ -8,8 +8,12 @@ import {Type} from "typebox";
 import {defineComponent, h, ref} from "vue";
 import {afterEach, describe, expect, it} from "vitest";
 
+import {resolveForm} from "../model";
+import type {OptionSource} from "../options";
+import {validateForm} from "../validate";
 import SchemaField from "./SchemaField.vue";
 import {widgetLayout} from "./layout";
+import {describeIssues} from "./order";
 
 const mounted: VueWrapper[] = [];
 afterEach(() => {
@@ -128,6 +132,21 @@ describe("SchemaField 的提交与问题", () => {
     });
 });
 
+describe("bare 时字段自己的状态照样显示", () => {
+    it("动态选项不可用的原因与“已不存在”的警告画在控件下面，并接进 aria-describedby", async () => {
+        const schema = Type.String({"x-form": {options: "models"}});
+        const down = mount(SchemaField, {attachTo: document.body, props: {schema, modelValue: "a", locale: "zh-CN", bare: true, id: "m", describedby: "row-help", options: {models: ref<OptionSource>({status: "unavailable", reason: "没有网络"})}}});
+        mounted.push(down);
+        expect(down.text()).toContain("没有网络");
+        const described = down.get("[role='combobox']").attributes("aria-describedby")!.split(" ");
+        expect(described.map((id) => document.getElementById(id)?.textContent)).toContain("没有网络");
+        expect(described).toContain("row-help");
+        const gone = mount(SchemaField, {attachTo: document.body, props: {schema, modelValue: "gone", locale: "zh-CN", bare: true, id: "g", options: {models: ref<OptionSource>({status: "ready", items: [{value: "a", label: "A"}]})}}});
+        mounted.push(gone);
+        expect(gone.text()).toContain("警告：已不存在");
+    });
+});
+
 describe("约束与选项名取自描述", () => {
     it("数字框按 schema 的范围与步长步进；输入框的长度取 schema", async () => {
         const stepped = async (schema: object, modelValue: number, button: "增加" | "减少") => {
@@ -159,6 +178,15 @@ describe("约束与选项名取自描述", () => {
         const sizes = mount(SchemaField, {attachTo: document.body, props: {schema: Type.Union([Type.Literal(12), Type.Literal(14), Type.Literal(true)]), modelValue: 12, locale: "zh-CN", bare: true, labelledby: "x"}});
         mounted.push(sizes);
         expect(sizes.findAll("[role='radiogroup'] label").map((label) => label.text())).toEqual(["12", "14", "true"]);
+    });
+});
+
+describe("describeIssues", () => {
+    it("按看得见的先后写出每条问题，前面是所在字段的名字，根上的没有", () => {
+        const schema = Type.Array(Type.Object({name: Type.String({minLength: 1, "x-form": {label: {"zh-CN": "名字", "en-US": "Name"}}})}), {minItems: 3});
+        const value = [{name: "林照"}, {}];
+        const issues = validateForm(resolveForm(schema), value);
+        expect(describeIssues(schema, value, issues, "zh-CN", {itemLabel: "name"})).toEqual(["至少 3 项", "第 2 项 · 名字：必填"]);
     });
 });
 

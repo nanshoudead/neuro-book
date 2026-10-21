@@ -28,7 +28,7 @@ export const notesSettings = {
             {value: "words", title: {"zh-CN": "按字数", "en-US": "Word Count"}},
         ],
     }),
-    tags: defineSetting({plugin: "example.notes", name: "tags", schema: Type.Array(Type.String()), default: ["人物", "地点", "伏笔"], title: {"zh-CN": "常用标签", "en-US": "Frequent Tags"}, applies: "restart"}),
+    tags: defineSetting({plugin: "example.notes", name: "tags", schema: Type.Array(Type.String({minLength: 1})), default: ["人物", "地点", "伏笔"], title: {"zh-CN": "常用标签", "en-US": "Frequent Tags"}, applies: "restart"}),
     legacy: defineSetting({plugin: "example.notes", name: "legacy", schema: Type.Boolean(), default: false, title: {"zh-CN": "旧版目录结构", "en-US": "Legacy Layout"}, section: "example.missing"}),
 };
 

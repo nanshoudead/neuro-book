@@ -46,6 +46,8 @@ interface Messages {
     readonly moved: (from: number, to: number) => string;
     readonly removed: (position: number) => string;
     readonly added: (position: number) => string;
+    /** 增删排序被调用方退回（例如写入失败）。 */
+    readonly notApplied: string;
     readonly containsIssues: (count: number) => string;
     readonly duplicate: string;
     readonly previousPage: string;
@@ -96,6 +98,7 @@ const ZH: Messages = {
     moved: (from, to) => `第 ${String(from)} 项移到第 ${String(to)} 位`,
     removed: (position) => `已删除第 ${String(position)} 项`,
     added: (position) => `已添加第 ${String(position)} 项`,
+    notApplied: "刚才的改动没有生效",
     containsIssues: (count) => `含 ${String(count)} 个问题`,
     duplicate: "重复",
     previousPage: "上一页",
@@ -175,6 +178,7 @@ const EN: Messages = {
     moved: (from, to) => `Item ${String(from)} moved to position ${String(to)}`,
     removed: (position) => `Item ${String(position)} removed`,
     added: (position) => `Item ${String(position)} added`,
+    notApplied: "The last change was not applied",
     containsIssues: (count) => (count === 1 ? "1 issue inside" : `${String(count)} issues inside`),
     duplicate: "Duplicate",
     previousPage: "Previous page",

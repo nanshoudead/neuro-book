@@ -4,7 +4,8 @@
  * 都由表单定；这里只做字段改名，以及按选出的控件决定这一行的排法与宽度。
  */
 
-import type {FormHints} from "@notnotype/nb-form";
+import {resolveForm, validateForm} from "@notnotype/nb-form";
+import type {FieldKind, FormHints, FormIssue, FormModel} from "@notnotype/nb-form";
 import {widgetLayout} from "@notnotype/nb-form/vue";
 import type {WidgetLayout} from "@notnotype/nb-form/vue";
 
@@ -22,8 +23,17 @@ export function settingHints(declaration: SettingDeclaration): FormHints {
     return {...ui, choices: choices.map((choice) => ({value: choice.value, label: choice.title, ...(choice.description === undefined ? {} : {description: choice.description})}))};
 }
 
+/**
+ * 结构字段（列表、对象、JSON）的一步编辑常常还不是合法的值（刚加的一项还没填），合格了才写，在那之前留在行里
+ * （docs/specs/settings/settings-window.md 输出 14，开发者 2026-10-21 定）。单个值照旧：写入被拒就通知、回到实际值。
+ */
+const STAGED_KINDS: ReadonlySet<FieldKind> = new Set(["string-list", "object", "object-list", "json"]);
+
 export interface SettingForm {
     readonly hints: FormHints;
+    readonly model: FormModel;
+    /** 值不合 schema 时先留在行里、不写。 */
+    readonly staged: boolean;
     /** 宽排法：控件另起一行（输出 9）。 */
     readonly wide: boolean;
     /** 标签列加控件列时控件的宽度档位。 */
@@ -38,8 +48,14 @@ export function settingForm(declaration: SettingDeclaration): SettingForm {
     if (form === undefined) {
         const hints = settingHints(declaration);
         const layout = widgetLayout(declaration.schema, hints);
-        form = {hints, wide: layout.block, width: layout.width};
+        const model = resolveForm(declaration.schema);
+        form = {hints, model, staged: STAGED_KINDS.has(model.root.kind), wide: layout.block, width: layout.width};
         forms.set(declaration, form);
     }
     return form;
+}
+
+/** 值里的错误（警告不挡写入）。 */
+export function settingErrors(form: SettingForm, value: unknown): FormIssue[] {
+    return validateForm(form.model, value).filter((issue) => issue.severity === "error");
 }

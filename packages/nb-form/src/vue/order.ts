@@ -5,13 +5,15 @@
  * 属性顺序排时，布局倒排的表单汇总与焦点会跳着走（审查 S3 omp 12）。
  */
 
+import type {FormHints} from "../hints";
 import type {FieldNode, FormLayout, FormModel} from "../model";
-import {itemNode} from "../model";
+import {itemNode, resolveForm} from "../model";
 import {getAt, toPointer} from "../path";
 import type {FieldPath} from "../path";
 import {resolveText} from "../text";
 import type {FormIssue} from "../validate";
-import {messagesFor} from "./messages";
+import {issueText, messagesFor} from "./messages";
+import {withHints} from "./with-hints";
 
 function layoutOrder(layout: FormLayout, into: string[]): string[] {
     if (layout.type === "field") into.push(layout.path);
@@ -82,4 +84,17 @@ export function fieldLabel(root: FieldNode, value: unknown, path: FieldPath, loc
         node = child;
     });
     return parts.filter((part) => part !== "").join(" · ");
+}
+
+/**
+ * 一组问题写成给人看的文字（接口 `describeIssues`），按看得见的先后排，每条前面是所在字段的名字（根上的没有）：
+ * 只用 `SchemaField` 的调用方没有问题汇总，要在自己的位置写出原因时用它（设置窗口的一行）。
+ */
+export function describeIssues(schema: object, value: unknown, issues: ReadonlyArray<FormIssue>, locale: string, hints?: FormHints): string[] {
+    const model = resolveForm(withHints(schema, hints));
+    return sortIssues(issues, model).map((issue) => {
+        const label = fieldLabel(model.root, value, issue.path, locale);
+        const text = issueText(issue, locale);
+        return label === "" ? text : `${label}：${text}`;
+    });
 }

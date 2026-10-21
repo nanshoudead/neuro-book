@@ -136,10 +136,14 @@ describe("SettingsWindow", () => {
         const control = document.getElementById(autosave.querySelector("label")!.htmlFor)!;
         expect(autosave.contains(control)).toBe(true);
         expect(control.getAttribute("aria-describedby")?.split(" ")).toContain(autosave.querySelector("p")!.id);
-        // applies 不是 now 时标题后标注生效时机；now 不标。
-        expect(one("[data-settings-row='example.notes/interval'] label").textContent).toContain("下次会话生效");
-        expect(one("[data-settings-row='example.notes/tags'] label").textContent).toContain("重启后生效");
-        expect(one("[data-settings-row='example.notes/autosave'] label").textContent).not.toContain("生效");
+        // applies 不是 now 时标题后标注生效时机，不进控件的名字、接进说明；now 不标。
+        const described = (row: string) => (one(`[data-settings-row='${row}'] #${CSS.escape((one(`[data-settings-row='${row}'] label`) as HTMLLabelElement).htmlFor)}`).getAttribute("aria-describedby") ?? "").split(" ").map((id) => document.getElementById(id)?.textContent ?? "");
+        expect(one("[data-settings-row='example.notes/interval'] label").textContent).toBe("保存间隔（秒）");
+        const heading = (row: string) => one(`[data-settings-row='${row}'] label`).parentElement!.textContent;
+        expect(heading("example.notes/interval")).toContain("下次会话生效");
+        expect(described("example.notes/interval")).toContain("下次会话生效");
+        expect(heading("example.notes/tags")).toContain("重启后生效");
+        expect(heading("example.notes/autosave")).not.toContain("生效");
         const input = one("[data-settings-row='example.notes/interval'] input") as HTMLInputElement;
         input.value = "1000";
         input.dispatchEvent(new Event("input"));
@@ -147,22 +151,48 @@ describe("SettingsWindow", () => {
         await flushPromises();
         expect(notices[0]?.message).toContain("保存间隔（秒）：这个值不能用");
         expect(input.value).toBe("120");
+        // 不是数：不写，行里写出原因；改好后原因消失。
+        input.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
+        input.value = "abc";
+        input.dispatchEvent(new Event("input"));
+        input.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
+        await flushPromises();
+        expect(one("[data-settings-row='example.notes/interval'] [data-settings-not-saved]").textContent).toMatch(/^还没保存：/u);
+        expect(described("example.notes/interval").some((text) => text.startsWith("还没保存："))).toBe(true);
+        expect(host.user.values()).toMatchObject({"example.notes/interval": 120});
+        input.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
         input.value = "90";
         input.dispatchEvent(new Event("input"));
         input.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
         await flushPromises();
         expect(host.user.values()).toMatchObject({"example.notes/interval": 90});
+        expect(document.body.querySelector("[data-settings-row='example.notes/interval'] [data-settings-not-saved]")).toBeNull();
 
-        // 字符串列表加一项、填写，失焦后整个数组写进这一层。
+        // 字符串列表加一项：空项不合 schema，先留在行里、不写，写出原因；填好失焦后整个数组写进这一层。
         (tags.querySelector("[data-nb-list-add]") as HTMLButtonElement).click();
         await flushPromises();
+        expect(host.user.values()["example.notes/tags"]).toBeUndefined();
+        expect(tags.querySelector("[data-settings-not-saved]")?.textContent).toContain("第 4 项");
         const added = [...tags.querySelectorAll<HTMLInputElement>("[data-nb-list-item] input")].at(-1)!;
+        expect(document.activeElement).toBe(added);
         added.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
         added.value = "对白";
         added.dispatchEvent(new Event("input"));
         added.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
         await flushPromises();
         expect(host.user.values()).toMatchObject({"example.notes/tags": ["人物", "地点", "伏笔", "对白"]});
+        expect(tags.querySelector("[data-settings-not-saved]")).toBeNull();
+
+        // 删一项时写入失败：发通知，项回来，焦点留在列表里（不掉到页面上）。
+        host.user.failWrites("write-failed");
+        const remove = tags.querySelector<HTMLButtonElement>("[aria-label='删除：第 2 项']")!;
+        remove.focus();
+        remove.click();
+        await flushPromises();
+        expect([...tags.querySelectorAll<HTMLInputElement>("[data-nb-list-item] input")].map((element) => element.value)).toEqual(["人物", "地点", "伏笔", "对白"]);
+        expect(notices.at(-1)?.title).toBe("设置没有保存");
+        expect(tags.contains(document.activeElement)).toBe(true);
+        expect(tags.querySelector("[aria-live='polite']")?.textContent).toBe("刚才的改动没有生效");
     });
 
     it("左栏：上下键切到上一个、下一个可用分区，焦点跟着走；关闭按钮关窗口", async () => {
