@@ -32,8 +32,9 @@ updated: 2026-10-21
 - S5（分支 `fac385d59`）：删 `usePopoverLayer.ts` 的内联材质，Select、ColorSwatches 只绑层级；投影改随主题的 `--elevation-popover`（计划里写成 `--elevation-menu`，以代码为准）。验收夹具加 `material` 场景，e2e 逐项比三种浮层的材质。截图只有 Select、ColorSwatches 的 16 张有差异，都在外框边缘的投影（macOS 主题的取色面板模糊也改随主题）。
 - `components.md` 讲组件通道与能力标签，不放具体零件的用法：“新列表用 `MenuRow`、级联用 `useMenuCascade`、漫游用 `roving.ts`”写在 `ui-development-spec.md` 的 DropdownMenu 一节（计划原写进 `components.md`）。
 - 收口：nb-ui 整套 e2e 58 条、`test:affected --since master --typecheck` 全部通过；neuro-book 整套 e2e 256 条里 255 条通过，`editor-area` 的“给‘走吧。’加粗”一条在整套里选区没建立就断言，单独重跑 3 次都通过，记为偶发。
-- 实现审查（Sonnet）已派出，待处理。
+- 实现审查（Sonnet，8 条：重要 4、建议 4）与处理见 [evidences/impl-review.txt](evidences/impl-review.txt)，修正提交 `f68cb0bc9`：级联焦点预约会残留并误触发（改为记要进的那一级、按每次写入判断）；Menubar 一级里父项按右方向键时 reka 顺手切到下一组（真实 Chrome 复现，原有缺陷，MenuNodes 在 reka 分支阻止冒泡）；级联比例改用 `currentCSSZoom`；补四个组件的键盘门槛测试与两处过时文档。修正后 nb-ui typecheck、单测 546、整套 e2e 59 条通过。
+- 2026-10-21 合入 master（`44fea0c3d`）；合入后主工作区 nb-ui 单测 546、`docs:check` 通过。
 
 ## 下一步
 
-处理实现审查，然后合入 master。
+无。后续是 t04（公开 API 对齐），见 [t01 总计划](../t01-plan/plan.md)。
