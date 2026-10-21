@@ -59,7 +59,20 @@ const CODES: Readonly<Record<string, string>> = {
     anyOf: "no-match",
     required: "required",
     additionalProperties: "additional-property",
+    minContains: "min-contains",
+    maxContains: "max-contains",
+    propertyNames: "property-names",
+    dependentSchemas: "dependent-schemas",
+    oneOf: "one-of",
+    not: "not",
+    if: "if-then",
 };
+
+/**
+ * 校验可能报出的全部问题码（显示层要为每个码准备文字）。TypeBox 以后新增、表里没有的关键字仍按关键字本身作码，
+ * 显示层对它们用通用的写法。
+ */
+export const SCHEMA_ISSUE_CODES: ReadonlyArray<string> = [...new Set([...Object.values(CODES), "schema-error"])];
 
 /**
  * 必填与额外属性由字段树按对象展开（它知道哪些是已设置的密钥），整值检查不再报；JSON 字段里的除外：字段树没有

@@ -130,7 +130,7 @@ function handleKeydown(event: KeyboardEvent): void {
 <template>
     <div
         ref="rootRef"
-        role="group"
+        role="radiogroup"
         :aria-label="props.ariaLabel || undefined"
         class="relative max-w-full items-stretch rounded-[var(--radius-control)] border-[length:var(--border-w)] border-[color-mix(in_srgb,var(--border-color)_50%,transparent)] bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] p-[2px] select-none box-border outline-none"
         :class="segmentLayoutClass"
@@ -153,7 +153,6 @@ function handleKeydown(event: KeyboardEvent): void {
             type="button"
             role="radio"
             :data-value="String(option.value)"
-            :aria-pressed="isSelected(option) ? 'true' : 'false'"
             :aria-checked="isSelected(option)"
             :tabindex="optionKey(option) === tabStopKey ? 0 : -1"
             :disabled="option.disabled"

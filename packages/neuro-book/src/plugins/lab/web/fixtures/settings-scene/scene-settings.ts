@@ -28,7 +28,7 @@ export const notesSettings = {
             {value: "words", title: {"zh-CN": "按字数", "en-US": "Word Count"}},
         ],
     }),
-    tags: defineSetting({plugin: "example.notes", name: "tags", schema: Type.Array(Type.String()), default: ["人物", "地点", "伏笔"], title: {"zh-CN": "常用标签", "en-US": "Frequent Tags"}, applies: "restart"}),
+    tags: defineSetting({plugin: "example.notes", name: "tags", schema: Type.Array(Type.String({minLength: 1})), default: ["人物", "地点", "伏笔"], title: {"zh-CN": "常用标签", "en-US": "Frequent Tags"}, applies: "restart"}),
     legacy: defineSetting({plugin: "example.notes", name: "legacy", schema: Type.Boolean(), default: false, title: {"zh-CN": "旧版目录结构", "en-US": "Legacy Layout"}, section: "example.missing"}),
 };
 
@@ -37,8 +37,12 @@ export const snippetsSettings = {
     items: defineSetting({
         plugin: "example.snippets",
         name: "items",
-        schema: Type.Array(Type.Object({name: Type.String(), text: Type.String()}, {additionalProperties: false})),
+        schema: Type.Array(Type.Object({
+            name: Type.String({"x-form": {label: {"zh-CN": "名字", "en-US": "Name"}}}),
+            text: Type.String({"x-form": {label: {"zh-CN": "内容", "en-US": "Text"}}}),
+        }, {additionalProperties: false})),
         default: [],
+        ui: {itemLabel: "name"},
         title: {"zh-CN": "片段", "en-US": "Snippets"},
         description: {"zh-CN": "在编辑器里输入名字即可插入", "en-US": "Type the name in the editor to insert"},
         section: SNIPPETS_SECTION,
@@ -75,7 +79,7 @@ export const SETTINGS_WINDOW_SCENES: ReadonlyArray<{readonly id: SettingsWindowS
     {id: "project-invalid", label: "本作品层文件有错误（带路径）"},
     {id: "unreachable", label: "本作品层连不上"},
     {id: "write-failed", label: "写入失败（发通知、回到实际值）"},
-    {id: "other", label: "“其它”分区：每种控件与只读项"},
+    {id: "other", label: "“其它”分区：每种控件，含可编辑的字符串列表"},
     {id: "page-declared", label: "page 分区：入口还在启动"},
     {id: "page-blocked", label: "page 分区：入口受阻"},
     {id: "page-failed", label: "page 分区：入口激活失败（可重试）"},

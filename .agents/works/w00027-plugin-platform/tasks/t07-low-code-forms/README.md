@@ -73,6 +73,28 @@ updated: 2026-10-20
   - 转 t06（Sonnet 7）：只读与可编辑看不出差别要一种统一的只读外观，归设置外观收口；`NumberInput` 只读时套了停用的变淡，这次去掉了（`dist/nb-ui.css` 不变）。
   - 验证：nb-form 核心 95 例、渲染层 70 例（新增 24 例，审查者的 23 个缺陷实验对修正后的代码全部不再成立）；同长度保留身份、认领后清空队列、不请容器打开、不查只读成员、变只读不丢草稿、捕获阶段不停止传播六处变异都被拦下；nb-ui 528 例；应用类型检查与 Lab 的 Vitest 48 例；Lab 的 nb-form e2e 13 例与 nb-ui、场景、Lab 三组 28 例；`docs:check`、`governance:check`；截图 120 张没有溢出或报错（`reports/s3-review-shots/`）。Spec 输出 4、5、14、19、接口与失败码表同步。
 
+- S4（`b4118b0cb`）：应用的 `command-args.test.ts` 从内置插件的全部定义表（产品与开发清单、各运行位置）与清单一级的贡献里收集命令，要求每条的 `args` 经 `checkDescription` 都是可结构化编辑，不合格的按 id 列出；渲染层的 `isolation.dom.test.ts` 在空文档里用裸的 `createApp`（不装插件、不 `provide`）挂出每种内建控件、自定义控件、折叠分组与展示态、只读、停用，打开弹层、加列表项、改值，Vue 的警告与错误、未捕获的异常都算失败。
+  - 过程中的发现：66 条命令里 36 条是“无参数”（关闭额外属性的空对象），核心原来把它们判成要用 JSON 编辑；Spec 只让开放的空对象走 JSON，改为可结构化编辑、画成没有成员，支持表写明（Spec 验收 7、8 同时补上）。
+  - 验证：nb-form 核心 96 例、渲染层 73 例与两份类型检查；改回旧规则时两份测试都失败（命令测试列出 36 条），渲染层多一处找不到的注入时隔离测试失败；应用类型检查、`test:affected` 全部通过；`docs:check`、`governance:check`。
+
+- S5（`4ec30a661`）：设置窗口的通用列表每项改用 `SchemaField`（`bare`，`commit: "change"`）。`setting-form.ts` 把声明转成表单提示（`choices` 的 `title` 改名 `label`、`{from}` 转 `options`、`ui` 照抄），`widgetLayout` 决定宽排法与宽度（下拉 220、数字 120、单行 320、单选组与开关按内容）；`window.write` 返回是否写进，失败时这一项的 `revision` 加一；`SettingsRow` 的插槽加 `labelId`（组合控件的 `aria-labelledby`）与 `describedby`（行的说明）。数组、对象从只读变为可编辑，三项以内的选项从分段控件变为横排单选组（`ui.forms` 不用分段）。删掉 `SettingsControl.vue`、`setting-controls.ts` 与它们的测试、Lab 场景；选择规则的判据核心已有，数字框按范围与步长步进、输入框长度、选项名按语言三条迁到 `SchemaField.dom.test.ts`。Lab 的片段列表补上字段名与项标题。
+  - 过程中的发现：`bare` 的开关根本不渲染（外壳把开关排在标题行里，`bare` 不画标题行），S3 的测试里没有 `bare` 的布尔字段；修正并补用例。
+  - Spec 同步：`settings-window` 输出 9 改为由 `ui.forms` 选控件与排法，两条 planned（多行的声明提示、宽控件的通用编辑）由声明的 `ui` 与本次实现覆盖，去掉；动态选项列出提供者给的选项仍是 planned（提供者贡献点未做，在那之前按来源不可用显示）；输出 14 补上“数字框写的不是数时不写、控件标出错”；接口的插槽属性与证据同步。
+  - 行为变化（`SettingsWindow.dom.test.ts` 按新行为改写的断言）：控件种类改看 `data-nb-widget`，“常用标签”从只读变为可编辑的字符串列表并补“加一项、填写、写进这一层”；单选项的名字从按钮文字改为包着它的 `<label>`；新增单选组经 `aria-labelledby` 指向行标题、开关的 `aria-describedby` 含行说明两条断言。`settings.e2e.ts` 不用改。
+  - 验证：nb-form 核心 96 例、渲染层 77 例与两份类型检查；应用类型检查、`bun test` 1555 例（删 6 例、加 1 例）、Vitest 382 例；`bare` 开关的修正去掉后新用例失败；e2e 设置 9 例、Lab 场景、Lab、nb-form 与代码编辑器设置共 40 例通过，改场景数据后 Lab 场景与设置重跑通过；`docs:check`、`governance:check`；设置窗口与设置行两主题 × 浅、深 × 手机、自由画布截图 104 张没有溢出或报错（`reports/s5-shots/`）。
+
+- S5 审查（S4 加 S5，`a7827d7f8..4ec30a661`）：Sonnet 审界面（[evidences/impl-review-s5-sonnet.txt](evidences/impl-review-s5-sonnet.txt)，12 条：重要 3、建议 8、记录 1），每条都在真实挂载的设置窗口里复现过。`9f3e510fc` 处理 9 条，2 条不改，1 条转 t06：
+  - 列表“添加”立即整组写入（第 1 条，开发者 2026-10-21 定“结构字段合格才写”）：字符串列表、对象、对象列表与 JSON 的新值不合 schema 时留在行里、不写，控件下面一行写“还没保存：<第一条原因>”，合格了再写，改回原值时不写；层里的值变了、切换标签或换分区时丢掉。数字框、JSON 解析不了时同一处写出原因（第 5 条，开发者同日定“行里显示原因”）。为此 nb-form 新增 `describeIssues`，把问题写成带字段名的文字。Lab 的“常用标签”项加了 `minLength: 1`，用来演示。
+  - 写入失败后列表焦点掉到页面、播报与结果相反（第 2 条）：列表记下最近采纳的那次增删排序之前的样子，调用方传回它时换回原来的身份，焦点留在原处，播报“刚才的改动没有生效”。
+  - `bare` 吞掉选项源不可用的原因与“已不存在”警告（第 4 条）：外壳把字段状态与调用方的说明分开，`bare` 时状态与警告照样画在控件下面、接进 `aria-describedby`。
+  - 生效时机进了控件名字（第 3 条）：标注移出 `<label>`，经插槽的 `describedby` 当说明念。
+  - 本作品标签下的“移除”紧跟横排单选组像第四个选项（第 7 条）：改用有底色的按钮。
+  - 测试（第 9、10、11、12 条）：新增 `setting-form.test.ts`；`SettingsWindow.dom.test.ts` 补解析不了与列表未合格时不写并写出原因、列表写入失败后焦点留在列表里、生效时机不进名字；命令参数测试写清只收集内置插件、缺声明时报出是哪条；隔离测试的文件头写明“没有警告”能抓住与抓不住的。
+  - 去掉 `revision`（审查第 10 条要求验证）：去掉后测试照样通过，原因是 `commit: "change"` 的草稿在发出时就丢了，写入失败后控件直接显示传回的实际值，`revision` 只对 `input` 时机有用。计划里“写入失败后 `revision` 加一”这一步因此不做，`window.write` 恢复原来的签名。
+  - 不改：第 6 条（`<label for>` 指向组合控件与结构控件时落空），名字已经经 `aria-labelledby` 给到，读屏与键盘不受影响，点标题聚焦一组也不是普遍做法；第 12 条是记录，不是缺陷。
+  - 转 t06（第 8 条）：单行输入定宽 320px，窄内容区里整行换到标题下面，与其它行对齐不一致，归设置外观收口。
+  - 验证：nb-form 核心 96 例、渲染层 80 例与两份类型检查；应用类型检查、`bun test` 1567 例、Vitest 382 例、Lab 的 Vitest 48 例；“合格才写”与“退回换回身份”两处变异都被拦下；e2e 设置、Lab 场景、nb-form、代码编辑器设置共 25 例；`docs:check`、`governance:check`；两主题 × 浅、深 × 手机、自由画布截图（`reports/s5-review-shots/`），“还没保存”一行在真实浏览器里显示正确，页面没有报错。Spec 同步：`settings-window` 输出 9、14 与插槽，`ui.forms` 接口（`describeIssues`、`bare` 的显示）与输出 19。
+
 ## 下一步
 
-S4：应用里检查所有已登记命令的 `args` 都能被 `checkDescription` 接受；隔离测试（空文档、不 provide，挂每种字段）。之后 S5：设置窗口改用 `SchemaField`、删掉 `SettingsControl`。计划见 [plan.md](plan.md)。
+合入 master；之后 t02 的 S3–S5 与 S7，再是 t04、t05。计划见 [plan.md](plan.md)。

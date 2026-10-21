@@ -14,6 +14,10 @@ const props = withDefaults(defineProps<{
     size?: InputSize;
     disabled?: boolean;
     readonly?: boolean;
+    /** 出错外观与 `aria-invalid`；与 `Field` 上下文的出错取或。 */
+    invalid?: boolean;
+    /** 清空按钮的读屏名称，按显示语言覆盖。 */
+    clearLabel?: string;
     required?: boolean;
     autofocus?: boolean;
     autocomplete?: string;
@@ -34,6 +38,8 @@ const props = withDefaults(defineProps<{
     size: "default",
     disabled: false,
     readonly: false,
+    invalid: false,
+    clearLabel: "清空输入",
     required: false,
     autofocus: false,
     autocomplete: "",
@@ -48,6 +54,7 @@ const emit = defineEmits<{
 }>();
 
 const field = useFieldContext();
+const isInvalid = computed(() => props.invalid || field?.invalid.value === true);
 
 const isSmall = computed(() => props.size === "sm");
 const controlSizeClass = computed(() => isSmall.value
@@ -73,7 +80,7 @@ const inputAttrs = computed(() => ({
     min: props.min,
     max: props.max,
     "aria-describedby": field?.ariaDescribedby.value,
-    "aria-invalid": field?.invalid.value || undefined,
+    "aria-invalid": isInvalid.value || undefined,
 }));
 
 function handleClear(): void {
@@ -86,7 +93,7 @@ function handleClear(): void {
     <div
         v-if="$slots.prefix || $slots.suffix || props.iconClass || props.clearable"
         class="nb-ui-control flex w-full items-center gap-[var(--space-2)] rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] focus-within:outline-none"
-        :class="[controlSizeClass, field?.invalid.value ? 'nb-ui-control-invalid' : '']"
+        :class="[controlSizeClass, isInvalid ? 'nb-ui-control-invalid' : '']"
     >
         <span v-if="props.iconClass" :class="props.iconClass" class="h-4 w-4 shrink-0 text-[var(--text-muted)] flex items-center justify-center self-center" aria-hidden="true" />
         <div v-if="$slots.prefix" class="inline-flex items-center self-center shrink-0 leading-none">
@@ -102,7 +109,7 @@ function handleClear(): void {
             v-if="props.clearable && props.modelValue && !props.disabled && !props.readonly"
             type="button"
             class="i-lucide-x h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] hover:text-[var(--text-main)] cursor-pointer flex items-center justify-center self-center transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)]"
-            aria-label="清空输入"
+            :aria-label="props.clearLabel"
             @click="handleClear"
         />
         <div v-if="$slots.suffix" class="inline-flex items-center self-center shrink-0 leading-none">
@@ -113,7 +120,7 @@ function handleClear(): void {
         v-else
         v-bind="inputAttrs"
         class="nb-ui-native-input nb-ui-control w-full rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
-        :class="[controlSizeClass, field?.invalid.value ? 'nb-ui-control-invalid' : '']"
+        :class="[controlSizeClass, isInvalid ? 'nb-ui-control-invalid' : '']"
         @focus="emit('focus', $event)"
         @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
     >

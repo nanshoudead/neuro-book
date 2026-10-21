@@ -45,6 +45,10 @@ type InputProps = {
     readonly?: boolean;
     /** 原生 required；默认 false，并与 Field required 合并。 */
     required?: boolean;
+    /** 出错外观与 aria-invalid；默认 false，与 Field 上下文的出错取或。 */
+    invalid?: boolean;
+    /** 清空按钮的读屏名称；默认“清空输入”，按显示语言覆盖。 */
+    clearLabel?: string;
     /** 原生 autofocus；默认 false。 */
     autofocus?: boolean;
     /** 原生 autocomplete；默认 ""，空值不设置属性。 */

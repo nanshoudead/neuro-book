@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {computed} from "vue";
 import {useFieldContext} from "./field-context";
 
 const props = withDefaults(defineProps<{
@@ -8,6 +9,8 @@ const props = withDefaults(defineProps<{
     placeholder?: string;
     disabled?: boolean;
     readonly?: boolean;
+    /** 出错外观与 `aria-invalid`；与 `Field` 上下文的出错取或。 */
+    invalid?: boolean;
     required?: boolean;
     autofocus?: boolean;
     rows?: number;
@@ -20,6 +23,7 @@ const props = withDefaults(defineProps<{
     placeholder: "",
     disabled: false,
     readonly: false,
+    invalid: false,
     required: false,
     autofocus: false,
     rows: 4,
@@ -30,6 +34,7 @@ const emit = defineEmits<{
 }>();
 
 const field = useFieldContext();
+const isInvalid = computed(() => props.invalid || field?.invalid.value === true);
 </script>
 
 <template>
@@ -46,9 +51,9 @@ const field = useFieldContext();
         :minlength="props.minlength"
         :maxlength="props.maxlength"
         :aria-describedby="field?.ariaDescribedby.value"
-        :aria-invalid="field?.invalid.value || undefined"
+        :aria-invalid="isInvalid || undefined"
         class="nb-ui-control w-full resize-y rounded-[var(--radius-control)] border bg-[var(--control-surface)] px-3 py-2 text-sm text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
-        :class="field?.invalid.value ? 'nb-ui-control-invalid' : ''"
+        :class="isInvalid ? 'nb-ui-control-invalid' : ''"
         @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
     ></textarea>
 </template>

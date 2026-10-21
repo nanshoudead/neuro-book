@@ -44,7 +44,7 @@ const complete = computed(() => props.modelValue.workId !== "" && props.modelVal
             <Field label="目标与范围（可选）" :error="errors.goal ?? ''" class="md:col-span-2">
                 <Textarea :model-value="modelValue.goal" :rows="3" @update:model-value="(value: string) => update('goal', value)" />
             </Field>
-            <Field label="状态">
+            <Field label="状态" group>
                 <RadioGroup :model-value="modelValue.status" :options="STATUS_OPTIONS" orientation="horizontal" size="sm" @update:model-value="(value: string) => update('status', value as TaskFormValue['status'])" />
             </Field>
         </fieldset>

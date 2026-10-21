@@ -27,7 +27,7 @@
 - 点击启用的选项时发出 `update:modelValue`；值由父组件持有，组件不维护选择状态。
 - 禁用选项不会响应点击或键盘导航。方向键 Right/Down 前进，Left/Up 后退，Home/End 跳到首/末个启用项；移动会循环并发出新值，同时把焦点移到目标选项。
 - `modelValue` 不对应任何选项时（例如当前尺寸是手动拖出来的、不属于任何预设）一个都不选中，键盘进入时停在第一个启用项；方向键向后从第一项、向前从最后一项开始。
-- 每个选项使用 `role="radio"`、`aria-checked` 和选中项 roving tabindex；根节点为 `role="group"`，可通过 `ariaLabel` 命名。
+- 每个选项使用 `role="radio"`、`aria-checked` 和选中项 roving tabindex；根节点为 `role="radiogroup"`，可通过 `ariaLabel` 命名；不写 `aria-pressed`（它是切换按钮的状态，与单选的 `aria-checked` 冲突）。分段控件只用来切换看法，表单里选一个值用 `RadioGroup`（ui-development-spec 4.5）。
 - `title` 优先作为选项可访问名称和悬停提示，否则使用 `label`。选项本身的 `iconClass` 是装饰性图标，不进入可访问名称。
 
 ## 数据

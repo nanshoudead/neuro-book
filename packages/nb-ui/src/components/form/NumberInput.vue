@@ -12,6 +12,11 @@ const props = withDefaults(defineProps<{
     placeholder?: string;
     disabled?: boolean;
     readonly?: boolean;
+    /** 出错外观与 `aria-invalid`；与 `Field` 上下文的出错取或。 */
+    invalid?: boolean;
+    /** 微调按钮的读屏名称，按显示语言覆盖。 */
+    incrementLabel?: string;
+    decrementLabel?: string;
     required?: boolean;
     autofocus?: boolean;
     min?: string;
@@ -26,6 +31,9 @@ const props = withDefaults(defineProps<{
     placeholder: "",
     disabled: false,
     readonly: false,
+    invalid: false,
+    incrementLabel: "增加",
+    decrementLabel: "减少",
     required: false,
     autofocus: false,
     min: undefined,
@@ -41,6 +49,7 @@ const emit = defineEmits<{
 }>();
 
 const field = useFieldContext();
+const isInvalid = computed(() => props.invalid || field?.invalid.value === true);
 const controlSizeClass = computed(() => props.size === "sm" ? "nb-ui-control-h-sm px-[calc(var(--control-px)*0.75)] text-[length:var(--text-xs)]" : "nb-ui-control-h-md nb-ui-control-px text-[length:var(--text-sm)]");
 const stepAmount = computed(() => {
     const parsed = Number.parseFloat(props.step || "1");
@@ -118,7 +127,7 @@ function decimalPlaces(value: string): number {
     <!-- 用自定义步进按钮替代浏览器原生 spinner：原生 spinner 的样式任何 CSS 都够不着 -->
     <div
         class="nb-ui-control flex w-full min-w-0 items-center rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] focus-within:outline-none"
-        :class="[controlSizeClass, field?.invalid.value ? 'nb-ui-control-invalid' : '', props.disabled || props.readonly ? 'cursor-default opacity-60' : '']"
+        :class="[controlSizeClass, isInvalid ? 'nb-ui-control-invalid' : '', props.disabled ? 'cursor-default opacity-60' : props.readonly ? 'cursor-default' : '']"
         :title="props.title"
     >
         <input
@@ -133,7 +142,7 @@ function decimalPlaces(value: string): number {
             :required="props.required || field?.required.value"
             :autofocus="props.autofocus"
             :aria-describedby="field?.ariaDescribedby.value"
-            :aria-invalid="field?.invalid.value || undefined"
+            :aria-invalid="isInvalid || undefined"
             class="min-w-0 flex-1 bg-transparent font-mono text-[inherit] text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]"
             @input="updateValue(($event.target as HTMLInputElement).value)"
             @keydown="handleKeydown"
@@ -142,8 +151,8 @@ function decimalPlaces(value: string): number {
         <div class="flex flex-col items-center justify-center border-l border-[color-mix(in_srgb,var(--text-main)_12%,transparent)] pl-1 -mr-1 shrink-0 select-none">
             <button
                 type="button"
-                aria-label="增加"
-                title="增加"
+                :aria-label="props.incrementLabel"
+                :title="props.incrementLabel"
                 tabindex="-1"
                 class="flex h-3.5 w-5 items-center justify-center rounded-[3px] text-[var(--text-muted)] hover:bg-[color-mix(in_srgb,var(--text-main)_12%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-95 not-disabled:active:bg-[color-mix(in_srgb,var(--text-main)_20%,transparent)] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:transform-none cursor-pointer transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)]"
                 :disabled="props.disabled || props.readonly"
@@ -153,8 +162,8 @@ function decimalPlaces(value: string): number {
             </button>
             <button
                 type="button"
-                aria-label="减少"
-                title="减少"
+                :aria-label="props.decrementLabel"
+                :title="props.decrementLabel"
                 tabindex="-1"
                 class="flex h-3.5 w-5 items-center justify-center rounded-[3px] text-[var(--text-muted)] hover:bg-[color-mix(in_srgb,var(--text-main)_12%,transparent)] hover:text-[var(--text-main)] not-disabled:active:scale-95 not-disabled:active:bg-[color-mix(in_srgb,var(--text-main)_20%,transparent)] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:transform-none cursor-pointer transition-[background-color,color,transform] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)]"
                 :disabled="props.disabled || props.readonly"

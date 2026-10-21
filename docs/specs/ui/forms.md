@@ -77,7 +77,10 @@ fallbackWidget(widget: BuiltinWidget): TerminalWidget   // 终端里的退回画
 <SchemaField :schema :hints? v-model :id? :bare? :labelledby? :describedby? v-model:selected? （其余同上，没有 layout、summary、focus-issue） />
             // expose: commit(): boolean、reset()、focus(): Promise<boolean>；commit、reset 作用到字段里的全部成员
 widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wide" | "content"}
+describeIssues(schema, value, issues, locale, hints?): string[]   // 按看得见的先后，每条是“所在字段的名字：问题文字”，根上的没有名字
 ```
+
+`SchemaField` 的 `bare` 只画控件：标签与说明由调用方画，出错的文字只给读屏、没有问题汇总；字段自己的状态（选项源不可用的原因、“已不存在”之类的警告）照样画在控件下面。调用方要在自己的位置写出出错原因时用 `describeIssues`。
 
 ## 输出与可观察行为
 
@@ -93,7 +96,7 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 | `number`、`integer` | 数字 |
 | `string`（`format` 只认 `uri`、`email`） | 文字 |
 | 字符串数组 | 字符串列表 |
-| 有 `properties` 的对象 | 对象 |
+| 有 `properties` 的对象；关闭额外属性（`additionalProperties: false`）的空对象也算，画成没有成员（命令的“无参数”） | 对象 |
 | 元素是上一种对象的数组 | 对象列表 |
 | `T` 与 `null` 的联合 | 按 `T`，清除写 `null`；两层的注解合并，外层优先 |
 
@@ -135,7 +138,7 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 
 ### 列表编辑
 
-19. **增删排序**：列表每项有稳定的身份，不随删除与排序串到别的项；添加后焦点进新项的第一个控件；删除后焦点到下一项的同类控件，没有就上一项，列表空了到“添加”；排序用“上移 / 下移”按钮与 `Alt+↑ / ↓`，焦点跟着被移动的项，读屏播报移动结果。焦点在调用方把新数组传回来、渲染出来之后才移；传回来的可以是内容相同的副本（经过 JSON 或 RPC）；连着几次操作都在传回之前发出时，身份跟着最后采纳的那次；调用方没采纳时身份与焦点都不动；外部换成长度不同、或不是本表单发出过的数组时重建身份。焦点在多行文字框或下拉上时 `Alt+↑ / ↓` 留给它们。`minItems`、`maxItems` 到界时停用删除或添加；`uniqueItems` 下的重复项标问题（与校验同一种等值判定）；空列表显示“还没有项”与“添加”；超过 50 项默认折叠成“N 项”，展开后分页。
+19. **增删排序**：列表每项有稳定的身份，不随删除与排序串到别的项；添加后焦点进新项的第一个控件；删除后焦点到下一项的同类控件，没有就上一项，列表空了到“添加”；排序用“上移 / 下移”按钮与 `Alt+↑ / ↓`，焦点跟着被移动的项，读屏播报移动结果。焦点在调用方把新数组传回来、渲染出来之后才移；传回来的可以是内容相同的副本（经过 JSON 或 RPC）；连着几次操作都在传回之前发出时，身份跟着最后采纳的那次；调用方没采纳时身份与焦点都不动；调用方先采纳、随后又传回采纳之前的数组（写入失败）时换回原来的身份，焦点留在原处，播报“刚才的改动没有生效”；外部换成长度不同、或不是本表单发出过的数组时重建身份。焦点在多行文字框或下拉上时 `Alt+↑ / ↓` 留给它们。`minItems`、`maxItems` 到界时停用删除或添加；`uniqueItems` 下的重复项标问题（与校验同一种等值判定）；空列表显示“还没有项”与“添加”；超过 50 项默认折叠成“N 项”，展开后分页。
 20. **左列表右详情**：`v-model:selected` 给出选中项；新增项自动选中并聚焦详情；删除选中项后选中下一项；列表项的选中区与操作按钮并列，不嵌套按钮；项标题取 `itemLabel` 的字段，空时写“第 N 项”。
 
 ### 表单根
@@ -227,6 +230,8 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 4. **列表编辑**：对象列表添加、删除中间项、上移，焦点落点与读屏播报符合输出 19，删除后其余项的草稿不串位。
 5. **Agent 策略**：带灾难性正则、超宽联合、`$ref`、密钥、自定义控件的描述都被拒绝，不抛异常。
 6. **可访问名称**：在真实浏览器里，每种控件的可访问名称是字段标签，说明是字段说明，出错时有错误信息；组里的复选框 id 不重复。
+7. **命令参数**：应用里每条已登记命令的 `args` 经 `checkDescription` 都是可结构化编辑。
+8. **独立运行**：在空文档里不装插件、不 `provide`，每种控件、自定义控件、分组与展示态都能挂出与编辑，没有 Vue 的警告与错误。
 
 Smoke：Component Lab 里 `SchemaForm` 的场景覆盖上面 1、3、4，Playwright 断言可访问名称与焦点；设置窗口改用本表单后 `settings.e2e.ts` 照常通过（断言按新行为改写）。
 

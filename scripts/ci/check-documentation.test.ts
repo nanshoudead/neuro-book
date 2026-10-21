@@ -401,6 +401,18 @@ describe("documentation governance gate", () => {
         expect(report.warnings).toEqual([]);
     });
 
+    it("nb-form 渲染层入口导出的组件同样受管", async () => {
+        const fixture = await createDocumentationFixture({
+            "packages/nb-form/src/vue/index.ts": 'export {default as SchemaForm} from "./SchemaForm.vue";\n',
+            "packages/nb-form/src/vue/SchemaForm.vue": "<template><div /></template>\n",
+            "packages/nb-form/src/vue/NodeField.vue": "<template><div /></template>\n",
+        });
+
+        expect(checkDocumentation(fixture.root, {paths: fixture.paths}).failures).toEqual([
+            "受管组件缺少同名文档：packages/nb-form/src/vue/SchemaForm.vue（应为 packages/nb-form/src/vue/SchemaForm.md）",
+        ]);
+    });
+
     it("受管组件文档拒绝漏标签与未知标签", async () => {
         const fixture = await createDocumentationFixture({
             "packages/nb-ui/src/components/index.ts": [
