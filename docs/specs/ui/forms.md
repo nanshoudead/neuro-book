@@ -46,7 +46,7 @@ owners:
 |---|---|
 | `label`、`help` | 盖过 `title`、`description` |
 | `placeholder`、`unit` | 占位文字、数字的单位 |
-| `widget` | 指定控件：`radio`、`select`、`search-select`、`checkboxes`、`multiline`、`secret`、`json`、`list`、`master-detail`、`confirm`，或已登记的自定义控件名 |
+| `widget` | 指定控件：`segmented`、`radio`、`select`、`search-select`、`checkboxes`、`multiline`、`secret`、`json`、`list`、`master-detail`、`confirm`，或已登记的自定义控件名 |
 | `choices` | 字面量联合的选项：`[{value, label, description?, disabled?}]`，与字面量一一对应 |
 | `options` | 动态选项源名（输出 11） |
 | `searchable` | 选项要能搜索 |
