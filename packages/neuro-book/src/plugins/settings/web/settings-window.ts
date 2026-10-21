@@ -24,6 +24,7 @@ import type {CommandResult} from "nbook/plugins/commands/shared/contracts";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import {formatText, localize, textOf} from "nbook/shared/localized-text";
 import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/localized-text";
+import {settingsFailureText} from "nbook/ui/settings/setting-text";
 import type {SettingDefinition, SettingLayer, SettingsFailure, SettingsService, SettingUpdateOptions, SettingWriteResult} from "nbook/shared/settings";
 
 import {SETTINGS_SECTION_CATEGORIES} from "../shared/contracts";
@@ -219,12 +220,6 @@ const TEXT = {
     notSavedTitle: {"zh-CN": "设置没有保存", "en-US": "Setting not saved"},
     unknownTitle: {"zh-CN": "设置可能没有保存", "en-US": "Setting may not be saved"},
     notSaved: {"zh-CN": "{title}：{reason}", "en-US": "{title}: {reason}"},
-    unknownOutcome: {"zh-CN": "{title}：可能没有保存，以设置文件为准", "en-US": "{title}: it may not have been saved; the settings file is authoritative"},
-    layerInvalid: {"zh-CN": "设置文件有错误，修好之后才能保存", "en-US": "the settings file has errors; fix it first"},
-    writeFailed: {"zh-CN": "写不进设置文件（{detail}）", "en-US": "could not write the settings file ({detail})"},
-    unavailable: {"zh-CN": "暂时连不上，没有保存", "en-US": "temporarily unreachable; nothing was saved"},
-    invalidValue: {"zh-CN": "这个值不能用（{detail}）", "en-US": "this value cannot be used ({detail})"},
-    otherFailure: {"zh-CN": "{code}：{detail}", "en-US": "{code}: {detail}"},
     searchTitle: {"zh-CN": "搜索结果", "en-US": "Search Results"},
     fileTitle: {"zh-CN": "设置文件", "en-US": "Settings File"},
     fileDescription: {"zh-CN": "直接编辑这一层的设置文件（JSON，可以写注释）", "en-US": "Edit this layer's settings file directly (JSON with comments)"},
@@ -433,23 +428,13 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     const writes = shallowReactive(new Map<string, {readonly token: number; readonly value: unknown}>());
     const pendingKey = (tab: SettingLayer, key: string): string => `${tab}\n${key}`;
 
-    const reasonOf = (code: SettingsFailure, detail: string): string => {
-        switch (code) {
-            case "layer-invalid": return text(TEXT.layerInvalid);
-            case "write-failed": return text(TEXT.writeFailed, {detail});
-            case "unavailable": return text(TEXT.unavailable);
-            case "invalid-value": return text(TEXT.invalidValue, {detail});
-            default: return text(TEXT.otherFailure, {code, detail});
-        }
-    };
-
     const notifyFailure = (setting: WindowSetting, code: SettingsFailure, detail: string): void => {
         const title = localize(setting.definition.declaration.title, options.locale.value);
         if (code === "unknown-outcome") {
-            options.notify({tone: "warning", title: text(TEXT.unknownTitle), message: text(TEXT.unknownOutcome, {title})});
+            options.notify({tone: "warning", title: text(TEXT.unknownTitle), message: text(TEXT.notSaved, {title, reason: settingsFailureText(code, detail, options.locale.value)})});
             return;
         }
-        options.notify({tone: "warning", title: text(TEXT.notSavedTitle), message: text(TEXT.notSaved, {title, reason: reasonOf(code, detail)})});
+        options.notify({tone: "warning", title: text(TEXT.notSavedTitle), message: text(TEXT.notSaved, {title, reason: settingsFailureText(code, detail, options.locale.value)})});
     };
 
     const editing: SettingsService = {
@@ -705,8 +690,9 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
         },
         search: (next) => {
             if (next === query.value) return;
-            // 从页面开始搜索会卸载页面；清空或改搜索词时没有页面挂着。
-            if (query.value === "" && next.trim() !== "") requestLeave({kind: "search", query: next});
+            // 从不在搜索变成在搜索会卸载当前页面，要先过未保存保护；只有空白的搜索词不算在搜索（页面还挂着）。
+            const starting = words.value.length === 0 && next.trim() !== "";
+            if (starting) requestLeave({kind: "search", query: next});
             else query.value = next;
         },
         confirmLeave: () => {

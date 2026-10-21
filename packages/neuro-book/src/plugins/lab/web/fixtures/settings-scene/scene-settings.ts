@@ -32,7 +32,8 @@ export const notesSettings = {
         ],
     }),
     tags: defineSetting({plugin: "example.notes", name: "tags", schema: Type.Array(Type.String({minLength: 1})), default: ["人物", "地点", "伏笔"], title: {"zh-CN": "常用标签", "en-US": "Frequent Tags"}, applies: "restart"}),
-    template: defineSetting({plugin: "example.notes", name: "template", schema: Type.String(), default: "", title: {"zh-CN": "新笔记的模板", "en-US": "Template for New Notes"}, description: {"zh-CN": "选项来自模板库", "en-US": "Options come from the template library"}, choices: {from: TEMPLATES_PROVIDER}}),
+    // 排在“其它”的最前：动态选项的几个场景截图时这一行在可视区里。
+    template: defineSetting({plugin: "example.notes", name: "template", schema: Type.String(), default: "", order: -1, title: {"zh-CN": "新笔记的模板", "en-US": "Template for New Notes"}, description: {"zh-CN": "选项来自模板库", "en-US": "Options come from the template library"}, choices: {from: TEMPLATES_PROVIDER}}),
     legacy: defineSetting({plugin: "example.notes", name: "legacy", schema: Type.Boolean(), default: false, title: {"zh-CN": "旧版目录结构", "en-US": "Legacy Layout"}, section: "example.missing"}),
 };
 

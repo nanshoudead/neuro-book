@@ -537,6 +537,14 @@ describe("未保存保护（输出 22）", () => {
             expect(window.leaving.value).toBeNull();
             expect(window.unsaved.value).toBe(true);
         }
+        // 先敲空白再敲字：只有空白时页面还挂着、不用确认，变成真的在搜索那一下要确认（审查发现：原来绕过了保护）。
+        window.search(" ");
+        expect([window.leaving.value, window.current.value?.id]).toEqual([null, "x.notes.page"]);
+        window.search(" 语气");
+        expect(window.leaving.value).toEqual({kind: "search", query: " 语气"});
+        expect(window.unsaved.value).toBe(true);
+        window.cancelLeave();
+        window.search("");
         // 留在原处的动作不用确认：再选当前分区、命令只聚焦。
         window.select("x.notes.page");
         window.openWindow({section: "x.notes.page"});

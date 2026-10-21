@@ -13,6 +13,7 @@ import {createSettingsScene} from "nbook/plugins/lab/web/fixtures/settings-scene
 import {createSettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
 import type {SettingsHost} from "nbook/plugins/lab/web/fixtures/settings-scene/settings-host";
 import {SCENE_PROJECT_FILE} from "nbook/plugins/lab/web/fixtures/settings-scene/scene-data";
+import {modelsSettings} from "nbook/plugins/lab/web/fixtures/settings-scene/scene-settings";
 import type {SettingsWindowSceneId} from "nbook/plugins/lab/web/fixtures/settings-scene/scene-settings";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import {appearanceSetting, themeSetting} from "nbook/plugins/workbench/shared/contracts";
@@ -128,7 +129,7 @@ describe("SettingsWindow", () => {
         const {host, notices} = await scene("other");
         host.window.select("other");
         await flushPromises();
-        expect(all("[data-settings-row]").map(widgetOf)).toEqual(["switch", "number", "switch", "text", "select", "string-list", "select"]);
+        expect(all("[data-settings-row]").map(widgetOf)).toEqual(["select", "switch", "number", "switch", "text", "select", "string-list"]);
         const tags = one("[data-settings-row='example.notes/tags']");
         expect(tags.querySelector("[data-settings-row-wide] [data-nb-widget='string-list']")).not.toBeNull();
         // 控件的名字是行的标题（`<label for>` 指向它），说明经 aria-describedby 接上。
@@ -322,7 +323,7 @@ describe("page 页面的寿命（输出 6）", () => {
 describe("搜索与未保存保护（输出 21、22）", () => {
     it("Mod+F 在窗口里聚焦搜索框；搜到的项可以直接改；框里有字时 Esc 只清空、回到原分区，空了再按才关窗口", async () => {
         const {host} = await scene("other");
-        one("[data-settings-nav-current]").dispatchEvent(new KeyboardEvent("keydown", {key: "f", ctrlKey: true, bubbles: true, cancelable: true}));
+        one("[data-settings-nav-current]").dispatchEvent(new KeyboardEvent("keydown", {key: "f", code: "KeyF", ctrlKey: true, bubbles: true, cancelable: true}));
         const input = one("[data-settings-search] input, input[data-settings-search]") as HTMLInputElement;
         expect(document.activeElement).toBe(input);
         input.value = "落款";
@@ -439,14 +440,17 @@ describe("设置文件视图（输出 23）", () => {
         expect(area().value).toContain("// 主题跟着 macOS");
         expect(area().value).toContain("retired.plugin/flag");
         expect(document.getElementById(one("[data-settings-file] label").getAttribute("for")!)).toBe(area());
-        expect(document.body.querySelector("[data-settings-file-actions]")).toBeNull();
+        expect(button("保存").disabled).toBe(true);
+        expect(document.body.querySelector("[data-settings-file-unsaved]")).toBeNull();
         await type(area().value.replace("120", "90"));
+        expect(one("[data-settings-file-unsaved]").textContent).toBe("有没保存的改动");
         expect(host.window.unsaved.value).toBe(true);
         button("保存").click();
         await flushPromises();
         expect(host.user.values()).toMatchObject({"example.notes/interval": 90});
         expect(host.user.text()).toContain("retired.plugin/flag");
-        expect(document.body.querySelector("[data-settings-file-actions]")).toBeNull();
+        expect(button("保存").disabled).toBe(true);
+        expect(document.activeElement).toBe(area());
         expect(host.window.unsaved.value).toBe(false);
         await type("{}");
         button("放弃改动").click();
@@ -458,11 +462,18 @@ describe("设置文件视图（输出 23）", () => {
         const {host} = await scene("file");
         await vi.waitFor(() => expect(one("[data-settings-file]").dataset.settingsFileState).toBe("ready"));
         await type("{\n  \"a\": 1\n  \"b\": 2\n}");
-        (one("[data-settings-file-text]") as HTMLElement).dispatchEvent(new KeyboardEvent("keydown", {key: "s", ctrlKey: true, bubbles: true, cancelable: true}));
+        (one("[data-settings-file-text]") as HTMLElement).dispatchEvent(new KeyboardEvent("keydown", {key: "s", code: "KeyS", ctrlKey: true, bubbles: true, cancelable: true}));
         await flushPromises();
         expect(one("[data-settings-file-error]").textContent).toContain("第 3 行第 3 列");
         expect(area().getAttribute("aria-invalid")).toBe("true");
-        expect(area().getAttribute("aria-describedby")).toBe(one("[data-settings-file-error]").id);
+        expect(area().getAttribute("aria-describedby")?.split(" ")).toContain(one("[data-settings-file-error]").id);
+        // 光标放到出错的地方（第 3 行第 3 列）。
+        expect(area().selectionStart).toBe("{\n  \"a\": 1\n  ".length);
+        // 改了文本，出错的标记随之去掉。
+        await type("{\n  \"a\": 1,\n  \"b\": 2\n}");
+        expect(document.body.querySelector("[data-settings-file-error]")).toBeNull();
+        expect(area().getAttribute("aria-invalid")).not.toBe("true");
+        await type("{\n  \"a\": 1\n  \"b\": 2\n}");
         expect(host.user.values()).toMatchObject({"example.notes/interval": 120});
 
         host.user.setText("{\"example.notes/interval\": 300}");
@@ -545,7 +556,7 @@ describe("Lab“模型服务”：page 分区的草稿、未保存保护与动�
     it("改动先进草稿、报未保存；新加的一项没填好时保存被拒并写出原因；填好保存后整组写进用户层", async () => {
         const {host} = await scene("page-fill");
         await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
-        expect(document.body.querySelector("[data-sample-models-actions]")).toBeNull();
+        expect(action("保存").disabled).toBe(true);
         (one("[data-sample-models] [data-nb-list-add]") as HTMLButtonElement).click();
         await flushPromises();
         expect(host.window.unsaved.value).toBe(true);
@@ -563,7 +574,7 @@ describe("Lab“模型服务”：page 分区的草稿、未保存保护与动�
         await flushPromises();
         expect(providers(host)?.map((provider) => provider.id)).toEqual(["deepseek", "local", "openai"]);
         expect(host.window.unsaved.value).toBe(false);
-        expect(document.body.querySelector("[data-sample-models-actions]")).toBeNull();
+        expect(action("保存").disabled).toBe(true);
     });
 
     it("删掉默认模型所在的服务商并保存：默认模型照常显示、标“已不存在”；放弃改动回到已保存的值", async () => {
@@ -598,5 +609,96 @@ describe("Lab“模型服务”：page 分区的草稿、未保存保护与动�
         await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
         expect(all("[data-sample-models] [data-nb-list-action='select']")[0]!.textContent?.trim()).toBe("DeepSeek");
         expect(host.window.unsaved.value).toBe(false);
+    });
+});
+
+describe("实现审查补的用例（Sonnet 第 1、2、9、10、13 条，第 5 条的样板）", () => {
+    const area = (): HTMLTextAreaElement => one("[data-settings-file-text]") as HTMLTextAreaElement;
+    const key = (target: Element, init: KeyboardEventInit): KeyboardEvent => {
+        const event = new KeyboardEvent("keydown", {bubbles: true, cancelable: true, ...init});
+        target.dispatchEvent(event);
+        return event;
+    };
+    const ready = () => vi.waitFor(() => expect(one("[data-settings-file]").dataset.settingsFileState).toBe("ready"));
+
+    it("设置文件文本框里第一次 Esc 不关窗口（只放开 Tab），再按一次才交给窗口；文本框里的 Mod+F 留给浏览器", async () => {
+        const {host} = await scene("file");
+        await ready();
+        area().focus();
+        expect(key(area(), {key: "f", code: "KeyF", ctrlKey: true}).defaultPrevented).toBe(false);
+        expect(document.activeElement).toBe(area());
+        expect(key(area(), {key: "Escape"}).defaultPrevented).toBe(true);
+        await flushPromises();
+        expect(host.window.open.value).toBe(true);
+        // 按了别的键之后 Tab 又是插空格；紧接着的第二次 Esc 才交给窗口。
+        key(area(), {key: "Escape"});
+        await flushPromises();
+        expect(host.window.open.value).toBe(false);
+    });
+
+    it("CRLF 的文件：文本框里是归一后的换行，Tab 插在光标处；保存后整个文件仍是 CRLF", async () => {
+        const {host} = await scene("file");
+        await ready();
+        host.user.setText("{\r\n    \"example.notes/interval\": 120\r\n}\r\n");
+        await flushPromises();
+        expect(area().value).toBe("{\n    \"example.notes/interval\": 120\n}\n");
+        area().focus();
+        area().setSelectionRange(2, 2);
+        key(area(), {key: "Tab"});
+        await flushPromises();
+        expect(area().value).toBe("{\n      \"example.notes/interval\": 120\n}\n");
+        all("[data-settings-file] button").find((element) => element.textContent?.trim() === "保存")!.click();
+        await flushPromises();
+        expect(host.user.text()).toBe("{\r\n      \"example.notes/interval\": 120\r\n}\r\n");
+    });
+
+    it("放弃确认框里按 Esc 等于“继续编辑”；从搜索框起手的放弃之后焦点回到搜索框", async () => {
+        const {host} = await scene("file");
+        await ready();
+        await (async () => {
+            area().value = "{}";
+            area().dispatchEvent(new Event("input"));
+            await flushPromises();
+        })();
+        const search = one("[data-settings-search] input") as HTMLInputElement;
+        search.focus();
+        search.value = "语言";
+        search.dispatchEvent(new Event("input"));
+        await flushPromises();
+        expect(host.window.leaving.value).toEqual({kind: "search", query: "语言"});
+        key(one("[role='alertdialog']"), {key: "Escape"});
+        await vi.waitFor(() => expect(host.window.leaving.value).toBeNull());
+        expect(host.window.query.value).toBe("");
+        expect(host.window.unsaved.value).toBe(true);
+        await vi.waitFor(() => expect(document.body.querySelector("[role='alertdialog']")).toBeNull());
+
+        search.focus();
+        search.value = "语言";
+        search.dispatchEvent(new Event("input"));
+        await flushPromises();
+        [...one("[role='alertdialog']").querySelectorAll("button")].find((button) => button.textContent?.trim() === "放弃")!.click();
+        await flushPromises();
+        expect(host.window.query.value).toBe("语言");
+        await vi.waitFor(() => expect(document.activeElement).toBe(one("[data-settings-search] input")));
+    });
+
+    it("模型服务：有改动时别处改了服务商，提示并停用“保存”；“仍然保存”盖掉别处的改动", async () => {
+        const {host} = await scene("page-fill");
+        await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
+        const name = (all("[data-sample-models] [data-nb-detail] input") as HTMLInputElement[])[1]!;
+        name.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
+        name.value = "深度求索";
+        name.dispatchEvent(new Event("input"));
+        name.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
+        await flushPromises();
+        await host.service("example.models").update(modelsSettings.providers, [{id: "other", name: "别处加的", baseUrl: "https://example.com", timeout: 10}], {layer: "user"});
+        await flushPromises();
+        expect(one("[data-sample-models-changed]").textContent).toContain("别处改过了");
+        const save = all("[data-sample-models-actions] button").find((element) => element.textContent?.trim() === "保存") as HTMLButtonElement;
+        expect(save.disabled).toBe(true);
+        (all("[data-sample-models-changed] button").find((element) => element.textContent?.trim() === "仍然保存") as HTMLButtonElement).click();
+        await flushPromises();
+        expect((host.user.values()["example.models/providers"] as ReadonlyArray<{readonly name: string}>).map((provider) => provider.name)).toEqual(["深度求索", "本地 Ollama"]);
+        expect(document.body.querySelector("[data-sample-models-changed]")).toBeNull();
     });
 });

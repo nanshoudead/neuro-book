@@ -7,12 +7,13 @@ import {AlertDialog, Button, Dialog, Input, ScrollArea, SegmentedControl, Separa
 import type {SegmentedControlValue} from "@notnotype/nb-ui/components";
 import {computed, nextTick, ref, useId, watch} from "vue";
 
-import {localize} from "nbook/shared/localized-text";
+import {formatText, localize} from "nbook/shared/localized-text";
 import type {LocalizedText} from "nbook/shared/localized-text";
 import type {SettingLayer} from "nbook/shared/settings";
 
 import {DEFAULT_SETTINGS_WINDOW_SIZE, FILE_SECTION_ID, MIN_SETTINGS_WINDOW_SIZE} from "../settings-window";
-import type {SettingsNavItem, SettingsWindow} from "../settings-window";
+import type {SettingsLeaveTarget, SettingsNavItem, SettingsWindow} from "../settings-window";
+import {composing, isModKey} from "../keys";
 import SettingsFileView from "./SettingsFileView.vue";
 import SettingsListSection from "./SettingsListSection.vue";
 import SettingsPageFrame from "./SettingsPageFrame.vue";
@@ -31,6 +32,7 @@ const TEXT = {
     user: {"zh-CN": "用户", "en-US": "User"},
     project: {"zh-CN": "本作品", "en-US": "This Book"},
     invalid: {"zh-CN": "设置文件有错误，修好前这里不能保存", "en-US": "The settings file has errors; changes can't be saved until it is fixed"},
+    invalidHere: {"zh-CN": "设置文件有错误，在下面改好后保存", "en-US": "The settings file has errors; fix it below and save"},
     unavailable: {"zh-CN": "暂时连不上，不能保存", "en-US": "Temporarily unreachable; changes can't be saved"},
     empty: {"zh-CN": "没有可以显示的设置", "en-US": "There are no settings to show"},
     search: {"zh-CN": "搜索设置", "en-US": "Search settings"},
@@ -38,6 +40,8 @@ const TEXT = {
     noResults: {"zh-CN": "没有找到设置", "en-US": "No settings found"},
     pages: {"zh-CN": "页面", "en-US": "Pages"},
     openPage: {"zh-CN": "打开", "en-US": "Open"},
+    openHit: {"zh-CN": "打开：{title}", "en-US": "Open: {title}"},
+    results: {"zh-CN": "{settings} 个设置、{pages} 个页面", "en-US": "{settings} settings, {pages} pages"},
     leaveTitle: {"zh-CN": "放弃未保存的改动？", "en-US": "Discard unsaved changes?"},
     leaveDescription: {"zh-CN": "这个页面有还没保存的改动，离开后会丢掉。", "en-US": "This page has changes that haven't been saved. They will be lost if you leave."},
     discard: {"zh-CN": "放弃", "en-US": "Discard"},
@@ -47,7 +51,7 @@ const TEXT = {
 
 const model = props.window;
 const locale = model.locale;
-const text = (template: LocalizedText): string => localize(template, locale.value);
+const text = (template: LocalizedText, params: Readonly<Record<string, string | number>> = {}): string => localize(formatText(template, params), locale.value);
 
 const root = ref<HTMLElement | null>(null);
 const open = computed(() => model.open.value);
@@ -56,6 +60,14 @@ const size = computed(() => (open.value ? model.size.value : DEFAULT_SETTINGS_WI
 const current = computed(() => model.current.value);
 const page = computed(() => (current.value?.kind === "page" && current.value.unavailable === null ? model.page(current.value.id) : null));
 const searching = computed(() => current.value?.kind === "search");
+
+/** 层的说明（输出 13）：无效时带上原因（第几行、哪里不对）；在设置文件视图里说“在下面改好”，那里正是修的地方。 */
+const noticeText = computed(() => {
+    const notice = model.layerNotice.value;
+    if (notice === null) return "";
+    if (notice.kind === "unavailable") return text(TEXT.unavailable);
+    return `${text(current.value?.kind === "file" ? TEXT.invalidHere : TEXT.invalid)}（${notice.detail}）`;
+});
 const searchId = `settings-search-${useId()}`;
 const fill = computed(() => current.value?.kind === "page" && current.value.layout === "fill" && current.value.unavailable === null);
 
@@ -102,45 +114,80 @@ function searchInput(): HTMLInputElement | null {
     return root.value?.querySelector<HTMLInputElement>(`#${CSS.escape(searchId)}`) ?? null;
 }
 
-/** `Mod+F` 只在窗口里接住（焦点在窗口外时浏览器与编辑器照旧）；输入法组字时不算。 */
+/**
+ * `Mod+F` 只在窗口里接住（监听挂在窗口面板上，焦点在窗口外时浏览器与编辑器照旧）；焦点在设置文件的文本框里时放行，
+ * 那里要的是浏览器的页内查找。
+ */
 function onRootKeydown(event: KeyboardEvent): void {
-    if (event.isComposing || event.key.toLowerCase() !== "f" || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+    if (composing(event) || !isModKey(event, "KeyF")) return;
+    if (event.target instanceof Element && event.target.closest("[data-settings-file]") !== null) return;
     event.preventDefault();
     searchInput()?.focus();
 }
 
-/** 框里有字时 `Esc` 只清空；先拦下，窗口的 Esc 关闭看到已处理就不关（输出 21）。 */
+/** 框里有字时 `Esc` 只清空；先拦下，窗口的 Esc 关闭看到已处理就不关（输出 21）。判定组字同窗口的 Esc。 */
 function onSearchKeydown(event: KeyboardEvent): void {
-    if (event.key !== "Escape" || event.isComposing || model.query.value === "") return;
+    if (event.key !== "Escape" || composing(event) || model.query.value === "") return;
     event.preventDefault();
     model.search("");
 }
+
+/** 清除按钮点了之后它自己消失：焦点放回输入框，键盘用户不用重新找。 */
+function onSearchClear(): void {
+    void nextTick(() => searchInput()?.focus());
+}
+
+const resultCount = computed(() => {
+    const view = current.value;
+    if (view?.kind !== "search") return "";
+    return text(TEXT.results, {settings: view.list.groups.reduce((sum, group) => sum + group.settings.length, 0), pages: view.pages.length});
+});
 
 function openHit(id: string): void {
     model.select(id);
     void nextTick(focusCurrent);
 }
 
-// 确认框打开前焦点在哪：“继续编辑”后放回去（AlertDialog 没有触发器时不自己归还）。
+/**
+ * 确认框关掉之后焦点去哪（AlertDialog 没有触发器时不自己归还）：“继续编辑”回到弹出之前的位置；“放弃”按动作去它该在的
+ * 地方，从搜索框起手的回搜索框、切标签的回标签、其余到左栏的当前项。三样在确认框打开时记下，关掉时取走并清零。
+ */
 let beforeLeave: HTMLElement | null = null;
+let leaveKind: SettingsLeaveTarget["kind"] | null = null;
 let leaveConfirmed = false;
-watch(() => model.leaving.value !== null, (leaving) => {
-    if (leaving) beforeLeave = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+watch(() => model.leaving.value, (leaving, previous) => {
+    if (leaving === null) return;
+    if (previous === null) beforeLeave = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    leaveKind = leaving.kind;
 });
 
 function onLeaveClosed(): void {
     const target = beforeLeave;
+    const kind = leaveKind;
+    const confirmed = leaveConfirmed;
     beforeLeave = null;
-    if (!model.open.value) return;
-    if (leaveConfirmed) focusCurrent();
-    else if (target !== null && target.isConnected) target.focus();
-    else focusCurrent();
+    leaveKind = null;
     leaveConfirmed = false;
+    if (!model.open.value) return;
+    if (!confirmed) {
+        if (target !== null && target.isConnected) target.focus();
+        else focusCurrent();
+    } else if (kind === "search") searchInput()?.focus();
+    else if (kind === "layer") root.value?.querySelector<HTMLElement>("[data-settings-tabs] [aria-checked='true']")?.focus();
+    else focusCurrent();
 }
 
 function confirmLeave(): void {
     leaveConfirmed = true;
     model.confirmLeave();
+}
+
+/** AlertDialog 是受控的：`Esc` 只发出 `update:open(false)`，要这里当作“继续编辑”。它也先于确认发出，所以等这一轮处理完再看。 */
+function onLeaveOpen(open: boolean): void {
+    if (open) return;
+    queueMicrotask(() => {
+        if (!leaveConfirmed) model.cancelLeave();
+    });
 }
 </script>
 
@@ -161,8 +208,9 @@ function confirmLeave(): void {
         @request-close="model.close()"
         @update:width="(width: number) => model.resize({width})"
         @update:height="(height: number) => model.resize({height})"
+        @keydown="onRootKeydown"
     >
-        <div ref="root" class="settings-window" data-settings-window @keydown="onRootKeydown">
+        <div ref="root" class="settings-window" data-settings-window>
             <SegmentedControl
                 v-if="model.bound.value"
                 class="settings-window__tabs"
@@ -188,6 +236,7 @@ function confirmLeave(): void {
                         :model-value="model.query.value"
                         @update:model-value="(value: string) => model.search(value)"
                         @keydown="onSearchKeydown"
+                        @clear="onSearchClear"
                     />
                     <nav class="settings-window__nav" :aria-label="text(TEXT.nav)" @keydown="onNavKeydown">
                         <template v-for="(group, index) in model.nav.value" :key="group.category">
@@ -220,7 +269,7 @@ function confirmLeave(): void {
                     </header>
                     <p v-if="model.layerNotice.value !== null" class="settings-window__notice" :data-settings-layer-notice="model.layerNotice.value.kind" role="status">
                         <span class="i-lucide-triangle-alert settings-window__notice-icon" aria-hidden="true"></span>
-                        <span>{{ text(model.layerNotice.value.kind === "invalid" ? TEXT.invalid : TEXT.unavailable) }}</span>
+                        <span>{{ noticeText }}</span>
                         <code v-if="model.layerNotice.value.kind === 'invalid' && model.layerNotice.value.path !== null" class="settings-window__path">{{ model.layerNotice.value.path }}</code>
                         <Button v-if="model.layerNotice.value.kind === 'invalid'" size="sm" variant="secondary" data-settings-open-file @click="model.select(FILE_SECTION_ID)">{{ text(TEXT.openFile) }}</Button>
                     </p>
@@ -249,12 +298,13 @@ function confirmLeave(): void {
                         </header>
                         <p v-if="model.layerNotice.value !== null" class="settings-window__notice" :data-settings-layer-notice="model.layerNotice.value.kind" role="status">
                             <span class="i-lucide-triangle-alert settings-window__notice-icon" aria-hidden="true"></span>
-                            <span>{{ text(model.layerNotice.value.kind === "invalid" ? TEXT.invalid : TEXT.unavailable) }}</span>
+                            <span>{{ noticeText }}</span>
                             <code v-if="model.layerNotice.value.kind === 'invalid' && model.layerNotice.value.path !== null" class="settings-window__path">{{ model.layerNotice.value.path }}</code>
                             <Button v-if="model.layerNotice.value.kind === 'invalid' && current.kind !== 'file'" size="sm" variant="secondary" data-settings-open-file @click="model.select(FILE_SECTION_ID)">{{ text(TEXT.openFile) }}</Button>
                         </p>
                         <p v-if="current.unavailable !== null" class="settings-window__unavailable" data-settings-unavailable>{{ current.unavailable }}</p>
                         <template v-else-if="current.kind === 'search'">
+                            <span class="settings-window__visually-hidden" role="status" aria-live="polite" data-settings-result-count>{{ resultCount }}</span>
                             <!-- 换搜索词就重建：留在行里的不合格值随之丢掉（同换分区）。 -->
                             <SettingsListSection v-if="current.list.groups.length > 0" :key="current.query" :window="model" :view="current.list" />
                             <section v-if="current.pages.length > 0" class="settings-window__hits" data-settings-page-hits>
@@ -264,7 +314,7 @@ function confirmLeave(): void {
                                         <span class="settings-window__hit-title">{{ hit.title }}</span>
                                         <span v-if="hit.description !== null" class="settings-window__description">{{ hit.description }}</span>
                                     </div>
-                                    <Button size="sm" variant="secondary" :aria-label="`${text(TEXT.openPage)}：${hit.title}`" @click="openHit(hit.id)">{{ text(TEXT.openPage) }}</Button>
+                                    <Button size="sm" variant="secondary" :aria-label="text(TEXT.openHit, {title: hit.title})" @click="openHit(hit.id)">{{ text(TEXT.openPage) }}</Button>
                                 </div>
                             </section>
                             <p v-if="current.list.groups.length === 0 && current.pages.length === 0" class="settings-window__unavailable" data-settings-no-results role="status">{{ text(TEXT.noResults) }}</p>
@@ -298,6 +348,7 @@ function confirmLeave(): void {
             :cancel-text="text(TEXT.keepEditing)"
             tone="warning"
             data-settings-leave
+            @update:open="onLeaveOpen"
             @confirm="confirmLeave"
             @cancel="model.cancelLeave()"
             @closed="onLeaveClosed"
