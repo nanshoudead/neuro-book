@@ -19,6 +19,9 @@ neuro-book 从 UnoCSS 换到 Tailwind v4；nb-ui 不再发预编译产物，提�
 
 - worktree：`.worktree/w00030-t02-tailwind`，分支 `refactor/w00030-t02-tailwind`
 
+- S0（2026-10-21）：工具 1 到 4 写好，放在分支的 `scripts/nb-ui/tailwind-migration/`；重测的改动面与分层冲突写进计划的“改动面”“分层后结果会翻转的地方”两节（10-20 的初测处数有误，已改）。切片重排为 S1 到 S4，每个提交都能通过验证：nb-ui 产物在 S1 冻结、S2 neuro-book 换掉 UnoCSS 时删除。
+- 改前基准截图：开发服务开在固定于 master 的 worktree `.worktree/w00030-t02-baseline`（端口 4317），状态根用 `/tmp/t02/state-template` 的副本（登记了示例作品 `book`）；截图在 `/tmp/t02/before/`（Lab 107 个组件 501 个场景 × 两主题 × 明暗，加 4 个页面 × 明暗）。
+
 ## 下一步
 
-S0：写工具、截改前基准、重跑改动面统计。
+基准截完后停掉基准开发服务；派 S1。
