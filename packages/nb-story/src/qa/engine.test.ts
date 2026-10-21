@@ -4,7 +4,7 @@
  */
 
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
-import {readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {chmod, readdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {toolCall, type ScriptedInput} from "@notnotype/nb-harness/testing";
@@ -340,7 +340,7 @@ describe("运行中删除书（“时序与寿命”、验收 7）", () => {
 describe("对话与追问（输出 5、26，验收 14、15、17）", () => {
     /** 第一轮：`maxChapters` 为 1 的对话，读第 26 章前三段并交卷。 */
     async function firstTurn() {
-        const first = await askScripted(book, [[read("r1", {chapter: 26, paragraph: 1}, {chapter: 26, paragraph: 3})], answer({evidence: ["26.1"]})], {at: P, question: "第一问", config: testConfig({maxChapters: 1})});
+        const first = await askScripted(book, [[read("r1", {chapter: 26, paragraph: 1}, {chapter: 26, paragraph: 3})], answer({evidence: ["26.1"], conclusion: "第一轮独有的结论"})], {at: P, question: "第一问", config: testConfig({maxChapters: 1})});
         expect(first.outcome.recordSaved).toBe(true);
         return first.outcome.result.id;
     }
@@ -350,9 +350,15 @@ describe("对话与追问（输出 5、26，验收 14、15、17）", () => {
     test("第二轮不读原文，直接引用第一轮读过的段交卷；请求里有第一轮的问答", async () => {
         const id = await firstTurn();
         const {model, outcome} = await askScripted(book, [answer({evidence: ["26.2"]})], {continueFrom: id, question: "她后来呢", config: later});
-        const history = JSON.stringify(model.requests[0]!.messages);
-        expect(history).toContain("第一问");
-        expect(history).toContain("26.1");
+        // 第二轮第一次请求的历史：第一轮的问题、read 调用与结果、answer 调用（带第一轮的结论）与它的结果，按原样配对。
+        const messages = model.requests[0]!.messages as {role: string; content: unknown; toolCallId?: string}[];
+        const calls = messages.flatMap(message => (message.role === "assistant" && Array.isArray(message.content) ? (message.content as {type: string; id: string; name: string; arguments: Record<string, unknown>}[]) : [])).filter(block => block.type === "toolCall");
+        const resultOf = (id: string) => messages.find(message => message.role === "toolResult" && message.toolCallId === id);
+        expect(messages[0]).toMatchObject({role: "user", content: "第一问"});
+        expect(calls.map(call => call.name)).toEqual(["read", "answer"]);
+        expect(calls[1]!.arguments).toMatchObject({conclusion: "第一轮独有的结论", evidence: ["26.1"]});
+        expect(calls.every(call => resultOf(call.id) !== undefined)).toBe(true);
+        expect(messages.at(-1)).toMatchObject({role: "user", content: "她后来呢"});
         expect(outcome.result).toMatchObject({status: "answered", rejections: 0, turn: 2, id, chaptersRead: []});
         const records = new QaRecords(book.api.library, "fox");
         const stored = await records.get(id, (await book.api.library.readMeta("fox")).generation);
@@ -405,8 +411,13 @@ describe("对话与追问（输出 5、26，验收 14、15、17）", () => {
         const logPath = join(dir, conversation.log!.file);
         const original = await readFile(logPath, "utf8");
 
+        // 目录里每个文件的名字、大小与修改时间（没有读权限的文件也能 stat）：失败的续问不改任何文件。
+        const files = async () => Promise.all((await readdir(dir)).sort().map(async name => {
+            const info = await stat(join(dir, name));
+            return [name, info.size, info.mtimeMs] as const;
+        }));
         const attempt = async () => {
-            const before = await readdir(dir);
+            const before = await files();
             let error: unknown;
             const model = {requests: 0};
             try {
@@ -417,9 +428,15 @@ describe("对话与追问（输出 5、26，验收 14、15、17）", () => {
             expect(error).toBeInstanceOf(QaError);
             expect((error as QaError).code).toBe("qa_not_continuable");
             expect(model.requests).toBe(0);
-            expect(await readdir(dir)).toEqual(before);
+            expect(await files()).toEqual(before);
         };
 
+        await chmod(logPath, 0o000);
+        try {
+            await attempt();
+        } finally {
+            await chmod(logPath, 0o644);
+        }
         await writeFile(logPath, original.replace("第一轮", "第一轮。"));
         await attempt();
         await rm(logPath);

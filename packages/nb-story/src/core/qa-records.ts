@@ -24,7 +24,7 @@
  */
 
 import {createHash, randomBytes} from "node:crypto";
-import {mkdir, readdir, readFile, rename, rm, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, rename, rm, stat, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {Type, type Static} from "typebox";
@@ -156,7 +156,7 @@ function sha256(text: string): string {
 }
 
 /** 会话日志读出来的结果：读不出或与记录里的摘要不符时给出原因（续问据此报 qa_not_continuable）。 */
-export type SessionLogRead = {ok: true; jsonl: string} | {ok: false; problem: string};
+export type SessionLogRead = {ok: true; jsonl: string} | {ok: false; problem: string; missing?: true};
 
 export class QaRecords {
     readonly #library: Library;
@@ -227,6 +227,13 @@ export class QaRecords {
             await Promise.all([recordPath, logPath].map(path => rm(path, {force: true})));
             return {saved: false, reason: "book_not_found"};
         }
+        // 发布之前对话被删了：remove 按 id 扫日志时会把这份还没发布的日志一起删掉，刚改名进去的记录就指向一个不在的
+        // 文件。remove 最后还会再删一次记录，所以记录改名早于那一步的会被它删掉；晚于它的，日志一定已经被它扫掉，
+        // 在这里看到日志不在，就撤回记录、按冲突返回，不留下没有日志的记录。
+        if (!(await exists(logPath))) {
+            await rm(recordPath, {force: true});
+            return {saved: false, reason: "conflict"};
+        }
         // 新的一对已经发布：上一轮的日志删不掉只是多留一个没人引用的文件（remove 会一并删），不改变保存结果。
         if (previous !== null) {
             await rm(join(dir, logFileOf(previous)), {force: true}).catch((error: unknown) => console.warn({error, file: logFileOf(previous!)}, "删除上一轮的会话日志失败"));
@@ -268,22 +275,39 @@ export class QaRecords {
         return read.conversation;
     }
 
-    /** 这个对话的会话日志（JSONL）。新形状的记录核对内容摘要：被改过或损坏的日志不能拿来续问。 */
+    /** 这个对话的会话日志（JSONL）。读不出（不在、没权限、是目录等）或新形状记录的摘要对不上时给出原因，不抛出。 */
     async sessionLog(conversation: QaConversation): Promise<SessionLogRead> {
         let jsonl: string;
         try {
             jsonl = await readFile(join(this.#dir(), logFileOf(conversation)), "utf8");
         } catch (error) {
-            if (systemErrorCode(error) === "ENOENT") return {ok: false, problem: "会话日志不在了"};
-            throw error;
+            const code = systemErrorCode(error);
+            if (code === "ENOENT") return {ok: false, problem: "会话日志不在了", missing: true};
+            return {ok: false, problem: `会话日志读不出来（${code ?? (error instanceof Error ? error.message : String(error))}）`};
         }
         if (conversation.log !== null && sha256(jsonl) !== conversation.log.sha256) return {ok: false, problem: "会话日志与记录里的摘要对不上（被改过或损坏）"};
         return {ok: true, jsonl};
     }
 
     /**
+     * 读一个对话与它此刻指向的会话日志。读记录与读日志之间别处可能发布了下一轮、删掉了这份记录指向的旧日志：
+     * 日志不在时再读一次记录，已经指向另一份日志就按新的一对重读，仍指向同一份才算日志丢了（照 Library.pinBook
+     * 对旧版本被回收的处理）。
+     */
+    async getWithLog(id: string, generation: string): Promise<{conversation: QaConversation; log: SessionLogRead}> {
+        for (let attempt = 0; ; attempt += 1) {
+            const conversation = await this.get(id, generation);
+            const log = await this.sessionLog(conversation);
+            if (log.ok || !log.missing || attempt >= 2) return {conversation, log};
+            const again = await this.get(id, generation);
+            if (logFileOf(again) === logFileOf(conversation)) return {conversation, log};
+        }
+    }
+
+    /**
      * 删除一个对话与它的全部会话日志。损坏的记录也能删：读不出它属于哪一代，但它就在这本书的目录里。先删记录，
-     * 列表立刻看不到它；再删这个 id 的日志（包括保存中途留下、没人引用的）。
+     * 列表立刻看不到它；再删这个 id 的日志（包括保存中途留下、没人引用的）；最后再删一次记录：删除期间正在保存的
+     * 一轮可能在第一次删除之后把记录改名回来，它的日志已经被这次扫掉（save 那一侧的配合见 save 里的说明）。
      */
     async remove(id: string, generation: string): Promise<void> {
         const read = RECORD_ID.test(id) ? await this.#read(id) : ({kind: "missing"} as const);
@@ -297,6 +321,7 @@ export class QaRecords {
         }
         const names = await readdir(this.#dir());
         await Promise.all(names.filter(name => name.startsWith(`${id}.`) && name.endsWith(".session.jsonl")).map(name => rm(join(this.#dir(), name), {force: true})));
+        await rm(join(this.#dir(), `${id}.json`), {force: true});
     }
 
     async #read(id: string): Promise<{kind: "conversation"; conversation: QaConversation} | {kind: "broken"; problem: string} | {kind: "missing"}> {
@@ -315,6 +340,16 @@ export class QaRecords {
             return {kind: "broken", problem: `不是 JSON：${error instanceof Error ? error.message : String(error)}`};
         }
         return conversationOf(value, id);
+    }
+}
+
+async function exists(path: string): Promise<boolean> {
+    try {
+        await stat(path);
+        return true;
+    } catch (error) {
+        if (systemErrorCode(error) === "ENOENT") return false;
+        throw error;
     }
 }
 

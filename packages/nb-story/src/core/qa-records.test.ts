@@ -3,7 +3,7 @@
  */
 
 import {afterEach, describe, expect, test} from "bun:test";
-import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {chmod, mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createStoryApi} from "./api";
@@ -195,6 +195,72 @@ describe("对话的多轮保存（输出 25，验收 16、18）", () => {
         expect(await records.sessionLog(shown)).toMatchObject({ok: false});
         await rm(path);
         expect(await records.sessionLog(shown)).toMatchObject({ok: false});
+    });
+});
+
+describe("读写交错（输出 15、25，实现审查 F1、F2、F5）", () => {
+    test("日志读不出来（没有读权限）：给出原因，不抛出", async () => {
+        const {lib, records, generation} = await setup("qa-unreadable");
+        const first = record(generation);
+        await records.save(first, "第一轮\n", {expectTurns: 0});
+        const shown = await records.get(first.id, generation);
+        const path = join(lib.bookDir("fox"), "qa", shown.log!.file);
+        await chmod(path, 0o000);
+        try {
+            expect(await records.sessionLog(shown)).toMatchObject({ok: false, problem: expect.stringContaining("EACCES")});
+        } finally {
+            await chmod(path, 0o644);
+        }
+    });
+
+    test("读到旧记录之后别处发布了下一轮、删掉旧日志：按新的一对重读，不误报日志丢了", async () => {
+        const {lib, records, generation} = await setup("qa-read-race");
+        const first = record(generation);
+        await records.save(first, "第一轮\n", {expectTurns: 0});
+        let fired = false;
+        // 只在第一次读记录之后插一步：另一处保存第二轮（发布新的一对并删掉第一轮的日志）。
+        class RacingRecords extends QaRecords {
+            override async get(id: string, gen: string): Promise<QaConversation> {
+                const read = await super.get(id, gen);
+                if (!fired) {
+                    fired = true;
+                    await records.save({...first, turns: [...first.turns, turn({question: "别处的追问"})]}, "两轮\n", {expectTurns: 1});
+                }
+                return read;
+            }
+        }
+        const {conversation, log} = await new RacingRecords(lib, "fox").getWithLog(first.id, generation);
+        expect(conversation.turns.map(item => item.question)).toEqual(["谁知道地狱猫是谁？", "别处的追问"]);
+        expect(log).toEqual({ok: true, jsonl: "两轮\n"});
+    });
+
+    test("发布前日志被删除对话扫掉：撤回刚发布的记录、按冲突返回，不留下没有日志的记录", async () => {
+        const sample = await makeSampleRoot("qa-remove-during-save");
+        roots.push(sample.root);
+        const file = join(sample.root, "small.json");
+        await writeFile(file, JSON.stringify(await smallDataset(2, "小书")));
+        let removeLogs = false;
+        // 记录改名之后、保存复查代号时，模拟 remove 已经扫掉了这个对话的日志（它在第一次删记录之后、改名之前扫过）。
+        class RemovingLibrary extends Library {
+            override async readMeta(id: string) {
+                // 写门禁也读代号：等第二轮的日志已经写下（发布之后的那次复查）才动手。
+                const dir = join(this.bookDir(id), "qa");
+                const names = removeLogs ? await readdir(dir).catch(() => [] as string[]) : [];
+                if (names.some(name => /\.2-[0-9a-z]{6}\.session\.jsonl$/u.test(name))) {
+                    removeLogs = false;
+                    for (const name of names) if (name.endsWith(".session.jsonl")) await rm(join(dir, name));
+                }
+                return super.readMeta(id);
+            }
+        }
+        const lib = new RemovingLibrary(sample.library);
+        const {generation} = await lib.importBook({file, title: "小书", id: "fox"});
+        const records = new QaRecords(lib, "fox");
+        const first = record(generation);
+        await records.save(first, "第一轮\n", {expectTurns: 0});
+        removeLogs = true;
+        expect(await records.save({...first, turns: [...first.turns, turn()]}, "两轮\n", {expectTurns: 1})).toEqual({saved: false, reason: "conflict"});
+        expect(await readdir(join(lib.bookDir("fox"), "qa"))).toEqual([]);
     });
 });
 

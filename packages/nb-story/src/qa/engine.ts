@@ -145,9 +145,8 @@ async function startNew(input: AskInput, started: number): Promise<Start> {
 async function startContinued(input: AskInput, id: string): Promise<Start> {
     const book = await input.api.openBook(input.book);
     const records = new QaRecords(input.api.library, book.id);
-    const previous = await records.get(id, book.generation);
+    const {conversation: previous, log} = await records.getWithLog(id, book.generation);
     const notContinuable = (why: string) => new QaError("qa_not_continuable", `对话 ${id} 不能续问：${why}。请开新对话`);
-    const log = await records.sessionLog(previous);
     if (!log.ok) throw notContinuable(log.problem);
     const entries: SessionEntry[] = [];
     for (const line of log.jsonl.split("\n")) {
