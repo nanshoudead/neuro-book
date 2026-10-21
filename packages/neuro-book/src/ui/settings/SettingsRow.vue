@@ -31,7 +31,11 @@ const emit = defineEmits<{
 }>();
 
 defineSlots<{
-    default(props: {value: unknown; disabled: boolean; id: string; label: string}): unknown;
+    /**
+     * `id` 给控件，行的 `<label for>` 指向它；组合控件（单选组、复选组）拿不到 `<label for>` 的名字，用 `labelId` 作
+     * `aria-labelledby`。`describedby` 是行里说明的 id，没有说明时为 undefined。
+     */
+    default(props: {value: unknown; disabled: boolean; id: string; label: string; labelId: string; describedby: string | undefined}): unknown;
 }>();
 
 const TEXT = {
@@ -48,12 +52,15 @@ const TEXT = {
 const text = (template: LocalizedText, params: Readonly<Record<string, string>> = {}): string => localize(formatText(template, params), props.locale);
 
 const controlId = useId();
+const labelId = `${controlId}-label`;
+const descriptionId = `${controlId}-description`;
 const declaration = computed(() => props.setting.declaration);
 const inspection = computed(() => props.settings.inspect(props.setting));
 const state = computed(() => settingsRowState(inspection.value, declaration.value.layers, props.layer));
 const override = computed(() => projectOverride(inspection.value, declaration.value.layers, props.layer));
 const title = computed(() => localize(declaration.value.title, props.locale));
 const description = computed(() => (declaration.value.description === undefined ? null : localize(declaration.value.description, props.locale)));
+const describedby = computed(() => (description.value === null ? undefined : descriptionId));
 const applies = computed(() => settingAppliesText(declaration.value.applies, props.locale));
 const modified = computed(() => state.value.kind === "edit" && state.value.written);
 const blocked = computed(() => state.value.kind !== "not-allowed" && state.value.blocked);
@@ -92,11 +99,11 @@ async function run(action: RowAction): Promise<void> {
         <div class="settings-row__main">
             <div class="settings-row__label">
                 <span v-if="modified && !wide" class="settings-row__modified" aria-hidden="true"></span>
-                <label class="settings-row__title" :for="controlId">
+                <label :id="labelId" class="settings-row__title" :for="controlId">
                     <span>{{ title }}</span>
                     <span v-if="applies !== null" class="settings-row__applies">{{ applies }}</span>
                 </label>
-                <p v-if="description !== null" class="settings-row__description">{{ description }}</p>
+                <p v-if="description !== null" :id="descriptionId" class="settings-row__description">{{ description }}</p>
             </div>
             <div v-if="wide && modified" class="settings-row__head-action" data-settings-row-head>
                 <Tooltip v-if="layer === 'user'" :text="text(TEXT.reset)">
@@ -106,7 +113,7 @@ async function run(action: RowAction): Promise<void> {
             </div>
             <div v-if="!wide || state.kind !== 'edit'" class="settings-row__control">
                 <template v-if="state.kind === 'edit'">
-                    <slot :value="state.value" :disabled="blocked" :id="controlId" :label="title" />
+                    <slot :value="state.value" :disabled="blocked" :id="controlId" :label="title" :labelId="labelId" :describedby="describedby" />
                     <template v-if="modified">
                         <Tooltip v-if="layer === 'user'" :text="text(TEXT.reset)">
                             <IconButton size="sm" icon-class="i-lucide-rotate-ccw" :aria-label="text(TEXT.reset)" :disabled="blocked || busy !== null" data-settings-row-reset @click="run('reset')" />
@@ -123,7 +130,7 @@ async function run(action: RowAction): Promise<void> {
         </div>
         <!-- 宽控件沿用时也画出来、停用：列表这类值一句摘要说不清沿用的是什么。 -->
         <div v-if="wide && state.kind !== 'not-allowed'" class="settings-row__wide" data-settings-row-wide>
-            <slot :value="state.kind === 'edit' ? state.value : state.inherited" :disabled="state.kind === 'edit' ? blocked : true" :id="controlId" :label="title" />
+            <slot :value="state.kind === 'edit' ? state.value : state.inherited" :disabled="state.kind === 'edit' ? blocked : true" :id="controlId" :label="title" :labelId="labelId" :describedby="describedby" />
         </div>
         <p v-if="override !== null" class="settings-row__override" data-settings-row-overridden>
             <span class="i-lucide-info settings-row__override-icon" aria-hidden="true"></span>

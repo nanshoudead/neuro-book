@@ -1,13 +1,18 @@
 <script setup lang="ts">
-/** list 分区的内容（同名 .md）：按分组列出配置项，每项一个 SettingsRow 加通用控件，写入经窗口模型。 */
+/**
+ * list 分区的内容（同名 .md）：按分组列出配置项，每项一个 SettingsRow，里面放 nb-form 的 `SchemaField`（`bare`，名字与
+ * 说明来自行），写入经窗口模型。控件、草稿与提交时机由表单定（docs/specs/settings/settings-window.md 输出 9、14）。
+ */
+import {SchemaField} from "@notnotype/nb-form/vue";
+import {reactive} from "vue";
+
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {LocalizedText} from "nbook/shared/localized-text";
 import SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 
-import {settingControl} from "../setting-controls";
+import {settingForm} from "../setting-form";
 import type {SettingsSectionView, SettingsWindow} from "../settings-window";
 import type {WindowSetting} from "../window-source";
-import SettingsControl from "./SettingsControl.vue";
 
 defineOptions({name: "SettingsListSection"});
 
@@ -23,8 +28,18 @@ const TEXT = {
 
 const locale = props.window.locale;
 
-function controlOf(setting: WindowSetting) {
-    return settingControl(setting.definition.declaration, locale.value);
+const formOf = (setting: WindowSetting) => settingForm(setting.definition.declaration);
+
+/**
+ * 写入没成功时加一：写入可能在下一次渲染之前就结算，表单看到的值从头到尾没变，要靠它丢掉草稿、回到实际值（ui.forms
+ * 输出 16）。按键记，切换标签不清：只需要每次失败都与上一次不同。
+ */
+const revisions = reactive(new Map<string, number>());
+
+async function write(setting: WindowSetting, value: unknown): Promise<void> {
+    if (await props.window.write(setting, value)) return;
+    const key = setting.definition.key;
+    revisions.set(key, (revisions.get(key) ?? 0) + 1);
 }
 
 function shown(setting: WindowSetting, value: unknown): unknown {
@@ -51,18 +66,25 @@ function excludedText(titles: ReadonlyArray<string>): string {
                 :layer="window.layer.value"
                 :locale="locale"
                 :project-title="window.projectTitle.value"
-                :wide="controlOf(setting).kind === 'readonly'"
+                :wide="formOf(setting).wide"
                 @write-failed="(failure) => window.rowFailed(setting, failure)"
             >
-                <SettingsControl
-                    :id="row.id"
-                    :control="controlOf(setting)"
-                    :model-value="shown(setting, row.value)"
-                    :disabled="row.disabled"
-                    :label="row.label"
-                    :locale="locale"
-                    @update:model-value="(value: unknown) => window.write(setting, value)"
-                />
+                <div class="settings-list-section__control" :data-settings-width="formOf(setting).wide ? undefined : formOf(setting).width">
+                    <SchemaField
+                        :id="row.id"
+                        :schema="setting.definition.declaration.schema"
+                        :hints="formOf(setting).hints"
+                        :model-value="shown(setting, row.value)"
+                        :locale="locale"
+                        :disabled="row.disabled"
+                        :labelledby="row.labelId"
+                        :describedby="row.describedby"
+                        :revision="revisions.get(setting.definition.key) ?? 0"
+                        bare
+                        commit="change"
+                        @update:model-value="(value: unknown) => write(setting, value)"
+                    />
+                </div>
             </SettingsRow>
         </section>
         <p v-if="view.excluded.length > 0" class="settings-list-section__excluded" data-settings-excluded>{{ excludedText(view.excluded) }}</p>
@@ -89,6 +111,24 @@ function excludedText(titles: ReadonlyArray<string>): string {
     font-weight: var(--weight-strong);
     line-height: var(--leading-ui);
     color: var(--text-secondary);
+}
+
+/* 标签列加控件列时的宽度（输出 9），都不超过行宽；宽排法占满内容列。 */
+.settings-list-section__control {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.settings-list-section__control[data-settings-width="narrow"] {
+    width: 120px;
+}
+
+.settings-list-section__control[data-settings-width="medium"] {
+    width: 220px;
+}
+
+.settings-list-section__control[data-settings-width="wide"] {
+    width: 320px;
 }
 
 .settings-list-section__excluded {

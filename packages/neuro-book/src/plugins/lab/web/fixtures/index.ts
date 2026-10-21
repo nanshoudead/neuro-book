@@ -31,7 +31,6 @@ import type ShelfList from "nbook/plugins/projects/web/components/ShelfList.vue"
 import type PluginsPage from "nbook/plugins/plugins/web/components/PluginsPage.vue";
 import type WorksSettingsPage from "nbook/plugins/projects/web/components/WorksSettingsPage.vue";
 import type {ShelfItem} from "nbook/plugins/projects/shared/shelf";
-import type SettingsControl from "nbook/plugins/settings/web/components/SettingsControl.vue";
 import type SettingsWindow from "nbook/plugins/settings/web/components/SettingsWindow.vue";
 import type NeuroBookLockup from "nbook/ui/brand/NeuroBookLockup.vue";
 import type NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
@@ -1098,20 +1097,6 @@ function settingsFixtures(): LabFixture[] {
                 ];
             })(),
             subject: () => import("nbook/ui/settings/SettingsPageList.vue"),
-        }),
-        defineSubjectFixture<typeof SettingsControl>({
-            component: "SettingsControl",
-            class: "",
-            scenes: [
-                {id: "switch", label: "开关", input: {props: {control: {kind: "switch"}, label: "自动保存草稿", locale: "zh-CN"}, model: {modelValue: true}}},
-                {id: "segmented", label: "分段（不超过 3 项）", input: {props: {control: {kind: "segmented", choices: [{value: "light", label: "浅色"}, {value: "dark", label: "深色"}, {value: "system", label: "跟随系统"}]}, label: "明暗", locale: "zh-CN"}, model: {modelValue: "system"}}},
-                {id: "select", label: "下拉（多于 3 项）", input: {props: {control: {kind: "select", choices: [{value: "title", label: "按标题"}, {value: "modified", label: "按修改时间"}, {value: "created", label: "按创建时间"}, {value: "words", label: "按字数"}]}, label: "排序", locale: "zh-CN"}, model: {modelValue: "modified"}}},
-                {id: "number", label: "数字（范围与步长）", input: {props: {control: {kind: "number", integer: true, min: 5, max: 600}, label: "保存间隔", locale: "zh-CN"}, model: {modelValue: 120}}},
-                {id: "text", label: "单行输入（长度上限）", input: {props: {control: {kind: "text", maxLength: 40}, label: "落款", locale: "zh-CN"}, model: {modelValue: "——写于雾港"}}},
-                {id: "readonly", label: "画不了的类型：只读", input: {props: {control: {kind: "readonly"}, label: "常用标签", locale: "zh-CN"}, model: {modelValue: ["人物", "地点", "伏笔"]}}},
-                {id: "disabled", label: "停用", input: {props: {control: {kind: "segmented", choices: [{value: "nbook", label: "NeuroBook"}, {value: "macos", label: "macOS"}]}, label: "主题", locale: "zh-CN", disabled: true}, model: {modelValue: "nbook"}}},
-            ],
-            subject: () => import("nbook/plugins/settings/web/components/SettingsControl.vue"),
         }),
     ];
 }

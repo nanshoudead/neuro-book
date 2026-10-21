@@ -3,10 +3,10 @@
  * SettingsRow 的 Lab 场景：配置服务来自设置场景的局部宿主（`settings-scene/`），各层的内容按场景给出；行拿到的是声明者
  * 插件自己的配置服务，与 page 页面一样。场景输入是行的数据属性，配置服务由这里补上。
  */
+import {SchemaField} from "@notnotype/nb-form/vue";
 import {computed, onBeforeUnmount} from "vue";
 
-import SettingsControl from "nbook/plugins/settings/web/components/SettingsControl.vue";
-import {settingControl} from "nbook/plugins/settings/web/setting-controls";
+import {settingForm} from "nbook/plugins/settings/web/setting-form";
 import type {SettingLayer} from "nbook/shared/settings";
 import SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 
@@ -49,7 +49,7 @@ const bindings = computed(() => subject.bindings.value);
 const setting = computed(() => bindings.value.setting);
 /** 声明者自己的配置服务：恢复默认、单独设置与控件改值都只写它声明的这一项。 */
 const settings = computed(() => host.service(SCENE_SETTINGS.find((entry) => entry.definition.key === setting.value.key)?.plugin ?? "nbook.workbench"));
-const control = computed(() => settingControl(setting.value.declaration, bindings.value.locale));
+const form = computed(() => settingForm(setting.value.declaration));
 
 async function write(value: unknown, layer: SettingLayer): Promise<void> {
     const result = await settings.value.update(setting.value, value, {layer});
@@ -59,17 +59,16 @@ async function write(value: unknown, layer: SettingLayer): Promise<void> {
 
 <template>
     <SettingsRow v-slot="row" v-bind="bindings" :settings="settings" class="settings-row-fixture" data-lab-subject>
-        <ul v-if="control.kind === 'readonly'" class="settings-row-fixture__list">
-            <li v-for="item in (row.value as ReadonlyArray<{name: string; text: string}>)" :key="item.name">{{ item.name }}：{{ item.text }}</li>
-        </ul>
-        <SettingsControl
-            v-else
+        <SchemaField
             :id="row.id"
-            :control="control"
+            :schema="setting.declaration.schema"
+            :hints="form.hints"
             :model-value="row.value"
-            :disabled="row.disabled"
-            :label="row.label"
             :locale="bindings.locale"
+            :disabled="row.disabled"
+            :labelledby="row.labelId"
+            :describedby="row.describedby"
+            bare
             @update:model-value="(value: unknown) => write(value, bindings.layer)"
         />
     </SettingsRow>
@@ -80,13 +79,5 @@ async function write(value: unknown, layer: SettingLayer): Promise<void> {
 .settings-row-fixture {
     width: calc(100% - var(--space-5));
     margin-left: var(--space-5);
-}
-
-.settings-row-fixture__list {
-    margin: 0;
-    padding-left: var(--space-6);
-    font-size: var(--text-sm);
-    line-height: var(--leading-ui);
-    color: var(--text-secondary);
 }
 </style>

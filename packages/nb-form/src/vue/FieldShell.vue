@@ -90,7 +90,8 @@ provide(NB_FIELD_CONTEXT_KEY, {
             </span>
             <div v-if="props.inline" class="nb-form-field__inline-control"><slot /></div>
         </div>
-        <div v-if="!props.inline" class="nb-form-field__control"><slot /></div>
+        <!-- 开关排在标题行里；`bare` 不画标题行，开关同其它控件一样单独一块。 -->
+        <div v-if="!props.inline || props.bare" class="nb-form-field__control"><slot /></div>
         <button
             v-if="props.clearLabel && !props.bare"
             type="button"

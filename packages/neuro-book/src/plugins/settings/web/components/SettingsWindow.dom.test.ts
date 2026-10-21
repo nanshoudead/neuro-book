@@ -51,13 +51,16 @@ const one = (selector: string): HTMLElement => {
     return found;
 };
 const navIds = (): string[] => all("[data-settings-nav]").map((element) => element.dataset.settingsNav ?? "");
-/** 分段控件里文字为 `label` 的一段。 */
+/** 单选组里名字为 `label` 的一项（选项名在包着单选圆钮的 `<label>` 里）。 */
+const choices = (row: string): HTMLLabelElement[] => all(`[data-settings-row="${row}"] [role="radiogroup"] label`) as HTMLLabelElement[];
 const segment = (row: string, label: string): HTMLElement => {
-    const found = all(`[data-settings-row="${row}"] button[role="radio"]`).find((button) => button.textContent?.trim() === label);
-    if (found === undefined) throw new Error(`${row} 没有选项 ${label}`);
+    const found = choices(row).find((element) => element.textContent?.trim() === label)?.querySelector<HTMLElement>("[role='radio']");
+    if (found === undefined || found === null) throw new Error(`${row} 没有选项 ${label}`);
     return found;
 };
-const selected = (row: string): string | undefined => all(`[data-settings-row="${row}"] button[role="radio"]`).find((button) => button.getAttribute("aria-checked") === "true")?.textContent?.trim();
+const selected = (row: string): string | undefined => choices(row).find((element) => element.querySelector("[role='radio']")?.getAttribute("aria-checked") === "true")?.textContent?.trim();
+/** 每一行的控件：行里第一个 `data-nb-widget` 是字段自己的（列表项的控件排在它里面）。 */
+const widgetOf = (row: HTMLElement): string | undefined => row.querySelector<HTMLElement>("[data-nb-widget]")?.dataset.nbWidget;
 
 describe("SettingsWindow", () => {
     it("左栏三组、组间分隔线；绑定作品时有“用户 | 本作品”，没绑定没有；外观分区按小组画控件", async () => {
@@ -69,6 +72,9 @@ describe("SettingsWindow", () => {
         expect(one("[data-settings-section='nbook.appearance']").textContent).toContain("界面的主题、明暗与语言");
         expect(all("[data-settings-group]").map((group) => group.dataset.settingsGroup)).toEqual(["ui", "language"]);
         expect(selected(appearanceSetting.key)).toBe("跟随系统");
+        // 单选组拿不到 `<label for>` 的名字，经 aria-labelledby 指向行的标题。
+        const appearance = one(`[data-settings-row="${appearanceSetting.key}"]`);
+        expect(document.getElementById(appearance.querySelector("[role='radiogroup']")!.getAttribute("aria-labelledby")!)?.textContent).toContain("明暗");
         cleanup.splice(0).forEach((dispose) => dispose());
         document.body.innerHTML = "";
 
@@ -118,12 +124,18 @@ describe("SettingsWindow", () => {
         expect(one("[data-settings-layer-notice='unavailable']").textContent).toContain("暂时连不上，不能保存");
     });
 
-    it("“其它”分区：开关、下拉、数字、单行输入与只读项（宽排法）、生效时机的标注；数字框回车提交，不合 schema 的值被拒、回到实际值", async () => {
+    it("“其它”分区：开关、下拉、数字、单行输入与字符串列表（宽排法、可编辑）、生效时机的标注；数字框回车提交，不合 schema 的值被拒、回到实际值", async () => {
         const {host, notices} = await scene("other");
         host.window.select("other");
         await flushPromises();
-        expect(all("[data-settings-control]").map((control) => control.dataset.settingsControl)).toEqual(["switch", "number", "switch", "text", "select", "readonly"]);
-        expect(one("[data-settings-row='example.notes/tags']").querySelector("[data-settings-row-wide] [data-settings-control='readonly']")).not.toBeNull();
+        expect(all("[data-settings-row]").map(widgetOf)).toEqual(["switch", "number", "switch", "text", "select", "string-list"]);
+        const tags = one("[data-settings-row='example.notes/tags']");
+        expect(tags.querySelector("[data-settings-row-wide] [data-nb-widget='string-list']")).not.toBeNull();
+        // 控件的名字是行的标题（`<label for>` 指向它），说明经 aria-describedby 接上。
+        const autosave = one("[data-settings-row='example.notes/autosave']");
+        const control = document.getElementById(autosave.querySelector("label")!.htmlFor)!;
+        expect(autosave.contains(control)).toBe(true);
+        expect(control.getAttribute("aria-describedby")?.split(" ")).toContain(autosave.querySelector("p")!.id);
         // applies 不是 now 时标题后标注生效时机；now 不标。
         expect(one("[data-settings-row='example.notes/interval'] label").textContent).toContain("下次会话生效");
         expect(one("[data-settings-row='example.notes/tags'] label").textContent).toContain("重启后生效");
@@ -140,6 +152,17 @@ describe("SettingsWindow", () => {
         input.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
         await flushPromises();
         expect(host.user.values()).toMatchObject({"example.notes/interval": 90});
+
+        // 字符串列表加一项、填写，失焦后整个数组写进这一层。
+        (tags.querySelector("[data-nb-list-add]") as HTMLButtonElement).click();
+        await flushPromises();
+        const added = [...tags.querySelectorAll<HTMLInputElement>("[data-nb-list-item] input")].at(-1)!;
+        added.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
+        added.value = "对白";
+        added.dispatchEvent(new Event("input"));
+        added.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
+        await flushPromises();
+        expect(host.user.values()).toMatchObject({"example.notes/tags": ["人物", "地点", "伏笔", "对白"]});
     });
 
     it("左栏：上下键切到上一个、下一个可用分区，焦点跟着走；关闭按钮关窗口", async () => {

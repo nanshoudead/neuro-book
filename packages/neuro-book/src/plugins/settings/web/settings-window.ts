@@ -139,8 +139,8 @@ export interface SettingsWindow {
     select(sectionId: string): void;
     setLayer(layer: SettingLayer): void;
     resize(size: Partial<SettingsWindowSize>): void;
-    /** 通用控件改值：写当前标签那一层；结算之前控件显示这次的值，失败后回到层里的实际值并发通知（输出 14）。 */
-    write(setting: WindowSetting, value: unknown): Promise<void>;
+    /** 通用控件改值：写当前标签那一层；结算之前控件显示这次的值，失败后回到层里的实际值并发通知（输出 14）。写进了为 true。 */
+    write(setting: WindowSetting, value: unknown): Promise<boolean>;
     /** 这一项在当前标签下正在写入的值；没有在写为 undefined。 */
     pending(key: string): {readonly value: unknown} | undefined;
     /** `SettingsRow` 自己的写入（恢复默认、单独设置、移除）没有成功。 */
@@ -501,6 +501,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
             try {
                 const result = await source.edit(setting.definition.key, tab, value);
                 if (!result.ok) notifyFailure(setting, result.code, result.detail);
+                return result.ok;
             } finally {
                 // 期间同一项又写了一次：留着那一次的值，等它自己结算。
                 if (writes.get(key)?.token === token) writes.delete(key);

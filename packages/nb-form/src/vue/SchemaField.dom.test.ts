@@ -59,6 +59,13 @@ describe("SchemaField", () => {
         expect(described).toEqual(["不能小于 8", "单位：px"]);
     });
 
+    it("bare 的开关同样画出来，id 来自调用方", async () => {
+        const wrapper = mount(SchemaField, {attachTo: document.body, props: {schema: Type.Boolean(), modelValue: true, locale: "zh-CN", bare: true, id: "autosave"}});
+        mounted.push(wrapper);
+        await wrapper.get("#autosave").trigger("click");
+        expect(wrapper.emitted("update:modelValue")).toEqual([[false]]);
+    });
+
     it("bare 的组合控件经 labelledby 取调用方标签的名字；hints 盖过 schema 的提示", async () => {
         const schema = Type.Union([Type.Literal("light"), Type.Literal("dark")], {"x-form": {widget: "select"}});
         const wrapper = mount(SchemaField, {
@@ -118,6 +125,40 @@ describe("SchemaField 的提交与问题", () => {
         expect(wrapper.get("[data-nb-widget]").attributes("data-nb-widget")).toBe("radio-row");
         expect(wrapper.find("[role='radiogroup']").exists()).toBe(true);
         expect(wrapper.find("[role='combobox']").exists()).toBe(false);
+    });
+});
+
+describe("约束与选项名取自描述", () => {
+    it("数字框按 schema 的范围与步长步进；输入框的长度取 schema", async () => {
+        const stepped = async (schema: object, modelValue: number, button: "增加" | "减少") => {
+            const wrapper = mount(SchemaField, {attachTo: document.body, props: {schema, modelValue, locale: "zh-CN", bare: true, id: "f"}});
+            mounted.push(wrapper);
+            const input = wrapper.get("#f");
+            await input.trigger("focusin");
+            await wrapper.get(`button[aria-label='${button}']`).trigger("click");
+            await input.trigger("focusout");
+            await flushPromises();
+            return wrapper.emitted("update:modelValue")?.at(-1)?.[0] ?? modelValue;
+        };
+        const interval = Type.Integer({minimum: 5, maximum: 600});
+        expect(await stepped(interval, 600, "增加")).toBe(600);
+        expect(await stepped(interval, 5, "减少")).toBe(5);
+        expect(await stepped(interval, 30, "增加")).toBe(31);
+        expect(await stepped(Type.Number({multipleOf: 0.05}), 1, "增加")).toBe(1.05);
+        const signature = mount(SchemaField, {attachTo: document.body, props: {schema: Type.String({minLength: 1, maxLength: 40}), modelValue: "x", locale: "zh-CN", bare: true, id: "s"}});
+        mounted.push(signature);
+        expect([signature.get("#s").attributes("minlength"), signature.get("#s").attributes("maxlength")]).toEqual(["1", "40"]);
+    });
+
+    it("选项名按显示语言取 choices 的名字；没写名字的数与布尔字面量显示它本身", () => {
+        const appearance = Type.Union([Type.Literal("light"), Type.Literal("dark")]);
+        const hints = {choices: [{value: "light", label: {"zh-CN": "浅色", "en-US": "Light"}}, {value: "dark", label: {"zh-CN": "深色", "en-US": "Dark"}}]};
+        const english = mount(SchemaField, {attachTo: document.body, props: {schema: appearance, hints, modelValue: "light", locale: "en-US", bare: true, labelledby: "x"}});
+        mounted.push(english);
+        expect(english.findAll("[role='radiogroup'] label").map((label) => label.text())).toEqual(["Light", "Dark"]);
+        const sizes = mount(SchemaField, {attachTo: document.body, props: {schema: Type.Union([Type.Literal(12), Type.Literal(14), Type.Literal(true)]), modelValue: 12, locale: "zh-CN", bare: true, labelledby: "x"}});
+        mounted.push(sizes);
+        expect(sizes.findAll("[role='radiogroup'] label").map((label) => label.text())).toEqual(["12", "14", "true"]);
     });
 });
 
