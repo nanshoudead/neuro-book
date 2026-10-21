@@ -26,7 +26,7 @@
 
 - 点击启用的选项时发出 `update:modelValue`；值由父组件持有，组件不维护选择状态。
 - 禁用选项不会响应点击或键盘导航。方向键 Right/Down 前进，Left/Up 后退，Home/End 跳到首/末个启用项；移动会循环并发出新值，同时把焦点移到目标选项。
-- `modelValue` 不对应任何选项时（例如当前尺寸是手动拖出来的、不属于任何预设）一个都不选中，键盘进入时停在第一个启用项；方向键向后从第一项、向前从最后一项开始。
+- `modelValue` 不对应任何选项时（例如当前尺寸是手动拖出来的、不属于任何预设）一个都不选中，键盘进入时停在第一个启用项；对应的是停用项时同样停在第一个启用项；方向键向后从第一项、向前从最后一项开始。
 - 每个选项使用 `role="radio"`、`aria-checked` 和选中项 roving tabindex；根节点为 `role="radiogroup"`，可通过 `ariaLabel` 命名；放在 `Field` 的组形态里时，根拿字段的 `id`，经 `aria-labelledby` 以字段标签为名、`aria-describedby` 接字段说明（docs/specs/ui/forms.md 输出 27）。不写 `aria-pressed`（它是切换按钮的状态，与单选的 `aria-checked` 冲突）。
 - 只读（`readonly`）：根写 `aria-readonly`，选项照常可聚焦；点击不发出变化，方向键只把焦点移到相邻项、不改选中；悬停不变色、按下不缩。停用（`disabled`）：各项停用，不进 Tab 顺序（docs/specs/ui/forms.md 输出 28）。
 - `title` 优先作为选项可访问名称和悬停提示，否则使用 `label`。选项本身的 `iconClass` 是装饰性图标，不进入可访问名称。
@@ -78,6 +78,8 @@ type SegmentedControlProps = {
     readonly?: boolean;
     /** 出错：外框描红、写 aria-invalid，与 Field 上下文的出错取或；默认 false */
     invalid?: boolean;
+    /** 必填：写 aria-required，与 Field 上下文的必填取或；默认 false */
+    required?: boolean;
 };
 
 type SegmentedControlEmits = {

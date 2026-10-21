@@ -98,6 +98,16 @@ describe("只读与停用（输出 28）", () => {
         expect(disabled.emitted("update:modelValue")).toBeUndefined();
     });
 
+    it("分段控件：当前值对应停用项（表单里“已不存在”的值）时 Tab 停在第一个启用项；整组停用时没有停靠点", async () => {
+        const options = [{value: "gone", label: "已不存在", disabled: true}, ...OPTIONS];
+        const wrapper = mount(SegmentedControl, {props: {modelValue: "gone", options}, attachTo: document.body});
+        expect(wrapper.findAll("[role='radio']").map((item) => item.attributes("tabindex"))).toEqual(["-1", "0", "-1", "-1"]);
+        await wrapper.setProps({disabled: true});
+        expect(wrapper.findAll("[role='radio']").every((item) => item.attributes("tabindex") === "-1")).toBe(true);
+        await wrapper.setProps({disabled: false, modelValue: "b"});
+        expect(wrapper.findAll("[role='radio']").map((item) => item.attributes("tabindex"))).toEqual(["-1", "-1", "0", "-1"]);
+    });
+
     // 浮层一直关着，选项不挂载，也就没有逐字查找；Lab 的真实浏览器用例另验（neuro-book 的 e2e/lab-nb-ui.e2e.ts）。
     it("下拉：只读时触发器可聚焦、回车不打开浮层；停用时触发器停用", async () => {
         const wrapper = mount(Select, {props: {modelValue: "a", readonly: true, options: OPTIONS}, attachTo: document.body});

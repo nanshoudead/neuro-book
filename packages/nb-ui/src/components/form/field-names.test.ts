@@ -71,6 +71,10 @@ describe("字段的名字", () => {
     it("字段的必填、说明到组合控件与开关上", () => {
         const radios = mount(Field, {props: {label: "状态", required: true, group: true}, slots: {default: () => h(RadioGroup, {options: OPTIONS})}});
         expect(radios.get("[role='radiogroup']").attributes("aria-required")).toBe("true");
+        const segments = mount(Field, {props: {label: "明暗", required: true, group: true}, slots: {default: () => h(SegmentedControl, {options: OPTIONS, modelValue: "a"})}});
+        expect(segments.get("[role='radiogroup']").attributes("aria-required")).toBe("true");
+        expect(mount(SegmentedControl, {props: {options: OPTIONS, modelValue: "a", required: true}}).get("[role='radiogroup']").attributes("aria-required")).toBe("true");
+        expect(mount(SegmentedControl, {props: {options: OPTIONS, modelValue: "a"}}).get("[role='radiogroup']").attributes("aria-required")).toBeUndefined();
         const toggle = mount(Field, {attachTo: document.body, props: {label: "换行", description: "长行折到下一行"}, slots: {default: () => h(Switch, {modelValue: false})}});
         const described = toggle.get("button").attributes("aria-describedby") ?? "";
         expect(toggle.element.querySelector(`[id="${described}"]`)?.textContent).toBe("长行折到下一行");

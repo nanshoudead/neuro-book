@@ -45,7 +45,7 @@ export type BuiltinWidget = (typeof BUILTIN_WIDGETS)[number];
  */
 const WIDGETS_FOR_KIND: Readonly<Record<FieldKind, ReadonlySet<string>>> = {
     "boolean": new Set(["confirm"]),
-    "choice": new Set(["radio", "select", "search-select"]),
+    "choice": new Set(["segmented", "radio", "select", "search-select"]),
     "multi": new Set(["checkboxes"]),
     "number": new Set(),
     "text": new Set(["multiline", "secret", "select", "search-select"]),

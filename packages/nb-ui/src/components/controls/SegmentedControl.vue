@@ -44,6 +44,8 @@ const props = withDefaults(defineProps<{
     readonly?: boolean;
     /** 出错外观与 `aria-invalid`；与 `Field` 上下文的出错取或。 */
     invalid?: boolean;
+    /** 必填：写 `aria-required`；与 `Field` 上下文的必填取或。 */
+    required?: boolean;
 }>(), {
     ariaLabel: "",
     size: "sm",
@@ -53,6 +55,7 @@ const props = withDefaults(defineProps<{
     disabled: false,
     readonly: false,
     invalid: false,
+    required: false,
 });
 
 const emit = defineEmits<{
@@ -82,11 +85,12 @@ const selectedIndex = computed(() => props.options.findIndex((opt) => opt.value 
 const enabledOptions = computed(() => props.options.filter((opt) => !optionDisabled(opt)));
 
 /**
- * 键盘进入组时停在哪一项：选中项；当前值不对应任何一项时（例如 Lab 手动拖出的画布尺寸）停在第一个启用项，
- * 否则整组没有 Tab 停靠点，键盘进不来。
+ * 键盘进入组时停在哪一项：启用的选中项；当前值不对应任何一项（例如 Lab 手动拖出的画布尺寸），或对应的是停用项（表单里
+ * “已不存在”的当前值）时停在第一个启用项，否则整组没有 Tab 停靠点，键盘进不来。整组停用时没有停靠点。
  */
 const tabStopKey = computed(() => {
-    const option = props.options[selectedIndex.value] ?? enabledOptions.value[0];
+    const selected = props.options[selectedIndex.value];
+    const option = selected !== undefined && !optionDisabled(selected) ? selected : enabledOptions.value[0];
     return option === undefined ? null : optionKey(option);
 });
 
@@ -162,6 +166,7 @@ function handleKeydown(event: KeyboardEvent): void {
         :aria-describedby="field?.ariaDescribedby.value"
         :aria-invalid="isInvalid ? 'true' : undefined"
         :aria-readonly="props.readonly || undefined"
+        :aria-required="props.required || field?.required.value === true || undefined"
         :aria-disabled="props.disabled || undefined"
         class="relative max-w-full items-stretch rounded-[var(--radius-control)] border-[length:var(--border-w)] border-[color-mix(in_srgb,var(--border-color)_50%,transparent)] bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] p-[2px] select-none box-border outline-none"
         :class="[segmentLayoutClass, isInvalid ? '!border-[color:var(--status-danger)]' : '', props.disabled ? 'opacity-45' : '']"

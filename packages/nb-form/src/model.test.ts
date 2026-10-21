@@ -5,6 +5,7 @@
 import {describe, expect, it} from "bun:test";
 import {Type} from "typebox";
 
+import {checkDescription} from "./check";
 import {fallbackWidget} from "./fallback";
 import {readHints} from "./hints";
 import {findNode, itemNode, kindOf, MAX_DEPTH, resolveForm} from "./model";
@@ -166,6 +167,14 @@ describe("控件选择（输出 2）", () => {
     for (const [name, schema, widget] of cases) {
         it(name, () => expect(widgetOf(schema)).toEqual(widget));
     }
+
+    it("显式 segmented 照用，盖过项数与 searchable，不报 widget-mismatch", () => {
+        const four = Type.Union([Type.Literal("a"), Type.Literal("b"), Type.Literal("c"), Type.Literal("d")], {"x-form": {widget: "segmented"}});
+        expect(widgetOf(four)).toBe("segmented");
+        const searchable = Type.Union([Type.Literal("a"), Type.Literal("b")], {"x-form": {widget: "segmented", searchable: true}});
+        expect(widgetOf(searchable)).toBe("segmented");
+        expect(checkDescription(four).problems.filter((problem) => problem.code === "widget-mismatch")).toEqual([]);
+    });
 
     it("显式 radio 盖过项数；字面量联合上的动态选项走下拉", () => {
         expect(widgetOf(Type.Union([Type.Literal("a"), Type.Literal("b"), Type.Literal("c"), Type.Literal("d")], {"x-form": {widget: "radio"}}))).toBe("radio");
