@@ -428,6 +428,9 @@ export function compile(book: Dataset["book"], sources: SourceChapter[], rawDraf
         while (redirect.has(current)) current = redirect.get(current)!;
         return current;
     };
+    // 最近一批主线与它的章号，取法与查询相同（core/projection.ts 的 `arcs`：章号最大、有主线的那一批）。增量稿在它上面合成。
+    let latestArcs: Arc[] = [];
+    let latestThrough = 0;
     for (const item of consolidations) {
         const at = endOfChapter(item.through);
         for (const merge of item.merges) {
@@ -458,12 +461,65 @@ export function compile(book: Dataset["book"], sources: SourceChapter[], rawDraf
             summaries.push({entity, facet: summary.facet, through: item.through, items: summary.items, at});
             count(written, "summaries");
         }
-        for (const arc of item.arcs) {
-            if (!claimId(arc.id, item.through, "故事线")) continue;
-            for (const id of arc.episodes) has(episodes, id, item.through, `故事线 ${arc.id}`, {records: [arc.id]});
-            arcs.push({id: arc.id, title: arc.title, summary: arc.summary, episodes: arc.episodes, status: arc.status, through: item.through, at});
-            count(written, "arcs");
+        const batch = item.base === undefined ? wholeBatch(item, at) : mergedBatch(item, at);
+        arcs.push(...batch);
+        if (batch.length) {
+            latestArcs = batch;
+            latestThrough = item.through;
         }
+    }
+
+    /** 新主线：编号归这一次整理、全书不重复，至少一段情节。 */
+    function newArc(arc: Consolidation["arcs"][number], through: number, at: Position): Arc | null {
+        if (!claimId(arc.id, through, "故事线")) return null;
+        if (!arc.episodes.length) {
+            issue("error", through, "arc", `故事线 ${arc.id}：新主线没有情节`, {records: [arc.id]});
+            return null;
+        }
+        for (const id of arc.episodes) has(episodes, id, through, `故事线 ${arc.id}`, {records: [arc.id]});
+        count(written, "arcs");
+        return {id: arc.id, title: arc.title, summary: arc.summary, episodes: arc.episodes, status: arc.status, through, at};
+    }
+
+    /** t12 之前的整批稿：稿里的主线就是这一批。 */
+    function wholeBatch(item: Consolidation, at: Position): Arc[] {
+        return item.arcs.map(arc => newArc(arc, item.through, at)).filter((arc): arc is Arc => arc !== null);
+    }
+
+    /**
+     * 增量稿：把最近一批的每条主线复制成这一批的新版本（`through`、`at` 换成这一次的），按更新改写、追加新情节，再加上新
+     * 主线。不改最近一批的对象：较早的阅读位置仍看到旧版本（queries.md 输出 1、13）。
+     */
+    function mergedBatch(item: Consolidation, at: Position): Arc[] {
+        if (item.base !== latestThrough) {
+            issue("error", item.through, "arc", `整理稿接着第 ${item.base} 章的主线，但最近一批主线是第 ${latestThrough} 章的`);
+            return [];
+        }
+        const known = new Set(latestArcs.map(arc => arc.id));
+        const updates = new Map<string, Consolidation["arcs"][number]>();
+        const created: Arc[] = [];
+        const seen = new Set<string>();
+        for (const arc of item.arcs) {
+            if (seen.has(arc.id)) {
+                issue("error", item.through, "arc", `故事线 ${arc.id}：同一次整理里写了两次`, {records: [arc.id]});
+                continue;
+            }
+            seen.add(arc.id);
+            if (known.has(arc.id)) {
+                for (const id of arc.episodes) has(episodes, id, item.through, `故事线 ${arc.id}`, {records: [arc.id]});
+                updates.set(arc.id, arc);
+                count(written, "arcs");
+                continue;
+            }
+            const fresh = newArc(arc, item.through, at);
+            if (fresh) created.push(fresh);
+        }
+        const carried = latestArcs.map(arc => {
+            const update = updates.get(arc.id);
+            if (!update) return {...arc, episodes: [...arc.episodes], through: item.through, at};
+            return {id: arc.id, title: update.title, summary: update.summary, episodes: [...new Set([...arc.episodes, ...update.episodes])], status: update.status, through: item.through, at};
+        });
+        return [...carried, ...created];
     }
     if (redirect.size) {
         const fix = (id: string) => resolve(id);
@@ -488,6 +544,8 @@ export function compile(book: Dataset["book"], sources: SourceChapter[], rawDraf
             item.by = item.by && fix(item.by);
         }
         for (const item of mentionNotes) item.entity = fix(item.entity);
+        // 合并之前写下的归纳也要跟过去：人物卡只认还在的对象，增量整理里没重写的方面要沿用（w00024 t12）。
+        for (const item of summaries) item.entity = fix(item.entity);
     }
 
     // ---- 程序生成的部分 ----

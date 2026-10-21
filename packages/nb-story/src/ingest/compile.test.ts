@@ -6,6 +6,7 @@
  */
 
 import {afterAll, describe, expect, test} from "bun:test";
+import {createHash} from "node:crypto";
 import {readFile} from "node:fs/promises";
 import {join} from "node:path";
 import {gunzipSync} from "node:zlib";
@@ -29,8 +30,13 @@ describe("迁移对照：100 章最终草稿重新编译", () => {
         // 样例书本来就带着这一处全图时间矛盾（审查记录），重新编译照样报出来，没有新增别的错误。
         expect(issues.filter(issue => issue.level === "error").map(issue => issue.code)).toEqual(["time"]);
 
-        const unchanged: (keyof Dataset)[] = ["schema", "book", "through", "sources", "times", "beats", "statements", "episodes", "knowledge", "ledger", "questions", "summaries", "arcs"];
+        const unchanged: (keyof Dataset)[] = ["schema", "book", "through", "sources", "times", "beats", "statements", "episodes", "knowledge", "ledger", "questions", "arcs"];
         for (const key of unchanged) expect({key, value: dataset[key]}).toEqual({key, value: sample[key]});
+
+        // 归纳：被后来合并掉的对象名下的旧归纳改记到合并后的对象上（t12），其余相同。样例书只有一条。
+        const redirected = sample.summaries.filter((summary, index) => dataset.summaries[index]!.entity !== summary.entity);
+        expect(redirected.map(summary => [summary.entity, dataset.entities.find(entity => entity.mergedFrom.includes(summary.entity))?.id])).toEqual([["e2-10", dataset.summaries[sample.summaries.indexOf(redirected[0]!)]!.entity]]);
+        expect(dataset.summaries.map(({entity: _entity, ...rest}) => rest)).toEqual(sample.summaries.map(({entity: _entity, ...rest}) => rest));
 
         // 对象：除了称呼的位置都相同；称呼只会从前面的章挪回模型标注的那一章。
         const withoutNameAt = (data: Dataset) => data.entities.map(entity => ({...entity, names: entity.names.map(({at: _at, ...name}) => name)}));
@@ -68,6 +74,23 @@ describe("迁移对照：100 章最终草稿重新编译", () => {
         expect(dataset.secrets.map(({at: _at, ...secret}) => secret)).toEqual(sample.secrets.map(({at: _at, ...secret}) => secret));
         for (const secret of sample.secrets) expect(comparePosition(dataset.secrets.find(item => item.id === secret.id)!.at, secret.at)).toBeGreaterThanOrEqual(0);
     }, 30_000);
+
+    // 旧的整批整理稿（没有 `base`）在每个前缀上编出的书与 t12 开工前相同（含 stats）；只有归纳的 `entity` 按合并改记，
+    // 摘要里去掉它，单独核对改记的都是被合并掉的对象（基线由 t12 的 scripts/compile-baseline.ts 用改前的代码生成）。
+    test("旧的整批整理稿在各前缀上编出的书与 t12 之前相同", async () => {
+        const sample = await sampleDataset();
+        const final = JSON.parse(gunzipSync(await readFile(FINAL)).toString("utf8")) as {drafts: unknown[]; consolidations: {through: number}[]};
+        const baseline = JSON.parse(await readFile(join(import.meta.dir, "..", "..", "tests", "fixtures", "ingest", "compile-t11.json"), "utf8")) as {prefixes: Record<string, string>; summaryEntities: string[]};
+        for (let through = 5; through <= 100; through += 5) {
+            const {dataset} = compile(sample.book, sample.sources.filter(item => item.chapter <= through), final.drafts.slice(0, through), final.consolidations.filter(item => item.through <= through));
+            const stripped = {...dataset, summaries: dataset.summaries.map(({entity: _entity, ...rest}) => rest)};
+            expect({through, sha256: createHash("sha256").update(JSON.stringify(stripped)).digest("hex")}).toEqual({through, sha256: baseline.prefixes[String(through)]!});
+            dataset.summaries.forEach((summary, index) => {
+                const before = baseline.summaryEntities[index]!;
+                if (summary.entity !== before) expect({before, mergedInto: dataset.entities.find(entity => entity.id === summary.entity)?.mergedFrom.includes(before)}).toEqual({before, mergedInto: true});
+            });
+        }
+    }, 60_000);
 
     // 抽取每提交一章要把已抽的部分整本编译三四次。100 章原来一次二三十秒（每段对每个称呼都扫一遍），改后一秒以内；
     // 上限给机器负载留足余量，只挡住每段的工作又随称呼总数增长的写法（t09）。
@@ -157,5 +180,95 @@ describe("时间点的先后矛盾", () => {
         const {issues} = compile({id: "t", title: "t"}, sources, drafts);
         const cycle = issues.filter(issue => issue.level === "error" && issue.code === "time");
         expect(cycle.map(issue => [issue.chapter, issue.records])).toEqual([[null, ["t1-1", "t2-1"]]]);
+    });
+});
+
+/**
+ * 四章的小书，每章一个时间点、一段情节（p1-1 到 p4-1）。第 1 章的“林晚”（e1-1）在第 3 章又建了一个（e3-1），可以合并。
+ * 整理稿由调用方给。
+ */
+function arcBook(consolidations: unknown[]): {dataset: Dataset; errors: string[]} {
+    const sources = [1, 2, 3, 4].map(n => sourceChapter(n, `第${n}章`, [`第${n}章`, `林晚做第${n}件事。`]));
+    const drafts = [1, 2, 3, 4].map(n => ({
+        chapter: n,
+        times: [{id: `t${n}-1`, label: `第${n}天早晨`, day: n, part: "morning", at: [`${n}.2`]}],
+        beats: [{id: `b${n}-1`, from: 1, to: 2, gist: `第${n}件事。`, time: `t${n}-1`}],
+        ...(n === 1 || n === 3 ? {entities: [{id: `e${n}-1`, kind: "person", label: "做事的人", at: `${n}.2`, names: [{text: "林晚", at: `${n}.2`, primary: true}]}]} : {}),
+        statements: [{id: `s${n}-1`, text: `林晚做了第${n}件事`, family: "event", about: [n >= 3 ? "e3-1" : "e1-1"], src: {at: [`${n}.2`], ch: "narrator"}}],
+        episodes: [{id: `p${n}-1`, title: `第${n}件事`, summary: `林晚做第${n}件事。`, at: [`${n}.2`], time: `t${n}-1`, who: [{e: n >= 3 ? "e3-1" : "e1-1"}]}],
+    }));
+    const {dataset, issues} = compile({id: "arcs", title: "小书"}, sources, drafts, consolidations);
+    return {dataset, errors: issues.filter(issue => issue.level === "error").map(issue => issue.message)};
+}
+
+const arc = (id: string, title: string, episodes: string[], status: "ongoing" | "closed" = "ongoing") => ({id, title, summary: `${title}的概括。`, episodes, status});
+
+describe("增量整理稿合成一批主线（输出 5，queries 输出 1、13）", () => {
+    let book: TestBook;
+    afterAll(async () => {
+        await book?.close();
+    });
+
+    test("沿用编号的是更新，没写到的照带，新编号是新主线；较早的位置看到旧版本", async () => {
+        const {dataset, errors} = arcBook([
+            {through: 2, base: 0, arcs: [arc("a2-1", "主线甲", ["p1-1"]), arc("a2-2", "主线乙", ["p2-1"]), arc("a2-3", "主线丁", ["p2-1"])]},
+            // a2-1 追加 p3-1 并结束；a2-2 不加情节、只改概括与状态；a2-3 没写到，照带；a4-1 是新主线。
+            {through: 4, base: 2, arcs: [arc("a2-1", "主线甲（续）", ["p3-1", "p1-1"], "closed"), {...arc("a2-2", "主线乙", [], "closed"), summary: "乙结束了。"}, arc("a4-1", "主线丙", ["p4-1"])]},
+        ]);
+        expect(errors).toEqual([]);
+        expect(dataset.stats.written.arcs).toBe(6);
+        book = await openTestBook("ingest-arcs", dataset);
+        const arcsAt = async (chapter: number) => {
+            const result = await book.ok("arcs.list", {book: "fox", at: {chapter}});
+            return {through: result.through, arcs: result.arcs.map(item => [item.id, item.title, item.summary, item.status, item.episodes.join(",")])};
+        };
+        const early = {through: 2, arcs: [["a2-1", "主线甲", "主线甲的概括。", "ongoing", "p1-1"], ["a2-2", "主线乙", "主线乙的概括。", "ongoing", "p2-1"], ["a2-3", "主线丁", "主线丁的概括。", "ongoing", "p2-1"]]};
+        expect(await arcsAt(2)).toEqual(early);
+        expect(await arcsAt(3)).toEqual(early);
+        expect(await arcsAt(4)).toEqual({
+            through: 4,
+            arcs: [
+                ["a2-1", "主线甲（续）", "主线甲（续）的概括。", "closed", "p1-1,p3-1"],
+                ["a2-2", "主线乙", "乙结束了。", "closed", "p2-1"],
+                ["a2-3", "主线丁", "主线丁的概括。", "ongoing", "p2-1"],
+                ["a4-1", "主线丙", "主线丙的概括。", "ongoing", "p4-1"],
+            ],
+        });
+        const episodeArcs = async (chapter: number) => (await book.ok("episodes.list", {book: "fox", at: {chapter}})).items.map(item => [item.id, item.arcs.join(",")]);
+        expect(await episodeArcs(3)).toEqual([["p1-1", "a2-1"], ["p2-1", "a2-2,a2-3"], ["p3-1", ""]]);
+        expect(await episodeArcs(4)).toEqual([["p1-1", "a2-1"], ["p2-1", "a2-2,a2-3"], ["p3-1", "a2-1"], ["p4-1", "a4-1"]]);
+        const arcLabel = async (chapter: number) => (await book.ok("graph.book", {book: "fox", at: {chapter}})).nodes.find(node => node.id === "a2-1")?.label;
+        expect(await arcLabel(3)).toBe("主线甲");
+        expect(await arcLabel(4)).toBe("主线甲（续）");
+    });
+
+    test("接错了批、引用不存在的编号、同一次写两次、新主线没有情节，都报错", () => {
+        const first = {through: 2, base: 0, arcs: [arc("a2-1", "主线甲", ["p1-1"])]};
+        expect(arcBook([first, {through: 4, base: 0, arcs: []}]).errors).toEqual(["整理稿接着第 0 章的主线，但最近一批主线是第 2 章的"]);
+        expect(arcBook([first, {through: 4, base: 2, arcs: [arc("a3-7", "主线戊", ["p3-1"])]}]).errors).toEqual(["故事线 a3-7：编号里的章号应为 4"]);
+        expect(arcBook([first, {through: 4, base: 2, arcs: [arc("a2-1", "主线甲", ["p3-1"]), arc("a2-1", "主线甲", ["p4-1"])]}]).errors).toEqual(["故事线 a2-1：同一次整理里写了两次"]);
+        expect(arcBook([first, {through: 4, base: 2, arcs: [arc("a4-1", "主线戊", [])]}]).errors).toEqual(["故事线 a4-1：新主线没有情节"]);
+    });
+
+    test("旧的整批稿、0 条主线的旧批之后，增量接着最近一批有主线的", () => {
+        const {dataset, errors} = arcBook([{through: 2, arcs: [arc("a2-1", "主线甲", ["p1-1"])]}, {through: 3, arcs: []}, {through: 4, base: 2, arcs: [arc("a2-1", "主线甲", ["p3-1"])]}]);
+        expect(errors).toEqual([]);
+        expect(dataset.arcs.filter(item => item.through === 4).map(item => [item.id, item.episodes])).toEqual([["a2-1", ["p1-1", "p3-1"]]]);
+        expect(arcBook([{through: 2, arcs: [arc("a2-1", "主线甲", ["p1-1"])]}, {through: 3, arcs: []}, {through: 4, base: 3, arcs: []}]).errors).toEqual(["整理稿接着第 3 章的主线，但最近一批主线是第 2 章的"]);
+    });
+
+    test("先写的归纳在对象被后来合并后仍在合并后的对象上", async () => {
+        const {dataset, errors} = arcBook([
+            {through: 2, base: 0, summaries: [{entity: "e1-1", facet: "overview", items: [{text: "林晚是个做事的人。", deps: ["s1-1"]}]}]},
+            {through: 4, base: 0, merges: [{keep: "e3-1", drop: "e1-1", reason: "第 3 章重复建了林晚"}]},
+        ]);
+        expect(errors).toEqual([]);
+        const merged = await openTestBook("ingest-merged-summary", dataset);
+        try {
+            const card = await merged.ok("entity.card", {book: "fox", entity: "e3-1", at: {chapter: 4}});
+            expect(card.facets.map(facet => [facet.facet, facet.items])).toEqual([["overview", ["林晚是个做事的人。"]]]);
+        } finally {
+            await merged.close();
+        }
     });
 });

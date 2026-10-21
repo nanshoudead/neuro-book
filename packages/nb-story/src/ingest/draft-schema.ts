@@ -241,12 +241,19 @@ const SummaryItemSchema = Type.Object({
     deps: Type.Array(Type.Union([statementId, episodeId, knowledgeId, ledgerId]), {minItems: 1}),
 }, strict);
 
-/** 每隔若干章做一次的整理：合并重复对象、写对象摘要、归纳故事线。 */
+/**
+ * 每隔若干章做一次的整理：合并重复对象、写对象摘要、归纳故事线。
+ *
+ * 两种写法（docs/specs/story/ingest.md 输出 7）：没有 `base` 的是 t12 之前的整批稿，`arcs` 就是这一批的全部主线；有
+ * `base` 的是增量稿，`base` 是它接着的那一批主线的章号（还没有主线时为 0），`arcs` 里沿用那一批编号的是更新（`episodes`
+ * 只写新归入的，可以为空），其余是新主线（至少一段情节，由编译检查）。`base` 由程序写入，不是模型写的。
+ */
 export const ConsolidationSchema = Type.Object({
     through: chapterNo,
+    base: Type.Optional(Type.Integer({minimum: 0})),
     merges: list(Type.Object({keep: entityId, drop: entityId, reason: text}, strict)),
     summaries: list(Type.Object({entity: entityId, facet: oneOf(FACETS), items: Type.Array(SummaryItemSchema, {minItems: 1})}, strict)),
-    arcs: list(Type.Object({id: arcId, title: text, summary: text, episodes: Type.Array(episodeId, {minItems: 1}), status: oneOf(["ongoing", "closed"] as const)}, strict)),
+    arcs: list(Type.Object({id: arcId, title: text, summary: text, episodes: Type.Array(episodeId), status: oneOf(["ongoing", "closed"] as const)}, strict)),
 }, strict);
 
 export type ChapterDraft = Static<typeof ChapterDraftSchema>;
