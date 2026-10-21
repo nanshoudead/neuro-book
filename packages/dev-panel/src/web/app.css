@@ -22,18 +22,9 @@
     }
 
     /*
-     * 滚动条（t15，D3：先放在面板自己这里）。整页不滚：外壳铺满视口，滚的是左栏、`main` 或铺满型页面里的分栏，
-     * 所以 html 不预留槽位。
-     * 只用标准属性：Chrome 121 以后设了它们，`::-webkit-scrollbar` 就被忽略；thin 实际约 10 到 11px。
-     * 滑块颜色从 --text-muted 派生、随明暗换；指针在容器上时加深（标准属性没有“悬停在滑块上”）。
+     * 滚动条：整页不滚，外壳铺满视口，滚的是左栏、`main` 或铺满型页面里的分栏，所以 html 不预留槽位。
+     * 细滚动条由 index.html 的根元素挂 nb-ui-scrollbar-thin 统一给出。
      */
-    * {
-        scrollbar-width: thin;
-        scrollbar-color: color-mix(in srgb, var(--text-muted) 55%, transparent) transparent;
-    }
-    *:hover {
-        scrollbar-color: var(--text-muted) transparent;
-    }
 
     body {
         margin: 0;

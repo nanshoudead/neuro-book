@@ -22,11 +22,6 @@
         color: var(--text-main);
         font-family: var(--font-ui, system-ui, sans-serif);
     }
-
-    * {
-        scrollbar-width: thin;
-        scrollbar-color: color-mix(in srgb, var(--text-muted) 55%, transparent) transparent;
-    }
 }
 
 #app {

@@ -21,6 +21,25 @@
     display: none;
 }
 
+/*
+ * 原生细滚动条：宿主在根元素上挂这个类，整个应用的原生滚动条统一取 `--scrollbar-thumb`（指针在容器上时取
+ * `--scrollbar-thumb-hover`，标准属性没有“悬停在滑块上”），不必各抄一段 `* { scrollbar-width… }`。
+ * `scrollbar-width` 不继承，所以后代要一起写；`scrollbar-color` 虽然继承，也写在后代上，中间某层祖先自己设了别的颜色时
+ * 不会漏到下面的滚动元素。
+ * 选择器全部包在 `:where()` 里，特异性为 0（`:hover` 也算一个类，所以悬停那条整条包进去）：元素自己的
+ * `.nb-ui-scrollbar-none`、原子类与组件的 scoped 样式都盖得过它，要在某处隐藏或换颜色不必提高特异性。
+ * 只写标准属性，不写 `::-webkit-scrollbar`：Chrome 121 以后设了标准属性，它就被忽略。
+ */
+:where(.nb-ui-scrollbar-thin),
+:where(.nb-ui-scrollbar-thin) * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+:where(.nb-ui-scrollbar-thin *:hover) {
+    scrollbar-color: var(--scrollbar-thumb-hover) transparent;
+}
+
 .nb-ui-colorway {
     color-scheme: var(--color-scheme, light dark);
 }

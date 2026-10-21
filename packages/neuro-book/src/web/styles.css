@@ -20,11 +20,6 @@
     html {
         scrollbar-gutter: stable;
     }
-
-    * {
-        scrollbar-width: thin;
-        scrollbar-color: var(--text-muted) transparent;
-    }
 }
 
 /*

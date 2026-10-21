@@ -48,20 +48,24 @@ export const nbElevationTokens = ["--elevation-flat", "--elevation-popover", "--
 /** 动效：prefers-reduced-motion 时时长全部降为 0 */
 export const nbMotionTokens = ["--motion-fast", "--motion-base", "--motion-enter", "--motion-reveal-in", "--motion-reveal-hold", "--motion-reveal-out", "--ease-standard"] as const;
 
-/** 五组 token 的合集 */
+/** 滚动条：自绘滑块与原生细滚动条共用的颜色（三档）与自绘滑块的粗细 */
+export const nbScrollbarTokens = ["--scrollbar-thumb", "--scrollbar-thumb-hover", "--scrollbar-thumb-active", "--scrollbar-w"] as const;
+
+/** 六组 token 的合集 */
 export const nbDesignTokens = [
     ...nbTypographyTokens,
     ...nbSpacingTokens,
     ...nbRadiusTokens,
     ...nbElevationTokens,
     ...nbMotionTokens,
+    ...nbScrollbarTokens,
 ] as const;
 
 export type NbDesignToken = typeof nbDesignTokens[number];
 
 /*
  * ── 主题层 ──────────────────────────────────────────────────────────────────
- * 上面五组是草案 §4 的设计 token。下面三组是**主题层基线**：主题负责填的变量，
+ * 上面六组是草案 §4 的设计 token。下面三组是**主题层基线**：主题负责填的变量，
  * 默认取值同样在 src/tokens.css 的 :root 里（--font-display 在 src/theme.css），主题在 :root[data-nb-theme="<id>"] 覆盖。
  *
  * 分成两批登记而不是合成一张表，是因为它们回答的问题不同：

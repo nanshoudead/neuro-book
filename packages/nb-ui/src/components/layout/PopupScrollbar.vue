@@ -20,7 +20,7 @@ defineProps<{
     >
         <div
             class="pointer-events-auto w-1 cursor-pointer rounded-full transition-colors [transition-duration:var(--motion-fast)]"
-            :class="scroll.dragging.value ? 'bg-[color-mix(in_srgb,var(--text-main)_75%,transparent)]' : 'bg-[color-mix(in_srgb,var(--text-main)_45%,transparent)] hover:bg-[color-mix(in_srgb,var(--text-main)_70%,transparent)]'"
+            :class="scroll.dragging.value ? 'bg-[var(--scrollbar-thumb-active)]' : 'bg-[var(--scrollbar-thumb)] hover:bg-[var(--scrollbar-thumb-hover)]'"
             :style="{height: `${scroll.thumbHeight.value}px`, transform: `translateY(${scroll.thumbTop.value}px)`}"
             data-popup-scrollbar-thumb
             @pointerdown="scroll.startDrag"

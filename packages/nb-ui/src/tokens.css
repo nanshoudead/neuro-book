@@ -81,6 +81,22 @@
     --motion-reveal-out: 800ms;
     --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 
+    /*
+     * 滚动条：自绘滑块（OverlayScrollbar、ScrollArea、PopupScrollbar）与原生细滚动条（.nb-ui-scrollbar-thin）共用
+     * 一组颜色，改这里就能统一调整应用里所有滚动条的观感。颜色从 --text-main 派生，随明暗换。
+     * 取值是应用主滚动条（OverlayScrollbar）原来的：它占的面积最大，别处向它看齐。
+     * 原生滚动条只有一个“滑块”色，hover 与 active 两档只给自绘滑块用（原生没有“悬停在滑块上”的选择器）。
+     */
+    --scrollbar-thumb: color-mix(in srgb, var(--text-main) 32%, transparent);
+    --scrollbar-thumb-hover: color-mix(in srgb, var(--text-main) 45%, transparent);
+    /* 拖动中的滑块。 */
+    --scrollbar-thumb-active: color-mix(in srgb, var(--text-main) 55%, transparent);
+    /*
+     * OverlayScrollbar 滑块的粗细（轨道宽是它加 4px，滑块靠右留 2px）。ScrollArea 的轨道尺寸写死；
+     * 弹出列表里的 PopupScrollbar 有意只有 4px，免得压住菜单项，两者不取它。
+     */
+    --scrollbar-w: 6px;
+
     /* ==== 主题层基线 ========================================================
      * 以下是**主题**（见 src/theme/）负责填的那批变量的默认取值。
      * 默认口径 = 当前 nb-ui 的做法，所以「一个主题都没装」时界面照样成立——

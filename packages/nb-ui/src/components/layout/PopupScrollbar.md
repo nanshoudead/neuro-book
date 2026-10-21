@@ -9,7 +9,7 @@
 
 ## 布局
 
-4px 宽的胶囊，离外框右边 3px，轨道上下各让出 6px，与滚动视口同高；只在视口可滚动时出现。滑块叠在外框上，视口在可滚动时右侧让出 6px，滑块不压在项的高亮与快捷键上。外框必须是定位元素，并且与视口是同一个 offsetParent。
+4px 宽的胶囊，离外框右边 3px；宽度写死、不取 `--scrollbar-w`：弹层里有意比应用主滚动条（`OverlayScrollbar`）更窄，免得压住菜单项。轨道上下各让出 6px，滑块最短 20px；颜色取 `--scrollbar-thumb`，悬停 `--scrollbar-thumb-hover`，拖动 `--scrollbar-thumb-active`，几何与 `OverlayScrollbar` 共用 `utils/scrollbar-geometry`；只在视口可滚动时出现。滑块叠在外框上，视口在可滚动时右侧让出 6px，滑块不压在项的高亮与快捷键上。外框必须是定位元素，并且与视口是同一个 offsetParent。
 
 ## 交互
 
