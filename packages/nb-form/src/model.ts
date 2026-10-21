@@ -17,8 +17,10 @@ export type {ChoiceValue, FormChoice, FormHints, VisibleWhen} from "./hints";
 
 /** 字段树展开的最深层数；更深的部分用 JSON 编辑，递归的 schema 也在这里停下。 */
 export const MAX_DEPTH = 6;
-/** 单选不超过这么多项时排成一行：都没有说明用分段控件，有说明用横排单选组。 */
+/** 单选不超过这么多项时排成一行：都没有说明、名字都短用分段控件，否则用横排单选组。 */
 export const INLINE_CHOICE_LIMIT = 3;
+/** 分段控件各段等宽、取最长一段的宽度：名字长于这么多个字符（任何一种语言）时改用横排单选组。 */
+export const SEGMENT_LABEL_LIMIT = 16;
 /** 单选多于这么多项时用可搜索的下拉。 */
 export const SEARCH_LIMIT = 15;
 
@@ -206,6 +208,16 @@ export function widgetHonored(node: FieldNode): boolean {
     return node.widget === asked;
 }
 
+/**
+ * 一项能不能放进分段控件的一段：一段里只放得下名字，有说明或推荐标记（写在说明里）的要用单选组才画得出来；各段等宽，
+ * 一项名字长了整组都跟着变宽。按所有语言里最长的那份量，同一份描述在各语言下选同一种控件。
+ */
+function fitsSegment(choice: FormChoice): boolean {
+    if (choice.description !== undefined) return false;
+    const names = typeof choice.label === "string" ? [choice.label] : Object.values(choice.label);
+    return names.every((name) => [...name].length <= SEGMENT_LABEL_LIMIT);
+}
+
 /** 没写控件（或写的是 `list`）时每种种类的画法。 */
 function defaultWidget(kind: Exclude<FieldKind, "text">, hints: FormHints, choices: ReadonlyArray<FormChoice>): BuiltinWidget {
     switch (kind) {
@@ -217,8 +229,7 @@ function defaultWidget(kind: Exclude<FieldKind, "text">, hints: FormHints, choic
             if (hints.options !== undefined) return "select";
             if (choices.length > SEARCH_LIMIT) return "search-select";
             if (choices.length > INLINE_CHOICE_LIMIT) return "select";
-            // 分段控件的一段里只放得下选项名；有说明或推荐标记（写在说明里）的要用单选组才画得出来。
-            return choices.some((choice) => choice.description !== undefined) || (hints.recommend?.length ?? 0) > 0 ? "radio-row" : "segmented";
+            return choices.every(fitsSegment) && (hints.recommend?.length ?? 0) === 0 ? "segmented" : "radio-row";
         case "multi":
             return "checkboxes";
         case "number":

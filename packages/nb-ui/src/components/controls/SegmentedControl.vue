@@ -164,13 +164,12 @@ function handleKeydown(event: KeyboardEvent): void {
         :aria-readonly="props.readonly || undefined"
         :aria-disabled="props.disabled || undefined"
         class="relative max-w-full items-stretch rounded-[var(--radius-control)] border-[length:var(--border-w)] border-[color-mix(in_srgb,var(--border-color)_50%,transparent)] bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] p-[2px] select-none box-border outline-none"
-        :class="[segmentLayoutClass, isInvalid ? '!border-[color:var(--status-danger)]' : '']"
+        :class="[segmentLayoutClass, isInvalid ? '!border-[color:var(--status-danger)]' : '', props.disabled ? 'opacity-45' : '']"
         @keydown="handleKeydown"
     >
         <!-- 舒缓平滑滑动背景指示块（单选且选项固定等分时连续 GPU 硬件滑动） -->
         <div
             v-if="selectedIndex >= 0 && !props.wrap"
-            :class="props.disabled ? 'opacity-45' : ''"
             class="absolute top-[2px] bottom-[2px] left-[2px] rounded-[max(2px,calc(var(--radius-control)-2px))] bg-[var(--accent-main)] text-[var(--text-inverse)] shadow-[0_2px_8px_color-mix(in_srgb,var(--accent-main)_38%,transparent),0_0_0_1px_color-mix(in_srgb,var(--accent-main)_30%,transparent)] pointer-events-none transition-[transform,width,background-color,color,box-shadow] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] will-change-transform"
             :style="{
                 width: `calc((100% - 4px) / ${props.options.length})`,
@@ -191,7 +190,7 @@ function handleKeydown(event: KeyboardEvent): void {
             :aria-label="option.title || option.label || undefined"
             :title="option.title || option.label"
             :data-testid="option.testId"
-            class="nb-ui-focus-ring relative z-10 inline-flex min-w-0 items-center justify-center gap-1.5 rounded-[max(2px,calc(var(--radius-control)-2px))] [font-weight:var(--weight-medium)] transition-[color,transform,opacity] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent"
+            class="nb-ui-focus-ring relative z-10 inline-flex min-w-0 items-center justify-center gap-1.5 rounded-[max(2px,calc(var(--radius-control)-2px))] [font-weight:var(--weight-medium)] transition-[color,transform,opacity] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] disabled:cursor-not-allowed disabled:hover:bg-transparent"
             :class="[
                 props.wrap ? 'flex-1' : '',
                 props.size === 'xs'
@@ -200,6 +199,8 @@ function handleKeydown(event: KeyboardEvent): void {
                 isSelected(option)
                     ? 'text-[var(--text-inverse)] font-semibold'
                     : props.readonly ? 'text-[var(--text-muted)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]',
+                // 整组停用时只在根上降一次透明度（同单选组的 45%），各项不再各自变淡：两层叠起来选中块上的字读不出来。
+                option.disabled === true && !props.disabled ? 'opacity-35' : '',
                 // 只读不画成可点：悬停不变色、按下不缩。
                 props.readonly ? 'cursor-default' : 'cursor-pointer not-disabled:active:scale-[0.96]',
             ]"
