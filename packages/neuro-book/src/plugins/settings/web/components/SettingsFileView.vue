@@ -281,8 +281,9 @@ function onKeydown(event: KeyboardEvent): void {
                 <label :for="textareaId" class="settings-file__label">{{ text(TEXT.label, {layer: text(layer === "user" ? TEXT.user : TEXT.project)}) }}</label>
                 <span v-if="dirty" class="settings-file__unsaved" data-settings-file-unsaved>{{ text(TEXT.unsaved) }}</span>
                 <span class="settings-file__spacer" />
-                <Button size="sm" :disabled="saving || unreachable || !dirty" @click="save">{{ text(TEXT.save) }}</Button>
+                <!-- 主按钮在最右，与 page 页面的草稿操作行同一顺序。 -->
                 <Button size="sm" variant="secondary" :disabled="saving || !dirty" @click="discard">{{ text(TEXT.discard) }}</Button>
+                <Button size="sm" :disabled="saving || unreachable || !dirty" @click="save">{{ text(TEXT.save) }}</Button>
             </div>
             <p v-if="changedElsewhere" class="settings-file__notice settings-file__notice--warning" role="status" data-settings-file-changed>
                 <span>{{ text(TEXT.changedElsewhere) }}</span>
