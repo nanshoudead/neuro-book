@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>t06 设置界面外观评审板</title>
+<style>
+:root {
+  --bg: #f7f6f2; --panel: #ffffff; --text: #1f2328; --muted: #6b6f76; --line: #e3e1da;
+  --accent: #0a66d8; --warn: #b45309; --warn-bg: #fff4e0; --ok: #1a7f37; --ok-bg: #e8f5ec; --bad: #b42318; --bad-bg: #fdecea;
+  --code-bg: #f2f1ec;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1b1c1f; --panel: #24262a; --text: #e6e6e6; --muted: #9a9ca1; --line: #34363b;
+    --accent: #5aa2ff; --warn: #f0b35a; --warn-bg: #3a2c16; --ok: #5fd07e; --ok-bg: #183222; --bad: #ff8a80; --bad-bg: #3a1c1a; --code-bg: #2c2e33; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 32px 16px 80px; }
+h1 { font-size: 26px; margin: 0 0 4px; }
+h2 { font-size: 20px; margin: 48px 0 12px; padding-top: 16px; border-top: 1px solid var(--line); }
+h3 { font-size: 16px; margin: 24px 0 8px; }
+p, li { max-width: 880px; }
+.sub { color: var(--muted); margin: 0 0 24px; }
+.toc { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 20px; }
+.toc a { color: var(--accent); text-decoration: none; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; margin: 12px 0; }
+.rec { border-left: 3px solid var(--accent); padding: 4px 0 4px 12px; margin: 12px 0; }
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); margin: 12px 0; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+figure a { display: block; }
+figure img { display: block; width: 100%; height: auto; }
+figcaption { padding: 8px 12px; font-size: 13px; color: var(--muted); }
+figcaption b { color: var(--text); }
+table { border-collapse: collapse; width: 100%; background: var(--panel); border: 1px solid var(--line); font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+th { background: var(--code-bg); font-weight: 600; }
+code { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 13px; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { background: var(--code-bg); border-radius: 8px; padding: 12px 14px; overflow-x: auto; font-size: 13px; line-height: 1.55; }
+pre code { background: none; padding: 0; }
+.tag { display: inline-block; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 0 9px; white-space: nowrap; }
+.ok { color: var(--ok); background: var(--ok-bg); }
+.warn { color: var(--warn); background: var(--warn-bg); }
+.bad { color: var(--bad); background: var(--bad-bg); }
+</style>
+</head>
+<body>
+<main>
+<h1>t06 设置界面外观评审板</h1>
+<p class="sub">w00027 t06（设置界面的样式收口），2026-10-21 起。待定的问题放最上面；现在只有现状与参照，第一轮静态稿出来后加在上面。截图取自 Work 分支 <code>feat/w00027-plugin-platform</code>（t02 合入后）的 Component Lab，画布 1200×800。点图看原图。</p>
+
+<div class="toc">
+<b>目录</b>
+<ol>
+<li><a href="#now">现状</a></li>
+<li><a href="#diff">与 t80 定稿的差别、t80 之后新增的界面</a></li>
+<li><a href="#ref">参照：w00017 t80 的定稿</a></li>
+<li><a href="#todo">已记下要一并收口的</a></li>
+</ol>
+</div>
+
+<h2 id="now">1. 现状</h2>
+<div class="grid">
+<figure><a href="r0/now-user.webp"><img src="r0/now-user.webp" alt="外观分区"></a><figcaption><b>外观（list 分区）</b>：三项以内的选项现在是横排单选圆钮；“明暗”改过（左边竖线、后面恢复默认），下面一行是本作品单独设值的提示。</figcaption></figure>
+<figure><a href="r0/now-other.webp"><img src="r0/now-other.webp" alt="其它分区"></a><figcaption><b>其它（list 分区）</b>：小组标题是插件 id <code>example.notes</code>；单行输入定宽 320、下拉 220、数字 120，右边缘参差；字符串列表另起一行占满。</figcaption></figure>
+<figure><a href="r0/now-page-fill.webp"><img src="r0/now-page-fill.webp" alt="模型服务"></a><figcaption><b>模型服务（Lab 的 fill 页面样板）</b>：“保存”“放弃改动”靠右悬在分隔线上，离服务商列表远；详情是带边框的卡片，随整页滚动。</figcaption></figure>
+<figure><a href="r0/now-page-column.webp"><img src="r0/now-page-column.webp" alt="常用片段"></a><figcaption><b>常用片段（column 页面）</b>：插件用 SettingsRow 自己排的一行，与 list 分区的行不完全一样。</figcaption></figure>
+<figure><a href="r0/now-file.webp"><img src="r0/now-file.webp" alt="设置文件"></a><figcaption><b>设置文件</b>（t02 新增）：灰底等宽文本框占满内容列，上方一行“设置文件（用户）”加保存、放弃。</figcaption></figure>
+<figure><a href="r0/now-user-invalid.webp"><img src="r0/now-user-invalid.webp" alt="设置文件有错误"></a><figcaption><b>设置文件有错误</b>：分区标题下一行警告加“打开设置文件”，控件整体停用。</figcaption></figure>
+<figure><a href="r0/now-choices-unavailable.webp"><img src="r0/now-choices-unavailable.webp" alt="选项来源不可用"></a><figcaption><b>动态选项不可用</b>（t02 新增）：下拉停用，下面两行灰字，里面有给开发者看的来源 id。</figcaption></figure>
+<figure><a href="r0/flow-search-results.webp"><img src="r0/flow-search-results.webp" alt="搜索"></a><figcaption><b>搜索</b>（t02 新增，窄窗口）：左栏顶部的搜索框，搜索时右边换成“搜索结果”。</figcaption></figure>
+<figure><a href="r0/flow-leave-dialog.webp"><img src="r0/flow-leave-dialog.webp" alt="放弃改动确认"></a><figcaption><b>放弃未保存的改动</b>（t02 新增，深色）：nb-ui 的确认框。</figcaption></figure>
+<figure><a href="r0/now-narrow.webp"><img src="r0/now-narrow.webp" alt="窄窗口"></a><figcaption><b>窄窗口</b>（600px 以下）：左栏变成横排一行，搜索框整行。</figcaption></figure>
+</div>
+
+<h2 id="diff">2. 与 t80 定稿的差别、t80 之后新增的界面</h2>
+<table>
+<tr><th>位置</th><th>现在</th><th>来源</th></tr>
+<tr><td>三项以内的选项</td><td>横排单选组；t80 稿是分段控件</td><td>t07 S5 按 nb-ui 的“同类零件的分工”改，当时说外观交给 t06</td></tr>
+<tr><td>左栏顶部搜索框、底部“设置文件”</td><td>与分区同宽的搜索框；分区列表最后固定一项</td><td>t02 S4、S5，没有出稿</td></tr>
+<tr><td>左栏选中项</td><td>键盘焦点留在选中项上时，底色和 2px 焦点环同时出现，比稿子重</td><td>实现</td></tr>
+<tr><td>分区标题与小组标题</td><td>18px 粗体与 12px 粗体，差距大；分区说明和第一个小组挤在一起</td><td>实现</td></tr>
+<tr><td>“其它”的小组标题</td><td>插件 id，不是给用户看的名字</td><td>实现</td></tr>
+<tr><td>动态选项的“已不存在”、不可用</td><td>框里与框下各写一次“已不存在”；不可用时给出来源 id</td><td>t02 S3，nb-form 的通用写法</td></tr>
+<tr><td>设置文件、确认框、模型服务</td><td>见上面的图</td><td>t02 S4、S5、S7，没有出稿</td></tr>
+</table>
+
+<h2 id="ref">3. 参照：w00017 t80 的定稿</h2>
+<p>t80 评审板（r1–r4）里定下的结构现在基本照做了：浮动窗口 960×640、左栏分区、“用户 | 本作品”、标签列加控件列、宽控件另起一行。nbdev 里与设置有关的产物只有 t02 的 <a href="../../../t02-settings-completion/artifacts/settings-sections/index.html">settings-sections</a>（讲两种分区的画法，不是外观稿）；t80 的评审板早于 nbdev 的发布机制，不在 nbdev 里，<a href="../../../../../w00017-application-runtime-architecture/tasks/t80-settings-ui/artifacts/review/index.html">原板在这里</a>。</p>
+<div class="grid">
+<figure><a href="r0/t80-x1-appearance.webp"><img src="r0/t80-x1-appearance.webp" alt="t80 X1 外观"></a><figcaption><b>t80 第三轮 X1 外观</b>：选项用分段控件；左栏选中是浅底色。</figcaption></figure>
+<figure><a href="r0/t80-mixed-agent.webp"><img src="r0/t80-mixed-agent.webp" alt="t80 混合排法"></a><figcaption><b>t80 第四轮“混合”排法（开发者选定）</b>：简单控件在标签列右边，长文本另起一行占满。</figcaption></figure>
+</div>
+
+<h2 id="todo">4. 已记下要一并收口的</h2>
+<ul>
+<li>只读与可编辑看不出差别（开关、单选、下拉、文字逐像素相同），要一种统一的只读外观，不用变淡（变淡是停用）。来源 t07 S3 界面审查第 7 条。</li>
+<li>单行输入定宽 320，内容列窄时整行换到标题下面，同一分区两种对齐混在一起；“恢复默认”在窄宽度单独一行。来源 t07 S5 界面审查第 8 条。</li>
+<li>“模型服务”的服务商列表与详情要各自滚动，需要 nb-form 的左列表右详情能撑满父容器。来源 t02 界面审查第 6 条。</li>
+<li>fill 与 column 两份分区标题与层说明的模板，抽成一个组件（实现层面，不影响外观）。来源 t02 界面审查第 17 条。</li>
+</ul>
+</main>
+</body>
+</html>
