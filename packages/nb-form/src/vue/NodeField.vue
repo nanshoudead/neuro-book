@@ -145,9 +145,14 @@ const copyable = computed(() => {
 const viewEmpty = computed(() => !props.node.writeOnly && (value.value === undefined || value.value === null || value.value === ""));
 
 const control = computed<Component>(() => ("builtin" in resolved.value ? CONTROLS[resolved.value.builtin] : CustomControl));
+// `bare` 的对象没有外壳的标题可挂，左侧的层级线也不画：它的成员直接排在调用方的标题下面（设置页的详情区）。
 const controlProps = computed(() => ("custom" in resolved.value
     ? {custom: resolved.value.custom}
-    : {widget: resolved.value.builtin, ...(choices.value === undefined ? {} : {choices: choices.value})}));
+    : {
+        widget: resolved.value.builtin,
+        ...(choices.value === undefined ? {} : {choices: choices.value}),
+        ...(props.bare && resolved.value.builtin === "object" ? {flat: true} : {}),
+    }));
 const unit = computed(() => (widget.value === "number" ? resolveText(props.node.hints.unit, locale.value) : ""));
 const viewAsStructure = computed(() => STRUCTURE_WIDGETS.has(widget.value) && "builtin" in resolved.value);
 const controlRef = ref<Partial<DraftControl> & {focus?: () => void} | null>(null);

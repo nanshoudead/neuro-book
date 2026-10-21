@@ -63,6 +63,17 @@ describe("SchemaField", () => {
         expect(described).toEqual(["不能小于 8", "单位：px"]);
     });
 
+    it("bare 的对象：成员直接排开，不画左侧的层级线；不加 bare 时照常画", () => {
+        const schema = Type.Object({name: Type.String({title: "名称"})});
+        const bare = mount(SchemaField, {attachTo: document.body, props: {schema, modelValue: {name: "x"}, locale: "zh-CN", bare: true, labelledby: "heading"}});
+        mounted.push(bare);
+        expect(bare.get("[role='group']").classes()).toContain("nb-form-object--flat");
+        expect(bare.get("[role='group']").attributes("aria-labelledby")).toBe("heading");
+        const framed = mount(SchemaField, {attachTo: document.body, props: {schema, modelValue: {name: "x"}, locale: "zh-CN"}});
+        mounted.push(framed);
+        expect(framed.get("[role='group']").classes()).not.toContain("nb-form-object--flat");
+    });
+
     it("bare 的开关同样画出来，id 来自调用方", async () => {
         const wrapper = mount(SchemaField, {attachTo: document.body, props: {schema: Type.Boolean(), modelValue: true, locale: "zh-CN", bare: true, id: "autosave"}});
         mounted.push(wrapper);

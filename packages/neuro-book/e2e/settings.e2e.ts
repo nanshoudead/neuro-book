@@ -446,14 +446,16 @@ test("Lab“模型服务”：打开时才激活；加一家服务商没填好�
         await page.goto(`${dev.pageUrl}lab?c=SettingsWindow&s=page-fill`);
         const models = page.locator("[data-sample-models]");
         await expect(models).toBeVisible();
-        const items = models.locator("[data-nb-list-action='select']");
-        await expect(items).toHaveText(["DeepSeek", "本地 Ollama"]);
-        // 第一个“添加”是服务商列表的，详情里“模型”列表另有一个。
-        await models.locator("[data-nb-list-add]").first().click();
+        const items = models.getByRole("listbox", {name: "模型服务"}).getByRole("option");
+        await expect(items).toHaveCount(3);
+        await expect(items.nth(0)).toContainText("常规");
+        await expect(items.nth(1)).toContainText("DeepSeek");
+        // 新加的一家服务商随即选中，右边是它的字段。
+        await models.locator("[data-sample-models-add]").click();
         await expect(page.locator("[data-sample-models-actions]").getByRole("button", {name: "保存"})).toBeEnabled();
         await page.locator("[data-sample-models-actions]").getByRole("button", {name: "保存"}).click();
         await expect(page.locator("[data-sample-models-failure]")).toContainText("还没保存");
-        const detail = models.locator("[data-nb-detail]");
+        const detail = models.locator("[data-sample-models-detail]");
         await detail.getByLabel("标识").fill("openai");
         await detail.getByLabel("名称").fill("OpenAI");
         await detail.getByLabel("接口地址").fill("https://api.openai.com/v1");
@@ -461,7 +463,8 @@ test("Lab“模型服务”：打开时才激活；加一家服务商没填好�
         await detail.getByLabel("超时").blur();
         await page.locator("[data-sample-models-actions]").getByRole("button", {name: "保存"}).click();
         await expect(page.locator("[data-sample-models-actions]").getByRole("button", {name: "保存"})).toBeDisabled();
-        await expect(items).toHaveText(["DeepSeek", "本地 Ollama", "OpenAI"]);
+        await expect(items).toHaveCount(4);
+        await expect(items.nth(3)).toContainText("OpenAI");
 
         await detail.getByLabel("名称").fill("OpenAI 官方");
         await detail.getByLabel("名称").blur();

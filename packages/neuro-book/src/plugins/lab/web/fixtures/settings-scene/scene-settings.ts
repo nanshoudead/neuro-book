@@ -84,7 +84,7 @@ export const modelsSettings = {
         title: text("服务商", "Providers"),
         layers: ["user"],
         section: MODELS_SECTION,
-        ui: {widget: "master-detail", itemLabel: "name"},
+        ui: {itemLabel: "name"},
     }),
     defaultModel: defineSetting({
         plugin: "example.models",
