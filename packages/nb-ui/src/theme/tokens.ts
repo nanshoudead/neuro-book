@@ -49,7 +49,7 @@ export const nbElevationTokens = ["--elevation-flat", "--elevation-popover", "--
 export const nbMotionTokens = ["--motion-fast", "--motion-base", "--motion-enter", "--motion-reveal-in", "--motion-reveal-hold", "--motion-reveal-out", "--ease-standard"] as const;
 
 /** 滚动条：自绘滑块与原生细滚动条共用的颜色（三档）与自绘滑块的粗细 */
-export const nbScrollbarTokens = ["--scrollbar-thumb", "--scrollbar-thumb-hover", "--scrollbar-thumb-active", "--scrollbar-w"] as const;
+export const nbScrollbarTokens = ["--scrollbar-thumb-mix", "--scrollbar-thumb-hover-mix", "--scrollbar-thumb-active-mix", "--scrollbar-w"] as const;
 
 /** 六组 token 的合集 */
 export const nbDesignTokens = [

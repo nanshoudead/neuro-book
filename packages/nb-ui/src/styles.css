@@ -22,8 +22,8 @@
 }
 
 /*
- * 原生细滚动条：宿主在根元素上挂这个类，整个应用的原生滚动条统一取 `--scrollbar-thumb`（指针在容器上时取
- * `--scrollbar-thumb-hover`，标准属性没有“悬停在滑块上”），不必各抄一段 `* { scrollbar-width… }`。
+ * 原生细滚动条：宿主在根元素上挂这个类，整个应用的原生滚动条按 `--scrollbar-thumb-mix` 混出滑块色（指针在容器上时用
+ * `--scrollbar-thumb-hover-mix`，标准属性没有“悬停在滑块上”；比例 token 的理由见 tokens.css），不必各抄一段 `* { scrollbar-width… }`。
  * `scrollbar-width` 不继承，所以后代要一起写；`scrollbar-color` 虽然继承，也写在后代上，中间某层祖先自己设了别的颜色时
  * 不会漏到下面的滚动元素。
  * 选择器全部包在 `:where()` 里，特异性为 0（`:hover` 也算一个类，所以悬停那条整条包进去）：元素自己的
@@ -33,11 +33,11 @@
 :where(.nb-ui-scrollbar-thin),
 :where(.nb-ui-scrollbar-thin) * {
     scrollbar-width: thin;
-    scrollbar-color: var(--scrollbar-thumb) transparent;
+    scrollbar-color: color-mix(in srgb, var(--text-main) var(--scrollbar-thumb-mix), transparent) transparent;
 }
 
 :where(.nb-ui-scrollbar-thin *:hover) {
-    scrollbar-color: var(--scrollbar-thumb-hover) transparent;
+    scrollbar-color: color-mix(in srgb, var(--text-main) var(--scrollbar-thumb-hover-mix), transparent) transparent;
 }
 
 .nb-ui-colorway {

@@ -180,7 +180,7 @@ function handleKeydown(event: KeyboardEvent): void {
             <span v-if="option.label" class="truncate">{{ option.label }}</span>
             <span
                 v-if="option.count !== undefined"
-                class="ml-0.5 rounded-full px-1.5 py-0.2 text-[10px] font-mono leading-none transition-colors"
+                class="ml-0.5 rounded-full px-1.5 py-[0.05rem] text-[10px] font-mono leading-none transition-colors"
                 :class="isSelected(option) ? 'bg-[color-mix(in_srgb,var(--text-inverse)_22%,transparent)] text-[var(--text-inverse)]' : 'bg-[color-mix(in_srgb,var(--text-main)_12%,transparent)] text-[var(--text-muted)]'"
             >
                 {{ option.count }}

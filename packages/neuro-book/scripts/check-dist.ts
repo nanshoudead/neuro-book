@@ -9,11 +9,15 @@
 import {readdir, readFile} from "node:fs/promises";
 import {join, relative, resolve} from "node:path";
 
+import postcss from "postcss";
+import type {AtRule, Rule} from "postcss";
+import selectorParser from "postcss-selector-parser";
+
 /**
- * 只出现在 Lab 代码里的字符串：插件 id、调试接口、偏好键前缀、外壳组件名、源码目录与 DOM 标记，以及组件文档的
+ * 只出现在 Lab 代码里的字符串：插件 id、调试接口、偏好键前缀、外壳组件名、源码目录、DOM 标记与 Lab 自己的 CSS 变量名（`--lab-*`，样式入口没排除 Lab 目录时会经原子类进产物），以及组件文档的
  * frontmatter（`标签: [`）——Lab 经 `@notnotype/nb-ui/lab-sources` 把组件文档原文打进包，产品代码误引它时由这一项拦下。
  */
-export const DEVELOPMENT_MARKERS = ["nbook.lab", "__nbLab", "nb-lab:", "LabShell", "plugins/lab/", "data-lab-", "标签: ["];
+export const DEVELOPMENT_MARKERS = ["nbook.lab", "__nbLab", "nb-lab:", "LabShell", "plugins/lab/", "data-lab-", "--lab-", "标签: ["];
 
 /** 产品代码一定有的字符串，按产物目录分。 */
 export const PRODUCT_MARKERS: Readonly<Record<"web" | "server", ReadonlyArray<string>>> = {
@@ -26,6 +30,9 @@ export const PRODUCT_MARKERS: Readonly<Record<"web" | "server", ReadonlyArray<st
  * 静态引了 Markdown 的语法模块或编辑内核。
  */
 export const FIRST_SCREEN_FORBIDDEN = ["Invalid content for node", "marked(): input parameter"];
+
+/** 样式层的先后（ADR 0028）：调用方的原子类在 utilities 层，要排在 nb-ui 的 base 与 components 之后。 */
+export const LAYER_ORDER = ["theme", "base", "components", "utilities"];
 
 export interface DistReport {
     /** `<相对 dist 的文件>: <命中的字符串>`。 */
@@ -62,7 +69,60 @@ export async function scanDist(distRoot: string, localPaths: ReadonlyArray<strin
             if (text.includes(marker)) forbidden.push(`web/${file}（首屏）: ${marker}`);
         }
     }
+    for (const file of (await filesUnder(join(distRoot, "web"))).filter((path) => path.endsWith(".css"))) {
+        for (const problem of layeringProblems(await readFile(file, "utf8"))) forbidden.push(`${relative(distRoot, file)}: ${problem}`);
+    }
     return {forbidden, missing};
+}
+
+/**
+ * 分层的两条不变量（ADR 0028）：层按 `LAYER_ORDER` 的先后出现；不分层的规则里没有特异性低于一个类的选择器。
+ * 后者压过所有分层的声明，`* { margin: 0 }` 会让每个 `m-*` 失效，构建与单测都不报错，所以在产物上查。
+ */
+export function layeringProblems(css: string): string[] {
+    const problems: string[] = [];
+    const root = postcss.parse(css);
+    const seen: string[] = [];
+    root.walkAtRules("layer", (rule) => {
+        for (const name of rule.params.split(",").map((part) => part.trim())) {
+            if (LAYER_ORDER.includes(name) && !seen.includes(name)) seen.push(name);
+        }
+    });
+    const expected = LAYER_ORDER.filter((name) => seen.includes(name));
+    if (seen.join(",") !== expected.join(",")) problems.push(`样式层的先后是 ${seen.join(", ")}，应为 ${expected.join(", ")}`);
+    root.walkRules((rule) => {
+        if (insideLayerOrKeyframes(rule)) return;
+        for (const selector of rule.selectors.filter(belowOneClass)) problems.push(`不分层的低特异性规则 ${selector}（放进 @layer base）`);
+    });
+    return problems;
+}
+
+function insideLayerOrKeyframes(rule: Rule): boolean {
+    for (let parent = rule.parent; parent !== undefined && parent.type !== "root"; parent = parent.parent) {
+        if (parent.type === "atrule" && ((parent as AtRule).name === "layer" || /keyframes$/u.test((parent as AtRule).name))) return true;
+    }
+    return false;
+}
+
+/**
+ * 没有 id、类、属性与伪类（`:where()` 里的不算）：元素、通配与伪元素选择器。带浏览器私有前缀的伪元素（第三方样式里的
+ * `::-ms-clear`、`::-webkit-scrollbar` 这类）只给浏览器自己画的部件上样式，原子类作用不到那里，不算。
+ */
+function belowOneClass(selector: string): boolean {
+    let weight = 0;
+    let vendorPart = false;
+    selectorParser((selectors) => {
+        selectors.walk((node) => {
+            if (node.type === "pseudo" && node.value === ":where") {
+                node.nodes.length = 0;
+                return;
+            }
+            if (node.type === "pseudo" && /^::-(?:webkit|moz|ms)-/u.test(node.value)) vendorPart = true;
+            if (node.type === "id" || node.type === "class" || node.type === "attribute") weight += 1;
+            if (node.type === "pseudo" && !node.value.startsWith("::") && !/^:(?:is|not|has)$/u.test(node.value)) weight += 1;
+        });
+    }).processSync(selector);
+    return weight === 0 && !vendorPart;
 }
 
 if (import.meta.main) {

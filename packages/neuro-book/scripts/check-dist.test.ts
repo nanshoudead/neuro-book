@@ -62,6 +62,21 @@ describe("生产产物检查", () => {
         expect((await scanDist(root, [])).forbidden).toEqual(["web/assets/shared-1.js（首屏）: Invalid content for node"]);
     });
 
+    it("样式分层（ADR 0028）：不分层的元素、通配选择器与层的先后颠倒时报出；层里的、带类或 :root 的、:where() 之外带类的、浏览器私有伪元素不报", async () => {
+        const root = await dist({
+            ...product,
+            "web/assets/ok.css": "@layer theme,base,components,utilities;@layer base{*{margin:0}html{color:red}}.nb-host-page{padding:0}:root{--x:1}:where(.a) .b{color:red}@keyframes spin{from{opacity:0}to{opacity:1}}::-ms-clear{display:none}",
+            "web/assets/bad.css": "@layer theme,utilities,base;*,::before{margin:0}html{scrollbar-gutter:stable}:where(.a){color:red}",
+        });
+        expect((await scanDist(root, [])).forbidden).toEqual([
+            "web/assets/bad.css: 样式层的先后是 theme, utilities, base，应为 theme, base, utilities",
+            "web/assets/bad.css: 不分层的低特异性规则 *（放进 @layer base）",
+            "web/assets/bad.css: 不分层的低特异性规则 ::before（放进 @layer base）",
+            "web/assets/bad.css: 不分层的低特异性规则 html（放进 @layer base）",
+            "web/assets/bad.css: 不分层的低特异性规则 :where(.a)（放进 @layer base）",
+        ]);
+    });
+
     it("缺少产品标记时报告，扫描空目录或别处的输出不会误判通过", async () => {
         const root = await dist({"web/index.html": "", "server/main.js": "Listening on"});
         expect((await scanDist(root, [])).missing).toEqual(["web: nbook.workbench", "web: data-workbench-root", "server: nbook.http"]);

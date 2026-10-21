@@ -37,7 +37,7 @@ const props = withDefaults(defineProps<{
             orientation="vertical"
             class="flex select-none touch-none p-0.5 transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_6%,transparent)] h-full w-2.5 border-l border-l-transparent"
         >
-            <ScrollAreaThumb class="relative flex-1 rounded-full bg-[var(--scrollbar-thumb)] transition-colors hover:bg-[var(--scrollbar-thumb-hover)]" />
+            <ScrollAreaThumb class="relative flex-1 rounded-full bg-[color-mix(in_srgb,var(--text-main)_var(--scrollbar-thumb-mix),transparent)] transition-colors hover:bg-[color-mix(in_srgb,var(--text-main)_var(--scrollbar-thumb-hover-mix),transparent)]" />
         </ScrollAreaScrollbar>
 
         <!-- 横向滚动条 -->
@@ -46,7 +46,7 @@ const props = withDefaults(defineProps<{
             orientation="horizontal"
             class="flex select-none touch-none p-0.5 transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_6%,transparent)] h-2.5 flex-col border-t border-t-transparent"
         >
-            <ScrollAreaThumb class="relative flex-1 rounded-full bg-[var(--scrollbar-thumb)] transition-colors hover:bg-[var(--scrollbar-thumb-hover)]" />
+            <ScrollAreaThumb class="relative flex-1 rounded-full bg-[color-mix(in_srgb,var(--text-main)_var(--scrollbar-thumb-mix),transparent)] transition-colors hover:bg-[color-mix(in_srgb,var(--text-main)_var(--scrollbar-thumb-hover-mix),transparent)]" />
         </ScrollAreaScrollbar>
 
         <ScrollAreaCorner />

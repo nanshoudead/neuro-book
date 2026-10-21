@@ -341,3 +341,45 @@ test("折叠内容只在高度动画进行中裁切：展开与收起时打上 d
     await settled();
     expect(await openOverflow()).toBe("visible");
 });
+
+test("应用只有一套原子 CSS（ADR 0028）：组件取 nb-ui 自己的字号，开关滑块留在轨道里，下拉箭头只转半圈；调用方的原子类压过组件的语义类；根上的细滚动条对后代生效", async ({page}) => {
+    // 两套引擎并存时，宿主的 `text-sm`（14px）改掉组件的字号，`translate-x-4`、`rotate-180` 两边各生成一份而叠加。
+    await openScene(page, "c=IconButton&s=default");
+    expect(await stage(page).locator("button").first().evaluate((element) => getComputedStyle(element).fontSize)).toBe("13px");
+
+    await openScene(page, "c=Switch&s=on");
+    const track = stage(page).locator('[role="switch"]').first();
+    await expect(track).toHaveAttribute("data-state", "checked");
+    await expect.poll(() => track.evaluate((element) => {
+        const thumb = element.querySelector("[data-state]")!.getBoundingClientRect();
+        const box = element.getBoundingClientRect();
+        return {inside: thumb.right <= box.right + 0.5, movedRight: thumb.left - box.left > box.width / 3};
+    })).toEqual({inside: true, movedRight: true});
+
+    await openScene(page, "c=Select&s=default");
+    const trigger = stage(page).locator('[role="combobox"]');
+    await trigger.click();
+    await expect(page.getByRole("listbox")).toBeVisible();
+    await expect.poll(() => trigger.locator(".i-lucide-chevron-down").evaluate((element) => {
+        const style = getComputedStyle(element);
+        return {rotate: style.rotate, transform: style.transform};
+    })).toEqual({rotate: "180deg", transform: "none"});
+    await page.keyboard.press("Escape");
+
+    // 语义类在 components 层、原子类在 utilities 层：同一属性上原子类赢，与选择器特异性和书写先后无关。
+    const radii = await page.evaluate(() => {
+        const measure = (className: string): number => {
+            const probe = document.createElement("div");
+            probe.className = className;
+            document.body.append(probe);
+            const radius = Number.parseFloat(getComputedStyle(probe).borderTopLeftRadius);
+            probe.remove();
+            return radius;
+        };
+        return {semantic: measure("nb-ui-popover-surface"), withUtility: measure("nb-ui-popover-surface rounded-full")};
+    });
+    expect(radii.semantic).toBeGreaterThan(0);
+    expect(radii.withUtility).toBeGreaterThan(1000);
+
+    expect(await page.evaluate(() => [document.documentElement, document.body.firstElementChild!].map((element) => getComputedStyle(element).scrollbarWidth))).toEqual(["thin", "thin"]);
+});

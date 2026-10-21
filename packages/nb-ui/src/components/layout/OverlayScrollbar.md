@@ -26,7 +26,7 @@ type OverlayScrollbarProps = {
 - **摆放**：轨道比滑块宽 4px（缺省 10px），按滚动元素在父元素里的位置贴在它的右缘，高度等于它的可见高度；滑块宽 `--scrollbar-w`、靠右 2px，高度按可见比例、不短于 20px（几何与弹出列表的滑块共用 `utils/scrollbar-geometry`）。内容不溢出（多出不到 1px）时什么都不画。
 - **显隐**：父元素里有指针、最后一次滚动之后 100ms 内、或正拖着滑块时显示。显示时 100ms 线性淡入；隐藏时先等 500ms 再 800ms 线性淡出；看不见时不接指针。系统减少动画时不过渡。
 - **指针**：拖滑块按比例滚动（滑块走完剩余轨道等于内容滚完），用指针捕获，移出轨道也跟手；按在滑块以外的轨道上朝那一侧滚一页。按下不抢焦点、不开始选中文字。键盘滚动照原生，滚动时滑块同样出现。
-- **颜色**：滑块取 `--scrollbar-thumb`，悬停 `--scrollbar-thumb-hover`，拖动 `--scrollbar-thumb-active`（缺省是 `--text-main` 混 32%、45%、55% 透明）；没有轨道底色。
+- **颜色**：滑块是 `--text-main` 按 `--scrollbar-thumb-mix`、悬停 `--scrollbar-thumb-hover-mix`、拖动 `--scrollbar-thumb-active-mix` 混透明（缺省 32%、45%、55%）；没有轨道底色。
 
 ## 状态与边界
 

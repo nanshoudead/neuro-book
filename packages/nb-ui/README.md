@@ -112,7 +112,7 @@ nb-ui is styled with Tailwind v4 and ships no precompiled CSS. The host's CSS im
 then nb-ui's entry:
 
 ```css
-@import "tailwindcss";                   /* or tailwindcss/theme.css + utilities.css, see below */
+@import "tailwindcss";
 @import "@notnotype/nb-ui/tailwind.css";
 @source "../";                           /* the host's own sources, when Vite's root is not the package root */
 ```
@@ -128,15 +128,23 @@ does not have to scan `node_modules`. The design is explained in the header comm
   unlayered and win over the `base` tokens by selector specificity.
 - **No preflight.** A library should not reset the host's elements. Use the preflight that
   `@import "tailwindcss"` brings, or your own reset, and put it in `@layer base`. If you want only
-  Tailwind's theme and utilities, import `tailwindcss/theme.css` and `tailwindcss/utilities.css`
-  separately instead of `tailwindcss`.
+  Tailwind's theme and utilities, all three parts below are needed; drop the layer statement and
+  utilities end up ordered before nb-ui's `base` and `components`, drop `layer(…)` and they are
+  unlayered. Either way a caller's utility silently loses to nb-ui's semantic classes:
+
+  ```css
+  @layer theme, base, components, utilities;   /* before every @import: layer order is set by first appearance */
+  @import "tailwindcss/theme.css" layer(theme);
+  @import "tailwindcss/utilities.css" layer(utilities);
+  @import "@notnotype/nb-ui/tailwind.css";
+  ```
 - **Global rules go in `base`.** An unlayered rule with specificity below one class (`html`, `body`,
   `*`, a reset's `all: unset`) beats every layered utility class. Put such rules in `@layer base`.
 - **Type scale.** nb-ui declares `--text-2xs` to `--text-xl`, `--leading-tight|ui|reading` and the
   `--font-*` families with `@theme static`, so `text-sm` is nb-ui's 13px and `text-md`, `leading-ui`
   exist as utilities. Tailwind's other scales are untouched.
 - **Native scrollbars.** Put `nb-ui-scrollbar-thin` on the root element (`<html>`) to give the whole
-  app thin native scrollbars coloured by `--scrollbar-thumb`; the rule has zero specificity, so
+  app thin native scrollbars coloured by `--text-main` mixed at `--scrollbar-thumb-mix`; the rule has zero specificity, so
   `nb-ui-scrollbar-none` or any utility overrides it where needed.
 
 Icons used inside nb-ui components need no registration by the host app: the entry generates the icon

@@ -4,9 +4,18 @@
  * 给宿主的 CSS 导入，由宿主自己的 Tailwind 编译：nb-ui 不发预编译产物，组件里的原子类由宿主按这里的 @source
  * 扫描生成。宿主的写法是先 Tailwind，再本入口：
  *
- *     @import "tailwindcss";                       （只要 theme 与 utilities 时拆开写 tailwindcss/theme.css 与 utilities.css）
+ *     @import "tailwindcss";
  *     @import "@notnotype/nb-ui/tailwind.css";
  *     @source "../";                               （宿主自己的源码；Vite root 不是包根时显式写）
+ *
+ * 不要 Tailwind 的 preflight、只取 theme 与 utilities 时，三件事缺一不可，否则调用方的原子类会输给语义类：
+ *
+ *     @layer theme, base, components, utilities;   （写在所有 @import 之前：层的先后由第一次出现定）
+ *     @import "tailwindcss/theme.css" layer(theme);
+ *     @import "tailwindcss/utilities.css" layer(utilities);
+ *     @import "@notnotype/nb-ui/tailwind.css";
+ *
+ * 不带 `layer(…)` 时原子类不分层；不先声明层序时 utilities 排在本入口的 base、components 之前。
  *
  * 为什么分层：这里依 Tailwind 标准顺序 `theme, base, components, utilities`，nb-ui 的 token 进 base、语义类
  * （styles.css 里的 .nb-ui-*）进 components。调用方给组件传的原子类在 utilities 层，因此天然压过 components 层的

@@ -4,8 +4,8 @@
  * 两者只差构建进去的插件。
  */
 
-// tailwind.css 先导入：层的先后由最先出现的 `@layer` 声明定，styles.css 里也有 `@layer base`，在前会打乱 theme、base、components、utilities 的顺序。
-import "./tailwind.css";
+// 样式入口先导入（`nbook-tailwind.css`，由 vite.config.ts 按开发或生产选文件）：层的先后由最先出现的 `@layer` 声明定，styles.css 里也有 `@layer base`，在前会打乱 theme、base、components、utilities 的顺序。
+import "nbook-tailwind.css";
 import "./styles.css";
 
 import {createWebHistory} from "vue-router";

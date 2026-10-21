@@ -217,10 +217,10 @@
      - **设计考量**：视图常驻屏幕、内容随展开收起频繁在溢出与不溢出之间切换。叠加不占宽度，既没有跳变，也不像 `stable` 那样一直空出一条槽位；不看时整块安静。行的悬停与选中底色延伸到滑块下面，滑块盖在上面。
      - 编辑器正文、弹出列表与设置窗口不在此列，仍按场景 A、B。
 - **滚动条的颜色与粗细只取 token**（`src/tokens.css`，2026-10-21 w00030 t02 统一）：
-  - `--scrollbar-thumb`、`--scrollbar-thumb-hover`、`--scrollbar-thumb-active` 是滑块的常态、悬停与拖动色，从 `--text-main` 派生（32%、45%、55% 透明），随明暗换；取值照应用主滚动条 `OverlayScrollbar` 原来的，它占的面积最大，别处向它看齐。`OverlayScrollbar`、`ScrollArea`、`PopupScrollbar` 三个自绘滚动条都取这三个，组件里不再写自己的滑块色；要调整全应用滚动条的观感，改这里。
+  - `--scrollbar-thumb-mix`、`--scrollbar-thumb-hover-mix`、`--scrollbar-thumb-active-mix` 是滑块常态、悬停与拖动时 `--text-main` 混进去的比例（32%、45%、55%，其余透明），随明暗换。token 只存比例，颜色在用到的元素上现场混：存成混好的颜色的话，`var()` 在 `:root` 上就代入了，套了另一套配色的子树会继承根上的颜色。取值照应用主滚动条 `OverlayScrollbar` 原来的，它占的面积最大，别处向它看齐。`OverlayScrollbar`、`ScrollArea`、`PopupScrollbar` 三个自绘滚动条都取这三个，组件里不再写自己的比例；要调整全应用滚动条的观感，改这里。
   - `--scrollbar-w`（缺省 6px）只是 `OverlayScrollbar` 滑块的粗细（轨道宽是它加 4px）。`ScrollArea` 的轨道尺寸写死；`PopupScrollbar` 有意只有 4px，免得压住弹出列表里的菜单项，两者不取它。
   - 三个自绘滑块的几何（位置、最短 20px、拖动换算）共用 `src/utils/scrollbar-geometry.ts`，不各写一份。
-  - 原生细滚动条用 `.nb-ui-scrollbar-thin`（`src/styles.css`）：宿主在根元素（`<html>`）上挂这个类，整个应用的原生滚动条统一取 `--scrollbar-thumb`，悬停所在容器时取 `--scrollbar-thumb-hover`（原生没有“悬停在滑块上”的选择器，`-active` 只给自绘滑块用）。不必再各抄一段 `* { scrollbar-width: thin; … }`。这条规则的选择器全部在 `:where()` 里，特异性为 0，元素自己的 `.nb-ui-scrollbar-none`、原子类和组件的 scoped 样式都盖得过它。`scrollbar-width` 不继承，所以规则连后代一起写。
+  - 原生细滚动条用 `.nb-ui-scrollbar-thin`（`src/styles.css`）：宿主在根元素（`<html>`）上挂这个类，整个应用的原生滚动条按 `--scrollbar-thumb-mix` 混出滑块色，悬停所在容器时按 `--scrollbar-thumb-hover-mix`（原生没有“悬停在滑块上”的选择器，`-active-mix` 只给自绘滑块用）。不必再各抄一段 `* { scrollbar-width: thin; … }`。这条规则的选择器全部在 `:where()` 里，特异性为 0，元素自己的 `.nb-ui-scrollbar-none`、原子类和组件的 scoped 样式都盖得过它。`scrollbar-width` 不继承，所以规则连后代一起写。
 - **单层滚动权与外框贴边原则（Single Scroll Responsibility）**：
   - 滚动权归拥有完整视图高度的最外层容器所有，内部子组件与空状态（如 `AgentChatEmptyState`）严禁重复声明 `overflow-y: auto` 与 `h-full`，杜绝产生双层嵌套滚动与陷在内部的孤立滚动条；
   - 内部子组件不堆叠外层宿主已有的内边距（例如宿主已有 `p-4`，内部通过 `w-full my-auto` 自适应居中与延展），保证滚动条始终完整贴合最外层物理面板边缘。

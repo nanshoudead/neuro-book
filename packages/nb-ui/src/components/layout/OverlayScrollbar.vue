@@ -187,15 +187,15 @@ function onTrackDown(event: PointerEvent): void {
     right: 2px;
     width: var(--scrollbar-w);
     border-radius: calc(var(--scrollbar-w) / 2);
-    background: var(--scrollbar-thumb);
+    background: color-mix(in srgb, var(--text-main) var(--scrollbar-thumb-mix), transparent);
     transition: background-color var(--motion-fast) var(--ease-standard);
 }
 
 .nb-ui-overlay-scrollbar__thumb:hover {
-    background: var(--scrollbar-thumb-hover);
+    background: color-mix(in srgb, var(--text-main) var(--scrollbar-thumb-hover-mix), transparent);
 }
 
 .nb-ui-overlay-scrollbar[data-dragging] .nb-ui-overlay-scrollbar__thumb {
-    background: var(--scrollbar-thumb-active);
+    background: color-mix(in srgb, var(--text-main) var(--scrollbar-thumb-active-mix), transparent);
 }
 </style>
