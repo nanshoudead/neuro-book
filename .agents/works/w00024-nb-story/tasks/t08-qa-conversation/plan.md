@@ -28,15 +28,18 @@
   | 运行结束的方式 | 这一轮的结果 |
   |---|---|
   | `finished`（`answer` 通过校验） | 已答，带结构化答案 |
-  | `stop`，最后一段助手文字不为空 | 已答，带文字回复 |
-  | `length` | 已答，带文字回复，标记“输出到上限被截断” |
-  | `stop`，文字为空 | 失败 `no_answer`（没交答案也没有文字） |
+  | `stop`，文字去掉首尾空白后不为空 | 已答，带文字回复 |
+  | `length`，文字去掉首尾空白后不为空 | 已答，带文字回复，标记“输出到上限被截断” |
+  | `stop` 或 `length`，没有文字（空串、只有空白、只有推理或工具调用） | 失败 `no_answer`（没交答案也没有文字） |
   | `error` | 失败 `model_failed` |
   | `aborted` | 中断 |
 
   不再发提醒，删掉 `REMINDER` 和 `reminder` 进度事件。
 - **文字回复里的出处**：文字里写成“章.段”形状的内容，用 `refsInText` 与账本逐个检查，不合格的记进这一轮的 `unverifiedRefs`，不退回。理由：没有收尾工具，就没有退回的时机；阅读位置之后的原文 `read` 本来就读不到，越界出处只可能是模型编的数字，标出来就够了。
-- **恢复不了**：恢复时 harness 抛 `session_incompatible`（Profile 版本或工具声明变了，旧记录就是这种情况），或者会话日志读不成，都在任何模型请求之前以新失败码 `qa_not_continuable` 失败（QaError，退出码 4），不写记录。
+- **恢复不了**：以下情况都在任何模型请求之前以新失败码 `qa_not_continuable` 失败（QaError，退出码 4），不写记录：
+  - 恢复时 harness 抛 `session_incompatible`：Profile 版本或工具声明变了，旧记录就是这种情况；
+  - 会话日志不在、读不成，或内容与记录里的摘要对不上（见“问答记录按对话存”）。
+- **章数上限取对话自己的**（设计审查 E）：记录保存开始时的 `maxChapters`，续问的账本用它，和会话快照里系统提示词写的一致；改配置只影响新对话。
 - **进度事件**：保持现在的 `tool`、`rejected`、`answered`；流式的文字与推理增量留给 t13。
 
 ### 账本跨轮（`src/qa/read-ledger.ts`）
@@ -44,22 +47,28 @@
 - 读过的段在对话内一直有效，后面几轮可以直接引用。
 - 章数上限按轮算：这一轮新读的、前几轮没读过的章不超过 `maxChapters`。
 - `ReadLedger` 加两样：
-  - `snapshot()`：导出读过的段，形状是按章合并的区间 `[章, 起段, 止段][]`；
+  - `snapshot()`：导出读过的段，形状是闭区间 `[章, 起段, 止段][]`，按章、段排序，同一章里只合并相邻或重叠的段，不相邻的分开存（读了 38.1 与 38.3 存成两段，38.2 仍算没读过）；全读的对话不存段，恢复时照旧按“P 以前全部读过”处理；
   - 构造参数 `read`：恢复读过的段。
 - 实现上把 `#read` 拆成“前几轮读过的”和“这一轮读过的”：前者只用来校验出处，章数只数后者里前者没有的章。`read` 的 exclusive 保证不变。
 
 ### 问答记录按对话存（`src/core/qa-records.ts`）
 
-- **文件**：
-  - 落点不变：`qa/<id>.json` 与 `qa/<id>.session.jsonl`，id 就是对话 id。
-  - 每追问一轮，两个文件都整份重写。写法沿用现在的“临时文件加改名，先日志后记录”。
+- **文件**（设计审查 A）：记录和会话日志要成对，只靠一次改名发布。
+  - 记录仍是 `qa/<id>.json`，id 就是对话 id。
+  - 每一轮的会话日志写成新文件 `qa/<id>.<第几轮>-<6 位随机>.session.jsonl`，不覆盖旧日志。记录里的 `log: {file, sha256}` 指向它。
+  - 保存顺序：先写新日志（唯一的临时名再改名，这时还没有记录引用它）→ 核对轮数 → 记录写到唯一的临时名，再改名成 `<id>.json`（这一步是发布）→ 删掉上一轮的日志。发布之前任何一步失败，就删掉新日志，旧的一对原样保留。发布之后删旧日志失败，只留下一个没人引用的文件，`qa rm` 会一并删掉。
+  - 临时文件名每次保存都唯一，并发的两次保存不会互相覆盖临时文件。
+  - 旧记录没有 `log` 字段，按 `<id>.session.jsonl` 读，不校验摘要。
+  - `qa rm` 先删记录，再删这个 id 的全部日志（`<id>.session.jsonl` 和 `<id>.*.session.jsonl`）。
 - **形状**（新写入的记录）：
 
   ```ts
   interface QaConversation {
       id; book; generation; at: Position; mode: QaMode; startedAt;  // 对话开始时定下
       turns: QaTurn[];                                               // 至少一轮
-      read: [number, number, number][];                              // 读过的段（按章合并的区间）
+      maxChapters: number | null;                                    // 对话开始时的章数上限；全读为 null
+      read: [number, number, number][];                              // 读过的段：闭区间，按章、段排序，同章只合并相邻或重叠的段
+      log: {file: string; sha256: string};                           // 这一对的会话日志
   }
   interface QaTurn {
       question; status: QaStatus;
@@ -72,13 +81,14 @@
   ```
 
 - **旧记录**：一问一条的记录（顶层有 `question`、没有 `turns`），读进来时换成一轮的对话：`read` 取空，`reply` 取 null，展示照常。它的会话日志是 Profile 版本 1 写的，续问时由 harness 报 `session_incompatible`，最后落到 `qa_not_continuable`。不做迁移，不改写旧文件。
-- **防丢一轮**：`save(conversation, jsonl, {expectTurns})` 在改名之前再读一次磁盘上的记录，轮数不等于 `expectTurns` 就不写，返回“没保存”，新原因 `conflict`。这样后保存的那一次不会把对方刚存的一轮盖掉。读与改名之间还剩几毫秒的窗口，Spec 写进“不承诺”。理由：本机单人使用，同一个对话同时从两处追问极少；t13 的服务端在进程里按对话串行，用不到这个窗口。
+- **防丢一轮**：`save(conversation, jsonl, {expectTurns})` 在发布记录之前再读一次磁盘上的记录，轮数不等于 `expectTurns` 就不写，返回“没保存”，新原因 `conflict`。这样后保存的那一次不会把对方刚存的一轮盖掉。读与改名之间还剩几毫秒的窗口，Spec 写进“不承诺”。理由：本机单人使用，同一个对话同时从两处追问极少；t13 的服务端在进程里按对话串行，用不到这个窗口。
 - `recordProblem` 按两种形状核对，`list` 与 `get` 都返回 `QaConversation`。
 
 ### 内存会话日志能带着旧条目开始（`packages/nb-session/src/memory-log.ts`）
 
 - `createMemorySessionLog({sessionId, entries?})`：`entries` 按原样放进日志，`seq` 必须从 1 连续，否则抛错。之后追加的条目接着编号。
 - 导出 `parseEntryLine`（已有、未导出），nb-story 逐行解析保存的 JSONL：读不成的行当作日志损坏，按 `qa_not_continuable` 处理。
+- 日志内容不再逐条校验消息结构（设计审查 C）：nb-story 先比对记录里的 `sha256`，不一致就是被改过或损坏，按 `qa_not_continuable` 处理。日志只由引擎自己写，摘要对得上就是当时 harness 写下的那一份；逐条校验 OMP 消息结构要在 nb-harness 里另立合同，这次不做。
 - 理由：“运行期间书库里不写东西”的不变量要保留（删书与写入不交错，见 `qa-records.ts` 模块头），所以续问仍在内存里跑，结束时整份写下。这只是包的公开函数多一个可选参数。
 
 ### Profile 与规则（`src/qa/story-qa.profile.tsx`、`src/qa/rules.ts`、`src/qa/tools.ts`）
@@ -97,7 +107,7 @@
 - **`ask`**：
   - 加 `--continue <对话 id>`；和 `--at`、`--mode` 一起写是用法错误（2）。
   - 标准输出给这一轮的答案或文字回复。文字回复后面列出“未核实的出处”，再写“对话 <id> 第 n 轮；追问：nbstory ask <问题> --continue <id>”。
-  - `--json` 的 `data` 是这一轮的结果，原有字段保持原名（`id` 就是对话 id），新增 `turn`、`reply`，回归脚本读得照旧。
+  - `--json` 的 `data` 是这一轮的结果，原有字段保持原名（`id` 就是对话 id），新增 `turn`、`reply`。文字回复时 `answer` 为 null；回归脚本 `t05-qa/scripts/qa-eval.ts` 改成认得 `reply`：把回复正文交给判分、依据出处取正文里的出处，并在报告里标明这一份是文字回复（设计审查 D）。
 - **`qa`**：
   - 列表一行一个对话：id、时间、最后一轮的状态、轮数、第一轮的问题、P。
   - `qa <id>` 按轮显示整段对话。
@@ -121,7 +131,7 @@
 ## 切片
 
 1. **nb-session 加 `entries` 与导出 `parseEntryLine`**：nb-session 的测试覆盖带旧条目开始、`seq` 不连续时报错、之后追加的编号接续。验证：`bun run --cwd packages/nb-session test`、typecheck。
-2. **记录与账本**：对话形状、旧记录的读法、`expectTurns`；账本的导出、恢复与按轮计数。验证：nb-story 的 `qa-records`、`read-ledger` 相关测试。
+2. **记录与账本**：对话形状、旧记录的读法、成对发布与 `expectTurns`、日志摘要；账本的导出、恢复与按轮计数；`qa-eval.ts` 认得 `reply`。验证：nb-story 的 `qa-records`、`read-ledger` 相关测试。
 3. **引擎与 Profile**：结束方式、续问、`qa_not_continuable`、规则 v2。验证：`engine.test.ts` 用脚本化模型。
 4. **命令行**：`ask --continue`、输出、`qa` 的列表与显示。验证：`ask.test.ts`、`cli.test.ts`。
 5. **真实模型冒烟**：见“验证”。
@@ -132,15 +142,17 @@
 
 | Spec | 测试 |
 |---|---|
-| qa 输出 1、新增的续问条目 | `engine.test.ts`“两轮追问”：第二轮请求的消息里有第一轮的问题与答案 |
-| qa 输出 5 | `engine.test.ts` 章数上限分组加跨轮用例 |
+| qa 输出 1、26，验收 14 | `engine.test.ts`“两轮追问”分三支（设计审查 F）：第二轮不读、直接引用第一轮读过的段交卷；第二轮先重读上一轮的章、再读一个新章、读第二个新章被拒，最后单独交卷；第二轮取消后第三轮还能追问 |
+| qa 输出 5、26 的章数来源 | `engine.test.ts`：建对话时 `maxChapters` 为 1，改配置为 2 再续问，仍按 1 计（设计审查 E） |
+| 账本跨轮，验收 17 | `engine.test.ts`：第一轮只读同章第 1、3 段，续问时引用第 2 段被退回、第 1、3 段通过；全读的第二轮不读原文，引用 P 以前任意段通过、晚于 P 被退回（设计审查 G） |
 | qa 输出 7、8 | 现有防剧透、作答校验分组（行为不变） |
-| qa 输出 10、F4 | `engine.test.ts`“文字回复”：stop 带文字为已答；length 标截断；stop 空文字为 `no_answer` |
+| qa 输出 10、F4，验收 13 | `engine.test.ts`“文字回复”：stop 带文字为已答；length 带文字标截断；stop 空串、stop 只有空白、length 只有推理都是 `no_answer`（设计审查 B） |
 | 文字回复里的出处 | `engine.test.ts`：没读过的段与晚于 P 的数字进 `unverifiedRefs` |
 | qa 输出 12、14，`--continue` 的用法错误 | `ask.test.ts`、`cli.test.ts` |
 | qa 输出 15、16，旧记录 | `qa-records` 的测试：旧形状读成一轮、`qa` 列表与显示 |
-| F8 | `engine.test.ts`：Profile 版本 1 的会话日志续问得 `qa_not_continuable`，不发模型请求 |
-| 保存时轮数对不上 | `qa-records` 测试：两次从同一轮数出发保存，后一次 `conflict`，记录里是先保存的那一轮 |
+| F8，验收 15 | `engine.test.ts`：Profile 版本 1 的会话日志、日志被改过（摘要不符）、日志缺失，续问都得 `qa_not_continuable`，不发模型请求，文件字节不变 |
+| 输出 25，验收 16、18 | `qa-records` 测试：两次从同一轮数出发保存，后一次 `conflict`，记录与它指向的日志都是先保存的那一对，冲突时新写的日志被删掉；成功保存后上一轮的日志被删掉；`qa rm` 删掉这个 id 的全部日志（设计审查 A） |
+| 回归脚本 | `qa-eval.ts` 的解析段对一份文字回复结果不抛错、标为文字回复（设计审查 D） |
 | qa 验收 6（取消）、7（删书）、8（密钥） | 现有用例；取消与删书各加一个续问的变体 |
 
 ## 验证
