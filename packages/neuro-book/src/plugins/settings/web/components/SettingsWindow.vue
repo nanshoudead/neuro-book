@@ -342,7 +342,12 @@ function onLeaveOpen(open: boolean): void {
 </template>
 
 <style scoped>
+/* 左栏的宽度与内边距：层标签、搜索框与分区条目都按它们对齐（t80 定稿），改一处三者一起动。 */
 .settings-window {
+    --settings-side-width: 180px;
+    --settings-side-inset-start: var(--space-2);
+    --settings-side-inset-end: var(--space-5);
+
     display: flex;
     height: 100%;
     min-height: 0;
@@ -355,8 +360,8 @@ function onLeaveOpen(open: boolean): void {
 .settings-window__tabs {
     align-self: flex-start;
     flex-shrink: 0;
-    width: calc(180px - var(--space-2) - var(--space-5));
-    margin-left: var(--space-2);
+    width: calc(var(--settings-side-width) - var(--settings-side-inset-start) - var(--settings-side-inset-end));
+    margin-left: var(--settings-side-inset-start);
 }
 
 .settings-window__split {
@@ -368,7 +373,7 @@ function onLeaveOpen(open: boolean): void {
 /* 左栏：搜索框在上，分区在下、条目多时自己滚动。 */
 .settings-window__side {
     display: flex;
-    width: 180px;
+    width: var(--settings-side-width);
     min-height: 0;
     flex-shrink: 0;
     flex-direction: column;
@@ -377,7 +382,7 @@ function onLeaveOpen(open: boolean): void {
 
 .settings-window__search {
     flex-shrink: 0;
-    margin: var(--space-2) var(--space-5) 0 var(--space-2);
+    margin: var(--space-2) var(--settings-side-inset-end) 0 var(--settings-side-inset-start);
     width: auto;
 }
 
@@ -398,7 +403,7 @@ function onLeaveOpen(open: boolean): void {
     flex-direction: column;
     gap: var(--space-1);
     overflow-y: auto;
-    padding: var(--space-2) var(--space-5) var(--space-2) var(--space-2);
+    padding: var(--space-2) var(--settings-side-inset-end) var(--space-2) var(--settings-side-inset-start);
 }
 
 .settings-window__hits {

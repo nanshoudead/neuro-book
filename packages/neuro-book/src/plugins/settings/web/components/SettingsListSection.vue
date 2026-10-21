@@ -103,7 +103,7 @@ function excludedText(titles: ReadonlyArray<string>): string {
 </script>
 
 <template>
-    <div class="settings-list-section" :data-settings-list="view.id">
+    <div class="settings-list-section" :data-settings-list="view.id" :data-settings-layer="window.layer.value">
         <section v-for="group in view.groups" :key="group.id ?? ''" class="settings-list-section__group" :data-settings-group="group.id ?? ''">
             <h3 v-if="group.title !== null" class="settings-list-section__group-title">{{ group.title }}</h3>
             <SettingsRow
@@ -200,11 +200,20 @@ function excludedText(titles: ReadonlyArray<string>): string {
 }
 
 /*
- * 单行输入 200 到 320px：行宽减去标签列（200px）、两列间距与“恢复默认”的位置之后还剩多少就给多少，剩不到 200px 才整行
- * 换到标题下面。定宽 320 时内容列稍窄就整行换行，同一分区里与数字框、下拉两种对齐混在一起。
+ * 单行输入 200 到 320px：行宽减去标签列（200px）、两列间距与控件后面那个按钮的位置之后还剩多少就给多少，剩不到 200px 才
+ * 整行换到标题下面。定宽 320 时内容列稍窄就整行换行，同一分区里与数字框、下拉两种对齐混在一起。按钮在用户层是“恢复默认”
+ * 图标，在本作品层是文字按钮“移除本作品的设置”（SettingsRow），预留的宽度跟着层走；文字按钮的宽度随语言变，按中文留。
  */
+.settings-list-section {
+    --settings-row-action: var(--control-h-sm);
+}
+
+.settings-list-section[data-settings-layer="project"] {
+    --settings-row-action: 9em;
+}
+
 .settings-list-section__control[data-settings-width="wide"] {
-    width: clamp(200px, calc(100cqi - 200px - var(--space-7) - var(--space-4) - var(--control-h-sm)), 320px);
+    width: clamp(200px, calc(100cqi - 200px - var(--space-7) - var(--space-4) - var(--settings-row-action)), 320px);
 }
 
 .settings-list-section__excluded {

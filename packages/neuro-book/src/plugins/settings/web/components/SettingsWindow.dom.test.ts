@@ -543,8 +543,11 @@ describe("Lab“模型服务”：page 分区的草稿、未保存保护与动�
     const detailInputs = (): HTMLInputElement[] => all("[data-sample-models-detail] input") as HTMLInputElement[];
     /** 页内列表的条目标题（第二行是接口地址）。 */
     const listTitles = (): Array<string | undefined> => all("[data-sample-models] [data-settings-page-list-item]").map((element) => element.querySelector(".settings-page-list__title")?.textContent?.trim());
-    const pick = async (id: string): Promise<void> => {
-        one(`[data-sample-models] [data-settings-page-list-item='${id}']`).click();
+    /** 按标题点列表里的一项。 */
+    const pick = async (title: string): Promise<void> => {
+        const item = all("[data-sample-models] [data-settings-page-list-item]").find((element) => element.querySelector(".settings-page-list__title")?.textContent?.trim() === title);
+        if (item === undefined) throw new Error(`列表里没有 ${title}`);
+        item.click();
         await flushPromises();
     };
     const action = (label: string): HTMLButtonElement => {
@@ -566,7 +569,8 @@ describe("Lab“模型服务”：page 分区的草稿、未保存保护与动�
     it("改动先进草稿、报未保存；新加的一项没填好时保存被拒并写出原因；填好保存后整组写进用户层", async () => {
         const {host} = await scene("page-fill");
         await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
-        expect(action("保存").disabled).toBe(true);
+        // 停在“常规”、没有改动时没有操作行：那两项即时写入。
+        expect(document.body.querySelector("[data-sample-models-actions]")).toBeNull();
         (one("[data-sample-models-add]") as HTMLButtonElement).click();
         await flushPromises();
         expect(host.window.unsaved.value).toBe(true);
@@ -590,7 +594,7 @@ describe("Lab“模型服务”：page 分区的草稿、未保存保护与动�
     it("删掉默认模型所在的服务商并保存：默认模型照常显示、标“已不存在”；放弃改动回到已保存的值", async () => {
         const {host} = await scene("page-fill");
         await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
-        await pick("provider-0");
+        await pick("DeepSeek");
         (all("[data-sample-models] button").find((element) => element.getAttribute("aria-label") === "删除：DeepSeek") as HTMLButtonElement).click();
         await flushPromises();
         expect(listTitles()).toEqual(["常规", "本地 Ollama"]);
@@ -598,7 +602,7 @@ describe("Lab“模型服务”：page 分区的草稿、未保存保护与动�
         await flushPromises();
         expect(listTitles()).toEqual(["常规", "DeepSeek", "本地 Ollama"]);
         expect(host.window.unsaved.value).toBe(false);
-        await pick("provider-0");
+        await pick("DeepSeek");
         (all("[data-sample-models] button").find((element) => element.getAttribute("aria-label") === "删除：DeepSeek") as HTMLButtonElement).click();
         await flushPromises();
         action("保存").click();
@@ -611,7 +615,7 @@ describe("Lab“模型服务”：page 分区的草稿、未保存保护与动�
     it("有未保存的改动时切到别的分区：先弹确认；放弃后离开，回来时是已保存的值", async () => {
         const {host} = await scene("page-fill");
         await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
-        await pick("provider-0");
+        await pick("DeepSeek");
         await fill(detailInputs()[1]!, "深度求索");
         expect(host.window.unsaved.value).toBe(true);
         one("[data-settings-nav='nbook.appearance']").click();
@@ -623,6 +627,33 @@ describe("Lab“模型服务”：page 分区的草稿、未保存保护与动�
         await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
         expect(listTitles()[1]).toBe("DeepSeek");
         expect(host.window.unsaved.value).toBe(false);
+    });
+
+    it("一家服务商里有解析不了的输入：列表标出这一家；切到别家时这段输入随字段丢掉，回来是原值、不再算未保存", async () => {
+        const {host} = await scene("page-fill");
+        await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
+        await pick("DeepSeek");
+        await fill(detailInputs()[3]!, "abc");
+        expect(host.window.unsaved.value).toBe(true);
+        const edited = () => all("[data-sample-models] [data-settings-page-list-item]").filter((element) => element.querySelector("[data-sample-models-edited]") !== null).map((element) => element.querySelector(".settings-page-list__title")?.textContent?.trim());
+        expect(edited()).toEqual(["DeepSeek"]);
+        await pick("本地 Ollama");
+        await pick("DeepSeek");
+        expect(detailInputs()[3]!.value).toBe("60");
+        expect(host.window.unsaved.value).toBe(false);
+        expect(edited()).toEqual([]);
+    });
+
+    it("没有改动时别处在最前面加了一家：草稿跟上，选中的仍是原来那家", async () => {
+        const {host} = await scene("page-fill");
+        await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
+        await pick("本地 Ollama");
+        const before = providers(host)!;
+        await host.service("example.models").update(modelsSettings.providers, [{id: "other", name: "别处加的", baseUrl: "https://example.com", timeout: 10}, ...before], {layer: "user"});
+        await flushPromises();
+        expect(listTitles()).toEqual(["常规", "别处加的", "DeepSeek", "本地 Ollama"]);
+        expect(one("[data-sample-models] h3").textContent?.trim()).toBe("本地 Ollama");
+        expect(detailInputs()[1]!.value).toBe("本地 Ollama");
     });
 });
 
@@ -699,7 +730,7 @@ describe("实现审查补的用例（Sonnet 第 1、2、9、10、13 条，第 5 
     it("模型服务：有改动时别处改了服务商，提示并停用“保存”；“仍然保存”盖掉别处的改动", async () => {
         const {host} = await scene("page-fill");
         await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
-        one("[data-sample-models] [data-settings-page-list-item='provider-0']").click();
+        all("[data-sample-models] [data-settings-page-list-item]")[1]!.click();
         await flushPromises();
         const name = (all("[data-sample-models-detail] input") as HTMLInputElement[])[1]!;
         name.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));

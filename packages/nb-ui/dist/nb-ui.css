@@ -1246,6 +1246,9 @@
 .opacity-0 {
   opacity: 0%;
 }
+.opacity-35 {
+  opacity: 35%;
+}
 .opacity-40 {
   opacity: 40%;
 }
@@ -1808,9 +1811,6 @@
 }
 .disabled\:opacity-30:disabled {
   opacity: 30%;
-}
-.disabled\:opacity-35:disabled {
-  opacity: 35%;
 }
 .disabled\:opacity-40:disabled {
   opacity: 40%;
