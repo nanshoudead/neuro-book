@@ -155,6 +155,8 @@ describe("bare 时字段自己的状态照样显示", () => {
         const gone = mount(SchemaField, {attachTo: document.body, props: {schema, modelValue: "gone", locale: "zh-CN", bare: true, id: "g", options: {models: ref<OptionSource>({status: "ready", items: [{value: "a", label: "A"}]})}}});
         mounted.push(gone);
         expect(gone.text()).toContain("警告：已不存在");
+        // 控件里只写值本身，“已不存在”只在下面的警告行写一次。
+        expect(gone.get("[role='combobox']").text()).not.toContain("已不存在");
     });
 });
 

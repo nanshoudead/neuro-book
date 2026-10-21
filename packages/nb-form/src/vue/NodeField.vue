@@ -83,7 +83,7 @@ const visible = computed(() => isVisible(props.node, scope.rootValue()));
 const choices = computed(() => {
     if (!CHOICE_WIDGETS.has(widget.value)) return undefined;
     const name = props.node.hints.options;
-    return choiceState(props.node, value.value, name === undefined ? undefined : scope.source(name), locale.value);
+    return choiceState(props.node, value.value, name === undefined ? undefined : scope.source(name), locale.value, !props.bare);
 });
 const readonly = computed(() => scope.readonly.value || props.node.readOnly || scope.mode.value === "view");
 const disabled = computed(() => scope.disabled.value || (choices.value !== undefined && choices.value.status !== "ready"));

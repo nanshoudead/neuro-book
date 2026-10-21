@@ -31,8 +31,11 @@ function isChoiceValue(value: unknown): value is ChoiceValue {
     return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
 }
 
-/** 选择类字段在当前值下的选项；`source` 是 `options` 指向的源，字段没有动态选项时不用。 */
-export function choiceState(node: FieldNode, value: unknown, source: OptionSource | undefined, locale: string): ChoiceState {
+/**
+ * 选择类字段在当前值下的选项；`source` 是 `options` 指向的源，字段没有动态选项时不用。`inlineStale` 时“已不存在”写进
+ * 那一项的名字（控件里看得见）；`bare` 的字段在控件下面另有一行警告，不在名字里再写一遍。
+ */
+export function choiceState(node: FieldNode, value: unknown, source: OptionSource | undefined, locale: string, inlineStale = true): ChoiceState {
     const messages = messagesFor(locale);
     const recommended = new Set((node.hints.recommend ?? []).map(optionKey));
     /** “推荐”写在说明里：选中后控件显示的名字不带它（`recommend` 只作标记，不预选）。 */
@@ -76,7 +79,7 @@ export function choiceState(node: FieldNode, value: unknown, source: OptionSourc
         if (!isChoiceValue(entry) || known.has(optionKey(entry))) continue;
         known.add(optionKey(entry));
         // 加载中与不可用时选项还没有，当前值照常显示，不标“已不存在”。
-        const label = dynamic && status === "ready" ? `${String(entry)}（${messages.stale}）` : String(entry);
+        const label = inlineStale && dynamic && status === "ready" ? `${String(entry)}（${messages.stale}）` : String(entry);
         items.push({key: optionKey(entry), value: entry, label, disabled: true, stale: status === "ready"});
     }
     return status === "unavailable" ? {status, reason, items} : {status, items};
