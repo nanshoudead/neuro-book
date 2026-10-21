@@ -6,15 +6,17 @@
 
 # SettingsListSection
 
-设置窗口里 list 分区的内容（[`settings/settings-window.md`](../../../../../../../docs/specs/settings/settings-window.md) 输出 2、9–12）：按窗口模型给的分组列出配置项，每项一个 [`SettingsRow`](../../../../ui/settings/SettingsRow.md)，行里放 [`SettingsControl`](SettingsControl.md)；改值经窗口模型写当前标签那一层（用户编辑路径），行自己的“恢复默认”等经模型的 `editing` 服务。窗口画分区的标题与说明，这里从第一组开始。
+设置窗口里 list 分区的内容（[`settings/settings-window.md`](../../../../../../../docs/specs/settings/settings-window.md) 输出 2、9–12）：按窗口模型给的分组列出配置项，每项一个 [`SettingsRow`](../../../../ui/settings/SettingsRow.md)，行里放 nb-form 的 [`SchemaField`](../../../../../../nb-form/src/vue/SchemaField.md)（`bare`，id、名字与说明来自行，配置项声明经 `setting-form.ts` 转成表单提示）；改值经窗口模型写当前标签那一层（用户编辑路径），行自己的“恢复默认”等经模型的 `editing` 服务。窗口画分区的标题与说明，这里从第一组开始。
 
 ## 布局
 
-自上而下：没有小标题的一组（分区最前）、各小组（小标题加一条分隔线）。每组里的行竖排。画不了、只读显示的项用宽排法。本作品标签下，分区末尾一行淡色字列出只能在用户设置里改、因此没有列出的项。
+自上而下：没有小标题的一组（分区最前）、各小组（小标题加一条分隔线）。每组里的行竖排。控件按表单选出（`widgetLayout`）：多行、竖排单选、复选组、列表、对象与 JSON 用宽排法，其余排在标签右边，下拉 220px、数字框 120px、单行输入 320px，单选组与开关按内容。本作品标签下，分区末尾一行淡色字列出只能在用户设置里改、因此没有列出的项。
 
 ## 交互
 
-- 控件改值：调 `window.write`；结算之前控件显示这次的值（`window.pending`），失败时窗口发通知、控件回到层里的实际值。
+- 控件改值：表单按提交时机（`commit: "change"`：输入框失焦或回车，其余立即）发出新值，调 `window.write`；结算之前控件显示这次的值（`window.pending`），失败时窗口发通知、控件回到层里的实际值。
+- 结构字段（字符串列表、对象、对象列表、JSON）的新值不合 schema 时（例如刚加的一项还没填）先留在行里、不写；控件下面一行写“还没保存：<第一条原因>”，填好合格了再写。改回层里原来的值时不写。层里的值变了（恢复默认、别处改了）、切换标签或换分区时丢掉。
+- 数字框、JSON 里写的内容解析不了时不写，同一行写出原因；改好或草稿丢掉后消失。这一行的 id 接进控件的 `aria-describedby`，带 `data-settings-not-saved`。
 - 行的写入失败：交给 `window.rowFailed` 发通知。
 
 ## 数据

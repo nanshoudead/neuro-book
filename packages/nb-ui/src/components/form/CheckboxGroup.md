@@ -15,6 +15,7 @@
 - 点击选项切换该项值，发出包含完整选中 value 集合的 `update:modelValue`。组的选择顺序按添加顺序保留，取消选择移除对应 value。
 - `disabled` 禁用整组；选项自身也可通过 `disabled` 禁用。
 - 每个选项使用 `Checkbox` 的原生 checkbox 输入和标签；箭头键是否形成跨选项组导航未由本包装保证。焦点离开组后的去向由调用方决定。
+- 组根是 `role="group"`。放在 `Field` 的组形态里时，组根读字段上下文：`id`、`aria-labelledby`（字段标签）、`aria-describedby` 与出错时的 `aria-invalid` 都标在组上；组里的每个 `Checkbox` 看不到字段上下文（组用 null 盖住它），不会都拿到字段的 id、各自标红（docs/specs/ui/forms.md 输出 27）。
 
 ## 数据
 
@@ -33,7 +34,7 @@ interface CheckboxOption {
 interface CheckboxGroupProps {
     /** 选中值数组；传入时受控，默认 undefined。 */
     modelValue?: string[];
-    /** 非受控初始值；默认空数组。选中显示仍由 modelValue ?? defaultValue 计算，详见已知偏差。 */
+    /** 非受控初始值；默认空数组。不给 modelValue 时组件按它起步并自己记选中的值。 */
     defaultValue?: string[];
     /** 选项列表；默认空数组。 */
     options?: CheckboxOption[];
@@ -41,6 +42,10 @@ interface CheckboxGroupProps {
     orientation?: "horizontal" | "vertical";
     /** 禁用全部选项；默认 false。 */
     disabled?: boolean;
+    /** 出错：aria-invalid 写在组上，组里每个框只描红；默认 false，与 Field 上下文的出错取或。 */
+    invalid?: boolean;
+    /** 只读：可以聚焦、写 aria-readonly，交互不改值；默认 false（docs/specs/ui/forms.md 输出 28）。 */
+    readonly?: boolean;
 }
 
 interface CheckboxGroupEmits {
@@ -57,11 +62,11 @@ interface CheckboxGroupSlots {}
 
 - 默认选中数组为空、无选项、纵向且启用。
 - 组禁用时所有选项禁用；单项禁用由选项字段控制。
-- 空列表不渲染选项；没有独立加载、错误或只读状态。
-
-## 已知偏差
-
-- 虽提供 `defaultValue`，每个 `Checkbox` 的选中态仍直接从 `modelValue ?? defaultValue` 计算；组件没有把本地更新后的数组写回内部显示状态。因此不传 `modelValue` 时，交互后显示是否保持更新未被组件自身保证。需要可靠多选状态时由父组件绑定 `v-model`。
+- 空列表不渲染选项。
+- **只读**（`readonly`）：每个复选框写 `aria-readonly`、点击不切换；组上不写（`group` 角色不支持 `aria-readonly`）。
+- **出错**（`invalid` 或 Field 的出错）：组上写 `aria-invalid`，每个框描红但不各自写 `aria-invalid`。
+- **没给 `modelValue`**：选中的值记在组件里（初值是 `defaultValue`），勾第二项时发出的数组含两项。
+- 没有独立的加载状态。
 
 ## 不支持
 

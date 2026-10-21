@@ -24,6 +24,8 @@ const props = withDefaults(defineProps<{
     anchor?: SuggestionMenuAnchor | null;
     id?: string;
     label?: string;
+    /** 列表名字来源的元素 id；与 `label` 二选一，给了 `label` 时不用它。 */
+    labelledby?: string;
     loading?: boolean;
     loadingText?: string;
     emptyText?: string;
@@ -35,6 +37,7 @@ const props = withDefaults(defineProps<{
     anchor: null,
     id: undefined,
     label: undefined,
+    labelledby: undefined,
     loading: false,
     loadingText: "",
     emptyText: "",
@@ -196,6 +199,7 @@ defineExpose({
                     :ref="scroll.setViewport"
                     role="listbox"
                     :aria-label="props.label"
+                    :aria-labelledby="props.label === undefined ? props.labelledby : undefined"
                     class="nb-ui-popover-scroll w-full"
                     :class="scroll.fadeClass.value"
                     :style="scroll.viewportStyle.value"
@@ -225,6 +229,7 @@ defineExpose({
                             <span v-else-if="iconColumn" class="nb-ui-menu-item__icon" aria-hidden="true"></span>
                             <span class="nb-ui-menu-item__label">{{ row.item.label }}</span>
                             <span v-if="row.item.hint" class="nb-ui-menu-item__hint">{{ row.item.hint }}</span>
+                            <span v-if="row.item.checked === true" class="i-lucide-check h-3.5 w-3.5 shrink-0 text-[var(--text-secondary)]" aria-hidden="true" data-suggestion-menu-checked></span>
                         </div>
                     </div>
                     <div v-if="empty" class="px-[10px] py-[6px] text-[12px] leading-4 text-[var(--text-muted)]" data-suggestion-menu-empty>{{ props.emptyText }}</div>

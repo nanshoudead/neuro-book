@@ -14,6 +14,8 @@
 
 点击可用选项会选中该项并发出 `update:modelValue`。组级 `disabled` 禁用整组；`RadioOption.disabled` 禁用单项。方向键导航、焦点与单选语义由 Reka UI RadioGroup 提供；具体按键行为不由本组件另行定义。
 
+放在 `Field` 的组形态（`group`）里时，组根读字段上下文：`id` 是 `inputId`，`aria-labelledby` 指向字段标签（`labelId`），`aria-describedby` 指向说明与错误，出错时写 `aria-invalid`，字段的 `required` 并入组的必填。`Field` 的普通形态根是 `<label>`，里面放一组单选读屏读不出组名，所以单选组要用组形态（docs/specs/ui/forms.md 输出 27）。
+
 ## 数据
 
 ```ts
@@ -32,6 +34,8 @@ interface RadioGroupProps {
     name?: string; // 原生表单字段名；默认 undefined。
     disabled?: boolean; // 禁用整组；默认 false。
     required?: boolean; // 原生必填语义；默认 false。
+    invalid?: boolean;  // 出错：组上写 aria-invalid，圆钮描红；默认 false，与 Field 上下文的出错取或。
+    readonly?: boolean; // 只读：可以聚焦当前项、写 aria-readonly，点击与方向键不改选中；默认 false。
     orientation?: "horizontal" | "vertical"; // 排列方向；默认 "vertical"。
     size?: RadioGroupSize; // 圆钮及文字大小；默认 "md"。
     options?: RadioOption[]; // 数据选项；默认 []。非空时优先于默认插槽。
@@ -53,7 +57,10 @@ interface RadioGroupSlots {
 - 默认：未传值时由 Reka UI 依据 `defaultValue` 初始化；未提供初值则没有选中项。
 - 已选：选项呈选中态；有 `modelValue` 时始终以父级值为准。
 - 禁用：组级或单项禁用会阻止对应项交互并降低视觉强调。
-- 只读、加载、出错、空数据：没有单独状态；空选项且无插槽时渲染空组。
+- **只读**（`readonly`）：组上写 `aria-readonly`；当前项可以聚焦，点击与方向键都不改选中（方向键仍在选项间移动焦点）；光标与悬停描边、按下缩放都不出现。
+- **出错**（`invalid` 或 Field 的出错）：组上写 `aria-invalid`，各圆钮描红。
+- **没给 `modelValue`**：值记在组件里，初值是 `defaultValue`；只读与可编辑之间切换后照常选中。
+- 加载、空数据：没有单独状态；空选项且无插槽时渲染空组。
 
 ## 上游边界
 

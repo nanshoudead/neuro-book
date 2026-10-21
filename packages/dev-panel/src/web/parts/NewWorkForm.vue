@@ -54,7 +54,7 @@ const complete = computed(() => ["slug", "title", "goal", "taskSlug"].every((key
             <Field label="首个 Task 的标题（可选，缺省同 Work 标题）" :error="errors.taskTitle ?? ''">
                 <Input :model-value="modelValue.taskTitle" @update:model-value="(value: string) => update('taskTitle', value)" />
             </Field>
-            <Field label="首个 Task 的状态">
+            <Field label="首个 Task 的状态" group>
                 <RadioGroup :model-value="modelValue.taskStatus" :options="STATUS_OPTIONS" orientation="horizontal" size="sm" @update:model-value="(value: string) => update('taskStatus', value as WorkFormValue['taskStatus'])" />
             </Field>
         </fieldset>

@@ -41,6 +41,11 @@ type NumberInputProps = {
     readonly?: boolean;
     /** 原生 required；默认 false，并与 Field required 合并。 */
     required?: boolean;
+    /** 出错外观与 aria-invalid；默认 false，与 Field 上下文的出错取或。 */
+    invalid?: boolean;
+    /** 微调按钮的读屏名称；默认“增加”“减少”，按显示语言覆盖。 */
+    incrementLabel?: string;
+    decrementLabel?: string;
     /** 原生 autofocus；默认 false。 */
     autofocus?: boolean;
     /** 可解析的最小数值字符串；默认 undefined。 */
@@ -76,7 +81,7 @@ type NumberInputSlots = {
 - **默认/空值**：输入区为空，步进仍可按 `step` 与 min/max 计算下一值。
 - **受控**：父组件通过 `modelValue` 决定显示值；输入和步进结果必须由父组件回写才能持续显示。
 - **禁用**：输入与两个步进按钮均 disabled，容器降低不透明度。
-- **只读**：输入保留值但不允许修改，两个步进按钮禁用；Enter 提交行为见「交互」。
+- **只读**：输入保留值但不允许修改，两个步进按钮禁用；外观与可编辑时相同，不像停用那样变淡（与 `Input` 等其它控件的只读一致）；Enter 提交行为见「交互」。
 - **错误**：Field 的 invalid 上下文使容器使用错误样式，并给 input 设置 `aria-invalid`。
 - **加载中、空数据**：没有专用状态；宿主通过 disabled、placeholder 或外部文案表达。
 

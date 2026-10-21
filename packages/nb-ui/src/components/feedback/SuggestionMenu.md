@@ -45,6 +45,8 @@ type SuggestionMenuProps = {
     id?: string;
     /** 无障碍名称 */
     label?: string;
+    /** 名字来源的元素 id，写成列表的 aria-labelledby；给了 label 时不用它 */
+    labelledby?: string;
     /** 加载中：已有项照常显示，底部加一行加载提示；默认 false */
     loading?: boolean;
     loadingText?: string;
@@ -67,6 +69,8 @@ type SuggestionMenuItem = {
     /** 右侧次要文字：快捷键、路径或一句说明 */
     hint?: string;
     disabled?: boolean;
+    /** 当前值：行尾画一个勾（SearchSelect 用它标出已选项）；与高亮无关 */
+    checked?: boolean;
 };
 
 type SuggestionMenuGroup = {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed, inject, useAttrs} from "vue";
+import {computed, inject, ref, useAttrs, watch} from "vue";
 import {
     SelectContent,
     SelectItem,
@@ -50,6 +50,10 @@ const props = withDefaults(defineProps<{
     dropdownDirection?: SelectDirection;
     disabled?: boolean;
     required?: boolean;
+    /** 出错外观与 `aria-invalid`；与 `Field` 上下文的出错取或。 */
+    invalid?: boolean;
+    /** 只读：可以聚焦、写 `aria-readonly`，交互不改值（docs/specs/ui/forms.md 输出 28）。 */
+    readonly?: boolean;
     hideCheckmark?: boolean;
 }>(), {
     modelValue: "",
@@ -60,6 +64,8 @@ const props = withDefaults(defineProps<{
     dropdownDirection: "auto",
     disabled: false,
     required: false,
+    invalid: false,
+    readonly: false,
     hideCheckmark: false,
 });
 
@@ -71,7 +77,7 @@ const emit = defineEmits<{
 const field = useFieldContext();
 const controlId = computed(() => props.id || field?.inputId.value || undefined);
 const isRequired = computed(() => props.required || field?.required.value === true);
-const isInvalid = computed(() => field?.invalid.value === true);
+const isInvalid = computed(() => props.invalid || field?.invalid.value === true);
 const isSmall = computed(() => props.size === "sm");
 const controlSizeClass = computed(() => isSmall.value
     ? "nb-ui-control-h-sm px-[calc(var(--control-px)*0.75)] text-[12px]"
@@ -95,6 +101,8 @@ const triggerClass = computed(() => cn(
     "nb-ui-control flex w-full items-center justify-between gap-1.5 rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] outline-none disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer select-none font-medium shadow-sm transition-[border-color,box-shadow,background-color] [transition-duration:var(--motion-fast)]",
     controlSizeClass.value,
     isInvalid.value ? "nb-ui-control-invalid" : "",
+    // 只读不画成可点：光标与悬停都不变。
+    props.readonly ? "!cursor-default" : "",
     attrs.class as string | undefined,
 ));
 const popperSide = computed(() => {
@@ -135,6 +143,23 @@ const popoverStyle = {
 /** 滚动只接 reka 的 `SelectViewport`：打开时由 reka 滚到选中项，这里不重置滚动位置。 */
 const scroll = usePopupScroll();
 
+/**
+ * 浮层开合由这里持有、始终受控：reka 在 setup 时就按 `open` 是不是 undefined 定受控与否，之后不再变，只读挂载、再改成
+ * 可编辑时若靠传 undefined 切回非受控，浮层就再也打不开。只读时打开请求不采纳；变成只读时关掉已开的浮层。
+ */
+const open = ref(false);
+function handleOpen(value: boolean): void {
+    open.value = value && !props.readonly;
+}
+watch(() => props.readonly, (readonly) => {
+    if (readonly) open.value = false;
+});
+
+/** 只读时 reka 在按下时阻止默认行为，鼠标点触发器不会聚焦；这里补上（输出 28：只读可以聚焦）。 */
+function handleTriggerPointerdown(event: PointerEvent): void {
+    if (props.readonly) (event.currentTarget as HTMLElement).focus();
+}
+
 /** 关闭时不把焦点强行弹回触发器（reka 会先弹一次焦点再交还，触发器的焦点环会闪一下）。 */
 function handleCloseAutoFocus(event: Event): void {
     event.preventDefault();
@@ -148,6 +173,8 @@ function handleCloseAutoFocus(event: Event): void {
         :name="props.name || undefined"
         :required="isRequired"
         :modal="false"
+        :open="open"
+        @update:open="handleOpen"
         @update:model-value="handleUpdate"
     >
         <SelectTrigger
@@ -155,8 +182,10 @@ function handleCloseAutoFocus(event: Event): void {
             :id="controlId"
             :aria-describedby="field?.ariaDescribedby.value"
             :aria-invalid="isInvalid || undefined"
+            :aria-readonly="props.readonly || undefined"
             :class="triggerClass"
             @focus="emit('focus', $event)"
+            @pointerdown="handleTriggerPointerdown"
         >
             <span class="flex min-w-0 items-center gap-1.5 pr-1">
                 <slot name="leading" :selected="selectedOption">

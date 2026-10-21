@@ -10,6 +10,8 @@ export type SuggestionMenuItem = Readonly<{
     /** 右侧的次要文字：快捷键、路径或一句说明；放不下时先截它 */
     hint?: string;
     disabled?: boolean;
+    /** 当前值：行尾画勾（可搜索的下拉用它标出已选项）。 */
+    checked?: boolean;
 }>;
 
 export type SuggestionMenuGroup = Readonly<{

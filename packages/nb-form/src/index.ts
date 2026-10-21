@@ -16,6 +16,6 @@ export {fromPointer, getAt, removeAt, setAt, toPointer} from "./path";
 export type {FieldPath, PathSegment} from "./path";
 export {FALLBACK_LOCALE, isFormText, resolveText} from "./text";
 export type {FormText} from "./text";
-export {validateForm} from "./validate";
+export {SCHEMA_ISSUE_CODES, validateForm} from "./validate";
 export type {FormIssue, FormMeta} from "./validate";
 export {isVisible} from "./visible";

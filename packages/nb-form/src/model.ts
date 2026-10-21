@@ -128,10 +128,14 @@ function isReference(schema: JsonSchema): boolean {
     return Object.hasOwn(schema, "$ref") || Object.hasOwn(schema, "$dynamicRef");
 }
 
-/** 有属性、没有按名字模式或按 schema 约束的额外属性（`additionalProperties` 省略与写 `true` 一样，都是允许）。 */
+/**
+ * 有属性、没有按名字模式或按 schema 约束的额外属性（`additionalProperties` 省略与写 `true` 一样，都是允许）。
+ * 关闭额外属性的空对象也算：它只有 `{}` 一个值，画成没有成员（命令的“无参数”就是它）；开放的空对象要用 JSON 编辑。
+ */
 function isStructuredObject(schema: JsonSchema): boolean {
-    return schema.type === "object" && isRecord(schema.properties) && Object.keys(schema.properties).length > 0
-        && schema.patternProperties === undefined && !isRecord(schema.additionalProperties);
+    if (schema.type !== "object" || schema.patternProperties !== undefined || isRecord(schema.additionalProperties)) return false;
+    if (schema.properties !== undefined && !isRecord(schema.properties)) return false;
+    return Object.keys(schema.properties ?? {}).length > 0 || schema.additionalProperties === false;
 }
 
 /** 一个 schema 的种类（不看 `x-form`）。 */

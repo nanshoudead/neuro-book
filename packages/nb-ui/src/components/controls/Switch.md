@@ -17,7 +17,7 @@
 - 点击开关在开启/关闭之间切换；受控模式下通过 `update:modelValue` 请求父组件回写，非受控模式下由上游原语暂存变化。
 - 键盘激活行为、焦点移动与 `role="switch"` 的语义由 Reka Switch 原语负责；组件提供可见焦点环。
 - `disabled` 为真时不可点击或键盘激活，轨道降低透明度。
-- `name` 传给原语用于表单关联；`ariaLabel` 为开关提供可访问名称，默认是“开关”。组件挂载或卸载时不主动转移焦点。
+- `name` 传给原语用于表单关联；`ariaLabel` 为开关提供可访问名称，没有缺省值：缺省的名称会盖过字段标签。放在 `Field` 里时，开关的 id 取字段上下文的 `inputId`，名字经 `<label for>` 来自字段标签，`aria-describedby` 与出错时的 `aria-invalid` 也来自上下文；不在 `Field` 里时由调用方给 `ariaLabel` 或外层 `<label>`。组件挂载或卸载时不主动转移焦点。
 
 ## 数据
 
@@ -31,11 +31,15 @@ type SwitchProps = {
     defaultValue?: boolean;
     /** 是否禁用；默认 false */
     disabled?: boolean;
+    /** 出错：写 aria-invalid，轨道描红；默认 false，与 Field 上下文的出错取或。 */
+    invalid?: boolean;
+    /** 只读：可以聚焦、写 aria-readonly，点击与空格不切换；默认 false（docs/specs/ui/forms.md 输出 28）。 */
+    readonly?: boolean;
     /** 尺寸；默认 "md" */
     size?: SwitchSize;
     /** 原生表单名称；默认 undefined */
     name?: string;
-    /** 可访问名称；默认 "开关" */
+    /** 可访问名称；没有缺省值，放在 Field 里时名字来自字段标签 */
     ariaLabel?: string;
 };
 
@@ -53,7 +57,10 @@ type SwitchSlots = {};
 
 - 默认：按当前布尔值显示关闭或开启轨道，滑块在对应位置。
 - 禁用：不可交互并降低透明度；不会发出新的值事件。
-- 只读、加载、出错、空数据：组件没有统一的只读、加载、错误或空数据状态；需要只读时由父组件保持值并禁用交互，业务反馈由父级呈现。
+- **只读**（`readonly`）：可以聚焦（Tab 与点击），写 `aria-readonly`；点击、空格与 Enter 都不切换，不发出 `update:modelValue`；光标不变成手形。
+- **出错**（`invalid` 或 Field 的出错）：写 `aria-invalid`，轨道借那 1px 边框描红，尺寸不变。
+- **没给 `modelValue`**：值记在组件里，初值是 `defaultValue`；只读与可编辑之间切换后照常显示与切换。
+- 加载、空数据：没有这些状态，业务反馈由父级呈现。
 
 ## 不支持
 

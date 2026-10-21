@@ -8,13 +8,14 @@
 
 ## 布局
 
-根节点是一个 block 级 `label`，内部依次是可选字段标题、默认 slot 内容与可选描述文字。标题和描述各占一行，默认间距由 `space-y-1.5` 提供。`error` 不显示成文字：出错时字段的排版不变，只有控件标红，原因放在视觉隐藏的元素里给读屏；看得见的原因由宿主写在固定位置（对话框里是页脚左侧的状态行），规则见 [UI 开发规范](../../../docs/ui-development-spec.md) 的“表单与无障碍”。标题过长或辅助文案过长时由父级宽度决定换行，组件不设置固定宽度。
+根节点是一个 block 级 `label`（组形态 `group` 时是 `div`），内部依次是可选字段标题、默认 slot 内容与可选描述文字。标题和描述各占一行，默认间距由 `space-y-1.5` 提供。`error` 不显示成文字：出错时字段的排版不变，只有控件标红，原因放在视觉隐藏的元素里给读屏；看得见的原因由宿主写在固定位置（对话框里是页脚左侧的状态行），规则见 [UI 开发规范](../../../docs/ui-development-spec.md) 的“表单与无障碍”。标题过长或辅助文案过长时由父级宽度决定换行，组件不设置固定宽度。
 
 `390×844` 下布局仍是单列结构，字段控件由默认 slot 决定宽度；Field 自身不创建横向滚动区域，也不改变 slot 内容的尺寸。
 
 ## 交互
 
 - 点击标题或 label 区域会按原生 `<label>` 语义把焦点交给关联控件；关联 id 来自 `for` prop 或组件生成的 id。
+- **组形态**（`group`）：给单选组、复选组这类由几个控件组成的字段用。根是 `div`、带 `data-nb-field-group`，标题是带 id（`<id>-label`）的元素，不是 `<label for>`；组合控件读上下文的 `labelId` 写 `aria-labelledby`。点击标题不转移焦点。`<label>` 里放一组单选，读屏读不出组名，所以组合控件要用这个形态（docs/specs/ui/forms.md 输出 27）。组形态只给组合控件：单个控件（`Input`、`Select`、`Switch` 等）靠 `<label for>` 命名，放进组形态会没有名字，组件不检查这种误用。
 - `required` 为 true 时标题后显示红色 `*`，并通过上下文让支持它的子控件设置原生 required 语义。
 - `error` 为非空字符串时生成视觉隐藏的错误元素与 id，子控件收到 `aria-invalid`，`aria-describedby` 先列错误 id、再列描述 id（有描述时）。
 - 组件本身没有键盘快捷键、提交动作或焦点事件；字段控件的键盘行为由 slot 内容负责。
@@ -33,6 +34,8 @@ type FieldProps = {
     for?: string;
     /** 是否必填；默认 false。 */
     required?: boolean;
+    /** 组形态：根是 div，标题带 id 供组合控件的 aria-labelledby 引用；默认 false。 */
+    group?: boolean;
 };
 
 type FieldEmits = {
@@ -53,7 +56,7 @@ type FieldSlots = {
 
 组件生成的 id 形如 `nb-field-<Vue useId>`，只有 `for` prop 非空时才使用调用方给出的 id。组件不提供 expose API。未声明的 attrs、`class` 和 `style` 按 Vue 默认行为落到根 `label`，不应把它们当作内部控件属性透传入口。
 
-Field 通过 `NB_FIELD_CONTEXT_KEY` provide 下列只读计算值给后代：`inputId`、`descriptionId`、`errorId`、`ariaDescribedby`、`required` 和 `invalid`。`Input`、`NumberInput`、`Select` 与 `Checkbox` 会可选读取这份上下文；其它默认 slot 内容不会自动获得原生属性。没有这些消费者时，provide 不产生额外副作用。
+Field 通过 `NB_FIELD_CONTEXT_KEY` provide 下列只读计算值给后代：`inputId`、`labelId`（有标题时）、`descriptionId`、`errorId`、`ariaDescribedby`、`required` 和 `invalid`。`Input`、`NumberInput`、`Textarea`、`Select`、`Checkbox`、`Switch`、`RadioGroup` 与 `CheckboxGroup` 会可选读取这份上下文（组合控件用 null 盖住它给子项的那份）；`useFieldContext`、`NB_FIELD_CONTEXT_KEY` 与类型 `FieldContext` 从 `@notnotype/nb-ui/components` 导出，别的包可以写读它的控件。其它默认 slot 内容不会自动获得原生属性。没有这些消费者时，provide 不产生额外副作用。
 
 ## 隐藏通道理由
 

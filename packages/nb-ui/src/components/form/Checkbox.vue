@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import {computed} from "vue";
-import {useFieldContext} from "./field-context";
+import {computed, inject, nextTick, ref} from "vue";
+import {NB_CHOICE_GROUP_INVALID_KEY, useFieldContext} from "./field-context";
 
 /**
  * 复选框（Checkbox · macOS 原生微拟物 Squircle 规范）。
@@ -21,8 +21,12 @@ const props = withDefaults(defineProps<{
     name?: string;
     disabled?: boolean;
     required?: boolean;
+    /** 出错外观与 `aria-invalid`；与 `Field` 上下文的出错取或。 */
+    invalid?: boolean;
+    /** 只读：可以聚焦、写 `aria-readonly`，交互不改值（docs/specs/ui/forms.md 输出 28）。 */
+    readonly?: boolean;
 }>(), {
-    modelValue: false,
+    modelValue: undefined,
     indeterminate: false,
     label: "",
     description: "",
@@ -30,6 +34,8 @@ const props = withDefaults(defineProps<{
     name: "",
     disabled: false,
     required: false,
+    invalid: false,
+    readonly: false,
 });
 
 const emit = defineEmits<{
@@ -38,14 +44,31 @@ const emit = defineEmits<{
 }>();
 
 const field = useFieldContext();
-const isIndeterminate = computed(() => props.indeterminate || props.modelValue === "indeterminate");
-const isChecked = computed(() => props.modelValue === true && !isIndeterminate.value);
+const isInvalid = computed(() => props.invalid || field?.invalid.value === true);
+/** 在出错的复选组里：只描红，不写 aria-invalid（出错写在组上）。 */
+const groupInvalid = inject(NB_CHOICE_GROUP_INVALID_KEY, null);
+const showsInvalid = computed(() => isInvalid.value || groupInvalid?.value === true);
+/** 没给 `modelValue` 时勾选记在这里，原生框与发出的值一致。 */
+const internal = ref(false);
+const current = computed(() => props.modelValue ?? internal.value);
+const isIndeterminate = computed(() => props.indeterminate || current.value === "indeterminate");
+const isChecked = computed(() => current.value === true && !isIndeterminate.value);
 const displayLabel = computed(() => props.label || (isChecked.value ? "true" : "false"));
+
+/** 原生复选框没有只读：拦下点击（空格也经点击），值与勾选都不变。 */
+function handleClick(event: MouseEvent): void {
+    if (props.readonly) event.preventDefault();
+}
 
 function handleChange(event: Event): void {
     if (props.disabled) return;
     const target = event.target as HTMLInputElement;
+    internal.value = target.checked;
     emit("update:modelValue", target.checked);
+    // 受控而调用方没有采纳这次变化时，原生框已经翻了，Vue 的 `:checked` 没变不会重写：等调用方更新后按当前值摆回去。
+    void nextTick(() => {
+        target.checked = isChecked.value;
+    });
 }
 </script>
 
@@ -54,7 +77,7 @@ function handleChange(event: Event): void {
          聚焦它时浏览器会去滚外面 overflow: hidden 的容器，把内容推出视野（见同名 .md 的“布局”）。 -->
     <label
         class="group relative inline-flex items-start gap-2.5 text-[length:var(--text-sm)] text-[var(--text-main)] select-none transition-opacity"
-        :class="props.disabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'"
+        :class="props.disabled ? 'cursor-not-allowed opacity-40' : props.readonly ? 'cursor-default' : 'cursor-pointer'"
     >
         <input
             type="checkbox"
@@ -65,9 +88,11 @@ function handleChange(event: Event): void {
             :required="props.required || field?.required.value"
             :aria-checked="isIndeterminate ? 'mixed' : (isChecked ? 'true' : 'false')"
             :aria-describedby="field?.ariaDescribedby.value"
-            :aria-invalid="field?.invalid.value || undefined"
+            :aria-invalid="isInvalid || undefined"
+            :aria-readonly="props.readonly || undefined"
             class="peer sr-only"
             @focus="emit('focus', $event)"
+            @click="handleClick"
             @change="handleChange"
         >
         <span
@@ -76,8 +101,8 @@ function handleChange(event: Event): void {
                 (isChecked || isIndeterminate)
                     ? 'border-[var(--accent-main)] bg-[linear-gradient(180deg,var(--accent-main)_0%,color-mix(in_srgb,var(--accent-main)_88%,#000000)_100%)] text-[var(--text-inverse)] shadow-[0_2px_6px_color-mix(in_srgb,var(--accent-main)_35%,transparent)]'
                     : 'border-[color-mix(in_srgb,var(--text-main)_20%,transparent)] bg-[color-mix(in_srgb,var(--bg-panel)_90%,transparent)] text-transparent group-hover:border-[color-mix(in_srgb,var(--text-main)_35%,transparent)] shadow-[inset_0_1px_1.5px_color-mix(in_srgb,var(--shadow-color)_10%,transparent)]',
-                field?.invalid.value
-                    ? 'border-[color:var(--status-danger)] peer-focus-visible:border-[color:var(--status-danger)] peer-focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--status-danger)_24%,transparent)]'
+                showsInvalid
+                    ? '!border-[color:var(--status-danger)] peer-focus-visible:border-[color:var(--status-danger)] peer-focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--status-danger)_24%,transparent)]'
                     : 'peer-focus-visible:border-[color:var(--focus-outline)] peer-focus-visible:shadow-[var(--focus-ring)]',
             ]"
         >

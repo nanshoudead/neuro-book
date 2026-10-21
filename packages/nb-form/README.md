@@ -11,3 +11,12 @@ const issues = validateForm(model, value);                   // 问题按字段�
 ```
 
 描述是 TypeBox 生成的、或手写的同等 JSON Schema；界面提示写在 `x-form` 里（见 Spec 的“输入与前置条件”）。
+
+Vue 渲染层（`@notnotype/nb-form/vue`）：
+
+```vue
+<SchemaForm :schema="schema" v-model="value" locale="zh-CN" :options="{providers}" />
+<SchemaField :schema="setting" v-model="value" locale="zh-CN" :id="rowId" bare />
+```
+
+组件合同见 [`SchemaForm.md`](src/vue/SchemaForm.md)、[`SchemaField.md`](src/vue/SchemaField.md)。

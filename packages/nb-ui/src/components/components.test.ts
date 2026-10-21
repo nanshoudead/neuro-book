@@ -177,7 +177,7 @@ describe("nb-ui components", () => {
         wrapper.unmount();
     });
 
-    it("renders segmented control as a labelled group", () => {
+    it("renders segmented control as a labelled radio group: one item checked, no toggle-button state", () => {
         const wrapper = mount(SegmentedControl, {
             props: {
                 modelValue: "list",
@@ -188,11 +188,12 @@ describe("nb-ui components", () => {
                 ],
             },
         });
-        const group = wrapper.get("[role='group']");
+        const group = wrapper.get("[role='radiogroup']");
 
-        expect(group.attributes("role")).toBe("group");
         expect(group.attributes("aria-label")).toBe("视图");
-        expect(wrapper.findAll("button")[0]?.attributes("aria-pressed")).toBe("true");
+        const items = wrapper.findAll("button");
+        expect(items.map((item) => [item.attributes("role"), item.attributes("aria-checked")])).toEqual([["radio", "true"], ["radio", "false"]]);
+        expect(items.some((item) => item.attributes("aria-pressed") !== undefined)).toBe(false);
     });
 
     it("segmented control without a matching value still has one tab stop and arrows start from the ends", async () => {
