@@ -1,0 +1,152 @@
+### 1. `conflict` 与 `invalid-text` 没有落到可实现的失败合同
+- **严重程度**：阻断；**类别**：接口
+- **位置**：计划“设置文件视图”与“Spec 与文档改动”（`plan.md:86-94,108-114`）；`packages/neuro-book/src/shared/settings.ts:344-359`；`packages/neuro-book/src/plugins/settings/shared/contracts.ts:86-110`。
+- **现象**：计划要求远程合同 v2 的 `writeText` 返回 `conflict`、`invalid-text`，但当前公开 `SETTINGS_FAILURES` 只有 9 个旧码，没有这两个码；当前远程失败载荷 `SettingsFailedDetail` 也只能由这个枚举生成。计划没有明确 `readText` 的成功/失败输出、文本修订号的类型、两种新码是否属于 `SettingsFailure`，也没有列出 `SettingWriteResult`、命令失败映射、`remote-link.fromRemote`、审计类型等所有消费面。
+- **为什么是问题**：按计划字面实现会在“远程合同能表达新失败码”和“配置服务已有失败码类型”之间产生断裂：要么把新码硬编码成字符串并绕过类型，要么把 `invalid-text` 错报成旧的 `write-failed`，UI 就无法按合同区分语法/重复键错误与磁盘写失败；这会直接破坏计划要求的行列提示和冲突重读流程。v2 也不是只改 `version` 数字，调用方、错误联合与测试替身必须同一轮迁移。
+- **如何核实**：读取 `shared/settings.ts:344-359` 可见失败码联合；读取 `shared/contracts.ts:86-110` 可见远程错误 schema 直接引用该联合；读取 `remote-link.ts:67-88` 可见远程失败只按旧码折算。
+- **建议改法**：先在计划中定下 v2 的公开形状：`readText` 的结果、文本修订号（建议独立于现有层快照 `{boot,seq}` 的字符串内容摘要）、`writeText` 的成功结果与失败码。随后把 `conflict`、`invalid-text` 加入唯一的领域失败合同，并逐一更新 `shared/settings.ts`、远程 schema、远程折算、命令映射、窗口错误显示与合同测试；禁止用文案或 `write-failed` 代替新码。
+
+### 2. v2 迁移漏掉了仓库内的原始远程调用者
+- **严重程度**：重要；**类别**：遗漏
+- **位置**：计划“设置文件视图”“Spec 与文档改动”“验收映射”（`plan.md:90,110,135`）；`packages/neuro-book/scripts/smoke-server.ts:122-134`；`packages/neuro-book/src/plugins/settings/shared/contracts.ts:108-110`。
+- **现象**：计划要求 `nbook.settings/user`、`nbook.settings/project` 两份合同同时升到 version 2，但现有打包 smoke 直接发送 `version: 1`、调用 `set`，不是通过导入的合同对象；计划的“远程合同测试”没有明确这条原始帧调用的迁移。
+- **为什么是问题**：远程合同按 id+version 核对，生产 smoke 仍发 v1 会在 v2 提供者上得到版本不符，导致配置写入 smoke 失败。只改 TypeScript 合同对象和应用内调用方不能覆盖这个独立的 JSON 帧发送者；这也是当前合同升级最容易漏掉的跨进程调用。
+- **如何核实**：`grep` 搜到 `smoke-server.ts:133` 的字面量 `contract: "nbook.settings/user", version: 1`；仓库中当前合同定义也仍是 `version: 1`。
+- **建议改法**：把 smoke 帧版本改为 v2，并在 smoke 中保留一次旧方法 `set` 的兼容验证；新增一次 v2 `readText`/`writeText` 的真实远程调用，覆盖 `conflict` 与 `invalid-text`。交付前用仓库根相对路径盘点所有 `nbook.settings/user`、`nbook.settings/project` 的字符串调用，不只盘点导入合同的调用方。
+
+### 3. 设置文件视图没有可观察“纯文本变化”通道
+- **严重程度**：重要；**类别**：不变量
+- **位置**：计划“设置文件视图”（`plan.md:88-94`）；`packages/neuro-book/src/plugins/settings/backend/layer-owner.ts:83-124`；`packages/neuro-book/src/plugins/settings/shared/contracts.ts:105-110`；`docs/specs/settings/configuration.md:134-136`。
+- **现象**：计划要求文本视图在干净时自动重读，在有草稿时检测“文件在别处改过了”。现有拥有者只有 `layer` 事件；`publish()` 通过 `sameContent()` 比较解析后的状态、值、问题，注释、空白、BOM、换行等纯文本差异不发布层快照。配置 Spec 也明确“只改注释或格式不发布”。
+- **为什么是问题**：用户打开文本视图后，另一编辑器只改注释/格式，层快照不变，浏览器既收不到事件也没有新的文本修订号，无法按计划提示外部修改或自动重读。反过来，文本视图保存的只是注释/格式时也不会触发其它文本视图同步。`readText`/`writeText` 本身不能解决在两次调用之间的被动通知问题。
+- **如何核实**：`layer-owner.ts:84-95` 的发布条件只比较 `sameContent`；`layers.ts:59-66` 的内容比较不含原始文本；`configuration.md:135-136` 规定格式变化不发布。
+- **建议改法**：给两份层合同增加独立的文本变化事件或文本 revision 通知，语义是原始文件字节/文本变化，不改变 `layer` 快照“格式不变不发布”的合同。拥有者在同一串行队列里维护并推送文本 revision；文本视图只订阅这个通道，保存后用返回 revision 更新自身，避免把语义快照 revision 与文件文本 revision 混用。
+
+### 4. `readText` 的读取失败与缺失文件语义没有定义
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“设置文件视图”（`plan.md:90-94`）；`packages/neuro-book/src/plugins/settings/backend/layer-file.ts:42-50`；`packages/neuro-book/src/plugins/settings/backend/layer-owner.ts:113-123`。
+- **现象**：计划只写 `readText() → {text, revision}`，没有读取失败分支。当前 `readLayerFile()` 把不存在/`ENOTDIR` 转成空文本，但把权限错误等转成失败；拥有者的层快照对此类失败会成为 `invalid` 并保留上一份值。
+- **为什么是问题**：文本视图不能把“文件不存在的空文本”和“文件存在但不可读”都当成可编辑空文本，否则用户保存会以空内容覆盖无法读取的文件，或在权限恢复前错误提示可保存。`unavailable` 只代表远程链路不可达，不能替代拥有者本地读取失败；失败还必须保持原文不可被覆盖，才能满足文件保护合同。
+- **如何核实**：`layer-file.ts:45-50` 明确区分 `ENOENT/ENOTDIR` 与其它错误；`layer-owner.ts:115-123` 将其它错误发布为 `invalid`，但没有原始文本出口可供计划复用。
+- **建议改法**：把 `readText` 设计成结构化结果，至少区分 `ok`（含不存在时的空文本与固定 revision）和 `read-failed`/`unavailable`；读取失败时文本框停用且不得产生可提交的空文本。`writeText` 仍在拥有者队列内复读并按真实文件错误返回 `write-failed`，不要依赖浏览器先前的层快照推断文件可读。
+
+### 5. 动态选项的提供者源没有完整的异常边界与代次寿命
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“动态选项”（`plan.md:62-69`）；`packages/nb-form/src/vue/scope.ts:351-354`；`packages/nb-form/src/vue/NodeField.vue:82-88`；`packages/neuro-book/src/plugins/settings/web/settings-window.ts:359-370`。
+- **现象**：计划只承诺 `source()` 抛错或返回非法值时转成 `unavailable`，但 `source()` 的返回值本身可以是 `MaybeRefOrGetter`。nb-form 在字段求值时直接 `toValue(source)`，getter/ref 的后续求值抛错或变成非法形状不会被捕获；设置窗口的 page context 又在窗口一生中缓存，计划没有定义提供者撤回、换代时如何替换同一映射里的源、如何停止旧源对页面的影响。
+- **为什么是问题**：一个合法贡献者可以先返回 `computed(() => ...)`，之后网络错误让 getter 抛错或返回坏对象，异常会从选项 computed 冒到列表/页面而不是进入 `unavailable`。如果实现按交付时生成一个普通映射快照，缓存的 page context 会继续拿旧的 `ready` 源；提供者撤回后旧页面仍能显示或调用旧源，违反“句柄换代重取、撤回不可用”的要求。只在画第一项时触发一次也不能替代后续源值的安全求值。
+- **如何核实**：`scope.ts:351-354` 的 `source()` 没有 try/catch；`NodeField.vue:82-88` 直接把它交给 `choiceState` 并以 `loading`/`unavailable` 决定停用；`settings-window.ts:360-370` 显示同一 page context 会跨离开、回到分区复用。
+- **建议改法**：S3 先定义一个稳定的 `FormOptionSources` 容器：每个 provider id 对应一个由设置层持有的 `Ref<OptionSource<string>>`，按交付句柄替换/清空；对 `source()` 返回的 ref/getter 用安全 computed 包住，每次求值都校验三态、字符串值、文本标签和可选字段，异常记一次诊断并落为 `unavailable`。窗口关闭或入口停止后，旧句柄的完成回调只允许更新已存活的代次，不能触碰新代次或已释放的映射。
+
+### 6. `settings.choices` 的浏览器限制、id 前缀与激活前缀没有在计划的接口清单中闭合
+- **严重程度**：重要；**类别**：接口
+- **位置**：计划“动态选项”“Spec 与文档改动”（`plan.md:64-68,110-114`）；`packages/neuro-book/src/plugins/settings/shared/point.ts:18-35`；`packages/neuro-book/src/plugins/settings/shared/sections.ts:62-69`；`packages/neuro-book/src/plugins/settings/web/plugin.ts:158-169`。
+- **现象**：现有设置贡献点只定义了 `settings.properties`、`settings.sections`、`settings.pages`，其中分区 id 的插件前缀校验在 `sections.ts`；浏览器插件目前只登记 `onSettingsPage` 激活前缀。计划文字说 `settings.choices`“只在浏览器登记”、提供者 id 复用前缀规则、并触发 `onSettingsChoices:<id>`，但没有在 Spec/实现合同/迁移清单中定义 choices contribution point 的 validator、实现形态约束、浏览器位置拒绝方式，或把新的激活前缀登记给 `nbook.settings`。
+- **为什么是问题**：若只增加一个通用贡献点而不复制 `idProblem` 规则，任意插件都能以别人的命名空间登记 provider；若只实现触发调用而不把 `onSettingsChoices` 放进 `activationEventPrefixes`，内核会按已有前缀所有权规则返回 `not-prefix-owner`，所有动态选项都不会激活。两处都不是界面层可以补救的错误。
+- **如何核实**：`point.ts:18-35` 没有 choices 点；`sections.ts:62-69` 的前缀检查只对分区描述；`web/plugin.ts:161-162` 只声明 `onSettingsPage`。runtime 合同明确只有前缀拥有者能触发激活事件。
+- **建议改法**：在计划中单列 `settings.choices` 的公开常量、浏览器入口定义、`validateChoiceContribution`（只接受 browser、检查 provider id 形状和贡献者前缀、逐条拒绝）以及 `onSettingsChoices` 的前缀登记；把 `settings.choices` 的 `source()` 返回值形状、撤回/换代状态和诊断事件写进 settings-window 的实现合同与验收映射。
+
+### 7. 搜索依赖的 page `keywords` 不是当前已实现的 page 声明字段
+- **严重程度**：重要；**类别**：接口
+- **位置**：计划“分区”“搜索”“Spec 与文档改动”（`plan.md:35-38,78-84,112`）；`packages/neuro-book/src/plugins/settings/shared/sections.ts:46-60`；`docs/specs/settings/settings-window.md:55-63`。
+- **现象**：计划把 page 声明的 `keywords` 当成既有字段用于搜索，但当前 `SettingsPageDeclarationSchema` 的字段只有标题、说明、图标、分类、顺序、布局、层；公开 Spec 的同一输入合同也没有 `keywords`。这不是 S1 已交付的事实，S4 若只在搜索函数里读取 `(declaration as ...).keywords`，声明会在登记期因 `additionalProperties: false` 被拒；若只放宽运行时类型，又会和公开合同不一致。
+- **为什么是问题**：搜索的 page 结果会永远缺少作者希望提供的关键词，或者新增字段绕过登记校验形成未登记的公开接口。已有 page 贡献者和 Lab 局部宿主也必须按新 schema 迁移，不能只改搜索组件。
+- **如何核实**：`sections.ts:51-55` 的 `SettingsPageDeclarationSchema` 明确 `additionalProperties: false` 且无 `keywords`；Spec `settings-window.md:55-63` 的接口同样无该字段。
+- **建议改法**：把 `keywords: LocalizedText[]` 的长度、非空文本、重复项语义加入 page schema、TypeScript 合同和 settings-window Spec，再在 S4 迁移所有 page 声明与 Lab host；验收增加“关键词命中、两语言回退、坏关键词按单条声明拒绝”。
+
+### 8. 未保存保护没有拦住入口撤回/窗口销毁，也没有处理旧页面回调污染新页面
+- **严重程度**：阻断；**类别**：不变量
+- **位置**：计划“未保存保护”（`plan.md:71-76`）；`packages/neuro-book/src/plugins/settings/web/settings-window.ts:359-370,395-404,475-489,543-546`；`packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue:85-100`；`packages/nb-ui/src/components/feedback/AlertDialog.md:11-14,44-45`。
+- **现象**：计划把脏页保护写成关闭、切分区、切标签、重新打开和搜索前的确认，但没有给 `source.delivery()` 撤回/入口停止、工作台页面卸载、`dispose()` 提供可阻挡的路径；当前 delivery watcher 在状态变为不可用时同步把页面实例重置为 `waiting`，`dispose()` 直接停止 scope。与此同时，当前设计把每个 section 的 context 缓存到窗口结束，计划只说“页面卸载、重建时清掉脏标记”，没有代次令牌或失效回调。
+- **为什么是问题**：入口停止是运行时异步外部事件，旧页面会在用户没回答时被卸载，草稿被静默丢掉；窗口销毁同理。即使加了确认框，旧页面保留的异步保存/校验回调还能在新页面实例挂载后调用同一个 `context.dirty(true)`，把新页面错误标脏。多个离开动作同时发生时，若只保留一个布尔值，第二次点击还可能覆盖第一次待执行目标；`AlertDialog` 没有 busy 合同，必须由窗口模型自己串行化。
+- **如何核实**：现有 `settings-window.ts:399-404` 在交付失效时直接清组件；`settings-window.ts:360-370` 让 context 跨页面实例复用；`dispose()` 在 `543-546` 直接 `scope.stop()`；AlertDialog 合同只提供 confirm/cancel/closed，没有防重复提交或目标队列。
+- **建议改法**：把离开统一收口到一个带目标快照的异步 `requestLeave()`，锁住待处理导航并忽略/排队后续动作，等 `AlertDialog` 的 `closed` 后再执行。为每次页面实例分配 generation，`dirty` 回调带实例 token；卸载、重建、撤回和 dispose 先使 token 失效。对入口撤回与宿主销毁必须明确取舍：要么延迟可延迟的卸载并确认，要么明确这是不可拦截的丢弃路径并在 UI/Spec 中告知，不能声称“所有离开路径都保护”。
+
+### 9. 仅监听 `draft-state` 会漏掉对象列表的新增、删除和排序
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“Lab 的模型服务示例”“未保存保护”（`plan.md:73,104-106`）；`packages/nb-form/src/vue/scope.ts:338-347,378-384`；`docs/specs/ui/forms.md:139-146`。
+- **现象**：计划要求模型服务页面用对象数组、左列表右详情、草稿与保存，并用 `context.dirty`。nb-form 的 `draft-state` 只登记文字、数字、JSON 和自定义控件的草稿；列表的添加、删除、排序直接经 `update()` 发出新的根值。计划没有规定页面必须同时监听 `update:modelValue` 或以保存基线比较整个草稿。
+- **为什么是问题**：用户新增一家服务商、删除一家或调整顺序后，如果页面只按 `draft-state` 标脏，保存按钮和离开确认都不会出现；当前 `SchemaForm` 甚至会在列表操作后立即把新数组交回调用方。验收“新增两家、调整顺序、删除一家”会因此无法证明保存和保护合同。
+- **如何核实**：`scope.ts:338-347` 的列表结构更新只调用 `emit`；`scope.ts:378-384` 的 `commitAll()` 才处理登记的草稿；`forms.md:139-146` 将列表结构操作与字段草稿分开规定。
+- **建议改法**：S7 页面维护“已保存快照 + 当前草稿”两份值，所有 `update:modelValue`（包括结构操作）都比较快照并更新 `context.dirty`；`draft-state` 只补充未解析输入状态。保存成功后以实际写回值重置基线，放弃时调用 `reset()` 并恢复整份快照，不能只依赖 `@draft-state`。
+
+### 10. 搜索结果的 `held` 不能只按固定 `view.id` 清理
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“搜索”（`plan.md:78-84`）；`packages/neuro-book/src/plugins/settings/web/components/SettingsListSection.vue:44-57`；`packages/neuro-book/src/plugins/settings/web/components/SettingsListSection.vue:75-95`。
+- **现象**：当前 `SettingsListSection` 只在层或 `props.view.id` 变化时清空 `held` 与 `unparseable`（`view.id` 的 watch 在 `47-50`）。计划的搜索结果固定使用 `kind: "list"`、`id: "search"`，搜索词变化只会改变同一个 view 的 groups。
+- **为什么是问题**：结构字段在搜索结果里填了一个不合格草稿后，用户继续改搜索词，旧 `held` 会留在组件实例里；该键再次出现在新结果时会复活旧草稿，或者隐藏的错误继续影响可访问描述。搜索是离开当前结果视图的行为，输出 14 的“换分区丢掉留下的值”不应因 id 固定而失效。
+- **如何核实**：`heldOf()` 只按配置 key 与实际值的 JSON 内容找缓存（`54-57`），清理 watch 不依赖搜索词；计划明确搜索结果 id 为固定 `search`。
+- **建议改法**：把搜索 query 的稳定 revision/view token 传给 `SettingsListSection` 并纳入清理条件，或在 search view 每次 query 变化时卸载/重建列表；测试“搜索结果中产生 held → 改词 → 清空搜索 → 不复活旧草稿”。
+
+### 11. Lab 示例要求的增删排序超出 `SettingsPageList` 合同
+- **严重程度**：重要；**类别**：接口
+- **位置**：计划“Lab 的模型服务示例”“验收映射”（`plan.md:104-106,141-142`）；`packages/neuro-book/src/ui/settings/SettingsPageList.md:8-18,23-50,60-64`；`packages/neuro-book/src/plugins/lab/web/fixtures/settings-scene/SampleModelsPage.vue:22-51`。
+- **现象**：计划要求左边用 `SettingsPageList` 列服务商，并支持新增、删除、调整顺序。该组件合同只支持受控选中、键盘移动和右端附加内容，不支持多选、拖动排序，也没有新增/删除事件或操作按钮；现有 Lab 页面只传静态 `providers`，没有任何配置数组、草稿、保存或排序操作。
+- **为什么是问题**：若作者把增删排序硬塞进 `SettingsPageList` 的 item/slot，会产生 option 内嵌按钮、选中与删除焦点冲突，且违反组件“不支持”的合同；若改组件本身，通用组件会被示例业务模型污染。计划没有说明新增/删除/上移/下移的拥有者、键盘语义与确认流程，因此 S7 不能按字面落地。
+- **如何核实**：组件文档明确列出“列表不支持多选、拖动排序、分组”，数据/事件只有 `items`、`modelValue` 与 `update:modelValue`；现有 `SampleModelsPage.vue:22-29` 是写死数组。
+- **建议改法**：保持 `SettingsPageList` 只负责选择；由模型服务页面在列表外提供“新增”和“删除”，在选中项上提供明确的上移/下移按钮或使用 nb-form 对象列表的排序能力。计划和验收要写清新增项焦点、删除后选中项、排序后草稿身份，以及这些操作怎样标脏和进入保存基线。
+
+### 12. Lab 局部宿主无法验证计划要求的按需激活与动态选项
+- **严重程度**：重要；**类别**：测试
+- **位置**：计划“动态选项”“Lab 的模型服务示例”“验收映射”（`plan.md:64-68,104-106,138,142`）；`packages/neuro-book/src/plugins/lab/web/fixtures/settings-scene/settings-host.ts:95-119`；`packages/neuro-book/src/plugins/lab/web/fixtures/settings-scene/scene-data.ts:99-118`。
+- **现象**：Lab 宿主的 `WindowPlugins.activationEvents` 永远返回空数组，`SettingsSectionRegistry` 也没有 trigger 出口；场景创建时直接 `deliver()` 发布 snippets/models 页面，只有 page-stopped 等场景手动改状态。它没有 `settings.choices` 贡献目录、provider 句柄换代或 `onSettingsChoices` 的模拟。
+- **为什么是问题**：S7 写“入口用 `onSettingsPage` 激活”，S3 又要求 Lab 截图/场景验证动态选项，但当前局部宿主会把页面按需激活判为无出口，或在窗口打开前就手动交付，绕过真实时序。测试可以显示静态页面，却不能证明 provider 触发、同插件已保存值生成选项、撤回后变为 unavailable，也不能证明 page 在真实内核里能拿到同一映射。
+- **如何核实**：`settings-host.ts:100-109` 的 `activationEvents: () => []`；`scene-data.ts:99-102` 在场景初始化阶段直接交付两个 page，`scene-data.ts:109-118` 只按场景 id 设置入口状态/撤回。
+- **建议改法**：二选一并写进验收：让 Lab 场景使用真实内核/真实 settings browser 入口，或扩展局部宿主以登记 choices、模拟激活事件和交付句柄，并增加“打开前未交付、打开后交付、撤回后 unavailable”的场景。若只做截图，必须明确它不是 S3/S7 的真实运行时验收，真实内核场景另行覆盖。
+
+### 13. 模型服务对象数组若不声明 user-only，会把 API Key 带进项目层
+- **严重程度**：重要；**类别**：不变量
+- **位置**：计划“Lab 的模型服务示例”（`plan.md:104-106`）；`docs/specs/settings/configuration.md:77-79`；现有示例 `packages/neuro-book/src/plugins/lab/web/fixtures/settings-scene/scene-settings.ts:53-66`。
+- **现象**：计划要求服务商对象中包含 API Key，但没有要求 providers/default-model 这些配置项声明 `layers: ["user"]`。配置作者规则明确：会执行程序、指定网络地址或凭据的配置项只能允许用户层；现有模型示例的 `effort` 特意声明了 `layers: ["user"]`，但新对象数组设计没有复用这一约束。
+- **为什么是问题**：省略 `layers` 的 TypeBox 设置默认允许用户层和项目层。用户保存服务商后，项目层可把 API Key 和服务商地址提交进作品目录/Git，既违反配置合同，也会把第三方照抄示例引向凭据泄漏。开发者决定“不加密”不等于允许项目层共享凭据。
+- **如何核实**：`configuration.md:77-79` 直接规定作者规则；`scene-settings.ts:54-61` 的现有模型设置使用 user-only，而计划没有写对应层限制。
+- **建议改法**：providers、default model 以及任何由 providers 派生但可能含连接信息的设置都显式 `layers: ["user"]`；page 的 `layers` 与设置项一致。验收同时在本作品标签确认这些项不出现，且声明期测试确认项目层写入为 `layer-not-allowed`。
+
+### 14. S7 的“真实浏览器写入”没有对应真实配置路径
+- **严重程度**：重要；**类别**：测试
+- **位置**：计划“Lab 的模型服务示例”“验收映射”“验证”（`plan.md:104-106,126,141-147`）；`packages/neuro-book/e2e/settings.e2e.ts:194-219`；`packages/neuro-book/src/plugins/lab/web/fixtures/settings-scene/settings-host.ts:81-93,123-150`。
+- **现象**：现有设置 e2e 只有一个 Lab 主题观察场景；Lab 的设置宿主使用 `memoryLayer` 和内存配置实例，不经过 `nbook.settings` 的远程合同或真实 `settings.json`。计划只写“新增两家服务商并各填 API Key”而没有说明 e2e 是进入开发 Lab 还是生产设置窗口，也没有写如何验证写回与重新加载后的数组。
+- **为什么是问题**：若在生产 e2e 里直接找 `example.models`，该示例插件并不在当前产品入口集合中；若只在 Lab 内填值，真实 Chrome 交互被验证了，但远程层、文件写入、刷新后保存基线和 API Key 文本落盘没有被验证。两种路径都不能同时满足计划宣称的“真实浏览器写出来”和配置合同验收。
+- **如何核实**：`settings.e2e.ts:194-219` 通过 `startDevSession` 单独访问 Lab；`settings-host.ts:81-93` 创建的是 memory connection/layer，`123-150` 直接把它交给窗口模型。
+- **建议改法**：把 S7 e2e 明确拆成两条：开发会话 Lab 真实浏览器验收页面增删排序、草稿、动态 stale；真实产品/合同场景用实际 `settings.json` 和远程 v2 合同验收保存、刷新、冲突和 API Key 原文。不要把 memory host 的通过结果写成文件路径/远程合同已验收。
+
+### 15. 搜索结果里的 page 未说明按当前层过滤
+- **严重程度**：建议；**类别**：遗漏
+- **位置**：计划“搜索”（`plan.md:78-84`）；`docs/specs/settings/settings-window.md:127-129`；`packages/neuro-book/src/plugins/settings/web/settings-window.ts:289-315`。
+- **现象**：计划明确 list 搜索结果“只列当前标签这一层可编辑的项”，但对后面列出的 page 命中只说每条有“打开”按钮，没有写是否按 page 的 `layers` 过滤。输出 8 要求分区在当前标签不可用时停用并在右侧显示原因。
+- **为什么是问题**：用户在“本作品”标签搜索到只允许用户层的 page，点击后会被送进不可用页面；这与左栏和 list 结果的可用性规则不一致，也让“搜索结果可打开”变成不可兑现的按钮。若允许显示不可用 page，结果项必须明确禁用及原因，而不是默认可点。
+- **如何核实**：Spec 输出 8 对 list/page 都按当前层决定可用；计划的搜索段只给 list 写了当前标签过滤，page 没有对应规则。
+- **建议改法**：搜索 page 时复用与左栏相同的 `layers` 可用性：不可用项不列，或列出但禁用并带原因；验收分别在用户/本作品标签搜索 user-only page，确认不会打开不可用页面。
+
+### 16. `Mod+F` 必须在设置窗口范围内阻止浏览器查找，但计划没有定义事件边界
+- **严重程度**：建议；**类别**：遗漏
+- **位置**：计划“搜索”（`plan.md:78-84`）；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandHost.md:28-30`；`packages/neuro-book/src/plugins/editor/web/components/EditorArea.vue:55-67`；`packages/nb-ui/src/components/form/Input.md:15-21`。
+- **现象**：工作台命令宿主在 `window` 捕获阶段接收键盘事件，编辑器只在自身区域处理已声明的组合键；`Mod+F` 当前不是现有命令。计划只说“在窗口里聚焦搜索框”，没有定义捕获/冒泡顺序、`preventDefault`、编辑器焦点或输入法状态。
+- **为什么是问题**：非模态设置窗口下，未被消费的 `Mod+F` 会落到浏览器原生查找；如果在 window 捕获阶段抢先处理，还可能绕过输入控件的组合键处理。用户要求的“窗口里 Mod+F 聚焦搜索”必须只在设置窗口拥有焦点/事件路径时生效，不能破坏编辑器和浏览器的查找。
+- **如何核实**：命令宿主文档声明 keydown 挂在 window 捕获阶段；EditorArea 的处理只覆盖 `s`、`w` 等键，没有 `f`；Input 合同没有搜索快捷键或默认行为覆盖。
+- **建议改法**：在设置窗口根/浮层所属事件路径上处理 `Mod+F`，确认目标是窗口内且非组合输入法状态后 `preventDefault()`、聚焦搜索框；窗口外不拦截。给出浏览器原生查找、编辑器焦点、搜索框已有内容三条 DOM 验收。
+
+### 17. `parseLayerText` 现有重复键与根类型错误没有计划要求的行列信息
+- **严重程度**：重要；**类别**：接口
+- **位置**：计划“设置文件视图”“验收映射”（`plan.md:90,135,139`）；`packages/neuro-book/src/plugins/settings/backend/layer-text.ts:90-118`；`packages/neuro-book/src/plugins/settings/backend/layer-owner.test.ts:200-218`。
+- **现象**：计划要求 `writeText` 的 `invalid-text` 对解析失败、根不是对象、重复键都带行列，界面在文本框下显示原因。现有 `parseRoot()` 对语法错误带“第 N 行”，但根不是对象只返回“根不是对象”，重复键由 `firstDuplicate()` 只返回键名，最终是“键 X 出现了多次”；列号从未计算。现有层测试也只断言重复键文案，不提供位置。
+- **为什么是问题**：设置文件视图是修复 `invalid` 层的入口。重复键常发生在长 JSONC 文件或嵌套对象里，只给键名不能把光标/错误位置交给用户，也无法满足计划写明的行列验收；直接沿用 `parseLayerText` 会把 `invalid-text` 合同做成信息不完整的版本。
+- **如何核实**：`layer-text.ts:95-100` 对语法错误调用 `lineOf`，但根类型与重复键分支没有 offset；`firstDuplicate()` 在 `104-118` 只返回 `string | null`。
+- **建议改法**：让解析错误模型携带 `offset` 或 `{line,column}`：重复键返回重复属性节点的起始位置，根类型错误返回根节点位置，语法错误同时计算列。`parseLayerText` 与 `writeText` 共用这个结构化问题，文本视图把行列作为结构化失败详情展示；更新层 invalid 的现有诊断测试和 v2 远程合同测试。
+
+## 未发现问题的方面
+
+仔细检查后没有发现以下方面本身的问题：
+
+- 开发者已定的“API Key 是普通明文配置项”“设置文件用纯文本框、不引入 Monaco”“搜索不匹配动态选项名”“外观交给 t06”“Markdown 排版交给 w00025”均没有被本计划悄悄改写；第 13 条只指出普通明文仍须遵守 user-only 层规则。
+- 现有 `ctx.activation.trigger` 的调用方绑定、拥有者前缀核对、入口停止后的 `requester-stopped` 与 `window.plugins.activationEvents` 查询机制，与 page 按需激活本身是一致的；问题在于新 choices 前缀和 Lab 替身没有补齐，不是 S1 已实现机制的顺序错误。
+- `SettingsPageFrame` 对交付句柄、加载结果、撤回和页面代际的现有门禁与 `workbench.views` 的交付状态模型一致；本轮新增 dirty 时必须保留这条门禁。
+- nb-form 对动态源的三态、当前值不在选项中的“已不存在”、结构字段暂存和 `SchemaForm` 的外部值规则已有合同；本审查没有发现需要另造一套控件或校验语义的问题。
+- 层快照的 `path` 只给项目层、用户层路径不发浏览器与配置 Spec 一致；S5 不应把用户层绝对路径塞进 `readText` 返回或错误文案。
+
+## 数量
+
+- 阻断：2
+- 重要：13
+- 建议：2
+- 合计：17

@@ -61,37 +61,48 @@ t02 不自己写控件，用 [t07](../t07-low-code-forms/README.md) 的 `@notnot
 
 ### 动态选项
 
-浏览器入口可以贡献选项提供者：贡献点 `settings.choices`（拥有者 `nbook.settings`，只在浏览器登记），贡献 id 是提供者 id（写法与前缀规则同分区 id），实现是 `{source(): MaybeRefOrGetter<OptionSource<string>>}`，直接用 nb-form 的 `OptionSource`：提供者自己的数据要取（例如向服务商要模型列表）时，它自己报加载中、不可用，设置层不再加一层形状转换。
+浏览器入口可以贡献选项提供者。
 
-- 设置层（`web/choice-sources.ts`）按提供者 id 合成 `FormOptionSources`：提供者已交付 → 用它给的源；声明了、入口未激活或正在激活 → `loading`；没有这个贡献、入口受阻或失败 → `unavailable`，原因写“选项来源 X 不可用”。`source()` 抛错或给出不合形状的值 → `unavailable`，记诊断。每个提供者只调一次 `source()`（按交付句柄缓存），句柄换代时重取。
-- 按需激活：提供者所在的入口可以声明 `onSettingsChoices:<提供者 id>`；窗口要画一项带 `from` 的配置时触发它（同 `onSettingsPage` 的做法，复用 S1 的触发与核对；没声明就保持 `loading` 直到入口按自己的事件激活）。
-- 通用列表把合成的映射交给每个 `SchemaField` 的 `:options`；page 页面经 `context.options`（`SettingsPageContext` 新字段，同一个映射）拿到，自己的 `SchemaField`、`SchemaForm` 照传。
+- **贡献点** `settings.choices`（拥有者 `nbook.settings`，只在浏览器定义里登记，`implementation: "required"`，声明 `{}` 关闭额外属性）。校验 `validateChoiceContribution` 放 `shared/sections.ts`，与分区共用 `idProblem`（点分小写段、贡献者前缀：`nbook.*` 写 `nbook.<名>`，其它插件以自己的 id 加 `.` 开头），并只接受浏览器入口的贡献；不合格只拒这一条。贡献 id 就是提供者 id，也就是声明里 `choices: {from}` 写的值。常量 `SETTINGS_CHOICES_POINT`、`SETTINGS_CHOICES_ACTIVATION_PREFIX = "onSettingsChoices"`、`settingsChoicesEvent(id)` 从 `shared/contracts.ts` 导出。
+- **实现**：`{source(): MaybeRefOrGetter<OptionSource<string>>}`，直接用 nb-form 的 `OptionSource`（提供者自己的数据要取时自己报加载中、不可用）。`ui/settings/` 加 `settingsChoices(source)` 小工具，同 `settingsPage` 的用法。
+- **设置层**（`web/choices.ts`，`ChoiceSourceRegistry`，做法照 `web/sections.ts` 的 page 注册表）：目录来自已接受的声明；接收者记交付句柄；入口状态经 `window.plugins`。对外给一份**稳定的** `FormOptionSources`：每个提供者 id 一个 `computed`，它读当前句柄与入口状态：
+  - 句柄 published → 安全求值：`source()` 每个句柄只调一次并缓存，返回值每次求值都经 `toValue` 包在 try 里，再校验形状（三态之一；`items` 的 `value` 是字符串、`label` 是字符串或多语言文字、可选字段类型对）。抛错或形状不对 → `unavailable`（原因“选项来源 X 出错”），同一句柄同一种问题只记一次诊断。
+  - 声明了、入口已登记未激活或正在激活 → `loading`；没有这条贡献（声明里引用了不存在的 id）、入口受阻、失败、已停止、句柄撤回 → `unavailable` 并写原因。
+  - 句柄换代时丢掉旧缓存，旧句柄的结果不再被读；映射对象在窗口一生中不变，page 页面拿到的就是它。
+- **按需激活**：`nbook.settings` 浏览器定义的 `activationEventPrefixes` 加 `onSettingsChoices`。窗口里有一项带 `from` 的配置被画出时（`SettingsListSection` 渲染该项、page 页面读 `context.options[id]`，都经映射的 `computed` 被读到），注册表在第一次读到 `loading` 且入口处于“已登记未激活”、入口声明了 `onSettingsChoices:<id>` 时经 `ctx.activation.trigger` 触发一次；同 S1：入口没声明这个事件（它不会因此激活）或触发被拒 → `unavailable`，原因写“插件没有声明打开设置时提供选项”，记诊断。触发在 `computed` 之外排进微任务，不在求值里改状态。
+- **交给表单**：通用列表把映射交给每个 `SchemaField` 的 `:options`；`SettingsPageContext` 加只读的 `options: FormOptionSources`（同一份映射）。
 - 当前值不在选项里时按 `ui.forms` 输出 12 显示“已不存在”，值保留；值的校验仍只看 schema。
 
 ### 未保存保护
 
-page 页面经 `context.dirty(value)` 告诉窗口有没有未保存的改动（用 `SchemaForm` 的页面按 `@draft-state` 与自己的草稿判断，nb-form 不替它判断）。窗口在关闭（关闭按钮、`Esc`、再执行 `nbook.settings.open` 跳到别的分区）、切分区、切标签之前，若当前页面报了脏，弹 nb-ui 的 `AlertDialog`“放弃未保存的改动？”（“放弃”“继续编辑”，焦点默认在“继续编辑”）；放弃后照常离开（页面卸载，草稿丢弃），取消则留在原处、焦点回到触发的位置。页面卸载、重建时窗口把脏标记清掉，页面保存成功后调 `context.dirty(false)`。
-
-- 刷新与关页面不拦：设置窗口不挂 `beforeunload`（工作台已有的离开保护只管编辑器正文）。
-- list 分区不涉及：每项即时写入；结构字段留在行里的不合格值（t07）不算脏，离开时照旧丢掉。
+- **报告**：`SettingsPageContext` 加 `dirty(value: boolean)`。页面自己判断有没有没保存的改动：按“已保存的值 + 当前草稿”比较整个值（列表的增删排序经 `update:modelValue` 直接给出新值，不进 `draft-state`），`draft-state` 只补“有解析不了的输入”。nb-form 不替页面判断。
+- **上下文按挂载分代**：每次页面组件挂载（进入分区、重新加载、渲染重试）窗口给一份新的上下文，`id`、`layer`、`projectTitle`、`options` 与之前相同，`dirty` 绑着这一次挂载；页面卸载后旧上下文的 `dirty` 调用一律忽略，脏标记随卸载清掉。输出 6 的“切换标签页面不重建、`context.layer` 变化”不变。
+- **离开**：窗口模型把会离开当前页面的动作收成一个 `requestLeave(target)`：切分区、切标签、关闭（关闭按钮、`Esc`）、`nbook.settings.open` 改了分区或标签、在搜索框输入第一个字。当前页面不脏 → 立即执行；脏 → 记下目标、弹 nb-ui `AlertDialog`“放弃未保存的改动？”（“放弃”“继续编辑”，焦点默认在“继续编辑”）。对话框开着时又来一个离开请求，目标换成新的（后到的赢），不叠第二个对话框。放弃 → 执行记下的目标；取消 → 留在原处、焦点回到触发的位置。
+- **拦不住的**：页面所属入口停止或撤回（交付失效）、窗口所属入口释放（`dispose`）、刷新或关闭浏览器页面。这些照现在的做法卸载页面，改动丢失，不弹确认；Spec 写明。工作台已有的 `beforeunload` 只管编辑器正文，设置窗口不另挂。
+- list 分区不涉及：每项即时写入；结构字段留在行里的不合格值（t07）不算脏，离开时照旧丢掉。设置文件视图有改动时也算脏（见下）。
 
 ### 搜索
 
-窗口左栏上方一个搜索框（nb-ui `Input`，`type="search"`，`Mod+F` 在窗口里聚焦它）。匹配不分大小写、按空格分词、每个词都要命中：list 分区里配置项的标题、说明、键与静态选项名（两种语言都比），以及 page 分区的标题、说明与声明里新增的可选 `keywords`（`LocalizedText` 数组）。动态选项的选项名不参与（要激活提供者）。
-
-- 有输入时右边换成结果视图：`settings-window.ts` 给出 `kind: "list"`、`id: "search"` 的视图，每个命中的分区一组（组标题是分区名），直接复用 `SettingsListSection`，每条照常可以改；只列当前标签这一层可编辑的项。page 分区的命中另列在后面，每条一个“打开”按钮，点了清空搜索并切到这个分区。没有命中时写“没有找到设置”。
-- 左栏在搜索时保持原样、当前项不高亮；清空搜索（清除按钮或 `Esc`，`Esc` 在框里有内容时只清空、不关窗口）回到原分区。
-- 搜索词不记、关窗口即清；未保存保护照样适用（从脏页面开始搜索先确认）。
+- **入口**：左栏上方一个搜索框（nb-ui `Input`，`type="search"`）。`Mod+F` 只在设置窗口的根元素上处理（事件冒泡到窗口根、不是输入法组合中）：`preventDefault` 并聚焦搜索框；焦点在窗口外时不拦，浏览器与编辑器照旧。
+- **匹配**：不分大小写、按空白分词、每个词都要命中。list 分区里配置项的标题、说明、键与静态选项名（两种语言都比）；page 分区的标题、说明与新增的可选声明字段 `keywords`（`LocalizedText` 数组，至多 20 个、每个非空；写进 `SettingsPageDeclarationSchema`、Spec 的“分区声明”，坏的只拒这一条）。动态选项的选项名不参与（开发者已定）。
+- **结果**：有输入时右边换成结果视图：`settings-window.ts` 给出 `kind: "list"`、`id: "search"` 的视图，每个命中的分区一组（组标题是分区名），复用 `SettingsListSection`，每条照常可以改；只列当前标签这一层允许的项（同输出 12）。page 分区的命中只列当前标签下可用的（同输出 8），在后面各给一个“打开”按钮，点了清空搜索并切到这个分区。没有命中时写“没有找到设置”。`SettingsListSection` 以搜索词作 `key`：换词即重建，留在行里的不合格值随之丢掉（同“换分区”）。
+- **左栏与退出**：搜索时左栏保持原样、当前项不高亮；清空搜索（清除按钮，或焦点在搜索框、框里有内容时按 `Esc`；框空时 `Esc` 照输出 17 关窗口）回到原分区。搜索词不记，关窗口即清。从脏页面开始搜索先走未保存保护。
 
 ### 设置文件视图
 
 窗口给当前标签那一层一个“设置文件”视图：左栏“其它”下面固定一项“设置文件（JSON）”（窗口自己的，不是贡献，样子在 t06 再收），右边是这一层文件的全文。
 
-- 远程合同 `nbook.settings/user`、`nbook.settings/project` 加两个方法（合同升到 version 2，两份同时升，方法与事件仍相同）：`readText() → {text, revision}`；`writeText({text, revision}) → {revision}`。`revision` 是拥有者给文件内容算的标识（内容哈希），文件不存在时是固定值、`text` 为空串。写入只经用户编辑路径（同 `userEdit` 的调用方核对），在拥有者的串行队列里：先比 `revision`，不同返回 `conflict`；再按读取同一套检查解析（`parseLayerText`）：解析失败、根不是对象、重复键返回 `invalid-text`，带行列；未声明的键照常留在文件里；不合 schema 的键不拒（同手改文件，按输出 13 报问题）。通过才原样落盘，随后照常发布层快照。
-- 编辑控件：nb-ui `Textarea`，等宽、关掉拼写检查，`Tab` 插入两个空格（`Esc` 后 `Tab` 照常移焦点）。不用 nb-form 的 JSON 控件（会丢注释，见“前置”）；不用 Monaco（在编辑器插件里，设置插件在运行时只能引用别的插件的 `shared/contracts.ts`，为一个文本框新开跨插件的编辑器接口不值得）。语法高亮不做。
-- 交互：打开时读一次；有改动时底部显示“保存”“放弃改动”，`Mod+S` 保存；保存失败把原因（含行列）写在文本框下面一行，`conflict` 写“文件在别处改过了”并给“重新读取”（丢掉这里的改动）。没改动时层快照变了就自动重读；有改动时不覆盖，只提示“文件在别处改过了”。有改动时算作脏，离开走未保存保护。
-- 层 `invalid` 时照样可以打开、修好、保存：这正是修文件的入口（输出 13 的说明里加“打开设置文件”的链接）；`unavailable` 时停用。
-- 用户层的文件在状态根下、浏览器拿不到路径，也走这条路；视图只显示内容，项目层另显示文件路径（层快照带）。
+- **失败码**：`SETTINGS_FAILURES` 加 `read-failed`（文件存在但读不了）、`conflict`（文本修订号对不上）、`invalid-text`（文本不是合格的配置文件）。它们是配置的领域失败码，经远程的 `settings-failed` 带回，`remote-link` 的折算、命令失败映射与窗口的原因文案一起补；`invalid-text` 的详情另带位置 `{line, column}`（从 1 起）。
+- **远程合同 version 2**（`nbook.settings/user`、`nbook.settings/project` 同时升，方法与事件仍相同）：
+  - `readText() → {text, revision, exists}`；读不了 → `read-failed`。`revision` 是原始字节的 SHA-256（十六进制），不存在时 `exists: false`、`text: ""`、`revision` 为空字节的摘要。与层快照的 `{boot, seq}` 无关：后者按解析结果变，只改注释、格式时不变。
+  - `writeText({text, revision}) → {revision, snapshot}`：只经用户编辑路径（与 `userEdit` 同样核对调用方，别的一律 `denied`）。排进拥有者的串行队列，经 `writeLayerFile` 在锁里执行：当前字节的摘要不等于 `revision` → `conflict`；按 `parseLayerText` 的检查不过（语法、根不是对象、重复键）→ `invalid-text` 带位置；未声明的键原样留下；不合 schema 的键不拒（同手改文件，按输出 13 报问题）。通过才原样落盘，随后照常发布层快照。
+  - 新事件 `text`：载荷 `{revision}`，原始文本变了就发（监视重读与任何写入之后），只改注释、格式也发；`layer` 事件的“格式变化不发布”不变。拥有者在同一队列里维护当前文本摘要。
+  - `parseLayerText` 的失败改为结构化 `{detail, position}`：语法错误给出错位置，根不是对象给根节点位置，重复键给第二次出现的属性位置；层 `invalid` 的说明与诊断沿用文字，另带位置。
+  - 打包 smoke（`scripts/smoke-server.ts`）里手写的 `version: 1` 帧改为 2，加一次 `readText`、一次修订号不对的 `writeText`；盘点仓库里所有按字符串写的 `nbook.settings/user`、`nbook.settings/project` 调用。Lab 的内存层（`memory-layers.ts`）与测试替身同样补上三样。
+- **编辑控件**：nb-ui `Textarea`，等宽、关掉拼写检查，`Tab` 插入两个空格（`Esc` 后 `Tab` 照常移焦点）。不用 nb-form 的 JSON 控件（会丢注释）；不用 Monaco（开发者已定）。
+- **交互**：打开时读一次；`read-failed` 或层 `unavailable` 时文本框只读、写出原因，不给保存。有改动时底部显示“保存”“放弃改动”，`Mod+S` 保存；保存失败把原因写在文本框下面一行（`invalid-text` 写“第 N 行第 M 列：…”），`conflict` 写“文件在别处改过了”并给“重新读取”（丢掉这里的改动）。收到 `text` 事件：没有改动 → 自动重读；有改动 → 只提示“文件在别处改过了”。有改动时算作脏，离开走未保存保护。
+- 层 `invalid` 时照样可以打开、修好、保存：这正是修文件的入口（输出 13 的说明加“打开设置文件”的链接）。
+- 用户层的文件在状态根下、浏览器拿不到路径，也走这条路；视图与错误文案不出现用户层的绝对路径，项目层另显示文件路径（层快照带）。
 
 ### Monaco 排版设置：`src/plugins/editor/`
 
@@ -103,13 +114,19 @@ page 页面经 `context.dirty(value)` 告诉窗口有没有未保存的改动（
 
 ### Lab 的“模型服务”示例：`src/plugins/lab/web/fixtures/settings-scene/`
 
-补成验证这些能力的样子（现在的服务商是写死的示例数据）：服务商列表存成一个对象数组配置项，每项有 id、名称、地址、超时、API Key（普通的字符串字段，`x-form.widget: "secret"`，在 nb-form 做好密钥输入之前按文字画）、模型名列表；左边 `SettingsPageList` 列服务商、可以新增与删除，右边是选中服务商的 `SchemaForm`，草稿加“保存”“放弃”，用 `context.dirty`。“默认模型”是动态选项：同一插件贡献 `settings.choices` 提供者，选项来自已保存的服务商的模型；删掉一家后默认模型标“已不存在”。入口用 `onSettingsPage` 激活。外观不在本轮定。
+补成验证这些能力的样子（现在的服务商是写死的示例数据）：
+
+- 配置项：`providers`（对象数组，每项 id、名称、地址、超时、API Key、模型名列表；API Key 是普通字符串字段，`x-form.widget: "secret"`，在 nb-form 做好密钥输入之前按文字画）与 `defaultModel`（字符串，`choices: {from: "example.models.models"}`）。两项都 `layers: ["user"]`（连接信息与凭据不进作品目录，configuration.md 的作者规则），page 的 `layers` 也只写 `user`。
+- 页面：用 nb-form 的 `SchemaForm` 把 `providers` 画成左列表右详情（`x-form.widget: "master-detail"`，增删、上移下移、焦点与身份都由 nb-form 管），替掉现在写死的 `SettingsPageList`；页面维护“已保存的值 + 草稿”，任何 `update:modelValue` 都与已保存值比较后报 `context.dirty`；底部“保存”“放弃”，放弃时 `reset()` 并换回已保存的值；保存成功以写回后的值作新的基准。
+- “默认模型”：同一插件贡献 `settings.choices` 提供者 `example.models.models`，选项来自已保存的服务商的模型（`服务商 / 模型`），没有服务商时为 `ready` 的空列表；删掉一家后默认模型标“已不存在”。
+- 入口用 `onSettingsPage` 与 `onSettingsChoices` 激活。外观不在本轮定。
+- **Lab 局部宿主**（`settings-host.ts`）补上：选项提供者目录与交付句柄；入口的 `activationEvents` 来自场景，触发由场景处理（收到触发后交付），新增“打开前未交付、打开后交付、撤回后不可用”的场景。真实时序另由真实内核的测试覆盖（见验收映射），Lab 的结果不当作远程合同与文件写入的验收。
 
 ## Spec 与文档改动
 
-- `settings/configuration.md`：声明字段（`choices.from`、`ui`）与 `defineSettings`（S1 已改）；远程合同 v2 的 `readText`、`writeText` 与失败码 `conflict`、`invalid-text`（S5）。密钥（输出 20）保持 planned，不改。
+- `settings/configuration.md`：声明字段（`choices.from`、`ui`）与 `defineSettings`（S1 已改）；远程合同 v2 的 `readText`、`writeText`、`text` 事件，失败码 `read-failed`、`conflict`、`invalid-text`，层 `invalid` 的位置（S5）。密钥（输出 20）保持 planned，不改。
 - `runtime/plugin-api.md` 的激活上下文加 `ctx.activation.trigger`；`runtime/plugins.md` 输出 21 写明插件经它触发、`requester` 由内核绑定。
-- `settings/settings-window.md`：分区拆分与按需激活（S1 已改）、输出 9 的控件（t07 已改）；新增：选项提供者贡献点 `settings.choices` 与输出 9 里动态选项的 planned 去掉（S3）、页面上下文的 `dirty` 与 `options`（S3、S4）、未保存保护与搜索（S4）、设置文件视图（S5）的输出条目，“不承诺”删去搜索与“打开设置文件的按钮”。
+- `settings/settings-window.md`：分区拆分与按需激活（S1 已改）、输出 9 的控件（t07 已改）；新增：选项提供者贡献点 `settings.choices`、`onSettingsChoices` 与输出 9 里动态选项的 planned 去掉（S3）；页面上下文的 `options`（S3）与 `dirty`、page 声明的 `keywords`、未保存保护（含拦不住的路径）与搜索（S4）；设置文件视图（S5）的输出条目，“不承诺”删去搜索与“打开设置文件的按钮”。
 - 组件文档：`SettingsWindow.md`、`SettingsListSection.md`、`SettingsPageFrame.md`（脏标记），新的设置文件视图组件的同名 `.md`。
 - `examples/README.md` 与示例 snippets 的讲解：`defineSettings`、`settingsPage`、`onSettingsPage`。
 
@@ -119,9 +136,9 @@ page 页面经 `context.dirty(value)` 告诉窗口有没有未保存的改动（
 |---|---|---|---|
 | S0 | 改两份设置 Spec、plugin-api 与 plugins：现在只改 S1、S6 涉及的条目，其余随各自的切片改 | Spec 改动 | `docs:check` |
 | S1 | 声明 API 与分区拆分（含全部内置分区、示例、Lab 局部宿主与组件测试的迁移）、`settingsPage`、按需激活（含 `ctx.activation.trigger`） | 声明 API；分区；页面拿到服务；按需激活 | 设置的合同测试、`sections.test.ts`、`SettingsWindow.dom.test.ts`、示例场景测试、nb-runtime 的触发测试、真实内核的按需激活场景；`settings.e2e.ts` |
-| S3 | 动态选项（贡献点、合成选项源、`onSettingsChoices`、`context.options`） | 前置；动态选项 | `choice-sources` 测试、`SettingsWindow.dom.test.ts`、真实内核的按需激活场景、Lab 截图 |
+| S3 | 动态选项（贡献点、选项源注册表、`onSettingsChoices`、`context.options`、Lab 宿主的提供者） | 前置；动态选项 | `choices.test.ts`、`SettingsWindow.dom.test.ts`、真实内核的按需激活场景、Lab 截图 |
 | S4 | 未保存保护、搜索 | 未保存保护；搜索 | `settings-window` 的搜索测试、`SettingsWindow.dom.test.ts`、Lab |
-| S5 | 设置文件视图（合同 v2、拥有者的 `readText`、`writeText`、视图组件） | 设置文件视图 | `layer-owner.test.ts`、`layer-text.test.ts`、远程合同测试、Vitest |
+| S5 | 设置文件视图（失败码、合同 v2 与 `text` 事件、拥有者、解析位置、smoke 帧、视图组件） | 设置文件视图 | `layer-owner.test.ts`、`layer-text.test.ts`、远程合同测试、`smoke:server`、Vitest、`settings.e2e.ts` 的真实文件用例 |
 | S6 | Monaco 排版设置 | Monaco | 编辑器测试；Lab 或 e2e 里看模型实际的缩进 |
 | S7 | Lab“模型服务”示例、e2e | Lab 示例 | `settings.e2e.ts` 扩充、`lab-scenes` |
 
@@ -132,14 +149,14 @@ page 页面经 `context.dirty(value)` 告诉窗口有没有未保存的改动（
 | Spec 条目 | 覆盖 |
 |---|---|
 | configuration 输出 1、21（新字段的登记期校验） | `src/shared/settings.test.ts` 表驱动 |
-| configuration `readText`、`writeText` | 拥有者测试（修订号冲突、解析失败与重复键不落盘且带行列、注释与未声明的键原样保留、与单键写入在同一队列里不互相覆盖、非拥有者调用被拒） |
+| configuration `readText`、`writeText`、`text` 事件 | 拥有者测试（修订号冲突、解析失败、根不是对象与重复键不落盘且带行列、注释与未声明的键原样保留、与单键写入在同一队列里不互相覆盖、非拥有者调用被拒、文件不存在与读不了、只改注释时发 `text` 不发 `layer`）；`smoke:server` 经打包产物发 v2 帧 |
 | settings-window 分区拆分与左栏 | `sections.test.ts`、`SettingsWindow.dom.test.ts` |
 | settings-window 按需激活 | 经真实内核的测试：显示分区前入口未激活，显示后激活并加载 |
-| settings-window 动态选项 | 提供者三态（未激活、已交付、受阻）各自的显示；`onSettingsChoices` 经真实内核激活；当前值不在选项里时标“已不存在” |
-| settings-window 搜索、未保存保护、设置文件视图 | `SettingsWindow.dom.test.ts`：搜到一项并改掉、清空回原分区、page 命中跳转；脏页面切分区 / 切标签 / `Esc` 弹确认、取消留下、放弃离开；设置文件改一个键保存后列表同步、冲突提示、`invalid` 层经它修好 |
+| settings-window 动态选项 | `choices.test.ts`：未激活、已交付、受阻、撤回、换代、`source()` 抛错、求值中途抛错与形状不对各自的状态；贡献点校验（前缀、位置）；`onSettingsChoices` 经真实内核激活（照 S1 的真实内核场景）；当前值不在选项里时标“已不存在” |
+| settings-window 搜索、未保存保护、设置文件视图 | `SettingsWindow.dom.test.ts`：搜到一项并改掉、换词后留下的不合格值不复活、清空回原分区、page 命中按层过滤与跳转、`keywords` 命中、`Mod+F` 只在窗口里拦；脏页面切分区 / 切标签 / 关闭 / 命令打开别的分区都弹确认、取消留下、放弃离开、对话框开着时后到的目标为准、旧挂载的 `dirty` 被忽略；设置文件改一个键保存后列表同步、冲突与外部修改提示、读不了时只读、`invalid` 层经它修好 |
 | Monaco 排版设置 | 编辑器测试：改配置后 `updateOptions` 生效、编辑器不重建 |
-| 组合场景 | `e2e/settings.e2e.ts`：页面草稿离开时确认、搜索到一项并改掉、设置文件视图改一个键后窗口同步 |
-| Lab“模型服务” | 新增两家服务商并各填 API Key，调整顺序、删除一家后其余各项不串 |
+| 组合场景 | `e2e/settings.e2e.ts`（真实应用、真实 `settings.json`）：搜索到一项并改掉、设置文件视图改一个键保存后窗口与磁盘一致、在外部改坏文件后经视图修好 |
+| Lab“模型服务” | Lab 的 e2e（开发会话、内存层）：新增两家服务商并各填 API Key，调整顺序、删除一家后其余各项不串，默认模型的选项随保存更新、删掉后标“已不存在”，有改动时切分区弹确认。只验界面，不当作文件写入的验收 |
 
 ## 验证
 
@@ -184,3 +201,13 @@ omp 设计审查（`evidences/design-review-omp.txt`）17 条：阻断 5、重�
 - 多家服务商的凭据（第 12 条）：Lab 用固定的几家、每家一个预先声明的密钥项；动态的凭据集合不在本轮。（作废：凭据不做，API Key 是服务商对象里的普通字段。）
 - `unknown` 在设置窗口里的显示与“重新检查”（第 13 条的界面部分）：见“密钥”。
 
+
+## 计划审查的处理（2026-10-21）
+
+omp 设计审查（[evidences/design-review-s3-omp.txt](evidences/design-review-s3-omp.txt)，17 条：阻断 2、重要 13、建议 2），逐条对照代码核实，都成立，已改进计划：
+
+- 设置文件视图的合同（第 1、2、3、4、17 条）：新失败码 `read-failed`、`conflict`、`invalid-text` 进领域失败码；`readText` 区分不存在与读不了；修订号是原始字节摘要，另加 `text` 事件（只改注释也发）；解析失败带行列；smoke 的手写 v1 帧与 Lab 内存层一起迁移。
+- 动态选项（第 5、6 条）：稳定的映射、每次求值都安全求值并校验形状、句柄换代丢缓存；贡献点的校验、前缀与 `onSettingsChoices` 前缀登记写明。
+- 搜索（第 7、10、15、16 条）：`keywords` 是新声明字段，进 schema 与 Spec；结果列表以搜索词作 key；page 命中按当前层过滤；`Mod+F` 只在窗口根上处理。
+- 未保存保护（第 8、9 条）：离开统一收进 `requestLeave`，对话框开着时后到的目标为准；上下文按挂载分代，旧挂载的 `dirty` 忽略；入口停止、窗口释放、刷新是拦不住的丢弃路径，写进 Spec；页面按“已保存 + 草稿”比较，不只看 `draft-state`。
+- Lab 示例（第 11、12、13、14 条）：服务商列表改用 nb-form 的左列表右详情；两项只允许用户层；Lab 宿主补提供者与触发，真实时序另由真实内核测试；Lab 的 e2e 只验界面，文件写入由设置文件视图的真实 e2e 验。
