@@ -1,6 +1,6 @@
 /** nb-ui 展示类（`display/`）与导航类（`navigation/`）的场景。 */
 
-import type {Badge, Breadcrumb, EmptyState, Kbd, Progress, Skeleton, Spinner, Table, Tree} from "@notnotype/nb-ui/components";
+import type {Badge, Breadcrumb, CodeBlock, EmptyState, Kbd, Progress, Skeleton, Spinner, Table, Tree} from "@notnotype/nb-ui/components";
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
@@ -37,6 +37,17 @@ const TREE_ITEMS = [
 ];
 
 export const displayFixtures: LabFixture[] = [
+    defineSubjectFixture<typeof CodeBlock>({
+        component: "CodeBlock",
+        class: "w-full",
+        scenes: [
+            {id: "content", label: "带行号的文件内容", input: {props: {label: "正文/第三章 雨夜.md", startLine: 12, lines: [{text: "钟声敲到第十二下，"}, {text: "雨还没有停。"}, {text: "她把信折好，塞回了外套内侧的口袋。"}]}}},
+            {id: "diff", label: "diff", input: {props: {label: "正文/第三章 雨夜.md", lines: [{text: "@@ -12,2 +12,2 @@", tone: "muted"}, {text: "钟声敲到第十一下，", tone: "removed"}, {text: "钟声敲到第十二下，", tone: "added"}, {text: "雨还没有停。"}]}}},
+            {id: "long", label: "长行与截断", input: {props: {lines: Array.from({length: 30}, (_, index) => ({text: `${String(index + 1).padStart(2, "0")} ${"港口的雾从傍晚开始漫上来，先是码头，再是灯塔的基座。".repeat(3)}`})), truncated: true}}},
+            {id: "empty", label: "空", input: {props: {lines: []}}},
+        ],
+        subject: nbUiSubject("CodeBlock"),
+    }),
     defineSubjectFixture<typeof Badge>({
         component: "Badge",
         slotPresets: {default: () => "草稿"},

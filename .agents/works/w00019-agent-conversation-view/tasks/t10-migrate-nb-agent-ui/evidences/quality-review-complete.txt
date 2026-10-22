@@ -1,0 +1,174 @@
+# w00019 t10 nb-agent-ui 质量审查：缺什么、实际好不好用
+
+审查角度：缺口与易用性、Lab 实操、扩展点够不够用、对 nb-story 问答页（t13 决定 7、8、9）的适配度。
+只读审查；实验脚本与截图在 `/tmp/claude-1000/review-w00019-t10-quality/lab-complete/`（`s/` 下是截图，`answer-turn.ts` 是模拟 nb-story 作答轮的核心函数实验）。
+范围口径：t10 已做、t11 计划要做（顶栏、状态栏、待处理区、横幅、提问向导、就地编辑、分支、模式与 Workflow、面板与弹窗）的不列；只列两边都没提、真实使用会缺的，以及对 nb-story 与插件作者的适配问题。
+
+### 1. 结构化答案（node 工具）在整轮收起后消失，nb-story 的答案卡片无处安放
+- 严重程度：重要
+- 类别：扩展点缺口（对 nb-story t13 决定 8）
+- 位置：`packages/nb-agent-ui/src/conversation-turns.ts` 的 `isOutcome`（约 146 行）、`findOutcomeStart`、`findFinalReply`（约 250 行起）；`src/vue/stream/AgentConversationTurn.vue:55`（`processBlocks = blocks.slice(0, outcomeStart)`）
+- 现象：“结果”只认两种块：最终回复（正文非空且其后再无工具调用的 assistant 消息）和错误。nb-story 的作答是 `answer` 收尾工具（`docs/specs/story/qa.md` 输出 7），答案在工具参数里，最后一条 assistant 消息没有正文、带一次 `answer` 调用。我用核心的 `buildTurns` 实验（`lab-complete/answer-turn.ts`）：登记 `answer` 为 `presentation: "node"` 的工具后，已结束的轮次得到 `blocks = [chain, node]`、`finalReply = null`、`outcomeStart = 2`（等于 `blocks.length`）、`foldable = true`。即整轮收起后，答案卡片连同过程一起被收进摘要行，默认视图里什么答案都看不到。Lab 里同样的现象可见：`running` 场景运行中有“运行 Workflow”卡片常显，点“运行结束”后（`s/run-3-stream2.png` 对 `s/run-4-finish.png`）它从视图里消失，只剩一行“过程 · 7 次操作”。
+- 为什么是问题：t13 决定 8 要求答案卡片“常显结论、谁知道什么的表、一行可点的依据出处”，决定 7 要求一轮结束后“只露出答案”。现在能登记 node 渲染器画出卡片，但卡片只在运行中可见；轮次一结束就被折叠，等于扩展点画出来的东西在最重要的时刻不可见。插件作者（主应用的 Workflow、提问留痕、以后任何结构化产出）会撞上同一个问题：Spec 把“结果”定义成最终回复与错误，没有给“结构化结果”留位置。
+- 建议改法：给工具渲染器加一个字段表示“它的呈现属于结果”，例如 `presentation: "node"` 之外加 `outcome?: boolean`（或新增一种 `presentation: "result"`，常显并计入结果）。`isOutcome` 里加一条 `block.kind === "node" && registry.resolveTool(...).outcome`，`findOutcomeStart` 与 `findFinalReply` 的“最后一条 assistant”逻辑同步，让“最后一次收尾工具调用的 node”算结果。同时让助手一侧的操作条（复制等）也认这个结果：它现在只在 `turn.finalReply` 存在时渲染（`AgentConversationTurn.vue:219`），结构化答案的轮次没有复制，也没有分支。这条要写进 Spec 的“结果与过程”术语，t11 做 Workflow 卡片时也会用到（Workflow 完成后的结果卡片同理应当留在结果区）。
+
+### 2. 工具 node 与 detail 组件拿不到 services，也发不出 action：插件的交互控件做不了交互
+- 严重程度：重要
+- 类别：扩展点缺口（对插件作者与 nb-story t13 决定 8；也是 t11 的 Workflow 与提问控件要走的路）
+- 位置：`src/registry.ts` 的 `ToolNodeProps`（`{call, ctx}`）与 `ToolDetailProps`；`src/vue/stream/AgentTurnBlock.vue:250`（`<component :is="…node" :call :ctx />`，没有 `@action`、没有 `services`）；`src/vue/tools/AgentToolDetail.vue:31`（同样）
+- 现象：登记 node 或 detail 组件时，视图只传 `call` 与 `ctx`。组件想点击“依据出处”发 `reference.open`、点按钮发插件 action（`story:openRef`）、`workflow.submit`，都没有通道：没有 emit 的接线，`host.ts` 的 provide 里也只有语言与渲染组件，没有 services 和发 action 的函数。想在 node 里显示 Markdown 并让图片、引用、链接可点，也拿不到 `services.resolveMarkdownAsset` 和 `activate` 回调的出口（`AgentMarkdown` 要 `services` 属性并发出 `action`）。内置 `AgentTaskListNode` 恰好是纯展示，所以没暴露这个问题；`Lab` 的 `domain-tools.ts` 示例也只登记了 line 级工具，没有一个 node 示例。
+- 为什么是问题：“人机交互控件”本来就是 node 的定义（Spec 术语表），但现在 node 是只读的画面。nb-story 的答案卡片要“一行可点的依据出处”、点人名在右侧抽屉打开（t13 决定 6、8），这些点击都得变成 action 交给宿主；t11 要做 Workflow 卡片与提问向导，若内置的组件靠私有方式（直接改 `AgentTurnBlock`）解决，插件还是用不了，两套方式并存。
+- 建议改法：最小的形状是让 node 与 detail 组件和别的零件一致，用明面的 props 与事件。`ToolNodeProps` 加 `services: AgentConversationServices`，约定组件声明 `emit("action", action: AgentViewAction)` 与 `emit("preview-image", …)`；`AgentTurnBlock`、`AgentToolDetail`、`AgentRawView` 三处模板各加 `@action="emit('action', $event)"`。导出一个 `ToolNodeEmits` 类型。不要走 provide/inject 的隐藏通道（`components.md` 的明面规则）。同时在 `domain-tools.ts` 加一个会发 action 的 node 示例，当作这个扩展点的活文档与测试（现在没有任何用例登记过 node 组件）。
+
+### 3. 条目渲染器扩展点是空的：最终回复与系统条目、错误条目的呈现写死，nb-story 的“文字回复下面列出没核实的出处”无处挂
+- 严重程度：重要
+- 类别：扩展点缺口 / 登记项不被消费
+- 位置：`src/registry.ts` 的 `EntryRendererEntry`、`createAgentViewRegistry` 的 `entries`；全包没有 `registry.list("entries")`（grep 零命中）；写死的位置是 `src/vue/stream/AgentTurnBlock.vue` 的 `content`、`notice`、`divider`、`steer`、`error` 各分支（第 240 到 316 行）与 `AgentRawView.vue`
+- 现象：Spec 的注册表表里有“条目渲染器：匹配的消息类型与系统条目来源；内容组件”，类型与合并都做了，视图却从不读它。登记了也静默无效，没有任何提示。最终回复固定是 `AgentMarkdown` 气泡，错误固定是危险色气泡，系统提醒固定是淡色一行。
+- 为什么是问题：t13 决定 8 要求“文字回复按 Markdown 显示，没核实的出处在下面用提醒色列出”。“没核实的出处”是引擎在结果里单独给的数据（`docs/specs/story/qa.md` 输出 24），不在 Markdown 正文里；要画在回复气泡下面，只有一个扩展点能做，就是对 assistant 消息的条目渲染器或回复装饰。现在的办法只能把这一段拼进正文 Markdown，失去提醒色与可点。主应用以后想给回复加“引用来源”区、给错误加“重试”按钮也是同一个缺口。插件作者读 `registry.ts` 会以为能用。
+- 建议改法：二选一，尽量省概念。(a) 让 `entries` 真正接上：`AgentTurnBlock` 渲染 content、notice、error、divider 前先 `registry.list("entries")` 找 `messageKind` 与 `systemSource` 相符的项，找不到才用内置分支；组件收 `{message, ctx, services}` 并按发现 2 的约定发 `action`。(b) 只做一个“回复尾部”钩子：`EntryRendererEntry` 收窄成 `{messageKind: "assistant", position: "after-reply", component}`，在最终回复气泡下方渲染。无论哪种，t10 在 README 或 registry.ts 注释里先标明“这个扩展点还没接上”，别让类型先于实现。
+
+### 4. 没有任何办法让运行中的思维链自动展开：t13 决定 7 的“运行中逐步展开，每一步一行”现在做不出来
+- 严重程度：重要
+- 类别：扩展点缺口（对 nb-story t13 决定 7）
+- 位置：`src/vue/stream/AgentTurnBlock.vue` 的 `openItems`（第 36 行，默认全部折叠）与 `<AgentChainSummary :expanded="Boolean(openItems[props.block.id])" …>`（第 123 行）；`src/conversation-turns.ts:580` 的 `defaultTurnExpanded`；Spec 的“展开与折叠”写明“思维链默认折叠，运行中也不自动展开”
+- 现象：我在 Lab 的“运行中”场景里连续点“追加一步”“流式输出”（`s/run-2-step.png`、`s/run-3-stream2.png`）：每个工具步骤都收在一行“思考 · 读了 2 个文件”里，只有最后一条链的摘要行换成正在执行的那一步。nb-story 的作答没有中间 content，一整轮就是一条链，用户在 1 到 6 分钟里只看到一行文字在换，想看过程得自己点开，且展开状态存在 `AgentTurnBlock` 自己的 `openItems` 里，宿主没有任何入口预置或受控。
+- 为什么是问题：决定 7 是 nb-story 问答页的核心体验，并且明说“这一条改掉 w00019 的展开规则”。现在要做只能改包内私有状态，没有属性、没有注册表字段，等于要 fork。同一个钩子也是“出了问题的轮次默认展开”之类宿主策略的入口。
+- 建议改法：给视图加一个明面的属性，不加概念：`AgentConversationView` 与 `AgentConversationTurn` 收 `processDisclosure?: "collapsed"（缺省，现行 Spec） | "live"`。`live` 时运行中的轮次里链的默认展开状态为展开（用户手动点过的仍以用户为准，沿用 `openItems` 的“未设置才跟随默认”判断，把默认值从 `false` 换成一个函数 `defaultOpen(block, turnStatus)`）。结束后整轮收起的规则不变，正好满足“一轮结束后整轮过程收成一行摘要”。要同步改 Spec 的“展开与折叠”表与验收 3，写明是可选行为。
+
+### 5. 回看历史时发送消息，视图不跳到最新：用户看不到自己刚发的问题和随后的回复
+- 严重程度：重要
+- 类别：易用性缺口（两边都没提）
+- 位置：`src/vue/AgentConversationView.vue:83` 起（`useStreamScroll` 的使用）与 `:97`（只在 `ctx.session?.id` 变化时 `scrollToLatest`）；Spec 的“历史与滚动”只写了“停在底部时跟随新内容”“切换会话后直接定位到最新”
+- 现象：我在 Lab 的“多轮长对话”里把消息流滚到 `scrollTop = 200`（距底 383px，出现“回到最新”），点输入框输入并回车发送。发送后 `scrollTop` 仍是 200，距底变成 488px（用户消息和开始运行后的新内容都在视口下方），只有“回到最新”按钮提示。脚本 `lab-complete/t9.mjs`。
+- 为什么是问题：这是最常见的路径：往上翻资料，再追问。聊天与 Agent 界面的通行做法是“自己发消息一定跳到底并恢复跟随”。nb-story 问答页尤其明显：先读上一轮长答案，再追问下一问，结果屏幕停在老答案上，一问一答 1 到 6 分钟看不到任何反应。宿主可以在 `composer.submit` 里自己调 `scrollToLatest()`，但时机要晚于它把乐观消息写进 ctx，每个宿主都要重写一遍。
+- 建议改法：视图自己处理。`AgentConversationView` 记下“用户刚发过”（监听来自输入框的 `composer.submit` 与 `command.run`，设一个标志），之后 `ctx.messages` 末尾出现新的 `kind: "user"` 消息（id 变化）时 `scrollToLatest()` 并清标志；设一个短时限（例如 2 秒）内没等到就清掉，避免宿主拒收后误跳。补一条 e2e：滚离底部后发送，距底变 0。写进 Spec“历史与滚动”。
+
+### 6. 宿主无法裁掉不适用的区域：固定模型、无会话切换的页面也会带着顶栏溢出菜单、模型下拉、展开按钮
+- 严重程度：重要
+- 类别：API 形状缺口（对 nb-story，且 t11 马上要再加五个区域）
+- 位置：`src/vue/AgentConversationView.vue:204`（顶栏无条件渲染，溢出菜单只有“原始视图”）；`src/vue/composer/AgentConversationComposer.vue:331`（`AgentModelPicker` 无 `v-if`）与展开按钮；`AgentModelPicker.vue` 在 `models: []` 时仍显示“未选择模型”的按钮，点开是空菜单（Lab 场景 `AgentModelPicker/none`）
+- 现象：视图是“整套”：自上而下顶栏、消息流、输入框，t11 要再加状态栏、待处理区、横幅。除了模式按钮在 `modes` 为空时自动隐藏、附件按钮看 `canRegisterAttachments` 之外，其余区域都不能关。nb-story 问答页的模型由服务端配置固定，没有模式，没有附件；页面自己已有标题与阅读位置，却会得到一个重复的 40px 顶栏，和一个对读者没意义的“原始视图”开发者菜单（`lab-complete/s/v2-no-session-top.png` 是这个顶栏与输入框的样子），输入框里一个写着“未选择模型”、点开是空菜单的按钮。
+- 为什么是问题：t13 把这个视图定为“主应用接入 Agent 对话的预演”，说明它要在两处不同的宿主里用。现在没有“宿主声明自己有什么”的机制，t11 再加五个区域会让每个宿主都得带着一堆空壳。越晚决定，越难：Spec 的 props 表一旦晋升 implemented 就要改合同。
+- 建议改法：定一条原则并写进 Spec：区域是否显示由数据决定，不加一堆布尔属性。顶栏在 `ctx.session === null` 且没有登记的顶栏动作时不渲染（原始视图改成 `viewMode` 受控时由宿主自己切，菜单项只在有溢出项时出现）；模型下拉在 `composer.models.length === 0` 且没有思考档位时不渲染；状态栏、待处理区同理“没有登记项或没有数据就不占位”。仍需明确开关的少数，再给一个 `layout?: {header?: boolean; statusBar?: boolean}` 形状的单个属性，不要散成多个。
+
+### 7. 运行中回车被写死成 steer，宿主无法声明“不支持补充说明与排队”
+- 严重程度：建议
+- 类别：能力缺口（harness 适配器的接入说明与输入框矛盾）
+- 位置：`src/composer-actions.ts:28`（`!running ? "prompt" : mod ? "followup" : "steer"`）；`src/types.ts` 的 `InteractionView`（只有 `canSend`、`canStop` 等，没有投递方式）；README“跑 harness 的宿主”写明“harness 没有 steer 与 followup，适配器不产生这两种投递”
+- 现象：运行中输入框占位文字是“回车补充说明，Ctrl+回车排队”，回车一定发出 `delivery: "steer"` 的 `composer.submit`，Ctrl+回车一定是 `followup`。nb-story 的引擎跑在 harness 上，不能处理这两种。宿主唯一的办法是运行中把 `canSend` 设为 false，这时整个输入框变只读（连草稿都不能写），而且占位文字仍在承诺补充说明。
+- 为什么是问题：问答一轮 1 到 6 分钟，用户想在等待时先写好下一问，现在要么写不了，要么按回车后宿主收到一个自己无法执行的 steer。README 与适配器明确说 harness 不产生这两种，视图合同却默认宿主都支持，两边没有对上。
+- 建议改法：`InteractionView` 加 `deliveries: SubmitDelivery[]`（缺省 `["prompt","steer","followup"]` 的宿主显式给出）。`resolveSubmission` 在运行中只有 `prompt`（即只能等）时不发出，输入框保持可写、发送键禁用并显示“运行结束后发送”，占位文字随之换成对应的一句。
+
+### 8. 要构造一份 ctx 得手填十几个区域，没有可用的最小值与构造函数
+- 严重程度：建议
+- 类别：API 易用性
+- 位置：`src/types.ts` 的 `AgentConversationContext`（15 个必填区域：`availability`、`interaction`、`run`、`history`、`branches`、`editing`、`pendingInputs`、`workflows`、`workspaceChanges`、`composer`、`usage`、`connection`、`panels`、`now`、`extensions`）与 `AgentConversationServices`（`resolveAttachmentUrl`、`resolveTriggerMenu` 必填）；现成的最小值只在 Lab 夹具里：`packages/neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui/data.ts:205` 的 `conversationContext`
+- 现象：README“宿主接入”写 `:ctx="ctx"`、“跑 harness 的宿主”写 `ctx.messages = [...transcript.messages()]`，但没有说 `ctx` 从哪来。一个只想显示一段 harness 对话的宿主（nb-story），要自己照着 Lab 数据文件手写约 40 行默认值，没有附件、没有触发菜单也要提供 `resolveAttachmentUrl` 与 `resolveTriggerMenu`。
+- 为什么是问题：每个宿主各抄一份默认值，t11 往 ctx 里补字段时各份会悄悄过期或编译失败。
+- 建议改法：核心入口导出 `createIdleContext(patch?: Partial<AgentConversationContext>)`（空会话、空闲、全部区域取“关闭”值，是 `conversationContext` 的去数据版），Lab 的 `conversationContext` 在它上面加数据；`services` 的两个必填函数改为可选，缺省“附件不可用”“没有菜单”。README 的接入示例补一行 `ctx = createIdleContext({session, messages: transcript.messages()})`。
+
+### 9. 渲染器抛错的降级没有实现，也没有测试，而 t10 计划声称验收 15 已被“注册表测试”覆盖
+- 严重程度：建议
+- 类别：Spec 与计划不一致（本应是 t10 已做，计划却写成已覆盖，所以在此列出）
+- 位置：Spec“失败与恢复”与验收 15；`plan.md` 的“验收映射”写“验收 13、14、15 | 注册表测试（Vitest）”；`src/vue/registry.dom.test.ts` 只有 6 条用例，没有渲染抛错的；全包 grep `onErrorCaptured`、“无法显示”均零命中
+- 现象：从代码推断（未在浏览器实测）：登记的 node、detail 组件渲染时抛错，没有错误边界，Vue 的默认行为是该组件渲染为空并在控制台报错，不是 Spec 说的“降级为通用卡片并显示‘此内容无法显示’”。
+- 为什么是问题：插件组件是别人写的，抛错是预期会发生的事；t11 要接面板、弹窗和更多渲染器，这条越晚补越要改所有入口。同时计划表里的“已覆盖”不符合事实，验收清单会误导后来的人。
+- 建议改法：写一个 `AgentSafeSlot`（`onErrorCaptured` 记录开发诊断、`return false` 阻止冒泡，出错时渲染通用卡片加“此内容无法显示”），`AgentTurnBlock` 的 node 与 `AgentToolDetail` 的 detail 都包一层。补一条 Vitest：登记一个抛错的 node 渲染器，断言该项显示降级文案、同一轮的其余块仍在。同时把 plan 里这一格改成实际覆盖情况。
+
+### 10. 键盘走一遍：每条消息 3 到 4 个操作按钮都是 Tab 停靠点，进输入框要按 30 多次
+- 严重程度：建议
+- 类别：键盘可达性（两边都没提）
+- 位置：`src/vue/stream/AgentMessageActions.vue`（每个操作是一个独立 `IconButton`）、`AgentConversationTurn.vue:187、220`；Spec 没有键盘可达性的条目
+- 现象：在 Lab“多轮长对话”（5 轮）里从顶栏“更多操作”开始连续按 Tab，到输入框（`.ProseMirror`）是第 35 次（脚本 `lab-complete/t3.mjs`）：每个用户消息 4 个按钮（复制、编辑、重新生成、从此处新开分支），每个助手回复 3 到 4 个，加上摘要行、文件条、分隔线展开钮与“回到最新”。100 轮的对话这个数字约 700。没有“跳到输入框”的快捷键，也没有在视图上声明 landmark（输入框是 `<footer>`，消息流没有 `role`）。
+- 其余检查通过：整轮摘要行、思维链、文件条、模型下拉都能用键盘打开；发送（回车）、运行中 steer 与 followup（Ctrl+回车）、Shift+Tab 切模式、模型下拉的方向键选择与回车都发出了预期 action；原图预览用 Enter 打开，焦点进入对话框，Tab 在对话框内循环，Escape 关闭后焦点回到触发它的图片按钮。
+- 建议改法：把消息操作条做成一个 `role="toolbar"`，用 roving tabindex（一个停靠点，方向键在按钮间移动），Tab 一次就跳过整条；再给视图一个全局快捷键（例如 `Ctrl+/`，也可由宿主传入）聚焦输入框，`focusComposer` 已经有了，只差一个入口。
+
+### 11. 屏幕阅读器收不到任何运行状态的播报
+- 严重程度：建议
+- 类别：无障碍（两边都没提）
+- 位置：全包 grep `aria-live`、`role="log"`、`aria-busy` 零命中；仅有的 `role="status"` 在历史加载行、投递提示与附件被拒说明（`AgentConversationView.vue:229、236`、`AgentDeliveryNotice.vue:14`、`AgentConversationComposer.vue:260`）
+- 现象：消息流容器 `[data-agent-stream]` 没有 role，流式输出的新文字、运行结束、“出错”“已停止”徽标、新工具步骤都不会被播报；运行中的 Spinner 有标签但不在 live 区域里。
+- 为什么是问题：这个视图的主要场景是“等一段很久的运行”，对依赖读屏的用户来说，发出消息以后界面是静音的；Spec 的合同里没有这一类，所以没人会补。
+- 建议改法：消息流容器加 `role="log"` 与 `aria-relevant="additions"`，但不要让正在流式的正文逐字播报（流式气泡 `aria-live="off"`，或整个 log 用 `aria-busy` 在流式期间为 true、结束时置 false）；另加一个视觉隐藏的 `role="status"` 区域，只在 `run.status` 变化（开始、结束、出错、已停止）与轮次状态徽标变化时写一句话。先定这条合同再让 t11 的状态栏与横幅沿用。
+
+### 12. 空态、加载与不可用的消息流文字不看 availability，且宿主不能改文字
+- 严重程度：建议
+- 类别：状态覆盖（t11 的“横幅”只管输入框上方）
+- 位置：`src/vue/AgentConversationView.vue:222`（`messages.length === 0` 就显示“还没有消息”）；`src/messages.ts` 的 `stream.empty`、`composer.placeholder`
+- 现象：`availability.status` 是 `loading` 时消息流显示“还没有消息”（会话还在加载，没有消息是临时的）；`load-error`、`unselected`、`profile-unavailable` 时同样显示它，与 ctx 里的 `availability.message`（例如 Lab 的“选择或新建一个会话后开始对话。”）矛盾：`lab-complete/s/v2-no-session-top.png` 里顶栏写“未选择会话”，中间写“还没有消息”，输入框灰着没有任何说明。t11 的横幅会放在输入框上方，不会替掉消息流里这句话。输入框占位“输入消息，回车发送”与空态“还没有消息”都是包内固定文字，宿主不能改成“问点关于这本书的问题”；Spec 把空状态起手提示列为“只预留”。
+- 为什么是问题：nb-story 问答页打开新对话时第一眼就是这个空态，没有任何引导；加载中的会话会短暂闪一下“还没有消息”。
+- 建议改法：消息流为空时按 `availability.status` 选择：`loading` 显示加载中、`ready/empty` 显示空态、其余显示 `availability.message`；给 `ctx` 或视图属性加一个可选的 `emptyHint?: ViewText` 与 `composerPlaceholder?: ViewText`（宿主给的中英两份文字，已有 `ViewText` 类型）。
+
+### 13. 停止与复制没有任何反馈
+- 严重程度：建议
+- 类别：操作反馈
+- 位置：`src/vue/composer/AgentConversationComposer.vue:123`（`showStop` 只看 `running`，`run.status === "stopping"` 与 `"running"` 渲染一样；全包只有 `conversation-turns.ts:473` 用到 `stopping`）；`src/vue/builtin-message-actions.ts:14`（`message.copy` 只带 `messageId`）
+- 现象：点“停止”后，按钮仍是同一个红色停止钮，可以再点一次再发一次 `composer.stop`；用时较长的工具（问答里的一次 `read`、shell 命令）要等几秒到几十秒才结束，这段时间界面不变，除非宿主自己把 `run.phase` 改成“正在停止”。点“复制”后同样没有变化：视图不写剪贴板（Spec 规定），宿主要自己重新拼出文字并弹提示，Lab 宿主根本没处理 `message.copy`（`composer-host.ts` 的 action 分支里没有它），在 Lab 里点复制什么都不发生，演示不出这个操作。
+- 建议改法：`run.status === "stopping"` 时把停止钮换成转圈并禁用，占位说明“正在停止”（文字入文字表）。复制保持 action，但 Lab 宿主补一个处理（写剪贴板并在夹具里弹提示），让这个扩展点在 Lab 里有完整的演示；README 的接入说明里点明“`message.copy` 要宿主自己生成文字与反馈”。
+
+### 14. 消息操作条没有溢出处理：插件多加几个操作，模型名与时间先被挤没
+- 严重程度：建议
+- 类别：扩展点易用性 / 窄屏
+- 位置：`src/vue/stream/AgentMessageActions.vue`（所有登记的操作都是行内图标按钮）；`AgentConversationTurn.vue` 角色行 `.acv-message__head`
+- 现象：390 宽时一条有分支切换的助手消息（分支框加复制、重试、分支共 4 个控件）已经把模型徽标压成“d…”（`lab-complete/s/run-4-finish.png`，助手 10:03:36 那一行；`s/v2-english-bottom.png` 同样）；320 宽时最右一个按钮被裁掉一半（`s/narrow-320.png`，Spec 的下限是 360，所以这条不算违规，只用来说明走势）。插件再登记两个操作，在 390 就会换行或溢出。
+- 建议改法：沿用 Spec 对顶栏的规则（“常驻不超过两个，其余进溢出菜单”）：`AgentMessageActions` 按注册表 `order` 取前 3 个行内显示，其余进一个“更多”下拉；分支切换与模型徽标的最小宽度各留保底。
+
+### 15. 插件作者上手：哪些扩展点是活的没人说，几处字段被静默忽略
+- 严重程度：建议
+- 类别：扩展点易用性 / 文档
+- 位置：`README.md`（没有扩展点一节）、`src/registry.ts`（所有登记项共用 `RegistryEntryBase.when`）；`visibleEntries` 只在 `AgentConversationTurn.vue:162`（消息操作）与 `AgentConversationComposer.vue:61、63、64`（命令、触发字符、工具栏按钮）使用
+- 现象：按我逐个核对，现在视图真正读取的扩展点是：`roles`、`tools`、`messageActions`、`commands`、`triggers`、`toolbarButtons`；不读取的是 `entries`（发现 3）、`headerActions`、`panels`、`trayItems`、`statusItems`（后四个属于 t11）。登记在不读取的扩展点上不会有任何提示。此外：`when` 对 `tools` 与 `roles` 被忽略（`resolveTool` 与角色查找都不看它），但类型允许写；两个渲染器的 `toolNames` 重叠时按 `order` 先到者胜，不报冲突（Spec 只对 `id` 重复要求报错，所以这既可以是“覆盖内置”的能力，也会是悄悄踩掉的陷阱，没有文档说明）；`ToolbarButtonEntry` 只有 `icon`、`label`、`action`，没有按下状态、禁用与角标，“联网搜索”这类开关类按钮做不了；插件的图标类名要被宿主的 Tailwind 扫到才会生成，写错或扫不到静默渲染成空白（`icon-registration.test.ts` 只扫本包），README 没有提醒。
+- 建议改法：README 加一张“扩展点：谁在读、收什么、已知限制”的表，随 t11 更新；`createAgentViewRegistry` 对 `when` 在 `tools`、`roles` 上的使用给开发警告或在类型上去掉（把 `when` 从 `RegistryEntryBase` 移到真正支持的类型上）；`ToolbarButtonEntry` 加 `pressed?: (ctx) => boolean`、`disabled?: (ctx) => boolean`；README 的“宿主接入”里写明插件登记的图标要放在被宿主 `@source` 扫到的文件里。
+
+### 16. 缺省输入框不会随内容增高
+- 严重程度：建议
+- 类别：易用性（nb-story 起步先用缺省实现）
+- 位置：`src/vue/fallback/PlainPromptEditor.vue` 的 `rows="2"` 与样式（`max-height: 200px` 但没有自动增高）
+- 现象：Lab“缺省实现”场景里输入四行（`lab-complete/t8.mjs`），文本框始终是 61px 高、内部滚动（`scrollHeight` 106），`s/plain-multiline.png` 里第一行被滚出可视范围。回车发送、Shift+回车换行、组字时回车不误发送、Escape、Shift+Tab 都正常。
+- 建议改法：样式加 `field-sizing: content`（Chrome 与 Safari 新版支持）并保留 `max-height`，不支持的浏览器退回当前行为；一行 CSS，不用写脚本。
+
+## 扩展点够不够用（任务第 3 项的结论）
+
+| 插件想加 | 现在能做吗 | 要改几处 | 卡在哪里 |
+|---|---|---|---|
+| 一种工具渲染器（单行或卡片） | 能 | 1 处：一份 `AgentViewContribution`，加进宿主传给 `createAgentViewRegistry` 的数组（范例 `domain-tools.ts`）；Spec 验收 13（新 explore 工具并入同一工具组）靠 `resolveTool` 成立 | 工具组的合并摘要要用本包文字表的键或自己的中英两份；自带详情组件同样没有 action 通道（发现 2） |
+| 一种常显的交互控件（node） | 能画，不能交互 | 1 处，外加宿主处理 action | 发现 2、1（轮次结束后被收进摘要）、15 |
+| 一个消息操作 | 能 | 1 处登记 + 宿主处理 `<插件 id>:<名称>` action；`appliesTo` 与 `when` 都有效 | 操作条没有溢出（发现 14）；操作只作用于最终回复，没有最终回复的轮次（结构化答案、出错、被停止）没有助手一侧的操作条（`AgentConversationTurn.vue:219`） |
+| 一个输入框命令 | 能 | 1 处登记 + 宿主处理 `command.run`；缺省输入框下 `/` 菜单不出，命令按普通文字发出（有意，已在计划里写明） | 无 |
+| 一个工具栏按钮 | 能，但只能是点一下发 action 的按钮 | 1 处登记 | 没有按下状态、禁用、角标（发现 15） |
+| 顶栏动作、面板、待处理区条目、状态栏条目 | 类型在，视图不读 | 登记不报错也不生效 | 属于 t11；README 与 registry.ts 现在没有任何地方告诉插件作者“这几个还没接上”（发现 15）。`ctx.panels`、`ctx.extensions`、`pendingInputs`、`workspaceChanges` 等区域同理 |
+| 一种条目渲染器（系统消息、错误、回复尾部） | 类型在，视图不读 | 登记不生效 | 发现 3 |
+
+## nb-story 问答页适配度（t13 决定 7、8、9）
+
+| 需求 | 结论 | 说明 |
+|---|---|---|
+| 决定 7：运行中逐步展开、每步一行实时列出；结束后整轮收成一行摘要，只露出答案 | 前半做不到，后半做不全 | 前半缺“运行中自动展开”的钩子（发现 4）。后半的整轮收起已实现，但“只露出答案”对 `answer` 工具成立不了（发现 1）。 |
+| 决定 8：答案卡片（结论类型、结论、“谁知道什么”的表、一行可点的依据出处，说明与覆盖范围收起） | 缺三样 | 要有结构化结果能留在结果区（发现 1）、卡片内的点击能发 action（发现 2）、文字回复下面能挂“没核实的出处”（发现 3）。卡片本身用登记 node 渲染器加 `CollapsibleCard`（nb-ui 已导出）做，不缺零件。 |
+| 决定 9：阅读位置不同的对话照常显示，只在对话顶上写它读到哪里 | 能做，不需要新钩子 | 最简单的做法是宿主在视图外、对话上方自己放一行字；或者在 `ctx.messages` 开头放一条 `kind: "system", source: "custom"` 的消息，视图会把它显示为淡色一行、可点开（开场轮次）。后一种做法随消息一起滚动、也参与 `raw` 视图。没有专门的“流顶部说明”插槽，但这条需求用不上。 |
+| 对话列表、页面标题、新建对话按钮 | 与本视图无关 | 在视图之外由页面自己做；顶栏与溢出菜单需要能关（发现 6）。 |
+| 引擎交出 harness 事件与带 `seq` 的日志条目 | 已有适配器 | README 的接入说明与契约测试够用；唯一接不上的是运行中回车的 steer 语义（发现 7）。 |
+
+## 仔细检查后没有发现问题的方面
+
+- 长对话的核心管线开销：用 `buildTurn` 对 50、200、500 轮（每轮 1 条用户消息加 4 条助手消息、9 次工具调用）各整体重建一遍，分别是 2.7、4.4、6.7 毫秒（`lab-complete/perf.ts`，bun 运行），按每个流式分片整体重建也不构成瓶颈。DOM 侧没有虚拟化，但折叠的轮次与折叠的思维链不渲染内部步骤，历史靠分页兜底；我没有在浏览器里压测到上千轮，这一块是从代码推断。
+- 主题：明暗两种主题下的运行中与消息状态场景（`s/dark-states.png`、`s/dark-running.png`）对比度与层次正常。
+- 减少动效：包内的两处动画（历史行淡入、回到最新的淡入淡出、缺省 Markdown 的流式光标）都有 `prefers-reduced-motion` 分支。
+- 输入法：缺省输入框对组字中的回车与 keyCode 229 有处理，中文输入不会误发送。
+- 键盘细节：原图预览的焦点进入、循环与关闭后归还；摘要行、思维链与文件条都是原生 `button` 并带 `aria-expanded`；模型下拉与模式切换键盘可用（见发现 10 的“其余检查通过”）。
+- 英文界面：`english` 场景无遗漏的中文界面文字（场景里“上下文已压缩”是夹具数据里的 `label`，不是视图文字）。
+- 窄屏 390：无横向滚动、标题区域不小于 160px、核心操作可完成；只有发现 14 里的模型徽标挤压。
+- 原始视图、历史分页与重试、投递状态未知的呈现：按场景走一遍没发现不一致。
+
+## 数量
+
+- 重要：6（发现 1 到 6）
+- 建议：10（发现 7 到 16）
+- 合计：16
+
+## 最值得先做的三件事
+
+1. 先定“结果”的范围（发现 1）：给工具渲染器一个“呈现属于结果”的字段，并让 `isOutcome`、`findOutcomeStart`、助手一侧的操作条都认它。这一条不做，nb-story 的答案卡片在整轮收起后看不见，t11 的 Workflow 结果卡片也会撞上同一个问题；而且要改 Spec 的术语，越早越便宜。
+2. 同一批给 node、detail 与条目渲染器接上通道（发现 2、3）：`ToolNodeProps` 加 `services`、模板接 `@action`，`entries` 扩展点要么接上要么先在注册表注释里标明未接。这是 t11 做 Workflow 与提问控件、nb-story 做答案卡片都要用的同一条路，先定形状再写 t11 的计划，免得内置组件走一套私有方式。
+3. 决定视图“整套”与“按数据裁剪”的原则（发现 6），顺手补上两个很便宜的体验缺口：发送后跳到最新（发现 5）、运行中自动展开的钩子（发现 4）。前者是每个用户都会踩的体验问题，后者是 nb-story 决定 7 的前提；这三项都要在 t11 往视图里再加五个区域之前写进 Spec。

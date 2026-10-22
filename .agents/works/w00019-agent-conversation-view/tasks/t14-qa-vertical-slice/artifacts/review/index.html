@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>w00019 t14：nb-story 问答页接入 nb-agent-ui 的静态稿</title>
+<style>
+:root { color-scheme: light dark; --line: #d8d4cc; --muted: #6b665d; --accent: #2f6fd6; --warn: #a15c00; --bg2: #f6f3ee; }
+@media (prefers-color-scheme: dark) { :root { --line: #3a3833; --muted: #a39d92; --bg2: #24221f; } }
+body { font-family: system-ui, "Noto Sans SC", sans-serif; max-width: 1180px; margin: 32px auto; padding: 0 20px; line-height: 1.7; }
+h1 { font-size: 24px; margin-bottom: 4px; }
+h2 { font-size: 19px; margin-top: 40px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+h3 { font-size: 15px; margin: 18px 0 6px; }
+.lead { color: var(--muted); }
+.badge { font-size: 12px; padding: 1px 7px; border-radius: 4px; margin-right: 8px; vertical-align: 2px; }
+.todo { background: #fde68a; color: #6b4b00; }
+.done { background: #d1fae5; color: #065f46; }
+section.q { border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px; margin: 16px 0; }
+.opt { border-top: 1px dashed var(--line); padding: 8px 0 4px; }
+.opt h3 { margin: 0; }
+.opt p { margin: 2px 0; color: var(--muted); font-size: 14px; }
+.rec { color: var(--accent); font-size: 13px; }
+.later { color: var(--muted); font-size: 13px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { border-bottom: 1px solid var(--line); text-align: left; padding: 6px 8px; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(520px, 1fr)); gap: 18px; }
+.grid.narrow { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+figure { margin: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg2); }
+figure img { width: 100%; display: block; }
+figcaption { padding: 8px 12px; font-size: 13px; }
+figcaption b { display: block; font-size: 14px; }
+code { font-size: 13px; background: var(--bg2); padding: 0 4px; border-radius: 3px; }
+.side { font-size: 12px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--line); white-space: nowrap; }
+</style>
+</head>
+<body>
+<h1>nb-story 问答页接上 nb-agent-ui 之后</h1>
+<p class="lead">w00019 t14 首个垂直切片的静态稿：在 nb-story 查看器里加了一页“问答”，外壳、阅读位置、右侧抽屉都是真的；对话视图是 nb-agent-ui 现在的实现，会话列表、答案卡片、出处的显示是照计划搭的草稿。“这本书讲了什么？”与“你好”两段是书库里的真实问答记录，经 nb-agent-ui 的 harness 适配器原样回放；追问、文字回复与运行中是照真实格式合成的。</p>
+
+<h2>待定</h2>
+
+<section class="q" data-nbdev-question="slice-scope" data-nbdev-type="multi" data-nbdev-recommend="session-list,entries,failed-outcome,thinking-plain,group-calls">
+  <h2 style="margin-top:0;border:0"><span class="badge todo" data-nbdev-skip>待定</span>这一片在 nb-agent-ui 里做哪几项</h2>
+  <p>勾上的进 t14；没勾的留在 t11 渐进补齐。只列 nb-agent-ui 这边的事；nb-story 自己的问题记在下面的“搭稿时发现的问题”，转给 w00024 t13。推荐的五项是问答页上线就会被看到的。</p>
+  <div class="opt" data-nbdev-option="session-list">
+    <h3>会话列表组件 AgentSessionList</h3>
+    <p>选中、新建；运行中、已中断、出错三种标记；宿主给的第二行说明与提醒行（例如“读到 38.12，早于你现在的位置”）；加载中、空、出错三种状态。宿主决定放左栏还是下拉（图 01、13 到 16）。</p>
+    <span class="rec" data-nbdev-skip>推荐：没有它问答页没法切换对话</span>
+  </div>
+  <div class="opt" data-nbdev-option="entries">
+    <h3>条目渲染器 entries：nb-story 在文字回复下面画“没核实的出处”</h3>
+    <p>图 01 最后一条回复下面的黄色一行。草稿是把它塞进注入的 Markdown 里假装的；真实做法要接上扩展点 <code>entries</code>，宿主登记条目渲染器。</p>
+    <span class="rec" data-nbdev-skip>推荐：已定的做法</span>
+  </div>
+  <div class="opt" data-nbdev-option="failed-outcome">
+    <h3>被退回的作答在过程里只占一行</h3>
+    <p>图 04：第二轮第一次交卷被退回，展开过程后它画成了和最终答案一模一样的整张卡片，只差一个出处，分不清哪张是作数的。改为：结果节点的失败调用不画宿主组件，按普通步骤行显示“交卷 · 退回：41.20 不是读过的原文段落”。</p>
+    <span class="rec" data-nbdev-skip>推荐：nb-story 每次退回都会这样，主应用的结果工具也一样</span>
+  </div>
+  <div class="opt" data-nbdev-option="thinking-plain">
+    <h3>思考摘要去掉 Markdown 标记</h3>
+    <p>图 05：真实模型的思考摘要写成 <code>**Finding 南嘉鱼 and the secret matrix**</code>，步骤行把星号原样显示。步骤行只显示第一行纯文字，应先去掉 Markdown 标记。</p>
+    <span class="rec" data-nbdev-skip>推荐：小改动，每一轮都看得到</span>
+  </div>
+  <div class="opt" data-nbdev-option="group-calls">
+    <h3>工具组的短语能看到这一组的调用</h3>
+    <p>图 05 的“查了 1 次人物，查了 2 次关系与秘密，读了 1 段原文”：<code>groupPhrase</code> 现在只拿到次数，写不出 w00024 定的“读了第 33–37 章”。改为同时收到这一组的调用。</p>
+    <span class="rec" data-nbdev-skip>推荐：接口小改，nb-story 的摘要会好读很多</span>
+  </div>
+  <div class="opt" data-nbdev-option="empty-slot">
+    <h3>空对话的占位可由宿主换</h3>
+    <p>图 08：新对话只有一句“还没有消息”。宿主可以换成自己的内容，例如几个示例问题、说明会按哪个位置与做法回答。</p>
+    <span class="later" data-nbdev-skip>不推荐这次做：顶上那行已经说了位置，先上线再看</span>
+  </div>
+  <div class="opt" data-nbdev-option="hide-usage">
+    <h3>可以不显示模型名与用量行</h3>
+    <p>每条回复下面的用时、tokens、缓存，和角色行的模型名。对读小说的人可能是噪音；视图加一个开关由宿主决定。</p>
+    <span class="later" data-nbdev-skip>不推荐这次做：问答一轮几十万 tokens，现阶段看得到用量是有用的</span>
+  </div>
+  <div class="opt" data-nbdev-option="session-manage">
+    <h3>对话重命名与删除</h3>
+    <p>列表行上的更多菜单。nb-story 已有 <code>nbstory qa rm</code>，网页上还没有入口。</p>
+    <span class="later" data-nbdev-skip>不推荐这次做：已定第一版只做列表、选中、新建</span>
+  </div>
+</section>
+
+<h2><span class="badge done">已定</span>开发者 2026-10-22</h2>
+<ol>
+  <li>rewind、retry、编辑、分支不放占位按钮：宿主给 <code>canMutateHistory: false</code>，按钮不出现（图里回复只有“复制”）。</li>
+  <li>会话列表第一版只做列表、选中、新建。</li>
+  <li>没核实的出处接扩展点 <code>entries</code>，由 nb-story 登记条目渲染器。</li>
+  <li>nb-story 问答页是 nb-agent-ui 的第一个垂直切片；顶栏、面板、待处理区、状态栏、就地编辑、分支等留在 t11 渐进补齐。</li>
+</ol>
+
+<h2>静态稿</h2>
+
+<h3>宽屏（1440×900）</h3>
+<div class="grid">
+  <figure><img src="r1/01-answered.webp" alt=""><figcaption><b>01 一个三轮的对话</b>左栏是会话列表，顶上一行写首问、读到哪里、做法。第二轮交卷成功，整轮过程收成一行“过程 · 5 次操作 · 1 次失败”，下面只露出答案卡片（结论类型、结论、“谁知道什么”的表、依据一行）；第三轮是文字回复，下面黄色一行是没核实的出处。回复只有“复制”。</figcaption></figure>
+  <figure><img src="r1/02-answered-top.webp" alt=""><figcaption><b>02 真实记录的第一轮</b>“这本书讲了什么？”用分点作答；依据有 18 处，一行放不下折成三行。摘要里的“12 次失败”是真实的：12 次读原文超出了“一问最多读 20 章”的上限被拒。</figcaption></figure>
+  <figure><img src="r1/03-answer-detail-drawer.webp" alt=""><figcaption><b>03 点“详细”并点一个出处</b>答案卡片展开说明与覆盖范围；出处在查看器原有的右侧抽屉里打开原文 35.35，不离开对话。人名点开是人物卡。</figcaption></figure>
+  <figure><img src="r1/04-process-expanded.webp" alt=""><figcaption><b>04 展开第二轮的过程</b>被退回的那次交卷画成了一整张卡片，和下面作数的答案几乎一样（待定题“被退回的作答只占一行”）。</figcaption></figure>
+  <figure><img src="r1/05-running.webp" alt=""><figcaption><b>05 运行中</b>过程逐步展开（<code>processDisclosure="live"</code>），角色行旁是正在做的那一步；输入框“运行结束后才能发送消息”，右下是停止。思考摘要的 <code>**</code> 原样显示，工具组短语只能按次数写（两道待定项）。</figcaption></figure>
+  <figure><img src="r1/06-behind.webp" alt=""><figcaption><b>06 阅读位置早于现在的对话</b>w00024 决定 9：不拦、不藏，只在顶上那行用提醒色写“早于你现在的位置 100，答案只依据 38.12 之前的内容”；列表行里也有同一句提醒。</figcaption></figure>
+  <figure><img src="r1/07-interrupted.webp" alt=""><figcaption><b>07 真实的中断记录</b>“你好”这条是 nb-story 早期的记录：引擎催模型交卷的那句话写成了用户消息，于是显示成“YOU：你还没有交卷……”。这是 nb-story 的问题，见下文。</figcaption></figure>
+  <figure><img src="r1/08-new.webp" alt=""><figcaption><b>08 新对话</b>顶上写“新对话按你现在的位置回答”；输入框左下是做法（图当目录 / 全读）。空状态只有一句“还没有消息”。</figcaption></figure>
+  <figure><img src="r1/12-answered-dark.webp" alt=""><figcaption><b>12 暗色</b>同 01。</figcaption></figure>
+</div>
+
+<h3>会话列表的三种状态</h3>
+<div class="grid">
+  <figure><img src="r1/09-list-empty.webp" alt=""><figcaption><b>09 还没有对话</b></figcaption></figure>
+  <figure><img src="r1/10-list-loading.webp" alt=""><figcaption><b>10 加载中</b></figcaption></figure>
+  <figure><img src="r1/11-list-error.webp" alt=""><figcaption><b>11 没取到</b>可以重试。</figcaption></figure>
+</div>
+
+<h3>平板与手机</h3>
+<div class="grid narrow">
+  <figure><img src="r1/13-tablet.webp" alt=""><figcaption><b>13 平板（1000）</b>列表收进顶上的“对话”下拉，右端是新对话。</figcaption></figure>
+  <figure><img src="r1/14-tablet-dropdown.webp" alt=""><figcaption><b>14 平板打开下拉</b></figcaption></figure>
+  <figure><img src="r1/15-phone.webp" alt=""><figcaption><b>15 手机（390）</b></figcaption></figure>
+  <figure><img src="r1/16-phone-dropdown.webp" alt=""><figcaption><b>16 手机打开下拉</b></figcaption></figure>
+</div>
+
+<h2>搭稿时发现的问题</h2>
+<table>
+  <thead><tr><th>问题</th><th>哪一边</th><th>去向</th></tr></thead>
+  <tbody>
+    <tr><td>nb-story 的工具 <code>read</code> 与 nb-agent-ui 内置的文件读取工具同名，注册表报冲突、整页挂不上（t13 定的行为）。nb-story 没有文件与命令工具，内置的工具登记整份不要，只留角色、输入框、消息操作三份。</td><td><span class="side">nb-story</span></td><td>w00024 t13 计划写明；nb-agent-ui README 已有过滤内置项的写法</td></tr>
+    <tr><td>引擎催模型交卷的那句话写成了用户消息（图 07）。应写成提醒（system reminder），视图会画成淡色一行。</td><td><span class="side">nb-story</span></td><td>w00024 t13；先查现在的引擎是否还这样写</td></tr>
+    <tr><td>答案卡片的依据很多时折成几行（图 02，18 处）。w00024 决定 8 写的是“一行可点的依据出处”，要定超出一行时怎么收。</td><td><span class="side">nb-story</span></td><td>w00024 t13 的答案卡片</td></tr>
+    <tr><td>超出“一问最多读 20 章”被拒的读原文是工具错误，整轮摘要显示成红色的“12 次失败”（图 02）。这是预期内的限额，读者看着像出了故障。可以改成不算错误的结果（例如“已到上限，没读”），或者摘要里另算一类。</td><td><span class="side">nb-story</span></td><td>w00024 t13：先定限额被拒算不算失败</td></tr>
+    <tr><td>答案里的人名是字符串（“南嘉鱼（地狱猫）”），点开人物卡要先按名字找到对象 id；草稿用的是写死的对照表。</td><td><span class="side">nb-story</span></td><td>w00024 t13：问答页按名字查对象，或让 answer 的参数带对象 id</td></tr>
+    <tr><td>被退回的交卷在过程里画成整张卡片（图 04）。</td><td><span class="side">nb-agent-ui</span></td><td>待定题</td></tr>
+    <tr><td>思考摘要的 Markdown 标记原样显示（图 05）。</td><td><span class="side">nb-agent-ui</span></td><td>待定题</td></tr>
+    <tr><td><code>groupPhrase</code> 只拿到次数（图 05）。</td><td><span class="side">nb-agent-ui</span></td><td>待定题</td></tr>
+  </tbody>
+</table>
+</body>
+</html>

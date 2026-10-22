@@ -76,6 +76,7 @@ interface SettingsPageContext {
     readonly layer: Readonly<Ref<"user" | "project">>;    // 当前标签；页面只编辑这一层
     readonly projectTitle: Readonly<Ref<string | null>>;  // 绑定作品的书名（见术语），没有绑定时为 null
     readonly options: FormOptionSources;                   // 全部选项提供者的选项源（输出 20），交给页面里的 SchemaField、SchemaForm
+    readonly writable: Readonly<Ref<boolean>>;             // 当前标签那一层能不能写：层 invalid、unavailable 时为假（输出 13；planned）
     dirty(value: boolean): void;                           // 有没有未保存的改动（输出 22）；页面卸载后再调用不起作用
 }
 ```
@@ -128,9 +129,9 @@ function settingsChoicesEvent(providerId: string): string;
 宿主与插件共用的前端组件（`src/ui/settings/`，插件在运行时直接引用，各带同名组件文档）：
 
 - `SettingsRow`（`nbook/ui/settings/SettingsRow.vue`）：属性 `settings`（调用方插件的配置服务）、`setting`（配置定义）、`layer`（当前标签）、`locale`（显示语言）、可选的 `projectTitle`（覆盖提示里的书名）与 `wide`（宽排法，输出 9）；控件放在默认插槽里，插槽拿到这一层显示的值、是否停用、给控件用的 id、可访问名称、行标题的 id（`labelId`，给组合控件作 `aria-labelledby`）与生效时机标注、说明的 id（`describedby`，都没有时没有）；行自己的写入没有成功时发 `write-failed`。
-- `SettingsPageList`（`nbook/ui/settings/SettingsPageList.vue`）：页面里的一张列表加下一级页面（输出 19），属性 `items`（每项 `id`、`title`，可选 `description`、`icon`、`status` 与状态色调、`modified`）、`modelValue`（打开的项的 id，`null` 时显示列表）、`label`（可访问名称）；打开的项的内容放在默认插槽里，插槽拿到这一项（planned）。
+- `SettingsPageList`（`nbook/ui/settings/SettingsPageList.vue`）：页面里的一张列表加下一级页面（输出 19），属性 `items`（每项 `id`、`title`，可选 `description`、`icon`、`status` 与状态色调、`modified`）、`modelValue`（打开的项的 id，`null` 时显示列表；点一项发出这一项的 id，返回发出 `null`，由调用方改值）、`label`（可访问名称）；打开的项的内容放在默认插槽里，插槽拿到这一项（planned）。
 - `SettingsPageActions`（`nbook/ui/settings/SettingsPageActions.vue`）：页面级操作，默认插槽里的按钮画在窗口标题区的右侧（输出 3），页面卸载时一起消失；没有属性（planned）。
-- `SettingsSaveBar`（`nbook/ui/settings/SettingsSaveBar.vue`）：保存栏，属性 `dirty`、`busy`、可选的 `message`（栏左侧的状态文字，有改动时缺省为“有未保存的更改”）；发出 `save`、`discard`。没有改动时两个按钮停用、不写文字（planned）。
+- `SettingsSaveBar`（`nbook/ui/settings/SettingsSaveBar.vue`）：保存栏，属性 `locale`（显示语言）、`dirty`、`busy`、可选的 `canSave`（缺省为真；为假时只停用“保存”，例如这一层连不上，放弃只丢本地草稿、照常可用）与 `message`（栏左侧的状态文字，有改动时缺省为“有未保存的更改”）；发出 `save`、`discard`。没有改动或正在保存时两个按钮停用，没有改动时不写文字（planned）。
 
 前置：`nbook.settings` 的浏览器入口已激活；它激活时读本窗口已接受的全部分区声明与配置项声明。
 
@@ -164,7 +165,7 @@ function settingsChoicesEvent(providerId: string): string;
 10. **已修改**：当前标签这一层写了这个键就算改过：标题后面一个强调色小圆点（悬停提示“已修改”，planned），控件后面那一格放“恢复默认”，点了从这一层删掉这个键（`unset`），控件回到下一层的值。
 11. **被本作品覆盖**：用户标签里，本作品层写了的项在标题下一行用信息色提示“《书名》已单独设为 X，此处的更改在该作品中不生效”（文案 planned）。
 12. **本作品标签**：本作品层没写的项显示“沿用用户设置：X”与“单独设置”（把当前有效值写进本作品层；按钮文字 planned）；写了的项有小圆点，显示控件与“移除本作品的设置”（`unset`；与“恢复默认”同一个图标按钮、提示文字不同，planned）。只允许用户层的项不列出，分区末尾一行淡色字列出这些项的标题，写“仅可在用户设置中修改”（“用户”标签下只允许项目层的项同理，写“仅可在本作品中设置”；文案 planned）。
-13. **层的状态**（planned）：当前标签那一层 `invalid` 时，标题区右侧一个警告按钮“设置文件格式有误”加“打开”，悬停提示出错的位置与原因（第几行第几列、哪里不对）、“修复前，这一层的设置无法保存”与这一层的文件路径（层快照带路径时，见 [`settings.configuration`](configuration.md) 输出 23：项目层带，用户层的文件在状态根下、不带）；这一层的控件停用并显示上一份有效值。点它切到左栏的“设置文件”（输出 23），打开这一层的文件，光标放在出错处、那一行标出错底色，标题区右侧改写为“第 N 行第 M 列：<原因>，改好后保存”；保存成功后警告消失，不自动回到原来的分区。`unavailable` 时标题区右侧写“暂时无法连接，无法保存”（没有按钮），控件停用。层恢复后警告自动消失、控件恢复。
+13. **层的状态**（planned）：当前标签那一层 `invalid` 时，标题区右侧一个警告按钮“设置文件格式有误”加“打开”，悬停提示出错的位置与原因（第几行第几列、哪里不对）、“修复前，这一层的设置无法保存”与这一层的文件路径（层快照带路径时，见 [`settings.configuration`](configuration.md) 输出 23：项目层带，用户层的文件在状态根下、不带）；这一层的控件停用并显示上一份有效值。点它切到左栏的“设置文件”（输出 23），打开这一层的文件，光标放在出错处、那一行标出错底色，标题区右侧改写为“第 N 行第 M 列：<原因>，改好后保存”；保存成功后警告消失，不自动回到原来的分区。`unavailable` 时标题区右侧写“暂时无法连接，无法保存”（没有按钮），控件停用。层不能写时，page 分区经 `SettingsPageActions` 放进标题区的操作整体停用，页面自己的控件按 `context.writable` 停用。层恢复后警告自动消失、控件与操作恢复。出错位置来自层快照（[`settings.configuration`](configuration.md) 输出 5）；快照没有位置时只打开文件、不定位。当前页面有未保存的改动时，点警告先走输出 22 的确认，确认后切过去，位置在文件读完后用一次；取消则留在原处。
 14. **写入结果**：成功不提示；写入结算之前控件显示这次的值。失败发工作台通知（[`workbench.notifications`](../workbench/notifications.md)，警告色调，标题“设置没有保存”，正文写哪一项与原因），控件回到层里的实际值；`unknown-outcome` 的通知标题是“设置可能没有保存”，正文“可能没有保存，以设置文件为准”。数字框与单行输入编辑时只改草稿，失去焦点或回车才写；数字框、JSON 里写的内容解析不了时不写，控件标出错，标题后的出错图标提示“未保存：<原因>”（输出 9 的状态原因，`ui.forms` 输出 15；planned）。字符串列表、对象、对象列表与 JSON 的新值不合 schema 时（例如刚加的一项还没填）同样不写、留在这一行，同一个图标提示第一条原因，合格了再写；改回层里原来的值时不写；层里的值变了、切换标签或换分区时丢掉留下的值（开发者 2026-10-21 定）。其余不合 schema 的值由写入路径以 `invalid-value` 拒绝，同样发通知、回到实际值。
 15. **一个页面一个窗口**：`nbook.settings.open` 打开本页的设置窗口，已开着时只聚焦；给了 `section` 跳到这个分区，给了 `layer` 切到这个标签。`section` 不在左栏里时以 `invalid-args` 失败，`layer: "project"` 而窗口没有绑定作品时以 `unavailable` 失败，两种都不打开、不改变窗口。关掉再开回到上次的分区与标签；刷新页面后回到第一个分区、用户标签。
 16. **外框**：非模态浮动窗口，缺省 960×640（不超过页面），可拖动边缘调整大小、下限 600×400，尺寸按客户端记住；切换分区时窗口不变大小；每次打开居中。页面比 600px 还窄、窗口跟着变窄时，左栏改成顶上两行：标签与搜索框并排，分区横排一行、可以横向滚动，不显示组标题与图标；放不下控件的行把控件换到标题下面（planned）。

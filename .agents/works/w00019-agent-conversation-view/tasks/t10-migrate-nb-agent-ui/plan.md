@@ -238,7 +238,8 @@ w00019 在 2026-10-21 重新打开（[Work README](../../README.md#重新打开�
 | 验收 6 | 分轮单测（最新一轮展开、错误露出） |
 | 验收 9、10 | `lab-agent-ui.e2e.ts`（原始视图、投递状态未知） |
 | 验收 11、12 | `composer-actions.test.ts`；`lab-agent-ui.e2e.ts` 的输入框一组 |
-| 验收 13、14、15 | 注册表测试（Vitest） |
+| 验收 13、14 | 注册表测试（Vitest） |
+| 验收 15 | `registry.dom.test.ts` 的工具回调抛错、`AgentConversationView.dom.test.ts` 的渲染器出错（Vitest）；原先误映射到注册表测试，质量审查发现后补上实现与测试 |
 | 验收 17、18 | `lab-scenes.e2e.ts`（手机宽度、无报错、无溢出）；`nbdev shot` 看明暗两种主题 |
 | 适配器 | `harness.test.ts`：先喂事件、再喂日志，最终结果与只喂日志相同；运行中只有事件时显示临时消息；写坏和乱序的输入进 `problems()` 且不抛异常；契约测试见 S6 |
 

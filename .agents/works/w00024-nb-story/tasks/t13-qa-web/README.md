@@ -36,6 +36,26 @@ updated: 2026-10-21
 11. 包名改为 `nb-agent-ui`（决定 3 的 `nb-agent-view` 作废）。对话视图做完整版、先一次迁完，工作移到重新打开的 w00019：[t10 迁移](../../../w00019-agent-conversation-view/tasks/t10-migrate-nb-agent-ui/README.md)、[t11 补齐](../../../w00019-agent-conversation-view/tasks/t11-complete-view/README.md)。顺序是迁移、补齐、再做本 Task；本 Task 只留问答页、设置页、服务端接口与换手写控件。
 12. nb-form、nb-agent-ui 与 nb-ui 一样在新应用的 Lab 里看。
 
+### w00019 t14 搭稿时发现的问题（2026-10-22）
+
+w00019 [t14](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice/README.md) 在查看器里搭了问答页的静态稿（[评审板](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice/artifacts/review/index.html)），用本书库的真实问答记录回放，发现这几条属于本 Task：
+
+- nb-story 的 `read` 与 nb-agent-ui 内置的文件读取工具同名，注册表报冲突、整页挂不上。nb-story 没有文件与命令工具，注册表只用 `builtinRolesContribution`、`builtinComposerContribution`、`builtinMessageActionsContribution` 加自己的登记。
+- 旧记录里引擎催模型交卷的话写成了用户消息，视图显示成“YOU：你还没有交卷……”。现在的引擎已不写这句（qa 输出 10“不提醒”），只在旧形状的记录里出现；旧记录只能显示、不能续问，问答页照常显示即可。
+- 超出“一问最多读 20 章”被拒的读原文是工具错误，整轮摘要显示成红色的“12 次失败”。要定限额被拒算不算失败。
+- 答案卡片的依据多时折成几行（真实记录 18 处），决定 8 写的是“一行可点的依据出处”，要定超出一行时怎么收。
+- 答案里的人名是字符串，点开人物卡要先按名字找对象 id：问答页按名字查，或让 `answer` 的参数带对象 id。
+
+### 接入 nb-agent-ui 的说明（w00019 t14，2026-10-22）
+
+w00019 [t14](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice/README.md) 为问答页补了五样，接入时照这些写（详见那边的 [plan.md](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice/plan.md) 第 5 节与包 README）：
+
+- **对话列表**：用 `@notnotype/nb-agent-ui/vue` 的 `AgentSessionList`，宽屏放左栏、平板与手机放顶上的下拉；`labels` 把“会话”改称“对话”；收到 `session.select`、`session.create` 后自己关下拉；定期更新 `now`。
+- **没核实的出处**：从问答记录读出每一轮 `reply.unverifiedRefs`，给那一轮最终回复的助手消息加附注 `{customType: "nb-story.unverified-refs", text, details: {refs}}`，换成新对象并缓存；登记同一 `customType` 的条目渲染器画它。记录的第 N 轮对应日志里第 N 个用户提问开始的那一轮，失败、中断的轮次也有日志，不能漏。
+- **工具组短语**：`groupPhrase(calls)` 收到这一组的调用，按 `call.status` 过滤后可以写“读了第 33–37 章”。
+- **交卷被退回**：过程里是一行，行内文字由 `answer` 渲染器的 `summary` 在出错时写（`call.error` 为空时另写）。
+- **注册表**：只用 `builtinRolesContribution`、`builtinComposerContribution`、`builtinMessageActionsContribution` 加自己的登记，不用内置工具登记（`read` 同名会冲突）。
+
 ## 当前状态
 
 - 2026-10-21 经 nbdev 新建。
