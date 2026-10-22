@@ -1,6 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t06-message-stream
+status: done
+updated: 2026-10-22
 ---
 
 # 消息流：滚动、阅读位置、历史分页、原始视图与消息状态
