@@ -60,6 +60,8 @@ function fields(message: MessageView): string[] {
                 message.model,
                 message.status === "done" ? "" : `status: ${message.status}`,
                 message.contentOmitted ? "contentOmitted" : "",
+                // 附注是宿主加的，不在会话日志里；写出类型，对照时认得出。
+                (message.annotations?.length ?? 0) > 0 ? `annotations: ${message.annotations!.map((annotation) => annotation.customType).join(", ")}` : "",
             ].filter(Boolean);
         case "system":
             return [message.label];

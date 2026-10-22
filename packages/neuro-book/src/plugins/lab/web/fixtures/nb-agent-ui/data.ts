@@ -321,6 +321,24 @@ export const answerMessages: MessageView[] = [
     {kind: "system", id: "w8", timestamp: at(12), source: "compaction", label: "上下文已压缩", text: "保留了问题与答案。"},
 ];
 
+/**
+ * nb-story 的文字回复与“没核实的出处”：宿主从问答记录读出没核实的出处，给这一轮最终回复加一条附注（Spec“术语”的附注），
+ * 由它登记的条目渲染器画在回复气泡里。第二轮的附注没有登记渲染器，显示为默认的淡色一行。
+ */
+export const unverifiedReplyMessages: MessageView[] = [
+    user("x1", 0, "她们俩第一次一起行动是哪一章？"),
+    assistant("x2", 2, {thinking: "先读第 37 章。", toolCalls: [read("x3", "chapters/37.md"), read("x4", "chapters/38.md")], usage: usage(5400, 40, 0, 0.0021)}),
+    {
+        ...assistant("x5", 8, {text: "第一次以搭档身份一起行动是在第 37 章：两人在天台碰头，一起给风信子设了陷阱（37.73—37.114）。第 41 章的联手（41.20）规模更大，但那已经是第二次了。", usage: usage(6900, 120, 5400, 0.0019)}),
+        annotations: [{customType: "nb-story.unverified-refs", text: "没核实的出处：41.20", details: {refs: ["41.20"]}}],
+    },
+    user("x6", 20, "那第 41 章是谁先提议的？"),
+    {
+        ...assistant("x7", 24, {text: "原文没有写明是谁先提议的。", usage: usage(7200, 30, 6900, 0.0011)}),
+        annotations: [{customType: "nb-story.reading-position", text: "这一轮按读到 41.30 的位置回答"}],
+    },
+];
+
 /** 单独挂载一轮时用的几组消息。 */
 export const turnSamples = {
     simple: firstTurn,

@@ -13,6 +13,7 @@ import RenderGuard from "../parts/RenderGuard.vue";
 import AgentToolDetail from "../tools/AgentToolDetail.vue";
 import AgentChainBlock from "./AgentChainBlock.vue";
 import AgentDeliveryNotice from "./AgentDeliveryNotice.vue";
+import AgentMessageAnnotations from "./AgentMessageAnnotations.vue";
 import AgentUserContent from "./AgentUserContent.vue";
 import {useAgentRenderers, useAgentText} from "../host";
 import {useOpenSet} from "../use-open-set";
@@ -82,6 +83,12 @@ function nodeSubtitle(step: ToolStep): string {
         :data-intermediate="!props.block.final || undefined"
     >
         <AgentMarkdown :text="props.block.message.text" :resolve-asset="props.services.resolveMarkdownAsset" :streaming="props.block.message.status === 'streaming'" @action="emit('action', $event)" />
+        <AgentMessageAnnotations :message="props.block.message" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
+    </div>
+
+    <!-- 没有文字的助手消息上的附注：单独一块 -->
+    <div v-else-if="props.block.kind === 'annotations'" class="acv-block" data-annotations>
+        <AgentMessageAnnotations :message="props.block.message" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
     </div>
 
     <!-- 人机交互控件 -->

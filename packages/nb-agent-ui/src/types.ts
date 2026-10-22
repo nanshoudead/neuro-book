@@ -73,6 +73,19 @@ export type UserMessageView = {
     delivery?: "pending" | "unknown";
 };
 
+/**
+ * 宿主挂在一条助手消息上的附注（Spec“术语”的附注），例如问答回复里没核实的出处。它跟着这条消息显示与收起，
+ * 不占消息流里的位置，不参与分轮、用时与计数。
+ */
+export type MessageAnnotationView = {
+    /** 条目渲染器按它匹配，例如 "nb-story.unverified-refs"。 */
+    customType: string;
+    /** 没有登记渲染器、或渲染器出错时显示的一句；写成单独读也看得懂。 */
+    text: string;
+    /** 条目渲染器读的结构化数据。 */
+    details?: JsonValue;
+};
+
 export type AssistantMessageStatus = "streaming" | "done" | "stopped" | "interrupted" | "error";
 
 export type AssistantMessageView = {
@@ -88,6 +101,11 @@ export type AssistantMessageView = {
     /** 用户可读的错误说明；宿主负责把内部错误译成普通作者能看懂的文字。 */
     error?: string;
     contentOmitted: boolean;
+    /**
+     * 宿主给这条回复加的附注，显示在它的文字之后（没有文字时单独一行）。加附注时换成新的消息对象并按依据缓存，
+     * 打节拍时给同一个对象，否则这一轮每次都重新整理。
+     */
+    annotations?: readonly MessageAnnotationView[];
 };
 
 export type SystemMessageSource = "prompt" | "reminder" | "compaction" | "branch_summary" | "custom";

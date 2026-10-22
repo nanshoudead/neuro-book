@@ -13,6 +13,7 @@ import {toolCallPhase} from "../../tool-status";
 import AgentMarkdown from "../parts/AgentMarkdown.vue";
 import AgentToolDetail from "../tools/AgentToolDetail.vue";
 import AgentChainSummary from "./AgentChainSummary.vue";
+import AgentMessageAnnotations from "./AgentMessageAnnotations.vue";
 import AgentTextStepRow from "./AgentTextStepRow.vue";
 import AgentToolStepRow from "./AgentToolStepRow.vue";
 import {useAgentText} from "../host";
@@ -150,7 +151,10 @@ function cardStatus(step: ToolStep): "running" | "waiting" | "success" | "error"
                     @update:expanded="openSet.set(entry.id, $event)"
                     @action="emit('action', $event)"
                 />
-                <AgentMarkdown v-else-if="entry.kind === 'text'" class="acv-narration" :text="entry.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
+                <div v-else-if="entry.kind === 'text'" class="acv-narration">
+                    <AgentMarkdown :text="entry.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
+                    <AgentMessageAnnotations :message="entry.message" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
+                </div>
                 <AgentTextStepRow
                     v-else-if="entry.kind === 'thinking'"
                     icon="i-lucide-brain"

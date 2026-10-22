@@ -8,7 +8,7 @@
  * 对插件稳定的形状要等插件运行时（`runtime.plugins`）定型后再确认，在此之前可以随内置需要调整。
  */
 import type {Component} from "vue";
-import type {AgentConversationContext, AgentConversationServices, AgentLocale, AgentViewAction, MessageView, SystemMessageSource, ToolCallView, ViewText} from "./types";
+import type {AgentConversationContext, AgentConversationServices, AgentLocale, AgentViewAction, AssistantMessageView, MessageAnnotationView, MessageView, SystemMessageSource, ToolCallView, ViewText} from "./types";
 import type {CodeLine} from "./tool-detail-lines";
 
 /** 所有登记项共有的字段。 */
@@ -128,12 +128,22 @@ export type RoleEntry = RegistryEntryBase & {
 
 // ─── 其余扩展点 ──────────────────────────────────────────────────────────
 
+/**
+ * 条目渲染器。现在视图只按 `customType` 读取助手消息上的附注（Spec“注册表”）；按消息类型与系统条目来源匹配内置消息的
+ * 那一半还没有消费者。
+ */
 export type EntryRendererEntry = RegistryEntryBase & {
-    messageKind: MessageView["kind"];
+    messageKind?: MessageView["kind"];
     /** 只对系统条目有意义；缺省匹配全部来源。 */
     systemSource?: SystemMessageSource;
+    /** 附注的 `customType`，精确匹配。两个渲染器不能声明同一个。 */
+    customType?: string;
+    /** 附注由它画时，props 是 `EntryComponentProps`，事件是 `HostComponentEmits`。 */
     component: Component;
 };
+
+/** 条目组件收到的 props：与工具组件同一套宿主通道，加上这条附注与它所在的消息。 */
+export type EntryComponentProps = HostComponentContext & {annotation: MessageAnnotationView; message: AssistantMessageView};
 
 export type MessageActionEntry = RegistryEntryBase & {
     messageKinds: ReadonlyArray<MessageView["kind"]>;
@@ -213,6 +223,8 @@ export type AgentViewRegistry = {
     list<P extends ExtensionPoint>(point: P): readonly ExtensionPointEntries[P][];
     /** 工具名对应的渲染器：精确工具名优先，其次最长的匹配前缀；都不匹配时是通用渲染器。 */
     resolveTool(toolName: string): ToolRendererEntry;
+    /** 附注的 `customType` 对应的条目渲染器；没有登记时为 null，视图画默认的淡色一行。与 resolveTool 一样不看 when。 */
+    resolveEntry(customType: string): EntryRendererEntry | null;
 };
 
 type ContributedEntries = {[P in ExtensionPoint]?: readonly ExtensionPointEntries[P][]};
@@ -223,17 +235,19 @@ export type AgentViewContribution = {
     source: string;
 } & ContributedEntries;
 
-/** 冲突在哪：同一扩展点里重复的 id，或两个工具渲染器声明的同一个工具名、同一个前缀。 */
+/** 冲突在哪：同一扩展点里重复的 id，两个工具渲染器声明的同一个工具名、同一个前缀，或两个条目渲染器声明的同一个 customType。 */
 export type RegistryConflict =
     | {kind: "id"; id: string}
     | {kind: "toolName"; name: string}
-    | {kind: "toolNamePrefix"; prefix: string};
+    | {kind: "toolNamePrefix"; prefix: string}
+    | {kind: "customType"; customType: string};
 
 function describeConflict(conflict: RegistryConflict): string {
     switch (conflict.kind) {
         case "id": return `id「${conflict.id}」重复登记`;
         case "toolName": return `工具名「${conflict.name}」被两个渲染器声明`;
         case "toolNamePrefix": return `工具名前缀「${conflict.prefix}」被两个渲染器声明`;
+        case "customType": return `条目类型「${conflict.customType}」被两个渲染器声明`;
     }
 }
 
@@ -340,6 +354,7 @@ function mergePoint<P extends ExtensionPoint>(contributions: readonly AgentViewC
  */
 export function createAgentViewRegistry(contributions: readonly AgentViewContribution[]): AgentViewRegistry {
     checkToolNames(contributions);
+    checkEntryTypes(contributions);
     const merged: {[P in ExtensionPoint]: readonly ExtensionPointEntries[P][]} = {
         roles: mergePoint(contributions, "roles"),
         tools: mergePoint(contributions, "tools"),
@@ -363,7 +378,21 @@ export function createAgentViewRegistry(contributions: readonly AgentViewContrib
         resolveTool: (toolName) => tools.find((entry) => entry.toolNames?.includes(toolName))
             ?? byPrefix.find((entry) => toolName.startsWith(entry.toolNamePrefix!))
             ?? GENERIC_TOOL_RENDERER,
+        resolveEntry: (customType) => merged.entries.find((entry) => entry.customType === customType) ?? null,
     };
+}
+
+/** 两个条目渲染器声明同一个 customType 时，谁生效取决于登记先后；与工具名一样当成冲突。 */
+function checkEntryTypes(contributions: readonly AgentViewContribution[]): void {
+    const owners = new Map<string, string>();
+    for (const contribution of contributions) {
+        for (const entry of contribution.entries ?? []) {
+            if (entry.customType === undefined) continue;
+            const owner = owners.get(entry.customType);
+            if (owner !== undefined) throw new AgentViewRegistryConflictError("entries", {kind: "customType", customType: entry.customType}, [owner, contribution.source]);
+            owners.set(entry.customType, contribution.source);
+        }
+    }
 }
 
 /** 按显示条件筛出当前可见的登记项。 */

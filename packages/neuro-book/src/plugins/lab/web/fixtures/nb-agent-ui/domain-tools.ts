@@ -1,5 +1,6 @@
 /**
- * NeuroBook 与 nb-story 的工具在对话视图里的登记：主体记忆的检索与更新、查会话与 Agent、作答。它们不是通用的 harness 工具，
+ * NeuroBook 与 nb-story 的工具与条目在对话视图里的登记：主体记忆的检索与更新、查会话与 Agent、作答，以及回复上“没核实的
+ * 出处”的附注。它们不是通用的 harness 工具，
  * 不在 nb-agent-ui 的内置登记里；主应用以后有 Agent 插件时由它登记，现在放在 Lab 的宿主里，也当作“宿主登记领域工具”
  * 的示例（docs/specs/ui/agent-conversation-view.md“注册表”）。
  */
@@ -7,6 +8,7 @@
 import {argString} from "@notnotype/nb-agent-ui";
 import type {AgentViewContribution, ToolCallView, ToolRendererEntry} from "@notnotype/nb-agent-ui";
 import LabAnswerNode from "./LabAnswerNode.vue";
+import LabUnverifiedRefsEntry from "./LabUnverifiedRefsEntry.vue";
 
 const tools: ToolRendererEntry[] = [
     {
@@ -45,4 +47,8 @@ function answerSummary(call: ToolCallView): string {
     return reason === "" ? "没有完成" : `退回：${reason}`;
 }
 
-export const labDomainToolsContribution: AgentViewContribution = {source: "lab:neurobook-tools", tools};
+export const labDomainToolsContribution: AgentViewContribution = {
+    source: "lab:neurobook-tools",
+    tools,
+    entries: [{id: "unverified-refs", customType: "nb-story.unverified-refs", component: LabUnverifiedRefsEntry}],
+};

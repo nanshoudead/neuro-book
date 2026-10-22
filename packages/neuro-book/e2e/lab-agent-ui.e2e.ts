@@ -333,6 +333,17 @@ test.describe("对话视图的消息流", () => {
         await expect(body.locator("[data-lab-answer]")).toHaveCount(1);
     });
 
+    test("附注：整轮收起后没核实的出处仍在回复气泡里，点出处到达宿主；没登记的附注显示为淡色一行（验收 28）", async ({page}) => {
+        await openScene(page, "AgentConversationView", "reply-unverified");
+        const body = stage(page);
+        const replies = body.locator("[data-final-reply]");
+        await expect(body.locator("[data-turn-summary]").first()).toBeVisible();
+        await expect(replies.first().locator("[data-lab-unverified]")).toContainText("41.20");
+        await replies.first().locator("[data-unverified-ref]").click();
+        await expect.poll(() => lastAction(page)).toEqual({type: "reference.open", target: "paragraph://41.20"});
+        await expect(replies.last().locator("[data-annotation='nb-story.reading-position']")).toHaveText("这一轮按读到 41.30 的位置回答");
+    });
+
     test("回复里 Markdown 的引用、外链与图片：分别发出 reference.open、link.open 与视图内部的原图预览请求", async ({page}) => {
         await openScene(page, "AgentMarkdown", "links");
         const body = stage(page);

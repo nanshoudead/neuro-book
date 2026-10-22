@@ -192,6 +192,71 @@ describe("被退回的结果（验收 29）", () => {
     });
 });
 
+describe("附注与条目渲染器（验收 28）", () => {
+    function setup(entryComponent: ReturnType<typeof defineComponent>) {
+        const plugin: AgentViewContribution = {source: "test:story", entries: [{id: "refs", customType: "story.refs", component: entryComponent}]};
+        const note = (refs: string[]) => ({customType: "story.refs", text: `没核实的出处：${refs.join("、")}`, details: {refs}});
+        const ctx = context();
+        ctx.messages = [
+            ctx.messages[0]!,
+            {kind: "assistant", id: "a1", timestamp: 2, status: "done", text: "先查目录", thinking: "", model: "m", contentOmitted: false, toolCalls: [{id: "r1", name: "read", status: "success", args: {path: "a.md"}}], annotations: [note(["1.1"])]},
+            {kind: "assistant", id: "a2", timestamp: 3, status: "done", text: "第 37 章", thinking: "", model: "m", contentOmitted: false, toolCalls: [], annotations: [note(["41.20"]), {customType: "story.other", text: "没有登记的附注"}]},
+        ];
+        return mountView("en-US", {}, {ctx, plain: true, registry: createAgentViewRegistry([builtinRolesContribution, builtinToolsContribution, plugin])});
+    }
+
+    it("最终回复的附注在气泡里由宿主组件画，整轮收起后也在；组件收到附注、消息、ctx 与界面语言，发出的 action 到达宿主", async () => {
+        const seen: string[] = [];
+        const Refs = defineComponent({
+            props: {annotation: {type: Object, required: true}, message: {type: Object, required: true}, ctx: {type: Object, required: true}, services: {type: Object, required: true}, locale: {type: String, required: true}},
+            emits: ["action"],
+            setup(props, {emit}) {
+                return () => {
+                    const refs = ((props.annotation as {details: {refs: string[]}}).details.refs);
+                    seen.push(`${(props.message as {id: string}).id}:${props.locale}:${(props.ctx as AgentConversationContext).session?.id}`);
+                    return h("button", {"data-ref": refs[0], onClick: () => emit("action", {type: "reference.open", target: `paragraph://${refs[0]}`})}, refs.join("、"));
+                };
+            },
+        });
+        const view = setup(Refs);
+        const bubble = view.get("[data-final-reply]");
+        await bubble.get("[data-ref='41.20']").trigger("click");
+        expect(view.emitted("action")?.map((args) => args[0])).toEqual([{type: "reference.open", target: "paragraph://41.20"}]);
+        expect(seen).toContain("a2:en-US:s1");
+        expect(bubble.text()).toContain("没有登记的附注");
+        // 过程里的中间 content：思维链展开后，附注在那段文字下面。
+        expect(view.find("[data-ref='1.1']").exists()).toBe(false);
+        await view.get("[data-turn-summary]").trigger("click");
+        await view.get("[data-chain-summary]").trigger("click");
+        expect(view.find(".acv-narration [data-ref='1.1']").exists()).toBe(true);
+        view.unmount();
+    });
+
+    it("宿主组件抛错时这条附注退回自己的那一句，不画错误卡片", async () => {
+        const Broken = defineComponent({
+            setup() {
+                return () => {
+                    throw new Error("条目坏了");
+                };
+            },
+        });
+        const errors: unknown[] = [];
+        const original = console.error;
+        console.error = (...args: unknown[]) => errors.push(args[0]);
+        try {
+            const view = setup(Broken);
+            await flushPromises();
+            const bubble = view.get("[data-final-reply]");
+            expect(bubble.text()).toContain("没核实的出处：41.20");
+            expect(bubble.find("[data-render-failed]").exists()).toBe(false);
+            expect(errors.some((message) => String(message).includes("条目 refs 的组件"))).toBe(true);
+            view.unmount();
+        } finally {
+            console.error = original;
+        }
+    });
+});
+
 describe("宿主的详情组件（验收 21）", () => {
     it("工具详情组件收到服务与界面语言，它发出的 action 到达宿主", async () => {
         const seen: string[] = [];

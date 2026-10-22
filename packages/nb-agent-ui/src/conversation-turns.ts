@@ -39,7 +39,8 @@ export type ToolStep = {
 export type ThinkingStep = {kind: "thinking"; id: string; messageId: string; text: string};
 
 /** 运行结束后并入思维链的中间 content。 */
-export type NarrationStep = {kind: "text"; id: string; messageId: string; text: string};
+/** 并入思维链的中间 content；带着消息，展开时它的附注画在文字之后。 */
+export type NarrationStep = {kind: "text"; id: string; messageId: string; text: string; message: AssistantMessageView};
 
 /** 系统提示词条目（source 为 `prompt`）；写给模型看的，只在思维链里出现。 */
 export type PromptStep = {kind: "prompt"; id: string; message: SystemMessageView};
@@ -96,6 +97,8 @@ export type TurnBlock =
     | {kind: "content"; id: string; message: AssistantMessageView; final: boolean}
     | {kind: "node"; id: string; step: ToolStep}
     | {kind: "notice"; id: string; message: SystemMessageView}
+    /** 没有文字的助手消息上的附注，单独一行；分轮时与信息条目同样对待。有文字时附注跟着文字画，不成块。 */
+    | {kind: "annotations"; id: string; message: AssistantMessageView}
     | {kind: "divider"; id: string; message: SystemMessageView}
     | {kind: "steer"; id: string; message: UserMessageView}
     | {kind: "error"; id: string; message: string};
@@ -157,6 +160,11 @@ function isAnswer(block: TurnBlock, registry: AgentViewRegistry): boolean {
     return block.kind === "node" && block.step.call.status === "success" && registry.resolveTool(block.step.call.name).outcome === true;
 }
 
+/** 信息条目与单独成行的附注：跟着前面的结果显示，不算结果也不切开结果区。 */
+function isNoticeLike(block: TurnBlock): boolean {
+    return block.kind === "notice" || block.kind === "annotations";
+}
+
 function isOutcome(block: TurnBlock, registry: AgentViewRegistry): boolean {
     return isAnswer(block, registry) || block.kind === "error";
 }
@@ -167,7 +175,7 @@ function isOutcome(block: TurnBlock, registry: AgentViewRegistry): boolean {
  */
 function findOutcomeStart(blocks: readonly TurnBlock[], registry: AgentViewRegistry): number {
     let start = blocks.length;
-    while (start > 0 && (isOutcome(blocks[start - 1]!, registry) || blocks[start - 1]!.kind === "notice")) {
+    while (start > 0 && (isOutcome(blocks[start - 1]!, registry) || isNoticeLike(blocks[start - 1]!))) {
         start -= 1;
     }
     while (start < blocks.length && !isOutcome(blocks[start]!, registry)) {
@@ -366,7 +374,7 @@ function buildBlocks(
                         flush();
                         blocks.push({kind: "content", id: `${message.id}:text`, message, final: message === finalReply});
                     } else {
-                        append({kind: "text", id: `${message.id}:text`, messageId: message.id, text: message.text});
+                        append({kind: "text", id: `${message.id}:text`, messageId: message.id, text: message.text, message});
                     }
                 }
                 for (const call of message.toolCalls) {
@@ -386,6 +394,10 @@ function buildBlocks(
                     flush();
                     blocks.push({kind: "error", id: `${message.id}:error`, message: message.error});
                 }
+                if (message.text.trim() === "" && (message.annotations?.length ?? 0) > 0) {
+                    flush();
+                    blocks.push({kind: "annotations", id: `${message.id}:annotations`, message});
+                }
                 break;
         }
     }
@@ -404,7 +416,7 @@ function splitTrailing(blocks: TurnBlock[], registry: AgentViewRegistry): TurnBl
         return [];
     }
     let start = blocks.length;
-    while (start > replyIndex + 1 && (blocks[start - 1]!.kind === "divider" || blocks[start - 1]!.kind === "notice")) {
+    while (start > replyIndex + 1 && (blocks[start - 1]!.kind === "divider" || isNoticeLike(blocks[start - 1]!))) {
         start -= 1;
     }
     const tail = blocks.splice(start);

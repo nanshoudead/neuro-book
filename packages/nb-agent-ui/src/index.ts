@@ -10,7 +10,7 @@ export type {
     AgentConversationContext, AgentConversationServices, AgentLocale, AgentViewAction, AgentViewMode, AssistantMessageStatus,
     AssistantMessageView, AvailabilityStatus, AvailabilityView, BranchView, BuiltinAgentViewAction, ComposerAttachmentView,
     ComposerModelView, ComposerModeView, ComposerView, ConnectionView, ContentBlockView, EditingView, ErrorMessageView, HistoryView,
-    InteractionView, JsonValue, LocalizedText, MessageView, PanelsView, PendingInputView, PendingQuestionView, PluginAgentViewAction,
+    InteractionView, JsonValue, LocalizedText, MessageAnnotationView, MessageView, PanelsView, PendingInputView, PendingQuestionView, PluginAgentViewAction,
     RunStatus, RunView, SessionView, SubmitDelivery, SystemMessageSource, SystemMessageView, ToolCallStatus, ToolCallView,
     ToolResultView, TriggerMenu, TriggerMenuContext, TriggerMenuItem, UsageSummaryView, UsageView, UserMessageView, ViewText,
     WorkflowView, WorkspaceChangeGroupView, WorkspaceChangesView,
@@ -22,7 +22,7 @@ export type {
 } from "./ports";
 export {AgentViewRegistryConflictError, createAgentViewRegistry} from "./registry";
 export type {
-    AgentViewContribution, AgentViewRegistry, ComposerCommandEntry, ComposerTriggerEntry, EntryRendererEntry, ExtensionPoint,
+    AgentViewContribution, AgentViewRegistry, ComposerCommandEntry, ComposerTriggerEntry, EntryComponentProps, EntryRendererEntry, ExtensionPoint,
     ExtensionPointEntries, FileChangeView, HeaderActionEntry, RegistryConflict, MessageActionEntry, MessageActionTarget, PanelEntry, RegistryEntryBase, RoleEntry,
     StatusItemEntry, ToolbarButtonEntry, ToolCategory, ToolComponentProps, ToolEffects, ToolRendererEntry, HostComponentContext, HostComponentEmits, TrayItemEntry,
 } from "./registry";

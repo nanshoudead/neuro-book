@@ -4,6 +4,7 @@ import type {LabFixtureDefinition} from "../index";
 import {harnessReplayLog} from "./harness-replay";
 import {
     answerMessages,
+    unverifiedReplyMessages,
     conversationContext,
     messageStateMessages,
     pagedConversationMessages,
@@ -27,6 +28,11 @@ export const agentConversationViewScenes: Scene[] = [
         id: "answer",
         label: "结果节点：答案卡片在整轮收起后仍露出",
         input: {props: {ctx: conversationContext({messages: answerMessages, branches: {}}), teleportTarget: false, locale: "zh-CN"}, model: {viewMode: "turns"}},
+    },
+    {
+        id: "reply-unverified",
+        label: "附注：宿主的条目渲染器在回复气泡里画没核实的出处",
+        input: {props: {ctx: conversationContext({messages: unverifiedReplyMessages, branches: {}}), teleportTarget: false, locale: "zh-CN"}, model: {viewMode: "turns"}},
     },
     {
         id: "long-conversation",

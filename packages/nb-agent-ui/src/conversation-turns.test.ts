@@ -436,6 +436,21 @@ describe("buildTurns 结果节点（验收 20）", () => {
         expect(turn.outcomeMessage?.id).toBe("a2");
     });
 
+    it("附注跟着消息：有文字时随文字（不成块），没有文字的单独成块、像信息条目一样留在结果区（验收 28）", () => {
+        const note = {customType: "story.refs", text: "没核实的出处：41.20"};
+        const turn = buildTurns(input([
+            user("u1", "问"),
+            assistant("a1", {text: "先查一下", toolCalls: [tool("r1", "read", {path: "a.md"})], annotations: [note]}),
+            assistant("a2", {text: "第 37 章", annotations: [note]}),
+            assistant("a3", {annotations: [note]}),
+        ]))[0]!;
+        expect(shape(turn)).toEqual(["chain(text,tool)", "reply", "annotations"]);
+        expect(shape(turn).slice(turn.outcomeStart)).toEqual(["reply", "annotations"]);
+        expect(turn.outcomeMessage?.id).toBe("a2");
+        const narration = chains(turn)[0]!.entries[0]!;
+        expect(narration.kind === "text" && narration.message.annotations).toEqual([note]);
+    });
+
     it("没有声明为结果的节点不算结果", () => {
         const turn = buildTurns(input([user("u1", "列个计划"), assistant("a1", {toolCalls: [tool("k1", "task_create", {title: "计划"})]})]))[0]!;
         expect(turn.outcomeStart).toBe(turn.blocks.length);
