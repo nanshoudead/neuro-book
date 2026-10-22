@@ -32,4 +32,4 @@ NeuroBook 主题的字号与控件高度恢复成 2026-09-01 以前那一档（�
 
 ## 下一步
 
-合入 master 后，把 master 合进 w00027 的 Work 分支，t06 在新字号上重出设置界面设计稿。
+2026-10-22 合入 master（`7570c687e`），合入后 `docs:check` 无失败、token 扫描通过；worktree 与分支已删。本 Task 完成。后续由 w00027 t06 接着：把 master 合进 Work 分支，在新字号上重出设置界面设计稿。
