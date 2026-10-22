@@ -57,8 +57,9 @@ watch(() => props.forceOpen, (forced) => {
 
 const shown = computed(() => open.value || (props.forceOpen && !escDismissed.value && !props.disabled));
 
+// 只在正被强制显示时记下：悬停或焦点打开的提示按 Esc 由 reka 自己关，记下来反而会吞掉之后的一次强制显示。
 function onEscapeKeyDown(): void {
-    escDismissed.value = true;
+    if (props.forceOpen) escDismissed.value = true;
 }
 </script>
 

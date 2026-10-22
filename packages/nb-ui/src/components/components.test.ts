@@ -1463,6 +1463,23 @@ describe("nb-ui dialog anatomy", () => {
             wrapper.unmount();
         });
 
+        it("Escape on a hover or focus opened tooltip does not swallow a later forced show", async () => {
+            const wrapper = mountTooltip(false);
+            await wrapper.get("button").trigger("focus");
+            await settle();
+            expect(document.body.textContent).toContain(TEXT);
+
+            pressEscape();
+            await settle();
+            expect(document.body.textContent).not.toContain(TEXT);
+
+            await wrapper.get("button").trigger("blur");
+            await wrapper.setProps({forceOpen: true});
+            await settle();
+            expect(document.body.textContent).toContain(TEXT);
+            wrapper.unmount();
+        });
+
         it("keeps hover and focus behaviour when not forced", async () => {
             const wrapper = mountTooltip(false);
             await settle();
