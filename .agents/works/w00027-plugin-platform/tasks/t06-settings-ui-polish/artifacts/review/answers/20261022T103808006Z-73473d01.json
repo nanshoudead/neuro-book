@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00027-plugin-platform",
+    "taskId": "t06-settings-ui-polish",
+    "artifactId": "review",
+    "answerId": "20261022T103808006Z-73473d01",
+    "artifactVersion": 13,
+    "contentHash": "44ae62cc81fee6fe6ef68b51f2d09368a634a015cf4880fa455ce93a716ecb01",
+    "submittedAt": "2026-10-22T10:38:07.278Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r7-field": true,
+        "r7-desc": "inline",
+        "r7-header": true,
+        "r7-layer": true
+    },
+    "comments": {},
+    "note": null
+}
