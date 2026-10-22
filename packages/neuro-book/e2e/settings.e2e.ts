@@ -357,6 +357,8 @@ test("用户层文件改坏：标题区出现警告、控件停用；点警告�
     await expect(fixing).toContainText(/^第 1 行第 \d+ 列：.+，改好后保存$/u);
     const column = Number(/第 1 行第 (\d+) 列/u.exec((await fixing.textContent()) ?? "")?.[1]);
     expect(await text.evaluate((element: HTMLTextAreaElement) => element.selectionStart)).toBe(column - 1);
+    // 出错的那一行（第 1 行）在行号列上标出。
+    await expect(page.locator("[data-settings-file-line][data-error]")).toHaveText("1");
     await writeFile(userFile(), USER_FILE);
     await expect(page.locator("[data-settings-layer-notice]")).toHaveCount(0);
     await page.locator("[data-settings-nav='nbook.appearance']").click();
@@ -505,6 +507,8 @@ test("设置文件视图：看到带注释的全文，改主题后 Ctrl+S 保存
     await expect(page.locator("[data-settings-layer-notice='fixing']")).toBeVisible();
     await text.fill("{\n    \"nbook.workbench/theme\": \"nbook\"\n    \"x\": 1\n}");
     await page.locator("[data-settings-file-actions]").getByRole("button", {name: "保存"}).click();
+    await expect(page.locator("[data-settings-heading] [data-settings-layer-notice]")).toContainText(/^未保存：第 3 行第 5 列：/u);
+    await expect(page.locator("[data-settings-file-line][data-error]")).toHaveText("3");
     await expect(page.locator("[data-settings-file-error]")).toContainText("第 3 行第 5 列");
     await text.fill(USER_FILE);
     await page.locator("[data-settings-file-actions]").getByRole("button", {name: "保存"}).click();

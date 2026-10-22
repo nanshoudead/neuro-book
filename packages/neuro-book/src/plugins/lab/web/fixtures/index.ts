@@ -38,6 +38,7 @@ import type NeuroBookMood from "nbook/ui/brand/NeuroBookMood.vue";
 import type JsonViewer from "nbook/ui/JsonViewer.vue";
 import type HighlightedText from "nbook/ui/settings/HighlightedText.vue";
 import type SettingsPageActions from "nbook/ui/settings/SettingsPageActions.vue";
+import type SettingsSaveBar from "nbook/ui/settings/SettingsSaveBar.vue";
 import type SettingsPageList from "nbook/ui/settings/SettingsPageList.vue";
 import type SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 import type SkillChip from "nbook/ui/SkillChip.vue";
@@ -1103,6 +1104,18 @@ function settingsFixtures(): LabFixture[] {
                 {id: "disabled", label: "有窗口通道、这一层不能写：操作整体停用，可切换恢复"},
             ],
             load: async () => (await import("./SettingsPageActionsFixture.vue")).default,
+        }),
+        defineSubjectFixture<typeof SettingsSaveBar>({
+            component: "SettingsSaveBar",
+            class: "w-full",
+            scenes: [
+                {id: "clean", label: "没有改动：两个按钮停用，不写字", input: {props: {locale: "zh-CN", dirty: false, busy: false}}},
+                {id: "dirty", label: "有改动：缺省文字，按钮可用", input: {props: {locale: "zh-CN", dirty: true, busy: false}}},
+                {id: "busy", label: "保存中：按钮停用", input: {props: {locale: "zh-CN", dirty: true, busy: true}}},
+                {id: "message", label: "自定义文字", input: {props: {locale: "zh-CN", dirty: true, busy: false, message: "还没保存：“接口地址”还没有填写"}}},
+                {id: "english", label: "英文界面", input: {props: {locale: "en-US", dirty: true, busy: false}}},
+            ],
+            subject: () => import("nbook/ui/settings/SettingsSaveBar.vue"),
         }),
         defineSubjectFixture<typeof HighlightedText>({
             component: "HighlightedText",

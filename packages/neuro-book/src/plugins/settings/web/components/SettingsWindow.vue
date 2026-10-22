@@ -71,14 +71,21 @@ const current = computed(() => model.current.value);
 const page = computed(() => (current.value?.kind === "page" && current.value.unavailable === null ? model.page(current.value.id) : null));
 const searching = computed(() => current.value?.kind === "search");
 
+// 标题区的通道（`page-chrome.ts`）：页面里的 `SettingsPageActions`、`SettingsPageList` 经它与标题区说话。
+const chrome = createPageChrome(model.writable);
+provide(SETTINGS_PAGE_CHROME, chrome);
+
 /**
  * 标题区右侧的层警告（输出 13）：`invalid` 是按钮，悬停写位置与原因、“修复前……”与路径；`unavailable` 是文字；在设置文件视图里
- * 层无效时不再给按钮（那里就是修的地方），改写“第 N 行第 M 列：原因，改好后保存”。
+ * 层无效时不再给按钮（那里就是修的地方），改写“第 N 行第 M 列：原因，改好后保存”；视图自己登记了提示（保存被拒）时写它。
  */
 const notice = computed((): SettingsSectionNotice | null => {
     const layer = model.layerNotice.value;
+    if (layer?.kind === "unavailable") return {kind: "unavailable", text: text(TEXT.unavailable)};
+    // 设置文件视图保存被拒时自己写的“未保存：第 N 行第 M 列：原因”：位置是刚保存的那份文本的，比层快照里的更新，盖过它。
+    const note = chrome.note.value;
+    if (note !== null) return {kind: "fixing", text: note};
     if (layer === null) return null;
-    if (layer.kind === "unavailable") return {kind: "unavailable", text: text(TEXT.unavailable)};
     // 没有语法位置的无效（文件读不出来）只有 detail。
     const reason = layer.reason ?? layer.detail;
     if (current.value?.kind === "file") {
@@ -95,9 +102,6 @@ function openFile(): void {
     model.openFile(model.layer.value, layer.position ?? undefined);
 }
 
-// 标题区的通道（`page-chrome.ts`）：页面里的 `SettingsPageActions`、`SettingsPageList` 经它与标题区说话。
-const chrome = createPageChrome(model.writable);
-provide(SETTINGS_PAGE_CHROME, chrome);
 /** 页面登记了标题替换时，标题区写“‹ 分区标题”与页面给的标题（输出 19）；只对 page 分区生效。 */
 const replacement = computed((): SettingsSectionReplacement | null => {
     const claim = chrome.titleClaim.value;

@@ -468,16 +468,25 @@ describe("设置文件视图（输出 23）", () => {
         return found as HTMLButtonElement;
     };
 
-    it("显示这一层文件的全文（注释、没有声明的键都在）；改了才有“保存”“放弃改动”；保存后写进这一层、列表同步", async () => {
+    /** 行号列的每一行：行号与有没有标出错底。 */
+    const numbers = (): string[] => all("[data-settings-file-line]").map((line) => line.textContent?.trim() ?? "");
+    const marked = (): string[] => all("[data-settings-file-line][data-error]").map((line) => line.textContent?.trim() ?? "");
+    /** 窗口标题区右侧写的警告文字（保存被拒、层无效时的“改好后保存”）。 */
+    const headingNote = (): string | undefined => document.body.querySelector("[data-settings-heading] [data-settings-layer-notice]")?.textContent?.trim();
+
+    it("显示这一层文件的全文（注释、没有声明的键都在）；改了才有“保存”“放弃更改”；保存后写进这一层、列表同步", async () => {
         const {host} = await scene("file");
         await vi.waitFor(() => expect(one("[data-settings-file]").dataset.settingsFileState).toBe("ready"));
         expect(area().value).toContain("// 主题跟着 macOS");
         expect(area().value).toContain("retired.plugin/flag");
         expect(document.getElementById(one("[data-settings-file] label").getAttribute("for")!)).toBe(area());
         expect(button("保存").disabled).toBe(true);
-        expect(document.body.querySelector("[data-settings-file-unsaved]")).toBeNull();
+        // 没有改动：保存栏的两个按钮在、都停用，不写文字。
+        expect(button("放弃更改").disabled).toBe(true);
+        expect(document.body.querySelector("[data-settings-save-bar-note]")).toBeNull();
         await type(area().value.replace("120", "90"));
-        expect(one("[data-settings-file-unsaved]").textContent).toBe("有没保存的改动");
+        expect(one("[data-settings-save-bar-note]").textContent?.trim()).toBe("有未保存的更改");
+        expect([button("放弃更改").disabled, button("保存").disabled]).toEqual([false, false]);
         expect(host.window.unsaved.value).toBe(true);
         button("保存").click();
         await flushPromises();
@@ -487,18 +496,39 @@ describe("设置文件视图（输出 23）", () => {
         expect(document.activeElement).toBe(area());
         expect(host.window.unsaved.value).toBe(false);
         await type("{}");
-        button("放弃改动").click();
+        button("放弃更改").click();
         await flushPromises();
         expect(area().value).toBe(host.user.text());
     });
 
-    it("文本不合格：不写，在框下写出行与列、标出错；别处改过：有改动时只提示，保存被拒为冲突，“重新读取”换成新文本", async () => {
+    it("行号列与文本的行数一致，改文本时跟着增减；行号随文本框滚动平移；框下写着三个键", async () => {
+        await scene("file");
+        await vi.waitFor(() => expect(one("[data-settings-file]").dataset.settingsFileState).toBe("ready"));
+        expect(numbers()).toEqual(area().value.split("\n").map((_, index) => String(index + 1)));
+        await type("{\n}");
+        expect(numbers()).toEqual(["1", "2"]);
+        await type("{\n\n\n}\n");
+        expect(numbers()).toEqual(["1", "2", "3", "4", "5"]);
+        // 滚动：行号列跟着文本框的 scrollTop 平移，不滚时不动。
+        expect(one("[data-settings-file-lines]").style.transform).toBe("translateY(0px)");
+        area().scrollTop = 42;
+        area().dispatchEvent(new Event("scroll"));
+        await flushPromises();
+        expect(one("[data-settings-file-lines]").style.transform).toBe("translateY(-42px)");
+        expect(one("[data-settings-file-keys]").textContent).toMatch(/^Tab插入缩进Esc后Tab移出编辑区(Ctrl|⌘)S保存$/u);
+        expect(all("[data-settings-file-keys] kbd").map((key) => key.textContent)).toEqual(["Tab", "Esc", "Tab", expect.stringMatching(/^(Ctrl|⌘)$/u), "S"]);
+    });
+
+    it("文本不合格：不写，在标题区右侧写出行与列、出错行标底色、文本框标出错；别处改过：有改动时只提示，保存被拒为冲突，“重新读取”换成新文本", async () => {
         const {host} = await scene("file");
         await vi.waitFor(() => expect(one("[data-settings-file]").dataset.settingsFileState).toBe("ready"));
         await type("{\n  \"a\": 1\n  \"b\": 2\n}");
         (one("[data-settings-file-text]") as HTMLElement).dispatchEvent(new KeyboardEvent("keydown", {key: "s", code: "KeyS", ctrlKey: true, bubbles: true, cancelable: true}));
         await flushPromises();
+        expect(headingNote()).toMatch(/^未保存：第 3 行第 3 列：/u);
         expect(one("[data-settings-file-error]").textContent).toContain("第 3 行第 3 列");
+        // 出错行（第 3 行）在行号列与文本行上标出，只这一行。
+        expect(marked()).toEqual(["3"]);
         expect(area().getAttribute("aria-invalid")).toBe("true");
         expect(area().getAttribute("aria-describedby")?.split(" ")).toContain(one("[data-settings-file-error]").id);
         // 光标放到出错的地方（第 3 行第 3 列）。
@@ -506,18 +536,22 @@ describe("设置文件视图（输出 23）", () => {
         // 改了文本，出错的标记随之去掉。
         await type("{\n  \"a\": 1,\n  \"b\": 2\n}");
         expect(document.body.querySelector("[data-settings-file-error]")).toBeNull();
+        expect(headingNote()).toBeUndefined();
+        expect(marked()).toEqual([]);
         expect(area().getAttribute("aria-invalid")).not.toBe("true");
         await type("{\n  \"a\": 1\n  \"b\": 2\n}");
         expect(host.user.values()).toMatchObject({"example.notes/interval": 120});
 
         host.user.setText("{\"example.notes/interval\": 300}");
         await flushPromises();
-        expect(one("[data-settings-file-changed]").textContent).toContain("文件在别处改过了");
+        expect(one("[data-settings-file-changed]").textContent).toContain("文件已在别处被修改");
         expect(area().value).toContain("\"b\": 2");
         await type("{\"example.notes/interval\": 60}");
         button("保存").click();
         await flushPromises();
-        expect(one("[data-settings-file-error]").textContent).toContain("文件在别处改过了");
+        expect(one("[data-settings-file-error]").textContent).toContain("未保存：文件已在别处被修改");
+        // 冲突的提示与两个按钮在框上面，不在标题区。
+        expect(headingNote()).toBeUndefined();
         expect(host.user.values()).toMatchObject({"example.notes/interval": 300});
         all("[data-settings-file-error] button")[0]!.click();
         await flushPromises();
@@ -526,6 +560,19 @@ describe("设置文件视图（输出 23）", () => {
         host.user.setText("{\"example.notes/interval\": 30}");
         await flushPromises();
         expect(area().value).toBe("{\"example.notes/interval\": 30}");
+    });
+
+    it("这一层连不上：文本框只读，有改动时保存栏的按钮也停用；恢复后按钮回来", async () => {
+        const {host} = await scene("file");
+        await vi.waitFor(() => expect(one("[data-settings-file]").dataset.settingsFileState).toBe("ready"));
+        await type("{}");
+        expect(button("保存").disabled).toBe(false);
+        host.user.setUnreachable(true);
+        await vi.waitFor(() => expect(host.window.layerNotice.value?.kind).toBe("unavailable"));
+        expect(area().readOnly).toBe(true);
+        expect([button("放弃更改").disabled, button("保存").disabled]).toEqual([true, true]);
+        host.user.setUnreachable(false);
+        await vi.waitFor(() => expect(button("保存").disabled).toBe(false));
     });
 
     it("Tab 插入两个空格，Esc 之后的 Tab 照常移走焦点；有改动时离开先确认", async () => {
@@ -873,6 +920,13 @@ describe("标题区：层警告、定位与页面级操作（输出 3、13、19�
         expect(area().selectionEnd).toBe(area().selectionStart);
         expect(host.window.fileLocation.value).toBeNull();
         expect(one("[data-settings-layer-notice='fixing']").textContent).toBe(fixing);
+        // 出错行（第 3 行）标底色；一改文本就去掉，标题区仍写层的“改好后保存”。
+        expect(all("[data-settings-file-line][data-error]").map((line) => line.textContent?.trim())).toEqual(["3"]);
+        area().value = `${area().value} `;
+        area().dispatchEvent(new Event("input"));
+        await flushPromises();
+        expect(document.body.querySelector("[data-settings-file-line][data-error]")).toBeNull();
+        expect(one("[data-settings-layer-notice='fixing']").textContent).toBe(fixing);
         // 修好、保存：警告消失。
         area().value = "{\"nbook.workbench/theme\": \"macos\"}";
         area().dispatchEvent(new Event("input"));
@@ -897,6 +951,7 @@ describe("标题区：层警告、定位与页面级操作（输出 3、13、19�
         await flushPromises();
         await ready();
         expect(area().selectionStart).not.toBe(brokenOffset(area().value));
+        expect(document.body.querySelector("[data-settings-file-line][data-error]")).toBeNull();
     });
 
     /** 一个会报未保存的 page 分区，用户层文件是坏的：点警告要先过未保存确认。 */

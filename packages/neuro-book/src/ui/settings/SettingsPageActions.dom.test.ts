@@ -135,3 +135,17 @@ describe("标题替换的登记与撤销", () => {
         expect(chrome.titleClaim.value?.title).toBe("A");
     });
 });
+
+describe("标题区右侧提示的登记与撤销", () => {
+    it("后登记的盖过先登记的；旧登记的撤销不动新的，文字相同的两次登记也不混", () => {
+        const chrome = createPageChrome(ref(true));
+        expect(chrome.note.value).toBeNull();
+        const first = chrome.claimNote("未保存：第 3 行第 3 列：缺逗号");
+        const second = chrome.claimNote("未保存：第 3 行第 3 列：缺逗号");
+        first();
+        expect(chrome.note.value).toBe("未保存：第 3 行第 3 列：缺逗号");
+        second();
+        second();
+        expect(chrome.note.value).toBeNull();
+    });
+});
