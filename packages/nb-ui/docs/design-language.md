@@ -931,6 +931,11 @@ Combobox 用原本就在的 `<ul role="listbox">`），外框只剩 `overflow: h
 根因：Tailwind 的 `@source` 按目录扫描源码，不看构建图：目录在扫描范围里，文件有没有被打进包都会生成它的类。UnoCSS 只抽构建图里的模块，换成 Tailwind 后才暴露。另外，写了 `@source not` 的目录，之后再写正向的 `@source` 也加不回来。
 判据：只在开发或测试构建里加载的目录，生产入口用 `@source not` 排除；开发服务与测试外壳要用不排除的另一份入口，由构建配置按开发或生产选（neuro-book 的做法见 `packages/neuro-book/src/web/tailwind.product.css` 与 `vite.config.ts`）。验证：生产构建后在产物 CSS 里查这些目录独有的类名或变量名。
 
+**63. 用盒子尺寸除以 `offsetHeight` 推 CSS `zoom`，没有 zoom 时也偏几像素**
+现象：页面有 CSS `zoom: 0.8` 时，级联子菜单离父项偏了 23px；改成“盒子高度 ÷ `offsetHeight`”推缩放后，没有 zoom 的页面也偏出几像素。
+根因：`getBoundingClientRect()` 与 `window.innerWidth` 不在同一个坐标系里，zoom 不为 1 时要换算；而 `offset*` 是取整的，用它做除数算出的比例带着取整误差。
+判据：换算 CSS `zoom` 用元素的 `currentCSSZoom`；盒子尺寸与 `offset*` 之比只在还要算 `transform` 缩放时用，并接受它的取整误差。验证：在 Lab 里给舞台加 `zoom`，量子菜单与父项的相对位置，与不加 zoom 时一致。
+
 ### B. DOM / 组件
 
 **47. `data-[state=…]:animate-*` 变体不会生成，折叠动画静默失效**
@@ -1081,6 +1086,11 @@ Sketch Cloud 上那份官方分享件带 Inspect，能逐层读出 CSS——这�
 现象：浮动窗口第一次挂载就是打开状态时，面板一直隐藏（定位前先藏起来，定位一直没发生）。
 根因：reka 的 Teleport 自己挂载后才渲染内容；应用初次挂载不在渲染批次里，setup 里排的那一次 `nextTick` 先于面板挂上就跑完了。
 判据：reka 的 Teleport 自己挂载后才渲染内容；要量传送出去的元素时，监听元素引用本身（渲染之后再量），不要在 setup 里排一次 `nextTick`，应用初次挂载时那一次会扑空。
+
+**62. 组件库交给监听者、但没在元素上派发的事件，`currentTarget` 是 null**
+现象：在 DropdownMenu、Menubar 的第一级里点击子菜单的父项，或按 Enter、空格，子菜单不出现，控制台报错。
+根因：reka 菜单项的 `select` 事件是自己 `new` 出来直接交给监听者的，从没在元素上派发过，`target` 与 `currentTarget` 都是 null；代码拿 `currentTarget` 当父项元素去定位子菜单。
+判据：组件库的自定义事件先确认它是不是真的在元素上派发；要元素时从模板 ref 取（按项登记到一张表里），不从事件对象上取。
 
 ### C. 探针 / 验收方法
 
