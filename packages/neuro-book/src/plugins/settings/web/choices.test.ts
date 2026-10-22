@@ -164,7 +164,7 @@ describe("选项源", () => {
         expect(option.value).toEqual({status: "loading"});
         models.value = {status: "ready", items: [{value: "deepseek/chat", label: "DeepSeek / chat"}]};
         expect(option.value).toEqual({status: "ready", items: [{value: "deepseek/chat", label: "DeepSeek / chat"}]});
-        expect(reasonOf(read(source, "x.nobody.list"))).toEqual({"zh-CN": "没有选项提供者 x.nobody.list", "en-US": "There is no option provider x.nobody.list"});
+        expect(reasonOf(read(source, "x.nobody.list"))).toEqual({"zh-CN": "无法加载选项：没有选项提供者 x.nobody.list", "en-US": "Can't load options: there is no option provider x.nobody.list"});
     });
 
     it("同一次交付只调一次 source()；映射对象在注册表的一生中不变", async () => {
@@ -192,14 +192,14 @@ describe("选项源", () => {
             provider("x.blocked", ["x.blocked.list"], control(), {dependencies: [{key: missing}]}),
             provider("x.models", ["x.models.list"], failing),
         ]);
-        expect(reasonOf(read(source, "x.blocked.list"))).toEqual({"zh-CN": "选项来源 x.blocked.list 不可用：missing-service：x.models/missing", "en-US": "Option source x.blocked.list is unavailable: missing-service：x.models/missing"});
-        expect(reasonOf(read(source, "x.models.list"))).toEqual({"zh-CN": "选项来源 x.models.list 不可用：提供者入口按开关激活失败", "en-US": "Option source x.models.list is unavailable: 提供者入口按开关激活失败"});
+        expect(reasonOf(read(source, "x.blocked.list"))).toEqual({"zh-CN": "无法加载选项：missing-service：x.models/missing", "en-US": "Can't load options: missing-service：x.models/missing"});
+        expect(reasonOf(read(source, "x.models.list"))).toEqual({"zh-CN": "无法加载选项：提供者入口按开关激活失败", "en-US": "Can't load options: 提供者入口按开关激活失败"});
         failing.fail = false;
         expect((await application.plugins.recover({plugin: "x.models", entry: "browser"})).status).toBe("reset");
         expect((await application.plugins.activate({plugin: "x.models", entry: "browser"})).status).toBe("activated");
         expect(read(source, "x.models.list")).toEqual({status: "ready", items: [{value: "1", label: "1"}]});
         await stopEntry(failing);
-        expect(reasonOf(read(source, "x.models.list"))).toEqual({"zh-CN": "选项来源 x.models.list 已停止", "en-US": "Option source x.models.list has stopped"});
+        expect(reasonOf(read(source, "x.models.list"))).toEqual({"zh-CN": "无法加载选项：插件 x.models 已停止", "en-US": "Can't load options: plugin x.models has stopped"});
     });
 
     it("source() 抛错、交出的实现没有 source()、给出的值后来抛错或形状不对：只让这个源不可用，同一个问题只记一次诊断", async () => {
@@ -216,12 +216,12 @@ describe("选项源", () => {
             }}})),
             provider("x.shape", ["x.shape.list"], control({implementation: {source: () => shape as never}})),
         ]);
-        expect(reasonOf(read(source, "x.throws.list"))).toEqual({"zh-CN": "选项来源 x.throws.list 出错：连不上服务商", "en-US": "Option source x.throws.list failed: 连不上服务商"});
+        expect(reasonOf(read(source, "x.throws.list"))).toEqual({"zh-CN": "无法加载选项：连不上服务商", "en-US": "Can't load options: 连不上服务商"});
         expect(read(source, "x.empty.list")?.status).toBe("unavailable");
         const later = computed(() => read(source, "x.later.list"));
         expect(later.value).toEqual({status: "ready", items: []});
         broken.value = true;
-        expect(reasonOf(later.value)).toEqual({"zh-CN": "选项来源 x.later.list 出错：模型列表坏了", "en-US": "Option source x.later.list failed: 模型列表坏了"});
+        expect(reasonOf(later.value)).toEqual({"zh-CN": "无法加载选项：模型列表坏了", "en-US": "Can't load options: 模型列表坏了"});
         const shaped = computed(() => read(source, "x.shape.list"));
         expect(shaped.value?.status).toBe("ready");
         for (const bad of [{status: "done"}, {status: "ready", items: [{value: 1, label: "一"}]}, {status: "ready", items: [{value: "a"}]}, {status: "unavailable"}, null]) {
@@ -252,7 +252,7 @@ describe("按需激活：要一个提供者的选项时触发 onSettingsChoices"
         const option = computed(() => read(source, "x.models.list"));
         expect(option.value).toEqual({status: "loading"});
         await waitUntil("判定不能按需激活", () => option.value?.status === "unavailable");
-        expect(reasonOf(option.value)).toEqual({"zh-CN": "插件没有声明打开设置时提供选项：入口 x.models/browser 没有声明 onSettingsChoices:x.models.list", "en-US": "The plugin does not provide options when settings open: 入口 x.models/browser 没有声明 onSettingsChoices:x.models.list"});
+        expect(reasonOf(option.value)).toEqual({"zh-CN": "无法加载选项：插件没有声明打开设置时提供选项：入口 x.models/browser 没有声明 onSettingsChoices:x.models.list", "en-US": "Can't load options: the plugin does not provide options when settings open: 入口 x.models/browser 没有声明 onSettingsChoices:x.models.list"});
         expect(application.plugins.entryState({plugin: "x.models", entry: "browser"})?.status).toBe("registered");
         expect(messages(diagnostics)).toEqual(["选项提供者 x.models.list 不能按需激活：入口 x.models/browser 没有声明 onSettingsChoices:x.models.list"]);
         // 之后入口经别的途径激活了：按交付给出选项。

@@ -30,11 +30,10 @@ import type {SettingsChoicesDeclaration} from "../shared/sections";
 import type {SettingsChoicesImplementation} from "./contracts";
 
 const TEXT = {
-    missing: {"zh-CN": "没有选项提供者 {id}", "en-US": "There is no option provider {id}"},
-    unavailable: {"zh-CN": "选项来源 {id} 不可用：{reason}", "en-US": "Option source {id} is unavailable: {reason}"},
-    stopped: {"zh-CN": "选项来源 {id} 已停止", "en-US": "Option source {id} has stopped"},
-    notActivatable: {"zh-CN": "插件没有声明打开设置时提供选项：{reason}", "en-US": "The plugin does not provide options when settings open: {reason}"},
-    broken: {"zh-CN": "选项来源 {id} 出错：{reason}", "en-US": "Option source {id} failed: {reason}"},
+    missing: {"zh-CN": "无法加载选项：没有选项提供者 {id}", "en-US": "Can't load options: there is no option provider {id}"},
+    unavailable: {"zh-CN": "无法加载选项：{reason}", "en-US": "Can't load options: {reason}"},
+    stopped: {"zh-CN": "无法加载选项：插件 {plugin} 已停止", "en-US": "Can't load options: plugin {plugin} has stopped"},
+    notActivatable: {"zh-CN": "无法加载选项：插件没有声明打开设置时提供选项：{reason}", "en-US": "Can't load options: the plugin does not provide options when settings open: {reason}"},
 } satisfies Record<string, LocalizedText>;
 
 type ChoicesHandle = ContributionHandle<SettingsChoicesDeclaration, SettingsChoicesImplementation>;
@@ -136,14 +135,14 @@ export class ChoiceSourceRegistry {
         void this.#version.value;
         const known = this.#entries.get(id);
         if (known === undefined) return unavailable(TEXT.missing, {id});
-        if (this.#stopped) return unavailable(TEXT.stopped, {id});
+        if (this.#stopped) return unavailable(TEXT.stopped, {plugin: known.plugin});
         const handle = this.#handles.get(id);
         if (handle?.published === true) return this.#evaluate(id, handle);
         // 句柄还在表里但已不 published：入口开始停止、撤回还在排队。
-        if (handle !== undefined) return unavailable(TEXT.stopped, {id});
+        if (handle !== undefined) return unavailable(TEXT.stopped, {plugin: known.plugin});
         const state = known.entry === null ? null : this.#plugins?.entryState({plugin: known.plugin, entry: known.entry}) ?? null;
-        if (state?.status === "blocked" || state?.status === "failed") return unavailable(TEXT.unavailable, {id, reason: entryReason(state)});
-        if (state?.status === "stopping" || state?.status === "closed") return unavailable(TEXT.stopped, {id});
+        if (state?.status === "blocked" || state?.status === "failed") return unavailable(TEXT.unavailable, {reason: entryReason(state)});
+        if (state?.status === "stopping" || state?.status === "closed") return unavailable(TEXT.stopped, {plugin: known.plugin});
         // “不能按需激活”只对这一次登记成立：入口离开“已登记未激活”（激活、停止、重新登记）之后重新核对。
         if (state?.status !== "registered") this.#notActivatable.delete(id);
         const unreachable = this.#notActivatable.get(id);
@@ -176,7 +175,7 @@ export class ChoiceSourceRegistry {
         }
         if (problem === null) return value as OptionSource;
         this.#once(`${id}\n${String(handle.generation)}\n${problem}`, `选项提供者 ${id} 出错：${problem}`);
-        return unavailable(TEXT.broken, {id, reason: problem});
+        return unavailable(TEXT.unavailable, {reason: problem});
     }
 
     #activate(id: string): void {

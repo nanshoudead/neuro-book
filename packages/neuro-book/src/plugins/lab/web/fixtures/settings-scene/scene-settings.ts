@@ -37,6 +37,28 @@ export const notesSettings = {
     legacy: defineSetting({plugin: "example.notes", name: "legacy", schema: Type.Boolean(), default: false, title: {"zh-CN": "旧版目录结构", "en-US": "Legacy Layout"}, section: "example.missing"}),
 };
 
+/**
+ * 只给 `SettingsRow` 的 Lab 场景用的项（没有分区，设置窗口的场景不收它们）：带生效时机的数字、只读的字符串，以及一个横排
+ * 单选组很宽的选项，看窄行里控件换到标题下面。
+ */
+export const rowDemoSettings = {
+    workers: defineSetting({plugin: "example.rows", name: "workers", schema: Type.Integer({minimum: 1, maximum: 8}), default: 2, title: {"zh-CN": "并发数", "en-US": "Workers"}, description: {"zh-CN": "同时抽取的章节数", "en-US": "Chapters extracted at once"}, applies: "restart"}),
+    library: defineSetting({plugin: "example.rows", name: "library", schema: Type.String({readOnly: true}), default: "wugang-main", title: {"zh-CN": "书库", "en-US": "Library"}, description: {"zh-CN": "由作品决定", "en-US": "Decided by the book"}}),
+    mode: defineSetting({
+        plugin: "example.rows",
+        name: "mode",
+        schema: Type.Union([Type.Literal("chapter"), Type.Literal("volume"), Type.Literal("whole")]),
+        default: "chapter",
+        title: {"zh-CN": "抽取范围", "en-US": "Extraction Scope"},
+        description: {"zh-CN": "一次交给模型多少内容", "en-US": "How much text goes to the model at once"},
+        choices: [
+            {value: "chapter", title: {"zh-CN": "逐章抽取并实时校对", "en-US": "Chapter by chapter, checked live"}, description: {"zh-CN": "最稳，也最慢", "en-US": "Safest, slowest"}},
+            {value: "volume", title: {"zh-CN": "按卷抽取后统一校对", "en-US": "Volume by volume, checked after"}, description: {"zh-CN": "折中", "en-US": "A balance"}},
+            {value: "whole", title: {"zh-CN": "整本一次抽取", "en-US": "The whole book at once"}, description: {"zh-CN": "最快，易丢细节", "en-US": "Fastest, may lose detail"}},
+        ],
+    }),
+};
+
 /** page 分区自己画的项：通用列表不画它们。 */
 export const snippetsSettings = {
     items: defineSetting({

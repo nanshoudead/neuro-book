@@ -3,17 +3,20 @@
  * list 分区的内容（同名 .md）：按分组列出配置项，每项一个 SettingsRow，里面放 nb-form 的 `SchemaField`（`bare`，名字与
  * 说明来自行），写入经窗口模型。控件、草稿与提交时机由表单定（docs/specs/settings/settings-window.md 输出 9、14）。
  *
- * 行里显示的值按先后取：留在行里没写的值、写入中的值、层里的实际值。没写的原因（结构字段的值还不合格、数字框里
- * 写的不是数）在控件下面一行写出：单个字段没有问题汇总，不写出来用户只看到一个标红的框。
+ * 行里显示的值按先后取：留在行里没写的值、写入中的值、层里的实际值。状态原因收在行标题后面的图标里（`SettingsRow`
+ * 的 `reasons`）：没写的原因（结构字段的值还不合格、数字框里写的不是数）由这里算，字段自己的警告与状态（选项源不可用）
+ * 取自 `SchemaField` 的 `field-state`。单个字段没有问题汇总，不写出来用户只看到一个标红的框。
  */
 import {toPointer} from "@notnotype/nb-form";
 import type {FormIssue} from "@notnotype/nb-form";
 import {describeIssues, SchemaField} from "@notnotype/nb-form/vue";
-import type {DraftState} from "@notnotype/nb-form/vue";
+import type {DraftState, FieldState} from "@notnotype/nb-form/vue";
 import {reactive, watch} from "vue";
 
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {LocalizedText} from "nbook/shared/localized-text";
+import {settingsRowState} from "nbook/ui/settings/row-state";
+import type {SettingsRowReason} from "nbook/ui/settings/row-state";
 import SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 
 import {settingErrors, settingForm} from "../setting-form";
@@ -28,9 +31,9 @@ const props = defineProps<{
 }>();
 
 const TEXT = {
-    excludedUser: {"zh-CN": "{titles}只能在用户设置里改", "en-US": "{titles}: can only be changed in your settings"},
-    excludedProject: {"zh-CN": "{titles}只能在本作品里设置", "en-US": "{titles}: can only be set for a book"},
-    notSaved: {"zh-CN": "还没保存：{reason}", "en-US": "Not saved yet: {reason}"},
+    excludedUser: {"zh-CN": "{titles}仅可在用户设置中修改", "en-US": "{titles}: can only be changed in user settings"},
+    excludedProject: {"zh-CN": "{titles}仅可在本作品中设置", "en-US": "{titles}: can only be set for a book"},
+    notSaved: {"zh-CN": "未保存：{reason}", "en-US": "Not saved: {reason}"},
 } satisfies Record<string, LocalizedText>;
 
 const locale = props.window.locale;
@@ -44,9 +47,12 @@ const formOf = (setting: WindowSetting) => settingForm(setting.definition.declar
 const held = reactive(new Map<string, {readonly value: unknown; readonly base: string; readonly errors: ReadonlyArray<FormIssue>}>());
 /** 解析不了的草稿（数字框里的 `abc`、写坏的 JSON），键是“配置键 + 字段路径”。 */
 const unparseable = reactive(new Map<string, {readonly key: string; readonly issues: ReadonlyArray<FormIssue>}>());
+/** 字段交出的警告与状态（`field-state`），键是配置键。 */
+const fieldStates = reactive(new Map<string, FieldState>());
 watch([() => props.window.layer.value, () => props.view.id], () => {
     held.clear();
     unparseable.clear();
+    fieldStates.clear();
 });
 
 const json = (value: unknown): string => JSON.stringify(value) ?? "";
@@ -85,6 +91,12 @@ function onDraft(setting: WindowSetting, state: DraftState): void {
     else unparseable.delete(id);
 }
 
+/** 这一层此刻显示的值（层里的实际值，没写的取下一层）：同 `SettingsRow` 交给插槽的 `value`。 */
+function actualValue(setting: WindowSetting): unknown {
+    const state = settingsRowState(props.window.editing.inspect(setting.definition), setting.definition.declaration.layers, props.window.layer.value);
+    return state.kind === "edit" ? state.value : state.kind === "inherit" ? state.inherited : undefined;
+}
+
 /** 这一项为什么没写；都写了时为 null。只写第一条，多的看控件上的标记。 */
 function notSaved(setting: WindowSetting, actual: unknown): string | null {
     const kept = heldOf(setting, actual);
@@ -94,7 +106,16 @@ function notSaved(setting: WindowSetting, actual: unknown): string | null {
     return first === undefined ? null : localize(formatText(TEXT.notSaved, {reason: first}), locale.value);
 }
 
-const describedby = (...ids: ReadonlyArray<string | undefined>) => ids.filter((id) => id !== undefined).join(" ") || undefined;
+/** 行标题后面图标的原因，按出错、警告、状态排：没写的原因取自这里，其余取自字段的 `field-state`。 */
+function reasonsOf(setting: WindowSetting): ReadonlyArray<SettingsRowReason> {
+    const reasons: SettingsRowReason[] = [];
+    const unsaved = notSaved(setting, actualValue(setting));
+    if (unsaved !== null) reasons.push({tone: "error", text: unsaved});
+    const state = fieldStates.get(setting.definition.key);
+    for (const warning of state?.warnings ?? []) reasons.push({tone: "warning", text: warning});
+    if (state?.status != null) reasons.push({tone: "muted", text: state.status});
+    return reasons;
+}
 
 function excludedText(titles: ReadonlyArray<string>): string {
     const separator = locale.value === "zh-CN" ? "、" : ", ";
@@ -116,27 +137,26 @@ function excludedText(titles: ReadonlyArray<string>): string {
                 :locale="locale"
                 :project-title="window.projectTitle.value"
                 :wide="formOf(setting).wide"
+                :reasons="reasonsOf(setting)"
                 @write-failed="(failure) => window.rowFailed(setting, failure)"
             >
-                <div class="settings-list-section__field">
-                    <div class="settings-list-section__control" :data-settings-width="formOf(setting).wide ? undefined : formOf(setting).width">
-                        <SchemaField
-                            :id="row.id"
-                            :schema="setting.definition.declaration.schema"
-                            :hints="formOf(setting).hints"
-                            :options="window.options()"
-                            :model-value="shown(setting, row.value)"
-                            :locale="locale"
-                            :disabled="row.disabled"
-                            :labelledby="row.labelId"
-                            :describedby="describedby(row.describedby, notSaved(setting, row.value) === null ? undefined : `${row.id}-not-saved`)"
-                            bare
-                            commit="change"
-                            @update:model-value="(value: unknown) => write(setting, value, row.value)"
-                            @draft-state="(state: DraftState) => onDraft(setting, state)"
-                        />
-                    </div>
-                    <p v-if="notSaved(setting, row.value) !== null" :id="`${row.id}-not-saved`" class="settings-list-section__not-saved" data-settings-not-saved>{{ notSaved(setting, row.value) }}</p>
+                <div class="settings-list-section__control" :data-settings-width="formOf(setting).wide ? undefined : formOf(setting).width">
+                    <SchemaField
+                        :id="row.id"
+                        :schema="setting.definition.declaration.schema"
+                        :hints="formOf(setting).hints"
+                        :options="window.options()"
+                        :model-value="shown(setting, row.value)"
+                        :locale="locale"
+                        :disabled="row.disabled"
+                        :labelledby="row.labelId"
+                        :describedby="row.describedby"
+                        bare
+                        commit="change"
+                        @update:model-value="(value: unknown) => write(setting, value, row.value)"
+                        @draft-state="(state: DraftState) => onDraft(setting, state)"
+                        @field-state="(state: FieldState) => fieldStates.set(setting.definition.key, state)"
+                    />
                 </div>
             </SettingsRow>
         </section>
@@ -168,23 +188,6 @@ function excludedText(titles: ReadonlyArray<string>): string {
     color: var(--text-secondary);
 }
 
-.settings-list-section__field {
-    display: flex;
-    min-width: 0;
-    max-width: 100%;
-    flex-direction: column;
-    gap: var(--space-2);
-}
-
-.settings-list-section__not-saved {
-    max-width: 32em;
-    margin: 0;
-    font-size: var(--text-xs);
-    line-height: var(--leading-ui);
-    color: var(--status-warning);
-    overflow-wrap: anywhere;
-}
-
 /* 标签列加控件列时的宽度（输出 9），都不超过行宽；宽排法占满内容列。 */
 .settings-list-section__control {
     min-width: 0;
@@ -200,20 +203,12 @@ function excludedText(titles: ReadonlyArray<string>): string {
 }
 
 /*
- * 单行输入 200 到 320px：行宽减去标签列（200px）、两列间距与控件后面那个按钮的位置之后还剩多少就给多少，剩不到 200px 才
- * 整行换到标题下面。定宽 320 时内容列稍窄就整行换行，同一分区里与数字框、下拉两种对齐混在一起。按钮在用户层是“恢复默认”
- * 图标，在本作品层是文字按钮“移除本作品的设置”（SettingsRow），预留的宽度跟着层走；文字按钮的宽度随语言变，按中文留。
+ * 单行输入 200 到 320px：行宽减去标题列（200px）、两列间距与最右一格的位置之后还剩多少就给多少，剩不到 200px 才整行
+ * 换到标题下面。定宽 320 时内容列稍窄就整行换行，同一分区里与数字框、下拉两种对齐混在一起。这几个量是行（SettingsRow）
+ * 在根上定的变量，控件在行里，直接继承；最右一格在用户标签与本作品标签下一样宽（都是图标按钮）。
  */
-.settings-list-section {
-    --settings-row-action: var(--control-h-sm);
-}
-
-.settings-list-section[data-settings-layer="project"] {
-    --settings-row-action: 9em;
-}
-
 .settings-list-section__control[data-settings-width="wide"] {
-    width: clamp(200px, calc(100cqi - 200px - var(--space-7) - var(--space-4) - var(--settings-row-action)), 320px);
+    width: clamp(200px, calc(100cqi - var(--settings-row-text-min) - var(--settings-row-gap-x) - var(--settings-row-cell-gap) - var(--settings-row-slot)), 320px);
 }
 
 .settings-list-section__excluded {

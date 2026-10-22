@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 设置的一行（同名 .md）：按配置服务的 `inspect` 与当前标签算出控件、沿用说明、已修改、覆盖提示与停用；三种动作经传入的
- * 配置服务写这一层。规则见 docs/specs/settings/settings-window.md 输出 10–13、18。
+ * 配置服务写这一层。规则见 docs/specs/settings/settings-window.md 输出 9–13、18。
  */
 import {Button, IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, ref, useId} from "vue";
@@ -10,7 +10,8 @@ import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 import type {DeepReadonly, SettingDefinition, SettingLayer, SettingsFailure, SettingsService} from "nbook/shared/settings";
 
-import {projectOverride, settingsRowState} from "./row-state";
+import {isReadOnlySetting, projectOverride, settingsRowState} from "./row-state";
+import type {SettingsRowReason} from "./row-state";
 import {settingAppliesText, settingValueText} from "./setting-text";
 
 defineOptions({name: "SettingsRow"});
@@ -22,7 +23,12 @@ const props = withDefaults(defineProps<{
     locale: DisplayLocale;
     projectTitle?: string | null;
     wide?: boolean;
-}>(), {projectTitle: null, wide: false});
+    /**
+     * 标题后面状态图标的原因（出错、选项拿不到、“已不存在”之类），由调用方给：行不认识控件里的状态。只画一个图标，色调取
+     * 最重的（error > warning > muted），提示逐条列出；读屏文字合进插槽的 `describedby`。
+     */
+    reasons?: ReadonlyArray<SettingsRowReason>;
+}>(), {projectTitle: null, wide: false, reasons: () => []});
 
 type RowAction = "reset" | "override" | "remove";
 
@@ -33,7 +39,7 @@ const emit = defineEmits<{
 defineSlots<{
     /**
      * `id` 给控件，行的 `<label for>` 指向它；组合控件（单选组、复选组）拿不到 `<label for>` 的名字，用 `labelId` 作
-     * `aria-labelledby`。`describedby` 是行里说明的 id，没有说明时为 undefined。
+     * `aria-labelledby`。`describedby` 是行里生效时机、说明与状态原因的 id，都没有时为 undefined。
      */
     default(props: {value: unknown; disabled: boolean; id: string; label: string; labelId: string; describedby: string | undefined}): unknown;
 }>();
@@ -41,13 +47,20 @@ defineSlots<{
 const TEXT = {
     reset: {"zh-CN": "恢复默认", "en-US": "Reset to Default"},
     inherit: {"zh-CN": "沿用用户设置：{value}", "en-US": "Using your setting: {value}"},
-    override: {"zh-CN": "在本作品里单独设置", "en-US": "Set for This Book"},
+    override: {"zh-CN": "单独设置", "en-US": "Set Separately"},
     remove: {"zh-CN": "移除本作品的设置", "en-US": "Remove Book Setting"},
-    overridden: {"zh-CN": "本作品单独设为了 {value}，这里的改动在《{title}》里不生效", "en-US": "This book uses {value}; changes here don't apply to “{title}”"},
-    overriddenUntitled: {"zh-CN": "本作品单独设为了 {value}，这里的改动在本作品里不生效", "en-US": "This book uses {value}; changes here don't apply to it"},
-    userOnly: {"zh-CN": "只能在用户设置里改", "en-US": "Can only be changed in your settings"},
-    projectOnly: {"zh-CN": "只能在本作品里设置", "en-US": "Can only be set for a book"},
+    modified: {"zh-CN": "已修改", "en-US": "Modified"},
+    readOnly: {"zh-CN": "只读", "en-US": "Read-only"},
+    overridden: {"zh-CN": "《{title}》已单独设为 {value}，此处的更改在该作品中不生效", "en-US": "“{title}” uses {value}; changes here don't apply to that book"},
+    overriddenUntitled: {"zh-CN": "本作品已单独设为 {value}，此处的更改在该作品中不生效", "en-US": "This book uses {value}; changes here don't apply to it"},
+    userOnly: {"zh-CN": "仅可在用户设置中修改", "en-US": "Can only be changed in user settings"},
+    projectOnly: {"zh-CN": "仅可在本作品中设置", "en-US": "Can only be set for a book"},
 } satisfies Record<string, LocalizedText>;
+
+/** 状态原因的图标，画法同 nb-form 的字段外壳（`FieldShell`）：出错、警告、其余。类名写成字面量，图标才会被生成。 */
+const REASON_ICON = {error: "i-lucide-circle-alert", warning: "i-lucide-triangle-alert", muted: "i-lucide-info"} as const;
+/** 严重程度，大的重。 */
+const SEVERITY = {error: 2, warning: 1, muted: 0} as const;
 
 const text = (template: LocalizedText, params: Readonly<Record<string, string>> = {}): string => localize(formatText(template, params), props.locale);
 
@@ -55,6 +68,7 @@ const controlId = useId();
 const labelId = `${controlId}-label`;
 const descriptionId = `${controlId}-description`;
 const appliesId = `${controlId}-applies`;
+const reasonsId = `${controlId}-reasons`;
 const declaration = computed(() => props.setting.declaration);
 const inspection = computed(() => props.settings.inspect(props.setting));
 const state = computed(() => settingsRowState(inspection.value, declaration.value.layers, props.layer));
@@ -62,10 +76,34 @@ const override = computed(() => projectOverride(inspection.value, declaration.va
 const title = computed(() => localize(declaration.value.title, props.locale));
 const description = computed(() => (declaration.value.description === undefined ? null : localize(declaration.value.description, props.locale)));
 const applies = computed(() => settingAppliesText(declaration.value.applies, props.locale));
-const describedby = computed(() => [applies.value === null ? null : appliesId, description.value === null ? null : descriptionId].filter((id) => id !== null).join(" ") || undefined);
+/** schema 写了 `readOnly`：不画控件，只写当前值（输出 9）。 */
+const readOnly = computed(() => isReadOnlySetting(declaration.value));
+const reasonTone = computed(() => props.reasons.reduce<SettingsRowReason["tone"] | null>((worst, reason) => (worst === null || SEVERITY[reason.tone] > SEVERITY[worst] ? reason.tone : worst), null));
+const reasonsText = computed(() => props.reasons.map((reason) => reason.text).join("；"));
+const describedby = computed(() => [applies.value === null ? null : appliesId, description.value === null ? null : descriptionId, props.reasons.length === 0 ? null : reasonsId].filter((id) => id !== null).join(" ") || undefined);
 const modified = computed(() => state.value.kind === "edit" && state.value.written);
+/** 标题后的“已修改”圆点与最右一格的恢复默认：只读的项没有这两样，值改不了，也没有“默认”可回。 */
+const marked = computed(() => modified.value && !readOnly.value);
 const blocked = computed(() => state.value.kind !== "not-allowed" && state.value.blocked);
+/** 此刻这一层显示的值：写了取这一层，没写取下一层；只读行用它写出来。 */
+const shown = computed(() => (state.value.kind === "edit" ? state.value.value : state.value.kind === "inherit" ? state.value.inherited : undefined));
 const valueText = (value: unknown): string => settingValueText(declaration.value, value, props.locale);
+/** 最右一格的动作：用户标签是“恢复默认”，本作品标签是“移除本作品的设置”，同一个图标按钮。 */
+const resetText = computed(() => text(props.layer === "user" ? TEXT.reset : TEXT.remove));
+
+/**
+ * 焦点在行里的控件上时，原因的提示也显示（键盘用户悬停不到图标）。只认放控件的两处（`__field`、`__wide`）：右边那一格的
+ * 按钮拿到焦点不算。焦点在同一处里移动不算离开；移到控件弹出的浮层里（下拉的选项）算离开。
+ */
+const controlFocused = ref(false);
+function onFocusIn(): void {
+    controlFocused.value = true;
+}
+function onFocusOut(event: FocusEvent): void {
+    const host = event.currentTarget;
+    if (host instanceof Node && event.relatedTarget instanceof Node && host.contains(event.relatedTarget)) return;
+    controlFocused.value = false;
+}
 
 /** 进行中的动作：同一行一次只发一个，按钮停用到它结算。 */
 const busy = ref<RowAction | null>(null);
@@ -95,46 +133,66 @@ async function run(action: RowAction): Promise<void> {
         :data-settings-row-modified="modified ? '' : undefined"
         :data-settings-row-blocked="blocked ? '' : undefined"
     >
-        <!-- 宽排法的竖线贴着整项，标签列加控件列的只贴着标题与说明（在标签里）。 -->
-        <span v-if="modified && wide" class="settings-row__modified" aria-hidden="true"></span>
         <div class="settings-row__main">
-            <div class="settings-row__label">
-                <span v-if="modified && !wide" class="settings-row__modified" aria-hidden="true"></span>
-                <!-- 生效时机不在 `<label>` 里：它不是控件的名字，经 `describedby` 当说明念（审查 S5 Sonnet 3）。 -->
+            <div class="settings-row__text">
                 <div class="settings-row__title">
                     <label :id="labelId" :for="controlId">{{ title }}</label>
+                    <Tooltip v-if="marked" :text="text(TEXT.modified)">
+                        <span class="settings-row__dot" role="img" :aria-label="text(TEXT.modified)" data-settings-row-dot></span>
+                    </Tooltip>
+                    <Tooltip v-if="reasonTone !== null" placement="right" :force-open="controlFocused">
+                        <span class="settings-row__reason" :class="`settings-row__reason--${reasonTone}`" :data-tone="reasonTone" aria-hidden="true" data-settings-row-reason>
+                            <span :class="REASON_ICON[reasonTone]"></span>
+                        </span>
+                        <template #content>
+                            <span v-for="(reason, index) in reasons" :key="index" class="settings-row__reason-line" :data-tone="reason.tone" data-settings-row-reason-line>{{ reason.text }}</span>
+                        </template>
+                    </Tooltip>
+                    <!-- 生效时机不在 `<label>` 里：它不是控件的名字，经 `describedby` 当说明念（审查 S5 Sonnet 3）。 -->
                     <span v-if="applies !== null" :id="appliesId" class="settings-row__applies">{{ applies }}</span>
                 </div>
                 <p v-if="description !== null" :id="descriptionId" class="settings-row__description">{{ description }}</p>
             </div>
-            <div v-if="wide && modified" class="settings-row__head-action" data-settings-row-head>
-                <Tooltip v-if="layer === 'user'" :text="text(TEXT.reset)">
-                    <IconButton size="sm" icon-class="i-lucide-rotate-ccw" :aria-label="text(TEXT.reset)" :disabled="blocked || busy !== null" data-settings-row-reset @click="run('reset')" />
-                </Tooltip>
-                <Button v-else variant="ghost" size="sm" :disabled="blocked || busy !== null" data-settings-row-remove @click="run('remove')">{{ text(TEXT.remove) }}</Button>
-            </div>
-            <div v-if="!wide || state.kind !== 'edit'" class="settings-row__control">
-                <template v-if="state.kind === 'edit'">
-                    <slot :value="state.value" :disabled="blocked" :id="controlId" :label="title" :labelId="labelId" :describedby="describedby" />
-                    <template v-if="modified">
-                        <Tooltip v-if="layer === 'user'" :text="text(TEXT.reset)">
-                            <IconButton size="sm" icon-class="i-lucide-rotate-ccw" :aria-label="text(TEXT.reset)" :disabled="blocked || busy !== null" data-settings-row-reset @click="run('reset')" />
-                        </Tooltip>
-                        <!-- 紧跟在控件后面：用有底色的按钮，免得读成横排单选组的又一项（审查 S5 Sonnet 7）。 -->
-                        <Button v-else variant="secondary" size="sm" :disabled="blocked || busy !== null" data-settings-row-remove @click="run('remove')">{{ text(TEXT.remove) }}</Button>
+            <!--
+                控件靠右，最右一格固定宽（没改过的行也留着）：各行控件的右缘因此对齐。宽排法里这一块只剩标题那一行右端的东西，
+                控件另起一行（见下面的 `__wide`）。
+            -->
+            <div class="settings-row__control" :data-settings-row-head="wide ? '' : undefined">
+                <div v-if="readOnly || state.kind !== 'edit' || !wide" class="settings-row__field" @focusin="onFocusIn" @focusout="onFocusOut">
+                    <template v-if="state.kind === 'not-allowed'">
+                        <span class="settings-row__inherit">{{ text(layer === "project" ? TEXT.userOnly : TEXT.projectOnly) }}</span>
                     </template>
-                </template>
-                <template v-else-if="state.kind === 'inherit'">
-                    <span class="settings-row__inherit" data-settings-row-inherited>{{ text(TEXT.inherit, {value: valueText(state.inherited)}) }}</span>
-                    <Button variant="secondary" size="sm" :disabled="blocked || busy !== null" data-settings-row-override @click="run('override')">{{ text(TEXT.override) }}</Button>
-                </template>
-                <span v-else class="settings-row__inherit">{{ text(layer === "project" ? TEXT.userOnly : TEXT.projectOnly) }}</span>
+                    <span v-else-if="readOnly" class="settings-row__value" data-settings-row-value>{{ valueText(shown) }}</span>
+                    <slot v-else-if="state.kind === 'edit'" :value="state.value" :disabled="blocked" :id="controlId" :label="title" :labelId="labelId" :describedby="describedby" />
+                    <template v-else>
+                        <span class="settings-row__inherit" data-settings-row-inherited>{{ text(TEXT.inherit, {value: valueText(state.inherited)}) }}</span>
+                        <Button variant="secondary" size="sm" :disabled="blocked || busy !== null" data-settings-row-override @click="run('override')">{{ text(TEXT.override) }}</Button>
+                    </template>
+                </div>
+                <span class="settings-row__cell" data-settings-row-cell>
+                    <Tooltip v-if="readOnly && state.kind !== 'not-allowed'" :text="text(TEXT.readOnly)">
+                        <span class="settings-row__lock" role="img" :aria-label="text(TEXT.readOnly)" data-settings-row-lock><span class="i-lucide-lock"></span></span>
+                    </Tooltip>
+                    <Tooltip v-else-if="marked" :text="resetText">
+                        <IconButton
+                            size="xs"
+                            icon-class="i-lucide-rotate-ccw"
+                            :aria-label="resetText"
+                            :disabled="blocked || busy !== null"
+                            :data-settings-row-reset="layer === 'user' ? '' : undefined"
+                            :data-settings-row-remove="layer === 'user' ? undefined : ''"
+                            @click="run(layer === 'user' ? 'reset' : 'remove')"
+                        />
+                    </Tooltip>
+                </span>
             </div>
         </div>
         <!-- 宽控件沿用时也画出来、停用：列表这类值一句摘要说不清沿用的是什么。 -->
-        <div v-if="wide && state.kind !== 'not-allowed'" class="settings-row__wide" data-settings-row-wide>
+        <div v-if="wide && !readOnly && state.kind !== 'not-allowed'" class="settings-row__wide" data-settings-row-wide @focusin="onFocusIn" @focusout="onFocusOut">
             <slot :value="state.kind === 'edit' ? state.value : state.inherited" :disabled="state.kind === 'edit' ? blocked : true" :id="controlId" :label="title" :labelId="labelId" :describedby="describedby" />
         </div>
+        <!-- 读屏用：状态原因的文字，看得见的是标题后的图标与提示。 -->
+        <span v-if="reasons.length > 0" :id="reasonsId" class="settings-row__sr-only" data-settings-row-reasons>{{ reasonsText }}</span>
         <p v-if="override !== null" class="settings-row__override" data-settings-row-overridden>
             <span class="i-lucide-info settings-row__override-icon" aria-hidden="true"></span>
             <span>{{ text(projectTitle === null ? TEXT.overriddenUntitled : TEXT.overridden, {value: valueText(override.value), title: projectTitle ?? ""}) }}</span>
@@ -143,7 +201,20 @@ async function run(action: RowAction): Promise<void> {
 </template>
 
 <style scoped>
+/*
+ * 整数行高：标题 20px、说明 18px、两者之间 --space-1（2px），文字块高 40px，34px 高的控件在它里面居中时上下各 3px，不落在
+ * 半像素上。改其中一个数时保持文字块是偶数高。
+ */
 .settings-row {
+    /* 最右一格的宽：IconButton 的 xs 档（24px）。 */
+    --settings-row-slot: 24px;
+    /* 标题与说明占的最小宽度，放不下时控件换到标题下面；单行输入的宽度（SettingsListSection）也按它与下面两个算。 */
+    --settings-row-text-min: 200px;
+    --settings-row-gap-x: var(--space-7);
+    --settings-row-cell-gap: var(--space-3);
+    --settings-row-title-h: 20px;
+    --settings-row-description-h: 18px;
+
     position: relative;
     display: flex;
     flex-direction: column;
@@ -155,62 +226,86 @@ async function run(action: RowAction): Promise<void> {
     gap: var(--space-4);
 }
 
-/* 竖线画在行左边的留白里：放它的内容列要有不少于 --space-5 的左内边距。 */
-.settings-row__modified {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: calc(var(--space-5) * -1);
-    width: 2px;
-    border-radius: var(--radius-pill);
-    background: var(--accent-main);
-}
-
-.settings-row--wide > .settings-row__modified {
-    top: var(--space-4);
-    bottom: var(--space-4);
-}
-
 .settings-row__main {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-4) var(--space-7);
+    gap: var(--space-3) var(--settings-row-gap-x);
+    min-height: var(--control-h-md);
 }
 
-.settings-row__label {
-    position: relative;
-    width: 200px;
+.settings-row__text {
+    display: flex;
     min-width: 0;
-    flex-shrink: 0;
-}
-
-.settings-row--wide .settings-row__label {
-    width: auto;
-    flex: 1;
+    flex: 1 1 var(--settings-row-text-min);
+    flex-direction: column;
+    gap: var(--space-1);
 }
 
 .settings-row__title {
-    display: inline-flex;
+    display: flex;
     flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--space-2) var(--space-4);
+    align-items: center;
+    gap: 0 var(--space-3);
     font-size: var(--text-sm);
     font-weight: var(--weight-medium);
-    line-height: var(--leading-ui);
+    line-height: var(--settings-row-title-h);
     color: var(--text-main);
 }
 
-.settings-row__applies {
-    font-size: var(--text-xs);
-    font-weight: var(--weight-normal);
+/* 圆点与状态图标各占 14px 见方（悬停的范围也是这么大），在标题行里居中，不改变行高。 */
+.settings-row__dot,
+.settings-row__reason {
+    display: inline-flex;
+    width: 14px;
+    height: 14px;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    line-height: 0;
+}
+
+.settings-row__dot::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-pill);
+    background: var(--accent-main);
+}
+
+.settings-row__reason--error {
+    color: var(--status-danger);
+}
+
+.settings-row__reason--warning {
+    color: var(--status-warning);
+}
+
+.settings-row__reason--muted {
     color: var(--text-muted);
 }
 
+/* 提示里一条原因一行。 */
+.settings-row__reason-line {
+    display: block;
+}
+
+/* 生效时机是个小标签：只有几个字，用 --text-2xs（规范允许承载短角标）。 */
+.settings-row__applies {
+    padding: 0 var(--space-3);
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--text-main) 7%, transparent);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-normal);
+    line-height: var(--settings-row-description-h);
+    color: var(--text-secondary);
+}
+
 .settings-row__description {
-    margin: var(--space-1) 0 0;
+    margin: 0;
     font-size: var(--text-xs);
-    line-height: var(--leading-ui);
+    line-height: var(--settings-row-description-h);
     color: var(--text-muted);
 }
 
@@ -218,16 +313,60 @@ async function run(action: RowAction): Promise<void> {
     display: flex;
     min-width: 0;
     max-width: 100%;
-    flex-wrap: wrap;
+    flex: 0 1 auto;
     align-items: center;
+    justify-content: flex-end;
+    gap: var(--settings-row-cell-gap);
+    margin-left: auto;
+}
+
+.settings-row__field {
+    display: flex;
+    min-width: 0;
+    max-width: 100%;
+    flex: 0 1 auto;
+    align-items: center;
+    justify-content: flex-end;
     gap: var(--space-4);
 }
 
-.settings-row__head-action {
-    display: flex;
-    flex-shrink: 0;
+/* 最右一格：“恢复默认”、本作品标签下的“移除本作品的设置”或只读的锁；没有的行也留着，控件的右缘才对齐。 */
+.settings-row__cell {
+    display: inline-flex;
+    width: var(--settings-row-slot);
+    flex: none;
     align-items: center;
-    align-self: flex-start;
+    justify-content: flex-end;
+}
+
+.settings-row__lock {
+    display: inline-flex;
+    width: var(--settings-row-slot);
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+}
+
+.settings-row__lock > span,
+.settings-row__reason > span {
+    width: 14px;
+    height: 14px;
+}
+
+/* 宽排法：这一块只剩标题那一行右端的东西，高度同标题行，居中的按钮与标题文字对齐。 */
+.settings-row--wide .settings-row__main {
+    flex-wrap: nowrap;
+    align-items: flex-start;
+}
+
+.settings-row--wide .settings-row__control {
+    height: var(--settings-row-title-h);
+}
+
+.settings-row--wide .settings-row__inherit {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .settings-row__wide {
@@ -240,6 +379,27 @@ async function run(action: RowAction): Promise<void> {
     line-height: var(--leading-ui);
     color: var(--text-secondary);
     overflow-wrap: anywhere;
+}
+
+/* 只读：只写值，正文色，可以选中复制。 */
+.settings-row__value {
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: var(--leading-ui);
+    color: var(--text-main);
+    text-align: right;
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
+.settings-row__sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
 }
 
 .settings-row__override {

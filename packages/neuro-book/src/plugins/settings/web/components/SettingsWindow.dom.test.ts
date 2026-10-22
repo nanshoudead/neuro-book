@@ -99,7 +99,7 @@ describe("SettingsWindow", () => {
         await flushPromises();
         expect(host.window.layer.value).toBe("project");
         expect(document.body.querySelector("[data-settings-row='nbook.settings/locale']")).toBeNull();
-        expect(one("[data-settings-excluded]").textContent).toBe("界面语言只能在用户设置里改");
+        expect(one("[data-settings-excluded]").textContent).toBe("界面语言仅可在用户设置中修改");
         expect(one(`[data-settings-row="${themeSetting.key}"]`).dataset.settingsRowState).toBe("inherit");
     });
 
@@ -162,8 +162,11 @@ describe("SettingsWindow", () => {
         input.dispatchEvent(new Event("input"));
         input.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
         await flushPromises();
-        expect(one("[data-settings-row='example.notes/interval'] [data-settings-not-saved]").textContent).toMatch(/^还没保存：/u);
-        expect(described("example.notes/interval").some((text) => text.startsWith("还没保存："))).toBe(true);
+        // 原因收在标题后的图标里（出错的色调），读屏文字经 aria-describedby 接到控件上。
+        const interval = one("[data-settings-row='example.notes/interval']");
+        expect(interval.querySelector("[data-settings-row-reason]")?.getAttribute("data-tone")).toBe("error");
+        expect(interval.querySelector("[data-settings-row-reasons]")?.textContent).toMatch(/^未保存：/u);
+        expect(described("example.notes/interval").some((text) => text.startsWith("未保存："))).toBe(true);
         expect(host.user.values()).toMatchObject({"example.notes/interval": 120});
         input.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
         input.value = "90";
@@ -171,13 +174,14 @@ describe("SettingsWindow", () => {
         input.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
         await flushPromises();
         expect(host.user.values()).toMatchObject({"example.notes/interval": 90});
-        expect(document.body.querySelector("[data-settings-row='example.notes/interval'] [data-settings-not-saved]")).toBeNull();
+        expect(document.body.querySelector("[data-settings-row='example.notes/interval'] [data-settings-row-reason]")).toBeNull();
+        expect(document.body.querySelector("[data-settings-row='example.notes/interval'] [data-settings-row-reasons]")).toBeNull();
 
         // 字符串列表加一项：空项不合 schema，先留在行里、不写，写出原因；填好失焦后整个数组写进这一层。
         (tags.querySelector("[data-nb-list-add]") as HTMLButtonElement).click();
         await flushPromises();
         expect(host.user.values()["example.notes/tags"]).toBeUndefined();
-        expect(tags.querySelector("[data-settings-not-saved]")?.textContent).toContain("第 4 项");
+        expect(tags.querySelector("[data-settings-row-reasons]")?.textContent).toMatch(/^未保存：.*第 4 项/u);
         const added = [...tags.querySelectorAll<HTMLInputElement>("[data-nb-list-item] input")].at(-1)!;
         expect(document.activeElement).toBe(added);
         added.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
@@ -186,7 +190,7 @@ describe("SettingsWindow", () => {
         added.dispatchEvent(new FocusEvent("focusout", {bubbles: true}));
         await flushPromises();
         expect(host.user.values()).toMatchObject({"example.notes/tags": ["人物", "地点", "伏笔", "对白"]});
-        expect(tags.querySelector("[data-settings-not-saved]")).toBeNull();
+        expect(tags.querySelector("[data-settings-row-reasons]")).toBeNull();
 
         // 删一项时写入失败：发通知，项回来，焦点留在列表里（不掉到页面上）。
         host.user.failWrites("write-failed");
@@ -203,7 +207,8 @@ describe("SettingsWindow", () => {
     it("动态选项：列出提供者给的选项，当前值不在选项里时照常显示并标“已不存在”", async () => {
         const {host} = await scene("choices");
         const row = one("[data-settings-row='example.notes/template']");
-        expect(row.textContent).toContain("已不存在");
+        expect(row.querySelector("[data-settings-row-reasons]")?.textContent).toContain("已不存在");
+        expect(row.querySelector("[data-settings-row-reason]")?.getAttribute("data-tone")).toBe("warning");
         const trigger = row.querySelector<HTMLElement>("[data-nb-widget='select'] button, [data-nb-widget='select'] [role='combobox']")!;
         expect(trigger.hasAttribute("disabled")).toBe(false);
         expect(host.window.options()["example.notes.templates"]).toBeDefined();
@@ -223,7 +228,8 @@ describe("SettingsWindow", () => {
         document.body.innerHTML = "";
 
         await scene("choices-unavailable");
-        expect(row().textContent).toContain("选项来源 example.notes.templates 不可用：模板库读不到：权限不足");
+        expect(row().querySelector("[data-settings-row-reasons]")?.textContent).toContain("无法加载选项：模板库读不到：权限不足");
+        expect(row().querySelector("[data-settings-row-reason]")?.getAttribute("data-tone")).toBe("muted");
         expect(control().hasAttribute("disabled")).toBe(true);
     });
 
@@ -362,12 +368,12 @@ describe("搜索与未保存保护（输出 21、22）", () => {
         const tags = () => one("[data-settings-row='example.notes/tags']");
         (tags().querySelector("[data-nb-list-add]") as HTMLButtonElement).click();
         await flushPromises();
-        expect(tags().querySelector("[data-settings-not-saved]")).not.toBeNull();
+        expect(tags().querySelector("[data-settings-row-reasons]")).not.toBeNull();
         host.window.search("常用标签 ");
         await flushPromises();
         host.window.search("常用");
         await flushPromises();
-        expect(tags().querySelector("[data-settings-not-saved]")).toBeNull();
+        expect(tags().querySelector("[data-settings-row-reasons]")).toBeNull();
         expect(tags().querySelectorAll("[data-nb-list-item]")).toHaveLength(3);
     });
 

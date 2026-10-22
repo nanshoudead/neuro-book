@@ -70,7 +70,7 @@ import {nbFormFixtures} from "./nb-form";
 import {nbUiFixtures} from "./nb-ui";
 import {PROMPT_LAB_THUMBNAILS, promptAttachmentStripScenes, promptEditorScenes, promptPasteFrameScenes, promptTextViewScenes} from "./prompt-scene/scenes";
 import {SHELF_COVER_SRC, SHELF_ITEMS, SHELF_ITEM_REVISING, SHELF_NOW} from "./shelf-fixture-data";
-import {SETTINGS_WINDOW_SCENES, snippetsSettings} from "./settings-scene/scene-settings";
+import {rowDemoSettings, SETTINGS_WINDOW_SCENES, snippetsSettings} from "./settings-scene/scene-settings";
 import {defineSubjectFixture} from "./subject-fixture";
 
 /** MarkdownDisplay 场景用的回复：每种内置方言各一段，加引用小块、外部链接与图片。 */
@@ -1059,7 +1059,13 @@ function shelfFixtures(): LabFixture[] {
  * （`settings-scene/`）：产品里同一个窗口模型与配置实例，配置层换成内存里的拥有者。
  */
 function settingsFixtures(): LabFixture[] {
-    const row = (setting: typeof appearanceSetting | typeof themeSetting | typeof localeSetting | typeof snippetsSettings.items, layer: "user" | "project", wide = false) => ({setting, layer, locale: "zh-CN" as const, projectTitle: "雾港", wide});
+    const row = (setting: typeof appearanceSetting | typeof themeSetting | typeof localeSetting | typeof snippetsSettings.items | typeof rowDemoSettings.workers | typeof rowDemoSettings.library | typeof rowDemoSettings.mode, layer: "user" | "project", wide = false) => ({setting, layer, locale: "zh-CN" as const, projectTitle: "雾港", wide});
+    /** 状态原因：出错、警告、淡色各一条，看图标取最重的色调、提示逐条列出。 */
+    const reasons = [
+        {tone: "error" as const, text: "未保存：取值范围为 1–8"},
+        {tone: "warning" as const, text: "这个值偏大，抽取会很慢"},
+        {tone: "muted" as const, text: "无法加载选项：插件“模型服务”已停止"},
+    ];
     return [
         defineLabFixture<typeof SettingsWindow>({
             component: "SettingsWindow",
@@ -1078,6 +1084,10 @@ function settingsFixtures(): LabFixture[] {
                 {id: "unreachable", label: "层连不上（停用）", input: {props: row(appearanceSetting, "user")}},
                 {id: "wide", label: "宽排法：控件另起一行", input: {props: row(snippetsSettings.items, "user", true)}},
                 {id: "not-allowed", label: "不允许这一层", input: {props: row(localeSetting, "project")}},
+                {id: "multi-reason", label: "多个状态原因（一个图标，色调取最重的）", input: {props: {...row(rowDemoSettings.workers, "user"), reasons}}},
+                {id: "read-only", label: "只读：只写值，最右一格是锁", input: {props: row(rowDemoSettings.library, "user")}},
+                {id: "project-wide-inherit", label: "本作品标签：宽排法沿用", input: {props: row(snippetsSettings.items, "project", true)}},
+                {id: "narrow", label: "560px 宽：控件换到标题下面", input: {props: row(rowDemoSettings.mode, "user")}},
             ],
             load: async () => (await import("./SettingsRowFixture.vue")).default,
         }),
