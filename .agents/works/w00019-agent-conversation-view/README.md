@@ -20,6 +20,8 @@ updated: 2026-10-22
 4. 迁移来源以归档提交 `865c9f593` 里的 `packages/neuro-book/app/components/agent/` 为准（含 t09 的目录分类与输入框）；`packages/neuro-book-legacy` 里的那份停在 t09 之前。
 5. Lab 场景迁进新应用的 Component Lab，组件树里单独一组 `nb-agent-ui`，做法同 nb-form 的 `lab-sources`。
 
+代码分支：worktree `.worktree/w00019-nb-agent-ui`，分支 `feat/w00019-nb-agent-ui`（2026-10-22 从 master 建，t10 起各 Task 在这条分支上提交）。
+
 下文“授权与边界”是 2026-09-28 的原始授权，其中“直接在 master 主工作区开发”“不提交”已不适用：代码在本 Work 的 worktree 里写，按仓库流程提交与合入。
 
 ## 授权与边界（开发者，2026-09-28）
