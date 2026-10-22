@@ -22,9 +22,13 @@ nb-story 问答页（[w00024 t13](../../../w00024-nb-story/tasks/t13-qa-web/READ
 3. 会话列表第一版只做列表、选中、新建。
 4. 没核实的出处接扩展点 `entries`，由 nb-story 登记条目渲染器。
 
+开发者 2026-10-22 在评审板答 `slice-scope`：
+
+5. 本次在 nb-agent-ui 里做五项：会话列表组件 `AgentSessionList`；条目渲染器 `entries`；被退回的结果节点在过程里只占一行；思考摘要去掉 Markdown 标记；工具组的短语收到这一组的调用。空状态可替换、隐藏用量、对话重命名与删除不做，留在 t11。
+
 ## 当前状态
 
-2026-10-22 静态稿第一轮已发布：[评审板](artifacts/review/index.html)，待开发者答 `slice-scope`（本次在 nb-agent-ui 里做哪几项）。
+2026-10-22 静态稿第一轮已发布：[评审板](artifacts/review/index.html)；开发者已答 `slice-scope`（决定 5），范围已定，写计划。
 
 - **草稿**：worktree `.worktree/w00019-t14-drafts`，分支 `t14/drafts`，从 `feat/w00019-nb-agent-ui` 开，不提交、不合并。在 nb-story 查看器里加了“问答”页（`packages/nb-story/src/web/drafts/qa/`），用书库副本起 `nbstory serve`，截图脚本 `packages/nb-story/shoot-qa-drafts.ts`。
 - **数据**：book-8576901b 的两条真实问答记录经 `createHarnessTranscript` 原样回放；追问、文字回复与运行中照真实格式合成。
@@ -37,4 +41,4 @@ nb-story 问答页（[w00024 t13](../../../w00024-nb-story/tasks/t13-qa-web/READ
 
 ## 下一步
 
-读评审板答复，范围写进本 README 与 `plan.md`，给开发者确认后实施。
+写 `plan.md`，给开发者确认后实施。

@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00019-agent-conversation-view",
+    "taskId": "t14-qa-vertical-slice",
+    "artifactId": "review",
+    "ackId": "20261022T153349562Z-f2976aa6",
+    "answers": [
+        "20261022T153327938Z-28d14ce1"
+    ],
+    "through": "20261022T153327938Z-28d14ce1",
+    "included": [
+        ".agents/works/w00019-agent-conversation-view/tasks/t14-qa-vertical-slice/README.md"
+    ],
+    "ackedAt": "2026-10-22T15:33:49.562Z"
+}
