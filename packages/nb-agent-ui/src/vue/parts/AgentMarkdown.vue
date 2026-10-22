@@ -2,6 +2,7 @@
 import type {AgentConversationServices, AgentViewAction} from "../../types";
 import type {MarkdownActivation} from "../../ports";
 import {useAgentRenderers, useAgentText} from "../host";
+import type {PreviewImageRequest} from "../preview";
 
 const props = defineProps<{
     text: string;
@@ -11,7 +12,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     (e: "action", action: AgentViewAction): void;
-    (e: "preview-image", image: {markdownSrc: string; name: string}): void;
+    (e: "preview-image", image: Extract<PreviewImageRequest, {markdownSrc: string}>): void;
 }>();
 
 const {locale} = useAgentText();

@@ -125,6 +125,19 @@ describe("harness 适配器：事件", () => {
         expect(ended?.kind === "assistant" && ended.toolCalls[0]).toMatchObject({status: "success", result: {text: "找到了"}});
     });
 
+    it("工具事件只换掉它所在的那条消息，别的消息每次取到的是同一个对象", () => {
+        const transcript = createHarnessTranscript();
+        transcript.applyLogEntry(assistantEntry([call("c5")], "toolUse"));
+        transcript.applyLogEntry(resultEntry("c5", "好"));
+        transcript.applyLogEntry(assistantEntry([call("c6")], "toolUse", 6));
+        const [earlier, current] = transcript.messages();
+        transcript.applyEvent({type: "tool_execution_start", toolCallId: "c6", toolName: "lookup", args: {}});
+        transcript.applyEvent({type: "tool_execution_update", toolCallId: "c6", toolName: "lookup", partialResult: {content: [{type: "text", text: "查到一半"}]}});
+        const [earlierAgain, currentAgain] = transcript.messages();
+        expect(earlierAgain).toBe(earlier);
+        expect(currentAgain).not.toBe(current);
+    });
+
     it("agent_end 清掉临时内容；认不出的事件记进 problems，其余无关事件忽略", () => {
         const transcript = createHarnessTranscript();
         transcript.applyEvent(streaming("一半"));

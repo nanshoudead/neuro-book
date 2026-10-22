@@ -12,7 +12,7 @@
 ## 数据
 
 ```ts
-import type {ToolNodeProps} from "../agent-view-registry";
+import type {ToolNodeProps} from "@notnotype/nb-agent-ui";
 
 /** 与所有 node 组件相同：这次调用，以及对话视图的 ctx。 */
 type AgentTaskListNodeProps = ToolNodeProps;

@@ -4,6 +4,7 @@ import type {PromptToken} from "../../ports";
 import type {AgentViewAction, ContentBlockView, UserMessageView} from "../../types";
 import {promptTokenOutcome} from "../../prompt-token-action";
 import {useAgentRenderers, useAgentText} from "../host";
+import type {PreviewImageRequest} from "../preview";
 
 type Attachment = Extract<ContentBlockView, {kind: "attachment"}>;
 
@@ -14,7 +15,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     (e: "action", action: AgentViewAction): void;
-    (e: "preview-image", image: {locator: string; name: string}): void;
+    (e: "preview-image", image: Extract<PreviewImageRequest, {locator: string}>): void;
 }>();
 
 const {t, locale} = useAgentText();

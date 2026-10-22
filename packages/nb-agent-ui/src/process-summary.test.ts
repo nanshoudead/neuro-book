@@ -2,7 +2,7 @@ import {describe, expect, it} from "bun:test";
 import type {AgentLocale, ViewText} from "./types";
 import type {ChainSummary, TurnMetrics} from "./conversation-turns";
 import {formatText, textOf} from "./messages";
-import {describeChain, describeTurn} from "./process-summary";
+import {describeChain, describeTurn, describeUsage} from "./process-summary";
 
 const chain = (overrides: Partial<ChainSummary>): ChainSummary => ({
     steps: 0, filesRead: 0, filesChanged: 0, others: 0, failed: 0, thinking: false, messages: 1, ...overrides,
@@ -40,6 +40,38 @@ describe("describeTurn", () => {
     it("以“过程”开头，写总操作次数与读改文件数", () => {
         const metrics = {steps: 14, filesRead: 7, filesChanged: 2, failed: 0} as TurnMetrics;
         expect(parts(describeTurn(metrics).parts)).toEqual([["fallback", undefined], ["actions", {count: 14}], ["files.readChanged", {read: 7, changed: 2}]]);
+    });
+});
+
+describe("describeUsage", () => {
+    const metrics = (overrides: Partial<TurnMetrics>): TurnMetrics => ({
+        durationMs: null, steps: 0, failed: 0, filesRead: 0, filesChanged: 0, tokens: null, cost: null, usage: null, ...overrides,
+    });
+    const shown = (description: ReturnType<typeof describeUsage>) => description.parts.map((part) => [part.icon, textOf(part.text, "zh-CN")]);
+
+    it("用时写成分:秒，千以上的 token 写成 k；缓存读取为 0 时省略", () => {
+        const result = describeUsage(metrics({durationMs: 83_400, tokens: 12_345, usage: {input: 12_000, output: 345, cacheRead: 0, cacheWrite: 0}}), "USD", {showDuration: true});
+        expect(shown(result)).toEqual([
+            ["i-lucide-timer", "1:23"],
+            ["i-lucide-zap", "12.3k tokens"],
+            ["i-lucide-arrow-down", "12.0k"],
+            ["i-lucide-arrow-up", "345"],
+        ]);
+        expect(textOf(result.detail!, "zh-CN")).toContain("缓存读取 0");
+    });
+
+    it("费用按币种加符号，不到一分钱多留两位；免费的 0 照样显示，单价未知（null）不显示", () => {
+        const cost = (value: number | null, currency: "USD" | "CNY") => shown(describeUsage(metrics({cost: value}), currency, {showDuration: true})).map(([, text]) => text);
+        expect(cost(0.1234, "USD")).toEqual(["$0.12"]);
+        expect(cost(0.0042, "CNY")).toEqual(["¥0.0042"]);
+        expect(cost(0, "USD")).toEqual(["$0"]);
+        expect(cost(null, "USD")).toEqual([]);
+    });
+
+    it("不要用时、或开头不完整不知道用时时不写；没有用量数据时没有悬停说明", () => {
+        expect(describeUsage(metrics({durationMs: 5000}), "USD", {showDuration: false}).parts).toEqual([]);
+        expect(describeUsage(metrics({durationMs: null}), "USD", {showDuration: true}).parts).toEqual([]);
+        expect(describeUsage(metrics({}), "USD", {showDuration: true}).detail).toBeNull();
     });
 });
 

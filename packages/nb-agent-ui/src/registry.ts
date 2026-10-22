@@ -208,6 +208,51 @@ export const GENERIC_TOOL_RENDERER: ToolRendererEntry = {
     presentation: "card",
 };
 
+/**
+ * 宿主与插件写的工具回调可能抛错（docs/specs/ui/agent-conversation-view.md“失败与恢复”）。合并时包一层：抛错的那一次
+ * 退回通用结果，并打一条开发诊断，其余消息照常显示。每个回调只报一次，免得一次渲染刷满控制台。
+ */
+function guardTool(entry: ToolRendererEntry): ToolRendererEntry {
+    const reported = new Set<string>();
+    const report = (callback: string, error: unknown): void => {
+        if (reported.has(callback)) return;
+        reported.add(callback);
+        console.error(`nb-agent-ui: 工具渲染器 ${entry.id} 的 ${callback} 抛错，这一项按通用渲染器显示`, error);
+    };
+    const {groupPhrase, effects} = entry;
+    return {
+        ...entry,
+        summary: (call) => {
+            try {
+                return entry.summary(call);
+            } catch (error) {
+                report("summary", error);
+                return GENERIC_TOOL_RENDERER.summary(call);
+            }
+        },
+        ...(groupPhrase === undefined ? {} : {
+            groupPhrase: (count: number) => {
+                try {
+                    return groupPhrase(count);
+                } catch (error) {
+                    report("groupPhrase", error);
+                    return {key: "toolGroup.generic", params: {count}};
+                }
+            },
+        }),
+        ...(effects === undefined ? {} : {
+            effects: (call: ToolCallView) => {
+                try {
+                    return effects(call);
+                } catch (error) {
+                    report("effects", error);
+                    return {read: [], changed: []};
+                }
+            },
+        }),
+    };
+}
+
 function mergePoint<P extends ExtensionPoint>(contributions: readonly AgentViewContribution[], point: P): ExtensionPointEntries[P][] {
     const owners = new Map<string, string>();
     const items: Array<{entry: ExtensionPointEntries[P]; seq: number}> = [];
@@ -245,7 +290,7 @@ export function createAgentViewRegistry(contributions: readonly AgentViewContrib
         triggers: mergePoint(contributions, "triggers"),
         toolbarButtons: mergePoint(contributions, "toolbarButtons"),
     };
-    const tools = merged.tools;
+    const tools = merged.tools.map(guardTool);
     return {
         list: (point) => merged[point],
         resolveTool: (toolName) => tools.find((entry) => entry.toolNames?.includes(toolName))

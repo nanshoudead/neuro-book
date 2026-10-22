@@ -368,8 +368,9 @@ export function createHarnessTranscript(options: HarnessTranscriptOptions = {}):
         },
 
         messages() {
+            // 没有被工具事件改动的消息原样返回：宿主每次事件都取一遍，引用不变的消息不用重新渲染。
             const withTools = (message: MessageView): MessageView => {
-                if (message.kind !== "assistant" || liveTools.size === 0) return message;
+                if (message.kind !== "assistant" || !message.toolCalls.some((call) => liveTools.has(call.id))) return message;
                 return {...message, toolCalls: message.toolCalls.map((call) => {
                     const overlay = liveTools.get(call.id);
                     return overlay === undefined ? call : {...call, ...overlay};

@@ -6,10 +6,28 @@
  * 时要的 `buildTurns`，与宿主处理 `mode.set` 时可以沿用的模式循环 `nextMode`。
  */
 
-export type * from "./types";
-export type * from "./ports";
+// 公开类型逐个列出：新增类型默认是包内的，要给宿主用时在这里加一行。
+export type {
+    AgentConversationContext, AgentConversationServices, AgentLocale, AgentViewAction, AgentViewMode, AssistantMessageStatus,
+    AssistantMessageView, AvailabilityStatus, AvailabilityView, BranchView, BuiltinAgentViewAction, ComposerAttachmentView,
+    ComposerModelView, ComposerModeView, ComposerView, ConnectionView, ContentBlockView, EditingView, ErrorMessageView, HistoryView,
+    InteractionView, JsonValue, LocalizedText, MessageView, PanelsView, PendingInputView, PendingQuestionView, PluginAgentViewAction,
+    RunStatus, RunView, SessionView, SubmitDelivery, SystemMessageSource, SystemMessageView, ToolCallStatus, ToolCallView,
+    ToolResultView, TriggerMenu, TriggerMenuContext, TriggerMenuItem, UsageSummaryView, UsageView, UserMessageView, ViewText,
+    WorkflowView, WorkspaceChangeGroupView, WorkspaceChangesView,
+} from "./types";
+export type {
+    MarkdownActivation, MarkdownAssetResolver, MarkdownDisplayPortProps, PromptAttachment, PromptAttachmentKind, PromptDraft,
+    PromptEditorPortExpose, PromptEditorPortProps, PromptLocale, PromptMenu, PromptMenuContext, PromptMenuItem, PromptPastePolicy,
+    PromptTextViewPortProps, PromptToken,
+} from "./ports";
 export {AgentViewRegistryConflictError, createAgentViewRegistry, GENERIC_TOOL_RENDERER, visibleEntries} from "./registry";
-export type * from "./registry";
+export type {
+    AgentViewContribution, AgentViewRegistry, ComposerCommandEntry, ComposerTriggerEntry, EntryRendererEntry, ExtensionPoint,
+    ExtensionPointEntries, FileChangeView, HeaderActionEntry, MessageActionEntry, PanelEntry, RegistryEntryBase, RoleEntry,
+    StatusItemEntry, ToolbarButtonEntry, ToolCategory, ToolDetailProps, ToolEffects, ToolNodeProps, ToolRendererEntry, TrayItemEntry,
+} from "./registry";
+export type {TaskChange, TaskItemView, TaskListView, TaskStatus} from "./task-list";
 export {formatText, textOf} from "./messages";
 export type {AgentTextKey} from "./messages";
 export {buildTurns} from "./conversation-turns";

@@ -132,6 +132,11 @@ export function useStreamScroll(options: StreamScrollOptions): StreamScroll {
         }
         const {scroller} = found;
         const top = scroller.scrollTop;
+        // 这里自己写入引起的滚动事件：是否跟随已由写入时定下。事件派发前布局可能又变了（例如视口下方的输入框变高），
+        // 按新布局判定会误以为离开了底部而停止跟随；尺寸变化留给随后的 settle 校正。
+        if (top === knownScrollTop) {
+            return;
+        }
         // 往上移、而且正好落在新的底部：内容变短被浏览器夹住，随后的 settle 会按锚点校正。
         if (top < knownScrollTop && top >= scroller.scrollHeight - scroller.clientHeight - 1) {
             return;

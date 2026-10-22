@@ -33,7 +33,7 @@ type AgentMarkdownProps = {
 
 type AgentMarkdownEmits = {
     (e: "action", action: AgentViewAction): void;
-    (e: "preview-image", image: {markdownSrc: string; name: string}): void;
+    (e: "preview-image", image: Extract<PreviewImageRequest, {markdownSrc: string}>): void;
 };
 ```
 

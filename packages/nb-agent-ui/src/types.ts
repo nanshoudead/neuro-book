@@ -6,11 +6,12 @@
  */
 
 import type {AgentTextKey} from "./messages";
-import type {MarkdownAssetResolver, PromptPastePolicy} from "./ports";
+import type {MarkdownAssetResolver, PromptAttachment, PromptLocale, PromptMenu, PromptMenuContext, PromptMenuItem, PromptPastePolicy} from "./ports";
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | {[key: string]: JsonValue};
 
-export type AgentLocale = "zh-CN" | "en-US";
+/** 视图与注入的渲染组件用同一组语言。 */
+export type AgentLocale = PromptLocale;
 
 /** 中英两份文字。 */
 export type LocalizedText = {readonly "zh-CN": string; readonly "en-US": string};
@@ -212,10 +213,7 @@ export type WorkspaceChangesView = {
  * 输入框里一个附件的上传状态，按编辑器给的 `localId` 对应。就绪后带附件目标，编辑器据此把标签写回文字；
  * 编辑器发出过的每个 `localId` 都要在这里，直到它就绪或收到 `composer.attachmentRemoved`。
  */
-export type ComposerAttachmentView =
-    | {localId: string; state: "uploading"}
-    | {localId: string; state: "failed"; error: string}
-    | {localId: string; state: "ready"; target: string};
+export type ComposerAttachmentView = PromptAttachment;
 
 export type ComposerModeView = {
     key: string;
@@ -224,8 +222,10 @@ export type ComposerModeView = {
     icon?: string;
 };
 
+export type ComposerModelView = {key: string; label: string; supportsImages: boolean};
+
 export type ComposerView = {
-    models: Array<{key: string; label: string; supportsImages: boolean}>;
+    models: ComposerModelView[];
     modelKey: string | null;
     /** 思考档位的取值，例如 `off`、`low`、`high`；常见取值由视图翻译，其余原样显示。 */
     thinkingLevels: string[];
@@ -299,38 +299,10 @@ export type AgentConversationContext = {
 
 // ─── 服务 ───────────────────────────────────────────────────────────────
 
-export type TriggerMenuItem = {
-    /** 同一次结果内唯一。 */
-    id: string;
-    label: string;
-    description?: string;
-    iconClass?: string;
-    /** 分组标题；相邻且同组的项只显示一次标题。 */
-    group?: string;
-    /** 显示但不能选。 */
-    disabled?: boolean;
-    /** 确认后替换触发字符与查询文字的内容，按输入框的文字写法识别成标签。 */
-    insertText: string;
-    /** 为真时插入后菜单按新的查询继续，用于逐级进入。 */
-    continues?: boolean;
-};
-
-export type TriggerMenu = {
-    title?: string;
-    items: TriggerMenuItem[];
-    /** 数据还没到；显示“正在加载”。数据到达后宿主换一个新的 resolveTriggerMenu。 */
-    loading?: boolean;
-    /** 没有结果时的说明。 */
-    emptyText?: string;
-};
-
-export type TriggerMenuContext = {
-    trigger: string;
-    /** 触发字符后到光标为止、不含空白的文字。 */
-    query: string;
-    /** 触发字符位于正文最开头。 */
-    atStart: boolean;
-};
+// 触发菜单原样交给提示词编辑器，形状只在 `ports.ts` 写一份；这里的名字是视图合同一侧的叫法。
+export type TriggerMenuItem = PromptMenuItem;
+export type TriggerMenu = PromptMenu;
+export type TriggerMenuContext = PromptMenuContext;
 
 export type AgentConversationServices = {
     /** 回复里 Markdown 图片地址到可显示地址的换算；不提供时图片只显示说明。Markdown 的渲染与净化由注入的组件负责。 */

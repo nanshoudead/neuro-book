@@ -8,11 +8,8 @@ const props = withDefaults(defineProps<{
     src: string;
     alt: string;
     downloadName?: string;
-    /**
-     * 浮层宿主。默认落在 IDE 主题宿主上，对话框才会跟着主题换面色；
-     * Lab 场景没有主题宿主，fixture 传 false 就地渲染。
-     */
-    teleportTarget?: string | boolean;
+    /** 浮层传送到的目标；默认 `body`，让对话框脱离消息流的裁剪。传 false 就地渲染。 */
+    teleportTarget?: string | false;
 }>(), {
     teleportTarget: "body",
 });

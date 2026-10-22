@@ -15,7 +15,7 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-    (e: "toggle", expanded: boolean): void;
+    (e: "update:expanded", expanded: boolean): void;
 }>();
 
 const {t} = useAgentText();
@@ -26,7 +26,7 @@ const {t} = useAgentText();
         type="button"
         class="agent-chain-summary"
         :aria-expanded="props.expanded"
-        @click="emit('toggle', !props.expanded)"
+        @click="emit('update:expanded', !props.expanded)"
     >
         <Spinner v-if="props.running" size="sm" :label="t('turn.running')" class="agent-chain-summary__icon" />
         <span v-else :class="[props.icon, 'agent-chain-summary__icon']" aria-hidden="true" />

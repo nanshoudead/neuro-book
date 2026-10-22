@@ -4,6 +4,7 @@ import type {AgentConversationContext, ToolCallView} from "../../types";
 import type {AgentViewRegistry} from "../../registry";
 import {CodeBlock} from "@notnotype/nb-ui/components";
 import {jsonLines, textLines} from "../../tool-detail-lines";
+import RenderGuard from "../parts/RenderGuard.vue";
 import {useAgentText} from "../host";
 
 const props = defineProps<{
@@ -28,7 +29,9 @@ const adapter = computed(() => props.registry.resolveTool(props.call.name).detai
             :label="t('toolDetail.args', {name: props.call.name})"
             :lines="jsonLines(props.call.args)"
         />
-        <component :is="adapter" v-else-if="adapter" :call="props.call" :ctx="props.ctx" />
+        <RenderGuard v-else-if="adapter" :source="`工具 ${props.call.name} 的详情组件`">
+            <component :is="adapter" :call="props.call" :ctx="props.ctx" />
+        </RenderGuard>
         <!-- 没有适配的工具：原样显示参数与结果 -->
         <template v-else>
             <CodeBlock :empty-text="t('toolDetail.empty')" :truncated-text="t('toolDetail.truncated')" :label="t('toolDetail.args', {name: props.call.name})" :lines="jsonLines(props.call.args)" />

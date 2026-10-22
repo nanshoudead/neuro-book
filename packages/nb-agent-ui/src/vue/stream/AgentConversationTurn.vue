@@ -16,7 +16,7 @@ import AgentFileChanges from "./AgentFileChanges.vue";
 import AgentMessageActions from "./AgentMessageActions.vue";
 import AgentTurnBlock from "./AgentTurnBlock.vue";
 import AgentUserContent from "./AgentUserContent.vue";
-import {describeTurn} from "../../process-summary";
+import {describeTurn, describeUsage} from "../../process-summary";
 import {useAgentText} from "../host";
 import type {PreviewImageRequest} from "../preview";
 
@@ -102,52 +102,7 @@ const statusLabel = computed(() => {
 
 // ─── 轮末汇总 ───────────────────────────────────────────────────────────
 
-function formatDuration(ms: number): string {
-    const seconds = Math.round(ms / 1000);
-    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
-function formatTokens(value: number): string {
-    return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value);
-}
-
-function formatCost(value: number): string {
-    const symbol = props.ctx.usage.currency === "CNY" ? "¥" : "$";
-    return `${symbol}${value < 0.01 ? value.toFixed(4) : value.toFixed(2)}`;
-}
-
-/** 轮末用量行，每项一个图标加数值；缺哪项省哪项，缓存读取为 0 时省略。 */
-const usageParts = computed(() => {
-    const {durationMs, tokens, cost, usage} = turn.value.metrics;
-    const parts: Array<{icon: string; value: string}> = [];
-    if (durationMs !== null && hasAssistantSide.value) {
-        parts.push({icon: "i-lucide-timer", value: formatDuration(durationMs)});
-    }
-    if (tokens !== null) {
-        parts.push({icon: "i-lucide-zap", value: t("metrics.tokens", {value: formatTokens(tokens)})});
-    }
-    if (usage !== null) {
-        parts.push({icon: "i-lucide-arrow-down", value: formatTokens(usage.input)});
-        parts.push({icon: "i-lucide-arrow-up", value: formatTokens(usage.output)});
-        if (usage.cacheRead > 0) {
-            parts.push({icon: "i-lucide-database-zap", value: formatTokens(usage.cacheRead)});
-        }
-    }
-    if (cost !== null) {
-        parts.push({icon: "i-lucide-circle-dollar-sign", value: formatCost(cost)});
-    }
-    return parts;
-});
-
-const usageTitle = computed(() => {
-    const usage = turn.value.metrics.usage;
-    return usage === null ? "" : t("usage.detail", {
-        input: formatTokens(usage.input),
-        output: formatTokens(usage.output),
-        cacheRead: formatTokens(usage.cacheRead),
-        cacheWrite: formatTokens(usage.cacheWrite),
-    });
-});
+const usage = computed(() => describeUsage(turn.value.metrics, props.ctx.usage.currency, {showDuration: hasAssistantSide.value}));
 
 function openFileDiff(path: string) {
     const file = turn.value.changedFiles.find((item) => item.change.path === path);
@@ -212,7 +167,7 @@ function runMessageAction(message: MessageView, id: string) {
                 <span class="acv-avatar" :data-tone="assistantRole.tone" aria-hidden="true"><span :class="assistantIcon" /></span>
                 <span class="acv-role">{{ text(assistantRole.label) }}</span>
                 <span v-if="lastAssistant?.model" class="acv-badge acv-badge--model" :title="lastAssistant.model">{{ lastAssistant.model }}</span>
-                <time v-if="lastAssistant" class="acv-meta">{{ formatTime(lastAssistant.timestamp) }}</time>
+                <time v-if="lastAssistant" class="acv-meta acv-meta--reply-time">{{ formatTime(lastAssistant.timestamp) }}</time>
                 <Spinner v-if="turn.status === 'running'" size="sm" :label="statusLabel" />
                 <span v-if="statusLabel" class="acv-badge acv-badge--state" :data-status="turn.status">{{ statusLabel }}</span>
                 <AgentMessageActions
@@ -236,7 +191,7 @@ function runMessageAction(message: MessageView, id: string) {
                     :alert="turnAlert"
                     :title="turnLabel"
                     data-turn-summary
-                    @toggle="manualExpanded = $event"
+                    @update:expanded="manualExpanded = $event"
                 />
                 <div v-if="expanded && processBlocks.length > 0" ref="processRef" class="acv-process" :data-foldable="turn.foldable || undefined">
                     <AgentTurnBlock
@@ -270,15 +225,15 @@ function runMessageAction(message: MessageView, id: string) {
             </div>
 
             <!-- 轮末汇总：改动文件靠左、用量靠右，同一行放不下时用量折到下一行 -->
-            <footer v-if="turn.changedFiles.length > 0 || usageParts.length > 0" class="acv-turn-end">
+            <footer v-if="turn.changedFiles.length > 0 || usage.parts.length > 0" class="acv-turn-end">
                 <AgentFileChanges
                     v-if="turn.changedFiles.length > 0"
                     :files="turn.changedFiles.map((file) => file.change)"
                     @open="openFileDiff"
                 />
-                <span v-if="usageParts.length > 0" class="acv-usage" :title="usageTitle">
-                    <span v-for="part in usageParts" :key="part.icon" class="acv-usage__part">
-                        <span :class="[part.icon, 'acv-usage__icon']" aria-hidden="true" />{{ part.value }}
+                <span v-if="usage.parts.length > 0" class="acv-usage" :title="usage.detail === null ? undefined : text(usage.detail)">
+                    <span v-for="part in usage.parts" :key="part.icon" class="acv-usage__part">
+                        <span :class="[part.icon, 'acv-usage__icon']" aria-hidden="true" />{{ text(part.text) }}
                     </span>
                 </span>
             </footer>
@@ -301,7 +256,7 @@ function runMessageAction(message: MessageView, id: string) {
 
 <style scoped>
 /*
- * 版式沿用旧侧栏的对话气泡：角色行在上，内容缩进 24px（16px 头像加 8px 间距），
+ * 对话气泡版式：角色行在上，内容缩进 24px（16px 头像加 8px 间距），
  * 所以气泡左边、摘要行的箭头与角色名落在同一条线上。块自身的样式在 AgentTurnBlock。
  */
 .acv-turn {
@@ -315,6 +270,7 @@ function runMessageAction(message: MessageView, id: string) {
     display: flex;
     flex-direction: column;
     min-width: 0;
+    container-type: inline-size;
 }
 
 .acv-message__head {
@@ -377,10 +333,10 @@ function runMessageAction(message: MessageView, id: string) {
     white-space: nowrap;
 }
 
-/* 模型名可能很长，窄屏时先让它截断。 */
+/* 模型名可能很长，窄屏时先让它截断，但至少露出开头几个字。 */
 .acv-badge--model {
     flex-shrink: 1;
-    min-width: 0;
+    min-width: 48px;
     max-width: 120px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -400,6 +356,16 @@ function runMessageAction(message: MessageView, id: string) {
     flex-shrink: 0;
     margin-left: auto;
     color: var(--text-muted);
+}
+
+/*
+ * 窄屏时助手一行放不下角色名、模型、时间与一整排操作（带分支切换时操作约 180px）：先去掉回复时间，
+ * 用户消息那一行仍有时间，模型名不至于只剩一个字。
+ */
+@container (max-width: 400px) {
+    .acv-meta--reply-time {
+        display: none;
+    }
 }
 
 

@@ -3,10 +3,11 @@ import {computed} from "vue";
 import {DropdownMenu} from "@notnotype/nb-ui/components";
 import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import {THINKING_LEVEL_KEYS} from "../../composer-actions";
+import type {ComposerModelView} from "../../types";
 import {useAgentText} from "../host";
 
 const props = withDefaults(defineProps<{
-    models: ReadonlyArray<{key: string; label: string; supportsImages: boolean}>;
+    models: readonly ComposerModelView[];
     modelKey: string | null;
     thinkingLevels: readonly string[];
     thinking: string | null;

@@ -147,6 +147,7 @@ const ZH = {
     "harness.error.provider": "模型服务出错，请稍后重试。",
     "harness.error.local": "这次运行出错了。",
     "harness.compaction": "上下文已压缩",
+    "render.failed": "此内容无法显示",
 } as const satisfies Record<string, string>;
 
 export type AgentTextKey = keyof typeof ZH;
@@ -299,6 +300,7 @@ const EN: Record<AgentTextKey, string | PluralText> = {
     "harness.error.provider": "The model service failed. Try again later.",
     "harness.error.local": "This run failed.",
     "harness.compaction": "Context compacted",
+    "render.failed": "This content can't be shown",
 };
 
 const TABLES: Record<AgentLocale, Record<AgentTextKey, string | PluralText>> = {"zh-CN": ZH, "en-US": EN};

@@ -43,8 +43,8 @@
 ## 数据
 
 ```ts
-import type {AgentConversationContext, AgentConversationServices, AgentViewAction} from "../agent-view.types";
-import type {AgentViewRegistry} from "../agent-view-registry";
+import type {AgentConversationContext, AgentConversationServices, AgentViewAction, AgentViewRegistry} from "@notnotype/nb-agent-ui";
+import type {PreviewImageRequest} from "@notnotype/nb-agent-ui/vue";
 
 type AgentConversationComposerProps = {
     /** 必填，只读。用到 composer、interaction、availability、run。 */
@@ -58,7 +58,7 @@ type AgentConversationComposerProps = {
 type AgentConversationComposerEmits = {
     (e: "action", action: AgentViewAction): void;
     /** 正文里的图片被点击，由对话视图打开原图预览。 */
-    (e: "preview-image", image: {locator: string; name: string}): void;
+    (e: "preview-image", image: PreviewImageRequest): void;
 };
 
 type AgentConversationComposerExpose = {

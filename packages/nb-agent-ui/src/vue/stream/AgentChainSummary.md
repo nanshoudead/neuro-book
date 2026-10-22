@@ -29,7 +29,7 @@ type AgentChainSummaryProps = {
 
 type AgentChainSummaryEmits = {
     /** 点击时发出，携带期望的新状态。 */
-    (e: "toggle", expanded: boolean): void;
+    (e: "update:expanded", expanded: boolean): void;
 };
 ```
 

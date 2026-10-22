@@ -59,3 +59,20 @@ describe("registry.resolveTool", () => {
         expect(custom.resolveTool("list_other").id).toBe("list");
     });
 });
+
+describe("工具回调抛错", () => {
+    it("摘要、组合短语、文件影响抛错时退回通用结果，不往外抛", () => {
+        const boom = () => {
+            throw new Error("回调坏了");
+        };
+        const registry = createAgentViewRegistry([{
+            source: "test:plugin",
+            tools: [{id: "boom", toolNames: ["boom"], category: "explore", icon: "i-lucide-bomb", label: "炸", presentation: "line", summary: boom, groupPhrase: boom, effects: boom}],
+        }]);
+        const tool = registry.resolveTool("boom");
+        const call = {id: "c1", name: "boom", status: "success" as const, args: {}};
+        expect(tool.summary(call)).toBe("boom");
+        expect(tool.groupPhrase?.(3)).toEqual({key: "toolGroup.generic", params: {count: 3}});
+        expect(tool.effects?.(call)).toEqual({read: [], changed: []});
+    });
+});

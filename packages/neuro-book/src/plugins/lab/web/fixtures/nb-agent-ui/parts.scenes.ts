@@ -17,11 +17,11 @@ import type {LabFixtureDefinition} from "../index";
 import {labDomainToolsContribution} from "./domain-tools";
 
 export const agentChainSummaryScenes: LabFixtureDefinition<typeof AgentChainSummary>["scenes"] = [
-    {id: "collapsed", label: "折叠", input: {props: {expanded: false, icon: "i-lucide-brain", label: "思考 · 读了 7 个文件，改了 2 个 · 另有 3 次操作"}}},
-    {id: "expanded", label: "展开，带失败提醒", input: {props: {expanded: true, icon: "i-lucide-brain", label: "思考 · 读了 2 个文件，改了 1 个", alert: "1 次失败"}}},
-    {id: "turn", label: "整轮过程", input: {props: {expanded: false, label: "过程 · 14 次操作 · 读了 7 个文件，改了 2 个"}}},
-    {id: "running", label: "运行中", input: {props: {expanded: false, running: true, label: "读取 notes/foreshadowing.md"}}},
-    {id: "overflow", label: "放不下时截断", input: {props: {expanded: false, icon: "i-lucide-wrench", label: "思考 · 读了 64 个文件，改了 37 个 · 另有 128 次操作 · 另有若干说明文字与系统提示词", alert: "3 次失败"}}},
+    {id: "collapsed", label: "折叠", input: {props: {icon: "i-lucide-brain", label: "思考 · 读了 7 个文件，改了 2 个 · 另有 3 次操作"}, model: {expanded: false}}},
+    {id: "expanded", label: "展开，带失败提醒", input: {props: {icon: "i-lucide-brain", label: "思考 · 读了 2 个文件，改了 1 个", alert: "1 次失败"}, model: {expanded: true}}},
+    {id: "turn", label: "整轮过程", input: {props: {label: "过程 · 14 次操作 · 读了 7 个文件，改了 2 个"}, model: {expanded: false}}},
+    {id: "running", label: "运行中", input: {props: {running: true, label: "读取 notes/foreshadowing.md"}, model: {expanded: false}}},
+    {id: "overflow", label: "放不下时截断", input: {props: {icon: "i-lucide-wrench", label: "思考 · 读了 64 个文件，改了 37 个 · 另有 128 次操作 · 另有若干说明文字与系统提示词", alert: "3 次失败"}, model: {expanded: false}}},
 ];
 
 export const agentFileChangesScenes: LabFixtureDefinition<typeof AgentFileChanges>["scenes"] = [

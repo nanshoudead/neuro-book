@@ -2,7 +2,7 @@
 import {ref} from "vue";
 import {Spinner} from "@notnotype/nb-ui/components";
 import type {AgentConversationContext, AgentConversationServices, AgentViewAction} from "../../types";
-import type {AgentViewRegistry, ToolRendererEntry} from "../../registry";
+import type {AgentViewRegistry, FileChangeView, ToolRendererEntry} from "../../registry";
 import type {ChainBlock, ToolStep, TurnBlock, TurnStatus} from "../../conversation-turns";
 import {CollapsibleCard} from "@notnotype/nb-ui/components";
 import AgentChainSummary from "./AgentChainSummary.vue";
@@ -12,6 +12,7 @@ import {CollapsibleRow} from "@notnotype/nb-ui/components";
 import AgentToolDetail from "../tools/AgentToolDetail.vue";
 import AgentUserContent from "./AgentUserContent.vue";
 import {describeChain} from "../../process-summary";
+import RenderGuard from "../parts/RenderGuard.vue";
 import {useAgentText} from "../host";
 import type {PreviewImageRequest} from "../preview";
 
@@ -105,7 +106,7 @@ function nodeSubtitle(step: ToolStep): string {
 }
 
 /** 单文件改动的增删行；多文件的补丁不在行内显示统计。 */
-function mutateStat(step: ToolStep): {added: number | null; removed: number | null} | null {
+function mutateStat(step: ToolStep): Omit<FileChangeView, "path"> | null {
     const changed = rendererOf(step).effects?.(step.call).changed ?? [];
     return changed.length === 1 ? {added: changed[0]!.added, removed: changed[0]!.removed} : null;
 }
@@ -127,7 +128,7 @@ function firstLine(value: string): string {
             :running="chainRunning(props.block)"
             :title="chainLabel(props.block)"
             data-chain-summary
-            @toggle="setOpen(props.block.id, $event)"
+            @update:expanded="setOpen(props.block.id, $event)"
         />
         <div v-if="openItems[props.block.id]" class="acv-steps">
             <template v-for="entry in props.block.entries" :key="entry.id">
@@ -247,7 +248,9 @@ function firstLine(value: string): string {
 
     <!-- 人机交互控件 -->
     <div v-else-if="props.block.kind === 'node'" class="acv-node" data-node>
-        <component :is="rendererOf(props.block.step).node" v-if="rendererOf(props.block.step).node" :call="props.block.step.call" :ctx="props.ctx" />
+        <RenderGuard v-if="rendererOf(props.block.step).node" :source="`工具 ${props.block.step.call.name} 的节点组件`">
+            <component :is="rendererOf(props.block.step).node" :call="props.block.step.call" :ctx="props.ctx" />
+        </RenderGuard>
         <CollapsibleCard
             v-else
             :running-label="t('turn.running')"

@@ -17,7 +17,7 @@
 ## 数据
 
 ```ts
-import type {TaskChange, TaskItemView} from "./task-list";
+import type {TaskChange, TaskItemView} from "@notnotype/nb-agent-ui";
 
 type AgentTaskListProps = {
     /** 清单标题；null 时只显示“任务清单”。 */

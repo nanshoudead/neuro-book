@@ -1,5 +1,5 @@
 ---
-标签: [state:local, state:inject, env:portal, env:global, io:read]
+标签: [state:local, state:inject, env:portal, io:read]
 验证入口: AgentConversationView
 ---
 
@@ -32,8 +32,8 @@ interface OriginalImagePreviewDialogProps {
     alt: string;
     /** 下载保存名称；可选，默认不指定名称。 */
     downloadName?: string;
-    /** Dialog Teleport 目标；默认 "body"，传 false 关闭 Teleport。对话视图传自己的 teleportTarget。 */
-    teleportTarget?: string | boolean;
+    /** 浮层传送到的目标；默认 "body"，传 false 就地渲染。对话视图传自己的 teleportTarget。 */
+    teleportTarget?: string | false;
 }
 
 interface OriginalImagePreviewDialogEmits {
@@ -63,10 +63,6 @@ nb-ui `Dialog` 提供模态语义、Portal、焦点陷阱、Escape/遮罩关闭�
 
 - `io:read`：打开时渲染带 `src` 的 `<img>`，由浏览器直接读取图片资源；下载链接也指向同一资源。预览读取与该组件的职责绑定，调用方只提供地址，不替代浏览器的图像解码与预览行为。
 - `env:portal`：nb-ui Dialog 把模态层传送到 `teleportTarget`（默认 `body`），使预览脱离消息流的裁剪上下文；目标不存在时 Dialog 按自身实现回退到 `body`。
-- `env:global`：打开时所用的 nb-ui Dialog 管理 `document` 键盘监听与 body 滚动锁，并在关闭或卸载时清理、归还焦点。
-- `state:inject`：使用应用 `useI18n()` 获取预览标题、加载失败、重试与下载文案，使它们跟随宿主语言；这些文案不逐项作为 props 暴露。
+- `state:inject`：经 `useAgentText()` 取宿主交出的语言，关闭、下载、加载中、加载失败与重试的文案跟随它；这些文案不逐项作为 props 暴露。
 - `state:local`：持有图片加载状态、重试计数与按可用空间算出的显示尺寸，关闭或卸载后不保留。显示尺寸要读浮层宿主（`Dialog` 面板的父元素）的大小，并用 `ResizeObserver` 跟随它变化；纯 CSS 做不到既按宿主高度等比缩小、又让卡片贴着图片。
 
-## 已知偏差
-
-`验证入口` 指向 AgentSidebarView 的附件预览集成链，但当前 `AgentSidebarView` fixture 的 `images` 场景只准备静态附件数据，未自动打开附件面板或原图预览；宿主 fixture 仍需增加明确的预览场景并提供不会触发真实网络读取的静态 URL。入口可定位真实宿主链，不代表该 Lab 验收场景已完成。即使场景补齐，静态 URL 也只能验证宿主装配与预览状态，不验证真实附件服务的网络结果。

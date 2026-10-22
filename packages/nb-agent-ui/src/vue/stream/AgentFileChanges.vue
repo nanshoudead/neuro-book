@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import {computed, ref} from "vue";
+import type {FileChangeView} from "../../registry";
 import {useAgentText} from "../host";
 
-type FileChange = {path: string; added: number | null; removed: number | null};
-
 const props = withDefaults(defineProps<{
-    files: FileChange[];
+    files: FileChangeView[];
     limit?: number;
 }>(), {
     limit: 5,
@@ -40,11 +39,11 @@ const labels = computed(() => {
 });
 
 // 一侧为 0 而另一侧有改动时，0 那一侧只是噪音。
-function showAdded(file: FileChange): boolean {
+function showAdded(file: FileChangeView): boolean {
     return file.added !== null && (file.added > 0 || !(file.removed !== null && file.removed > 0));
 }
 
-function showRemoved(file: FileChange): boolean {
+function showRemoved(file: FileChangeView): boolean {
     return file.removed !== null && (file.removed > 0 || !(file.added !== null && file.added > 0));
 }
 </script>

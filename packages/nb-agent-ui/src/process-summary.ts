@@ -56,3 +56,60 @@ export function describeTurn(metrics: TurnMetrics): ProcessDescription {
     }
     return {parts, alert: failedAlert(metrics.failed)};
 }
+
+// ─── 轮末用量 ───────────────────────────────────────────────────────────
+
+/** 轮末用量行：每项一个图标加文字，另有悬停时看的完整构成。 */
+export type UsageDescription = {
+    parts: Array<{icon: string; text: ViewText}>;
+    /** 输入、输出与缓存读写的完整数字；没有用量数据时为 null。 */
+    detail: ViewText | null;
+};
+
+function formatDuration(ms: number): string {
+    const seconds = Math.round(ms / 1000);
+    return `${String(Math.floor(seconds / 60))}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function formatTokens(value: number): string {
+    return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value);
+}
+
+/** 不到一分钱的费用多留两位，免得都显示成 0.00；免费就是 0。 */
+function formatCost(value: number, currency: "USD" | "CNY"): string {
+    const symbol = currency === "CNY" ? "¥" : "$";
+    if (value === 0) return `${symbol}0`;
+    return `${symbol}${value < 0.01 ? value.toFixed(4) : value.toFixed(2)}`;
+}
+
+/**
+ * 一轮的用时、tokens、输入输出、缓存读取与费用。缺哪项省哪项，缓存读取为 0 时省略；`showDuration` 为假时不写用时
+ * （例如这一轮还没有 Agent 一侧的内容）。
+ */
+export function describeUsage(metrics: TurnMetrics, currency: "USD" | "CNY", options: {showDuration: boolean}): UsageDescription {
+    const {durationMs, tokens, cost, usage} = metrics;
+    const parts: UsageDescription["parts"] = [];
+    if (durationMs !== null && options.showDuration) {
+        parts.push({icon: "i-lucide-timer", text: formatDuration(durationMs)});
+    }
+    if (tokens !== null) {
+        parts.push({icon: "i-lucide-zap", text: {key: "metrics.tokens", params: {value: formatTokens(tokens)}}});
+    }
+    if (usage !== null) {
+        parts.push({icon: "i-lucide-arrow-down", text: formatTokens(usage.input)});
+        parts.push({icon: "i-lucide-arrow-up", text: formatTokens(usage.output)});
+        if (usage.cacheRead > 0) {
+            parts.push({icon: "i-lucide-database-zap", text: formatTokens(usage.cacheRead)});
+        }
+    }
+    if (cost !== null) {
+        parts.push({icon: "i-lucide-circle-dollar-sign", text: formatCost(cost, currency)});
+    }
+    const detail: ViewText | null = usage === null ? null : {key: "usage.detail", params: {
+        input: formatTokens(usage.input),
+        output: formatTokens(usage.output),
+        cacheRead: formatTokens(usage.cacheRead),
+        cacheWrite: formatTokens(usage.cacheWrite),
+    }};
+    return {parts, detail};
+}

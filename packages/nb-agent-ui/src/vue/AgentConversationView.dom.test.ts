@@ -2,6 +2,8 @@ import {describe, expect, it} from "vitest";
 import {flushPromises, mount} from "@vue/test-utils";
 import {defineComponent, h} from "vue";
 
+import type {AgentViewContribution} from "../registry";
+
 import type {MarkdownActivation} from "../ports";
 import {createAgentViewRegistry} from "../registry";
 import type {AgentConversationContext, AgentConversationServices, AgentLocale} from "../types";
@@ -60,13 +62,13 @@ function controllableResolver() {
     return {requests, resolveMarkdownAsset};
 }
 
-function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}) {
+function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean} = {}) {
     return mount(AgentConversationView, {
         props: {
-            ctx: context(),
-            registry,
+            ctx: options.ctx ?? context(),
+            registry: options.registry ?? registry,
             locale,
-            renderers: {markdown: FakeMarkdown},
+            renderers: options.plain === true ? {} : {markdown: FakeMarkdown},
             services: {resolveAttachmentUrl: () => null, resolveTriggerMenu: () => ({items: []}), ...services},
         },
         attachTo: document.body,
@@ -118,6 +120,40 @@ describe("AgentConversationView", () => {
         await view.get("[data-image='b.png']").trigger("click");
         await flushPromises();
         expect(document.querySelector("[role='dialog']")).toBeNull();
+        view.unmount();
+    });
+});
+
+describe("渲染器出错（验收 15）", () => {
+    it("插件的节点组件与摘要回调抛错：只有这一项降级为“此内容无法显示”，其余消息照常显示", async () => {
+        const Boom = defineComponent({
+            setup() {
+                return () => {
+                    throw new Error("节点坏了");
+                };
+            },
+        });
+        const plugin: AgentViewContribution = {
+            source: "test:plugin",
+            tools: [{
+                id: "boom", toolNames: ["boom"], category: "interact", icon: "i-lucide-bomb", label: "炸", presentation: "node", node: Boom,
+                summary: () => {
+                    throw new Error("摘要坏了");
+                },
+            }],
+        };
+        const ctx = context();
+        ctx.messages = [
+            ctx.messages[0]!,
+            {kind: "assistant", id: "a1", timestamp: 2, status: "done", text: "前面的回复照常显示", thinking: "", model: "m", toolCalls: [{id: "b1", name: "boom", status: "success", args: {}}], contentOmitted: false},
+            {kind: "assistant", id: "a2", timestamp: 3, status: "done", text: "后面的回复也照常显示", thinking: "", model: "m", toolCalls: [], contentOmitted: false},
+        ];
+        const view = mountView("zh-CN", {}, {ctx, registry: createAgentViewRegistry([builtinRolesContribution, builtinToolsContribution, plugin]), plain: true});
+        // 已结束的轮次默认收起，节点在过程里：先展开整轮。
+        await view.get("[data-turn-summary]").trigger("click");
+        expect(view.findAll("[data-render-failed]")).toHaveLength(1);
+        expect(view.text()).toContain("此内容无法显示");
+        expect(view.text()).toContain("后面的回复也照常显示");
         view.unmount();
     });
 });

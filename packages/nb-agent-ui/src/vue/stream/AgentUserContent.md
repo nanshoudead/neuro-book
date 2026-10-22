@@ -33,7 +33,8 @@
 ## 数据
 
 ```ts
-import type {AgentViewAction, UserMessageView} from "../agent-view.types";
+import type {AgentViewAction, UserMessageView} from "@notnotype/nb-agent-ui";
+import type {PreviewImageRequest} from "@notnotype/nb-agent-ui/vue";
 
 type AgentUserContentProps = {
     /** 用户消息，必填；只读 blocks 与 contentOmitted。 */
@@ -45,7 +46,7 @@ type AgentUserContentProps = {
 type AgentUserContentEmits = {
     (e: "action", action: AgentViewAction): void;
     /** 请对话视图打开图片原图；locator 是附件目标或附件块的 locator。 */
-    (e: "preview-image", image: {locator: string; name: string}): void;
+    (e: "preview-image", image: Extract<PreviewImageRequest, {locator: string}>): void;
 };
 ```
 

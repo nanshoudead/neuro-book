@@ -133,6 +133,12 @@ function focusComposer() {
     composerRef.value?.focus();
 }
 
+/** 用户发了消息或命令，就是要看接下来的回应：回到最新并恢复跟随，即使刚才在往上翻历史。 */
+function onComposerAction(action: AgentViewAction) {
+    if (action.type === "composer.submit" || action.type === "command.run") scrollToLatest();
+    emit("action", action);
+}
+
 // ─── 原图预览 ───────────────────────────────────────────────────────────
 
 /**
@@ -291,7 +297,7 @@ defineExpose({focusComposer, scrollToLatest});
             :ctx="props.ctx"
             :services="props.services"
             :registry="props.registry"
-            @action="emit('action', $event)"
+            @action="onComposerAction"
             @preview-image="openPreview"
         />
         <OriginalImagePreviewDialog

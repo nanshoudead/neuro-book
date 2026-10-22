@@ -24,23 +24,34 @@ export type PromptMenuContext = {
 };
 
 export type PromptMenuItem = {
+    /** 同一次结果内唯一。 */
     id: string;
     label: string;
     description?: string;
     iconClass?: string;
+    /** 分组标题；相邻且同组的项只显示一次标题。 */
     group?: string;
+    /** 显示但不能选。 */
     disabled?: boolean;
+    /** 确认后替换触发字符与查询文字的内容，按输入框的文字写法识别成标签。 */
     insertText: string;
+    /** 为真时插入后菜单按新的查询继续，用于逐级进入。 */
     continues?: boolean;
 };
 
 export type PromptMenu = {
     title?: string;
     items: PromptMenuItem[];
+    /** 数据还没到；显示“正在加载”。数据到达后宿主换一个新的菜单函数。 */
     loading?: boolean;
+    /** 没有结果时的说明。 */
     emptyText?: string;
 };
 
+/**
+ * 输入框里一个附件的上传状态，按编辑器给的 `localId` 对应。就绪后带附件目标，编辑器据此把标签写回文字；
+ * 编辑器发出过的每个 `localId` 都要在这里，直到它就绪或被移除。
+ */
 export type PromptAttachment =
     | {localId: string; state: "uploading"}
     | {localId: string; state: "failed"; error: string}

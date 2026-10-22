@@ -161,6 +161,16 @@ test.describe("对话视图的消息流", () => {
         await page.locator("[data-jump-latest]").click();
         await expect.poll(async () => (await streamMetrics(page)).distance).toBeLessThanOrEqual(24);
         await expect(page.locator("[data-jump-latest]")).toBeHidden();
+
+        // 往上翻着读时发出一条消息：回到最新并恢复跟随。
+        await readAt(page, "[data-final-reply]", "主角叫林默");
+        await expect(page.locator("[data-jump-latest]")).toBeVisible();
+        await stage(page).locator(".ProseMirror").click();
+        await page.keyboard.type("继续写下一章");
+        await page.keyboard.press("Enter");
+        await expect.poll(async () => (await actions(page)).some((action) => action.type === "composer.submit")).toBe(true);
+        await expect.poll(async () => (await streamMetrics(page)).distance).toBeLessThanOrEqual(24);
+        await expect(page.locator("[data-jump-latest]")).toBeHidden();
     });
 
     test("正在读过程时运行结束：最终回复停在原处，焦点从过程移到整轮摘要行", async ({page}) => {

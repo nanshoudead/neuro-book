@@ -83,7 +83,7 @@ export const nbAgentUiFixtures: LabFixture[] = [
     }),
     defineSubjectFixture<typeof AgentChainSummary>({
         component: "AgentChainSummary", scenes: agentChainSummaryScenes, subject: agentSubject("AgentChainSummary"),
-        events: ["toggle"], writeBack: {toggle: {layer: "props", key: "expanded"}}, class: "w-full",
+        events: ["update:expanded"], writeBack: {"update:expanded": {layer: "model", key: "expanded"}}, class: "w-full",
     }),
     defineSubjectFixture<typeof AgentTaskList>({component: "AgentTaskList", scenes: agentTaskListScenes, subject: agentSubject("AgentTaskList")}),
     defineSubjectFixture<typeof AgentTaskListNode>({component: "AgentTaskListNode", scenes: agentTaskListNodeScenes, subject: agentSubject("AgentTaskListNode")}),
