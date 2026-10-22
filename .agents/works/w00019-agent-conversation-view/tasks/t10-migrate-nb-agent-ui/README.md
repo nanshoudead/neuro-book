@@ -21,7 +21,7 @@ updated: 2026-10-22
 2. 一次迁完已做的全部，不按问答需要裁剪。
 3. nb-form、nb-agent-ui 都在新应用的 Lab 里看，做法同 nb-ui。
 
-## 当前状态（2026-10-22）：S0 到 S6 与实现审查的修正都已提交，等开发者在 Lab 确认
+## 当前状态（2026-10-22）：S0 到 S6、实现审查与质量审查第一类的修正都已提交，等开发者在 Lab 确认
 
 执行位置：worktree `.worktree/w00019-nb-agent-ui`，分支 `feat/w00019-nb-agent-ui`。计划见 [plan.md](plan.md)，开发者同意“先审查然后实施”；omp 设计审查 11 条已处理（[报告](evidences/design-review.txt)，处理结果见计划开头）。
 
@@ -55,6 +55,20 @@ updated: 2026-10-22
     - 用户消息图文按原顺序。
   - nb-harness 内置 `edit` 的 `input` 参数（补丁与 hashline）：认得改到的文件；补丁格式显示增删行，hashline 显示改完的那几行（结果正文不是 diff）。
 
+质量审查（2026-10-22，开发者要求）：三个 Sonnet 分别从 API 形状、可维护性、易用性与缺失审 nb-agent-ui，共 47 条（[API](evidences/quality-review-api.txt)、[可维护性](evidences/quality-review-maint.txt)、[易用性与缺失](evidences/quality-review-complete.txt)）。开发者定分三类：
+
+- **第一类，本 Task 里改完**：
+  - 渲染器出错降级（Spec 验收 15）：工具渲染器的 `summary`、`groupPhrase`、`effects` 抛错时退回通用写法，宿主的 node、detail 组件抛错时只这一项显示“此内容无法显示”。计划原把验收 15 映射到注册表测试，实际没有实现，已在计划里改正映射。
+  - 从输入框发出消息或命令后回到最新（Spec 历史与滚动一节与验收 4 各补一句）。补测时查出 nb-ui `useStreamScroll` 的竞态：写入 scrollTop 后、滚动事件派发前输入框变高，会被误判为离开了底部；自己写入引起的滚动事件不再重判是否跟随。
+  - 文档过时：组件 `.md` 的导入路径、`preview-image` 的事件类型、`OriginalImagePreviewDialog` 的标签与旧应用描述、`teleportTarget` 两处类型不一。
+  - `AgentChainSummary` 的事件改为 `update:expanded`。
+  - `types.ts` 与 `ports.ts` 重复的菜单、附件、语言类型改为别名；核心入口改为显式导出清单，补上 `AgentTaskList` 属性要用的任务清单类型，渲染层入口导出 `PreviewImageRequest`。
+  - 适配器 `messages()`：没被工具事件改动的消息保持同一个对象。
+  - 窄屏：消息宽度不超过 400px 时助手一行不显示回复时间，模型名至少露出开头几个字。
+  - 轮末用量的格式化挪进核心 `describeUsage` 并补单测；免费模型的费用显示为 `$0`。
+- **第二类，新建 [t13](../t13-agent-ui-api/README.md)**：宿主组件通道、工具渲染器的结果标记、内置工具拆成数据与组件、收窄公开面、宿主起步套件、行为原则、拆分 `AgentTurnBlock`。先写计划交开发者确认，在 t11 之前做。
+- **第三类，转 [t11](../t11-complete-view/README.md)**：没有消费者的扩展点由 t11 接上；无障碍、停止与复制反馈、Lab 夹具收拢、缺提供方的开发期警告、消息操作条溢出菜单进 S8。
+
 与计划不同的地方：
 
 - **6px 与 8px 的检查放进 e2e**：happy-dom 不算层叠样式，DOM 测试量不出计算后的内边距。
@@ -64,6 +78,10 @@ updated: 2026-10-22
 - **Spec 另补一句**：表里的 `subject_*`、`get_session` 等是 NeuroBook 的工具，由宿主登记。
 
 验证（Work 分支，2026-10-22）：
+
+- **质量审查第一类修正之后**（`a1a862d4e`）：nb-agent-ui `typecheck`、`test`（bun 62 条、Vitest 56 条）；nb-ui `test`、`typecheck`；应用 `typecheck`、`bun run test`（Vitest 403 条）；`docs:check`、`governance:check` 失败 0；e2e `lab-agent-ui`、`lab-scenes`、`lab-nb-ui` 共 33 条通过。变异检查：去掉工具回调与组件两层出错降级、适配器改回全量重建，相应用例失败；“发送后回到最新”一步在修 `useStreamScroll` 之前失败（离底 105px）。
+
+此前一轮：
 
 - **包**：审查修正之后重跑。nb-agent-ui 的 `typecheck`；`test` 通过（bun 58 条，含适配器单测与 8 条真实 harness 契约测试；Vitest 54 条）。nb-ui 的 `test`（552 条）、`typecheck` 通过。
 - **应用**：`typecheck`；`bun run test` 通过（bun 1599 条、Vitest 403 条）。
