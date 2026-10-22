@@ -4,7 +4,8 @@ kind: behavior
 status: planned
 capability: ui.agent-conversation-view
 owners:
-  - agent-ui
+  - packages/nb-agent-ui
+  - packages/nb-ui
 ---
 
 # Agent 对话视图
@@ -21,7 +22,7 @@ owners:
 - 不接入主页面；主页面切换与旧组件删除属于后续工作。
 - 不实现插件加载；注册表的插件入口等插件运行时（`runtime.plugins`）定型后再接。
 
-功能基线见[提案附录 A](../../../packages/neuro-book/docs/proposals/agent-conversation-view.md#附录-a功能基线)，本规范覆盖其中全部 61 项；交互方式以本规范为准。
+功能基线见[提案附录 A](../../../packages/neuro-book-legacy/docs/proposals/agent-conversation-view.md#附录-a功能基线)，本规范覆盖其中全部 61 项；交互方式以本规范为准。
 
 ## 术语与参与者
 
@@ -40,7 +41,7 @@ owners:
 - **步骤**：思维链中的一项，可以是一次工具调用、一段思考、一段并入的中间 content 或一条系统提示词。
 - **工具组**：思维链中连续出现、同属“探查”类别的工具调用。
 - **摘要行**：代表一条思维链或整轮过程的一行：开头一个种类图标，接一句像人说的概括（是否思考、读了和改了几个文件、其余操作次数），失败次数以危险色附在末尾，最后是折叠箭头。它是过程入口，宽度随内容、淡色，注意力低于正文；运行中图标换成转圈、概括换成正在执行的那一步。
-- **轮末汇总**：每轮末尾的一行，左边是改动文件条（没改文件不显示），右边是用量（用时、tokens、输入、输出、缓存读取、费用）。
+- **轮末汇总**：每轮末尾的一行，左边是改动文件条（没改文件不显示），右边是用量（用时、tokens、输入、输出、缓存读取、费用；单价未知时不显示费用）。
 - **结果与过程**：结果是一轮末尾连续的最终回复与错误；其余内容都是过程。
 - **整轮收起**：已结束的轮次把过程收成一行整轮摘要，只露出结果与轮末汇总。
 - **角色**：消息的说话者，现在是用户与 Agent；登记在注册表里，为第三种角色预留。
@@ -64,6 +65,10 @@ type AgentConversationViewProps = {
     viewMode?: "turns" | "raw";
     /** 弹窗与浮层的渲染目标；false 表示就地渲染（Lab 使用）。 */
     teleportTarget?: string | false;
+    /** 界面语言："zh-CN" 或 "en-US"。 */
+    locale: "zh-CN" | "en-US";
+    /** 宿主注入的渲染组件；缺哪个用包内的缺省实现（见“失败与恢复”）。 */
+    renderers?: {markdown?: Component; promptEditor?: Component; promptTextView?: Component};
 };
 
 type AgentConversationViewEmits = {
@@ -123,9 +128,9 @@ type ToolCallView = {
 
 ### 服务
 
-- `sanitizeHtml(html)`：Markdown 渲染出的 HTML 必须经过它才能插入页面。
+- `resolveMarkdownAsset(src, signal)`（可选）：把回复里 Markdown 图片的地址换成可显示的地址，返回地址与释放函数；不提供时图片只显示说明。Markdown 的渲染与净化由宿主注入的 Markdown 显示组件负责，视图不插入 HTML。
 - `resolveAttachmentUrl(locator, variant)`：返回附件的缩略图或原图地址；返回空表示不可用。
-- `resolveTriggerMenu(context)`：按输入框中的触发字符、已输入文字以及触发字符是否位于开头返回候选菜单。候选可以分组、可以禁用；逐级进入的候选确认后按新的查询继续。
+- `resolveTriggerMenu(context)`：按输入框中的触发字符、已输入文字以及触发字符是否位于开头返回候选菜单。候选可以分组、可以禁用；逐级进入的候选确认后按新的查询继续。数据未到时返回加载中，到达后宿主换一个新函数。`/` 位于正文开头时菜单由视图按登记的输入框命令列出，不调用它。
 
 ### 注册表
 
@@ -155,6 +160,8 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 | `mutate` | `write`、`edit`、`apply_patch`、`subject_memory_update`、`subject_event_append` |
 | `interact` | `request_user_input`、`switch_mode` |
 | `other` | `task_create`、`task_set_status`、`run_workflow`、`bash`、`execute_sql`、Agent 协作类工具、`report_result`，以及所有未登记的工具 |
+
+表中 `subject_rag_search`、`get_session`、`get_agent`、`get_agent_profile`、`subject_memory_update`、`subject_event_append` 是 NeuroBook 自己的工具，由 NeuroBook 宿主登记，类别与呈现同表；其余是通用的 harness 工具，由视图内置登记。
 
 内置工具中以 `node` 呈现（常显的人机交互控件）的是 `request_user_input`、`switch_mode`、`task_create`、`task_set_status`、`run_workflow`；其余 `interact` 与 `other` 工具以 `card` 呈现在思维链里，`explore` 与 `mutate` 以 `line` 呈现。
 
@@ -229,19 +236,21 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 
 ### 消息
 
-- 用户消息区分普通与 steer；显示图文内容块和附件；正文被省略时显示“仅显示预览”。图片、文件附件与粘贴块按输入框的方式显示：附件条加正文里的 `#N` 标签，粘贴块默认折叠。
+- 用户消息区分普通与 steer；显示图文内容块和附件；正文被省略时显示“仅显示预览”。文字按输入框的文字写法显示，引用、技能与选区是标签；图片、文件附件与粘贴块按输入框的方式显示：附件条加正文里的 `#N` 标签，粘贴块默认折叠。点击标签与卡片的结果与输入框相同（见“输入框与待处理区”）；文字之外的旧附件块照常显示，点击图片同样打开原图预览、点击文件发出 `attachment.open`。
 - 投递状态为 `unknown` 的用户消息显示文字说明：“可能已发送，重新发送可能产生重复”，并提供“重新发送”和“移除”。
 - 编辑历史消息时，消息就地变为编辑器，支持 `@` 引用与插图；原文仍在加载时编辑器为只读并显示加载状态。
 - assistant 消息流式生成时显示光标；被停止时显示“已停止”，不显示内部错误原文。
+- 回复与思考里的 Markdown：点击引用发出 `reference.open`，点击外链发出 `link.open`，由宿主决定怎么打开；点击图片打开原图预览（纯界面行为）。
 
 ### 输入框与待处理区
 
-- 回车发送；运行中回车为 steer，Ctrl/⌘+回车为 followup；运行中且输入为空时，发送按钮变为停止。Shift+Tab 切换 Agent 模式。
+- 回车发送；运行中回车为 steer，Ctrl/⌘+回车为 followup；运行中且输入为空时，发送按钮变为停止。Shift+Tab 切换 Agent 模式。发送后输入框不自行清空，宿主受理后给出新版本的空草稿。
+- 输入框下方是工具栏：左侧依次为添加附件、Agent 模式（点击循环切换）、模型与思考档位（同一个下拉）、登记的工具栏按钮；右侧为展开与发送/停止。展开后输入框占视图高度的大部分，回车换行，Ctrl/⌘+回车发送（运行中为 followup），发送按钮仍按回车的规则发送。
 - 输入以 `/` 开头且命令名与已登记的输入框命令一致时，发出 `command.run`；否则按普通文字发送。
-- 触发字符（`@`、`$`、`/` 及登记的其他字符）打开候选菜单，菜单内容来自 `services.resolveTriggerMenu`；方向键选择，回车或 Tab 确认，Escape 关闭。
+- 触发字符（`@`、`$`、`/` 及登记的其他字符）打开候选菜单，菜单内容来自 `services.resolveTriggerMenu`；`/` 位于正文开头时改为列出登记的输入框命令，显示说明与参数提示。方向键选择，回车或 Tab 确认，Escape 关闭。
 - 输入框的内容始终是一段文字：引用、技能、选区、命令、图片、文件附件与粘贴块按统一的文字写法保存（见组件文档 `PromptEditor.md` 的“文字写法”），在输入框里显示为整体的标签或块，光标跨过和退格删除都按一整个算。输入框与历史消息的就地编辑共用这个编辑器。
-- 图片与文件（PDF、txt 等）可以选择、粘贴或拖入：输入框上方的附件条显示缩略图或卡片，正文在插入处留 `#N` 标签；图片一套编号，文件与粘贴块另一套。每个附件显示上传中、已就绪、失败三种状态，失败可重试或移除；模型不支持图片时拒绝添加图片并说明原因。发给模型时图片保留在文字中的位置；文件以附件路径给模型，由模型按需读取。
-- 粘贴文字按大小分三档：小段原样插入；中等的在粘贴处成为默认折叠的粘贴块，以 `<paste>` 标签包起来发给模型，也可配置为放到开头、粘贴处只留位置标记；特别大的转为文件附件。阈值与放置方式可配置。Ctrl/⌘+Shift+V 粘贴原文，不分档。
+- 图片与文件（PDF、txt 等）可以用“添加附件”选择、粘贴或拖入：输入框上方的附件条显示缩略图或卡片，正文在插入处留 `#N` 标签；图片一套编号，文件与粘贴块另一套。每个附件显示上传中、已就绪、失败三种状态，失败可重试或移除；模型不支持图片、会话不能登记附件时拒绝添加并在输入框上方说明原因。发给模型时图片保留在文字中的位置；文件以附件路径给模型，由模型按需读取。
+- 粘贴文字按大小分三档：小段原样插入；中等的在粘贴处成为默认折叠的粘贴块（展开后可以直接编辑内容），以 `<paste>` 标签包起来发给模型，也可配置为放到开头、粘贴处只留位置标记；特别大的转为文件附件。阈值与放置方式可配置。Ctrl/⌘+Shift+V 粘贴原文，不分档。
 - 空输入框里按上方向键调出上一条已发送的内容；Ctrl+R 搜索已发送的内容。
 - 点击输入框里的标签：引用发出 `reference.open`，图片打开原图预览（纯界面行为），文件发出 `attachment.open`，技能发出 `skill.open`。
 - 有待回答的提问时，提问向导替换输入框：支持单选、“其他答案”、表单、备注、多题切换、终止本轮和重新同步。未提交的答案是纯界面状态，只在当前批次内保留。
@@ -267,8 +276,8 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 |---|---|
 | 会话 | `session.create {profileKey?}`、`session.select {sessionId}`、`session.rename {sessionId, title}`、`session.archive {sessionId}`、`session.restore {sessionId}`、`sessions.query {query}`、`view.close` |
 | 消息 | `message.copy {messageId}`、`message.editStart {messageId}`、`message.editCancel`、`message.editSubmit {messageId, text}`、`message.retry {messageId}`、`message.branchFrom {messageId}`、`message.resend {messageId}`、`message.dismiss {messageId}`、`branch.switch {messageId, direction}`、`tool.copy {toolCallId}`、`history.loadPrevious`、`history.refresh` |
-| 引用与文件 | `reference.open {target}`、`file.openDiff {path, toolCallId}`、`attachment.open {target}`、`skill.open {name}` |
-| 输入框 | `composer.submit {text, images, delivery}`（`delivery` 为 `prompt`、`steer` 或 `followup`）、`composer.stop`、`composer.draftChanged {text}`、`composer.attachmentAdded {localId, kind, file}`（`kind` 为 `image` 或 `file`）、`composer.attachmentRetry {localId}`、`composer.attachmentRemoved {localId}`、`command.run {name, argsText}`、`menu.opened {trigger}` |
+| 引用与文件 | `reference.open {target}`、`link.open {href}`、`file.openDiff {path, toolCallId}`、`attachment.open {target}`、`skill.open {name}` |
+| 输入框 | `composer.submit {text, delivery}`（`delivery` 为 `prompt`、`steer` 或 `followup`；附件都写在文字里，不另带）、`composer.stop`、`composer.draftChanged {text}`、`composer.attachmentAdded {localId, kind, file}`（`kind` 为 `image` 或 `file`）、`composer.attachmentRetry {localId}`、`composer.attachmentRemoved {localId}`、`command.run {name, argsText}`、`menu.opened {trigger}` |
 | 运行设置 | `mode.set {mode}`、`model.set {modelKey}`、`thinking.set {level}`、`runtime.reset` |
 | 提问 | `input.submit {batchKey, resolutions}`、`input.cancelRun`、`input.resync` |
 | 恢复 | `availability.act {action}`、`connection.reconnect` |
@@ -304,19 +313,19 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 - 某个渲染器渲染时抛错：只有该项降级为通用卡片并显示“此内容无法显示”，视图其余部分继续工作；错误通过开发诊断输出。
 - 工具没有匹配的渲染器：使用通用渲染器，类别为 `other`。
 - ctx 中引用了不存在的数据（例如 `branches` 指向不存在的消息）：忽略该引用，不报错。
-- `services.sanitizeHtml` 缺失：Markdown 以纯文本显示，不插入任何 HTML。
+- 宿主没有注入 Markdown 显示组件或提示词编辑器：用包内的缺省实现，Markdown 按纯文字显示，输入框退化为普通文本框（没有标签、附件与粘贴块）。
 - `services.resolveAttachmentUrl` 返回空：附件显示“不可用”占位，不发起请求。
 - `availability` 为 `load-error` 或 `profile-unavailable`：显示说明和恢复动作，消息流仍可阅读，输入框只读。
 - 提交后宿主一直没有提供新版本草稿：输入框保持原文，由宿主通过 `availability` 或消息的 `delivery` 状态告知结果。
 
 ## 边界与兼容
 
-- 视图属于 `agent-ui` 功能插件的视图部分；数据层、接口调用与持久化属于宿主，当前宿主只有 Lab fixture。数据层的后续方案见[数据层后续提案](../../../packages/neuro-book/docs/proposals/agent-session-data-layer.md)。
-- 视图与旧目录 `app/components/novel-ide/agent/` 互不依赖；旧组件的行为不受本规范约束。
-- 顶层视图的能力标签只有 `state:local` 与 `env:portal`；各渲染器与子组件的标签为空或只有 `state:local`，符合[组件规范](../../standards/code/components.md)。
+- 视图是 `packages/nb-agent-ui` 包，建在 nb-ui 之上；Markdown 显示与提示词编辑器由宿主注入。数据层、接口调用与持久化属于宿主，当前宿主只有新应用 Component Lab 的场景；包里另有把 harness 会话日志与事件合成视图消息的适配器，供宿主使用。数据层的后续方案见[数据层后续提案](../../../packages/neuro-book-legacy/docs/proposals/agent-session-data-layer.md)。
+- 视图不依赖旧应用 `packages/neuro-book-legacy`；旧组件的行为不受本规范约束。
+- 顶层视图的能力标签只有 `state:local`、`state:inject`（宿主注入的渲染组件）与 `env:portal`；各渲染器与子组件的标签为空或只有 `state:local`，符合[组件规范](../../standards/code/components.md)。
 - 视觉取值遵循 [nb-ui 设计语言](../../../packages/nb-ui/docs/design-language.md)与 [UI 开发规范](../../../packages/nb-ui/docs/ui-development-spec.md)，明暗两种主题都要满足对比度要求。
 - 注册表中对插件稳定的部分，在 `runtime.plugins` 定型后另行确认；在此之前，注册表形状可以随内置需要调整。
-- 界面文字走 i18n。
+- 界面文字是包内的中英两份，按宿主给的 `locale` 显示；宿主与插件登记的文字同样写中英两份。
 - 折叠的思维链不渲染其内部步骤，保证长会话的渲染开销与展开的内容量成正比。
 
 ## 验收与 Smoke
@@ -341,7 +350,7 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 18. Given 明暗两种主题，When 查看各 Lab 场景，Then 文字与背景对比度满足 nb-ui 规范。
 19. Given Lab 时间线回放一次完整的 ReAct 运行，When 从头播放与直接跳到同一步，Then 两者界面一致。
 
-Smoke：分轮规则有单元测试（`conversation-turns.test.ts`）；消息流随时间变化的行为由 `bun run smoke:component-lab:agent-conversation -- --url <开发服务> --browser-executable <chromium>` 覆盖（第 4、7、9、10 条及“历史与滚动”）。其余条目随后续切片补充。
+Smoke：分轮、摘要与发送规则有单元测试（`packages/nb-agent-ui` 的 `bun run test`）；消息流随时间变化的行为与输入框由新应用的 `bun run test:e2e -- lab-agent-ui` 覆盖（第 4、7、9、10、11 条及“历史与滚动”），全部 Lab 场景的手机宽度巡检在 `lab-scenes.e2e.ts`。其余条目随后续切片补充。
 
 ## 实现合同
 
@@ -349,5 +358,4 @@ Smoke：分轮规则有单元测试（`conversation-turns.test.ts`）；消息�
 
 ## 证据
 
-- 批准依据：[Agent 对话视图重做提案](../../../packages/neuro-book/docs/proposals/agent-conversation-view.md)（2026-09-28 accepted）。
-- 执行记录：Work [w00019](../../../.agents/works/w00019-agent-conversation-view/README.md)。
+- 批准依据：[Agent 对话视图重做提案](../../../packages/neuro-book-legacy/docs/proposals/agent-conversation-view.md)（2026-09-28 accepted）；开发者 2026-10-21 定单独成包 `nb-agent-ui`、做完整版（[w00019](../../../.agents/works/w00019-agent-conversation-view/README.md)）。

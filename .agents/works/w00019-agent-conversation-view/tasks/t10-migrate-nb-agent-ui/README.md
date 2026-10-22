@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t10-migrate-nb-agent-ui
-status: planned
-updated: 2026-10-21
+status: active
+updated: 2026-10-22
 ---
 
 # 对话视图迁入 nb-agent-ui
@@ -21,9 +21,36 @@ updated: 2026-10-21
 2. 一次迁完已做的全部，不按问答需要裁剪。
 3. nb-form、nb-agent-ui 都在新应用的 Lab 里看，做法同 nb-ui。
 
-## 当前状态
+## 当前状态（2026-10-22）：S0 到 S6 已提交，实现审查进行中
 
-2026-10-21 经 nbdev 新建，尚未开工。
+执行位置：worktree `.worktree/w00019-nb-agent-ui`，分支 `feat/w00019-nb-agent-ui`。计划见 [plan.md](plan.md)，开发者同意“先审查然后实施”；omp 设计审查 11 条已处理（[报告](evidences/design-review.txt)，处理结果见计划开头）。
+
+| 片 | 提交 | 内容 |
+|---|---|---|
+| S0 | `528f9afc6` | 包骨架、边界与图标机检、仓库与 CI 登记；Spec 在 master 搬回（`522860436`） |
+| S1 | `e80d5878b` | nb-ui 的 `CodeBlock`、`CollapsibleCard`、`CollapsibleRow`、`useStreamScroll` 与 Lab 场景 |
+| S2 | `59e0bc7e8` | 核心：视图合同、注册表、分轮等纯逻辑、中英文字表、`ports.ts` |
+| S3、S4 | `45fcc8014` | 渲染层：全部组件、注入与缺省实现、Markdown 的点击、样式改用 token；输入框随它一起迁（拆开编译不过） |
+| S5 | `eeb31fb8c` | 应用接入：Lab 组件树 `nb-agent-ui` 一组、场景与领域工具登记示例、编辑器端口类型断言、`lab-agent-ui.e2e.ts` |
+| S6 | `e6c4f1a4a` | harness 适配器 `createHarnessTranscript`、对真实 harness 的契约测试（普通完成、收尾工具、缺密钥、停止、免费与单价未知）、Lab 的“harness 记录回放”场景 |
+
+与计划不同的地方：
+
+- **6px 与 8px 的检查放进 e2e**：happy-dom 不算层叠样式，DOM 测试量不出计算后的内边距。
+- **样式机检不查字号**：几处 10px 的角标字没有对应的 nb-ui token；其余字号都换成了排版 token。
+- **原图预览不单独挂**：它带 `io:read`，Lab 不能单独挂载，经 `AgentConversationView` 验证（同旧版）。
+- **`PlainPromptEditor` 上照常识别 `/命令`**：只是没有命令菜单。计划原写“命令按普通文字发送”，改成与 Spec 一致。
+- **Spec 另补一句**：表里的 `subject_*`、`get_session` 等是 NeuroBook 的工具，由宿主登记。
+
+验证（Work 分支，2026-10-22）：
+
+- **包**：nb-agent-ui 的 `typecheck`；`test` 通过（bun 46 条，含适配器单测 7 条与契约测试 6 条；Vitest 46 条）。nb-ui 的 `test`（552 条）、`typecheck`、`build` 通过。
+- **应用**：`typecheck`；`bun run test` 通过（bun 1599 条、Vitest 403 条）。
+- **e2e**：
+  - `lab-agent-ui.e2e.ts` 15 条通过。变异检查：对调 steer 与 followup、把过程区的行内边距改回 8px，相应用例都失败。
+  - `lab-scenes.e2e.ts` 全场景巡检通过。
+- **截图**：`nbdev shot` 截了对话视图与输入框全部场景，手机与 1400×900、明暗各一，72 张没有溢出与页面错误。
+- **文档检查**：`docs:check` 失败 0。
 
 ## 开工前已查明（2026-10-21，从代码读出，未运行）
 
@@ -35,6 +62,8 @@ updated: 2026-10-21
 - **nb-ui 的机检**：`token-consumption.test.ts`（圆角、时长、颜色、阴影都用 token，`var(--x)` 必须有声明）与 `icon-registration.test.ts`（`i-lucide-*` 必须在 `@iconify-json/lucide` 里，不能拼接类名）会扫所有 `.vue`；搬进 nb-ui 的零件要过这两条。图标是 nb-ui 的 `@iconify/tailwind4` 预生成类名。
 - **nb-form 的边界测试**（`packages/nb-form/src/boundary.test.ts`）可照抄：核心只依赖 typebox，渲染层只依赖 vue 与 nb-ui。
 
+- **契约测试与计划的差别**：脚本化模型一步给出整段，不发 `message_update`；“运行中画出流式消息”在契约测试里截到助手消息的 `message_start`，逐字更新由单测覆盖。
+
 ## 下一步
 
-写 `plan.md`，要点先给开发者看。
+实现审查两路（前端 Sonnet，核心与适配器 omp）处理完后，交开发者在 Lab 确认（含 t09 第 2 步的输入框）。开发服务：`nbdev dev start` 起在 4317。

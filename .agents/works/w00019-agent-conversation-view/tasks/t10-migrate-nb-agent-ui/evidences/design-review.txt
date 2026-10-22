@@ -1,0 +1,131 @@
+# w00019 t10 只读设计审查
+
+审查对象：`/tmp/claude-1000/review-w00019-t10-design/plan.md`。代码依据：所给 worktree 与归档提交 `865c9f593`；未修改仓库、计划或治理记录。以下区分代码可直接核实的合同与实验结果，不把待实施方案说成已经发生的回归。
+
+### 1. 仅凭 AgentEvent 无法与日志合成等价的运行结果
+
+- **严重程度**：阻断；**类别**：正确性。
+- **位置**：`plan.md:69-85,172-189`；`packages/nb-harness/src/harness.ts:294-315`、`src/sse.ts:56-59`、`src/run-result.ts:111-120`。
+- **现象**：计划只有 `applyLogEntry` 与 `applyEvent(AgentEventJson)` 两个入口，要求日志与流式路径产出同样的消息；但 `serializeAgentEvent` 只包装 OMP 事件，不补 harness 的 `run_end` 或定价信息。真实 harness 在密钥缺失时不进入 Agent：订阅事件为 **0 条**，模型请求为 **0 次**，日志却有 `run_end(error, auth)`。正常运行时，单价未知与已知零价的 assistant 事件费用都为 `0`，对应日志的 `usage.cost` 分别为 `null` 与 `0`。
+- **为什么是问题**：事件路径没有足够信息产生承诺的错误条目，也无法区分未知费用与免费模型。这不是调整字段映射能修复的差异。旧 `UsageView.cost` 还是必填 `number`（归档 `agent-view.types.ts:24-31`），计划同时承诺原样迁类型，连日志里的未知费用都没有合法表示。按现合同验收，只能丢失败、把未知金额显示成零，或放宽“两路相同”的断言。
+- **如何核实**：已运行 `bun /tmp/claude-1000/review-w00019-t10-design/lab/harness-contract.ts`，使用真实 `createHarness`、内存日志、真实 SSE 序列化与 `scriptedModel`，不启动服务、不调用真实模型。三组输出分别为：缺密钥 `events=[] / logs=[session_snapshot,run_end]`；未知价 `loggedUsage.cost=null / assistantCost=[0]`；零价 `loggedUsage.cost=0 / assistantCost=[0]`。实验文件保留在 `lab/`；依赖来自 worktree 现有 node_modules。实验通过包名解析的 workspace 实际链接装配，避免将两份 Profile 品牌混用。
+- **建议改法**：在 S2 之前补齐适配器输入合同：以会话日志作为最终权威来源，AgentEvent 只作临时流式覆盖；宿主必须另交本轮 `TurnResult` 或有序持久条目（含 `run_end` 与 `usage`），并定义结束时如何替换/对齐。若坚持事件独立路径，则显式增加 harness 层的开始/结束/费用元数据，而非假定 OMP 事件自带。将未知费用建模为 `null` 或省略费用，并保留 tokens，不能补零；明确币种由宿主换算或给配置。合同用例至少覆盖运行前 auth 失败、取消、单价未知、零价与普通成功。
+
+### 2. `Component` 服务类型会把注入端口的类型检查全部擦掉
+
+- **严重程度**：阻断；**类别**：接口与合同。
+- **位置**：`plan.md:62-68,90-99`；`packages/neuro-book/src/plugins/markdown/shared/contracts.ts:25-37`；`packages/neuro-book/src/plugins/markdown/web/plugin.ts:39-55,77-85`；归档 `packages/neuro-book/app/components/agent/composer/AgentConversationComposer.vue:254-281`。
+- **现象**：计划让 `ports.ts` 写结构端口，再在应用侧用 `*.typecheck.ts` 断言 `nbook.markdown` 的实现符合。但 `MarkdownComponents` 把 `PromptEditor`、`PromptTextView`、`MarkdownDisplay` 全声明为 Vue 的宽泛 `Component`；运行时 `withHost()` 又返回没有泛型参数的 `Component`，并通过 `h(inner, attrs, slots)` 转发属性。把服务中的 `PromptEditor` 提取成 `$props` 时，空对象也被接受，无法验证 `draft`、`locale`、事件或 expose。归档 Composer 还实际监听了计划端口未列出的 `shift-tab` 和 `menu-open`，并调用 `focus("end")`、`insertFiles()`。
+- **为什么是问题**：照计划实现会得到“类型检查通过但任意组件都能注入”的假合同；宿主把必填 `locale`、附件事件或外露方法改坏时，应用不会在 `typecheck` 阶段发现，直到运行时输入框失去发送、菜单、附件或聚焦能力。直接 import 具体 `.vue` 只能检查源码组件，不能检查 `markdownKey` 服务实际交出的 `withHost` 包装值；而且它会把包边界检查降为绕过公开合同的深导入。
+- **如何核实**：在实验目录用真实 `MarkdownComponents`、`PromptEditor.vue` 与 `vue-tsc` 编写 `/tmp/claude-1000/review-w00019-t10-design/lab/ports.typecheck.ts`，运行 `./node_modules/.bin/vue-tsc --noEmit -p /tmp/claude-1000/review-w00019-t10-design/lab/tsconfig.ports.json`。实验中的 `type ServiceProps = Props<MarkdownComponents["PromptEditor"]>`、`{} extends ServiceProps` 与 `const invalidButAccepted: MarkdownComponents["PromptEditor"] = {} satisfies Component` 都不因缺少真实属性而报错；只有实验显式检查归档实际使用、但计划漏写的事件时才报错。源码中的真实 `PromptEditor` 合同见 `PromptEditor.vue:89-144`，`locale` 是必填，`shift-tab`、`menu-open`、附件事件均有声明。
+- **建议改法**：先在公开 markdown 合同中定义可表达 Vue props、emits 与 expose 的端口类型，并让 `MarkdownComponents` 的三个字段使用这些具体类型，而不是 `Component`；`withHost()` 保留这些泛型并把属性、事件、expose 的类型传给包装组件。或者由 `nb-agent-ui` 提供明确的 `createRendererAdapter()`，应用只把服务组件经过这个适配器转换为端口，类型断言针对适配器输入而非具体深路径。端口逐项补齐 `ariaLabel`、`acceptImages/acceptFiles`、`resolveThumbnail`、`fill`、`shift-tab`、`menu-open`、`focus` 的参数与附件事件；用一个故意缺失必填 prop/事件/expose 的负例证明检查会失败。
+
+### 3. 通用折叠零件带着应用 i18n 依赖，不能按计划进入 nb-ui
+
+- **严重程度**：阻断；**类别**：接口与边界。
+- **位置**：`plan.md:107-119`；归档 `packages/neuro-book/app/components/agent/parts/AgentCard.vue:1-3,26,53`、`stream/AgentStepLine.vue:1-3,27,51`；`packages/nb-ui/package.json:30-47`。
+- **现象**：计划要求把 `AgentCard`、`AgentStepLine` 原样迁成 `nb-ui` 的 `CollapsibleCard`、`CollapsibleRow`，并声称 nb-ui 只依赖 Vue/自身基础能力。但两个来源组件都直接调用应用的 `useI18n()`，只为给 `Spinner` 的 `aria-label` 取 `agentView.turn.running`；nb-ui 当前 Spinner 已经提供 `label` prop，库内没有应用的 i18n 注入或这组文字表。
+- **为什么是问题**：按“原样搬”会在 nb-ui 包边界和独立类型检查中找不到 `useI18n`；若偷偷保留注入，公共零件就新增未声明的 `state:inject`/应用耦合；若改成固定中文，英文宿主的无障碍名称和既有行为都会变。这个依赖不是样式迁移能顺手解决的，必须先定公共组件的文案输入合同。
+- **如何核实**：读取来源脚本即可复现：`AgentCard.vue:26`、`AgentStepLine.vue:27` 是 `const {t} = useI18n()`，对应 Spinner 分别在 `:53`、`:51` 使用 `t("agentView.turn.running")`；`packages/nb-ui/src/components/display/Spinner.vue:7-16,29-33` 只接受调用方传入的 `label`，`packages/nb-ui/src/components` 没有 `useI18n` 命中。按计划复制文件后运行 nb-ui 的 `bun run typecheck`，会先暴露缺少该全局 composable/文字来源；即使补上全局类型，独立宿主仍缺运行时注入。
+- **建议改法**：将 `runningLabel`/`statusLabel`（或通用 `spinnerLabel`）作为 `CollapsibleCard`、`CollapsibleRow` 的可选/必填 prop，默认使用 nb-ui 自己的中性文字，Agent 视图从 `useAgentText()` 传入本地化文案；同时在同名 `.md`、Lab 场景和端口中声明。不要把 `useI18n` 或 Agent 文案键下沉到 nb-ui。
+
+### 4. `--acv-*` 样式变量是跨包隐藏合同，迁移计划没有收口覆盖点
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`plan.md:107-119`；归档 `parts/AgentCard.vue:68-77,92-167`、`stream/AgentStepLine.vue:64-76`、`stream/AgentTurnBlock.vue:311-395`。
+- **现象**：旧卡片消费 `--acv-card-border/radius/bg/shadow/error-border/head-py/px/body-pb`，步骤行消费 `--acv-step-h/px`；父级 `AgentTurnBlock` 在 `.acv-steps` 上实际覆盖 `--acv-step-px: 6px`，在思考与提醒区域覆盖 `--acv-markdown-color/size`，并用 `--acv-block-indent` 控制卡片、链和节点的对齐。计划只写“`--acv-*` 变量改成组件自己声明的变量”，没有列出这些父子之间的覆盖映射、哪些是 nb-ui token、哪些是宿主 hook。
+- **为什么是问题**：如果只改 nb-ui 零件而不改所有父级声明，步骤缩进、卡片内边距、思考文字层级和对话对齐会静默恢复默认值，行为不再“外观不变”；如果保留 `--acv-*`，通用包就把 Agent 应用前缀当成公开变量，和 nb-ui 的 token/宿主 hook 规则冲突；如果改名为包变量却不保留 fallback 或登记 hook，nb-ui 的 token 机检会阻断或运行时整条 CSS 失效。
+- **如何核实**：对照归档样式即可复现：`AgentTurnBlock.vue:360-369` 将 `--acv-step-px` 设为 `6px`，而 `AgentStepLine.vue:70-71` 的默认值是 `8px`；删除/改名其中一侧后，真实计算值从 6px 回到 8px。`packages/nb-ui/src/components/token-consumption.test.ts:47-52` 还要求宿主可选变量登记在 `HOST_HOOK_VARS` 并带 fallback。迁移前应做一次 CSS 变量引用与声明集合差集，不能只看组件文件能否编译。
+- **建议改法**：在 S1/S3 前先建立变量迁移表：公共零件的内部 token、宿主可覆盖 hook、Agent 视图的局部布局变量分别命名；把 `--acv-step-px: 6px`、`--acv-markdown-*`、`--acv-block-indent` 等所有写入点与消费点一并改名，并为真正的宿主 hook 写 fallback/登记和组件文档。加一个 Lab/DOM 断言覆盖步骤行 6px 覆盖与独立挂载默认 8px 两种路径，防止“默认样式正常、嵌入视图变样”的漏测。
+
+### 5. 新包没有进入 workspace package CI 矩阵，包级检查不会随 PR 运行
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：`plan.md:134-145,164-172,191-201`；`.github/workflows/workspace-packages.yml:3-26`；`scripts/ci/workspace-package-matrix.ts:10-72`；`.github/workflows/code-baseline.yml:14-38`。
+- **现象**：计划的仓库登记只列根 `package.json`、`bun.lock`、文档、`code-baseline.yml` 等，没有列 `.github/workflows/workspace-packages.yml` 和 `scripts/ci/workspace-package-matrix.ts`。当前 workspace workflow 的 `paths` 没有 `packages/nb-agent-ui/**`，矩阵 `WORKSPACE_PACKAGE_CHECKS` 也没有 `nb-agent-ui` 行；code-baseline 明确只做治理与脚本检查，并不替代包的 `typecheck/test/build`。
+- **为什么是问题**：即使 S0/S2-S6 的本地命令都通过，PR 修改新包时也不会被 workspace workflow 选中，更不会执行计划要求的包级类型检查、测试和构建。新包还是 `nb-ui` 的消费者，依赖闭包也需要从矩阵中登记，否则 `nb-ui` 或新包的改动无法得到预期的消费方验证。这违反仓库“新 Module 的验证命令与 workflow 同步”的持续条件。
+- **如何核实**：运行 `grep -n "nb-agent-ui" .github/workflows/workspace-packages.yml scripts/ci/workspace-package-matrix.ts .github/workflows/code-baseline.yml`，在当前基线没有命中；读取 `workspace-package-matrix.ts:184-210` 可见矩阵只从显式 `WORKSPACE_PACKAGE_CHECKS` 行选包。按计划只改 `code-baseline.yml` 后，`packages/nb-agent-ui` 仍不在 workflow paths 与 include matrix 中。
+- **建议改法**：在 S0 的登记表中同时加入 workspace workflow path、矩阵条目（至少 `bun run typecheck`、`bun run test`，若有包构建再加 `bun run build`）以及必要的消费者闭包；让 `workspace-packages.yml` 与矩阵表继续保持同一份 owner 合同。若暂不把新包纳入自治矩阵，计划必须明确由哪个现有 job 执行等价命令，并增加可验证的路径触发规则，而不是只写本地验证。
+
+### 6. 日志与 SSE 输入只有 TypeScript 形状，没有运行时校验边界
+
+- **严重程度**：重要；**类别**：安全与正确性。
+- **位置**：`plan.md:69-85`；`packages/nb-session/src/entries.ts:53-57,136-188`；`packages/nb-harness/src/sse.ts:56-59`。
+- **现象**：计划说适配器的输入类型“只声明本包读到的字段”，直接把 `SessionLogEntryJson` 与 `AgentEventJson` 交给 `applyLogEntry`/`applyEvent`。但会话条目中的 `agent_message.message` 只是任意 `JsonValue`，`parseEntryLine()` 只校验条目外壳，不校验 OMP 消息的 role/content/toolCallId；`serializeAgentEvent()` 甚至接收 `unknown` 后直接 JSON 化。计划没有定义浏览器从 SSE、磁盘日志或回放 fixture 进入适配器时的解析、拒绝、截断和诊断规则。
+- **为什么是问题**：这些数据是持久化/跨进程边界，不是编译器可证明的内存对象。坏的 `content`、重复/缺失的工具 id、错误的 `usage` 或极大文本会让配对逻辑抛异常、把结果挂到错误的工具、破坏 `JsonValue` 不变量，或把整个消息流拖垮；如果把未验证的 Markdown/text 继续交给渲染层，还会把“日志可回放”误当成可信输入。`AgentEventJson` 不是 OMP 运行时对象，不能靠 `as` 维持合同。
+- **如何核实**：构造 JSONL 使 `kind:"agent_message"` 的 `message` 为 `{role:"assistant",content:[{type:"toolCall",id:7}]}`，或构造缺 `toolCallId` 的 `tool_execution_end`，现有 `parseEntryLine()` 仍可返回外壳条目；同样，`serializeAgentEvent({type:"tool_execution_end",result:{...}})` 可以正常输出不完整事件。计划的适配器没有规定这些输入应产生错误条目、丢弃事件还是停止回放。
+
+- **建议改法**：在两个入口各自用 TypeBox/已有 schema 解析 `unknown`：先验证 SSE 帧的 JSON 与事件判别联合，再验证会话 `agent_message` 的 OMP 消息子集；为不认识的自定义消息、重复工具 id、无对应调用的结果、超长 text/details 定义明确的降级/诊断策略。`messages()` 只消费解析后的判别联合，测试覆盖损坏尾、未知事件、乱序/重复事件与上限，不能只写 `AgentEventJson` 接口和类型断言。
+### 7. nb-story 没有适配器所需的事件/日志供给，双宿主合同实际上断在引擎边界
+
+- **严重程度**：重要；**类别**：接口与遗漏。
+- **位置**：`plan.md:69-85,172-174,198-201`；`packages/nb-story/src/qa/engine.ts:33-49,189-231,232-249`；`packages/nb-story/src/server/http.ts:1-5,98-113`。
+- **现象**：计划把 `createHarnessTranscript()` 定为 nb-story 与主应用共用的适配器，却把 nb-story 实际接入留到 t13。当前 `askQuestion()` 内部订阅 harness，只向 `onProgress` 发三种丢失大量信息的事件：工具开始 `{tool,text}`、answer 被拒 `{text}`、answered；完整 `AgentEvent`、内存 `SessionLog`、assistant 文字/思考、工具参数与结果、usage、run_end 都没有从 engine 返回或经 HTTP/SSE 暴露。当前独立服务 HTTP 也只有 RPC JSON 响应，没有问答事件流。
+- **为什么是问题**：t13 不能仅消费现有 `QaProgress` 画出计划所要求的完整 Agent 对话：它既无法重建工具配对与中间 assistant 消息，也无法在运行中显示真实 usage/错误/停止状态；若 t13 另做一套 `QaProgress`→`MessageView` 映射，就与 S6 的 harness 适配器分叉，违反“供两个宿主共用”，并再次决定日志权威、事件结束、断线重连和权限边界。
+- **如何核实**：读取 `engine.ts:223-247` 可见 `harness.subscribe` 的取消函数未向调用方返回，`sessionLog` 只在函数内创建，`onProgress` 没有 assistant 内容或 usage；读取 `http.ts:98-113` 可见 RPC 只等待 `api.call`/ingest 结果后返回 JSON。现有 t13 README 还明确当前 `QaProgress` 只有 `tool/rejected/answered`，且问答页需要“运行中逐步展开”。
+- **建议改法**：在 t10 的适配器合同中明确 nb-story 的供给层：由引擎拥有一个可订阅的有序 `AgentEvent`/日志输出，定义请求 id、断线后的日志游标、结束/取消/错误和权限；或明确 t13 不使用该适配器并把适配器范围收窄为主应用。若保持共用，应先在 S6 做一个真实 nb-story harness bridge（不是只用 fixture replay），让同一条记录/事件输入同时驱动 Lab 与未来问答页，并对 normal stop、answer finish、rejected tool、abort、local failure 各有合同测试。
+
+### 8. Markdown 注入替换没有定义资源解析与 `activate` 转换，迁移会丢图片和链接行为
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`plan.md:87-99`；归档 `parts/AgentMarkdown.vue:1-17`、`stream/AgentTurnBlock.vue:205-238`；`packages/neuro-book/src/plugins/markdown/web/components/MarkdownDisplay.vue:16-20,115-123`；`packages/neuro-book/src/plugins/markdown/web/components/MarkdownDisplay.md:25-47`。
+- **现象**：旧 `AgentMarkdown` 只接收 `text/sanitizeHtml/streaming`，没有事件；归档消息流也没有给它接 action。计划只说把它改成注入 `MarkdownDisplay`，但没有扩展 `AgentConversationServices` 或 `MarkdownDisplayPort` 的资源/激活适配。新 `MarkdownDisplay` 要求 `locale`，图片资源是异步 `resolveAsset(src, signal) => {url, release}`，点击引用、外链和图片一律 `preventDefault()` 后发 `activate`；当前 Agent 服务只有同步的附件 `resolveAttachmentUrl(locator, "thumbnail"|"original")`，没有 Markdown 地址到文件资源的映射，也没有 `activate` 到 `reference.open`、原图预览或外链动作的规则。
+- **为什么是问题**：不传 `resolveAsset` 时新组件把图片显示为不可用；把同步附件 resolver 直接当 Markdown resolver 又无法处理作品路径、外链、取消和释放。更严重的是不处理 `activate` 会让新组件拦截点击后没有任何导航，引用/外链/图片交互静默失效，违反“迁移不改行为”。只给真实 `nbook.markdown` 组件做类型断言也不能发现这些语义差异，因为它们不是 props 类型错误。
+- **如何核实**：`MarkdownDisplay.vue:115-123` 直接 `preventDefault()` 并只 emit；`MarkdownDisplay.vue:43-62` 的资源缺省路径把图片置为 `none`，`MarkdownImage.vue:41-65` 要求异步结果并在取消/卸载时调用 `release()`。对比归档 `AgentMarkdown.vue:11-17` 可见旧实现缺少这条事件拦截链；归档 `render.ts:266-274` 还会把 Markdown 直接转成带 `<img src>` 的 HTML。用现有 `MarkdownDisplay.dom.test.ts:115-145` 即可在不启动服务的情况下验证激活事件与 release 次数。
+- **建议改法**：在迁移前定义 `AgentMarkdown` 适配器的完整合同：宿主提供可取消、可释放的 Markdown asset resolver，或明确所有图片都降级且更新 Spec；将 `activate` 映射为 Agent action/原图预览/外链策略，并为 `reference`、`link`、`image` 三种分支写行为测试。适配器必须使用 `nbook.markdown` 的包装组件而不是裸 `MarkdownDisplay`，并把 `locale`、资源生命周期和 fallback 一起写进端口与同名文档。
+
+### 9. `ViewText` 改为双语值后，纯逻辑层的参数化文案没有迁移合同
+
+- **严重程度**：重要；**类别**：接口与合同。
+- **位置**：`plan.md:28-31,52-68,100-105`；归档 `agent-view.types.ts:12-16`、`stream/conversation-turns.ts:449-458`、`stream/process-summary.ts:11-25,47-57`、`builtin-tools.ts:61-89`。
+- **现象**：计划把 `ViewText` 从 `{key, params}` 换成 `{ "zh-CN", "en-US" }`，但当前纯逻辑层大量按运行时数字生成参数化文字：工具组的 `groupPhrase(count)` 传 `count`，过程摘要传 `read/changed/count`，generic fallback 也传 `count`；相关单测直接断言这些参数对象。计划只说“改为两张表”，没有说明参数是在纯函数里分别插值、保留一个参数化模板类型，还是把数字先拼入字符串。
+- **为什么是问题**：直接把 `{key, params}` 替换成双语对象会让这些生产者和测试无法编译；若把参数对象临时转成 `String` 后只拼中文，再复用到英文，会造成英文摘要仍是中文；若把 `{count}` 留在双语字符串里，当前新类型又不能表达“模板加参数”。插件登记项的动态 `groupPhrase` 也需要同一规则，否则核心层会出现各写一套格式化逻辑。
+- **如何核实**：归档 `builtin-tools.ts:63,69,74,79,84,89` 与 `process-summary.ts:13-25,39,51` 均返回带数字参数的旧形状；`conversation-turns.test.ts:196-198` 直接锁定 `{key, params}`。仓库已有可复用的中英双语占位符格式化实现 `packages/neuro-book/src/shared/localized-text.ts:22-35`，但核心包不能反向依赖应用，计划也没有把等价函数下沉或声明为端口。
+- **建议改法**：在核心合同中明确 `LocalizedText` 与参数化模板的最小形状，例如 `ViewText = string | {text: LocalizedText; params?: Readonly<Record<string,string|number>>}`，并提供纯 TS 的 `formatViewText`，两种语言各自插值；或让所有 `groupPhrase`/摘要函数显式生成已插值的双语对象。迁移清单要覆盖 generic fallback、所有 builtin/tool/plugin 登记项及单测，并加中英文 `count=1`、`count>1` 与 `read+changed` 场景，避免只验证键名改变。
+
+### 10. 核心类型照搬后仍会深导入 `nbook`，直接违反新包边界
+
+- **严重程度**：阻断；**类别**：接口与边界。
+- **位置**：`plan.md:45-49,52-68`；归档 `agent-view.types.ts:8,221-242`；参照 `packages/nb-form/src/boundary.test.ts:25-26,60-67`。
+- **现象**：计划同时要求“`types.ts` 来自 `agent-view.types.ts`，ctx/services/action 原样搬过来”，又规定核心 `src/` 除 `vue/` 外不依赖任何包、只允许 type-only `vue`。但归档核心类型在 `agent-view.types.ts:8` 直接 import `nbook/app/components/common/form/prompt-editor/prompt-editor.types` 的 `PromptEditorPastePolicy`，并在 `ComposerView.pastePolicy` 使用它。这个 import 不是 Vue 类型、不是新包内部相对路径，也不是公开 workspace package。
+- **为什么是问题**：按计划复制会让核心 `types.ts` 深依赖应用源码，边界测试应立即报错；若为过边界检查删掉类型，Composer 合同会丢失粘贴阈值与 `blockPlacement` 语义，输入框行为不能保持不变。把应用路径改成别的宿主路径只是在换一个深导入，nb-story 也无法复用同一核心合同。
+- **如何核实**：对照归档 `agent-view.types.ts:8` 与 `ComposerView:235-236`，再按 `nb-form/src/boundary.test.ts` 的 `CORE` 规则扫描：相对/别名应用导入不在目标包 `src` 内，且包名不匹配允许列表。当前归档边界问题已经是源代码事实，不需要等迁移实现。
+- **建议改法**：把 `PromptEditorPastePolicy` 的最小结构（四个阈值/放置枚举及默认语义）定义在 `nb-agent-ui` 核心，例如 `PastePolicy`，由 `ports.ts` 与 `ComposerView` 共用；宿主端 `PromptEditor` 类型通过结构兼容实现，不反向 import 应用。同步删除旧 `nbook` 深导入，并让 boundary test 加一个针对宿主别名/跨包源码的回归样例。
+
+### 11. 第二宿主的 package/CSS 接入被同时写成“先用”和“不验证”
+
+- **严重程度**：重要；**类别**：构建与遗漏。
+- **位置**：`plan.md:87-99,120-132,191-201`；`packages/nb-story/package.json:23-40`；`packages/nb-story/src/web/app.css:1-13`；`packages/nb-story/vite.config.ts:7-19`。
+- **现象**：计划说“nb-story 先用”`PlainMarkdown`/`PlainPrompt*`，并把 adapter 作为 nb-story 与主应用共用；但依赖与样式登记只写了 `packages/neuro-book/package.json` 和 NeuroBook 的 `src/web/tailwind.css`。当前 nb-story 没有 `@notnotype/nb-agent-ui` 依赖，`app.css` 只导入 `@notnotype/nb-ui/tailwind.css`，没有导入新包的 Tailwind source；验证部分又明确“nb-story 实际接入，那是 w00024 t13 的事”。
+- **为什么是问题**：照“先用”实现会在 nb-story 里无法经公开包入口 import；只在 t13 临时补 dependency 还会漏掉 `@notnotype/nb-agent-ui/tailwind.css`，包内 Agent 图标及宿主编译的原子类不会进入 nb-story 产物。照“不验证”理解则 t10 的双宿主适配器与 fallback 只在 NeuroBook Lab 里成立，t13 仍要重新决定依赖、CSS source、Vite 入口和 fallback 渲染。
+- **如何核实**：读取上述 package 与 CSS 即可确认当前第二宿主的依赖闭包和样式入口都没有新包；`nb-agent-ui` 计划导出的 `./tailwind.css` 依赖宿主显式导入，不能因为 NeuroBook 已导入就自动影响 nb-story。用 `bun run --cwd packages/nb-story typecheck` 配合一个只从 `@notnotype/nb-agent-ui` 导入 `PlainPromptEditor` 的最小 fixture，可复现当前 manifest 不提供该包的接入缺口。
+- **建议改法**：二选一并在计划中写死：若 t10 真负责第二宿主，S5/S6 同时改 nb-story manifest、`app.css`、Lab/类型检查与 workspace CI；若明确延后到 t13，删除“nb-story 先用”和“共用 adapter 已接入”的表述，给 t13 一份可执行的消费合同，至少包含 dependency、Tailwind import、Plain* 注入和真实运行事件桥接。
+
+## 未发现问题的方面
+
+- 归档来源固定为 `865c9f593`、排除 `neuro-book-legacy`，以及把时间线回放留在 t11，均与已定范围一致。
+- `nb-agent-ui` 独立建包、通用滚动/折叠行卡片/代码块进入 nb-ui、Markdown/Prompt 由宿主注入的总体拆分方向一致；问题集中在接口收口和接入细节，不是这三个上游边界本身。
+- 归档 Lab 使用的 `useLabSubject`、`LabFixtureControls`、事件记录与场景输入机制在新 Lab 中有对应实现；未发现“新 Lab 完全没有这些能力”的问题，但新包组件索引、第二宿主接入仍需按第 5、11 条补齐。
+- 使用真实 `createHarness`/`scriptedModel` 做 S6 合同测试的方向可行；缺口是输入合同、生命周期元数据和 nb-story 供给，不是测试工具不能驱动真实 harness。
+
+## 数量统计
+
+- **阻断：4 条**（1、2、3、10）。
+- **重要：7 条**（4、5、6、7、8、9、11）。
+- **建议：0 条**。
+- **合计：11 条**。
+
+## 四个待确认项判断
+
+1. **NeuroBook 专属工具渲染放 Lab 场景宿主**：原则上接受，符合领域能力由宿主登记的边界；但必须确认归档场景实际登记 `subject_memory`、`subject_rag_search`、`agent_lookup` 的贡献，不能只从通用 builtin-tools 删除后让场景失去渲染器。
+2. **原图预览暂留 `nb-agent-ui`**：t10 可接受，前提是把预览对话框真正整理成包内实现，不保留对 `nbook/app` 的深导入，并以 `teleportTarget`/资源地址作为公开合同；待 nb-ui Dialog 形状稳定后再单独迁移。
+3. **harness 适配器形状**：不接受当前只有 `applyLogEntry`、`applyEvent`、`messages()` 的形状作为最终合同；应补上日志权威、运行结束/取消/失败、usage 未知值、事件与日志收口，以及 nb-story 的供给方式，具体见第 1、7 条。
+4. **时间线回放不在 t10**：接受，符合已定范围；不要为了补 S6 回放而把归档 Spec 验收 19 混入本 Task，但应保留后续接入所需的稳定消息/事件记录格式。
+
+## 核实记录
+
+- 真实 harness 实验：`bun /tmp/claude-1000/review-w00019-t10-design/lab/harness-contract.ts`；得到缺密钥 `events=[]`、`run_end` 日志，以及未知费用 `null` 与零价 `0` 的差异。
+- 允许的 harness 合同测试：`bun test packages/nb-harness/tests/session.test.ts packages/nb-harness/tests/provider.test.ts`；`25 pass`、`0 fail`、`108 expect() calls`。
+- 允许的 Vue 类型实验：`./node_modules/.bin/vue-tsc --noEmit -p /tmp/claude-1000/review-w00019-t10-design/lab/tsconfig.ports.json`；实验中的负例按预期报错，服务字段宽类型的空对象反例未因缺少真实端口而报错。
+- 损坏输入核实：`bun -e ...` 使 `parseEntryLine()` 接受不合 OMP 消息子形状的 `agent_message`，`serializeAgentEvent()` 输出缺字段的 `tool_execution_end`。
+- 按原审查限制未运行 e2e、开发服务、真实模型与 Firefox/Safari；未修改仓库、未提交、未切分支。

@@ -1,0 +1,195 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00027-plugin-platform",
+    "taskId": "t06-settings-ui-polish",
+    "artifactId": "review",
+    "version": 7,
+    "supersedes": 6,
+    "action": "publish",
+    "kind": "design",
+    "title": "t06 设置界面外观评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "215fdd4f3ced853b7505f01907e3662758dcbbda667178eecb109b8fa227408b",
+    "files": [
+        "index.html",
+        "r0/flow-leave-dialog.webp",
+        "r0/flow-search-results.webp",
+        "r0/now-choices-unavailable.webp",
+        "r0/now-file.webp",
+        "r0/now-narrow.webp",
+        "r0/now-other.webp",
+        "r0/now-page-column.webp",
+        "r0/now-page-fill.webp",
+        "r0/now-user-invalid.webp",
+        "r0/now-user.webp",
+        "r0/t80-mixed-agent.webp",
+        "r0/t80-x1-appearance.webp",
+        "r1/now-appearance.webp",
+        "r1/now-models.webp",
+        "r1/now-other.webp",
+        "r1/t80-appearance.webp",
+        "r1/t80-editor.webp",
+        "r2/after-app.webp",
+        "r2/after-appearance-dark.webp",
+        "r2/after-appearance.webp",
+        "r2/after-file.webp",
+        "r2/after-invalid.webp",
+        "r2/after-models-general.webp",
+        "r2/after-models-provider.webp",
+        "r2/after-other.webp",
+        "r2/after-project.webp",
+        "r2/t80-models.webp",
+        "r3/d-other-compact.webp",
+        "r3/d-other-now.webp",
+        "r3/d-other-tight.webp",
+        "r3/d-page-fill-compact.webp",
+        "r3/d-page-fill-now.webp",
+        "r3/d-page-fill-tight.webp",
+        "r3/d-user-compact.webp",
+        "r3/d-user-now.webp",
+        "r3/d-user-tight.webp",
+        "r3/w-other-bold.webp",
+        "r3/w-other-titles.webp",
+        "r3/w-page-fill-bold.webp",
+        "r3/w-page-fill-titles.webp",
+        "r3/w-user-bold.webp",
+        "r3/w-user-titles.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-content",
+            "type": "single",
+            "label": "1. 内容区的小组怎么画",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "现状：小组标题加分隔线"
+                },
+                {
+                    "value": "cards",
+                    "label": "分组底板：每个小组一块底板，行间细线"
+                },
+                {
+                    "value": "quiet",
+                    "label": "不画线：靠字号与留白分层"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "cards"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 3,
+                "reason": "explicit"
+            }
+        },
+        {
+            "id": "r1-layer",
+            "type": "single",
+            "label": "2. “用户 | 本作品”放在哪",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "现状：窗口左上，左栏上面"
+                },
+                {
+                    "value": "header",
+                    "label": "内容区标题行的右边"
+                },
+                {
+                    "value": "titlebar",
+                    "label": "窗口标题栏正中"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "titlebar"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 4,
+                "reason": "explicit"
+            }
+        },
+        {
+            "id": "r2-accept",
+            "type": "confirm",
+            "label": "还原后的外观可以了吗",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 6,
+            "outcome": null
+        },
+        {
+            "id": "r3-density",
+            "type": "single",
+            "label": "紧凑度选哪一档",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "A 现状"
+                },
+                {
+                    "value": "compact",
+                    "label": "B 紧凑"
+                },
+                {
+                    "value": "tight",
+                    "label": "C 更紧凑"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "compact"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 7,
+            "outcome": null
+        },
+        {
+            "id": "r3-weight",
+            "type": "single",
+            "label": "字重层级选哪一种",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "现状字重"
+                },
+                {
+                    "value": "titles",
+                    "label": "加强标题"
+                },
+                {
+                    "value": "bold",
+                    "label": "全面加粗"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "titles"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 7,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-22T08:02:49.692Z"
+}

@@ -36,7 +36,7 @@
 - [应用运行时产品装配](../../packages/neuro-book-legacy/docs/proposals/application-runtime-product-integration.md)：从启动到 Project、工作台及领域接入的细化方案；后端启动与 HTTP 入口部分已由可扩展应用平台替代。
 - [Files 与资源管理器第一版](../../packages/neuro-book-legacy/docs/proposals/files-explorer.md)：范围及 F1–F9，行为已沉淀为 [`workspace/files.md`](../specs/workspace/files.md) 与 [`workbench/files-explorer.md`](../specs/workbench/files-explorer.md)。
 - [Files 与资源管理器第二版](../../packages/neuro-book-legacy/docs/proposals/files-explorer-v2.md)：快速打开与删除恢复为核心方向，全文搜索、内容整理、导入导出为候选。
-- [Agent 对话视图重做](../../packages/neuro-book-legacy/docs/proposals/agent-conversation-view.md)：纯视图的 `AgentConversationView`，已批准行为见 [归档的 Spec](../archived/specs/ui/agent-conversation-view.md) 与 [`ui/component-lab-timeline.md`](../specs/ui/component-lab-timeline.md)。
+- [Agent 对话视图重做](../../packages/neuro-book-legacy/docs/proposals/agent-conversation-view.md)：纯视图的 `AgentConversationView`，已批准行为见 [`ui/agent-conversation-view.md`](../specs/ui/agent-conversation-view.md) 与 [`ui/component-lab-timeline.md`](../specs/ui/component-lab-timeline.md)。
 - [Agent 会话数据层后续](../../packages/neuro-book-legacy/docs/proposals/agent-session-data-layer.md)：阻塞 invoke 与 SSE 双通道、live state 无版本、重复入口等问题，留到插件体系就绪后处理。
 
 已完成沉淀的 [信息架构提案](../../packages/neuro-book-legacy/docs/archived/proposals/documentation-information-architecture.md) 与已否决的 [nb-ui 浮层 portal 宿主提案](../../packages/neuro-book-legacy/docs/archived/proposals/nb-ui-overlay-portal-host.md) 在旧包的归档目录，仅供参照。
