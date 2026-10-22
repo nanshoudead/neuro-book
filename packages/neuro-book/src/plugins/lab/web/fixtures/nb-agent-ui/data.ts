@@ -170,7 +170,8 @@ export const runningConversationMessages: MessageView[] = [
     ...longConversationMessages,
     user("u5", 300, "再帮我把第六章的开头写得更有悬念。"),
     assistant("a14", 304, {
-        thinking: "先读第六章和第五章结尾。",
+        // 真实模型的思考摘要常把几段粗体小标题首尾相接写在一起，折叠行只露出第一段的纯文字（Spec 验收 30）。
+        thinking: "**读第六章开头****对照第五章结尾**\n\n先读第六章和第五章结尾，看衔接处的悬念断在哪里。",
         toolCalls: [read("t17", "chapters/06.md"), read("t18", "chapters/05.md")],
         usage: usage(9400, 50, 8300, 0.0041),
     }),

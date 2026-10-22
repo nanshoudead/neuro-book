@@ -63,7 +63,7 @@ function controllableResolver() {
     return {requests, resolveMarkdownAsset};
 }
 
-function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"; bareServices?: boolean} = {}) {
+function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"; bareServices?: boolean; markdownPreview?: (text: string) => string} = {}) {
     return mount(AgentConversationView, {
         props: {
             ...(options.header === undefined ? {} : {header: options.header}),
@@ -71,7 +71,7 @@ function mountView(locale: AgentLocale, services: Partial<AgentConversationServi
             ctx: options.ctx ?? context(),
             registry: options.registry ?? registry,
             locale,
-            renderers: options.plain === true ? {} : {markdown: FakeMarkdown},
+            renderers: {...(options.plain === true ? {} : {markdown: FakeMarkdown}), ...(options.markdownPreview === undefined ? {} : {markdownPreview: options.markdownPreview})},
             services: options.bareServices === true ? services : {resolveAttachmentUrl: () => null, resolveTriggerMenu: () => ({items: []}), ...services},
         },
         attachTo: document.body,
@@ -306,6 +306,30 @@ describe("运行中逐步展开（验收 22）", () => {
         done.messages = [ctx.messages[0]!, {...ctx.messages[1]!, status: "done", toolCalls: [{id: "r1", name: "read", status: "success", args: {path: "第一章.md"}}, {id: "r2", name: "read", status: "success", args: {path: "第二章.md"}}]} as AgentConversationContext["messages"][number], {kind: "assistant", id: "a2", timestamp: 3, status: "done", text: "读完了。", thinking: "", model: "m", toolCalls: [], contentOmitted: false}];
         await view.setProps({ctx: done});
         expect(view.find(".acv-steps").exists()).toBe(false);
+        view.unmount();
+    });
+});
+
+describe("思考预览（验收 30）", () => {
+    // 真实模型的思考摘要：几段粗体小标题首尾相接写在一个思考块里。
+    function thinkingCtx(): AgentConversationContext {
+        const ctx = context();
+        ctx.run = {status: "running", phase: ""};
+        ctx.messages = [ctx.messages[0]!, {kind: "assistant", id: "a1", timestamp: 2, status: "streaming", text: "", thinking: "**Gathering arcs****Checking summaries**\n\n先看目录", model: "m", contentOmitted: false, toolCalls: [{id: "r1", name: "read", status: "running", args: {path: "a.md"}}]}];
+        return ctx;
+    }
+    const thinkingRow = (view: ReturnType<typeof mountView>) => view.findAll(".acv-steps .nb-collapsible-row__detail").map((detail) => detail.text());
+
+    it("折叠的思考露出去掉 Markdown 标记的第一段", () => {
+        const view = mountView("zh-CN", {}, {ctx: thinkingCtx(), plain: true, processDisclosure: "live"});
+        expect(thinkingRow(view)).toContain("Gathering arcs");
+        expect(view.text()).not.toContain("**");
+        view.unmount();
+    });
+
+    it("宿主注入了 markdownPreview 时用它", () => {
+        const view = mountView("zh-CN", {}, {ctx: thinkingCtx(), plain: true, processDisclosure: "live", markdownPreview: (text) => `宿主：${text.length}`});
+        expect(thinkingRow(view)).toContain(`宿主：${"**Gathering arcs****Checking summaries**\n\n先看目录".length}`);
         view.unmount();
     });
 });

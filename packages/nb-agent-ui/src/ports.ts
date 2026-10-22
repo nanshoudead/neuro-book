@@ -141,3 +141,9 @@ export type MarkdownDisplayPortProps = {
     resolveAsset?: MarkdownAssetResolver;
     onActivate?: (activation: MarkdownActivation) => void;
 };
+
+/**
+ * Markdown 文字折叠时露出的那一行纯文字（思考、提醒）。宿主按自己的方言取，例如用自己的解析器取第一段的纯文字；
+ * 不注入时用核心的 `markdownPreviewLine`。要求是纯函数、只返回一行。
+ */
+export type MarkdownPreviewPort = (text: string) => string;

@@ -281,6 +281,10 @@ test.describe("对话视图的消息流", () => {
     test("运行中逐步展开：思维链与工具组不用点就逐项列出（验收 22）", async ({page}) => {
         await openScene(page, "AgentConversationView", "running-live");
         await expect(stage(page).locator(".acv-steps").first()).toBeVisible();
+        // 思考折叠时露出去掉 Markdown 标记的第一段（验收 30）。
+        const steps = stage(page).locator(".acv-steps").first();
+        await expect(steps.locator(".nb-collapsible-row__detail", {hasText: "读第六章开头"})).toBeVisible();
+        expect(await steps.innerText()).not.toContain("**");
         await openScene(page, "AgentConversationView", "running");
         await expect(stage(page).locator(".acv-steps")).toHaveCount(0);
     });

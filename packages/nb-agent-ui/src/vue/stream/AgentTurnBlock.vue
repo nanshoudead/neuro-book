@@ -7,7 +7,6 @@ import {CollapsibleCard, Spinner} from "@notnotype/nb-ui/components";
 import type {AgentConversationContext, AgentConversationServices} from "../../types";
 import type {AgentViewRegistry, ToolRendererEntry} from "../../registry";
 import type {ToolStep, TurnBlock, TurnStatus} from "../../conversation-turns";
-import {firstLine} from "../../format";
 import {toolCallPhase} from "../../tool-status";
 import AgentMarkdown from "../parts/AgentMarkdown.vue";
 import RenderGuard from "../parts/RenderGuard.vue";
@@ -15,7 +14,7 @@ import AgentToolDetail from "../tools/AgentToolDetail.vue";
 import AgentChainBlock from "./AgentChainBlock.vue";
 import AgentDeliveryNotice from "./AgentDeliveryNotice.vue";
 import AgentUserContent from "./AgentUserContent.vue";
-import {useAgentText} from "../host";
+import {useAgentRenderers, useAgentText} from "../host";
 import {useOpenSet} from "../use-open-set";
 import type {ViewAction} from "../view-action";
 
@@ -35,6 +34,7 @@ const emit = defineEmits<{
 }>();
 
 const {t, text, locale} = useAgentText();
+const renderers = useAgentRenderers();
 /** 通用控件卡片、信息条目与分隔线的展开状态。 */
 const openSet = useOpenSet();
 
@@ -120,7 +120,7 @@ function nodeSubtitle(step: ToolStep): string {
         >
             <span class="i-lucide-info acv-notice__icon" aria-hidden="true" />
             <span class="acv-notice__label">{{ props.block.message.label }}</span>
-            <span v-if="!openSet.isOpen(props.block.id)" class="acv-notice__text">{{ firstLine(props.block.message.text) }}</span>
+            <span v-if="!openSet.isOpen(props.block.id)" class="acv-notice__text">{{ renderers.markdownPreview(props.block.message.text) }}</span>
             <span class="i-lucide-chevron-right acv-notice__chevron" aria-hidden="true" />
         </button>
         <AgentMarkdown v-if="openSet.isOpen(props.block.id)" class="acv-notice__body" :text="props.block.message.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />

@@ -16,7 +16,7 @@ export type {
     WorkflowView, WorkspaceChangeGroupView, WorkspaceChangesView,
 } from "./types";
 export type {
-    MarkdownActivation, MarkdownAssetResolver, MarkdownDisplayPortProps, PromptAttachment, PromptAttachmentKind, PromptDraft,
+    MarkdownActivation, MarkdownAssetResolver, MarkdownDisplayPortProps, MarkdownPreviewPort, PromptAttachment, PromptAttachmentKind, PromptDraft,
     PromptEditorPortExpose, PromptEditorPortProps, PromptLocale, PromptMenu, PromptMenuContext, PromptMenuItem, PromptPastePolicy,
     PromptTextViewPortProps, PromptToken,
 } from "./ports";
@@ -29,6 +29,7 @@ export type {
 export {argArray, argNumber, argString, countLines, objectString} from "./tool-args";
 export type {CodeLine} from "./tool-detail-lines";
 export {formatText, textOf} from "./messages";
+export {markdownPreviewLine} from "./format";
 export type {AgentTextKey} from "./messages";
 export {acceptSubmission, applyComposerAction, nextMode} from "./composer-actions";
 export {createAgentContext} from "./context";
