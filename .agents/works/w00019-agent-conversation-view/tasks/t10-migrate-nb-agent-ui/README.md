@@ -21,7 +21,7 @@ updated: 2026-10-22
 2. 一次迁完已做的全部，不按问答需要裁剪。
 3. nb-form、nb-agent-ui 都在新应用的 Lab 里看，做法同 nb-ui。
 
-## 当前状态（2026-10-22）：S0 到 S6 已提交，实现审查进行中
+## 当前状态（2026-10-22）：S0 到 S6 与实现审查的修正都已提交，等开发者在 Lab 确认
 
 执行位置：worktree `.worktree/w00019-nb-agent-ui`，分支 `feat/w00019-nb-agent-ui`。计划见 [plan.md](plan.md)，开发者同意“先审查然后实施”；omp 设计审查 11 条已处理（[报告](evidences/design-review.txt)，处理结果见计划开头）。
 
@@ -34,6 +34,27 @@ updated: 2026-10-22
 | S5 | `eeb31fb8c` | 应用接入：Lab 组件树 `nb-agent-ui` 一组、场景与领域工具登记示例、编辑器端口类型断言、`lab-agent-ui.e2e.ts` |
 | S6 | `e6c4f1a4a` | harness 适配器 `createHarnessTranscript`、对真实 harness 的契约测试（普通完成、收尾工具、缺密钥、停止、免费与单价未知）、Lab 的“harness 记录回放”场景 |
 
+| 审查修正 | `b0dca0903` 到 `c2a6df7ca` | 前端 14 条、核心与适配器 11 条的处理（下文“实现审查”）；`567f12d27` 把折叠行与卡片的事件统一为 `update:expanded`（开发者定） |
+
+实现审查（2026-10-22）：前端 Sonnet 14 条（重要 6、建议 8，[报告](evidences/impl-review-sonnet.txt)），核心与适配器 omp 11 条（重要 10、建议 1，[报告](evidences/impl-review-omp.txt)；omp 中途两次因上游额度退出，续跑补完）。
+
+- 成立并修改：前端 1 到 3、5 到 12，核心全部 11 条。
+- 前端第 4 条（折叠行与卡片和 `Collapsible` 的协议不一致）：交开发者定，改为 `update:expanded`，可以 `v-model:expanded`。
+- 不改：
+  - 前端第 13 条：分轮与注册表的测试要用内置工具的真实登记，登记引用了组件，所以在 Vitest 里跑；缺的组件测试已按第 6、9 条补上。
+  - 前端第 14 条：英文复数（“Read 1 files”），旧应用就有，记为后续。
+- 关键修正：
+  - 视图自己的文字跟 `locale`：Vue 的 `inject` 看不到本组件 provide 的值，`provideAgentView` 改为返回文字函数。
+  - 思考与提醒在注入的 Markdown 里仍是淡色小字：颜色与 `--markdown-font-size` 写在注入组件的根上，`ports.ts` 写明。
+  - 原图预览关掉即归还、取消不误报；重试不给 `blob:`、`data:` 加参数。
+  - 适配器：
+    - 停止时没有助手消息也补一条已停止；
+    - 缺字段与不认识的事件记 `problems()`；
+    - 晚到的工具事件不盖日志；
+    - 按时间戳认正在生成的那条；
+    - 用户消息图文按原顺序。
+  - nb-harness 内置 `edit` 的 `input` 参数（补丁与 hashline）：认得改到的文件；补丁格式显示增删行，hashline 显示改完的那几行（结果正文不是 diff）。
+
 与计划不同的地方：
 
 - **6px 与 8px 的检查放进 e2e**：happy-dom 不算层叠样式，DOM 测试量不出计算后的内边距。
@@ -44,10 +65,10 @@ updated: 2026-10-22
 
 验证（Work 分支，2026-10-22）：
 
-- **包**：nb-agent-ui 的 `typecheck`；`test` 通过（bun 46 条，含适配器单测 7 条与契约测试 6 条；Vitest 46 条）。nb-ui 的 `test`（552 条）、`typecheck`、`build` 通过。
+- **包**：审查修正之后重跑。nb-agent-ui 的 `typecheck`；`test` 通过（bun 58 条，含适配器单测与 8 条真实 harness 契约测试；Vitest 54 条）。nb-ui 的 `test`（552 条）、`typecheck` 通过。
 - **应用**：`typecheck`；`bun run test` 通过（bun 1599 条、Vitest 403 条）。
 - **e2e**：
-  - `lab-agent-ui.e2e.ts` 15 条通过。变异检查：对调 steer 与 followup、把过程区的行内边距改回 8px，相应用例都失败。
+  - `lab-agent-ui.e2e.ts` 19 条，加 `lab-scenes.e2e.ts` 全场景巡检、`lab-nb-ui.e2e.ts`，共 33 条通过（审查修正之后）。变异检查：对调 steer 与 followup、把过程区的行内边距改回 8px、去掉 Markdown 的淡色传递，相应用例都失败；视图的语言与预览归还、缺省输入框的 229 判断、适配器的两处修正也各做过一次。
   - `lab-scenes.e2e.ts` 全场景巡检通过。
 - **截图**：`nbdev shot` 截了对话视图与输入框全部场景，手机与 1400×900、明暗各一，72 张没有溢出与页面错误。
 - **文档检查**：`docs:check` 失败 0。
@@ -66,4 +87,6 @@ updated: 2026-10-22
 
 ## 下一步
 
-实现审查两路（前端 Sonnet，核心与适配器 omp）处理完后，交开发者在 Lab 确认（含 t09 第 2 步的输入框）。开发服务：`nbdev dev start` 起在 4317。
+开发者在 Lab 确认（含 t09 第 2 步的输入框）。开发服务：`nbdev dev start` 起在 4317，组件树 `nb-agent-ui` 一组。确认后按开发者的安排合入 master，t11 开工。
+
+后续建议（交付时报给开发者）：nb-form 的 `boundary.test.ts` 有同样的正则缺口（`branch-from` 误报、夹注释的导入漏报）；nb-form 不在 CI 的 workspace 选包矩阵里；英文文字的单复数。
