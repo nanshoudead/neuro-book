@@ -17,7 +17,7 @@ owners:
 非目标：
 
 - 不包含会话数据层：不订阅 SSE、不调用接口、不持久化任何数据，也不定义后端接口。
-- 不包含 Inline AI、左侧会话栏和 Trace Viewer。
+- 视图本身不包含会话栏、Inline AI 和 Trace Viewer。包另外提供会话列表组件（见“会话列表”），由宿主摆在左栏、下拉或弹窗里。
 - 不包含“当前任务清单”面板：它独立于本视图，另行规划；消息流里只显示每一次任务清单调用。
 - 不接入主页面；主页面切换与旧组件删除属于后续工作。
 - 不实现插件加载；注册表的插件入口等插件运行时（`runtime.plugins`）定型后再接。
@@ -37,12 +37,13 @@ owners:
 - **思维链**：两个常显条目之间的思考、普通工具调用及其结果、系统提示词，以及运行结束后并入的中间 content。默认折叠成一行摘要。
 - **人机交互控件**：需要用户关注或回应的工具调用，由工具渲染器声明为 `node` 呈现：提问、切换模式、任务清单、Workflow。
 - **信息条目**：系统提醒与自定义系统消息，常显为淡色一行，可点开看全文。
+- **附注**：宿主挂在一条助手消息上的补充信息（例如问答回复里没核实的出处），显示在这条消息的文字之后，由宿主登记的条目渲染器画；没有登记或渲染出错时显示为淡色一行。
 - **最终回复**：轮次中最后一条正文非空、且其后再无工具调用的 assistant 消息。
 - **步骤**：思维链中的一项，可以是一次工具调用、一段思考、一段并入的中间 content 或一条系统提示词。
 - **工具组**：思维链中连续出现、同属“探查”类别的工具调用。
 - **摘要行**：代表一条思维链或整轮过程的一行：开头一个种类图标，接一句像人说的概括（是否思考、读了和改了几个文件、其余操作次数），失败次数以危险色附在末尾，最后是折叠箭头。它是过程入口，宽度随内容、淡色，注意力低于正文；运行中图标换成转圈、概括换成正在执行的那一步。
 - **轮末汇总**：每轮末尾的一行，左边是改动文件条（没改文件不显示），右边是用量（用时、tokens、输入、输出、缓存读取、费用；单价未知时不显示费用）。
-- **结果节点**：工具渲染器声明为结果、以 `node` 呈现且调用成功的工具调用，例如问答里交答案的收尾工具。被退回（出错）的那几次属于过程。
+- **结果节点**：工具渲染器声明为结果、以 `node` 呈现且调用成功的工具调用，例如问答里交答案的收尾工具。被退回（出错）的那几次属于过程，在思维链里显示为一行，不画 `node` 组件；全部被退回时这一轮没有结果区。
 - **结果与过程**：结果是一轮末尾连续的最终回复、错误与结果节点；其余内容都是过程。
 - **整轮收起**：已结束的轮次把过程收成一行整轮摘要，只露出结果与轮末汇总。
 - **角色**：消息的说话者，现在是用户与 Agent；登记在注册表里，为第三种角色预留。
@@ -83,7 +84,7 @@ type AgentConversationViewEmits = {
 };
 ```
 
-视图对外暴露两个方法：`focusComposer()` 聚焦输入框，`scrollToLatest()` 滚动到最新内容。没有插槽；扩展一律通过注册表。包公开的组件只有这个视图；其中的零件（轮次、输入框等）不是宿主接口。
+视图对外暴露两个方法：`focusComposer()` 聚焦输入框，`scrollToLatest()` 滚动到最新内容。没有插槽；扩展一律通过注册表。包公开的组件是这个视图与会话列表（见“会话列表”）；视图里的零件（轮次、输入框等）不是宿主接口。
 
 ### ctx 的组成
 
@@ -117,11 +118,15 @@ type MessageView =
     | {kind: "assistant"; id: string; timestamp: number;
        status: "streaming" | "done" | "stopped" | "interrupted" | "error";
        text: string; thinking: string; model: string; usage?: UsageView;
-       toolCalls: ToolCallView[]; error?: string; contentOmitted: boolean}
+       toolCalls: ToolCallView[]; error?: string; contentOmitted: boolean;
+       annotations?: MessageAnnotationView[]}
     | {kind: "system"; id: string; timestamp: number;
        source: "prompt" | "reminder" | "compaction" | "branch_summary" | "custom";
        label: string; text: string}
     | {kind: "error"; id: string; timestamp: number; message: string; retryable: boolean};
+
+// 附注：宿主挂在助手消息上的补充信息。customType 匹配条目渲染器；text 是没有渲染器或渲染出错时显示的一句。
+type MessageAnnotationView = {customType: string; text: string; details?: JsonValue};
 
 type ToolCallView = {
     id: string; name: string;
@@ -145,8 +150,8 @@ type ToolCallView = {
 | 扩展点 | 专属字段 |
 |---|---|
 | 角色 | 图标与名称；色调（强调色或中性色） |
-| 工具渲染器 | 匹配的工具名或名称前缀；类别（`explore`、`mutate`、`interact`、`other`）；图标与名称；单行摘要；探查组的合并摘要（`explore` 必有）；对文件的影响；diff 行（改文件的工具给出，没有专用详细内容组件时详情画成 diff）；展开后的详细内容组件；呈现层级（思维链中的一行 `line`、思维链中的卡片 `card`、常显的交互控件 `node`）；`node` 的专用组件；是否算本轮结果（只对 `node`） |
-| 条目渲染器 | 匹配的消息类型与系统条目来源；内容组件 |
+| 工具渲染器 | 匹配的工具名或名称前缀；类别（`explore`、`mutate`、`interact`、`other`）；图标与名称；单行摘要（调用出错时也会调用，可以写出失败原因）；探查组的合并摘要（`explore` 必有，收到这一组里它处理的各次调用，含出错与运行中的）；对文件的影响；diff 行（改文件的工具给出，没有专用详细内容组件时详情画成 diff）；展开后的详细内容组件；呈现层级（思维链中的一行 `line`、思维链中的卡片 `card`、常显的交互控件 `node`）；`node` 的专用组件；是否算本轮结果（只对 `node`） |
+| 条目渲染器 | 匹配的消息类型与系统条目来源，或附注的 `customType`；内容组件。视图现在只按 `customType` 读取附注 |
 | 消息操作 | 适用的消息类型，可再按单条消息判断（例如尚未确认送达的用户消息不能编辑、重试或分支）；图标与名称；点击后发出的 action |
 | 顶栏动作 | 图标与名称；角标数；点击后发出 action 或打开某个面板；是否允许常驻顶栏 |
 | 面板 | 面板组件；打开方式（顶部浮层或弹窗） |
@@ -156,9 +161,11 @@ type ToolCallView = {
 | 输入框触发字符 | 触发字符；菜单通过服务解析 |
 | 输入框工具栏按钮 | 图标与名称；点击后发出的 action |
 
-工具名匹配：精确工具名优先于名称前缀；前缀互相包含时取最长的那个，与登记顺序无关。两个渲染器声明相同的工具名或相同的前缀时构造失败（见“失败与恢复”）。
+工具名匹配：精确工具名优先于名称前缀；前缀互相包含时取最长的那个，与登记顺序无关。两个渲染器声明相同的工具名或相同的前缀、两个条目渲染器声明相同的 `customType` 时构造失败（见“失败与恢复”）。
 
-宿主组件收到 `ctx`、`services`、`locale` 与各自的数据（工具组件是这次调用），只发出 `action`，由视图原样交给宿主。
+宿主组件收到 `ctx`、`services`、`locale` 与各自的数据（工具组件是这次调用，条目组件是这条附注与它所在的消息），只发出 `action`，由视图原样交给宿主。
+
+宿主注入的渲染组件之外，还可以注入 `markdownPreview(text)`：Markdown 文字折叠时露出的那一行纯文字怎么取。不注入时用包内的缺省规则，只去掉常见的强调、代码、链接与块标记。
 
 Markdown 扩展与空状态起手提示在本规范中只预留，不要求实现。
 
@@ -198,9 +205,9 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 
 - 版式沿用旧 `AgentSidebarView` 的对话气泡：每个说话者一行角色行（头像、角色名、模型、时间、状态，右端操作条），下面是缩进 24px 的内容。气泡版式不区分角色，头像与名称取自角色注册表；Agent 的头像优先用会话 Profile 的图标。
 - 一轮依次显示：用户消息；Agent 一侧的过程（按时间顺序的常显条目与思维链）与结果；轮末汇总。最终回复之后的分隔线显示在轮末汇总下方。
-- **整轮收起**：轮次结束（完成、出错、被停止）且有过程时，过程收成一行整轮摘要，例如“过程 · 14 次操作 · 读了 7 个文件，改了 2 个 · 1 次失败”，下面只露出结果与轮末汇总。点击摘要展开，过程挂在从摘要图标垂下的竖线上、缩进一级。运行中与等待回答的轮次不收起。结果节点不计入整轮摘要的操作次数；结果之后跟着压缩或分支摘要的分隔线时，结果仍露出。
+- **整轮收起**：轮次结束（完成、出错、被停止）且有过程时，过程收成一行整轮摘要，例如“过程 · 14 次操作 · 读了 7 个文件，改了 2 个 · 1 次失败”，下面只露出结果与轮末汇总。点击摘要展开，过程挂在从摘要图标垂下的竖线上、缩进一级。运行中与等待回答的轮次不收起。结果节点不计入整轮摘要的操作次数；结果之后跟着压缩或分支摘要的分隔线时，结果仍露出，夹在分隔线之间或之后的信息条目留在结果区。
 - **常显层**：
-  - 最终回复用完整气泡（Markdown）。运行中的中间 content 用轻一级的气泡常显；运行结束后并入所在位置的思维链，常显层只留最终回复。
+  - 最终回复用完整气泡（Markdown），它的附注画在气泡里、正文下方。中间 content 的附注随它所在的那一行展开显示；没有文字的消息的附注作为一行独立显示在这条消息之后。运行中的中间 content 用轻一级的气泡常显；运行结束后并入所在位置的思维链，常显层只留最终回复。
   - 人机交互控件以卡片常显，并把思维链切开。任务清单每次调用都显示：新建时完整列出；更新时列出变化的项和进度，可展开看这一刻的完整清单。Workflow 卡片运行中显示当前动作。
   - 系统提醒与自定义系统消息显示为淡色一行（标签加正文第一行），点击在下方展开全文（Markdown，淡色小字）；`compaction` 与 `branch_summary` 以分隔线显示，带摘要正文时点击标签在线下展开摘要。
   - steer 以带“补充说明”标记的浅色条显示在发生的位置。
@@ -210,7 +217,7 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
   - 每个 `mutate` 工具单独一行，显示目标和增删统计；
   - `card` 呈现的工具（命令、SQL、协作等）以可展开卡片显示；
   - 并入的中间 content 按 Markdown 渲染在浅底小气泡里，用正文色；
-  - 思考显示为一行摘要，点击展开全文（Markdown）；
+  - 思考折叠时露出第一行纯文字（去掉 Markdown 标记，首尾相接的几段粗体小标题只露出第一段），点击展开全文（Markdown）；
   - 系统提示词显示为一行，点开看全文；
   - 两条 assistant 消息之间有一道细分隔，让人能数出消息边界。
   - 每一次工具调用（单行、组内一项、出错单独露出的一项、卡片）都能点开看详情：渲染器登记了详情组件时用它（内置：`read` 为带行号的文件内容，`edit`、`write`、`apply_patch` 为 diff，`bash`、`execute_sql` 为命令与输出）；没有登记的工具显示原始参数 JSON、结果正文与结构化结果 JSON，开发者据此对照底层调用。出错时错误信息在最上方；有详情组件但出错且没有结果时附上原始参数。代码块超过最大高度时内部滚动，长行在块内横向滚动。
@@ -275,12 +282,35 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 
 显示上下文用量（点击打开上下文检查器）、累计 tokens 与费用、连接状态（需要操作时提供重连）、运行阶段和非普通模式的模式标记。
 
+### 会话列表
+
+会话列表是包导出的独立组件，不在视图里；宿主把它放在左栏、下拉或弹窗里。会话列表弹窗的列表部分就是它。
+
+```ts
+type AgentSessionListItem = {
+    id: string;
+    title: string;                 // 空串时显示“未命名会话”
+    description?: string;          // 第二行的补充说明，宿主写好，例如“3 轮 · 图当目录”
+    updatedAt: number;             // 最近活动的时刻（毫秒）
+    status: "idle" | "running" | "interrupted" | "error";   // 宿主按自己的状态映射
+    note?: {text: string; icon?: string};                   // 需要注意的一句，提醒色另起一行
+};
+// 属性：items、selectedId、state（"ready" | "loading" | "error"，缺省 ready）、errorMessage?、now、locale、
+// header?（是否显示标题行与新建按钮，缺省显示）、labels?（覆盖标题、新建、加载中、空、出错、重试、未命名的文字）
+```
+
+- 每行：标题（单行截断）与时间同一行；说明与状态同一行，运行中是转圈加“运行中”，已中断与出错是标记；有提醒时另起一行提醒色小字。选中的行用强调色浅底并标为当前项。状态除颜色外都有文字。
+- 时间按本地时区的日历日写：与 `now` 同一天写时刻，前一天写“昨天”，同一年写月日，否则加上年；`updatedAt` 晚于 `now` 时按同一天写。宿主要定期更新 `now`。
+- 点一行（含已选中的）发出 `session.select`，点新建发出 `session.create`；出错时显示说明与“重试”，点击发出 `sessions.refresh`。列表不持有展开状态：放在下拉里时，由宿主收到选中或新建后关下拉。
+- 加载中、空、出错三种状态都保留标题行与新建按钮。
+- 是导航式列表：每行一个按钮、Tab 逐行经过，不做方向键漫游。
+
 ### 面板与弹窗
 
 - 附件面板：网格浏览、搜索、翻页、原图预览、插入到输入框（纯界面行为）。
 - 关联 Agent：上下游列表、状态，点击切换到对应会话。
 - 系统提示：打开时请求加载，Markdown 渲染，刷新。
-- 会话列表：三种筛选、搜索、翻页、新建（多 Profile 时选择 Profile）、归档、恢复、就地重命名。
+- 会话列表：三种筛选、搜索、翻页、新建（多 Profile 时选择 Profile）、归档、恢复、就地重命名。列表部分用“会话列表”一节的组件。
 - 分支树：搜索、折叠、键盘导航、节点详情、复制 ID、切换到选中分支。
 - 上下文检查器：组成、缓存时间线、诊断、请求选择、刷新。
 
@@ -288,7 +318,7 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 
 | 分组 | action |
 |---|---|
-| 会话 | `session.create {profileKey?}`、`session.select {sessionId}`、`session.rename {sessionId, title}`、`session.archive {sessionId}`、`session.restore {sessionId}`、`sessions.query {query}`、`view.close` |
+| 会话 | `session.create {profileKey?}`、`session.select {sessionId}`、`session.rename {sessionId, title}`、`session.archive {sessionId}`、`session.restore {sessionId}`、`sessions.query {query}`、`sessions.refresh`、`view.close` |
 | 消息 | `message.copy {messageId}`、`message.editStart {messageId}`、`message.editCancel`、`message.editSubmit {messageId, text}`、`message.retry {messageId}`、`message.branchFrom {messageId}`、`message.resend {messageId}`、`message.dismiss {messageId}`、`branch.switch {messageId, direction}`、`tool.copy {toolCallId}`、`history.loadPrevious`、`history.refresh` |
 | 引用与文件 | `reference.open {target}`、`link.open {href}`、`file.openDiff {path, toolCallId}`、`attachment.open {target}`、`skill.open {name}` |
 | 输入框 | `composer.submit {text, delivery}`（`delivery` 为 `prompt`、`steer` 或 `followup`；附件都写在文字里，不另带）、`composer.stop`、`composer.draftChanged {text}`、`composer.attachmentAdded {localId, kind, file}`（`kind` 为 `image` 或 `file`）、`composer.attachmentRetry {localId}`、`composer.attachmentRemoved {localId}`、`command.run {name, argsText}`、`menu.opened {trigger}` |
@@ -323,8 +353,8 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 
 ## 失败与恢复
 
-- 注册表构造时同一扩展点出现重复 `id`，或两个工具渲染器声明相同的工具名或前缀：构造失败并报出冲突的扩展点和 `id` 或工具名，不静默覆盖。
-- 某个渲染器渲染时抛错：只有该项降级为通用卡片并显示“此内容无法显示”，视图其余部分继续工作；错误通过开发诊断输出。工具渲染器的摘要、合并摘要、文件影响或 diff 回调抛错时，该项按通用渲染器的写法显示，没有 diff 时退回原始参数与结果。
+- 注册表构造时同一扩展点出现重复 `id`，或两个工具渲染器声明相同的工具名或前缀，或两个条目渲染器声明相同的 `customType`：构造失败并报出冲突的扩展点和 `id`、工具名或 `customType`，不静默覆盖。
+- 某个渲染器渲染时抛错：只有该项降级为通用卡片并显示“此内容无法显示”，视图其余部分继续工作；错误通过开发诊断输出。工具渲染器的摘要、合并摘要、文件影响或 diff 回调抛错时，该项按通用渲染器的写法显示，没有 diff 时退回原始参数与结果。条目组件抛错时这条附注退回默认的淡色一行。
 - 工具没有匹配的渲染器：使用通用渲染器，类别为 `other`。
 - ctx 中引用了不存在的数据（例如 `branches` 指向不存在的消息）：忽略该引用，不报错。
 - 宿主没有注入 Markdown 显示组件或提示词编辑器：用包内的缺省实现，Markdown 按纯文字显示，输入框退化为普通文本框（没有标签、附件与粘贴块）。
@@ -370,7 +400,14 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 24. Given 没有可选模型与思考档位、`header` 为 false、也不提供 `resolveAttachmentUrl` 与 `resolveTriggerMenu` 的宿主，When 显示，Then 没有顶栏与模型下拉，附件显示不可用占位且点击不报错，输入 `@` 不打开空菜单；消息流为空且 `availability` 为 `loading` 时显示加载中。
 25. Given 两个工具渲染器声明同一工具名，When 构造注册表，Then 构造失败并指出工具名；前缀 `list_` 与 `list_x_` 同时登记时 `list_x_items` 匹配后者，与登记顺序无关。
 
-Smoke：分轮、摘要、发送规则与注册表有单元测试（`packages/nb-agent-ui` 的 `bun run test`，第 13、14、15、20、23、25 条）；第 21、22、24 条另有挂载测试与 e2e；消息流随时间变化的行为与输入框由新应用的 `bun run test:e2e -- lab-agent-ui` 覆盖（第 4、7、9、10、11 条及“历史与滚动”），全部 Lab 场景的手机宽度巡检在 `lab-scenes.e2e.ts`。其余条目随后续切片补充。
+26. Given 五个会话（选中、运行中、已中断、出错、带提醒），When 显示会话列表，Then 每行有标题、说明、时间、状态与提醒；点一行（含已选中的）发出 `session.select`，点新建发出 `session.create`；时间按日历日写今天的时刻、昨天、月日、年月日。
+27. Given 会话列表处于加载中、空、出错，When 显示，Then 各有对应的说明且保留标题行与新建按钮；出错时点重试发出 `sessions.refresh`；`header` 为 false 时没有标题行；`labels` 覆盖包内文字。
+28. Given 最终回复带一条已登记 `customType` 的附注，When 整轮收起，Then 宿主组件画在回复气泡里，收到 ctx、服务、界面语言、这条附注与消息，点出处发出的 `reference.open` 到达宿主；附注在中间文字上时随那一行展开显示，在没有文字的消息上时作为独立一行；没登记的 `customType` 与抛错的组件都显示为淡色一行；两个条目渲染器声明同一 `customType` 时构造失败。
+29. Given 结果工具退回一次再交成功，When 展开整轮，Then 被退回的那次是思维链里的一行，宿主的 `node` 组件只出现一次，退回前后的过程是同一条思维链；全部被退回时这一轮没有结果区；运行结束时仍没有结果的结果调用同样是一行。Given 回复之后依次是压缩分隔线与系统提醒，Then 回复仍在结果区。
+30. Given 思考第一行是 `**Finding X**`、`## X` 或两段粗体首尾相接，When 思考折叠，Then 露出去掉标记的文字，首尾相接的只露出第一段；行内代码里的星号、`snake_case`、`读取_章节_摘要`、`#伏笔` 保留；宿主注入了 `markdownPreview` 时用它。
+31. Given 一个 `explore` 渲染器在一组里处理了三次调用，When 显示组头，Then 它的合并摘要收到这三次调用、可以按参数写（例如“读了第 33–37 章”）；合并摘要抛错时退回“调用了 3 次”。
+
+Smoke：分轮、摘要、发送规则与注册表有单元测试（`packages/nb-agent-ui` 的 `bun run test`，第 13、14、15、20、23、25、28 到 31 条）；第 21、22、24、26 到 29 条另有挂载测试与 e2e；消息流随时间变化的行为与输入框由新应用的 `bun run test:e2e -- lab-agent-ui` 覆盖（第 4、7、9、10、11 条及“历史与滚动”），全部 Lab 场景的手机宽度巡检在 `lab-scenes.e2e.ts`。其余条目随后续切片补充。
 
 ## 实现合同
 

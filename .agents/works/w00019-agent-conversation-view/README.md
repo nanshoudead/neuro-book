@@ -54,6 +54,9 @@ updated: 2026-10-22
 
 ## Task
 
+autonomous-delivery 推进中照推荐做了、待开发者追认的决定记在 [待确认清单](pending-confirmations.md)。
+
+
 - [t01-proposal](tasks/t01-proposal/README.md)：现状分析、需求调研与提案起草。已完成。
 - [t02-planned-specs](tasks/t02-planned-specs/README.md)：写 planned Spec。已完成。
 - [t03-view-skeleton](tasks/t03-view-skeleton/README.md)：切片 S1，视图类型、注册表、分轮规则、最小视图壳与首批 Lab 场景。已完成。
