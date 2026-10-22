@@ -7,7 +7,7 @@
 import {flushPromises, mount, type VueWrapper} from "@vue/test-utils";
 import {Type} from "typebox";
 import {defineComponent, h, ref} from "vue";
-import {afterEach, describe, expect, it} from "vitest";
+import {afterEach, describe, expect, it, vi} from "vitest";
 
 import type {OptionSource} from "../options";
 import type {FormIssue} from "../validate";
@@ -50,6 +50,9 @@ async function mountForm(schema: object, value: unknown, props: Props = {}) {
 const field = (wrapper: VueWrapper, widget: string) => wrapper.get(`[data-nb-widget='${widget}']`);
 /** 组的名字：标题文字去掉看得见的 `*`；组合控件的标题里另有给读屏的“（必填）”。 */
 const labelled = (id: string | undefined) => (id === undefined ? undefined : document.getElementById(id)?.textContent?.replace("*", "").trim());
+
+/** 状态图标的提示里看得见的各行（浮层在 body 下）。 */
+const tooltipLines = () => [...document.body.querySelectorAll(".nb-ui-tooltip-surface .nb-form-field__reason-line")].map((line) => line.textContent);
 
 async function typeInto(wrapper: VueWrapper, selector: string, text: string) {
     const input = wrapper.get(selector);
@@ -365,7 +368,7 @@ describe("选项（输出 11、12）", () => {
         const {wrapper, emitted} = await mountForm(schema, {provider: "gone"}, {options: {providers: source}});
         const select = field(wrapper, "select");
         expect(select.text()).toContain("gone（已不存在）");
-        expect(select.find(".nb-form-field__warning").exists()).toBe(true);
+        expect(select.find(".nb-form-field__reason[data-tone='warning']").exists()).toBe(true);
         expect(select.get("[role='combobox']").attributes("aria-invalid")).toBeUndefined();
         source.value = {status: "ready", items: [{value: "b", label: "B"}]};
         await flushPromises();
@@ -389,6 +392,25 @@ describe("问题的显示（输出 9、14）", () => {
         expect(document.getElementById(input.attributes("aria-describedby")!.split(" ")[0]!)?.className).toContain("sr-only");
     });
 
+    it("出错的字段在标题后有一个出错图标：聚焦控件时提示显示错误原因，失焦后隐藏；字段下不多出看得见的文字", async () => {
+        const {wrapper} = await mountForm(schema, {name: "a", email: "x"});
+        const name = field(wrapper, "text");
+        const icon = name.get(".nb-form-field__reason");
+        expect(icon.attributes("data-tone")).toBe("error");
+        expect(name.get("label").element.nextElementSibling).toBe(icon.element);
+        expect(name.find("[title]").exists()).toBe(false);
+        expect(tooltipLines()).toEqual([]);
+        const input = name.get("input").element;
+        input.focus();
+        await vi.waitFor(() => {
+            expect(tooltipLines()).toEqual(["至少 2 个字符"]);
+        });
+        input.blur();
+        await vi.waitFor(() => {
+            expect(tooltipLines()).toEqual([]);
+        });
+    });
+
     it("必填缺失在字段碰过之后、或调用方要求聚焦第一条问题之后才显示", async () => {
         const {wrapper} = await mountForm(schema, {name: "ab"});
         const email = wrapper.findAll("input")[1]!;
@@ -409,7 +431,7 @@ describe("问题的显示（输出 9、14）", () => {
         const {wrapper} = await mountForm(schema, {name: "a", email: "x", age: 3}, {issues, onFocusIssue: (issue: FormIssue) => focused.push(issue)});
         const [name, email, age] = wrapper.findAll("input");
         expect(age!.attributes("aria-invalid")).toBeUndefined();
-        expect(wrapper.findAll(".nb-form-field__warning")).toHaveLength(1);
+        expect(wrapper.findAll(".nb-form-field__reason[data-tone='warning']")).toHaveLength(1);
         const toggle = wrapper.get("[data-nb-form-summary] button");
         expect(toggle.text()).toBe("3 个问题");
         await toggle.trigger("click");
@@ -421,6 +443,10 @@ describe("问题的显示（输出 9、14）", () => {
         expect(focused.map((issue) => issue.code)).toEqual(["taken"]);
         expect(await (wrapper.vm as unknown as {focusFirstIssue(): Promise<boolean>}).focusFirstIssue()).toBe(true);
         expect(document.activeElement).toBe(name!.element);
+        // 聚焦到问题上，字段的提示随之显示原因。
+        await vi.waitFor(() => {
+            expect(tooltipLines()).toEqual(["至少 2 个字符"]);
+        });
     });
 
     it("汇总按看得见的顺序排：布局重排了字段时跟着布局", async () => {

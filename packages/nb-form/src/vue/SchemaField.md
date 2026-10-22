@@ -8,14 +8,14 @@
 
 ## 布局
 
-不加 `bare` 时与 `SchemaForm` 里的一个字段相同：标题行、控件、说明。加 `bare` 时只有控件（数字带单位），宽度随容器；对象字段的成员直接排开，不画左侧的层级线；调用方用 [`widgetLayout`](layout.ts) 决定控件排在标签右边还是另起一块、占哪一档宽度。字段自己的状态照样画在控件下面：动态选项不可用的原因、“已不存在”之类的警告。出错的文字仍只给读屏，没有问题汇总；调用方要在自己的位置写出原因时，用 `describeIssues(schema, value, issues, locale, hints?)` 把问题（`draft-state` 里的、自己校验出的）写成带字段名的文字。
+不加 `bare` 时与 `SchemaForm` 里的一个字段相同：标题行、控件、说明。加 `bare` 时只有控件（数字带单位），宽度随容器；对象字段的成员直接排开，不画左侧的层级线；调用方用 [`widgetLayout`](layout.ts) 决定控件排在标签右边还是另起一块、占哪一档宽度。字段自己的状态不画：不画图标，也不在控件下面写字，出错、警告（“已不存在”之类）与状态（动态选项不可用的原因）经 `field-state` 事件交给调用方，由调用方画在自己的标题旁（设置窗口的一行就这样画）。出错的文字仍给读屏，没有问题汇总；调用方要在自己的位置写出原因时，用 `describeIssues(schema, value, issues, locale, hints?)` 把问题（`draft-state` 里的、自己校验出的）写成带字段名的文字。
 
 ## 交互
 
 控件选择、提交时机、草稿、问题的标记与展示态都与 `SchemaForm` 相同（见它的“交互”）。另外：
 
 - 字段就是根：它的路径是空的，没有“清除”（可为 null 的除外，清除写 `null`），标题旁不画必填的 `*`。
-- `bare` 时名字来自调用方：单个控件用调用方的 `<label for="<id>">`，组合控件（单选组、复选组、确认）经 `labelledby` 指向调用方的标签元素。出错的文字照样经 `aria-describedby` 给读屏；调用方自己的说明经 `describedby` 接在后面（外壳不画说明，也不引用它）。
+- `bare` 时名字来自调用方：单个控件用调用方的 `<label for="<id>">`，组合控件（单选组、复选组、确认）经 `labelledby` 指向调用方的标签元素。出错、警告与状态的文字照样经 `aria-describedby` 给读屏（各有稳定的 id）；调用方自己的说明经 `describedby` 接在后面（外壳不画说明，也不引用它）。
 - `commit()`、`reset()` 作用到字段里的全部草稿，包括对象与列表的成员；`commit()` 也显示全部问题（必填缺失）。没有问题汇总，也不发 `focus-issue`。
 - 没有问题汇总；看得见的问题文字由调用方放在自己的固定位置。
 - 根是左列表右详情时，选中项可以由调用方用 `v-model:selected` 接管；不接管时组件自己记。
@@ -58,6 +58,11 @@ type SchemaFieldEmits = {
     "draft-state": [state: {path: ReadonlyArray<string | number>; state: "clean" | "dirty" | "unparseable"; issues: ReadonlyArray<FormIssue>}];
     /** 根是左列表右详情时，选中项变了。 */
     "update:selected": [index: number];
+    /**
+     * 只在 `bare` 时发：字段自己的状态，挂载时发一次当前值，之后内容变了才再发。`error` 是第一条错误的文字，
+     * `warnings` 是全部警告（含“已不存在”），`status` 是字段状态（动态选项不可用的原因）；没有就是 `null` 或空数组。
+     */
+    "field-state": [state: {error: string | null; warnings: ReadonlyArray<string>; status: string | null}];
 };
 
 type SchemaFieldExpose = {

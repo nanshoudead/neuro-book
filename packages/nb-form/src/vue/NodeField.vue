@@ -7,7 +7,7 @@
  * 画成结构，成员各自画成静态的值。
  */
 import type {Component} from "vue";
-import {computed, nextTick, onBeforeUnmount, onMounted, ref, useId, useTemplateRef} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, useId, useTemplateRef, watch} from "vue";
 
 import type {BuiltinWidget, FieldNode} from "../model";
 import {toPointer} from "../path";
@@ -28,6 +28,7 @@ import TextControl from "./controls/TextControl.vue";
 import FieldShell from "./FieldShell.vue";
 import {issueText, messagesFor} from "./messages";
 import {CLEAR, issuesAt, stablePath, useFormScope} from "./scope";
+import type {FieldState} from "./scope";
 import ViewValue from "./ViewValue.vue";
 import {resolveWidget} from "./widgets";
 
@@ -39,6 +40,8 @@ const props = withDefaults(defineProps<{
     labelledby?: string;
     describedby?: string;
 }>(), {bare: false, id: undefined, labelledby: undefined, describedby: undefined});
+
+const emit = defineEmits<{(event: "field-state", state: FieldState): void}>();
 
 const CONTROLS: Readonly<Record<BuiltinWidget, Component>> = {
     "switch": BooleanControl,
@@ -116,6 +119,22 @@ const clearable = computed(() => scope.editable(props.node) && !disabled.value
 const help = computed(() => resolveText(props.node.help, locale.value));
 /** 动态选项不可用的原因：不是字段的说明，`bare` 时也要显示（输出 11）。 */
 const status = computed(() => (choices.value?.status === "unavailable" ? choices.value.reason : ""));
+
+/**
+ * `bare` 的字段没有标题行，出错、警告与状态原因经 `field-state` 交给调用方画在它自己的标题旁（输出 14）。挂载时发一次
+ * 当前值；之后只在内容变了时发，不是每次重算都发。嵌套的成员不是 `bare`，不发。
+ */
+const fieldState = computed<FieldState>(() => ({
+    error: errorText.value ?? null,
+    warnings: warnings.value,
+    status: status.value === "" ? null : status.value,
+}));
+watch(fieldState, (next, previous) => {
+    if (!props.bare) return;
+    if (previous !== undefined && next.error === previous.error && next.status === previous.status
+        && next.warnings.length === previous.warnings.length && next.warnings.every((warning, index) => warning === previous.warnings[index])) return;
+    emit("field-state", next);
+}, {immediate: true});
 
 /** 展示态的文字（输出 17）：密钥只说有没有设置，从不显示值。 */
 const viewText = computed(() => {

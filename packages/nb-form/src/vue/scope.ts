@@ -34,6 +34,16 @@ export interface DraftState {
     readonly issues: ReadonlyArray<FormIssue>;
 }
 
+/**
+ * `bare` 的 `SchemaField` 经 `field-state` 交给调用方的字段状态（输出 14）：第一条错误的文字、全部警告（含“已不存在”）、
+ * 字段状态（动态选项不可用的原因）；没有就是 `null` 或空数组。
+ */
+export interface FieldState {
+    readonly error: string | null;
+    readonly warnings: ReadonlyArray<string>;
+    readonly status: string | null;
+}
+
 /** 字段在表单里登记的操作；表单的 `commit()`、`reset()` 与问题的聚焦经它们做到每个字段。 */
 export interface FieldHandle {
     /** 聚焦字段的控件；焦点确实进了字段时返回 true。 */

@@ -33,7 +33,7 @@ function isChoiceValue(value: unknown): value is ChoiceValue {
 
 /**
  * 选择类字段在当前值下的选项；`source` 是 `options` 指向的源，字段没有动态选项时不用。`inlineStale` 时“已不存在”写进
- * 那一项的名字（控件里看得见）；`bare` 的字段在控件下面另有一行警告，不在名字里再写一遍。
+ * 那一项的名字（控件里看得见）；`bare` 的字段由调用方经 `field-state` 的警告画“已不存在”，不在名字里再写一遍。
  */
 export function choiceState(node: FieldNode, value: unknown, source: OptionSource | undefined, locale: string, inlineStale = true): ChoiceState {
     const messages = messagesFor(locale);

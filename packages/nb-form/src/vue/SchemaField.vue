@@ -11,7 +11,7 @@ import type {FormIssue, FormMeta} from "../validate";
 import NodeField from "./NodeField.vue";
 import {createFormScope, provideFormScope} from "./scope";
 import {withHints} from "./with-hints";
-import type {CommitMode, DraftState, FormMode, FormOptionSources} from "./scope";
+import type {CommitMode, DraftState, FieldState, FormMode, FormOptionSources} from "./scope";
 import type {FormWidget} from "./widgets";
 
 const props = withDefaults(defineProps<{
@@ -62,6 +62,8 @@ const emit = defineEmits<{
     (event: "update:modelValue", value: unknown): void;
     (event: "draft-state", state: DraftState): void;
     (event: "update:selected", index: number): void;
+    /** `bare` 时字段自己的状态（出错、警告、状态原因）变了，挂载时也发一次当前值；调用方画在自己的标题旁。 */
+    (event: "field-state", state: FieldState): void;
 }>();
 
 const model = computed(() => resolveForm(withHints(props.schema, props.hints)));
@@ -95,5 +97,5 @@ defineExpose({
 </script>
 
 <template>
-    <NodeField :node="model.root" :bare="props.bare" :id="props.id" :labelledby="props.labelledby" :describedby="props.describedby" />
+    <NodeField :node="model.root" :bare="props.bare" :id="props.id" :labelledby="props.labelledby" :describedby="props.describedby" @field-state="emit('field-state', $event)" />
 </template>

@@ -143,20 +143,47 @@ describe("SchemaField 的提交与问题", () => {
     });
 });
 
-describe("bare 时字段自己的状态照样显示", () => {
-    it("动态选项不可用的原因与“已不存在”的警告画在控件下面，并接进 aria-describedby", async () => {
-        const schema = Type.String({"x-form": {options: "models"}});
-        const down = mount(SchemaField, {attachTo: document.body, props: {schema, modelValue: "a", locale: "zh-CN", bare: true, id: "m", describedby: "row-help", options: {models: ref<OptionSource>({status: "unavailable", reason: "没有网络"})}}});
+describe("bare 时字段自己的状态经 field-state 交给调用方", () => {
+    const schema = Type.String({"x-form": {options: "models"}});
+
+    it("动态选项不可用的原因与“已不存在”的警告不画在控件下面，也没有图标；经 field-state 发出，读屏文字照旧在 aria-describedby 里", () => {
+        const down = mount(SchemaField, {attachTo: document.body, props: {schema, modelValue: "a", locale: "zh-CN", bare: true, id: "m", describedby: "row-help", issues: [{path: [], code: "taken", params: {}, severity: "error", source: "caller", message: "不能用"}], options: {models: ref<OptionSource>({status: "unavailable", reason: "没有网络"})}}});
         mounted.push(down);
-        expect(down.text()).toContain("没有网络");
+        expect(down.find(".nb-form-field__help").exists()).toBe(false);
+        expect(down.find(".nb-form-field__reason").exists()).toBe(false);
+        // 挂载时发一次当前值。
+        expect(down.emitted("field-state")).toEqual([[{error: "不能用", warnings: [], status: "没有网络"}]]);
         const described = down.get("[role='combobox']").attributes("aria-describedby")!.split(" ");
-        expect(described.map((id) => document.getElementById(id)?.textContent)).toContain("没有网络");
-        expect(described).toContain("row-help");
+        expect(described.slice(0, 2).map((id) => document.getElementById(id)?.textContent)).toEqual(["不能用", "没有网络"]);
+        expect(described.at(-1)).toBe("row-help");
+
         const gone = mount(SchemaField, {attachTo: document.body, props: {schema, modelValue: "gone", locale: "zh-CN", bare: true, id: "g", options: {models: ref<OptionSource>({status: "ready", items: [{value: "a", label: "A"}]})}}});
         mounted.push(gone);
-        expect(gone.text()).toContain("警告：已不存在");
-        // 控件里只写值本身，“已不存在”只在下面的警告行写一次。
+        expect(gone.emitted("field-state")).toEqual([[{error: null, warnings: ["已不存在"], status: null}]]);
+        // 读屏文字照旧，看得见的文字交给调用方；控件里只写值本身。
+        expect(document.getElementById(gone.get("[role='combobox']").attributes("aria-describedby")!)?.textContent).toBe("警告：已不存在");
+        expect(gone.find(".nb-form-field__help").exists()).toBe(false);
         expect(gone.get("[role='combobox']").text()).not.toContain("已不存在");
+    });
+
+    it("出错、警告变了才再发；无关的变化不重发；不是 bare 时不发", async () => {
+        const issue = (severity: "error" | "warning", message: string) => ({path: [], code: message, params: {}, severity, source: "caller" as const, message});
+        const wrapper = mount(SchemaField, {attachTo: document.body, props: {schema: Type.String(), modelValue: "x", locale: "zh-CN", bare: true, id: "f"}});
+        mounted.push(wrapper);
+        expect(wrapper.emitted("field-state")).toEqual([[{error: null, warnings: [], status: null}]]);
+        await wrapper.setProps({issues: [issue("error", "已被占用")]});
+        expect(wrapper.emitted("field-state")?.at(-1)).toEqual([{error: "已被占用", warnings: [], status: null}]);
+        // 与字段状态无关的属性变了，状态没变，不重发。
+        await wrapper.setProps({disabled: true, issues: [issue("error", "已被占用")]});
+        expect(wrapper.emitted("field-state")).toHaveLength(2);
+        await wrapper.setProps({issues: [issue("error", "已被占用"), issue("warning", "偏长"), issue("warning", "有点怪")]});
+        expect(wrapper.emitted("field-state")?.at(-1)).toEqual([{error: "已被占用", warnings: ["偏长", "有点怪"], status: null}]);
+        await wrapper.setProps({issues: []});
+        expect(wrapper.emitted("field-state")?.at(-1)).toEqual([{error: null, warnings: [], status: null}]);
+
+        const framed = mount(SchemaField, {attachTo: document.body, props: {schema: Type.String(), modelValue: "x", locale: "zh-CN", issues: [issue("error", "已被占用")]}});
+        mounted.push(framed);
+        expect(framed.emitted("field-state")).toBeUndefined();
     });
 });
 
