@@ -1,135 +1,178 @@
 <script setup lang="ts">
-/** fill 设置页的二级列表（同名 .md）：受控单选，选中样式与设置窗口的分区导航区分开（settings-window.md 输出 19）。 */
-import {computed, ref} from "vue";
+/**
+ * 设置页面里的一张列表加下一级页面（同名 .md，docs/specs/settings/settings-window.md 输出 19）：受控，`modelValue` 为
+ * `null` 时画列表，为某一项的 id 时画这一项的内容（默认插槽），并经窗口的标题区通道把标题区换成“‹ 页面标题”与这一项的标题。
+ *
+ * 值永远由调用方改：点一行发 `update:modelValue(id)`，返回发 `update:modelValue(null)`，组件自己不记“打开了哪一项”。
+ */
+import {computed, nextTick, onBeforeUnmount, ref, watch} from "vue";
+
+import {formatText, localize} from "nbook/shared/localized-text";
+import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+
+import {usePageChrome} from "./page-chrome";
+
+/** 状态文字的色调：成功、警告、出错各取对应的状态色，淡色（缺省）取次要文字色。 */
+export type SettingsPageListTone = "success" | "warning" | "error" | "muted";
 
 export interface SettingsPageListItem {
     readonly id: string;
     readonly title: string;
     readonly description?: string;
+    /** 图标类名，例如 i-lucide-server。 */
     readonly icon?: string;
-    readonly disabledReason?: string;
+    /** 右端的状态文字，例如“已连接”。 */
+    readonly status?: string;
+    readonly tone?: SettingsPageListTone;
+    /** 标题后画一个小圆点：这一项有改动（例如没保存的草稿）。 */
+    readonly modified?: boolean;
 }
 
 defineOptions({name: "SettingsPageList"});
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     items: ReadonlyArray<SettingsPageListItem>;
+    /** 打开的项的 id；`null` 是列表。 */
     modelValue: string | null;
+    /** 列表的可访问名称。 */
     label: string;
-}>();
+    /** 显示语言，只用于“返回”“有改动”两处固定文字；缺省简体中文。 */
+    locale?: DisplayLocale;
+}>(), {locale: "zh-CN"});
 
 const emit = defineEmits<{
-    (event: "update:modelValue", id: string): void;
+    (event: "update:modelValue", id: string | null): void;
 }>();
 
 defineSlots<{
-    end?(props: {item: SettingsPageListItem; selected: boolean}): unknown;
+    /** 打开的这一项的内容。 */
+    default?(props: {item: SettingsPageListItem}): unknown;
 }>();
 
+const TEXT = {
+    back: {"zh-CN": "返回", "en-US": "Back"},
+    modified: {"zh-CN": "有改动", "en-US": "Modified"},
+} satisfies Record<string, LocalizedText>;
+const text = (template: LocalizedText): string => localize(formatText(template, {}), props.locale);
+
+const chrome = usePageChrome();
 const root = ref<HTMLElement | null>(null);
-const enabled = computed(() => props.items.filter((item) => item.disabledReason === undefined));
-/** 唯一的 Tab 停靠点：选中项，没有选中（或选中项停用）时第一条可用的。 */
-const stop = computed(() => enabled.value.find((item) => item.id === props.modelValue)?.id ?? enabled.value[0]?.id ?? null);
+/** 打开的那一项；`modelValue` 指向一个不存在的项（例如刚被删掉）时当作没有打开，画列表。 */
+const opened = computed(() => (props.modelValue === null ? null : (props.items.find((item) => item.id === props.modelValue) ?? null)));
 
-function pick(item: SettingsPageListItem): void {
-    if (item.disabledReason !== undefined || item.id === props.modelValue) return;
-    emit("update:modelValue", item.id);
-}
+/**
+ * 标题替换：打开一项时登记，换一项、返回、卸载时撤销。通道是单槽，撤销函数只撤自己这一次登记，所以先撤旧的再登记新的。
+ * 标题随这一项的标题变（例如页面里正在改名字），所以按 id 与标题一起监听。
+ */
+let undo: (() => void) | null = null;
+watch([() => opened.value?.id, () => opened.value?.title], ([id, title]) => {
+    undo?.();
+    undo = null;
+    if (chrome !== null && id !== undefined && title !== undefined) undo = chrome.claim({title, back: goBack});
+}, {immediate: true});
+onBeforeUnmount(() => {
+    undo?.();
+    undo = null;
+});
 
-function onKeydown(event: KeyboardEvent): void {
-    const list = enabled.value;
-    if (list.length === 0) return;
-    const at = list.findIndex((item) => item.id === stop.value);
-    const target = event.key === "ArrowDown" ? list[Math.min(at + 1, list.length - 1)]
-        : event.key === "ArrowUp" ? list[Math.max(at - 1, 0)]
-            : event.key === "Home" ? list[0]
-                : event.key === "End" ? list[list.length - 1]
-                    : undefined;
-    if (target === undefined) return;
-    event.preventDefault();
-    pick(target);
-    root.value?.querySelector<HTMLElement>(`[data-settings-page-list-item="${CSS.escape(target.id)}"]`)?.focus();
+/**
+ * 返回：发出 `null`，等调用方把列表画回来之后，把焦点放回刚才那一行（点“返回”的按钮随详情一起消失，焦点会丢）。
+ * 调用方没有改值（拒绝返回）时不动焦点。
+ */
+async function goBack(): Promise<void> {
+    const id = props.modelValue;
+    if (id === null) return;
+    emit("update:modelValue", null);
+    await nextTick();
+    if (props.modelValue !== null) return;
+    root.value?.querySelector<HTMLElement>(`[data-settings-page-list-item="${CSS.escape(id)}"]`)?.focus();
 }
 </script>
 
 <template>
-    <div ref="root" class="settings-page-list" role="listbox" :aria-label="label" @keydown="onKeydown">
-        <div
-            v-for="item in items"
-            :key="item.id"
-            class="settings-page-list__item nb-ui-focus-ring"
-            :class="{'settings-page-list__item--selected': item.id === modelValue, 'settings-page-list__item--disabled': item.disabledReason !== undefined}"
-            role="option"
-            :aria-selected="item.id === modelValue"
-            :aria-disabled="item.disabledReason === undefined ? undefined : 'true'"
-            :tabindex="item.id === stop ? 0 : -1"
-            :title="item.disabledReason"
-            :data-settings-page-list-item="item.id"
-            @click="pick(item)"
-        >
-            <span v-if="item.icon !== undefined" class="settings-page-list__icon" :class="item.icon" aria-hidden="true"></span>
-            <span class="settings-page-list__text">
-                <span class="settings-page-list__title">{{ item.title }}</span>
-                <span v-if="item.description !== undefined" class="settings-page-list__description">{{ item.description }}</span>
-            </span>
-            <slot name="end" :item="item" :selected="item.id === modelValue" />
+    <div ref="root" class="settings-page-list" :data-state="opened === null ? 'list' : 'detail'">
+        <ul v-if="opened === null" class="settings-page-list__items" :aria-label="label">
+            <li v-for="item in items" :key="item.id" class="settings-page-list__entry">
+                <button type="button" class="settings-page-list__row nb-ui-focus-ring" :data-settings-page-list-item="item.id" @click="emit('update:modelValue', item.id)">
+                    <span v-if="item.icon !== undefined" class="settings-page-list__icon" aria-hidden="true">
+                        <span :class="item.icon"></span>
+                    </span>
+                    <span class="settings-page-list__text">
+                        <span class="settings-page-list__title">
+                            <span class="settings-page-list__title-text">{{ item.title }}</span>
+                            <span v-if="item.modified === true" class="settings-page-list__dot" role="img" :aria-label="text(TEXT.modified)" data-settings-page-list-modified></span>
+                        </span>
+                        <span v-if="item.description !== undefined" class="settings-page-list__description">{{ item.description }}</span>
+                    </span>
+                    <span v-if="item.status !== undefined" class="settings-page-list__status" :data-tone="item.tone ?? 'muted'" data-settings-page-list-status>{{ item.status }}</span>
+                    <span class="i-lucide-chevron-right settings-page-list__chevron" aria-hidden="true"></span>
+                </button>
+            </li>
+        </ul>
+        <div v-else class="settings-page-list__detail" data-settings-page-list-detail>
+            <!-- 在设置窗口里返回在标题区；没有窗口（例如 Lab 单独渲染）时详情上方自己画一行。 -->
+            <button v-if="chrome === null" type="button" class="settings-page-list__back nb-ui-focus-ring" data-settings-page-list-back @click="goBack">
+                <span class="i-lucide-chevron-left" aria-hidden="true"></span>
+                <span>{{ text(TEXT.back) }}</span>
+            </button>
+            <slot :item="opened" />
         </div>
     </div>
 </template>
 
 <style scoped>
 .settings-page-list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
-    padding: var(--space-2);
+    min-width: 0;
 }
 
-.settings-page-list__item {
+.settings-page-list__items {
     display: flex;
+    margin: 0;
+    padding: 0;
+    flex-direction: column;
+    gap: var(--space-1);
+    list-style: none;
+}
+
+/*
+ * 行没有描边：悬停时一层淡底。行比内容列宽一个内边距，文字仍与上下的内容对齐，淡底两端各伸出一点；按下不缩放，也不换色，
+ * 只靠悬停的淡底与焦点环表示状态。
+ */
+.settings-page-list__row {
+    display: flex;
+    width: calc(100% + 2 * var(--space-4));
     min-width: 0;
     align-items: center;
-    gap: var(--space-4);
-    padding: var(--space-3) var(--space-4);
-    border: var(--border-w) solid transparent;
+    gap: var(--space-5);
+    margin-inline: calc(-1 * var(--space-4));
+    padding: var(--space-4);
+    border: 0;
     border-radius: var(--radius-control);
+    background: transparent;
     color: var(--text-main);
+    font: inherit;
+    text-align: left;
     cursor: pointer;
     outline: none;
-    transition-property: background-color, border-color, color;
+    transition-property: background-color;
     transition-duration: var(--motion-fast);
     transition-timing-function: var(--ease-standard);
 }
 
-.settings-page-list__item:hover {
-    background: var(--bg-hover);
-}
-
-.settings-page-list__item--selected,
-.settings-page-list__item--selected:hover {
-    border-color: var(--border-accent);
-    background: var(--accent-bg);
-    color: var(--accent-text);
-}
-
-.settings-page-list__item--disabled {
-    cursor: not-allowed;
-    opacity: 0.45;
-}
-
-.settings-page-list__item--disabled:hover {
-    background: transparent;
+.settings-page-list__row:hover {
+    background: color-mix(in srgb, var(--text-main) 5%, transparent);
 }
 
 .settings-page-list__icon {
-    width: var(--text-md);
-    height: var(--text-md);
+    display: grid;
+    width: 32px;
+    height: 32px;
     flex-shrink: 0;
-    color: var(--text-secondary);
-}
-
-.settings-page-list__item--selected .settings-page-list__icon {
-    color: var(--accent-text);
+    place-items: center;
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--status-info) 14%, transparent);
+    color: var(--status-info);
+    font-size: var(--text-md);
 }
 
 .settings-page-list__text {
@@ -140,12 +183,28 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 .settings-page-list__title {
-    overflow: hidden;
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-3);
     font-size: var(--text-sm);
     font-weight: var(--weight-medium);
     line-height: var(--leading-ui);
+}
+
+.settings-page-list__title-text {
+    overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* 与 SettingsRow 的“已修改”圆点同一个大小与颜色。 */
+.settings-page-list__dot {
+    width: 6px;
+    height: 6px;
+    flex-shrink: 0;
+    border-radius: var(--radius-pill);
+    background: var(--accent-main);
 }
 
 .settings-page-list__description {
@@ -155,5 +214,43 @@ function onKeydown(event: KeyboardEvent): void {
     color: var(--text-muted);
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.settings-page-list__status {
+    flex-shrink: 0;
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+}
+
+.settings-page-list__status[data-tone="success"] {
+    color: var(--status-success);
+}
+
+.settings-page-list__status[data-tone="warning"] {
+    color: var(--status-warning);
+}
+
+.settings-page-list__status[data-tone="error"] {
+    color: var(--status-danger);
+}
+
+.settings-page-list__chevron {
+    flex-shrink: 0;
+    color: var(--text-muted);
+}
+
+.settings-page-list__back {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-5);
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent-text);
+    font: inherit;
+    font-size: var(--text-sm);
+    cursor: pointer;
+    outline: none;
 }
 </style>

@@ -609,7 +609,7 @@ describe("设置文件视图（输出 23）", () => {
     });
 });
 
-describe("Lab“模型服务”：page 分区的草稿、未保存保护与动态选项", () => {
+describe("Lab“模型服务”：一张列表加下一级页面、草稿、未保存保护与动态选项", () => {
     const providers = (host: SettingsHost) => host.user.values()["example.models/providers"] as ReadonlyArray<{readonly id: string; readonly name: string}> | undefined;
     const fill = async (input: HTMLInputElement, value: string): Promise<void> => {
         input.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
@@ -619,69 +619,157 @@ describe("Lab“模型服务”：page 分区的草稿、未保存保护与动�
         await flushPromises();
     };
     const detailInputs = (): HTMLInputElement[] => all("[data-sample-models-detail] input") as HTMLInputElement[];
-    /** 页内列表的条目标题（第二行是接口地址）。 */
-    const listTitles = (): Array<string | undefined> => all("[data-sample-models] [data-settings-page-list-item]").map((element) => element.querySelector(".settings-page-list__title")?.textContent?.trim());
+    const rows = (): HTMLElement[] => all("[data-sample-models] [data-settings-page-list-item]");
+    const rowTitle = (element: HTMLElement): string | undefined => element.querySelector(".settings-page-list__title-text")?.textContent?.trim();
+    /** 列表里服务商的标题；打开了一家（列表不画）时为空。 */
+    const listTitles = (): Array<string | undefined> => rows().map(rowTitle);
+    const heading = (): HTMLElement => one("[data-settings-heading]");
+    const titleText = (): string | null | undefined => heading().querySelector("h2")?.textContent;
     /** 按标题点列表里的一项。 */
     const pick = async (title: string): Promise<void> => {
-        const item = all("[data-sample-models] [data-settings-page-list-item]").find((element) => element.querySelector(".settings-page-list__title")?.textContent?.trim() === title);
+        const item = rows().find((element) => rowTitle(element) === title);
         if (item === undefined) throw new Error(`列表里没有 ${title}`);
         item.click();
         await flushPromises();
     };
+    const goBack = async (): Promise<void> => {
+        one("[data-settings-heading-back]").click();
+        await flushPromises();
+    };
+    /** 保存栏的按钮。 */
     const action = (label: string): HTMLButtonElement => {
-        const found = all("[data-sample-models-actions] button").find((element) => element.textContent?.trim() === label);
+        const found = all("[data-sample-models-bar] button").find((element) => element.textContent?.trim() === label);
         if (found === undefined) throw new Error(`没有按钮 ${label}`);
         return found as HTMLButtonElement;
     };
+    /** 标题区右侧的页面级操作（Teleport 出来的，不在页面正文里）。 */
+    const headingAction = (selector: string): HTMLButtonElement => heading().querySelector<HTMLButtonElement>(`[data-settings-heading-actions] ${selector}`) ?? (() => {
+        throw new Error(`标题区没有 ${selector}`);
+    })();
+    const loaded = () => vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
 
-    it("打开分区时才激活入口；列出已保存的服务商；默认模型的选项来自它们", async () => {
+    it("打开分区时才激活入口；首屏是列表（“常规”两项在上、服务商在下），标题区没有返回；默认模型的选项来自已保存的服务商", async () => {
         const {host} = await scene("page-fill");
-        await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
-        expect(listTitles()).toEqual(["常规", "DeepSeek", "本地 Ollama"]);
+        await loaded();
+        expect(listTitles()).toEqual(["DeepSeek", "本地 Ollama"]);
+        expect(document.body.querySelector("[data-settings-heading-back]")).toBeNull();
+        expect(titleText()).toBe("模型服务");
+        expect(all("[data-sample-models] h3").map((title) => title.textContent)).toEqual(["常规", "服务商"]);
         const source = host.window.options()["example.models.models"];
         const value = typeof source === "function" ? source() : (source as {value: unknown}).value;
         expect(value).toMatchObject({status: "ready", items: [{value: "deepseek/deepseek-chat"}, {value: "deepseek/deepseek-reasoner"}, {value: "local/qwen3:8b"}]});
         expect(one("[data-settings-row='example.models/defaultModel']").textContent).not.toContain("已不存在");
     });
 
-    it("改动先进草稿、报未保存；新加的一项没填好时保存被拒并写出原因；填好保存后整组写进用户层", async () => {
+    it("点一家服务商：整页换成它的详情，标题区写“‹ 模型服务”与它的名字；返回回到列表，焦点回到这一行；列表状态没有改动时没有保存栏", async () => {
+        await scene("page-fill");
+        await loaded();
+        expect(document.body.querySelector("[data-sample-models-bar]")).toBeNull();
+        await pick("本地 Ollama");
+        expect(rows()).toEqual([]);
+        expect(document.body.querySelector("[data-sample-models-general]")).toBeNull();
+        expect(titleText()).toBe("本地 Ollama");
+        expect(one("[data-settings-heading-back]").textContent?.trim()).toBe("模型服务");
+        expect(detailInputs()[1]!.value).toBe("本地 Ollama");
+        // 详情里一直有保存栏，没有改动时两个按钮停用。
+        expect(action("保存").disabled).toBe(true);
+        expect(action("放弃更改").disabled).toBe(true);
+        await goBack();
+        expect(titleText()).toBe("模型服务");
+        expect(document.body.querySelector("[data-settings-heading-back]")).toBeNull();
+        expect(document.activeElement).toBe(rows().find((element) => rowTitle(element) === "本地 Ollama"));
+        expect(document.body.querySelector("[data-sample-models-bar]")).toBeNull();
+    });
+
+    it("“添加服务商”在标题区右侧、只在列表状态；详情状态换成“测试连接”与删除；层坏了时整体停用，修好后恢复", async () => {
         const {host} = await scene("page-fill");
-        await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
-        // 停在“常规”、没有改动时没有操作行：那两项即时写入。
-        expect(document.body.querySelector("[data-sample-models-actions]")).toBeNull();
-        (one("[data-sample-models-add]") as HTMLButtonElement).click();
+        await loaded();
+        expect(document.body.querySelector("[data-sample-models] [data-sample-models-add]")).toBeNull();
+        expect(headingAction("[data-sample-models-add]").textContent?.trim()).toBe("添加服务商");
+        expect(document.body.querySelector("[data-sample-models-test]")).toBeNull();
+        const scope = () => heading().querySelector<HTMLFieldSetElement>("[data-settings-heading-actions] [data-settings-page-actions]")!;
+        expect(scope().disabled).toBe(false);
+        host.user.setInvalid("第 1 行：缺右花括号");
         await flushPromises();
+        // jsdom 不把 fieldset 的停用传给里面的按钮（浏览器会，e2e 里看 toBeDisabled）：这里看按钮在停用的作用域里。
+        expect(scope().disabled).toBe(true);
+        expect(scope().contains(headingAction("[data-sample-models-add]"))).toBe(true);
+        host.user.setInvalid(null);
+        await flushPromises();
+        expect(scope().disabled).toBe(false);
+
+        await pick("DeepSeek");
+        expect(document.body.querySelector("[data-sample-models-add]")).toBeNull();
+        expect(headingAction("[data-sample-models-test]").textContent?.trim()).toBe("测试连接");
+        expect(headingAction("[data-sample-models-remove]").getAttribute("aria-label")).toBe("删除：DeepSeek");
+        host.user.setInvalid("第 1 行：缺右花括号");
+        await flushPromises();
+        expect(scope().disabled).toBe(true);
+        expect([headingAction("[data-sample-models-test]"), headingAction("[data-sample-models-remove]")].every((button) => scope().contains(button))).toBe(true);
+        // 页面自己的控件按 context.writable 停用：字段只读。
+        expect(detailInputs().every((input) => input.readOnly)).toBe(true);
+        host.user.setInvalid(null);
+        await flushPromises();
+        expect(scope().disabled).toBe(false);
+    });
+
+    it("测试连接：结果写在列表的这一行右端（已连接是成功色，连不上是出错色）", async () => {
+        await scene("page-fill");
+        await loaded();
+        expect(all("[data-settings-page-list-status]")).toEqual([]);
+        await pick("DeepSeek");
+        headingAction("[data-sample-models-test]").click();
+        await flushPromises();
+        await goBack();
+        const statuses = all("[data-sample-models] [data-settings-page-list-status]");
+        expect(statuses.map((status) => [status.textContent, status.dataset.tone])).toEqual([["已连接", "success"]]);
+        expect(statuses[0]!.closest("[data-settings-page-list-item]")).toBe(rows().find((element) => rowTitle(element) === "DeepSeek"));
+    });
+
+    it("改动先进草稿、报未保存；新加的一项没填好时保存被拒并写出原因；填好保存后整组写进用户层，焦点回到第一个输入框", async () => {
+        const {host} = await scene("page-fill");
+        await loaded();
+        // 停在列表、没有改动时没有保存栏：“常规”两项即时写入。
+        expect(document.body.querySelector("[data-sample-models-bar]")).toBeNull();
+        headingAction("[data-sample-models-add]").click();
+        await flushPromises();
+        // 新加的一家随即打开，标题区写“未命名的服务商”。
+        expect(titleText()).toBe("未命名的服务商");
         expect(host.window.unsaved.value).toBe(true);
         expect(providers(host)).toHaveLength(2);
         action("保存").click();
         await flushPromises();
-        expect(one("[data-sample-models-failure]").textContent).toMatch(/^还没保存：/u);
+        expect(one("[data-settings-save-bar-note]").textContent).toMatch(/^还没保存：/u);
         expect(providers(host)).toHaveLength(2);
         const [id, name, baseUrl, timeout] = detailInputs();
         await fill(id!, "openai");
         await fill(name!, "OpenAI");
         await fill(baseUrl!, "https://api.openai.com/v1");
         await fill(timeout!, "30");
+        expect(titleText()).toBe("OpenAI");
         action("保存").click();
         await flushPromises();
         expect(providers(host)?.map((provider) => provider.id)).toEqual(["deepseek", "local", "openai"]);
         expect(host.window.unsaved.value).toBe(false);
         expect(action("保存").disabled).toBe(true);
+        expect(document.activeElement).toBe(detailInputs()[0]);
     });
 
-    it("删掉默认模型所在的服务商并保存：默认模型照常显示、标“已不存在”；放弃改动回到已保存的值", async () => {
+    it("删掉一家回到列表，保存栏仍在（有没保存的改动）；放弃更改回到已保存的值；删掉默认模型所在的服务商并保存：默认模型照常显示、标“已不存在”", async () => {
         const {host} = await scene("page-fill");
-        await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
+        await loaded();
         await pick("DeepSeek");
-        (all("[data-sample-models] button").find((element) => element.getAttribute("aria-label") === "删除：DeepSeek") as HTMLButtonElement).click();
+        headingAction("[data-sample-models-remove]").click();
         await flushPromises();
-        expect(listTitles()).toEqual(["常规", "本地 Ollama"]);
-        action("放弃改动").click();
+        expect(listTitles()).toEqual(["本地 Ollama"]);
+        expect(titleText()).toBe("模型服务");
+        action("放弃更改").click();
         await flushPromises();
-        expect(listTitles()).toEqual(["常规", "DeepSeek", "本地 Ollama"]);
+        expect(listTitles()).toEqual(["DeepSeek", "本地 Ollama"]);
         expect(host.window.unsaved.value).toBe(false);
+        expect(document.body.querySelector("[data-sample-models-bar]")).toBeNull();
         await pick("DeepSeek");
-        (all("[data-sample-models] button").find((element) => element.getAttribute("aria-label") === "删除：DeepSeek") as HTMLButtonElement).click();
+        headingAction("[data-sample-models-remove]").click();
         await flushPromises();
         action("保存").click();
         await flushPromises();
@@ -692,7 +780,7 @@ describe("Lab“模型服务”：page 分区的草稿、未保存保护与动�
 
     it("有未保存的改动时切到别的分区：先弹确认；放弃后离开，回来时是已保存的值", async () => {
         const {host} = await scene("page-fill");
-        await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
+        await loaded();
         await pick("DeepSeek");
         await fill(detailInputs()[1]!, "深度求索");
         expect(host.window.unsaved.value).toBe(true);
@@ -701,38 +789,51 @@ describe("Lab“模型服务”：page 分区的草稿、未保存保护与动�
         [...one("[role='alertdialog']").querySelectorAll("button")].find((button) => button.textContent?.trim() === "放弃")!.click();
         await flushPromises();
         expect(host.window.section.value).toBe("nbook.appearance");
+        // 页面卸载，标题区也不再带着上一页的“‹ 模型服务”。
+        expect(document.body.querySelector("[data-settings-heading-back]")).toBeNull();
         host.window.select("example.models.main");
-        await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
-        expect(listTitles()[1]).toBe("DeepSeek");
+        await loaded();
+        expect(listTitles()[0]).toBe("DeepSeek");
+        expect(titleText()).toBe("模型服务");
         expect(host.window.unsaved.value).toBe(false);
     });
 
-    it("一家服务商里有解析不了的输入：列表标出这一家；切到别家时这段输入随字段丢掉，回来是原值、不再算未保存", async () => {
+    it("改过的服务商在列表里标圆点；解析不了的输入随详情卸载丢掉，回来是原值、不再算未保存", async () => {
         const {host} = await scene("page-fill");
-        await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
+        await loaded();
+        const edited = () => rows().filter((element) => element.querySelector("[data-settings-page-list-modified]") !== null).map(rowTitle);
+        await pick("DeepSeek");
+        await fill(detailInputs()[1]!, "深度求索");
+        await goBack();
+        expect(edited()).toEqual(["深度求索"]);
+        await pick("深度求索");
+        await fill(detailInputs()[1]!, "DeepSeek");
+        await goBack();
+        expect(edited()).toEqual([]);
+        expect(host.window.unsaved.value).toBe(false);
+
         await pick("DeepSeek");
         await fill(detailInputs()[3]!, "abc");
         expect(host.window.unsaved.value).toBe(true);
-        const edited = () => all("[data-sample-models] [data-settings-page-list-item]").filter((element) => element.querySelector("[data-sample-models-edited]") !== null).map((element) => element.querySelector(".settings-page-list__title")?.textContent?.trim());
-        expect(edited()).toEqual(["DeepSeek"]);
-        await pick("本地 Ollama");
-        await pick("DeepSeek");
-        expect(detailInputs()[3]!.value).toBe("60");
+        await goBack();
         expect(host.window.unsaved.value).toBe(false);
         expect(edited()).toEqual([]);
+        await pick("DeepSeek");
+        expect(detailInputs()[3]!.value).toBe("60");
     });
 
-    it("没有改动时别处在最前面加了一家：草稿跟上，选中的仍是原来那家", async () => {
+    it("没有改动时别处在最前面加了一家：草稿跟上，打开的仍是原来那家", async () => {
         const {host} = await scene("page-fill");
-        await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
+        await loaded();
         await pick("本地 Ollama");
         // 配置服务给的是只读值，写回去要一份可改的。
         const before = host.service("example.models").get(modelsSettings.providers).map(({models, ...rest}) => ({...rest, ...(models === undefined ? {} : {models: [...models]})}));
         await host.service("example.models").update(modelsSettings.providers, [{id: "other", name: "别处加的", baseUrl: "https://example.com", timeout: 10}, ...before], {layer: "user"});
         await flushPromises();
-        expect(listTitles()).toEqual(["常规", "别处加的", "DeepSeek", "本地 Ollama"]);
-        expect(one("[data-sample-models] h3").textContent?.trim()).toBe("本地 Ollama");
+        expect(titleText()).toBe("本地 Ollama");
         expect(detailInputs()[1]!.value).toBe("本地 Ollama");
+        await goBack();
+        expect(listTitles()).toEqual(["别处加的", "DeepSeek", "本地 Ollama"]);
     });
 });
 
@@ -809,7 +910,7 @@ describe("实现审查补的用例（Sonnet 第 1、2、9、10、13 条，第 5 
     it("模型服务：有改动时别处改了服务商，提示并停用“保存”；“仍然保存”盖掉别处的改动", async () => {
         const {host} = await scene("page-fill");
         await vi.waitFor(() => expect(document.body.querySelector("[data-sample-models]")).not.toBeNull());
-        all("[data-sample-models] [data-settings-page-list-item]")[1]!.click();
+        all("[data-sample-models] [data-settings-page-list-item]")[0]!.click();
         await flushPromises();
         const name = (all("[data-sample-models-detail] input") as HTMLInputElement[])[1]!;
         name.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
@@ -820,7 +921,7 @@ describe("实现审查补的用例（Sonnet 第 1、2、9、10、13 条，第 5 
         await host.service("example.models").update(modelsSettings.providers, [{id: "other", name: "别处加的", baseUrl: "https://example.com", timeout: 10}], {layer: "user"});
         await flushPromises();
         expect(one("[data-sample-models-changed]").textContent).toContain("别处改过了");
-        const save = all("[data-sample-models-actions] button").find((element) => element.textContent?.trim() === "保存") as HTMLButtonElement;
+        const save = all("[data-sample-models-bar] button").find((element) => element.textContent?.trim() === "保存") as HTMLButtonElement;
         expect(save.disabled).toBe(true);
         (all("[data-sample-models-changed] button").find((element) => element.textContent?.trim() === "仍然保存") as HTMLButtonElement).click();
         await flushPromises();

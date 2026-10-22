@@ -517,7 +517,7 @@ test("设置文件视图：看到带注释的全文，改主题后 Ctrl+S 保存
     expect(problems).toEqual([]);
 });
 
-test("Lab“模型服务”：打开时才激活；加一家服务商没填好时保存被拒，填好后保存；有改动时切分区先确认", async ({page}) => {
+test("Lab“模型服务”：打开时才激活；首屏是服务商列表，添加服务商在标题区；加一家没填好时保存被拒，填好后保存；有改动时切分区先确认", async ({page}) => {
     const devRoot = join(tmp, "dev-models");
     await mkdir(devRoot, {recursive: true});
     const dev = await startDevSession(devRoot);
@@ -525,26 +525,44 @@ test("Lab“模型服务”：打开时才激活；加一家服务商没填好�
         await page.goto(`${dev.pageUrl}lab?c=SettingsWindow&s=page-fill`);
         const models = page.locator("[data-sample-models]");
         await expect(models).toBeVisible();
-        const items = models.getByRole("listbox", {name: "模型服务"}).getByRole("option");
-        await expect(items).toHaveCount(3);
-        await expect(items.nth(0)).toContainText("常规");
-        await expect(items.nth(1)).toContainText("DeepSeek");
-        // 新加的一家服务商随即选中，右边是它的字段。
-        await models.locator("[data-sample-models-add]").click();
-        await expect(page.locator("[data-sample-models-actions]").getByRole("button", {name: "保存"})).toBeEnabled();
-        await page.locator("[data-sample-models-actions]").getByRole("button", {name: "保存"}).click();
-        await expect(page.locator("[data-sample-models-failure]")).toContainText("还没保存");
+        const heading = page.locator("[data-settings-heading]");
+        const rows = models.locator("[data-settings-page-list-item]");
+        await expect(rows).toHaveCount(2);
+        await expect(rows.nth(0)).toContainText("DeepSeek");
+        await expect(models.getByRole("list", {name: "模型服务"})).toBeVisible();
+        // 首屏是列表：标题区没有返回，“添加服务商”在标题区右侧、不在页面正文里。
+        await expect(heading.locator("[data-settings-heading-back]")).toHaveCount(0);
+        await expect(models.locator("[data-sample-models-add]")).toHaveCount(0);
+        const add = heading.locator("[data-sample-models-add]");
+        await expect(add).toBeEnabled();
+        // 新加的一家随即打开：标题区换成“‹ 模型服务”与它的标题，保存栏出现。
+        await add.click();
+        await expect(heading.locator("h2")).toHaveText("未命名的服务商");
+        await expect(heading.locator("[data-settings-heading-back]")).toContainText("模型服务");
+        await expect(heading.locator("[data-sample-models-add]")).toHaveCount(0);
+        const bar = page.locator("[data-sample-models-bar]");
+        await expect(bar.getByRole("button", {name: "保存"})).toBeEnabled();
+        await bar.getByRole("button", {name: "保存"}).click();
+        await expect(bar.locator("[data-settings-save-bar-note]")).toContainText("还没保存");
         const detail = models.locator("[data-sample-models-detail]");
         await detail.getByLabel("标识").fill("openai");
         await detail.getByLabel("名称").fill("OpenAI");
         await detail.getByLabel("接口地址").fill("https://api.openai.com/v1");
         await detail.getByLabel("超时").fill("30");
         await detail.getByLabel("超时").blur();
-        await page.locator("[data-sample-models-actions]").getByRole("button", {name: "保存"}).click();
-        await expect(page.locator("[data-sample-models-actions]").getByRole("button", {name: "保存"})).toBeDisabled();
-        await expect(items).toHaveCount(4);
-        await expect(items.nth(3)).toContainText("OpenAI");
+        await expect(heading.locator("h2")).toHaveText("OpenAI");
+        await bar.getByRole("button", {name: "保存"}).click();
+        await expect(bar.getByRole("button", {name: "保存"})).toBeDisabled();
+        // 保存按钮停用后留不住焦点，页面把它放回详情里的第一个输入框。
+        await expect(detail.getByLabel("标识")).toBeFocused();
+        await heading.locator("[data-settings-heading-back]").click();
+        await expect(rows).toHaveCount(3);
+        await expect(rows.nth(2)).toContainText("OpenAI");
+        await expect(rows.nth(2)).toBeFocused();
+        await expect(bar).toHaveCount(0);
 
+        // 再打开这一家改名字，不保存就离开：先确认。
+        await rows.nth(2).click();
         await detail.getByLabel("名称").fill("OpenAI 官方");
         await detail.getByLabel("名称").blur();
         await page.locator("[data-settings-nav='nbook.appearance']").click();
@@ -557,6 +575,8 @@ test("Lab“模型服务”：打开时才激活；加一家服务商没填好�
         await page.locator("[data-settings-nav='nbook.appearance']").click();
         await page.getByRole("alertdialog").getByRole("button", {name: "放弃"}).click();
         await expect(page.locator("[data-settings-section='nbook.appearance']")).toBeVisible();
+        // 离开页面后标题区不再带着“‹ 模型服务”。
+        await expect(heading.locator("[data-settings-heading-back]")).toHaveCount(0);
     } finally {
         dev.child.kill("SIGTERM");
         expect(await dev.exit).toBe(0);

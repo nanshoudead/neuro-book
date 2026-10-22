@@ -1128,22 +1128,27 @@ function settingsFixtures(): LabFixture[] {
             ],
             subject: () => import("nbook/ui/settings/HighlightedText.vue"),
         }),
-        defineSubjectFixture<typeof SettingsPageList>({
+        defineLabFixture<typeof SettingsPageList>({
             component: "SettingsPageList",
-            class: "w-full max-w-[260px]",
             scenes: (() => {
                 const providers = [
-                    {id: "deepseek", title: "DeepSeek", description: "api.deepseek.com", icon: "i-lucide-server"},
-                    {id: "openai", title: "OpenAI", description: "api.openai.com", icon: "i-lucide-server"},
-                    {id: "custom", title: "自定义服务", icon: "i-lucide-server", disabledReason: "还没有填写接口地址"},
+                    {id: "deepseek", title: "DeepSeek", description: "https://api.deepseek.com", icon: "i-lucide-server", status: "已连接", tone: "success" as const, modified: true},
+                    {id: "ollama", title: "本地 Ollama", description: "http://127.0.0.1:11434/v1", icon: "i-lucide-server", status: "未连接"},
+                    {id: "openai", title: "OpenAI", description: "https://api.openai.com/v1", icon: "i-lucide-server", status: "密钥已过期", tone: "warning" as const},
+                    {id: "custom", title: "自建服务", description: "http://llm.internal/v1", icon: "i-lucide-server", status: "连接失败", tone: "error" as const},
+                ];
+                const long = [
+                    {id: "a", title: "一个名字很长很长的自建兼容服务（内网环境下的备用线路）", description: "https://llm.internal.example.com/v1/chat/completions/with/a/very/long/path", icon: "i-lucide-server", status: "已连接", tone: "success" as const, modified: true},
+                    {id: "b", title: "备用"},
                 ];
                 return [
-                    {id: "providers", label: "服务商：选中、说明与停用", input: {props: {items: providers, label: "服务商"}, model: {modelValue: "deepseek"}}},
-                    {id: "none", label: "没有选中", input: {props: {items: providers.slice(0, 2), label: "服务商"}, model: {modelValue: null}}},
-                    {id: "long", label: "长标题截断", input: {props: {items: [{id: "a", title: "一个名字很长很长的自建兼容服务（内网）", description: "https://llm.internal.example.com/v1/chat/completions"}, {id: "b", title: "备用"}], label: "服务商"}, model: {modelValue: "a"}}},
+                    {id: "list", label: "列表：图标、说明、状态色调（成功、淡色、警告、出错）与改动圆点", input: {props: {items: providers, label: "服务商"}, model: {modelValue: null}}},
+                    {id: "long", label: "长标题与长说明截断，状态文字不缩", input: {props: {items: long, label: "服务商"}, model: {modelValue: null}}},
+                    {id: "open", label: "打开一项（没有窗口通道）：详情上方自己画“‹ 返回”，返回后焦点回到这一行", input: {props: {items: providers, label: "服务商"}, model: {modelValue: "deepseek"}}},
+                    {id: "open-in-title", label: "打开一项（有窗口通道）：标题区换成“‹ 模型服务”与这一项的标题", input: {props: {items: providers, label: "服务商"}, model: {modelValue: "deepseek"}}},
                 ];
             })(),
-            subject: () => import("nbook/ui/settings/SettingsPageList.vue"),
+            load: async () => (await import("./SettingsPageListFixture.vue")).default,
         }),
     ];
 }
