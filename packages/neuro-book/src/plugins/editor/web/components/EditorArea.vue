@@ -202,7 +202,7 @@ const dialog = computed(() => props.area.dialog.value);
     box-shadow: var(--elevation-raised);
     color: var(--text-main);
     font-family: var(--font-ui);
-    font-size: 13px;
+    font-size: var(--text-sm);
     white-space: nowrap;
     pointer-events: none;
     user-select: none;

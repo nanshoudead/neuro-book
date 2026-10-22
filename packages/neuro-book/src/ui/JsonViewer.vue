@@ -293,7 +293,7 @@ function handleEditorUpdate(value: unknown): void {
     --jse-theme-color-highlight: color-mix(in srgb, var(--bg-hover) 70%, var(--accent-main) 30%);
     --jse-font-family: var(--font-ui);
     --jse-font-family-mono: var(--font-mono);
-    --jse-font-size: 11px;
+    --jse-font-size: var(--text-xs);
     --jse-font-size-mono: 11px;
     --jse-font-size-main-menu: 11px;
     --jse-font-size-text-mode-search: 80%;
@@ -394,7 +394,7 @@ function handleEditorUpdate(value: unknown): void {
     --jse-a-color-highlight: color-mix(in srgb, var(--accent-main) 75%, var(--text-main));
     --jse-color-picker-background: var(--bg-input);
     --jse-color-picker-border-box-shadow: var(--border-color) 0 0 0 1px;
-    font-size: 11px;
+    font-size: var(--text-xs);
 }
 
 /* 内部各模式内容区占满剩余空间 */

@@ -34,7 +34,7 @@ function pageStates(locale: () => DisplayLocale): {readonly loading: Component; 
             name: "EditorPageFailed",
             inheritAttrs: false,
             props: {error: {type: Error, required: true}},
-            setup: (props) => () => h("p", {"class": "px-6 py-4 text-[13px] text-[var(--status-danger)]", "role": "alert", "data-editor-page-failed": ""}, editorText(locale(), "pageFailed", {reason: props.error.message})),
+            setup: (props) => () => h("p", {"class": "px-6 py-4 text-[length:var(--text-sm)] text-[var(--status-danger)]", "role": "alert", "data-editor-page-failed": ""}, editorText(locale(), "pageFailed", {reason: props.error.message})),
         }),
     };
 }

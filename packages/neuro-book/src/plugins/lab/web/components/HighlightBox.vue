@@ -74,7 +74,7 @@ const labelStyle = computed(() => {
         ></div>
         <div
             v-if="props.label"
-            class="nb-lab-highlight-label fixed max-w-[min(24rem,90vw)] truncate rounded-[3px] px-1.5 py-0.5 font-mono text-[11px] leading-[14px] tabular-nums"
+            class="nb-lab-highlight-label fixed max-w-[min(24rem,90vw)] truncate rounded-[3px] px-1.5 py-0.5 font-mono text-[length:var(--text-xs)] leading-[14px] tabular-nums"
             :class="props.tone === 'probe'
                 ? 'bg-[var(--text-main)] text-[var(--bg-main)]'
                 : 'bg-[var(--accent-main)] text-[var(--text-inverse)]'"

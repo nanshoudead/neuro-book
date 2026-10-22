@@ -231,7 +231,7 @@ const headline = computed(() => (totals.value.today === null
     min-width: 0;
     overflow: hidden;
     color: var(--text-secondary);
-    font-size: 14px;
+    font-size: var(--text-sm);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -247,7 +247,7 @@ const headline = computed(() => (totals.value.today === null
     overflow: hidden;
     color: var(--text-muted);
     font-family: var(--font-display);
-    font-size: 13px;
+    font-size: var(--text-sm);
     text-overflow: ellipsis;
     white-space: nowrap;
 }

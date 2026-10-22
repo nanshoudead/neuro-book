@@ -129,7 +129,7 @@ const onClick = (event: MouseEvent): void => {
 
 <style scoped>
 .nb-markdown-display {
-    --markdown-font-size: 13px;
+    --markdown-font-size: var(--text-sm);
     --markdown-line-height: 1.7;
     --markdown-block-gap: 8px;
     min-width: 0;

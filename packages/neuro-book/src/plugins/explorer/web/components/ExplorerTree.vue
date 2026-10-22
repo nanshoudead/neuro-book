@@ -762,7 +762,7 @@ defineExpose({focus: focusTree});
     background: var(--bg-panel);
     box-shadow: var(--elevation-menu, var(--elevation-popover));
     color: var(--text-main);
-    font-size: 12px;
+    font-size: var(--text-xs);
     line-height: 1.5;
     pointer-events: none;
     animation: explorer-ghost-in var(--motion-fast) var(--ease-standard);

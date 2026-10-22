@@ -345,7 +345,8 @@ test("折叠内容只在高度动画进行中裁切：展开与收起时打上 d
 test("应用只有一套原子 CSS（ADR 0028）：组件取 nb-ui 自己的字号，开关滑块留在轨道里，下拉箭头只转半圈；调用方的原子类压过组件的语义类；根上的细滚动条对后代生效", async ({page}) => {
     // 两套引擎并存时，宿主的 `text-sm`（14px）改掉组件的字号，`translate-x-4`、`rotate-180` 两边各生成一份而叠加。
     await openScene(page, "c=IconButton&s=default");
-    expect(await stage(page).locator("button").first().evaluate((element) => getComputedStyle(element).fontSize)).toBe("13px");
+    const button = stage(page).locator("button").first();
+    expect(await button.evaluate((element) => getComputedStyle(element).fontSize)).toBe(await button.evaluate((element) => getComputedStyle(element).getPropertyValue("--text-sm").trim()));
 
     await openScene(page, "c=Switch&s=on");
     const track = stage(page).locator('[role="switch"]').first();

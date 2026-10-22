@@ -885,21 +885,21 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
                             <span class="font-medium text-[var(--text-main)] shrink-0">场景交互控制</span>
                             <span
                                 v-if="scene?.label"
-                                class="truncate text-[11px] font-normal text-[var(--text-secondary)] hidden sm:inline"
+                                class="truncate text-[length:var(--text-xs)] font-normal text-[var(--text-secondary)] hidden sm:inline"
                             >
                                 · {{ scene.label }}
                             </span>
-                            <span class="rounded bg-[var(--bg-input)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--text-muted)] border border-[var(--border-color)] shrink-0">
+                            <span class="rounded bg-[var(--bg-input)] px-1.5 py-0.5 font-mono text-[length:var(--text-2xs)] text-[var(--text-muted)] border border-[var(--border-color)] shrink-0">
                                 {{ selectedScene }}
                             </span>
                         </div>
                         <div class="flex items-center gap-2 shrink-0">
-                            <span class="text-[10px] text-[var(--text-muted)] hidden md:inline">
+                            <span class="text-[length:var(--text-2xs)] text-[var(--text-muted)] hidden md:inline">
                                 {{ bottomPanelCollapsed ? '已折叠' : '调试控件' }}
                             </span>
                             <button
                                 type="button"
-                                class="inline-flex h-6 items-center gap-1 rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--bg-main)] px-2 text-[11px] font-medium text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] cursor-pointer"
+                                class="inline-flex h-6 items-center gap-1 rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--bg-main)] px-2 text-[length:var(--text-xs)] font-medium text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] cursor-pointer"
                                 :title="bottomPanelCollapsed ? '展开控制面板' : '收起控制面板'"
                                 @click.stop="bottomPanelCollapsed = !bottomPanelCollapsed"
                             >
