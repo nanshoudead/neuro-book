@@ -56,13 +56,10 @@ const ZH = {
     "tool.read": "读取",
     "tool.webSearch": "搜索",
     "tool.webFetch": "抓取网页",
-    "tool.subjectSearch": "检索记忆",
-    "tool.agentLookup": "查询 Agent",
     "tool.list": "列出",
     "tool.write": "写入",
     "tool.edit": "编辑",
     "tool.applyPatch": "应用补丁",
-    "tool.subjectMemory": "更新记忆",
     "tool.requestUserInput": "提问",
     "tool.switchMode": "切换模式",
     "tool.task": "任务清单",
@@ -136,6 +133,12 @@ const ZH = {
     "command.summarize": "把标题交还给自动摘要，并立即重新生成",
     "command.fork": "以同一个 Profile 另开一条会话",
     "command.clear": "清空当前会话视图，回到空历史",
+    "imagePreview.close": "关闭",
+    "imagePreview.downloadOriginal": "下载原图",
+    "imagePreview.loadFailed": "原图加载失败",
+    "imagePreview.retry": "重试",
+    "imagePreview.image": "图片 #{number}",
+    "imagePreview.loading": "正在加载原图",
 } as const satisfies Record<string, string>;
 
 export type AgentTextKey = keyof typeof ZH;
@@ -191,13 +194,10 @@ const EN: Record<AgentTextKey, string> = {
     "tool.read": "Read",
     "tool.webSearch": "Search",
     "tool.webFetch": "Fetch page",
-    "tool.subjectSearch": "Search memory",
-    "tool.agentLookup": "Look up agent",
     "tool.list": "List",
     "tool.write": "Write",
     "tool.edit": "Edit",
     "tool.applyPatch": "Apply patch",
-    "tool.subjectMemory": "Update memory",
     "tool.requestUserInput": "Ask",
     "tool.switchMode": "Switch mode",
     "tool.task": "Task list",
@@ -271,6 +271,12 @@ const EN: Record<AgentTextKey, string> = {
     "command.summarize": "Hand the title back to auto summary and regenerate now",
     "command.fork": "Start another session with the same Profile",
     "command.clear": "Clear the session view and return to empty history",
+    "imagePreview.close": "Close",
+    "imagePreview.downloadOriginal": "Download Original",
+    "imagePreview.loadFailed": "Original image failed to load",
+    "imagePreview.retry": "Retry",
+    "imagePreview.image": "Image #{number}",
+    "imagePreview.loading": "Loading the original image",
 };
 
 const TABLES: Record<AgentLocale, Record<AgentTextKey, string>> = {"zh-CN": ZH, "en-US": EN};

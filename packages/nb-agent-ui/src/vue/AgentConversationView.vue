@@ -1,0 +1,480 @@
+<script setup lang="ts">
+import {computed, nextTick, onBeforeUnmount, ref, watch} from "vue";
+import {Button, DropdownMenu, IconButton, Spinner} from "@notnotype/nb-ui/components";
+import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
+import type {
+    AgentConversationContext,
+    AgentConversationServices,
+    AgentViewAction,
+    AgentLocale,
+    AgentViewMode,
+} from "../types";
+import type {AgentViewRegistry} from "../registry";
+import {assignTurnKeys, splitIntoTurnGroups} from "../conversation-turns";
+import {useStreamScroll} from "@notnotype/nb-ui/composables";
+import AgentConversationTurn from "./stream/AgentConversationTurn.vue";
+import AgentRawView from "./stream/AgentRawView.vue";
+import AgentConversationComposer from "./composer/AgentConversationComposer.vue";
+import OriginalImagePreviewDialog from "./parts/OriginalImagePreviewDialog.vue";
+import {provideAgentView, useAgentText} from "./host";
+import type {AgentViewRenderers} from "./host";
+import type {PreviewImageRequest} from "./preview";
+
+const props = withDefaults(defineProps<{
+    ctx: AgentConversationContext;
+    services: AgentConversationServices;
+    registry: AgentViewRegistry;
+    viewMode?: AgentViewMode;
+    teleportTarget?: string | false;
+    locale: AgentLocale;
+    renderers?: AgentViewRenderers;
+}>(), {
+    viewMode: undefined,
+    teleportTarget: false,
+    renderers: () => ({}),
+});
+
+const emit = defineEmits<{
+    (e: "action", action: AgentViewAction): void;
+    (e: "update:viewMode", mode: AgentViewMode): void;
+}>();
+
+provideAgentView({locale: () => props.locale, renderers: () => props.renderers});
+
+const {t} = useAgentText();
+
+// ─── 视图模式 ───────────────────────────────────────────────────────────
+
+const localViewMode = ref<AgentViewMode>("turns");
+const currentViewMode = computed(() => props.viewMode ?? localViewMode.value);
+
+function setViewMode(mode: AgentViewMode) {
+    localViewMode.value = mode;
+    emit("update:viewMode", mode);
+}
+
+const overflowItems = computed<DropdownMenuItemData[]>(() => [{
+    value: "toggle-view-mode",
+    label: currentViewMode.value === "raw" ? t("header.turnsView") : t("header.rawView"),
+    iconClass: currentViewMode.value === "raw" ? "i-lucide-list-collapse" : "i-lucide-list",
+}]);
+
+function onOverflowSelect(value: string) {
+    if (value === "toggle-view-mode") {
+        setViewMode(currentViewMode.value === "raw" ? "turns" : "raw");
+    }
+}
+
+// ─── 轮次 ───────────────────────────────────────────────────────────────
+
+/** 按轮次边界切好的消息；每一轮的整理、折叠与操作由 AgentConversationTurn 负责。 */
+const turnGroups = computed(() => splitIntoTurnGroups(props.ctx.messages));
+
+/** 上一次分配的 key 只用来让下一次沿用，不参与渲染依赖。 */
+let previousTurnKeys = new Map<string, string>();
+const turnKeys = computed(() => {
+    previousTurnKeys = assignTurnKeys(turnGroups.value, previousTurnKeys);
+    return previousTurnKeys;
+});
+
+// ─── 滚动与历史 ─────────────────────────────────────────────────────────
+
+const streamRef = ref<HTMLElement | null>(null);
+const contentRef = ref<HTMLElement | null>(null);
+
+const {following, scrollToLatest, recheckNearTop} = useStreamScroll({
+    scroller: streamRef,
+    content: contentRef,
+    onNearTop: () => requestHistory(false),
+});
+
+// 切换会话后定位到最新内容；各轮的界面状态随组件的 key（含会话 id）一起重建。
+watch(() => props.ctx.session?.id, () => {
+    void nextTick(scrollToLatest);
+});
+
+const historyRow = computed(() => {
+    const {hasMore, loading, error} = props.ctx.history;
+    if (error !== null) {
+        return "error";
+    }
+    if (loading) {
+        return "loading";
+    }
+    return hasMore ? "more" : null;
+});
+
+/** 滚动触发的请求已经发出、宿主还没反映到 history 上；避免一次滚动连发。 */
+let historyRequested = false;
+watch(() => [props.ctx.history.loading, props.ctx.history.error, props.ctx.messages[0]?.id], () => {
+    historyRequested = false;
+});
+
+// 一页加载完时高度可能不变（补上的内容都收在已收起的轮次里），不会触发滚动或尺寸校正，这里再看一次是否仍在顶部。
+watch(() => props.ctx.history.loading, (loading, wasLoading) => {
+    if (wasLoading && !loading) {
+        recheckNearTop();
+    }
+});
+
+/** 接近顶部时自动请求（失败后不自动重试）；用户点“更早的内容”或“重试”时是 explicit。 */
+function requestHistory(explicit: boolean) {
+    const {hasMore, loading, error} = props.ctx.history;
+    if (!hasMore || loading || (!explicit && (historyRequested || error !== null))) {
+        return;
+    }
+    historyRequested = true;
+    emit("action", {type: "history.loadPrevious"});
+}
+
+// ─── 输入框 ─────────────────────────────────────────────────────────────
+
+const composerRef = ref<InstanceType<typeof AgentConversationComposer> | null>(null);
+
+function focusComposer() {
+    composerRef.value?.focus();
+}
+
+// ─── 原图预览 ───────────────────────────────────────────────────────────
+
+/** 正在预览的图片；对话框关闭时保留地址，关闭动画期间图片不消失。`release` 归还 Markdown 图片的地址。 */
+const preview = ref<{src: string; name: string; release: () => void} | null>(null);
+const previewOpen = ref(false);
+/** 正在换算的 Markdown 图片地址；又点了别的图片或视图卸载时取消，晚到的结果直接归还。 */
+let pendingAsset: AbortController | null = null;
+
+function showPreview(next: {src: string; name: string; release: () => void}) {
+    preview.value?.release();
+    preview.value = next;
+    previewOpen.value = true;
+}
+
+function openPreview(image: PreviewImageRequest) {
+    pendingAsset?.abort();
+    pendingAsset = null;
+    if ("locator" in image) {
+        const src = props.services.resolveAttachmentUrl(image.locator, "original");
+        if (src !== null) showPreview({src, name: image.name, release: () => {}});
+        return;
+    }
+    const resolve = props.services.resolveMarkdownAsset;
+    if (resolve === undefined) return;
+    const controller = new AbortController();
+    pendingAsset = controller;
+    void resolve(image.markdownSrc, controller.signal).then((asset) => {
+        if (asset === null) return;
+        if (controller.signal.aborted) {
+            asset.release();
+            return;
+        }
+        pendingAsset = null;
+        showPreview({src: asset.url, name: image.name, release: () => asset.release()});
+    }, (error: unknown) => {
+        // 换算失败与取不到一样不打开预览；视图没有诊断通道，留一条开发诊断。
+        console.warn(`nb-agent-ui: 回复里的图片 ${image.markdownSrc} 取不到原图`, error);
+    });
+}
+
+onBeforeUnmount(() => {
+    pendingAsset?.abort();
+    preview.value?.release();
+});
+
+defineExpose({focusComposer, scrollToLatest});
+</script>
+
+<template>
+    <section class="agent-conversation-view">
+        <header class="acv-header">
+            <span
+                v-if="props.ctx.session"
+                :class="[props.ctx.session.profileIcon, 'acv-header__icon']"
+                aria-hidden="true"
+            />
+            <div class="acv-header__title" :title="props.ctx.session?.summary || undefined">
+                <span class="acv-header__name">{{ props.ctx.session ? (props.ctx.session.title || t("header.untitled")) : t("header.noSession") }}</span>
+                <span v-if="props.ctx.session" class="acv-header__profile">{{ props.ctx.session.profileName }}</span>
+            </div>
+            <DropdownMenu :items="overflowItems" root-class="acv-header__more" align="end" @select="onOverflowSelect">
+                <IconButton icon-class="i-lucide-ellipsis" size="sm" :title="t('header.more')" :aria-label="t('header.more')" />
+            </DropdownMenu>
+        </header>
+
+        <div class="acv-body">
+            <div ref="streamRef" class="acv-stream" data-agent-stream>
+                <div ref="contentRef" class="acv-stream__content">
+                    <p v-if="props.ctx.messages.length === 0" class="acv-stream__empty">
+                        {{ t("stream.empty") }}
+                    </p>
+
+                    <template v-else>
+                        <!-- 更早的内容：也是开头不完整的第一轮的开头标记 -->
+                        <div v-if="historyRow" class="acv-history" :data-history="historyRow">
+                            <p v-if="historyRow === 'error'" class="acv-history__error" role="alert">
+                                <span class="i-lucide-circle-alert acv-history__icon" aria-hidden="true" />
+                                <span>{{ props.ctx.history.error }}</span>
+                                <Button size="sm" variant="subtle" icon-class="i-lucide-rotate-cw" @click="requestHistory(true)">
+                                    {{ t("history.retry") }}
+                                </Button>
+                            </p>
+                            <p v-else-if="historyRow === 'loading'" class="acv-history__loading" role="status">
+                                <Spinner size="sm" :label="t('history.loading')" />{{ t("history.loading") }}
+                            </p>
+                            <button v-else type="button" class="acv-history__more" @click="requestHistory(true)">
+                                {{ t("history.more") }}
+                            </button>
+                        </div>
+
+                        <!-- 分轮视图 -->
+                        <template v-if="currentViewMode === 'turns'">
+                            <AgentConversationTurn
+                                v-for="(group, index) in turnGroups"
+                                :key="`${props.ctx.session?.id ?? ''}:${turnKeys.get(group[0]!.id)}`"
+                                :messages="group"
+                                :ctx="props.ctx"
+                                :services="props.services"
+                                :registry="props.registry"
+                                :latest="index === turnGroups.length - 1"
+                                :first="index === 0"
+                                @action="emit('action', $event)"
+                                @preview-image="openPreview"
+                            />
+                        </template>
+
+                        <!-- 原始视图：一条消息一个块，系统条目全部可见 -->
+                        <AgentRawView
+                            v-else
+                            :messages="props.ctx.messages"
+                            :ctx="props.ctx"
+                            :services="props.services"
+                            :registry="props.registry"
+                            @action="emit('action', $event)"
+                            @preview-image="openPreview"
+                        />
+                    </template>
+                </div>
+            </div>
+
+            <Transition name="acv-fade">
+                <Button
+                    v-if="!following && props.ctx.messages.length > 0"
+                    class="acv-jump"
+                    size="sm"
+                    variant="secondary"
+                    icon-class="i-lucide-arrow-down"
+                    data-jump-latest
+                    @click="scrollToLatest"
+                >
+                    {{ t("stream.jumpToLatest") }}
+                </Button>
+            </Transition>
+        </div>
+
+        <AgentConversationComposer
+            ref="composerRef"
+            :ctx="props.ctx"
+            :services="props.services"
+            :registry="props.registry"
+            @action="emit('action', $event)"
+            @preview-image="openPreview"
+        />
+        <OriginalImagePreviewDialog
+            v-if="preview !== null"
+            v-model="previewOpen"
+            :src="preview.src"
+            :alt="preview.name"
+            :teleport-target="props.teleportTarget"
+        />
+    </section>
+</template>
+
+<style scoped>
+.agent-conversation-view {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-width: 0;
+    color: var(--text-main);
+    font-size: var(--text-sm);
+}
+
+.acv-header {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 12px;
+    border-bottom: var(--border-w, 1px) solid var(--border-color);
+}
+
+.acv-header__icon {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    color: var(--text-muted);
+}
+
+/* 390 宽时标题区域不小于 160px（docs/specs/ui/agent-conversation-view.md“顶栏”）。 */
+.acv-header__title {
+    flex: 1;
+    min-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.acv-header__name {
+    font-weight: var(--weight-medium);
+}
+
+.acv-header__profile {
+    margin-left: 8px;
+    color: var(--text-muted);
+    font-size: var(--text-2xs);
+}
+
+:global(.acv-header__more) {
+    position: relative;
+    display: inline-block;
+}
+
+.acv-body {
+    position: relative;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.acv-stream__empty {
+    padding: 40px 0;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+/*
+ * 流式追加内容时滚动条出现与否不应挤动内容。
+ * 关掉浏览器自带的滚动锚定，阅读位置统一由 useStreamScroll 校正，两者不会各修一次。
+ */
+.acv-stream {
+    min-height: 0;
+    flex: 1;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 20px 12px 12px;
+    scrollbar-gutter: stable;
+    overflow-anchor: none;
+}
+
+/* 面板拉宽时正文行过长难读，每轮限宽居中。 */
+.acv-stream__content > * {
+    max-width: 800px;
+    margin-inline: auto;
+}
+
+/*
+ * 历史行三种状态高度一致，切换时下面的内容不动。
+ * 更早的内容插在它后面、它自己不动，所以不能当阅读锚点，否则插入后下面的内容会被推走。
+ */
+.acv-history {
+    overflow-anchor: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 28px;
+    margin-bottom: 16px;
+    color: var(--text-muted);
+    font-size: var(--text-2xs);
+}
+
+.acv-history__more {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 8px;
+    min-height: 28px;
+    border-radius: var(--radius-control);
+    color: inherit;
+    transition: color var(--motion-fast) var(--ease-standard);
+}
+
+.acv-history__more::before,
+.acv-history__more::after {
+    content: "";
+    flex: 1;
+    border-top: var(--border-w, 1px) solid var(--divider);
+}
+
+.acv-history__more:hover {
+    color: var(--text-secondary);
+}
+
+.acv-history__more:focus-visible {
+    outline: 2px solid var(--accent-main);
+    outline-offset: 2px;
+}
+
+/* 读得快时什么都不出现：加载指示延后一个 --motion-base（约 200ms）才淡入。 */
+.acv-history__loading {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    animation: acv-appear var(--motion-fast) var(--ease-standard) var(--motion-base) both;
+}
+
+.acv-history__error {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 4px 8px;
+    margin: 0;
+    color: var(--status-danger);
+    font-size: var(--text-xs);
+}
+
+.acv-history__icon {
+    width: 14px;
+    height: 14px;
+}
+
+@keyframes acv-appear {
+    from {
+        opacity: 0;
+    }
+}
+
+/* 浮在消息流底部正中；左右为 0 加自动外边距居中，不占用按钮自己的按压缩放 transform。 */
+.acv-jump {
+    position: absolute;
+    right: 0;
+    bottom: 12px;
+    left: 0;
+    width: fit-content;
+    margin-inline: auto;
+    box-shadow: var(--elevation-raised);
+}
+
+.acv-fade-enter-active,
+.acv-fade-leave-active {
+    transition: opacity var(--motion-fast) var(--ease-standard);
+}
+
+.acv-fade-enter-from,
+.acv-fade-leave-to {
+    opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .acv-history__loading {
+        animation-duration: 0s;
+    }
+
+    .acv-fade-enter-active,
+    .acv-fade-leave-active {
+        transition: none;
+    }
+}
+</style>

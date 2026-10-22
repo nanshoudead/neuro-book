@@ -2,6 +2,7 @@
  * 输入框的纯逻辑：编辑器发出 submit 时该发什么、模式怎么循环、`/` 命令菜单怎么列。
  * 放在组件外是为了单测能逐条覆盖“空闲、运行中 × 回车、Ctrl/⌘+回车 × 命令”这些组合。
  */
+import type {AgentTextKey} from "./messages";
 import type {PromptMenu, PromptMenuItem} from "./ports";
 import type {ComposerModeView, SubmitDelivery} from "./types";
 import type {ComposerCommandEntry} from "./registry";
@@ -60,8 +61,8 @@ export function commandMenu(
     return {title: labels.title, items, emptyText: labels.empty};
 }
 
-/** 常见思考档位的 i18n key；其他取值原样显示。 */
-export const THINKING_LEVEL_KEYS: Readonly<Record<string, string>> = {
+/** 常见思考档位在本包文字表里的键；其他取值原样显示。 */
+export const THINKING_LEVEL_KEYS: Readonly<Record<string, AgentTextKey>> = {
     off: "composer.thinking.off",
     minimal: "composer.thinking.minimal",
     low: "composer.thinking.low",

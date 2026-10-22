@@ -28,7 +28,8 @@ interface Rule {
 const CORE: Rule = {packages: [], typeOnly: [/^vue$/u], within: SOURCE_ROOT, excluding: VUE_ROOT};
 const VUE: Rule = {packages: [/^vue$/u, /^@notnotype\/nb-ui(\/.*)?$/u], within: SOURCE_ROOT};
 
-const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)["']([^"']+)["']/gu;
+// `from` 前面不能是连字符或点：字符串里的 "branch-from" 不是导入。
+const SPECIFIER = /(?:(?<![\w.-])from\s*|(?<![\w.-])import\s*\(\s*|(?<![\w.-])import\s+)["']([^"']+)["']/gu;
 const TYPE_ONLY = /\b(?:import|export)\s+type\s[^;]*?\bfrom\s*["']([^"']+)["']/gu;
 
 /** 一份源码里越界的导入说明符；`file` 用来解析相对路径。 */
@@ -87,6 +88,8 @@ describe("包的导入", () => {
         expect(offendingSpecifiers(file, text, VUE)).toEqual(["node:fs", "nbook/shared/x", "../../../../neuro-book/src/x", "node:path"]);
         // 核心不许经相对路径用到渲染层，也不许引用应用别名（旧 agent-view.types.ts 就引用过应用里的粘贴策略类型）。
         expect(offendingSpecifiers(join(SOURCE_ROOT, "types.ts"), "import {x} from \"./vue/host\";", CORE)).toEqual(["./vue/host"]);
+        // 字符串里出现 from 字样不算导入。
+        expect(offendingSpecifiers(file, "const action = {id: \"branch-from\", order: 40, kinds: [\"user\"]};", VUE)).toEqual([]);
         expect(offendingSpecifiers(join(SOURCE_ROOT, "types.ts"), "import type {PromptEditorPastePolicy} from \"nbook/app/components/common/form/prompt-editor/prompt-editor.types\";", CORE)).toEqual(["nbook/app/components/common/form/prompt-editor/prompt-editor.types"]);
     });
 
