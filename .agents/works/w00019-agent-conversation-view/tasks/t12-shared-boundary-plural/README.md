@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t12-shared-boundary-plural
-status: active
+status: done
 updated: 2026-10-22
 ---
 
