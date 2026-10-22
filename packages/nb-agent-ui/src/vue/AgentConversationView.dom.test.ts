@@ -92,6 +92,8 @@ describe("AgentConversationView", () => {
         await flushPromises();
         expect(requests.map((request) => [request.src, request.signal.aborted])).toEqual([["a.png", true], ["b.png", false]]);
 
+        expect(view.emitted("action") ?? []).toEqual([]);
+
         requests[0]!.finish();
         await flushPromises();
         expect(requests[0]!.released).toBe(1);
@@ -120,6 +122,34 @@ describe("AgentConversationView", () => {
         await view.get("[data-image='b.png']").trigger("click");
         await flushPromises();
         expect(document.querySelector("[role='dialog']")).toBeNull();
+        view.unmount();
+    });
+});
+
+describe("宿主组件（验收 21）", () => {
+    it("宿主登记的节点组件收到 ctx、服务与界面语言，它发出的 action 到达宿主", async () => {
+        const seen: Array<{session: string | undefined; hasServices: boolean; locale: string}> = [];
+        const Answer = defineComponent({
+            props: {call: {type: Object, required: true}, ctx: {type: Object, required: true}, services: {type: Object, required: true}, locale: {type: String, required: true}},
+            emits: ["action"],
+            setup(props, {emit}) {
+                return () => {
+                    seen.push({session: (props.ctx as AgentConversationContext).session?.title, hasServices: typeof (props.services as AgentConversationServices).resolveAttachmentUrl === "function", locale: props.locale});
+                    return h("button", {"data-source": "", onClick: () => emit("action", {type: "reference.open", target: "chapter://c3"})});
+                };
+            },
+        });
+        const plugin: AgentViewContribution = {
+            source: "test:plugin",
+            tools: [{id: "answer", toolNames: ["answer"], category: "interact", icon: "i-lucide-message-square-text", label: "作答", presentation: "node", node: Answer, summary: () => ""}],
+        };
+        const ctx = context();
+        ctx.run = {status: "running", phase: ""};
+        ctx.messages = [ctx.messages[0]!, {kind: "assistant", id: "a1", timestamp: 2, status: "streaming", text: "", thinking: "", model: "m", toolCalls: [{id: "q1", name: "answer", status: "running", args: {}}], contentOmitted: false}];
+        const view = mountView("en-US", {}, {ctx, registry: createAgentViewRegistry([builtinRolesContribution, builtinToolsContribution, plugin]), plain: true});
+        await view.get("[data-source]").trigger("click");
+        expect(seen.at(-1)).toEqual({session: "第三章", hasServices: true, locale: "en-US"});
+        expect(view.emitted("action")?.map((args) => args[0])).toEqual([{type: "reference.open", target: "chapter://c3"}]);
         view.unmount();
     });
 });

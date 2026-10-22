@@ -18,7 +18,7 @@ import AgentConversationComposer from "./composer/AgentConversationComposer.vue"
 import OriginalImagePreviewDialog from "./parts/OriginalImagePreviewDialog.vue";
 import {provideAgentView} from "./host";
 import type {AgentViewRenderers} from "./host";
-import type {PreviewImageRequest} from "./preview";
+import type {PreviewImageRequest, ViewAction} from "./view-action";
 
 const props = withDefaults(defineProps<{
     ctx: AgentConversationContext;
@@ -133,8 +133,15 @@ function focusComposer() {
     composerRef.value?.focus();
 }
 
-/** 用户发了消息或命令，就是要看接下来的回应：回到最新并恢复跟随，即使刚才在往上翻历史。 */
-function onComposerAction(action: AgentViewAction) {
+/**
+ * 子组件的 action 都到这里。原图预览是纯界面行为，视图自己打开，宿主收不到；发了消息或命令（来自输入框，或宿主组件
+ * 里的“追问”之类）就是要看接下来的回应，回到最新并恢复跟随，即使刚才在往上翻历史。
+ */
+function onAction(action: ViewAction) {
+    if (action.type === "image.preview") {
+        openPreview(action.image);
+        return;
+    }
     if (action.type === "composer.submit" || action.type === "command.run") scrollToLatest();
     emit("action", action);
 }
@@ -258,8 +265,7 @@ defineExpose({focusComposer, scrollToLatest});
                                 :registry="props.registry"
                                 :latest="index === turnGroups.length - 1"
                                 :first="index === 0"
-                                @action="emit('action', $event)"
-                                @preview-image="openPreview"
+                                @action="onAction"
                             />
                         </template>
 
@@ -270,8 +276,7 @@ defineExpose({focusComposer, scrollToLatest});
                             :ctx="props.ctx"
                             :services="props.services"
                             :registry="props.registry"
-                            @action="emit('action', $event)"
-                            @preview-image="openPreview"
+                            @action="onAction"
                         />
                     </template>
                 </div>
@@ -297,8 +302,7 @@ defineExpose({focusComposer, scrollToLatest});
             :ctx="props.ctx"
             :services="props.services"
             :registry="props.registry"
-            @action="onComposerAction"
-            @preview-image="openPreview"
+            @action="onAction"
         />
         <OriginalImagePreviewDialog
             v-if="preview !== null"

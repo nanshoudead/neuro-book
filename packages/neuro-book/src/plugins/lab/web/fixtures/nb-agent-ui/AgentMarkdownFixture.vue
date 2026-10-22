@@ -7,10 +7,10 @@ import {labAgentServices, provideLabAgentHost} from "./host";
 
 const props = defineProps<LabFixtureProps>();
 provideLabAgentHost({plain: props.scene === "plain"});
-const subject = useLabSubject<typeof AgentMarkdown>(() => props.input, ["action", "preview-image"]);
+const subject = useLabSubject<typeof AgentMarkdown>(() => props.input, ["action"]);
 const services = labAgentServices();
 </script>
 
 <template>
-    <AgentMarkdown data-lab-subject class="w-full" v-bind="subject.bindings.value" :services="services" />
+    <AgentMarkdown data-lab-subject class="w-full" v-bind="subject.bindings.value" :resolve-asset="services.resolveMarkdownAsset" />
 </template>

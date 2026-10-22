@@ -7,7 +7,7 @@
 
 命令类工具展开后的内容：上面“命令”代码块是 `bash` 的 `command` 或 `execute_sql` 的 `sql`，下面“输出”代码块是结果正文。结果只公开了预览时末尾提示；还没有结果时显示“还没有结果”。
 
-由 `AgentToolDetail` 按注册表挂载，接收 `ToolDetailProps`。
+由 `AgentToolDetail` 按注册表挂载，接收 `ToolComponentProps`（这次调用、ctx、服务与界面语言），按 `HostComponentEmits` 声明 `action` 事件但不发。
 
 ## 数据
 

@@ -7,7 +7,7 @@ import {labAgentRegistry, labAgentServices, provideLabAgentHost} from "./host";
 
 const props = defineProps<LabFixtureProps>();
 provideLabAgentHost();
-const subject = useLabSubject<typeof AgentConversationTurn>(() => props.input, ["action", "preview-image"]);
+const subject = useLabSubject<typeof AgentConversationTurn>(() => props.input, ["action"]);
 const registry = labAgentRegistry();
 const services = labAgentServices();
 </script>

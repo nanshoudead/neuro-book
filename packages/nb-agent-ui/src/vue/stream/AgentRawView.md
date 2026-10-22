@@ -28,7 +28,7 @@
 
 ```ts
 import type {AgentConversationContext, AgentConversationServices, AgentViewAction, AgentViewRegistry, MessageView} from "@notnotype/nb-agent-ui";
-import type {PreviewImageRequest} from "@notnotype/nb-agent-ui/vue";
+import type {ViewAction} from "@notnotype/nb-agent-ui/vue";
 
 type AgentRawViewProps = {
     /** 要显示的消息，必填，按时间顺序。 */
@@ -43,9 +43,7 @@ type AgentRawViewProps = {
 
 type AgentRawViewEmits = {
     /** 用户意图：投递未知时的 message.resend 与 message.dismiss。 */
-    (e: "action", action: AgentViewAction): void;
-    /** 用户消息里的图片或回复 Markdown 里的图片被点击，由对话视图打开原图预览；见 `AgentUserContent`、`AgentMarkdown`。 */
-    (e: "preview-image", image: PreviewImageRequest): void;
+    (e: "action", action: ViewAction): void;
 };
 ```
 

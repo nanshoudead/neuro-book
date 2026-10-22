@@ -278,15 +278,14 @@ test.describe("对话视图的消息流", () => {
         await expect(page.locator("[role='dialog']")).toHaveCount(0);
     });
 
-    test("回复里 Markdown 的引用、外链与图片：分别发出 reference.open、link.open 与原图预览请求", async ({page}) => {
+    test("回复里 Markdown 的引用、外链与图片：分别发出 reference.open、link.open 与视图内部的原图预览请求", async ({page}) => {
         await openScene(page, "AgentMarkdown", "links");
         const body = stage(page);
         await body.locator("[data-reference-link]").first().click();
         await body.getByRole("link", {name: "排版指南"}).click();
         await body.locator("img").first().click();
-        await expect.poll(async () => (await actions(page)).map((action) => action.type)).toEqual(["reference.open", "link.open"]);
-        expect(await lastAction(page)).toEqual({type: "link.open", href: "https://example.com/guide"});
-        await expect(page.locator('[data-lab-panel="events"]')).toContainText("preview-image");
+        await expect.poll(async () => (await actions(page)).map((action) => action.type)).toEqual(["reference.open", "link.open", "image.preview"]);
+        expect((await actions(page))[1]).toEqual({type: "link.open", href: "https://example.com/guide"});
     });
 
     test("英文界面：视图自己的文字（顶栏、溢出菜单）与子组件的文字都是英文", async ({page}) => {

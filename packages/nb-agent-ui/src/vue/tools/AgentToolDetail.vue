@@ -1,19 +1,25 @@
 <script setup lang="ts">
 import {computed} from "vue";
-import type {AgentConversationContext, ToolCallView} from "../../types";
+import type {AgentConversationContext, AgentConversationServices, ToolCallView} from "../../types";
 import type {AgentViewRegistry} from "../../registry";
 import {CodeBlock} from "@notnotype/nb-ui/components";
 import {jsonLines, textLines} from "../../tool-detail-lines";
 import RenderGuard from "../parts/RenderGuard.vue";
 import {useAgentText} from "../host";
+import type {ViewAction} from "../view-action";
 
 const props = defineProps<{
     call: ToolCallView;
     ctx: AgentConversationContext;
+    services: AgentConversationServices;
     registry: AgentViewRegistry;
 }>();
 
-const {t} = useAgentText();
+const emit = defineEmits<{
+    (e: "action", action: ViewAction): void;
+}>();
+
+const {t, locale} = useAgentText();
 
 const renderer = computed(() => props.registry.resolveTool(props.call.name));
 const adapter = computed(() => renderer.value.detail ?? null);
@@ -34,7 +40,7 @@ const adapted = computed(() => adapter.value !== null || diffLines.value !== nul
             :lines="jsonLines(props.call.args)"
         />
         <RenderGuard v-else-if="adapter" :source="`工具 ${props.call.name} 的详情组件`">
-            <component :is="adapter" :call="props.call" :ctx="props.ctx" />
+            <component :is="adapter" :call="props.call" :ctx="props.ctx" :services="props.services" :locale="locale" @action="emit('action', $event)" />
         </RenderGuard>
         <CodeBlock
             v-else-if="diffLines !== null"

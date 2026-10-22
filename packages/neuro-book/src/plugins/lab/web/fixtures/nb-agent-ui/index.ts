@@ -84,18 +84,22 @@ export const nbAgentUiFixtures: LabFixture[] = [
         events: ["update:expanded"], writeBack: {"update:expanded": {layer: "model", key: "expanded"}}, class: "w-full",
     }),
     defineSubjectFixture<typeof AgentTaskList>({component: "AgentTaskList", scenes: agentTaskListScenes, subject: agentSubject("AgentTaskList")}),
-    defineSubjectFixture<typeof AgentTaskListNode>({component: "AgentTaskListNode", scenes: agentTaskListNodeScenes, subject: agentSubject("AgentTaskListNode")}),
+    defineSubjectFixture<typeof AgentTaskListNode>({component: "AgentTaskListNode", scenes: agentTaskListNodeScenes, subject: agentSubject("AgentTaskListNode"), runtimeProps: async () => ({services: (await import("./host")).labAgentServices()})}),
     defineSubjectFixture<typeof AgentToolDetail>({
         component: "AgentToolDetail", scenes: agentToolDetailScenes, subject: agentSubject("AgentToolDetail"), class: "w-full",
-        runtimeProps: async () => ({registry: (await import("./host")).labAgentRegistry()}),
+        events: ["action"],
+        runtimeProps: async () => {
+            const host = await import("./host");
+            return {registry: host.labAgentRegistry(), services: host.labAgentServices()};
+        },
     }),
-    defineSubjectFixture<typeof AgentFileContentDetail>({component: "AgentFileContentDetail", scenes: agentFileContentDetailScenes, subject: agentSubject("AgentFileContentDetail"), class: "w-full"}),
-    defineSubjectFixture<typeof AgentCommandDetail>({component: "AgentCommandDetail", scenes: agentCommandDetailScenes, subject: agentSubject("AgentCommandDetail"), class: "w-full"}),
+    defineSubjectFixture<typeof AgentFileContentDetail>({component: "AgentFileContentDetail", scenes: agentFileContentDetailScenes, subject: agentSubject("AgentFileContentDetail"), class: "w-full", runtimeProps: async () => ({services: (await import("./host")).labAgentServices()})}),
+    defineSubjectFixture<typeof AgentCommandDetail>({component: "AgentCommandDetail", scenes: agentCommandDetailScenes, subject: agentSubject("AgentCommandDetail"), class: "w-full", runtimeProps: async () => ({services: (await import("./host")).labAgentServices()})}),
     defineSubjectFixture<typeof AgentMessageActions>({component: "AgentMessageActions", scenes: agentMessageActionsScenes, subject: agentSubject("AgentMessageActions"), events: ["select", "branch"]}),
     defineSubjectFixture<typeof AgentFileChanges>({component: "AgentFileChanges", scenes: agentFileChangesScenes, subject: agentSubject("AgentFileChanges"), events: ["open"]}),
     defineSubjectFixture<typeof AgentUserContent>({
         component: "AgentUserContent", scenes: agentUserContentScenes, subject: agentSubject("AgentUserContent"),
-        events: ["action", "preview-image"],
+        events: ["action"],
         runtimeProps: async () => {
             const services = (await import("./host")).labAgentServices();
             return {resolveAttachmentUrl: services.resolveAttachmentUrl};
@@ -112,7 +116,7 @@ export const nbAgentUiFixtures: LabFixture[] = [
         subject: agentSubject("AgentDeliveryNotice"), events: ["resend", "dismiss"],
     }),
     defineSubjectFixture<typeof AgentRawView>({
-        component: "AgentRawView", scenes: agentRawViewScenes, subject: agentSubject("AgentRawView"), events: ["action", "preview-image"], class: "w-full",
+        component: "AgentRawView", scenes: agentRawViewScenes, subject: agentSubject("AgentRawView"), events: ["action"], class: "w-full",
         runtimeProps: async () => {
             const host = await import("./host");
             return {registry: host.labAgentRegistry(), services: host.labAgentServices()};

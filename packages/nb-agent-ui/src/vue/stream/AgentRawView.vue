@@ -4,7 +4,6 @@ import {IconButton} from "@notnotype/nb-ui/components";
 import type {
     AgentConversationContext,
     AgentConversationServices,
-    AgentViewAction,
     AssistantMessageView,
     MessageView,
     ToolCallView,
@@ -17,7 +16,7 @@ import {CollapsibleRow} from "@notnotype/nb-ui/components";
 import AgentToolDetail from "../tools/AgentToolDetail.vue";
 import AgentUserContent from "./AgentUserContent.vue";
 import {useAgentText} from "../host";
-import type {PreviewImageRequest} from "../preview";
+import type {ViewAction} from "../view-action";
 
 const props = defineProps<{
     messages: MessageView[];
@@ -27,8 +26,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-    (e: "action", action: AgentViewAction): void;
-    (e: "preview-image", image: PreviewImageRequest): void;
+    (e: "action", action: ViewAction): void;
 }>();
 
 const {t, text, locale} = useAgentText();
@@ -131,7 +129,7 @@ function usageLine(message: AssistantMessageView): string {
                     :message="message"
                     :resolve-attachment-url="props.services.resolveAttachmentUrl"
                     @action="emit('action', $event)"
-                    @preview-image="emit('preview-image', $event)"
+                   
                 />
                 <AgentDeliveryNotice
                     v-if="message.delivery === 'unknown'"
@@ -164,7 +162,7 @@ function usageLine(message: AssistantMessageView): string {
                     :expanded="Boolean(openItems[call.id])"
                     @update:expanded="toggle(call.id)"
                 >
-                    <AgentToolDetail :call="call" :ctx="props.ctx" :registry="props.registry" />
+                    <AgentToolDetail :call="call" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
                 </CollapsibleRow>
                 <p v-if="message.error" class="acv-raw__text acv-raw__text--danger">{{ message.error }}</p>
                 <p v-if="message.usage" class="acv-raw__usage">{{ usageLine(message) }}</p>

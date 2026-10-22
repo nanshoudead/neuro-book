@@ -47,8 +47,10 @@ describe("AgentUserContent", () => {
         const content = wrapper.getComponent(AgentUserContent);
         expect(wrapper.get("[data-fake-text]").attributes("data-locale")).toBe("en-US");
         for (const kind of ["reference", "image", "command"]) await wrapper.get(`[data-token='${kind}']`).trigger("click");
-        expect(content.emitted("action")?.map((args) => args[0])).toEqual([{type: "reference.open", target: "chapter://c1"}]);
-        expect(content.emitted("preview-image")?.map((args) => args[0])).toEqual([{locator: "local://地图.png", name: "Image #2 · 地图.png"}]);
+        expect(content.emitted("action")?.map((args) => args[0])).toEqual([
+            {type: "reference.open", target: "chapter://c1"},
+            {type: "image.preview", image: {locator: "local://地图.png", name: "Image #2 · 地图.png"}},
+        ]);
     });
 
     it("没有注入时按纯文字显示原文", () => {
@@ -69,7 +71,9 @@ describe("AgentUserContent", () => {
         expect(buttons).toHaveLength(2);
         await buttons[0]!.trigger("click");
         await buttons[1]!.trigger("click");
-        expect(content.emitted("preview-image")?.map((args) => args[0])).toEqual([{locator: "ok:old", name: "旧图.png"}]);
-        expect(content.emitted("action")?.map((args) => args[0])).toEqual([{type: "attachment.open", target: "notes"}]);
+        expect(content.emitted("action")?.map((args) => args[0])).toEqual([
+            {type: "image.preview", image: {locator: "ok:old", name: "旧图.png"}},
+            {type: "attachment.open", target: "notes"},
+        ]);
     });
 });

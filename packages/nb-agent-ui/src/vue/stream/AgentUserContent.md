@@ -27,14 +27,14 @@
 | 选区 | `action`：`reference.open {target}`，`target` 为 `路径#L起-L止`，没有行号时只有路径 |
 | 技能 | `action`：`skill.open {name}` |
 | 文件 | `action`：`attachment.open {target}` |
-| 图片 | `preview-image`，由对话视图打开原图预览 |
+| 图片 | `image.preview` 的 action，由对话视图打开原图预览 |
 | 粘贴位置标记 | 不发事件，悬停时同号的粘贴块高亮 |
 
 ## 数据
 
 ```ts
 import type {AgentViewAction, UserMessageView} from "@notnotype/nb-agent-ui";
-import type {PreviewImageRequest} from "@notnotype/nb-agent-ui/vue";
+import type {ViewAction} from "@notnotype/nb-agent-ui/vue";
 
 type AgentUserContentProps = {
     /** 用户消息，必填；只读 blocks 与 contentOmitted。 */
@@ -44,9 +44,7 @@ type AgentUserContentProps = {
 };
 
 type AgentUserContentEmits = {
-    (e: "action", action: AgentViewAction): void;
-    /** 请对话视图打开图片原图；locator 是附件目标或附件块的 locator。 */
-    (e: "preview-image", image: Extract<PreviewImageRequest, {locator: string}>): void;
+    (e: "action", action: ViewAction): void;
 };
 ```
 

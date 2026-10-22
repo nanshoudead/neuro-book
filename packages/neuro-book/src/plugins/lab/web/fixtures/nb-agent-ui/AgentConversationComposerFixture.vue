@@ -6,7 +6,8 @@
  */
 import {computed} from "vue";
 import {AgentConversationComposer} from "@notnotype/nb-agent-ui/vue";
-import type {AgentConversationContext, AgentConversationServices, AgentViewAction} from "@notnotype/nb-agent-ui";
+import type {AgentConversationContext, AgentConversationServices} from "@notnotype/nb-agent-ui";
+import type {ViewAction} from "@notnotype/nb-agent-ui/vue";
 import {createAgentViewRegistry, type AgentViewContribution} from "@notnotype/nb-agent-ui";
 import {builtinComposerContribution} from "@notnotype/nb-agent-ui/vue";
 import {useLabSubject, type LabFixtureProps} from "../../lab-subject";
@@ -19,7 +20,7 @@ const props = defineProps<LabFixtureProps>();
 /** 场景“缺省实现”不注入编辑器，看普通文本框：没有“添加附件”，没有命令菜单。 */
 provideLabAgentHost({plain: props.scene === "plain"});
 
-const subject = useLabSubject<typeof AgentConversationComposer>(() => props.input, ["action", "preview-image"]);
+const subject = useLabSubject<typeof AgentConversationComposer>(() => props.input, ["action"]);
 
 const labPlugin: AgentViewContribution = {
     source: "lab:plugin",
@@ -47,7 +48,9 @@ function toggleRun() {
     writeCtx({run: running.value ? {status: "idle", phase: ""} : {status: "running", phase: "正在思考"}});
 }
 
-function onAction(action: AgentViewAction) {
+/** 单挂的输入框没有对话视图替它打开原图预览；预览请求只记在事件页签里。 */
+function onAction(action: ViewAction) {
+    if (action.type === "image.preview") return;
     host.handle(action);
 }
 </script>

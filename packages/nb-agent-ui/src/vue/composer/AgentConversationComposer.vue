@@ -8,14 +8,13 @@ import type {
     PromptMenuContext,
     PromptToken,
 } from "../../ports";
-import type {AgentConversationContext, AgentConversationServices, AgentViewAction} from "../../types";
+import type {AgentConversationContext, AgentConversationServices} from "../../types";
 import {visibleEntries, type AgentViewRegistry} from "../../registry";
-import {promptTokenOutcome} from "../../prompt-token-action";
 import {commandMenu, nextMode, resolveSubmission} from "../../composer-actions";
 import AgentModelPicker from "./AgentModelPicker.vue";
 import AgentQueuedMessages from "./AgentQueuedMessages.vue";
 import {useAgentRenderers, useAgentText} from "../host";
-import type {PreviewImageRequest} from "../preview";
+import {tokenAction, type ViewAction} from "../view-action";
 
 const props = defineProps<{
     ctx: AgentConversationContext;
@@ -24,8 +23,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-    (e: "action", action: AgentViewAction): void;
-    (e: "preview-image", image: PreviewImageRequest): void;
+    (e: "action", action: ViewAction): void;
 }>();
 
 const {t, text, locale} = useAgentText();
@@ -228,13 +226,8 @@ function resolveThumbnail(target: string): string | null {
 }
 
 function onTokenActivate(token: PromptToken): void {
-    const outcome = promptTokenOutcome(token, (number) => t("imagePreview.image", {number}));
-    if (outcome?.kind === "action") {
-        emit("action", outcome.action);
-    }
-    else if (outcome?.kind === "preview") {
-        emit("preview-image", outcome.image);
-    }
+    const action = tokenAction(token, (number) => t("imagePreview.image", {number}));
+    if (action !== null) emit("action", action);
 }
 
 // ─── 展开 ───────────────────────────────────────────────────────────────

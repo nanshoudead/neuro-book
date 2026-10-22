@@ -48,9 +48,7 @@ type AgentConversationTurnProps = {
 
 type AgentConversationTurnEmits = {
     /** 用户意图，原样转交宿主。 */
-    (e: "action", action: AgentViewAction): void;
-    /** 用户消息里的图片或回复 Markdown 里的图片被点击，由对话视图打开原图预览；见 `AgentUserContent`、`AgentMarkdown`。 */
-    (e: "preview-image", image: PreviewImageRequest): void;
+    (e: "action", action: ViewAction): void;
 };
 ```
 

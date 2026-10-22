@@ -8,7 +8,7 @@
  * 对插件稳定的形状要等插件运行时（`runtime.plugins`）定型后再确认，在此之前可以随内置需要调整。
  */
 import type {Component} from "vue";
-import type {AgentConversationContext, AgentViewAction, MessageView, SystemMessageSource, ToolCallView, ViewText} from "./types";
+import type {AgentConversationContext, AgentConversationServices, AgentLocale, AgentViewAction, MessageView, SystemMessageSource, ToolCallView, ViewText} from "./types";
 import type {CodeLine} from "./tool-detail-lines";
 
 /** 所有登记项共有的字段。 */
@@ -61,7 +61,7 @@ type ToolRendererBase = RegistryEntryBase & {
      * 详情退回原始参数与结果；空数组是“内容为空”。
      */
     diff?: (call: ToolCallView) => CodeLine[] | null;
-    /** 展开后的详细内容组件，接收 `ToolDetailProps`；缺省时画 `diff`，再缺省时显示原始参数与结果。 */
+    /** 展开后的详细内容组件，接收 `ToolComponentProps`、发 `HostComponentEmits`；缺省时画 `diff`，再缺省时显示原始参数与结果。 */
     detail?: Component;
     /**
      * 呈现层级：
@@ -69,7 +69,7 @@ type ToolRendererBase = RegistryEntryBase & {
      * - `node`：人机交互控件（提问、任务清单、Workflow 等），常显，并把思维链切开。
      */
     presentation: "line" | "card" | "node";
-    /** `node` 呈现时的专用组件，接收 `ToolNodeProps`；缺省时用通用卡片。 */
+    /** `node` 呈现时的专用组件，接收 `ToolComponentProps`、发 `HostComponentEmits`；缺省时用通用卡片。 */
     node?: Component;
 };
 
@@ -84,15 +84,22 @@ export type ToolRendererEntry =
     })
     | (ToolRendererBase & {category: "mutate" | "interact" | "other"; groupPhrase?: never});
 
-/** `ToolRendererEntry.node` 组件接收的 props。 */
-export type ToolNodeProps = {
-    call: ToolCallView;
+/**
+ * 注册表里宿主登记的组件都收到的部分（Spec“注册表”的宿主组件）。走 props 而不是注入：组件是宿主写的，签名上要看得出
+ * 它拿到了什么。t11 接上的条目、面板与状态栏条目沿用，再各加自己的数据。
+ */
+export type HostComponentContext = {
     /** 对话视图的完整 ctx；例如任务清单要从更早的消息里找上一版清单。 */
     ctx: AgentConversationContext;
+    services: AgentConversationServices;
+    locale: AgentLocale;
 };
 
-/** `ToolRendererEntry.detail` 组件接收的 props，与 `node` 组件相同。 */
-export type ToolDetailProps = ToolNodeProps;
+/** 工具的 `detail` 与 `node` 组件接收的 props。 */
+export type ToolComponentProps = HostComponentContext & {call: ToolCallView};
+
+/** 宿主组件只发一种事件，视图原样交给宿主。 */
+export type HostComponentEmits = {action: [action: AgentViewAction]};
 
 // ─── 角色 ───────────────────────────────────────────────────────────────
 

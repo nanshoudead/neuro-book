@@ -1,15 +1,14 @@
 <script setup lang="ts">
 import {computed} from "vue";
-import type {AgentConversationContext, ToolCallView} from "../../types";
+import type {HostComponentEmits, ToolComponentProps} from "../../registry";
 import {diffTaskLists, findPreviousTaskList, parseTaskList} from "../../task-list";
 import {CollapsibleCard} from "@notnotype/nb-ui/components";
 import AgentTaskList from "./AgentTaskList.vue";
 import {useAgentText} from "../host";
 
-const props = defineProps<{
-    call: ToolCallView;
-    ctx: AgentConversationContext;
-}>();
+const props = defineProps<ToolComponentProps>();
+// 宿主组件的事件形状（`HostComponentEmits`）；内置的这个组件不发，声明出来免得 `@action` 落成根元素的原生监听。
+defineEmits<HostComponentEmits>();
 
 const {t} = useAgentText();
 

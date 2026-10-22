@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import {computed} from "vue";
 import type {PromptToken} from "../../ports";
-import type {AgentViewAction, ContentBlockView, UserMessageView} from "../../types";
-import {promptTokenOutcome} from "../../prompt-token-action";
+import type {ContentBlockView, UserMessageView} from "../../types";
 import {useAgentRenderers, useAgentText} from "../host";
-import type {PreviewImageRequest} from "../preview";
+import {tokenAction, type ViewAction} from "../view-action";
 
 type Attachment = Extract<ContentBlockView, {kind: "attachment"}>;
 
@@ -14,8 +13,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-    (e: "action", action: AgentViewAction): void;
-    (e: "preview-image", image: Extract<PreviewImageRequest, {locator: string}>): void;
+    (e: "action", action: ViewAction): void;
 }>();
 
 const {t, locale} = useAgentText();
@@ -44,13 +42,8 @@ function thumbnail(target: string): string | null {
 }
 
 function activateToken(token: PromptToken): void {
-    const outcome = promptTokenOutcome(token, (number) => t("imagePreview.image", {number}));
-    if (outcome?.kind === "action") {
-        emit("action", outcome.action);
-    }
-    else if (outcome?.kind === "preview") {
-        emit("preview-image", outcome.image);
-    }
+    const action = tokenAction(token, (number) => t("imagePreview.image", {number}));
+    if (action !== null) emit("action", action);
 }
 
 function isImage(file: Attachment): boolean {
@@ -86,7 +79,7 @@ function formatBytes(bytes: number): string {
                             class="acv-user-content__image-button"
                             :title="file.name"
                             :aria-label="file.name"
-                            @click="emit('preview-image', {locator: file.locator, name: file.name})"
+                            @click="emit('action', {type: 'image.preview', image: {locator: file.locator, name: file.name}})"
                         >
                             <img
                                 class="acv-user-content__image"

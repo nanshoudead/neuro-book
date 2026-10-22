@@ -3,7 +3,6 @@ import {mount} from "@vue/test-utils";
 import {defineComponent, h} from "vue";
 
 import type {MarkdownActivation} from "../../ports";
-import type {AgentConversationServices} from "../../types";
 import {provideAgentView} from "../host";
 import AgentMarkdown from "./AgentMarkdown.vue";
 
@@ -22,17 +21,13 @@ const FakeMarkdown = defineComponent({
     },
 });
 
-const services: AgentConversationServices = {
-    resolveAttachmentUrl: () => null,
-    resolveTriggerMenu: () => ({items: []}),
-    resolveMarkdownAsset: async () => null,
-};
+const resolveAsset = async () => null;
 
 function mountMarkdown(withRenderer: boolean) {
     const Host = defineComponent({
         setup() {
             provideAgentView({locale: () => "en-US", renderers: () => (withRenderer ? {markdown: FakeMarkdown} : {})});
-            return () => h(AgentMarkdown, {text: "**雨夜**", services, streaming: true});
+            return () => h(AgentMarkdown, {text: "**雨夜**", resolveAsset, streaming: true});
         },
     });
     return mount(Host);
@@ -48,8 +43,8 @@ describe("AgentMarkdown", () => {
         expect(markdown.emitted("action")?.map((args) => args[0])).toEqual([
             {type: "reference.open", target: "chapter://c3"},
             {type: "link.open", href: "https://example.com/a"},
+            {type: "image.preview", image: {markdownSrc: "设定/地图.png", name: "设定/地图.png"}},
         ]);
-        expect(markdown.emitted("preview-image")?.map((args) => args[0])).toEqual([{markdownSrc: "设定/地图.png", name: "设定/地图.png"}]);
     });
 
     it("没有注入时按纯文字显示原文", () => {

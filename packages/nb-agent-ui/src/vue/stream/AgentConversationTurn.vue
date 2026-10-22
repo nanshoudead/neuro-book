@@ -4,7 +4,6 @@ import {Spinner} from "@notnotype/nb-ui/components";
 import type {
     AgentConversationContext,
     AgentConversationServices,
-    AgentViewAction,
     AssistantMessageView,
     MessageView,
 } from "../../types";
@@ -18,7 +17,7 @@ import AgentTurnBlock from "./AgentTurnBlock.vue";
 import AgentUserContent from "./AgentUserContent.vue";
 import {describeTurn, describeUsage} from "../../process-summary";
 import {useAgentText} from "../host";
-import type {PreviewImageRequest} from "../preview";
+import type {ViewAction} from "../view-action";
 
 const props = defineProps<{
     messages: MessageView[];
@@ -30,8 +29,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-    (e: "action", action: AgentViewAction): void;
-    (e: "preview-image", image: PreviewImageRequest): void;
+    (e: "action", action: ViewAction): void;
 }>();
 
 const {t, text, locale} = useAgentText();
@@ -151,7 +149,7 @@ function runMessageAction(message: MessageView, id: string) {
                     :message="turn.user"
                     :resolve-attachment-url="props.services.resolveAttachmentUrl"
                     @action="emit('action', $event)"
-                    @preview-image="emit('preview-image', $event)"
+                   
                 />
             </div>
             <AgentDeliveryNotice
@@ -204,7 +202,7 @@ function runMessageAction(message: MessageView, id: string) {
                         :turn-status="turn.status"
                         :last="index === turn.blocks.length - 1"
                         @action="emit('action', $event)"
-                        @preview-image="emit('preview-image', $event)"
+                       
                     />
                 </div>
                 <AgentTurnBlock
@@ -217,7 +215,7 @@ function runMessageAction(message: MessageView, id: string) {
                     :turn-status="turn.status"
                     :last="false"
                     @action="emit('action', $event)"
-                    @preview-image="emit('preview-image', $event)"
+                   
                 />
                 <p v-if="turn.status === 'stopped'" class="acv-stopped">
                     <span class="i-lucide-square acv-stopped__icon" aria-hidden="true" />{{ t("turn.stopped") }}
@@ -249,7 +247,7 @@ function runMessageAction(message: MessageView, id: string) {
             :turn-status="turn.status"
             :last="false"
             @action="emit('action', $event)"
-            @preview-image="emit('preview-image', $event)"
+           
         />
     </article>
 </template>

@@ -17,7 +17,7 @@
 
 - 引用：发出 `action`，`{type: "reference.open", target}`；
 - 外链：发出 `action`，`{type: "link.open", href}`，由宿主决定怎么打开；
-- 图片：发出 `preview-image`，`{markdownSrc, name}`，对话视图经 `services.resolveMarkdownAsset` 换算地址后打开原图预览。
+- 图片：发出 `image.preview` 的 action（`{markdownSrc, name}`），对话视图经 `services.resolveMarkdownAsset` 换算地址后打开原图预览。
 
 ## 数据
 
@@ -25,15 +25,15 @@
 type AgentMarkdownProps = {
     /** Markdown 原文，必填。 */
     text: string;
-    /** 必填；图片地址换算取其中的 resolveMarkdownAsset（可选，不提供时图片只显示说明）。 */
-    services: AgentConversationServices;
+    /** 图片地址换算，交给注入的组件；不提供时图片只显示说明。 */
+    resolveAsset?: MarkdownAssetResolver;
     /** 正在流式生成；交给注入的组件显示光标。默认 false。 */
     streaming?: boolean;
 };
 
 type AgentMarkdownEmits = {
-    (e: "action", action: AgentViewAction): void;
-    (e: "preview-image", image: Extract<PreviewImageRequest, {markdownSrc: string}>): void;
+    /** 用户意图，原样交给对话视图；原图预览是其中的 `image.preview`，由对话视图自己打开，不到宿主。 */
+    (e: "action", action: ViewAction): void;
 };
 ```
 

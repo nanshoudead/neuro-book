@@ -7,7 +7,7 @@
 
 `read` 工具展开后的内容：一个带行号的代码块，标题是文件路径，正文是读到的内容。调用带 `offset` 参数时行号从该行开始。结果只公开了预览时末尾提示；还没有结果时显示“还没有结果”。
 
-由 `AgentToolDetail` 按注册表挂载，接收 `ToolDetailProps`。
+由 `AgentToolDetail` 按注册表挂载，接收 `ToolComponentProps`（这次调用、ctx、服务与界面语言），按 `HostComponentEmits` 声明 `action` 事件但不发。
 
 ## 数据
 

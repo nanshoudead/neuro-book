@@ -1,18 +1,17 @@
 <script setup lang="ts">
-import type {AgentConversationServices, AgentViewAction} from "../../types";
-import type {MarkdownActivation} from "../../ports";
+import type {MarkdownActivation, MarkdownAssetResolver} from "../../ports";
 import {useAgentRenderers, useAgentText} from "../host";
-import type {PreviewImageRequest} from "../preview";
+import type {ViewAction} from "../view-action";
 
 const props = defineProps<{
     text: string;
-    services: AgentConversationServices;
+    /** 图片地址换算；不提供时图片只显示说明。 */
+    resolveAsset?: MarkdownAssetResolver;
     streaming?: boolean;
 }>();
 
 const emit = defineEmits<{
-    (e: "action", action: AgentViewAction): void;
-    (e: "preview-image", image: Extract<PreviewImageRequest, {markdownSrc: string}>): void;
+    (e: "action", action: ViewAction): void;
 }>();
 
 const {locale} = useAgentText();
@@ -34,7 +33,7 @@ function onActivate(activation: MarkdownActivation) {
             emit("action", {type: "link.open", href: activation.href});
             return;
         case "image":
-            emit("preview-image", {markdownSrc: activation.address, name: activation.address});
+            emit("action", {type: "image.preview", image: {markdownSrc: activation.address, name: activation.address}});
             return;
     }
 }
@@ -47,7 +46,7 @@ function onActivate(activation: MarkdownActivation) {
             :text="props.text"
             :locale="locale"
             :streaming="props.streaming ?? false"
-            :resolve-asset="props.services.resolveMarkdownAsset"
+            :resolve-asset="props.resolveAsset"
             :style="TONE"
             @activate="onActivate"
         />

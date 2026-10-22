@@ -87,9 +87,9 @@ export const agentTaskListScenes: LabFixtureDefinition<typeof AgentTaskList>["sc
 ];
 
 export const agentTaskListNodeScenes: LabFixtureDefinition<typeof AgentTaskListNode>["scenes"] = [
-    {id: "created", label: "task_create：完整清单", input: {props: {call: taskCallSamples.created, ctx: conversationContext()}}},
-    {id: "updated", label: "task_set_status：与上一版比对", input: {props: {call: taskCallSamples.updated, ctx: conversationContext()}}},
-    {id: "running", label: "结果未返回：通用卡片", input: {props: {call: taskCallSamples.running, ctx: conversationContext()}}},
+    {id: "created", label: "task_create：完整清单", input: {props: {call: taskCallSamples.created, ctx: conversationContext(), locale: "zh-CN"}}},
+    {id: "updated", label: "task_set_status：与上一版比对", input: {props: {call: taskCallSamples.updated, ctx: conversationContext(), locale: "zh-CN"}}},
+    {id: "running", label: "结果未返回：通用卡片", input: {props: {call: taskCallSamples.running, ctx: conversationContext(), locale: "zh-CN"}}},
 ];
 
 /** 轮次块的样例：用分轮模型从 fixture 消息里算出来，与视图里看到的块一致。 */
@@ -152,14 +152,14 @@ export const agentToolDetailScenes: LabFixtureDefinition<typeof AgentToolDetail>
 ];
 
 export const agentFileContentDetailScenes: LabFixtureDefinition<typeof AgentFileContentDetail>["scenes"] = [
-    {id: "full", label: "从第 1 行", input: {props: {call: toolCallSamples.read, ctx: detailCtx}}},
-    {id: "offset", label: "带 offset", input: {props: {call: toolCallSamples.readOffset, ctx: detailCtx}}},
-    {id: "running", label: "还没有结果", input: {props: {call: toolCallSamples.readRunning, ctx: detailCtx}}},
+    {id: "full", label: "从第 1 行", input: {props: {call: toolCallSamples.read, ctx: detailCtx, locale: "zh-CN"}}},
+    {id: "offset", label: "带 offset", input: {props: {call: toolCallSamples.readOffset, ctx: detailCtx, locale: "zh-CN"}}},
+    {id: "running", label: "还没有结果", input: {props: {call: toolCallSamples.readRunning, ctx: detailCtx, locale: "zh-CN"}}},
 ];
 
 export const agentCommandDetailScenes: LabFixtureDefinition<typeof AgentCommandDetail>["scenes"] = [
-    {id: "bash", label: "bash", input: {props: {call: toolCallSamples.bash, ctx: detailCtx}}},
-    {id: "running", label: "还没有结果", input: {props: {call: {id: "d7r", name: "bash", status: "running", args: {command: "wc -m chapters/*.md"}}, ctx: detailCtx}}},
+    {id: "bash", label: "bash", input: {props: {call: toolCallSamples.bash, ctx: detailCtx, locale: "zh-CN"}}},
+    {id: "running", label: "还没有结果", input: {props: {call: {id: "d7r", name: "bash", status: "running", args: {command: "wc -m chapters/*.md"}}, ctx: detailCtx, locale: "zh-CN"}}},
 ];
 
 function userSample(index: number): UserMessageView {

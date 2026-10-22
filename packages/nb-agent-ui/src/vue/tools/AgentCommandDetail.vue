@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import type {ToolDetailProps} from "../../registry";
+import type {HostComponentEmits, ToolComponentProps} from "../../registry";
 import {CodeBlock} from "@notnotype/nb-ui/components";
 import {commandText, textLines} from "../../tool-detail-lines";
 import {useAgentText} from "../host";
 
-const props = defineProps<ToolDetailProps>();
+const props = defineProps<ToolComponentProps>();
+// 宿主组件的事件形状（`HostComponentEmits`）；内置的这个组件不发，声明出来免得 `@action` 落成根元素的原生监听。
+defineEmits<HostComponentEmits>();
+
 
 const {t} = useAgentText();
 </script>

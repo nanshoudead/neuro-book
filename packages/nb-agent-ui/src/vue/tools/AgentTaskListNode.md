@@ -12,10 +12,10 @@
 ## 数据
 
 ```ts
-import type {ToolNodeProps} from "@notnotype/nb-agent-ui";
+import type {ToolComponentProps} from "@notnotype/nb-agent-ui";
 
-/** 与所有 node 组件相同：这次调用，以及对话视图的 ctx。 */
-type AgentTaskListNodeProps = ToolNodeProps;
+/** 与所有宿主组件相同：这次调用、对话视图的 ctx、服务与界面语言。 */
+type AgentTaskListNodeProps = ToolComponentProps;
 ```
 
-没有 emits、插槽和 expose。未声明的 attribute、`class` 与 `style` 落到根节点。
+按 `HostComponentEmits` 声明 `action` 事件，但不发；没有插槽和 expose。未声明的 attribute、`class` 与 `style` 落到根节点。

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {ref} from "vue";
 import {Spinner} from "@notnotype/nb-ui/components";
-import type {AgentConversationContext, AgentConversationServices, AgentViewAction} from "../../types";
+import type {AgentConversationContext, AgentConversationServices} from "../../types";
 import type {AgentViewRegistry, FileChangeView, ToolRendererEntry} from "../../registry";
 import type {ChainBlock, ToolStep, TurnBlock, TurnStatus} from "../../conversation-turns";
 import {CollapsibleCard} from "@notnotype/nb-ui/components";
@@ -14,7 +14,7 @@ import AgentUserContent from "./AgentUserContent.vue";
 import {describeChain} from "../../process-summary";
 import RenderGuard from "../parts/RenderGuard.vue";
 import {useAgentText} from "../host";
-import type {PreviewImageRequest} from "../preview";
+import type {ViewAction} from "../view-action";
 
 const props = defineProps<{
     block: TurnBlock;
@@ -26,11 +26,10 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-    (e: "action", action: AgentViewAction): void;
-    (e: "preview-image", image: PreviewImageRequest): void;
+    (e: "action", action: ViewAction): void;
 }>();
 
-const {t, text} = useAgentText();
+const {t, text, locale} = useAgentText();
 
 
 /** 思维链、工具组、卡片与思考的展开状态，按 id 记录；思维链默认折叠。 */
@@ -153,7 +152,7 @@ function firstLine(value: string): string {
                             :expanded="Boolean(openItems[item.id])"
                             @update:expanded="setOpen(item.id, $event)"
                         >
-                            <AgentToolDetail :call="item.call" :ctx="props.ctx" :registry="props.registry" />
+                            <AgentToolDetail :call="item.call" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
                         </CollapsibleRow>
                         <CollapsibleRow
                             v-else-if="item.kind === 'thinking'"
@@ -164,7 +163,7 @@ function firstLine(value: string): string {
                             :expanded="Boolean(openItems[item.id])"
                             @update:expanded="setOpen(item.id, $event)"
                         >
-                            <AgentMarkdown class="acv-thinking" :text="item.text" :services="props.services" @action="emit('action', $event)" @preview-image="emit('preview-image', $event)" />
+                            <AgentMarkdown class="acv-thinking" :text="item.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
                         </CollapsibleRow>
                         <hr v-else class="acv-boundary">
                     </template>
@@ -181,7 +180,7 @@ function firstLine(value: string): string {
                     :expanded="Boolean(openItems[failed.id])"
                     @update:expanded="setOpen(failed.id, $event)"
                 >
-                    <AgentToolDetail :call="failed.call" :ctx="props.ctx" :registry="props.registry" />
+                    <AgentToolDetail :call="failed.call" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
                 </CollapsibleRow>
                 <CollapsibleCard
                     v-if="entry.kind === 'tool' && rendererOf(entry).presentation === 'card'"
@@ -193,7 +192,7 @@ function firstLine(value: string): string {
                     :expanded="Boolean(openItems[entry.id])"
                     @update:expanded="setOpen(entry.id, $event)"
                 >
-                    <AgentToolDetail :call="entry.call" :ctx="props.ctx" :registry="props.registry" />
+                    <AgentToolDetail :call="entry.call" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
                 </CollapsibleCard>
                 <CollapsibleRow
                     v-else-if="entry.kind === 'tool'"
@@ -206,9 +205,9 @@ function firstLine(value: string): string {
                     :expanded="Boolean(openItems[entry.id])"
                     @update:expanded="setOpen(entry.id, $event)"
                 >
-                    <AgentToolDetail :call="entry.call" :ctx="props.ctx" :registry="props.registry" />
+                    <AgentToolDetail :call="entry.call" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
                 </CollapsibleRow>
-                <AgentMarkdown v-else-if="entry.kind === 'text'" class="acv-narration" :text="entry.text" :services="props.services" @action="emit('action', $event)" @preview-image="emit('preview-image', $event)" />
+                <AgentMarkdown v-else-if="entry.kind === 'text'" class="acv-narration" :text="entry.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
                 <CollapsibleRow
                     v-else-if="entry.kind === 'thinking'"
                     :running-label="t('turn.running')"
@@ -218,7 +217,7 @@ function firstLine(value: string): string {
                     :expanded="Boolean(openItems[entry.id])"
                     @update:expanded="setOpen(entry.id, $event)"
                 >
-                    <AgentMarkdown class="acv-thinking" :text="entry.text" :services="props.services" @action="emit('action', $event)" @preview-image="emit('preview-image', $event)" />
+                    <AgentMarkdown class="acv-thinking" :text="entry.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
                 </CollapsibleRow>
                 <CollapsibleRow
                     v-else-if="entry.kind === 'prompt'"
@@ -229,7 +228,7 @@ function firstLine(value: string): string {
                     :expanded="entry.message.text ? Boolean(openItems[entry.id]) : undefined"
                     @update:expanded="setOpen(entry.id, $event)"
                 >
-                    <AgentMarkdown class="acv-thinking" :text="entry.message.text" :services="props.services" @action="emit('action', $event)" @preview-image="emit('preview-image', $event)" />
+                    <AgentMarkdown class="acv-thinking" :text="entry.message.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
                 </CollapsibleRow>
                 <hr v-else-if="entry.kind === 'boundary'" class="acv-boundary">
             </template>
@@ -243,13 +242,20 @@ function firstLine(value: string): string {
         :data-final-reply="props.block.final || undefined"
         :data-intermediate="!props.block.final || undefined"
     >
-        <AgentMarkdown :text="props.block.message.text" :services="props.services" @action="emit('action', $event)" @preview-image="emit('preview-image', $event)" :streaming="props.block.message.status === 'streaming'" />
+        <AgentMarkdown :text="props.block.message.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" :streaming="props.block.message.status === 'streaming'" />
     </div>
 
     <!-- 人机交互控件 -->
     <div v-else-if="props.block.kind === 'node'" class="acv-node" data-node>
         <RenderGuard v-if="rendererOf(props.block.step).node" :source="`工具 ${props.block.step.call.name} 的节点组件`">
-            <component :is="rendererOf(props.block.step).node" :call="props.block.step.call" :ctx="props.ctx" />
+            <component
+                :is="rendererOf(props.block.step).node"
+                :call="props.block.step.call"
+                :ctx="props.ctx"
+                :services="props.services"
+                :locale="locale"
+                @action="emit('action', $event)"
+            />
         </RenderGuard>
         <CollapsibleCard
             v-else
@@ -261,7 +267,7 @@ function firstLine(value: string): string {
             :expanded="Boolean(openItems[props.block.id])"
             @update:expanded="setOpen(props.block.id, $event)"
         >
-            <AgentToolDetail :call="props.block.step.call" :ctx="props.ctx" :registry="props.registry" />
+            <AgentToolDetail :call="props.block.step.call" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
         </CollapsibleCard>
     </div>
 
@@ -278,7 +284,7 @@ function firstLine(value: string): string {
             <span v-if="!openItems[props.block.id]" class="acv-notice__text">{{ firstLine(props.block.message.text) }}</span>
             <span class="i-lucide-chevron-right acv-notice__chevron" aria-hidden="true" />
         </button>
-        <AgentMarkdown v-if="openItems[props.block.id]" class="acv-notice__body" :text="props.block.message.text" :services="props.services" @action="emit('action', $event)" @preview-image="emit('preview-image', $event)" />
+        <AgentMarkdown v-if="openItems[props.block.id]" class="acv-notice__body" :text="props.block.message.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
     </div>
 
     <!-- 分隔线：上下文压缩、分支摘要；带摘要正文时标签可点开 -->
@@ -295,7 +301,7 @@ function firstLine(value: string): string {
             </button>
             <template v-else>{{ props.block.message.label }}</template>
         </p>
-        <AgentMarkdown v-if="openItems[props.block.id]" class="acv-divider__body" :text="props.block.message.text" :services="props.services" @action="emit('action', $event)" @preview-image="emit('preview-image', $event)" />
+        <AgentMarkdown v-if="openItems[props.block.id]" class="acv-divider__body" :text="props.block.message.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
     </div>
 
     <div v-else-if="props.block.kind === 'steer'" class="acv-steer">
@@ -305,7 +311,7 @@ function firstLine(value: string): string {
             :message="props.block.message"
             :resolve-attachment-url="props.services.resolveAttachmentUrl"
             @action="emit('action', $event)"
-            @preview-image="emit('preview-image', $event)"
+           
         />
         <Spinner v-if="props.block.message.delivery === 'pending'" class="acv-steer__pending" size="sm" :label="t('user.sending')" />
         <AgentDeliveryNotice

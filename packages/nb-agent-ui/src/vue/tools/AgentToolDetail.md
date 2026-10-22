@@ -24,9 +24,16 @@ type AgentToolDetailProps = {
     call: ToolCallView;
     /** 对话视图的 ctx，必填；原样传给适配组件。 */
     ctx: AgentConversationContext;
+    /** 必填；原样传给适配组件。 */
+    services: AgentConversationServices;
     /** 必填；按工具名查适配组件。 */
     registry: AgentViewRegistry;
 };
+
+type AgentToolDetailEmits = {
+    /** 适配组件发出的 action，原样往上交。 */
+    (e: "action", action: ViewAction): void;
+};
 ```
 
-没有 emits、插槽和 expose。未声明的 attribute、`class` 与 `style` 落到根节点。适配组件接收 `ToolDetailProps`（`{call, ctx}`）。
+没有插槽和 expose。未声明的 attribute、`class` 与 `style` 落到根节点。适配组件是宿主组件，接收 `ToolComponentProps`（这次调用、ctx、服务与界面语言），只发 `action`。

@@ -35,7 +35,7 @@
 - 发送后不自行清空：宿主受理后给出新版本的空草稿，失败时文字不会丢。每次编辑发出 `composer.draftChanged`。
 - 触发字符取自登记的输入框触发字符。`/` 位于正文开头时，菜单列出登记的命令（名称、说明与参数提示），按名称过滤；其余情况的菜单来自 `services.resolveTriggerMenu`。菜单每次从关到开发出 `menu.opened`。
 - 附件：编辑器的 `attachment-add`、`attachment-retry`、`attachment-remove` 依次发出 `composer.attachmentAdded`、`composer.attachmentRetry`、`composer.attachmentRemoved`。“添加附件”打开文件选择，选中的文件插在光标处，与粘贴相同。允许登记附件时接受文件；当前模型支持图片时才接受图片。被拒收时显示提示：模型不支持图片、会话不能登记附件，分别说明。
-- 点击正文里的标签或附件卡片：引用与选区发出 `reference.open`，技能发出 `skill.open`，文件发出 `attachment.open`，图片发出 `preview-image` 由对话视图打开原图预览；规则与已发送消息相同。
+- 点击正文里的标签或附件卡片：引用与选区发出 `reference.open`，技能发出 `skill.open`，文件发出 `attachment.open`，图片发出 `image.preview` 的 action，由对话视图打开原图预览；规则与已发送消息相同。
 - 模式按钮点击与 Shift+Tab 相同；模型与思考档位在下拉里选，发出 `model.set`、`thinking.set`。不允许修改运行设置时三者都禁用。
 - 登记的工具栏按钮点击后发出各自的 action。
 - 展开/收起只改变高度与回车的含义，不改变正文；切换后焦点留在编辑器。
@@ -44,7 +44,7 @@
 
 ```ts
 import type {AgentConversationContext, AgentConversationServices, AgentViewAction, AgentViewRegistry} from "@notnotype/nb-agent-ui";
-import type {PreviewImageRequest} from "@notnotype/nb-agent-ui/vue";
+import type {ViewAction} from "@notnotype/nb-agent-ui/vue";
 
 type AgentConversationComposerProps = {
     /** 必填，只读。用到 composer、interaction、availability、run。 */
@@ -56,9 +56,7 @@ type AgentConversationComposerProps = {
 };
 
 type AgentConversationComposerEmits = {
-    (e: "action", action: AgentViewAction): void;
-    /** 正文里的图片被点击，由对话视图打开原图预览。 */
-    (e: "preview-image", image: PreviewImageRequest): void;
+    (e: "action", action: ViewAction): void;
 };
 
 type AgentConversationComposerExpose = {
