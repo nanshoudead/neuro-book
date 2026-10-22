@@ -77,6 +77,7 @@ export function deriveDisplayMode(name: string, kind?: LabComponentKind): LabDis
         name === "EditorArea" ||
         name === "AgentSidebarView" ||
         name === "AgentConversationView" ||
+        name === "AgentConversationComposer" ||
         name === "AgentChatFlow" ||
         name === "ProjectPickerView" ||
         name === "CodeEditorView" ||

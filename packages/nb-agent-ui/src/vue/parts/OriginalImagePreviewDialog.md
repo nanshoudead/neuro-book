@@ -1,6 +1,6 @@
 ---
 标签: [state:local, state:inject, env:portal, env:global, io:read]
-验证入口: AgentSidebarView
+验证入口: AgentConversationView
 ---
 
 # OriginalImagePreviewDialog
