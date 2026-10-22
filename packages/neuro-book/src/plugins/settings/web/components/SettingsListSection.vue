@@ -178,9 +178,22 @@ function excludedText(titles: ReadonlyArray<string>): string {
 
 <style scoped>
 .settings-list-section {
+    --settings-line-ui: var(--leading-ui);
+
     display: flex;
     flex-direction: column;
     gap: var(--space-7);
+}
+
+/*
+ * 行里的小字用整数像素的行高：`--leading-ui` 是倍数，乘上有的主题的字号（例如 macOS 的 11px × 1.35）是小数，一行行累下去，
+ * 后面的控件都落在半像素上、描边发虚。`1em` 在用到这个变量的元素上才求值，所以各处按自己的字号取整。`round()` 不支持时
+ * 退回倍数。
+ */
+@supports (line-height: round(nearest, 1.5px, 1px)) {
+    .settings-list-section {
+        --settings-line-ui: round(nearest, calc(1em * var(--leading-ui)), 1px);
+    }
 }
 
 /* 单行输入按小组的宽度收窄（见下），小组是它的尺寸容器。 */
@@ -201,7 +214,7 @@ function excludedText(titles: ReadonlyArray<string>): string {
     border-bottom: var(--border-w) solid var(--divider);
     font-size: var(--text-xs);
     font-weight: var(--weight-strong);
-    line-height: var(--leading-ui);
+    line-height: var(--settings-line-ui);
     color: var(--text-secondary);
 }
 
@@ -231,7 +244,7 @@ function excludedText(titles: ReadonlyArray<string>): string {
 .settings-list-section__excluded {
     margin: 0;
     font-size: var(--text-xs);
-    line-height: var(--leading-ui);
+    line-height: var(--settings-line-ui);
     color: var(--text-muted);
 }
 </style>

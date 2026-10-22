@@ -210,6 +210,7 @@ async function run(action: RowAction): Promise<void> {
  * 半像素上。改其中一个数时保持文字块是偶数高。
  */
 .settings-row {
+    --settings-line-ui: var(--leading-ui);
     /* 最右一格的宽：IconButton 的 xs 档（24px）。 */
     --settings-row-slot: 24px;
     /* 标题与说明占的最小宽度，放不下时控件换到标题下面；单行输入的宽度（SettingsListSection）也按它与下面两个算。 */
@@ -224,6 +225,17 @@ async function run(action: RowAction): Promise<void> {
     flex-direction: column;
     gap: var(--space-3);
     padding-block: var(--space-4);
+}
+
+/*
+ * 行里的小字用整数像素的行高：`--leading-ui` 是倍数，乘上有的主题的字号（例如 macOS 的 11px × 1.35）是小数，一行行累下去，
+ * 后面的控件都落在半像素上、描边发虚。`1em` 在用到这个变量的元素上才求值，所以各处按自己的字号取整。`round()` 不支持时
+ * 退回倍数。
+ */
+@supports (line-height: round(nearest, 1.5px, 1px)) {
+    .settings-row {
+        --settings-line-ui: round(nearest, calc(1em * var(--leading-ui)), 1px);
+    }
 }
 
 .settings-row--wide {
@@ -380,7 +392,7 @@ async function run(action: RowAction): Promise<void> {
 .settings-row__inherit {
     min-width: 0;
     font-size: var(--text-sm);
-    line-height: var(--leading-ui);
+    line-height: var(--settings-line-ui);
     color: var(--text-secondary);
     overflow-wrap: anywhere;
 }
@@ -390,7 +402,7 @@ async function run(action: RowAction): Promise<void> {
     min-width: 0;
     font-family: var(--font-mono);
     font-size: var(--text-sm);
-    line-height: var(--leading-ui);
+    line-height: var(--settings-line-ui);
     color: var(--text-main);
     text-align: right;
     overflow-wrap: anywhere;
@@ -412,7 +424,7 @@ async function run(action: RowAction): Promise<void> {
     gap: var(--space-3);
     margin: 0;
     font-size: var(--text-xs);
-    line-height: var(--leading-ui);
+    line-height: var(--settings-line-ui);
     color: var(--status-info);
     overflow-wrap: anywhere;
 }
