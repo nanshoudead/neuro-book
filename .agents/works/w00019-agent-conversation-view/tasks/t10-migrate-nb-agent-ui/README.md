@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t10-migrate-nb-agent-ui
-status: planned
+status: active
 updated: 2026-10-22
 ---
 
