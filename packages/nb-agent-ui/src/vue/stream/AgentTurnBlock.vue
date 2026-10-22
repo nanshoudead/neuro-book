@@ -1,19 +1,22 @@
 <script setup lang="ts">
-import {ref} from "vue";
-import {Spinner} from "@notnotype/nb-ui/components";
+/**
+ * 一轮里的一块，按种类分派：思维链交给 `AgentChainBlock`，其余（回复气泡、人机交互控件、信息条目、分隔线、steer、
+ * 错误）在这里画。
+ */
+import {CollapsibleCard, Spinner} from "@notnotype/nb-ui/components";
 import type {AgentConversationContext, AgentConversationServices} from "../../types";
-import type {AgentViewRegistry, FileChangeView, ToolRendererEntry} from "../../registry";
-import type {ChainBlock, ToolStep, TurnBlock, TurnStatus} from "../../conversation-turns";
-import {CollapsibleCard} from "@notnotype/nb-ui/components";
-import AgentChainSummary from "./AgentChainSummary.vue";
-import AgentDeliveryNotice from "./AgentDeliveryNotice.vue";
+import type {AgentViewRegistry, ToolRendererEntry} from "../../registry";
+import type {ToolStep, TurnBlock, TurnStatus} from "../../conversation-turns";
+import {firstLine} from "../../format";
+import {toolCallPhase} from "../../tool-status";
 import AgentMarkdown from "../parts/AgentMarkdown.vue";
-import {CollapsibleRow} from "@notnotype/nb-ui/components";
-import AgentToolDetail from "../tools/AgentToolDetail.vue";
-import AgentUserContent from "./AgentUserContent.vue";
-import {describeChain} from "../../process-summary";
 import RenderGuard from "../parts/RenderGuard.vue";
+import AgentToolDetail from "../tools/AgentToolDetail.vue";
+import AgentChainBlock from "./AgentChainBlock.vue";
+import AgentDeliveryNotice from "./AgentDeliveryNotice.vue";
+import AgentUserContent from "./AgentUserContent.vue";
 import {useAgentText} from "../host";
+import {useOpenSet} from "../use-open-set";
 import type {ViewAction} from "../view-action";
 
 const props = defineProps<{
@@ -30,14 +33,8 @@ const emit = defineEmits<{
 }>();
 
 const {t, text, locale} = useAgentText();
-
-
-/** 思维链、工具组、卡片与思考的展开状态，按 id 记录；思维链默认折叠。 */
-const openItems = ref<Record<string, boolean>>({});
-
-function setOpen(id: string, open: boolean) {
-    openItems.value = {...openItems.value, [id]: open};
-}
+/** 通用控件卡片、信息条目与分隔线的展开状态。 */
+const openSet = useOpenSet();
 
 /** 分隔线的正文只是把标签重说一遍时不值得点开。 */
 function dividerHasBody(message: {label: string; text: string}): boolean {
@@ -45,208 +42,47 @@ function dividerHasBody(message: {label: string; text: string}): boolean {
     return body !== "" && body !== message.label.trim();
 }
 
-// ─── 思维链摘要 ─────────────────────────────────────────────────────────
-
-/** 运行中的思维链摘要行换成正在执行的那一步，让人知道没有卡住。 */
-function chainLabel(chain: ChainBlock): string {
-    if (chain.active !== null) {
-        return `${toolLabel(chain.active)} ${rendererOf(chain.active).summary(chain.active.call)}`.trim();
-    }
-    return describeChain(chain.summary).parts.map(text).join(" · ");
-}
-
-function chainAlert(chain: ChainBlock): string {
-    const alert = describeChain(chain.summary).alert;
-    return alert === null ? "" : text(alert);
-}
-
-/** 开头图标说明这条链里主要是什么：有思考用大脑，否则是工具。 */
-function chainIcon(chain: ChainBlock): string {
-    return chain.summary.thinking ? "i-lucide-brain" : "i-lucide-wrench";
-}
-
-/** 运行中的最后一条思维链即使没有工具在跑（模型在思考或生成），也显示转圈。 */
-function chainRunning(chain: ChainBlock): boolean {
-    return chain.active !== null || (props.turnStatus === "running" && props.last);
-}
-
-// ─── 步骤 ───────────────────────────────────────────────────────────────
-
 /** 步骤只带调用本身，渲染器按工具名向注册表查。 */
 function rendererOf(step: ToolStep): ToolRendererEntry {
     return props.registry.resolveTool(step.call.name);
 }
 
-function toolLabel(step: ToolStep): string {
-    return text(rendererOf(step).label);
-}
-
-function stepStatus(step: ToolStep): "running" | "error" | "done" {
-    switch (step.call.status) {
-        case "streaming":
-        case "running": return "running";
-        case "error":
-        case "invalid": return "error";
-        case "success": return "done";
-    }
-}
-
 function cardStatus(step: ToolStep): "running" | "waiting" | "success" | "error" {
-    const status = stepStatus(step);
-    if (status === "running") {
-        return props.turnStatus === "waiting" ? "waiting" : "running";
-    }
-    return status === "error" ? "error" : "success";
+    const phase = toolCallPhase(step.call.status);
+    if (phase === "running") return props.turnStatus === "waiting" ? "waiting" : "running";
+    return phase === "error" ? "error" : "success";
 }
 
 /** 通用控件卡片的副标题：Workflow 运行中时显示它正在做的事。 */
 function nodeSubtitle(step: ToolStep): string {
     return props.ctx.workflows[step.id]?.currentAction || rendererOf(step).summary(step.call);
 }
-
-/** 单文件改动的增删行；多文件的补丁不在行内显示统计。 */
-function mutateStat(step: ToolStep): Omit<FileChangeView, "path"> | null {
-    const changed = rendererOf(step).effects?.(step.call).changed ?? [];
-    return changed.length === 1 ? {added: changed[0]!.added, removed: changed[0]!.removed} : null;
-}
-
-function firstLine(value: string): string {
-    return value.trim().split("\n")[0] ?? "";
-}
 </script>
 
 <template>
-    <!-- 思维链：默认折叠成一行 -->
-    <div v-if="props.block.kind === 'chain'" class="acv-chain">
-        <AgentChainSummary
-            class="acv-chain__summary"
-            :expanded="Boolean(openItems[props.block.id])"
-            :label="chainLabel(props.block)"
-            :icon="chainIcon(props.block)"
-            :alert="chainAlert(props.block)"
-            :running="chainRunning(props.block)"
-            :title="chainLabel(props.block)"
-            data-chain-summary
-            @update:expanded="setOpen(props.block.id, $event)"
-        />
-        <div v-if="openItems[props.block.id]" class="acv-steps">
-            <template v-for="entry in props.block.entries" :key="entry.id">
-                <CollapsibleRow
-                    v-if="entry.kind === 'toolGroup'"
-                    :running-label="t('turn.running')"
-                    icon="i-lucide-layers"
-                    :label="entry.phrases.map(text).join(t('stream.phraseSeparator'))"
-                    :detail="entry.active ? rendererOf(entry.active).summary(entry.active.call) : ''"
-                    :status="entry.active ? 'running' : 'done'"
-                    :expanded="Boolean(openItems[entry.id])"
-                    @update:expanded="setOpen(entry.id, $event)"
-                >
-                    <template v-for="item in entry.items" :key="item.id">
-                        <CollapsibleRow
-                            v-if="item.kind === 'tool'"
-                            :running-label="t('turn.running')"
-                            :icon="rendererOf(item).icon"
-                            :label="toolLabel(item)"
-                            :detail="rendererOf(item).summary(item.call)"
-                            :status="stepStatus(item)"
-                            :expanded="Boolean(openItems[item.id])"
-                            @update:expanded="setOpen(item.id, $event)"
-                        >
-                            <AgentToolDetail :call="item.call" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
-                        </CollapsibleRow>
-                        <CollapsibleRow
-                            v-else-if="item.kind === 'thinking'"
-                            :running-label="t('turn.running')"
-                            icon="i-lucide-brain"
-                            :label="t('step.thinking')"
-                            :detail="openItems[item.id] ? '' : firstLine(item.text)"
-                            :expanded="Boolean(openItems[item.id])"
-                            @update:expanded="setOpen(item.id, $event)"
-                        >
-                            <AgentMarkdown class="acv-thinking" :text="item.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
-                        </CollapsibleRow>
-                        <hr v-else class="acv-boundary">
-                    </template>
-                </CollapsibleRow>
-                <CollapsibleRow
-                    v-for="failed in (entry.kind === 'toolGroup' && !openItems[entry.id] ? entry.failed : [])"
-                    :running-label="t('turn.running')"
-                    :key="failed.id"
-                    class="acv-steps__nested"
-                    :icon="rendererOf(failed).icon"
-                    :label="toolLabel(failed)"
-                    :detail="rendererOf(failed).summary(failed.call)"
-                    status="error"
-                    :expanded="Boolean(openItems[failed.id])"
-                    @update:expanded="setOpen(failed.id, $event)"
-                >
-                    <AgentToolDetail :call="failed.call" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
-                </CollapsibleRow>
-                <CollapsibleCard
-                    v-if="entry.kind === 'tool' && rendererOf(entry).presentation === 'card'"
-                    :running-label="t('turn.running')"
-                    :icon="rendererOf(entry).icon"
-                    :title="toolLabel(entry)"
-                    :subtitle="rendererOf(entry).summary(entry.call)"
-                    :status="cardStatus(entry)"
-                    :expanded="Boolean(openItems[entry.id])"
-                    @update:expanded="setOpen(entry.id, $event)"
-                >
-                    <AgentToolDetail :call="entry.call" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
-                </CollapsibleCard>
-                <CollapsibleRow
-                    v-else-if="entry.kind === 'tool'"
-                    :running-label="t('turn.running')"
-                    :icon="rendererOf(entry).icon"
-                    :label="toolLabel(entry)"
-                    :detail="rendererOf(entry).summary(entry.call)"
-                    :stat="rendererOf(entry).category === 'mutate' ? mutateStat(entry) : null"
-                    :status="stepStatus(entry)"
-                    :expanded="Boolean(openItems[entry.id])"
-                    @update:expanded="setOpen(entry.id, $event)"
-                >
-                    <AgentToolDetail :call="entry.call" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
-                </CollapsibleRow>
-                <AgentMarkdown v-else-if="entry.kind === 'text'" class="acv-narration" :text="entry.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
-                <CollapsibleRow
-                    v-else-if="entry.kind === 'thinking'"
-                    :running-label="t('turn.running')"
-                    icon="i-lucide-brain"
-                    :label="t('step.thinking')"
-                    :detail="openItems[entry.id] ? '' : firstLine(entry.text)"
-                    :expanded="Boolean(openItems[entry.id])"
-                    @update:expanded="setOpen(entry.id, $event)"
-                >
-                    <AgentMarkdown class="acv-thinking" :text="entry.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
-                </CollapsibleRow>
-                <CollapsibleRow
-                    v-else-if="entry.kind === 'prompt'"
-                    :running-label="t('turn.running')"
-                    icon="i-lucide-scroll-text"
-                    :label="entry.message.label"
-                    :detail="openItems[entry.id] ? '' : firstLine(entry.message.text)"
-                    :expanded="entry.message.text ? Boolean(openItems[entry.id]) : undefined"
-                    @update:expanded="setOpen(entry.id, $event)"
-                >
-                    <AgentMarkdown class="acv-thinking" :text="entry.message.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
-                </CollapsibleRow>
-                <hr v-else-if="entry.kind === 'boundary'" class="acv-boundary">
-            </template>
-        </div>
-    </div>
+    <AgentChainBlock
+        v-if="props.block.kind === 'chain'"
+        :chain="props.block"
+        :ctx="props.ctx"
+        :services="props.services"
+        :registry="props.registry"
+        :turn-status="props.turnStatus"
+        :last="props.last"
+        @action="emit('action', $event)"
+    />
 
     <!-- Agent 说出的 content：最终回复用完整气泡，运行中的中间 content 用轻气泡 -->
     <div
         v-else-if="props.block.kind === 'content'"
-        class="acv-bubble"
+        class="acv-block acv-bubble"
         :data-final-reply="props.block.final || undefined"
         :data-intermediate="!props.block.final || undefined"
     >
-        <AgentMarkdown :text="props.block.message.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" :streaming="props.block.message.status === 'streaming'" />
+        <AgentMarkdown :text="props.block.message.text" :resolve-asset="props.services.resolveMarkdownAsset" :streaming="props.block.message.status === 'streaming'" @action="emit('action', $event)" />
     </div>
 
     <!-- 人机交互控件 -->
-    <div v-else-if="props.block.kind === 'node'" class="acv-node" data-node>
+    <div v-else-if="props.block.kind === 'node'" class="acv-block" data-node>
         <RenderGuard v-if="rendererOf(props.block.step).node" :source="`工具 ${props.block.step.call.name} 的节点组件`">
             <component
                 :is="rendererOf(props.block.step).node"
@@ -261,30 +97,30 @@ function firstLine(value: string): string {
             v-else
             :running-label="t('turn.running')"
             :icon="rendererOf(props.block.step).icon"
-            :title="toolLabel(props.block.step)"
+            :title="text(rendererOf(props.block.step).label)"
             :subtitle="nodeSubtitle(props.block.step)"
             :status="cardStatus(props.block.step)"
-            :expanded="Boolean(openItems[props.block.id])"
-            @update:expanded="setOpen(props.block.id, $event)"
+            :expanded="openSet.isOpen(props.block.id)"
+            @update:expanded="openSet.set(props.block.id, $event)"
         >
             <AgentToolDetail :call="props.block.step.call" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
         </CollapsibleCard>
     </div>
 
     <!-- 信息条目：系统提醒、自定义消息，淡色一行，点开看全文 -->
-    <div v-else-if="props.block.kind === 'notice'" class="acv-notice" data-notice>
+    <div v-else-if="props.block.kind === 'notice'" class="acv-block" data-notice>
         <button
             type="button"
             class="acv-notice__row"
-            :aria-expanded="Boolean(openItems[props.block.id])"
-            @click="setOpen(props.block.id, !openItems[props.block.id])"
+            :aria-expanded="openSet.isOpen(props.block.id)"
+            @click="openSet.set(props.block.id, !openSet.isOpen(props.block.id))"
         >
             <span class="i-lucide-info acv-notice__icon" aria-hidden="true" />
             <span class="acv-notice__label">{{ props.block.message.label }}</span>
-            <span v-if="!openItems[props.block.id]" class="acv-notice__text">{{ firstLine(props.block.message.text) }}</span>
+            <span v-if="!openSet.isOpen(props.block.id)" class="acv-notice__text">{{ firstLine(props.block.message.text) }}</span>
             <span class="i-lucide-chevron-right acv-notice__chevron" aria-hidden="true" />
         </button>
-        <AgentMarkdown v-if="openItems[props.block.id]" class="acv-notice__body" :text="props.block.message.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
+        <AgentMarkdown v-if="openSet.isOpen(props.block.id)" class="acv-notice__body" :text="props.block.message.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
     </div>
 
     <!-- 分隔线：上下文压缩、分支摘要；带摘要正文时标签可点开 -->
@@ -294,24 +130,23 @@ function firstLine(value: string): string {
                 v-if="dividerHasBody(props.block.message)"
                 type="button"
                 class="acv-divider__toggle"
-                :aria-expanded="Boolean(openItems[props.block.id])"
-                @click="setOpen(props.block.id, !openItems[props.block.id])"
+                :aria-expanded="openSet.isOpen(props.block.id)"
+                @click="openSet.set(props.block.id, !openSet.isOpen(props.block.id))"
             >
                 {{ props.block.message.label }}<span class="i-lucide-chevron-right acv-notice__chevron" aria-hidden="true" />
             </button>
             <template v-else>{{ props.block.message.label }}</template>
         </p>
-        <AgentMarkdown v-if="openItems[props.block.id]" class="acv-divider__body" :text="props.block.message.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
+        <AgentMarkdown v-if="openSet.isOpen(props.block.id)" class="acv-divider__body" :text="props.block.message.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
     </div>
 
-    <div v-else-if="props.block.kind === 'steer'" class="acv-steer">
+    <div v-else-if="props.block.kind === 'steer'" class="acv-block acv-steer">
         <span class="acv-steer__label">{{ t("step.steer") }}</span>
         <AgentUserContent
             class="acv-steer__content"
             :message="props.block.message"
             :resolve-attachment-url="props.services.resolveAttachmentUrl"
             @action="emit('action', $event)"
-           
         />
         <Spinner v-if="props.block.message.delivery === 'pending'" class="acv-steer__pending" size="sm" :label="t('user.sending')" />
         <AgentDeliveryNotice
@@ -322,17 +157,20 @@ function firstLine(value: string): string {
         />
     </div>
 
-    <p v-else class="acv-bubble" data-error>{{ props.block.message }}</p>
+    <p v-else class="acv-block acv-bubble" data-error>{{ props.block.message }}</p>
 </template>
 
 <style scoped>
 /*
- * 气泡、控件与信息条目左缩进 --nb-agent-block-indent（默认 24px，与角色名对齐）；思维链摘要自带 4px 内边距，
- * 所以它少缩进 4px，箭头也落在这条线上。整轮展开时父组件在过程容器里改小这个缩进。
+ * 各块左缩进 --nb-agent-block-indent，与角色名对齐；值由 AgentConversationTurn 声明（整轮展开时在过程容器里改小），
+ * 单独挂载没有它时按 24px。思维链的缩进在 AgentChainBlock。
  */
-.acv-bubble {
+.acv-block {
     min-width: 0;
     margin-left: var(--nb-agent-block-indent, 24px);
+}
+
+.acv-bubble {
     padding: 12px 16px;
     border: var(--border-w, 1px) solid var(--border-color);
     border-radius: 16px;
@@ -359,66 +197,6 @@ function firstLine(value: string): string {
     font-size: var(--text-sm);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
-}
-
-.acv-chain {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    margin-left: calc(var(--nb-agent-block-indent, 24px) - 4px);
-}
-
-.acv-chain__summary {
-    align-self: flex-start;
-    max-width: 100%;
-    --nb-agent-summary-px: 4px;
-}
-
-.acv-steps {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    margin: 4px 0 2px 11px;
-    padding-left: 6px;
-    border-left: var(--border-w, 1px) solid var(--divider);
-    --nb-collapsible-row-px: 6px;
-}
-
-.acv-steps__nested {
-    padding-left: 20px;
-}
-
-/* 同一条思维链里两条 assistant 消息之间的边界。 */
-.acv-boundary {
-    width: 24px;
-    margin: 2px 6px;
-    border: 0;
-    border-top: var(--border-w, 1px) dashed var(--divider);
-}
-
-/* 并入思维链的中间 content 仍是 Agent 在对人说话，用浅底小气泡和正文色，和淡色的工具行拉开层级。 */
-.acv-narration {
-    margin: 4px 0;
-    padding: 6px 10px;
-    border-radius: 10px;
-    background: color-mix(in srgb, var(--text-main) 5%, transparent);
-}
-
-.acv-thinking {
-    padding: 2px 8px 4px 0;
-    --nb-agent-markdown-color: var(--text-muted);
-    --nb-agent-markdown-size: var(--text-xs);
-}
-
-.acv-node {
-    min-width: 0;
-    margin-left: var(--nb-agent-block-indent, 24px);
-}
-
-.acv-notice {
-    min-width: 0;
-    margin-left: var(--nb-agent-block-indent, 24px);
 }
 
 .acv-notice__row {
@@ -506,7 +284,6 @@ function firstLine(value: string): string {
     flex-wrap: wrap;
     align-items: baseline;
     gap: 4px 6px;
-    margin-left: var(--nb-agent-block-indent, 24px);
     padding: 6px 10px;
     border-left: 2px solid var(--accent-main);
     border-radius: 0 10px 10px 0;
@@ -532,8 +309,6 @@ function firstLine(value: string): string {
 .acv-steer__notice {
     flex-basis: 100%;
 }
-
-
 
 .acv-divider {
     display: flex;

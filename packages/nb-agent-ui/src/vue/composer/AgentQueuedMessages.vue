@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {computed} from "vue";
+import {firstLine} from "../../format";
 import {useAgentText} from "../host";
 
 const props = defineProps<{
@@ -12,9 +13,6 @@ const VISIBLE = 3;
 const shown = computed(() => props.queued.slice(0, VISIBLE));
 const hidden = computed(() => Math.max(0, props.queued.length - VISIBLE));
 
-function firstLine(text: string): string {
-    return text.trim().split("\n", 1)[0] ?? "";
-}
 </script>
 
 <template>

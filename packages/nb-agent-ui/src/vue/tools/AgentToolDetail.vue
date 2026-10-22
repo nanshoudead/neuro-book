@@ -2,7 +2,7 @@
 import {computed} from "vue";
 import type {AgentConversationContext, AgentConversationServices, ToolCallView} from "../../types";
 import type {AgentViewRegistry} from "../../registry";
-import {CodeBlock} from "@notnotype/nb-ui/components";
+import AgentCodeBlock from "../parts/AgentCodeBlock.vue";
 import {jsonLines, textLines} from "../../tool-detail-lines";
 import RenderGuard from "../parts/RenderGuard.vue";
 import {useAgentText} from "../host";
@@ -32,38 +32,30 @@ const adapted = computed(() => adapter.value !== null || diffLines.value !== nul
     <div class="agent-tool-detail">
         <p v-if="props.call.error" class="agent-tool-detail__error">{{ props.call.error }}</p>
         <!-- 出错且没有结果时，适配内容没东西可画，附上原始参数以便看是什么参数导致的 -->
-        <CodeBlock
+        <AgentCodeBlock
             v-if="adapted && props.call.error && !props.call.result"
-            :empty-text="t('toolDetail.empty')"
-            :truncated-text="t('toolDetail.truncated')"
             :label="t('toolDetail.args', {name: props.call.name})"
             :lines="jsonLines(props.call.args)"
         />
         <RenderGuard v-else-if="adapter" :source="`工具 ${props.call.name} 的详情组件`">
             <component :is="adapter" :call="props.call" :ctx="props.ctx" :services="props.services" :locale="locale" @action="emit('action', $event)" />
         </RenderGuard>
-        <CodeBlock
+        <AgentCodeBlock
             v-else-if="diffLines !== null"
-            :empty-text="t('toolDetail.empty')"
-            :truncated-text="t('toolDetail.truncated')"
             :label="renderer.summary(props.call)"
             :lines="diffLines"
         />
         <!-- 没有适配的工具：原样显示参数与结果 -->
         <template v-else>
-            <CodeBlock :empty-text="t('toolDetail.empty')" :truncated-text="t('toolDetail.truncated')" :label="t('toolDetail.args', {name: props.call.name})" :lines="jsonLines(props.call.args)" />
-            <CodeBlock
+            <AgentCodeBlock :label="t('toolDetail.args', {name: props.call.name})" :lines="jsonLines(props.call.args)" />
+            <AgentCodeBlock
                 v-if="props.call.result"
-                :empty-text="t('toolDetail.empty')"
-                :truncated-text="t('toolDetail.truncated')"
                 :label="t('toolDetail.result')"
                 :lines="textLines(props.call.result.text)"
                 :truncated="props.call.result.truncated"
             />
-            <CodeBlock
+            <AgentCodeBlock
                 v-if="props.call.result?.details !== undefined"
-                :empty-text="t('toolDetail.empty')"
-                :truncated-text="t('toolDetail.truncated')"
                 :label="t('toolDetail.details')"
                 :lines="jsonLines(props.call.result.details)"
             />

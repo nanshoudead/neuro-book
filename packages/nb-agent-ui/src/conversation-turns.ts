@@ -25,6 +25,7 @@ import type {
     ViewText,
 } from "./types";
 import type {AgentViewRegistry, FileChangeView, ToolEffects, ToolRendererEntry} from "./registry";
+import {toolCallPhase} from "./tool-status";
 
 export type TurnStatus = "running" | "waiting" | "done" | "error" | "stopped";
 
@@ -422,11 +423,11 @@ function makeChain(flat: readonly FlatEntry[], registry: AgentViewRegistry): Cha
 }
 
 function isActive(tool: ToolStep): boolean {
-    return tool.call.status === "running" || tool.call.status === "streaming";
+    return toolCallPhase(tool.call.status) === "running";
 }
 
 function isFailed(tool: ToolStep): boolean {
-    return tool.call.status === "error" || tool.call.status === "invalid";
+    return toolCallPhase(tool.call.status) === "error";
 }
 
 function collectTools(body: readonly MessageView[]): ToolStep[] {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type {HostComponentEmits, ToolComponentProps} from "../../registry";
-import {CodeBlock} from "@notnotype/nb-ui/components";
+import AgentCodeBlock from "../parts/AgentCodeBlock.vue";
 import {commandText, textLines} from "../../tool-detail-lines";
 import {useAgentText} from "../host";
 
@@ -14,11 +14,9 @@ const {t} = useAgentText();
 
 <template>
     <div class="agent-command-detail">
-        <CodeBlock :empty-text="t('toolDetail.empty')" :truncated-text="t('toolDetail.truncated')" :label="t('toolDetail.command')" :lines="textLines(commandText(props.call))" />
-        <CodeBlock
+        <AgentCodeBlock :label="t('toolDetail.command')" :lines="textLines(commandText(props.call))" />
+        <AgentCodeBlock
             v-if="props.call.result"
-            :empty-text="t('toolDetail.empty')"
-            :truncated-text="t('toolDetail.truncated')"
             :label="t('toolDetail.output')"
             :lines="textLines(props.call.result.text)"
             :truncated="props.call.result.truncated"

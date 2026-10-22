@@ -76,7 +76,7 @@ function formatTokens(value: number): string {
 }
 
 /** 不到一分钱的费用多留两位，免得都显示成 0.00；免费就是 0。 */
-function formatCost(value: number, currency: "USD" | "CNY"): string {
+export function formatCost(value: number, currency: "USD" | "CNY"): string {
     const symbol = currency === "CNY" ? "¥" : "$";
     if (value === 0) return `${symbol}0`;
     return `${symbol}${value < 0.01 ? value.toFixed(4) : value.toFixed(2)}`;

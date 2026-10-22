@@ -16,6 +16,7 @@ import AgentMessageActions from "./AgentMessageActions.vue";
 import AgentTurnBlock from "./AgentTurnBlock.vue";
 import AgentUserContent from "./AgentUserContent.vue";
 import {describeTurn, describeUsage} from "../../process-summary";
+import {formatClock} from "../../format";
 import {useAgentText} from "../host";
 import type {ViewAction} from "../view-action";
 
@@ -84,9 +85,6 @@ const assistantIcon = computed(() => props.ctx.session?.profileIcon || assistant
 /** 这一轮最后一条助手消息，角色行的模型与时间取自它。 */
 const lastAssistant = computed(() => props.messages.findLast((message): message is AssistantMessageView => message.kind === "assistant") ?? null);
 
-function formatTime(timestamp: number): string {
-    return new Intl.DateTimeFormat(locale.value, {hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false}).format(timestamp);
-}
 
 const statusLabel = computed(() => {
     switch (turn.value.status) {
@@ -132,7 +130,7 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
             <header class="acv-message__head">
                 <span class="acv-avatar" :data-tone="userRole.tone" aria-hidden="true"><span :class="userRole.icon" /></span>
                 <span class="acv-role">{{ text(userRole.label) }}</span>
-                <time class="acv-meta">{{ formatTime(turn.user.timestamp) }}</time>
+                <time class="acv-meta">{{ formatClock(turn.user.timestamp, locale) }}</time>
                 <template v-if="turn.user.delivery === 'pending'">
                     <Spinner size="sm" :label="t('user.sending')" />
                     <span class="acv-meta" aria-hidden="true">{{ t("user.sending") }}</span>
@@ -150,7 +148,6 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
                     :message="turn.user"
                     :resolve-attachment-url="props.services.resolveAttachmentUrl"
                     @action="emit('action', $event)"
-                   
                 />
             </div>
             <AgentDeliveryNotice
@@ -166,7 +163,7 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
                 <span class="acv-avatar" :data-tone="assistantRole.tone" aria-hidden="true"><span :class="assistantIcon" /></span>
                 <span class="acv-role">{{ text(assistantRole.label) }}</span>
                 <span v-if="lastAssistant?.model" class="acv-badge acv-badge--model" :title="lastAssistant.model">{{ lastAssistant.model }}</span>
-                <time v-if="lastAssistant" class="acv-meta acv-meta--reply-time">{{ formatTime(lastAssistant.timestamp) }}</time>
+                <time v-if="lastAssistant" class="acv-meta acv-meta--reply-time">{{ formatClock(lastAssistant.timestamp, locale) }}</time>
                 <Spinner v-if="turn.status === 'running'" size="sm" :label="statusLabel" />
                 <span v-if="statusLabel" class="acv-badge acv-badge--state" :data-status="turn.status">{{ statusLabel }}</span>
                 <AgentMessageActions
@@ -203,7 +200,6 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
                         :turn-status="turn.status"
                         :last="index === turn.blocks.length - 1"
                         @action="emit('action', $event)"
-                       
                     />
                 </div>
                 <AgentTurnBlock
@@ -216,7 +212,6 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
                     :turn-status="turn.status"
                     :last="false"
                     @action="emit('action', $event)"
-                   
                 />
                 <p v-if="turn.status === 'stopped'" class="acv-stopped">
                     <span class="i-lucide-square acv-stopped__icon" aria-hidden="true" />{{ t("turn.stopped") }}
@@ -248,21 +243,22 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
             :turn-status="turn.status"
             :last="false"
             @action="emit('action', $event)"
-           
         />
     </article>
 </template>
 
 <style scoped>
 /*
- * 对话气泡版式：角色行在上，内容缩进 24px（16px 头像加 8px 间距），
- * 所以气泡左边、摘要行的箭头与角色名落在同一条线上。块自身的样式在 AgentTurnBlock。
+ * 对话气泡版式：角色行在上，内容缩进 --nb-agent-block-indent（24px，16px 头像加 8px 间距），
+ * 所以气泡左边、摘要行的箭头与角色名落在同一条线上。块自身的样式在 AgentTurnBlock 与 AgentChainBlock。
  */
 .acv-turn {
     display: flex;
     flex-direction: column;
     gap: 20px;
     margin-bottom: 24px;
+    /* 内容相对角色行的缩进；AgentTurnBlock 与 AgentChainBlock 读它，整轮展开的过程容器里改小。 */
+    --nb-agent-block-indent: 24px;
 }
 
 .acv-message {
@@ -370,7 +366,7 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
 
 .acv-user-bubble {
     min-width: 0;
-    margin-left: 24px;
+    margin-left: var(--nb-agent-block-indent);
     padding: 12px 16px;
     border: var(--border-w, 1px) solid color-mix(in srgb, var(--accent-main) 18%, var(--border-color));
     border-radius: 16px;
@@ -382,7 +378,7 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
 }
 
 .acv-user-delivery {
-    margin: 6px 0 0 24px;
+    margin: 6px 0 0 var(--nb-agent-block-indent);
 }
 
 .acv-blocks {
@@ -418,7 +414,7 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-left: 24px;
+    margin-left: var(--nb-agent-block-indent);
     color: var(--text-muted);
     font-size: var(--text-xs);
 }
@@ -433,7 +429,7 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
     flex-wrap: wrap;
     align-items: center;
     gap: 4px 12px;
-    margin: 6px 0 0 24px;
+    margin: 6px 0 0 var(--nb-agent-block-indent);
 }
 
 .acv-usage {

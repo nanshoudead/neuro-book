@@ -10,10 +10,11 @@ import type {
 } from "../../ports";
 import type {AgentConversationContext, AgentConversationServices} from "../../types";
 import {visibleEntries, type AgentViewRegistry} from "../../registry";
-import {commandMenu, nextMode, resolveSubmission} from "../../composer-actions";
+import {commandMenu, nextMode, resolveSubmission, sendBlockedReason} from "../../composer-actions";
 import AgentModelPicker from "./AgentModelPicker.vue";
 import AgentQueuedMessages from "./AgentQueuedMessages.vue";
 import {useAgentRenderers, useAgentText} from "../host";
+import {useEditorHandle} from "./use-editor-handle";
 import {tokenAction, type ViewAction} from "../view-action";
 
 const props = defineProps<{
@@ -30,23 +31,7 @@ const {t, text, locale} = useAgentText();
 const renderers = useAgentRenderers();
 
 
-const editorRef = ref<PromptEditorPortExpose | null>(null);
-
-/**
- * 对编辑器的调用。注入的编辑器可以是异步组件（`nbook.markdown` 的就是），加载完成前 ref 是 null：这期间的调用按顺序
- * 暂存，编辑器出现后补做，不让“聚焦”与“添加附件”选好的文件被悄悄丢掉。
- */
-const pendingEditorCalls: Array<(editor: PromptEditorPortExpose) => void> = [];
-
-function withEditor(call: (editor: PromptEditorPortExpose) => void): void {
-    if (editorRef.value !== null) call(editorRef.value);
-    else pendingEditorCalls.push(call);
-}
-
-watch(editorRef, (editor) => {
-    if (editor === null) return;
-    for (const call of pendingEditorCalls.splice(0)) call(editor);
-});
+const {editorRef, withEditor} = useEditorHandle<PromptEditorPortExpose>();
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
 const composer = computed(() => props.ctx.composer);
@@ -111,11 +96,11 @@ watch(attachmentStates, (states) => {
 });
 
 const blockedReason = computed(() => {
-    const states = [...liveAttachments.value].map((localId) => attachmentStates.value.get(localId)?.state ?? "uploading");
-    if (states.includes("failed")) {
-        return t("composer.blockedFailed");
+    switch (sendBlockedReason(liveAttachments.value, attachmentStates.value)) {
+        case "failed": return t("composer.blockedFailed");
+        case "uploading": return t("composer.blockedUploading");
+        case null: return null;
     }
-    return states.includes("uploading") ? t("composer.blockedUploading") : null;
 });
 
 const showStop = computed(() => running.value && currentText.value.trim() === "" && props.ctx.interaction.canStop);

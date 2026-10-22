@@ -28,6 +28,11 @@
 - 运行结束、整轮自动收起时，键盘焦点若在被收起的过程里，移到整轮摘要行。
 - 投递状态未知的用户消息与 steer：“重新发送”发出 `message.resend`，“移除”发出 `message.dismiss`。
 
+## 样式变量
+
+- `--nb-agent-block-indent`：内容相对角色行的缩进，在根上声明为 24px（16px 头像加 8px 间距）；整轮展开时过程容器里改成 10px。`AgentTurnBlock`、`AgentChainBlock` 读它。
+- `--nb-agent-markdown-color`、`--nb-agent-markdown-size`：见 `AgentMarkdown`。
+
 ## 数据
 
 ```ts

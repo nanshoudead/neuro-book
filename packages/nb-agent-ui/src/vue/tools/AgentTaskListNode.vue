@@ -2,6 +2,7 @@
 import {computed} from "vue";
 import type {HostComponentEmits, ToolComponentProps} from "../../registry";
 import {diffTaskLists, findPreviousTaskList, parseTaskList} from "../../task-list";
+import {toolCallPhase} from "../../tool-status";
 import {CollapsibleCard} from "@notnotype/nb-ui/components";
 import AgentTaskList from "./AgentTaskList.vue";
 import {useAgentText} from "../host";
@@ -21,13 +22,8 @@ const changes = computed(() => {
 });
 
 const fallbackStatus = computed(() => {
-    switch (props.call.status) {
-        case "streaming":
-        case "running": return "running";
-        case "error":
-        case "invalid": return "error";
-        case "success": return "success";
-    }
+    const phase = toolCallPhase(props.call.status);
+    return phase === "done" ? "success" : phase;
 });
 </script>
 

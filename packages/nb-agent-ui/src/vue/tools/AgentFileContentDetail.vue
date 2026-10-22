@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed} from "vue";
 import type {HostComponentEmits, ToolComponentProps} from "../../registry";
-import {CodeBlock} from "@notnotype/nb-ui/components";
+import AgentCodeBlock from "../parts/AgentCodeBlock.vue";
 import {argString} from "../../tool-args";
 import {fileContentLines} from "../../tool-detail-lines";
 import {useAgentText} from "../host";
@@ -17,10 +17,8 @@ const content = computed(() => fileContentLines(props.call));
 </script>
 
 <template>
-    <CodeBlock
+    <AgentCodeBlock
         v-if="props.call.result"
-        :empty-text="t('toolDetail.empty')"
-        :truncated-text="t('toolDetail.truncated')"
         :label="argString(props.call, 'path')"
         :lines="content.lines"
         :start-line="content.startLine"

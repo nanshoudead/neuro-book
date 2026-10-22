@@ -3,7 +3,7 @@
  * 放在组件外是为了单测能逐条覆盖“空闲、运行中 × 回车、Ctrl/⌘+回车 × 命令”这些组合。
  */
 import type {AgentTextKey} from "./messages";
-import type {PromptMenu, PromptMenuItem} from "./ports";
+import type {PromptAttachment, PromptMenu, PromptMenuItem} from "./ports";
 import type {ComposerModeView, SubmitDelivery} from "./types";
 import type {ComposerCommandEntry} from "./registry";
 
@@ -71,3 +71,13 @@ export const THINKING_LEVEL_KEYS: Readonly<Record<string, AgentTextKey>> = {
     xhigh: "composer.thinking.xhigh",
     max: "composer.thinking.max",
 };
+
+/**
+ * 有附件挡住发送时的原因：编辑器发出过、还没移除的附件里有失败的（优先，用户要先处理），或有还在上传的。没就绪的附件不在
+ * 文字里，这时发送附件就丢了。不在 `states` 里的按上传中算：宿主还没登记它的状态。
+ */
+export function sendBlockedReason(live: ReadonlySet<string>, states: ReadonlyMap<string, PromptAttachment>): "uploading" | "failed" | null {
+    const current = [...live].map((localId) => states.get(localId)?.state ?? "uploading");
+    if (current.includes("failed")) return "failed";
+    return current.includes("uploading") ? "uploading" : null;
+}

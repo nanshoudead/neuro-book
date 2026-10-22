@@ -1,21 +1,23 @@
 <script setup lang="ts">
-import {ref} from "vue";
 import {IconButton} from "@notnotype/nb-ui/components";
 import type {
     AgentConversationContext,
     AgentConversationServices,
     AssistantMessageView,
     MessageView,
-    ToolCallView,
 } from "../../types";
 import type {AgentViewRegistry} from "../../registry";
 import {textLines} from "../../tool-detail-lines";
-import {CodeBlock} from "@notnotype/nb-ui/components";
+import {firstLine, formatClock} from "../../format";
+import {formatCost} from "../../process-summary";
+import {toolCallPhase} from "../../tool-status";
+import AgentCodeBlock from "../parts/AgentCodeBlock.vue";
 import AgentDeliveryNotice from "./AgentDeliveryNotice.vue";
 import {CollapsibleRow} from "@notnotype/nb-ui/components";
 import AgentToolDetail from "../tools/AgentToolDetail.vue";
 import AgentUserContent from "./AgentUserContent.vue";
 import {useAgentText} from "../host";
+import {useOpenSet} from "../use-open-set";
 import type {ViewAction} from "../view-action";
 
 const props = defineProps<{
@@ -33,14 +35,10 @@ const {t, text, locale} = useAgentText();
 
 
 /** 切到 JSON 的消息、展开的思考与工具调用，按 id 记录。 */
-const openItems = ref<Record<string, boolean>>({});
+const openSet = useOpenSet();
 
 function toggle(id: string) {
-    openItems.value = {...openItems.value, [id]: !openItems.value[id]};
-}
-
-function formatTime(timestamp: number): string {
-    return new Intl.DateTimeFormat(locale.value, {hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false}).format(timestamp);
+    openSet.set(id, !openSet.isOpen(id));
 }
 
 /** 开头的种类标签就是数据里的原值，方便对照 ctx.messages。 */
@@ -74,32 +72,20 @@ function jsonOf(message: MessageView) {
     return textLines(JSON.stringify(message, null, 2));
 }
 
-function firstLine(value: string): string {
-    return value.trim().split("\n")[0] ?? "";
-}
-
-function stepStatus(call: ToolCallView): "running" | "error" | "done" {
-    switch (call.status) {
-        case "streaming":
-        case "running": return "running";
-        case "error":
-        case "invalid": return "error";
-        case "success": return "done";
-    }
-}
 
 function usageLine(message: AssistantMessageView): string {
     const usage = message.usage;
     if (usage === undefined) {
         return "";
     }
-    const symbol = props.ctx.usage.currency === "CNY" ? "¥" : "$";
-    return `${t("usage.detail", {
+    const detail = t("usage.detail", {
         input: usage.input,
         output: usage.output,
         cacheRead: usage.cacheRead,
         cacheWrite: usage.cacheWrite,
-    })} · ${symbol}${usage.cost}`;
+    });
+    // 单价未知（null）时不写金额，与轮末汇总一致。
+    return usage.cost === null ? detail : `${detail} · ${formatCost(usage.cost, props.ctx.usage.currency)}`;
 }
 </script>
 
@@ -108,28 +94,27 @@ function usageLine(message: AssistantMessageView): string {
         <article v-for="message in props.messages" :key="message.id" class="acv-raw__message" :data-raw-kind="message.kind">
             <header class="acv-raw__head">
                 <span class="acv-raw__kind" :data-kind="message.kind">{{ kindLabel(message) }}</span>
-                <time class="acv-raw__meta">{{ formatTime(message.timestamp) }}</time>
+                <time class="acv-raw__meta">{{ formatClock(message.timestamp, locale) }}</time>
                 <span v-for="field in fields(message)" :key="field" class="acv-raw__field">{{ field }}</span>
                 <span class="acv-raw__id" :title="message.id">{{ message.id }}</span>
                 <IconButton
                     class="acv-raw__json"
                     size="sm"
                     icon-class="i-lucide-braces"
-                    :title="openItems[`json:${message.id}`] ? t('raw.hideJson') : t('raw.showJson')"
-                    :aria-label="openItems[`json:${message.id}`] ? t('raw.hideJson') : t('raw.showJson')"
-                    :aria-pressed="Boolean(openItems[`json:${message.id}`])"
+                    :title="openSet.isOpen(`json:${message.id}`) ? t('raw.hideJson') : t('raw.showJson')"
+                    :aria-label="openSet.isOpen(`json:${message.id}`) ? t('raw.hideJson') : t('raw.showJson')"
+                    :aria-pressed="openSet.isOpen(`json:${message.id}`)"
                     @click="toggle(`json:${message.id}`)"
                 />
             </header>
 
-            <CodeBlock :empty-text="t('toolDetail.empty')" :truncated-text="t('toolDetail.truncated')" v-if="openItems[`json:${message.id}`]" :lines="jsonOf(message)" label="JSON" />
+            <AgentCodeBlock v-if="openSet.isOpen(`json:${message.id}`)" :lines="jsonOf(message)" label="JSON" />
 
             <template v-else-if="message.kind === 'user'">
                 <AgentUserContent
                     :message="message"
                     :resolve-attachment-url="props.services.resolveAttachmentUrl"
                     @action="emit('action', $event)"
-                   
                 />
                 <AgentDeliveryNotice
                     v-if="message.delivery === 'unknown'"
@@ -144,8 +129,8 @@ function usageLine(message: AssistantMessageView): string {
                     :running-label="t('turn.running')"
                     icon="i-lucide-brain"
                     :label="t('step.thinking')"
-                    :detail="openItems[`thinking:${message.id}`] ? '' : firstLine(message.thinking)"
-                    :expanded="Boolean(openItems[`thinking:${message.id}`])"
+                    :detail="openSet.isOpen(`thinking:${message.id}`) ? '' : firstLine(message.thinking)"
+                    :expanded="openSet.isOpen(`thinking:${message.id}`)"
                     @update:expanded="toggle(`thinking:${message.id}`)"
                 >
                     <p class="acv-raw__text acv-raw__text--muted">{{ message.thinking }}</p>
@@ -158,8 +143,8 @@ function usageLine(message: AssistantMessageView): string {
                     :icon="props.registry.resolveTool(call.name).icon"
                     :label="text(props.registry.resolveTool(call.name).label)"
                     :detail="props.registry.resolveTool(call.name).summary(call)"
-                    :status="stepStatus(call)"
-                    :expanded="Boolean(openItems[call.id])"
+                    :status="toolCallPhase(call.status)"
+                    :expanded="openSet.isOpen(call.id)"
                     @update:expanded="toggle(call.id)"
                 >
                     <AgentToolDetail :call="call" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />

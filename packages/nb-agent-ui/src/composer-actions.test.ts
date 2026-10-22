@@ -1,5 +1,6 @@
 import {describe, expect, it} from "bun:test";
-import {commandMenu, nextMode, resolveSubmission} from "./composer-actions";
+import {commandMenu, nextMode, resolveSubmission, sendBlockedReason} from "./composer-actions";
+import type {PromptAttachment} from "./ports";
 
 const COMMANDS = ["compact", "rename", "plan"];
 
@@ -68,5 +69,27 @@ describe("commandMenu", () => {
 
     it("没有匹配时给出空结果文字", () => {
         expect(commandMenu(commands, "zz", labels)).toEqual({title: "命令", items: [], emptyText: "没有这个命令"});
+    });
+});
+
+describe("sendBlockedReason", () => {
+    const states = new Map<string, PromptAttachment>([
+        ["a", {localId: "a", state: "ready", target: "local://a.png"}],
+        ["b", {localId: "b", state: "uploading"}],
+        ["c", {localId: "c", state: "failed", error: "太大"}],
+    ]);
+
+    it("发出过的附件都就绪时不挡发送", () => {
+        expect(sendBlockedReason(new Set(["a"]), states)).toBeNull();
+        expect(sendBlockedReason(new Set(), states)).toBeNull();
+    });
+
+    it("有上传中的、或宿主还没登记状态的，按上传中挡住", () => {
+        expect(sendBlockedReason(new Set(["a", "b"]), states)).toBe("uploading");
+        expect(sendBlockedReason(new Set(["z"]), states)).toBe("uploading");
+    });
+
+    it("失败优先于上传中：用户要先重试或移除", () => {
+        expect(sendBlockedReason(new Set(["b", "c"]), states)).toBe("failed");
     });
 });
