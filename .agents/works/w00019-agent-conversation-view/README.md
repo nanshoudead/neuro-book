@@ -63,5 +63,8 @@ updated: 2026-10-22
 - [t07-prompt-editor](tasks/t07-prompt-editor/README.md)：切片 S6 前一半，独立的提示词编辑器 `PromptEditor`，输入框与历史消息就地编辑共用；与旧编辑器并存。开发者四轮试用反馈已处理（第三轮：不拆分、粘贴块展开后可编辑），开发者已确认（2026-10-01）。
 - [t08-lab-governance](tasks/t08-lab-governance/README.md)：Lab 治理六项（开发者在 t07 反馈时批准）：舞台规则统一与测试、共用控制按钮、`__nbLab.events()`、事件按名隐藏、smoke 套件表驱动、`bun run lab`。旧应用上已实现、未确认，随归档提交保存；新应用的 Lab 另有实现，已搁置。S6 的输入框部分顺延为 t09。
 - [t09-composer](tasks/t09-composer/README.md)：切片 S6 后一半，输入框、历史消息就地编辑、已发送消息的新显示；开始前先把 `app/components/agent/` 按界面区域分目录（开发者 2026-10-01 同意）。第 0 到 2 步已做，已收尾：代码随 t10 迁移，就地编辑、横幅与提问向导并入 t11。
-- [t10-migrate-nb-agent-ui](tasks/t10-migrate-nb-agent-ui/README.md)：把 t03 到 t09 已做的对话视图一次迁进新包 `nb-agent-ui`，通用零件进 nb-ui，Lab 场景迁进新应用。计划中。
-- [t11-complete-view](tasks/t11-complete-view/README.md)：按归档 Spec 补齐没做过的部分（S5 余下、S6 余下、S7、S8 验收）。计划中，接在 t10 之后。
+- [t10-migrate-nb-agent-ui](tasks/t10-migrate-nb-agent-ui/README.md)：把 t03 到 t09 已做的对话视图一次迁进新包 `nb-agent-ui`，通用零件进 nb-ui，Lab 场景迁进新应用。已完成，等开发者在 Lab 确认后随分支合入。
+- [t11-complete-view](tasks/t11-complete-view/README.md)：按归档 Spec 补齐没做过的部分（S5 余下、S6 余下、S7、S8 验收）。计划中，接在 t13 之后。
+- [t12-shared-boundary-plural](tasks/t12-shared-boundary-plural/README.md)：共用的导入边界检查、nb-form 进 CI 选包矩阵、英文单复数。已完成，随分支合入。
+- [t13-agent-ui-api](tasks/t13-agent-ui-api/README.md)：nb-agent-ui 接口整理（t10 质量审查第二类）。已完成，等开发者在 Lab 确认后随分支合入。
+- 待建：t10 质量审查 maint 14（nb-ui 测试改用共用的扫描），开发者 2026-10-22 定另起小 Task。

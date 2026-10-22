@@ -27,6 +27,12 @@ t10 收尾时派了三个 Sonnet 从可维护性、API 形状、易用性与缺�
   - 开发期提示：零件单独挂载而上层没有 `provideAgentView` 时静默回退中文与缺省组件，开发期给一条警告。
   - 消息操作条：插件多登记几个操作时，按 `order` 取前几个行内显示，其余进“更多”菜单（t10 只让窄屏时先去掉回复时间）。
 
+### t13 转来的事项（开发者 2026-10-22 定）
+
+- `ctx.usage` 的汇总函数随状态栏做，口径（上下文 tokens 按哪条消息算）到时一起定。
+- nb-story 文字回复下面“没核实的出处”要靠条目渲染器（`entries`），随扩展点接上。
+- Lab 里的 `answer` 结果节点（`fixtures/nb-agent-ui/domain-tools.ts`、`LabAnswerNode.vue`）是替 nb-story 登记的替身；nb-story 或主应用的 Agent 插件真正接入对话视图时由它们登记，Lab 改为引用。
+
 ## 当前状态
 
 2026-10-21 经 nbdev 新建，尚未开工。

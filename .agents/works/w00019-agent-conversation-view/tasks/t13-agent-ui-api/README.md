@@ -45,6 +45,11 @@ updated: 2026-10-22
 
 验证（Work 分支，每片提交前）：nb-agent-ui `typecheck`、`test`（最后一片 bun 126 条、Vitest 25 条）；应用 `typecheck`、Vitest 403 条；`docs:check` 失败 0；e2e `lab-agent-ui` 与 `lab-scenes` 每片通过（最后一片连同 `lab.e2e.ts` 共 39 条）。变异检查：验收 15 两层降级、验收 21 的 action 转交、结果之后的分隔线、模型下拉的隐藏、缺 `resolveTriggerMenu` 时的触发字符过滤，各改坏一次相应用例失败。
 
+开发者看 Lab 时指出两处（2026-10-22）：
+
+- 开发服务在切片 7 加 `./lab` 之前启动，Vite 缓存了旧的包解析，Lab 报 `"./lab" is not exported`；重启开发服务即好，代码无误（e2e 每次自起服务，所以没暴露）。
+- Lab 导航把 nb-agent-ui 组件显示成“AgentChainSummary · Agent 思维链摘要行”：Lab 原先取文档第一条 H1 作显示名。按开发者意见改为导航默认只显示组件名，另起显示名由 frontmatter 可选的 `标题` 声明，H1 不再参与；nb-agent-ui 文档的 H1 改回组件名。分支 `4fb6162ea`，Spec `ui/component-lab` 在 master `f7b9c8417`。
+
 ## 下一步
 
-Sonnet 实现审查（范围 `a1a862d4e..f64b73712`）回来后逐条处理；之后请开发者在 Lab 看 `answer`、`running-live`、`running-no-steer`、`embedded` 四个新场景，连同 t10 一起合入 master。
+开发者在 Lab 看 `answer`、`running-live`、`running-no-steer`、`embedded` 四个新场景，确认后连同 t10、t12 合入 master。
