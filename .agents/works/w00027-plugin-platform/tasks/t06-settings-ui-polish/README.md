@@ -42,6 +42,8 @@ updated: 2026-10-21
 
 - 2026-10-22 w00030 t04（NeuroBook 主题字号恢复大一档，正文 14px、控件 28/34/42px）合入 master 后，把 master 合进 Work 分支（`41f3db21f`，同时带进 Tailwind 重构 w00030 t02 与弹出列表 t03）。冲突两处：`nb-ui/dist/nb-ui.css` 照 master 删除；`SegmentedControl.vue` 的方向键改用 master 的 `rovingMove`、`moveRoving`，保留 t06 的只读起点（从焦点所在项走）。合并后 `test:affected --since master --typecheck --with-consumers` 全过，`settings`、`lab-scenes`、`lab-nb-ui` 三个 e2e 文件 26 例通过。
 
+- 2026-10-22 第三轮静态稿（新字号上）发到评审板 v7：`r3-density` 紧凑度三档（现状、紧凑、更紧凑），`r3-weight` 字重三种（现状、加强标题、全面加粗），推荐紧凑加加强标题。草稿在 `.worktree/w00027-t06-drafts`（分支 `t06/drafts`，已对齐 Work 分支 `41f3db21f`）的 `plugins/drafts/web/components/settings-density/`，只用样式套在真实窗口外面。
+
 ## 下一步
 
 1. 等 w00030 t04（NeuroBook 主题字号恢复大一档）合入 master，把 master 合进 Work 分支，在新字号上按 design-review 重出设置界面静态稿：紧凑度（行高、分区间距、左栏宽度、控件高度）与字重层级（页面标题、分组标题、设置项名、列表选中项各一档，t02、t06 新加的部分照用）。已实施的 S1–S5 不撤，定稿后在其上调整，再合入 master。
