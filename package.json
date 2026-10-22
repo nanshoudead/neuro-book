@@ -21,6 +21,7 @@
     "packages/nb-session",
     "packages/nb-runtime",
     "packages/nb-form",
+    "packages/nb-agent-ui",
     "packages/llmlint",
     "packages/dev-panel",
     "packages/nb-story",

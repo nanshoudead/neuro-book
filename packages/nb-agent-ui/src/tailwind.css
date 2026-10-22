@@ -1,0 +1,15 @@
+/*
+ * nb-agent-ui 的样式入口，导出为 `@notnotype/nb-agent-ui/tailwind.css`。
+ *
+ * 本包的组件样式都写在 scoped CSS 里、用 nb-ui 的 token，不用原子类；只有图标是 `i-lucide-*` 类名，由宿主的 Tailwind
+ * 与 nb-ui 配好的 @iconify/tailwind4 生成。宿主在 nb-ui 之后导入本文件，让 Tailwind 扫到本包源码里的图标类名：
+ *
+ *     @import "@notnotype/nb-ui/tailwind.css";
+ *     @import "@notnotype/nb-agent-ui/tailwind.css";
+ *
+ * 只扫 `.vue` 与 `.ts`：内置登记（`builtin-*.ts`）里的图标也写在 `.ts` 里。
+ */
+
+@source "./**/*.vue";
+@source "./**/*.ts";
+@source not "./**/*.test.ts";

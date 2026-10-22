@@ -9,10 +9,11 @@ export type LabComponentEntry = {
     /** 组件名，取自文档文件名，与同目录的 .vue 同名 */
     name: string;
     /**
-     * 人类可读名称，取自文档正文第一条 H1。
+     * 人类可读名称，取自 frontmatter 的可选 `标题: 思维链摘要行`，不写时就是组件名。
      *
      * 组件名是稳定的 canonical 身份（导航 id、场景键、偏好键都用它）；显示名只用来「找到并读懂」，
-     * 两者相同是常态，此时界面上不重复第二遍。
+     * 两者相同是常态，此时界面上不重复第二遍。不从正文 H1 取：H1 是写给读文档的人的，作者照常写一个
+     * 描述性的标题，导航就会悄悄变成「组件名 · 标题」，所以要显示别的名字得由作者明确声明。
      */
     displayName: string;
     /**
@@ -77,6 +78,7 @@ export function deriveDisplayMode(name: string, kind?: LabComponentKind): LabDis
         name === "EditorArea" ||
         name === "AgentSidebarView" ||
         name === "AgentConversationView" ||
+        name === "AgentConversationComposer" ||
         name === "AgentChatFlow" ||
         name === "ProjectPickerView" ||
         name === "CodeEditorView" ||
@@ -145,7 +147,7 @@ const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/u;
 const TAGS_PATTERN = /^[ \t]*标签[ \t]*:[ \t]*\[(.*)\][ \t]*$/mu;
 const ALIASES_PATTERN = /^[ \t]*别名[ \t]*:[ \t]*\[(.*)\][ \t]*$/mu;
 const VERIFY_ENTRY_PATTERN = /^[ \t]*验证入口[ \t]*:[ \t]*(.+?)[ \t]*$/mu;
-const HEADING_PATTERN = /^#[ \t]+(.+?)[ \t]*$/mu;
+const TITLE_PATTERN = /^[ \t]*标题[ \t]*:[ \t]*(.+?)[ \t]*$/mu;
 
 function parseTags(raw: string): string[] {
     const frontmatter = FRONTMATTER_PATTERN.exec(raw)?.[1];
@@ -163,10 +165,11 @@ function stripFrontmatter(raw: string): string {
     return raw.replace(FRONTMATTER_PATTERN, "");
 }
 
-/** 文档第一条 H1 就是显示名；没有 H1 的文档回落组件名（不造名字）。 */
-function parseDisplayName(body: string, fallback: string): string {
-    const heading = HEADING_PATTERN.exec(body)?.[1]?.trim();
-    return heading !== undefined && heading !== "" ? heading : fallback;
+/** frontmatter `标题` 是显示名；不写或写空时回落组件名（不造名字）。 */
+function parseDisplayName(raw: string, fallback: string): string {
+    const frontmatter = FRONTMATTER_PATTERN.exec(raw)?.[1];
+    const title = frontmatter === undefined ? "" : TITLE_PATTERN.exec(frontmatter)?.[1]?.trim().replace(/^["']|["']$/gu, "") ?? "";
+    return title !== "" ? title : fallback;
 }
 
 /**
@@ -314,7 +317,7 @@ export function buildLabIndex(sources: LabIndexSources, warn: (message: string) 
         const kind = deriveKind(name);
         entries.push({
             name,
-            displayName: parseDisplayName(doc, name),
+            displayName: parseDisplayName(raw, name),
             aliases: parseAliases(raw, name, warn),
             group: groupPath[groupIndex] as string,
             groupPath,

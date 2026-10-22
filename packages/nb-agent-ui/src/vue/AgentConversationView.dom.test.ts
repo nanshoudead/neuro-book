@@ -1,0 +1,364 @@
+import {describe, expect, it} from "vitest";
+import {flushPromises, mount} from "@vue/test-utils";
+import {defineComponent, h} from "vue";
+
+import type {AgentViewContribution} from "../registry";
+
+import type {MarkdownActivation} from "../ports";
+import {createAgentViewRegistry} from "../registry";
+import type {AgentConversationContext, AgentConversationServices, AgentLocale} from "../types";
+import AgentConversationView from "./AgentConversationView.vue";
+import PlainPromptEditor from "./fallback/PlainPromptEditor.vue";
+import {builtinComposerContribution} from "./builtin-composer";
+import {builtinMessageActionsContribution} from "./builtin-message-actions";
+import {builtinRolesContribution} from "./builtin-roles";
+import {builtinToolsContribution} from "./builtin-tools";
+
+function context(): AgentConversationContext {
+    return {
+        session: {id: "s1", title: "第三章", summary: "", profileName: "写作助手", profileIcon: "i-lucide-feather", archived: false, summaryState: "idle"},
+        availability: {status: "ready", message: "", actions: []},
+        interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canMutateHistory: true, canStop: true, canRegisterAttachments: false, canChangeRuntime: true, canArchive: true, canRestore: true},
+        run: {status: "idle", phase: ""},
+        messages: [
+            {kind: "user", id: "u1", timestamp: 1, intent: "normal", blocks: [{kind: "text", text: "画张图"}], contentOmitted: false},
+            {kind: "assistant", id: "a1", timestamp: 2, status: "done", text: "![甲](a.png) ![乙](b.png)", thinking: "", model: "m", toolCalls: [], contentOmitted: false},
+        ],
+        history: {hasMore: false, loading: false, error: null},
+        branches: {},
+        editing: null,
+        pendingInputs: [],
+        workflows: {},
+        workspaceChanges: {groups: [], selectedPath: null, loading: false, error: null},
+        composer: {models: [], modelKey: null, thinkingLevels: [], thinking: null, modes: [], mode: "normal", queued: [], attachments: [], recall: [], draft: {text: "", version: 1}},
+        usage: {contextTokens: 0, contextLimit: null, totalTokens: 0, cacheRead: 0, cacheWrite: 0, cacheHitRate: null, cost: null, currency: "USD"},
+        connection: {status: "connected", actionRequired: false},
+        panels: {},
+        now: 3,
+        extensions: {},
+    };
+}
+
+const registry = createAgentViewRegistry([builtinRolesContribution, builtinToolsContribution, builtinMessageActionsContribution, builtinComposerContribution]);
+
+/** 注入的 Markdown 显示的替身：每张图一个按钮，点了发出 image 的 activate。 */
+const FakeMarkdown = defineComponent({
+    props: {text: {type: String, required: true}},
+    emits: ["activate"],
+    setup(props, {emit}) {
+        return () => h("div", [...props.text.matchAll(/\]\(([^)]+)\)/gu)].map((match) => {
+            const activation: MarkdownActivation = {kind: "image", address: match[1]!};
+            return h("button", {"data-image": match[1], onClick: () => emit("activate", activation)});
+        }));
+    },
+});
+
+/** 可以手动完成的图片换算：记下每次请求、它的取消信号与归还次数。 */
+function controllableResolver() {
+    const requests: Array<{src: string; signal: AbortSignal; released: number; finish: () => void}> = [];
+    const resolveMarkdownAsset: NonNullable<AgentConversationServices["resolveMarkdownAsset"]> = (src, signal) => new Promise((resolve) => {
+        const request = {src, signal, released: 0, finish: () => resolve({url: `blob:lab/${src}`, release: () => { request.released += 1; }})};
+        requests.push(request);
+    });
+    return {requests, resolveMarkdownAsset};
+}
+
+function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"; bareServices?: boolean} = {}) {
+    return mount(AgentConversationView, {
+        props: {
+            ...(options.header === undefined ? {} : {header: options.header}),
+            ...(options.processDisclosure === undefined ? {} : {processDisclosure: options.processDisclosure}),
+            ctx: options.ctx ?? context(),
+            registry: options.registry ?? registry,
+            locale,
+            renderers: options.plain === true ? {} : {markdown: FakeMarkdown},
+            services: options.bareServices === true ? services : {resolveAttachmentUrl: () => null, resolveTriggerMenu: () => ({items: []}), ...services},
+        },
+        attachTo: document.body,
+    });
+}
+
+describe("AgentConversationView", () => {
+    it("视图自己的文字也跟着 locale：英文界面下顶栏按钮是英文", () => {
+        const view = mountView("en-US");
+        expect(view.find("[aria-label='More actions']").exists()).toBe(true);
+        expect(view.find("[aria-label='更多操作']").exists()).toBe(false);
+        view.unmount();
+    });
+
+    it("回复里的图片：连点两张时先点的那次被取消、晚到的地址立即归还；关掉预览归还当前这张，卸载时不再多还", async () => {
+        const {requests, resolveMarkdownAsset} = controllableResolver();
+        const view = mountView("zh-CN", {resolveMarkdownAsset});
+        await view.get("[data-image='a.png']").trigger("click");
+        await flushPromises();
+        await view.get("[data-image='b.png']").trigger("click");
+        await flushPromises();
+        expect(requests.map((request) => [request.src, request.signal.aborted])).toEqual([["a.png", true], ["b.png", false]]);
+
+        expect(view.emitted("action") ?? []).toEqual([]);
+
+        requests[0]!.finish();
+        await flushPromises();
+        expect(requests[0]!.released).toBe(1);
+        expect(document.querySelector("[role='dialog'] img")).toBeNull();
+
+        requests[1]!.finish();
+        await flushPromises();
+        expect(document.querySelector("[role='dialog'] img")?.getAttribute("src")).toBe("blob:lab/b.png");
+        expect(requests[1]!.released).toBe(0);
+
+        (document.querySelector("[role='dialog'] [aria-label='关闭']") as HTMLElement).click();
+        await flushPromises();
+        expect(requests[1]!.released).toBe(1);
+        view.unmount();
+        expect(requests.map((request) => request.released)).toEqual([1, 1]);
+    });
+
+    it("换算被取消后以失败告终也不打开预览；同步抛错不从点击里逸出", async () => {
+        const view = mountView("zh-CN", {
+            resolveMarkdownAsset: (src) => {
+                if (src === "a.png") throw new Error("坏地址");
+                return Promise.reject(new DOMException("aborted", "AbortError"));
+            },
+        });
+        await view.get("[data-image='a.png']").trigger("click");
+        await view.get("[data-image='b.png']").trigger("click");
+        await flushPromises();
+        expect(document.querySelector("[role='dialog']")).toBeNull();
+        view.unmount();
+    });
+});
+
+describe("宿主组件（验收 21）", () => {
+    it("宿主登记的节点组件收到 ctx、服务与界面语言，它发出的 action 到达宿主", async () => {
+        const seen: Array<{session: string | undefined; hasServices: boolean; locale: string}> = [];
+        const Answer = defineComponent({
+            props: {call: {type: Object, required: true}, ctx: {type: Object, required: true}, services: {type: Object, required: true}, locale: {type: String, required: true}},
+            emits: ["action"],
+            setup(props, {emit}) {
+                return () => {
+                    seen.push({session: (props.ctx as AgentConversationContext).session?.title, hasServices: typeof (props.services as AgentConversationServices).resolveAttachmentUrl === "function", locale: props.locale});
+                    return h("button", {"data-source": "", onClick: () => emit("action", {type: "reference.open", target: "chapter://c3"})});
+                };
+            },
+        });
+        const plugin: AgentViewContribution = {
+            source: "test:plugin",
+            tools: [{id: "answer", toolNames: ["answer"], category: "interact", icon: "i-lucide-message-square-text", label: "作答", presentation: "node", node: Answer, summary: () => ""}],
+        };
+        const ctx = context();
+        ctx.run = {status: "running", phase: ""};
+        ctx.messages = [ctx.messages[0]!, {kind: "assistant", id: "a1", timestamp: 2, status: "streaming", text: "", thinking: "", model: "m", toolCalls: [{id: "q1", name: "answer", status: "running", args: {}}], contentOmitted: false}];
+        const view = mountView("en-US", {}, {ctx, registry: createAgentViewRegistry([builtinRolesContribution, builtinToolsContribution, plugin]), plain: true});
+        await view.get("[data-source]").trigger("click");
+        expect(seen.at(-1)).toEqual({session: "第三章", hasServices: true, locale: "en-US"});
+        expect(view.emitted("action")?.map((args) => args[0])).toEqual([{type: "reference.open", target: "chapter://c3"}]);
+        view.unmount();
+    });
+});
+
+describe("宿主的详情组件（验收 21）", () => {
+    it("工具详情组件收到服务与界面语言，它发出的 action 到达宿主", async () => {
+        const seen: string[] = [];
+        const Detail = defineComponent({
+            props: {call: {type: Object, required: true}, ctx: {type: Object, required: true}, services: {type: Object, required: true}, locale: {type: String, required: true}},
+            emits: ["action"],
+            setup(props, {emit}) {
+                return () => {
+                    seen.push(`${props.locale}:${typeof (props.services as AgentConversationServices).resolveAttachmentUrl}`);
+                    return h("button", {"data-detail-link": "", onClick: () => emit("action", {type: "reference.open", target: "chapter://c1"})});
+                };
+            },
+        });
+        const plugin: AgentViewContribution = {
+            source: "test:plugin",
+            tools: [{id: "lookup", toolNames: ["lookup"], category: "other", icon: "i-lucide-search", label: "查", presentation: "card", detail: Detail, summary: () => "雨夜"}],
+        };
+        const ctx = context();
+        ctx.run = {status: "running", phase: ""};
+        ctx.messages = [ctx.messages[0]!, {kind: "assistant", id: "a1", timestamp: 2, status: "streaming", text: "", thinking: "", model: "m", contentOmitted: false, toolCalls: [{id: "k1", name: "lookup", status: "success", args: {}}]}];
+        const view = mountView("en-US", {}, {ctx, plain: true, processDisclosure: "live", registry: createAgentViewRegistry([builtinRolesContribution, builtinToolsContribution, plugin])});
+        await view.get(".acv-steps .nb-collapsible-card button").trigger("click");
+        await view.get("[data-detail-link]").trigger("click");
+        expect(seen.at(-1)).toBe("en-US:function");
+        expect(view.emitted("action")?.map((args) => args[0])).toEqual([{type: "reference.open", target: "chapter://c1"}]);
+        view.unmount();
+    });
+});
+
+describe("运行中的投递开关（验收 23）", () => {
+    function composing(status: "running" | "waiting" | "stopping", text: string, deliveries: {canSteer: boolean; canQueue: boolean}): AgentConversationContext {
+        const ctx = context();
+        ctx.run = {status, phase: ""};
+        ctx.interaction = {...ctx.interaction, ...deliveries};
+        ctx.composer = {...ctx.composer, draft: {text, version: 2}};
+        return ctx;
+    }
+    const send = (view: ReturnType<typeof mountView>) => view.get("[data-composer-action='send']");
+
+    it("运行中、等待回答与停止中都不允许投递时：能写，发送键禁用，标题与占位说明要等运行结束", () => {
+        for (const status of ["running", "waiting", "stopping"] as const) {
+            const view = mountView("zh-CN", {}, {ctx: composing(status, "加快节奏", {canSteer: false, canQueue: false}), plain: true});
+            expect(send(view).attributes("disabled")).toBeDefined();
+            expect(send(view).attributes("title")).toBe("运行结束后发送");
+            expect(view.getComponent(PlainPromptEditor).props("placeholder")).toBe("运行结束后才能发送消息");
+            expect(view.getComponent(PlainPromptEditor).props("readonly")).toBe(false);
+            view.unmount();
+        }
+    });
+
+    it("登记的命令照常可发，标题写“发送”；只许排队时标题写“排队”", () => {
+        const command = mountView("zh-CN", {}, {ctx: composing("running", "/compact", {canSteer: false, canQueue: false}), plain: true});
+        expect(send(command).attributes("disabled")).toBeUndefined();
+        expect(send(command).attributes("title")).toBe("发送");
+        command.unmount();
+        const queue = mountView("zh-CN", {}, {ctx: composing("running", "加快节奏", {canSteer: false, canQueue: true}), plain: true});
+        expect(send(queue).attributes("title")).toBe("排队");
+        queue.unmount();
+    });
+});
+
+describe("渲染器出错（验收 15）", () => {
+    it("插件的节点组件与摘要回调抛错：只有这一项降级为“此内容无法显示”，其余消息照常显示", async () => {
+        const Boom = defineComponent({
+            setup() {
+                return () => {
+                    throw new Error("节点坏了");
+                };
+            },
+        });
+        const plugin: AgentViewContribution = {
+            source: "test:plugin",
+            tools: [{
+                id: "boom", toolNames: ["boom"], category: "interact", icon: "i-lucide-bomb", label: "炸", presentation: "node", node: Boom,
+                summary: () => {
+                    throw new Error("摘要坏了");
+                },
+            }],
+        };
+        const ctx = context();
+        ctx.messages = [
+            ctx.messages[0]!,
+            {kind: "assistant", id: "a1", timestamp: 2, status: "done", text: "前面的回复照常显示", thinking: "", model: "m", toolCalls: [{id: "b1", name: "boom", status: "success", args: {}}], contentOmitted: false},
+            {kind: "assistant", id: "a2", timestamp: 3, status: "done", text: "后面的回复也照常显示", thinking: "", model: "m", toolCalls: [], contentOmitted: false},
+        ];
+        const view = mountView("zh-CN", {}, {ctx, registry: createAgentViewRegistry([builtinRolesContribution, builtinToolsContribution, plugin]), plain: true});
+        // 已结束的轮次默认收起，节点在过程里：先展开整轮。
+        await view.get("[data-turn-summary]").trigger("click");
+        expect(view.findAll("[data-render-failed]")).toHaveLength(1);
+        expect(view.text()).toContain("此内容无法显示");
+        expect(view.text()).toContain("后面的回复也照常显示");
+        view.unmount();
+    });
+});
+
+describe("运行中逐步展开（验收 22）", () => {
+    function runningCtx(): AgentConversationContext {
+        const ctx = context();
+        ctx.run = {status: "running", phase: ""};
+        ctx.messages = [ctx.messages[0]!, {kind: "assistant", id: "a1", timestamp: 2, status: "streaming", text: "", thinking: "", model: "m", contentOmitted: false, toolCalls: [
+            {id: "r1", name: "read", status: "success", args: {path: "第一章.md"}},
+            {id: "r2", name: "read", status: "running", args: {path: "第二章.md"}},
+        ]}];
+        return ctx;
+    }
+
+    it("live 时运行中的思维链与工具组展开，逐项列出；缺省时折叠", () => {
+        const live = mountView("zh-CN", {}, {ctx: runningCtx(), plain: true, processDisclosure: "live"});
+        expect(live.find(".acv-steps").exists()).toBe(true);
+        expect(live.text()).toContain("第一章.md");
+        live.unmount();
+        const collapsed = mountView("zh-CN", {}, {ctx: runningCtx(), plain: true});
+        expect(collapsed.find(".acv-steps").exists()).toBe(false);
+        collapsed.unmount();
+    });
+
+    it("用户点开的思考在思维链重新分组（下一次读取把它并进工具组）后仍是展开的", async () => {
+        const ctx = runningCtx();
+        const reading = (id: string, path: string, status: "success" | "running") => ({kind: "assistant" as const, id, timestamp: 2, status: "streaming" as const, text: "", thinking: "", model: "m", contentOmitted: false, toolCalls: [{id: `${id}:r`, name: "read", status, args: {path}}]});
+        const thinking = {kind: "assistant" as const, id: "t1", timestamp: 2, status: "streaming" as const, text: "", thinking: "先想第二步\n要读第二章", model: "m", contentOmitted: false, toolCalls: []};
+        ctx.messages = [ctx.messages[0]!, reading("a1", "第一章.md", "success"), thinking];
+        const view = mountView("zh-CN", {}, {ctx, plain: true, processDisclosure: "live"});
+        const row = view.findAll(".acv-steps button").find((button) => button.text().includes("先想第二步"));
+        await row!.trigger("click");
+        expect(view.text()).toContain("要读第二章");
+        await view.setProps({ctx: {...ctx, messages: [...ctx.messages, reading("a2", "第二章.md", "running")]}});
+        expect(view.text()).toContain("要读第二章");
+        view.unmount();
+    });
+
+    it("运行出错结束：最新一轮仍展开，但思维链回到默认折叠", async () => {
+        const ctx = runningCtx();
+        const view = mountView("zh-CN", {}, {ctx, plain: true, processDisclosure: "live"});
+        expect(view.find(".acv-steps").exists()).toBe(true);
+        const failed = context();
+        failed.messages = [ctx.messages[0]!, {...ctx.messages[1]!, status: "error", error: "连接断了"} as AgentConversationContext["messages"][number]];
+        await view.setProps({ctx: failed});
+        expect(view.find("[data-chain-summary]").exists()).toBe(true);
+        expect(view.find(".acv-steps").exists()).toBe(false);
+        view.unmount();
+    });
+
+    it("运行结束后回到折叠", async () => {
+        const ctx = runningCtx();
+        const view = mountView("zh-CN", {}, {ctx, plain: true, processDisclosure: "live"});
+        const done = context();
+        done.messages = [ctx.messages[0]!, {...ctx.messages[1]!, status: "done", toolCalls: [{id: "r1", name: "read", status: "success", args: {path: "第一章.md"}}, {id: "r2", name: "read", status: "success", args: {path: "第二章.md"}}]} as AgentConversationContext["messages"][number], {kind: "assistant", id: "a2", timestamp: 3, status: "done", text: "读完了。", thinking: "", model: "m", toolCalls: [], contentOmitted: false}];
+        await view.setProps({ctx: done});
+        expect(view.find(".acv-steps").exists()).toBe(false);
+        view.unmount();
+    });
+});
+
+describe("没有数据的区域不显示（验收 24）", () => {
+    it("header 为 false 时没有顶栏；没有模型与思考档位时没有模型下拉；会话加载中时消息流显示加载中", () => {
+        const ctx = context();
+        ctx.messages = [];
+        ctx.availability = {status: "loading", message: "", actions: []};
+        const view = mountView("zh-CN", {}, {ctx, plain: true, header: false});
+        expect(view.find("[aria-label='更多操作']").exists()).toBe(false);
+        expect(view.find(".acv-model-picker__trigger").exists()).toBe(false);
+        expect(view.text()).toContain("正在加载会话");
+        view.unmount();
+
+        const withModels = context();
+        withModels.composer = {...withModels.composer, models: [{key: "m", label: "模型甲", supportsImages: false}], modelKey: "m"};
+        const shown = mountView("zh-CN", {}, {ctx: withModels, plain: true});
+        expect(shown.find(".acv-model-picker__trigger").exists()).toBe(true);
+        shown.unmount();
+    });
+
+    it("不提供附件地址与触发菜单两项服务：附件显示不可用占位，编辑器只拿到 / 触发字符", async () => {
+        const ctx = context();
+        ctx.messages = [{kind: "user", id: "u1", timestamp: 1, intent: "normal", contentOmitted: false, blocks: [
+            {kind: "text", text: "看图"},
+            {kind: "attachment", locator: "local://草图.png", name: "草图.png", mimeType: "image/png", bytes: 10},
+        ]}];
+        const view = mountView("zh-CN", {}, {ctx, plain: true, bareServices: true});
+        expect(view.find(".acv-user-content__image--missing").exists()).toBe(true);
+        expect(view.find(".acv-user-content__image-button").exists()).toBe(false);
+        expect(view.getComponent(PlainPromptEditor).props("triggers")).toEqual(["/"]);
+        view.unmount();
+    });
+});
+
+describe("宿主每秒换 now", () => {
+    it("整体替换 ctx 打节拍时，已结束的轮次不重新整理", async () => {
+        let calls = 0;
+        const counting: AgentViewContribution = {
+            source: "test:count",
+            tools: [{id: "count", toolNames: ["count"], category: "mutate", icon: "i-lucide-pen", label: "计数", presentation: "line", summary: () => "", effects: () => {
+                calls += 1;
+                return {read: [], changed: []};
+            }}],
+        };
+        const ctx = context();
+        ctx.messages = [ctx.messages[0]!, {kind: "assistant", id: "a1", timestamp: 2, status: "done", text: "", thinking: "", model: "m", contentOmitted: false, toolCalls: [{id: "c1", name: "count", status: "success", args: {}}]}, {kind: "assistant", id: "a2", timestamp: 3, status: "done", text: "改好了。", thinking: "", model: "m", toolCalls: [], contentOmitted: false}];
+        const view = mountView("zh-CN", {}, {ctx, plain: true, registry: createAgentViewRegistry([builtinRolesContribution, builtinToolsContribution, counting])});
+        const afterMount = calls;
+        for (const now of [10, 11, 12]) await view.setProps({ctx: {...ctx, now}});
+        expect(calls).toBe(afterMount);
+        view.unmount();
+    });
+});
+

@@ -5,6 +5,7 @@
  * Lab 里，不用登记。
  */
 
+import {nbAgentUiComponentDocs, nbAgentUiComponentModules} from "@notnotype/nb-agent-ui/lab-sources";
 import {nbFormComponentDocs, nbFormComponentModules} from "@notnotype/nb-form/lab-sources";
 import {nbUiComponentDocs, nbUiComponentModules} from "@notnotype/nb-ui/lab-sources";
 
@@ -35,11 +36,12 @@ const rekey = <T>(entries: Record<string, T>): Record<string, T> => Object.fromE
 const prefixed = (prefix: string) => <T>(entries: Readonly<Record<string, T>>): Record<string, T> => Object.fromEntries(Object.entries(entries).map(([path, value]) => [`${prefix}/${path}`, value]));
 const nbUi = prefixed("nb-ui");
 const nbForm = prefixed("nb-form");
+const nbAgentUi = prefixed("nb-agent-ui");
 
 export const labComponents: LabComponentEntry[] = buildLabIndex(
     {
-        docs: {...rekey(sharedDocs), ...rekey(pluginDocs), ...nbUi(nbUiComponentDocs), ...nbForm(nbFormComponentDocs)},
-        modules: new Set(Object.keys({...rekey(sharedModules), ...rekey(pluginModules), ...nbUi(nbUiComponentModules), ...nbForm(nbFormComponentModules)})),
+        docs: {...rekey(sharedDocs), ...rekey(pluginDocs), ...nbUi(nbUiComponentDocs), ...nbForm(nbFormComponentDocs), ...nbAgentUi(nbAgentUiComponentDocs)},
+        modules: new Set(Object.keys({...rekey(sharedModules), ...rekey(pluginModules), ...nbUi(nbUiComponentModules), ...nbForm(nbFormComponentModules), ...nbAgentUi(nbAgentUiComponentModules)})),
     },
     (message) => console.warn(`[component-lab] ${message}`),
 );

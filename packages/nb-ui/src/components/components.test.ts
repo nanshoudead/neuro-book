@@ -9,6 +9,7 @@ import Tabs from "./controls/Tabs.vue";
 import ToggleGroup from "./controls/ToggleGroup.vue";
 import Toolbar from "./controls/Toolbar.vue";
 import Badge from "./display/Badge.vue";
+import CodeBlock from "./display/CodeBlock.vue";
 import Kbd from "./display/Kbd.vue";
 import Progress from "./display/Progress.vue";
 import Table from "./display/Table.vue";
@@ -30,6 +31,8 @@ import Select from "./popup/Select.vue";
 import RadioGroup from "./form/RadioGroup.vue";
 import Slider from "./form/Slider.vue";
 import Collapsible from "./layout/Collapsible.vue";
+import CollapsibleCard from "./layout/CollapsibleCard.vue";
+import CollapsibleRow from "./layout/CollapsibleRow.vue";
 import ScrollArea from "./layout/ScrollArea.vue";
 import Separator from "./layout/Separator.vue";
 import Splitter from "./layout/Splitter.vue";
@@ -174,6 +177,60 @@ describe("nb-ui components", () => {
         content.element.dispatchEvent(new Event("animationend"));
         expect(content.attributes("data-animating")).toBeUndefined();
         wrapper.unmount();
+    });
+
+    it("collapsible row: only expandable rows are buttons; toggle asks for the opposite state; content shows only when expanded", async () => {
+        const fixed = mount(CollapsibleRow, {props: {icon: "i-lucide-file", label: "读取", detail: "第三章.md"}, slots: {default: "<p class='inner'>内容</p>"}});
+        expect(fixed.find("button").exists()).toBe(false);
+        expect(fixed.find(".inner").exists()).toBe(false);
+
+        const row = mount(CollapsibleRow, {props: {icon: "i-lucide-file", label: "读取", expanded: false}, slots: {default: "<p class='inner'>内容</p>"}});
+        expect(row.get("button").attributes("aria-expanded")).toBe("false");
+        // 行常常填满所在的列表，焦点画成内嵌线。
+        expect(row.get("button").classes()).toContain("nb-ui-focus-ring-inset");
+        await row.get("button").trigger("click");
+        expect(row.emitted("update:expanded")).toEqual([[true]]);
+        expect(row.find(".inner").exists()).toBe(false);
+        await row.setProps({expanded: true});
+        expect(row.get(".inner").text()).toBe("内容");
+    });
+
+    it("collapsible row: a zero side is hidden when the other side changed; the spinner takes the given label", () => {
+        const stat = (added: number | null, removed: number | null) => mount(CollapsibleRow, {props: {icon: "i-lucide-file-pen", label: "改", stat: {added, removed}}}).text();
+        expect(stat(3, 0)).toContain("+3");
+        expect(stat(3, 0)).not.toContain("-0");
+        expect(stat(0, 0)).toContain("+0");
+        expect(stat(0, 0)).toContain("-0");
+        expect(stat(null, 2)).toBe("改-2");
+        const running = mount(CollapsibleRow, {props: {icon: "i-lucide-file", label: "读取", status: "running", runningLabel: "Running"}});
+        expect(running.get("[role=status]").attributes("aria-label")).toBe("Running");
+        const fallback = mount(CollapsibleRow, {props: {icon: "i-lucide-file", label: "读取", status: "running"}});
+        expect(fallback.get("[role=status]").attributes("aria-label")).toBe("加载中");
+    });
+
+    it("collapsible card: the head toggles, actions do not; the body is always shown when not collapsible", async () => {
+        const card = mount(CollapsibleCard, {
+            props: {icon: "i-lucide-terminal", title: "运行命令", subtitle: "ls", expanded: false},
+            slots: {default: "<p class='body'>输出</p>", actions: "<button class='copy'>复制</button>"},
+        });
+        await card.get(".copy").trigger("click");
+        expect(card.emitted("update:expanded")).toBeUndefined();
+        expect(card.get("button[aria-expanded]").classes()).toContain("nb-ui-focus-ring-inset");
+        await card.get("button[aria-expanded]").trigger("click");
+        expect(card.emitted("update:expanded")).toEqual([[true]]);
+        expect(card.find(".body").exists()).toBe(false);
+
+        const open = mount(CollapsibleCard, {props: {icon: "i-lucide-terminal", title: "运行命令"}, slots: {default: "<p class='body'>输出</p>"}});
+        expect(open.find("button").exists()).toBe(false);
+        expect(open.get(".body").text()).toBe("输出");
+    });
+
+    it("code block: marks added and removed lines, numbers from startLine, and shows the given empty and truncated texts", () => {
+        const block = mount(CodeBlock, {props: {lines: [{text: "a"}, {text: "b", tone: "added"}, {text: "c", tone: "removed"}], startLine: 10, truncated: true, truncatedText: "Partial"}});
+        const lines = block.findAll(".nb-code-block__line").map((line) => line.text());
+        expect(lines).toEqual(["10a", "11+b", "12-c"]);
+        expect(block.get(".nb-code-block__note").text()).toBe("Partial");
+        expect(mount(CodeBlock, {props: {lines: [], emptyText: "Empty"}}).text()).toBe("Empty");
     });
 
     it("renders segmented control as a labelled radio group: one item checked, no toggle-button state", () => {
