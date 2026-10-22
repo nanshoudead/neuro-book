@@ -41,4 +41,4 @@ nb-story 问答页（[w00024 t13](../../../w00024-nb-story/tasks/t13-qa-web/READ
 
 ## 下一步
 
-写 `plan.md`，给开发者确认后实施。
+[plan.md](plan.md) 由 Opus 规划子代理起草，Sonnet 设计审查进行中；审查处理完后按开发者 2026-10-22 的要求用 autonomous-delivery 推进实施，返工难度大、重要决策与需求对齐的问题停下来问开发者。
