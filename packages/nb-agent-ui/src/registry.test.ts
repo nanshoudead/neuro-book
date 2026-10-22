@@ -106,7 +106,7 @@ describe("工具回调抛错", () => {
         const tool = registry.resolveTool("boom");
         const call = {id: "c1", name: "boom", status: "success" as const, args: {}};
         expect(tool.summary(call)).toBe("boom");
-        expect(tool.groupPhrase?.(3)).toEqual({key: "toolGroup.generic", params: {count: 3}});
+        expect(tool.groupPhrase?.([call, call, call])).toEqual({key: "toolGroup.generic", params: {count: 3}});
         expect(tool.effects?.(call)).toEqual({read: [], changed: []});
     });
 

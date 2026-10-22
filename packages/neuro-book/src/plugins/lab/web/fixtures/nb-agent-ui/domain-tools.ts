@@ -12,12 +12,17 @@ const tools: ToolRendererEntry[] = [
     {
         id: "subject_rag_search", toolNames: ["subject_rag_search"], category: "explore", icon: "i-lucide-brain",
         label: {"zh-CN": "检索记忆", "en-US": "Search memory"}, summary: (call) => argString(call, "query"),
-        groupPhrase: (count) => ({key: "toolGroup.search", params: {count}}), presentation: "line",
+        groupPhrase: (calls) => ({key: "toolGroup.search", params: {count: calls.length}}), presentation: "line",
     },
     {
         id: "agent_lookup", toolNames: ["get_session", "get_agent", "get_agent_profile"], category: "explore", icon: "i-lucide-bot",
         label: {"zh-CN": "查询 Agent", "en-US": "Look up agent"}, summary: (call) => call.name,
-        groupPhrase: (count) => ({key: "toolGroup.lookup", params: {count}}), presentation: "line",
+        // 组短语收到这一组的调用，可以按参数写；这里只说查成功了的是哪几种，还没有成功的时候退回次数。
+        groupPhrase: (calls) => {
+            const kinds = [...new Set(calls.filter((call) => call.status === "success").map((call) => call.name))];
+            return kinds.length === 0 ? {key: "toolGroup.lookup", params: {count: calls.length}} : {"zh-CN": `查了 ${kinds.join("、")}`, "en-US": `Looked up ${kinds.join(", ")}`};
+        },
+        presentation: "line",
     },
     {
         id: "subject_memory", toolNames: ["subject_memory_update", "subject_event_append"], category: "mutate", icon: "i-lucide-notebook-pen",

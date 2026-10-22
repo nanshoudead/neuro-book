@@ -84,8 +84,12 @@ type ToolRendererBase = RegistryEntryBase & {
 export type ToolRendererEntry =
     | (ToolRendererBase & {
         category: "explore";
-        /** 探查组合并摘要中本工具的那一段，例如“读取 5 个文件”。 */
-        groupPhrase: (count: number) => ViewText;
+        /**
+         * 探查组合并摘要中本工具的那一段，例如“读了 5 个文件”“读了第 33–37 章”。收到这一组里由本渲染器处理的全部调用，
+         * 按时间顺序，含出错与运行中的：只想说成功的要自己按 `call.status` 过滤；运行中的参数可能是半截（用 argString 等读），
+         * 短语会随之变化。一组至少两次调用才成形，但同一渲染器在组里可能只有一次。
+         */
+        groupPhrase: (calls: readonly ToolCallView[]) => ViewText;
     })
     | (ToolRendererBase & {category: "mutate" | "interact" | "other"; groupPhrase?: never});
 
@@ -280,7 +284,7 @@ function guardTool(entry: ToolRendererEntry): ToolRendererEntry {
         ...(diff === undefined ? {} : {diff: guarded("diff", diff, () => null)}),
     };
     if (entry.category === "explore") {
-        return {...entry, ...common, groupPhrase: guarded("groupPhrase", entry.groupPhrase, (count: number): ViewText => ({key: "toolGroup.generic", params: {count}}))};
+        return {...entry, ...common, groupPhrase: guarded("groupPhrase", entry.groupPhrase, (calls: readonly ToolCallView[]): ViewText => ({key: "toolGroup.generic", params: {count: calls.length}}))};
     }
     return {...entry, ...common};
 }

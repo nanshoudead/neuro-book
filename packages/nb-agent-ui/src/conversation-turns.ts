@@ -496,15 +496,18 @@ function groupExploreTools(entries: readonly FlatEntry[], registry: AgentViewReg
 }
 
 function makeToolGroup(items: ToolGroupItem[], tools: ToolStep[], registry: AgentViewRegistry): ToolGroupStep {
-    const counts = new Map<ToolRendererEntry, number>();
+    // 按渲染器收集调用，Map 保留首次出现的顺序，短语也按它排。
+    const callsByRenderer = new Map<ToolRendererEntry, ToolCallView[]>();
     for (const tool of tools) {
         const renderer = registry.resolveTool(tool.call.name);
-        counts.set(renderer, (counts.get(renderer) ?? 0) + 1);
+        const calls = callsByRenderer.get(renderer);
+        if (calls === undefined) callsByRenderer.set(renderer, [tool.call]);
+        else calls.push(tool.call);
     }
     const phrases: ViewText[] = [];
-    for (const [renderer, count] of counts) {
+    for (const [renderer, calls] of callsByRenderer) {
         // 类型要求 explore 都给 groupPhrase；回退留给不经类型检查的 JS 宿主，不是死代码。
-        phrases.push(renderer.groupPhrase?.(count) ?? {key: "toolGroup.generic", params: {count}});
+        phrases.push(renderer.groupPhrase?.(calls) ?? {key: "toolGroup.generic", params: {count: calls.length}});
     }
     const active = tools.findLast(isActive) ?? null;
     return {

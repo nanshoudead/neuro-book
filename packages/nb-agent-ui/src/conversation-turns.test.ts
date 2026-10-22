@@ -213,7 +213,7 @@ describe("buildTurns 探查工具分组", () => {
     it("插件登记的探查工具与内置读取并入同一组", () => {
         const withPlugin = createAgentViewRegistry([builtinToolsContribution, {
             source: "plugin:atlas",
-            tools: [{id: "atlas_lookup", toolNames: ["atlas_lookup"], category: "explore", icon: "i-lucide-map", label: "查地图", summary: () => "", groupPhrase: (count) => ({key: "toolGroup.lookup", params: {count}}), presentation: "line"}],
+            tools: [{id: "atlas_lookup", toolNames: ["atlas_lookup"], category: "explore", icon: "i-lucide-map", label: "查地图", summary: () => "", groupPhrase: (calls) => ({key: "toolGroup.lookup", params: {count: calls.length}}), presentation: "line"}],
         }]);
         const turns = buildTurns(input([
             user("u1", "查"),
@@ -223,6 +223,32 @@ describe("buildTurns 探查工具分组", () => {
         const group = chains(turns[0]!)[0]!.entries[0] as ToolGroupStep;
         expect(group.kind).toBe("toolGroup");
         expect(group.tools).toHaveLength(3);
+    });
+
+    it("组短语按渲染器分别收到组里自己的调用，按时间顺序，出错与运行中的也在（验收 31）", () => {
+        const received: string[][] = [];
+        const chapters = createAgentViewRegistry([builtinToolsContribution, {
+            source: "plugin:story",
+            tools: [{
+                id: "story_read", toolNames: ["story_read"], category: "explore", icon: "i-lucide-book-open", label: "读原文", summary: () => "", presentation: "line",
+                groupPhrase: (calls) => {
+                    received.push(calls.map((call) => `${call.id}:${call.status}`));
+                    const done = calls.filter((call) => call.status === "success").map((call) => (call.args as {chapter: number}).chapter);
+                    return `读了第 ${Math.min(...done)}–${Math.max(...done)} 章`;
+                },
+            }],
+        }]);
+        const turns = buildTurns(input([
+            user("u1", "查"),
+            assistant("a1", {toolCalls: [
+                tool("s1", "story_read", {chapter: 33}), tool("r1", "read", {path: "a.md"}), tool("s2", "story_read", {chapter: 41}, "error"),
+                tool("s3", "story_read", {chapter: 37}), tool("s4", "story_read", {chapter: 38}, "running"),
+            ]}),
+        ], {registry: chapters, ...running}));
+
+        const group = chains(turns[0]!)[0]!.entries[0] as ToolGroupStep;
+        expect(received.at(-1)).toEqual(["s1:success", "s2:error", "s3:success", "s4:running"]);
+        expect(group.phrases).toEqual(["读了第 33–37 章", {key: "toolGroup.read", params: {count: 1}}]);
     });
 
     it("运行中的组记录当前执行项，出错项单独列出；思维链统计失败次数", () => {

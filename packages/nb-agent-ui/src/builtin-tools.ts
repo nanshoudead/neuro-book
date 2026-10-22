@@ -101,23 +101,23 @@ export const builtinToolRenderers: readonly ToolRendererEntry[] = [
     {
         id: "read", toolNames: ["read"], category: "explore", icon: "i-lucide-file-text",
         label: {key: "tool.read"}, summary: (call) => argString(call, "path"),
-        groupPhrase: (count) => ({key: "toolGroup.read", params: {count}}),
+        groupPhrase: (calls) => ({key: "toolGroup.read", params: {count: calls.length}}),
         effects: readEffects, presentation: "line",
     },
     {
         id: "web_search", toolNames: ["web_search"], category: "explore", icon: "i-lucide-search",
         label: {key: "tool.webSearch"}, summary: (call) => argString(call, "query"),
-        groupPhrase: (count) => ({key: "toolGroup.search", params: {count}}), presentation: "line",
+        groupPhrase: (calls) => ({key: "toolGroup.search", params: {count: calls.length}}), presentation: "line",
     },
     {
         id: "web_fetch", toolNames: ["web_fetch"], category: "explore", icon: "i-lucide-globe",
         label: {key: "tool.webFetch"}, summary: (call) => argString(call, "url"),
-        groupPhrase: (count) => ({key: "toolGroup.fetch", params: {count}}), presentation: "line",
+        groupPhrase: (calls) => ({key: "toolGroup.fetch", params: {count: calls.length}}), presentation: "line",
     },
     {
         id: "list", toolNamePrefix: "list_", category: "explore", icon: "i-lucide-list",
         label: {key: "tool.list"}, summary: (call) => call.name,
-        groupPhrase: (count) => ({key: "toolGroup.lookup", params: {count}}), presentation: "line",
+        groupPhrase: (calls) => ({key: "toolGroup.lookup", params: {count: calls.length}}), presentation: "line",
     },
     // mutate
     {
