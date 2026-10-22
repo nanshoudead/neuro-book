@@ -148,7 +148,7 @@ function usageLine(message: AssistantMessageView): string {
                     :label="t('step.thinking')"
                     :detail="openItems[`thinking:${message.id}`] ? '' : firstLine(message.thinking)"
                     :expanded="Boolean(openItems[`thinking:${message.id}`])"
-                    @toggle="toggle(`thinking:${message.id}`)"
+                    @update:expanded="toggle(`thinking:${message.id}`)"
                 >
                     <p class="acv-raw__text acv-raw__text--muted">{{ message.thinking }}</p>
                 </CollapsibleRow>
@@ -162,7 +162,7 @@ function usageLine(message: AssistantMessageView): string {
                     :detail="props.registry.resolveTool(call.name).summary(call)"
                     :status="stepStatus(call)"
                     :expanded="Boolean(openItems[call.id])"
-                    @toggle="toggle(call.id)"
+                    @update:expanded="toggle(call.id)"
                 >
                     <AgentToolDetail :call="call" :ctx="props.ctx" :registry="props.registry" />
                 </CollapsibleRow>

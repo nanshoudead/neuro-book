@@ -9,7 +9,7 @@
 
 ## 布局与交互
 
-一行高至少 24px：图标、动作名、单行截断的操作对象，右侧是增删行统计（新增用成功色、删除用危险色）与运行中的转圈。传了 `expanded` 时整行是按钮，点击发出 `toggle`，展开后默认插槽缩进显示在下方；没传时不可展开。出错时整行用危险色。窄屏同一结构，操作对象先被省略。
+一行高至少 24px：图标、动作名、单行截断的操作对象，右侧是增删行统计（新增用成功色、删除用危险色）与运行中的转圈。传了 `expanded` 时整行是按钮，点击发出 `update:expanded`，可以写 `v-model:expanded`，展开后默认插槽缩进显示在下方；没传时不可展开。出错时整行用危险色。窄屏同一结构，操作对象先被省略。
 
 键盘：可展开时整行是按钮，Tab 到达，回车或空格切换；焦点是行内的内嵌焦点线（行常常填满所在的列表，外扩的焦点环会被裁掉）。
 
@@ -39,7 +39,7 @@ type CollapsibleRowProps = {
 
 type CollapsibleRowEmits = {
     /** 点击可展开的行时发出，携带期望的新状态。 */
-    (e: "toggle", expanded: boolean): void;
+    (e: "update:expanded", expanded: boolean): void;
 };
 
 type CollapsibleRowSlots = {
@@ -52,4 +52,4 @@ type CollapsibleRowSlots = {
 
 ## 状态与边界
 
-- 展开状态由调用方持有，组件只发出 `toggle`。
+- 展开状态由调用方持有，组件只发出 `update:expanded`（受控，同 `Collapsible` 的 `open` 与 `update:open`；没有展开动画）。

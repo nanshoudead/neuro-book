@@ -9,7 +9,7 @@
 
 ## 布局与交互
 
-头部一行：图标、标题、等宽的单行摘要（放不下时省略号），右侧是状态（运行中转圈、成功、出错、等待）与折叠箭头；`actions` 插槽在头部最右，点击它不触发折叠。传了 `expanded` 时头部整行是按钮，点击发出 `toggle`；没传时头部不可点击、正文常显。出错时边框用危险色。键盘：可折叠时头部是按钮，Tab 到达，回车或空格切换；焦点是头部内的内嵌焦点线。窄屏同一结构，摘要先被省略。
+头部一行：图标、标题、等宽的单行摘要（放不下时省略号），右侧是状态（运行中转圈、成功、出错、等待）与折叠箭头；`actions` 插槽在头部最右，点击它不触发折叠。传了 `expanded` 时头部整行是按钮，点击发出 `update:expanded`，可以写 `v-model:expanded`；没传时头部不可点击、正文常显。出错时边框用危险色。键盘：可折叠时头部是按钮，Tab 到达，回车或空格切换；焦点是头部内的内嵌焦点线。窄屏同一结构，摘要先被省略。
 
 ## 数据
 
@@ -33,7 +33,7 @@ type CollapsibleCardProps = {
 
 type CollapsibleCardEmits = {
     /** 点击可折叠卡片的头部时发出，携带期望的新状态。 */
-    (e: "toggle", expanded: boolean): void;
+    (e: "update:expanded", expanded: boolean): void;
 };
 
 type CollapsibleCardSlots = {
@@ -48,5 +48,5 @@ type CollapsibleCardSlots = {
 
 ## 状态与边界
 
-- 展开状态由调用方持有，组件只发出 `toggle`。
+- 展开状态由调用方持有，组件只发出 `update:expanded`（受控，同 `Collapsible` 的 `open` 与 `update:open`；没有展开动画）。
 - 卡片可以嵌套，使用方自己控制层数。

@@ -23,7 +23,7 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-    (e: "toggle", expanded: boolean): void;
+    (e: "update:expanded", expanded: boolean): void;
 }>();
 
 defineSlots<{
@@ -43,7 +43,7 @@ const showRemoved = computed(() => props.stat !== null && props.stat.removed !==
             :type="expandable ? 'button' : undefined"
             class="nb-collapsible-row__row nb-ui-focus-ring-inset"
             :aria-expanded="expandable ? props.expanded : undefined"
-            @click="expandable && emit('toggle', !props.expanded)"
+            @click="expandable && emit('update:expanded', !props.expanded)"
         >
             <span :class="[props.icon, 'nb-collapsible-row__icon']" aria-hidden="true" />
             <span class="nb-collapsible-row__label">{{ props.label }}</span>

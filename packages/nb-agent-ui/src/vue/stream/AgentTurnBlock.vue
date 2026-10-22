@@ -139,7 +139,7 @@ function firstLine(value: string): string {
                     :detail="entry.active ? rendererOf(entry.active).summary(entry.active.call) : ''"
                     :status="entry.active ? 'running' : 'done'"
                     :expanded="Boolean(openItems[entry.id])"
-                    @toggle="setOpen(entry.id, $event)"
+                    @update:expanded="setOpen(entry.id, $event)"
                 >
                     <template v-for="item in entry.items" :key="item.id">
                         <CollapsibleRow
@@ -150,7 +150,7 @@ function firstLine(value: string): string {
                             :detail="rendererOf(item).summary(item.call)"
                             :status="stepStatus(item)"
                             :expanded="Boolean(openItems[item.id])"
-                            @toggle="setOpen(item.id, $event)"
+                            @update:expanded="setOpen(item.id, $event)"
                         >
                             <AgentToolDetail :call="item.call" :ctx="props.ctx" :registry="props.registry" />
                         </CollapsibleRow>
@@ -161,7 +161,7 @@ function firstLine(value: string): string {
                             :label="t('step.thinking')"
                             :detail="openItems[item.id] ? '' : firstLine(item.text)"
                             :expanded="Boolean(openItems[item.id])"
-                            @toggle="setOpen(item.id, $event)"
+                            @update:expanded="setOpen(item.id, $event)"
                         >
                             <AgentMarkdown class="acv-thinking" :text="item.text" :services="props.services" @action="emit('action', $event)" @preview-image="emit('preview-image', $event)" />
                         </CollapsibleRow>
@@ -178,7 +178,7 @@ function firstLine(value: string): string {
                     :detail="rendererOf(failed).summary(failed.call)"
                     status="error"
                     :expanded="Boolean(openItems[failed.id])"
-                    @toggle="setOpen(failed.id, $event)"
+                    @update:expanded="setOpen(failed.id, $event)"
                 >
                     <AgentToolDetail :call="failed.call" :ctx="props.ctx" :registry="props.registry" />
                 </CollapsibleRow>
@@ -190,7 +190,7 @@ function firstLine(value: string): string {
                     :subtitle="rendererOf(entry).summary(entry.call)"
                     :status="cardStatus(entry)"
                     :expanded="Boolean(openItems[entry.id])"
-                    @toggle="setOpen(entry.id, $event)"
+                    @update:expanded="setOpen(entry.id, $event)"
                 >
                     <AgentToolDetail :call="entry.call" :ctx="props.ctx" :registry="props.registry" />
                 </CollapsibleCard>
@@ -203,7 +203,7 @@ function firstLine(value: string): string {
                     :stat="rendererOf(entry).category === 'mutate' ? mutateStat(entry) : null"
                     :status="stepStatus(entry)"
                     :expanded="Boolean(openItems[entry.id])"
-                    @toggle="setOpen(entry.id, $event)"
+                    @update:expanded="setOpen(entry.id, $event)"
                 >
                     <AgentToolDetail :call="entry.call" :ctx="props.ctx" :registry="props.registry" />
                 </CollapsibleRow>
@@ -215,7 +215,7 @@ function firstLine(value: string): string {
                     :label="t('step.thinking')"
                     :detail="openItems[entry.id] ? '' : firstLine(entry.text)"
                     :expanded="Boolean(openItems[entry.id])"
-                    @toggle="setOpen(entry.id, $event)"
+                    @update:expanded="setOpen(entry.id, $event)"
                 >
                     <AgentMarkdown class="acv-thinking" :text="entry.text" :services="props.services" @action="emit('action', $event)" @preview-image="emit('preview-image', $event)" />
                 </CollapsibleRow>
@@ -226,7 +226,7 @@ function firstLine(value: string): string {
                     :label="entry.message.label"
                     :detail="openItems[entry.id] ? '' : firstLine(entry.message.text)"
                     :expanded="entry.message.text ? Boolean(openItems[entry.id]) : undefined"
-                    @toggle="setOpen(entry.id, $event)"
+                    @update:expanded="setOpen(entry.id, $event)"
                 >
                     <AgentMarkdown class="acv-thinking" :text="entry.message.text" :services="props.services" @action="emit('action', $event)" @preview-image="emit('preview-image', $event)" />
                 </CollapsibleRow>
@@ -256,7 +256,7 @@ function firstLine(value: string): string {
             :subtitle="nodeSubtitle(props.block.step)"
             :status="cardStatus(props.block.step)"
             :expanded="Boolean(openItems[props.block.id])"
-            @toggle="setOpen(props.block.id, $event)"
+            @update:expanded="setOpen(props.block.id, $event)"
         >
             <AgentToolDetail :call="props.block.step.call" :ctx="props.ctx" :registry="props.registry" />
         </CollapsibleCard>

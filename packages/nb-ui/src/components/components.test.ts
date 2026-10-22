@@ -189,7 +189,7 @@ describe("nb-ui components", () => {
         // 行常常填满所在的列表，焦点画成内嵌线。
         expect(row.get("button").classes()).toContain("nb-ui-focus-ring-inset");
         await row.get("button").trigger("click");
-        expect(row.emitted("toggle")).toEqual([[true]]);
+        expect(row.emitted("update:expanded")).toEqual([[true]]);
         expect(row.find(".inner").exists()).toBe(false);
         await row.setProps({expanded: true});
         expect(row.get(".inner").text()).toBe("内容");
@@ -214,10 +214,10 @@ describe("nb-ui components", () => {
             slots: {default: "<p class='body'>输出</p>", actions: "<button class='copy'>复制</button>"},
         });
         await card.get(".copy").trigger("click");
-        expect(card.emitted("toggle")).toBeUndefined();
+        expect(card.emitted("update:expanded")).toBeUndefined();
         expect(card.get("button[aria-expanded]").classes()).toContain("nb-ui-focus-ring-inset");
         await card.get("button[aria-expanded]").trigger("click");
-        expect(card.emitted("toggle")).toEqual([[true]]);
+        expect(card.emitted("update:expanded")).toEqual([[true]]);
         expect(card.find(".body").exists()).toBe(false);
 
         const open = mount(CollapsibleCard, {props: {icon: "i-lucide-terminal", title: "运行命令"}, slots: {default: "<p class='body'>输出</p>"}});

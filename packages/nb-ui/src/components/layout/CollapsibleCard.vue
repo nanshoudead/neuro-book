@@ -21,7 +21,7 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-    (e: "toggle", expanded: boolean): void;
+    (e: "update:expanded", expanded: boolean): void;
 }>();
 
 defineSlots<{
@@ -49,7 +49,7 @@ const statusIcon = computed(() => {
                 :type="collapsible ? 'button' : undefined"
                 class="nb-collapsible-card__trigger nb-ui-focus-ring-inset"
                 :aria-expanded="collapsible ? props.expanded : undefined"
-                @click="collapsible && emit('toggle', !props.expanded)"
+                @click="collapsible && emit('update:expanded', !props.expanded)"
             >
                 <span :class="[props.icon, 'nb-collapsible-card__icon']" aria-hidden="true" />
                 <span class="nb-collapsible-card__title">{{ props.title }}</span>
