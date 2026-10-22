@@ -5,8 +5,12 @@
 
 import type {LayerInspection, SettingDeclaration, SettingInspection, SettingLayer} from "nbook/shared/settings";
 
-/** 一行标题后面的状态原因（输出 9）：色调按严重程度分，行只画一个图标，取最重的，提示逐条列出。 */
-export type SettingsRowReason = {readonly tone: "error" | "warning" | "muted"; readonly text: string};
+/**
+ * 一行标题后面的状态原因（输出 9）：色调按严重程度分，行只画一个图标，取最重的，提示逐条列出。
+ * `announced`：控件自己已经经 `aria-describedby` 念过这条（例如 `bare` 的 `SchemaField` 带着自己的警告与状态），行只画
+ * 图标与提示，不再写一份读屏文字，免得念两遍。
+ */
+export type SettingsRowReason = {readonly tone: "error" | "warning" | "muted"; readonly text: string; readonly announced?: boolean};
 
 export type SettingsRowState =
     /** 这一层可以写：`value` 是控件显示的值（写了取这一层，没写取下一层），`written` 即“已修改”。 */

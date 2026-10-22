@@ -67,6 +67,12 @@ const selected = (row: string): string | undefined => {
 /** 每一行的控件：行里第一个 `data-nb-widget` 是字段自己的（列表项的控件排在它里面）。 */
 const widgetOf = (row: HTMLElement): string | undefined => row.querySelector<HTMLElement>("[data-nb-widget]")?.dataset.nbWidget;
 
+
+/** 控件的 `aria-describedby` 指向的文字连起来：读屏会念到的说明。 */
+function describedText(element: Element): string {
+    return (element.getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean).map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
+}
+
 describe("SettingsWindow", () => {
     it("左栏三组、组间分隔线；绑定作品时有“用户 | 本作品”，没绑定没有；外观分区按小组画控件", async () => {
         await scene("user");
@@ -207,9 +213,11 @@ describe("SettingsWindow", () => {
     it("动态选项：列出提供者给的选项，当前值不在选项里时照常显示并标“已不存在”", async () => {
         const {host} = await scene("choices");
         const row = one("[data-settings-row='example.notes/template']");
-        expect(row.querySelector("[data-settings-row-reasons]")?.textContent).toContain("已不存在");
-        expect(row.querySelector("[data-settings-row-reason]")?.getAttribute("data-tone")).toBe("warning");
         const trigger = row.querySelector<HTMLElement>("[data-nb-widget='select'] button, [data-nb-widget='select'] [role='combobox']")!;
+        expect(row.querySelector("[data-settings-row-reason]")?.getAttribute("data-tone")).toBe("warning");
+        // 字段自己的警告由控件念（aria-describedby），行不再写一份读屏文字，免得念两遍。
+        expect(describedText(trigger)).toContain("已不存在");
+        expect(row.querySelector("[data-settings-row-reasons]")).toBeNull();
         expect(trigger.hasAttribute("disabled")).toBe(false);
         expect(host.window.options()["example.notes.templates"]).toBeDefined();
         const items = host.window.options()["example.notes.templates"];
@@ -228,8 +236,9 @@ describe("SettingsWindow", () => {
         document.body.innerHTML = "";
 
         await scene("choices-unavailable");
-        expect(row().querySelector("[data-settings-row-reasons]")?.textContent).toContain("无法加载选项：模板库读不到：权限不足");
         expect(row().querySelector("[data-settings-row-reason]")?.getAttribute("data-tone")).toBe("muted");
+        expect(describedText(control())).toContain("无法加载选项：模板库读不到：权限不足");
+        expect(row().querySelector("[data-settings-row-reasons]")).toBeNull();
         expect(control().hasAttribute("disabled")).toBe(true);
     });
 

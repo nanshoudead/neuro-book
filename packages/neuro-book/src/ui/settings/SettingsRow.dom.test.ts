@@ -221,6 +221,15 @@ describe("SettingsRow", () => {
         // 原有的说明与生效时机 id 还在，原因的 id 加在后面。
         expect((slotOf(wrapper).attributes("data-describedby") ?? "").split(" ")).toEqual([...plain, reasons.attributes("id")]);
 
+        // 控件已经念过的原因（announced）只画图标，读屏文字不再写一份；全都念过时没有读屏文字，describedby 回到原样。
+        await wrapper.setProps({reasons: [{tone: "warning", text: "已不存在", announced: true}, {tone: "error", text: "未保存：不是数"}]});
+        expect(icons().map((icon) => icon.attributes("data-tone"))).toEqual(["error"]);
+        expect(wrapper.get("[data-settings-row-reasons]").text()).toBe("未保存：不是数");
+        await wrapper.setProps({reasons: [{tone: "warning", text: "已不存在", announced: true}]});
+        expect(icons().map((icon) => icon.attributes("data-tone"))).toEqual(["warning"]);
+        expect(wrapper.find("[data-settings-row-reasons]").exists()).toBe(false);
+        expect(slotOf(wrapper).attributes("data-describedby")?.split(" ")).toEqual(plain);
+
         await wrapper.setProps({reasons: []});
         expect(icons()).toHaveLength(0);
         expect(slotOf(wrapper).attributes("data-describedby")?.split(" ")).toEqual(plain);

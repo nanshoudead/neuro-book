@@ -106,14 +106,17 @@ function notSaved(setting: WindowSetting, actual: unknown): string | null {
     return first === undefined ? null : localize(formatText(TEXT.notSaved, {reason: first}), locale.value);
 }
 
-/** 行标题后面图标的原因，按出错、警告、状态排：没写的原因取自这里，其余取自字段的 `field-state`。 */
+/**
+ * 行标题后面图标的原因，按出错、警告、状态排：没写的原因取自这里，其余取自字段的 `field-state`。字段的警告与状态
+ * `bare` 的 `SchemaField` 已经挂在控件的 `aria-describedby` 上，标成 `announced`，行不再念一遍；“未保存”是这里加的说法，由行念。
+ */
 function reasonsOf(setting: WindowSetting): ReadonlyArray<SettingsRowReason> {
     const reasons: SettingsRowReason[] = [];
     const unsaved = notSaved(setting, actualValue(setting));
     if (unsaved !== null) reasons.push({tone: "error", text: unsaved});
     const state = fieldStates.get(setting.definition.key);
-    for (const warning of state?.warnings ?? []) reasons.push({tone: "warning", text: warning});
-    if (state?.status != null) reasons.push({tone: "muted", text: state.status});
+    for (const warning of state?.warnings ?? []) reasons.push({tone: "warning", text: warning, announced: true});
+    if (state?.status != null) reasons.push({tone: "muted", text: state.status, announced: true});
     return reasons;
 }
 

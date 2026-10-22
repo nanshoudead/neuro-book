@@ -79,8 +79,9 @@ const applies = computed(() => settingAppliesText(declaration.value.applies, pro
 /** schema 写了 `readOnly`：不画控件，只写当前值（输出 9）。 */
 const readOnly = computed(() => isReadOnlySetting(declaration.value));
 const reasonTone = computed(() => props.reasons.reduce<SettingsRowReason["tone"] | null>((worst, reason) => (worst === null || SEVERITY[reason.tone] > SEVERITY[worst] ? reason.tone : worst), null));
-const reasonsText = computed(() => props.reasons.map((reason) => reason.text).join("；"));
-const describedby = computed(() => [applies.value === null ? null : appliesId, description.value === null ? null : descriptionId, props.reasons.length === 0 ? null : reasonsId].filter((id) => id !== null).join(" ") || undefined);
+/** 行自己要念的原因：控件已经念过的（`announced`）不再写一份。 */
+const reasonsText = computed(() => props.reasons.filter((reason) => reason.announced !== true).map((reason) => reason.text).join("；"));
+const describedby = computed(() => [applies.value === null ? null : appliesId, description.value === null ? null : descriptionId, reasonsText.value === "" ? null : reasonsId].filter((id) => id !== null).join(" ") || undefined);
 const modified = computed(() => state.value.kind === "edit" && state.value.written);
 /** 标题后的“已修改”圆点与最右一格的恢复默认：只读的项没有这两样，值改不了，也没有“默认”可回。 */
 const marked = computed(() => modified.value && !readOnly.value);
@@ -192,7 +193,7 @@ async function run(action: RowAction): Promise<void> {
             <slot :value="state.kind === 'edit' ? state.value : state.inherited" :disabled="state.kind === 'edit' ? blocked : true" :id="controlId" :label="title" :labelId="labelId" :describedby="describedby" />
         </div>
         <!-- 读屏用：状态原因的文字，看得见的是标题后的图标与提示。 -->
-        <span v-if="reasons.length > 0" :id="reasonsId" class="settings-row__sr-only" data-settings-row-reasons>{{ reasonsText }}</span>
+        <span v-if="reasonsText !== ''" :id="reasonsId" class="settings-row__sr-only" data-settings-row-reasons>{{ reasonsText }}</span>
         <p v-if="override !== null" class="settings-row__override" data-settings-row-overridden>
             <span class="i-lucide-info settings-row__override-icon" aria-hidden="true"></span>
             <span>{{ text(projectTitle === null ? TEXT.overriddenUntitled : TEXT.overridden, {value: valueText(override.value), title: projectTitle ?? ""}) }}</span>

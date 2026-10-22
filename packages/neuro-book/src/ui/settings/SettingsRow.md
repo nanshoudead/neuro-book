@@ -54,7 +54,7 @@ type Props = {
      * 标题后面状态图标的原因，缺省没有。出错、选项拿不到、“已不存在”之类控件里的状态由调用方给：行不认识控件。只画一个
      * 图标，色调取最重的（error > warning > muted），提示按传入的顺序逐条列出。
      */
-    reasons?: ReadonlyArray<{tone: "error" | "warning" | "muted"; text: string}>;
+    reasons?: ReadonlyArray<{tone: "error" | "warning" | "muted"; text: string; announced?: boolean}>;   // announced：控件已经念过这条，行只画图标
 };
 
 type Emits = {
