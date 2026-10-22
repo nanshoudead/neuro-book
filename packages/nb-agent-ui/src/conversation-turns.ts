@@ -197,6 +197,18 @@ export function buildTurns(input: BuildTurnsInput): ConversationTurn[] {
     }));
 }
 
+/**
+ * 新切出的分组里，消息与上一次逐条相同的那组沿用上一次的数组。宿主每秒整体替换 ctx 打节拍时，消息没变的轮次拿到的是
+ * 同一个数组，不必重新整理（消息本身由适配器保证没改动时引用不变）。
+ */
+export function reuseTurnGroups(previous: readonly MessageView[][], next: MessageView[][]): MessageView[][] {
+    const byHead = new Map(previous.map((group) => [group[0]!.id, group]));
+    return next.map((group) => {
+        const old = byHead.get(group[0]!.id);
+        return old !== undefined && old.length === group.length && old.every((message, index) => message === group[index]) ? old : group;
+    });
+}
+
 /** 按轮次边界切分；每组第一条要么是普通用户消息，要么是开场或开头不完整的内容。 */
 export function splitIntoTurnGroups(messages: readonly MessageView[]): MessageView[][] {
     const groups: MessageView[][] = [];
@@ -242,8 +254,9 @@ export function buildTurn(group: readonly MessageView[], environment: TurnEnviro
     const outcomeStart = findOutcomeStart(blocks, context.registry);
     const answer = findLastAnswer(blocks, outcomeStart, context.registry);
     const outcomeCallId = answer?.kind === "node" ? answer.step.call.id : null;
-    // 结果节点显示在结果区，不是过程：不计入整轮摘要的操作次数与失败次数。
-    const tools = collectTools(body).filter((tool) => tool.call.id !== outcomeCallId);
+    // 结果区里的结果节点显示为结果，不是过程：不计入整轮摘要的操作次数。它们改的文件照常算进改动文件与读改文件数。
+    const outcomeCalls = new Set(blocks.slice(outcomeStart).flatMap((block) => (block.kind === "node" && isAnswer(block, context.registry) ? [block.step.call.id] : [])));
+    const tools = collectTools(body);
     const truncatedStart = user === null && context.isFirst && context.history.hasMore;
     return {
         id: head.id,
@@ -255,7 +268,7 @@ export function buildTurn(group: readonly MessageView[], environment: TurnEnviro
         outcomeMessage: answer === null ? null : answerMessage(answer, body),
         outcomeCallId,
         status,
-        metrics: computeMetrics(group, tools, status, truncatedStart, context.now, context.registry),
+        metrics: computeMetrics(group, tools, outcomeCalls, status, truncatedStart, context.now, context.registry),
         changedFiles: collectChangedFiles(tools, context.registry),
         outcomeStart,
         foldable: finished && outcomeStart > 0,
@@ -535,6 +548,7 @@ function resolveStatus(body: readonly MessageView[], context: TurnContext): Turn
 function computeMetrics(
     group: readonly MessageView[],
     tools: readonly ToolStep[],
+    outcomeCalls: ReadonlySet<string>,
     status: TurnStatus,
     truncatedStart: boolean,
     now: number,
@@ -571,7 +585,7 @@ function computeMetrics(
     const end = live ? now : group.at(-1)!.timestamp;
     return {
         durationMs: truncatedStart ? null : Math.max(0, end - group[0]!.timestamp),
-        steps: tools.length,
+        steps: tools.filter((tool) => !outcomeCalls.has(tool.call.id)).length,
         failed: tools.filter(isFailed).length,
         filesRead: read.size,
         filesChanged: changed.size,

@@ -1,5 +1,5 @@
 ---
-标签: [state:local, state:inject]
+标签: [state:inject]
 别名: ["文字步骤行"]
 验证入口: AgentTurnBlock
 ---
@@ -18,10 +18,14 @@ type AgentTextStepRowProps = {
     text: string;
     /** 取 resolveMarkdownAsset 换算 Markdown 里的图片。 */
     services: AgentConversationServices;
+    /** 是否展开，必填；由使用方按步骤 id 记（思维链重新分组时这一行会换实例）。 */
+    expanded: boolean;
 };
 
 type AgentTextStepRowEmits = {
     (e: "action", action: ViewAction): void;
+    /** 点了这一行，携带期望的新状态。 */
+    (e: "update:expanded", expanded: boolean): void;
 };
 ```
 
@@ -29,5 +33,4 @@ type AgentTextStepRowEmits = {
 
 ## 隐藏通道理由
 
-- `state:local`：这一行是否展开。
 - `state:inject`：经 `useAgentText()` 取语言与界面文字。

@@ -14,7 +14,7 @@ describe("核心入口", () => {
         transcript.applyLogEntry({kind: "agent_message", seq: 2, at: "2026-10-22T08:00:01.000Z", message: {role: "assistant", content: [{type: "text", text: "在。"}], stopReason: "stop", timestamp: 2}});
         const ctx = createAgentContext({messages: transcript.messages(), composer: {draft: {text: "你好", version: 1}}});
         expect(ctx.messages.map((message) => message.kind)).toEqual(["user", "assistant"]);
-        expect(acceptSubmission(ctx.composer).draft).toEqual({text: "", version: 2});
+        expect(acceptSubmission(ctx.composer, "你好").draft).toEqual({text: "", version: 2});
         expect(textOf(formatText({"zh-CN": "{n} 条", "en-US": "{n} messages"}, {n: ctx.messages.length}), "en-US")).toBe("2 messages");
     });
 });

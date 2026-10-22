@@ -70,7 +70,7 @@ function nodeSubtitle(step: ToolStep): string {
         :registry="props.registry"
         :turn-status="props.turnStatus"
         :last="props.last"
-        :live="props.live ?? false"
+        :live="props.live"
         @action="emit('action', $event)"
     />
 

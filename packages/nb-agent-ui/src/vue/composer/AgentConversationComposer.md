@@ -27,13 +27,13 @@
 | 操作 | 空闲 | 运行中 |
 |---|---|---|
 | 回车（展开时换行） | `composer.submit`，`delivery: "prompt"` | 允许补充说明时 `delivery: "steer"`，否则允许排队时 `"followup"`，否则不发 |
-| Ctrl/⌘+回车 | `delivery: "prompt"` | 允许排队时 `delivery: "followup"`，否则不发 |
+| Ctrl/⌘+回车 | `delivery: "prompt"` | 允许排队时 `delivery: "followup"`；否则展开时按回车的规则发（展开时回车是换行），不展开时不发 |
 | 发送按钮 | 同回车 | 正文为空且允许停止时是停止按钮，发出 `composer.stop`；否则同运行中的回车 |
 | Shift+Tab | 切到下一种模式，发出 `mode.set` | 同左 |
 
 - 正文去掉首尾空白后为空时不发送。有附件还在上传或上传失败时也不发送，发送按钮不可用并在悬停提示里说明：没上传完的附件还不在文字里，这时发出去附件就丢了。正文以 `/名称` 开头、名称是登记的输入框命令时，发出 `command.run {name, argsText}`（`argsText` 是名称之后的文字，去掉首尾空白），不发 `composer.submit`。
 - 发送后不自行清空：宿主受理后给出新版本的空草稿，失败时文字不会丢。每次编辑发出 `composer.draftChanged`。
-- 触发字符取自登记的输入框触发字符。`/` 位于正文开头时，菜单列出登记的命令（名称、说明与参数提示），按名称过滤；其余情况的菜单来自 `services.resolveTriggerMenu`；宿主没有提供它时只把 `/` 交给编辑器，别的触发字符不打开菜单。菜单每次从关到开发出 `menu.opened`。
+- 触发字符取自登记的输入框触发字符。`/` 位于正文开头时，菜单列出登记的命令（名称、说明与参数提示），按名称过滤；其余情况的菜单来自 `services.resolveTriggerMenu`；宿主没有提供它时只把 `/` 交给编辑器，别的触发字符不打开菜单；正文中间打 `/` 时菜单只说明命令要写在开头。菜单每次从关到开发出 `menu.opened`。
 - 附件：编辑器的 `attachment-add`、`attachment-retry`、`attachment-remove` 依次发出 `composer.attachmentAdded`、`composer.attachmentRetry`、`composer.attachmentRemoved`。“添加附件”打开文件选择，选中的文件插在光标处，与粘贴相同。允许登记附件时接受文件；当前模型支持图片时才接受图片。被拒收时显示提示：模型不支持图片、会话不能登记附件，分别说明。
 - 点击正文里的标签或附件卡片：引用与选区发出 `reference.open`，技能发出 `skill.open`，文件发出 `attachment.open`，图片发出 `image.preview` 的 action，由对话视图打开原图预览；规则与已发送消息相同。
 - 模式按钮点击与 Shift+Tab 相同；模型与思考档位在下拉里选，发出 `model.set`、`thinking.set`。不允许修改运行设置时三者都禁用。
@@ -70,7 +70,7 @@ type AgentConversationComposerExpose = {
 ## 状态
 
 - **空闲**：占位文字“输入消息，回车发送”。
-- **运行中**（含等待回答与停止中）：投递按 `interaction.canSteer`、`canQueue`：回车在允许补充说明时为 steer，否则在允许排队时为 followup；Ctrl/⌘+回车只在允许排队时为 followup。两者都不允许时能写不能发，发送键禁用、标题“运行结束后发送”，登记的 `/` 命令照常执行。占位文字按允许的组合四选一。正文为空时发送按钮变为停止。
+- **运行中**（含等待回答与停止中）：投递按 `interaction.canSteer`、`canQueue`：回车在允许补充说明时为 steer，否则在允许排队时为 followup；Ctrl/⌘+回车只在允许排队时为 followup。两者都不允许时能写不能发，发送键禁用、标题“运行结束后发送”；登记的 `/` 命令照常执行，这时标题是“发送”。占位文字按允许的组合四选一。正文为空时发送按钮变为停止。
 - **只读**（`availability` 不是 `ready`，或不允许发送）：编辑器只读，添加附件、发送不可用；运行中允许停止时停止按钮仍可用。说明与恢复动作的横幅在第 4 步实现，当前只读时不显示原因。
 - **展开**：见布局。
 - 没有自己的加载中与出错状态：附件的上传状态由编辑器显示。

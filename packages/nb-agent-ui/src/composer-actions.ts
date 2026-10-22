@@ -109,13 +109,19 @@ export function applyComposerAction(composer: ComposerView, action: AgentViewAct
     }
 }
 
-/**
- * 宿主受理了一次发送或命令：当前草稿原文（编辑器最近一次回声）放到输入历史最前并去重，草稿清空并换版本，视图据此清空
- * 输入框。命令也用草稿原文，不由宿主拿名称与参数拼回去，空白不走样。
- */
-export function acceptSubmission(composer: ComposerView): ComposerView {
-    const sent = composer.draft.text.trim();
-    const recall = sent === "" ? composer.recall : [sent, ...composer.recall.filter((item) => item !== sent)];
-    return {...composer, recall, draft: {text: "", version: composer.draft.version + 1}};
+/** 比较发送的文字与草稿时不计空白差异：命令的参数在 action 里去掉了首尾空白，宿主拼回去的命令与草稿只差在空白上。 */
+function sameText(a: string, b: string): boolean {
+    const normalize = (text: string) => text.trim().replace(/\s+/gu, " ");
+    return normalize(a) === normalize(b);
 }
 
+/**
+ * 宿主受理了一次发送或命令，`sent` 是实际发送的文字（命令写成 `/名称 参数`）。发送的就是输入框里的草稿时：草稿原文放到
+ * 输入历史最前并去重（原文保留用户写的空白），草稿清空并换版本，视图据此清空输入框。不是草稿时（宿主组件里的“追问”之类
+ * 发出的）原样返回：用户在输入框里写到一半的字不动，也不记进历史。
+ */
+export function acceptSubmission(composer: ComposerView, sent: string): ComposerView {
+    const draft = composer.draft.text.trim();
+    if (draft === "" || !sameText(draft, sent)) return composer;
+    return {...composer, recall: [draft, ...composer.recall.filter((item) => item !== draft)], draft: {text: "", version: composer.draft.version + 1}};
+}

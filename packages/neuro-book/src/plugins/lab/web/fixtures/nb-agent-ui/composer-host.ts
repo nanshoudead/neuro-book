@@ -93,7 +93,7 @@ export function useLabComposerHost(options: HostOptions) {
 
     function submit(text: string, delivery: "prompt" | "steer" | "followup"): void {
         const current = options.ctx();
-        const accepted = acceptSubmission(current.composer);
+        const accepted = acceptSubmission(current.composer, text);
         if (delivery === "prompt") {
             const message: MessageView = {
                 kind: "user", id: `lab-user-${current.messages.length}`, timestamp: current.now,
@@ -107,7 +107,7 @@ export function useLabComposerHost(options: HostOptions) {
 
     function runCommand(name: string, argsText: string): void {
         const current = composer();
-        const accepted = acceptSubmission(current);
+        const accepted = acceptSubmission(current, `/${name} ${argsText}`);
         const done: Partial<ComposerView> = {draft: accepted.draft, recall: accepted.recall};
         if (name === "plan" && current.modes.some((mode) => mode.key === "plan")) {
             writeComposer({...done, mode: "plan"});

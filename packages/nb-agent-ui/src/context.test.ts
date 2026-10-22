@@ -26,4 +26,11 @@ describe("createAgentContext", () => {
         expect(second.composer.recall).toEqual([]);
         expect(second.branches).toEqual({});
     });
+
+    it("补丁里值为 undefined 的字段当作没写，不盖掉缺省值", () => {
+        const ctx = createAgentContext({messages: undefined, session: undefined, interaction: {canSend: undefined, canStop: true}});
+        expect(ctx.messages).toEqual([]);
+        expect(ctx.session).toBeNull();
+        expect(ctx.interaction).toMatchObject({canSend: false, canStop: true});
+    });
 });

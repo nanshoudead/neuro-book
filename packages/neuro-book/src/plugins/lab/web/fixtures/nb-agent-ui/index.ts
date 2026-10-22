@@ -1,7 +1,8 @@
 /**
  * nb-agent-ui 渲染层的场景（组件树里 `nb-agent-ui` 一组，docs/specs/ui/agent-conversation-view.md）。场景数据迁自
- * 旧应用的 Lab（归档提交 865c9f593）。对话视图经公开入口 `@notnotype/nb-agent-ui/vue` 取，内部零件经只给 Lab 的 `@notnotype/nb-agent-ui/lab` 取；要注入 Markdown 与编辑器的
- * 零件经 `host.ts` 包一层，`host.ts` 只在选中场景时动态加载。
+ * 旧应用的 Lab（归档提交 865c9f593）。对话视图经公开入口 `@notnotype/nb-agent-ui/vue` 取，内部零件经只给 Lab 的
+ * `@notnotype/nb-agent-ui/lab` 取；`parts.scenes.ts` 要在顶层用 `buildTurns` 算轮次样例，所以 `./lab` 与其中的零件随 Lab
+ * 一起加载。要注入 Markdown 与编辑器的零件经 `host.ts` 包一层，`host.ts` 引用了 Markdown 插件的组件，只在选中场景时动态加载。
  */
 
 import type {AgentConversationView} from "@notnotype/nb-agent-ui/vue";

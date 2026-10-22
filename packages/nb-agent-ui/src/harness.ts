@@ -51,6 +51,10 @@ export type HarnessTranscriptOptions = {
 
 type JsonRecord = {readonly [key: string]: unknown};
 
+// run() 返回同一个对象，状态没变时宿主写回 ctx.run 不会让依赖它的计算重算（与 messages() 的引用稳定一致）。
+const RUNNING: RunView = Object.freeze({status: "running", phase: ""});
+const IDLE: RunView = Object.freeze({status: "idle", phase: ""});
+
 const isRecord = (value: unknown): value is JsonRecord => value !== null && typeof value === "object" && !Array.isArray(value);
 const stringField = (record: JsonRecord, key: string): string | null => (typeof record[key] === "string" ? record[key] : null);
 const numberField = (record: JsonRecord, key: string): number | null => (typeof record[key] === "number" && Number.isFinite(record[key]) ? record[key] : null);
@@ -393,7 +397,7 @@ export function createHarnessTranscript(options: HarnessTranscriptOptions = {}):
         },
 
         run() {
-            return {status: running ? "running" : "idle", phase: ""};
+            return running ? RUNNING : IDLE;
         },
 
         problems() {

@@ -30,7 +30,6 @@ const emit = defineEmits<{
 const {t, text, locale} = useAgentText();
 const renderers = useAgentRenderers();
 
-
 const {editorRef, withEditor} = useEditorHandle<PromptEditorPortExpose>();
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
@@ -64,8 +63,16 @@ const resolveMenu = computed(() => {
     const labels = {title: t("composer.commandMenu.title"), empty: t("composer.commandMenu.empty")};
     return (context: PromptMenuContext): PromptMenu => context.trigger === "/" && context.atStart
         ? commandMenu(list, context.query, labels)
-        : resolve?.(context) ?? {items: []};
+        : resolve?.(context) ?? fallbackMenu(context);
 });
+
+/**
+ * 宿主没有 resolveTriggerMenu 时编辑器只拿到 `/`；它在正文中间也会打开菜单（编辑器不区分位置），这时说明命令要写在开头，
+ * 不给一个只写“无匹配”的空菜单。
+ */
+function fallbackMenu(context: PromptMenuContext): PromptMenu {
+    return context.trigger === "/" ? {items: [], emptyText: t("composer.commandMenu.notAtStart")} : {items: []};
+}
 
 // ─── 正文与发送 ─────────────────────────────────────────────────────────
 
@@ -122,7 +129,8 @@ const sendTitle = computed(() => {
         return t("composer.stop");
     }
     if (blockedReason.value !== null) return blockedReason.value;
-    if (!running.value) return t("composer.send");
+    // 运行中也照常执行的命令：标题写“发送”，不写“运行结束后发送”。
+    if (!running.value || resolve(false)?.kind === "command") return t("composer.send");
     if (deliveries.value.steer) return t("composer.sendRunning");
     return deliveries.value.followup ? t("composer.sendQueued") : t("composer.sendAfterRun");
 });
@@ -145,7 +153,8 @@ function submit(mod: boolean): void {
     if (readonly.value || blockedReason.value !== null) {
         return;
     }
-    const result = resolve(mod);
+    // 展开时回车是换行，Ctrl/⌘+回车是唯一的键盘发送；不允许排队时它按回车的规则发（补充说明），否则只许补充说明的宿主没法用键盘发送。
+    const result = resolve(mod && !(expanded.value && !deliveries.value.followup));
     if (result !== null) {
         rejectNotice.value = null;
     }
@@ -186,7 +195,6 @@ const currentModel = computed(() => composer.value.models.find((model) => model.
 // 缺省的普通文本框收不了附件（host.ts 的 plainEditor）。
 const acceptFiles = computed(() => props.ctx.interaction.canRegisterAttachments && !renderers.value.plainEditor);
 const acceptImages = computed(() => acceptFiles.value && (currentModel.value?.supportsImages ?? false));
-
 
 function onAttachmentAdd(payload: {localId: string; kind: PromptAttachmentKind; file: File}): void {
     liveAttachments.value = new Set(liveAttachments.value).add(payload.localId);

@@ -52,8 +52,14 @@ function applyPatchEffects(call: ToolCallView): ToolEffects {
     return {read: [], changed: parsePatchChanges(argString(call, "patch"))};
 }
 
+/** 参数还在流式生成、要画的那一段还没到：给不出 diff，详情先显示原始参数，不显示“内容为空”。 */
+function pending(call: ToolCallView, ...keys: string[]): boolean {
+    return call.status === "streaming" && keys.every((key) => argString(call, key) === "" && argArray(call, key).length === 0);
+}
+
 /** write 是整文件覆盖：全部算新增。 */
-function writeDiff(call: ToolCallView): CodeLine[] {
+function writeDiff(call: ToolCallView): CodeLine[] | null {
+    if (pending(call, "content")) return null;
     return splitLines(argString(call, "content")).map((text) => ({text, tone: "added"}));
 }
 
@@ -62,7 +68,8 @@ function writeDiff(call: ToolCallView): CodeLine[] {
  * 看不出改成了什么，工具的结果正文是改完之后的那几行（`[路径]` 加带行号的内容），有结果时显示它，没有时显示 input 原文。
  * 旧的 `{path, edits}` 写法每个片段先删后增，片段之间一行淡色省略号。
  */
-function editDiff(call: ToolCallView): CodeLine[] {
+function editDiff(call: ToolCallView): CodeLine[] | null {
+    if (pending(call, "input", "edits")) return null;
     const input = argString(call, "input");
     if (input !== "") {
         if (parsePatchChanges(input).length > 0) return splitLines(input).map(patchLine);
@@ -79,7 +86,8 @@ function editDiff(call: ToolCallView): CodeLine[] {
     return lines;
 }
 
-function applyPatchDiff(call: ToolCallView): CodeLine[] {
+function applyPatchDiff(call: ToolCallView): CodeLine[] | null {
+    if (pending(call, "patch")) return null;
     return splitLines(argString(call, "patch")).map(patchLine);
 }
 

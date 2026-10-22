@@ -11,9 +11,17 @@ export type AgentContextPatch =
     & Partial<Omit<AgentConversationContext, MergedSections>>
     & {[K in MergedSections]?: Partial<AgentConversationContext[K]>};
 
-/** 每次调用构造新的对象与数组，宿主改其中一份不会影响下一次调用。 */
+/**
+ * 去掉值为 undefined 的键：宿主常写 `{messages: props.messages}`，上游没给时是 undefined，直接展开会盖掉缺省值，
+ * 到渲染时才在 `ctx.messages.length` 上炸。
+ */
+function defined<T extends object>(value: T | undefined): Partial<T> {
+    return value === undefined ? {} : Object.fromEntries(Object.entries(value).filter(([, field]) => field !== undefined)) as Partial<T>;
+}
+
+/** 每次调用构造新的对象与数组，宿主改其中一份不会影响下一次调用。补丁里值为 undefined 的字段当作没写。 */
 export function createAgentContext(patch: AgentContextPatch = {}): AgentConversationContext {
-    const {availability, interaction, run, history, workspaceChanges, composer, usage, connection, ...rest} = patch;
+    const {availability, interaction, run, history, workspaceChanges, composer, usage, connection, ...rest} = defined(patch);
     return {
         session: null,
         messages: [],
@@ -25,24 +33,24 @@ export function createAgentContext(patch: AgentContextPatch = {}): AgentConversa
         now: 0,
         extensions: {},
         ...rest,
-        availability: {status: "ready", message: "", actions: [], ...availability},
+        availability: {status: "ready", message: "", actions: [], ...defined(availability)},
         interaction: {
             canSend: false, canSteer: false, canQueue: false, canAnswer: false, canMutateHistory: false,
             canStop: false, canRegisterAttachments: false, canChangeRuntime: false, canArchive: false, canRestore: false,
-            ...interaction,
+            ...defined(interaction),
         },
-        run: {status: "idle", phase: "", ...run},
-        history: {hasMore: false, loading: false, error: null, ...history},
-        workspaceChanges: {groups: [], selectedPath: null, loading: false, error: null, ...workspaceChanges},
+        run: {status: "idle", phase: "", ...defined(run)},
+        history: {hasMore: false, loading: false, error: null, ...defined(history)},
+        workspaceChanges: {groups: [], selectedPath: null, loading: false, error: null, ...defined(workspaceChanges)},
         composer: {
             models: [], modelKey: null, thinkingLevels: [], thinking: null, modes: [], mode: "",
             queued: [], attachments: [], recall: [], draft: {text: "", version: 0},
-            ...composer,
+            ...defined(composer),
         },
         usage: {
             contextTokens: 0, contextLimit: null, totalTokens: 0, cacheRead: 0, cacheWrite: 0, cacheHitRate: null, cost: null,
-            currency: "USD", ...usage,
+            currency: "USD", ...defined(usage),
         },
-        connection: {status: "connected", actionRequired: false, ...connection},
+        connection: {status: "connected", actionRequired: false, ...defined(connection)},
     };
 }

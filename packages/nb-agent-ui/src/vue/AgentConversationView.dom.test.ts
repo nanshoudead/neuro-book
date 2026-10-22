@@ -157,6 +157,67 @@ describe("宿主组件（验收 21）", () => {
     });
 });
 
+describe("宿主的详情组件（验收 21）", () => {
+    it("工具详情组件收到服务与界面语言，它发出的 action 到达宿主", async () => {
+        const seen: string[] = [];
+        const Detail = defineComponent({
+            props: {call: {type: Object, required: true}, ctx: {type: Object, required: true}, services: {type: Object, required: true}, locale: {type: String, required: true}},
+            emits: ["action"],
+            setup(props, {emit}) {
+                return () => {
+                    seen.push(`${props.locale}:${typeof (props.services as AgentConversationServices).resolveAttachmentUrl}`);
+                    return h("button", {"data-detail-link": "", onClick: () => emit("action", {type: "reference.open", target: "chapter://c1"})});
+                };
+            },
+        });
+        const plugin: AgentViewContribution = {
+            source: "test:plugin",
+            tools: [{id: "lookup", toolNames: ["lookup"], category: "other", icon: "i-lucide-search", label: "查", presentation: "card", detail: Detail, summary: () => "雨夜"}],
+        };
+        const ctx = context();
+        ctx.run = {status: "running", phase: ""};
+        ctx.messages = [ctx.messages[0]!, {kind: "assistant", id: "a1", timestamp: 2, status: "streaming", text: "", thinking: "", model: "m", contentOmitted: false, toolCalls: [{id: "k1", name: "lookup", status: "success", args: {}}]}];
+        const view = mountView("en-US", {}, {ctx, plain: true, processDisclosure: "live", registry: createAgentViewRegistry([builtinRolesContribution, builtinToolsContribution, plugin])});
+        await view.get(".acv-steps .nb-collapsible-card button").trigger("click");
+        await view.get("[data-detail-link]").trigger("click");
+        expect(seen.at(-1)).toBe("en-US:function");
+        expect(view.emitted("action")?.map((args) => args[0])).toEqual([{type: "reference.open", target: "chapter://c1"}]);
+        view.unmount();
+    });
+});
+
+describe("运行中的投递开关（验收 23）", () => {
+    function composing(status: "running" | "waiting" | "stopping", text: string, deliveries: {canSteer: boolean; canQueue: boolean}): AgentConversationContext {
+        const ctx = context();
+        ctx.run = {status, phase: ""};
+        ctx.interaction = {...ctx.interaction, ...deliveries};
+        ctx.composer = {...ctx.composer, draft: {text, version: 2}};
+        return ctx;
+    }
+    const send = (view: ReturnType<typeof mountView>) => view.get("[data-composer-action='send']");
+
+    it("运行中、等待回答与停止中都不允许投递时：能写，发送键禁用，标题与占位说明要等运行结束", () => {
+        for (const status of ["running", "waiting", "stopping"] as const) {
+            const view = mountView("zh-CN", {}, {ctx: composing(status, "加快节奏", {canSteer: false, canQueue: false}), plain: true});
+            expect(send(view).attributes("disabled")).toBeDefined();
+            expect(send(view).attributes("title")).toBe("运行结束后发送");
+            expect(view.getComponent(PlainPromptEditor).props("placeholder")).toBe("运行结束后才能发送消息");
+            expect(view.getComponent(PlainPromptEditor).props("readonly")).toBe(false);
+            view.unmount();
+        }
+    });
+
+    it("登记的命令照常可发，标题写“发送”；只许排队时标题写“排队”", () => {
+        const command = mountView("zh-CN", {}, {ctx: composing("running", "/compact", {canSteer: false, canQueue: false}), plain: true});
+        expect(send(command).attributes("disabled")).toBeUndefined();
+        expect(send(command).attributes("title")).toBe("发送");
+        command.unmount();
+        const queue = mountView("zh-CN", {}, {ctx: composing("running", "加快节奏", {canSteer: false, canQueue: true}), plain: true});
+        expect(send(queue).attributes("title")).toBe("排队");
+        queue.unmount();
+    });
+});
+
 describe("渲染器出错（验收 15）", () => {
     it("插件的节点组件与摘要回调抛错：只有这一项降级为“此内容无法显示”，其余消息照常显示", async () => {
         const Boom = defineComponent({
@@ -212,6 +273,32 @@ describe("运行中逐步展开（验收 22）", () => {
         collapsed.unmount();
     });
 
+    it("用户点开的思考在思维链重新分组（下一次读取把它并进工具组）后仍是展开的", async () => {
+        const ctx = runningCtx();
+        const reading = (id: string, path: string, status: "success" | "running") => ({kind: "assistant" as const, id, timestamp: 2, status: "streaming" as const, text: "", thinking: "", model: "m", contentOmitted: false, toolCalls: [{id: `${id}:r`, name: "read", status, args: {path}}]});
+        const thinking = {kind: "assistant" as const, id: "t1", timestamp: 2, status: "streaming" as const, text: "", thinking: "先想第二步\n要读第二章", model: "m", contentOmitted: false, toolCalls: []};
+        ctx.messages = [ctx.messages[0]!, reading("a1", "第一章.md", "success"), thinking];
+        const view = mountView("zh-CN", {}, {ctx, plain: true, processDisclosure: "live"});
+        const row = view.findAll(".acv-steps button").find((button) => button.text().includes("先想第二步"));
+        await row!.trigger("click");
+        expect(view.text()).toContain("要读第二章");
+        await view.setProps({ctx: {...ctx, messages: [...ctx.messages, reading("a2", "第二章.md", "running")]}});
+        expect(view.text()).toContain("要读第二章");
+        view.unmount();
+    });
+
+    it("运行出错结束：最新一轮仍展开，但思维链回到默认折叠", async () => {
+        const ctx = runningCtx();
+        const view = mountView("zh-CN", {}, {ctx, plain: true, processDisclosure: "live"});
+        expect(view.find(".acv-steps").exists()).toBe(true);
+        const failed = context();
+        failed.messages = [ctx.messages[0]!, {...ctx.messages[1]!, status: "error", error: "连接断了"} as AgentConversationContext["messages"][number]];
+        await view.setProps({ctx: failed});
+        expect(view.find("[data-chain-summary]").exists()).toBe(true);
+        expect(view.find(".acv-steps").exists()).toBe(false);
+        view.unmount();
+    });
+
     it("运行结束后回到折叠", async () => {
         const ctx = runningCtx();
         const view = mountView("zh-CN", {}, {ctx, plain: true, processDisclosure: "live"});
@@ -254,3 +341,24 @@ describe("没有数据的区域不显示（验收 24）", () => {
         view.unmount();
     });
 });
+
+describe("宿主每秒换 now", () => {
+    it("整体替换 ctx 打节拍时，已结束的轮次不重新整理", async () => {
+        let calls = 0;
+        const counting: AgentViewContribution = {
+            source: "test:count",
+            tools: [{id: "count", toolNames: ["count"], category: "mutate", icon: "i-lucide-pen", label: "计数", presentation: "line", summary: () => "", effects: () => {
+                calls += 1;
+                return {read: [], changed: []};
+            }}],
+        };
+        const ctx = context();
+        ctx.messages = [ctx.messages[0]!, {kind: "assistant", id: "a1", timestamp: 2, status: "done", text: "", thinking: "", model: "m", contentOmitted: false, toolCalls: [{id: "c1", name: "count", status: "success", args: {}}]}, {kind: "assistant", id: "a2", timestamp: 3, status: "done", text: "改好了。", thinking: "", model: "m", toolCalls: [], contentOmitted: false}];
+        const view = mountView("zh-CN", {}, {ctx, plain: true, registry: createAgentViewRegistry([builtinRolesContribution, builtinToolsContribution, counting])});
+        const afterMount = calls;
+        for (const now of [10, 11, 12]) await view.setProps({ctx: {...ctx, now}});
+        expect(calls).toBe(afterMount);
+        view.unmount();
+    });
+});
+

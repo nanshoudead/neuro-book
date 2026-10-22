@@ -6,7 +6,7 @@
  * 照 `MarkdownDisplayFixture.vue` 给一份只有内置方言的。零件单独挂载时用 `withAgentHost` 包一层，组件的属性、事件与
  * 插槽原样转过去。
  *
- * 本文件静态引用了渲染层与 Markdown 组件，场景登记（`index.ts`）只能动态 import 它，选中场景时才加载。
+ * 本文件静态引用了 Markdown 插件的组件，场景登记（`index.ts`）只能动态 import 它，选中场景时才加载。
  */
 
 import {createAgentViewRegistry} from "@notnotype/nb-agent-ui";

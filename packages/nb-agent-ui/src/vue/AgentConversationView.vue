@@ -6,11 +6,12 @@ import type {
     AgentConversationContext,
     AgentConversationServices,
     AgentViewAction,
+    MessageView,
     AgentLocale,
     AgentViewMode,
 } from "../types";
 import type {AgentViewRegistry} from "../registry";
-import {assignTurnKeys, splitIntoTurnGroups} from "../conversation-turns";
+import {assignTurnKeys, reuseTurnGroups, splitIntoTurnGroups} from "../conversation-turns";
 import {useStreamScroll} from "@notnotype/nb-ui/composables";
 import AgentConversationTurn from "./stream/AgentConversationTurn.vue";
 import AgentRawView from "./stream/AgentRawView.vue";
@@ -71,8 +72,15 @@ function onOverflowSelect(value: string) {
 
 // ─── 轮次 ───────────────────────────────────────────────────────────────
 
-/** 按轮次边界切好的消息；每一轮的整理、折叠与操作由 AgentConversationTurn 负责。 */
-const turnGroups = computed(() => splitIntoTurnGroups(props.ctx.messages));
+/**
+ * 按轮次边界切好的消息；每一轮的整理、折叠与操作由 AgentConversationTurn 负责。消息没变的轮次沿用上一次的数组，
+ * 宿主整体替换 ctx（例如每秒换 now）时它们不重新整理。上一次的结果只用来沿用，不参与渲染依赖。
+ */
+let previousTurnGroups: MessageView[][] = [];
+const turnGroups = computed(() => {
+    previousTurnGroups = reuseTurnGroups(previousTurnGroups, splitIntoTurnGroups(props.ctx.messages));
+    return previousTurnGroups;
+});
 
 /** 上一次分配的 key 只用来让下一次沿用，不参与渲染依赖。 */
 let previousTurnKeys = new Map<string, string>();

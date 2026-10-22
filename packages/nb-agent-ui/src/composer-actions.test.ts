@@ -128,10 +128,15 @@ describe("宿主起步：输入框动作", () => {
         expect(applyComposerAction(composer, {type: "composer.submit", text: "继续写", delivery: "prompt"})).toBeNull();
     });
 
-    it("受理发送或命令：草稿原文进输入历史最前并去重，草稿清空并换版本", () => {
-        expect(acceptSubmission(composer)).toMatchObject({recall: ["继续写", "第三章"], draft: {text: "", version: 4}});
+    it("受理发送或命令：草稿原文进输入历史最前并去重，草稿清空并换版本；命令只差空白也认得是草稿", () => {
+        expect(acceptSubmission(composer, "继续写")).toMatchObject({recall: ["继续写", "第三章"], draft: {text: "", version: 4}});
         const command = {...composer, draft: {text: "/rename  第三章  雨夜", version: 3}};
-        expect(acceptSubmission(command).recall).toEqual(["/rename  第三章  雨夜", "继续写", "第三章"]);
+        expect(acceptSubmission(command, "/rename 第三章  雨夜").recall).toEqual(["/rename  第三章  雨夜", "继续写", "第三章"]);
+    });
+
+    it("发送的不是草稿（宿主组件发出的追问）：输入框里写到一半的字不动，也不记进历史", () => {
+        const writing = {...composer, draft: {text: "写到一半", version: 3}};
+        expect(acceptSubmission(writing, "再问一次")).toBe(writing);
     });
 });
 

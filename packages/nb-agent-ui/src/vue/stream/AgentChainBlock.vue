@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * 一条思维链：一行摘要（`AgentChainSummary`），展开后步骤挂在从图标垂下的竖线上。步骤按种类分给工具组、
- * `AgentToolStepRow`、卡片、`AgentTextStepRow` 与并入的中间 content；思维链与工具组的展开状态在这里。
+ * `AgentToolStepRow`、卡片、`AgentTextStepRow` 与并入的中间 content。链、组、卡片与各步骤行的展开状态都在这里按 id 记，
+ * 思维链重新分组（步骤换了位置、换了实例）时不丢。
  */
 import {CollapsibleCard, CollapsibleRow} from "@notnotype/nb-ui/components";
 import type {AgentConversationContext, AgentConversationServices} from "../../types";
@@ -88,8 +89,26 @@ function cardStatus(step: ToolStep): "running" | "waiting" | "success" | "error"
                         @update:expanded="openSet.set(entry.id, $event)"
                     >
                         <template v-for="item in entry.items" :key="item.id">
-                            <AgentToolStepRow v-if="item.kind === 'tool'" :step="item" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
-                            <AgentTextStepRow v-else-if="item.kind === 'thinking'" icon="i-lucide-brain" :label="t('step.thinking')" :text="item.text" :services="props.services" @action="emit('action', $event)" />
+                            <AgentToolStepRow
+                                v-if="item.kind === 'tool'"
+                                :step="item"
+                                :expanded="openSet.isOpen(item.id)"
+                                :ctx="props.ctx"
+                                :services="props.services"
+                                :registry="props.registry"
+                                @update:expanded="openSet.set(item.id, $event)"
+                                @action="emit('action', $event)"
+                            />
+                            <AgentTextStepRow
+                                v-else-if="item.kind === 'thinking'"
+                                icon="i-lucide-brain"
+                                :label="t('step.thinking')"
+                                :text="item.text"
+                                :services="props.services"
+                                :expanded="openSet.isOpen(item.id)"
+                                @update:expanded="openSet.set(item.id, $event)"
+                                @action="emit('action', $event)"
+                            />
                             <hr v-else class="acv-boundary">
                         </template>
                     </CollapsibleRow>
@@ -100,9 +119,11 @@ function cardStatus(step: ToolStep): "running" | "waiting" | "success" | "error"
                             :key="failed.id"
                             class="acv-steps__nested"
                             :step="failed"
+                            :expanded="openSet.isOpen(failed.id)"
                             :ctx="props.ctx"
                             :services="props.services"
                             :registry="props.registry"
+                            @update:expanded="openSet.set(failed.id, $event)"
                             @action="emit('action', $event)"
                         />
                     </template>
@@ -119,10 +140,37 @@ function cardStatus(step: ToolStep): "running" | "waiting" | "success" | "error"
                 >
                     <AgentToolDetail :call="entry.call" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
                 </CollapsibleCard>
-                <AgentToolStepRow v-else-if="entry.kind === 'tool'" :step="entry" :ctx="props.ctx" :services="props.services" :registry="props.registry" @action="emit('action', $event)" />
+                <AgentToolStepRow
+                    v-else-if="entry.kind === 'tool'"
+                    :step="entry"
+                    :expanded="openSet.isOpen(entry.id)"
+                    :ctx="props.ctx"
+                    :services="props.services"
+                    :registry="props.registry"
+                    @update:expanded="openSet.set(entry.id, $event)"
+                    @action="emit('action', $event)"
+                />
                 <AgentMarkdown v-else-if="entry.kind === 'text'" class="acv-narration" :text="entry.text" :resolve-asset="props.services.resolveMarkdownAsset" @action="emit('action', $event)" />
-                <AgentTextStepRow v-else-if="entry.kind === 'thinking'" icon="i-lucide-brain" :label="t('step.thinking')" :text="entry.text" :services="props.services" @action="emit('action', $event)" />
-                <AgentTextStepRow v-else-if="entry.kind === 'prompt'" icon="i-lucide-scroll-text" :label="entry.message.label" :text="entry.message.text" :services="props.services" @action="emit('action', $event)" />
+                <AgentTextStepRow
+                    v-else-if="entry.kind === 'thinking'"
+                    icon="i-lucide-brain"
+                    :label="t('step.thinking')"
+                    :text="entry.text"
+                    :services="props.services"
+                    :expanded="openSet.isOpen(entry.id)"
+                    @update:expanded="openSet.set(entry.id, $event)"
+                    @action="emit('action', $event)"
+                />
+                <AgentTextStepRow
+                    v-else-if="entry.kind === 'prompt'"
+                    icon="i-lucide-scroll-text"
+                    :label="entry.message.label"
+                    :text="entry.message.text"
+                    :services="props.services"
+                    :expanded="openSet.isOpen(entry.id)"
+                    @update:expanded="openSet.set(entry.id, $event)"
+                    @action="emit('action', $event)"
+                />
                 <hr v-else class="acv-boundary">
             </template>
         </div>

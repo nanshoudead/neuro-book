@@ -20,20 +20,26 @@ Agent 对话视图。行为合同见 [`ui.agent-conversation-view`](../../docs/s
 
    ```vue
    <script setup lang="ts">
-   import {ref, watchEffect} from "vue";
-   import {acceptSubmission, applyComposerAction, createAgentContext, createAgentViewRegistry, type AgentViewAction} from "@notnotype/nb-agent-ui";
+   import {shallowRef, watchEffect} from "vue";
+   import {acceptSubmission, applyComposerAction, createAgentContext, createAgentViewRegistry, type AgentLocale, type AgentViewAction} from "@notnotype/nb-agent-ui";
    import {AgentConversationView, builtinContributions} from "@notnotype/nb-agent-ui/vue";
 
-   // 宿主声明自己支持的操作；不声明时输入框是只读的。
-   const ctx = ref(createAgentContext({interaction: {canSend: true, canStop: true}}));
-   const registry = createAgentViewRegistry([...builtinContributions, ...宿主的登记]);
+   const props = defineProps<{locale: AgentLocale; send: (text: string) => void}>();
+
+   // 视图只按整体替换读 ctx，用 shallowRef；宿主声明自己支持的操作，不声明时输入框是只读的。
+   const ctx = shallowRef(createAgentContext({interaction: {canSend: true, canStop: true}}));
+   const registry = createAgentViewRegistry([...builtinContributions]);   // 再加宿主自己的登记
 
    function handle(action: AgentViewAction) {
        const composer = applyComposerAction(ctx.value.composer, action);   // 草稿回声、模式、模型、思考档位
-       if (composer !== null) return void (ctx.value = {...ctx.value, composer});
+       if (composer !== null) {
+           ctx.value = {...ctx.value, composer};
+           return;
+       }
        if (action.type === "composer.submit") {
-           send(action.text);                                                // 宿主自己的接口
-           ctx.value = {...ctx.value, composer: acceptSubmission(ctx.value.composer)};
+           props.send(action.text);
+           // 只在发送的就是输入框里的草稿时清空草稿、记进输入历史；宿主组件发出的发送不动输入框。
+           ctx.value = {...ctx.value, composer: acceptSubmission(ctx.value.composer, action.text)};
        }
        // 其余 action（停止、附件、打开引用……）按宿主支持的处理，不认识的忽略。
    }
@@ -47,9 +53,11 @@ Agent 对话视图。行为合同见 [`ui.agent-conversation-view`](../../docs/s
    </script>
 
    <template>
-       <AgentConversationView :ctx="ctx" :services="{}" :registry="registry" :locale="locale" @action="handle" />
+       <AgentConversationView :ctx="ctx" :services="{}" :registry="registry" :locale="props.locale" @action="handle" />
    </template>
    ```
+
+   同一段写法在 `src/vue/entry.dom.test.ts` 里编译并运行，改这里要一起改。
 
    - `services` 三项都可选：没有 `resolveAttachmentUrl` 时附件显示不可用占位，没有 `resolveTriggerMenu` 时只剩 `/` 命令，没有 `resolveMarkdownAsset` 时回复里的图片只显示说明。`resolveTriggerMenu` 是纯函数，数据到达时换一个新函数，编辑器据此重取菜单。
    - 草稿：编辑器每次改动发 `composer.draftChanged`，宿主只换文字不换版本（`applyComposerAction` 就是这样做的），编辑器认得这是自己的回声；宿主受理发送后给一个新版本的空草稿（`acceptSubmission`），视图据此清空，发送失败时文字不会丢。

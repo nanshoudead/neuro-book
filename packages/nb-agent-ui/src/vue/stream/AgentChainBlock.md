@@ -41,5 +41,5 @@ type AgentChainBlockEmits = {
 
 ## 隐藏通道理由
 
-- `state:local`：思维链、工具组与卡片的展开状态（`useOpenSet`），随块挂载与卸载。
+- `state:local`：思维链、工具组、卡片与各步骤行的展开状态，按 id 记（`useOpenSet`），思维链重新分组时不丢，随块挂载与卸载。
 - `state:inject`：经 `useAgentText()` 取语言与界面文字。

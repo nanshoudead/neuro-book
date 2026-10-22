@@ -30,6 +30,12 @@ describe("改文件工具的 diff", () => {
         expect(diffOf(call("write", {path: "a.md", content: "一\n二\n"}))?.every((line) => line.tone === "added")).toBe(true);
     });
 
+    it("参数还在流式生成、内容还没到时给不出 diff（null）；整文件写空内容是“内容为空”", () => {
+        expect(diffOf({...call("write", {path: "a.md"}), status: "streaming"})).toBeNull();
+        expect(diffOf({...call("edit", {}), status: "streaming"})).toBeNull();
+        expect(diffOf(call("write", {path: "a.md", content: ""}))).toEqual([]);
+    });
+
     it("不改文件的工具没有 diff", () => {
         expect(registry.resolveTool("read").diff).toBeUndefined();
     });

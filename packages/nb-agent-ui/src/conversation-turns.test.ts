@@ -2,7 +2,7 @@ import {describe, expect, it} from "bun:test";
 import type {AssistantMessageView, MessageView, RunView, ToolCallView, UserMessageView} from "./types";
 import {createAgentViewRegistry} from "./registry";
 import {builtinToolRenderers} from "./builtin-tools";
-import {assignTurnKeys, buildTurns, defaultTurnExpanded, splitIntoTurnGroups, type BuildTurnsInput, type ChainBlock, type ConversationTurn, type ToolGroupStep, type TurnBlock} from "./conversation-turns";
+import {assignTurnKeys, buildTurns, defaultTurnExpanded, reuseTurnGroups, splitIntoTurnGroups, type BuildTurnsInput, type ChainBlock, type ConversationTurn, type ToolGroupStep, type TurnBlock} from "./conversation-turns";
 
 const builtinToolsContribution = {source: "builtin:tools", tools: builtinToolRenderers};
 const registry = createAgentViewRegistry([builtinToolsContribution]);
@@ -357,6 +357,23 @@ describe("buildTurns 结果节点（验收 20）", () => {
         expect(shape(turn).slice(turn.outcomeStart)).toEqual(["node", "reply"]);
         expect(turn.outcomeMessage?.id).toBe("a4");
         expect(turn.outcomeCallId).toBeNull();
+        expect(turn.metrics.steps).toBe(2);
+    });
+
+    it("一条消息交了两个成功的结果节点：两个都不计操作次数；结果节点改的文件照常算进改动文件", () => {
+        const reporting = createAgentViewRegistry([builtinToolsContribution, {source: "test:story", tools: [
+            answerTool,
+            {...answerTool, id: "report", toolNames: ["report"], effects: () => ({read: [], changed: [{path: "报告.md", added: 3, removed: 0}]})},
+        ]}]);
+        const turn = buildTurns(input([
+            user("u1", "写报告并作答"),
+            assistant("a1", {toolCalls: [tool("r1", "read", {path: "第三章.md"})]}),
+            assistant("a2", {toolCalls: [tool("q1", "answer", {conclusion: "甲"}), tool("w1", "report", {})]}),
+        ], {registry: reporting}))[0]!;
+        expect(shape(turn).slice(turn.outcomeStart)).toEqual(["node", "node"]);
+        expect(turn.metrics.steps).toBe(1);
+        expect(turn.changedFiles.map((file) => file.change.path)).toEqual(["报告.md"]);
+        expect(turn.metrics.filesChanged).toBe(1);
     });
 
     it("没有声明为结果的节点不算结果", () => {
@@ -436,6 +453,17 @@ describe("buildTurns 汇总", () => {
             {toolCallId: "p1", change: {path: "ch1.md", added: 2, removed: 1}},
             {toolCallId: "p1", change: {path: "ch2.md", added: 1, removed: 0}},
         ]);
+    });
+});
+
+describe("reuseTurnGroups", () => {
+    it("消息逐条相同的那组沿用上一次的数组；有新消息的那组换成新的", () => {
+        const messages = [user("u1", "写第一章"), assistant("a1", {text: "好。"}), user("u2", "再写第二章")];
+        const before = splitIntoTurnGroups(messages);
+        const after = reuseTurnGroups(before, splitIntoTurnGroups([...messages, assistant("a2", {text: "写好了。"})]));
+        expect(after[0]).toBe(before[0]);
+        expect(after[1]).not.toBe(before[1]);
+        expect(after[1]!.map((message) => message.id)).toEqual(["u2", "a2"]);
     });
 });
 

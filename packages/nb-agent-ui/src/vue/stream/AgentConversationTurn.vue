@@ -39,13 +39,19 @@ const emit = defineEmits<{
 
 const {t, text, locale} = useAgentText();
 
+/*
+ * 整理这一轮只依赖下面几个值，各自算成 computed：宿主整体替换 ctx 时（例如每秒换 now）它们的值没变，这一轮就不重新整理。
+ * 只有运行中的最新一轮用 now 算用时。
+ */
+const run = computed(() => props.ctx.run);
+const history = computed(() => props.ctx.history);
+const now = computed(() => (props.latest && props.ctx.run.status !== "idle" ? props.ctx.now : 0));
 
 const turn = computed(() => buildTurn(props.messages, {
     registry: props.registry,
-    run: props.ctx.run,
-    history: props.ctx.history,
-    // 只有运行中的最新一轮用 now 算用时；已结束的轮次不读它，宿主每秒换 now 时不必重算它们。
-    now: props.latest && props.ctx.run.status !== "idle" ? props.ctx.now : 0,
+    run: run.value,
+    history: history.value,
+    now: now.value,
 }, {isLatest: props.latest, isFirst: props.first}));
 
 /** 运行中逐步展开：只对运行中与等待回答的这一轮生效，结束后回到默认折叠。 */
@@ -92,7 +98,6 @@ const assistantIcon = computed(() => props.ctx.session?.profileIcon || assistant
 
 /** 这一轮最后一条助手消息，角色行的模型与时间取自它。 */
 const lastAssistant = computed(() => props.messages.findLast((message): message is AssistantMessageView => message.kind === "assistant") ?? null);
-
 
 const statusLabel = computed(() => {
     switch (turn.value.status) {
@@ -371,7 +376,6 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
         display: none;
     }
 }
-
 
 .acv-user-bubble {
     min-width: 0;
