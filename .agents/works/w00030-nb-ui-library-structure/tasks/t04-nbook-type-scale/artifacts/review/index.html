@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>t04 NeuroBook 主题字号恢复大一档 · 改前改后对照</title>
+<style>
+:root {
+  --bg: #f7f6f2; --panel: #ffffff; --text: #1f2328; --muted: #6b6f76; --line: #e3e1da;
+  --accent: #0a66d8; --warn: #b45309; --warn-bg: #fff4e0; --ok: #1a7f37; --ok-bg: #e8f5ec; --bad: #b42318; --bad-bg: #fdecea;
+  --code-bg: #f2f1ec;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1b1c1f; --panel: #24262a; --text: #e6e6e6; --muted: #9a9ca1; --line: #34363b;
+    --accent: #5aa2ff; --warn: #f0b35a; --warn-bg: #3a2c16; --ok: #5fd07e; --ok-bg: #183222; --bad: #ff8a80; --bad-bg: #3a1c1a; --code-bg: #2c2e33; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 32px 16px 80px; }
+h1 { font-size: 26px; margin: 0 0 4px; }
+h2 { font-size: 20px; margin: 48px 0 12px; padding-top: 16px; border-top: 1px solid var(--line); }
+h3 { font-size: 16px; margin: 24px 0 8px; }
+p, li { max-width: 880px; }
+.sub { color: var(--muted); margin: 0 0 24px; }
+.toc { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 20px; }
+.toc a { color: var(--accent); text-decoration: none; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; margin: 12px 0; }
+.rec { border-left: 3px solid var(--accent); padding: 4px 0 4px 12px; margin: 12px 0; }
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); margin: 12px 0; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+figure a { display: block; }
+figure img { display: block; width: 100%; height: auto; }
+figcaption { padding: 8px 12px; font-size: 13px; color: var(--muted); }
+figcaption b { color: var(--text); }
+table { border-collapse: collapse; width: 100%; background: var(--panel); border: 1px solid var(--line); font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+th { background: var(--code-bg); font-weight: 600; }
+code { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 13px; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { background: var(--code-bg); border-radius: 8px; padding: 12px 14px; overflow-x: auto; font-size: 13px; line-height: 1.55; }
+pre code { background: none; padding: 0; }
+.tag { display: inline-block; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 0 9px; white-space: nowrap; }
+.ok { color: var(--ok); background: var(--ok-bg); }
+.warn { color: var(--warn); background: var(--warn-bg); }
+.bad { color: var(--bad); background: var(--bad-bg); }
+</style>
+<style>.tag { display:inline-block; font-size:12px; padding:0 8px; border-radius:10px; margin-right:6px; vertical-align:2px; } .tag.warn { background:var(--warn-bg); color:var(--warn); } .tag.ok { background:var(--ok-bg); color:var(--ok); }</style>
+</head>
+<body>
+<main>
+<h1>NeuroBook 主题字号恢复大一档：改前改后对照</h1>
+<p class="sub">w00030 t04 · 2026-10-22 · 分支 <code>refactor/w00030-t04-type-scale</code>，还没有合入 master</p>
+
+<section data-nbdev-question="t04-accept" data-nbdev-type="confirm">
+<h2><span class="tag warn" data-nbdev-skip>待定</span> 改后的字号可以合入了吗</h2>
+<p>可以的话合入 master，接着 w00027 t06 在新字号上重出设置界面的设计稿。不可以的话，在评论里写哪里不对（某处太大、某处还小、哪里挤了）。</p>
+</section>
+
+<h2>改了什么</h2>
+<table>
+<tr><th></th><th>改前</th><th>改后</th></tr>
+<tr><td>字号六档（2xs / xs / sm / md / lg / xl）</td><td>10 / 11 / 13 / 13 / 15 / 19px</td><td>11 / 12 / 14 / 14 / 16 / 20px</td></tr>
+<tr><td>控件高度（sm / md / lg）</td><td>26 / 32 / 40px</td><td>28 / 34 / 42px</td></tr>
+<tr><td>弹出菜单每行</td><td>28px</td><td>30px</td></tr>
+<tr><td>Button 的三档高度</td><td>写死 26 / 32 / 38px</td><td>跟控件高度，与输入框等高</td></tr>
+<tr><td>写死像素的字号</td><td>nb-ui 八个组件、应用 46 处</td><td>改成引用字号档，跟主题变；书架与欢迎页的标题、阅读区、宿主加载页不动</td></tr>
+</table>
+<p>只改 NeuroBook 主题；macOS 等主题的刻度不变。图标按钮（IconButton）保持定值：它放在活动栏这类定宽的竖条里，长高了焦点光环会被裁。</p>
+<p>顺带恢复的：Tailwind 重构（w00030 t02）让应用里直接写 <code>text-sm</code> 的 37 处从 14px 变成 13px、<code>text-xs</code> 的 57 处变成 11px，新刻度下它们回到 14px、12px。</p>
+
+<h2>应用</h2>
+<p>窗口 1440×900，改前是 master，改后是本分支，同一份样例作品。</p>
+<div class="grid">
+<figure><a href="r1/02-chapter-before.webp"><img src="r1/02-chapter-before.webp" alt=""></a><figcaption><b>改前 · 工作台，打开一章</b></figcaption></figure><figure><a href="r1/02-chapter-after.webp"><img src="r1/02-chapter-after.webp" alt=""></a><figcaption><b>改后 · 工作台，打开一章</b>：资源管理器回到 14px，菜单栏、页签、面包屑、状态栏都大了一号；正文阅读区不变</figcaption></figure>
+
+<figure><a href="r1/06-settings-before.webp"><img src="r1/06-settings-before.webp" alt=""></a><figcaption><b>改前 · 设置 · 外观</b></figcaption></figure><figure><a href="r1/06-settings-after.webp"><img src="r1/06-settings-after.webp" alt=""></a><figcaption><b>改后 · 设置 · 外观</b></figcaption></figure>
+
+<figure><a href="r1/07-settings-editor-before.webp"><img src="r1/07-settings-editor-before.webp" alt=""></a><figcaption><b>改前 · 设置 · 编辑器</b></figcaption></figure><figure><a href="r1/07-settings-editor-after.webp"><img src="r1/07-settings-editor-after.webp" alt=""></a><figcaption><b>改后 · 设置 · 编辑器</b>：说明文字换行在改前就有，属于 t06 要重定的版式</figcaption></figure>
+
+<figure><a href="r1/04-menu-before.webp"><img src="r1/04-menu-before.webp" alt=""></a><figcaption><b>改前 · 文件菜单</b></figcaption></figure><figure><a href="r1/04-menu-after.webp"><img src="r1/04-menu-after.webp" alt=""></a><figcaption><b>改后 · 文件菜单</b>：每行 30px</figcaption></figure>
+
+<figure><a href="r1/05-palette-before.webp"><img src="r1/05-palette-before.webp" alt=""></a><figcaption><b>改前 · 命令面板</b></figcaption></figure><figure><a href="r1/05-palette-after.webp"><img src="r1/05-palette-after.webp" alt=""></a><figcaption><b>改后 · 命令面板</b></figcaption></figure>
+
+<figure><a href="r1/08-bookshelf-before.webp"><img src="r1/08-bookshelf-before.webp" alt=""></a><figcaption><b>改前 · 书架</b></figcaption></figure><figure><a href="r1/08-bookshelf-after.webp"><img src="r1/08-bookshelf-after.webp" alt=""></a><figcaption><b>改后 · 书架</b>：书名与大号展示字不变，小字与工具栏变大</figcaption></figure>
+
+</div>
+
+<h2>Component Lab：改过的组件</h2>
+<p>每行左边改前、右边改后。上图是 NeuroBook 主题（Button、Select、分段控件、Menubar），按预期大了一档；下图是 macOS 主题（Button、Select、Menubar、Badge），几乎不变，只有紧凑档等几处从 12px 变成 macOS 自己的 11px。</p>
+<div class="grid">
+<figure><a href="r1/lab-nbook.webp"><img src="r1/lab-nbook.webp" alt=""></a><figcaption><b>NeuroBook 主题</b></figcaption></figure>
+<figure><a href="r1/lab-macos.webp"><img src="r1/lab-macos.webp" alt=""></a><figcaption><b>macOS 主题</b></figcaption></figure>
+</div>
+
+<h2>同样用这个主题的开发者面板与剧情图谱查看器</h2>
+<div class="grid">
+<figure><a href="r1/devpanel-before.webp"><img src="r1/devpanel-before.webp" alt=""></a><figcaption><b>改前 · 开发者面板 · Task 页</b></figcaption></figure><figure><a href="r1/devpanel-after.webp"><img src="r1/devpanel-after.webp" alt=""></a><figcaption><b>改后 · 开发者面板 · Task 页</b>：左栏与卡片里被截断的条目数与改前相同</figcaption></figure>
+
+<figure><a href="r1/story-before.webp"><img src="r1/story-before.webp" alt=""></a><figcaption><b>改前 · 剧情图谱查看器 · 原文</b></figcaption></figure><figure><a href="r1/story-after.webp"><img src="r1/story-after.webp" alt=""></a><figcaption><b>改后 · 剧情图谱查看器 · 原文</b></figcaption></figure>
+
+</div>
+
+<h2>验证</h2>
+<ul>
+<li>nb-ui 548 个测试、类型检查；应用 <code>test:affected --typecheck --with-consumers</code> 全过。</li>
+<li>全量 e2e 256 例：头一轮 4 例失败，三例来自本次改动（活动栏图标按钮长高后光环被裁、菜单行高与资源管理器拖动用例按旧尺寸写死），已改；一例编辑器光标用例单独重跑通过，是偶发。改后四个文件 62 例全过。</li>
+<li>Lab 两个主题、八个组件的全部场景，没有越界与被裁。</li>
+<li>Sonnet 前端审查 11 条（重要 2、建议 9），8 条已改，3 条按取舍不改（md 与 lg 两档在本主题同为 14px，靠高度区分；几处按语义取档；提示词输入框属于界面文字）。</li>
+</ul>
+</main>
+</body>
+</html>
