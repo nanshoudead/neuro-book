@@ -15,15 +15,19 @@ const props = defineProps<{
 
 const {t} = useAgentText();
 
-const adapter = computed(() => props.registry.resolveTool(props.call.name).detail ?? null);
+const renderer = computed(() => props.registry.resolveTool(props.call.name));
+const adapter = computed(() => renderer.value.detail ?? null);
+/** 没有详情组件时画渲染器给的 diff；给不出（null）时与没有适配一样，显示原始数据。 */
+const diffLines = computed(() => (adapter.value === null ? renderer.value.diff?.(props.call) ?? null : null));
+const adapted = computed(() => adapter.value !== null || diffLines.value !== null);
 </script>
 
 <template>
     <div class="agent-tool-detail">
         <p v-if="props.call.error" class="agent-tool-detail__error">{{ props.call.error }}</p>
-        <!-- 出错且没有结果时，适配组件没东西可画，附上原始参数以便看是什么参数导致的 -->
+        <!-- 出错且没有结果时，适配内容没东西可画，附上原始参数以便看是什么参数导致的 -->
         <CodeBlock
-            v-if="adapter && props.call.error && !props.call.result"
+            v-if="adapted && props.call.error && !props.call.result"
             :empty-text="t('toolDetail.empty')"
             :truncated-text="t('toolDetail.truncated')"
             :label="t('toolDetail.args', {name: props.call.name})"
@@ -32,6 +36,13 @@ const adapter = computed(() => props.registry.resolveTool(props.call.name).detai
         <RenderGuard v-else-if="adapter" :source="`工具 ${props.call.name} 的详情组件`">
             <component :is="adapter" :call="props.call" :ctx="props.ctx" />
         </RenderGuard>
+        <CodeBlock
+            v-else-if="diffLines !== null"
+            :empty-text="t('toolDetail.empty')"
+            :truncated-text="t('toolDetail.truncated')"
+            :label="renderer.summary(props.call)"
+            :lines="diffLines"
+        />
         <!-- 没有适配的工具：原样显示参数与结果 -->
         <template v-else>
             <CodeBlock :empty-text="t('toolDetail.empty')" :truncated-text="t('toolDetail.truncated')" :label="t('toolDetail.args', {name: props.call.name})" :lines="jsonLines(props.call.args)" />

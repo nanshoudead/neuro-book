@@ -18,8 +18,9 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {Type} from "typebox";
 
 import {createHarnessTranscript} from "./harness";
-import {editInputChanges} from "./tool-args";
-import {fileDiffLines} from "./tool-detail-lines";
+import {builtinToolRenderers} from "./builtin-tools";
+import {createAgentViewRegistry} from "./registry";
+import {editInputChanges} from "./tool-formats";
 import type {MessageView} from "./types";
 
 const reply = (text: string) => ({content: [{type: "text" as const, text}]});
@@ -168,7 +169,7 @@ describe("harness 适配器与真实 harness", () => {
             const edit = messages.flatMap((message) => (message.kind === "assistant" ? message.toolCalls : [])).find((call) => call.id === "e1");
             expect(edit?.status).toBe("success");
             expect(editInputChanges(edit!).map((change) => change.path)).toEqual(["正文/第三章.md"]);
-            expect(fileDiffLines(edit!).some((line) => line.tone === "added" && line.text.includes("十二下"))).toBe(true);
+            expect((createAgentViewRegistry([{source: "builtin:tools", tools: builtinToolRenderers}]).resolveTool("edit").diff?.(edit!) ?? []).some((line) => line.tone === "added" && line.text.includes("十二下"))).toBe(true);
         } finally {
             await rm(root, {recursive: true, force: true});
         }

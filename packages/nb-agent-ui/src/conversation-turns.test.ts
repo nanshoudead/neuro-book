@@ -1,9 +1,10 @@
-import {describe, expect, it} from "vitest";
-import type {AssistantMessageView, MessageView, RunView, ToolCallView, UserMessageView} from "../types";
-import {createAgentViewRegistry} from "../registry";
-import {builtinToolsContribution} from "./builtin-tools";
-import {assignTurnKeys, buildTurns, defaultTurnExpanded, splitIntoTurnGroups, type BuildTurnsInput, type ChainBlock, type ConversationTurn, type ToolGroupStep, type TurnBlock} from "../conversation-turns";
+import {describe, expect, it} from "bun:test";
+import type {AssistantMessageView, MessageView, RunView, ToolCallView, UserMessageView} from "./types";
+import {createAgentViewRegistry} from "./registry";
+import {builtinToolRenderers} from "./builtin-tools";
+import {assignTurnKeys, buildTurns, defaultTurnExpanded, splitIntoTurnGroups, type BuildTurnsInput, type ChainBlock, type ConversationTurn, type ToolGroupStep, type TurnBlock} from "./conversation-turns";
 
+const builtinToolsContribution = {source: "builtin:tools", tools: builtinToolRenderers};
 const registry = createAgentViewRegistry([builtinToolsContribution]);
 
 let clock = 0;
@@ -212,7 +213,7 @@ describe("buildTurns 探查工具分组", () => {
     it("插件登记的探查工具与内置读取并入同一组", () => {
         const withPlugin = createAgentViewRegistry([builtinToolsContribution, {
             source: "plugin:atlas",
-            tools: [{id: "atlas_lookup", toolNames: ["atlas_lookup"], category: "explore", icon: "i-lucide-map", label: "查地图", summary: () => "", presentation: "line"}],
+            tools: [{id: "atlas_lookup", toolNames: ["atlas_lookup"], category: "explore", icon: "i-lucide-map", label: "查地图", summary: () => "", groupPhrase: (count) => ({key: "toolGroup.lookup", params: {count}}), presentation: "line"}],
         }]);
         const turns = buildTurns(input([
             user("u1", "查"),

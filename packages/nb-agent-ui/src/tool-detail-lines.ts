@@ -2,7 +2,7 @@
  * 把工具调用整理成代码块的行，供工具详情组件使用。纯函数，不依赖 Vue，便于测试。
  */
 import type {JsonValue, ToolCallView} from "./types";
-import {argArray, argNumber, argString, objectString, parsePatchChanges} from "./tool-args";
+import {argNumber, argString} from "./tool-args";
 
 export type CodeLine = {text: string; tone?: "added" | "removed" | "muted"};
 
@@ -22,49 +22,6 @@ export function textLines(text: string): CodeLine[] {
 /** 读取结果按文件行号显示；带 offset 参数时从该行开始编号。 */
 export function fileContentLines(call: ToolCallView): {lines: CodeLine[]; startLine: number} {
     return {lines: textLines(call.result?.text ?? ""), startLine: argNumber(call, "offset") ?? 1};
-}
-
-/**
- * 改文件的 diff 行：edit 的每个片段先删后增，片段之间一行淡色省略号；write 全部是新增；
- * apply_patch 按补丁自身的行首符号着色；nb-harness 的 edit（参数是 `input`）见下。
- */
-export function fileDiffLines(call: ToolCallView): CodeLine[] {
-    if (call.name === "write") {
-        return splitLines(argString(call, "content")).map((text) => ({text, tone: "added"}));
-    }
-    if (call.name === "apply_patch") {
-        return splitLines(argString(call, "patch")).map(patchLine);
-    }
-    // nb-harness 的 edit：参数是一段 input。补丁格式本身就带增删行，直接按补丁显示。hashline 格式只有行锚操作，看不出
-    // 改成了什么；工具的结果正文是改完之后的那几行（`[路径]` 加带行号的内容），有结果时显示它，没有时显示 input 原文。
-    const input = argString(call, "input");
-    if (input !== "") {
-        if (parsePatchChanges(input).length > 0) return splitLines(input).map(patchLine);
-        return textLines(call.result?.text || input);
-    }
-    const lines: CodeLine[] = [];
-    argArray(call, "edits").forEach((edit: JsonValue, index) => {
-        if (index > 0) {
-            lines.push({text: "⋯", tone: "muted"});
-        }
-        splitLines(objectString(edit, "oldText") ?? "").forEach((text) => lines.push({text, tone: "removed"}));
-        splitLines(objectString(edit, "newText") ?? "").forEach((text) => lines.push({text, tone: "added"}));
-    });
-    return lines;
-}
-
-function patchLine(line: string): CodeLine {
-    // unified diff 的文件头（`--- 路径`、`+++ 路径`）不是增删行。
-    if (line.startsWith("***") || line.startsWith("@@") || line.startsWith("--- ") || line.startsWith("+++ ")) {
-        return {text: line, tone: "muted"};
-    }
-    if (line.startsWith("+")) {
-        return {text: line.slice(1), tone: "added"};
-    }
-    if (line.startsWith("-")) {
-        return {text: line.slice(1), tone: "removed"};
-    }
-    return {text: line.startsWith(" ") ? line.slice(1) : line};
 }
 
 /** 命令类工具的输入：bash 的 command 或 execute_sql 的 sql。 */

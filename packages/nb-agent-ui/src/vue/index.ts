@@ -20,7 +20,6 @@ export {default as AgentTurnBlock} from "./stream/AgentTurnBlock.vue";
 export {default as AgentUserContent} from "./stream/AgentUserContent.vue";
 export {default as AgentCommandDetail} from "./tools/AgentCommandDetail.vue";
 export {default as AgentFileContentDetail} from "./tools/AgentFileContentDetail.vue";
-export {default as AgentFileDiffDetail} from "./tools/AgentFileDiffDetail.vue";
 export {default as AgentTaskList} from "./tools/AgentTaskList.vue";
 export {default as AgentTaskListNode} from "./tools/AgentTaskListNode.vue";
 export {default as AgentToolDetail} from "./tools/AgentToolDetail.vue";

@@ -1,6 +1,8 @@
-import {describe, expect, it} from "vitest";
-import {AgentViewRegistryConflictError, createAgentViewRegistry, GENERIC_TOOL_RENDERER, type HeaderActionEntry} from "../registry";
-import {builtinToolsContribution} from "./builtin-tools";
+import {describe, expect, it} from "bun:test";
+import {AgentViewRegistryConflictError, createAgentViewRegistry, GENERIC_TOOL_RENDERER, type HeaderActionEntry} from "./registry";
+import {builtinToolRenderers} from "./builtin-tools";
+
+const builtinToolsContribution = {source: "builtin:tools", tools: builtinToolRenderers};
 
 function headerAction(id: string, order?: number): HeaderActionEntry {
     return {id, order, icon: "i-lucide-plus", label: id, target: {kind: "action", action: {type: "view.close"}}, pinnable: true};
@@ -58,6 +60,28 @@ describe("registry.resolveTool", () => {
         expect(custom.resolveTool("list_special").id).toBe("list_special");
         expect(custom.resolveTool("list_other").id).toBe("list");
     });
+
+    it("前缀互相包含时取最长的，与登记顺序无关", () => {
+        const longer = {id: "atlas", toolNamePrefix: "list_atlas_", category: "other" as const, icon: "", label: "", summary: () => "", presentation: "card" as const};
+        for (const contributions of [[builtinToolsContribution, {source: "p", tools: [longer]}], [{source: "p", tools: [longer]}, builtinToolsContribution]]) {
+            const custom = createAgentViewRegistry(contributions);
+            expect(custom.resolveTool("list_atlas_regions").id).toBe("atlas");
+            expect(custom.resolveTool("list_workflows").id).toBe("list");
+        }
+    });
+
+    it("两个渲染器声明同一工具名或同一前缀时构造失败，并指出工具名与两个来源", () => {
+        const sameName = () => createAgentViewRegistry([
+            builtinToolsContribution,
+            {source: "plugin:z", tools: [{id: "my_read", toolNames: ["read"], category: "other", icon: "", label: "", summary: () => "", presentation: "card"}]},
+        ]);
+        expect(sameName).toThrow(AgentViewRegistryConflictError);
+        expect(sameName).toThrow(/read.*builtin:tools.*plugin:z/u);
+        expect(() => createAgentViewRegistry([
+            builtinToolsContribution,
+            {source: "plugin:z", tools: [{id: "my_list", toolNamePrefix: "list_", category: "other", icon: "", label: "", summary: () => "", presentation: "card"}]},
+        ])).toThrow(/list_/u);
+    });
 });
 
 describe("工具回调抛错", () => {
@@ -74,5 +98,15 @@ describe("工具回调抛错", () => {
         expect(tool.summary(call)).toBe("boom");
         expect(tool.groupPhrase?.(3)).toEqual({key: "toolGroup.generic", params: {count: 3}});
         expect(tool.effects?.(call)).toEqual({read: [], changed: []});
+    });
+
+    it("diff 抛错时当作这次给不出 diff（null），详情退回原始参数与结果", () => {
+        const registry = createAgentViewRegistry([{
+            source: "test:plugin",
+            tools: [{id: "boom", toolNames: ["boom"], category: "mutate", icon: "i-lucide-bomb", label: "炸", presentation: "line", summary: () => "", diff: () => {
+                throw new Error("diff 坏了");
+            }}],
+        }]);
+        expect(registry.resolveTool("boom").diff?.({id: "c1", name: "boom", status: "success", args: {}})).toBeNull();
     });
 });

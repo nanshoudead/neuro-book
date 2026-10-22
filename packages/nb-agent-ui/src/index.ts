@@ -24,10 +24,12 @@ export type {
 export {AgentViewRegistryConflictError, createAgentViewRegistry, GENERIC_TOOL_RENDERER, visibleEntries} from "./registry";
 export type {
     AgentViewContribution, AgentViewRegistry, ComposerCommandEntry, ComposerTriggerEntry, EntryRendererEntry, ExtensionPoint,
-    ExtensionPointEntries, FileChangeView, HeaderActionEntry, MessageActionEntry, PanelEntry, RegistryEntryBase, RoleEntry,
+    ExtensionPointEntries, FileChangeView, HeaderActionEntry, RegistryConflict, MessageActionEntry, PanelEntry, RegistryEntryBase, RoleEntry,
     StatusItemEntry, ToolbarButtonEntry, ToolCategory, ToolDetailProps, ToolEffects, ToolNodeProps, ToolRendererEntry, TrayItemEntry,
 } from "./registry";
 export type {TaskChange, TaskItemView, TaskListView, TaskStatus} from "./task-list";
+export {argArray, argNumber, argString, countLines, objectString} from "./tool-args";
+export type {CodeLine} from "./tool-detail-lines";
 export {formatText, textOf} from "./messages";
 export type {AgentTextKey} from "./messages";
 export {buildTurns} from "./conversation-turns";

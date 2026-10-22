@@ -4,14 +4,8 @@
  * 的示例（docs/specs/ui/agent-conversation-view.md“注册表”）。
  */
 
-import type {AgentViewContribution, ToolCallView, ToolRendererEntry} from "@notnotype/nb-agent-ui";
-
-function argString(call: ToolCallView, key: string): string {
-    const args = call.args;
-    if (args === null || typeof args !== "object" || Array.isArray(args)) return "";
-    const value = args[key];
-    return typeof value === "string" ? value : "";
-}
+import {argString} from "@notnotype/nb-agent-ui";
+import type {AgentViewContribution, ToolRendererEntry} from "@notnotype/nb-agent-ui";
 
 const tools: ToolRendererEntry[] = [
     {

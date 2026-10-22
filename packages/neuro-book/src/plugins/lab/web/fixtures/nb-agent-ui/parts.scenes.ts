@@ -11,7 +11,7 @@ import {
 import type {UserMessageView} from "@notnotype/nb-agent-ui";
 import {createAgentViewRegistry} from "@notnotype/nb-agent-ui";
 import {builtinRolesContribution, builtinToolsContribution} from "@notnotype/nb-agent-ui/vue";
-import type {AgentChainSummary, AgentCommandDetail, AgentConversationTurn, AgentFileChanges, AgentFileContentDetail, AgentFileDiffDetail, AgentMarkdown, AgentMessageActions, AgentRawView, AgentTaskList, AgentTaskListNode, AgentToolDetail, AgentTurnBlock, AgentUserContent} from "@notnotype/nb-agent-ui/vue";
+import type {AgentChainSummary, AgentCommandDetail, AgentConversationTurn, AgentFileChanges, AgentFileContentDetail, AgentMarkdown, AgentMessageActions, AgentRawView, AgentTaskList, AgentTaskListNode, AgentToolDetail, AgentTurnBlock, AgentUserContent} from "@notnotype/nb-agent-ui/vue";
 import {buildTurns, type ConversationTurn, type TurnBlock} from "@notnotype/nb-agent-ui";
 import type {LabFixtureDefinition} from "../index";
 import {labDomainToolsContribution} from "./domain-tools";
@@ -143,7 +143,9 @@ const detailCtx = conversationContext();
 
 export const agentToolDetailScenes: LabFixtureDefinition<typeof AgentToolDetail>["scenes"] = [
     {id: "read", label: "read：文件内容适配", input: {props: {call: toolCallSamples.read, ctx: detailCtx}}},
-    {id: "edit", label: "edit：diff 适配", input: {props: {call: toolCallSamples.edit, ctx: detailCtx}}},
+    {id: "edit", label: "edit：两个片段的 diff", input: {props: {call: toolCallSamples.edit, ctx: detailCtx}}},
+    {id: "write", label: "write：整文件新增", input: {props: {call: toolCallSamples.write, ctx: detailCtx}}},
+    {id: "patch", label: "apply_patch", input: {props: {call: toolCallSamples.patch, ctx: detailCtx}}},
     {id: "bash", label: "bash：命令适配", input: {props: {call: toolCallSamples.bash, ctx: detailCtx}}},
     {id: "unadapted", label: "没有适配：原始参数与结果", input: {props: {call: toolCallSamples.unadapted, ctx: detailCtx}}},
     {id: "error", label: "出错：错误在上，下面照常显示", input: {props: {call: toolCallSamples.error, ctx: detailCtx}}},
@@ -153,12 +155,6 @@ export const agentFileContentDetailScenes: LabFixtureDefinition<typeof AgentFile
     {id: "full", label: "从第 1 行", input: {props: {call: toolCallSamples.read, ctx: detailCtx}}},
     {id: "offset", label: "带 offset", input: {props: {call: toolCallSamples.readOffset, ctx: detailCtx}}},
     {id: "running", label: "还没有结果", input: {props: {call: toolCallSamples.readRunning, ctx: detailCtx}}},
-];
-
-export const agentFileDiffDetailScenes: LabFixtureDefinition<typeof AgentFileDiffDetail>["scenes"] = [
-    {id: "edit", label: "edit：两个片段", input: {props: {call: toolCallSamples.edit, ctx: detailCtx}}},
-    {id: "write", label: "write：整文件新增", input: {props: {call: toolCallSamples.write, ctx: detailCtx}}},
-    {id: "patch", label: "apply_patch", input: {props: {call: toolCallSamples.patch, ctx: detailCtx}}},
 ];
 
 export const agentCommandDetailScenes: LabFixtureDefinition<typeof AgentCommandDetail>["scenes"] = [

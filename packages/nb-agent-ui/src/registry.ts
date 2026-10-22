@@ -9,6 +9,7 @@
  */
 import type {Component} from "vue";
 import type {AgentConversationContext, AgentViewAction, MessageView, SystemMessageSource, ToolCallView, ViewText} from "./types";
+import type {CodeLine} from "./tool-detail-lines";
 
 /** 所有登记项共有的字段。 */
 export type RegistryEntryBase = {
@@ -42,23 +43,25 @@ export type ToolEffects = {
     changed: FileChangeView[];
 };
 
-export type ToolRendererEntry = RegistryEntryBase & {
+type ToolRendererBase = RegistryEntryBase & {
     /** 精确匹配的工具名。 */
     toolNames?: readonly string[];
-    /** 工具名前缀匹配，例如 `list_`。 */
+    /** 工具名前缀匹配，例如 `list_`。精确名优先；前缀互相包含时取最长的。 */
     toolNamePrefix?: string;
-    category: ToolCategory;
     /** 图标 class。 */
     icon: string;
     /** 工具的动作名，例如“读取”。 */
     label: ViewText;
     /** 单行摘要，通常是操作对象，例如文件路径；没有合适的对象时返回空串。 */
     summary: (call: ToolCallView) => string;
-    /** 探查组合并摘要中本工具的那一段，例如“读取 5 个文件”。`explore` 类必填。 */
-    groupPhrase?: (count: number) => ViewText;
     /** 对文件的影响；缺省为无。 */
     effects?: (call: ToolCallView) => ToolEffects;
-    /** 展开后的详细内容组件，接收 `ToolDetailProps`；缺省时显示原始参数与结果。 */
+    /**
+     * 改文件的 diff 行；没有 `detail` 时详情画成 diff。返回 null 表示这次调用给不出 diff（例如参数还是半截），
+     * 详情退回原始参数与结果；空数组是“内容为空”。
+     */
+    diff?: (call: ToolCallView) => CodeLine[] | null;
+    /** 展开后的详细内容组件，接收 `ToolDetailProps`；缺省时画 `diff`，再缺省时显示原始参数与结果。 */
     detail?: Component;
     /**
      * 呈现层级：
@@ -69,6 +72,17 @@ export type ToolRendererEntry = RegistryEntryBase & {
     /** `node` 呈现时的专用组件，接收 `ToolNodeProps`；缺省时用通用卡片。 */
     node?: Component;
 };
+
+/**
+ * 工具渲染器。按类别分开写：`explore` 连续调用要合成工具组，所以必须给组里自己那一段的说法；其余类别不合并，不给。
+ */
+export type ToolRendererEntry =
+    | (ToolRendererBase & {
+        category: "explore";
+        /** 探查组合并摘要中本工具的那一段，例如“读取 5 个文件”。 */
+        groupPhrase: (count: number) => ViewText;
+    })
+    | (ToolRendererBase & {category: "mutate" | "interact" | "other"; groupPhrase?: never});
 
 /** `ToolRendererEntry.node` 组件接收的 props。 */
 export type ToolNodeProps = {
@@ -175,7 +189,7 @@ export type ExtensionPoint = keyof ExtensionPointEntries;
 export type AgentViewRegistry = {
     /** 某个扩展点的全部登记项，已按 order 排序。 */
     list<P extends ExtensionPoint>(point: P): readonly ExtensionPointEntries[P][];
-    /** 工具名对应的渲染器：精确工具名优先，其次前缀；都不匹配时是通用渲染器。 */
+    /** 工具名对应的渲染器：精确工具名优先，其次最长的匹配前缀；都不匹配时是通用渲染器。 */
     resolveTool(toolName: string): ToolRendererEntry;
 };
 
@@ -187,13 +201,27 @@ export type AgentViewContribution = {
     source: string;
 } & ContributedEntries;
 
+/** 冲突在哪：同一扩展点里重复的 id，或两个工具渲染器声明的同一个工具名、同一个前缀。 */
+export type RegistryConflict =
+    | {kind: "id"; id: string}
+    | {kind: "toolName"; name: string}
+    | {kind: "toolNamePrefix"; prefix: string};
+
+function describeConflict(conflict: RegistryConflict): string {
+    switch (conflict.kind) {
+        case "id": return `id「${conflict.id}」重复登记`;
+        case "toolName": return `工具名「${conflict.name}」被两个渲染器声明`;
+        case "toolNamePrefix": return `工具名前缀「${conflict.prefix}」被两个渲染器声明`;
+    }
+}
+
 export class AgentViewRegistryConflictError extends Error {
     constructor(
         readonly point: ExtensionPoint,
-        readonly id: string,
+        readonly conflict: RegistryConflict,
         readonly sources: readonly [string, string],
     ) {
-        super(`扩展点 ${point} 中的 id「${id}」重复登记：${sources[0]} 与 ${sources[1]}`);
+        super(`扩展点 ${point} 中${describeConflict(conflict)}：${sources[0]} 与 ${sources[1]}`);
         this.name = "AgentViewRegistryConflictError";
     }
 }
@@ -219,38 +247,50 @@ function guardTool(entry: ToolRendererEntry): ToolRendererEntry {
         reported.add(callback);
         console.error(`nb-agent-ui: 工具渲染器 ${entry.id} 的 ${callback} 抛错，这一项按通用渲染器显示`, error);
     };
-    const {groupPhrase, effects} = entry;
-    return {
-        ...entry,
-        summary: (call) => {
+    function guarded<A extends unknown[], R>(name: string, callback: (...args: A) => R, fallback: (...args: A) => R): (...args: A) => R {
+        return (...args) => {
             try {
-                return entry.summary(call);
+                return callback(...args);
             } catch (error) {
-                report("summary", error);
-                return GENERIC_TOOL_RENDERER.summary(call);
+                report(name, error);
+                return fallback(...args);
             }
-        },
-        ...(groupPhrase === undefined ? {} : {
-            groupPhrase: (count: number) => {
-                try {
-                    return groupPhrase(count);
-                } catch (error) {
-                    report("groupPhrase", error);
-                    return {key: "toolGroup.generic", params: {count}};
-                }
-            },
-        }),
-        ...(effects === undefined ? {} : {
-            effects: (call: ToolCallView) => {
-                try {
-                    return effects(call);
-                } catch (error) {
-                    report("effects", error);
-                    return {read: [], changed: []};
-                }
-            },
-        }),
+        };
+    }
+    const {effects, diff} = entry;
+    // 只替换函数字段，类别与 groupPhrase 的对应留在展开的 entry 里；explore 的 groupPhrase 单独再包一层。
+    const common = {
+        summary: guarded("summary", entry.summary, GENERIC_TOOL_RENDERER.summary),
+        ...(effects === undefined ? {} : {effects: guarded("effects", effects, (): ToolEffects => ({read: [], changed: []}))}),
+        ...(diff === undefined ? {} : {diff: guarded("diff", diff, () => null)}),
     };
+    if (entry.category === "explore") {
+        return {...entry, ...common, groupPhrase: guarded("groupPhrase", entry.groupPhrase, (count: number): ViewText => ({key: "toolGroup.generic", params: {count}}))};
+    }
+    return {...entry, ...common};
+}
+
+/**
+ * 两个工具渲染器声明同一个精确名或同一个前缀时，谁生效取决于登记先后；与 id 重复一样当成冲突（Spec“失败与恢复”）。
+ * 精确名与前缀互相覆盖是有意的（精确名优先），不算冲突。
+ */
+function checkToolNames(contributions: readonly AgentViewContribution[]): void {
+    const names = new Map<string, string>();
+    const prefixes = new Map<string, string>();
+    for (const contribution of contributions) {
+        for (const entry of contribution.tools ?? []) {
+            for (const name of entry.toolNames ?? []) {
+                const owner = names.get(name);
+                if (owner !== undefined) throw new AgentViewRegistryConflictError("tools", {kind: "toolName", name}, [owner, contribution.source]);
+                names.set(name, contribution.source);
+            }
+            const prefix = entry.toolNamePrefix;
+            if (prefix === undefined) continue;
+            const owner = prefixes.get(prefix);
+            if (owner !== undefined) throw new AgentViewRegistryConflictError("tools", {kind: "toolNamePrefix", prefix}, [owner, contribution.source]);
+            prefixes.set(prefix, contribution.source);
+        }
+    }
 }
 
 function mergePoint<P extends ExtensionPoint>(contributions: readonly AgentViewContribution[], point: P): ExtensionPointEntries[P][] {
@@ -262,7 +302,7 @@ function mergePoint<P extends ExtensionPoint>(contributions: readonly AgentViewC
         for (const entry of entries) {
             const owner = owners.get(entry.id);
             if (owner !== undefined) {
-                throw new AgentViewRegistryConflictError(point, entry.id, [owner, contribution.source]);
+                throw new AgentViewRegistryConflictError(point, {kind: "id", id: entry.id}, [owner, contribution.source]);
             }
             owners.set(entry.id, contribution.source);
             items.push({entry, seq: items.length});
@@ -277,6 +317,7 @@ function mergePoint<P extends ExtensionPoint>(contributions: readonly AgentViewC
  * 不静默覆盖——覆盖会让后登记的来源悄悄改掉内置行为，而且谁生效取决于加载顺序。
  */
 export function createAgentViewRegistry(contributions: readonly AgentViewContribution[]): AgentViewRegistry {
+    checkToolNames(contributions);
     const merged: {[P in ExtensionPoint]: readonly ExtensionPointEntries[P][]} = {
         roles: mergePoint(contributions, "roles"),
         tools: mergePoint(contributions, "tools"),
@@ -291,10 +332,14 @@ export function createAgentViewRegistry(contributions: readonly AgentViewContrib
         toolbarButtons: mergePoint(contributions, "toolbarButtons"),
     };
     const tools = merged.tools.map(guardTool);
+    // 前缀按长度降序：`list_x_` 先于 `list_`，结果与登记顺序无关。
+    const byPrefix = tools
+        .filter((entry) => entry.toolNamePrefix !== undefined)
+        .sort((a, b) => b.toolNamePrefix!.length - a.toolNamePrefix!.length);
     return {
         list: (point) => merged[point],
         resolveTool: (toolName) => tools.find((entry) => entry.toolNames?.includes(toolName))
-            ?? tools.find((entry) => entry.toolNamePrefix !== undefined && toolName.startsWith(entry.toolNamePrefix))
+            ?? byPrefix.find((entry) => toolName.startsWith(entry.toolNamePrefix!))
             ?? GENERIC_TOOL_RENDERER,
     };
 }

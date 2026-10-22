@@ -454,6 +454,7 @@ function makeToolGroup(items: ToolGroupItem[], tools: ToolStep[], registry: Agen
     }
     const phrases: ViewText[] = [];
     for (const [renderer, count] of counts) {
+        // 类型要求 explore 都给 groupPhrase；回退留给不经类型检查的 JS 宿主，不是死代码。
         phrases.push(renderer.groupPhrase?.(count) ?? {key: "toolGroup.generic", params: {count}});
     }
     const active = tools.findLast(isActive) ?? null;
