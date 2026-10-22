@@ -131,7 +131,7 @@ function settingsChoicesEvent(providerId: string): string;
 - `SettingsRow`（`nbook/ui/settings/SettingsRow.vue`）：属性 `settings`（调用方插件的配置服务）、`setting`（配置定义）、`layer`（当前标签）、`locale`（显示语言）、可选的 `projectTitle`（覆盖提示里的书名）与 `wide`（宽排法，输出 9）；控件放在默认插槽里，插槽拿到这一层显示的值、是否停用、给控件用的 id、可访问名称、行标题的 id（`labelId`，给组合控件作 `aria-labelledby`）与生效时机标注、说明的 id（`describedby`，都没有时没有）；行自己的写入没有成功时发 `write-failed`。
 - `SettingsPageList`（`nbook/ui/settings/SettingsPageList.vue`）：页面里的一张列表加下一级页面（输出 19），属性 `items`（每项 `id`、`title`，可选 `description`、`icon`、`status` 与状态色调、`modified`）、`modelValue`（打开的项的 id，`null` 时显示列表；点一项发出这一项的 id，返回发出 `null`，由调用方改值）、`label`（可访问名称）；打开的项的内容放在默认插槽里，插槽拿到这一项（planned）。
 - `SettingsPageActions`（`nbook/ui/settings/SettingsPageActions.vue`）：页面级操作，默认插槽里的按钮画在窗口标题区的右侧（输出 3），页面卸载时一起消失；没有属性（planned）。
-- `SettingsSaveBar`（`nbook/ui/settings/SettingsSaveBar.vue`）：保存栏，属性 `dirty`、`busy`、可选的 `message`（栏左侧的状态文字，有改动时缺省为“有未保存的更改”）；发出 `save`、`discard`。没有改动时两个按钮停用、不写文字（planned）。
+- `SettingsSaveBar`（`nbook/ui/settings/SettingsSaveBar.vue`）：保存栏，属性 `locale`（显示语言）、`dirty`、`busy`、可选的 `canSave`（缺省为真；为假时只停用“保存”，例如这一层连不上，放弃只丢本地草稿、照常可用）与 `message`（栏左侧的状态文字，有改动时缺省为“有未保存的更改”）；发出 `save`、`discard`。没有改动或正在保存时两个按钮停用，没有改动时不写文字（planned）。
 
 前置：`nbook.settings` 的浏览器入口已激活；它激活时读本窗口已接受的全部分区声明与配置项声明。
 
