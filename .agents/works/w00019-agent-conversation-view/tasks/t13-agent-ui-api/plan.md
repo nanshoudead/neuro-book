@@ -48,7 +48,7 @@ export type HostComponentEmits = {action: [action: AgentViewAction]};
 ```
 
 - 走 props 与 emits，不走 provide/inject：组件规范把 inject 算隐藏通道（`docs/standards/code/components.md`“明面通道与隐藏通道”），宿主组件是别人写的，签名上要看得出它拿到了什么。
-- 挂载处统一 `<component :is :call :ctx :services :locale @action="emit('action', $event)">`：`AgentTurnBlock` 的 node、`AgentToolDetail` 的 detail。`AgentToolDetail` 加 `services` 属性与 `action` 事件；`AgentRawView` 给它传 `services` 并转发。内置的 `AgentFileContentDetail`、`AgentCommandDetail`、`AgentTaskListNode` 改为 `defineProps<ToolComponentProps>()`（全量声明，免得多出的 `services` 落成根元素的属性）。
+- 挂载处统一 `<component :is :call :ctx :services :locale @action="emit('action', $event)">`：`AgentTurnBlock` 的 node、`AgentToolDetail` 的 detail。`AgentToolDetail` 加 `services` 属性与 `action` 事件；`AgentRawView` 给它传 `services` 并转发。内置的 `AgentFileContentDetail`、`AgentCommandDetail`、`AgentTaskListNode` 改为 `defineProps<ToolComponentProps>()`（全量声明，免得多出的 `services` 落成根元素的属性），并声明 `action` 事件（不用也声明，免得 `@action` 落成根元素的原生监听）。
 - 渲染出错仍由 t10 的 `RenderGuard` 兜底，不变。
 
 ### 2. 原图预览并进 action：新增 `src/vue/view-action.ts`（取代 `preview.ts`）
@@ -62,7 +62,7 @@ export type ViewAction = AgentViewAction | {type: "image.preview"; image: Previe
 ```
 
 - 内部组件只声明一个事件 `(e: "action", action: ViewAction)`：`AgentMarkdown`、`AgentUserContent`、`AgentConversationComposer`、`AgentConversationTurn`、`AgentTurnBlock`、`AgentRawView` 删掉 `preview-image`，同名 `.md` 删掉那一行。
-- `AgentConversationView` 只有一个入口 `onAction(action: ViewAction)`：`image.preview` 交给现有的 `openPreview`，`composer.submit`/`command.run` 先 `scrollToLatest()`，其余 `emit("action")`。`image.preview` 不进公开的 `AgentViewAction`，宿主永远收不到。
+- `AgentConversationView` 只有一个入口 `onAction(action: ViewAction)`：`image.preview` 交给现有的 `openPreview`，`composer.submit`/`command.run` 先 `scrollToLatest()`（不论来自输入框还是宿主的结果节点，Spec“历史与滚动”改成“发出消息或命令后”），其余 `emit("action")`。`image.preview` 不进公开的 `AgentViewAction`，宿主永远收不到。
 - `AgentMarkdown` 的属性 `services` 换成 `resolveAsset?: MarkdownAssetResolver`（它只读这一项），调用处传 `props.services.resolveMarkdownAsset`。
 - Composer 与 UserContent 里相同的“标签点击 → action 或预览”合成一个 `vue/view-action.ts` 里的 `tokenAction(token, imageName): ViewAction | null`（maint 5 的第五条重复），复用核心 `promptTokenOutcome`。
 
@@ -71,8 +71,9 @@ export type ViewAction = AgentViewAction | {type: "image.preview"; image: Previe
 核实：`isOutcome` 只认最终回复与错误；`findFinalReply` 遇到最后一条带工具调用的 assistant 消息返回 null。以 node 呈现的 `answer` 收尾调用排在末尾时 `outcomeStart === blocks.length`，整轮收起后答案卡片随过程一起收进摘要（complete 1 属实）。
 
 - `ToolRendererEntry` 加 `outcome?: boolean`：“只对 node 有效。成功的调用位于一轮末尾时算这一轮的结果，整轮收起后仍显示。”
+- `splitTrailing` 的锚点改为“最后一个结果块”（最终回复，或成功的结果节点），不再只认 `content.final`：否则结果节点之后跟着压缩或分支摘要的分隔线时，分隔线留在 `blocks` 末尾，倒扫第一步就停住，答案又被折进摘要（设计审查第 1 条，已用现有代码复现 `outcomeStart === blocks.length`）。
 - `isOutcome(block, registry)` 增加一条：`block.kind === "node" && registry.resolveTool(block.step.call.name).outcome === true && block.step.call.status === "success"`。`findOutcomeStart` 的倒扫规则不变（越过结果与信息条目），所以被退回的那几次（`status: "error"`）留在过程里，只有最后交成功的那次露在结果区。
-- `ConversationTurn` 加 `outcomeMessage: AssistantMessageView | null`：最终回复，或发出结果调用的那条 assistant 消息。`AgentConversationTurn` 的助手一侧操作条从 `turn.finalReply` 改用它，结构化答案的轮次也有复制、重试、分支（Spec 同步改为“作用于结果所在的消息”）。
+- `ConversationTurn` 加 `outcomeMessage: AssistantMessageView | null`：最后一个结果块所属的消息（最终回复与结果节点并存时取排在后面的那个）。`AgentConversationTurn` 的助手一侧操作条从 `turn.finalReply` 改用它，结构化答案的轮次也有重试、分支（Spec 同步改为“作用于结果所在的消息”）。复制按结果的种类分：结果是最终回复时照旧 `message.copy`，结果是节点时发 `tool.copy {toolCallId}`（答案在工具参数里，那条消息的正文通常为空）；内置 `copy` 登记项据此选 action，Spec 写明。
 - 整轮摘要的操作次数不计结果调用（它显示在结果区，不是过程）：`computeMetrics` 收结果调用的 id 排除。
 - 不变量：运行中与等待中的轮次不收起，`outcome` 只影响已结束轮次的折叠与操作条。
 
@@ -81,7 +82,7 @@ export type ViewAction = AgentViewAction | {type: "image.preview"; image: Previe
 核实：`vue/builtin-tools.ts` 里只有 `detail`、`node` 四个组件字段需要 Vue；分轮测试因此放在 `vue/*.dom.test.ts`；`fileDiffLines` 按 `call.name` 分支；`AgentFileDiffDetail` 的标题与 `edit`、`apply_patch` 的 `summary` 逐字相同；Lab `domain-tools.ts` 复制了一份 `argString`；`explore` 的 `groupPhrase` 注释说必填、类型是可选（maint 1、maint 2、api 7 属实）。
 
 - **核心 `builtin-tools.ts`**：`builtinToolRenderers: readonly ToolRendererEntry[]`，现有十四项去掉组件字段，其余（类别、图标、文字、`summary`、`groupPhrase`、`effects`）原样搬来。write、edit、apply_patch 各自带 `diff`（下一条），`fileDiffLines` 里按工具名的三个分支拆进对应项。不从核心入口导出（没有非 Vue 使用方），核心测试按相对路径用。
-- **登记项交出 diff**：`ToolRendererEntry` 加 `diff?: (call: ToolCallView) => CodeLine[]`。`AgentToolDetail` 在没有 `detail` 而有 `diff` 时自己画一段 `CodeBlock`，标题取 `summary(call)`；出错且没有结果时照旧附原始参数。`AgentFileDiffDetail` 删除（组件、`.md`、Lab 登记），它的场景并进 `AgentToolDetail` 的场景。改文件的领域工具只要给 `effects` 与 `diff` 就有 diff 详情。`registry.ts` 的 `guardTool` 也包 `diff`，抛错时当作没有 diff（显示原始参数与结果）。`CodeLine` 从 `tool-detail-lines.ts` 公开。
+- **登记项交出 diff**：`ToolRendererEntry` 加 `diff?: (call: ToolCallView) => CodeLine[] | null`（null 表示这次调用给不出 diff，例如参数还是半截）。`AgentToolDetail` 在没有 `detail` 而有 `diff` 时自己画一段 `CodeBlock`，标题取 `summary(call)`；出错且没有结果时照旧附原始参数。`AgentFileDiffDetail` 删除（组件、`.md`、Lab 登记），它的场景并进 `AgentToolDetail` 的场景。改文件的领域工具只要给 `effects` 与 `diff` 就有 diff 详情。`registry.ts` 的 `guardTool` 也包 `diff`，抛错时返回 null，`AgentToolDetail` 对 null 退回原始参数与结果（空数组仍是“内容为空”）。`CodeLine` 从 `tool-detail-lines.ts` 公开。
 - **`tool-formats.ts`**：补丁与 hashline 解析（`parsePatchChanges`、`editInputChanges`、`patchLine`）从 `tool-args.ts`、`tool-detail-lines.ts` 挪来；`tool-args.ts` 只留通用读取 `argString`、`argArray`、`argNumber`、`objectString`、`countLines`，并从核心入口导出（契约是“流式半截参数不抛”，宿主不必各写一份）。
 - **`vue/builtin-tools.ts`** 缩成按 id 挂组件：
 
@@ -105,7 +106,8 @@ export type ViewAction = AgentViewAction | {type: "image.preview"; image: Previe
       | (ToolRendererBase & {category: "mutate" | "interact" | "other"; groupPhrase?: never});
   ```
 
-- **工具名重叠报冲突**：`createAgentViewRegistry` 对不同 id 的两项声明了同一个精确工具名或同一个前缀时，抛 `AgentViewRegistryConflictError("tools", "toolName:<名>", [来源甲, 来源乙])`。现在静默按 order 取第一个，与“不静默覆盖”的注释矛盾（api 7 第 4 点）。要替换内置渲染器的宿主先从内置登记里过滤掉那一项。
+- **`guardTool` 按类别重写**：现在“先解构再条件展开”的写法在联合下推不出类别与 `groupPhrase` 的对应（设计审查已用包内 `tsc` 复现 TS2322）；改为 `{...entry, summary, effects, diff}` 一次替换受保护的回调，`explore` 分支单独补 `groupPhrase`。`makeToolGroup` 里 `groupPhrase?.() ?? toolGroup.generic` 的回退对有类型的宿主不可达，为 JS 宿主与 `guardTool` 保留，写一句注释。`conversation-turns` 测试里登记了没有 `groupPhrase` 的插件 `explore`，补上短语。
+- **工具名重叠报冲突**：`createAgentViewRegistry` 对不同 id 的两项声明了同一个精确工具名或同一个前缀时，抛冲突错误；错误类加一个 `key` 字段与对应消息（“工具名 read 被两个渲染器声明”），不把名字塞进 `id`。前缀与前缀之间改为取最长匹配（`list_x_` 先于 `list_`），与精确名优先一致、与登记顺序无关；冲突只判相同的名字或相同的前缀。现在静默按 order 取第一个，与“不静默覆盖”的注释矛盾（api 7 第 4 点）。要替换内置渲染器的宿主先从内置登记里过滤掉那一项，README 给一行写法（`{...builtinToolsContribution, tools: builtinToolsContribution.tools.filter((tool) => tool.id !== "read")}`）。
 - **测试回到 Bun**：`vue/conversation-turns.dom.test.ts` 改名挪到 `src/conversation-turns.test.ts`，`vue/registry.dom.test.ts` 挪到 `src/registry.test.ts`，都改用核心 `builtinToolRenderers`。`tool-detail-lines.test.ts` 的 diff 用例挪到 `src/builtin-tools.test.ts`，按登记项的 `diff` 断言。核心不引 `.vue`，由 `boundary.test.ts` 机检。
 
 ### 5. 收窄公开面：`src/index.ts`、`src/vue/index.ts`、新增 `src/vue/lab.ts` 与 `package.json` 的 `./lab`
@@ -129,7 +131,7 @@ export type ViewAction = AgentViewAction | {type: "image.preview"; image: Previe
   ```
 
   不并进 `./lab-sources`：组件索引 `component-index.ts` 静态导入 `lab-sources`，再挂上 `host.ts` 会把缺省组件拉进 Lab 首屏；`./lab` 只在选中场景时动态加载。
-- **内部零件的文档**：保留 `.md` 与 Lab 场景（Lab 按 `.md` 建索引，`index.dom.test.ts` 要求可挂载组件至少一个场景）；新拆出的内部组件（第 8 项）不写 `.md`、写模块头注释。包的 `AGENTS.md` 改为：“入口导出的组件是受管组件，同名 `.md` 必有（`docs:check`）；要在 Lab 单独看的内部零件也写同名 `.md` 并登记场景，经 `./lab` 挂载；其余内部组件写模块头注释。”受管组件因此只剩 `AgentConversationView`，`scripts/ci/check-documentation.ts` 的 `COMPONENT_BARRELS` 不用改。
+- **内部零件的文档**：保留 `.md` 与 Lab 场景（Lab 按 `.md` 建索引，`index.dom.test.ts` 要求可挂载组件至少一个场景）；新拆出的内部组件（第 8 项）也按组件规范写同名 `.md`（`docs/standards/code/components.md`“新建组件必须有同名文档”不分是否受管），只写职责、数据与 `验证入口: AgentConversationView`，不单独登记场景。包的 `AGENTS.md` 改为：“入口导出的组件是受管组件（`docs:check` 机检标签）；内部组件同样有同名 `.md`，要在 Lab 单独看的登记场景并经 `./lab` 挂载，其余写 `验证入口`。”收窄后只剩 `AgentConversationView` 受 `docs:check` 的标签机检，其余 `.md` 的标签靠人审，记为取舍。受管组件因此只剩 `AgentConversationView`，`scripts/ci/check-documentation.ts` 的 `COMPONENT_BARRELS` 不用改。
 
 ### 6. 宿主起步套件：`src/context.ts`（新）、`src/composer-actions.ts`、`src/harness.ts`、`src/types.ts`、`src/vue/builtins.ts`（新）
 
@@ -142,26 +144,27 @@ export type ViewAction = AgentViewAction | {type: "image.preview"; image: Previe
   /** 顶层字段整个替换；上面这几个区域按字段合并，宿主只写自己有的。 */
   export type AgentContextPatch = Partial<Omit<AgentConversationContext, MergedSections>>
       & {[K in MergedSections]?: Partial<AgentConversationContext[K]>};
-  export function createAgentContext(patch?: AgentContextPatch): AgentConversationContext;
+  export function createAgentContext(patch?: AgentContextPatch): AgentConversationContext; // 每次构造新的对象与数组，两次调用互不影响
   ```
 
-  缺省值是“什么都没有”：`session: null`、`availability.status: "ready"`、`interaction` 全部 false（宿主声明自己支持什么）、`run: idle`、空消息、`composer` 没有模型、模式、附件，草稿 `{text: "", version: 0}`，`usage.currency: "USD"`，`now: 0`。字段不改成可选：视图里到处是 `ctx.x.y`，可选会把空值分支散进各组件（api 1 的理由成立）。Lab 的 `conversationContext` 改为在它之上加数据。
+  缺省值是“什么都没有”：`session: null`、`availability.status: "ready"`、`interaction` 全部 false（宿主声明自己支持什么）、`run: idle`、空消息、`composer` 没有模型、模式、附件，草稿 `{text: "", version: 0}`，`usage.currency: "USD"`，`now: 0`。字段不改成可选：视图里到处是 `ctx.x.y`，可选会把空值分支散进各组件（api 1 的理由成立）。`interaction` 缺省全为 false 意味着挂上去是只读输入框，README 的最小宿主显式写出 `interaction`。`composer` 等区域逐字段合并，但 `draft` 整体替换，写进注释。Lab 的 `conversationContext` 改为在它之上加数据。
 - **输入框动作**（`composer-actions.ts`）：
 
   ```ts
-  /** 输入框自己就能定下结果的 action：草稿回声（只换文字不换版本）、mode.set、model.set、thinking.set，
-   *  附件的登记（记为上传中）、重试（回到上传中）与移除。其余返回 null，由宿主处理。上传本身仍是宿主的事。 */
+  /** 只改状态、不需要宿主再动手的 action：草稿回声（只换文字不换版本）、mode.set、model.set、thinking.set。
+   *  其余返回 null。附件的登记、重试、移除既要改状态又要宿主上传或释放，不在这里（设计审查第 3 条）。 */
   export function applyComposerAction(composer: ComposerView, action: AgentViewAction): ComposerView | null;
-  /** 宿主受理了一次发送或命令：草稿清空并换版本，原文放到输入历史最前（去重）。 */
-  export function acceptSubmission(composer: ComposerView, sent: string): ComposerView;
+  /** 宿主受理了一次发送或命令：当前草稿原文（`draft.text`，即编辑器最近一次回声）放到输入历史最前并去重，草稿清空并换版本。
+   *  命令也用草稿原文，不由宿主用 name 与 argsText 拼回；命令与普通发送一样去重（现在 Lab 宿主的命令不去重，改成一致）。 */
+  export function acceptSubmission(composer: ComposerView): ComposerView;
   ```
 
-  不做带状态的会话控制器：附件上传、持久化与权限都在宿主（api 2 的判断成立）。Lab `composer-host.ts` 改用这两个函数，只留上传模拟、命令与菜单。
+  不做带状态的会话控制器：附件上传、持久化与权限都在宿主（api 2 的判断成立）。Lab `composer-host.ts` 改用这两个函数，留附件三个 action、上传模拟、命令与菜单。
 - **内置登记一次拿全**：`vue/builtins.ts` 导出 `builtinContributions: readonly AgentViewContribution[]`（角色、工具、消息操作、输入框四份）。README 示例写 `createAgentViewRegistry([...builtinContributions, ...宿主的])`；Lab 的 `labAgentRegistry` 用它，删掉 `extra` 补登记的写法。
-- **服务可选**：`AgentConversationServices` 的 `resolveAttachmentUrl`、`resolveTriggerMenu` 改为可选。缺 `resolveAttachmentUrl` 时附件显示“不可用”；缺 `resolveTriggerMenu` 时不把 `/` 之外的触发字符交给编辑器（没有菜单就不打开空菜单），`/` 命令照常。“数据变化时换一个新函数”写进 README。
-- **运行状态**：`HarnessTranscript` 加 `run(): RunView`：收到 `agent_start` 事件后 `{status: "running", phase: ""}`，收到 `agent_end` 事件或日志 `run_end` 后回到 idle。模块头写明只按事件推出：只推日志的宿主、断线后只补日志的宿主得不到“运行中”，`stopping`、`waiting` 由宿主自己覆盖。
+- **服务可选**：`AgentConversationServices` 的 `resolveAttachmentUrl`、`resolveTriggerMenu` 改为可选。缺 `resolveAttachmentUrl` 时附件显示“不可用”；缺 `resolveTriggerMenu` 时不把 `/` 之外的触发字符交给编辑器（没有菜单就不打开空菜单），`/` 命令照常。“数据变化时换一个新函数”写进 README。要改的调用点不止两处：`AgentConversationView.vue` 的 `openPreview`、`AgentConversationComposer.vue` 两处、`AgentConversationTurn.vue`、`AgentTurnBlock.vue`、`AgentRawView.vue` 各一处，`AgentUserContent` 的属性 `resolveAttachmentUrl` 改可选。
+- **运行状态**：`HarnessTranscript` 加 `run(): RunView`：收到 `agent_start` 事件后 `{status: "running", phase: ""}`，收到 `agent_end` 事件或日志 `run_end` 后回到 idle。模块头写明只按事件推出：只对本页收到过 `agent_start` 的运行有效；页面刷新、断线重连后只补日志时得不到“运行中”（nb-story 一轮一到六分钟，这是常见情形），`stopping`、`waiting` 也由宿主覆盖。README 写成“运行状态以宿主的服务端状态为准，`run()` 只是没有服务端状态时的退路”。
 - **类型小改**：删 `ComposerView.attachmentCount`；`AgentConversationContext.messages` 改为 `readonly MessageView[]`，宿主可以直接放 `transcript.messages()`（api 14 的后半，组件属性跟着改 readonly）。
-- **README** 的“宿主接入”换成一个最小宿主（约 30 行）：`createAgentContext` 起步、`builtinContributions`、`applyComposerAction` 加 `acceptSubmission`、`transcript.run()` 与 `transcript.messages()` 写回、一个 1 秒的定时器更新 `now`。补“草稿回声与版本号”“`now` 要宿主打节拍”各一句。
+- **README** 的“宿主接入”换成一个最小宿主（约 30 行）：`createAgentContext` 起步、`builtinContributions`、`applyComposerAction` 加 `acceptSubmission`、`transcript.messages()` 写回、运行状态取宿主自己的（`run()` 作退路）、只在运行中每秒更新 `now`。补“草稿回声与版本号”“`now` 要宿主打节拍”各一句。
 
 ### 7. 行为原则（先写 Spec，再实现）：`src/vue/AgentConversationView.vue`、`composer/AgentConversationComposer.vue`、`src/vue/host.ts`、`src/composer-actions.ts`、`src/types.ts`
 
@@ -169,10 +172,10 @@ export type ViewAction = AgentViewAction | {type: "image.preview"; image: Previe
 
 - **没有数据的区域不显示**：
   - 模型下拉在 `composer.models` 与 `composer.thinkingLevels` 都为空时不渲染；模式按钮已是 `modes` 为空不渲染，不变。
-  - 消息流为空时按 `availability.status` 显示：`loading` 显示加载中，`ready`、`empty` 显示“还没有消息”，其余显示 `availability.message`（为空时退回“还没有消息”）。
-  - 顶栏要不要显示没有可依据的数据：nb-story 有会话（切换对话时要靠 `session.id` 清界面状态、回到最新），却已有自己的页面标题。加一个属性 `header?: boolean`（缺省 true），nb-story 传 false。不加别的布尔属性。
-- **运行中逐步展开**：视图属性 `processDisclosure?: "collapsed" | "live"`（缺省 `collapsed`，即现行 Spec）。经 `provideAgentView` 的同一个提供对象交给轮次组件（`host.ts` 加一项 getter，不新增注入键），免得穿过 Turn、TurnBlock、ChainBlock 三层属性。`live` 时，运行中与等待中轮次里的思维链与工具组默认展开，逐步列出每一步；卡片与思考仍折叠。用户点过的以用户为准；轮次结束后默认值回到折叠，整轮收起规则不变。工具组也展开是因为 nb-story 的步骤大多是 `read` 与查询，不展开组就仍是一行（决定 7 要“每一步一行”）。
-- **运行中能否投递由宿主声明**：`InteractionView` 加 `canSteer: boolean`、`canQueue: boolean`。运行中：回车在 `canSteer` 时发 steer，否则在 `canQueue` 时发 followup，否则不发；Ctrl/⌘+回车只在 `canQueue` 时发 followup。两者都不允许时输入框仍可写，发送键禁用、提示“运行结束后发送”；占位文字按允许的组合取四条之一（文字表加三条，中英各一）。`resolveSubmission` 的输入加 `deliveries: {steer: boolean; followup: boolean}`，判定仍在核心纯函数里。harness 宿主（nb-story、主应用）两项都给 false。
+  - 消息流为空时只分两种：`loading` 显示加载中，其余显示“还没有消息”。其余状态的说明与恢复动作由 t11 的横幅显示，这里不先显示一份，免得 t11 上线后同一句话出现两次。
+  - 顶栏要不要显示没有可依据的数据：nb-story 有会话（切换对话时要靠 `session.id` 清界面状态、回到最新），却已有自己的页面标题。加一个属性 `header?: boolean`（缺省 true），nb-story 传 false。不加别的布尔属性。Spec 写明：关掉顶栏也就关掉了切到原始视图的入口，宿主要切换时用受控属性 `viewMode`。
+- **运行中逐步展开**：视图属性 `processDisclosure?: "collapsed" | "live"`（缺省 `collapsed`，即现行 Spec）。沿属性往下传：View 交给 Turn，Turn 算出“这一轮运行中或等待中且为 `live`”，作为布尔属性 `live` 交给 TurnBlock 与 `AgentChainBlock`，再作为 `useOpenSet` 的 `fallback`。不走 `provideAgentView`：第 1 项为宿主组件选 props 的理由（注入是隐藏通道）对包内设置同样成立，`turnStatus` 本来也是这样一层层传下去的，Lab 单挂 TurnBlock 也能直接传 `live` 演示（设计审查第 8 条）。`live` 时，运行中与等待中轮次里的思维链与工具组默认展开，逐步列出每一步；卡片与思考仍折叠。用户点过的以用户为准；轮次结束后默认值回到折叠，整轮收起规则不变。展开状态在 ChainBlock 与 TurnBlock 的实例里，整轮收起后过程被卸载，再展开时各段回到默认值；Spec 写明这一点，不为保留它把状态提到 Turn。工具组也展开是因为 nb-story 的步骤大多是 `read` 与查询，不展开组就仍是一行（决定 7 要“每一步一行”）。
+- **运行中能否投递由宿主声明**：`InteractionView` 加 `canSteer: boolean`、`canQueue: boolean`。运行中：回车在 `canSteer` 时发 steer，否则在 `canQueue` 时发 followup，否则不发；Ctrl/⌘+回车只在 `canQueue` 时发 followup。两者都不允许时输入框仍可写，发送键禁用、提示“运行结束后发送”；占位文字按允许的组合取四条之一（文字表加三条，中英各一）。`resolveSubmission` 的输入加 `deliveries: {steer: boolean; followup: boolean}`，判定仍在核心纯函数里。边界：`canSteer` 为真、`canQueue` 为假时 Ctrl/⌘+回车不发送（不退回 steer）；`/名称` 命令先于投递判定，运行中照常发 `command.run`，不受两个开关限制；`running`、`waiting`、`stopping` 三种状态都按“运行中”判定。这三条写进验收 23 与 `composer-actions.test.ts` 的用例表。harness 宿主（nb-story、主应用）两项都给 false。
 
 ### 8. 拆分 `AgentTurnBlock` 与收重复：`src/vue/stream/`、`src/vue/parts/`、`src/vue/composer/`、核心
 
@@ -180,7 +183,8 @@ export type ViewAction = AgentViewAction | {type: "image.preview"; image: Previe
 
 - `stream/AgentChainBlock.vue`（内部）：只管思维链（摘要行加展开后的步骤），持有自己的展开状态。`AgentTurnBlock` 只做块种类分派，目标 250 行以内。
 - `stream/AgentToolStepRow.vue`（内部）：一个工具步骤一行，图标、名称、摘要、状态、改文件的增删统计都从注册表取，展开是 `AgentToolDetail`；工具组内一项、出错露出的一项、顶层一项共用。`stream/AgentTextStepRow.vue`（内部）：思考与系统提示词一行，折叠时显示第一行，展开是淡色 Markdown。两者都内置 `running-label`。
-- `vue/use-open-set.ts`：`useOpenSet()` 返回 `{isOpen(id, fallback = false), set(id, open)}`，没设过的跟随 `fallback`（第 7 项的 `live` 默认值从这里进）；ChainBlock、TurnBlock、RawView 共用。
+- `vue/use-open-set.ts`：`useOpenSet()` 返回 `{isOpen(id, fallback = false), set(id, open)}`，没设过的跟随 `fallback`（第 7 项的 `live` 属性从这里进）；ChainBlock、TurnBlock、RawView 共用。
+- `now` 只让运行中的最新一轮依赖：Turn 里 `buildTurn` 的 `now` 改为 `latest && 运行中 ? ctx.now : 0`，已结束的轮次不再随宿主每秒换 `now` 重算（设计审查第 6 条；`computeMetrics` 只对运行中轮次用 `now`，结果不变）。
 - `parts/AgentCodeBlock.vue`（内部）：包 nb-ui `CodeBlock`，绑定空内容与截断两条文字；9 处调用改用它。
 - 核心 `tool-status.ts`：`toolCallPhase(status): "running" | "error" | "done"`，`isActive`、`isFailed`、步骤行、RawView、TaskListNode（`done` 映射成 `success`）都用它；新增状态时只改一处。
 - 核心 `format.ts`：`formatClock(timestamp, locale)`、`firstLine(text)`；`process-summary.ts` 的 `formatCost` 导出到包内，RawView 的用量行改用它（修掉 `$null`）。
@@ -210,15 +214,17 @@ export type ViewAction = AgentViewAction | {type: "image.preview"; image: Previe
 
 - `docs/specs/ui/agent-conversation-view.md`（主工作区）：
   - “术语与参与者”：“结果与过程”改为“结果是一轮末尾连续的最终回复、错误与结果节点”；加“结果节点”：渲染器声明为结果、调用成功的 node。
-  - “Props 与事件”：加 `header?: boolean`、`processDisclosure?: "collapsed" | "live"`；写明公开组件只有 `AgentConversationView`。
+  - “Props 与事件”：加 `header?: boolean`（关掉顶栏也关掉原始视图的切换入口，宿主用 `viewMode`）、`processDisclosure?: "collapsed" | "live"`；写明公开组件只有 `AgentConversationView`。
   - “ctx 的组成”：`interaction` 加“运行中能否补充说明、能否排队”。
   - “服务”：`resolveAttachmentUrl`、`resolveTriggerMenu` 改可选，写缺省行为。
   - “注册表”：工具渲染器加“diff 行”“是否算结果（只对 node）”；加一段宿主组件的约定（收 `ctx`、`services`、`locale` 与自己的数据，只发 action）。
   - “顶栏”：`header` 为 false 时不显示。“分轮视图”：Agent 一侧的操作作用于结果所在的消息；结果调用不计入整轮摘要的操作次数。
   - “展开与折叠”：“思维链默认折叠，运行中也不自动展开”后加 `live` 的例外。
   - “输入框与待处理区”：运行中回车与 Ctrl/⌘+回车按 `canSteer`、`canQueue`；模型下拉在没有模型与思考档位时不显示。
-  - “历史与滚动”或“消息”：消息流为空时按 `availability` 显示。
-  - “失败与恢复”：工具名或前缀重叠时构造失败；`diff` 抛错时退回原始参数与结果。
+  - “历史与滚动”或“消息”：消息流为空时 `loading` 显示加载中，其余显示“还没有消息”；发出消息或命令后回到最新，不论来自输入框还是宿主组件。
+  - “展开与折叠”：整轮收起后再展开，里面各段回到默认展开状态。
+  - “失败与恢复”：两个渲染器声明相同的工具名或相同的前缀时构造失败，前缀互相包含时取最长匹配；`diff` 抛错时退回原始参数与结果。
+  - “分轮视图”的复制：结果是节点时复制发 `tool.copy`。
   - “验收与 Smoke”：加 20 到 25 条（见验收映射），Smoke 段补上新增的 e2e。
 - `packages/nb-agent-ui/README.md`：重写“宿主接入”（最小宿主、草稿回声、`now`、服务的“换函数”约定），删“单独挂零件”。
 - `packages/nb-agent-ui/AGENTS.md`：“入口导出的组件”一条按第 5 项改。
@@ -249,22 +255,22 @@ export type ViewAction = AgentViewAction | {type: "image.preview"; image: Previe
 |---|---|
 | 验收 13（新 explore 工具并入工具组） | `src/registry.test.ts`、`src/conversation-turns.test.ts`（Bun） |
 | 验收 15（渲染器抛错只降级该项） | 已有 `RenderGuard` 的 dom 测试；补 `diff` 抛错的 `src/registry.test.ts` 用例 |
-| 新 20：结果节点在整轮收起后仍显示，被退回的那几次留在过程里，助手一侧有操作条 | `src/conversation-turns.test.ts`；`src/harness.contract.test.ts` 用真实 nb-harness 跑收尾工具 `answer`（现有“收尾工具完成”用例的日志）再 `buildTurns`；e2e `answer` 场景 |
+| 新 20：结果节点在整轮收起后仍显示（其后跟压缩或分支摘要分隔线时也一样），被退回的那几次留在过程里，助手一侧有操作条，复制发 `tool.copy` | `src/conversation-turns.test.ts`（含结果之后跟分隔线、结果节点与最终回复并存两例）；`src/harness.contract.test.ts` 用真实 nb-harness 跑收尾工具 `answer`（现有“收尾工具完成”用例的日志）再 `buildTurns`；e2e `answer` 场景 |
 | 新 21：宿主登记的 node 与 detail 收到 `services`、`locale`，发出的 action 到达宿主；原图预览不到宿主 | `vue/AgentConversationView.dom.test.ts`；e2e `answer` 场景点出处得 `reference.open` |
 | 新 22：`processDisclosure: "live"` 时运行中思维链与工具组展开，结束后整轮收起 | `vue/AgentConversationView.dom.test.ts`（或 TurnBlock 挂载测试）；e2e `running-live` |
-| 新 23：`canSteer`、`canQueue` 为 false 时运行中回车不发送、输入框可写、发送键禁用 | `src/composer-actions.test.ts`（`resolveSubmission`）；e2e `running-no-steer` |
-| 新 24：没有模型与思考档位时不显示模型下拉；`header` 为 false 时没有顶栏；空消息流按 `availability` 显示 | `vue/AgentConversationView.dom.test.ts`；e2e `embedded` |
-| 新 25：两个渲染器声明同一工具名时构造失败 | `src/registry.test.ts` |
+| 新 23：`canSteer`、`canQueue` 为 false 时运行中回车不发送、输入框可写、发送键禁用；只许 steer 时 Ctrl/⌘+回车不发送；命令照常执行；`waiting`、`stopping` 同运行中 | `src/composer-actions.test.ts`（`resolveSubmission`）；e2e `running-no-steer` |
+| 新 24：没有模型与思考档位时不显示模型下拉；`header` 为 false 时没有顶栏；空消息流 `loading` 显示加载中；不提供 `resolveAttachmentUrl`、`resolveTriggerMenu` 时附件显示占位、点击不报错、输入 `@` 不打开空菜单 | `vue/AgentConversationView.dom.test.ts`；e2e `embedded` |
+| 新 25：两个渲染器声明同一工具名或同一前缀时构造失败，前缀互相包含时取最长匹配 | `src/registry.test.ts` |
 | 验收 4、11、12 与“历史与滚动”（回归） | e2e `lab-agent-ui` 现有用例 |
 | 验收 17（390 宽）、18（明暗） | `lab-scenes.e2e.ts` 巡检新场景 |
 
-起步套件不是行为合同，由单测覆盖：`src/context.test.ts`（合并规则与缺省值）、`src/composer-actions.test.ts`（`applyComposerAction` 每种 action、`acceptSubmission` 去重与版本、`sendBlockedReason` 三种情形）、`src/harness.test.ts` 与契约测试（真实 harness 事件里 `agent_start` 之后 `run()` 是 running，`agent_end` 后 idle）、`src/entry.test.ts` 经包名导入。
+起步套件不是行为合同，由单测覆盖：`src/context.test.ts`（合并规则、缺省值、两次调用互不影响）、`src/composer-actions.test.ts`（`applyComposerAction` 四种 action 与附件 action 返回 null、`acceptSubmission` 对发送与命令都去重并换版本、`sendBlockedReason` 三种情形）、`src/harness.test.ts` 与契约测试（真实 harness 事件里 `agent_start` 之后 `run()` 是 running，`agent_end` 后 idle）、`src/entry.test.ts` 经包名导入。
 
 ## 验证
 
 - 每片：包验证、应用验证；涉及 Lab 或渲染的切片跑 e2e（先停掉多余的开发服务，本机内存紧时 Lab 首屏会超时）。
 - 切片 7 后在 Lab 里手动看一遍 `nb-agent-ui` 组：每个零件场景能打开，`answer`、`running-live`、`running-no-steer`、`embedded` 四个新场景在 390 与 1200 宽、明暗两种主题下正常。
-- 公开面用 `src/entry.test.ts`、`vue/entry.dom.test.ts` 按包名导入核对；另用 `rg '@notnotype/nb-agent-ui' packages --glob '!packages/nb-agent-ui/**'` 确认仓库里只有 Lab 用 `./lab`。
+- 公开面用 `src/entry.test.ts`、`vue/entry.dom.test.ts` 按包名导入核对；另用 `rg "nb-agent-ui/lab['\"]" packages --glob '!packages/nb-agent-ui/**'` 确认仓库里只有 Lab 用 `./lab`。
 - 未验证边界：nb-story 问答页还没写，起步套件对它省了多少代码只能按 README 的最小宿主推断；主应用接入在 t11 之后。
 
 ## 不做与风险
@@ -280,9 +286,19 @@ export type ViewAction = AgentViewAction | {type: "image.preview"; image: Previe
 - **结果判定写偏**：结果节点只在“调用成功且排在末尾”时成立，靠倒扫规则排除被退回的调用。兜底测试用真实 nb-harness 的收尾工具日志（`harness.contract.test.ts` 的脚本化模型加真实 `createHarness`，不是自造的 `MessageView`），实施时核对这条测试确实走到 `buildTurns` 的结果判定。
 - **`./lab` 被宿主当成接口用**：入口模块头写明只给 Lab；验证步骤里 `rg` 核对使用方。
 - **测试挪到 Bun 后静默漏引 `.vue`**：核心的 `builtin-tools.ts` 不许引组件，由 `boundary.test.ts` 机检；Bun 加载 `.vue` 会直接失败，不会静默通过。
-- **`processDisclosure` 走注入**：Lab 单挂 TurnBlock 时没有提供方，按缺省 `collapsed` 显示，与现状一致；注入沿用已有的 `state:inject`，各 `.md` 的“隐藏通道理由”补一句。
 - **删 `AgentFileDiffDetail`**：它的三个场景搬进 `AgentToolDetail` 后要逐个打开核对，e2e 没有直接引用它。
 - **公开面收窄后再有宿主想单挂输入框**：到时按需加回 `AgentConversationComposer` 一个，并补齐它的 `ViewAction` 收口（预览要能在单挂时打开），不在本 Task 预做。
+
+## 设计审查（2026-10-22）
+
+一个 Sonnet 审查（包属前端），14 条：重要 5、建议 9，[报告](evidences/design-review.txt)。全部成立，已改进上文：
+
+- 重要 1 结果节点之后跟分隔线仍被折叠：`splitTrailing` 锚点改为最后一个结果块（第 3 项）。
+- 重要 2 结构化答案的复制：结果是节点时发 `tool.copy`（第 3 项）。
+- 重要 3 `applyComposerAction` 让附件上传卡住：附件三个 action 留给宿主；`acceptSubmission` 用草稿原文，命令也去重（第 6 项）。
+- 重要 4 类别联合下 `guardTool` 过不了类型检查、`diff` 抛错表达不出：`guardTool` 重写，`diff` 可返回 null（第 4 项）。
+- 重要 5 内部组件不写 `.md` 与组件规范冲突：新内部组件写短 `.md` 加 `验证入口`，不改规范（第 5 项）。
+- 建议 6 到 14：`now` 只让运行中的最新一轮依赖；服务可选补验收与调用点；`processDisclosure` 改走属性；空消息流不先显示横幅那句、`header` 写明连带关掉原始视图入口；`run()` 降为退路；投递开关的三条边界；前缀取最长匹配、冲突错误加 `key`、README 给过滤内置渲染器的写法；`createAgentContext` 每次新对象、最小宿主写出 `interaction`；展开状态整轮收起后重置写进 Spec、核对命令、内置组件声明 `action`、回到最新不论来源、`outcomeMessage` 取最后一个结果块。
 
 ## 开发者已确认（2026-10-22）
 
