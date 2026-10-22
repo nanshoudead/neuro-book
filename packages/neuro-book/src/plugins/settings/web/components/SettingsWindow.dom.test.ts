@@ -683,6 +683,7 @@ describe("Lab“模型服务”：一张列表加下一级页面、草稿、未�
         expect(document.body.querySelector("[data-sample-models-general]")).toBeNull();
         expect(titleText()).toBe("本地 Ollama");
         expect(one("[data-settings-heading-back]").textContent?.trim()).toBe("模型服务");
+        expect(one("[data-settings-heading-back]").getAttribute("aria-label")).toBe("返回 模型服务");
         expect(detailInputs()[1]!.value).toBe("本地 Ollama");
         // 详情里一直有保存栏，没有改动时两个按钮停用。
         expect(action("保存").disabled).toBe(true);

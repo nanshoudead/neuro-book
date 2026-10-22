@@ -52,6 +52,7 @@ const TEXT = {
     groupAi: {"zh-CN": "写作助手", "en-US": "Writing assistant"},
     groupPlugins: {"zh-CN": "扩展", "en-US": "Extensions"},
     openHit: {"zh-CN": "打开：{title}", "en-US": "Open: {title}"},
+    back: {"zh-CN": "返回 {title}", "en-US": "Back to {title}"},
     results: {"zh-CN": "{settings} 个设置、{pages} 个页面", "en-US": "{settings} settings, {pages} pages"},
     leaveTitle: {"zh-CN": "放弃未保存的更改？", "en-US": "Discard unsaved changes?"},
     leaveDescription: {"zh-CN": "“{title}”有未保存的更改。离开此页面后，这些更改将会丢失。", "en-US": "“{title}” has unsaved changes. They will be lost if you leave this page."},
@@ -105,7 +106,7 @@ function openFile(): void {
 /** 页面登记了标题替换时，标题区写“‹ 分区标题”与页面给的标题（输出 19）；只对 page 分区生效。 */
 const replacement = computed((): SettingsSectionReplacement | null => {
     const claim = chrome.titleClaim.value;
-    return claim === null || current.value?.kind !== "page" ? null : {title: claim.title, backLabel: current.value.title};
+    return claim === null || current.value?.kind !== "page" ? null : {title: claim.title, backLabel: current.value.title, backName: text(TEXT.back, {title: current.value.title})};
 });
 const searchId = `settings-search-${useId()}`;
 const navId = useId();

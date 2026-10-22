@@ -76,6 +76,18 @@ onBeforeUnmount(() => {
 });
 
 /**
+ * 打开一项时点的那一行随列表一起卸载，焦点会掉到 body：放到详情上，读屏念出这一项的名字，接着 `Tab` 进第一个控件、
+ * `Shift+Tab` 到返回。焦点没有丢（例如调用方从标题区的按钮打开、或自己把焦点放到了别处）时不动。
+ */
+watch(() => opened.value?.id, async (id, before) => {
+    if (id === undefined || before !== undefined) return;
+    await nextTick();
+    const active = document.activeElement;
+    if (active !== null && active !== document.body && active.isConnected) return;
+    root.value?.querySelector<HTMLElement>("[data-settings-page-list-detail]")?.focus();
+});
+
+/**
  * 返回：发出 `null`，等调用方把列表画回来之后，把焦点放回刚才那一行（点“返回”的按钮随详情一起消失，焦点会丢）。
  * 调用方没有改值（拒绝返回）时不动焦点。
  */
@@ -109,7 +121,7 @@ async function goBack(): Promise<void> {
                 </button>
             </li>
         </ul>
-        <div v-else class="settings-page-list__detail" data-settings-page-list-detail>
+        <div v-else class="settings-page-list__detail" role="region" :aria-label="opened.title" tabindex="-1" data-settings-page-list-detail>
             <!-- 在设置窗口里返回在标题区；没有窗口（例如 Lab 单独渲染）时详情上方自己画一行。 -->
             <button v-if="chrome === null" type="button" class="settings-page-list__back nb-ui-focus-ring" data-settings-page-list-back @click="goBack">
                 <span class="i-lucide-chevron-left" aria-hidden="true"></span>
@@ -121,6 +133,11 @@ async function goBack(): Promise<void> {
 </template>
 
 <style scoped>
+/* 详情只在打开时由程序聚焦一次（接住随列表卸载的焦点），它是容器不是控件，不画焦点环。 */
+.settings-page-list__detail:focus {
+    outline: none;
+}
+
 .settings-page-list {
     min-width: 0;
 }

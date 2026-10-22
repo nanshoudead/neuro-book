@@ -26,6 +26,8 @@ export type SettingsSectionNotice =
 export interface SettingsSectionReplacement {
     readonly title: string;
     readonly backLabel: string;
+    /** 返回按钮的可访问名称，例如“返回 模型服务”：只念分区标题会和左栏的同名分区分不开。 */
+    readonly backName: string;
 }
 
 defineProps<{
@@ -56,7 +58,7 @@ onBeforeUnmount(() => detach?.());
 <template>
     <header class="settings-section-heading" data-settings-heading>
         <div class="settings-section-heading__text">
-            <button v-if="replacement !== null" type="button" class="settings-section-heading__back nb-ui-focus-ring" data-settings-heading-back @click="emit('back')">
+            <button v-if="replacement !== null" type="button" class="settings-section-heading__back nb-ui-focus-ring" data-settings-heading-back :aria-label="replacement.backName" @click="emit('back')">
                 <span class="i-lucide-chevron-left settings-section-heading__back-icon" aria-hidden="true"></span>
                 <span>{{ replacement.backLabel }}</span>
             </button>

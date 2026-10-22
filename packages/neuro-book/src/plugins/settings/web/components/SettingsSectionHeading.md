@@ -37,6 +37,8 @@ interface SettingsSectionReplacement {
     title: string;
     /** “‹”后面的字：分区标题。 */
     backLabel: string;
+    /** 返回按钮的可访问名称：“返回 {分区标题}”。 */
+    backName: string;
 }
 
 type Props = {

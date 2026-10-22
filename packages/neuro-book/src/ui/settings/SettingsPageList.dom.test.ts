@@ -98,11 +98,15 @@ describe("列表", () => {
 });
 
 describe("受控的列表、详情、列表（没有窗口通道）", () => {
-    it("点一行打开它：列表换成详情，插槽拿到这一项；详情上方自己画“‹ 返回”，点它发 null、回到列表", async () => {
+    it("点一行打开它：列表换成详情，插槽拿到这一项，焦点放到以这一项命名的详情上；详情上方自己画“‹ 返回”，点它发 null、回到列表", async () => {
         const {value} = host();
+        row("ollama")!.focus();
         row("ollama")!.click();
         await flushPromises();
         expect(value.value).toBe("ollama");
+        const region = document.body.querySelector<HTMLElement>("[data-settings-page-list-detail]");
+        expect(document.activeElement).toBe(region);
+        expect([region?.getAttribute("role"), region?.getAttribute("aria-label")]).toEqual(["region", "本地 Ollama"]);
         expect(document.body.querySelector("[data-state]")?.getAttribute("data-state")).toBe("detail");
         expect(detail()?.textContent).toBe("本地 Ollama 的详情");
         expect(row("deepseek")).toBeNull();
