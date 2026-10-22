@@ -371,7 +371,11 @@ function buildBlocks(
                 }
                 for (const call of message.toolCalls) {
                     const step: ToolStep = {kind: "tool", id: call.id, messageId: message.id, call};
-                    if (registry.resolveTool(call.name).presentation === "node") {
+                    const renderer = registry.resolveTool(call.name);
+                    // 结果工具被退回（出错、参数无效，或运行结束时还没有结果）的那几次属于过程：进思维链画成一行，不画宿主的
+                    // 节点组件，免得和作数的那张并排（Spec“术语”的结果节点）。运行中的照旧是节点，宿主组件看得到正在写的答案。
+                    const rejectedOutcome = renderer.outcome === true && toolCallPhase(call.status) === "error";
+                    if (renderer.presentation === "node" && !rejectedOutcome) {
                         flush();
                         blocks.push({kind: "node", id: call.id, step});
                     } else {
@@ -391,7 +395,8 @@ function buildBlocks(
 
 /**
  * 答案（最终回复或结果节点）之后的分隔线移出 `blocks`，由视图放到轮末汇总下方。锚点不能只认最终回复：结果节点之后
- * 跟着压缩或分支摘要时，分隔线留在末尾会挡住 `findOutcomeStart` 的倒扫，答案就被折进过程。
+ * 跟着压缩或分支摘要时，分隔线留在末尾会挡住 `findOutcomeStart` 的倒扫，答案就被折进过程。答案之后由分隔线与信息条目
+ * 混成的一段里，分隔线都移走、信息条目留在原处：只摘末尾连续的分隔线时，“回复、压缩、提醒”里的压缩会留下来挡住倒扫。
  */
 function splitTrailing(blocks: TurnBlock[], registry: AgentViewRegistry): TurnBlock[] {
     const replyIndex = blocks.findLastIndex((block) => isAnswer(block, registry));
@@ -399,10 +404,12 @@ function splitTrailing(blocks: TurnBlock[], registry: AgentViewRegistry): TurnBl
         return [];
     }
     let start = blocks.length;
-    while (start > replyIndex + 1 && blocks[start - 1]!.kind === "divider") {
+    while (start > replyIndex + 1 && (blocks[start - 1]!.kind === "divider" || blocks[start - 1]!.kind === "notice")) {
         start -= 1;
     }
-    return blocks.splice(start);
+    const tail = blocks.splice(start);
+    blocks.push(...tail.filter((block) => block.kind !== "divider"));
+    return tail.filter((block) => block.kind === "divider");
 }
 
 function makeChain(flat: readonly FlatEntry[], registry: AgentViewRegistry): ChainBlock {

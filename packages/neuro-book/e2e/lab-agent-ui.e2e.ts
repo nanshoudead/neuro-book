@@ -326,6 +326,11 @@ test.describe("对话视图的消息流", () => {
         await expect.poll(() => lastAction(page)).toEqual({type: "reference.open", target: "paragraph://3.4"});
         await body.locator("[data-role='assistant'] .acv-message__actions").getByRole("button", {name: "复制"}).click();
         await expect.poll(() => lastAction(page)).toEqual({type: "tool.copy", toolCallId: "w7"});
+        // 展开整轮与思维链：被退回的那次是一行、写着退回原因，答案卡片仍只有一张（验收 29）。
+        await body.locator("[data-turn-summary]").click();
+        await body.locator("[data-chain-summary]").first().click();
+        await expect(body.locator(".acv-steps")).toContainText("退回：evidence 不能为空");
+        await expect(body.locator("[data-lab-answer]")).toHaveCount(1);
     });
 
     test("回复里 Markdown 的引用、外链与图片：分别发出 reference.open、link.open 与视图内部的原图预览请求", async ({page}) => {

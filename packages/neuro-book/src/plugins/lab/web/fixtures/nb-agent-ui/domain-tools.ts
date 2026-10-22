@@ -5,7 +5,7 @@
  */
 
 import {argString} from "@notnotype/nb-agent-ui";
-import type {AgentViewContribution, ToolRendererEntry} from "@notnotype/nb-agent-ui";
+import type {AgentViewContribution, ToolCallView, ToolRendererEntry} from "@notnotype/nb-agent-ui";
 import LabAnswerNode from "./LabAnswerNode.vue";
 
 const tools: ToolRendererEntry[] = [
@@ -31,8 +31,18 @@ const tools: ToolRendererEntry[] = [
     // nb-story 交答案的收尾工具：常显的节点，宿主组件画结论与出处；交成功的那次是这一轮的结果。
     {
         id: "answer", toolNames: ["answer"], category: "interact", icon: "i-lucide-message-square-text",
-        label: {"zh-CN": "作答", "en-US": "Answer"}, summary: (call) => argString(call, "conclusion"), presentation: "node", node: LabAnswerNode, outcome: true,
+        label: {"zh-CN": "作答", "en-US": "Answer"}, summary: answerSummary, presentation: "node", node: LabAnswerNode, outcome: true,
     },
 ];
+
+/**
+ * 交卷被退回时过程里只剩一行（Spec 验收 29），原因由这里写进行内：`call.error` 的第一行。运行结束时还没有结果的调用也算
+ * 出错但没有说明，那时写“没有完成”，不说成退回。
+ */
+function answerSummary(call: ToolCallView): string {
+    if (call.status !== "error" && call.status !== "invalid") return argString(call, "conclusion");
+    const reason = call.error?.split("\n", 1)[0]?.trim() ?? "";
+    return reason === "" ? "没有完成" : `退回：${reason}`;
+}
 
 export const labDomainToolsContribution: AgentViewContribution = {source: "lab:neurobook-tools", tools};

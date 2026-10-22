@@ -157,6 +157,41 @@ describe("宿主组件（验收 21）", () => {
     });
 });
 
+describe("被退回的结果（验收 29）", () => {
+    it("展开整轮后宿主的节点组件只画作数的那一次，被退回的那次是一行，行上是渲染器写的退回原因", async () => {
+        const rendered: string[] = [];
+        const Answer = defineComponent({
+            props: {call: {type: Object, required: true}},
+            setup(props) {
+                return () => {
+                    rendered.push((props.call as {id: string}).id);
+                    return h("div", {"data-answer": ""}, "答案卡片");
+                };
+            },
+        });
+        const plugin: AgentViewContribution = {
+            source: "test:story",
+            tools: [{
+                id: "answer", toolNames: ["answer"], category: "interact", icon: "i-lucide-message-square-text", label: "交卷", presentation: "node", node: Answer, outcome: true,
+                summary: (call) => (call.status === "error" ? `退回：${call.error ?? ""}` : ""),
+            }],
+        };
+        const ctx = context();
+        ctx.messages = [
+            ctx.messages[0]!,
+            {kind: "assistant", id: "a1", timestamp: 2, status: "done", text: "", thinking: "", model: "m", contentOmitted: false, toolCalls: [{id: "q1", name: "answer", status: "error", args: {}, error: "41.20 不是读过的段落"}]},
+            {kind: "assistant", id: "a2", timestamp: 3, status: "done", text: "", thinking: "", model: "m", contentOmitted: false, toolCalls: [{id: "q2", name: "answer", status: "success", args: {}}]},
+        ];
+        const view = mountView("zh-CN", {}, {ctx, plain: true, registry: createAgentViewRegistry([builtinRolesContribution, builtinToolsContribution, plugin])});
+        await view.get("[data-turn-summary]").trigger("click");
+        await view.get("[data-chain-summary]").trigger("click");
+        expect(view.findAll("[data-answer]")).toHaveLength(1);
+        expect(new Set(rendered)).toEqual(new Set(["q2"]));
+        expect(view.text()).toContain("退回：41.20 不是读过的段落");
+        view.unmount();
+    });
+});
+
 describe("宿主的详情组件（验收 21）", () => {
     it("工具详情组件收到服务与界面语言，它发出的 action 到达宿主", async () => {
         const seen: string[] = [];

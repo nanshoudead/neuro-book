@@ -361,11 +361,11 @@ describe("buildTurns 结果节点（验收 20）", () => {
         return buildTurns(input(messages, {registry: withAnswer}))[0]!;
     }
 
-    it("交成功的那次是结果，整轮收起后仍露出；被退回的那次留在过程里，操作次数不含结果", () => {
+    it("交成功的那次是结果，整轮收起后仍露出；被退回的那次是思维链里的一行，前后合成同一条思维链（验收 29）", () => {
         const turn = answered(false);
-        expect(shape(turn).slice(turn.outcomeStart)).toEqual(["node"]);
+        expect(shape(turn)).toEqual(["chain(tool,boundary,tool)", "node"]);
         expect(turn.blocks[turn.outcomeStart]!.id).toBe("q2");
-        expect(turn.blocks.slice(0, turn.outcomeStart).some((block) => block.id === "q1")).toBe(true);
+        expect(chains(turn)[0]!.entries.map((entry) => entry.id)).toEqual(["r1", "a2:boundary", "q1"]);
         expect(turn.foldable).toBe(true);
         expect(turn.metrics.steps).toBe(2);
         expect(turn.outcomeMessage?.id).toBe("a3");
@@ -400,6 +400,40 @@ describe("buildTurns 结果节点（验收 20）", () => {
         expect(turn.metrics.steps).toBe(1);
         expect(turn.changedFiles.map((file) => file.change.path)).toEqual(["报告.md"]);
         expect(turn.metrics.filesChanged).toBe(1);
+    });
+
+    it("全部被退回时这一轮没有结果区：只有一条思维链，整轮可以收起（验收 29）", () => {
+        const turn = buildTurns(input([
+            user("u1", "谁知道钟声的秘密？"),
+            assistant("a1", {toolCalls: [tool("r1", "read", {path: "第三章.md"})]}),
+            assistant("a2", {toolCalls: [tool("q1", "answer", {conclusion: "林默"}, "error")]}),
+        ], {registry: withAnswer}))[0]!;
+        expect(shape(turn)).toEqual(["chain(tool,boundary,tool)"]);
+        expect(turn.outcomeStart).toBe(turn.blocks.length);
+        expect(turn.outcomeCallId).toBeNull();
+        expect(turn.foldable).toBe(true);
+    });
+
+    it("运行中的结果调用仍是节点；参数无效的与运行结束时还没有结果的（出错、没有说明）进思维链", () => {
+        const running = buildTurns(input([user("u1", "问"), assistant("a1", {status: "streaming", toolCalls: [tool("q1", "answer", {conclusion: "林"}, "streaming")]})], {registry: withAnswer, run: {status: "running", phase: ""}}))[0]!;
+        expect(shape(running)).toEqual(["node"]);
+        for (const status of ["invalid", "error"] as const) {
+            const ended = buildTurns(input([user("u1", "问"), assistant("a1", {status: "stopped", toolCalls: [tool("q1", "answer", {}, status)]})], {registry: withAnswer}))[0]!;
+            expect(shape(ended)).toEqual(["chain(tool)"]);
+        }
+    });
+
+    it("回复之后依次是压缩分隔线与系统提醒：分隔线移到 trailing，提醒留在结果区，回复仍是结果（验收 29）", () => {
+        const turn = buildTurns(input([
+            user("u1", "改稿"),
+            assistant("a1", {toolCalls: [tool("r1", "read", {path: "a.md"})]}),
+            assistant("a2", {text: "改好了"}),
+            {kind: "system", id: "c1", timestamp: tick(), source: "compaction", label: "上下文已压缩", text: "…"},
+            {kind: "system", id: "n1", timestamp: tick(), source: "reminder", label: "提醒", text: "记得保存"},
+        ]))[0]!;
+        expect(shape(turn).slice(turn.outcomeStart)).toEqual(["reply", "notice"]);
+        expect(shape(turn, turn.trailing)).toEqual(["divider"]);
+        expect(turn.outcomeMessage?.id).toBe("a2");
     });
 
     it("没有声明为结果的节点不算结果", () => {

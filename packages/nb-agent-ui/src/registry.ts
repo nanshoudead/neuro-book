@@ -52,7 +52,10 @@ type ToolRendererBase = RegistryEntryBase & {
     icon: string;
     /** 工具的动作名，例如“读取”。 */
     label: ViewText;
-    /** 单行摘要，通常是操作对象，例如文件路径；没有合适的对象时返回空串。 */
+    /**
+     * 单行摘要，通常是操作对象，例如文件路径；没有合适的对象时返回空串。调用出错时也会调用，可以写出失败原因（`call.error` 可能为空：运行结束时还没有结果的调用也算出错）。
+     * 同一句用在步骤行、工具组的明细与详情的代码块标签上。
+     */
     summary: (call: ToolCallView) => string;
     /** 对文件的影响；缺省为无。 */
     effects?: (call: ToolCallView) => ToolEffects;
