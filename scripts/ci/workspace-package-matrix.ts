@@ -30,6 +30,11 @@ export const WORKSPACE_PACKAGE_CHECKS: readonly WorkspacePackageCheck[] = [
         commands: "bun run test\nbun run typecheck\nbun run build",
     },
     {
+        name: "nb-agent-ui",
+        directory: "packages/nb-agent-ui",
+        commands: "bun run typecheck\nbun run test",
+    },
+    {
         name: "neuro-agent-harness",
         directory: "packages/neuro-agent-harness",
         commands: "bun run verify\nbun run pack:smoke",
