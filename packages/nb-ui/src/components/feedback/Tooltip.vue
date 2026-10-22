@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ref, watch} from "vue";
+import {computed, ref, watch} from "vue";
 import {
     TooltipContent,
     TooltipPortal,
@@ -22,11 +22,14 @@ const props = withDefaults(defineProps<{
     /** hover 到显示的延迟毫秒数 */
     delay?: number;
     disabled?: boolean;
+    /** 为真时提示显示，悬停与焦点的开合照旧叠加在上面；按 Esc 关掉后，要等它先变假再变真才会再次强制显示 */
+    forceOpen?: boolean;
 }>(), {
     text: "",
     placement: "top",
     delay: 300,
     disabled: false,
+    forceOpen: false,
 });
 
 /*
@@ -41,11 +44,27 @@ watch(() => props.disabled, (disabled) => {
 function onOpenChange(value: boolean): void {
     open.value = value && !props.disabled;
 }
+
+/*
+ * `forceOpen` 在悬停与焦点之上另加一路“显示”。reka 的其它关闭来源（指针离开、失焦）只关 `open`，管不到这一路：
+ * 悬停离开不该把调用方强制显示的提示关掉。只有 Esc 例外，它是用户明说“收起来”，记在 `escDismissed` 里，
+ * 直到 `forceOpen` 变假才清掉，下一次置真才重新强制显示（否则调用方的条件一直成立时，Esc 关不掉）。
+ */
+const escDismissed = ref(false);
+watch(() => props.forceOpen, (forced) => {
+    if (!forced) escDismissed.value = false;
+});
+
+const shown = computed(() => open.value || (props.forceOpen && !escDismissed.value && !props.disabled));
+
+function onEscapeKeyDown(): void {
+    escDismissed.value = true;
+}
 </script>
 
 <template>
     <TooltipProvider :delay-duration="props.delay">
-        <TooltipRoot :open="open" :delay-duration="props.delay" :disabled="props.disabled" :disable-closing-trigger="true" @update:open="onOpenChange">
+        <TooltipRoot :open="shown" :delay-duration="props.delay" :disabled="props.disabled" :disable-closing-trigger="true" @update:open="onOpenChange">
             <TooltipTrigger as-child>
                 <slot />
             </TooltipTrigger>
@@ -56,6 +75,7 @@ function onOpenChange(value: boolean): void {
                     :side="props.placement"
                     :side-offset="6"
                     :style="{zIndex: popoverZIndex}"
+                    @escape-key-down="onEscapeKeyDown"
                     class="nb-ui-tooltip-surface pointer-events-none w-max max-w-72 outline-none"
                 >
                     <span class="block">

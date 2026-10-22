@@ -139,6 +139,12 @@
     --radius-dialog: var(--radius-panel);
 
     /*
+     * 小确认框（AlertDialog）的圆角，缺省等于对话框。单列一档是因为它常叠在另一个窗口上：
+     * 圆角比底下的窗口还大，两条弧线就不同心了。主题需要时单独收小（nbook 就是）。
+     */
+    --radius-dialog-compact: var(--radius-dialog);
+
+    /*
      * 这里曾经有 --corner-shape（超椭圆圆角）。已删：Chromium 的 backdrop-filter
      * 不跟随 corner-shape 裁切，玻璃面上开这一档会在四角露出没被模糊的月牙。
      * 完整判据与复查条件写在 `src/styles.css` 里 .nb-ui-popover-surface 上方那一段。

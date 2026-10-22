@@ -1410,6 +1410,88 @@ describe("nb-ui dialog anatomy", () => {
         wrapper.unmount();
     });
 
+    describe("Tooltip forceOpen", () => {
+        const TEXT = "强制显示的提示";
+        const mountTooltip = (forceOpen: boolean) => mount(Tooltip, {
+            props: {text: TEXT, forceOpen, delay: 0},
+            slots: {default: "<button type='button'>触发器</button>"},
+            attachTo: document.body,
+        });
+        const settle = async (): Promise<void> => {
+            await nextTick();
+            await nextTick();
+        };
+        const pressEscape = (): void => {
+            document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+        };
+
+        it("shows without hover or focus, and keeps showing after the pointer leaves", async () => {
+            const wrapper = mountTooltip(true);
+            await settle();
+            expect(document.body.textContent).toContain(TEXT);
+
+            await wrapper.get("button").trigger("pointermove");
+            await wrapper.get("button").trigger("pointerleave");
+            await wrapper.get("button").trigger("focus");
+            await wrapper.get("button").trigger("blur");
+            await settle();
+            expect(document.body.textContent).toContain(TEXT);
+            wrapper.unmount();
+        });
+
+        it("closes on Escape and stays closed until forceOpen turns false and true again", async () => {
+            const wrapper = mountTooltip(true);
+            await settle();
+            expect(document.body.textContent).toContain(TEXT);
+
+            pressEscape();
+            await settle();
+            expect(document.body.textContent).not.toContain(TEXT);
+
+            // 条件一直成立时不会自己再冒出来，指针离开也不会把它带回
+            await wrapper.get("button").trigger("pointerleave");
+            await settle();
+            expect(document.body.textContent).not.toContain(TEXT);
+
+            await wrapper.setProps({forceOpen: false});
+            await settle();
+            expect(document.body.textContent).not.toContain(TEXT);
+
+            await wrapper.setProps({forceOpen: true});
+            await settle();
+            expect(document.body.textContent).toContain(TEXT);
+            wrapper.unmount();
+        });
+
+        it("keeps hover and focus behaviour when not forced", async () => {
+            const wrapper = mountTooltip(false);
+            await settle();
+            expect(document.body.textContent).not.toContain(TEXT);
+
+            await wrapper.get("button").trigger("focus");
+            await settle();
+            expect(document.body.textContent).toContain(TEXT);
+            await wrapper.get("button").trigger("blur");
+            await settle();
+            expect(document.body.textContent).not.toContain(TEXT);
+
+            await wrapper.get("button").trigger("pointermove");
+            await vi.waitFor(() => expect(document.body.textContent).toContain(TEXT));
+            wrapper.unmount();
+        });
+
+        it("does not show while disabled even if forced", async () => {
+            const wrapper = mount(Tooltip, {
+                props: {text: TEXT, forceOpen: true, disabled: true},
+                slots: {default: "<button type='button'>触发器</button>"},
+                attachTo: document.body,
+            });
+            await settle();
+            expect(document.body.textContent).not.toContain(TEXT);
+            wrapper.unmount();
+        });
+    });
+
     it("renders switch and handles state", async () => {
         const wrapper = mount(Switch, {
             props: {

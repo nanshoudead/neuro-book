@@ -486,6 +486,11 @@ input.nb-ui-native-input[type="number"] {
     box-shadow: var(--elevation-dialog);
 }
 
+/* 小确认框（AlertDialog）：外框圆角改取更小的一档，其余与 .nb-ui-dialog-surface 相同，必须写在它后面。 */
+.nb-ui-dialog-surface--compact {
+    border-radius: var(--radius-dialog-compact);
+}
+
 /*
  * 对话框的标题与页脚（Dialog 的两种用法与 AlertDialog 共用）：标题与正文同字号，只差字重——这是 Apple 官方
  * UI Kit 的实测值（Alert 的 Title 是 Bold 13px，Description 是 Regular 13px）；页脚是一行按钮，间距一处给。

@@ -102,7 +102,7 @@ installTheme(myTheme);
 
 - 排版：`--font-display` `--text-2xs`…`--text-xl` `--leading-tight` `--tracking-ui`
 - 密度：`--control-h-sm/md/lg` `--control-px` `--panel-p` `--stack-gap`
-- 形状：`--radius-control` `--radius-control-lg` `--radius-panel` `--border-w`
+- 形状：`--radius-control` `--radius-control-lg` `--radius-panel` `--radius-dialog` `--radius-dialog-compact` `--border-w`
 - 装饰：`--surface-raise` `--inset-shadow` `--elevation-raised/popover/dialog` `--focus-ring`
 - 动效：`--motion-fast` `--motion-base` `--motion-enter` `--ease-standard`
 - **角色映射**：`--control-surface` `--button-surface` `--panel-surface` `--sidebar-surface`

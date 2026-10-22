@@ -88,6 +88,7 @@ export const nbThemeMetricTokens = [
     "--stack-gap",
     "--radius-control-lg",
     "--radius-dialog",
+    "--radius-dialog-compact",
     "--border-w",
 ] as const;
 

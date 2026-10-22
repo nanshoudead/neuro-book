@@ -30,6 +30,8 @@ interface TooltipProps {
     delay?: number;
     /** 是否禁用提示；默认 false。 */
     disabled?: boolean;
+    /** 为真时提示显示；默认 false。见“状态与边界”。 */
+    forceOpen?: boolean;
 }
 
 interface TooltipEmits {}
@@ -45,11 +47,11 @@ interface TooltipSlots {
 
 ## 状态与边界
 
-`delay` 后悬停显示，键盘聚焦即时显示；`disabled` 时不再打开：已经开着的提示随即关上，悬停时已经排好的延时打开也作废（例如点触发器打开了旁边的面板，提示不会过一会儿冒出来压在面板上）。空文本且无 `content` 时提示没有可见文字，浮层是否呈现空白外框由上游决定。
+`delay` 后悬停显示，键盘聚焦即时显示；`disabled` 时不再打开：已经开着的提示随即关上，悬停时已经排好的延时打开也作废（例如点触发器打开了旁边的面板，提示不会过一会儿冒出来压在面板上）。`forceOpen` 为真时提示显示，悬停与焦点的开合照旧叠加在上面：悬停离开、失焦都不会把它关掉。提示开着时按 Escape 会关掉它，之后要等 `forceOpen` 先变假再变真才再次强制显示，所以调用方的条件一直成立时用户仍然关得掉。`disabled` 优先于 `forceOpen`。空文本且无 `content` 时提示没有可见文字，浮层是否呈现空白外框由上游决定。
 
 ## 不支持
 
-- 不提供 `open` 受控 prop 或状态变化事件。
+- 不提供 `open` 双向受控 prop 或状态变化事件；只有单向的 `forceOpen`（强制显示）。
 - 不提供箭头、可交互内容、触发器合成或自定义浮层 class。
 
 ## 上游边界
