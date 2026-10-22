@@ -30,7 +30,7 @@ updated: 2026-10-22
 | 6 | `5c9a99f50` | `createAgentContext`、`applyComposerAction`、`acceptSubmission`、`builtinContributions`；两项服务可选；`transcript.run()`；README 最小宿主 |
 | 7 | `f64b73712` | `/vue` 只导出视图与内置登记，内部零件经只给 Lab 的 `./lab` |
 
-实现审查（Sonnet，范围 `a1a862d4e..f64b73712`）：13 条，重要 3、建议 10，[报告](evidences/impl-review.txt)。全部成立，修正在一个提交里：
+实现审查（Sonnet，范围 `a1a862d4e..f64b73712`）：13 条，重要 3、建议 10，[报告](evidences/impl-review.txt)。全部成立，修正在一个提交里（`9304c3acd`）：
 
 - 重要：结果区里所有结果节点都不计操作次数（原先只排除最后一个）；步骤行改为受控，展开状态由思维链按 id 记，重新分组不丢（作者自述的第一处偏离不成立，已收回）；README 最小宿主改用 `shallowRef` 并声明 `locale`，`src/vue/entry.dom.test.ts` 照写一遍，README 由此过类型检查（改回 `ref` 时报错）。
 - 建议：结果节点改的文件照常算进改动文件；`createAgentContext` 忽略值为 undefined 的字段；消息没变的轮次沿用上一次的分组、轮次只依赖 run、history 与 now 的值，宿主整体替换 ctx 打节拍时已结束的轮次不重新整理；`acceptSubmission(composer, sent)` 只在发送的就是草稿时清空草稿；`run()` 返回同一个对象；命令照常时标题写“发送”，展开时只许补充说明的宿主可用 Ctrl/⌘+回车发；没有菜单服务时正文中间的 `/` 提示命令写在开头；`./lab` 加载方式的注释改正；补上 `live` 回落、详情组件通道、`waiting`/`stopping` 与投递开关的测试；`diff` 在参数还没到时返回 null。
@@ -40,6 +40,8 @@ updated: 2026-10-22
 
 - **`./lab` 是静态导出**：它只被 Lab 里本来就动态加载的 `host.ts` 与 type-only 导入引用，不需要按名动态加载。
 - **e2e 的教训**：切片 1 的第一轮 e2e 跑的时候在改切片 2 的源码，Lab 的 e2e 读源码，混进了半成品；之后每片先暂存，跑完 e2e 前不改源码。
+
+审查修正之后：nb-agent-ui bun 131 条、Vitest 31 条；应用 `typecheck`、Vitest 403 条；`docs:check`、`governance:check` 失败 0；e2e `lab-agent-ui` 与 `lab-scenes` 24 条通过。新加的变异检查：重新分组后的展开状态、README 宿主改回 `ref` 时的类型错误、打节拍时轮次依赖与分组沿用各一处、`live` 回落，改坏后相应用例都失败。
 
 验证（Work 分支，每片提交前）：nb-agent-ui `typecheck`、`test`（最后一片 bun 126 条、Vitest 25 条）；应用 `typecheck`、Vitest 403 条；`docs:check` 失败 0；e2e `lab-agent-ui` 与 `lab-scenes` 每片通过（最后一片连同 `lab.e2e.ts` 共 39 条）。变异检查：验收 15 两层降级、验收 21 的 action 转交、结果之后的分隔线、模型下拉的隐藏、缺 `resolveTriggerMenu` 时的触发字符过滤，各改坏一次相应用例失败。
 
