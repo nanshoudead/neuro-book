@@ -67,6 +67,7 @@ updated: 2026-10-22
 - 2026-10-22 第六轮静态稿发到评审板 v11：`r6-field-error`（常显一行、收进图标悬停显示、贴在输入框下沿，推荐收进图标）、`r6-layer-error`（页面顶部、标题右侧、左栏标签下面、内容底部，推荐左栏）、`r6-header`（页面级操作或“用户 | 本作品”，推荐页面级操作）、`r6-rest`（新文案对照表、只读新画法、14px 圆角的真实 `AlertDialog`）。草稿 `plugins/drafts/web/components/settings-redesign/SettingsR6Draft.vue`（草稿 worktree）。
 - 2026-10-22 第七轮静态稿发到评审板 v13（`r6-header` 被 `r7-header` 取代）：`r7-field`（出错图标在名字旁，提示在图标右边弹出；“选项拿不到”同样收进名字旁的图标）、`r7-desc`（页面说明在标题下一行、与标题并列、收进提示，推荐并列）、`r7-header`（右侧从右往左是页面级操作与层出错警告，层坏了时操作停用）、`r7-layer`（警告整块是按钮；点了切到设置文件，光标放在出错处）。半像素已修，实测出错输入框落在整数 397 上。草稿 `SettingsR7Draft.vue`（草稿 worktree）。
 - 2026-10-22 定稿写进 Spec（`settings-window.md`、`forms.md`、`configuration.md` 输出 5，标 planned），重写 [plan.md](plan.md)。计划审查（omp）11 条（阻断 1、重要 7、建议 3）全部成立，已改进计划：层快照补出错位置、`Tooltip` 受控打开改为 A 的确定交付且 B 等 A、多原因只画一个图标、页面上下文加 `writable` 让标题区操作在层坏了时停用（计划原先误列“不做”）、`SettingsPageList` 发 `null` 返回、标题替换按登记撤销、补 Lab 场景与高亮测试、主题 token 登记。报告见 [evidences/plan-review-omp.txt](evidences/plan-review-omp.txt)。Work 分支已合入 master（`abba99363`）。
+- 实施进展（Work 分支）：A（nb-ui 圆角 token `--radius-dialog-compact`、`AlertDialog`、`Tooltip` 的 `forceOpen`、规范）`cc6bbc1ab`，Sonnet 子代理实现、主会话审 diff 并重跑 `test:affected` 后合入；并行跑全部测试时 `SnippetsPage.dom.test.ts` 超时一次，单独重跑 405 例全过。B（nb-form）已派出。Work 分支没有 push：远端没有这个分支，推送会连带公开 master 上 844 个没推过的提交，等开发者决定。
 
 ## 下一步
 
