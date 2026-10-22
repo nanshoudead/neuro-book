@@ -184,7 +184,7 @@ function openPreview(image: PreviewImageRequest) {
     pendingAsset?.abort();
     pendingAsset = null;
     if ("locator" in image) {
-        const src = props.services.resolveAttachmentUrl(image.locator, "original");
+        const src = props.services.resolveAttachmentUrl?.(image.locator, "original") ?? null;
         if (src !== null) showPreview({src, name: image.name, release: () => {}});
         return;
     }

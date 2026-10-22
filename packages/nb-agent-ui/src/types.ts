@@ -238,7 +238,6 @@ export type ComposerView = {
     modes: ComposerModeView[];
     mode: string;
     queued: Array<{id: string; text: string; delivery: "steer" | "followup"}>;
-    attachmentCount: number;
     attachments: ComposerAttachmentView[];
     /** 已发送的内容，最新的在前，供输入历史使用。 */
     recall: string[];
@@ -282,7 +281,7 @@ export type AgentConversationContext = {
     interaction: InteractionView;
     run: RunView;
     /** 已加载的全部消息，按时间顺序，包含运行中尚未落盘的内容。 */
-    messages: MessageView[];
+    messages: readonly MessageView[];
     history: HistoryView;
     /** 按消息 id 索引；指向不存在的消息时忽略。 */
     branches: {[messageId: string]: BranchView};
@@ -312,11 +311,11 @@ export type AgentConversationServices = {
     /** 回复里 Markdown 图片地址到可显示地址的换算；不提供时图片只显示说明。Markdown 的渲染与净化由注入的组件负责。 */
     resolveMarkdownAsset?: MarkdownAssetResolver;
     /** 返回附件地址；返回 null 表示不可用，视图显示占位且不发请求。 */
-    resolveAttachmentUrl: (locator: string, variant: "thumbnail" | "original") => string | null;
+    resolveAttachmentUrl?: (locator: string, variant: "thumbnail" | "original") => string | null;
     /**
      * 触发菜单的内容；纯函数，数据变化时宿主换一个新函数。`/` 位于正文开头时菜单由视图按登记的命令列出，不调用它。
      */
-    resolveTriggerMenu: (context: TriggerMenuContext) => TriggerMenu;
+    resolveTriggerMenu?: (context: TriggerMenuContext) => TriggerMenu;
 };
 
 // ─── action ─────────────────────────────────────────────────────────────

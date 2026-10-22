@@ -43,7 +43,10 @@ const runtimeDisabled = computed(() => readonly.value || !props.ctx.interaction.
 
 const commands = computed(() => visibleEntries(props.registry.list("commands"), props.ctx));
 const commandNames = computed(() => commands.value.map((entry) => entry.name));
-const triggers = computed(() => visibleEntries(props.registry.list("triggers"), props.ctx).map((entry) => entry.char));
+// 没有 resolveTriggerMenu 时只剩 `/` 命令：别的触发字符没有菜单可开，不交给编辑器，免得打开空菜单。
+const triggers = computed(() => visibleEntries(props.registry.list("triggers"), props.ctx)
+    .map((entry) => entry.char)
+    .filter((char) => char === "/" || props.services.resolveTriggerMenu !== undefined));
 const toolbarButtons = computed(() => visibleEntries(props.registry.list("toolbarButtons"), props.ctx));
 
 /**
@@ -61,7 +64,7 @@ const resolveMenu = computed(() => {
     const labels = {title: t("composer.commandMenu.title"), empty: t("composer.commandMenu.empty")};
     return (context: PromptMenuContext): PromptMenu => context.trigger === "/" && context.atStart
         ? commandMenu(list, context.query, labels)
-        : resolve(context);
+        : resolve?.(context) ?? {items: []};
 });
 
 // ─── 正文与发送 ─────────────────────────────────────────────────────────
@@ -226,7 +229,7 @@ function onFilesChosen(event: Event): void {
 }
 
 function resolveThumbnail(target: string): string | null {
-    return props.services.resolveAttachmentUrl(target, "thumbnail");
+    return props.services.resolveAttachmentUrl?.(target, "thumbnail") ?? null;
 }
 
 function onTokenActivate(token: PromptToken): void {

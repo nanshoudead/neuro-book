@@ -21,7 +21,7 @@ import {useAgentText} from "../host";
 import type {ViewAction} from "../view-action";
 
 const props = withDefaults(defineProps<{
-    messages: MessageView[];
+    messages: readonly MessageView[];
     ctx: AgentConversationContext;
     services: AgentConversationServices;
     registry: AgentViewRegistry;

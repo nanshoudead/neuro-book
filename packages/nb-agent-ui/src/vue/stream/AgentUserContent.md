@@ -39,8 +39,8 @@ import type {ViewAction} from "@notnotype/nb-agent-ui/vue";
 type AgentUserContentProps = {
     /** 用户消息，必填；只读 blocks 与 contentOmitted。 */
     message: UserMessageView;
-    /** 附件地址；返回 null 表示不可用。必填，对话视图传入 services.resolveAttachmentUrl。 */
-    resolveAttachmentUrl: (locator: string, variant: "thumbnail" | "original") => string | null;
+    /** 附件地址；返回 null 或不提供时附件不可用，显示占位。对话视图传入 services.resolveAttachmentUrl。 */
+    resolveAttachmentUrl?: (locator: string, variant: "thumbnail" | "original") => string | null;
 };
 
 type AgentUserContentEmits = {

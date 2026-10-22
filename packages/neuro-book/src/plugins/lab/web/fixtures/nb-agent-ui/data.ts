@@ -1,6 +1,7 @@
 /**
  * AgentConversationView 的 Lab 数据。全部是可 JSON 化的 ctx，时间戳固定，保证每次渲染一致。
  */
+import {createAgentContext} from "@notnotype/nb-agent-ui";
 import type {
     AgentConversationContext,
     AssistantMessageView,
@@ -202,49 +203,40 @@ export const runningConversationMessages: MessageView[] = [
     }),
 ];
 
+/** Lab 的 ctx：在包的 `createAgentContext` 上加一套长对话的数据；`patch` 的顶层字段整个替换。 */
 export function conversationContext(patch: Partial<AgentConversationContext> = {}): AgentConversationContext {
     return {
-        session: {
-            id: "session-1", title: "第三章节奏调整", summary: "调整第三章节奏，合并回忆段落，并修正第五章错别字。",
-            profileName: "写作助手", profileIcon: "i-lucide-feather", archived: false, summaryState: "idle",
-        },
-        availability: {status: "ready", message: "", actions: []},
-        interaction: {
-            canSend: true, canSteer: true, canQueue: true, canAnswer: true, canMutateHistory: true, canStop: true,
-            canRegisterAttachments: true, canChangeRuntime: true, canArchive: true, canRestore: false,
-        },
-        run: {status: "idle", phase: ""},
-        messages: longConversationMessages,
-        history: {hasMore: false, loading: false, error: null},
-        branches: {a13: {index: 2, total: 2}},
-        editing: null,
-        pendingInputs: [],
-        workflows: {},
-        workspaceChanges: {groups: [], selectedPath: null, loading: false, error: null},
-        composer: {
-            models: [
-                {key: "deepseek-chat", label: "DeepSeek Chat", supportsImages: false},
-                {key: "claude-sonnet", label: "Claude Sonnet", supportsImages: true},
-            ],
-            modelKey: "claude-sonnet", thinkingLevels: ["off", "low", "medium", "high"], thinking: "low",
-            modes: [
-                {key: "normal", label: "普通", icon: "i-lucide-pencil-line"},
-                {key: "discuss", label: "讨论", icon: "i-lucide-messages-square"},
-                {key: "plan", label: "规划", icon: "i-lucide-clipboard-list"},
-            ],
-            mode: "normal",
-            queued: [], attachmentCount: 0, attachments: [],
-            recall: ["把第三章的节奏改紧凑一些，特别是中段的回忆部分。", "这本书的主角叫什么？"],
-            draft: {text: "", version: 0},
-        },
-        usage: {
-            contextTokens: 16300, contextLimit: 128000, totalTokens: 162400, cacheRead: 101200, cacheWrite: 0,
-            cacheHitRate: 0.62, cost: 0.0659, currency: "USD",
-        },
-        connection: {status: "connected", actionRequired: false},
-        panels: {},
-        now: at(216),
-        extensions: {},
+        ...createAgentContext({
+            session: {
+                id: "session-1", title: "第三章节奏调整", summary: "调整第三章节奏，合并回忆段落，并修正第五章错别字。",
+                profileName: "写作助手", profileIcon: "i-lucide-feather", archived: false, summaryState: "idle",
+            },
+            interaction: {
+                canSend: true, canSteer: true, canQueue: true, canAnswer: true, canMutateHistory: true, canStop: true,
+                canRegisterAttachments: true, canChangeRuntime: true, canArchive: true,
+            },
+            messages: longConversationMessages,
+            branches: {a13: {index: 2, total: 2}},
+            composer: {
+                models: [
+                    {key: "deepseek-chat", label: "DeepSeek Chat", supportsImages: false},
+                    {key: "claude-sonnet", label: "Claude Sonnet", supportsImages: true},
+                ],
+                modelKey: "claude-sonnet", thinkingLevels: ["off", "low", "medium", "high"], thinking: "low",
+                modes: [
+                    {key: "normal", label: "普通", icon: "i-lucide-pencil-line"},
+                    {key: "discuss", label: "讨论", icon: "i-lucide-messages-square"},
+                    {key: "plan", label: "规划", icon: "i-lucide-clipboard-list"},
+                ],
+                mode: "normal",
+                recall: ["把第三章的节奏改紧凑一些，特别是中段的回忆部分。", "这本书的主角叫什么？"],
+            },
+            usage: {
+                contextTokens: 16300, contextLimit: 128000, totalTokens: 162400, cacheRead: 101200,
+                cacheHitRate: 0.62, cost: 0.0659,
+            },
+            now: at(216),
+        }),
         ...patch,
     };
 }

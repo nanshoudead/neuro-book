@@ -15,7 +15,6 @@ import type {
     AssistantMessageView,
     MessageView,
 } from "@notnotype/nb-agent-ui";
-import {builtinComposerContribution} from "@notnotype/nb-agent-ui/vue";
 import {useLabSubject, type LabFixtureProps} from "../../lab-subject";
 import LabFixtureControls from "../../LabFixtureControls.vue";
 import {Button} from "@notnotype/nb-ui/components";
@@ -28,7 +27,7 @@ const props = defineProps<LabFixtureProps>();
 provideLabMarkdown();
 const subject = useLabSubject<typeof AgentConversationView>(() => props.input, ["action"]);
 
-const registry = labAgentRegistry([builtinComposerContribution]);
+const registry = labAgentRegistry();
 /** 场景“缺省实现”不注入渲染组件，看纯文字回复与普通文本框的样子。 */
 const renderers = computed(() => (props.scene === "plain" ? {} : labAgentRenderers));
 

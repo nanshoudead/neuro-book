@@ -30,6 +30,7 @@ export {default as PlainPromptTextView} from "./fallback/PlainPromptTextView.vue
 export {provideAgentView, useAgentRenderers, useAgentText} from "./host";
 export type {AgentTextApi, AgentViewRenderers, ResolvedRenderers} from "./host";
 export type {PreviewImageRequest, ViewAction} from "./view-action";
+export {builtinContributions} from "./builtins";
 export {builtinComposerContribution} from "./builtin-composer";
 export {builtinMessageActionsContribution} from "./builtin-message-actions";
 export {builtinRolesContribution} from "./builtin-roles";

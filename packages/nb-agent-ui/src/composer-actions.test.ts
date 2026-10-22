@@ -1,5 +1,6 @@
 import {describe, expect, it} from "bun:test";
-import {commandMenu, nextMode, resolveSubmission, sendBlockedReason} from "./composer-actions";
+import {acceptSubmission, applyComposerAction, commandMenu, nextMode, resolveSubmission, sendBlockedReason} from "./composer-actions";
+import {createAgentContext} from "./context";
 import type {PromptAttachment} from "./ports";
 
 const COMMANDS = ["compact", "rename", "plan"];
@@ -111,3 +112,26 @@ describe("sendBlockedReason", () => {
         expect(sendBlockedReason(new Set(["b", "c"]), states)).toBe("failed");
     });
 });
+
+describe("宿主起步：输入框动作", () => {
+    const composer = createAgentContext({composer: {recall: ["继续写", "第三章"], draft: {text: "继续写", version: 3}}}).composer;
+
+    it("草稿回声只换文字不换版本；模式、模型与思考档位直接写回", () => {
+        expect(applyComposerAction(composer, {type: "composer.draftChanged", text: "继续写第四"})?.draft).toEqual({text: "继续写第四", version: 3});
+        expect(applyComposerAction(composer, {type: "mode.set", mode: "plan"})?.mode).toBe("plan");
+        expect(applyComposerAction(composer, {type: "model.set", modelKey: "m2"})?.modelKey).toBe("m2");
+        expect(applyComposerAction(composer, {type: "thinking.set", level: "high"})?.thinking).toBe("high");
+    });
+
+    it("附件与发送不在这里：返回 null，宿主要接着上传或执行", () => {
+        expect(applyComposerAction(composer, {type: "composer.attachmentRetry", localId: "a1"})).toBeNull();
+        expect(applyComposerAction(composer, {type: "composer.submit", text: "继续写", delivery: "prompt"})).toBeNull();
+    });
+
+    it("受理发送或命令：草稿原文进输入历史最前并去重，草稿清空并换版本", () => {
+        expect(acceptSubmission(composer)).toMatchObject({recall: ["继续写", "第三章"], draft: {text: "", version: 4}});
+        const command = {...composer, draft: {text: "/rename  第三章  雨夜", version: 3}};
+        expect(acceptSubmission(command).recall).toEqual(["/rename  第三章  雨夜", "继续写", "第三章"]);
+    });
+});
+

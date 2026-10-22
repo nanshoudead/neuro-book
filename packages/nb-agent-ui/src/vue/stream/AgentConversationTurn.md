@@ -38,7 +38,7 @@
 ```ts
 type AgentConversationTurnProps = {
     /** 这一轮的消息，必填；由 splitIntoTurnGroups 切出，第一条是普通用户消息或开场内容。 */
-    messages: MessageView[];
+    messages: readonly MessageView[];
     /** 对话视图的 ctx，必填；读取运行状态、历史、Workflow、分支、会话与交互许可，node 组件也会拿到它。 */
     ctx: AgentConversationContext;
     /** 必填；回复里 Markdown 的图片经 resolveMarkdownAsset 换算，附件经 resolveAttachmentUrl 显示。 */

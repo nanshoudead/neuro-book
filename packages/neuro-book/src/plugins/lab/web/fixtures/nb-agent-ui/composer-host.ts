@@ -17,7 +17,7 @@ import type {
     TriggerMenu,
     TriggerMenuContext,
 } from "@notnotype/nb-agent-ui";
-import {nextMode} from "@notnotype/nb-agent-ui";
+import {acceptSubmission, applyComposerAction, nextMode} from "@notnotype/nb-agent-ui";
 import {labAttachmentUrls} from "./data";
 import {referenceMenu, skillMenu} from "../prompt-scene/menu";
 
@@ -59,10 +59,6 @@ export function useLabComposerHost(options: HostOptions) {
         writeComposer({attachments: next === null ? rest : [...rest, next]});
     }
 
-    function clearedDraft(): ComposerView["draft"] {
-        return {text: "", version: composer().draft.version + 1};
-    }
-
     /** 名称在会话内唯一；重名时补一个序号。 */
     function uniqueTarget(name: string): string {
         const safe = name.replace(/[\s()]+/gu, "-") || "attachment";
@@ -97,22 +93,22 @@ export function useLabComposerHost(options: HostOptions) {
 
     function submit(text: string, delivery: "prompt" | "steer" | "followup"): void {
         const current = options.ctx();
-        const recall = [text, ...current.composer.recall.filter((item) => item !== text)];
+        const accepted = acceptSubmission(current.composer);
         if (delivery === "prompt") {
             const message: MessageView = {
                 kind: "user", id: `lab-user-${current.messages.length}`, timestamp: current.now,
                 intent: "normal", blocks: [{kind: "text", text}], contentOmitted: false,
             };
-            options.write({messages: [...current.messages, message], composer: {...current.composer, recall, draft: clearedDraft()}});
+            options.write({messages: [...current.messages, message], composer: accepted});
             return;
         }
-        const queued = [...current.composer.queued, {id: `lab-queued-${Date.now()}`, text, delivery}];
-        writeComposer({queued, recall, draft: clearedDraft()});
+        options.write({composer: {...accepted, queued: [...current.composer.queued, {id: `lab-queued-${Date.now()}`, text, delivery}]}});
     }
 
     function runCommand(name: string, argsText: string): void {
         const current = composer();
-        const done: Partial<ComposerView> = {draft: clearedDraft(), recall: [`/${name}${argsText ? ` ${argsText}` : ""}`, ...current.recall]};
+        const accepted = acceptSubmission(current);
+        const done: Partial<ComposerView> = {draft: accepted.draft, recall: accepted.recall};
         if (name === "plan" && current.modes.some((mode) => mode.key === "plan")) {
             writeComposer({...done, mode: "plan"});
         }
@@ -134,13 +130,14 @@ export function useLabComposerHost(options: HostOptions) {
 
     /** 处理输入框的 action；不是输入框的 action 返回 false，由夹具自己处理。 */
     function handle(action: AgentViewAction): boolean {
+        const applied = applyComposerAction(composer(), action);
+        if (applied !== null) {
+            options.write({composer: applied});
+            return true;
+        }
         switch (action.type) {
             case "composer.submit":
                 submit(action.text, action.delivery);
-                return true;
-            case "composer.draftChanged":
-                // 宿主把正文记回草稿但不换版本，编辑器认得这是自己的回声。
-                writeComposer({draft: {text: action.text, version: composer().draft.version}});
                 return true;
             case "composer.stop":
                 options.write({run: {status: "idle", phase: ""}});
@@ -158,15 +155,6 @@ export function useLabComposerHost(options: HostOptions) {
                 return true;
             case "command.run":
                 runCommand(action.name, action.argsText);
-                return true;
-            case "mode.set":
-                writeComposer({mode: action.mode});
-                return true;
-            case "model.set":
-                writeComposer({modelKey: action.modelKey});
-                return true;
-            case "thinking.set":
-                writeComposer({thinking: action.level});
                 return true;
             case "menu.opened":
                 if (action.trigger === "$" && !skillsLoaded.value) {

@@ -10,7 +10,7 @@
  */
 
 import {createAgentViewRegistry} from "@notnotype/nb-agent-ui";
-import type {AgentConversationServices, AgentViewContribution, AgentViewRegistry} from "@notnotype/nb-agent-ui";
+import type {AgentConversationServices, AgentViewRegistry} from "@notnotype/nb-agent-ui";
 import * as nbAgentUi from "@notnotype/nb-agent-ui/vue";
 import type {AgentViewRenderers} from "@notnotype/nb-agent-ui/vue";
 import type {Component} from "vue";
@@ -65,13 +65,7 @@ export function labAgentServices(): AgentConversationServices {
     };
 }
 
-/** 内置登记加 NeuroBook 的领域工具。 */
-export function labAgentRegistry(extra: readonly AgentViewContribution[] = []): AgentViewRegistry {
-    return createAgentViewRegistry([
-        nbAgentUi.builtinRolesContribution,
-        nbAgentUi.builtinToolsContribution,
-        labDomainToolsContribution,
-        nbAgentUi.builtinMessageActionsContribution,
-        ...extra,
-    ]);
+/** 内置登记（四份一次拿全）加 NeuroBook 的领域工具。 */
+export function labAgentRegistry(): AgentViewRegistry {
+    return createAgentViewRegistry([...nbAgentUi.builtinContributions, labDomainToolsContribution]);
 }

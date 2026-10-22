@@ -20,7 +20,7 @@
  */
 
 import {agentText} from "./messages";
-import type {AgentLocale, AssistantMessageView, ContentBlockView, JsonValue, MessageView, ToolCallView, UsageView} from "./types";
+import type {AgentLocale, AssistantMessageView, ContentBlockView, JsonValue, MessageView, RunView, ToolCallView, UsageView} from "./types";
 
 export type TranscriptProblem = {
     /** 出问题的输入：日志条目的 `seq`，或事件的 `type`。 */
@@ -35,6 +35,12 @@ export type HarnessTranscript = {
     applyEvent(event: unknown): void;
     /** 当前的视图消息：日志里的消息，加上正在生成的那条。 */
     messages(): readonly MessageView[];
+    /**
+     * 只按事件推出的运行状态：收到 `agent_start` 之后是运行中，`agent_end` 或日志的 `run_end` 之后回到空闲。只对本页收到过
+     * `agent_start` 的运行有效：页面刷新、断线重连后只补日志时得不到“运行中”；停止中与等待回答也看不出来。宿主有服务端的
+     * 运行状态时以它为准，这只是没有时的退路。
+     */
+    run(): RunView;
     problems(): readonly TranscriptProblem[];
 };
 
@@ -116,6 +122,7 @@ export function createHarnessTranscript(options: HarnessTranscriptOptions = {}):
      */
     let live: AssistantMessageView | null = null;
     let liveStamp: number | null = null;
+    let running = false;
     const liveTools = new Map<string, {status: ToolCallView["status"]; result?: ToolCallView["result"]; error?: string}>();
 
     const problem = (source: string, reason: string): void => {
@@ -239,6 +246,7 @@ export function createHarnessTranscript(options: HarnessTranscriptOptions = {}):
     }
 
     function applyRunEnd(entry: JsonRecord, seq: number, timestamp: number): void {
+        running = false;
         live = null;
         liveStamp = null;
         liveTools.clear();
@@ -348,13 +356,16 @@ export function createHarnessTranscript(options: HarnessTranscriptOptions = {}):
                     liveTools.set(callId, {status: isError ? "error" : "success", result: {text, truncated: false, ...details}, ...(isError ? {error: text} : {})});
                     return;
                 }
+                case "agent_start":
+                    running = true;
+                    return;
                 case "agent_end":
+                    running = false;
                     live = null;
                     liveStamp = null;
                     liveTools.clear();
                     return;
                 // 对视图没有新信息的事件：消息结束以日志为准，工具的中途进度不显示。
-                case "agent_start":
                 case "turn_start":
                 case "turn_end":
                 case "message_end":
@@ -379,6 +390,10 @@ export function createHarnessTranscript(options: HarnessTranscriptOptions = {}):
             const result = logged.map(withTools);
             if (live !== null) result.push(withTools(live));
             return result;
+        },
+
+        run() {
+            return {status: running ? "running" : "idle", phase: ""};
         },
 
         problems() {

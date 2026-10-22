@@ -105,6 +105,21 @@ describe("harness 适配器与真实 harness", () => {
         expect(fromEventsThenLog(events, entries)).toEqual(messages);
     });
 
+    it("run()：真实事件里 agent_start 之后是运行中，agent_end 之后回到空闲", async () => {
+        const {events} = await run({steps: ["好的。"]});
+        const transcript = createHarnessTranscript();
+        const types = events.map((event) => (event as {type?: string}).type);
+        const start = types.indexOf("agent_start");
+        const end = types.lastIndexOf("agent_end");
+        expect(start).toBeGreaterThan(-1);
+        expect(end).toBeGreaterThan(start);
+        expect(transcript.run().status).toBe("idle");
+        for (const event of events.slice(0, start + 1)) transcript.applyEvent(event);
+        expect(transcript.run().status).toBe("running");
+        for (const event of events.slice(start + 1)) transcript.applyEvent(event);
+        expect(transcript.run().status).toBe("idle");
+    });
+
     it("运行中只喂到助手消息开始时，画出的是流式中的助手消息", async () => {
         // 脚本化模型一步给出整段，不发 message_update；真模型的逐字更新走同一条路径（单测覆盖）。
         const {events} = await run({steps: ["一段回复"]});

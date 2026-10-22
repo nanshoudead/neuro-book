@@ -32,7 +32,7 @@ import type {ViewAction} from "@notnotype/nb-agent-ui/vue";
 
 type AgentRawViewProps = {
     /** 要显示的消息，必填，按时间顺序。 */
-    messages: MessageView[];
+    messages: readonly MessageView[];
     /** 对话视图的 ctx，必填；工具详情与用量币种从这里取。 */
     ctx: AgentConversationContext;
     /** 必填；附件地址从这里取。 */

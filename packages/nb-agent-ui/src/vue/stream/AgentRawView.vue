@@ -21,7 +21,7 @@ import {useOpenSet} from "../use-open-set";
 import type {ViewAction} from "../view-action";
 
 const props = defineProps<{
-    messages: MessageView[];
+    messages: readonly MessageView[];
     ctx: AgentConversationContext;
     services: AgentConversationServices;
     registry: AgentViewRegistry;

@@ -9,7 +9,8 @@ type Attachment = Extract<ContentBlockView, {kind: "attachment"}>;
 
 const props = defineProps<{
     message: UserMessageView;
-    resolveAttachmentUrl: (locator: string, variant: "thumbnail" | "original") => string | null;
+    /** 不提供时附件显示不可用占位。 */
+    resolveAttachmentUrl?: (locator: string, variant: "thumbnail" | "original") => string | null;
 }>();
 
 const emit = defineEmits<{
@@ -38,7 +39,7 @@ const segments = computed(() => {
 });
 
 function thumbnail(target: string): string | null {
-    return props.resolveAttachmentUrl(target, "thumbnail");
+    return props.resolveAttachmentUrl?.(target, "thumbnail") ?? null;
 }
 
 function activateToken(token: PromptToken): void {

@@ -8,6 +8,7 @@ import type {MarkdownActivation} from "../ports";
 import {createAgentViewRegistry} from "../registry";
 import type {AgentConversationContext, AgentConversationServices, AgentLocale} from "../types";
 import AgentConversationView from "./AgentConversationView.vue";
+import PlainPromptEditor from "./fallback/PlainPromptEditor.vue";
 import {builtinComposerContribution} from "./builtin-composer";
 import {builtinMessageActionsContribution} from "./builtin-message-actions";
 import {builtinRolesContribution} from "./builtin-roles";
@@ -29,7 +30,7 @@ function context(): AgentConversationContext {
         pendingInputs: [],
         workflows: {},
         workspaceChanges: {groups: [], selectedPath: null, loading: false, error: null},
-        composer: {models: [], modelKey: null, thinkingLevels: [], thinking: null, modes: [], mode: "normal", queued: [], attachmentCount: 0, attachments: [], recall: [], draft: {text: "", version: 1}},
+        composer: {models: [], modelKey: null, thinkingLevels: [], thinking: null, modes: [], mode: "normal", queued: [], attachments: [], recall: [], draft: {text: "", version: 1}},
         usage: {contextTokens: 0, contextLimit: null, totalTokens: 0, cacheRead: 0, cacheWrite: 0, cacheHitRate: null, cost: null, currency: "USD"},
         connection: {status: "connected", actionRequired: false},
         panels: {},
@@ -62,7 +63,7 @@ function controllableResolver() {
     return {requests, resolveMarkdownAsset};
 }
 
-function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"} = {}) {
+function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"; bareServices?: boolean} = {}) {
     return mount(AgentConversationView, {
         props: {
             ...(options.header === undefined ? {} : {header: options.header}),
@@ -71,7 +72,7 @@ function mountView(locale: AgentLocale, services: Partial<AgentConversationServi
             registry: options.registry ?? registry,
             locale,
             renderers: options.plain === true ? {} : {markdown: FakeMarkdown},
-            services: {resolveAttachmentUrl: () => null, resolveTriggerMenu: () => ({items: []}), ...services},
+            services: options.bareServices === true ? services : {resolveAttachmentUrl: () => null, resolveTriggerMenu: () => ({items: []}), ...services},
         },
         attachTo: document.body,
     });
@@ -238,5 +239,18 @@ describe("没有数据的区域不显示（验收 24）", () => {
         const shown = mountView("zh-CN", {}, {ctx: withModels, plain: true});
         expect(shown.find(".acv-model-picker__trigger").exists()).toBe(true);
         shown.unmount();
+    });
+
+    it("不提供附件地址与触发菜单两项服务：附件显示不可用占位，编辑器只拿到 / 触发字符", async () => {
+        const ctx = context();
+        ctx.messages = [{kind: "user", id: "u1", timestamp: 1, intent: "normal", contentOmitted: false, blocks: [
+            {kind: "text", text: "看图"},
+            {kind: "attachment", locator: "local://草图.png", name: "草图.png", mimeType: "image/png", bytes: 10},
+        ]}];
+        const view = mountView("zh-CN", {}, {ctx, plain: true, bareServices: true});
+        expect(view.find(".acv-user-content__image--missing").exists()).toBe(true);
+        expect(view.find(".acv-user-content__image-button").exists()).toBe(false);
+        expect(view.getComponent(PlainPromptEditor).props("triggers")).toEqual(["/"]);
+        view.unmount();
     });
 });

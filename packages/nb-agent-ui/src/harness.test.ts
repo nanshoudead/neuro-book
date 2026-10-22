@@ -138,6 +138,16 @@ describe("harness 适配器：事件", () => {
         expect(currentAgain).not.toBe(current);
     });
 
+    it("run()：只补日志时不知道运行中；日志的 run_end 也让它回到空闲", () => {
+        const transcript = createHarnessTranscript();
+        transcript.applyLogEntry(userEntry("查"));
+        expect(transcript.run().status).toBe("idle");
+        transcript.applyEvent({type: "agent_start"});
+        expect(transcript.run().status).toBe("running");
+        transcript.applyLogEntry(entry("run_end", {stopReason: "error", error: {kind: "network", status: null, message: "ECONNRESET"}}));
+        expect(transcript.run().status).toBe("idle");
+    });
+
     it("agent_end 清掉临时内容；认不出的事件记进 problems，其余无关事件忽略", () => {
         const transcript = createHarnessTranscript();
         transcript.applyEvent(streaming("一半"));
