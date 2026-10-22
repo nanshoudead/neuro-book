@@ -13,7 +13,7 @@ updated: 2026-10-22
 
 合同：[`ui/agent-conversation-view.md`](../../../../../docs/specs/ui/agent-conversation-view.md)。切片 0 先补新条目与验收 20 到 25，再实现。
 
-## 当前状态（2026-10-22）：切片 0 到 7 已提交，实现审查进行中
+## 当前状态（2026-10-22）：切片 0 到 7 与实现审查的修正已完成，等开发者在 Lab 确认
 
 计划见 [plan.md](plan.md)（Opus 规划子代理起草，逐条对照代码核实过审查意见），开发者同日同意计划末尾的九项决定。设计审查 14 条（Sonnet，重要 5、建议 9）全部成立，已改进计划，处理见计划的“设计审查”一节，报告在 [evidences/design-review.txt](evidences/design-review.txt)。
 
@@ -30,9 +30,14 @@ updated: 2026-10-22
 | 6 | `5c9a99f50` | `createAgentContext`、`applyComposerAction`、`acceptSubmission`、`builtinContributions`；两项服务可选；`transcript.run()`；README 最小宿主 |
 | 7 | `f64b73712` | `/vue` 只导出视图与内置登记，内部零件经只给 Lab 的 `./lab` |
 
+实现审查（Sonnet，范围 `a1a862d4e..f64b73712`）：13 条，重要 3、建议 10，[报告](evidences/impl-review.txt)。全部成立，修正在一个提交里：
+
+- 重要：结果区里所有结果节点都不计操作次数（原先只排除最后一个）；步骤行改为受控，展开状态由思维链按 id 记，重新分组不丢（作者自述的第一处偏离不成立，已收回）；README 最小宿主改用 `shallowRef` 并声明 `locale`，`src/vue/entry.dom.test.ts` 照写一遍，README 由此过类型检查（改回 `ref` 时报错）。
+- 建议：结果节点改的文件照常算进改动文件；`createAgentContext` 忽略值为 undefined 的字段；消息没变的轮次沿用上一次的分组、轮次只依赖 run、history 与 now 的值，宿主整体替换 ctx 打节拍时已结束的轮次不重新整理；`acceptSubmission(composer, sent)` 只在发送的就是草稿时清空草稿；`run()` 返回同一个对象；命令照常时标题写“发送”，展开时只许补充说明的宿主可用 Ctrl/⌘+回车发；没有菜单服务时正文中间的 `/` 提示命令写在开头；`./lab` 加载方式的注释改正；补上 `live` 回落、详情组件通道、`waiting`/`stopping` 与投递开关的测试；`diff` 在参数还没到时返回 null。
+- Spec 补两句：展开时 Ctrl/⌘+回车不允许排队时按回车的规则；没有菜单服务时正文中间的 `/` 只提示命令写在开头。
+
 与计划不同的地方：
 
-- **展开状态**：两种步骤行各自持有自己的展开状态，`useOpenSet` 只用于思维链、工具组与卡片（`live` 的默认值只落在这几处）。
 - **`./lab` 是静态导出**：它只被 Lab 里本来就动态加载的 `host.ts` 与 type-only 导入引用，不需要按名动态加载。
 - **e2e 的教训**：切片 1 的第一轮 e2e 跑的时候在改切片 2 的源码，Lab 的 e2e 读源码，混进了半成品；之后每片先暂存，跑完 e2e 前不改源码。
 
