@@ -1,6 +1,6 @@
-import type {AgentConversationComposer} from "@notnotype/nb-agent-ui/vue";
-import type {AgentModelPicker} from "@notnotype/nb-agent-ui/vue";
-import type {AgentQueuedMessages} from "@notnotype/nb-agent-ui/vue";
+import type {AgentConversationComposer} from "@notnotype/nb-agent-ui/lab";
+import type {AgentModelPicker} from "@notnotype/nb-agent-ui/lab";
+import type {AgentQueuedMessages} from "@notnotype/nb-agent-ui/lab";
 import type {AgentConversationContext, ComposerView} from "@notnotype/nb-agent-ui";
 import {conversationContext} from "./data";
 import type {LabFixtureDefinition} from "../index";

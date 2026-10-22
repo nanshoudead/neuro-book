@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 单独挂载一个轮次块：块与 ctx 来自场景输入，服务与注册表由夹具补齐（与 AgentConversationView 夹具一致）。 */
-import {AgentTurnBlock} from "@notnotype/nb-agent-ui/vue";
+import {AgentTurnBlock} from "@notnotype/nb-agent-ui/lab";
 
 import {useLabSubject, type LabFixtureProps} from "../../lab-subject";
 import {labAgentRegistry, labAgentServices, provideLabAgentHost} from "./host";

@@ -3,7 +3,8 @@
 Agent 对话视图。行为合同见 [`ui.agent-conversation-view`](../../docs/specs/ui/agent-conversation-view.md)，包的约定见 [AGENTS.md](AGENTS.md)。
 
 - `@notnotype/nb-agent-ui`：核心，纯 TS。视图合同（`ctx`、`services`、`action`）、注册表、界面文字，以及宿主注入组件要满足的形状（`ports.ts`）。
-- `@notnotype/nb-agent-ui/vue`：渲染层。`AgentConversationView` 与各零件、内置登记、注入用的 `provideAgentView`，以及缺省实现。
+- `@notnotype/nb-agent-ui/vue`：渲染层。宿主只挂 `AgentConversationView`，注册表用内置登记（`builtinContributions` 或四份单独的）加自己的。
+- `@notnotype/nb-agent-ui/lab`：只给应用的 Component Lab，单独挂内部零件与算轮次样例；不是宿主接口，形状随时会变。
 
 ## 宿主接入
 
@@ -52,8 +53,7 @@ Agent 对话视图。行为合同见 [`ui.agent-conversation-view`](../../docs/s
 
    - `services` 三项都可选：没有 `resolveAttachmentUrl` 时附件显示不可用占位，没有 `resolveTriggerMenu` 时只剩 `/` 命令，没有 `resolveMarkdownAsset` 时回复里的图片只显示说明。`resolveTriggerMenu` 是纯函数，数据到达时换一个新函数，编辑器据此重取菜单。
    - 草稿：编辑器每次改动发 `composer.draftChanged`，宿主只换文字不换版本（`applyComposerAction` 就是这样做的），编辑器认得这是自己的回声；宿主受理发送后给一个新版本的空草稿（`acceptSubmission`），视图据此清空，发送失败时文字不会丢。
-   - `renderers` 是宿主的 Markdown 显示、提示词编辑器与已发送文字的显示，形状见核心的 `MarkdownDisplayPortProps`、`PromptEditorPortProps`、`PromptTextViewPortProps`。缺哪个用包内的缺省实现（`PlainMarkdown`、`PlainPromptEditor`、`PlainPromptTextView`）：Markdown 按纯文字显示，输入框是普通文本框，没有标签、附件与粘贴块。neuro-book 注入 `nbook.markdown` 的组件，并有一份类型断言对照它们（`packages/neuro-book/src/plugins/markdown/web/prompt-ports.typecheck.ts`）。
-   - 单独挂零件（例如只要输入框）时，在外层组件的 `setup` 里调用 `provideAgentView({locale, renderers})`。
+   - `renderers` 是宿主的 Markdown 显示、提示词编辑器与已发送文字的显示，形状见核心的 `MarkdownDisplayPortProps`、`PromptEditorPortProps`、`PromptTextViewPortProps`。缺哪个用包内的缺省实现：Markdown 按纯文字显示，输入框是普通文本框，没有标签、附件与粘贴块。neuro-book 注入 `nbook.markdown` 的组件，并有一份类型断言对照它们（`packages/neuro-book/src/plugins/markdown/web/prompt-ports.typecheck.ts`）。
    - 领域工具（不是通用 harness 工具的那些）由宿主自己登记渲染器，例子见 Lab 的 `packages/neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui/domain-tools.ts`。读参数用核心导出的 `argString`、`argArray` 等（容忍流式半截的参数，不抛错）；改文件的工具给 `effects` 与 `diff` 就有改动统计与 diff 详情。两个渲染器不能声明同一个工具名或前缀；要替换内置的某一项，先从内置登记里过滤掉它：`{...builtinToolsContribution, tools: builtinToolsContribution.tools!.filter((tool) => tool.id !== "read")}`。
 
 4. **数据**：视图不持有会话数据。消息、运行状态、草稿、附件状态都经 `ctx` 给出，宿主受理用户操作后给出新的 `ctx`（例如发送后给一个新版本的空草稿）。

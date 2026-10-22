@@ -5,17 +5,16 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {buildTurns, createAgentViewRegistry, createHarnessTranscript, formatText, textOf} from "@notnotype/nb-agent-ui";
+import {acceptSubmission, createAgentContext, createHarnessTranscript, formatText, textOf} from "@notnotype/nb-agent-ui";
 
 describe("核心入口", () => {
-    it("从包名导入：适配器把一段日志画成消息，分轮把它们分成一轮，文字按语言取", () => {
+    it("从包名导入：适配器把一段日志画成消息放进起步的 ctx，受理发送后草稿换版本，文字按语言取", () => {
         const transcript = createHarnessTranscript({locale: "en-US"});
         transcript.applyLogEntry({kind: "agent_message", seq: 1, at: "2026-10-22T08:00:00.000Z", message: {role: "user", content: "你好", timestamp: 1}});
         transcript.applyLogEntry({kind: "agent_message", seq: 2, at: "2026-10-22T08:00:01.000Z", message: {role: "assistant", content: [{type: "text", text: "在。"}], stopReason: "stop", timestamp: 2}});
-        const messages = [...transcript.messages()];
-        const registry = createAgentViewRegistry([]);
-        const turns = buildTurns({messages, registry, run: {status: "idle", phase: ""}, history: {hasMore: false, loading: false, error: null}, now: 3});
-        expect(turns).toHaveLength(1);
-        expect(textOf(formatText({"zh-CN": "{n} 轮", "en-US": "{n} turn"}, {n: turns.length}), "en-US")).toBe("1 turn");
+        const ctx = createAgentContext({messages: transcript.messages(), composer: {draft: {text: "你好", version: 1}}});
+        expect(ctx.messages.map((message) => message.kind)).toEqual(["user", "assistant"]);
+        expect(acceptSubmission(ctx.composer).draft).toEqual({text: "", version: 2});
+        expect(textOf(formatText({"zh-CN": "{n} 条", "en-US": "{n} messages"}, {n: ctx.messages.length}), "en-US")).toBe("2 messages");
     });
 });

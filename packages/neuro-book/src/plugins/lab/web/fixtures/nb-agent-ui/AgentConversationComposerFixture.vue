@@ -5,9 +5,9 @@
  * 输入框放在撑满画布的一列底部，展开时按这一列的高度长高。按钮带 `data-lab-action` 供 smoke 定位。
  */
 import {computed} from "vue";
-import {AgentConversationComposer} from "@notnotype/nb-agent-ui/vue";
+import {AgentConversationComposer} from "@notnotype/nb-agent-ui/lab";
 import type {AgentConversationContext, AgentConversationServices} from "@notnotype/nb-agent-ui";
-import type {ViewAction} from "@notnotype/nb-agent-ui/vue";
+import type {ViewAction} from "@notnotype/nb-agent-ui/lab";
 import {createAgentViewRegistry, type AgentViewContribution} from "@notnotype/nb-agent-ui";
 import {builtinComposerContribution} from "@notnotype/nb-agent-ui/vue";
 import {useLabSubject, type LabFixtureProps} from "../../lab-subject";

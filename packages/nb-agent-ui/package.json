@@ -8,6 +8,7 @@
     "exports": {
         ".": "./src/index.ts",
         "./vue": "./src/vue/index.ts",
+        "./lab": "./src/vue/lab.ts",
         "./lab-sources": "./src/vue/lab-sources.ts",
         "./tailwind.css": "./src/tailwind.css"
     },

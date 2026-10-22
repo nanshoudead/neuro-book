@@ -6,7 +6,7 @@
 
 | 位置 | 内容 |
 |---|---|
-| 根目录 | 顶层 `AgentConversationView`；注入语言与渲染组件的 `host.ts`；视图内部的 action（宿主的 action 加原图预览）与标签点击的去向 `view-action.ts`；一组可展开项的展开状态 `use-open-set.ts`；登记内置角色、消息操作和输入框触发字符与命令的 `builtin-*.ts`，以及给核心的内置工具登记挂上详情与节点组件的 `builtin-tools.ts` |
+| 根目录 | 顶层 `AgentConversationView`；宿主入口 `index.ts` 与只给 Component Lab 的入口 `lab.ts`（内部零件、`provideAgentView`、轮次样例）、`lab-sources.ts`；注入语言与渲染组件的 `host.ts`；视图内部的 action（宿主的 action 加原图预览）与标签点击的去向 `view-action.ts`；一组可展开项的展开状态 `use-open-set.ts`；登记内置角色、消息操作和输入框触发字符与命令的 `builtin-*.ts`，以及给核心的内置工具登记挂上详情与节点组件的 `builtin-tools.ts` |
 | `parts/` | 各区域共用的零件：回复正文 `AgentMarkdown`、带本包文字的代码块 `AgentCodeBlock`、原图预览对话框、渲染出错的兜底。卡片与步骤行在 nb-ui（`CollapsibleCard`、`CollapsibleRow`） |
 | `stream/` | 消息流：轮次、轮次块与其中的思维链块、工具与文字两种步骤行、用户消息、投递提示、消息操作、轮末改动文件、原始视图 |
 | `tools/` | 工具详情：通用详情（没有专用组件时画登记项给的 diff）、命令、文件内容、任务清单 |

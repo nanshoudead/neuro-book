@@ -11,7 +11,8 @@
 
 import {createAgentViewRegistry} from "@notnotype/nb-agent-ui";
 import type {AgentConversationServices, AgentViewRegistry} from "@notnotype/nb-agent-ui";
-import * as nbAgentUi from "@notnotype/nb-agent-ui/vue";
+import * as nbAgentUiLab from "@notnotype/nb-agent-ui/lab";
+import {builtinContributions} from "@notnotype/nb-agent-ui/vue";
 import type {AgentViewRenderers} from "@notnotype/nb-agent-ui/vue";
 import type {Component} from "vue";
 import {defineComponent, h, provide} from "vue";
@@ -43,15 +44,15 @@ export function withAgentHost(inner: Component, options: {plain?: boolean} = {})
     });
 }
 
-/** 按名字取渲染层的公开组件，包上 `withAgentHost`。 */
-export function agentSubject(name: keyof typeof nbAgentUi, options: {plain?: boolean} = {}): {default: Component} {
-    return {default: withAgentHost(nbAgentUi[name] as Component, options)};
+/** 按名字取 Lab 入口里的内部零件，包上 `withAgentHost`。 */
+export function agentSubject(name: keyof typeof nbAgentUiLab, options: {plain?: boolean} = {}): {default: Component} {
+    return {default: withAgentHost(nbAgentUiLab[name] as Component, options)};
 }
 
 /** 零件夹具在 setup 里调用：交出方言目录、语言与 Lab 的渲染组件。 */
 export function provideLabAgentHost(options: {plain?: boolean} = {}): void {
     provideLabMarkdown();
-    nbAgentUi.provideAgentView({locale: () => "zh-CN", renderers: () => (options.plain === true ? {} : labAgentRenderers)});
+    nbAgentUiLab.provideAgentView({locale: () => "zh-CN", renderers: () => (options.plain === true ? {} : labAgentRenderers)});
 }
 
 const PICTURE = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240"><rect width="640" height="240" fill="#7287fd"/><text x="320" y="132" font-size="32" text-anchor="middle" fill="white">示意图</text></svg>')}`;
@@ -67,5 +68,5 @@ export function labAgentServices(): AgentConversationServices {
 
 /** 内置登记（四份一次拿全）加 NeuroBook 的领域工具。 */
 export function labAgentRegistry(): AgentViewRegistry {
-    return createAgentViewRegistry([...nbAgentUi.builtinContributions, labDomainToolsContribution]);
+    return createAgentViewRegistry([...builtinContributions, labDomainToolsContribution]);
 }

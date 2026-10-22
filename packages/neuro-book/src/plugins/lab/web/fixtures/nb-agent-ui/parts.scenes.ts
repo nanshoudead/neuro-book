@@ -11,8 +11,8 @@ import {
 import type {UserMessageView} from "@notnotype/nb-agent-ui";
 import {createAgentViewRegistry} from "@notnotype/nb-agent-ui";
 import {builtinRolesContribution, builtinToolsContribution} from "@notnotype/nb-agent-ui/vue";
-import type {AgentChainSummary, AgentCommandDetail, AgentConversationTurn, AgentFileChanges, AgentFileContentDetail, AgentMarkdown, AgentMessageActions, AgentRawView, AgentTaskList, AgentTaskListNode, AgentToolDetail, AgentTurnBlock, AgentUserContent} from "@notnotype/nb-agent-ui/vue";
-import {buildTurns, type ConversationTurn, type TurnBlock} from "@notnotype/nb-agent-ui";
+import type {AgentChainSummary, AgentCommandDetail, AgentConversationTurn, AgentFileChanges, AgentFileContentDetail, AgentMarkdown, AgentMessageActions, AgentRawView, AgentTaskList, AgentTaskListNode, AgentToolDetail, AgentTurnBlock, AgentUserContent} from "@notnotype/nb-agent-ui/lab";
+import {buildTurns, type ConversationTurn, type TurnBlock} from "@notnotype/nb-agent-ui/lab";
 import type {LabFixtureDefinition} from "../index";
 import {labDomainToolsContribution} from "./domain-tools";
 

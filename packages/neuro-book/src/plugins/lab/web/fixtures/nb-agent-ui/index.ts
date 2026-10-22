@@ -1,15 +1,15 @@
 /**
  * nb-agent-ui 渲染层的场景（组件树里 `nb-agent-ui` 一组，docs/specs/ui/agent-conversation-view.md）。场景数据迁自
- * 旧应用的 Lab（归档提交 865c9f593）。组件经 `@notnotype/nb-agent-ui/vue` 的公开入口取；要注入 Markdown 与编辑器的
+ * 旧应用的 Lab（归档提交 865c9f593）。对话视图经公开入口 `@notnotype/nb-agent-ui/vue` 取，内部零件经只给 Lab 的 `@notnotype/nb-agent-ui/lab` 取；要注入 Markdown 与编辑器的
  * 零件经 `host.ts` 包一层，`host.ts` 只在选中场景时动态加载。
  */
 
+import type {AgentConversationView} from "@notnotype/nb-agent-ui/vue";
 import type {
     AgentChainSummary,
     AgentCommandDetail,
     AgentConversationComposer,
     AgentConversationTurn,
-    AgentConversationView,
     AgentDeliveryNotice,
     AgentFileChanges,
     AgentFileContentDetail,
@@ -26,7 +26,7 @@ import type {
     PlainMarkdown,
     PlainPromptEditor,
     PlainPromptTextView,
-} from "@notnotype/nb-agent-ui/vue";
+} from "@notnotype/nb-agent-ui/lab";
 import type {Component} from "vue";
 
 import {defineLabFixture} from "../index";
