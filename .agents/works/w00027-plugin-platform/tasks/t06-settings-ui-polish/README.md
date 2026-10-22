@@ -40,6 +40,8 @@ updated: 2026-10-21
 - 验证（`c92f53320`）：`test:affected --since e59a4112c --typecheck --with-consumers` 全过（dev-panel 461、nb-form 100 加 81、nb-story 320、nb-ui 531、应用 Bun 1598 与 Vitest 405，各包类型检查）；`docs:check`、`governance:check` 没有失败；全量 e2e 255 例通过；设置窗口全部场景在浅、深与 1200×800、600×500 下截图 76 张，没有溢出与被裁的焦点环。
 - 看图时发现：4417 那个手动起的开发服务在启动时预构建了 nb-ui，之后 nb-ui 源码的改动它看不到，截图一度是旧样子；改用 `nbdev dev start` 起在 http://127.0.0.1:4317/。
 
+- 2026-10-22 w00030 t04（NeuroBook 主题字号恢复大一档，正文 14px、控件 28/34/42px）合入 master 后，把 master 合进 Work 分支（`41f3db21f`，同时带进 Tailwind 重构 w00030 t02 与弹出列表 t03）。冲突两处：`nb-ui/dist/nb-ui.css` 照 master 删除；`SegmentedControl.vue` 的方向键改用 master 的 `rovingMove`、`moveRoving`，保留 t06 的只读起点（从焦点所在项走）。合并后 `test:affected --since master --typecheck --with-consumers` 全过，`settings`、`lab-scenes`、`lab-nb-ui` 三个 e2e 文件 26 例通过。
+
 ## 下一步
 
 1. 等 w00030 t04（NeuroBook 主题字号恢复大一档）合入 master，把 master 合进 Work 分支，在新字号上按 design-review 重出设置界面静态稿：紧凑度（行高、分区间距、左栏宽度、控件高度）与字重层级（页面标题、分组标题、设置项名、列表选中项各一档，t02、t06 新加的部分照用）。已实施的 S1–S5 不撤，定稿后在其上调整，再合入 master。
