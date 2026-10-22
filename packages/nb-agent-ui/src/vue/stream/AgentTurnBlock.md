@@ -8,9 +8,10 @@
 一轮里 Agent 一侧的一个块，由 `AgentConversationTurn` 按时间顺序排列。块的种类与含义见 `conversation-turns.ts` 的 `TurnBlock`，排列与三层规则见 `AgentConversationTurn` 的同名文档。本组件只负责把一个块画出来：
 
 - 思维链（`chain`）：交给 `AgentChainBlock`，见其同名文档。每一次工具调用（单行、组内一项、出错单独露出的一项、卡片与通用控件卡片）都能点开，内容由 `AgentToolDetail` 画。
-- Agent 说出的 content（`content`）：最终回复用完整气泡；运行中的中间 content 用轻一级的气泡。消息还在流式生成时正文末尾显示光标。
+- Agent 说出的 content（`content`）：最终回复用完整气泡；运行中的中间 content 用轻一级的气泡。消息还在流式生成时正文末尾显示光标。消息带附注时，附注在正文下方、同一个气泡里（`AgentMessageAnnotations`）。
+- 附注（`annotations`）：没有文字的助手消息带的附注单独成块，位置规则同信息条目。
 - 人机交互控件（`node`）：渲染器登记了 `node` 组件时用它，否则用通用卡片；Workflow 运行中卡片副标题显示当前动作。
-- 信息条目（`notice`）：淡色一行，写标签和正文第一行；整行是按钮，点开在下方显示全文（Markdown，淡色小字）。
+- 信息条目（`notice`）：淡色一行，写标签和正文第一行（经 `renderers.markdownPreview` 去掉 Markdown 标记）；整行是按钮，点开在下方显示全文（Markdown，淡色小字）。
 - 分隔线（`divider`）：上下文压缩、分支摘要居中一条线；带摘要正文时标签可点，点开在线下显示摘要全文。
 - steer：左侧强调色竖线的浅底条，“补充说明”标签后面是 `AgentUserContent`；还在发送时末尾一个小转圈，投递状态未知时下一行是 `AgentDeliveryNotice`。
 - 错误：危险色气泡。

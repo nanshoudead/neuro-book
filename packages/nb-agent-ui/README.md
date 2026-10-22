@@ -3,7 +3,7 @@
 Agent 对话视图。行为合同见 [`ui.agent-conversation-view`](../../docs/specs/ui/agent-conversation-view.md)，包的约定见 [AGENTS.md](AGENTS.md)。
 
 - `@notnotype/nb-agent-ui`：核心，纯 TS。视图合同（`ctx`、`services`、`action`）、注册表、界面文字，以及宿主注入组件要满足的形状（`ports.ts`）。
-- `@notnotype/nb-agent-ui/vue`：渲染层。宿主只挂 `AgentConversationView`，注册表用内置登记（`builtinContributions` 或四份单独的）加自己的。
+- `@notnotype/nb-agent-ui/vue`：渲染层。宿主挂 `AgentConversationView`，要会话列表时另挂 `AgentSessionList`；注册表用内置登记（`builtinContributions` 或四份单独的）加自己的。
 - `@notnotype/nb-agent-ui/lab`：只给应用的 Component Lab，单独挂内部零件与算轮次样例；不是宿主接口，形状随时会变。
 
 ## 宿主接入
@@ -61,10 +61,18 @@ Agent 对话视图。行为合同见 [`ui.agent-conversation-view`](../../docs/s
 
    - `services` 三项都可选：没有 `resolveAttachmentUrl` 时附件显示不可用占位，没有 `resolveTriggerMenu` 时只剩 `/` 命令，没有 `resolveMarkdownAsset` 时回复里的图片只显示说明。`resolveTriggerMenu` 是纯函数，数据到达时换一个新函数，编辑器据此重取菜单。
    - 草稿：编辑器每次改动发 `composer.draftChanged`，宿主只换文字不换版本（`applyComposerAction` 就是这样做的），编辑器认得这是自己的回声；宿主受理发送后给一个新版本的空草稿（`acceptSubmission`），视图据此清空，发送失败时文字不会丢。
-   - `renderers` 是宿主的 Markdown 显示、提示词编辑器与已发送文字的显示，形状见核心的 `MarkdownDisplayPortProps`、`PromptEditorPortProps`、`PromptTextViewPortProps`。缺哪个用包内的缺省实现：Markdown 按纯文字显示，输入框是普通文本框，没有标签、附件与粘贴块。neuro-book 注入 `nbook.markdown` 的组件，并有一份类型断言对照它们（`packages/neuro-book/src/plugins/markdown/web/prompt-ports.typecheck.ts`）。
-   - 领域工具（不是通用 harness 工具的那些）由宿主自己登记渲染器，例子见 Lab 的 `packages/neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui/domain-tools.ts`。读参数用核心导出的 `argString`、`argArray` 等（容忍流式半截的参数，不抛错）；改文件的工具给 `effects` 与 `diff` 就有改动统计与 diff 详情。两个渲染器不能声明同一个工具名或前缀；要替换内置的某一项，先从内置登记里过滤掉它：`{...builtinToolsContribution, tools: builtinToolsContribution.tools!.filter((tool) => tool.id !== "read")}`。
+   - `renderers` 是宿主的 Markdown 显示、提示词编辑器与已发送文字的显示，形状见核心的 `MarkdownDisplayPortProps`、`PromptEditorPortProps`、`PromptTextViewPortProps`。缺哪个用包内的缺省实现：Markdown 按纯文字显示，输入框是普通文本框，没有标签、附件与粘贴块。neuro-book 注入 `nbook.markdown` 的组件，并有一份类型断言对照它们（`packages/neuro-book/src/plugins/markdown/web/prompt-ports.typecheck.ts`）。`renderers.markdownPreview` 是折叠时那一行的写法（思考、信息条目收起时露出的第一行，去掉 Markdown 标记），形状见 `MarkdownPreviewPort`；缺省的 `markdownPreviewLine` 只认常见写法，宿主有自己的标记语法时给它。
+   - 领域工具（不是通用 harness 工具的那些）由宿主自己登记渲染器，例子见 Lab 的 `packages/neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui/domain-tools.ts`。读参数用核心导出的 `argString`、`argArray` 等（容忍流式半截的参数，不抛错）；改文件的工具给 `effects` 与 `diff` 就有改动统计与 diff 详情。两个渲染器不能声明同一个工具名或前缀；要替换内置的某一项，先从内置登记里过滤掉它：`{...builtinToolsContribution, tools: builtinToolsContribution.tools!.filter((tool) => tool.id !== "read")}`。宿主的工具与内置的同名而不需要内置的那些时，不登记 `builtinToolsContribution`。
+   - 工具组的短语：`explore` 类渲染器的 `groupPhrase(calls)` 收到组里由它处理的那几次调用，含出错与运行中的（运行中的参数可能是半截）；只想说成功读到的，自己按 `call.status` 过滤。短语按调用写，思维链摘要里的“读了 N 个文件”按不同路径计数，两处口径不同。
+   - 结果工具（`outcome: true`）被退回（出错或参数无效）的那几次画成过程里的一行，不画宿主的节点组件；行内文字是渲染器 `summary(call)` 的返回值，出错时也会调用它，在这里写出原因（例如“退回：”加 `call.error` 的第一行）。
+   - **附注与条目渲染器**：要跟在某条助手回复后面的信息（例如没核实的出处），宿主写进那条消息的 `annotations`（`{customType, text, details?}`），不另造系统消息；附注不占消息流的位置，不参与分轮、用时与计数。在注册表的 `entries` 里按 `customType` 登记组件（收 `EntryComponentProps`），没有登记或组件出错时显示 `text`。两个条目渲染器不能声明同一个 `customType`。给消息加附注时换成新的消息对象，并按依据缓存（例如按消息 id 加出处列表），打节拍时给同一个对象：视图按消息对象是否相同决定一轮要不要重算。例子见上面那份 `domain-tools.ts` 的 `entries`。
 
 4. **数据**：视图不持有会话数据。消息、运行状态、草稿、附件状态都经 `ctx` 给出，宿主受理用户操作后给出新的 `ctx`（例如发送后给一个新版本的空草稿）。
+
+5. **会话列表**：`AgentSessionList` 不在 `AgentConversationView` 里，宿主把它摆在左栏或下拉里。它不 inject，语言由 `locale` 属性给；条目、选中与加载状态全由宿主给，用户操作以 `action` 交回（`session.select`、`session.create`、出错时重试发 `sessions.refresh`），可以和视图的 action 交给同一个处理函数。
+   - 宿主自己有标题与新建入口时传 `header: false`；`labels` 覆盖包内文字（例如整页叫“对话”）。
+   - 列表不持有下拉的开关：宿主收到 `session.select`、`session.create` 后自己关下拉，`sessions.refresh` 不关。
+   - 时间按 `now` 与本地日历日写成“14:32”“昨天”“10月18日”。宿主要定期更新 `now`（例如每分钟），否则过了午夜，“今天”的行不会变成“昨天”。
 
 ## 跑 harness 的宿主
 

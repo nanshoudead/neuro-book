@@ -11,7 +11,7 @@
 - 样式写在组件的 scoped CSS 里、用 nb-ui 的 token，不用原子类。图标是 `i-lucide-*` 类名，宿主导入本包的 `tailwind.css` 才会生成；类名不能拼接（`src/icon-registration.test.ts`）。
 - 界面文字是包内的中英两张表，组件收 `locale`；宿主与插件给的文字写中英两份。
 - 视图不持有会话数据：消息、运行状态与草稿都由宿主经 `ctx` 给出，用户操作经 `action` 交回。
-- `./vue` 入口只导出 `AgentConversationView` 与内置登记：它是受管组件，`docs:check` 机检它的标签。内部组件同样有同名 `.md`（组件规范：新建组件都要有）；要在 Lab 单独看的登记场景，经只给 Lab 的 `./lab` 入口挂载，其余写 `验证入口`。`./lab` 不是宿主接口，宿主代码不引用它。
+- `./vue` 入口只导出 `AgentConversationView`、`AgentSessionList` 与内置登记：这两个是受管组件，`docs:check` 机检它们的标签。内部组件同样有同名 `.md`（组件规范：新建组件都要有）；要在 Lab 单独看的登记场景，经只给 Lab 的 `./lab` 入口挂载，其余写 `验证入口`。`./lab` 不是宿主接口，宿主代码不引用它。
 
 ## 验证
 
