@@ -52,7 +52,8 @@ pre code { background: none; padding: 0; }
 <div class="toc">
 <b>目录</b>
 <ol>
-<li><a href="#r4">重新设计</a>（待定）</li>
+<li><a href="#r5">按 A 补齐其余状态</a>（待定）</li>
+<li><a href="#r4">重新设计</a>（已定：A）</li>
 <li><a href="#r3">新字号上的紧凑度与字重</a>（已撤回）</li>
 <li><a href="#r2">还原之后</a>（已定：不通过）</li>
 <li><a href="#r1">还原 t80 定稿：逐项对照</a></li>
@@ -64,7 +65,53 @@ pre code { background: none; padding: 0; }
 </div>
 
 
-<h2 id="r4">重新设计（2026-10-22）</h2>
+<h2 id="r5">按 A 补齐其余状态（2026-10-22）</h2>
+<p>第四轮开发者选了 A Notion / Linear 式（“设计决定”第 6 条）。这一轮在 A 上把其余状态画全，控件是真实的 nb-ui 组件，画布 960×640，NeuroBook 主题。比第四轮多改了一处：<b>“恢复默认”占控件右边固定的一格</b>，没改过的行也留着这一格，所以有没有“恢复默认”的行，控件右缘都对齐（第四轮改过的行会往左缩一截）。</p>
+
+<section data-nbdev-question="r5-readonly" data-nbdev-type="single" data-nbdev-recommend="plain">
+<h3><span class="tag warn" data-nbdev-skip>待定</span> 只读的项怎么画</h3>
+<p>只读的项（例如“书库”由作品决定、在这里不能改）现在和能编辑的几乎看不出差别；整体变淡是“停用”的画法，不能借用。两种候选，看“故事图谱”下的“书库”一行：</p>
+<div class="grid">
+<div data-nbdev-option="plain" data-nbdev-label="只写值"><figure><a href="r5/plugins-plain-light.webp"><img src="r5/plugins-plain-light.webp" alt=""></a><figcaption><b>只写值</b>：不画框，锁形图标加上值，文字可以选中复制</figcaption></figure></div>
+<div data-nbdev-option="boxed" data-nbdev-label="虚线框"><figure><a href="r5/plugins-boxed-light.webp"><img src="r5/plugins-boxed-light.webp" alt=""></a><figcaption><b>虚线框</b>：保留框的位置与宽度，换成虚线、不填底，框里带锁</figcaption></figure></div>
+</div>
+<p class="rec">推荐“只写值”：没有框就不像能输入，一眼和输入框分开；锁形图标说明为什么不能改。虚线框仍然像一个输入框，只是换了边框，和能编辑的框放在一起时还要多看一眼。对开关、分段控件这类只读，也照这条只写当前值。</p>
+</section>
+
+<section data-nbdev-question="r5-states" data-nbdev-type="confirm">
+<h3><span class="tag warn" data-nbdev-skip>待定</span> 其余状态按这一轮的画法定稿吗</h3>
+<p>想改的地方写在评论里。逐张说明：</p>
+<div class="grid">
+<figure><a href="r5/project-light.webp"><img src="r5/project-light.webp" alt=""></a><figcaption><b>本作品标签</b>：没单独设置的项写“沿用用户设置：NeuroBook”和“单独设置”按钮；单独设置了的项有小圆点，后面是“移除本作品的设置”（同一个图标，提示文字不同）；只能在用户设置里改的项在末尾一行列出</figcaption></figure>
+<figure><a href="r5/search-light.webp"><img src="r5/search-light.webp" alt=""></a><figcaption><b>搜索结果</b>：按“分区 › 分组”分组，命中的字标底色；左栏不标当前项；页面的命中是一行“打开”</figcaption></figure>
+<figure><a href="r5/invalid-layer-light.webp"><img src="r5/invalid-layer-light.webp" alt=""></a><figcaption><b>设置文件有错误</b>：页面顶部一条警告（第几行第几列、哪里不对）和“打开设置文件”，下面的控件停用、显示上一份有效值</figcaption></figure>
+<figure><a href="r5/plugins-plain-light.webp"><img src="r5/plugins-plain-light.webp" alt=""></a><figcaption><b>插件设置</b>（原“其它”分区）：小组标题是插件的名字；“并发数”写坏时框标红、下面一行“还没保存：…”；“抽取模型”的选项拿不到时停用，原因写成给人看的话，不写选项来源的 id；列表这类宽控件另起一行占满</figcaption></figure>
+<figure><a href="r5/file-light.webp"><img src="r5/file-light.webp" alt=""></a><figcaption><b>设置文件</b>：带行号的等宽文本框，出错的行标红底，下面一行写原因和三个快捷键；保存栏在底部</figcaption></figure>
+<figure><a href="r5/unsaved-light.webp"><img src="r5/unsaved-light.webp" alt=""></a><figcaption><b>离开时的确认</b>：服务商详情有没保存的改动时切走，窗口上叠一个确认，焦点默认在“继续编辑”；保存栏在页面底部，有改动时写“有没保存的改动”</figcaption></figure>
+<figure><a href="r5/narrow-light.webp"><img src="r5/narrow-light.webp" alt=""></a><figcaption><b>窄窗口</b>（宽度 600px 以下）：左栏变成顶上两行，标签与搜索并排，分区横排、可以横向滚动，去掉分组名和图标；放不下时控件换到名字下面</figcaption></figure>
+<figure><a href="r5/models-light.webp"><img src="r5/models-light.webp" alt=""></a><figcaption><b>模型服务</b>（第四轮的页面，这一轮加了固定的“恢复默认”一格）</figcaption></figure>
+</div>
+<h3>深色</h3>
+<div class="grid">
+<figure><a href="r5/appearance-dark.webp"><img src="r5/appearance-dark.webp" alt=""></a><figcaption><b>深色</b> · 外观</figcaption></figure>
+<figure><a href="r5/models-dark.webp"><img src="r5/models-dark.webp" alt=""></a><figcaption><b>深色</b> · 模型服务</figcaption></figure>
+<figure><a href="r5/search-dark.webp"><img src="r5/search-dark.webp" alt=""></a><figcaption><b>深色</b> · 搜索结果</figcaption></figure>
+<figure><a href="r5/plugins-plain-dark.webp"><img src="r5/plugins-plain-dark.webp" alt=""></a><figcaption><b>深色</b> · 插件设置</figcaption></figure>
+<figure><a href="r5/file-dark.webp"><img src="r5/file-dark.webp" alt=""></a><figcaption><b>深色</b> · 设置文件</figcaption></figure>
+<figure><a href="r5/unsaved-dark.webp"><img src="r5/unsaved-dark.webp" alt=""></a><figcaption><b>深色</b> · 离开时的确认</figcaption></figure>
+</div>
+<p><b>定稿后要跟着改的 Spec</b>（<code>settings/settings-window.md</code>，定稿后写）：</p>
+<ul>
+<li>输出 9：控件从“标签列之后左对齐”改为靠右，“恢复默认”占固定一格；生效时机写成名字后面的小标签。</li>
+<li>输出 10：改过的项从“标题左侧强调色竖线”改为名字后面的蓝色小圆点。</li>
+<li>输出 12：“在本作品里单独设置”按钮缩成“单独设置”，“沿用用户设置：X”照旧。</li>
+<li>输出 20：选项拿不到的原因写成给人看的话（插件名，不写选项来源的 id）。</li>
+<li>“其它”分区改名“插件设置”，小组标题用插件的名字（插件清单要有给人看的名字）。</li>
+<li>输出 23：设置文件的“保存”“放弃改动”从文本框上面移到底部保存栏，与服务商详情同一种；文本框加行号（现在的文本框没有，要新做）。</li>
+</ul>
+</section>
+
+<h2 id="r4">重新设计（2026-10-22，已定：A）</h2>
 <p>开发者 2026-10-22 要求推翻 t80 以来的画法重新设计，方向在 Notion / Linear 式与 macOS 系统设置式之间选；最难看的是控件位置乱、整体太素没质感，以及小交互与卡片样式不像 NeuroBook（例如左栏条目点下去会缩小、选中项是带描边的卡片）。下面两套用同一份内容，控件是真实的 nb-ui 组件，画布按真实窗口 960×640，NeuroBook 主题浅色（深色下一轮再出）。</p>
 <p><b>两套共同的改法：</b></p>
 <ul>
@@ -76,7 +123,8 @@ pre code { background: none; padding: 0; }
 </ul>
 
 <section data-nbdev-question="r4-direction" data-nbdev-type="single" data-nbdev-recommend="cards">
-<h3><span class="tag warn" data-nbdev-skip>待定</span> 选哪一套</h3>
+<h3><span class="tag ok" data-nbdev-skip>已定</span> 选哪一套</h3>
+<p><b>开发者的决定（2026-10-22）：A Notion / Linear 式。</b></p>
 <div class="grid">
 <div data-nbdev-option="flat" data-nbdev-label="A Notion / Linear 式"><figure><a href="r4/flat-editor.webp"><img src="r4/flat-editor.webp" alt=""></a><figcaption><b>A Notion / Linear 式</b>：不画卡片，分组标题下一条线，行与行之间只靠间距</figcaption></figure></div>
 <div data-nbdev-option="cards" data-nbdev-label="B macOS 式"><figure><a href="r4/cards-editor.webp"><img src="r4/cards-editor.webp" alt=""></a><figcaption><b>B macOS 式</b>：分组放进比窗口亮一档的卡片，卡片里一行一项、行间一条缩进的细线；左栏图标带彩色底块</figcaption></figure></div>
