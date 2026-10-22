@@ -1,0 +1,72 @@
+import {describe, expect, it} from "bun:test";
+import {commandMenu, nextMode, resolveSubmission} from "./composer-actions";
+
+const COMMANDS = ["compact", "rename", "plan"];
+
+describe("resolveSubmission", () => {
+    it.each([
+        {running: false, mod: false, delivery: "prompt"},
+        {running: false, mod: true, delivery: "prompt"},
+        {running: true, mod: false, delivery: "steer"},
+        {running: true, mod: true, delivery: "followup"},
+    ] as const)("运行中=$running、mod=$mod 时投递方式是 $delivery", ({running, mod, delivery}) => {
+        expect(resolveSubmission({text: "  继续写第四章 \n", mod, running, commands: COMMANDS})).toEqual({kind: "message", text: "继续写第四章", delivery});
+    });
+
+    it("空白正文不发送", () => {
+        expect(resolveSubmission({text: " \n\t", mod: false, running: false, commands: COMMANDS})).toBeNull();
+    });
+
+    it("开头是登记的命令时执行命令，名称之后的文字是参数", () => {
+        expect(resolveSubmission({text: "/rename  第三章 雨夜 ", mod: false, running: true, commands: COMMANDS}))
+            .toEqual({kind: "command", name: "rename", argsText: "第三章 雨夜"});
+        expect(resolveSubmission({text: "/compact\n只保留大纲", mod: true, running: false, commands: COMMANDS}))
+            .toEqual({kind: "command", name: "compact", argsText: "只保留大纲"});
+        expect(resolveSubmission({text: "/plan", mod: false, running: false, commands: COMMANDS}))
+            .toEqual({kind: "command", name: "plan", argsText: ""});
+    });
+
+    it("没登记的命令、不在开头的命令按普通文字发送", () => {
+        expect(resolveSubmission({text: "/unknown 参数", mod: false, running: false, commands: COMMANDS}))
+            .toEqual({kind: "message", text: "/unknown 参数", delivery: "prompt"});
+        expect(resolveSubmission({text: "先 /plan", mod: false, running: false, commands: COMMANDS}))
+            .toEqual({kind: "message", text: "先 /plan", delivery: "prompt"});
+        expect(resolveSubmission({text: "/planning", mod: false, running: false, commands: COMMANDS}))
+            .toEqual({kind: "message", text: "/planning", delivery: "prompt"});
+    });
+});
+
+describe("nextMode", () => {
+    const modes = [{key: "normal", label: "普通"}, {key: "discuss", label: "讨论"}, {key: "plan", label: "规划"}];
+
+    it("按顺序循环，最后一种回到第一种", () => {
+        expect(nextMode(modes, "normal")).toBe("discuss");
+        expect(nextMode(modes, "plan")).toBe("normal");
+    });
+
+    it("当前模式不在列表里时回到第一种；少于两种时没有可切换的", () => {
+        expect(nextMode(modes, "gone")).toBe("normal");
+        expect(nextMode(modes.slice(0, 1), "normal")).toBeNull();
+    });
+});
+
+describe("commandMenu", () => {
+    const commands = [
+        {id: "compact", name: "compact", description: "压缩上下文", argsHint: "补充要求"},
+        {id: "plan", name: "plan", description: "切到规划模式", argsHint: null},
+        {id: "replan", name: "replan", description: "重新规划", argsHint: null},
+    ];
+    const labels = {title: "命令", empty: "没有这个命令"};
+
+    it("按名称过滤，名称以查询开头的排在前面，参数提示写进说明", () => {
+        const menu = commandMenu(commands, "pla", labels);
+        expect(menu.items.map((item) => item.label)).toEqual(["/plan", "/replan"]);
+        expect(commandMenu(commands, "", labels).items[0]).toEqual({
+            id: "command:compact", label: "/compact", description: "压缩上下文 · 补充要求", iconClass: "i-lucide-square-slash", insertText: "/compact",
+        });
+    });
+
+    it("没有匹配时给出空结果文字", () => {
+        expect(commandMenu(commands, "zz", labels)).toEqual({title: "命令", items: [], emptyText: "没有这个命令"});
+    });
+});
