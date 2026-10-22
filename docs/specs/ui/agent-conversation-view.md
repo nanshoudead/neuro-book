@@ -161,6 +161,8 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 | `interact` | `request_user_input`、`switch_mode` |
 | `other` | `task_create`、`task_set_status`、`run_workflow`、`bash`、`execute_sql`、Agent 协作类工具、`report_result`，以及所有未登记的工具 |
 
+表中 `subject_rag_search`、`get_session`、`get_agent`、`get_agent_profile`、`subject_memory_update`、`subject_event_append` 是 NeuroBook 自己的工具，由 NeuroBook 宿主登记，类别与呈现同表；其余是通用的 harness 工具，由视图内置登记。
+
 内置工具中以 `node` 呈现（常显的人机交互控件）的是 `request_user_input`、`switch_mode`、`task_create`、`task_set_status`、`run_workflow`；其余 `interact` 与 `other` 工具以 `card` 呈现在思维链里，`explore` 与 `mutate` 以 `line` 呈现。
 
 ### 前置条件

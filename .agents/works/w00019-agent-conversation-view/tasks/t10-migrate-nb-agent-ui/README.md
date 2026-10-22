@@ -21,9 +21,35 @@ updated: 2026-10-22
 2. 一次迁完已做的全部，不按问答需要裁剪。
 3. nb-form、nb-agent-ui 都在新应用的 Lab 里看，做法同 nb-ui。
 
-## 当前状态
+## 当前状态（2026-10-22）：S0 到 S5 已提交，S6（harness 适配器）未开工
 
-2026-10-21 经 nbdev 新建，尚未开工。2026-10-22 写好实施计划 [plan.md](plan.md)，开发者同意“先审查然后实施”；omp 设计审查 11 条已处理（[报告](evidences/design-review.txt)，处理结果见计划开头）。执行位置：worktree `.worktree/w00019-nb-agent-ui`，分支 `feat/w00019-nb-agent-ui`。
+执行位置：worktree `.worktree/w00019-nb-agent-ui`，分支 `feat/w00019-nb-agent-ui`。计划见 [plan.md](plan.md)，开发者同意“先审查然后实施”；omp 设计审查 11 条已处理（[报告](evidences/design-review.txt)，处理结果见计划开头）。
+
+| 片 | 提交 | 内容 |
+|---|---|---|
+| S0 | `528f9afc6` | 包骨架、边界与图标机检、仓库与 CI 登记；Spec 在 master 搬回（`522860436`） |
+| S1 | `e80d5878b` | nb-ui 的 `CodeBlock`、`CollapsibleCard`、`CollapsibleRow`、`useStreamScroll` 与 Lab 场景 |
+| S2 | `59e0bc7e8` | 核心：视图合同、注册表、分轮等纯逻辑、中英文字表、`ports.ts` |
+| S3、S4 | `45fcc8014` | 渲染层：全部组件、注入与缺省实现、Markdown 的点击、样式改用 token；输入框随它一起迁（拆开编译不过） |
+| S5 | `eeb31fb8c` | 应用接入：Lab 组件树 `nb-agent-ui` 一组、场景与领域工具登记示例、编辑器端口类型断言、`lab-agent-ui.e2e.ts` |
+
+与计划不同的地方：
+
+- **6px 与 8px 的检查放进 e2e**：happy-dom 不算层叠样式，DOM 测试量不出计算后的内边距。
+- **样式机检不查字号**：几处 10px 的角标字没有对应的 nb-ui token；其余字号都换成了排版 token。
+- **原图预览不单独挂**：它带 `io:read`，Lab 不能单独挂载，经 `AgentConversationView` 验证（同旧版）。
+- **`PlainPromptEditor` 上照常识别 `/命令`**：只是没有命令菜单。计划原写“命令按普通文字发送”，改成与 Spec 一致。
+- **Spec 另补一句**：表里的 `subject_*`、`get_session` 等是 NeuroBook 的工具，由宿主登记。
+
+验证（Work 分支，2026-10-22）：
+
+- **包**：nb-agent-ui 的 `typecheck`；`test` 通过（bun 33 条、Vitest 46 条）。nb-ui 的 `test`（552 条）、`typecheck`、`build` 通过。
+- **应用**：`typecheck`；`bun run test` 通过（bun 1599 条、Vitest 403 条）。
+- **e2e**：
+  - `lab-agent-ui.e2e.ts` 15 条通过。变异检查：对调 steer 与 followup、把过程区的行内边距改回 8px，相应用例都失败。
+  - `lab-scenes.e2e.ts` 全场景巡检通过。
+- **截图**：`nbdev shot` 截了对话视图与输入框全部场景，手机与 1400×900、明暗各一，72 张没有溢出与页面错误。
+- **文档检查**：`docs:check` 失败 0。
 
 ## 开工前已查明（2026-10-21，从代码读出，未运行）
 
@@ -37,4 +63,4 @@ updated: 2026-10-22
 
 ## 下一步
 
-按 [plan.md](plan.md) 从 S0 做起。
+S6：harness 适配器、契约测试、Lab 的“harness 记录回放”场景。之后整体做一次实现审查（前端 Sonnet），交开发者在 Lab 确认（含 t09 第 2 步的输入框）。
