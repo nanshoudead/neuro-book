@@ -26,6 +26,10 @@ NeuroBook 主题的字号与控件高度恢复成 2026-09-01 以前那一档（�
 - Sonnet 实现审查 11 条（重要 2、建议 9），报告见 [evidences/impl-review-sonnet.txt](evidences/impl-review-sonnet.txt)。修正 `fe2b32ecc`：IconButton 边长改回定值 26/32/38px（F2，同上面的光环被裁）；字号断言改在 macOS 主题下量（F3：nbook 的 sm 与 Tailwind 默认同为 14px，分不出）；JSON 查看器漏改的两处、菜单行的行高、规则 8 补认 `font` 简写与 `.8rem` 等、两份菜单文档与设计语言的残留像素。不改的三条：md 与 lg 两档在本主题同为 14px（靠高度区分）；Kbd、Badge、书架几处按语义取档；提示词输入框按界面文字随刻度变（计划把它列在阅读区里是措辞不准）。改后先前失败的四个 e2e 文件 62 例全过，nb-ui 548 例通过。
 - S3 截图：应用六页、Lab 八个组件在 nbook 与 macOS 两个主题下、开发者面板与剧情图谱查看器，改前（master）改后对照；Lab 全部场景无越界与被裁，面板与查看器被截断的元素数与改前相同（面板“在跑”页 44 到 45）。macOS 主题下紧凑档等几处从 12px 变成它自己的 xs 11px，接受。评审板 [artifacts/review](artifacts/review/index.html) v1，题 `t04-accept`。
 
+## 决定
+
+1. 改后的字号可以合入（2026-10-22，评审板 `t04-accept` 答 yes）。
+
 ## 下一步
 
-等开发者在评审板答 `t04-accept`；通过后合入 master，再把 master 合进 w00027 的 Work 分支，t06 在新字号上重出设置界面设计稿。
+合入 master 后，把 master 合进 w00027 的 Work 分支，t06 在新字号上重出设置界面设计稿。
