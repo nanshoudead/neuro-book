@@ -3,8 +3,9 @@
  * 字段），这样服务端、nb-story 与以后的终端都能用分轮与适配器；Vue 渲染层只依赖 `vue`、`@notnotype/nb-ui` 与核心。
  * 两层都不许引用宿主的源码：`nbook/…` 这样的应用别名与 `../../neuro-book/…` 这样的跨包相对路径都算越界。
  *
- * 扫描的是源码文字里的导入写法（`from "x"`、`import "x"`、`import("x")`），不解析语法树：注释里写了这样的字样也会
- * 被当成导入，宁可误报。写法与 nb-form 的 `src/boundary.test.ts` 相同。
+ * 扫描的是源码文字里的导入写法（`from "x"`、`import "x"`、`import("x")`），不解析语法树。扫描前先去掉块注释与整行注释：
+ * 语法允许在 `import` 与模块名之间夹一段块注释，不去掉就会漏过。写法源自 nb-form 的
+ * `src/boundary.test.ts`。
  */
 
 import {describe, expect, it} from "bun:test";
@@ -33,9 +34,14 @@ const SPECIFIER = /(?:(?<![\w.-])from\s*|(?<![\w.-])import\s*\(\s*|(?<![\w.-])im
 const TYPE_ONLY = /\b(?:import|export)\s+type\s[^;]*?\bfrom\s*["']([^"']+)["']/gu;
 
 /** 一份源码里越界的导入说明符；`file` 用来解析相对路径。 */
+/** 块注释与整行注释换成空格；行尾注释不动（字符串里的 `//` 例如网址会被误伤）。 */
+function stripComments(text: string): string {
+    return text.replace(/\/\*[\s\S]*?\*\//gu, " ").replace(/^[ \t]*\/\/.*$/gmu, "");
+}
+
 function offendingSpecifiers(file: string, text: string, rule: Rule): string[] {
     // 允许的纯类型导入先从文字里拿掉，剩下的照普通导入判断。
-    const scanned = text.replace(TYPE_ONLY, (statement, specifier: string) => (rule.typeOnly?.some((pattern) => pattern.test(specifier)) === true ? "" : statement));
+    const scanned = stripComments(text).replace(TYPE_ONLY, (statement, specifier: string) => (rule.typeOnly?.some((pattern) => pattern.test(specifier)) === true ? "" : statement));
     const offending: string[] = [];
     for (const match of scanned.matchAll(SPECIFIER)) {
         const specifier = match[1]!;
@@ -88,6 +94,8 @@ describe("包的导入", () => {
         expect(offendingSpecifiers(file, text, VUE)).toEqual(["node:fs", "nbook/shared/x", "../../../../neuro-book/src/x", "node:path"]);
         // 核心不许经相对路径用到渲染层，也不许引用应用别名（旧 agent-view.types.ts 就引用过应用里的粘贴策略类型）。
         expect(offendingSpecifiers(join(SOURCE_ROOT, "types.ts"), "import {x} from \"./vue/host\";", CORE)).toEqual(["./vue/host"]);
+        // 注释夹在 import 与模块名之间也认得出。
+        expect(offendingSpecifiers(file, "import/* 注释 */ \"node:fs\";\nconst m = await import/* 注释 */(\"nbook/x\");\nexport {y} from/* 注释 */ \"node:path\";", VUE)).toEqual(["node:fs", "nbook/x", "node:path"]);
         // 字符串里出现 from 字样不算导入。
         expect(offendingSpecifiers(file, "const action = {id: \"branch-from\", order: 40, kinds: [\"user\"]};", VUE)).toEqual([]);
         expect(offendingSpecifiers(join(SOURCE_ROOT, "types.ts"), "import type {PromptEditorPastePolicy} from \"nbook/app/components/common/form/prompt-editor/prompt-editor.types\";", CORE)).toEqual(["nbook/app/components/common/form/prompt-editor/prompt-editor.types"]);
