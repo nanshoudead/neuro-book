@@ -1,6 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t01-proposal
+status: done
+updated: 2026-10-22
 ---
 
 # 现状分析、需求调研与提案起草
