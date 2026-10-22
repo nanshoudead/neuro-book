@@ -33,3 +33,22 @@ Agent 对话视图。行为合同见 [`ui.agent-conversation-view`](../../docs/s
    - 领域工具（不是通用 harness 工具的那些）由宿主自己登记渲染器，例子见 Lab 的 `packages/neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui/domain-tools.ts`。
 
 4. **数据**：视图不持有会话数据。消息、运行状态、草稿、附件状态都经 `ctx` 给出，宿主受理用户操作后给出新的 `ctx`（例如发送后给一个新版本的空草稿）。
+
+## 跑 harness 的宿主
+
+`createHarnessTranscript()` 把 nb-harness 的会话日志条目与流式事件合成 `ctx.messages`（实现与两条来源的分工见 `src/harness.ts` 的模块头）：
+
+```ts
+const transcript = createHarnessTranscript({locale});
+for (const entry of await log.read()) transcript.applyLogEntry(entry);   // 打开会话：先读已有日志
+// 运行中：按到达顺序
+transcript.applyEvent(agentEvent);      // harness.subscribe 的事件，或 SSE 帧里的 JSON
+transcript.applyLogEntry(newEntry);     // 新写进日志的条目
+ctx.messages = [...transcript.messages()];
+```
+
+- **日志是权威**：运行错误（`run_end`）与费用（`usage`，单价未知为 null）只从日志来。只推事件、不推日志的宿主看不到运行错误与费用。
+- **断线重连**：宿主按 `seq` 游标补发日志；适配器忽略重复与更旧的 `seq`。
+- **图片**：harness 只给 base64，适配器把它写成 `data:` 定位符，`services.resolveAttachmentUrl` 原样返回即可。
+- **写坏的输入**：跳过并记进 `problems()`，不抛异常。宿主可以把它们写进自己的诊断。
+- **投递方式**：harness 没有 steer 与 followup，适配器不产生这两种投递。排队消息由宿主自己放进 `ctx.composer.queued`。

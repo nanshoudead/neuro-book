@@ -15,3 +15,5 @@ export type {AgentTextKey} from "./messages";
 export {buildTurns} from "./conversation-turns";
 export type {BuildTurnsInput, ChainBlock, ConversationTurn, TurnBlock, TurnMetrics, TurnStatus} from "./conversation-turns";
 export {nextMode} from "./composer-actions";
+export {createHarnessTranscript} from "./harness";
+export type {HarnessTranscript, HarnessTranscriptOptions, TranscriptProblem} from "./harness";

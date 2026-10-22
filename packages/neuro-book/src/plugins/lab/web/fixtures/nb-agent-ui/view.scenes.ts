@@ -1,5 +1,7 @@
 import type {AgentConversationView} from "@notnotype/nb-agent-ui/vue";
+import {createHarnessTranscript} from "@notnotype/nb-agent-ui";
 import type {LabFixtureDefinition} from "../index";
+import {harnessReplayLog} from "./harness-replay";
 import {
     conversationContext,
     messageStateMessages,
@@ -11,6 +13,13 @@ import {
 } from "./data";
 
 type Scene = LabFixtureDefinition<typeof AgentConversationView>["scenes"][number];
+
+/** 真实 harness 日志经适配器画成的消息。 */
+function replayMessages() {
+    const transcript = createHarnessTranscript();
+    for (const entry of harnessReplayLog) transcript.applyLogEntry(entry);
+    return [...transcript.messages()];
+}
 
 export const agentConversationViewScenes: Scene[] = [
     {
@@ -86,6 +95,11 @@ export const agentConversationViewScenes: Scene[] = [
         id: "raw",
         label: "原始视图",
         input: {props: {ctx: conversationContext(), teleportTarget: false, locale: "zh-CN"}, model: {viewMode: "raw"}},
+    },
+    {
+        id: "harness-replay",
+        label: "harness 记录回放",
+        input: {props: {ctx: conversationContext({messages: replayMessages()}), teleportTarget: false, locale: "zh-CN"}, model: {viewMode: "turns"}},
     },
     {
         id: "english",

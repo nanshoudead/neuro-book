@@ -139,6 +139,14 @@ const ZH = {
     "imagePreview.retry": "重试",
     "imagePreview.image": "图片 #{number}",
     "imagePreview.loading": "正在加载原图",
+    "harness.error.network": "网络连接出错，请稍后重试。",
+    "harness.error.rateLimit": "模型服务请求太频繁，请稍后重试。",
+    "harness.error.auth": "模型服务的密钥缺失或无效，请检查设置。",
+    "harness.error.quota": "模型服务的额度已用完。",
+    "harness.error.contextOverflow": "对话太长，超出了模型能读的长度。",
+    "harness.error.provider": "模型服务出错，请稍后重试。",
+    "harness.error.local": "这次运行出错了。",
+    "harness.compaction": "上下文已压缩",
 } as const satisfies Record<string, string>;
 
 export type AgentTextKey = keyof typeof ZH;
@@ -277,6 +285,14 @@ const EN: Record<AgentTextKey, string> = {
     "imagePreview.retry": "Retry",
     "imagePreview.image": "Image #{number}",
     "imagePreview.loading": "Loading the original image",
+    "harness.error.network": "Network error. Try again later.",
+    "harness.error.rateLimit": "Too many requests to the model service. Try again later.",
+    "harness.error.auth": "The model service key is missing or invalid. Check the settings.",
+    "harness.error.quota": "The model service quota is used up.",
+    "harness.error.contextOverflow": "The conversation is longer than the model can read.",
+    "harness.error.provider": "The model service failed. Try again later.",
+    "harness.error.local": "This run failed.",
+    "harness.compaction": "Context compacted",
 };
 
 const TABLES: Record<AgentLocale, Record<AgentTextKey, string>> = {"zh-CN": ZH, "en-US": EN};
