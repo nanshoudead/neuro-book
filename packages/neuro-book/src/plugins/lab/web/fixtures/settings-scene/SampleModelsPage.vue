@@ -335,14 +335,15 @@ async function writeNow(setting: SettingDefinition<unknown>, value: unknown): Pr
 }
 
 /*
- * 左边留出已修改竖线的位置（SettingsRow 把它画在行左边 --space-5 处）。右边与左边都要容得下列表行向两侧伸出的 --space-4
- * 与焦点环：滚动区会裁掉伸出去的部分，还会因此出横向滚动条。
+ * 内容的左右边与窗口标题区对齐（fill 页面的外边距同内容列）。滚动区会裁掉越出它的部分：列表行向两侧伸出 --space-4，
+ * 再加焦点环，所以两侧各留 --space-5 的内边距，再用同样大小的负外边距把内容退回标题的边上。
  */
 .sample-models__body {
     min-height: 0;
     flex: 1;
     overflow-y: auto;
-    padding: var(--space-1) var(--space-6) var(--space-5) var(--space-7);
+    margin: 0 calc(-1 * var(--space-5));
+    padding: var(--space-1) var(--space-5) var(--space-5);
 }
 
 .sample-models__group + .sample-models__group {
@@ -422,7 +423,7 @@ async function writeNow(setting: SettingDefinition<unknown>, value: unknown): Pr
 /* 保存栏自己有上边线与内边距；这里只让它与滚动区的内容左对齐。 */
 .sample-models__bar {
     flex-shrink: 0;
-    padding: 0 var(--space-6) 0 var(--space-7);
+    padding: 0;
     background: var(--bg-panel);
 }
 
