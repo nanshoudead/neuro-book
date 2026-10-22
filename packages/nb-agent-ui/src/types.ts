@@ -73,6 +73,19 @@ export type UserMessageView = {
     delivery?: "pending" | "unknown";
 };
 
+/**
+ * 宿主挂在一条助手消息上的附注（Spec“术语”的附注），例如问答回复里没核实的出处。它跟着这条消息显示与收起，
+ * 不占消息流里的位置，不参与分轮、用时与计数。
+ */
+export type MessageAnnotationView = {
+    /** 条目渲染器按它匹配，例如 "nb-story.unverified-refs"。 */
+    customType: string;
+    /** 没有登记渲染器、或渲染器出错时显示的一句；写成单独读也看得懂。 */
+    text: string;
+    /** 条目渲染器读的结构化数据。 */
+    details?: JsonValue;
+};
+
 export type AssistantMessageStatus = "streaming" | "done" | "stopped" | "interrupted" | "error";
 
 export type AssistantMessageView = {
@@ -88,6 +101,11 @@ export type AssistantMessageView = {
     /** 用户可读的错误说明；宿主负责把内部错误译成普通作者能看懂的文字。 */
     error?: string;
     contentOmitted: boolean;
+    /**
+     * 宿主给这条回复加的附注，显示在它的文字之后（没有文字时单独一行）。加附注时换成新的消息对象并按依据缓存，
+     * 打节拍时给同一个对象，否则这一轮每次都重新整理。
+     */
+    annotations?: readonly MessageAnnotationView[];
 };
 
 export type SystemMessageSource = "prompt" | "reminder" | "compaction" | "branch_summary" | "custom";
@@ -330,6 +348,7 @@ export type BuiltinAgentViewAction =
     | {type: "session.archive"; sessionId: string}
     | {type: "session.restore"; sessionId: string}
     | {type: "sessions.query"; query: string}
+    | {type: "sessions.refresh"}
     | {type: "view.close"}
     // 消息
     | {type: "message.copy"; messageId: string}
@@ -396,3 +415,22 @@ export type PluginAgentViewAction = {type: `${string}:${string}`; payload?: Json
 export type AgentViewAction = BuiltinAgentViewAction | PluginAgentViewAction;
 
 export type AgentViewMode = "turns" | "raw";
+
+// ─── 会话列表 ────────────────────────────────────────────────────────────
+
+/** 会话列表的一行（Spec“会话列表”）。会话列表是视图之外的独立组件，数据由宿主直接给，不在 ctx 里。 */
+export type AgentSessionListItem = {
+    id: string;
+    /** 空串时显示“未命名会话”。 */
+    title: string;
+    /** 第二行的补充说明，宿主写好，例如“3 轮 · 图当目录”；缺省不显示。 */
+    description?: string;
+    /** 最近活动的时刻（毫秒）。 */
+    updatedAt: number;
+    /** 宿主按自己的状态映射，例如问答记录的中断与出错。 */
+    status: "idle" | "running" | "interrupted" | "error";
+    /** 需要注意的一句，提醒色另起一行，例如“读到 38.12，早于你现在的位置”；图标缺省 i-lucide-circle-alert。 */
+    note?: {text: string; icon?: string};
+};
+
+export type AgentSessionListState = "ready" | "loading" | "error";

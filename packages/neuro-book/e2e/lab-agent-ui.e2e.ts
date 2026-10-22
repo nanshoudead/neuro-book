@@ -281,6 +281,10 @@ test.describe("对话视图的消息流", () => {
     test("运行中逐步展开：思维链与工具组不用点就逐项列出（验收 22）", async ({page}) => {
         await openScene(page, "AgentConversationView", "running-live");
         await expect(stage(page).locator(".acv-steps").first()).toBeVisible();
+        // 思考折叠时露出去掉 Markdown 标记的第一段（验收 30）。
+        const steps = stage(page).locator(".acv-steps").first();
+        await expect(steps.locator(".nb-collapsible-row__detail", {hasText: "读第六章开头"})).toBeVisible();
+        expect(await steps.innerText()).not.toContain("**");
         await openScene(page, "AgentConversationView", "running");
         await expect(stage(page).locator(".acv-steps")).toHaveCount(0);
     });
@@ -322,6 +326,36 @@ test.describe("对话视图的消息流", () => {
         await expect.poll(() => lastAction(page)).toEqual({type: "reference.open", target: "paragraph://3.4"});
         await body.locator("[data-role='assistant'] .acv-message__actions").getByRole("button", {name: "复制"}).click();
         await expect.poll(() => lastAction(page)).toEqual({type: "tool.copy", toolCallId: "w7"});
+        // 展开整轮与思维链：被退回的那次是一行、写着退回原因，答案卡片仍只有一张（验收 29）。
+        await body.locator("[data-turn-summary]").click();
+        await body.locator("[data-chain-summary]").first().click();
+        await expect(body.locator(".acv-steps")).toContainText("退回：evidence 不能为空");
+        await expect(body.locator("[data-lab-answer]")).toHaveCount(1);
+    });
+
+    test("附注：整轮收起后没核实的出处仍在回复气泡里，点出处到达宿主；没登记的附注显示为淡色一行（验收 28）", async ({page}) => {
+        await openScene(page, "AgentConversationView", "reply-unverified");
+        const body = stage(page);
+        const replies = body.locator("[data-final-reply]");
+        await expect(body.locator("[data-turn-summary]").first()).toBeVisible();
+        await expect(replies.first().locator("[data-lab-unverified]")).toContainText("41.20");
+        await replies.first().locator("[data-unverified-ref]").click();
+        await expect.poll(() => lastAction(page)).toEqual({type: "reference.open", target: "paragraph://41.20"});
+        await expect(replies.last().locator("[data-annotation='nb-story.reading-position']")).toHaveText("这一轮按读到 41.30 的位置回答");
+    });
+
+    test("会话列表：点一行发 session.select，点新建发 session.create，出错时重试发 sessions.refresh（验收 26、27）", async ({page}) => {
+        await openScene(page, "AgentSessionList", "list");
+        const body = stage(page);
+        await expect(body.locator("[data-session]")).toHaveCount(6);
+        await expect(body.locator("[data-session='c-overview']")).toHaveAttribute("aria-current", "true");
+        await body.locator("[data-session='c-early']").click();
+        await expect.poll(() => lastAction(page)).toEqual({type: "session.select", sessionId: "c-early"});
+        await body.locator("[data-session-create]").click();
+        await expect.poll(() => lastAction(page)).toEqual({type: "session.create"});
+        await openScene(page, "AgentSessionList", "error");
+        await stage(page).locator("[data-session-retry]").click();
+        await expect.poll(() => lastAction(page)).toEqual({type: "sessions.refresh"});
     });
 
     test("回复里 Markdown 的引用、外链与图片：分别发出 reference.open、link.open 与视图内部的原图预览请求", async ({page}) => {

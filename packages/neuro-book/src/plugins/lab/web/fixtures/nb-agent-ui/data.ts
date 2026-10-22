@@ -170,7 +170,8 @@ export const runningConversationMessages: MessageView[] = [
     ...longConversationMessages,
     user("u5", 300, "再帮我把第六章的开头写得更有悬念。"),
     assistant("a14", 304, {
-        thinking: "先读第六章和第五章结尾。",
+        // 真实模型的思考摘要常把几段粗体小标题首尾相接写在一起，折叠行只露出第一段的纯文字（Spec 验收 30）。
+        thinking: "**读第六章开头****对照第五章结尾**\n\n先读第六章和第五章结尾，看衔接处的悬念断在哪里。",
         toolCalls: [read("t17", "chapters/06.md"), read("t18", "chapters/05.md")],
         usage: usage(9400, 50, 8300, 0.0041),
     }),
@@ -318,6 +319,24 @@ export const answerMessages: MessageView[] = [
     assistant("w4", 6, {toolCalls: [{id: "w5", name: "answer", status: "error", args: {conclusion: "林默", conclusionType: "明说", evidence: []}, error: "evidence 不能为空：每个“知道”都要指得出段落"}], usage: usage(6800, 60, 5200, 0.0012)}),
     assistant("w6", 9, {toolCalls: [{id: "w7", name: "answer", status: "success", args: {conclusion: "林默知道：他在第十二下钟声时认出了父亲的表。", conclusionType: "明说", evidence: ["3.4", "3.6"]}, result: {text: "已交卷", truncated: false}}], usage: usage(7100, 90, 6800, 0.0015)}),
     {kind: "system", id: "w8", timestamp: at(12), source: "compaction", label: "上下文已压缩", text: "保留了问题与答案。"},
+];
+
+/**
+ * nb-story 的文字回复与“没核实的出处”：宿主从问答记录读出没核实的出处，给这一轮最终回复加一条附注（Spec“术语”的附注），
+ * 由它登记的条目渲染器画在回复气泡里。第二轮的附注没有登记渲染器，显示为默认的淡色一行。
+ */
+export const unverifiedReplyMessages: MessageView[] = [
+    user("x1", 0, "她们俩第一次一起行动是哪一章？"),
+    assistant("x2", 2, {thinking: "先读第 37 章。", toolCalls: [read("x3", "chapters/37.md"), read("x4", "chapters/38.md")], usage: usage(5400, 40, 0, 0.0021)}),
+    {
+        ...assistant("x5", 8, {text: "第一次以搭档身份一起行动是在第 37 章：两人在天台碰头，一起给风信子设了陷阱（37.73—37.114）。第 41 章的联手（41.20）规模更大，但那已经是第二次了。", usage: usage(6900, 120, 5400, 0.0019)}),
+        annotations: [{customType: "nb-story.unverified-refs", text: "没核实的出处：41.20", details: {refs: ["41.20"]}}],
+    },
+    user("x6", 20, "那第 41 章是谁先提议的？"),
+    {
+        ...assistant("x7", 24, {text: "原文没有写明是谁先提议的。", usage: usage(7200, 30, 6900, 0.0011)}),
+        annotations: [{customType: "nb-story.reading-position", text: "这一轮按读到 41.30 的位置回答"}],
+    },
 ];
 
 /** 单独挂载一轮时用的几组消息。 */

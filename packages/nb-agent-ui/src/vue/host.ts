@@ -13,15 +13,18 @@ import {computed, inject, provide} from "vue";
 import {agentText, textOf} from "../messages";
 import type {AgentTextKey} from "../messages";
 import type {AgentLocale, ViewText} from "../types";
+import {firstLine, markdownPreviewLine} from "../format";
+import type {MarkdownPreviewPort} from "../ports";
 import PlainMarkdown from "./fallback/PlainMarkdown.vue";
 import PlainPromptEditor from "./fallback/PlainPromptEditor.vue";
 import PlainPromptTextView from "./fallback/PlainPromptTextView.vue";
 
-/** 宿主注入的渲染组件；形状见核心的 `ports.ts`。缺哪个用包内的缺省实现。 */
+/** 宿主注入的渲染组件与 Markdown 预览函数；形状见核心的 `ports.ts`。缺哪个用包内的缺省实现。 */
 export type AgentViewRenderers = {
     markdown?: Component;
     promptEditor?: Component;
     promptTextView?: Component;
+    markdownPreview?: MarkdownPreviewPort;
 };
 
 type AgentViewHost = {
@@ -68,9 +71,33 @@ export type ResolvedRenderers = {
     markdown: Component;
     promptEditor: Component;
     promptTextView: Component;
+    markdownPreview: MarkdownPreviewPort;
     /** 用的是缺省的普通文本框：没有标签、附件与粘贴块，输入框据此隐藏“添加附件”、不列 `/` 命令菜单。 */
     plainEditor: boolean;
 };
+
+/** 每个宿主函数只报一次，免得流式中每次重算都刷一条。 */
+const failedPreviews = new WeakSet<MarkdownPreviewPort>();
+
+/**
+ * 宿主的预览函数与工具渲染器的回调一样包一层（Spec“失败与恢复”）：抛错或给的不是字符串时这一行按包内的缺省写法，
+ * 给了多行时只取第一行。
+ */
+function guardPreview(port: MarkdownPreviewPort): MarkdownPreviewPort {
+    return (text) => {
+        try {
+            const line: unknown = port(text);
+            if (typeof line === "string") return firstLine(line);
+            throw new TypeError(`返回了 ${typeof line}`);
+        } catch (error) {
+            if (!failedPreviews.has(port)) {
+                failedPreviews.add(port);
+                console.error("nb-agent-ui: 宿主的 markdownPreview 出错，这一行按缺省写法显示", error);
+            }
+            return markdownPreviewLine(text);
+        }
+    };
+}
 
 export function useAgentRenderers(): ComputedRef<ResolvedRenderers> {
     const host = inject(hostKey, FALLBACK_HOST);
@@ -80,6 +107,7 @@ export function useAgentRenderers(): ComputedRef<ResolvedRenderers> {
             markdown: given.markdown ?? PlainMarkdown,
             promptEditor: given.promptEditor ?? PlainPromptEditor,
             promptTextView: given.promptTextView ?? PlainPromptTextView,
+            markdownPreview: given.markdownPreview === undefined ? markdownPreviewLine : guardPreview(given.markdownPreview),
             plainEditor: given.promptEditor === undefined,
         };
     });

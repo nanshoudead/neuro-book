@@ -9,8 +9,8 @@
 `AgentTurnBlock` 里思维链那一种块：一行摘要（`AgentChainSummary`），默认折叠；开头图标有思考时是大脑、否则是扳手，概括如“思考 · 读了 2 个文件，改了 1 个 · 另有 1 次操作”。展开后步骤挂在从图标垂下的竖线上：
 
 - 工具组：一行合并摘要，点开逐项；组收起时出错的项单独露出。
-- 一行呈现的工具：`AgentToolStepRow`；卡片呈现的工具：可展开卡片，内容是 `AgentToolDetail`。
-- 并入的中间 content：Markdown 浅底小气泡，正文色。
+- 一行呈现的工具：`AgentToolStepRow`；卡片呈现的工具：可展开卡片，内容是 `AgentToolDetail`。结果工具（`outcome`）被退回的那几次也是一行，行内文字由渲染器的 `summary` 写出原因，不画宿主的节点组件。
+- 并入的中间 content：Markdown 浅底小气泡，正文色；消息带附注时附注在气泡下方。
 - 思考与系统提示词：`AgentTextStepRow`。
 - 两条 assistant 消息之间一道短虚线。
 

@@ -13,7 +13,7 @@
 
 - `kind`（系统消息附上 `source`），按种类着色：用户为强调色，错误为危险色，系统为淡色；
 - 时间；
-- 非默认的状态字段：`intent: steer`、`delivery`、`status`、`contentOmitted`、`retryable` 等；
+- 非默认的状态字段：`intent: steer`、`delivery`、`status`、`contentOmitted`、`retryable` 等；助手消息带附注时写 `annotations:` 加各条的 `customType`（附注内容在 JSON 里看，原始视图不用条目渲染器）；
 - 消息 id（等宽、过长截断，完整 id 在悬停提示里）；
 - 最右端的“JSON”按钮：切换为这条消息的完整 JSON。
 

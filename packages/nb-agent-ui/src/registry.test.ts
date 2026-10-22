@@ -84,6 +84,24 @@ describe("registry.resolveTool", () => {
     });
 });
 
+describe("registry.resolveEntry（验收 28）", () => {
+    const component = {};
+    it("按附注的 customType 精确匹配，没有登记时为 null", () => {
+        const registry = createAgentViewRegistry([{source: "plugin:story", entries: [{id: "unverified", customType: "story.unverified-refs", component}]}]);
+        expect(registry.resolveEntry("story.unverified-refs")?.id).toBe("unverified");
+        expect(registry.resolveEntry("story.unverified")).toBeNull();
+    });
+
+    it("两个条目渲染器声明同一个 customType 时构造失败，与登记顺序无关", () => {
+        const build = () => createAgentViewRegistry([
+            {source: "plugin:a", entries: [{id: "a", customType: "story.refs", component}]},
+            {source: "plugin:b", entries: [{id: "b", customType: "story.refs", component}]},
+        ]);
+        expect(build).toThrow(AgentViewRegistryConflictError);
+        expect(build).toThrow(/条目类型「story.refs」/u);
+    });
+});
+
 describe("内置消息操作", () => {
     it("复制：结果是结果节点时发 tool.copy，否则按消息复制", async () => {
         const {builtinMessageActionsContribution} = await import("./vue/builtin-message-actions");
@@ -106,7 +124,7 @@ describe("工具回调抛错", () => {
         const tool = registry.resolveTool("boom");
         const call = {id: "c1", name: "boom", status: "success" as const, args: {}};
         expect(tool.summary(call)).toBe("boom");
-        expect(tool.groupPhrase?.(3)).toEqual({key: "toolGroup.generic", params: {count: 3}});
+        expect(tool.groupPhrase?.([call, call, call])).toEqual({key: "toolGroup.generic", params: {count: 3}});
         expect(tool.effects?.(call)).toEqual({read: [], changed: []});
     });
 

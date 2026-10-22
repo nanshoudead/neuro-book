@@ -213,7 +213,7 @@ describe("buildTurns 探查工具分组", () => {
     it("插件登记的探查工具与内置读取并入同一组", () => {
         const withPlugin = createAgentViewRegistry([builtinToolsContribution, {
             source: "plugin:atlas",
-            tools: [{id: "atlas_lookup", toolNames: ["atlas_lookup"], category: "explore", icon: "i-lucide-map", label: "查地图", summary: () => "", groupPhrase: (count) => ({key: "toolGroup.lookup", params: {count}}), presentation: "line"}],
+            tools: [{id: "atlas_lookup", toolNames: ["atlas_lookup"], category: "explore", icon: "i-lucide-map", label: "查地图", summary: () => "", groupPhrase: (calls) => ({key: "toolGroup.lookup", params: {count: calls.length}}), presentation: "line"}],
         }]);
         const turns = buildTurns(input([
             user("u1", "查"),
@@ -223,6 +223,32 @@ describe("buildTurns 探查工具分组", () => {
         const group = chains(turns[0]!)[0]!.entries[0] as ToolGroupStep;
         expect(group.kind).toBe("toolGroup");
         expect(group.tools).toHaveLength(3);
+    });
+
+    it("组短语按渲染器分别收到组里自己的调用，按时间顺序，出错与运行中的也在（验收 31）", () => {
+        const received: string[][] = [];
+        const chapters = createAgentViewRegistry([builtinToolsContribution, {
+            source: "plugin:story",
+            tools: [{
+                id: "story_read", toolNames: ["story_read"], category: "explore", icon: "i-lucide-book-open", label: "读原文", summary: () => "", presentation: "line",
+                groupPhrase: (calls) => {
+                    received.push(calls.map((call) => `${call.id}:${call.status}`));
+                    const done = calls.filter((call) => call.status === "success").map((call) => (call.args as {chapter: number}).chapter);
+                    return `读了第 ${Math.min(...done)}–${Math.max(...done)} 章`;
+                },
+            }],
+        }]);
+        const turns = buildTurns(input([
+            user("u1", "查"),
+            assistant("a1", {toolCalls: [
+                tool("s1", "story_read", {chapter: 33}), tool("r1", "read", {path: "a.md"}), tool("s2", "story_read", {chapter: 41}, "error"),
+                tool("s3", "story_read", {chapter: 37}), tool("s4", "story_read", {chapter: 38}, "running"),
+            ]}),
+        ], {registry: chapters, ...running}));
+
+        const group = chains(turns[0]!)[0]!.entries[0] as ToolGroupStep;
+        expect(received.at(-1)).toEqual(["s1:success", "s2:error", "s3:success", "s4:running"]);
+        expect(group.phrases).toEqual(["读了第 33–37 章", {key: "toolGroup.read", params: {count: 1}}]);
     });
 
     it("运行中的组记录当前执行项，出错项单独列出；思维链统计失败次数", () => {
@@ -335,11 +361,11 @@ describe("buildTurns 结果节点（验收 20）", () => {
         return buildTurns(input(messages, {registry: withAnswer}))[0]!;
     }
 
-    it("交成功的那次是结果，整轮收起后仍露出；被退回的那次留在过程里，操作次数不含结果", () => {
+    it("交成功的那次是结果，整轮收起后仍露出；被退回的那次是思维链里的一行，前后合成同一条思维链（验收 29）", () => {
         const turn = answered(false);
-        expect(shape(turn).slice(turn.outcomeStart)).toEqual(["node"]);
+        expect(shape(turn)).toEqual(["chain(tool,boundary,tool)", "node"]);
         expect(turn.blocks[turn.outcomeStart]!.id).toBe("q2");
-        expect(turn.blocks.slice(0, turn.outcomeStart).some((block) => block.id === "q1")).toBe(true);
+        expect(chains(turn)[0]!.entries.map((entry) => entry.id)).toEqual(["r1", "a2:boundary", "q1"]);
         expect(turn.foldable).toBe(true);
         expect(turn.metrics.steps).toBe(2);
         expect(turn.outcomeMessage?.id).toBe("a3");
@@ -374,6 +400,55 @@ describe("buildTurns 结果节点（验收 20）", () => {
         expect(turn.metrics.steps).toBe(1);
         expect(turn.changedFiles.map((file) => file.change.path)).toEqual(["报告.md"]);
         expect(turn.metrics.filesChanged).toBe(1);
+    });
+
+    it("全部被退回时这一轮没有结果区：只有一条思维链，整轮可以收起（验收 29）", () => {
+        const turn = buildTurns(input([
+            user("u1", "谁知道钟声的秘密？"),
+            assistant("a1", {toolCalls: [tool("r1", "read", {path: "第三章.md"})]}),
+            assistant("a2", {toolCalls: [tool("q1", "answer", {conclusion: "林默"}, "error")]}),
+        ], {registry: withAnswer}))[0]!;
+        expect(shape(turn)).toEqual(["chain(tool,boundary,tool)"]);
+        expect(turn.outcomeStart).toBe(turn.blocks.length);
+        expect(turn.outcomeCallId).toBeNull();
+        expect(turn.foldable).toBe(true);
+    });
+
+    it("运行中的结果调用仍是节点；参数无效的与运行结束时还没有结果的进思维链（宿主标成出错或仍留着在写都一样）", () => {
+        const running = buildTurns(input([user("u1", "问"), assistant("a1", {status: "streaming", toolCalls: [tool("q1", "answer", {conclusion: "林"}, "streaming")]})], {registry: withAnswer, run: {status: "running", phase: ""}}))[0]!;
+        expect(shape(running)).toEqual(["node"]);
+        for (const status of ["invalid", "error", "streaming", "running"] as const) {
+            const ended = buildTurns(input([user("u1", "问"), assistant("a1", {status: "stopped", toolCalls: [tool("q1", "answer", {}, status)]})], {registry: withAnswer}))[0]!;
+            expect(shape(ended)).toEqual(["chain(tool)"]);
+        }
+    });
+
+    it("回复之后依次是压缩分隔线与系统提醒：分隔线移到 trailing，提醒留在结果区，回复仍是结果（验收 29）", () => {
+        const turn = buildTurns(input([
+            user("u1", "改稿"),
+            assistant("a1", {toolCalls: [tool("r1", "read", {path: "a.md"})]}),
+            assistant("a2", {text: "改好了"}),
+            {kind: "system", id: "c1", timestamp: tick(), source: "compaction", label: "上下文已压缩", text: "…"},
+            {kind: "system", id: "n1", timestamp: tick(), source: "reminder", label: "提醒", text: "记得保存"},
+        ]))[0]!;
+        expect(shape(turn).slice(turn.outcomeStart)).toEqual(["reply", "notice"]);
+        expect(shape(turn, turn.trailing)).toEqual(["divider"]);
+        expect(turn.outcomeMessage?.id).toBe("a2");
+    });
+
+    it("附注跟着消息：有文字时随文字（不成块），没有文字的单独成块、像信息条目一样留在结果区（验收 28）", () => {
+        const note = {customType: "story.refs", text: "没核实的出处：41.20"};
+        const turn = buildTurns(input([
+            user("u1", "问"),
+            assistant("a1", {text: "先查一下", toolCalls: [tool("r1", "read", {path: "a.md"})], annotations: [note]}),
+            assistant("a2", {text: "第 37 章", annotations: [note]}),
+            assistant("a3", {annotations: [note]}),
+        ]))[0]!;
+        expect(shape(turn)).toEqual(["chain(text,tool)", "reply", "annotations"]);
+        expect(shape(turn).slice(turn.outcomeStart)).toEqual(["reply", "annotations"]);
+        expect(turn.outcomeMessage?.id).toBe("a2");
+        const narration = chains(turn)[0]!.entries[0]!;
+        expect(narration.kind === "text" && narration.message.annotations).toEqual([note]);
     });
 
     it("没有声明为结果的节点不算结果", () => {
@@ -464,6 +539,15 @@ describe("reuseTurnGroups", () => {
         expect(after[0]).toBe(before[0]);
         expect(after[1]).not.toBe(before[1]);
         expect(after[1]!.map((message) => message.id)).toEqual(["u2", "a2"]);
+    });
+
+    it("宿主沿用带附注的消息对象时整轮沿用；给消息加附注换成新对象时这一轮重算（README 的引用稳定约定）", () => {
+        const answered = {...assistant("a1", {text: "第 37 章"}), annotations: [{customType: "story.refs", text: "没核实的出处：41.20"}]};
+        const messages = [user("u1", "谁知道？"), answered];
+        const before = splitIntoTurnGroups(messages);
+        expect(reuseTurnGroups(before, splitIntoTurnGroups([...messages]))[0]).toBe(before[0]);
+        const reannotated = {...answered, annotations: [...answered.annotations, {customType: "story.refs", text: "没核实的出处：41.21"}]};
+        expect(reuseTurnGroups(before, splitIntoTurnGroups([messages[0]!, reannotated]))[0]).not.toBe(before[0]);
     });
 });
 

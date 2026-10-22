@@ -11,7 +11,7 @@ Agent 对话的纯视图：会话顶栏、消息流、待处理区、输入框�
 
 ## 布局
 
-自上而下：顶栏、消息流、输入框。顶栏与输入框固定，消息流占据剩余高度并独立滚动。390 宽时顶栏标题区不小于 160px，右侧只留溢出菜单按钮。
+自上而下：顶栏、消息流、输入框。会话列表不在视图里：嵌入页面的左栏或下拉用单独导出的 [`AgentSessionList`](AgentSessionList.md)，由宿主摆放。顶栏与输入框固定，消息流占据剩余高度并独立滚动。390 宽时顶栏标题区不小于 160px，右侧只留溢出菜单按钮。
 
 消息流里每一轮由 `AgentConversationTurn` 呈现（一条用户消息加 Agent 一侧的内容，对话气泡版式），见其同名文档；原始视图由 `AgentRawView` 呈现。消息流滚动容器保留滚动条槽位，流式追加内容时不因滚动条出现而挤动。面板拉宽时每轮限宽 800px 居中，避免正文行过长。
 
@@ -55,7 +55,7 @@ type AgentConversationViewProps = {
     teleportTarget?: string | false;
     /** 界面语言，必填；子组件经 provide 取用。 */
     locale: AgentLocale;
-    /** 宿主注入的 Markdown 显示、提示词编辑器与已发送文字的显示；缺哪个用包内的缺省实现。默认 {}。 */
+    /** 宿主注入的 Markdown 显示、Markdown 折叠预览、提示词编辑器与已发送文字的显示；缺哪个用包内的缺省实现。默认 {}。 */
     renderers?: AgentViewRenderers;
     /** 是否显示顶栏；宿主页面自有标题时传 false，原始视图的切换入口随之没有，用 viewMode 控制。默认 true。 */
     header?: boolean;

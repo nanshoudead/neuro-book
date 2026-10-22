@@ -38,8 +38,8 @@ export type ToolStep = {
 
 export type ThinkingStep = {kind: "thinking"; id: string; messageId: string; text: string};
 
-/** 运行结束后并入思维链的中间 content。 */
-export type NarrationStep = {kind: "text"; id: string; messageId: string; text: string};
+/** 运行结束后并入思维链的中间 content；带着消息，它的附注画在文字之后。`text` 即 `message.text`，与 `ThinkingStep` 同形。 */
+export type NarrationStep = {kind: "text"; id: string; messageId: string; text: string; message: AssistantMessageView};
 
 /** 系统提示词条目（source 为 `prompt`）；写给模型看的，只在思维链里出现。 */
 export type PromptStep = {kind: "prompt"; id: string; message: SystemMessageView};
@@ -96,6 +96,8 @@ export type TurnBlock =
     | {kind: "content"; id: string; message: AssistantMessageView; final: boolean}
     | {kind: "node"; id: string; step: ToolStep}
     | {kind: "notice"; id: string; message: SystemMessageView}
+    /** 没有文字的助手消息上的附注，单独一行；分轮时与信息条目同样对待。有文字时附注跟着文字画，不成块。 */
+    | {kind: "annotations"; id: string; message: AssistantMessageView}
     | {kind: "divider"; id: string; message: SystemMessageView}
     | {kind: "steer"; id: string; message: UserMessageView}
     | {kind: "error"; id: string; message: string};
@@ -157,6 +159,11 @@ function isAnswer(block: TurnBlock, registry: AgentViewRegistry): boolean {
     return block.kind === "node" && block.step.call.status === "success" && registry.resolveTool(block.step.call.name).outcome === true;
 }
 
+/** 信息条目与单独成行的附注：跟着前面的结果显示，不算结果也不切开结果区。 */
+function isNoticeLike(block: TurnBlock): boolean {
+    return block.kind === "notice" || block.kind === "annotations";
+}
+
 function isOutcome(block: TurnBlock, registry: AgentViewRegistry): boolean {
     return isAnswer(block, registry) || block.kind === "error";
 }
@@ -167,7 +174,7 @@ function isOutcome(block: TurnBlock, registry: AgentViewRegistry): boolean {
  */
 function findOutcomeStart(blocks: readonly TurnBlock[], registry: AgentViewRegistry): number {
     let start = blocks.length;
-    while (start > 0 && (isOutcome(blocks[start - 1]!, registry) || blocks[start - 1]!.kind === "notice")) {
+    while (start > 0 && (isOutcome(blocks[start - 1]!, registry) || isNoticeLike(blocks[start - 1]!))) {
         start -= 1;
     }
     while (start < blocks.length && !isOutcome(blocks[start]!, registry)) {
@@ -366,12 +373,18 @@ function buildBlocks(
                         flush();
                         blocks.push({kind: "content", id: `${message.id}:text`, message, final: message === finalReply});
                     } else {
-                        append({kind: "text", id: `${message.id}:text`, messageId: message.id, text: message.text});
+                        append({kind: "text", id: `${message.id}:text`, messageId: message.id, text: message.text, message});
                     }
                 }
                 for (const call of message.toolCalls) {
                     const step: ToolStep = {kind: "tool", id: call.id, messageId: message.id, call};
-                    if (registry.resolveTool(call.name).presentation === "node") {
+                    const renderer = registry.resolveTool(call.name);
+                    // 结果工具被退回（出错、参数无效，或运行结束时还没有结果）的那几次属于过程：进思维链画成一行，不画宿主的
+                    // 节点组件，免得和作数的那张并排（Spec“术语”的结果节点）。运行中的照旧是节点，宿主组件看得到正在写的答案；
+                    // 运行已结束却仍在写的（宿主没把它标成出错）同样算退回，不留一张永远在写的卡片。
+                    const phase = toolCallPhase(call.status);
+                    const rejectedOutcome = renderer.outcome === true && (phase === "error" || (finished && phase === "running"));
+                    if (renderer.presentation === "node" && !rejectedOutcome) {
                         flush();
                         blocks.push({kind: "node", id: call.id, step});
                     } else {
@@ -382,6 +395,10 @@ function buildBlocks(
                     flush();
                     blocks.push({kind: "error", id: `${message.id}:error`, message: message.error});
                 }
+                if (message.text.trim() === "" && (message.annotations?.length ?? 0) > 0) {
+                    flush();
+                    blocks.push({kind: "annotations", id: `${message.id}:annotations`, message});
+                }
                 break;
         }
     }
@@ -391,7 +408,8 @@ function buildBlocks(
 
 /**
  * 答案（最终回复或结果节点）之后的分隔线移出 `blocks`，由视图放到轮末汇总下方。锚点不能只认最终回复：结果节点之后
- * 跟着压缩或分支摘要时，分隔线留在末尾会挡住 `findOutcomeStart` 的倒扫，答案就被折进过程。
+ * 跟着压缩或分支摘要时，分隔线留在末尾会挡住 `findOutcomeStart` 的倒扫，答案就被折进过程。答案之后由分隔线与信息条目
+ * 混成的一段里，分隔线都移走、信息条目留在原处：只摘末尾连续的分隔线时，“回复、压缩、提醒”里的压缩会留下来挡住倒扫。
  */
 function splitTrailing(blocks: TurnBlock[], registry: AgentViewRegistry): TurnBlock[] {
     const replyIndex = blocks.findLastIndex((block) => isAnswer(block, registry));
@@ -399,10 +417,12 @@ function splitTrailing(blocks: TurnBlock[], registry: AgentViewRegistry): TurnBl
         return [];
     }
     let start = blocks.length;
-    while (start > replyIndex + 1 && blocks[start - 1]!.kind === "divider") {
+    while (start > replyIndex + 1 && (blocks[start - 1]!.kind === "divider" || isNoticeLike(blocks[start - 1]!))) {
         start -= 1;
     }
-    return blocks.splice(start);
+    const tail = blocks.splice(start);
+    blocks.push(...tail.filter((block) => block.kind !== "divider"));
+    return tail.filter((block) => block.kind === "divider");
 }
 
 function makeChain(flat: readonly FlatEntry[], registry: AgentViewRegistry): ChainBlock {
@@ -496,15 +516,18 @@ function groupExploreTools(entries: readonly FlatEntry[], registry: AgentViewReg
 }
 
 function makeToolGroup(items: ToolGroupItem[], tools: ToolStep[], registry: AgentViewRegistry): ToolGroupStep {
-    const counts = new Map<ToolRendererEntry, number>();
+    // 按渲染器收集调用，Map 保留首次出现的顺序，短语也按它排。
+    const callsByRenderer = new Map<ToolRendererEntry, ToolCallView[]>();
     for (const tool of tools) {
         const renderer = registry.resolveTool(tool.call.name);
-        counts.set(renderer, (counts.get(renderer) ?? 0) + 1);
+        const calls = callsByRenderer.get(renderer);
+        if (calls === undefined) callsByRenderer.set(renderer, [tool.call]);
+        else calls.push(tool.call);
     }
     const phrases: ViewText[] = [];
-    for (const [renderer, count] of counts) {
+    for (const [renderer, calls] of callsByRenderer) {
         // 类型要求 explore 都给 groupPhrase；回退留给不经类型检查的 JS 宿主，不是死代码。
-        phrases.push(renderer.groupPhrase?.(count) ?? {key: "toolGroup.generic", params: {count}});
+        phrases.push(renderer.groupPhrase?.(calls) ?? {key: "toolGroup.generic", params: {count: calls.length}});
     }
     const active = tools.findLast(isActive) ?? null;
     return {

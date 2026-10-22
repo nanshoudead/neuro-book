@@ -63,7 +63,7 @@ function controllableResolver() {
     return {requests, resolveMarkdownAsset};
 }
 
-function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"; bareServices?: boolean} = {}) {
+function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"; bareServices?: boolean; markdownPreview?: (text: string) => string} = {}) {
     return mount(AgentConversationView, {
         props: {
             ...(options.header === undefined ? {} : {header: options.header}),
@@ -71,7 +71,7 @@ function mountView(locale: AgentLocale, services: Partial<AgentConversationServi
             ctx: options.ctx ?? context(),
             registry: options.registry ?? registry,
             locale,
-            renderers: options.plain === true ? {} : {markdown: FakeMarkdown},
+            renderers: {...(options.plain === true ? {} : {markdown: FakeMarkdown}), ...(options.markdownPreview === undefined ? {} : {markdownPreview: options.markdownPreview})},
             services: options.bareServices === true ? services : {resolveAttachmentUrl: () => null, resolveTriggerMenu: () => ({items: []}), ...services},
         },
         attachTo: document.body,
@@ -153,6 +153,132 @@ describe("宿主组件（验收 21）", () => {
         await view.get("[data-source]").trigger("click");
         expect(seen.at(-1)).toEqual({session: "第三章", hasServices: true, locale: "en-US"});
         expect(view.emitted("action")?.map((args) => args[0])).toEqual([{type: "reference.open", target: "chapter://c3"}]);
+        view.unmount();
+    });
+});
+
+describe("被退回的结果（验收 29）", () => {
+    it("展开整轮后宿主的节点组件只画作数的那一次，被退回的那次是一行，行上是渲染器写的退回原因", async () => {
+        const rendered: string[] = [];
+        const Answer = defineComponent({
+            props: {call: {type: Object, required: true}},
+            setup(props) {
+                return () => {
+                    rendered.push((props.call as {id: string}).id);
+                    return h("div", {"data-answer": ""}, "答案卡片");
+                };
+            },
+        });
+        const plugin: AgentViewContribution = {
+            source: "test:story",
+            tools: [{
+                id: "answer", toolNames: ["answer"], category: "interact", icon: "i-lucide-message-square-text", label: "交卷", presentation: "node", node: Answer, outcome: true,
+                summary: (call) => (call.status === "error" ? `退回：${call.error ?? ""}` : ""),
+            }],
+        };
+        const ctx = context();
+        ctx.messages = [
+            ctx.messages[0]!,
+            {kind: "assistant", id: "a1", timestamp: 2, status: "done", text: "", thinking: "", model: "m", contentOmitted: false, toolCalls: [{id: "q1", name: "answer", status: "error", args: {}, error: "41.20 不是读过的段落"}]},
+            {kind: "assistant", id: "a2", timestamp: 3, status: "done", text: "", thinking: "", model: "m", contentOmitted: false, toolCalls: [{id: "q2", name: "answer", status: "success", args: {}}]},
+        ];
+        const view = mountView("zh-CN", {}, {ctx, plain: true, registry: createAgentViewRegistry([builtinRolesContribution, builtinToolsContribution, plugin])});
+        await view.get("[data-turn-summary]").trigger("click");
+        await view.get("[data-chain-summary]").trigger("click");
+        expect(view.findAll("[data-answer]")).toHaveLength(1);
+        expect(new Set(rendered)).toEqual(new Set(["q2"]));
+        expect(view.text()).toContain("退回：41.20 不是读过的段落");
+        view.unmount();
+    });
+});
+
+describe("附注与条目渲染器（验收 28）", () => {
+    function setup(entryComponent: ReturnType<typeof defineComponent>) {
+        const plugin: AgentViewContribution = {source: "test:story", entries: [{id: "refs", customType: "story.refs", component: entryComponent}]};
+        const note = (refs: string[]) => ({customType: "story.refs", text: `没核实的出处：${refs.join("、")}`, details: {refs}});
+        const ctx = context();
+        ctx.messages = [
+            ctx.messages[0]!,
+            {kind: "assistant", id: "a1", timestamp: 2, status: "done", text: "先查目录", thinking: "", model: "m", contentOmitted: false, toolCalls: [{id: "r1", name: "read", status: "success", args: {path: "a.md"}}], annotations: [note(["1.1"])]},
+            {kind: "assistant", id: "a2", timestamp: 3, status: "done", text: "第 37 章", thinking: "", model: "m", contentOmitted: false, toolCalls: [], annotations: [note(["41.20"]), {customType: "story.other", text: "没有登记的附注"}]},
+        ];
+        return mountView("en-US", {}, {ctx, plain: true, registry: createAgentViewRegistry([builtinRolesContribution, builtinToolsContribution, plugin])});
+    }
+
+    it("最终回复的附注在气泡里由宿主组件画，整轮收起后也在；组件收到附注、消息、ctx 与界面语言，发出的 action 到达宿主", async () => {
+        const seen: string[] = [];
+        const Refs = defineComponent({
+            props: {annotation: {type: Object, required: true}, message: {type: Object, required: true}, ctx: {type: Object, required: true}, services: {type: Object, required: true}, locale: {type: String, required: true}},
+            emits: ["action"],
+            setup(props, {emit}) {
+                return () => {
+                    const refs = ((props.annotation as {details: {refs: string[]}}).details.refs);
+                    seen.push(`${(props.message as {id: string}).id}:${props.locale}:${(props.ctx as AgentConversationContext).session?.id}`);
+                    return h("button", {"data-ref": refs[0], onClick: () => emit("action", {type: "reference.open", target: `paragraph://${refs[0]}`})}, refs.join("、"));
+                };
+            },
+        });
+        const view = setup(Refs);
+        const bubble = view.get("[data-final-reply]");
+        await bubble.get("[data-ref='41.20']").trigger("click");
+        expect(view.emitted("action")?.map((args) => args[0])).toEqual([{type: "reference.open", target: "paragraph://41.20"}]);
+        expect(seen).toContain("a2:en-US:s1");
+        expect(bubble.text()).toContain("没有登记的附注");
+        // 过程里的中间 content：思维链展开后，附注在那段文字下面。
+        expect(view.find("[data-ref='1.1']").exists()).toBe(false);
+        await view.get("[data-turn-summary]").trigger("click");
+        await view.get("[data-chain-summary]").trigger("click");
+        expect(view.find(".acv-narration [data-ref='1.1']").exists()).toBe(true);
+        view.unmount();
+    });
+
+    it("宿主组件抛错时这条附注退回自己的那一句，不画错误卡片", async () => {
+        const Broken = defineComponent({
+            setup() {
+                return () => {
+                    throw new Error("条目坏了");
+                };
+            },
+        });
+        const errors: unknown[] = [];
+        const original = console.error;
+        console.error = (...args: unknown[]) => errors.push(args[0]);
+        try {
+            const view = setup(Broken);
+            await flushPromises();
+            const bubble = view.get("[data-final-reply]");
+            expect(bubble.text()).toContain("没核实的出处：41.20");
+            expect(bubble.find("[data-render-failed]").exists()).toBe(false);
+            expect(errors.some((message) => String(message).includes("条目 refs 的组件"))).toBe(true);
+            view.unmount();
+        } finally {
+            console.error = original;
+        }
+    });
+
+    it("没有文字的消息（只交了答案）的附注单独成一行，排在回复之后、不在回复气泡里，整轮收起后仍在", () => {
+        const Refs = defineComponent({
+            props: {annotation: {type: Object, required: true}},
+            setup(props) {
+                return () => h("span", {"data-ref": (props.annotation as {details: {refs: string[]}}).details.refs[0]});
+            },
+        });
+        const plugin: AgentViewContribution = {source: "test:story", entries: [{id: "refs", customType: "story.refs", component: Refs}]};
+        const ctx = context();
+        ctx.messages = [
+            ctx.messages[0]!,
+            {kind: "assistant", id: "a1", timestamp: 2, status: "done", text: "第 37 章", thinking: "", model: "m", contentOmitted: false, toolCalls: []},
+            {kind: "assistant", id: "a2", timestamp: 3, status: "done", text: "", thinking: "", model: "m", contentOmitted: false, toolCalls: [], annotations: [
+                {customType: "story.refs", text: "没核实的出处：41.20", details: {refs: ["41.20"]}},
+                {customType: "story.other", text: "没有登记的附注"},
+            ]},
+        ];
+        const view = mountView("zh-CN", {}, {ctx, plain: true, registry: createAgentViewRegistry([builtinRolesContribution, builtinToolsContribution, plugin])});
+        const block = view.get("[data-annotations]");
+        expect(block.find("[data-ref='41.20']").exists()).toBe(true);
+        expect(block.text()).toContain("没有登记的附注");
+        expect(view.get("[data-final-reply]").find("[data-ref]").exists()).toBe(false);
+        expect(view.find("[data-error]").exists()).toBe(false);
         view.unmount();
     });
 });
@@ -306,6 +432,63 @@ describe("运行中逐步展开（验收 22）", () => {
         done.messages = [ctx.messages[0]!, {...ctx.messages[1]!, status: "done", toolCalls: [{id: "r1", name: "read", status: "success", args: {path: "第一章.md"}}, {id: "r2", name: "read", status: "success", args: {path: "第二章.md"}}]} as AgentConversationContext["messages"][number], {kind: "assistant", id: "a2", timestamp: 3, status: "done", text: "读完了。", thinking: "", model: "m", toolCalls: [], contentOmitted: false}];
         await view.setProps({ctx: done});
         expect(view.find(".acv-steps").exists()).toBe(false);
+        view.unmount();
+    });
+});
+
+describe("思考预览（验收 30）", () => {
+    // 真实模型的思考摘要：几段粗体小标题首尾相接写在一个思考块里。
+    function thinkingCtx(): AgentConversationContext {
+        const ctx = context();
+        ctx.run = {status: "running", phase: ""};
+        ctx.messages = [ctx.messages[0]!, {kind: "assistant", id: "a1", timestamp: 2, status: "streaming", text: "", thinking: "**Gathering arcs****Checking summaries**\n\n先看目录", model: "m", contentOmitted: false, toolCalls: [{id: "r1", name: "read", status: "running", args: {path: "a.md"}}]}];
+        return ctx;
+    }
+    const thinkingRow = (view: ReturnType<typeof mountView>) => view.findAll(".acv-steps .nb-collapsible-row__detail").map((detail) => detail.text());
+
+    it("折叠的思考露出去掉 Markdown 标记的第一段", () => {
+        const view = mountView("zh-CN", {}, {ctx: thinkingCtx(), plain: true, processDisclosure: "live"});
+        expect(thinkingRow(view)).toContain("Gathering arcs");
+        expect(view.text()).not.toContain("**");
+        view.unmount();
+    });
+
+    function reminderCtx(): AgentConversationContext {
+        const ctx = context();
+        ctx.messages = [...ctx.messages, {kind: "system", id: "n1", timestamp: 9, source: "reminder", label: "提醒", text: "**注意**：先存盘\n\n细节"}];
+        return ctx;
+    }
+
+    it("折叠的提醒同样去掉标记，宿主注入时用宿主的", () => {
+        const view = mountView("zh-CN", {}, {ctx: reminderCtx(), plain: true});
+        expect(view.get(".acv-notice__text").text()).toBe("注意：先存盘");
+        view.unmount();
+        const injected = mountView("zh-CN", {}, {ctx: reminderCtx(), plain: true, markdownPreview: (text) => `宿主：${text.length}`});
+        expect(injected.get(".acv-notice__text").text()).toBe(`宿主：${"**注意**：先存盘\n\n细节".length}`);
+        injected.unmount();
+    });
+
+    it("宿主的 markdownPreview 抛错时这一行按缺省写法，只报一次", () => {
+        const errors: unknown[] = [];
+        const original = console.error;
+        console.error = (...args: unknown[]) => errors.push(args[0]);
+        try {
+            const ctx = reminderCtx();
+            ctx.messages = [...ctx.messages, {kind: "system", id: "n2", timestamp: 10, source: "reminder", label: "提醒", text: "*再*提醒"}];
+            const view = mountView("zh-CN", {}, {ctx, plain: true, markdownPreview: () => {
+                throw new Error("方言坏了");
+            }});
+            expect(view.findAll(".acv-notice__text").map((line) => line.text())).toEqual(["注意：先存盘", "再提醒"]);
+            expect(errors.filter((message) => String(message).includes("markdownPreview"))).toHaveLength(1);
+            view.unmount();
+        } finally {
+            console.error = original;
+        }
+    });
+
+    it("宿主注入了 markdownPreview 时用它", () => {
+        const view = mountView("zh-CN", {}, {ctx: thinkingCtx(), plain: true, processDisclosure: "live", markdownPreview: (text) => `宿主：${text.length}`});
+        expect(thinkingRow(view)).toContain(`宿主：${"**Gathering arcs****Checking summaries**\n\n先看目录".length}`);
         view.unmount();
     });
 });

@@ -1,10 +1,9 @@
 <script setup lang="ts">
-/** 思维链里的一段文字步骤：思考或系统提示词。折叠时露出第一行，展开是淡色小字的 Markdown 全文。展开状态由使用方按 id 记。 */
+/** 思维链里的一段文字步骤：思考或系统提示词。折叠时露出第一行纯文字（宿主的 markdownPreview），展开是淡色小字的 Markdown 全文。展开状态由使用方按 id 记。 */
 import {CollapsibleRow} from "@notnotype/nb-ui/components";
 import type {AgentConversationServices} from "../../types";
-import {firstLine} from "../../format";
 import AgentMarkdown from "../parts/AgentMarkdown.vue";
-import {useAgentText} from "../host";
+import {useAgentRenderers, useAgentText} from "../host";
 import type {ViewAction} from "../view-action";
 
 const props = defineProps<{
@@ -21,6 +20,7 @@ const emit = defineEmits<{
 }>();
 
 const {t} = useAgentText();
+const renderers = useAgentRenderers();
 </script>
 
 <template>
@@ -28,7 +28,7 @@ const {t} = useAgentText();
         :running-label="t('turn.running')"
         :icon="props.icon"
         :label="props.label"
-        :detail="props.expanded ? '' : firstLine(props.text)"
+        :detail="props.expanded ? '' : renderers.markdownPreview(props.text)"
         :expanded="props.text.trim() === '' ? undefined : props.expanded"
         @update:expanded="emit('update:expanded', $event)"
     >

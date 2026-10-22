@@ -6,7 +6,7 @@
 
 # AgentTextStepRow
 
-思维链里一段文字步骤：思考或系统提示词。收起时一行写标签和正文第一行；点开在下方显示 Markdown 全文（淡色小字），行内不再重复第一行。正文为空时不能点开。
+思维链里一段文字步骤：思考或系统提示词。收起时一行写标签和正文第一行，第一行经 `renderers.markdownPreview` 去掉 Markdown 标记（宿主没给时用核心的 `markdownPreviewLine`）；点开在下方显示 Markdown 全文（淡色小字），行内不再重复第一行。正文为空时不能点开。
 
 ## 数据
 
@@ -33,4 +33,4 @@ type AgentTextStepRowEmits = {
 
 ## 隐藏通道理由
 
-- `state:inject`：经 `useAgentText()` 取语言与界面文字。
+- `state:inject`：经 `useAgentText()` 取语言与界面文字，经 `useAgentRenderers()` 取 `markdownPreview` 与 Markdown 显示。
