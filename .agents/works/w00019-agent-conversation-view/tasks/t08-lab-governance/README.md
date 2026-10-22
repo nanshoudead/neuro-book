@@ -1,6 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t08-lab-governance
+status: shelved
+updated: 2026-10-22
 ---
 
 # Lab 治理
@@ -25,7 +27,12 @@ taskId: t08-lab-governance
 - 修掉规则统一前就有的 46 处夹具偏差：其中不少像是在还原产品宿主，要逐个核对产品后再改或标 `data-lab-host`，并会碰到 workbench、agent-profile 等 smoke 依赖的 DOM。它们逐条登记在测试里，只减不增。
 - `workbench-lab.ts` 的事件读取改用调试接口：那组 smoke 有既有失败，改了也验证不了。
 
-## 当前状态（2026-10-01）：已实现，待开发者确认
+## 当前状态（2026-10-22）：搁置
+
+六项都在旧应用的 Component Lab 里实现过，开发者没来得及确认。代码 2026-10-13 随归档提交 `865c9f593`（分支 `archive/legacy-ui-tuning`）保存，没有合入。之后应用按 v2 重建，新应用的 Lab 是另一套实现（`packages/neuro-book/src/plugins/lab/`），已有自己的调试接口 `__nbLab`。这六项不整体移植：t10 迁 Lab 场景时，哪一项新 Lab 也缺、又确实用得上，在 t10 的计划里单独提出。
+
+下文的验证结果都是旧应用上的，只作历史参考。
+
 
 ## 验证
 
