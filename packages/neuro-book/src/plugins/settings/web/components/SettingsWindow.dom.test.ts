@@ -1056,6 +1056,22 @@ describe("标题区：层警告、定位与页面级操作（输出 3、13、19�
         expect(document.body.querySelector("[data-settings-file-line][data-error]")).toBeNull();
     });
 
+    it("读取进行中文件又变了：位置留到重读的最新文本上再用", async () => {
+        const {host} = await scene("file-invalid");
+        host.window.select("nbook.appearance");
+        await flushPromises();
+        const release = host.user.holdReads();
+        one("[data-settings-open-file]").click();
+        await flushPromises();
+        // 末尾加一行：出错处仍在第 3 行，最新文本与第一次读回的不同。
+        const latest = `${host.user.text()}\n`;
+        host.user.setText(latest);
+        release();
+        await vi.waitFor(() => expect(area().value).toBe(latest));
+        await vi.waitFor(() => expect(area().selectionStart).toBe(brokenOffset(latest)));
+        expect(all("[data-settings-file-line][data-error]").map((line) => line.textContent?.trim())).toEqual(["3"]);
+    });
+
     /** 一个会报未保存的 page 分区，用户层文件是坏的：点警告要先过未保存确认。 */
     async function dirtyPageWithBrokenLayer() {
         let context: SettingsPageContext | null = null;

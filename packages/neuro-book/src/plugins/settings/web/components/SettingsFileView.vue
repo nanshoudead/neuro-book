@@ -137,9 +137,12 @@ async function load(): Promise<void> {
     if (area !== null) void nextTick(() => {
         area.scrollTop = scroll;
     });
+    // 读的时候文件又变了：读回来的已经过时，再读一次；待定位的位置留给重读的最新文本。
+    if (pendingRevision !== null && pendingRevision !== result.revision) {
+        void load();
+        return;
+    }
     void locate();
-    // 读的时候文件又变了：读回来的已经过时，再读一次。
-    if (pendingRevision !== null && pendingRevision !== result.revision) void load();
 }
 
 /** 正在读：这时收到的修订号记下，读完再比。 */
