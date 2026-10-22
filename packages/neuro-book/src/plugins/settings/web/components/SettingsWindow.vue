@@ -3,7 +3,7 @@
  * 设置窗口（同名 .md）：窗口模型的呈现。外框是非模态的 Dialog，左栏分区、标签与右边的分区内容都读模型，操作交回模型
  * （docs/specs/settings/settings-window.md）。
  */
-import {AlertDialog, Dialog, Input, ScrollArea, SegmentedControl, Separator} from "@notnotype/nb-ui/components";
+import {AlertDialog, Dialog, Input, ScrollArea, SegmentedControl, Separator, Tooltip} from "@notnotype/nb-ui/components";
 import type {SegmentedControlValue} from "@notnotype/nb-ui/components";
 import {computed, nextTick, provide, ref, useId, watch} from "vue";
 
@@ -139,8 +139,11 @@ function onNavKeydown(event: KeyboardEvent): void {
     const enabled = navItems.value.filter((item) => item.unavailable === null || item.id === model.section.value);
     if (enabled.length === 0) return;
     const at = enabled.findIndex((item) => item.id === model.section.value);
-    const target = event.key === "ArrowDown" ? enabled[Math.min(at + 1, enabled.length - 1)]
-        : event.key === "ArrowUp" ? enabled[Math.max(at - 1, 0)]
+    // 窄窗口里分区横排：左右键与上下键同义，两种排法都认，不按版式分支。
+    const forward = event.key === "ArrowDown" || event.key === "ArrowRight";
+    const backward = event.key === "ArrowUp" || event.key === "ArrowLeft";
+    const target = forward ? enabled[Math.min(at + 1, enabled.length - 1)]
+        : backward ? enabled[Math.max(at - 1, 0)]
             : event.key === "Home" ? enabled[0]
                 : event.key === "End" ? enabled[enabled.length - 1]
                     : undefined;
@@ -300,23 +303,29 @@ function onLeaveOpen(open: boolean): void {
                     <nav class="settings-window__nav" :aria-label="text(TEXT.nav)" @keydown="onNavKeydown">
                         <div v-for="group in model.nav.value" :key="group.category" class="settings-window__nav-group" role="group" :aria-labelledby="`${navId}-${group.category}`">
                             <p :id="`${navId}-${group.category}`" class="settings-window__nav-label" :data-settings-nav-label="group.category">{{ text(GROUP_TITLE[group.category]) }}</p>
-                            <!-- 列表行，不是按钮的外观：没有描边，悬停与当前项各是一层淡底，按下不缩放。 -->
-                            <button
-                                v-for="item in group.items"
-                                :key="item.id"
-                                type="button"
-                                class="settings-window__nav-item nb-ui-focus-ring-inset"
-                                :disabled="navDisabled(item)"
-                                :title="item.unavailable ?? undefined"
-                                :tabindex="item.id === model.section.value ? 0 : -1"
-                                :aria-current="isCurrent(item) ? 'page' : undefined"
-                                :data-settings-nav="item.id"
-                                :data-settings-nav-current="item.id === model.section.value ? '' : undefined"
-                                @click="model.select(item.id)"
-                            >
-                                <span :class="item.icon" class="settings-window__nav-icon" aria-hidden="true"></span>
-                                <span class="settings-window__nav-text">{{ item.title }}</span>
-                            </button>
+                            <!--
+                                列表行，不是按钮的外观：没有描边，悬停与当前项各是一层淡底，按下不缩放。停用项用 aria-disabled 而不是
+                                disabled：原生停用的按钮收不到指针事件，悬停出不了原因的 Tooltip；原因另经 aria-describedby 给读屏。
+                            -->
+                            <Tooltip v-for="item in group.items" :key="item.id" :text="item.unavailable ?? ''" :disabled="!navDisabled(item)" placement="right">
+                                <button
+                                    type="button"
+                                    class="settings-window__nav-item nb-ui-focus-ring-inset"
+                                    :aria-disabled="navDisabled(item) ? 'true' : undefined"
+                                    :aria-describedby="navDisabled(item) ? `${navId}-why-${item.id}` : undefined"
+                                    :tabindex="item.id === model.section.value ? 0 : -1"
+                                    :aria-current="isCurrent(item) ? 'page' : undefined"
+                                    :data-settings-nav="item.id"
+                                    :data-settings-nav-current="item.id === model.section.value ? '' : undefined"
+                                    @click="navDisabled(item) || model.select(item.id)"
+                                >
+                                    <span :class="item.icon" class="settings-window__nav-icon" aria-hidden="true"></span>
+                                    <span class="settings-window__nav-text">{{ item.title }}</span>
+                                </button>
+                            </Tooltip>
+                            <template v-for="item in group.items" :key="item.id">
+                                <span v-if="navDisabled(item)" :id="`${navId}-why-${item.id}`" class="settings-window__visually-hidden">{{ item.unavailable }}</span>
+                            </template>
                         </div>
                     </nav>
                 </div>
@@ -502,7 +511,7 @@ function onLeaveOpen(open: boolean): void {
     transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
 }
 
-.settings-window__nav-item:hover:not(:disabled) {
+.settings-window__nav-item:hover:not([aria-disabled="true"]) {
     background: color-mix(in srgb, var(--text-main) 6%, transparent);
     color: var(--text-main);
 }
@@ -513,7 +522,7 @@ function onLeaveOpen(open: boolean): void {
     font-weight: var(--weight-medium);
 }
 
-.settings-window__nav-item:disabled {
+.settings-window__nav-item[aria-disabled="true"] {
     cursor: not-allowed;
     opacity: 0.5;
 }
@@ -606,7 +615,7 @@ function onLeaveOpen(open: boolean): void {
 
 /* 内容列：左右内边距相同，标题与行的左边就是它的左边。 */
 .settings-window__column {
-    max-width: 768px;
+    max-width: 720px;
     padding: var(--space-2) var(--space-6) var(--space-6);
 }
 

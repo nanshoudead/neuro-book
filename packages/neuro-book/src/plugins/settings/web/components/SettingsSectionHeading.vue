@@ -118,7 +118,10 @@ onBeforeUnmount(() => detach?.());
     gap: var(--space-2);
 }
 
-/* 标题不缩，说明吃剩下的宽度、放不下以省略号结尾。基线对齐：大字标题与小字说明的字脚在一条线上。 */
+/*
+ * 说明先收、标题后收，都以省略号结尾：被替换的标题是用户给的名字（例如服务商名），可能很长，不能压到右边的操作上。
+ * 基线对齐：大字标题与小字说明的字脚在一条线上。
+ */
 .settings-section-heading__line {
     display: flex;
     min-width: 0;
@@ -127,8 +130,11 @@ onBeforeUnmount(() => detach?.());
 }
 
 .settings-section-heading__title {
+    min-width: 0;
     margin: 0;
-    flex-shrink: 0;
+    overflow: hidden;
+    flex-shrink: 1;
+    text-overflow: ellipsis;
     font-family: var(--font-display);
     font-size: var(--settings-title-size);
     font-weight: var(--weight-strong);
@@ -141,6 +147,8 @@ onBeforeUnmount(() => detach?.());
 .settings-section-heading__description {
     margin: 0;
     min-width: 0;
+    /* 收缩按“系数乘基准宽度”分摊：系数远大于标题的，说明收到没有之后标题才开始收。 */
+    flex-shrink: 1000;
     overflow: hidden;
     font-size: var(--text-sm);
     line-height: var(--leading-ui);
@@ -180,6 +188,11 @@ onBeforeUnmount(() => detach?.());
 .settings-section-heading__actions {
     display: flex;
     align-items: center;
+}
+
+/* 没有页面级操作时不占位，否则右侧的间距让层的警告离内容右缘多出一格。Teleport 进来的按钮是它的子节点。 */
+.settings-section-heading__actions:empty {
+    display: none;
 }
 
 /* 层出错的警告：整块是一个按钮，点了切到“设置文件”。 */

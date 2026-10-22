@@ -256,15 +256,27 @@ describe("SettingsWindow", () => {
         expect(control().hasAttribute("disabled")).toBe(true);
     });
 
-    it("左栏：上下键切到上一个、下一个可用分区，焦点跟着走；关闭按钮关窗口", async () => {
+    it("左栏：上下键（窄窗口横排时左右键同义）切到上一个、下一个可用分区，焦点跟着走；停用项说明原因、点了不动；关闭按钮关窗口", async () => {
         const {host} = await scene("project");
+        const first = host.window.section.value;
         one("[data-settings-nav-current]").focus();
         one("[data-settings-nav-current]").dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
         await flushPromises();
         // 模型服务只在用户设置里，本作品标签下停用、被跳过。
         expect(host.window.section.value).toBe("example.snippets.main");
         expect(document.activeElement).toBe(one("[data-settings-nav-current]"));
-        expect(one("[data-settings-nav='example.models.main']").hasAttribute("disabled")).toBe(true);
+        const models = one("[data-settings-nav='example.models.main']");
+        expect(models.getAttribute("aria-disabled")).toBe("true");
+        expect(document.getElementById(models.getAttribute("aria-describedby") ?? "")?.textContent).toBeTruthy();
+        models.click();
+        await flushPromises();
+        expect(host.window.section.value).toBe("example.snippets.main");
+        one("[data-settings-nav-current]").dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowLeft", bubbles: true}));
+        await flushPromises();
+        expect(host.window.section.value).toBe(first);
+        one("[data-settings-nav-current]").dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true}));
+        await flushPromises();
+        expect(host.window.section.value).toBe("example.snippets.main");
         one("[data-settings-nav-current]").dispatchEvent(new KeyboardEvent("keydown", {key: "Home", bubbles: true}));
         await flushPromises();
         expect(host.window.section.value).toBe("nbook.appearance");
