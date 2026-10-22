@@ -20,11 +20,12 @@ function index(docs: Record<string, string>, withoutComponent: string[] = []) {
 }
 
 describe("Lab 组件索引", () => {
-    it("只收有同名 .vue 的文档；显示名取第一条 H1，分组取目录（跳过 components 桶）", () => {
+    it("只收有同名 .vue 的文档；显示名取 frontmatter 的标题，正文 H1 不算，分组取目录（跳过 components 桶）", () => {
         const {entries, byName} = buildIndexWithReadme();
         expect(entries.map((entry) => entry.name)).toEqual(["ViewportCanvas", "JsonViewer", "MemberChip"]);
         expect(byName("JsonViewer")).toMatchObject({displayName: "JSON 查看器", group: "ui", groupPath: ["ui"]});
         expect(byName("MemberChip")).toMatchObject({displayName: "MemberChip", group: "chips", groupPath: ["ui", "chips", "components"]});
+        expect(byName("ViewportCanvas").displayName).toBe("ViewportCanvas");
     });
 
     it("读写产品数据、直接访问浏览器存储的组件不可挂载并给出原因；共享只读状态要快照", () => {
@@ -66,7 +67,7 @@ describe("Lab 组件索引", () => {
 
     it("按组件名、显示名与别名检索，不分大小写，全角空格当空格；别名写坏（不是 JSON 或混有非字符串）时提示并当作没有别名", () => {
         const {byName, warnings} = index({
-            "lab/ViewportCanvas.md": doc('标签: []\n别名: ["画布", "Viewport"]', "# 画布容器\n"),
+            "lab/ViewportCanvas.md": doc('标签: []\n标题: 画布容器\n别名: ["画布", "Viewport"]', "# ViewportCanvas\n"),
             "lab/EventLogPanel.md": doc("标签: []\n别名: [事件日志]"),
             "lab/HighlightBox.md": doc('标签: []\n别名: ["高亮框", 1]'),
         });
@@ -82,9 +83,9 @@ describe("Lab 组件索引", () => {
 
 function buildIndexWithReadme() {
     return index({
-        "ui/JsonViewer.md": doc("标签: [state:local]", "# JSON 查看器\n\n正文"),
+        "ui/JsonViewer.md": doc("标签: [state:local]\n标题: JSON 查看器", "# JsonViewer\n\n正文"),
         "ui/chips/components/MemberChip.md": doc("标签: []"),
         "ui/README.md": "# 说明",
-        "lab/ViewportCanvas.md": doc("标签: []"),
+        "lab/ViewportCanvas.md": doc("标签: []", "# 视口画布\n\n正文"),
     }, ["ui/README.md"]);
 }

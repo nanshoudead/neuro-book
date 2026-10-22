@@ -3,7 +3,7 @@
 别名: ["输入框", "对话输入框", "Composer"]
 ---
 
-# Agent 对话输入框
+# AgentConversationComposer
 
 对话视图底部的输入框：编辑器加一行工具栏。编辑器由宿主注入（形状见核心的 `ports.ts`，neuro-book 注入 `nbook.markdown` 的 `PromptEditor`，合同见 [`ui/prompt-editor.md`](../../../../../docs/specs/ui/prompt-editor.md)），引用、技能、命令、附件、粘贴块都按“文字写法”写进文字；没有注入时是包内的普通文本框 `PlainPromptEditor`，这时不显示“添加附件”、没有 `/` 命令菜单。本组件负责把编辑器的按键与事件翻译成对话视图的 action（发送、steer、followup、停止、命令、附件），并放上模式、模型与思考档位等运行设置。它不持有任何会话数据，草稿、附件状态、排队消息全部来自 `ctx`，用户意图全部以 `action` 交给宿主。
 

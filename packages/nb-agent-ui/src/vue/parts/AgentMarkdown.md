@@ -3,7 +3,7 @@
 别名: ["Markdown 正文", "回复正文"]
 ---
 
-# Agent Markdown 正文
+# AgentMarkdown
 
 对话视图里 Agent 回复正文、过程中的说明文字、思考全文与系统条目的正文。渲染与净化交给宿主注入的 Markdown 显示组件（形状见核心 `ports.ts` 的 `MarkdownDisplayPortProps`，neuro-book 注入 `nbook.markdown` 的 `MarkdownDisplay`）；没有注入时用包内的 `PlainMarkdown` 按纯文字显示，不插入任何 HTML。
 

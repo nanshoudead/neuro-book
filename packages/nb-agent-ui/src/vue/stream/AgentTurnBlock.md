@@ -3,7 +3,7 @@
 别名: ["轮次块", "Turn Block"]
 ---
 
-# Agent 轮次块
+# AgentTurnBlock
 
 一轮里 Agent 一侧的一个块，由 `AgentConversationTurn` 按时间顺序排列。块的种类与含义见 `conversation-turns.ts` 的 `TurnBlock`，排列与三层规则见 `AgentConversationTurn` 的同名文档。本组件只负责把一个块画出来：
 

@@ -3,7 +3,7 @@
 别名: ["模型选择", "思考档位", "Model Picker"]
 ---
 
-# Agent 模型选择
+# AgentModelPicker
 
 输入框工具栏里的一个下拉：选模型，也选思考档位。两样合在一个触发器上，窄屏的工具栏不至于放不下；触发器写出当前模型名和档位，例如“Claude Sonnet · 低”。它是受控零件，选中后只发出事件，由输入框转成 `model.set`、`thinking.set`。
 

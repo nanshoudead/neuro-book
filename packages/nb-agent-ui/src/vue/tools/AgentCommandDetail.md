@@ -3,7 +3,7 @@
 别名: ["命令详情", "Command Detail"]
 ---
 
-# Agent 命令详情
+# AgentCommandDetail
 
 命令类工具展开后的内容：上面“命令”代码块是 `bash` 的 `command` 或 `execute_sql` 的 `sql`，下面“输出”代码块是结果正文。结果只公开了预览时末尾提示；还没有结果时显示“还没有结果”。
 
