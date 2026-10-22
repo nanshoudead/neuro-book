@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t04-nbook-type-scale
-status: planned
+status: active
 updated: 2026-10-22
 ---
 
