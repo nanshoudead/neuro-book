@@ -293,7 +293,7 @@ input.nb-ui-native-input[type="number"] {
     border-radius: var(--nb-popover-inner-radius, 6px);
     font-size: var(--menu-item-font);
     font-weight: var(--weight-normal);
-    line-height: 16px;
+    line-height: var(--leading-tight);
     color: var(--text-main);
     text-align: left;
     white-space: nowrap;

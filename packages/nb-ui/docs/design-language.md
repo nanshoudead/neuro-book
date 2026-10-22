@@ -301,6 +301,7 @@ Save Dialog `0 36px 100px`（后者是上一轮从同一份文件的 Dialogs 页
 | | macOS | nbook |
 | --- | --- | --- |
 | 控件高（sm / md / lg） | 26 / 32 / 40px | 28 / 34 / 42px |
+| 弹出列表行高（`--menu-item-h`） | 28px | 30px |
 | 界面正文 | 13px | 14px |
 | 行高 | 1.35 | **1.5** |
 | 字距 | −0.006em | **0** |
@@ -308,8 +309,8 @@ Save Dialog `0 36px 100px`（后者是上一轮从同一份文件的 Dialogs 页
 | 菜单外圈圆角 | 12px | 12px |
 
 `Input`、`NumberInput`、`Select` 的默认单行高度分别消费 `.nb-ui-control-h-md`，
-水平内边距消费 `.nb-ui-control-px`，因此高度随主题（macOS 32px、nbook 34px）。`Button`、`IconButton` 的
-`sm`、`md`、`lg` 同样取 `--control-h-*`，与输入框并排时等高。这几个静态类在 `src/styles.css` 登记，
+水平内边距消费 `.nb-ui-control-px`，因此高度随主题（macOS 32px、nbook 34px）。`Button` 的 `sm`、`md`、`lg` 同样取 `--control-h-*`，与输入框并排时等高；
+`IconButton` 是定值（26 / 32 / 38px），它多放在定宽的竖条与定高的工具条里。这几个静态类在 `src/styles.css` 登记，
 不依赖 Tailwind 对 arbitrary value 的扫描。
 
 控件圆角两套都是 10px——那一档本来就够小，加不加高度都不影响手感。

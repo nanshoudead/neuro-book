@@ -24,8 +24,8 @@ const props = withDefaults(defineProps<{
 });
 
 /*
- * 尺寸与材质消费主题 token（现代极简平滑方案 2：浓度跃升与丝滑平移）：sm、md、lg 取控件高度，与 Button、输入框并排时等高；
- * xs、2xs 是给固定高度的标题行用的，保持定值。
+ * 尺寸与材质消费主题 token（现代极简平滑方案 2：浓度跃升与丝滑平移）。边长是定值、不取 --control-h-*：图标按钮多放在定宽的竖条与
+ * 定高的工具条里（活动栏 48px 宽，lg 的 38px 两侧各留 5px 给焦点光环），随主题长高会被裁。
  * 零 Layout Shift，禁用态禁止任何缩放。
  */
 function sizeClass(): string {
@@ -38,12 +38,12 @@ function sizeClass(): string {
         return "h-[24px] w-[24px] text-xs rounded-[6px]";
     }
     if (props.size === "sm") {
-        return "h-[var(--control-h-sm)] w-[var(--control-h-sm)] text-xs rounded-[6px]";
+        return "h-[26px] w-[26px] text-xs rounded-[6px]";
     }
     if (props.size === "lg") {
-        return "h-[var(--control-h-lg)] w-[var(--control-h-lg)] text-base rounded-[10px]";
+        return "h-[38px] w-[38px] text-base rounded-[10px]";
     }
-    return "h-[var(--control-h-md)] w-[var(--control-h-md)] text-sm rounded-[8px]";
+    return "h-[32px] w-[32px] text-sm rounded-[8px]";
 }
 
 function variantClass(): string {

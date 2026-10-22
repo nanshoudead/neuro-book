@@ -294,8 +294,8 @@ function handleEditorUpdate(value: unknown): void {
     --jse-font-family: var(--font-ui);
     --jse-font-family-mono: var(--font-mono);
     --jse-font-size: var(--text-xs);
-    --jse-font-size-mono: 11px;
-    --jse-font-size-main-menu: 11px;
+    --jse-font-size-mono: var(--text-xs);
+    --jse-font-size-main-menu: var(--text-xs);
     --jse-font-size-text-mode-search: 80%;
     --jse-line-height: calc(1em + 4px);
     --jse-indent-size: calc(1em + 4px);

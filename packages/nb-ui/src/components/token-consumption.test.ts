@@ -88,8 +88,11 @@ function stripComments(source: string): string {
  */
 const UNTYPED_TYPOGRAPHY_TEXT = new RegExp(String.raw`\btext-(?:\[var\(|\()(?:${nbTypographyTokens.join("|")})(?=[,)])`);
 
-/** 规则 8 的匹配式：`text-[13px]`、`text-[length:13px]`、`text-[0.8rem]` 与样式里的 `font-size: 13px`、`fontSize: "13px"`。 */
-const LITERAL_FONT_SIZE = /\btext-\[(?:length:)?\d+(?:\.\d+)?(?:px|r?em)\]|\bfont-size\s*:\s*\d|\bfontSize\s*:\s*['"`]?\d/;
+/**
+ * 规则 8 的匹配式：方括号里的 px、rem 字号（`text-[13px]`、`text-[length:.8rem]`），样式里的 `font-size: 13px`、`font: 13px/1.5 …`
+ * 简写，与 `:style` 里的 `fontSize: 13`、`"fontSize": "13px"`。相对字号（`em`、`%`）跟着上下文走，不算字面量；`font-size: 0` 也放过。
+ */
+const LITERAL_FONT_SIZE = /\btext-\[(?:length:)?\d*\.?\d+(?:px|rem)\]|\bfont-size\s*:\s*(?:\d*\.)?\d*[1-9]\d*(?:\.\d+)?(?:px|rem)|\bfont\s*:[^;"'`]*?\b\d*\.?\d+(?:px|rem)\b|\bfontSize['"]?\s*:\s*['"`]?\d/;
 
 /** 规则 6 的匹配式：`font-[var(--<排版 token>…)]`、`font-(--<排版 token>)`，以及它们带类型提示的写法。 */
 const TYPOGRAPHY_IN_FONT_UTILITY = new RegExp(String.raw`\bfont-(?:\[(?:[a-z-]+:)?var\(|\((?:[a-z-]+:)?)(?:${nbTypographyTokens.join("|")})(?=[,)])`);
@@ -189,8 +192,8 @@ describe("组件 token 消费静态扫描", () => {
     });
 
     it("字号的检查认得出字面像素，放过 token 与非字号的方括号值", () => {
-        const flagged = ["text-[13px]", "sm:text-[11px]", "text-[length:9.6px]", "text-[0.8rem]", "font-size: 12px;", 'fontSize: "13px"'];
-        const allowed = ["text-[length:var(--text-sm)]", "text-[var(--text-main)]", "font-size: var(--text-xs);", "min-w-[24px]", "leading-[18px]"];
+        const flagged = ["text-[13px]", "sm:text-[11px]", "text-[length:9.6px]", "text-[0.8rem]", "text-[.8rem]", "font-size: 12px;", "font-size: 0.75rem;", "font: 13px/1.5 var(--font-ui);", 'fontSize: "13px"', "fontSize: 13", '"fontSize": 13'];
+        const allowed = ["text-[length:var(--text-sm)]", "text-[var(--text-main)]", "font-size: var(--text-xs);", "font-size: 0.88em;", "font-size: 0;", "font: inherit;", "min-w-[24px]", "leading-[18px]"];
         expect(flagged.filter((sample) => !LITERAL_FONT_SIZE.test(sample))).toEqual([]);
         expect(allowed.filter((sample) => LITERAL_FONT_SIZE.test(sample))).toEqual([]);
     });
