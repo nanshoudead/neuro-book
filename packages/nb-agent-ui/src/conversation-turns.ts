@@ -38,8 +38,7 @@ export type ToolStep = {
 
 export type ThinkingStep = {kind: "thinking"; id: string; messageId: string; text: string};
 
-/** 运行结束后并入思维链的中间 content。 */
-/** 并入思维链的中间 content；带着消息，展开时它的附注画在文字之后。 */
+/** 运行结束后并入思维链的中间 content；带着消息，它的附注画在文字之后。`text` 即 `message.text`，与 `ThinkingStep` 同形。 */
 export type NarrationStep = {kind: "text"; id: string; messageId: string; text: string; message: AssistantMessageView};
 
 /** 系统提示词条目（source 为 `prompt`）；写给模型看的，只在思维链里出现。 */
@@ -381,8 +380,10 @@ function buildBlocks(
                     const step: ToolStep = {kind: "tool", id: call.id, messageId: message.id, call};
                     const renderer = registry.resolveTool(call.name);
                     // 结果工具被退回（出错、参数无效，或运行结束时还没有结果）的那几次属于过程：进思维链画成一行，不画宿主的
-                    // 节点组件，免得和作数的那张并排（Spec“术语”的结果节点）。运行中的照旧是节点，宿主组件看得到正在写的答案。
-                    const rejectedOutcome = renderer.outcome === true && toolCallPhase(call.status) === "error";
+                    // 节点组件，免得和作数的那张并排（Spec“术语”的结果节点）。运行中的照旧是节点，宿主组件看得到正在写的答案；
+                    // 运行已结束却仍在写的（宿主没把它标成出错）同样算退回，不留一张永远在写的卡片。
+                    const phase = toolCallPhase(call.status);
+                    const rejectedOutcome = renderer.outcome === true && (phase === "error" || (finished && phase === "running"));
                     if (renderer.presentation === "node" && !rejectedOutcome) {
                         flush();
                         blocks.push({kind: "node", id: call.id, step});

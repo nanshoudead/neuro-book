@@ -69,7 +69,7 @@ type ToolRendererBase = RegistryEntryBase & {
     /**
      * 呈现层级：
      * - `line`、`card`：属于思维链，默认随思维链折叠；展开后分别是一行或一张可展开的卡片。
-     * - `node`：人机交互控件（提问、任务清单、Workflow 等），常显，并把思维链切开。
+     * - `node`：人机交互控件（提问、任务清单、Workflow 等），常显，并把思维链切开；`outcome` 的调用被退回时例外，是思维链里的一行。
      */
     presentation: "line" | "card" | "node";
     /** `node` 呈现时的专用组件，接收 `ToolComponentProps`、发 `HostComponentEmits`；缺省时用通用卡片。 */
@@ -129,18 +129,26 @@ export type RoleEntry = RegistryEntryBase & {
 // ─── 其余扩展点 ──────────────────────────────────────────────────────────
 
 /**
- * 条目渲染器。现在视图只按 `customType` 读取助手消息上的附注（Spec“注册表”）；按消息类型与系统条目来源匹配内置消息的
- * 那一半还没有消费者。
+ * 条目渲染器，一项只走一种匹配：按 `customType` 匹配附注，或按消息类型与系统条目来源匹配内置消息。现在视图只读取前一种
+ * （Spec“注册表”）；后一种还没有消费者，写成单独一支，免得登记了却以为已经生效，两样都不写也过不了类型检查。
  */
 export type EntryRendererEntry = RegistryEntryBase & {
-    messageKind?: MessageView["kind"];
-    /** 只对系统条目有意义；缺省匹配全部来源。 */
-    systemSource?: SystemMessageSource;
-    /** 附注的 `customType`，精确匹配。两个渲染器不能声明同一个。 */
-    customType?: string;
     /** 附注由它画时，props 是 `EntryComponentProps`，事件是 `HostComponentEmits`。 */
     component: Component;
-};
+} & (
+    | {
+        /** 附注的 `customType`，精确匹配。两个渲染器不能声明同一个。 */
+        customType: string;
+        messageKind?: never;
+        systemSource?: never;
+    }
+    | {
+        messageKind: MessageView["kind"];
+        /** 只对系统条目有意义；缺省匹配全部来源。 */
+        systemSource?: SystemMessageSource;
+        customType?: never;
+    }
+);
 
 /** 条目组件收到的 props：与工具组件同一套宿主通道，加上这条附注与它所在的消息。 */
 export type EntryComponentProps = HostComponentContext & {annotation: MessageAnnotationView; message: AssistantMessageView};

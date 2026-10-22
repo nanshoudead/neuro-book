@@ -31,6 +31,9 @@ describe("AgentSessionList 的行（验收 26）", () => {
         expect(rows[0]!.text()).toContain("3 轮 · 图当目录");
         expect(rows[0]!.get("time").text()).toBe("09:07");
         expect(rows[1]!.text()).toContain("运行中");
+        // 读屏只读一遍“运行中”：转圈对辅助技术隐藏。截断的标题悬停时看得到全文。
+        expect(rows[1]!.findAll("[role='status']").map((status) => status.element.closest("[aria-hidden='true']") !== null)).toEqual([true]);
+        expect(rows[0]!.get(".acv-sessions__name").attributes("title")).toBe("这本书讲了什么？");
         expect(rows[2]!.text()).toContain("昨天");
         expect(rows[2]!.text()).toContain("读到 38.12，早于你现在的位置");
         expect(rows[3]!.text()).toContain("未命名会话");
@@ -55,20 +58,20 @@ describe("AgentSessionList 的行（验收 26）", () => {
 
 describe("AgentSessionList 的状态（验收 27）", () => {
     it("加载中、空、出错各有说明，都保留标题行与新建；出错时重试发 sessions.refresh", async () => {
-        expect(mountList({state: "loading"}).text()).toContain("正在加载会话");
+        const loading = mountList({state: "loading"});
+        expect(loading.text()).toContain("正在加载会话");
         const empty = mountList({items: []});
         expect(empty.text()).toContain("还没有会话");
-        expect(empty.find("[data-session-create]").exists()).toBe(true);
         const failed = mountList({state: "error", errorMessage: "服务没有响应"});
         expect(failed.text()).toContain("服务没有响应");
+        for (const view of [loading, empty, failed]) expect(view.find("[data-session-create]").exists()).toBe(true);
         expect(failed.find("[data-session]").exists()).toBe(false);
         await failed.get("[data-session-retry]").trigger("click");
         expect(failed.emitted("action")?.map((args) => args[0])).toEqual([{type: "sessions.refresh"}]);
     });
 
     it("header 为 false 时没有标题行；labels 覆盖包内文字", () => {
-        const bare = mountList({header: false});
-        expect(bare.find("[data-session-create]").exists()).toBe(false);
+        for (const state of ["ready", "loading", "error"] as const) expect(mountList({header: false, state}).find("[data-session-create]").exists()).toBe(false);
         const renamed = mountList({items: [], labels: {title: "对话", empty: "还没有对话", create: "新对话"}});
         expect(renamed.text()).toContain("对话");
         expect(renamed.text()).toContain("还没有对话");

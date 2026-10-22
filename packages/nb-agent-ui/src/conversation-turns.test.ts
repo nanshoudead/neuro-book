@@ -414,10 +414,10 @@ describe("buildTurns 结果节点（验收 20）", () => {
         expect(turn.foldable).toBe(true);
     });
 
-    it("运行中的结果调用仍是节点；参数无效的与运行结束时还没有结果的（出错、没有说明）进思维链", () => {
+    it("运行中的结果调用仍是节点；参数无效的与运行结束时还没有结果的进思维链（宿主标成出错或仍留着在写都一样）", () => {
         const running = buildTurns(input([user("u1", "问"), assistant("a1", {status: "streaming", toolCalls: [tool("q1", "answer", {conclusion: "林"}, "streaming")]})], {registry: withAnswer, run: {status: "running", phase: ""}}))[0]!;
         expect(shape(running)).toEqual(["node"]);
-        for (const status of ["invalid", "error"] as const) {
+        for (const status of ["invalid", "error", "streaming", "running"] as const) {
             const ended = buildTurns(input([user("u1", "问"), assistant("a1", {status: "stopped", toolCalls: [tool("q1", "answer", {}, status)]})], {registry: withAnswer}))[0]!;
             expect(shape(ended)).toEqual(["chain(tool)"]);
         }
@@ -539,6 +539,15 @@ describe("reuseTurnGroups", () => {
         expect(after[0]).toBe(before[0]);
         expect(after[1]).not.toBe(before[1]);
         expect(after[1]!.map((message) => message.id)).toEqual(["u2", "a2"]);
+    });
+
+    it("宿主沿用带附注的消息对象时整轮沿用；给消息加附注换成新对象时这一轮重算（README 的引用稳定约定）", () => {
+        const answered = {...assistant("a1", {text: "第 37 章"}), annotations: [{customType: "story.refs", text: "没核实的出处：41.20"}]};
+        const messages = [user("u1", "谁知道？"), answered];
+        const before = splitIntoTurnGroups(messages);
+        expect(reuseTurnGroups(before, splitIntoTurnGroups([...messages]))[0]).toBe(before[0]);
+        const reannotated = {...answered, annotations: [...answered.annotations, {customType: "story.refs", text: "没核实的出处：41.21"}]};
+        expect(reuseTurnGroups(before, splitIntoTurnGroups([messages[0]!, reannotated]))[0]).not.toBe(before[0]);
     });
 });
 

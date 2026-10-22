@@ -65,12 +65,13 @@ function label(key: LabelKey): string {
                         @click="emit('action', {type: 'session.select', sessionId: item.id})"
                     >
                         <span class="acv-sessions__line">
-                            <span class="acv-sessions__name">{{ item.title === "" ? label("untitled") : item.title }}</span>
+                            <span class="acv-sessions__name" :title="item.title === '' ? undefined : item.title">{{ item.title === "" ? label("untitled") : item.title }}</span>
                             <time class="acv-sessions__time" :datetime="new Date(item.updatedAt).toISOString()">{{ formatListTime(item.updatedAt, props.now, props.locale) }}</time>
                         </span>
                         <span v-if="item.description || item.status !== 'idle'" class="acv-sessions__line acv-sessions__meta">
                             <span class="acv-sessions__description">{{ item.description }}</span>
-                            <span v-if="item.status === 'running'" class="acv-sessions__running"><Spinner size="sm" :label="agentText(props.locale, 'sessions.running')" />{{ agentText(props.locale, "sessions.running") }}</span>
+                            <!-- 旁边已有文字，转圈不再报一遍（整行是按钮，名称由内容拼出）。 -->
+                            <span v-if="item.status === 'running'" class="acv-sessions__running"><span aria-hidden="true"><Spinner size="sm" /></span>{{ agentText(props.locale, "sessions.running") }}</span>
                             <Badge v-else-if="item.status === 'interrupted'" size="sm" variant="soft">{{ agentText(props.locale, "sessions.interrupted") }}</Badge>
                             <Badge v-else-if="item.status === 'error'" size="sm" variant="soft" tone="danger">{{ agentText(props.locale, "sessions.failed") }}</Badge>
                         </span>

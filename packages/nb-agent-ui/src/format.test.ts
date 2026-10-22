@@ -14,7 +14,19 @@ describe("markdownPreviewLine", () => {
         ["**Gathering later chapter arcs****Checking later chapter summaries**\n\n正文", "Gathering later chapter arcs"],
         ["## 第一节 ##", "第一节"],
         ["\n\n> - [x] 完成 **了**", "完成 了"],
-        ["1) 第一步：*读*目录", "第一步：*读*目录"],
+        ["1) 第一步：*读*目录", "第一步：读目录"],
+        // 与 CommonMark 一致：`*` 夹在字里也是强调，`__` 两侧是标点时是粗体（展开后的显示同样如此）。
+        ["他的*钥匙*在哪", "他的钥匙在哪"],
+        ["__init__.py 要改", "init.py 要改"],
+        // 行内代码不切断两侧的强调与链接。
+        ["[`foo.ts`](src/foo.ts) 要改", "foo.ts 要改"],
+        ["前 **bold `x`** 后", "前 bold x 后"],
+        ["[a](http://x.com/a(b)) 后", "a 后"],
+        // 第一行去完标记是空的，往下找。
+        ["<system-reminder>\n记得保存\n</system-reminder>", "记得保存"],
+        ["![](x.png)\n说明文字", "说明文字"],
+        ["**\n正文", "正文"],
+        ["~~**x**~~ 与 **~~y~~**", "x 与 y"],
         ["他说：**“走吧。”**然后离开。", "他说：“走吧。”然后离开。"],
         ["==高亮== 与 ~~删~~ 与 <mark>标</mark>", "高亮 与 删 与 标"],
         ["_强调_ 与 *斜体* 与 __粗__", "强调 与 斜体 与 粗"],
@@ -32,6 +44,12 @@ describe("markdownPreviewLine", () => {
         "#伏笔 要回收",
         "*注：见下",
         "-5℃ 的早晨",
+        "卡号 **** **** 1234 后四位",
+        "密码是 ****** 请保密",
+        "key=****",
+        "A****B",
+        "Promise<void> 返回 List<String>",
+        "见 https://example.com/__init__.py 与 http://a.b/x_y_z",
     ])("不误伤：%j", (input) => {
         expect(markdownPreviewLine(input)).toBe(input.replace(/`/gu, ""));
     });
@@ -44,6 +62,10 @@ describe("markdownPreviewLine", () => {
         expect(markdownPreviewLine("**Finding X")).toBe("Finding X");
         expect(markdownPreviewLine("**Gathering arcs*")).toBe("Gathering arcs");
         expect(markdownPreviewLine("**Gathering arcs**")).toBe("Gathering arcs");
+    });
+
+    it("很长的一行只处理开头几百字（流式中每次重算，不随全文变长而变慢）", () => {
+        expect(markdownPreviewLine("字".repeat(100_000)).length).toBeLessThanOrEqual(400);
     });
 
     it("空文字与只有空白时给空串", () => {
