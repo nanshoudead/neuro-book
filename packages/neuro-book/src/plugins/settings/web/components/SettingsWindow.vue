@@ -331,11 +331,16 @@ function onLeaveOpen(open: boolean): void {
                 </div>
                 <Separator orientation="vertical" class="settings-window__divider" />
                 <div v-if="current === null" class="settings-window__empty">{{ text(TEXT.empty) }}</div>
-                <!-- fill 页面拿到标题下面的整块区域，自己滚动；其余放进封顶的内容列，内容列滚动（输出 3）。 -->
-                <div v-else-if="fill && page !== null" class="settings-window__fill" :data-settings-section="current.id">
+                <!--
+                    fill 页面拿到标题下面的整块区域，自己滚动；其余放进封顶的内容列，内容列滚动（输出 3）。设置文件也占整块：文本框随
+                    窗口高度伸缩，保存栏钉在底部，不随内容滚到折叠线下面（输出 23）。
+                -->
+                <div v-else-if="(fill && page !== null) || current.kind === 'file'" class="settings-window__fill" :data-settings-section="current.id">
                     <SettingsSectionHeading :title="current.title" :description="current.description" :notice="notice" :replacement="replacement" @open-file="openFile" @back="chrome.titleClaim.value?.back()" />
                     <div class="settings-window__fill-body">
+                        <SettingsFileView v-if="current.kind === 'file'" :window="model" :layer="current.layer" :path="current.path" />
                         <SettingsPageFrame
+                            v-else-if="page !== null"
                             :locale="locale"
                             :delivery="page.delivery"
                             :status="page.status"
@@ -373,7 +378,6 @@ function onLeaveOpen(open: boolean): void {
                             <p v-if="current.list.groups.length === 0 && current.pages.length === 0" class="settings-window__unavailable" data-settings-no-results role="status">{{ text(TEXT.noResults) }}</p>
                         </template>
                         <SettingsListSection v-else-if="current.kind === 'list'" :window="model" :view="current" />
-                        <SettingsFileView v-else-if="current.kind === 'file'" :window="model" :layer="current.layer" :path="current.path" />
                         <SettingsPageFrame
                             v-else-if="page !== null"
                             :locale="locale"

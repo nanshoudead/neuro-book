@@ -133,7 +133,7 @@ onBeforeUnmount(() => detach?.());
     min-width: 0;
     margin: 0;
     overflow: hidden;
-    flex-shrink: 1;
+    flex: 0 1 auto;
     text-overflow: ellipsis;
     font-family: var(--font-display);
     font-size: var(--settings-title-size);
@@ -147,8 +147,8 @@ onBeforeUnmount(() => detach?.());
 .settings-section-heading__description {
     margin: 0;
     min-width: 0;
-    /* 收缩按“系数乘基准宽度”分摊：系数远大于标题的，说明收到没有之后标题才开始收。 */
-    flex-shrink: 1000;
+    /* 基准宽度为 0、只吃标题剩下的宽度：收缩按比例分摊，标题与说明一起收时标题也会少一两个像素、平白出省略号。 */
+    flex: 1 1 0;
     overflow: hidden;
     font-size: var(--text-sm);
     line-height: var(--leading-ui);

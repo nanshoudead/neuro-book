@@ -374,7 +374,7 @@ function onKeydown(event: KeyboardEvent): void {
                     v-model="draft"
                     class="settings-file__text"
                     data-settings-file-text
-                    :rows="18"
+                    :rows="6"
                     :readonly="unreachable"
                     :invalid="errorAt !== null"
                     spellcheck="false"
@@ -389,15 +389,19 @@ function onKeydown(event: KeyboardEvent): void {
                 <span class="settings-file__key"><Kbd>Esc</Kbd>{{ text(TEXT.escThen) }}<Kbd>Tab</Kbd>{{ text(TEXT.escTabKey) }}</span>
                 <span class="settings-file__key"><Kbd>{{ modKeyLabel }}</Kbd><Kbd>S</Kbd>{{ text(TEXT.saveKey) }}</span>
             </p>
-            <!-- 保存栏在内容列底部：按钮一直在，没有改动时停用，焦点不会因为它消失而掉到页面上。连不上时与保存中一样停用。 -->
+            <!-- 保存栏在视图底部（视图占满窗口给的区域，栏不随内容滚走）：按钮一直在，没有改动时停用，焦点不会因为它消失而掉到页面上。连不上时与保存中一样停用。 -->
             <SettingsSaveBar :locale="locale" :dirty="dirty" :busy="saving" :can-save="!unreachable" data-settings-file-actions @save="save" @discard="discard" />
         </template>
     </div>
 </template>
 
 <style scoped>
+/* 占满窗口给的整块区域（fill）：文本框吃掉剩下的高度，保存栏在最下面。 */
 .settings-file {
     display: flex;
+    height: 100%;
+    min-height: 0;
+    box-sizing: border-box;
     flex-direction: column;
     gap: var(--space-3);
 }
@@ -435,6 +439,9 @@ function onKeydown(event: KeyboardEvent): void {
 
     position: relative;
     display: flex;
+    /* 随窗口高度伸缩；窗口很矮时至少留几行可编辑。文本框在这一行里被拉满高度（行内的 stretch），自己滚动。 */
+    min-height: calc(6 * var(--settings-file-line) + 2 * var(--settings-file-pad));
+    flex: 1 1 0;
     border-width: var(--border-w);
     border-style: solid;
     border-radius: var(--radius-control);
@@ -493,7 +500,9 @@ function onKeydown(event: KeyboardEvent): void {
     min-width: 0;
     flex: 1 1 auto;
     width: auto;
+    height: auto;
     margin-left: var(--settings-file-gutter);
+    resize: none;
     padding: var(--settings-file-pad) var(--space-4) var(--settings-file-pad) 0;
     border: 0;
     border-radius: 0;
