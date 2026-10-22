@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t13-agent-ui-api
-status: active
+status: done
 updated: 2026-10-22
 ---
 
