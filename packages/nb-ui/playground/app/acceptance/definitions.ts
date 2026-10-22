@@ -60,7 +60,7 @@ export const ACCEPTANCE_DEFINITIONS: Record<string, LabComponentDefinition> = {
     "popup-lists": {
         id: "popup-lists",
         label: "弹出列表",
-        scenes: [{id: "menus", label: "菜单一族"}, {id: "select", label: "Select"}, {id: "quick-pick", label: "QuickPick"}, {id: "long", label: "长列表与级联"}, {id: "quick-pick-long", label: "QuickPick 长列表"}],
+        scenes: [{id: "menus", label: "菜单一族"}, {id: "select", label: "Select"}, {id: "quick-pick", label: "QuickPick"}, {id: "long", label: "长列表与级联"}, {id: "quick-pick-long", label: "QuickPick 长列表"}, {id: "material", label: "浮层材质"}],
         controls: [],
         events: [],
     },
@@ -75,6 +75,13 @@ export const ACCEPTANCE_DEFINITIONS: Record<string, LabComponentDefinition> = {
         id: "checkbox-focus",
         label: "Checkbox",
         scenes: [{id: "default", label: "滚动列表底部聚焦"}],
+        controls: [],
+        events: [],
+    },
+    "control-invalid": {
+        id: "control-invalid",
+        label: "输入框出错外观",
+        scenes: [{id: "default", label: "出错与正常对照"}],
         controls: [],
         events: [],
     },

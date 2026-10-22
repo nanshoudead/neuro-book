@@ -1,6 +1,6 @@
 /**
- * `nbstory ask`（docs/specs/story/qa.md 输出 12 到 14）：进度写标准错误，答案写标准输出。由 main.ts 动态导入，
- * 只有这条命令才加载 OMP。
+ * `nbstory ask`（docs/specs/story/qa.md 输出 12 到 14、26）：进度写标准错误，答案或文字回复写标准输出；`--continue`
+ * 在已有对话里追问。由 main.ts 动态导入，只有这条命令才加载 OMP。
  *
  * 中断信号（Ctrl-C）只中止这一问：引擎收尾、写下“中断”的记录后才以 130 退出。OMP 一被导入就装上自己的 SIGINT
  * 处理（跑完登记的清理就以 130 退出），所以收尾经 nb-harness 的 onProcessInterrupt 登记：回调中止这一问，
@@ -16,7 +16,7 @@ import type {QaMode} from "../core/qa-records";
 import {loadQaConfig} from "../qa/config";
 import {askQuestion, type QaOutcome, type QaProgress} from "../qa/engine";
 import {QaError} from "../qa/errors";
-import {recordText} from "../qa/format";
+import {turnText} from "../qa/format";
 import {NEXT_STEP, type CliIo} from "./main";
 
 export const EXIT_QA_FAILED = 4;
@@ -28,8 +28,6 @@ function progressLine(event: QaProgress): string {
             return `· ${event.text}`;
         case "rejected":
             return `· 作答被退回：${event.text.replace(/^答案没有通过校验，改了再交：\n/u, "").replace(/\n/gu, " ")}`;
-        case "reminder":
-            return "· 没有交卷，提醒一次";
         case "answered":
             return "· 已交卷";
     }
@@ -68,6 +66,12 @@ async function ask(options: AskOptions, io: CliIo, signal: AbortSignal): Promise
         return exit;
     };
 
+    const continueFrom = params.continue as string | undefined;
+    if (continueFrom !== undefined && (params.at !== undefined || params.mode !== undefined)) {
+        io.stderr("用法错误：--continue 追问时阅读位置与做法取对话开始时的，不能再写 --at 或 --mode");
+        return 2;
+    }
+
     let outcome: QaOutcome;
     try {
         const config = await loadQaConfig(...(typeof params.config === "string" ? [params.config] : []));
@@ -75,7 +79,8 @@ async function ask(options: AskOptions, io: CliIo, signal: AbortSignal): Promise
             api: createStoryApi(options.library === undefined ? {} : {library: options.library}),
             ...(typeof params.book === "string" ? {book: params.book} : {}),
             ...(params.at === undefined ? {} : {at: params.at as PositionInput}),
-            mode: (params.mode as QaMode | undefined) ?? "graph",
+            ...(params.mode === undefined ? {} : {mode: params.mode as QaMode}),
+            ...(continueFrom === undefined ? {} : {continueFrom}),
             question: params.question as string,
             config,
             signal,
@@ -90,14 +95,22 @@ async function ask(options: AskOptions, io: CliIo, signal: AbortSignal): Promise
         throw error;
     }
 
-    const {record} = outcome;
+    const {result} = outcome;
     if (!outcome.recordSaved) {
         const {notSaved} = outcome;
-        const why = notSaved.reason === "unsupported_format" ? "书库或这本书的格式版本不认识，只读" : notSaved.reason === "write_failed" ? `写盘失败：${notSaved.message}` : "这本书在问答期间被删除或重新导入了";
+        const why =
+            notSaved.reason === "unsupported_format"
+                ? "书库或这本书的格式版本不认识，只读"
+                : notSaved.reason === "write_failed"
+                  ? `写盘失败：${notSaved.message}`
+                  : notSaved.reason === "conflict"
+                    ? "这个对话在这一轮期间被别处追问或删除了"
+                    : "这本书在问答期间被删除或重新导入了";
         io.stderr(`· 记录没有保存：${why}`);
     }
-    if (record.status === "interrupted") return fail("cancelled", `已取消，记录 ${record.id} 标为中断`, EXIT_INTERRUPTED);
-    if (record.status === "failed") return fail(record.error!.code, `${record.error!.message}（记录 ${record.id}）`, EXIT_QA_FAILED, record.error!.kind);
-    io.stdout(json ? JSON.stringify({ok: true, data: {...record, recordSaved: outcome.recordSaved, ...(outcome.recordSaved ? {} : {notSaved: outcome.notSaved})}}) : recordText(record));
+    const where = `对话 ${result.id} 第 ${result.turn} 轮`;
+    if (result.status === "interrupted") return fail("cancelled", `已取消，${where}标为中断`, EXIT_INTERRUPTED);
+    if (result.status === "failed") return fail(result.error!.code, `${result.error!.message}（${where}）`, EXIT_QA_FAILED, result.error!.kind);
+    io.stdout(json ? JSON.stringify({ok: true, data: {...result, recordSaved: outcome.recordSaved, ...(outcome.recordSaved ? {} : {notSaved: outcome.notSaved})}}) : turnText(result));
     return 0;
 }

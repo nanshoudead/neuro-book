@@ -1,10 +1,10 @@
 /**
- * 内置问答的引擎（docs/specs/story/qa.md 输出 1 到 11、验收 1 到 5 与 7，F3、F4）：真实 harness、真实书库与 100 章
+ * 内置问答的引擎（docs/specs/story/qa.md 输出 1 到 11、24、26，验收 1 到 3、5、7、13 到 15、17，F3、F4、F8）：真实 harness、真实书库与 100 章
  * 样例书，只把模型输出换成脚本。断言的是模型拿到的工具结果与一问的结果。
  */
 
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
-import {readdir, writeFile} from "node:fs/promises";
+import {chmod, readdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {toolCall, type ScriptedInput} from "@notnotype/nb-harness/testing";
@@ -12,7 +12,7 @@ import {toolCall, type ScriptedInput} from "@notnotype/nb-harness/testing";
 import {openTestBook, type TestBook} from "../../testing/api";
 import {askScripted, testConfig, toolResults} from "../../testing/qa";
 import {smallDataset} from "../../testing/sample";
-import {QaRecords} from "../core/qa-records";
+import {newQaRecordId, QaRecords} from "../core/qa-records";
 import {QaError} from "./errors";
 
 let book: TestBook;
@@ -74,7 +74,7 @@ describe("查询工具（输出 2、3）", () => {
         expect(withAt!.isError).toBe(true);
         expect(missing).toMatchObject({isError: true});
         expect(missing!.text).toContain("entity_not_found");
-        expect(outcome.record.status).toBe("answered");
+        expect(outcome.result.status).toBe("answered");
     });
 });
 
@@ -101,7 +101,7 @@ describe("按书的开关提供查询（输出 2，ingest.md 输出 18）", () =
             expect(openLedger!.isError).toBe(false);
             // 人物卡的文字（命令行与问答共用）：没有秘密时不出“秘密：”这一节。
             expect({closed: closedCard!.text.includes("秘密："), open: openCard!.text.includes("秘密：")}).toEqual({closed: false, open: true});
-            expect([closed.outcome.record.status, open.outcome.record.status]).toEqual(["answered", "answered"]);
+            expect([closed.outcome.result.status, open.outcome.result.status]).toEqual(["answered", "answered"]);
         } finally {
             await quiet.close();
         }
@@ -119,7 +119,7 @@ describe("防剧透（输出 4、验收 1）", () => {
         expect(within!.text.split("\n").map(line => line.split("  ")[0])).toEqual(["38.50", "38.51", "38.52", "38.53", "38.54", "38.55", "38.56", "38.57"]);
         expect(beyond!.isError).toBe(true);
         expect(toolResults(model, 2)[0]!.text).toContain("晚于阅读位置 38.57");
-        expect(outcome.record).toMatchObject({status: "answered", rejections: 1, chaptersRead: [38]});
+        expect(outcome.result).toMatchObject({status: "answered", rejections: 1, chaptersRead: [38]});
     });
 });
 
@@ -144,7 +144,7 @@ describe("章数上限（输出 5、验收 2）", () => {
             {at: P, config},
         );
         expect(toolResults(batch.model, 2).map(result => result.isError)).toEqual([false, true]);
-        expect(batch.outcome.record.chaptersRead).toEqual([1, 2]);
+        expect(batch.outcome.result.chaptersRead).toEqual([1, 2]);
 
         const span = await askScripted(
             book,
@@ -152,7 +152,7 @@ describe("章数上限（输出 5、验收 2）", () => {
             {at: P, config},
         );
         expect(toolResults(span.model, 2)[0]!.isError).toBe(true);
-        expect(span.outcome.record.chaptersRead).toEqual([1]);
+        expect(span.outcome.result.chaptersRead).toEqual([1]);
     });
 
     test("跨章请求裁到 P：37 章末尾到 39.1 只给到 38.57", async () => {
@@ -180,8 +180,8 @@ describe("作答的校验与退回（输出 7、8、验收 3）", () => {
         expect(rejection).toContain("没读过");
         expect(rejection).toContain("38.60");
         expect(rejection).toContain("knowledge[0]（苏天晴，知道）没有出处");
-        expect(outcome.record).toMatchObject({status: "answered", rejections: 1});
-        expect(outcome.record.answer?.knowledge?.[0]?.refs).toEqual(["37.9"]);
+        expect(outcome.result).toMatchObject({status: "answered", rejections: 1});
+        expect(outcome.result.answer?.knowledge?.[0]?.refs).toEqual(["37.9"]);
     });
 
     test("正文里的出处带句末点号或写成全角也照样校验；三段的版本号不当作出处", async () => {
@@ -197,12 +197,12 @@ describe("作答的校验与退回（输出 7、8、验收 3）", () => {
         );
         expect(toolResults(model, 2)[0]!.text).toContain("39.1");
         expect(toolResults(model, 3)[0]!.text).toContain("39.1");
-        expect(outcome.record).toMatchObject({status: "answered", rejections: 2});
+        expect(outcome.result).toMatchObject({status: "answered", rejections: 2});
     });
 
     test("分两次读完的范围可以整段引用；留一段没读就被退回", async () => {
         const whole = await askScripted(book, [[read("r1", {chapter: 38, paragraph: 1}, {chapter: 38, paragraph: 20})], [read("r2", {chapter: 38, paragraph: 21}, {chapter: 38, paragraph: 40})], answer({evidence: ["38.1—38.40"]})], {at: P});
-        expect(whole.outcome.record.rejections).toBe(0);
+        expect(whole.outcome.result.rejections).toBe(0);
 
         const gap = await askScripted(
             book,
@@ -210,43 +210,53 @@ describe("作答的校验与退回（输出 7、8、验收 3）", () => {
             {at: P},
         );
         expect(toolResults(gap.model, 3)[0]!.text).toContain("38.21");
-        expect(gap.outcome.record.rejections).toBe(1);
+        expect(gap.outcome.result.rejections).toBe(1);
     });
 
     test("结论不是“无法确定”却没有依据被退回；“无法确定”可以不带依据", async () => {
         const {model, outcome} = await askScripted(book, [answer({evidence: []}), answer({evidence: [], conclusionType: "无法确定"})], {at: P});
         expect(toolResults(model, 1)[0]!.text).toContain("evidence 至少要有一个出处");
-        expect(outcome.record).toMatchObject({status: "answered", chaptersRead: []});
+        expect(outcome.result).toMatchObject({status: "answered", chaptersRead: []});
     });
 
     test("和查询工具混在一批的交卷不算，这一问继续", async () => {
         const {model, outcome} = await askScripted(book, [[read("r1", {chapter: 38, paragraph: 55}, {chapter: 38, paragraph: 55}), toolCall("a1", "answer", {conclusion: "x", conclusionType: "推断", explanation: "e", evidence: ["38.55"], coverage: "c"})], answer()], {at: P});
         expect(toolResults(model, 1).map(result => result.isError)).toEqual([false, true]);
-        expect(outcome.record.status).toBe("answered");
+        expect(outcome.result.status).toBe("answered");
     });
 });
 
-describe("提醒（输出 10、验收 4）与用量（输出 11）", () => {
-    test("三次运行都没交卷（其中一次输出到上限）：提醒两次后 no_answer；用量逐次相加", async () => {
-        const {model, outcome, progress} = await askScripted(
-            book,
-            [
-                {content: "我想想", usage: {input: 10, output: 2}},
-                {content: "还在想", stopReason: "length", usage: {input: 20, output: 3}},
-                {content: "不交", usage: {input: 30, output: 4}},
-            ],
-            {at: P},
-        );
-        expect(model.requests).toHaveLength(3);
-        expect(progress.filter(event => event.kind === "reminder")).toHaveLength(2);
-        expect(outcome.record).toMatchObject({status: "failed", answer: null, error: {code: "no_answer"}});
-        expect(outcome.record.usage).toEqual({input: 60, output: 9, cacheRead: 0, cacheWrite: 0, cost: null, complete: true});
+describe("文字回复（输出 10、24，验收 13）与用量（输出 11）", () => {
+    test("不调 answer、以一段文字停止：这一轮已答、带文字回复，只有一次请求，不提醒", async () => {
+        const {model, outcome} = await askScripted(book, [{content: "  你好！想问这本书的什么？  ", usage: {input: 10, output: 2}}], {at: P, question: "你好"});
+        expect(model.requests).toHaveLength(1);
+        expect(outcome.result).toMatchObject({status: "answered", answer: null, reply: {text: "你好！想问这本书的什么？", truncated: false, unverifiedRefs: []}, turn: 1});
+        expect(outcome.result.usage).toEqual({input: 10, output: 2, cacheRead: 0, cacheWrite: 0, cost: null, complete: true});
+        expect(outcome.recordSaved).toBe(true);
     });
 
-    test("模型出错不提醒，直接 model_failed", async () => {
+    test("文字里没读过的段与晚于 P 的出处列为没核实的，读过的不列", async () => {
+        const {outcome} = await askScripted(book, [[read("r1", {chapter: 38, paragraph: 55}, {chapter: 38, paragraph: 55})], "见 38.55，另有 38.56 与 39.1；38.56 再提一次"], {at: P});
+        expect(outcome.result.reply).toEqual({text: "见 38.55，另有 38.56 与 39.1；38.56 再提一次", truncated: false, unverifiedRefs: ["38.56", "39.1"]});
+    });
+
+    test("输出到上限而有文字：已答、标明截断", async () => {
+        const {outcome} = await askScripted(book, [{content: "说到一半", stopReason: "length"}], {at: P});
+        expect(outcome.result).toMatchObject({status: "answered", reply: {text: "说到一半", truncated: true}});
+    });
+
+    test("没有文字就是 no_answer：空串、只有空白、只有推理而输出到上限", async () => {
+        const steps: ScriptedInput[][] = [[{content: ""}], [{content: "   \n "}], [{content: [{type: "thinking", thinking: "想了很久"}], stopReason: "length"}]];
+        for (const step of steps) {
+            const {outcome} = await askScripted(book, step, {at: P});
+            expect(outcome.result).toMatchObject({status: "failed", answer: null, reply: null, error: {code: "no_answer"}});
+        }
+    });
+
+    test("模型出错直接 model_failed", async () => {
         const {model, outcome} = await askScripted(book, [{content: "", error: {message: "上游不可用", status: 503}}], {at: P});
         expect(model.requests).toHaveLength(1);
-        expect(outcome.record).toMatchObject({status: "failed", error: {code: "model_failed", kind: "network"}});
+        expect(outcome.result).toMatchObject({status: "failed", error: {code: "model_failed", kind: "network"}});
     });
 });
 
@@ -269,8 +279,8 @@ describe("全读（输出 6、验收 5）", () => {
         expect(first.content).toContain("\n38.57 ");
         expect(first.content).not.toContain("\n38.58 ");
         expect(first.content.endsWith("问题：全读的问题")).toBe(true);
-        expect(outcome.record).toMatchObject({status: "answered", rejections: 0, mode: "full"});
-        expect(outcome.record.chaptersRead).toHaveLength(38);
+        expect(outcome.result).toMatchObject({status: "answered", rejections: 0, mode: "full"});
+        expect(outcome.result.chaptersRead).toHaveLength(38);
     });
 });
 
@@ -293,7 +303,7 @@ describe("运行中删除书（“时序与寿命”、验收 7）", () => {
         const target = await freshBook("qa-remove-only");
         try {
             const {outcome} = await askScripted(target, stepsWith(async () => void (await target.api.call("book.remove", {book: "fox"}))), {at: P});
-            expect(outcome.record.status).toBe("answered");
+            expect(outcome.result.status).toBe("answered");
             expect(outcome).toMatchObject({recordSaved: false, notSaved: {reason: "book_not_found"}});
             expect((await readdir(target.library)).filter(name => !name.startsWith(".") && name !== "library.json")).toEqual([]);
         } finally {
@@ -313,16 +323,138 @@ describe("运行中删除书（“时序与寿命”、验收 7）", () => {
                     await target.api.call("book.remove", {book: "fox"});
                     await target.api.call("book.import", {file: small, title: "小书", id: "fox"});
                     const another = await askScripted(target, [[read("r1", {chapter: 1, paragraph: 1}, {chapter: 1, paragraph: 1})], answer({evidence: ["1.1"]})], {at: {chapter: 2}});
-                    other = another.outcome.record.id;
+                    other = another.outcome.result.id;
                 }),
                 {at: P},
             );
-            expect(outcome.record.status).toBe("answered");
+            expect(outcome.result.status).toBe("answered");
             expect(outcome.recordSaved).toBe(false);
             const {generation} = await target.api.library.readMeta("fox");
             expect((await new QaRecords(target.api.library, "fox").list(generation)).records.map(item => item.id)).toEqual([other]);
         } finally {
             await target.close();
         }
+    });
+});
+
+describe("对话与追问（输出 5、26，验收 14、15、17）", () => {
+    /** 第一轮：`maxChapters` 为 1 的对话，读第 26 章前三段并交卷。 */
+    async function firstTurn() {
+        const first = await askScripted(book, [[read("r1", {chapter: 26, paragraph: 1}, {chapter: 26, paragraph: 3})], answer({evidence: ["26.1"], conclusion: "第一轮独有的结论"})], {at: P, question: "第一问", config: testConfig({maxChapters: 1})});
+        expect(first.outcome.recordSaved).toBe(true);
+        return first.outcome.result.id;
+    }
+    // 建对话之后把上限改成 2：续问仍按对话开始时的 1 计。
+    const later = testConfig({maxChapters: 2});
+
+    test("第二轮不读原文，直接引用第一轮读过的段交卷；请求里有第一轮的问答", async () => {
+        const id = await firstTurn();
+        const {model, outcome} = await askScripted(book, [answer({evidence: ["26.2"]})], {continueFrom: id, question: "她后来呢", config: later});
+        // 第二轮第一次请求的历史：第一轮的问题、read 调用与结果、answer 调用（带第一轮的结论）与它的结果，按原样配对。
+        const messages = model.requests[0]!.messages as {role: string; content: unknown; toolCallId?: string}[];
+        const calls = messages.flatMap(message => (message.role === "assistant" && Array.isArray(message.content) ? (message.content as {type: string; id: string; name: string; arguments: Record<string, unknown>}[]) : [])).filter(block => block.type === "toolCall");
+        const resultOf = (id: string) => messages.find(message => message.role === "toolResult" && message.toolCallId === id);
+        expect(messages[0]).toMatchObject({role: "user", content: "第一问"});
+        expect(calls.map(call => call.name)).toEqual(["read", "answer"]);
+        expect(calls[1]!.arguments).toMatchObject({conclusion: "第一轮独有的结论", evidence: ["26.1"]});
+        expect(calls.every(call => resultOf(call.id) !== undefined)).toBe(true);
+        expect(messages.at(-1)).toMatchObject({role: "user", content: "她后来呢"});
+        expect(outcome.result).toMatchObject({status: "answered", rejections: 0, turn: 2, id, chaptersRead: []});
+        const records = new QaRecords(book.api.library, "fox");
+        const stored = await records.get(id, (await book.api.library.readMeta("fox")).generation);
+        expect(stored.turns.map(turn => turn.question)).toEqual(["第一问", "她后来呢"]);
+    });
+
+    test("第二轮再读上一轮的章照常、读一个新章照常，第二个新章被拒（上限仍是 1）", async () => {
+        const id = await firstTurn();
+        const {model, outcome} = await askScripted(
+            book,
+            [[read("r1", {chapter: 26, paragraph: 4}, {chapter: 26, paragraph: 4})], [read("r2", {chapter: 25, paragraph: 1}, {chapter: 25, paragraph: 1})], [read("r3", {chapter: 24, paragraph: 1}, {chapter: 24, paragraph: 1})], answer({evidence: ["25.1", "26.4"]})],
+            {continueFrom: id, config: later},
+        );
+        expect([1, 2, 3].map(request => toolResults(model, request)[0]!.isError)).toEqual([false, false, true]);
+        expect(toolResults(model, 3)[0]!.text).toContain("前几轮读过的 26 章不算");
+        expect(outcome.result).toMatchObject({status: "answered", chaptersRead: [25]});
+    });
+
+    test("第二轮取消：中断的一轮记下来，之后还能第三轮追问", async () => {
+        const id = await firstTurn();
+        const controller = new AbortController();
+        let release!: () => void;
+        const gate = new Promise<void>(resolve => (release = resolve));
+        const second = await askScripted(book, [{content: "不会到这里", onRequest: () => (controller.abort(), release()), gate}], {continueFrom: id, signal: controller.signal});
+        expect(second.outcome.result).toMatchObject({status: "interrupted", turn: 2});
+        expect(second.outcome.recordSaved).toBe(true);
+
+        const third = await askScripted(book, ["还在"], {continueFrom: id, question: "第三问"});
+        expect(third.outcome.result).toMatchObject({status: "answered", turn: 3, reply: {text: "还在"}});
+    });
+
+    test("读过的段跨轮：同章只读了第 1、3 段，第二轮引用第 2 段被退回", async () => {
+        const first = await askScripted(book, [[read("r1", {chapter: 38, paragraph: 1}, {chapter: 38, paragraph: 1})], [read("r2", {chapter: 38, paragraph: 3}, {chapter: 38, paragraph: 3})], answer({evidence: ["38.1"]})], {at: P});
+        const {model, outcome} = await askScripted(book, [answer({evidence: ["38.2"]}), answer({evidence: ["38.1", "38.3"]})], {continueFrom: first.outcome.result.id});
+        expect(toolResults(model, 1)[0]!.text).toContain("38.2");
+        expect(outcome.result).toMatchObject({status: "answered", rejections: 1});
+    });
+
+    test("全读的第二轮不读原文：引用 P 以前任意段通过，晚于 P 被退回", async () => {
+        const first = await askScripted(book, [answer({evidence: ["1.1"]})], {at: P, mode: "full"});
+        const {model, outcome} = await askScripted(book, [answer({evidence: ["38.58"]}), answer({evidence: ["20.3—20.5", "38.57"]})], {continueFrom: first.outcome.result.id});
+        expect(toolResults(model, 1)[0]!.text).toContain("晚于阅读位置 38.57");
+        expect(outcome.result).toMatchObject({status: "answered", rejections: 1, mode: "full"});
+    });
+
+    test("不能续问（F8）：Profile 版本 1 的旧记录、日志被改过、日志不在了，都不发请求、文件不变", async () => {
+        const first = await askScripted(book, ["第一轮"], {at: P});
+        const conversation = first.outcome.conversation;
+        const dir = join(book.api.library.bookDir("fox"), "qa");
+        const logPath = join(dir, conversation.log!.file);
+        const original = await readFile(logPath, "utf8");
+
+        // 目录里每个文件的名字、大小与修改时间（没有读权限的文件也能 stat）：失败的续问不改任何文件。
+        const files = async () => Promise.all((await readdir(dir)).sort().map(async name => {
+            const info = await stat(join(dir, name));
+            return [name, info.size, info.mtimeMs] as const;
+        }));
+        const attempt = async () => {
+            const before = await files();
+            let error: unknown;
+            const model = {requests: 0};
+            try {
+                await askScripted(book, [{content: "不该请求", onRequest: () => void (model.requests += 1)}], {continueFrom: conversation.id});
+            } catch (caught) {
+                error = caught;
+            }
+            expect(error).toBeInstanceOf(QaError);
+            expect((error as QaError).code).toBe("qa_not_continuable");
+            expect(model.requests).toBe(0);
+            expect(await files()).toEqual(before);
+        };
+
+        await chmod(logPath, 0o000);
+        try {
+            await attempt();
+        } finally {
+            await chmod(logPath, 0o644);
+        }
+        await writeFile(logPath, original.replace("第一轮", "第一轮。"));
+        await attempt();
+        await rm(logPath);
+        await attempt();
+
+        // 这项改动之前的一问一条的记录：会话快照是 Profile 版本 1。
+        const legacyId = newQaRecordId(new Date("2026-10-16T10:00:00Z"));
+        const {reply: _reply, ...turn} = conversation.turns[0]!;
+        await writeFile(join(dir, `${legacyId}.json`), JSON.stringify({id: legacyId, book: "fox", generation: conversation.generation, at: conversation.at, mode: "graph", ...turn, answer: null, status: "failed", error: {code: "no_answer", message: "旧"}}));
+        await writeFile(join(dir, `${legacyId}.session.jsonl`), original.replace('"version":"2"', '"version":"1"'));
+        const before = await readFile(join(dir, `${legacyId}.json`), "utf8");
+        let error: unknown;
+        try {
+            await askScripted(book, ["不该请求"], {continueFrom: legacyId});
+        } catch (caught) {
+            error = caught;
+        }
+        expect((error as QaError).code).toBe("qa_not_continuable");
+        expect(await readFile(join(dir, `${legacyId}.json`), "utf8")).toBe(before);
     });
 });

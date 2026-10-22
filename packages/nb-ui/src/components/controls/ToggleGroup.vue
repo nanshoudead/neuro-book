@@ -45,9 +45,9 @@ function onUpdate(value: AcceptableValue | AcceptableValue[]): void {
 }
 
 function sizeClass(): string {
-    if (props.size === "sm") return "h-6 px-2 text-[12px] min-w-[24px] gap-1";
-    if (props.size === "lg") return "h-8 px-3 text-[14px] min-w-[32px] gap-2";
-    return "h-7 px-2.5 text-[13px] min-w-[28px] gap-1.5";
+    if (props.size === "sm") return "h-6 px-2 text-[length:var(--text-xs)] min-w-[24px] gap-1";
+    if (props.size === "lg") return "h-8 px-3 text-[length:var(--text-md)] min-w-[32px] gap-2";
+    return "h-7 px-2.5 text-[length:var(--text-sm)] min-w-[28px] gap-1.5";
 }
 </script>
 

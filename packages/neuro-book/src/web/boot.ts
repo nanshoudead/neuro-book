@@ -4,11 +4,8 @@
  * 两者只差构建进去的插件。
  */
 
-// 样式顺序：reset 在最前（nb-ui 不带 reset，由消费方负责）；UnoCSS 在 nb-ui 之后，否则 nb-ui 对 `i-lucide-*` 的同特异性
-// 规则会盖掉 UnoCSS 的图标遮罩；宿主样式最后。
-import "the-new-css-reset/css/reset.css";
-import "@notnotype/nb-ui/styles.css";
-import "virtual:uno.css";
+// 样式入口先导入（`nbook-tailwind.css`，由 vite.config.ts 按开发或生产选文件）：层的先后由最先出现的 `@layer` 声明定，styles.css 里也有 `@layer base`，在前会打乱 theme、base、components、utilities 的顺序。
+import "nbook-tailwind.css";
 import "./styles.css";
 
 import {createWebHistory} from "vue-router";

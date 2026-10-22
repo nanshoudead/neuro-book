@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed, ref, useTemplateRef} from "vue";
-import SuggestionMenu from "../../../src/components/feedback/SuggestionMenu.vue";
-import {suggestionMenuOptions, suggestionOptionId, type SuggestionMenuGroup} from "../../../src/components/feedback/suggestion-menu";
+import SuggestionMenu from "../../../src/components/popup/SuggestionMenu.vue";
+import {suggestionMenuOptions, suggestionOptionId, type SuggestionMenuGroup} from "../../../src/components/popup/suggestion-menu";
 import FixtureShell from "./AcceptanceShell.vue";
 import type {LabComponentDefinition} from "./definitions";
 

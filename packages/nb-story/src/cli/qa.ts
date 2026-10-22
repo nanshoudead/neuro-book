@@ -1,5 +1,5 @@
 /**
- * `nbstory qa`：列出、显示与删除问答记录（docs/specs/story/qa.md 输出 16、F5、F6）。只读写书库，不调用模型。
+ * `nbstory qa`：列出、显示与删除问答记录，一个对话一条（docs/specs/story/qa.md 输出 16、F5、F6）。只读写书库，不调用模型。
  *
  * 先把位置参数解析成动作并检查用法，再解析书：用法错误的退出码不随书库里有几本书而变。
  */
@@ -7,7 +7,7 @@
 import {Library} from "../core/library";
 import {StoryError} from "../core/errors";
 import {QaRecords} from "../core/qa-records";
-import {recordLine, recordText} from "../qa/format";
+import {conversationLine, conversationText} from "../qa/format";
 import {NEXT_STEP, type CliIo} from "./main";
 
 type Action = {kind: "list"} | {kind: "show"; id: string} | {kind: "remove"; id: string};
@@ -37,12 +37,12 @@ export async function qaCommand(options: {library: string | undefined; params: R
         switch (action.kind) {
             case "list": {
                 const {records: list, broken} = await records.list(generation);
-                const lines = [...list.map(recordLine), ...broken.map(item => `${item.id}  损坏（${item.problem}），可以用 nbstory qa rm ${item.id} 删除`)];
+                const lines = [...list.map(conversationLine), ...broken.map(item => `${item.id}  损坏（${item.problem}），可以用 nbstory qa rm ${item.id} 删除`)];
                 return done({records: list, broken}, lines.length === 0 ? "这本书还没有问答记录" : lines.join("\n"));
             }
             case "show": {
                 const record = await records.get(action.id, generation);
-                return done(record, recordText(record));
+                return done(record, conversationText(record));
             }
             case "remove":
                 await records.remove(action.id, generation);

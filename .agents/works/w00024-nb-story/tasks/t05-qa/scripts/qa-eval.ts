@@ -224,14 +224,14 @@ async function check(): Promise<number> {
         const questions = await questionsOf(batch);
         const inputsPath = join(OUT, batch.name, "inputs.json");
         const inputs = existsSync(inputsPath) ? await readFile(inputsPath, "utf8") : "（没有）";
-        type Row = {run: string; id: string; prefix: number; outcome: string; refs: number; beyond: string[]; chapters: number | null; rejections: number | null; capped: boolean; cost: number | null; input: number; output: number};
+        type Row = {run: string; id: string; prefix: number; outcome: string; reply: boolean; refs: number; beyond: string[]; chapters: number | null; rejections: number | null; capped: boolean; cost: number | null; input: number; output: number};
         const rows: Row[] = [];
         const excusedNotes: string[] = [];
         for (const runName of batch.runs) {
             for (const question of questions) {
                 const file = answerFile(batch, runName, question.id);
                 if (!existsSync(file)) {
-                    rows.push({run: runName, id: question.id, prefix: question.requiredPrefix, outcome: "未答", refs: 0, beyond: [], chapters: null, rejections: null, capped: false, cost: null, input: 0, output: 0});
+                    rows.push({run: runName, id: question.id, prefix: question.requiredPrefix, outcome: "未答", reply: false, refs: 0, beyond: [], chapters: null, rejections: null, capped: false, cost: null, input: 0, output: 0});
                     continue;
                 }
                 const data = JSON.parse(await readFile(file, "utf8"));
@@ -259,6 +259,8 @@ async function check(): Promise<number> {
                     id: question.id,
                     prefix: question.requiredPrefix,
                     outcome: data.run.status === "failed" && grade ? `${outcomeOf(question, grade)}（没有交卷）` : outcomeOf(question, grade),
+                    // 文字回复（run.kind 为 reply）没经 answer 的结构化校验：报告里逐份标出并计数。
+                    reply: data.run.kind === "reply",
                     refs: data.run.status === "failed" ? 1 : refs,
                     beyond,
                     chapters,
@@ -287,14 +289,14 @@ async function check(): Promise<number> {
             `- 份数 ${rows.length}；没答 ${count(row => row.outcome === "未答")}，没判 ${count(row => row.outcome.startsWith("未判"))}；没有出处 ${noRef}，提到阅读位置之后 ${spoil}`,
             ...excusedNotes.map(note => `- 人工核对放行（检测的误报）：${note}`),
             `- 一审答错 **${wrong}/${rows.length}**${batch.maxWrong === null ? "" : `，门槛 ${batch.maxWrong}`}：${verdict}`,
-            `- 结果分布：${["答对", "答对但不全", "没把握", "答错"].map(name => `${name} ${count(row => row.outcome.replace("（没有交卷）", "") === name)}`).join("，")}；没有交卷 ${count(row => row.outcome.includes("没有交卷"))}`,
+            `- 结果分布：${["答对", "答对但不全", "没把握", "答错"].map(name => `${name} ${count(row => row.outcome.replace("（没有交卷）", "") === name)}`).join("，")}；没有交卷 ${count(row => row.outcome.includes("没有交卷"))}；文字回复（没经结构化校验）${count(row => row.reply)}`,
             `- 每份平均读 ${average(answered.map(row => row.chapters!))} 章，退回 ${average(answered.map(row => row.rejections ?? 0))} 次；撞 20 章上限 ${count(row => row.capped)} 份；token 输入 ${rows.reduce((a, row) => a + row.input, 0)}、输出 ${rows.reduce((a, row) => a + row.output, 0)}`,
             "",
             "| 题 | 阅读位置 | " + batch.runs.join(" | ") + " |",
             "|---|---|" + batch.runs.map(() => "---").join("|") + "|",
             ...questions.map(question => `| ${question.id} | ${question.requiredPrefix} | ${batch.runs.map(runName => {
                 const row = rows.find(item => item.run === runName && item.id === question.id)!;
-                return `${row.outcome}${row.chapters === null ? "" : `，${row.chapters} 章`}${row.refs === 0 && row.outcome !== "未答" ? "，无出处" : ""}${row.beyond.length ? `，越界 ${row.beyond.join(" ")}` : ""}`;
+                return `${row.outcome}${row.reply ? "，文字回复" : ""}${row.chapters === null ? "" : `，${row.chapters} 章`}${row.refs === 0 && row.outcome !== "未答" ? "，无出处" : ""}${row.beyond.length ? `，越界 ${row.beyond.join(" ")}` : ""}`;
             }).join(" | ")} |`),
             "",
             "输入：",

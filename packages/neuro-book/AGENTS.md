@@ -20,7 +20,7 @@
 - 跨目录导入用 `nbook/*`（映射到 `src/*`）；同一插件或同一宿主目录内用相对导入。
 - 前端不用全局 Pinia store；状态归插件所有，大块状态用浅层引用。
 - 后端 HTTP 用 Hono，校验与接口描述用 TypeBox，不引入 Nuxt 与 Zod。
-- 依赖：`dependencies` 只放后端进程导入的包（开发监督进程按其中的 workspace 包决定监视哪些源码目录）；只进前端构建的包（vue、vue-router、nb-ui、UnoCSS 等）放 `devDependencies`。两份产物都由打包器打包，这样分不影响运行。
+- 依赖：`dependencies` 只放后端进程导入的包（开发监督进程按其中的 workspace 包决定监视哪些源码目录）；只进前端构建的包（vue、vue-router、nb-ui、Tailwind 等）放 `devDependencies`。两份产物都由打包器打包，这样分不影响运行。
 
 ## 后端
 
@@ -32,7 +32,7 @@
 ## 前端
 
 - 窗口启动、引导与失败页的合同见 [`runtime.browser-host`](../../docs/specs/runtime/browser-host.md)。插件的浏览器入口在 `src/web/plugins.ts` 的定义表登记；窗口只登记引导集合里出现的插件。页面经 `nbook.workbench` 的贡献点 `workbench.pages` 交出（贡献 id 写页面路径），路由归宿主（`src/web/router.ts`）。
-- 样式：UnoCSS（`uno.config.ts`）与 nb-ui 的预编译样式同时在场，引入顺序与 transform 类黑名单的原因见 `src/web/main.ts`、`uno.config.ts`；主题变量来自 nb-ui 主题包。
+- 样式：Tailwind v4（`@tailwindcss/vite`）一份引擎，入口 `src/web/tailwind.css` 同时编译应用与 nb-ui 源码里的原子类，分层与 reset 的原因见该文件头注释；主题变量来自 nb-ui 主题包。
 - 浏览器基线：Chrome、Edge 119，Firefox 124，Safari 17.4（`vite.config.ts` 的 `BROWSER_TARGETS`）；不使用基线之外的浏览器 API。
 - 测试分两个运行器：纯 TS 模块、后端与窗口合同用 `bun test`；Vue 组件测试命名 `*.dom.test.ts`，由 Vitest 在 happy-dom 里运行（`vitest.config.ts` 沿用 Vite 配置，包内 `bunfig.toml` 让 `bun test` 跳过它们）。需要真实布局的交互（尺寸、拖放、滚动）走 Playwright（`e2e/`）。
 - `bun test` 不能导入 `.vue`：Bun 测试会导入的模块（例如工作台交出的根界面）用 `defineComponent` 与渲染函数写。
@@ -42,7 +42,7 @@
 ## 命令
 
 ```text
-bun run dev              # 开发模式：页面 http://127.0.0.1:4217/（RPC 4218、后端 4219；被占用时三个一起加 100），后端改动后有序重启；状态根缺省 .dev-state/
+bun run dev              # 开发模式：页面 http://127.0.0.1:4217/（RPC 4218、后端 4219；被占用时三个一起加 100），后端改动后有序重启；状态根缺省 .dev-state/。给自己或开发者用的开发服务用 nbdev dev start（自动避让端口，以 [dev] backend-ready 判就绪）；手动指定任一端口时三个都不避让，页面返回 200 不代表后端已经起来
 NBDEV_SAMPLE=1 bun run dev   # 另在后端就绪后放样例作品 .dev-sample/sample/（被 Git 忽略，只补缺少的文件），日志打 [dev] open-path /?project=sample；失败打 [dev] sample-failed <原因>，服务照常运行。nbdev dev start --sample 设这个变量（src/server/dev/sample.ts）
 bun run typecheck        # 类型检查：后端 tsc、前端 vue-tsc、组件测试与 e2e 的 vue-tsc
 bun run test             # bun test（合同测试，含真实子进程）后接 Vitest 组件测试

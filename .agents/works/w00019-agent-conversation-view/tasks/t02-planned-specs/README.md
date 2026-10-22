@@ -1,6 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t02-planned-specs
+status: done
+updated: 2026-10-22
 ---
 
 # 写 planned Spec

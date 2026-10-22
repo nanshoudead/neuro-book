@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t02-tailwind-unify
-status: active
+status: done
 updated: 2026-10-21
 ---
 
@@ -34,8 +34,13 @@ neuro-book 从 UnoCSS 换到 Tailwind v4；nb-ui 不再发预编译产物，提�
 - S4（分支 464a59905）：滚动条 token 与 `.nb-ui-scrollbar-thin`，滑块几何合成 `utils/scrollbar-geometry.ts`（弹出列表最短滑块 24px → 20px）。nb-ui 单测、四个包的 typecheck、`popup-scroll` e2e 通过。另修 CI 矩阵里 nb-ui 还在跑已删的 `build:css`（5f0b5902b）。
 - S3（分支 4999847d0）：文档。ADR 按仓库规则不改 0023 正文，新增 ADR 0028 部分取代它。`docs:check`、`governance:check` 无新增问题。
 - 截图：改前 2012 张（`/tmp/t02/before/`）；改后在 S2 提交上截（`/tmp/t02/after-s2/`，只看引擎切换的差异）。页面 4 张明暗各一都有几百到一千像素差异，看过书架页：小字 14→13px、分段控件与下拉框恢复 nb-ui 自己的字号与阴影（L01 的修正），属预期。
-- 实现审查已派 Sonnet（报告 `/tmp/t02/review/report.md`）。
+- 实现审查（Sonnet，7 条，全部成立）与处理见 [evidences/impl-review.txt](evidences/impl-review.txt)，修正提交 c94b2e2f7。要点：生产构建换用排除 Lab 与 e2e 外壳目录的样式入口（Tailwind 按目录扫描，Lab 独有的类曾进可分发产物）；`check:dist` 查分层；滚动条 token 改存比例、在元素上现场混色（第一种修法被 `tokens.test.ts` 的既有守护拦下）；文档写出完整的宿主写法；补 Lab e2e。
+- 截图对照（S2 提交对 master）：Lab 2004 张有差异 1348 张，页面 8 张都有差异。按组件看了差异最大的二十多个与几个差异小、可能不是字号的：全部来自宿主与 nb-ui 组件的字号 14px → 13px（nb-ui 组件恢复自己的取值，即 L01 的修正）及其带来的换行、行高与高度变化；另有动画（NeuroBookMood）与截图时机（EditorArea 改前截在内容加载之前）造成的噪声。没有发现预期之外的外观变化。审查第 3 条列的 `shadow-sm`、`backdrop-blur-sm`、`outline-none` 在 nb-ui 组件里改取 Tailwind v4 的值，与 nb-ui 在其它宿主里的样子一致，记为预期差异。
+- e2e 暴露两处并修正（9e0d6dd4e）：Select 的箭头一直不转（`data-[state=open]:` 写在箭头自己身上，master 上就是这样），改按触发器的命名 group；Lab 事件日志的行按钮手写的焦点轮廓在 UnoCSS 下从不显示、现在显示，被 Lab 的光晕检查当成会被裁，改用内嵌焦点线 `nb-ui-focus-ring-inset`。
+- 合入前把 master 并进分支（w00027 t02 的设置窗口、nb-story t08），用迁移工具重扫：neuro-book 新代码没有要改名的类，类名对比没有新增差异，分层扫描 B 类 0 条。之后 neuro-book 单测 1599、Vitest 403、`build` 含 `check:dist`、整套 e2e 256 条、nb-story e2e 20 条通过；`test:affected` 只有已知的三项无关失败（llmlint web 依赖在 worktree 里没装、长根路径）。
+- nb-ui e2e：`popup-scroll` 的“拖动滑块到两端：页面 CSS zoom 下”在整套与重复运行里各失败过 1 次（拖动几乎没有带动滚动），单独 10 遍、整份 8 遍在 S4 前后的代码上都全过，未能复现、看不出与 S4 的滑块几何合并有关，记为偶发。
+- 2026-10-21 合入 master（a69d44003）；临时迁移工具已删（f4e0748bc）；`docs/proposals/neuro-book-v2-rebuild.md` 追加决策记录。
 
 ## 下一步
 
-Lab 改后截图完成后逐张对照；处理审查；停掉多余服务跑 neuro-book 与 nb-story 的整套 e2e；合入 master，在 master 上给 `docs/proposals/neuro-book-v2-rebuild.md` 追加决策记录。
+无。后续是 w00030 t03（弹出列表零件）。

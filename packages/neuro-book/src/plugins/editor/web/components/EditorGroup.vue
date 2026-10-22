@@ -330,7 +330,7 @@ export interface EditorGroupTitleActions {
             <!-- 页面标签：渲染页面贡献的组件；贡献方停了时说明，不显示别的。 -->
             <div v-if="pageId !== null" class="absolute inset-0 overflow-auto" :data-editor-page="pageId">
                 <component :is="pageComponent" v-if="pageComponent !== null" :context="pages!.context" />
-                <p v-else class="flex h-full items-center justify-center px-6 text-center text-[13px] text-[var(--text-muted)]" data-editor-page-missing>{{ editorText(locale, "pageMissing") }}</p>
+                <p v-else class="flex h-full items-center justify-center px-6 text-center text-[length:var(--text-sm)] text-[var(--text-muted)]" data-editor-page-missing>{{ editorText(locale, "pageMissing") }}</p>
             </div>
             <template v-for="mounted in controls" :key="mounted.editor">
                 <div v-show="binding !== null && binding.editor === mounted.editor" class="absolute inset-0" :data-editor-kind="mounted.editor">
@@ -423,7 +423,7 @@ export interface EditorGroupTitleActions {
     grid-template-columns: auto auto;
     column-gap: 14px;
     row-gap: 2px;
-    font-size: 13px;
+    font-size: var(--text-sm);
 }
 
 /* 每行是一个按钮：跨两列并沿用外层的列（subgrid），两列在各行之间对齐，按钮本身仍可聚焦。 */
@@ -457,7 +457,7 @@ export interface EditorGroupTitleActions {
 
 .editor-group__pending {
     padding: 24px;
-    font-size: 13px;
+    font-size: var(--text-sm);
     color: var(--text-muted);
     opacity: 0;
     animation: editor-group-reveal 1ms linear 800ms forwards;

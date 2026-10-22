@@ -3,7 +3,8 @@
  * “章.段”。
  */
 
-import type {Answer, QaRecord} from "../core/qa-records";
+import type {Answer, QaConversation, QaMode, QaReply, QaTurn, QaUsage} from "../core/qa-records";
+import type {QaTurnResult} from "./engine";
 
 function refs(list: readonly string[]): string {
     return list.length > 0 ? `〔${list.join("，")}〕` : "";
@@ -29,30 +30,59 @@ export function answerText(answer: Answer): string {
 
 const STATUS_WORDS = {answered: "已答", failed: "失败", interrupted: "中断"} as const;
 
-function usageText(record: QaRecord): string {
-    const {usage} = record;
+function usageText(usage: QaUsage): string {
     const tokens = `输入 ${usage.input}、缓存读 ${usage.cacheRead}、缓存写 ${usage.cacheWrite}、输出 ${usage.output} token`;
     const cost = usage.cost === null ? "费用未知（没有配置单价）" : `费用 ${usage.cost.toFixed(4)}`;
     return `${tokens}；${cost}${usage.complete ? "" : "（不完整，只是下界）"}`;
 }
 
-/** 一条记录的完整显示。 */
-export function recordText(record: QaRecord): string {
-    const head = [`问题：${record.question}`, `阅读位置 ${record.at.chapter}.${record.at.paragraph}，${record.mode === "graph" ? "图当目录" : "全读"}，${STATUS_WORDS[record.status]}`];
-    const body = record.answer
-        ? [answerText(record.answer)]
-        : record.error
-          ? [`失败（${record.error.code}${record.error.kind ? `，${record.error.kind}` : ""}）：${record.error.message}`]
-          : ["已中断，没有答案"];
-    const tail = [
-        `读过的章：${record.chaptersRead.join("、") || "无"}；作答被退回 ${record.rejections} 次`,
-        `用量：${usageText(record)}`,
-        `用时 ${(record.ms / 1000).toFixed(1)} 秒；模型 ${record.model}；记录 ${record.id}`,
-    ];
-    return [...head, "", ...body, "", ...tail].join("\n");
+/** 文字回复：正文，截断与没核实的出处另起一行说明（qa.md 输出 12、24）。 */
+export function replyText(reply: QaReply): string {
+    const lines = [reply.text];
+    if (reply.truncated) lines.push("", "（输出到上限，回复被截断）");
+    if (reply.unverifiedRefs.length > 0) lines.push("", `没核实的出处（没读过或晚于阅读位置）：${reply.unverifiedRefs.join("，")}`);
+    return lines.join("\n");
 }
 
-/** 列表里的一行。 */
-export function recordLine(record: QaRecord): string {
-    return `${record.id}  ${record.startedAt.slice(0, 16).replace("T", " ")}  ${STATUS_WORDS[record.status]}  @${record.at.chapter}.${record.at.paragraph}  ${record.question}`;
+/** 一轮的正文与运行信息；`ask` 的输出与 `qa <id>` 的每一轮共用。 */
+function turnBody(turn: QaTurn, mode: QaMode): string[] {
+    const body = turn.answer
+        ? [answerText(turn.answer)]
+        : turn.reply
+          ? [replyText(turn.reply)]
+          : turn.error
+            ? [`失败（${turn.error.code}${turn.error.kind ? `，${turn.error.kind}` : ""}）：${turn.error.message}`]
+            : ["已中断，没有答案"];
+    const read = mode === "full" ? "全读" : `读过的章：${turn.chaptersRead.join("、") || "无"}`;
+    return [...body, "", `${read}；作答被退回 ${turn.rejections} 次`, `用量：${usageText(turn.usage)}`, `用时 ${(turn.ms / 1000).toFixed(1)} 秒；模型 ${turn.model}`];
+}
+
+function positionText(conversation: Pick<QaConversation, "at" | "mode">): string {
+    return `阅读位置 ${conversation.at.chapter}.${conversation.at.paragraph}，${conversation.mode === "graph" ? "图当目录" : "全读"}`;
+}
+
+/** `ask` 的输出：这一轮的问题与回答，最后写对话 id 与追问的命令。 */
+export function turnText(result: QaTurnResult): string {
+    return [
+        `问题：${result.question}`,
+        `${positionText(result)}，${STATUS_WORDS[result.status]}`,
+        "",
+        ...turnBody(result, result.mode),
+        `对话 ${result.id} 第 ${result.turn} 轮；追问：nbstory ask <问题> --continue ${result.id}`,
+    ].join("\n");
+}
+
+/** `qa <id>`：按轮显示整个对话。 */
+export function conversationText(conversation: QaConversation): string {
+    const lines = [`对话 ${conversation.id}，${positionText(conversation)}，${conversation.turns.length} 轮`];
+    conversation.turns.forEach((turn, index) => {
+        lines.push("", `第 ${index + 1} 轮（${STATUS_WORDS[turn.status]}）：${turn.question}`, "", ...turnBody(turn, conversation.mode));
+    });
+    return lines.join("\n");
+}
+
+/** 列表里的一行：一个对话。 */
+export function conversationLine(conversation: QaConversation): string {
+    const last = conversation.turns.at(-1)!;
+    return `${conversation.id}  ${conversation.startedAt.slice(0, 16).replace("T", " ")}  ${STATUS_WORDS[last.status]}  ${conversation.turns.length} 轮  @${conversation.at.chapter}.${conversation.at.paragraph}  ${conversation.turns[0]!.question}`;
 }

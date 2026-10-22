@@ -25,7 +25,7 @@ const subject = useLabSubject<typeof FixtureExample>(() => props.input, ["toggle
         @toggle="subject.write('props', 'active', $event)"
     >
         <template v-if="subject.slots.value.extra" #extra>
-            <span class="font-mono text-[11px] text-[var(--accent-text)]">v1.2</span>
+            <span class="font-mono text-[length:var(--text-xs)] text-[var(--accent-text)]">v1.2</span>
         </template>
     </FixtureExample>
 </template>

@@ -134,11 +134,11 @@ onBeforeUnmount(() => {
                             </div>
                             <div v-if="picked.text" class="lab-meta-row">
                                 <dt class="lab-meta-key">文本</dt>
-                                <dd class="min-w-0 break-words font-mono text-[11px]">{{ picked.text }}</dd>
+                                <dd class="min-w-0 break-words font-mono text-[length:var(--text-xs)]">{{ picked.text }}</dd>
                             </div>
                             <div v-if="picked.snippet" class="lab-meta-row">
                                 <dt class="lab-meta-key">标签</dt>
-                                <dd class="min-w-0 break-all font-mono text-[11px] text-[var(--accent-text)]">{{ picked.snippet }}</dd>
+                                <dd class="min-w-0 break-all font-mono text-[length:var(--text-xs)] text-[var(--accent-text)]">{{ picked.snippet }}</dd>
                             </div>
                             <div class="lab-meta-row">
                                 <dt class="lab-meta-key">尺寸</dt>
@@ -189,7 +189,7 @@ onBeforeUnmount(() => {
                                 <dl class="lab-meta lab-meta--flush" :data-lab-readout="group.id">
                                     <div v-for="item in group.items" :key="item.label" class="lab-meta-row">
                                         <dt class="lab-meta-key">{{ item.label }}</dt>
-                                        <dd class="flex min-w-0 items-center gap-[var(--space-2)] break-all font-mono text-[11px]">
+                                        <dd class="flex min-w-0 items-center gap-[var(--space-2)] break-all font-mono text-[length:var(--text-xs)]">
                                             <span v-if="item.swatch" class="lab-check-swatch" :style="{background: item.swatch}" aria-hidden="true"></span>
                                             {{ item.value }}
                                         </dd>

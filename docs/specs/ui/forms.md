@@ -46,7 +46,7 @@ owners:
 |---|---|
 | `label`、`help` | 盖过 `title`、`description` |
 | `placeholder`、`unit` | 占位文字、数字的单位 |
-| `widget` | 指定控件：`radio`、`select`、`search-select`、`checkboxes`、`multiline`、`secret`、`json`、`list`、`master-detail`、`confirm`，或已登记的自定义控件名 |
+| `widget` | 指定控件：`segmented`、`radio`、`select`、`search-select`、`checkboxes`、`multiline`、`secret`、`json`、`list`、`master-detail`、`confirm`，或已登记的自定义控件名 |
 | `choices` | 字面量联合的选项：`[{value, label, description?, disabled?}]`，与字面量一一对应 |
 | `options` | 动态选项源名（输出 11） |
 | `searchable` | 选项要能搜索 |
@@ -100,7 +100,7 @@ describeIssues(schema, value, issues, locale, hints?): string[]   // 按看得�
 | 元素是上一种对象的数组 | 对象列表 |
 | `T` 与 `null` 的联合 | 按 `T`，清除写 `null`；两层的注解合并，外层优先 |
 
-2. **控件选择**：没有 `widget` 时按种类选；有就用它，`json` 对任何种类都成立，其余内建控件要与种类相配、带上它要的提示（文字的下拉要有 `options`）；写了却没有生效的（与种类不配，或被别的规则盖过，例如有 `options` 时写 `multiline`、`writeOnly` 时写 `multiline`）按没写选，`checkDescription` 报 `widget-mismatch`。单选 3 项以内用横排单选组，多于 3 项用下拉，多于 15 项或 `searchable` 用可搜索的下拉；布尔用开关，`confirm` 用“是 / 否”单选组；多选用复选组；文字用单行输入，`multiline` 用多行，`writeOnly` 或 `secret` 用密钥输入（输出 31 做好之前按文字画）；对象画成一组字段；对象列表画成可增删排序的列表，`master-detail` 画成左列表右详情；JSON 用等宽文本框。分段控件不用于表单。
+2. **控件选择**：没有 `widget` 时按种类选；有就用它，`json` 对任何种类都成立，其余内建控件要与种类相配、带上它要的提示（文字的下拉要有 `options`）；写了却没有生效的（与种类不配，或被别的规则盖过，例如有 `options` 时写 `multiline`、`writeOnly` 时写 `multiline`）按没写选，`checkDescription` 报 `widget-mismatch`。单选 3 项以内、各项都没有说明（也没有 `recommend` 标记，它写在说明里）、名字都不超过 16 个字符（各语言的名字都算）用分段控件，3 项以内的其余情况用横排单选组，多于 3 项用下拉，多于 15 项或 `searchable` 用可搜索的下拉；布尔用开关，`confirm` 用“是 / 否”单选组；多选用复选组；文字用单行输入，`multiline` 用多行，`writeOnly` 或 `secret` 用密钥输入（输出 31 做好之前按文字画）；对象画成一组字段；对象列表画成可增删排序的列表，`master-detail` 画成左列表右详情；JSON 用等宽文本框。
 
 ### 值
 
@@ -163,19 +163,19 @@ describeIssues(schema, value, issues, locale, hints?): string[]   // 按看得�
 
 ### nb-ui 控件合同
 
-26. **统一的属性**：`Input`、`Textarea`、`NumberInput`、`Checkbox`、`CheckboxGroup`、`RadioGroup`、`Select`、`Switch`、`SearchSelect` 都满足（`SecretInput` 随输出 31 以后做）：`modelValue` 可选，`undefined` 有安全的显示；`disabled`；`readonly`；`invalid` 时输出 `aria-invalid` 与出错外观；从 `Field` 的上下文取 `id`、`aria-describedby`、`required`、`invalid`，也接受同名属性。
-27. **组合控件的名字**：`Field` 有“组”形态（根不是 `<label>`，标签是带 id 的元素），上下文给出 `labelId`；单选组、复选组读 `labelId` 写 `aria-labelledby`。组里的单个复选框不读字段上下文，id 不重复，字段出错只标在组上。`Switch` 没有缺省的 `aria-label`，名字来自字段标签或调用方。`useFieldContext`、上下文类型与键从 `@notnotype/nb-ui/components` 导出。
+26. **统一的属性**：`Input`、`Textarea`、`NumberInput`、`Checkbox`、`CheckboxGroup`、`RadioGroup`、`SegmentedControl`、`Select`、`Switch`、`SearchSelect` 都满足（`SecretInput` 随输出 31 以后做）：`modelValue` 可选，`undefined` 有安全的显示；`disabled`；`readonly`；`invalid` 时输出 `aria-invalid` 与出错外观；从 `Field` 的上下文取 `id`、`aria-describedby`、`required`、`invalid`，也接受同名属性。
+27. **组合控件的名字**：`Field` 有“组”形态（根不是 `<label>`，标签是带 id 的元素），上下文给出 `labelId`；单选组、分段控件、复选组读 `labelId` 写 `aria-labelledby`。组里的单个复选框不读字段上下文，id 不重复，字段出错只标在组上。`Switch` 没有缺省的 `aria-label`，名字来自字段标签或调用方。`useFieldContext`、上下文类型与键从 `@notnotype/nb-ui/components` 导出。
 28. **只读的语义**：只读的控件可以聚焦，写 `aria-readonly`，点击、空格、方向键都不改值；下拉不打开浮层；文字可以选中复制。每种控件在“停用”“只读”下的键盘、指针与 Tab 顺序按下表：
 
 | 控件 | 只读时 |
 |---|---|
 | 开关、复选 | 可聚焦；点击与空格不切换 |
-| 单选组 | 可聚焦当前项；方向键不移动选中 |
+| 单选组、分段控件 | 可聚焦当前项；方向键不移动选中 |
 | 下拉、可搜索下拉 | 触发器可聚焦；不打开浮层 |
 | 单行、多行、数字 | 原生 `readonly` |
 | 密钥 | 只显示状态，没有替换与清除 |
 
-29. **单选组横排**：`RadioGroup` 有横排，作为表单里 3 项以内的单选。
+29. **单选组横排**：`RadioGroup` 有横排，作为表单里 3 项以内、带说明或名字长的单选；其余 3 项以内的单选用分段控件（输出 2）。
 30. **可搜索的下拉**（`SearchSelect`）：输入的文字只是搜索词，只有选中选项才改值，失焦恢复显示已选项；列表项的样子、截断与滚动与 nb-ui 的其它弹出列表相同。
 31. **密钥输入**（`SecretInput`，planned：凭据存储搁置，见下文“边界与兼容”；在此之前 `writeOnly` 与 `secret` 的字段按文字画）：`state` 为 `set`、`unset`、`unreadable`；`modelValue` 是新输入的值；“清除”发出 `clear` 事件；从不显示已有的值；`autocomplete="new-password"`。
 
@@ -220,7 +220,7 @@ describeIssues(schema, value, issues, locale, hints?): string[]   // 按看得�
 - **依赖**：核心只依赖 `typebox`；Vue 层只依赖 `vue`、`@notnotype/nb-ui` 与核心，不依赖应用与宿主的服务，以便以后打进生成式视图的沙箱。
 - **信任**：可信作者（插件、设置）写的描述按完整写法支持；模型生成的描述必须先过 Agent 策略。
 - **密钥**：应用的凭据存储暂不做，密钥输入（输出 31）与它的验收（场景 1 里的密钥项）随凭据存储一起做；在此之前没有使用方。
-- **与 nb-ui 规范**：输出 26–31 是 nb-ui 表单控件的合同，nb-ui 规范整理时并入它的“表单与无障碍”一节；`ui-development-spec.md` 4.5 的分工（表单里选一个值用单选组或下拉，分段控件只切换看法）在本 Spec 里照用。
+- **与 nb-ui 规范**：输出 26–31 是 nb-ui 表单控件的合同，nb-ui 规范整理时并入它的“表单与无障碍”一节；`ui-development-spec.md` 4.5 的分工（表单里 3 项以内、没有说明的单选用分段控件，其余单选用单选组或下拉）在本 Spec 里照用。
 
 ## 验收与 Smoke
 

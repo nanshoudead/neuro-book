@@ -219,7 +219,7 @@ function detail(card: PromptAttachmentCard): string {
     min-width: 0;
     align-items: center;
     gap: 0.3rem;
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
 }
 
 .prompt-strip__file-icon {
@@ -240,7 +240,7 @@ function detail(card: PromptAttachmentCard): string {
     overflow: hidden;
     color: var(--text-main);
     font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.625rem;
+    font-size: var(--text-2xs);
     line-height: 1.3;
     white-space: pre;
     -webkit-box-orient: vertical;
@@ -250,7 +250,7 @@ function detail(card: PromptAttachmentCard): string {
 .prompt-strip__detail {
     overflow: hidden;
     color: var(--text-muted);
-    font-size: 0.6875rem;
+    font-size: var(--text-xs);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -263,7 +263,7 @@ function detail(card: PromptAttachmentCard): string {
     border-radius: 0.3rem;
     background: color-mix(in srgb, var(--bg-panel) 82%, transparent);
     color: var(--text-main);
-    font-size: 0.625rem;
+    font-size: var(--text-2xs);
     font-weight: 600;
     line-height: 1.4;
 }
@@ -308,7 +308,7 @@ function detail(card: PromptAttachmentCard): string {
     border-radius: 999px;
     background: color-mix(in srgb, var(--bg-panel) 88%, transparent);
     box-shadow: 0 0 0 1px var(--border-color);
-    font-size: 0.6875rem;
+    font-size: var(--text-xs);
 }
 
 .prompt-strip__card:hover .prompt-strip__actions,

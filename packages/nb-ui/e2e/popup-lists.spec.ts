@@ -51,7 +51,7 @@ test("下拉菜单：外框 10px、内边距 4px，项高 28px、字 13px、圆�
 
     const checked = menu.getByRole("menuitemcheckbox", {name: /自动换行/});
     await expect(checked.locator(".i-lucide-check")).toHaveCount(1);
-    await expect(checked.locator("[data-menu-shortcut]")).toHaveText("Alt+Z");
+    await expect(checked.locator(".nb-ui-menu-item__hint")).toHaveText("Alt+Z");
     // 勾与图标共用左侧一列（决定 8）：勾画在图标的位置；没勾、没图标的项也留出这一列，名称才对得齐。
     const iconLeft = async (item: Locator, icon: string): Promise<number> => (await item.locator(icon).boundingBox())!.x;
     expect(await iconLeft(checked, ".i-lucide-check"), "勾与图标在同一列").toBeCloseTo(await iconLeft(menu.getByRole("menuitem", {name: /重命名/}), ".i-lucide-pencil"), 0);
@@ -137,6 +137,18 @@ test("菜单栏：手工级联里的普通按钮项在悬停时高亮", async ({
     await expect(page.locator(".nb-menu-level")).toHaveCount(0);
 });
 
+test("菜单栏：一级里父项上按右方向键只展开子菜单、焦点进它的第一项，不切到下一组", async ({page}) => {
+    await gotoMenus(page);
+    const menubar = page.locator("[data-fixture-menubar]");
+    await menubar.getByRole("menuitem", {name: "文件"}).click();
+    const exportItem = page.getByRole("menuitem", {name: /导出/});
+    await exportItem.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByRole("menuitem", {name: "Markdown"})).toBeFocused();
+    await expect(menubar.getByRole("menuitem", {name: "文件"}), "“文件”这组仍开着").toHaveAttribute("data-state", "open");
+    await expect(menubar.getByRole("menuitem", {name: "编辑"})).toHaveAttribute("data-state", "closed");
+});
+
 test("Select：所有项 28px，说明在同一行右侧；选中项在左侧一列画勾、替代它的图标，底色不变", async ({page}) => {
     await page.goto("/acceptance/popup-lists?scene=select&theme=nbook&colorway=nbook-light");
     await page.locator("[data-fixture-select]").click();
@@ -158,6 +170,34 @@ test("Select：所有项 28px，说明在同一行右侧；选中项在左侧一
     expect(await highlightedLabels(page)).toEqual(["Markdown"]);
     expect(await background(text), "选中项不另画底色").toBe("rgba(0, 0, 0, 0)");
     await expect(text, "选中项不加粗").toHaveCSS("font-weight", "400");
+});
+
+test("Select 与 ColorSwatches 的浮层材质与 DropdownMenu 相同：底色、模糊、投影、描边都来自外框类", async ({page}) => {
+    await page.goto("/acceptance/popup-lists?scene=material&theme=nbook&colorway=nbook-dark");
+    const material = (surface: Locator): Promise<Record<string, string>> => surface.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return Object.fromEntries(["background-color", "backdrop-filter", "-webkit-backdrop-filter", "box-shadow", "border-top-width", "border-top-style", "border-top-color"]
+            .map((name) => [name, style.getPropertyValue(name)]));
+    });
+
+    await page.locator("[data-fixture-dropdown-trigger]").click();
+    const dropdown = page.locator("[data-fixture-dropdown]");
+    await settled(dropdown);
+    const expected = await material(dropdown);
+    await page.keyboard.press("Escape");
+    await expect(dropdown).toHaveCount(0);
+
+    await page.locator("[data-fixture-select]").click();
+    const select = page.locator(".nb-ui-popover-surface:has([role='option'])");
+    await settled(select);
+    expect(await material(select), "Select").toEqual(expected);
+    await page.keyboard.press("Escape");
+    await expect(select).toHaveCount(0);
+
+    await page.locator("[data-color-swatch='custom']").click();
+    const swatches = page.locator("[data-color-swatches-panel]");
+    await settled(swatches);
+    expect(await material(swatches), "ColorSwatches").toEqual(expected);
 });
 
 test("QuickPick：所有项 28px，分类与说明在同一行右侧；高亮跟着指针移动，只亮一项", async ({page}) => {

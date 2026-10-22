@@ -16,6 +16,7 @@
 | 设计与主题 token 名 | `src/theme/tokens.ts` |
 | token 基线值 | `src/tokens.css` 的裸 `:root` |
 | 公共控件与浮层外观 | `src/styles.css` |
+| 样式入口与层序（`theme, base, components, utilities`） | `src/tailwind.css` 的头注释；宿主写法见 [`README.md`](../README.md#styles-in-the-host-app) |
 | 组件导出 | `src/components/index.ts` |
 | 主题可覆盖组件 | `src/theme/contracts.ts` |
 | 组件交互合同 | 组件导出的 props/emits/types 与对应行为测试 |
@@ -83,9 +84,10 @@
 
 #### 1. `Button`（按钮 · 现代极简平滑 BH1-C 规范）
 - **尺寸与圆角律动**：
-  - **紧凑档（`sm` · 26px）**：`h-[26px] px-2.5 text-[12px] rounded-[6px] gap-1`；
-  - **标准档（`md` · 32px）**：`h-[32px] px-3.5 text-[13px] rounded-[8px] gap-1.5`；
-  - **大尺寸（`lg` · 38px）**：`h-[38px] px-4.5 text-[14px] rounded-[10px] gap-2`；
+  - 高度与字号取主题 token，与输入框等控件并排时等高、随主题的字号刻度变：
+  - **紧凑档（`sm`）**：`--control-h-sm`、`--text-xs`，`px-2.5 rounded-[6px] gap-1`；
+  - **标准档（`md`）**：`--control-h-md`、`--text-sm`，`px-3.5 rounded-[8px] gap-1.5`；
+  - **大尺寸（`lg`）**：`--control-h-lg`、`--text-md`，`px-4.5 rounded-[10px] gap-2`；
   - 严禁对普通按钮强制夸张的最小宽度，让文字紧凑自然排布，告别过度拉伸的胖胶囊。
 - **Primary（主要操作）**：`bg-[var(--accent-main)] text-[var(--text-inverse)]` + `0 1px 2px` 微底影；Hover 浓度加深并向外绽放 `0 2.5px 8px` 同色环境柔晕；Active 触觉回弹微缩放 `scale(0.975)`。
 - **Secondary（次要操作）**：常态为纯净的 **`8%` 半透浅底**（`color-mix(in srgb, var(--text-main) 8%, transparent)`，去除非必要生硬边框与死白方块）；Hover 跃升至 **`18%` 饱满实底 + `0 2px 6px` 同色环境柔晕**；Active 坚实沉淀至 **`24%`** + `scale(0.975)`。
@@ -93,7 +95,7 @@
 - **稳定性与禁用态**：固定 `border: 1px solid transparent; box-sizing: border-box;` 杜绝 1px 尺寸抖动；`disabled` 严格屏蔽所有 Hover 阴影与 Active 缩放；加载态（Loading）锁定安全内部尺寸，文案变动时零宽度跳变。
 
 #### 2. `IconButton`（紧凑图标按钮 · 方案 2 规范）
-- **尺寸与圆角**：`sm`（26px / 6px 圆角）、`md`（32px / 8px 圆角）、`lg`（38px / 10px 圆角）。
+- **尺寸与圆角**：`sm`（26px / 6px 圆角）、`md`（32px / 8px 圆角）、`lg`（38px / 10px 圆角），定值，不随主题的控件高度变（放在定宽的竖条与定高的工具条里，长高会被裁）。
 - **Default（默认操作）**：常态纯镂空透明，图标为优雅次要文字色；Hover 底色浓度平滑跃升至 `15%` 饱满实底，图标转为深色；Active 加深至 `24%` 坚实沉淀底色 + `scale(0.93)` 触觉紧凑回弹。
 - **Accent / Danger / Secondary**：Hover 浮现 `16%` 品牌色、危险色或 `18%` 次要底板，Active 加深至 `24%`。
 - **稳定性**：盒模型尺寸 100% 绝对稳定，禁用态严格禁止任何缩放动效。
@@ -113,8 +115,8 @@
 - **单选按钮（Radio）**：圆形深灰实心底座，选中为蓝底 + 居中纯白小实心圆点。
 
 #### 5. `Select`（下拉选择器与长列表规范）
-- **浮层外框**：`.nb-ui-popover-surface .nb-ui-menu-surface`，内边距 `--menu-pad`（缺省 6px，nbook 4px），内圈圆角（`--nb-popover-inner-radius`）由外框圆角减描边与内边距推出；`:side-offset="7"` 避免遮挡 Trigger 聚焦发光圈；`@close-auto-focus` 消除二次弹回闪烁。浮层另内联的一份材质（8px 模糊、130% 饱和度、四层投影）与外框类不一致，以哪边为准待 w00029 t05 定。
-- **选项**：弹出列表共用的一行（`.nb-ui-menu-item`，`--menu-item-h` 28px、`--menu-item-font` 13px，与触发器的 `size` 无关）；`description` 放在同一行右侧的次要文字，所有项一样高；选中项在左侧一列画勾（替代它的图标），底色与字重不变。
+- **浮层外框**：`.nb-ui-popover-surface .nb-ui-menu-surface`，内边距 `--menu-pad`（缺省 6px，nbook 4px），内圈圆角（`--nb-popover-inner-radius`）由外框圆角减描边与内边距推出；`:side-offset="7"` 避免遮挡 Trigger 聚焦发光圈；`@close-auto-focus` 消除二次弹回闪烁。材质（底色、模糊、投影、描边）只来自外框的两个类，组件只绑层级与宽度。
+- **选项**：弹出列表共用的一行（`.nb-ui-menu-item`，行高 `--menu-item-h`、字号 `--menu-item-font`，与触发器的 `size` 无关）；`description` 放在同一行右侧的次要文字，所有项一样高；选中项在左侧一列画勾（替代它的图标），底色与字重不变。
 - **截断与滚动**（`usePopupScroll`，六个弹出列表共用）：项超过 8 个时视口截在第 9 项的中点（按真实盒子量，分组标题、分隔线、换行项照实计入），不超过 8 个时取自然高度；外框按可用空间夹紧（`--reka-popper-available-height`），视口是唯一能收缩的一块；打开时停在选中项上。挂载与内容变化时即时重新测量，未到底时顶底 22px 渐隐（中点 8px 处 35% 透光消散）。
 - **滚动条**：4px 悬浮胶囊滑块（内部零件 `PopupScrollbar`），只在可滚动时出现，视口右侧让出 6px；按住拖动（指针捕获、按 CSS 像素折算，Lab 画布缩放下也跟手）。
 
@@ -125,8 +127,8 @@
 #### 7. `DropdownMenu`（下拉菜单与动作浮层规范）
 - **外框与层级**：`.nb-ui-popover-surface .nb-ui-menu-surface`，内边距 `--menu-pad`；层级由 `usePopoverLayer` 给（在 `Dialog` 里跟随它注入的层级）。组件里不写死圆角、面色、描边与内边距。
 - **截断与滚动**：与 `Select` 同一份 `usePopupScroll`：项超过 8 个时视口截在第 9 项的中点（按真实盒子量，分组标题、分隔线、换行项照实计入），不超过 8 个时取自然高度；外框按可用空间夹紧（`--reka-popper-available-height`），视口是唯一能收缩的一块。级联子菜单的每一级（`MenuLevelPanel`）同样截断与滚动；某一级一滚动，它展开的更深层级收起，焦点在被收起的层级里时回到展开它的那一项。
-- **菜单项与破坏性动作**：项是 `.nb-ui-menu-item`（28px、13px），高亮只认 `data-highlighted`，底色 `var(--overlay-item-active)`，不写 `:hover` 底色，鼠标与键盘指向同一项；reka 的项自己挂这个属性，手工级联与右键菜单的普通按钮项由 `MenuNodes` 在指针移动时聚焦、聚焦时挂上。展开了子菜单的父项保持高亮。勾与图标共用左侧一列（16px）：勾选的项画勾，其它项画图标；同一级有勾选项或有一项带图标时每行都留出这一列，名称左边对齐。勾选项与带图标的项通常不放在同一级。同一个列表里行高一致：说明、分类、路径都放进同一行右侧的次要文字（`__hint`，放不下时先截它），只有调用方明确要换行（DropdownMenu 的 `wrap`）的项由内容撑高。六个弹出列表都这样。危险项（`tone: "danger"`）的 `.nb-ui-menu-item-danger` 只换文字与图标的颜色，高亮底色与其它项相同；分隔线 `.nb-ui-menu-separator`，分组标题 `.nb-ui-menu-label`。
-- **菜单结构契约**：平面项、分隔线与任意层级子菜单（`children`：父项只展开、不执行 select；每一级都继续展开）。右键菜单、按钮下拉菜单和窗口菜单栏共用 `menu-cascade.ts`：第一项与父项同一行，两个面板之间留 6px 间隙，靠近视口边缘时翻到另一侧。子菜单默认不显示：悬停父项停满 300ms 才展开，左键点击或键盘进入则立即展开；已经展开后，同级切换不等待。每一级只保留一个面板：第一次展开用缩放淡入；之后在同级两个有子菜单的项之间切换时，这个面板移动并改变尺寸，内容快速淡入淡出；移到没有子菜单的项时立刻收起。入场和退场都取 `--motion-fast`。`type: "radio" | "checkbox"` 用对应原语渲染勾选态，`checked` 是**受控**值——组件只发 select，勾选永远由宿主改；radio 的同组互斥用 `group` 声明，同组连排合成一个 RadioGroup，缺 group 的贡献按单项独立成组并给开发诊断。
+- **菜单项与破坏性动作**：项是 `.nb-ui-menu-item`（`--menu-item-h`、`--menu-item-font`），高亮只认 `data-highlighted`，底色 `var(--overlay-item-active)`，不写 `:hover` 底色，鼠标与键盘指向同一项；reka 的项自己挂这个属性，手工级联与右键菜单的普通按钮项由 `MenuNodes` 在指针移动时聚焦、聚焦时挂上。展开了子菜单的父项保持高亮。勾与图标共用左侧一列（16px）：勾选的项画勾，其它项画图标；同一级有勾选项或有一项带图标时每行都留出这一列，名称左边对齐。勾选项与带图标的项通常不放在同一级。同一个列表里行高一致：说明、分类、路径都放进同一行右侧的次要文字（`__hint`，放不下时先截它），只有调用方明确要换行（DropdownMenu 的 `wrap`）的项由内容撑高。六个弹出列表都这样。行里的几格（勾与图标共用的左列、名称、右侧次要文字或箭头、行尾附加物）由内部零件 `MenuRow` 画，新写的弹出列表用它，不再手写这组 `span`；手工级联（展开、键盘、父级滚动收起、级联面板不算外部）用 `useMenuCascade`，方向键漫游用 `utils/roving.ts`。危险项（`tone: "danger"`）的 `.nb-ui-menu-item-danger` 只换文字与图标的颜色，高亮底色与其它项相同；分隔线 `.nb-ui-menu-separator`，分组标题 `.nb-ui-menu-label`。
+- **菜单结构契约**：平面项、分隔线与任意层级子菜单（`children`：父项只展开、不执行 select；每一级都继续展开）。右键菜单、按钮下拉菜单和窗口菜单栏共用级联几何（`utils/popup-geometry.ts`）与级联状态（`useMenuCascade`）：第一项与父项同一行，两个面板之间留 6px 间隙，靠近视口边缘时翻到另一侧。子菜单默认不显示：悬停父项停满 300ms 才展开，左键点击或键盘进入则立即展开；已经展开后，同级切换不等待。每一级只保留一个面板：第一次展开用缩放淡入；之后在同级两个有子菜单的项之间切换时，这个面板移动并改变尺寸，内容快速淡入淡出；移到没有子菜单的项时立刻收起。入场和退场都取 `--motion-fast`。`type: "radio" | "checkbox"` 用对应原语渲染勾选态，`checked` 是**受控**值——组件只发 select，勾选永远由宿主改；radio 的同组互斥用 `group` 声明，同组连排合成一个 RadioGroup，缺 group 的贡献按单项独立成组并给开发诊断。
 - **受控展开**：`open` 传入即受控（宿主不改就不变），不传则由原语自管；两种用法都会发 `update:open`，宿主据此在活动对象切换时关掉旧菜单。菜单关闭时清空已展开的子级，再次打开只显示第一级。触发按钮可以保留按下缩放；浮层按抵消缩放后的按钮外框定位，不跟着形变移动。
 - **无障碍与焦点管理**：完整的键盘导航（ArrowDown/Up 循环、Home/End、Right/Left 进出子菜单、Enter/Space 选择、Tab/Esc 关闭），关闭后焦点由 Reka 原语归还给触发器；外部点击关闭时焦点随用户落点，不被抢回。
 
@@ -212,9 +214,14 @@
        - **方式 2（首选推荐）：预留槽位防抖（`scrollbar-gutter: stable`）**：这是整个应用的推荐方案。库不给 `html` 写全局规则：整页会滚的宿主自己在根上挂 `.nb-ui-scrollbar-stable`（或写同一条声明），整页不滚、外壳铺满视口的宿主不挂，否则右缘会留一条空带。在内容尚未溢出时即提前预留出滚动条槽位，一旦内容溢出直接在槽位内绘制滑块，绝不挤占内容宽度，从根源消除跳变；
        - **居中对称变体（`scrollbar-gutter: stable both-edges`）**：若容器内有居中卡片、居中表单或需要绝对视觉对称的内容，使用 `stable both-edges`（工具类 `.nb-ui-scrollbar-center`），在双侧同时预留对称槽位，既防抖又维持居中重心。
   3. **场景 C：工作台视图（侧栏、右栏、面板里的视图，例如资源管理器的树）**：
-     - **处理原则**：用叠加的悬停滚动条 `OverlayScrollbar`（2026-10-14 开发者按 VS Code 的做法定）：原生滚动条隐藏（`.nb-ui-scrollbar-none`），8px 半透明滑块叠在内容上、不占宽度，鼠标在视图上、滚动中或拖动时显示，淡入 100ms，离开 500ms 后 800ms 淡出；
+     - **处理原则**：用叠加的悬停滚动条 `OverlayScrollbar`（2026-10-14 开发者按 VS Code 的做法定）：原生滚动条隐藏（`.nb-ui-scrollbar-none`），半透明滑块（宽 `--scrollbar-w`，缺省 6px）叠在内容上、不占宽度，鼠标在视图上、滚动中或拖动时显示，淡入 100ms，离开 500ms 后 800ms 淡出；
      - **设计考量**：视图常驻屏幕、内容随展开收起频繁在溢出与不溢出之间切换。叠加不占宽度，既没有跳变，也不像 `stable` 那样一直空出一条槽位；不看时整块安静。行的悬停与选中底色延伸到滑块下面，滑块盖在上面。
      - 编辑器正文、弹出列表与设置窗口不在此列，仍按场景 A、B。
+- **滚动条的颜色与粗细只取 token**（`src/tokens.css`，2026-10-21 w00030 t02 统一）：
+  - `--scrollbar-thumb-mix`、`--scrollbar-thumb-hover-mix`、`--scrollbar-thumb-active-mix` 是滑块常态、悬停与拖动时 `--text-main` 混进去的比例（32%、45%、55%，其余透明），随明暗换。token 只存比例，颜色在用到的元素上现场混：存成混好的颜色的话，`var()` 在 `:root` 上就代入了，套了另一套配色的子树会继承根上的颜色。取值照应用主滚动条 `OverlayScrollbar` 原来的，它占的面积最大，别处向它看齐。`OverlayScrollbar`、`ScrollArea`、`PopupScrollbar` 三个自绘滚动条都取这三个，组件里不再写自己的比例；要调整全应用滚动条的观感，改这里。
+  - `--scrollbar-w`（缺省 6px）只是 `OverlayScrollbar` 滑块的粗细（轨道宽是它加 4px）。`ScrollArea` 的轨道尺寸写死；`PopupScrollbar` 有意只有 4px，免得压住弹出列表里的菜单项，两者不取它。
+  - 三个自绘滑块的几何（位置、最短 20px、拖动换算）共用 `src/utils/scrollbar-geometry.ts`，不各写一份。
+  - 原生细滚动条用 `.nb-ui-scrollbar-thin`（`src/styles.css`）：宿主在根元素（`<html>`）上挂这个类，整个应用的原生滚动条按 `--scrollbar-thumb-mix` 混出滑块色，悬停所在容器时按 `--scrollbar-thumb-hover-mix`（原生没有“悬停在滑块上”的选择器，`-active-mix` 只给自绘滑块用）。不必再各抄一段 `* { scrollbar-width: thin; … }`。这条规则的选择器全部在 `:where()` 里，特异性为 0，元素自己的 `.nb-ui-scrollbar-none`、原子类和组件的 scoped 样式都盖得过它。`scrollbar-width` 不继承，所以规则连后代一起写。
 - **单层滚动权与外框贴边原则（Single Scroll Responsibility）**：
   - 滚动权归拥有完整视图高度的最外层容器所有，内部子组件与空状态（如 `AgentChatEmptyState`）严禁重复声明 `overflow-y: auto` 与 `h-full`，杜绝产生双层嵌套滚动与陷在内部的孤立滚动条；
   - 内部子组件不堆叠外层宿主已有的内边距（例如宿主已有 `p-4`，内部通过 `w-full my-auto` 自适应居中与延展），保证滚动条始终完整贴合最外层物理面板边缘。
@@ -272,7 +279,7 @@
 - **层级与 role（S4）**：消费 `NB_Z_INDEX.commandPalette`（9200，S4 全局命令面板角色）；模态 Dialog 语义（`DialogRoot` modal + `disableOutsidePointerEvents`），透明遮罩与 Content 同为 9200、Content 在后；外点被遮罩消费，不穿透底层。可访问名称来自 sr-only 的 `DialogTitle`；面板没有描述节点，Content 默认不带 `aria-describedby`（不指向不存在的描述 id），宿主经 attrs 显式传入时以宿主为准。
 - **几何**：视口顶部居中，宽 `min(640px, calc(100vw - 24px))`，`top: clamp(16px, 8vh, 72px)`，`max-height: min(560px, calc(100dvh - 48px))`；圆角为 **14px**（`rounded-[14px]`），输入区与底部提示固定、列表 `flex:1; min-height:0` 自滚动；390px 宽仍留左右 12px。
 - **材质**：消费 `.nb-ui-popover-surface` 基座（4 阶立体微反光投影 + 130% 饱和滤波）与 `--nb-popover-pad`，选中项用 `--overlay-item-active`；不叠第二层磨砂、不新开材质档。
-- **键盘与焦点**：输入框 `role=combobox` + `aria-activedescendant`；ArrowUp/Down 走 `moveHighlight`（跳过禁用、首尾回绕）并 `scrollIntoView(block:nearest)`；Enter 在组合输入态（`isComposing`）不提交；Escape 只关闭本层并 `stopPropagation`；Tab 交给 Reka FocusScope 后阻止冒泡——下层 document/window 监听不得收到这些按键。打开时记录触发前焦点，关闭后归还仍连接的元素。
+- **键盘与焦点**：输入框 `role=combobox` + `aria-activedescendant`；ArrowUp/Down、Home/End 走 `utils/roving.ts` 的 `moveRoving`（跳过禁用、首尾回绕；Home、End 带 Ctrl 或 Cmd 时留给输入框）并只滚动候选列表这一层；Enter 在组合输入态（`isComposing`）不提交；Escape 只关闭本层并 `stopPropagation`；Tab 交给 Reka FocusScope 后阻止冒泡——下层 document/window 监听不得收到这些按键。打开时记录触发前焦点，关闭后归还仍连接的元素。
 - **关闭交接（`closed`）**：关闭不加退场动画；`closed` 在内容真实卸载、Reka 焦点栈/滚动锁/指针锁全部释放后按打开周期发一次，供宿主在关闭完成后再执行命令或激活下一个交互层。`AlertDialog` 的同名事件复用同一时序；宿主不得用固定等待毫秒数替代。
 - **打开动效**：挂载时消费 `.nb-ui-popover-motion`（见设计语言「七、动效」的「浮层入退场的编排是固定的」）。
 
@@ -365,9 +372,9 @@
 2. 增加或更新覆盖新合同的 happy-dom 测试；
 3. 在 `/components` 组合画廊检查受影响组合；
 4. 同步 README 的公开用法与本文设计规范；
-5. 测试、类型检查、CSS 产物按仓库 [验证门禁](../../../docs/testing/README.md#验证门禁) 与包级条件触发规则运行；
+5. 测试、类型检查按仓库 [验证门禁](../../../docs/testing/README.md#验证门禁) 与包级条件触发规则运行；
 6. UI 行为与视觉验收按 [UI 验收分档](../../../docs/testing/README.md#ui-验收分档) 进行，共享基础组件验证四种主题 × 配色组合及 390px，记录实测计算样式、键盘路径、控制台与页面错误；
-7. CSS 生成物变更时提交 `dist/nb-ui.css`，并明确阶段 2 尚未经 NeuroBook 主仓接入验证。
+7. 样式只改源码，不再有需要提交的 CSS 产物（宿主编译 nb-ui 源码，见 [`README.md`](../README.md#styles-in-the-host-app)）；明确阶段 2 尚未经 NeuroBook 主仓接入验证。
 
 ## 7. Component Lab
 
@@ -411,7 +418,7 @@ nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/
    - 统一消费 `--elevation-popover`：`0 0 0 1px color-mix(in srgb, var(--text-main) 8%, transparent), 0 6px 16px -2px color-mix(in srgb, var(--shadow-color) 16%, transparent), 0 20px 48px -4px color-mix(in srgb, var(--shadow-color) 28%, transparent), 0 36px 80px -8px color-mix(in srgb, var(--shadow-color) 20%, transparent)`，外发散柔影与 1px 微反光边缘兼备。
    - 菜单与下拉（`.nb-ui-menu-surface`）改读 `--elevation-menu`，缺省等于 `--elevation-popover`；主题可以给菜单单独收小投影（nbook：一圈 0.5px 细边加一层 4px 偏移、14px 模糊的近投影，圆角 `--radius-menu` 为 10px、内边距 `--menu-pad` 为 4px，项的圆角推出 5px）。
 4. **单一样式源**：
-   - 任何涉及下拉与浮层的组件，外观只用 `.nb-ui-popover-surface .nb-ui-menu-surface` 两个类，层级用 `usePopoverLayer`，滚动用 `usePopupScroll`，项用 `.nb-ui-menu-item`；严禁在模板中重复书写内联样式。（`Select`、`ColorSwatches` 另内联的一份材质见 `usePopoverLayer.ts`，以哪边为准待 w00029 t05 定。）
+   - 任何涉及下拉与浮层的组件，外观只用 `.nb-ui-popover-surface .nb-ui-menu-surface` 两个类，层级用 `usePopoverLayer`，滚动用 `usePopupScroll`，项用 `.nb-ui-menu-item`；严禁在模板中重复书写内联样式。
 
 ## 10. 开发后自检与易错清单（Checklist）
 
@@ -421,7 +428,7 @@ nb-ui 组件的场景登记在新应用的 Component Lab，行为合同见 [`ui/
 - [ ] **同心圆角防负值**：所有内圆角推导公式包裹 `max(2px, calc(...))`，防止负半径导致浏览器丢弃属性突变直角（设计语言「三、几何」）；
 - [ ] **单层滚动权**：页面最外层容器持有滚动权，内部子组件不滥用 `overflow-y: auto` 产生双层嵌套滚动；动态流式列表声明 `scrollbar-gutter: stable` 防 1px 抖动（4.2 节第 15 条 `ScrollArea`）；
 - [ ] **浮层关闭时序**：浮层关闭与状态交接依赖原语真实的 `closed` 事件或过渡钩子，不使用固定 `setTimeout` 毫秒数推断（设计语言「七、动效」浮层编排的第 6 条）；
-- [ ] **去框化流式卡片（去三段式盒子）**：展示卡片与留痕面板严禁采用“独立背景横幅头 + 内容大框 + 底部提示横幅”的三段式机械堆叠；区段之间消费 `--divider` 发丝线或 `Separator`，标题与正文同字号（13px）依靠字重和色阶区分，严禁大面积整卡漫铺刺眼警示黄底（设计语言「三、几何」「五、颜色角色」）；
+- [ ] **去框化流式卡片（去三段式盒子）**：展示卡片与留痕面板严禁采用“独立背景横幅头 + 内容大框 + 底部提示横幅”的三段式机械堆叠；区段之间消费 `--divider` 发丝线或 `Separator`，标题与正文同字号（`--text-sm`）依靠字重和色阶区分，严禁大面积整卡漫铺刺眼警示黄底（设计语言「三、几何」「五、颜色角色」）；
 - [ ] **Tab 滚动权按页隔离**：多 Tab 容器严禁由外层统一声明 `overflow-y: auto`；各 Tab 独立控制滚动，固定高度的 Tab 必须显式声明 `overflow-hidden`，防止微溢出触发误滚动；
 - [ ] **Agent 交互与工具调用留痕契约**：前端工具卡片必须对照底层真实 Schema（`server/agent/tools/`），严禁凭空臆造字段；严格按底层数据形状区分开放式与选项式提问；交互决策留痕组件应声明为 `mode: "message"` 顶级消息卡片，杜绝嵌套在普通执行工具的 `mode: "block"` 折叠灰盒内产生外壳套内盒；
 - [ ] **同类交互状态一致与外扩阴影防裁切**：自定义交互元素与基础控件表达同类状态（hover / focus / active / selected）时，复用同一基座类或状态 token，不手写近似的局部边框或阴影；外层带 `overflow` 裁切时，确认外扩阴影（如焦点光环）留有内边距冗余，不被容器边缘切边；填满所在条、四周没有余地的控件改用内嵌焦点线；只为动画裁切的容器只在动画进行中裁（见 design-language 坑 48），不用“内边距加等量负外边距”把裁切盒往外放（外框会比父容器宽，在可横向滚动的父容器里多出滚动距离）；工具条、表单行这类只有一行控件高的容器不设 `overflow: hidden`（不横向滚动靠换行与收缩），余量按主题 `--focus-ring` 的实色部分算（不偏移那几圈的扩散量，nbook、macos 是 3.5px；带偏移的模糊光切掉一截看不出，不算）；`lab:shot` 机检这一条（按样式表里的焦点规则找会画焦点环的元素，环画在外框上时按外框算；离裁切祖先的边比实色部分近就报）；

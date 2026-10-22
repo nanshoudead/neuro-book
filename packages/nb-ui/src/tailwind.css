@@ -1,21 +1,46 @@
 /*
- * nb-ui 库样式入口（Tailwind v4）。
+ * nb-ui 的样式入口（Tailwind v4），导出为 `@notnotype/nb-ui/tailwind.css`。
  *
- * 这个文件只用于产出 dist/nb-ui.css（`bun run build:css`），消费方引用的是编译产物，
- * 不是本文件。产物要能同时被 Tailwind 消费方和 UnoCSS 消费方（neuro-book-site / NeuroBook 主仓）
- * 直接吃下，因此这里有三条刻意的取舍：
+ * 给宿主的 CSS 导入，由宿主自己的 Tailwind 编译：nb-ui 不发预编译产物，组件里的原子类由宿主按这里的 @source
+ * 扫描生成。宿主的写法是先 Tailwind，再本入口：
  *
- * 1. 不引 preflight。库不该 reset 宿主应用的元素样式，reset 由消费方自己负责。
- * 2. utilities 不进 @layer。UnoCSS 今天产出的原子类是无层的，若这里包进 @layer utilities，
- *    styles.css 的 `.nb-ui-control.nb-ui-control-invalid:hover` 就会输给控件上的
- *    `hover:border-[var(--border-strong)]`（跨层比较不看特异性），invalid 边框在悬停时失效。
- *    保持无层 + styles.css 排在后面 ⇒ 仍按「特异性优先、同分看顺序」裁决，与替换前一致。
- * 3. 图标走 @iconify/tailwind4 预生成模式，选择器模板对齐现有 `i-lucide-*` 写法，
- *    消费方无需再登记任何图标类（原 `./uno` 导出的 NB_UI_ICON_SAFELIST 因此删除）。
+ *     @import "tailwindcss";
+ *     @import "@notnotype/nb-ui/tailwind.css";
+ *     @source "../";                               （宿主自己的源码；Vite root 不是包根时显式写）
+ *
+ * 不要 Tailwind 的 preflight、只取 theme 与 utilities 时，三件事缺一不可，否则调用方的原子类会输给语义类：
+ *
+ *     @layer theme, base, components, utilities;   （写在所有 @import 之前：层的先后由第一次出现定）
+ *     @import "tailwindcss/theme.css" layer(theme);
+ *     @import "tailwindcss/utilities.css" layer(utilities);
+ *     @import "@notnotype/nb-ui/tailwind.css";
+ *
+ * 不带 `layer(…)` 时原子类不分层；不先声明层序时 utilities 排在本入口的 base、components 之前。
+ *
+ * 为什么分层：这里依 Tailwind 标准顺序 `theme, base, components, utilities`，nb-ui 的 token 进 base、语义类
+ * （styles.css 里的 .nb-ui-*）进 components。调用方给组件传的原子类在 utilities 层，因此天然压过 components 层的
+ * 语义类，不必再靠特异性或书写顺序。跨层比较不看特异性，所以语义类里不能指望「双类选择器」去压原子类。
+ * `themes/*` 的 vars.css 不分层，靠 `:root[data-nb-theme]` 的特异性覆盖 base 层里的 token，分层后仍然赢。
+ *
+ * 为什么不带 preflight：库不该 reset 宿主应用的元素样式，reset 由宿主决定（`@import "tailwindcss"` 自带的 preflight，
+ * 或宿主自己的 reset，放进 base 层）。宿主不分层、特异性低于一个类的全局规则会压过所有原子类，也要放进 base 层。
+ *
+ * 为什么不在这里 `@import "tailwindcss/theme.css"` 与 `utilities.css`：那是宿主的事。重复导入会让同一份主题与工具类
+ * 在宿主产物里出现两遍。
+ *
+ * 图标走 @iconify/tailwind4 预生成模式，选择器模板对齐 `i-lucide-*` 写法，宿主无需再登记 nb-ui 内部用到的图标类。
  */
 
-@import "tailwindcss/theme.css";
-@import "tailwindcss/utilities.css" source(none);
+@layer theme, base, components, utilities;
+
+/* 与 Tailwind 主题键同名的 token（字体族、字号、行高）：@theme static */
+@import "./theme.css";
+
+/* 其余设计 token（排版以外的间距/圆角/层级/动效，加主题层基线），不随主题变化 */
+@import "./tokens.css" layer(base);
+
+/* 基座类（.nb-ui-colorway / .nb-ui-focus-ring / .nb-ui-control / .nb-ui-popover-surface / .nb-ui-menu-item-danger 等） */
+@import "./styles.css" layer(components);
 
 @plugin "@iconify/tailwind4" {
     prefixes: lucide;
@@ -23,7 +48,7 @@
     prefix: false;
 }
 
-/* 库源码的类名扫描面。产物要自带组件用到的原子类，消费方不必再扫 node_modules。
+/* 库源码的类名扫描面。宿主的产物要自带组件用到的原子类，宿主不必再自己扫 node_modules。
  *
  * 只扫组件与 composable：colorway/ 与 theme/ 的 .ts 里装的是 CSS 变量名和色值，没有原子类，
  * 扫了反而会误判——`sepia` 这个配色 id 曾被当成 `sepia()` 滤镜工具类产出一条 `.sepia` 规则。 */
@@ -31,7 +56,7 @@
 @source "./components/**/*.ts";
 @source "./composables/**/*.ts";
 /* 测试里的类名不是发布面。断言「调用方传的宽度会覆盖默认宽」要写一个真实的宽度类，
-   不排掉的话那条只有测试用的规则会跟着进产物。 */
+   不排掉的话那条只有测试用的规则会跟着进宿主的产物。 */
 @source not "./components/**/*.test.ts";
 @source not "./composables/**/*.test.ts";
 
@@ -40,13 +65,13 @@
  * nb-ui 组件里的 15 个图标类都是模板里的字面量，上面的 @source 扫描即可生成规则，
  * 不需要 `@source inline(...)`。实测：去掉 inline 块后产物仍是同样的 15 条规则。
  * `@source inline(...)` 只在「类名不出现在源码里」时才必需——例如主仓的图标选择器
- * 全量渲染与 frontmatter 自定义图标名，那是阶段 4 的事，不在 nb-ui。
+ * 全量渲染与 frontmatter 自定义图标名，那是宿主的事，不在 nb-ui。
  *
  * 两点边界：
  * - loader-2 / check-circle-2 / alert-triangle 在 @iconify-json/lucide 里是 alias 而非 icon，
  *   已实测确认预生成模式会为 alias 输出规则；不存在的图标名则静默渲染为空，不报错。
  * - `iconClass` 是 Badge / DropdownMenu / Tabs / SegmentedControl / ContextMenu / EmptyState /
- *   Tree 的公开 prop，消费方传进来的图标类仍由消费方自己的构建负责生成，本产物只包
+ *   Tree 的公开 prop，消费方传进来的图标类仍由消费方自己的构建负责生成，这里只包
  *   nb-ui 内部用到的 15 个。
  */
 
@@ -55,23 +80,21 @@
  * 预生成模式下每条图标规则只输出 `--svg`，display / mask-image / mask-size 这些公共属性
  * 挂在插件自带的 `.iconify` 类上——那要求元素同时写两个 class。插件的 maskSelector 选项
  * 不接受属性选择器（Tailwind v4 只允许单个类名做 utility 选择器），因此公共规则只能自己写。
+ *
+ * 放在 base 层：菜单里给图标定尺寸的 `size-4` 等原子类在 utilities 层，要能赢过这里的 `1em`。
+ * 垫片本身的 `width: 1em` 只是缺省值。
  */
-[class*="i-lucide-"] {
-    display: inline-block;
-    width: 1em;
-    height: 1em;
-    background-color: currentColor;
-    -webkit-mask-image: var(--svg);
-    mask-image: var(--svg);
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
-    -webkit-mask-size: 100% 100%;
-    mask-size: 100% 100%;
+@layer base {
+    [class*="i-lucide-"] {
+        display: inline-block;
+        width: 1em;
+        height: 1em;
+        background-color: currentColor;
+        -webkit-mask-image: var(--svg);
+        mask-image: var(--svg);
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-size: 100% 100%;
+        mask-size: 100% 100%;
+    }
 }
-
-/* 设计 token 层（草案 §4 五组：排版/间距/圆角/层级/动效），不随主题变化 */
-@import "./tokens.css";
-
-/* 基座类（.nb-ui-colorway / .nb-ui-focus-ring / .nb-ui-control / .nb-ui-popover-surface / .nb-ui-menu-item-danger）。
-   排在 utilities 之后，保持与替换前相同的「同特异性时后来者胜」裁决。 */
-@import "./styles.css";

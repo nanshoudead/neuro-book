@@ -8,7 +8,7 @@
 import {ColorSwatchPickerItem, ColorSwatchPickerRoot, injectListboxRootContext, PopoverAnchor, PopoverContent, PopoverPortal, PopoverRoot} from "reka-ui";
 import {computed, defineComponent, onBeforeUnmount, ref, watchEffect} from "vue";
 
-import {popoverInlineSurfaceStyle, usePopoverLayer} from "../../composables/usePopoverLayer";
+import {usePopoverLayer} from "../../composables/usePopoverLayer";
 import Tooltip from "../feedback/Tooltip.vue";
 import ColorPickerPanel from "./ColorPickerPanel.vue";
 
@@ -41,8 +41,8 @@ const emit = defineEmits<{
 const AUTO = "auto";
 const CUSTOM = "custom";
 
-// 取色面板与下拉选择同一种浮层面（材质、阴影与层级都从这里取）；内边距按面板自己的。
-const popoverStyle = popoverInlineSurfaceStyle(usePopoverLayer().zIndex);
+// 取色面板与下拉选择同一种浮层面：材质来自外框的两个类，这里只绑层级；内边距按面板自己的。
+const popoverStyle = {zIndex: usePopoverLayer().zIndex};
 
 const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 const listed = (value: string): string | undefined => props.colors.find((color) => same(color, value));

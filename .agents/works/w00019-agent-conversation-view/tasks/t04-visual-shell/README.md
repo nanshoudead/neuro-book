@@ -1,6 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t04-visual-shell
+status: done
+updated: 2026-10-22
 ---
 
 # 共享外壳的视觉方案

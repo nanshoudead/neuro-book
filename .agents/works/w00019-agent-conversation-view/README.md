@@ -2,11 +2,25 @@
 schema: nbook.work/v1
 workId: w00019-agent-conversation-view
 issueId: null
+status: active
+updated: 2026-10-22
 ---
 
 # Agent 对话视图重做
 
 右侧 Agent 面板（现 `packages/neuro-book/app/components/novel-ide/agent/`）的文件层级、命名、状态归属和抽象都很混乱。本 Work 在 `packages/neuro-book/app/components/agent/` 下参考旧代码重新实现一套纯视图组件，顶层为 `AgentConversationView`，重点是 UI/UX、组件规范和可扩展性。方案见 [Agent 对话视图重做提案](../../../packages/neuro-book/docs/proposals/agent-conversation-view.md)。
+
+## 重新打开（开发者，2026-10-21）
+
+2026-10-13 起应用按 v2 从零重建，旧应用移到 `packages/neuro-book-legacy`，本 Work 停在 t09 第 2 步。w00024 t13 要把 nb-story 的问答接进网页，作为主应用接入 Agent 对话的预演；开发者借此重新打开本 Work，方向改为：
+
+1. 对话视图单独成包 `nb-agent-ui`（建在 nb-ui 之上，形状照 nb-form），不放进 nb-ui 的子路径：nb-ui 保持不带业务。通用零件（滚动跟随、可折叠的行与卡片、代码块）收进 nb-ui。Markdown 显示与提示词编辑器由宿主注入（主应用注入 `nbook.markdown` 的 `MarkdownDisplay`、`PromptEditor`）。
+2. 做完整版：按归档的 [`ui/agent-conversation-view.md`](../../../docs/archived/specs/ui/agent-conversation-view.md) 全部做完，不只问答用得到的部分。
+3. 顺序：先把已做的一次迁完（[t10](tasks/t10-migrate-nb-agent-ui/README.md)），再补齐没做过的（[t11](tasks/t11-complete-view/README.md)），最后 w00024 t13 用它做问答页。
+4. 迁移来源以归档提交 `865c9f593` 里的 `packages/neuro-book/app/components/agent/` 为准（含 t09 的目录分类与输入框）；`packages/neuro-book-legacy` 里的那份停在 t09 之前。
+5. Lab 场景迁进新应用的 Component Lab，组件树里单独一组 `nb-agent-ui`，做法同 nb-form 的 `lab-sources`。
+
+下文“授权与边界”是 2026-09-28 的原始授权，其中“直接在 master 主工作区开发”“不提交”已不适用：代码在本 Work 的 worktree 里写，按仓库流程提交与合入。
 
 ## 授权与边界（开发者，2026-09-28）
 
@@ -44,4 +58,8 @@ issueId: null
 - [t04-visual-shell](tasks/t04-visual-shell/README.md)：切片 S2，共享视觉零件与候选方案对比。开发者已确认视觉（第十一轮，含提前做的 S5 工具详情），收尾审查已完成。
 - [t05-lab-dev-tools](tasks/t05-lab-dev-tools/README.md)：Lab 截图调试工具与夹具样板精简（开发者在 t04 复盘后批准）。已完成，开发者已确认。
 - [t06-message-stream](tasks/t06-message-stream/README.md)：切片 S3 剩余部分，滚动、阅读位置、历史分页、原始视图与消息状态。开发者已确认（2026-09-30），细节打磨与动画另列。
-- [t07-prompt-editor](tasks/t07-prompt-editor/README.md)：切片 S6 前一半，独立的提示词编辑器 `PromptEditor`，输入框与历史消息就地编辑共用；与旧编辑器并存。需求已与开发者理清，组件文档、Spec 与数据层提案已更新，待实现。
+- [t07-prompt-editor](tasks/t07-prompt-editor/README.md)：切片 S6 前一半，独立的提示词编辑器 `PromptEditor`，输入框与历史消息就地编辑共用；与旧编辑器并存。开发者四轮试用反馈已处理（第三轮：不拆分、粘贴块展开后可编辑），开发者已确认（2026-10-01）。
+- [t08-lab-governance](tasks/t08-lab-governance/README.md)：Lab 治理六项（开发者在 t07 反馈时批准）：舞台规则统一与测试、共用控制按钮、`__nbLab.events()`、事件按名隐藏、smoke 套件表驱动、`bun run lab`。旧应用上已实现、未确认，随归档提交保存；新应用的 Lab 另有实现，已搁置。S6 的输入框部分顺延为 t09。
+- [t09-composer](tasks/t09-composer/README.md)：切片 S6 后一半，输入框、历史消息就地编辑、已发送消息的新显示；开始前先把 `app/components/agent/` 按界面区域分目录（开发者 2026-10-01 同意）。第 0 到 2 步已做，已收尾：代码随 t10 迁移，就地编辑、横幅与提问向导并入 t11。
+- [t10-migrate-nb-agent-ui](tasks/t10-migrate-nb-agent-ui/README.md)：把 t03 到 t09 已做的对话视图一次迁进新包 `nb-agent-ui`，通用零件进 nb-ui，Lab 场景迁进新应用。计划中。
+- [t11-complete-view](tasks/t11-complete-view/README.md)：按归档 Spec 补齐没做过的部分（S5 余下、S6 余下、S7、S8 验收）。计划中，接在 t10 之后。

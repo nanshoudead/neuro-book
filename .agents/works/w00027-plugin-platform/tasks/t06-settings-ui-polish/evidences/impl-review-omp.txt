@@ -1,0 +1,52 @@
+# 实现审查：w00027 t06 S1–S2
+
+## 发现
+
+### 重要：正确性 / 无障碍
+
+- **位置**：`packages/nb-ui/src/components/controls/SegmentedControl.vue:88-91`；由 `packages/nb-form/src/vue/NodeField.vue:83-87` 的选择状态接入。
+- **现象**：`tabStopKey` 优先取 `selectedIndex` 对应的选项，没有确认该选项是否启用。只要当前值对应的选项被 `disabled`，该按钮就拿到 `tabindex="0"` 但同时带原生 `disabled`，所有启用选项都拿到 `tabindex="-1"`。浏览器 Tab 无法停到这个分段控件，方向键也没有入口。
+- **为什么是问题**：表单会在当前值不在固定选项时补一项 `disabled` 的 stale 选项（`choiceState`），而三项以内、无说明的单选现在默认就是 `segmented`；动态选项或调用方禁用当前值也能形成同样状态。用户需要从已不存在/不可用的当前值改选有效值时，控件反而完全不可达，违反表单选择控件应可操作以及只读控件可聚焦的焦点合同。整组 `disabled` 时没有启用项是合理的；当前值单项停用时不应把停用项当作 Tab 停靠点。
+- **如何核实**：真实挂载 `SegmentedControl`，传 `modelValue: "gone"` 与 `[{value: "gone", label: "已不存在", disabled: true}, {value: "a", label: "甲"}, {value: "b", label: "乙"}]`。实验文件 `/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00027-plugin-platform/tasks/t06-settings-ui-polish/reports/omp-impl/scratch/segmented-stale.test.ts`，命令 `bunx vitest run --config /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00027-plugin-platform/tasks/t06-settings-ui-polish/reports/omp-impl/scratch/vitest.config.ts`，结果 `1 passed`；DOM 结果为停用项 `{disabled: "", tabindex: "0"}`，两个启用项均 `tabindex="-1"`。现有 nb-ui 与 nb-form 套件均通过，但没有覆盖这个焦点边界。
+- **建议改法**：`tabStopKey` 只从 `enabledOptions` 中选择；当前值启用时保留当前项，否则取第一个启用项（整组停用时返回 `null`）。补充当前值为 stale/单项 disabled、整组 disabled、重新启用后的 Tab 与方向键行为测试。
+
+### 重要：正确性 / 公开描述合同
+
+- **位置**：`packages/nb-form/src/model.ts:44-53` 的 `WIDGETS_FOR_KIND`。
+- **现象**：`segmented` 已加入 `BUILTIN_WIDGETS`，但没有加入 `choice` 的允许集合。`selectWidget` 因而把显式 `x-form.widget: "segmented"` 当成未指定控件处理；只在默认规则恰好仍返回 `segmented` 时看起来正常。若同一描述还有 `searchable: true`、超过 3 项等提示，结果会变成 `search-select`/`select`，`checkDescription` 报 `widget-mismatch`，显式控件失效。
+- **为什么是问题**：实施计划要求显式 `widget: "segmented"` 按 `widgetHonored` 校验且只配单选；公开控件清单既然声明了该内建名，选择器不应因它漏在适配表里而悄悄降级。现有实现对显式 `radio` 会覆盖项数（测试 `model.test.ts:168-171` 已固定这个约定），同样的显式分段控件不能有另一套未说明的规则。
+- **如何核实**：命令 `bun -e 'import {Type} from "typebox"; import {checkDescription, resolveForm} from "./packages/nb-form/src/index.ts"; const schema=Type.Union([Type.Literal("a"),Type.Literal("b")], {"x-form": {widget: "segmented", searchable: true}}); console.log(JSON.stringify({widget: resolveForm(schema).root.widget, problems: checkDescription(schema).problems}, null, 2));'` 输出 `widget: "search-select"` 与一条 `widget-mismatch`（`widget: "segmented"`, `kind: "choice"`, `selected: "search-select"`）。现有测试只覆盖默认分段选择，没有覆盖显式分段控件与冲突提示。
+- **建议改法**：把 `segmented` 纳入 `choice` 的适配表，并在选择器/检查器中明确它不能承载说明或 `recommend` 时的规则；至少补充显式分段控件在合法单选、项数/搜索提示冲突时的合同测试，避免“默认恰好相同”掩盖公开提示未生效。
+- **补充核实**：把 `searchable: true` 换成四项联合（`a`、`b`、`c`、`d`）时输出 `widget: "select"` 与同样的 `widget-mismatch`；现有测试已明确显式 `radio` 会盖过项数，因此这里至少存在未兑现的显式控件约定。
+
+### 重要：正确性 / 无障碍合同
+
+- **位置**：`packages/nb-ui/src/components/controls/SegmentedControl.vue:33-56,155-166`；对应公开合同 `packages/nb-ui/src/components/controls/SegmentedControl.md:60-80`。
+- **现象**：分段控件已接入 `Field` 上下文，但只读取 `inputId`、`labelId`、`ariaDescribedby`、`invalid`，没有读取 `field.required`，根节点也没有 `aria-required`；组件自身也没有 `required` prop。`RadioGroup` 同样的字段场景会输出 `aria-required="true"`。
+- **为什么是问题**：`ui.forms` 输出 26 要求统一控件从 `Field` 上下文取 `required` 并接受同名属性。设置与 `SchemaForm` 现在把三项以内单选换成 `SegmentedControl`，必填字段因此丢失必填语义，读屏用户无法从控件得知未选择是必填；这不是外观差异，而是公开表单合同回归。
+- **如何核实**：现有 `packages/nb-ui/src/components/form/field-names.test.ts:71-73` 已证明 `Field(required, group)` 对 `RadioGroup` 的期望是 `aria-required="true"`，但新增的分段字段名测试 `:39-50` 没有 required 场景。对 `SegmentedControl` 实际挂载在 `Field`（`required: true, group: true`）时，当前模板没有 `aria-required`；现有 nb-ui 套件仍 `530 passed`，因为没有断言这一组合。
+- **建议改法**：增加 `required?: boolean`，按 `props.required || field?.required.value` 计算并写到根 `aria-required`；补 `Field(required, group)` 的分段控件测试，同时覆盖显式属性与上下文取或。
+
+## 未发现问题的方面
+
+- `packages/nb-ui` 现有分段控件调用方中未发现放在 `Field` / `FieldShell` 下的调用，因此本次字段上下文接入没有改变这些调用方的可访问名称；设置窗口自己的标签分段控件仍显式使用 `aria-label`。
+- 分段控件只读时点击不发值、方向键移动焦点不改值；`invalid` 的外框与 `aria-invalid`；整组停用时按钮带原生 `disabled`；这些已有路径的现有测试通过。值类型用 `optionKey` 编码的 nb-form 选择路径能保持 `1` 与 `"1"`、`true` 与 `"true"` 区分。文档已知的 `String(option.value)` 焦点碰撞未重复列为本次回归。
+- `choiceState` 的动态选项在非 `bare` 形态把“已不存在”留在选项名中，在 `bare` 形态移到控件下的警告行；加载中与不可用状态不误报 stale。对象根 `bare` 只给根 `ObjectControl` 传 `flat`，列表项与左列表右详情原有的 `flat` 传递未发现重复冲突，嵌套对象仍由未传 `bare` 的子字段保留层级线。
+- `segmented` 的终端退回、控件布局、内建控件清单与未知自定义控件的内建回退均能从代码和现有测试对应到；未发现静默吞错、按错误文案分支或跨包深导入。
+
+## 验证记录
+
+- `bun run --cwd packages/nb-ui test`：36 个测试文件、530 个测试通过。
+- `bun run --cwd packages/nb-ui typecheck`：通过。
+- `bun run --cwd packages/nb-form test`：Bun 97 个测试与 Vitest 81 个测试全部通过。
+- `bun run --cwd packages/nb-form typecheck`：通过。
+- `bunx vitest run --config packages/neuro-book/vitest.config.ts packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.dom.test.ts`：1 个文件、29 个测试通过。
+- 分段控件停用当前项的真实组件挂载实验：1 个测试通过，观察到停用项是 `tabindex="0"`、启用项均是 `tabindex="-1"`。
+- 显式 `widget: "segmented"` 的核心运行实验：两项加 `searchable` 时解析成 `search-select` 并报 `widget-mismatch`；四项时解析成 `select` 并报 `widget-mismatch`。
+- 未跑 e2e 与开发服务，符合本次审查规则。额外从仓库外 scratch 挂载完整 `SchemaField` 的实验因测试配置下的 Vue slot/runtime 错误 `Cannot read properties of null (reading 'ce')` 未作为结论证据；分段控件停靠点使用直接组件挂载、显式控件使用核心真实入口核实。
+
+## 数量
+
+- 阻断：0
+- 重要：3
+- 建议：0

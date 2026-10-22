@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {computed, nextTick, ref} from "vue";
+import {moveRoving, rovingMove} from "../../utils/roving";
 
 import {useFieldContext} from "../form/field-context";
 
@@ -122,29 +123,16 @@ function selectOption(option: SegmentedControlOption): void {
 function handleKeydown(event: KeyboardEvent): void {
     const enabled = enabledOptions.value;
     if (enabled.length <= 1) return;
-
-    // 只读时选中不动，方向键从焦点所在的项走。
-    const focusedValue = (document.activeElement as HTMLElement | null)?.dataset?.value;
-    const currentIdx = props.readonly
-        ? enabled.findIndex((opt) => String(opt.value) === focusedValue)
-        : enabled.findIndex((opt) => opt.value === props.modelValue);
-    let nextIdx: number | null = null;
-
-    // 没有选中项时，向后从第一项开始、向前从最后一项开始。
-    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-        nextIdx = currentIdx < 0 ? 0 : (currentIdx + 1) % enabled.length;
-    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-        nextIdx = currentIdx < 0 ? enabled.length - 1 : (currentIdx - 1 + enabled.length) % enabled.length;
-    } else if (event.key === "Home") {
-        nextIdx = 0;
-    } else if (event.key === "End") {
-        nextIdx = enabled.length - 1;
-    }
-
-    if (nextIdx === null) return;
+    const move = rovingMove(event.key, "both");
+    if (move === null) return;
     event.preventDefault();
 
-    const targetOpt = enabled[nextIdx];
+    // 只读时选中不动，方向键从焦点所在的项走；没有起点时，向后从第一项开始、向前从最后一项开始（moveRoving 的起点规则）。
+    const focusedValue = (document.activeElement as HTMLElement | null)?.dataset?.value;
+    const from = props.readonly
+        ? enabled.findIndex((opt) => String(opt.value) === focusedValue)
+        : enabled.findIndex((opt) => opt.value === props.modelValue);
+    const targetOpt = enabled[moveRoving(enabled, from, move)];
     if (targetOpt) {
         if (!props.readonly) selectOption(targetOpt);
         void nextTick(() => {
@@ -199,7 +187,7 @@ function handleKeydown(event: KeyboardEvent): void {
             :class="[
                 props.wrap ? 'flex-1' : '',
                 props.size === 'xs'
-                    ? (option.label ? 'h-[calc(var(--control-h-sm)-var(--space-1)*2)] px-2 text-[11px]' : 'h-[calc(var(--control-h-sm)-var(--space-1)*2)] px-1.5 text-[11px]')
+                    ? (option.label ? 'h-[calc(var(--control-h-sm)-var(--space-1)*2)] px-2 text-[length:var(--text-xs)]' : 'h-[calc(var(--control-h-sm)-var(--space-1)*2)] px-1.5 text-[length:var(--text-xs)]')
                     : (option.label ? 'h-[calc(var(--control-h-sm)-var(--space-1))] px-3 text-xs' : 'h-[calc(var(--control-h-sm)-var(--space-1))] px-2 text-xs'),
                 isSelected(option)
                     ? 'text-[var(--text-inverse)] font-semibold'
@@ -220,7 +208,7 @@ function handleKeydown(event: KeyboardEvent): void {
             <span v-if="option.label" class="truncate">{{ option.label }}</span>
             <span
                 v-if="option.count !== undefined"
-                class="ml-0.5 rounded-full px-1.5 py-0.2 text-[10px] font-mono leading-none transition-colors"
+                class="ml-0.5 rounded-full px-1.5 py-[0.05rem] text-[length:var(--text-2xs)] font-mono leading-none transition-colors"
                 :class="isSelected(option) ? 'bg-[color-mix(in_srgb,var(--text-inverse)_22%,transparent)] text-[var(--text-inverse)]' : 'bg-[color-mix(in_srgb,var(--text-main)_12%,transparent)] text-[var(--text-muted)]'"
             >
                 {{ option.count }}

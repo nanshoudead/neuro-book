@@ -1,0 +1,19 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00030-nb-ui-library-structure",
+    "taskId": "t04-nbook-type-scale",
+    "artifactId": "review",
+    "answerId": "20261022T072843878Z-fedaebcf",
+    "artifactVersion": 1,
+    "contentHash": "8898b17d569e137a6df7e1fce2784b7afc905e1efdd7cc592b75b86120811567",
+    "submittedAt": "2026-10-22T07:28:43.444Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "t04-accept": true
+    },
+    "comments": {},
+    "note": null
+}

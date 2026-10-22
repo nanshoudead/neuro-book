@@ -1,33 +1,31 @@
 /*
- * 查看器自己的原子类与 nb-ui 一样不分层：nb-ui.css 的原子类故意不进 @layer（为了 UnoCSS 消费方），
- * 无层声明总是赢过分层声明；查看器若用 @import "tailwindcss"，自己的原子类落在 @layer utilities 里，
- * `hidden md:flex` 这类响应式写法会输给 nb-ui.css 里同名的 `.flex`。preflight 单独放进 @layer base。
+ * Tailwind 的标准分层写法：先 `@import "tailwindcss"`（preflight、theme、utilities 各在自己的层），再导入 nb-ui 的入口
+ * （token 进 base 层、语义类进 components 层、图标插件与遮罩垫片已带）。查看器自己的原子类在 utilities 层，
+ * 压过 nb-ui 的语义类，响应式写法（`hidden md:flex`）按 Tailwind 的预期工作。
+ *
+ * 查看器不分层的全局规则里，特异性低于一个类的（`html, body`、`body`、`*`）会压过所有分层的声明，包括原子类，
+ * 所以放进 base 层；自己的语义类（`.story-*`）不分层，照旧压过原子类。
  */
-@import "tailwindcss/preflight.css" layer(base);
-@import "tailwindcss/theme.css";
-@import "tailwindcss/utilities.css";
-@plugin "@iconify/tailwind4" {
-    prefixes: lucide;
-    iconSelector: ".i-{prefix}-{name}";
-    prefix: false;
-}
+@import "tailwindcss";
+@import "@notnotype/nb-ui/tailwind.css";
 @source "./**/*.vue";
 @source "./**/*.ts";
 
-html, body, #app {
+@layer base {
+    html, body {
+        height: 100%;
+    }
+
+    body {
+        margin: 0;
+        background: var(--bg-panel);
+        color: var(--text-main);
+        font-family: var(--font-ui, system-ui, sans-serif);
+    }
+}
+
+#app {
     height: 100%;
-}
-
-body {
-    margin: 0;
-    background: var(--bg-panel);
-    color: var(--text-main);
-    font-family: var(--font-ui, system-ui, sans-serif);
-}
-
-* {
-    scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--text-muted) 55%, transparent) transparent;
 }
 
 /* 竖向滚动的容器：内容长短变化时宽度不跳；带 relative 做绝对定位后代的包含块（照 dev-panel 的 .nbdev-scroll-y）。 */

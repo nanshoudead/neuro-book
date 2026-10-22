@@ -52,7 +52,7 @@ const isInvalid = computed(() => props.invalid || field?.invalid.value === true)
         :maxlength="props.maxlength"
         :aria-describedby="field?.ariaDescribedby.value"
         :aria-invalid="isInvalid || undefined"
-        class="nb-ui-control w-full resize-y rounded-[var(--radius-control)] border bg-[var(--control-surface)] px-3 py-2 text-sm text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
+        class="nb-ui-control w-full resize-y rounded-[var(--radius-control)] border bg-[var(--control-surface)] px-3 py-2 text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed disabled:opacity-60"
         :class="isInvalid ? 'nb-ui-control-invalid' : ''"
         @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
     ></textarea>

@@ -109,7 +109,7 @@ const preview = computed(() => lines.value.slice(0, PASTE_COLLAPSED_LINES).join(
     gap: 0.35rem;
     padding: 0.15rem 0.25rem 0.15rem 0.5rem;
     color: var(--text-muted);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
 }
 
 .prompt-paste__icon {
@@ -148,7 +148,7 @@ const preview = computed(() => lines.value.slice(0, PASTE_COLLAPSED_LINES).join(
     border-top: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
     color: var(--text-main);
     font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
     line-height: 1.45;
     white-space: pre-wrap;
     overflow-wrap: anywhere;

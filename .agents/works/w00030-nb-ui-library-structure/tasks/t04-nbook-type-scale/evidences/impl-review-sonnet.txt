@@ -1,0 +1,116 @@
+# w00030 t04 实现审查报告（Sonnet，只读）
+
+范围：master..HEAD（S1 4ef1c5ba0、S2 e1d462197）。逐条核实后追加，最终排序见末尾汇总。
+
+---
+
+## F1 [重要] 换算：Button / ToggleGroup 的 md、lg 在 nbook 与 macOS 下字号相同
+- 位置：packages/nb-ui/src/components/controls/Button.vue:35-41；ToggleGroup.vue:48-50；Button.md、ToggleGroup.md
+- 现象：Button sm/md/lg 原为 12/13/14px，现取 xs/sm/md。nbook 刻度 12/14/14（sm 与 md 同为 14px），macOS 刻度 11/13/13。lg 钮与 md 钮字号相同，只差高度与内边距。ToggleGroup 同样（12/13/14 变成 12/14/14 与 11/13/13）。
+- 问题：换算规则“14→md”在 nbook 与 macOS 里 md 与 sm 同值，所以“字号随尺寸递增”的层次在这两个主题（其中 macOS 是被明确要求不变的）下丢了一档；同时 nbook 里 sm 档不涨（12→12）而 md 涨（13→14），一个组件内部涨幅不一致。macOS 下 Button sm 由 12 变 11，lg 由 14 变 13，ToggleGroup 同。
+- 核实：对照 themes/nbook/vars.css:59-64、themes/macos/vars.css:30-35 与 Button.vue 的三档。
+- 建议：接受并在 Button.md 写明“md 与 lg 字号相同”，或 lg 改取 `--text-lg`（nbook 16px，Button lg 高 42px 放得下）；至少在计划的“其它主题影响”里记一笔。
+
+## F2 [重要] 活动栏：IconButton lg 随主题变高后，刚性的 48px 卡片宽与 38px 占位没跟着改，焦点光环被裁
+- 位置：packages/neuro-book/src/plugins/workbench/web/shell/sizes.ts:50-51（`SHELL_ACTIVITYBAR_WIDTH = 48`，注释“38px 按钮加两侧余量”）；WorkbenchActivityBar.vue:87、102、109（`IconButton size="lg"`）、:154 与 :199-205（占位格写死 38px）；WorkbenchActivityBar.md:12、16、17；layout.ts:87
+- 现象：S1 把 IconButton lg 的边长从字面 38px 改成 `--control-h-lg`。nbook 现在是 42px，macOS 是 40px。活动栏叶宽仍是刚性 48px：nbook 下按钮左右各只剩 3px（原 5px），而 nbook 的 `--focus-ring` 实色部分是 3.5px（vars.css:331-334），3px 余量切不下整圈，卡片外壳的裁切会把外扩光环切掉一截。没有命令的占位格仍是 `width/height: 38px`，与 42px 的按钮不再同占一格，列里的纵向节奏被打乱（一格 42、一格 38）。
+- 为什么是问题：规范（ui-development-spec 检查表“外扩阴影防裁切”）明确要求“余量按主题 `--focus-ring` 的实色部分算（nbook、macos 是 3.5px）”，并用 `lab:shot` 机检；活动栏这几处的注释与 md 都建立在“38px 按钮 + 4px 余量”之上。计划的风险段只点名“活动栏可能放不下”，但没有核对这条与按钮高度的耦合；作者决定让 Button/IconButton 取 `--control-h-*`，这是它的直接后果。
+- 核实：看 sizes.ts:51 与 WorkbenchActivityBar.vue:204-205；nbook 42px 的算式是 (48 - 42) / 2 = 3 < 3.5。workbench-views.e2e.ts:633 断言 nbook 活动栏宽 48，说明宽度被测试钉死。未起浏览器验证被裁（只读约束），按代码推断。
+- 建议：二选一。(a) 活动栏按钮不吃主题高度：活动栏里给 IconButton 一个固定尺寸（例如 class 覆盖成 38px，或新增“定值档”），其余保持 38px；(b) 同步把 `SHELL_ACTIVITYBAR_WIDTH` 提到 `lg + 10`（52），占位格改成 `var(--control-h-lg)`，并改 layout.test/e2e/md。(a) 影响面小。IconButton.md 已把 xs/2xs 说成“给固定高度的标题行用，是定值”，lg 在固定宽度栏里同理。
+
+## F3 [重要] e2e 断言“组件取 nb-ui 自己的字号”在新刻度下变成空断言
+- 位置：packages/neuro-book/e2e/lab-nb-ui.e2e.ts:345-349
+- 现象：原断言是 `fontSize === "13px"`，用来区分 nb-ui 的 `--text-sm`（13px）与宿主 Tailwind 默认的 `text-sm`（14px）：测试标题与注释（346 行“宿主的 text-sm（14px）改掉组件的字号”）说的就是 ADR 0028 的“两套原子 CSS 引擎并存时宿主的 text-sm 压过组件字号”。现在改成 `fontSize === getPropertyValue("--text-sm")`，nbook 的 `--text-sm` 恰好是 14px，与 Tailwind 默认 `text-sm`（0.875rem = 14px）同值：宿主引擎压过组件时计算值仍是 14px，断言照样通过。
+- 为什么是问题：它保护的回归（宿主默认刻度盖掉 nb-ui 刻度）在 nbook 的 sm 档下不再可观察，测试从“能失败”变成“永远通过”，且注释里的“14px”也成了误导。
+- 核实：对照 themes/nbook/vars.css:61（`--text-sm: 14px`）与 Tailwind 默认 `text-sm` = 0.875rem = 14px；`--text-xs` 同理（12px，与 Tailwind `text-xs` 同值）。
+- 建议：换一个与 Tailwind 默认值不同的档来断：`--text-lg`（nbook 16px，Tailwind 默认 `text-lg` 是 18px）或 `--text-2xs`（Tailwind 没有这个名字），选一个 nb-ui 组件实际用到的场景；或切到 macOS 主题（`--text-sm` 13px 对 14px）。同时改掉 346 行注释。
+
+## F4 [建议] 文档残留写死的像素
+- 位置：
+  - packages/nb-ui/src/components/popup/DropdownMenu.md:11：“高 `--menu-item-h`（28px）、字 `--menu-item-font`（13px）”，nbook 现在是 30px / 14px
+  - packages/nb-ui/src/components/popup/ContextMenu.md:17：“28px 高、13px 字”
+  - packages/nb-ui/docs/design-language.md 新增字号表后紧跟两个空行（约 296-298 行），且“菜单项行高”这一行没有写进几何表（nbook 的 `--menu-item-h: 30px` 没有任何文档提到，只有 vars.css 里一行无注释的声明）
+  - packages/nb-ui/docs/design-language.md 同节：“控件圆角两套都是 10px”前后与上文的“两套主题同为 32px”已改，但 `Input` 一段说“高度随主题（macOS 32px、nbook 34px）”，没有把 aurora、editorial 提出来；这一块只是措辞，不影响实现
+  - packages/neuro-book/src/plugins/workbench/web/components/WorkbenchActivityBar.md:12、16、17（见 F2）
+- 如何核实：`grep -rn -E "\b(12|13|14)px" packages/nb-ui --include='*.md'`。
+- 建议：DropdownMenu.md、ContextMenu.md 改成与 Select.md、Menubar.md 一致的“行高 `--menu-item-h`、字号 `--menu-item-font`”写法；design-language 几何表加一行 `--menu-item-h`（28 / 30px）。
+
+## F5 [建议] 换算：Kbd lg 跳两档，Badge sm 没有按规则换；应用里“14px”换成了 sm 而不是 md
+- 位置：packages/nb-ui/src/components/display/Kbd.vue:10-17；Badge.vue:38-40；packages/neuro-book/src/plugins/projects/web/components/ShelfDesk.vue（`.shelf-desk__piece-label`，14px → `--text-sm`）、WelcomePage.vue（`.welcome-page` 根，14px → `--text-sm`）
+- 现象：
+  - Kbd：原 10/11/12px，现 2xs/xs/sm。lg 的 12px 本该按“缺省 xs”归档，但 md 已经是 xs，于是作者把 lg 顶到了 sm。nbook 下 Kbd 11/12/14（lg 比 md 多 2px，其余档只多 1px），macOS 下 10/11/13。高度 h-4/h-5/h-6 写死不变，lg 14px 字在 24px 高里行高 21px，仍放得下。
+  - Badge：sm 原 11px，规则是 11→xs，作者取了 2xs，md 取 xs。结果 nbook 下 Badge 两档仍是 11/12px，一点没长，而周围控件长了一档；count 角标 10→2xs，与 sm 的正文同为 11px（macOS 下同为 10px），原来正文比计数大 1px 的层次没了。
+  - ShelfDesk 的 14px 与 WelcomePage 根的 14px 按规则应换 md，实际写成了 sm。nbook 下数值相同（sm=md=14）所以看不出，但 macOS 下变成 13px；ShelfDesk 里同一块的 `.shelf-desk__piece-excerpt`（13→sm）与 `.shelf-desk__piece-label`（14→sm）在 nbook 下由 13/14 变成 14/14，标签与摘录的字号层次被抹平（靠颜色与字体族区分）。
+- 为什么是问题：规则本身有歧义（“12 缺省 xs”与“同组件几档顺序不颠倒、不相同”冲突时怎么办），作者逐处按直觉处理而没有在计划或文档里登记；将来再调刻度时这些逐处判断读不出来。
+- 如何核实：对照 vars.css 刻度（nbook 11/12/14/14/16/20，macOS 10/11/13/13/15/19）与各文件的前后值。
+- 建议：ShelfDesk、WelcomePage 的 14px 改 `--text-md`；Kbd lg 在 sm 与 xs 之间二选一并在 Kbd.md 记一句；Badge 的取舍写进 Badge.md 或 token-consumption 豁免旁的注释。
+
+## F6 [建议] 其它主题的像素变化（有数字）
+- 位置：packages/nb-ui/src/components/controls/{Button,IconButton,ToggleGroup,SegmentedControl}.vue、popup/{Select,Menubar,SuggestionMenu}.vue、display/{Badge,Kbd}.vue、styles.css:367、380
+- 现象（旧 → 新，按 vars.css 逐档算）：
+  - macOS（`--text-2xs/xs/sm/md` = 10/11/13/13）：字面 12px 的几处一律缩 1px：Button sm 12→11、Select sm 12→11、Menubar sm 12→11、ToggleGroup sm 12→11、SuggestionMenu 空态与加载行 12→11、菜单右侧次要文字（styles.css:367 `.nb-ui-menu-item__hint`）12→11、Badge md 12→11、Badge sm 11→10（且与 count 同为 10px）。字面 14px 的 Button lg、ToggleGroup lg 14→13，与 md 同字号。Kbd lg 12→13。控件高度只有 Button/IconButton lg 38→40。这些都是 macOS 的 Button sm 在 26px 高里放 11px 字（Select sm 同理）。
+  - aurora（11/12/13/14，控件高 28/34/40）：字号全部等于旧字面值（12→12、13→13、14→14），只有 Button sm 26→28、md 32→34、lg 38→40，IconButton 同；Badge sm 11 不变；Kbd lg 12→13；SegmentedControl xs 11→12。aurora 与 editorial 的 `--control-h-md/lg` 不同于 Button 旧字面值，是 Button 第一次随主题变高。
+  - editorial（11/12/13/14，控件高 28/32/38）：Button sm 26→28，其余高度不变，字号同 aurora。
+- 为什么是问题：计划写了“macOS 主题下 12px 的几处会变成 11px，逐处在 Lab 里看 macOS 截图，变差的改用别的档”，S1 提交说明没有记录这一步的结果；Button sm 11px 汉字（macOS 目标环境里没有汉字加档）偏小，且 macOS 是被要求“刻度不变”的主题。
+- 如何核实：代码推断（没有起 Lab）；对照三个主题的 vars.css。
+- 建议：按计划在 Lab 的 macOS 主题里看 Button sm、Select sm、Menubar；若 11px 不可接受，Button sm 等 12px 的几处改 `--text-sm` 不行（nbook 下会变 14），应该为“12px”单独在主题契约里加一档，或接受 macOS 下降一像素并在设计语言文档里写明。
+
+## F7 [建议] 漏改与半改（界面文字里仍写字面像素）
+- 位置与现象：
+  - packages/neuro-book/src/ui/JsonViewer.vue:296-298：同一个块里 `--jse-font-size` 改成了 `var(--text-xs)`（nbook 下 12px），紧挨着的 `--jse-font-size-mono: 11px` 与 `--jse-font-size-main-menu: 11px` 没改。原来三者同为 11px，现在 JSON 键值（等宽）11px、界面文字 12px，半改。我的扫描式 `font-size: N` 对这种自定义属性名不命中，作者的扫描大概也一样。
+  - packages/neuro-book/src/ui/SkillChip.vue:48、59：`font-size: 0.88em`、`0.58rem`（9.3px）。聊天里的技能标签角标，界面文字，不随主题。`0.58rem` 是 S2 清单里“角标 10px”同类，应换 `--text-2xs`（会从 9.3 变 11px，要看标签是否放得下）。
+  - packages/neuro-book/src/plugins/lab/web/fixtures/nb-ui/SuggestionMenuFixture.vue:43、fixtures/index.ts:644：`text-[13px]`。Lab 夹具，开发工具；计划写“按同一规则换”，这两处漏了。
+  - packages/neuro-book/src/plugins/projects/web/components/{WelcomePage,ShelfDesk,ShelfList}.vue 的 15px 说明文字（`.welcome-page__description`、`.shelf-desk__piece-book`、`.shelf-list__create`）：计划划成“展示排版保留字面值”，可接受；但 WelcomePage 的正文根现在是 14px，描述 15px，只差 1px，层次几乎没了。属于设计判断，仅提示。
+- 如何核实：`grep -rn -E "^\s*--[a-z0-9-]*(font|text)[a-z0-9-]*: *[0-9.]+(px|rem|em)" packages/neuro-book/src`；`grep -rn -E "text-\[[0-9.]+(px|rem)\]|font-size: *[0-9.]+(px|rem|em)" packages/neuro-book/src`。
+- 建议：JsonViewer 两个 `--jse-font-size-*` 取 `var(--text-xs)`（或让 mono 取 `--text-2xs`，要看 JSON 行高 `calc(1em + 4px)` 是否随之变）；SkillChip 的两处换 token；夹具两处换 token。
+
+## F8 [建议] 与计划不一致：提示词输入框字号被改了
+- 位置：packages/neuro-book/src/plugins/markdown/web/components/prompt/PromptEditor.vue:1100、1168
+- 现象：计划（开发者已确认）“阅读字号（Markdown 编辑区 17px、提示词编辑器等）由编辑器偏好承载，不动”。S2 把 PromptEditor 的两个字号（`0.8125rem` 与 `13px`）改成了 `var(--text-sm)`，输入区文字从 13px 变 14px。同时其它 Prompt* 组件（附件条、粘贴块）也一并改了。
+- 为什么是问题：要么计划的这条归类不准（提示词输入框其实是界面文字，改得对），要么实现越过了计划；两边至少有一处没有同步。我没有找到“编辑器偏好承载”PromptEditor 字号的设置项：`grep fontSize` 在 PromptEditor 里没有命中，只有 Monaco 的 `editor.code.fontSize` 与 MarkdownControl 的 17px，所以“偏好承载”对 PromptEditor 并不成立。
+- 建议：在 Task 记录里写明“PromptEditor 归界面文字，随主题”，并把计划里这句改准；不需要改代码。
+
+## F9 [建议] token 扫描规则 8 的匹配式：几类写法漏报，一类可能误报
+- 位置：packages/nb-ui/src/components/token-consumption.test.ts:91-92（`LITERAL_FONT_SIZE`）、:44-46（`LITERAL_FONT_SIZE_ALLOWLIST`）、:62-72（只收集 `.vue`）、:150-155
+- 实测（scratch/re.ts，同一条正则）：
+  - 命中：`text-[13px]`、`text-[length:13px]`、`text-[13px]!`、`sm:text-[11px]`、`text-[13px]/5`、`fontSize: 13`、`fontSize: '13px'`、`[font-size:13px]`、`style="font-size:13px"`。
+  - 漏报：`font: 13px/1.5 sans-serif` 与 `font: 500 13px/1.5 var(--font-ui)`（简写，brief 点名的一类）、`[font:13px/1.5_sans-serif]`、`text-[.8rem]`（无前导 0）、`text-[calc(13px+1px)]`、`text-[clamp(12px,1vw,14px)]`、`text-[13PX]`、带引号的键 `"fontSize": 13`（应用里 `pages.ts` 的 `h("p", {"class": …})` 就是这种写法，nb-ui 里的渲染函数同理）。
+  - 可能误报：`font-size: 0`、`font-size: 1em`、`font-size: 0.9em`、`text-[1.1em]`（相对字号，不是字面像素，却被同一条 `\d` 命中；现在 nb-ui 里没有，将来第一处要用 `em` 放大图标字形时只能加整文件豁免）。
+  - 覆盖面：只扫 `components/**/*.vue`。不扫 `styles.css`（本次改过其中三处）、`.ts` 里的渲染函数、应用 `src/`、两个宿主包。
+  - 豁免是按整个文件登记的（`controls/IconButton.vue`）：该文件以后再写任何字面字号都不会被发现；其它规则的豁免也是这个形状，但它们大多是单值，这里理由只对 2xs 一个 9.6px 成立。
+  - 注释编号：文件头注释写“8.”，计划与提交说明写“规则 7”（规则 7 已是变量声明检查）。
+- 如何核实：`bun scratch/re.ts`（见 scratch 目录）。
+- 建议：正则加 `font\s*:[^;]*\d+(px|rem)\b`、放宽 `\.?\d`、对 `fontSize` 允许引号键；`em` 相对值从 `font-size` 一支里剔出（只拦 `px`、`rem`）；`styles.css` 加进扫描；豁免改成“文件 + 命中值”。
+
+## F10 [建议] ExplorerTree 的 FALLBACK_ROW_HEIGHT 与新行高不一致
+- 位置：packages/neuro-book/src/plugins/explorer/web/components/ExplorerTree.vue:64（`FALLBACK_ROW_HEIGHT = 26`）、:73、:596（探针 `nb-ui-control-h-sm`）
+- 现象：行高取探针量到的 `--control-h-sm`，nbook 现在是 28px（原 26px），macOS 仍 26px。回退值只在没有布局的环境用，所以真实界面里没有问题；但计划写了“`FALLBACK_ROW_HEIGHT = 26` 按新行高核对”，S2 没改也没留注释。同一行里的行内重命名输入框 `.explorer-edit__box input` 仍写死 `height: 22px`（ExplorerRow.vue:288），字号 14px、行高 1.5 即 21px，放进 22px 减 2px 边框的 20px 内容盒；按代码推断会略超出内容盒但不裁字（输入框内部居中），未用浏览器验证。
+- 建议：回退值改 28（注释写“与 nbook 的 `--control-h-sm` 同值，仅无布局环境使用”）；重命名输入框高度改取 `calc(var(--control-h-sm) - 6px)` 或在 e2e 里截图确认。
+
+## 更正与补充（本报告自己的几处）
+- F4 的第 4 个子项（design-language 里 Input 一段的措辞）没有逐字核对，删去，以其它三项为准。另有一处：nb-ui/README.md:144、256 写“`text-sm` is nb-ui's 13px、`--text-sm` 为 13px”，那是未装主题时 theme.css 的默认值，仍成立，但 nbook 下已是 14px，建议加半句“NeuroBook 主题下是 14px”以免误读。
+- F7 的 SkillChip 一项里“S2 清单里角标 10px 同类”是我的类比，不是提交里的原话，以代码为准：0.58rem 约 9.3px。
+- F9 里“nb-ui 里的渲染函数同理”没有核实（我只确认应用的 pages.ts 用带引号的键，nb-ui 的 `.vue` 里没有查到 `h(` 的带引号写法），应只算应用。
+- F1 的严重程度我改判为“建议”：macOS 下 lg 与 md 字号相同、nbook 下 md 与 lg 相同，属设计取舍，不是故障。
+
+## 未发现问题的方面
+- nb-ui 单元测试 548 个与（作者已跑的）类型检查在这个 worktree 上通过（我重跑了 `bun run --cwd packages/nb-ui test`：37 文件、548 用例全过）。
+- `--menu-item-font: var(--text-sm)` 在 `:root` 声明、主题在 `:root[data-nb-theme=…]` 里覆盖 `--text-sm`，二者在同一元素上，var() 在 :root 解析，没有“嵌套主题作用域取不到值”的问题。
+- 标题栏菜单测量复本与 Menubar sm 的字号保持同步（都是 `--text-xs`）；状态栏 22px、页签 34px、面包屑 26px、面板头 32px 在 nbook 新字号（行高 1.5）下都放得下（xs 12px×1.5=18、sm 14px×1.5=21，均小于各自的定高），状态栏 `line-height:1`；标题栏 IconButton sm 宽度由 26 变 28，标题栏是按测量复本收起，不依赖写死的宽度。
+- Button/IconButton 在状态栏、标题栏里的高度覆盖（20px、26px、28px）是不分层的作用域样式，仍压过 Tailwind 工具类，没有被新 `h-[var(--control-h-*)]` 改变。
+- 活动栏、书架等“刚性宽度”之外，没有找到其它依赖 38px 或 26px 的写死数字（`grep` nb-ui 与应用 `h-[26|32|38|40px]`，只剩 ToggleGroup 的 `min-w-[32px]`，与字号无关）。
+- 设置窗口左栏 180px、设置列表列宽 120/220/320px：只读了样式，未起浏览器，14px 汉字是否在 180px 内截断**未验证**；宿主包 dev-panel、nb-story 的实际溢出**未验证**（计划安排在 S3 截图核对）。
+
+## 汇总与排序
+- 阻断：0
+- 重要：2（F2 活动栏卡片宽与按钮高度耦合；F3 e2e 断言变空断言）
+- 建议：8（F1 Button/ToggleGroup 的 md、lg 字号相同；F4 文档残留 28px/13px；F5 Kbd/Badge/14→sm 换算；F6 其它主题像素变化；F7 JsonViewer 等漏改；F8 PromptEditor 与计划不一致；F9 规则 8 匹配式；F10 FALLBACK_ROW_HEIGHT）
+- 另有一条菜单行 `line-height: 16px` 的记录见 F11。
+
+## F11 [建议] 菜单行行高写死 16px，14px 汉字下更紧
+- 位置：packages/nb-ui/src/styles.css:296（`.nb-ui-menu-item { line-height: 16px }`）、:321（`padding-block: calc((var(--menu-item-h) - 16px) / 2)`）；:382（分组标题 `--leading-tight`）
+- 现象：nbook 的菜单字号由 13px 变 14px，行高仍是字面 16px：比值 1.23 → 1.14；nbook 主题自己的注释说汉字要 1.5，1.35 都“贴得明显”。单行项行高 30px 内居中看不出，但允许换行的项（DropdownMenu 的 `wrap`，目前只在 Lab 里有）会按 16px 一行叠起来，汉字 14px 的两行几乎相贴。分组标题则改成 `--leading-tight`（nbook 12×1.3=15.6px、macOS 11×1.25=13.75px），出现小数高度，原来是整 14px。
+- 建议：菜单项的行高也取 `var(--leading-tight)` 或按字号推出，并把 multiline 的内边距公式一起改；没有换行项需求的话，在 `.nb-ui-menu-item` 旁加一句“行高与字号无关，只管换行项”。
+
+## 最终数量（以此为准）
+- 阻断 0；重要 2（F2、F3）；建议 9（F1、F4、F5、F6、F7、F8、F9、F10、F11）。共 11 条。

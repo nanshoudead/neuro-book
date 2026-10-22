@@ -253,7 +253,7 @@ function onPick(id: string): void {
     margin-top: var(--space-2);
     color: var(--text-secondary);
     font-family: var(--font-display);
-    font-size: 13px;
+    font-size: var(--text-sm);
     line-height: 1.65;
 }
 

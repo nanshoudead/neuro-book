@@ -1,0 +1,80 @@
+---
+标签: [state:local, env:portal, env:global, env:timer]
+---
+
+# ContextMenu
+
+`ContextMenu` 是由宿主按需定位的右键菜单浮层，支持任意层级子菜单；它不负责监听触发区域或维护菜单项数据，宿主传入视口坐标和菜单项，并通过 `close` 接收关闭通知。
+
+## 布局与交互
+
+菜单固定定位于传入的视口坐标，超出视口右侧或底部时向内钳制并保留 8px 边距。主菜单与每一级子菜单各有自己的滚动视口：项超过 8 个时视口截在第 9 项的中间、露出半项提示还能滚（按真实盒子量，分隔线与换行项照实计入），不超过 8 个时取自然高度；主菜单最高为窗口高度减 16px，空间不够时视口跟着收矮，可滚动时显示悬浮滑块；某一级滚动时（滚轮或拖滑块）它展开的更深层级收起，焦点回到展开它的那一项。键盘移到看不见的项时只滚动这一级的视口。子菜单相对父菜单项展开，空间不足时调整方向；主菜单与子菜单按层级递增显示。目标元素必须是 `teleportTarget` 指定的现存 CSS 选择器，默认是 `body`。
+
+点击菜单项、菜单外点击或外部右键、按 Escape，以及焦点在菜单里时按 Tab，都会请求关闭并发出 `close`，参数是关闭原因（`select`、`outside`、`escape`、`tab`）：宿主据此决定焦点去向，外部点击时焦点已随用户落到别处，不应抢回。选择无子项且未禁用的条目时，先调用该条目的 `action`（若有），再发出 `close`。有子项的条目只展开子菜单，不执行自身 `action`。首次悬停展开子菜单会等待 300ms；点击、键盘（父项上的 ArrowRight、Enter、空格）与已有展开同级之间的切换立即响应。
+
+键盘：菜单打开时焦点移到第一个可用项（焦点已在菜单里时不动）；上下方向键在同一级的可用项之间循环移动，Home、End 到首末项；Enter 与 Space 选择当前项（菜单项是原生按钮）；在父项上 ArrowRight、Enter 或 Space 展开子菜单并把焦点放到它的第一项；焦点停在某一级面板本身（指针离开项后）时，上下方向键从这一级的首末项开始；在子菜单里 ArrowLeft 收起这一级、焦点回到展开它的那一项；Escape 关闭；Tab 与 Shift+Tab 不在菜单项之间移动，而是关闭菜单（阻止默认的焦点移动）。菜单关闭后焦点回到哪里由宿主按关闭原因决定（例如回到打开菜单时的那一行）。不提供类型搜索。
+
+条目是弹出列表共用的一行（`.nb-ui-menu-item`，行高 `--menu-item-h`、字号 `--menu-item-font`）。高亮跟着焦点：指针在条目上移动时焦点移到那一项（跳过禁用项），聚焦的那一项画中性叠色，所以悬停与方向键任何时候只亮一项；指针离开条目时焦点停在这一级的面板上、高亮清掉，上下键从首末项接着走；展开了子菜单的父项保持高亮；危险项只换文字与图标颜色。勾与图标共用左侧一列（勾画在图标的位置），同一级有勾选项或有一项带图标时每行都留出这一列；勾与快捷键同时显示。
+
+组件挂载期间在 `document` 上注册外部 click、contextmenu 与 keydown 监听，隐藏时仍保留这些监听，到卸载时解除。菜单项的 `shortcut` 只是显示文本，不会注册快捷键。
+
+## 数据
+
+```ts
+interface ContextMenuItem {
+    /** 显示文字；separator 为 true 时可省略 */
+    label?: string;
+    /** 图标 CSS class；可选 */
+    iconClass?: string;
+    /** 快捷键展示文字：靠右对齐、正文字体的小一号弱化色；可选，仅显示 */
+    shortcut?: string;
+    /** 叶子项选择时执行；可选，有 children 的项目不会调用 */
+    action?: () => void;
+    /** 子菜单项；可选 */
+    children?: ContextMenuItem[];
+    /** 是否禁用；可选，默认未禁用 */
+    disabled?: boolean;
+    /** 原生提示与读屏描述（`aria-description`），例如禁用原因；默认不显示 */
+    title?: string;
+    /** 危险操作样式；可选，默认 "default" */
+    tone?: "default" | "danger";
+    /** "checkbox" 时画成勾选项（`menuitemcheckbox`，`aria-checked` 跟着 checked）；可选，默认普通项 */
+    type?: "item" | "checkbox";
+    /** 勾选项的勾选态；受控，选择后由宿主自己改 */
+    checked?: boolean;
+    /** 是否渲染分隔线；可选，true 时忽略其余字段 */
+    separator?: boolean;
+}
+
+interface ContextMenuProps {
+    /** 是否显示；必填、由父组件控制 */
+    visible: boolean;
+    /** 视口坐标系中的水平位置（px）；必填 */
+    x: number;
+    /** 视口坐标系中的垂直位置（px）；必填 */
+    y: number;
+    /** 根级菜单项；必填 */
+    items: ContextMenuItem[];
+    /** Vue Teleport 目标选择器；可选，默认 "body" */
+    teleportTarget?: string;
+}
+
+interface ContextMenuEmits {
+    /** 选择叶子项、菜单外点击/右键、Escape 或焦点在菜单里时按 Tab 时发出；不会自行修改 visible */
+    (event: "close", reason: "select" | "outside" | "escape" | "tab"): void;
+}
+
+interface ContextMenuSlots {} // 不提供插槽
+```
+
+`visible`、`x`、`y` 都由父组件控制；关闭事件不会自动将 `visible` 改为 false。组件不提供 `expose` API；根节点是 Teleport，attrs 不属于稳定公共合同。`x`、`y` 是视口坐标而不是页面滚动坐标，通常应从 `contextmenu` 事件的 client 坐标取得。初始 `visible=true` 时位置直接取输入值；首次挂载不会主动测量钳位。打开后只在 `visible`、`x` 或 `y` 变化时重新测量，视口尺寸单独变化不会触发重算。
+
+## 不支持
+
+不创建右键触发器，不管理菜单项状态，不负责快捷键绑定，不提供类型搜索，关闭后不归还焦点。`teleportTarget` 仅接受字符串，目标必须在挂载时存在；没有目标回退逻辑。
+
+## 隐藏通道理由
+
+- `env:portal`：菜单需要脱离触发区域的裁剪与局部层叠上下文，并按视口坐标固定定位；目标通过 `teleportTarget` 传入，默认 `body`。
+- `env:global`：菜单外点击/右键、Escape 与 Tab 可能发生在菜单 DOM 之外，因此集中监听 `document`；组件卸载时解除监听。
+- `env:timer`：子菜单首次悬停延迟 300ms 是菜单级联交互的一部分；后续展开时序由父组件逐个实现会导致同一菜单体验不一致。

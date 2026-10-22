@@ -4,22 +4,42 @@
 
 import {fileURLToPath} from "node:url";
 
+import tailwindcss from "@tailwindcss/vite";
 import vue from "@vitejs/plugin-vue";
-import UnoCSS from "unocss/vite";
 import {defineConfig} from "vite";
+import type {Plugin} from "vite";
 
 /** 浏览器基线（runtime.browser-host）：内核用到 Promise.withResolvers 与 AbortSignal.any。 */
 export const BROWSER_TARGETS = ["chrome119", "edge119", "firefox124", "safari17.4"];
 
 const packageRoot = fileURLToPath(new URL(".", import.meta.url));
 
+/**
+ * `boot.ts` 导入的样式入口。Tailwind 按目录扫描源码，不看构建图，所以生产构建换成排除了 Lab 与 e2e 外壳目录的入口，
+ * 只在那里用到的类不进可分发产物（ui.component-lab 的产物门禁）；开发服务与 e2e 外壳用完整入口。
+ */
+export const STYLE_ENTRY = "nbook-tailwind.css";
+export const FULL_STYLE_ENTRY = `${packageRoot}src/web/tailwind.css`;
+
+/** 开发服务（含 Vitest）改用完整入口。插件在 `config` 钩子里给的别名排在基础配置之前，所以盖过下面的生产入口。 */
+function developmentStyles(): Plugin {
+    return {
+        name: "nbook-development-styles",
+        config: (_config, {command}) => command === "serve" ? {resolve: {alias: [{find: STYLE_ENTRY, replacement: FULL_STYLE_ENTRY}]}} : undefined,
+    };
+}
+
 export default defineConfig({
     root: `${packageRoot}src/web`,
     cacheDir: `${packageRoot}node_modules/.vite`,
-    // root 是 src/web，UnoCSS 默认在 root 下找配置，所以显式指定包根的 uno.config.ts。
     // `neurobook-*` 是品牌成品里的原生自定义元素（`src/ui/brand/`），不是 Vue 组件，模板编译时不去解析它。
-    plugins: [vue({template: {compilerOptions: {isCustomElement: (tag) => tag.startsWith("neurobook-")}}}), UnoCSS({configFile: `${packageRoot}uno.config.ts`})],
-    resolve: {alias: [{find: /^nbook\//u, replacement: `${packageRoot}src/`}]},
+    plugins: [vue({template: {compilerOptions: {isCustomElement: (tag) => tag.startsWith("neurobook-")}}}), tailwindcss(), developmentStyles()],
+    resolve: {
+        alias: [
+            {find: STYLE_ENTRY, replacement: `${packageRoot}src/web/tailwind.product.css`},
+            {find: /^nbook\//u, replacement: `${packageRoot}src/`},
+        ],
+    },
     // 关闭依赖发现、预构建清单写死：依赖发现进行中时 Vite 的 close() 不结算（Bun 与 Node 都是），开发监督进程停止时
     // 会卡住。不在清单里的第三方依赖按源码逐个文件提供，其中的 CommonJS 模块（例如 vanilla-jsoneditor 依赖的 ajv）
     // 在浏览器里加载失败，所以页面直接或经 nb-ui 用到的第三方包都要列进来。

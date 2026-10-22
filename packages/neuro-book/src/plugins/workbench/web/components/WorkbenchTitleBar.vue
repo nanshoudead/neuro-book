@@ -382,7 +382,7 @@ onBeforeUnmount(() => {
             <span class="workbench-titlebar__measure-divider" data-measure="divider"></span>
             <!-- 菜单栏的复本：与 nb-ui Menubar 的 sm、flat 触发器同样的间距、内边距与字号；那边改了这里要跟着改。 -->
             <span class="inline-flex items-center gap-0.5" data-measure="menubar">
-                <span v-for="group in menubar" :key="group.id" class="px-2 py-0.5 text-[12px] font-medium">{{ group.label }}</span>
+                <span v-for="group in menubar" :key="group.id" class="px-2 py-0.5 text-[length:var(--text-xs)] font-medium">{{ group.label }}</span>
             </span>
             <IconButton size="sm" icon-class="i-lucide-menu" aria-label="" class="workbench-titlebar__button" data-measure="menu-icon" />
             <kbd class="workbench-titlebar__kbd" data-measure="shortcut">{{ searchShortcut }}</kbd>

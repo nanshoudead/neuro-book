@@ -1,6 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t03-view-skeleton
+status: done
+updated: 2026-10-22
 ---
 
 # 视图骨架与分轮规则

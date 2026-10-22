@@ -1,16 +1,14 @@
 <script setup lang="ts">
 import {computed, onBeforeUnmount, ref, shallowRef, watch} from "vue";
 
-import {dragScrollTop, pageScrollTop, thumbGeometry} from "./overlay-scrollbar";
-import type {ScrollMetrics} from "./overlay-scrollbar";
+import {dragScrollTop, pageScrollTop, thumbGeometry} from "../../utils/scrollbar-geometry";
+import type {ScrollMetrics} from "../../utils/scrollbar-geometry";
 
 const props = defineProps<{
     /** 被滚动的元素；与本组件同一个父元素，父元素要定位（滚动条按它在父元素里的矩形摆放）。 */
     target: HTMLElement | null;
 }>();
 
-/** 轨道宽 10px，6px 的滑块靠右留 2px（与 `ScrollArea` 的滑块同宽）。 */
-const TRACK_PX = 10;
 /** 最后一次滚动之后多久算“不在滚动”；之后的停留与淡出由样式的过渡负责。 */
 const SCROLL_SETTLE_MS = 100;
 
@@ -27,7 +25,7 @@ function measure(): void {
     const el = props.target;
     if (el === null) return;
     metrics.value = {scrollTop: el.scrollTop, clientHeight: el.clientHeight, scrollHeight: el.scrollHeight};
-    box.value = {top: el.offsetTop, left: el.offsetLeft + el.offsetWidth - TRACK_PX, height: el.clientHeight};
+    box.value = {top: el.offsetTop, left: el.offsetLeft + el.offsetWidth, height: el.clientHeight};
 }
 
 let settle: ReturnType<typeof setTimeout> | null = null;
@@ -162,12 +160,16 @@ function onTrackDown(event: PointerEvent): void {
 
 <style scoped>
 /*
+ * 轨道宽是滑块宽（`--scrollbar-w`）加 4px，滑块靠右留 2px；`left` 给的是滚动元素的右缘，轨道用 `translate` 退回自己的
+ * 一个宽度，这样滑块粗细换了，轨道仍贴在右缘，不必在脚本里知道它有多宽。
+ *
  * 显隐的时机照 VS Code（`--motion-reveal-*`）：出现时淡入；消失先停一会儿再淡出（过渡延迟写在隐藏态上，显示态没有
  * 延迟）。看不见时不接指针，免得挡住下面的内容。系统减少动画时这几个时长都是 0。
  */
 .nb-ui-overlay-scrollbar {
     position: absolute;
-    width: 10px;
+    width: calc(var(--scrollbar-w) + 4px);
+    translate: -100% 0;
     opacity: 0;
     pointer-events: none;
     transition: opacity var(--motion-reveal-out) linear var(--motion-reveal-hold);
@@ -183,17 +185,17 @@ function onTrackDown(event: PointerEvent): void {
     position: absolute;
     top: 0;
     right: 2px;
-    width: 6px;
-    border-radius: 3px;
-    background: color-mix(in srgb, var(--text-main) 32%, transparent);
+    width: var(--scrollbar-w);
+    border-radius: calc(var(--scrollbar-w) / 2);
+    background: color-mix(in srgb, var(--text-main) var(--scrollbar-thumb-mix), transparent);
     transition: background-color var(--motion-fast) var(--ease-standard);
 }
 
 .nb-ui-overlay-scrollbar__thumb:hover {
-    background: color-mix(in srgb, var(--text-main) 45%, transparent);
+    background: color-mix(in srgb, var(--text-main) var(--scrollbar-thumb-hover-mix), transparent);
 }
 
 .nb-ui-overlay-scrollbar[data-dragging] .nb-ui-overlay-scrollbar__thumb {
-    background: color-mix(in srgb, var(--text-main) 55%, transparent);
+    background: color-mix(in srgb, var(--text-main) var(--scrollbar-thumb-active-mix), transparent);
 }
 </style>

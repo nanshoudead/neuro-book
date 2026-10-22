@@ -81,12 +81,12 @@ function onOpenChange(value: boolean): void {
 
             <DrawerContent
                 :style="{zIndex}"
-                class="nb-ui-popover-surface nb-ui-dialog-surface fixed flex flex-col text-[var(--text-main)] shadow-[var(--elevation-dialog)] transition-transform [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] outline-none border-[color-mix(in_srgb,var(--text-main)_10%,transparent)]"
+                class="nb-ui-popover-surface nb-ui-dialog-surface fixed flex flex-col text-[var(--text-main)] transition-transform [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] outline-none"
                 :class="[
-                    props.direction === 'right' ? 'inset-y-0 right-0 h-full w-[380px] max-w-[90cqw] border-l' : '',
-                    props.direction === 'left' ? 'inset-y-0 left-0 h-full w-[380px] max-w-[90cqw] border-r' : '',
-                    props.direction === 'bottom' ? 'inset-x-0 bottom-0 max-h-[85cqh] rounded-t-[var(--radius-panel)] border-t' : '',
-                    props.direction === 'top' ? 'inset-x-0 top-0 max-h-[85cqh] rounded-b-[var(--radius-panel)] border-b' : '',
+                    props.direction === 'right' ? 'inset-y-0 right-0 h-full w-[380px] max-w-[90cqw]' : '',
+                    props.direction === 'left' ? 'inset-y-0 left-0 h-full w-[380px] max-w-[90cqw]' : '',
+                    props.direction === 'bottom' ? 'inset-x-0 bottom-0 max-h-[85cqh]' : '',
+                    props.direction === 'top' ? 'inset-x-0 top-0 max-h-[85cqh]' : '',
                     props.contentClass,
                 ]"
             >

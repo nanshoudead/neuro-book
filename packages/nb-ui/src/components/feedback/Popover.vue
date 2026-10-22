@@ -59,7 +59,7 @@ const emit = defineEmits<{
                 :style="{
                     zIndex: popoverZIndex,
                 }"
-                class="nb-ui-popover-surface nb-ui-popover-motion relative rounded-[var(--radius-panel)] p-3 text-[var(--text-main)] outline-none select-none max-w-[calc(100vw-32px)]"
+                class="nb-ui-popover-surface nb-ui-popover-motion relative p-3 text-[var(--text-main)] outline-none select-none max-w-[calc(100vw-32px)]"
                 :class="props.contentClass"
                 @close-auto-focus="(event) => event.preventDefault()"
             >
