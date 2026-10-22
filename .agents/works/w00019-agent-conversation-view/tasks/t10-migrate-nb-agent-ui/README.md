@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t10-migrate-nb-agent-ui
 status: planned
-updated: 2026-10-21
+updated: 2026-10-22
 ---
 
 # 对话视图迁入 nb-agent-ui
@@ -23,7 +23,7 @@ updated: 2026-10-21
 
 ## 当前状态
 
-2026-10-21 经 nbdev 新建，尚未开工。
+2026-10-21 经 nbdev 新建，尚未开工。2026-10-22 写好实施计划 [plan.md](plan.md)，开发者同意“先审查然后实施”；omp 设计审查 11 条已处理（[报告](evidences/design-review.txt)，处理结果见计划开头）。执行位置：worktree `.worktree/w00019-nb-agent-ui`，分支 `feat/w00019-nb-agent-ui`。
 
 ## 开工前已查明（2026-10-21，从代码读出，未运行）
 
@@ -37,4 +37,4 @@ updated: 2026-10-21
 
 ## 下一步
 
-写 `plan.md`，要点先给开发者看。
+按 [plan.md](plan.md) 从 S0 做起。
