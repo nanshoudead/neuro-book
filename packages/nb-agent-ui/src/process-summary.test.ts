@@ -56,6 +56,17 @@ describe("界面文字", () => {
         expect(textOf({key: "process.actions", params: {count: 2}}, "zh-CN")).not.toBe(textOf({key: "process.actions", params: {count: 2}}, "en-US"));
     });
 
+    it("英文带数量的文字按单复数换写法，中文不变（除数字外一致）", () => {
+        const shape = (key: "process.files.read" | "toolGroup.search", count: number, locale: AgentLocale) => textOf({key, params: {count}}, locale).replace(String(count), "N");
+        for (const key of ["process.files.read", "toolGroup.search"] as const) {
+            expect(shape(key, 1, "en-US")).not.toBe(shape(key, 2, "en-US"));
+            expect(shape(key, 1, "zh-CN")).toBe(shape(key, 2, "zh-CN"));
+        }
+        // 读改合成一句时按“读了几个”选。
+        const readChanged = (read: number) => textOf({key: "process.files.readChanged", params: {read, changed: 3}}, "en-US").replace(String(read), "N");
+        expect(readChanged(1)).not.toBe(readChanged(2));
+    });
+
     it("宿主给的中英两份按语言取，带参数的用 formatText 在两种语言里各代入一次；普通字符串原样", () => {
         const phrase = formatText({"zh-CN": "甲 {n} 乙", "en-US": "A {n} B"}, {n: 3});
         expect(textOf(phrase, "zh-CN")).toBe("甲 3 乙");

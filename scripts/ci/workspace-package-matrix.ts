@@ -30,6 +30,11 @@ export const WORKSPACE_PACKAGE_CHECKS: readonly WorkspacePackageCheck[] = [
         commands: "bun run test\nbun run typecheck\nbun run build",
     },
     {
+        name: "nb-form",
+        directory: "packages/nb-form",
+        commands: "bun run typecheck\nbun run test",
+    },
+    {
         name: "nb-agent-ui",
         directory: "packages/nb-agent-ui",
         commands: "bun run typecheck\nbun run test",

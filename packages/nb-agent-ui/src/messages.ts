@@ -151,7 +151,13 @@ const ZH = {
 
 export type AgentTextKey = keyof typeof ZH;
 
-const EN: Record<AgentTextKey, string> = {
+/**
+ * 英文带数量的文字分单数、复数两种写法，按 `Intl.PluralRules` 选；`by` 指明按哪个参数选，缺省是 `count`。
+ * 中文没有单复数，中文表只写一种。
+ */
+type PluralText = {readonly by?: string; readonly one: string; readonly other: string};
+
+const EN: Record<AgentTextKey, string | PluralText> = {
     "header.untitled": "Untitled conversation",
     "header.noSession": "No conversation selected",
     "header.more": "More actions",
@@ -172,12 +178,12 @@ const EN: Record<AgentTextKey, string> = {
     "metrics.tokens": "{value} tokens",
     "process.fallback": "Process",
     "process.thinking": "Thinking",
-    "process.actions": "{count} actions",
-    "process.others": "{count} other actions",
+    "process.actions": {"one": "{count} action", "other": "{count} actions"},
+    "process.others": {"one": "{count} other action", "other": "{count} other actions"},
     "process.failed": "{count} failed",
-    "process.files.read": "Read {count} files",
-    "process.files.changed": "Changed {count} files",
-    "process.files.readChanged": "Read {read} files, changed {changed}",
+    "process.files.read": {"one": "Read {count} file", "other": "Read {count} files"},
+    "process.files.changed": {"one": "Changed {count} file", "other": "Changed {count} files"},
+    "process.files.readChanged": {"by": "read", "one": "Read {read} file, changed {changed}", "other": "Read {read} files, changed {changed}"},
     "usage.detail": "Input {input} · Output {output} · Cache read {cacheRead} · Cache write {cacheWrite}",
     "task.created": "New task list",
     "task.updated": "Task list updated",
@@ -187,7 +193,7 @@ const EN: Record<AgentTextKey, string> = {
     "task.status.pending": "To do",
     "task.status.in_progress": "In progress",
     "task.status.completed": "Done",
-    "fileChanges.title": "Changed {count} files",
+    "fileChanges.title": {"one": "Changed {count} file", "other": "Changed {count} files"},
     "fileChanges.showRest": "Show {count} more",
     "fileChanges.collapse": "Show less",
     "messageAction.copy": "Copy",
@@ -213,11 +219,11 @@ const EN: Record<AgentTextKey, string> = {
     "tool.bash": "Run command",
     "tool.sql": "Run SQL",
     "tool.agentCollaboration": "Agent collaboration",
-    "toolGroup.generic": "{count} calls",
-    "toolGroup.read": "Read {count} files",
-    "toolGroup.search": "{count} searches",
-    "toolGroup.fetch": "Fetched {count} pages",
-    "toolGroup.lookup": "{count} lookups",
+    "toolGroup.generic": {"one": "{count} call", "other": "{count} calls"},
+    "toolGroup.read": {"one": "Read {count} file", "other": "Read {count} files"},
+    "toolGroup.search": {"one": "{count} search", "other": "{count} searches"},
+    "toolGroup.fetch": {"one": "Fetched {count} page", "other": "Fetched {count} pages"},
+    "toolGroup.lookup": {"one": "{count} lookup", "other": "{count} lookups"},
     "toolDetail.args": "Arguments · {name}",
     "toolDetail.result": "Result",
     "toolDetail.details": "Structured result",
@@ -295,7 +301,7 @@ const EN: Record<AgentTextKey, string> = {
     "harness.compaction": "Context compacted",
 };
 
-const TABLES: Record<AgentLocale, Record<AgentTextKey, string>> = {"zh-CN": ZH, "en-US": EN};
+const TABLES: Record<AgentLocale, Record<AgentTextKey, string | PluralText>> = {"zh-CN": ZH, "en-US": EN};
 
 type TextParams = Readonly<Record<string, string | number>>;
 
@@ -304,9 +310,23 @@ function fill(template: string, params: TextParams | undefined): string {
     return template.replace(/\{(\w+)\}/gu, (placeholder, name: string) => (name in params ? String(params[name]) : placeholder));
 }
 
-/** 本包文字表里的一条，代入参数。 */
+const pluralRules = new Map<AgentLocale, Intl.PluralRules>();
+
+function pluralForm(locale: AgentLocale, text: PluralText, params: TextParams | undefined): string {
+    const count = Number(params?.[text.by ?? "count"]);
+    if (!Number.isFinite(count)) return text.other;
+    let rules = pluralRules.get(locale);
+    if (rules === undefined) {
+        rules = new Intl.PluralRules(locale);
+        pluralRules.set(locale, rules);
+    }
+    return rules.select(count) === "one" ? text.one : text.other;
+}
+
+/** 本包文字表里的一条，代入参数；英文带数量的按单复数选写法。 */
 export function agentText(locale: AgentLocale, key: AgentTextKey, params?: TextParams): string {
-    return fill(TABLES[locale][key], params);
+    const entry = TABLES[locale][key];
+    return fill(typeof entry === "string" ? entry : pluralForm(locale, entry, params), params);
 }
 
 /** 把一段界面文字按语言取成字符串。 */
