@@ -192,7 +192,8 @@ function openHit(id: string): void {
 
 /**
  * 确认框关掉之后焦点去哪（AlertDialog 没有触发器时不自己归还）：“继续编辑”回到弹出之前的位置；“放弃”按动作去它该在的
- * 地方，从搜索框起手的回搜索框、切标签的回标签、其余到左栏的当前项。三样在确认框打开时记下，关掉时取走并清零。
+ * 地方，从搜索框起手的回搜索框、切标签的回标签、打开设置文件的进文本框，其余到左栏的当前项。三样在确认框打开时记下，
+ * 关掉时取走并清零。
  */
 let beforeLeave: HTMLElement | null = null;
 let leaveKind: SettingsLeaveTarget["kind"] | null = null;
@@ -216,7 +217,18 @@ function onLeaveClosed(): void {
         else focusCurrent();
     } else if (kind === "search") searchInput()?.focus();
     else if (kind === "layer") root.value?.querySelector<HTMLElement>("[data-settings-tabs] [aria-checked='true']")?.focus();
+    else if (kind === "file") focusFileText();
     else focusCurrent();
+}
+
+/**
+ * 打开设置文件之后焦点在文本框里。`closed` 在确认框的关闭动画之后才来，文件视图可能已经读完并按出错位置把光标放好了，
+ * 这时不动它；还在读的时候由视图读完定位时自己聚焦。
+ */
+function focusFileText(): void {
+    const view = root.value?.querySelector<HTMLElement>("[data-settings-file]");
+    if (view === null || view === undefined || view.contains(document.activeElement)) return;
+    view.querySelector<HTMLElement>("[data-settings-file-text]")?.focus();
 }
 
 function confirmLeave(): void {

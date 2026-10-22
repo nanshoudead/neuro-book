@@ -1122,6 +1122,10 @@ describe("标题区：层警告、定位与页面级操作（输出 3、13、19�
         expect(created.window.section.value).toBe("file");
         await ready();
         await vi.waitFor(() => expect(area().selectionStart).toBe(brokenOffset(area().value)));
+        // 确认框关掉之后焦点仍在文本框里，没有被拉回左栏。
+        await vi.waitFor(() => expect(document.body.querySelector("[role='alertdialog']")).toBeNull());
+        await flushPromises();
+        expect(document.activeElement).toBe(area());
     });
 
     /** 一个会按按钮登记标题替换的 page 分区，另带一个页面级操作；`events` 记下 back 与卸载。 */
