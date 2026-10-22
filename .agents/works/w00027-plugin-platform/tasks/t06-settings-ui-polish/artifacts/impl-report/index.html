@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>w00027 t06 设置界面重做：实施结果</title>
+<style>
+    body { margin: 0; padding: 32px 40px 64px; background: #f7f5ef; color: #222; font: 15px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+    main { max-width: 1180px; margin: 0 auto; }
+    h1 { font-size: 26px; margin: 0 0 4px; }
+    h2 { font-size: 19px; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #ddd8cc; }
+    h3 { font-size: 15px; margin: 20px 0 6px; }
+    .lead { color: #555; margin: 0 0 20px; }
+    .box { background: #fff; border: 1px solid #e3ded2; border-radius: 10px; padding: 14px 18px; }
+    .ask { border-color: #e2b65a; background: #fffaf0; }
+    table { border-collapse: collapse; width: 100%; background: #fff; font-size: 14px; }
+    th, td { border: 1px solid #e3ded2; padding: 6px 10px; text-align: left; vertical-align: top; }
+    th { background: #f1ede3; font-weight: 600; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    figure { margin: 0; }
+    figure img { width: 100%; border: 1px solid #e3ded2; border-radius: 8px; background: #fff; display: block; }
+    figcaption { font-size: 13px; color: #555; margin-top: 6px; }
+    code { font-size: 13px; background: #eee9dd; padding: 1px 4px; border-radius: 4px; }
+    ul { margin: 6px 0; padding-left: 22px; }
+</style>
+</head>
+<body>
+<main>
+<h1>设置界面重做：实施结果</h1>
+<p class="lead">w00027 t06 · 2026-10-22 · 按第七轮定稿实现，已经过两份实现审查，并已合入 master</p>
+
+<div class="box">
+    <strong>结论</strong>：第四到第七轮定下的扁平设计已全部实现，包括出错原因收进名字旁的图标、层出错的警告放在标题区、页面级操作放在标题区、“模型服务”改成列表加下一级页面，以及新文案与紧凑确认框。两份实现审查共 16 条，14 条已修正，2 条不改。合并后的全部受影响测试、类型检查和三个相关 e2e 文件都通过；设置窗口 9 个场景在 4 种外观下的 36 张截图里，溢出和焦点环检查都是 0 条。Work 分支没有推送。
+</div>
+
+<h2>要你决定的</h2>
+<div class="box ask">
+    <ul>
+        <li><strong>推送 Work 分支</strong>：远端还没有这个分支，推送会把 master 上 844 个没推过的提交一起公开。要不要推、什么时候推，由你决定。</li>
+        <li><strong>nb-form 表单的排法</strong>：服务商详情这种用 nb-form 画的表单，仍是“名字在左、控件跟在后面”，没有像设置行那样控件靠右、最右留一格（见下面“服务商详情”那张图）。这次只改了设置行与设置窗口。要不要另建 Task，让 nb-form 也改成同一种排法？</li>
+        <li><strong>待确认清单里 t06 的几条</strong>：见下面“替你做的决定”，可以逐条追认或改判。</li>
+    </ul>
+</div>
+
+<h2>截图</h2>
+<h3>NeuroBook 浅色 1200×800</h3>
+<div class="grid">
+    <figure><img src="img/user-light.webp" alt="外观分区"><figcaption>外观：标题后同一行是说明；改过的项标题后有圆点，控件右边一格是“恢复默认”</figcaption></figure>
+    <figure><img src="img/other-light.webp" alt="插件设置"><figcaption>插件设置：分段、开关、数字、单行输入、下拉、列表；控件右缘对齐</figcaption></figure>
+    <figure><img src="img/user-invalid-light.webp" alt="层出错"><figcaption>层文件出错：标题区右侧是警告按钮，控件停用</figcaption></figure>
+    <figure><img src="img/file-invalid-light.webp" alt="设置文件定位出错处"><figcaption>点警告后：设置文件视图，出错行标底色，标题区写出行列和原因；保存栏钉在底部</figcaption></figure>
+    <figure><img src="img/project-light.webp" alt="本作品标签"><figcaption>本作品标签</figcaption></figure>
+    <figure><img src="img/search-light.webp" alt="搜索结果"><figcaption>搜索：按“分区 › 小组”分组，命中的字标底色</figcaption></figure>
+    <figure><img src="img/choices-light.webp" alt="选项拿不到"><figcaption>选项拿不到：名字旁的淡色图标，悬停或聚焦时提示原因</figcaption></figure>
+    <figure><img src="img/models-light.webp" alt="模型服务列表"><figcaption>模型服务：首屏是服务商列表，“添加服务商”在标题区右侧</figcaption></figure>
+    <figure><img src="img/detail-light.webp" alt="服务商详情"><figcaption>服务商详情：标题区换成“‹ 模型服务”和服务商名，右侧是“测试连接”和删除。表单本身是 nb-form 的排法（见“要你决定的”第二条）</figcaption></figure>
+</div>
+
+<h3>其它外观</h3>
+<div class="grid">
+    <figure><img src="img/other-dark.webp" alt="深色"><figcaption>NeuroBook 深色</figcaption></figure>
+    <figure><img src="img/user-invalid-dark.webp" alt="深色层出错"><figcaption>NeuroBook 深色：层出错</figcaption></figure>
+    <figure><img src="img/user-macos.webp" alt="macOS"><figcaption>macOS 主题</figcaption></figure>
+    <figure><img src="img/other-macos.webp" alt="macOS 插件设置"><figcaption>macOS 主题：这一版修好后，行里各控件都落在整数像素上（之前偏 0.84px）</figcaption></figure>
+</div>
+
+<h3>窄窗口 560×600</h3>
+<div class="grid three">
+    <figure><img src="img/user-narrow.webp" alt="窄窗口"><figcaption>左栏改成顶上两行</figcaption></figure>
+    <figure><img src="img/file-narrow.webp" alt="窄窗口设置文件"><figcaption>设置文件：文本框随高度伸缩，保存栏在底部</figcaption></figure>
+    <figure><img src="img/detail-narrow.webp" alt="窄窗口详情"><figcaption>服务商详情：返回按钮留在可见处</figcaption></figure>
+</div>
+
+<h2>与定稿草稿不同的地方</h2>
+<table>
+    <tr><th>哪里</th><th>实现</th><th>原因</th></tr>
+    <tr><td>左栏当前项的蓝圈</td><td>按 <code>Ctrl+,</code> 打开时显示，点齿轮打开时不显示（截图工具不用鼠标，所以截图里都有）</td><td>原有行为：打开时焦点落在当前项，键盘焦点必须看得见</td></tr>
+    <tr><td>模型服务的保存栏</td><td>下一级页面里一直有；回到列表后只在还有未保存的更改时出现</td><td>在下一级页面改了东西再返回列表，否则没处保存或放弃</td></tr>
+    <tr><td>服务商详情的表单</td><td>nb-form 的排法</td><td>见“要你决定的”第二条</td></tr>
+    <tr><td>服务商列表</td><td>只能用 Tab 在行之间移动，没做上下键</td><td>每行都是原生按钮，Tab 顺序本来就通</td></tr>
+</table>
+
+<h2>实现审查</h2>
+<table>
+    <tr><th>审查者</th><th>条数</th><th>处理</th></tr>
+    <tr><td>omp（nb-form 字段状态、层快照、窗口模型）</td><td>重要 2</td><td>1 条已改：读文件期间文件又变了时，出错位置用在了过时的文本上。1 条不成立：它担心确认框开着时又点了别的地方，但确认框是模态的，点不到</td></tr>
+    <tr><td>Claude Sonnet（界面）</td><td>重要 6、建议 8</td><td>13 条已改，每条单独提交并补了测试。主要有：
+        <ul>
+            <li>确认“放弃”后，焦点被左栏抢走；</li>
+            <li>列表打开一项后焦点丢失，返回按钮的读屏名没有“返回”二字；</li>
+            <li>服务商名很长时，标题压住右侧的操作；</li>
+            <li>窗口矮时，设置文件的保存栏在可见区域下面；</li>
+            <li>切换标签后，设置文件的行号和文本错开；</li>
+            <li>macOS 等主题下，控件落在半像素上；</li>
+            <li>停用的分区改用 Tooltip 说明原因；</li>
+            <li>内容列宽度改为 720px。</li>
+        </ul>
+        1 条不改：Lab 裁切检查的单元测试。这个检查要量真实布局，单元测试环境做不到，而 e2e 已经在真实浏览器里覆盖了它</td></tr>
+</table>
+
+<h2>替你做的决定（已记进待确认清单）</h2>
+<table>
+    <tr><th>决定</th><th>改回的代价</th></tr>
+    <tr><td>左栏三组的组标题是“通用”“写作助手”“扩展”</td><td>低</td></tr>
+    <tr><td>出错与警告的提示，悬停图标或焦点在控件上时都显示</td><td>低</td></tr>
+    <tr><td>设置文件视图占满整块区域，保存栏钉在底部（之前是 18 行的框，随内容一起滚动）</td><td>低</td></tr>
+    <tr><td>服务商列表打开一项后，焦点放在详情上（读屏会念出服务商名）</td><td>低</td></tr>
+    <tr><td>内容列宽度按你定的约 720px，nb-ui 设计语言里原写的约 768px 也一起改了</td><td>低</td></tr>
+    <tr><td>nb-ui 开关的高度是小数（24.75px），轨道边缘落在半像素上；开关没有描边，这次不改</td><td>低，另建 Task</td></tr>
+    <tr><td>插件显示名拆到 t09，“插件设置”的小组标题暂时写插件 id</td><td>低（你已同意）</td></tr>
+</table>
+</main>
+</body>
+</html>
