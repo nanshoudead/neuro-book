@@ -402,6 +402,68 @@ test("调整窗口大小后关掉再开、刷新页面仍是这个尺寸，每�
     expect(await width()).toBe(resized);
 });
 
+// ── 左栏与窄窗口（settings-window.md 输出 1、16）：要真实布局，DOM 测试量不到 ──
+
+test("左栏：层标签在搜索框上方、每个有分区的组上方有组标题、分区一行一项；悬停与按下不缩放不位移", async ({page}) => {
+    await open(page, "/?project=book");
+    await workbenchGear(page).click();
+    await expect(settingsWindow(page)).toBeVisible();
+    const box = async (selector: string) => (await page.locator(selector).first().boundingBox())!;
+    const tabs = await box("[data-settings-tabs]");
+    const search = await box("[data-settings-search]");
+    expect(tabs.y + tabs.height).toBeLessThanOrEqual(search.y);
+    const labels = page.locator("[data-settings-nav-label]");
+    // 产品里现在没有“写作助手”组的分区，没有项的组不出现。
+    await expect(labels).toHaveText(["通用", "扩展"]);
+    for (const label of await labels.all()) await expect(label).toBeVisible();
+    const items = await page.locator("[data-settings-nav]").evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().top));
+    expect(items.every((top, index) => index === 0 || top > items[index - 1]!)).toBe(true);
+    const side = await box(".settings-window__side");
+    expect(Math.round(side.width)).toBe(212);
+
+    // 悬停、按下（没松开）：变换仍是 none，外框不动。
+    const target = page.locator("[data-settings-nav='nbook.works']");
+    // 打开时窗口从略小处放大（nb-ui Dialog 的进场动画）：播完再量，否则前后两次量的是缩放中的外框。
+    await page.getByRole("dialog").evaluate((element) => Promise.all(element.getAnimations({subtree: true}).map((animation) => animation.finished)));
+    const before = await target.boundingBox();
+    await target.hover();
+    await page.mouse.down();
+    expect(await target.evaluate((element) => getComputedStyle(element).transform)).toBe("none");
+    expect(await target.boundingBox()).toEqual(before);
+    await page.mouse.up();
+});
+
+test("窄窗口：左栏变成顶上两行，层标签与搜索框并排、分区横排一行不显示组标题与图标；宽了再回到竖排", async ({page}) => {
+    await page.setViewportSize({width: 560, height: 700});
+    await open(page, "/?project=book");
+    await workbenchGear(page).click();
+    await expect(settingsWindow(page)).toBeVisible();
+    const dialog = page.getByRole("dialog");
+    expect((await dialog.boundingBox())!.width).toBeLessThan(600);
+    const box = async (selector: string) => (await page.locator(selector).first().boundingBox())!;
+    const tabs = await box("[data-settings-tabs]");
+    const search = await box("[data-settings-search]");
+    // 并排：同一行（纵向有重叠），标签在搜索框左边。
+    expect(Math.abs(tabs.y + tabs.height / 2 - (search.y + search.height / 2))).toBeLessThanOrEqual(2);
+    expect(tabs.x + tabs.width).toBeLessThanOrEqual(search.x);
+    // 分区在这两行下面、同一行，横向放不下时自己滚（不换行）。
+    const nav = await page.locator(".settings-window__nav").evaluate((element) => ({overflowX: getComputedStyle(element).overflowX, top: element.getBoundingClientRect().top}));
+    expect(nav.overflowX).toBe("auto");
+    expect(nav.top).toBeGreaterThanOrEqual(search.y + search.height);
+    const tops = await page.locator("[data-settings-nav]").evaluateAll((elements) => elements.map((element) => Math.round(element.getBoundingClientRect().top)));
+    expect(new Set(tops).size).toBe(1);
+    for (const label of await page.locator("[data-settings-nav-label]").all()) await expect(label).toBeHidden();
+    for (const icon of await page.locator(".settings-window__nav-icon").all()) await expect(icon).toBeHidden();
+
+    // 页面宽了窗口跟着宽：回到宽窗口的竖排。
+    await page.setViewportSize({width: 1280, height: 700});
+    await expect.poll(async () => (await dialog.boundingBox())!.width).toBeGreaterThanOrEqual(600);
+    await expect(page.locator("[data-settings-nav-label]").first()).toBeVisible();
+    const wideTabs = await box("[data-settings-tabs]");
+    const wideSearch = await box("[data-settings-search]");
+    expect(wideTabs.y + wideTabs.height).toBeLessThanOrEqual(wideSearch.y);
+});
+
 // ── 搜索、设置文件视图（settings-window.md 输出 21、23）与 Lab“模型服务”（输出 20、22） ──
 
 test("Ctrl+F 聚焦设置里的搜索框；搜到“明暗”直接改掉；Esc 先清空搜索、窗口不关", async ({page}) => {

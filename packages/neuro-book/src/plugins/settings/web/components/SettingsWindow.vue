@@ -3,13 +3,14 @@
  * 设置窗口（同名 .md）：窗口模型的呈现。外框是非模态的 Dialog，左栏分区、标签与右边的分区内容都读模型，操作交回模型
  * （docs/specs/settings/settings-window.md）。
  */
-import {AlertDialog, Button, Dialog, Input, ScrollArea, SegmentedControl, Separator} from "@notnotype/nb-ui/components";
+import {AlertDialog, Dialog, Input, ScrollArea, SegmentedControl, Separator} from "@notnotype/nb-ui/components";
 import type {SegmentedControlValue} from "@notnotype/nb-ui/components";
 import {computed, nextTick, provide, ref, useId, watch} from "vue";
 
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {LocalizedText} from "nbook/shared/localized-text";
 import type {SettingLayer} from "nbook/shared/settings";
+import HighlightedText from "nbook/ui/settings/HighlightedText.vue";
 import {createPageChrome, SETTINGS_PAGE_CHROME} from "nbook/ui/settings/page-chrome";
 
 import {DEFAULT_SETTINGS_WINDOW_SIZE, MIN_SETTINGS_WINDOW_SIZE} from "../settings-window";
@@ -47,6 +48,9 @@ const TEXT = {
     noResults: {"zh-CN": "没有找到设置", "en-US": "No settings found"},
     pages: {"zh-CN": "页面", "en-US": "Pages"},
     openPage: {"zh-CN": "打开", "en-US": "Open"},
+    groupApp: {"zh-CN": "通用", "en-US": "General"},
+    groupAi: {"zh-CN": "写作助手", "en-US": "Writing assistant"},
+    groupPlugins: {"zh-CN": "扩展", "en-US": "Extensions"},
     openHit: {"zh-CN": "打开：{title}", "en-US": "Open: {title}"},
     results: {"zh-CN": "{settings} 个设置、{pages} 个页面", "en-US": "{settings} settings, {pages} pages"},
     leaveTitle: {"zh-CN": "放弃未保存的更改？", "en-US": "Discard unsaved changes?"},
@@ -100,6 +104,9 @@ const replacement = computed((): SettingsSectionReplacement | null => {
     return claim === null || current.value?.kind !== "page" ? null : {title: claim.title, backLabel: current.value.title};
 });
 const searchId = `settings-search-${useId()}`;
+const navId = useId();
+/** 左栏三组的组标题（输出 1）。 */
+const GROUP_TITLE = {app: TEXT.groupApp, ai: TEXT.groupAi, plugins: TEXT.groupPlugins} as const;
 const fill = computed(() => current.value?.kind === "page" && current.value.layout === "fill" && current.value.unavailable === null);
 
 const tabOptions = computed(() => [
@@ -242,53 +249,58 @@ function onLeaveOpen(open: boolean): void {
         @keydown="onRootKeydown"
     >
         <div ref="root" class="settings-window" data-settings-window>
-            <SegmentedControl
-                v-if="model.bound.value"
-                class="settings-window__tabs"
-                data-settings-tabs
-                full-width
-                :model-value="model.layer.value"
-                :options="tabOptions"
-                :aria-label="text(TEXT.tabs)"
-                @update:model-value="(value: SegmentedControlValue) => model.setLayer(value as SettingLayer)"
-            />
             <div class="settings-window__split">
                 <div class="settings-window__side">
-                    <label :for="searchId" class="settings-window__visually-hidden">{{ text(TEXT.search) }}</label>
-                    <Input
-                        :id="searchId"
-                        class="settings-window__search"
-                        data-settings-search
-                        type="search"
-                        size="sm"
-                        icon-class="i-lucide-search"
-                        clearable
-                        :clear-label="text(TEXT.clearSearch)"
-                        :placeholder="text(TEXT.search)"
-                        :model-value="model.query.value"
-                        @update:model-value="(value: string) => model.search(value)"
-                        @keydown="onSearchKeydown"
-                        @clear="onSearchClear"
-                    />
+                    <!-- 层标签与搜索框：宽窗口里上下叠，窄窗口里并排（输出 16）。 -->
+                    <div class="settings-window__side-tools">
+                        <SegmentedControl
+                            v-if="model.bound.value"
+                            class="settings-window__tabs"
+                            data-settings-tabs
+                            full-width
+                            :model-value="model.layer.value"
+                            :options="tabOptions"
+                            :aria-label="text(TEXT.tabs)"
+                            @update:model-value="(value: SegmentedControlValue) => model.setLayer(value as SettingLayer)"
+                        />
+                        <label :for="searchId" class="settings-window__visually-hidden">{{ text(TEXT.search) }}</label>
+                        <Input
+                            :id="searchId"
+                            class="settings-window__search"
+                            data-settings-search
+                            type="search"
+                            size="sm"
+                            icon-class="i-lucide-search"
+                            clearable
+                            :clear-label="text(TEXT.clearSearch)"
+                            :placeholder="text(TEXT.search)"
+                            :model-value="model.query.value"
+                            @update:model-value="(value: string) => model.search(value)"
+                            @keydown="onSearchKeydown"
+                            @clear="onSearchClear"
+                        />
+                    </div>
                     <nav class="settings-window__nav" :aria-label="text(TEXT.nav)" @keydown="onNavKeydown">
-                        <template v-for="(group, index) in model.nav.value" :key="group.category">
-                            <Separator v-if="index > 0" class="settings-window__nav-separator" data-settings-nav-separator />
-                            <Button
+                        <div v-for="group in model.nav.value" :key="group.category" class="settings-window__nav-group" role="group" :aria-labelledby="`${navId}-${group.category}`">
+                            <p :id="`${navId}-${group.category}`" class="settings-window__nav-label" :data-settings-nav-label="group.category">{{ text(GROUP_TITLE[group.category]) }}</p>
+                            <!-- 列表行，不是按钮的外观：没有描边，悬停与当前项各是一层淡底，按下不缩放。 -->
+                            <button
                                 v-for="item in group.items"
                                 :key="item.id"
-                                class="settings-window__nav-item"
-                                :variant="isCurrent(item) ? 'secondary' : 'ghost'"
-                                :icon-class="item.icon"
+                                type="button"
+                                class="settings-window__nav-item nb-ui-focus-ring-inset"
                                 :disabled="navDisabled(item)"
                                 :title="item.unavailable ?? undefined"
                                 :tabindex="item.id === model.section.value ? 0 : -1"
                                 :aria-current="isCurrent(item) ? 'page' : undefined"
                                 :data-settings-nav="item.id"
                                 :data-settings-nav-current="item.id === model.section.value ? '' : undefined"
-                                block
                                 @click="model.select(item.id)"
-                            >{{ item.title }}</Button>
-                        </template>
+                            >
+                                <span :class="item.icon" class="settings-window__nav-icon" aria-hidden="true"></span>
+                                <span class="settings-window__nav-text">{{ item.title }}</span>
+                            </button>
+                        </div>
                     </nav>
                 </div>
                 <Separator orientation="vertical" class="settings-window__divider" />
@@ -320,16 +332,17 @@ function onLeaveOpen(open: boolean): void {
                         <template v-else-if="current.kind === 'search'">
                             <span class="settings-window__visually-hidden" role="status" aria-live="polite" data-settings-result-count>{{ resultCount }}</span>
                             <!-- 换搜索词就重建：留在行里的不合格值随之丢掉（同换分区）。 -->
-                            <SettingsListSection v-if="current.list.groups.length > 0" :key="current.query" :window="model" :view="current.list" />
+                            <SettingsListSection v-if="current.list.groups.length > 0" :key="current.query" :window="model" :view="current.list" :highlight="current.words" />
                             <section v-if="current.pages.length > 0" class="settings-window__hits" data-settings-page-hits>
                                 <h3 class="settings-window__hits-title">{{ text(TEXT.pages) }}</h3>
-                                <div v-for="hit in current.pages" :key="hit.id" class="settings-window__hit" :data-settings-page-hit="hit.id">
-                                    <div class="settings-window__hit-text">
-                                        <span class="settings-window__hit-title">{{ hit.title }}</span>
-                                        <span v-if="hit.description !== null" class="settings-window__description">{{ hit.description }}</span>
-                                    </div>
-                                    <Button size="sm" variant="secondary" :aria-label="text(TEXT.openHit, {title: hit.title})" @click="openHit(hit.id)">{{ text(TEXT.openPage) }}</Button>
-                                </div>
+                                <!-- 一条一行，整行可点；右端“打开 ›”。 -->
+                                <button v-for="hit in current.pages" :key="hit.id" type="button" class="settings-window__hit nb-ui-focus-ring-inset" :aria-label="text(TEXT.openHit, {title: hit.title})" :data-settings-page-hit="hit.id" @click="openHit(hit.id)">
+                                    <span class="settings-window__hit-text">
+                                        <span class="settings-window__hit-title"><HighlightedText :text="hit.title" :words="current.words" /></span>
+                                        <span v-if="hit.description !== null" class="settings-window__description"><HighlightedText :text="hit.description" :words="current.words" /></span>
+                                    </span>
+                                    <span class="settings-window__hit-open" aria-hidden="true">{{ text(TEXT.openPage) }}<span class="i-lucide-chevron-right"></span></span>
+                                </button>
                             </section>
                             <p v-if="current.list.groups.length === 0 && current.pages.length === 0" class="settings-window__unavailable" data-settings-no-results role="status">{{ text(TEXT.noResults) }}</p>
                         </template>
@@ -371,9 +384,9 @@ function onLeaveOpen(open: boolean): void {
 </template>
 
 <style scoped>
-/* 左栏的宽度与内边距：层标签、搜索框与分区条目都按它们对齐（t80 定稿），改一处三者一起动。 */
+/* 左栏的宽度与内边距：层标签、搜索框与分区条目都按它们对齐，改一处三者一起动。 */
 .settings-window {
-    --settings-side-width: 180px;
+    --settings-side-width: 212px;
     --settings-side-inset-start: var(--space-2);
     --settings-side-inset-end: var(--space-5);
 
@@ -381,16 +394,7 @@ function onLeaveOpen(open: boolean): void {
     height: 100%;
     min-height: 0;
     flex-direction: column;
-    gap: var(--space-5);
     container-type: inline-size;
-}
-
-/* 与左栏的搜索框、条目同宽、同一左边缘（t80 定稿）：它管整个窗口写到哪一层，放在左栏上方。 */
-.settings-window__tabs {
-    align-self: flex-start;
-    flex-shrink: 0;
-    width: calc(var(--settings-side-width) - var(--settings-side-inset-start) - var(--settings-side-inset-end));
-    margin-left: var(--settings-side-inset-start);
 }
 
 .settings-window__split {
@@ -399,19 +403,30 @@ function onLeaveOpen(open: boolean): void {
     flex: 1;
 }
 
-/* 左栏：搜索框在上，分区在下、条目多时自己滚动。 */
+/* 左栏：层标签与搜索框在上，分区在下、条目多时自己滚动。 */
 .settings-window__side {
     display: flex;
     width: var(--settings-side-width);
     min-height: 0;
     flex-shrink: 0;
     flex-direction: column;
+    gap: var(--space-5);
+}
+
+.settings-window__side-tools {
+    display: flex;
+    flex-direction: column;
     gap: var(--space-3);
+    padding-right: var(--settings-side-inset-end);
+    padding-left: var(--settings-side-inset-start);
+}
+
+.settings-window__tabs {
+    flex-shrink: 0;
 }
 
 .settings-window__search {
     flex-shrink: 0;
-    margin: var(--space-2) var(--settings-side-inset-end) 0 var(--settings-side-inset-start);
     width: auto;
 }
 
@@ -424,21 +439,82 @@ function onLeaveOpen(open: boolean): void {
     white-space: nowrap;
 }
 
-/* 左栏四周留出焦点环的余量：它条目多时自己滚动，滚动容器会裁掉贴边的环。 */
+/* 左栏四周留出焦点线的余量：它条目多时自己滚动，滚动容器会裁掉贴边的线。 */
 .settings-window__nav {
     display: flex;
     min-height: 0;
     flex: 1;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: var(--space-5);
     overflow-y: auto;
     padding: var(--space-2) var(--settings-side-inset-end) var(--space-2) var(--settings-side-inset-start);
+}
+
+.settings-window__nav-group {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.settings-window__nav-label {
+    margin: 0 0 var(--space-2);
+    padding-inline: var(--space-4);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+    line-height: var(--leading-ui);
+    color: var(--text-muted);
+}
+
+/* 悬停与当前项都是半透明叠色（浮层上的高亮规则，不用实色）；点下不缩放、不位移。 */
+.settings-window__nav-item {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--space-4);
+    min-height: var(--control-h-sm);
+    padding: 0 var(--space-4);
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--text-sm);
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+
+.settings-window__nav-item:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--text-main) 6%, transparent);
+    color: var(--text-main);
+}
+
+.settings-window__nav-item[aria-current="page"] {
+    background: var(--overlay-item-active);
+    color: var(--text-main);
+    font-weight: var(--weight-medium);
+}
+
+.settings-window__nav-item:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.settings-window__nav-icon {
+    flex-shrink: 0;
+    font-size: var(--text-lg);
+}
+
+.settings-window__nav-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .settings-window__hits {
     display: flex;
     flex-direction: column;
-    gap: var(--space-3);
 }
 
 /* 跟在设置项的结果后面时隔开一段，同分区里的小组。 */
@@ -447,7 +523,7 @@ function onLeaveOpen(open: boolean): void {
 }
 
 .settings-window__hits-title {
-    margin: 0;
+    margin: 0 0 var(--space-2);
     padding-bottom: var(--space-3);
     border-bottom: var(--border-w) solid var(--divider);
     font-size: var(--text-xs);
@@ -456,11 +532,27 @@ function onLeaveOpen(open: boolean): void {
     color: var(--text-secondary);
 }
 
+/* 页面命中：整行是一个按钮，悬停一层淡底，向两侧探出一点好让文字与别的行对齐。 */
 .settings-window__hit {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-4);
+    gap: var(--space-5);
+    width: calc(100% + 2 * var(--space-4));
+    min-height: 48px;
+    margin-inline: calc(-1 * var(--space-4));
+    padding: var(--space-4);
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.settings-window__hit:hover {
+    background: color-mix(in srgb, var(--text-main) 5%, transparent);
 }
 
 .settings-window__hit-text {
@@ -476,13 +568,13 @@ function onLeaveOpen(open: boolean): void {
     color: var(--text-main);
 }
 
-.settings-window__nav-item {
+.settings-window__hit-open {
+    display: inline-flex;
     flex-shrink: 0;
-    justify-content: flex-start;
-}
-
-.settings-window__nav-separator {
-    margin-block: var(--space-4);
+    align-items: center;
+    gap: var(--space-1);
+    font-size: var(--text-sm);
+    color: var(--accent-text);
 }
 
 .settings-window__divider {
@@ -495,10 +587,10 @@ function onLeaveOpen(open: boolean): void {
     flex: 1;
 }
 
-/* 内容列：左边留出已修改竖线的位置（SettingsRow 把它画在行左边 --space-5 处）。 */
+/* 内容列：左右内边距相同，标题与行的左边就是它的左边。 */
 .settings-window__column {
     max-width: 768px;
-    padding: var(--space-2) var(--space-6) var(--space-6) var(--space-7);
+    padding: var(--space-2) var(--space-6) var(--space-6);
 }
 
 .settings-window__fill {
@@ -507,7 +599,7 @@ function onLeaveOpen(open: boolean): void {
     min-height: 0;
     flex: 1;
     flex-direction: column;
-    padding: var(--space-2) var(--space-6) 0 var(--space-7);
+    padding: var(--space-2) var(--space-6) 0;
 }
 
 .settings-window__fill-body {
@@ -534,30 +626,56 @@ function onLeaveOpen(open: boolean): void {
     padding: var(--space-6);
 }
 
-/* 窄容器（手机宽度的画布）：左栏移到上方、条目换行，右边不封顶。设置窗口只做桌面宽度，这一档只保证不横向溢出。 */
+/*
+ * 窄窗口（窗口自己比 600px 窄，输出 16）：左栏变成顶上两行，第一行层标签与搜索框并排，第二行分区横排、可以横向滚动，
+ * 不显示组标题与图标；右边在左栏下面，不再封顶。判据是窗口自己的宽度（`.settings-window` 是尺寸容器），不是屏幕宽度。
+ */
 @container (max-width: 600px) {
     .settings-window__split {
         flex-direction: column;
         overflow-y: auto;
     }
 
+    /* 四周留出焦点光晕的余量：左栏在会滚动的 `__split` 里，贴着它的边会把标签与搜索框的光晕裁掉。 */
     .settings-window__side {
         width: auto;
+        gap: var(--space-3);
+        padding-top: var(--space-4);
+        border-bottom: var(--border-w) solid var(--divider);
+    }
+
+    .settings-window__side-tools {
+        flex-direction: row;
+        align-items: center;
+        padding-inline: var(--space-4);
+    }
+
+    .settings-window__tabs {
+        flex: 0 0 140px;
+        width: 140px;
+    }
+
+    .settings-window__search {
+        min-width: 0;
+        flex: 1 1 auto;
     }
 
     .settings-window__nav {
-        width: auto;
+        flex: none;
         flex-direction: row;
-        flex-wrap: wrap;
-        overflow: visible;
-        padding: var(--space-2);
+        gap: var(--space-1);
+        overflow: auto hidden;
+        padding-inline: var(--space-4);
+        scrollbar-width: none;
     }
 
-    .settings-window__nav-item {
-        width: auto;
+    .settings-window__nav-group {
+        flex-direction: row;
+        gap: var(--space-1);
     }
 
-    .settings-window__nav-separator,
+    .settings-window__nav-label,
+    .settings-window__nav-icon,
     .settings-window__divider {
         display: none;
     }
@@ -570,7 +688,7 @@ function onLeaveOpen(open: boolean): void {
     .settings-window__column,
     .settings-window__fill {
         max-width: none;
-        padding-inline: var(--space-6);
+        padding-top: var(--space-5);
     }
 }
 </style>

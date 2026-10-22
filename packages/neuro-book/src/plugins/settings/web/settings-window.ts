@@ -89,6 +89,11 @@ export interface SettingsListGroup {
     /** 小组 id；分区最前、没有小标题的一组为 null，“其它”里是声明者插件 id。 */
     readonly id: string | null;
     readonly title: string | null;
+    /**
+     * 所属分区名：只有搜索结果里的组带（组标题写“分区名 › 小组名”，输出 21）；分区最前、没有小标题的一组，`title`
+     * 就是分区名、这里为 null。
+     */
+    readonly parent?: string | null;
     readonly settings: ReadonlyArray<WindowSetting>;
 }
 
@@ -119,8 +124,8 @@ export type SettingsSectionView =
     | (SectionHeading & {readonly kind: "page"; readonly layout: "column" | "fill"})
     /** 设置文件视图（输出 23）：`layer` 是它编辑的那一层，`path` 是这一层的文件路径（层快照带时，用户层不带）。 */
     | (SectionHeading & {readonly kind: "file"; readonly layer: SettingLayer; readonly path: string | null})
-    /** 搜索结果（输出 21）：`list` 每个命中的 list 分区一组，组标题是分区名；`id` 是 `search`。 */
-    | (SectionHeading & {readonly kind: "search"; readonly query: string; readonly list: SettingsListView; readonly pages: ReadonlyArray<SettingsPageHit>});
+    /** 搜索结果（输出 21）：`list` 按分区与小组分组；`words` 是搜索词拆成的词（小写），标题与说明里命中的字据此标底色；`id` 是 `search`。 */
+    | (SectionHeading & {readonly kind: "search"; readonly query: string; readonly words: ReadonlyArray<string>; readonly list: SettingsListView; readonly pages: ReadonlyArray<SettingsPageHit>});
 
 /** 会离开当前页面、因此先要确认放弃未保存改动的动作（输出 22）。 */
 export type SettingsLeaveTarget =
@@ -234,10 +239,10 @@ export interface SettingsWindow {
 }
 
 const TEXT = {
-    otherTitle: {"zh-CN": "其它", "en-US": "Other"},
-    otherDescription: {"zh-CN": "没有归入分区的设置，按声明它的插件分组", "en-US": "Settings that belong to no section, grouped by plugin"},
-    userOnlySection: {"zh-CN": "这个分区的设置只能在用户设置里改", "en-US": "Settings in this section can only be changed in your settings"},
-    projectOnlySection: {"zh-CN": "这个分区的设置只能在本作品里设置", "en-US": "Settings in this section can only be set for a book"},
+    otherTitle: {"zh-CN": "插件设置", "en-US": "Plugin Settings"},
+    otherDescription: {"zh-CN": "未提供独立分区的插件设置", "en-US": "Settings from plugins that have no section of their own"},
+    userOnlySection: {"zh-CN": "这个分区的设置仅可在用户设置中修改", "en-US": "Settings in this section can only be changed in your settings"},
+    projectOnlySection: {"zh-CN": "这个分区的设置仅可在本作品中设置", "en-US": "Settings in this section can only be set for a book"},
     emptySection: {"zh-CN": "这个分区还没有设置项", "en-US": "This section has no settings yet"},
     unknownSection: {"zh-CN": "设置里没有分区 {section}", "en-US": "There is no settings section {section}"},
     noProject: {"zh-CN": "这个窗口没有打开作品，没有本作品的设置", "en-US": "No book is open in this window, so there are no book settings"},
@@ -624,11 +629,16 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
                 }
                 continue;
             }
-            const hits = entry.groups.flatMap((group) => group.settings).filter((setting) => allowed(setting) && matches(settingText(setting), words.value));
-            if (hits.length > 0) groups.push({id: entry.id, title, settings: hits});
+            for (const group of entry.groups) {
+                const hits = group.settings.filter((setting) => allowed(setting) && matches(settingText(setting), words.value));
+                if (hits.length === 0) continue;
+                const groupTitle = group.title === null ? null : textOf(group.title, options.locale.value);
+                // 同一个分区的几个小组各是一组，id 要区分开（键与 `data-settings-group`）。
+                groups.push({id: `${entry.id}#${group.id ?? ""}`, title: groupTitle ?? title, parent: groupTitle === null ? null : title, settings: hits});
+            }
         }
         const heading = {id: SEARCH_VIEW_ID, title: text(TEXT.searchTitle), description: null, unavailable: null};
-        return {...heading, kind: "search", query: query.value, list: {...heading, kind: "list", groups, excluded: []}, pages: pageHits};
+        return {...heading, kind: "search", query: query.value, words: words.value, list: {...heading, kind: "list", groups, excluded: []}, pages: pageHits};
     };
     const current = computed(() => {
         if (words.value.length > 0) return searchView(layer.value);

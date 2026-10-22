@@ -5,6 +5,7 @@
  */
 
 import {flushPromises, mount} from "@vue/test-utils";
+import {Type} from "typebox";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {defineComponent, h, onBeforeUnmount, onMounted, onUnmounted, ref} from "vue";
 import type {PropType} from "vue";
@@ -17,6 +18,7 @@ import {modelsSettings} from "nbook/plugins/lab/web/fixtures/settings-scene/scen
 import type {SettingsWindowSceneId} from "nbook/plugins/lab/web/fixtures/settings-scene/scene-settings";
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import {appearanceSetting, themeSetting} from "nbook/plugins/workbench/shared/contracts";
+import {defineSetting} from "nbook/shared/settings";
 import type {SettingDefinition} from "nbook/shared/settings";
 import SettingsPageActions from "nbook/ui/settings/SettingsPageActions.vue";
 import {usePageChrome} from "nbook/ui/settings/page-chrome";
@@ -78,10 +80,9 @@ function describedText(element: Element): string {
 }
 
 describe("SettingsWindow", () => {
-    it("左栏三组、组间分隔线；绑定作品时有“用户 | 本作品”，没绑定没有；外观分区按小组画控件", async () => {
+    it("左栏三组各有组标题；绑定作品时有“用户 | 本作品”，没绑定没有；外观分区按小组画控件", async () => {
         await scene("user");
         expect(navIds()).toEqual(["nbook.appearance", "example.models.main", "example.snippets.main", "other", "file"]);
-        expect(all("[data-settings-nav-separator]")).toHaveLength(2);
         expect(one("[data-settings-nav-current]").dataset.settingsNav).toBe("nbook.appearance");
         expect(document.body.querySelector("[data-settings-tabs]")).not.toBeNull();
         expect(one("[data-settings-section='nbook.appearance']").textContent).toContain("界面的主题、明暗与语言");
@@ -403,7 +404,7 @@ describe("搜索与未保存保护（输出 21、22）", () => {
         const {host} = await scene("other");
         host.window.search("片段");
         await flushPromises();
-        const hit = one("[data-settings-page-hit='example.snippets.main'] button");
+        const hit = one("[data-settings-page-hit='example.snippets.main']");
         expect(hit.getAttribute("aria-label")).toBe("打开：常用片段");
         hit.click();
         await flushPromises();
@@ -1076,7 +1077,7 @@ describe("标题区：层警告、定位与页面级操作（输出 3、13、19�
         one("[data-settings-nav='other']").click();
         await flushPromises();
         expect(events).toEqual(["unmount"]);
-        expect(titleText()).toBe("其它");
+        expect(titleText()).toBe("插件设置");
         one("[data-settings-nav='x.page.main']").click();
         await flushPromises();
         await vi.waitFor(() => expect(document.body.querySelector("[data-claim-page]")).not.toBeNull());
@@ -1127,5 +1128,190 @@ describe("标题区：层警告、定位与页面级操作（输出 3、13、19�
         description.focus();
         description.dispatchEvent(new PointerEvent("pointermove", {bubbles: true, pointerType: "mouse"}));
         await vi.waitFor(() => expect(document.body.querySelector(".nb-ui-tooltip-surface")?.textContent).toContain("页面的说明"));
+    });
+});
+
+describe("左栏、搜索结果与命中高亮（输出 1、21）", () => {
+    const text = (zh: string, en: string = zh) => ({"zh-CN": zh, "en-US": en});
+    const define = (name: string, title: string, options: {description?: string; section: string; group?: string}) => defineSetting({
+        plugin: "x.editor",
+        name,
+        schema: Type.Integer(),
+        default: 14,
+        title: text(title),
+        ...(options.description === undefined ? {} : {description: text(options.description)}),
+        section: options.section,
+        ...(options.group === undefined ? {} : {group: options.group}),
+    }) as SettingDefinition<unknown>;
+
+    /** 一个“编辑器”分区（带“终端”小组）、一个“常用片段”页面分区，设置的文字里有大小写混写与要转义的字符。 */
+    function searchHost() {
+        const fontSize = define("fontSize", "字号", {description: "代码里的字号与行距；字号越大越清楚", section: "x.editor.main"});
+        const termSize = define("termSize", "终端字号", {section: "x.editor.main", group: "terminal"});
+        const mixed = define("mixed", "Font Size 字体", {description: "FONT family 与 font weight", section: "x.editor.main"});
+        const special = define("special", "<b>粗体</b> & (a+b)*", {description: "1 < 2 && 3 > 2 [x] .*", section: "x.editor.main"});
+        const created = createSettingsHost({
+            settings: [fontSize, termSize, mixed, special].map((definition) => ({plugin: "x.editor", definition})),
+            sections: [
+                {id: "x.editor.main", plugin: "x.editor", kind: "list", declaration: {title: text("编辑器"), icon: "i-lucide-square", category: "app", groups: [{id: "terminal", title: text("终端")}]}},
+                {id: "x.snippets.main", plugin: "x.snippets", kind: "page", declaration: {title: text("常用片段"), description: text("插入片段时的字号与快捷键"), icon: "i-lucide-square", category: "plugins"}},
+            ],
+            notify: () => undefined,
+            report: () => undefined,
+        });
+        cleanup.push(() => created.dispose());
+        created.window.openWindow({section: "x.editor.main"});
+        render(created.window);
+        return created;
+    }
+
+    /** 一个元素里所有 `<mark>` 的字。 */
+    const marks = (element: Element | null): string[] => [...(element?.querySelectorAll("mark") ?? [])].map((mark) => mark.textContent ?? "");
+    const rowOf = (key: string): HTMLElement => one(`[data-settings-row="${key}"]`);
+    const titleOf = (key: string): HTMLElement => rowOf(key).querySelector("label") as HTMLElement;
+    const descriptionOf = (key: string): HTMLElement | null => rowOf(key).querySelector(".settings-row__description");
+    async function searchFor(created: ReturnType<typeof searchHost>, query: string): Promise<void> {
+        created.window.search(query);
+        await flushPromises();
+    }
+
+    it("左栏三组的上方各有一个组标题，顺序是通用、写作助手、扩展；组标题之后才是这一组的分区；不再有分隔线", async () => {
+        await scene("user");
+        const order = all("[data-settings-nav-label], [data-settings-nav]").map((element) => element.dataset.settingsNavLabel === undefined ? element.dataset.settingsNav : `组：${element.textContent}`);
+        expect(order).toEqual(["组：通用", "nbook.appearance", "组：写作助手", "example.models.main", "组：扩展", "example.snippets.main", "other", "file"]);
+        expect(document.body.querySelector("[data-settings-nav-separator]")).toBeNull();
+    });
+
+    it("英文界面的组标题；没有归入分区的设置在左栏与标题里是“插件设置”（id 仍是 other），说明是“未提供独立分区的插件设置”", async () => {
+        const created = createSettingsHost({
+            settings: [define("orphan", "孤儿", {section: "x.nowhere"})].map((definition) => ({plugin: "x.editor", definition})),
+            sections: [
+                {id: "x.a", plugin: "x.a", kind: "list", declaration: {title: text("甲", "A"), icon: "i-lucide-square", category: "app"}},
+                {id: "x.b", plugin: "x.b", kind: "list", declaration: {title: text("乙", "B"), icon: "i-lucide-square", category: "ai"}},
+                {id: "x.c", plugin: "x.c", kind: "list", declaration: {title: text("丙", "C"), icon: "i-lucide-square", category: "plugins"}},
+            ],
+            locale: "en-US",
+            notify: () => undefined,
+            report: () => undefined,
+        });
+        cleanup.push(() => created.dispose());
+        created.window.openWindow({section: "other"});
+        render(created.window);
+        await flushPromises();
+        expect(all("[data-settings-nav-label]").map((label) => label.textContent)).toEqual(["General", "Writing assistant", "Extensions"]);
+        expect(one("[data-settings-nav='other']").textContent?.trim()).toBe("Plugin Settings");
+        expect(one("[data-settings-heading] h2").textContent).toBe("Plugin Settings");
+        expect(one("[data-settings-heading-description]").textContent).toBe("Settings from plugins that have no section of their own");
+
+        cleanup.splice(0).forEach((dispose) => dispose());
+        document.body.innerHTML = "";
+        await scene("other");
+        expect(one("[data-settings-nav='other']").textContent?.trim()).toBe("插件设置");
+        expect(one("[data-settings-heading] h2").textContent).toBe("插件设置");
+        expect(one("[data-settings-heading-description]").textContent).toBe("未提供独立分区的插件设置");
+    });
+
+    it("左栏的分区是列表行：当前项标 aria-current、悬停与按下都没有缩放（类与行内样式里没有 scale）", async () => {
+        await scene("user");
+        const items = all("[data-settings-nav]");
+        expect(items.filter((item) => item.getAttribute("aria-current") === "page").map((item) => item.dataset.settingsNav)).toEqual(["nbook.appearance"]);
+        const target = items[1]!;
+        for (const type of ["pointerenter", "pointerdown", "mousedown"]) target.dispatchEvent(new MouseEvent(type, {bubbles: true}));
+        for (const item of items) {
+            expect(item.className).not.toMatch(/scale|active:/u);
+            expect(item.getAttribute("style") ?? "").not.toMatch(/scale|transform/u);
+        }
+    });
+
+    it("搜索结果的组标题：有小组写“分区名 › 小组名”（分区名淡色单独成段），没有小组只写分区名；页面命中在最后的“页面”组，每条一行、右端“打开 ›”", async () => {
+        const created = searchHost();
+        await searchFor(created, "字号");
+        const groups = all("[data-settings-group]");
+        expect(groups.map((group) => group.dataset.settingsGroup)).toEqual(["x.editor.main#", "x.editor.main#terminal"]);
+        const [plain, grouped] = groups.map((group) => group.querySelector("h3")!);
+        expect(plain!.textContent?.trim()).toBe("编辑器");
+        expect(plain!.querySelector(".settings-list-section__crumb")).toBeNull();
+        expect(grouped!.textContent?.replace(/\s+/gu, " ").trim()).toBe("编辑器 › 终端");
+        expect(grouped!.querySelector(".settings-list-section__crumb")?.textContent).toBe("编辑器 ›");
+
+        const pages = one("[data-settings-page-hits]");
+        expect(pages.querySelector("h3")?.textContent).toBe("页面");
+        // “页面”组排在所有设置组之后。
+        expect(one("[data-settings-list]").compareDocumentPosition(pages) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        const hits = all("[data-settings-page-hit]");
+        expect(hits.map((hit) => hit.dataset.settingsPageHit)).toEqual(["x.snippets.main"]);
+        expect(hits[0]!.tagName).toBe("BUTTON");
+        expect(hits[0]!.textContent).toContain("常用片段");
+        expect(hits[0]!.textContent?.trim().endsWith("打开")).toBe(true);
+        expect(one("[data-settings-result-count]").textContent).toBe("2 个设置、1 个页面");
+    });
+
+    it("高亮：标题与说明各自标出命中的字，每个词的所有命中都标；文本总值不变，list 行与页面命中都一样", async () => {
+        const created = searchHost();
+        await searchFor(created, "字号");
+        expect(marks(titleOf("x.editor/fontSize"))).toEqual(["字号"]);
+        expect(titleOf("x.editor/fontSize").textContent).toBe("字号");
+        expect(marks(descriptionOf("x.editor/fontSize"))).toEqual(["字号", "字号"]);
+        expect(descriptionOf("x.editor/fontSize")?.textContent).toBe("代码里的字号与行距；字号越大越清楚");
+        expect(marks(titleOf("x.editor/termSize"))).toEqual(["字号"]);
+        expect(titleOf("x.editor/termSize").textContent).toBe("终端字号");
+        // 页面命中：标题没有命中，说明里命中。
+        const hit = one("[data-settings-page-hit='x.snippets.main']");
+        expect(marks(hit.querySelector(".settings-window__hit-title"))).toEqual([]);
+        expect(marks(hit.querySelector(".settings-window__description"))).toEqual(["字号"]);
+        expect(hit.querySelector(".settings-window__description")?.textContent).toBe("插入片段时的字号与快捷键");
+
+        // 多个词：每个词各自标出；不是每个词都命中的项不在结果里。
+        await searchFor(created, "字号 行距");
+        expect(all("[data-settings-row]").map((row) => row.dataset.settingsRow)).toEqual(["x.editor/fontSize"]);
+        expect(marks(titleOf("x.editor/fontSize"))).toEqual(["字号"]);
+        expect(marks(descriptionOf("x.editor/fontSize"))).toEqual(["字号", "行距", "字号"]);
+        expect(descriptionOf("x.editor/fontSize")?.textContent).toBe("代码里的字号与行距；字号越大越清楚");
+
+        // 页面命中里两个词：标题与说明各标各的。
+        await searchFor(created, "片段 字号");
+        expect(marks(one("[data-settings-page-hit] .settings-window__hit-title"))).toEqual(["片段"]);
+        expect(marks(one("[data-settings-page-hit] .settings-window__description"))).toEqual(["片段", "字号"]);
+    });
+
+    it("高亮不分大小写，标出的是原文的写法；只靠键命中的项不标字", async () => {
+        const created = searchHost();
+        await searchFor(created, "FONT");
+        expect(marks(titleOf("x.editor/mixed"))).toEqual(["Font"]);
+        expect(titleOf("x.editor/mixed").textContent).toBe("Font Size 字体");
+        expect(marks(descriptionOf("x.editor/mixed"))).toEqual(["FONT", "font"]);
+        expect(descriptionOf("x.editor/mixed")?.textContent).toBe("FONT family 与 font weight");
+        // “字号”的键 x.editor/fontSize 里有 font：列出，但标题与说明里没有这个词。
+        expect(marks(rowOf("x.editor/fontSize"))).toEqual([]);
+    });
+
+    it("高亮对特殊字符：尖括号、&、正则元字符都按字面找、按文字显示，不生成元素，文本总值不变", async () => {
+        const created = searchHost();
+        const original = {title: "<b>粗体</b> & (a+b)*", description: "1 < 2 && 3 > 2 [x] .*"};
+        const expectUnchanged = (): void => {
+            expect(titleOf("x.editor/special").textContent).toBe(original.title);
+            expect(descriptionOf("x.editor/special")?.textContent).toBe(original.description);
+            // 用户文字里的标签不会成为元素。
+            expect(rowOf("x.editor/special").querySelector("b")).toBeNull();
+        };
+        await searchFor(created, "<b>");
+        expect(marks(titleOf("x.editor/special"))).toEqual(["<b>"]);
+        expect(marks(descriptionOf("x.editor/special"))).toEqual([]);
+        expectUnchanged();
+        await searchFor(created, "&");
+        expect(marks(titleOf("x.editor/special"))).toEqual(["&"]);
+        expect(marks(descriptionOf("x.editor/special"))).toEqual(["&", "&"]);
+        expectUnchanged();
+        await searchFor(created, "(a+b)*");
+        expect(marks(titleOf("x.editor/special"))).toEqual(["(a+b)*"]);
+        expectUnchanged();
+        // `.*` 不是“任意文字”：只标原文里的那两个字符。
+        await searchFor(created, ".*");
+        expect(marks(titleOf("x.editor/special"))).toEqual([]);
+        expect(marks(descriptionOf("x.editor/special"))).toEqual([".*"]);
+        expectUnchanged();
+        await searchFor(created, "[x]");
+        expect(marks(descriptionOf("x.editor/special"))).toEqual(["[x]"]);
+        expectUnchanged();
     });
 });

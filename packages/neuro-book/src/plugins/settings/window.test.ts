@@ -259,7 +259,7 @@ describe("左栏与配置项的落位（输出 1、2、8、12）", () => {
         window.select(OTHER_SECTION_ID);
         const view = window.current.value;
         if (view?.kind !== "list") throw new Error("“其它”应是 list 分区");
-        expect(view.title).toBe("其它");
+        expect(view.title).toBe("插件设置");
         expect(view.groups.map((group) => [group.title, keysOf(group.settings)])).toEqual([
             ["x.misc", ["x.misc/flag"]],
             ["x.notes", ["x.notes/loose", "x.notes/orphan"]],
@@ -284,8 +284,8 @@ describe("左栏与配置项的落位（输出 1、2、8、12）", () => {
         window.setLayer("project");
         const items = new Map(window.nav.value.flatMap((group) => group.items).map((item) => [item.id, item.unavailable]));
         expect(items.get("x.notes.main")).toBeNull();
-        expect(items.get("x.notes.user")).toBe("这个分区的设置只能在用户设置里改");
-        expect(items.get("x.notes.page")).toBe("这个分区的设置只能在用户设置里改");
+        expect(items.get("x.notes.user")).toBe("这个分区的设置仅可在用户设置中修改");
+        expect(items.get("x.notes.page")).toBe("这个分区的设置仅可在用户设置中修改");
         window.select("x.notes.main");
         const view = window.current.value;
         if (view?.kind !== "list") throw new Error("x.notes.main 应是 list 分区");
@@ -293,7 +293,7 @@ describe("左栏与配置项的落位（输出 1、2、8、12）", () => {
         expect(view.excluded).toEqual(["戊"]);
         // 当前分区在新标签下不可用：右边原位给原因（输出 8）。
         window.select("x.notes.user");
-        expect(window.current.value?.unavailable).toBe("这个分区的设置只能在用户设置里改");
+        expect(window.current.value?.unavailable).toBe("这个分区的设置仅可在用户设置中修改");
         window.setLayer("user");
         expect(window.current.value?.unavailable).toBeNull();
     });
@@ -440,15 +440,16 @@ describe("搜索（输出 21）", () => {
         choices: [{value: "calm", title: {"zh-CN": "平静", "en-US": "Calm"}}, {value: "tense", title: {"zh-CN": "紧张", "en-US": "Tense"}}],
     });
     const keyed = defineSetting({plugin: "x.notes", name: "fontFamily", schema: Type.String(), default: "", title: {"zh-CN": "字体", "en-US": "Font"}, section: "x.notes.main", layers: ["user"]});
+    const sized = defineSetting({plugin: "x.notes", name: "fontSize", schema: Type.Integer(), default: 14, title: {"zh-CN": "字号", "en-US": "Font Size"}, section: "x.notes.main", group: "editor"});
     const onPage = defineSetting({plugin: "x.notes", name: "endpoint", schema: Type.String(), default: "", title: {"zh-CN": "接口地址", "en-US": "Endpoint"}, section: "x.notes.page"});
 
     async function searching(bound = false) {
         const sections = {
-            "x.notes.main": list({title: title("笔记")}),
+            "x.notes.main": list({title: title("笔记"), groups: [{id: "editor", title: title("编辑器")}]}),
             "x.notes.page": pageSection({title: {"zh-CN": "模型服务", "en-US": "Model Providers"}, keywords: [{"zh-CN": "密钥", "en-US": "API key"}]}),
             "x.notes.user": pageSection({title: title("只给用户"), layers: ["user"], keywords: [title("密钥")]}),
         };
-        const started = await start([contributor("x.notes", sections, toggle(), [tones, keyed, onPage])], bound);
+        const started = await start([contributor("x.notes", sections, toggle(), [tones, keyed, sized, onPage])], bound);
         const opened = windowFor(started.probe, bound);
         opened.window.openWindow({section: "x.notes.main"});
         return opened.window;
@@ -464,12 +465,27 @@ describe("搜索（输出 21）", () => {
         const window = await searching();
         for (const query of ["语气", "TONE", "口吻", "x.notes/tone", "紧张", "Tense", "voice continuing"]) {
             window.search(query);
-            expect(results(window).groups, query).toEqual([["x.notes.main", "笔记", ["x.notes/tone"]]]);
+            expect(results(window).groups, query).toEqual([["x.notes.main#", "笔记", ["x.notes/tone"]]]);
         }
         window.search("语气 字体");
         expect(results(window)).toEqual({groups: [], pages: []});
         window.search("fontfamily");
-        expect(results(window).groups).toEqual([["x.notes.main", "笔记", ["x.notes/fontFamily"]]]);
+        expect(results(window).groups).toEqual([["x.notes.main#", "笔记", ["x.notes/fontFamily"]]]);
+    });
+
+    it("结果按分区与小组各成一组：有小组时组标题是小组名、所属分区名另给，没有小组时组标题就是分区名；词拆开交给呈现", async () => {
+        const window = await searching();
+        window.search("x.notes/font");
+        const view = window.current.value;
+        if (view?.kind !== "search") throw new Error("应是搜索结果");
+        expect(view.words).toEqual(["x.notes/font"]);
+        expect(view.list.groups.map((group) => [group.id, group.title, group.parent ?? null, keysOf(group.settings)])).toEqual([
+            ["x.notes.main#", "笔记", null, ["x.notes/fontFamily"]],
+            ["x.notes.main#editor", "编辑器", "笔记", ["x.notes/fontSize"]],
+        ]);
+        window.search("  Voice   CONTINUING ");
+        const split = window.current.value;
+        expect(split?.kind === "search" ? split.words : null).toEqual(["voice", "continuing"]);
     });
 
     it("page 分区按标题、说明、keywords 与指向它的配置项命中，只给“打开”；只列当前标签下可用的", async () => {

@@ -143,7 +143,7 @@ export function modelChoice(provider: string, model: string): string {
 export type SettingsWindowSceneId =
     | "user" | "project" | "unbound" | "user-invalid" | "project-invalid" | "unreachable" | "write-failed" | "other"
     | "choices" | "choices-lazy" | "choices-unavailable" | "file" | "file-invalid"
-    | "page-declared" | "page-blocked" | "page-failed" | "page-stopped" | "page-load-failed" | "page-column" | "page-fill";
+    | "search" | "page-declared" | "page-blocked" | "page-failed" | "page-stopped" | "page-load-failed" | "page-column" | "page-fill";
 
 export const SETTINGS_WINDOW_SCENES: ReadonlyArray<{readonly id: SettingsWindowSceneId; readonly label: string}> = [
     {id: "user", label: "用户标签：已修改、被本作品覆盖"},
@@ -159,6 +159,7 @@ export const SETTINGS_WINDOW_SCENES: ReadonlyArray<{readonly id: SettingsWindowS
     {id: "choices-unavailable", label: "动态选项：提供者的入口激活失败"},
     {id: "file", label: "设置文件：整份编辑用户层的文件（带注释）"},
     {id: "file-invalid", label: "设置文件：层文件有错误（标题区写出错位置，光标在出错处）"},
+    {id: "search", label: "搜索结果：“分区名 › 小组名”的组标题、命中标底色、最后的“页面”组"},
     {id: "page-declared", label: "page 分区：入口还在启动"},
     {id: "page-blocked", label: "page 分区：入口受阻"},
     {id: "page-failed", label: "page 分区：入口激活失败（可重试）"},

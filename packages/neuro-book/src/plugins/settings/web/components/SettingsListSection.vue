@@ -15,6 +15,7 @@ import {reactive, watch} from "vue";
 
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {LocalizedText} from "nbook/shared/localized-text";
+import HighlightedText from "nbook/ui/settings/HighlightedText.vue";
 import {settingsRowState} from "nbook/ui/settings/row-state";
 import type {SettingsRowReason} from "nbook/ui/settings/row-state";
 import SettingsRow from "nbook/ui/settings/SettingsRow.vue";
@@ -25,10 +26,12 @@ import type {WindowSetting} from "../window-source";
 
 defineOptions({name: "SettingsListSection"});
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     window: SettingsWindow;
     view: Extract<SettingsSectionView, {kind: "list"}>;
-}>();
+    /** 搜索结果里要标出的词（小写）：组标题之外，行的标题与说明里命中的字标底色；缺省不标。 */
+    highlight?: ReadonlyArray<string>;
+}>(), {highlight: () => []});
 
 const TEXT = {
     excludedUser: {"zh-CN": "{titles}仅可在用户设置中修改", "en-US": "{titles}: can only be changed in user settings"},
@@ -129,7 +132,11 @@ function excludedText(titles: ReadonlyArray<string>): string {
 <template>
     <div class="settings-list-section" :data-settings-list="view.id" :data-settings-layer="window.layer.value">
         <section v-for="group in view.groups" :key="group.id ?? ''" class="settings-list-section__group" :data-settings-group="group.id ?? ''">
-            <h3 v-if="group.title !== null" class="settings-list-section__group-title">{{ group.title }}</h3>
+            <!-- 搜索结果的组标题是“分区名 › 小组名”：分区名淡色，小组名正常；没有小组时只有分区名，按正常色写。 -->
+            <h3 v-if="group.title !== null" class="settings-list-section__group-title">
+                <span v-if="group.parent != null" class="settings-list-section__crumb">{{ group.parent }} ›</span>
+                {{ group.title }}
+            </h3>
             <SettingsRow
                 v-for="setting in group.settings"
                 :key="setting.definition.key"
@@ -141,6 +148,7 @@ function excludedText(titles: ReadonlyArray<string>): string {
                 :project-title="window.projectTitle.value"
                 :wide="formOf(setting).wide"
                 :reasons="reasonsOf(setting)"
+                :highlight="highlight"
                 @write-failed="(failure) => window.rowFailed(setting, failure)"
             >
                 <div class="settings-list-section__control" :data-settings-width="formOf(setting).wide ? undefined : formOf(setting).width">
@@ -179,6 +187,11 @@ function excludedText(titles: ReadonlyArray<string>): string {
     display: flex;
     flex-direction: column;
     container-type: inline-size;
+}
+
+.settings-list-section__crumb {
+    font-weight: var(--weight-normal);
+    color: var(--text-muted);
 }
 
 .settings-list-section__group-title {

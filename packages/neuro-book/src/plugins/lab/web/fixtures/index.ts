@@ -36,6 +36,7 @@ import type NeuroBookLockup from "nbook/ui/brand/NeuroBookLockup.vue";
 import type NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
 import type NeuroBookMood from "nbook/ui/brand/NeuroBookMood.vue";
 import type JsonViewer from "nbook/ui/JsonViewer.vue";
+import type HighlightedText from "nbook/ui/settings/HighlightedText.vue";
 import type SettingsPageActions from "nbook/ui/settings/SettingsPageActions.vue";
 import type SettingsPageList from "nbook/ui/settings/SettingsPageList.vue";
 import type SettingsRow from "nbook/ui/settings/SettingsRow.vue";
@@ -1102,6 +1103,17 @@ function settingsFixtures(): LabFixture[] {
                 {id: "disabled", label: "有窗口通道、这一层不能写：操作整体停用，可切换恢复"},
             ],
             load: async () => (await import("./SettingsPageActionsFixture.vue")).default,
+        }),
+        defineSubjectFixture<typeof HighlightedText>({
+            component: "HighlightedText",
+            scenes: [
+                {id: "single", label: "一个词：标题里的命中", input: {props: {text: "终端字号", words: ["字号"]}}},
+                {id: "multi", label: "多个词、每个词的所有命中都标", input: {props: {text: "代码里的字号与行距；字号越大越清楚", words: ["字号", "行距"]}}},
+                {id: "case", label: "不分大小写，标出的是原文的写法", input: {props: {text: "Font Size 与 FONT 与 font", words: ["font"]}}},
+                {id: "escaped", label: "尖括号、&、正则元字符按文字显示与查找", input: {props: {text: "<b>粗体</b> & (a+b)* .*", words: ["<b>", "&", "(a+b)*", ".*"]}}},
+                {id: "none", label: "没有命中：原样显示", input: {props: {text: "界面的主题与语言", words: ["字号"]}}},
+            ],
+            subject: () => import("nbook/ui/settings/HighlightedText.vue"),
         }),
         defineSubjectFixture<typeof SettingsPageList>({
             component: "SettingsPageList",

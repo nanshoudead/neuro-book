@@ -70,6 +70,8 @@ interface SceneSpec {
     readonly project?: HostLayer;
     readonly section: string;
     readonly layer?: "user" | "project";
+    /** 打开后立即搜索的词（搜索结果的场景）。 */
+    readonly query?: string;
 }
 
 const BOOK = {values: {"nbook.workbench/appearance": "light"}} satisfies HostLayer;
@@ -88,6 +90,7 @@ const SPECS: Readonly<Record<SettingsWindowSceneId, SceneSpec>> = {
     "choices-unavailable": {user: {}, section: "other"},
     "file": {user: {values: {"nbook.workbench/theme": "macos", "example.notes/interval": 120}, text: USER_FILE_TEXT}, project: BOOK, section: "file"},
     "file-invalid": {user: {values: {"nbook.workbench/theme": "macos"}, text: BROKEN_FILE_TEXT}, project: BOOK, section: "file"},
+    "search": {user: {values: {"nbook.workbench/appearance": "system"}}, project: BOOK, section: APPEARANCE_SECTION, query: "字"},
     "page-declared": {project: BOOK, section: SNIPPETS_SECTION},
     "page-blocked": {project: BOOK, section: SNIPPETS_SECTION},
     "page-failed": {project: BOOK, section: SNIPPETS_SECTION},
@@ -178,7 +181,10 @@ export function createSettingsScene(id: SettingsWindowSceneId, notify: (input: N
     }
     return {
         host,
-        open: () => void host.window.openWindow({section: spec.section, ...(spec.layer === undefined ? {} : {layer: spec.layer})}),
+        open: () => {
+            host.window.openWindow({section: spec.section, ...(spec.layer === undefined ? {} : {layer: spec.layer})});
+            if (spec.query !== undefined) host.window.search(spec.query);
+        },
         deliver,
     };
 }

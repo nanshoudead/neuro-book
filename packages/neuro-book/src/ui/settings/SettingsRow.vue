@@ -12,6 +12,7 @@ import type {DeepReadonly, SettingDefinition, SettingLayer, SettingsFailure, Set
 
 import {isReadOnlySetting, projectOverride, settingsRowState} from "./row-state";
 import type {SettingsRowReason} from "./row-state";
+import HighlightedText from "./HighlightedText.vue";
 import {settingAppliesText, settingValueText} from "./setting-text";
 
 defineOptions({name: "SettingsRow"});
@@ -28,7 +29,9 @@ const props = withDefaults(defineProps<{
      * 最重的（error > warning > muted），提示逐条列出；读屏文字合进插槽的 `describedby`。
      */
     reasons?: ReadonlyArray<SettingsRowReason>;
-}>(), {projectTitle: null, wide: false, reasons: () => []});
+    /** 搜索结果里要标出的词（小写）：标题与说明里命中的字标底色，文字本身不变。缺省不标。 */
+    highlight?: ReadonlyArray<string>;
+}>(), {projectTitle: null, wide: false, reasons: () => [], highlight: () => []});
 
 type RowAction = "reset" | "override" | "remove";
 
@@ -51,8 +54,8 @@ const TEXT = {
     remove: {"zh-CN": "移除本作品的设置", "en-US": "Remove Book Setting"},
     modified: {"zh-CN": "已修改", "en-US": "Modified"},
     readOnly: {"zh-CN": "只读", "en-US": "Read-only"},
-    overridden: {"zh-CN": "《{title}》已单独设为 {value}，此处的更改在该作品中不生效", "en-US": "“{title}” uses {value}; changes here don't apply to that book"},
-    overriddenUntitled: {"zh-CN": "本作品已单独设为 {value}，此处的更改在该作品中不生效", "en-US": "This book uses {value}; changes here don't apply to it"},
+    overridden: {"zh-CN": "《{title}》已单独设为{value}，此处的更改在该作品中不生效", "en-US": "“{title}” uses {value}; changes here don't apply to that book"},
+    overriddenUntitled: {"zh-CN": "本作品已单独设为{value}，此处的更改在该作品中不生效", "en-US": "This book uses {value}; changes here don't apply to it"},
     userOnly: {"zh-CN": "仅可在用户设置中修改", "en-US": "Can only be changed in user settings"},
     projectOnly: {"zh-CN": "仅可在本作品中设置", "en-US": "Can only be set for a book"},
 } satisfies Record<string, LocalizedText>;
@@ -137,7 +140,7 @@ async function run(action: RowAction): Promise<void> {
         <div class="settings-row__main">
             <div class="settings-row__text">
                 <div class="settings-row__title">
-                    <label :id="labelId" :for="controlId">{{ title }}</label>
+                    <label :id="labelId" :for="controlId"><HighlightedText :text="title" :words="highlight" /></label>
                     <Tooltip v-if="marked" :text="text(TEXT.modified)">
                         <span class="settings-row__dot" role="img" :aria-label="text(TEXT.modified)" data-settings-row-dot></span>
                     </Tooltip>
@@ -152,7 +155,7 @@ async function run(action: RowAction): Promise<void> {
                     <!-- 生效时机不在 `<label>` 里：它不是控件的名字，经 `describedby` 当说明念（审查 S5 Sonnet 3）。 -->
                     <span v-if="applies !== null" :id="appliesId" class="settings-row__applies">{{ applies }}</span>
                 </div>
-                <p v-if="description !== null" :id="descriptionId" class="settings-row__description">{{ description }}</p>
+                <p v-if="description !== null" :id="descriptionId" class="settings-row__description"><HighlightedText :text="description" :words="highlight" /></p>
             </div>
             <!--
                 控件靠右，最右一格固定宽（没改过的行也留着）：各行控件的右缘因此对齐。宽排法里这一块只剩标题那一行右端的东西，

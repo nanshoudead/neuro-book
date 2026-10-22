@@ -95,9 +95,9 @@ describe("SettingsRow", () => {
         const created = host({user: {values: {"nbook.workbench/appearance": "system"}}, project: {values: {"nbook.workbench/appearance": "light"}}});
         await flushPromises();
         const titled = row(created, appearanceSetting as SettingDefinition<unknown>, "user", {projectTitle: "雾港"});
-        expect(titled.find("[data-settings-row-overridden]").text()).toBe("《雾港》已单独设为 浅色，此处的更改在该作品中不生效");
+        expect(titled.find("[data-settings-row-overridden]").text()).toBe("《雾港》已单独设为浅色，此处的更改在该作品中不生效");
         const untitled = row(created, appearanceSetting as SettingDefinition<unknown>, "user");
-        expect(untitled.find("[data-settings-row-overridden]").text()).toBe("本作品已单独设为 浅色，此处的更改在该作品中不生效");
+        expect(untitled.find("[data-settings-row-overridden]").text()).toBe("本作品已单独设为浅色，此处的更改在该作品中不生效");
         // 本作品没写的项没有提示。
         expect(row(created, themeSetting as SettingDefinition<unknown>, "user").find("[data-settings-row-overridden]").exists()).toBe(false);
     });
@@ -186,14 +186,14 @@ describe("SettingsRow", () => {
         const created = host({user: {}});
         await flushPromises();
         const tagged = row(created, restartSetting as SettingDefinition<unknown>, "user");
-        const tag = tagged.get("[data-settings-row] .settings-row__title span:not([role])");
+        const tag = tagged.get("[data-settings-row] .settings-row__applies");
         expect(tag.text()).toBe("重启后生效");
         expect(tagged.get("label").text()).toBe("并发数");
         const ids = (slotOf(tagged).attributes("data-describedby") ?? "").split(" ");
         expect(ids).toContain(tag.attributes("id"));
         expect(ids).toContain(tagged.get("p").attributes("id"));
         // now 不标。
-        expect(row(created, themeSetting as SettingDefinition<unknown>, "user").find(".settings-row__title span:not([role])").exists()).toBe(false);
+        expect(row(created, themeSetting as SettingDefinition<unknown>, "user").find(".settings-row__applies").exists()).toBe(false);
     });
 
     it("状态原因：标题后只有一个图标，色调取最重的（出错 > 警告 > 淡色），读屏文字与控件的 describedby 合并而不覆盖", async () => {
