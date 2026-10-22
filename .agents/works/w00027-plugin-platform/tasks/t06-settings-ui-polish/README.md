@@ -56,6 +56,7 @@ updated: 2026-10-22
 - 2026-10-22 第三轮静态稿（新字号上）发到评审板 v7：`r3-density` 紧凑度三档（现状、紧凑、更紧凑），`r3-weight` 字重三种（现状、加强标题、全面加粗），推荐紧凑加加强标题。草稿在 `.worktree/w00027-t06-drafts`（分支 `t06/drafts`，已对齐 Work 分支 `41f3db21f`）的 `plugins/drafts/web/components/settings-density/`，只用样式套在真实窗口外面。
 - 2026-10-22 第四轮静态稿（重新设计）发到评审板 v9，题 `r4-direction`：A Notion / Linear 式、B macOS 式，四页（外观、编辑器、模型服务、服务商详情），推荐 B。草稿 `plugins/drafts/web/components/settings-redesign/`（草稿 worktree），共同改法：控件靠右、左栏改列表行（半透明高亮、不缩放）、标题用品牌衬线字、改过的项用小圆点、模型服务改成列表加下一级页面。
 - 2026-10-22 第五轮静态稿（按 A 补齐其余状态）发到评审板 v10：题 `r5-readonly`（只读只写值或虚线框，推荐只写值）、`r5-states`（本作品标签、搜索结果、层出错、插件设置、设置文件、离开时的确认、窄窗口，含深色，确认后定稿）。比第四轮多一处：“恢复默认”占控件右边固定的一格，控件右缘因此都对齐。草稿 `plugins/drafts/web/components/settings-redesign/SettingsFlatDraft.vue`（草稿 worktree）。评审板列了定稿后要改的 Spec 条目。
+- 2026-10-22 第六轮静态稿发到评审板 v11：`r6-field-error`（常显一行、收进图标悬停显示、贴在输入框下沿，推荐收进图标）、`r6-layer-error`（页面顶部、标题右侧、左栏标签下面、内容底部，推荐左栏）、`r6-header`（页面级操作或“用户 | 本作品”，推荐页面级操作）、`r6-rest`（新文案对照表、只读新画法、14px 圆角的真实 `AlertDialog`）。草稿 `plugins/drafts/web/components/settings-redesign/SettingsR6Draft.vue`（草稿 worktree）。
 
 ## 下一步
 
