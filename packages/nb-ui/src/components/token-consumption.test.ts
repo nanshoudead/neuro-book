@@ -21,6 +21,7 @@ import {nbTypographyTokens} from "../theme/tokens";
  * 7. 组件与 `styles.css` 里 `var(--x)` 的 x 必须有声明：`theme.css`、`tokens.css`、`styles.css`、配色契约，或组件自己（样式、
  *    Tailwind 任意属性、`:style` 的键、`style.setProperty`）。没有声明的变量在计算值阶段无效，整条声明退回初始值，不报任何错
  *    （`--overlay-scrim` 曾让 AlertDialog 与 Drawer 的遮罩完全没有压暗）。宿主可选的覆盖点登记在 HOST_HOOK_VARS。
+ * 8. 字号只消费排版 token，不写字面像素：写死的 `text-[13px]` 不随主题的字号刻度变，主题换一档时会和周围差一档（w00030 t04）。
  *
  * 凡是「扫源码找有没有出现 X」的断言都必须先剥注释——本仓同一形状的坑已经踩过两次
  * （见 theme-packages.test.ts 里 readVarsDeclarations 的注释），扫的是代码不是散文。
@@ -38,6 +39,11 @@ const LITERAL_RADIUS_ALLOWLIST = new Map<string, string>([
 
 const LITERAL_COLOR_ALLOWLIST = new Map<string, string>([
     ["form/ColorPickerPanel.vue", "取色面板读不懂传入的颜色时要落回一个具体颜色，是取色器本身的需要"],
+]);
+
+/** 规则 8 的豁免：字号跟着自己的固定尺寸走、与排版刻度无关的地方。 */
+const LITERAL_FONT_SIZE_ALLOWLIST = new Map<string, string>([
+    ["controls/IconButton.vue", "最小一档 14px 的方块里图标字形按方块定 9.6px，随方块而不是随正文字号"],
 ]);
 
 const LITERAL_COLOR_VALUE_ALLOWLIST = new Map<string, ReadonlySet<string>>([
@@ -81,6 +87,9 @@ function stripComments(source: string): string {
  * 新增字号档不用改这里；配色变量（`--text-main` 这类）不在名单里，写成 `text-[var(--text-main)]` 当颜色是对的。
  */
 const UNTYPED_TYPOGRAPHY_TEXT = new RegExp(String.raw`\btext-(?:\[var\(|\()(?:${nbTypographyTokens.join("|")})(?=[,)])`);
+
+/** 规则 8 的匹配式：`text-[13px]`、`text-[length:13px]`、`text-[0.8rem]` 与样式里的 `font-size: 13px`、`fontSize: "13px"`。 */
+const LITERAL_FONT_SIZE = /\btext-\[(?:length:)?\d+(?:\.\d+)?(?:px|r?em)\]|\bfont-size\s*:\s*\d|\bfontSize\s*:\s*['"`]?\d/;
 
 /** 规则 6 的匹配式：`font-[var(--<排版 token>…)]`、`font-(--<排版 token>)`，以及它们带类型提示的写法。 */
 const TYPOGRAPHY_IN_FONT_UTILITY = new RegExp(String.raw`\bfont-(?:\[(?:[a-z-]+:)?var\(|\((?:[a-z-]+:)?)(?:${nbTypographyTokens.join("|")})(?=[,)])`);
@@ -135,6 +144,12 @@ const RULES: Rule[] = [
         pattern: TYPOGRAPHY_IN_FONT_UTILITY,
         reason: "font-[var(--weight-*)] 里 var() 当字重还是字体族靠引擎猜，不可靠；写 [font-weight:var(--weight-*)] 或 [font-family:var(--font-*)]",
     },
+    {
+        name: "字号只消费排版 token",
+        pattern: LITERAL_FONT_SIZE,
+        reason: "字面像素不随主题的字号刻度变；写 text-[length:var(--text-*)] 或 font-size: var(--text-*)",
+        allowlist: LITERAL_FONT_SIZE_ALLOWLIST,
+    },
 ];
 
 function violationsFor(rule: Rule, files: string[]): string[] {
@@ -173,6 +188,13 @@ describe("组件 token 消费静态扫描", () => {
         expect(typed.filter((sample) => UNTYPED_TYPOGRAPHY_TEXT.test(sample))).toEqual([]);
     });
 
+    it("字号的检查认得出字面像素，放过 token 与非字号的方括号值", () => {
+        const flagged = ["text-[13px]", "sm:text-[11px]", "text-[length:9.6px]", "text-[0.8rem]", "font-size: 12px;", 'fontSize: "13px"'];
+        const allowed = ["text-[length:var(--text-sm)]", "text-[var(--text-main)]", "font-size: var(--text-xs);", "min-w-[24px]", "leading-[18px]"];
+        expect(flagged.filter((sample) => !LITERAL_FONT_SIZE.test(sample))).toEqual([]);
+        expect(allowed.filter((sample) => LITERAL_FONT_SIZE.test(sample))).toEqual([]);
+    });
+
     it("字重类的检查认得出 font-[…] 里的排版 token，放过任意属性写法与常量档", () => {
         const flagged = ["font-[var(--weight-medium)]", "data-[selected]:font-[var(--weight-medium)]", "font-[number:var(--weight-strong)]", "font-(--weight-strong)", "font-[var(--font-mono)]"];
         const allowed = ["[font-weight:var(--weight-medium)]", "data-[selected]:[font-weight:var(--weight-medium)]", "[font-family:var(--font-mono)]", "font-medium", "font-mono"];
@@ -209,7 +231,7 @@ describe("组件 token 消费静态扫描", () => {
 
     it("豁免清单里的文件仍然存在（防止豁免变成死条目）", () => {
         const existing = new Set(files.map((path) => join(path).slice(COMPONENTS_DIR.length + 1).replaceAll("\\", "/")));
-        for (const rel of [...LITERAL_RADIUS_ALLOWLIST.keys(), ...LITERAL_COLOR_ALLOWLIST.keys(), ...LITERAL_COLOR_VALUE_ALLOWLIST.keys()]) {
+        for (const rel of [...LITERAL_RADIUS_ALLOWLIST.keys(), ...LITERAL_COLOR_ALLOWLIST.keys(), ...LITERAL_COLOR_VALUE_ALLOWLIST.keys(), ...LITERAL_FONT_SIZE_ALLOWLIST.keys()]) {
             expect(existing.has(rel), `${rel} 已不存在，应从豁免清单移除`).toBe(true);
         }
     });

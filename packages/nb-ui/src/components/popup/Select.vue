@@ -81,8 +81,8 @@ const isRequired = computed(() => props.required || field?.required.value === tr
 const isInvalid = computed(() => props.invalid || field?.invalid.value === true);
 const isSmall = computed(() => props.size === "sm");
 const controlSizeClass = computed(() => isSmall.value
-    ? "nb-ui-control-h-sm px-[calc(var(--control-px)*0.75)] text-[12px]"
-    : "nb-ui-control-h-md nb-ui-control-px text-[13px]");
+    ? "nb-ui-control-h-sm px-[calc(var(--control-px)*0.75)] text-[length:var(--text-xs)]"
+    : "nb-ui-control-h-md nb-ui-control-px text-[length:var(--text-sm)]");
 
 /*
  * SelectRoot 之上是 reka 的 PopperRoot（只 renderSlot，不产生元素），其下并列着触发器与

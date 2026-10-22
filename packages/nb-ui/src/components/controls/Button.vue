@@ -27,18 +27,18 @@ const props = withDefaults(defineProps<{
 
 /*
  * 尺寸与材质取自设计推演选定的 BH1-C 方案：
- * - 紧凑尺寸与精致圆角（sm: 26px/6px, md: 32px/8px, lg: 38px/10px）
+ * - 紧凑尺寸与精致圆角（sm / md / lg 取主题的控件高度与 xs / sm / md 字号，圆角 6 / 8 / 10px）
  * - 纯净半透层次（Secondary 为 8% 浅底，Hover 跃升至 18% 饱满实底 + 2px 触觉柔光底影）
  * - Primary/Danger 绑定品牌与状态色 + 柔光底晕
  */
 function sizeClass(): string {
     if (props.size === "sm") {
-        return "h-[26px] px-2.5 text-[12px] gap-1 rounded-[6px]";
+        return "h-[var(--control-h-sm)] px-2.5 text-[length:var(--text-xs)] gap-1 rounded-[6px]";
     }
     if (props.size === "lg") {
-        return "h-[38px] px-4.5 text-[14px] gap-2 rounded-[10px]";
+        return "h-[var(--control-h-lg)] px-4.5 text-[length:var(--text-md)] gap-2 rounded-[10px]";
     }
-    return "h-[32px] px-3.5 text-[13px] gap-1.5 rounded-[8px]";
+    return "h-[var(--control-h-md)] px-3.5 text-[length:var(--text-sm)] gap-1.5 rounded-[8px]";
 }
 
 function variantClass(): string {
