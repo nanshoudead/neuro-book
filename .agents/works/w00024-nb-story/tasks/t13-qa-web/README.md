@@ -36,6 +36,16 @@ updated: 2026-10-21
 11. 包名改为 `nb-agent-ui`（决定 3 的 `nb-agent-view` 作废）。对话视图做完整版、先一次迁完，工作移到重新打开的 w00019：[t10 迁移](../../../w00019-agent-conversation-view/tasks/t10-migrate-nb-agent-ui/README.md)、[t11 补齐](../../../w00019-agent-conversation-view/tasks/t11-complete-view/README.md)。顺序是迁移、补齐、再做本 Task；本 Task 只留问答页、设置页、服务端接口与换手写控件。
 12. nb-form、nb-agent-ui 与 nb-ui 一样在新应用的 Lab 里看。
 
+### w00019 t14 搭稿时发现的问题（2026-10-22）
+
+w00019 [t14](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice/README.md) 在查看器里搭了问答页的静态稿（[评审板](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice/artifacts/review/index.html)），用本书库的真实问答记录回放，发现这几条属于本 Task：
+
+- nb-story 的 `read` 与 nb-agent-ui 内置的文件读取工具同名，注册表报冲突、整页挂不上。nb-story 没有文件与命令工具，注册表只用 `builtinRolesContribution`、`builtinComposerContribution`、`builtinMessageActionsContribution` 加自己的登记。
+- 引擎催模型交卷的话写成了用户消息，视图显示成“YOU：你还没有交卷……”。应写成提醒；先查现在的引擎是否还这样写。
+- 超出“一问最多读 20 章”被拒的读原文是工具错误，整轮摘要显示成红色的“12 次失败”。要定限额被拒算不算失败。
+- 答案卡片的依据多时折成几行（真实记录 18 处），决定 8 写的是“一行可点的依据出处”，要定超出一行时怎么收。
+- 答案里的人名是字符串，点开人物卡要先按名字找对象 id：问答页按名字查，或让 `answer` 的参数带对象 id。
+
 ## 当前状态
 
 - 2026-10-21 经 nbdev 新建。

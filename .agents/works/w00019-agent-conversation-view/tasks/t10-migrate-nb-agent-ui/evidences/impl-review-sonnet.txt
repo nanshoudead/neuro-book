@@ -1,0 +1,140 @@
+# w00019 t10 前端实现审查报告（sonnet）
+
+（逐条追加；按发现顺序，最后一节整理严重度与数量）
+
+### 1. 思考、提醒、分隔块里的 Markdown 注入真实 MarkdownDisplay 后丢了“淡色小字”，与 `--nb-agent-markdown-*` 对不上
+- 严重程度：重要；类别：迁移丢行为 / 注入合同
+- 位置：`packages/nb-agent-ui/src/vue/parts/AgentMarkdown.vue:47-57`（写入处）、`packages/neuro-book/src/plugins/markdown/web/components/MarkdownDisplay.vue:131-133` 与 `parts/markdown.css:8-12`（读取处）；`stream/AgentTurnBlock.vue` 里 `.acv-thinking`、`.acv-notice__body`、`.acv-divider__body` 设置 `--nb-agent-markdown-color/-size`。
+- 现象：AgentMarkdown 的包装元素 `.agent-markdown` 设了 `color: var(--nb-agent-markdown-color, …)`、`font-size`、`--markdown-font-size`，期望里面的 Markdown 继承。但 MarkdownDisplay 的根元素（`.nb-markdown.nb-markdown-display`）自己声明了 `color: var(--text-main)`（markdown.css）和 `--markdown-font-size: var(--text-sm)`（scoped 样式），元素自身的声明压过继承，包装元素上的值完全进不去。
+- 实测（Lab `/lab?c=AgentConversationView&s=long-conversation`，展开全部折叠行，Playwright 读 computed style）：`.agent-markdown.acv-thinking` 外层 `color rgb(145,138,126)`、`12px`，里面的 `.nb-markdown` 是 `rgb(239,233,223)`、`14px`（与正文气泡一样）；思考 4 处、提醒 2 处、分隔块 1 处全部如此。归档版（`865c9f593` 的 AgentMarkdown）自己渲染 HTML，颜色与字号直接作用在内容上，思考与提醒是淡色 12px，所以这是迁移回归。`style-tokens.dom.test.ts` 与 `AgentMarkdown.dom.test.ts` 只在缺省 PlainMarkdown 下断言，测不到。
+- 为什么是问题：用户看到的思考内容与正文同样醒目，注意力分层（Spec 的“思考与提醒淡色小字”）失效；而作者在 AgentMarkdown.md 里把这两个变量写成对外的调节点，实际对真实宿主无效。
+- 如何核实：同上脚本；或在浏览器里选中 `.acv-thinking .nb-markdown` 看 Computed。
+- 建议改法：二选一并写进 `ports.ts` 的 Markdown 显示合同：（a）合同要求显示组件“不设自己的颜色与字号，用继承与 `--markdown-font-size`”，改 MarkdownDisplay（`markdown.css` 的 `.nb-markdown` 颜色与字号改为继承，`.nb-markdown-display` 的 `--markdown-font-size` 声明改成 `var(--markdown-font-size-host, var(--text-sm))` 之类，让外层能覆盖）；（b）AgentMarkdown 把值通过显示组件的属性（如 `tone="muted"`、`size`）传进去。无论哪种，补一条 Lab e2e 或 DOM 断言，用真实 MarkdownDisplay 测思考行 computed color 不等于 `--text-main`。
+
+### 2. 原图预览的“重试”对 Markdown 图片的 blob 地址必然失败
+- 严重程度：重要；类别：正确性 / 新增路径与旧约定冲突
+- 位置：`packages/nb-agent-ui/src/vue/parts/OriginalImagePreviewDialog.vue:30-33`（`requestUrl` 给地址追加 `previewRetry=N`），调用处 `AgentConversationView.vue:152-181`（`showPreview` 收到 `resolveMarkdownAsset` 的 `asset.url`）。
+- 现象：重试靠给地址拼 `?previewRetry=1`（或 `&`）绕过浏览器缓存，这对服务器地址有效。t10 新增的 Markdown 图片预览把 `resolveMarkdownAsset` 换算出的地址原样传进来，这个合同的 `release()` 本来就是给 `blob:` 地址（`URL.revokeObjectURL`）设计的；`blob:` 与 `data:` 地址不能带查询串。
+- 实测：Chrome 里 `URL.createObjectURL(blob)` 得到的地址，`new Image().src = u` 加载成功，`u + "?previewRetry=1"` 触发 `onerror`（Playwright 打开 `/lab` 后 evaluate，结果 `{plain:'ok', withQuery:'error'}`）。所以任何一张 blob 图加载失败后，用户点“重试”不会恢复，反而稳定再失败一次。`data:` 地址则被追加的字符污染。
+- 为什么是问题：重试按钮对这类图片是摆设；而且是 t10 新接的路径，归档版只有同源服务器地址所以没暴露。
+- 如何核实：同上；或在 Lab 里把 `resolveMarkdownAsset` 换成返回会失败一次的 blob 地址，再点重试。
+- 建议改法：重试只对 http(s) 同源/相对地址追加查询串；`blob:`、`data:` 地址重试时直接重置 `loadState` 并换一个 `<img>`（给 img 加 `:key="retryNonce"` 强制重建）即可，不改地址。同时给 `resolveAsset` 合同写一句“返回的地址可能是 blob:/data:”。
+### 3. CollapsibleRow、CollapsibleCard 的触发按钮键盘聚焦时没有任何焦点标示
+- 严重程度：重要；类别：UI 专属（nb-ui 规范：focus-visible 状态）
+- 位置：`packages/nb-ui/src/components/layout/CollapsibleRow.vue:36-48`（`.nb-collapsible-row__row`）、`CollapsibleCard.vue:47-62`（`.nb-collapsible-card__trigger`）；对照 `packages/nb-ui/docs/ui-development-spec.md` 第 71 行（“所有可交互组件至少覆盖……focus-visible”）、第 124 行与第 434 行（填满所在条的整行控件用 `.nb-ui-focus-ring-inset`，同类状态复用基座类，不手写）。
+- 现象：两个按钮既没挂 `nb-ui-focus-ring`/`nb-ui-focus-ring-inset`，样式里也没有 `:focus-visible`。实测（Lab long-conversation，展开全部后用键盘把焦点移到 `.nb-collapsible-row__row`）：`matches(":focus-visible") === true`，computed `outline: none 3px`、`box-shadow: none`，即完全看不出焦点在哪。组件文档两份 .md 的“布局与交互”也没提键盘与焦点。归档版 AgentCard、AgentStepLine 同样没有焦点样式，所以是旧缺陷；但这次把它们升格为 nb-ui 公共组件，规范要求的状态没补，且 Spec 对话视图里整条过程流都是这些行，键盘用户无法定位。
+- 如何核实：同上；或在 `components.test.ts` 加一条断言按钮带焦点环基座类。
+- 建议改法：行按钮加 `nb-ui-focus-ring-inset`（整行填满条、四周没有余地），卡片头部按钮同样；两份 .md 补“键盘：Tab 到达，Enter/Space 切换，焦点显示内嵌焦点线”。
+
+### 4. CollapsibleRow/Card 与既有 Collapsible 并存，命名与协议不一致，文档没交代关系
+- 严重程度：建议；类别：代码质量 / 公共组件一致性
+- 位置：`packages/nb-ui/src/components/layout/CollapsibleCard.vue:5-22`、`CollapsibleRow.vue:5-22`，对照 `Collapsible.vue:8-24`；两份新 .md 的开头。
+- 现象：既有 `Collapsible` 是 reka 的受控/非受控组件：`open`/`defaultOpen`/`update:open`、带高度与透明度过渡、有 `aria-controls` 与内容 id。新两件是 `expanded`/`toggle`（发出“期望的新状态”而非 `update:expanded`，不能 `v-model:expanded`）、`v-if` 直接卸载、没有过渡、没有 `aria-controls`。同一个包里三个“可折叠”组件对“开合”用了两套名字（open 与 expanded）和两套事件形状，文档（CollapsibleCard.md、CollapsibleRow.md）没写与 `Collapsible` 的关系、为什么不基于它。`CollapsibleRow` 的别名里还有“Step”，`CollapsibleCard` 的别名是“Card”，后者在 nb-ui 里很容易与别的卡片混。
+- 为什么是问题：使用者（以后的写作区、问答页）要记两套协议；折叠动画在新应用里一处有、一处没有，视觉不一致。属于遗留设计（归档版 AgentCard/StepLine 的 `expanded`/`toggle`）被原样搬进公共库而没有讨论（见全局记忆“遗留设计拿出来讨论”）。
+- 如何核实：对照三个组件的 props 与 emits。
+- 建议改法：二选一并写进 .md：（a）新组件基于 `Collapsible` 的 `open`/`update:open` 协议（`v-model:expanded` 可保留 `expanded` 名但补 `update:expanded`），（b）保留现状但在 .md 写清“为什么没有过渡、与 `Collapsible` 的分工”，并给触发按钮补 `aria-controls`、内容 `id`。开发者决定是否沿用。
+
+### 5. 缺省输入框 PlainPromptEditor 只判 `isComposing`，WebKit 下输入法确认回车会误发送
+- 严重程度：建议（缺省实现，主应用注入真编辑器后不走这里；但 Tauri 的 WebKit 是项目明确的目标）；类别：正确性 / 与真实现不一致
+- 位置：`packages/nb-agent-ui/src/vue/fallback/PlainPromptEditor.vue:45-46`（`if (event.isComposing) return;`）；对照 `packages/neuro-book/src/plugins/markdown/web/components/prompt/PromptEditor.vue:420`（`event.isComposing || event.keyCode === 229`）。
+- 现象：WebKit（Safari、Tauri 在 macOS 与 Linux 上的内核）在 `compositionend` 之后才派发确认用的 Enter 的 keydown，此时 `isComposing` 已是 false，只有 `keyCode === 229` 能认出它。真编辑器为此写了 229 判断，缺省实现没有。用中文输入法在缺省输入框里按回车选词，会把半截文字当消息发出去（`enterSubmits` 为真时）。`PlainPromptEditor.md` 写的是“输入法组字时的回车不算”，实现达不到。
+- 如何核实：从代码推断（本机 Chromium 不复现；需要 WebKit 或在 DOM 测试里派发 `isComposing:false, keyCode:229` 的 keydown，应不发 `submit`）。
+- 建议改法：改为 `if (event.isComposing || event.keyCode === 229) return;`，并在 `PlainPromptEditor` 的 DOM 测试里加这个用例。
+
+### 6. `AgentConversationView` 自己的文字不跟 `locale` 走：英文界面下顶栏、溢出菜单、历史行、空态、“回到最新”仍是中文
+- 严重程度：重要（计划的核心改动“文字改为中英两张表与 `locale`”在视图本体上没有生效）；类别：正确性 / 初始化顺序
+- 位置：`packages/nb-agent-ui/src/vue/AgentConversationView.vue:42-44`（`provideAgentView({...})` 之后紧接着 `const {t} = useAgentText();`），根因在 `packages/nb-agent-ui/src/vue/host.ts:51-52`（`useAgentText` 用 `inject(hostKey, FALLBACK_HOST)`）。
+- 现象：Vue 的 `inject` 只查祖先提供的值，不看本组件自己 `provide` 的，所以 View 里的 `t` 取到的是缺省的 `FALLBACK_HOST`（`zh-CN`），子组件（Turn、Composer 等）才拿到传入的 `locale`。受影响的是 View 模板里所有走 `t()` 的文字：`header.more`、`header.turnsView/rawView/untitled/noSession`、`stream.empty`、`history.*`、`stream.jumpToLatest`。
+- 实测（开发服务 Lab，`/lab?c=AgentConversationView&s=english`，Playwright）：顶栏右上的按钮 `aria-label/title` 是“更多操作”（表里英文是 “More actions”）；点开溢出菜单，菜单项文字是“原始视图”（英文应为 Raw view）；同页 Turn 与输入框里的文字是英文（如 “Process · 2 actions”、“Mode:”），形成一半英文一半中文。在 `history-paged` 场景读到的历史行是“正在加载更早的内容”，这是中文场景的预期，但英文下同理不会翻。
+- 为什么是问题：`english` 场景本来就是为了证明这一点而加的，却没有任何断言去看（见第 7 条），所以通过了。
+- 如何核实：同上；或在 DOM 测试里 mount `AgentConversationView`、`locale: "en-US"`，断言溢出按钮的 `aria-label` 为 `More actions`。
+- 建议改法：`provideAgentView` 改为返回本组件可直接用的 `host` 句柄（或 `useAgentText` 接受可选的 host 参数），View 里用返回值；或把 `t` 在 View 内按 `props.locale` 直接计算（`agentText(props.locale, key, params)`），不经 inject。同时加上面那条 DOM 测试。
+
+### 7. 没有任何测试守“英文界面”“缺省实现”“harness 回放”三个场景的内容
+- 严重程度：重要；类别：测试
+- 位置：`packages/neuro-book/e2e/lab-agent-ui.e2e.ts` 全文（没有 `english`、`harness-replay`，`plain` 只在输入框里有一条）；`packages/nb-agent-ui/src/vue/*.dom.test.ts`（没有 `AgentConversationView`、`AgentConversationComposer`、`AgentConversationTurn` 的挂载测试）；对照 `view.scenes.ts:99-114`（三个场景是作者为这三条判据特意登记的）。
+- 现象：这三个场景只被 `lab-scenes.e2e.ts` 的“全部场景都能挂上、无控制台警告、无越界”覆盖，没有一条断言它们的内容。第 6 条（英文界面一半中文）正是这个缺口漏过去的；`plain` 场景下视图里的回复是否按纯文字显示、`harness-replay` 里记录回放出的消息是否渲染成预期的轮次也没人看。
+- 为什么是问题：用户请求的验收（缺省实现、英文界面、回放）等于没有被守住，测试都绿。
+- 如何核实：删掉 `english`、`harness-replay`、`plain` 的内容（例如把 `locale` 写死 `zh-CN`），`lab-agent-ui.e2e.ts` 与 DOM 测试都仍然通过。
+- 建议改法：在 e2e 加三条：`english` 打开溢出菜单与历史行，断言文字是英文表里的；`plain` 的视图里回复是纯文字（没有 `.nb-markdown`）、输入框是 textarea；`harness-replay` 断言轮次数与最终回复文字。DOM 层给 `AgentConversationView` 加 locale 的挂载测试。
+
+### 8. 缺省输入框把没声明的属性全部漏到 `<textarea>` 的 DOM 属性上，函数源码与输入历史都写进了页面
+- 严重程度：建议；类别：正确性 / 与真编辑器“同形”的合同没做到
+- 位置：`packages/nb-agent-ui/src/vue/fallback/PlainPromptEditor.vue:11-24`（只声明 `draft locale placeholder ariaLabel readonly enterSubmits fill bare`）；`PlainPromptEditor.md` 写的是“属性里收这些是为了与真编辑器同形，多出来的一律不用”；调用处 `composer/AgentConversationComposer.vue:210-229`。
+- 现象：Composer 给编辑器传了 `triggers`、`resolve-menu`、`commands`、`accept-images`、`accept-files`、`attachments`、`resolve-thumbnail`、`paste-policy`、`recall`，缺省实现没有声明，Vue 把它们当作透传属性写到根节点 `<textarea>` 上（没有 `inheritAttrs: false`）。实测（Lab `/lab?c=AgentConversationComposer&s=plain`，读 textarea 的 attributes）：`triggers="@,$,/"`、`commands="new,plan,mode,…"`、`attachments=""`、`recall="把第三章的节奏改紧凑一些，……,这本书的主角叫什么？"`（用户以前发送的消息整段写进了 DOM 属性）、`resolve-menu="(context) => context.trigger === "/" && …"`（函数源码）、`resolve-thumbnail="function resolveThumbnail(target) {…"`。
+- 为什么是问题：虽然不影响输入，但属性里带出了用户历史输入与内部函数源码，增加 DOM 体积，DOM 测试或 e2e 对 `textarea` 的属性断言也会被这些污染；文档承诺的“同形”没有落实。
+- 如何核实：同上。
+- 建议改法：在 `PlainPromptEditor` 里按 `PromptEditorPortProps` 把这些属性都声明出来（不使用），或 `defineOptions({inheritAttrs: false})` 后只把 `class` 绑定到 textarea。DOM 测试里补一条“根节点上不出现 `recall`、`resolve-menu` 属性”。
+
+### 9. Markdown 图片原图预览：关掉对话框不归还地址、取消后的拒绝被当失败记警告，且整条时序没有任何测试
+- 严重程度：重要（时序无测试）加建议（两处行为偏差）；类别：不变量 / 资源释放 / 测试
+- 位置：`packages/nb-agent-ui/src/vue/AgentConversationView.vue:140-186`（`preview`、`pendingAsset`、`showPreview`、`openPreview`、`onBeforeUnmount`）；文档 `AgentConversationView.md` 交互一节写“关掉或换图时归还地址”；`ports.ts:119` “`release` 在不再显示时调用”；测试侧 `e2e/lab-agent-ui.e2e.ts` “回复里 Markdown 的引用、外链与图片”。
+- 现象与核实：
+  1. 关闭对话框只把 `previewOpen` 置 false，`preview`（含 `release`）一直留着，直到下一次 `showPreview`（换图）或视图卸载才 `release()`。文档说“关掉……时归还”，实现没做；对 blob 地址就是关掉后还占着一张图的内存。关闭动画期间需要保留 `src` 是理由，但可以在对话框 `closed` 之后或 `previewOpen` 变 false 时延迟归还。（从代码推断，逻辑直接可读。）
+  2. 又点另一张图时先 `pendingAsset.abort()`，之后被取消的那次 `resolve()` 如果按 `AbortSignal` 惯例以 `AbortError` reject，会进到 `.then(…, error => console.warn(…))`，每次“连点两张图”都会在控制台留一条“取不到原图”的误导警告。`onRejected` 里没有先判 `controller.signal.aborted`。
+  3. `resolve(...)` 若同步抛错（不是返回 rejected promise），异常直接逸出 `openPreview`，`pendingAsset` 还指着新建的 controller。
+  4. `asset === null` 与 reject 路径不清空 `pendingAsset`，只是无害的残留，但与成功路径（置空）不对称。
+- 测试：这条时序（取消、晚到结果直接归还、换图时归还上一张、卸载时归还）在 DOM 与 e2e 里都没有断言。e2e 那条只检查事件页签里出现 “preview-image” 字样，并没有走到视图的 `openPreview`（它挂的是单独的 `AgentMarkdown` 夹具，没有视图，也没有对话框）。Lab 的 `resolveMarkdownAsset` 立即 resolve，也制造不出竞态。
+- 为什么是问题：第 4 项重点正是这个时序；写了取消与归还逻辑却无任何用例，将来改动无人拦。
+- 建议改法：（1）`previewOpen` 变 false 后（对话框 `closed` 事件，或 `watch` 后 `nextTick`）归还并清 `preview`；（2）`onRejected` 先 `if (controller.signal.aborted) return;`；（3）用 `Promise.resolve().then(() => resolve(...))` 或 try/catch 统一成异步错误；（4）在 `AgentConversationView` 的 DOM 测试里用真实的 `AbortController` 加一个可手动 resolve 的 `resolveMarkdownAsset`：连点两张图，断言第一张的 `release` 被调用一次且仅一次、对话框只显示第二张；关闭后与卸载后各归还一次、不多还；`aborted` 的 reject 不产生警告。
+### 10. 缺省 PlainMarkdown 写了 `data-streaming` 却没有任何样式，流式光标丢了
+- 严重程度：建议；类别：迁移丢行为
+- 位置：`packages/nb-agent-ui/src/vue/fallback/PlainMarkdown.vue:14`、`PlainMarkdown.md`（“只写到根节点的 data-streaming”）；归档版 `AgentMarkdown.vue` 的 `.agent-markdown--plain[data-streaming]::after`（闪烁光标及 `prefers-reduced-motion` 关动画）；Spec 输出第 242 行“assistant 消息流式生成时显示光标”。
+- 现象：归档版没注入消毒函数时的纯文字路径有 CSS 光标；新 `PlainMarkdown` 只写属性，包里没有任何选择器用到 `data-streaming`（`grep data-streaming` 只在这一处与测试里出现）。缺省实现下流式输出没有光标。
+- 为什么是问题：缺省实现要“看起来像正常的对话”（Spec 失败与恢复）；光标是流式状态唯一的视觉提示。
+- 如何核实：在 `/lab?c=AgentConversationView&s=plain` 或 `AgentMarkdown` 的 `plain` 场景里设 `streaming: true`，看文字末尾有无光标。
+- 建议改法：把归档版那段 `::after` 样式（连同 reduced-motion 分支，动画写 `steps` 不走 motion token 的理由照旧写注释）搬进 `PlainMarkdown.vue`；`style-tokens.dom.test.ts` 的“写死的时长”规则已有对 `1s` 的例外需要同步说明。
+
+### 11. 缺省实现与新公共零件里仍有字面像素字号
+- 严重程度：建议；类别：UI 专属 / 规范一致性
+- 位置：`stream/AgentConversationTurn.vue:356,365,376,481`、`stream/AgentMessageActions.vue:82`、`stream/AgentUserContent.vue:177`（共 6 处 `font-size: 10px`）；`style-tokens.dom.test.ts` 文件头注释“字号这里不查：本包有几处 10px 的角标字，nb-ui 没有这一档 token”；对照 `nb-ui/src/components/token-consumption.test.ts` 规则 8。
+- 现象：其余 11/12/13/14px 都改成了 `--text-2xs/xs/sm/md`，只有 10px 保留字面值，并且机检为这几处专门关掉了字号检查（本包没有字号规则，规则整条没移植）。主题换一档字号刻度时，这 6 处不随之变，与周围差一档。
+- 为什么是问题：计划说“样式改用 token”，nb-ui 规则 8 明确写死字面像素的后果；把例外写成“不检查”意味着以后新增的字面像素也不会被发现。
+- 建议改法：用 `calc(var(--text-2xs) - 1px)` 或向 nb-ui 申请一档 `--text-3xs`；`style-tokens.dom.test.ts` 把字号检查加上，并把现有 6 处登记为带理由的豁免清单（同 nb-ui 的 `LITERAL_FONT_SIZE_ALLOWLIST`），而不是整条不查。
+
+### 12. 异步注入的编辑器未就绪时，输入框的 `focus()` 与“添加附件”选完文件会静默丢掉
+- 严重程度：建议；类别：边界 / 注入合同（从代码推断，Lab 里的注入是同步组件，未复现）
+- 位置：`composer/AgentConversationComposer.vue:177-185`（`onFilesChosen`：`editorRef.value?.insertFiles(files)`）、`:240-244`（`defineExpose({focus})`）、`:248-252` `toggleExpanded`；`host.ts` 的 `AgentViewRenderers` 允许宿主传任意 `Component`，包括 `defineAsyncComponent` 包出来的。
+- 现象：`ref="editorRef"` 在异步组件解析前是 `null`（异步包装把 ref 转交给内层，解析后才有值）。所有调用都是 `editorRef.value?.xxx()`，容忍但静默：宿主在会话切换后立即 `focusComposer()` 会没有任何效果；用户在编辑器还在加载时点“添加附件”选好文件，文件被丢掉，没有提示。附件按钮的显示只看 `acceptFiles`，不看编辑器是否就绪。
+- 为什么是问题：失败是静默的，且宿主无法得知；Spec/`ports.ts` 没有写“注入的编辑器必须同步可用”。
+- 建议改法：在 `host.ts` 的 `renderers` 说明里写明“编辑器须同步可用，或宿主自行等它就绪再挂视图”；或把 `focus`/`insertFiles` 在未就绪时暂存，就绪后补做（`watch(editorRef)` 一次性冲刷）。
+
+### 13. 纯逻辑测试放在 `vue/` 并命名为 `.dom.test.ts`，由 happy-dom 的 Vitest 运行
+- 严重程度：建议；类别：测试 / 与计划不一致
+- 位置：`packages/nb-agent-ui/src/vue/conversation-turns.dom.test.ts`（413 行，只测 `../conversation-turns` 的纯函数）、`registry.dom.test.ts`。
+- 现象：计划“测试”一行写明“纯逻辑用 `bun test`；组件用 Vitest 加 happy-dom（`*.dom.test.ts`）”。这两个文件没有任何 DOM，也不挂载组件，仅因为要 `import` `vue/builtin-tools`（它在渲染层）而放进 Vitest。同样的逻辑在核心里已有 `bun test` 版本？（我没核对，核心由另一位审查者负责）若有，则这里是重复；若没有，纯逻辑测试被迫依赖 happy-dom 与 Vue 环境，跑得慢也混淆了“dom”的含义。
+- 与之对应，真正的组件行为（Composer 的附件阻塞、`liveAttachments`、`rejectNotice`、`showStop`；`AgentConversationView` 的历史请求去抖、`openPreview`；`AgentTurnBlock`/Turn 的展开与默认收起）没有任何 DOM 测试，只能靠 e2e 与 Lab 回归。
+- 建议改法：`builtinToolsContribution` 只提供数据，纯逻辑测试里改用在测试内造的最小登记项，移回核心 `bun test`；渲染层补 Composer 与 View 的挂载测试（至少覆盖第 6、9 条）。
+
+### 14. 英文表里的复数：“Read 1 files”“Changed 1 files”
+- 严重程度：建议；类别：正确性（文字）。核心 `messages.ts` 由另一位审查者负责，这里只因 UI 实测看到才记。
+- 位置：`packages/nb-agent-ui/src/messages.ts:178-180,190,217`。
+- 现象：`/lab?c=AgentConversationView&s=english` 实测过程摘要显示 “Process · 2 actions · Read 1 files”（截图：`lab-sonnet/en.png`）。
+- 建议改法：带数量的英文键按 `count === 1` 走单数，或用 `Intl.PluralRules`；中文表不受影响。
+
+### 更正（追加）
+- 第 10 条最后一句不准确：`style-tokens.dom.test.ts` 的“写死的时长”规则（`\d+m?s`）并没有对 `1s` 的例外，把光标动画（`animation: … 1s step-end infinite`）搬进 `PlainMarkdown.vue` 会让该规则报错。搬时需要像 nb-ui 那样给这一处登记带理由的豁免，或把时长写成 CSS 变量声明在注释之外；这不改变“丢了光标”的结论。
+- 第 13 条核对结果：核心 `src/` 里没有 `conversation-turns.test.ts`，所以 `vue/conversation-turns.dom.test.ts` 不是重复，而是唯一的一份；问题只剩“放错层、跑错运行器”和“真正的组件行为无 DOM 测试”。
+
+## 未发现问题的方面
+- 迁移保真：对 `865c9f593` 逐个组件 diff（Composer、View、Turn、TurnBlock、ChainSummary、FileChanges、DeliveryNotice、MessageActions、RawView、tools 全部、ModelPicker、QueuedMessages、UserContent、预览对话框），除上面列出的以外只有 i18n 键改名、导入路径与字号 token 化；`data-*` 属性（`data-agent-stream`、`data-final-reply`、`data-intermediate`、`data-chain-summary`、`data-turn-summary`、`data-role`、`data-history`、`data-jump-latest`、`data-agent-composer`、`data-composer-*`）全部保留，两份 `data-*` 计数对比只差抽出去的 `data-status`、`data-tone`、`data-streaming`。
+- `--acv-*` 改名：写入处与读取处一一对上（`--nb-agent-block-indent`、`--nb-agent-summary-px`、`--nb-collapsible-row-px` 经 e2e 的 6px 用例证明接通）；唯独 `--nb-agent-markdown-*` 对真实 Markdown 组件无效，见第 1 条。旧 `--acv-card-*` 系列只在 AgentCard 内读取、没有写入处，去掉无回归。
+- `--nb-collapsible-row-px` 的写法 `var(--nb-collapsible-row-px, 8px)` 带缺省，已登记在 `token-consumption.test.ts` 的 `HOST_HOOK_VARS`，文档 `CollapsibleRow.md` 与实现一致。
+- `withAgentHost`（`fixtures/nb-agent-ui/host.ts`）：`inheritAttrs:false`、`h(inner, attrs, slots)` 把属性、事件、插槽都转给了内层，`data-lab-subject` 落在内层单根元素上；Lab 实测 `message-states`、`long-conversation`、`english`、`harness-replay` 都能挂上、无控制台错误或警告。
+- 草稿丢失：宿主换 `renderers` 时编辑器会重建，但 Lab 宿主把 `composer.draftChanged` 的文字写回 `draft.text`（同版本），重建后文字不丢；只丢选区与撤销历史，可接受。
+- nb-ui 的 `CollapsibleCard`/`CollapsibleRow`/`CodeBlock`：无业务颜色与变量，颜色走状态 token，文字都有 props 与缺省，`.md` 与实现一致（props、emits、插槽、“没传 expanded 则不可折叠”、统计的显示规则）；`useStreamScroll` 与归档版只有注释措辞不同。
+- 机检：`packages/nb-agent-ui` 的 `bun run typecheck` 与 `bun run test`（bun 46 + vitest 46）、`packages/nb-ui` 的 `bun run typecheck` 与 `bun run test`（552）都通过；没有跑 e2e。
+- 窄屏（390 宽）：Composer、CollapsibleCard 出错场景、CollapsibleRow 出错长名称场景截图都没有溢出，摘要先被省略；没有逐个核对浅色主题。
+
+## 数量与最严重几条
+共 14 条（第 14 条属核心文字，仅因 UI 实测看到而记）：
+- 阻断：0
+- 重要：6（第 1、2、3、6、7、9 条）
+- 建议：8（第 4、5、8、10、11、12、13、14 条）
+
+最严重的几条：
+1. 第 6 条：`AgentConversationView` 自己的 `useAgentText()` 在同一组件 `provide` 之后调用，取不到自己提供的值，英文界面下顶栏、溢出菜单、历史行、空态、“回到最新”仍是中文（Lab 实测“原始视图”菜单项）。
+2. 第 1 条：思考、提醒、分隔块的淡色小字在真实 `MarkdownDisplay` 下失效（实测 14px 正文色，期望 12px 淡色），`--nb-agent-markdown-*` 对注入的组件无效。
+3. 第 2 条：原图预览的“重试”给地址追加 `?previewRetry=1`，对 Markdown 图片的 blob 地址必然失败（Chrome 实测 plain ok、withQuery error）。
+4. 第 9 条与第 7 条：预览取消与归还时序、英文与缺省与回放三个场景都没有断言；e2e 与 DOM 测试都拦不下上面几条。
+5. 第 3 条：新的 nb-ui `CollapsibleRow`、`CollapsibleCard` 按钮键盘聚焦时 outline 与 box-shadow 都是 none（实测），违反 nb-ui 规范的 focus-visible 要求。

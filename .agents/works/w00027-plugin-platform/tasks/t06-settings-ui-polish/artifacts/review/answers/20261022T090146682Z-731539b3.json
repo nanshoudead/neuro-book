@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00027-plugin-platform",
+    "taskId": "t06-settings-ui-polish",
+    "artifactId": "review",
+    "answerId": "20261022T090146682Z-731539b3",
+    "artifactVersion": 10,
+    "contentHash": "12624f1cc560cafd6773af1d8e02da388956f46b24c58c46af7216b3611d2569",
+    "submittedAt": "2026-10-22T09:01:45.954Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r5-readonly": "plain",
+        "r5-states": true
+    },
+    "comments": {
+        "r5-readonly": "但是目前这种样式还可以优化一下"
+    },
+    "note": "1. 表单错误提示这里是怎么做的？会不会抢占垂直空间？要不要预留位置\n2. 离开时的确认这个组件是什么组件，感觉有点丑，而且圆角也太圆了（包不要改规范？）\n3. 设置文件有错误这个警告会不会抢占垂直位置？\n4. 还有文案要专业一点。\n5. 内容区的标题部分右侧还有很多空间\n6. 有没有使用 popup tooltip，要不要用？为什么不用？"
+}

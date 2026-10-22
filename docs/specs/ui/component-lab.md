@@ -61,7 +61,7 @@ fixture 不得要求凭据、网络、真实 Project/Session、Provider/Model �
 
 组件能否在 Lab 中验证，由[`组件规范`](../../standards/code/components.md)的能力标签推导：含 `io:` 或 `state:shared-write` 的组件只能在正式界面验证；含 `persist:` 的组件因 fixture 不得依赖浏览器持久化而不能挂载；含 `state:shared-read` 且无阻断标签的组件只会被标记为“需预置状态快照”。当前 Lab 尚未提供状态快照注入或隔离机制，因此这类组件即使存在 fixture 也不构成可采信的确定性验证，迁移批次必须先把读取上移到宿主或另行实现并验证快照边界。文档声明 `验证入口` 的零件同样不可独立挂载：它们的 props 全部来自宿主链（`state:inject` / `env:portal` 描述的正是这件事），脱离宿主没有可验证状态——中栏给出不能独立验证的原因，以及一条直达宿主场景的入口，Lab 不为它们另造宿主。
 
-组件树使用公开 string-id 合同：调用方传入和接收组件节点 id，不持有 Reka 内部节点对象。分组节点只负责展开/收起，不切换组件；搜索按组件名、文档显示名与 frontmatter 别名匹配（不搜正文），搜索时展开匹配分组，空结果文案说明可以按组件名、中文部件名或别名搜。
+组件树使用公开 string-id 合同：调用方传入和接收组件节点 id，不持有 Reka 内部节点对象。分组节点只负责展开/收起，不切换组件；组件节点显示组件名，文档声明了 `标题` 时显示「组件名 · 标题」；搜索按组件名、文档显示名与 frontmatter 别名匹配（不搜正文），搜索时展开匹配分组，空结果文案说明可以按组件名、中文部件名或别名搜。
 
 ## 输出与可观察行为
 - 进入 Lab 后，左侧显示按目录分组的组件树；组件索引包含可挂载和不可挂载条目。不可挂载条目可查询，但中栏显示不能在 Lab 验证的原因，不创建替代 fixture；声明了 `验证入口` 的零件，中栏的原因下方另给一条直达宿主场景的入口。行首图形按组件分类给，被别处声明为验证入口的集成入口另有独立图形，不与普通分类混同。
@@ -127,7 +127,7 @@ fixture 使用脱敏的静态或内存数据，不调用真实 Provider/Model、
 
 组件的行为合同、能力标签与耦合约束由[`组件规范`](../../standards/code/components.md)拥有，Lab 不建立第二套组件分类。各产品领域拥有正式界面及其接口、项目、会话、共享状态与持久化语义，Lab 不取得任何产品数据的所有权。
 
-Lab 消费的组件索引是派生产物，由扫描同名 Markdown 与 Vue 实现生成；缺少任一侧的条目被跳过。组件名、文档第一条 H1 派生出的显示名、frontmatter 别名、分组、能力标签、挂载结论和阻断原因来自文档与标签推导；场景由 fixture 按组件名关联，仓库不保留第二份组件或场景索引。`needsSnapshot` 当前只是索引标记，不代表 Lab 已提供或验证状态快照。
+Lab 消费的组件索引是派生产物，由扫描同名 Markdown 与 Vue 实现生成；缺少任一侧的条目被跳过。组件名、显示名（frontmatter 可选的 `标题`，不写时就是组件名；正文 H1 不参与）、frontmatter 别名、分组、能力标签、挂载结论和阻断原因来自文档与标签推导；场景由 fixture 按组件名关联，仓库不保留第二份组件或场景索引。`needsSnapshot` 当前只是索引标记，不代表 Lab 已提供或验证状态快照。
 
 Lab 的主题/配色仅是开发工具自身的界面状态，写入 Lab 自己的偏好记录，不改变产品 `theme.system`、Global Config 或产品主题 authority。新应用的产品主题由工作台页面按配置（`nbook.workbench/theme`、`nbook.workbench/appearance`）写在文档根（[`theme.system`](../theme/system.md)），Lab 不读这两项，离开 Lab 整页加载后由产品页重新应用。
 
@@ -169,7 +169,7 @@ Lab 落地本身不授权删除任何既有的 preview 页面。既有 preview �
 
 - **owner**：`packages/neuro-book/src/plugins/lab/`（开发插件 `nbook.lab`）持有 Lab 页面状态、fixture 关联、检查器与界面偏好；`packages/nb-ui` 持有被消费的通用 Tree、Tabs、表单等公共组件合同；共享前端组件在 `src/ui/`，各插件的界面组件在插件的 `web/components/`，产品组件自身继续由各领域 owner 持有。
 - **装配边界**：开发清单 `src/development-manifest.ts` 只由后端开发入口 `src/server/development-main.ts` 与前端的 `src/web/development-plugins.ts`（`main.ts` 只在 `import.meta.env.DEV` 分支里动态加载）引用；`web/plugin.ts` 向 `workbench.pages` 贡献 `/lab`（`reloadOnLeave`），页面组件 `LabPage.vue` 按需加载。依赖方向由 `src/architecture.test.ts` 守住，产物由 `scripts/check-dist.ts`（`check:dist`）检查。插件之间只以 `import type` 互相引用，唯一的例外是 Lab 的场景（`web/fixtures/`）：它们可以在运行时引用其它插件的 `web/` 与 `shared/`，用来挂载那些插件的组件、建场景自己的局部宿主；Lab 只在开发模式加载，例外不进产品。
-- **索引边界**：`component-index-model.ts` 的 `buildLabIndex` 是纯函数：按逻辑路径排序收录同名 Markdown 与 Vue 模块同时存在的条目，解析能力标签、可选别名与可选 `验证入口`、从文档第一条 H1 派生显示名，并推导 `mountable`、`blockedReason`、`verifyEntry`、`integrationEntry`、`needsSnapshot`，写坏的文档经注入的提示函数报告；`component-index.ts` 用 `import.meta.glob` 扫描 `src/ui/` 与 `src/plugins/*/web/components/`，并合并 nb-ui 的 `lab-sources`（逻辑路径加前缀 `nb-ui/`）；重名由 `buildLabIndex` 处理。检索按组件名、显示名与别名匹配（不搜正文）；`fixtures/` 登记场景、显式分层输入、插槽预设名、类型化 fixture loader；不从组件实现生成 props/emits/slots 数据。
+- **索引边界**：`component-index-model.ts` 的 `buildLabIndex` 是纯函数：按逻辑路径排序收录同名 Markdown 与 Vue 模块同时存在的条目，解析能力标签、可选 `标题`、可选别名与可选 `验证入口`，显示名取 `标题`、不写时取组件名，并推导 `mountable`、`blockedReason`、`verifyEntry`、`integrationEntry`、`needsSnapshot`，写坏的文档经注入的提示函数报告；`component-index.ts` 用 `import.meta.glob` 扫描 `src/ui/` 与 `src/plugins/*/web/components/`，并合并 nb-ui 的 `lab-sources`（逻辑路径加前缀 `nb-ui/`）；重名由 `buildLabIndex` 处理。检索按组件名、显示名与别名匹配（不搜正文）；`fixtures/` 登记场景、显式分层输入、插槽预设名、类型化 fixture loader；不从组件实现生成 props/emits/slots 数据。
 - **输入边界**：`lab-subject.ts` 持有分层 schema、`LabJsonInput<T>` 投影、`LabInputOf<C>` 类型约束和 `useLabSubject` 接入 API；`fixtures/index.ts` 的 `defineLabFixture<typeof C>` 是唯一类型化登记入口。LabShell 只做编辑值的 JSON 形状校验，不读取运行时组件签名。函数/服务/Date/Set 等运行期 props 由 fixture 固定接线；它们不是第四种调试输入，也不削弱组件实际必填 props 的 Vue 模板类型检查。
 - **透传夹具**：`fixtures/subject-fixture.ts` 的 `defineSubjectFixture<typeof C>` 为只需绑定输入、记录事件、按声明回写受控输入并补运行期 props 的零件生成夹具组件；运行期 props 在加载时异步准备，与被测组件一样按需加载。需要插槽预设、`LabFixtureControls` 或挂载后才准备的服务时仍手写 fixture 并用 `defineLabFixture` 登记。
 - **调试入口**：`lab-url.ts` 解析地址栏参数并持有画布预设；`use-lab-session.ts` 经宿主 router 双向同步地址栏与会话状态；`useLabPreferences` 按“地址参数 > 偏好 > 默认”放进界面状态；`lab-debug.ts` 持有 `window.__nbLab` 与舞台测量，接口类型在 `shared/debug-api.ts`；`scripts/lab-shot.ts`（`bun run lab:shot`，Node 运行）是命令行截图入口，截图与报告默认写入系统临时根。

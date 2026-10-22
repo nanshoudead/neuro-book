@@ -52,7 +52,11 @@ pre code { background: none; padding: 0; }
 <div class="toc">
 <b>目录</b>
 <ol>
-<li><a href="#r3">新字号上的紧凑度与字重</a>（待定）</li>
+<li><a href="#r7">第六轮答复之后</a>（待定）</li>
+<li><a href="#r6">第五轮问题的候选</a>（已定）</li>
+<li><a href="#r5">按 A 补齐其余状态</a>（已定）</li>
+<li><a href="#r4">重新设计</a>（已定：A）</li>
+<li><a href="#r3">新字号上的紧凑度与字重</a>（已撤回）</li>
 <li><a href="#r2">还原之后</a>（已定：不通过）</li>
 <li><a href="#r1">还原 t80 定稿：逐项对照</a></li>
 <li><a href="#now">现状</a></li>
@@ -63,46 +67,168 @@ pre code { background: none; padding: 0; }
 </div>
 
 
-<h2 id="r3">新字号上的紧凑度与字重（2026-10-22）</h2>
-<p>上一轮“还原后的外观”开发者不通过：不够紧凑，字小、粗体少。字号已经由 w00030 t04 恢复大一档（正文 14px、控件 28/34/42px）并合进 Work 分支，下面的候选都画在新字号上。草稿套在真实的设置窗口外面，只改样式；画布 960×640，NeuroBook 主题。t80 定稿的样子见本页最后的“参照”。左栏当前项的蓝色焦点环是 Lab 截图时没有交互造成的，真实应用里鼠标点开时没有。</p>
+<h2 id="r7">第六轮答复之后（2026-10-22）</h2>
+<p>接“设计决定”第 10 条。顺带修了你看到的“红框被裁掉一点像素”：不是被外层裁掉，是输入框落在了半像素上（纵坐标 424.69），边框被抗锯齿糊成两行淡色像素。半像素有两个来源：页面标题的行高是 31.2px；行里 34px 高的控件和 41px 高的文字块居中对齐，差出 3.5px。这一轮标题行高改成 32px，名字行高改成 20px（名字加说明共 40px，和控件一样是偶数），输入框落在整数 397 上。实现时照这一条做。</p>
 
-<section data-nbdev-question="r3-density" data-nbdev-type="single" data-nbdev-recommend="compact">
-<h3><span class="tag warn" data-nbdev-skip>待定</span> 紧凑度选哪一档</h3>
-<table>
-<tr><th></th><th>A 现状</th><th>B 紧凑（推荐）</th><th>C 更紧凑</th></tr>
-<tr><td>左栏</td><td>180px 宽，条目 34px 高</td><td>168px，条目 28px，分隔线上下 6px</td><td>同 B</td></tr>
-<tr><td>窗口与内容的边距</td><td>标题、标签、分栏之间 12px；内容左边 24px</td><td>8px；内容左边 16px</td><td>同 B</td></tr>
-<tr><td>设置项</td><td>上下各 8px，说明与名字隔 2px</td><td>上下各 6px，说明紧贴名字</td><td>同 B</td></tr>
-<tr><td>分组之间、页面标题下</td><td>24px、16px</td><td>16px、12px</td><td>同 B</td></tr>
-<tr><td>内容区的控件</td><td>34px 高</td><td>34px</td><td>28px（与左栏条目同高）</td></tr>
-</table>
-<div class="grid">
-<div data-nbdev-option="now" data-nbdev-label="A 现状"><figure><a href="r3/d-other-now.webp"><img src="r3/d-other-now.webp" alt=""></a><figcaption><b>A 现状</b> · 其它</figcaption></figure></div>
-<div data-nbdev-option="compact" data-nbdev-label="B 紧凑"><figure><a href="r3/d-other-compact.webp"><img src="r3/d-other-compact.webp" alt=""></a><figcaption><b>B 紧凑</b> · 其它</figcaption></figure></div>
-<div data-nbdev-option="tight" data-nbdev-label="C 更紧凑"><figure><a href="r3/d-other-tight.webp"><img src="r3/d-other-tight.webp" alt=""></a><figcaption><b>C 更紧凑</b> · 其它</figcaption></figure></div>
-</div>
-<p class="rec">推荐 B：同一屏多放两三项，行与行之间仍分得清；C 的控件比文字行还矮，输入框和下拉里的 14px 字显得挤，和工作台其它地方的输入框也不再一样高。</p>
-<details><summary>三档在外观、其它、模型服务三页的全部截图</summary><div class="grid"><figure><a href="r3/d-user-now.webp"><img src="r3/d-user-now.webp" alt=""></a><figcaption><b>A 现状</b> · 外观</figcaption></figure><figure><a href="r3/d-user-compact.webp"><img src="r3/d-user-compact.webp" alt=""></a><figcaption><b>B 紧凑</b> · 外观</figcaption></figure><figure><a href="r3/d-user-tight.webp"><img src="r3/d-user-tight.webp" alt=""></a><figcaption><b>C 更紧凑</b> · 外观</figcaption></figure><figure><a href="r3/d-other-now.webp"><img src="r3/d-other-now.webp" alt=""></a><figcaption><b>A 现状</b> · 其它</figcaption></figure><figure><a href="r3/d-other-compact.webp"><img src="r3/d-other-compact.webp" alt=""></a><figcaption><b>B 紧凑</b> · 其它</figcaption></figure><figure><a href="r3/d-other-tight.webp"><img src="r3/d-other-tight.webp" alt=""></a><figcaption><b>C 更紧凑</b> · 其它</figcaption></figure><figure><a href="r3/d-page-fill-now.webp"><img src="r3/d-page-fill-now.webp" alt=""></a><figcaption><b>A 现状</b> · 模型服务</figcaption></figure><figure><a href="r3/d-page-fill-compact.webp"><img src="r3/d-page-fill-compact.webp" alt=""></a><figcaption><b>B 紧凑</b> · 模型服务</figcaption></figure><figure><a href="r3/d-page-fill-tight.webp"><img src="r3/d-page-fill-tight.webp" alt=""></a><figcaption><b>C 更紧凑</b> · 模型服务</figcaption></figure></div></details>
+<section data-nbdev-question="r7-field" data-nbdev-type="confirm">
+<h3><span class="tag warn" data-nbdev-skip>待定</span> 出错图标放在名字旁边，这样可以吗</h3>
+<div class="grid"><figure><a href="r7/field-error-zoom.webp"><img src="r7/field-error-zoom.webp" alt=""></a><figcaption><b>并发数</b>：名字后面一个红色图标，悬停或聚焦到输入框时，提示从图标右边弹出（放在上面会盖住上一行的说明）；输入框仍是红框</figcaption></figure><figure><a href="r7/field-error-light.webp"><img src="r7/field-error-light.webp" alt=""></a><figcaption>整页。<b>抽取模型</b>的“无法加载模型列表：插件“模型服务”已停止”也收进名字旁的灰色图标，和出错同一种做法，这一行不再多出一行字</figcaption></figure></div>
 </section>
 
-<section data-nbdev-question="r3-weight" data-nbdev-type="single" data-nbdev-recommend="titles">
-<h3><span class="tag warn" data-nbdev-skip>待定</span> 字重层级选哪一种</h3>
-<p>三种都画在 B 紧凑上。</p>
-<table>
-<tr><th></th><th>现状</th><th>加强标题（推荐）</th><th>全面加粗</th></tr>
-<tr><td>页面标题（外观、模型服务）</td><td>16px 半粗</td><td>20px 半粗</td><td>同左</td></tr>
-<tr><td>分组标题（界面、语言、插件名）</td><td>12px 半粗，灰色</td><td>14px 半粗，正文色</td><td>同左</td></tr>
-<tr><td>设置项名、列表项名</td><td>14px 中等</td><td>14px 中等</td><td>14px 半粗</td></tr>
-<tr><td>左栏当前项</td><td>中等</td><td>中等</td><td>半粗</td></tr>
-</table>
+<section data-nbdev-question="r7-desc" data-nbdev-type="single" data-nbdev-recommend="inline">
+<h3><span class="tag warn" data-nbdev-skip>待定</span> 页面说明放在哪</h3>
+<p>上排是平时，下排是这一层的设置文件有错、标题右侧同时有警告和页面操作时（最挤的情况）。</p>
 <div class="grid">
-<div data-nbdev-option="now" data-nbdev-label="现状字重"><figure><a href="r3/d-user-compact.webp"><img src="r3/d-user-compact.webp" alt=""></a><figcaption><b>现状字重</b> · 外观</figcaption></figure></div>
-<div data-nbdev-option="titles" data-nbdev-label="加强标题"><figure><a href="r3/w-user-titles.webp"><img src="r3/w-user-titles.webp" alt=""></a><figcaption><b>加强标题</b> · 外观</figcaption></figure></div>
-<div data-nbdev-option="bold" data-nbdev-label="全面加粗"><figure><a href="r3/w-user-bold.webp"><img src="r3/w-user-bold.webp" alt=""></a><figcaption><b>全面加粗</b> · 外观</figcaption></figure></div>
+<div data-nbdev-option="below" data-nbdev-label="标题下一行"><figure><a href="r7/desc-below-zoom.webp"><img src="r7/desc-below-zoom.webp" alt=""></a><figcaption><b>标题下一行</b>（现状）：右侧空着一块，标题区多占一行</figcaption></figure><figure><a href="r7/broken-below-zoom.webp"><img src="r7/broken-below-zoom.webp" alt=""></a><figcaption>有警告时</figcaption></figure></div>
+<div data-nbdev-option="inline" data-nbdev-label="与标题并列一行"><figure><a href="r7/desc-inline-zoom.webp"><img src="r7/desc-inline-zoom.webp" alt=""></a><figcaption><b>与标题并列一行</b>：说明跟在标题后面，用上右侧的空地，标题区少一行</figcaption></figure><figure><a href="r7/broken-inline-zoom.webp"><img src="r7/broken-inline-zoom.webp" alt=""></a><figcaption>有警告时：放不下的说明截断，悬停看全文</figcaption></figure></div>
+<div data-nbdev-option="tip" data-nbdev-label="收进提示"><figure><a href="r7/desc-tip-zoom.webp"><img src="r7/desc-tip-zoom.webp" alt=""></a><figcaption><b>收进提示</b>：标题后面一个提示图标，悬停才显示说明（图里是悬停态）</figcaption></figure><figure><a href="r7/broken-tip-zoom.webp"><img src="r7/broken-tip-zoom.webp" alt=""></a><figcaption>有警告时</figcaption></figure></div>
 </div>
-<p class="rec">推荐加强标题：页面、分组、设置项三级靠字号和颜色拉开，一眼能找到分组；全面加粗时每一行的名字都是粗的，标题反而不突出，长页面上满屏粗字。</p>
-<details><summary>三种在外观、其它、模型服务三页的全部截图</summary><div class="grid"><figure><a href="r3/d-user-compact.webp"><img src="r3/d-user-compact.webp" alt=""></a><figcaption><b>现状字重</b> · 外观</figcaption></figure><figure><a href="r3/w-user-titles.webp"><img src="r3/w-user-titles.webp" alt=""></a><figcaption><b>加强标题</b> · 外观</figcaption></figure><figure><a href="r3/w-user-bold.webp"><img src="r3/w-user-bold.webp" alt=""></a><figcaption><b>全面加粗</b> · 外观</figcaption></figure><figure><a href="r3/d-other-compact.webp"><img src="r3/d-other-compact.webp" alt=""></a><figcaption><b>现状字重</b> · 其它</figcaption></figure><figure><a href="r3/w-other-titles.webp"><img src="r3/w-other-titles.webp" alt=""></a><figcaption><b>加强标题</b> · 其它</figcaption></figure><figure><a href="r3/w-other-bold.webp"><img src="r3/w-other-bold.webp" alt=""></a><figcaption><b>全面加粗</b> · 其它</figcaption></figure><figure><a href="r3/d-page-fill-compact.webp"><img src="r3/d-page-fill-compact.webp" alt=""></a><figcaption><b>现状字重</b> · 模型服务</figcaption></figure><figure><a href="r3/w-page-fill-titles.webp"><img src="r3/w-page-fill-titles.webp" alt=""></a><figcaption><b>加强标题</b> · 模型服务</figcaption></figure><figure><a href="r3/w-page-fill-bold.webp"><img src="r3/w-page-fill-bold.webp" alt=""></a><figcaption><b>全面加粗</b> · 模型服务</figcaption></figure></div></details>
+<p class="rec">推荐“与标题并列一行”：说明一直看得见，又不多占一行；只有右侧同时有警告和操作这种少见的情况会截断。“收进提示”最干净，但这几句说明本来就短，藏起来还要多一次悬停；“标题下一行”是现在右侧显得空的原因。</p>
 </section>
+
+<section data-nbdev-question="r7-header" data-nbdev-type="confirm">
+<h3><span class="tag warn" data-nbdev-skip>待定</span> 标题区右侧这样放可以吗</h3>
+<p>从右往左依次是：页面级操作（这一页有才放，例如“添加服务商”，服务商详情页的“测试连接”和删除），左边是层出错的警告（只在出错时出现）。层坏了时页面操作随控件一起停用。“用户 | 本作品”留在左栏：它切的是整个窗口。</p>
+<div class="grid"><figure><a href="r7/broken-inline-light.webp"><img src="r7/broken-inline-light.webp" alt=""></a><figcaption>模型服务：警告与“添加服务商”（停用）并排，说明与标题并列一行</figcaption></figure></div>
+</section>
+
+<section data-nbdev-question="r7-layer" data-nbdev-type="confirm">
+<h3><span class="tag warn" data-nbdev-skip>待定</span> 层出错的警告与点进去之后，这样可以吗</h3>
+<div class="grid"><figure><a href="r7/layer-hover-light.webp"><img src="r7/layer-hover-light.webp" alt=""></a><figcaption><b>警告</b>：整块是一个按钮，左边“设置文件格式有误”，右边“打开 →”；悬停写第几行第几列与“修复前，用户设置无法保存”（图里是悬停态）</figcaption></figure><figure><a href="r7/file-from-error-light.webp"><img src="r7/file-from-error-light.webp" alt=""></a><figcaption><b>点了之后</b>：左栏切到“设置文件”，打开出错的那一层的文件（用户或本作品），光标放在出错处，那一行标红底；标题右侧改写“第 5 行第 33 列：缺少逗号，改好后保存”</figcaption></figure></div>
+<p>改好并保存后警告消失，这一层的控件恢复；不自动跳回原来的分区，要回去自己点左栏。和现在的 Spec（<code>settings/settings-window.md</code> 输出 13）相比，多了“光标放在出错处、那一行标红底”，定了一起写进 Spec。</p>
+</section>
+
+<h3>深色</h3>
+<div class="grid"><figure><a href="r7/field-error-dark.webp"><img src="r7/field-error-dark.webp" alt=""></a><figcaption>深色 · 出错在名字旁</figcaption></figure><figure><a href="r7/broken-inline-dark.webp"><img src="r7/broken-inline-dark.webp" alt=""></a><figcaption>深色 · 层出错与页面操作</figcaption></figure><figure><a href="r7/file-from-error-dark.webp"><img src="r7/file-from-error-dark.webp" alt=""></a><figcaption>深色 · 点进设置文件</figcaption></figure></div>
+
+<h2 id="r6">第五轮问题的候选（2026-10-22，已定，标题区待第七轮）</h2>
+<p>按会话里的讨论（“设计决定”第 9 条）画了三处候选，并把已同意的几处一起换上：文案改成常见软件的用词；离开时的确认换成真实的 <code>AlertDialog</code>，圆角从 26px 改成 14px；只读的值改用正文色，锁形图标挪到“恢复默认”那一格。Tooltip 是悬停才出现的，静态截图拍不到，图里是用同一种浮层外框画在原位的悬停态。</p>
+
+<section data-nbdev-question="r6-field-error" data-nbdev-type="single" data-nbdev-recommend="tooltip">
+<h3><span class="tag ok" data-nbdev-skip>已定</span> 表单出错的提示怎么放</h3>
+<p><b>开发者的决定（2026-10-22）：收进图标，悬停显示；图标挪到名字旁边。</b></p>
+<p>看“并发数”一行（填了 12，超出 1–8）。三种都给框标红。</p>
+<div class="grid">
+<div data-nbdev-option="inline" data-nbdev-label="控件下面常显一行"><figure><a href="r6/field-inline-zoom.webp"><img src="r6/field-inline-zoom.webp" alt=""></a><figcaption><b>控件下面常显一行</b>（第五轮的做法）：一直看得见，这一行变高约 20px，下面的行往下移</figcaption></figure></div>
+<div data-nbdev-option="tooltip" data-nbdev-label="收进图标，悬停显示"><figure><a href="r6/field-tooltip-zoom.webp"><img src="r6/field-tooltip-zoom.webp" alt=""></a><figcaption><b>收进图标，悬停显示</b>（文件资源管理器行尾出错图标的做法）：控件前面一个红色图标，悬停或聚焦到输入框时弹出原因，不占高度</figcaption></figure></div>
+<div data-nbdev-option="attached" data-nbdev-label="贴在输入框下沿"><figure><a href="r6/field-attached-zoom.webp"><img src="r6/field-attached-zoom.webp" alt=""></a><figcaption><b>贴在输入框下沿</b>（文件资源管理器改名框的做法）：聚焦时浮在下一行上面，不占高度；离开输入框后只剩红框</figcaption></figure></div>
+</div>
+<p class="rec">推荐“收进图标，悬停显示”：不挤占垂直空间；红框加红色图标离开输入框后仍在，一眼看得出哪一项出了错；原因在悬停或聚焦到输入框时出现，读屏经 <code>aria-describedby</code> 读到。“贴在下沿”离开输入框后只剩红框，不悬停看不到原因，还会盖住下一行的控件；“常显一行”最直白，代价是行高跳动。</p>
+</section>
+
+<section data-nbdev-question="r6-layer-error" data-nbdev-type="single" data-nbdev-recommend="sidebar">
+<h3><span class="tag ok" data-nbdev-skip>已定</span> 层出错的警告放在哪</h3>
+<p><b>开发者的决定（2026-10-22）：标题右侧；警告要优化。</b></p>
+<p>这一层的设置文件写坏时，整层的控件都停用、显示上一份有效值。警告是关于“这一层”的，不是关于某一页的。</p>
+<div class="grid">
+<div data-nbdev-option="banner" data-nbdev-label="页面顶部一行"><figure><a href="r6/layer-banner-light.webp"><img src="r6/layer-banner-light.webp" alt=""></a><figcaption><b>页面顶部一行</b>：在标题下面，约 36px，下面的内容往下移</figcaption></figure></div>
+<div data-nbdev-option="header" data-nbdev-label="标题右侧"><figure><a href="r6/layer-header-light.webp"><img src="r6/layer-header-light.webp" alt=""></a><figcaption><b>标题右侧</b>：一个警告标签加“打开设置文件”，不占高度；第几行第几列放进悬停提示</figcaption></figure></div>
+<div data-nbdev-option="sidebar" data-nbdev-label="左栏的标签下面"><figure><a href="r6/layer-sidebar-light.webp"><img src="r6/layer-sidebar-light.webp" alt=""></a><figcaption><b>左栏的标签下面</b>：“用户”标签带警告图标，下面一小块说明和“打开设置文件”；左栏往下让，内容区不动</figcaption></figure></div>
+<div data-nbdev-option="bar" data-nbdev-label="内容底部一条"><figure><a href="r6/layer-bar-light.webp"><img src="r6/layer-bar-light.webp" alt=""></a><figcaption><b>内容底部一条</b>：和保存栏同一个位置，不挤内容</figcaption></figure></div>
+</div>
+<p class="rec">推荐“左栏的标签下面”：出错的是整层，提示就挨着切换层的标签放，切到哪一页都在同一个地方，内容区一点不动；“本作品”那一层坏了时同理标在“本作品”上。“标题右侧”最省地方，但位置和标题区右侧要放的页面操作抢；“底部一条”在有保存栏的页面上会和保存栏撞在一起。</p>
+</section>
+
+<section>
+<h3><span class="tag warn" data-nbdev-skip>改到第七轮</span> 标题区右侧放什么</h3>
+<p><b>开发者（2026-10-22）：还不确定，和页面说明的位置一起考虑，见第七轮。</b></p>
+<div class="grid">
+<div><figure><a href="r6/header-actions-models-light.webp"><img src="r6/header-actions-models-light.webp" alt=""></a><figcaption><b>页面级操作</b>：模型服务页放“添加服务商”，服务商详情页放“测试连接”和删除（右图），没有操作的页面空着</figcaption></figure></div>
+<div><figure><a href="r6/header-layer-models-light.webp"><img src="r6/header-layer-models-light.webp" alt=""></a><figcaption><b>“用户 | 本作品”</b>：从左栏挪到每页的标题右侧，左栏只剩搜索与分区</figcaption></figure></div>
+</div>
+<div class="grid"><figure><a href="r6/header-actions-provider-light.webp"><img src="r6/header-actions-provider-light.webp" alt=""></a><figcaption>页面级操作 · 服务商详情：右上“测试连接”和删除，底部保存栏没有改动时停用</figcaption></figure><figure><a href="r6/header-layer-appearance-light.webp"><img src="r6/header-layer-appearance-light.webp" alt=""></a><figcaption>“用户 | 本作品”放标题右侧 · 外观</figcaption></figure></div>
+<p class="rec">推荐“页面级操作”：操作挨着它作用的对象。“用户 | 本作品”切的是整个窗口（切了以后每一页都换成那一层），留在左栏才说得清它管全部分区。两种都配合内容区限宽约 720px：默认 960 宽的窗口里内容区本来就只有约 680px，限宽只在把窗口拉宽时起作用，名字和控件不会被拉到两头。</p>
+</section>
+
+<section data-nbdev-question="r6-rest" data-nbdev-type="confirm">
+<h3><span class="tag ok" data-nbdev-skip>已定</span> 文案、只读与确认框这样改可以吗</h3>
+<p><b>开发者的决定（2026-10-22）：可以。</b></p>
+<div class="grid"><figure><a href="r6/unsaved-light.webp"><img src="r6/unsaved-light.webp" alt=""></a><figcaption><b>离开时的确认</b>：真实的 <code>AlertDialog</code>，圆角 14px，焦点默认在“继续编辑”，“放弃”是危险色</figcaption></figure><figure><a href="r6/field-tooltip-light.webp"><img src="r6/field-tooltip-light.webp" alt=""></a><figcaption><b>只读</b>：看“书库”一行，值用正文色，锁形图标在“恢复默认”那一格（和改过的行的图标对齐），悬停写“只读：由作品决定”</figcaption></figure></div>
+<p><b>圆角要改的规范</b>（nb-ui）：NeuroBook 主题里小确认框（<code>AlertDialog</code>）的圆角从 <code>--radius-dialog</code> 26px 改为 14px，同命令面板锁定 14px 的先例；<code>ui-development-spec</code> 的浮层分级里加一条“叠在另一个窗口上的浮层，圆角不大于底下窗口的圆角”。大的对话框（例如设置窗口本身）不变。</p>
+<p><b>文案对照</b>（定了连同 Spec 一起改）：</p>
+<table><tr><th>位置</th><th>现在</th><th>改成</th></tr><tr><td>插件设置的出错</td><td>还没保存：要在 1 到 8 之间</td><td>未保存：取值范围为 1–8</td></tr><tr><td>保存栏</td><td>有没保存的改动</td><td>有未保存的更改</td></tr><tr><td>保存栏按钮</td><td>放弃改动</td><td>放弃更改</td></tr><tr><td>离开时的确认 · 标题</td><td>放弃未保存的改动？</td><td>放弃未保存的更改？</td></tr><tr><td>离开时的确认 · 正文</td><td>“DeepSeek”的接口地址还没保存，切到“外观”后会丢掉。</td><td>“DeepSeek”有未保存的更改。离开此页面后，这些更改将会丢失。</td></tr><tr><td>选项拿不到</td><td>模型列表暂时拿不到：“模型服务”插件已停止</td><td>无法加载模型列表：插件“模型服务”已停止</td></tr><tr><td>层出错</td><td>设置文件有错误，修好前这里不能保存</td><td>设置文件格式有误，修复前无法保存</td></tr><tr><td>层出错 · 位置</td><td>第 5 行第 33 列：这里少了一个逗号</td><td>第 5 行第 33 列：缺少逗号</td></tr><tr><td>设置文件保存失败</td><td>没有保存：第 5 行第 33 列：这里少了一个逗号</td><td>未保存：第 5 行第 33 列缺少逗号</td></tr><tr><td>被本作品覆盖</td><td>本作品单独设为了深色，这里的改动在《雾港》里不生效</td><td>《雾港》已单独设为深色，此处的更改在该作品中不生效</td></tr><tr><td>只能在用户层改</td><td>“界面语言”只能在用户设置里改。</td><td>“界面语言”仅可在用户设置中修改。</td></tr><tr><td>本作品标签的说明</td><td>只对《雾港》生效；没有单独设置的项沿用用户设置</td><td>仅对《雾港》生效；未单独设置的项沿用用户设置</td></tr><tr><td>插件设置的说明</td><td>没有自己分区的插件把设置放在这里</td><td>未提供独立分区的插件设置</td></tr><tr><td>设置文件的说明</td><td>整份编辑用户设置（settings.json），保存前检查格式</td><td>直接编辑用户设置文件 settings.json，保存时校验格式</td></tr><tr><td>默认模型的说明</td><td>写作助手没有指定模型时用它</td><td>写作助手未指定模型时使用</td></tr><tr><td>密钥</td><td>密钥 / 只存在本机</td><td>API 密钥 / 仅保存在本机</td></tr><tr><td>只读的说明</td><td>由作品决定，在这里不能改</td><td>由作品决定（锁形图标的提示写“只读：由作品决定”）</td></tr></table>
+</section>
+
+<h3>深色</h3>
+<div class="grid"><figure><a href="r6/field-tooltip-dark.webp"><img src="r6/field-tooltip-dark.webp" alt=""></a><figcaption>深色 · 出错收进图标</figcaption></figure><figure><a href="r6/field-attached-dark.webp"><img src="r6/field-attached-dark.webp" alt=""></a><figcaption>深色 · 出错贴在下沿</figcaption></figure><figure><a href="r6/layer-sidebar-dark.webp"><img src="r6/layer-sidebar-dark.webp" alt=""></a><figcaption>深色 · 层出错在左栏</figcaption></figure><figure><a href="r6/unsaved-dark.webp"><img src="r6/unsaved-dark.webp" alt=""></a><figcaption>深色 · 离开时的确认</figcaption></figure></div>
+
+<h2 id="r5">按 A 补齐其余状态（2026-10-22，已定）</h2>
+<p>第四轮开发者选了 A Notion / Linear 式（“设计决定”第 6 条）。这一轮在 A 上把其余状态画全，控件是真实的 nb-ui 组件，画布 960×640，NeuroBook 主题。比第四轮多改了一处：<b>“恢复默认”占控件右边固定的一格</b>，没改过的行也留着这一格，所以有没有“恢复默认”的行，控件右缘都对齐（第四轮改过的行会往左缩一截）。</p>
+
+<section data-nbdev-question="r5-readonly" data-nbdev-type="single" data-nbdev-recommend="plain">
+<h3><span class="tag ok" data-nbdev-skip>已定</span> 只读的项怎么画</h3>
+<p><b>开发者的决定（2026-10-22）：只写值，样式再优化。</b></p>
+<p>只读的项（例如“书库”由作品决定、在这里不能改）现在和能编辑的几乎看不出差别；整体变淡是“停用”的画法，不能借用。两种候选，看“故事图谱”下的“书库”一行：</p>
+<div class="grid">
+<div data-nbdev-option="plain" data-nbdev-label="只写值"><figure><a href="r5/plugins-plain-light.webp"><img src="r5/plugins-plain-light.webp" alt=""></a><figcaption><b>只写值</b>：不画框，锁形图标加上值，文字可以选中复制</figcaption></figure></div>
+<div data-nbdev-option="boxed" data-nbdev-label="虚线框"><figure><a href="r5/plugins-boxed-light.webp"><img src="r5/plugins-boxed-light.webp" alt=""></a><figcaption><b>虚线框</b>：保留框的位置与宽度，换成虚线、不填底，框里带锁</figcaption></figure></div>
+</div>
+<p class="rec">推荐“只写值”：没有框就不像能输入，一眼和输入框分开；锁形图标说明为什么不能改。虚线框仍然像一个输入框，只是换了边框，和能编辑的框放在一起时还要多看一眼。对开关、分段控件这类只读，也照这条只写当前值。</p>
+</section>
+
+<section data-nbdev-question="r5-states" data-nbdev-type="confirm">
+<h3><span class="tag ok" data-nbdev-skip>已定</span> 其余状态按这一轮的画法定稿吗</h3>
+<p><b>开发者的决定（2026-10-22）：定稿；另附六个问题，处理见第六轮。</b></p>
+<p>想改的地方写在评论里。逐张说明：</p>
+<div class="grid">
+<figure><a href="r5/project-light.webp"><img src="r5/project-light.webp" alt=""></a><figcaption><b>本作品标签</b>：没单独设置的项写“沿用用户设置：NeuroBook”和“单独设置”按钮；单独设置了的项有小圆点，后面是“移除本作品的设置”（同一个图标，提示文字不同）；只能在用户设置里改的项在末尾一行列出</figcaption></figure>
+<figure><a href="r5/search-light.webp"><img src="r5/search-light.webp" alt=""></a><figcaption><b>搜索结果</b>：按“分区 › 分组”分组，命中的字标底色；左栏不标当前项；页面的命中是一行“打开”</figcaption></figure>
+<figure><a href="r5/invalid-layer-light.webp"><img src="r5/invalid-layer-light.webp" alt=""></a><figcaption><b>设置文件有错误</b>：页面顶部一条警告（第几行第几列、哪里不对）和“打开设置文件”，下面的控件停用、显示上一份有效值</figcaption></figure>
+<figure><a href="r5/plugins-plain-light.webp"><img src="r5/plugins-plain-light.webp" alt=""></a><figcaption><b>插件设置</b>（原“其它”分区）：小组标题是插件的名字；“并发数”写坏时框标红、下面一行“还没保存：…”；“抽取模型”的选项拿不到时停用，原因写成给人看的话，不写选项来源的 id；列表这类宽控件另起一行占满</figcaption></figure>
+<figure><a href="r5/file-light.webp"><img src="r5/file-light.webp" alt=""></a><figcaption><b>设置文件</b>：带行号的等宽文本框，出错的行标红底，下面一行写原因和三个快捷键；保存栏在底部</figcaption></figure>
+<figure><a href="r5/unsaved-light.webp"><img src="r5/unsaved-light.webp" alt=""></a><figcaption><b>离开时的确认</b>：服务商详情有没保存的改动时切走，窗口上叠一个确认，焦点默认在“继续编辑”；保存栏在页面底部，有改动时写“有没保存的改动”</figcaption></figure>
+<figure><a href="r5/narrow-light.webp"><img src="r5/narrow-light.webp" alt=""></a><figcaption><b>窄窗口</b>（宽度 600px 以下）：左栏变成顶上两行，标签与搜索并排，分区横排、可以横向滚动，去掉分组名和图标；放不下时控件换到名字下面</figcaption></figure>
+<figure><a href="r5/models-light.webp"><img src="r5/models-light.webp" alt=""></a><figcaption><b>模型服务</b>（第四轮的页面，这一轮加了固定的“恢复默认”一格）</figcaption></figure>
+</div>
+<h3>深色</h3>
+<div class="grid">
+<figure><a href="r5/appearance-dark.webp"><img src="r5/appearance-dark.webp" alt=""></a><figcaption><b>深色</b> · 外观</figcaption></figure>
+<figure><a href="r5/models-dark.webp"><img src="r5/models-dark.webp" alt=""></a><figcaption><b>深色</b> · 模型服务</figcaption></figure>
+<figure><a href="r5/search-dark.webp"><img src="r5/search-dark.webp" alt=""></a><figcaption><b>深色</b> · 搜索结果</figcaption></figure>
+<figure><a href="r5/plugins-plain-dark.webp"><img src="r5/plugins-plain-dark.webp" alt=""></a><figcaption><b>深色</b> · 插件设置</figcaption></figure>
+<figure><a href="r5/file-dark.webp"><img src="r5/file-dark.webp" alt=""></a><figcaption><b>深色</b> · 设置文件</figcaption></figure>
+<figure><a href="r5/unsaved-dark.webp"><img src="r5/unsaved-dark.webp" alt=""></a><figcaption><b>深色</b> · 离开时的确认</figcaption></figure>
+</div>
+<p><b>定稿后要跟着改的 Spec</b>（<code>settings/settings-window.md</code>，定稿后写）：</p>
+<ul>
+<li>输出 9：控件从“标签列之后左对齐”改为靠右，“恢复默认”占固定一格；生效时机写成名字后面的小标签。</li>
+<li>输出 10：改过的项从“标题左侧强调色竖线”改为名字后面的蓝色小圆点。</li>
+<li>输出 12：“在本作品里单独设置”按钮缩成“单独设置”，“沿用用户设置：X”照旧。</li>
+<li>输出 20：选项拿不到的原因写成给人看的话（插件名，不写选项来源的 id）。</li>
+<li>“其它”分区改名“插件设置”，小组标题用插件的名字（插件清单要有给人看的名字）。</li>
+<li>输出 23：设置文件的“保存”“放弃改动”从文本框上面移到底部保存栏，与服务商详情同一种；文本框加行号（现在的文本框没有，要新做）。</li>
+</ul>
+</section>
+
+<h2 id="r4">重新设计（2026-10-22，已定：A）</h2>
+<p>开发者 2026-10-22 要求推翻 t80 以来的画法重新设计，方向在 Notion / Linear 式与 macOS 系统设置式之间选；最难看的是控件位置乱、整体太素没质感，以及小交互与卡片样式不像 NeuroBook（例如左栏条目点下去会缩小、选中项是带描边的卡片）。下面两套用同一份内容，控件是真实的 nb-ui 组件，画布按真实窗口 960×640，NeuroBook 主题浅色（深色下一轮再出）。</p>
+<p><b>两套共同的改法：</b></p>
+<ul>
+<li>控件一律靠右，每行控件的右缘对齐；名字与说明在左。</li>
+<li>左栏是列表行，不是按钮：没有描边、点下不缩放，悬停与选中都是半透明叠色（浮层上的高亮规则）；分区按“通用、写作助手、扩展”分组。</li>
+<li>页面标题用 NeuroBook 字标的衬线展示字体（与书架标题同一套），这是质感的主要来源。</li>
+<li>改过的项在名字后面一个蓝色小圆点，“恢复默认”紧跟在控件后面；本作品单独设值的提示是名字下一行的蓝色小字。</li>
+<li>模型服务不再左列表右详情：服务商是一张列表，点进去是下一级页面（左上角返回），保存栏只在下一级页面出现。</li>
+</ul>
+
+<section data-nbdev-question="r4-direction" data-nbdev-type="single" data-nbdev-recommend="cards">
+<h3><span class="tag ok" data-nbdev-skip>已定</span> 选哪一套</h3>
+<p><b>开发者的决定（2026-10-22）：A Notion / Linear 式。</b></p>
+<div class="grid">
+<div data-nbdev-option="flat" data-nbdev-label="A Notion / Linear 式"><figure><a href="r4/flat-editor.webp"><img src="r4/flat-editor.webp" alt=""></a><figcaption><b>A Notion / Linear 式</b>：不画卡片，分组标题下一条线，行与行之间只靠间距</figcaption></figure></div>
+<div data-nbdev-option="cards" data-nbdev-label="B macOS 式"><figure><a href="r4/cards-editor.webp"><img src="r4/cards-editor.webp" alt=""></a><figcaption><b>B macOS 式</b>：分组放进比窗口亮一档的卡片，卡片里一行一项、行间一条缩进的细线；左栏图标带彩色底块</figcaption></figure></div>
+</div>
+<p class="rec">推荐 B：分组一眼就是一块，彩色图标与卡片正好补上“太素”；卡片是设计语言允许的“层级 +1”（不透明、比窗口亮一档、圆角比窗口小一圈），不是又一层玻璃。A 更贴近设计语言里浮层内“不给面”的缺省做法，更安静，但素的问题主要只靠标题字体来补。</p>
+<p>选了以后可以在评论里写想改的细节（比如 A 的线、B 的图标颜色），下一轮按选中的那套补深色、窄窗口、搜索结果、出错与只读这些状态。</p>
+</section>
+
+<h3>A Notion / Linear 式：四页</h3>
+<div class="grid"><figure><a href="r4/flat-appearance.webp"><img src="r4/flat-appearance.webp" alt=""></a><figcaption><b>A Notion / Linear 式</b> · 外观</figcaption></figure><figure><a href="r4/flat-editor.webp"><img src="r4/flat-editor.webp" alt=""></a><figcaption><b>A Notion / Linear 式</b> · 编辑器</figcaption></figure><figure><a href="r4/flat-models.webp"><img src="r4/flat-models.webp" alt=""></a><figcaption><b>A Notion / Linear 式</b> · 模型服务</figcaption></figure><figure><a href="r4/flat-provider.webp"><img src="r4/flat-provider.webp" alt=""></a><figcaption><b>A Notion / Linear 式</b> · 服务商详情（模型服务的下一级）</figcaption></figure></div>
+<h3>B macOS 式：四页</h3>
+<div class="grid"><figure><a href="r4/cards-appearance.webp"><img src="r4/cards-appearance.webp" alt=""></a><figcaption><b>B macOS 式</b> · 外观</figcaption></figure><figure><a href="r4/cards-editor.webp"><img src="r4/cards-editor.webp" alt=""></a><figcaption><b>B macOS 式</b> · 编辑器</figcaption></figure><figure><a href="r4/cards-models.webp"><img src="r4/cards-models.webp" alt=""></a><figcaption><b>B macOS 式</b> · 模型服务</figcaption></figure><figure><a href="r4/cards-provider.webp"><img src="r4/cards-provider.webp" alt=""></a><figcaption><b>B macOS 式</b> · 服务商详情（模型服务的下一级）</figcaption></figure></div>
+
+<h2 id="r3">新字号上的紧凑度与字重（2026-10-22，已撤回）</h2>
+<p>开发者看过后觉得更丑，要求推翻以前的设计重新设计，紧凑度与字重两道题撤回（见上一节）。</p>
 
 <h2 id="r2">还原之后（2026-10-21）</h2>
 <p>按上一节的逐项对照改完（Work 分支 <code>feat/w00027-plugin-platform</code>，截图来自 Component Lab 与真实应用，窗口 960×640，NeuroBook 主题）。左边是 t80 定稿，右边是现在。</p>

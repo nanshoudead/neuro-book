@@ -1,0 +1,207 @@
+# nb-agent-ui API 形状与宿主接入审查（w00019 t10）
+
+审查角度：站在主应用 Agent 插件作者与 nb-story 问答页作者的位置，照 `packages/nb-agent-ui/README.md` 写最小接入。
+草稿在 `lab-api/`：`host-minimal.ts`（最小宿主：ctx、services、领域工具、注册表、harness 适配器、action 处理）、`Host.vue`（挂载）、`ident.ts`（适配器对象稳定性实验）、`tsconfig.json`（paths 指向 worktree，用 `vue-tsc --noEmit -p` 检查）。vue-tsc 的结果只有两条，都在意料之内：缺 `services`、`locale` 报必填；`default: {const _: never = action}` 因 `PluginAgentViewAction` 报错。除标注“从代码推断”的条目外，都在上述草稿或脚本里复现过。
+
+以下路径都在 `.worktree/w00019-nb-agent-ui/packages/` 下。
+
+### 1. `ctx` 17 个顶层字段、约 50 个叶子值全部必填，其中大半当前没有任何组件读取，也没有缺省工厂
+
+- 严重程度：重要
+- 类别：API 形状 / 宿主接入
+- 位置：`nb-agent-ui/src/types.ts:274-299`（`AgentConversationContext`）；Lab 的工厂 `neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui/data.ts:205-250`（`conversationContext(patch)`）
+- 现象：我的最小 `ctx` 写了 22 行、约 50 个叶子值才通过类型检查（`interaction` 8 个布尔、`usage` 8 个数、`composer` 11 个字段、`workspaceChanges`、`history`、`connection` 都要）。对 `src/vue` 与 `src/*.ts` 做字段访问统计：`connection`、`panels`、`extensions`、`pendingInputs`、`workspaceChanges`、`editing`、`interaction.canAnswer/canArchive/canRestore`、`composer.attachmentCount` 目前零读取（`attachmentCount` 在整个包里只出现在 `types.ts` 一处，与 `attachments.length` 重复）。`ctx.usage` 只读了 `currency` 与各消息自己的 usage。
+- 为什么是问题：nb-story 问答页没有分支、面板、工作区改动、工作流，却得填满这些空壳；t11 把它们接上之前，作者无法判断哪些字段“真的要给”。Lab 的 `conversationContext(patch)` 其实就是缺省工厂，但只留在 Lab 数据文件里。
+- 建议改法：把 Lab 的工厂搬进核心导出：`createAgentContext(patch?: DeepPartial<AgentConversationContext>): AgentConversationContext`，缺省值（空消息、`run: idle`、`interaction` 全 false、`now: 0` 等）由核心给，宿主只写自己有的。`ctx` 仍是完整 JSON，Lab 数据 tab 不受影响。顺带删 `composer.attachmentCount`。不要把字段改成可选：视图里到处是 `ctx.x.y`，可选会把空值分支散进各组件。
+
+### 2. 宿主要自己手写一整套“会话控制器”，包里只提供了 messages 的合成
+
+- 严重程度：重要
+- 类别：缺一层 / 宿主接入
+- 位置：Lab 的 `fixtures/nb-agent-ui/composer-host.ts`（202 行）加 `AgentConversationViewFixture.vue` 的 `onAction` 与运行模拟（约 100 行）；`nb-agent-ui/src/harness.ts:31-39`（`HarnessTranscript` 只有 `applyLogEntry/applyEvent/messages/problems`）
+- 现象：README“跑 harness 的宿主”到 `ctx.messages = [...]` 为止。真正要写的另有：
+  - 提交：乐观追加用户消息、`composer.draft.version + 1` 清空草稿、`recall` 去重插入、steer 与 followup 进 `composer.queued`、运行结束或下一步时再刷出（`composer-host.ts:98-115`、view 夹具 `flushQueued/remainingQueue`）。
+  - 草稿回声：`composer.draftChanged` 要写回但不换 version（`composer-host.ts:141-144`，README 没讲，只在 `AgentConversationComposer.vue` 的注释和 Lab 里能看到）。
+  - 附件状态机：`uploading → ready/failed`，每个 `localId` 必须留到就绪或被移除（`types.ts:226-230` 的约束）。
+  - `mode.set/model.set/thinking.set` 的写回、`nextMode`（这个有导出）。
+  - `run.status`：适配器在 `applyEvent` 里明明看到 `agent_start/agent_end/run_end`（`harness.ts:351-358`）却不对外给；`ctx.usage` 汇总（`contextTokens/totalTokens/cacheHitRate/cost`）适配器也看得到每条 usage，却要宿主自己再算一遍。
+  - `ctx.now` 需要定时器（见第 12 条）。
+- 为什么是问题：主应用 Agent 插件和 nb-story 问答页会各写一份，而且 Lab 这份已经是“最佳参考实现”，抄的时候连回声协议都得靠读测试夹具学。每份都要对照 `docs/specs/ui/agent-conversation-view.md` 的投递语义，容易写偏。
+- 建议改法：保持“视图不持有数据”，但把确定性的纯逻辑搬进核心，宿主仍然持有 ctx：
+  1. `applyComposerAction(composer: ComposerView, action): ComposerView | null`，覆盖 `draftChanged/mode.set/model.set/thinking.set/attachment*` 与提交后的“新草稿 + recall”；不认识的 action 返回 null，宿主继续处理。
+  2. `HarnessTranscript` 加 `runState(): {status: RunStatus}`（由 `agent_start/agent_end/run_end` 推出）与 `usage(): UsageView 汇总`，或者单独导出 `summarizeUsage(messages, {contextLimit, currency})`。
+  3. README 补一段“草稿回声与版本号”，写明忽略 `draftChanged` 也安全（实测 `PlainPromptEditor` 自持文字，只在版本变时覆盖）。
+  不建议做成带状态的 `createSessionController`：附件上传、持久化、权限都在宿主，包里放控制器会和“视图不持有会话数据”相冲突。
+
+### 3. 注册表里宿主自带的 `detail`/`node` 组件没有任何办法发出 action，也拿不到 `services`
+
+- 严重程度：重要
+- 类别：API 形状 / 扩展点缺口
+- 位置：`nb-agent-ui/src/registry.ts:73-81`（`ToolNodeProps = {call, ctx}`，`ToolDetailProps` 是它的别名）；挂载处 `src/vue/tools/AgentToolDetail.vue:35`、`src/vue/stream/AgentTurnBlock.vue:250`，只传 `:call :ctx`，没有 `@action`
+- 现象：Spec 把 `node` 定义为“人机交互控件”（`docs/specs/ui/agent-conversation-view.md:38`，提问、模式切换、Workflow），并有 `input.submit`、`workflow.submit`、`reference.open`、`file.openDiff` 等 action；但宿主登记的组件只能读 `call`、`ctx`，没有 `emit("action")` 通道，也没有 `services`、`registry`。只能靠 `useAgentRenderers()` 取 Markdown 组件。内置的 `AgentFileDiffDetail`、`AgentTaskListNode` 恰好都是纯展示，所以现在不暴露。
+- 为什么是问题：Agent 插件作者做“主体记忆更新”这类领域工具时，几乎一定想要“点击打开这个主体”（发 `reference.open`）。t11 做提问向导与 Workflow 节点时同样需要；到那时再改 `ToolNodeProps`，所有已登记的宿主组件要跟着改。
+- 建议改法：现在就把形状定好：`ToolNodeProps = {call, ctx, services}`，挂载时统一 `@action="emit('action', $event)"`，并在 `registry.ts` 里写明“组件可发出 `action: AgentViewAction`”。或者经 provide 给一个 `useAgentAction()`，免得每层透传。再给 Lab 的 `domain-tools.ts` 加一个带点击的 detail 当样例。
+
+### 4. 宿主回调抛错没有降级：Spec 验收 15 没有对应实现与测试（从代码推断）
+
+- 严重程度：重要
+- 类别：接入可靠性
+- 位置：`docs/specs/ui/agent-conversation-view.md:313,347`（“某个渲染器渲染时抛错：只有该项降级为通用卡片并显示‘此内容无法显示’”，验收 15）；`nb-agent-ui/src` 与 `src/vue` 里没有 `onErrorCaptured` 或 try/catch；`src/vue/registry.dom.test.ts` 只有 6 个用例，没有抛错的一条；plan 的验收表把“验收 13、14、15”记为“注册表测试”。
+- 现象：`summary`、`groupPhrase`、`effects`、`when`、`appliesTo`、`toAction`、`ToolRendererEntry.detail/node` 组件，都由宿主给，且 `summary/effects/groupPhrase` 在核心的 `buildTurn`（`conversation-turns.ts`）里同步调用。任何一个对流式中的残缺 `args` 抛错（宿主的 `argString` 写得不容忍时很可能），整个 `computed` 抛出，整个视图空白。
+- 为什么是问题：这条边界正是“宿主与插件接入”的安全网，插件作者的第一版代码最容易在流式半截的参数上出错；Spec 已承诺，实现与测试都缺。（没有起 vitest 复现，只读了代码与测试清单，未验证。）
+- 建议改法：核心里用一个 `safe(call, fallback)` 包 `summary/effects/groupPhrase`（出错时按通用渲染器的值，并经 `console.error` 或宿主的诊断回调报一条）；渲染层在 `AgentToolDetail` 与 node 挂载处用 `onErrorCaptured` 或小的错误边界组件降级为通用卡片。补验收 15 的测试。
+
+### 5. “单挂零件”的承诺不完整，也为此公开了 22 个组件和一批内部纯逻辑
+
+- 严重程度：重要
+- 类别：公开面 / 耦合
+- 位置：`nb-agent-ui/src/vue/index.ts:9-30`；`src/index.ts:12-19`（`buildTurns`、`BuildTurnsInput`、`ChainBlock`、`TurnBlock` 等）；`src/vue/preview.ts`（`PreviewImageRequest` 未导出）；Lab 的 `fixtures/nb-agent-ui/host.ts:47`（`agentSubject(name: keyof typeof nbAgentUi)`）
+- 现象：
+  - `/vue` 导出 22 个组件加 8 个符号；nb-form 的 `/vue` 只导出 `SchemaForm`、`SchemaField` 与少量辅助。
+  - 导出多半是为了让 Lab 按名取：`agentSubject` 用 `nbAgentUi[name]` 查；而 `src/vue/lab-sources.ts` 已经给了 `nbAgentUiComponentModules` 的路径到 loader 映射，nb-form 的 Lab 就走这条路。
+  - README 说“单独挂零件（例如只要输入框）时调用 `provideAgentView`”，但 `AgentConversationComposer`、`AgentConversationTurn`、`AgentTurnBlock`、`AgentRawView`、`AgentUserContent` 都会发出 `preview-image`，载荷类型 `PreviewImageRequest` 不在公开入口里，`OriginalImagePreviewDialog` 的 `src` 要宿主自己换算；View 里这套接线（`AgentConversationView.vue:140` 起，约 70 行）单挂的宿主得重写一遍。
+  - `AgentConversationTurn` 要 `messages` + `latest` + `first`，`AgentTurnBlock` 要 `buildTurns` 的产物（所以核心才导出 `buildTurns`、`TurnBlock`……）。这些只有 Lab 在用（`grep` 主应用与 nb-story 源码：零处使用 `buildTurns/nextMode/provideAgentView`，唯一的 `provideAgentView` 调用是 Lab 的 host.ts）。
+  - `export type * from "./types"` 是通配：`JsonValue` 这种泛名也成了本包公开类型，新增类型自动变公开（t11 还要加十来组）。nb-form 的入口是显式清单。
+- 为什么是问题：t11 要在这些组件之上加顶栏、状态栏、待处理区；公开了就得保持兼容，t11 重排内部结构时会被已导出的零件绑住。宿主的真实需要只有 `AgentConversationView`，也许加 `AgentConversationComposer`（nb-story 若想单独放输入框）。
+- 建议改法：
+  1. `/vue` 只导出 `AgentConversationView`、`AgentConversationComposer`、三个 `Plain*`、`provideAgentView` 系列和 `builtin*`；其余内部零件走 `lab-sources` 的 loader（`agentSubject` 改成 `nbAgentUiComponentModules["stream/AgentTurnBlock.vue"]()`）。“入口导出的组件是受管组件”这条规则同时变成“公开的才受管”，管理面更小。
+  2. 核心 `index.ts` 去掉 `buildTurns` 等 turn 内部类型；Lab 要用时从 `@notnotype/nb-agent-ui/lab-sources` 旁开一个 `/internal`，或直接不让 Lab 单挂 turn 零件，改成挂 `AgentConversationView` 加数据。
+  3. `export type * from "./types"` 改成显式清单；保留单挂 Composer 的话，导出 `PreviewImageRequest`，或让零件在没有人监听 `preview-image` 时自己打开对话框。
+
+### 6. 注册表要手拼 4 到 5 份内置登记，仓库自己的 Lab 宿主就漏过一份
+
+- 严重程度：建议
+- 类别：宿主接入 / 默认值
+- 位置：`nb-agent-ui/README.md` 的挂载示例；`nb-agent-ui/src/vue/index.ts:33-36`；Lab `fixtures/nb-agent-ui/host.ts:69-77`（`labAgentRegistry` 不含 `builtinComposerContribution`）与 `AgentConversationViewFixture.vue:31`（靠 `extra` 补）
+- 现象：`createAgentViewRegistry([builtinRolesContribution, builtinToolsContribution, builtinMessageActionsContribution, builtinComposerContribution, ...宿主的])`，漏一个不会报错：漏 composer 登记则 `/` 命令与 `@`、`$` 触发字符静默消失；漏 roles 则头像退化。`labAgentRegistry()` 无参调用（`index.ts:92,121`）给的注册表就没有 composer 登记，同一个宿主文件里两种写法并存。
+- 建议改法：核心包里 builtin 的值在 `/vue`，宿主自己知道的只有“额外的”。导出 `createAgentViewRegistry` 的渲染层版本或 `builtinContributions: readonly AgentViewContribution[]`（四份合一），README 示例变成 `createAgentViewRegistry([...builtinContributions, myTools])`。要裁剪内置的宿主（例如 nb-story 不要 `/new`、`/fork`）可以过滤 `builtinComposerContribution.commands`，不必拆成四个入口。
+
+### 7. 加一个领域工具渲染器：要填 6 个必填字段，知道内部文字键，并重写参数读取
+
+- 严重程度：建议
+- 类别：注册表易用性
+- 位置：`nb-agent-ui/src/registry.ts:35-70`（`ToolRendererEntry`）；Lab `fixtures/nb-agent-ui/domain-tools.ts:11-31`；`nb-agent-ui/src/tool-args.ts`（未导出）；`registry.ts:251-254`（`resolveTool`）
+- 现象：
+  - 草稿里一个 explore 工具：`id`、`toolNames`、`category`、`icon`、`label`（中英两份）、`summary`、`groupPhrase`、`presentation` 共 8 行，其中 `id` 与 `toolNames[0]` 几乎总是同一个字符串（Lab 三项里两项如此）。
+  - 想要“组内合并摘要”必须写 `{key: "toolGroup.lookup", params: {count}}`，也就是知道内部文字表 `toolGroup.read/search/fetch/lookup/generic` 这批键（`messages.ts:70-74`）；要自己的措辞则用 `formatText({...}, {count})`。同一个 entry 里 `label` 写字面中英、`groupPhrase` 写内部键，两种写法并列，读的人要猜哪种该用在哪。
+  - `category: "explore"` 时 `groupPhrase` 是“必填”（注释写的），但类型是可选；漏了不会报错，只落到“调用了 N 次”的通用说法。
+  - `argString` 在核心里有，却没导出，Lab 的 `domain-tools.ts:11-16` 自己又写了一份（`tool-args.ts:7-14` 与它逐行相同）；而这些函数的契约正是“流式半截参数不能抛”，每个宿主重写都会重新踩。
+  - 精确工具名重叠不报错：`id` 重复会抛 `AgentViewRegistryConflictError`，但两个不同 `id` 的条目声明同一个 `toolNames` 时，静默按 `order` 与登记先后取第一个（`resolveTool` 的 `find`）。宿主想覆盖内置的 `read` 渲染时，这是“能用但没文档”的隐藏通道，和“不静默覆盖”的注释相矛盾。
+- 建议改法：
+  1. 类型收紧：`ToolRendererEntry = Base & ({category: "explore"; groupPhrase: ...} | {category: Exclude<ToolCategory,"explore">; groupPhrase?: never})`。
+  2. 导出 `toolArg` 系列（`argString/argArray/argNumber/objectString`）。
+  3. 加 `defineToolRenderer(name, {label, icon, summary, ...})`：`id` 缺省取 name，`category` 缺省 `other`、`presentation` 缺省 `line`，`groupPhrase` 可直接给 `LocalizedText` 模板（`{count}` 由包代入），不要求宿主知道内部键。
+  4. 在 `createAgentViewRegistry` 里对重叠的 `toolNames` 也抛冲突，或在文档里把“按 order 覆盖”写成正式做法并加测试。
+
+### 8. `services` 里两个必填函数对“没有附件、没有菜单”的宿主是纯桩；`resolveTriggerMenu` 靠函数身份通知变化
+
+- 严重程度：建议
+- 类别：API 形状
+- 位置：`nb-agent-ui/src/types.ts:335-348`（`AgentConversationServices`）；`src/vue/composer/AgentConversationComposer.vue:66-82`
+- 现象：草稿里 nb-story 只有文字问答，仍要写 `resolveAttachmentUrl: () => null` 与 `resolveTriggerMenu: () => ({items: []})`。`resolveTriggerMenu` 的“数据变化时宿主换一个新函数”这条契约只写在 `types.ts` 注释与 Composer 内部注释里，README 没有；宿主若给一个读响应式状态的稳定函数，菜单不会随数据刷新（编辑器靠函数身份重取），而且没有任何报错。Lab 的 `composer-host.ts:184-195` 要专门做一个 `computed(() => (context) => ...)` 才对。
+- 建议改法：两项都改可选：`resolveAttachmentUrl` 缺省返回 null，`resolveTriggerMenu` 缺省空菜单；`AgentConversationServices` 的文档里把“换函数”写成显式约定，或者改成 `menuVersion?: number`/让菜单函数返回的 `loading` 自带刷新，去掉靠函数身份的隐含通道。
+
+### 9. `action` 联合：55 个内置 + 插件；约 30 个现在没人发出，宿主没有按域处理与穷尽检查的办法
+
+- 严重程度：建议
+- 类别：API 形状
+- 位置：`nb-agent-ui/src/types.ts:350-416`（`BuiltinAgentViewAction`）、`:419`（`PluginAgentViewAction`）；Lab `composer-host.ts:136-182` 的 `handle` 与 view 夹具 `onAction`
+- 现象：数 `BuiltinAgentViewAction` 是 55 个成员。对非测试源码里搜 `type: "xxx"` 的发出点，约 30 个当前没有发出方（`session.*`、`sessions.query`、`view.close`、`changes.*`、`workflow.*`、`tree.*`、`context.*`、`attachments.query`、`input.*` 等，属于 t11）。草稿里 `default: {const _x: never = action}` 因为有 `PluginAgentViewAction`（`${string}:${string}`）而无法通过；而没有穷尽检查，宿主漏接一个 action，用户点了没反应，没有任何类型或运行时提示。Lab 的做法是手写“输入框的 action 交给 `host.handle`，返回 true 代表已处理”的两级分发，每个宿主都会再写一遍。
+- 为什么是问题：t11 加 20 多个 action 时，nb-story 与 Agent 插件的 `switch` 不会得到任何提示。
+- 建议改法：按域拆成命名子联合并导出：`SessionAction | MessageAction | ComposerAction | PanelAction | ChangesAction | WorkflowAction`，`BuiltinAgentViewAction` 是它们的并集；加 `isPluginAction(action): action is PluginAgentViewAction`。宿主就能写 `const handled = handleComposer(action) ?? ...`，并对自己负责的域做 `never` 检查。同时在 types 里标出“尚无发出方”的成员，或者等 t11 真正发出时再进联合，避免宿主为不存在的 action 写分支。
+
+### 10. 同一结构的类型有两份，命名后缀不一致
+
+- 严重程度：建议
+- 类别：命名 / 重复
+- 位置：`nb-agent-ui/src/types.ts` 与 `src/ports.ts`
+- 现象：
+  | 视图合同（types.ts） | 端口（ports.ts） | 关系 |
+  |---|---|---|
+  | `AgentLocale` | `PromptLocale` | 同为 `"zh-CN" \| "en-US"` |
+  | `TriggerMenu` / `TriggerMenuItem` / `TriggerMenuContext` | `PromptMenu` / `PromptMenuItem` / `PromptMenuContext` | 字段逐项相同 |
+  | `ComposerAttachmentView` | `PromptAttachment` | 联合逐项相同 |
+  | `ComposerView.draft` | `PromptDraft` | 同形 |
+  | `LocalizedText` / `ViewText` | （nb-form 另有 `FormText`） | 三个“文字”名，两个包 |
+  `ports.ts` 里“Port”后缀只出现在 `PromptEditorPortProps`、`PromptEditorPortExpose`、`PromptTextViewPortProps`、`MarkdownDisplayPortProps` 四个名字上，其余十个（`PromptToken`、`MarkdownActivation`、`MarkdownAssetResolver`……）没有；Markdown 的类型叫 `Markdown*` 而不是 `Prompt*`，所以“Prompt*Port*”并不成规则。渲染器还有第三个名字：注入时叫 `renderers`、类型叫 `AgentViewRenderers`、文档叫“端口”、缺省实现叫 `Plain*`。数据类型都带 `*View` 后缀（`MessageView`、`RunView`、`ToolCallView`），与组件 `AgentConversationView`、`AgentViewMode` 撞词；注册表一律 `AgentView*`，上下文与服务却是 `AgentConversation*`。
+- 为什么是问题：`ports.ts` 里的“不依赖宿主源码，按结构写”的理由成立，但同一个包内两份定义要各自维护，`types.ts` 的 `TriggerMenu` 与 `ports.ts` 的 `PromptMenu` 之间现在靠 TypeScript 的结构兼容“恰好对上”，改一处不改另一处时，错误会出现在 `AgentConversationComposer.vue` 的赋值处而不是定义处。
+- 建议改法：`types.ts` 里直接 `export type TriggerMenu = PromptMenu`（或反过来，只留一份）；`AgentLocale = PromptLocale`；`ComposerAttachmentView = PromptAttachment`。统一前缀：`ports.ts` 全部类型归到 `*Port`（`PromptEditorPort`、`PromptTextViewPort`、`MarkdownDisplayPort`）或全部去掉后缀，选一种。把 `AgentViewRenderers` 改名为 `AgentViewPorts`，或文档里不再说“端口”只说“注入组件”。`AgentView*` 与 `AgentConversation*` 二选一，趁 t11 之前还没人依赖。
+
+### 11. 11 个扩展点里 5 个没有任何消费者，`ctx` 里一批字段同样；宿主登记了也不会有效果
+
+- 严重程度：建议
+- 类别：公开面 / 误导
+- 位置：`nb-agent-ui/src/registry.ts:114-168`（`ExtensionPointEntries` 在 `:155`）、`HeaderActionEntry`、`PanelEntry`、`TrayItemEntry`、`StatusItemEntry`、`EntryRendererEntry`；`src/types.ts` 的 `PanelsView`、`WorkflowView`、`PendingInputView` 等
+- 现象：对 `registry.list("…")` 的使用点统计，只有 `commands`、`messageActions`、`roles`、`toolbarButtons`、`triggers` 与 `resolveTool` 被消费；`entries`、`headerActions`、`panels`、`trayItems`、`statusItems` 能登记、能排序、能报冲突，但视图不显示。`AgentConversationView.md`“已知偏差”写了这件事，但类型层面看不出来。`registry.ts` 文件头也写着“对插件稳定的形状要等插件运行时定型后再确认”。
+- 为什么是问题：Agent 插件作者读类型会以为 `statusItems` 已经可用，登记后静默无效；t11 若要调整这些 Entry 的形状（例如面板需要 `emit`，见第 3 条），已写进类型的形状就成了包袱。
+- 建议改法：t11 之前，把这五个扩展点与对应的 ctx 空壳字段（见第 1 条）从公开类型里拿掉，或者在类型上加 `@experimental` 与“尚未接入视图”的注释；t11 做哪个就把哪个接进来。`ExtensionPointEntries` 的键就是路线图，不应提前给宿主。
+
+### 12. `locale` 与 `renderers` 有两条通道，`ctx.now` 要宿主自己打节拍，两件事 README 都没交代清楚
+
+- 严重程度：建议
+- 类别：宿主接入
+- 位置：`nb-agent-ui/src/vue/host.ts:35-45`（`provideAgentView`）；`AgentConversationView.vue:26-35`、`:46`；`types.ts` 里 `now` 的注释；Lab `host.ts:35-46`（`withAgentHost`）
+- 现象：
+  - View 有 `locale`、`renderers` 属性，内部再 `provideAgentView({locale: () => props.locale, ...})`；单挂零件的宿主则要在“外层组件的 `setup`”里调 `provideAgentView({locale: () => ..., renderers: () => ...})`，传的是 getter，而 View 收的是值。Lab 因此专门写了一个 `defineComponent` 的 `withAgentHost` 包装。提供方自己调 `useAgentText` 拿到的是缺省中文（`host.ts` 注释里写了这个坑）。
+  - `ctx.now` 由宿主提供，“视图不自己计时”：运行中的用时按它算。宿主若只在事件到达时更新（草稿里就是 `now: Date.now()` 一次），模型思考的那几十秒里用时停在原地。README 对此没有一句话；Lab 夹具里有“时间 +10 秒”按钮，真实宿主需要一个 1 秒的定时器，把整个 `ctx` 对象换一遍。
+  - `locale` 在本包是封闭联合 `"zh-CN" | "en-US"`，nb-form 的 `locale: string`（取不到时回退）；nb-story 与主应用如果有第三种语言，两个包的形状不同。
+- 建议改法：加一个 `AgentViewHost` 组件（属性 `locale`、`renderers`，默认插槽），单挂零件时 `<AgentViewHost :locale :renderers><AgentConversationComposer …/></AgentViewHost>`，Lab 的包装函数可以删；`provideAgentView` 留给组件库内部。`now` 缺省时由视图以 1 秒节拍取 `Date.now()`，宿主给值时以宿主为准（Lab 与测试用）；README 写一句。`locale` 的类型可以放宽成 `AgentLocale | string` 并回退英文，或明确写“只支持这两种”。
+
+### 13. nb-story 的决定 7（运行中逐步展开）没有对应的行为选项
+
+- 严重程度：建议
+- 类别：API 形状 / 缺失
+- 位置：`.agents/works/w00024-nb-story/tasks/t13-qa-web/README.md` 第 7 条；`nb-agent-ui/src/conversation-turns.ts:575-582`（`defaultTurnExpanded`）；`AgentConversationView.vue` 的 props 只有 `ctx/services/registry/viewMode/teleportTarget/locale/renderers`
+- 现象：nb-story 要“运行中逐步展开，每一步一行实时列出”，“改掉 w00019 的‘思维链运行中也不自动展开’”。视图没有任何行为参数；默认展开规则写死在核心的 `defaultTurnExpanded(turn, isLatest)`，也不经注册表。同样，每轮限宽 800px、`teleportTarget`、顶栏溢出菜单里的“原始视图”开关都写死或只有一个开关位。
+- 建议改法：加一个 `options?: {chain?: "collapsed" | "expandWhileRunning"; maxWidth?: string}` 属性（或 provide），默认值保持现状；先放一项，别预先设计一堆。这是 t13 开工前的小改，晚了就要在 nb-agent-ui 里为问答页开分支。
+
+### 14. 适配器 `messages()` 在有工具运行时重建所有助手消息，README 里的 `[...]` 拷贝也是类型逼出来的
+
+- 严重程度：建议
+- 类别：宿主接入 / 性能
+- 位置：`nb-agent-ui/src/harness.ts:370-382`（`messages()` 与 `withTools`）；`src/types.ts` 的 `messages: MessageView[]`；README“跑 harness 的宿主”的 `ctx.messages = [...transcript.messages()]`
+- 现象：用 `ident.ts` 跑：只有日志时，两次 `messages()` 返回新数组、但元素同一引用（好）；调用过一次 `tool_execution_start` 之后，`liveTools` 非空，每次 `messages()` 对每条助手消息都返回新对象（即使该消息的任何工具调用都没有覆盖），元素引用逐次不同。Vue 按引用比较属性，所以工具在跑的时候每次 `ctx.messages` 刷新都会重渲染全部助手轮次；长会话时每次流式增量都付这个代价。另外 `messages()` 返回 `readonly MessageView[]` 而 `ctx.messages` 是可变数组，所以 README 要宿主自己展开拷贝一次。
+- 建议改法：`withTools` 只对确有覆盖的消息复制（`message.toolCalls.some((call) => liveTools.has(call.id))`），其余原样返回；`AgentConversationContext.messages` 改成 `readonly MessageView[]`，README 去掉展开。可顺手给 `messages()` 加版本号或让它在无变化时返回同一数组，方便宿主 `shallowRef` 比较。（只对“引用稳定性”做了实验，渲染开销没有量化；未验证。）
+
+### 15. 文档与类型里的小不一致
+
+- 严重程度：建议
+- 类别：文档
+- 位置：`nb-agent-ui/src/vue/stream/AgentRawView.md:31`、`src/vue/tools/AgentTaskListNode.md:15`、`src/vue/composer/AgentConversationComposer.md:47`（三处 `import ... from "../agent-view-registry"`，这个文件不存在，实际是 `../../registry`）；`AgentConversationView.vue:28,33,302`（`teleportTarget?: string | false`，默认 `false`，原样转给对话框）对 `OriginalImagePreviewDialog.vue:15-18`（`string | boolean`，默认 `"body"`）；`AgentConversationView.md` 里 View 的 props 文档没有 `AgentViewMode`、`PreviewImageRequest` 的导入来源。
+- 为什么是问题：这些 `.md` 是 Lab 的组件文档，也是宿主作者唯一的 Props 参考（nb-form 的 `SchemaForm.md` 同一角色）；导入路径不存在时，复制进宿主就是编译错误。`teleportTarget` 在 View 里默认就地渲染，到了对话框默认 `body`，两处类型不同，单挂对话框的宿主默认拿到 `body`，与 View 的“就地渲染”默认不一致。
+- 建议改法：三份文档改成 `../../registry`（宿主视角则写 `@notnotype/nb-agent-ui`）；`teleportTarget` 在两处用同一个类型与同一个含义。docs:check 对 `.md` 里的 `import` 路径做一次解析检查比逐个改更省事。
+
+## 与 nb-form 对外形状的比较
+
+| 方面 | nb-form | nb-agent-ui | 判断 |
+|---|---|---|---|
+| 核心入口导出 | 显式清单，约 40 个符号，不用通配 | `export type * from "./types" / "./ports" / "./registry"` 三个通配加显式清单 | 不一致，见第 5 条 |
+| `/vue` 入口组件数 | 2（`SchemaForm`、`SchemaField`）加布局、控件注册辅助 | 22 个组件加 8 个符号 | 不一致，见第 5 条 |
+| 文字类型 | `FormText = string \| Record<string,string>`，`resolveText(text, locale)`，`locale: string`，回退英文 | `ViewText`（字符串、`LocalizedText`、`{key,params}`）三选一，`AgentLocale` 封闭联合 | 内部键让宿主要知道包的文字表，见第 7 条；`locale` 类型两包不同 |
+| 注册方式 | `defineFormWidgets(...)`，有 `FormWidgetError`，注册时校验 | 手写 `AgentViewContribution` 对象字面量，只有合并时查重 id | nb-agent-ui 缺 `define*` 辅助，见第 6、7 条 |
+| 样式依赖 | 样式写在组件里，README 没有宿主 Tailwind 的步骤 | 宿主必须编译 Tailwind，并在 nb-ui 之后导入 `tailwind.css` 才有图标（README 第 2 步） | 多一步；图标类名不能拼接（`icon-registration.test.ts`）是宿主写 `icon:` 字符串时的隐含约束，README 没提 |
+| 双向绑定 | `v-model` | `viewMode` + `update:viewMode`（可受控），其余用 `@action` | 一致，没有问题 |
+| README 的最小例子 | 三行核心、两行组件 | 一段 6 个属性的挂载加一个 4 步清单；没有“最小可运行宿主” | 见第 1、2 条 |
+| 组件文档 | `SchemaForm.md`、`SchemaField.md` 各自给出 props | 每个组件有 `.md`，但三份有失效的 import 路径 | 见第 15 条 |
+| Lab 接入 | `lab-sources` 加按需 loader | 同样有 `lab-sources`，但 Lab 宿主实际走入口命名导出 | 见第 5 条 |
+
+## 没有发现问题的方面
+
+- `viewMode` 受控与未受控并存、`update:viewMode` 的命名与 Vue 约定一致；`@action` 单事件加联合载荷对一个有 50 多种意图的视图是合适的形状，没有必要拆成 50 个 emit（问题在联合没有分域，见第 9 条）。
+- 注册表的冲突策略（重复 id 抛 `AgentViewRegistryConflictError`，错误里带两个来源）对宿主诊断友好；`source` 字段只用于诊断，没有额外概念。
+- `ctx` 必须可 JSON 化、函数只在 `services` 与注册表里，这一分工在类型与测试里一致，Lab 数据 tab 能编辑，是好的约束。
+- harness 适配器对不可信输入的处理（收 `unknown`、记 `problems()` 不抛）、“日志为准、事件只画正在生成的那条”的分工，在入口注释里讲得清楚；`createHarnessTranscript` 的选项只有 `locale`，用起来足够简单。
+- `PromptEditorPortProps` 等端口类型加 `prompt-ports.typecheck.ts` 的断言（含反例）是对“不依赖宿主源码”最小代价的核对方式，不需要改。
+- `renderers` 缺省退化为 `Plain*` 的设计让零件在任何地方都能挂上，`plainEditor` 标志据此隐藏附件与 `/` 菜单，行为一致。
+
+## 数量
+
+- 重要 5 条（第 1、2、3、4、5 条）
+- 建议 10 条（第 6 至 15 条）
+- 合计 15 条
+
+## 最值得先做的三件事
+
+1. 在 t11 开工前把宿主组件的形状定下来（第 3 条）并补上渲染器抛错降级（第 4 条）：`ToolNodeProps` 加 `services` 与 action 通道，`summary/effects/groupPhrase` 与 detail/node 都包错误边界。这两条一旦有宿主依赖就难改。
+2. 收窄公开面（第 5、11 条）：`/vue` 只导出 View、Composer 与注入相关；核心入口改显式清单；还没有消费者的 5 个扩展点与对应的 ctx 空壳不要提前给宿主。nb-story 与 Agent 插件开始依赖之前做，成本最低。
+3. 给宿主一个起点（第 1、2、6 条）：核心导出 `createAgentContext(patch)`、`builtinContributions`、`applyComposerAction`，适配器给出 `runState()` 与用量汇总；README 补一个 30 行以内的最小宿主（可以直接用 Lab 的 composer-host 缩减而来）。这样 nb-story 与 Agent 插件各自少写约 200 行，且行为不会写偏。
