@@ -52,7 +52,8 @@ pre code { background: none; padding: 0; }
 <div class="toc">
 <b>目录</b>
 <ol>
-<li><a href="#r6">第五轮问题的候选</a>（待定）</li>
+<li><a href="#r7">第六轮答复之后</a>（待定）</li>
+<li><a href="#r6">第五轮问题的候选</a>（已定）</li>
 <li><a href="#r5">按 A 补齐其余状态</a>（已定）</li>
 <li><a href="#r4">重新设计</a>（已定：A）</li>
 <li><a href="#r3">新字号上的紧凑度与字重</a>（已撤回）</li>
@@ -66,11 +67,46 @@ pre code { background: none; padding: 0; }
 </div>
 
 
-<h2 id="r6">第五轮问题的候选（2026-10-22）</h2>
+<h2 id="r7">第六轮答复之后（2026-10-22）</h2>
+<p>接“设计决定”第 10 条。顺带修了你看到的“红框被裁掉一点像素”：不是被外层裁掉，是输入框落在了半像素上（纵坐标 424.69），边框被抗锯齿糊成两行淡色像素。半像素有两个来源：页面标题的行高是 31.2px；行里 34px 高的控件和 41px 高的文字块居中对齐，差出 3.5px。这一轮标题行高改成 32px，名字行高改成 20px（名字加说明共 40px，和控件一样是偶数），输入框落在整数 397 上。实现时照这一条做。</p>
+
+<section data-nbdev-question="r7-field" data-nbdev-type="confirm">
+<h3><span class="tag warn" data-nbdev-skip>待定</span> 出错图标放在名字旁边，这样可以吗</h3>
+<div class="grid"><figure><a href="r7/field-error-zoom.webp"><img src="r7/field-error-zoom.webp" alt=""></a><figcaption><b>并发数</b>：名字后面一个红色图标，悬停或聚焦到输入框时，提示从图标右边弹出（放在上面会盖住上一行的说明）；输入框仍是红框</figcaption></figure><figure><a href="r7/field-error-light.webp"><img src="r7/field-error-light.webp" alt=""></a><figcaption>整页。<b>抽取模型</b>的“无法加载模型列表：插件“模型服务”已停止”也收进名字旁的灰色图标，和出错同一种做法，这一行不再多出一行字</figcaption></figure></div>
+</section>
+
+<section data-nbdev-question="r7-desc" data-nbdev-type="single" data-nbdev-recommend="inline">
+<h3><span class="tag warn" data-nbdev-skip>待定</span> 页面说明放在哪</h3>
+<p>上排是平时，下排是这一层的设置文件有错、标题右侧同时有警告和页面操作时（最挤的情况）。</p>
+<div class="grid">
+<div data-nbdev-option="below" data-nbdev-label="标题下一行"><figure><a href="r7/desc-below-zoom.webp"><img src="r7/desc-below-zoom.webp" alt=""></a><figcaption><b>标题下一行</b>（现状）：右侧空着一块，标题区多占一行</figcaption></figure><figure><a href="r7/broken-below-zoom.webp"><img src="r7/broken-below-zoom.webp" alt=""></a><figcaption>有警告时</figcaption></figure></div>
+<div data-nbdev-option="inline" data-nbdev-label="与标题并列一行"><figure><a href="r7/desc-inline-zoom.webp"><img src="r7/desc-inline-zoom.webp" alt=""></a><figcaption><b>与标题并列一行</b>：说明跟在标题后面，用上右侧的空地，标题区少一行</figcaption></figure><figure><a href="r7/broken-inline-zoom.webp"><img src="r7/broken-inline-zoom.webp" alt=""></a><figcaption>有警告时：放不下的说明截断，悬停看全文</figcaption></figure></div>
+<div data-nbdev-option="tip" data-nbdev-label="收进提示"><figure><a href="r7/desc-tip-zoom.webp"><img src="r7/desc-tip-zoom.webp" alt=""></a><figcaption><b>收进提示</b>：标题后面一个提示图标，悬停才显示说明（图里是悬停态）</figcaption></figure><figure><a href="r7/broken-tip-zoom.webp"><img src="r7/broken-tip-zoom.webp" alt=""></a><figcaption>有警告时</figcaption></figure></div>
+</div>
+<p class="rec">推荐“与标题并列一行”：说明一直看得见，又不多占一行；只有右侧同时有警告和操作这种少见的情况会截断。“收进提示”最干净，但这几句说明本来就短，藏起来还要多一次悬停；“标题下一行”是现在右侧显得空的原因。</p>
+</section>
+
+<section data-nbdev-question="r7-header" data-nbdev-type="confirm">
+<h3><span class="tag warn" data-nbdev-skip>待定</span> 标题区右侧这样放可以吗</h3>
+<p>从右往左依次是：页面级操作（这一页有才放，例如“添加服务商”，服务商详情页的“测试连接”和删除），左边是层出错的警告（只在出错时出现）。层坏了时页面操作随控件一起停用。“用户 | 本作品”留在左栏：它切的是整个窗口。</p>
+<div class="grid"><figure><a href="r7/broken-inline-light.webp"><img src="r7/broken-inline-light.webp" alt=""></a><figcaption>模型服务：警告与“添加服务商”（停用）并排，说明与标题并列一行</figcaption></figure></div>
+</section>
+
+<section data-nbdev-question="r7-layer" data-nbdev-type="confirm">
+<h3><span class="tag warn" data-nbdev-skip>待定</span> 层出错的警告与点进去之后，这样可以吗</h3>
+<div class="grid"><figure><a href="r7/layer-hover-light.webp"><img src="r7/layer-hover-light.webp" alt=""></a><figcaption><b>警告</b>：整块是一个按钮，左边“设置文件格式有误”，右边“打开 →”；悬停写第几行第几列与“修复前，用户设置无法保存”（图里是悬停态）</figcaption></figure><figure><a href="r7/file-from-error-light.webp"><img src="r7/file-from-error-light.webp" alt=""></a><figcaption><b>点了之后</b>：左栏切到“设置文件”，打开出错的那一层的文件（用户或本作品），光标放在出错处，那一行标红底；标题右侧改写“第 5 行第 33 列：缺少逗号，改好后保存”</figcaption></figure></div>
+<p>改好并保存后警告消失，这一层的控件恢复；不自动跳回原来的分区，要回去自己点左栏。和现在的 Spec（<code>settings/settings-window.md</code> 输出 13）相比，多了“光标放在出错处、那一行标红底”，定了一起写进 Spec。</p>
+</section>
+
+<h3>深色</h3>
+<div class="grid"><figure><a href="r7/field-error-dark.webp"><img src="r7/field-error-dark.webp" alt=""></a><figcaption>深色 · 出错在名字旁</figcaption></figure><figure><a href="r7/broken-inline-dark.webp"><img src="r7/broken-inline-dark.webp" alt=""></a><figcaption>深色 · 层出错与页面操作</figcaption></figure><figure><a href="r7/file-from-error-dark.webp"><img src="r7/file-from-error-dark.webp" alt=""></a><figcaption>深色 · 点进设置文件</figcaption></figure></div>
+
+<h2 id="r6">第五轮问题的候选（2026-10-22，已定，标题区待第七轮）</h2>
 <p>按会话里的讨论（“设计决定”第 9 条）画了三处候选，并把已同意的几处一起换上：文案改成常见软件的用词；离开时的确认换成真实的 <code>AlertDialog</code>，圆角从 26px 改成 14px；只读的值改用正文色，锁形图标挪到“恢复默认”那一格。Tooltip 是悬停才出现的，静态截图拍不到，图里是用同一种浮层外框画在原位的悬停态。</p>
 
 <section data-nbdev-question="r6-field-error" data-nbdev-type="single" data-nbdev-recommend="tooltip">
-<h3><span class="tag warn" data-nbdev-skip>待定</span> 表单出错的提示怎么放</h3>
+<h3><span class="tag ok" data-nbdev-skip>已定</span> 表单出错的提示怎么放</h3>
+<p><b>开发者的决定（2026-10-22）：收进图标，悬停显示；图标挪到名字旁边。</b></p>
 <p>看“并发数”一行（填了 12，超出 1–8）。三种都给框标红。</p>
 <div class="grid">
 <div data-nbdev-option="inline" data-nbdev-label="控件下面常显一行"><figure><a href="r6/field-inline-zoom.webp"><img src="r6/field-inline-zoom.webp" alt=""></a><figcaption><b>控件下面常显一行</b>（第五轮的做法）：一直看得见，这一行变高约 20px，下面的行往下移</figcaption></figure></div>
@@ -81,7 +117,8 @@ pre code { background: none; padding: 0; }
 </section>
 
 <section data-nbdev-question="r6-layer-error" data-nbdev-type="single" data-nbdev-recommend="sidebar">
-<h3><span class="tag warn" data-nbdev-skip>待定</span> 层出错的警告放在哪</h3>
+<h3><span class="tag ok" data-nbdev-skip>已定</span> 层出错的警告放在哪</h3>
+<p><b>开发者的决定（2026-10-22）：标题右侧；警告要优化。</b></p>
 <p>这一层的设置文件写坏时，整层的控件都停用、显示上一份有效值。警告是关于“这一层”的，不是关于某一页的。</p>
 <div class="grid">
 <div data-nbdev-option="banner" data-nbdev-label="页面顶部一行"><figure><a href="r6/layer-banner-light.webp"><img src="r6/layer-banner-light.webp" alt=""></a><figcaption><b>页面顶部一行</b>：在标题下面，约 36px，下面的内容往下移</figcaption></figure></div>
@@ -93,7 +130,8 @@ pre code { background: none; padding: 0; }
 </section>
 
 <section data-nbdev-question="r6-header" data-nbdev-type="single" data-nbdev-recommend="actions">
-<h3><span class="tag warn" data-nbdev-skip>待定</span> 标题区右侧放什么</h3>
+<h3><span class="tag warn" data-nbdev-skip>改到第七轮</span> 标题区右侧放什么</h3>
+<p><b>开发者（2026-10-22）：还不确定，和页面说明的位置一起考虑，见第七轮。</b></p>
 <div class="grid">
 <div data-nbdev-option="actions" data-nbdev-label="页面级操作"><figure><a href="r6/header-actions-models-light.webp"><img src="r6/header-actions-models-light.webp" alt=""></a><figcaption><b>页面级操作</b>：模型服务页放“添加服务商”，服务商详情页放“测试连接”和删除（右图），没有操作的页面空着</figcaption></figure></div>
 <div data-nbdev-option="layer" data-nbdev-label="“用户 | 本作品”"><figure><a href="r6/header-layer-models-light.webp"><img src="r6/header-layer-models-light.webp" alt=""></a><figcaption><b>“用户 | 本作品”</b>：从左栏挪到每页的标题右侧，左栏只剩搜索与分区</figcaption></figure></div>
@@ -103,7 +141,8 @@ pre code { background: none; padding: 0; }
 </section>
 
 <section data-nbdev-question="r6-rest" data-nbdev-type="confirm">
-<h3><span class="tag warn" data-nbdev-skip>待定</span> 文案、只读与确认框这样改可以吗</h3>
+<h3><span class="tag ok" data-nbdev-skip>已定</span> 文案、只读与确认框这样改可以吗</h3>
+<p><b>开发者的决定（2026-10-22）：可以。</b></p>
 <div class="grid"><figure><a href="r6/unsaved-light.webp"><img src="r6/unsaved-light.webp" alt=""></a><figcaption><b>离开时的确认</b>：真实的 <code>AlertDialog</code>，圆角 14px，焦点默认在“继续编辑”，“放弃”是危险色</figcaption></figure><figure><a href="r6/field-tooltip-light.webp"><img src="r6/field-tooltip-light.webp" alt=""></a><figcaption><b>只读</b>：看“书库”一行，值用正文色，锁形图标在“恢复默认”那一格（和改过的行的图标对齐），悬停写“只读：由作品决定”</figcaption></figure></div>
 <p><b>圆角要改的规范</b>（nb-ui）：NeuroBook 主题里小确认框（<code>AlertDialog</code>）的圆角从 <code>--radius-dialog</code> 26px 改为 14px，同命令面板锁定 14px 的先例；<code>ui-development-spec</code> 的浮层分级里加一条“叠在另一个窗口上的浮层，圆角不大于底下窗口的圆角”。大的对话框（例如设置窗口本身）不变。</p>
 <p><b>文案对照</b>（定了连同 Spec 一起改）：</p>

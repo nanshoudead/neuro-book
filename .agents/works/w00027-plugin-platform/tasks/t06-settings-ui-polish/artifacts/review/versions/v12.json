@@ -1,0 +1,467 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00027-plugin-platform",
+    "taskId": "t06-settings-ui-polish",
+    "artifactId": "review",
+    "version": 12,
+    "supersedes": 11,
+    "action": "publish",
+    "kind": "design",
+    "title": "t06 设置界面外观评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "9c093300db8b8912d598e88ece1fea575d18b49ac5c08f763372e2c32b6e84a9",
+    "files": [
+        "index.html",
+        "r0/flow-leave-dialog.webp",
+        "r0/flow-search-results.webp",
+        "r0/now-choices-unavailable.webp",
+        "r0/now-file.webp",
+        "r0/now-narrow.webp",
+        "r0/now-other.webp",
+        "r0/now-page-column.webp",
+        "r0/now-page-fill.webp",
+        "r0/now-user-invalid.webp",
+        "r0/now-user.webp",
+        "r0/t80-mixed-agent.webp",
+        "r0/t80-x1-appearance.webp",
+        "r1/now-appearance.webp",
+        "r1/now-models.webp",
+        "r1/now-other.webp",
+        "r1/t80-appearance.webp",
+        "r1/t80-editor.webp",
+        "r2/after-app.webp",
+        "r2/after-appearance-dark.webp",
+        "r2/after-appearance.webp",
+        "r2/after-file.webp",
+        "r2/after-invalid.webp",
+        "r2/after-models-general.webp",
+        "r2/after-models-provider.webp",
+        "r2/after-other.webp",
+        "r2/after-project.webp",
+        "r2/t80-models.webp",
+        "r4/cards-appearance.webp",
+        "r4/cards-editor.webp",
+        "r4/cards-models.webp",
+        "r4/cards-provider.webp",
+        "r4/flat-appearance.webp",
+        "r4/flat-editor.webp",
+        "r4/flat-models.webp",
+        "r4/flat-provider.webp",
+        "r5/appearance-dark.webp",
+        "r5/file-dark.webp",
+        "r5/file-light.webp",
+        "r5/invalid-layer-light.webp",
+        "r5/models-dark.webp",
+        "r5/models-light.webp",
+        "r5/narrow-light.webp",
+        "r5/plugins-boxed-light.webp",
+        "r5/plugins-plain-dark.webp",
+        "r5/plugins-plain-light.webp",
+        "r5/project-light.webp",
+        "r5/search-dark.webp",
+        "r5/search-light.webp",
+        "r5/unsaved-dark.webp",
+        "r5/unsaved-light.webp",
+        "r6/field-attached-dark.webp",
+        "r6/field-attached-zoom.webp",
+        "r6/field-inline-zoom.webp",
+        "r6/field-tooltip-dark.webp",
+        "r6/field-tooltip-light.webp",
+        "r6/field-tooltip-zoom.webp",
+        "r6/header-actions-models-light.webp",
+        "r6/header-actions-provider-light.webp",
+        "r6/header-layer-appearance-light.webp",
+        "r6/header-layer-models-light.webp",
+        "r6/layer-banner-light.webp",
+        "r6/layer-bar-light.webp",
+        "r6/layer-header-light.webp",
+        "r6/layer-sidebar-dark.webp",
+        "r6/layer-sidebar-light.webp",
+        "r6/unsaved-dark.webp",
+        "r6/unsaved-light.webp",
+        "r7/broken-below-zoom.webp",
+        "r7/broken-inline-dark.webp",
+        "r7/broken-inline-light.webp",
+        "r7/broken-inline-zoom.webp",
+        "r7/broken-tip-zoom.webp",
+        "r7/desc-below-zoom.webp",
+        "r7/desc-inline-zoom.webp",
+        "r7/desc-tip-zoom.webp",
+        "r7/field-error-dark.webp",
+        "r7/field-error-light.webp",
+        "r7/field-error-zoom.webp",
+        "r7/file-from-error-dark.webp",
+        "r7/file-from-error-light.webp",
+        "r7/layer-hover-light.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-content",
+            "type": "single",
+            "label": "1. 内容区的小组怎么画",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "现状：小组标题加分隔线"
+                },
+                {
+                    "value": "cards",
+                    "label": "分组底板：每个小组一块底板，行间细线"
+                },
+                {
+                    "value": "quiet",
+                    "label": "不画线：靠字号与留白分层"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "cards"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 3,
+                "reason": "explicit"
+            }
+        },
+        {
+            "id": "r1-layer",
+            "type": "single",
+            "label": "2. “用户 | 本作品”放在哪",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "现状：窗口左上，左栏上面"
+                },
+                {
+                    "value": "header",
+                    "label": "内容区标题行的右边"
+                },
+                {
+                    "value": "titlebar",
+                    "label": "窗口标题栏正中"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "titlebar"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": {
+                "kind": "withdrawn",
+                "in": 4,
+                "reason": "explicit"
+            }
+        },
+        {
+            "id": "r2-accept",
+            "type": "confirm",
+            "label": "还原后的外观可以了吗",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 6,
+            "outcome": null
+        },
+        {
+            "id": "r3-density",
+            "type": "single",
+            "label": "紧凑度选哪一档",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "A 现状"
+                },
+                {
+                    "value": "compact",
+                    "label": "B 紧凑"
+                },
+                {
+                    "value": "tight",
+                    "label": "C 更紧凑"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "compact"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 7,
+            "outcome": {
+                "kind": "superseded",
+                "in": 8,
+                "by": null
+            }
+        },
+        {
+            "id": "r3-weight",
+            "type": "single",
+            "label": "字重层级选哪一种",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "现状字重"
+                },
+                {
+                    "value": "titles",
+                    "label": "加强标题"
+                },
+                {
+                    "value": "bold",
+                    "label": "全面加粗"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "titles"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 7,
+            "outcome": {
+                "kind": "superseded",
+                "in": 8,
+                "by": null
+            }
+        },
+        {
+            "id": "r4-direction",
+            "type": "single",
+            "label": "选哪一套",
+            "options": [
+                {
+                    "value": "flat",
+                    "label": "A Notion / Linear 式"
+                },
+                {
+                    "value": "cards",
+                    "label": "B macOS 式"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "cards"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 8,
+            "outcome": null
+        },
+        {
+            "id": "r5-readonly",
+            "type": "single",
+            "label": "只读的项怎么画",
+            "options": [
+                {
+                    "value": "plain",
+                    "label": "只写值"
+                },
+                {
+                    "value": "boxed",
+                    "label": "虚线框"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "plain"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 10,
+            "outcome": null
+        },
+        {
+            "id": "r5-states",
+            "type": "confirm",
+            "label": "其余状态按这一轮的画法定稿吗",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 10,
+            "outcome": null
+        },
+        {
+            "id": "r6-field-error",
+            "type": "single",
+            "label": "表单出错的提示怎么放",
+            "options": [
+                {
+                    "value": "inline",
+                    "label": "控件下面常显一行"
+                },
+                {
+                    "value": "tooltip",
+                    "label": "收进图标，悬停显示"
+                },
+                {
+                    "value": "attached",
+                    "label": "贴在输入框下沿"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "tooltip"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 11,
+            "outcome": null
+        },
+        {
+            "id": "r6-layer-error",
+            "type": "single",
+            "label": "层出错的警告放在哪",
+            "options": [
+                {
+                    "value": "banner",
+                    "label": "页面顶部一行"
+                },
+                {
+                    "value": "header",
+                    "label": "标题右侧"
+                },
+                {
+                    "value": "sidebar",
+                    "label": "左栏的标签下面"
+                },
+                {
+                    "value": "bar",
+                    "label": "内容底部一条"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "sidebar"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 11,
+            "outcome": null
+        },
+        {
+            "id": "r6-header",
+            "type": "single",
+            "label": "标题区右侧放什么",
+            "options": [
+                {
+                    "value": "actions",
+                    "label": "页面级操作"
+                },
+                {
+                    "value": "layer",
+                    "label": "“用户 | 本作品”"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "actions"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 11,
+            "outcome": null
+        },
+        {
+            "id": "r6-rest",
+            "type": "confirm",
+            "label": "文案、只读与确认框这样改可以吗",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 11,
+            "outcome": null
+        },
+        {
+            "id": "r7-field",
+            "type": "confirm",
+            "label": "出错图标放在名字旁边，这样可以吗",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 12,
+            "outcome": null
+        },
+        {
+            "id": "r7-desc",
+            "type": "single",
+            "label": "页面说明放在哪",
+            "options": [
+                {
+                    "value": "below",
+                    "label": "标题下一行"
+                },
+                {
+                    "value": "inline",
+                    "label": "与标题并列一行"
+                },
+                {
+                    "value": "tip",
+                    "label": "收进提示"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "inline"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 12,
+            "outcome": null
+        },
+        {
+            "id": "r7-header",
+            "type": "confirm",
+            "label": "标题区右侧这样放可以吗",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 12,
+            "outcome": null
+        },
+        {
+            "id": "r7-layer",
+            "type": "confirm",
+            "label": "层出错的警告与点进去之后，这样可以吗",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 12,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-22T10:36:03.035Z"
+}
