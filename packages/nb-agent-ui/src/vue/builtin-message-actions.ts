@@ -11,7 +11,10 @@ const messageActions: MessageActionEntry[] = [
     {
         id: "copy", order: 10, messageKinds: ["user", "assistant"], icon: "i-lucide-copy",
         label: {key: "messageAction.copy"},
-        toAction: (message) => ({type: "message.copy", messageId: message.id}),
+        // 结果是结果节点时答案在工具参数里，那条消息的正文通常为空（Spec“分轮视图”）。
+        toAction: (message, {outcomeCallId}) => (outcomeCallId === null
+            ? {type: "message.copy", messageId: message.id}
+            : {type: "tool.copy", toolCallId: outcomeCallId}),
     },
     {
         id: "edit", order: 20, messageKinds: ["user"], icon: "i-lucide-pencil",

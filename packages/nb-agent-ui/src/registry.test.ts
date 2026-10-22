@@ -84,6 +84,16 @@ describe("registry.resolveTool", () => {
     });
 });
 
+describe("内置消息操作", () => {
+    it("复制：结果是结果节点时发 tool.copy，否则按消息复制", async () => {
+        const {builtinMessageActionsContribution} = await import("./vue/builtin-message-actions");
+        const copy = createAgentViewRegistry([builtinMessageActionsContribution]).list("messageActions").find((entry) => entry.id === "copy")!;
+        const message = {kind: "assistant" as const, id: "a3", timestamp: 1, status: "done" as const, text: "", thinking: "", model: "m", toolCalls: [], contentOmitted: false};
+        expect(copy.toAction(message, {outcomeCallId: "q2"})).toEqual({type: "tool.copy", toolCallId: "q2"});
+        expect(copy.toAction(message, {outcomeCallId: null})).toEqual({type: "message.copy", messageId: "a3"});
+    });
+});
+
 describe("工具回调抛错", () => {
     it("摘要、组合短语、文件影响抛错时退回通用结果，不往外抛", () => {
         const boom = () => {

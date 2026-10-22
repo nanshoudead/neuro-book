@@ -130,12 +130,19 @@ export type ConversationTurn = {
     /** 最终回复之后的分隔线（压缩、分支摘要），显示在轮末汇总下方。 */
     trailing: TurnBlock[];
     finalReply: AssistantMessageView | null;
+    /**
+     * 结果所在的消息：最后一个结果块（最终回复或结果节点）所属的 assistant 消息；助手一侧的消息操作作用于它。
+     * 只有错误、没有结果时为 null。
+     */
+    outcomeMessage: AssistantMessageView | null;
+    /** 结果是结果节点时，那次调用的 id；结果是最终回复时为 null。 */
+    outcomeCallId: string | null;
     status: TurnStatus;
     metrics: TurnMetrics;
     /** 按路径合并；只算成功的调用。 */
     changedFiles: ChangedFile[];
     /**
-     * `blocks` 末尾“结果”部分的起点：从这里开始到末尾都是最终回复或错误。
+     * `blocks` 末尾“结果”部分的起点：从这里开始到末尾都是最终回复、结果节点或错误。
      * 之前的是过程；没有结果时等于 `blocks.length`。
      */
     outcomeStart: number;
@@ -143,20 +150,26 @@ export type ConversationTurn = {
     foldable: boolean;
 };
 
-function isOutcome(block: TurnBlock): boolean {
-    return (block.kind === "content" && block.final) || block.kind === "error";
+/** 最终回复与成功的结果节点：一轮的答案。错误另算，它也是结果，但不当作“结果所在的消息”。 */
+function isAnswer(block: TurnBlock, registry: AgentViewRegistry): boolean {
+    if (block.kind === "content") return block.final;
+    return block.kind === "node" && block.step.call.status === "success" && registry.resolveTool(block.step.call.name).outcome === true;
+}
+
+function isOutcome(block: TurnBlock, registry: AgentViewRegistry): boolean {
+    return isAnswer(block, registry) || block.kind === "error";
 }
 
 /**
  * 从末尾往前越过结果与信息条目，再从那里往后跳过打头的信息条目：最终回复之后追加的系统提醒
  * 跟着结果显示，不会把最终回复连同它一起收进过程；结果之前的提醒仍属于过程。
  */
-function findOutcomeStart(blocks: readonly TurnBlock[]): number {
+function findOutcomeStart(blocks: readonly TurnBlock[], registry: AgentViewRegistry): number {
     let start = blocks.length;
-    while (start > 0 && (isOutcome(blocks[start - 1]!) || blocks[start - 1]!.kind === "notice")) {
+    while (start > 0 && (isOutcome(blocks[start - 1]!, registry) || blocks[start - 1]!.kind === "notice")) {
         start -= 1;
     }
-    while (start < blocks.length && !isOutcome(blocks[start]!)) {
+    while (start < blocks.length && !isOutcome(blocks[start]!, registry)) {
         start += 1;
     }
     return start;
@@ -224,9 +237,12 @@ export function buildTurn(group: readonly MessageView[], environment: TurnEnviro
     const status = resolveStatus(body, context);
     const finished = status !== "running" && status !== "waiting";
     const blocks = buildBlocks(body, finalReply, finished, context.registry);
-    const trailing = splitTrailing(blocks);
-    const outcomeStart = findOutcomeStart(blocks);
-    const tools = collectTools(body);
+    const trailing = splitTrailing(blocks, context.registry);
+    const outcomeStart = findOutcomeStart(blocks, context.registry);
+    const answer = findLastAnswer(blocks, outcomeStart, context.registry);
+    const outcomeCallId = answer?.kind === "node" ? answer.step.call.id : null;
+    // 结果节点显示在结果区，不是过程：不计入整轮摘要的操作次数与失败次数。
+    const tools = collectTools(body).filter((tool) => tool.call.id !== outcomeCallId);
     const truncatedStart = user === null && context.isFirst && context.history.hasMore;
     return {
         id: head.id,
@@ -235,12 +251,28 @@ export function buildTurn(group: readonly MessageView[], environment: TurnEnviro
         blocks,
         trailing,
         finalReply,
+        outcomeMessage: answer === null ? null : answerMessage(answer, body),
+        outcomeCallId,
         status,
         metrics: computeMetrics(group, tools, status, truncatedStart, context.now, context.registry),
         changedFiles: collectChangedFiles(tools, context.registry),
         outcomeStart,
         foldable: finished && outcomeStart > 0,
     };
+}
+
+function findLastAnswer(blocks: readonly TurnBlock[], outcomeStart: number, registry: AgentViewRegistry): Extract<TurnBlock, {kind: "content" | "node"}> | null {
+    for (let index = blocks.length - 1; index >= outcomeStart; index -= 1) {
+        const block = blocks[index]!;
+        if ((block.kind === "content" || block.kind === "node") && isAnswer(block, registry)) return block;
+    }
+    return null;
+}
+
+function answerMessage(answer: Extract<TurnBlock, {kind: "content" | "node"}>, body: readonly MessageView[]): AssistantMessageView | null {
+    if (answer.kind === "content") return answer.message;
+    const found = body.find((message) => message.kind === "assistant" && message.id === answer.step.messageId);
+    return found?.kind === "assistant" ? found : null;
 }
 
 function isDividerSource(message: SystemMessageView): boolean {
@@ -343,9 +375,12 @@ function buildBlocks(
     return blocks;
 }
 
-/** 最终回复之后的分隔线移出 `blocks`，由视图放到轮末汇总下方。 */
-function splitTrailing(blocks: TurnBlock[]): TurnBlock[] {
-    const replyIndex = blocks.findIndex((block) => block.kind === "content" && block.final);
+/**
+ * 答案（最终回复或结果节点）之后的分隔线移出 `blocks`，由视图放到轮末汇总下方。锚点不能只认最终回复：结果节点之后
+ * 跟着压缩或分支摘要时，分隔线留在末尾会挡住 `findOutcomeStart` 的倒扫，答案就被折进过程。
+ */
+function splitTrailing(blocks: TurnBlock[], registry: AgentViewRegistry): TurnBlock[] {
+    const replyIndex = blocks.findLastIndex((block) => isAnswer(block, registry));
     if (replyIndex < 0) {
         return [];
     }

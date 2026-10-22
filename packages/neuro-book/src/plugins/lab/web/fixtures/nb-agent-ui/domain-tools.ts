@@ -23,10 +23,10 @@ const tools: ToolRendererEntry[] = [
         id: "subject_memory", toolNames: ["subject_memory_update", "subject_event_append"], category: "mutate", icon: "i-lucide-notebook-pen",
         label: {"zh-CN": "更新记忆", "en-US": "Update memory"}, summary: (call) => argString(call, "subjectPath"), presentation: "line",
     },
-    // nb-story 交答案的收尾工具：常显的节点，宿主组件画结论与出处。
+    // nb-story 交答案的收尾工具：常显的节点，宿主组件画结论与出处；交成功的那次是这一轮的结果。
     {
         id: "answer", toolNames: ["answer"], category: "interact", icon: "i-lucide-message-square-text",
-        label: {"zh-CN": "作答", "en-US": "Answer"}, summary: (call) => argString(call, "conclusion"), presentation: "node", node: LabAnswerNode,
+        label: {"zh-CN": "作答", "en-US": "Answer"}, summary: (call) => argString(call, "conclusion"), presentation: "node", node: LabAnswerNode, outcome: true,
     },
 ];
 

@@ -19,6 +19,7 @@ import {Type} from "typebox";
 
 import {createHarnessTranscript} from "./harness";
 import {builtinToolRenderers} from "./builtin-tools";
+import {buildTurns} from "./conversation-turns";
 import {createAgentViewRegistry} from "./registry";
 import {editInputChanges} from "./tool-formats";
 import type {MessageView} from "./types";
@@ -124,6 +125,21 @@ describe("harness 适配器与真实 harness", () => {
         expect(messages.some((message) => message.kind === "error")).toBe(false);
         const last = messages.at(-1);
         expect(last?.kind === "assistant" && last.toolCalls[0]).toMatchObject({id: "f1", status: "success"});
+    });
+
+    it("收尾工具交成功：分轮时它是这一轮的结果，整轮收起后仍露出，查书那次留在过程里（验收 20）", async () => {
+        const {entries} = await run({steps: [[toolCall("c1", "lookup", {query: "钟声"})], [toolCall("f1", "answer", {conclusion: "林默"})]]});
+        const {messages} = fromLog(entries);
+        const registry = createAgentViewRegistry([
+            {source: "builtin:tools", tools: builtinToolRenderers},
+            {source: "test:story", tools: [{id: "answer", toolNames: ["answer"], category: "interact", icon: "i-lucide-message-square-text", label: "作答", summary: () => "", presentation: "node", outcome: true}]},
+        ]);
+        const [turn] = buildTurns({messages, registry, run: {status: "idle", phase: ""}, history: {hasMore: false, loading: false, error: null}, now: 0});
+        expect(turn!.status).toBe("done");
+        expect(turn!.foldable).toBe(true);
+        expect(turn!.blocks.slice(turn!.outcomeStart).map((block) => block.id)).toEqual(["f1"]);
+        expect(turn!.outcomeCallId).toBe("f1");
+        expect(turn!.metrics.steps).toBe(1);
     });
 
     it("运行前就失败（缺密钥）：一个事件都没有，日志里的 run_end 画成一条说明", async () => {

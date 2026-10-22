@@ -117,10 +117,11 @@ function messageActionItems(message: MessageView): Array<{id: string; icon: stri
         .map((entry) => ({id: entry.id, icon: entry.icon, label: text(entry.label)}));
 }
 
-function runMessageAction(message: MessageView, id: string) {
+/** 用户一侧的消息没有结果节点；助手一侧带上这一轮的结果调用。 */
+function runMessageAction(message: MessageView, id: string, outcomeCallId: string | null = null) {
     const entry = props.registry.list("messageActions").find((item) => item.id === id);
     if (entry !== undefined) {
-        emit("action", entry.toAction(message));
+        emit("action", entry.toAction(message, {outcomeCallId}));
     }
 }
 </script>
@@ -169,12 +170,12 @@ function runMessageAction(message: MessageView, id: string) {
                 <Spinner v-if="turn.status === 'running'" size="sm" :label="statusLabel" />
                 <span v-if="statusLabel" class="acv-badge acv-badge--state" :data-status="turn.status">{{ statusLabel }}</span>
                 <AgentMessageActions
-                    v-if="turn.finalReply"
+                    v-if="turn.outcomeMessage"
                     class="acv-message__actions"
-                    :actions="messageActionItems(turn.finalReply)"
-                    :branch="props.ctx.branches[turn.finalReply.id] ?? null"
-                    @select="runMessageAction(turn.finalReply, $event)"
-                    @branch="emit('action', {type: 'branch.switch', messageId: turn.finalReply!.id, direction: $event})"
+                    :actions="messageActionItems(turn.outcomeMessage)"
+                    :branch="props.ctx.branches[turn.outcomeMessage.id] ?? null"
+                    @select="runMessageAction(turn.outcomeMessage, $event, turn.outcomeCallId)"
+                    @branch="emit('action', {type: 'branch.switch', messageId: turn.outcomeMessage!.id, direction: $event})"
                 />
             </header>
 

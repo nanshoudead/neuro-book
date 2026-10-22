@@ -316,6 +316,18 @@ export const streamingMessages: MessageView[] = [
 
 export const streamingNow = at(14);
 
+/**
+ * nb-story 的问答：查书、交答案被退回一次、改了再交成功，之后上下文压缩。交成功的那次是这一轮的结果（宿主把 `answer`
+ * 登记为结果节点），整轮收起后仍露出；参数形状见 docs/specs/story/qa.md 输出 7。
+ */
+export const answerMessages: MessageView[] = [
+    user("w1", 0, "第三章里谁知道钟声的秘密？"),
+    assistant("w2", 2, {thinking: "先读第三章。", toolCalls: [read("w3", "chapters/03.md")], usage: usage(5200, 40, 0, 0.0024)}),
+    assistant("w4", 6, {toolCalls: [{id: "w5", name: "answer", status: "error", args: {conclusion: "林默", conclusionType: "明说", evidence: []}, error: "evidence 不能为空：每个“知道”都要指得出段落"}], usage: usage(6800, 60, 5200, 0.0012)}),
+    assistant("w6", 9, {toolCalls: [{id: "w7", name: "answer", status: "success", args: {conclusion: "林默知道：他在第十二下钟声时认出了父亲的表。", conclusionType: "明说", evidence: ["3.4", "3.6"]}, result: {text: "已交卷", truncated: false}}], usage: usage(7100, 90, 6800, 0.0015)}),
+    {kind: "system", id: "w8", timestamp: at(12), source: "compaction", label: "上下文已压缩", text: "保留了问题与答案。"},
+];
+
 /** 单独挂载一轮时用的几组消息。 */
 export const turnSamples = {
     simple: firstTurn,

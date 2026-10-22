@@ -278,6 +278,18 @@ test.describe("对话视图的消息流", () => {
         await expect(page.locator("[role='dialog']")).toHaveCount(0);
     });
 
+    test("结果节点：整轮收起后答案卡片仍露出，被退回的那次收在过程里；卡片里的出处与复制分别到达宿主（验收 20、21）", async ({page}) => {
+        await openScene(page, "AgentConversationView", "answer");
+        const body = stage(page);
+        await expect(body.locator("[data-lab-answer]")).toHaveCount(1);
+        await expect(body.locator("[data-lab-answer]")).toContainText("第十二下钟声");
+        await expect(body.locator("[data-turn-summary]")).toHaveCount(1);
+        await body.locator("[data-answer-ref]").first().click();
+        await expect.poll(() => lastAction(page)).toEqual({type: "reference.open", target: "paragraph://3.4"});
+        await body.locator("[data-role='assistant'] .acv-message__actions").getByRole("button", {name: "复制"}).click();
+        await expect.poll(() => lastAction(page)).toEqual({type: "tool.copy", toolCallId: "w7"});
+    });
+
     test("回复里 Markdown 的引用、外链与图片：分别发出 reference.open、link.open 与视图内部的原图预览请求", async ({page}) => {
         await openScene(page, "AgentMarkdown", "links");
         const body = stage(page);

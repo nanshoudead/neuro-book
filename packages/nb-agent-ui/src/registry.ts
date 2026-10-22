@@ -71,6 +71,11 @@ type ToolRendererBase = RegistryEntryBase & {
     presentation: "line" | "card" | "node";
     /** `node` 呈现时的专用组件，接收 `ToolComponentProps`、发 `HostComponentEmits`；缺省时用通用卡片。 */
     node?: Component;
+    /**
+     * 只对 `node` 有效：成功的调用排在一轮末尾时算这一轮的结果（Spec 的“结果节点”），整轮收起后仍显示，不计入整轮摘要的
+     * 操作次数。例如问答里交答案的收尾工具；被退回（出错）的那几次仍是过程。
+     */
+    outcome?: boolean;
 };
 
 /**
@@ -129,8 +134,11 @@ export type MessageActionEntry = RegistryEntryBase & {
     appliesTo?: (message: MessageView) => boolean;
     icon: string;
     label: ViewText;
-    toAction: (message: MessageView) => AgentViewAction;
+    toAction: (message: MessageView, target: MessageActionTarget) => AgentViewAction;
 };
+
+/** 消息操作作用的对象：结果是结果节点时带上那次调用的 id（例如复制要复制工具参数里的答案，而不是消息正文）。 */
+export type MessageActionTarget = {outcomeCallId: string | null};
 
 export type HeaderActionEntry = RegistryEntryBase & {
     icon: string;

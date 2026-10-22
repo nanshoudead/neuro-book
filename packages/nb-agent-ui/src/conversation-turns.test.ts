@@ -319,6 +319,53 @@ describe("buildTurns 整轮收起", () => {
     });
 });
 
+describe("buildTurns 结果节点（验收 20）", () => {
+    const answerTool = {id: "answer", toolNames: ["answer"], category: "interact" as const, icon: "i-lucide-message-square-text", label: "作答", summary: () => "", presentation: "node" as const, outcome: true};
+    const withAnswer = createAgentViewRegistry([builtinToolsContribution, {source: "test:story", tools: [answerTool]}]);
+
+    function answered(trailingDivider: boolean, closingText = ""): ConversationTurn {
+        const messages: MessageView[] = [
+            user("u1", "谁知道钟声的秘密？"),
+            assistant("a1", {toolCalls: [tool("r1", "read", {path: "第三章.md"})]}),
+            assistant("a2", {toolCalls: [tool("q1", "answer", {conclusion: "林默"}, "error")]}),
+            assistant("a3", {toolCalls: [tool("q2", "answer", {conclusion: "林默知道"})]}),
+        ];
+        if (closingText !== "") messages.push(assistant("a4", {text: closingText}));
+        if (trailingDivider) messages.push({kind: "system", id: "c1", timestamp: tick(), source: "compaction", label: "上下文已压缩", text: "…"});
+        return buildTurns(input(messages, {registry: withAnswer}))[0]!;
+    }
+
+    it("交成功的那次是结果，整轮收起后仍露出；被退回的那次留在过程里，操作次数不含结果", () => {
+        const turn = answered(false);
+        expect(shape(turn).slice(turn.outcomeStart)).toEqual(["node"]);
+        expect(turn.blocks[turn.outcomeStart]!.id).toBe("q2");
+        expect(turn.blocks.slice(0, turn.outcomeStart).some((block) => block.id === "q1")).toBe(true);
+        expect(turn.foldable).toBe(true);
+        expect(turn.metrics.steps).toBe(2);
+        expect(turn.outcomeMessage?.id).toBe("a3");
+        expect(turn.outcomeCallId).toBe("q2");
+    });
+
+    it("结果之后跟着压缩分隔线时，分隔线移到 trailing，答案仍是结果", () => {
+        const turn = answered(true);
+        expect(shape(turn, turn.trailing)).toEqual(["divider"]);
+        expect(turn.blocks[turn.outcomeStart]!.id).toBe("q2");
+    });
+
+    it("结果节点之后还有最终回复时，操作条作用于最终回复", () => {
+        const turn = answered(false, "以上是我的回答。");
+        expect(shape(turn).slice(turn.outcomeStart)).toEqual(["node", "reply"]);
+        expect(turn.outcomeMessage?.id).toBe("a4");
+        expect(turn.outcomeCallId).toBeNull();
+    });
+
+    it("没有声明为结果的节点不算结果", () => {
+        const turn = buildTurns(input([user("u1", "列个计划"), assistant("a1", {toolCalls: [tool("k1", "task_create", {title: "计划"})]})]))[0]!;
+        expect(turn.outcomeStart).toBe(turn.blocks.length);
+        expect(turn.outcomeMessage).toBeNull();
+    });
+});
+
 describe("buildTurns 汇总", () => {
     it("统计用时、工具次数、读写文件数、tokens 与费用；改动文件按路径合并，只算成功的调用", () => {
         const start = clock + 1000;

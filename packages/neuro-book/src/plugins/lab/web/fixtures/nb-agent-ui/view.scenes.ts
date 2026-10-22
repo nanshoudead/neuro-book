@@ -3,6 +3,7 @@ import {createHarnessTranscript} from "@notnotype/nb-agent-ui";
 import type {LabFixtureDefinition} from "../index";
 import {harnessReplayLog} from "./harness-replay";
 import {
+    answerMessages,
     conversationContext,
     messageStateMessages,
     pagedConversationMessages,
@@ -22,6 +23,11 @@ function replayMessages() {
 }
 
 export const agentConversationViewScenes: Scene[] = [
+    {
+        id: "answer",
+        label: "结果节点：答案卡片在整轮收起后仍露出",
+        input: {props: {ctx: conversationContext({messages: answerMessages, branches: {}}), teleportTarget: false, locale: "zh-CN"}, model: {viewMode: "turns"}},
+    },
     {
         id: "long-conversation",
         label: "多轮长对话",

@@ -24,7 +24,7 @@ export type {
 export {AgentViewRegistryConflictError, createAgentViewRegistry, GENERIC_TOOL_RENDERER, visibleEntries} from "./registry";
 export type {
     AgentViewContribution, AgentViewRegistry, ComposerCommandEntry, ComposerTriggerEntry, EntryRendererEntry, ExtensionPoint,
-    ExtensionPointEntries, FileChangeView, HeaderActionEntry, RegistryConflict, MessageActionEntry, PanelEntry, RegistryEntryBase, RoleEntry,
+    ExtensionPointEntries, FileChangeView, HeaderActionEntry, RegistryConflict, MessageActionEntry, MessageActionTarget, PanelEntry, RegistryEntryBase, RoleEntry,
     StatusItemEntry, ToolbarButtonEntry, ToolCategory, ToolComponentProps, ToolEffects, ToolRendererEntry, HostComponentContext, HostComponentEmits, TrayItemEntry,
 } from "./registry";
 export type {TaskChange, TaskItemView, TaskListView, TaskStatus} from "./task-list";
