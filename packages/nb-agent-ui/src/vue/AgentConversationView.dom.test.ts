@@ -17,7 +17,7 @@ function context(): AgentConversationContext {
     return {
         session: {id: "s1", title: "第三章", summary: "", profileName: "写作助手", profileIcon: "i-lucide-feather", archived: false, summaryState: "idle"},
         availability: {status: "ready", message: "", actions: []},
-        interaction: {canSend: true, canAnswer: true, canMutateHistory: true, canStop: true, canRegisterAttachments: false, canChangeRuntime: true, canArchive: true, canRestore: true},
+        interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canMutateHistory: true, canStop: true, canRegisterAttachments: false, canChangeRuntime: true, canArchive: true, canRestore: true},
         run: {status: "idle", phase: ""},
         messages: [
             {kind: "user", id: "u1", timestamp: 1, intent: "normal", blocks: [{kind: "text", text: "画张图"}], contentOmitted: false},
@@ -62,9 +62,11 @@ function controllableResolver() {
     return {requests, resolveMarkdownAsset};
 }
 
-function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean} = {}) {
+function mountView(locale: AgentLocale, services: Partial<AgentConversationServices> = {}, options: {ctx?: AgentConversationContext; registry?: typeof registry; plain?: boolean; header?: boolean; processDisclosure?: "collapsed" | "live"} = {}) {
     return mount(AgentConversationView, {
         props: {
+            ...(options.header === undefined ? {} : {header: options.header}),
+            ...(options.processDisclosure === undefined ? {} : {processDisclosure: options.processDisclosure}),
             ctx: options.ctx ?? context(),
             registry: options.registry ?? registry,
             locale,
@@ -185,5 +187,56 @@ describe("渲染器出错（验收 15）", () => {
         expect(view.text()).toContain("此内容无法显示");
         expect(view.text()).toContain("后面的回复也照常显示");
         view.unmount();
+    });
+});
+
+describe("运行中逐步展开（验收 22）", () => {
+    function runningCtx(): AgentConversationContext {
+        const ctx = context();
+        ctx.run = {status: "running", phase: ""};
+        ctx.messages = [ctx.messages[0]!, {kind: "assistant", id: "a1", timestamp: 2, status: "streaming", text: "", thinking: "", model: "m", contentOmitted: false, toolCalls: [
+            {id: "r1", name: "read", status: "success", args: {path: "第一章.md"}},
+            {id: "r2", name: "read", status: "running", args: {path: "第二章.md"}},
+        ]}];
+        return ctx;
+    }
+
+    it("live 时运行中的思维链与工具组展开，逐项列出；缺省时折叠", () => {
+        const live = mountView("zh-CN", {}, {ctx: runningCtx(), plain: true, processDisclosure: "live"});
+        expect(live.find(".acv-steps").exists()).toBe(true);
+        expect(live.text()).toContain("第一章.md");
+        live.unmount();
+        const collapsed = mountView("zh-CN", {}, {ctx: runningCtx(), plain: true});
+        expect(collapsed.find(".acv-steps").exists()).toBe(false);
+        collapsed.unmount();
+    });
+
+    it("运行结束后回到折叠", async () => {
+        const ctx = runningCtx();
+        const view = mountView("zh-CN", {}, {ctx, plain: true, processDisclosure: "live"});
+        const done = context();
+        done.messages = [ctx.messages[0]!, {...ctx.messages[1]!, status: "done", toolCalls: [{id: "r1", name: "read", status: "success", args: {path: "第一章.md"}}, {id: "r2", name: "read", status: "success", args: {path: "第二章.md"}}]} as AgentConversationContext["messages"][number], {kind: "assistant", id: "a2", timestamp: 3, status: "done", text: "读完了。", thinking: "", model: "m", toolCalls: [], contentOmitted: false}];
+        await view.setProps({ctx: done});
+        expect(view.find(".acv-steps").exists()).toBe(false);
+        view.unmount();
+    });
+});
+
+describe("没有数据的区域不显示（验收 24）", () => {
+    it("header 为 false 时没有顶栏；没有模型与思考档位时没有模型下拉；会话加载中时消息流显示加载中", () => {
+        const ctx = context();
+        ctx.messages = [];
+        ctx.availability = {status: "loading", message: "", actions: []};
+        const view = mountView("zh-CN", {}, {ctx, plain: true, header: false});
+        expect(view.find("[aria-label='更多操作']").exists()).toBe(false);
+        expect(view.find(".acv-model-picker__trigger").exists()).toBe(false);
+        expect(view.text()).toContain("正在加载会话");
+        view.unmount();
+
+        const withModels = context();
+        withModels.composer = {...withModels.composer, models: [{key: "m", label: "模型甲", supportsImages: false}], modelKey: "m"};
+        const shown = mountView("zh-CN", {}, {ctx: withModels, plain: true});
+        expect(shown.find(".acv-model-picker__trigger").exists()).toBe(true);
+        shown.unmount();
     });
 });

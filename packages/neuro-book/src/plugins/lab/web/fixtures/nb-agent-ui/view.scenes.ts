@@ -49,6 +49,54 @@ export const agentConversationViewScenes: Scene[] = [
         },
     },
     {
+        id: "running-live",
+        label: "运行中逐步展开（processDisclosure: live）",
+        input: {
+            props: {
+                ctx: conversationContext({
+                    messages: runningConversationMessages,
+                    run: {status: "running", phase: "正在读取文件"},
+                    now: runningConversationNow,
+                }),
+                processDisclosure: "live",
+                teleportTarget: false, locale: "zh-CN",
+            },
+            model: {viewMode: "turns"},
+        },
+    },
+    {
+        id: "running-no-steer",
+        label: "运行中不能补充说明与排队",
+        input: {
+            props: {
+                ctx: conversationContext({
+                    messages: runningConversationMessages,
+                    run: {status: "running", phase: "正在读取文件"},
+                    now: runningConversationNow,
+                    interaction: {...conversationContext().interaction, canSteer: false, canQueue: false},
+                }),
+                teleportTarget: false, locale: "zh-CN",
+            },
+            model: {viewMode: "turns"},
+        },
+    },
+    {
+        id: "embedded",
+        label: "嵌入别的页面：没有顶栏、模型与模式",
+        input: {
+            props: {
+                ctx: conversationContext({
+                    messages: answerMessages,
+                    branches: {},
+                    composer: {...conversationContext().composer, models: [], modelKey: null, thinkingLevels: [], thinking: null, modes: []},
+                }),
+                header: false,
+                teleportTarget: false, locale: "zh-CN",
+            },
+            model: {viewMode: "turns"},
+        },
+    },
+    {
         id: "streaming",
         label: "流式输出",
         input: {

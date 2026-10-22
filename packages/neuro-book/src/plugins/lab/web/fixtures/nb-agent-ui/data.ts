@@ -210,7 +210,7 @@ export function conversationContext(patch: Partial<AgentConversationContext> = {
         },
         availability: {status: "ready", message: "", actions: []},
         interaction: {
-            canSend: true, canAnswer: true, canMutateHistory: true, canStop: true,
+            canSend: true, canSteer: true, canQueue: true, canAnswer: true, canMutateHistory: true, canStop: true,
             canRegisterAttachments: true, canChangeRuntime: true, canArchive: true, canRestore: false,
         },
         run: {status: "idle", phase: ""},

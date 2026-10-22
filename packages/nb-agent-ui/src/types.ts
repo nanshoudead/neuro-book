@@ -137,6 +137,10 @@ export type AvailabilityView = {
 
 export type InteractionView = {
     canSend: boolean;
+    /** 运行中（含等待回答与停止中）能否补充说明（steer）。宿主的运行时不支持时给 false。 */
+    canSteer: boolean;
+    /** 运行中能否排队一条消息（followup），运行结束后发出。 */
+    canQueue: boolean;
     canAnswer: boolean;
     canMutateHistory: boolean;
     canStop: boolean;

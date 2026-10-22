@@ -26,6 +26,8 @@ const props = defineProps<{
     turnStatus: TurnStatus;
     /** 是这一轮的最后一块：运行中时摘要行转圈，即使没有工具在跑（模型在思考或生成）。 */
     last: boolean;
+    /** 运行中逐步展开：思维链与工具组默认展开，逐步列出每一步；用户点过的以用户为准。卡片与思考仍折叠。 */
+    live: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -64,7 +66,7 @@ function cardStatus(step: ToolStep): "running" | "waiting" | "success" | "error"
     <div class="acv-chain">
         <AgentChainSummary
             class="acv-chain__summary"
-            :expanded="openSet.isOpen(props.chain.id)"
+            :expanded="openSet.isOpen(props.chain.id, props.live)"
             :label="chainLabel()"
             :icon="props.chain.summary.thinking ? 'i-lucide-brain' : 'i-lucide-wrench'"
             :alert="chainAlert()"
@@ -73,7 +75,7 @@ function cardStatus(step: ToolStep): "running" | "waiting" | "success" | "error"
             data-chain-summary
             @update:expanded="openSet.set(props.chain.id, $event)"
         />
-        <div v-if="openSet.isOpen(props.chain.id)" class="acv-steps">
+        <div v-if="openSet.isOpen(props.chain.id, props.live)" class="acv-steps">
             <template v-for="entry in props.chain.entries" :key="entry.id">
                 <template v-if="entry.kind === 'toolGroup'">
                     <CollapsibleRow
@@ -82,7 +84,7 @@ function cardStatus(step: ToolStep): "running" | "waiting" | "success" | "error"
                         :label="entry.phrases.map(text).join(t('stream.phraseSeparator'))"
                         :detail="entry.active ? rendererOf(entry.active).summary(entry.active.call) : ''"
                         :status="entry.active ? 'running' : 'done'"
-                        :expanded="openSet.isOpen(entry.id)"
+                        :expanded="openSet.isOpen(entry.id, props.live)"
                         @update:expanded="openSet.set(entry.id, $event)"
                     >
                         <template v-for="item in entry.items" :key="item.id">
@@ -92,7 +94,7 @@ function cardStatus(step: ToolStep): "running" | "waiting" | "success" | "error"
                         </template>
                     </CollapsibleRow>
                     <!-- 组收起时，出错的项单独露出 -->
-                    <template v-if="!openSet.isOpen(entry.id)">
+                    <template v-if="!openSet.isOpen(entry.id, props.live)">
                         <AgentToolStepRow
                             v-for="failed in entry.failed"
                             :key="failed.id"

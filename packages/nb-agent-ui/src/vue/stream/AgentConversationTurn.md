@@ -49,6 +49,8 @@ type AgentConversationTurnProps = {
     latest: boolean;
     /** 是否第一轮，必填；历史未加载完时第一轮可能开头不完整，此时不计算用时。 */
     first: boolean;
+    /** 对话视图的 processDisclosure；"live" 时运行中与等待回答的这一轮里思维链与工具组默认展开。默认 "collapsed"。 */
+    processDisclosure?: "collapsed" | "live";
 };
 
 type AgentConversationTurnEmits = {

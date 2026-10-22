@@ -103,14 +103,33 @@ const blockedReason = computed(() => {
     }
 });
 
+const deliveries = computed(() => ({steer: props.ctx.interaction.canSteer, followup: props.ctx.interaction.canQueue}));
+
+/** 按当前文字算出一次发送的结果；按钮按回车的规则发，所以 mod 为假。 */
+function resolve(mod: boolean) {
+    return resolveSubmission({text: currentText.value, mod, running: running.value, commands: commandNames.value, deliveries: deliveries.value});
+}
+
 const showStop = computed(() => running.value && currentText.value.trim() === "" && props.ctx.interaction.canStop);
-const sendDisabled = computed(() => readonly.value || currentText.value.trim() === "" || blockedReason.value !== null);
+// 运行中两种投递都不允许时能写不能发；登记的命令不受限制，所以按算出的结果判断，不只看开关。
+const sendDisabled = computed(() => readonly.value || blockedReason.value !== null || resolve(false) === null);
 
 const sendTitle = computed(() => {
     if (showStop.value) {
         return t("composer.stop");
     }
-    return blockedReason.value ?? (running.value ? t("composer.sendRunning") : t("composer.send"));
+    if (blockedReason.value !== null) return blockedReason.value;
+    if (!running.value) return t("composer.send");
+    if (deliveries.value.steer) return t("composer.sendRunning");
+    return deliveries.value.followup ? t("composer.sendQueued") : t("composer.sendAfterRun");
+});
+
+const placeholder = computed(() => {
+    if (!running.value) return t("composer.placeholder");
+    const {steer, followup} = deliveries.value;
+    if (steer && followup) return t("composer.placeholderRunning");
+    if (steer) return t("composer.placeholderRunningSteer");
+    return followup ? t("composer.placeholderRunningQueue") : t("composer.placeholderRunningNone");
 });
 
 function onChange(value: string): void {
@@ -123,7 +142,7 @@ function submit(mod: boolean): void {
     if (readonly.value || blockedReason.value !== null) {
         return;
     }
-    const result = resolveSubmission({text: currentText.value, mod, running: running.value, commands: commandNames.value});
+    const result = resolve(mod);
     if (result !== null) {
         rejectNotice.value = null;
     }
@@ -253,7 +272,7 @@ defineExpose({
                     ref="editorRef"
                     :draft="composer.draft"
                     :locale="locale"
-                    :placeholder="running ? t('composer.placeholderRunning') : t('composer.placeholder')"
+                    :placeholder="placeholder"
                     :aria-label="t('composer.label')"
                     :readonly="readonly"
                     :enter-submits="!expanded"
@@ -307,6 +326,7 @@ defineExpose({
                         <span class="acv-composer__mode-label">{{ currentMode.label }}</span>
                     </button>
                     <AgentModelPicker
+                        v-if="composer.models.length > 0 || composer.thinkingLevels.length > 0"
                         :models="composer.models"
                         :model-key="composer.modelKey"
                         :thinking-levels="composer.thinkingLevels"

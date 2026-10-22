@@ -278,6 +278,40 @@ test.describe("对话视图的消息流", () => {
         await expect(page.locator("[role='dialog']")).toHaveCount(0);
     });
 
+    test("运行中逐步展开：思维链与工具组不用点就逐项列出（验收 22）", async ({page}) => {
+        await openScene(page, "AgentConversationView", "running-live");
+        await expect(stage(page).locator(".acv-steps").first()).toBeVisible();
+        await openScene(page, "AgentConversationView", "running");
+        await expect(stage(page).locator(".acv-steps")).toHaveCount(0);
+    });
+
+    test("运行中不能补充说明与排队：回车与 Ctrl+回车都不发送，发送键禁用；登记的命令照常执行（验收 23）", async ({page}) => {
+        await openScene(page, "AgentConversationView", "running-no-steer");
+        const editor = stage(page).locator(".ProseMirror");
+        await editor.click();
+        await page.keyboard.type("加快节奏");
+        await expect(page.locator("[data-composer-action='send']")).toBeDisabled();
+        await page.keyboard.press("Enter");
+        await page.keyboard.press("Control+Enter");
+        expect((await actions(page)).some((action) => action.type === "composer.submit")).toBe(false);
+        await page.keyboard.press("Control+A");
+        await page.keyboard.press("Backspace");
+        await page.keyboard.type("/ren");
+        await expect(page.getByRole("option")).toHaveCount(1);
+        await page.keyboard.press("Enter");
+        await page.keyboard.type("第三章 雨夜");
+        await page.keyboard.press("Enter");
+        await expect.poll(() => lastAction(page)).toEqual({type: "command.run", name: "rename", argsText: "第三章 雨夜"});
+    });
+
+    test("嵌入别的页面：没有顶栏与模型下拉，答案卡片照常显示（验收 24）", async ({page}) => {
+        await openScene(page, "AgentConversationView", "embedded");
+        const body = stage(page);
+        await expect(body.locator("[data-lab-answer]")).toHaveCount(1);
+        await expect(body.getByRole("button", {name: "更多操作"})).toHaveCount(0);
+        await expect(body.locator(".acv-model-picker__trigger")).toHaveCount(0);
+    });
+
     test("结果节点：整轮收起后答案卡片仍露出，被退回的那次收在过程里；卡片里的出处与复制分别到达宿主（验收 20、21）", async ({page}) => {
         await openScene(page, "AgentConversationView", "answer");
         const body = stage(page);

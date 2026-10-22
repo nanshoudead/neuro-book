@@ -57,6 +57,10 @@ type AgentConversationViewProps = {
     locale: AgentLocale;
     /** 宿主注入的 Markdown 显示、提示词编辑器与已发送文字的显示；缺哪个用包内的缺省实现。默认 {}。 */
     renderers?: AgentViewRenderers;
+    /** 是否显示顶栏；宿主页面自有标题时传 false，原始视图的切换入口随之没有，用 viewMode 控制。默认 true。 */
+    header?: boolean;
+    /** 运行中过程的展开方式："collapsed" 折叠；"live" 时运行中的思维链与工具组逐步展开，结束后照常收起。默认 "collapsed"。 */
+    processDisclosure?: "collapsed" | "live";
 };
 
 type AgentConversationViewEmits = {

@@ -28,6 +28,8 @@ type AgentChainBlockProps = {
     turnStatus: TurnStatus;
     /** 是否本轮最后一个块。 */
     last: boolean;
+    /** 运行中逐步展开：思维链与工具组默认展开，用户点过的以用户为准；卡片与思考仍折叠。 */
+    live: boolean;
 };
 
 type AgentChainBlockEmits = {

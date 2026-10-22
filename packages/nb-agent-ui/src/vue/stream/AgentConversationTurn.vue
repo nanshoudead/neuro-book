@@ -20,14 +20,18 @@ import {formatClock} from "../../format";
 import {useAgentText} from "../host";
 import type {ViewAction} from "../view-action";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     messages: MessageView[];
     ctx: AgentConversationContext;
     services: AgentConversationServices;
     registry: AgentViewRegistry;
     latest: boolean;
     first: boolean;
-}>();
+    /** 对话视图的 processDisclosure：live 时运行中这一轮的思维链与工具组默认展开。 */
+    processDisclosure?: "collapsed" | "live";
+}>(), {
+    processDisclosure: "collapsed",
+});
 
 const emit = defineEmits<{
     (e: "action", action: ViewAction): void;
@@ -40,8 +44,12 @@ const turn = computed(() => buildTurn(props.messages, {
     registry: props.registry,
     run: props.ctx.run,
     history: props.ctx.history,
-    now: props.ctx.now,
+    // 只有运行中的最新一轮用 now 算用时；已结束的轮次不读它，宿主每秒换 now 时不必重算它们。
+    now: props.latest && props.ctx.run.status !== "idle" ? props.ctx.now : 0,
 }, {isLatest: props.latest, isFirst: props.first}));
+
+/** 运行中逐步展开：只对运行中与等待回答的这一轮生效，结束后回到默认折叠。 */
+const live = computed(() => props.processDisclosure === "live" && (turn.value.status === "running" || turn.value.status === "waiting"));
 
 const hasAssistantSide = computed(() => turn.value.blocks.length > 0 || turn.value.status !== "done");
 
@@ -198,6 +206,7 @@ function runMessageAction(message: MessageView, id: string, outcomeCallId: strin
                         :services="props.services"
                         :registry="props.registry"
                         :turn-status="turn.status"
+                        :live="live"
                         :last="index === turn.blocks.length - 1"
                         @action="emit('action', $event)"
                     />

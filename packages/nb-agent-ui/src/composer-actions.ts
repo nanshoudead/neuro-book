@@ -13,10 +13,17 @@ export type ComposerSubmission =
     | null;
 
 /**
- * 正文去掉首尾空白后为空时不发送。以 `/名称` 开头且名称是登记的命令时执行命令；
- * 否则按普通消息发送：空闲时是 prompt，运行中回车是 steer、Ctrl/⌘+回车是 followup。
+ * 发送时按什么方式投递（docs/specs/ui/agent-conversation-view.md“输入框与待处理区”）。命令先于投递方式判定，运行中
+ * 照常执行。运行中回车在允许补充说明时为 steer，否则在允许排队时为 followup；Ctrl/⌘+回车（`mod`）只在允许排队时为
+ * followup，不退回 steer。都不允许时返回 null：运行中能写不能发。
  */
-export function resolveSubmission(input: {text: string; mod: boolean; running: boolean; commands: readonly string[]}): ComposerSubmission {
+export function resolveSubmission(input: {
+    text: string;
+    mod: boolean;
+    running: boolean;
+    commands: readonly string[];
+    deliveries: {steer: boolean; followup: boolean};
+}): ComposerSubmission {
     const text = input.text.trim();
     if (text === "") {
         return null;
@@ -25,8 +32,14 @@ export function resolveSubmission(input: {text: string; mod: boolean; running: b
     if (command && input.commands.includes(command[1]!)) {
         return {kind: "command", name: command[1]!, argsText: (command[2] ?? "").trim()};
     }
-    const delivery: SubmitDelivery = !input.running ? "prompt" : input.mod ? "followup" : "steer";
-    return {kind: "message", text, delivery};
+    if (!input.running) {
+        return {kind: "message", text, delivery: "prompt"};
+    }
+    const {steer, followup} = input.deliveries;
+    const delivery: SubmitDelivery | null = input.mod
+        ? (followup ? "followup" : null)
+        : (steer ? "steer" : followup ? "followup" : null);
+    return delivery === null ? null : {kind: "message", text, delivery};
 }
 
 /** 下一种模式；当前模式不在列表里时回到第一种。少于两种模式时没有可切换的。 */

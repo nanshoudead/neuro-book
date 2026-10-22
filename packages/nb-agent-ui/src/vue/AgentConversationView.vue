@@ -28,10 +28,16 @@ const props = withDefaults(defineProps<{
     teleportTarget?: string | false;
     locale: AgentLocale;
     renderers?: AgentViewRenderers;
+    /** 是否显示顶栏；宿主页面自有标题时传 false，原始视图的切换入口随之没有，用 viewMode 控制。 */
+    header?: boolean;
+    /** 运行中过程的展开方式：缺省折叠；live 时运行中的思维链与工具组逐步展开。 */
+    processDisclosure?: "collapsed" | "live";
 }>(), {
     viewMode: undefined,
     teleportTarget: false,
     renderers: () => ({}),
+    header: true,
+    processDisclosure: "collapsed",
 });
 
 const emit = defineEmits<{
@@ -214,7 +220,7 @@ defineExpose({focusComposer, scrollToLatest});
 
 <template>
     <section class="agent-conversation-view">
-        <header class="acv-header">
+        <header v-if="props.header" class="acv-header">
             <span
                 v-if="props.ctx.session"
                 :class="[props.ctx.session.profileIcon, 'acv-header__icon']"
@@ -232,7 +238,11 @@ defineExpose({focusComposer, scrollToLatest});
         <div class="acv-body">
             <div ref="streamRef" class="acv-stream" data-agent-stream>
                 <div ref="contentRef" class="acv-stream__content">
-                    <p v-if="props.ctx.messages.length === 0" class="acv-stream__empty">
+                    <!-- 其余 availability 的说明与恢复动作在输入框上方的横幅里，这里不重复 -->
+                    <p v-if="props.ctx.messages.length === 0 && props.ctx.availability.status === 'loading'" class="acv-stream__empty" role="status">
+                        <Spinner size="sm" :label="t('stream.loading')" />{{ t("stream.loading") }}
+                    </p>
+                    <p v-else-if="props.ctx.messages.length === 0" class="acv-stream__empty">
                         {{ t("stream.empty") }}
                     </p>
 
@@ -265,6 +275,7 @@ defineExpose({focusComposer, scrollToLatest});
                                 :registry="props.registry"
                                 :latest="index === turnGroups.length - 1"
                                 :first="index === 0"
+                                :process-disclosure="props.processDisclosure"
                                 @action="onAction"
                             />
                         </template>
@@ -374,9 +385,12 @@ defineExpose({focusComposer, scrollToLatest});
 }
 
 .acv-stream__empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
     padding: 40px 0;
     color: var(--text-muted);
-    text-align: center;
 }
 
 /*

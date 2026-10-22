@@ -34,6 +34,8 @@ type AgentTurnBlockProps = {
     turnStatus: TurnStatus;
     /** 是否本轮最后一个块，必填；运行中的最后一条思维链即使没有工具在跑也显示转圈。 */
     last: boolean;
+    /** 运行中逐步展开；交给思维链作为默认展开。默认 false。 */
+    live?: boolean;
 };
 
 type AgentTurnBlockEmits = {

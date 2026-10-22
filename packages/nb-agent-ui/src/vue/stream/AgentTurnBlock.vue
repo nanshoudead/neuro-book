@@ -26,6 +26,8 @@ const props = defineProps<{
     registry: AgentViewRegistry;
     turnStatus: TurnStatus;
     last: boolean;
+    /** 运行中逐步展开（processDisclosure 为 live 且这一轮在运行）；交给思维链作为默认展开。 */
+    live?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -68,6 +70,7 @@ function nodeSubtitle(step: ToolStep): string {
         :registry="props.registry"
         :turn-status="props.turnStatus"
         :last="props.last"
+        :live="props.live ?? false"
         @action="emit('action', $event)"
     />
 

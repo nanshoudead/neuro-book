@@ -3,6 +3,7 @@ import {commandMenu, nextMode, resolveSubmission, sendBlockedReason} from "./com
 import type {PromptAttachment} from "./ports";
 
 const COMMANDS = ["compact", "rename", "plan"];
+const BOTH = {steer: true, followup: true};
 
 describe("resolveSubmission", () => {
     it.each([
@@ -11,28 +12,45 @@ describe("resolveSubmission", () => {
         {running: true, mod: false, delivery: "steer"},
         {running: true, mod: true, delivery: "followup"},
     ] as const)("运行中=$running、mod=$mod 时投递方式是 $delivery", ({running, mod, delivery}) => {
-        expect(resolveSubmission({text: "  继续写第四章 \n", mod, running, commands: COMMANDS})).toEqual({kind: "message", text: "继续写第四章", delivery});
+        expect(resolveSubmission({text: "  继续写第四章 \n", mod, running, commands: COMMANDS, deliveries: BOTH})).toEqual({kind: "message", text: "继续写第四章", delivery});
+    });
+
+    it.each([
+        {deliveries: {steer: true, followup: false}, mod: false, expected: "steer"},
+        {deliveries: {steer: true, followup: false}, mod: true, expected: null},
+        {deliveries: {steer: false, followup: true}, mod: false, expected: "followup"},
+        {deliveries: {steer: false, followup: true}, mod: true, expected: "followup"},
+        {deliveries: {steer: false, followup: false}, mod: false, expected: null},
+        {deliveries: {steer: false, followup: false}, mod: true, expected: null},
+    ] as const)("运行中只允许 $deliveries、mod=$mod 时投递方式是 $expected（验收 23）", ({deliveries, mod, expected}) => {
+        const result = resolveSubmission({text: "加快节奏", mod, running: true, commands: COMMANDS, deliveries});
+        expect(result === null ? null : result.kind === "message" ? result.delivery : result.kind).toBe(expected);
+    });
+
+    it("命令不受运行中投递开关限制", () => {
+        expect(resolveSubmission({text: "/compact", mod: false, running: true, commands: COMMANDS, deliveries: {steer: false, followup: false}}))
+            .toEqual({kind: "command", name: "compact", argsText: ""});
     });
 
     it("空白正文不发送", () => {
-        expect(resolveSubmission({text: " \n\t", mod: false, running: false, commands: COMMANDS})).toBeNull();
+        expect(resolveSubmission({text: " \n\t", mod: false, running: false, commands: COMMANDS, deliveries: BOTH})).toBeNull();
     });
 
     it("开头是登记的命令时执行命令，名称之后的文字是参数", () => {
-        expect(resolveSubmission({text: "/rename  第三章 雨夜 ", mod: false, running: true, commands: COMMANDS}))
+        expect(resolveSubmission({text: "/rename  第三章 雨夜 ", mod: false, running: true, commands: COMMANDS, deliveries: BOTH}))
             .toEqual({kind: "command", name: "rename", argsText: "第三章 雨夜"});
-        expect(resolveSubmission({text: "/compact\n只保留大纲", mod: true, running: false, commands: COMMANDS}))
+        expect(resolveSubmission({text: "/compact\n只保留大纲", mod: true, running: false, commands: COMMANDS, deliveries: BOTH}))
             .toEqual({kind: "command", name: "compact", argsText: "只保留大纲"});
-        expect(resolveSubmission({text: "/plan", mod: false, running: false, commands: COMMANDS}))
+        expect(resolveSubmission({text: "/plan", mod: false, running: false, commands: COMMANDS, deliveries: BOTH}))
             .toEqual({kind: "command", name: "plan", argsText: ""});
     });
 
     it("没登记的命令、不在开头的命令按普通文字发送", () => {
-        expect(resolveSubmission({text: "/unknown 参数", mod: false, running: false, commands: COMMANDS}))
+        expect(resolveSubmission({text: "/unknown 参数", mod: false, running: false, commands: COMMANDS, deliveries: BOTH}))
             .toEqual({kind: "message", text: "/unknown 参数", delivery: "prompt"});
-        expect(resolveSubmission({text: "先 /plan", mod: false, running: false, commands: COMMANDS}))
+        expect(resolveSubmission({text: "先 /plan", mod: false, running: false, commands: COMMANDS, deliveries: BOTH}))
             .toEqual({kind: "message", text: "先 /plan", delivery: "prompt"});
-        expect(resolveSubmission({text: "/planning", mod: false, running: false, commands: COMMANDS}))
+        expect(resolveSubmission({text: "/planning", mod: false, running: false, commands: COMMANDS, deliveries: BOTH}))
             .toEqual({kind: "message", text: "/planning", delivery: "prompt"});
     });
 });
