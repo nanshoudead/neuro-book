@@ -294,7 +294,7 @@ onBeforeUnmount(() => {
 
 .image-viewer__pending {
     padding: 24px;
-    font-size: 13px;
+    font-size: var(--text-sm);
     color: var(--text-muted);
     opacity: 0;
     animation: image-viewer-reveal 1ms linear 800ms forwards;

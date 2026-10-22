@@ -140,7 +140,7 @@ test("下拉选择的长列表：收起成截半高度，键盘走到最后一�
     await expect(page.getByRole("option").filter({hasText: "EPUB 电子书"})).toContainText("按卷生成目录");
     // 带说明与不带说明的项一样高：说明在同一行右侧（决定 9）。
     const heights = await viewport.evaluate((element) => [...new Set([...element.querySelectorAll('[role="option"]')].map((option) => Math.round(option.getBoundingClientRect().height)))]);
-    expect(heights).toEqual([28]);
+    expect(heights).toEqual([await viewport.evaluate((element) => Math.round(Number.parseFloat(getComputedStyle(element).getPropertyValue("--menu-item-h"))))]);
     // 放不下时先截右侧的说明，名称完整（说明还有字时名称一点都不缩）。
     const word = page.getByRole("option").filter({hasText: "Word 文档"});
     const clipped = (selector: string): Promise<boolean> => word.locator(selector).evaluate((element) => element.scrollWidth > element.clientWidth);
@@ -344,7 +344,8 @@ test("折叠内容只在高度动画进行中裁切：展开与收起时打上 d
 
 test("应用只有一套原子 CSS（ADR 0028）：组件取 nb-ui 自己的字号，开关滑块留在轨道里，下拉箭头只转半圈；调用方的原子类压过组件的语义类；根上的细滚动条对后代生效", async ({page}) => {
     // 两套引擎并存时，宿主的 `text-sm`（14px）改掉组件的字号，`translate-x-4`、`rotate-180` 两边各生成一份而叠加。
-    await openScene(page, "c=IconButton&s=default");
+    // 用 macOS 主题量：它的 --text-sm 是 13px，与 Tailwind 默认的 14px 不同，才分得出取的是谁的值（nbook 的 sm 也是 14px）。
+    await openScene(page, "c=IconButton&s=default&theme=macos");
     expect(await stage(page).locator("button").first().evaluate((element) => getComputedStyle(element).fontSize)).toBe("13px");
 
     await openScene(page, "c=Switch&s=on");

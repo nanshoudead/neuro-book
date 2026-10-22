@@ -9,12 +9,12 @@ const props = withDefaults(defineProps<{
 
 function sizeClass(): string {
     if (props.size === "sm") {
-        return "h-4 min-w-[16px] px-1 text-[10px] rounded-[calc(var(--radius-control)*0.6)]";
+        return "h-4 min-w-[16px] px-1 text-[length:var(--text-2xs)] rounded-[calc(var(--radius-control)*0.6)]";
     }
     if (props.size === "lg") {
-        return "h-6 min-w-[24px] px-2 text-[12px] rounded-[calc(var(--radius-control)*0.8)]";
+        return "h-6 min-w-[24px] px-2 text-[length:var(--text-sm)] rounded-[calc(var(--radius-control)*0.8)]";
     }
-    return "h-5 min-w-[20px] px-1.5 text-[11px] rounded-[calc(var(--radius-control)*0.7)]";
+    return "h-5 min-w-[20px] px-1.5 text-[length:var(--text-xs)] rounded-[calc(var(--radius-control)*0.7)]";
 }
 </script>
 

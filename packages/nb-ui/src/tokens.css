@@ -118,7 +118,7 @@
     /* 弹出列表（菜单、下拉、选择器、候选）的行高、字号与外框内边距。六个列表共用一档（w00029 t04 决定 4）；
        项的圆角由外框圆角减内边距推出，主题改 --menu-pad 时同心照样成立。 */
     --menu-item-h: 28px;
-    --menu-item-font: 13px;
+    --menu-item-font: var(--text-sm);
     --menu-pad: var(--space-3);
     --panel-p: 16px;
     --stack-gap: 16px;

@@ -66,7 +66,7 @@ function summarize(payload: unknown): string {
                     : 'nb-ui-focus-ring-inset cursor-pointer transition-colors hover:bg-[var(--bg-hover)]'"
                 @click="toggle(entry)"
             >
-                <span class="shrink-0 font-mono text-[11px] text-[var(--text-muted)] tabular-nums">
+                <span class="shrink-0 font-mono text-[length:var(--text-xs)] text-[var(--text-muted)] tabular-nums">
                     {{ formatTime(entry.at) }}
                 </span>
                 <code class="nb-lab-event-chip shrink-0">
@@ -74,7 +74,7 @@ function summarize(payload: unknown): string {
                 </code>
                 <span
                     v-if="entry.payload !== undefined"
-                    class="min-w-0 flex-1 truncate font-mono text-[11px] text-[var(--text-secondary)]"
+                    class="min-w-0 flex-1 truncate font-mono text-[length:var(--text-xs)] text-[var(--text-secondary)]"
                 >
                     {{ summarize(entry.payload) }}
                 </span>

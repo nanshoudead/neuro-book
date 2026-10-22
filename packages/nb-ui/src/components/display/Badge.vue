@@ -36,8 +36,8 @@ const toneClass = computed(() => `nb-badge--${props.tone}`);
 const variantClass = computed(() => `nb-badge--${props.variant}`);
 
 const sizeClass = computed(() => (props.size === "sm"
-    ? "h-[calc(var(--control-h-sm)*0.68)] gap-[var(--space-1)] px-[calc(var(--control-px)*0.45)] text-[11px] rounded-[max(2px,calc(var(--radius-control)-2px))]"
-    : "h-[calc(var(--control-h-sm)*0.82)] gap-[var(--space-3)] px-[calc(var(--control-px)*0.6)] text-[12px] rounded-[var(--radius-control)]"));
+    ? "h-[calc(var(--control-h-sm)*0.68)] gap-[var(--space-1)] px-[calc(var(--control-px)*0.45)] text-[length:var(--text-2xs)] rounded-[max(2px,calc(var(--radius-control)-2px))]"
+    : "h-[calc(var(--control-h-sm)*0.82)] gap-[var(--space-3)] px-[calc(var(--control-px)*0.6)] text-[length:var(--text-xs)] rounded-[var(--radius-control)]"));
 </script>
 
 <template>
@@ -50,7 +50,7 @@ const sizeClass = computed(() => (props.size === "sm"
         <slot />
         <span
             v-if="props.count !== undefined"
-            class="px-1 py-[0.05rem] rounded font-mono text-[10px] bg-[color-mix(in_srgb,var(--text-inverse)_20%,transparent)] shadow-inner"
+            class="px-1 py-[0.05rem] rounded font-mono text-[length:var(--text-2xs)] bg-[color-mix(in_srgb,var(--text-inverse)_20%,transparent)] shadow-inner"
         >{{ props.count }}</span>
     </span>
 </template>

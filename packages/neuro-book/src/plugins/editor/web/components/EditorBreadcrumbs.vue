@@ -250,7 +250,7 @@ watch(() => props.focusSeq, (next, previous) => {
     height: 26px;
     padding-inline: 8px;
     overflow: hidden;
-    font-size: 12px;
+    font-size: var(--text-xs);
     color: var(--text-secondary);
     background: var(--panel-surface);
     white-space: nowrap;

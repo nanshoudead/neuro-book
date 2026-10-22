@@ -69,7 +69,7 @@ function handleAction(id: string): void {
             <div class="flex shrink-0 items-center gap-2">
                 <span
                     v-if="props.count > 0"
-                    class="rounded-full bg-[var(--bg-subtle)] px-2 py-0.5 font-mono text-[11px] text-[var(--text-secondary)]"
+                    class="rounded-full bg-[var(--bg-subtle)] px-2 py-0.5 font-mono text-[length:var(--text-xs)] text-[var(--text-secondary)]"
                 >
                     {{ props.count }}
                 </span>

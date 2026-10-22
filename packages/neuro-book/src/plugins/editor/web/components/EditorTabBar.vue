@@ -158,7 +158,7 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
 </script>
 
 <template>
-    <div ref="list" role="tablist" :aria-label="label" class="editor-tabs text-[13px]" :data-wrap="wrap ? '' : undefined" :data-group-active="groupActive ? '' : undefined" data-editor-tabs>
+    <div ref="list" role="tablist" :aria-label="label" class="editor-tabs text-[length:var(--text-sm)]" :data-wrap="wrap ? '' : undefined" :data-group-active="groupActive ? '' : undefined" data-editor-tabs>
         <div v-for="row in rows" :key="row.key" class="editor-tabs__row" :data-row="row.key">
             <div
                 v-for="tab in row.tabs"
@@ -332,7 +332,7 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
     max-width: 50%;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 12px;
+    font-size: var(--text-xs);
     color: var(--text-muted);
     white-space: nowrap;
 }

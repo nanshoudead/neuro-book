@@ -1097,7 +1097,7 @@ defineExpose({
     flex: 1 1 auto;
     padding: 0.45rem 0.6rem;
     color: var(--text-main);
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     line-height: 1.6;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -1165,7 +1165,7 @@ defineExpose({
     background: transparent;
     color: var(--text-main);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--text-sm);
     outline: none;
 }
 

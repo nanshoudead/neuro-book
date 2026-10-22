@@ -290,7 +290,7 @@ const inputLabel = computed(() => {
     padding-inline: 6px;
     border-radius: 6px;
     border-color: var(--focus-outline);
-    font-size: 13px;
+    font-size: var(--text-sm);
     box-shadow: none;
 }
 
@@ -316,7 +316,7 @@ const inputLabel = computed(() => {
 /* 根是分节标题：小一号、加粗，没有图标。 */
 .explorer-row--root {
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--text-xs);
     font-weight: 600;
     letter-spacing: 0.02em;
 }

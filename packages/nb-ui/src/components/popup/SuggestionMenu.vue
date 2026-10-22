@@ -231,11 +231,11 @@ defineExpose({
                             </MenuRow>
                         </div>
                     </div>
-                    <div v-if="empty" class="px-[10px] py-[6px] text-[12px] leading-4 text-[var(--text-muted)]" data-suggestion-menu-empty>{{ props.emptyText }}</div>
+                    <div v-if="empty" class="px-[10px] py-[6px] text-[length:var(--text-xs)] leading-4 text-[var(--text-muted)]" data-suggestion-menu-empty>{{ props.emptyText }}</div>
                 </div>
                 <div
                     v-if="props.loading"
-                    class="flex shrink-0 items-center gap-2 px-[10px] py-[6px] text-[12px] leading-4 text-[var(--text-muted)]"
+                    class="flex shrink-0 items-center gap-2 px-[10px] py-[6px] text-[length:var(--text-xs)] leading-4 text-[var(--text-muted)]"
                     role="status"
                     data-suggestion-menu-loading
                 >

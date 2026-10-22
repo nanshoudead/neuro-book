@@ -152,7 +152,7 @@ const keys = computed(() => (props.shortcut === null ? [] : props.shortcut.split
     margin-inline: auto;
     padding: 72px 48px 96px;
     color: var(--text-main);
-    font-size: 14px;
+    font-size: var(--text-sm);
 }
 
 .welcome-page__head {
@@ -178,7 +178,7 @@ const keys = computed(() => (props.shortcut === null ? [] : props.shortcut.split
 .welcome-page__stats {
     margin: 8px 0 0;
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--text-xs);
 }
 
 .welcome-page__muted {
@@ -212,7 +212,7 @@ const keys = computed(() => (props.shortcut === null ? [] : props.shortcut.split
 .welcome-page__label {
     margin: 0;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--text-xs);
     font-weight: 600;
     letter-spacing: 0.04em;
 }
@@ -264,14 +264,14 @@ const keys = computed(() => (props.shortcut === null ? [] : props.shortcut.split
 .welcome-page__hint {
     min-width: 0;
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--text-xs);
     overflow-wrap: anywhere;
 }
 
 .welcome-page__problem {
     margin: 6px 0 0;
     color: var(--status-danger);
-    font-size: 12px;
+    font-size: var(--text-xs);
 }
 
 .welcome-page__tips {

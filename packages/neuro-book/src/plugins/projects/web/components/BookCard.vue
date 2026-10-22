@@ -155,7 +155,7 @@ function onMenu(value: string): void {
     margin: var(--space-2) 0 0;
     color: var(--text-secondary);
     font-family: var(--font-display);
-    font-size: 13px;
+    font-size: var(--text-sm);
     line-height: 1.65;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;

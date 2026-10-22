@@ -235,6 +235,6 @@ function leave(side: "before" | "after"): void {
     margin: 0;
     padding: 0 0.6rem 0.4rem;
     color: var(--status-danger);
-    font-size: 0.75rem;
+    font-size: var(--text-xs);
 }
 </style>
