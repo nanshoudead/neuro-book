@@ -519,6 +519,19 @@ describe("设置文件视图（输出 23）", () => {
         expect(all("[data-settings-file-keys] kbd").map((key) => key.textContent)).toEqual(["Tab", "Esc", "Tab", expect.stringMatching(/^(Ctrl|⌘)$/u), "S"]);
     });
 
+    it("换标签后文本框是新建的、从顶上起，行号列也回到顶上", async () => {
+        const {host} = await scene("file");
+        await vi.waitFor(() => expect(one("[data-settings-file]").dataset.settingsFileState).toBe("ready"));
+        area().scrollTop = 42;
+        area().dispatchEvent(new Event("scroll"));
+        await flushPromises();
+        expect(one("[data-settings-file-lines]").style.transform).toBe("translateY(-42px)");
+        host.window.setLayer("project");
+        await vi.waitFor(() => expect(area().value).toBe(host.project!.text()));
+        await flushPromises();
+        expect(one("[data-settings-file-lines]").style.transform).toBe("translateY(0px)");
+    });
+
     it("文本不合格：不写，在标题区右侧写出行与列、出错行标底色、文本框标出错；别处改过：有改动时只提示，保存被拒为冲突，“重新读取”换成新文本", async () => {
         const {host} = await scene("file");
         await vi.waitFor(() => expect(one("[data-settings-file]").dataset.settingsFileState).toBe("ready"));

@@ -133,9 +133,12 @@ async function load(): Promise<void> {
     draft.value = normalized;
     revision.value = result.revision;
     state.value = {kind: "ready"};
-    // 原地换了文本：滚动位置留着（夹在新文本的范围里由浏览器做）。
-    if (area !== null) void nextTick(() => {
-        area.scrollTop = scroll;
+    // 原地换了文本：滚动位置留着（夹在新文本的范围里由浏览器做）。换了层时文本框是新建的、从顶上起；两种情况行号列都跟着
+    // 文本框实际的滚动量，不留上一个文本框的。
+    void nextTick(() => {
+        const now = textarea();
+        if (now !== null && now === area) now.scrollTop = scroll;
+        scrollTop.value = now?.scrollTop ?? 0;
     });
     // 读的时候文件又变了：读回来的已经过时，再读一次；待定位的位置留给重读的最新文本。
     if (pendingRevision !== null && pendingRevision !== result.revision) {
