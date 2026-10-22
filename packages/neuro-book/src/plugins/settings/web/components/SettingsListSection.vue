@@ -100,24 +100,25 @@ function actualValue(setting: WindowSetting): unknown {
     return state.kind === "edit" ? state.value : state.kind === "inherit" ? state.inherited : undefined;
 }
 
-/** 这一项为什么没写；都写了时为 null。只写第一条，多的看控件上的标记。 */
-function notSaved(setting: WindowSetting, actual: unknown): string | null {
+/** 这一项为什么没写（不带“未保存”的说法）；都写了时为 null。只取第一条，多的看控件上的标记。 */
+function notSavedReason(setting: WindowSetting, actual: unknown): string | null {
     const kept = heldOf(setting, actual);
     const value = kept?.value ?? actual;
     const issues = kept?.errors ?? [...unparseable.values()].filter((entry) => entry.key === setting.definition.key).flatMap((entry) => entry.issues);
     const [first] = describeIssues(setting.definition.declaration.schema, value, issues, locale.value, formOf(setting).hints);
-    return first === undefined ? null : localize(formatText(TEXT.notSaved, {reason: first}), locale.value);
+    return first ?? null;
 }
 
 /**
  * 行标题后面图标的原因，按出错、警告、状态排：没写的原因取自这里，其余取自字段的 `field-state`。字段的警告与状态
- * `bare` 的 `SchemaField` 已经挂在控件的 `aria-describedby` 上，标成 `announced`，行不再念一遍；“未保存”是这里加的说法，由行念。
+ * `bare` 的 `SchemaField` 已经挂在控件的 `aria-describedby` 上，标成 `announced`，行不再念一遍。“未保存：…”由行念，
+ * 字段自己已经念了同一个原因（例如数字框解析不了）时也标 `announced`，免得读屏把同一句念两遍。
  */
 function reasonsOf(setting: WindowSetting): ReadonlyArray<SettingsRowReason> {
     const reasons: SettingsRowReason[] = [];
-    const unsaved = notSaved(setting, actualValue(setting));
-    if (unsaved !== null) reasons.push({tone: "error", text: unsaved});
     const state = fieldStates.get(setting.definition.key);
+    const unsaved = notSavedReason(setting, actualValue(setting));
+    if (unsaved !== null) reasons.push({tone: "error", text: localize(formatText(TEXT.notSaved, {reason: unsaved}), locale.value), announced: state?.error === unsaved});
     for (const warning of state?.warnings ?? []) reasons.push({tone: "warning", text: warning, announced: true});
     if (state?.status != null) reasons.push({tone: "muted", text: state.status, announced: true});
     return reasons;

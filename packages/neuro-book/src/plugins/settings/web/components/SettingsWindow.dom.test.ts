@@ -185,8 +185,11 @@ describe("SettingsWindow", () => {
         // 原因收在标题后的图标里（出错的色调），读屏文字经 aria-describedby 接到控件上。
         const interval = one("[data-settings-row='example.notes/interval']");
         expect(interval.querySelector("[data-settings-row-reason]")?.getAttribute("data-tone")).toBe("error");
-        expect(interval.querySelector("[data-settings-row-reasons]")?.textContent).toMatch(/^未保存：/u);
-        expect(described("example.notes/interval").some((text) => text.startsWith("未保存："))).toBe(true);
+        // 字段自己已经念了解析不了的原因，行上的“未保存：…”不再接一遍：同一个原因只念一次。
+        expect(interval.querySelector("[data-settings-row-reasons]")).toBeNull();
+        const reasons = described("example.notes/interval").map((text) => text.replace(/^未保存：/u, ""));
+        expect(reasons.length).toBeGreaterThan(0);
+        expect(new Set(reasons).size).toBe(reasons.length);
         expect(host.user.values()).toMatchObject({"example.notes/interval": 120});
         input.dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
         input.value = "90";
