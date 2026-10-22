@@ -279,6 +279,54 @@ test.describe("对话视图的消息流", () => {
         await expect(page.locator('[data-lab-panel="events"]')).toContainText("preview-image");
     });
 
+    test("英文界面：视图自己的文字（顶栏、溢出菜单）与子组件的文字都是英文", async ({page}) => {
+        await openScene(page, "AgentConversationView", "english");
+        const more = stage(page).getByRole("button", {name: "More actions"});
+        await expect(more).toBeVisible();
+        await expect(stage(page).locator("[data-turn-summary]").first()).toContainText("Process");
+        await more.click();
+        await expect(page.getByRole("menuitem", {name: "Raw view"})).toBeVisible();
+    });
+
+    test("没有注入渲染组件：回复按纯文字显示，输入框是普通文本框", async ({page}) => {
+        await openScene(page, "AgentConversationView", "plain");
+        await expect(stage(page).locator("[data-final-reply]").first()).toBeVisible();
+        await expect(stage(page).locator(".nb-markdown")).toHaveCount(0);
+        await expect(stage(page).locator(".plain-markdown").first()).toBeVisible();
+        await expect(stage(page).locator("textarea.plain-prompt-editor")).toHaveCount(1);
+        await expect(stage(page).locator(".ProseMirror")).toHaveCount(0);
+    });
+
+    test("harness 记录回放：真实 harness 的日志画成一轮，过程摘要计入两次工具调用，最终回复是 Markdown", async ({page}) => {
+        await openScene(page, "AgentConversationView", "harness-replay", "1400x900");
+        await expect(stage(page).locator(".acv-turn")).toHaveCount(1);
+        await expect(stage(page).locator("[data-turn-summary]")).toContainText("2 次操作");
+        const reply = stage(page).locator("[data-final-reply]");
+        await expect(reply).toContainText("只有林默听见了第十二下钟声");
+        await expect(reply.locator("strong")).toHaveText("林默");
+    });
+
+    test("思考与提醒是淡色小字：注入的 Markdown 显示也用所在位置的颜色与字号", async ({page}) => {
+        await openScene(page, "AgentConversationView", "long-conversation", "1400x900");
+        // 思考收在整轮、思维链与思考行三层折叠里：逐层点开，直到消息流里没有收起的项。
+        const collapsed = page.locator("[data-agent-stream] [aria-expanded='false']");
+        for (let round = 0; round < 40 && await collapsed.count() > 0; round += 1) await collapsed.first().evaluate((element) => (element as HTMLElement).click());
+        const thinking = page.locator(".acv-thinking .nb-markdown").first();
+        await expect(thinking).toBeVisible();
+        const [body, muted] = await Promise.all([
+            page.locator("[data-final-reply] .nb-markdown").first().evaluate((element) => {
+                const style = getComputedStyle(element);
+                return {color: style.color, size: style.getPropertyValue("--markdown-font-size").trim()};
+            }),
+            thinking.evaluate((element) => {
+                const style = getComputedStyle(element);
+                return {color: style.color, size: style.getPropertyValue("--markdown-font-size").trim()};
+            }),
+        ]);
+        expect(muted.color).not.toBe(body.color);
+        expect(muted.size).not.toBe(body.size);
+    });
+
     test("步骤行在过程区里收窄到 6px 内边距，单独挂载时是缺省的 8px", async ({page}) => {
         await openScene(page, "CollapsibleRow", "plain");
         const padding = (locator: ReturnType<Page["locator"]>) => locator.evaluate((element) => getComputedStyle(element).paddingLeft);

@@ -15,7 +15,7 @@ type PlainMarkdownProps = {
     text: string;
     /** 界面语言，必填；与真组件同形，这里不用。 */
     locale: "zh-CN" | "en-US";
-    /** 正在流式生成；只写到根节点的 data-streaming。 */
+    /** 正在流式生成；末尾显示闪烁的光标（减少动效时不闪）。 */
     streaming?: boolean;
     /** 图片地址换算；与真组件同形，这里不用。 */
     resolveAsset?: (src: string, signal: AbortSignal) => Promise<{url: string; release(): void} | null>;

@@ -41,7 +41,7 @@ const showRemoved = computed(() => props.stat !== null && props.stat.removed !==
         <component
             :is="expandable ? 'button' : 'div'"
             :type="expandable ? 'button' : undefined"
-            class="nb-collapsible-row__row"
+            class="nb-collapsible-row__row nb-ui-focus-ring-inset"
             :aria-expanded="expandable ? props.expanded : undefined"
             @click="expandable && emit('toggle', !props.expanded)"
         >

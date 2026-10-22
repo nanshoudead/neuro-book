@@ -24,7 +24,11 @@ const emit = defineEmits<{
 const {t} = useAgentText();
 const loadState = ref<"loading" | "loaded" | "error">("loading");
 const retryNonce = ref(0);
-const requestUrl = computed(() => retryNonce.value === 0
+/**
+ * 重试时给服务器地址加一个查询参数，绕过浏览器缓存的失败结果。`blob:`、`data:` 地址不能带查询参数（加了必然加载失败），
+ * 只靠换一个 `<img>` 元素（`:key`）重新加载。
+ */
+const requestUrl = computed(() => retryNonce.value === 0 || /^(?:blob|data):/u.test(props.src)
     ? props.src
     : `${props.src}${props.src.includes("?") ? "&" : "?"}previewRetry=${String(retryNonce.value)}`);
 
@@ -141,7 +145,7 @@ const retry = (): void => {
         </template>
         <div ref="stageRef" class="image-preview__stage" :style="stageStyle">
             <Spinner v-if="loadState === 'loading'" size="lg" :label="t('imagePreview.loading')" class="image-preview__spinner" />
-            <img v-if="modelValue && src && loadState !== 'error'" :src="requestUrl" :alt="alt" class="image-preview__image" :class="{'is-loading': loadState === 'loading'}" :style="loadState === 'loaded' ? sizeStyle : undefined" @load="onLoad" @error="onError">
+            <img v-if="modelValue && src && loadState !== 'error'" :key="retryNonce" :src="requestUrl" :alt="alt" class="image-preview__image" :class="{'is-loading': loadState === 'loading'}" :style="loadState === 'loaded' ? sizeStyle : undefined" @load="onLoad" @error="onError">
             <div v-if="loadState === 'error'" class="image-preview__error" role="alert">
                 <span class="i-lucide-image-off h-7 w-7" aria-hidden="true"></span>
                 <span>{{ t("imagePreview.loadFailed") }}</span>

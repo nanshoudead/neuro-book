@@ -119,6 +119,10 @@ export type MarkdownActivation =
 /** 图片地址到可显示地址的换算；返回的 `release` 在不再显示时调用。 */
 export type MarkdownAssetResolver = (src: string, signal: AbortSignal) => Promise<{url: string; release(): void} | null>;
 
+/**
+ * 根元素要接受透传的 `style`：对话视图在上面写 `color` 与 `--markdown-font-size`，用来把思考、提醒显示成淡色小字。
+ * 本包的缺省实现靠继承拿到这两样。
+ */
 export type MarkdownDisplayPortProps = {
     text: string;
     locale: PromptLocale;

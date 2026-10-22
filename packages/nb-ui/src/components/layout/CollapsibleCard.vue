@@ -47,7 +47,7 @@ const statusIcon = computed(() => {
             <component
                 :is="collapsible ? 'button' : 'div'"
                 :type="collapsible ? 'button' : undefined"
-                class="nb-collapsible-card__trigger"
+                class="nb-collapsible-card__trigger nb-ui-focus-ring-inset"
                 :aria-expanded="collapsible ? props.expanded : undefined"
                 @click="collapsible && emit('toggle', !props.expanded)"
             >

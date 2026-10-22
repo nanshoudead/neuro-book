@@ -16,7 +16,7 @@ import AgentConversationTurn from "./stream/AgentConversationTurn.vue";
 import AgentRawView from "./stream/AgentRawView.vue";
 import AgentConversationComposer from "./composer/AgentConversationComposer.vue";
 import OriginalImagePreviewDialog from "./parts/OriginalImagePreviewDialog.vue";
-import {provideAgentView, useAgentText} from "./host";
+import {provideAgentView} from "./host";
 import type {AgentViewRenderers} from "./host";
 import type {PreviewImageRequest} from "./preview";
 
@@ -39,9 +39,7 @@ const emit = defineEmits<{
     (e: "update:viewMode", mode: AgentViewMode): void;
 }>();
 
-provideAgentView({locale: () => props.locale, renderers: () => props.renderers});
-
-const {t} = useAgentText();
+const {t} = provideAgentView({locale: () => props.locale, renderers: () => props.renderers});
 
 // ─── 视图模式 ───────────────────────────────────────────────────────────
 
@@ -137,17 +135,31 @@ function focusComposer() {
 
 // ─── 原图预览 ───────────────────────────────────────────────────────────
 
-/** 正在预览的图片；对话框关闭时保留地址，关闭动画期间图片不消失。`release` 归还 Markdown 图片的地址。 */
+/**
+ * 正在预览的图片。对话框关掉时归还 Markdown 图片的地址（`release`），但保留 `src`：已经画出来的图不受归还影响，
+ * 关闭动画期间不会消失。换图、卸载时同样归还；每个地址只归还一次。
+ */
 const preview = ref<{src: string; name: string; release: () => void} | null>(null);
 const previewOpen = ref(false);
 /** 正在换算的 Markdown 图片地址；又点了别的图片或视图卸载时取消，晚到的结果直接归还。 */
 let pendingAsset: AbortController | null = null;
 
+function releasePreview(): void {
+    const current = preview.value;
+    if (current === null) return;
+    current.release();
+    preview.value = {...current, release: () => {}};
+}
+
 function showPreview(next: {src: string; name: string; release: () => void}) {
-    preview.value?.release();
+    releasePreview();
     preview.value = next;
     previewOpen.value = true;
 }
+
+watch(previewOpen, (open) => {
+    if (!open) releasePreview();
+});
 
 function openPreview(image: PreviewImageRequest) {
     pendingAsset?.abort();
@@ -161,23 +173,27 @@ function openPreview(image: PreviewImageRequest) {
     if (resolve === undefined) return;
     const controller = new AbortController();
     pendingAsset = controller;
-    void resolve(image.markdownSrc, controller.signal).then((asset) => {
+    // 包一层 then：宿主的换算同步抛错时也走失败分支，不从点击处理里逸出。
+    void Promise.resolve().then(() => resolve(image.markdownSrc, controller.signal)).then((asset) => {
         if (asset === null) return;
         if (controller.signal.aborted) {
             asset.release();
             return;
         }
-        pendingAsset = null;
         showPreview({src: asset.url, name: image.name, release: () => asset.release()});
     }, (error: unknown) => {
+        // 被取消的那次按惯例以 AbortError 失败，不算取不到。
+        if (controller.signal.aborted) return;
         // 换算失败与取不到一样不打开预览；视图没有诊断通道，留一条开发诊断。
         console.warn(`nb-agent-ui: 回复里的图片 ${image.markdownSrc} 取不到原图`, error);
+    }).finally(() => {
+        if (pendingAsset === controller) pendingAsset = null;
     });
 }
 
 onBeforeUnmount(() => {
     pendingAsset?.abort();
-    preview.value?.release();
+    releasePreview();
 });
 
 defineExpose({focusComposer, scrollToLatest});

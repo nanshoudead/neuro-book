@@ -79,7 +79,7 @@ const {t} = useAgentText();
     gap: 3px;
     padding: 0 2px;
     color: var(--text-secondary);
-    font-size: 10px;
+    font-size: calc(var(--text-2xs) - 1px);
     font-variant-numeric: tabular-nums;
 }
 

@@ -174,7 +174,7 @@ function formatBytes(bytes: number): string {
     justify-content: center;
     gap: 4px;
     color: var(--text-muted);
-    font-size: 10px;
+    font-size: calc(var(--text-2xs) - 1px);
     line-height: 1.2;
 }
 

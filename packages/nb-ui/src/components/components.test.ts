@@ -186,6 +186,8 @@ describe("nb-ui components", () => {
 
         const row = mount(CollapsibleRow, {props: {icon: "i-lucide-file", label: "读取", expanded: false}, slots: {default: "<p class='inner'>内容</p>"}});
         expect(row.get("button").attributes("aria-expanded")).toBe("false");
+        // 行常常填满所在的列表，焦点画成内嵌线。
+        expect(row.get("button").classes()).toContain("nb-ui-focus-ring-inset");
         await row.get("button").trigger("click");
         expect(row.emitted("toggle")).toEqual([[true]]);
         expect(row.find(".inner").exists()).toBe(false);
@@ -213,6 +215,7 @@ describe("nb-ui components", () => {
         });
         await card.get(".copy").trigger("click");
         expect(card.emitted("toggle")).toBeUndefined();
+        expect(card.get("button[aria-expanded]").classes()).toContain("nb-ui-focus-ring-inset");
         await card.get("button[aria-expanded]").trigger("click");
         expect(card.emitted("toggle")).toEqual([[true]]);
         expect(card.find(".body").exists()).toBe(false);

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {nextTick, ref, watch} from "vue";
 
-import type {PromptDraft, PromptEditorPortExpose, PromptLocale} from "../../ports";
+import type {PromptAttachment, PromptDraft, PromptEditorPortExpose, PromptLocale, PromptMenu, PromptMenuContext, PromptPastePolicy} from "../../ports";
 
 /**
  * 宿主没有注入提示词编辑器时的缺省实现：一个普通文本框，只认草稿版本、回车与 Ctrl/⌘+回车、Escape、Shift+Tab。
@@ -17,6 +17,16 @@ const props = withDefaults(defineProps<{
     enterSubmits?: boolean;
     fill?: boolean;
     bare?: boolean;
+    // 下面这些与真编辑器同形、这里用不上；声明出来，免得 Vue 把它们当透传属性写到 <textarea> 上（输入历史、函数源码都会进 DOM）。
+    triggers?: readonly string[];
+    resolveMenu?: (context: PromptMenuContext) => PromptMenu;
+    commands?: readonly string[];
+    acceptImages?: boolean;
+    acceptFiles?: boolean;
+    attachments?: readonly PromptAttachment[];
+    resolveThumbnail?: (target: string) => string | null;
+    pastePolicy?: Partial<PromptPastePolicy>;
+    recall?: readonly string[];
 }>(), {
     placeholder: "",
     ariaLabel: "",
@@ -46,7 +56,8 @@ function onInput(event: Event) {
 }
 
 function onKeydown(event: KeyboardEvent) {
-    if (event.isComposing) return;
+    // WebKit 在组字结束之后才派发确认用的回车，那时 isComposing 已是 false，只有 keyCode 229 认得出（同真编辑器）。
+    if (event.isComposing || event.keyCode === 229) return;
     if (event.key === "Escape") {
         emit("escape");
         return;

@@ -33,6 +33,22 @@ const renderers = useAgentRenderers();
 
 
 const editorRef = ref<PromptEditorPortExpose | null>(null);
+
+/**
+ * 对编辑器的调用。注入的编辑器可以是异步组件（`nbook.markdown` 的就是），加载完成前 ref 是 null：这期间的调用按顺序
+ * 暂存，编辑器出现后补做，不让“聚焦”与“添加附件”选好的文件被悄悄丢掉。
+ */
+const pendingEditorCalls: Array<(editor: PromptEditorPortExpose) => void> = [];
+
+function withEditor(call: (editor: PromptEditorPortExpose) => void): void {
+    if (editorRef.value !== null) call(editorRef.value);
+    else pendingEditorCalls.push(call);
+}
+
+watch(editorRef, (editor) => {
+    if (editor === null) return;
+    for (const call of pendingEditorCalls.splice(0)) call(editor);
+});
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
 const composer = computed(() => props.ctx.composer);
@@ -200,8 +216,10 @@ function onFilesChosen(event: Event): void {
     // 清空后再选同一个文件也会触发 change。
     input.value = "";
     if (files.length > 0) {
-        editorRef.value?.insertFiles(files);
-        editorRef.value?.focus("end");
+        withEditor((editor) => {
+            editor.insertFiles(files);
+            editor.focus("end");
+        });
     }
 }
 
@@ -226,12 +244,12 @@ const expanded = ref(false);
 async function toggleExpanded(): Promise<void> {
     expanded.value = !expanded.value;
     await nextTick();
-    editorRef.value?.focus("end");
+    withEditor((editor) => editor.focus("end"));
 }
 
 defineExpose({
     focus(): void {
-        editorRef.value?.focus("end");
+        withEditor((editor) => editor.focus("end"));
     },
 });
 </script>

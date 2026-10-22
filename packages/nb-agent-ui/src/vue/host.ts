@@ -33,8 +33,14 @@ const hostKey: InjectionKey<AgentViewHost> = Symbol("nb-agent-ui/host");
 
 const FALLBACK_HOST: AgentViewHost = {locale: () => "zh-CN", renderers: () => ({})};
 
-export function provideAgentView(options: {locale: () => AgentLocale; renderers?: () => AgentViewRenderers}): void {
-    provide(hostKey, {locale: options.locale, renderers: options.renderers ?? (() => ({}))});
+/**
+ * 交出语言与渲染组件。返回提供方自己用的文字函数：Vue 的 `inject` 只看祖先提供的值，提供方自己调用 `useAgentText`
+ * 拿到的是缺省中文。
+ */
+export function provideAgentView(options: {locale: () => AgentLocale; renderers?: () => AgentViewRenderers}): AgentTextApi {
+    const host: AgentViewHost = {locale: options.locale, renderers: options.renderers ?? (() => ({}))};
+    provide(hostKey, host);
+    return textApi(host);
 }
 
 export type AgentTextApi = {
@@ -46,7 +52,10 @@ export type AgentTextApi = {
 };
 
 export function useAgentText(): AgentTextApi {
-    const host = inject(hostKey, FALLBACK_HOST);
+    return textApi(inject(hostKey, FALLBACK_HOST));
+}
+
+function textApi(host: AgentViewHost): AgentTextApi {
     const locale = computed(() => host.locale());
     return {
         locale,

@@ -353,7 +353,7 @@ function runMessageAction(message: MessageView, id: string) {
 .acv-role {
     flex-shrink: 0;
     color: var(--text-main);
-    font-size: 10px;
+    font-size: calc(var(--text-2xs) - 1px);
     font-weight: var(--weight-medium, 500);
     letter-spacing: 0.24em;
     text-transform: uppercase;
@@ -362,7 +362,7 @@ function runMessageAction(message: MessageView, id: string) {
 .acv-meta {
     flex-shrink: 0;
     color: var(--text-muted);
-    font-size: 10px;
+    font-size: calc(var(--text-2xs) - 1px);
     font-variant-numeric: tabular-nums;
 }
 
@@ -373,7 +373,7 @@ function runMessageAction(message: MessageView, id: string) {
     border-radius: var(--radius-control);
     background: var(--bg-subtle);
     color: var(--text-muted);
-    font-size: 10px;
+    font-size: calc(var(--text-2xs) - 1px);
     white-space: nowrap;
 }
 
@@ -478,7 +478,7 @@ function runMessageAction(message: MessageView, id: string) {
     gap: 2px 8px;
     margin-left: auto;
     color: var(--text-muted);
-    font-size: 10px;
+    font-size: calc(var(--text-2xs) - 1px);
     font-variant-numeric: tabular-nums;
 }
 
