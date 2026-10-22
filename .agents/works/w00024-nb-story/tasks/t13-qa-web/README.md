@@ -41,7 +41,7 @@ updated: 2026-10-21
 w00019 [t14](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice/README.md) 在查看器里搭了问答页的静态稿（[评审板](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice/artifacts/review/index.html)），用本书库的真实问答记录回放，发现这几条属于本 Task：
 
 - nb-story 的 `read` 与 nb-agent-ui 内置的文件读取工具同名，注册表报冲突、整页挂不上。nb-story 没有文件与命令工具，注册表只用 `builtinRolesContribution`、`builtinComposerContribution`、`builtinMessageActionsContribution` 加自己的登记。
-- 引擎催模型交卷的话写成了用户消息，视图显示成“YOU：你还没有交卷……”。应写成提醒；先查现在的引擎是否还这样写。
+- 旧记录里引擎催模型交卷的话写成了用户消息，视图显示成“YOU：你还没有交卷……”。现在的引擎已不写这句（qa 输出 10“不提醒”），只在旧形状的记录里出现；旧记录只能显示、不能续问，问答页照常显示即可。
 - 超出“一问最多读 20 章”被拒的读原文是工具错误，整轮摘要显示成红色的“12 次失败”。要定限额被拒算不算失败。
 - 答案卡片的依据多时折成几行（真实记录 18 处），决定 8 写的是“一行可点的依据出处”，要定超出一行时怎么收。
 - 答案里的人名是字符串，点开人物卡要先按名字找对象 id：问答页按名字查，或让 `answer` 的参数带对象 id。
