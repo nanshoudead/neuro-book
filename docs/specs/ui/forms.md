@@ -80,7 +80,7 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 describeIssues(schema, value, issues, locale, hints?): string[]   // 按看得见的先后，每条是“所在字段的名字：问题文字”，根上的没有名字
 ```
 
-`SchemaField` 的 `bare` 只画控件：标签与说明由调用方画，出错的文字只给读屏、没有问题汇总；字段自己的状态（选项源不可用的原因、“已不存在”之类的警告）也不画，经 `field-state` 事件（`{error: string | null; warnings: string[]; status: string | null}`，变化时发出）交给调用方，由调用方画在自己的标题旁（输出 14；planned）。调用方要在自己的位置写出出错原因时用 `describeIssues`。
+`SchemaField` 的 `bare` 只画控件：标签与说明由调用方画，出错的文字只给读屏、没有问题汇总；字段自己的状态（选项源不可用的原因、“已不存在”之类的警告）也不画，经 `field-state` 事件（`{error: string | null; warnings: string[]; status: string | null}`，变化时发出）交给调用方，由调用方画在自己的标题旁（输出 14）。调用方要在自己的位置写出出错原因时用 `describeIssues`。
 
 ## 输出与可观察行为
 
