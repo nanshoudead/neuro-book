@@ -1,91 +1,228 @@
 <script setup lang="ts">
 /**
- * 设置窗口里分区的标题、说明与层的提示（docs/specs/settings/settings-window.md 输出 3、13）。column 与 fill 两种画法共用：
- * column 里它随内容列一起滚动，fill 里它固定在页面上方。
+ * 设置窗口里分区的标题区（同名 .md，docs/specs/settings/settings-window.md 输出 3、13、19）：左边标题与跟在后面的说明，
+ * 右边从右往左是页面级操作的挂载点与层的警告。column 与 fill 两种画法共用：column 里它随内容列一起滚动，fill 里它固定在
+ * 页面上方。
  */
-import {Button} from "@notnotype/nb-ui/components";
+import {Tooltip} from "@notnotype/nb-ui/components";
+import {onBeforeUnmount, onMounted, ref} from "vue";
 
-export interface SettingsSectionNotice {
-    readonly kind: "invalid" | "unavailable";
-    readonly text: string;
-    /** 项目层的设置文件路径；用户层不给（状态根不发给浏览器）。 */
-    readonly path: string | null;
+import {usePageChrome} from "nbook/ui/settings/page-chrome";
+
+/** 层的警告（输出 13）：`invalid` 是可点的按钮，`unavailable` 与 `fixing` 只是文字。 */
+export type SettingsSectionNotice =
+    | {
+          readonly kind: "invalid";
+          /** 按钮左边的字：“设置文件格式有误”。 */
+          readonly text: string;
+          /** 按钮右边的字：“打开”。 */
+          readonly action: string;
+          /** 悬停提示，逐行：位置与原因、“修复前……无法保存”、文件路径（有才有）。 */
+          readonly lines: ReadonlyArray<string>;
+      }
+    | {readonly kind: "unavailable" | "fixing"; readonly text: string};
+
+/** 页面登记的标题替换（输出 19）：标题区写“‹ {backLabel}”与 `title`。 */
+export interface SettingsSectionReplacement {
+    readonly title: string;
+    readonly backLabel: string;
 }
 
 defineProps<{
     title: string;
     description: string | null;
     notice: SettingsSectionNotice | null;
-    /** 层的文件有错误时给“打开设置文件”；设置文件视图自己就是修的地方，不给。 */
-    openFileLabel: string | null;
+    replacement: SettingsSectionReplacement | null;
 }>();
 
-defineEmits<{(event: "open-file"): void}>();
+const emit = defineEmits<{
+    (event: "open-file"): void;
+    (event: "back"): void;
+}>();
+
+defineOptions({name: "SettingsSectionHeading"});
+
+const chrome = usePageChrome();
+const actions = ref<HTMLElement | null>(null);
+let detach: (() => void) | null = null;
+
+// 页面里的操作 Teleport 到这个挂载点；挂载后才拿得到元素，见 `page-chrome.ts` 的时序一段。
+onMounted(() => {
+    if (chrome !== null && actions.value !== null) detach = chrome.attachActions(actions.value);
+});
+onBeforeUnmount(() => detach?.());
 </script>
 
 <template>
-    <div class="settings-section-heading">
-        <header class="settings-section-heading__header">
-            <h2 class="settings-section-heading__title">{{ title }}</h2>
-            <p v-if="description !== null" class="settings-section-heading__description">{{ description }}</p>
-        </header>
-        <p v-if="notice !== null" class="settings-section-heading__notice" :data-settings-layer-notice="notice.kind" role="status">
-            <span class="i-lucide-triangle-alert settings-section-heading__notice-icon" aria-hidden="true"></span>
-            <span>{{ notice.text }}</span>
-            <code v-if="notice.kind === 'invalid' && notice.path !== null" class="settings-section-heading__path">{{ notice.path }}</code>
-            <Button v-if="notice.kind === 'invalid' && openFileLabel !== null" size="sm" variant="secondary" data-settings-open-file @click="$emit('open-file')">{{ openFileLabel }}</Button>
-        </p>
-    </div>
+    <header class="settings-section-heading" data-settings-heading>
+        <div class="settings-section-heading__text">
+            <button v-if="replacement !== null" type="button" class="settings-section-heading__back nb-ui-focus-ring" data-settings-heading-back @click="emit('back')">
+                <span class="i-lucide-chevron-left settings-section-heading__back-icon" aria-hidden="true"></span>
+                <span>{{ replacement.backLabel }}</span>
+            </button>
+            <div class="settings-section-heading__line">
+                <h2 class="settings-section-heading__title">{{ replacement === null ? title : replacement.title }}</h2>
+                <!-- 说明放不下时截断、悬停显示全文；标题被替换时没有说明（说明属于分区）。 -->
+                <Tooltip v-if="replacement === null && description !== null" :text="description" placement="bottom">
+                    <p class="settings-section-heading__description" data-settings-heading-description>{{ description }}</p>
+                </Tooltip>
+            </div>
+        </div>
+        <div class="settings-section-heading__side">
+            <Tooltip v-if="notice?.kind === 'invalid'" placement="bottom">
+                <button type="button" class="settings-section-heading__warning nb-ui-focus-ring" data-settings-layer-notice="invalid" data-settings-open-file @click="emit('open-file')">
+                    <span class="i-lucide-triangle-alert settings-section-heading__warning-icon" aria-hidden="true"></span>
+                    <span>{{ notice.text }}</span>
+                    <span class="settings-section-heading__warning-action">
+                        <span>{{ notice.action }}</span>
+                        <span class="i-lucide-arrow-right" aria-hidden="true"></span>
+                    </span>
+                </button>
+                <template #content>
+                    <span v-for="(line, index) in notice.lines" :key="index" class="settings-section-heading__tip-line">{{ line }}</span>
+                </template>
+            </Tooltip>
+            <p v-else-if="notice !== null" class="settings-section-heading__warning settings-section-heading__warning--static" :data-settings-layer-notice="notice.kind" role="status">
+                <span class="i-lucide-triangle-alert settings-section-heading__warning-icon" aria-hidden="true"></span>
+                <span>{{ notice.text }}</span>
+            </p>
+            <div ref="actions" class="settings-section-heading__actions" data-settings-heading-actions></div>
+        </div>
+    </header>
 </template>
 
 <style scoped>
+/*
+ * 标题字号 26px、行高 32px 是整数像素：token 的最大一档 --text-xl 只有 20px，放不下页面标题。两个数放在这里作局部变量，
+ * 保持行高是偶数，旁边 34px 高的按钮在它里面居中时不落在半像素上。
+ */
 .settings-section-heading {
+    --settings-title-size: 26px;
+    --settings-title-line: 32px;
+
+    display: flex;
     flex-shrink: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-6);
+    margin-bottom: var(--space-7);
 }
 
-.settings-section-heading__header {
+.settings-section-heading__text {
     display: flex;
+    min-width: 0;
+    flex: 1 1 auto;
     flex-direction: column;
     gap: var(--space-2);
-    margin-bottom: var(--space-6);
+}
+
+/* 标题不缩，说明吃剩下的宽度、放不下以省略号结尾。基线对齐：大字标题与小字说明的字脚在一条线上。 */
+.settings-section-heading__line {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: var(--space-5);
 }
 
 .settings-section-heading__title {
     margin: 0;
-    font-size: var(--text-lg);
+    flex-shrink: 0;
+    font-family: var(--font-display);
+    font-size: var(--settings-title-size);
     font-weight: var(--weight-strong);
-    line-height: var(--leading-tight);
+    line-height: var(--settings-title-line);
+    letter-spacing: -0.01em;
+    white-space: nowrap;
     color: var(--text-main);
 }
 
 .settings-section-heading__description {
     margin: 0;
-    font-size: var(--text-xs);
+    min-width: 0;
+    overflow: hidden;
+    font-size: var(--text-sm);
     line-height: var(--leading-ui);
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: var(--text-muted);
 }
 
-.settings-section-heading__notice {
-    display: flex;
-    flex-wrap: wrap;
+.settings-section-heading__back {
+    display: inline-flex;
     align-items: center;
-    gap: var(--space-2) var(--space-3);
-    margin: 0 0 var(--space-6);
-    font-size: var(--text-xs);
-    line-height: var(--leading-ui);
+    align-self: flex-start;
+    gap: var(--space-2);
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: none;
+    color: var(--accent-text);
+    font: inherit;
+    font-size: var(--text-sm);
+    cursor: pointer;
+}
+
+.settings-section-heading__back-icon {
+    width: 1.15em;
+    height: 1.15em;
+}
+
+/* 右侧：警告在左，页面级操作在右；放不下时让位给左边的标题，自己不缩。 */
+.settings-section-heading__side {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.settings-section-heading__actions {
+    display: flex;
+    align-items: center;
+}
+
+/* 层出错的警告：整块是一个按钮，点了切到“设置文件”。 */
+.settings-section-heading__warning {
+    display: inline-flex;
+    height: var(--control-h-sm);
+    box-sizing: border-box;
+    align-items: center;
+    gap: var(--space-3);
+    margin: 0;
+    padding: 0 var(--space-3) 0 var(--space-5);
+    border: var(--border-w) solid color-mix(in srgb, var(--status-warning) 35%, transparent);
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--status-warning) 10%, transparent);
+    color: var(--text-main);
+    font: inherit;
+    font-size: var(--text-sm);
+    white-space: nowrap;
+    cursor: pointer;
+    outline: none;
+}
+
+.settings-section-heading__warning--static {
+    padding-right: var(--space-5);
+    cursor: default;
+}
+
+.settings-section-heading__warning-icon {
     color: var(--status-warning);
 }
 
-.settings-section-heading__notice-icon {
-    width: var(--text-sm);
-    height: var(--text-sm);
-    flex-shrink: 0;
+.settings-section-heading__warning-action {
+    display: inline-flex;
+    height: calc(var(--control-h-sm) - 8px);
+    align-items: center;
+    gap: var(--space-1);
+    margin-left: var(--space-2);
+    padding: 0 var(--space-4);
+    border-radius: calc(var(--radius-control) - 4px);
+    background: color-mix(in srgb, var(--status-warning) 18%, transparent);
+    font-weight: var(--weight-medium);
 }
 
-.settings-section-heading__path {
-    min-width: 0;
-    font-family: var(--font-mono);
-    color: var(--text-secondary);
+.settings-section-heading__tip-line {
+    display: block;
     overflow-wrap: anywhere;
 }
 </style>

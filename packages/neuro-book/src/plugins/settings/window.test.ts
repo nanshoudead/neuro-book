@@ -838,7 +838,7 @@ describe("层的说明（输出 13）", () => {
     it("项目层文件无效：本作品标签的说明带项目层文件的路径；用户标签不受影响", async () => {
         const {world: created, window} = await world({project: "{\"nbook.workbench/theme\": "});
         window.openWindow({section: "nbook.appearance", layer: "project"});
-        expect(window.layerNotice.value).toEqual({kind: "invalid", path: created.projectFile, detail: expect.any(String)});
+        expect(window.layerNotice.value).toEqual({kind: "invalid", path: created.projectFile, detail: "第 1 行：这里缺一个值", reason: "这里缺一个值", position: {line: 1, column: 27}});
         window.setLayer("user");
         expect(window.layerNotice.value).toBeNull();
     });
@@ -912,5 +912,62 @@ describe("设置文件视图（输出 23）：经远程合同整份读写，真�
         expect(window.leaving.value).toEqual({kind: "section", id: "nbook.appearance"});
         window.confirmLeave();
         expect([window.section.value, window.unsaved.value]).toEqual(["nbook.appearance", false]);
+    });
+});
+
+describe("打开设置文件并定位（输出 22、23）", () => {
+    const position = {line: 3, column: 3};
+
+    it("没有未保存的改动：切到设置文件视图、标签随层，位置挂在模型上；视图取走一次后没有，再取是 null", async () => {
+        const {window} = await world();
+        window.openWindow({section: "nbook.appearance"});
+        window.openFile("project", position);
+        expect([window.section.value, window.layer.value, window.leaving.value]).toEqual([FILE_SECTION_ID, "project", null]);
+        expect(window.fileLocation.value).toEqual({layer: "project", position});
+        // 别的层的视图取不走：位置属于打开它的那一层。
+        expect(window.takeFileLocation("user")).toBeNull();
+        expect(window.takeFileLocation("project")).toEqual(position);
+        expect(window.fileLocation.value).toBeNull();
+        expect(window.takeFileLocation("project")).toBeNull();
+    });
+
+    it("没有位置：只打开设置文件，不挂位置", async () => {
+        const {window} = await world();
+        window.openWindow({section: "nbook.appearance"});
+        window.openFile("user");
+        expect([window.section.value, window.fileLocation.value]).toEqual([FILE_SECTION_ID, null]);
+    });
+
+    it("位置没被取走就去了别处：位置作废，之后回到设置文件视图取不到", async () => {
+        const {window} = await world();
+        window.openWindow({section: "nbook.appearance"});
+        window.openFile("user", position);
+        window.select("nbook.appearance");
+        expect(window.fileLocation.value).toBeNull();
+        window.select(FILE_SECTION_ID);
+        expect(window.takeFileLocation("user")).toBeNull();
+    });
+
+    it("有未保存的改动：同切分区先等确认，取消留在原处、不切不挂位置；放弃后切过去并挂位置", async () => {
+        const {window} = await world();
+        window.openWindow({section: FILE_SECTION_ID});
+        window.fileDirty(true);
+        window.openFile("project", position);
+        expect(window.leaving.value).toEqual({kind: "file", layer: "project", position});
+        expect([window.section.value, window.layer.value, window.fileLocation.value]).toEqual([FILE_SECTION_ID, "user", null]);
+        window.cancelLeave();
+        expect([window.section.value, window.layer.value, window.fileLocation.value, window.unsaved.value]).toEqual([FILE_SECTION_ID, "user", null, true]);
+        window.openFile("project", position);
+        window.confirmLeave();
+        expect([window.section.value, window.layer.value, window.unsaved.value]).toEqual([FILE_SECTION_ID, "project", false]);
+        expect(window.fileLocation.value).toEqual({layer: "project", position});
+    });
+
+    it("未绑定作品时打开本作品层的设置文件：不切也不挂位置", async () => {
+        const started = await start([contributor("x.notes", {"x.notes.main": list()}, toggle())], false);
+        const {window} = windowFor(started.probe, false);
+        window.openWindow({section: "nbook.appearance"});
+        window.openFile("project", position);
+        expect([window.section.value, window.layer.value, window.fileLocation.value]).toEqual(["nbook.appearance", "user", null]);
     });
 });

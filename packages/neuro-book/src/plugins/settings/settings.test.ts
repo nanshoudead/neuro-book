@@ -508,6 +508,28 @@ describe("用户编辑（输出 19）", () => {
         expect(audit).toContainEqual({key: theme.key, layer: "user", plugin: "nbook.settings", via: null, code: "ok", userEdit: true});
     });
 
+    it("层文件坏了：窗口一侧的层状态带出错的原因与位置（用户层经服务端、项目层经项目子进程的链路），修好后没有", async () => {
+        const created = await world({user: "{}", project: "{}"});
+        await created.project(1, both("project", probes()));
+        const target = window();
+        await created.window("w", both("browser", probes()), {settingsEntries: settingsEntries(target)});
+        const source = windowSource(target);
+        await writeFile(created.userFile, "{\"x.ui/theme\": ");
+        await writeFile(created.projectFile, "{\n  \"x.ui/theme\": \"nbook\"\n  \"x.ui/size\": 1\n}");
+        await settle(created, "窗口看到两层都无效", () => source.layer("user").status === "invalid" && source.layer("project").status === "invalid");
+        for (const [layer, position] of [["user", {line: 1, column: 16}], ["project", {line: 3, column: 3}]] as const) {
+            const state = source.layer(layer);
+            if (state.status !== "invalid") throw new Error(`${layer} 层不是无效`);
+            expect(state.position, layer).toEqual(position);
+            expect(state.reason, layer).toEqual(expect.any(String));
+            expect(state.detail, layer).toBe(`第 ${String(position.line)} 行：${state.reason!}`);
+        }
+        await writeFile(created.userFile, "{\"x.ui/theme\": \"nbook\"}");
+        await settle(created, "用户层恢复", () => source.layer("user").status === "ok");
+        expect(source.layer("user")).not.toHaveProperty("position");
+        expect(source.layer("user")).not.toHaveProperty("reason");
+    });
+
     it("不允许的层 layer-not-allowed、未声明 undeclared、值不合 schema invalid-value、未绑定作品的窗口写项目层 no-project、文件无效 layer-invalid", async () => {
         const created = await world();
         await created.project(1, both("project", probes()));

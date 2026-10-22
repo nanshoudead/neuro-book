@@ -76,14 +76,17 @@ export function displayLocale(settings: SettingsService): DisplayLocale {
 const RevisionSchema = Type.Object({boot: Type.String(), seq: Type.Integer({minimum: 0})}, {additionalProperties: false});
 const ProblemSchema = Type.Object({key: Type.String(), reason: Type.Union([Type.Literal("invalid-value"), Type.Literal("layer-not-allowed")])}, {additionalProperties: false});
 const ValuesSchema = Type.Record(Type.String(), Type.Unknown());
+const PositionSchema = Type.Object({line: Type.Integer({minimum: 1}), column: Type.Integer({minimum: 1})}, {additionalProperties: false});
 
-/** `path`：这一层文件的绝对路径，拥有者不发时缺省（configuration.md 输出 23）；只加可选字段，合同版本不变。 */
+/**
+ * `path`：这一层文件的绝对路径，拥有者不发时缺省（configuration.md 输出 23）；`reason`、`position`：无效时不含位置的原因与
+ * 出错处，没有语法位置的无效（读不出文件）缺省（输出 5）。都只加可选字段，合同版本不变。
+ */
 export const LayerSnapshotSchema = Type.Union([
     Type.Object({status: Type.Literal("ok"), revision: RevisionSchema, values: ValuesSchema, problems: Type.Array(ProblemSchema), path: Type.Optional(Type.String())}, {additionalProperties: false}),
-    Type.Object({status: Type.Literal("invalid"), revision: RevisionSchema, values: ValuesSchema, problems: Type.Array(ProblemSchema), detail: Type.String(), path: Type.Optional(Type.String())}, {additionalProperties: false}),
+    Type.Object({status: Type.Literal("invalid"), revision: RevisionSchema, values: ValuesSchema, problems: Type.Array(ProblemSchema), detail: Type.String(), reason: Type.Optional(Type.String()), position: Type.Optional(PositionSchema), path: Type.Optional(Type.String())}, {additionalProperties: false}),
 ]);
 
-const PositionSchema = Type.Object({line: Type.Integer({minimum: 1}), column: Type.Integer({minimum: 1})}, {additionalProperties: false});
 /** `position`：`invalid-text` 时文本里出错的地方。 */
 const SettingsFailedDetail = Type.Object({code: Type.Enum(SETTINGS_FAILURES), detail: Type.String(), position: Type.Optional(PositionSchema)}, {additionalProperties: false});
 const Written = Type.Object({snapshot: LayerSnapshotSchema}, {additionalProperties: false});

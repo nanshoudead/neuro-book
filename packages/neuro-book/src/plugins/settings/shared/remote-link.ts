@@ -107,7 +107,8 @@ function textFailure(failure: RemoteFailure<string>): {readonly ok: false; reado
 
 /** 链路解码出来的快照是可变的普通对象；与本地拥有者的一样逐层冻结，读取方改不动。 */
 function frozen(snapshot: LayerSnapshot): LayerSnapshot {
-    return Object.freeze({...snapshot, revision: Object.freeze({...snapshot.revision}), values: freezeJson(snapshot.values), problems: Object.freeze(snapshot.problems.map((problem) => Object.freeze({...problem})))});
+    const position = snapshot.status === "invalid" && snapshot.position !== undefined ? {position: Object.freeze({...snapshot.position})} : {};
+    return Object.freeze({...snapshot, ...position, revision: Object.freeze({...snapshot.revision}), values: freezeJson(snapshot.values), problems: Object.freeze(snapshot.problems.map((problem) => Object.freeze({...problem})))});
 }
 
 /**

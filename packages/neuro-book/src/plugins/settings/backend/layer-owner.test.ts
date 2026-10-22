@@ -210,6 +210,10 @@ describe("读取与外部修改", () => {
         // 不对拥有者持有的快照用带非对称匹配器的 toMatchObject：Bun 1.4.2 会把匹配器写回被比较的对象（冻结的也会）。
         expect(invalid.values).toEqual({"x.ui/theme": "macos"});
         expect(invalid.detail).toContain("第 1 行");
+        // 无效的层快照带出错的位置与不含位置的原因（输出 5）；修好后的快照没有。
+        expect(invalid.position).toEqual({line: 1, column: 16});
+        expect(invalid.reason).toEqual(expect.any(String));
+        expect(invalid.detail).toBe(`第 1 行：${invalid.reason!}`);
         expect(await owner.write(ui, theme.key, {kind: "set", value: "nbook"})).toMatchObject({ok: false, code: "layer-invalid"});
         expect(await readFile(path, "utf8")).toBe("{\"x.ui/theme\": ");
 
@@ -217,6 +221,8 @@ describe("读取与外部修改", () => {
         await settle("恢复有效", (snapshot) => snapshot.status === "ok");
         expect(published.slice(before).map((snapshot) => snapshot.status)).toEqual(["invalid", "ok"]);
         expect(published.at(-1)?.values).toEqual({"x.ui/theme": "macos"});
+        expect(published.at(-1)).not.toHaveProperty("position");
+        expect(published.at(-1)).not.toHaveProperty("reason");
     });
 
     it("目录一开始不存在、之后被创建；目录被删除后重建再修改：都生效", async () => {

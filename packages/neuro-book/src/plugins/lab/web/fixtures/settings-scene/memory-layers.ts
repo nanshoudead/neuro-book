@@ -130,7 +130,14 @@ export function memoryLayer(options: MemoryLayerOptions): MemoryLayer {
     // 一开始就连不上：连接先离线，恢复时回到在线，实例才会重新订阅。
     if (unreachable) options.connection.set("offline");
 
-    const content = (): LayerContent => (invalid === null ? {status: "ok", values, problems} : {status: "invalid", values, problems, detail: invalid});
+    /** 无效时的原因与位置从文件文本解析出来（同真实拥有者，configuration.md 输出 5）；文本其实合格时（只切了状态）没有。 */
+    const content = (): LayerContent => {
+        if (invalid === null) return {status: "ok", values, problems};
+        const parsed = parseLayerText(text, keys, options.layer);
+        return parsed.status === "invalid"
+            ? {status: "invalid", values, problems, detail: invalid, reason: parsed.reason, position: parsed.position}
+            : {status: "invalid", values, problems, detail: invalid};
+    };
 
     const snapshot = (): LayerSnapshot => {
         const located = options.path === undefined ? {} : {path: options.path};

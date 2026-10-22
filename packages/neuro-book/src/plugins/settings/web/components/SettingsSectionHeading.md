@@ -1,38 +1,59 @@
 ---
-标签: []
+标签: [state:inject]
 别名: ["设置分区标题", "Settings Section Heading"]
 验证入口: SettingsWindow
 ---
 
 # SettingsSectionHeading
 
-设置窗口里分区的标题、说明与层的提示（[`settings/settings-window.md`](../../../../../../../docs/specs/settings/settings-window.md) 输出 3、13）。column 与 fill 两种画法共用一份：column 里随内容列滚动，fill 里固定在页面上方。
+设置窗口里分区的标题区（[`settings/settings-window.md`](../../../../../../../docs/specs/settings/settings-window.md) 输出 3、13、19）：左边标题与跟在后面的说明，右边是层的警告与页面级操作。column 与 fill 两种画法共用一份：column 里随内容列滚动，fill 里固定在页面上方。
 
 ## 布局
 
-标题（`--text-lg` 粗体）下面一行说明（`--text-xs`、弱化色），与下面的内容隔 `--space-6`。层有问题时说明下面一行警告色的提示：图标、原因，项目层带文件路径，文件有错误时跟一个“打开设置文件”。
+一行：左边标题（品牌展示字体 `--font-display`，26px 字、32px 行高，整数像素；token 最大一档只有 20px，放不下，所以两个数是组件里的局部变量），标题后同一行是说明（`--text-sm`、弱化色，基线对齐）；说明放不下时以省略号截断，悬停（nb-ui `Tooltip`）显示全文。右边从右往左是页面级操作的挂载点与层的警告，它们不缩，放不下时让位给左边的标题与说明。与下面的内容隔 `--space-7`。关闭按钮在对话框自己的标题行里，不进标题区，与右侧不重叠。
+
+标题被页面替换（`replacement`，见 `SettingsPageList` 打开一项）时：标题上方一行“‹ 分区标题”（强调色文字的返回按钮），标题换成页面给的标题，说明不显示（说明属于分区）。
+
+层的警告（`notice`）三种：
+
+- `invalid`：一个按钮，左边警告图标与“设置文件格式有误”，右边一小块“打开 →”，警告色的淡底与描边；悬停（`Tooltip`）逐行写“第 N 行第 M 列：原因”（快照没有位置时只写原因）、“修复前，这一层的设置无法保存”与文件路径（有路径时）。
+- `unavailable`：不可点的文字“暂时无法连接，无法保存”，同样的警告色外观。
+- `fixing`：设置文件视图里层无效时的文字“第 N 行第 M 列：原因，改好后保存”，不可点。
+
+## 交互
+
+- 点 `invalid` 的按钮发 `open-file`，由窗口切到“设置文件”并定位；按钮可以键盘聚焦，焦点环同其它按钮。
+- 点“‹ 分区标题”发 `back`。
+- `unavailable`、`fixing` 是 `role="status"` 的文字。
 
 ## 数据
 
 ```ts
-interface SettingsSectionNotice {
-    readonly kind: "invalid" | "unavailable";
-    readonly text: string;
-    /** 项目层的设置文件路径；用户层不给（状态根不发给浏览器）。 */
-    readonly path: string | null;
+type SettingsSectionNotice =
+    | {kind: "invalid"; text: string; action: string; lines: ReadonlyArray<string>}
+    | {kind: "unavailable" | "fixing"; text: string};
+
+interface SettingsSectionReplacement {
+    title: string;
+    /** “‹”后面的字：分区标题。 */
+    backLabel: string;
 }
 
 type Props = {
     title: string;
     description: string | null;
     notice: SettingsSectionNotice | null;
-    /** 文件有错误时“打开设置文件”的文字；在设置文件视图里不给（null）。 */
-    openFileLabel: string | null;
+    replacement: SettingsSectionReplacement | null;
 };
 
-type Emits = {(event: "open-file"): void};
+type Emits = {
+    (event: "open-file"): void;
+    (event: "back"): void;
+};
 ```
 
-## 交互
+没有 slots、expose；attrs 落在根上。右侧有一个空的挂载点（`data-settings-heading-actions`），挂载后经窗口通道（`ui/settings/page-chrome.ts`）登记给页面级操作（`SettingsPageActions`）Teleport，卸载时注销。所有文字由窗口按显示语言算好传入。
 
-点“打开设置文件”发 `open-file`，由窗口切到“设置文件”。提示是 `role="status"`。
+## 隐藏通道理由
+
+- `state:inject`：把右侧挂载点登记到窗口的通道里；标题区不知道页面在哪，页面也不该为此接线。

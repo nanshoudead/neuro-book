@@ -29,6 +29,7 @@ import type {SettingDefinition, SettingLayer, SettingsFailure, SettingsService, 
 
 import {SETTINGS_SECTION_CATEGORIES} from "../shared/contracts";
 import type {SettingsSectionCategory} from "../shared/contracts";
+import type {LayerTextPosition} from "../shared/layers";
 import type {LayerFile} from "../shared/remote-link";
 import type {SettingsPageContext} from "./contracts";
 import type {SettingsPageDelivery, SettingsSectionEntry} from "./sections";
@@ -127,10 +128,22 @@ export type SettingsLeaveTarget =
     | {readonly kind: "layer"; readonly layer: SettingLayer}
     | {readonly kind: "close"}
     | {readonly kind: "open"; readonly section?: string; readonly layer?: SettingLayer}
+    | {readonly kind: "file"; readonly layer: SettingLayer; readonly position: LayerTextPosition | null}
     | {readonly kind: "search"; readonly query: string};
 
-/** 当前标签那一层的说明（输出 13）；层正常时为 null。 */
-export type SettingsLayerNotice = {readonly kind: "invalid"; readonly path: string | null; readonly detail: string} | {readonly kind: "unavailable"};
+/**
+ * 当前标签那一层的说明（输出 13）；层正常时为 null。无效时 `reason`、`position` 来自层快照（configuration.md 输出 5），
+ * 读不出文件这类没有语法位置的无效为 null：只写 `detail`、打开文件时不定位。
+ */
+export type SettingsLayerNotice =
+    | {readonly kind: "invalid"; readonly path: string | null; readonly detail: string; readonly reason: string | null; readonly position: LayerTextPosition | null}
+    | {readonly kind: "unavailable"};
+
+/** 等设置文件视图用一次的定位（输出 13）：`layer` 是要定位的那一层的文件。 */
+export interface SettingsFileLocation {
+    readonly layer: SettingLayer;
+    readonly position: LayerTextPosition;
+}
 
 export type SettingsPageStatus = "waiting" | "loading" | "ready" | "load-failed" | "render-failed";
 
@@ -173,6 +186,10 @@ export interface SettingsWindow {
     readonly nav: ComputedRef<ReadonlyArray<SettingsNavGroup>>;
     readonly current: ComputedRef<SettingsSectionView | null>;
     readonly layerNotice: ComputedRef<SettingsLayerNotice | null>;
+    /** 当前标签那一层能写：没有 `invalid`、`unavailable`（输出 13）；页面经 `context.writable` 拿到同一个值。 */
+    readonly writable: ComputedRef<boolean>;
+    /** 等设置文件视图用的定位；没有为 null。视图读完文件后经 `takeFileLocation` 取走。 */
+    readonly fileLocation: Readonly<Ref<SettingsFileLocation | null>>;
     /** 给通用列表的 `SettingsRow` 用的配置服务：读同 `settings`，写走用户编辑路径（configuration.md 输出 19）。 */
     readonly editing: SettingsService;
     /** 选项提供者的选项源（对象本身不变）：通用列表交给每个字段，page 页面经 `context.options` 拿到同一份。 */
@@ -182,6 +199,13 @@ export interface SettingsWindow {
     /** 关窗口；页面有未保存的改动时先确认。 */
     close(): void;
     select(sectionId: string): void;
+    /**
+     * 打开这一层的设置文件并把光标定位到 `position`（输出 13 的层警告）：与别的离开动作一样先过未保存确认，确认后切到
+     * “设置文件”分区、位置留在 `fileLocation` 等视图用；取消则不切、不留。没有 `position` 时只打开。
+     */
+    openFile(layer: SettingLayer, position?: LayerTextPosition): void;
+    /** 取走 `layer` 这一层等着的定位并清掉（只用一次）；没有或不是这一层的为 null，不清。 */
+    takeFileLocation(layer: SettingLayer): LayerTextPosition | null;
     setLayer(layer: SettingLayer): void;
     /** 改搜索词（输出 21）；空串回到原分区。从有未保存改动的页面开始搜索时先确认。 */
     search(query: string): void;
@@ -470,6 +494,14 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     const dirtyVisit = ref<number | null>(null);
     const projectTitle = readonly(ref(options.projectTitle));
     const readonlyLayer = readonly(layer);
+    /** 当前标签那一层的说明（输出 13）；层正常时为 null。 */
+    const layerNotice = computed<SettingsLayerNotice | null>(() => {
+        const state = source.layer(layer.value);
+        if (state.status === "invalid") return {kind: "invalid", path: state.path, detail: state.detail, reason: state.reason ?? null, position: state.position ?? null};
+        if (state.status === "unavailable" || state.status === "pending") return {kind: "unavailable"};
+        return null;
+    });
+    const writable = computed(() => layerNotice.value === null);
 
     const contextOf = (id: string): SettingsPageContext => {
         let visit = visits.get(id);
@@ -481,7 +513,7 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
                 if (value) dirtyVisit.value = token;
                 else if (dirtyVisit.value === token) dirtyVisit.value = null;
             };
-            visit = {token, context: markRaw({id, layer: readonlyLayer as Readonly<Ref<SettingLayer>>, projectTitle: projectTitle as Readonly<Ref<string | null>>, options: source.options(), dirty})};
+            visit = {token, context: markRaw({id, layer: readonlyLayer as Readonly<Ref<SettingLayer>>, projectTitle: projectTitle as Readonly<Ref<string | null>>, writable, options: source.options(), dirty})};
             visits.set(id, visit);
         }
         return visit.context;
@@ -606,6 +638,8 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     const fileUnsaved = ref(false);
     const unsaved = computed(() => dirtyVisit.value !== null || fileUnsaved.value);
     const leaving = ref<SettingsLeaveTarget | null>(null);
+    /** 确认通过的“打开设置文件并定位”留给设置文件视图的位置：视图读完文件取走一次；之后的任何别的动作都作废它。 */
+    const fileLocation = ref<SettingsFileLocation | null>(null);
 
     const performClose = (): void => {
         open.value = false;
@@ -622,6 +656,8 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
     };
 
     const perform = (target: SettingsLeaveTarget): void => {
+        // 没取走的定位只属于紧接着的那一次打开文件：去别处、关窗口之后不再有效。
+        fileLocation.value = null;
         switch (target.kind) {
             case "section":
                 query.value = "";
@@ -640,6 +676,12 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
                 }
                 if (target.layer !== undefined) layer.value = target.layer;
                 return;
+            case "file":
+                query.value = "";
+                chosen.value = FILE_SECTION_ID;
+                layer.value = target.layer;
+                if (target.position !== null) fileLocation.value = {layer: target.layer, position: target.position};
+                return;
             case "search":
                 query.value = target.query;
                 return;
@@ -651,12 +693,6 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
         if (unsaved.value) leaving.value = target;
         else perform(target);
     };
-    const layerNotice = computed<SettingsLayerNotice | null>(() => {
-        const state = source.layer(layer.value);
-        if (state.status === "invalid") return {kind: "invalid", path: state.path, detail: state.detail};
-        if (state.status === "unavailable" || state.status === "pending") return {kind: "unavailable"};
-        return null;
-    });
 
     return {
         bound: readonly(ref(options.bound)),
@@ -673,6 +709,8 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
         nav,
         current,
         layerNotice,
+        writable,
+        fileLocation: readonly(fileLocation) as Readonly<Ref<SettingsFileLocation | null>>,
         editing,
         options: () => source.options(),
         openWindow: (args) => {
@@ -694,6 +732,16 @@ export function createSettingsWindow(options: SettingsWindowOptions): SettingsWi
             if (sectionOf(id) === undefined) return;
             if (id === section.value && query.value === "") return;
             requestLeave({kind: "section", id});
+        },
+        openFile: (target, position) => {
+            if (target === "project" && !options.bound) return;
+            requestLeave({kind: "file", layer: target, position: position ?? null});
+        },
+        takeFileLocation: (target) => {
+            const pending = fileLocation.value;
+            if (pending === null || pending.layer !== target) return null;
+            fileLocation.value = null;
+            return pending.position;
         },
         setLayer: (tab) => {
             if ((tab === "user" || options.bound) && tab !== layer.value) requestLeave({kind: "layer", layer: tab});

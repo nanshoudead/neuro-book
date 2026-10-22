@@ -30,6 +30,11 @@ export interface SettingsPageContext {
     readonly layer: Readonly<Ref<SettingLayer>>;
     /** 窗口绑定的作品的书名；没有绑定作品时为 null。 */
     readonly projectTitle: Readonly<Ref<string | null>>;
+    /**
+     * 当前标签那一层能不能写：层 `invalid`、`unavailable` 时为假（输出 13）。页面自己的控件按它停用；放进
+     * `SettingsPageActions` 的操作由窗口整体停用，不用再读它。
+     */
+    readonly writable: Readonly<Ref<boolean>>;
     /** 全部选项提供者的选项源，按提供者 id；直接交给页面里 `SchemaField`、`SchemaForm` 的 `options`。 */
     readonly options: FormOptionSources;
     /**

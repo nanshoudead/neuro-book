@@ -140,7 +140,7 @@ export function createLayerOwner(options: LayerOwnerOptions): LayerOwner {
     /** 由文件文本算出下一份快照：无效时保留上一份有效内容；被丢弃的键同一份内容只记一次诊断。 */
     const fromText = (text: string): LayerContent => {
         const parsed = parseLayerText(text, keysOf(options.declarations()), options.layer);
-        if (parsed.status === "invalid") return {status: "invalid", values: current.values, problems: current.problems, detail: parsed.detail};
+        if (parsed.status === "invalid") return {status: "invalid", values: current.values, problems: current.problems, detail: parsed.detail, reason: parsed.reason, position: parsed.position};
         reportProblems(parsed.problems);
         return {status: "ok", values: parsed.values, problems: parsed.problems};
     };

@@ -6,7 +6,7 @@
 
 import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {defineComponent, h, onMounted, onUnmounted} from "vue";
+import {defineComponent, h, onBeforeUnmount, onMounted, onUnmounted, ref} from "vue";
 import type {PropType} from "vue";
 
 import {createSettingsScene} from "nbook/plugins/lab/web/fixtures/settings-scene/scene-data";
@@ -18,6 +18,8 @@ import type {SettingsWindowSceneId} from "nbook/plugins/lab/web/fixtures/setting
 import type {NotificationInput} from "nbook/plugins/workbench/shared/contracts";
 import {appearanceSetting, themeSetting} from "nbook/plugins/workbench/shared/contracts";
 import type {SettingDefinition} from "nbook/shared/settings";
+import SettingsPageActions from "nbook/ui/settings/SettingsPageActions.vue";
+import {usePageChrome} from "nbook/ui/settings/page-chrome";
 
 import type {SettingsPageContext} from "../contracts";
 import type {SettingsWindow as SettingsWindowModel} from "../settings-window";
@@ -51,6 +53,8 @@ const one = (selector: string): HTMLElement => {
     if (found === null) throw new Error(`没有 ${selector}`);
     return found;
 };
+/** 层警告的悬停提示逐行写的字（Tooltip 内容在焦点或悬停时才画）。 */
+const tooltipLines = (): Array<string | null> => all(".nb-ui-tooltip-surface .settings-section-heading__tip-line").map((line) => line.textContent);
 const navIds = (): string[] => all("[data-settings-nav]").map((element) => element.dataset.settingsNav ?? "");
 /** 一项的单选：分段控件的选项名在按钮上，单选组的在包着圆钮的 `<label>` 里。 */
 const choices = (row: string): HTMLElement[] => all(`[data-settings-row="${row}"] [role="radiogroup"] [role="radio"]`);
@@ -122,17 +126,26 @@ describe("SettingsWindow", () => {
         expect(notices[1]).toEqual({tone: "warning", title: "设置可能没有保存", message: "主题：可能没有保存，以设置文件为准"});
     });
 
-    it("层文件无效：分区顶部说明带文件路径，控件停用；层连不上另有说明；恢复后说明消失", async () => {
+    it("层文件无效：标题区右侧的警告是按钮，悬停提示写原因、修复前的后果与路径，控件停用；层连不上是不能点的文字；恢复后警告消失", async () => {
         const {host} = await scene("project-invalid");
-        expect(one("[data-settings-layer-notice='invalid']").textContent).toContain("设置文件有错误，修好前这里不能保存");
-        expect(one("[data-settings-layer-notice='invalid']").textContent).toContain(SCENE_PROJECT_FILE);
+        const warning = one("[data-settings-layer-notice='invalid']");
+        expect(warning.tagName).toBe("BUTTON");
+        expect(warning.textContent).toContain("设置文件格式有误");
+        expect(warning.textContent).toContain("打开");
+        expect(warning.closest("[data-settings-heading]")).not.toBeNull();
         expect(one(`[data-settings-row="${appearanceSetting.key}"]`).dataset.settingsRowBlocked).toBe("");
+        warning.focus();
+        await vi.waitFor(() => expect(tooltipLines()).toEqual(["第 3 行第 1 列：缺右花括号 }", "修复前，这一层的设置无法保存", SCENE_PROJECT_FILE]));
         host.project?.setInvalid(null);
         await flushPromises();
         expect(document.body.querySelector("[data-settings-layer-notice]")).toBeNull();
         host.project?.setUnreachable(true);
         await flushPromises();
-        expect(one("[data-settings-layer-notice='unavailable']").textContent).toContain("暂时连不上，不能保存");
+        const unreachable = one("[data-settings-layer-notice='unavailable']");
+        expect(unreachable.textContent).toContain("暂时无法连接，无法保存");
+        expect(unreachable.tagName).not.toBe("BUTTON");
+        expect(unreachable.querySelector("button")).toBeNull();
+        expect(document.body.querySelector("[data-settings-open-file]")).toBeNull();
     });
 
     it("“其它”分区：开关、下拉、数字、单行输入与字符串列表（宽排法、可编辑）、生效时机的标注；数字框回车提交，不合 schema 的值被拒、回到实际值", async () => {
@@ -424,7 +437,8 @@ describe("搜索与未保存保护（输出 21、22）", () => {
         other.click();
         await flushPromises();
         const dialog = one("[role='alertdialog']");
-        expect(dialog.textContent).toContain("放弃未保存的改动？");
+        expect(dialog.textContent).toContain("放弃未保存的更改？");
+        expect(dialog.textContent).toContain("“页面”有未保存的更改。离开此页面后，这些更改将会丢失。");
         expect(created.window.section.value).toBe("x.page.main");
         [...dialog.querySelectorAll("button")].find((button) => button.textContent?.trim() === "继续编辑")!.click();
         await vi.waitFor(() => expect(document.body.querySelector("[role='alertdialog']")).toBeNull());
@@ -531,7 +545,7 @@ describe("设置文件视图（输出 23）", () => {
         expect(host.window.leaving.value).toEqual({kind: "section", id: "nbook.appearance"});
     });
 
-    it("层文件无效：说明里有“打开设置文件”，打开看到坏的文本，修好保存后说明消失", async () => {
+    it("层文件无效（没有语法位置，只有原因）：点标题区的警告打开设置文件，看到坏的文本，修好保存后警告消失", async () => {
         const {host} = await scene("user-invalid");
         one("[data-settings-open-file]").click();
         await flushPromises();
@@ -823,5 +837,295 @@ describe("实现审查补的用例（omp 第 4 条）", () => {
         expect(created.window.unsaved.value).toBe(false);
         contexts[1]!.dirty(true);
         expect(created.window.unsaved.value).toBe(true);
+    });
+});
+
+describe("标题区：层警告、定位与页面级操作（输出 3、13、19、22、23）", () => {
+    const area = (): HTMLTextAreaElement => one("[data-settings-file-text]") as HTMLTextAreaElement;
+    const ready = () => vi.waitFor(() => expect(one("[data-settings-file]").dataset.settingsFileState).toBe("ready"));
+    const heading = (): HTMLElement => one("[data-settings-heading]");
+    const titleText = (): string | null | undefined => heading().querySelector("h2")?.textContent;
+    /** “file-invalid”场景的坏文件：第 3 行（缺逗号的下一行）行首缩进之后。 */
+    const BROKEN_POSITION = {line: 3, column: 5};
+    const brokenOffset = (text: string): number => text.split("\n").slice(0, BROKEN_POSITION.line - 1).reduce((sum, line) => sum + line.length + 1, 0) + BROKEN_POSITION.column - 1;
+
+    it("层文件有语法错误：点警告切到设置文件、光标放在出错处；标题区改写成“第 N 行第 M 列：原因，改好后保存”；位置只用一次，修好保存后警告消失", async () => {
+        const {host} = await scene("file-invalid");
+        await ready();
+        // 已在设置文件视图里：不再给按钮，写出错位置。
+        expect(document.body.querySelector("[data-settings-open-file]")).toBeNull();
+        const fixing = one("[data-settings-layer-notice='fixing']").textContent ?? "";
+        expect(fixing).toMatch(/^第 3 行第 5 列：.+，改好后保存$/u);
+        host.window.select("nbook.appearance");
+        await flushPromises();
+        const warning = one("[data-settings-layer-notice='invalid']");
+        expect(warning.textContent).toContain("设置文件格式有误");
+        warning.focus();
+        await vi.waitFor(() => expect(tooltipLines()[0]).toMatch(/^第 3 行第 5 列：/u));
+        expect(tooltipLines().slice(1)).toEqual(["修复前，这一层的设置无法保存"]);
+        warning.click();
+        await flushPromises();
+        expect(host.window.section.value).toBe("file");
+        await ready();
+        await vi.waitFor(() => expect(document.activeElement).toBe(area()));
+        expect(area().selectionStart).toBe(brokenOffset(area().value));
+        expect(area().selectionEnd).toBe(area().selectionStart);
+        expect(host.window.fileLocation.value).toBeNull();
+        expect(one("[data-settings-layer-notice='fixing']").textContent).toBe(fixing);
+        // 修好、保存：警告消失。
+        area().value = "{\"nbook.workbench/theme\": \"macos\"}";
+        area().dispatchEvent(new Event("input"));
+        await flushPromises();
+        const save = all("[data-settings-file] button").find((element) => element.textContent?.trim() === "保存") as HTMLButtonElement;
+        save.click();
+        await flushPromises();
+        expect(document.body.querySelector("[data-settings-layer-notice]")).toBeNull();
+    });
+
+    it("位置用过一次就没有了：离开设置文件再回来，光标不再被放回出错处", async () => {
+        const {host} = await scene("file-invalid");
+        host.window.select("nbook.appearance");
+        await flushPromises();
+        one("[data-settings-open-file]").click();
+        await flushPromises();
+        await ready();
+        await vi.waitFor(() => expect(area().selectionStart).toBe(brokenOffset(area().value)));
+        host.window.select("nbook.appearance");
+        await flushPromises();
+        host.window.select("file");
+        await flushPromises();
+        await ready();
+        expect(area().selectionStart).not.toBe(brokenOffset(area().value));
+    });
+
+    /** 一个会报未保存的 page 分区，用户层文件是坏的：点警告要先过未保存确认。 */
+    async function dirtyPageWithBrokenLayer() {
+        let context: SettingsPageContext | null = null;
+        const Dirty = defineComponent({
+            name: "DirtyPage",
+            props: {context: {type: Object as PropType<SettingsPageContext>, required: true}},
+            setup(props) {
+                context = props.context;
+                return () => h("p", {"data-dirty-page": ""}, "草稿");
+            },
+        });
+        const created = createSettingsHost({
+            settings: [{plugin: "nbook.workbench", definition: themeSetting as SettingDefinition<unknown>}],
+            sections: [{id: "x.page.main", plugin: "x.page", kind: "page", declaration: {title: {"zh-CN": "页面", "en-US": "Page"}, icon: "i-lucide-square", category: "plugins"}}],
+            user: {text: "{\n    \"nbook.workbench/theme\": \"macos\"\n    \"example.notes/interval\": 120\n}\n"},
+            notify: () => undefined,
+            report: () => undefined,
+        });
+        cleanup.push(() => created.dispose());
+        created.publish("x.page.main", async () => Dirty);
+        created.window.openWindow({section: "x.page.main"});
+        render(created.window);
+        await flushPromises();
+        await vi.waitFor(() => expect(document.body.querySelector("[data-dirty-page]")).not.toBeNull());
+        context!.dirty(true);
+        return created;
+    }
+
+    it("页面有未保存的改动：点警告先弹同切分区一样的确认；继续编辑留在原页面、什么也不挂；放弃后切到设置文件并定位", async () => {
+        const created = await dirtyPageWithBrokenLayer();
+        const warning = one("[data-settings-open-file]");
+        warning.focus();
+        warning.click();
+        await flushPromises();
+        const dialog = one("[role='alertdialog']");
+        expect(dialog.textContent).toContain("放弃未保存的更改？");
+        expect(dialog.textContent).toContain("“页面”有未保存的更改。离开此页面后，这些更改将会丢失。");
+        expect([created.window.section.value, created.window.fileLocation.value]).toEqual(["x.page.main", null]);
+        [...dialog.querySelectorAll("button")].find((button) => button.textContent?.trim() === "继续编辑")!.click();
+        await vi.waitFor(() => expect(document.body.querySelector("[role='alertdialog']")).toBeNull());
+        expect([created.window.section.value, created.window.fileLocation.value, created.window.unsaved.value]).toEqual(["x.page.main", null, true]);
+        expect(document.body.querySelector("[data-dirty-page]")).not.toBeNull();
+
+        one("[data-settings-open-file]").click();
+        await flushPromises();
+        [...one("[role='alertdialog']").querySelectorAll("button")].find((button) => button.textContent?.trim() === "放弃")!.click();
+        await flushPromises();
+        expect(created.window.section.value).toBe("file");
+        await ready();
+        await vi.waitFor(() => expect(area().selectionStart).toBe(brokenOffset(area().value)));
+    });
+
+    /** 一个会按按钮登记标题替换的 page 分区，另带一个页面级操作；`events` 记下 back 与卸载。 */
+    function claimingHost() {
+        const events: string[] = [];
+        let crash = false;
+        const crashNow = ref(false);
+        const Page = defineComponent({
+            name: "ClaimingPage",
+            props: {context: {type: Object as PropType<SettingsPageContext>, required: true}},
+            setup() {
+                const chrome = usePageChrome()!;
+                // 页面自己管层级：进入下一级时登记新标题，再把上一次登记的撤销交出去（已被盖过，应当不起作用）；返回时撤销当前的、
+                // 重新登记上一级的标题。
+                const titles: string[] = [];
+                let undoCurrent: (() => void) | null = null;
+                const show = (): void => {
+                    const previous = undoCurrent;
+                    const title = titles.at(-1);
+                    undoCurrent = title === undefined ? null : chrome.claim({title, back});
+                    previous?.();
+                };
+                const back = (): void => {
+                    events.push(`back ${titles.at(-1)}`);
+                    titles.pop();
+                    show();
+                };
+                const open = (title: string): void => {
+                    titles.push(title);
+                    show();
+                };
+                onBeforeUnmount(() => {
+                    events.push("unmount");
+                    undoCurrent?.();
+                });
+                return () => {
+                    if (crashNow.value && crash) throw new Error("页面出错了");
+                    return h("div", {"data-claim-page": ""}, [
+                        h("button", {type: "button", "data-claim": "深层 A", onClick: () => open("深层 A")}, "进入 A"),
+                        h("button", {type: "button", "data-claim": "深层 B", onClick: () => open("深层 B")}, "进入 B"),
+                        h(SettingsPageActions, null, {default: () => h("button", {type: "button", "data-page-action": ""}, "新增")}),
+                    ]);
+                };
+            },
+        });
+        const created = createSettingsHost({
+            settings: [{plugin: "nbook.workbench", definition: themeSetting as SettingDefinition<unknown>}],
+            sections: [{id: "x.page.main", plugin: "x.page", kind: "page", declaration: {title: {"zh-CN": "页面", "en-US": "Page"}, description: {"zh-CN": "页面的说明", "en-US": "Page description"}, icon: "i-lucide-square", category: "plugins"}}],
+            project: {},
+            notify: () => undefined,
+            report: () => undefined,
+        });
+        cleanup.push(() => created.dispose());
+        created.publish("x.page.main", async () => Page);
+        created.window.openWindow({section: "x.page.main"});
+        render(created.window);
+        return {created, events, breakPage: () => {
+            crash = true;
+            crashNow.value = true;
+        }, fixPage: () => {
+            crash = false;
+        }};
+    }
+    const claim = async (title: string): Promise<void> => {
+        one(`[data-claim="${title}"]`).click();
+        await flushPromises();
+    };
+
+    it("页面级操作出现在标题区右侧、不在页面正文里；层文件坏了时停用，修好后恢复；离开分区时消失", async () => {
+        const {created} = claimingHost();
+        await flushPromises();
+        await vi.waitFor(() => expect(document.body.querySelector("[data-claim-page]")).not.toBeNull());
+        expect(one("[data-settings-heading-actions] [data-page-action]").textContent).toBe("新增");
+        expect(document.body.querySelector("[data-claim-page] [data-page-action]")).toBeNull();
+        const scope = () => one("[data-settings-heading-actions] [data-settings-page-actions]") as HTMLFieldSetElement;
+        expect(scope().disabled).toBe(false);
+        created.user.setInvalid("第 1 行：缺右花括号");
+        await flushPromises();
+        expect(scope().disabled).toBe(true);
+        // 警告与操作同在标题区右侧。
+        expect(heading().contains(one("[data-settings-layer-notice='invalid']"))).toBe(true);
+        created.user.setInvalid(null);
+        await flushPromises();
+        expect(scope().disabled).toBe(false);
+        created.window.select("other");
+        await flushPromises();
+        expect(document.body.querySelector("[data-page-action]")).toBeNull();
+    });
+
+    it("页面登记标题替换：标题区写“‹ 页面标题”与下一级的标题、说明收起；点返回由页面退一级；被盖过的旧登记撤销时不动新的", async () => {
+        const {events} = claimingHost();
+        await flushPromises();
+        await vi.waitFor(() => expect(document.body.querySelector("[data-claim-page]")).not.toBeNull());
+        expect(titleText()).toBe("页面");
+        expect(document.body.querySelector("[data-settings-heading-description]")?.textContent).toBe("页面的说明");
+        expect(document.body.querySelector("[data-settings-heading-back]")).toBeNull();
+        await claim("深层 A");
+        expect(titleText()).toBe("深层 A");
+        expect(one("[data-settings-heading-back]").textContent?.trim()).toBe("页面");
+        expect(document.body.querySelector("[data-settings-heading-description]")).toBeNull();
+        await claim("深层 B");
+        expect(titleText()).toBe("深层 B");
+        one("[data-settings-heading-back]").click();
+        await flushPromises();
+        // 页面的 back 退回上一级：重新登记 A；再返回一次回到页面标题。
+        expect(events).toEqual(["back 深层 B"]);
+        expect(titleText()).toBe("深层 A");
+        one("[data-settings-heading-back]").click();
+        await flushPromises();
+        expect(titleText()).toBe("页面");
+        expect(document.body.querySelector("[data-settings-heading-back]")).toBeNull();
+        expect(document.body.querySelector("[data-settings-heading-description]")?.textContent).toBe("页面的说明");
+    });
+
+    it("标题替换随页面的寿命：切标签保留；离开分区、开始搜索、关窗口再开都回到页面标题", async () => {
+        const {created, events} = claimingHost();
+        await flushPromises();
+        await vi.waitFor(() => expect(document.body.querySelector("[data-claim-page]")).not.toBeNull());
+        await claim("深层 A");
+        // 切标签：页面不重建，标题替换还在。
+        all("[data-settings-tabs] button[role='radio']").find((button) => button.textContent?.trim() === "本作品")?.click();
+        await flushPromises();
+        expect(events).toEqual([]);
+        expect(titleText()).toBe("深层 A");
+        // 离开分区：下一个分区的标题不被上一个页面的登记占着。
+        one("[data-settings-nav='other']").click();
+        await flushPromises();
+        expect(events).toEqual(["unmount"]);
+        expect(titleText()).toBe("其它");
+        one("[data-settings-nav='x.page.main']").click();
+        await flushPromises();
+        await vi.waitFor(() => expect(document.body.querySelector("[data-claim-page]")).not.toBeNull());
+        expect(titleText()).toBe("页面");
+        // 开始搜索：页面卸载，搜索结果的标题是搜索的标题；清空搜索回来是页面标题。
+        await claim("深层 A");
+        created.window.search("主题");
+        await flushPromises();
+        expect(document.body.querySelector("[data-settings-heading-back]")).toBeNull();
+        expect(titleText()).not.toBe("深层 A");
+        created.window.search("");
+        await flushPromises();
+        await vi.waitFor(() => expect(document.body.querySelector("[data-claim-page]")).not.toBeNull());
+        expect(titleText()).toBe("页面");
+        // 关窗口再开。
+        await claim("深层 B");
+        created.window.close();
+        await flushPromises();
+        created.window.openWindow({section: "x.page.main"});
+        await flushPromises();
+        await vi.waitFor(() => expect(document.body.querySelector("[data-claim-page]")).not.toBeNull());
+        expect(titleText()).toBe("页面");
+        expect(document.body.querySelector("[data-settings-heading-back]")).toBeNull();
+    });
+
+    it("页面渲染出错：卸载时撤销登记，标题回到页面标题；重试重建后也是页面标题", async () => {
+        const {events, breakPage, fixPage} = claimingHost();
+        await flushPromises();
+        await vi.waitFor(() => expect(document.body.querySelector("[data-claim-page]")).not.toBeNull());
+        await claim("深层 A");
+        breakPage();
+        await vi.waitFor(() => expect(document.body.querySelector("[data-settings-page-state='render-failed']")).not.toBeNull());
+        expect(events).toContain("unmount");
+        expect(titleText()).toBe("页面");
+        expect(document.body.querySelector("[data-settings-heading-back]")).toBeNull();
+        fixPage();
+        one("[data-settings-page-retry-render]").click();
+        await flushPromises();
+        await vi.waitFor(() => expect(document.body.querySelector("[data-claim-page]")).not.toBeNull());
+        expect(titleText()).toBe("页面");
+    });
+
+    it("标题上的说明放不下时靠悬停显示全文；很长的说明只占一行", async () => {
+        claimingHost();
+        await flushPromises();
+        await vi.waitFor(() => expect(document.body.querySelector("[data-claim-page]")).not.toBeNull());
+        const description = one("[data-settings-heading-description]");
+        description.focus();
+        description.dispatchEvent(new PointerEvent("pointermove", {bubbles: true, pointerType: "mouse"}));
+        await vi.waitFor(() => expect(document.body.querySelector(".nb-ui-tooltip-surface")?.textContent).toContain("页面的说明"));
     });
 });

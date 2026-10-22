@@ -5,20 +5,21 @@
  */
 import {AlertDialog, Button, Dialog, Input, ScrollArea, SegmentedControl, Separator} from "@notnotype/nb-ui/components";
 import type {SegmentedControlValue} from "@notnotype/nb-ui/components";
-import {computed, nextTick, ref, useId, watch} from "vue";
+import {computed, nextTick, provide, ref, useId, watch} from "vue";
 
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {LocalizedText} from "nbook/shared/localized-text";
 import type {SettingLayer} from "nbook/shared/settings";
+import {createPageChrome, SETTINGS_PAGE_CHROME} from "nbook/ui/settings/page-chrome";
 
-import {DEFAULT_SETTINGS_WINDOW_SIZE, FILE_SECTION_ID, MIN_SETTINGS_WINDOW_SIZE} from "../settings-window";
+import {DEFAULT_SETTINGS_WINDOW_SIZE, MIN_SETTINGS_WINDOW_SIZE} from "../settings-window";
 import type {SettingsLeaveTarget, SettingsNavItem, SettingsWindow} from "../settings-window";
 import {composing, isModKey} from "../keys";
 import SettingsFileView from "./SettingsFileView.vue";
 import SettingsListSection from "./SettingsListSection.vue";
 import SettingsPageFrame from "./SettingsPageFrame.vue";
 import SettingsSectionHeading from "./SettingsSectionHeading.vue";
-import type {SettingsSectionNotice} from "./SettingsSectionHeading.vue";
+import type {SettingsSectionNotice, SettingsSectionReplacement} from "./SettingsSectionHeading.vue";
 
 defineOptions({name: "SettingsWindow"});
 
@@ -33,9 +34,13 @@ const TEXT = {
     tabs: {"zh-CN": "设置的范围", "en-US": "Settings scope"},
     user: {"zh-CN": "用户", "en-US": "User"},
     project: {"zh-CN": "本作品", "en-US": "This Book"},
-    invalid: {"zh-CN": "设置文件有错误，修好前这里不能保存", "en-US": "The settings file has errors; changes can't be saved until it is fixed"},
-    invalidHere: {"zh-CN": "设置文件有错误，在下面改好后保存", "en-US": "The settings file has errors; fix it below and save"},
-    unavailable: {"zh-CN": "暂时连不上，不能保存", "en-US": "Temporarily unreachable; changes can't be saved"},
+    invalid: {"zh-CN": "设置文件格式有误", "en-US": "Settings file has errors"},
+    openAction: {"zh-CN": "打开", "en-US": "Open"},
+    invalidAt: {"zh-CN": "第 {line} 行第 {column} 列：{reason}", "en-US": "Line {line}, column {column}: {reason}"},
+    cannotSave: {"zh-CN": "修复前，这一层的设置无法保存", "en-US": "Settings on this layer can't be saved until it is fixed"},
+    fixAt: {"zh-CN": "第 {line} 行第 {column} 列：{reason}，改好后保存", "en-US": "Line {line}, column {column}: {reason}. Save once it's fixed"},
+    fixHere: {"zh-CN": "{reason}，改好后保存", "en-US": "{reason}. Save once it's fixed"},
+    unavailable: {"zh-CN": "暂时无法连接，无法保存", "en-US": "Temporarily unreachable; can't save"},
     empty: {"zh-CN": "没有可以显示的设置", "en-US": "There are no settings to show"},
     search: {"zh-CN": "搜索设置", "en-US": "Search settings"},
     clearSearch: {"zh-CN": "清空搜索", "en-US": "Clear search"},
@@ -44,11 +49,10 @@ const TEXT = {
     openPage: {"zh-CN": "打开", "en-US": "Open"},
     openHit: {"zh-CN": "打开：{title}", "en-US": "Open: {title}"},
     results: {"zh-CN": "{settings} 个设置、{pages} 个页面", "en-US": "{settings} settings, {pages} pages"},
-    leaveTitle: {"zh-CN": "放弃未保存的改动？", "en-US": "Discard unsaved changes?"},
-    leaveDescription: {"zh-CN": "这个页面有还没保存的改动，离开后会丢掉。", "en-US": "This page has changes that haven't been saved. They will be lost if you leave."},
+    leaveTitle: {"zh-CN": "放弃未保存的更改？", "en-US": "Discard unsaved changes?"},
+    leaveDescription: {"zh-CN": "“{title}”有未保存的更改。离开此页面后，这些更改将会丢失。", "en-US": "“{title}” has unsaved changes. They will be lost if you leave this page."},
     discard: {"zh-CN": "放弃", "en-US": "Discard"},
     keepEditing: {"zh-CN": "继续编辑", "en-US": "Keep Editing"},
-    openFile: {"zh-CN": "打开设置文件", "en-US": "Open Settings File"},
 } satisfies Record<string, LocalizedText>;
 
 const model = props.window;
@@ -63,12 +67,37 @@ const current = computed(() => model.current.value);
 const page = computed(() => (current.value?.kind === "page" && current.value.unavailable === null ? model.page(current.value.id) : null));
 const searching = computed(() => current.value?.kind === "search");
 
-/** 层的说明（输出 13）：无效时带上原因（第几行、哪里不对）；在设置文件视图里说“在下面改好”，那里正是修的地方。 */
+/**
+ * 标题区右侧的层警告（输出 13）：`invalid` 是按钮，悬停写位置与原因、“修复前……”与路径；`unavailable` 是文字；在设置文件视图里
+ * 层无效时不再给按钮（那里就是修的地方），改写“第 N 行第 M 列：原因，改好后保存”。
+ */
 const notice = computed((): SettingsSectionNotice | null => {
     const layer = model.layerNotice.value;
     if (layer === null) return null;
-    if (layer.kind === "unavailable") return {kind: "unavailable", text: text(TEXT.unavailable), path: null};
-    return {kind: "invalid", text: `${text(current.value?.kind === "file" ? TEXT.invalidHere : TEXT.invalid)}（${layer.detail}）`, path: layer.path};
+    if (layer.kind === "unavailable") return {kind: "unavailable", text: text(TEXT.unavailable)};
+    // 没有语法位置的无效（文件读不出来）只有 detail。
+    const reason = layer.reason ?? layer.detail;
+    if (current.value?.kind === "file") {
+        return {kind: "fixing", text: layer.position === null ? text(TEXT.fixHere, {reason}) : text(TEXT.fixAt, {line: layer.position.line, column: layer.position.column, reason})};
+    }
+    const first = layer.position === null ? reason : text(TEXT.invalidAt, {line: layer.position.line, column: layer.position.column, reason});
+    return {kind: "invalid", text: text(TEXT.invalid), action: text(TEXT.openAction), lines: [first, text(TEXT.cannotSave), ...(layer.path === null ? [] : [layer.path])]};
+});
+
+/** 点层警告：打开这一层的设置文件并定位到出错处（有位置时）；有未保存的改动时先确认。 */
+function openFile(): void {
+    const layer = model.layerNotice.value;
+    if (layer?.kind !== "invalid") return;
+    model.openFile(model.layer.value, layer.position ?? undefined);
+}
+
+// 标题区的通道（`page-chrome.ts`）：页面里的 `SettingsPageActions`、`SettingsPageList` 经它与标题区说话。
+const chrome = createPageChrome(model.writable);
+provide(SETTINGS_PAGE_CHROME, chrome);
+/** 页面登记了标题替换时，标题区写“‹ 分区标题”与页面给的标题（输出 19）；只对 page 分区生效。 */
+const replacement = computed((): SettingsSectionReplacement | null => {
+    const claim = chrome.titleClaim.value;
+    return claim === null || current.value?.kind !== "page" ? null : {title: claim.title, backLabel: current.value.title};
 });
 const searchId = `settings-search-${useId()}`;
 const fill = computed(() => current.value?.kind === "page" && current.value.layout === "fill" && current.value.unavailable === null);
@@ -266,7 +295,7 @@ function onLeaveOpen(open: boolean): void {
                 <div v-if="current === null" class="settings-window__empty">{{ text(TEXT.empty) }}</div>
                 <!-- fill 页面拿到标题下面的整块区域，自己滚动；其余放进封顶的内容列，内容列滚动（输出 3）。 -->
                 <div v-else-if="fill && page !== null" class="settings-window__fill" :data-settings-section="current.id">
-                    <SettingsSectionHeading :title="current.title" :description="current.description" :notice="notice" :open-file-label="text(TEXT.openFile)" @open-file="model.select(FILE_SECTION_ID)" />
+                    <SettingsSectionHeading :title="current.title" :description="current.description" :notice="notice" :replacement="replacement" @open-file="openFile" @back="chrome.titleClaim.value?.back()" />
                     <div class="settings-window__fill-body">
                         <SettingsPageFrame
                             :locale="locale"
@@ -286,7 +315,7 @@ function onLeaveOpen(open: boolean): void {
                 </div>
                 <ScrollArea v-else type="auto" class="settings-window__scroll">
                     <div class="settings-window__column" :data-settings-section="current.id">
-                        <SettingsSectionHeading :title="current.title" :description="current.description" :notice="notice" :open-file-label="current.kind === 'file' ? null : text(TEXT.openFile)" @open-file="model.select(FILE_SECTION_ID)" />
+                        <SettingsSectionHeading :title="current.title" :description="current.description" :notice="notice" :replacement="replacement" @open-file="openFile" @back="chrome.titleClaim.value?.back()" />
                         <p v-if="current.unavailable !== null" class="settings-window__unavailable" data-settings-unavailable>{{ current.unavailable }}</p>
                         <template v-else-if="current.kind === 'search'">
                             <span class="settings-window__visually-hidden" role="status" aria-live="polite" data-settings-result-count>{{ resultCount }}</span>
@@ -328,7 +357,7 @@ function onLeaveOpen(open: boolean): void {
         <AlertDialog
             :open="model.leaving.value !== null"
             :title="text(TEXT.leaveTitle)"
-            :description="text(TEXT.leaveDescription)"
+            :description="text(TEXT.leaveDescription, {title: current?.title ?? ''})"
             :confirm-text="text(TEXT.discard)"
             :cancel-text="text(TEXT.keepEditing)"
             tone="warning"

@@ -50,8 +50,19 @@ export interface LayerProblem {
 /** 一层的公开内容。`values` 只含已声明、符合 schema、本层允许的键，深冻结。 */
 export type LayerContent =
     | {readonly status: "ok"; readonly values: Readonly<Record<string, unknown>>; readonly problems: ReadonlyArray<LayerProblem>}
-    /** 文件当前无效：`values` 与 `problems` 是上一份有效内容的（启动时即无效则为空），写入一律拒绝。 */
-    | {readonly status: "invalid"; readonly values: Readonly<Record<string, unknown>>; readonly problems: ReadonlyArray<LayerProblem>; readonly detail: string};
+    /**
+     * 文件当前无效：`values` 与 `problems` 是上一份有效内容的（启动时即无效则为空），写入一律拒绝。`reason` 是不含位置的
+     * 原因，`position` 是出错处（configuration.md 输出 5）；文件读不出来这类没有语法位置的无效，两者都缺省，窗口只能
+     * 打开文件、不定位。
+     */
+    | {
+          readonly status: "invalid";
+          readonly values: Readonly<Record<string, unknown>>;
+          readonly problems: ReadonlyArray<LayerProblem>;
+          readonly detail: string;
+          readonly reason?: string;
+          readonly position?: LayerTextPosition;
+      };
 
 /**
  * 拥有者发布的层快照：内容加修订号。`path` 是这一层文件的绝对路径，给设置窗口在层无效时指给用户看
@@ -69,7 +80,7 @@ export function supersedes(next: Revision, current: Revision | null): boolean {
 }
 
 /**
- * 两份快照是否在公开内容上相同（状态、键值、被丢弃的键、无效原因），不看修订号：拥有者重读后都相同时不发布
+ * 两份快照是否在公开内容上相同（状态、键值、被丢弃的键、无效原因与出错位置），不看修订号：拥有者重读后都相同时不发布
  * （输出 10）。值都是 JSON，按规范化的 JSON 文本比较。
  */
 export function sameContent(left: LayerContent, right: LayerContent): boolean {
@@ -79,7 +90,7 @@ export function sameContent(left: LayerContent, right: LayerContent): boolean {
 function contentOf(snapshot: LayerContent): unknown {
     return snapshot.status === "ok"
         ? {status: "ok", values: snapshot.values, problems: snapshot.problems}
-        : {status: "invalid", values: snapshot.values, problems: snapshot.problems, detail: snapshot.detail};
+        : {status: "invalid", values: snapshot.values, problems: snapshot.problems, detail: snapshot.detail, reason: snapshot.reason, position: snapshot.position};
 }
 
 /** 键按码元顺序排列的 JSON 文本；值只来自 JSON 文本或已校验的 JSON 值。 */

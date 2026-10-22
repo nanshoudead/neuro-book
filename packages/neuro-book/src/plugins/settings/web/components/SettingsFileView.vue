@@ -10,6 +10,8 @@
  * - 只有第一次读时显示“正在读取”；之后的重读原地换文本，文本框不卸载，焦点与滚动位置不丢。
  * - 读取进行中收到的修订号先记下，读完再和读到的比：读取与事件在链路上可能乱序，读回来的可能已经过时。
  * - 文本事件的订阅随连接结束：这一层从“连不上”恢复时重新订阅，并重新核对一次（没有改动就重读，有改动就看修订号）。
+ * - 从层警告进来时窗口模型留着一个待定位的位置（输出 13）：第一次读完文件后取走、把光标放过去，只用一次；已经在这个视图里
+ *   时（位置是后来才挂上的）就地定位。取走之后模型里没有了，之后的重读、换标签不会再跳。
  */
 import {Button, Spinner, Textarea} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onBeforeUnmount, ref, useId, watch} from "vue";
@@ -115,6 +117,7 @@ async function load(): Promise<void> {
     if (area !== null) void nextTick(() => {
         area.scrollTop = scroll;
     });
+    void locate();
     // 读的时候文件又变了：读回来的已经过时，再读一次。
     if (pendingRevision !== null && pendingRevision !== result.revision) void load();
 }
@@ -144,6 +147,10 @@ watch(() => props.layer, () => {
     void load();
 }, {immediate: true});
 watch(dirty, (value) => props.window.fileDirty(value), {immediate: true});
+// 位置是视图已经读完之后才挂上的（文件分区里再次定位）：就地定位；还在读时由 `load` 读完后取。
+watch(() => props.window.fileLocation.value, (pending) => {
+    if (pending !== null && state.value.kind === "ready") void locate();
+});
 // 连接恢复：文本事件的订阅已经随断开结束，重新订阅；订阅先推一次当前修订号，`onRevision` 据此核对。
 watch(() => props.window.layerNotice.value?.kind === "unavailable", (unavailable, before) => {
     if (before === true && !unavailable) follow();
@@ -157,6 +164,24 @@ onBeforeUnmount(() => {
     stopWatch?.();
     props.window.fileDirty(false);
 });
+
+/**
+ * 取走窗口留着的定位并把光标放过去，行落在文本框中间；没有待定位的位置时什么也不做。文本框要等这一轮渲染之后才拿得到
+ * （第一次读完时它刚从“正在读取”换出来）。
+ */
+async function locate(): Promise<void> {
+    const position = props.window.takeFileLocation(props.layer);
+    if (position === null) return;
+    await nextTick();
+    const area = textarea();
+    if (area === null) return;
+    const at = offsetOf(draft.value, position);
+    area.focus();
+    area.setSelectionRange(at, at);
+    // 浏览器不保证光标可见：按行高把出错的那一行放到文本框中间。取不到行高（不是数）时留给浏览器。
+    const lineHeight = Number.parseFloat(getComputedStyle(area).lineHeight);
+    if (Number.isFinite(lineHeight)) area.scrollTop = Math.max(0, (position.line - 1) * lineHeight - area.clientHeight / 2);
+}
 
 /** 把行与列（从 1 起，列按 UTF-16 码元）换成归一后文本里的偏移。 */
 function offsetOf(content: string, position: LayerTextPosition): number {

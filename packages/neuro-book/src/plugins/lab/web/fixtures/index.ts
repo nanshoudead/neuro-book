@@ -36,6 +36,7 @@ import type NeuroBookLockup from "nbook/ui/brand/NeuroBookLockup.vue";
 import type NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
 import type NeuroBookMood from "nbook/ui/brand/NeuroBookMood.vue";
 import type JsonViewer from "nbook/ui/JsonViewer.vue";
+import type SettingsPageActions from "nbook/ui/settings/SettingsPageActions.vue";
 import type SettingsPageList from "nbook/ui/settings/SettingsPageList.vue";
 import type SettingsRow from "nbook/ui/settings/SettingsRow.vue";
 import type SkillChip from "nbook/ui/SkillChip.vue";
@@ -1090,6 +1091,17 @@ function settingsFixtures(): LabFixture[] {
                 {id: "narrow", label: "560px 宽：控件换到标题下面", input: {props: row(rowDemoSettings.mode, "user")}},
             ],
             load: async () => (await import("./SettingsRowFixture.vue")).default,
+        }),
+        defineLabFixture<typeof SettingsPageActions>({
+            component: "SettingsPageActions",
+            noInput: "操作由插槽给出，层能不能写由窗口通道给出，没有可登记的 JSON 输入",
+            scenes: [
+                {id: "in-place", label: "没有窗口通道：一个操作原位渲染"},
+                {id: "multiple", label: "没有窗口通道：多个操作（按钮与图标按钮）"},
+                {id: "in-title", label: "有窗口通道：操作画在标题区右侧"},
+                {id: "disabled", label: "有窗口通道、这一层不能写：操作整体停用，可切换恢复"},
+            ],
+            load: async () => (await import("./SettingsPageActionsFixture.vue")).default,
         }),
         defineSubjectFixture<typeof SettingsPageList>({
             component: "SettingsPageList",

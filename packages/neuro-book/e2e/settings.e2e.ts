@@ -338,16 +338,28 @@ test("改过的项有已修改标记；恢复默认后键从 settings.json 删�
     expect(written).toContain("// 主题");
 });
 
-test("用户层文件改坏：分区顶部出现说明、控件停用；修好后说明消失、控件恢复", async ({page}) => {
+test("用户层文件改坏：标题区出现警告、控件停用；点警告打开设置文件并把光标放在出错处；修好后警告消失、控件恢复", async ({page}) => {
     await open(page, "/?project=book");
     await workbenchGear(page).click();
     const macos = row(page, "nbook.workbench/theme").getByRole("radio", {name: "macOS"});
     await expect(macos).toBeEnabled();
     await writeFile(userFile(), "{\"nbook.workbench/theme\": \"nbook\",,}");
-    await expect(page.locator("[data-settings-layer-notice='invalid']")).toBeVisible();
+    const warning = page.locator("[data-settings-heading] [data-settings-layer-notice='invalid']");
+    await expect(warning).toBeVisible();
+    await expect(warning).toContainText("设置文件格式有误");
     await expect(macos).toBeDisabled();
+    await warning.click();
+    await expect(page.locator("[data-settings-section='file']")).toBeVisible();
+    const text = page.locator("[data-settings-file-text]");
+    await expect(text).toBeFocused();
+    // 标题区写出错位置；光标就在那一列。
+    const fixing = page.locator("[data-settings-heading] [data-settings-layer-notice='fixing']");
+    await expect(fixing).toContainText(/^第 1 行第 \d+ 列：.+，改好后保存$/u);
+    const column = Number(/第 1 行第 (\d+) 列/u.exec((await fixing.textContent()) ?? "")?.[1]);
+    expect(await text.evaluate((element: HTMLTextAreaElement) => element.selectionStart)).toBe(column - 1);
     await writeFile(userFile(), USER_FILE);
     await expect(page.locator("[data-settings-layer-notice]")).toHaveCount(0);
+    await page.locator("[data-settings-nav='nbook.appearance']").click();
     await expect(macos).toBeEnabled();
 });
 
@@ -427,7 +439,8 @@ test("设置文件视图：看到带注释的全文，改主题后 Ctrl+S 保存
 
     await writeFile(userFile(), "{\"nbook.workbench/theme\": \"nbook\",,}");
     await expect(text).toHaveValue("{\"nbook.workbench/theme\": \"nbook\",,}");
-    await expect(page.locator("[data-settings-layer-notice='invalid']")).toBeVisible();
+    // 已在设置文件视图里：标题区不再给“打开”的按钮，写出错的位置。
+    await expect(page.locator("[data-settings-layer-notice='fixing']")).toBeVisible();
     await text.fill("{\n    \"nbook.workbench/theme\": \"nbook\"\n    \"x\": 1\n}");
     await page.locator("[data-settings-file-actions]").getByRole("button", {name: "保存"}).click();
     await expect(page.locator("[data-settings-file-error]")).toContainText("第 3 行第 5 列");
@@ -470,7 +483,7 @@ test("Lab“模型服务”：打开时才激活；加一家服务商没填好�
         await detail.getByLabel("名称").blur();
         await page.locator("[data-settings-nav='nbook.appearance']").click();
         const dialog = page.getByRole("alertdialog");
-        await expect(dialog).toContainText("放弃未保存的改动？");
+        await expect(dialog).toContainText("放弃未保存的更改？");
         await expect(dialog.getByRole("button", {name: "继续编辑"})).toBeFocused();
         await dialog.getByRole("button", {name: "继续编辑"}).click();
         await expect(dialog).toHaveCount(0);

@@ -23,7 +23,7 @@ import type {DeepReadonly, LayerInspection, SettingDefinition, SettingInspection
 
 import {settingsKey} from "./contracts";
 import {canonical, effectiveOf, supersedes, writeProblem} from "./layers";
-import type {DeclaredSetting, LayerEdit, LayerSnapshot, LayerWriteResult} from "./layers";
+import type {DeclaredSetting, LayerEdit, LayerSnapshot, LayerTextPosition, LayerWriteResult} from "./layers";
 
 export type LinkSubscribe =
     | {readonly ok: true; release(): void}
@@ -55,11 +55,14 @@ export interface SettingsFacade {
     release(): void;
 }
 
-/** 本实例里一层的整体情况；`path` 是拥有者给出的文件路径，没给为 null。 */
+/**
+ * 本实例里一层的整体情况；`path` 是拥有者给出的文件路径，没给为 null。无效时的 `reason`、`position` 来自层快照
+ * （configuration.md 输出 5），读不出文件这类没有语法位置的无效缺省。
+ */
 export type InstanceLayerState =
     | {readonly status: "absent" | "pending" | "unavailable"}
     | {readonly status: "ok"; readonly path: string | null}
-    | {readonly status: "invalid"; readonly detail: string; readonly path: string | null};
+    | {readonly status: "invalid"; readonly detail: string; readonly path: string | null; readonly reason?: string; readonly position?: LayerTextPosition};
 
 export interface SettingsInstance {
     /** 每层收到第一份快照、或超时、或失败之后完成；不会 reject。 */
@@ -285,7 +288,9 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
         if (state === undefined) return {status: "absent"};
         if (state.status !== "live") return {status: state.status};
         const path = state.snapshot.path ?? null;
-        return state.snapshot.status === "ok" ? {status: "ok", path} : {status: "invalid", detail: state.snapshot.detail, path};
+        if (state.snapshot.status === "ok") return {status: "ok", path};
+        const {detail, reason, position} = state.snapshot;
+        return {status: "invalid", detail, path, ...(reason === undefined ? {} : {reason}), ...(position === undefined ? {} : {position})};
     };
 
     return {
