@@ -1,6 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t07-prompt-editor
+status: done
+updated: 2026-10-22
 ---
 
 # 提示词编辑器 PromptEditor
