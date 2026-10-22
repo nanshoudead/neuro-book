@@ -42,7 +42,8 @@ describe("harness 适配器：日志", () => {
         expect(network.messages()[0]).toMatchObject({kind: "error", message: "网络连接出错，请稍后重试。", retryable: true});
     });
 
-    it("运行被停止：最后一条助手消息标为已停止，没等到结果的工具调用标为出错", () => {
+    // 真实 harness 停止时会先写工具结果与一条中止的助手消息（见 harness.contract.test.ts）；这里测的是日志被截断时的降级。
+    it("截断的日志：run_end 时还没有结果的工具调用标为出错，最后一条助手消息标为已停止", () => {
         const transcript = createHarnessTranscript();
         transcript.applyLogEntry(userEntry("查"));
         transcript.applyLogEntry(assistantEntry([call("c9")], "toolUse"));

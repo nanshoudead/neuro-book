@@ -174,6 +174,41 @@ describe("harness 适配器与真实 harness", () => {
         }
     });
 
+    it("工具执行中途停止：真实日志里工具结果与中止的助手消息都在，画出来末尾是已停止，没有错误条目", async () => {
+        const controller = new AbortController();
+        const slow = defineTool({
+            id: "lab.slow", name: "slow", description: "慢工具", finish: false,
+            parameters: {type: "object", properties: {}},
+            execute: async () => {
+                controller.abort();
+                return reply("做完了一半");
+            },
+        });
+        const slowProfile = defineProfile({
+            manifest: {key: "transcript-abort", version: "1", name: "停止", description: "只替模型输出"},
+            initialSchema: Type.Object({}),
+            tools: [slow],
+            context: () => ProfilePrompt({children: [HistorySet()]}),
+        });
+        process.env.NB_AGENT_UI_CONTRACT_KEY = "scripted";
+        const scripted = scriptedModel([[toolCall("s1", "slow")], "不会到"]);
+        const log = createMemorySessionLog({sessionId: "abort"});
+        const model = defineModel({provider: "contract", api: "openai-completions", baseUrl: "http://127.0.0.1:9/v1", id: "scripted", apiKeyEnv: "NB_AGENT_UI_CONTRACT_KEY"});
+        const harness = await createHarness({profile: slowProfile, initial: {}, registry: createToolRegistry(), model, sessionLog: log, streamFn: scripted.streamFn});
+        const result = await harness.turn("跑一下", {signal: controller.signal});
+        await harness.close();
+        expect(result.stopReason).toBe("aborted");
+
+        const entries = [...await log.read()];
+        expect((entries.at(-1) as {kind?: string}).kind).toBe("run_end");
+        const {messages, problems} = fromLog(entries);
+        expect(problems).toEqual([]);
+        expect(messages.some((message) => message.kind === "error")).toBe(false);
+        expect(messages.at(-1)).toMatchObject({kind: "assistant", status: "stopped"});
+        const slowCall = messages.flatMap((message) => (message.kind === "assistant" ? message.toolCalls : [])).find((call) => call.id === "s1");
+        expect(slowCall?.status).not.toBe("running");
+    });
+
     it("免费模型的费用是 0，不是未知", async () => {
         const {entries} = await run({steps: ["回复"], price: true});
         expect(fromLog(entries).messages.at(-1)).toMatchObject({kind: "assistant", usage: {cost: 0}});
