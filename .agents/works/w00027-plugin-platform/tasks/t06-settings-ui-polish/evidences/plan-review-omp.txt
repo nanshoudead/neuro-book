@@ -1,0 +1,132 @@
+### 1. 阻断 · 数据合同
+
+**位置：** `plan.md:60,71`（层警告打开文件并定位）
+
+**现象：** 计划要求层为 `invalid` 时携带 `{line, column}`，点击警告后打开对应文件、把光标放到出错处并标红该行，但当前位置没有从解析器贯通到窗口：`SettingsLayerNotice` 只有 `path/detail` 或 `unavailable`（`packages/neuro-book/src/plugins/settings/web/settings-window.ts:132-133`）；`LayerSnapshot` 只有可选 `path`（`packages/neuro-book/src/plugins/settings/shared/layers.ts:50-60`）；`layer-owner.ts:140-145` 的 `fromText()` 只保留 `parsed.detail`，丢弃解析结果中的位置。
+
+**为什么是问题：** C2/C3 无法仅凭现有公开状态实现确定的定位跳转。读取失败也可能形成 `invalid`，但没有语法位置；计划没有定义无位置时只打开文件的降级，也没有定义未保存确认后、异步读完后何时消费位置。若各切片自行补字段，会出现窗口模型、层数据源和文件视图各自定义位置或把写入失败的位置误当层解析位置。
+
+**如何核实：** `LayerTextPosition` 明确是从 1 起的 `line/column`，但 `LayerTextRead` 的失败分支没有位置，`LayerTextWrite` 失败才可选带位置；无效层快照没有位置字段；窗口的 `layerNotice` 仅从 `source.layer()` 映射 `status/path/detail`。
+
+**建议改法：** 先在计划中定义解析器、层快照/数据源、窗口通知、`SettingsLeaveTarget` 与文件视图的统一位置合同，区分语法解析位置、读失败无位置和写入失败位置；无位置只打开文件，位置在未保存确认通过且目标文件读取完成后一次性消费，未确认或取消不得清掉待定位信息。把这条数据链加入 C2/C3 的类型、行为与 DOM 验收。
+
+### 2. 重要 · 依赖与组件接口
+
+**位置：** `plan.md:41,92-94`（A/B 依赖）
+
+**现象：** B 片明确要求焦点在控件时“受控地打开 Tooltip”，但仓库 `Tooltip` 没有 `open` prop 或变化事件，且文档明确不支持（`packages/nb-ui/src/components/feedback/Tooltip.vue:18-43`、`Tooltip.md:50-53`）。计划把扩展 Tooltip 的决定写成 A 中“若需要”，并允许 A、B 同时开工，只在 B 的说明中写依赖。
+
+**为什么是问题：** 实际上是 B 的 REQUIRED 依赖，不是可选项。并行时 B 无法照公开 API 编译或验证，除非子代理自行假设新接口、跨片改 A 或临时绕过 Tooltip；三个选择都偏离切片边界，必然形成返工。开关 Tooltip `open` 还要与 hover、focus、Escape 的既有局部状态协调，不能仅加同名 prop 就视为完成。
+
+**如何核实：** `Tooltip.vue` 仅声明 `text/placement/delay/disabled`，内部 open 是私有 ref；`Tooltip.md` 将受控打开列入“不支持”。
+
+**建议改法：** 将 `Tooltip` 的受控开闭合同列为 A 的确定交付与验收（包括外部打开不被 hover/close 事件覆盖、Escape 关闭后焦点仍可再次显示），B 硬依赖 A 合入后再开；或者 B 不直接控 Tooltip，而由 Tooltip 组件提供适配其悬停/焦点生命周期的明面接口，A 先定合同。
+
+### 3. 重要 · 正确性与无障碍
+
+**位置：** `plan.md:41-44,51`（字段提示与设置行原因）
+
+**现象：** B 计划要求 `SchemaField` 发 `{error, warnings, status}`，C1 又将字段的错误、选项不可用与“已不存在”警告收成单个 `reason?: {tone, text}`；但没有规定这三个可并存的通道如何映射到单个行图标/Tooltip，还是需要多个图标或合并文案。计划第 43 行说“读屏不变”，却没有指出新图标文本怎样与既有 bare 控件的 error/warning/status 描述保持一致。
+
+**为什么是问题：** `NodeField` 当前分别计算 error、warnings 与 option status（`NodeField.vue:91-99,117-118`）；SchemaField bare 的说明目前把错误、警告和 status 连到控件的 `aria-describedby`，warning/status 还在控件下可见（`FieldShell.vue:64-70,109-114`）。迁移时若 `reason` 只挑首项，会丢掉同时存在的原因；若只把 `reason.text` 放进图标 Tooltip，却沿用既有文字区，会形成重复可见文本；若删旧状态文字，则需明确保留读屏内容和关联。计划没有定义优先级、合并/多图标策略或逐态行为测试。
+
+**如何核实：** `NodeField.vue` 的三个独立计算通道与 `FieldShell.vue` 当前 bare/non-bare 的不同呈现；`SettingsRow.vue:65` 的 `describedby` 目前只含 applies/行说明。另，`SettingsListSection.notSaved()` 使用 `settingErrors()`，后者只保留 severity 为 error 的项；本报告不把 warning 误称为已进入“还没保存”汇总。
+
+**建议改法：** 计划明确单图标多原因合并还是分类型多个图标，定义 error/warning/status 共存时的文案、顺序与可见/读屏呈现；给状态说明分配稳定 id，把控件既有 `aria-describedby` 与行说明 id 合并而非覆盖。测试覆盖三类状态同时出现、bare 与非-bare、Tooltip 聚焦和 Escape 后状态恢复，以及 SchemaForm 汇总/`focusIssue` 原语义不变。
+
+### 4. 重要 · 范围与合同
+
+**位置：** `plan.md:116`（“不做”）
+
+**现象：** 计划明确排除“页面级操作在层坏了时的停用（页面自己的按钮，窗口不接管）”。但任务 README 的设计决定第 11 条明确要求“层坏了时页面操作停用”，评审板 `artifacts/review/index.html:89-92` 也已接受这一行为；设置窗口现有模型已经把层状态公开给页面上下文/视图，计划还要新增 `SettingsPageActions` 承载这些按钮。
+
+**为什么是问题：** “窗口不接管”只说明停用由页面或操作组件负责，不等于可以取消行为。若按“不做”执行，层 `invalid`/`unavailable` 时“添加服务商”“测试连接”“删除”等仍可操作，直接违背已批准的设计与 `settings.window` 输出 13 的边界。页面作者还需要知道当前层是否可写，否则各页面会自行读取不同状态，行为会分裂。
+
+**如何核实：** README 第 43 行写明层坏时页面操作停用；`plan.md:64-66` 只规定 Teleport 目标和出现/消失，没有停用合同；`plan.md:116` 将该行为列为不做。
+
+**建议改法：** 删除“不做”项，明确 `SettingsPageActions` 或 `SettingsPageContext` 的可写状态来源、`invalid` 与 `unavailable` 的停用语义，以及页面级操作在层恢复时自动恢复；在 C2/C4 的 Lab 与行为验收中覆盖 disabled 及恢复，保持“窗口不代替页面决定按钮”的边界。
+
+### 5. 重要 · API 迁移与状态
+
+**位置：** `plan.md:76-78`（`SettingsPageList` 新语义与 Lab 样板）
+
+**现象：** 新组件把 `modelValue: null` 定义为列表、非 null 定义为详情，返回必须写回 `null`；计划只要求“列表、打开、返回与焦点”测试，没有写明 emit 合同要从 `update:modelValue(id: string)` 改为允许 `null`。现有组件明确只发 `string`（`SettingsPageList.vue:21-23`、同名 `.md:44-46`）。Lab 样板的 `selected` 初始值仍是 `GENERAL`（`SampleModelsPage.vue:104`），迁移后初始界面会直接进入“常规”详情而不是服务商列表。
+
+**为什么是问题：** 若保留现有 emit 类型，返回没有受控状态转换，列表无法可靠重现；若靠组件私自清空或修改父状态，会破坏现有受控合同。即使补上 `null`，不调整样板初值仍会跳过列表首屏，导致设计交付看起来像返回入口而非列表加下一级页面。
+
+**如何核实：** 当前 `pick()` 只发所选项 id；Spec 输出 19 规定返回回到列表、焦点回到该项；`SampleModelsPage.vue:104` 将 `selected` 初始化为 `GENERAL`，现有 `current` 逻辑据此直接渲染详情。
+
+**建议改法：** 在计划里明确 `update:modelValue` 发 `string | null`、父级控制返回状态，更新 `.vue/.md` 合同与消费者；Lab 的默认选择初始化为 `null`，仅在点列表项后设 id。补受控的列表→详情→列表与首屏状态测试。
+
+### 6. 重要 · 验收覆盖
+
+**位置：** `plan.md:74-78,110-111`（C4 与 Lab 场景）
+
+**现象：** `SettingsPageList` 是新列表加详情结构，但计划只更新样板 `SampleModelsPage.vue`，没有更新独立 Lab subject fixture。仓库在 `packages/neuro-book/src/plugins/lab/web/fixtures/index.ts:1084-1099` 单独登记了 `SettingsPageList`，它用当前 `modelValue: "deepseek"`、没有默认插槽的场景实例化组件。
+
+**为什么是问题：** 新合同下这个独立场景将以详情模式挂载却没有详情 slot，不能再提供旧列表的视觉验收；`lab:shot` 的规划只说对照 Lab 场景，没有说明迁移/登记此 fixture。截图验收可能因此漏掉破损场景，或者场景成为空详情，仍被误认为通过。
+
+**如何核实：** Lab `settingsFixtures()` 中 `SettingsPageList` 是 `defineSubjectFixture`，与窗口内的 `SampleModelsPage` 分开注册，场景只有 props/model，没有 slot；计划 C4 未提 `fixtures/index.ts`。
+
+**建议改法：** 把 `fixtures/index.ts` 纳入 C4，按新列表合同重做“列表”“打开详情”“返回”场景（subject 需要 slot 时使用 fixture 专用 wrapper），并在收口 Lab 截图清单里保留独立 `SettingsPageList`。
+
+### 7. 重要 · 响应式合同
+
+**位置：** `plan.md:50,63,104-106`（行布局、窄窗口与验收映射）
+
+**现象：** `settings.window` 输出 16 的 planned 条目要求窗口跟着缩到 600px 以下时，放不下的控件行把控件移到标题下面；计划 C2 只写左栏移到顶部、分区横排滚动，C1 只列常规行样式，没有定义或测试行内控件的窄宽重排。截图范围最低为 `600×500`，也没有小于 600px 的窗口宽度场景。
+
+**为什么是问题：** 输出 16 所要求的核心可操作布局在计划中没有实现责任人或验收证据。600px 是窗口本身下限，`600×500` 不能验证窗口窄于 600px 时该合同；行控件若仍按桌面布局，会压缩标题/控件或发生横向溢出。
+
+**如何核实：** 主 Spec 输出 16 的 planned 原文包含“放不下控件的行把控件换到标题下面”；计划 C2 的窄窗口子项只定义导航位置和滚动，截图只列 `1200×800`、`600×500`。
+
+**建议改法：** 给 C1/C2 明确行重排实现与容器宽度判据，并在 DOM/Lab 验收加入低于 600px 的视口（例如 560px），断言标题、控件及尾部操作不重叠且无页面级横向溢出。
+
+### 8. 重要 · 组件生命周期
+
+**位置：** `plan.md:64-66,76,117`（窗口标题通道与详情标题替换）
+
+**现象：** 新 `page-chrome` 将标题替换状态交给窗口持有，`SettingsPageList` 打开详情时写入 `{title, back()}`；但没有规定替换的所有者、清理时机或旧页面清理如何避免覆盖新页面的标题。C2 测试只检查页面操作卸载后消失，C4 只测列表内打开/返回/焦点，没有覆盖标题替换在父页面卸载时的恢复。
+
+**为什么是问题：** Spec 输出 6 规定页面离开分区、搜索、关闭、重试/撤回等会卸载或替换页面实例，而切标签不重建；Teleport 只负责挂载节点，不会自动撤销 provider 中独立保存的标题状态。任一离开路径若漏清理，搜索/其它分区可能残留旧的“返回”和子项标题；旧实例延迟清理还可能抹掉新实例已写的标题。
+
+**如何核实：** Spec 输出 6 明确页面实例按这些动作卸载且切标签时保留；计划引入跨组件的 provide 状态和标题替换，却只把“页面卸载后清理”列作风险，并未规定所有者/代际合同，也没有相应集成验收。
+
+**建议改法：** 定义标题替换由单个页面实例持有、以 token/代际注册和撤销，撤销只清除自身当前值；列明离开分区、搜索、关闭、加载/渲染重试、撤回时清除，切标签时保留。增加 SettingsWindow 集成断言：详情态后逐项触发卸载路径都恢复分区标题；旧代际迟到清理不影响新代际；返回按钮与标题一致。
+
+### 9. 建议 · 组件验收覆盖
+
+**位置：** `plan.md:65,70,82-85,104-111`（新组件和 Lab 清单）
+
+**现象：** 计划新建 `SettingsPageActions`、`SettingsSaveBar` 并要求各自同名 `.md`，但收口的 Lab 截图只列 `SettingsWindow`、`SettingsRow`、`SettingsPageList`、`AlertDialog`，没有这两个新组件的独立场景或行为验收。`SettingsPageActions` 还明确定义“没有通道时就地渲染”这一独立状态。
+
+**为什么是问题：** 可挂载的应用零件按 `docs/standards/code/components.md:169-175` 需在 Component Lab 登记；新组件文档与应用集成测试不能替代其独立状态验收。尤其 `SettingsPageActions` 的 fallback 是实现中特有分支，若 Lab 只测窗口里 Teleport 后的样子，就不会覆盖这条计划明示的降级行为；`SettingsSaveBar` 的 `dirty/busy/message` 状态也没有列入可视验收。
+
+**如何核实：** `plan.md` 的全部 Lab 场景清单不含两个组件；现有 `settingsFixtures()` 只登记窗口、`SettingsRow` 与 `SettingsPageList`（`fixtures/index.ts:1061-1100`）。
+
+**建议改法：** 为两个组件补 Lab fixture：`SettingsPageActions` 覆盖无 provider 的原位渲染及多操作布局，`SettingsSaveBar` 覆盖 pristine、dirty、busy、message 状态；把它们加入截图/行为验收并更新 `fixtures/index.ts`。
+### 10. 建议 · 主题 token 完整性
+
+**位置：** `plan.md:35-37,89-93,98`（新 token 的 A 片与验收）
+
+**现象：** A 新增 `--radius-dialog-compact`，并要求主题可覆盖（nbook 14px、macOS 继承 fallback），但 A 文件清单只列 `tokens.css` 与规范，未安排 `src/theme/tokens.ts` 登记、nbook 主题覆写或主题编写文档；A 的自跑验证只有 nb-ui 测试与类型检查。
+
+**为什么是问题：** 新变量是跨主题公开的主题层 token，不是组件私有常量。`tokens.test.ts` 依赖 `nbThemeTokens` 登记、裸 `:root` fallback，并检查设计 token 与主题层不重叠；主题编写指南从登记表列出可覆写变量（`docs/authoring-themes.md:100-106`）。若只写 CSS fallback 和 nbook vars，`theme-loader` 不会把它放进保留变量集合，第三方主题能用 `declares` 重复定义它；文档也不会向主题作者提供新自由度。
+
+**如何核实：** `src/theme/tokens.ts:76-92,128-134` 汇总主题层 token；`src/theme/tokens.test.ts:23-63` 检查登记、裸 root 基线和层级不重叠；`theme-loader.ts:62-65,90-106` 从 `nbReservedTokens` 建碰撞表；nbook 的 `vars.css:101` 将 `--radius-dialog` 覆盖为 26px。当前计划无 `tokens.ts`、`themes/nbook/vars.css`、`authoring-themes.md` 或 tokens 测试项。
+
+**建议改法：** 将 compact radius 明确登记为主题层 token并纳入根 fallback、nbook 14px 覆写与主题作者指南；保留 macOS 继承默认值；A 验收覆盖 token 登记/碰撞、nbook 与 macOS 两主题的 AlertDialog 实际几何，而不只依赖类型检查。
+### 11. 建议 · 验收映射
+
+**位置：** `plan.md:61,66,104`（搜索高亮）
+
+**现象：** 计划要求搜索结果中标题与说明的命中词渲染 `<mark>`，但 C2 的 DOM 测试清单只写“搜索结果的组标题与页面组”，没有标题/说明的高亮断言；现有搜索 DOM 测试也只验证命中行、无结果、结果数与打开页面，没有验证 `<mark>` 的节点和多词命中。
+
+**为什么是问题：** `<mark>` 是计划明示的可观察行为，不是样式细节；没有验收映射，最容易出现搜索逻辑完成但渲染仍输出普通文本，或只高亮标题不高亮说明。多词搜索还要求每个词命中，计划没有规定高亮按全部命中词处理，容易出现测试只覆盖单词而实现丢一个高亮。
+
+**如何核实：** `SettingsWindow.vue:295-301` 当前直接插值 `hit.title`/`hit.description`；`SettingsWindow.dom.test.ts:327-383` 无 `<mark>` 断言；`plan.md:61,66,104` 只把搜索结果分组映射到 DOM 测试。
+
+**建议改法：** 将高亮渲染列为 C2 的独立行为验收：标题和说明分别覆盖单词命中、多个词命中、大小写与特殊字符转义，断言文本总值不变且 `<mark>` 仅包围命中片段；页面命中与 list 行都覆盖。
+
+
+
