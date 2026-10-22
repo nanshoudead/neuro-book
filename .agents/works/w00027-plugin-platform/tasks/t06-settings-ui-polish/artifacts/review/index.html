@@ -52,7 +52,8 @@ pre code { background: none; padding: 0; }
 <div class="toc">
 <b>目录</b>
 <ol>
-<li><a href="#r2">还原之后</a>（待定）</li>
+<li><a href="#r3">新字号上的紧凑度与字重</a>（待定）</li>
+<li><a href="#r2">还原之后</a>（已定：不通过）</li>
 <li><a href="#r1">还原 t80 定稿：逐项对照</a></li>
 <li><a href="#now">现状</a></li>
 <li><a href="#diff">与 t80 定稿的差别、t80 之后新增的界面</a></li>
@@ -61,6 +62,47 @@ pre code { background: none; padding: 0; }
 </ol>
 </div>
 
+
+<h2 id="r3">新字号上的紧凑度与字重（2026-10-22）</h2>
+<p>上一轮“还原后的外观”开发者不通过：不够紧凑，字小、粗体少。字号已经由 w00030 t04 恢复大一档（正文 14px、控件 28/34/42px）并合进 Work 分支，下面的候选都画在新字号上。草稿套在真实的设置窗口外面，只改样式；画布 960×640，NeuroBook 主题。t80 定稿的样子见本页最后的“参照”。左栏当前项的蓝色焦点环是 Lab 截图时没有交互造成的，真实应用里鼠标点开时没有。</p>
+
+<section data-nbdev-question="r3-density" data-nbdev-type="single" data-nbdev-recommend="compact">
+<h3><span class="tag warn" data-nbdev-skip>待定</span> 紧凑度选哪一档</h3>
+<table>
+<tr><th></th><th>A 现状</th><th>B 紧凑（推荐）</th><th>C 更紧凑</th></tr>
+<tr><td>左栏</td><td>180px 宽，条目 34px 高</td><td>168px，条目 28px，分隔线上下 6px</td><td>同 B</td></tr>
+<tr><td>窗口与内容的边距</td><td>标题、标签、分栏之间 12px；内容左边 24px</td><td>8px；内容左边 16px</td><td>同 B</td></tr>
+<tr><td>设置项</td><td>上下各 8px，说明与名字隔 2px</td><td>上下各 6px，说明紧贴名字</td><td>同 B</td></tr>
+<tr><td>分组之间、页面标题下</td><td>24px、16px</td><td>16px、12px</td><td>同 B</td></tr>
+<tr><td>内容区的控件</td><td>34px 高</td><td>34px</td><td>28px（与左栏条目同高）</td></tr>
+</table>
+<div class="grid">
+<div data-nbdev-option="now" data-nbdev-label="A 现状"><figure><a href="r3/d-other-now.webp"><img src="r3/d-other-now.webp" alt=""></a><figcaption><b>A 现状</b> · 其它</figcaption></figure></div>
+<div data-nbdev-option="compact" data-nbdev-label="B 紧凑"><figure><a href="r3/d-other-compact.webp"><img src="r3/d-other-compact.webp" alt=""></a><figcaption><b>B 紧凑</b> · 其它</figcaption></figure></div>
+<div data-nbdev-option="tight" data-nbdev-label="C 更紧凑"><figure><a href="r3/d-other-tight.webp"><img src="r3/d-other-tight.webp" alt=""></a><figcaption><b>C 更紧凑</b> · 其它</figcaption></figure></div>
+</div>
+<p class="rec">推荐 B：同一屏多放两三项，行与行之间仍分得清；C 的控件比文字行还矮，输入框和下拉里的 14px 字显得挤，和工作台其它地方的输入框也不再一样高。</p>
+<details><summary>三档在外观、其它、模型服务三页的全部截图</summary><div class="grid"><figure><a href="r3/d-user-now.webp"><img src="r3/d-user-now.webp" alt=""></a><figcaption><b>A 现状</b> · 外观</figcaption></figure><figure><a href="r3/d-user-compact.webp"><img src="r3/d-user-compact.webp" alt=""></a><figcaption><b>B 紧凑</b> · 外观</figcaption></figure><figure><a href="r3/d-user-tight.webp"><img src="r3/d-user-tight.webp" alt=""></a><figcaption><b>C 更紧凑</b> · 外观</figcaption></figure><figure><a href="r3/d-other-now.webp"><img src="r3/d-other-now.webp" alt=""></a><figcaption><b>A 现状</b> · 其它</figcaption></figure><figure><a href="r3/d-other-compact.webp"><img src="r3/d-other-compact.webp" alt=""></a><figcaption><b>B 紧凑</b> · 其它</figcaption></figure><figure><a href="r3/d-other-tight.webp"><img src="r3/d-other-tight.webp" alt=""></a><figcaption><b>C 更紧凑</b> · 其它</figcaption></figure><figure><a href="r3/d-page-fill-now.webp"><img src="r3/d-page-fill-now.webp" alt=""></a><figcaption><b>A 现状</b> · 模型服务</figcaption></figure><figure><a href="r3/d-page-fill-compact.webp"><img src="r3/d-page-fill-compact.webp" alt=""></a><figcaption><b>B 紧凑</b> · 模型服务</figcaption></figure><figure><a href="r3/d-page-fill-tight.webp"><img src="r3/d-page-fill-tight.webp" alt=""></a><figcaption><b>C 更紧凑</b> · 模型服务</figcaption></figure></div></details>
+</section>
+
+<section data-nbdev-question="r3-weight" data-nbdev-type="single" data-nbdev-recommend="titles">
+<h3><span class="tag warn" data-nbdev-skip>待定</span> 字重层级选哪一种</h3>
+<p>三种都画在 B 紧凑上。</p>
+<table>
+<tr><th></th><th>现状</th><th>加强标题（推荐）</th><th>全面加粗</th></tr>
+<tr><td>页面标题（外观、模型服务）</td><td>16px 半粗</td><td>20px 半粗</td><td>同左</td></tr>
+<tr><td>分组标题（界面、语言、插件名）</td><td>12px 半粗，灰色</td><td>14px 半粗，正文色</td><td>同左</td></tr>
+<tr><td>设置项名、列表项名</td><td>14px 中等</td><td>14px 中等</td><td>14px 半粗</td></tr>
+<tr><td>左栏当前项</td><td>中等</td><td>中等</td><td>半粗</td></tr>
+</table>
+<div class="grid">
+<div data-nbdev-option="now" data-nbdev-label="现状字重"><figure><a href="r3/d-user-compact.webp"><img src="r3/d-user-compact.webp" alt=""></a><figcaption><b>现状字重</b> · 外观</figcaption></figure></div>
+<div data-nbdev-option="titles" data-nbdev-label="加强标题"><figure><a href="r3/w-user-titles.webp"><img src="r3/w-user-titles.webp" alt=""></a><figcaption><b>加强标题</b> · 外观</figcaption></figure></div>
+<div data-nbdev-option="bold" data-nbdev-label="全面加粗"><figure><a href="r3/w-user-bold.webp"><img src="r3/w-user-bold.webp" alt=""></a><figcaption><b>全面加粗</b> · 外观</figcaption></figure></div>
+</div>
+<p class="rec">推荐加强标题：页面、分组、设置项三级靠字号和颜色拉开，一眼能找到分组；全面加粗时每一行的名字都是粗的，标题反而不突出，长页面上满屏粗字。</p>
+<details><summary>三种在外观、其它、模型服务三页的全部截图</summary><div class="grid"><figure><a href="r3/d-user-compact.webp"><img src="r3/d-user-compact.webp" alt=""></a><figcaption><b>现状字重</b> · 外观</figcaption></figure><figure><a href="r3/w-user-titles.webp"><img src="r3/w-user-titles.webp" alt=""></a><figcaption><b>加强标题</b> · 外观</figcaption></figure><figure><a href="r3/w-user-bold.webp"><img src="r3/w-user-bold.webp" alt=""></a><figcaption><b>全面加粗</b> · 外观</figcaption></figure><figure><a href="r3/d-other-compact.webp"><img src="r3/d-other-compact.webp" alt=""></a><figcaption><b>现状字重</b> · 其它</figcaption></figure><figure><a href="r3/w-other-titles.webp"><img src="r3/w-other-titles.webp" alt=""></a><figcaption><b>加强标题</b> · 其它</figcaption></figure><figure><a href="r3/w-other-bold.webp"><img src="r3/w-other-bold.webp" alt=""></a><figcaption><b>全面加粗</b> · 其它</figcaption></figure><figure><a href="r3/d-page-fill-compact.webp"><img src="r3/d-page-fill-compact.webp" alt=""></a><figcaption><b>现状字重</b> · 模型服务</figcaption></figure><figure><a href="r3/w-page-fill-titles.webp"><img src="r3/w-page-fill-titles.webp" alt=""></a><figcaption><b>加强标题</b> · 模型服务</figcaption></figure><figure><a href="r3/w-page-fill-bold.webp"><img src="r3/w-page-fill-bold.webp" alt=""></a><figcaption><b>全面加粗</b> · 模型服务</figcaption></figure></div></details>
+</section>
 
 <h2 id="r2">还原之后（2026-10-21）</h2>
 <p>按上一节的逐项对照改完（Work 分支 <code>feat/w00027-plugin-platform</code>，截图来自 Component Lab 与真实应用，窗口 960×640，NeuroBook 主题）。左边是 t80 定稿，右边是现在。</p>
@@ -73,7 +115,8 @@ pre code { background: none; padding: 0; }
 </div>
 
 <section data-nbdev-question="r2-accept" data-nbdev-type="confirm">
-<h3><span class="tag warn" data-nbdev-skip>待定</span> 还原后的外观可以了吗</h3>
+<h3><span class="tag bad" data-nbdev-skip>已定</span> 还原后的外观可以了吗</h3>
+<p><b>开发者的决定（2026-10-22）：不通过。</b>不够紧凑，字小、粗体少；先把主题字号恢复大一档（w00030 t04，已完成），再在新字号上重出（上面一节）。</p>
 <p>可以的话，t06 剩下只读外观等三处 t80 没定过的，另出一轮静态稿（见下）。不可以的话，在评论里写哪里还不对。</p>
 </section>
 
