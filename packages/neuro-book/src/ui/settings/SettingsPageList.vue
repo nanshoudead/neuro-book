@@ -84,7 +84,8 @@ watch(() => opened.value?.id, async (id, before) => {
     await nextTick();
     const active = document.activeElement;
     if (active !== null && active !== document.body && active.isConnected) return;
-    root.value?.querySelector<HTMLElement>("[data-settings-page-list-detail]")?.focus();
+    // 不滚动：详情比视野高时浏览器会把它的顶边滚到最上面，窄窗口里标题区（返回在那里）就被滚走了。
+    root.value?.querySelector<HTMLElement>("[data-settings-page-list-detail]")?.focus({preventScroll: true});
 });
 
 /**
