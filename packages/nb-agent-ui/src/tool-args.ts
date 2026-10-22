@@ -70,3 +70,32 @@ export function parsePatchChanges(patch: string): FileChangeView[] {
     }
     return changes;
 }
+
+const HASHLINE_FILE = /^\[([^\]#]+)#[^\]]*\]/u;
+
+/**
+ * nb-harness 内置 edit 的参数是一段 `input` 文本：补丁格式（`*** Update File: 路径`），或 hashline 格式（每个文件以
+ * `[路径#标记]` 开头，后面是行锚操作）。工具跑完后 `result.details.files` 列出真正改到的文件，以它为准；还没有结果时
+ * 从 input 里认。hashline 的行锚操作不展开，增删行数未知（null）。旧工具的 `{path, edits}` 写法另由调用方处理。
+ */
+export function editInputChanges(call: ToolCallView): FileChangeView[] {
+    const input = argString(call, "input");
+    const fromPatch = parsePatchChanges(input);
+    const details = call.result?.details;
+    const files = details !== null && typeof details === "object" && !Array.isArray(details) && Array.isArray(details.files) ? details.files : null;
+    if (files !== null) {
+        return files.flatMap((file) => {
+            const path = objectString(file, "path");
+            if (path === null) return [];
+            const counted = fromPatch.find((change) => change.path === path);
+            return [counted ?? {path, added: null, removed: null}];
+        });
+    }
+    if (fromPatch.length > 0) return fromPatch;
+    const paths = new Set<string>();
+    for (const line of input.split("\n")) {
+        const header = HASHLINE_FILE.exec(line.trim());
+        if (header !== null) paths.add(header[1]!.trim());
+    }
+    return [...paths].map((path) => ({path, added: null, removed: null}));
+}

@@ -11,7 +11,7 @@ import AgentFileContentDetail from "./tools/AgentFileContentDetail.vue";
 import AgentFileDiffDetail from "./tools/AgentFileDiffDetail.vue";
 import AgentTaskListNode from "./tools/AgentTaskListNode.vue";
 import {TASK_TOOL_NAMES} from "../task-list";
-import {argArray, argString, countLines, objectString, parsePatchChanges} from "../tool-args";
+import {argArray, argString, countLines, editInputChanges, objectString, parsePatchChanges} from "../tool-args";
 
 const noEffects = (): ToolEffects => ({read: [], changed: []});
 
@@ -30,10 +30,12 @@ function writeEffects(call: ToolCallView): ToolEffects {
 }
 
 /**
- * 按替换片段的行数近似统计：oldText 计为删除、newText 计为新增。
+ * nb-harness 的 edit（参数是 `input`）按 `editInputChanges`；旧的 `{path, edits}` 写法按替换片段的行数近似统计：
+ * oldText 计为删除、newText 计为新增。
  * 片段内未变的行也会被计入，所以数字偏大；精确 diff 需要文件原文，视图拿不到。
  */
 function editEffects(call: ToolCallView): ToolEffects {
+    if (argString(call, "input") !== "") return {read: [], changed: editInputChanges(call)};
     const path = argString(call, "path");
     if (path === "") {
         return noEffects();
@@ -87,7 +89,7 @@ const tools: ToolRendererEntry[] = [
     },
     {
         id: "edit", toolNames: ["edit"], category: "mutate", icon: "i-lucide-file-pen",
-        label: {key: "tool.edit"}, summary: (call) => argString(call, "path"),
+        label: {key: "tool.edit"}, summary: (call) => argString(call, "path") || editInputChanges(call).map((change) => change.path).join(", "),
         effects: editEffects, presentation: "line", detail: AgentFileDiffDetail,
     },
     {

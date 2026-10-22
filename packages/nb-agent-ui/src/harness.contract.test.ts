@@ -6,14 +6,20 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {createHarness, createToolRegistry, defineModel, defineTool, serializeAgentEvent} from "@notnotype/nb-harness";
+import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
+import {join} from "node:path";
+
+import {createHarness, createToolRegistry, defineModel, defineTool, registerBuiltinTools, serializeAgentEvent} from "@notnotype/nb-harness";
 import {scriptedModel, toolCall} from "@notnotype/nb-harness/testing";
 import type {ScriptedInput} from "@notnotype/nb-harness/testing";
-import {defineProfile, HistorySet, ProfilePrompt} from "@notnotype/nb-profile";
+import {defineProfile, HistorySet, ProfilePrompt, toolRef} from "@notnotype/nb-profile";
 import {createMemorySessionLog} from "@notnotype/nb-session";
+import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {Type} from "typebox";
 
 import {createHarnessTranscript} from "./harness";
+import {editInputChanges} from "./tool-args";
+import {fileDiffLines} from "./tool-detail-lines";
 import type {MessageView} from "./types";
 
 const reply = (text: string) => ({content: [{type: "text" as const, text}]});
@@ -126,14 +132,46 @@ describe("harness 适配器与真实 harness", () => {
         expect(messages).toEqual([expect.objectContaining({kind: "error", message: "模型服务的密钥缺失或无效，请检查设置。", retryable: false})]);
     });
 
-    it("中途停止：没有错误条目，助手消息若已写进日志则标为已停止", async () => {
+    it("中途停止：没有错误条目，这一轮末尾是一条已停止的回复（模型还没开口时补一条空的）", async () => {
         const {entries} = await run({steps: [], abort: true});
         const {messages, problems} = fromLog(entries);
         expect(problems).toEqual([]);
         expect(messages.some((message) => message.kind === "error")).toBe(false);
-        const last = messages.at(-1);
-        if (last?.kind === "assistant") expect(last.status).toBe("stopped");
-        else expect(last?.kind).toBe("user");
+        expect(messages.at(-1)).toMatchObject({kind: "assistant", status: "stopped"});
+    });
+
+    it("nb-harness 内置的 edit（参数是一段 input）：改到的文件与 diff 从真实调用里认得出", async () => {
+        const root = await createTestTmpRoot("nb-agent-ui", "harness-edit");
+        try {
+            await mkdir(join(root, "正文"), {recursive: true});
+            await writeFile(join(root, "正文", "第三章.md"), "钟声敲到第十一下\n");
+            const registry = createToolRegistry();
+            registerBuiltinTools(registry, {edit: {cwd: root, mode: "apply_patch"}});
+            const editProfile = defineProfile({
+                manifest: {key: "transcript-edit", version: "1", name: "改文件", description: "只替模型输出"},
+                initialSchema: Type.Object({}),
+                tools: [toolRef("builtin.edit")],
+                context: () => ProfilePrompt({children: [HistorySet()]}),
+            });
+            process.env.NB_AGENT_UI_CONTRACT_KEY = "scripted";
+            const patch = "*** Begin Patch\n*** Update File: 正文/第三章.md\n@@\n-钟声敲到第十一下\n+钟声敲到第十二下\n*** End Patch";
+            const scripted = scriptedModel([[toolCall("e1", "edit", {input: patch})], "改好了。"]);
+            const log = createMemorySessionLog({sessionId: "edit"});
+            const model = defineModel({provider: "contract", api: "openai-completions", baseUrl: "http://127.0.0.1:9/v1", id: "scripted", apiKeyEnv: "NB_AGENT_UI_CONTRACT_KEY"});
+            const harness = await createHarness({profile: editProfile, initial: {}, registry, model, sessionLog: log, streamFn: scripted.streamFn});
+            await harness.turn("把钟声改成十二下");
+            await harness.close();
+            expect(await readFile(join(root, "正文", "第三章.md"), "utf8")).toContain("十二下");
+
+            const {messages, problems} = fromLog([...await log.read()]);
+            expect(problems).toEqual([]);
+            const edit = messages.flatMap((message) => (message.kind === "assistant" ? message.toolCalls : [])).find((call) => call.id === "e1");
+            expect(edit?.status).toBe("success");
+            expect(editInputChanges(edit!).map((change) => change.path)).toEqual(["正文/第三章.md"]);
+            expect(fileDiffLines(edit!).some((line) => line.tone === "added" && line.text.includes("十二下"))).toBe(true);
+        } finally {
+            await rm(root, {recursive: true, force: true});
+        }
     });
 
     it("免费模型的费用是 0，不是未知", async () => {

@@ -2,7 +2,7 @@
  * 把工具调用整理成代码块的行，供工具详情组件使用。纯函数，不依赖 Vue，便于测试。
  */
 import type {JsonValue, ToolCallView} from "./types";
-import {argArray, argNumber, argString, objectString} from "./tool-args";
+import {argArray, argNumber, argString, objectString, parsePatchChanges} from "./tool-args";
 
 export type CodeLine = {text: string; tone?: "added" | "removed" | "muted"};
 
@@ -26,7 +26,7 @@ export function fileContentLines(call: ToolCallView): {lines: CodeLine[]; startL
 
 /**
  * 改文件的 diff 行：edit 的每个片段先删后增，片段之间一行淡色省略号；write 全部是新增；
- * apply_patch 按补丁自身的行首符号着色。
+ * apply_patch 按补丁自身的行首符号着色；nb-harness 的 edit（参数是 `input`）见下。
  */
 export function fileDiffLines(call: ToolCallView): CodeLine[] {
     if (call.name === "write") {
@@ -34,6 +34,13 @@ export function fileDiffLines(call: ToolCallView): CodeLine[] {
     }
     if (call.name === "apply_patch") {
         return splitLines(argString(call, "patch")).map(patchLine);
+    }
+    // nb-harness 的 edit：参数是一段 input。补丁格式本身就带增删行，直接按补丁显示。hashline 格式只有行锚操作，看不出
+    // 改成了什么；工具的结果正文是改完之后的那几行（`[路径]` 加带行号的内容），有结果时显示它，没有时显示 input 原文。
+    const input = argString(call, "input");
+    if (input !== "") {
+        if (parsePatchChanges(input).length > 0) return splitLines(input).map(patchLine);
+        return textLines(call.result?.text || input);
     }
     const lines: CodeLine[] = [];
     argArray(call, "edits").forEach((edit: JsonValue, index) => {
@@ -47,7 +54,8 @@ export function fileDiffLines(call: ToolCallView): CodeLine[] {
 }
 
 function patchLine(line: string): CodeLine {
-    if (line.startsWith("***") || line.startsWith("@@")) {
+    // unified diff 的文件头（`--- 路径`、`+++ 路径`）不是增删行。
+    if (line.startsWith("***") || line.startsWith("@@") || line.startsWith("--- ") || line.startsWith("+++ ")) {
         return {text: line, tone: "muted"};
     }
     if (line.startsWith("+")) {

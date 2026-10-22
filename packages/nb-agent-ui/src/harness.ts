@@ -69,15 +69,24 @@ function contentText(content: unknown): string {
     return content.flatMap((block) => (isRecord(block) && block.type === "text" && typeof block.text === "string" ? [block.text] : [])).join("");
 }
 
-function imageBlocks(content: unknown): ContentBlockView[] {
-    if (!Array.isArray(content)) return [];
+/** base64 解码后的字节数：每 4 个字符 3 字节，扣掉末尾的 `=` 补位。 */
+function base64Bytes(data: string): number {
+    const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+    return Math.max(0, Math.floor((data.length * 3) / 4) - padding);
+}
+
+/** 用户消息的内容块，按原来的先后：图片的位置是模型输入的一部分（docs/specs/ui/agent-conversation-view.md“输入框与待处理区”）。 */
+function userBlocks(content: string | readonly unknown[]): ContentBlockView[] {
+    if (typeof content === "string") return content === "" ? [] : [{kind: "text", text: content}];
     return content.flatMap((block): ContentBlockView[] => {
-        if (!isRecord(block) || block.type !== "image") return [];
+        if (!isRecord(block)) return [];
+        if (block.type === "text" && typeof block.text === "string") return block.text === "" ? [] : [{kind: "text", text: block.text}];
+        if (block.type !== "image") return [];
         const data = stringField(block, "data");
         const mimeType = stringField(block, "mimeType");
         if (data === null || mimeType === null) return [];
         // harness 只给 base64，没有附件地址：定位符写成 data: 地址，宿主的 resolveAttachmentUrl 原样返回即可。
-        return [{kind: "attachment", locator: `data:${mimeType};base64,${data}`, name: mimeType, mimeType, bytes: Math.floor((data.length * 3) / 4)}];
+        return [{kind: "attachment", locator: `data:${mimeType};base64,${data}`, name: mimeType, mimeType, bytes: base64Bytes(data)}];
     });
 }
 
@@ -101,8 +110,12 @@ export function createHarnessTranscript(options: HarnessTranscriptOptions = {}):
     const openCalls = new Map<string, number>();
     const seenCallIds = new Set<string>();
 
-    /** 正在生成的助手消息（事件拼出），与工具的临时状态。 */
+    /**
+     * 正在生成的助手消息（事件拼出），与工具的临时状态。`liveStamp` 是它的 OMP `timestamp`：日志里同一条消息到了才把它换掉。
+     * 前一条消息的日志可能晚于下一条消息的事件到达，只按“来了一条助手日志”就清会把正在生成的下一条一起清掉。
+     */
     let live: AssistantMessageView | null = null;
+    let liveStamp: number | null = null;
     const liveTools = new Map<string, {status: ToolCallView["status"]; result?: ToolCallView["result"]; error?: string}>();
 
     const problem = (source: string, reason: string): void => {
@@ -147,12 +160,19 @@ export function createHarnessTranscript(options: HarnessTranscriptOptions = {}):
         const at = numberField(message, "timestamp") ?? timestamp;
         switch (message.role) {
             case "user": {
-                const text = contentText(message.content);
-                const blocks: ContentBlockView[] = [...(text === "" ? [] : [{kind: "text" as const, text}]), ...imageBlocks(message.content)];
-                logged.push({kind: "user", id, timestamp: at, intent: message.steering === true ? "steer" : "normal", blocks, contentOmitted: false});
+                const content = message.content;
+                if (typeof content !== "string" && !Array.isArray(content)) {
+                    problem(source, "用户消息缺 content");
+                    return;
+                }
+                logged.push({kind: "user", id, timestamp: at, intent: message.steering === true ? "steer" : "normal", blocks: userBlocks(content), contentOmitted: false});
                 return;
             }
             case "assistant": {
+                if (!Array.isArray(message.content) || typeof message.stopReason !== "string") {
+                    problem(source, "助手消息缺 content 或 stopReason");
+                    return;
+                }
                 const view = assistantFrom(message, id, at, settledStatus(message), source);
                 view.toolCalls = view.toolCalls.filter((call) => {
                     if (seenCallIds.has(call.id)) {
@@ -164,12 +184,20 @@ export function createHarnessTranscript(options: HarnessTranscriptOptions = {}):
                     return true;
                 });
                 logged.push(view);
-                // 日志里这条到了，事件拼出的临时版本作废。
-                live = null;
+                // 日志里这条到了，事件拼出的临时版本作废；时间戳对不上的是下一条，留着。
+                const stamp = numberField(message, "timestamp");
+                if (liveStamp === null || stamp === null || stamp === liveStamp) {
+                    live = null;
+                    liveStamp = null;
+                }
                 return;
             }
             case "toolResult": {
                 const callId = stringField(message, "toolCallId");
+                if (!Array.isArray(message.content) || typeof message.isError !== "boolean") {
+                    problem(source, "工具结果缺 content 或 isError");
+                    return;
+                }
                 const index = callId === null ? undefined : openCalls.get(callId);
                 const owner = index === undefined ? undefined : logged[index];
                 if (callId === null || index === undefined || owner?.kind !== "assistant") {
@@ -178,7 +206,7 @@ export function createHarnessTranscript(options: HarnessTranscriptOptions = {}):
                 }
                 openCalls.delete(callId);
                 liveTools.delete(callId);
-                const isError = message.isError === true;
+                const isError = message.isError;
                 const text = contentText(message.content);
                 logged[index] = {...owner, toolCalls: owner.toolCalls.map((call) => (call.id !== callId ? call : {
                     ...call,
@@ -212,6 +240,7 @@ export function createHarnessTranscript(options: HarnessTranscriptOptions = {}):
 
     function applyRunEnd(entry: JsonRecord, seq: number, timestamp: number): void {
         live = null;
+        liveStamp = null;
         liveTools.clear();
         // 这次运行里没等到结果的工具调用不会再有结果了。
         for (const [callId, index] of openCalls) {
@@ -221,7 +250,12 @@ export function createHarnessTranscript(options: HarnessTranscriptOptions = {}):
         openCalls.clear();
         if (entry.stopReason === "aborted") {
             const last = logged.at(-1);
-            if (last?.kind === "assistant") logged[logged.length - 1] = {...last, status: "stopped"};
+            if (last?.kind === "assistant") {
+                logged[logged.length - 1] = {...last, status: "stopped"};
+                return;
+            }
+            // 模型还没开口就被停了：补一条空的“已停止”回复，分轮层才会在这一轮末尾写“已停止”，不当作普通完成。
+            logged.push({kind: "assistant", id: `h${String(seq)}`, timestamp, status: "stopped", text: "", thinking: "", model: "", toolCalls: [], contentOmitted: false});
             return;
         }
         const error = isRecord(entry.error) ? entry.error : {};
@@ -286,9 +320,12 @@ export function createHarnessTranscript(options: HarnessTranscriptOptions = {}):
                     }
                     // 用户消息与工具结果的事件不画：它们在日志里马上就到。
                     if (event.message.role !== "assistant") return;
-                    const id = live?.id ?? `live${String(lastSeq)}`;
-                    const timestamp = live?.timestamp ?? numberField(event.message, "timestamp") ?? 0;
-                    live = assistantFrom(event.message, id, timestamp, "streaming", source);
+                    const stamp = numberField(event.message, "timestamp");
+                    // 同一条消息沿用 id，Vue 的 key 不跳；换了一条（时间戳不同）才换 id。
+                    const same = live !== null && stamp === liveStamp;
+                    const id = same ? live!.id : `live${String(lastSeq)}-${String(stamp ?? 0)}`;
+                    live = assistantFrom(event.message, id, stamp ?? 0, "streaming", source);
+                    liveStamp = stamp;
                     return;
                 }
                 case "tool_execution_start":
@@ -298,6 +335,8 @@ export function createHarnessTranscript(options: HarnessTranscriptOptions = {}):
                         problem(source, "缺 toolCallId");
                         return;
                     }
+                    // 日志里已经有这个调用的结果了：日志为准，晚到的事件不再盖上去。
+                    if (seenCallIds.has(callId) && !openCalls.has(callId)) return;
                     if (event.type === "tool_execution_start") {
                         liveTools.set(callId, {status: "running"});
                         return;
@@ -305,15 +344,25 @@ export function createHarnessTranscript(options: HarnessTranscriptOptions = {}):
                     const isError = event.isError === true;
                     const result = isRecord(event.result) ? event.result : {};
                     const text = contentText(result.content);
-                    liveTools.set(callId, {status: isError ? "error" : "success", result: {text, truncated: false}, ...(isError ? {error: text} : {})});
+                    const details = result.details === undefined ? {} : {details: toJsonValue(result.details)};
+                    liveTools.set(callId, {status: isError ? "error" : "success", result: {text, truncated: false, ...details}, ...(isError ? {error: text} : {})});
                     return;
                 }
                 case "agent_end":
                     live = null;
+                    liveStamp = null;
                     liveTools.clear();
                     return;
+                // 对视图没有新信息的事件：消息结束以日志为准，工具的中途进度不显示。
+                case "agent_start":
+                case "turn_start":
+                case "turn_end":
+                case "message_end":
+                case "tool_execution_update":
+                case "tool_stream_update":
+                    return;
                 default:
-                    // 其余事件（turn_start、tool_execution_update 等）对视图没有新信息。
+                    problem(source, `不认识的事件：${event.type}`);
                     return;
             }
         },

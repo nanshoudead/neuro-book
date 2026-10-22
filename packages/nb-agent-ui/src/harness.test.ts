@@ -6,7 +6,7 @@ const AT = "2026-10-22T08:00:00.000Z";
 let seq = 0;
 const entry = (kind: string, fields: Record<string, unknown> = {}) => ({kind, seq: ++seq, at: AT, ...fields});
 const userEntry = (text: string) => entry("agent_message", {message: {role: "user", content: text, timestamp: 1}});
-const assistantEntry = (content: unknown[], stopReason = "stop") => entry("agent_message", {message: {role: "assistant", content, model: "scripted", stopReason, timestamp: 2}});
+const assistantEntry = (content: unknown[], stopReason = "stop", timestamp = 2) => entry("agent_message", {message: {role: "assistant", content, model: "scripted", stopReason, timestamp}});
 const resultEntry = (toolCallId: string, text: string, isError = false) => entry("agent_message", {message: {role: "toolResult", toolCallId, toolName: "lookup", content: [{type: "text", text}], isError, timestamp: 3}});
 const usageEntry = (cost: number | null) => entry("usage", {input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost});
 const call = (id: string) => ({type: "toolCall", id, name: "lookup", arguments: {query: "雨夜"}});
@@ -77,6 +77,9 @@ describe("harness 适配器：日志", () => {
             resultEntry("c-missing", "没有对应的调用"),
             entry("usage", {input: "十"}),
             entry("something_new"),
+            entry("agent_message", {message: {role: "assistant"}}),
+            entry("agent_message", {message: {role: "toolResult", toolCallId: "c3", toolName: "lookup"}}),
+            entry("agent_message", {message: {role: "user"}}),
         ]) expect(() => transcript.applyLogEntry(item)).not.toThrow();
         expect(transcript.messages().map((message) => message.kind)).toEqual(["user", "assistant", "assistant", "assistant"]);
         expect(transcript.problems().map((problem) => problem.reason)).toEqual([
@@ -89,6 +92,9 @@ describe("harness 适配器：日志", () => {
             "工具结果找不到对应的调用：c-missing",
             "usage 缺数字字段",
             "不认识的条目：something_new",
+            "助手消息缺 content 或 stopReason",
+            "工具结果缺 content 或 isError",
+            "用户消息缺 content",
         ]);
     });
 });
@@ -107,7 +113,7 @@ describe("harness 适配器：事件", () => {
         transcript.applyEvent({type: "tool_execution_start", toolCallId: "c4", toolName: "lookup", args: {}});
 
         // 日志里这条助手消息到了：临时版本作废，工具的临时状态照样盖在日志版本上。
-        transcript.applyLogEntry(assistantEntry([{type: "text", text: "我查一下。"}, call("c4")], "toolUse"));
+        transcript.applyLogEntry(assistantEntry([{type: "text", text: "我查一下。"}, call("c4")], "toolUse", 5));
         expect(transcript.messages()).toHaveLength(2);
         const logged = transcript.messages()[1];
         expect(logged).toMatchObject({kind: "assistant", status: "done", text: "我查一下。"});
@@ -124,7 +130,54 @@ describe("harness 适配器：事件", () => {
         transcript.applyEvent({type: "turn_start"});
         transcript.applyEvent({type: "agent_end", messages: []});
         expect(transcript.messages()).toEqual([]);
-        for (const event of [null, {type: 3}, {type: "message_update"}, {type: "tool_execution_start"}]) expect(() => transcript.applyEvent(event)).not.toThrow();
-        expect(transcript.problems().map((problem) => problem.reason)).toEqual(["不是带 type 的对象", "不是带 type 的对象", "缺 message", "缺 toolCallId"]);
+        for (const event of [null, {type: 3}, {type: "message_update"}, {type: "tool_execution_start"}, {type: "future_agent_event"}]) expect(() => transcript.applyEvent(event)).not.toThrow();
+        expect(transcript.problems().map((problem) => problem.reason)).toEqual(["不是带 type 的对象", "不是带 type 的对象", "缺 message", "缺 toolCallId", "不认识的事件：future_agent_event"]);
+    });
+});
+
+describe("harness 适配器：日志与事件交错", () => {
+    it("工具结果的日志先到，晚到的工具结束事件不再盖掉日志里的结构化结果", () => {
+        const transcript = createHarnessTranscript();
+        transcript.applyLogEntry(assistantEntry([call("t1")], "toolUse"));
+        transcript.applyLogEntry(entry("agent_message", {message: {role: "toolResult", toolCallId: "t1", toolName: "task_create", content: [{type: "text", text: "created"}], details: {title: "审查", items: [1]}, isError: false}}));
+        transcript.applyEvent({type: "tool_execution_end", toolCallId: "t1", toolName: "task_create", result: {content: [{type: "text", text: "created"}]}, isError: false});
+        const assistant = transcript.messages()[0];
+        expect(assistant?.kind === "assistant" && assistant.toolCalls[0]?.result).toEqual({text: "created", truncated: false, details: {title: "审查", items: [1]}});
+    });
+
+    it("工具结束事件先到时，临时结果带上结构化结果", () => {
+        const transcript = createHarnessTranscript();
+        transcript.applyLogEntry(assistantEntry([call("t2")], "toolUse"));
+        transcript.applyEvent({type: "tool_execution_end", toolCallId: "t2", toolName: "task_create", result: {content: [{type: "text", text: "created"}], details: {title: "审查"}}, isError: false});
+        const assistant = transcript.messages()[0];
+        expect(assistant?.kind === "assistant" && assistant.toolCalls[0]?.result?.details).toEqual({title: "审查"});
+    });
+
+    it("前一条助手消息的日志晚到，不清掉正在生成的下一条", () => {
+        const transcript = createHarnessTranscript();
+        transcript.applyEvent({type: "message_start", message: {role: "assistant", content: [{type: "text", text: "第二条"}], timestamp: 20}});
+        transcript.applyLogEntry(assistantEntry([call("c7")], "toolUse", 10));
+        expect(transcript.messages().map((message) => (message.kind === "assistant" ? [message.status, message.text] : message.kind))).toEqual([["done", ""], ["streaming", "第二条"]]);
+        transcript.applyLogEntry(assistantEntry([{type: "text", text: "第二条"}], "stop", 20));
+        expect(transcript.messages().map((message) => (message.kind === "assistant" ? message.status : message.kind))).toEqual(["done", "done"]);
+    });
+
+    it("模型还没开口就被停止：补一条已停止的空回复", () => {
+        const transcript = createHarnessTranscript();
+        transcript.applyLogEntry(userEntry("查"));
+        transcript.applyLogEntry(entry("run_end", {stopReason: "aborted", error: null}));
+        expect(transcript.messages().map((message) => (message.kind === "assistant" ? message.status : message.kind))).toEqual(["user", "stopped"]);
+    });
+
+    it("用户消息的文字与图片按原来的先后排；图片字节数扣掉 base64 补位", () => {
+        const transcript = createHarnessTranscript();
+        transcript.applyLogEntry(entry("agent_message", {message: {role: "user", timestamp: 1, content: [
+            {type: "text", text: "前"},
+            {type: "image", data: "AQ==", mimeType: "image/png"},
+            {type: "text", text: "后"},
+            {type: "image", data: "AQI=", mimeType: "image/png"},
+        ]}}));
+        const user = transcript.messages()[0];
+        expect(user?.kind === "user" && user.blocks.map((block) => (block.kind === "text" ? block.text : block.bytes))).toEqual(["前", 1, "后", 2]);
     });
 });
