@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t14-qa-vertical-slice
-status: active
+status: done
 updated: 2026-10-22
 ---
 
@@ -40,11 +40,13 @@ nb-story 问答页（[w00024 t13](../../../w00024-nb-story/tasks/t13-qa-web/READ
 | 6 | `9c740bf28` | README、组件文档与包入口 |
 
 - **验证**：各片随做随跑包验证、应用验证与 Lab e2e（`lab-agent-ui`、`lab-scenes`），切片 1 到 5 的关键断言做过变异检查。收口在 `9c740bf28` 上跑：应用 typecheck 通过，`bun run test` 为 bun 1599 通过、Vitest 403 通过，全量 e2e 281 通过（26.5 分钟）；`docs:check`、`governance:check` 没有新增失败与警告。
-- **计划之外的小出入**：附注的“引用稳定”没有另加单测：轮次分组按消息对象是否相同沿用，现有用例“消息逐条相同的那组沿用上一次的数组”已覆盖。
 - **草稿**：静态稿 worktree `.worktree/w00019-t14-drafts`（分支 `t14/drafts`，不提交、不合并）用 book-8576901b 的两条真实问答记录经 `createHarnessTranscript` 回放，评审板已入库；搭稿时发现的属于 nb-story 的五条已转 w00024 t13；草稿没有改成新接口再出一轮图，nb-story 接入（w00024 t13）时以真实页面为准。
-- **待确认**：本 Task 按推荐做的四项记在 [待确认清单](../../pending-confirmations.md)。
+- **待确认**：本 Task 按推荐做的六项（实现审查后加两项）记在 [待确认清单](../../pending-confirmations.md)。
+
+## 实现审查
+
+2026-10-22 Claude Sonnet 审 `66ea94de2..9c740bf28`：阻断 0、重要 2、建议 15。15 条成立要改，第 2 条一半成立（路径里的 `__x__` 按 CommonMark 本来就是强调，与 marked 展开一致），第 14 条第 3 点接受取舍、第 4 点不改；修正提交 `3a433a427`，变异检查八处都让测试失败。修正后包验证通过（bun 178、Vitest 44），应用 typecheck 通过，Lab e2e（`lab-agent-ui`、`lab-scenes`）26 通过。逐条处理与报告原文见 [evidences/impl-review.txt](evidences/impl-review.txt)；新增两条待确认（预览按 CommonMark 认强调、下拉里的会话列表材质）。
 
 ## 下一步
 
-- **实现审查待处理**：Sonnet 实现审查已于 2026-10-22 对 `66ea94de2..9c740bf28` 启动（不阻塞），报告回来后按 reviewing 的“处理结果”逐条核实，修正单独提交，报告存为 `evidences/impl-review.txt`。
-- 审查处理完后合入 master；nb-story 问答页在 [w00024 t13](../../../w00024-nb-story/tasks/t13-qa-web/README.md) 接入。其余组件（空状态可替换、隐藏用量、重命名与删除、rewind 等）留在 [t11](../t11-complete-view/README.md)。
+- 合入 master；nb-story 问答页在 [w00024 t13](../../../w00024-nb-story/tasks/t13-qa-web/README.md) 接入，接入时在真实页面看会话列表放进下拉的材质。其余组件（空状态可替换、隐藏用量、重命名与删除、rewind 等）留在 [t11](../t11-complete-view/README.md)。

@@ -1,0 +1,219 @@
+w00019 t14 实现审查（Claude Sonnet，2026-10-22，提交范围 66ea94de2..9c740bf28）
+
+## 处理结果（主 Agent 逐条核实）
+
+| 条 | 级别 | 归类 | 处理 |
+|---|---|---|---|
+| 1 | 建议 | 成立，要改 | 首尾相接的粗体小标题只在 `**A****B**` 形状时截断；成对规则要求内侧不是标记符号，`****`、`******` 是文字；行尾落单规则前面也是标记符号时不动。补“不误伤”用例 |
+| 2 | 重要 | 一半成立 | 行首没有收尾的 `**`、`__` 只在这一行没有配对时去掉（修 `init__.py`）。路径与 dunder 名里的 `__x__`、`/_x_/` 不成立：CommonMark 与 neuro-book 用的 marked 展开后同样显示为强调（实测 marked.parseInline：`tests/<strong>fixtures</strong>/a.json`、`<strong>init</strong>.py`），预览与展开一致，不另作例外，写进函数注释。裸 URL 成立：GFM 把它识别成链接、下划线原样，预览也把裸 URL 当整体不去标记 |
+| 3 | 建议 | 成立，要改 | 行内代码与转义一样换成占位，强调与链接可以跨过代码配对；链接地址允许一层括号 |
+| 4 | 建议 | 成立，要改 | 逐行去标记，取第一行去完仍非空的；只剩标记符号的一行（流式刚写出 `**`）也往下找 |
+| 5 | 建议 | 成立，要改 | 每行只处理开头 400 字；审查者的探针 128000 字由 16.7 s 降到 0.1 ms；用例断言输出长度不超过 400（不用计时） |
+| 6 | 建议 | 成立，改法不同 | 按 CommonMark：`*` 夹在字里也是强调（`他的*钥匙*`、`2*3*4`），`2 * 3 * 4` 不动；`*读*` 的期望改为去掉。没有采用“区分乘号”，那样预览与展开后的显示不一致 |
+| 7 | 建议 | 成立，要改 | 行内 HTML 只去常见排版标签与带连字符的自定义标签，`Promise<void>` 保留 |
+| 8 | 重要 | 成立，要改 | DOM 测试补没有文字的消息的附注块：登记与没登记的都在 `[data-annotations]`、不在回复气泡、没有错误气泡；变异检查确认 |
+| 9 | 建议 | 成立，要改 | DOM 测试补提醒折叠行去标记与宿主注入 |
+| 10 | 建议 | 成立，要改 | 三种状态都断言新建按钮；`header: false` 三种状态都没有 |
+| 11 | 建议 | 成立，要改 | `reuseTurnGroups` 补带附注的一条：同一对象沿用，换成新对象重算 |
+| 12 | 建议 | 成立，要改 | 删掉重复的文档注释；`text` 保留，注释写明与 `ThinkingStep` 同形 |
+| 13 | 建议 | 成立，要改 | 宿主的 `markdownPreview` 包一层：抛错或返回非字符串时按缺省写法，多行只取第一行，每个函数只报一次；DOM 测试覆盖 |
+| 14 | 建议 | 1、2 成立要改；3 接受取舍；4 不改 | 1 转圈对读屏隐藏；2 标题加悬停全文；3 下拉里的材质留给 w00024 t13 接入时在真实页面看（列表本身不知道放在哪里）；4 `updatedAt` 为 NaN 属过度防御 |
+| 15 | 建议 | 成立，要改 | `EntryRendererEntry` 改为两支联合类型，一项只走一种匹配 |
+| 16 | 建议 | 成立，要改 | 运行已结束却仍在写的结果调用同样算退回；用例补 `streaming`、`running` |
+| 17 | 建议 | 成立，要改 | `AgentConversationTurn.md` 补三条排列规则；`presentation` 注释写明 `outcome` 例外 |
+
+变异检查（改完还原）：结果调用兜底、`guardPreview`、附注块分支、提醒预览、三种状态的标题行、400 字上限、只剩标记的行，七处都让对应测试失败。
+
+## 审查报告原文
+
+# w00019 t14 实现审查报告（66ea94de2..9c740bf28）
+
+审查基线：Work worktree 上 `bun run typecheck` 与 `bun run test`（bun test 161 通过、vitest 41 通过）在 9c740bf28 全部通过；下面的问题都是测试没覆盖到的。
+实验脚本在 /tmp/claude-1000/review-t14-impl/probe*.ts，直接 import 审查 worktree 的 format.ts 运行（纯函数，没有绕过运行时）。
+
+## 1. `markdownPreviewLine`：`****` 之后的全部正文被丢弃，并留下落单的 `*`
+
+- **严重程度**：建议（偏重要）；**类别**：正确性
+- **位置**：`packages/nb-agent-ui/src/format.ts` 的 `cut` 一段（约 85 到 90 行）
+- **现象**：为了处理“首尾相接的粗体小标题”，只要正文里出现 `****` 就把这一段在 `****` 处截断并丢掉其后所有内容。打码文字、掩码、乘方记法里的 `****` 都中招。实测：
+  - `"卡号 **** **** 1234 后四位"` -> `"卡号 *"`
+  - `"密码是 ****** 请保密"` -> `"密码是 *"`
+  - `"key=**** 然后继续读第三章"` -> `"key="`
+  - `"A****B"` -> `"A"`
+- **为什么是问题**：折叠行里露出的是半截句子加一个孤零零的 `*`，违反 Spec 验收 30 与 `markdownPreviewLine` 注释自己写的“不误伤正文、预览里不出现标记符号”；而且这是静默丢内容，读者看不出被截了。真实场景：Agent 讲到 API key、密码、打码账号时的思考与提醒。
+- **如何核实**：`bun /tmp/claude-1000/review-t14-impl/probe2.ts`（前四行）。
+- **建议改法**：只在 `****` 两侧都是“粗体收尾紧接粗体开头”的形状时截断，即 `\*\*(?=\S)[^*]+?\S\*\*\*\*(?=\S)`（前面有开启的 `**`、后面紧跟非空白非星号）；单独的 `****`、`*****` 当普通文字。并把“卡号 **** 1234”加进 format.test.ts 的“不误伤”表。
+
+## 2. `markdownPreviewLine`：行首的 `__` 与路径里的 `_x_` 被当成强调，标识符被改写
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`format.ts` 的 `stripInline`：行首 `^(\*{2,3}|__)(?=\S)` 一条，以及 `(^|[\s\p{P}\p{S}])(__|_|\*)…\2(?=$|[\s\p{P}\p{S}])` 一条
+- **现象**（实测）：
+  - `"__init__.py 要改"` -> `"init__.py 要改"`（行首 `__` 无条件去掉，后面的 `__` 却留着，两头都不对）
+  - `"改 `a.ts` 与 __init__.py"` -> `"改 a.ts 与 init.py"`
+  - `"读 tests/__fixtures__/a.json"` -> `"读 tests/fixtures/a.json"`
+  - `"读取 chapters/_draft_/01.md"` -> `"读取 chapters/draft/01.md"`
+  - `"https://example.com/__init__.py"` -> `"https://example.com/init.py"`
+  - `"__init__ 与 __main__"` -> `"init__ 与 main"`
+- **为什么是问题**：Spec 验收 30 要求 `snake_case`、`读取_章节_摘要` 保留，同类的文件路径、dunder 名与 URL 却被改写，预览里显示的是一个不存在的路径。`/` 被 `\p{P}` 当成“标点边界”是原因：路径分隔符后的 `_x_` 满足“外侧是标点”。“行首落单的 `**`/`__`”那条规则写在配对规则之后，却不看后面有没有配对的收尾，所以会把已经成对、只是紧贴文字的 `__init__` 切成一半。
+- **如何核实**：`bun /tmp/claude-1000/review-t14-impl/probe1.ts` 与 `probe2.ts`。
+- **建议改法**：单个 `_`、`__` 强调的外侧边界不把 `/`、`.`、`:`、`\` 算进去（只认空白、行首行尾和 `()[]{}"'“”‘’，。！？；：、` 这类括号引号与句读）；落单标记规则只在整行里确实没有成对的收尾时才去（先数一次）。同时加路径与 dunder 的反例。
+
+## 3. `markdownPreviewLine`：行内代码把相邻的强调与链接切断，标记原样留在预览里
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`format.ts` 里按行内代码把正文切成 `pieces` 再逐段 `stripInline` 的那段
+- **现象**（实测）：
+  - `"[`foo.ts`](src/foo.ts) 要改"` -> `"[foo.ts](src/foo.ts) 要改"`（模型写“带代码的链接”很常见，链接语法整个留下）
+  - `"前 **bold `x`** 后"` -> `"前 **bold x** 后"`
+  - `"**`a`**"` -> `"*a*"`（还多出一对被半去掉的星号）
+  - `"[a](http://x.com/a(b))"` -> `"a)"`（URL 里带括号）
+- **为什么是问题**：函数注释和 Spec 都把“预览行里不出现 `**` 之类的符号”当目标，这几种在模型输出里并不罕见（加粗的工具名、带文件名的链接）。切段后每一段单独处理，成对规则必然够不着跨代码的配对。
+- **如何核实**：`bun probe2.ts`。
+- **建议改法**：行内代码不切段，而是和转义一样先换成占位符、去完标记后再还原（占位符里不含 `*`、`_`、`[`、`]`），这样强调与链接规则可以跨过代码；链接 URL 部分允许一层括号。
+
+## 4. `markdownPreviewLine`：第一行去标记后为空时不往下找，折叠行变成空白
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`format.ts` 的 `escaped.split("\n").find(...)`：先按原文选定“第一行非空正文”，再去标记，去完为空就直接返回空串
+- **现象**（实测）：
+  - `"<system-reminder>\n记得保存\n</system-reminder>"` -> `""`
+  - `"![](x.png)\n说明文字"`、`"<br>\n正文"`、`"# \n正文"`、`"> \n> 引用正文"`、`"- \n- 项"` -> `""`
+  - `"**\n正文"` -> `"*"`（只剩一个星号）
+- **为什么是问题**：改动前折叠行至少露出原文第一行；现在整行只有标签与空白，用户看不出这条提醒是什么，也看不出能点开。信息条目（提醒、自定义系统消息）正是宿主任意写的文字，以 `<系统标签>` 或图片开头并不罕见。
+- **如何核实**：`bun /tmp/claude-1000/review-t14-impl/probe5.ts`。
+- **建议改法**：对候选行逐行去标记，取第一个去完仍非空的；都为空再返回空串。
+
+## 5. `markdownPreviewLine`：每次渲染对整段思考文字做全量正则，单行很长且标记多时是平方级
+
+- **严重程度**：建议（不改也可，列出数字供取舍）；**类别**：代码质量
+- **位置**：`format.ts` 的 `markdownPreviewLine`、`stripInline`；调用点 `AgentTextStepRow.vue` 的 `renderers.markdownPreview(props.text)`（思考流式生成时每个 token 都重算）
+- **现象**：函数只要第一行，却先对整段文字做转义替换，再对整条首行跑带 `[^]*?` 的惰性正则。实测一行里重复 ` **a`：8000 字符 62 ms，32000 字符 1.0 s，128000 字符 16.7 s；` *a`、` _a`、` ~~a` 同形，32000 字符 0.2 到 0.3 s。常见的几百到几千字符的首行没有问题；真实风险是模型把整段思考写成不分行的一大段并带很多未闭合的标记，在流式期间每个 token 重算一次。
+- **如何核实**：`bun /tmp/claude-1000/review-t14-impl/probe4.ts`。
+- **建议改法**：预览只会显示一行（CSS 还会截断），选定首行后先截到固定长度（例如 400 字符）再去标记；截断可能把标记截成半截，本函数已经处理“落单的标记”，不新增问题。
+
+## 6. 单个 `*` 强调紧贴汉字时原样保留，行尾时又只去掉一半
+
+- **严重程度**：建议；**类别**：正确性 / 测试
+- **位置**：`format.ts` 的单个 `*`、`_` 规则与行尾“落单强调符号”规则；`format.test.ts` 的 `"1) 第一步：*读*目录"` 用例
+- **现象**（实测）：
+  - `"他的*钥匙*在哪"`、`"中文*斜体*中文"`、`"*斜体*文字"` -> 星号原样保留（CommonMark 里这些都是斜体）
+  - `"中*注*"` -> `"中*注"`（行尾规则去掉最后一个 `*`，前一个留着，既不是原文也不是去标记后的结果）
+  - `"**"` -> `"*"`，`"** A **"` -> `"* A *"`（流式刚输出开头的 `**` 时露出一个星号，下一个 token 又消失，折叠行会闪一下）
+  - 测试里把 `*读*` 残留写成了期望值（`["1) 第一步：*读*目录", "第一步：*读*目录"]`），把“为了不误伤 `2 * 3 * 4` 而放弃汉字旁的斜体”固化成了合同。
+- **为什么是问题**：这是有意的取舍（`2*3*4` 与汉字旁的斜体在字符上分不开），但行尾半去与流式闪烁不是取舍的结果，是规则互相叠出来的。中文正文里用 `*` 强调很常见，预览里留星号与注释“预览里不出现 `**` 之类符号”的说法不一致。
+- **如何核实**：`bun probe1.ts`、`probe2.ts`。
+- **建议改法**：区分“两侧都是数字或拉丁字母/数字的 `*`”（乘号，不动）与“至少一侧是汉字或标点”（强调，去掉）；行尾规则只处理与前面某个开启标记成对的情形。如果决定保留现状，把 `*读*` 那行从期望里拿掉，改写进“已知不处理”的说明，别让它看上去像被验证过的行为。
+
+## 7. `markdownPreviewLine` 把没加反引号的泛型与比较式当 HTML 标签删掉
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`format.ts` 的 `.replace(/<\/?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?>/gu, "")`
+- **现象**（实测）：`"Promise<void> 返回"` -> `"Promise 返回"`，`"List<String> x"` -> `"List x"`，`"if a<b>c"` -> `"if ac"`；`"Map<string, number>"` 因为带逗号后的空格形状不同而幸存。
+- **为什么是问题**：写代码类任务时思考里不加反引号的类型名很常见；预览里的类型被改成另一个类型。HTML 标签预览的价值（`<mark>`、`<b>`）与它相比小得多。
+- **建议改法**：只去已知的几个行内标签（`mark`、`b`、`i`、`u`、`strong`、`em`、`br`、`code`、`span`、`sub`、`sup`、`del`、`s`），其余原样。
+
+## 8. 没有文字的助手消息的附注块（`annotations`）整条渲染路径没有任何测试
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：`packages/nb-agent-ui/src/vue/stream/AgentTurnBlock.vue` 的 `data-annotations` 分支；对应 Spec 验收 28“在没有文字的消息上时作为独立一行”；计划“验收映射”写的是 DOM 测试覆盖“最终回复、文字步骤行、没有文字的消息三处位置”，实际只写了前两处
+- **现象**：变异检查。在 Work worktree 把 `props.block.kind === 'annotations'` 改成 `'zzz'`（这个块不再被画出，落到最后的 `v-else` 错误气泡分支），`bunx vitest run src/vue` 41 个全过，`bun test` 161 个全过。e2e 的 `reply-unverified` 场景两条附注都挂在有文字的回复上，也没有覆盖。`conversation-turns.test.ts` 只断言了块的数据形状（`"annotations"`），没有挂载。
+- **为什么是问题**：这是附注三个位置里最容易出错的一处：nb-story 的“交答案”那条助手消息正是没有文字、只有工具调用的消息，附注要显示出来靠的就是这条路径。它现在坏了没有任何测试会红；而且这个分支前面的 `v-else-if` 链一旦被改动，没有登记的 `kind` 会落进危险色的错误气泡（`data-error`）。
+- **如何核实**：见上，变异后还原，`git status` 干净。
+- **建议改法**：在 `AgentConversationView.dom.test.ts` 的“附注与条目渲染器”里加一条：最后一条助手消息没有文字、带已登记与没登记两种附注，断言整轮收起后宿主组件与淡色一行都在回复之后出现，且不在 `[data-final-reply]` 里；Lab 的 `reply-unverified` 再加一轮这样的数据，e2e 顺带验收。
+
+## 9. 信息条目折叠预览是否经过 `markdownPreview` 没有测试（验收 30 的“提醒”一半）
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：`AgentTurnBlock.vue` 的 `renderers.markdownPreview(props.block.message.text)`；`AgentConversationView.dom.test.ts` 的“思考预览（验收 30）”
+- **现象**：变异检查。把信息条目的预览改回原文第一行（`text.trim().split("\n",1)[0]`），`bunx vitest run src/vue` 41 个全过。新测试只对思考行（`AgentTextStepRow`）断言了去标记与宿主注入。
+- **为什么是问题**：Spec 验收 30 与 `AgentTurnBlock.md` 都写明提醒折叠行同样去标记、同样走宿主注入；两处调用点只有一处有测试，另一处退回旧写法没人发现。
+- **建议改法**：在同一 describe 里加一条：`source: "reminder"` 的系统消息，文字 `**注意**：先存盘`，断言折叠行是“注意：先存盘”，且注入 `markdownPreview` 时用注入的函数。
+
+## 10. 会话列表：加载中与出错时“保留标题行与新建按钮”没有被断言
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：`AgentSessionList.dom.test.ts` 的“状态（验收 27）”
+- **现象**：变异检查。把标题行改成 `v-if="props.header && props.state === 'ready'"`（加载中与出错时没有标题行与新建按钮），`bunx vitest run src/vue/AgentSessionList` 5 个全过。测试只在“空”状态断言了 `[data-session-create]` 存在，加载中与出错状态只断言了文字；e2e 的 `error` 场景也只点了重试。
+- **为什么是问题**：验收 27 与 `AgentSessionList.md` 都写“三种状态都保留标题行与新建按钮”。出错时恰恰最需要“新建”这条出路。
+- **建议改法**：三种状态都断言 `[data-session-create]` 存在；加载中与出错再断言 `header: false` 时都没有。
+
+## 11. 计划里承诺的“带附注的轮次整体替换 ctx 后沿用同一分组”单测没有写
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：计划“关键设计 4 引用稳定”与“验收映射 28”（`conversation-turns.test.ts`）；README“附注与条目渲染器”写的约定“给消息加附注时换成新的消息对象……打节拍时给同一个对象”
+- **现象**：`grep` 该测试文件，`reuseTurnGroups` 只有改动前就有的通用用例，没有带 `annotations` 的版本；这次提交里 `annotations` 只出现在分轮形状测试里。
+- **为什么是问题**：这条约定是宿主接入时唯一的性能前提，README 把它当合同写；测试不存在，下次有人把分组比较改成按内容深比较或在 `buildTurn` 里克隆消息（例如 `NarrationStep` 现在持有 `message` 引用）时没有信号。
+- **建议改法**：补一条：带附注的消息数组整体替换成新数组但消息对象同一个时，`reuseTurnGroups` 沿用旧分组；换成新的带附注消息对象时不沿用。
+
+## 12. `NarrationStep` 留下两段连续的文档注释，且 `text` 与 `message.text` 重复
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`packages/nb-agent-ui/src/conversation-turns.ts` 第 41 到 43 行
+- **现象**：新加的一行 `/** 并入思维链的中间 content；带着消息…… */` 前面原来的 `/** 运行结束后并入思维链的中间 content。 */` 没有删，类型上叠了两段。`NarrationStep` 同时有 `text` 与 `message`，`text` 永远等于 `message.text`，两处写法不会被类型保证一致。
+- **建议改法**：删掉旧的一行；视图改读 `entry.message.text` 后去掉 `text` 字段，或在注释里写明 `text` 是为了与 `ThinkingStep` 同形而保留。
+
+## 13. 宿主注入的 `markdownPreview` 没有像其他宿主回调那样套保护
+
+- **严重程度**：建议；**类别**：不变量（失败与恢复）
+- **位置**：`packages/nb-agent-ui/src/vue/host.ts` 的 `markdownPreview: given.markdownPreview ?? markdownPreviewLine`；调用点 `AgentTextStepRow.vue`、`AgentTurnBlock.vue` 的模板
+- **现象**：工具渲染器的 `summary`、`effects`、`diff`、`groupPhrase` 都由 `guardTool` 包了 try/catch 并回退，Spec“失败与恢复”写了“回调抛错时该项按通用写法显示”。`markdownPreview` 是同一类宿主回调，却直接在模板里调用；它抛错时这一步的组件渲染失败（开发环境下 Vue 只打 console.error，该行消失）。另外端口要求“只返回一行”，返回含换行的串或非字符串时也没有规整。
+- **为什么是问题**：与同一包里其他宿主回调的失败策略不一致；宿主按自己的方言写的解析器恰恰比包内缺省更容易在没见过的输入上抛错。
+- **如何核实**：从代码推断（没有在运行时复现）。
+- **建议改法**：在 `useAgentRenderers` 里把宿主函数包成 `(text) => { try { return firstLine(given(text)) } catch (error) { 诊断; return markdownPreviewLine(text) } }`，与 `guarded` 同一写法，并补一个注入抛错函数的 DOM 用例。
+
+## 14. 会话列表：读屏重复、被截断的标题没有完整文字、浮层里高亮材质
+
+- **严重程度**：建议；**类别**：代码质量（UI）
+- **位置**：`packages/nb-agent-ui/src/vue/AgentSessionList.vue`
+- **现象**（均从代码推断，没有在浏览器里看）：
+  1. 运行中的行里 `<Spinner :label="运行中">` 渲染成 `role="status" aria-label="运行中"`，旁边又有可见文字“运行中”。整行是一个 `<button>`，按钮的可访问名称由内容拼出，会读成“……运行中 运行中”。
+  2. 标题与说明都是单行省略，行上没有 `title`，长标题（Lab 场景里“南嘉鱼知道心月狐就是苏天晴吗？其他魔法少女呢？”在 280 宽下就被截断）看得见的人读不到全文；读屏用户不受影响。
+  3. 组件的设计用法之一是放进下拉（`header: false`）。nb-ui 规范“开发后自检”要求玻璃浮层里的项高亮用 `--overlay-item-active`，不用实色 `--bg-hover`；这里 hover 用 `--bg-hover`、选中用 `--accent-bg`，放进下拉时的材质没有人看过（计划与 Lab 都只在 280 宽的实底方框里）。
+  4. `updatedAt` 不是有限数（宿主漏填的 `NaN`）时，`new Date(item.updatedAt).toISOString()` 与 `formatListTime` 都抛 `RangeError`，一行坏数据让整个列表渲染失败。这条属于过度防御的边缘，列出供取舍。
+- **建议改法**：1 把 Spinner 包进 `aria-hidden` 或不给 `label`；2 行或标题上加 `:title`；3 下拉形态用 Lab 场景在浮层里看一眼，必要时给列表一个 `surface` 属性切换高亮 token；4 视取舍。
+
+## 15. `EntryRendererEntry` 现在允许既没有 `messageKind` 也没有 `customType` 的条目
+
+- **严重程度**：建议；**类别**：代码质量（类型）
+- **位置**：`packages/nb-agent-ui/src/registry.ts` 的 `EntryRendererEntry`
+- **现象**：`messageKind` 改成可选、`customType` 可选，`{id, component}` 两样都不写也能通过类型检查，登记了却永远不会被任何消息用到，`checkEntryTypes` 也不会提示。注释自己承认“按消息类型匹配的那一半还没有消费者”。
+- **建议改法**：写成联合类型：`({customType: string; messageKind?: never; systemSource?: never} | {messageKind: MessageView["kind"]; systemSource?: …; customType?: never})`，一个条目只走一种匹配方式；这样“还没有消费者”的那一半也不会被宿主误以为已经生效。
+
+## 16. 结果工具“运行结束时还没有结果”的处理依赖适配器把状态改成出错，视图自己没有兜底
+
+- **严重程度**：建议；**类别**：正确性（文档与实现对不上）
+- **位置**：`conversation-turns.ts` 第 383 到 386 行的注释“被退回（出错、参数无效，或运行结束时还没有结果）”与 `rejectedOutcome` 的判断；Spec 验收 29 末句“运行结束时仍没有结果的结果调用同样是一行”
+- **现象**：`rejectedOutcome` 只看 `toolCallPhase(call.status) === "error"`。`createHarnessTranscript` 的 `applyRunEnd` 会把没等到结果的调用改成 `error`，所以经它接入的宿主是对的；不经它的宿主（或消息已 `stopped`/`interrupted` 却仍把调用留在 `running`/`streaming`）得到的仍是 `node`。实测：`[user, assistant(status: "stopped", toolCalls: [answer(streaming)])]` 得到块 `[node]`，且这一块被收进过程（`outcomeStart` 等于块数、可收起），整轮收起后什么都看不到，展开后看到的是一张永远“在写”的宿主节点卡片。
+- **为什么是问题**：注释把它写成视图的规则，其实是适配器的约定；`buildBlocks` 已经有 `finished` 这个入参（叙述文字就是据此决定是否并入思维链），在这里却没有用。
+- **如何核实**：`bun /tmp/claude-1000/review-t14-impl/probe6.ts` 的 S11 一行。
+- **建议改法**：二选一：把 `finished && phase === "running"` 也算作被退回（与注释和 Spec 一致，改一行），并在测试里把 `status: "stopped"` 加上 `running` 状态的用例；或者把注释与 Spec 改成“适配器负责把结束时没有结果的调用标为出错”。
+
+## 17. `AgentConversationTurn.md` 没有随分轮规则的改动更新
+
+- **严重程度**：建议；**类别**：文档
+- **位置**：`packages/nb-agent-ui/src/vue/stream/AgentConversationTurn.md` 第 8、18、22 行
+- **现象**：文档写“常显层（Agent 说出的 content、人机交互控件、信息条目）”“最终回复之后的分隔线放在轮末汇总下方”，没有写这次改的三件事：没有文字的附注单独成块并与信息条目同样对待、结果区里夹在分隔线之间的信息条目留下、被退回的结果调用进思维链且全部被退回时没有结果区。`AgentTurnBlock.md`、`AgentChainBlock.md` 都更新了，排列规则所在的这份没有。`ToolRendererEntry.presentation` 注释里“`node`：……常显，并把思维链切开”也没有写被退回的结果工具是例外。
+- **建议改法**：在 `AgentConversationTurn.md` 的排列规则里各补一句，并让 `presentation` 的注释指向 `outcome`。
+
+## 未发现问题的方面
+
+- `splitTrailing` 的新写法：回复、压缩、提醒、压缩的各种排列（实测 `probe6.ts` 的 S1、S2、S3、S13）里回复都留在结果区，分隔线都到了 `trailing`，提醒与附注块保持相对顺序；`outcomeStart`、`outcomeMessage`、`foldable` 与改动前一致。对应测试删掉 `isNoticeLike` 里的 `annotations` 会失败（变异检查）。
+- 被退回的结果调用进思维链：运行中的流式调用仍是节点，失败后变成行（S7、S8），前后过程合成一条链、`steps` 与 `failed` 计数不变（S6、S7、S9），整轮全被退回时没有结果区（S6）；节点组件只渲染成功的那一次由 DOM 测试证实。
+- `makeToolGroup` 按渲染器分调用、按首次出现顺序给短语、`guardTool` 回退按调用数计数，与旧行为一致；内置与 Lab 登记的写法正确。
+- `formatListTime`：同日、昨天、同年、跨年、夏令时结束日、`now` 早于时间戳都对；在 Europe/London、America/Los_Angeles、Pacific/Auckland、Asia/Shanghai 下实测输出一致，`en-US` 午夜写 `00:05`（Node V8 与 Bun JSC 都是）。
+- `RenderGuard` 的 `fallback` 插槽：失败路径与默认卡片都正确；宿主的 `action` 处理函数抛错不会被它捕获（错误由最外层发事件的组件接住）。
+- 注册表 `resolveEntry` 与 `customType` 冲突检查：无冲突与冲突两种路径正确，冲突报出 `customType`；`EntryComponentProps` 与视图实际传给条目组件的属性一致。
+- `AgentSessionList`：受控选中、`role="list"` 与 `aria-current`、`labels` 覆盖、`header` 开关、行用 `nb-ui-focus-ring-inset`、样式只用 token（`--accent-bg` 在包内其他组件也在用）、`min-width: 0` 与省略号的写法在 280 宽不会溢出（从样式推断，未看浏览器）。
+- 基线：Work worktree 上 `bun run typecheck` 通过，`bun run test` 通过（bun 161、vitest 41）。变异检查都已还原，两个 worktree 的 `git status` 干净。
+
+## 需要主 Agent 跑的
+
+- `bun run test:e2e -- lab-agent-ui`：第 8 条建议加的“无文字附注”场景、以及现有三条新增 e2e（思考预览、`answer` 展开后一行、`reply-unverified`、会话列表）本次没有运行。
+- 在浏览器里看一眼会话列表放进下拉（浮层）时的 hover 与选中材质（第 14 条第 3 点），以及 `lab-scenes` 390 宽巡检里 `AgentSessionList` 的各场景。
+
+## 数量
+
+- 阻断：0
+- 重要：2（第 2 条路径与 dunder 名被改写；第 8 条无文字附注块无测试）
+- 建议：15（第 1、3 到 7、9 到 17 条）

@@ -70,5 +70,5 @@ autonomous-delivery 推进中照推荐做了、待开发者追认的决定记在
 - [t11-complete-view](tasks/t11-complete-view/README.md)：按归档 Spec 补齐没做过的部分（S5 余下、S6 余下、S7、S8 验收）。计划中，接在 t13 之后。
 - [t12-shared-boundary-plural](tasks/t12-shared-boundary-plural/README.md)：共用的导入边界检查、nb-form 进 CI 选包矩阵、英文单复数。已完成，随分支合入 master。
 - [t13-agent-ui-api](tasks/t13-agent-ui-api/README.md)：nb-agent-ui 接口整理（t10 质量审查第二类）。已完成，开发者在 Lab 确认后随分支合入 master。
-- [t14-qa-vertical-slice](tasks/t14-qa-vertical-slice/README.md)：首个垂直切片，nb-story 问答页接入所缺的五项。范围已定，计划审查中。
+- [t14-qa-vertical-slice](tasks/t14-qa-vertical-slice/README.md)：首个垂直切片，nb-story 问答页接入所缺的五项（会话列表、附注与条目渲染器、被退回的结果、思考预览、组短语收调用）。已完成并处理实现审查。
 - 待建：t10 质量审查 maint 14（nb-ui 测试改用共用的扫描），开发者 2026-10-22 定另起小 Task。
