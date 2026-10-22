@@ -562,7 +562,7 @@ describe("设置文件视图（输出 23）", () => {
         expect(area().value).toBe("{\"example.notes/interval\": 30}");
     });
 
-    it("这一层连不上：文本框只读，有改动时保存栏的按钮也停用；恢复后按钮回来", async () => {
+    it("这一层连不上：文本框只读，“保存”停用，“放弃更改”照常可用；恢复后“保存”回来", async () => {
         const {host} = await scene("file");
         await vi.waitFor(() => expect(one("[data-settings-file]").dataset.settingsFileState).toBe("ready"));
         await type("{}");
@@ -570,7 +570,8 @@ describe("设置文件视图（输出 23）", () => {
         host.user.setUnreachable(true);
         await vi.waitFor(() => expect(host.window.layerNotice.value?.kind).toBe("unavailable"));
         expect(area().readOnly).toBe(true);
-        expect([button("放弃更改").disabled, button("保存").disabled]).toEqual([true, true]);
+        // 放弃只丢本地草稿，不需要连上。
+        expect([button("放弃更改").disabled, button("保存").disabled]).toEqual([false, true]);
         host.user.setUnreachable(false);
         await vi.waitFor(() => expect(button("保存").disabled).toBe(false));
     });

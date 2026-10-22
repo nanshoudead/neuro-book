@@ -384,7 +384,7 @@ function onKeydown(event: KeyboardEvent): void {
                 <span class="settings-file__key"><Kbd>{{ modKeyLabel }}</Kbd><Kbd>S</Kbd>{{ text(TEXT.saveKey) }}</span>
             </p>
             <!-- 保存栏在内容列底部：按钮一直在，没有改动时停用，焦点不会因为它消失而掉到页面上。连不上时与保存中一样停用。 -->
-            <SettingsSaveBar :locale="locale" :dirty="dirty" :busy="saving || unreachable" data-settings-file-actions @save="save" @discard="discard" />
+            <SettingsSaveBar :locale="locale" :dirty="dirty" :busy="saving" :can-save="!unreachable" data-settings-file-actions @save="save" @discard="discard" />
         </template>
     </div>
 </template>
@@ -436,14 +436,6 @@ function onKeydown(event: KeyboardEvent): void {
     font-family: var(--font-mono);
     font-size: var(--text-sm);
     line-height: var(--settings-file-line);
-}
-
-/*
- * 出错时的辉光：nb-ui 的出错辉光规则带 `:not(:has(:read-only))`，而外框里的行号层是普通 div，它们也匹配 `:read-only`，
- * 规则就不生效，会留下聚焦的蓝色辉光压在红色描边上。这里按外框补一份同样的出错辉光；只读时 nb-ui 本来就不画辉光，保持。
- */
-.settings-file__editor.nb-ui-control-invalid:focus-within:not(:has(textarea[readonly])) {
-    box-shadow: var(--inset-shadow), 0 0 0 3px color-mix(in srgb, var(--status-danger) 18%, transparent);
 }
 
 @supports (line-height: round(nearest, 1.6px, 1px)) {

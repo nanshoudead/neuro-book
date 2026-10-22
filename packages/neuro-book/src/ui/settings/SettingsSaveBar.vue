@@ -12,16 +12,18 @@ import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
 defineOptions({name: "SettingsSaveBar"});
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     /** 显示语言；页面从自己的上下文拿（Lab 与示例页面直接写）。 */
     locale: DisplayLocale;
     /** 有没有未保存的改动：没有时两个按钮停用、不写文字。 */
     dirty: boolean;
     /** 正在保存：两个按钮停用，避免重复提交与保存途中放弃。 */
     busy: boolean;
+    /** 能不能保存（例如这一层暂时连不上时为假）：只停用“保存”；放弃只丢本地草稿，照常可用。缺省为真。 */
+    canSave?: boolean;
     /** 栏左侧的状态文字（已按显示语言写好）；有改动时缺省为“有未保存的更改”，没有改动时不显示。 */
     message?: string;
-}>();
+}>(), {canSave: true, message: undefined});
 
 const emit = defineEmits<{
     (event: "save"): void;
@@ -46,7 +48,7 @@ const note = computed(() => (props.dirty ? (props.message ?? text(TEXT.unsaved))
             <span>{{ note }}</span>
         </span>
         <Button size="sm" variant="ghost" :disabled="busy || !dirty" data-settings-save-bar-discard @click="emit('discard')">{{ text(TEXT.discard) }}</Button>
-        <Button size="sm" :disabled="busy || !dirty" data-settings-save-bar-save @click="emit('save')">{{ text(TEXT.save) }}</Button>
+        <Button size="sm" :disabled="busy || !dirty || !canSave" data-settings-save-bar-save @click="emit('save')">{{ text(TEXT.save) }}</Button>
     </footer>
 </template>
 

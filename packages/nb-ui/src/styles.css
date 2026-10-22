@@ -167,8 +167,12 @@ input.nb-ui-native-input[type="number"] {
     border-color: var(--status-danger);
 }
 
+/*
+ * 包装容器只看里面的输入框是不是只读：`:has(:read-only)` 会命中图标、步进按钮这类普通子元素（不可编辑的元素都匹配
+ * `:read-only`），带图标的输入框、数字框出错聚焦时就没有红色辉光，同上面只读重置规则一样只认输入框。
+ */
 .nb-ui-control.nb-ui-control-invalid:focus:not(:read-only):not([readonly]),
-.nb-ui-control.nb-ui-control-invalid:focus-within:not(:has(:read-only)):not(:has([readonly])) {
+.nb-ui-control.nb-ui-control-invalid:focus-within:not(:has(input:read-only, textarea:read-only)):not(:has([readonly])) {
     box-shadow: var(--inset-shadow), 0 0 0 3px color-mix(in srgb, var(--status-danger) 18%, transparent);
 }
 

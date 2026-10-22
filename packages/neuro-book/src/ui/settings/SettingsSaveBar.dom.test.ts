@@ -13,7 +13,7 @@ afterEach(() => {
     for (const wrapper of mounted.splice(0)) wrapper.unmount();
 });
 
-function bar(props: {readonly dirty: boolean; readonly busy?: boolean; readonly message?: string; readonly locale?: "zh-CN" | "en-US"}) {
+function bar(props: {readonly dirty: boolean; readonly busy?: boolean; readonly canSave?: boolean; readonly message?: string; readonly locale?: "zh-CN" | "en-US"}) {
     const wrapper = mount(SettingsSaveBar, {props: {locale: "zh-CN", busy: false, ...props}, attachTo: document.body});
     mounted.push(wrapper);
     return wrapper;
@@ -68,5 +68,15 @@ describe("有改动", () => {
         expect([discard.attributes("disabled"), save.attributes("disabled")]).toEqual(["", ""]);
         await save.trigger("click");
         expect(counts(wrapper)).toEqual({save: 0, discard: 0});
+    });
+
+    it("不能保存时（例如这一层连不上）：只停用“保存”，放弃照常可用", async () => {
+        const wrapper = bar({dirty: true, canSave: false});
+        const {discard, save} = buttons(wrapper);
+        expect(save.attributes("disabled")).toBe("");
+        expect(discard.attributes("disabled")).toBeUndefined();
+        await save.trigger("click");
+        await discard.trigger("click");
+        expect(counts(wrapper)).toEqual({save: 0, discard: 1});
     });
 });
