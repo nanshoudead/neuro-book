@@ -344,6 +344,20 @@ test.describe("对话视图的消息流", () => {
         await expect(replies.last().locator("[data-annotation='nb-story.reading-position']")).toHaveText("这一轮按读到 41.30 的位置回答");
     });
 
+    test("会话列表：点一行发 session.select，点新建发 session.create，出错时重试发 sessions.refresh（验收 26、27）", async ({page}) => {
+        await openScene(page, "AgentSessionList", "list");
+        const body = stage(page);
+        await expect(body.locator("[data-session]")).toHaveCount(6);
+        await expect(body.locator("[data-session='c-overview']")).toHaveAttribute("aria-current", "true");
+        await body.locator("[data-session='c-early']").click();
+        await expect.poll(() => lastAction(page)).toEqual({type: "session.select", sessionId: "c-early"});
+        await body.locator("[data-session-create]").click();
+        await expect.poll(() => lastAction(page)).toEqual({type: "session.create"});
+        await openScene(page, "AgentSessionList", "error");
+        await stage(page).locator("[data-session-retry]").click();
+        await expect.poll(() => lastAction(page)).toEqual({type: "sessions.refresh"});
+    });
+
     test("回复里 Markdown 的引用、外链与图片：分别发出 reference.open、link.open 与视图内部的原图预览请求", async ({page}) => {
         await openScene(page, "AgentMarkdown", "links");
         const body = stage(page);

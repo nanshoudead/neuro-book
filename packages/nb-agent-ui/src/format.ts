@@ -9,6 +9,26 @@ export function formatClock(timestamp: number, locale: AgentLocale): string {
     return new Intl.DateTimeFormat(locale, {hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false}).format(timestamp);
 }
 
+const DAY_MS = 86_400_000;
+
+/** 本地时区的日历日序号：先取年月日再按 UTC 折成天数，夏令时那天的 23 或 25 小时不会把日子算错。 */
+function localDayIndex(timestamp: number): number {
+    const date = new Date(timestamp);
+    return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY_MS;
+}
+
+/**
+ * 会话列表的时间（Spec“会话列表”）：与 `now` 同一天写时刻，前一天写“昨天”，同一年写月日，否则加上年。按本地时区的
+ * 日历日比较；`timestamp` 晚于 `now`（多机时钟差）时按同一天写。
+ */
+export function formatListTime(timestamp: number, now: number, locale: AgentLocale): string {
+    const days = localDayIndex(now) - localDayIndex(timestamp);
+    if (days <= 0) return new Intl.DateTimeFormat(locale, {hour: "2-digit", minute: "2-digit", hour12: false}).format(timestamp);
+    if (days === 1) return new Intl.RelativeTimeFormat(locale, {numeric: "auto"}).format(-1, "day");
+    const sameYear = new Date(timestamp).getFullYear() === new Date(now).getFullYear();
+    return new Intl.DateTimeFormat(locale, sameYear ? {month: "short", day: "numeric"} : {year: "numeric", month: "short", day: "numeric"}).format(timestamp);
+}
+
 /** 去掉首尾空白后的第一行，原样；原始视图与排队消息（用户的纯文字）只露出它。 */
 export function firstLine(text: string): string {
     return text.trim().split("\n", 1)[0] ?? "";

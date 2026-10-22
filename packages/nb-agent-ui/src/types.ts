@@ -348,6 +348,7 @@ export type BuiltinAgentViewAction =
     | {type: "session.archive"; sessionId: string}
     | {type: "session.restore"; sessionId: string}
     | {type: "sessions.query"; query: string}
+    | {type: "sessions.refresh"}
     | {type: "view.close"}
     // 消息
     | {type: "message.copy"; messageId: string}
@@ -414,3 +415,22 @@ export type PluginAgentViewAction = {type: `${string}:${string}`; payload?: Json
 export type AgentViewAction = BuiltinAgentViewAction | PluginAgentViewAction;
 
 export type AgentViewMode = "turns" | "raw";
+
+// ─── 会话列表 ────────────────────────────────────────────────────────────
+
+/** 会话列表的一行（Spec“会话列表”）。会话列表是视图之外的独立组件，数据由宿主直接给，不在 ctx 里。 */
+export type AgentSessionListItem = {
+    id: string;
+    /** 空串时显示“未命名会话”。 */
+    title: string;
+    /** 第二行的补充说明，宿主写好，例如“3 轮 · 图当目录”；缺省不显示。 */
+    description?: string;
+    /** 最近活动的时刻（毫秒）。 */
+    updatedAt: number;
+    /** 宿主按自己的状态映射，例如问答记录的中断与出错。 */
+    status: "idle" | "running" | "interrupted" | "error";
+    /** 需要注意的一句，提醒色另起一行，例如“读到 38.12，早于你现在的位置”；图标缺省 i-lucide-circle-alert。 */
+    note?: {text: string; icon?: string};
+};
+
+export type AgentSessionListState = "ready" | "loading" | "error";

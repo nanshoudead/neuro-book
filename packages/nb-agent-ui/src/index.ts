@@ -8,7 +8,7 @@
 // 公开类型逐个列出：新增类型默认是包内的，要给宿主用时在这里加一行。
 export type {
     AgentConversationContext, AgentConversationServices, AgentLocale, AgentViewAction, AgentViewMode, AssistantMessageStatus,
-    AssistantMessageView, AvailabilityStatus, AvailabilityView, BranchView, BuiltinAgentViewAction, ComposerAttachmentView,
+    AgentSessionListItem, AgentSessionListState, AssistantMessageView, AvailabilityStatus, AvailabilityView, BranchView, BuiltinAgentViewAction, ComposerAttachmentView,
     ComposerModelView, ComposerModeView, ComposerView, ConnectionView, ContentBlockView, EditingView, ErrorMessageView, HistoryView,
     InteractionView, JsonValue, LocalizedText, MessageAnnotationView, MessageView, PanelsView, PendingInputView, PendingQuestionView, PluginAgentViewAction,
     RunStatus, RunView, SessionView, SubmitDelivery, SystemMessageSource, SystemMessageView, ToolCallStatus, ToolCallView,
@@ -29,7 +29,7 @@ export type {
 export {argArray, argNumber, argString, countLines, objectString} from "./tool-args";
 export type {CodeLine} from "./tool-detail-lines";
 export {formatText, textOf} from "./messages";
-export {markdownPreviewLine} from "./format";
+export {formatListTime, markdownPreviewLine} from "./format";
 export type {AgentTextKey} from "./messages";
 export {acceptSubmission, applyComposerAction, nextMode} from "./composer-actions";
 export {createAgentContext} from "./context";

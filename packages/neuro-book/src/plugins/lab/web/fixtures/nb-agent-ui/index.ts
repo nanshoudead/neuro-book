@@ -5,7 +5,7 @@
  * 一起加载。要注入 Markdown 与编辑器的零件经 `host.ts` 包一层，`host.ts` 引用了 Markdown 插件的组件，只在选中场景时动态加载。
  */
 
-import type {AgentConversationView} from "@notnotype/nb-agent-ui/vue";
+import type {AgentConversationView, AgentSessionList} from "@notnotype/nb-agent-ui/vue";
 import type {
     AgentChainSummary,
     AgentCommandDetail,
@@ -33,6 +33,7 @@ import type {Component} from "vue";
 import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
+import {agentSessionListScenes} from "./session-list.scenes";
 import {agentConversationComposerScenes, agentModelPickerScenes, agentQueuedMessagesScenes} from "./composer.scenes";
 import {
     agentChainSummaryScenes,
@@ -63,6 +64,12 @@ export const nbAgentUiFixtures: LabFixture[] = [
     defineLabFixture<typeof AgentConversationView>({
         component: "AgentConversationView", scenes: agentConversationViewScenes,
         load: async () => (await import("./AgentConversationViewFixture.vue")).default,
+    }),
+    // 会话列表挂在视图之外，不 inject，直接从公开入口取，不经 host.ts 的包装。
+    defineSubjectFixture<typeof AgentSessionList>({
+        component: "AgentSessionList", scenes: agentSessionListScenes, class: "h-[480px] w-[280px]",
+        subject: async () => ({default: (await import("@notnotype/nb-agent-ui/vue")).AgentSessionList}),
+        events: ["action"],
     }),
     defineLabFixture<typeof AgentConversationComposer>({
         component: "AgentConversationComposer", scenes: agentConversationComposerScenes,

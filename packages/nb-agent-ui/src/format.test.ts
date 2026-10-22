@@ -1,10 +1,11 @@
 /**
  * Markdown 预览行（Spec 验收 30）：折叠的思考与提醒露出的那一行。反例来自设计审查与真实模型的思考摘要。
+ * 会话列表的时间（验收 26）：时刻都用 `new Date(年, 月, 日, 时, 分)` 按本地时区构造，不依赖机器在哪个时区。
  */
 
 import {describe, expect, it} from "bun:test";
 
-import {markdownPreviewLine} from "./format";
+import {formatListTime, markdownPreviewLine} from "./format";
 
 describe("markdownPreviewLine", () => {
     it.each([
@@ -48,5 +49,30 @@ describe("markdownPreviewLine", () => {
     it("空文字与只有空白时给空串", () => {
         expect(markdownPreviewLine("")).toBe("");
         expect(markdownPreviewLine("  \n \n")).toBe("");
+    });
+});
+
+describe("formatListTime", () => {
+    const at = (month: number, day: number, hour = 12, minute = 0, year = 2026) => new Date(year, month - 1, day, hour, minute).getTime();
+
+    it("同一天写时刻，前一天写昨天，同一年写月日，更早加上年", () => {
+        const now = at(10, 20, 9, 30);
+        expect(formatListTime(at(10, 20, 0, 5), now, "zh-CN")).toBe("00:05");
+        expect(formatListTime(at(10, 19, 23, 59), now, "zh-CN")).toBe("昨天");
+        expect(formatListTime(at(10, 19, 23, 59), now, "en-US")).toBe("yesterday");
+        expect(formatListTime(at(10, 18), now, "zh-CN")).toBe("10月18日");
+        expect(formatListTime(at(10, 18), now, "en-US")).toBe("Oct 18");
+        expect(formatListTime(at(12, 31, 12, 0, 2025), now, "zh-CN")).toBe("2025年12月31日");
+    });
+
+    it("按日历日比较：凌晨看昨晚是昨天，不按 24 小时算；跨夏令时结束的那天也一样", () => {
+        expect(formatListTime(at(10, 19, 23, 50), at(10, 20, 0, 10), "zh-CN")).toBe("昨天");
+        // 2026-10-25 欧洲夏令时结束，那天有 25 小时。
+        expect(formatListTime(at(10, 25, 0, 10), at(10, 26, 0, 30), "zh-CN")).toBe("昨天");
+        expect(formatListTime(at(10, 24, 23, 50), at(10, 26, 0, 30), "zh-CN")).toBe("10月24日");
+    });
+
+    it("晚于 now 的时刻（多机时钟差）按同一天写时刻", () => {
+        expect(formatListTime(at(10, 21, 8, 0), at(10, 20, 9, 30), "zh-CN")).toBe("08:00");
     });
 });
