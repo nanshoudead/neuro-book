@@ -3,6 +3,9 @@
  * 语言按函数取：换文档、换语言不重建扩展。
  */
 
+import type {MarkdownText} from "@notnotype/nb-markdown";
+import type {ChipEnv} from "@notnotype/nb-markdown/chip";
+
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {AssetUrls} from "../parts/asset-urls";
@@ -12,4 +15,8 @@ export interface MarkdownViewHost {
     locale(): DisplayLocale;
     /** 没有图片地址服务时（例如 Lab 的场景）图片一律不显示，只有说明。 */
     readonly assets: AssetUrls | null;
+    /** 链接小块的目标分类与文件图标（与展示器、PromptEditor 同一份）。 */
+    readonly chips: ChipEnv;
+    /** 图片不显示时的说明。 */
+    readonly imageMissing?: MarkdownText;
 }

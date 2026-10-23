@@ -9,6 +9,11 @@
         ".": "./src/index.ts",
         "./language": "./src/language/index.ts",
         "./language/types": "./src/language/syntax/types.ts",
+        "./host": "./src/host/index.ts",
+        "./chip": "./src/chip/index.ts",
+        "./display": "./src/display/index.ts",
+        "./markdown.css": "./src/display/markdown.css",
+        "./lab-sources": "./src/lab/index.ts",
         "./tailwind.css": "./src/tailwind.css"
     },
     "scripts": {

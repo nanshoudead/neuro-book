@@ -1,6 +1,7 @@
 /**
- * MarkdownDisplay（同名 .md；docs/specs/ui/markdown-display.md）：方言的外观与编辑器一致、流式更新只替换变了的块、交互出口与
- * 释放。语言与编辑器同一份（内置方言），编辑器一侧用同一套扩展建真实的 Tiptap 编辑器。
+ * nb-markdown 的 MarkdownDisplay 经 nbook 的宿主挂上（docs/specs/ui/markdown-display.md）：方言的外观与编辑器一致、流式更新只
+ * 替换变了的块、交互出口与释放、作品文件的引用小块与外来方言。语言与编辑器同一份（内置方言），编辑器一侧用同一套扩展建
+ * 真实的 Tiptap 编辑器。不经插件挂上的用法在 nb-markdown 自己的 `display/MarkdownDisplay.dom.test.ts`。
  */
 
 import {Editor, Mark, Node} from "@tiptap/core";
@@ -8,15 +9,17 @@ import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+import {MarkdownDisplay} from "@notnotype/nb-markdown/display";
+import type {ResolveAsset} from "@notnotype/nb-markdown/display";
+import {markdownHostKey} from "@notnotype/nb-markdown/host";
 import {codecFor, defaultMarkdownLanguage as markdownLanguage} from "@notnotype/nb-markdown/language";
 
 import {createMarkdownEditorExtensions} from "../editor/markdown-editor-extensions";
-import {markdownReportKey} from "../parts/report";
-import {SyntaxCatalog, syntaxCatalogKey} from "../syntax-catalog";
+import {nbookChips, nbookMarkdownHost} from "../host";
+import {languageFor} from "../language-registry";
+import {SyntaxCatalog} from "../syntax-catalog";
 import {startMarkdownBrowserHost} from "../testing/browser-host";
 import {kbdDialectPlugin, kbdSyntax} from "../testing/kbd-dialect";
-import MarkdownDisplay from "./MarkdownDisplay.vue";
-import type {ResolveAsset} from "./MarkdownImage.vue";
 
 /** nbook.markdown 交组件时给的方言目录：没有外来方言。 */
 const catalog = new SyntaxCatalog({get: () => null, list: () => []}, () => undefined);
@@ -26,8 +29,8 @@ afterEach(() => {
 });
 
 function display(props: {text: string; streaming?: boolean; resolveAsset?: ResolveAsset}, options: {catalog?: SyntaxCatalog; reports?: string[]} = {}) {
-    const provide: Record<symbol, unknown> = {[syntaxCatalogKey as symbol]: options.catalog ?? catalog};
-    if (options.reports !== undefined) provide[markdownReportKey as symbol] = (event: string) => options.reports?.push(event);
+    const host = nbookMarkdownHost({language: () => languageFor(options.catalog ?? catalog), report: (event) => options.reports?.push(event)});
+    const provide: Record<symbol, unknown> = {[markdownHostKey as symbol]: host};
     const wrapper = mount(MarkdownDisplay, {props: {locale: "zh-CN", ...props}, attachTo: document.body, global: {provide}});
     cleanups.push(() => wrapper.unmount());
     return wrapper;
@@ -70,7 +73,7 @@ describe("Spec ui.markdown-display", () => {
         const language = markdownLanguage();
         const element = document.createElement("div");
         document.body.append(element);
-        const editor = new Editor({element, extensions: createMarkdownEditorExtensions({language, placeholder: "", host: {base: () => null, locale: () => "zh-CN", assets: null}}), editable: false});
+        const editor = new Editor({element, extensions: createMarkdownEditorExtensions({language, placeholder: "", host: {base: () => null, locale: () => "zh-CN", assets: null, chips: nbookChips}}), editable: false});
         cleanups.push(() => {
             editor.destroy();
             element.remove();

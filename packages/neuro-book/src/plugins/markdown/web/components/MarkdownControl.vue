@@ -7,6 +7,7 @@ import {inject, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 
 import {codecFor} from "@notnotype/nb-markdown/language";
 import type {MarkdownCodec, MarkdownLanguage, SourceMap} from "@notnotype/nb-markdown/language";
+import "@notnotype/nb-markdown/markdown.css";
 
 import type {EditorControlHandle, EditorOutline, TextEditorBinding, ViewStateSlot} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlEmits} from "nbook/plugins/editor/web/control";
@@ -15,9 +16,9 @@ import type {DisplayLocale} from "nbook/shared/localized-text";
 import {createMarkdownEditorExtensions} from "../editor/markdown-editor-extensions";
 import {REFRESH_REFERENCE_LINKS} from "../editor/reference-links";
 import type {MarkdownViewHost} from "../editor/view-host";
+import {NBOOK_IMAGE_MISSING, nbookChips} from "../host";
 import {languageFor} from "../language-registry";
 import {markdownAssetsKey} from "../parts/asset-urls";
-import "../parts/markdown.css";
 import {syntaxCatalogKey} from "../syntax-catalog";
 
 // `locale`：控件合同的一员；引用小块的悬停提示与图片的说明按它显示（占位文字由宿主给出）。
@@ -50,6 +51,8 @@ const viewHost: MarkdownViewHost = {
     base: () => bound?.address.value ?? null,
     locale: () => props.locale ?? "zh-CN",
     assets: inject(markdownAssetsKey, null),
+    chips: nbookChips,
+    imageMissing: NBOOK_IMAGE_MISSING,
 };
 
 const root = ref<HTMLElement | null>(null);
@@ -105,7 +108,7 @@ interface KeptEditor {
     readonly language: MarkdownLanguage;
 }
 
-// `nb-markdown`：正文的样子与展示器共用（`../parts/markdown.css`）。
+// `nb-markdown`：正文的样子与展示器共用（nb-markdown 的 `display/markdown.css`）。
 const attributes = (): Record<string, string> => ({"aria-label": props.label, "class": "markdown-control__prose nb-markdown", "data-editor-prose": ""});
 
 /**

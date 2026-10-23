@@ -15,21 +15,26 @@ import * as nbAgentUiLab from "@notnotype/nb-agent-ui/lab";
 import {builtinContributions} from "@notnotype/nb-agent-ui/vue";
 import type {AgentViewRenderers} from "@notnotype/nb-agent-ui/vue";
 import type {Component} from "vue";
-import {defineComponent, h, provide} from "vue";
+import {defineComponent, h} from "vue";
 
-import MarkdownDisplay from "nbook/plugins/markdown/web/components/MarkdownDisplay.vue";
+import {MarkdownDisplay} from "@notnotype/nb-markdown/display";
+import {provideMarkdownHost} from "@notnotype/nb-markdown/host";
+
 import PromptEditor from "nbook/plugins/markdown/web/components/prompt/PromptEditor.vue";
 import PromptTextView from "nbook/plugins/markdown/web/components/prompt/PromptTextView.vue";
-import {SyntaxCatalog, syntaxCatalogKey} from "nbook/plugins/markdown/web/syntax-catalog";
+import {nbookMarkdownHost} from "nbook/plugins/markdown/web/host";
 
 import {labAttachmentUrls} from "./data";
 import {labDomainToolsContribution} from "./domain-tools";
 
 export const labAgentRenderers: AgentViewRenderers = {markdown: MarkdownDisplay, promptEditor: PromptEditor, promptTextView: PromptTextView};
 
-/** 给对话视图的祖先提供 Markdown 显示要的方言目录；挂 `AgentConversationView` 的夹具也要调用。 */
+/**
+ * 给对话视图的祖先提供 nbook 的 Markdown 宿主（作品文件的小块、文件图标；只有内置方言）；挂 `AgentConversationView` 的夹具
+ * 也要调用。不提供时组件用 nb-markdown 的缺省宿主，作品文件的引用不是文件小块。
+ */
 export function provideLabMarkdown(): void {
-    provide(syntaxCatalogKey, new SyntaxCatalog({get: () => null, list: () => []}, () => undefined));
+    provideMarkdownHost(nbookMarkdownHost({}));
 }
 
 /** 单独挂载的零件：先交出方言目录、语言与渲染组件，再渲染零件本身。 */

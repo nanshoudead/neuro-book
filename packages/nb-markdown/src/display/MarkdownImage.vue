@@ -1,29 +1,34 @@
 <script setup lang="ts">
-/** Markdown 里的一张图片（同名 .md）。 */
+/**
+ * Markdown 里的一张图片（同名 .md）。不 inject 宿主：展示器的静态视图与编辑器的节点视图用 `render()` 把它挂到普通 DOM 上，
+ * 那里没有应用上下文，inject 拿不到东西；要的都经属性给。
+ */
 import {computed, onBeforeUnmount, shallowRef, watch} from "vue";
 
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import {say as sayText} from "../locale";
+import type {MarkdownLocale, MarkdownText} from "../locale";
 
 export type ResolveAsset = (src: string, signal: AbortSignal) => Promise<{url: string; release(): void} | null>;
 
 const props = withDefaults(defineProps<{
     src: string;
-    locale: DisplayLocale;
+    locale: MarkdownLocale;
     alt?: string;
     title?: string | null;
     resolveAsset?: ResolveAsset;
     refresh?: number;
-}>(), {alt: "", title: null, resolveAsset: undefined, refresh: 0});
+    /** 不显示时的说明，`{name}` 是说明文字或地址；缺省“{name}（不显示）”。 */
+    missing?: MarkdownText;
+}>(), {alt: "", title: null, resolveAsset: undefined, refresh: 0, missing: undefined});
 
 const emit = defineEmits<{(e: "activate"): void}>();
 
 const TEXT = {
     image: {"zh-CN": "图片", "en-US": "Image"},
-    none: {"zh-CN": "{name}（不在作品里，不显示）", "en-US": "{name} (not in the work, not shown)"},
+    none: {"zh-CN": "{name}（不显示）", "en-US": "{name} (not shown)"},
     failed: {"zh-CN": "{name} 读不出", "en-US": "Cannot read {name}"},
-} satisfies Record<string, LocalizedText>;
-const say = (key: keyof typeof TEXT, values: Readonly<Record<string, string>> = {}): string => localize(formatText(TEXT[key], values), props.locale);
+} satisfies Record<string, MarkdownText>;
+const say = (key: keyof typeof TEXT, values: Readonly<Record<string, string>> = {}): string => sayText(key === "none" && props.missing !== undefined ? props.missing : TEXT[key], props.locale, values);
 
 type Shown = {readonly kind: "loading"} | {readonly kind: "shown"; readonly url: string} | {readonly kind: "none"} | {readonly kind: "failed"};
 

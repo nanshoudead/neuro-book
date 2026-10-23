@@ -14,7 +14,9 @@ import type {ActiveSyntax, SyntaxCatalog} from "./syntax-catalog";
 
 const composed = new WeakMap<ReadonlyArray<ActiveSyntax>, MarkdownLanguage>();
 
-export function languageFor(catalog: SyntaxCatalog): MarkdownLanguage {
+/** 没有方言目录时（Lab 与组件测试不经插件挂组件）是内置方言加核心语法。 */
+export function languageFor(catalog: SyntaxCatalog | null): MarkdownLanguage {
+    if (catalog === null) return defaultMarkdownLanguage();
     const active = catalog.active.value;
     if (active.length === 0) return defaultMarkdownLanguage();
     const cached = composed.get(active);

@@ -4,11 +4,13 @@
  * 播完去掉光标；`conversation` 场景把场景的原文摆成 100 条消息，拖 Lab 画布改宽度，用来看长对话改宽度时的卡顿。
  */
 import {Button} from "@notnotype/nb-ui/components";
-import {computed, onBeforeUnmount, provide, ref, watch} from "vue";
+import {computed, onBeforeUnmount, ref, watch} from "vue";
 
-import type {ResolveAsset} from "nbook/plugins/markdown/web/components/MarkdownImage.vue";
-import MarkdownDisplay from "nbook/plugins/markdown/web/components/MarkdownDisplay.vue";
-import {SyntaxCatalog, syntaxCatalogKey} from "nbook/plugins/markdown/web/syntax-catalog";
+import {MarkdownDisplay} from "@notnotype/nb-markdown/display";
+import type {ResolveAsset} from "@notnotype/nb-markdown/display";
+import {provideMarkdownHost} from "@notnotype/nb-markdown/host";
+
+import {nbookMarkdownHost} from "nbook/plugins/markdown/web/host";
 
 import {useLabEventSink} from "../lab-event-sink";
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
@@ -18,8 +20,8 @@ const props = defineProps<LabFixtureProps>();
 const subject = useLabSubject<typeof MarkdownDisplay>(() => props.input);
 const events = useLabEventSink();
 
-// 只有内置方言：外来方言的组成由 `late-dialect.dom.test.ts` 验。
-provide(syntaxCatalogKey, new SyntaxCatalog({get: () => null, list: () => []}, () => undefined));
+// nbook 的宿主，只有内置方言：外来方言的组成由 `late-dialect.dom.test.ts` 验。
+provideMarkdownHost(nbookMarkdownHost({}));
 
 const PICTURE = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240"><rect width="640" height="240" fill="#7287fd"/><text x="320" y="132" font-size="32" text-anchor="middle" fill="white">示意图</text></svg>')}`;
 const resolveAsset: ResolveAsset = () => Promise.resolve({url: PICTURE, release: () => undefined});

@@ -11,9 +11,8 @@ import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.
 import type ExplorerTree from "nbook/plugins/explorer/web/components/ExplorerTree.vue";
 import type FilesExplorerView from "nbook/plugins/explorer/web/components/FilesExplorerView.vue";
 import type FileIcon from "nbook/ui/file-icons/FileIcon.vue";
-import type InlineChip from "nbook/plugins/markdown/web/components/InlineChip.vue";
-import type MarkdownDisplay from "nbook/plugins/markdown/web/components/MarkdownDisplay.vue";
-import type MarkdownImage from "nbook/plugins/markdown/web/components/MarkdownImage.vue";
+import type {InlineChip} from "@notnotype/nb-markdown/chip";
+import type {MarkdownDisplay, MarkdownImage} from "@notnotype/nb-markdown/display";
 import type PromptAttachmentStrip from "nbook/plugins/markdown/web/components/prompt/PromptAttachmentStrip.vue";
 import type PromptEditor from "nbook/plugins/markdown/web/components/prompt/PromptEditor.vue";
 import type PromptPasteFrame from "nbook/plugins/markdown/web/components/prompt/PromptPasteFrame.vue";

@@ -2,6 +2,9 @@
 /** 已发送文字的静态显示（同名 .md；docs/specs/ui/prompt-editor.md 输出 14）：与 PromptEditor 同一套文字写法，不建编辑器。 */
 import {computed, ref, watch} from "vue";
 
+import {InlineChip} from "@notnotype/nb-markdown/chip";
+import {useMarkdownHost} from "@notnotype/nb-markdown/host";
+
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {PromptAttachmentCard, PromptEditorToken} from "./prompt-editor.types";
@@ -17,8 +20,8 @@ import {
 } from "./prompt-text";
 import PromptAttachmentStrip from "./PromptAttachmentStrip.vue";
 import PromptPasteFrame from "./PromptPasteFrame.vue";
-import InlineChip from "../InlineChip.vue";
 
+const host = useMarkdownHost();
 const props = withDefaults(defineProps<{
     text: string;
     locale: DisplayLocale;
@@ -141,6 +144,7 @@ function activateCard(id: string): void {
                 <template v-for="(piece, pieceIndex) in block.pieces" :key="pieceIndex">
                     <template v-if="piece.kind === 'text'">{{ piece.text }}</template>
                     <InlineChip
+                        :env="host.chips"
                         v-else
                         :kind="piece.attrs.kind"
                         :locale="props.locale"

@@ -36,7 +36,7 @@ interface Host {
  * 包一层：给组件交方言目录、图片地址服务与诊断出口；属性、事件与插槽原样转给它。组件的代码加载失败（部署换了版本、网络断了）
  * 时记诊断，有 `fallback` 的按它显示（展示器按纯文字显示原文）。
  */
-function withHost(host: Host, name: string, load: () => Promise<Component>, fallback?: (attrs: Record<string, unknown>) => ReturnType<typeof h>): Component {
+function withHost(host: Host, name: string, load: () => Promise<Component>, fallback?: (attrs: Record<string, unknown>) => ReturnType<typeof h>, props: Record<string, unknown> = {}): Component {
     const failed = ref(false);
     const inner = defineAsyncComponent(() => load().catch((error: unknown) => {
         host.report("markdown.component.load-failed", `${name} 的代码加载失败`, error);
@@ -50,7 +50,7 @@ function withHost(host: Host, name: string, load: () => Promise<Component>, fall
             provideToChildren(syntaxCatalogKey, host.catalog);
             provideToChildren(markdownAssetsKey, host.assets);
             provideToChildren(markdownReportKey, host.report);
-            return () => (failed.value && fallback !== undefined ? fallback(attrs) : h(inner, attrs, slots));
+            return () => (failed.value && fallback !== undefined ? fallback(attrs) : h(inner, {...attrs, ...props}, slots));
         },
     });
 }
@@ -74,14 +74,17 @@ export const markdownBrowserPlugin: PluginDefinition = {
             const report: MarkdownReport = (event, message, error) => diagnostics.record({level: "warn", event, message, error, source: {plugin: descriptor.id}});
             const host: Host = {catalog, assets, report};
             context.signal.addEventListener("abort", () => assets.dispose(), {once: true});
+            // nb-markdown 的组件都经 `MarkdownHosted.vue` 挂上，拿到 nbook 的宿主（目标分类、文件图标、语言与诊断）。
+            const hosted = (component: string, fallback?: (attrs: Record<string, unknown>) => ReturnType<typeof h>): Component =>
+                withHost(host, `${component}Host`, async () => (await import("./components/MarkdownHosted.vue")).default, fallback, {component});
             const service: MarkdownService = {
                 components: {
                     MarkdownControl: withHost(host, "MarkdownControlHost", async () => (await import("./components/MarkdownControl.vue")).default),
-                    MarkdownDisplay: withHost(host, "MarkdownDisplayHost", async () => (await import("./components/MarkdownDisplay.vue")).default, (attrs) => h("div", {class: "nb-markdown-display", style: {whiteSpace: "pre-wrap"}}, String(attrs.text ?? ""))),
-                    InlineChip: defineAsyncComponent(async () => (await import("./components/InlineChip.vue")).default),
-                    MarkdownImage: defineAsyncComponent(async () => (await import("./components/MarkdownImage.vue")).default),
-                    PromptEditor: defineAsyncComponent(async () => (await import("./components/prompt/PromptEditor.vue")).default),
-                    PromptTextView: defineAsyncComponent(async () => (await import("./components/prompt/PromptTextView.vue")).default),
+                    MarkdownDisplay: hosted("MarkdownDisplay", (attrs) => h("div", {class: "nb-markdown-display", style: {whiteSpace: "pre-wrap"}}, String(attrs.text ?? ""))),
+                    InlineChip: hosted("InlineChip"),
+                    MarkdownImage: hosted("MarkdownImage"),
+                    PromptEditor: hosted("PromptEditor"),
+                    PromptTextView: hosted("PromptTextView"),
                 },
             };
             return {services: [provide(markdownKey, service)], receivers: {[MARKDOWN_SYNTAXES_POINT]: catalog.receiver()}};

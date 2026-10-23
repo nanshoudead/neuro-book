@@ -17,6 +17,3 @@ export type {MarkdownCodec} from "./codec/codec";
 export type {ReadResult, SourceMap} from "./codec/read";
 export {equivalent} from "./codec/compare";
 export type {CompareOptions} from "./codec/compare";
-// 展示器的静态视图与编辑器的节点视图共用的外观函数；第 3 片展示器搬进本包后不再从入口导出。
-export {buildCallout} from "./syntax/callout";
-export {renderHtmlEmbedElement} from "./syntax/html-embed";

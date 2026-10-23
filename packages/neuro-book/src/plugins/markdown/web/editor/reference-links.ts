@@ -1,9 +1,9 @@
 /**
- * 编辑器里指向作品里文件的链接画成引用小块（docs/specs/workspace/markdown-dialect.md 输出 27；外观见 `../components/InlineChip.md`）：
+ * 编辑器里指向作品里文件的链接画成引用小块（docs/specs/workspace/markdown-dialect.md 输出 27；外观见 nb-markdown 的 `chip/InlineChip.md`）：
  * 文字仍是链接本身，照常可编辑、写回不变，外框与图标是装饰。
  *
  * 一个链接按“同一个链接标记的连续范围”算：批注只盖住链接的一部分时，它在 DOM 里被拆成几段元素，范围仍是一个，外框只在两端
- * 收口（`chip.css` 的 `nb-chip-link`），图标只在开头一个。
+ * 收口（nb-markdown `chip/chip.css` 的 `nb-chip-link`），图标只在开头一个。
  */
 
 import {Extension} from "@tiptap/core";
@@ -11,8 +11,9 @@ import type {Mark, Node as PMNode} from "@tiptap/pm/model";
 import {Plugin, PluginKey} from "@tiptap/pm/state";
 import {Decoration, DecorationSet} from "@tiptap/pm/view";
 
-import {classifyTarget, showsAsChip} from "../../shared/targets";
-import {chipView, renderChipIcon} from "../parts/chip";
+import {showsAsChip} from "@notnotype/nb-markdown";
+import {chipView, renderChipIcon} from "@notnotype/nb-markdown/chip";
+
 import type {MarkdownViewHost} from "./view-host";
 
 const KEY = new PluginKey<DecorationSet>("nb-reference-links");
@@ -52,10 +53,11 @@ function decorationsOf(doc: PMNode, host: MarkdownViewHost): DecorationSet {
     const base = host.base();
     for (const {from, to, mark} of linkRanges(doc)) {
         const href = String(mark.attrs.href ?? "");
-        const target = classifyTarget(href, base);
-        if (!showsAsChip(target.kind)) continue;
-        const chip = chipView({kind: "reference", label: doc.textBetween(from, to), target: href, base, number: null, state: "ready", error: "", locale: host.locale()});
-        decorations.push(Decoration.inline(from, to, {class: "nb-chip-link", title: chip.title, "data-reference-link": target.kind}));
+        const target = host.chips.targets.classify(href, base);
+        if (!showsAsChip(target)) continue;
+        const chip = chipView({kind: "reference", label: doc.textBetween(from, to), target: href, base, number: null, state: "ready", error: "", locale: host.locale()}, host.chips);
+        const variant = target.variant ?? target.kind;
+        decorations.push(Decoration.inline(from, to, {class: "nb-chip-link", title: chip.title, "data-reference-link": variant}));
         decorations.push(Decoration.inline(to - 1, to, {class: "nb-chip-link--end"}));
         decorations.push(Decoration.widget(from, (view) => {
             const document = view.dom.ownerDocument;
@@ -64,7 +66,7 @@ function decorationsOf(doc: PMNode, host: MarkdownViewHost): DecorationSet {
             icon.contentEditable = "false";
             icon.append(renderChipIcon(document, chip.icon));
             return icon;
-        }, {side: -1, key: `reference:${href}:${target.kind}`, ignoreSelection: true}));
+        }, {side: -1, key: `reference:${href}:${variant}`, ignoreSelection: true}));
     }
     return DecorationSet.create(doc, decorations);
 }

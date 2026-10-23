@@ -1,25 +1,24 @@
 <script setup lang="ts">
-/** Markdown 展示器（同名 .md；docs/specs/ui/markdown-display.md）：编解码器读入后按 schema 生成页面元素，不建编辑器。 */
-import {inject, onBeforeUnmount, onMounted, ref, watch} from "vue";
+/**
+ * Markdown 展示器（同名 .md；docs/specs/ui/markdown-display.md）：编解码器读入后按 schema 生成页面元素，不建编辑器。语言、
+ * 链接的目标分类与诊断出口来自宿主（`useMarkdownHost`），没有提供时用缺省宿主。
+ */
+import {onBeforeUnmount, onMounted, ref, watch} from "vue";
 
-import type {DisplayLocale} from "nbook/shared/localized-text";
-
-import {classifyTarget, showsAsChip} from "../../shared/targets";
-import {DisplayRenderer, schemaFor} from "../display/renderer";
-import type {DisplayActivation} from "../display/static-views";
-import {languageFor} from "../language-registry";
-import {markdownReportKey} from "../parts/report";
-import "../parts/markdown.css";
-import {syntaxCatalogKey} from "../syntax-catalog";
+import {useMarkdownHost} from "../host";
+import {defaultMarkdownLanguage} from "../language/syntax";
+import type {MarkdownLocale} from "../locale";
+import {showsAsChip} from "../targets";
+import "./markdown.css";
 import type {ResolveAsset} from "./MarkdownImage.vue";
+import {DisplayRenderer, schemaFor} from "./renderer";
+import type {DisplayActivation} from "./static-views";
 
-const props = withDefaults(defineProps<{text: string; locale: DisplayLocale; streaming?: boolean; resolveAsset?: ResolveAsset}>(), {streaming: false, resolveAsset: undefined});
+const props = withDefaults(defineProps<{text: string; locale: MarkdownLocale; streaming?: boolean; resolveAsset?: ResolveAsset}>(), {streaming: false, resolveAsset: undefined});
 const emit = defineEmits<{(e: "activate", activation: DisplayActivation): void}>();
 
-const catalog = inject(syntaxCatalogKey, null);
-if (catalog === null) throw new Error("MarkdownDisplay 要由 nbook.markdown 交出的组件挂上：缺少方言目录（syntaxCatalogKey）");
-
-const report = inject(markdownReportKey, () => undefined);
+const host = useMarkdownHost();
+const report = (event: string, message: string, error: unknown): void => host.report(event, message, error);
 
 const root = ref<HTMLElement | null>(null);
 let renderer: DisplayRenderer | null = null;
@@ -80,7 +79,7 @@ onMounted(() => {
     const document = root.value.ownerDocument;
     try {
         // 挂上时取定语言（docs/specs/workspace/markdown-syntaxes.md 输出 7）。
-        const language = languageFor(catalog);
+        const language = host.language?.() ?? defaultMarkdownLanguage();
         renderer = new DisplayRenderer(root.value, language, schemaFor(language), {
             document,
             get locale() {
@@ -89,6 +88,8 @@ onMounted(() => {
             get resolveAsset() {
                 return props.resolveAsset;
             },
+            chips: host.chips,
+            imageMissing: host.imageMissing,
             activate: (activation) => emit("activate", activation),
             report: (message, error) => report("markdown.display.block-failed", message, error),
         });
@@ -118,8 +119,7 @@ const onClick = (event: MouseEvent): void => {
     if (anchor === null || anchor === undefined || !root.value?.contains(anchor)) return;
     event.preventDefault();
     const href = anchor.getAttribute("href") ?? "";
-    const target = classifyTarget(href, null);
-    emit("activate", showsAsChip(target.kind) ? {kind: "reference", target: href} : {kind: "link", href});
+    emit("activate", showsAsChip(host.chips.targets.classify(href, null)) ? {kind: "reference", target: href} : {kind: "link", href});
 };
 </script>
 

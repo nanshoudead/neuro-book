@@ -53,6 +53,9 @@ export function classifyScheme(target: string): Target {
     return {kind: "other", name: lastSegment(pathPart(target))};
 }
 
+/** 这一类目标的链接显示成引用小块：外部链接是普通链接，别的都是小块（输出 27）。 */
+export const showsAsChip = (target: Target): boolean => target.kind !== "external";
+
 /** 不认任何文件方案的宿主用的分类：`encodeFile` 原样返回。 */
 export const schemeTargets: MarkdownTargets = {
     classify: (target) => classifyScheme(target),

@@ -7,12 +7,12 @@
 import type {Node as PMNode} from "@tiptap/pm/model";
 import {h, render} from "vue";
 
-import {buildCallout, renderHtmlEmbedElement} from "@notnotype/nb-markdown/language";
-
-import type {DisplayLocale} from "nbook/shared/localized-text";
-
-import MarkdownImage from "../components/MarkdownImage.vue";
-import type {ResolveAsset} from "../components/MarkdownImage.vue";
+import type {ChipEnv} from "../chip/chip";
+import {buildCallout} from "../language/syntax/callout";
+import {renderHtmlEmbedElement} from "../language/syntax/html-embed";
+import type {MarkdownLocale, MarkdownText} from "../locale";
+import MarkdownImage from "./MarkdownImage.vue";
+import type {ResolveAsset} from "./MarkdownImage.vue";
 
 export type DisplayActivation =
     | {readonly kind: "reference"; readonly target: string}
@@ -21,8 +21,12 @@ export type DisplayActivation =
 
 export interface StaticViewHost {
     readonly document: Document;
-    readonly locale: DisplayLocale;
+    readonly locale: MarkdownLocale;
     readonly resolveAsset: ResolveAsset | undefined;
+    /** 链接的小块：宿主的目标分类与文件图标。 */
+    readonly chips: ChipEnv;
+    /** 图片不显示时的说明（`MarkdownImage` 的 `missing`）；没有时用它的缺省文字。 */
+    readonly imageMissing: MarkdownText | undefined;
     activate(activation: DisplayActivation): void;
     /** 记一条诊断：某一块画不出来，按文字显示了。 */
     report(message: string, error: unknown): void;
@@ -38,7 +42,7 @@ export interface StaticView {
 
 export type StaticViewFactory = (node: PMNode, host: StaticViewHost) => StaticView;
 
-const HTML_LABELS: Readonly<Record<DisplayLocale, {render: string; viewSource: string; caption: string}>> = {
+const HTML_LABELS: Readonly<Record<MarkdownLocale, {render: string; viewSource: string; caption: string}>> = {
     "zh-CN": {render: "渲染", viewSource: "查看源码", caption: "HTML"},
     "en-US": {render: "Render", viewSource: "View Source", caption: "HTML"},
 };
@@ -72,7 +76,7 @@ export const STATIC_VIEWS: Readonly<Record<string, StaticViewFactory>> = {
         const dom = host.document.createElement("span");
         dom.className = "nb-markdown-image-node";
         const src = String(node.attrs.src ?? "");
-        render(h(MarkdownImage, {src, alt: String(node.attrs.alt ?? ""), title: (node.attrs.title as string | null) ?? null, locale: host.locale, resolveAsset: host.resolveAsset, onActivate: () => host.activate({kind: "image", address: src})}), dom);
+        render(h(MarkdownImage, {src, alt: String(node.attrs.alt ?? ""), title: (node.attrs.title as string | null) ?? null, locale: host.locale, resolveAsset: host.resolveAsset, missing: host.imageMissing, onActivate: () => host.activate({kind: "image", address: src})}), dom);
         return {dom, destroy: () => render(null, dom)};
     },
 };

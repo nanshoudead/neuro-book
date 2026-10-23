@@ -2,12 +2,17 @@
 /** 行内小块与待上传附件的节点视图（同名 .md）：外观是 `InlineChip`。 */
 import {computed} from "vue";
 import {NodeViewWrapper, nodeViewProps} from "@tiptap/vue-3";
+
+import {InlineChip} from "@notnotype/nb-markdown/chip";
+import {useMarkdownHost} from "@notnotype/nb-markdown/host";
+
 import type {PromptEditorToken} from "./prompt-editor.types";
 import type {PromptNodeContext} from "./prompt-editor-extensions";
 import {numberKey, PROMPT_PENDING_NODE, promptTokenFromAttrs, type PromptPendingAttrs, type PromptTokenAttrs} from "./prompt-text";
-import InlineChip from "../InlineChip.vue";
 
 const props = defineProps(nodeViewProps);
+/** 引用小块的目标分类与文件图标：TipTap 的 Vue 节点视图挂在 `EditorContent` 的应用上下文里，拿得到 PromptEditor 祖先提供的宿主。 */
+const host = useMarkdownHost();
 
 const context = computed(() => props.extension.options.context as PromptNodeContext);
 
@@ -71,6 +76,7 @@ function hover(active: boolean): void {
 <template>
     <NodeViewWrapper as="span" class="prompt-token-node">
         <InlineChip
+            :env="host.chips"
             :kind="chip.kind"
             :locale="context.locale"
             :label="chip.label"

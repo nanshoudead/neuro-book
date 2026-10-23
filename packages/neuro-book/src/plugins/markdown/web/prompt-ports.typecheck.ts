@@ -7,8 +7,8 @@
  */
 
 import type {MarkdownDisplayPortProps, PromptEditorPortExpose, PromptEditorPortProps, PromptTextViewPortProps} from "@notnotype/nb-agent-ui";
+import type {MarkdownDisplay} from "@notnotype/nb-markdown/display";
 
-import type MarkdownDisplay from "./components/MarkdownDisplay.vue";
 import type PromptEditor from "./components/prompt/PromptEditor.vue";
 import type PromptTextView from "./components/prompt/PromptTextView.vue";
 

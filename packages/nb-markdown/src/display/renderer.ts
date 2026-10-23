@@ -11,11 +11,10 @@ import {getSchema} from "@tiptap/core";
 import type {Node as PMNode, Schema} from "@tiptap/pm/model";
 import {DOMSerializer} from "@tiptap/pm/model";
 
-import {codecFor} from "@notnotype/nb-markdown/language";
-import type {MarkdownLanguage} from "@notnotype/nb-markdown/language";
-
-import {classifyTarget, showsAsChip} from "../../shared/targets";
-import {chipView, renderChipIcon} from "../parts/chip";
+import {chipView, renderChipIcon} from "../chip/chip";
+import {codecFor} from "../language/codec/codec";
+import type {MarkdownLanguage} from "../language/language";
+import {showsAsChip} from "../targets";
 import {STATIC_VIEWS} from "./static-views";
 import type {StaticView, StaticViewHost} from "./static-views";
 
@@ -60,7 +59,7 @@ function keyOf(node: PMNode, identity: ReadonlyMap<string, string>, cache: WeakM
 }
 
 /**
- * 正文里指向作品里文件的链接画成引用小块（与编辑器的 `../editor/reference-links.ts` 同一份外观）：同一个地址的几段相邻的链接元素
+ * 正文里外部链接以外的链接画成引用小块（与编辑器的 `../editor/reference-links.ts` 同一份外观）：同一个地址的几段相邻的链接元素
  * （批注只盖住一部分时会拆开）算一个，首段前面放图标，末段带收口的类名。
  */
 function decorateLinks(root: HTMLElement, host: StaticViewHost): void {
@@ -85,14 +84,14 @@ function decorateLinks(root: HTMLElement, host: StaticViewHost): void {
     for (const group of groups) {
         const first = group[0] as HTMLAnchorElement;
         const href = first.getAttribute("href") ?? "";
-        const target = classifyTarget(href, null);
-        if (!showsAsChip(target.kind)) continue;
-        const chip = chipView({kind: "reference", label: group.map((anchor) => anchor.textContent ?? "").join(""), target: href, base: null, number: null, state: "ready", error: "", locale: host.locale});
+        const target = host.chips.targets.classify(href, null);
+        if (!showsAsChip(target)) continue;
+        const chip = chipView({kind: "reference", label: group.map((anchor) => anchor.textContent ?? "").join(""), target: href, base: null, number: null, state: "ready", error: "", locale: host.locale}, host.chips);
         // 与编辑器的装饰同一个结构：小块的样子画在链接里面的一层 span 上，链接本身的样式按 `:has(.nb-chip-link)` 去掉。
         const spans = group.map((anchor) => {
             const span = document.createElement("span");
             span.className = "nb-chip-link";
-            span.dataset.referenceLink = target.kind;
+            span.dataset.referenceLink = target.variant ?? target.kind;
             span.title = chip.title;
             span.append(...anchor.childNodes);
             anchor.append(span);
