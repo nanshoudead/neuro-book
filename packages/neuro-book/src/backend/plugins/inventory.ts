@@ -91,7 +91,7 @@ function previewReason(reason: string): BlockedPlugin["reason"] {
     }
 }
 
-/** 越小越具体：版本不符与服务不再提供能直接指出原因，经别的插件传递受阻只说明“依赖的插件不可用”。 */
+/** 同一插件几行原因的先后，越小越具体：版本不符与服务不再提供能直接指出原因，经别的插件传递受阻只说明“依赖的插件不可用”。 */
 const REASON_RANK: Readonly<Record<BlockedPlugin["reason"], number>> = {"version-mismatch": 0, "missing-service": 1, "dependency-cycle": 2, "provider-blocked": 3};
 
 /** 路径上有没有东西；只有 ENOENT 算没有，别的错误（权限）抛出，由调用方按复制失败处理。 */
@@ -240,12 +240,15 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
         const unchecked: string[] = [];
         for (const [id, entry] of Object.entries(record.record.plugins)) {
             if (entry.state !== "enabled") continue;
-            const read = await installedManifest(join(root, id, entry.pendingVersion ?? entry.version));
-            if (read.ok) current.push(read.manifest);
+            const version = entry.pendingVersion ?? entry.version;
+            const read = await installedManifest(join(root, id, version));
+            // 与启动时一样核对目录里的清单就是登记的那个插件与版本：对不上的重启后不登记，不能参与推导。
+            if (read.ok && read.manifest.id === id && read.manifest.version === version) current.push(read.manifest);
             else if (id !== next.id) unchecked.push(id);
         }
         const after = [...current.filter((item) => item.id !== next.id), next];
         const locations = [...new Set([...current, next].flatMap((item) => item.entries.map((entry) => entry.location)))];
+        // 按插件与原因分组：同一插件的几个入口原因不同时各占一行，范围与服务 id 只跟着它自己的入口。
         const byPlugin = new Map<string, BlockedPlugin>();
         for (const location of locations) {
             const before = previewBlocked(current.map(previewDefinition), location, pluginVersionSatisfies);
@@ -253,14 +256,14 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
                 if (blocked === null || (before.get(key) ?? null) !== null) continue;
                 const [plugin, entry] = splitEntry(key);
                 const reason = previewReason(blocked.reason);
-                const detail = reason === "version-mismatch" && blocked.reason === "version-mismatch" ? {range: blocked.range} : reason === "missing-service" ? {service: blocked.key} : {};
-                const known = byPlugin.get(plugin);
-                // 一个插件几个入口受阻时，原因取最具体的那条（同一份排序见 `REASON_RANK`），入口都列出。
-                if (known === undefined || REASON_RANK[reason] < REASON_RANK[known.reason]) byPlugin.set(plugin, {plugin, entries: [...(known?.entries ?? []), entry], reason, ...detail});
-                else byPlugin.set(plugin, {...known, entries: [...known.entries, entry]});
+                const detail: {readonly range?: string; readonly service?: string} = reason === "version-mismatch" && blocked.reason === "version-mismatch" ? {range: blocked.range} : reason === "missing-service" ? {service: blocked.key} : {};
+                const group = `${plugin}\n${reason}\n${detail.range ?? detail.service ?? ""}`;
+                const known = byPlugin.get(group);
+                byPlugin.set(group, known === undefined ? {plugin, entries: [entry], reason, ...detail} : {...known, entries: [...known.entries, entry]});
             }
         }
-        return {blocked: [...byPlugin.values()].sort((left, right) => (left.plugin < right.plugin ? -1 : 1)), unchecked: unchecked.sort()};
+        const order = (item: BlockedPlugin): string => `${item.plugin}\n${String(REASON_RANK[item.reason])}`;
+        return {blocked: [...byPlugin.values()].sort((left, right) => (order(left) < order(right) ? -1 : 1)), unchecked: unchecked.sort()};
     }
 
     async function install(sourcePath: string): Promise<InventoryResult<PluginListItem>> {

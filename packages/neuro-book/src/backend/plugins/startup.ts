@@ -137,6 +137,9 @@ export async function prepareInstalledPlugins(options: PrepareOptions): Promise<
         record = applied.value.record;
     } else {
         warn("plugins.startup.unlocked", "拿不到插件登记表的写入锁，本次启动不处理待生效变化、不回收残留", {detail: applied.detail});
+        // 锁外读登记表、写租约：另一个服务端可能在两者之间回收了刚读到的版本目录，租约挡不住已经开始的回收（降级的启动，接受这个
+        // 窗口）。先写租约、再读各版本目录的清单：在那之前被回收掉的读清单时就不登记并记诊断，之后才删的入口激活时以
+        // code-load-failed 失败。
         const read = await readRecord(options.root);
         if (!read.ok) return failed(options, read.detail, diagnostics.connect, warn);
         record = read.record;

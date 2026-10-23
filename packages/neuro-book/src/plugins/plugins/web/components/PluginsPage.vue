@@ -401,7 +401,7 @@ onMounted(() => {
                 <div v-if="preview.blocked.length > 0" class="plugins-page__dialog-warning" data-plugin-preview-blocked>
                     <p class="plugins-page__dialog-list-title">{{ text(TEXT.blocked) }}</p>
                     <ul class="plugins-page__dialog-list">
-                        <li v-for="item in preview.blocked" :key="item.plugin" :data-plugin-preview-blocked-item="item.plugin">{{ blockedLine(item) }}</li>
+                        <li v-for="item in preview.blocked" :key="`${item.plugin} ${item.reason} ${item.range ?? item.service ?? ''}`" :data-plugin-preview-blocked-item="item.plugin">{{ blockedLine(item) }}</li>
                     </ul>
                 </div>
                 <p v-if="preview.unchecked.length > 0" class="plugins-page__dialog-text" data-plugin-preview-unchecked>{{ format(TEXT.unchecked, {plugins: list(preview.unchecked)}) }}</p>

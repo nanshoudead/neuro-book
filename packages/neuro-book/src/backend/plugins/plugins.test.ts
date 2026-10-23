@@ -541,6 +541,23 @@ describe("同一状态根上的两个服务端进程（场景 15）", () => {
         }
     });
 
+    it("升级预览：同一插件的几个入口原因不同，各占一行，范围与服务只跟着自己的入口", async () => {
+        const w = await world();
+        const plugin = (name: string, version: string, extra: Record<string, unknown> = {}) => ({...manifest(version), name, contributes: [], ...extra});
+        await w.inventory.install(await w.source("tts1", plugin("tts", "1.0.0", {entries: {main: {location: "server", main: "main.js", provides: ["example.tts/voice", "example.tts/other"]}}}), {"main.js": ""}));
+        await w.inventory.install(await w.source("reader", plugin("reader", "1.0.0", {
+            entries: {a: {location: "server", main: "a.js", requires: ["example.tts/voice"]}, b: {location: "server", main: "b.js", requires: ["example.tts/other"]}},
+            pluginVersions: {"example.tts": "^1.0.0"},
+        }), {"a.js": "", "b.js": ""}));
+        await w.restart();
+        // tts 升到范围外、并且不再提供 other：reader 的 a 入口版本不符，b 入口缺服务，各占一行。
+        const preview = await w.inventory.inspect(await w.source("tts2", plugin("tts", "2.0.0", {entries: {main: {location: "server", main: "main.js", provides: ["example.tts/voice"]}}}), {"main.js": ""}));
+        expect(preview).toMatchObject({ok: true, value: {blocked: [
+            {plugin: "example.reader", entries: ["a"], reason: "version-mismatch", range: "^1.0.0"},
+            {plugin: "example.reader", entries: ["b"], reason: "missing-service", service: "example.tts/other"},
+        ]}});
+    });
+
     it("升级预览列出重启后会受阻的插件（plugin-install 输出 8.1）：版本不符的与经它传递受阻的；禁用的不算；读不了清单的列为没核对", async () => {
         const w = await world();
         const entry = (extra: Record<string, unknown>) => ({entries: {main: {location: "server", main: "main.js", ...extra}}});
@@ -577,6 +594,9 @@ describe("同一状态根上的两个服务端进程（场景 15）", () => {
             {plugin: "example.panel", entries: ["main"], reason: "provider-blocked"},
             {plugin: "example.reader", entries: ["main"], reason: "missing-service", service: "example.tts/voice"},
         ]}});
+        // 已安装目录里的清单被换成别的插件：重启后它不登记，预览列为没核对，不拿它推导。
+        await writeFile(join(w.root, "example.panel", "1.0.0", "package.json"), JSON.stringify(plugin("other", "1.0.0", entry({}))));
+        expect(await w.inventory.inspect(await w.source("tts14", plugin("tts", "1.4.0", entry({provides: ["example.tts/voice"]})), {"main.js": ""}))).toMatchObject({ok: true, value: {blocked: [], unchecked: ["example.broken", "example.panel"]}});
         // 升级一个禁用的插件：重启后它仍禁用，依赖方前后一样，不列。
         expect(await w.inventory.inspect(await w.source("off2", plugin("off", "2.0.0", {...entry({requires: ["example.tts/voice"]}), pluginVersions: {"example.tts": "^9.0.0"}}), {"main.js": ""}))).toMatchObject({ok: true, value: {blocked: []}});
     });
