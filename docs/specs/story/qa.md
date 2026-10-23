@@ -169,7 +169,7 @@ type QaConfig = {
 
 27. **一轮跑在服务里。** 网页开始的一轮在服务进程里运行，不绑在页面的连接上：页面关掉、刷新、断网都不影响它，回来时接上。一个对话同一时间只有一轮：这个对话已有一轮在准备或运行时再开始得到 `qa_busy`（F9）；不同对话可以同时跑。每次开始都重新读配置，设置页改了下一轮生效。命令行与网页同时续问同一个对话时照输出 25 判冲突。
 28. **开始前的错误在返回前报出。** `qa.start` 先做完开始前的全部检查（配置、书、P、全读上限、续问的记录、会话日志与会话恢复），失败时作为这次请求的错误（F1、F3、F5、F6、F8 与查询类的码），不留下运行、不改记录；通过后才受理，返回对话 id、这一轮的 `runId` 与第几轮。新对话的 id 由服务在受理前定下。
-29. **接口。** 都是 `POST /api/rpc/<方法名>`，参数与结果见 `packages/nb-story/src/contract/contract.ts` 的 `QA_METHODS`：
+29. **接口。** 都是 `POST /api/rpc/<方法名>`，参数与结果见 [`contract.ts`](../../../packages/nb-story/src/contract/contract.ts) 的 `QA_METHODS`：
     - `qa.list {book}`：这一代的对话一行一个（id、第一问、记录里的轮数、最后一轮的状态、P、做法、开始与更新时间、服务里运行中或刚结束的那一轮），合并只在服务内存里的首轮（还在跑或没保存，轮数为 0）；读不成的记录另列（id 与原因）；新的在前。
     - `qa.get {book, id}`：记录（首轮还没保存时为空）、会话日志（读不成时给原因，页面只按记录显示）、能不能续问（不能时给原因：旧形状的记录、日志读不成、首轮没保存）、服务里的那一轮。
     - `qa.start {book, question, conversation?, mode?, at?}`：`conversation` 不给是新对话；`mode`、`at` 只在新对话时用。
@@ -294,6 +294,6 @@ Smoke：在真实书库上用 100 章样例书与真实模型跑 `nbstory ask` �
 ## 证据
 
 - 批准依据：[剧情图谱第一版提案](../../proposals/novel-story-app.md)（accepted，2026-10-15 改为做内置问答）；[nb-harness 提案](../../proposals/nb-harness-profile-and-tools.md)；开发者 2026-10-15、2026-10-16 在 [w00024 t05](../../../.agents/works/w00024-nb-story/tasks/t05-qa/README.md) 的决定（第 13 条一个 Agent 从头答到尾，第 16 到 20 条 Spec 要点；回归的输入清单见该 Task 的计划）；开发者 2026-10-21 在 [w00024 t08](../../../.agents/works/w00024-nb-story/tasks/t08-qa-conversation/README.md) 的决定（`answer` 可选、连续对话、回归不重跑）；网页问答与设置页（输出 27 到 35）依据开发者 2026-10-21、2026-10-23 在 [w00024 t13](../../../.agents/works/w00024-nb-story/tasks/t13-qa-web/README.md) 的决定（第 6 到 19 条），照推荐做的取舍见 [待确认清单](../../../.agents/works/w00024-nb-story/pending-confirmations.md)。
-- 实现入口：[`engine.ts`](../../../packages/nb-story/src/qa/engine.ts)、[`ask.ts`](../../../packages/nb-story/src/cli/ask.ts)、[`config.ts`](../../../packages/nb-story/src/cli/config.ts)、`packages/nb-story/src/server/qa-service.ts`
-- 合同测试：[`engine.test.ts`](../../../packages/nb-story/src/qa/engine.test.ts)、[`core/qa-records.test.ts`](../../../packages/nb-story/src/core/qa-records.test.ts)、[`ask.test.ts`](../../../packages/nb-story/src/cli/ask.test.ts)、[`cli/config.test.ts`](../../../packages/nb-story/src/cli/config.test.ts)、[`qa/config.test.ts`](../../../packages/nb-story/src/qa/config.test.ts)、[`cli/ingest.test.ts`](../../../packages/nb-story/src/cli/ingest.test.ts)（输出 23）、`packages/nb-story/src/server/qa.test.ts`（输出 27 到 35，验收 19 到 22）
+- 实现入口：[`engine.ts`](../../../packages/nb-story/src/qa/engine.ts)、[`ask.ts`](../../../packages/nb-story/src/cli/ask.ts)、[`config.ts`](../../../packages/nb-story/src/cli/config.ts)、[`qa-service.ts`](../../../packages/nb-story/src/server/qa-service.ts)
+- 合同测试：[`engine.test.ts`](../../../packages/nb-story/src/qa/engine.test.ts)、[`core/qa-records.test.ts`](../../../packages/nb-story/src/core/qa-records.test.ts)、[`ask.test.ts`](../../../packages/nb-story/src/cli/ask.test.ts)、[`cli/config.test.ts`](../../../packages/nb-story/src/cli/config.test.ts)、[`qa/config.test.ts`](../../../packages/nb-story/src/qa/config.test.ts)、[`cli/ingest.test.ts`](../../../packages/nb-story/src/cli/ingest.test.ts)（输出 23）、[`server/qa.test.ts`](../../../packages/nb-story/src/server/qa.test.ts)（输出 27 到 35，验收 19 到 22）
 - Smoke：[`qa-eval.ts`](../../../.agents/works/w00024-nb-story/tasks/t05-qa/scripts/qa-eval.ts)（验收 9 的回归，真实模型逐题跑 `nbstory ask`；2026-10-16 一审答错 11/168、4/48，均在门槛内；之后 `answer` 改为可选、加了对话，没有重跑，只在样例书上用真实模型冒烟了“你好”与一段两轮追问）
