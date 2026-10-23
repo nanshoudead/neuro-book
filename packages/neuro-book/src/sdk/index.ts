@@ -23,7 +23,7 @@ export type {
 export {defineServiceKey} from "@notnotype/nb-runtime/services";
 export type {ServiceKey} from "@notnotype/nb-runtime/services";
 export {defineRemoteService, orThrow, provideRemote} from "@notnotype/nb-runtime/remote";
-export type {RemoteContract, RemoteOutcome, RemoteResult, RemoteSink} from "@notnotype/nb-runtime/remote";
+export type {RemoteContract, RemoteOutcome, RemoteResult, RemoteSink, RemoteSubscribeOptions, RemoteSubscription} from "@notnotype/nb-runtime/remote";
 export {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 export type {DiagnosticsService} from "@notnotype/nb-runtime/diagnostics";
 export type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";

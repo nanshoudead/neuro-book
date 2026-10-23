@@ -32,6 +32,7 @@ let tmp = "";
 let built = "";
 /** clock、notes、counter 的构建产物（服务端与项目入口）。 */
 let backend: string[] = [];
+let focus = "";
 
 /** 一个手写的、故意写坏的插件：浏览器入口贡献一个 page 分区，`body` 是登记工厂里的模块体。 */
 interface Broken {
@@ -99,8 +100,9 @@ test.beforeAll(async () => {
     built = join(tmp, "snippets-dist");
     // 构建示例：与作者在仓库外构建同一个预设，仓库里 SDK 的包名指到应用源码（`scripts/plugin-sdk/build-examples.ts`）。
     const backendExamples = ["clock", "notes", "counter", "menu", "file-menu"];
+    focus = join(tmp, "focus-dist");
     backend = backendExamples.map((name) => join(tmp, `${name}-dist`));
-    const builds = [["snippets", built], ...backendExamples.map((name, index) => [name, backend[index]!])];
+    const builds = [["snippets", built], ["focus", focus], ...backendExamples.map((name, index) => [name, backend[index]!])];
     await run("bun", ["-e", `import {buildExample} from "./scripts/plugin-sdk/build-examples"; for (const [name, out] of ${JSON.stringify(builds)}) await buildExample(name, out);`]);
 });
 
@@ -253,3 +255,37 @@ test("clock、notes、counter、menu、file-menu 外置：产品服务端装载�
     }
 });
 
+test("完整示例 focus 外置：状态栏条目显示今天的个数；在侧栏视图里开始，主按钮变成“放弃”、状态栏显示剩余时间；放弃后回到今天 0 个（到点完成与跨重启由场景 7 覆盖）", async ({page}) => {
+    const stateRoot = await stateRootWith("focus", [focus]);
+    const server = await startProductServer(stateRoot);
+    try {
+        await page.goto(bookUrl(server.url));
+        await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+        const item = page.locator("[data-workbench-status-bar] [data-workbench-item='example.focus.status']");
+        await expect(item).toHaveText("今天 0 个番茄");
+
+        // 侧栏显示 focus 的容器。侧栏打开时显示哪个容器取决于各容器的排序与上次的布局，点一下已选中的容器会把侧栏收起，
+        // 所以只在它没选中时点。
+        const container = page.locator("[data-activity-container='view:example.focus.panel']");
+        if ((await container.getAttribute("aria-pressed")) !== "true") await container.click();
+        await expect(container).toHaveAttribute("aria-pressed", "true");
+        const panel = page.locator("[data-focus-panel]");
+        await expect(panel).toBeVisible();
+        await expect(panel.locator("[data-focus-today]")).toHaveText("今天完成 0 次，共 0 分钟");
+        const toggle = panel.locator("[data-focus-toggle]");
+        await toggle.click();
+        await expect(toggle).toHaveText("放弃");
+        await expect(toggle).toBeFocused();
+        await expect(item).toHaveText(/^专注 2[45]:\d\d$/u);
+        await expect(panel.locator("[role=timer]")).toHaveText(/^2[45]:\d\d$/u);
+
+        // 状态栏条目挂着切换命令：点它放弃。
+        await item.click();
+        await expect(item).toHaveText("今天 0 个番茄");
+        await expect(toggle).toHaveText("开始专注");
+        await expect(panel.locator("[data-focus-announcement]")).toHaveText("已放弃这次专注");
+    } finally {
+        await page.goto("about:blank");
+        expect(await server.stop()).toBe(0);
+    }
+});

@@ -14,6 +14,7 @@
 4. [04-remote-service](scenarios/04-remote-service.test.ts)：远程服务、项目实例、插件状态与命令。读 [counter](plugins/counter/)。
 5. [05-delegating-proxy](scenarios/05-delegating-proxy.test.ts)：以调用方身份代理。读 notes 的 `web/plugin.ts`。
 6. [06-settings-page](scenarios/06-settings-page.test.ts)：配置项与设置窗口的 page 分区。读 [snippets](plugins/snippets/)：`plugin.ts` → `shared/contracts.ts` → `web/plugin.ts` → `web/snippets.ts` → `web/SnippetsPage.vue`（与 `SnippetsEditor.vue`）。
+7. [07-focus](scenarios/07-focus.test.ts)：完整示例，前面几样连在一起。读 [focus](plugins/focus/)：`shared/contracts.ts` → `backend/plugin.ts` → `web/focus-store.ts` → `web/plugin.ts` → `web/FocusPanel.vue`。
 
 场景用到的场地与探针在 [`testing/`](testing/)。示例插件只从 SDK（`@notnotype/nb-plugin-sdk`，浏览器专用的部分在 `/browser`）导入宿主与内置插件的东西，宿主给的时钟能力也在 SDK 里（`hostClockKey`）。
 
@@ -116,6 +117,7 @@ examples/
 | [menu](plugins/menu/) | server | 定义贡献点 `menu.items`：规则写成 `schema` 与 `idPrefix`、登记时逐条校验，启动即激活、收到菜单项记诊断，接收者 `published` 与 `revoke`、执行时经 `implementation()` 取实现；`context.declarations` 列出已接受声明的标题，贡献方还没激活也列得出 |
 | [file-menu](plugins/file-menu/) | server | 向贡献点提交声明与实现，与拥有者之间没有服务依赖；注释说明为什么还只能启动即激活 |
 | [snippets](plugins/snippets/) | browser（配置项在每个实例登记） | 配置项写在插件描述里、由宿主登记进每个实例；向 `settings.pages` 贡献 page 分区，`load()` 按需加载页面；页面用 `SettingsRow` 的宽排法按 `context.layer` 只编辑这一层，按层读（`inspect`）与按层写（`update(..., {layer})`）；什么时候用 page 而不是 list |
+| [focus](plugins/focus/) | server、browser | 完整示例“专注计时”：list 分区里的设置项、命令、侧栏视图（`viewContribution` 把 store 交给组件）、状态栏条目（挂切换命令）、服务端远程服务与私有存储；计时的权威在服务端，到点由结算函数记完成、条件保存防止几个服务端重复记；窗口按 `endsAt` 算剩余、只在计时时走表、重连后重取 |
 
 ## 可安装的外置插件
 
@@ -137,17 +139,18 @@ examples/
 | [04-remote-service](scenarios/04-remote-service.test.ts) | counter | 窗口直接用合同、`orThrow`、订阅归发起入口；项目按绑定到达与按需激活；`lookup` 的 `not-provided` 降级；`instances()`；计数持久化，命令随公开键可用与不可用 | [plugin-channel](../../../docs/specs/runtime/plugin-channel.md)、[projects](../../../docs/specs/runtime/projects.md)、[store](../../../docs/specs/state/store.md)、[public-state](../../../docs/specs/state/public-state.md)、[commands](../../../docs/specs/workbench/commands.md) |
 | [05-delegating-proxy](scenarios/05-delegating-proxy.test.ts) | notes（浏览器端） | 两个插件经代理各写各的，服务端看到原调用方与 `via`；同步缓存随 `changed` 更新 | [services](../../../docs/specs/runtime/services.md) 输出第 13 条、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md) 输出第 10 条 |
 | [06-settings-page](scenarios/06-settings-page.test.ts) | snippets | 配置项在服务端、项目实例与窗口都被接受；page 分区交付给设置窗口、插件停用后撤回；按层写用户层与本作品层，`inspect` 读回各层、`get` 读有效值，删掉本作品层回到沿用，不带 `layer` 时按 `auto` 选层；写别人的项为 `denied`、不合 schema 为 `invalid-value` | [settings-window](../../../docs/specs/settings/settings-window.md)、[configuration](../../../docs/specs/settings/configuration.md) 输出第 3、6、11、12 条 |
+| [07-focus](scenarios/07-focus.test.ts) | focus | 命令开始、时长取设置项、到点结算后状态栏更新；`already-running`、`not-running`；服务端入口停着时到点的那次重新激活时记上；同一状态根上两个服务端只记一次；跨零点算在结束那天；断线重连后补上别处的变化；入口停止、空闲后不占计时器 | [plugin-api](../../../docs/specs/runtime/plugin-api.md)、[persistence](../../../docs/specs/storage/persistence.md)、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md)、[workbench-shell](../../../docs/specs/ui/workbench-shell.md) |
 
 ## 场地与探针
 
 - [`testing/stage.ts`](testing/stage.ts) 像应用包的宿主那样装配运行实例：每个实例装上与产品宿主相同的内置插件（诊断、`nbook.state`、`nbook.storage`，服务端与窗口另有 `nbook.commands`），给出状态根、时钟与项目；服务端带路由，项目实例与窗口经进程内链路连上它，帧照样经 JSON 编解码。状态根在场景的临时目录里，同一个场地再起服务端读到的是上一次写下的数据。`attach` 把一个插件装进子作用域并激活，用来演示调用方停止。
 - [`testing/probes.ts`](testing/probes.ts) 的探针站在“使用这些服务的插件”的位置上，把拿到的本地服务（`serviceProbe`）或以探针身份的远程访问（`remoteProbe`）交给场景；产品里没有这样的插件。要以某个示例插件**自己**的身份调用时（场景 06 写这个插件声明的配置项），探针作为一个入口加进那个插件的定义，而不是另起一个插件。
+- [`testing/workbench.ts`](testing/workbench.ts) 是工作台的替身：场地不装真正的工作台，替身只拥有视图与状态栏条目两个贡献点，校验用产品里同一份函数，场景直接读条目的 `text()`。视图组件不在 Bun 里加载，由组件测试（`*.dom.test.ts`）覆盖。
 - 场景遵守[测试写法](../../../docs/testing/README.md#测试写法)：真实内核实例与真实内置插件，不用 mock、spy、假计时器与固定等待；时间由场地时钟推进；每个场景在 `afterEach` 里停止全部实例并核对正常关闭，临时目录在 `afterAll` 删除。
 
 ## 还没演示的
 
 - **拥有者定义的激活事件**（`activationEventPrefixes`）：现在只有宿主能触发，插件写不出“菜单打开时才激活贡献方”，file-menu 因此启动即激活（见它的注释）。是否给插件补触发接口由开发者决定。
-- **工作台视图**：随工作台外壳实现后补。
 - **带代码的外置插件**：入口代码的装载实现后，上面的示例插件分批改成 `external/` 下的外置插件。
 
 ## 写法与维护
