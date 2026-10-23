@@ -45,13 +45,15 @@ function label(key: LabelKey): string {
             <span class="acv-sessions__title">{{ label("title") }}</span>
             <IconButton size="sm" icon-class="i-lucide-square-pen" :aria-label="label('create')" :title="label('create')" data-session-create @click="emit('action', {type: 'session.create'})" />
         </div>
-        <div v-if="props.state === 'loading'" class="acv-sessions__state">
-            <Spinner size="sm" :label="label('loading')" show-label />
-        </div>
-        <div v-else-if="props.state === 'error'" class="acv-sessions__state acv-sessions__state--error" role="alert">
-            <span>{{ props.errorMessage ?? label("error") }}</span>
-            <Button size="sm" variant="ghost" data-session-retry @click="emit('action', {type: 'sessions.refresh'})">{{ label("retry") }}</Button>
-        </div>
+        <!-- 加载中、出错与空列表同一版式：居中的圆底图标加一句话，换状态时这块不跳。 -->
+        <EmptyState v-if="props.state === 'loading'" :title="label('loading')" role="status">
+            <template #icon><span aria-hidden="true"><Spinner size="md" /></span></template>
+        </EmptyState>
+        <EmptyState v-else-if="props.state === 'error'" icon-class="i-lucide-circle-alert acv-sessions__error-icon" :title="props.errorMessage ?? label('error')" role="alert">
+            <template #action>
+                <Button size="sm" variant="secondary" data-session-retry @click="emit('action', {type: 'sessions.refresh'})">{{ label("retry") }}</Button>
+            </template>
+        </EmptyState>
         <EmptyState v-else-if="props.items.length === 0" icon-class="i-lucide-messages-square" :title="label('empty')" />
         <ScrollArea v-else class="acv-sessions__scroll">
             <!-- list-style: none 时 Safari 会丢掉列表语义，role 写明。行占满列表宽度，外扩的焦点光晕会被滚动区裁掉，焦点画在行内（nb-ui 的内嵌焦点线）。 -->
@@ -68,15 +70,16 @@ function label(key: LabelKey): string {
                             <span class="acv-sessions__name" :title="item.title === '' ? undefined : item.title">{{ item.title === "" ? label("untitled") : item.title }}</span>
                             <time class="acv-sessions__time" :datetime="new Date(item.updatedAt).toISOString()">{{ formatListTime(item.updatedAt, props.now, props.locale) }}</time>
                         </span>
-                        <span v-if="item.description || item.status !== 'idle'" class="acv-sessions__line acv-sessions__meta">
+                        <!-- 第二行总在：没有说明、状态与提醒的行也和别的行一样高（同一列表的行等高）。 -->
+                        <span class="acv-sessions__line acv-sessions__meta">
                             <span class="acv-sessions__description">{{ item.description }}</span>
+                            <span v-if="item.note" class="acv-sessions__note" :title="item.note.text">
+                                <span :class="item.note.icon ?? 'i-lucide-circle-alert'" class="acv-sessions__note-icon" aria-hidden="true" /><span class="acv-sessions__note-text">{{ item.note.text }}</span>
+                            </span>
                             <!-- 旁边已有文字，转圈不再报一遍（整行是按钮，名称由内容拼出）。 -->
                             <span v-if="item.status === 'running'" class="acv-sessions__running"><span aria-hidden="true"><Spinner size="sm" /></span>{{ agentText(props.locale, "sessions.running") }}</span>
                             <Badge v-else-if="item.status === 'interrupted'" size="sm" variant="soft">{{ agentText(props.locale, "sessions.interrupted") }}</Badge>
                             <Badge v-else-if="item.status === 'error'" size="sm" variant="soft" tone="danger">{{ agentText(props.locale, "sessions.failed") }}</Badge>
-                        </span>
-                        <span v-if="item.note" class="acv-sessions__note">
-                            <span :class="item.note.icon ?? 'i-lucide-circle-alert'" aria-hidden="true" />{{ item.note.text }}
                         </span>
                     </button>
                 </li>
@@ -107,16 +110,7 @@ function label(key: LabelKey): string {
     color: var(--text-main);
 }
 
-.acv-sessions__state {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 16px 12px;
-    font-size: var(--text-sm);
-    color: var(--text-secondary);
-}
-
-.acv-sessions__state--error {
+.acv-sessions :deep(.acv-sessions__error-icon) {
     color: var(--status-danger);
 }
 
@@ -153,11 +147,14 @@ function label(key: LabelKey): string {
     background: var(--accent-bg);
 }
 
+/* 同一列表的行等高：两行各给固定高度，内容有无、标记与转圈都不改变行高。第二行按其中最高的 Badge sm 定高（nb-ui Badge.vue）。 */
 .acv-sessions__line {
     display: flex;
     align-items: baseline;
     gap: 8px;
     min-width: 0;
+    height: calc(var(--text-sm) * var(--leading-ui));
+    line-height: calc(var(--text-sm) * var(--leading-ui));
 }
 
 .acv-sessions__name {
@@ -182,12 +179,15 @@ function label(key: LabelKey): string {
 
 .acv-sessions__meta {
     align-items: center;
-    justify-content: space-between;
+    height: calc(var(--control-h-sm) * 0.68);
+    line-height: normal;
     font-size: var(--text-xs);
     color: var(--text-muted);
 }
 
+/* 宽度不够时说明先收完，提醒再截断（见 nb-ui 自检清单“同行两段文字一段先收”）。 */
 .acv-sessions__description {
+    flex: 1 1 0;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -203,10 +203,22 @@ function label(key: LabelKey): string {
 }
 
 .acv-sessions__note {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 4px;
+    min-width: 0;
     font-size: var(--text-2xs);
     color: var(--status-warning);
+}
+
+.acv-sessions__note-icon {
+    flex-shrink: 0;
+}
+
+.acv-sessions__note-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 </style>

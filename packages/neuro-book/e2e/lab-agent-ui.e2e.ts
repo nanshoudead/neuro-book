@@ -349,6 +349,9 @@ test.describe("对话视图的消息流", () => {
         const body = stage(page);
         await expect(body.locator("[data-session]")).toHaveCount(6);
         await expect(body.locator("[data-session='c-overview']")).toHaveAttribute("aria-current", "true");
+        // 场景里有带提醒、没有说明、运行中与带标记的行：同一列表的行等高。
+        const heights = await body.locator("[data-session]").evaluateAll((rows) => rows.map((row) => row.getBoundingClientRect().height));
+        expect(new Set(heights).size).toBe(1);
         await body.locator("[data-session='c-early']").click();
         await expect.poll(() => lastAction(page)).toEqual({type: "session.select", sessionId: "c-early"});
         await body.locator("[data-session-create]").click();
