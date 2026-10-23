@@ -10,24 +10,19 @@
 
 import type {Position} from "../core/dataset";
 import type {PositionInput} from "../core/position";
+import {parseRef} from "../contract/refs";
 import type {ReadRange} from "../core/qa-records";
 
 /** 一段原文的位置。 */
 export type Paragraph = Position;
 
-export type ReadPlan = {ok: true; from: Position; to: Position} | {ok: false; reason: string};
-
-/** “章.段”或“章.段—章.段”（也接受短横线）。 */
-const REF = /^(\d+)\.(\d+)(?:[—–-](\d+)\.(\d+))?$/u;
 /**
- * 文字里形如出处的片段：前面不紧挨数字或小数点，后面不紧跟数字、也不紧跟“小数点加数字”。所以句末的“39.1。”
- * “39.1.”算出处，“3.5.0”这类三段数字不算。先做 NFKC 归一，全角的“３９．１”与半角同样识别。
+ * 一次 `read` 被拒的原因。只有 `chapter_limit` 是“正常的拒绝”（qa 输出 5）：读原文工具按普通结果返回，告诉模型没读、
+ * 已到上限；其余是请求本身不成立，照旧是工具错误。按 `code` 分，不按文字。
  */
-const REF_IN_TEXT = /(?<![\d.])(\d+)\.(\d+)(?:[—–-](\d+)\.(\d+))?(?!\d)(?!\.\d)/gu;
+export type ReadRefusal = "not_found" | "out_of_range" | "reversed" | "beyond_position" | "chapter_limit";
 
-export function refsInText(text: string): string[] {
-    return [...text.normalize("NFKC").matchAll(REF_IN_TEXT)].map(match => match[0]);
-}
+export type ReadPlan = {ok: true; from: Position; to: Position} | {ok: false; code: ReadRefusal; reason: string};
 
 function before(a: Position, b: Position): boolean {
     return a.chapter < b.chapter || (a.chapter === b.chapter && a.paragraph < b.paragraph);
@@ -77,17 +72,17 @@ export class ReadLedger {
     /** 一次 `read` 请求裁到 P 以后的范围；整个在 P 之后、超出全书或会超过章数上限时给出拒绝原因。 */
     plan(from: PositionInput, to?: PositionInput): ReadPlan {
         const fromLength = this.#length(from.chapter);
-        if (fromLength === undefined) return {ok: false, reason: `没有第 ${from.chapter} 章`};
+        if (fromLength === undefined) return {ok: false, code: "not_found", reason: `没有第 ${from.chapter} 章`};
         const start: Position = {chapter: from.chapter, paragraph: from.paragraph ?? 1};
         const endInput = to ?? (from.paragraph === undefined ? {chapter: from.chapter} : from);
         const endLength = this.#length(endInput.chapter);
-        if (endLength === undefined) return {ok: false, reason: `没有第 ${endInput.chapter} 章`};
+        if (endLength === undefined) return {ok: false, code: "not_found", reason: `没有第 ${endInput.chapter} 章`};
         const end: Position = {chapter: endInput.chapter, paragraph: endInput.paragraph ?? endLength};
         if (start.paragraph < 1 || start.paragraph > fromLength || end.paragraph < 1 || end.paragraph > endLength) {
-            return {ok: false, reason: "范围超出这一章的段数"};
+            return {ok: false, code: "out_of_range", reason: "范围超出这一章的段数"};
         }
-        if (before(end, start)) return {ok: false, reason: "范围的终点在起点之前"};
-        if (before(this.#at, start)) return {ok: false, reason: `这段原文整个在阅读位置 ${this.#at.chapter}.${this.#at.paragraph} 之后，不能读`};
+        if (before(end, start)) return {ok: false, code: "reversed", reason: "范围的终点在起点之前"};
+        if (before(this.#at, start)) return {ok: false, code: "beyond_position", reason: `这段原文整个在阅读位置 ${this.#at.chapter}.${this.#at.paragraph} 之后，不能读`};
         const clipped = before(this.#at, end) ? {...this.#at} : end;
         if (this.#maxChapters !== null) {
             const fresh: number[] = [];
@@ -96,7 +91,8 @@ export class ReadLedger {
                 const earlier = this.#earlier.size > 0 ? `；前几轮读过的 ${[...this.#earlier].sort((a, b) => a - b).join("、")} 章不算` : "";
                 return {
                     ok: false,
-                    reason: `一问最多读 ${this.#maxChapters} 个不同的章，这一问已读 ${this.#fresh.size} 章（${this.chapters().join("、") || "无"}），这次要再读 ${fresh.join("、")} 章，超过上限；已读的章可以再读${earlier}`,
+                    code: "chapter_limit",
+                    reason: `没有读：一问最多读 ${this.#maxChapters} 个不同的章，这一问已读 ${this.#fresh.size} 章（${this.chapters().join("、") || "无"}），这次要再读 ${fresh.join("、")} 章，超过上限；已读的章可以再读${earlier}`,
                 };
             }
         }
@@ -139,10 +135,10 @@ export class ReadLedger {
 
     /** 一个出处的问题；没有问题时为 null。 */
     checkRef(ref: string): string | null {
-        const match = REF.exec(ref.normalize("NFKC").trim());
-        if (!match) return `出处 ${ref} 的写法不对，要写“章.段”或“章.段—章.段”`;
-        const start: Position = {chapter: Number(match[1]), paragraph: Number(match[2])};
-        const end: Position = match[3] === undefined ? start : {chapter: Number(match[3]), paragraph: Number(match[4])};
+        const parsed = parseRef(ref);
+        if (parsed === null) return `出处 ${ref} 的写法不对，要写“章.段”或“章.段—章.段”`;
+        const start: Position = parsed.from;
+        const end: Position = parsed.to;
         for (const position of [start, end]) {
             const length = this.#length(position.chapter);
             if (length === undefined || position.paragraph < 1 || position.paragraph > length) return `出处 ${ref} 超出了全书范围`;

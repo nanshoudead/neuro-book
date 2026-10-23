@@ -7,8 +7,8 @@
 
 import {access} from "node:fs/promises";
 
-import {defaultConfigPath, ingestModel, loadQaConfig, parseQaConfig, qaLimits, recallModel, saveQaConfig, type QaConfig} from "../qa/config";
-import {ConfigEditError, echoable, setConfigField, unsetConfigField} from "../qa/config-edit";
+import {defaultConfigPath, digestBeforeWrite, ingestModel, loadQaConfig, parseQaConfig, qaLimits, readQaConfigFile, recallModel, saveQaConfig, type QaConfig} from "../qa/config";
+import {ConfigEditError, echoable, envNameProblem, setConfigField, unsetConfigField} from "../qa/config-edit";
 import {QaError} from "../qa/errors";
 import {EXIT_INTERRUPTED, EXIT_QA_FAILED, runInterruptible} from "./ask";
 import type {CliIo} from "./main";
@@ -108,10 +108,11 @@ export async function configCommand(options: ConfigOptions, io: CliIo): Promise<
             }
             case "set":
             case "unset": {
-                const config = await loadQaConfig(path);
+                // 读的时候记下摘要，写的时候核对：中间被网页设置页或另一个命令改过就报 config_conflict，不盖掉它。
+                const {config, digest} = await readQaConfigFile(path);
                 const field = params.field as string;
                 const changed = action === "set" ? setConfigField(config, field, params.value as string, ` ${path} `) : unsetConfigField(config, field, ` ${path} `);
-                await saveQaConfig(path, changed);
+                await saveQaConfig(path, changed, {expect: digest});
                 return done({path, config: changed}, action === "set" ? (echoable(field) ? `已改 ${field} = ${String(params.value)}` : `已改 ${field}`) : `已去掉 ${field}`);
             }
             case "init":
@@ -143,6 +144,8 @@ async function exists(path: string): Promise<boolean> {
  */
 async function init(params: Record<string, unknown>, path: string, io: CliIo, json: boolean, done: Done, usageError: (message: string) => number): Promise<number> {
     const present = await exists(path);
+    // 交互问完之前别人可能改了文件：写的时候按开始时的样子核对（读不成的坏文件也有摘要，确认覆盖后整份重写）。
+    const expect = await digestBeforeWrite(path);
     let existing: QaConfig | null = null;
     if (present) {
         // 文件在但读不成配置（坏了）：确认覆盖后当作没有，整份重写。
@@ -156,6 +159,9 @@ async function init(params: Record<string, unknown>, path: string, io: CliIo, js
     // 要问字段：没有配置而缺必填项，或已有配置而一个字段选项都没给。要确认覆盖：已有文件而没加 --force。两件事都要
     // 问人，只有在终端里（且没加 --json）才能问，否则是用法错误，不挂起等输入。
     const needsInput = existing ? Object.values(flags).every(text => text === undefined) : missing.length > 0;
+    // 贴了密钥本身的写法在任何校验之前就当用法错误报（不写盘、不回显原文）；整份校验也会拦，但那是另一种失败。
+    const pastedKey = flags["model.apiKeyEnv"] === undefined ? undefined : envNameProblem(flags["model.apiKeyEnv"]);
+    if (pastedKey !== undefined) return usageError(`model.apiKeyEnv：${pastedKey}`);
     const needsConfirm = present && params.force !== true;
     const canPrompt = !json && process.stdin.isTTY === true;
 
@@ -185,7 +191,7 @@ async function init(params: Record<string, unknown>, path: string, io: CliIo, js
             if (!(await confirmOverwrite(path))) return cancelled();
         }
     }
-    await saveQaConfig(path, config);
+    await saveQaConfig(path, config, {expect});
     const warning = process.env[config.model.apiKeyEnv] ? "" : `\n· 环境变量 ${config.model.apiKeyEnv} 现在没有设置，问答前要先设置它`;
     return done({path, config}, `已写 ${path}${warning}\n下一步：nbstory config test 检查能不能用`);
 }

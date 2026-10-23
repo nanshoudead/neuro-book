@@ -11,5 +11,6 @@
         "jsx": "preserve",
         "forceConsistentCasingInFileNames": true
     },
-    "include": ["src/web/**/*.ts", "src/web/**/*.vue"]
+    "include": ["src/web/**/*.ts", "src/web/**/*.vue"],
+    "exclude": ["src/web/**/*.test.ts"]
 }

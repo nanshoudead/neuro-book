@@ -102,7 +102,8 @@ function queryTool(name: (typeof QUERY_COMMANDS)[number], state: QaToolState): {
                 let params: Record<string, unknown> = args;
                 if (name === "read") {
                     const plan = state.ledger.plan(args.from as never, args.to as never);
-                    if (!plan.ok) return text(plan.reason, true);
+                    // 超出章数上限是正常的拒绝：按普通结果告诉模型没读（qa 输出 5，决定 14），网页不把它算成失败；其余拒绝是请求不成立。
+                    if (!plan.ok) return text(plan.reason, plan.code !== "chapter_limit");
                     params = {from: plan.from, to: plan.to};
                 }
                 const outcome = await state.book.call(method, {...params, at: state.at});

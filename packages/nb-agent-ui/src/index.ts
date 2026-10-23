@@ -34,5 +34,5 @@ export type {AgentTextKey} from "./messages";
 export {acceptSubmission, applyComposerAction, nextMode} from "./composer-actions";
 export {createAgentContext} from "./context";
 export type {AgentContextPatch} from "./context";
-export {createHarnessTranscript} from "./harness";
+export {createHarnessTranscript, logSeqOf} from "./harness";
 export type {HarnessTranscript, HarnessTranscriptOptions, TranscriptProblem} from "./harness";

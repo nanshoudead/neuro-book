@@ -1,6 +1,6 @@
 import {describe, expect, it} from "bun:test";
 
-import {createHarnessTranscript} from "./harness";
+import {createHarnessTranscript, logSeqOf} from "./harness";
 
 const AT = "2026-10-22T08:00:00.000Z";
 let seq = 0;
@@ -203,5 +203,15 @@ describe("harness 适配器：日志与事件交错", () => {
         ]}}));
         const user = transcript.messages()[0];
         expect(user?.kind === "user" && user.blocks.map((block) => (block.kind === "text" ? block.text : block.bytes))).toEqual(["前", 1, "后", 2]);
+    });
+});
+
+describe("harness 适配器：消息对到日志", () => {
+    it("日志合成的消息给出来源 seq，正在生成的临时消息为 null", () => {
+        const transcript = createHarnessTranscript();
+        transcript.applyLogEntry({kind: "agent_message", seq: 7, at: "2026-10-23T08:00:00.000Z", message: {role: "user", content: "问", timestamp: 1}});
+        transcript.applyLogEntry({kind: "run_end", seq: 8, at: "2026-10-23T08:00:00.000Z", stopReason: "error", error: {kind: "auth", status: null, message: "x"}});
+        transcript.applyEvent({type: "message_start", message: {role: "assistant", content: [{type: "text", text: "正在"}], timestamp: 9}});
+        expect(transcript.messages().map(logSeqOf)).toEqual([7, 8, null]);
     });
 });
