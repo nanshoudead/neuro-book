@@ -231,12 +231,18 @@ describe("一轮问答在服务里跑，进展经推送到页面", () => {
         expect(env.endpoint.bodies).toHaveLength(0);
     });
 
-    test("全读的对话：页面拿到的日志里没有原文，只有问题与段数；存下的日志照旧带原文（续问要交回模型）", async () => {
-        const env = await setup([GIVE_UP]);
+    test("全读的对话：页面拿到的日志（qa.get、推送的快照与日志帧）里没有原文，只有问题与段数；存下的日志照旧带原文（续问要交回模型）", async () => {
+        const gate = held(GIVE_UP);
+        const env = await setup([gate.reply]);
         const started = await env.call("qa.start", {book: "fox", question: "全读的问题", at: {chapter: 2, paragraph: 3}, mode: "full"});
         expect(started.status).toBe(200);
         const {conversation} = started.body as {conversation: string};
-        await waitUntil("结束", async () => ((await env.call("qa.get", {book: "fox", id: conversation})).body as {run: QaRunView | null}).run?.state === "ended");
+        const stream = env.events(conversation);
+        await waitUntil("收到快照", () => stream.frames.length > 0);
+        gate.release();
+        await stream.closed;
+        expect(JSON.stringify(stream.frames)).toContain("全读的问题");
+        expect(JSON.stringify(stream.frames)).not.toContain("以下是阅读位置以前的全部原文");
         const got = await env.call("qa.get", {book: "fox", id: conversation});
         const firstUser = (got.body.log.entries as {kind: string; message?: {role: string; content: {text: string}[]}}[]).find(entry => entry.kind === "agent_message" && entry.message?.role === "user")!;
         expect(firstUser.message!.content[0]!.text).toMatch(/^全读的问题\n\n（已附阅读位置以前的全部原文，共 \d+ 段，这里不显示）$/u);
