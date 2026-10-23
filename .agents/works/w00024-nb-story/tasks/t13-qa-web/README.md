@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t13-qa-web
-status: active
+status: done
 updated: 2026-10-23
 ---
 
@@ -11,7 +11,7 @@ updated: 2026-10-23
 
 把内置问答接进网页查看器：书内问答页（对话列表、流式对话视图、可停止、可追问）、问答配置的设置页与服务端的问答运行和接口；顺带把查看器里手写的抽屉、搜索浮层、表格、重试按钮换成 nb-ui 组件。对话视图用 w00019 做的 `nb-agent-ui`（决定 11）。依赖 t08（已完成）与 w00019 的 [t10](../../../w00019-agent-conversation-view/tasks/t10-migrate-nb-agent-ui/README.md)、[t11](../../../w00019-agent-conversation-view/tasks/t11-complete-view/README.md)。
 
-合同：改 [`story/viewer.md`](../../../../../docs/specs/story/viewer.md) 的“不做问答”，[`story/qa.md`](../../../../../docs/specs/story/qa.md) 补网页入口；对话视图的合同参照已归档的 [`ui/agent-conversation-view.md`](../../../../../docs/archived/specs/ui/agent-conversation-view.md)（w00019），开工时按搬进来的部分重新确认。
+合同：改 [`story/viewer.md`](../../../../../docs/specs/story/viewer.md) 的“不做问答”，[`story/qa.md`](../../../../../docs/specs/story/qa.md) 补网页入口；对话视图的合同参照[`ui/agent-conversation-view.md`](../../../../../docs/specs/ui/agent-conversation-view.md)（w00019），开工时按搬进来的部分重新确认。
 
 ## 决定
 
@@ -26,7 +26,7 @@ updated: 2026-10-23
 注意力排序（开发者 2026-10-21 定）：
 
 6. **位置**：书里导航新加一页“问答”，占主区；宽屏时对话列表是主区左侧一栏，平板与手机收进顶部的“对话”下拉。答案里的出处与人名照常在右侧抽屉打开，不离开对话。（先选过“放在抽屉”，随后改为独立一页。）
-7. **过程**：运行中逐步展开，每一步一行实时列出；一轮结束后整轮过程收成一行摘要，只露出答案或文字回复。这一条改掉 w00019 的“思维链运行中也不自动展开”（归档 [`ui/agent-conversation-view.md`](../../../../../docs/archived/specs/ui/agent-conversation-view.md) 的“展开与折叠”）：问答一轮要一到六分钟，等待时要看得到进展。
+7. **过程**：运行中逐步展开，每一步一行实时列出；一轮结束后整轮过程收成一行摘要，只露出答案或文字回复。这一条改掉 w00019 的“思维链运行中也不自动展开”（[`ui/agent-conversation-view.md`](../../../../../docs/specs/ui/agent-conversation-view.md) 的“展开与折叠”）：问答一轮要一到六分钟，等待时要看得到进展。
 8. **答案卡片**：常显结论类型、结论、“谁知道什么”的表或分点、一行可点的依据出处；展开说明与覆盖范围收起，点“详细”展开。文字回复按 Markdown 显示，没核实的出处在下面用提醒色列出。
 9. **阅读位置不同的对话照常显示**：查看器的阅读位置拨到某个对话的位置之前，这个对话也不拦、不藏，只在对话顶上写它读到哪里。新对话用查看器当前的阅读位置。
 10. **设置页**：独立一页（地址 `/settings`），书架右上角与书里顶栏的菜单都能进入；管整份配置（模型、问答、抽取模型），与 `nbstory config` 是同一份文件。密钥本身不显示、不能填，只写服务启动时那个环境变量有没有值；有“测试连接”。
@@ -85,7 +85,8 @@ w00019 [t14](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice
 
 - 2026-10-23 切片 5（设置页）与切片 6 的 Spec（story/qa、story/viewer、story/cli-skill、agent/harness、包边界）完成。收口验证：nb-story 类型检查通过、单测 398 条通过，nb-harness 73 条通过；nb-story 全量 e2e 27 条，机器负载约 9 时两次各有一条不同的计时类用例偶发失败（外壳换书、长列表 1 秒），单独重跑都通过。实现审查（Sonnet 网页 18 条、omp 服务端 13 条）已逐条处理，修正单独提交（[证据](evidences/impl-review.txt)）。
 
+- 2026-10-23 开发者同意不做真实模型冒烟、直接合入，并追认待确认清单里 t13 的 8 条。合入 master（`0972266fa`），合入后 nb-story 类型检查通过；qa.md、viewer.md 证据里的代码路径改回链接。
+
 ## 下一步
 
-1. 真实模型冒烟（网页里问一题、追问一题、中途停止一次、刷新接上）：要调用真实模型，等开发者同意。
-2. 合入 master；合入后把 qa.md、viewer.md 证据里的代码路径改回链接。
+无。真实模型冒烟（网页里问一题、追问一题、中途停止一次、刷新接上）没有做，开发者需要时另做。
