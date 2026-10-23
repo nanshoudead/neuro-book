@@ -1,0 +1,75 @@
+# w00024 t15 后端只读实现审查
+
+审查范围：`/home/notnotype/CodeRepository/neuro-book/.worktree/review-t15`，`57bdd0d2c..91d363ac6` 的指定后端文件。规范依据读取主工作区 master 的 `story/qa.md`、`agent/harness.md` 和 t15 的计划、决定 1 到 5。未审网页实现。实验只调用本机假端点与真实的 CLI、harness、OMP provider；没有调用真实模型。
+
+## 发现 1：只选 Responses、未写推理档时，请求没有思考摘要
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/qa/harness-model.ts:21`、`:25`、`:33`；测试覆盖缺口在 `packages/nb-story/src/cli/ask.test.ts:109`。
+- **现象**：配置 `{api: "responses"}`、不配置可选的 `thinking`，实际 `config test` 向 `/v1/responses` 发出的正文没有 `reasoning`，也没有 `include: ["reasoning.encrypted_content"]`。加 `thinking: "xhigh"` 后才出现 `reasoning: {effort: "xhigh", summary: "auto"}`。现有测试只测后一种组合，假端点又无条件返回脚本里的摘要，掩盖了缺少请求参数。
+- **为什么是问题**：qa.md 输出 36 要求选 Responses 就请求摘要，推理档仅在配置写了时发送。合法配置中 `thinking` 可缺省；用户只切换“接口”后，真实服务不会因为接口名改变就自动打开摘要，功能仍然看不到思考。`configuredModel` 把“支持推理”与“用户指定了推理档”绑定为同一个布尔值；OMP 在 `model.reasoning === false` 时不组装 reasoning 参数。
+- **如何核实**：执行 `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/review-t15-impl/omp-scratch bun /tmp/claude-1000/review-t15-impl/omp-scratch/runtime-probes.ts`，经真实 CLI 的 `config test` 跑两种配置；结果保存在 `omp-scratch/runtime-1792777872827/results.json` 的 `summary-omitted` 与 `summary-xhigh`。两次退出码均为 0，但前者实际请求没有 `reasoning`，后者有完整的 `effort`、`summary`。OMP 18.2.5 的 `src/providers/openai-shared.ts:3819`、`:3844` 与 `src/stream.ts:1942` 可解释该差异。
+- **建议改法**：把接口的“请求摘要”与可选的 effort 分开传递；Responses 即使没配 effort 也发 `reasoning: {summary: "auto"}`，仍不替用户补 effort。若现有 harness 不能表达，扩展它的模型请求选项或提供受控的 provider 参数接缝。用本机端点按请求决定是否返回摘要，补“不写 thinking、只切 api”的 ask 与 probe 行为用例。
+
+## 发现 2：model.api 的非法值走配置错误，退出码与同类枚举字段不一致
+
+- **严重程度**：建议；**类别**：正确性、测试。
+- **位置**：`packages/nb-story/src/qa/config-edit.ts:40`、`:86`；错误被固定进测试的位置为 `packages/nb-story/src/cli/config.test.ts:122`。
+- **现象**：`config set model.api grpc --json` 与空字符串都退出 1，报 `qa_unconfigured`；正文把 `/model/api must be equal to constant` 重复两遍，再补 `must match a schema in anyOf`，没有告诉用户可写 `chat` 或 `responses`。文件确实保持原字节不变，错误没有回显原值。
+- **为什么是问题**：qa.md 输出 22 与验收 10 规定值的写法不对是用法错误、退出 2；现有同类枚举 `model.thinking max` 也是 2。新增 `api` 却被登记成 `text`，任意字符串都会越过字段解码，直到整份校验才失败。输出 20 的整份校验保护仍然生效，因此没有配置损坏或泄漏；问题是 CLI 合同与可操作的错误信息。新测试明确断言 1，未保护既有规则。
+- **如何核实**：执行上述 `runtime-probes.ts`；`omp-scratch/runtime-1792777872827/results.json` 的 `api-invalid-grpc` 与 `api-invalid-empty` 均记录 `code: 1`、`unchanged: true` 和完整错误正文。指定测试的其他非法写法用例要求退出 2。
+- **建议改法**：同 `thinking` 一样，在字段解码层识别接口枚举、抛 `ConfigEditError` 并列出可用值；错误不带用户输入。整份 schema 校验保留，用来拦截手编配置与整份写入。若确实打算把该值定义为配置错误，必须在 Spec 的退出码与验收里明确例外，而非仅改测试。
+
+## 发现 3：Responses 假端点把截断与自定义用量悄悄改成成功的固定回复
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/nb-story/testing/openai-endpoint.ts:55`、`:97`、`:98`；调用分派为 `:131`。
+- **现象**：`EndpointReply` 的 `text` 接受 `finishReason` 和 `usage`；Chat 分支消费它们，新增 Responses 分支却完全忽略。传 `finishReason: "length"`、自定义 251 输入/99 输出 token，实际仍发 `response.completed`、`status: "completed"`，用量固定 100/10，未发 `response.incomplete`。真实协议的输出上限应是 `response.incomplete` 加 `incomplete_details.reason: "max_output_tokens"`。
+- **为什么是问题**：已有问答合同区分已答但截断与普通停止，也统计用量；同一测试脚本仅改 `model.api` 就不再测试原场景，却没有报错提示。`EndpointReply` 的类型和调用方不能发现该退化，会把截断路径或计量回归测成普通成功。终态 `response.output` 还恒为空，与之前发过的 output items 不一致；思考 item 没有真实服务在无状态重放中返回的 `encrypted_content`，所以现有成功用例不证明密文回放。
+- **如何核实**：执行 `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/review-t15-impl/omp-scratch bun /tmp/claude-1000/review-t15-impl/omp-scratch/protocol-probes.ts`。`omp-scratch/protocol-1792778665826/results.json` 的 `outcomes.fakeTruncation.body` 是从该假端点真实 HTTP 读取的流，显示 completed 和 100/10。相同脚本经 CLI、harness、OMP 收取完整 Responses 截断事件时，`outcomes.truncated` 给 `reply.truncated: true`、用量 100 未缓存输入 +40 缓存读、35 输出，证明正式路径能区分，但原测试端点不能表达。
+- **建议改法**：按 Responses 语义映射 `finishReason` 与 usage，终态带已生成的完整 output；不支持的脚本选项明确拒绝。给 reasoning 产生可辨认的假密文字段并断言续问原样回传；流式摘要分至少 2 个 delta。事件对象使用 Responses wire 的判别联合或一个与它核对的固定夹具，避免只靠 `Record<string, unknown>` 手拼。
+
+## 补充核实证据
+
+- 发现 1 已经进一步经过真正的问答入口核实：执行 `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/review-t15-impl/omp-scratch bun /tmp/claude-1000/review-t15-impl/omp-scratch/remaining-probes.ts`。本机端点只有收到 `reasoning.summary: "auto"` 才回摘要。两次 `ask` 都退出 0，不写 thinking 时日志有 **0** 个思考块，写 xhigh 时有 **1** 个；结果在 `omp-scratch/remaining-1792778891532/results.json`。OpenAI 的[推理文档](https://developers.openai.com/api/docs/guides/reasoning#reasoning-summaries)明确说明摘要需要显式 opt-in，不能依赖服务默认回摘要。
+- 发现 3 已经经过真正的问答入口核实：同一补充脚本的 `fake-truncation-via-cli` 给出 `reply.truncated: false`、用量 100/10；输入给假端点的脚本是 `finishReason: "length"`、251/99。问题在测试端点的场景变形，不能将它当成产品对真实 incomplete 事件的错误；完整协议实验里产品能正确识别截断。
+
+## 未发现问题的方面
+
+1. **Responses 实际解析与主要事件字段**：测试端点确实没有 `sequence_number`、`response.in_progress`、`response.content_part.done`，created/completed 信封也省略 `object`、`created_at`、`model` 等字段；但 OMP 18.2.5 的 HTTP Responses 解析器不靠这些字段定位内容，没有证据表明省略本身会造成实际请求失败。测试里的 `output_index`、`item_id` 对应一致，usage 的 `input_tokens`、`output_tokens`、`input_tokens_details.cached_tokens`、`output_tokens_details.reasoning_tokens` 字段名正确。完整事件实验加入这些字段、2 个交错的 function call、每个参数 2 个 delta，经过 CLI 正常执行，两个工具结果分别对应正确的 call_id。未把单纯的字段省略列为产品故障。
+2. **同接口恢复与跨接口续问**：实际跑了 Chat → Responses、Responses → Chat、Responses → Responses 共 3 种两轮组合，6 轮全部退出 0。Chat → Responses 把无 Responses 签名的思考降为 assistant 文本，保留工具调用与结果；Responses → Chat 把 `call_id|fc_id` 拆成合法 `call_id`，并同步改工具结果。完整协议实验的 `encrypted_content: "opaque-encrypted-1"` 在同轮下一次请求、关闭进程后 `--continue` 的请求里都原样回放；该组合仔细检查后没有发现续问失败。这里证明的是 OMP 的实际编码与本机流接收，不声称真实网关接受所有模型组合。新旧接口的 reasoning 签名不能跨 API 原样复用，跨接口时会降为文本，这个兼容边界尚未在输出 36 说明；建议补充一句，属于功能说明，而不是已复现的失败。
+3. **Profile 2 → 3**：把实验数据的快照设为 `story-qa@2`，并同步重算记录里的 SHA-256 后，真正 `ask --continue` 在 **0 次模型请求**下退出 **4**，报 `qa_not_continuable`、提示现在是 `story-qa@3`。与主工作区 qa.md 输出 37、harness.md 输出 4 一致，所以没有把已写进合同的升级后果另报成实现 bug。仅把引用规则挪到另一个文件或 System 块、继续标 version 2，会让旧会话的系统前缀被静默改写，不满足 harness 输出 9，不能解决兼容问题。若要保留旧对话，选择按快照继续加载旧 v2 Profile、新对话用 v3；代价是保留两份可恢复的规则，旧对话不能自动获得新引用语义。另一条路是把规则与当前引用问题一起作为新增消息注入，保留旧前缀；代价是改变问题组装与消息角色语义，还需设计与验收。现有升级方案成本最低，代价就是所有 v2 对话停止续问。现有 engine 测试只覆盖版本 1，不覆盖当前明确写出的版本 2 断续边界。
+4. **错误正文中的密钥**：Responses 的 HTTP 401、SSE `error`、`response.failed` 三种错误都在真实 ask 路径归为 `model_failed/auth`、退出 4，假密钥被换为 `[REDACTED]`；遍历记录与会话日志没有原值。Responses 的 `config test` 401 也退出 4、脱敏。旧验收 8 只覆盖 Chat 是测试缺口，但此次补充实验没有发现 Responses 脱敏回归。
+5. **引用规则与查询隔离**：指定的真实 CLI 用例通过；问题里的 Markdown 原样交模型，id 经现有 card 查询得到人物卡。新规则没有修改工具的阅读位置裁剪、章数账本和作答出处校验；原有防剧透、章数上限、跨轮已读校验相关用例在本次运行里通过。没有调用真实模型，所以不把“模型会遵守规则”当作已经测到的事实。
+6. **配置与范围控制**：非法接口值不写盘、错误不回显原值；schema 拒绝抽取模型里的 `api`，抽取的模型解析仍只选取原来那组字段。指定后端差异没有新增按错误文案分支、静默 catch 或跨包深导入，也没有修改任务外产品逻辑。
+
+## 实际验证与限制
+
+从 `/home/notnotype/CodeRepository/neuro-book/.worktree/review-t15` 执行：
+
+- `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/review-t15-impl/omp-scratch bun test packages/nb-story/src/cli/ask.test.ts packages/nb-story/src/cli/config.test.ts packages/nb-story/src/qa/config.test.ts packages/nb-story/src/qa/engine.test.ts`：**76 pass、1 fail，77 条，32.45 秒，退出 1**。失败为 `init 的交互 > 贴进来的是密钥而不是变量名：拒绝并说明，改填变量名后通过`，`config.test.ts:252` 等待“推理档” **4000ms** 超时。该用例正文在本提交范围未改变；未重跑以确认，没有将未归因的失败列为 t15 回归。
+- `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/review-t15-impl/omp-scratch bun run --cwd packages/nb-story typecheck`：**退出 2，37.55 秒**。前 4 条链式检查通过，最后的 e2e 类型检查报 `e2e/viewer.e2e.ts(244,21): error TS2488: Type 'NodeListOf<HTMLElement>' must have a '[Symbol.iterator]()' method that returns an iterator.`。位置在网页/e2e 另审范围，未展开审查，也未修改；不能报告整包 typecheck 通过。
+- `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/review-t15-impl/omp-scratch bun /tmp/claude-1000/review-t15-impl/omp-scratch/runtime-probes.ts`：**退出 0，6.00 秒**；接口选择、双向切换、续问、非法枚举与 HTTP 脱敏。
+- `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/review-t15-impl/omp-scratch bun /tmp/claude-1000/review-t15-impl/omp-scratch/protocol-probes.ts`：**退出 0，4.20 秒**；完整流事件、交错工具调用、加密 reasoning 回放、SSE 错误、incomplete 与版本 2 恢复拒绝。
+- `env NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/review-t15-impl/omp-scratch bun /tmp/claude-1000/review-t15-impl/omp-scratch/remaining-probes.ts`：**退出 0，4.78 秒**；ask 缺省 effort 的端到端表现、假端点截断场景、Responses config test 脱敏。
+- 未运行 e2e、开发服务、真实模型；没有变异仓库源码。协议实验的密文是可辨认的假值，只验证原样传递，不验证真实服务的密码学验签。
+
+## 数量
+
+- 阻断：**0**。
+- 重要：**1**（发现 1）。
+- 建议：**2**（发现 2、发现 3）。
+- 合计：**3** 条已核实问题。
+
+反思回写：本次规则提醒已体现在临时脚本，现有规范已明确，不建议重复新增条目；只读审查没有修改规范。
+
+自查：已用 grep 匹配 `^## 发现 [0-9]+：`，共 **3** 条；严重程度行共 **3** 条（重要 **1**、建议 **2**、阻断 **0**），与上述数量一致。
+
+## 处理（主会话，2026-10-23）
+
+- 发现 1 只选 Responses 不写推理档时没有思考摘要：成立。OMP 的 stream 入口只在有推理档时组装 reasoning，不能单独要摘要；替用户补推理档会让不支持推理的模型报错。改为写明条件：qa.md 输出 36（d6107ffcb）、表单的“接口”说明、config show 写“接口：Responses（没写推理档，不要思考摘要）”，测试覆盖 show 的文字。
+- 发现 2 model.api 写错退出 1：成立，改。字段解码加 choice 种类（接口与推理档共用），写错是用法错误退出 2、列出可选值；测试并入既有的用法错误清单；验收 23 同改。
+- 发现 3 测试端点的 Responses 分支忽略 finishReason 与 usage：成立，改为明确拒绝（没有用例需要 Responses 的截断）。密文回放、多段 delta 不补：审查者的协议实验已证明 OMP 路径正确，收益小。
+- 未发现问题一节的第 2 条（中途换接口时思考降为文字）：写进输出 36。
+- 审查环境里 e2e 的 typecheck 报错与 init 交互用例超时：在实现 worktree 里 typecheck 无错、测试通过，属审查 worktree 环境与负载，不是回归。
+- 修正提交：8cbf24c0f。

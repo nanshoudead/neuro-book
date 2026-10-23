@@ -1,0 +1,88 @@
+# w00024 t15 网页部分实现审查（固定在 91d363ac6）
+
+方法：读完整 diff、plan、Spec 输出 49 与验收 12、PromptEditor / Composer / SuggestionMenu 的实际行为；在 /tmp/claude-1000/review-t15-impl/web-scratch/ 里写了探针（probe.test.ts、active.test.ts）对 mentions.ts 做实测；`bun test src/web` 42 个全过。未跑 e2e 与类型检查（worktree 没有 node_modules 的完整安装，类型检查未验证）。
+
+## 发现（按影响排序）
+
+### 1. 重要 / 剧透：章标题文字查询会列出晚于阅读位置的章，暴露“后面某章的标题含这个词”
+- 位置：`packages/nb-story/src/web/qa/mentions.ts:91`（`book.toc.filter(item => item.title !== null && item.title.includes(query))`）；`QaPage.vue` 传入的 `book: book.info`。
+- 现象：`book.info` 是不带 `at` 取的（`host/book.ts:176`），服务端 `bookInfo` 在缺省位置（抽取的末尾）下返回全书章标题（`core/queries/books.ts:18`，`chapter.chapter <= at.chapter` 恒真）。所以 `book.toc` 里每一章都有标题，`MentionBook` 注释里“查看器位置之后的章没有标题”对这里的数据不成立。文字查询按全部标题筛，匹配到晚于 P 的章就列成“第 N 章 / 还没读到 / 不能选”。实测探针：at=第 1 章，目录 `[雨夜, 他的死亡]`，查询“死” 得到 `[["第 2 章","还没读到",true]]`。
+- 为什么是问题：展示的描述虽然藏了标题，但“出现了这一项”本身就回答了“后面哪一章的标题含 X”，可以逐字探出后面章的标题。nb-story 的核心不变量是按位置不剧透，查看器自己的目录只显示到 P 为止的标题。数字查询列出晚于 P 的章只暴露章数（本来就公开），没有这个问题。
+- 注意：Spec 输出 49 的写法是“按数字或章标题找，晚于阅读位置的列出但不能选”，实现照字面做了，所以是 Spec 层面的设计缺口，不是实现跑偏。
+- 如何核实：`bun test` 跑 web-scratch/probe.test.ts；或在页面里把查看器拨到前面几章，`@` 后输入后面某章标题里的词。
+- 建议改法：文字查询只在 `chapter <= at.chapter` 的章里筛；晚于 P 的只在数字查询时列（保留 Spec 里“还没读到”的行为）。同时改 Spec 输出 49 与验收 12 的措辞，并在单测补一条“文字查询不列晚于 P 的章”。
+
+### 2. 建议 / 正确性：`mentionPlainText` 的正则与 `writeInlineLink` 的转义对不上
+- 位置：`mentions.ts:182-187`。
+- 现象：`writeLabel` 把标签里的 `[`、`]`、`\` 转义成 `\[`、`\]`、`\\`，换行换成空格。`MENTION_TEXT = /\[([^\]\n]*)\]\(...\)/` 不认转义。实测（探针）：
+  - 名字 `旧[钟]` → 插入 `[旧\[钟\]](entity://e1)` → 列表与页头仍显示完整的引用写法（未替换）；`a]b` 同样；
+  - 名字 `a\b` → 插入 `[a\\b](entity://e1)` → 替换后显示 `a\\b`（反斜杠没有还原）。
+- 为什么是问题：违反“列表与页头引用只留名称”的合同；对象名来自小说，含方括号或书名号旁的 `[` 并不罕见（`[系统]` 一类名字在网文里很常见）。
+- 如何核实：同上探针。
+- 建议改法：用 nb-markdown 已公开的 `findInlineLinks` + `unescapeMarkdown`（`link-syntax.ts`）识别链接并还原标签，只替换目标方案是 entity、paragraph、chapter 的；这样与写入端同一套规则，也不会被 `<含空格地址>` 之类的写法绕过。单测补方括号、反斜杠、换行的用例。
+
+### 3. 建议 / 交互：人物到达前后，菜单的高亮项停在“章”上，不是第一个人物
+- 位置：`mentions.ts:101-103`（loading 时只有章节项）+ `nb-markdown/src/prompt/PromptEditor.vue:358-360`、`keepActive`（当前项仍在列表里就保留）。
+- 现象：空查询（只打 `@`）或查询同时匹配章标题与人物时，第一次渲染（人物 loading）列表里只有章项，它成了高亮项；人物到达后人物项插到前面，但 `keepActive` 因“当前项还在”保留章项。实测探针：loading 时 items=`[chapter:2]`，到达后 `[entity:e1, chapter:2]`，高亮仍是 `chapter:2`。
+- 为什么是问题：按 Spec，人物在前、是首选；用户看到菜单出现后直接回车，会插入“第 N 章”而不是最常用的人物，要先按上键。
+- 如何核实：页面里只打 `@` 等菜单出现后回车，看插入的是章还是人物；e2e 现在只在查询为“地狱猫”（无章匹配）时覆盖，测不到。
+- 建议改法：loading 期间不返回章节项（`entities === null` 时 items 为空，只显示“正在加载”），或给 `PromptMenu` 端口一个“默认高亮项”；前者在 mentions.ts 里一行，但要同步改单测第 58 行附近“章节照常列出”的断言和 Spec 输出 49 若有此描述。
+
+### 4. 建议 / 边界：`chapter://` 地址不合法时打开一个标题为 “原文 NaN.1” 的空抽屉
+- 位置：`QaPage.vue` 的 `openTarget`：`book.openSource(\`${Number(target.slice(CHAPTER_SCHEME.length))}.1\`)`。
+- 现象：手写或模型回显的 `[x](chapter://abc)` 得到 `NaN.1`，`chapter://37.5` 得到 `37.5.1`，`chapter://` 得到 `0.1`。`DrawerSource` 里 `parseRef` 对前两者返回 null（`range` 为 null、查询不发），抽屉标题写“原文 NaN.1”，内容空白，没有任何说明；`0.1`、`999.1` 则是服务端的 not_found 错误文案。
+- 为什么是问题：用户能手写引用（Spec 也说命令行手写同样写法），未处理的输入把内部字符串漏到界面上。
+- 如何核实：在输入框手打 `[x](chapter://abc) 问一下`，发出后点小块。
+- 建议改法：用 `/^\d+$/` 验证后再转，否则不开抽屉（`console.warn` 一条，或抽屉里写“这个引用的章号不对”）。
+
+### 5. 建议 / 一致性：续问时菜单按对话的位置给，但点小块读原文受查看器位置约束
+- 位置：`QaPage.vue` 的 `mentionAt`（续问用 `conversationAt`）与 `DrawerSource.vue` 的 `beyond_position` 分支。
+- 现象：续问的对话位置是 38.57，查看器后来被拨到 10：菜单允许选 37.8，发出后点这个小块，抽屉写“第 37 章还没读到”，要点“把阅读位置拨到”才能看。
+- 为什么是问题：这个行为在已有的 `paragraph://` 出处链接上本来就有，不是新引入；但 `@` 让用户自己制造这类链接，更容易遇到。抽屉里有恢复入口，所以不重。
+- 建议改法：可接受，不改；如果要改，Spec 里写一句“点小块受查看器位置约束”。
+
+### 6. 建议 / 请求节奏
+- 位置：`mentions.ts:149-166`。
+  - a. 第一次打 `@` 没有缓存，必定先经过 150ms 的等待再请求，菜单至少显示“正在加载”约 150ms 加一次往返；空查询的结果在同一个位置下永远一样，可以在 reset 之后或挂载时预取，首次打开即有。同时，这段时间里回车会把还没解析的 `@苏天晴` 原文当问题发出（章项为空时 Enter 落到发送）。
+  - b. 小边界：查询 A 在途，用户打到 AB（`wanted="AB"`、计时器起）又退回 A，`lookup("A")` 因 A 在途直接返回 null、没有清掉 `wanted`，计时器照样发出 AB 的请求，一次多余请求，结果入缓存无害。
+  - c. 请求失败只留 `console.warn`，菜单显示“没有找到“X””，与“确实没有”无法区分（`mentions.ts:103` 的 `emptyText`）。
+- 循环风险检查：没有。取到结果 → `onChange` → `mentionTick` 加一 → 新 `services` → 编辑器重算 → `lookup` 命中缓存，不再请求；失败走 `failed` 分支返回空；`reset` 之后只在菜单打开时才重新请求。`resolveTriggerMenu` 里有副作用确与端口“纯函数”不符，但 `lookup` 幂等（同一查询只排一次），在编辑器 computed 里被重复求值无害。
+- 建议改法：a 预取空查询；c 失败时 `emptyText` 写“没能取到，换个词再试”或把 `failed` 暴露给 `mentionMenu`。b 可忽略。
+
+### 7. 建议 / 测试缺口（测行为）
+- 位置：`mentions.test.ts`、`e2e/qa.e2e.ts:140-184`。
+  - 单测没有转义用例（见发现 2）、没有“文字查询不列晚于 P 的章”（见发现 1）、没有 loading 高亮（见发现 3）。
+  - `QaPage` 的接线没有任何测试：续问用对话位置、`mentionAt` / `dataVersion` 变化时 `reset`、`conversationAt` 还没加载时回落到查看器位置（这几秒里 `mentionAt` 是查看器位置，可能晚于对话位置，请求会按它发，位置对上后才 `reset`）。这些是 brief 重点 2，只有 `createMentionSearch.reset` 的单测，没有页面级覆盖。
+  - e2e `pick` 里 `expect(option).toBeVisible()` 之后按回车，确认的是“当前高亮项”而不是被断言可见的那一项；之所以对，是因为这几个查询恰好只有一项。变异检查（从推断）：把 `insertText` 里的 `entity://` 换成别的，e2e 第 167 行的正则会失败；把 `mentionPlainText` 去掉，列表那行断言失败；把 `disabled` 去掉，`aria-disabled` 断言失败；这几处断言能失败。
+  - e2e 末尾的“关抽屉”：`BookFrame.vue:283` 的 `data-closing` 只要 `book.drawer.value === null` 就写在 aside 上，是“已关闭”而不是“正在关闭”，名字有误导（base 上就有，本次没改）。该用例的断言 `[data-testid='drawer']:not([data-closing])` 个数为 0 实际等于“抽屉已关”，不是在掩盖问题，但说明了抽屉状态存在服务端阅读状态里、会跨用例留存；第一个用例（`qa.e2e.ts:101`、`:113`）同样把抽屉留开，只有新用例收尾。属于用例间共享状态，现在碰巧没出事（未验证，未跑 e2e）。
+- 建议改法：补上述单测；页面级接线若不好写单测，在 e2e 里加一条“续问用对话位置”的变异检查；把清理抽屉放到 `test.afterEach` 或在 `beforeEach` 里统一回到关闭状态。
+
+### 8. 建议 / 代码质量
+- `mentions.ts:18` 注释说“与 link-refs.ts 的 REF_SCHEME 同一种写法”，却另写了一份 `PARAGRAPH_SCHEME`；`QaPage.vue` 已经 import 了 `REF_SCHEME`，直接引用更不会走样。
+- `mentions.ts:176-178` 的 `dispose() { this.reset(); }` 依赖调用时的 `this`，被解构后会出错（`const {dispose} = mentions`）；改成内部函数 `reset` 再让两个字段共用。
+- `MENTION_LIMIT` 在 `placeItems` 用到之后才声明（`mentions.ts:91`、`:95`），能运行但阅读时找不到；挪到常量区。
+- `reference()` 包装与 `promptReferenceText(名称, 地址, schemeTargets)` 等价，注释讲了绕开的原因（Vue 入口在纯 TS 单测里加载不了），合理；但 `promptReferenceText` 在 `prompt-text.ts` 是纯文件，nb-markdown 没把它从纯 TS 入口导出，值得往上游提“把它也放进纯 TS 入口”，现在这份只能靠注释保证两边一致。
+- 菜单项 `description` 里的类别、“也叫”称呼都是文字，读屏可读；禁用项没有 `domId`，不进 `aria-activedescendant`，行为正确。引用小块（输入框内与已发出的问题）三种目标（人物、段落、章）都用缺省“其它”图标，只靠文字区分，可以接受；若要区分，需要给 `provideMarkdownHost` 的 `targets.classify` 做分类（会牵动问答页的 Markdown 宿主），不建议为此做。
+
+## 未发现问题的方面
+- `resolveTriggerMenu` 的重取循环：没有（见发现 6）。`services` computed 只依赖 `mentionTick` 与 `mentionAt`，`book.info` 在被编辑器的 `menu` computed 调用的闭包里读，依赖正确。
+- 切换对话、拨动查看器位置、`dataVersion` 变化：`watch([formatAt(mentionAt), dataVersion])` 触发 `reset`，缓存与在途请求都丢弃（`scope` 校验），实测单测通过；新对话用查看器位置、续问用对话位置符合 plan 决定。
+- 人物候选的剧透：`entities.list` 带 `at: mentionAt`，服务端按位置建视图，晚于 P 才出现的对象不会返回；空查询只取人物与身份并截 6 个符合决定 4。
+- 插入写法的识别：选中后插入的文字能被编辑器认成引用小块，e2e 的发送正文断言覆盖；`mentionPlainText` 只处理 entity、paragraph、chapter 三种方案，不会误伤普通外链（实测 `[别的](https://x.y)` 原样保留）；唯一的偏差见发现 2。
+- 图标名：`user-round`、`shapes`、`book-open`、`pilcrow` 都在 lucide 图标集中；`@source "./**/*.ts"` 覆盖 mentions.ts，不会被 Tailwind 漏扫。
+- `KIND_LABEL` 抽出后 RosterPage 的显示与之前一致（`Record<EntityKind,string>` 比原来的 `Record<string,string>` 更严）。
+
+## 数量
+阻断 0；重要 1（发现 1）；建议 7（发现 2 到 8，其中发现 2、3、4 属于有实际影响的缺陷，5 到 8 为说明与整理）。
+
+## 处理（主会话，2026-10-23）
+
+- 1 按章标题找会剧透：成立，改。文字查询只筛读到的章；viewer.md 输出 49 同改（7b95d3e05）；单测补“位置在第 1 章搜不到第 2 章标题”，变异检查过。
+- 2 名称含方括号、反斜杠时列表显示转义写法：成立，改。mentionPlainText 改用 nb-markdown 的 findInlineLinks 与 unescapeMarkdown；单测补，变异检查过。
+- 3 人物没取到时高亮落在章节项、到了还停在那里：成立，改。换位置时先取空查询的人物（watch immediate），第一次打 @ 就有人物。
+- 4 chapter:// 后不是整数：成立，改。先校验 /^\d+$/，不对就不打开。
+- 5 续问时段落小块受查看器位置约束：接受取舍。抽屉里已有恢复入口，与出处链接一致。
+- 6 请求节奏：空查询预取已随 3 做；退回在途查询多发一次、失败显示为“没有找到”：收益小，不改。
+- 7 测试缺口：转义、标题筛选已补；QaPage 接线没有单测，e2e 覆盖新对话主路径，不另补。
+- 8 代码整理：PARAGRAPH_SCHEME 改用 link-refs 的 REF_SCHEME；dispose 不再用 this；MENTION_LIMIT 移到使用之前。promptReferenceText 进纯 TS 入口属 nb-markdown 上游，暂不提。
+- 修正提交：f58097cf8。
