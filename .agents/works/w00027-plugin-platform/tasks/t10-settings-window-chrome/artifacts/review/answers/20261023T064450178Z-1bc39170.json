@@ -1,0 +1,24 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00027-plugin-platform",
+    "taskId": "t10-settings-window-chrome",
+    "artifactId": "review",
+    "answerId": "20261023T064450178Z-1bc39170",
+    "artifactVersion": 1,
+    "contentHash": "724580f7fa6ce5f3f48f4e7ce0f0667bcb08ddabab86f144c490187544ed4197",
+    "submittedAt": "2026-10-23T06:44:49.106Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r1-chrome": "integrated",
+        "r1-radius": "14",
+        "r1-inherit": "tag"
+    },
+    "comments": {
+        "r1-chrome": "左上角的设置感觉也可以去掉了。如果不去掉可以把高度调小一点。右边的外观 标题梯子改小，只加粗怎么样？",
+        "r1-inherit": "沿用这个词是否恰当？改成继承自xx是否更好"
+    },
+    "note": "还有一个问题，这个设置界面用的 Modal 组件名叫什么。目前一共有哪些 类似 modal 对话框的通用组件？"
+}
