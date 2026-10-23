@@ -31,6 +31,11 @@ updated: 2026-10-23
 | 1 包与纯 TS 核心 | `f154421d2` | 包 typecheck、test；neuro-book typecheck、test:affected（无关失败：llmlint 缺 tsconfig、dev-panel herdr、nb-history 性能、test-support 路径） |
 | 2 语言与编解码器 | `e6bc0e40d` | 包 165 + 26；neuro-book typecheck 与 markdown 测试；e2e editor-area、markdown-input 35 通过；ProseMirror 只有一份 |
 | 3 宿主、小块与显示 | `1f493d62d` | 包 165 + 37；neuro-book typecheck、vitest 34 文件 238；接线测试的变异检查；build 与 check:dist；e2e lab-markdown、lab-agent-ui、lab-scenes、markdown-input 41 通过；Lab 截图核对图标 |
+| 4 提示词编辑器 | `ac9dbe789` | 包 261 + 110；节点视图拿到宿主的测试；e2e lab-markdown、lab-agent-ui、lab-scenes 36 通过 |
+| 5 编辑器扩展 | `befe8fd9f` | 包与 neuro-book 测试；e2e editor-area、files-explorer、lab-markdown 58 通过 |
+| 6 文档与收口 | `942706a8e` | `docs:check` 只剩四份 Spec 的旧路径（Spec 在主工作区改好，合入后提交）；收口：neuro-book `bun run test` 1354 + 353 通过，全量 e2e 283 通过（24.3 分钟），check:dist 通过 |
+
+实现审查：2026-10-23 派 Claude Sonnet 审 `8bb280f7b..942706a8e`，进行中。
 
 不 push：分支从 master 拉出，master 领先 origin 960 多个提交（含别的 Work），push 分支会一并发布，留给开发者决定。
 
