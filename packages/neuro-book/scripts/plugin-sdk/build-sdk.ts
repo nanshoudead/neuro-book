@@ -11,14 +11,17 @@
  * - `cli.js` 与 `template/`：作者命令 `nbook-plugin`（`cli.ts`）与 `create` 用的模板；模板 `_package.json` 里的依赖范围在这里
  *   填上，与应用自己用的一致。
  * - `package.json`：版本取产品版本；`vue`、`@vue/reactivity`、`typebox` 是 peer 依赖，构建预设的工具是普通依赖。
+ * - `README.md`：作者文档（`scripts/plugin-sdk/README.md`）；`docs/components.md`、`docs/tokens.md`：从 nb-ui 的组件入口与
+ *   主题文件生成的两份附表；`specs/`：作者文档链接到的 Spec 的副本。作者文档在仓库里用指向 `docs/specs/` 的相对链接写，复制时
+ *   改写到包里的副本：SDK 不发布、Work 分支也不推到远端，指向仓库的链接作者打不开，副本还与这个 SDK 版本一致。
  *
  * 用法：`bun run build:sdk [输出目录]`，缺省输出到 `dist/plugin-sdk/`。输出目录只在不存在、为空或者是上次生成的 SDK 包时
  * 清空重建，否则拒绝。
  */
 
 import {existsSync} from "node:fs";
-import {chmod, cp, readdir, readFile, rm, writeFile} from "node:fs/promises";
-import {join, resolve} from "node:path";
+import {chmod, cp, mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {dirname, isAbsolute, join, relative, resolve, sep} from "node:path";
 import {fileURLToPath} from "node:url";
 
 import vue from "@vitejs/plugin-vue";
@@ -74,6 +77,154 @@ async function clearPreviousSdk(outDir: string): Promise<void> {
     }
     if (name !== SDK_NAME) throw new Error(`输出目录 ${outDir} 不是空的，也不是上次生成的 ${SDK_NAME}，不清理`);
     await rm(outDir, {recursive: true});
+}
+
+const AUTHOR_README = join(packageRoot, "scripts/plugin-sdk/README.md");
+const SPECS_ROOT = join(packageRoot, "../../docs/specs");
+/** nb-ui 的源码只当数据读（组件入口、主题文件），不导入：它的模块要 DOM，构建脚本的类型检查没有 DOM。 */
+const NB_UI_SOURCE = join(packageRoot, "../nb-ui/src");
+
+/** 作者文档、两份附表与 Spec 副本。 */
+async function writeAuthorDocs(outDir: string): Promise<void> {
+    const specs = new Set<string>();
+    // 只认行内链接 `[文字](地址)`：作者文档里不写引用式链接，代码块里也不写这个形状（会被当成链接改写）。
+    const readme = (await readFile(AUTHOR_README, "utf8")).replace(/\]\(([^()\s]+)\)/gu, (_link, url: string) => `](${packageLink(url, specs)})`);
+    await writeFile(join(outDir, "README.md"), readme);
+    for (const spec of specs) {
+        await mkdir(dirname(join(outDir, "specs", spec)), {recursive: true});
+        await cp(join(SPECS_ROOT, spec), join(outDir, "specs", spec));
+    }
+    await mkdir(join(outDir, "docs"), {recursive: true});
+    await writeFile(join(outDir, "docs/components.md"), await componentsDoc());
+    await writeFile(join(outDir, "docs/tokens.md"), await tokensDoc());
+}
+
+/**
+ * 作者文档里一个链接在包里的写法。绝对地址与页内锚点不动；指向 `docs/specs/` 的改到包里 `specs/` 下的副本，并记下要复制的
+ * Spec。指向仓库别处的相对链接在包里打不开，构建失败：作者文档要引用示例这类包外的东西时写成文字，不写链接。
+ */
+function packageLink(url: string, specs: Set<string>): string {
+    if (/^[a-z][a-z0-9+.-]*:/iu.test(url) || url.startsWith("#")) return url;
+    const hash = url.indexOf("#");
+    const path = hash < 0 ? url : url.slice(0, hash);
+    const target = resolve(dirname(AUTHOR_README), decodeURIComponent(path));
+    const spec = relative(SPECS_ROOT, target);
+    if (spec.startsWith("..") || isAbsolute(spec) || !spec.endsWith(".md") || !existsSync(target)) {
+        throw new Error(`作者文档的链接 ${url} 不指向 docs/specs/ 下的 Spec：SDK 包里没有它`);
+    }
+    specs.add(spec);
+    return `specs/${spec.split(sep).join("/")}${hash < 0 ? "" : url.slice(hash)}`;
+}
+
+/** nb-ui 组件目录对应的分组标题。不认识的目录用目录名作标题，新加的目录不会漏掉组件。 */
+const COMPONENT_GROUPS: Readonly<Record<string, string>> = {controls: "控件", form: "表单", display: "展示", feedback: "反馈与浮层", popup: "弹出与菜单", layout: "布局", navigation: "导航"};
+
+/**
+ * 组件清单：nb-ui 组件入口里单文件组件的默认导出（`export {default as Button} from "./controls/Button.vue"`），按所在目录分组。
+ * 只认 `.vue`：入口里还有首字母大写的常量（`NB_FIELD_CONTEXT_KEY`）与布局工具函数，它们不是组件。
+ */
+async function componentsDoc(): Promise<string> {
+    const source = await readFile(join(NB_UI_SOURCE, "components/index.ts"), "utf8");
+    const groups = new Map<string, string[]>();
+    for (const match of source.matchAll(/^export\s*\{\s*default as (\w+)\s*\}\s*from\s*"\.\/([^/"]+)\/[^"]+\.vue"/gmu)) {
+        const directory = match[2]!;
+        groups.set(directory, [...groups.get(directory) ?? [], match[1]!]);
+    }
+    if (groups.size === 0) throw new Error("nb-ui 的组件入口里没有找到 `export {default as X} from \"./目录/X.vue\"` 形式的组件导出，组件清单的读法要跟着改");
+    const order = [...Object.keys(COMPONENT_GROUPS), ...[...groups.keys()].filter((name) => !(name in COMPONENT_GROUPS)).sort()];
+    const sections = order.filter((name) => groups.has(name)).map((name) => {
+        const items = groups.get(name)!.sort().map((component) => `- \`${component}\``);
+        return `## ${COMPONENT_GROUPS[name] ?? name}\n\n${items.join("\n")}\n`;
+    });
+    return `# 组件
+
+由 SDK 的构建从 NeuroBook 的组件入口生成，不要手改。
+
+插件的界面只用这里的组件，从 \`@notnotype/nb-plugin-sdk/components\` 导入：
+
+\`\`\`ts
+import {Button} from "@notnotype/nb-plugin-sdk/components";
+\`\`\`
+
+属性、事件与插槽看包里的 \`components.d.ts\`（编辑器里跳转到定义即可）。插件运行时用的是 NeuroBook 自己的那一份组件，外观随用户的主题变化。
+
+${sections.join("\n")}`;
+}
+
+interface TokenGroup {
+    readonly title: string;
+    readonly pattern: RegExp;
+}
+
+/** 颜色变量按前缀分组；没有命中的进“其它”。 */
+const COLOR_GROUPS: ReadonlyArray<TokenGroup> = [
+    {title: "背景", pattern: /^--bg-/u},
+    {title: "文字", pattern: /^--text-/u},
+    {title: "边框", pattern: /^--border-/u},
+    {title: "强调：选中、当前项、主操作", pattern: /^--accent-/u},
+    {title: "状态：info 说明、success 完成、warning 提醒、danger 错误", pattern: /^--status-/u},
+];
+
+/** 不随配色变化的变量按前缀分组，先命中的算；没有命中的进“其它”，nb-ui 加了新前缀也不会漏掉。 */
+const DESIGN_GROUPS: ReadonlyArray<TokenGroup> = [
+    {title: "排版：字体、字号、行高、字重", pattern: /^--(?:font|text|leading|weight|tracking)-/u},
+    {title: "间距", pattern: /^--space-/u},
+    {title: "控件与容器的尺寸", pattern: /^--(?:control-h-|control-px$|menu-|panel-p$|stack-gap$|border-w$)/u},
+    {title: "圆角", pattern: /^--radius-/u},
+    {title: "阴影与焦点", pattern: /^--(?:elevation-|surface-raise$|inset-shadow$|focus-)/u},
+    {title: "面与线的角色：控件、面板、浮层取哪个颜色", pattern: /-(?:surface|outline)$|^--overlay-|^--divider$/u},
+    {title: "动效", pattern: /^--(?:motion|ease)-/u},
+    {title: "滚动条", pattern: /^--scrollbar-/u},
+    {title: "拖动与落点的反馈", pattern: /^--(?:sash-|drop-area-)/u},
+];
+
+/** 一份样式表里声明的自定义属性与它第一次出现时的值（`prefers-reduced-motion` 里的重声明不算）。 */
+async function cssTokens(file: string): Promise<Map<string, string>> {
+    const text = (await readFile(file, "utf8")).replace(/\/\*[\s\S]*?\*\//gu, "");
+    const tokens = new Map<string, string>();
+    for (const match of text.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;{}]+);/gu)) {
+        if (!tokens.has(match[1]!)) tokens.set(match[1]!, match[2]!.replace(/\s+/gu, " ").trim());
+    }
+    return tokens;
+}
+
+function grouped<T extends string>(names: ReadonlyArray<T>, groups: ReadonlyArray<TokenGroup>): Array<{readonly title: string; readonly names: T[]}> {
+    const result = [...groups, {title: "其它", pattern: /(?:)/u}].map((group) => ({title: group.title, pattern: group.pattern, names: [] as T[]}));
+    for (const name of names) result.find((group) => group.pattern.test(name))!.names.push(name);
+    return result.filter((group) => group.names.length > 0);
+}
+
+/**
+ * 主题变量清单：颜色取 nb-ui 的配色合同（`colorway-contract.ts` 的 `nbColorwayVarKeys`），其余取 `tokens.css` 与 `theme.css`
+ * 里声明的变量与缺省值。
+ */
+async function tokensDoc(): Promise<string> {
+    const contract = await readFile(join(NB_UI_SOURCE, "colorway/colorway-contract.ts"), "utf8");
+    const list = /nbColorwayVarKeys\s*=\s*\[([\s\S]*?)\]\s*as const/u.exec(contract)?.[1];
+    const colors = [...(list ?? "").matchAll(/"(--[a-z0-9-]+)"/gu)].map((match) => match[1]!);
+    if (colors.length === 0) throw new Error("nb-ui 的配色合同里没有找到 nbColorwayVarKeys，主题变量清单的读法要跟着改");
+    const design = new Map([...await cssTokens(join(NB_UI_SOURCE, "theme.css")), ...await cssTokens(join(NB_UI_SOURCE, "tokens.css"))]);
+    for (const color of colors) design.delete(color);
+    if (design.size === 0) throw new Error("nb-ui 的 tokens.css 与 theme.css 里没有找到变量声明");
+    const cell = (value: string): string => (value.length <= 48 ? `\`${value.replaceAll("|", "\\|")}\`` : "（组合值，略）");
+    const colorSections = grouped(colors, COLOR_GROUPS).map((group) => `### ${group.title}\n\n${group.names.map((name) => `- \`${name}\``).join("\n")}\n`);
+    const designSections = grouped([...design.keys()], DESIGN_GROUPS).map((group) => `### ${group.title}\n\n| 变量 | 缺省值 |\n|---|---|\n${group.names.map((name) => `| \`${name}\` | ${cell(design.get(name)!)} |`).join("\n")}\n`);
+    return `# 主题变量
+
+由 SDK 的构建从 NeuroBook 的主题文件生成，不要手改。
+
+插件的样式用 \`var(--名字)\` 取这些变量，不写字面的颜色、尺寸与字号：用户换主题、换配色、切明暗时，插件跟着变。
+
+## 颜色
+
+颜色随用户选的配色与明暗变化，同一个变量在亮色与暗色下取值不同，所以这里不列值。不写死颜色，也不按明暗自己分支；要淡一点的颜色用 \`color-mix(in srgb, var(--accent-main) 12%, transparent)\` 这样现场混。
+
+${colorSections.join("\n")}
+## 尺寸、排版、阴影与动效
+
+不随配色变化。下面是 NeuroBook 的缺省值，主题可以覆盖：用变量，不要照抄值。
+
+${designSections.join("\n")}`;
 }
 
 export async function buildSdk(outDir: string): Promise<void> {
@@ -144,6 +295,7 @@ export async function buildSdk(outDir: string): Promise<void> {
         engines: {node: "^20.19.0 || >=22.12.0"},
         dependencies: await dependencyRanges(BUILD_DEPENDENCIES),
     }, null, 4)}\n`);
+    await writeAuthorDocs(outDir);
 }
 
 if (import.meta.main) {
