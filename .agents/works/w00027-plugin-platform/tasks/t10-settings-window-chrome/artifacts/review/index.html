@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>t10 设置窗口外框与沿用行评审板</title>
+<style>
+:root {
+  --bg: #f7f6f2; --panel: #ffffff; --text: #1f2328; --muted: #6b6f76; --line: #e3e1da;
+  --accent: #0a66d8; --warn: #b45309; --warn-bg: #fff4e0; --ok: #1a7f37; --ok-bg: #e8f5ec; --bad: #b42318; --bad-bg: #fdecea;
+  --code-bg: #f2f1ec;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1b1c1f; --panel: #24262a; --text: #e6e6e6; --muted: #9a9ca1; --line: #34363b;
+    --accent: #5aa2ff; --warn: #f0b35a; --warn-bg: #3a2c16; --ok: #5fd07e; --ok-bg: #183222; --bad: #ff8a80; --bad-bg: #3a1c1a; --code-bg: #2c2e33; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 32px 16px 80px; }
+h1 { font-size: 26px; margin: 0 0 4px; }
+h2 { font-size: 20px; margin: 48px 0 12px; padding-top: 16px; border-top: 1px solid var(--line); }
+h3 { font-size: 16px; margin: 24px 0 8px; }
+p, li { max-width: 880px; }
+.sub { color: var(--muted); margin: 0 0 24px; }
+.toc { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 20px; }
+.toc a { color: var(--accent); text-decoration: none; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; margin: 12px 0; }
+.rec { border-left: 3px solid var(--accent); padding: 4px 0 4px 12px; margin: 12px 0; }
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); margin: 12px 0; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+figure a { display: block; }
+figure img { display: block; width: 100%; height: auto; }
+figcaption { padding: 8px 12px; font-size: 13px; color: var(--muted); }
+figcaption b { color: var(--text); }
+table { border-collapse: collapse; width: 100%; background: var(--panel); border: 1px solid var(--line); font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+th { background: var(--code-bg); font-weight: 600; }
+code { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 13px; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { background: var(--code-bg); border-radius: 8px; padding: 12px 14px; overflow-x: auto; font-size: 13px; line-height: 1.55; }
+pre code { background: none; padding: 0; }
+.tag { display: inline-block; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 0 9px; white-space: nowrap; }
+.ok { color: var(--ok); background: var(--ok-bg); }
+.warn { color: var(--warn); background: var(--warn-bg); }
+.bad { color: var(--bad); background: var(--bad-bg); }
+</style>
+</head>
+<body>
+<main>
+<h1>设置窗口的外框与“本作品”沿用行</h1>
+<p class="sub">w00027 t10 · 第一轮 · 2026-10-23 · 静态稿（真实 nb-ui 组件与 NeuroBook 主题，浅色，窗口 960×640）</p>
+
+<div class="card">
+<p><b>起因</b>：开发者看了 t06 的实现，提了两件事。</p>
+<ul>
+<li>“本作品”标签里沿用用户设置的行，现在是“沿用用户设置：NeuroBook”加一个“单独设置”按钮，能不能做得更好。</li>
+<li>设置窗口拖不动、圆角太圆、标题栏太高。</li>
+</ul>
+<p><b>查明的原因</b>：设置窗口直接用了 nb-ui <code>Dialog</code> 的浮动窗口方式，外框是对话框那一套。</p>
+<ul>
+<li>圆角 26px：照 macOS“保存”对话框定的值。</li>
+<li>上边距 20px、标题、和正文隔 14px：这是对话框的排法。</li>
+<li>能拖的只有“设置”两个字那一条，18px 高。</li>
+</ul>
+<p>第七轮定稿的草稿其实没有这条标题栏：“设置”写在左栏顶上，关闭按钮在右上角，圆角 10px。实现时用了对话框自带的标题栏，和定稿不一样。</p>
+</div>
+
+<section data-nbdev-question="r1-chrome" data-nbdev-type="single" data-nbdev-recommend="integrated">
+<h2><span class="tag warn" data-nbdev-skip>待定</span> 1. 窗口外框</h2>
+<p>粉色虚线框标出能按住拖动的地方，实际界面里没有这个框。三张图除外框之外都一样。</p>
+<div class="grid">
+<div data-nbdev-option="now" data-nbdev-label="现状"><figure><a href="r1/chrome-now.webp"><img src="r1/chrome-now.webp" alt=""></a><figcaption><b>现状</b>：对话框外框；标题“设置”单占一行（上边距加间距约 60px），只有字那一条能拖；圆角 26px</figcaption></figure></div>
+<div data-nbdev-option="compact" data-nbdev-label="紧凑标题栏"><figure><a href="r1/chrome-compact.webp"><img src="r1/chrome-compact.webp" alt=""></a><figcaption><b>紧凑标题栏</b>：36px 一条，“设置”在左、关闭在右，整条都能拖；圆角 14px</figcaption></figure></div>
+<div data-nbdev-option="integrated" data-nbdev-label="去掉标题栏"><figure><a href="r1/chrome-integrated.webp"><img src="r1/chrome-integrated.webp" alt=""></a><figcaption><b>去掉标题栏</b>（第七轮定稿的画法）：“设置”在左栏顶上，关闭在右上角；左栏顶上与内容区整条标题行的空白处都能拖（按钮除外）；圆角 14px</figcaption></figure></div>
+</div>
+<p class="rec">推荐“去掉标题栏”。内容比现状往上提了约 40px；页面自己的大标题已经说明在哪一页，不用再写一行“设置”；能拖的区域是整条顶边，和 macOS 系统设置一样。“紧凑标题栏”也能解决拖不动和太高两件事，但多一条只写“设置”的栏。三种画法都要改 nb-ui <code>Dialog</code> 的浮动窗口，用到浮动窗口的地方会一起变。</p>
+</section>
+
+<section data-nbdev-question="r1-radius" data-nbdev-type="single" data-nbdev-recommend="14">
+<h2><span class="tag warn" data-nbdev-skip>待定</span> 2. 窗口圆角</h2>
+<p>左上角放大两倍，外框用“去掉标题栏”。</p>
+<div class="grid">
+<div data-nbdev-option="26" data-nbdev-label="26px（现状）"><figure><a href="r1/radius-26.webp"><img src="r1/radius-26.webp" alt=""></a><figcaption><b>26px</b>（现状，对话框那一档）</figcaption></figure></div>
+<div data-nbdev-option="14" data-nbdev-label="14px"><figure><a href="r1/radius-14.webp"><img src="r1/radius-14.webp" alt=""></a><figcaption><b>14px</b>，与你定的小确认框同一档</figcaption></figure></div>
+<div data-nbdev-option="10" data-nbdev-label="10px"><figure><a href="r1/radius-10.webp"><img src="r1/radius-10.webp" alt=""></a><figcaption><b>10px</b>（第七轮草稿用的浮层圆角）</figcaption></figure></div>
+</div>
+<p class="rec">推荐 14px。确认框会叠在设置窗口上，它的圆角不该比底下的窗口大，否则两条弧线不同心，所以窗口取 14、和确认框一样。10px 比确认框小，叠在一起时确认框显得更圆。做法是给浮动窗口单列一档圆角，不动模态对话框的 26px。</p>
+</section>
+
+<section data-nbdev-question="r1-inherit" data-nbdev-type="single" data-nbdev-recommend="none">
+<h2><span class="tag warn" data-nbdev-skip>待定</span> 3. “本作品”标签里沿用用户设置的行</h2>
+<p>图里是“本作品”标签。“主题”“减少动画”没在本作品单独设置；“明暗”单独设了，所以标题后有圆点，右边有“移除本作品的设置”。（“减少动画”是为了让开关也出现在图里加的，不是真实配置项。）</p>
+<p>后三种的共同改法：控件一直在，显示实际生效的值；改了就写进本作品层，出现圆点和“移除本作品的设置”，点它回到沿用。每行和“用户”标签下长得一样，控件右缘对齐。</p>
+<div class="grid">
+<div data-nbdev-option="now" data-nbdev-label="现状"><figure><a href="r1/inherit-now.webp"><img src="r1/inherit-now.webp" alt=""></a><figcaption><b>现状</b>：一句“沿用用户设置：值”加“单独设置”按钮，点了才出现控件</figcaption></figure></div>
+<div data-nbdev-option="line" data-nbdev-label="标题下写“沿用用户设置”"><figure><a href="r1/inherit-line.webp"><img src="r1/inherit-line.webp" alt=""></a><figcaption><b>标题下一行</b>写“沿用用户设置”：每个沿用的行都多一行字</figcaption></figure></div>
+<div data-nbdev-option="tag" data-nbdev-label="标题后“沿用”标签"><figure><a href="r1/inherit-tag.webp"><img src="r1/inherit-tag.webp" alt=""></a><figcaption><b>标题后一枚“沿用”小标签</b>：不加高度，但和“下次会话生效”那种标签样子一样，容易混</figcaption></figure></div>
+<div data-nbdev-option="none" data-nbdev-label="行上不标，页面顶上说一次"><figure><a href="r1/inherit-none.webp"><img src="r1/inherit-none.webp" alt=""></a><figcaption><b>行上不标</b>：页面顶上写一次“没单独设置的项沿用用户设置；在这里改只对《雾港》生效”，有圆点的就是单独设了的</figcaption></figure></div>
+</div>
+<p class="rec">推荐“行上不标”。在“本作品”标签里，大多数行都是沿用的；每行都标一遍，重复的字比内容还多。圆点本来就表示“这一层写了这个键”，在两个标签下意思一样，不用再学一种标记。顶上那句说清楚改了会怎样。做法和 VS Code 的工作区设置一致：显示生效的值，只标出改过的。</p>
+</section>
+
+<h2>定稿后怎么做</h2>
+<div class="card">
+<ul>
+<li>nb-ui <code>Dialog</code> 的浮动窗口按选中的外框改：拖动区域扩大到整条顶边，按钮与输入控件除外；单列浮动窗口的圆角一档。</li>
+<li>设置窗口改用新外框。</li>
+<li>改 <code>settings.window</code> Spec 的输出 12，与 <code>SettingsRow</code> 在“本作品”标签里的画法。</li>
+<li>Lab 截图核对后合入 master。</li>
+</ul>
+</div>
+</main>
+</body>
+</html>

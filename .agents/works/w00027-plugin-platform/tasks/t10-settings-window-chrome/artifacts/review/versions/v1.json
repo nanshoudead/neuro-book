@@ -1,0 +1,118 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00027-plugin-platform",
+    "taskId": "t10-settings-window-chrome",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "设置窗口外框与沿用行",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "724580f7fa6ce5f3f48f4e7ce0f0667bcb08ddabab86f144c490187544ed4197",
+    "files": [
+        "index.html",
+        "r1/chrome-compact.webp",
+        "r1/chrome-integrated.webp",
+        "r1/chrome-now.webp",
+        "r1/inherit-line.webp",
+        "r1/inherit-none.webp",
+        "r1/inherit-now.webp",
+        "r1/inherit-tag.webp",
+        "r1/radius-10.webp",
+        "r1/radius-14.webp",
+        "r1/radius-26.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-chrome",
+            "type": "single",
+            "label": "1. 窗口外框",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "现状"
+                },
+                {
+                    "value": "compact",
+                    "label": "紧凑标题栏"
+                },
+                {
+                    "value": "integrated",
+                    "label": "去掉标题栏"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "integrated"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-radius",
+            "type": "single",
+            "label": "2. 窗口圆角",
+            "options": [
+                {
+                    "value": "26",
+                    "label": "26px（现状）"
+                },
+                {
+                    "value": "14",
+                    "label": "14px"
+                },
+                {
+                    "value": "10",
+                    "label": "10px"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "14"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-inherit",
+            "type": "single",
+            "label": "3. “本作品”标签里沿用用户设置的行",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "现状"
+                },
+                {
+                    "value": "line",
+                    "label": "标题下写“沿用用户设置”"
+                },
+                {
+                    "value": "tag",
+                    "label": "标题后“沿用”标签"
+                },
+                {
+                    "value": "none",
+                    "label": "行上不标，页面顶上说一次"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "none"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-23T06:37:38.832Z"
+}
