@@ -145,7 +145,7 @@ describe("插件文件端点", () => {
             expect(after!.digest).not.toBe(before!.digest);
             const route = createPluginFilesRoute(installedPlugins(again.startup));
             // 直接调宿主路由时给的是分发器转交的形式：已去掉挂载前缀 `/api/runtime`。
-            const at = (digest: string) => route.handle(new Request(new URL(`${pluginFilesPrefix("example.files", digest).slice("/api/runtime".length)}browser.js`, "http://127.0.0.1")));
+            const at = (digest: string) => route.handle(new Request(new URL(`${pluginFilesPrefix("example.files", digest).slice("/api/runtime".length)}browser.js`, "http://127.0.0.1").href));
             expect((await at(before!.digest)).status).toBe(404);
             const fresh = await at(after!.digest);
             expect([fresh.status, await fresh.text()]).toEqual([200, "console.log('again');"]);

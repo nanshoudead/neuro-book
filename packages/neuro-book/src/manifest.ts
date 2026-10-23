@@ -6,7 +6,10 @@
  */
 
 import type {RuntimeLocation} from "@notnotype/nb-runtime/lifecycle";
-import type {PluginDefinition, PluginDescriptor} from "@notnotype/nb-runtime/plugins";
+import {definitionOf, descriptorOf} from "@notnotype/nb-runtime/plugin-manifest";
+import type {ManifestEntry, PluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
+import type {ActivationContext, ActivationOutput, PluginDefinition, PluginDescriptor, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
+import type {RemoteContract} from "@notnotype/nb-runtime/remote";
 
 import {descriptor as commands} from "./plugins/commands/plugin";
 import {descriptor as diagnostics} from "./plugins/diagnostics/plugin";
@@ -59,4 +62,51 @@ export function definitionAt(location: RuntimeLocation, descriptor: PluginDescri
  */
 export function thirdPartyDefinition(descriptor: PluginDescriptor): PluginDefinition {
     return {id: descriptor.id, version: descriptor.version, entries: [], contributions: descriptor.contributions ?? []};
+}
+
+/** 第三方插件一个入口这一次激活用的 `activate`：装载器取回并执行入口代码（浏览器与服务端各有一个）。 */
+export type EntryLoader = (entry: ManifestEntry, context: ActivationContext) => Promise<PluginEntryDefinition["activate"]>;
+
+/**
+ * 第三方插件在本位置登记的定义（docs/specs/runtime/plugin-manifest.md 输出 11，plugin-code-loading.md 输出 1、2）：按清单
+ * 登记本位置的入口与顶层声明式贡献，入口激活时经 `load` 取回代码。三处宿主（服务端、项目实例、窗口）共用。
+ *
+ * 远程合同：清单里的合同由 `definitionOf` 还原，内核要求激活产出的合同与声明的是同一个对象，而插件代码产出的是它自己打包
+ * 的那一份。两份的规范化 JSON 相同时换成登记的那份；不同时原样交给内核，由它以 `remote-contract-mismatch` 拒绝。这里不自己
+ * 抛错：已经取得的激活产出带着释放责任，抛错会让内核拿不到它、释放不执行。
+ */
+export function thirdPartyDefinitionAt(location: RuntimeLocation, manifest: PluginManifest, options: {readonly load: EntryLoader; readonly contractOf?: (id: string) => RemoteContract}): PluginDefinition {
+    const definition = definitionOf(manifest, location, options.contractOf === undefined ? {} : {contractOf: options.contractOf});
+    const entries = definition.entries.map((entry): PluginEntryDefinition => {
+        const declared = manifest.entries.find((item) => item.id === entry.id && item.location === location);
+        if (declared === undefined) throw new Error(`插件 ${manifest.id} 的入口 ${entry.id} 不在清单里`);
+        return {
+            ...entry,
+            activate: async (context) => {
+                const activate = await options.load(declared, context);
+                return settleContracts(await activate(context), entry.remoteProvides ?? []);
+            },
+        };
+    });
+    return definitionAt(location, descriptorOf(manifest), {...definition, entries});
+}
+
+/** 键排序后的 JSON：两份合同内容相同、键的先后不同时也相等。 */
+function canonical(value: unknown): string {
+    if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+    if (typeof value === "object" && value !== null) {
+        return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(",")}}`;
+    }
+    return JSON.stringify(value) ?? "undefined";
+}
+
+function settleContracts(output: ActivationOutput, registered: ReadonlyArray<RemoteContract>): ActivationOutput {
+    if (output.remote === undefined || registered.length === 0) return output;
+    return {
+        ...output,
+        remote: output.remote.map((item) => {
+            const own = registered.find((contract) => contract.id === item.contract.id);
+            return own !== undefined && own !== item.contract && canonical(own) === canonical(item.contract) ? {...item, contract: own} : item;
+        }),
+    };
 }
