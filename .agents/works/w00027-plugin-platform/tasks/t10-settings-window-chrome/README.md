@@ -24,6 +24,7 @@ updated: 2026-10-23
 ## 当前状态
 
 - 2026-10-23 第一轮静态稿发到评审板 v1：`r1-chrome`（现状、紧凑标题栏、去掉标题栏，推荐去掉标题栏）、`r1-radius`（26、14、10px，推荐 14）、`r1-inherit`（现状、标题下一行、标题后标签、行上不标页面顶上说一次，推荐行上不标）。草稿在 `.worktree/w00027-t10-drafts`（分支 `t10/drafts`，不提交）的 `plugins/drafts/web/components/settings-window-chrome/SettingsChromeDraft.vue`。
+- 2026-10-23 第二轮发到评审板 v2（接第一轮的附言）：`r2-side`（左上角“设置”保留、调矮、去掉，推荐去掉）、`r2-title`（页面标题 26px 展示字体、20px 加粗、16px 加粗，推荐 20px）、`r2-inherit-word`（沿用填色、沿用描边、继承自用户设置描边、来自用户设置描边，推荐来自用户设置描边）。同一草稿加了 `sideTitle`、`titleSize`、`inheritWord`、`inheritStyle`。
 
 ## 下一步
 
