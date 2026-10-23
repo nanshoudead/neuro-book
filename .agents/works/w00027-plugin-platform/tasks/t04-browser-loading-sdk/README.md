@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t04-browser-loading-sdk
-status: active
+status: done
 updated: 2026-10-23
 ---
 
@@ -94,6 +94,8 @@ updated: 2026-10-23
 
 验证：`test:affected --since 0475d0370` 除 nb-story 一例在并行负载下超时（单独重跑通过，本范围没改 nb-story）外全部通过；两包 typecheck 通过。
 
+全量 e2e（Work 分支 `0ceaab80b`，33.7 分钟）：288 例通过，1 例失败：`files-explorer.e2e.ts` 的“展开时新行滑下淡入、动画后撤掉标记”，记录里最后一条是 `enter` 而不是 `off`。本 Task 没改文件浏览器；单独重跑整份 18 例通过，按负载下的偶发失败处理，没抓到失败现场。
+
 ## 下一步
 
-全量 e2e 通过后合入 master；t05 的设计审查已启动。
+已完成，合入 master。后续在 [t05](../t05-author-experience/README.md)。
