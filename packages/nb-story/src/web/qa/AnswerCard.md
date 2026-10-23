@@ -6,7 +6,7 @@
 
 问答 Agent 用 `answer` 交卷的那一次，在对话视图里画成的结果节点（docs/specs/story/viewer.md 的问答页，w00024 t13 决定 8、15、16）。由 `tools.ts` 的 `storyToolsContribution(AnswerCard)` 登记，不单独挂。
 
-常显：结论类型徽标、结论、“谁知道什么”的表（没有表时是分点）、一行依据。收起：展开说明、覆盖范围与全部依据，点“详细”展开。
+常显：结论类型徽标、结论、“谁知道什么”的表（没有表时是分点）、一行依据。“详细”：说明、覆盖范围与全部依据，默认展开，点“详细”收起。
 
 ## 数据
 
@@ -22,7 +22,7 @@ defineEmits<HostComponentEmits>();   // action：reference.open
 
 ## 隐藏通道理由
 
-`state:local`：“详细”的展开、查到的人名、依据一行放得下几个，都是这张卡片自己的显示状态，初始为收起、没有链接、全部列出（量宽之前）。量宽用 ResizeObserver 与 requestAnimationFrame，只读自己的元素尺寸。
+`state:local`：“详细”的展开、查到的人名、依据一行放得下几个，都是这张卡片自己的显示状态，初始为：“详细”展开，人名没有链接，依据一行全部列出（量宽之前）。量宽用 ResizeObserver 与 requestAnimationFrame，只读自己的元素尺寸。
 
 `state:inject`：人名的查法经 `QA_NAME_LOOKUP`（`names.ts`）从问答页注入。卡片挂在对话视图的工具节点里，属性由 nb-agent-ui 给，宿主的查法只能经祖先注入。没有注入时人名都是纯文字。
 

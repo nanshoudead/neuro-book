@@ -37,15 +37,15 @@ describe("describeChain", () => {
 });
 
 describe("describeTurn", () => {
-    it("以“过程”开头，写总操作次数与读改文件数", () => {
-        const metrics = {steps: 14, filesRead: 7, filesChanged: 2, failed: 0} as TurnMetrics;
-        expect(parts(describeTurn(metrics).parts)).toEqual([["fallback", undefined], ["actions", {count: 14}], ["files.readChanged", {read: 7, changed: 2}]]);
+    it("以“过程”开头，写总操作次数、模型请求次数与读改文件数", () => {
+        const metrics = {steps: 14, requests: 6, filesRead: 7, filesChanged: 2, failed: 0} as TurnMetrics;
+        expect(parts(describeTurn(metrics).parts)).toEqual([["fallback", undefined], ["actions", {count: 14}], ["requests", {count: 6}], ["files.readChanged", {read: 7, changed: 2}]]);
     });
 });
 
 describe("describeUsage", () => {
     const metrics = (overrides: Partial<TurnMetrics>): TurnMetrics => ({
-        durationMs: null, steps: 0, failed: 0, filesRead: 0, filesChanged: 0, tokens: null, cost: null, usage: null, ...overrides,
+        durationMs: null, steps: 0, requests: 0, failed: 0, filesRead: 0, filesChanged: 0, tokens: null, cost: null, usage: null, ...overrides,
     });
     const shown = (description: ReturnType<typeof describeUsage>) => description.parts.map((part) => [part.icon, textOf(part.text, "zh-CN")]);
 

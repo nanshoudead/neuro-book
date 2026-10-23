@@ -302,17 +302,18 @@ defineExpose({focusComposer, scrollToLatest});
             </div>
 
             <Transition name="acv-fade">
-                <Button
-                    v-if="!following && props.ctx.messages.length > 0"
-                    class="acv-jump"
-                    size="sm"
-                    variant="secondary"
-                    icon-class="i-lucide-arrow-down"
-                    data-jump-latest
-                    @click="scrollToLatest"
-                >
-                    {{ t("stream.jumpToLatest") }}
-                </Button>
+                <!-- 按钮浮在消息上：secondary 的底色是半透明的，垫一层不透明的浮层底，下面的字不透出来。 -->
+                <span v-if="!following && props.ctx.messages.length > 0" class="acv-jump">
+                    <Button
+                        size="sm"
+                        variant="secondary"
+                        icon-class="i-lucide-arrow-down"
+                        data-jump-latest
+                        @click="scrollToLatest"
+                    >
+                        {{ t("stream.jumpToLatest") }}
+                    </Button>
+                </span>
             </Transition>
         </div>
 
@@ -502,6 +503,9 @@ defineExpose({focusComposer, scrollToLatest});
     left: 0;
     width: fit-content;
     margin-inline: auto;
+    display: flex;
+    border-radius: 6px;
+    background: var(--overlay-surface);
     box-shadow: var(--elevation-raised);
 }
 

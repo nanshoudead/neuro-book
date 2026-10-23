@@ -44,11 +44,14 @@ export function describeChain(summary: ChainSummary): ProcessDescription {
     return {parts, alert: failedAlert(summary.failed)};
 }
 
-/** 整轮过程：以“过程”开头，写总操作次数与读改文件数，让人判断值不值得展开。 */
+/** 整轮过程：以“过程”开头，写总操作次数、模型请求次数与读改文件数，让人判断值不值得展开。 */
 export function describeTurn(metrics: TurnMetrics): ProcessDescription {
     const parts: ViewText[] = [{key: "process.fallback"}];
     if (metrics.steps > 0) {
         parts.push({key: "process.actions", params: {count: metrics.steps}});
+    }
+    if (metrics.requests > 0) {
+        parts.push({key: "process.requests", params: {count: metrics.requests}});
     }
     const files = filesPhrase(metrics.filesRead, metrics.filesChanged);
     if (files !== null) {
