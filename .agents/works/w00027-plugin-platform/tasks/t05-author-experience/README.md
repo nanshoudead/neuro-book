@@ -37,6 +37,11 @@ Claude Opus 补审后端（14 条：重要 7、建议 7），全部成立或部�
 
 - 2026-10-23 S1（`8a7a6d4d3`）：内核贡献点 `idPrefix`、清单 id 段字母开头、`manifestOf` 先逐份检查再聚合并拒绝第三方 `validate`；SDK 工作台贡献点、`viewContribution`、`./components`（宿主模块表以它取代 nb-ui 的入口，直接导入 nb-ui 构建失败并提示）；menu、file-menu 外置。验证：内核 385 例、示例与 SDK 与构建预设 52 例、Vitest 47 例、两包 typecheck；e2e `plugin-code.e2e.ts` 4 例（menu、file-menu 的 `published` 与 menu 收到菜单项的诊断）。
 
+- 2026-10-23 S2（`0e6316162`）：`nbook-plugin create`（合并已有 `package.json`、`--sdk`、拒绝非空目录与数字开头的名字）、`build`（`--out`、`--clean`、`--dev` 用构建元数据版本、退出码）与模板；SDK 包带 `cli.js`、`template/`、`bin`、`engines.node`。`template.test.ts` 6 例用 Node 运行生成的命令。
+- 2026-10-23 S3（`e6c5e5e99`）：完整示例 focus：服务端结算函数加条件保存，窗口状态 store；场地的工作台替身（`examples/testing/workbench.ts`，校验用产品里同一份函数）；场景 07 六例（含两个服务端共用状态根只记一次、停着时到点的重新激活时记上、跨零点、重连补上别处的变化）、组件测试 2 例、e2e 一例。实施发现：场地上设置服务监视配置文件的去抖计时器会让 `clock.pending()` 偶尔多出一个，场景改成推进时钟直到没有计时器。
+- 2026-10-23 S4（编码子代理 Opus 在独立 worktree 写，`a860e4f52`，合入 `787b2cff2`）：作者文档进 SDK 包，`build:sdk` 生成组件与主题变量清单、复制引用的 10 份 Spec 并把链接改到包内；examples/README 的外部插件一节。
+- 2026-10-23 S5（`c11de13bd`）：`e2e/plugin-authoring.e2e.ts`（生成 SDK、Node 运行 `create` 与 `build`、插件页安装、视图与命令、改设置、禁用与卸载在重启后生效）；[手动 smoke](evidences/manual-smoke.md)：真实 `npm pack`、`npm install`，照 README 字面步骤生成、类型检查、构建，装进 nbdev 起的开发服务，`--dev` 重装按升级处理。发现第三方视图排在内置资源管理器前面，记进待确认清单。
+
 ## 下一步
 
-S2 收口提交；之后 S3–S5。
+收口：全量 e2e，然后启动实现审查。

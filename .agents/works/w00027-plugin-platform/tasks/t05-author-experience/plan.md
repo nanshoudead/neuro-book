@@ -127,7 +127,7 @@ nbook-plugin build [作者目录，缺省 .] [--out <目录>，缺省 dist] [--c
 1. **S1 内核与 SDK 面**：贡献 `idPrefix`、第三方 `validate`、id 段规则；SDK 工作台贡献点、`viewContribution`、`./components` 与宿主模块表；menu、file-menu 外置；snippets 改导入。验证：`bun test` 内核 plugins 与 plugin-manifest、`examples/`、`src/sdk`、`scripts/plugin-sdk`；Vitest 浏览器装载与视图；e2e `plugin-code.e2e.ts`。
 2. **S2 `nbook-plugin` 命令与模板**：`cli.ts`、`template/`、`build-sdk.ts` 带上 bin 与模板、`template.test.ts`。验证：`bun test scripts/plugin-sdk`；在仓库外临时目录用 Node（不是 Bun）跑一次生成的 `cli.js create` 与 `build`。
 3. **S3 完整示例 focus**：场地的工作台替身、插件、store、场景 07、dom 测试；`build:examples` 能构建；e2e 加 focus 一例。
-4. **S4 作者文档与 examples/README**；`build-sdk.ts` 复制 README、生成组件与 token 清单、改写链接。验证：`docs:check`；SDK 包里的 README 链接都是固定到提交的绝对地址。
+4. **S4 作者文档与 examples/README**；`build-sdk.ts` 复制 README、生成组件与 token 清单、复制引用的 Spec 并改写链接。验证：`build-sdk.test.ts` 核对包里 README 的相对链接都落在包内（`docs:check` 不检查 `packages/` 下的 Markdown）。
 5. **S5 仓库外 smoke**：`plugin-authoring.e2e.ts`；手动 smoke 的截图与步骤记录。收口：全量 e2e。
 
 每片单独提交；Spec 改动在对应切片之前提交到 master。
