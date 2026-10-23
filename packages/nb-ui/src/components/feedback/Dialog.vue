@@ -408,6 +408,7 @@ function onOverlayPointerUp(event: PointerEvent): void {
                         class="nb-dialog__body min-h-0 flex-1 overflow-y-auto leading-relaxed"
                         :class="props.bodyClass"
                         :style="bodyStyle"
+                        data-dialog-body
                         @scroll="syncBodyScroll"
                     >
                         <slot />

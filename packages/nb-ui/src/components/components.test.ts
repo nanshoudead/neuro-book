@@ -1062,6 +1062,7 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
             await nextTick();
             const panel = wrapper.get("[data-dialog-window]").element;
             expect(await dragFrom(wrapper, panel, 30, 20)).toEqual({dx: 30, dy: 20});
+            expect(await dragFrom(wrapper, wrapper.get("[data-dialog-body]").element, 5, 5)).toEqual({dx: 5, dy: 5});
             expect(await dragFrom(wrapper, wrapper.get("[data-test-header-blank]").element, 10, 10)).toEqual({dx: 10, dy: 10});
             expect(await dragFrom(wrapper, wrapper.get("[data-test-region-text]").element, -15, 5)).toEqual({dx: -15, dy: 5});
             // 正文里没标的地方照常选字、点击，不拖

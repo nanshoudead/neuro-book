@@ -130,22 +130,30 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
     }
 
     /**
-     * 按下处能不能起拖：面板自己（留白），或面板里标了 `data-dialog-drag` 的元素；其中的按钮、输入控件、链接与
-     * `[data-interactive]` 除外。按下处属于嵌套在里面的另一个窗口时不算：事件冒泡上来，由那个窗口自己处理。
+     * 按下处能不能起拖：面板或正文（`data-dialog-body`）自己，也就是没有内容的留白；或者面板里标了 `data-dialog-drag`
+     * 的元素，其中的按钮、输入控件、链接与 `[data-interactive]` 除外。正文为焦点光环留的那一圈压在面板的内边距上，
+     * 不算正文就只剩外沿几个像素能拖；按在正文的滚动条上是滚动，不算。按下处属于嵌套在里面的另一个窗口时不算：
+     * 事件冒泡上来，由那个窗口自己处理。
      */
-    function inDragRegion(element: HTMLElement, target: Element): boolean {
+    function inDragRegion(element: HTMLElement, target: Element, event: PointerEvent): boolean {
         if (target.closest("[data-dialog-surface]") !== element) return false;
         if (target === element) return true;
+        if (target.hasAttribute("data-dialog-body")) return !onScrollbar(target, event);
         if (target.closest("button, input, textarea, a, select, [data-interactive]") !== null) return false;
         const region = target.closest("[data-dialog-drag]");
         return region !== null && element.contains(region);
+    }
+
+    /** 按在元素自己的滚动条上：指针落在内边距盒（clientWidth、clientHeight 不含滚动条）之外。 */
+    function onScrollbar(target: Element, event: PointerEvent): boolean {
+        return (target.clientWidth > 0 && event.offsetX >= target.clientWidth) || (target.clientHeight > 0 && event.offsetY >= target.clientHeight);
     }
 
     /** 挂在面板的 pointerdown 上；不在拖动区域里的按下原样放过。 */
     function startDrag(event: PointerEvent): void {
         if (!options.enabled() || event.button !== 0 || options.busy()) return;
         const element = options.windowRef.value;
-        if (element === null || !(event.target instanceof Element) || !inDragRegion(element, event.target)) return;
+        if (element === null || !(event.target instanceof Element) || !inDragRegion(element, event.target, event)) return;
         dragCleanup?.();
         event.preventDefault();
         // 拖动区域有多处，没有唯一的把手：指针捕获在面板上，移动与松开都在面板上收。
