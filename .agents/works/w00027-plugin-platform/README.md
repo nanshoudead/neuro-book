@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00027-plugin-platform
 issueId: null
 status: active
-updated: 2026-10-17
+updated: 2026-10-23
 ---
 
 # 插件平台完善：非内置插件与插件配置
@@ -44,7 +44,7 @@ updated: 2026-10-17
 
 ## 待确认清单
 
-开发者 2026-10-21 指定按 autonomous-delivery 推进 t02：照推荐做、等事后追认的决定记在 [pending-confirmations.md](pending-confirmations.md)。
+开发者 2026-10-21 指定按 autonomous-delivery 推进 t02，2026-10-23 指定 t04、t05 同样自主推进：照推荐做、等事后追认的决定记在 [pending-confirmations.md](pending-confirmations.md)。
 
 ## 后续事项
 

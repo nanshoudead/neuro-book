@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t04-browser-loading-sdk
-status: planned
-updated: 2026-10-17
+status: active
+updated: 2026-10-23
 ---
 
 # 浏览器入口装载与插件 SDK
@@ -34,6 +34,8 @@ updated: 2026-10-17
 
 2026-10-17 建 Task，未开工。依赖 [t03](../t03-manifest-and-install/README.md) 的清单解析、登记表与宿主接入。
 
+2026-10-23 计划按 t02 改过的设置接口核对更新（[plan.md](plan.md)）。开发者定：t04、t05 按 autonomous-delivery 自主推进，照推荐做的决定记进 Work 的待确认清单；本次可以做深入审查（多个、多种模型交叉审查）。
+
 ## 下一步
 
-2026-10-20 按 t03 的实施结果重写 [plan.md](plan.md)，待开发者确认后交设计审查，再在 Work 分支 `feat/w00027-plugin-platform` 上开工。
+计划的深入设计审查：omp（默认模型）审后端、内核与安全，Claude Opus 交叉审同一范围，Claude Sonnet 审浏览器装载与 SDK 的接口形状；处理后在 Work 分支 `feat/w00027-plugin-platform` 上按切片开工。
