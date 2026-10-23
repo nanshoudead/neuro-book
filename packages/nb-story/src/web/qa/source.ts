@@ -4,7 +4,7 @@
  *
  * 状态从哪来：
  * - 记录与它的日志是权威。运行中这一轮的日志条目（推送的快照与 `log` 帧）接在后面，事件只画正在生成的那条（适配器
- *   `createHarnessTranscript` 的分工）。
+ *   `createHarnessTranscript` 的分工）。每一轮各用一份适配器（`turn-transcripts.ts`）。
  * - 运行开始时的记录轮数（`baseTurns`）与读到的记录对不上（命令行同时续问并先保存了）：这一轮不接进来，只给
  *   `detached`，页面写明它不会保存。
  * - 运行已经结束并且保存了：它就在记录里，不再管它。结束了但没保存：订阅一次拿它的条目（服务端的快照带着），接在
@@ -14,11 +14,12 @@
  *   原来的转录（条目按 seq 去重，已画的消息不闪），否则换新的。
  */
 
-import {createHarnessTranscript, type HarnessTranscript, type MessageView} from "@notnotype/nb-agent-ui";
+import type {MessageView} from "@notnotype/nb-agent-ui";
 
 import type {QaRecordView, QaRunView, ViewerResult} from "../../contract/contract";
 import {StoryCallError, type StoryClient, type SubscriptionEnd} from "../host/client";
 import {messagesFromRecord} from "./record-messages";
+import {createTurnTranscripts, type TurnTranscripts} from "./turn-transcripts";
 import {composeMessages, createMessageCache, type MessageCache, type TurnInfo} from "./turns";
 
 export interface QaSourceState {
@@ -61,6 +62,17 @@ export function retryDelay(attempt: number): number {
     return Math.min(MAX_RETRY_MS, 1000 * 2 ** attempt);
 }
 
+/** 各轮在日志里的起点：记录的各轮加上接在后面的运行；有一轮没有 `logFrom`（旧记录）时为 null。 */
+function turnStarts(record: QaRecordView | null, run: QaRunView | null): number[] | null {
+    const starts: number[] = [];
+    for (const turn of record?.turns ?? []) {
+        if (turn.logFrom === undefined) return null;
+        starts.push(turn.logFrom);
+    }
+    if (run !== null && !starts.includes(run.logFrom)) starts.push(run.logFrom);
+    return starts.sort((a, b) => a - b);
+}
+
 const LOADING: QaSourceState = {phase: "loading", error: null, record: null, run: null, continuable: {ok: false, reason: ""}, logProblem: null, detached: false, messages: []};
 
 export function createQaSource(options: QaSourceOptions): QaSource {
@@ -77,7 +89,7 @@ export function createQaSource(options: QaSourceOptions): QaSource {
     let disposed = false;
     /** 每次加载加一；回调核对它，过期的直接丢掉。 */
     let generation = 0;
-    let transcript: HarnessTranscript = createHarnessTranscript();
+    let transcript: TurnTranscripts = createTurnTranscripts(null);
     let cache: MessageCache = createMessageCache();
     let subscription: {close(): void} | null = null;
     let cancelRetry: (() => void) | null = null;
@@ -209,12 +221,12 @@ export function createQaSource(options: QaSourceOptions): QaSource {
         if (token !== generation || disposed) return;
         attempts = 0;
         const sameRun = keep && got.run !== null && got.run.state === "running" && got.run.runId === state.run?.runId;
+        const attached = attachedRun(got.record, got.run);
         if (!sameRun) {
-            transcript = createHarnessTranscript();
+            transcript = createTurnTranscripts(turnStarts(got.record, attached));
             cache = createMessageCache();
             if (got.log.ok) for (const entry of got.log.entries) transcript.applyLogEntry(entry);
         }
-        const attached = attachedRun(got.record, got.run);
         update({phase: "ready", error: null, record: got.record, run: got.run, continuable: got.continuable, logProblem: got.log.ok ? null : got.log.problem, detached: got.run !== null && attached === null && !(got.run.state === "ended" && got.run.saved?.ok === true)});
         emit();
         if (attached !== null) watch(attached, token);

@@ -127,6 +127,13 @@ describe("记录与运行", () => {
         expect(h.gets()).toBe(1);
     });
 
+    test("第二轮开始前就停了（日志里只有 run_end）：第一轮的回复不被改成已停止，第二轮单独显示", async () => {
+        const stoppedTurn = {...turn("第二问", 4), status: "interrupted" as const, reply: null};
+        const h = harness([got({record: record([turn("第一问", 1), stoppedTurn]), log: {ok: true, entries: [...FIRST, entry(4, "run_end", {stopReason: "aborted", error: null})]}})]);
+        await h.settle();
+        expect(h.source.state().messages.map(message => [message.kind, message.kind === "assistant" ? message.status : ""])).toEqual([["user", ""], ["assistant", "done"], ["user", ""], ["assistant", "stopped"]]);
+    });
+
     test("日志读不成：只按记录显示", async () => {
         const h = harness([got({log: {ok: false, problem: "会话日志不在了"}, continuable: {ok: false, reason: "会话日志不在了"}})]);
         await h.settle();
