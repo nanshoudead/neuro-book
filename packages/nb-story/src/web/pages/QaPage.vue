@@ -140,6 +140,10 @@ onBeforeUnmount(() => source?.dispose());
 const run = computed<QaRunView | null>(() => sourceState.value?.run ?? null);
 const running = computed(() => run.value?.state === "running");
 const record = computed(() => sourceState.value?.record ?? null);
+// 看着的这一轮结束了：列表里它的状态、轮数与时间要跟着变。
+watch(running, (now, before) => {
+    if (before && !now) void loadList();
+});
 const title = computed(() => record.value?.turns[0]?.question ?? run.value?.question ?? "");
 const conversationAt = computed(() => record.value?.at ?? run.value?.at ?? null);
 const conversationMode = computed(() => record.value?.mode ?? run.value?.mode ?? null);

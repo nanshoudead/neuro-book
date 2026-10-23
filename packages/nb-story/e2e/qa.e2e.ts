@@ -83,8 +83,9 @@ test("新对话：提问后看到过程与答案卡片；出处在抽屉里打�
     await expect(card).toBeVisible();
     await expect(card).toContainText("读者在 37.8 就知道了");
     await expect(card.getByText("明说")).toBeVisible();
-    // 地址里记下了这个对话。
+    // 地址里记下了这个对话；列表里它不再是运行中。
     await expect(page).toHaveURL(/[?&]c=\d{17}-[0-9a-z]{6}/u);
+    await expect(page.locator("aside").getByText("运行中")).toHaveCount(0, {timeout: 2500});
 
     await card.locator(".answer-foot").getByRole("button", {name: "37.8"}).click();
     await expect(page.getByTestId("drawer")).toContainText("37.8");
