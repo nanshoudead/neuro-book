@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t02-settings-completion
-status: active
-updated: 2026-10-21
+status: done
+updated: 2026-10-23
 ---
 
 # 设置插件补齐：结构化值与长文本编辑
@@ -83,4 +83,4 @@ S7（`e4d6061a4`）：Lab“模型服务”做成 page 分区的样板。`provid
 
 ## 下一步
 
-2026-10-21 合入 master（`5acd09995`）。等开发者一次审查 t02 与追认 Work 的待确认清单；push 待开发者决定（Work 分支领先 `origin/master` 的提交里有别的会话在本地 master 上的提交）。之后按 Work 的顺序是 t04、t05，t06 收外观。
+2026-10-21 合入 master（`5acd09995`）。2026-10-23 开发者确认 t02，并追认 Work 待确认清单里的全部条目；Work 分支不 push。t06、t10 已收外观，之后按 Work 的顺序是 t04、t05。
