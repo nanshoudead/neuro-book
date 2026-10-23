@@ -10,7 +10,7 @@ import {join} from "node:path";
 import {toolCall, type ScriptedInput} from "@notnotype/nb-harness/testing";
 
 import {openTestBook, type TestBook} from "../../testing/api";
-import {askScripted, testConfig, toolResults} from "../../testing/qa";
+import {askScripted, prepareScripted, testConfig, toolResults} from "../../testing/qa";
 import {smallDataset} from "../../testing/sample";
 import {newQaRecordId, QaRecords} from "../core/qa-records";
 import {QaError} from "./errors";
@@ -537,5 +537,22 @@ describe("网页问答用的观察与轮次（t13）", () => {
         });
         expect(outcome.result.status).toBe("answered");
         expect(outcome.recordSaved).toBe(true);
+    });
+
+    test("先准备再运行：准备好就知道 id、第几轮与日志起点，和运行结果一致；放弃的一轮不发请求、不写记录，也不能再运行", async () => {
+        const first = await askScripted(book, [answer({evidence: [], conclusionType: "无法确定"})], {at: P});
+        const id = first.outcome.result.id;
+        const before = (await storedLog(id)).length;
+
+        const abandoned = await prepareScripted(book, ["不该请求"], {continueFrom: id, question: "放弃的一问"});
+        expect({id: abandoned.prepared.id, turn: abandoned.prepared.turn, logFrom: abandoned.prepared.logFrom}).toEqual({id, turn: 2, logFrom: before + 1});
+        await abandoned.prepared.abandon();
+        expect(abandoned.model.requests).toHaveLength(0);
+        expect(await abandoned.prepared.run().then(() => "ran", () => "rejected")).toBe("rejected");
+        expect((await storedLog(id)).length).toBe(before);
+
+        const {prepared} = await prepareScripted(book, [answer({evidence: [], conclusionType: "无法确定"})], {continueFrom: id, question: "第二问"});
+        const outcome = await prepared.run();
+        expect(outcome.result).toMatchObject({id: prepared.id, turn: prepared.turn, logFrom: prepared.logFrom, status: "answered"});
     });
 });

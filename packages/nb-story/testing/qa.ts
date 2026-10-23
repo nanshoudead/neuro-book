@@ -5,7 +5,7 @@
 import {scriptedModel, type ScriptedInput, type ScriptedModel} from "@notnotype/nb-harness/testing";
 
 import type {QaConfig} from "../src/qa/config";
-import {askQuestion, type AskInput, type QaOutcome, type QaProgress} from "../src/qa/engine";
+import {askQuestion, prepareQuestion, type AskInput, type PreparedQuestion, type QaOutcome, type QaProgress} from "../src/qa/engine";
 import type {TestBook} from "./api";
 
 /** 脚本化模型不发请求，但 harness 每次请求前都要取到密钥：用一个只在测试进程里存在的假值。 */
@@ -36,6 +36,14 @@ export async function askScripted(book: TestBook, steps: readonly ScriptedInput[
         streamFn: model.streamFn,
     });
     return {outcome, model, progress};
+}
+
+/** 只准备一轮（网页问答的第一步），用脚本化模型。 */
+export async function prepareScripted(book: TestBook, steps: readonly ScriptedInput[], input: Partial<Omit<AskInput, "api" | "streamFn">> = {}): Promise<{prepared: PreparedQuestion; model: ScriptedModel}> {
+    process.env[TEST_KEY_ENV] ??= "scripted-model-placeholder";
+    const model = scriptedModel(steps);
+    const prepared = await prepareQuestion({api: book.api, mode: "graph", question: "测试问题", config: testConfig(), ...input, streamFn: model.streamFn});
+    return {prepared, model};
 }
 
 /** 第 `request` 次请求（从 0 数）里，模型收到的上一批工具结果的文字，按上一条助手消息里的调用先后排（结果按完成先后到达）。 */

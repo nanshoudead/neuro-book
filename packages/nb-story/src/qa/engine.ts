@@ -13,6 +13,8 @@
  * 第 2、3 步里 harness 抛出的错误（不是作为结果返回的）都是本机故障：收成 `model_failed`（`local`）的失败轮，
  * 不让它逃出这个函数；续问时恢复会话就失败的（Profile 或工具与快照不一致）在任何请求之前报 `qa_not_continuable`。
  * 保存失败不改变这一轮的结果，只在返回值里说明记录没保存。
+ *
+ * 第 1 步与建 harness 在 `prepareQuestion` 里做完，开始前的错误都从它抛出；`run` 做其余几步。
  */
 
 import {createHarness, createToolRegistry, HarnessError, registerPlugin, type Harness, type HarnessOptions, type TurnResult} from "@notnotype/nb-harness";
@@ -209,7 +211,28 @@ function replyOf(result: TurnResult, ledger: ReadLedger): QaReply | null {
     return {text, truncated: result.stopReason === "length", unverifiedRefs};
 }
 
+/** 问一轮：先准备（会抛出开始前的错误），再运行。`nbstory ask` 用它；网页问答分两步调（见 `prepareQuestion`）。 */
 export async function askQuestion(input: AskInput): Promise<QaOutcome> {
+    return (await prepareQuestion(input)).run();
+}
+
+/**
+ * 准备好、还没开始的一轮。开始前的错误（查询失败、全读超上限、续问不了）都在 `prepareQuestion` 里抛出，不会推迟到
+ * `run`：网页问答在准备成功后才登记运行、回复页面，失败的直接作为请求的错误返回，运行表里不会留下没人收口的一项。
+ * 准备好之后必须二选一：`run()` 一次，或者不运行了就 `abandon()` 关掉已建的 harness。
+ */
+export interface PreparedQuestion {
+    /** 对话 id：新对话是 `conversationId` 或新生成的，续问是原对话的。 */
+    readonly id: string;
+    /** 这一轮是对话的第几轮（从 1 数）。 */
+    readonly turn: number;
+    /** 这一轮在会话日志里从哪一条开始（同记录的 `logFrom`）。 */
+    readonly logFrom: number;
+    run(): Promise<QaOutcome>;
+    abandon(): Promise<void>;
+}
+
+export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion> {
     const started = Date.now();
     const startedAt = new Date(started).toISOString();
     const model = configuredModel(input.config);
@@ -244,18 +267,6 @@ export async function askQuestion(input: AskInput): Promise<QaOutcome> {
         if (previous !== null && error instanceof HarnessError) throw new QaError("qa_not_continuable", `对话 ${id} 不能续问：${error.message}。请开新对话`);
         outcome = localFailure("本机错误", error);
     }
-    if (harness !== null) {
-        try {
-            await runTurn(harness);
-        } catch (error) {
-            outcome = localFailure("本机错误", error);
-        }
-        try {
-            await harness.close();
-        } catch (error) {
-            if (outcome.status !== "failed") outcome = localFailure("关闭会话失败", error);
-        }
-    }
 
     async function runTurn(harness: Harness): Promise<void> {
         harness.subscribe(event => {
@@ -285,26 +296,60 @@ export async function askQuestion(input: AskInput): Promise<QaOutcome> {
         // 其余（aborted）：中断，保持初值。
     }
 
-    const turn: QaTurn = {question: input.question, ...outcome, chaptersRead: ledger.chapters(), rejections, usage, ms: Date.now() - started, model: input.config.model.id, startedAt, logFrom};
-    const fixed = previous ?? {id, book: book.id, generation: book.generation, at, mode, maxChapters: start.maxChapters, startedAt};
-    const conversation: Omit<QaConversation, "log"> = {
-        id: fixed.id,
-        book: fixed.book,
-        generation: fixed.generation,
-        at: fixed.at,
-        mode: fixed.mode,
-        maxChapters: fixed.maxChapters,
-        read: ledger.snapshot(),
-        turns: [...(previous?.turns ?? []), turn],
-        startedAt: fixed.startedAt,
-    };
-    const result: QaTurnResult = {id, book: conversation.book, generation: conversation.generation, at, mode, turn: conversation.turns.length, ...turn};
-    const entries = await sessionLog.read();
-    let saved: Awaited<ReturnType<QaRecords["save"]>>;
-    try {
-        saved = await new QaRecords(input.api.library, book.id).save(conversation, entries.map(entry => `${JSON.stringify(entry)}\n`).join(""), {expectTurns: previous?.turns.length ?? 0});
-    } catch (error) {
-        return {result, conversation: {...conversation, log: null}, recordSaved: false, notSaved: {reason: "write_failed", message: error instanceof Error ? error.message : String(error)}};
+    async function finish(): Promise<QaOutcome> {
+        const turn: QaTurn = {question: input.question, ...outcome, chaptersRead: ledger.chapters(), rejections, usage, ms: Date.now() - started, model: input.config.model.id, startedAt, logFrom};
+        const fixed = previous ?? {id, book: book.id, generation: book.generation, at, mode, maxChapters: start.maxChapters, startedAt};
+        const conversation: Omit<QaConversation, "log"> = {
+            id: fixed.id,
+            book: fixed.book,
+            generation: fixed.generation,
+            at: fixed.at,
+            mode: fixed.mode,
+            maxChapters: fixed.maxChapters,
+            read: ledger.snapshot(),
+            turns: [...(previous?.turns ?? []), turn],
+            startedAt: fixed.startedAt,
+        };
+        const result: QaTurnResult = {id, book: conversation.book, generation: conversation.generation, at, mode, turn: conversation.turns.length, ...turn};
+        const entries = await sessionLog.read();
+        let saved: Awaited<ReturnType<QaRecords["save"]>>;
+        try {
+            saved = await new QaRecords(input.api.library, book.id).save(conversation, entries.map(entry => `${JSON.stringify(entry)}\n`).join(""), {expectTurns: previous?.turns.length ?? 0});
+        } catch (error) {
+            return {result, conversation: {...conversation, log: null}, recordSaved: false, notSaved: {reason: "write_failed", message: error instanceof Error ? error.message : String(error)}};
+        }
+        return saved.saved ? {result, conversation: saved.conversation, recordSaved: true} : {result, conversation: {...conversation, log: null}, recordSaved: false, notSaved: {reason: saved.reason}};
     }
-    return saved.saved ? {result, conversation: saved.conversation, recordSaved: true} : {result, conversation: {...conversation, log: null}, recordSaved: false, notSaved: {reason: saved.reason}};
+
+    const created = harness;
+    let settled = false;
+    const claim = (what: string) => {
+        if (settled) throw new Error(`这一轮已经${what}过了`);
+        settled = true;
+    };
+    return {
+        id,
+        turn: (previous?.turns.length ?? 0) + 1,
+        logFrom,
+        async run() {
+            claim("运行或放弃");
+            if (created !== null) {
+                try {
+                    await runTurn(created);
+                } catch (error) {
+                    outcome = localFailure("本机错误", error);
+                }
+                try {
+                    await created.close();
+                } catch (error) {
+                    if (outcome.status !== "failed") outcome = localFailure("关闭会话失败", error);
+                }
+            }
+            return finish();
+        },
+        async abandon() {
+            claim("运行或放弃");
+            await created?.close();
+        },
+    };
 }
