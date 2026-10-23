@@ -15,6 +15,8 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {PLUGIN_REGISTRY_GLOBAL} from "../../src/shared/plugin-modules";
 import {npmVersions} from "../../src/shared/versions";
+import {createPluginCodeHost} from "../../src/web/host/plugin-code";
+import type {PluginDocument, PluginScript} from "../../src/web/host/plugin-code";
 import {buildExample, IN_REPO_BUILD} from "./build-examples";
 import {buildPlugin, PluginBuildError} from "./build-plugin";
 
@@ -63,20 +65,62 @@ async function failure(root: string): Promise<ReadonlyArray<string>> {
     throw new Error("期望构建失败");
 }
 
-/** 像宿主那样执行浏览器产物：脚本登记工厂，工厂经 `require` 取宿主模块。 */
-function registeredFactory(code: string): (module: {exports: Record<string, unknown>}, exports: Record<string, unknown>, require: (id: string) => unknown) => void {
+let pageSequence = 0;
+
+/**
+ * 像宿主那样装载浏览器产物，返回脚本登记的工厂，调用方用自己的 `require` 执行它。经装载器（`createPluginCodeHost`）把产物
+ * 插进一个假页面：脚本在插入后的下一轮事件循环里执行（`document.currentScript` 是这个脚本），经全局登记对象交出工厂，之后
+ * 才触发 load；执行出错时派发带文件名的全局 error 事件。装载器用宿主模块表执行一次工厂并核对导出了 `activate`；工厂本身经
+ * 全局登记对象的等待取得：同一 URL 的每个等待者都收到登记，这里与装载器一样是一个等待者，不写那个全局属性。
+ */
+async function registeredFactory(code: string): Promise<(module: {exports: Record<string, unknown>}, exports: Record<string, unknown>, require: (id: string) => unknown) => void> {
+    // 每次一个新页面：全局登记对象在整个测试进程里只有一个，不同调用的登记不能互相交错。
+    pageSequence += 1;
+    const baseURI = `http://plugin.test/page-${String(pageSequence)}/`;
+    const url = `${baseURI}browser.js`;
+    const errorListeners = new Set<(event: {readonly filename: string; readonly message: string}) => void>();
+    const page: PluginDocument = {
+        baseURI,
+        head: {
+            append(node) {
+                const script = node as PluginScript;
+                const execute = (): void => {
+                    try {
+                        new Function("document", code)({currentScript: script});
+                    } catch (error) {
+                        for (const listener of [...errorListeners]) listener({filename: script.src, message: error instanceof Error ? error.message : String(error)});
+                    }
+                    script.onload?.();
+                };
+                setTimeout(execute, 0);
+            },
+        },
+        defaultView: {
+            addEventListener: (_type, listener) => errorListeners.add(listener),
+            removeEventListener: (_type, listener) => errorListeners.delete(listener),
+        },
+        createElement: (() => ({src: "", async: false, onload: null, onerror: null, remove: () => undefined})) as unknown as PluginDocument["createElement"],
+    };
+    const host = createPluginCodeHost({
+        document: page,
+        // 宿主模块表里的真实模块。nb-ui 的组件是单文件组件，Bun 加载不了；页面没有渲染，给一个空对象就够。
+        modules: async () => ({
+            "vue": await import("vue"),
+            "@vue/reactivity": await import("@vue/reactivity"),
+            "@notnotype/nb-plugin-sdk": await import("../../src/sdk/index"),
+            "@notnotype/nb-plugin-sdk/browser": await import("../../src/sdk/browser"),
+            "@notnotype/nb-ui/components": {},
+        }),
+    });
+    const registry = (globalThis as unknown as Record<string, {wait(url: string, waiter: (factory: unknown) => void): () => void}>)[PLUGIN_REGISTRY_GLOBAL];
     let factory: unknown = null;
-    const scope = globalThis as Record<string, unknown>;
-    scope[PLUGIN_REGISTRY_GLOBAL] = {register: (url: string, value: unknown) => {
-        expect(url).toBe("http://plugin.test/browser.js");
-        factory = value;
-    }};
-    scope.document = {currentScript: {src: "http://plugin.test/browser.js"}};
+    const stop = registry.wait(url, (registered) => {
+        factory = registered;
+    });
     try {
-        new Function(code)();
+        await host.activateOf({plugin: "acme.test", entry: "browser", url: "browser.js", signal: new AbortController().signal});
     } finally {
-        delete scope[PLUGIN_REGISTRY_GLOBAL];
-        delete scope.document;
+        stop();
     }
     if (typeof factory !== "function") throw new Error("脚本没有登记工厂");
     return factory as never;
@@ -102,7 +146,7 @@ describe("构建示例 snippets", () => {
 
     it("浏览器产物登记工厂；工厂只经宿主的 require 取共享模块，导出 activate", async () => {
         const code = await readFile(join(tmp, "snippets/browser.js"), "utf8");
-        const factory = registeredFactory(code);
+        const factory = await registeredFactory(code);
         // 宿主模块表里的真实模块。
         const table: Readonly<Record<string, unknown>> = {
             "vue": await import("vue"),
