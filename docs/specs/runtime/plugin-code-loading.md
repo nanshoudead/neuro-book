@@ -22,11 +22,11 @@ owners:
 
 ## 术语与参与者
 
-- **服务端入口代码**：SDK 构建预设生成的单文件 ESM，只导出 `activate`（入口的声明以清单为准）；依赖打进文件，SDK、`vue`、`@vue/reactivity` 与 Node、Bun 的内置模块留作外部引用，由宿主以运行期模块提供同一份。
-- **浏览器入口代码**：构建预设生成的登记工厂：CommonJS 模块体包在工厂函数 `factory(module, exports, require)` 里，脚本执行时调用宿主的登记函数交出工厂；入口每次激活，宿主调用一次工厂，得到一份新的模块实例。动态导入内联进同一个文件。
-- **宿主模块表**：两端宿主给插件代码的共享模块。浏览器在根组件挂载前建立并冻结，含 `vue`、`@vue/reactivity`、`@notnotype/nb-ui/components`、`@notnotype/nb-plugin-sdk` 与 `@notnotype/nb-plugin-sdk/browser`；服务端与项目实例含 `vue`、`@vue/reactivity` 与 `@notnotype/nb-plugin-sdk`。Vue 与 `@vue/reactivity` 必须是宿主那一份：两份响应式系统互相看不见，`computed` 不更新、`watch` 不触发，也不报错。
-- **纯度检查**：构建预设按打包器的模块图检查两端的产物：打进了 Vue、`@vue/*`、nb-ui、SDK 或内核的实现，或者外部引用不在本位置的宿主模块表里（“未共享”），构建失败。
-- **插件样式**：清单的 `style` 指向一份样式表。构建预设把各入口的样式合并后包进 `@layer components`（与宿主组件样式同层，宿主的原子类仍能覆盖插件组件），并为插件源码里出现的 Lucide 图标类（`i-lucide-<名字>`）生成规则：宿主只为自己源码里出现过的类名生成规则，插件不能依赖宿主的原子类。
+- **服务端入口代码**：SDK 构建预设生成的单文件 ESM，只导出 `activate`（入口的声明以清单为准）；依赖打进文件，SDK、`@vue/reactivity` 与 Node、Bun 的内置模块留作外部引用，由宿主以运行期模块提供同一份。
+- **浏览器入口代码**：构建预设生成的登记工厂：CommonJS 模块体包在工厂函数 `factory(module, exports, require)` 里，脚本执行时调用宿主的登记函数交出工厂；入口每次激活，宿主调用一次工厂，得到一份新的模块实例。工厂函数体是严格模式（与作者写的 ES 模块、服务端产物一致）；`import.meta.url` 是这个脚本的 URL；产物压缩，带 source map（源文件路径相对作者目录）。插件自己的动态导入内联进同一个文件，共享模块的动态导入与静态导入一样经工厂的 `require` 取。
+- **宿主模块表**：两端宿主给插件代码的共享模块。浏览器在第一次装载第三方入口时建立并冻结（没有第三方浏览器入口的窗口不取它；取不到时下一次激活重新取），含 `vue`、`@vue/reactivity`、`@notnotype/nb-ui/components`、`@notnotype/nb-plugin-sdk` 与 `@notnotype/nb-plugin-sdk/browser`；服务端与项目实例含 `@vue/reactivity` 与 `@notnotype/nb-plugin-sdk`（后端不加载界面框架）。Vue 与 `@vue/reactivity` 必须是宿主那一份：两份响应式系统互相看不见，`computed` 不更新、`watch` 不触发，也不报错。
+- **纯度检查**：构建预设按打包器的模块图检查两端的产物：打进了宿主那一份 Vue（`vue`、`@vue/reactivity`、`@vue/runtime-core`、`@vue/runtime-dom`）、nb-ui、SDK 或内核的实现，或者外部引用（静态与动态导入）不在本位置的宿主模块表里（“未共享”），构建失败。其它无状态的 `@vue/*` 工具包（`@vue/shared`、`@vue/devtools-api`）照常打进插件。
+- **插件样式**：清单的 `style` 指向一份样式表。构建预设把各入口的样式合并后包进 `@layer components`（与宿主组件样式同层，宿主的原子类仍能覆盖插件组件），并为插件用到的 Lucide 图标类（`i-lucide-<名字>`）生成规则：宿主只为自己源码里出现过的类名生成规则，插件不能依赖宿主的原子类。扫描清单本身（声明里的图标）与各位置入口模块图里的源码（含打进来的依赖）；别的图标集的类名给构建警告，拼接出来的类名找不到。
 - **插件文件端点**：`GET /api/runtime/plugins/<插件 id>/files/<内容摘要>/<相对路径>`，提供插件的浏览器代码、样式与静态资源。内容摘要是本次启动时算出的版本目录全部文件的摘要。
 
 ## 输入与前置条件
@@ -38,10 +38,10 @@ owners:
 ## 输出与可观察行为
 
 1. **服务端装载。** 入口激活时从安装目录装载其 `main`：先删除模块缓存里这个插件的条目，再按固定路径装载。同一代次内只装载一次；入口停止后再次激活（重新启用、失败后重试、热升级回滚）总是执行一份新的模块实例，模块顶层状态不跨代次共享，即使旧代码尚未被回收。装载不改宿主模块的实例。
-2. **浏览器装载。** 窗口中入口首次激活时，同一文件只插入一次同源 `<script src>`（文件来自插件文件端点），脚本执行时登记工厂；入口每次激活调用一次工厂，经宿主提供的 `require` 从宿主模块表取共享模块，所以重试与依赖恢复后的再激活同样是新的模块实例，与服务端一致。只缓存登记成功的工厂，失败后重试重新取回。不改写 `index.html`、不使用 import map、不需要 `unsafe-eval`，开发与生产构建路径相同。插件有样式时，窗口登记这个插件就加入它的样式表，不等入口激活：清单里的声明（例如设置分区的图标）在激活前就要显示。
+2. **浏览器装载。** 窗口中入口首次激活时，同一文件只插入一次同源 `<script src>`（文件来自插件文件端点），脚本执行时登记工厂；入口每次激活调用一次工厂，经宿主提供的 `require` 从宿主模块表取共享模块，所以重试与依赖恢复后的再激活同样是新的模块实例，与服务端一致。只缓存登记成功的工厂，失败后重试重新取回。入口在取回期间停止时，这次激活立刻以停止的原因结束，不等脚本或超时；同一文件再没有激活在等时撤下脚本，之后迟到的登记被忽略。不改写 `index.html`、不使用 import map、不需要 `unsafe-eval`，开发与生产构建路径相同。插件有样式时，窗口登记这个插件就加入它的样式表，不等入口激活：清单里的声明（例如设置分区的图标）在激活前就要显示。
 3. **共享同一份 Vue。** 插件组件的响应式更新、宿主提供的 i18n 与主题（`inject`）、nb-ui 浮层与宿主组件表现一致。
 4. **表外模块。** 插件 `require` 宿主模块表之外的模块时，在求值时得到结构化错误 `module-not-shared`，入口激活失败，其它插件不受影响。
-5. **纯度检查。** 构建插件时，服务端与浏览器的产物中打包了 Vue、`@vue/*`、nb-ui、SDK 或内核则构建失败，并指出被打包的模块；外部引用不在本位置的宿主模块表里时同样失败，写明“该入口未共享”。插件自带一份 Vue 时界面会静默失效，所以在构建与装载时都拦截。远程合同与贡献点的 schema 不是纯 JSON Schema 时构建失败（[`runtime.plugin-manifest`](plugin-manifest.md) 的输入表）。
+5. **纯度检查。** 构建插件时，服务端与浏览器的产物中打包了宿主那一份 Vue、nb-ui、SDK 或内核则构建失败，并指出被打包的模块；外部引用（含动态导入）不在本位置的宿主模块表里时同样失败，写明“该入口未共享”和引入它的模块。插件自带一份 Vue 时界面会静默失效，所以在构建与装载时都拦截。远程合同与贡献点的 schema 不是纯 JSON Schema 时构建失败（[`runtime.plugin-manifest`](plugin-manifest.md) 的输入表）。
 6. **回收。** 回收的范围跟随入口，不牵连同一插件仍在运行的入口：
    - 一个入口停止时，只撤回该入口拥有的资源（视图、worker 调用、订阅、定时器）；
    - 一个插件在服务端的全部入口都停止后，服务端不再持有该插件的任何模块；
@@ -72,7 +72,7 @@ owners:
 
 - 代码文件缺失、语法错误或模块顶层抛错：入口激活失败，原因可查询，不影响其它入口。
 - 旧模块无法释放：记录诊断，旧代码保留到重启，只影响内存回收（L2）；再次激活仍执行新的模块实例，入口的启停、引用撤回与代次隔离不受影响。
-- 浏览器装载失败：该窗口中入口激活失败，原位显示原因并可重试，其它窗口与服务端不受影响。原因带插件 id、入口 id 与文件 URL：`code-load-failed`（脚本加载出错，或 30 秒内没有登记）、`code-shape`（脚本执行了但没有登记，或工厂没有导出 `activate`）、`code-threw`（工厂或 `activate` 抛出）、`module-not-shared`。
+- 浏览器装载失败：该窗口中入口激活失败，原位显示原因并可重试，其它窗口与服务端不受影响。原因带插件 id、入口 id 与文件 URL：`code-load-failed`（脚本加载出错、30 秒内没有登记，或宿主模块表没有取到）、`code-shape`（脚本执行了但没有登记，或工厂没有导出 `activate`）、`code-threw`（工厂或 `activate` 抛出）、`module-not-shared`。
 - 插件样式注销遗漏：页面刷新后消失；开发模式检查报告残留样式。
 
 ## 边界与兼容
@@ -99,4 +99,4 @@ Smoke：阶段 3 的示例外部插件在 Chromium、Electron、WebKitGTK 上核
 
 ## 证据
 
-- 批准依据：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P1 第 8、9 项、P2、P7（2026-09-30 确认采用宿主模块表、共享入口第一版只含 `components`、插件文件需登录）；验证依据 [G1 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g1/REPORT.md)（两种做法在 Chromium、WPE WebKit、Electron、WebKitGTK 上成立，宿主模块表可回收）；[运行时模块卸载调研](../../research/runtime-module-unloading.md)；表外模块错误码、端点的 400 与 404 语义由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文；t04 的构建与装载做法（登记工厂、`@vue/reactivity` 进宿主模块表、删模块缓存再装载、内容摘要的文件 URL、样式与图标）经 [w00027 t04 计划](../../../.agents/works/w00027-plugin-platform/tasks/t04-browser-loading-sdk/plan.md)的深入设计审查修订（2026-10-23，开发者授权自主推进，待追认）。
+- 批准依据：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P1 第 8、9 项、P2、P7（2026-09-30 确认采用宿主模块表、共享入口第一版只含 `components`、插件文件需登录）；验证依据 [G1 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g1/REPORT.md)（两种做法在 Chromium、WPE WebKit、Electron、WebKitGTK 上成立，宿主模块表可回收）；[运行时模块卸载调研](../../research/runtime-module-unloading.md)；表外模块错误码、端点的 400 与 404 语义由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文；t04 的构建与装载做法（登记工厂、`@vue/reactivity` 进宿主模块表、删模块缓存再装载、内容摘要的文件 URL、样式与图标）经 [w00027 t04 计划](../../../.agents/works/w00027-plugin-platform/tasks/t04-browser-loading-sdk/plan.md)的深入设计审查修订（2026-10-23，开发者授权自主推进，待追认）；动态导入、严格模式、`import.meta.url`、显式的宿主 Vue 包、图标扫描范围、宿主模块表懒建立与停止时立刻结束按 t04 第一轮实现审查修订（同日，待追认）。

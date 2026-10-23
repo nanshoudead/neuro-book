@@ -46,7 +46,7 @@ owners:
 |---|---|
 | `name`、`publisher`、`version` | 组成插件 id `publisher.name`。`publisher` 与 `name` 各为一段：以小写字母或数字开头，只含小写字母、数字与连字符（不接受 npm 的 `@scope/` 写法）；内置插件的 `publisher` 为 `nbook`。`version` 为 semver，内置插件的 `version` 等于产品版本 |
 | `engines.neurobook` | 兼容的 NeuroBook 版本范围，由 [`runtime.plugin-install`](plugin-install.md) 检查 |
-| `entries` | 入口 id 到入口声明的映射；可以为空（只含声明式贡献的插件） |
+| `entries` | 入口 id 到入口声明的映射；可以为空（只含声明式贡献的插件）。入口 id 只含字母、数字、连字符与下划线，以字母或数字开头：它也是默认的代码文件名 |
 | `entries.<id>.location` | 运行位置 |
 | `entries.<id>.main` | 入口代码文件，相对插件目录，必须位于插件目录内 |
 | `entries.<id>.remoteProvides` | 可选，本入口提供的远程服务合同 id 列表；合同 id 以本插件 id 加 `/` 开头。不以 `nbook.` 开头的合同必须在 `contracts` 里 |
@@ -64,7 +64,7 @@ owners:
 | `style` | 可选，浏览器要加载的样式表，相对插件目录，规则同入口的 `main`；窗口登记插件时就加载（[`runtime.plugin-code-loading`](plugin-code-loading.md) 的插件样式） |
 | `contracts` | 入口引用的远程服务合同：合同 id 到合同的 JSON 形式（`id`、`version`、`provider`、`callers`、`methods`、`events`，与代码里的合同同一结构）。本插件提供的合同与它代理的别的第三方插件的合同都写在这里；`nbook.` 开头的内置合同由宿主提供，不写 |
 
-`contracts` 与 `contributionPoints[].schema` 里的 schema 只能是纯 JSON Schema：`type` 是 JSON Schema 的类型、`format` 是标准 format、正则合法，不能用 TypeBox 的 `Refine`、`Codec` 或插件自己注册的 format。这些写法进不了 JSON：宿主按清单校验时会悄悄变宽，同一个插件内置与外置时结果不同。构建预设遇到它们构建失败；清单里出现不合法的 schema 时清单无效。
+`contracts` 与 `contributionPoints[].schema` 里的 schema 只能是纯 JSON Schema：`type` 是 JSON Schema 的类型、`format` 是标准 format、正则合法，`$ref` 只指向同一份 schema 里的位置或 `$id`（宿主不装载外部引用），不能用 TypeBox 的 `Refine`、`Codec` 或插件自己注册的 format。按关键字的语义检查：`properties` 这类映射的值才是 schema，`const`、`enum`、`default`、`examples` 里的是数据，属性名叫 `type`、`format` 不受限制。这些写法进不了 JSON：宿主按清单校验时会悄悄变宽，同一个插件内置与外置时结果不同。构建预设遇到它们构建失败；清单里出现不合法的 schema 时清单无效。
 
 激活事件由插件定义，内核不规定事件种类（2026-10-06 开发者修订）。内核只认识 `onStartup`；其它事件写作 `<前缀>:<参数>`，前缀由拥有者插件在 `activationEventPrefixes` 中声明，例如 `nbook.commands` 的 `onCommand:<命令 id>`、`nbook.workbench` 的 `onView:<视图 id>`、`nbook.agent` 的 `onAgentTool:<工具名>`。内核保留前缀 `onRemote`：`onRemote:<合同 id>` 在该远程服务首次被调用时激活提供它的入口，插件不能声明这个前缀。拥有者在需要时请内核触发自己前缀下的事件，内核激活本运行位置上声明了该事件的入口并逐个返回结果；新增激活方式只需新的拥有者声明前缀，不改内核。与本入口贡献对应的激活事件可以由 SDK 构建预设生成；手写清单与生成的清单同等有效，合同以清单为准。
 
@@ -126,7 +126,7 @@ owners:
 
 ## 失败与恢复
 
-- **清单无效时整个插件不登记。** 包括：缺少必需字段或类型错误；id 格式错误；第三方 id 以 `nbook.` 开头；`main` 不存在、是绝对路径或越出插件目录；入口 id 重复；`provides` 中的服务 id 不以本插件 id 为前缀、重复，或占用保留名 `channel`；`remoteProvides` 中的合同 id 不以本插件 id 为前缀或重复；插件在 `activationEventPrefixes` 中声明 `onRemote`；`pluginVersions` 列出内置插件；`engines.neurobook` 或 `pluginVersions` 的值不是 npm 的版本范围写法；入口的 `receives` 列出本插件没有定义的贡献点；入口引用的非内置合同不在 `contracts` 里，`contracts` 的键与合同 `id` 不一致或写了 `nbook.` 开头的合同，合同结构不合法（缺字段、方法入参不是 `additionalProperties: false` 的对象、业务失败码与路由层失败码重名）；`contracts` 或 `contributionPoints[].schema` 里的 schema 不是纯 JSON Schema。原因可在插件管理中查询，其它插件不受影响。单条贡献不合格只拒绝该条（见上文第 10 条）。
+- **清单无效时整个插件不登记。** 包括：缺少必需字段或类型错误；id 格式错误；第三方 id 以 `nbook.` 开头；`main` 不存在、是绝对路径或越出插件目录；入口 id 重复或不是合法的文件名段；`provides` 中的服务 id 不以本插件 id 为前缀、重复，或占用保留名 `channel`；`remoteProvides` 中的合同 id 不以本插件 id 为前缀或重复；插件在 `activationEventPrefixes` 中声明 `onRemote`；`pluginVersions` 列出内置插件；`engines.neurobook` 或 `pluginVersions` 的值不是 npm 的版本范围写法；入口的 `receives` 列出本插件没有定义的贡献点；入口引用的非内置合同不在 `contracts` 里，`contracts` 的键与合同 `id` 不一致或写了 `nbook.` 开头的合同，合同结构不合法（缺字段、方法入参不是 `additionalProperties: false` 的对象、业务失败码与路由层失败码重名）；`contracts` 或 `contributionPoints[].schema` 里的 schema 不是纯 JSON Schema。原因可在插件管理中查询，其它插件不受影响。单条贡献不合格只拒绝该条（见上文第 10 条）。
 - **两个插件声明同一服务 id** 不可能发生（服务 id 带插件前缀）；同一插件 id 出现多份清单时全部不登记，并报告每份的来源，与输入顺序无关。
 - **启动必需按运行位置判定。** 启动必需内置插件的服务端入口受阻、失败或其清单无效时，服务端启动失败，由 [`runtime.server-host`](server-host.md) 有序退出；它的浏览器入口（例如 `nbook.workbench`）在某个窗口中失败时，只有该窗口显示启动失败页（[`runtime.browser-host`](browser-host.md)），不影响服务端与其它窗口。
 - 前缀没有任何已登记插件声明的激活事件被忽略并在插件详情中标注“未知激活事件”，与未知贡献点相同，便于发现拼写错误；声明前缀的插件之后登记时，事件照常生效。两个插件声明同一前缀时两者的声明都不生效并记入诊断，与输入顺序无关；其它运行位置的入口在本实例为 `foreign-location`；本实例中依赖它所提供服务的入口按第 3 条以 `location-mismatch` 受阻。

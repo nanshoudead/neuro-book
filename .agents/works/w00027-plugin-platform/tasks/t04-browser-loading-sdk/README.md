@@ -46,6 +46,32 @@ updated: 2026-10-23
 - 2026-10-23 S2d（`2fd4088a6`）：启动数据带清单原文、版本目录与内容摘要；项目子进程的 `plugins` 消息改带安装信息；运行版本的跨进程租约（真实子进程测试：另一个服务端切换版本、移除卸载记录，但本服务端在用的目录留到它退出后才回收）；插件文件端点（真实请求测试编码穿越、摘要不符、符号链接、同版本重装后旧地址 404）；浏览器引导 v4。三处宿主仍只登记第三方插件的顶层声明（`thirdPartyDefinition`），按清单登记入口随装载器在 S2e（浏览器）、S3a（服务端与项目）接上。e2e 发现 S2a 的回归：窗口引入 `semver`（CommonJS）后开发会话白屏，加进 Vite 预构建清单后 `settings`、`plugins` 两组 e2e 17 例通过。
 - 2026-10-23 S2e（`c9ca9f6d2`）：浏览器装载器（`<script src>` 加登记工厂、只缓存成功的工厂、每次激活调用一次工厂、四个失败原因）、宿主模块表（页面入口在第一次装载时动态导入，窗口宿主代码不直接引用 nb-ui，Bun 里照常测试）、`thirdPartyDefinitionAt`（三处共用，含合同替换）、窗口按清单登记第三方入口与样式表。e2e `plugin-code.e2e.ts` 3 例：snippets 外置后在产品构建与开发会话里运行（打开分区才取代码且只取一次、图标先显示、能写设置），五个写坏的插件各自原位显示原因、文件找回后重试恢复；`plugins`、`settings`、`browser-host` 三组 24 例通过；单元 bun 1373、Vitest 357。第一轮实现审查（omp、Opus 审后端，Sonnet 审浏览器与 SDK）已在后台启动，范围 `7372a3d9e..c9ca9f6d2`。
 
+- 2026-10-23 S3a（`a6711dd23`）：服务端与项目实例按清单登记第三方入口；服务端装载器经 `Bun.plugin` 给出宿主模块、装载前删掉插件目录下的模块缓存，每次激活是新的模块实例；装载失败只影响这个入口并带原因，模块顶层挂起不挡启动（`loader.test.ts` 4 例）。
+- 2026-10-23 S3b（`0475d0370`）：clock、notes、counter 外置，经构建、安装运行；升级确认框列出重启后受阻的插件（`blocked`、`unchecked`，插件管理合同版本 2，Lab 场景 blocked）；`entries-not-loaded` 的失败码、警告与徽标去掉。e2e `plugin-code.e2e.ts` 4 例（加后端示例，核对服务端日志）。
+
+### 第一轮实现审查（范围 `7372a3d9e..c9ca9f6d2`，即 S2a–S2e）
+
+审查者：omp（默认模型，5 条：重要 4、建议 1）、Claude Opus（12 条：重要 5、建议 7）审内核与后端，Claude Sonnet（17 条：重要 8、建议 9）审浏览器、SDK 与构建预设；没有阻断。报告在 [`evidences/`](evidences/)（`impl-review-1-*.txt`）。主会话改内核与后端，构建预设与浏览器装载器各派一个编码子代理（Opus，独立 worktree，报告 `impl-review-1-fix-*.txt`），主会话审 diff、合入后自跑验证。
+
+| 条目 | 处理 | 提交 |
+|---|---|---|
+| Opus 6（schema 按关键字）、omp 4（外部 `$ref`）、omp 2 与 Sonnet 13.1（入口 id）、Opus 8（问题路径） | 成立，已改：按 JSON Schema 关键字的语义检查，数据关键字只查函数；`$ref` 只能指向同一份 schema 里的位置或 `$id`；入口 id 只许单个文件名段；结构问题的合同路径与语义问题一致，贡献点在两处都按下标。点分路径对含 `.` 的 id 仍有歧义，不改 | `0d7a2c966` |
+| Opus 1、10（重装换掉租着的目录） | 成立，已改：新失败码 `version-in-use`；被取代的待切换版本被租着时推迟回收 | `c5118919c` |
+| Opus 2（租约写不下起不来） | 成立，已改：租约写失败记诊断、照常启动；写列表失败先放锁；删残留失败只记诊断 | `c5118919c` |
+| omp 1、Opus 7、12（锁失效） | 成立，已改：租约锁过期 5 分钟；失效时换名重写并记诊断；准备期之后的诊断接到宿主存储（`connectDiagnostics`）。omp 建议的“失效即停宿主”不采用：代价远大于一次不受保护的窗口 | `c5118919c` |
+| Opus 11（文件端点吞错） | 成立，已改：不存在类错误 404，其余 500 并记诊断 | `c5118919c` |
+| Opus 4（合同替换无测试、BigInt） | 成立，已改：经真实插件宿主测相同、不同（释放恰好一次）、BigInt；变异检查能抓到 | `c5118919c` |
+| Opus 9（摘要整份读） | 部分改：逐块哈希；不设文件数与大小上限（复制也没有上限，要定就一起定） | `c5118919c` |
+| omp 5（摘要不绑内容） | 接受取舍：安装目录归宿主、安装后不变；同版本重装已由 `version-in-use` 挡住，手工改安装目录不在保护范围 | — |
+| Opus 3（停止等不守规矩的后台激活） | 接受取舍：写进 runtime/application 的已知限制，与激活超时一起做 | Spec |
+| Sonnet 11（SDK 公开面） | 部分改：补 `settings.sections`、`settings.choices` 的贡献点与类型，去掉 `settingsPage`、`settingsPageEvent`；`./build` 带类型（构建子代理）；`provide` 是否改名交开发者；`bin` 留给 t05 | `c1bcbf0ff` |
+| Sonnet 8（e2e 覆盖） | 部分改：图标按遮罩图与尺寸断言。主题、语言、nb-ui 浮层不补 e2e：插件组件经宿主模块表用同一份 nb-ui 与 i18n，身份由 `plugin-modules.dom.test.ts` 核对 | `a41cdb0ad` |
+| Sonnet 1 与 Opus 5、2、4、5、6、10、12（minify）、13、16、17 | 成立，已改（构建子代理）：动态导入纳入纯度检查、浏览器里经 `require`；图标扫清单与全部入口、非 Lucide 警告；SDK 包补 `@vue/reactivity` peer；宿主 Vue 包改显式四个、未共享写引入者；中间产物放输出目录旁；工厂严格模式；浏览器产物压缩（snippets 103 KB 到 22 KB）；`readAuthor` 错误、source map 路径；`import.meta.url`；输出目录只清理自己的产物 | `0c96891fe` 合入 |
+| Sonnet 3、7、9、14、15，omp 3 | 成立，已改（装载器子代理）：等待表放进全局登记对象、同一 URL 多个等待者；宿主模块表失败不缓存、包成 `code-load-failed`；停止时立刻结束并撤下脚本；`plugin-code.test.ts` 11 例与窗口样式用例 | `eef633400` 合入 |
+| Sonnet 12（typebox 不共享） | 交开发者：每个插件各带一份 typebox（压缩后仍是大头），进共享模块表就成为兼容承诺 | — |
+
+合入后验证：`test:affected --since 0475d0370` 通过（nb-runtime 377、应用 bun 1409、Vitest 358）；两包 typecheck 通过。
+
 ## 下一步
 
-按修订后的计划从 S2a 开始，在 Work 分支 `feat/w00027-plugin-platform` 上逐片实现。
+全量 e2e；第二轮实现审查（S3a、S3b 与第一轮的修正，深入审查）；合入 master；然后 t05。

@@ -150,7 +150,7 @@ owners:
 - **owner**：runtime（SDK 与宿主注入）；配置与密钥归 `nbook.settings`。
 - **不在运行时 import 宿主或其它插件。** 状态只在 `activate` 内建立并登记到激活作用域，不在模块顶层保存；这是热插拔撤回与代码回收的前提。
 - **worker 的限制。** 调用方在中止后立即得到 `interrupted`，但 worker 中的 WebAssembly 与原生阻塞调用要等其返回 JS 才停止（Bun），死循环只能随进程重启回收；Chrome 中 worker 终止后约 2 秒才停。未停止的 worker 继续占用名额，并在诊断中按插件显示。开发者已确认不强制插件把 WebAssembly 计算切成小段，只在插件作者文档中写明。
-- **SDK 的组成**：公开面写在应用里（`src/sdk/index.ts` 与 `src/sdk/browser.ts`），只再导出已有实现；仓库里的示例经别名直接用它的源码。可以安装的包由应用生成（`build:sdk`）：打包的构建期实现、打平的类型声明（只引用 `vue`、`@vue/reactivity` 与 `typebox`，作者项目用普通 tsconfig 即可类型检查）与 `package.json`（版本等于产品版本，`vue`、`typebox` 是 peer 依赖）。宿主能力的键带 `host` 前缀（`hostClockKey`、`hostStateRootKey`），免得与插件自己的服务键重名。设置窗口的 page 分区有组合助手 `settingsPageContribution({id, declaration, load})`，一次给出贡献声明、激活事件与实现，声明按 `SettingsPageDeclaration` 核对。
+- **SDK 的组成**：公开面写在应用里（`src/sdk/index.ts` 与 `src/sdk/browser.ts`），只再导出已有实现；仓库里的示例经别名直接用它的源码。可以安装的包由应用生成（`build:sdk`）：打包的构建期实现、打平的类型声明（只引用 `vue`、`@vue/reactivity` 与 `typebox`，作者项目用普通 tsconfig 即可类型检查）与 `package.json`（版本等于产品版本，`vue`、`@vue/reactivity`、`typebox` 是 peer 依赖），`/build` 子路径是构建预设，带类型声明。宿主能力的键带 `host` 前缀（`hostClockKey`、`hostStateRootKey`），免得与插件自己的服务键重名。设置窗口的 page 分区有组合助手 `settingsPageContribution({id, declaration, load})`，一次给出贡献声明、激活事件与实现，声明按 `SettingsPageDeclaration` 核对。
 - **兼容**：SDK 的公开面与内置插件导出的服务、合同属于 `engines.neurobook` 的兼容范围，按产品版本的 semver 判断；产品版本为 0.x 时，minor 号变化表示可能有不兼容的改动。形态约束让以后把插件移到共享插件宿主 worker 时远程合同不变；依赖了内部服务的插件不在此列，移出宿主进程需要改写。
 - **构建预设提示**：可以提示从未使用 `signal` 的异步处理函数，不作为构建失败条件。
 

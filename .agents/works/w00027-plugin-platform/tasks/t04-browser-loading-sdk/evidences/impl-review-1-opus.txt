@@ -1,0 +1,118 @@
+# t04 第一轮实现审查（S2a–S2e）：内核、后端与安全（Claude Opus）
+
+审查对象 `7372a3d9e..c9ca9f6d2`，worktree `.worktree/review-t04-impl1`。实验脚本在 `/tmp/review-t04-impl1-opus/`（结束时已删）。
+
+### 1. 租约挡不住安装提交：被别的服务端租着的版本目录，同 id 同版本重装时会被 `commit` 直接删掉换成新内容，运行中的服务端用旧摘要 URL 以 immutable 送出新代码
+
+- 严重程度：重要；类别：正确性 / 跨进程不变量
+- 位置：`packages/neuro-book/src/backend/plugins/inventory.ts:247-251`（`// 同名目录没有被登记表引用（上面核对过），是崩溃留下的残留。` 之后的 `rm(target)` + `rename`）；`packages/neuro-book/src/backend/plugins/startup.ts:173-177`（卸载时目录因租约保留）；`packages/neuro-book/src/server/plugin-files.ts:77-82`（只比启动时的摘要，读的是磁盘上的当前文件）
+- 现象：S2d 引入租约后，“不被登记表引用的 `<id>/<版本>` 目录”不再只是崩溃残留，也可能是别的服务端正在用、被有意推迟回收的目录（已卸载插件的、或升级后旧版本的）。`commit` 仍按旧假设 `rm -rf` 它再改名。服务端 A 运行 `example.files@1.0.0`；服务端 B（或 A 自己的插件页）卸载、B 重启（A 租着，目录保留、登记移除）；之后重装同一版本的新内容：A 的版本目录被整个换掉。A 的文件端点仍按启动时的摘要放行，于是旧摘要 URL 返回新内容，还带 `public, max-age=31536000, immutable`。这正是 plan“同版本重装后摘要变了，旧 URL 返回 404，不会执行旧代码”要防的情况，方向反过来：浏览器在旧 URL 下长期缓存了另一份代码；S3a 之后 A 的服务端再激活也会 `import` 到新文件（与 A 登记的清单、合同可能已不一致）。`rm` 与 `rename` 之间还有一个 A 读不到文件的窗口。降级重装（A 租着 1.0.0、登记已是 2.0.0、再装 1.0.0）走同一路径。
+- 核实：`/tmp/review-t04-impl1-opus/reinstall.ts`（真实 `startServer` + 真实安装与启动准备）：重装前旧 URL `200 console.log('v1');`，卸载、另一轮 prepare、重装新内容后，运行中的服务端对同一旧 URL 返回 `200 console.log('EVIL-NEW'); public, max-age=31536000, immutable`。`plugin-files.test.ts` 的“卸载、重启后重装同一版本”用例其实复现了同一情形（`prepared` 的租约在整个用例里都持有），但它只对新建的路由断言旧摘要 404，没有对仍在运行的 `server` 断言，所以没暴露；用例最后读的 `after.root` 与 `before.root` 是同一路径。
+- 建议改法：`commit` 在持登记表锁时也读 `livePins`；目标目录被租着时不能删。可选：拒绝安装（新失败码，例如 `version-in-use`，说明“另一个运行中的服务端还在用这个版本，关掉它后再装”），或者改为把新内容装到不与版本号同名的目录（版本目录名带安装序号或摘要，登记表记目录名）。后者顺带让“同版本重装”与租约天然不冲突。测试补在上述用例里：对运行中的 `server` 断言旧 URL 仍是旧内容或 404，而不是新内容。
+
+### 2. 租约写不下（或清理残留租约时出错）让整个服务端起不来；原来“拿不到锁就只读启动”的降级路径因此失效，写到一半失败还会留下一把永不释放的空锁
+
+- 严重程度：重要；类别：错误路径 / 被破坏的既有约定
+- 位置：`packages/neuro-book/src/backend/plugins/startup.ts:111`、`:123`（两处 `pin = await pinFor(...)`，没有任何 catch）；`packages/neuro-book/src/backend/plugins/pins.ts:43`（`mkdir`）、`:52-53`（`writeFile`/`rename`）、`:92-93`、`:108`（`livePins` 里的 `rm` 都不接错误）；`packages/neuro-book/src/server/process.ts:65`
+- 现象：`prepareInstalledPlugins` 原有的约定是“删除失败只记诊断，下次启动重试”“拿不到锁时只读不改”，任何文件问题都降级为诊断，服务端照常起来。S2d 加的租约写入与 `livePins` 的清理都直接抛出：`withRecordLock` 的 `finally` 放锁后把异常原样抛出，`prepareInstalledPlugins` reject，`runServerProcess` 没有接，服务端进程直接以未处理异常退出。只读的状态根（或 `.pins` 权限不对、磁盘满）原来能只读启动、照常加载插件，现在完全起不来。另外 `pinVersions` 在 `holdLock` 成功之后 `writeFile`/`rename` 失败时，锁已经持有、`VersionPin` 没有返回，这把锁随进程一直刷新，而 `livePins` 把“锁活着、列表不存在”当作“读不了、按仍在使用”，于是这个进程活着期间，其它所有服务端都一个版本目录也不回收（`reclaim` 的 `if (pins.unreadable) continue`）。
+- 核实：`/tmp/review-t04-impl1-opus/readonly.ts`：真实安装一个插件后把 `<plugins>` 目录改成 0555，再调 `prepareInstalledPlugins`：抛出 `EACCES: permission denied, mkdir '.../plugins/.pins'`。改动前同一情形走 `plugins.startup.unlocked` 分支、照常登记插件。
+- 建议改法：`pinFor` 整体包一层：失败时记一条 warn 诊断（`plugins.pins.write-failed`，说明“本次在用的版本不受保护，别的服务端可能回收”），返回 null，照常启动；`pinVersions` 在写列表失败时先放下刚取得的锁再报错。`livePins` 里删残留的 `rm` 失败只记诊断、继续。测试补在 `plugins.test.ts` 现有“拿不到锁时只读不改”那条用例旁：只读的安装根仍能启动并登记插件。
+
+### 3. 启动不再等第三方入口，但停止仍无期限地等它：不理会中止信号的第三方 `activate` 让服务端、项目实例与窗口停不下来
+
+- 严重程度：建议（激活超时按计划不在本 Task；这里是提醒“挂住”从启动挪到了停止，且 S3a 之后服务端会真正运行第三方代码）；类别：不变量 / 收口
+- 位置：`packages/nb-runtime/src/application/bootstrap.ts:243-250`（后台激活只挂 `#startupSignal`）；测试 `packages/nb-runtime/src/application/application-startup.test.ts:143`（用例的插件“只在中止时结算”，即只覆盖守规矩的插件）
+- 现象：`backgroundStartupPlugins` 的理由是“插件代码的 `activate` 或模块顶层不结算时，不能让整个实例起不来”。同样的插件在停止时照样不结算：`stop()` 要等在途激活收口，没有期限。改动前这种插件让实例起不来（立刻可见）；改动后实例照常就绪，直到要停时才挂住，服务端没有停止期限（`server/start.ts` 只有 RPC 排空有 `RPC_DRAIN_LIMIT_MS`），只能 SIGKILL；被 SIGKILL 的服务端也不会走 `process.ts` 里的 `installed.release()`，租约要等锁过期。
+- 核实：`/tmp/review-t04-impl1-opus/hang.ts`：`backgroundStartupPlugins: ["hangs"]`，`activate: () => new Promise(() => {})`（不理会 `context.signal`）。`startup` 为 `available`；`app.stop()` 5 秒后仍未结算。
+- 建议改法：至少对 `backgroundStartupPlugins` 的在途激活在停止时给一个期限（到期记 `activation-abandoned` 一类诊断并放弃等待，迟到产出走已有的“迟到资源”收口），或者在 Spec（runtime/application.md 的不计入启动结算一节）写明“停止仍等它们”的已知限制并记进 Work 的后续事项，与“激活超时”一起做。测试补一条不理会中止信号的后台入口。
+
+### 4. `thirdPartyDefinitionAt` 的合同替换没有任何测试；计划 S2a 承诺的“清单与代码合同不一致时内核拒绝且释放执行一次”没有落地
+
+- 严重程度：重要；类别：测试
+- 位置：`packages/neuro-book/src/manifest.ts:78-112`（`thirdPartyDefinitionAt`、`canonical`、`settleContracts`）；`packages/neuro-book/src/manifest.test.ts` 只改了 `definitionAt` 的期望；全仓库 `grep thirdPartyDefinitionAt` 只有定义处与 `web/host/window.ts:459` 的调用
+- 现象：这是 plan“合同进清单”一节最微妙的一段（规范化比较、同一对象替换、不一致时不抛错以保住释放责任），却没有一条测试：相同时换成登记的那份并能激活、内容不同（例如 `callers` 不同）时内核以 `remote-contract-mismatch` 拒绝、拒绝时产出的服务 `release` 恰好执行一次、多个 `remoteProvides` 时逐项替换，都没有断言。计划的 S2a 验证栏写的是“内核 `bun test`（含：清单与代码合同不一致时内核拒绝且释放执行一次……）”，提交里内核只有原有的同 id 不同版本用例（`remote/routing.test.ts:1398`，不经过清单与适配器，也不查释放）。变异检查：把 `settleContracts` 换成 `return output` 或把 `canonical(own) === canonical(item.contract)` 换成 `true`，现有测试全部照过。
+- 核实：我用 `/tmp/review-t04-impl1-opus/settle.ts`（真实 `manifestOf` → JSON → `readPluginManifest` → `thirdPartyDefinitionAt` → 真实插件宿主）确认当前实现行为正确：内容相同（含 `Optional`、`Union`/`Literal`、`format: date-time`、`errors`）时 `activated`，`callers` 不同时 `failed / output / remote-contract-mismatch`。所以这是验收缺口，不是现成的错误；但 S3a 会在服务端与项目实例接上同一个函数，没有测试兜底。另：`canonical` 遇到 BigInt 值（`JSON.stringify` 抛 TypeError）或循环引用会在插件 `activate` 已经结算之后抛出，正好落在注释说要避免的“抛错让内核拿不到产出、释放不执行”上；构建预设会拒绝这类 schema，手写清单仍可能走到，`settleContracts` 里比较失败时按“不同”处理即可。
+- 建议改法：在 `src/manifest.test.ts` 加一组用例，经真实插件宿主（不 mock）：相同、不同、多个合同，以及不同时产出里一个带 `release` 的服务被释放恰好一次；`canonical` 包 try，异常按不相同处理。
+
+### 5. 纯度检查只看静态 `imports`，外部模块的动态 `import()` 漏检；浏览器产物里留下的 `import("裸说明符")` 还绕过了宿主的 `require` 模块表
+
+- 严重程度：重要；类别：正确性（plugin-code-loading 输出 4、5 的构建期保证）
+- 位置：`packages/neuro-book/scripts/plugin-sdk/build-plugin.ts:196`（`factsPlugin` 只收 `output.imports`）、`:244-253`（`purityProblems` 只查 `facts.externals`）
+- 现象：`ALWAYS_EXTERNAL` 把 `@notnotype/nb-runtime*`、`@notnotype/nb-ui*`、`@vue/*` 一律留作外部，再靠“外部引用必须在宿主模块表里”拦下未共享的。但动态导入的外部模块出现在 chunk 的 `dynamicImports`，不在 `imports`，于是 `await import("@notnotype/nb-runtime/plugins")`（绕过 SDK 直接用内核）与 `await import("@notnotype/nb-ui/forms")`（未共享的 nb-ui 入口）都构建成功。运行时：服务端从安装目录解析不到（或解析到第二份内核）；浏览器产物是 CommonJS 包进登记工厂的经典脚本，`import("裸说明符")` 原样保留，浏览器按 URL 去解析，得到的是“无法解析模块说明符”的 TypeError，而不是结构化的 `module-not-shared`。同理，从推断：浏览器里连 `await import("vue")` 这种共享模块的动态导入也会失败，因为它不经过 `require`。plan 写的是“动态导入一律内联”，只对能打包进来的模块成立，对外部模块不成立。
+- 核实：`/tmp/review-t04-impl1-opus/dyn.ts`（用 `IN_REPO_BUILD` 调真实的 `buildPlugin`）：服务端入口 `activate` 里 `await import("@notnotype/nb-runtime/plugins")`、浏览器入口里 `await import("@notnotype/nb-ui/forms")`，结果是 `BUILD OK`；产物 `server.js` 含 `await import("@notnotype/nb-runtime/plugins")`，`browser.js` 含 `await import("@notnotype/nb-ui/forms")`。同样的模块写成静态导入时，现有测试断言会报“未共享”或“绕过 SDK”。
+- 建议改法：`factsPlugin` 同时收 `output.dynamicImports` 里不属于本 bundle 的项，并入外部引用一起核对；浏览器产物再加一条：外部模块的动态导入直接报错（或在输出选项里改成经 `require` 的形式，例如 Rolldown/Rollup 的 `dynamicImportInCjs: false`，让它走模块表）。`build-plugin.test.ts` 的反例表加“动态导入未共享模块”“浏览器里动态导入 vue”两条。
+
+### 6. `portabilityProblems` 把 `properties` 这类“名字到 schema 的映射”和 `default`、`const` 里的数据也当成 schema 检查：任何带名为 `type` 的属性的合同或贡献点 schema 都被判为不可移植
+
+- 严重程度：重要（在本轮各条里优先修：触发条件很常见，后果是插件构建失败、清单读不过、装不上）；类别：正确性
+- 位置：`packages/nb-runtime/src/plugins/schema.ts:46-82`（`visit` 对每个对象节点都查 `format`、`pattern`、`type`，再无差别地递归所有值）；调用方 `packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts:218-219`、`:232-237`（`readPluginManifest`）与 `manifestOf` 的 `collect` 与贡献点分支
+- 现象：`visit` 不区分 JSON Schema 的关键字语义。走到 `properties` 节点时，它本身是“属性名 → schema”的映射，不是 schema，但被当 schema 查：属性名恰好是 `type` 时，`record.type` 是一个对象，于是报“type 不是 JSON Schema 的类型：[object Object]”。`{type: "add", ...}` 这类判别字段在远程合同的入参与事件载荷里极常见。`default`、`const`、`enum`、`examples` 里的数据同样被当 schema：`default: {format: "markdown"}` 报“非标准 format”，`const: {type: "nope"}` 报 type 错误。属性名叫 `pattern` 或 `format` 时，值是对象，碰巧不报；属性名叫 `~refine` 的数据也会误报。
+- 核实：`/tmp/review-t04-impl1-opus/port.ts` 直接调内核导出的 `portabilityProblems`：`Type.Object({type: Type.String(), name: Type.String()})` 得到 `[{path: "properties", message: "type 不是 JSON Schema 的类型：[object Object]"}]`；`Type.Object({opts: Type.Object({format: Type.String()}, {default: {format: "markdown"}})})` 得到 `properties.opts.default` 的“format markdown 不是标准 format”；`{const: {type: "nope"}}` 也报错。`readPluginManifest` 与构建预设都调它，所以这样的插件在构建时失败，手写的清单在安装与启动时被判无效。内置插件的合同现在没有名为 `type` 的属性，所以对齐测试没有暴露。
+- 建议改法：按关键字走：`properties`、`patternProperties`、`$defs`、`definitions`、`dependentSchemas` 的值逐个当 schema 递归（映射本身不查）；`items`、`prefixItems`、`anyOf`、`allOf`、`oneOf`、`not`、`if`、`then`、`else`、`additionalProperties`、`contains`、`propertyNames` 等当 schema；`const`、`enum`、`default`、`examples` 是数据，只查有没有函数，不查 `type`、`format`、`pattern`。`plugin-manifest.test.ts` 的有效清单用例里加一个带 `type` 判别字段与对象 `default` 的合同。
+
+### 7. 租约沿用登记表锁的 10 秒过期：活着的服务端只要事件循环卡住或进程被挂起超过 10 秒，租约就会被别人删掉，且之后永不恢复
+
+- 严重程度：建议；类别：跨进程时序
+- 位置：`packages/neuro-book/src/backend/plugins/pins.ts:45`（`holdLock` 用 `LOCK_STALE_MS = 10_000`）、`:85-95`（`check` 判不活就删列表与锁目录）；`startup.ts:103`（`reportPin` 只记诊断）
+- 现象：登记表锁只在一次短操作里持有，10 秒过期合适；租约是进程寿命的，判错的代价不对称：把死进程的租约当活的，只是晚一次回收；把活进程的租约当死的，会删掉它正在用的代码。proper-lockfile 在持有者恢复时只要 mtime 没被别人动过就能自愈（`updateLock` 里“still recover from a system sleep”），但 `livePins` 不只读，判不活时直接 `rm` 锁目录与列表，持有者随后收到 `ECOMPROMISED`，`onCompromised` 只记一条 warn，`VersionPin` 不再保护任何东西，也不会重新写一份。触发条件：A 被调试器暂停、`SIGSTOP`、长时间同步计算（大目录摘要见第 9 条）或容器冻结超过 10 秒，恰在此时 B 启动。概率不高，后果是 A 之后每次激活与取文件都可能 404 或 `ERR_MODULE_NOT_FOUND`，直到重启。
+- 核实：从代码推断（`node_modules/proper-lockfile/lib/lockfile.js` 的 `updateLock`：stat 时 mtime 仍是自己的就继续刷新；锁目录被删时 `ENOENT` 走 `setLockAsCompromised`）。没有做两个进程的挂起实验。
+- 建议改法：租约用单独的、长得多的过期时间（例如几分钟；proper-lockfile 的 `update` 随之按 `stale/2` 刷新）；`onCompromised` 时立即用新名字重写一份租约（集合不变），记诊断说明“中间有一段时间不受保护”。崩溃后的回收因此推迟几分钟，plugin-install.md 的“副作用与数据”写一句即可。
+
+### 8. 清单问题的路径对同一个合同、同一个贡献点有两三种写法，且点分路径本身对含 `.` 的 id 有歧义
+
+- 严重程度：建议；类别：一致性（问题路径是插件页与构建报错给作者看的定位）
+- 位置：`packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts:177-179`（`fieldPath` 把 TypeBox 实例路径按 `/` 切开）、`:224`（语义校验用 `contracts.${contractId}`）、`:218`（贡献点用下标 `contributionPoints.${index}`）、`manifestOf` 里的 `contributionPoints.${point.id}`；测试 `plugin-manifest.test.ts` 新增的“合同缺字段”一行注释已经承认“合同 id 里的 / 在这里变成了点”
+- 现象：合同 `example.notes/index` 的形状错误报在 `contracts.example.notes.index`，语义错误报在 `contracts.example.notes/index`；同一个贡献点，`manifestOf`（构建时）报 `contributionPoints.example.notes.kinds`，`readPluginManifest`（安装时）报 `contributionPoints.0`。合同 id 与贡献点 id 都含 `.`，点分路径无法还原出是哪一段，`byPath` 排序也会把同一合同的问题拆到两处。brief 点名要看“问题路径（合同 id 含 `/`）的一致性”，这里不一致。
+- 核实：读代码与现有测试期望（`plugin-manifest.test.ts` 的 `invalid` 表：`contracts.example.notes.index` 与 `contracts.example.notes/index...` 并存；`manifestOf` 用例期望 `contributionPoints.example.notes.kinds`）。
+- 建议改法：问题路径改成段数组（`["contracts", "example.notes/index", "methods", "list", "input"]`），显示时再拼；或者至少对 TypeBox 的实例路径按 JSON Pointer 解转义并与语义校验统一成同一种拼法，贡献点在两个函数里统一用下标或 id 之一。
+
+### 9. 内容摘要在每次启动时把每个已启用插件的全部文件整份读进内存再串行哈希，没有大小与数量上限，挡在服务端就绪之前
+
+- 严重程度：建议；类别：性能 / 资源
+- 位置：`packages/neuro-book/src/backend/plugins/startup.ts:305-322`（`directoryDigest`：`readFile` 整个文件、逐个 await）；安装侧 `copy.ts` 没有总大小上限（只排除 `node_modules`、`.git`）
+- 现象：摘要只依赖安装时写下的内容，安装之后版本目录不应再变（第 1 条修好之后更是如此），却在每次服务端启动时重算。插件带一个几百 MB 的资源（模型、字体包、示例数据）时，每次启动都要整份读进内存（峰值内存 = 最大单个文件），而这一步在 `prepareInstalledPlugins` 里、服务端开始监听之前。目录层级与文件数也没有上限，递归 `walk` 没有防护。
+- 核实：读代码。没有做大文件实测。
+- 建议改法：安装提交时算一次摘要，与版本目录一起落盘（例如写进登记表的条目或版本目录旁的标记文件），启动时读出；要保留启动时校验的话，改成流式哈希（`Bun.file(path).stream()` 或 `createReadStream` 喂 `hash.update`），并给文件数与总字节设上限，超出记诊断。
+
+### 10. 与第 1 条同类：安装提交时删除“被取代的待切换版本”也不看租约
+
+- 严重程度：建议（触发要连续两次降级安装，概率低；修第 1 条时一并处理即可）；类别：跨进程不变量
+- 位置：`packages/neuro-book/src/backend/plugins/inventory.ts:270-277`（`replaced` 分支的 `rm(ownedPath(root, id, replaced))`）
+- 现象：注释的前提是“待切换版本没人在用”。有了“别的服务端租着、推迟回收的旧版本目录”之后，这个前提不再总成立：服务端 C 运行 `x@1.0.0`；别处升级到 2.0.0 并重启（C 租着，1.0.0 目录保留）；再装 1.0.0（降级，成为待切换版本，走第 1 条的 `rm(target)` 已经换掉了 C 的目录）；再装 0.9.0，`replaced = 1.0.0`，C 正在用的目录被删。
+- 核实：从代码推断，与第 1 条同一机制；未单独实验。
+- 建议改法：把“删除前核对 `livePins`”收进一个函数，`commit` 的两处删除（目标目录、被取代的待切换版本）与启动时的回收都经它；被租着就推迟到之后某次启动的 `reclaim`（那时它已不被登记表引用，会被正常回收）。
+
+### 11. 文件端点把 `lstat` 的一切错误都当“不存在”回 404，没有任何诊断
+
+- 严重程度：建议；类别：常见返工项（静默吞错）
+- 位置：`packages/neuro-book/src/server/plugin-files.ts:54-58`（`catch { return null; }`）
+- 现象：`ENOENT`、`ENOTDIR` 是正常的 404；`EACCES`、`EMFILE`、`EIO` 是服务端自己的问题，现在一样回 404 且不记诊断。窗口那边表现为 `code-load-failed`，开发者只能看到“取不到文件”，排查时既没有服务端日志，也分不清是地址错还是磁盘或权限问题。
+- 核实：读代码。
+- 建议改法：只把 `ENOENT`、`ENOTDIR`（以及 `ENAMETOOLONG`，算请求错误）映射成 404；其余错误记一条 warn 诊断（带插件 id 与相对路径，不带绝对路径）并回 500。路由工厂需要拿到诊断存储，`createPluginFilesRoute` 加一个 `record` 参数即可。
+
+### 12. 租约锁在运行中失效时的报告写进了启动时就已读完的数组，实际上没有人收到
+
+- 严重程度：建议（与第 7 条一起修）；类别：错误路径 / 诊断丢失
+- 位置：`packages/neuro-book/src/backend/plugins/startup.ts:103`（`reportPin` 调 `warn`，`warn` 往局部数组 `diagnostics` 里 push）；`packages/neuro-book/src/server/start.ts:235`（`for (const record of installed.diagnostics) store.record(record)`，只在启动时读一次）
+- 现象：`PreparedPlugins.diagnostics` 的注释写的是“宿主的诊断存储建立之后再记的记录（准备在它之前进行）”，它是一次性的快照。租约的锁却持有整个进程寿命，`holdLock` 的 `onCompromised` 回调在运行中任意时刻触发，调到的 `reportPin` 仍往那个数组里 push，而服务端早已读完它。第 7 条描述的“租约被别人删掉”发生时，`plugins.lock.compromised` 这条唯一的线索就这样丢了，诊断存储与日志里都没有。
+- 核实：读代码：`installed.diagnostics` 全仓库只有 `start.ts:235` 一处读取，且在 `startServer` 开头；`reportPin` 没有别的出口。
+- 建议改法：`prepareInstalledPlugins` 接受一个运行期的 `report` 回调（或返回的 `PreparedPlugins` 带一个 `onPinLost` 订阅），由 `startServer` 在诊断存储建立后接上；接上之前发生的先缓存，接上时一并交出。
+
+## 按影响的处理顺序
+
+报告只追加，条目按发现顺序编号。按影响排：6（常见 schema 被判不可移植，插件装不上）、1（租约挡不住同版本重装，旧摘要 URL 送出新代码）、5（动态导入漏过纯度检查，浏览器里绕过模块表）、2（租约写不下时服务端起不来）、4（合同替换无测试）；之后是建议级的 7、12、10、3、9、8、11。
+
+## 未发现问题的方面
+
+- 内核 `version-mismatch`：必需依赖受阻、经它传递的 `provider-blocked`、可选依赖经 `context.services.resolve` 不注入并记诊断、`satisfies` 缺失时整体拒绝 `version-check-unavailable`，实现与测试一致；同插件内依赖与没写范围的不核对。
+- 贡献点 `schema` 在 `validate` 之前核对、schema 本身写坏时按不合格拒绝而不抛给查询方；`validationProblems` 的 try 包裹让坏 schema 回结构化失败。
+- `backgroundStartupPlugins`：后台入口与等待的入口同时开始，失败不进启动报告、只进插件诊断；与 `requiredPlugins` 同时列出时按必需处理；守规矩的插件在停止时被中止（不守规矩的见第 3 条）。三处宿主都注入了同一个 `pluginVersionSatisfies` 与第三方插件列表。
+- `thirdPartyDefinitionAt` 的合同替换行为本身：经真实的 `manifestOf` → JSON → `readPluginManifest` → 插件宿主，内容相同（含 `Optional`、`Union`/`Literal`、`format`、`errors`）时激活成功，内容不同时内核以 `remote-contract-mismatch` 拒绝；`definitionOf` 同一位置同一 id 还原出同一个对象。缺的是测试（第 4 条）。
+- 文件端点的路径解析：编码的 `/`、`\`、NUL、`.`、`..`、空段都 400，明文 `..` 在到达前被规范化，逐段 `lstat` 不跟随链接，摘要与插件 id 精确比较，`Host` 核对与 CORP、nosniff 都在；分发器剥前缀后 `PREFIX` 的切法与路由匹配一致。超长路径落到 `lstat` 失败回 404（见第 11 条对错误码的区分）。
+- 浏览器引导 v4 不泄露服务端内部的安装路径（只给清单与文件 URL 前缀）；`revision` 并入了第三方插件的摘要。项目子进程收到全部安装信息后自己再校验清单、按位置挑选，校验失败的跳过并记诊断。
+- 租约与回收在同一把登记表锁里读写的时序：持锁路径下回收的一方要么看到完整租约、要么在对方定下集合之前做完；先写临时文件再改名；残留的锁与列表会被清掉；读不了时一个目录也不删、卸载推迟。两进程测试（真实子进程）覆盖了升级与卸载的推迟回收。崩溃后锁过期回收的路径没有测试，但代码路径清楚。
+- 内核与应用的 `bun test`（nb-runtime 371 项；应用 `src/backend/plugins`、`manifest`、`builtin-manifest`、`browser-bootstrap` 41 项；`plugin-files.test.ts` 4 项）与两包 typecheck 在本 worktree 均通过。
+
+## 各级数量
+
+共 12 条：阻断 0，重要 5（1、2、4、5、6），建议 7（3、7、8、9、10、11、12）。
