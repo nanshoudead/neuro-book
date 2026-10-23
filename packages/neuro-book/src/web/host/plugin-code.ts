@@ -14,28 +14,12 @@
 
 import type {PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 
+import {PluginCodeError} from "nbook/shared/plugin-code-error";
+import type {PluginCodeFailure} from "nbook/shared/plugin-code-error";
 import {PLUGIN_REGISTRY_GLOBAL} from "nbook/shared/plugin-modules";
 
 /** 脚本执行后多久还没登记工厂算失败；回环上的服务端正常情况下远不到这么久。 */
 export const CODE_LOAD_TIMEOUT_MS = 30_000;
-
-export type PluginCodeFailure = "code-load-failed" | "code-shape" | "code-threw" | "module-not-shared";
-
-export class PluginCodeError extends Error {
-    readonly code: PluginCodeFailure;
-    readonly plugin: string;
-    readonly entry: string;
-    readonly url: string;
-
-    constructor(code: PluginCodeFailure, input: {readonly plugin: string; readonly entry: string; readonly url: string; readonly detail: string}) {
-        super(`${code}：插件 ${input.plugin} 的入口 ${input.entry}（${input.url}）${input.detail}`);
-        this.name = "PluginCodeError";
-        this.code = code;
-        this.plugin = input.plugin;
-        this.entry = input.entry;
-        this.url = input.url;
-    }
-}
 
 /** 宿主模块表外的 id；只在工厂执行期间抛出，由装载器换成带插件与入口的 `PluginCodeError`。 */
 class ModuleNotShared extends Error {

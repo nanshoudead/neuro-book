@@ -10,8 +10,11 @@
 /** 浏览器入口的宿主模块表。 */
 export const BROWSER_SHARED_MODULES = ["vue", "@vue/reactivity", "@notnotype/nb-ui/components", "@notnotype/nb-plugin-sdk", "@notnotype/nb-plugin-sdk/browser"] as const;
 
-/** 服务端与项目实例入口的宿主模块；Node 与 Bun 的内置模块另外允许。 */
-export const SERVER_SHARED_MODULES = ["vue", "@vue/reactivity", "@notnotype/nb-plugin-sdk"] as const;
+/**
+ * 服务端与项目实例入口的宿主模块；Node 与 Bun 的内置模块另外允许。不含 `vue`：后端不加载界面框架，服务端代码要响应式就从
+ * `@vue/reactivity` 取（与宿主的插件状态 store 同一份）。
+ */
+export const SERVER_SHARED_MODULES = ["@vue/reactivity", "@notnotype/nb-plugin-sdk"] as const;
 
 /**
  * 浏览器产物登记工厂用的全局对象名。脚本执行时调用 `globalThis[名].register(脚本 URL, factory)`，`factory(module, exports,

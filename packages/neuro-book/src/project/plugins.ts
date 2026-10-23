@@ -8,7 +8,8 @@ import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import type {InstalledPlugin} from "nbook/backend/plugins/installed";
-import {definitionAt, pluginsAt, thirdPartyDefinition} from "nbook/manifest";
+import {thirdPartyDefinitionsAt} from "nbook/backend/plugins/loader";
+import {definitionAt, pluginsAt} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/backend/plugin";
 import {filesBackendPlugin} from "nbook/plugins/files/backend/plugin";
@@ -59,6 +60,6 @@ export function manifestProjectPlugins(context: ProjectPluginContext): PluginDef
         if (!plugin.locations.includes("project")) return definitionAt("project", plugin, undefined);
         return definitionAt("project", plugin, plugin.id === "nbook.diagnostics" ? projectHostPlugins[plugin.id](context) : projectPluginDefinitions[plugin.id]);
     });
-    // 第三方插件只登记顶层声明（`thirdPartyDefinition`）。
-    return [...builtin, ...pluginsAt("project", context.thirdParty).map(thirdPartyDefinition)];
+    // 第三方插件按清单登记，入口激活时装载代码。
+    return [...builtin, ...thirdPartyDefinitionsAt("project", context.installed, builtin, (input) => void context.store.record(input))];
 }
