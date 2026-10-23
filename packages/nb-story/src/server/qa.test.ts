@@ -161,6 +161,9 @@ describe("一轮问答在服务里跑，进展经推送到页面", () => {
         expect(ended).toMatchObject({type: "ended", run: {runId, state: "ended", saved: {ok: true}, result: {status: "answered", answer: {evidence: ["37.8"]}}}});
         expect(rest.slice(0, -1).every(frame => (frame.type === "log" || frame.type === "event") && frame.runId === runId)).toBe(true);
         expect(rest.some(frame => frame.type === "event" && (frame.event as {type: string}).type === "tool_execution_end")).toBe(true);
+        // 合并的 message_update 不越过结算：最后一帧更新在 agent_end 之前，且不在它所属消息的日志之后。
+        const eventType = (frame: QaFrame) => (frame.type === "event" ? (frame.event as {type: string}).type : frame.type);
+        expect(rest.findLastIndex(frame => eventType(frame) === "message_update")).toBeLessThan(rest.findIndex(frame => eventType(frame) === "agent_end"));
 
         // 快照里已有的条目加上之后的日志帧，正好是存下来的日志：页面据此拼出完整的这一轮。
         const pushed = [...((snapshot as Extract<QaFrame, {type: "snapshot"}>).entries as {seq: number}[]), ...rest.flatMap(frame => (frame.type === "log" ? (frame.entries as {seq: number}[]) : []))].map(entry => entry.seq);
