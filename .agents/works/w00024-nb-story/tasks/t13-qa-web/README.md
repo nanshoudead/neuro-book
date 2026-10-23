@@ -81,6 +81,8 @@ w00019 [t14](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice
 
 - 2026-10-23 前置齐了（nb-agent-ui 的会话列表与对话视图、nb-markdown 都已合入），按现在的接口重写 [plan.md](plan.md)，交开发者确认；开发者确认计划，三条待确认按推荐（决定 14 到 16）。
 
+- 2026-10-23 按 autonomous-delivery 开工（决定 19），代码在 `.worktree/w00024-t13-qa-web`（分支 `feat/w00024-t13-qa-web`）。切片 1 到 4 已实施：引擎（准备与运行两步、观察者、`logFrom`、章数上限是正常结果）、配置（整份校验、跨进程锁、摘要比对）、服务端（`qa.*`、`config.*`、推送、删除与停服的收口，nb-harness 加 `onProcessTermination`）、问答页（数据源、按轮分开的转录、答案卡片、出处与人名、e2e 4 条）。第 2 轮设计审查（Sonnet 21 条、omp 18 条）已逐条处理（[证据](evidences/design-review-2.txt)），计划改为第 3 版，照推荐做的取舍记进 [待确认清单](../../pending-confirmations.md)。
+
 ## 下一步
 
-第 1 轮设计审查已处理（计划第 2 版）；第 2 轮进行中，同时按 autonomous-delivery 实施（决定 19）。
+切片 5 设置页；切片 6 写 Spec、全量 e2e、真实模型冒烟（先停下问开发者）、实现审查。
