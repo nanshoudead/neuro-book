@@ -102,7 +102,7 @@ installTheme(myTheme);
 
 - 排版：`--font-display` `--text-2xs`…`--text-xl` `--leading-tight` `--tracking-ui`
 - 密度：`--control-h-sm/md/lg` `--control-px` `--panel-p` `--stack-gap`
-- 形状：`--radius-control` `--radius-control-lg` `--radius-panel` `--radius-dialog` `--radius-dialog-compact` `--radius-window` `--border-w`
+- 形状：`--radius-control` `--radius-control-lg` `--radius-panel` `--radius-dialog` `--radius-dialog-compact` `--radius-window` `--border-w`（`--radius-window` 是浮动窗口的圆角，主题有工作台卡片时让它等于 `--shell-card-radius`，两者同一类面；`--radius-dialog-compact` 不大于它）
 - 装饰：`--surface-raise` `--inset-shadow` `--elevation-raised/popover/dialog` `--focus-ring`
 - 动效：`--motion-fast` `--motion-base` `--motion-enter` `--ease-standard`
 - **角色映射**：`--control-surface` `--button-surface` `--panel-surface` `--sidebar-surface`

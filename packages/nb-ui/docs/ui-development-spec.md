@@ -263,7 +263,7 @@
   - **纯净现代通透质感**：直接消费全局 `.nb-ui-popover-surface`，彻底清除顶部生硬塑料白光条（消除日光灯管反光），在 640px 宽度上呈现深邃柔和的环境悬浮投影与纯净毛玻璃底。
 
 - **Tier 4: 对话框与浮动窗口（Dialog 的两种用法 / AlertDialog · 独立窗口）**：
-  - **几何与层级**：外框圆角取 `--radius-dialog`（`.nb-ui-dialog-surface`），浮动窗口取 `--radius-window`（`.nb-ui-dialog-surface--window`）；叠在另一个窗口上的浮层，圆角不大于底下窗口的圆角，小确认框（`AlertDialog`）取 `--radius-dialog-compact`（`.nb-ui-dialog-surface--compact`）；层级按“叠放层级”一节从登记表取，模态按打开顺序、浮动窗口按嵌套深度；
+  - **几何与层级**：外框圆角取 `--radius-dialog`（`.nb-ui-dialog-surface`），浮动窗口取 `--radius-window`（`.nb-ui-dialog-surface--window`）；叠在另一个窗口上的浮层，圆角不大于底下窗口的圆角，小确认框（`AlertDialog`）取 `--radius-dialog-compact`（`.nb-ui-dialog-surface--compact`）；常开、占大块屏幕的浮动窗口与工作台的部件卡片是同一类面，圆角取同一档（nbook 主题里 `--radius-window` 与 `--radius-dialog-compact` 都等于 `--shell-card-radius`，12px），不另写数值；层级按“叠放层级”一节从登记表取，模态按打开顺序、浮动窗口按嵌套深度；
   - **模态保护**：配合全屏半透明遮罩与焦点锁定，外点与 Escape 经组件判定后再请求关闭。
 
 - **全局 Surface 基座升级（Elevation & Blur Upgrade）**：
