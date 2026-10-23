@@ -111,6 +111,15 @@ const ERROR_KEYS = {
     local: "harness.error.local",
 } as const;
 
+/**
+ * 由日志条目合成的消息来自哪一条日志（它的 `seq`）；正在生成的临时消息（事件来的）为 null。宿主要把消息对到日志
+ * 条目上时用它（例如 nb-story 按每轮在日志里的起点切分轮次），不要自己解析消息 id。
+ */
+export function logSeqOf(message: {readonly id: string}): number | null {
+    const match = /^h(\d+)$/u.exec(message.id);
+    return match === null ? null : Number(match[1]);
+}
+
 export function createHarnessTranscript(options: HarnessTranscriptOptions = {}): HarnessTranscript {
     const locale = options.locale ?? "zh-CN";
     const logged: MessageView[] = [];
