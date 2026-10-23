@@ -14,15 +14,20 @@ export class ConfigEditError extends Error {
     }
 }
 
-type Kind = "text" | "envName" | "integer" | "boolean" | "thinking" | "json";
+type Kind = "text" | "envName" | "integer" | "boolean" | "choice" | "json";
 
 interface FieldSpec {
     kind: Kind;
     /** 必填字段只能改，不能去掉。 */
     required: boolean;
+    /** `choice` 字段能写的值（与配置 schema 的枚举一致）。 */
+    choices?: readonly string[];
     /** JSON 字段的写法示例。 */
     example?: string;
 }
+
+const THINKING_LEVELS = ["low", "medium", "high", "xhigh"];
+const MODEL_APIS = ["chat", "responses"];
 
 const PRICE_EXAMPLE = `'{"input":1,"output":4,"currency":"USD"}'`;
 const INGEST_MODEL_EXAMPLE = `'{"baseUrl":"https://api.example.com/v1","id":"some-model","apiKeyEnv":"OPENAI_API_KEY"}'`;
@@ -37,8 +42,8 @@ export const CONFIG_FIELDS: Readonly<Record<string, FieldSpec>> = {
     "model.apiKeyEnv": {kind: "envName", required: true},
     "model.contextWindow": {kind: "integer", required: false},
     "model.maxTokens": {kind: "integer", required: false},
-    "model.api": {kind: "text", required: false},
-    "model.thinking": {kind: "thinking", required: false},
+    "model.api": {kind: "choice", required: false, choices: MODEL_APIS},
+    "model.thinking": {kind: "choice", required: false, choices: THINKING_LEVELS},
     "model.price": {kind: "json", required: false, example: PRICE_EXAMPLE},
     "ingest.model": {kind: "json", required: false, example: INGEST_MODEL_EXAMPLE},
     "ingest.model.baseUrl": {kind: "text", required: true},
@@ -58,8 +63,6 @@ export const CONFIG_FIELDS: Readonly<Record<string, FieldSpec>> = {
     "qa.maxChapters": {kind: "integer", required: false},
     "qa.fullReadMaxChars": {kind: "integer", required: false},
 };
-
-const THINKING_LEVELS = ["low", "medium", "high", "xhigh"];
 
 const ENV_NAME = new RegExp(ENV_NAME_PATTERN, "u");
 
@@ -98,9 +101,11 @@ function decode(name: string, field: FieldSpec, text: string): unknown {
         case "boolean":
             if (text !== "true" && text !== "false") throw new ConfigEditError(`${name} 只能是 true 或 false：${text}`);
             return text === "true";
-        case "thinking":
-            if (!THINKING_LEVELS.includes(text)) throw new ConfigEditError(`${name} 只能是 ${THINKING_LEVELS.join("、")}：${text}`);
+        case "choice": {
+            const choices = field.choices ?? [];
+            if (!choices.includes(text)) throw new ConfigEditError(`${name} 只能是 ${choices.join("、")}：${text}`);
             return text;
+        }
         case "json": {
             let value: unknown;
             try {

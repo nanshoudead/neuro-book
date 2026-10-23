@@ -11,8 +11,9 @@ import type {QaConfig} from "./config";
  * 配置里的模型 → nb-harness 的模型。provider 名用 `nbstory`：不是 OMP 目录里的 provider，OMP 按通用的 OpenAI
  * 兼容端点处理（system 角色、不带厂商私有参数），适合任意兼容服务。
  *
- * 接口缺省是 Chat Completions。GPT 系列经它不回思考内容；选 Responses 时 OMP 在请求里要思考摘要
- * （`reasoning.summary: "auto"`），摘要作为思考块进会话日志。
+ * 接口缺省是 Chat Completions。GPT 系列经它不回思考内容；选 Responses 且写了推理档时 OMP 在请求里要思考摘要
+ * （`reasoning: {effort, summary: "auto"}`），摘要作为思考块进会话日志。没写推理档时 OMP 不组装推理参数，也就没有摘要：
+ * 它的 `stream` 入口不能单独要摘要，替用户补一个推理档又会让不支持推理的模型报错。
  */
 export function configuredModel(config: QaConfig): ResolvedModel {
     const {model} = config;

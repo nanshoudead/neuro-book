@@ -3,7 +3,7 @@
  * 命令行测试用它代替真实模型服务，请求经真实的 OMP provider 或 OpenAI SDK 与 HTTP 发出（写法同 nb-harness 的
  * tests/provider.test.ts）。
  *
- * 发到 `/responses` 的请求按 Responses 接口的流式事件回复（只支持 `text`、`tools`、`status`，事件形状照 OMP
+ * 发到 `/responses` 的请求按 Responses 接口的流式事件回复（只支持 `text`、`tools`、`status`，`text` 不支持自定的结束原因与用量，事件形状照 OMP
  * `openai-responses` 解析的那些），别的路径按 Chat Completions 回复。`thinking` 在 Responses 里是思考摘要，在
  * Chat Completions 里是 `reasoning_content`（deepseek 一类服务的写法）。
  */
@@ -130,6 +130,8 @@ export function startEndpoint(replies: EndpointReply[] | Responder, options: {id
             const encoder = new TextEncoder();
             if (new URL(request.url).pathname.endsWith("/responses") && reply.kind !== "status") {
                 if (reply.kind !== "text" && reply.kind !== "tools") throw new Error(`测试端点的 Responses 接口不支持 ${reply.kind} 回复`);
+                // 截断与自定的用量在 Responses 里是另一套事件（response.incomplete 等），这里没写：明确拒绝，免得照 Chat 写的脚本悄悄测成普通成功。
+                if (reply.kind === "text" && (reply.finishReason !== undefined || reply.usage !== undefined)) throw new Error("测试端点的 Responses 接口不支持自定的 finishReason 与 usage");
                 return new Response(responsesReply(reply, () => (calls += 1)), {headers: {"content-type": "text/event-stream"}});
             }
             // Chat Completions 的思考内容：在正文之前单独一块。
