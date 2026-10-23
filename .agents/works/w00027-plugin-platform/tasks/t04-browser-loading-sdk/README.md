@@ -70,8 +70,10 @@ updated: 2026-10-23
 | Sonnet 3、7、9、14、15，omp 3 | 成立，已改（装载器子代理）：等待表放进全局登记对象、同一 URL 多个等待者；宿主模块表失败不缓存、包成 `code-load-failed`；停止时立刻结束并撤下脚本；`plugin-code.test.ts` 11 例与窗口样式用例 | `eef633400` 合入 |
 | Sonnet 12（typebox 不共享） | 交开发者：每个插件各带一份 typebox（压缩后仍是大头），进共享模块表就成为兼容承诺 | — |
 
-合入后验证：`test:affected --since 0475d0370` 通过（nb-runtime 377、应用 bun 1409、Vitest 358）；两包 typecheck 通过。
+合入后验证：`test:affected --since 0475d0370` 通过（nb-runtime 377、应用 bun 1409、Vitest 358）；两包 typecheck 通过。全量 e2e 289 例通过（Work 分支 `a41cdb0ad`，29.7 分钟）。
+
+第二轮实现审查（深入审查，范围 `c9ca9f6d2..a41cdb0ad`，即 S3a、S3b 与第一轮的修正）已启动：omp（默认模型）与 Claude Opus 交叉审内核与后端，Claude Sonnet 审浏览器、构建预设、SDK 与插件页。
 
 ## 下一步
 
-全量 e2e；第二轮实现审查（S3a、S3b 与第一轮的修正，深入审查）；合入 master；然后 t05。
+处理第二轮实现审查；合入 master；然后 t05。
