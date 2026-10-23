@@ -202,11 +202,13 @@ describe("收尾工具（输出 13 到 16）", () => {
 });
 
 describe("出错、取消与用量（输出 10 到 12）", () => {
-    test("provider 错误按状态码与标记归类：429 为 rate_limit，带用尽标记为 quota，网关状态或无状态的瞬时故障为 network，证据不够为 provider", async () => {
+    test("provider 错误按状态码与标记归类：429 为 rate_limit，带用尽标记为 quota（403 同时带认证标记也是），网关状态或无状态的瞬时故障为 network，证据不够为 provider", async () => {
         const cases: [ScriptedStep["error"], ErrorKind][] = [
             [{message: "too many", status: 429}, "rate_limit"],
             [{message: "quota", status: 429, errorId: Flag.UsageLimit}, "quota"],
             [{message: "denied", status: 401}, "auth"],
+            [{message: "403 insufficient balance", status: 403, errorId: Flag.UsageLimit | Flag.AuthFailed}, "quota"],
+            [{message: "forbidden", status: 403, errorId: Flag.AuthFailed}, "auth"],
             [{message: "reset", errorId: Flag.Transient}, "network"],
             [{message: "gateway", status: 524}, "network"],
             [{message: "无状态也无标记"}, "provider"],
