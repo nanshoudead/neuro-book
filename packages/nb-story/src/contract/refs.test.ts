@@ -4,7 +4,7 @@
 
 import {describe, expect, test} from "bun:test";
 
-import {normalizeRef, parseRef, refsInText} from "./refs";
+import {findRefs, normalizeRef, parseRef, refsInText} from "./refs";
 
 describe("出处", () => {
     test("文字里的出处：句末标点、全角、三种连接号；三段数字与紧挨数字的不算", () => {
@@ -14,5 +14,19 @@ describe("出处", () => {
     test("解析与标准写法：范围统一用“—”，写法不对时原样", () => {
         expect(parseRef("39.5–39.6")).toEqual({from: {chapter: 39, paragraph: 5}, to: {chapter: 39, paragraph: 6}});
         expect(["39.1", "３９．１", "39.7-39.8", " 39.3—40.4 ", "第 3 章"].map(normalizeRef)).toEqual(["39.1", "39.1", "39.7—39.8", "39.3—40.4", "第 3 章"]);
+    });
+
+    test("原文位置：只圈出出处本身，别的全角标点不动", () => {
+        const text = "见第３８．１２段，（另见20.3—20.5）：他说…！①";
+        const spans = findRefs(text);
+        expect(spans.map(span => [text.slice(span.start, span.end), span.text])).toEqual([["３８．１２", "38.12"], ["20.3—20.5", "20.3—20.5"]]);
+        // 按位置拼回原文一个字不差。
+        let rebuilt = "";
+        let at = 0;
+        for (const span of spans) {
+            rebuilt += text.slice(at, span.start) + text.slice(span.start, span.end);
+            at = span.end;
+        }
+        expect(rebuilt + text.slice(at)).toBe(text);
     });
 });

@@ -16,9 +16,43 @@ export interface ParsedRef {
     readonly to: {readonly chapter: number; readonly paragraph: number};
 }
 
+/** 文字里的一处出处：`start`、`end` 是在原文里的位置（UTF-16 下标，左闭右开），`text` 是归一后的片段。 */
+export interface RefSpan {
+    readonly start: number;
+    readonly end: number;
+    readonly text: string;
+}
+
+/**
+ * 找出文字里全部形如出处的片段，带原文位置。逐个字符做 NFKC 并记下每个归一后的字符来自原文哪里，在归一后的文字上
+ * 匹配、再换回原文位置：全角的“３９．１”照样认出来，而改写正文时只换出处本身，别的全角标点原样留着（整段归一会把
+ * 中文标点也变成半角）。
+ */
+export function findRefs(text: string): RefSpan[] {
+    let normalized = "";
+    const origin: number[] = [];
+    for (let index = 0; index < text.length; ) {
+        const char = String.fromCodePoint(text.codePointAt(index)!);
+        for (const piece of char.normalize("NFKC")) {
+            for (let unit = 0; unit < piece.length; unit += 1) origin.push(index);
+            normalized += piece;
+        }
+        index += char.length;
+    }
+    origin.push(text.length);
+    return [...normalized.matchAll(REF_IN_TEXT)].map(match => {
+        const from = match.index;
+        const to = from + match[0].length;
+        // 结束位置取最后一个归一字符所在原文字符之后。
+        const lastOrigin = origin[to - 1]!;
+        const end = lastOrigin + String.fromCodePoint(text.codePointAt(lastOrigin)!).length;
+        return {start: origin[from]!, end, text: match[0]};
+    });
+}
+
 /** 文字里全部形如出处的片段（归一后的写法，按出现顺序，可能重复）。 */
 export function refsInText(text: string): string[] {
-    return [...text.normalize("NFKC").matchAll(REF_IN_TEXT)].map(match => match[0]);
+    return findRefs(text).map(span => span.text);
 }
 
 /** 解析一个出处；写法不对时为 null。 */
