@@ -5,11 +5,24 @@
 
 import {inject, type InjectionKey} from "vue";
 
-import type {StoryMethod, ViewerMethod, ViewerParams, ViewerResult} from "../../contract/contract";
+import {createParser} from "eventsource-parser";
 
-/** 查询方法与抽取方法（`ingest.*`，只在独立服务里有）。 */
+import type {QaFrame, StoryMethod, ViewerMethod, ViewerParams, ViewerResult} from "../../contract/contract";
+
+/** 推送结束的原因：`closed` 是服务端正常结束了这条流，`dropped` 是连不上、断开或被拒。 */
+export type SubscriptionEnd = "closed" | "dropped";
+
+export interface QaSubscriber {
+    frame(frame: QaFrame): void;
+    /** 只调一次；调用方自己 `close()` 的不调。 */
+    end(reason: SubscriptionEnd): void;
+}
+
+/** 查询、抽取（`ingest.*`）、问答与设置（`qa.*`、`config.*`）的方法，以及问答运行中的推送；后三类只在独立服务里有。 */
 export interface StoryClient {
     call<M extends ViewerMethod>(method: M, params: ViewerParams<M>, options?: {signal?: AbortSignal}): Promise<ViewerResult<M>>;
+    /** 订阅一个对话的运行（帧见 contract.ts 的 `QaFrame`）。 */
+    subscribe(book: string, conversation: string, subscriber: QaSubscriber): {close(): void};
 }
 
 /** 查询失败：`code` 是 docs/specs/story/queries.md 的失败码；服务内部出错时为 "internal"。 */
@@ -39,6 +52,34 @@ export function useStoryClient(): StoryClient {
  */
 export function createHttpClient(onUnauthorized: () => void): StoryClient {
     return {
+        // 用 fetch 读 SSE，不用 EventSource：EventSource 拿不到状态码（分不出会话失效），出错时还会自己重连，而重连要
+        // 由数据源先按 qa.get 对齐再决定（qa/source.ts）。
+        subscribe(book, conversation, subscriber) {
+            const controller = new AbortController();
+            let ended = false;
+            const end = (reason: SubscriptionEnd) => {
+                if (ended || controller.signal.aborted) return;
+                ended = true;
+                subscriber.end(reason);
+            };
+            void (async () => {
+                const response = await fetch(`/api/qa/events?book=${encodeURIComponent(book)}&conversation=${encodeURIComponent(conversation)}`, {signal: controller.signal});
+                if (response.status === 401) onUnauthorized();
+                if (!response.ok || response.body === null) return end("dropped");
+                const parser = createParser({
+                    onEvent: event => {
+                        if (!ended && !controller.signal.aborted) subscriber.frame(JSON.parse(event.data) as QaFrame);
+                    },
+                });
+                const decoder = new TextDecoder();
+                for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) parser.feed(decoder.decode(chunk, {stream: true}));
+                end("closed");
+            })().catch((error: unknown) => {
+                if (!controller.signal.aborted) console.warn({error, conversation}, "问答推送断开");
+                end("dropped");
+            });
+            return {close: () => controller.abort()};
+        },
         async call(method, params, options = {}) {
             let response: Response;
             try {
