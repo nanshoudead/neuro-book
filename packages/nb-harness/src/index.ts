@@ -25,4 +25,4 @@ export {createReadTool} from "./tools/read.js";
 export type {HarnessPlugin, PluginToolDeclaration, RegisteredTool, ToolDeclaration, ToolExecutionContext, ToolHandle, ToolImpl, ToolRegistry} from "./tools/registry.js";
 export {createToolRegistry, registerPlugin} from "./tools/registry.js";
 export {REDACTED_KEY} from "./redact.js";
-export {onProcessInterrupt} from "./interrupt.js";
+export {onProcessInterrupt, onProcessTermination, type TerminationSignal} from "./interrupt.js";
