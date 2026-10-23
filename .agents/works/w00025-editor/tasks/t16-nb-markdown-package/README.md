@@ -47,4 +47,4 @@ updated: 2026-10-23
 
 - nb-story 问答页（w00024 t13）按决定 13 用 nb-markdown。
 - 后续可做：nb-agent-ui 的折叠预览改用包里的解析；dev-panel 的 `MarkdownView` 改用本包。
-- 待清理：worktree `.worktree/w00025-t16-nb-markdown`、分支 `feat/w00025-t16-nb-markdown`。
+- 已清理：worktree 与分支 `feat/w00025-t16-nb-markdown` 在 2026-10-23 删除（开发者同意）；不 push。
