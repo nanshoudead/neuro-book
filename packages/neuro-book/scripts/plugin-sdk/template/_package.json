@@ -1,0 +1,21 @@
+{
+    "publisher": "__PUBLISHER__",
+    "name": "__NAME__",
+    "version": "0.1.0",
+    "displayName": "__DISPLAY_NAME__",
+    "description": "",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "build": "nbook-plugin build --clean",
+        "dev": "nbook-plugin build --clean --dev",
+        "typecheck": "vue-tsc --noEmit"
+    },
+    "devDependencies": {
+        "@notnotype/nb-plugin-sdk": "^__SDK_VERSION__",
+        "typebox": "__TYPEBOX_RANGE__",
+        "typescript": "__TYPESCRIPT_RANGE__",
+        "vue": "__VUE_RANGE__",
+        "vue-tsc": "__VUE_TSC_RANGE__"
+    }
+}

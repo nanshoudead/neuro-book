@@ -7,11 +7,11 @@
  */
 
 import {existsSync} from "node:fs";
-import {readdir, readFile, rm} from "node:fs/promises";
+import {readdir, rm} from "node:fs/promises";
 import {isAbsolute, join, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
-import {buildPlugin, PluginBuildError} from "./build-plugin";
+import {buildPlugin, isPreviousBuild, PluginBuildError} from "./build-plugin";
 import type {BuildPluginResult} from "./build-plugin";
 
 const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
@@ -43,28 +43,6 @@ export async function buildExample(name: string, outDir: string = join(EXAMPLES_
         await rm(target, {recursive: true});
     }
     return buildPlugin({root, outDir: target, ...IN_REPO_BUILD});
-}
-
-/**
- * 上次的产物：清单的 publisher、name 与作者的相同，并且有 `entries`（构建预设总会写，作者的 `package.json` 不写）；或者只有
- * 中断的构建留下的中间目录。
- */
-async function isPreviousBuild(root: string, outDir: string): Promise<boolean> {
-    const names = await readdir(outDir);
-    if (names.every((item) => item.startsWith(".nbook-plugin-build-"))) return true;
-    const manifest = join(outDir, "package.json");
-    if (!existsSync(manifest)) return false;
-    const [author, previous] = await Promise.all([readJson(join(root, "package.json")), readJson(manifest)]);
-    return previous.publisher === author.publisher && previous.name === author.name && typeof previous.entries === "object" && previous.entries !== null;
-}
-
-async function readJson(file: string): Promise<Record<string, unknown>> {
-    try {
-        const value: unknown = JSON.parse(await readFile(file, "utf8"));
-        return typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
-    } catch (error) {
-        throw new PluginBuildError("读不了 package.json", [{path: "", message: `${file}：${error instanceof Error ? error.message : String(error)}`}], {cause: error});
-    }
 }
 
 if (import.meta.main) {

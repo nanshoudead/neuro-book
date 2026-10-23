@@ -37,5 +37,5 @@
         "vite.e2e.config.ts",
         "vitest.config.ts"
     ],
-    "exclude": ["src/**/*.dom.test.ts", "src/plugins/*/web/**/*.test.ts", "scripts/lab-shot.ts", "scripts/page-shot.ts", "scripts/page-shot.test.ts", "scripts/perf/files-perf.ts", "scripts/perf/page-agent.ts", "scripts/perf/browser-runner.ts"]
+    "exclude": ["scripts/plugin-sdk/template", "src/**/*.dom.test.ts", "src/plugins/*/web/**/*.test.ts", "scripts/lab-shot.ts", "scripts/page-shot.ts", "scripts/page-shot.test.ts", "scripts/perf/files-perf.ts", "scripts/perf/page-agent.ts", "scripts/perf/browser-runner.ts"]
 }

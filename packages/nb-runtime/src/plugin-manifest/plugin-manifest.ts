@@ -42,6 +42,11 @@ import {KERNEL_ACTIVATION_PREFIXES, portabilityProblems} from "../plugins/plugin
  */
 const ID_SEGMENT = /^[a-z][a-z0-9-]*$/u;
 
+/** 插件 id 的一段（`publisher` 或 `name`）合不合规；作者工具生成插件目录前用它核对。 */
+export function isIdSegment(value: string): boolean {
+    return ID_SEGMENT.test(value);
+}
+
 const NonEmptyString = Type.String({minLength: 1});
 const StringArray = Type.Array(NonEmptyString);
 

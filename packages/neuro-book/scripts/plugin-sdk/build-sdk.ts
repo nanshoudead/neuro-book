@@ -8,6 +8,8 @@
  *   当作外部库，不生成声明。
  * - `build.js`、`build.d.ts`：构建预设（`build-plugin.ts`），在 Node 或 Bun 里运行；Vite、单文件组件编译与图标数据是它的
  *   依赖。
+ * - `cli.js` 与 `template/`：作者命令 `nbook-plugin`（`cli.ts`）与 `create` 用的模板；模板 `_package.json` 里的依赖范围在这里
+ *   填上，与应用自己用的一致。
  * - `package.json`：版本取产品版本；`vue`、`@vue/reactivity`、`typebox` 是 peer 依赖，构建预设的工具是普通依赖。
  *
  * 用法：`bun run build:sdk [输出目录]`，缺省输出到 `dist/plugin-sdk/`。输出目录只在不存在、为空或者是上次生成的 SDK 包时
@@ -15,7 +17,7 @@
  */
 
 import {existsSync} from "node:fs";
-import {readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {chmod, cp, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
@@ -105,14 +107,23 @@ export async function buildSdk(outDir: string): Promise<void> {
     // 构建脚本用得上 `BuildPluginOptions`、`PluginBuildError` 这些类型。
     await rolldown({
         cwd: packageRoot,
-        input: {build: join(packageRoot, "scripts/plugin-sdk/build-plugin.ts")},
+        input: {build: join(packageRoot, "scripts/plugin-sdk/build-plugin.ts"), cli: join(packageRoot, "scripts/plugin-sdk/cli.ts")},
         platform: "node",
         external: [...PEERS, ...BUILD_DEPENDENCIES.map((name) => new RegExp(`^${name.replace("/", "\\/")}($|/)`, "u"))],
         resolve: {alias: {nbook: join(packageRoot, "src")}},
         plugins: [dts({cwd: packageRoot, tsconfig: "tsconfig.json", compilerOptions: {paths: typePaths()}})],
-        output: {dir: outDir, format: "es", entryFileNames: "[name].js"},
+        output: {dir: outDir, format: "es", entryFileNames: "[name].js", banner: (chunk) => (chunk.isEntry && chunk.name === "cli" ? "#!/usr/bin/env node" : "")},
         checks: {pluginTimings: false},
     });
+    await chmod(join(outDir, "cli.js"), 0o755);
+    // 命令的声明文件用不上：它只作 bin。
+    await rm(join(outDir, "cli.d.ts"), {force: true});
+    await cp(join(packageRoot, "scripts/plugin-sdk/template"), join(outDir, "template"), {recursive: true});
+    const templatePackage = join(outDir, "template/_package.json");
+    const ranges = await dependencyRanges(["typebox", "typescript", "vue", "vue-tsc"]);
+    await writeFile(templatePackage, (await readFile(templatePackage, "utf8"))
+        .replace("__TYPEBOX_RANGE__", ranges.typebox!).replace("__TYPESCRIPT_RANGE__", ranges.typescript!)
+        .replace("__VUE_RANGE__", ranges.vue!).replace("__VUE_TSC_RANGE__", ranges["vue-tsc"]!));
     const peers = await dependencyRanges(["vue", "typebox"]);
     // vue 的每个版本都把 @vue/reactivity 钉在同一个版本上：用与 vue 相同的范围，作者项目里两者才配成一对。
     peers["@vue/reactivity"] = peers.vue!;
@@ -121,6 +132,7 @@ export async function buildSdk(outDir: string): Promise<void> {
         version: PRODUCT_VERSION,
         description: "NeuroBook 插件 SDK：类型与构建期实现；插件运行时由宿主提供同一份",
         type: "module",
+        bin: {"nbook-plugin": "./cli.js"},
         exports: {
             ".": {types: "./index.d.ts", import: "./index.js"},
             "./browser": {types: "./browser.d.ts", import: "./browser.js"},
@@ -128,6 +140,8 @@ export async function buildSdk(outDir: string): Promise<void> {
             "./build": {types: "./build.d.ts", import: "./build.js"},
         },
         peerDependencies: peers,
+        // 构建预设用的 Vite 8 要求的 Node 版本。
+        engines: {node: "^20.19.0 || >=22.12.0"},
         dependencies: await dependencyRanges(BUILD_DEPENDENCIES),
     }, null, 4)}\n`);
 }

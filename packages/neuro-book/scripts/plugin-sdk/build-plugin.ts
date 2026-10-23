@@ -77,6 +77,11 @@ export interface BuildPluginOptions {
     readonly alias?: ReadonlyArray<BuildAlias>;
     /** 另外不许打进产物的目录。仓库里是应用源码：SDK 的别名指到那里，打进去就是第二份 SDK。 */
     readonly forbiddenDirectories?: ReadonlyArray<string>;
+    /**
+     * 写进产物清单的版本，缺省是作者的 `version`。作者工具的 `--dev` 用它给每次构建一个新的预发布版本，在插件页安装时按升级
+     * 处理（docs/specs/runtime/plugin-api.md 的“作者工具”）。
+     */
+    readonly version?: string;
 }
 
 export interface BuildPluginResult {
@@ -90,12 +95,15 @@ export interface BuildPluginResult {
 
 /** 构建失败：`problems` 逐条列出原因，路径是清单字段或源码模块。 */
 export class PluginBuildError extends Error {
+    /** 一句话的原因，不含逐条问题。 */
+    readonly summary: string;
     readonly problems: ReadonlyArray<ManifestProblem>;
 
     // 不写成 `ErrorOptions`：它是 ES2022 的库类型，生成的 `./build` 声明文件会要求作者的 `lib` 至少是 ES2022。
     constructor(summary: string, problems: ReadonlyArray<ManifestProblem>, options?: {readonly cause?: unknown}) {
         super(`${summary}：${problems.map((problem) => (problem.path === "" ? problem.message : `${problem.path}：${problem.message}`)).join("；")}`, options);
         this.name = "PluginBuildError";
+        this.summary = summary;
         this.problems = problems;
     }
 }
@@ -460,7 +468,7 @@ export async function buildPlugin(options: BuildPluginOptions): Promise<BuildPlu
     if (problems.length > 0) throw new PluginBuildError("入口定义不合格", problems);
 
     const engines = {neurobook: author.engines?.neurobook ?? `^${PRODUCT_VERSION}`};
-    const source = {descriptor, definitions, engines, pluginVersions: author.pluginVersions, mainOf: (entry: PluginEntryDefinition) => `${entry.id}.js`};
+    const source = {descriptor: {...descriptor, version: options.version ?? descriptor.version}, definitions, engines, pluginVersions: author.pluginVersions, mainOf: (entry: PluginEntryDefinition) => `${entry.id}.js`};
     // 清单表达不了的定义（入口 id 重复、schema 进不了 JSON……）在构建前就报出。清单校验也在这里先做一遍：下面要按入口 id
     // 写文件，入口 id 的规则由校验保证。
     const early = manifestOf(source);
@@ -536,6 +544,40 @@ export async function buildPlugin(options: BuildPluginOptions): Promise<BuildPlu
         return {manifest, files: files.sort(), warnings: icons.warnings};
     } finally {
         await rm(workDir, {recursive: true, force: true});
+    }
+}
+
+/**
+ * 开发版本（作者工具的 `--dev`）：作者的版本加上构建元数据 `+dev.<UTC 时间到秒>.<毫秒>`。用构建元数据而不是预发布段：
+ * `0.1.0-dev.…` 比 `0.1.0` 旧，插件页会当成降级，依赖它的插件写的 `^0.1.0` 也不接受预发布版本；构建元数据不改变 semver 的
+ * 优先级，`compareVersions` 再按它排出先后，所以每次构建都比上一次新，安装按升级处理。时间与毫秒分成两段数字：连在一起的
+ * 17 位超过安全整数，比较不出先后。
+ */
+export function devVersion(version: string, now: Date): string {
+    const [seconds, millis] = now.toISOString().replace(/Z$/u, "").split(".") as [string, string];
+    const stamp = `dev.${seconds.replace(/\D/gu, "")}.${String(Number(millis))}`;
+    return version.includes("+") ? `${version}.${stamp}` : `${version}+${stamp}`;
+}
+
+/**
+ * 输出目录里是不是这个插件上次的产物（可以清空重建）：清单的 publisher、name 与作者的相同，并且有 `entries`（构建预设总会写，
+ * 作者的 `package.json` 不写）；或者只有中断的构建留下的中间目录。
+ */
+export async function isPreviousBuild(root: string, outDir: string): Promise<boolean> {
+    const names = await readdir(outDir);
+    if (names.every((item) => item.startsWith(".nbook-plugin-build-"))) return true;
+    const manifest = join(outDir, "package.json");
+    if (!existsSync(manifest)) return false;
+    const [author, previous] = await Promise.all([readJsonObject(join(root, "package.json")), readJsonObject(manifest)]);
+    return previous.publisher === author.publisher && previous.name === author.name && typeof previous.entries === "object" && previous.entries !== null;
+}
+
+async function readJsonObject(file: string): Promise<Record<string, unknown>> {
+    try {
+        const value: unknown = JSON.parse(await readFile(file, "utf8"));
+        return typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
+    } catch (error) {
+        throw new PluginBuildError("读不了 package.json", [{path: "", message: `${file}：${error instanceof Error ? error.message : String(error)}`}], {cause: error});
     }
 }
 
