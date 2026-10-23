@@ -97,7 +97,7 @@
   - `conversation-store.ts`：把 `qa.get` 的历史消息与 SSE 事件合成视图要的 `MessageView[]`；把 harness 的 `AgentMessage` 转成 `MessageView` 的函数写在这里，配单测；
   - `registry.ts`：登记问答的工具渲染器。查询工具都归 `explore`，摘要写成“读了第 12–14 章”“查了人物卡”；`answer` 用 `result` 层级；
   - `AnswerCard.vue`：按决定 8，结论类型徽标、结论、表或分点、出处一行常显，展开说明与覆盖范围点“详细”展开。出处与人名经现有的抽屉打开；
-  - `StoryMarkdown.vue`：用 `marked` 加 `dompurify`，版本同 dev-panel。文字里“章.段”形状的出处转成可点的出处；没核实的出处按 `unverifiedRefs` 在回复下面列出；
+  - `StoryMarkdown.vue`（作废，README 决定 13：改用 nb-markdown 的 `MarkdownDisplay`，出处先改写成链接）：用 `marked` 加 `dompurify`，版本同 dev-panel。文字里“章.段”形状的出处转成可点的出处；没核实的出处按 `unverifiedRefs` 在回复下面列出；
   - `QaComposer.vue`：nb-ui 的 `Textarea` 加发送与停止按钮。回车发送，Shift+回车换行；运行中按钮变成停止。
 - **`shell/SettingsPage.vue`**：
   - 用 `@notnotype/nb-form/vue` 的 `SchemaForm` 画 `QaConfig` 的 TypeBox schema，在 `src/qa/config.ts` 的 schema 上补 `x-form` 提示（字段名、说明、分组）；

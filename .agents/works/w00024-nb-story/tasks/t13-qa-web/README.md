@@ -36,6 +36,10 @@ updated: 2026-10-21
 11. 包名改为 `nb-agent-ui`（决定 3 的 `nb-agent-view` 作废）。对话视图做完整版、先一次迁完，工作移到重新打开的 w00019：[t10 迁移](../../../w00019-agent-conversation-view/tasks/t10-migrate-nb-agent-ui/README.md)、[t11 补齐](../../../w00019-agent-conversation-view/tasks/t11-complete-view/README.md)。顺序是迁移、补齐、再做本 Task；本 Task 只留问答页、设置页、服务端接口与换手写控件。
 12. nb-form、nb-agent-ui 与 nb-ui 一样在新应用的 Lab 里看。
 
+Markdown（开发者 2026-10-23 定，记录在 [w00025 t16](../../../w00025-editor/tasks/t16-nb-markdown-package/README.md)）：
+
+13. 不自写 Markdown 显示：问答页用 `@notnotype/nb-markdown`（`MarkdownDisplay`、`PromptEditor`、`PromptTextView`）接 nb-agent-ui 的注入口，在页面里 `provideMarkdownHost`；“章.段”出处由问答页先改写成链接（例如 `paragraph://41.20`），缺省分类下它是引用小块，点击发 `reference`。宿主接入见包的 README。
+
 ### w00019 t14 搭稿时发现的问题（2026-10-22）
 
 w00019 [t14](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice/README.md) 在查看器里搭了问答页的静态稿（[评审板](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice/artifacts/review/index.html)），用本书库的真实问答记录回放，发现这几条属于本 Task：

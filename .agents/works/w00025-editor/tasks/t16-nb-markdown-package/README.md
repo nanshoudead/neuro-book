@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t16-nb-markdown-package
-status: planned
+status: done
 updated: 2026-10-23
 ---
 
@@ -35,10 +35,16 @@ updated: 2026-10-23
 | 5 编辑器扩展 | `befe8fd9f` | 包与 neuro-book 测试；e2e editor-area、files-explorer、lab-markdown 58 通过 |
 | 6 文档与收口 | `942706a8e` | `docs:check` 只剩四份 Spec 的旧路径（Spec 在主工作区改好，合入后提交）；收口：neuro-book `bun run test` 1354 + 353 通过，全量 e2e 283 通过（24.3 分钟），check:dist 通过 |
 
-实现审查：2026-10-23 派 Claude Sonnet 审 `8bb280f7b..942706a8e`，进行中。
+## 实现审查
+
+2026-10-23 Claude Sonnet 审 `8bb280f7b..942706a8e`：阻断 0、重要 2（交出的 PromptEditor 拿不到外露方法、单独交出的图片丢了“不在作品里”），建议 15。16 条成立已修、1 条不改（注释已写明），包代码加载失败的回退没有测试（记为未验证）；修正提交 `047f85a4d`，变异检查三处都让测试失败。逐条处理与报告原文见 [evidences/impl-review.txt](evidences/impl-review.txt)。
+
+合入 master：`36033530e`；Spec、包边界与仓库索引随后提交。合入后 master 上 docs:check、governance:check、neuro-book typecheck、nb-markdown 测试通过。w00024 t13 记了决定 13（问答页用 nb-markdown）。
 
 不 push：分支从 master 拉出，master 领先 origin 960 多个提交（含别的 Work），push 分支会一并发布，留给开发者决定。
 
 ## 下一步
 
-计划交 omp 做设计审查，处理后按切片 1 到 6 实施。合入后把 w00024 t13 的计划改成用 nb-markdown。
+- nb-story 问答页（w00024 t13）按决定 13 用 nb-markdown。
+- 后续可做：nb-agent-ui 的折叠预览改用包里的解析；dev-panel 的 `MarkdownView` 改用本包。
+- 待清理：worktree `.worktree/w00025-t16-nb-markdown`、分支 `feat/w00025-t16-nb-markdown`。
