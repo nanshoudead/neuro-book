@@ -1,0 +1,216 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00027-plugin-platform",
+    "taskId": "t10-settings-window-chrome",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "设置窗口外框与沿用行",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "f18531ac5a289921a674b4e8c648b8349b1f324b5a2ce771731bbfb7ae68f22d",
+    "files": [
+        "index.html",
+        "r1/chrome-compact.webp",
+        "r1/chrome-integrated.webp",
+        "r1/chrome-now.webp",
+        "r1/inherit-line.webp",
+        "r1/inherit-none.webp",
+        "r1/inherit-now.webp",
+        "r1/inherit-tag.webp",
+        "r1/radius-10.webp",
+        "r1/radius-14.webp",
+        "r1/radius-26.webp",
+        "r2/side-compact.webp",
+        "r2/side-none.webp",
+        "r2/side-show.webp",
+        "r2/title-display.webp",
+        "r2/title-lg.webp",
+        "r2/title-xl.webp",
+        "r2/word-0.webp",
+        "r2/word-1.webp",
+        "r2/word-2.webp",
+        "r2/word-3.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-chrome",
+            "type": "single",
+            "label": "1. 窗口外框",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "现状"
+                },
+                {
+                    "value": "compact",
+                    "label": "紧凑标题栏"
+                },
+                {
+                    "value": "integrated",
+                    "label": "去掉标题栏"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "integrated"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-radius",
+            "type": "single",
+            "label": "2. 窗口圆角",
+            "options": [
+                {
+                    "value": "26",
+                    "label": "26px（现状）"
+                },
+                {
+                    "value": "14",
+                    "label": "14px"
+                },
+                {
+                    "value": "10",
+                    "label": "10px"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "14"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-inherit",
+            "type": "single",
+            "label": "3. “本作品”标签里沿用用户设置的行",
+            "options": [
+                {
+                    "value": "now",
+                    "label": "现状"
+                },
+                {
+                    "value": "line",
+                    "label": "标题下写“沿用用户设置”"
+                },
+                {
+                    "value": "tag",
+                    "label": "标题后“沿用”标签"
+                },
+                {
+                    "value": "none",
+                    "label": "行上不标，页面顶上说一次"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "none"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r2-side",
+            "type": "single",
+            "label": "4. 左上角的“设置”",
+            "options": [
+                {
+                    "value": "show",
+                    "label": "保留（第一轮的样子）"
+                },
+                {
+                    "value": "compact",
+                    "label": "保留、调矮"
+                },
+                {
+                    "value": "none",
+                    "label": "去掉"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "none"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-title",
+            "type": "single",
+            "label": "5. 页面标题的大小",
+            "options": [
+                {
+                    "value": "display",
+                    "label": "26px 展示字体（现状）"
+                },
+                {
+                    "value": "xl",
+                    "label": "20px 加粗"
+                },
+                {
+                    "value": "lg",
+                    "label": "16px 加粗"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "xl"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-inherit-word",
+            "type": "single",
+            "label": "6. 沿用标签的字与样子",
+            "options": [
+                {
+                    "value": "fill",
+                    "label": "沿用（第一轮，填色）"
+                },
+                {
+                    "value": "outline",
+                    "label": "沿用（描边）"
+                },
+                {
+                    "value": "inherit-user",
+                    "label": "继承自用户设置（描边）"
+                },
+                {
+                    "value": "from-user",
+                    "label": "来自用户设置（描边）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "from-user"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-23T06:47:48.834Z"
+}

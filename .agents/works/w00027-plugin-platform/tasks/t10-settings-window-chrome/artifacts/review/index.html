@@ -47,7 +47,7 @@ pre code { background: none; padding: 0; }
 <body>
 <main>
 <h1>设置窗口的外框与“本作品”沿用行</h1>
-<p class="sub">w00027 t10 · 第一轮 · 2026-10-23 · 静态稿（真实 nb-ui 组件与 NeuroBook 主题，浅色，窗口 960×640）</p>
+<p class="sub">w00027 t10 · 第二轮 · 2026-10-23 · 静态稿（真实 nb-ui 组件与 NeuroBook 主题，浅色，窗口 960×640）</p>
 
 <div class="card">
 <p><b>起因</b>：开发者看了 t06 的实现，提了两件事。</p>
@@ -64,8 +64,43 @@ pre code { background: none; padding: 0; }
 <p>第七轮定稿的草稿其实没有这条标题栏：“设置”写在左栏顶上，关闭按钮在右上角，圆角 10px。实现时用了对话框自带的标题栏，和定稿不一样。</p>
 </div>
 
+<section data-nbdev-question="r2-side" data-nbdev-type="single" data-nbdev-recommend="none">
+<h2><span class="tag warn" data-nbdev-skip>待定</span> 4. 左上角的“设置”</h2>
+<p>第一轮定了去掉标题栏，你的附言：左上角的“设置”也可以去掉，不去掉就调矮。三张图的页面标题都用 20px 加粗。</p>
+<div class="grid">
+<div data-nbdev-option="show" data-nbdev-label="保留（第一轮的样子）"><figure><a href="r2/side-show.webp"><img src="r2/side-show.webp" alt=""></a><figcaption><b>保留</b>（第一轮的样子），占一个控件高</figcaption></figure></div>
+<div data-nbdev-option="compact" data-nbdev-label="保留、调矮"><figure><a href="r2/side-compact.webp"><img src="r2/side-compact.webp" alt=""></a><figcaption><b>保留、调矮</b>到 20px 一行</figcaption></figure></div>
+<div data-nbdev-option="none" data-nbdev-label="去掉"><figure><a href="r2/side-none.webp"><img src="r2/side-none.webp" alt=""></a><figcaption><b>去掉</b>：左栏从“用户 | 本作品”起，和右边的页面标题齐平</figcaption></figure></div>
+</div>
+<p class="rec">推荐去掉。窗口是点齿轮或按 <code>Ctrl+,</code> 打开的，左栏的分区本身就说明了这是设置；读屏照样念窗口的名字“设置”（对话框的可访问名称不变）。去掉后左栏顶上的层标签和右边的页面标题在同一高度，顶边整齐，能拖的区域就是整条顶边的空白处。</p>
+</section>
+
+<section data-nbdev-question="r2-title" data-nbdev-type="single" data-nbdev-recommend="xl">
+<h2><span class="tag warn" data-nbdev-skip>待定</span> 5. 页面标题的大小</h2>
+<p>你的附言：右边“外观”这类标题改小、只加粗。三张图左上角的“设置”都去掉了。</p>
+<div class="grid">
+<div data-nbdev-option="display" data-nbdev-label="26px 展示字体（现状）"><figure><a href="r2/title-display.webp"><img src="r2/title-display.webp" alt=""></a><figcaption><b>26px 展示字体</b>（现状）</figcaption></figure></div>
+<div data-nbdev-option="xl" data-nbdev-label="20px 加粗"><figure><a href="r2/title-xl.webp"><img src="r2/title-xl.webp" alt=""></a><figcaption><b>20px</b>，界面字体加粗（主题最大的一档字号）</figcaption></figure></div>
+<div data-nbdev-option="lg" data-nbdev-label="16px 加粗"><figure><a href="r2/title-lg.webp"><img src="r2/title-lg.webp" alt=""></a><figcaption><b>16px</b>，界面字体加粗</figcaption></figure></div>
+</div>
+<p class="rec">推荐 20px 加粗。它用的是主题现成的最大一档字号，不用另定数值；和下面 12px 的分组标题、14px 的行标题仍然拉得开层级。16px 和行标题只差两号，页面标题就压不住下面的内容了。</p>
+</section>
+
+<section data-nbdev-question="r2-inherit-word" data-nbdev-type="single" data-nbdev-recommend="from-user">
+<h2><span class="tag warn" data-nbdev-skip>待定</span> 6. 沿用标签的字与样子</h2>
+<p>你的附言：“沿用”一词是否恰当，改成“继承自 xx”是否更好。“减少动画”这一行同时有“下次会话生效”标签，用来看两种标签会不会混。后三张的标签改成描边不填色，和填色的“下次会话生效”分开。</p>
+<div class="grid">
+<div data-nbdev-option="fill" data-nbdev-label="沿用（第一轮，填色）"><figure><a href="r2/word-0.webp"><img src="r2/word-0.webp" alt=""></a><figcaption><b>沿用</b>，填色（第一轮的样子）：和“下次会话生效”是同一种标签</figcaption></figure></div>
+<div data-nbdev-option="outline" data-nbdev-label="沿用（描边）"><figure><a href="r2/word-1.webp"><img src="r2/word-1.webp" alt=""></a><figcaption><b>沿用</b>，描边</figcaption></figure></div>
+<div data-nbdev-option="inherit-user" data-nbdev-label="继承自用户设置（描边）"><figure><a href="r2/word-2.webp"><img src="r2/word-2.webp" alt=""></a><figcaption><b>继承自用户设置</b>，描边</figcaption></figure></div>
+<div data-nbdev-option="from-user" data-nbdev-label="来自用户设置（描边）"><figure><a href="r2/word-3.webp"><img src="r2/word-3.webp" alt=""></a><figcaption><b>来自用户设置</b>，描边</figcaption></figure></div>
+</div>
+<p class="rec">推荐“来自用户设置”，描边。标签写出值是从哪来的，比只写“沿用”清楚，这点和你说的一样。“继承”偏技术用语，在写作软件里读起来生硬；“来自”同样说明了来源，还少一个字。描边那三种都和“下次会话生效”分得开。</p>
+</section>
+
 <section data-nbdev-question="r1-chrome" data-nbdev-type="single" data-nbdev-recommend="integrated">
-<h2><span class="tag warn" data-nbdev-skip>待定</span> 1. 窗口外框</h2>
+<h2><span class="tag ok" data-nbdev-skip>已定</span> 1. 窗口外框</h2>
+<p><b>决定</b>：去掉标题栏（开发者 2026-10-23）；左上角“设置”与页面标题的附言见第 4、5 题。</p>
 <p>粉色虚线框标出能按住拖动的地方，实际界面里没有这个框。三张图除外框之外都一样。</p>
 <div class="grid">
 <div data-nbdev-option="now" data-nbdev-label="现状"><figure><a href="r1/chrome-now.webp"><img src="r1/chrome-now.webp" alt=""></a><figcaption><b>现状</b>：对话框外框；标题“设置”单占一行（上边距加间距约 60px），只有字那一条能拖；圆角 26px</figcaption></figure></div>
@@ -76,7 +111,8 @@ pre code { background: none; padding: 0; }
 </section>
 
 <section data-nbdev-question="r1-radius" data-nbdev-type="single" data-nbdev-recommend="14">
-<h2><span class="tag warn" data-nbdev-skip>待定</span> 2. 窗口圆角</h2>
+<h2><span class="tag ok" data-nbdev-skip>已定</span> 2. 窗口圆角</h2>
+<p><b>决定</b>：14px（开发者 2026-10-23）。</p>
 <p>左上角放大两倍，外框用“去掉标题栏”。</p>
 <div class="grid">
 <div data-nbdev-option="26" data-nbdev-label="26px（现状）"><figure><a href="r1/radius-26.webp"><img src="r1/radius-26.webp" alt=""></a><figcaption><b>26px</b>（现状，对话框那一档）</figcaption></figure></div>
@@ -87,7 +123,8 @@ pre code { background: none; padding: 0; }
 </section>
 
 <section data-nbdev-question="r1-inherit" data-nbdev-type="single" data-nbdev-recommend="none">
-<h2><span class="tag warn" data-nbdev-skip>待定</span> 3. “本作品”标签里沿用用户设置的行</h2>
+<h2><span class="tag ok" data-nbdev-skip>已定</span> 3. “本作品”标签里沿用用户设置的行</h2>
+<p><b>决定</b>：标题后加标签（开发者 2026-10-23）；用词与样子见第 6 题。</p>
 <p>图里是“本作品”标签。“主题”“减少动画”没在本作品单独设置；“明暗”单独设了，所以标题后有圆点，右边有“移除本作品的设置”。（“减少动画”是为了让开关也出现在图里加的，不是真实配置项。）</p>
 <p>后三种的共同改法：控件一直在，显示实际生效的值；改了就写进本作品层，出现圆点和“移除本作品的设置”，点它回到沿用。每行和“用户”标签下长得一样，控件右缘对齐。</p>
 <div class="grid">
