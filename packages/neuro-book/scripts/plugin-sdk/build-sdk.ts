@@ -1,10 +1,10 @@
 /**
  * 生成可以安装的插件 SDK 包 `@notnotype/nb-plugin-sdk`（docs/specs/runtime/plugin-api.md 的“SDK”）：
  *
- * - `index.js`、`browser.js`：`src/sdk/` 打包后的实现。插件运行时用的是宿主模块表里的那一份，这两份只在作者构建插件时
+ * - `index.js`、`browser.js`、`components.js`：`src/sdk/` 打包后的实现（`components` 是 nb-ui 的组件）。插件运行时用的是宿主模块表里的那一份，这两份只在作者构建插件时
  *   执行入口定义（生成清单）、以及在仓库外写测试时用；`vue`、`@vue/*`、`typebox` 不打进去，由作者的项目提供同一份。
- * - `index.d.ts`、`browser.d.ts`：打平的类型，不含应用内部的 `nbook/*` 别名，只引用 `vue`、`@vue/reactivity` 与
- *   `typebox`。内核与 nb-form 的子路径映射到源码，类型才会被打进来：经 `node_modules` 解析到的工作区包被 TypeScript
+ * - `index.d.ts`、`browser.d.ts`、`components.d.ts`：打平的类型，不含应用内部的 `nbook/*` 别名，只引用 `vue`、
+ *   `@vue/reactivity` 与 `typebox`。内核、nb-form 与 nb-ui 的子路径映射到源码，类型才会被打进来：经 `node_modules` 解析到的工作区包被 TypeScript
  *   当作外部库，不生成声明。
  * - `build.js`、`build.d.ts`：构建预设（`build-plugin.ts`），在 Node 或 Bun 里运行；Vite、单文件组件编译与图标数据是它的
  *   依赖。
@@ -28,7 +28,7 @@ import {PRODUCT_VERSION} from "../../src/shared/product";
 
 const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
 const SDK_NAME = "@notnotype/nb-plugin-sdk";
-const ENTRIES = {index: join(packageRoot, "src/sdk/index.ts"), browser: join(packageRoot, "src/sdk/browser.ts")};
+const ENTRIES = {index: join(packageRoot, "src/sdk/index.ts"), browser: join(packageRoot, "src/sdk/browser.ts"), components: join(packageRoot, "src/sdk/components.ts")};
 /** 由作者的项目提供、不打进 SDK 的包：插件运行时宿主给的是同一份。 */
 const PEERS = [/^vue($|\/)/u, /^@vue\//u, /^typebox($|\/)/u];
 const RUNTIME_SUBPATHS = ["lifecycle", "services", "plugins", "plugin-manifest", "application", "diagnostics", "remote"];
@@ -39,6 +39,7 @@ function typePaths(): Record<string, string[]> {
     for (const name of RUNTIME_SUBPATHS) paths[`@notnotype/nb-runtime/${name}`] = [`../nb-runtime/src/${name}/${name}.ts`];
     paths["@notnotype/nb-form"] = ["../nb-form/src/index.ts"];
     paths["@notnotype/nb-form/vue"] = ["../nb-form/src/vue/index.ts"];
+    paths["@notnotype/nb-ui/components"] = ["../nb-ui/src/components/index.ts"];
     return paths;
 }
 
@@ -94,7 +95,7 @@ export async function buildSdk(outDir: string): Promise<void> {
     await rolldown({
         cwd: packageRoot,
         input: ENTRIES,
-        external: [...PEERS, /^@notnotype\/nb-ui($|\/)/u],
+        external: PEERS,
         plugins: [dts({cwd: packageRoot, tsconfig: "tsconfig.web.json", compilerOptions: {paths: typePaths()}, vue: true, emitDtsOnly: true})],
         output: {dir: outDir},
         // 生成声明本来就慢（vue-tsc），不报插件耗时。
@@ -123,6 +124,7 @@ export async function buildSdk(outDir: string): Promise<void> {
         exports: {
             ".": {types: "./index.d.ts", import: "./index.js"},
             "./browser": {types: "./browser.d.ts", import: "./browser.js"},
+            "./components": {types: "./components.d.ts", import: "./components.js"},
             "./build": {types: "./build.d.ts", import: "./build.js"},
         },
         peerDependencies: peers,

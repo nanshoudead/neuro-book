@@ -1,7 +1,7 @@
 /**
- * 生成的 SDK 包能在仓库外使用（docs/specs/runtime/plugin-api.md 的“SDK”）：装进一个只有 vue、typebox 与 TypeScript
- * 的作者项目，普通 tsconfig 下类型检查通过（不跳过库文件），构建预设的类型也能用，构建期实现能执行；类型导出的名字钉住，
- * 增删要改这里。
+ * 生成的 SDK 包能在仓库外使用（docs/specs/runtime/plugin-api.md 的“SDK”）：装进一个只有 vue、typebox、TypeScript 与
+ * vue-tsc 的作者项目，普通 tsconfig 下类型检查通过（不跳过库文件，含单文件组件里用的 SDK 组件），构建预设的类型也能用，
+ * 构建期实现能执行；类型导出的名字钉住，增删要改这里。
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
@@ -44,17 +44,38 @@ export const server: PluginDefinition = {id: "acme.hello", entries: [defineEntry
     return {};
 }})]};
 `,
-    "src/web.ts": `import {defineEntry, SETTINGS_CHOICES_POINT, SETTINGS_PAGES_POINT, settingsChoicesEvent, settingsKey} from "@notnotype/nb-plugin-sdk";
+    "src/web.ts": `import {defineEntry, SETTINGS_CHOICES_POINT, SETTINGS_PAGES_POINT, settingsChoicesEvent, settingsKey, WORKBENCH_VIEWS_POINT} from "@notnotype/nb-plugin-sdk";
 import type {ContributionDeclaration, PluginDefinition, SettingsChoicesDeclaration} from "@notnotype/nb-plugin-sdk";
-import {settingsPageContribution} from "@notnotype/nb-plugin-sdk/browser";
+import {settingsPageContribution, viewContribution} from "@notnotype/nb-plugin-sdk/browser";
 import type {OptionSource, SettingsChoicesImplementation} from "@notnotype/nb-plugin-sdk/browser";
+// 静态导入单文件组件：构建预设读入口定义时会执行到它对 SDK 组件的导入，组件的构建期实现要在 SDK 包里。
+import HelloView from "./HelloView.vue";
+
+const view = viewContribution({id: "acme.hello.panel", declaration: {title: {"zh-CN": "你好", "en-US": "Hello"}, icon: "i-lucide-smile", location: "sidebar", layout: "scroll"}, load: async () => HelloView});
 
 const page = settingsPageContribution({id: "acme.hello.main", declaration: {title: {"zh-CN": "你好", "en-US": "Hello"}, category: "plugins", icon: "i-lucide-smile"}, load: async () => ({default: {}})});
 // 选项来源：给设置项的下拉列表供数据。
 const voices: ContributionDeclaration<SettingsChoicesDeclaration> = {capability: SETTINGS_CHOICES_POINT, id: "acme.hello.voices", declaration: {}};
 const options = (): OptionSource<string> => ({status: "ready", items: [{value: "calm", label: {"zh-CN": "平静", "en-US": "Calm"}}]});
 const choices: SettingsChoicesImplementation = {source: options};
-export const browser: PluginDefinition = {id: "acme.hello", entries: [defineEntry({id: "browser", location: "browser", activationEvents: [page.activationEvent, settingsChoicesEvent(voices.id)], dependencies: [{key: settingsKey}], contributions: [page.contribution, voices], activate: () => ({contributions: {[SETTINGS_PAGES_POINT]: {[page.id]: page.implementation()}, [SETTINGS_CHOICES_POINT]: {[voices.id]: choices}}})})]};
+export const browser: PluginDefinition = {id: "acme.hello", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup", page.activationEvent, settingsChoicesEvent(voices.id)], dependencies: [{key: settingsKey}], contributions: [page.contribution, voices, view.contribution], activate: () => ({contributions: {[SETTINGS_PAGES_POINT]: {[page.id]: page.implementation()}, [SETTINGS_CHOICES_POINT]: {[voices.id]: choices}, [WORKBENCH_VIEWS_POINT]: {[view.id]: view.implementation(() => ({greeting: "hi"}))}}})})]};
+`,
+    "src/HelloView.vue": `<script setup lang="ts">
+import {Button} from "@notnotype/nb-plugin-sdk/components";
+import type {ViewContext} from "@notnotype/nb-plugin-sdk/browser";
+
+const props = defineProps<{context: ViewContext; greeting: string}>();
+</script>
+
+<template>
+    <div class="hello"><Button variant="primary">{{ props.greeting }}</Button><span>{{ props.context.id }}</span></div>
+</template>
+
+<style scoped>
+.hello {
+    padding: var(--space-4);
+}
+</style>
 `,
     // 作者自己的构建脚本：用构建预设的类型，不是入口定义（不在 nbook.definitions 里）。
     "src/build.ts": `import {buildPlugin, PluginBuildError} from "@notnotype/nb-plugin-sdk/build";
@@ -95,7 +116,7 @@ beforeAll(async () => {
     await mkdir(join(project, "node_modules/@vitejs"), {recursive: true});
     await mkdir(join(project, "node_modules/@iconify"), {recursive: true});
     await mkdir(join(project, "node_modules/@iconify-json"), {recursive: true});
-    for (const name of ["vue", "typebox", "typescript", "csstype", "vite", "semver", "@vitejs/plugin-vue", "@iconify/utils", "@iconify-json/lucide"]) {
+    for (const name of ["vue", "typebox", "typescript", "vue-tsc", "csstype", "vite", "semver", "@vitejs/plugin-vue", "@iconify/utils", "@iconify-json/lucide"]) {
         await symlink(join(repoModules, name), join(project, "node_modules", name));
     }
     for (const name of ["reactivity", "runtime-core", "runtime-dom", "shared", "compiler-dom", "compiler-core", "compiler-sfc", "compiler-ssr", "server-renderer"]) {
@@ -128,8 +149,8 @@ describe("生成的 SDK 包", () => {
         expect(await readdir(other)).toEqual(["package.json"]);
     });
 
-    it("仓库外的作者项目用普通 tsconfig 类型检查通过，声明文件本身也检查（不跳过库文件）", async () => {
-        const result = Bun.spawnSync({cmd: [process.execPath, join(project, "node_modules/typescript/bin/tsc"), "-p", project], cwd: project, stdout: "pipe", stderr: "pipe"});
+    it("仓库外的作者项目用普通 tsconfig 类型检查通过，声明文件本身也检查（不跳过库文件），单文件组件里的 SDK 组件有类型", async () => {
+        const result = Bun.spawnSync({cmd: ["node", join(project, "node_modules/vue-tsc/bin/vue-tsc.js"), "-p", project], cwd: project, stdout: "pipe", stderr: "pipe"});
         expect(`${result.stdout.toString()}${result.stderr.toString()}`).toBe("");
         expect(result.exitCode).toBe(0);
     }, 60_000);
@@ -137,7 +158,7 @@ describe("生成的 SDK 包", () => {
     it("声明文件写错的地方会被类型检查拦下：page 分区少了必填的 icon", async () => {
         await writeFile(join(project, "src/wrong.ts"), `import {settingsPageContribution} from "@notnotype/nb-plugin-sdk/browser";\nsettingsPageContribution({id: "x", declaration: {title: {"zh-CN": "x", "en-US": "x"}, category: "plugins"}, load: async () => ({default: {}})});\n`);
         try {
-            const result = Bun.spawnSync({cmd: [process.execPath, join(project, "node_modules/typescript/bin/tsc"), "-p", project], cwd: project, stdout: "pipe"});
+            const result = Bun.spawnSync({cmd: ["node", join(project, "node_modules/vue-tsc/bin/vue-tsc.js"), "-p", project], cwd: project, stdout: "pipe"});
             expect(result.stdout.toString()).toContain("'icon'");
         } finally {
             await rm(join(project, "src/wrong.ts"));
@@ -161,12 +182,14 @@ describe("生成的 SDK 包", () => {
             "SettingsChoicesDeclaration", "SettingsFailure", "SettingsPageDeclaration", "SettingsSectionCategory", "SettingsSectionDeclaration", "SettingsService", "StateRoot", "StorageService", "defineEntry", "definePublicState",
             "defineRecord", "defineRemoteService", "defineServiceKey", "defineSetting", "defineStore", "diagnosticsKey", "displayLocale", "formatText",
             "hostClockKey", "hostStateRootKey", "localize", "orThrow", "provide", "providePerConsumer", "provideRemote", "settingsChoicesEvent", "settingsKey",
-            "storageKey",
+            "storageKey", "ItemDeclaration", "ViewDeclaration", "ViewLocation", "WORKBENCH_STATUSBAR_ITEMS_POINT", "WORKBENCH_VIEWS_POINT",
         ].sort());
         expect(declaredExports(await readFile(join(project, "node_modules/@notnotype/nb-plugin-sdk/browser.d.ts"), "utf8"))).toEqual([
             "OptionSource", "SettingsChoicesImplementation", "SettingsPageActions", "SettingsPageContext", "SettingsPageContribution", "SettingsPageList", "SettingsRow", "SettingsSaveBar",
-            "settingsPageContribution",
+            "settingsPageContribution", "ItemImplementation", "ViewContext", "ViewContribution", "ViewImplementation", "viewContribution",
         ].sort());
+        // 组件入口的类型就是 nb-ui 组件入口的导出。
+        expect(declaredExports(await readFile(join(project, "node_modules/@notnotype/nb-plugin-sdk/components.d.ts"), "utf8"))).toContain("Button");
     });
 
     it("仓库外用生成的包里的构建预设构建插件：清单合格，产物只引用宿主共享的模块", async () => {
@@ -184,7 +207,8 @@ describe("生成的 SDK 包", () => {
         const requireName = /register\([\w$]+,\s*function\s*\([\w$]+,\s*[\w$]+,\s*([\w$]+)\)/u.exec(browser)?.[1];
         if (requireName === undefined) throw new Error("产物里没有登记外壳");
         const required = [...browser.matchAll(new RegExp(`(?<![\\w$.])${requireName.replaceAll("$", "\\$")}\\(["'\`]([^"'\`]+)["'\`]\\)`, "gu"))].map((match) => match[1]);
-        expect([...new Set(required)].sort()).toEqual(["@notnotype/nb-plugin-sdk", "@notnotype/nb-plugin-sdk/browser"]);
+        // 单文件组件编译后引用 vue。
+        expect([...new Set(required)].sort()).toEqual(["@notnotype/nb-plugin-sdk", "@notnotype/nb-plugin-sdk/browser", "@notnotype/nb-plugin-sdk/components", "vue"]);
     }, 120_000);
 });
 

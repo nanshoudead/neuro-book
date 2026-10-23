@@ -94,8 +94,9 @@ describe("场景 3：贡献点", () => {
         expect(await menu.run("example.file-menu.open")).toEqual({ok: true, value: "已打开"});
         expect(await menu.run("open")).toEqual({ok: false, code: "unknown-item"});
         // 目录查询不激活任何插件，被拒的原因写在校验结果里。
-        expect(app.plugins.contribution(MENU_POINT, "example.careless.untitled")[0]?.validation).toEqual({status: "rejected", reason: "invalid-declaration", detail: "菜单项要有标题"});
-        expect(app.plugins.contribution(MENU_POINT, "open")[0]?.validation).toMatchObject({status: "rejected", reason: "invalid-declaration"});
+        // 标题不合格按贡献点的 schema 拒绝；id 不带插件前缀按 `idPrefix` 拒绝，原因写明要求的前缀。
+        expect(app.plugins.contribution(MENU_POINT, "example.careless.untitled")[0]?.validation).toMatchObject({status: "rejected", reason: "invalid-declaration"});
+        expect(app.plugins.contribution(MENU_POINT, "open")[0]?.validation).toEqual({status: "rejected", reason: "invalid-declaration", detail: "贡献 id 要以插件 id example.careless 加“.”开头：open"});
     });
 
     it("贡献方停止后它的菜单项撤回：不再列出、执行为 unknown-item；菜单与别的贡献方照常", async () => {

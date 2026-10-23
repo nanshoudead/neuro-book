@@ -170,6 +170,8 @@ describe("readPluginManifest", () => {
         ["缺少 engines.neurobook", {...base, engines: {}}, "engines"],
         ["publisher 不是单个 id 段", {...base, publisher: "@scope/x"}, "publisher"],
         ["name 含大写", {...base, name: "Notes"}, "name"],
+        ["name 以数字开头（派生的视图、条目 id 每段要字母开头）", {...base, name: "2fa"}, "name"],
+        ["contributionPoints 的 idPrefix 只能是 plugin", {...base, contributionPoints: [{id: "example.notes.kinds", implementation: "none", idPrefix: "publisher"}]}, "contributionPoints.0.idPrefix"],
         ["version 不是 semver", {...base, version: "1.0"}, "version"],
         ["第三方用 nbook. 前缀", {...base, publisher: "nbook"}, "publisher"],
         ["入口缺少 main（缺字段报在所在对象上）", {...base, entries: {b: {location: "browser"}}}, "entries.b"],
@@ -270,9 +272,10 @@ describe("manifestOf：代码定义写成清单", () => {
         methods: {list: {input: Type.Object({}, {additionalProperties: false}), output: Type.Array(Type.String()), effect: "read"}},
     });
     const descriptor = {id: "example.notes", version: "1.0.0", locations: ["server", "browser"]} as const;
+    const kinds = {id: "example.notes.kinds", implementation: "none", schema: Type.Object({label: Type.String()})} as const;
     const server: PluginDefinition = {
         id: "example.notes",
-        contributionPoints: [{id: "example.notes.kinds", implementation: "none", schema: Type.Object({label: Type.String()})}],
+        contributionPoints: [kinds],
         entries: [{id: "server", location: "server", remoteProvides: [index], activate: () => ({})}],
     };
     const browser: PluginDefinition = {id: "example.notes", entries: [{id: "browser", location: "browser", remoteDelegates: [index], activate: () => ({})}]};
@@ -294,7 +297,14 @@ describe("manifestOf：代码定义写成清单", () => {
         expect(definitionOf(manifest, "browser").entries[0]!.remoteDelegates![0]!.id).toBe("example.notes/index");
     });
 
-    it("清单表达不了的代码定义报出问题：入口 id 重复、schema 进不了 JSON、同 id 两份不同的合同、只有 validate 的贡献点", () => {
+    it("贡献点的 idPrefix 进清单，经 definitionOf 还原；两份定义各写一份相同的贡献点照常", () => {
+        const prefixed = {...kinds, idPrefix: "plugin"} as const;
+        const manifest = manifestOf(built([{...server, contributionPoints: [prefixed]}, {...browser, contributionPoints: [{...prefixed, schema: Type.Object({label: Type.String()})}]}]));
+        expect(manifest.contributionPoints).toEqual([{id: "example.notes.kinds", implementation: "none", schema: JSON.parse(JSON.stringify(kinds.schema)), idPrefix: "plugin"}]);
+        expect(definitionOf(manifest, "server").contributionPoints?.[0]?.idPrefix).toBe("plugin");
+    });
+
+    it("清单表达不了的代码定义报出问题：入口 id 重复、schema 进不了 JSON、同 id 两份不同的合同、贡献点写了 validate、几份定义的贡献点不一致", () => {
         const refined = defineRemoteService({...index, methods: {list: {...index.methods.list, output: Type.Refine(Type.String(), (value) => value.length > 0)}}});
         const changed = defineRemoteService({...index, callers: ["server"]});
         const cases: ReadonlyArray<readonly [string, ReadonlyArray<PluginDefinition>, string]> = [
@@ -303,6 +313,12 @@ describe("manifestOf：代码定义写成清单", () => {
             ["同一 id 两份不同的合同", [server, {...browser, entries: [{...browser.entries[0]!, remoteDelegates: [changed]}]}], "contracts.example.notes/index"],
             ["入口 id 含路径分隔符", [{...server, entries: [{...server.entries[0]!, id: "a/b"}]}], "entries.a/b"],
             ["贡献点只写了 validate", [{...server, contributionPoints: [{id: "example.notes.kinds", implementation: "none", validate: () => null}]}], "contributionPoints.0"],
+            ["贡献点同时写了 schema 与 validate", [{...server, contributionPoints: [{...kinds, validate: () => null}]}], "contributionPoints.0"],
+            // 同一个贡献点在两个运行位置的定义里各写一份：后一份的问题同样报出，不随定义的先后漏掉。
+            ["后一份定义的贡献点写了 validate", [server, {...browser, contributionPoints: [{...kinds, validate: () => null}]}], "contributionPoints.0"],
+            ["前一份定义的贡献点写了 validate", [{...browser, contributionPoints: [{...kinds, validate: () => null}]}, server], "contributionPoints.0"],
+            ["两份定义的 idPrefix 不同", [server, {...browser, contributionPoints: [{...kinds, idPrefix: "plugin"}]}], "contributionPoints.0"],
+            ["两份定义的 schema 不同", [server, {...browser, contributionPoints: [{...kinds, schema: Type.Object({label: Type.Number()})}]}], "contributionPoints.0"],
         ];
         for (const [name, definitions, path] of cases) {
             const result = build({descriptor, definitions, engines: {neurobook: "^0.1.0"}});

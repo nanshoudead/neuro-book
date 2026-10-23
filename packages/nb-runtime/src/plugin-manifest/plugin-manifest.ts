@@ -29,14 +29,18 @@ import {defineServiceKey} from "../services/services";
 
 import type {
     ContributionDeclaration,
+    ContributionPointDefinition,
     PluginDefinition,
     PluginDescriptor,
     PluginEntryDefinition,
 } from "../plugins/plugins";
 import {KERNEL_ACTIVATION_PREFIXES, portabilityProblems} from "../plugins/plugins";
 
-/** 一个小写的 id 段：字母或数字开头，只含小写字母、数字与连字符。 */
-const ID_SEGMENT = /^[a-z0-9][a-z0-9-]*$/u;
+/**
+ * 一个小写的 id 段：字母开头，只含小写字母、数字与连字符。不许数字开头：视图、状态栏条目、菜单这些 id 以插件 id 为前缀、
+ * 每段都要字母开头，插件 id 以数字开头时它派生的 id 全被登记校验拒绝。
+ */
+const ID_SEGMENT = /^[a-z][a-z0-9-]*$/u;
 
 const NonEmptyString = Type.String({minLength: 1});
 const StringArray = Type.Array(NonEmptyString);
@@ -52,6 +56,8 @@ const ContributionPointSchema = Type.Object({
     implementation: Type.Union([Type.Literal("required"), Type.Literal("none")]),
     /** 声明的结构，纯 JSON Schema；宿主登记时按它核对别的插件交来的声明，拥有者不必先激活。 */
     schema: Type.Optional(Type.Unknown()),
+    /** `"plugin"`：贡献 id 要以贡献方插件 id 加 `.` 开头。 */
+    idPrefix: Type.Optional(Type.Literal("plugin")),
 }, {additionalProperties: false});
 
 /** 远程合同的 JSON 形式：与 `defineRemoteService` 的参数相同，schema 是 JSON Schema。 */
@@ -112,6 +118,7 @@ export interface ManifestContributionPoint {
     readonly implementation: "required" | "none";
     /** JSON Schema；没写时只核对实现要求与重复。 */
     readonly schema?: unknown;
+    readonly idPrefix?: "plugin";
 }
 
 /** 清单里的远程合同：`defineRemoteService` 的参数的 JSON 形式。 */
@@ -227,8 +234,8 @@ function readManifest(value: unknown, options: ReadManifestOptions): ManifestRea
         problems.push({path, message});
     };
 
-    if (!ID_SEGMENT.test(input.publisher)) add("publisher", `必须是单个小写 id 段（字母或数字开头，只含小写字母、数字与连字符）：${input.publisher}`);
-    if (!ID_SEGMENT.test(input.name)) add("name", `必须是单个小写 id 段（字母或数字开头，只含小写字母、数字与连字符）：${input.name}`);
+    if (!ID_SEGMENT.test(input.publisher)) add("publisher", `必须是单个小写 id 段（字母开头，只含小写字母、数字与连字符）：${input.publisher}`);
+    if (!ID_SEGMENT.test(input.name)) add("name", `必须是单个小写 id 段（字母开头，只含小写字母、数字与连字符）：${input.name}`);
     if (!options.versions.isVersion(input.version)) add("version", `必须是 semver：${input.version}`);
     if (!options.versions.isRange(input.engines.neurobook)) add("engines.neurobook", `必须是版本范围：${input.engines.neurobook}`);
     const id = `${input.publisher}.${input.name}`;
@@ -454,7 +461,7 @@ export function definitionOf(manifest: PluginManifest, location: RuntimeLocation
         ...(manifest.activationEventPrefixes.length === 0 ? {} : {activationEventPrefixes: manifest.activationEventPrefixes}),
         ...(manifest.contributionPoints.length === 0
             ? {}
-            : {contributionPoints: manifest.contributionPoints.map(({id, implementation, schema}) => ({id, implementation, ...(schema === undefined ? {} : {schema: schema as TSchema})}))}),
+            : {contributionPoints: manifest.contributionPoints.map(({id, implementation, schema, idPrefix}) => ({id, implementation, ...(schema === undefined ? {} : {schema: schema as TSchema}), ...(idPrefix === undefined ? {} : {idPrefix})}))}),
     };
 }
 
@@ -516,9 +523,9 @@ function contractSchemas(contract: RemoteContract): Array<readonly [string, unkn
  * 把代码定义写成清单（`package.json` 里本能力的字段），是 `readPluginManifest` 加 `definitionOf` 的反方向。结果还要
  * 经 `readPluginManifest` 校验：这里只查代码定义特有、清单表达不了的问题：
  * - 入口 id 在各运行位置之间重复（清单的 `entries` 以入口 id 为键）；
- * - 贡献点在两个位置的 `implementation` 不同；
+ * - 同一个贡献点在几个位置的 `implementation`、`schema` 或 `idPrefix` 不同；
  * - 合同或贡献点的 schema 进不了 JSON（`portabilityProblems`），或同一合同 id 对应内容不同的两个合同；
- * - 第三方插件的贡献点只写了 `validate` 函数：函数进不了清单，宿主登记时没有代码可调（内置插件随产品代码装配，不受限）。
+ * - 第三方插件的贡献点写了 `validate` 函数：函数进不了清单，宿主登记时没有代码可调（内置插件随产品代码装配，不受限）。
  */
 export function manifestOf(source: ManifestSource, options: {readonly builtin?: boolean} = {}): ManifestBuildResult {
     const {descriptor} = source;
@@ -582,25 +589,40 @@ export function manifestOf(source: ManifestSource, options: {readonly builtin?: 
         }
     }
 
-    const points = new Map<string, ManifestContributionPoint>();
+    // 每份定义里的贡献点先各自检查，再按 id 聚合：同一个贡献点出现在几个运行位置的定义里时，检查不能只轮到先出现的那一份，
+    // 几份也不能按定义的先后取第一份。
+    const points = new Map<string, {readonly source: ContributionPointDefinition; readonly json: ManifestContributionPoint; readonly schemaText: string | null}>();
     for (const definition of definitions) {
         for (const point of definition.contributionPoints ?? []) {
+            const known = points.get(point.id);
+            // 两份定义共用同一个贡献点对象：已经查过。
+            if (known?.source === point) continue;
             // 与 readPluginManifest 一样按写出的清单里的下标定位：清单的 contributionPoints 是数组。
             const index = [...points.keys()].indexOf(point.id);
             const at = `contributionPoints.${String(index === -1 ? points.size : index)}`;
-            const known = points.get(point.id);
-            if (known !== undefined) {
-                if (known.implementation !== point.implementation) add(at, "两个运行位置的 implementation 不同");
-                continue;
-            }
             const portable = point.schema === undefined ? [] : portabilityProblems(point.schema);
             for (const problem of portable) add(joinPath(`${at}.schema`, problem.path), problem.message);
-            if (point.schema === undefined && point.validate !== undefined && options.builtin !== true) {
-                add(at, "只写了 validate 函数：函数进不了清单，用 schema 写出声明的结构");
+            if (point.validate !== undefined && options.builtin !== true) {
+                add(at, "写了 validate 函数：函数进不了清单，宿主里不会运行；用 schema 与 idPrefix 写声明的规则，跨条目的规则放在接收者里");
             }
             // 有问题的 schema 不序列化（清单本来就不会生成）：其中进不了 JSON 的值会让序列化抛错。
-            const schema = point.schema === undefined || portable.length > 0 ? {} : {schema: JSON.parse(JSON.stringify(point.schema)) as unknown};
-            points.set(point.id, {id: point.id, implementation: point.implementation, ...schema});
+            const schemaText = point.schema === undefined || portable.length > 0 ? null : JSON.stringify(point.schema);
+            if (known !== undefined) {
+                if (known.json.implementation !== point.implementation) add(at, "两个运行位置的 implementation 不同");
+                if (known.json.idPrefix !== point.idPrefix) add(at, "两个运行位置的 idPrefix 不同");
+                if (portable.length === 0 && known.schemaText !== schemaText) add(at, "两个运行位置的 schema 不同");
+                continue;
+            }
+            points.set(point.id, {
+                source: point,
+                schemaText,
+                json: {
+                    id: point.id,
+                    implementation: point.implementation,
+                    ...(schemaText === null ? {} : {schema: JSON.parse(schemaText) as unknown}),
+                    ...(point.idPrefix === undefined ? {} : {idPrefix: point.idPrefix}),
+                },
+            });
         }
     }
 
@@ -615,7 +637,7 @@ export function manifestOf(source: ManifestSource, options: {readonly builtin?: 
             engines: {neurobook: source.engines.neurobook},
             entries,
             contributes: descriptor.contributions ?? [],
-            contributionPoints: [...points.values()],
+            contributionPoints: [...points.values()].map((point) => point.json),
             activationEventPrefixes: [...new Set(definitions.flatMap((definition) => definition.activationEventPrefixes ?? []))],
             ...(source.pluginVersions === undefined || Object.keys(source.pluginVersions).length === 0 ? {} : {pluginVersions: {...source.pluginVersions}}),
             ...(contracts.size === 0 ? {} : {contracts: Object.fromEntries([...contracts.values()].map(({contract}) => [contract.id, contractJson(contract)]))}),

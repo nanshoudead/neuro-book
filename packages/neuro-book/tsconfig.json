@@ -12,7 +12,8 @@
         "paths": {
             "nbook/*": ["./src/*"],
             "@notnotype/nb-plugin-sdk": ["./src/sdk/index.ts"],
-            "@notnotype/nb-plugin-sdk/browser": ["./src/sdk/browser.ts"]
+            "@notnotype/nb-plugin-sdk/browser": ["./src/sdk/browser.ts"],
+            "@notnotype/nb-plugin-sdk/components": ["./src/sdk/components.ts"]
         }
     },
     "include": [

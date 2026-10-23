@@ -98,8 +98,9 @@ test.beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-e2e", "plugin-code");
     built = join(tmp, "snippets-dist");
     // 构建示例：与作者在仓库外构建同一个预设，仓库里 SDK 的包名指到应用源码（`scripts/plugin-sdk/build-examples.ts`）。
-    backend = ["clock", "notes", "counter"].map((name) => join(tmp, `${name}-dist`));
-    const builds = [["snippets", built], ...["clock", "notes", "counter"].map((name, index) => [name, backend[index]!])];
+    const backendExamples = ["clock", "notes", "counter", "menu", "file-menu"];
+    backend = backendExamples.map((name) => join(tmp, `${name}-dist`));
+    const builds = [["snippets", built], ...backendExamples.map((name, index) => [name, backend[index]!])];
     await run("bun", ["-e", `import {buildExample} from "./scripts/plugin-sdk/build-examples"; for (const [name, out] of ${JSON.stringify(builds)}) await buildExample(name, out);`]);
 });
 
@@ -226,25 +227,26 @@ test("开发会话里同样装载：页面经 Vite 提供时，插件拿到的�
     }
 });
 
-test("clock、notes、counter 外置：产品服务端装载它们的入口（counter 启动即激活成功），没有激活失败；插件页不再标“部分功能暂不可用”", async ({page}) => {
+test("clock、notes、counter、menu、file-menu 外置：产品服务端装载它们的入口（启动即激活的成功、menu 收到 file-menu 的菜单项），没有激活失败；插件页不再标“部分功能暂不可用”", async ({page}) => {
     const stateRoot = await stateRootWith("backend", [built, ...backend]);
     const server = await startProductServer(stateRoot);
     try {
         await openSettings(page, bookUrl(server.url));
         await page.locator("[data-settings-nav='nbook.plugins.installed']").click();
-        for (const id of ["example.clock", "example.notes", "example.counter", "example.snippets"]) {
+        for (const id of ["example.clock", "example.notes", "example.counter", "example.menu", "example.file-menu", "example.snippets"]) {
             await expect(page.locator(`[data-plugin-row="${id}"]`)).toBeVisible();
         }
         await expect(page.locator("[data-plugin-not-loaded]")).toHaveCount(0);
-        // counter 的服务端入口启动即激活：内核在激活成功、交出产出之后记 `published`，装载不到代码或产出不对都不会有这一条。
-        // 其余入口按需激活（项目入口在第一次远程调用时），这里只核对没有激活失败。
-        await expect.poll(async () => (await readFile(join(stateRoot, "logs", "server-current.jsonl"), "utf8")).split("\n").some((line) => {
-            if (!line.startsWith("{")) return false;
-            const data = (JSON.parse(line) as {readonly data?: {readonly plugin?: string; readonly entry?: string; readonly reason?: string}}).data;
-            return data?.plugin === "example.counter" && data.entry === "server" && data.reason === "published";
-        })).toBe(true);
-        const log = await readFile(join(stateRoot, "logs", "server-current.jsonl"), "utf8");
-        expect(log).not.toMatch(/activation-threw|code-load-failed|code-threw|code-shape|missing-implementation/u);
+        // 启动即激活的入口：内核在激活成功、交出产出之后记 `published`，装载不到代码或产出不对都不会有这一条。menu 收到
+        // file-menu 的菜单项时记一条自己的诊断，说明两边的代码都装上、贡献交到了接收者手里。其余入口按需激活（项目入口在
+        // 第一次远程调用时），这里只核对没有激活失败。
+        const log = async (): Promise<ReadonlyArray<{readonly event?: string; readonly data?: Readonly<Record<string, unknown>>}>> => (await readFile(join(stateRoot, "logs", "server-current.jsonl"), "utf8"))
+            .split("\n").filter((line) => line.startsWith("{")).map((line) => JSON.parse(line) as {readonly event?: string; readonly data?: Readonly<Record<string, unknown>>});
+        const published = (plugin: string) => async () => (await log()).some(({data}) => data?.plugin === plugin && data.entry === "server" && data.reason === "published");
+        for (const plugin of ["example.counter", "example.menu", "example.file-menu"]) await expect.poll(published(plugin)).toBe(true);
+        await expect.poll(async () => (await log()).some(({event, data}) => event === "example.menu.item-received" && data?.item === "example.file-menu.open")).toBe(true);
+        const text = await readFile(join(stateRoot, "logs", "server-current.jsonl"), "utf8");
+        expect(text).not.toMatch(/activation-threw|code-load-failed|code-threw|code-shape|missing-implementation/u);
     } finally {
         await page.goto("about:blank");
         expect(await server.stop()).toBe(0);

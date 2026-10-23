@@ -40,6 +40,7 @@ export default defineConfig({
             {find: /^nbook\//u, replacement: `${packageRoot}src/`},
             // 示例插件按第三方插件的写法从 SDK 包名导入；仓库里直接用 SDK 的源码（runtime/plugin-api.md 的“SDK”）。
             {find: /^@notnotype\/nb-plugin-sdk\/browser$/u, replacement: `${packageRoot}src/sdk/browser.ts`},
+            {find: /^@notnotype\/nb-plugin-sdk\/components$/u, replacement: `${packageRoot}src/sdk/components.ts`},
             {find: /^@notnotype\/nb-plugin-sdk$/u, replacement: `${packageRoot}src/sdk/index.ts`},
         ],
     },

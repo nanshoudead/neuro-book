@@ -110,7 +110,7 @@ async function registeredFactory(code: string): Promise<(module: {exports: Recor
             "@vue/reactivity": await import("@vue/reactivity"),
             "@notnotype/nb-plugin-sdk": await import("../../src/sdk/index"),
             "@notnotype/nb-plugin-sdk/browser": await import("../../src/sdk/browser"),
-            "@notnotype/nb-ui/components": {},
+            "@notnotype/nb-plugin-sdk/components": {},
         }),
     });
     const registry = (globalThis as unknown as Record<string, {wait(url: string, waiter: (factory: unknown) => void): () => void}>)[PLUGIN_REGISTRY_GLOBAL];
@@ -134,7 +134,7 @@ async function hostModules(): Promise<Readonly<Record<string, unknown>>> {
         "@vue/reactivity": await import("@vue/reactivity"),
         "@notnotype/nb-plugin-sdk": await import("../../src/sdk/index"),
         "@notnotype/nb-plugin-sdk/browser": await import("../../src/sdk/browser"),
-        "@notnotype/nb-ui/components": {},
+        "@notnotype/nb-plugin-sdk/components": {},
     };
 }
 
@@ -191,7 +191,7 @@ describe("构建示例 snippets", () => {
             "@notnotype/nb-plugin-sdk": await import("../../src/sdk/index"),
             "@notnotype/nb-plugin-sdk/browser": await import("../../src/sdk/browser"),
             // nb-ui 的组件是单文件组件，Bun 加载不了；页面没有渲染，给一个空对象就够。
-            "@notnotype/nb-ui/components": {},
+            "@notnotype/nb-plugin-sdk/components": {},
         };
         const required: string[] = [];
         const module = {exports: {} as Record<string, unknown>};
@@ -201,7 +201,7 @@ describe("构建示例 snippets", () => {
             return table[id];
         });
         expect(typeof module.exports.activate).toBe("function");
-        expect([...new Set(required)].every((id) => ["vue", "@vue/reactivity", "@notnotype/nb-ui/components", "@notnotype/nb-plugin-sdk", "@notnotype/nb-plugin-sdk/browser"].includes(id))).toBe(true);
+        expect([...new Set(required)].every((id) => ["vue", "@vue/reactivity", "@notnotype/nb-plugin-sdk", "@notnotype/nb-plugin-sdk/browser", "@notnotype/nb-plugin-sdk/components"].includes(id))).toBe(true);
         expect(code).toContain("//# sourceMappingURL=browser.js.map");
     }, 60_000);
 
@@ -264,14 +264,15 @@ export const echoBrowser = {id: "acme.echo", entries: [defineEntry({id: "browser
         expect(await failure(root)).toEqual([expect.stringContaining("打进了 vue 的实现")]);
     }, 60_000);
 
-    it("引用宿主没有共享的模块（nb-ui 的其它入口、绕过 SDK 的内核）：构建失败，写明未共享与引入它的模块", async () => {
+    it("引用宿主没有共享的模块（直接导入 nb-ui、绕过 SDK 的内核）：构建失败，写明未共享与引入它的模块；nb-ui 提示改从 SDK 导入组件", async () => {
         const root = await authorProject("unshared", {}, ["@notnotype/nb-ui", "@notnotype/nb-runtime"]);
         await writeAll(root, {
-            "web/plugin.ts": `import {useNotification} from "@notnotype/nb-ui/notifications";\nexport const p = {id: "acme.unshared", entries: [{id: "browser", location: "browser", activate: () => { useNotification(); return {}; }}]};\n`,
+            "web/plugin.ts": `import {Button} from "@notnotype/nb-ui/components";\nimport {useNotification} from "@notnotype/nb-ui/notifications";\nexport const p = {id: "acme.unshared", entries: [{id: "browser", location: "browser", activate: () => { useNotification(); void Button; return {}; }}]};\n`,
             "backend/plugin.ts": `import {defineEntry} from "@notnotype/nb-runtime/plugins";\nexport const s = {id: "acme.unshared", entries: [defineEntry({id: "server", location: "server", activate: () => ({})})]};\n`,
         });
         const problems = await failure(root);
         expect(problems).toContainEqual(expect.stringContaining("引用了宿主没有共享的模块 @notnotype/nb-ui/notifications（由 web/plugin.ts 引入）"));
+        expect(problems).toContainEqual(expect.stringMatching(/引用了宿主没有共享的模块 @notnotype\/nb-ui\/components（由 web\/plugin\.ts 引入）.*nb-ui 的组件从 @notnotype\/nb-plugin-sdk\/components 导入/u));
         expect(problems).toContainEqual(expect.stringContaining("引用了宿主没有共享的模块 @notnotype/nb-runtime/plugins（由 backend/plugin.ts 引入）"));
     }, 60_000);
 

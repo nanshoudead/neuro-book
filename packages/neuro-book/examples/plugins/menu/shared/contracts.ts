@@ -12,7 +12,7 @@ import type {ServiceKey} from "@notnotype/nb-plugin-sdk";
 /**
  * 贡献点 id。贡献 id 写“贡献方的插件 id + `.` + 名字”，例如 `example.file-menu.open`：内核要求贡献 id 在同一个贡献点
  * 里唯一，两个插件写了同一个 id 时两条都被拒（docs/specs/runtime/plugins.md 输出第 15 条），所以拥有者要规定一种
- * 不会撞的取法，并在校验里检查。
+ * 不会撞的取法：贡献点写 `idPrefix: "plugin"`，内核在登记时检查。
  */
 export const MENU_POINT = "menu.items";
 

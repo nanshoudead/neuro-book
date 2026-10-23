@@ -1,0 +1,8 @@
+{
+    "name": "file-menu",
+    "publisher": "example",
+    "version": "0.1.0",
+    "description": "文件菜单：向 example.menu 贡献两个菜单项，演示贡献方的写法",
+    "private": true,
+    "type": "module"
+}

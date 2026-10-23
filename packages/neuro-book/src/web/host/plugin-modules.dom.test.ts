@@ -21,7 +21,8 @@ describe("浏览器的宿主模块表", () => {
         expect(table["vue"]!.ref).toBe(ref);
         expect(table["vue"]!.defineComponent).toBe(defineComponent);
         expect(table["@vue/reactivity"]!.computed).toBe(computed);
-        expect(table["@notnotype/nb-ui/components"]!.Button).toBe(Button);
+        // 组件经 SDK 的子路径给出，仍是宿主用的那一份 nb-ui。
+        expect(table["@notnotype/nb-plugin-sdk/components"]!.Button).toBe(Button);
         expect(table["@notnotype/nb-plugin-sdk"]!.defineEntry).toBe(defineEntry);
         expect(table["@notnotype/nb-plugin-sdk/browser"]!.settingsPageContribution).toBe(settingsPageContribution);
         expect(Object.isFrozen(table)).toBe(true);

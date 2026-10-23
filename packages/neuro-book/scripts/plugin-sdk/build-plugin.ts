@@ -365,7 +365,9 @@ function purityProblems(input: {
     for (const [specifier, importer] of facts.externals) {
         if (allowed.includes(specifier) || (location !== "browser" && isNodeBuiltin(specifier))) continue;
         const from = importer === null || !isAbsolute(importer) ? "" : `（由 ${sourcePath(importer.split("?")[0]!, input.root, input.workDir)} 引入）`;
-        problems.push({path: `entries.${entry}`, message: `引用了宿主没有共享的模块 ${specifier}${from}：该入口未共享（共享的是 ${allowed.join("、")}）`});
+        // nb-ui 不发布，作者项目里本来装不到它；仓库里照着内置插件的写法直接导入时提示改法。
+        const hint = /^@notnotype\/nb-ui($|\/)/u.test(specifier) ? "；nb-ui 的组件从 @notnotype/nb-plugin-sdk/components 导入" : "";
+        problems.push({path: `entries.${entry}`, message: `引用了宿主没有共享的模块 ${specifier}${from}：该入口未共享（共享的是 ${allowed.join("、")}）${hint}`});
     }
     const bundled = new Map<string, string>();
     for (const module of facts.modules) {

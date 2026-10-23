@@ -12,6 +12,8 @@ describe("SDK 的导出面", () => {
             "SETTINGS_CHOICES_POINT",
             "SETTINGS_PAGES_POINT",
             "SETTINGS_SECTIONS_POINT",
+            "WORKBENCH_STATUSBAR_ITEMS_POINT",
+            "WORKBENCH_VIEWS_POINT",
             "defineEntry",
             "definePublicState",
             "defineRecord",
@@ -42,6 +44,7 @@ describe("SDK 的导出面", () => {
             "SettingsRow",
             "SettingsSaveBar",
             "settingsPageContribution",
+            "viewContribution",
         ]);
     });
 });

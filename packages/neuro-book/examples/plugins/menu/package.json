@@ -1,0 +1,8 @@
+{
+    "name": "menu",
+    "publisher": "example",
+    "version": "0.1.0",
+    "description": "菜单：定义贡献点 menu.items、接收别的插件的菜单项并对外提供菜单服务，演示贡献点的校验、接收与查询",
+    "private": true,
+    "type": "module"
+}

@@ -8,7 +8,7 @@
  * 已经是新列表（配置服务的写入返回时，本窗口已应用新值，docs/specs/settings/configuration.md 输出第 15 条）；失败时
  * 是层里原来的值，输入框回到实际值，不留下没存进去的字。
  */
-import {Button, Input, Textarea, IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {Button, Input, Textarea, IconButton, Tooltip} from "@notnotype/nb-plugin-sdk/components";
 import {ref, watch} from "vue";
 
 import {localize} from "@notnotype/nb-plugin-sdk";

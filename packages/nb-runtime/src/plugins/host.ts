@@ -855,6 +855,9 @@ export class PluginHostImpl implements PluginHost {
         if (point.implementation === "none" && contribution.kind === "entry") {
             return {status: "rejected", reason: "implementation-not-accepted", detail: null};
         }
+        if (point.idPrefix === "plugin" && !contribution.definition.id.startsWith(`${contribution.plugin.id}.`)) {
+            return {status: "rejected", reason: "invalid-declaration", detail: `贡献 id 要以插件 id ${contribution.plugin.id} 加“.”开头：${contribution.definition.id}`};
+        }
         if (point.schema !== undefined) {
             const detail = schemaProblem(point.schema, contribution.definition.declaration);
             if (detail !== null) {

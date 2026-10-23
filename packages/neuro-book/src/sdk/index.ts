@@ -49,6 +49,10 @@ export type {RecordDefinition, RecordHandle, StorageService} from "nbook/shared/
 export {COMMANDS_POINT} from "nbook/plugins/commands/shared/contracts";
 export type {CommandDeclaration, CommandImplementation} from "nbook/plugins/commands/shared/contracts";
 
+// 工作台（nbook.workbench）：侧栏与面板的视图、状态栏条目。视图的实现用 `/browser` 的 `viewContribution`。
+export {WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
+export type {ItemDeclaration, ViewDeclaration, ViewLocation} from "nbook/plugins/workbench/shared/contracts";
+
 // 插件状态与公开状态（nbook.state）。
 export {defineStore} from "nbook/shared/store/store";
 export {definePublicState} from "nbook/shared/store/public";

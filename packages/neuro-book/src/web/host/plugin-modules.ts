@@ -6,11 +6,11 @@
  * 冻结（会抛错），先复制再冻结。
  */
 
-import * as components from "@notnotype/nb-ui/components";
 import * as reactivity from "@vue/reactivity";
 import * as vue from "vue";
 
 import * as sdkBrowser from "nbook/sdk/browser";
+import * as sdkComponents from "nbook/sdk/components";
 import * as sdk from "nbook/sdk/index";
 import type {BROWSER_SHARED_MODULES} from "nbook/shared/plugin-modules";
 
@@ -18,9 +18,9 @@ export function hostModules(): Readonly<Record<(typeof BROWSER_SHARED_MODULES)[n
     const table = {
         "vue": vue,
         "@vue/reactivity": reactivity,
-        "@notnotype/nb-ui/components": components,
         "@notnotype/nb-plugin-sdk": sdk,
         "@notnotype/nb-plugin-sdk/browser": sdkBrowser,
+        "@notnotype/nb-plugin-sdk/components": sdkComponents,
     } satisfies Record<(typeof BROWSER_SHARED_MODULES)[number], object>;
     return Object.freeze(Object.fromEntries(Object.entries(table).map(([id, module]) => [id, Object.freeze({...module})]))) as Readonly<Record<(typeof BROWSER_SHARED_MODULES)[number], unknown>>;
 }

@@ -120,6 +120,15 @@ describe("拥有者贡献点合同", () => {
         expect("implementation" in state(host, "bad")).toBe(false);
     });
 
+    it("idPrefix 为 plugin 时，贡献 id 不以贡献方插件 id 加“.”开头的那一条被拒，原因写明前缀；先于 schema 与 validate 核对", async () => {
+        const {host, root} = fixture();
+        register(host, owner([{...point(), idPrefix: "plugin"}], {commands: recordingReceiver([])}), root);
+        register(host, source("source", [declaration("source.ok"), declaration("other.run"), declaration("sourcex", "commands", " ")]), root);
+        expect(state(host, "source.ok").validation).toEqual({status: "accepted"});
+        expect(state(host, "other.run").validation).toEqual({status: "rejected", reason: "invalid-declaration", detail: "贡献 id 要以插件 id source 加“.”开头：other.run"});
+        expect(state(host, "sourcex").validation).toMatchObject({status: "rejected", detail: "贡献 id 要以插件 id source 加“.”开头：sourcex"});
+    });
+
     it("场景 2：required 拒绝顶层声明，none 拒绝入口实现，只拒绝单条贡献", async () => {
         const {host, root} = fixture();
         register(host, owner([point(), point("metadata", "none")], {}), root);

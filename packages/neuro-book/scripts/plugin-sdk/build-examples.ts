@@ -21,6 +21,7 @@ export const EXAMPLES_ROOT = join(packageRoot, "examples/plugins");
 export const IN_REPO_BUILD = {
     alias: [
         {find: /^@notnotype\/nb-plugin-sdk\/browser$/u, replacement: join(packageRoot, "src/sdk/browser.ts")},
+        {find: /^@notnotype\/nb-plugin-sdk\/components$/u, replacement: join(packageRoot, "src/sdk/components.ts")},
         {find: /^@notnotype\/nb-plugin-sdk$/u, replacement: join(packageRoot, "src/sdk/index.ts")},
         {find: /^nbook\//u, replacement: join(packageRoot, "src/")},
     ],

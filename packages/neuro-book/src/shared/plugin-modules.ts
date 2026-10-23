@@ -7,8 +7,11 @@
  * `computed` 不更新、`watch` 不触发，也不报错。
  */
 
-/** 浏览器入口的宿主模块表。 */
-export const BROWSER_SHARED_MODULES = ["vue", "@vue/reactivity", "@notnotype/nb-ui/components", "@notnotype/nb-plugin-sdk", "@notnotype/nb-plugin-sdk/browser"] as const;
+/**
+ * 浏览器入口的宿主模块表。nb-ui 的组件经 SDK 的 `components` 子路径共享，不共享 `@notnotype/nb-ui/components`：nb-ui 不发布，
+ * 作者只能从 SDK 包拿到组件的构建期实现与类型。
+ */
+export const BROWSER_SHARED_MODULES = ["vue", "@vue/reactivity", "@notnotype/nb-plugin-sdk", "@notnotype/nb-plugin-sdk/browser", "@notnotype/nb-plugin-sdk/components"] as const;
 
 /**
  * 服务端与项目实例入口的宿主模块；Node 与 Bun 的内置模块另外允许。不含 `vue`：后端不加载界面框架，服务端代码要响应式就从

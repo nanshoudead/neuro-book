@@ -54,6 +54,11 @@ export interface ContributionPointDefinition<Declaration = unknown> {
      */
     readonly schema?: TSchema;
     /**
+     * `"plugin"`：贡献 id 必须以贡献方插件 id 加 `.` 开头，否则这一条被拒（在 `schema` 之前核对）。它能写进清单，第三方
+     * 贡献点不能带 `validate`，要这条规则只能靠它。
+     */
+    readonly idPrefix?: "plugin";
+    /**
      * 纯函数，只看这一条声明本身，返回拒绝原因或 null；查不到别的贡献，所以一条声明的接受与否不随别处的登记变化
      * （runtime.plugins 输出第 23 条）。
      */

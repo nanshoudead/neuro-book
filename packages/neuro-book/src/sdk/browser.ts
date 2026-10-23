@@ -8,6 +8,11 @@ export type {SettingsPageContribution} from "nbook/plugins/settings/web/page-con
 export type {SettingsChoicesImplementation, SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 export type {OptionSource} from "@notnotype/nb-form";
 
+// 工作台的视图与状态栏条目的实现。
+export {viewContribution} from "nbook/plugins/workbench/web/view-contribution";
+export type {ViewContribution} from "nbook/plugins/workbench/web/view-contribution";
+export type {ItemImplementation, ViewContext, ViewImplementation} from "nbook/plugins/workbench/web/contracts";
+
 // 设置窗口给页面用的组件（docs/specs/settings/settings-window.md“给页面用的组件”）。
 export {default as SettingsPageActions} from "nbook/ui/settings/SettingsPageActions.vue";
 export {default as SettingsPageList} from "nbook/ui/settings/SettingsPageList.vue";
