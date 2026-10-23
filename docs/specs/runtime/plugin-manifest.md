@@ -38,7 +38,7 @@ owners:
 清单有两种载体，字段与规则相同：
 
 - 第三方插件安装时，清单是插件目录中的 `package.json`；
-- 内置插件的清单是代码中的插件描述与各运行位置的入口定义，不另存 `package.json`。代码定义里 `requires`、`remoteProvides`、`remoteDelegates` 写服务键与合同对象，`package.json` 写 id；两者按 id 对应。代码定义里的函数（入口的激活函数、贡献点的校验函数）是运行期钩子，不属于清单；除此之外，每个内置插件的代码定义都必须能表达为 `package.json` 形式，并通过同一套校验，转回代码定义后相同。贡献点与激活事件前缀属于插件：清单把它们写在插件一级，第三方插件在它有入口的每个运行位置都定义它们；内置插件的代码定义可以只在部分运行位置定义（例如只在项目实例里需要方言贡献点、没有入口），比较时按插件汇总。
+- 内置插件的清单是代码中的插件描述与各运行位置的入口定义，不另存 `package.json`。代码定义里 `requires`、`remoteProvides`、`remoteDelegates` 写服务键与合同对象，`package.json` 写 id；两者按 id 对应。代码定义里的函数（入口的激活函数、贡献点的校验函数）是运行期钩子，不属于清单；除此之外，每个内置插件的代码定义都必须能表达为 `package.json` 形式，并通过同一套校验，转回代码定义后相同。第三方插件的清单由 SDK 构建预设从代码定义生成，与内置插件用同一个转换；第三方插件的贡献点只能用 `schema` 表达声明的结构，不能只写校验函数：登记时没有插件代码可调。贡献点与激活事件前缀属于插件：清单把它们写在插件一级，第三方插件在它有入口的每个运行位置都定义它们；内置插件的代码定义可以只在部分运行位置定义（例如只在项目实例里需要方言贡献点、没有入口），比较时按插件汇总。
 
 下表按 `package.json` 的字段写。与本能力有关的字段：
 
@@ -49,8 +49,8 @@ owners:
 | `entries` | 入口 id 到入口声明的映射；可以为空（只含声明式贡献的插件） |
 | `entries.<id>.location` | 运行位置 |
 | `entries.<id>.main` | 入口代码文件，相对插件目录，必须位于插件目录内 |
-| `entries.<id>.remoteProvides` | 可选，本入口提供的远程服务合同 id 列表；合同 id 以本插件 id 加 `/` 开头 |
-| `entries.<id>.remoteDelegates` | 可选，本入口可代表调用方调用的远程服务合同 id 列表；任何插件都可以声明 |
+| `entries.<id>.remoteProvides` | 可选，本入口提供的远程服务合同 id 列表；合同 id 以本插件 id 加 `/` 开头。不以 `nbook.` 开头的合同必须在 `contracts` 里 |
+| `entries.<id>.remoteDelegates` | 可选，本入口可代表调用方调用的远程服务合同 id 列表；任何插件都可以声明。不以 `nbook.` 开头的合同必须在 `contracts` 里 |
 | `entries.<id>.requires` | 必需依赖的服务 id 列表 |
 | `entries.<id>.optional` | 可选依赖的服务 id 列表：缺了不使入口受阻，只有用到它的那一处不可用（[`runtime.plugins`](plugins.md)） |
 | `entries.<id>.receives` | 本入口接收贡献的贡献点 id 列表；只能是本插件在 `contributionPoints` 中定义的贡献点 |
@@ -58,9 +58,12 @@ owners:
 | `entries.<id>.activationEvents` | 激活事件列表 |
 | `entries.<id>.contributes` | 需要本入口提供实现的贡献，例如命令、视图、Agent 工具、路由、公开状态的键（`state.public`，实现是激活时绑定的读取函数，[`state.public`](../state/public-state.md)） |
 | `contributes` | 只有声明、不需要实现的贡献，例如菜单项、设置项、菜单位置 |
-| `contributionPoints` | 本插件拥有的贡献点：声明 schema，以及该贡献点的贡献是否需要实现（决定贡献写在入口下还是顶层） |
+| `contributionPoints` | 本插件拥有的贡献点：`id`、该贡献点的贡献是否需要实现（`implementation`，决定贡献写在入口下还是顶层），以及可选的声明结构 `schema` |
 | `activationEventPrefixes` | 本插件拥有的激活事件前缀，例如 `nbook.commands` 的 `onCommand`；只有拥有者能触发以它开头的事件 |
-| `pluginVersions` | 所依赖第三方插件的版本范围；只约束版本，是否必需由各入口的 `requires` 决定 |
+| `pluginVersions` | 所依赖第三方插件的版本范围；只约束版本，是否必需由各入口的 `requires` 决定（输出 3 的 `version-mismatch` 与其后的可选依赖规则） |
+| `contracts` | 入口引用的远程服务合同：合同 id 到合同的 JSON 形式（`id`、`version`、`provider`、`callers`、`methods`、`events`，与代码里的合同同一结构）。本插件提供的合同与它代理的别的第三方插件的合同都写在这里；`nbook.` 开头的内置合同由宿主提供，不写 |
+
+`contracts` 与 `contributionPoints[].schema` 里的 schema 只能是纯 JSON Schema：`type` 是 JSON Schema 的类型、`format` 是标准 format、正则合法，不能用 TypeBox 的 `Refine`、`Codec` 或插件自己注册的 format。这些写法进不了 JSON：宿主按清单校验时会悄悄变宽，同一个插件内置与外置时结果不同。构建预设遇到它们构建失败；清单里出现不合法的 schema 时清单无效。
 
 激活事件由插件定义，内核不规定事件种类（2026-10-06 开发者修订）。内核只认识 `onStartup`；其它事件写作 `<前缀>:<参数>`，前缀由拥有者插件在 `activationEventPrefixes` 中声明，例如 `nbook.commands` 的 `onCommand:<命令 id>`、`nbook.workbench` 的 `onView:<视图 id>`、`nbook.agent` 的 `onAgentTool:<工具名>`。内核保留前缀 `onRemote`：`onRemote:<合同 id>` 在该远程服务首次被调用时激活提供它的入口，插件不能声明这个前缀。拥有者在需要时请内核触发自己前缀下的事件，内核激活本运行位置上声明了该事件的入口并逐个返回结果；新增激活方式只需新的拥有者声明前缀，不改内核。与本入口贡献对应的激活事件可以由 SDK 构建预设生成；手写清单与生成的清单同等有效，合同以清单为准。
 
@@ -80,6 +83,8 @@ owners:
    - `version-mismatch`：提供方插件的版本不满足本插件 `pluginVersions` 中的范围；
    - `provider-blocked`、`provider-failed`：提供该服务的入口受阻，或激活失败且未恢复；
    - `dependency-cycle`：入口处于依赖环中。
+
+   可选依赖的提供方版本不在 `pluginVersions` 的范围内时不注入（入口取它得到不可用，原因 `version-mismatch`，记入诊断），入口不受阻。只有第三方插件写 `pluginVersions`；内置插件的版本等于产品版本，由 `engines.neurobook` 约束。
 4. **同一插件的其它入口不受牵连。** 一个入口受阻或失败，不影响同一插件中不依赖它的入口。例如编辑器插件未启用时，文生图插件依赖 `nbook.editor/document` 的浏览器入口受阻，服务端入口照常可用，Agent 工具可以调用。
 5. **远程服务不构成依赖。** 调用方入口不因远程服务的提供方受阻、失败、未激活或所在实例不存在而受阻；调用时才得到结果，提供入口未激活时按 `onRemote:<合同 id>` 激活，提供方不可用时调用得到 `unavailable` 等结构化失败（[远程服务与 RPC 协议](plugin-channel.md)）。
 6. **插件汇总状态。** 全部入口都没有受阻或失败为“可用”；部分入口受阻或失败为“部分可用”；全部入口受阻或失败为“受阻”。没有入口的插件在登记成功后为“可用”。插件管理界面列出每个受阻入口缺少的服务，以及各窗口中浏览器入口的失败（按窗口分开显示）。
@@ -87,7 +92,7 @@ owners:
 8. **关闭顺序严格为依赖逆序。** 依赖者先关闭，提供者后关闭。
 9. **登记顺序没有语义。** 全部清单登记后再计算依赖图；诊断按插件 id 排序输出，同一输入得到同一结果。
 10. **贡献校验按单条贡献进行。** 贡献点由拥有者在 `contributionPoints` 中定义，校验所需的 schema 与“是否需要实现”都来自拥有者，所以校验只在拥有者已登记时进行：
-    - 拥有者已登记：按其 schema 校验；不合格的贡献（包括需要实现却写在顶层 `contributes`、不需要实现却写在入口下）只这一条被拒绝，原因可查询，插件的其它部分照常；
+    - 拥有者已登记：先按其 `schema` 校验，再交拥有者的校验函数（内置插件才有）；不合格的贡献（包括需要实现却写在顶层 `contributes`、不需要实现却写在入口下）只这一条被拒绝，原因可查询，插件的其它部分照常；
     - 拥有者未安装或已禁用：贡献处于“待校验”，不显示、不报错；拥有者登记后再校验，合格的生效，不合格的被拒绝。拥有者已登记但其接收贡献的入口受阻时，贡献照常校验，是否显示由拥有者决定；
     - 没有任何已登记插件定义该贡献点：贡献处于“待校验”，并在插件详情中标注“未知贡献点”，便于发现拼写错误。
 
@@ -120,7 +125,7 @@ owners:
 
 ## 失败与恢复
 
-- **清单无效时整个插件不登记。** 包括：缺少必需字段或类型错误；id 格式错误；第三方 id 以 `nbook.` 开头；`main` 不存在、是绝对路径或越出插件目录；入口 id 重复；`provides` 中的服务 id 不以本插件 id 为前缀、重复，或占用保留名 `channel`；`remoteProvides` 中的合同 id 不以本插件 id 为前缀或重复；插件在 `activationEventPrefixes` 中声明 `onRemote`；`pluginVersions` 列出内置插件；`engines.neurobook` 或 `pluginVersions` 的值不是 npm 的版本范围写法；入口的 `receives` 列出本插件没有定义的贡献点。原因可在插件管理中查询，其它插件不受影响。单条贡献不合格只拒绝该条（见上文第 10 条）。
+- **清单无效时整个插件不登记。** 包括：缺少必需字段或类型错误；id 格式错误；第三方 id 以 `nbook.` 开头；`main` 不存在、是绝对路径或越出插件目录；入口 id 重复；`provides` 中的服务 id 不以本插件 id 为前缀、重复，或占用保留名 `channel`；`remoteProvides` 中的合同 id 不以本插件 id 为前缀或重复；插件在 `activationEventPrefixes` 中声明 `onRemote`；`pluginVersions` 列出内置插件；`engines.neurobook` 或 `pluginVersions` 的值不是 npm 的版本范围写法；入口的 `receives` 列出本插件没有定义的贡献点；入口引用的非内置合同不在 `contracts` 里，`contracts` 的键与合同 `id` 不一致或写了 `nbook.` 开头的合同，合同结构不合法（缺字段、方法入参不是 `additionalProperties: false` 的对象、业务失败码与路由层失败码重名）；`contracts` 或 `contributionPoints[].schema` 里的 schema 不是纯 JSON Schema。原因可在插件管理中查询，其它插件不受影响。单条贡献不合格只拒绝该条（见上文第 10 条）。
 - **两个插件声明同一服务 id** 不可能发生（服务 id 带插件前缀）；同一插件 id 出现多份清单时全部不登记，并报告每份的来源，与输入顺序无关。
 - **启动必需按运行位置判定。** 启动必需内置插件的服务端入口受阻、失败或其清单无效时，服务端启动失败，由 [`runtime.server-host`](server-host.md) 有序退出；它的浏览器入口（例如 `nbook.workbench`）在某个窗口中失败时，只有该窗口显示启动失败页（[`runtime.browser-host`](browser-host.md)），不影响服务端与其它窗口。
 - 前缀没有任何已登记插件声明的激活事件被忽略并在插件详情中标注“未知激活事件”，与未知贡献点相同，便于发现拼写错误；声明前缀的插件之后登记时，事件照常生效。两个插件声明同一前缀时两者的声明都不生效并记入诊断，与输入顺序无关；其它运行位置的入口在本实例为 `foreign-location`；本实例中依赖它所提供服务的入口按第 3 条以 `location-mismatch` 受阻。
@@ -133,7 +138,7 @@ owners:
 - **SDK**：作者在代码中声明入口，SDK 构建预设生成清单中的 `entries`，依赖只写一次。SDK 按运行位置提供类型：一个入口只能取得它 `requires` 中服务的类型。
 - **版本**：内置插件的版本等于产品版本。依赖内置插件的服务不写版本，内置插件的公开 API 跟随 SDK，由 `engines.neurobook` 统一约束。
 - **安全**：信任所有插件，不设权限系统（[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）。清单只是声明，不构成权限；校验只保证结构与引用正确。
-- **现状**：清单文件、声明 schema 与版本范围（含 `version-mismatch`）尚未实现。代码定义的插件（`PluginDefinition`）已按本合同的入口、按入口的服务依赖与提供项、受阻推导、启停顺序、按单条贡献校验、开放的运行位置、激活事件前缀与内核保留的 `onRemote`、`remoteProvides` 与 `remoteDelegates` 工作，行为见 [`runtime.plugins`](plugins.md) 输出第 11–22 条与 [`runtime.application`](application.md)；代码定义里 `remoteProvides`、`remoteDelegates` 写合同对象，清单 JSON 写合同 id；内置插件的描述（`plugins/<插件>/plugin.ts`）是它的清单，顶层声明式贡献写在描述的 `contributions` 里，宿主据此在每个运行实例登记（输出 11）；服务 id 与清单一样按字符串识别，不同位置的入口可以提供同一 id（[ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)）。
+- **现状**：清单的读取、校验与安装已实现；`contracts`、贡献点的 `schema` 与版本范围（含 `version-mismatch`、可选依赖不注入）在内核里已实现，第三方入口的代码装载未实现（[`runtime.plugin-code-loading`](plugin-code-loading.md)）。代码定义的插件（`PluginDefinition`）已按本合同的入口、按入口的服务依赖与提供项、受阻推导、启停顺序、按单条贡献校验、开放的运行位置、激活事件前缀与内核保留的 `onRemote`、`remoteProvides` 与 `remoteDelegates` 工作，行为见 [`runtime.plugins`](plugins.md) 输出第 11–22 条与 [`runtime.application`](application.md)；代码定义里 `remoteProvides`、`remoteDelegates` 写合同对象，清单 JSON 写合同 id；内置插件的描述（`plugins/<插件>/plugin.ts`）是它的清单，顶层声明式贡献写在描述的 `contributions` 里，宿主据此在每个运行实例登记（输出 11）；服务 id 与清单一样按字符串识别，不同位置的入口可以提供同一 id（[ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)）。
 - **兼容**：清单格式属于公开接口。新增运行位置或激活事件不改变已有字段的含义；没有对应宿主的运行位置，其入口在所有实例都是 `foreign-location`，插件的其它入口照常工作。
 
 ## 验收与 Smoke
