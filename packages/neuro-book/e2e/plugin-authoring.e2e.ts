@@ -81,14 +81,18 @@ async function openSettings(page: Page, section: string): Promise<void> {
     await page.locator(`[data-settings-nav="${section}"]`).click();
 }
 
-/** 侧栏显示模板的视图。点一下已选中的容器会收起侧栏，所以只在它没选中时点。 */
+/**
+ * 侧栏显示模板的视图。点一下已选中的容器会收起侧栏，所以只在它没选中时点；先等活动栏画出选中的那个容器，免得布局还没
+ * 恢复时读到的“没选中”过后又变成选中。默认选中哪个容器（第三方视图现在排在内置之前）是待确认的产品问题，这里不断言。
+ */
 async function showView(page: Page): Promise<void> {
     const container = page.locator(`[data-activity-container='${VIEW}']`);
+    await expect(page.locator("[data-activity-container][aria-pressed='true']")).toHaveCount(1);
     if ((await container.getAttribute("aria-pressed")) !== "true") await container.click();
     await expect(container).toHaveAttribute("aria-pressed", "true");
 }
 
-/** 打开命令面板（命令宿主随页面异步加载，按到面板出现为止），输入文字后按回车执行第一项。 */
+/** 打开命令面板（命令宿主随页面异步加载，按到面板出现为止），输入文字，等第一项就是要的命令再按回车。 */
 async function runCommand(page: Page, text: string): Promise<void> {
     const combobox = page.getByRole("combobox");
     await expect(async () => {
@@ -96,7 +100,7 @@ async function runCommand(page: Page, text: string): Promise<void> {
         await expect(combobox).toBeFocused({timeout: 500});
     }).toPass();
     await combobox.fill(`>${text}`);
-    await expect(page.getByRole("option").first()).toBeVisible();
+    await expect(page.getByRole("option").first()).toContainText(text);
     await page.keyboard.press("Enter");
 }
 
@@ -137,6 +141,8 @@ test("仓库外 create、build 的插件：安装、重启后视图显示设置�
     await expect(pluginRow(page).locator("[data-plugin-pending='disable']")).toBeVisible();
     await restart(page);
     await openWorkbench(page);
+    // 先有一条肯定的判据：活动栏已经画出内置的资源管理器，模板视图的容器才算真的没有。
+    await expect(page.locator("[data-activity-container='view:nbook.explorer']")).toBeVisible();
     await expect(page.locator(`[data-activity-container='${VIEW}']`)).toHaveCount(0);
     await openSettings(page, "nbook.plugins.installed");
     await expect(pluginRow(page)).toBeVisible();
