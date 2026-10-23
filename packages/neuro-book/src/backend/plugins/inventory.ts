@@ -10,7 +10,7 @@
  */
 
 import {randomUUID} from "node:crypto";
-import {mkdir, realpath, rename, rm, stat} from "node:fs/promises";
+import {lstat, mkdir, realpath, rename, rm, stat} from "node:fs/promises";
 import {join, relative, resolve, isAbsolute} from "node:path";
 
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
@@ -20,11 +20,12 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
-import {holdLock} from "nbook/backend/locked-replace";
+import {errno, holdLock} from "nbook/backend/locked-replace";
 import type {BlockedPlugin, InstallPreview, PendingChange, PluginFailureCode, PluginList, PluginListItem} from "nbook/plugins/plugins/shared/contracts";
 import {compareVersions, engineAccepts, pluginVersionSatisfies} from "nbook/shared/versions";
 
 import {collectCopyRange, copyRange} from "./copy";
+import {livePins, pinKey} from "./pins";
 import {assertHeld, brief, byId, isLink, LockLost, ownedPath, readRecord, STAGING_DIR, withRecordLock, writeRecord} from "./record";
 import type {PluginRecord, RecordEntry} from "./record";
 import {installedManifest, missingEntries} from "./startup";
@@ -77,6 +78,16 @@ function within(inner: string, outer: string): boolean {
 }
 
 /** 已安装的记录不接受这次安装的原因；没有为 null。 */
+async function exists(path: string): Promise<boolean> {
+    try {
+        await lstat(path);
+        return true;
+    } catch (error) {
+        if (errno(error) === "ENOENT") return false;
+        throw error;
+    }
+}
+
 function conflict(entry: RecordEntry | undefined, id: string, version: string): InventoryFailure | null {
     if (entry === undefined) return null;
     if (entry.state === "uninstalling") return failure("uninstall-pending", `${id} 正在卸载，重启后再安装`);
@@ -276,11 +287,15 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
             const late = conflict(existing, id, version);
             if (late !== null) return late;
             const target = ownedPath(root, id, version);
+            // 不被登记表引用的版本目录，可能是崩溃留下的残留，也可能是别的服务端还在用、推迟回收的目录（卸载或升级之后）：
+            // 被租着的不能删也不能换内容，运行中的服务端会按启动时的摘要继续从这里取代码与文件。
+            const pins = await livePins(root, (event, message, data, error) => options.record({level: "warn", event, message, ...(data === undefined ? {} : {data}), ...(error === undefined ? {} : {error})}));
+            const inUse = (candidate: string): boolean => pins.unreadable || pins.pinned.has(pinKey(id, candidate));
             try {
                 await assertHeld(lock);
                 await mkdir(ownedPath(root, id), {recursive: true});
                 if (await isLink(ownedPath(root, id))) return failure("copy-failed", `安装目录里的 ${id} 是符号链接，不能往里面安装`);
-                // 同名目录没有被登记表引用（上面核对过），是崩溃留下的残留。
+                if (inUse(version) && (await exists(target))) return failure("version-in-use", `另一个运行中的服务端还在用 ${id}@${version} 的旧目录，关掉或重启它之后再装`);
                 await assertHeld(lock);
                 await rm(target, {recursive: true, force: true});
                 await assertHeld(lock);
@@ -304,7 +319,9 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
                 return failure("registry-failed", `写入插件登记表失败：${brief(error)}`);
             }
             const replaced = existing?.pendingVersion ?? null;
-            if (replaced !== null) {
+            if (replaced !== null && inUse(replaced)) {
+                options.record({level: "info", event: "plugins.cleanup.deferred", message: "被取代的待切换版本还被别的服务端租着，之后的启动再回收", data: {id, version: replaced}});
+            } else if (replaced !== null) {
                 // 提交之后、释放锁之前删：释放之后别的进程可能重新装回这个版本、让登记表又引用它。
                 await assertHeld(lock)
                     .then(() => rm(ownedPath(root, id, replaced), {recursive: true, force: true}))

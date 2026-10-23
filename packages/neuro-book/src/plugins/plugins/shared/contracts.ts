@@ -98,6 +98,7 @@ const errors = {
     "incompatible-engine": Detail,
     "already-installed": Detail,
     "uninstall-pending": Detail,
+    "version-in-use": Detail,
     "path-rejected": Detail,
     "entry-missing": Detail,
     "copy-failed": Detail,

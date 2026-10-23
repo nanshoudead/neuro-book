@@ -12,7 +12,8 @@
  */
 
 import {createHash} from "node:crypto";
-import {lstat, readdir, readFile, rm, rmdir, unlink} from "node:fs/promises";
+import {createReadStream} from "node:fs";
+import {lstat, readdir, readFile, rm, rmdir, stat, unlink} from "node:fs/promises";
 import {join, relative} from "node:path";
 
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
@@ -80,8 +81,11 @@ export interface PrepareOptions {
 
 export interface PreparedPlugins {
     readonly startup: StartupPlugins;
-    /** 宿主的诊断存储建立之后再记的记录（准备在它之前进行）。 */
-    readonly diagnostics: ReadonlyArray<DiagnosticInput>;
+    /**
+     * 接上宿主的诊断存储：先交出准备期间的记录（准备在存储建立之前进行），之后的记录（版本租约在运行中失效）直接交给它。
+     * 只接一次。
+     */
+    connectDiagnostics(record: (input: DiagnosticInput) => void): void;
     /** 放下本次的版本租约；宿主停止之后调用。进程退出时锁也会放下。 */
     release(): Promise<void>;
 }
@@ -91,16 +95,32 @@ export function installedPlugins(startup: StartupPlugins): InstalledPlugin[] {
     return startup.plugins.flatMap((plugin) => (plugin.installed === null ? [] : [plugin.installed]));
 }
 
+/** 诊断先存着，接上宿主的存储后一并交出，之后的直接转交。 */
+function diagnosticSink(): {readonly emit: (input: DiagnosticInput) => void; readonly connect: (record: (input: DiagnosticInput) => void) => void} {
+    const buffered: DiagnosticInput[] = [];
+    let sink: ((input: DiagnosticInput) => void) | null = null;
+    return {
+        emit: (input) => {
+            if (sink === null) buffered.push(input);
+            else sink(input);
+        },
+        connect: (record) => {
+            sink = record;
+            for (const input of buffered.splice(0)) record(input);
+        },
+    };
+}
+
 export async function prepareInstalledPlugins(options: PrepareOptions): Promise<PreparedPlugins> {
-    const diagnostics: DiagnosticInput[] = [];
+    const diagnostics = diagnosticSink();
     const warn = (event: string, message: string, data?: unknown, error?: unknown): void => {
-        diagnostics.push({level: "warn", event, message, ...(data === undefined ? {} : {data}), ...(error === undefined ? {} : {error})});
+        diagnostics.emit({level: "warn", event, message, ...(data === undefined ? {} : {data}), ...(error === undefined ? {} : {error})});
     };
     const info = (event: string, message: string, data: unknown): void => {
-        diagnostics.push({level: "info", event, message, data});
+        diagnostics.emit({level: "info", event, message, data});
     };
 
-    const reportPin = (event: string, error: unknown): void => warn(`plugins.${event}`, "插件版本租约的锁出错，别的服务端可能回收本次在用的版本", undefined, error);
+    const reportPin = (event: string, error: unknown): void => warn(`plugins.${event}`, "插件版本租约出错，别的服务端可能回收本次在用的版本", undefined, error);
     let pin: VersionPin | null = null;
     const applied = await withRecordLock(options.root, (event, error) => warn(`plugins.${event}`, "插件登记表的写入锁出错", undefined, error), async (lock) => {
         const read = await readRecord(options.root);
@@ -113,12 +133,12 @@ export async function prepareInstalledPlugins(options: PrepareOptions): Promise<
     });
     let record: PluginRecord;
     if (applied.ok) {
-        if (!applied.value.ok) return failed(options, applied.value.detail, diagnostics, warn);
+        if (!applied.value.ok) return failed(options, applied.value.detail, diagnostics.connect, warn);
         record = applied.value.record;
     } else {
         warn("plugins.startup.unlocked", "拿不到插件登记表的写入锁，本次启动不处理待生效变化、不回收残留", {detail: applied.detail});
         const read = await readRecord(options.root);
-        if (!read.ok) return failed(options, read.detail, diagnostics, warn);
+        if (!read.ok) return failed(options, read.detail, diagnostics.connect, warn);
         record = read.record;
         pin = await pinFor(options, record, reportPin);
     }
@@ -132,7 +152,7 @@ export async function prepareInstalledPlugins(options: PrepareOptions): Promise<
         }
         plugins.push(plugin);
     }
-    return {startup: {safeMode: options.safeMode, registryProblem: null, plugins: plugins.sort(byId)}, diagnostics, release: async () => held?.release()};
+    return {startup: {safeMode: options.safeMode, registryProblem: null, plugins: plugins.sort(byId)}, connectDiagnostics: diagnostics.connect, release: async () => held?.release()};
 }
 
 /** 本次要用的版本（启用的插件的当前版本）写下租约；安全模式不加载第三方插件，也就不租。 */
@@ -140,12 +160,18 @@ async function pinFor(options: PrepareOptions, record: PluginRecord, report: (ev
     if (options.safeMode) return null;
     const versions = Object.entries(record.plugins).filter(([, entry]) => entry.state === "enabled").map(([id, entry]) => ({id, version: entry.version}));
     if (versions.length === 0) return null;
-    return pinVersions(options.root, versions, report);
+    // 租约写不下（只读的状态根、磁盘满）不挡启动：与拿不到登记表锁时只读启动一样降级，只是本次在用的版本不受保护。
+    try {
+        return await pinVersions(options.root, versions, report);
+    } catch (error) {
+        report("pins.write-failed", error);
+        return null;
+    }
 }
 
-function failed(options: PrepareOptions, detail: string, diagnostics: DiagnosticInput[], warn: (event: string, message: string, data?: unknown) => void): PreparedPlugins {
+function failed(options: PrepareOptions, detail: string, connectDiagnostics: PreparedPlugins["connectDiagnostics"], warn: (event: string, message: string, data?: unknown) => void): PreparedPlugins {
     warn("plugins.registry.invalid", "插件登记表不可用，本次启动不加载任何第三方插件", {detail});
-    return {startup: {safeMode: options.safeMode, registryProblem: detail, plugins: []}, diagnostics, release: async () => undefined};
+    return {startup: {safeMode: options.safeMode, registryProblem: detail, plugins: []}, connectDiagnostics, release: async () => undefined};
 }
 
 /** 别的服务端租着这个插件的某个版本（或租约读不了）：它的目录先不删。 */
@@ -312,9 +338,11 @@ export async function directoryDigest(root: string): Promise<string> {
     };
     await walk(root);
     const hash = createHash("sha256");
+    // 逐块读：插件可能带几百 MB 的资源，整份读进内存会让启动的内存峰值等于最大的那个文件。
     for (const file of files.map((path) => relative(root, path)).sort()) {
-        const content = await readFile(join(root, file));
-        hash.update(`${file}\0${String(content.length)}\0`).update(content);
+        const path = join(root, file);
+        hash.update(`${file}\0${String((await stat(path)).size)}\0`);
+        for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
     }
     return hash.digest("hex").slice(0, 16);
 }

@@ -91,13 +91,26 @@ export function thirdPartyDefinitionAt(location: RuntimeLocation, manifest: Plug
     return definitionAt(location, descriptorOf(manifest), {...definition, entries});
 }
 
-/** 键排序后的 JSON：两份合同内容相同、键的先后不同时也相等。 */
+/**
+ * 键排序后的 JSON：两份合同内容相同、键的先后不同时也相等。值为 undefined 的键与 `JSON.stringify` 一样略去：登记的那份经过
+ * JSON，代码里的那份可能带着 `errors: undefined` 这类键。
+ */
 function canonical(value: unknown): string {
     if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
     if (typeof value === "object" && value !== null) {
-        return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(",")}}`;
+        const record = value as Record<string, unknown>;
+        return `{${Object.keys(record).filter((key) => record[key] !== undefined).sort().map((key) => `${JSON.stringify(key)}:${canonical(record[key])}`).join(",")}}`;
     }
     return JSON.stringify(value) ?? "undefined";
+}
+
+/** 两份合同内容是否相同。JSON 表达不了的值（BigInt、循环引用）让比较抛错，按不同处理：登记的那份不会有这样的值。 */
+function sameContract(left: RemoteContract, right: RemoteContract): boolean {
+    try {
+        return canonical(left) === canonical(right);
+    } catch {
+        return false;
+    }
 }
 
 function settleContracts(output: ActivationOutput, registered: ReadonlyArray<RemoteContract>): ActivationOutput {
@@ -106,7 +119,7 @@ function settleContracts(output: ActivationOutput, registered: ReadonlyArray<Rem
         ...output,
         remote: output.remote.map((item) => {
             const own = registered.find((contract) => contract.id === item.contract.id);
-            return own !== undefined && own !== item.contract && canonical(own) === canonical(item.contract) ? {...item, contract: own} : item;
+            return own !== undefined && own !== item.contract && sameContract(own, item.contract) ? {...item, contract: own} : item;
         }),
     };
 }

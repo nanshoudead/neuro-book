@@ -88,11 +88,11 @@ export interface HeldLock {
  * proper-lockfile 删掉锁目录再建，所以比对锁目录的身份（连同 `onCompromised` 报告的失效）就能发现；持有者在提交前
  * 用 `stillHeld` 核对，核对与提交之间仍有一个很小的窗口。等不到为 `locked`。
  */
-export async function holdLock(lockPath: string, report: (event: string, error: unknown) => void): Promise<{readonly ok: true; readonly lock: HeldLock} | {readonly ok: false; readonly reason: "locked" | "failed"; readonly detail: string}> {
+export async function holdLock(lockPath: string, report: (event: string, error: unknown) => void, options: {readonly stale?: number} = {}): Promise<{readonly ok: true; readonly lock: HeldLock} | {readonly ok: false; readonly reason: "locked" | "failed"; readonly detail: string}> {
     let unlock: () => Promise<void>;
     let compromised: unknown = null;
     try {
-        unlock = await lock(lockPath, {realpath: false, lockfilePath: lockPath, stale: LOCK_STALE_MS, retries: LOCK_RETRIES, onCompromised: (error) => {
+        unlock = await lock(lockPath, {realpath: false, lockfilePath: lockPath, stale: options.stale ?? LOCK_STALE_MS, retries: LOCK_RETRIES, onCompromised: (error) => {
             compromised = error;
             report("lock.compromised", error);
         }});

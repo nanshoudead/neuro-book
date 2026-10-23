@@ -231,8 +231,8 @@ export function startServer(options: StartServerOptions): RunningServer {
 
     const builtinManifest = options.manifest ?? productPlugins;
     // 第三方插件集合在启动前已确定，进程生命期内不变（docs/specs/runtime/plugin-install.md）。
-    const installed = options.installed ?? {startup: NO_INSTALLED_PLUGINS, diagnostics: [], release: async () => undefined};
-    for (const record of installed.diagnostics) store.record(record);
+    const installed = options.installed ?? {startup: NO_INSTALLED_PLUGINS, connectDiagnostics: () => undefined, release: async () => undefined};
+    installed.connectDiagnostics((record) => store.record(record));
     const thirdParty = loadedDescriptors(installed.startup);
     const thirdPartyIds = new Set(thirdParty.map((plugin) => plugin.id));
     const context: ServerPluginContext = {

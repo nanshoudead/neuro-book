@@ -74,7 +74,7 @@ export const serverHostPlugins: Readonly<Record<ServerHostPluginId, ServerHostPl
         port: context.config.port,
         onListening: context.onListening,
         allowOrigin: context.allowOrigin,
-        hostRoutes: [createBrowserBootstrapRoute(context.manifest, context.thirdParty, context.installed, context.rpc, context.projectTitle), createPluginFilesRoute(context.installed)],
+        hostRoutes: [createBrowserBootstrapRoute(context.manifest, context.thirdParty, context.installed, context.rpc, context.projectTitle), createPluginFilesRoute(context.installed, (input) => context.store.record(input))],
         staticRoot: context.config.webRoot,
     }),
 };

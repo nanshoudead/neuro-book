@@ -5,10 +5,11 @@
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 import {EventEmitter} from "node:events";
-import {mkdir, readFile, rm, symlink, writeFile} from "node:fs/promises";
+import {chmod, mkdir, readFile, rm, symlink, writeFile} from "node:fs/promises";
 import {request as httpRequest} from "node:http";
 import {join} from "node:path";
 
+import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {createPluginInventory} from "nbook/backend/plugins/inventory";
@@ -130,20 +131,43 @@ describe("插件文件端点", () => {
         }
     });
 
-    it("卸载、重启后重装同一版本：内容摘要变了，旧地址 404，新地址是新内容", async () => {
+    it("读文件因路径以外的原因失败（权限）：500 并记一条诊断，不当作不存在", async () => {
+        const [plugin] = installedPlugins(prepared.startup);
+        const records: DiagnosticInput[] = [];
+        const route = createPluginFilesRoute(installedPlugins(prepared.startup), (input) => records.push(input));
+        await mkdir(join(plugin!.root, "locked"));
+        await chmod(join(plugin!.root, "locked"), 0o000);
+        try {
+            const response = await route.handle(new Request(new URL(`${prefix.slice("/api/runtime".length)}locked/x.js`, "http://127.0.0.1").href));
+            expect(response.status).toBe(500);
+            expect(records).toEqual([expect.objectContaining({event: "plugins.files.read-failed", data: {plugin: "example.files", path: "locked/x.js"}})]);
+        } finally {
+            await chmod(join(plugin!.root, "locked"), 0o755);
+            await rm(join(plugin!.root, "locked"), {recursive: true});
+        }
+    });
+
+    it("运行中的服务端租着的版本，别处卸载、重启后不能重装同一版本；它放下租约后重装：内容摘要变了，旧地址 404，新地址是新内容", async () => {
         const [before] = installedPlugins(prepared.startup);
         const root = join(tmp, "state", "plugins");
-        // 另一轮启动：卸载、重启（放下这一轮自己的租约之前，服务端还租着旧目录，回收推迟），重装同一版本的新内容。
+        // 另一轮启动：卸载、重启（运行中的服务端还租着旧目录，回收推迟），再装同一版本的新内容。
         expect(await inventory(prepared.startup).uninstall("example.files")).toMatchObject({ok: true});
         const afterUninstall = await prepareInstalledPlugins({root, productVersion: PRODUCT, safeMode: false});
-        expect(await inventory(afterUninstall.startup).install(await source("v1-again", "console.log('again');"))).toMatchObject({ok: true});
+        const newer = await source("v1-again", "console.log('again');");
+        expect(await inventory(afterUninstall.startup).install(newer)).toMatchObject({ok: false, code: "version-in-use"});
+        // 运行中的服务端照旧从原目录送出原内容。
+        const running = await fetch(new URL(`${prefix}browser.js`, server.url!));
+        expect([running.status, await running.text()]).toEqual([200, "console.log('v1');"]);
+
+        await prepared.release();
+        expect(await inventory(afterUninstall.startup).install(newer)).toMatchObject({ok: true});
         await afterUninstall.release();
         const again = await prepareInstalledPlugins({root, productVersion: PRODUCT, safeMode: false});
         try {
             const [after] = installedPlugins(again.startup);
             expect(after!.version).toBe(before!.version);
             expect(after!.digest).not.toBe(before!.digest);
-            const route = createPluginFilesRoute(installedPlugins(again.startup));
+            const route = createPluginFilesRoute(installedPlugins(again.startup), () => undefined);
             // 直接调宿主路由时给的是分发器转交的形式：已去掉挂载前缀 `/api/runtime`。
             const at = (digest: string) => route.handle(new Request(new URL(`${pluginFilesPrefix("example.files", digest).slice("/api/runtime".length)}browser.js`, "http://127.0.0.1").href));
             expect((await at(before!.digest)).status).toBe(404);

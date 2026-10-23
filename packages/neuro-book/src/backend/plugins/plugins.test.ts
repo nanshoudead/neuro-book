@@ -67,7 +67,7 @@ async function world(): Promise<World> {
             const prepared = await prepareInstalledPlugins({root, productVersion: options.productVersion ?? PRODUCT, safeMode: options.safeMode ?? false});
             running = prepared;
             releases.push(prepared);
-            diagnostics.push(...prepared.diagnostics);
+            prepared.connectDiagnostics((input) => diagnostics.push(input));
             self.startup = prepared.startup;
             self.inventory = make(prepared.startup, options.productVersion);
             return prepared.startup;
@@ -478,12 +478,30 @@ describe("同一状态根上的两个服务端进程（场景 15）", () => {
         expect(await w.record()).toEqual({schema: "nbook.plugins/v1", plugins: {"example.hello": {version: "2.0.0", pendingVersion: null, state: "enabled", deleteData: false}}});
         expect(await readFile(join(w.root, "example.hello", "1.0.0", "web.js"), "utf8")).toBe("v1");
         expect(await readFile(join(w.root, "example.other", "1.0.0", "web.js"), "utf8")).toBe("o");
+        // 租着的目录不被重装换掉：同一版本的新内容 version-in-use，本服务端在用的文件不变。
+        expect(await w.inventory.install(await w.source("other-again", {...manifest(), name: "other"}, {"web.js": "o2"}))).toMatchObject({ok: false, code: "version-in-use"});
+        expect(await w.inventory.install(await w.source("v1-again", manifest("1.0.0"), {"web.js": "v1b"}))).toMatchObject({ok: false, code: "version-in-use"});
+        expect(await readFile(join(w.root, "example.other", "1.0.0", "web.js"), "utf8")).toBe("o");
+        expect(await readFile(join(w.root, "example.hello", "1.0.0", "web.js"), "utf8")).toBe("v1");
 
         // 本服务端退出（放下租约）后，下一次启动才回收。
         await w.restart();
         expect(await namesIn(join(w.root, "example.hello"))).toEqual(["2.0.0"]);
         expect(await exists(join(w.root, "example.other"))).toBe(false);
         expect(await namesIn(join(w.root, ".pins"))).toHaveLength(2);
+    });
+
+    it("安装根只读：拿不到登记表锁、写不下版本租约，照常只读启动并登记插件，原因进诊断", async () => {
+        const w = await world();
+        await w.inventory.install(await w.source("v1", manifest("1.0.0"), {"web.js": "v1"}));
+        await chmod(w.root, 0o555);
+        try {
+            const startup = await w.restart();
+            expect(startup.plugins.map((plugin) => plugin.id)).toEqual(["example.hello"]);
+            expect(w.diagnostics.map((record) => record.event)).toEqual(expect.arrayContaining(["plugins.startup.unlocked", "plugins.pins.write-failed"]));
+        } finally {
+            await chmod(w.root, 0o755);
+        }
     });
 
     it("升级预览列出重启后会受阻的插件（plugin-install 输出 8.1）：版本不符的与经它传递受阻的；禁用的不算；读不了清单的列为没核对", async () => {
