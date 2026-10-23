@@ -8,7 +8,7 @@ import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {defaultConfigPath, loadQaConfig, parseQaConfig, qaLimits, saveQaConfig} from "./config";
+import {ABSENT_CONFIG, currentConfigDigest, defaultConfigPath, loadQaConfig, parseQaConfig, qaLimits, readQaConfigFile, saveQaConfig} from "./config";
 import {CONFIG_FIELDS, ConfigEditError, setConfigField, unsetConfigField} from "./config-edit";
 import {QaError} from "./errors";
 
@@ -65,7 +65,8 @@ describe("写配置（config 命令）", () => {
         const path = join(dir, "config.json");
         await saveQaConfig(path, {model, qa: {maxChapters: 5}});
         expect(await loadQaConfig(path)).toEqual({model, qa: {maxChapters: 5}});
-        expect(await readdir(dir)).toEqual(["config.json"]);
+        // 只剩配置本身与常驻的锁文件，没有临时文件。
+        expect((await readdir(dir)).sort()).toEqual([".config.json.lock", "config.json"]);
     });
 
     test("校验不过：qa_unconfigured，已有的文件一个字不动，也不留临时文件", async () => {
@@ -77,7 +78,8 @@ describe("写配置（config 命令）", () => {
         expect(failure).toBeInstanceOf(QaError);
         expect((failure as QaError).code).toBe("qa_unconfigured");
         expect(await readFile(path, "utf8")).toBe(before);
-        expect(await readdir(dir)).toEqual(["config.json"]);
+        // 只剩配置本身与常驻的锁文件，没有临时文件。
+        expect((await readdir(dir)).sort()).toEqual([".config.json.lock", "config.json"]);
     });
 
     test("写不进去（父路径是个文件）：qa_config_write_failed", async () => {
@@ -153,5 +155,72 @@ describe("写配置（config 命令）", () => {
         expect(unsetConfigField(full, "qa.maxChapters", "")).toEqual({model: {...model, thinking: "high"}});
         expect(unsetConfigField(base, "qa.maxChapters", "")).toEqual({model});
         expect(() => unsetConfigField(base, "model.id", "")).toThrow(ConfigEditError);
+    });
+});
+
+describe("整份写入（网页设置页与命令行共用，t13）", () => {
+    const pasted = "sk-review-fake-pasted-value-0042";
+
+    test("三处密钥环境变量名都只收变量名，误贴密钥被拒且报错里没有原文；不认识的字段不收", () => {
+        const configs = [
+            {model: {...model, apiKeyEnv: pasted}},
+            {model, ingest: {model: {...model, apiKeyEnv: pasted}}},
+            {model, ingest: {recall: {enabled: true, model: {...model, apiKeyEnv: pasted}}}},
+        ];
+        for (const config of configs) {
+            const error = (() => {
+                try {
+                    parseQaConfig(config, " 测试 ");
+                } catch (thrown) {
+                    return thrown as QaError;
+                }
+                return null;
+            })();
+            expect(error?.code).toBe("qa_unconfigured");
+            expect(error?.message).not.toContain(pasted);
+        }
+        expect(() => parseQaConfig({model: {...model, apiKey: pasted}}, " 测试 ")).toThrow(QaError);
+        expect(() => parseQaConfig({model, extra: 1}, " 测试 ")).toThrow(QaError);
+    });
+
+    test("带 expect 的写入：同时两个只有一个成功，另一个 config_conflict；成功返回的摘要就是磁盘上的", async () => {
+        const path = join(root, `cas-${Math.random()}`, "config.json");
+        const first = await saveQaConfig(path, {model});
+        for (let round = 0; round < 5; round += 1) {
+            const current = (await saveQaConfig(path, {model, qa: {maxChapters: 1 + round}})).digest;
+            const results = await Promise.allSettled([saveQaConfig(path, {model, qa: {maxChapters: 10}}, {expect: current}), saveQaConfig(path, {model, qa: {maxChapters: 11}}, {expect: current})]);
+            const done = results.filter(result => result.status === "fulfilled");
+            const conflicts = results.filter(result => result.status === "rejected" && (result.reason as QaError).code === "config_conflict");
+            expect([done.length, conflicts.length]).toEqual([1, 1]);
+            const written = (done[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof saveQaConfig>>>).value;
+            expect(await loadQaConfig(path)).toEqual(written.config);
+            expect((await readQaConfigFile(path)).digest).toBe(written.digest);
+        }
+        expect(first.digest).not.toBe(ABSENT_CONFIG);
+    });
+
+    test("不带 expect 的并发写入互不踩：每个都成功，磁盘上是其中一份，摘要对得上；不留临时文件", async () => {
+        const dir = join(root, `parallel-${Math.random()}`);
+        const path = join(dir, "config.json");
+        const results = await Promise.all(Array.from({length: 10}, (_, index) => saveQaConfig(path, {model, qa: {maxChapters: index + 1}})));
+        const {config, digest} = await readQaConfigFile(path);
+        expect(results.some(result => result.digest === digest && JSON.stringify(result.config) === JSON.stringify(config))).toBe(true);
+        expect((await readdir(dir)).filter(name => name.endsWith(".tmp"))).toEqual([]);
+    });
+
+    test("读取之后被别处改过（命令行先写了）：再按读到的摘要写报 config_conflict，文件不动", async () => {
+        const path = join(root, `stale-${Math.random()}`, "config.json");
+        await saveQaConfig(path, {model});
+        const seen = await readQaConfigFile(path);
+        await saveQaConfig(path, {model: {...model, id: "命令行改的"}}, {expect: seen.digest});
+        const before = await readFile(path, "utf8");
+        const stale = await saveQaConfig(path, {model: {...model, id: "网页改的"}}, {expect: seen.digest}).catch((error: unknown) => error as QaError);
+        expect((stale as QaError).code).toBe("config_conflict");
+        expect(await readFile(path, "utf8")).toBe(before);
+        // 文件还不存在时，按“不存在”的摘要写成功；之后别人建了文件，同样的期望就冲突。
+        const fresh = join(root, `fresh-${Math.random()}`, "config.json");
+        expect((await currentConfigDigest(fresh))).toBe(ABSENT_CONFIG);
+        await saveQaConfig(fresh, {model}, {expect: ABSENT_CONFIG});
+        expect(((await saveQaConfig(fresh, {model}, {expect: ABSENT_CONFIG}).catch((error: unknown) => error)) as QaError).code).toBe("config_conflict");
     });
 });
