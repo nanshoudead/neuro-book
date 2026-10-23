@@ -98,7 +98,7 @@ describe("SettingsWindow", () => {
         expect(document.body.querySelector("[data-settings-tabs]")).toBeNull();
     });
 
-    it("改值经窗口模型写当前标签那一层；本作品标签下只允许用户层的项不列出，末尾说明", async () => {
+    it("改值经窗口模型写当前标签那一层；本作品标签下沿用的行照常可改、改了才写本作品层；只允许用户层的项不列出，末尾说明", async () => {
         const {host} = await scene("user");
         segment(appearanceSetting.key, "深色").click();
         await flushPromises();
@@ -111,7 +111,27 @@ describe("SettingsWindow", () => {
         expect(host.window.layer.value).toBe("project");
         expect(document.body.querySelector("[data-settings-row='nbook.settings/locale']")).toBeNull();
         expect(one("[data-settings-excluded]").textContent).toBe("界面语言仅可在用户设置中修改");
-        expect(one(`[data-settings-row="${themeSetting.key}"]`).dataset.settingsRowState).toBe("inherit");
+        // 沿用的行照常画控件、显示用户层的值，标“来自用户设置”（输出 12）
+        const theme = one(`[data-settings-row="${themeSetting.key}"]`);
+        expect(theme.dataset.settingsRowState).toBe("inherit");
+        expect(theme.querySelector("[data-settings-row-inherited]")?.textContent).toBe("来自用户设置");
+        const inherited = selected(themeSetting.key);
+        const userBefore = host.user.values();
+        const projectBefore = host.project?.values();
+        // 点已选中的那一项不写：不会因为点一下就变成本作品单独设置的（分段控件对已选中的项不发改值）
+        segment(themeSetting.key, inherited ?? "").click();
+        await flushPromises();
+        expect(host.project?.values()).toEqual(projectBefore);
+        expect(theme.dataset.settingsRowState).toBe("inherit");
+        // 改成别的值就写进本作品层，用户层不变
+        const other = choices(themeSetting.key).map(choiceName).find((name) => name !== inherited) ?? "";
+        segment(themeSetting.key, other).click();
+        await flushPromises();
+        expect(host.project?.values()).toHaveProperty([themeSetting.key]);
+        expect(host.user.values()).toEqual(userBefore);
+        expect(selected(themeSetting.key)).toBe(other);
+        expect(theme.dataset.settingsRowState).toBe("edit");
+        expect(theme.querySelector("[data-settings-row-inherited]")).toBeNull();
     });
 
     it("写入失败：发通知，控件回到层里的实际值；结果未知另有提示", async () => {

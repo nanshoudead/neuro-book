@@ -6,8 +6,8 @@
  * 要说明的事：
  * - “用户”标签下改的是用户层：添加、下移、改名都写进 `<状态根>/settings.json`；名字为空不合 schema，写入被拒，
  *   页面在状态行里写出原因，输入框回到文件里的值。
- * - “本作品”标签下本作品层没写：页面沿用用户设置、控件停用；“在本作品里单独设置”把用户层的列表复制进本作品层，
- *   之后的删除只改本作品层；“移除本作品的设置”删掉本作品层的键，又回到沿用。
+ * - “本作品”标签下本作品层没写：页面显示用户设置的列表、标“来自用户设置”，编辑器照常可用；第一次删除把删好的整份
+ *   列表写进本作品层，用户层不变；“移除本作品的设置”删掉本作品层的键，又回到沿用。
  *
  * 场地：`nbook.settings` 的多实例场地（`src/plugins/settings/testing/world.ts`）——服务端、项目 `book` 与绑定它的窗口，
  * 每层的拥有者读写场景临时目录里的真实文件。不用示例自己的 `testing/stage.ts`：它装了 `nbook.storage`，SQLite 只在
@@ -135,7 +135,7 @@ describe("片段设置页", () => {
         expect((await namesIn(world.userFile))?.[3]).toBe("落款");
     });
 
-    it("“本作品”标签：沿用时控件停用；单独设置复制用户层的列表，删除只改本作品层；移除后本作品层清空，回到沿用", async () => {
+    it("“本作品”标签：沿用时编辑器照常可用；第一次删除把删好的整份列表写进本作品层，用户层不变；移除后本作品层清空，回到沿用", async () => {
         const {world, wrapper, layer} = await openPage();
         await wrapper.find("[data-snippets-editor] > button").trigger("click");
         await waitUntil("用户层先有四条", async () => (await namesIn(world.userFile))?.length === 4);
@@ -145,17 +145,16 @@ describe("片段设置页", () => {
         await flushPromises();
         const row = () => wrapper.find("[data-settings-row]");
         expect(row().attributes("data-settings-row-state")).toBe("inherit");
+        expect(wrapper.find("[data-settings-row-inherited]").text()).toBe("来自用户设置");
         expect(wrapper.findAll("[data-snippet]")).toHaveLength(4);
-        expect(wrapper.find<HTMLInputElement>("[data-snippet='0'] input").element.disabled).toBe(true);
-
-        await wrapper.find("[data-settings-row-override]").trigger("click");
-        await waitUntil("单独设置写进本作品层", async () => (await namesIn(world.projectFile)) !== null);
-        expect(await namesIn(world.projectFile)).toEqual(["开场白", "场景转换", "章末钩子", "新片段"]);
-        await waitUntil("控件可用", () => row().attributes("data-settings-row-state") === "edit");
+        expect(wrapper.find<HTMLInputElement>("[data-snippet='0'] input").element.disabled).toBe(false);
 
         await wrapper.find("[data-snippet='0'] button[aria-label='删除']").trigger("click");
-        await waitUntil("删除写进本作品层", async () => (await namesIn(world.projectFile))?.length === 3);
+        await waitUntil("删好的整份列表写进本作品层", async () => (await namesIn(world.projectFile)) !== null);
+        expect(await namesIn(world.projectFile)).toEqual(["场景转换", "章末钩子", "新片段"]);
         expect(await namesIn(world.userFile)).toEqual(["开场白", "场景转换", "章末钩子", "新片段"]);
+        await waitUntil("本作品写了", () => row().attributes("data-settings-row-state") === "edit");
+        expect(wrapper.find("[data-settings-row-inherited]").exists()).toBe(false);
 
         await wrapper.find("[data-settings-row-remove]").trigger("click");
         await waitUntil("本作品层的键删掉", async () => (await namesIn(world.projectFile)) === null);

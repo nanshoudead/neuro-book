@@ -1,14 +1,14 @@
 <script setup lang="ts">
 /**
- * 设置的一行（同名 .md）：按配置服务的 `inspect` 与当前标签算出控件、沿用说明、已修改、覆盖提示与停用；三种动作经传入的
- * 配置服务写这一层。规则见 docs/specs/settings/settings-window.md 输出 9–13、18。
+ * 设置的一行（同名 .md）：按配置服务的 `inspect` 与当前标签算出控件、沿用标签、已修改、覆盖提示与停用；恢复默认与移除
+ * 本作品的设置经传入的配置服务写这一层。规则见 docs/specs/settings/settings-window.md 输出 9–13、18。
  */
-import {Button, IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, ref, useId} from "vue";
 
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
-import type {DeepReadonly, SettingDefinition, SettingLayer, SettingsFailure, SettingsService} from "nbook/shared/settings";
+import type {SettingDefinition, SettingLayer, SettingsFailure, SettingsService} from "nbook/shared/settings";
 
 import {isReadOnlySetting, projectOverride, settingsRowState} from "./row-state";
 import type {SettingsRowReason} from "./row-state";
@@ -33,7 +33,7 @@ const props = withDefaults(defineProps<{
     highlight?: ReadonlyArray<string>;
 }>(), {projectTitle: null, wide: false, reasons: () => [], highlight: () => []});
 
-type RowAction = "reset" | "override" | "remove";
+type RowAction = "reset" | "remove";
 
 const emit = defineEmits<{
     (event: "write-failed", failure: {action: RowAction; code: SettingsFailure; detail: string}): void;
@@ -41,16 +41,17 @@ const emit = defineEmits<{
 
 defineSlots<{
     /**
-     * `id` 给控件，行的 `<label for>` 指向它；组合控件（单选组、复选组）拿不到 `<label for>` 的名字，用 `labelId` 作
-     * `aria-labelledby`。`describedby` 是行里生效时机、说明与状态原因的 id，都没有时为 undefined。
+     * `value` 是这一层此刻显示的值：写了取这一层，本作品标签下没写取用户层的（沿用）。控件改值由调用方写当前标签那一层，
+     * 所以沿用的行一改就写进本作品层。`id` 给控件，行的 `<label for>` 指向它；组合控件（单选组、复选组）拿不到
+     * `<label for>` 的名字，用 `labelId` 作 `aria-labelledby`。`describedby` 是行里沿用标签、生效时机、说明与状态原因的
+     * id，都没有时为 undefined。
      */
     default(props: {value: unknown; disabled: boolean; id: string; label: string; labelId: string; describedby: string | undefined}): unknown;
 }>();
 
 const TEXT = {
     reset: {"zh-CN": "恢复默认", "en-US": "Reset to Default"},
-    inherit: {"zh-CN": "沿用用户设置：{value}", "en-US": "Using your setting: {value}"},
-    override: {"zh-CN": "单独设置", "en-US": "Set Separately"},
+    inherited: {"zh-CN": "来自用户设置", "en-US": "From your settings"},
     remove: {"zh-CN": "移除本作品的设置", "en-US": "Remove Book Setting"},
     modified: {"zh-CN": "已修改", "en-US": "Modified"},
     readOnly: {"zh-CN": "只读", "en-US": "Read-only"},
@@ -70,6 +71,7 @@ const text = (template: LocalizedText, params: Readonly<Record<string, string>> 
 const controlId = useId();
 const labelId = `${controlId}-label`;
 const descriptionId = `${controlId}-description`;
+const inheritedId = `${controlId}-inherited`;
 const appliesId = `${controlId}-applies`;
 const reasonsId = `${controlId}-reasons`;
 const declaration = computed(() => props.setting.declaration);
@@ -84,12 +86,17 @@ const readOnly = computed(() => isReadOnlySetting(declaration.value));
 const reasonTone = computed(() => props.reasons.reduce<SettingsRowReason["tone"] | null>((worst, reason) => (worst === null || SEVERITY[reason.tone] > SEVERITY[worst] ? reason.tone : worst), null));
 /** 行自己要念的原因：控件已经念过的（`announced`）不再写一份。 */
 const reasonsText = computed(() => props.reasons.filter((reason) => reason.announced !== true).map((reason) => reason.text).join("；"));
-const describedby = computed(() => [applies.value === null ? null : appliesId, description.value === null ? null : descriptionId, reasonsText.value === "" ? null : reasonsId].filter((id) => id !== null).join(" ") || undefined);
+/**
+ * 本作品标签下沿用用户层的值：标题后一枚描边标签（输出 12）。只能写在本作品层的项没写时显示的是默认值，不是“来自用户设置”，
+ * 和用户标签里没写的项一样不标。
+ */
+const inheritsUser = computed(() => state.value.kind === "inherit" && declaration.value.layers.includes("user"));
+const describedby = computed(() => [inheritsUser.value ? inheritedId : null, applies.value === null ? null : appliesId, description.value === null ? null : descriptionId, reasonsText.value === "" ? null : reasonsId].filter((id) => id !== null).join(" ") || undefined);
 const modified = computed(() => state.value.kind === "edit" && state.value.written);
 /** 标题后的“已修改”圆点与最右一格的恢复默认：只读的项没有这两样，值改不了，也没有“默认”可回。 */
 const marked = computed(() => modified.value && !readOnly.value);
 const blocked = computed(() => state.value.kind !== "not-allowed" && state.value.blocked);
-/** 此刻这一层显示的值：写了取这一层，没写取下一层；只读行用它写出来。 */
+/** 此刻这一层显示的值：写了取这一层，没写取下一层；控件与只读行都用它。 */
 const shown = computed(() => (state.value.kind === "edit" ? state.value.value : state.value.kind === "inherit" ? state.value.inherited : undefined));
 const valueText = (value: unknown): string => settingValueText(declaration.value, value, props.locale);
 /** 最右一格的动作：用户标签是“恢复默认”，本作品标签是“移除本作品的设置”，同一个图标按钮。 */
@@ -117,10 +124,9 @@ async function run(action: RowAction): Promise<void> {
     if (busy.value !== null || current.kind === "not-allowed" || current.blocked) return;
     busy.value = action;
     try {
+        // 两种动作都是删掉这一层的键：恢复默认删当前层，移除本作品的设置删本作品层。
         const layer: SettingLayer = action === "reset" ? props.layer : "project";
-        // 单独设置写的是此刻沿用的值；配置服务写入前会复制一份，冻结的读取结果可以直接交出去。
-        const value = action === "override" && current.kind === "inherit" ? current.inherited as DeepReadonly<unknown> : undefined;
-        const result = await props.settings.update(props.setting, value, {layer});
+        const result = await props.settings.update(props.setting, undefined, {layer});
         if (!result.ok) emit("write-failed", {action, code: result.code, detail: result.detail});
     } finally {
         busy.value = null;
@@ -152,7 +158,8 @@ async function run(action: RowAction): Promise<void> {
                             <span v-for="(reason, index) in reasons" :key="index" class="settings-row__reason-line" :data-tone="reason.tone" data-settings-row-reason-line>{{ reason.text }}</span>
                         </template>
                     </Tooltip>
-                    <!-- 生效时机不在 `<label>` 里：它不是控件的名字，经 `describedby` 当说明念（审查 S5 Sonnet 3）。 -->
+                    <!-- 沿用标签与生效时机不在 `<label>` 里：它们不是控件的名字，经 `describedby` 当说明念（审查 S5 Sonnet 3）。 -->
+                    <span v-if="inheritsUser" :id="inheritedId" class="settings-row__inherited" data-settings-row-inherited>{{ text(TEXT.inherited) }}</span>
                     <span v-if="applies !== null" :id="appliesId" class="settings-row__applies">{{ applies }}</span>
                 </div>
                 <p v-if="description !== null" :id="descriptionId" class="settings-row__description"><HighlightedText :text="description" :words="highlight" /></p>
@@ -162,16 +169,10 @@ async function run(action: RowAction): Promise<void> {
                 控件另起一行（见下面的 `__wide`）。
             -->
             <div class="settings-row__control" :data-settings-row-head="wide ? '' : undefined">
-                <div v-if="readOnly || state.kind !== 'edit' || !wide" class="settings-row__field" @focusin="onFocusIn" @focusout="onFocusOut">
-                    <template v-if="state.kind === 'not-allowed'">
-                        <span class="settings-row__inherit">{{ text(layer === "project" ? TEXT.userOnly : TEXT.projectOnly) }}</span>
-                    </template>
+                <div v-if="state.kind === 'not-allowed' || readOnly || !wide" class="settings-row__field" @focusin="onFocusIn" @focusout="onFocusOut">
+                    <span v-if="state.kind === 'not-allowed'" class="settings-row__not-allowed">{{ text(layer === "project" ? TEXT.userOnly : TEXT.projectOnly) }}</span>
                     <span v-else-if="readOnly" class="settings-row__value" data-settings-row-value>{{ valueText(shown) }}</span>
-                    <slot v-else-if="state.kind === 'edit'" :value="state.value" :disabled="blocked" :id="controlId" :label="title" :labelId="labelId" :describedby="describedby" />
-                    <template v-else>
-                        <span class="settings-row__inherit" data-settings-row-inherited>{{ text(TEXT.inherit, {value: valueText(state.inherited)}) }}</span>
-                        <Button variant="secondary" size="sm" :disabled="blocked || busy !== null" data-settings-row-override @click="run('override')">{{ text(TEXT.override) }}</Button>
-                    </template>
+                    <slot v-else :value="shown" :disabled="blocked" :id="controlId" :label="title" :labelId="labelId" :describedby="describedby" />
                 </div>
                 <span class="settings-row__cell" data-settings-row-cell>
                     <Tooltip v-if="readOnly && state.kind !== 'not-allowed'" :text="text(TEXT.readOnly)">
@@ -191,9 +192,8 @@ async function run(action: RowAction): Promise<void> {
                 </span>
             </div>
         </div>
-        <!-- 宽控件沿用时也画出来、停用：列表这类值一句摘要说不清沿用的是什么。 -->
         <div v-if="wide && !readOnly && state.kind !== 'not-allowed'" class="settings-row__wide" data-settings-row-wide @focusin="onFocusIn" @focusout="onFocusOut">
-            <slot :value="state.kind === 'edit' ? state.value : state.inherited" :disabled="state.kind === 'edit' ? blocked : true" :id="controlId" :label="title" :labelId="labelId" :describedby="describedby" />
+            <slot :value="shown" :disabled="blocked" :id="controlId" :label="title" :labelId="labelId" :describedby="describedby" />
         </div>
         <!-- 读屏用：状态原因的文字，看得见的是标题后的图标与提示。 -->
         <span v-if="reasonsText !== ''" :id="reasonsId" class="settings-row__sr-only" data-settings-row-reasons>{{ reasonsText }}</span>
@@ -318,6 +318,20 @@ async function run(action: RowAction): Promise<void> {
     color: var(--text-secondary);
 }
 
+/*
+ * 沿用标签（输出 12）：描边不填色，和填色的生效时机标签分得开；字号同它。描边占掉上下各一条线，行高少两条，外高仍是
+ * 说明那一行的高度。
+ */
+.settings-row__inherited {
+    padding: 0 var(--space-3);
+    border: var(--border-w) solid var(--divider);
+    border-radius: var(--radius-pill);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-normal);
+    line-height: calc(var(--settings-row-description-h) - 2 * var(--border-w));
+    color: var(--text-muted);
+}
+
 .settings-row__description {
     margin: 0;
     font-size: var(--text-xs);
@@ -379,17 +393,11 @@ async function run(action: RowAction): Promise<void> {
     height: var(--settings-row-title-h);
 }
 
-.settings-row--wide .settings-row__inherit {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
 .settings-row__wide {
     min-width: 0;
 }
 
-.settings-row__inherit {
+.settings-row__not-allowed {
     min-width: 0;
     font-size: var(--text-sm);
     line-height: var(--settings-line-ui);

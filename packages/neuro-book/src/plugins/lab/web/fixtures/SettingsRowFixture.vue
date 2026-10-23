@@ -56,7 +56,7 @@ onBeforeUnmount(() => host.dispose());
 
 const bindings = computed(() => subject.bindings.value);
 const setting = computed(() => bindings.value.setting);
-/** 声明者自己的配置服务：恢复默认、单独设置与控件改值都只写它声明的这一项。 */
+/** 声明者自己的配置服务：恢复默认、移除本作品的设置与控件改值都只写它声明的这一项。 */
 const settings = computed(() => host.service(SETTINGS.find((entry) => entry.definition.key === setting.value.key)?.plugin ?? "nbook.workbench"));
 const form = computed(() => settingForm(setting.value.declaration));
 

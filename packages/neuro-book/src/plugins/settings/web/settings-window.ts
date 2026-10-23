@@ -227,7 +227,7 @@ export interface SettingsWindow {
     write(setting: WindowSetting, value: unknown): Promise<void>;
     /** 这一项在当前标签下正在写入的值；没有在写为 undefined。 */
     pending(key: string): {readonly value: unknown} | undefined;
-    /** `SettingsRow` 自己的写入（恢复默认、单独设置、移除）没有成功。 */
+    /** `SettingsRow` 自己的写入（恢复默认、移除本作品的设置）没有成功。 */
     rowFailed(setting: WindowSetting, failure: {readonly code: SettingsFailure; readonly detail: string}): void;
     page(sectionId: string): SettingsPageView;
     reloadPage(sectionId: string): void;

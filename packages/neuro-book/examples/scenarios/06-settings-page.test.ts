@@ -154,7 +154,8 @@ describe("场景 6：设置的 page 分区", () => {
         expect(settings.inspect(itemsSetting).user).toMatchObject({status: "ok", value: [{name: "开场白"}, {name: "场景转换"}, {name: "章末钩子"}, {name: "落款", text: ""}]});
         expect(settings.inspect(itemsSetting).source).toBe("user");
 
-        // “本作品”标签下单独设置：写本作品层。用户层不变，有效值整个换成本作品的列表（层之间不合并）。
+        // “本作品”标签下改列表：写本作品层（沿用时第一次改也一样，交来的是改好的整份列表）。用户层不变，有效值整个换成
+        // 本作品的列表（层之间不合并）。
         const own = moveSnippet([{name: "旁白", text: "雾从港口漫上来。"}, {name: "落款", text: "——写于雾港"}], 1, -1);
         expect(await saveSnippets(settings, "project", own)).toEqual({ok: true});
         const inspected = settings.inspect(itemsSetting);

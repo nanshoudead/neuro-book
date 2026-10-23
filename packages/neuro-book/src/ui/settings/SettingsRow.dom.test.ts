@@ -1,6 +1,6 @@
 /**
  * SettingsRow（同名 .md，docs/specs/settings/settings-window.md 输出 9–13、18）：按配置服务与标签算出已修改、恢复默认、
- * 覆盖提示、沿用与单独设置、只读、状态原因、停用。配置服务来自设置场景的局部宿主：产品里同一个配置实例，层的拥有者在
+ * 覆盖提示、沿用标签、只读、状态原因、停用。配置服务来自设置场景的局部宿主：产品里同一个配置实例，层的拥有者在
  * 内存里（同 Lab）。排版（控件靠右、右缘对齐、换行、行高）靠样式，真实布局由 Component Lab 的 Playwright 截图看。
  */
 
@@ -102,22 +102,29 @@ describe("SettingsRow", () => {
         expect(row(created, themeSetting as SettingDefinition<unknown>, "user").find("[data-settings-row-overridden]").exists()).toBe(false);
     });
 
-    it("本作品标签：没写时沿用用户设置，“单独设置”写进本作品层；写了有小圆点与控件，最右一格的“移除本作品的设置”回到沿用", async () => {
+    it("本作品标签：没写时照常画控件、显示用户层的值，标题后标“来自用户设置”；写了有小圆点、没有标签，最右一格的“移除本作品的设置”回到沿用", async () => {
         const created = host({user: {values: {"nbook.workbench/theme": "macos"}}, project: {}});
         await flushPromises();
         const wrapper = row(created, themeSetting as SettingDefinition<unknown>, "project");
         expect(wrapper.attributes("data-settings-row-state")).toBe("inherit");
-        expect(wrapper.find("[data-settings-row-inherited]").text()).toBe("沿用用户设置：macOS");
-        expect(wrapper.find("[data-settings-row-override]").text()).toBe("单独设置");
-        expect(slotOf(wrapper).exists()).toBe(false);
+        const tag = wrapper.get("[data-settings-row-inherited]");
+        expect(tag.text()).toBe("来自用户设置");
+        // 标签不是控件的名字：不在 label 里，经 describedby 念
+        expect(wrapper.get("label").text()).toBe("主题");
+        expect((slotOf(wrapper).attributes("data-describedby") ?? "").split(" ")).toContain(tag.attributes("id"));
+        expect(slotOf(wrapper).text()).toBe("\"macos\"");
+        expect(slotOf(wrapper).attributes("data-disabled")).toBe("false");
         expect(dotOf(wrapper).exists()).toBe(false);
         expect(cellOf(wrapper).element.children).toHaveLength(0);
-        await wrapper.find("[data-settings-row-override]").trigger("click");
+        // 控件改值由调用方写当前标签那一层（产品里是窗口模型）：写进本作品层后行变成“写了”
+        await created.service("nbook.workbench").update(themeSetting, "nbook", {layer: "project"});
         await flushPromises();
-        expect(created.project?.values()).toEqual({"nbook.workbench/theme": "macos"});
+        expect(created.project?.values()).toEqual({"nbook.workbench/theme": "nbook"});
+        expect(created.user.values()).toEqual({"nbook.workbench/theme": "macos"});
         expect(wrapper.attributes("data-settings-row-state")).toBe("edit");
         expect(wrapper.attributes("data-settings-row-modified")).toBe("");
-        expect(slotOf(wrapper).text()).toBe("\"macos\"");
+        expect(wrapper.find("[data-settings-row-inherited]").exists()).toBe(false);
+        expect(slotOf(wrapper).text()).toBe("\"nbook\"");
         // 写了的项：小圆点，“移除本作品的设置”与“恢复默认”同一个图标按钮、放在最右一格，只是名字不同。
         expect(dotOf(wrapper).exists()).toBe(true);
         const remove = cellOf(wrapper).get("[data-settings-row-remove]");
@@ -128,6 +135,8 @@ describe("SettingsRow", () => {
         await flushPromises();
         expect(created.project?.values()).toEqual({});
         expect(wrapper.attributes("data-settings-row-state")).toBe("inherit");
+        expect(wrapper.find("[data-settings-row-inherited]").exists()).toBe(true);
+        expect(slotOf(wrapper).text()).toBe("\"macos\"");
     });
 
     it("层文件无效时控件停用、显示上一份有效值，动作停用；层连不上同样；恢复后自动解除", async () => {
@@ -162,20 +171,20 @@ describe("SettingsRow", () => {
         expect(slotOf(wrapper).text()).toBe("\"dark\"");
     });
 
-    it("宽排法：控件另起一行，恢复默认在标题那一行，沿用时控件停用；声明不允许这一层时不画控件", async () => {
+    it("宽排法：控件另起一行，恢复默认在标题那一行，沿用时控件照常可用；声明不允许这一层时不画控件", async () => {
         const created = host({user: {values: {"nbook.workbench/appearance": "dark"}}, project: {}});
         await flushPromises();
         const wide = row(created, appearanceSetting as SettingDefinition<unknown>, "user", {wide: true});
         expect(wide.find("[data-settings-row-wide] [data-slot]").exists()).toBe(true);
         expect(wide.find("[data-settings-row-head] [data-settings-row-cell] [data-settings-row-reset]").exists()).toBe(true);
-        // 宽排法沿用时控件也画出来、停用，显示沿用的值。
+        // 宽排法沿用时控件照常画在下一行、可用，显示沿用的值；标题那一行只有标签，右端没有别的东西。
         const inherited = row(created, themeSetting as SettingDefinition<unknown>, "project", {wide: true});
         expect(inherited.attributes("data-settings-row-state")).toBe("inherit");
-        expect(inherited.find("[data-settings-row-wide] [data-slot]").attributes("data-disabled")).toBe("true");
+        expect(inherited.findAll("[data-slot]")).toHaveLength(1);
+        expect(inherited.find("[data-settings-row-wide] [data-slot]").attributes("data-disabled")).toBe("false");
         expect(inherited.find("[data-settings-row-wide] [data-slot]").text()).toBe("\"nbook\"");
-        // 宽排法沿用时，“沿用用户设置”与“单独设置”在标题那一行的右端。
-        expect(inherited.find("[data-settings-row-head] [data-settings-row-inherited]").exists()).toBe(true);
-        expect(inherited.find("[data-settings-row-head] [data-settings-row-override]").exists()).toBe(true);
+        expect(inherited.find("[data-settings-row-inherited]").exists()).toBe(true);
+        expect(inherited.get("[data-settings-row-head]").text()).toBe("");
         const notAllowed = row(created, localeSetting as SettingDefinition<unknown>, "project");
         expect(notAllowed.attributes("data-settings-row-state")).toBe("not-allowed");
         expect(notAllowed.text()).toContain("仅可在用户设置中修改");
@@ -254,7 +263,7 @@ describe("SettingsRow", () => {
         expect(tooltipLines()).toEqual([]);
     });
 
-    it("只读：不画控件，只写当前值，最右一格放锁；没有已修改圆点与恢复默认，本作品标签也不给单独设置", async () => {
+    it("只读：不画控件，只写当前值，最右一格放锁；没有已修改圆点与恢复默认；本作品标签下沿用时也标“来自用户设置”", async () => {
         const created = host({user: {values: {"example.rows/library": "other-book"}}, project: {}});
         await flushPromises();
         const user = row(created, readOnlySetting as SettingDefinition<unknown>, "user");
@@ -267,7 +276,8 @@ describe("SettingsRow", () => {
 
         const project = row(created, readOnlySetting as SettingDefinition<unknown>, "project");
         expect(project.get("[data-settings-row-value]").text()).toBe("other-book");
-        expect(project.find("[data-settings-row-override]").exists()).toBe(false);
+        expect(project.get("[data-settings-row-inherited]").text()).toBe("来自用户设置");
+        expect(slotOf(project).exists()).toBe(false);
         expect(cellOf(project).find("[data-settings-row-lock]").exists()).toBe(true);
     });
 });

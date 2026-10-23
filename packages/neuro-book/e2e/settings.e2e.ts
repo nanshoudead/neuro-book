@@ -302,9 +302,10 @@ test("用户标签改主题，两个页面即时变化；本作品标签单独�
     await a.locator("[data-settings-tabs]").getByRole("radio", {name: "本作品"}).click();
     const appearance = row(a, "nbook.workbench/appearance");
     await expect(appearance).toHaveAttribute("data-settings-row-state", "inherit");
-    await appearance.locator("[data-settings-row-override]").click();
-    await expect(appearance).toHaveAttribute("data-settings-row-state", "edit");
+    await expect(appearance.locator("[data-settings-row-inherited]")).toHaveText("来自用户设置");
+    // 沿用的行照常可改，改了就写进本作品层
     await appearance.getByRole("radio", {name: "深色"}).click();
+    await expect(appearance).toHaveAttribute("data-settings-row-state", "edit");
     await expect.poll(() => readSettings(projectFile())).toEqual({"nbook.workbench/appearance": "dark"});
     await expect.poll(() => html(b, "data-nb-appearance")).toBe("dark");
 

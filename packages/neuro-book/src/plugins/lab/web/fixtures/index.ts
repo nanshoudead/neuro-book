@@ -1083,7 +1083,7 @@ function settingsFixtures(): LabFixture[] {
             scenes: [
                 {id: "modified", label: "用户层已修改", input: {props: row(appearanceSetting, "user")}},
                 {id: "overridden", label: "被本作品覆盖", input: {props: row(appearanceSetting, "user")}},
-                {id: "inherit", label: "本作品标签：沿用用户设置", input: {props: row(themeSetting, "project")}},
+                {id: "inherit", label: "本作品标签：沿用（来自用户设置）", input: {props: row(themeSetting, "project")}},
                 {id: "project-set", label: "本作品标签：单独设置了", input: {props: row(appearanceSetting, "project")}},
                 {id: "invalid", label: "层文件有错误（停用）", input: {props: row(appearanceSetting, "user")}},
                 {id: "unreachable", label: "层连不上（停用）", input: {props: row(appearanceSetting, "user")}},

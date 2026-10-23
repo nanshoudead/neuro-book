@@ -147,7 +147,7 @@ export type SettingsWindowSceneId =
 
 export const SETTINGS_WINDOW_SCENES: ReadonlyArray<{readonly id: SettingsWindowSceneId; readonly label: string}> = [
     {id: "user", label: "用户标签：已修改、被本作品覆盖"},
-    {id: "project", label: "本作品标签：沿用、单独设置、只能用户层的项"},
+    {id: "project", label: "本作品标签：沿用（来自用户设置）、单独设置了、只能用户层的项"},
     {id: "unbound", label: "未绑定作品（没有标签）"},
     {id: "user-invalid", label: "用户层文件有错误"},
     {id: "project-invalid", label: "本作品层文件有错误（带路径）"},
