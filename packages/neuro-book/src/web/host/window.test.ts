@@ -42,6 +42,7 @@ import {projectProbeContract, remoteProbeContract, remoteProbeDescriptor} from "
 
 import {browserHostPlugins, browserPluginDefinitions, builtinBrowserPlugins} from "../plugins";
 import {createConnection} from "./connection";
+import type {PluginDocument, PluginLink, PluginScript} from "./plugin-code";
 import {createBrowserWindow} from "./window";
 import type {BrowserWindowOptions, WindowState} from "./window";
 
@@ -117,6 +118,52 @@ function pagePlugin(id: string, path: string): {descriptor: PluginDescriptor; de
                 contributions: [{capability: "workbench.pages", id: path, declaration: {path, title: id}}],
                 activate: () => ({contributions: {"workbench.pages": {[path]: {load: async () => TestPage}}}}),
             }],
+        },
+    };
+}
+
+/**
+ * 只放样式表的假页面（Bun 里没有 DOM），按 `PluginDocument` 写：`attached` 是还挂在 head 里的样式表，`failStyles` 让它们按
+ * 浏览器的样子派发 error 事件（文件取不到）。窗口不装第三方入口代码时不插脚本。
+ */
+function styleDocument() {
+    const head: Array<PluginLink & {readonly failed: Array<() => void>}> = [];
+    function createElement(tag: "script"): PluginScript;
+    function createElement(tag: "link"): PluginLink;
+    function createElement(tag: "script" | "link"): PluginScript | PluginLink {
+        if (tag === "script") throw new Error("这些用例不装第三方入口代码");
+        const failed: Array<() => void> = [];
+        const link = {
+            rel: "",
+            href: "",
+            dataset: {} as Record<string, string | undefined>,
+            failed,
+            addEventListener: (_type: "error", listener: () => void) => {
+                failed.push(listener);
+            },
+            remove: () => {
+                const at = head.indexOf(link);
+                if (at >= 0) head.splice(at, 1);
+            },
+        };
+        return link;
+    }
+    const document: PluginDocument = {
+        baseURI: "http://localhost/",
+        head: {
+            append(node) {
+                if (!("rel" in node)) throw new Error("这些用例不装第三方入口代码");
+                head.push(node as PluginLink & {readonly failed: Array<() => void>});
+            },
+        },
+        defaultView: null,
+        createElement,
+    };
+    return {
+        document,
+        attached: () => head.map((link) => ({rel: link.rel, href: link.href, plugin: link.dataset.nbookPluginStyle})),
+        failStyles: () => {
+            for (const link of [...head]) for (const listener of link.failed) listener();
         },
     };
 }
@@ -338,6 +385,27 @@ describe("窗口运行实例", () => {
         await unreadable.start();
         expect(failureOf(unreadable.state)).toMatchObject({status: "incompatible", reason: expect.stringContaining("example.notes@2.0.0")});
         broken.stop();
+    });
+
+    it("第三方插件的样式表：窗口登记插件时就加入，加载失败记一条诊断，窗口停止后移除（plugin-code-loading 输出 2）", async () => {
+        const page = styleDocument();
+        const warnings: unknown[] = [];
+        const capture: DiagnosticsConsole = {error: () => undefined, warn: (_text, record) => warnings.push(record)};
+        const manifest = {publisher: "example", name: "styled", version: "1.0.0", engines: {neurobook: ">=0.1.0"}, style: "style.css"};
+        const files = "/api/runtime/plugins/example.styled/files/0123456789abcdef/";
+        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins: [...builtinBrowserPlugins.map(({id, version}) => ({id, version})), {id: "example.styled", version: "1.0.0", manifest, files}]}));
+        const {browserWindow} = openWindow({url: stub.url, document: page.document, console: capture});
+        await browserWindow.start();
+        expect(browserWindow.state.status).toBe("ready");
+        expect(page.attached()).toEqual([{rel: "stylesheet", href: `${files}style.css`, plugin: "example.styled"}]);
+
+        page.failStyles();
+        await waitUntil("样式表失败的诊断", () => warnings.find((record) => (record as {event?: string}).event === "browser-host.plugin.style-failed"));
+        expect(warnings).toContainEqual(expect.objectContaining({event: "browser-host.plugin.style-failed", data: {plugin: "example.styled", url: `${files}style.css`}}));
+
+        await browserWindow.stop();
+        expect(page.attached()).toEqual([]);
+        stub.stop();
     });
 
     it("宿主适配器的表只收适配器：普通插件放进去编译不过", () => {

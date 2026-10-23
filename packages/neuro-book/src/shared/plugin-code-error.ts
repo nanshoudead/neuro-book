@@ -18,8 +18,9 @@ export class PluginCodeError extends Error {
     /** 浏览器里是文件 URL，服务端是安装目录里的相对路径。 */
     readonly url: string;
 
-    constructor(code: PluginCodeFailure, input: {readonly plugin: string; readonly entry: string; readonly url: string; readonly detail: string}) {
-        super(`${code}：插件 ${input.plugin} 的入口 ${input.entry}（${input.url}）${input.detail}`);
+    /** `cause` 是底层的失败（例如宿主模块表的动态导入失败），随错误保留，诊断能看到原始错误。 */
+    constructor(code: PluginCodeFailure, input: {readonly plugin: string; readonly entry: string; readonly url: string; readonly detail: string; readonly cause?: unknown}) {
+        super(`${code}：插件 ${input.plugin} 的入口 ${input.entry}（${input.url}）${input.detail}`, input.cause === undefined ? undefined : {cause: input.cause});
         this.name = "PluginCodeError";
         this.code = code;
         this.plugin = input.plugin;
