@@ -120,6 +120,47 @@ export async function startReplay(): Promise<ReplayServer> {
     };
 }
 
+/** 问答页 e2e 用的模型端点（testing/qa-endpoint-server.ts）。回复的形状同 testing/openai-endpoint.ts 的 EndpointReply。 */
+export interface QaEndpoint {
+    url: string;
+    /** 换一份脚本：之后的请求按顺序回复。 */
+    script(replies: unknown[]): Promise<void>;
+    /** 之后的请求先等着，直到 release。 */
+    hold(): Promise<void>;
+    release(): Promise<void>;
+    seen(): Promise<number>;
+    stop(): Promise<void>;
+}
+
+export async function startQaEndpoint(): Promise<QaEndpoint> {
+    const child = spawn("bun", [join(PACKAGE, "testing", "qa-endpoint-server.ts")], {stdio: ["ignore", "pipe", "pipe"]});
+    let output = "";
+    const exited = new Promise<void>(resolve => child.on("exit", () => resolve()));
+    const [url, control] = await new Promise<[string, string]>((resolve, reject) => {
+        child.stdout.on("data", chunk => {
+            output += chunk;
+            const match = /^ready (\S+) (\S+)$/mu.exec(output);
+            if (match) resolve([match[1]!, match[2]!]);
+        });
+        child.stderr.on("data", chunk => (output += chunk));
+        void exited.then(() => reject(new Error(`问答端点提前退出：${output}`)));
+    });
+    const post = async (path: string, body?: unknown) => {
+        await fetch(`${control}${path}`, {method: "POST", ...(body === undefined ? {} : {body: JSON.stringify(body), headers: {"content-type": "application/json"}})});
+    };
+    return {
+        url,
+        script: replies => post("/script", {replies}),
+        hold: () => post("/hold"),
+        release: () => post("/release"),
+        seen: async () => ((await (await fetch(`${control}/seen`)).json()) as {seen: number}).seen,
+        async stop() {
+            if (child.exitCode === null) child.kill("SIGTERM");
+            await exited;
+        },
+    };
+}
+
 /** 样例书前 `chapters` 章拼回的 TXT 原文（同 testing/sample.ts 的 sampleSourceText；e2e 由 Node 运行，不导入 Bun 的测试工具）。 */
 export async function sampleSourceText(chapters: number): Promise<string> {
     const sample = JSON.parse(gunzipSync(await readFile(join(PACKAGE, "tests", "fixtures", "sample-100ch.json.gz"))).toString("utf8")) as {sources: {paragraphs: string[]}[]};

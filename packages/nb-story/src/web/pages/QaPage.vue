@@ -115,6 +115,10 @@ const brokenIds = computed(() => new Set(broken.value.map(item => item.id)));
 
 // ---- 选中的对话与它的数据源 ----
 const selectedId = computed(() => book.qaConversation.value);
+/** 正在发起一轮（qa.start 还没返回）。 */
+const starting = ref(false);
+/** 发起、停止或删除失败的原因，写在输入框上方；草稿不清。换对话时清掉。 */
+const startError = ref<string | null>(null);
 const sourceState = shallowRef<QaSourceState | null>(null);
 let source: QaSource | null = null;
 watch(
@@ -154,8 +158,6 @@ function setComposer(next: ComposerView): void {
     composer.value = next;
 }
 
-const starting = ref(false);
-const startError = ref<string | null>(null);
 const removeOpen = ref(false);
 const listOpen = ref(false);
 
