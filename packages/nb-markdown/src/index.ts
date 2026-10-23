@@ -1,0 +1,11 @@
+/**
+ * `@notnotype/nb-markdown` 的纯 TS 入口：不引 DOM 与编辑内核，浏览器与后端（字数）都能用。语言与编解码器、组件在各自的
+ * 入口里（见包的 README）。
+ */
+
+export * from "./link-syntax";
+export * from "./markdown-dialect";
+export {say} from "./locale";
+export type {MarkdownLocale, MarkdownText} from "./locale";
+export {classifyScheme, decodeTarget, lastSegment, pathPart, schemeOf, schemeTargets} from "./targets";
+export type {MarkdownTargets, Target, TargetKind} from "./targets";

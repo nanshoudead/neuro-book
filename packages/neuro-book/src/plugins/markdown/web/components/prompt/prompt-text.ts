@@ -5,7 +5,7 @@
  * 引用、图片与文件的写法是 Markdown 的行内链接，按 `../../../shared/link-syntax.ts` 认，与编辑器、展示器对链接的判断一致。
  */
 
-import {findInlineLinks, unescapeMarkdown, writeInlineLink} from "../../../shared/link-syntax";
+import {findInlineLinks, unescapeMarkdown, writeInlineLink} from "@notnotype/nb-markdown";
 import {classifyTarget, encodeFileTarget} from "../../../shared/targets";
 import {findSelections, parseSelectionText} from "./prompt-selection";
 import type {PromptEditorPastePolicy, PromptEditorToken} from "./prompt-editor.types";

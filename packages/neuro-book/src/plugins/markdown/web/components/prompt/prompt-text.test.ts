@@ -7,7 +7,7 @@
 import {describe, expect, it} from "bun:test";
 import type {Token} from "marked";
 
-import {findInlineLinks} from "../../../shared/link-syntax";
+import {findInlineLinks} from "@notnotype/nb-markdown";
 import {classifyTarget} from "../../../shared/targets";
 import {markdownLanguage} from "../../syntax";
 

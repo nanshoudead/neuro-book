@@ -5,8 +5,7 @@
 
 import type {Mark, Node as PMNode} from "@tiptap/pm/model";
 
-import {writeDestination} from "nbook/plugins/markdown/shared/link-syntax";
-import {LONE_TAG, OPENS_HTML_BLOCK} from "nbook/plugins/markdown/shared/markdown-dialect";
+import {LONE_TAG, OPENS_HTML_BLOCK, writeDestination} from "@notnotype/nb-markdown";
 
 import type {BlockWriter, InlineWriter, MarkWriter, WriteContext} from "../types";
 import {normalizeLabel, Unrepresentable} from "../types";

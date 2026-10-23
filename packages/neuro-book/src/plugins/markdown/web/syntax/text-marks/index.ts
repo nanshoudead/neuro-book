@@ -12,7 +12,7 @@ import {Mark, mergeAttributes} from "@tiptap/core";
 import type {Mark as PMMark} from "@tiptap/pm/model";
 import type {MarkedExtension, Token, Tokens} from "marked";
 
-import {escapeAttribute} from "nbook/plugins/markdown/shared/markdown-dialect";
+import {escapeAttribute} from "@notnotype/nb-markdown";
 
 import {leftFlanking, rightFlanking} from "../flanking";
 import {closeInline, lastMatch, nextMatch, openTagAt, openTagIndex, skipInline} from "../tags";

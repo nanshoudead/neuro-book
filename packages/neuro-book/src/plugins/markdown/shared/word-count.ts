@@ -22,7 +22,7 @@ import {
     OPENS_HTML_BLOCK,
     READABLE_INLINE_HTML,
     VOID_HTML_TAGS,
-} from "./markdown-dialect";
+} from "@notnotype/nb-markdown";
 
 const BOM = /^﻿/u;
 const FRONTMATTER = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/u;

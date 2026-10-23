@@ -12,7 +12,7 @@
 import {mergeAttributes, Node} from "@tiptap/core";
 import type {MarkedExtension, Token, Tokens} from "marked";
 
-import {FOOTNOTE_REF_SOURCE, LONE_TAG, MATH_INLINE_SOURCE, OPENS_HTML_BLOCK, READABLE_INLINE_HTML, VOID_HTML_TAGS} from "nbook/plugins/markdown/shared/markdown-dialect";
+import {FOOTNOTE_REF_SOURCE, LONE_TAG, MATH_INLINE_SOURCE, OPENS_HTML_BLOCK, READABLE_INLINE_HTML, VOID_HTML_TAGS} from "@notnotype/nb-markdown";
 
 import {encodeRawBreaks} from "../../codec/render/escape";
 import {lastMatch, nextMatch, paragraphEnd} from "../tags";
