@@ -39,6 +39,7 @@ const NAV: ReadonlyArray<{id: Page; label: string; icon: string}> = [
     {id: "timeline", label: "时间线", icon: "i-lucide-clock"},
     {id: "episodes", label: "情节", icon: "i-lucide-list-tree"},
     {id: "source", label: "原文", icon: "i-lucide-book-open"},
+    {id: "qa", label: "问答", icon: "i-lucide-messages-square"},
     {id: "stats", label: "说明与统计", icon: "i-lucide-info"},
 ];
 /** 导航只列这本书开着的页（输出 2）：关掉数值或秘密的书没有那一页。 */
@@ -61,6 +62,7 @@ const PAGES: Record<Page, ReturnType<typeof defineAsyncComponent>> = {
     timeline: defineAsyncComponent(() => import("../pages/TimelinePage.vue")),
     episodes: defineAsyncComponent(() => import("../pages/EpisodesPage.vue")),
     source: defineAsyncComponent(() => import("../pages/SourcePage.vue")),
+    qa: defineAsyncComponent(() => import("../pages/QaPage.vue")),
     stats: defineAsyncComponent(() => import("../pages/StatsPage.vue")),
 };
 
