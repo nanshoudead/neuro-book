@@ -72,7 +72,7 @@ export const focusBrowserPlugin: PluginDefinition = {
                 subscribe: (listener, options) => sessions.events.changed.subscribe({}, listener, options),
             };
             const store = createFocusStore(source, context.services.require(hostClockKey));
-            // 这一代收口时取消走表与订阅；订阅归本入口，内核也会结束它，这里先停走表。
+            // 这一代收口时停走表、释放订阅。订阅登记在本入口的作用域上，内核随后也会结束它，重复释放无害。
             context.scope.register({kind: "focus-store", label: `${descriptor.id} 的窗口状态`, value: store, release: (value) => value.dispose()});
             // 不等第一份“今天”：激活不被网络卡住，拿到之前视图与条目显示“…”。
             void store.connect();
@@ -80,7 +80,8 @@ export const focusBrowserPlugin: PluginDefinition = {
             const status: ItemImplementation = {
                 text: () => {
                     const current = store.view.value;
-                    if (!current.ready) return "…";
+                    // 读不到时不停在“…”：状态是警告，打开视图能看到原因与“重新同步”。
+                    if (!current.ready) return current.problem === null ? "…" : "专注：读不到";
                     return current.running ? `专注 ${formatRemaining(current.remainingMs)}` : `今天 ${String(current.completed)} 个番茄`;
                 },
                 tooltip: () => (store.view.value.running ? "点一下放弃这次专注" : "点一下开始专注"),

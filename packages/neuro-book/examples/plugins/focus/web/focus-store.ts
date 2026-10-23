@@ -8,6 +8,9 @@
  * - **剩余时间按 `endsAt` 算**：`endsAt - 现在`，“现在”用服务端给的时间对齐本地时钟（只记偏差）。不每秒减一：后台标签页的
  *   计时器会被浏览器放慢到每分钟一次，减出来的数会越差越远。
  * - **只在有进行中的一次时走表**：空闲时不排计时器；入口停止时 `dispose` 取消计时器与订阅。
+ * - **同步断了要能接上**：订阅失败或结束后 `synced` 为假，视图给出“重新同步”，调 `connect` 再订阅一次。
+ * - **完成还是放弃，看服务端的时间**：进行中的一次变成没有时，服务端此刻已过 `endsAt` 就是到点完成，否则是放弃。不比较
+ *   个数：跨零点的那次完成后个数清零再加一，会比之前少。
  */
 
 import {computed, shallowRef} from "vue";
@@ -27,11 +30,15 @@ export interface FocusView {
     readonly minutes: number;
     /** 最近一次同步或操作失败的原因；下一次成功后清空。 */
     readonly problem: string | null;
+    /** 订阅还在：服务端的变化会推过来。为假时数据可能是旧的。 */
+    readonly synced: boolean;
+    /** 最近结束的一次是怎么结束的；`seq` 每结束一次加一，同样的结束连着发生两次也看得出来。 */
+    readonly ended: {readonly kind: "completed" | "cancelled"; readonly seq: number} | null;
 }
 
 export interface FocusStore {
     readonly view: ComputedRef<FocusView>;
-    /** 订阅服务端；拿到第一份“今天”后完成。重复调用共用同一次。 */
+    /** 订阅服务端；拿到第一份“今天”后完成。重复调用共用同一次；订阅失败或结束后再调用就重新订阅。 */
     connect(): Promise<void>;
     start(): Promise<void>;
     cancel(): Promise<void>;
@@ -56,6 +63,8 @@ export function createFocusStore(source: FocusSource, clock: RuntimeClock): Focu
     const problem = shallowRef<string | null>(null);
     let cancelTick: (() => void) | null = null;
     let subscription: RemoteSubscription | null = null;
+    const synced = shallowRef(false);
+    const ended = shallowRef<FocusView["ended"]>(null);
     let connecting: Promise<void> | null = null;
     let disposed = false;
 
@@ -82,6 +91,10 @@ export function createFocusStore(source: FocusSource, clock: RuntimeClock): Focu
 
     const apply = (next: Today): void => {
         if (disposed) return;
+        const before = today.value?.running ?? null;
+        if (before !== null && next.running === null) {
+            ended.value = {kind: next.now >= before.endsAt ? "completed" : "cancelled", seq: (ended.value?.seq ?? 0) + 1};
+        }
         offset = next.now - clock.now();
         now.value = clock.now();
         today.value = next;
@@ -109,6 +122,7 @@ export function createFocusStore(source: FocusSource, clock: RuntimeClock): Focu
             onResync: () => void refresh(),
             onEnd: (reason) => {
                 subscription = null;
+                synced.value = false;
                 connecting = null;
                 fail(`与服务端的同步结束了：${reason}`);
                 first.resolve();
@@ -124,6 +138,7 @@ export function createFocusStore(source: FocusSource, clock: RuntimeClock): Focu
             return;
         }
         subscription = subscribed.value;
+        synced.value = true;
         await first.promise;
     })());
 
@@ -150,6 +165,8 @@ export function createFocusStore(source: FocusSource, clock: RuntimeClock): Focu
             completed: today.value?.completed ?? 0,
             minutes: today.value?.minutes ?? 0,
             problem: problem.value,
+            synced: synced.value,
+            ended: ended.value,
         })),
         connect,
         start,
@@ -161,6 +178,7 @@ export function createFocusStore(source: FocusSource, clock: RuntimeClock): Focu
             cancelTick = null;
             subscription?.release();
             subscription = null;
+            synced.value = false;
         },
     };
 }
