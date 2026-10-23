@@ -15,10 +15,10 @@ import type {Static} from "typebox";
 import {Compile} from "typebox/compile";
 
 import {tryLock} from "../platform/flock";
-import {ConfigSchema, type IngestModelSchema, type PriceSchema, type QaConfig} from "./config-schema";
+import {ConfigSchema, type IngestModelSchema, type PriceSchema, type QaConfig} from "../contract/config-schema";
 import {QaError} from "./errors";
 
-export type {QaConfig} from "./config-schema";
+export type {QaConfig} from "../contract/config-schema";
 
 /** 图当目录一问最多读的不同章数（开发者定的上限，配置只能调小）。 */
 export const MAX_CHAPTERS = 20;

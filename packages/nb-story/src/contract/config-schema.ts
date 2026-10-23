@@ -1,6 +1,6 @@
 /**
  * 问答与抽取共用的配置文件的格式（docs/specs/story/qa.md 的“配置”、docs/specs/story/ingest.md 的“抽取模型”）。单独成
- * 文件、不碰 node：读写配置的 `config.ts`（命令行与服务端）和网页的设置页（`SchemaForm` 按它画表单）用同一份。
+ * 文件、不碰 node：读写配置的 `qa/config.ts`（命令行与服务端）和网页的设置页（`SchemaForm` 按它画表单）用同一份。
  * `x-form` 是设置页的界面提示（docs/specs/ui/forms.md），校验不看它。
  *
  * 校验在这里就拦住两类错：
@@ -11,7 +11,7 @@
 
 import {Type, type Static} from "typebox";
 
-/** 环境变量名的写法（与 `config-edit.ts` 的 `ENV_NAME` 相同）。 */
+/** 环境变量名的写法（与 `qa/config-edit.ts` 的 `ENV_NAME` 相同）。 */
 export const ENV_NAME_PATTERN = "^[A-Za-z_][A-Za-z0-9_]*$";
 
 const apiKeyEnv = () => Type.String({minLength: 1, pattern: ENV_NAME_PATTERN, "x-form": {label: "密钥环境变量", help: "存密钥的环境变量名（例如 OPENAI_API_KEY），不是密钥本身；服务启动时读它"}});
