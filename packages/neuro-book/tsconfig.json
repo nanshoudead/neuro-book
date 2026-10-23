@@ -10,7 +10,9 @@
         "skipLibCheck": true,
         "forceConsistentCasingInFileNames": true,
         "paths": {
-            "nbook/*": ["./src/*"]
+            "nbook/*": ["./src/*"],
+            "@notnotype/nb-plugin-sdk": ["./src/sdk/index.ts"],
+            "@notnotype/nb-plugin-sdk/browser": ["./src/sdk/browser.ts"]
         }
     },
     "include": [
@@ -18,12 +20,12 @@
         "src/server",
         "src/project",
         "src/shared",
+        "src/sdk/index.ts",
         "src/types",
         "src/plugins/*/plugin.ts",
         "src/plugins/*/backend",
         "src/plugins/*/shared",
         "src/**/*.test.ts",
-        "examples/shared",
         "examples/testing",
         "examples/scenarios",
         "examples/plugins/*/plugin.ts",

@@ -15,7 +15,7 @@
 5. [05-delegating-proxy](scenarios/05-delegating-proxy.test.ts)：以调用方身份代理。读 notes 的 `web/plugin.ts`。
 6. [06-settings-page](scenarios/06-settings-page.test.ts)：配置项与设置窗口的 page 分区。读 [snippets](plugins/snippets/)：`plugin.ts` → `shared/contracts.ts` → `web/plugin.ts` → `web/snippets.ts` → `web/SnippetsPage.vue`（与 `SnippetsEditor.vue`）。
 
-场景用到的场地与探针在 [`testing/`](testing/)，宿主给示例插件的时钟能力的键在 [`shared/host.ts`](shared/host.ts)。
+场景用到的场地与探针在 [`testing/`](testing/)。示例插件只从 SDK（`@notnotype/nb-plugin-sdk`，浏览器专用的部分在 `/browser`）导入宿主与内置插件的东西，宿主给的时钟能力也在 SDK 里（`hostClockKey`）。
 
 ## 运行
 
@@ -95,7 +95,6 @@ examples/
 │   ├── shared/contracts.ts  对其它插件公开的合同：服务接口与键、远程服务合同、贡献点、公开键与命令 id
 │   ├── backend/plugin.ts    后端代码的插件定义常量（server、project 位置的入口）
 │   └── web/plugin.ts        浏览器代码的插件定义常量；界面组件（`.vue`）与它并列，只在用到时动态导入
-├── shared/host.ts           示例宿主给插件的能力的键（时钟）
 ├── scenarios/NN-*.test.ts   场景：把插件装进运行实例、核对行为
 └── testing/                 场地与探针：测试支持代码，不含断言
 ```

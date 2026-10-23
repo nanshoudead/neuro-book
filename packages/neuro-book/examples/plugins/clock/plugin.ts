@@ -6,7 +6,7 @@
  * 描述只引用内核的类型，不引用任何一侧的实现：产品清单（`src/manifest.ts`）只看这个文件。
  */
 
-import type {PluginDescriptor} from "@notnotype/nb-runtime/plugins";
+import type {PluginDescriptor} from "@notnotype/nb-plugin-sdk";
 
 /** 报时：把宿主给的时钟包成一项共享服务，交给同一实例里的别的插件；只在服务端有入口。 */
 export const descriptor: PluginDescriptor = {id: "example.clock", version: "0.1.0", locations: ["server"]};

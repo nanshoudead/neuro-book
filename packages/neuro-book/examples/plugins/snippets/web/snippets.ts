@@ -7,7 +7,7 @@
  * 一个值，没有“往数组里加一条”的写法。写入只改这一个键，文件里的注释与别的键原样保留（同一 Spec 输出第 13 条）。
  */
 
-import type {SettingLayer, SettingsService, SettingWriteResult} from "nbook/shared/settings";
+import type {SettingLayer, SettingsService, SettingWriteResult} from "@notnotype/nb-plugin-sdk";
 
 import {itemsSetting} from "../shared/contracts";
 import type {Snippet} from "../shared/contracts";

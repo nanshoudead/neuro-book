@@ -8,7 +8,7 @@
  *
  * 宿主能力：服务端给状态根（`<root>/state`，`nbook.storage` 的 user 分区与用户的 `settings.json` 都在它下面）与时钟；
  * 项目实例给当前项目（目录 `<root>/projects/<名>`）；窗口给它绑定的项目与连接状态。时钟是 `StageClock`，只在场景
- * 调用 `advance` 时前进；内置插件用的产品时钟（`clockKey`）与示例插件用的时钟（`hostClockKey`）是同一个。
+ * 调用 `advance` 时前进；内置插件与示例插件用的是同一项宿主能力（产品里的 `clockKey`，SDK 里叫 `hostClockKey`）。
  *
  * 跨实例：服务端带路由，项目实例与窗口经 `@notnotype/nb-runtime/remote/testing` 的进程内链路连上它，帧照样经 JSON
  * 编解码；产品里项目实例在子进程里经 Bun IPC 连接，窗口经 WebSocket 连接。窗口按项目名绑定项目此刻运行的那一代，
@@ -24,7 +24,7 @@ import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application, CapabilityProvider, StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
-import type {CloseResult} from "@notnotype/nb-runtime/lifecycle";
+import type {CloseResult, RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote";
@@ -43,11 +43,8 @@ import {storageBrowserPlugin} from "nbook/plugins/storage/web/plugin";
 import {clockKey, stateRootKey, windowConnectionKey} from "nbook/shared/host";
 import {currentProjectKey, windowProjectKey} from "nbook/shared/projects";
 
-import {hostClockKey} from "../shared/host";
-import type {HostClock} from "../shared/host";
-
 /** 场地的时钟：手动推进，并能数出插件还占着几个计时器（核对插件停止时有没有把它们还回来）。 */
-export class StageClock implements HostClock {
+export class StageClock implements RuntimeClock {
     readonly #manual = new ManualClock();
     readonly #pending = new Set<object>();
 
@@ -114,10 +111,14 @@ export class Stage {
         const node = createRemoteNode({instance: {id: "hub", kind: "server", role: "hub", project: null, client: null}});
         const capabilities: Capabilities = [
             {id: "host.state-root", key: stateRootKey, create: () => ({path: join(this.#root, "state")})},
-            {id: "host.product-clock", key: clockKey, create: () => this.clock},
         ];
-        if (options.clock !== false) capabilities.push({id: "host.clock", key: hostClockKey, create: () => this.clock});
-        const app = await this.#start({location: "server", instanceId: "hub"}, [statePlugin, definitionAt("server", settingsDescriptor, settingsBackendPlugin), commandsPlugin, storageBackendPlugin], capabilities, options, node);
+        // 不给时钟时也不装 `nbook.settings`：它的服务端入口依赖时钟，装了只会多一个受阻的内置入口。场景 1 只用到
+        // `nbook.storage`。
+        const builtin = options.clock === false
+            ? [statePlugin, commandsPlugin, storageBackendPlugin]
+            : [statePlugin, definitionAt("server", settingsDescriptor, settingsBackendPlugin), commandsPlugin, storageBackendPlugin];
+        if (options.clock !== false) capabilities.push({id: "host.clock", key: clockKey, create: () => this.clock});
+        const app = await this.#start({location: "server", instanceId: "hub"}, builtin, capabilities, options, node);
         const router = createRemoteRouter(node, {
             // 窗口按项目名绑定到它此刻运行的那一代。产品里由项目管理器负责（打开、租约、宽限期）；场地只按名字找。
             bindProject: async (request) => {

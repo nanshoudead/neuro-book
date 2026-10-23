@@ -6,8 +6,8 @@
  * 也会跟着 clock 的内部改动而改动。
  */
 
-import {defineServiceKey} from "@notnotype/nb-runtime/services";
-import type {ServiceKey} from "@notnotype/nb-runtime/services";
+import {defineServiceKey} from "@notnotype/nb-plugin-sdk";
+import type {ServiceKey} from "@notnotype/nb-plugin-sdk";
 
 /** `until` 的结果：到点为 `ok: true`；clock 的入口停止时还没到点为 `stopped`。 */
 export type UntilResult = {readonly ok: true} | {readonly ok: false; readonly code: "stopped"};

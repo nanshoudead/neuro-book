@@ -16,14 +16,8 @@
 
 import {Type} from "typebox";
 
-import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
-import {defineEntry} from "@notnotype/nb-runtime/plugins";
-import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
-import {provideRemote} from "@notnotype/nb-runtime/remote";
-
-import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {defineRecord} from "nbook/shared/storage";
-import type {RecordHandle} from "nbook/shared/storage";
+import {defineEntry, defineRecord, diagnosticsKey, provideRemote, storageKey} from "@notnotype/nb-plugin-sdk";
+import type {PluginDefinition, RecordHandle} from "@notnotype/nb-plugin-sdk";
 
 import {clockKey} from "../../clock/shared/contracts";
 import {descriptor} from "../plugin";

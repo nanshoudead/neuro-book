@@ -14,9 +14,8 @@
  * 对应的场景：`scenarios/05-delegating-proxy.test.ts`。
  */
 
-import {defineEntry, providePerConsumer} from "@notnotype/nb-runtime/plugins";
-import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
-import type {RemoteResult} from "@notnotype/nb-runtime/remote";
+import {defineEntry, providePerConsumer} from "@notnotype/nb-plugin-sdk";
+import type {PluginDefinition, RemoteResult} from "@notnotype/nb-plugin-sdk";
 
 import {descriptor} from "../plugin";
 import {notesContract, notesViewKey} from "../shared/contracts";

@@ -17,17 +17,8 @@
 import {computed, watch} from "@vue/reactivity";
 import {Type} from "typebox";
 
-import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
-import {defineEntry} from "@notnotype/nb-runtime/plugins";
-import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
-import {provideRemote} from "@notnotype/nb-runtime/remote";
-import type {RemoteSink} from "@notnotype/nb-runtime/remote";
-
-import {COMMANDS_POINT} from "nbook/plugins/commands/shared/contracts";
-import type {CommandDeclaration, CommandImplementation} from "nbook/plugins/commands/shared/contracts";
-import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {defineRecord} from "nbook/shared/storage";
-import {defineStore} from "nbook/shared/store/store";
+import {COMMANDS_POINT, defineEntry, defineRecord, defineStore, diagnosticsKey, provideRemote, storageKey} from "@notnotype/nb-plugin-sdk";
+import type {CommandDeclaration, CommandImplementation, PluginDefinition, RemoteSink} from "@notnotype/nb-plugin-sdk";
 
 import {descriptor} from "../plugin";
 import {counterContract, counterState, projectCounterContract, RESET_COMMAND} from "../shared/contracts";

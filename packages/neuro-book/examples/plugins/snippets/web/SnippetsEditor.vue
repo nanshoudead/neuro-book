@@ -11,8 +11,8 @@
 import {Button, Input, Textarea, IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import {ref, watch} from "vue";
 
-import {localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import {localize} from "@notnotype/nb-plugin-sdk";
+import type {DisplayLocale, LocalizedText} from "@notnotype/nb-plugin-sdk";
 
 import type {Snippet} from "../shared/contracts";
 import {addSnippet, changeSnippet, moveSnippet, removeSnippet} from "./snippets";

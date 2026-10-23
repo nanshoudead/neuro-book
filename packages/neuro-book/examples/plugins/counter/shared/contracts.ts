@@ -7,9 +7,7 @@
 
 import {Type} from "typebox";
 
-import {defineRemoteService} from "@notnotype/nb-runtime/remote";
-
-import {definePublicState} from "nbook/shared/store/public";
+import {definePublicState, defineRemoteService} from "@notnotype/nb-plugin-sdk";
 
 const Empty = Type.Object({}, {additionalProperties: false});
 const Increment = Type.Object({by: Type.Integer({minimum: 1})}, {additionalProperties: false});

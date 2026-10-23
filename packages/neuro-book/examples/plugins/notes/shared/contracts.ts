@@ -11,10 +11,8 @@
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
-import {defineRemoteService} from "@notnotype/nb-runtime/remote";
-import type {RemoteResult} from "@notnotype/nb-runtime/remote";
-import {defineServiceKey} from "@notnotype/nb-runtime/services";
-import type {ServiceKey} from "@notnotype/nb-runtime/services";
+import {defineRemoteService, defineServiceKey} from "@notnotype/nb-plugin-sdk";
+import type {RemoteResult, ServiceKey} from "@notnotype/nb-plugin-sdk";
 
 const Text = Type.String({minLength: 1, maxLength: 1000});
 

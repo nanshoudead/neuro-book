@@ -10,7 +10,7 @@
  * 对应的场景：`scenarios/06-settings-page.test.ts`。
  */
 
-import type {PluginDescriptor} from "@notnotype/nb-runtime/plugins";
+import type {PluginDescriptor} from "@notnotype/nb-plugin-sdk";
 
 import {itemsSetting} from "./shared/contracts";
 

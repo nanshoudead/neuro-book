@@ -6,8 +6,8 @@
  * 能校验；实现是入口激活时交出的对象，激活之后才有。菜单的标题属于声明，点击之后做什么属于实现。
  */
 
-import {defineServiceKey} from "@notnotype/nb-runtime/services";
-import type {ServiceKey} from "@notnotype/nb-runtime/services";
+import {defineServiceKey} from "@notnotype/nb-plugin-sdk";
+import type {ServiceKey} from "@notnotype/nb-plugin-sdk";
 
 /**
  * 贡献点 id。贡献 id 写“贡献方的插件 id + `.` + 名字”，例如 `example.file-menu.open`：内核要求贡献 id 在同一个贡献点

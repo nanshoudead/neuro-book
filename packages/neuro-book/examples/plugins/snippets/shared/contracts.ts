@@ -9,7 +9,7 @@
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
-import {defineSetting} from "nbook/shared/settings";
+import {defineSetting} from "@notnotype/nb-plugin-sdk";
 
 /** 设置窗口里的分区 id：其它插件的分区以自己的插件 id 加 `.` 开头（docs/specs/settings/settings-window.md“分区声明”）。 */
 export const SNIPPETS_SECTION = "example.snippets.main";

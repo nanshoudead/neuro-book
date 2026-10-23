@@ -9,8 +9,8 @@
  * 前端误引后端代码时打包与类型检查不一定失败（Bun 能解析两侧），所以按导入语句检查。
  * 测试文件与 `testing/` 不受限：它们要在同一进程里搭真实后端或运行环境。反过来，产品代码不引用 `testing/`、内核的
  * `@notnotype/nb-runtime/<机制>/testing` 入口与 `examples/`（docs/testing/README.md 的“测试文件组织”）：它们不进产品构建。
- * 示例插件（`examples/plugins/`）按第三方插件的写法，与 `src/plugins/` 同样检查，跨插件只引用对方（含内置插件）的
- * `shared/contracts.ts`；它们的路径相对 src，带 `../examples/` 前缀。
+ * 示例插件（`examples/plugins/`）按第三方插件的写法：宿主与内置插件的东西只经 SDK（`@notnotype/nb-plugin-sdk`）取，
+ * 跨示例插件只引用对方的 `shared/contracts.ts`；它们的路径相对 src，带 `../examples/` 前缀。
  */
 
 import {describe, expect, it} from "bun:test";
@@ -79,6 +79,11 @@ const isPluginContracts = (target: string): boolean => /^(?:\.\.\/examples\/)?pl
 const importsTesting = (use: ImportUse, target: string | null): boolean => use.specifier.split("/").includes("testing") || (target !== null && has(target, "testing"));
 const labSceneMayImport = (file: string, target: string): boolean => file.startsWith("plugins/lab/web/fixtures/") && /^plugins\/[^/]+\/(?:web|shared)\//u.test(target);
 const isTestLibrary = (specifier: string): boolean => TEST_LIBRARIES.some((name) => specifier === name || specifier.startsWith(`${name}/`));
+/**
+ * 示例插件按第三方插件写：宿主与内置插件的东西只经 SDK 取，此外只有宿主模块表共享的包与 TypeBox
+ * （docs/specs/runtime/plugin-code-loading.md 输出 2、plugin-api.md 的“SDK”）。外置构建时它们就只能这样导入。
+ */
+const EXAMPLE_PACKAGES = ["@notnotype/nb-plugin-sdk", "@notnotype/nb-plugin-sdk/browser", "vue", "@vue/reactivity", "@notnotype/nb-ui/components", "typebox"];
 
 function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
     const found: string[] = [];
@@ -100,6 +105,9 @@ function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
         if (isTestLibrary(use.specifier)) found.push(`产品代码引用了测试库：${where}`);
         if (importsTesting(use, target)) found.push(`产品代码引用了测试支持代码（testing/ 或内核的 */testing 入口）：${where}`);
         if (target !== null && isExample(target) && !isExample(use.file)) found.push(`产品代码引用了示例：${where}`);
+        if (isExample(use.file) && ((target !== null && !isExample(target)) || (target === null && !EXAMPLE_PACKAGES.includes(use.specifier)))) {
+            found.push(`示例插件只能引用 SDK、宿主共享的包与示例插件：${where}`);
+        }
         if (target === "development-manifest" && !DEVELOPMENT_ENTRIES.includes(use.file)) found.push(`只有开发入口能引用开发清单：${where}`);
         if (target !== null && isDevelopmentPlugin(target) && !isDevelopmentPlugin(use.file) && use.file !== "development-manifest.ts" && !DEVELOPMENT_ENTRIES.includes(use.file)) {
             found.push(`只有开发入口能引用开发插件：${where}`);
@@ -148,10 +156,12 @@ describe("包内依赖方向", () => {
             use("plugins/storage/backend/plugin.ts", "./testing/partition-writer"),
             use("web/host/window.ts", "@notnotype/nb-runtime/remote/testing"),
             use("server/main.ts", "../../examples/plugins/notes/backend/plugin"),
-            use("../examples/plugins/notes/backend/plugin.ts", "nbook/plugins/storage/backend/plugin"),
             use("../examples/plugins/notes/backend/plugin.ts", "../../clock/backend/plugin"),
             use("../examples/plugins/notes/web/plugin.ts", "../backend/plugin"),
             use("../examples/plugins/notes/backend/plugin.ts", "../web/plugin"),
+            use("../examples/plugins/notes/backend/plugin.ts", "nbook/plugins/storage/shared/contracts"),
+            use("../examples/plugins/notes/backend/plugin.ts", "@notnotype/nb-runtime/plugins"),
+            use("../examples/plugins/notes/web/plugin.ts", "@notnotype/nb-ui/composables"),
         ];
         expect(cases.map((item) => violationsOf([item]).length)).toEqual(cases.map(() => 1));
         expect(violationsOf([
@@ -164,10 +174,11 @@ describe("包内依赖方向", () => {
             use("web/development-plugins.ts", "nbook/plugins/lab/web/plugin"),
             use("plugins/lab/web/fixtures/command-scene/lab-command-scene.ts", "nbook/plugins/commands/shared/registry"),
             use("plugins/lab/web/fixtures/command-scene/LabCommandSceneLayer.vue", "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue"),
-            use("../examples/plugins/notes/backend/plugin.ts", "nbook/plugins/storage/shared/contracts"),
+            use("../examples/plugins/notes/backend/plugin.ts", "@notnotype/nb-plugin-sdk"),
+            use("../examples/plugins/snippets/web/plugin.ts", "@notnotype/nb-plugin-sdk/browser"),
+            use("../examples/plugins/counter/backend/plugin.ts", "@vue/reactivity"),
             use("../examples/plugins/notes/backend/plugin.ts", "../../clock/shared/contracts"),
             use("../examples/plugins/notes/web/plugin.ts", "../shared/contracts"),
-            use("../examples/plugins/notes/backend/plugin.ts", "nbook/plugins/storage/backend/plugin", true),
         ])).toEqual([]);
 
         expect(importsOf(join(SRC, "web", "main.ts")).some((item) => item.specifier === "./development-plugins" && item.dynamic === true)).toBe(true);

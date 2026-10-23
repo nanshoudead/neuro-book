@@ -92,7 +92,7 @@ describe("场景 1：服务与依赖", () => {
         const {app} = await stage.server({plugins: [clockBackendPlugin, notesBackendPlugin, writer.definition], clock: false});
 
         // 受阻的原因可以查询，查询不触发激活（docs/specs/runtime/plugins.md 输出第 11 条）。
-        expect(app.plugins.entryState(entry("example.clock"))).toMatchObject({status: "blocked", blocked: {reason: "missing-service", key: "example/clock"}});
+        expect(app.plugins.entryState(entry("example.clock"))).toMatchObject({status: "blocked", blocked: {reason: "missing-service", key: "nbook/clock"}});
         expect(await writer.remote().use(notesContract).add({text: "没有时钟"})).toEqual({ok: true, value: {text: "没有时钟", writtenAt: null, via: null}});
         // 提供方在、只是用不了：notes 记一条 warn。
         expect(stage.diagnostics("hub").query({event: "example.notes.clock-unavailable"}).records).toMatchObject([{level: "warn", data: {reason: "provider-rejected"}}]);

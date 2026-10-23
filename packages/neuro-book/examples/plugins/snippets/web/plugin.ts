@@ -7,7 +7,7 @@
  *    写 `section` 指向一个 list 分区（或干脆不写，落到“其它”）就够了，不要为它写页面。list 分区是向 `settings.sections`
  *    的顶层声明，写在插件描述里，没有实现，也就不需要入口。
  * 2. **页面怎样拿到配置服务**：页面组件里不能解析服务。入口激活时拿到**本插件自己的**配置服务（`settingsKey`），用
- *    `settingsPage` 包出实现，页面除了 `context` 还收到 `settings`。页面只能用它写本插件声明的项（configuration.md
+ *    `page.implementation` 包出实现，页面除了 `context` 还收到 `settings`。页面只能用它写本插件声明的项（configuration.md
  *    输出第 11 条）。
  * 3. **按需激活、交付与撤回**：分区的声明在入口激活前就在设置窗口的左栏里。入口声明激活事件
  *    `onSettingsPage:<分区 id>`，不启动即激活：用户在设置窗口里打开这个分区时，`nbook.settings` 触发这个事件，入口这时
@@ -17,32 +17,30 @@
  * 对应的场景：`scenarios/06-settings-page.test.ts`。
  */
 
-import {defineEntry} from "@notnotype/nb-runtime/plugins";
-import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
-
-import {SETTINGS_PAGES_POINT, settingsKey, settingsPageEvent} from "nbook/plugins/settings/shared/contracts";
-import type {SettingsPageDeclaration} from "nbook/plugins/settings/shared/contracts";
-import {settingsPage} from "nbook/ui/settings/settings-page";
+import {defineEntry, SETTINGS_PAGES_POINT, settingsKey} from "@notnotype/nb-plugin-sdk";
+import type {PluginDefinition} from "@notnotype/nb-plugin-sdk";
+import {settingsPageContribution} from "@notnotype/nb-plugin-sdk/browser";
 
 import {descriptor} from "../plugin";
 import {SNIPPETS_SECTION} from "../shared/contracts";
 
 /**
- * 分区声明：纯数据，激活前内核就校验它（settings-window.md“分区声明”的规则表）。
- *
- * - `category: "plugins"`：第三方插件的分区放在左栏的“插件”一组。
- * - `layout: "column"`：页面放进窗口的内容列，与通用列表同样的内边距与封顶宽度，内容列负责滚动；只有要自己分左右两栏
- *   的页面（例如服务商列表加详情）才用 `fill`。
- * - `layers` 不写，缺省“用户”“本作品”两个标签下都可用：要与页面里配置项允许的层一致，片段两层都允许。只允许用户层的
- *   页面写 `layers: ["user"]`，“本作品”标签下它在左栏停用（settings-window.md 输出第 8 条）。
+ * 分区的贡献、激活事件与实现由 `settingsPageContribution` 一次给出：分区 id 只写一次，声明按 SDK 的
+ * `SettingsPageDeclaration` 核对，字段写错编译就不过（不经它时内核只把声明当作 `unknown`，要到运行时才被设置窗口拒掉、
+ * 分区静默不出现）。页面组件按需加载：设置窗口第一次显示这个分区时才调用 `load`。`.vue` 只在这里动态导入：场景测试在
+ * Bun 里导入本文件，Bun 不能加载 `.vue`。
  */
-const SECTION: SettingsPageDeclaration = {
-    title: {"zh-CN": "常用片段", "en-US": "Snippets"},
-    description: {"zh-CN": "写作时常用的固定文字", "en-US": "Fixed text you insert often"},
-    icon: "i-lucide-text-quote",
-    category: "plugins",
-    layout: "column",
-};
+const page = settingsPageContribution({
+    id: SNIPPETS_SECTION,
+    declaration: {
+        title: {"zh-CN": "常用片段", "en-US": "Snippets"},
+        description: {"zh-CN": "写作时常用的固定文字", "en-US": "Fixed text you insert often"},
+        icon: "i-lucide-text-quote",
+        category: "plugins",
+        layout: "column",
+    },
+    load: () => import("./SnippetsPage.vue"),
+});
 
 export const snippetsBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
@@ -50,15 +48,13 @@ export const snippetsBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         // 打开这个分区时才激活：没打开过设置的窗口不启动这个入口。前缀 `onSettingsPage` 归 `nbook.settings`，只有它能触发。
-        activationEvents: [settingsPageEvent(SNIPPETS_SECTION)],
+        activationEvents: [page.activationEvent],
         dependencies: [{key: settingsKey}],
-        contributions: [{capability: SETTINGS_PAGES_POINT, id: SNIPPETS_SECTION, declaration: SECTION}],
+        contributions: [page.contribution],
         activate: (context) => {
             const settings = context.services.require(settingsKey);
-            // 页面组件按需加载：设置窗口第一次显示这个分区时才调用 `load()`。`.vue` 只在这里动态导入：场景测试在 Bun 里
-            // 导入本文件，Bun 不能加载 `.vue`。
-            const page = settingsPage(() => import("./SnippetsPage.vue"), () => ({settings}));
-            return {contributions: {[SETTINGS_PAGES_POINT]: {[SNIPPETS_SECTION]: page}}};
+            // 页面除了设置窗口给的 `context`，还收到本插件自己的配置服务。
+            return {contributions: {[SETTINGS_PAGES_POINT]: {[page.id]: page.implementation(() => ({settings}))}}};
         },
     })],
 };

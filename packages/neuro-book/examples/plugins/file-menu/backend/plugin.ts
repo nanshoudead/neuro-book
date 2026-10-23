@@ -10,8 +10,8 @@
  * 对应的场景：`scenarios/03-contribution-point.test.ts`。
  */
 
-import {defineEntry} from "@notnotype/nb-runtime/plugins";
-import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import {defineEntry} from "@notnotype/nb-plugin-sdk";
+import type {PluginDefinition} from "@notnotype/nb-plugin-sdk";
 
 import {MENU_POINT} from "../../menu/shared/contracts";
 import type {MenuItemDeclaration, MenuItemImplementation} from "../../menu/shared/contracts";

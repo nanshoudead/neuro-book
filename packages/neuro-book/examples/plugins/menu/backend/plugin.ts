@@ -14,8 +14,8 @@
  * 对应的场景：`scenarios/03-contribution-point.test.ts`。
  */
 
-import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
-import type {ContributionDescriptor, ContributionHandle, ContributionReceiver, PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provide} from "@notnotype/nb-plugin-sdk";
+import type {ContributionDescriptor, ContributionHandle, ContributionReceiver, PluginDefinition} from "@notnotype/nb-plugin-sdk";
 
 import {descriptor} from "../plugin";
 import {MENU_POINT, menuKey} from "../shared/contracts";
