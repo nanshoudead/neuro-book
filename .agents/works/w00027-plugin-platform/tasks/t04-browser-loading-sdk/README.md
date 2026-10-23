@@ -40,6 +40,9 @@ updated: 2026-10-23
 
 2026-10-23 深入设计审查：omp（默认模型，10 条，写完后因上游额度用完退出，未续跑）、Claude Opus（15 条：阻断 1、重要 8、建议 6）、Claude Sonnet（20 条：重要 14、建议 6），报告在 [`evidences/`](evidences/)。没有不成立的条目，按 plan.md 的“设计审查的处理”修订计划；主要变化：SDK 由应用生成、不建依赖应用的工作区包；浏览器回到 `<script src>` 加登记工厂；服务端每次激活前删模块缓存再装载；`@vue/reactivity` 进共享模块；运行版本的跨进程租约；文件 URL 带内容摘要；贡献点 schema 进清单。照推荐做的取舍记进 Work 的待确认清单。
 
+- 2026-10-23 S2a（`1b6a19fdf`，Spec `a889bd7f3`）：清单 `contracts` 与贡献点 `schema`（纯 JSON Schema）、内核 `manifestOf`、`pluginVersions` 版本要求（必需依赖受阻、可选依赖不注入）、远程校验的 schema 写坏不再留下未处理的 rejection、第三方插件不挡启动。内核 369 例、应用 1354 例（单独跑）通过。
+- 2026-10-23 S2b（`bc29ef830`）：SDK 公开面 `src/sdk/`、`settingsPageContribution`、`build:sdk` 生成可安装的 SDK 包（仓库外 tsc 通过）；示例插件只从 SDK 导入，clock 改用宿主时钟。`test:affected` 里 llmlint 的 web 测试因缺 Nuxt 生成的 tsconfig 失败（主工作区同样缺，与本次无关）。
+
 ## 下一步
 
 按修订后的计划从 S2a 开始，在 Work 分支 `feat/w00027-plugin-platform` 上逐片实现。
