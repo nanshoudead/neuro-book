@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t13-qa-web
 status: planned
-updated: 2026-10-21
+updated: 2026-10-23
 ---
 
 # nb-story 网页问答页与设置页
@@ -66,6 +66,8 @@ w00019 [t14](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice
 - 2026-10-21 t08 完成后开始设计：定了注意力排序与设置页（决定 6 到 10）。计划初稿 [plan.md](plan.md) 写成后，开发者把对话视图改为完整版并移到 w00019（决定 11、12）；初稿里 nb-agent-view 与 nb-ui 零件的部分作废，等 w00019 t11 完成后按本 Task 剩下的范围改写，再给开发者确认。
 - 2026-10-22 w00019 t10 定了 nb-agent-ui 的接入合同（[计划](../../../w00019-agent-conversation-view/tasks/t10-migrate-nb-agent-ui/plan.md)）：适配器以 harness 会话日志为准、事件只作运行中的临时显示。问答引擎目前只发三种简化进度，本 Task 要让它按 nb-agent-ui README 的接入说明交出 harness 事件与带 `seq` 的日志条目。
 
+- 2026-10-23 前置齐了（nb-agent-ui 的会话列表与对话视图、nb-markdown 都已合入），按现在的接口重写 [plan.md](plan.md)，交开发者确认；计划末尾有三条待确认。
+
 ## 下一步
 
-等 w00019 t10、t11 完成后改写 plan.md。
+开发者确认计划与三条待确认后，计划审查（服务端与引擎 omp、网页 Sonnet），再按切片实施。
