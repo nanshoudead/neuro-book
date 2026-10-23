@@ -50,6 +50,9 @@ Markdown（开发者 2026-10-23 定，记录在 [w00025 t16](../../../w00025-edi
 
 17. 换手写控件（决定 5）从本 Task 拿出，另建搁置的 [t14](../t14-viewer-nb-ui-controls/README.md)：本 Task 做完后，开发者看过换前换后的效果再定。网页设计审查第 6、7 条（搜索浮层抢焦点、矩阵换不了 `Table`）记在那边。
 
+18. 删除对话的入口放在问答页顶栏（“删除这个对话”，点了弹确认框，运行中先停）；损坏的记录在列表里单列一行，同样只能删除（2026-10-23 定）。
+19. 第 2 轮设计审查进行的同时按 autonomous-delivery 开工（2026-10-23 定）：审查结论回来后处理，计划要变的先改计划，已实施的部分按需返工。
+
 ### w00019 t14 搭稿时发现的问题（2026-10-22）
 
 w00019 [t14](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice/README.md) 在查看器里搭了问答页的静态稿（[评审板](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice/artifacts/review/index.html)），用本书库的真实问答记录回放，发现这几条属于本 Task：
@@ -80,4 +83,4 @@ w00019 [t14](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice
 
 ## 下一步
 
-计划审查（服务端与引擎 omp、网页 Sonnet）进行中，处理后按切片实施。
+第 1 轮设计审查已处理（计划第 2 版）；第 2 轮进行中，同时按 autonomous-delivery 实施（决定 19）。
