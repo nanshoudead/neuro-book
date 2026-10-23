@@ -44,14 +44,16 @@ export function parseQaConfig(value: unknown, source: string): QaConfig {
 export type ConfigDigest = string;
 export const ABSENT_CONFIG: ConfigDigest = "absent";
 
-const digestOf = (text: string): ConfigDigest => createHash("sha256").update(text).digest("hex");
+/** 摘要按文件原字节算（解码后再算，坏的 UTF-8 会被替换成同一个字符，不同的文件得到同一个摘要）。 */
+const digestOf = (bytes: Uint8Array | string): ConfigDigest => createHash("sha256").update(bytes).digest("hex");
 
-async function readConfigText(path: string): Promise<string | null> {
+/** 文件不在时为 null；别的读不出（是目录、没权限、读错）报 `qa_unconfigured`，不当作“没有文件”。 */
+async function readConfigBytes(path: string): Promise<Buffer | null> {
     try {
-        return await readFile(path, "utf8");
+        return await readFile(path);
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-        throw new QaError("qa_unconfigured", `读不到问答配置 ${path}`, {cause: error});
+        throw new QaError("qa_unconfigured", `读不出问答配置 ${path}（${(error as NodeJS.ErrnoException).code ?? (error instanceof Error ? error.message : String(error))}）`, {cause: error});
     }
 }
 
@@ -72,15 +74,27 @@ export async function loadQaConfig(path: string = defaultConfigPath()): Promise<
 
 /** 读配置连同它此刻的摘要（之后改写时带上，见 `saveQaConfig` 的 `expect`）。 */
 export async function readQaConfigFile(path: string = defaultConfigPath()): Promise<{config: QaConfig; digest: ConfigDigest}> {
-    const text = await readConfigText(path);
-    if (text === null) throw new QaError("qa_unconfigured", `读不到问答配置 ${path}：先用 nbstory config init 写好它（字段见 docs/specs/story/qa.md 的“配置”）`);
-    return {config: parseConfigText(path, text), digest: digestOf(text)};
+    const bytes = await readConfigBytes(path);
+    if (bytes === null) throw new QaError("qa_unconfigured", `读不到问答配置 ${path}：先用 nbstory config init 写好它（字段见 docs/specs/story/qa.md 的“配置”）`);
+    return {config: parseConfigText(path, bytes.toString("utf8")), digest: digestOf(bytes)};
 }
 
-/** 配置文件此刻的摘要，读不成也给（文件不在是 `absent`）：网页在配置坏了时也要能整份改写。 */
+/**
+ * 配置文件此刻的摘要，内容不合格也给（网页在配置坏了时也要能整份改写）；文件不在是 `absent`。文件读不出来时报
+ * `qa_unconfigured`：不知道里面是什么，不能当作没有文件、让 `absent` 的写入盖掉它。
+ */
 export async function currentConfigDigest(path: string): Promise<ConfigDigest> {
-    const text = await readConfigText(path).catch(() => null);
-    return text === null ? ABSENT_CONFIG : digestOf(text);
+    const bytes = await readConfigBytes(path);
+    return bytes === null ? ABSENT_CONFIG : digestOf(bytes);
+}
+
+/** 准备改写配置时读它此刻的摘要：读不出来（路径上是文件、没权限）就是写不了，报 `qa_config_write_failed`。 */
+export async function digestBeforeWrite(path: string): Promise<ConfigDigest> {
+    try {
+        return await currentConfigDigest(path);
+    } catch (error) {
+        throw new QaError("qa_config_write_failed", `写不了问答配置 ${path}：${error instanceof Error ? error.message : String(error)}`, {cause: error});
+    }
 }
 
 /** 等别的程序写完配置最多这么久；写一次配置是毫秒级的，等满了多半是有进程卡在写的中途。 */
@@ -129,7 +143,7 @@ export async function saveQaConfig(path: string, config: unknown, options: {expe
     const valid = parseQaConfig(config, ` ${path} `);
     return withConfigLock(path, async () => {
         if (options.expect !== undefined) {
-            const current = await currentConfigDigest(path);
+            const current = await digestBeforeWrite(path);
             if (current !== options.expect) throw new QaError("config_conflict", `问答配置 ${path} 在你读取之后被别处改过了：重新读取再改`);
         }
         const text = `${JSON.stringify(valid, null, 4)}\n`;

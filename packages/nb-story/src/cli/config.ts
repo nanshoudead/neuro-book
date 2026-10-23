@@ -7,7 +7,7 @@
 
 import {access} from "node:fs/promises";
 
-import {currentConfigDigest, defaultConfigPath, ingestModel, loadQaConfig, parseQaConfig, qaLimits, readQaConfigFile, recallModel, saveQaConfig, type QaConfig} from "../qa/config";
+import {defaultConfigPath, digestBeforeWrite, ingestModel, loadQaConfig, parseQaConfig, qaLimits, readQaConfigFile, recallModel, saveQaConfig, type QaConfig} from "../qa/config";
 import {ConfigEditError, echoable, envNameProblem, setConfigField, unsetConfigField} from "../qa/config-edit";
 import {QaError} from "../qa/errors";
 import {EXIT_INTERRUPTED, EXIT_QA_FAILED, runInterruptible} from "./ask";
@@ -145,7 +145,7 @@ async function exists(path: string): Promise<boolean> {
 async function init(params: Record<string, unknown>, path: string, io: CliIo, json: boolean, done: Done, usageError: (message: string) => number): Promise<number> {
     const present = await exists(path);
     // 交互问完之前别人可能改了文件：写的时候按开始时的样子核对（读不成的坏文件也有摘要，确认覆盖后整份重写）。
-    const expect = await currentConfigDigest(path);
+    const expect = await digestBeforeWrite(path);
     let existing: QaConfig | null = null;
     if (present) {
         // 文件在但读不成配置（坏了）：确认覆盖后当作没有，整份重写。

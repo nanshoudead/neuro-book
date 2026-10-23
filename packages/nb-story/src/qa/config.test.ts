@@ -3,7 +3,7 @@
  */
 
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
-import {readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -160,6 +160,23 @@ describe("写配置（config 命令）", () => {
 
 describe("整份写入（网页设置页与命令行共用，t13）", () => {
     const pasted = "sk-review-fake-pasted-value-0042";
+
+    test("摘要按原字节：两份不同的坏 UTF-8 摘要不同；读不出来的路径（是目录）不当作没有文件，写入报写不了", async () => {
+        const dir = join(root, `bytes-${Math.random()}`);
+        await mkdir(dir, {recursive: true});
+        const a = join(dir, "a.json");
+        const b = join(dir, "b.json");
+        await writeFile(a, Buffer.from([0x7b, 0xff, 0x7d]));
+        await writeFile(b, Buffer.from([0x7b, 0xfe, 0x7d]));
+        expect(await currentConfigDigest(a)).not.toBe(await currentConfigDigest(b));
+
+        const folder = join(dir, "folder.json");
+        await mkdir(folder);
+        const unreadable = await currentConfigDigest(folder).then(() => "read", (error: unknown) => (error as QaError).code);
+        expect(unreadable).toBe("qa_unconfigured");
+        const written = await saveQaConfig(folder, {model}, {expect: ABSENT_CONFIG}).then(() => "saved", (error: unknown) => (error as QaError).code);
+        expect(written).toBe("qa_config_write_failed");
+    });
 
     test("像密钥的变量名也拒绝：常见前缀、没有下划线的长串；正常的变量名照收", () => {
         for (const value of ["sk_abcdefghijklmnopqrstuvwxyz123456", "GSK_abc123", "ghp_abc", "AbCdEfGhIjKlMnOpQrStUvWxYz012345"]) {

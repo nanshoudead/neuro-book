@@ -1,7 +1,7 @@
 /**
  * `nbstory serve`：启动查看器的独立服务（docs/specs/story/cli-skill.md 输出 5、F3）。
  *
- * 先后：拿服务锁 → 开始监听 → 写登记 → 装上停止信号的处理 → 打印登录链接。收到 SIGINT、SIGTERM 或 SIGHUP 时：
+ * 先后：拿服务锁 → 开始监听 → 装上停止信号的处理 → 写登记 → 打印登录链接。收到 SIGINT、SIGTERM 或 SIGHUP 时：
  * 停下抽取与问答 → 删登记 → 停止监听（在途请求随连接断开结束）→ 放锁。
  * 信号处理必须在打印之前装：调用方读到登录链接就可能马上发 SIGTERM，Bun 在监听期间先打印、后装处理时，这个信号会
  * 按默认动作杀掉进程（退出码 143），登记留在书库里（2026-10-20 实测，先打印时 30 次全中）。
@@ -90,15 +90,6 @@ export async function serveCommand(options: ServeOptions, io: CliIo): Promise<nu
     const auth = createServeAuth(port);
     handler = createHandler({api, ingest, qa, auth, instance, webRoot: WEB_ROOT, timeout: (request, seconds) => server.timeout(request, seconds)});
     const url = `http://127.0.0.1:${port}`;
-    try {
-        await lock.publish({instance, url, port, pid: process.pid});
-    } catch (error) {
-        await server.stop(true);
-        await lock.withdraw();
-        lock.release();
-        return fail("serve_failed", `写服务登记失败：${error instanceof Error ? error.message : String(error)}`);
-    }
-
     const stop = async (): Promise<number> => {
         // 先停下本服务的抽取任务、等它们放锁，再撤销登记、停监听（ingest-service.ts 模块头）；问答同样先取消、等保存完。
         await Promise.all([ingest.close(), qa.close()]);
@@ -117,13 +108,25 @@ export async function serveCommand(options: ServeOptions, io: CliIo): Promise<nu
     };
     // 问答引擎依赖的 OMP 一被导入就接管了 SIGINT、SIGTERM、SIGHUP（跑完清理就以 128 加信号号退出），自己装的处理拦不住，
     // 所以经 nb-harness 登记：停完以 stop 的退出码退出。
+    // 在写登记之前登记：登记一出现别的进程就可能发信号来停它。
+    let unregister = () => {};
     const exited = new Promise<number>(resolve => {
-        onProcessTermination(async () => {
+        unregister = onProcessTermination(async () => {
             const code = await stop();
             resolve(code);
             return code;
         });
     });
+
+    try {
+        await lock.publish({instance, url, port, pid: process.pid});
+    } catch (error) {
+        unregister();
+        await server.stop(true);
+        await lock.withdraw();
+        lock.release();
+        return fail("serve_failed", `写服务登记失败：${error instanceof Error ? error.message : String(error)}`);
+    }
 
     const login = `${url}/login?token=${auth.token}`;
     if (options.json) io.stdout(JSON.stringify({ok: true, data: {login, url}}));

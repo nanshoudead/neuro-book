@@ -10,8 +10,8 @@
 import {stat} from "node:fs/promises";
 import {join, normalize} from "node:path";
 
-import type {QaFrame} from "../contract/contract";
-import type {StoryApi} from "../core/api";
+import {STORY_METHODS, type QaFrame} from "../contract/contract";
+import {schemaProblems, type StoryApi} from "../core/api";
 import {HTTP_STATUS} from "../core/errors";
 import {INSTANCE_HEADER} from "../cli/registration";
 import type {ServeAuth} from "./auth";
@@ -134,8 +134,9 @@ export function createHandler(options: HandlerOptions): (request: Request) => Pr
                 return outcome.ok ? json(200, outcome.value) : json(statusOf(outcome.error.code), outcome.error);
             }
             const call = () => api.call(method as Parameters<StoryApi["call"]>[0], params);
-            // 删除书先关上这本书的问答、等进行中的几轮收口（qa-service.ts 模块头）；参数不对的交给查询接口报。
-            const book = method === "book.remove" && typeof params === "object" && params !== null && typeof (params as {book?: unknown}).book === "string" ? (params as {book: string}).book : null;
+            // 删除书先关上这本书的问答、等进行中的几轮收口（qa-service.ts 模块头）。参数先按合同校验：不对的直接交给
+            // 查询接口报错，不为一个不会执行的删除去停问答。
+            const book = method === "book.remove" && schemaProblems(STORY_METHODS["book.remove"].input, params) === null ? (params as {book: string}).book : null;
             const outcome = book === null ? await call() : await qa.exclusive(book, call);
             if (outcome.ok) return json(200, outcome.value);
             return json(HTTP_STATUS[outcome.error.code], outcome.error);
@@ -180,10 +181,17 @@ export function createHandler(options: HandlerOptions): (request: Request) => Pr
                     // 按字节计的队列（见下面的 size）：desiredSize 是负的积压字节数。
                     if (frame.type === "ended" || (controller.desiredSize ?? 0) < -EVENTS_BACKLOG_BYTES) queueMicrotask(finish);
                 };
+                // 先挂上中止的处理再订阅：请求在这之前（或订阅的同时）已经断开，就不留下订阅与心跳。
+                request.signal.addEventListener("abort", finish);
+                if (request.signal.aborted) {
+                    finish();
+                    return;
+                }
                 const opened = qa.subscribe(book, conversation, send);
                 subscription = opened;
-                if (!opened.live) {
+                if (!opened.live || closed) {
                     finish();
+                    opened.close();
                     return;
                 }
                 heartbeat = setInterval(() => {
@@ -193,7 +201,6 @@ export function createHandler(options: HandlerOptions): (request: Request) => Pr
                         finish();
                     }
                 }, heartbeatMs);
-                request.signal.addEventListener("abort", finish);
             },
             cancel() {
                 finish();

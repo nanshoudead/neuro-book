@@ -70,6 +70,8 @@ type RunSaved = QaRunView["saved"];
 
 interface Run {
     readonly book: string;
+    /** 这一轮固定在这本书的哪一代上：同 id 删掉又导入的书（例如命令行做的）是另一代，列表与读取不把它算进去。 */
+    readonly generation: string;
     readonly fixed: Omit<QaRunView, "state" | "result" | "saved">;
     readonly controller: AbortController;
     state: "running" | "ended";
@@ -87,6 +89,11 @@ interface Run {
 
 const keyOf = (book: string, conversation: string): string => `${book}\u0000${conversation}`;
 const busy = (message: string): QaError => new QaError("qa_busy", message);
+
+/** 网页拿到的日志条目：只有全读对话第一轮的用户消息要去掉原文（engine.ts 的 `withoutFullText`）。 */
+function projection(mode: string, turn: number, question: string): (entry: SessionEntry) => SessionEntry {
+    return mode === "full" && turn === 1 ? entry => withoutFullText(entry, question) : entry => entry;
+}
 
 export function createQaService(options: QaServiceOptions): QaService {
     const {api} = options;
@@ -159,7 +166,7 @@ export function createQaService(options: QaServiceOptions): QaService {
     }
 
     function pushLog(run: Run, entries: readonly SessionEntry[]): void {
-        const stripped = entries.map(withoutFullText);
+        const stripped = entries.map(projection(run.fixed.mode, run.fixed.turn, run.fixed.question));
         run.entries.push(...stripped);
         flushUpdate(run);
         broadcast(run, {type: "log", runId: run.fixed.runId, entries: stripped});
@@ -244,6 +251,7 @@ export function createQaService(options: QaServiceOptions): QaService {
             }
             const current: Run = {
                 book: params.book,
+                generation: prepared.generation,
                 fixed: {
                     runId: randomUUID(),
                     conversation: id,
@@ -259,7 +267,7 @@ export function createQaService(options: QaServiceOptions): QaService {
                 state: "running",
                 result: null,
                 saved: null,
-                entries: early.map(withoutFullText),
+                entries: early.map(projection(prepared.mode, prepared.turn, params.question)),
                 done: Promise.resolve(),
                 subscribers: new Set(),
                 pendingUpdate: null,
@@ -309,6 +317,12 @@ export function createQaService(options: QaServiceOptions): QaService {
         }
     }
 
+    /** 这本书当前这一代上的运行；别的一代的（同 id 删掉又导入之前的）不算。 */
+    function runOf(book: string, conversation: string, generation: string): Run | undefined {
+        const run = runs.get(keyOf(book, conversation));
+        return run?.generation === generation ? run : undefined;
+    }
+
     function listRow(run: Run): ViewerResult<"qa.list">["conversations"][number]["run"] {
         return {runId: run.fixed.runId, state: run.state, saved: run.saved === null ? null : run.saved.ok};
     }
@@ -318,12 +332,12 @@ export function createQaService(options: QaServiceOptions): QaService {
         const listed = await records.list(generation);
         const rows: ViewerResult<"qa.list">["conversations"] = listed.records.map(record => {
             const last = record.turns.at(-1)!;
-            const run = runs.get(keyOf(params.book, record.id));
+            const run = runOf(params.book, record.id, generation);
             return {id: record.id, question: record.turns[0]!.question, turns: record.turns.length, status: last.status, at: record.at, mode: record.mode, startedAt: record.startedAt, updatedAt: last.startedAt, run: run === undefined ? null : listRow(run)};
         });
         const saved = new Set(listed.records.map(record => record.id));
         for (const run of runs.values()) {
-            if (run.book !== params.book || saved.has(run.fixed.conversation)) continue;
+            if (run.book !== params.book || run.generation !== generation || saved.has(run.fixed.conversation)) continue;
             const {conversation, question, at, mode, startedAt} = run.fixed;
             rows.push({id: conversation, question, turns: 0, status: run.result?.status ?? null, at, mode, startedAt, updatedAt: startedAt, run: listRow(run)});
         }
@@ -331,13 +345,14 @@ export function createQaService(options: QaServiceOptions): QaService {
         return {conversations: rows, broken: listed.broken};
     }
 
-    function parseLog(jsonl: string): ViewerResult<"qa.get">["log"] {
+    function parseLog(jsonl: string, conversation: QaConversation): ViewerResult<"qa.get">["log"] {
+        const project = projection(conversation.mode, 1, conversation.turns[0]!.question);
         const entries: SessionEntry[] = [];
         for (const line of jsonl.split("\n")) {
             if (line === "") continue;
             const entry = parseEntryLine(line);
             if (entry === null) return {ok: false, problem: "会话日志有读不成的行"};
-            entries.push(withoutFullText(entry));
+            entries.push(project(entry));
         }
         return {ok: true, entries};
     }
@@ -351,8 +366,8 @@ export function createQaService(options: QaServiceOptions): QaService {
      */
     async function get(params: ViewerParams<"qa.get">): Promise<ViewerResult<"qa.get">> {
         for (let attempt = 0; ; attempt += 1) {
-            const result = await getOnce(params);
-            const run = runs.get(keyOf(params.book, params.id));
+            const {result, generation} = await getOnce(params);
+            const run = runOf(params.book, params.id, generation);
             const turns = result.record?.turns.length ?? 0;
             const stale = run?.state === "ended" && run.saved?.ok === true && turns < run.fixed.turn;
             const unfinished = run?.state === "running" && turns >= run.fixed.turn;
@@ -361,19 +376,19 @@ export function createQaService(options: QaServiceOptions): QaService {
         }
     }
 
-    async function getOnce(params: ViewerParams<"qa.get">): Promise<ViewerResult<"qa.get">> {
-        const run = runs.get(keyOf(params.book, params.id));
+    async function getOnce(params: ViewerParams<"qa.get">): Promise<{result: ViewerResult<"qa.get">; generation: string}> {
         const {records, generation} = await openRecords(params.book);
+        const run = runOf(params.book, params.id, generation);
         let conversation: QaConversation;
         let log: ViewerResult<"qa.get">["log"];
         try {
             const read = await records.getWithLog(params.id, generation);
             conversation = read.conversation;
-            log = read.log.ok ? parseLog(read.log.jsonl) : {ok: false, problem: read.log.problem};
+            log = read.log.ok ? parseLog(read.log.jsonl, read.conversation) : {ok: false, problem: read.log.problem};
         } catch (error) {
             if (run === undefined || !(error instanceof StoryError && error.code === "qa_record_not_found")) throw error;
             const reason = run.state === "running" ? "第一轮还在运行" : "第一轮没有保存，不能续问";
-            return {record: null, log: {ok: true, entries: []}, continuable: {ok: false, reason}, run: viewOf(run)};
+            return {result: {record: null, log: {ok: true, entries: []}, continuable: {ok: false, reason}, run: viewOf(run)}, generation};
         }
         const continuable: ViewerResult<"qa.get">["continuable"] = conversation.log === null
             ? {ok: false, reason: "这是旧形状的记录，只能查看，不能续问"}
@@ -381,19 +396,25 @@ export function createQaService(options: QaServiceOptions): QaService {
               ? {ok: true}
               : {ok: false, reason: log.problem};
         const {id, at, mode, maxChapters, turns, startedAt} = conversation;
-        return {record: {id, at, mode, maxChapters, turns, startedAt}, log, continuable, run: run === undefined ? null : viewOf(run)};
+        return {result: {record: {id, at, mode, maxChapters, turns, startedAt}, log, continuable, run: run === undefined ? null : viewOf(run)}, generation};
     }
 
     function keysOf(config: unknown): Record<string, boolean> {
         const value = config as {model?: {apiKeyEnv?: unknown}; ingest?: {model?: {apiKeyEnv?: unknown}; recall?: {model?: {apiKeyEnv?: unknown}}}};
         const names = [value.model?.apiKeyEnv, value.ingest?.model?.apiKeyEnv, value.ingest?.recall?.model?.apiKeyEnv];
-        const keys: Record<string, boolean> = {};
-        for (const name of names) if (typeof name === "string" && name !== "") keys[name] = (env[name] ?? "") !== "";
-        return keys;
+        // 用 fromEntries 建字典：变量名可以是 `__proto__`，按下标赋值会落到原型的 setter 上。
+        return Object.fromEntries(names.filter((name): name is string => typeof name === "string" && name !== "").map(name => [name, (env[name] ?? "") !== ""]));
     }
 
     async function configGet(): Promise<ViewerResult<"config.get">> {
-        const digest = await currentConfigDigest(configPath);
+        let digest: string;
+        try {
+            digest = await currentConfigDigest(configPath);
+        } catch (error) {
+            // 读不出来（是目录、没权限）：给一个不会与任何摘要相等的值，写入时在锁里再读，照样报写不了。
+            if (error instanceof QaError && error.code === "qa_unconfigured") return {state: "invalid", problem: error.message, digest: "unreadable", path: configPath, keys: {}};
+            throw error;
+        }
         if (digest === ABSENT_CONFIG) return {state: "absent", config: STARTER_CONFIG, digest, path: configPath, keys: keysOf(STARTER_CONFIG)};
         let read: {config: QaConfig; digest: string};
         try {

@@ -8,7 +8,7 @@
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
 import {existsSync} from "node:fs";
-import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {chmod, mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {connect} from "node:net";
 import {join} from "node:path";
 
@@ -18,7 +18,7 @@ import {createParser} from "eventsource-parser";
 import type {QaFrame, QaRunView} from "../contract/contract";
 import {createStoryApi} from "../core/api";
 import {startEndpoint, type Endpoint, type EndpointReply} from "../../testing/openai-endpoint";
-import {loginCookie, rpc, startServe, type ServeProcess} from "../../testing/processes";
+import {CLI, loginCookie, rpc, startServe, type ServeProcess} from "../../testing/processes";
 import {makeSampleRoot} from "../../testing/sample";
 import {createServeAuth} from "./auth";
 import {createHandler, EVENTS_BACKLOG_BYTES} from "./http";
@@ -252,6 +252,52 @@ describe("一轮问答在服务里跑，进展经推送到页面", () => {
     });
 });
 
+describe("没保存的一轮与别的一代", () => {
+    test("首轮写不进去：结果留在服务里，qa.get 没有记录、给出这一轮与没保存的原因，列表里照样有它", async () => {
+        const env = await setup([GIVE_UP]);
+        // qa 目录只读：写会话日志时报 EACCES（列目录照常）。
+        const qaDir = join(env.library, "fox", "qa");
+        await mkdir(qaDir);
+        await chmod(qaDir, 0o555);
+        cleanups.push(() => chmod(qaDir, 0o755));
+        const {conversation} = (await env.call("qa.start", {book: "fox", question: "写不进去", at: {chapter: 38}})).body as {conversation: string};
+        await waitUntil("结束", async () => ((await env.call("qa.get", {book: "fox", id: conversation})).body as {run: QaRunView | null}).run?.state === "ended");
+        const got = await env.call("qa.get", {book: "fox", id: conversation});
+        expect(got.body).toMatchObject({record: null, continuable: {ok: false}, run: {state: "ended", saved: {ok: false, reason: "write_failed"}, result: {status: "answered"}}});
+        expect((await env.call("qa.list", {book: "fox"})).body.conversations).toMatchObject([{id: conversation, turns: 0, status: "answered", run: {state: "ended", saved: false}}]);
+        const stream = env.events(conversation);
+        await stream.closed;
+        expect(stream.frames).toMatchObject([{type: "snapshot", run: {saved: {ok: false}}}]);
+        expect((stream.frames[0] as Extract<QaFrame, {type: "snapshot"}>).entries.length).toBeGreaterThan(0);
+    });
+
+    test("命令行在网页这一轮期间先续问并保存：网页这一轮报冲突、不保存，记录是命令行写的两轮", async () => {
+        const env = await setup([GIVE_UP, GIVE_UP]);
+        const {conversation} = (await env.call("qa.start", {book: "fox", question: "第一问", at: {chapter: 38}})).body as {conversation: string};
+        await waitUntil("第一轮保存", async () => ((await env.call("qa.get", {book: "fox", id: conversation})).body as {record: unknown}).record !== null);
+        const gate = held(GIVE_UP);
+        await env.endpoint.stop();
+        const webEndpoint = startEndpoint([gate.reply], {idleTimeoutSeconds: 0});
+        cleanups.push(() => webEndpoint.stop());
+        await writeFile(env.configFile, JSON.stringify({model: {baseUrl: webEndpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}}));
+        expect((await env.call("qa.start", {book: "fox", question: "网页的第二问", conversation})).status).toBe(200);
+        await webEndpoint.firstRequest;
+
+        const cliEndpoint = startEndpoint([GIVE_UP]);
+        cleanups.push(() => cliEndpoint.stop());
+        const cliConfig = join(env.library, "..", "cli-config.json");
+        await writeFile(cliConfig, JSON.stringify({model: {baseUrl: cliEndpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}}));
+        const cli = Bun.spawn(["bun", CLI, "ask", "命令行的第二问", "--continue", conversation, "--config", cliConfig, "--library", env.library], {stdout: "pipe", stderr: "pipe", env: {...process.env, [KEY_ENV]: FAKE_KEY}});
+        expect(await cli.exited).toBe(0);
+
+        gate.release();
+        await waitUntil("网页这一轮结束", async () => ((await env.call("qa.get", {book: "fox", id: conversation})).body as {run: QaRunView | null}).run?.state === "ended");
+        const got = await env.call("qa.get", {book: "fox", id: conversation});
+        expect(got.body).toMatchObject({run: {turn: 2, baseTurns: 1, saved: {ok: false, reason: "conflict"}}});
+        expect((got.body.record.turns as {question: string}[]).map(turn => turn.question)).toEqual(["第一问", "命令行的第二问"]);
+    });
+});
+
 describe("删除", () => {
     test("首轮运行中删除对话：先停下、等它收口，再删；列表里没有它，磁盘上也没有它的文件", async () => {
         const env = await setup([{kind: "hang"}]);
@@ -290,6 +336,16 @@ describe("删除", () => {
         });
     }
 
+    test("参数不对的删书请求直接报错，不先停下这本书的问答", async () => {
+        const env = await setup([{kind: "hang"}]);
+        const {conversation} = (await env.call("qa.start", {book: "fox", question: "别停我", at: {chapter: 38}})).body as {conversation: string};
+        await env.endpoint.firstRequest;
+        const bad = await env.call("book.remove", {book: "fox", unexpected: true});
+        expect(code(bad)).toBe("invalid_params");
+        expect(((await env.call("qa.get", {book: "fox", id: conversation})).body as {run: QaRunView}).run.state).toBe("running");
+        expect((await env.call("qa.stop", {book: "fox", conversation})).status).toBe(200);
+    });
+
     test("损坏的记录单列，可以删除", async () => {
         const env = await setup([]);
         await mkdir(join(env.library, "fox", "qa"), {recursive: true});
@@ -322,6 +378,13 @@ describe("设置页的配置", () => {
         expect(code(rejected)).toBe("invalid_params");
         expect(JSON.stringify(rejected.body)).not.toContain(pasted);
         expect(await readFile(env.configFile, "utf8")).not.toContain(pasted);
+    });
+
+    test("变量名 `__proto__` 照样列进“有没有值”的表", async () => {
+        const env = await setup([], {config: null});
+        await writeFile(env.configFile, JSON.stringify({model: {baseUrl: env.endpoint.url, id: "qa-model", apiKeyEnv: "__proto__"}}));
+        const got = await env.call("config.get", {});
+        expect(Object.hasOwn(got.body.keys, "__proto__")).toBe(true);
     });
 
     test("文件坏了只给原因、不回传原文，可以整份覆盖", async () => {

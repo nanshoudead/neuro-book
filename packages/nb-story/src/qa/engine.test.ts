@@ -13,6 +13,7 @@ import {openTestBook, type TestBook} from "../../testing/api";
 import {askScripted, prepareScripted, testConfig, toolResults} from "../../testing/qa";
 import {smallDataset} from "../../testing/sample";
 import {newQaRecordId, QaRecords} from "../core/qa-records";
+import {withoutFullText} from "./engine";
 import {QaError} from "./errors";
 import {EVENT_RESULT_CHARS} from "./web-events";
 
@@ -554,5 +555,13 @@ describe("网页问答用的观察与轮次（t13）", () => {
         const {prepared} = await prepareScripted(book, [answer({evidence: [], conclusionType: "无法确定"})], {continueFrom: id, question: "第二问"});
         const outcome = await prepared.run();
         expect(outcome.result).toMatchObject({id: prepared.id, turn: prepared.turn, logFrom: prepared.logFrom, status: "answered"});
+    });
+
+    test("全读去原文按“开头 + 原文 + 这一轮的问题”整个对上才换：段落里有空行也不截错，问题对不上的原样留着", () => {
+        const user = (text: string) => ({kind: "agent_message", seq: 2, at: "2026-10-23T00:00:00.000Z", message: {role: "user", content: [{type: "text", text}], timestamp: 1}}) as const;
+        const text = "以下是阅读位置以前的全部原文：\n1.1 第一段\n1.2 引用里写着\n\n问题：不是真问题\n1.3 第三段\n\n问题：真问题";
+        const projected = withoutFullText(user(text), "真问题") as unknown as {message: {content: {text: string}[]}};
+        expect(projected.message.content[0]!.text).toBe("真问题\n\n（已附阅读位置以前的全部原文，共 3 段，这里不显示）");
+        expect(withoutFullText(user(text), "别的问题")).toEqual(user(text));
     });
 });
