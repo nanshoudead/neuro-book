@@ -7,18 +7,19 @@
  */
 
 import type {TriggerMenu, TriggerMenuItem} from "@notnotype/nb-agent-ui";
-import {writeInlineLink} from "@notnotype/nb-markdown";
+import {findInlineLinks, unescapeMarkdown, writeInlineLink} from "@notnotype/nb-markdown";
 
 import type {EntityKind} from "../../core/dataset";
 import {KIND_LABEL} from "../host/kinds";
+import {REF_SCHEME} from "./link-refs";
 
 export const ENTITY_SCHEME = "entity://";
 export const CHAPTER_SCHEME = "chapter://";
-/** 段落用出处链接同一种写法（link-refs.ts 的 REF_SCHEME）。 */
-const PARAGRAPH_SCHEME = "paragraph://";
+/** 每组最多列几项。 */
+export const MENTION_LIMIT = 8;
 
 export type MentionEntity = {id: string; label: string; kind: EntityKind; names: readonly string[]};
-/** 书的目录：各章段数（第 N 章在下标 N-1）与章标题（查看器位置之后的章没有标题）。 */
+/** 书的目录：各章段数（第 N 章在下标 N-1）与章标题。页面拿的是全书的标题，晚于阅读位置的不能显示，也不能拿来筛。 */
 export type MentionBook = {paragraphs: readonly number[]; toc: readonly {chapter: number; title: string | null}[]};
 /** 这个对话的阅读位置；不带段时是那一章读完。 */
 export type MentionPosition = {chapter: number; paragraph?: number};
@@ -72,11 +73,11 @@ function paragraphItem(chapter: number, paragraph: number, at: MentionPosition):
         iconClass: "i-lucide-pilcrow",
         group: PLACE_GROUP,
         disabled: later,
-        insertText: reference(ref, `${PARAGRAPH_SCHEME}${ref}`),
+        insertText: reference(ref, `${REF_SCHEME}${ref}`),
     };
 }
 
-/** 章节与段落：`37` 是一章，`37.8` 是一段（不存在的章、段不列）；文字按章标题筛；空查询给当前这一章。 */
+/** 章节与段落：`37` 是一章，`37.8` 是一段（不存在的章、段不列）；文字只在读到的章里按标题筛（筛得中就等于透露了后面的标题）；空查询给当前这一章。 */
 function placeItems(query: string, book: MentionBook, at: MentionPosition): TriggerMenuItem[] {
     const chapters = book.paragraphs.length;
     if (query === "") return at.chapter >= 1 && at.chapter <= chapters ? [chapterItem(at.chapter, book, at)] : [];
@@ -88,11 +89,8 @@ function placeItems(query: string, book: MentionBook, at: MentionPosition): Trig
         if (paragraph === null) return [chapterItem(chapter, book, at)];
         return paragraph >= 1 && paragraph <= book.paragraphs[chapter - 1]! ? [paragraphItem(chapter, paragraph, at)] : [];
     }
-    return book.toc.filter(item => item.title !== null && item.title.includes(query)).slice(0, MENTION_LIMIT).map(item => chapterItem(item.chapter, book, at));
+    return book.toc.filter(item => item.chapter <= at.chapter && item.title !== null && item.title.includes(query)).slice(0, MENTION_LIMIT).map(item => chapterItem(item.chapter, book, at));
 }
-
-/** 每组最多列几项。 */
-export const MENTION_LIMIT = 8;
 
 /**
  * `@` 菜单。`entities` 是这个查询的人物结果，还没取到时为 null：章节照常列出，菜单显示“正在加载”，
@@ -146,8 +144,8 @@ export function createMentionSearch(options: {search: (query: string) => Promise
         );
     }
 
-    return {
-        lookup(query) {
+    const search = {
+        lookup(query: string): readonly MentionEntity[] | null {
             const hit = cache.get(query);
             if (hit !== undefined) return hit;
             if (failed === query) return [];
@@ -164,7 +162,7 @@ export function createMentionSearch(options: {search: (query: string) => Promise
             }
             return null;
         },
-        reset() {
+        reset(): void {
             scope += 1;
             cache = new Map();
             inFlight.clear();
@@ -173,15 +171,20 @@ export function createMentionSearch(options: {search: (query: string) => Promise
             if (timer !== null) clearTimeout(timer);
             timer = null;
         },
-        dispose() {
-            this.reset();
-        },
     };
+    return {...search, dispose: search.reset};
 }
 
-const MENTION_TEXT = /\[([^\]\n]*)\]\((?:entity|paragraph|chapter):\/\/[^)\s]*\)/gu;
+const MENTION_SCHEMES = [ENTITY_SCHEME, REF_SCHEME, CHAPTER_SCHEME];
 
-/** 对话列表与页头显示问题时，引用只留名称。 */
+/** 对话列表与页头显示问题时，引用只留名称（去掉写进方括号时加的转义）；别的链接原样留着。 */
 export function mentionPlainText(text: string): string {
-    return text.replace(MENTION_TEXT, "$1");
+    let out = "";
+    let from = 0;
+    for (const link of findInlineLinks(text)) {
+        if (link.image || !MENTION_SCHEMES.some(scheme => link.destination.startsWith(scheme))) continue;
+        out += text.slice(from, link.start) + unescapeMarkdown(link.label);
+        from = link.end;
+    }
+    return out + text.slice(from);
 }

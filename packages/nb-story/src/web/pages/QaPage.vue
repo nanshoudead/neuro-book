@@ -173,10 +173,16 @@ const mentions = createMentionSearch({
     },
     onChange: () => (mentionTick.value += 1),
 });
-watch([() => formatAt(mentionAt.value), book.dataVersion], () => {
-    mentions.reset();
-    mentionTick.value += 1;
-});
+// 换了位置先取好空查询的人物：第一次打 `@` 就有人物，菜单的高亮也不会先落在章节项上、人物到了还停在那里。
+watch(
+    [() => formatAt(mentionAt.value), book.dataVersion],
+    () => {
+        mentions.reset();
+        mentions.lookup("");
+        mentionTick.value += 1;
+    },
+    {immediate: true},
+);
 onBeforeUnmount(() => mentions.dispose());
 const services = computed(() => {
     void mentionTick.value;
@@ -245,7 +251,10 @@ function openTarget(raw: string): void {
     if (target.startsWith(REF_SCHEME)) book.openSource(normalizeRef(target.slice(REF_SCHEME.length)));
     else if (target.startsWith(ENTITY_SCHEME)) book.openCard(target.slice(ENTITY_SCHEME.length));
     // 引用一章：打开这一章开头的原文（w00024 t15 决定 3）。
-    else if (target.startsWith(CHAPTER_SCHEME)) book.openSource(`${Number(target.slice(CHAPTER_SCHEME.length))}.1`);
+    else if (target.startsWith(CHAPTER_SCHEME)) {
+        const chapter = target.slice(CHAPTER_SCHEME.length);
+        if (/^\d+$/u.test(chapter)) book.openSource(`${Number(chapter)}.1`);
+    }
 }
 
 async function submit(text: string): Promise<void> {

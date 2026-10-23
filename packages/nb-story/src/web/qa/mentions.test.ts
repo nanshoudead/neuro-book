@@ -55,15 +55,21 @@ describe("@ 菜单", () => {
         expect(menu("3").items[0]!.disabled).toBe(true);
     });
 
-    test("文字按章标题筛；人物还没取到时章节照常列出、菜单显示正在加载；什么都没有时写明", () => {
+    test("文字按章标题筛，只筛读到的章；人物还没取到时章节照常列出、菜单显示正在加载；什么都没有时写明", () => {
         const menu = mentionMenu("雨", {entities: null, book: BOOK, at: {chapter: 3}});
         expect(menu.loading).toBe(true);
         expect(menu.items.map(item => item.label)).toEqual(["第 1 章", "第 2 章"]);
+        // 第 2 章的标题也有“雨”，但还没读到：列出来就透露了它的标题。
+        expect(mentionMenu("雨", {entities: [], book: BOOK, at: {chapter: 1, paragraph: 3}}).items.map(item => item.label)).toEqual(["第 1 章"]);
         expect(mentionMenu("没有的", {entities: [], book: BOOK, at: {chapter: 3}}).emptyText).toBe("没有找到“没有的”");
     });
 
     test("列表与页头里的问题只留引用的名称", () => {
         expect(mentionPlainText("[苏天晴](entity://e7) 在 [2.5](paragraph://2.5) 知道 [第 3 章](chapter://3) 的事吗？[别的](https://x.y)")).toBe("苏天晴 在 2.5 知道 第 3 章 的事吗？[别的](https://x.y)");
+        // 名称里有方括号、反斜杠时插进去的写法带转义，显示时去掉。
+        const odd: MentionEntity = {id: "e3", label: "[旧]钟\\", kind: "item", names: ["[旧]钟\\"]};
+        const inserted = mentionMenu("", {entities: [odd], book: BOOK, at: {chapter: 1}}).items[0]!.insertText!;
+        expect(mentionPlainText(`${inserted} 在哪？`)).toBe("[旧]钟\\ 在哪？");
     });
 });
 
