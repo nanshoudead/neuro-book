@@ -7,11 +7,11 @@
  */
 
 import {existsSync} from "node:fs";
-import {readdir, rm} from "node:fs/promises";
+import {readdir, readFile, rm} from "node:fs/promises";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
-import {buildPlugin} from "./build-plugin";
+import {buildPlugin, PluginBuildError} from "./build-plugin";
 import type {BuildPluginResult} from "./build-plugin";
 
 const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
@@ -27,10 +27,33 @@ export const IN_REPO_BUILD = {
     forbiddenDirectories: [join(packageRoot, "src")],
 } as const;
 
-/** 构建一个示例；`outDir` 缺省为它的 `dist/`，构建前清空。 */
+/**
+ * 构建一个示例；`outDir` 缺省为它的 `dist/`。输出目录不存在、为空，或者里面是这个示例上次的产物（清单的 publisher 与
+ * name 相同）时先清空再构建；否则拒绝，不递归删除不是自己生成的目录（`outDir` 可以从命令行之外的调用方传进来）。
+ */
 export async function buildExample(name: string, outDir: string = join(EXAMPLES_ROOT, name, "dist")): Promise<BuildPluginResult> {
-    await rm(outDir, {recursive: true, force: true});
-    return buildPlugin({root: join(EXAMPLES_ROOT, name), outDir, ...IN_REPO_BUILD});
+    const root = join(EXAMPLES_ROOT, name);
+    if (existsSync(outDir) && (await readdir(outDir)).length > 0) {
+        if (!(await isPreviousBuild(root, outDir))) throw new PluginBuildError("输出目录里不是这个示例上次的产物，不清理", [{path: "", message: outDir}]);
+        await rm(outDir, {recursive: true});
+    }
+    return buildPlugin({root, outDir, ...IN_REPO_BUILD});
+}
+
+async function isPreviousBuild(root: string, outDir: string): Promise<boolean> {
+    const manifest = join(outDir, "package.json");
+    if (!existsSync(manifest)) return false;
+    const [author, previous] = await Promise.all([readJson(join(root, "package.json")), readJson(manifest)]);
+    return previous.publisher === author.publisher && previous.name === author.name;
+}
+
+async function readJson(file: string): Promise<Record<string, unknown>> {
+    try {
+        const value: unknown = JSON.parse(await readFile(file, "utf8"));
+        return typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
+    } catch (error) {
+        throw new PluginBuildError("读不了 package.json", [{path: "", message: `${file}：${error instanceof Error ? error.message : String(error)}`}], {cause: error});
+    }
 }
 
 if (import.meta.main) {
