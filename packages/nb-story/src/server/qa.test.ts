@@ -8,6 +8,7 @@
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
 import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {connect} from "node:net";
 import {join} from "node:path";
 
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
@@ -18,6 +19,10 @@ import {createStoryApi} from "../core/api";
 import {startEndpoint, type Endpoint, type EndpointReply} from "../../testing/openai-endpoint";
 import {loginCookie, rpc, startServe, type ServeProcess} from "../../testing/processes";
 import {makeSampleRoot} from "../../testing/sample";
+import {createServeAuth} from "./auth";
+import {createHandler, EVENTS_BACKLOG_BYTES} from "./http";
+import type {IngestService} from "./ingest-service";
+import type {QaService} from "./qa-service";
 
 const KEY_ENV = "NBSTORY_SERVE_QA_TEST_CREDENTIAL";
 const FAKE_KEY = "fake-serve-qa-credential-0042";
@@ -59,12 +64,15 @@ interface Env {
     serve: ServeProcess;
     /** 收到的全部响应正文与帧，用例结束时扫密钥。 */
     seen: string[];
+    cookie: string;
     call(method: string, params: unknown): Promise<{status: number; body: any}>;
     events(conversation: string): Stream;
 }
 
 interface Stream {
     frames: QaFrame[];
+    /** 已经读到的字节数。 */
+    bytes(): number;
     /** 流结束（服务端关掉）时 resolve。 */
     closed: Promise<void>;
     abort(): void;
@@ -95,6 +103,7 @@ async function setup(replies: EndpointReply[], options: {config?: unknown; endpo
         endpoint,
         serve,
         seen,
+        cookie,
         async call(method, params) {
             const result = await rpc(serve.base!, method, params, cookie);
             seen.push(JSON.stringify(result.body));
@@ -102,6 +111,7 @@ async function setup(replies: EndpointReply[], options: {config?: unknown; endpo
         },
         events(conversation) {
             const frames: QaFrame[] = [];
+            let bytes = 0;
             const controller = new AbortController();
             const closed = (async () => {
                 const response = await fetch(`${serve.base}/api/qa/events?book=fox&conversation=${conversation}`, {headers: {cookie}, signal: controller.signal});
@@ -113,11 +123,14 @@ async function setup(replies: EndpointReply[], options: {config?: unknown; endpo
                     },
                 });
                 const decoder = new TextDecoder();
-                for await (const chunk of response.body!) parser.feed(decoder.decode(chunk, {stream: true}));
+                for await (const chunk of response.body!) {
+                    bytes += chunk.byteLength;
+                    parser.feed(decoder.decode(chunk, {stream: true}));
+                }
             })().catch((error: unknown) => {
                 if (!controller.signal.aborted) throw error;
             });
-            return {frames, closed, abort: () => controller.abort()};
+            return {frames, bytes: () => bytes, closed, abort: () => controller.abort()};
         },
     };
 }
@@ -313,5 +326,60 @@ describe("设置页的配置", () => {
         expect(passed.body).toMatchObject({ok: true, model: "qa-model", thinking: null, error: null});
         const failed = await env.call("config.test", {});
         expect(failed.body).toMatchObject({ok: false, error: {kind: expect.any(String), message: expect.any(String)}});
+    });
+});
+
+describe("推送的积压上限", () => {
+    test("读得慢的连接积压超过上限就被断开，别的订阅者照常收到", async () => {
+        // 真实的处理函数与 HTTP；问答服务换成一个只管推帧的替身（它的订阅合同同 QaService.subscribe）：真实的运行
+        // 推不出这么多数据，测试进程解析大帧又会拖慢自己。
+        const subscribers = new Map<number, {send: (frame: QaFrame) => void; closed: boolean}>();
+        let next = 0;
+        const big = "字".repeat(100_000);
+        const qa: QaService = {
+            async call() {
+                throw new Error("不该调用");
+            },
+            subscribe(_book, _conversation, send) {
+                const id = (next += 1);
+                const subscriber = {send, closed: false};
+                subscribers.set(id, subscriber);
+                send({type: "snapshot", run: null, entries: []});
+                return {live: true, close: () => void (subscriber.closed = true)};
+            },
+            exclusive: (_book, task) => task(),
+            close: async () => undefined,
+        };
+        let auth!: ReturnType<typeof createServeAuth>;
+        let handler!: (request: Request) => Promise<Response>;
+        const server = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: request => handler(request)});
+        cleanups.push(() => server.stop(true));
+        auth = createServeAuth(server.port!);
+        handler = createHandler({api: createStoryApi({library: join(root, "unused")}), ingest: {} as IngestService, qa, auth, instance: "test", webRoot: join(root, "no-web"), timeout: (request, seconds) => server.timeout(request, seconds)});
+        const cookie = auth.cookie(auth.login(auth.token)!).split(";")[0]!;
+
+        const slow = connect({host: "127.0.0.1", port: server.port!});
+        cleanups.push(() => slow.destroy());
+        slow.write(`GET /api/qa/events?book=fox&conversation=c HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: ${cookie}\r\n\r\n`);
+        slow.pause();
+        await waitUntil("慢的一方订阅上", () => subscribers.has(1));
+        const fast = await fetch(`http://127.0.0.1:${server.port}/api/qa/events?book=fox&conversation=c`, {headers: {cookie}});
+        const reader = fast.body!.getReader();
+        await waitUntil("快的一方订阅上", () => subscribers.has(2));
+
+        // 每轮给两边各推一帧，快的一方读完这一帧再推下一轮；慢的一方不读，积压到上限被断开。
+        const frame: QaFrame = {type: "event", runId: "r", event: {type: "message_update", text: big}};
+        let rounds = 0;
+        while (!subscribers.get(1)!.closed) {
+            for (const subscriber of subscribers.values()) if (!subscriber.closed) subscriber.send(frame);
+            rounds += 1;
+            let got = 0;
+            while (got < 300_000) got += (await reader.read()).value!.byteLength;
+            if (rounds > 1_000) throw new Error("推了 1000 帧慢的一方还没被断开");
+        }
+        expect(subscribers.get(2)!.closed).toBe(false);
+        // 上限加上内核的套接字缓冲：断开时推给它的字节数在上限之上、不会多出太多。
+        expect(rounds * 300_000).toBeGreaterThan(EVENTS_BACKLOG_BYTES);
+        await reader.cancel();
     });
 });

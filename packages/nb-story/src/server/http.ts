@@ -83,6 +83,12 @@ const QA_HTTP_STATUS: Record<string, number> = {qa_unconfigured: 400, qa_config_
 /** RPC 的空闲超时：最长的是测试连接（最多等模型 60 秒）。 */
 const RPC_TIMEOUT_SECONDS = 120;
 
+/**
+ * 一个推送连接最多积压多少字节还没发出去。读得慢的页面（后台标签页、卡住的连接）超过它就断开：页面重连时按
+ * `qa.get` 与新的快照补齐，丢帧可以恢复，积压却会让服务的内存随运行时长一直涨。
+ */
+export const EVENTS_BACKLOG_BYTES = 2 * 1024 * 1024;
+
 export function createHandler(options: HandlerOptions): (request: Request) => Promise<Response> {
     const {api, ingest, qa, auth, instance, webRoot} = options;
     const heartbeatMs = options.heartbeatMs ?? 20_000;
@@ -141,7 +147,8 @@ export function createHandler(options: HandlerOptions): (request: Request) => Pr
 
     /**
      * 一个对话运行中的推送。第一帧是 `snapshot`；没有运行或已经结束时随即结束。之后每帧一条 SSE 消息，`ended` 之后
-     * 结束；页面断开（请求的 signal）时退订。间隔发注释行当心跳，让中间的代理与浏览器知道连接还活着。
+     * 结束；页面断开（请求的 signal）时退订；积压超过 `EVENTS_BACKLOG_BYTES` 时断开。间隔发注释行当心跳，让中间的
+     * 代理与浏览器知道连接还活着。
      */
     function events(request: Request, url: URL): Response {
         const book = url.searchParams.get("book");
@@ -170,7 +177,8 @@ export function createHandler(options: HandlerOptions): (request: Request) => Pr
                 const send = (frame: QaFrame) => {
                     if (closed) return;
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`));
-                    if (frame.type === "ended") queueMicrotask(finish);
+                    // 按字节计的队列（见下面的 size）：desiredSize 是负的积压字节数。
+                    if (frame.type === "ended" || (controller.desiredSize ?? 0) < -EVENTS_BACKLOG_BYTES) queueMicrotask(finish);
                 };
                 const opened = qa.subscribe(book, conversation, send);
                 subscription = opened;
@@ -190,7 +198,7 @@ export function createHandler(options: HandlerOptions): (request: Request) => Pr
             cancel() {
                 finish();
             },
-        });
+        }, {highWaterMark: 0, size: chunk => chunk?.byteLength ?? 0});
         return new Response(body, {headers: {"content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", "x-accel-buffering": "no"}});
     }
 
