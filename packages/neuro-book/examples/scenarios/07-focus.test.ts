@@ -4,8 +4,9 @@
  * 要说明的事：
  * - 设置项、命令、状态栏条目、服务端远程服务与私有存储连在一起：命令开始一次专注，时长取设置项，服务端到点结算并推送，
  *   状态栏的文字跟着变。
- * - 计时的权威在服务端，而且不靠计时器：服务端停着的时候到点的那次，重新激活时记上；同一状态根上的两个服务端各自结算，
- *   只记一次。
+ * - 计时的权威在服务端，而且不靠计时器：服务端停着的时候到点的那次，之后第一次读写时记上；同一状态根上的两个服务端
+ *   各自结算，只记一次。没有窗口在走表时，服务端的计时器到点结算并推送。
+ * - 记录坏了（例如插件升过记录的 `version` 又降回来）不让入口从此不可用：换成空记录重来。
  * - 窗口只在有进行中的一次时走表；入口停止、空闲之后不占计时器。断线重连后窗口重取一次，断开期间别处的变化补得上。
  *
  * 阅读顺序：`plugins/focus/shared/contracts.ts` → `plugins/focus/backend/plugin.ts` → `plugins/focus/web/focus-store.ts`
@@ -18,6 +19,10 @@
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {rm} from "node:fs/promises";
 import {join} from "node:path";
+
+import {defineEntry, defineRecord, storageKey} from "@notnotype/nb-plugin-sdk";
+import type {PluginDefinition} from "@notnotype/nb-plugin-sdk";
+import {Type} from "typebox";
 
 import type {PluginRemoteAccess} from "@notnotype/nb-runtime/plugins";
 import type {RemoteRouter} from "@notnotype/nb-runtime/remote";
@@ -32,6 +37,7 @@ import type {CommandService} from "nbook/plugins/commands/shared/contracts";
 import {focusBackendPlugin} from "../plugins/focus/backend/plugin";
 import {descriptor} from "../plugins/focus/plugin";
 import {sessionsContract, START_COMMAND, TOGGLE_COMMAND} from "../plugins/focus/shared/contracts";
+import type {Today} from "../plugins/focus/shared/contracts";
 import {FOCUS_ITEM, focusBrowserPlugin} from "../plugins/focus/web/plugin";
 import {remoteProbe, serviceProbe} from "../testing/probes";
 import {Stage} from "../testing/stage";
@@ -119,7 +125,24 @@ describe("场景 7：专注计时", () => {
         expect(await sessions.cancel({})).toMatchObject({ok: true, value: {running: null, completed: 0}});
     });
 
-    it("服务端入口停掉再启动：停着时到点的那次重新激活时记上，没到点的照常到点结束", async () => {
+    it("没有窗口在走表：服务端的计时器到点结算并推送 changed", async () => {
+        const stage = newStage();
+        const {router} = await server(stage);
+        // 只有一个远程探针订阅 `changed`，没有 focus 的浏览器入口：到点之后的推送只能来自服务端自己的计时器。
+        const caller = remoteProbe("example.caller", "browser");
+        await stage.window(router, "w1", {plugins: [caller.definition]});
+        const sessions = caller.remote().use(sessionsContract);
+        const pushed: Today[] = [];
+        expect(await sessions.events.changed.subscribe({}, (today) => void pushed.push(today))).toMatchObject({ok: true});
+        expect(await waitUntil("订阅的首推", () => pushed.length === 1)).toBe(true);
+
+        expect(await sessions.start({})).toMatchObject({ok: true});
+        stage.clock.advance(25 * MINUTE);
+        expect(await waitUntil("到点推来完成的一次", () => pushed.at(-1)?.completed === 1)).toBe(true);
+        expect(pushed.at(-1)).toMatchObject({running: null, completed: 1, minutes: 25});
+    });
+
+    it("服务端入口停掉再启动：停止时它的计时器跟着取消；停着时到点的那次之后第一次读时记上，没到点的照常到点结束", async () => {
         const stage = newStage();
         const {app, router} = await stage.server({plugins: []});
         const caller = remoteProbe("example.caller", "browser");
@@ -129,6 +152,8 @@ describe("场景 7：专注计时", () => {
         let focus = await stage.attach(app, definitionAt("server", descriptor, focusBackendPlugin), "server");
         expect(await sessions.start({})).toMatchObject({ok: true});
         expect((await focus.stop()).status).toBe("closed");
+        // 入口停了，它为进行中的那次排的计时器也取消了：场地上很快没有计时器，不必等到 25 分钟之后。
+        await idle(stage);
         stage.clock.advance(30 * MINUTE);
         focus = await stage.attach(app, definitionAt("server", descriptor, focusBackendPlugin), "server");
         expect(await sessions.today({})).toMatchObject({ok: true, value: {running: null, completed: 1, minutes: 25}});
@@ -157,6 +182,32 @@ describe("场景 7：专注计时", () => {
         second.clock.advance(25 * MINUTE);
         expect(await one.today({})).toMatchObject({ok: true, value: {running: null, completed: 1}});
         expect(await two.today({})).toMatchObject({ok: true, value: {running: null, completed: 1}});
+    });
+
+    it("记录的版本与入口不同（插件升过记录又降回来）：读写换成空记录，入口照常可用", async () => {
+        const root = join(tmp, "newer-root");
+        // 同一个插件 id 的“新版本”：同一条记录升到 version 2、换了形状。它跑在另一个服务端上：同一次运行里以不同的定义
+        // 打开同一条记录是 `definition-conflict`，换版本总伴随着重启。
+        const newer: PluginDefinition = {id: descriptor.id, entries: [defineEntry({
+            id: "server",
+            location: "server",
+            dependencies: [{key: storageKey}],
+            activate: async (context) => {
+                const opened = await context.services.require(storageKey).open(defineRecord({key: "focus", scope: "user", locality: "shared", version: 2, schema: Type.Object({sessions: Type.Array(Type.Number())}, {additionalProperties: false})}));
+                if (!opened.ok) throw new Error(opened.code);
+                expect(await opened.handle.save({sessions: [1]}, {expect: null})).toMatchObject({ok: true});
+                return {};
+            },
+        })]};
+        const older = newStage(root);
+        const {app} = await older.server({plugins: []});
+        await older.attach(app, newer, "server");
+
+        const current = newStage(root);
+        const {router} = await server(current);
+        const sessions = (await windowOf(current, router)).remote.use(sessionsContract);
+        expect(await sessions.today({})).toMatchObject({ok: true, value: {running: null, completed: 0, minutes: 0}});
+        expect(await sessions.start({})).toMatchObject({ok: true, value: {running: {endsAt: 25 * MINUTE}}});
     });
 
     it("跨零点的一次算在结束那天；第二天的汇总从零开始", async () => {

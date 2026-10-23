@@ -117,7 +117,7 @@ examples/
 | [menu](plugins/menu/) | server | 定义贡献点 `menu.items`：规则写成 `schema` 与 `idPrefix`、登记时逐条校验，启动即激活、收到菜单项记诊断，接收者 `published` 与 `revoke`、执行时经 `implementation()` 取实现；`context.declarations` 列出已接受声明的标题，贡献方还没激活也列得出 |
 | [file-menu](plugins/file-menu/) | server | 向贡献点提交声明与实现，与拥有者之间没有服务依赖；注释说明为什么还只能启动即激活 |
 | [snippets](plugins/snippets/) | browser（配置项在每个实例登记） | 配置项写在插件描述里、由宿主登记进每个实例；向 `settings.pages` 贡献 page 分区，`load()` 按需加载页面；页面用 `SettingsRow` 的宽排法按 `context.layer` 只编辑这一层，按层读（`inspect`）与按层写（`update(..., {layer})`）；什么时候用 page 而不是 list |
-| [focus](plugins/focus/) | server、browser | 完整示例“专注计时”：list 分区里的设置项、命令、侧栏视图（`viewContribution` 把 store 交给组件）、状态栏条目（挂切换命令）、服务端远程服务与私有存储；计时的权威在服务端，到点由结算函数记完成、条件保存防止几个服务端重复记；窗口按 `endsAt` 算剩余、只在计时时走表、重连后重取 |
+| [focus](plugins/focus/) | server、browser | 完整示例“专注计时”：list 分区里的设置项、命令、侧栏视图（`viewContribution` 把 store 交给组件）、状态栏条目（挂切换命令）、服务端远程服务与私有存储；计时的权威在服务端，到点由结算函数记完成（纯函数，几个服务端各自结算不会多记），条件保存防丢更新，坏记录用 `reset` 重来；窗口按 `endsAt` 算剩余、只在计时时走表、重连后重取 |
 
 ## 外部插件
 
@@ -143,7 +143,7 @@ examples/
 | [04-remote-service](scenarios/04-remote-service.test.ts) | counter | 窗口直接用合同、`orThrow`、订阅归发起入口；项目按绑定到达与按需激活；`lookup` 的 `not-provided` 降级；`instances()`；计数持久化，命令随公开键可用与不可用 | [plugin-channel](../../../docs/specs/runtime/plugin-channel.md)、[projects](../../../docs/specs/runtime/projects.md)、[store](../../../docs/specs/state/store.md)、[public-state](../../../docs/specs/state/public-state.md)、[commands](../../../docs/specs/workbench/commands.md) |
 | [05-delegating-proxy](scenarios/05-delegating-proxy.test.ts) | notes（浏览器端） | 两个插件经代理各写各的，服务端看到原调用方与 `via`；同步缓存随 `changed` 更新 | [services](../../../docs/specs/runtime/services.md) 输出第 13 条、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md) 输出第 10 条 |
 | [06-settings-page](scenarios/06-settings-page.test.ts) | snippets | 配置项在服务端、项目实例与窗口都被接受；page 分区交付给设置窗口、插件停用后撤回；按层写用户层与本作品层，`inspect` 读回各层、`get` 读有效值，删掉本作品层回到沿用，不带 `layer` 时按 `auto` 选层；写别人的项为 `denied`、不合 schema 为 `invalid-value` | [settings-window](../../../docs/specs/settings/settings-window.md)、[configuration](../../../docs/specs/settings/configuration.md) 输出第 3、6、11、12 条 |
-| [07-focus](scenarios/07-focus.test.ts) | focus | 命令开始、时长取设置项、到点结算后状态栏更新；`already-running`、`not-running`；服务端入口停着时到点的那次重新激活时记上；同一状态根上两个服务端只记一次；跨零点算在结束那天；断线重连后补上别处的变化；入口停止、空闲后不占计时器 | [plugin-api](../../../docs/specs/runtime/plugin-api.md)、[persistence](../../../docs/specs/storage/persistence.md)、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md)、[workbench-shell](../../../docs/specs/ui/workbench-shell.md) |
+| [07-focus](scenarios/07-focus.test.ts) | focus | 命令开始、时长取设置项、到点结算后状态栏更新；`already-running`、`not-running`；没有窗口时服务端到点推送；服务端入口停止时计时器跟着取消，停着时到点的那次之后第一次读时记上；记录版本不同时换成空记录；同一状态根上两个服务端只记一次；跨零点算在结束那天；断线重连后补上别处的变化；入口停止、空闲后不占计时器 | [plugin-api](../../../docs/specs/runtime/plugin-api.md)、[persistence](../../../docs/specs/storage/persistence.md)、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md)、[workbench-shell](../../../docs/specs/ui/workbench-shell.md) |
 
 ## 场地与探针
 

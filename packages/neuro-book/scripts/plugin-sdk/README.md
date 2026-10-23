@@ -125,7 +125,7 @@ hello/
 - 用 `defineRecord({key, scope, locality, version, schema, keyed?})` 定义记录，入口依赖 `storageKey`，激活后 `storage.open(记录)` 拿到句柄读写；同时写的几方用条件保存，冲突时重读再写。
 - `scope: "user"` 存在服务端的用户分区，`"project"` 要在项目实例里打开。
 - 服务端入口的记录要写 `locality: "shared"`：缺省的 `local` 按客户端分开存，服务端没有客户端身份，打不开它。
-- 改了值的形状要升 `version`，旧数据读出来是 `unsupported-version`，不会被当成新形状。
+- 改了值的形状要升 `version`，旧数据读出来是 `unsupported-version`，不会被当成新形状。这时普通的 `save` 被拒（`protected`），要么按旧形状迁移，要么用 `reset` 换成新值（原件留在存储的原件区）；什么都不做的话，老用户的这条记录从此读写都失败。示例 `examples/plugins/focus` 的服务端入口示范了 `reset`。
 
 规则见 [persistence](../../../../docs/specs/storage/persistence.md)；写法见仓库里 notes 的 `backend/plugin.ts`。
 
