@@ -20,8 +20,6 @@ disable-model-invocation: true
 5. **实现审查**：Task 的切片都提交后，对本 Task 的提交范围启动一次实现审查，不等它，直接进入下一个 Task；审查报告回来后在主会话有空时处理，处理方式同第 3 步，修正单独提交。收口验证（含全量 e2e）在启动审查前跑完，Task README 写完成状态、证据与“实现审查待处理”。
 6. **下一步**：按 Work 的推进顺序（Work README、整体实施路径与已接受提案的切片表）确定下一个 Task，编号按 Work 最大值连续分配，回到第 1 步。
 
-每次提交后 push 当前 Work 分支作为备份，见下文“Git”。
-
 ## 审查分工
 
 审查者按 reviewing 的[派给谁](../reviewing/SKILL.md#派给谁)选：前端 UI 派 Claude Sonnet；后端、领域、计划与设计派一个 omp 会话（默认模型）；开发者指定快速审查时另加 Claude Opus，Opus 的结论处理完就开工；深入审查先向开发者报计划与预算。本 Skill 只另定两件事：实现审查每个 Task 一次、不阻塞（开发者 2026-10-10 定）；计划与设计审查阻塞。
@@ -52,7 +50,7 @@ disable-model-invocation: true
 
 遇到下面的情况，写好 Task README 的当前状态后停下汇报，不绕过：
 
-- 除 push 当前 Work 分支以外的远端写入：PR、合并、Issue 与 Project、其它分支、force push；
+- 远端写入：push、PR、合并、Issue 与 Project；
 - 真实模型调用；删除用户数据、改写已 push 的历史等不可逆动作；
 - 改变产品方向、范围或推进顺序：跳过或调换切片、放弃已接受的功能；
 - 同一对象审查满三轮仍有实质问题（reviewing 的轮数上限）；
@@ -61,8 +59,7 @@ disable-model-invocation: true
 ## Git
 
 - 只在 Work 的 worktree 里改动；按路径暂存，不用 `git add -A`、不用裸 `git stash`；提交信息用 Conventional Commit。
-- 每次提交后 `git push origin <Work 分支>`，只 push 这个分支，不 force。push 失败时记下原因继续，不改写历史去迁就远端。
-- 首次 push 或积压多个提交时，先扫一遍待 push 范围里的密钥（`git diff origin/<Work 分支>..HEAD`），有发现就停下。
+- 不 push：Work 分支只留在本地，汇报里也不问要不要 push（开发者 2026-10-23 定）。
 
 ## 上下文
 
