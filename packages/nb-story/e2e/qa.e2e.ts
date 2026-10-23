@@ -78,6 +78,8 @@ test("新对话：提问后看到过程与答案卡片；出处在抽屉里打�
     await ask(page, "地狱猫是谁？");
 
     const card = page.locator("[data-qa-answer]");
+    // 受理之后输入框清空（换到新对话的草稿也是新版本）。
+    await expect(page.getByRole("textbox", {name: "消息输入框"})).toHaveText("");
     await expect(card).toBeVisible();
     await expect(card).toContainText("读者在 37.8 就知道了");
     await expect(card.getByText("明说")).toBeVisible();

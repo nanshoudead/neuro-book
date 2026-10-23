@@ -6,6 +6,7 @@ import {AlertDialog, Banner, Button, IconButton, Popover} from "@notnotype/nb-ui
 import {acceptSubmission, applyComposerAction, createAgentContext, createAgentViewRegistry, type AgentConversationContext, type AgentSessionListItem, type AgentViewAction, type ComposerView, type MessageView} from "@notnotype/nb-agent-ui";
 import {AgentConversationView, AgentSessionList, builtinMessageActionsContribution, builtinRolesContribution} from "@notnotype/nb-agent-ui/vue";
 import {provideMarkdownHost} from "@notnotype/nb-markdown/host";
+import {PromptEditor, PromptTextView} from "@notnotype/nb-markdown/prompt";
 
 import type {QaRunView, ViewerResult} from "../../contract/contract";
 import {formatAt, useBook} from "../host/book";
@@ -31,7 +32,7 @@ const registry = createAgentViewRegistry([
     storyToolsContribution(AnswerCard),
     {source: "nb-story:qa-entries", entries: [{id: "nb-story.unverified-refs", customType: UNVERIFIED_REFS, component: UnverifiedRefs}]},
 ]);
-const renderers = {markdown: StoryMarkdown};
+const renderers = {markdown: StoryMarkdown, promptEditor: PromptEditor, promptTextView: PromptTextView};
 
 const MODE_LABEL = {graph: "图当目录", full: "全读"} as const;
 const MODES = [
@@ -144,17 +145,22 @@ const conversationAt = computed(() => record.value?.at ?? run.value?.at ?? null)
 const conversationMode = computed(() => record.value?.mode ?? run.value?.mode ?? null);
 
 // ---- 输入框：草稿按对话各存一份 ----
+// 换对话时交给视图的草稿总带一个新版本号：输入框只在版本变了时换内容（nb-agent-ui README 的“草稿”）。
 const NEW = "";
 const composers = new Map<string, ComposerView>();
 const baseComposer = createAgentContext({}).composer;
+/** 交给过视图的最大版本号：换对话时的新版本要大过它（受理发送时 acceptSubmission 在当前版本上加一）。 */
+let shownVersion = baseComposer.draft.version;
 function composerOf(id: string | null): ComposerView {
-    const key = id ?? NEW;
-    return composers.get(key) ?? {...baseComposer, modes: id === null ? MODES : [], mode: "graph"};
+    const saved = composers.get(id ?? NEW) ?? {...baseComposer, modes: id === null ? MODES : [], mode: "graph"};
+    shownVersion += 1;
+    return {...saved, draft: {...saved.draft, version: shownVersion}};
 }
 const composer = shallowRef<ComposerView>(composerOf(selectedId.value));
 watch(selectedId, id => (composer.value = composerOf(id)));
 function setComposer(next: ComposerView): void {
     composers.set(selectedId.value ?? NEW, next);
+    shownVersion = Math.max(shownVersion, next.draft.version);
     composer.value = next;
 }
 
@@ -206,12 +212,16 @@ async function submit(text: string): Promise<void> {
             question,
             ...(id === null ? {mode: composer.value.mode === "full" ? ("full" as const) : ("graph" as const), at: book.at.value} : {conversation: id}),
         });
-        // 受理了才清空草稿；失败时草稿留着，原因写在输入框上方。
-        setComposer(acceptSubmission(composer.value, text));
+        // 受理了才清空草稿；失败时草稿留着，原因写在输入框上方。新对话的草稿（含输入历史）带到这个对话下，模式只在新对话时可选。
+        const accepted = acceptSubmission(composer.value, text);
         if (id === null) {
             composers.delete(NEW);
+            composers.set(started.conversation, {...accepted, modes: []});
             book.qaConversation.value = started.conversation;
-        } else source?.refresh();
+        } else {
+            setComposer(accepted);
+            source?.refresh();
+        }
         void loadList();
     } catch (error) {
         startError.value = error instanceof Error ? error.message : String(error);
