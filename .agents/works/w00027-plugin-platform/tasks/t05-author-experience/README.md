@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t05-author-experience
-status: planned
-updated: 2026-10-17
+status: in-progress
+updated: 2026-10-23
 ---
 
 # 作者体验：脚手架、文档与完整示例
@@ -29,6 +29,8 @@ updated: 2026-10-17
 
 2026-10-17 建 Task，未开工。依赖 [t04](../t04-browser-loading-sdk/README.md) 的 SDK 与装载能力。
 
+2026-10-23 按 t04 做完的 SDK 与安装流程写了实施计划 [plan.md](plan.md)：SDK 补工作台视图与状态栏的贡献点；`manifestOf` 拒绝第三方贡献点的 `validate`（menu 示例暴露：写了也会在宿主里悄悄失效）；menu、file-menu 外置；SDK 包加 `nbook-plugin create`、`build` 与模板；完整示例改为“专注计时”（只用 SDK 已有的接口，不碰文件与编辑器的内部合同）；作者文档进 SDK 包的 README；仓库外 smoke 分 e2e 与照文档的手动一遍。照推荐做的取舍记进 Work 的待确认清单。
+
 ## 下一步
 
-t04 完成后开工；开工时先按真实的 SDK 与安装流程修订范围，再写 `plan.md`。
+设计审查（omp，等 t04 第二轮实现审查的 omp 会话结束后再开，同一时间只跑一个 omp 审查）；处理后按切片 S1 起实施。
