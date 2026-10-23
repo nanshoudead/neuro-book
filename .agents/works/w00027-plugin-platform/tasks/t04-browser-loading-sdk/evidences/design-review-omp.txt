@@ -1,0 +1,116 @@
+# w00027/t04 后端、内核与安全设计审查
+
+审查基线：`354ec2e06`；源码根为 `/home/notnotype/CodeRepository/neuro-book/.worktree/review-t04-design/`。本报告只追加；引用的计划、Spec 与代码均取该固定 worktree。实验仅在 `/tmp/review-t04-design-omp/`，依赖从指定实现 worktree 的 `node_modules` 只读引用。未开子审查。
+
+### 1. 合同直接 JSON 化会静默丢掉 TypeBox 的有效约束，现有往返实验不足以确立清单格式
+
+- **严重程度**：阻断；**类别**：正确性。
+- **位置**：计划“合同进清单”第 24–29 行、“构建预设”第 52 行、“开工前已实测”第 16 行；`packages/nb-runtime/src/remote/contract.ts:76-142`；`remote/protocol.ts:99-106`。
+- **现象**：实际依赖是 `typebox@1.3.6`，不是依赖 Symbol `Kind` 的旧版 `@sinclair/typebox`。`Type.Refine(Type.Integer(), n => n % 2 === 0)` 接受偶数、拒绝奇数；把包含它的合同 `JSON.stringify → JSON.parse → defineRemoteService` 后，`~refine` 函数被丢弃，schema 只剩 `type:integer`。对 `{n:3}`，原 schema 的 `Value.Check` 为 `false`，还原 schema 为 `true`。
+- **为什么是问题**：计划把“schema 就是 JSON Schema”当作所有 TypeBox 合同的事实，构建与清单读取也没有定义可接受的 schema 子集和拒绝规则。正常 SDK 作者使用现有 `Type.Refine` 就能构建出与代码合同不同的清单；激活适配器再替换合同对象后，提供方不再执行原来的输入约束。`defineRemoteService` 只看 input/filter 是否为严格 object，没有校验 schema 的可序列化性、引用闭合性或 output/errors/payload 的合法性；实测 `output:null` 也被它接受。“复用检查”不能证明合同合法。
+- **如何核实**：执行 `env NODE_PATH=/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules bun /tmp/review-t04-design-omp/contracts.ts`。用真实 `createApplication + createRemoteNode + remote.use`，不是直接调用提供方：原合同返回 `invalid-input / /n：Refine Error`、提供方法执行 **0 次**；还原合同返回 `{ok:true,value:3}`、执行 **1 次**。同一实验输出 TypeBox 普通 string schema 的 Symbol 数 **0**，`Recursive`、`Date`、`Uint8Array`、`Transform` 在当前 `Type` 上均不存在，不能拿旧版 API 的猜测代替本版验证。
+- **建议改法**：在 S2a 先定合同 schema 的可序列化子集：只接受闭合的 JSON Schema，拒绝 Refine/Codec 函数、非 JSON 值及未解析的外部 `$ref`；按 schema 位置递归校验，不是只看 stringify 成功。或设计明确的可还原编码器。构建、安装、启动使用同一校验，并补“实际约束往返后相同／不支持的扩展构建失败”的真实 RPC 场景。普通 object、Unsafe 包裹普通 JSON Schema、default 与内部 `$ref` 应分别核实，不笼统禁止 TypeBox。
+
+### 2. 只比 id 与版本就替换合同对象，绕过了内核检查要保护的完整合同一致性
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：计划“合同进清单”第 28 行、“不做与风险”第 139 行；`packages/nb-runtime/src/plugins/host.ts:1091-1110`；`remote/node.ts:472-485,594-626,798-815`。
+- **现象**：清单声明 `echo({n:integer}) → integer`，代码带的合同是 `echo({n:string}) → string`，二者 id、version 都为同一值。按计划先比版本、再把激活结果的合同换成登记对象，内核同一对象检查就通过了；`remote.lookup` 回 `provided`，但代码自己的 `remote.use` 按 string 接口调用得到 `invalid-input / must be integer`，提供方法执行 **0 次**。换对象掩盖了打包产物与清单实际不一致，而没有修复它。
+- **为什么是问题**：内核用对象身份保证查询所见的 provider、callers、方法与实际校验一致，不只保证整数版本相等。作者忘记升版本、旧清单配新产物、同 id/version 的两个合同模块产生差异都是普通错误，不是需要防御恶意插件的权限问题。该适配器让本来应在激活阶段拒绝的错误推迟到每次业务调用，甚至可能改变方法 `effect` 的读写结算语义。
+- **如何核实**：同 `contracts.ts` 的 `SAME_VERSION_DRIFT`，使用真实应用与远程节点、按计划对 `provideRemote` 结果只替换 contract 后发布；lookup 为 `provided / registered`，调用结果为 `invalid-input`。源码也确认普通 `context.remote.use` 不按对象身份查找提供方，代理 `remote.on(...).use` 只按 id 核对 `remoteDelegates`；**消费方打包一份相同合同本身不会因为对象不同而失败**，不要为这个不存在的问题引入全局 id→对象注册表。
+- **建议改法**：对提供方的代码合同与清单合同，在 S2a 定义并复用完整、规范化且可序列化的合同相等判定，覆盖 provider、callers、methods、events、effect、errors、schema；不一致就保持 `remote-contract-mismatch`。优先在调用 entry.activate 前核对其静态合同，避免已经取得激活产出后再抛错而丢失释放责任。消费方继续使用自己的编译期合同，依现有 RPC 的版本语义处理，不全局按 id 强换成提供方最新合同。
+
+### 3. 启动清单被冻结不等于版本文件仍存在，另一个服务端重启会删掉正在使用的懒入口
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：计划“启动数据”第 58 行、“服务端与项目实例的装载”第 63 行、“插件文件端点”第 69 行；`packages/neuro-book/src/backend/plugins/startup.ts:89-94,127-212`；`src/server/projects/manager.ts:172-180,497-498`。
+- **现象**：A 启动时持有 `example.probe@1.0.0` 的固定快照；安装 2.0.0 只记 pending，A 照旧。另一个共用 State Root 的服务端 B 启动，真实 `prepareInstalledPlugins` 切到 2.0.0 并回收 1.0.0。A 的快照仍是 1.0.0，但首次激活所需的 `1.0.0/main.js` 已不存在，计划中的 `import(...?generation=1)` 得到 `ERR_MODULE_NOT_FOUND`；从 A 新开的项目实例与窗口也只能取得这份已经失去文件的旧快照。
+- **为什么是问题**：t03 明确支持多个服务端共享状态根，现有锁只保护提交与回收操作，不是运行版本的租约。声明式阶段不再读入口文件，这个缺口没有暴露；t04 引入按需装载和文件端点后，另一个进程的“下一次启动”会在 A 未重启时破坏 A 的可用能力，违反本次运行旧版本照常、只在自己的重启后生效。把三处消息都换成同一份 manifest 不能解决文件寿命。
+- **如何核实**：`bun /tmp/review-t04-design-omp/build-probe.ts /tmp/review-t04-design-omp/shared-root.ts /tmp/review-t04-design-omp/shared-root.js && bun /tmp/review-t04-design-omp/shared-root.js`。全部版本经真实 `createPluginInventory.install` 安装；B 是真实 Bun 子进程，调用产品启动准备，退出 **0**。输出 `A_SNAPSHOT_STILL 1.0.0`、`A_OLD_FILE_EXISTS false ENOENT`、`A_LAZY_IMPORT ERR_MODULE_NOT_FOUND`。没有伪写登记表、替换文件系统或假设不可能的回收时序。
+- **建议改法**：在 S2d 前补运行版本的跨进程存活引用／租约，回收要同时看登记表 current/pending 与存活服务端 pin 的版本，pin 随进程异常退出可回收；或明确选择共用根时的版本切换协调方案。不能静默退回“一个状态根只许一个进程”而不改已定合同。验收用两个实际进程：B 消费升级／卸载后，A 首次远程激活、从 A 新开项目与取旧版本文件仍正常；A 退出后再回收。
+
+### 4. 只检查浏览器产物的纯度会放进第二份内核，服务端按调用方服务静默变成错误对象
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划“SDK”第 42 行、“构建预设”第 47、53 行、“服务端与项目实例的装载”第 62 行；`packages/nb-runtime/src/services/per-consumer.ts:9-22`；`services/composition.ts:501-505`；`plugins/plugins.ts:40-46`。
+- **现象**：`defineServiceKey`、贡献点 id、配置键确实按字符串识别，不需要全都共享对象；但 `providePerConsumer` 构造的提供项依赖**当前内核模块私有 WeakSet** 识别。服务端代码若间接打包了一份内核，key 相同也无用：真实消费者取得 `{facade,release}`，而不是应取得的业务门面。应用启动仍报 `available`，错误到首次业务方法调用才显现。
+- **为什么是问题**：服务端只把精确 SDK/Vue 名称 external，不能阻止 `@notnotype/nb-runtime/plugins`、`nbook/...` 内部路径或某个间接依赖带入 SDK/内核实现。计划的纯度门禁仅扫描浏览器，内核输出适配器又只替换远程合同，修复不了本地服务品牌。完全信任不是问题所在；守约第三方依赖的共享合同模块不慎导入 runtime helper 就足以触发，安装目录也没有 node_modules 供补救。
+- **如何核实**：`bun /tmp/review-t04-design-omp/build-probe.ts /tmp/review-t04-design-omp/perconsumer-provider.ts /tmp/review-t04-design-omp/perconsumer-provider.js && env NODE_PATH=/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules bun /tmp/review-t04-design-omp/identity.ts`。同一真实 `createApplication` 的两轮：宿主同份 helper 输出 `keys:[greet],greeting:example.consumer`；单文件 ESM 打进 helper 后输出 `keys:[facade,release],greeting:null`，两轮 startup 均 `available`。这不是仅对 WeakSet 调内部函数的实验。
+- **建议改法**：把 SDK/内核/Vue 的禁止重复打包检查扩展到服务端与项目产物；按打包器模块图而非仅扫生成文本核对实际来源，并拒绝 `nbook/**` 与未公开 SDK 子路径穿透。类型导入可保留。当前 TypeBox 普通 schema 按结构校验，不因实例不同就失败，**不必仅为 Kind 身份把 TypeBox 全部外部化**；若允许自定义 format/Refine，则应与第 1 条一起定注册与序列化合同。
+
+### 5. `nbook.http` 的宿主路由只能到 `/api/runtime/`，照计划接线的插件文件 URL 全部为 404
+
+- **严重程度**：重要；**类别**：接口形状。
+- **位置**：计划“插件文件端点”第 67–69 行；`packages/neuro-book/src/plugins/http/backend/plugin.ts:21-25,71-72`；`backend/dispatch.ts:98-140`；`src/server/plugins.ts:66-74`。
+- **现象**：计划指定 `GET /api/plugins/:id/files/:version/*`，并要求“作为 server/plugins.ts 交给 nbook.http 的宿主路由，同引导路由”。现有宿主路由不是任意绝对路径表：分发器只把第一段为 `runtime` 的请求交给 hostRoutes；`/api/plugins/...` 被解释成插件 id 为 `plugins` 的 HTTP 贡献，没有这个贡献就直接 404。
+- **为什么是问题**：仅新建 plugin-files.ts、往 hostRoutes 数组加路由实现不了 Spec 的既定 URL，S2d 的接口形状与现有机制不兼容。把它改装成 `http.routes` 贡献也不成立：贡献 id 必须是自己的插件 id `nbook.plugins`，会挂到 `/api/nbook.plugins/`，不是 `/api/plugins/`。若后续切片擅自改 URL，清单基址、浏览器 loader 与 Spec 又要返工。
+- **如何核实**：`bun /tmp/review-t04-design-omp/build-probe.ts /tmp/review-t04-design-omp/http-route.ts /tmp/review-t04-design-omp/http-route.js && bun /tmp/review-t04-design-omp/http-route.js`，从真实 `startServer` 的 HTTP 监听发请求，同一个宿主 handler：`/api/plugins/example.probe/files/1.0.0/main.js` 为 **404**；`/api/runtime/plugins/example.probe/files/1.0.0/main.js` 为 **200 / PLUGIN_CODE**；宿主正常停止、exitCode **0**。实验没有仅向孤立 Hono 对象发请求绕过分发器。
+- **建议改法**：S2d 明确增加宿主文件路由的分发入口，保留 `/api/plugins/` 的既定合同，并沿用现有 Host、Origin、准入与响应体排空；或向开发者提出改为 `/api/runtime/plugins/`，同时明确修改 Spec、所有基址与调用方。验收必须经实际 HTTP 端口命中合同 URL，不只 `route.handle(new Request(...))`。
+
+### 6. 升级预览按整个 pluginVersions 表判受阻，与内核只看本实例必需依赖的语义不一致
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划“版本范围”第 33 行、“升级确认框列出受阻的依赖插件”第 80 行、S2a 与 S3b；`docs/specs/runtime/plugin-manifest.md:63,76-85,134`；`packages/nb-runtime/src/plugins/contracts.ts:163-183`；`host.ts:1746-1773`；`src/backend/plugins/inventory.ts:190-195`。
+- **现象**：内核段只在入口的**必需本地服务依赖**由不兼容版本提供时受阻；预览段却直接列“已安装、启用，pluginVersions 不接受新版本”的所有插件。A 只可选依赖 B、只远程调用 B，甚至暂时没有入口依赖 B，但清单保留 B 的范围时，照第 80 行都会被标为重启后受阻，实际内核不会阻塞 A。反过来，C 必需依赖 A、A 必需依赖 B 时，只扫描显式列 B 范围的插件又漏掉真正会 `provider-blocked` 的 C。
+- **为什么是问题**：`pluginVersions` 只约束版本，不定义依赖；远程服务也明确不进入依赖图。预览不能另发明一套按插件整体判断的受阻规则。它还必须使用**下一次启动的目标清单**：A 自己有 pendingVersion 时，扫描运行中 A 的旧范围会把升级影响算错。该差异不会被 S2a 内核单测加 S3b 一个后端列表测试自动消除。
+- **如何核实**：按上述 3 个合法清单组合逐字展开计划第 33、80 行并对照 Spec；这是 `[INFERENCE]` 的计划反例，功能尚未实现，没有声称已经跑出新版预览。现有实现确认 `PluginDefinition` 只有 id、没有提供方 version；`deriveBlocked` 的输入同样没有版本，应用只把定义交给内核。因此 S2a 还缺“提供方版本怎样进入内核、从哪个固定快照取”的接口约定，单加 pluginVersions 和 semver 回调不完整。
+- **建议改法**：S2a 同时明确版本输入载体（定义含版本，或宿主给不可变 id→version 表）、三位置使用同一判断语义，内置版本继续由 engines.neurobook 约束。把按位置／入口的依赖推导做成可复用的纯计算，预览用 current/pending/enabled 的下一启动集合替换候选版本后跑同一计算，再汇总插件。至少覆盖必需、可选、远程、传递受阻、一个入口受阻另一个正常、依赖者自己也有 pendingVersion 这 **6 组**，并以安装后真实重启的入口状态核对预览。
+
+### 7. SDK 再导出整个应用的源码入口，仓库外作者拿不到闭合的类型与构建依赖
+
+- **严重程度**：重要；**类别**：接口形状。
+- **位置**：计划“SDK”第 35–42 行、“Spec 与文档改动”第 95 行；`packages/neuro-book/package.json:7-19,31-44`；`packages/neuro-book/tsconfig.json:12-14`；`src/shared/settings.ts:14-20`；`src/plugins/settings/shared/contracts.ts:16-21`。
+- **现象**：`@notnotype/nb-plugin-sdk` 的根与 /web 只是再导出 `@notnotype/neuro-book/sdk`。后者公开面继续从应用源码再导出，源码依赖 `nbook/*` 别名、workspace 包、Vue SFC 等；应用只有 `noEmit` 类型检查与 server/web 两份运行包，没有 SDK 的 JS／`.d.ts` 产物与类型打包步骤。作者从仓库外 `tsc`／Vite 使用 SDK 时，不会继承被依赖包的 tsconfig.paths。两层包还都 private，计划只说“不发 npm”，没有给可复制的本地 tgz／目录分发合同。
+- **为什么是问题**：这不是 t05 文档怎么写的问题，而是 t04 选择的产物形状不具备仓库外可消费性。只在本仓场景测试里再导出会靠应用别名与 hoisted node_modules 过关，不能证明真正外置作者可构建。SDK 依赖整个应用还违反现行 `packages/AGENTS.md:10` 与 `docs/standards/code/packages.md:6-11` 的禁止反向依赖应用规则，也与 plugin-api“只含类型与少量纯函数、不依赖宿主内部模块”不符；不应无说明地建立第二种包约定。
+- **如何核实**：`bun /tmp/review-t04-design-omp/sdk-types.ts` 调用真实 TypeScript **5.9.3** 模块解析（指定依赖树里实际版本）从 `settings/shared/contracts.ts` 按仓库外 bundler 配置解析，`nbook/shared/settings`、`nbook/shared/localized-text`、`nbook/plugins/commands/shared/contracts` 全部 `undefined`；显式加上应用路径映射后前两项才解析到源码。这证明源码依赖本仓 tsconfig，不宣称对尚不存在的 SDK 已跑出完整外部构建失败。
+- **建议改法**：t04 就定下独立可交付的 SDK 作者产物：明确本地 file/tgz 的取得方式，提供闭合 `.d.ts`（不泄漏 `nbook/`）、构建入口的真实 JS 与完整依赖；运行时仍由宿主注入同一份实现。可把纯合同／声明 helper 抽到 SDK 包让应用消费，或保留应用拥有的实现但生成独立作者 facade，不让作者包运行依赖整个应用源码。S2b/S2c 加真正位于 `/tmp`、不继承根 tsconfig/alias、无应用 workspace 源码的安装与 `tsc + buildPlugin` 消费 smoke；SDK 暂不发 npm 不影响这样验证。
+
+### 8. 版本号不是内容地址，同版本卸载重装后长期缓存会执行上一次安装的代码
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划“插件文件端点”第 69 行；`docs/specs/runtime/plugin-code-loading.md:68`；`docs/specs/runtime/plugin-install.md:40,104`；`packages/neuro-book/src/backend/plugins/inventory.ts:78-82`。
+- **现象**：合同明确允许“卸载、重启后再安装”同一 id/version，内容可以不同。第一次 `example.cache@1.0.0/main.js` 内容 A，卸载并完成启动删除，再用同版本内容 B 安装、重启，两次 URL 都是 `/api/plugins/example.cache/files/1.0.0/main.js`。若按计划长期缓存，HTTP 缓存无须访问已重启的服务端，仍可能直接给新窗口 A；CSS 同样受影响。
+- **为什么是问题**：拒绝正在安装的同版本只防一次登记表内覆盖，不构成“某版本的字节永远不变”的全局承诺。本地作者正好被文档告知可以卸载重装；服务端加载 B、浏览器缓存 A 会造成同插件跨位置合同不一致，不只是开发时看到旧样式。服务端的“当前版本”检查也无法检查根本没到达它的缓存命中。
+- **如何核实**：`bun /tmp/review-t04-design-omp/build-probe.ts /tmp/review-t04-design-omp/reinstall.ts /tmp/review-t04-design-omp/reinstall.js && bun /tmp/review-t04-design-omp/reinstall.js`，走真实 install→prepare→uninstall→prepare→同版本 install→prepare，2 次 install 均 `ok:true`，旧新版本都为 **1.0.0**，读取安装文件分别是 `marker=A`、`marker=B`。缓存端点尚未实现，浏览器返回旧字节是 `[INFERENCE]` 的 HTTP 长缓存结论，不冒充跑过浏览器验收。
+- **建议改法**：最简单是文件响应每次重新验证（ETag／Last-Modified + no-cache）；若要 immutable，就把安装内容摘要或安装代次放进引导基址／URL，并在服务端核对，清单版本不能单独作为缓存键。补同版本卸载重装的实际浏览器验收；不要为了长期缓存收窄已经允许的重装流程。
+
+### 9. 每次恢复都换查询串会永久增加模块缓存，不做热插拔也已经有无界增长路径
+
+- **严重程度**：重要；**类别**：安全与性能。
+- **位置**：计划“服务端与项目实例的装载”第 63 行、“验证”第 130 行、“不做与风险”第 134、136 行；`packages/nb-runtime/src/plugins/contracts.ts:389-394,439-442`。
+- **现象**：Bun **1.4.2** 的查询串确实生成新模块，宿主虚拟模块仍同一份；但旧 query 的模块继续在缓存里，即使入口失败资源已收口并 recover。带 **1 MiB** 顶层缓冲的入口连续真实失败→recover **80 次**，每次 GC 后：第 **1/40/80** 次 external 分别 **1,479,746 / 43,094,571 / 85,176,938 字节**，RSS 为 **41,328,640 / 90,218,496 / 133,734,400 字节**；没有随入口收口回到基线。
+- **为什么是问题**：显式失败恢复是当前内核及设置页／视图“重试”的现行路径，不依赖 S5 的热启停。计划以“不做运行中注销”为由完全不验证代码保留，却同时要求每次激活递增 query，给当前可达的恢复路径新增无上限缓存。它不能被描述成“旧模块偶尔无法尽力回收”：该方案本身不撤销 runtime 的强缓存引用。一个反复失败的插件就能累积其每代顶层依赖与内存直到进程重启。
+- **如何核实**：`env NODE_PATH=/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules bun /tmp/review-t04-design-omp/recovery-modules.ts`。通过真实 `app.plugins.activate → failed → recover → reset` 产生 **80 个**实际新代次，最后 `app.stop` 为 `closed`。另 `modules.ts` 验证原 query 再 import 得到原模块；`bun test module-host.test.ts` 为 **1 pass / 0 fail / 3 断言**，同样新局部对象、同一宿主对象；`module-ipc.ts` 的 Bun 子进程也相同，exit **0**。官方 [PluginBuilder.module](https://bun.com/reference/bun/PluginBuilder/module) 已文档化虚拟模块，并非整个 API 都未文档化；查询串行为有 [Bun #12371](https://github.com/oven-sh/bun/issues/12371) 讨论，但它没有提供回收保证。
+- **建议改法**：把“新代次新实例”与“失败恢复的旧实例撤回”一起设计，明确缓存归属与可验证的回收／有界保留策略；可研究只驱逐该插件单文件 ESM 的 Bun 缓存，不能清全局缓存破坏共享 SDK。若当前稳定版确实无法安全回收，显式记录并约束恢复次数或把需重装载的执行移到可销毁的 module graph／进程，而不是无限制造 query。S3a 必须覆盖真实 recover 路径的代次隔离与内存增长，不能只看顶层计数归零。
+
+### 10. 清单仍表达不了第三方拥有的贡献点 schema，外置后会丢掉激活前的声明校验
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：计划“合同进清单”第 26–29 行、“构建预设”第 52、54 行、“Spec 与文档改动”第 90 行；`docs/specs/runtime/plugin-manifest.md:61,89-91`；`packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts:44-47,83-86,330`；`src/builtin-manifest.test.ts:50-60`。
+- **现象**：t04 解决远程合同进 contracts，却沿用 t03 的贡献点结构 `{id,implementation}`，没有 schema 字段、没有 manifest→validate 的适配。第三方按 Spec 写 `{id,implementation,schema}` 会被 `readPluginManifest` 以 `must not have additional properties` 拒绝；删去 schema 后安装合法，但原本应 `invalid-declaration` 的贡献变成 `accepted`。激活代码晚到也无法补回“拥有者已登记、未激活时就校验”的合同。
+- **为什么是问题**：ADR 0027 要求第三方与内置插件能力相同，plugin-manifest 明确要求贡献点拥有者在清单中提供声明 schema。内置对齐测试明确排除了 validate，计划把它的转换搬进 SDK 并继续通过该测试，恰好会把这处丢语义固定成作者产物。这是 t03 设计审查第 7 条已指出、当前仍未闭合的合同，不是另要求一种新扩展机制。
+- **如何核实**：`env NODE_PATH=/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules bun /tmp/review-t04-design-omp/contribution-schema.ts`。真实 `createApplication` 登记一个要求 `{label:string}` 的拥有者，贡献 `{label:42}`：代码定义为 `rejected / invalid-declaration`，经现有 `definitionOf` 的清单定义为 `accepted`；整个过程未激活拥有者。清单显式带 schema 时解析失败。实验使用 public 目录查询，不直接调用宿主私有校验。
+- **建议改法**：S2a 增加可序列化的 `contributionPoints[].schema` 并在登记适配器生成 validate，沿用第 1 条的 JSON Schema 支持范围。构建预设要取得作者声明的 schema，不能把内置任意函数伪装为可序列化规则；额外语义函数与清单的分工应明确。补一个第三方拥有贡献点、另一插件贡献合法／非法数据、拥有者仍未激活的验收，不要求迁移 menu/file-menu 来替代这个内核场景。
+
+## 发现 3 的真实宿主复核
+
+随后执行 `env NODE_PATH=/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules bun --tsconfig-override /tmp/review-t04-design-omp/tsconfig.json /tmp/review-t04-design-omp/shared-root-runtime.ts`，排除只在安装器边界成立的疑问：A 是真实 startServer，B 为另一个真实 Bun 进程中的 startServer。两者共用实验 State Root。A ready 于 **1.0.0**，B 消费升级后 ready 于 **2.0.0**；B 退出 **0** 后，A 经真实插件宿主激活懒入口，得到 `failed / stage:activate / activation-threw / generation:1`，具体错误是旧 `1.0.0/main.js?generation=1` 不存在。A 最后也正常退出 **0**。装载器尚未实现，A 的测试注入仅逐字实现计划的 `activateFor → import → entry.activate`，没有绕过内核、伪造调用或删除版本目录。
+
+Bun 在使用 tsconfig override 的父子进程退出时各报一次 `Internal error: directory mismatch for directory "/tmp/review-t04-design-omp/tsconfig.json", fd 3. You don't need to do anything, but this indicates a bug.`。这是实验运行器告警，非产品错误分类、非导致旧文件丢失的原因；如实保留，不拿它充当本轮新发现。
+
+## 按影响排序的处理索引
+
+发现遵照“核实即追加”保留稳定编号，处理时按以下顺序：
+
+1. **合同与正确性不变量**：第 **1** 条（schema 约束丢失）、第 **2** 条（不一致合同被替换掩盖）、第 **3** 条（跨进程回收运行版本）、第 **4** 条（服务端打进另一份内核）、第 **10** 条（第三方贡献点丢校验）。
+2. **接入与状态正确性**：第 **5** 条（实际端点不可达）、第 **6** 条（升级预览与实际推导分歧）、第 **8** 条（同版本重装缓存旧代码）。
+3. **接口结构与寿命**：第 **7** 条（SDK 作者产物不闭合）、第 **9** 条（恢复代次缓存无界增长）。
+
+## 发现 2 的释放责任补充
+
+`env NODE_PATH=/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules bun /tmp/review-t04-design-omp/adapter-release.ts` 经真实内核复核适配器抛错的位置：插件激活已经返回一个带 release 的 service 产出，**内核**在输出阶段拒绝该产出后 release 执行 **1 次**；装载适配器在取得同一产出后自己抛 `remote-contract-mismatch`，内核只收到 `activation-threw`，release 执行 **0 次**。因此第 2 条的修正不应只补比较，还必须规定：检查静态合同尽量放在 activate 前；若激活产出仍需检查并可能拒绝，要先把完整产出交给内核拥有，或由适配器完整收口，不能用抛错丢掉它。
+
+## 发现 5 的复现命令更正
+
+最初未显式写出 Bun.build 的输出 Blob，Bun 对 `.js` 导入回落到相邻 `.ts`，当次实际 HTTP 源码场景得到 **404 / 200**。随后把 Blob 真的写成 JS，整份实验宿主打包时 semver 的动态 require 留下 `./impl/format`，运行生成物失败；这是审查脚本的打包缺口，不是插件文件路由的产品错误。第 5 条所列 build→JS 命令不能作为可重跑依据，应改用已经执行的真实源码宿主命令：`env NODE_PATH=/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules bun --tsconfig-override /tmp/review-t04-design-omp/tsconfig.json /tmp/review-t04-design-omp/http-route.ts`。该命令不依赖上述审查用宿主 bundle，也不修改应用文件。服务端纯度的单入口实验产物则已经显式落盘，并重跑取得第 4 条结果，不受这项更正影响。
+
