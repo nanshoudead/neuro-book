@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t13-qa-web
-status: in-progress
+status: active
 updated: 2026-10-23
 ---
 
