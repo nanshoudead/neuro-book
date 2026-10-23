@@ -6,6 +6,8 @@
  * 答案里写的是自由文字：“南嘉鱼（地狱猫）”只查括号前的名字；“读者”“众人”这类不是人名的不查。
  */
 
+import type {InjectionKey} from "vue";
+
 /** 不是人名的写法：出现在“谁知道什么”里，但不对应书里的对象。 */
 const NOT_NAMES = new Set(["读者", "众人", "所有人", "大家", "旁人", "其他人", "没有人", "无人", "她们", "他们", "她们俩", "他们俩"]);
 
@@ -36,3 +38,6 @@ export function createNameResolver(lookup: NameLookup): (scope: string, who: str
         return found;
     };
 }
+
+/** 问答页提供给答案卡片的查法（卡片是对话视图里的工具节点，经祖先注入拿到它）：给一个“谁”，查到唯一对象时给 id。 */
+export const QA_NAME_LOOKUP: InjectionKey<(who: string) => Promise<string | null>> = Symbol("nb-story qa name lookup");

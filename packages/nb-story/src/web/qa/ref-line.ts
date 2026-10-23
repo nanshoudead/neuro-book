@@ -3,6 +3,8 @@
  * 宽度调用（ResizeObserver），宽度变了才重算。
  */
 
+import {findRefs, normalizeRef} from "../../contract/refs";
+
 export interface RefLineInput {
     /** 各个出处小块的宽度（含与前一个之间的间距），按顺序。 */
     readonly widths: readonly number[];
@@ -24,4 +26,19 @@ export function visibleRefCount({widths, available, moreWidth}: RefLineInput): n
         count += 1;
     }
     return Math.max(1, Math.min(count, widths.length));
+}
+
+/** 一段文字切成纯文字与出处（出处带标准写法）：答案卡片里的文字（结论、分点、说明）把出处画成可点的。 */
+export type RefSegment = {readonly text: string; readonly ref: string | null};
+
+export function refSegments(text: string): RefSegment[] {
+    const segments: RefSegment[] = [];
+    let cursor = 0;
+    for (const span of findRefs(text)) {
+        if (span.start > cursor) segments.push({text: text.slice(cursor, span.start), ref: null});
+        segments.push({text: text.slice(span.start, span.end), ref: normalizeRef(span.text)});
+        cursor = span.end;
+    }
+    if (cursor < text.length) segments.push({text: text.slice(cursor), ref: null});
+    return segments;
 }
