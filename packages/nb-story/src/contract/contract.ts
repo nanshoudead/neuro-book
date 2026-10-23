@@ -12,6 +12,8 @@ import type {Static, TSchema} from "typebox";
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 
 import {ENTITY_KINDS, FACETS, KNOWLEDGE_STATES, STATEMENT_KINDS} from "../core/dataset";
+import {ConfigSchema} from "./config-schema";
+import {QaModeSchema, QaPositionSchema, QaStatusSchema, QaTurnSchema} from "./qa-record";
 
 const strict = {additionalProperties: false} as const;
 
@@ -557,13 +559,170 @@ export const INGEST_METHODS = {
     },
 } as const;
 
+// ---- 网页问答与设置（docs/specs/story/qa.md 的“网页”） ----
+
+const QaRefs = {book: Type.String({minLength: 1})};
+/** 运行中或刚结束的一轮（服务进程内存里的，不是记录）。 */
+const QaRunSchema = Type.Object({
+    runId: Type.String(),
+    conversation: Type.String(),
+    /** 这一轮是对话的第几轮（从 1 数）。 */
+    turn: Type.Integer({minimum: 1}),
+    /** 开始时记录里有几轮：页面拿到的记录轮数不等于它时（命令行同时续问并先保存了），运行的这一轮不接在记录后面。 */
+    baseTurns: Type.Integer({minimum: 0}),
+    /** 这一轮在会话日志里从哪一条开始。 */
+    logFrom: Type.Integer({minimum: 1}),
+    question: Type.String(),
+    at: QaPositionSchema,
+    mode: QaModeSchema,
+    startedAt: Type.String(),
+    state: oneOf(["running", "ended"] as const),
+    /** 结束后的这一轮；运行中为 null。 */
+    result: Type.Union([QaTurnSchema, Type.Null()]),
+    /** 结束后记录有没有保存；运行中为 null。没保存时这一轮只在这里。 */
+    saved: Type.Union([Type.Object({ok: Type.Literal(true)}), Type.Object({ok: Type.Literal(false), reason: Type.String(), message: Type.Optional(Type.String())}), Type.Null()]),
+});
+/** 会话日志的一条（nb-session 的 SessionEntry）；全读对话的第一条用户消息不带原文。 */
+const LogEntrySchema = Type.Object({seq: Type.Integer({minimum: 1}), kind: Type.String()});
+const QaRecordViewSchema = Type.Object({
+    id: Type.String(),
+    at: QaPositionSchema,
+    mode: QaModeSchema,
+    maxChapters: Type.Union([Type.Integer(), Type.Null()]),
+    turns: Type.Array(QaTurnSchema),
+    startedAt: Type.String(),
+});
+const QaErrors = {invalid_params: Type.Object({}), book_not_found: Type.Object({}), unsupported_format: Type.Object({})};
+const ConfigState = {
+    /** 配置文件此刻的摘要，`config.set` 时原样带回；文件不在时是 `absent`。 */
+    digest: Type.String(),
+    path: Type.String(),
+    /** 配置里写到的每个密钥环境变量名，在服务进程的环境里有没有值。 */
+    keys: Type.Record(Type.String(), Type.Boolean()),
+};
+
+/**
+ * 网页问答与设置页的方法：一轮问答跑在服务进程里，运行中的进展经 `GET /api/qa/events` 推送（`QaFrame`），所以也
+ * 只在独立服务里有，核心库的 api 不认它们。
+ */
+export const QA_METHODS = {
+    "qa.list": {
+        input: Type.Object(QaRefs, strict),
+        output: Type.Object({
+            conversations: Type.Array(
+                Type.Object({
+                    id: Type.String(),
+                    question: Type.String(),
+                    /** 记录里的轮数；首轮还在运行或没保存时为 0。 */
+                    turns: Type.Integer({minimum: 0}),
+                    /** 最后一轮的状态；首轮还在运行时为 null。 */
+                    status: Type.Union([QaStatusSchema, Type.Null()]),
+                    at: QaPositionSchema,
+                    mode: QaModeSchema,
+                    startedAt: Type.String(),
+                    /** 最后一轮的开始时间。 */
+                    updatedAt: Type.String(),
+                    run: Type.Union([Type.Object({runId: Type.String(), state: oneOf(["running", "ended"] as const), saved: Type.Union([Type.Boolean(), Type.Null()])}), Type.Null()]),
+                }),
+            ),
+            /** 读不成的记录：只能删除。 */
+            broken: Type.Array(Type.Object({id: Type.String(), problem: Type.String()})),
+        }),
+        effect: "read",
+        errors: QaErrors,
+    },
+    "qa.get": {
+        input: Type.Object({...QaRefs, id: Type.String({minLength: 1})}, strict),
+        output: Type.Object({
+            /** 首轮还在运行或没保存时为 null。 */
+            record: Type.Union([QaRecordViewSchema, Type.Null()]),
+            log: Type.Union([Type.Object({ok: Type.Literal(true), entries: Type.Array(LogEntrySchema)}), Type.Object({ok: Type.Literal(false), problem: Type.String()})]),
+            continuable: Type.Union([Type.Object({ok: Type.Literal(true)}), Type.Object({ok: Type.Literal(false), reason: Type.String()})]),
+            run: Type.Union([QaRunSchema, Type.Null()]),
+        }),
+        effect: "read",
+        errors: {...QaErrors, qa_record_not_found: Type.Object({}), qa_record_broken: Type.Object({})},
+    },
+    "qa.start": {
+        input: Type.Object(
+            {
+                ...QaRefs,
+                question: Type.String({minLength: 1}),
+                /** 续问的对话；不给是新对话。 */
+                conversation: Type.Optional(Type.String({minLength: 1})),
+                /** 只在新对话时用。 */
+                mode: Type.Optional(QaModeSchema),
+                at: Type.Optional(PositionInputSchema),
+            },
+            strict,
+        ),
+        output: Type.Object({conversation: Type.String(), runId: Type.String(), turn: Type.Integer({minimum: 1})}),
+        effect: "write",
+        errors: {...QaErrors, qa_record_not_found: Type.Object({}), qa_record_broken: Type.Object({}), position_out_of_range: Type.Object({}), qa_unconfigured: Type.Object({}), full_read_unavailable: Type.Object({}), qa_not_continuable: Type.Object({}), qa_busy: Type.Object({})},
+    },
+    "qa.stop": {input: Type.Object({...QaRefs, conversation: Type.String({minLength: 1})}, strict), output: Empty, effect: "write", errors: {invalid_params: Type.Object({})}},
+    "qa.remove": {
+        input: Type.Object({...QaRefs, id: Type.String({minLength: 1})}, strict),
+        output: Empty,
+        effect: "write",
+        errors: {...QaErrors, qa_record_not_found: Type.Object({}), qa_busy: Type.Object({})},
+    },
+    "config.get": {
+        input: Empty,
+        output: Type.Union([
+            /** 没有配置文件：给一份起始配置。 */
+            Type.Object({state: Type.Literal("absent"), config: Type.Unknown(), ...ConfigState}),
+            Type.Object({state: Type.Literal("valid"), config: ConfigSchema, ...ConfigState}),
+            /** 文件读不成或不合格式：只给原因（不回传原文：里面可能有贴错的密钥），可以整份重写。 */
+            Type.Object({state: Type.Literal("invalid"), problem: Type.String(), ...ConfigState}),
+        ]),
+        effect: "read",
+        errors: {invalid_params: Type.Object({})},
+    },
+    "config.set": {
+        /** `config` 在服务端按配置的 schema 校验，失败给 invalid_params（说明里不带原值）。 */
+        input: Type.Object({config: Type.Unknown(), expect: Type.String({minLength: 1})}, strict),
+        output: Type.Object(ConfigState),
+        effect: "write",
+        errors: {invalid_params: Type.Object({}), config_conflict: Type.Object({}), qa_config_write_failed: Type.Object({})},
+    },
+    "config.test": {
+        input: Empty,
+        output: Type.Object({
+            ok: Type.Boolean(),
+            model: Type.String(),
+            thinking: Type.Union([Type.String(), Type.Null()]),
+            ms: Type.Number(),
+            /** 没通过时的原因（模型错误已经遮盖过密钥）。 */
+            error: Type.Union([Type.Object({kind: Type.String(), message: Type.String()}), Type.Null()]),
+        }),
+        effect: "read",
+        errors: {invalid_params: Type.Object({}), qa_unconfigured: Type.Object({})},
+    },
+} as const;
+
+export type QaMethods = typeof QA_METHODS;
+export type QaMethod = keyof QaMethods;
+export type QaRunView = Static<typeof QaRunSchema>;
+export type QaRecordView = Static<typeof QaRecordViewSchema>;
+
+/**
+ * `GET /api/qa/events?book=&conversation=` 推送的帧（SSE 的 data 是它的 JSON）。订阅时先给一帧 `snapshot`：
+ * 没有运行、或运行已经结束时服务端随即结束这条流；运行中之后按发生顺序推 `log`、`event`，最后一帧是 `ended`。
+ */
+export type QaFrame =
+    | {type: "snapshot"; run: QaRunView | null; entries: readonly unknown[]}
+    | {type: "log"; runId: string; entries: readonly unknown[]}
+    | {type: "event"; runId: string; event: unknown}
+    | {type: "ended"; run: QaRunView};
+
 export type IngestMethods = typeof INGEST_METHODS;
 export type IngestMethod = keyof IngestMethods;
 export type IngestStatusView = Static<typeof IngestStatusSchema>;
 export type IngestPlanView = Static<typeof IngestPlanSchema>;
 
-/** 网页能调的全部方法：查询加抽取。 */
-export type ViewerMethods = StoryMethods & IngestMethods;
+/** 网页能调的全部方法：查询、抽取、问答与设置。 */
+export type ViewerMethods = StoryMethods & IngestMethods & QaMethods;
 export type ViewerMethod = keyof ViewerMethods;
 export type ViewerParams<M extends ViewerMethod> = Static<ViewerMethods[M]["input"]>;
 export type ViewerResult<M extends ViewerMethod> = Static<ViewerMethods[M]["output"]>;

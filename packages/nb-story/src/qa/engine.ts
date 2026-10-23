@@ -18,7 +18,7 @@
  */
 
 import {createHarness, createToolRegistry, HarnessError, registerPlugin, type Harness, type HarnessOptions, type TurnResult} from "@notnotype/nb-harness";
-import {createMemorySessionLog, parseEntryLine, type SessionEntry, type SessionLog} from "@notnotype/nb-session";
+import {createMemorySessionLog, parseEntryLine, type JsonValue, type SessionEntry, type SessionLog} from "@notnotype/nb-session";
 
 import {refsInText} from "../contract/refs";
 import type {StoryApi} from "../core/api";
@@ -112,7 +112,29 @@ async function fullReadMessage(input: AskInput, book: Awaited<ReturnType<StoryAp
     const paragraphs = outcome.value.paragraphs;
     const chars = paragraphs.reduce((sum, item) => sum + item.text.length, 0);
     if (chars > maxChars) throw new QaError("full_read_unavailable", `阅读位置 ${at.chapter}.${at.paragraph} 以前的原文有 ${chars} 字，超过全读上限 ${maxChars} 字：改用图当目录，或调大 fullReadMaxChars`);
-    return `以下是阅读位置以前的全部原文：\n${paragraphs.map(item => `${item.chapter}.${item.paragraph} ${item.text}`).join("\n")}\n\n问题：${input.question}`;
+    return `${FULL_READ_HEAD}\n${paragraphs.map(item => `${item.chapter}.${item.paragraph} ${item.text}`).join("\n")}${FULL_READ_QUESTION}${input.question}`;
+}
+
+const FULL_READ_HEAD = "以下是阅读位置以前的全部原文：";
+/** 原文每段一行，段里没有空行，所以第一个空行加“问题：”就是原文与问题的分界。 */
+const FULL_READ_QUESTION = "\n\n问题：";
+
+/**
+ * 全读对话的第一条用户消息换成问题加一句说明，不带原文：网页拿到的日志（`qa.get` 与运行中推送的条目）都经过它，
+ * 免得每次打开对话都传一整本书（qa.md 的“网页”）。存盘的日志不变，续问照旧交回模型原文。
+ */
+export function withoutFullText(entry: SessionEntry): SessionEntry {
+    if (entry.kind !== "agent_message" || typeof entry.message !== "object" || entry.message === null || Array.isArray(entry.message)) return entry;
+    const message = entry.message as {readonly [key: string]: JsonValue};
+    if (message.role !== "user") return entry;
+    const content = message.content;
+    const text = typeof content === "string" ? content : Array.isArray(content) ? content.map(block => (typeof block === "object" && block !== null && !Array.isArray(block) && typeof block.text === "string" ? block.text : "")).join("") : "";
+    if (!text.startsWith(FULL_READ_HEAD)) return entry;
+    const split = text.indexOf(FULL_READ_QUESTION);
+    if (split < 0) return entry;
+    const question = text.slice(split + FULL_READ_QUESTION.length);
+    const paragraphs = text.slice(FULL_READ_HEAD.length, split).split("\n").filter(line => line !== "").length;
+    return {...entry, message: {...message, content: [{type: "text", text: `${question}\n\n（已附阅读位置以前的全部原文，共 ${paragraphs} 段，这里不显示）`}]}};
 }
 
 /** 一轮开始之前定下的东西：新对话现建，续问从记录读回。 */
@@ -228,6 +250,9 @@ export interface PreparedQuestion {
     readonly turn: number;
     /** 这一轮在会话日志里从哪一条开始（同记录的 `logFrom`）。 */
     readonly logFrom: number;
+    /** 对话的阅读位置与做法（续问时是记录里的）。 */
+    readonly at: Position;
+    readonly mode: QaMode;
     run(): Promise<QaOutcome>;
     abandon(): Promise<void>;
 }
@@ -331,6 +356,8 @@ export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion
         id,
         turn: (previous?.turns.length ?? 0) + 1,
         logFrom,
+        at,
+        mode,
         async run() {
             claim("运行或放弃");
             if (created !== null) {
