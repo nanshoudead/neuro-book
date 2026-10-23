@@ -42,6 +42,7 @@ updated: 2026-10-23
 
 - 2026-10-23 S2a（`1b6a19fdf`，Spec `a889bd7f3`）：清单 `contracts` 与贡献点 `schema`（纯 JSON Schema）、内核 `manifestOf`、`pluginVersions` 版本要求（必需依赖受阻、可选依赖不注入）、远程校验的 schema 写坏不再留下未处理的 rejection、第三方插件不挡启动。内核 369 例、应用 1354 例（单独跑）通过。
 - 2026-10-23 S2b（`bc29ef830`）：SDK 公开面 `src/sdk/`、`settingsPageContribution`、`build:sdk` 生成可安装的 SDK 包（仓库外 tsc 通过）；示例插件只从 SDK 导入，clock 改用宿主时钟。`test:affected` 里 llmlint 的 web 测试因缺 Nuxt 生成的 tsconfig 失败（主工作区同样缺，与本次无关）。
+- 2026-10-23 S2c（`abf503229`）：构建预设 `scripts/plugin-sdk/build-plugin.ts`（作者合同、经 Vite SSR 读声明、逐入口构建、浏览器登记工厂、模块图纯度检查、样式包进 `@layer components` 并生成 Lucide 图标规则、清单 `style` 字段），`build:examples`，生成的 SDK 包带上构建预设；测试 12 例（含仓库外用生成的包构建插件）。实施发现：Vite 的 `runnerImport` 不初始化 CSS 插件，改用不监听端口的开发服务 `ssrLoadModule`；Bun 的 `require.resolve` 会套用 tsconfig 路径别名，包根目录改为逐级找 `node_modules`；服务端与浏览器入口写在同一个定义模块里时，服务端产物会带上 `/browser`，纯度检查照常拦下（作者要分模块写，t05 写进作者文档）。
 
 ## 下一步
 

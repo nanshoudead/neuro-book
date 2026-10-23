@@ -61,6 +61,7 @@ owners:
 | `contributionPoints` | 本插件拥有的贡献点：`id`、该贡献点的贡献是否需要实现（`implementation`，决定贡献写在入口下还是顶层），以及可选的声明结构 `schema` |
 | `activationEventPrefixes` | 本插件拥有的激活事件前缀，例如 `nbook.commands` 的 `onCommand`；只有拥有者能触发以它开头的事件 |
 | `pluginVersions` | 所依赖第三方插件的版本范围；只约束版本，是否必需由各入口的 `requires` 决定（输出 3 的 `version-mismatch` 与其后的可选依赖规则） |
+| `style` | 可选，浏览器要加载的样式表，相对插件目录，规则同入口的 `main`；窗口登记插件时就加载（[`runtime.plugin-code-loading`](plugin-code-loading.md) 的插件样式） |
 | `contracts` | 入口引用的远程服务合同：合同 id 到合同的 JSON 形式（`id`、`version`、`provider`、`callers`、`methods`、`events`，与代码里的合同同一结构）。本插件提供的合同与它代理的别的第三方插件的合同都写在这里；`nbook.` 开头的内置合同由宿主提供，不写 |
 
 `contracts` 与 `contributionPoints[].schema` 里的 schema 只能是纯 JSON Schema：`type` 是 JSON Schema 的类型、`format` 是标准 format、正则合法，不能用 TypeBox 的 `Refine`、`Codec` 或插件自己注册的 format。这些写法进不了 JSON：宿主按清单校验时会悄悄变宽，同一个插件内置与外置时结果不同。构建预设遇到它们构建失败；清单里出现不合法的 schema 时清单无效。
