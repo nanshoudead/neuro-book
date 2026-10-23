@@ -9,7 +9,7 @@ import {StarterKit} from "@tiptap/starter-kit";
 import {VueNodeViewRenderer} from "@tiptap/vue-3";
 import type {Component} from "vue";
 
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import type {MarkdownLocale} from "../locale";
 
 import type {PromptEditorAttachment, PromptEditorToken} from "./prompt-editor.types";
 import {
@@ -36,7 +36,7 @@ import {
 export interface PromptNodeContext {
     readonly readonly: boolean;
     /** 宿主给的界面语言；节点视图里的按钮与说明按它显示，换了随即重绘（docs/specs/ui/prompt-editor.md 输出 12）。 */
-    readonly locale: DisplayLocale;
+    readonly locale: MarkdownLocale;
     /** 悬停联动的键，见 `prompt-text.ts` 的 `numberKey`。 */
     readonly highlighted: string | null;
     attachmentState(localId: string): PromptEditorAttachment | null;

@@ -3,8 +3,8 @@
 import {computed} from "vue";
 import {NodeViewWrapper, nodeViewProps} from "@tiptap/vue-3";
 
-import {InlineChip} from "@notnotype/nb-markdown/chip";
-import {useMarkdownHost} from "@notnotype/nb-markdown/host";
+import InlineChip from "../chip/InlineChip.vue";
+import {useMarkdownHost} from "../host";
 
 import type {PromptEditorToken} from "./prompt-editor.types";
 import type {PromptNodeContext} from "./prompt-editor-extensions";

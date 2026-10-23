@@ -3,8 +3,10 @@
  * （docs/specs/ui/prompt-editor.md 输出 3），由 `promptReferenceText` 拼出。
  */
 
-import type {PromptEditorMenu, PromptEditorMenuItem} from "nbook/plugins/markdown/web/components/prompt/prompt-editor.types";
-import {promptReferenceText} from "nbook/plugins/markdown/web/components/prompt/prompt-text";
+import {promptReferenceText} from "@notnotype/nb-markdown/prompt";
+import type {PromptEditorMenu, PromptEditorMenuItem} from "@notnotype/nb-markdown/prompt";
+
+import {nbookTargets} from "nbook/plugins/markdown/web/host";
 
 const FILES = [
     {path: "正文/第一章.md", title: "第一章 雨夜", group: "正文", iconClass: "i-lucide-file-text"},
@@ -30,7 +32,7 @@ function fileItems(query: string, grouped: boolean): PromptEditorMenuItem[] {
         description: file.path,
         iconClass: file.iconClass,
         ...(grouped ? {group: file.group} : {}),
-        insertText: promptReferenceText(file.title, `/${file.path}`),
+        insertText: promptReferenceText(file.title, `/${file.path}`, nbookTargets),
     }));
 }
 

@@ -9,8 +9,11 @@
 import {Button} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, ref} from "vue";
 
-import PromptEditor from "nbook/plugins/markdown/web/components/prompt/PromptEditor.vue";
-import type {PromptEditorAttachment, PromptEditorAttachmentKind, PromptEditorDraft, PromptEditorExpose, PromptEditorMenu, PromptEditorMenuContext} from "nbook/plugins/markdown/web/components/prompt/prompt-editor.types";
+import {provideMarkdownHost} from "@notnotype/nb-markdown/host";
+import {PromptEditor} from "@notnotype/nb-markdown/prompt";
+import type {PromptEditorAttachment, PromptEditorAttachmentKind, PromptEditorDraft, PromptEditorExpose, PromptEditorMenu, PromptEditorMenuContext} from "@notnotype/nb-markdown/prompt";
+
+import {nbookMarkdownHost} from "nbook/plugins/markdown/web/host";
 
 import {useLabSubject, type LabFixtureProps} from "../../lab-subject";
 import LabFixtureControls from "../../LabFixtureControls.vue";
@@ -18,6 +21,8 @@ import {referenceMenu, skillMenu} from "./menu";
 import {PROMPT_LAB_THUMBNAILS} from "./scenes";
 
 const props = defineProps<LabFixtureProps>();
+// 与应用里交出的组件一样用 nbook 的宿主：作品文件的引用是带文件图标的文件小块。
+provideMarkdownHost(nbookMarkdownHost({}));
 
 const subject = useLabSubject<typeof PromptEditor>(() => props.input, [
     "change",

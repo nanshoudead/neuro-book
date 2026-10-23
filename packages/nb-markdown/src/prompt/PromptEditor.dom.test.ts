@@ -10,6 +10,9 @@ import {flushPromises, mount, type VueWrapper} from "@vue/test-utils";
 import {nextTick} from "vue";
 import {afterEach, describe, expect, it} from "vitest";
 
+import type {ChipEnv} from "../chip/chip";
+import {defaultMarkdownHost, markdownHostKey} from "../host";
+import {classifyScheme} from "../targets";
 import PromptEditor from "./PromptEditor.vue";
 import type {PromptEditorAttachment, PromptEditorDraft, PromptEditorExpose, PromptEditorMenuContext} from "./prompt-editor.types";
 import {promptReferenceText} from "./prompt-text";
@@ -377,5 +380,23 @@ describe("PromptEditor 界面语言", () => {
         expect(changes(wrapper).at(-1)).toBe(before);
         editorOf(wrapper).commands.undo();
         expect(changes(wrapper).at(-1)).toBe("前");
+    });
+
+    it("宿主经 provideMarkdownHost 给的目标分类与文件图标到达正文里的引用小块（节点视图拿得到祖先的宿主）；不给时用缺省分类", async () => {
+        const chips: ChipEnv = {
+            targets: {classify: (target) => (target.startsWith("/") ? {kind: "file", variant: "work", name: "林雪.md"} : classifyScheme(target)), encodeFile: (target) => target},
+            fileIcon: (name) => ({render: (document) => Object.assign(document.createElement("i"), {className: "test-file-icon", title: name})}),
+        };
+        const draft = {text: "看 [林雪](/设定/林雪.md)", version: 1};
+        const hosted = mount(PromptEditor, {props: {locale: "zh-CN", draft}, attachTo: document.body, global: {provide: {[markdownHostKey as symbol]: {...defaultMarkdownHost, chips}}}});
+        mounted.push(hosted);
+        await flushPromises();
+        await nextTick();
+        const chip = hosted.find("[data-inline-chip='reference']");
+        expect(chip.classes()).toContain("nb-chip--work");
+        expect(chip.find("i.test-file-icon").attributes("title")).toBe("林雪.md");
+
+        const plain = await mountEditor({draft});
+        expect(plain.find("[data-inline-chip='reference']").classes()).toContain("nb-chip--other");
     });
 });

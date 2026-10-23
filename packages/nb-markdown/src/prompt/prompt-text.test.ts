@@ -7,10 +7,10 @@
 import {describe, expect, it} from "bun:test";
 import type {Token} from "marked";
 
-import {findInlineLinks} from "@notnotype/nb-markdown";
-import {defaultMarkdownLanguage as markdownLanguage} from "@notnotype/nb-markdown/language";
+import {findInlineLinks} from "../link-syntax";
+import {defaultMarkdownLanguage as markdownLanguage} from "../language/syntax";
 
-import {classifyTarget} from "../../../shared/targets";
+import type {MarkdownTargets} from "../targets";
 
 import {
     DEFAULT_PASTE_POLICY,
@@ -410,11 +410,11 @@ describe("prompt-text 链接与代码", () => {
         expect(tokens("[设定](lorebook/world.md) [旧](chapter://c1) [根](/设定/a.md)").map(([kind]) => kind)).toEqual(["reference", "reference", "reference"]);
     });
 
-    it("场景 4：文件名里有 `#`、`?`、`%` 时，`promptReferenceText` 写出的引用读回仍是同一个文件", () => {
-        for (const path of ["设定/第1章#草稿.md", "设定/为什么?.md", "设定/100%20分.md"]) {
-            const [token] = tokensOf(parsePromptText(promptReferenceText("名", `/${path}`), {commands: []}));
-            expect(classifyTarget(token?.target ?? "", null).address).toBe(`project://${path}`);
-        }
+    it("场景 4：`promptReferenceText` 按宿主的 `encodeFile` 写地址，写出的引用读回的地址就是它；不给宿主时原样写", () => {
+        const targets: MarkdownTargets = {classify: () => ({kind: "file", name: ""}), encodeFile: (target) => target.replace(/#/gu, "%23")};
+        const [token] = tokensOf(parsePromptText(promptReferenceText("名", "/设定/第1章#草稿.md", targets), {commands: []}));
+        expect(token?.target).toBe("/设定/第1章%23草稿.md");
+        expect(promptReferenceText("名", "/设定/a#b.md")).toBe("[名](/设定/a#b.md)");
     });
 
     it("没闭合的方括号、反引号与引号很多时仍是线性的（几万字的草稿每打一个字都要重新识别一行）", () => {

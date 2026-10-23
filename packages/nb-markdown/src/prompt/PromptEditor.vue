@@ -30,7 +30,7 @@ import {SuggestionMenu, suggestionMenuOptions, suggestionOptionId, type Suggesti
 import type {Node as PMNode} from "@tiptap/pm/model";
 import {EditorState as PMEditorState, TextSelection} from "@tiptap/pm/state";
 import type {EditorView} from "@tiptap/pm/view";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import type {MarkdownLocale} from "../locale";
 
 import PromptAttachmentStrip from "./PromptAttachmentStrip.vue";
 import PromptPasteBlockView from "./PromptPasteBlockView.vue";
@@ -88,7 +88,7 @@ import {
 
 const props = withDefaults(defineProps<{
     draft: PromptEditorDraft;
-    locale: DisplayLocale;
+    locale: MarkdownLocale;
     placeholder?: string;
     ariaLabel?: string;
     readonly?: boolean;

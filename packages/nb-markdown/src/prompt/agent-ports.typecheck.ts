@@ -1,16 +1,17 @@
 /**
- * 只在类型检查时起作用：本插件的提示词编辑器、已发送文字的显示与 Markdown 显示，要符合对话视图 nb-agent-ui 注入它们时
- * 要求的形状（`@notnotype/nb-agent-ui` 的 `ports.ts`）。哪一边改了属性、事件或外露方法，`bun run typecheck` 就报错。
+ * 只在类型检查时起作用：本包的提示词编辑器、已发送文字的显示与 Markdown 显示，要符合对话视图 nb-agent-ui 注入它们时
+ * 要求的形状（`@notnotype/nb-agent-ui` 的 `ports.ts`）。哪一边改了属性、事件或外露方法，`bun run typecheck` 就报错。neuro-book
+ * 与 nb-story 都把这几个组件注入对话视图，所以核对放在本包，不放在某个宿主里。
  *
- * 对的是 `.vue` 源组件，不是 `markdownKey` 服务交出的值：服务字段的类型是宽泛的 `Component`，什么都能赋给它。服务在
- * 运行时包的那一层（`withHost`、异步组件）只转发属性与插槽，不在这里核对。
+ * 对的是 `.vue` 源组件，不是宿主包装后交出的值（neuro-book 的 `markdownKey` 服务字段是宽泛的 `Component`）。包装那一层
+ * 只转发属性与插槽，不在这里核对。
  */
 
 import type {MarkdownDisplayPortProps, PromptEditorPortExpose, PromptEditorPortProps, PromptTextViewPortProps} from "@notnotype/nb-agent-ui";
-import type {MarkdownDisplay} from "@notnotype/nb-markdown/display";
 
-import type PromptEditor from "./components/prompt/PromptEditor.vue";
-import type PromptTextView from "./components/prompt/PromptTextView.vue";
+import type MarkdownDisplay from "../display/MarkdownDisplay.vue";
+import type PromptEditor from "./PromptEditor.vue";
+import type PromptTextView from "./PromptTextView.vue";
 
 /**
  * 组件的 `$props`，事件监听键按驼峰写：Vue 把 `token-activate` 事件的监听键标成 `"onToken-activate"`，运行时

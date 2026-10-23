@@ -42,8 +42,8 @@ const LOADERS: Readonly<Record<HostedComponent, () => Promise<Component>>> = {
     },
     MarkdownImage: async () => (await import("@notnotype/nb-markdown/display")).MarkdownImage,
     InlineChip: async () => (await import("@notnotype/nb-markdown/chip")).InlineChip,
-    PromptEditor: async () => (await import("./prompt/PromptEditor.vue")).default,
-    PromptTextView: async () => (await import("./prompt/PromptTextView.vue")).default,
+    PromptEditor: async () => (await import("@notnotype/nb-markdown/prompt")).PromptEditor,
+    PromptTextView: async () => (await import("@notnotype/nb-markdown/prompt")).PromptTextView,
 };
 
 /** 包组件的代码加载失败（部署换了版本、网络断了）时记诊断；展示器按纯文字显示原文（docs/specs/ui/markdown-display.md 的“失败与恢复”）。 */

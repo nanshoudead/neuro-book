@@ -19,9 +19,8 @@ import {defineComponent, h} from "vue";
 
 import {MarkdownDisplay} from "@notnotype/nb-markdown/display";
 import {provideMarkdownHost} from "@notnotype/nb-markdown/host";
+import {PromptEditor, PromptTextView} from "@notnotype/nb-markdown/prompt";
 
-import PromptEditor from "nbook/plugins/markdown/web/components/prompt/PromptEditor.vue";
-import PromptTextView from "nbook/plugins/markdown/web/components/prompt/PromptTextView.vue";
 import {nbookMarkdownHost} from "nbook/plugins/markdown/web/host";
 
 import {labAttachmentUrls} from "./data";

@@ -5,8 +5,9 @@
  * 引用、图片与文件的写法是 Markdown 的行内链接，按 `../../../shared/link-syntax.ts` 认，与编辑器、展示器对链接的判断一致。
  */
 
-import {findInlineLinks, unescapeMarkdown, writeInlineLink} from "@notnotype/nb-markdown";
-import {classifyTarget, encodeFileTarget} from "../../../shared/targets";
+import {findInlineLinks, unescapeMarkdown, writeInlineLink} from "../link-syntax";
+import {schemeTargets} from "../targets";
+import type {MarkdownTargets} from "../targets";
 import {findSelections, parseSelectionText} from "./prompt-selection";
 import type {PromptEditorPastePolicy, PromptEditorToken} from "./prompt-editor.types";
 
@@ -111,10 +112,11 @@ export function serializeFileToken(number: number, name: string, target: string)
 
 /**
  * 引用的写法：`@` 菜单的宿主用它拼 `insertText`。作品里的文件写以 `/` 开头的作品根地址（docs/specs/ui/prompt-editor.md 输出 3），
- * 地址含空白或括号时写成 `<地址>`，文件名里的 `%`、`#`、`?` 按百分号编码（`encodeFileTarget`），读回仍指向同一个文件。
+ * 地址含空白或括号时写成 `<地址>`；文件名里的 `%`、`#`、`?` 按宿主的 `targets.encodeFile` 百分号编码，读回仍指向同一个文件。
+ * 不给 `targets` 时地址原样写（缺省规则不认文件方案）。
  */
-export function promptReferenceText(label: string, target: string): string {
-    return writeInlineLink(label, encodeFileTarget(target));
+export function promptReferenceText(label: string, target: string, targets: MarkdownTargets = schemeTargets): string {
+    return writeInlineLink(label, targets.encodeFile(target));
 }
 
 export function serializePasteMarker(number: number): string {
@@ -533,7 +535,8 @@ function linkAttrs(raw: string, image: boolean, label: string, target: string): 
     if (text === "" || target === "") return null;
     const file = FILE_LABEL_PATTERN.exec(text);
     if (file?.[1] && file[2]) return {kind: "file", raw, number: Number(file[1]), label: file[2], target};
-    if (classifyTarget(target, null).kind === "other" && !SCHEME_PREFIX.test(target) && !LEGACY_WORKSPACE_PREFIXES.some((prefix) => target.replace(/^\.\//u, "").startsWith(prefix))) return null;
+    // 没有所在文件时，只有带方案的、以 `/` 开头的作品根地址与旧应用的工作区路径算引用；与宿主怎样归类目标无关。
+    if (!SCHEME_PREFIX.test(target) && !target.startsWith("/") && !LEGACY_WORKSPACE_PREFIXES.some((prefix) => target.replace(/^\.\//u, "").startsWith(prefix))) return null;
     return {kind: "reference", raw, number: null, label: text, target};
 }
 

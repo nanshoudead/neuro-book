@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import {IconButton} from "@notnotype/nb-ui/components";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import type {MarkdownLocale} from "../locale";
 
 import {promptText} from "./prompt-labels";
 import type {PromptAttachmentCard} from "./prompt-editor.types";
 
 const props = withDefaults(defineProps<{
     cards: readonly PromptAttachmentCard[];
-    locale: DisplayLocale;
+    locale: MarkdownLocale;
     highlighted?: string | null;
     readonly?: boolean;
 }>(), {

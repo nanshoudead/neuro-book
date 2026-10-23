@@ -1,10 +1,10 @@
 /**
  * PromptEditor 与 PromptTextView 界面上的文字（docs/specs/ui/prompt-editor.md 输出 12）：按宿主给的 `locale` 取，切换语言时随之
- * 换文字。小块自己的悬停提示在 `../parts/chip.ts`。
+ * 换文字。小块自己的悬停提示在 `../chip/chip.ts`。
  */
 
-import {formatText, localize} from "nbook/shared/localized-text";
-import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
+import {say} from "../locale";
+import type {MarkdownLocale, MarkdownText} from "../locale";
 
 export const PROMPT_TEXT = {
     menuLoading: {"zh-CN": "正在加载", "en-US": "Loading"},
@@ -28,12 +28,11 @@ export const PROMPT_TEXT = {
     attachmentRetry: {"zh-CN": "重试", "en-US": "Retry"},
     attachmentUploading: {"zh-CN": "正在上传", "en-US": "Uploading"},
     attachmentFailed: {"zh-CN": "上传失败：{error}", "en-US": "Upload failed: {error}"},
-} as const satisfies Record<string, LocalizedText>;
+} as const satisfies Record<string, MarkdownText>;
 
 export type PromptTextKey = keyof typeof PROMPT_TEXT;
 
 /** 取一条文字，代入 `{名称}` 占位。 */
-export function promptText(locale: DisplayLocale, key: PromptTextKey, params?: Readonly<Record<string, string | number>>): string {
-    const text = PROMPT_TEXT[key];
-    return localize(params === undefined ? text : formatText(text, params), locale);
+export function promptText(locale: MarkdownLocale, key: PromptTextKey, params?: Readonly<Record<string, string | number>>): string {
+    return say(PROMPT_TEXT[key], locale, params);
 }

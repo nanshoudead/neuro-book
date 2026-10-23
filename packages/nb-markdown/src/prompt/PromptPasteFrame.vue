@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import {computed} from "vue";
 import {IconButton} from "@notnotype/nb-ui/components";
-import type {DisplayLocale} from "nbook/shared/localized-text";
+import type {MarkdownLocale} from "../locale";
 
 import {promptText} from "./prompt-labels";
 import {PASTE_COLLAPSED_LINES} from "./prompt-text";
 
 const props = withDefaults(defineProps<{
     number: number;
-    locale: DisplayLocale;
+    locale: MarkdownLocale;
     content: string;
     expanded?: boolean;
     highlighted?: boolean;
