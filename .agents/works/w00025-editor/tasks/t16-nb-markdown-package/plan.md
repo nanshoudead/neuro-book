@@ -44,7 +44,9 @@ nb-agent-ui 的 Markdown 显示、输入框与已发送文字的显示由宿主�
 | `./lab-sources` | 组件文档与模块，给 Component Lab 建索引（照 nb-agent-ui） | Vite |
 | `./tailwind.css` | `@source` 本包源码（图标类名） | — |
 
-`./language` 的导出：`createMarkdownLanguage`、`MarkdownLanguage`、`MarkdownSyntax` 与它引用的读法、写法类型（贡献方言的插件按它写，是公开合同，变更按 `runtime.plugin-api` 的产品版本规则）、`builtinSyntaxes()`（`{name, order, syntax}` 的有序列表，`order` 与 nbook 的方言声明一致）、`coreSyntax`、`reservedSyntaxNames()`（内置、核心与原样保留语法占用的名字；`createRawSyntax` 不公开）、`defaultMarkdownLanguage()`、`codecFor`、`compare` 的 `equivalent`、`schemaFor`（从 `display/renderer.ts` 拆到 `codec/schema.ts`，不带展示器的 DOM 代码）。
+`./language` 的导出：`createMarkdownLanguage`、`MarkdownLanguage`、`MarkdownSyntax` 与它引用的读法、写法类型（贡献方言的插件按它写，是公开合同，变更按 `runtime.plugin-api` 的产品版本规则）、`builtinSyntaxes()`（`{name, order, syntax}` 的有序列表，`order` 与 nbook 的方言声明一致）、`coreSyntax`、`reservedSyntaxNames()`（内置、核心与原样保留语法占用的名字；`createRawSyntax` 不公开）、`defaultMarkdownLanguage()`、`codecFor`、`compare` 的 `equivalent`、标签扫描的工具（外来方言按它写，例如 nbook 的测试方言 `kbd-dialect.ts`）。`schemaFor` 只有展示器用，随 `display/renderer.ts` 在第 3 片进包，不进 `./language`（实施时改）。
+
+`./language/types`：只有 `MarkdownSyntax` 等类型与少量常量（`syntax/types.ts`），不带 DOM。插件入口一侧的方言目录（`syntax-catalog.ts`）与 `web/contracts.ts` 按类型引它：引 `./language` 会让后端类型检查展开全部语法模块，那里有 DOM 类型（第 2 片实测）。
 
 分成几个入口是为了首屏：编辑内核与解析器只进按需加载的 chunk（`workspace.markdown-syntaxes` 输出 2，`packages/neuro-book/scripts/check-dist.ts` 机检）。`.` 不引 DOM 与编辑内核，后端可以用。
 
