@@ -2,4 +2,57 @@
 
 Markdown 的语言、编解码器与组件。行为合同见 [`ui/markdown-display`](../../docs/specs/ui/markdown-display.md)、[`ui/prompt-editor`](../../docs/specs/ui/prompt-editor.md)、[`workspace/markdown-dialect`](../../docs/specs/workspace/markdown-dialect.md)，包的约定见 [AGENTS.md](AGENTS.md)。
 
-- `@notnotype/nb-markdown`：纯 TS。方言常量、链接词法、链接目标的分类接口与缺省规则、界面语言。
+| 入口 | 内容 |
+|---|---|
+| `@notnotype/nb-markdown` | 纯 TS，后端也能用：方言常量、链接词法、链接目标的分类接口与缺省规则（`classifyScheme`）、一种语法占用的名字（`namesOf`）、界面语言 |
+| `./language` | Markdown 语言与编解码器：`createMarkdownLanguage`、内置语法模块（`builtinSyntaxes`、`coreSyntax`）、`defaultMarkdownLanguage`、`codecFor`；贡献方言要按着写的 `MarkdownSyntax` 与标签扫描工具 |
+| `./language/types` | 只有 `MarkdownSyntax` 等类型，不带 DOM：后端类型检查也会读到的代码按类型引这里 |
+| `./host` | 宿主接口 `MarkdownHost`、`provideMarkdownHost`、`useMarkdownHost` |
+| `./display` | 只读显示 `MarkdownDisplay`、图片 `MarkdownImage` |
+| `./chip` | 行内小块 `InlineChip` 与它的外观判断 |
+| `./prompt` | 写给 Agent 的编辑组件 `PromptEditor`、已发送文字的显示 `PromptTextView`，以及拼引用写法的 `promptReferenceText` |
+| `./editor` | 富文本编辑器的扩展组（编辑器实例与文档绑定归宿主） |
+| `./markdown.css` | 正文与方言元素的样式（展示器自己带上；宿主的编辑器控件导入它） |
+| `./lab-sources` | 只给应用的 Component Lab 建组件索引 |
+| `./tailwind.css` | 让宿主的 Tailwind 扫到本包的图标类名 |
+
+## 宿主接入
+
+1. **依赖**：`vue` 是 peer 依赖，其余随包安装。
+2. **样式**：宿主自己编译 Tailwind，在 nb-ui 之后导入本包的入口，图标类名才会生成：
+
+   ```css
+   @import "@notnotype/nb-ui/tailwind.css";
+   @import "@notnotype/nb-markdown/tailwind.css";
+   ```
+
+3. **宿主**：组件从祖先拿语言、链接目标的分类、文件图标与诊断出口。什么都不提供也能用：内置方言加核心语法；只认 `http`、`https`、`mailto` 为外部链接，别的方案（例如 `paragraph://41.20`）显示成引用小块，点击发出 `{kind: "reference", target}`。要换的时候在组件的祖先上提供：
+
+   ```ts
+   import {defaultMarkdownHost, provideMarkdownHost} from "@notnotype/nb-markdown/host";
+
+   provideMarkdownHost({
+       ...defaultMarkdownHost,
+       chips: {targets: myTargets, fileIcon: (name) => ({className: "i-lucide-file"})},   // 目标分类与文件图标
+       report: (event, message, error) => console.warn(event, message, error),
+   });
+   ```
+
+   - `targets.classify(target, base)` 把链接目标分成 `file`、`attachment`、`external`、`other`，可带细分 `variant`（写进 `data-reference-link` 与色调类）；`encodeFile(target)` 对任何目标调用，属于文件的把 `%`、`#`、`?` 百分号编码，别的原样返回。
+   - `language()` 在组件挂上时取一次，之后不换；宿主有自己的方言时给它（`createMarkdownLanguage([...方言, ...builtinSyntaxes().map((entry) => entry.syntax), coreSyntax])`，方言按 `order` 插在内置之间）。
+   - `InlineChip` 不读宿主，分类与图标经它的 `env` 属性给；`MarkdownImage` 也不读宿主（它会被挂到没有应用上下文的普通 DOM 上），不显示时的说明经 `missing` 给。
+
+4. **接到 nb-agent-ui**：对话视图的 `renderers` 直接给本包的组件，组件满足 nb-agent-ui 的端口（`src/prompt/agent-ports.typecheck.ts` 核对）：
+
+   ```ts
+   import {MarkdownDisplay} from "@notnotype/nb-markdown/display";
+   import {PromptEditor, PromptTextView} from "@notnotype/nb-markdown/prompt";
+
+   const renderers = {markdown: MarkdownDisplay, promptEditor: PromptEditor, promptTextView: PromptTextView};
+   ```
+
+   宿主提供宿主接口的那个祖先要包住对话视图。
+
+5. **只认链接**：正文里的“41.20”这类出处要宿主先改写成链接（`[41.20](paragraph://41.20)`），本包不认纯文字的出处。
+6. **Vite**：关掉依赖自动发现（`optimizeDeps.noDiscovery`）的宿主，把 `marked`、`marked-cjk-friendly` 列进预构建清单。
+7. **按需加载**：编辑内核与解析器较大，宿主按组件 `import()` 入口（`./display`、`./prompt`），不放进首屏。neuro-book 的做法见 `packages/neuro-book/src/plugins/markdown/web/components/MarkdownHosted.vue`。

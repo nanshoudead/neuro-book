@@ -1,5 +1,5 @@
 ---
-标签: [state:local]
+标签: [state:local, state:inject]
 别名: ["提示词显示", "已发送内容", "Prompt Text View"]
 ---
 
@@ -7,7 +7,7 @@
 
 把一段按 [`PromptEditor`](PromptEditor.md) “文字写法”写的文字原样显示出来，样子与编辑器里一致：引用、技能、选区、命令是小块，图片与文件进上方的附件条、正文留 `#N`，粘贴块默认折叠。用在已发送的消息里。它不是编辑器：没有光标、不能输入，也不挂编辑内核，一屏几十条消息各放一个也不重。
 
-小块、粘贴块与附件条和编辑器共用同一套零件（[`InlineChip`](../InlineChip.md)、[`PromptPasteFrame`](PromptPasteFrame.md)、[`PromptAttachmentStrip`](PromptAttachmentStrip.md)），读入用编辑器同一个解析函数，同一段文字在两处显示成同样的小块与编号。
+小块、粘贴块与附件条和编辑器共用同一套零件（[`InlineChip`](../chip/InlineChip.md)、[`PromptPasteFrame`](PromptPasteFrame.md)、[`PromptAttachmentStrip`](PromptAttachmentStrip.md)），读入用编辑器同一个解析函数，同一段文字在两处显示成同样的小块与编号。
 
 ## 布局
 
@@ -33,7 +33,7 @@ interface PromptTextViewProps {
     /** 必填：按“文字写法”写的文字。 */
     text: string;
     /** 必填：界面语言，决定按钮与说明的文字。 */
-    locale: DisplayLocale;
+    locale: MarkdownLocale;
     /** 正文开头显示为命令小块的命令名，不含 `/`；默认没有，开头的 `/名称` 按普通文字显示。 */
     commands?: readonly string[];
     /** 就绪图片的缩略图地址；返回 null 时显示占位图标；默认总是 null。 */

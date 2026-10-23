@@ -2,9 +2,9 @@
  * `nbook.markdown` 浏览器入口（docs/specs/workspace/markdown-syntaxes.md）：拥有方言的两个贡献点，接收外来方言的实现，提供服务
  * `markdownKey` 交出用 Markdown 的组件。
  *
- * 组件按需加载：语法模块、Markdown 解析器与编辑内核只从这些 `.vue` 组件引用，入口本身不引它们，所以首屏不含它们；后端的
- * 类型检查装配浏览器插件时也不展开它们（`src/types/vue-sfc.d.ts`）。方言目录与图片地址服务经组件的包装交给 Markdown 控件
- * （`syntaxCatalogKey`、`markdownAssetsKey`）。
+ * 组件按需加载：nb-markdown 的组件、语法模块、Markdown 解析器与编辑内核只从这些 `.vue` 组件引用，入口本身不引它们，所以
+ * 首屏不含它们；后端的类型检查装配浏览器插件时也不展开它们（`src/types/vue-sfc.d.ts`）。方言目录、图片地址服务与诊断出口经
+ * 组件的包装交下去：Markdown 控件直接用，nb-markdown 的组件经 `components/MarkdownHosted.vue` 换成 nbook 的宿主。
  */
 
 import {defineAsyncComponent, defineComponent, h, provide as provideToChildren, ref} from "vue";

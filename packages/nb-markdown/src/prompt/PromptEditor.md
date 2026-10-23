@@ -7,9 +7,9 @@
 
 写给 Agent 的一段话的编辑组件：Agent 输入框与历史消息的就地编辑共用它。正文不做格式，引用、技能、命令显示为小块；图片与文件进上方的附件条，正文在插入处留 `#N` 小块；大段粘贴按大小折叠成粘贴块或转为文件附件；另有触发菜单与输入历史。**文字是唯一真相**：对外只交出一段文字，读进来的文字原样写回。
 
-行为合同（文字写法、各按键、菜单、粘贴分档、附件、输入历史、只读、可访问性）是 [ui.prompt-editor](../../../../../../../../docs/specs/ui/prompt-editor.md)，这里只写组件的属性、样子与宿主要注意的事。由旧应用调好的版本移植（分支 `archive/legacy-ui-tuning`，`865c9f593`），外观不变；输入框的外壳（模型切换、发送按钮、排队的消息）不在这里。
+行为合同（文字写法、各按键、菜单、粘贴分档、附件、输入历史、只读、可访问性）是 [ui.prompt-editor](../../../../docs/specs/ui/prompt-editor.md)，这里只写组件的属性、样子与宿主要注意的事。由旧应用调好的版本移植（分支 `archive/legacy-ui-tuning`，`865c9f593`），外观不变；输入框的外壳（模型切换、发送按钮、排队的消息）不在这里。
 
-经 `nbook.markdown` 的服务 `markdownKey` 交出（`components.PromptEditor`）。`@` 菜单的宿主用 `prompt-text.ts` 的 `promptReferenceText(名称, 地址)` 拼 `insertText`：作品里的文件写以 `/` 开头的作品根地址。
+从 `@notnotype/nb-markdown/prompt` 导出；neuro-book 经 `nbook.markdown` 的服务 `markdownKey` 交出包了宿主的同一个组件。正文里引用小块的目标分类与文件图标来自祖先提供的宿主（`provideMarkdownHost`，见 `../host`），没有提供时只认外部链接。`@` 菜单的宿主用 `promptReferenceText(名称, 地址, 目标分类)` 拼 `insertText`：文件名里的 `%`、`#`、`?` 按宿主的 `encodeFile` 编码；neuro-book 的作品文件写以 `/` 开头的作品根地址。
 
 ## 布局
 
@@ -19,7 +19,7 @@
 - **附件条**：正文里有图片或文件附件时出现，没有时不占高度。一行卡片，放不下时横向滚动。图片卡片是 48px 缩略图，文件卡片是图标、文件名与大小，大段粘贴转成的文件卡片显示前两行文字与行数。每张卡片角上标 `#N`，并带“移除”按钮。上传中的卡片显示转圈；失败的卡片用危险色描边，带“重试”与“移除”。
 - **正文区**：随内容长高，夹在 `minHeight` 与 `maxHeight` 之间；超过上限后正文区内部滚动，外框与附件条不动。输入时光标始终保持可见。`fill` 为真时外框取父元素的高度，正文区占满附件条以外的部分，内容更长时在内部滚动，`maxHeight` 不起作用；父元素没有确定的高度时仍随内容长高。
 - **粘贴块**：在正文里独占一段，与正文同宽。头部一行：图标、`#N`、“粘贴的文本 · 42 行”，以及“展开”“转为文字”“删除”三个按钮；下面用等宽字显示内容，收起时只显示前 3 行，展开后显示全文并可以就地编辑，超过正文区高度时随正文区一起滚动。
-- **小块**：[`InlineChip`](../InlineChip.md)，与正文同一行高，名称过长时截断，悬停提示给出全称。图片与文件小块只显示图标加 `#N`。
+- **小块**：[`InlineChip`](../chip/InlineChip.md)，与正文同一行高，名称过长时截断，悬停提示给出全称。图片与文件小块只显示图标加 `#N`。
 - **候选菜单**：nb-ui 的 `SuggestionMenu`，锚在外框上、与外框同宽，默认在外框上方（`menuPlacement: "below"` 时在下方），固定方向、不跟随光标；可用高度不够时收矮。自上而下：标题行（可选）、候选项（按组分段，组标题不可选；项的说明显示在右侧）。项超过 8 个时截在第 9 项中间、内部滚动。加载中已有项照常显示，底部一行转圈与“正在加载”；没有结果时显示宿主给的空结果文字或“没有匹配项”。没有按键提示。
 - **输入历史搜索**：与候选菜单同一位置、同一外观，顶部多一个搜索框与“输入历史”标题。搜索框的聚焦、方向键、回车、Escape 与 `combobox`、`aria-controls`、`aria-activedescendant` 由本组件持有；焦点离开搜索框、又不在菜单里时关闭（菜单传送到了 `body`，判断时用 `SuggestionMenu.contains`）。
 - **390×844**：结构不变；附件条横向滚动，菜单仍与外框同宽，正文更早触到高度上限。
@@ -96,7 +96,7 @@ interface PromptEditorProps {
     /** 必填，受控：只在版本号变化时读入。 */
     draft: PromptEditorDraft;
     /** 必填：界面语言，决定按钮、提示与说明的文字；换了随即换文字，正文不变。 */
-    locale: DisplayLocale;
+    locale: MarkdownLocale;
     /** 空正文时的提示，也是可访问名称的兜底；默认空字符串。 */
     placeholder?: string;
     /** 默认空字符串。 */
@@ -190,7 +190,7 @@ interface PromptEditorExpose {
 
 ## 不支持
 
-见 [ui.prompt-editor](../../../../../../../../docs/specs/ui/prompt-editor.md) 的“目标与非目标”。全屏编辑由宿主调大 `minHeight`、`maxHeight`（或给区域高度并打开 `fill`）并关掉 `enterSubmits` 实现。
+见 [ui.prompt-editor](../../../../docs/specs/ui/prompt-editor.md) 的“目标与非目标”。全屏编辑由宿主调大 `minHeight`、`maxHeight`（或给区域高度并打开 `fill`）并关掉 `enterSubmits` 实现。
 
 ## 组成
 

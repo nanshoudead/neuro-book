@@ -5,14 +5,14 @@
 
 # MarkdownImage
 
-Markdown 里一张图片 `![说明](地址)` 的样子：Markdown 编辑器的图片节点与展示器（[ui.markdown-display](../../../../../../../docs/specs/ui/markdown-display.md) 输出 4）都用它。地址换成可显示的 URL 由调用方给（`resolveAsset`），规则见 [workspace.markdown-dialect](../../../../../../../docs/specs/workspace/markdown-dialect.md) 输出 18。
+Markdown 里一张图片 `![说明](地址)` 的样子：Markdown 编辑器的图片节点与展示器（[ui.markdown-display](../../../../docs/specs/ui/markdown-display.md) 输出 4）都用它。地址换成可显示的 URL 由调用方给（`resolveAsset`），规则见 [workspace.markdown-dialect](../../../../docs/specs/workspace/markdown-dialect.md) 输出 18。
 
 ## 布局与交互
 
 - 行内显示，最宽不超过所在的版心，按比例缩小，不放大。
 - **读取中**：一块淡色的占位，写着说明文字（没有说明写“图片”），高度与一行字相同。
 - **显示**：图片本身；悬停提示是标题，没有标题时是说明。点击发出 `activate`。
-- **不显示**：调用方给不出 URL（没有 `resolveAsset`、地址在作品根以外、解析不了）时，一个带图片图标的行内说明：“{说明或地址}（不在作品里，不显示）”。
+- **不显示**：调用方给不出 URL（没有 `resolveAsset`、地址解析不了）时，一个带图片图标的行内说明：缺省“{说明或地址}（不显示）”，调用方经 `missing` 换成自己的说法（neuro-book 写“（不在作品里，不显示）”）。
 - **读不出**：URL 加载失败时，同样的行内说明，危险色：“{说明或地址} 读不出”。
 - 只用主题 token；390px 窄屏下图片随版心缩小。
 
@@ -23,7 +23,7 @@ interface MarkdownImageProps {
     /** 必填：原文里写的地址。 */
     src: string;
     /** 界面语言。必填。 */
-    locale: DisplayLocale;
+    locale: MarkdownLocale;
     /** 说明；默认空字符串。 */
     alt?: string;
     /** 标题；默认 null。 */
@@ -32,12 +32,16 @@ interface MarkdownImageProps {
     resolveAsset?: (src: string, signal: AbortSignal) => Promise<{url: string; release(): void} | null>;
     /** 每变一次重新取一次 URL（文件在磁盘上变了）。默认 0。 */
     refresh?: number;
+    /** 不显示时的说明，中英两份，`{name}` 是说明或地址；默认“{name}（不显示）”。 */
+    missing?: {"zh-CN": string; "en-US": string};
 }
 
 interface MarkdownImageEmits {
     (e: "activate"): void;
 }
 ```
+
+不 inject 宿主：展示器的静态视图与编辑器的节点视图用 `render()` 把它挂到普通 DOM 上，那里没有应用上下文；要的都经属性给。
 
 没有 slot 与 expose。根元素带 `data-markdown-image`，状态写在 `data-state`（`loading`、`shown`、`none`、`failed`）。
 

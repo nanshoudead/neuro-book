@@ -27,9 +27,9 @@ export interface MarkdownComponents {
     readonly MarkdownControl: Component;
     /** Markdown 展示器（docs/specs/ui/markdown-display.md）。 */
     readonly MarkdownDisplay: Component;
-    /** 行内小块（`web/components/InlineChip.md`）。 */
+    /** 行内小块（nb-markdown 的 `chip/InlineChip.md`），交出时带上 nbook 的目标分类与文件图标。 */
     readonly InlineChip: Component;
-    /** Markdown 里的一张图片（`web/components/MarkdownImage.md`）。 */
+    /** Markdown 里的一张图片（nb-markdown 的 `display/MarkdownImage.md`）。 */
     readonly MarkdownImage: Component;
     /** 写给 Agent 的编辑组件（docs/specs/ui/prompt-editor.md）。 */
     readonly PromptEditor: Component;

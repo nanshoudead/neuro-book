@@ -41,7 +41,7 @@ interface PromptAttachmentStripProps {
     /** 必填；为空时不渲染任何内容。 */
     cards: readonly PromptAttachmentCard[];
     /** 必填：界面语言，决定按钮与说明的文字。 */
-    locale: DisplayLocale;
+    locale: MarkdownLocale;
     /** 需要高亮的联动键；默认 null。 */
     highlighted?: string | null;
     /** 默认 false。 */

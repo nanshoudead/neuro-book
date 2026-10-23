@@ -22,7 +22,7 @@ interface PromptPasteFrameProps {
     /** 必填。 */
     number: number;
     /** 必填：界面语言，决定按钮与说明的文字。 */
-    locale: DisplayLocale;
+    locale: MarkdownLocale;
     /** 必填：粘贴的内容，按 `\n` 计行数并生成预览。 */
     content: string;
     /** 受控，默认 false；没有超过 3 行时不起作用。 */
