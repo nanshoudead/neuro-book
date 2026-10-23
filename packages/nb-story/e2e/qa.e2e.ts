@@ -22,7 +22,7 @@ let cleanupLibrary: () => Promise<void>;
 let configFile: string;
 
 const READ_THEN_ANSWER = [
-    {kind: "tools", calls: [{name: "read", args: {from: {chapter: 37, paragraph: 8}, to: {chapter: 37, paragraph: 8}}}]},
+    {kind: "tools", calls: [{name: "read", args: {from: {chapter: 37, paragraph: 8}, to: {chapter: 37, paragraph: 8}}}], thinking: "先翻到 37 章找地狱猫"},
     {
         kind: "tools",
         calls: [
@@ -82,7 +82,8 @@ test("新对话：提问后看到过程与答案卡片；出处在抽屉里打�
     const card = page.locator("[data-qa-answer]");
     // 受理之后输入框清空（换到新对话的草稿也是新版本）。
     await expect(page.getByRole("textbox", {name: "消息输入框"})).toHaveText("");
-    // 运行中：过程逐步列出读原文的那一步，列表里这个对话在运行中。
+    // 运行中：过程逐步列出模型的思考与读原文的那一步，列表里这个对话在运行中。
+    await expect(page.getByText("先翻到 37 章找地狱猫").first()).toBeVisible();
     await expect(page.getByText("37.8—37.8").first()).toBeVisible();
     await expect(page.locator("aside").getByText("运行中")).toHaveCount(1);
     await endpoint.release();

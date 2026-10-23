@@ -108,6 +108,8 @@ describe("init、show、set、unset", () => {
         expect(await written(path)).toMatchObject({model: {thinking: "xhigh"}});
         expect((await run(["config", "unset", "model.thinking", "--config", path])).code).toBe(0);
         expect((await written(path) as {model: object}).model).not.toHaveProperty("thinking");
+        expect((await run(["config", "set", "model.api", "responses", "--config", path])).code).toBe(0);
+        expect((await run(["config", "show", "--config", path])).stdout).toContain("接口：Responses");
 
         const before = await readFile(path, "utf8");
         // 都不写盘，并行跑：每个都是一个命令行进程。`toString` 是普通对象从原型继承来的名字，也不是字段。
@@ -117,6 +119,8 @@ describe("init、show、set、unset", () => {
         const outOfRange = await run(["config", "set", "qa.maxChapters", "21", "--config", path, "--json"]);
         expect(outOfRange.code).toBe(1);
         expect((JSON.parse(outOfRange.stdout) as {error: {code: string}}).error.code).toBe("qa_unconfigured");
+        // 接口只有 chat 与 responses 两种：别的值过不了整份校验。
+        expect((await run(["config", "set", "model.api", "grpc", "--config", path])).code).toBe(1);
         expect(await readFile(path, "utf8")).toBe(before);
     });
 

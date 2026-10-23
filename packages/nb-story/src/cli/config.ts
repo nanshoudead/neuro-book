@@ -34,6 +34,7 @@ function describe(path: string, config: QaConfig, env: NodeJS.ProcessEnv): strin
         `服务地址：${model.baseUrl}`,
         `模型：${model.id}`,
         `密钥环境变量：${model.apiKeyEnv}（${env[model.apiKeyEnv] ? "已设置" : "没有设置"}）`,
+        `接口：${model.api === "responses" ? "Responses" : "Chat Completions"}`,
         `推理档：${thinkingText(config)}`,
         ...(model.contextWindow === undefined ? [] : [`上下文窗口：${model.contextWindow}`]),
         ...(model.maxTokens === undefined ? [] : [`输出上限：${model.maxTokens}`]),

@@ -37,6 +37,7 @@ export const CONFIG_FIELDS: Readonly<Record<string, FieldSpec>> = {
     "model.apiKeyEnv": {kind: "envName", required: true},
     "model.contextWindow": {kind: "integer", required: false},
     "model.maxTokens": {kind: "integer", required: false},
+    "model.api": {kind: "text", required: false},
     "model.thinking": {kind: "thinking", required: false},
     "model.price": {kind: "json", required: false, example: PRICE_EXAMPLE},
     "ingest.model": {kind: "json", required: false, example: INGEST_MODEL_EXAMPLE},

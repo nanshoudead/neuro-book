@@ -55,6 +55,11 @@ export const ConfigSchema = Type.Object(
                 baseUrl: baseUrl(),
                 id: modelId(),
                 apiKeyEnv: apiKeyEnv(),
+                api: Type.Optional(
+                    Type.Union([Type.Literal("chat"), Type.Literal("responses")], {
+                        "x-form": {label: "接口", help: "不写是 Chat Completions。GPT 系列要看思考过程选 Responses（服务要支持 /v1/responses）"},
+                    }),
+                ),
                 contextWindow: Type.Optional(Type.Integer({minimum: 1, "x-form": {label: "上下文窗口", unit: "token"}})),
                 maxTokens: Type.Optional(Type.Integer({minimum: 1, "x-form": {label: "单次输出上限", unit: "token"}})),
                 thinking: Type.Optional(Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high"), Type.Literal("xhigh")], {"x-form": {label: "推理档"}})),

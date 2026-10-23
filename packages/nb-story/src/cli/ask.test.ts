@@ -106,6 +106,26 @@ describe("nbstory ask", () => {
         expect(plain.endpoint.bodies.map(body => "reasoning_effort" in body)).toEqual([false, false]);
     });
 
+    test("接口选 Responses：请求走 Responses 并要思考摘要，摘要作为思考写进会话日志，照常交卷", async () => {
+        const replies: EndpointReply[] = READ_THEN_ANSWER.map((reply, index) => ({...reply, thinking: `先想第 ${index + 1} 步`}) as EndpointReply);
+        const {config, endpoint} = await configFor(replies, {api: "responses", thinking: "xhigh"});
+        const result = await run(["ask", "地狱猫是谁？", "--at", "38", "--config", config]);
+        expect(result.code).toBe(0);
+        expect(result.stdout).toContain("结论（明说）：读者在 37.8 知道了");
+        expect(endpoint.bodies.map(body => [body.reasoning, "messages" in body, "input" in body])).toEqual([
+            [{effort: "xhigh", summary: "auto"}, false, true],
+            [{effort: "xhigh", summary: "auto"}, false, true],
+        ]);
+        const dir = join(library, "fox", "qa");
+        const logs = (await readdir(dir)).filter(name => name.endsWith(".session.jsonl"));
+        const lines = (await Promise.all(logs.map(name => readFile(join(dir, name), "utf8")))).join("").split("\n").filter(line => line !== "");
+        const thinking = lines.flatMap(line => {
+            const entry = JSON.parse(line) as {kind?: string; message?: {role?: string; content?: {type: string; thinking?: string}[]}};
+            return entry.kind === "agent_message" && entry.message?.role === "assistant" ? (entry.message.content ?? []).filter(block => block.type === "thinking").map(block => block.thinking?.trim()) : [];
+        });
+        expect(thinking).toEqual(["先想第 1 步", "先想第 2 步"]);
+    });
+
     test("401 的错误正文回显了密钥：model_failed（auth），退出码 4，到处都没有密钥", async () => {
         const {config} = await configFor([{kind: "status", status: 401, echoKey: true}]);
         const result = await run(["ask", "问", "--config", config, "--json"]);

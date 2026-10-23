@@ -10,12 +10,15 @@ import type {QaConfig} from "./config";
 /**
  * 配置里的模型 → nb-harness 的模型。provider 名用 `nbstory`：不是 OMP 目录里的 provider，OMP 按通用的 OpenAI
  * 兼容端点处理（system 角色、不带厂商私有参数），适合任意兼容服务。
+ *
+ * 接口缺省是 Chat Completions。GPT 系列经它不回思考内容；选 Responses 时 OMP 在请求里要思考摘要
+ * （`reasoning.summary: "auto"`），摘要作为思考块进会话日志。
  */
 export function configuredModel(config: QaConfig): ResolvedModel {
     const {model} = config;
     return defineModel({
         provider: "nbstory",
-        api: "openai-completions",
+        api: model.api === "responses" ? "openai-responses" : "openai-completions",
         baseUrl: model.baseUrl,
         id: model.id,
         apiKeyEnv: model.apiKeyEnv,
