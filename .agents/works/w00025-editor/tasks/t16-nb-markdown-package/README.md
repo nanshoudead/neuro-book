@@ -24,8 +24,8 @@ updated: 2026-10-23
 
 ## 当前状态
 
-2026-10-23 新建，先写计划交开发者确认。
+2026-10-23 开发者要求按 autonomous-delivery 推进（主会话实施，Sonnet 只做前端审查）。计划见 [plan.md](plan.md)，代码在 `.worktree/w00025-t16-nb-markdown`（分支 `feat/w00025-t16-nb-markdown`）。
 
 ## 下一步
 
-写 `plan.md`：包的布局与导出、宿主接口（语言、图片地址、链接怎么显示、诊断、界面语言）、`nbook.markdown` 留下的部分、切片与验证；交开发者确认后实施。w00024 t13 的计划随后改成用 nb-markdown。
+计划交 omp 做设计审查，处理后按切片 1 到 6 实施。合入后把 w00024 t13 的计划改成用 nb-markdown。
