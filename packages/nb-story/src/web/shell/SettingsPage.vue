@@ -17,6 +17,17 @@ const router = useRouter();
 
 /** 文件不在或读不成时的起点：必填的几项空着，由表单提示补上。 */
 const STARTER = {model: {baseUrl: "", id: "", apiKeyEnv: "OPENAI_API_KEY"}};
+/**
+ * 问答模型常显；抽取与问答的限额都是可选的，收进折叠的分组（布局只能排根上的字段，问答模型里的单价照样展开）。
+ */
+const LAYOUT = {
+    type: "column",
+    items: [
+        {type: "field", path: "/model"},
+        {type: "group", label: "问答的限额（可选）", collapsed: true, items: [{type: "field", path: "/qa"}]},
+        {type: "group", label: "抽取（可选，不写时用问答模型）", collapsed: true, items: [{type: "field", path: "/ingest"}]},
+    ],
+} as const;
 /** 三处密钥环境变量在配置里的路径（问题按路径挂到字段上）。 */
 const KEY_PATHS: ReadonlyArray<ReadonlyArray<string>> = [["model", "apiKeyEnv"], ["ingest", "model", "apiKeyEnv"], ["ingest", "recall", "model", "apiKeyEnv"]];
 
@@ -124,6 +135,7 @@ function onDraftState(state: {state: "clean" | "dirty" | "unparseable"}): void {
             ref="form"
             v-model="value"
             :schema="ConfigSchema"
+            :layout="LAYOUT"
             locale="zh-CN"
             :issues="issues"
             :revision="revision"
