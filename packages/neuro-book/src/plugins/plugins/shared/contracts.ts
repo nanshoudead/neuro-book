@@ -60,9 +60,15 @@ export type PluginList = Static<typeof ListSchema>;
 const BlockedPluginSchema = Type.Object({
     plugin: Type.String({minLength: 1}),
     entries: Type.Array(Type.String({minLength: 1})),
-    reason: Type.Union([Type.Literal("version-mismatch"), Type.Literal("provider-blocked")]),
+    /**
+     * `version-mismatch` 版本不在范围里；`missing-service` 新版本不再在这个位置提供它要的服务；`dependency-cycle` 依赖成环；
+     * `provider-blocked` 经别的插件传递受阻。
+     */
+    reason: Type.Union([Type.Literal("version-mismatch"), Type.Literal("missing-service"), Type.Literal("dependency-cycle"), Type.Literal("provider-blocked")]),
     /** `version-mismatch`：这个插件要求的版本范围。 */
     range: Type.Optional(Type.String({minLength: 1})),
+    /** `missing-service`：不再提供的服务 id。 */
+    service: Type.Optional(Type.String({minLength: 1})),
 }, {additionalProperties: false});
 
 export type BlockedPlugin = Static<typeof BlockedPluginSchema>;

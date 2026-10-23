@@ -4,7 +4,7 @@
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
-import {mkdir, rm, writeFile} from "node:fs/promises";
+import {mkdir, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createApplication} from "@notnotype/nb-runtime/application";
@@ -31,15 +31,18 @@ afterAll(async () => {
 interface Probe {
     readonly calls: Array<{readonly count: number; readonly sdk: unknown}>;
     gate: Promise<void>;
+    /** 模块顶层求值的次数与是否放行（顶层按它抛错）。 */
+    evaluations: number;
+    ready: boolean;
 }
 
 /** 插件代码经全局对象把它看到的东西交回测试（插件代码不能 import 测试模块）。 */
-const probe: Probe = {calls: [], gate: Promise.resolve()};
+const probe: Probe = {calls: [], gate: Promise.resolve(), evaluations: 0, ready: false};
 (globalThis as unknown as {__nbookLoaderProbe: Probe}).__nbookLoaderProbe = probe;
 
-/** 一个已安装的插件：`files` 是相对版本目录的路径到内容；每个入口都在服务端、启动即激活。 */
-async function installed(name: string, entries: Readonly<Record<string, string>>, files: Readonly<Record<string, string>>): Promise<InstalledPlugin> {
-    const root = join(tmp, name, "1.0.0");
+/** 一个已安装的插件：`files` 是相对版本目录的路径到内容；每个入口都在服务端、启动即激活。`base` 是插件根目录，缺省临时根。 */
+async function installed(name: string, entries: Readonly<Record<string, string>>, files: Readonly<Record<string, string>>, base = tmp): Promise<InstalledPlugin> {
+    const root = join(base, name, "1.0.0");
     await mkdir(root, {recursive: true});
     const manifest = {
         publisher: "fixture",
@@ -117,6 +120,61 @@ describe("服务端入口代码的装载", () => {
         expect(app.plugins.entryState({plugin: plugin.id, entry: "main"})).toMatchObject({status: "activating"});
         // 放行之后停止才能收口：装载中的 import 不响应停止信号。
         opened.resolve();
+        expect(await app.stop()).toEqual({status: "closed"});
+    });
+
+    it("插件根目录经符号链接时同样每次激活是新的模块实例（模块缓存按真实路径）", async () => {
+        const link = join(tmp, "..", `loader-link-${String(Date.now())}`);
+        await symlink(tmp, link);
+        try {
+            const plugin = await installed("linked", {main: "server.js"}, {"server.js": COUNTER}, link);
+            probe.calls.length = 0;
+            for (let round = 0; round < 2; round += 1) {
+                const app = application(definitions(plugin));
+                await app.startup;
+                expect(await app.plugins.activate({plugin: plugin.id, entry: "main"})).toMatchObject({status: "activated"});
+                expect(await app.stop()).toEqual({status: "closed"});
+            }
+            expect(probe.calls.map((call) => call.count)).toEqual([1, 1]);
+        } finally {
+            await rm(link);
+        }
+    });
+
+    it("导入宿主模块表之外的包：module-not-shared，即使上级目录的 node_modules 里有它；相对导入的文件不在：code-load-failed", async () => {
+        await mkdir(join(tmp, "node_modules", "fakepkg"), {recursive: true});
+        await writeFile(join(tmp, "node_modules", "fakepkg", "package.json"), JSON.stringify({name: "fakepkg", type: "module", main: "index.js"}));
+        await writeFile(join(tmp, "node_modules", "fakepkg", "index.js"), "export const v = 1;\n");
+        const plugin = await installed("imports", {pkg: "pkg.js", nested: "nested.js", relative: "relative.js", builtin: "builtin.js"}, {
+            "pkg.js": "import {v} from \"fakepkg\";\nexport const activate = () => ({v});\n",
+            "nested.js": "import {w} from \"./lib.js\";\nexport const activate = () => ({w});\n",
+            "lib.js": "import {v} from \"fakepkg\";\nexport const w = v;\n",
+            "relative.js": "import \"./nope.js\";\nexport const activate = () => ({});\n",
+            "builtin.js": "import {join} from \"node:path\";\nimport {readFileSync} from \"fs\";\nexport const activate = () => ({join, readFileSync});\n",
+        });
+        const app = application(definitions(plugin));
+        await app.startup;
+        for (const [entry, code] of [["pkg", "module-not-shared"], ["nested", "module-not-shared"], ["relative", "code-load-failed"]] as const) {
+            expect(await app.plugins.activate({plugin: plugin.id, entry})).toMatchObject({status: "failed", reason: "activation-threw", error: {message: expect.stringContaining(code)}});
+        }
+        expect(await app.plugins.activate({plugin: plugin.id, entry: "builtin"})).toMatchObject({status: "activated"});
+        expect(await app.stop()).toEqual({status: "closed"});
+    });
+
+    it("模块顶层抛错之后重试：模块重新求值，条件满足时激活成功；activate 没有返回对象：code-shape", async () => {
+        const plugin = await installed("transient", {main: "server.js", empty: "empty.js"}, {
+            "server.js": "globalThis.__nbookLoaderProbe.evaluations += 1;\nif (!globalThis.__nbookLoaderProbe.ready) throw new Error(\"还没准备好\");\nexport const activate = () => ({});\n",
+            "empty.js": "export function activate() {}\n",
+        });
+        const app = application(definitions(plugin));
+        await app.startup;
+        expect(await app.plugins.activate({plugin: plugin.id, entry: "main"})).toMatchObject({status: "failed", error: {message: expect.stringContaining("还没准备好")}});
+        probe.ready = true;
+        // 失败的入口要先恢复（设置窗口的“重试”就是这样做的）才能再激活。
+        await app.plugins.recover({plugin: plugin.id, entry: "main"});
+        expect(await app.plugins.activate({plugin: plugin.id, entry: "main"})).toMatchObject({status: "activated"});
+        expect(probe.evaluations).toBe(2);
+        expect(await app.plugins.activate({plugin: plugin.id, entry: "empty"})).toMatchObject({status: "failed", error: {message: expect.stringContaining("code-shape")}});
         expect(await app.stop()).toEqual({status: "closed"});
     });
 

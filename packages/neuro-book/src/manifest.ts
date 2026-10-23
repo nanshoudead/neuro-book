@@ -26,6 +26,7 @@ import {descriptor as settings} from "./plugins/settings/plugin";
 import {descriptor as state} from "./plugins/state/plugin";
 import {descriptor as storage} from "./plugins/storage/plugin";
 import {descriptor as workbench} from "./plugins/workbench/plugin";
+import {PluginCodeError} from "./shared/plugin-code-error";
 
 /**
  * 插件描述的类型归内核。浏览器入口随前端构建：窗口按 id 与版本核对后端引导返回的集合，不一致即提示刷新。
@@ -84,7 +85,10 @@ export function thirdPartyDefinitionAt(location: RuntimeLocation, manifest: Plug
             ...entry,
             activate: async (context) => {
                 const activate = await options.load(declared, context);
-                return settleContracts(await activate(context), entry.remoteProvides ?? []);
+                const output: unknown = await activate(context);
+                // 插件代码忘了 return 时给出能指到作者代码的原因，而不是读产出字段时引擎抛的 TypeError。
+                if (typeof output !== "object" || output === null) throw new PluginCodeError("code-shape", {plugin: manifest.id, entry: entry.id, url: declared.main, detail: "的 activate 没有返回激活产出（对象）"});
+                return settleContracts(output as ActivationOutput, entry.remoteProvides ?? []);
             },
         };
     });

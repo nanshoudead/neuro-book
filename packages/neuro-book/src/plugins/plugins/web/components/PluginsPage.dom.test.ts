@@ -255,11 +255,12 @@ describe("PluginsPage", () => {
         problem = document.querySelector("[data-plugin-problem]");
         expect(problem?.textContent?.match(/nbook\. 开头/gu)).toHaveLength(1);
 
-        fake.answerNext({ok: false, code: "version-in-use", detail: {detail: "另一个运行中的服务端还在用 example.hello@1.0.0 的旧目录"}});
+        fake.answerNext({ok: false, code: "version-in-use", detail: {detail: "还有运行中的服务端在用 example.hello@1.0.0 的旧目录，关掉或重启它之后再装"}});
         await submitPath(wrapper, "/plugins/in-use");
         problem = document.querySelector("[data-plugin-problem]");
-        expect(problem?.textContent).toContain("另一个运行中的服务端还在用这个版本");
-        expect(problem?.textContent).not.toContain("旧目录");
+        // 原因有两种（被租着、租约读不了），怎么办写在服务端的详情里。
+        expect(problem?.textContent).toContain("这个版本的旧目录还在使用中");
+        expect(problem?.textContent).toContain("关掉或重启它之后再装");
 
         fake.answerNext({ok: false, code: "denied", detail: "调用方没有权限"});
         await submitPath(wrapper, "/plugins/denied");

@@ -73,7 +73,7 @@ const never = <T>(): Promise<T> => new Promise<T>(() => undefined);
 const failing = (): Promise<{ok: false; code: PluginFailureCode; detail: {detail: string; problems?: string[]}}> | null => {
     if (base === "busy") return never();
     if (base === "write-failed") return Promise.resolve({ok: false, code: "manifest-invalid", detail: {detail: "清单有错误", problems: ["entries.ui.main：入口文件必须在插件目录里", "contributes.0.id：必须以插件 id 开头"]}});
-    if (base === "version-in-use") return Promise.resolve({ok: false, code: "version-in-use", detail: {detail: "另一个运行中的服务端还在用 example.hello@1.0.0 的旧目录"}});
+    if (base === "version-in-use") return Promise.resolve({ok: false, code: "version-in-use", detail: {detail: "还有运行中的服务端（也可能就是这一个）在用 example.hello@1.0.0 的旧目录，关掉或重启它之后再装"}});
     return null;
 };
 

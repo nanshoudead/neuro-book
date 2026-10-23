@@ -50,20 +50,29 @@ export function pinKey(id: string, version: string): string {
  * 重写，集合不变；失效到重写之间别的服务端可能已经回收了这些目录，这里只能报告。
  *
  * 写列表失败时先放下刚取得的锁再抛出：留着锁而没有列表，回收的一方会一直把它当作“读不了、仍在使用”，什么都不回收。
+ *
+ * 重写与 `release` 的先后：重写一次只进行一个（排队）；`release` 等进行中的重写结束再收口，重写在 `release` 之后才完成时
+ * 立刻放下它写出的新租约，不留下没人放的锁。`stale` 只给测试缩短过期时间。
  */
-export async function pinVersions(root: string, versions: ReadonlyArray<{readonly id: string; readonly version: string}>, report: (event: string, error: unknown) => void): Promise<VersionPin | null> {
+export async function pinVersions(
+    root: string,
+    versions: ReadonlyArray<{readonly id: string; readonly version: string}>,
+    report: (event: string, error: unknown) => void,
+    options: {readonly stale?: number} = {},
+): Promise<VersionPin | null> {
     const directory = join(root, PINS_DIR);
     await mkdir(directory, {recursive: true});
     const list = JSON.stringify({pid: process.pid, versions: versions.map(({id, version}) => pinKey(id, version))});
     let current: {readonly file: string; readonly lock: HeldLock} | null = null;
     let released = false;
+    let renewing: Promise<void> = Promise.resolve();
 
     const write = async (): Promise<{readonly file: string; readonly lock: HeldLock} | null> => {
         const name = randomUUID();
         const held = await holdLock(join(directory, `${name}.lock`), (event, error) => {
             report(event, error);
-            if (event === "lock.compromised") void renew();
-        }, {stale: PIN_STALE_MS});
+            if (event === "lock.compromised") renewing = renewing.then(renew);
+        }, {stale: options.stale ?? PIN_STALE_MS});
         if (!held.ok) {
             report("pins.lock-failed", new Error(held.detail));
             return null;
@@ -81,16 +90,26 @@ export async function pinVersions(root: string, versions: ReadonlyArray<{readonl
         return {file, lock: held.lock};
     };
 
+    const drop = async (pin: {readonly file: string; readonly lock: HeldLock}): Promise<void> => {
+        await rm(pin.file, {force: true}).catch((error: unknown) => report("pins.cleanup-failed", error));
+        await pin.lock.release();
+    };
+
     const renew = async (): Promise<void> => {
         if (released) return;
         const lost = current;
+        let next: {readonly file: string; readonly lock: HeldLock} | null = null;
         try {
-            current = await write();
-            if (current !== null) report("pins.renewed", new Error("租约的锁曾经失效，已换名重写；失效期间别的服务端可能回收了在用的版本"));
+            next = await write();
         } catch (error) {
-            current = null;
             report("pins.renew-failed", error);
         }
+        if (released) {
+            if (next !== null) await drop(next);
+            return;
+        }
+        current = next;
+        if (next !== null) report("pins.renewed", new Error("租约的锁曾经失效，已换名重写；失效期间别的服务端可能回收了在用的版本"));
         if (lost !== null) await rm(lost.file, {force: true}).catch((error: unknown) => report("pins.cleanup-failed", error));
     };
 
@@ -99,11 +118,10 @@ export async function pinVersions(root: string, versions: ReadonlyArray<{readonl
     return {
         release: async () => {
             released = true;
+            await renewing;
             const held = current;
             current = null;
-            if (held === null) return;
-            await rm(held.file, {force: true});
-            await held.lock.release();
+            if (held !== null) await drop(held);
         },
     };
 }
@@ -112,7 +130,11 @@ export async function pinVersions(root: string, versions: ReadonlyArray<{readonl
  * 锁还活着的租约里的全部版本（`pinKey`）；顺手删掉残留的租约（锁已失效的列表、没有列表的锁）。只在持登记表写入锁时调用。
  * 读不了的租约按“还在用”处理：宁可这次不回收，也不删别人的文件。
  */
-export async function livePins(root: string, warn: (event: string, message: string, data?: unknown, error?: unknown) => void): Promise<{readonly pinned: ReadonlySet<string>; readonly unreadable: boolean}> {
+export async function livePins(
+    root: string,
+    warn: (event: string, message: string, data?: unknown, error?: unknown) => void,
+    options: {readonly stale?: number} = {},
+): Promise<{readonly pinned: ReadonlySet<string>; readonly unreadable: boolean}> {
     const directory = join(root, PINS_DIR);
     let names: string[];
     try {
@@ -131,7 +153,7 @@ export async function livePins(root: string, warn: (event: string, message: stri
         const listPath = join(directory, `${base}.json`);
         let alive: boolean;
         try {
-            alive = await check(lockPath, {realpath: false, lockfilePath: lockPath, stale: PIN_STALE_MS});
+            alive = await check(lockPath, {realpath: false, lockfilePath: lockPath, stale: options.stale ?? PIN_STALE_MS});
         } catch (error) {
             warn("plugins.pins.unreadable", "核对插件版本租约的锁失败，按仍在使用处理", {path: lockPath}, error);
             unreadable = true;

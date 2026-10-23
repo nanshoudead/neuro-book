@@ -5,15 +5,17 @@
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
-import {chmod, mkdir, readdir, readFile, rm, stat, symlink, writeFile} from "node:fs/promises";
+import {chmod, mkdir, readdir, readFile, rm, stat, symlink, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {lock} from "proper-lockfile";
 
 import {createPluginInventory} from "./inventory";
 import type {PluginInventory} from "./inventory";
+import {livePins, pinKey, pinVersions, PINS_DIR} from "./pins";
 import {prepareInstalledPlugins} from "./startup";
 import type {PreparedPlugins, StartupPlugins} from "./startup";
 
@@ -491,6 +493,41 @@ describe("同一状态根上的两个服务端进程（场景 15）", () => {
         expect(await namesIn(join(w.root, ".pins"))).toHaveLength(2);
     });
 
+    it("版本租约的锁被别的服务端当作残留删掉（持有者暂停过久）：换名重写、记诊断，回收的一方随后仍看到这些版本在用；放下后不留锁", async () => {
+        const w = await world();
+        await mkdir(w.root, {recursive: true});
+        const reports: string[] = [];
+        const stale = 2_000;
+        const pin = await pinVersions(w.root, [{id: "example.hello", version: "1.0.0"}], (event) => reports.push(event), {stale});
+        expect(pin).not.toBeNull();
+        const [lockName] = (await readdir(join(w.root, PINS_DIR))).filter((name) => name.endsWith(".lock"));
+        // 持有者暂停期间锁没有刷新：把锁的修改时间拨回过期之前，另一个服务端的回收按残留删掉它。
+        const past = new Date(Date.now() - stale * 3);
+        await utimes(join(w.root, PINS_DIR, lockName!), past, past);
+        expect((await livePins(w.root, () => undefined, {stale})).pinned.size).toBe(0);
+        await waitUntil("租约换名重写", () => (reports.includes("pins.renewed") ? true : undefined), {timeoutMs: stale * 3});
+        expect(reports).toContain("lock.compromised");
+        expect((await livePins(w.root, () => undefined, {stale})).pinned).toEqual(new Set([pinKey("example.hello", "1.0.0")]));
+        await pin!.release();
+        expect(await namesIn(join(w.root, PINS_DIR))).toEqual([]);
+    });
+
+    it("被取代的待切换版本还被别的服务端租着：再装新版本时它的目录保留、推迟回收", async () => {
+        const w = await world();
+        await w.inventory.install(await w.source("v1", manifest("1.0.0"), {"web.js": "v1"}));
+        await w.restart();
+        await w.inventory.install(await w.source("v2", manifest("2.0.0"), {"web.js": "v2"}));
+        // 另一个服务端已切到 2.0.0 并在用它（同一进程里写一份独立的租约代表它）。
+        const other = await pinVersions(w.root, [{id: "example.hello", version: "2.0.0"}], () => undefined);
+        try {
+            expect(await w.inventory.install(await w.source("v3", manifest("3.0.0"), {"web.js": "v3"}))).toMatchObject({ok: true});
+            expect(await readFile(join(w.root, "example.hello", "2.0.0", "web.js"), "utf8")).toBe("v2");
+            expect(w.diagnostics.map((record) => record.event)).toContain("plugins.cleanup.deferred");
+        } finally {
+            await other?.release();
+        }
+    });
+
     it("安装根只读：拿不到登记表锁、写不下版本租约，照常只读启动并登记插件，原因进诊断", async () => {
         const w = await world();
         await w.inventory.install(await w.source("v1", manifest("1.0.0"), {"web.js": "v1"}));
@@ -531,6 +568,17 @@ describe("同一状态根上的两个服务端进程（场景 15）", () => {
         }});
         // 范围接受的新版本：没有受阻的。
         expect(await w.inventory.inspect(await w.source("tts11", plugin("tts", "1.1.0", entry({provides: ["example.tts/voice"]})), {"main.js": ""}))).toMatchObject({ok: true, value: {blocked: []}});
+        // 新版本不再提供、或挪到别的位置提供：依赖它的入口重启后缺服务。
+        expect(await w.inventory.inspect(await w.source("tts12", plugin("tts", "1.2.0", entry({})), {"main.js": ""}))).toMatchObject({ok: true, value: {blocked: [
+            {plugin: "example.panel", entries: ["main"], reason: "provider-blocked"},
+            {plugin: "example.reader", entries: ["main"], reason: "missing-service", service: "example.tts/voice"},
+        ]}});
+        expect(await w.inventory.inspect(await w.source("tts13", plugin("tts", "1.3.0", {entries: {main: {location: "project", main: "main.js", provides: ["example.tts/voice"]}}}), {"main.js": ""}))).toMatchObject({ok: true, value: {blocked: [
+            {plugin: "example.panel", entries: ["main"], reason: "provider-blocked"},
+            {plugin: "example.reader", entries: ["main"], reason: "missing-service", service: "example.tts/voice"},
+        ]}});
+        // 升级一个禁用的插件：重启后它仍禁用，依赖方前后一样，不列。
+        expect(await w.inventory.inspect(await w.source("off2", plugin("off", "2.0.0", {...entry({requires: ["example.tts/voice"]}), pluginVersions: {"example.tts": "^9.0.0"}}), {"main.js": ""}))).toMatchObject({ok: true, value: {blocked: []}});
     });
 });
 

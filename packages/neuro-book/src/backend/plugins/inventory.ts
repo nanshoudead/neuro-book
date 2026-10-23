@@ -77,7 +77,24 @@ function within(inner: string, outer: string): boolean {
     return path === "" || (!path.startsWith("..") && !isAbsolute(path));
 }
 
-/** 已安装的记录不接受这次安装的原因；没有为 null。 */
+/** 预览给出的原因：别的位置提供（`location-mismatch`）对用户来说也是“这里不再提供”；提供方失败在预览里推不出来。 */
+function previewReason(reason: string): BlockedPlugin["reason"] {
+    switch (reason) {
+        case "version-mismatch":
+        case "dependency-cycle":
+            return reason;
+        case "missing-service":
+        case "location-mismatch":
+            return "missing-service";
+        default:
+            return "provider-blocked";
+    }
+}
+
+/** 越小越具体：版本不符与服务不再提供能直接指出原因，经别的插件传递受阻只说明“依赖的插件不可用”。 */
+const REASON_RANK: Readonly<Record<BlockedPlugin["reason"], number>> = {"version-mismatch": 0, "missing-service": 1, "dependency-cycle": 2, "provider-blocked": 3};
+
+/** 路径上有没有东西；只有 ENOENT 算没有，别的错误（权限）抛出，由调用方按复制失败处理。 */
 async function exists(path: string): Promise<boolean> {
     try {
         await lstat(path);
@@ -88,6 +105,7 @@ async function exists(path: string): Promise<boolean> {
     }
 }
 
+/** 已安装的记录不接受这次安装的原因；没有为 null。 */
 function conflict(entry: RecordEntry | undefined, id: string, version: string): InventoryFailure | null {
     if (entry === undefined) return null;
     if (entry.state === "uninstalling") return failure("uninstall-pending", `${id} 正在卸载，重启后再安装`);
@@ -216,6 +234,8 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
     async function blockedAfter(next: PluginManifest): Promise<{readonly blocked: BlockedPlugin[]; readonly unchecked: string[]}> {
         const record = await readRecord(root);
         if (!record.ok) return {blocked: [], unchecked: []};
+        // 禁用的插件升级后仍是禁用的，重启后不登记，依赖它的入口在升级前后一样受阻：没有新增的受阻。
+        if (record.record.plugins[next.id]?.state === "disabled") return {blocked: [], unchecked: []};
         const current: PluginManifest[] = [];
         const unchecked: string[] = [];
         for (const [id, entry] of Object.entries(record.record.plugins)) {
@@ -232,11 +252,12 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
             for (const [key, blocked] of previewBlocked(after.map(previewDefinition), location, pluginVersionSatisfies)) {
                 if (blocked === null || (before.get(key) ?? null) !== null) continue;
                 const [plugin, entry] = splitEntry(key);
+                const reason = previewReason(blocked.reason);
+                const detail = reason === "version-mismatch" && blocked.reason === "version-mismatch" ? {range: blocked.range} : reason === "missing-service" ? {service: blocked.key} : {};
                 const known = byPlugin.get(plugin);
-                const range = blocked.reason === "version-mismatch" ? blocked.range : undefined;
-                const reason = blocked.reason === "version-mismatch" ? "version-mismatch" : "provider-blocked";
-                if (known === undefined) byPlugin.set(plugin, {plugin, entries: [entry], reason, ...(range === undefined ? {} : {range})});
-                else byPlugin.set(plugin, {...known, entries: [...known.entries, entry], ...(known.reason === "provider-blocked" && reason === "version-mismatch" ? {reason, ...(range === undefined ? {} : {range})} : {})});
+                // 一个插件几个入口受阻时，原因取最具体的那条（同一份排序见 `REASON_RANK`），入口都列出。
+                if (known === undefined || REASON_RANK[reason] < REASON_RANK[known.reason]) byPlugin.set(plugin, {plugin, entries: [...(known?.entries ?? []), entry], reason, ...detail});
+                else byPlugin.set(plugin, {...known, entries: [...known.entries, entry]});
             }
         }
         return {blocked: [...byPlugin.values()].sort((left, right) => (left.plugin < right.plugin ? -1 : 1)), unchecked: unchecked.sort()};
@@ -295,7 +316,11 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
                 await assertHeld(lock);
                 await mkdir(ownedPath(root, id), {recursive: true});
                 if (await isLink(ownedPath(root, id))) return failure("copy-failed", `安装目录里的 ${id} 是符号链接，不能往里面安装`);
-                if (inUse(version) && (await exists(target))) return failure("version-in-use", `另一个运行中的服务端还在用 ${id}@${version} 的旧目录，关掉或重启它之后再装`);
+                if (inUse(version) && (await exists(target))) {
+                    return failure("version-in-use", pins.unreadable
+                        ? `读不了插件版本的租约，不能确定 ${id}@${version} 的旧目录是否还有服务端在用；查看服务端诊断，排除后再装`
+                        : `还有运行中的服务端（也可能就是这一个）在用 ${id}@${version} 的旧目录，关掉或重启它之后再装`);
+                }
                 await assertHeld(lock);
                 await rm(target, {recursive: true, force: true});
                 await assertHeld(lock);

@@ -43,6 +43,8 @@ const TEXT = {
     blocked: {"zh-CN": "重启后这些插件的部分功能将不可用：", "en-US": "After the restart, parts of these plugins will be unavailable:"},
     blockedVersion: {"zh-CN": "{plugin}（{entries}）：要求版本 {range}", "en-US": "{plugin} ({entries}): requires version {range}"},
     blockedProvider: {"zh-CN": "{plugin}（{entries}）：依赖的插件不可用", "en-US": "{plugin} ({entries}): a plugin it depends on will be unavailable"},
+    blockedService: {"zh-CN": "{plugin}（{entries}）：需要的服务 {service} 不再提供", "en-US": "{plugin} ({entries}): the service {service} it needs will no longer be provided"},
+    blockedCycle: {"zh-CN": "{plugin}（{entries}）：依赖成环", "en-US": "{plugin} ({entries}): its dependencies form a cycle"},
     unchecked: {"zh-CN": "这些已安装插件的清单读不了，没有核对：{plugins}", "en-US": "These installed plugins could not be checked: {plugins}"},
     unknownFailure: {"zh-CN": "操作没有完成", "en-US": "The operation did not complete"},
 } satisfies Record<string, LocalizedText>;
@@ -78,7 +80,7 @@ const FAILURE_TEXT: Readonly<Record<PluginFailureCode, LocalizedText> & Partial<
     "incompatible-engine": {"zh-CN": "插件与当前版本的 NeuroBook 不兼容", "en-US": "The plugin is not compatible with this version of NeuroBook"},
     "already-installed": {"zh-CN": "这个版本已经安装，或已在等待重启后切换", "en-US": "This version is already installed or waiting for the restart"},
     "uninstall-pending": {"zh-CN": "插件正在卸载，重启后再操作", "en-US": "The plugin is being uninstalled; restart first"},
-    "version-in-use": {"zh-CN": "另一个运行中的服务端还在用这个版本，关掉或重启它之后再装", "en-US": "Another running server still uses this version; stop or restart it first"},
+    "version-in-use": {"zh-CN": "这个版本的旧目录还在使用中，不能重装", "en-US": "The old directory of this version is still in use and cannot be replaced"},
     "path-rejected": {"zh-CN": "这个路径不能用", "en-US": "This path cannot be used"},
     "entry-missing": {"zh-CN": "插件缺少入口文件", "en-US": "The plugin is missing entry files"},
     "copy-failed": {"zh-CN": "复制插件文件失败", "en-US": "Copying the plugin files failed"},
@@ -91,7 +93,7 @@ const FAILURE_TEXT: Readonly<Record<PluginFailureCode, LocalizedText> & Partial<
 };
 
 /** 服务端详情能补充信息的码；其余的码固定文字已经说全，详情只会重复。 */
-const DETAIL_CODES: ReadonlySet<FailureCode> = new Set<FailureCode>(["manifest-invalid", "path-rejected", "copy-failed", "entry-missing", "registry-failed", "incompatible-engine"]);
+const DETAIL_CODES: ReadonlySet<FailureCode> = new Set<FailureCode>(["manifest-invalid", "path-rejected", "copy-failed", "entry-missing", "registry-failed", "incompatible-engine", "version-in-use"]);
 /** 失败后列表可能已过时的码：写出原因之后重新读列表。 */
 const STALE_CODES: ReadonlySet<FailureCode> = new Set<FailureCode>(["unknown-outcome", "not-installed", "uninstall-pending", "already-installed"]);
 
@@ -104,7 +106,13 @@ const format = (value: LocalizedText, values: Record<string, string>): string =>
 /** 升级确认框里一条受阻的插件：版本不符时写出它要求的范围。 */
 /** 列表按界面语言连接（“a、b和c”“a, b, and c”）。 */
 const list = (items: ReadonlyArray<string>): string => new Intl.ListFormat(props.locale, {type: "conjunction"}).format(items);
-const blockedLine = (item: BlockedPlugin): string => format(item.reason === "version-mismatch" ? TEXT.blockedVersion : TEXT.blockedProvider, {plugin: item.plugin, entries: list(item.entries), range: item.range ?? ""});
+const BLOCKED_TEXT: Readonly<Record<BlockedPlugin["reason"], LocalizedText>> = {
+    "version-mismatch": TEXT.blockedVersion,
+    "missing-service": TEXT.blockedService,
+    "dependency-cycle": TEXT.blockedCycle,
+    "provider-blocked": TEXT.blockedProvider,
+};
+const blockedLine = (item: BlockedPlugin): string => format(BLOCKED_TEXT[item.reason], {plugin: item.plugin, entries: list(item.entries), range: item.range ?? "", service: item.service ?? ""});
 
 const state = ref<"loading" | "failed" | "ready">("loading");
 const loadFailure = ref<string>("");
