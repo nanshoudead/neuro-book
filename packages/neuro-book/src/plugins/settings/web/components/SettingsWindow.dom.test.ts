@@ -259,7 +259,7 @@ describe("SettingsWindow", () => {
         expect(control().hasAttribute("disabled")).toBe(true);
     });
 
-    it("左栏：上下键（窄窗口横排时左右键同义）切到上一个、下一个可用分区，焦点跟着走；停用项说明原因、点了不动；关闭按钮关窗口", async () => {
+    it("左栏：上下键（窄窗口横排时左右键同义）切到上一个、下一个可用分区，焦点跟着走；停用项说明原因、点了不动；窗口没有标题栏，可访问名称是“设置”，关闭按钮关窗口", async () => {
         const {host} = await scene("project");
         const first = host.window.section.value;
         one("[data-settings-nav-current]").focus();
@@ -283,6 +283,10 @@ describe("SettingsWindow", () => {
         one("[data-settings-nav-current]").dispatchEvent(new KeyboardEvent("keydown", {key: "Home", bubbles: true}));
         await flushPromises();
         expect(host.window.section.value).toBe("nbook.appearance");
+        // 窗口没有标题栏（输出 16）：“设置”只作可访问名称，关闭按钮在右上角
+        const dialog = one("[role='dialog']");
+        expect(dialog.querySelector("header.nb-dialog__header")).toBeNull();
+        expect(document.getElementById(dialog.getAttribute("aria-labelledby") ?? "")?.textContent).toBe("设置");
         one("button[aria-label='关闭']").click();
         await flushPromises();
         expect(host.window.open.value).toBe(false);

@@ -404,6 +404,60 @@ test("调整窗口大小后关掉再开、刷新页面仍是这个尺寸，每�
     expect(await width()).toBe(resized);
 });
 
+test("窗口没有标题栏：按住顶上的空白、左栏顶上的空白、标题区的空白与标题文字都能拖动；按在搜索框上不拖；关闭按钮在右上角", async ({page}) => {
+    await open(page, "/?project=book");
+    await workbenchGear(page).click();
+    const dialog = page.getByRole("dialog", {name: "设置"});
+    await expect(dialog).toBeVisible();
+    await dialog.evaluate((element) => Promise.all(element.getAnimations({subtree: true}).map((animation) => animation.finished)));
+    await expect(dialog.locator("header.nb-dialog__header")).toHaveCount(0);
+    const at = async (): Promise<{x: number; y: number}> => {
+        const box = await dialog.boundingBox();
+        if (box === null) throw new Error("量不到窗口");
+        return {x: Math.round(box.x), y: Math.round(box.y)};
+    };
+    /** 从 (x, y) 按下、移动 (dx, dy) 后松开，返回窗口的位移。 */
+    const drag = async (x: number, y: number, dx: number, dy: number): Promise<{dx: number; dy: number}> => {
+        const before = await at();
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x + dx / 2, y + dy / 2);
+        await page.mouse.move(x + dx, y + dy);
+        await page.mouse.up();
+        const after = await at();
+        return {dx: after.x - before.x, dy: after.y - before.y};
+    };
+    const center = async (selector: string): Promise<{x: number; y: number}> => {
+        const box = await dialog.locator(selector).first().boundingBox();
+        if (box === null) throw new Error(`量不到 ${selector}`);
+        return {x: box.x + box.width / 2, y: box.y + box.height / 2};
+    };
+
+    // 窗口顶边往下 10px、水平居中：正文上方的留白
+    const top = await at();
+    const box = (await dialog.boundingBox())!;
+    expect(await drag(top.x + box.width / 2, top.y + 10, 40, 30)).toEqual({dx: 40, dy: 30});
+    // 左栏顶上：层标签与搜索框之间的空隙
+    const tabs = await dialog.locator("[data-settings-tabs]").boundingBox();
+    const search = await dialog.locator("[data-settings-search]").boundingBox();
+    if (tabs === null || search === null) throw new Error("量不到层标签或搜索框");
+    expect(await drag(tabs.x + tabs.width / 2, (tabs.y + tabs.height + search.y) / 2, -20, 10)).toEqual({dx: -20, dy: 10});
+    // 标题文字
+    const title = await center("[data-settings-heading] h2");
+    expect(await drag(title.x, title.y, 15, -15)).toEqual({dx: 15, dy: -15});
+    // 按在搜索框上是输入，不拖
+    const input = await center("[data-settings-search] input");
+    expect(await drag(input.x, input.y, 30, 30)).toEqual({dx: 0, dy: 0});
+    const heading = await dialog.locator("[data-settings-heading]").boundingBox();
+    if (heading === null) throw new Error("量不到标题区");
+    // 标题区右端、说明之外的空白
+    expect(await drag(heading.x + heading.width - 4, heading.y + heading.height / 2, 10, 10)).toEqual({dx: 10, dy: 10});
+
+    // 关闭按钮照常关窗口
+    await dialog.getByRole("button", {name: "关闭"}).click();
+    await expect(dialog).toHaveCount(0);
+});
+
 // ── 左栏与窄窗口（settings-window.md 输出 1、16）：要真实布局，DOM 测试量不到 ──
 
 test("左栏：层标签在搜索框上方、每个有分区的组上方有组标题、分区一行一项；悬停与按下不缩放不位移", async ({page}) => {
