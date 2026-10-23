@@ -35,6 +35,7 @@ updated: 2026-10-17
 | [t02](tasks/t02-settings-completion/README.md) | 设置补齐：通用编辑、搜索、页面未保存保护、动态选项、声明 API 易用性；开发者 2026-10-20 定提前到 t04 之前、不并行 |
 | [t07](tasks/t07-low-code-forms/README.md) | 低代码：全项目共用的 schema 表单与表单组件（nb-ui 控件统一合同、补缺）；排在 t02 之前 |
 | [t06](tasks/t06-settings-ui-polish/README.md) | 设置界面的样式收口：按设计稿重新收口设置窗口与设置组件的外观（t02 之后） |
+| [t10](tasks/t10-settings-window-chrome/README.md) | 设置窗口的外框（去掉标题栏、可拖、圆角）与“本作品”沿用行（控件一直在、标“来自用户设置”）；开发者看 t06 实现后提出 |
 | [t08](tasks/t08-secret-store/README.md) | 密钥存储（搁置）：开发者 2026-10-20 定暂时不做加密，API Key 用明文的普通配置项；计划、审查与调研留作重开时的参考 |
 
 ## 关键现状
