@@ -40,6 +40,12 @@ Markdown（开发者 2026-10-23 定，记录在 [w00025 t16](../../../w00025-edi
 
 13. 不自写 Markdown 显示：问答页用 `@notnotype/nb-markdown`（`MarkdownDisplay`、`PromptEditor`、`PromptTextView`）接 nb-agent-ui 的注入口，在页面里 `provideMarkdownHost`；“章.段”出处由问答页先改写成链接（例如 `paragraph://41.20`），缺省分类下它是引用小块，点击发 `reference`。宿主接入见包的 README。
 
+计划的待确认（开发者 2026-10-23 定，全部按推荐）：
+
+14. 超出章数上限被拒的读原文不算失败：引擎改成返回正常的工具结果（写明没读、已到上限），qa 输出 5 相应改写；整轮摘要不再报失败。
+15. 依据出处常显一行，放不下时截断并写“等 N 处”，全部出处在“详细”展开后的说明里。
+16. 答案里的人名由问答页按名字查（`entities.list` 在 P 以内），找不到或重名时不做成链接；不改 `answer` 的参数形状。
+
 ### w00019 t14 搭稿时发现的问题（2026-10-22）
 
 w00019 [t14](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice/README.md) 在查看器里搭了问答页的静态稿（[评审板](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice/artifacts/review/index.html)），用本书库的真实问答记录回放，发现这几条属于本 Task：
@@ -66,8 +72,8 @@ w00019 [t14](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice
 - 2026-10-21 t08 完成后开始设计：定了注意力排序与设置页（决定 6 到 10）。计划初稿 [plan.md](plan.md) 写成后，开发者把对话视图改为完整版并移到 w00019（决定 11、12）；初稿里 nb-agent-view 与 nb-ui 零件的部分作废，等 w00019 t11 完成后按本 Task 剩下的范围改写，再给开发者确认。
 - 2026-10-22 w00019 t10 定了 nb-agent-ui 的接入合同（[计划](../../../w00019-agent-conversation-view/tasks/t10-migrate-nb-agent-ui/plan.md)）：适配器以 harness 会话日志为准、事件只作运行中的临时显示。问答引擎目前只发三种简化进度，本 Task 要让它按 nb-agent-ui README 的接入说明交出 harness 事件与带 `seq` 的日志条目。
 
-- 2026-10-23 前置齐了（nb-agent-ui 的会话列表与对话视图、nb-markdown 都已合入），按现在的接口重写 [plan.md](plan.md)，交开发者确认；计划末尾有三条待确认。
+- 2026-10-23 前置齐了（nb-agent-ui 的会话列表与对话视图、nb-markdown 都已合入），按现在的接口重写 [plan.md](plan.md)，交开发者确认；开发者确认计划，三条待确认按推荐（决定 14 到 16）。
 
 ## 下一步
 
-开发者确认计划与三条待确认后，计划审查（服务端与引擎 omp、网页 Sonnet），再按切片实施。
+计划审查（服务端与引擎 omp、网页 Sonnet）进行中，处理后按切片实施。

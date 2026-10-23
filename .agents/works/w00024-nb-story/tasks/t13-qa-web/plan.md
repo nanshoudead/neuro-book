@@ -97,7 +97,7 @@ type QaFrame =
 - **`qa/`（新目录）**：
   - `conversation.ts`：一个对话的数据源。`qa.get` 的日志条目先喂 `createHarnessTranscript`，再连 SSE，`log` 帧喂 `applyLogEntry`、`event` 帧喂 `applyEvent`；断线重连时适配器按 `seq` 去重。运行状态以服务端为准（`qa.list` 的“运行中”与 `turn_start`、`turn_end`、`idle` 帧）。给最终回复加“没核实的出处”附注：第 N 轮对应日志里第 N 个用户提问开始的那一轮，换成新消息对象并按依据缓存。单测覆盖合成、补发不重复、附注挂对轮次。
   - `tools.ts`：工具登记，照草稿的 `story-tools.ts`：查询工具都归 `explore`，`groupPhrase` 按这一组的调用写（“读了第 33–37 章”）；`answer` 是 `node` 加 `outcome`，退回时 `summary` 写“退回：原因”。注册表只用 `builtinRolesContribution`、`builtinComposerContribution`、`builtinMessageActionsContribution` 加这份（内置工具的 `read` 与 nb-story 的同名）。
-  - `AnswerCard.vue`：决定 8。结论类型徽标、结论、“谁知道什么”的表或分点、依据出处常显；说明与覆盖范围收起，点“详细”展开。出处与人名经现有的抽屉打开（待确认 2、3）。
+  - `AnswerCard.vue`：决定 8。结论类型徽标、结论、“谁知道什么”的表或分点、依据出处常显；说明与覆盖范围收起，点“详细”展开。出处与人名经现有的抽屉打开（已定的取舍 2、3）。
   - `StoryMarkdown.vue`：包一层 `nb-markdown` 的 `MarkdownDisplay`，显示前把正文里“章.段”“章.段—章.段”改写成 `[38.12](paragraph://38.12)`（代码与已有链接里不改），点击的 `reference` 打开原文抽屉。
   - 没核实的出处的条目渲染器（`customType: "nb-story.unverified-refs"`）：提醒色一行，出处可点。
 - **`shell/SettingsPage.vue`**：`SchemaForm` 画 `src/qa/config.ts` 的 schema（补 `x-form`：字段名、说明、分组）；密钥一项只写变量名，旁边标“已设置”或“没有值”；保存带 `expect`，冲突时提示重新载入；“测试连接”调 `config.test`。书架右上角与书里顶栏的菜单各加一个入口。
@@ -114,7 +114,7 @@ type QaFrame =
 
 每片单独提交、自跑验证。
 
-1. **引擎与服务端**：`AskInput` 三项；`QaService`；`qa.*`、`config.*` 方法；SSE 路由。合同测试用 `testing/openai-endpoint.ts` 的脚本端点：订阅补发与去重、停止、`qa_busy`、服务停止时中断并保存、删除时先停、`config_conflict`、密钥不出现在响应里。验证：nb-story `typecheck`、`test`。
+1. **引擎与服务端**：`AskInput` 三项；章数上限改为正常结果（已定的取舍 1）；`QaService`；`qa.*`、`config.*` 方法；SSE 路由。合同测试用 `testing/openai-endpoint.ts` 的脚本端点：订阅补发与去重、停止、`qa_busy`、服务停止时中断并保存、删除时先停、`config_conflict`、密钥不出现在响应里。验证：nb-story `typecheck`、`test`。
 2. **问答页**：路由与导航、`QaPage`、`qa/` 下的数据源与登记、答案卡片、`StoryMarkdown`、附注。单测：对话合成与附注；e2e 新加 `qa.e2e.ts`（脚本端点，子进程起服务）：问一题看过程逐步展开、交卷后收成摘要只露答案、点出处开抽屉、追问、停止、刷新后接着看、阅读位置早于当前的对话照常显示、手机宽度的“对话”下拉。验证：加 nb-story 全量 e2e。
 3. **设置页**：`x-form` 提示、页面与入口；e2e：改字段保存、命令行改过后保存报冲突、测试连接。
 4. **换手写控件**：逐处替换，跑查看器全量 e2e，截图对照。
@@ -151,10 +151,10 @@ type QaFrame =
   - 一轮跑几分钟，期间服务重启丢掉这一轮，按中断记录。
   - `Table` 可能改变现有页面外观：第 4 片逐处截图。
 
-## 待确认
+## 已定的取舍
 
-w00019 t14 搭稿时转来的问题里有三条是产品取舍：
+开发者 2026-10-23 按推荐定（README 决定 14 到 16）：
 
-1. **超出章数上限被拒的读原文算不算失败**：现在是工具错误，整轮摘要显示成红色的“N 次失败”。推荐：不算失败。引擎把“超出上限”改成正常的工具结果（内容写明没读、已到上限），qa 输出 5 的“是工具错误”改成“返回说明、不给段落”；摘要不再报失败，模型行为不变。代价：改一处引擎与它的确定性测试。
-2. **依据出处多时**（真实记录 18 处）：推荐常显一行，放不下时截断并在末尾写“等 N 处”，全部出处放进“详细”展开后的说明里。
-3. **答案里的人名点开人物卡**：推荐问答页按名字查（`entities.list` 在 P 以内按名字找对象），找不到或重名时不做成链接；不改 `answer` 的参数形状，提示词不变。
+1. 超出章数上限被拒的读原文不算失败：引擎返回正常的工具结果（写明没读、已到上限），qa 输出 5 改写，并入切片 1；摘要不再报失败，模型行为不变。
+2. 依据出处常显一行，放不下时截断并写“等 N 处”，全部出处在“详细”展开后的说明里。
+3. 答案里的人名由问答页按名字查（`entities.list` 的 `query`，P 以内），找不到或重名时不做成链接；不改 `answer` 的参数形状。
