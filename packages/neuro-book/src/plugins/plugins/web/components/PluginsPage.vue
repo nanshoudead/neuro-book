@@ -67,7 +67,6 @@ const NOT_LOADED: Record<NotLoadedCode, {readonly text: LocalizedText; readonly 
     "manifest-invalid": {text: {"zh-CN": "清单无效", "en-US": "Invalid manifest"}, tone: "danger", showDetail: true},
     "incompatible-engine": {text: {"zh-CN": "不兼容", "en-US": "Incompatible"}, tone: "danger", showDetail: true},
     "safe-mode": {text: {"zh-CN": "安全模式未加载", "en-US": "Not loaded in safe mode"}, tone: "neutral", showDetail: false},
-    // 入口代码的装载还没有实现：只有声明（例如设置项）生效。
 };
 
 type FailureCode = PluginFailureCode | RemoteFailureCode;
@@ -103,7 +102,9 @@ const text = (value: LocalizedText): string => localize(value, props.locale);
 
 const format = (value: LocalizedText, values: Record<string, string>): string => localize(formatText(value, values), props.locale);
 /** 升级确认框里一条受阻的插件：版本不符时写出它要求的范围。 */
-const blockedLine = (item: BlockedPlugin): string => format(item.reason === "version-mismatch" ? TEXT.blockedVersion : TEXT.blockedProvider, {plugin: item.plugin, entries: item.entries.join("、"), range: item.range ?? ""});
+/** 列表按界面语言连接（“a、b和c”“a, b, and c”）。 */
+const list = (items: ReadonlyArray<string>): string => new Intl.ListFormat(props.locale, {type: "conjunction"}).format(items);
+const blockedLine = (item: BlockedPlugin): string => format(item.reason === "version-mismatch" ? TEXT.blockedVersion : TEXT.blockedProvider, {plugin: item.plugin, entries: list(item.entries), range: item.range ?? ""});
 
 const state = ref<"loading" | "failed" | "ready">("loading");
 const loadFailure = ref<string>("");
@@ -395,7 +396,7 @@ onMounted(() => {
                         <li v-for="item in preview.blocked" :key="item.plugin" :data-plugin-preview-blocked-item="item.plugin">{{ blockedLine(item) }}</li>
                     </ul>
                 </div>
-                <p v-if="preview.unchecked.length > 0" class="plugins-page__dialog-text" data-plugin-preview-unchecked>{{ format(TEXT.unchecked, {plugins: preview.unchecked.join("、")}) }}</p>
+                <p v-if="preview.unchecked.length > 0" class="plugins-page__dialog-text" data-plugin-preview-unchecked>{{ format(TEXT.unchecked, {plugins: list(preview.unchecked)}) }}</p>
                 <p class="plugins-page__dialog-text">{{ text(TEXT.trust) }}</p>
                 <p class="plugins-page__path">{{ previewPath }}</p>
             </template>
@@ -651,6 +652,7 @@ onMounted(() => {
     font-size: var(--text-sm);
     line-height: var(--leading-ui);
     color: var(--status-warning);
+    overflow-wrap: anywhere;
 }
 
 .plugins-page__dialog-list-title {
@@ -667,6 +669,7 @@ onMounted(() => {
     font-size: var(--text-sm);
     line-height: var(--leading-ui);
     color: var(--text-main);
+    overflow-wrap: anywhere;
 }
 
 .plugins-page__path {

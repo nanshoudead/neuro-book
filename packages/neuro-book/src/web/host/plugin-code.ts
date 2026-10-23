@@ -18,7 +18,7 @@ import {PluginCodeError} from "nbook/shared/plugin-code-error";
 import type {PluginCodeFailure} from "nbook/shared/plugin-code-error";
 import {PLUGIN_REGISTRY_GLOBAL} from "nbook/shared/plugin-modules";
 
-/** 脚本执行后多久还没登记工厂算失败；回环上的服务端正常情况下远不到这么久。 */
+/** 从插入脚本起（含下载）多久还没登记工厂算失败；回环上的服务端正常情况下远不到这么久。 */
 export const CODE_LOAD_TIMEOUT_MS = 30_000;
 
 /** 宿主模块表外的 id；只在工厂执行期间抛出，由装载器换成带插件与入口的 `PluginCodeError`。 */
@@ -139,7 +139,13 @@ export interface PluginCodeHostOptions {
     readonly timeoutMs?: number;
 }
 
-/** 一个文件正在进行的取回：同一装载器里同一文件的几次激活共用它，`users` 是还在等它的激活数。 */
+/** 取回失败的原因。不带插件与入口：几个入口的 `main` 可以是同一个文件，各自的激活按自己的插件与入口报告。 */
+interface LoadFailure {
+    readonly code: PluginCodeFailure;
+    readonly detail: string;
+}
+
+/** 一个文件正在进行的取回：同一装载器里同一文件的几次激活共用它，`users` 是还在等它的激活数。`factory` 以 `LoadFailure` 失败。 */
 interface Loading {
     readonly factory: Promise<Factory>;
     users: number;
@@ -164,19 +170,19 @@ export function createPluginCodeHost(options: PluginCodeHostOptions): PluginCode
         return fetchingModules;
     };
 
-    const startLoading = (plugin: string, entry: string, url: string, absolute: string): Loading => {
-        const fail = (code: PluginCodeFailure, detail: string): PluginCodeError => new PluginCodeError(code, {plugin, entry, url, detail});
+    const startLoading = (absolute: string): Loading => {
+        const fail = (code: PluginCodeFailure, detail: string): LoadFailure => ({code, detail});
         const view = options.document.defaultView;
         const script = options.document.createElement("script");
         let settled = false;
         let resolveFactory: (factory: Factory) => void = () => undefined;
-        let rejectFactory: (error: PluginCodeError) => void = () => undefined;
+        let rejectFactory: (error: LoadFailure) => void = () => undefined;
         const factory = new Promise<Factory>((resolve, reject) => {
             resolveFactory = resolve;
             rejectFactory = reject;
         });
         // 收口一处：结算或撤下都经这里，脚本元素、监听、计时器、等待者一并释放，只做一次。
-        const finish = (outcome: {readonly factory: Factory} | {readonly error: PluginCodeError} | null): void => {
+        const finish = (outcome: {readonly factory: Factory} | {readonly error: LoadFailure} | null): void => {
             if (settled) return;
             settled = true;
             clearTimeout(timer);
@@ -216,10 +222,12 @@ export function createPluginCodeHost(options: PluginCodeHostOptions): PluginCode
     const factoryFor = async (plugin: string, entry: string, url: string, absolute: string, signal: AbortSignal): Promise<Factory> => {
         const known = factories.get(absolute);
         if (known !== undefined) return known;
-        const loading = loadings.get(absolute) ?? startLoading(plugin, entry, url, absolute);
+        const loading = loadings.get(absolute) ?? startLoading(absolute);
         loading.users += 1;
         try {
-            return await untilAborted(loading.factory, signal);
+            return await untilAborted(loading.factory.catch((failure: LoadFailure) => {
+                throw new PluginCodeError(failure.code, {plugin, entry, url, detail: failure.detail});
+            }), signal);
         } finally {
             loading.users -= 1;
             if (loading.users === 0) loading.cancel();
@@ -228,6 +236,8 @@ export function createPluginCodeHost(options: PluginCodeHostOptions): PluginCode
 
     return {
         async activateOf({plugin, entry, url, signal}) {
+            // 已经停止的激活什么都不做：不插脚本，也不取宿主模块表（取了没人等它的结果）。
+            if (signal.aborted) throw signal.reason;
             const absolute = new URL(url, options.document.baseURI).href;
             const modules = hostModules().catch((error: unknown) => {
                 throw new PluginCodeError("code-load-failed", {plugin, entry, url, detail: `装载不了：宿主模块表没有取到（${error instanceof Error ? error.message : String(error)}）`, cause: error});

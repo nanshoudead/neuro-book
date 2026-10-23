@@ -226,7 +226,7 @@ test("开发会话里同样装载：页面经 Vite 提供时，插件拿到的�
     }
 });
 
-test("clock、notes、counter 外置：产品服务端与项目子进程装载它们的入口，没有激活失败；插件页不再标“部分功能暂不可用”", async ({page}) => {
+test("clock、notes、counter 外置：产品服务端装载它们的入口（counter 启动即激活成功），没有激活失败；插件页不再标“部分功能暂不可用”", async ({page}) => {
     const stateRoot = await stateRootWith("backend", [built, ...backend]);
     const server = await startProductServer(stateRoot);
     try {
@@ -236,10 +236,15 @@ test("clock、notes、counter 外置：产品服务端与项目子进程装载�
             await expect(page.locator(`[data-plugin-row="${id}"]`)).toBeVisible();
         }
         await expect(page.locator("[data-plugin-not-loaded]")).toHaveCount(0);
-        // counter 的服务端入口启动即激活。装载失败会作为插件诊断写进服务端的诊断日志（同样的写坏产物手动核对过会出现）。
+        // counter 的服务端入口启动即激活：内核在激活成功、交出产出之后记 `published`，装载不到代码或产出不对都不会有这一条。
+        // 其余入口按需激活（项目入口在第一次远程调用时），这里只核对没有激活失败。
+        await expect.poll(async () => (await readFile(join(stateRoot, "logs", "server-current.jsonl"), "utf8")).split("\n").some((line) => {
+            if (!line.startsWith("{")) return false;
+            const data = (JSON.parse(line) as {readonly data?: {readonly plugin?: string; readonly entry?: string; readonly reason?: string}}).data;
+            return data?.plugin === "example.counter" && data.entry === "server" && data.reason === "published";
+        })).toBe(true);
         const log = await readFile(join(stateRoot, "logs", "server-current.jsonl"), "utf8");
-        expect(log).toContain("http.listening");
-        expect(log).not.toMatch(/activation-threw|code-load-failed|code-threw|code-shape/u);
+        expect(log).not.toMatch(/activation-threw|code-load-failed|code-threw|code-shape|missing-implementation/u);
     } finally {
         await page.goto("about:blank");
         expect(await server.stop()).toBe(0);

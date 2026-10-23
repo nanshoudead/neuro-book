@@ -300,6 +300,36 @@ describe("浏览器入口代码的装载", () => {
         expect(calls).toBe(2);
     });
 
+    it("激活开始时已经停止：不插脚本、不取宿主模块表，以停止的原因失败", async () => {
+        const page = fakePage();
+        page.serve("counter.js", {kind: "registers", factory: counterModule});
+        let tables = 0;
+        const host = loader(page, {modules: async () => {
+            tables += 1;
+            return hostTable;
+        }});
+        const controller = new AbortController();
+        const reason = new Error("入口已停止");
+        controller.abort(reason);
+        await expect(host.activateOf({plugin: "acme.counter", entry: "browser", url: "counter.js", signal: controller.signal})).rejects.toBe(reason);
+        expect(page.scriptsFor("counter.js")).toHaveLength(0);
+        expect(tables).toBe(0);
+    });
+
+    it("两个入口共用一个文件、一次取回失败：各自的失败写自己的插件与入口", async () => {
+        const page = fakePage();
+        page.serve("shared.js", {kind: "silent"});
+        const host = loader(page);
+        const [a, b] = await Promise.all([
+            failureOf(host.activateOf({plugin: "acme.shared", entry: "first", url: "shared.js", signal: live()})),
+            failureOf(host.activateOf({plugin: "acme.shared", entry: "second", url: "shared.js", signal: live()})),
+        ]);
+        expect(page.scriptsFor("shared.js")).toHaveLength(1);
+        expect([a.entry, b.entry]).toEqual(["first", "second"]);
+        expect([a.code, b.code]).toEqual(["code-shape", "code-shape"]);
+        expect(b.message).toContain("入口 second");
+    });
+
     it("同一页面里两个装载器同时装同一文件：各插一个脚本，都成功", async () => {
         const page = fakePage();
         page.serve("counter.js", {kind: "registers", factory: counterModule});

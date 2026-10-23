@@ -54,10 +54,6 @@ const ListSchema = Type.Object({
 export type PluginList = Static<typeof ListSchema>;
 
 /**
- * 安装前的预览（plugin-install 输出 8.1）：确认界面据此区分首次安装、升级与降级，降级时提示数据可能已被新版本迁移。
- * `installed` 是已安装的当前版本，没有安装为 null。
- */
-/**
  * 换版本之后、重启时会受阻的插件入口（plugin-install.md 输出 8.1）：版本不在别的插件 `pluginVersions` 的范围里，或经必需依赖
  * 传递受阻。只是说明，安装照常可以确认。
  */
@@ -71,6 +67,10 @@ const BlockedPluginSchema = Type.Object({
 
 export type BlockedPlugin = Static<typeof BlockedPluginSchema>;
 
+/**
+ * 安装前的预览（plugin-install 输出 8.1）：确认界面据此区分首次安装、升级与降级，降级时提示数据可能已被新版本迁移。
+ * `installed` 是已安装的当前版本，没有安装为 null。
+ */
 const InstallPreviewSchema = Type.Object({
     id: Type.String({minLength: 1}),
     version: Type.String({minLength: 1}),

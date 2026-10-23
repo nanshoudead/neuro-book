@@ -20,7 +20,7 @@ export interface SettingsPageContribution<Id extends string> {
     readonly activationEvent: string;
     /** 写进入口的 `contributions`。 */
     readonly contribution: {readonly capability: typeof SETTINGS_PAGES_POINT; readonly id: Id; readonly declaration: SettingsPageDeclaration};
-    /** 激活时交出的实现，放在 `contributions[SETTINGS_PAGES_POINT][id]`；`props` 同 `settingsPage`。 */
+    /** 激活时交出的实现，放在 `contributions[SETTINGS_PAGES_POINT][id]`；`props` 在渲染时求值、作为页面组件的属性，读响应式的值时页面随之更新。 */
     implementation(props?: () => Readonly<Record<string, unknown>>): SettingsPageImplementation;
 }
 

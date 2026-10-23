@@ -23,12 +23,16 @@ let project = "";
 
 /** 作者的插件源码：两端的入口、设置项、page 分区与宿主能力都从 SDK 取；服务端与浏览器的入口分模块写（服务端产物不能带浏览器的 SDK）。 */
 const AUTHOR_SOURCES: Readonly<Record<string, string>> = {
-    "src/shared.ts": `import {defineSetting} from "@notnotype/nb-plugin-sdk";
-import type {PluginDescriptor} from "@notnotype/nb-plugin-sdk";
+    "src/shared.ts": `import {defineSetting, SETTINGS_SECTIONS_POINT} from "@notnotype/nb-plugin-sdk";
+import type {ContributionDeclaration, PluginDescriptor, SettingsSectionDeclaration} from "@notnotype/nb-plugin-sdk";
 import {Type} from "typebox";
 
 export const greeting = defineSetting({plugin: "acme.hello", name: "greeting", schema: Type.String(), default: "hi", title: {"zh-CN": "问候", "en-US": "Greeting"}, layers: ["user"], applies: "now"});
-export const descriptor: PluginDescriptor = {id: "acme.hello", version: "1.0.0", locations: ["server", "browser"], contributions: [greeting.contribution]};
+// list 分区：顶层声明，写错字段在编译期就报。
+const section: ContributionDeclaration<SettingsSectionDeclaration> = {capability: SETTINGS_SECTIONS_POINT, id: "acme.hello.list", declaration: {title: {"zh-CN": "你好", "en-US": "Hello"}, icon: "i-lucide-smile", category: "plugins", groups: [{id: "basic", title: {"zh-CN": "基本", "en-US": "Basic"}}]}};
+// @ts-expect-error list 分区没有 layout（那是 page 分区的字段）。
+export const wrong: SettingsSectionDeclaration = {title: {"zh-CN": "错", "en-US": "Wrong"}, icon: "i-lucide-x", category: "plugins", layout: "fill"};
+export const descriptor: PluginDescriptor = {id: "acme.hello", version: "1.0.0", locations: ["server", "browser"], contributions: [greeting.contribution, section]};
 `,
     "src/backend.ts": `import {defineEntry, defineStore, hostClockKey} from "@notnotype/nb-plugin-sdk";
 import type {PluginDefinition} from "@notnotype/nb-plugin-sdk";
@@ -40,12 +44,17 @@ export const server: PluginDefinition = {id: "acme.hello", entries: [defineEntry
     return {};
 }})]};
 `,
-    "src/web.ts": `import {defineEntry, SETTINGS_PAGES_POINT, settingsKey} from "@notnotype/nb-plugin-sdk";
-import type {PluginDefinition} from "@notnotype/nb-plugin-sdk";
+    "src/web.ts": `import {defineEntry, SETTINGS_CHOICES_POINT, SETTINGS_PAGES_POINT, settingsChoicesEvent, settingsKey} from "@notnotype/nb-plugin-sdk";
+import type {ContributionDeclaration, PluginDefinition, SettingsChoicesDeclaration} from "@notnotype/nb-plugin-sdk";
 import {settingsPageContribution} from "@notnotype/nb-plugin-sdk/browser";
+import type {OptionSource, SettingsChoicesImplementation} from "@notnotype/nb-plugin-sdk/browser";
 
 const page = settingsPageContribution({id: "acme.hello.main", declaration: {title: {"zh-CN": "你好", "en-US": "Hello"}, category: "plugins", icon: "i-lucide-smile"}, load: async () => ({default: {}})});
-export const browser: PluginDefinition = {id: "acme.hello", entries: [defineEntry({id: "browser", location: "browser", activationEvents: [page.activationEvent], dependencies: [{key: settingsKey}], contributions: [page.contribution], activate: () => ({contributions: {[SETTINGS_PAGES_POINT]: {[page.id]: page.implementation()}}})})]};
+// 选项来源：给设置项的下拉列表供数据。
+const voices: ContributionDeclaration<SettingsChoicesDeclaration> = {capability: SETTINGS_CHOICES_POINT, id: "acme.hello.voices", declaration: {}};
+const options = (): OptionSource<string> => ({status: "ready", items: [{value: "calm", label: {"zh-CN": "平静", "en-US": "Calm"}}]});
+const choices: SettingsChoicesImplementation = {source: options};
+export const browser: PluginDefinition = {id: "acme.hello", entries: [defineEntry({id: "browser", location: "browser", activationEvents: [page.activationEvent, settingsChoicesEvent(voices.id)], dependencies: [{key: settingsKey}], contributions: [page.contribution, voices], activate: () => ({contributions: {[SETTINGS_PAGES_POINT]: {[page.id]: page.implementation()}, [SETTINGS_CHOICES_POINT]: {[voices.id]: choices}}})})]};
 `,
     // 作者自己的构建脚本：用构建预设的类型，不是入口定义（不在 nbook.definitions 里）。
     "src/build.ts": `import {buildPlugin, PluginBuildError} from "@notnotype/nb-plugin-sdk/build";
@@ -92,7 +101,7 @@ beforeAll(async () => {
     for (const name of ["reactivity", "runtime-core", "runtime-dom", "shared", "compiler-dom", "compiler-core", "compiler-sfc", "compiler-ssr", "server-renderer"]) {
         await symlink(join(repoModules, "@vue", name), join(project, "node_modules/@vue", name));
     }
-    await writeFile(join(project, "tsconfig.json"), JSON.stringify({compilerOptions: {target: "ES2022", module: "ESNext", moduleResolution: "bundler", strict: true, noEmit: true, skipLibCheck: false, lib: ["ESNext", "DOM"]}, include: ["src"]}));
+    await writeFile(join(project, "tsconfig.json"), JSON.stringify({compilerOptions: {target: "ES2022", module: "ESNext", moduleResolution: "bundler", strict: true, noEmit: true, skipLibCheck: false, lib: ["ES2020", "DOM"]}, include: ["src"]}));
     for (const [path, text] of Object.entries(AUTHOR_SOURCES)) await writeFile(join(project, path), text);
     await writeFile(join(project, "package.json"), JSON.stringify({publisher: "acme", name: "hello", version: "1.0.0", type: "module", nbook: {definitions: ["src/backend.ts", "src/web.ts"]}}));
     await writeFile(join(project, "plugin.ts"), `export {descriptor} from "./src/shared";\n`);
@@ -155,7 +164,7 @@ describe("生成的 SDK 包", () => {
             "storageKey",
         ].sort());
         expect(declaredExports(await readFile(join(project, "node_modules/@notnotype/nb-plugin-sdk/browser.d.ts"), "utf8"))).toEqual([
-            "SettingsChoicesImplementation", "SettingsPageActions", "SettingsPageContext", "SettingsPageContribution", "SettingsPageList", "SettingsRow", "SettingsSaveBar",
+            "OptionSource", "SettingsChoicesImplementation", "SettingsPageActions", "SettingsPageContext", "SettingsPageContribution", "SettingsPageList", "SettingsRow", "SettingsSaveBar",
             "settingsPageContribution",
         ].sort());
     });
@@ -168,7 +177,7 @@ describe("生成的 SDK 包", () => {
         const manifest = readPluginManifest(JSON.parse(await readFile(join(out, "package.json"), "utf8")), {versions: npmVersions});
         if (manifest.status !== "valid") throw new Error(JSON.stringify(manifest.problems));
         expect(manifest.manifest.entries.map((entry) => entry.id)).toEqual(["server", "browser"]);
-        expect(manifest.manifest.contributes.map((item) => item.id)).toEqual(["acme.hello/greeting"]);
+        expect(manifest.manifest.contributes.map((item) => item.id)).toEqual(["acme.hello/greeting", "acme.hello.list"]);
         // 浏览器产物压缩过，工厂的 require 参数改了名：从登记外壳里取出它的名字，再找对它的调用。这里不执行产物，执行要
         // 写宿主的全局登记对象（build-plugin.test.ts 经装载器做）。
         const browser = await readFile(join(out, "browser.js"), "utf8");

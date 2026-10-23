@@ -227,7 +227,7 @@ describe("PluginsPage", () => {
         const wrapper = await open(fake.client);
         await submitPath(wrapper, "/plugins/new");
         const items = [...document.querySelectorAll("[data-plugin-preview-blocked-item]")].map((item) => item.textContent);
-        expect(items).toEqual(["example.panel（main）：依赖的插件不可用", "example.reader（main、ui）：要求版本 ^1.0.0"]);
+        expect(items).toEqual(["example.panel（main）：依赖的插件不可用", "example.reader（main和ui）：要求版本 ^1.0.0"]);
         expect(document.querySelector("[data-plugin-preview-unchecked]")?.textContent).toContain("example.broken");
         expect((document.querySelector("[data-plugin-install-confirm]") as HTMLButtonElement | null)?.disabled).toBe(false);
     });
@@ -254,6 +254,12 @@ describe("PluginsPage", () => {
         await submitPath(wrapper, "/plugins/reserved");
         problem = document.querySelector("[data-plugin-problem]");
         expect(problem?.textContent?.match(/nbook\. 开头/gu)).toHaveLength(1);
+
+        fake.answerNext({ok: false, code: "version-in-use", detail: {detail: "另一个运行中的服务端还在用 example.hello@1.0.0 的旧目录"}});
+        await submitPath(wrapper, "/plugins/in-use");
+        problem = document.querySelector("[data-plugin-problem]");
+        expect(problem?.textContent).toContain("另一个运行中的服务端还在用这个版本");
+        expect(problem?.textContent).not.toContain("旧目录");
 
         fake.answerNext({ok: false, code: "denied", detail: "调用方没有权限"});
         await submitPath(wrapper, "/plugins/denied");

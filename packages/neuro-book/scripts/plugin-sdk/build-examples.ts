@@ -8,7 +8,7 @@
 
 import {existsSync} from "node:fs";
 import {readdir, readFile, rm} from "node:fs/promises";
-import {join} from "node:path";
+import {isAbsolute, join, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
 import {buildPlugin, PluginBuildError} from "./build-plugin";
@@ -28,23 +28,33 @@ export const IN_REPO_BUILD = {
 } as const;
 
 /**
- * 构建一个示例；`outDir` 缺省为它的 `dist/`。输出目录不存在、为空，或者里面是这个示例上次的产物（清单的 publisher 与
- * name 相同）时先清空再构建；否则拒绝，不递归删除不是自己生成的目录（`outDir` 可以从命令行之外的调用方传进来）。
+ * 构建一个示例；`outDir` 缺省为它的 `dist/`。输出目录不存在、为空，或者里面是这个示例上次的产物（或中断的构建留下的中间
+ * 目录）时先清空再构建；否则拒绝，不递归删除不是自己生成的目录（`outDir` 可以从命令行之外的调用方传进来）。输出目录不能是
+ * 示例目录本身或它的上级：那里的 `package.json` 就是作者写的那份，按清单字段认不出来。
  */
 export async function buildExample(name: string, outDir: string = join(EXAMPLES_ROOT, name, "dist")): Promise<BuildPluginResult> {
     const root = join(EXAMPLES_ROOT, name);
-    if (existsSync(outDir) && (await readdir(outDir)).length > 0) {
-        if (!(await isPreviousBuild(root, outDir))) throw new PluginBuildError("输出目录里不是这个示例上次的产物，不清理", [{path: "", message: outDir}]);
-        await rm(outDir, {recursive: true});
+    const target = resolve(outDir);
+    const fromTarget = relative(target, root);
+    if (fromTarget === "" || (!fromTarget.startsWith("..") && !isAbsolute(fromTarget))) throw new PluginBuildError("输出目录不能是示例目录或它的上级", [{path: "", message: target}]);
+    if (existsSync(target) && (await readdir(target)).length > 0) {
+        if (!(await isPreviousBuild(root, target))) throw new PluginBuildError("输出目录里不是这个示例上次的产物，不清理", [{path: "", message: target}]);
+        await rm(target, {recursive: true});
     }
-    return buildPlugin({root, outDir, ...IN_REPO_BUILD});
+    return buildPlugin({root, outDir: target, ...IN_REPO_BUILD});
 }
 
+/**
+ * 上次的产物：清单的 publisher、name 与作者的相同，并且有 `entries`（构建预设总会写，作者的 `package.json` 不写）；或者只有
+ * 中断的构建留下的中间目录。
+ */
 async function isPreviousBuild(root: string, outDir: string): Promise<boolean> {
+    const names = await readdir(outDir);
+    if (names.every((item) => item.startsWith(".nbook-plugin-build-"))) return true;
     const manifest = join(outDir, "package.json");
     if (!existsSync(manifest)) return false;
     const [author, previous] = await Promise.all([readJson(join(root, "package.json")), readJson(manifest)]);
-    return previous.publisher === author.publisher && previous.name === author.name;
+    return previous.publisher === author.publisher && previous.name === author.name && typeof previous.entries === "object" && previous.entries !== null;
 }
 
 async function readJson(file: string): Promise<Record<string, unknown>> {

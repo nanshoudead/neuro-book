@@ -25,6 +25,7 @@
 import {existsSync} from "node:fs";
 import {mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, writeFile} from "node:fs/promises";
 import {builtinModules, createRequire} from "node:module";
+import {stripVTControlCharacters} from "node:util";
 import {basename, dirname, isAbsolute, join, relative, resolve, sep} from "node:path";
 
 import {manifestOf, readPluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
@@ -91,7 +92,8 @@ export interface BuildPluginResult {
 export class PluginBuildError extends Error {
     readonly problems: ReadonlyArray<ManifestProblem>;
 
-    constructor(summary: string, problems: ReadonlyArray<ManifestProblem>, options?: ErrorOptions) {
+    // 不写成 `ErrorOptions`：它是 ES2022 的库类型，生成的 `./build` 声明文件会要求作者的 `lib` 至少是 ES2022。
+    constructor(summary: string, problems: ReadonlyArray<ManifestProblem>, options?: {readonly cause?: unknown}) {
         super(`${summary}：${problems.map((problem) => (problem.path === "" ? problem.message : `${problem.path}：${problem.message}`)).join("；")}`, options);
         this.name = "PluginBuildError";
         this.problems = problems;
@@ -291,38 +293,58 @@ async function buildEntry(input: {
     const facts: BundleFacts = {modules: [], externals: new Map()};
     const external = (id: string): boolean => !VUE_REEXPORTED.test(id) && (ALWAYS_EXTERNAL.some((pattern) => pattern.test(id)) || isNodeBuiltin(id));
     const browser = located.location === "browser";
-    await vite({
-        configFile: false,
-        root: input.root,
-        logLevel: "warn",
-        plugins: [vueRuntimePlugin(), vuePlugin(), factsPlugin(facts)],
-        resolve: {alias: [...input.alias]},
-        define: browser ? {"process.env.NODE_ENV": JSON.stringify("production"), "import.meta.url": SCRIPT_URL} : {},
-        build: {
-            outDir: directory,
-            emptyOutDir: true,
-            // 浏览器每次装载都下载、解析整份产物；服务端产物从磁盘读，不压缩以便读栈。
-            minify: browser,
-            sourcemap: true,
-            ssr: browser ? false : shell,
-            target: browser ? "es2022" : "node22",
-            lib: browser ? {entry: shell, formats: ["cjs"], fileName: () => `${located.entry.id}.js`, cssFileName: located.entry.id} : undefined,
-            rolldownOptions: {
-                external,
-                output: {
-                    codeSplitting: false,
-                    sourcemapPathTransform: (source, sourcemapPath) => sourcePath(resolve(dirname(sourcemapPath), source), input.root, input.workDir),
-                    ...(browser
-                        // CommonJS 产物里外部模块的动态导入默认留成 `import("vue")`：经典脚本里没有 import map，裸说明符解析失败。
-                        // 改成 `require`，与静态导入一样从宿主模块表取。
-                        ? {banner: REGISTER_BANNER, footer: REGISTER_FOOTER, dynamicImportInCjs: false}
-                        : {entryFileNames: `${located.entry.id}.js`, format: "es" as const}),
+    try {
+        await vite({
+            configFile: false,
+            root: input.root,
+            logLevel: "warn",
+            plugins: [vueRuntimePlugin(), vuePlugin(), factsPlugin(facts)],
+            resolve: {alias: [...input.alias]},
+            define: browser ? {"process.env.NODE_ENV": JSON.stringify("production"), "import.meta.url": SCRIPT_URL} : {},
+            build: {
+                outDir: directory,
+                emptyOutDir: true,
+                // 浏览器每次装载都下载、解析整份产物；服务端产物从磁盘读，不压缩以便读栈。
+                minify: browser,
+                sourcemap: true,
+                ssr: browser ? false : shell,
+                target: browser ? "es2022" : "node22",
+                lib: browser ? {entry: shell, formats: ["cjs"], fileName: () => `${located.entry.id}.js`, cssFileName: located.entry.id} : undefined,
+                rolldownOptions: {
+                    external,
+                    output: {
+                        codeSplitting: false,
+                        sourcemapPathTransform: (source, sourcemapPath) => sourcePath(resolve(dirname(sourcemapPath), source), input.root, input.workDir),
+                        ...(browser
+                            // CommonJS 产物里外部模块的动态导入默认留成 `import("vue")`：经典脚本里没有 import map，裸说明符解析失败。
+                            // 改成 `require`，与静态导入一样从宿主模块表取。
+                            ? {banner: REGISTER_BANNER, footer: REGISTER_FOOTER, dynamicImportInCjs: false}
+                            : {entryFileNames: `${located.entry.id}.js`, format: "es" as const}),
+                    },
                 },
             },
-        },
-        ssr: browser ? undefined : {noExternal: true, target: "node"},
-    });
+            ssr: browser ? undefined : {noExternal: true, target: "node"},
+        });
+    } catch (error) {
+        throw bundlerError(error, input.root, located) ?? error;
+    }
     return {directory, facts};
+}
+
+/**
+ * 打包器报告的错误（Rolldown 的错误带 `errors` 数组，每项有错误码、消息与位置）换成 `PluginBuildError`：路径是入口 id，
+ * 消息去掉终端颜色码。浏览器入口的“不支持的特性”另说明原因：登记工厂是同步执行的 CommonJS 函数，顶层 await 这类只有 ES
+ * 模块才有的写法用不了，作者从没选过输出格式，原样的“cjs 不支持”看不懂。不是这种形状的错误原样抛出。
+ */
+function bundlerError(error: unknown, root: string, located: LocatedEntry): PluginBuildError | null {
+    const errors = typeof error === "object" && error !== null ? (error as {readonly errors?: unknown}).errors : undefined;
+    if (!Array.isArray(errors) || errors.length === 0) return null;
+    const problems = errors.map((item: {readonly code?: unknown; readonly message?: unknown; readonly id?: unknown; readonly loc?: {readonly line?: unknown; readonly column?: unknown}}): ManifestProblem => {
+        const where = typeof item.id === "string" && isAbsolute(item.id) ? `${relative(root, item.id)}${typeof item.loc?.line === "number" ? `:${String(item.loc.line)}:${String(item.loc.column)}` : ""}：` : "";
+        const hint = located.location === "browser" && item.code === "UNSUPPORTED_FEATURE" ? "（浏览器入口打成同步执行的登记工厂，不支持顶层 await 这类只有 ES 模块才有的写法：把它挪进 activate）" : "";
+        return {path: `entries.${located.entry.id}`, message: `${where}${stripVTControlCharacters(String(item.message ?? item.code)).split("\n")[0]!.trim()}${hint}`};
+    });
+    return new PluginBuildError("打包失败", problems, {cause: error});
 }
 
 /**
@@ -451,10 +473,11 @@ export async function buildPlugin(options: BuildPluginOptions): Promise<BuildPlu
         if (directory !== null) forbidden.push({name, directory});
     }
     for (const directory of options.forbiddenDirectories ?? []) forbidden.push({name: "应用源码（SDK 的别名指向这里）", directory: await realpath(directory)});
-    // 中间产物放在输出目录旁边：最后按文件 rename 进输出目录，系统临时目录常在另一个文件系统上（tmpfs），跨文件系统的
-    // rename 会以 EXDEV 失败。
-    await mkdir(dirname(outDir), {recursive: true});
-    const workDir = await mkdtemp(join(dirname(outDir), ".nbook-plugin-build-"));
+    // 中间产物放在输出目录里的隐藏目录：最后按文件 rename 到输出目录，同一个目录之下必然在同一个文件系统上。系统临时目录
+    // 常在另一个文件系统（tmpfs），输出目录的父目录可能不可写或在挂载点之外，两处都会让 rename 失败。构建被中断时残留也只在
+    // 输出目录里，下次构建前要先清空它（输出目录必须为空）。
+    await mkdir(outDir, {recursive: true});
+    const workDir = await mkdtemp(join(outDir, ".nbook-plugin-build-"));
     const files: string[] = [];
     const styles: string[] = [];
     const sources = new Set<string>();

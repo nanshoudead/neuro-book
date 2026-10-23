@@ -18,7 +18,7 @@ import {PLUGIN_REGISTRY_GLOBAL} from "../../src/shared/plugin-modules";
 import {npmVersions} from "../../src/shared/versions";
 import {createPluginCodeHost} from "../../src/web/host/plugin-code";
 import type {PluginDocument, PluginScript} from "../../src/web/host/plugin-code";
-import {buildExample, IN_REPO_BUILD} from "./build-examples";
+import {buildExample, EXAMPLES_ROOT, IN_REPO_BUILD} from "./build-examples";
 import {buildPlugin, PluginBuildError} from "./build-plugin";
 
 const repoModules = fileURLToPath(new URL("../../../../node_modules/", import.meta.url));
@@ -218,6 +218,11 @@ describe("构建示例 snippets", () => {
         await writeFile(join(out, "notes.txt"), "x");
         await expect(buildExample("snippets", out)).rejects.toBeInstanceOf(PluginBuildError);
         expect(await readdir(out)).toEqual(["notes.txt"]);
+        // 输出目录就是示例目录（它的 package.json 有同样的 publisher 与 name）：拒绝，源码还在。
+        const source = join(EXAMPLES_ROOT, "snippets");
+        const before = (await readdir(source)).sort();
+        await expect(buildExample("snippets", source)).rejects.toBeInstanceOf(PluginBuildError);
+        expect((await readdir(source)).sort()).toEqual(before);
         const again = await buildExample("snippets", join(tmp, "snippets"));
         expect(again.files).toContain("browser.js");
     }, 120_000);
@@ -313,6 +318,19 @@ export const echoBrowser = {id: "acme.echo", entries: [defineEntry({id: "browser
         expect((await activateBrowser(root)).value).toEqual({threw: true});
     }, 60_000);
 
+    it("浏览器入口里写顶层 await：构建失败，写明文件位置与原因（登记工厂同步执行）；服务端入口里照常构建", async () => {
+        const browser = await authorProject("tla-browser", {
+            "web/plugin.ts": `const ready = await Promise.resolve(1);\nexport const p = {id: "acme.tla-browser", entries: [{id: "browser", location: "browser", activate: async () => ({ready})}]};\n`,
+        });
+        const problems = await failure(browser);
+        expect(problems).toEqual([expect.stringMatching(/^web\/plugin\.ts:1:\d+：.*顶层 await/u)]);
+        expect(problems[0]).not.toMatch(/\u001b\[/u);
+        const server = await authorProject("tla-server", {
+            "backend/plugin.ts": `const ready = await Promise.resolve(1);\nexport const s = {id: "acme.tla-server", entries: [{id: "server", location: "server", activate: async () => ({ready})}]};\n`,
+        });
+        expect((await build(server)).manifest).toMatchObject({entries: {server: {location: "server"}}});
+    }, 60_000);
+
     it("浏览器产物里 import.meta.url 是脚本的地址，new URL(相对路径, import.meta.url) 以它为基址；服务端产物里是文件自己的 URL", async () => {
         const root = await authorProject("meta-url", {
             "web/plugin.ts": `export const p = {id: "acme.meta-url", entries: [{id: "browser", location: "browser", activate: async () => ({url: import.meta.url, asset: new URL(/* @vite-ignore */ "./missing.svg", import.meta.url).href})}]};\n`,
@@ -365,9 +383,8 @@ export const echoBrowser = {id: "acme.echo", entries: [defineEntry({id: "browser
         const [stderr, exitCode] = await Promise.all([new Response(child.stderr).text(), child.exited]);
         expect(stderr).toBe("");
         expect(exitCode).toBe(0);
+        // 输出目录里只有产物：放在里面的中间产物目录用完就删。
         expect((await readdir(join(root, "dist"))).sort()).toEqual(["browser.js", "browser.js.map", "package.json"]);
-        // 中间产物的临时目录用完就删。
-        expect((await readdir(root)).filter((name) => name.startsWith(".nbook-plugin-build-"))).toEqual([]);
     }, 60_000);
 
     it("远程合同用了 Refine：构建前就失败，指出合同与方法", async () => {
