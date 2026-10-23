@@ -63,6 +63,7 @@ export const feedbackFixtures: LabFixture[] = [
             {id: "with-select", label: "里面放下拉（下拉要在对话框之上）", input: {props: {title: "新建作品", size: "md", showFooter: true, showCancel: true}, model: {modelValue: true}, slots: {default: true}}},
             {id: "stacked", label: "叠一层（后开的在上面）", input: {props: {title: "新建作品", size: "md", showFooter: true, showCancel: true}, model: {modelValue: true}, slots: {default: true}}},
             {id: "window", label: "浮动窗口：可拖动，点外面不关", input: {props: {title: "新建作品", modal: false, closable: true}, model: {modelValue: true, width: 560}, slots: {default: true, footer: true}}},
+            {id: "window-headerless", label: "浮动窗口：没有标题栏，关闭按钮在右上角，留白可拖", input: {props: {title: "素材", modal: false, closable: true, showHeader: false, showFooter: false}, model: {modelValue: true, width: 480}, slots: {default: true}}},
             {id: "window-resizable", label: "浮动窗口：可缩放", input: {props: {title: "素材预览", modal: false, closable: true, showFooter: false, resizable: true, minWidth: 360, minHeight: 240}, model: {modelValue: true, width: 640, height: 420}, slots: {default: true}}},
             {id: "closed", label: "关闭（用控制区打开）", input: {props: {title: "从书架移除", size: "sm", showFooter: true}, model: {modelValue: false}, slots: {default: true}}},
         ],

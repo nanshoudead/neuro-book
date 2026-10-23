@@ -254,6 +254,7 @@ function onLeaveOpen(open: boolean): void {
         :model-value="open"
         :modal="false"
         :title="text(TEXT.title)"
+        :show-header="false"
         :close-label="text(TEXT.close)"
         closable
         resizable
@@ -271,8 +272,8 @@ function onLeaveOpen(open: boolean): void {
         <div ref="root" class="settings-window" data-settings-window>
             <div class="settings-window__split">
                 <div class="settings-window__side">
-                    <!-- 层标签与搜索框：宽窗口里上下叠，窄窗口里并排（输出 16）。 -->
-                    <div class="settings-window__side-tools">
+                    <!-- 层标签与搜索框：宽窗口里上下叠，窄窗口里并排（输出 16）。窗口没有标题栏，这一块与标题区的空白处是拖动区域。 -->
+                    <div class="settings-window__side-tools" data-dialog-drag>
                         <SegmentedControl
                             v-if="model.bound.value"
                             class="settings-window__tabs"
@@ -427,6 +428,24 @@ function onLeaveOpen(open: boolean): void {
     container-type: inline-size;
 }
 
+/*
+ * 关闭按钮浮在窗口右上角（Dialog 没有标题栏时的画法，见它的 `--nb-dialog-close-room`）。标题区右侧只在会压到它时让位：
+ * 标题区的右缘到窗口右缘先有面板与内容列的两段内边距，内容列封顶 720px 时还多出分区比 720px 宽的那一截；
+ * 让位是按钮占的见方减去这些，不小于 0。`100cqw` 是 `.settings-window` 的宽度，分区宽是它减去左栏与分隔线。
+ */
+.settings-window__column > [data-settings-heading] {
+    padding-right: max(0px, var(--nb-dialog-close-room) - var(--panel-p) - var(--space-6) - max(0px, 100cqw - var(--settings-side-width) - var(--border-w) - 720px));
+}
+
+.settings-window__fill > [data-settings-heading] {
+    padding-right: max(0px, var(--nb-dialog-close-room) - var(--panel-p) - var(--space-6));
+}
+
+/* 内容列的竖滚动条贴着窗口右缘、从顶上起，上端会被关闭按钮盖住（按到的是关闭）：滚动条从按钮下面开始。 */
+.settings-window__scroll > :deep([data-orientation="vertical"]) {
+    margin-top: calc(var(--nb-dialog-close-room) - var(--panel-p));
+}
+
 .settings-window__split {
     display: flex;
     min-height: 0;
@@ -443,12 +462,12 @@ function onLeaveOpen(open: boolean): void {
     gap: var(--space-5);
 }
 
+/* 上边留的一档与内容列的上内边距相同：层标签与右边的标题区顶边齐平。 */
 .settings-window__side-tools {
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
-    padding-right: var(--settings-side-inset-end);
-    padding-left: var(--settings-side-inset-start);
+    padding: var(--space-2) var(--settings-side-inset-end) 0 var(--settings-side-inset-start);
 }
 
 .settings-window__tabs {
@@ -674,10 +693,16 @@ function onLeaveOpen(open: boolean): void {
         border-bottom: var(--border-w) solid var(--divider);
     }
 
+    /* 这一行在窗口顶上，右端给关闭按钮让位；标题区在它下面，不用再让。 */
     .settings-window__side-tools {
         flex-direction: row;
         align-items: center;
-        padding-inline: var(--space-4);
+        padding: 0 max(var(--space-4), var(--nb-dialog-close-room) - var(--panel-p)) 0 var(--space-4);
+    }
+
+    .settings-window__column > [data-settings-heading],
+    .settings-window__fill > [data-settings-heading] {
+        padding-right: 0;
     }
 
     .settings-window__tabs {

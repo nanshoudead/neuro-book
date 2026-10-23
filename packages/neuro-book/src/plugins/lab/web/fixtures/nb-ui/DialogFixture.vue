@@ -16,6 +16,8 @@ const stackedOpen = ref(false);
 // 下拉与“再开一层”按场景给，不当成组件的插槽（它们是夹具自己加的内容）。
 const withSelect = (): boolean => props.scene === "with-select";
 const withStack = (): boolean => props.scene === "stacked";
+/** 没有标题栏的窗口：正文自己画标题行、标成拖动区域，右端给角上的关闭按钮让位（Dialog.md 的“布局”）。 */
+const headerless = (): boolean => props.scene === "window-headerless";
 </script>
 
 <template>
@@ -25,6 +27,10 @@ const withStack = (): boolean => props.scene === "stacked";
         </template>
         <template v-if="subject.slots.value.default" #default>
             <div class="space-y-3 text-sm">
+                <div v-if="headerless()" class="flex items-center gap-2 font-semibold" :style="{paddingRight: 'calc(var(--nb-dialog-close-room) - var(--panel-p))'}" data-dialog-drag>
+                    <span class="i-lucide-images"></span>
+                    <span>素材</span>
+                </div>
                 <p>把《长夜行》从书架移除后，作品目录与其中的文件都不会被删除，以后可以再加入书架。</p>
                 <p class="text-[var(--text-muted)]">关闭、取消与确认都记在事件页签。</p>
                 <Select v-if="withSelect()" v-model="genre" :options="GENRES" data-lab-dialog-select />

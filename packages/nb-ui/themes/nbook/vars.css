@@ -100,10 +100,15 @@
      */
     --radius-dialog: 26px;
     /*
-     * 小确认框（AlertDialog）取 14px：它叠在 20px 圆角的窗口上（例如设置窗口里的“放弃改动”），
+     * 小确认框（AlertDialog）取 14px：它叠在窗口上（例如设置窗口里的“放弃改动”），
      * 圆角不该大于底下的窗口；26px 画在 360–420px 宽的小框上也像胶囊，不像对话框。
      */
     --radius-dialog-compact: 14px;
+    /*
+     * 浮动窗口（例如设置窗口）取 14px，与小确认框同一档：叠在窗口上的确认框圆角不大于窗口。26px 画在常开、占大半个
+     * 屏幕的窗口上太圆（开发者 2026-10-23 定，w00027 t10）。
+     */
+    --radius-window: 14px;
     /*
      * 这里曾经有 `--corner-shape: squircle`（Apple 的角是超椭圆，同一份官方文件把它记作
      * 「Smooth / Apple (60%)」）。撤掉了：Chromium 的 backdrop-filter 不跟随 corner-shape

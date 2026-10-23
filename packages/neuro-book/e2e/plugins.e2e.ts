@@ -94,9 +94,12 @@ test("安装 → 重启后配置项出现、能写进本作品层 → 禁用 →
     // 本作品层也接受这一项：项目子进程登记了它的顶层声明。
     await page.locator("[data-settings-tabs]").getByRole("radio", {name: "本作品"}).click();
     await expect(settingRow(page)).toHaveAttribute("data-settings-row-state", "inherit");
-    await settingRow(page).locator("[data-settings-row-override]").click();
+    // 沿用的行照常可改：改了就写进本作品层
+    const greeting = settingRow(page).locator("input");
+    await greeting.fill("Hello from this book");
+    await greeting.press("Enter");
     await expect(settingRow(page)).toHaveAttribute("data-settings-row-state", "edit");
-    await expect.poll(() => readJson(join(projectDir, ".nbook", "settings.json"))).toEqual({[SETTING]: "Hello from a plugin"});
+    await expect.poll(() => readJson(join(projectDir, ".nbook", "settings.json"))).toEqual({[SETTING]: "Hello from this book"});
 
     await page.locator("[data-settings-tabs]").getByRole("radio", {name: "用户"}).click();
     await page.locator("[data-settings-nav='nbook.plugins.installed']").click();

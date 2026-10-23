@@ -38,6 +38,11 @@ describe("nb-ui design tokens", () => {
         expect(readTokensCss()).toContain("--radius-dialog-compact: var(--radius-dialog)");
     });
 
+    it("registers the floating window radius as a theme token that falls back to the dialog radius", () => {
+        expect(nbThemeTokens).toContain("--radius-window");
+        expect(readTokensCss()).toContain("--radius-window: var(--radius-dialog)");
+    });
+
     /*
      * 「一个主题都没装」是受支持的状态，所以主题层基线必须落在裸 :root 上，
      * 不能只在 :root[data-nb-theme] 下成立——否则零主题时角色映射全空，界面直接塌。

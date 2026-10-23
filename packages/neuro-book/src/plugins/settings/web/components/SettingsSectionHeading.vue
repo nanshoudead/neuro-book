@@ -56,7 +56,8 @@ onBeforeUnmount(() => detach?.());
 </script>
 
 <template>
-    <header class="settings-section-heading" data-settings-heading>
+    <!-- 设置窗口没有标题栏：标题区的空白处与文字是拖动窗口的地方（按钮除外），见 nb-ui Dialog 的拖动区域。 -->
+    <header class="settings-section-heading" data-settings-heading data-dialog-drag>
         <div class="settings-section-heading__text">
             <button v-if="replacement !== null" type="button" class="settings-section-heading__back nb-ui-focus-ring" data-settings-heading-back :aria-label="replacement.backName" @click="emit('back')">
                 <span class="i-lucide-chevron-left settings-section-heading__back-icon" aria-hidden="true"></span>
@@ -94,14 +95,7 @@ onBeforeUnmount(() => detach?.());
 </template>
 
 <style scoped>
-/*
- * 标题字号 26px、行高 32px 是整数像素：token 的最大一档 --text-xl 只有 20px，放不下页面标题。两个数放在这里作局部变量，
- * 保持行高是偶数，旁边 34px 高的按钮在它里面居中时不落在半像素上。
- */
 .settings-section-heading {
-    --settings-title-size: 26px;
-    --settings-title-line: 32px;
-
     display: flex;
     flex-shrink: 0;
     align-items: center;
@@ -135,11 +129,10 @@ onBeforeUnmount(() => detach?.());
     overflow: hidden;
     flex: 0 1 auto;
     text-overflow: ellipsis;
-    font-family: var(--font-display);
-    font-size: var(--settings-title-size);
+    /* 界面字体的最大一档加粗（输出 3）。行高取 28px 偶数：旁边 28px、34px 高的按钮在这一行里居中时不落在半像素上。 */
+    font-size: var(--text-xl);
     font-weight: var(--weight-strong);
-    line-height: var(--settings-title-line);
-    letter-spacing: -0.01em;
+    line-height: 28px;
     white-space: nowrap;
     color: var(--text-main);
 }
