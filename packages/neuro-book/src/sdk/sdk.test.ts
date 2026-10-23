@@ -9,7 +9,9 @@ describe("SDK 的导出面", () => {
     it("各运行位置通用的部分", async () => {
         expect(Object.keys(await import("./index")).sort()).toEqual([
             "COMMANDS_POINT",
+            "SETTINGS_CHOICES_POINT",
             "SETTINGS_PAGES_POINT",
+            "SETTINGS_SECTIONS_POINT",
             "defineEntry",
             "definePublicState",
             "defineRecord",
@@ -27,8 +29,8 @@ describe("SDK 的导出面", () => {
             "provide",
             "providePerConsumer",
             "provideRemote",
+            "settingsChoicesEvent",
             "settingsKey",
-            "settingsPageEvent",
             "storageKey",
         ]);
     });
@@ -39,7 +41,6 @@ describe("SDK 的导出面", () => {
             "SettingsPageList",
             "SettingsRow",
             "SettingsSaveBar",
-            "settingsPage",
             "settingsPageContribution",
         ]);
     });

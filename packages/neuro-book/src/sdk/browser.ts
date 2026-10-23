@@ -5,8 +5,7 @@
 
 export {settingsPageContribution} from "nbook/plugins/settings/web/page-contribution";
 export type {SettingsPageContribution} from "nbook/plugins/settings/web/page-contribution";
-export {settingsPage} from "nbook/ui/settings/settings-page";
-export type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
+export type {SettingsChoicesImplementation, SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 
 // 设置窗口给页面用的组件（docs/specs/settings/settings-window.md“给页面用的组件”）。
 export {default as SettingsPageActions} from "nbook/ui/settings/SettingsPageActions.vue";

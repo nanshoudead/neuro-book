@@ -33,8 +33,10 @@ export {clockKey as hostClockKey, stateRootKey as hostStateRootKey} from "nbook/
 export type {StateRoot} from "nbook/shared/host";
 
 // 内置插件的合同：设置（nbook.settings）。
-export {displayLocale, SETTINGS_PAGES_POINT, settingsKey, settingsPageEvent} from "nbook/plugins/settings/shared/contracts";
-export type {SettingsPageDeclaration} from "nbook/plugins/settings/shared/contracts";
+// 设置窗口左栏的分区：list 分区是向 `settings.sections` 的顶层声明，page 分区用 `/browser` 的 `settingsPageContribution`；
+// 选项来源（`settings.choices`）给设置项的下拉列表供数据。
+export {displayLocale, SETTINGS_CHOICES_POINT, SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT, settingsChoicesEvent, settingsKey} from "nbook/plugins/settings/shared/contracts";
+export type {SettingsChoicesDeclaration, SettingsPageDeclaration, SettingsSectionCategory, SettingsSectionDeclaration} from "nbook/plugins/settings/shared/contracts";
 export {defineSetting} from "nbook/shared/settings";
 export type {SettingDefinition, SettingLayer, SettingsFailure, SettingsService, SettingWriteResult} from "nbook/shared/settings";
 
