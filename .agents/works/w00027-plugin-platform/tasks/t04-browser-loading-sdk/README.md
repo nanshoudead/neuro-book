@@ -72,8 +72,28 @@ updated: 2026-10-23
 
 合入后验证：`test:affected --since 0475d0370` 通过（nb-runtime 377、应用 bun 1409、Vitest 358）；两包 typecheck 通过。全量 e2e 289 例通过（Work 分支 `a41cdb0ad`，29.7 分钟）。
 
-第二轮实现审查（深入审查，范围 `c9ca9f6d2..a41cdb0ad`，即 S3a、S3b 与第一轮的修正）已启动：omp（默认模型）与 Claude Opus 交叉审内核与后端，Claude Sonnet 审浏览器、构建预设、SDK 与插件页。
+### 第二轮实现审查（深入审查，范围 `c9ca9f6d2..a41cdb0ad`，即 S3a、S3b 与第一轮的修正）
+
+审查者：omp（默认模型，9 条，都是重要）与 Claude Opus（11 条：重要 5、建议 6）交叉审内核与后端，Claude Sonnet（12 条，都是建议）审浏览器、构建预设、SDK 与插件页；没有阻断。报告在 [`evidences/`](evidences/)（`impl-review-2-*.txt`）。omp 与 Opus 重合的：升级预览与内核不一致、`$ref` 解码抛错、`dependencies` 漏检、租约重写与放下竞争、服务端缺失模块分类。
+
+| 条目 | 处理 | 提交 |
+|---|---|---|
+| Opus 6、omp 2、3（`$ref`、`dependencies`、`$anchor`）、Opus 7（数据位置只查函数） | 成立，已改：清单校验器永不抛错；数据位置只接受 JSON 值；支持 `$anchor` 与 draft-07 `dependencies` | `bcbaf1f8b` |
+| Opus 4、omp 1、7、9（升级预览） | 成立，已改：列出插件自己的服务以定义为准，去掉或挪走提供项推出缺服务；禁用的插件不列；目录清单的 id、版本对不上的列为没核对；同一插件按原因分行；原因加 `missing-service`、`dependency-cycle` | `bcbaf1f8b`、`c34d30f79`、`0ceaab80b` |
+| Opus 1、2、3、8、11，omp 6（服务端装载） | 成立，已改：按真实路径删模块缓存；`onLoad` 扫导入报 `module-not-shared`（Bun 的运行期 `onResolve` 看不到已装载模块里的静态导入，实测）；相对导入缺文件为 `code-load-failed`；入口求值失败后重试加查询串强制重新求值；宿主模块失败不缓存；错误带 `cause`；`activate` 没返回对象报 `code-shape` | `c34d30f79` |
+| Opus 5、9，omp 4（租约） | 成立，已改：重写排队、放下等重写结束、放下之后完成的重写立刻放掉；过期时间可注入并补锁失效重写与推迟回收的测试；停止之后的诊断写到 stderr；`version-in-use` 按原因写详情 | `c34d30f79` |
+| Opus 10（注释挂错） | 成立，已改 | `173553b4a`、`c34d30f79` |
+| omp 5（同一插件的入口不共享子模块） | 不改：构建预设把每个入口打成一个文件、浏览器每个入口一个工厂，入口之间本来就不共享模块；写进装载器头注释与 Spec | `d2d13cf1a` |
+| omp 8（锁外启动的租约窗口） | 接受取舍：拿不到登记表锁本来就是降级启动、记诊断；先写租约再读清单，窗口里被回收的读清单时不登记或激活时 `code-load-failed`；写进代码注释 | `0ceaab80b` |
+| Sonnet 1、12（装载器已停止的激活、共用文件的失败归属） | 成立，已改，补测试 | `173553b4a` |
+| Sonnet 2（浏览器入口顶层 await） | 成立，已改：打包错误换成 `PluginBuildError`，说明原因；Spec 写明 | `173553b4a` |
+| Sonnet 3、4、5、6（插件页文档、列表连接与换行、注释、Lab 场景） | 成立，已改：`PluginsPage.md`、`Intl.ListFormat`、`overflow-wrap`、Lab 加 `blocked-english`、`version-in-use` | `173553b4a` |
+| Sonnet 7（e2e 只断言“没看到失败”） | 成立，已改：要求日志里有 counter 服务端入口的 `published`；项目子进程的入口仍只在场景测试里覆盖 | `173553b4a` |
+| Sonnet 8、9（中间产物位置、`buildExample` 删源码） | 成立，已改：中间产物放进输出目录；输出目录不能是示例目录或上级，上次产物要有 `entries` | `173553b4a` |
+| Sonnet 10、11（`./build` 声明要求 ES2022、SDK 声明与测试） | 成立，已改：作者项目按 `lib: ES2020` 检查；导出 `OptionSource`；作者项目写 list 分区与选项来源；改掉指向已删导出的注释 | `173553b4a` |
+
+验证：`test:affected --since 0475d0370` 除 nb-story 一例在并行负载下超时（单独重跑通过，本范围没改 nb-story）外全部通过；两包 typecheck 通过。
 
 ## 下一步
 
-处理第二轮实现审查；合入 master；然后 t05。
+全量 e2e 通过后合入 master；t05 的设计审查已启动。
