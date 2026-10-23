@@ -57,7 +57,9 @@ import type {
     RevokeReason,
 } from "./contracts";
 import {KERNEL_ACTIVATION_PREFIXES, parseActivationEvent, validateDefinition} from "./registration";
-import {deriveBlocked, entryIdentity} from "./blocked";
+import {schemaProblem} from "./schema";
+import {deriveBlocked, entryIdentity, versionMismatch} from "./blocked";
+import type {EntrySnapshot, VersionCheck} from "./blocked";
 
 const CANCELLED: unique symbol = Symbol("cancelled");
 
@@ -212,6 +214,8 @@ interface EntryRecord {
 interface PluginRecord {
     readonly id: string;
     readonly scope: Scope;
+    readonly version: string | null;
+    readonly pluginVersions: Readonly<Record<string, string>>;
     /** 本插件拥有的激活事件前缀。 */
     readonly prefixes: ReadonlyArray<string>;
     readonly points: ReadonlyMap<string, ContributionPointDefinition>;
@@ -270,6 +274,7 @@ export class PluginHostImpl implements PluginHost {
     readonly #assembly: ServiceAssembly;
     readonly #observer: PluginObserver | undefined;
     readonly #remote: RemoteHostBinding | null;
+    readonly #satisfies: VersionCheck | undefined;
     readonly #plugins = new Map<string, PluginRecord>();
     /** 贡献目录：贡献点 id + 贡献 id → 全部当前登记，重复判定不区分运行位置。 */
     readonly #contributions = new Map<string, ContributionRecord[]>();
@@ -308,6 +313,7 @@ export class PluginHostImpl implements PluginHost {
         this.#assembly = assembly;
         this.#observer = options.observer;
         this.#remote = options.remote ?? null;
+        this.#satisfies = options.satisfies;
         this.#remote?.attach({
             lookup: (contractId, chain, signal) => this.#lookupRemote(contractId, chain, signal),
             describe: (contractId) => this.#describeRemote(contractId),
@@ -324,6 +330,9 @@ export class PluginHostImpl implements PluginHost {
                 return false;
             },
         });
+        if (Object.keys(definition.pluginVersions ?? {}).length > 0 && this.#satisfies === undefined) {
+            rejections.push({reason: "version-check-unavailable", entry: null, capability: null, contribution: null, detail: null});
+        }
         const existing = this.#plugins.get(definition.id);
         if (existing !== undefined && existing.scope.phase !== "closed") {
             rejections.push({reason: "duplicate-plugin", entry: null, capability: null, contribution: null, detail: null});
@@ -350,6 +359,8 @@ export class PluginHostImpl implements PluginHost {
         const pluginRecord: PluginRecord = {
             id: definition.id,
             scope: options.scope,
+            version: definition.version ?? null,
+            pluginVersions: definition.pluginVersions ?? {},
             prefixes: definition.activationEventPrefixes ?? [],
             points,
             entries,
@@ -844,6 +855,12 @@ export class PluginHostImpl implements PluginHost {
         if (point.implementation === "none" && contribution.kind === "entry") {
             return {status: "rejected", reason: "implementation-not-accepted", detail: null};
         }
+        if (point.schema !== undefined) {
+            const detail = schemaProblem(point.schema, contribution.definition.declaration);
+            if (detail !== null) {
+                return {status: "rejected", reason: "invalid-declaration", detail};
+            }
+        }
         if (point.validate !== undefined) {
             try {
                 const detail = point.validate(this.#descriptorOf(contribution));
@@ -1046,7 +1063,15 @@ export class PluginHostImpl implements PluginHost {
                     }
                     return required.get(key.name) as T;
                 },
-                resolve: (key, options) => this.#assembly.access(record.consumerId, attempt.work, {generation}).resolve(key, options),
+                resolve: (key, options) => {
+                    // 可选依赖遇到版本不符不注入，入口照常（必需依赖在受阻推导里已拦下，到不了这里）。
+                    const mismatch = this.#versionMismatchFor(record, key.name);
+                    if (mismatch !== null) {
+                        this.#record("activate", "version-mismatch", {plugin, entry, capability: null, contribution: key.name});
+                        return Promise.resolve({status: "unavailable", key: key.name, reason: "version-mismatch", providerId: null, error: null, path: []});
+                    }
+                    return this.#assembly.access(record.consumerId, attempt.work, {generation}).resolve(key, options);
+                },
             },
         };
         let acquired;
@@ -1754,14 +1779,7 @@ export class PluginHostImpl implements PluginHost {
                 for (const id of record.providerIds.values()) {
                     pluginProviders.add(id);
                 }
-                entries.push({
-                    plugin: record.plugin,
-                    entry: record.definition.id,
-                    location: record.definition.location,
-                    provides: record.definition.provides ?? [],
-                    dependencies: record.definition.dependencies ?? [],
-                    status: this.#stateOf(record, null).status,
-                });
+                entries.push({...this.#snapshotOf(plugin, record), status: this.#stateOf(record, null).status});
             }
         }
         const localServices = new Set<string>();
@@ -1770,7 +1788,35 @@ export class PluginHostImpl implements PluginHost {
                 localServices.add(entry.key);
             }
         }
-        return deriveBlocked(entries, this.location, localServices);
+        return deriveBlocked(entries, this.location, localServices, this.#satisfies);
+    }
+
+    /** 受阻推导与版本核对用的入口快照；状态由调用方按需补上。 */
+    #snapshotOf(plugin: PluginRecord, record: EntryRecord): Omit<EntrySnapshot, "status"> {
+        return {
+            plugin: record.plugin,
+            entry: record.definition.id,
+            location: record.definition.location,
+            pluginVersion: plugin.version,
+            pluginVersions: plugin.pluginVersions,
+            provides: record.definition.provides ?? [],
+            dependencies: record.definition.dependencies ?? [],
+        };
+    }
+
+    /** 本位置提供 `key` 的插件入口的版本不满足 `record` 所属插件的要求时，给出版本与范围。 */
+    #versionMismatchFor(record: EntryRecord, key: string): {readonly version: string; readonly range: string} | null {
+        const consumerPlugin = this.#plugins.get(record.plugin);
+        if (consumerPlugin === undefined || Object.keys(consumerPlugin.pluginVersions).length === 0) return null;
+        for (const plugin of this.#plugins.values()) {
+            if (!isAlive(plugin.scope)) continue;
+            for (const candidate of plugin.entries.values()) {
+                if (candidate.definition.location !== this.location || !(candidate.definition.provides ?? []).some((provided) => provided.name === key)) continue;
+                const status = "registered" as const;
+                return versionMismatch({...this.#snapshotOf(consumerPlugin, record), status}, {...this.#snapshotOf(plugin, candidate), status}, this.#satisfies);
+            }
+        }
+        return null;
     }
 
     #describe(record: EntryRecord, blocked: ReadonlyMap<string, EntryBlocked | null>): EntryDescription {

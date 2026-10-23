@@ -10,6 +10,10 @@ import type {EntryBlocked, EntryRef, EntryStatus} from "./contracts";
 
 export interface EntrySnapshot extends EntryRef {
     readonly location: RuntimeLocation;
+    /** 所属插件的版本；没写版本的插件（内置插件的测试夹具）为 null，不参与版本核对。 */
+    readonly pluginVersion: string | null;
+    /** 所属插件的 `pluginVersions`。 */
+    readonly pluginVersions: Readonly<Record<string, string>>;
     readonly provides: ReadonlyArray<ServiceKey<unknown>>;
     readonly dependencies: ReadonlyArray<ServiceDependency>;
     readonly status: EntryStatus;
@@ -19,11 +23,28 @@ export function entryIdentity(entry: EntryRef): string {
     return `${entry.plugin}/${entry.entry}`;
 }
 
+/** 版本范围的判断，由宿主注入（`PluginHostOptions.satisfies`）。 */
+export type VersionCheck = (version: string, range: string) => boolean;
+
+/**
+ * 消费方对提供方插件版本的要求不满足时的受阻原因；同一插件内的依赖与没写范围的不核对。可选依赖用它决定不注入
+ * （plugin-manifest.md 输出 8）。
+ */
+export function versionMismatch(consumer: EntrySnapshot, provider: EntrySnapshot, satisfies: VersionCheck | undefined): {readonly version: string; readonly range: string} | null {
+    if (provider.plugin === consumer.plugin) return null;
+    const range = consumer.pluginVersions[provider.plugin];
+    if (range === undefined || provider.pluginVersion === null) return null;
+    // 登记时已核对写了范围的定义必须有 satisfies；这里缺省只为纯推导的调用方。
+    if (satisfies === undefined || satisfies(provider.pluginVersion, range)) return null;
+    return {version: provider.pluginVersion, range};
+}
+
 /** 本地能力不归插件所有；提供项存在即满足本层可用性约束，初始化失败仍由 services 报告。 */
 export function deriveBlocked(
     entries: ReadonlyArray<EntrySnapshot>,
     location: RuntimeLocation,
     localServices: ReadonlySet<string>,
+    satisfies?: VersionCheck,
 ): ReadonlyMap<string, EntryBlocked | null> {
     const local = entries.filter((entry) => entry.location === location);
     const providers = new Map<string, EntrySnapshot>();
@@ -137,8 +158,11 @@ export function deriveBlocked(
             }
             const key = dependency.key.name;
             const provider = providers.get(dependency.key.name);
+            const mismatch = provider === undefined ? null : versionMismatch(entry, provider, satisfies);
             if (provider === undefined) {
                 blocked = {reason: foreign.has(dependency.key.name) ? "location-mismatch" : "missing-service", key, path: [id]};
+            } else if (mismatch !== null) {
+                blocked = {reason: "version-mismatch", key, path: [id, entryIdentity(provider)], ...mismatch};
             } else if (provider.status === "failed") {
                 blocked = {reason: "provider-failed", key, path: [id, entryIdentity(provider)]};
             } else {

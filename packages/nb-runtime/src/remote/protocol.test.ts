@@ -109,6 +109,11 @@ describe("Spec plugin-channel 输入：帧、握手与保留字段", () => {
         expect(problems).not.toBeNull();
         expect(problems).not.toContain("token-value");
     });
+
+    it("schema 自己写坏（坏的正则）时报成不通过，不抛出：调用方照常得到结构化失败", () => {
+        const schema = Type.Object({name: Type.String({pattern: "("})}, {additionalProperties: false});
+        expect(validationProblems(schema, {name: "a"})).toMatch(/^schema 无法用于校验/u);
+    });
 });
 
 describe("Spec plugin-channel 术语：远程服务合同", () => {

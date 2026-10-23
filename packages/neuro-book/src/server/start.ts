@@ -32,6 +32,7 @@ import {clockKey, stateRootKey, userDirectoriesKey} from "nbook/shared/host";
 import {PRODUCT_VERSION} from "nbook/shared/product";
 import {projectsKey} from "nbook/shared/projects";
 import {RPC_PATH} from "nbook/shared/rpc-socket";
+import {pluginVersionSatisfies} from "nbook/shared/versions";
 
 import {loopbackOrigins} from "./config";
 import type {ServerConfig} from "./config";
@@ -324,8 +325,11 @@ export function startServer(options: StartServerOptions): RunningServer {
                 },
             ],
             plugins,
-            // 第三方插件不是启动必需：它们失败只影响自己（docs/specs/runtime/plugin-manifest.md 的“失败与恢复”）。
+            // 第三方插件不是启动必需：它们失败只影响自己（docs/specs/runtime/plugin-manifest.md 的“失败与恢复”）；启动也不等
+            // 它们的 onStartup 入口，插件代码挂住时服务端照常就绪（runtime/application.md）。
             requiredPlugins: plugins.filter((plugin) => !thirdPartyIds.has(plugin.id)).map((plugin) => plugin.id),
+            backgroundStartupPlugins: [...thirdPartyIds],
+            satisfies: pluginVersionSatisfies,
             gates: [],
             observers: mechanismObservers(store),
             remote: node,

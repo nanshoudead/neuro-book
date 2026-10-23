@@ -20,13 +20,13 @@ import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import {holdLock} from "nbook/backend/locked-replace";
 import type {InstallPreview, PendingChange, PluginFailureCode, PluginList, PluginListItem} from "nbook/plugins/plugins/shared/contracts";
+import {compareVersions, engineAccepts} from "nbook/shared/versions";
 
 import {collectCopyRange, copyRange} from "./copy";
 import {assertHeld, brief, byId, isLink, LockLost, ownedPath, readRecord, STAGING_DIR, withRecordLock, writeRecord} from "./record";
 import type {PluginRecord, RecordEntry} from "./record";
 import {installedManifest, missingEntries} from "./startup";
 import type {StartupPlugins} from "./startup";
-import {compareVersions, engineAccepts} from "./versions";
 
 export type InventoryFailure = {readonly ok: false; readonly code: PluginFailureCode; readonly detail: string; readonly problems?: ReadonlyArray<string>};
 export type InventoryResult<T> = {readonly ok: true; readonly value: T} | InventoryFailure;

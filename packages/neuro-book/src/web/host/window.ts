@@ -28,6 +28,7 @@ import type {RescuedText, WindowRescue} from "nbook/shared/host";
 import type {WindowConnection, WindowConnectionState, WindowNavigation} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import type {WindowProject} from "nbook/shared/projects";
+import {pluginVersionSatisfies} from "nbook/shared/versions";
 
 import {browserHostPlugins, browserPluginDefinitions, builtinBrowserPlugins, isBrowserHostPlugin} from "../plugins";
 import type {BrowserHostPluginFactory, BrowserHostPluginId, BrowserPluginContext} from "../plugins";
@@ -223,6 +224,9 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                     ],
                     plugins,
                     requiredPlugins: REQUIRED_PLUGINS,
+                    // 窗口启动不等第三方插件的 onStartup 入口（runtime/application.md）。
+                    backgroundStartupPlugins: selected.filter((plugin) => plugin.kind === "definition" && plugin.thirdParty).map((plugin) => plugin.id),
+                    satisfies: pluginVersionSatisfies,
                     gates: [{
                         id: "workbench-root",
                         kind: "check",
@@ -293,7 +297,8 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
  * 对齐。构建里没有的其它插件是第三方插件，按引导带来的描述登记（docs/specs/runtime/browser-host.md 输出 2、4）。
  */
 type SelectedPlugin =
-    | {readonly id: string; readonly kind: "definition"; readonly definition: PluginDefinition}
+    /** `thirdParty`：构建里没有、按引导描述登记的插件；窗口启动不等它们的 onStartup 入口。 */
+    | {readonly id: string; readonly kind: "definition"; readonly definition: PluginDefinition; readonly thirdParty: boolean}
     | {readonly id: string; readonly kind: "host"; readonly factory: BrowserHostPluginFactory};
 
 function selectPlugins(
@@ -316,7 +321,7 @@ function selectPlugins(
             if (plugin.id.startsWith("nbook.")) throw new BootstrapRejected("incompatible", `本页面没有服务端启用的浏览器插件 ${plugin.id}@${plugin.version}`);
             // 第三方插件不在构建里：按引导带来的描述登记它的顶层声明（`thirdPartyDefinition`）。
             const descriptor: PluginDescriptor = {id: plugin.id, version: plugin.version, locations: plugin.locations ?? [], contributions: plugin.contributions ?? []};
-            selected.push({id: plugin.id, kind: "definition", definition: thirdPartyDefinition(descriptor)});
+            selected.push({id: plugin.id, kind: "definition", definition: thirdPartyDefinition(descriptor), thirdParty: true});
             continue;
         }
         if (local.version !== plugin.version) {
@@ -330,7 +335,7 @@ function selectPlugins(
         const definition = definitions[plugin.id];
         if (local.locations.includes("browser") && definition === undefined) throw new BootstrapRejected("startup-failed", `浏览器插件 ${plugin.id} 没有装配定义`);
         try {
-            selected.push({id: plugin.id, kind: "definition", definition: definitionAt("browser", local, definition)});
+            selected.push({id: plugin.id, kind: "definition", definition: definitionAt("browser", local, definition), thirdParty: false});
         } catch (error) {
             throw new BootstrapRejected("startup-failed", describe(error));
         }

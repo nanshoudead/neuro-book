@@ -23,6 +23,7 @@ import {createEnvelopeLink, parseEnvelope} from "nbook/server/projects/ipc";
 import type {EnvelopeChannel} from "nbook/server/projects/ipc";
 import {clockKey} from "nbook/shared/host";
 import {currentProjectKey} from "nbook/shared/projects";
+import {pluginVersionSatisfies} from "nbook/shared/versions";
 
 import type {ProjectConfig} from "./config";
 import {manifestProjectPlugins} from "./plugins";
@@ -133,8 +134,10 @@ export async function startProject(options: StartProjectOptions): Promise<Projec
         manifest: {
             capabilities: [{id: "project.current", key: currentProjectKey, create: () => current}, {id: "host.clock", key: clockKey, create: () => systemClock}],
             plugins,
-            // 第三方插件不是启动必需，失败只影响自己。
+            // 第三方插件不是启动必需，失败只影响自己；启动也不等它们的 onStartup 入口。
             requiredPlugins: plugins.filter((plugin) => !context.thirdParty.some((descriptor) => descriptor.id === plugin.id)).map((plugin) => plugin.id),
+            backgroundStartupPlugins: context.thirdParty.map((descriptor) => descriptor.id),
+            satisfies: pluginVersionSatisfies,
             gates: [],
             observers: mechanismObservers(store),
             remote: node,

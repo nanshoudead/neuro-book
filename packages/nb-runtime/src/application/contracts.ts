@@ -96,10 +96,18 @@ export interface ApplicationManifest {
     readonly plugins: ReadonlyArray<PluginDefinition>;
     /** 启动必需的插件；登记后并发激活它们在本位置的全部入口，失败则不开放接纳。 */
     readonly requiredPlugins?: ReadonlyArray<string>;
+    /**
+     * 启动不等的插件（产品里是第三方插件）：它们的 `onStartup` 入口照常在启动时开始激活，但启动结算不等它们结束，
+     * 激活结果只进插件诊断。插件代码的 `activate` 或模块顶层不结算时，不能让整个实例起不来（runtime/application.md）。
+     * 同时列在 `requiredPlugins` 里的按必需处理。
+     */
+    readonly backgroundStartupPlugins?: ReadonlyArray<string>;
     readonly gates: ReadonlyArray<StartupGate>;
     readonly observers?: MechanismObservers;
     /** 本实例的远程节点（`@notnotype/nb-runtime/remote`）；插件宿主据此提供 `context.remote`。 */
     readonly remote?: PluginHostOptions["remote"];
+    /** 插件版本范围的判断，交给插件宿主（`PluginHostOptions.satisfies`）。 */
+    readonly satisfies?: PluginHostOptions["satisfies"];
 }
 
 export type GateOutcome =

@@ -22,10 +22,10 @@ import {check} from "proper-lockfile";
 import {errno, LOCK_STALE_MS} from "nbook/backend/locked-replace";
 import type {HeldLock} from "nbook/backend/locked-replace";
 import type {NotLoaded} from "nbook/plugins/plugins/shared/contracts";
+import {engineAccepts, npmVersions} from "nbook/shared/versions";
 
 import {assertHeld, brief, byId, isLink, isRecordTemporary, ownedPath, readRecord, STAGING_DIR, withRecordLock, writeRecord} from "./record";
 import type {PluginRecord, RecordEntry} from "./record";
-import {engineAccepts, npmVersions} from "./versions";
 
 /** 清单文件的大小上限；正常的 `package.json` 远小于它。 */
 export const MANIFEST_LIMIT = 1024 * 1024;

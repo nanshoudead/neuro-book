@@ -4,6 +4,8 @@
  * 只有类型和唯一会抛出的错误类；行为合同见 docs/specs/runtime/plugins.md。
  */
 
+import type {TSchema} from "typebox";
+
 import type {FailureError, RuntimeLocation, Scope, ScopeId} from "../lifecycle/lifecycle";
 import type {RemoteAccess, RemoteContract, RemoteHostBinding, RemoteProvision, RemoteUse} from "../remote/remote";
 import type {ConsumerIdentity, EntryId, ResolveOptions, ResolveResult, ServiceDependency, ServiceKey} from "../services/services";
@@ -46,6 +48,11 @@ export interface ContributionPointDefinition<Declaration = unknown> {
     readonly id: string;
     /** required：贡献写在入口下并给出实现；none：只有顶层声明。 */
     readonly implementation: "required" | "none";
+    /**
+     * 声明的结构：贡献的 `declaration` 先按它核对，再交 `validate`。只能用纯 JSON Schema（不能有 `Refine`、`Codec`
+     * 与自定义 format）：第三方插件的贡献点经清单登记，清单里只能放序列化得了的部分（plugin-manifest.md 的贡献点条目）。
+     */
+    readonly schema?: TSchema;
     /**
      * 纯函数，只看这一条声明本身，返回拒绝原因或 null；查不到别的贡献，所以一条声明的接受与否不随别处的登记变化
      * （runtime.plugins 输出第 23 条）。
@@ -175,6 +182,14 @@ export interface PluginDescriptor {
 /** 随产品发布的静态描述；不是已激活实例。 */
 export interface PluginDefinition {
     readonly id: string;
+    /** 插件版本（semver）；只用于核对别的插件写的 `pluginVersions`，宿主从插件描述并入。 */
+    readonly version?: string;
+    /**
+     * 本插件对其它插件版本的要求：插件 id → 版本范围。入口的依赖由这些插件提供、而提供方的版本不在范围内时，
+     * 必需依赖让入口以 `version-mismatch` 受阻，可选依赖不注入（plugin-manifest.md 输出 8）。范围由宿主注入的
+     * `satisfies` 判断。
+     */
+    readonly pluginVersions?: Readonly<Record<string, string>>;
     /** 本插件拥有的激活事件前缀，例如 `onCommand`；只有拥有者能触发 `<前缀>:<参数>`。 */
     readonly activationEventPrefixes?: ReadonlyArray<string>;
     readonly contributionPoints?: ReadonlyArray<ContributionPointDefinition>;
@@ -237,7 +252,9 @@ export type RegistrationRejectionReason =
     | "foreign-scope"
     | "scope-not-alive"
     | "invalid-activation-prefix"
-    | "reserved-activation-prefix";
+    | "reserved-activation-prefix"
+    /** 定义写了 `pluginVersions`，宿主没有注入 `satisfies`。 */
+    | "version-check-unavailable";
 
 export interface RegistrationRejection {
     readonly reason: RegistrationRejectionReason;
@@ -296,13 +313,16 @@ export type ActivationResult =
     | {readonly status: "rejected"; readonly plugin: string; readonly entry: string; readonly reason: Exclude<ActivationRejection, "blocked">}
     | {readonly status: "rejected"; readonly plugin: string; readonly entry: string; readonly reason: "blocked"; readonly blocked: EntryBlocked};
 
-export type EntryBlockedReason = "missing-service" | "location-mismatch" | "provider-blocked" | "provider-failed" | "dependency-cycle";
+export type EntryBlockedReason = "missing-service" | "location-mismatch" | "provider-blocked" | "provider-failed" | "dependency-cycle" | "version-mismatch";
 
 export interface EntryBlocked {
     readonly reason: EntryBlockedReason;
     readonly key: string;
     /** 插件/入口身份；环路径包含首尾相同的入口。 */
     readonly path: ReadonlyArray<string>;
+    /** `version-mismatch`：提供方插件的版本与本插件要求的范围。 */
+    readonly version?: string;
+    readonly range?: string;
 }
 
 export type EntryStatus = "foreign-location" | "registered" | "blocked" | "activating" | "available" | "failed" | "stopping" | "closed";
@@ -452,6 +472,11 @@ export interface PluginHostOptions {
     readonly observer?: PluginObserver;
     /** 本实例的远程节点；宿主据此提供 `context.remote`，并作为远程提供项的来源接入节点。 */
     readonly remote?: RemoteHostBinding;
+    /**
+     * 判断版本是否在范围内（npm semver 写法）。内核不依赖 semver，由宿主注入；登记写了 `pluginVersions` 的定义时必须有。
+     * 同一个宿主的升级预览也要用同一个函数，结论才与重启后一致。
+     */
+    readonly satisfies?: (version: string, range: string) => boolean;
 }
 
 /** 贡献未发布或已撤回时取实现、以及向 runtime.services 交付未激活成功的实例时抛出。 */

@@ -11,14 +11,20 @@
  * 贡献点与激活事件前缀按插件声明。第三方插件的定义在它有入口的每个运行位置都带上它们；内置插件的代码定义可以只在
  * 部分位置定义（例如校验函数只在那里用得到），对齐测试按插件汇总比较。
  *
+ * 反方向的 `manifestOf` 把代码定义写成清单：第三方插件的构建预设用它生成 `package.json`，内置插件的对齐测试用它证明
+ * 代码定义能用清单表达。远程合同与贡献点的 schema 随清单发布，只能是纯 JSON Schema（`portabilityProblems`）：函数与
+ * TypeBox 的非枚举标记进不了 JSON，静默丢掉会让外置的插件校验变宽。
+ *
  * 行为合同见 docs/specs/runtime/plugin-manifest.md。
  */
 
 import {Type} from "typebox";
-import type {Static} from "typebox";
+import type {Static, TSchema} from "typebox";
 import {Value} from "typebox/value";
 
 import type {RuntimeLocation} from "../lifecycle/lifecycle";
+import {defineRemoteService} from "../remote/remote";
+import type {RemoteContract, RemoteEventSpec, RemoteMethodSpec, RemoteProviderLocation} from "../remote/remote";
 import {defineServiceKey} from "../services/services";
 
 import type {
@@ -27,7 +33,7 @@ import type {
     PluginDescriptor,
     PluginEntryDefinition,
 } from "../plugins/plugins";
-import {KERNEL_ACTIVATION_PREFIXES} from "../plugins/plugins";
+import {KERNEL_ACTIVATION_PREFIXES, portabilityProblems} from "../plugins/plugins";
 
 /** 一个小写的 id 段：字母或数字开头，只含小写字母、数字与连字符。 */
 const ID_SEGMENT = /^[a-z0-9][a-z0-9-]*$/u;
@@ -44,6 +50,23 @@ const ContributionSchema = Type.Object({
 const ContributionPointSchema = Type.Object({
     id: NonEmptyString,
     implementation: Type.Union([Type.Literal("required"), Type.Literal("none")]),
+    /** 声明的结构，纯 JSON Schema；宿主登记时按它核对别的插件交来的声明，拥有者不必先激活。 */
+    schema: Type.Optional(Type.Unknown()),
+}, {additionalProperties: false});
+
+/** 远程合同的 JSON 形式：与 `defineRemoteService` 的参数相同，schema 是 JSON Schema。 */
+const ContractSchema = Type.Object({
+    id: NonEmptyString,
+    version: Type.Integer({minimum: 1}),
+    provider: Type.Union([Type.Literal("server"), Type.Literal("project"), Type.Literal("client"), Type.Literal("any")]),
+    callers: StringArray,
+    methods: Type.Record(Type.String(), Type.Object({
+        input: Type.Unknown(),
+        output: Type.Unknown(),
+        effect: Type.Union([Type.Literal("read"), Type.Literal("write")]),
+        errors: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+    }, {additionalProperties: false})),
+    events: Type.Record(Type.String(), Type.Object({filter: Type.Unknown(), payload: Type.Unknown()}, {additionalProperties: false})),
 }, {additionalProperties: false});
 
 const EntrySchema = Type.Object({
@@ -70,6 +93,8 @@ const ManifestSchema = Type.Object({
     contributionPoints: Type.Optional(Type.Array(ContributionPointSchema)),
     activationEventPrefixes: Type.Optional(StringArray),
     pluginVersions: Type.Optional(Type.Record(Type.String(), NonEmptyString)),
+    /** 入口的 `remoteProvides`、`remoteDelegates` 引用的合同，键是合同 id；`nbook.` 开头的内置合同由宿主提供，不写在这里。 */
+    contracts: Type.Optional(Type.Record(Type.String(), ContractSchema)),
 });
 
 type ManifestInput = Static<typeof ManifestSchema>;
@@ -83,7 +108,12 @@ export interface ManifestContribution {
 export interface ManifestContributionPoint {
     readonly id: string;
     readonly implementation: "required" | "none";
+    /** JSON Schema；没写时只核对实现要求与重复。 */
+    readonly schema?: unknown;
 }
+
+/** 清单里的远程合同：`defineRemoteService` 的参数的 JSON 形式。 */
+export type ManifestContract = Static<typeof ContractSchema>;
 
 export interface ManifestEntry {
     readonly id: string;
@@ -114,6 +144,7 @@ export interface PluginManifest {
     readonly contributionPoints: ReadonlyArray<ManifestContributionPoint>;
     readonly activationEventPrefixes: ReadonlyArray<string>;
     readonly pluginVersions: Readonly<Record<string, string>>;
+    readonly contracts: Readonly<Record<string, ManifestContract>>;
 }
 
 export interface ManifestProblem {
@@ -180,7 +211,37 @@ export function readPluginManifest(value: unknown, options: ReadManifestOptions)
     for (const [index, point] of (input.contributionPoints ?? []).entries()) {
         if (points.has(point.id)) add(`contributionPoints.${String(index)}.id`, `贡献点 id 重复：${point.id}`);
         points.add(point.id);
+        if (point.schema !== undefined) {
+            for (const problem of portabilityProblems(point.schema)) add(joinPath(`contributionPoints.${String(index)}.schema`, problem.path), problem.message);
+        }
     }
+
+    const contracts = input.contracts ?? {};
+    for (const [contractId, contract] of Object.entries(contracts)) {
+        const at = `contracts.${contractId}`;
+        if (contract.id !== contractId) add(`${at}.id`, `与键不一致：${contract.id}`);
+        if (contractId.startsWith("nbook.")) add(at, "内置合同由宿主提供，不写进清单");
+        for (const [name, method] of Object.entries(contract.methods)) {
+            const schemas: Array<[string, unknown]> = [["input", method.input], ["output", method.output], ...Object.entries(method.errors ?? {}).map(([code, schema]): [string, unknown] => [`errors.${code}`, schema])];
+            for (const [field, schema] of schemas) {
+                for (const problem of portabilityProblems(schema)) add(joinPath(`${at}.methods.${name}.${field}`, problem.path), problem.message);
+            }
+        }
+        for (const [name, event] of Object.entries(contract.events)) {
+            for (const [field, schema] of [["filter", event.filter], ["payload", event.payload]] as const) {
+                for (const problem of portabilityProblems(schema)) add(joinPath(`${at}.events.${name}.${field}`, problem.path), problem.message);
+            }
+        }
+        // 结构规则（方法名、严格对象的入参、失败码）与代码里的合同同一套：交给 `defineRemoteService` 判断。
+        try {
+            restoreContract(contract);
+        } catch (error) {
+            add(at, error instanceof Error ? error.message : String(error));
+        }
+    }
+    const referenced = (contractId: string, path: string): void => {
+        if (!contractId.startsWith("nbook.") && !Object.hasOwn(contracts, contractId)) add(path, `引用的合同不在 contracts 里：${contractId}`);
+    };
 
     const seenPrefixes = new Set<string>();
     for (const [index, prefix] of (input.activationEventPrefixes ?? []).entries()) {
@@ -228,6 +289,8 @@ export function readPluginManifest(value: unknown, options: ReadManifestOptions)
             if (!contractId.startsWith(`${id}/`)) add(`${at}.remoteProvides`, `合同 id 必须以 ${id}/ 开头：${contractId}`);
         }
         if (new Set(remoteProvides).size !== remoteProvides.length) add(`${at}.remoteProvides`, "合同 id 重复");
+        for (const contractId of remoteProvides) referenced(contractId, `${at}.remoteProvides`);
+        for (const contractId of readList(raw.remoteDelegates)) referenced(contractId, `${at}.remoteDelegates`);
         const receives = readList(raw.receives);
         for (const point of receives) {
             if (!points.has(point)) add(`${at}.receives`, `只能接收本插件在 contributionPoints 中定义的贡献点：${point}`);
@@ -268,8 +331,25 @@ export function readPluginManifest(value: unknown, options: ReadManifestOptions)
             contributionPoints: (input.contributionPoints ?? []).map((point) => ({...point})),
             activationEventPrefixes: readList(input.activationEventPrefixes),
             pluginVersions: {...input.pluginVersions},
+            contracts: {...contracts},
         },
     };
+}
+
+function joinPath(base: string, inner: string): string {
+    return inner === "" ? base : `${base}.${inner}`;
+}
+
+/** 清单里的合同还原成合同对象；结构不合法时 `defineRemoteService` 抛出。 */
+function restoreContract(contract: ManifestContract): RemoteContract {
+    return defineRemoteService({
+        id: contract.id,
+        version: contract.version,
+        provider: contract.provider,
+        callers: contract.callers,
+        methods: contract.methods as unknown as Readonly<Record<string, RemoteMethodSpec>>,
+        events: contract.events as unknown as Readonly<Record<string, RemoteEventSpec>>,
+    });
 }
 
 /** 清单对应的插件描述：有入口的运行位置与只有声明、不需要实现的顶层贡献。 */
@@ -285,7 +365,10 @@ export function descriptorOf(manifest: PluginManifest): PluginDescriptor {
 export interface DefinitionOptions {
     /** 入口的激活实现；代码装载未接入时缺省，激活会明确失败。 */
     readonly activateFor?: (entry: ManifestEntry) => PluginEntryDefinition["activate"];
-    /** 把清单里的合同 id 映射成合同对象；缺省时声明了远程服务或代理的入口在映射时失败。 */
+    /**
+     * 不在清单 `contracts` 里的合同 id（内置插件的合同）映射成合同对象；缺省时引用了它们的入口在映射时失败。清单里的
+     * 合同由 `definitionOf` 自己还原，同一次调用里同一 id 得到同一个对象。
+     */
     readonly contractOf?: (id: string) => NonNullable<PluginEntryDefinition["remoteProvides"]>[number];
 }
 
@@ -295,7 +378,15 @@ export interface DefinitionOptions {
  * 顶层声明式贡献由插件描述携带，宿主经 `definitionAt` 并进定义（runtime/plugin-manifest.md 输出 11），这里不重复。
  */
 export function definitionOf(manifest: PluginManifest, location: RuntimeLocation, options: DefinitionOptions = {}): PluginDefinition {
+    // 内核要求入口声明的合同与激活产出的是同一个对象：同一位置的定义里，同一 id 只还原一次。
+    const restored = new Map<string, RemoteContract>();
     const contractOf = (id: string): NonNullable<PluginEntryDefinition["remoteProvides"]>[number] => {
+        const own = manifest.contracts[id];
+        if (own !== undefined) {
+            const known = restored.get(id) ?? restoreContract(own);
+            restored.set(id, known);
+            return known;
+        }
         if (options.contractOf === undefined) throw new Error(`插件 ${manifest.id} 声明了远程服务或代理 ${id}，但没有提供合同映射`);
         return options.contractOf(id);
     };
@@ -325,8 +416,161 @@ export function definitionOf(manifest: PluginManifest, location: RuntimeLocation
     }
     return {
         id: manifest.id,
+        version: manifest.version,
+        ...(Object.keys(manifest.pluginVersions).length === 0 ? {} : {pluginVersions: manifest.pluginVersions}),
         entries,
         ...(manifest.activationEventPrefixes.length === 0 ? {} : {activationEventPrefixes: manifest.activationEventPrefixes}),
-        ...(manifest.contributionPoints.length === 0 ? {} : {contributionPoints: manifest.contributionPoints.map((point) => ({...point}))}),
+        ...(manifest.contributionPoints.length === 0
+            ? {}
+            : {contributionPoints: manifest.contributionPoints.map(({id, implementation, schema}) => ({id, implementation, ...(schema === undefined ? {} : {schema: schema as TSchema})}))}),
+    };
+}
+
+/** `manifestOf` 的输入：插件描述、它在各运行位置的代码定义与清单里只能由作者给的字段。 */
+export interface ManifestSource {
+    readonly descriptor: PluginDescriptor;
+    /**
+     * 各运行位置的插件定义。同一个定义对象可以出现多次（后端定义同时含服务端与项目入口，常被两个位置共用），按对象
+     * 去重；入口按自己的 `location` 归位。
+     */
+    readonly definitions: ReadonlyArray<PluginDefinition>;
+    readonly engines: {readonly neurobook: string};
+    readonly pluginVersions?: Readonly<Record<string, string>>;
+    /** 入口的代码文件；缺省 `<入口 id>.js`。 */
+    readonly mainOf?: (entry: PluginEntryDefinition) => string;
+}
+
+export type ManifestBuildResult =
+    | {readonly status: "valid"; readonly json: Record<string, unknown>}
+    | {readonly status: "invalid"; readonly problems: ReadonlyArray<ManifestProblem>};
+
+/** 远程合同写成清单里的 JSON；schema 原样拷贝，能不能拷由调用方先查过。 */
+function contractJson(contract: RemoteContract): ManifestContract {
+    const clone = (schema: unknown): unknown => JSON.parse(JSON.stringify(schema)) as unknown;
+    return {
+        id: contract.id,
+        version: contract.version,
+        provider: contract.provider as RemoteProviderLocation,
+        callers: [...contract.callers],
+        methods: Object.fromEntries(Object.entries(contract.methods).map(([name, method]) => [name, {
+            input: clone(method.input),
+            output: clone(method.output),
+            effect: method.effect,
+            ...(method.errors === undefined ? {} : {errors: Object.fromEntries(Object.entries(method.errors).map(([code, schema]) => [code, clone(schema)]))}),
+        }])),
+        events: Object.fromEntries(Object.entries(contract.events).map(([name, event]) => [name, {filter: clone(event.filter), payload: clone(event.payload)}])),
+    };
+}
+
+/** 合同里每一份 schema 与它在清单里的字段路径。 */
+function contractSchemas(contract: RemoteContract): Array<readonly [string, unknown]> {
+    const at = `contracts.${contract.id}`;
+    return [
+        ...Object.entries(contract.methods).flatMap(([name, method]): Array<readonly [string, unknown]> => [
+            [`${at}.methods.${name}.input`, method.input],
+            [`${at}.methods.${name}.output`, method.output],
+            ...Object.entries(method.errors ?? {}).map(([code, schema]) => [`${at}.methods.${name}.errors.${code}`, schema] as const),
+        ]),
+        ...Object.entries(contract.events).flatMap(([name, event]): Array<readonly [string, unknown]> => [
+            [`${at}.events.${name}.filter`, event.filter],
+            [`${at}.events.${name}.payload`, event.payload],
+        ]),
+    ];
+}
+
+/**
+ * 把代码定义写成清单（`package.json` 里本能力的字段），是 `readPluginManifest` 加 `definitionOf` 的反方向。结果还要
+ * 经 `readPluginManifest` 校验：这里只查代码定义特有、清单表达不了的问题：
+ * - 入口 id 在各运行位置之间重复（清单的 `entries` 以入口 id 为键）；
+ * - 贡献点在两个位置的 `implementation` 不同；
+ * - 合同或贡献点的 schema 进不了 JSON（`portabilityProblems`），或同一合同 id 对应内容不同的两个合同；
+ * - 第三方插件的贡献点只写了 `validate` 函数：函数进不了清单，宿主登记时没有代码可调（内置插件随产品代码装配，不受限）。
+ */
+export function manifestOf(source: ManifestSource, options: {readonly builtin?: boolean} = {}): ManifestBuildResult {
+    const {descriptor} = source;
+    const problems: ManifestProblem[] = [];
+    const add = (path: string, message: string): void => {
+        problems.push({path, message});
+    };
+    const definitions = [...new Set(source.definitions)];
+    for (const definition of definitions) {
+        if (definition.id !== descriptor.id) add("", `定义的插件 id ${definition.id} 与描述 ${descriptor.id} 不一致`);
+    }
+
+    const contracts = new Map<string, {readonly contract: RemoteContract; readonly json: string}>();
+    const collect = (contract: RemoteContract): void => {
+        if (contract.id.startsWith("nbook.")) return;
+        const known = contracts.get(contract.id);
+        if (known !== undefined) {
+            if (known.contract !== contract && known.json !== JSON.stringify(contractJson(contract))) add(`contracts.${contract.id}`, "同一合同 id 对应两份内容不同的合同");
+            return;
+        }
+        const portable = contractSchemas(contract).flatMap(([path, schema]) => portabilityProblems(schema).map((problem) => ({path: joinPath(path, problem.path), message: problem.message})));
+        problems.push(...portable);
+        contracts.set(contract.id, {contract, json: portable.length === 0 ? JSON.stringify(contractJson(contract)) : ""});
+    };
+
+    const entries: Record<string, unknown> = {};
+    const seen = new Map<string, PluginEntryDefinition>();
+    for (const definition of definitions) {
+        for (const entry of definition.entries) {
+            const known = seen.get(entry.id);
+            if (known !== undefined) {
+                // 同一个入口对象经两份定义各出现一次（例如两张定义表共用后端入口）不算重复。
+                if (known !== entry) add(`entries.${entry.id}`, "入口 id 在两个运行位置重复，清单以入口 id 为键");
+                continue;
+            }
+            seen.set(entry.id, entry);
+            const dependencies = entry.dependencies ?? [];
+            for (const contract of [...(entry.remoteProvides ?? []), ...(entry.remoteDelegates ?? [])]) collect(contract);
+            entries[entry.id] = {
+                location: entry.location,
+                main: source.mainOf?.(entry) ?? `${entry.id}.js`,
+                requires: dependencies.filter((dependency) => dependency.required !== false).map((dependency) => dependency.key.name),
+                optional: dependencies.filter((dependency) => dependency.required === false).map((dependency) => dependency.key.name),
+                provides: (entry.provides ?? []).map((key) => key.name),
+                receives: entry.receives ?? [],
+                activationEvents: entry.activationEvents ?? [],
+                remoteProvides: (entry.remoteProvides ?? []).map((contract) => contract.id),
+                remoteDelegates: (entry.remoteDelegates ?? []).map((contract) => contract.id),
+                contributes: entry.contributions ?? [],
+            };
+        }
+    }
+
+    const points = new Map<string, ManifestContributionPoint>();
+    for (const definition of definitions) {
+        for (const point of definition.contributionPoints ?? []) {
+            const at = `contributionPoints.${point.id}`;
+            const known = points.get(point.id);
+            if (known !== undefined) {
+                if (known.implementation !== point.implementation) add(at, "两个运行位置的 implementation 不同");
+                continue;
+            }
+            if (point.schema !== undefined) {
+                for (const problem of portabilityProblems(point.schema)) add(joinPath(`${at}.schema`, problem.path), problem.message);
+            } else if (point.validate !== undefined && options.builtin !== true) {
+                add(at, "只写了 validate 函数：函数进不了清单，用 schema 写出声明的结构");
+            }
+            points.set(point.id, {id: point.id, implementation: point.implementation, ...(point.schema === undefined ? {} : {schema: JSON.parse(JSON.stringify(point.schema)) as unknown})});
+        }
+    }
+
+    if (problems.length > 0) return {status: "invalid", problems: problems.sort(byPath)};
+    const dot = descriptor.id.indexOf(".");
+    return {
+        status: "valid",
+        json: {
+            publisher: descriptor.id.slice(0, dot),
+            name: descriptor.id.slice(dot + 1),
+            version: descriptor.version,
+            engines: {neurobook: source.engines.neurobook},
+            entries,
+            contributes: descriptor.contributions ?? [],
+            contributionPoints: [...points.values()],
+            activationEventPrefixes: [...new Set(definitions.flatMap((definition) => definition.activationEventPrefixes ?? []))],
+            ...(source.pluginVersions === undefined || Object.keys(source.pluginVersions).length === 0 ? {} : {pluginVersions: {...source.pluginVersions}}),
+            ...(contracts.size === 0 ? {} : {contracts: Object.fromEntries([...contracts.values()].map(({contract}) => [contract.id, contractJson(contract)]))}),
+        },
     };
 }

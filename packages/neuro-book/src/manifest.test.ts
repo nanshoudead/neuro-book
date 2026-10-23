@@ -23,12 +23,11 @@ describe("pluginsAt", () => {
 });
 
 describe("definitionAt", () => {
-    it("本位置有入口：定义并上描述的顶层贡献；没有入口：只含顶层贡献、入口为空", () => {
-        expect(definitionAt("browser", browserOnly, browserDefinition)).toEqual({...browserDefinition, contributions: [setting]});
-        expect(definitionAt("server", browserOnly, undefined)).toEqual({id: "x.panel", entries: [], contributions: [setting]});
-        // 描述没有顶层贡献时原样返回定义。
+    it("本位置有入口：定义并上描述的版本与顶层贡献；没有入口：只含版本与顶层贡献、入口为空", () => {
+        expect(definitionAt("browser", browserOnly, browserDefinition)).toEqual({...browserDefinition, version: "1.0.0", contributions: [setting]});
+        expect(definitionAt("server", browserOnly, undefined)).toEqual({id: "x.panel", version: "1.0.0", entries: [], contributions: [setting]});
         const job: PluginDefinition = {id: "x.job", entries: [{id: "server", location: "server", activate: () => ({})}]};
-        expect(definitionAt("server", serverOnly, job)).toBe(job);
+        expect(definitionAt("server", serverOnly, job)).toEqual({...job, version: "1.0.0"});
     });
 
     it("描述写了本位置却没有定义，或定义的 id 不符：直接失败，指名插件", () => {

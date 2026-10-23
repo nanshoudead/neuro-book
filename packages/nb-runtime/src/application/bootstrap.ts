@@ -82,7 +82,7 @@ export class ApplicationImpl implements Application {
         this.root = this.#instance.root;
         this.assembly = createServiceAssembly(this.#instance, {observer: manifest.observers?.services});
         this.#startupSignal = AbortSignal.any([this.root.stopSignal, this.#stopRequested.signal]);
-        this.plugins = createPluginHost(this.#instance, this.assembly, {observer: manifest.observers?.plugins, remote: manifest.remote});
+        this.plugins = createPluginHost(this.#instance, this.assembly, {observer: manifest.observers?.plugins, remote: manifest.remote, satisfies: manifest.satisfies});
         if (host.stopSignal.aborted) {
             void this.stop();
         } else {
@@ -212,7 +212,9 @@ export class ApplicationImpl implements Application {
             }
         }
         const requiredPlugins = new Set(this.#manifest.requiredPlugins ?? []);
+        const backgroundPlugins = new Set(this.#manifest.backgroundStartupPlugins ?? []);
         const startupEntries: Array<{plugin: string; entry: string; required: boolean}> = [];
+        const backgroundEntries: Array<{plugin: string; entry: string}> = [];
         const declaredPlugins = new Set<string>();
         for (const definition of this.#manifest.plugins) {
             const result = this.plugins.register(definition, {scope: this.root});
@@ -226,13 +228,25 @@ export class ApplicationImpl implements Application {
             const required = requiredPlugins.has(definition.id);
             const selected = definition.entries.filter((entry) => entry.location === this.identity.location && (required || entry.activationEvents?.includes("onStartup")));
             for (const entry of selected) {
-                startupEntries.push({plugin: definition.id, entry: entry.id, required});
+                if (!required && backgroundPlugins.has(definition.id)) {
+                    backgroundEntries.push({plugin: definition.id, entry: entry.id});
+                } else {
+                    startupEntries.push({plugin: definition.id, entry: entry.id, required});
+                }
             }
         }
         for (const plugin of requiredPlugins) {
             if (!declaredPlugins.has(plugin)) {
                 this.#fail({category: "manifest", required: true, source: plugin, stage: "register", reason: "plugin:unknown-plugin", error: null});
             }
+        }
+        // 不等的入口与等的入口同时开始；失败与未结算都只留在插件诊断里（宿主的 `fail` 已经记下）。停止时
+        // `#startupSignal` 中止还在激活的。
+        for (const {plugin, entry} of backgroundEntries) {
+            this.plugins.activate({plugin, entry}, {signal: this.#startupSignal}).catch((error: unknown) => {
+                const failure = summarizeFailure(error);
+                this.#emergency("startup", `启动时激活 ${plugin}/${entry} 抛出`, `${failure.name}: ${failure.message}`);
+            });
         }
         const activationFailures = await Promise.all(startupEntries.map(async ({plugin, entry, required}): Promise<StartupFailure | null> => {
             if (this.#stopBegun()) {

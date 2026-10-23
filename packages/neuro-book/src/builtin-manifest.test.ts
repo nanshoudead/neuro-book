@@ -3,6 +3,8 @@
  * 定义转成 `package.json` 形式，经第三方插件同一个 `readPluginManifest` 校验，再用 `descriptorOf`、`definitionOf` 转回，
  * 与原定义相同。这样第三方插件能写出内置插件写得出的一切，两种载体不会各自漂移（ADR 0027）。
  *
+ * “定义 → 清单”用内核的 `manifestOf`（第三方插件的构建预设用同一个），这里只做往返比较。
+ *
  * 不比较的只有运行期钩子：入口的 `activate` 与贡献点的 `validate`。服务键按 id、合同按合同 id 比较；依赖不计先后，
  * 激活顺序只由依赖图决定。贡献点与激活事件前缀按插件汇总：内置插件可以只在部分运行位置定义它们（例如项目实例
  * 只有 `nbook.markdown` 的方言贡献点、没有入口），清单把它们写在插件一级。宿主适配器（诊断、HTTP）是宿主的一部分，
@@ -11,11 +13,11 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {definitionOf, descriptorOf, readPluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
+import {definitionOf, descriptorOf, manifestOf, readPluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
 import type {ContributionPointDefinition, PluginDefinition, PluginDescriptor, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 import type {RemoteContract} from "@notnotype/nb-runtime/remote";
 
-import {npmVersions} from "nbook/backend/plugins/versions";
+import {npmVersions} from "nbook/shared/versions";
 import {productPlugins} from "nbook/manifest";
 import {projectPluginDefinitions} from "nbook/project/plugins";
 import {serverPluginDefinitions} from "nbook/server/plugins";
@@ -47,56 +49,13 @@ function locatedDefinitions(descriptor: PluginDescriptor): Located[] {
     });
 }
 
-/** 去掉校验函数的贡献点，按插件汇总；同一 id 在两个位置的 `implementation` 必须相同。 */
-function pointsOf(located: ReadonlyArray<Located>): Array<{id: string; implementation: "required" | "none"}> {
-    const points = new Map<string, "required" | "none">();
-    for (const {definition} of located) {
-        for (const point of definition.contributionPoints ?? []) {
-            const known = points.get(point.id);
-            if (known !== undefined && known !== point.implementation) throw new Error(`贡献点 ${point.id} 在两个运行位置的 implementation 不同`);
-            points.set(point.id, point.implementation);
-        }
-    }
-    return [...points].map(([id, implementation]) => ({id, implementation}));
-}
-
-function prefixesOf(located: ReadonlyArray<Located>): string[] {
-    return [...new Set(located.flatMap(({definition}) => definition.activationEventPrefixes ?? []))];
-}
-
-/** 代码定义写成 `package.json` 的形式。 */
+/** 代码定义写成 `package.json` 的形式：用第三方插件构建时同一个 `manifestOf`。 */
 function manifestJson(descriptor: PluginDescriptor, located: ReadonlyArray<Located>): Record<string, unknown> {
-    const dot = descriptor.id.indexOf(".");
-    const entries: Record<string, unknown> = {};
-    for (const {entries: own} of located) {
-        for (const entry of own) {
-            if (Object.hasOwn(entries, entry.id)) throw new Error(`${descriptor.id} 的入口 id ${entry.id} 在两个运行位置重复，清单表达不了`);
-            const dependencies = entry.dependencies ?? [];
-            entries[entry.id] = {
-                location: entry.location,
-                // 内置插件的代码随产品打包，入口文件只为满足清单格式。
-                main: `${entry.id}.js`,
-                requires: dependencies.filter((dependency) => dependency.required !== false).map((dependency) => dependency.key.name),
-                optional: dependencies.filter((dependency) => dependency.required === false).map((dependency) => dependency.key.name),
-                provides: (entry.provides ?? []).map((key) => key.name),
-                receives: entry.receives ?? [],
-                activationEvents: entry.activationEvents ?? [],
-                remoteProvides: (entry.remoteProvides ?? []).map((contract) => contract.id),
-                remoteDelegates: (entry.remoteDelegates ?? []).map((contract) => contract.id),
-                contributes: entry.contributions ?? [],
-            };
-        }
-    }
-    return {
-        publisher: descriptor.id.slice(0, dot),
-        name: descriptor.id.slice(dot + 1),
-        version: descriptor.version,
-        engines: {neurobook: PRODUCT_VERSION},
-        entries,
-        contributes: descriptor.contributions ?? [],
-        contributionPoints: pointsOf(located),
-        activationEventPrefixes: prefixesOf(located),
-    };
+    // 后端定义同时含服务端与项目入口：只把本位置的入口交出去，另一个位置的入口由那个位置的定义带。
+    const definitions = located.map(({definition, entries}): PluginDefinition => ({...definition, entries}));
+    const result = manifestOf({descriptor, definitions, engines: {neurobook: PRODUCT_VERSION}}, {builtin: true});
+    if (result.status !== "valid") throw new Error(`${descriptor.id} 的代码定义写不成清单：${JSON.stringify(result.problems)}`);
+    return result.json;
 }
 
 /** 去掉运行期钩子后可比较的入口形状。 */
@@ -116,7 +75,7 @@ function comparableEntry(entry: PluginEntryDefinition): unknown {
     };
 }
 
-function comparablePoints(points: ReadonlyArray<ContributionPointDefinition> | undefined): unknown {
+function comparablePoints(points: ReadonlyArray<Pick<ContributionPointDefinition, "id" | "implementation">> | undefined): unknown {
     return (points ?? []).map((point) => ({id: point.id, implementation: point.implementation}));
 }
 

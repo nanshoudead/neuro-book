@@ -181,7 +181,7 @@ function deferred<T>() {
 }
 
 describe("runtime.plugins 机制边界", () => {
-    it("机制源码只使用同目录相对导入与 lifecycle/services 入口，不 import 框架、驱动或产品领域", async () => {
+    it("机制源码只使用同目录相对导入、lifecycle/services 入口与 TypeBox，不 import 框架、驱动或产品领域", async () => {
         const sources = (await readdir(moduleDir)).filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts")).sort();
         expect(sources).toContain("plugins.ts");
         for (const name of sources) {
@@ -194,7 +194,8 @@ describe("runtime.plugins 机制边界", () => {
                 if (specifier === "../remote/remote" && !valueSpecifiers.has(specifier) && !sideEffectSpecifiers.includes(specifier)) {
                     continue;
                 }
-                expect(specifier, `${name} 导入了 ${specifier}`).toMatch(/^(?:\.\/[^/]+|\.\.\/lifecycle\/lifecycle|\.\.\/services\/services)$/u);
+                // TypeBox 是内核唯一的运行时依赖：贡献点的声明结构用它核对（plugins.md 的贡献点条目）。
+                expect(specifier, `${name} 导入了 ${specifier}`).toMatch(/^(?:\.\/[^/]+|\.\.\/lifecycle\/lifecycle|\.\.\/services\/services|typebox|typebox\/value)$/u);
             }
             expect(code, `${name} 不得使用动态 import`).not.toMatch(/\bimport\s*\(/u);
         }

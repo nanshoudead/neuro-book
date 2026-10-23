@@ -19,8 +19,7 @@ import {Value} from "typebox/value";
 
 import {errno, holdLock} from "nbook/backend/locked-replace";
 import type {HeldLock} from "nbook/backend/locked-replace";
-
-import {npmVersions} from "./versions";
+import {npmVersions} from "nbook/shared/versions";
 
 export const RECORD_FILE = "plugins.json";
 export const RECORD_SCHEMA = "nbook.plugins/v1";

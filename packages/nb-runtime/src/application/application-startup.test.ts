@@ -140,6 +140,33 @@ describe("启动入口选择与失败", () => {
         expect(await application.stop()).toEqual({status: "closed"});
     });
 
+    it("启动不等的插件：onStartup 入口照常开始激活，但它迟迟不结算时启动照常完成；停止时中止它", async () => {
+        let started = false;
+        let signal: AbortSignal | null = null;
+        // 只在中止时结算：停止要等在途的激活收口，这里模拟一个守规矩、但启动阶段一直没完成的插件。
+        const application = createApplication(host().context, manifest({backgroundStartupPlugins: ["hangs"], plugins: [{id: "hangs", entries: [{id: "main", location: "server", activationEvents: ["onStartup"], activate: (context) => {
+            started = true;
+            signal = context.signal;
+            return new Promise<never>((_, reject) => context.signal.addEventListener("abort", () => reject(new Error("stopped")), {once: true}));
+        }}]}]}));
+        expect(await application.startup).toMatchObject({status: "available", failures: []});
+        expect(started).toBe(true);
+        expect(application.plugins.entryState({plugin: "hangs", entry: "main"})).toMatchObject({status: "activating"});
+        expect((await application.admit({label: "accepted", run: () => "ok"})).status).toBe("accepted");
+        expect(await application.stop()).toMatchObject({status: "closed"});
+        expect(signal!.aborted).toBe(true);
+    });
+
+    it("启动不等的插件激活失败不进启动报告，只留在插件诊断里", async () => {
+        const application = createApplication(host().context, manifest({backgroundStartupPlugins: ["fails"], plugins: [{id: "fails", entries: [{id: "main", location: "server", activationEvents: ["onStartup"], activate: () => {
+            throw new Error("background failed");
+        }}]}]}));
+        expect(await application.startup).toMatchObject({status: "available", failures: []});
+        await application.plugins.activate({plugin: "fails", entry: "main"});
+        expect(application.plugins.diagnostics()).toEqual(expect.arrayContaining([expect.objectContaining({plugin: "fails", entry: "main", reason: "activation-threw"})]));
+        expect(await application.stop()).toEqual({status: "closed"});
+    });
+
     it("验收 11：既非必需也无 onStartup 的入口保持 registered 与未分配代次", async () => {
         let called = false;
         const application = createApplication(host().context, manifest({plugins: [{id: "lazy", entries: [{id: "main", location: "server", activate: () => {

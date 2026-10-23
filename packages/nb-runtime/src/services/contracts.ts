@@ -182,6 +182,8 @@ export type UnavailableReason =
     | "scope-lifetime"
     | "conflict"
     | "provider-rejected"
+    /** 提供方插件的版本不在调用方插件 `pluginVersions` 的范围内；由插件宿主判定（plugin-manifest.md 输出 8）。 */
+    | "version-mismatch"
     | "dependency-cycle"
     | "dependency-unavailable"
     | "initialization-failed"

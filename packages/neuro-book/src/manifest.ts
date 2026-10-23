@@ -46,10 +46,11 @@ export function pluginsAt(location: RuntimeLocation, descriptors: ReadonlyArray<
  */
 export function definitionAt(location: RuntimeLocation, descriptor: PluginDescriptor, definition: PluginDefinition | undefined): PluginDefinition {
     const contributions = descriptor.contributions ?? [];
-    if (!descriptor.locations.includes(location)) return {id: descriptor.id, entries: [], contributions};
+    // 版本只用于核对别的插件写的 `pluginVersions`（plugin-manifest.md 输出 8），从描述并入，各位置的定义不另写。
+    if (!descriptor.locations.includes(location)) return {id: descriptor.id, version: descriptor.version, entries: [], contributions};
     if (definition === undefined) throw new Error(`清单中的插件 ${descriptor.id} 没有 ${location} 入口定义`);
     if (definition.id !== descriptor.id) throw new Error(`${location} 入口定义的插件 id ${definition.id} 与清单 ${descriptor.id} 不一致`);
-    return contributions.length === 0 ? definition : {...definition, contributions: [...(definition.contributions ?? []), ...contributions]};
+    return {...definition, version: descriptor.version, ...(contributions.length === 0 ? {} : {contributions: [...(definition.contributions ?? []), ...contributions]})};
 }
 
 /**
@@ -57,5 +58,5 @@ export function definitionAt(location: RuntimeLocation, descriptor: PluginDescri
  * 顶层声明式贡献，不论描述写了哪些运行位置；集合按 `pluginsAt` 取。
  */
 export function thirdPartyDefinition(descriptor: PluginDescriptor): PluginDefinition {
-    return {id: descriptor.id, entries: [], contributions: descriptor.contributions ?? []};
+    return {id: descriptor.id, version: descriptor.version, entries: [], contributions: descriptor.contributions ?? []};
 }
