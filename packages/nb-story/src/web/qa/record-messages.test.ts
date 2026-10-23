@@ -14,8 +14,8 @@ describe("只按记录显示", () => {
     test("四种结果各造一条，提问 id 与有日志时相同", () => {
         const messages = messagesFromRecord("c", [
             {question: "一", status: "answered", answer: answer as never, reply: null, error: null, startedAt},
-            {question: "二", status: "answered", answer: null, reply: {text: "见 39.1", truncated: false, unverifiedRefs: ["39.1"]}, error: null, startedAt},
-            {question: "三", status: "failed", answer: null, reply: null, error: {code: "model_failed", message: "连不上"}, startedAt},
+            {question: "二", status: "answered", answer: null, reply: {text: "见 39.1", unverifiedRefs: ["39.1"]}, error: null, startedAt},
+            {question: "三", status: "failed", answer: null, reply: null, error: {message: "连不上"}, startedAt},
             {question: "四", status: "interrupted", answer: null, reply: null, error: null, startedAt},
         ]);
         expect(messages.filter(message => message.kind === "user").map(message => message.id)).toEqual([1, 2, 3, 4].map(turn => questionId("c", turn)));
