@@ -1,0 +1,82 @@
+# w00027 t05 实现审查（浏览器与界面部分，Sonnet）
+
+审查对象 `a433a9f7b..c11de13bd`，worktree `.worktree/review-t05-impl`。跑过：`vitest`（focus 组件测试、view-contribution、plugin-modules，4 例过）、`vue-tsc` web 与 browser-test 两份配置（干净）、`bun test sdk.test.ts architecture.test.ts`（过）。未跑 e2e。实验文件在 `/tmp/review-t05-impl/x/`。
+
+## 1. [重要] 界面：模板与 focus 视图在 `layout: "scroll"` 下自己又加一层内边距，作者文档的说法与示例相反
+- 位置：`examples/plugins/focus/web/FocusPanel.vue:219-224`（`.focus-panel { padding: var(--space-3) }`）、`scripts/plugin-sdk/template/web/HelloView.vue:26-32`（同）；文档 `scripts/plugin-sdk/README.md` “界面”一节的“视图的 `layout`”。
+- 现象：两个视图都声明 `layout: "scroll"`。README 写“scroll：外壳给内边距并负责滚动”，`WorkbenchViewFrame.vue:149-153` 也确实给 `.workbench-view-frame__padding` 加 `padding: var(--space-2) var(--space-3)`（`WorkbenchViewFrame.md:14`、views.md 的 layout 一行同）。组件再加 `var(--space-3)`，左右各叠 12px。
+- 为什么是问题：侧栏默认约 240px，左右各多吃 12px，内容区只剩约 192px；与同侧栏里别的视图（资源管理器等）文字起点不齐；作者照模板和示例复制，把错的写法学走。`minimumSize: {width: 200}` 的“够一行”估算也是按含双层边距算的吗，没有说明。
+- 核实：从代码推断（读了 Frame 的样式与组件文档），没有截图。manual-smoke 的截图可以直接看左边距是否比资源管理器宽。
+- 建议：去掉两个组件根上的 `padding`，只留 `gap`；README 的 scroll 一条保留。
+
+## 2. [重要] 无障碍：礼貌型播报区文字不变就不会再播，“完成”“放弃”各只第一次能被听到
+- 位置：`FocusPanel.vue:191-194`（watch 只写 `announcement.value = …` 且从不清空），`:214`。
+- 现象：连续两次“放弃”（或连续两个番茄的“完成”）时，第二次写入的文字与已有文字相同，Vue 不更新 DOM，`aria-live` 区域没有变化，读屏不念。
+- 为什么是问题：“完成一次专注”是这个功能唯一值得被听到的事件，而连续多个番茄是主要用法；README “无障碍”一条把“放进 aria-live 区域，只播报一次”作为范式教给作者，范式本身有这个洞。组件测试 `FocusPanel.dom.test.ts:170-179` 的两次断言文字不同（先放弃后完成），测不到。
+- 核实：`/tmp/review-t05-impl/x/` 里用真实 `FocusPanel.vue` + `createFocusStore` + 内存数据源，对播报元素挂 `MutationObserver`，“开始、放弃”做两轮：整个过程只有 1 次 DOM 变更（第二次放弃无变更）。
+- 建议：播报前先清空，下一个 tick 再写（或每次都换一个不可见的计数后缀）；组件测试补“连续两次放弃，播报区发生两次变更”。README 的无障碍条目补上这个做法。
+
+## 3. [重要] 正确性：跨零点完成的一次被播报成“已放弃这次专注”
+- 位置：`FocusPanel.vue:192`：`next.completed > previous.completed ? "完成了一次专注" : "已放弃这次专注"`。
+- 现象：服务端 `settle` 对跨零点的一次把汇总清零再加一（`backend/plugin.ts:62-63`，场景 07 专门测了这个“第二天的汇总从零开始”）。窗口里原来 `completed = 5`，完成后推送 `completed = 1`，`1 > 5` 为假，走“放弃”分支。
+- 为什么是问题：用比较个数推断“是完成还是放弃”，假设个数只增不减，服务端合同恰恰允许它归零。读屏用户听到相反的结论。
+- 核实：同一实验，store 里 `completed: 5` 且进行中，推送 `{running: null, completed: 1, minutes: 25}`，播报区为“已放弃这次专注”。
+- 建议：别用个数差。store 在 `apply` 时知道是谁引起的：`cancel()` 返回的结果归“放弃”，进行中变为空且不是自己调用 `cancel` 的归“完成”（或比较 `endsAt <= now`）；让 store 暴露一个 `lastEnded: "completed" | "cancelled" | null`，组件只读它。
+
+## 4. [重要] 示例教的同步没有恢复路径：订阅失败或结束后视图永久停在“正在读取…”或陈旧数据
+- 位置：`web/focus-store.ts:102-128`（`connect`）、`web/plugin.ts:339`（只调用一次 `void store.connect()`）、`FocusPanel.vue:199`。
+- 现象：
+  - `source.subscribe` 返回失败（服务端入口激活失败、远程服务暂不可用）时：`connecting = null; fail(...)`，`ready` 一直为假，视图显示“正在读取…”加一条红色提示，状态栏“…”。没有任何调用会再 `connect()`。`connecting = null` 这行本来就是为了能重试，但没有调用方。
+  - `onEnd`（提供方停止、重连时重建订阅失败等，`nb-runtime/src/remote/node.ts:1026-1034,1105-1120`）后：`subscription = null`，走表继续，数据停在最后一次，直到用户点按钮才靠返回值更新；提示文字“与服务端的同步结束了”无处可点。
+- 为什么是问题：这是作者拿来学“怎样用远程订阅”的示例，而“订阅断了怎么办”正是写远程订阅最容易漏的；“正在读取…”掩盖了“读不到”。plan 里“重连”只测了 `onResync`（场景 07 最后一例），没有测 `onEnd` 与订阅失败。
+- 核实：从代码推断；`grep onEnd examples/scenarios/07-focus.test.ts FocusPanel.dom.test.ts` 无结果。
+- 建议：`!ready && problem !== null` 时视图显示“读不到，重试”按钮调 `store.connect()`；`onEnd` 后在下一次 `toggle`、`start`、`cancel` 前或固定退避后重连。组件测试补两例：订阅失败时不显示“正在读取…”；`onEnd` 后重试能回到 ready。
+
+## 5. [建议] 样式：`font-size: 28px` 不是主题变量，与文档“字号都用主题变量”矛盾
+- 位置：`FocusPanel.vue:228`；`README.md` “界面”第一条。
+- 主题只有 `--text-2xs` 到 `--text-xl`（`nb-ui/src/theme.css:20-25`，最大 20px）。要么用 `var(--text-xl)`，要么 README 承认大号数字没有变量、给出做法（例如按 `calc(var(--text-xl) * 1.4)`）。示例是文档的活样板，不应该违反自己教的那条。
+
+## 6. [建议] 交互：主按钮原位切换后，连点两下“开始专注”会开始并立刻放弃，放弃没有任何缓冲
+- 位置：`FocusPanel.vue:205-207`、`focus-store.ts:157`（`toggle` 按点击当刻的状态决定动作）、`plugin.ts:300`（状态栏条目一点即放弃）。
+- 现象：本机服务端往返只有几毫秒到几十毫秒，鼠标双击间隔约 100–200ms：第一下 `start` 的响应回来按钮已变成“放弃”，第二下就是 `cancel`，25 分钟的会话被取消、不算完成。按住 Enter 的键重复同理。状态栏条目误点同样一下就放弃。
+- 为什么是问题：计划选了“原位切换保持焦点”，代价就是同一位置同一手势在 100ms 内意义相反；放弃是破坏性操作。这不是 bug 但是示例该讲清楚取舍。
+- 建议：任选其一并在组件注释里写明：放弃与开始之间设一个很短的静默（响应回来后 500ms 内忽略第二下），或放弃要二次确认；至少在注释里说明已知取舍。
+
+## 7. [建议] 模板：计数变化读屏听不到；命令声明 `effect: "read"` 却会改状态
+- 位置：`template/web/HelloView.vue:20`、`template/web/plugin.ts:72`。
+- 模板是作者“照着写无障碍视图”的起点，README 无障碍条目要求“状态变化需要被听到时放进 aria-live 区域”，而模板里“已经打过 N 次招呼”是普通 `<p>`。点按钮或用命令面板执行命令，计数加一，读屏用户听不到结果。建议加 `role="status"`（隐含礼貌型 live）。
+- 命令 `sayHello` 的 `run` 把 `count` 加一，声明却是 `effect: "read"`。模板用来示范“read 或 write”的选择，这里选错了；计数只在内存，但作者会照抄。改成 `write`（并按 focus 的写法决定 `expose`）。
+
+## 8. [建议] e2e：判据顺序与准备步骤
+- 位置与现象：
+  1. `e2e/plugin-authoring.e2e.ts:138-140`：禁用并重启后，先断言 `[data-activity-container='view:my.hello-world.hello']` 数量为 0，再在 141-142 才断言插件行可见。`data-window-state="ready"` 是页面根就绪（`PageOutlet.vue:28`），活动栏的容器是否已按贡献点画完没有保证；文件头注释自己写了“消失类判据先确认就绪并有一条肯定判据”，这里顺序反了。变异检查：把这里改成永远不画活动栏，这条断言照样通过。修法：先断言一个肯定的东西（例如活动栏上内置的 `view:nbook.explorer...` 容器可见，或在同一断言前先 `expect(activity bar).toBeVisible()` 且有一个已知容器），再断言目标容器 count 为 0。
+  2. `plugin-authoring.e2e.ts:99-100`、`runCommand`：`fill(">打个招呼")` 后只等“第一个 option 可见”就按回车。命令面板列表在过滤生效前已有选项，第一项不一定是目标命令；失败时表现为后面的计数断言超时，难定位。改成 `getByRole("option", {name: /打个招呼/})` 可见再回车。
+  3. `plugin-code.e2e.ts` focus 一例的“没选中才点”（和 `plugin-authoring.e2e.ts:85-88` 的 `showView`）：`getAttribute("aria-pressed")` 不等待状态稳定，布局恢复晚于读取时会把已选中的容器点成“收起侧栏”，随后 `aria-pressed true` 的断言就失败，表现成偶发。更重要的是它把 待确认清单 里“第三方视图排在内置之前、侧栏默认显示插件视图”这一条产品问题藏起来了：现在无论默认显示谁，这个例子都过。建议先肯定判据再分支：断言一次默认状态（哪怕只是 `expect(await container.getAttribute("aria-pressed"))` 记入注释里的预期），待那条待确认定了再改成确定的写法。
+  4. focus 例子没有覆盖 `problem` 提示（`role=alert`）与“到点完成”的浏览器侧表现，计划已写明交场景 07；浏览器侧的“完成”播报只在组件测试里，且被问题 2 的洞漏掉。
+
+## 9. [建议] `viewContribution` / `boundComponent`：属性没有类型，`context` 覆盖无声
+- 位置：`src/plugins/workbench/web/view-contribution.ts:22,33`、`src/ui/bound-component.ts:51,59`。
+- `implementation(props?: () => Readonly<Record<string, unknown>>)`：作者写错属性名、少给必需属性，编译期不报，运行时 Vue 只在开发版警告（生产版静默），属性掉到根元素上变成 `store="[object Object]"` 之类的 attribute。作者文档说“组件收到 context 与函数返回的属性”，但没有任何东西核对两边对得上。可以让 `viewContribution` 对组件的 props 泛型，至少文档里点明。
+- `{...props(), context: own.context}`：`props()` 里若带 `context`，被宿主的静默覆盖。顺序是对的（宿主赢），但没有测试，文档没有写，作者会困惑。测试 `view-contribution.dom.test.ts` 只覆盖了 `{default: Component}` 与响应式更新，没有覆盖直接给组件、不给 `props`、`props` 抛错（渲染错误由 `WorkbenchViewFrame` 的 render-failed 收口，这点我只从代码推断）。
+- 与 `settingsPage` 的一致性：`settingsPage` 现在委托 `boundComponent("SettingsPage", …)`，名字、顺序一致；`settings-page.ts` 的头注释删掉了“为什么放 ui/”的理由，已搬到 `bound-component.ts`。未发现不一致。
+
+## 10. [建议] 读屏与窄栏的小项
+- `FocusPanel.vue:201-203`：空闲时 `role="timer"` 的内容是 `--:--`，读屏念成一串符号。空闲时改成“未开始”之类的文字（视觉上仍可保持 `--:--` 用 `aria-hidden` 的写法分开）。
+- `FocusPanel.vue:253-260`：`.focus-panel__live` 是 `position:absolute`，但 `.focus-panel` 没有 `position: relative`。nb-ui 的 Checkbox 注释（`Checkbox.vue:76`）专门说过 sr-only 元素的包含块会落到外层，随外层滚动不跟着走。这里元素只有 1px 且在末尾，实际影响很小，但示例应该照着写对。
+- `web/plugin.ts:336` 注释“订阅归本入口，内核也会结束它，这里先停走表”与 `dispose` 实际行为不符：`dispose` 也 `subscription.release()`。改成“停走表并释放订阅；内核随后也会结束它，重复释放无害”。
+- 状态栏条目只有文字变化：用户只用状态栏（读屏）时完成没有任何提示，示例可以在注释里说明播报只在视图打开时有效。
+- `Today` 没有版本号，推送与方法返回值、`refresh` 的响应乱序到达时后到的旧值会覆盖新值（例如放弃的响应之后到达一个更早发出的 `today()` 响应）。本机同一连接上概率很低，未复现；作为合同注释提一句即可。
+
+## 未发现问题的方面
+- `focus-store.ts` 走表：每条路径都有收口。`tick` 每次先取消旧计时器；到零转 `refresh` 且不再排；`dispose` 取消计时器并置 `disposed`，`apply` 在 `disposed` 后直接返回，`dispose` 之后迟到的订阅回调、`refresh` 响应都不会再排计时器；`connect` 在订阅返回时发现已 `dispose` 会 `release`。`onEnd` 后 `connecting` 清空，可再次 `connect`（只是没人调，见问题 4）。
+- `offset` 对齐：`offset = next.now - clock.now()`，服务端时间在响应发出时取，本地在接收时取，估计的服务端时间只会偏小，剩余时间只会偏大，不会出现“本地已到零而服务端还没结算”，因此不会出现到零后 `refresh` 立刻再 `refresh` 的空转；开始后第一次显示恰好是 25:00，与 e2e `2[45]:\d\d` 一致。时钟被改（NTP 回拨）只在下一次推送时自我修正，可接受。
+- `toggle` 连按：请求进行中第二下再 `start` 得到 `already-running` 后走 `refresh`，不报错；`cancel` 同理。
+- `viewContribution` 与宿主模块表：`BROWSER_SHARED_MODULES` 与 `hostModules()` 的 `satisfies` 保持同步，`components` 子路径是同一份 nb-ui 的拷贝并冻结，`plugin-modules.dom.test.ts` 断言 `Button` 引用相等；示例的 `architecture.test.ts` 白名单、`tsconfig`、`vite.config.ts`、`IN_REPO_BUILD` 的别名都加了；Spec `plugin-code-loading.md` 与实现一致。
+- 样式其余部分只用主题变量与 SDK 组件（`--space-*`、`--text-main`、`--text-muted`、`--text-sm`、`--status-danger`、`--font-mono` 均在 nb-ui 主题里有定义）。
+- `role="alert"` 用于持续显示的问题提示可以接受：它由 `v-if` 在出现时插入，会被念一次；不会随计时刷新。
+- 类型检查（web、browser-test）、组件测试、SDK 导出面测试、架构测试在该提交上通过。
+
+## 数量
+- 阻断 0
+- 重要 4（问题 1 至 4）
+- 建议 6（问题 5 至 10，其中 8 与 10 各含多条）

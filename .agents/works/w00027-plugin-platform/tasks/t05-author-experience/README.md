@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t05-author-experience
-status: active
+status: done
 updated: 2026-10-23
 ---
 
@@ -42,6 +42,10 @@ Claude Opus 补审后端（14 条：重要 7、建议 7），全部成立或部�
 - 2026-10-23 S4（编码子代理 Opus 在独立 worktree 写，`a860e4f52`，合入 `787b2cff2`）：作者文档进 SDK 包，`build:sdk` 生成组件与主题变量清单、复制引用的 10 份 Spec 并把链接改到包内；examples/README 的外部插件一节。
 - 2026-10-23 S5（`c11de13bd`）：`e2e/plugin-authoring.e2e.ts`（生成 SDK、Node 运行 `create` 与 `build`、插件页安装、视图与命令、改设置、禁用与卸载在重启后生效）；[手动 smoke](evidences/manual-smoke.md)：真实 `npm pack`、`npm install`，照 README 字面步骤生成、类型检查、构建，装进 nbdev 起的开发服务，`--dev` 重装按升级处理。发现第三方视图排在内置资源管理器前面，记进待确认清单。
 
-## 下一步
+- 2026-10-23 收口：全量 e2e 291 例全过（28.9 分钟，`c11de13bd`）。
+- 2026-10-23 实现审查：Claude Sonnet（界面，重要 4、建议 6）、Claude Opus（后端与作者工具，重要 3、建议 9；omp 额度仍未恢复）。报告在 [`evidences/`](evidences/)，逐条处理见 [plan.md](plan.md) 文末“实现审查的处理”。修正 7 个提交（`830ccdee0`..`b2e9fd6cb`）：focus 服务端坏记录用 `reset`、订阅先登记再读、场景 07 补三例（变异核对：去掉服务端计时器、计时器的作用域登记或 `reset` 各有一例失败）；focus 视图按服务端时间判断完成或放弃、播报每次换节点、同步断了给“重新同步”；模板与 focus 去掉双层内边距；`create` 失败时撤回、拒绝 `nbook`；SDK 包里 Spec 副本的链接全部可达；清单重复问题去重；e2e 判据收紧。验证：两包 typecheck，应用 Bun 1433 例、Vitest 364 例，内核 385 例，插件两份 e2e 6 例。
 
-收口：全量 e2e，然后启动实现审查。
+## 遗留
+
+- worktree 的开发状态根里留着手动 smoke 装上的 `acme.hello`（开发版），没有卸载。
+- 待开发者定：第三方视图是否排到内置之后（见待确认清单）。
