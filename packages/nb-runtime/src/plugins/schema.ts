@@ -36,20 +36,59 @@ export function schemaProblem(schema: TSchema, value: unknown): string | null {
     }
 }
 
+/** 值是一份 schema 的关键字。 */
+const SCHEMA_KEYWORDS: ReadonlySet<string> = new Set([
+    "additionalItems", "additionalProperties", "contains", "contentSchema", "else", "if", "items", "not", "propertyNames", "then",
+    "unevaluatedItems", "unevaluatedProperties",
+]);
+/** 值是 schema 数组的关键字（`items` 的旧写法也是数组，按 `SCHEMA_KEYWORDS` 里的数组处理）。 */
+const SCHEMA_LIST_KEYWORDS: ReadonlySet<string> = new Set(["allOf", "anyOf", "oneOf", "prefixItems"]);
+/** 值是“名字到 schema”映射的关键字：映射本身不是 schema，它的每个值才是。 */
+const SCHEMA_MAP_KEYWORDS: ReadonlySet<string> = new Set(["$defs", "definitions", "dependentSchemas", "patternProperties", "properties"]);
+
+/** 按 JSON Pointer（`#/$defs/A`）在根 schema 里取值；取不到为 undefined。 */
+function resolvePointer(root: unknown, pointer: string): unknown {
+    if (pointer === "#") return root;
+    if (!pointer.startsWith("#/")) return undefined;
+    let node = root;
+    for (const raw of pointer.slice(2).split("/")) {
+        const key = decodeURIComponent(raw).replaceAll("~1", "/").replaceAll("~0", "~");
+        if (typeof node !== "object" || node === null || !Object.hasOwn(node, key)) return undefined;
+        node = (node as Record<string, unknown>)[key];
+    }
+    return node;
+}
+
 /**
  * 一份 schema 不能原样放进清单的地方，按出现顺序列出；空数组表示可以。`path` 是 schema 内部的路径（`properties.name`），
  * 根为空字符串。只看写法，不判断两份 schema 是否等价。
+ *
+ * 按关键字的语义走：`properties` 这类映射的值、`items` 这类关键字的值才是 schema；`const`、`enum`、`default`、`examples`
+ * 与不认识的关键字是数据，只查有没有函数（数据里的 `type`、`format` 不是 schema 的关键字，属性名叫 `type` 的对象很常见）。
+ * `$ref` 只能指向同一份 schema 里的位置或 `$id`：宿主不为外部 URI 装载引用，解析不到的引用会让每个值都校验不通过。
  */
 export function portabilityProblems(schema: unknown): ReadonlyArray<{readonly path: string; readonly message: string}> {
     const problems: Array<{path: string; message: string}> = [];
-    const visit = (node: unknown, path: string): void => {
+    const at = (path: string, key: string): string => (path === "" ? key : `${path}.${key}`);
+    const ids = new Set<string>();
+    const refs: Array<{path: string; ref: string}> = [];
+    const visitData = (node: unknown, path: string): void => {
         if (typeof node === "function") {
             problems.push({path, message: "含有函数"});
             return;
         }
         if (typeof node !== "object" || node === null) return;
-        if (Array.isArray(node)) {
-            node.forEach((item, index) => visit(item, path === "" ? String(index) : `${path}.${String(index)}`));
+        for (const [key, child] of Object.entries(node)) visitData(child, at(path, key));
+    };
+    const visitSchema = (node: unknown, path: string): void => {
+        if (typeof node === "function") {
+            problems.push({path, message: "含有函数"});
+            return;
+        }
+        // 布尔值是合法的 schema（true 什么都接受，false 什么都拒绝）。
+        if (typeof node === "boolean") return;
+        if (typeof node !== "object" || node === null || Array.isArray(node)) {
+            problems.push({path, message: "不是 JSON Schema（应为对象或布尔值）"});
             return;
         }
         // `~refine`、`~codec` 是不可枚举的属性，`Object.keys` 与 `JSON.stringify` 都看不见，所以单独查。
@@ -72,11 +111,29 @@ export function portabilityProblems(schema: unknown): ReadonlyArray<{readonly pa
         for (const type of types) {
             if (typeof type !== "string" || !JSON_TYPES.has(type)) problems.push({path, message: `type 不是 JSON Schema 的类型：${String(type)}`});
         }
+        if (typeof record.$id === "string") ids.add(record.$id);
+        if (record.$ref !== undefined) {
+            if (typeof record.$ref === "string") refs.push({path, ref: record.$ref});
+            else problems.push({path, message: "$ref 不是字符串"});
+        }
         for (const [key, child] of Object.entries(record)) {
-            visit(child, path === "" ? key : `${path}.${key}`);
+            const here = at(path, key);
+            if (SCHEMA_MAP_KEYWORDS.has(key) && isPlainObject(child)) {
+                for (const [name, value] of Object.entries(child)) visitSchema(value, at(here, name));
+            } else if (SCHEMA_LIST_KEYWORDS.has(key) && Array.isArray(child)) {
+                child.forEach((item, index) => visitSchema(item, at(here, String(index))));
+            } else if (SCHEMA_KEYWORDS.has(key)) {
+                if (Array.isArray(child)) child.forEach((item, index) => visitSchema(item, at(here, String(index))));
+                else visitSchema(child, here);
+            } else {
+                visitData(child, here);
+            }
         }
     };
-    visit(schema, "");
+    visitSchema(schema, "");
+    for (const {path, ref} of refs) {
+        if (!ids.has(ref) && resolvePointer(schema, ref) === undefined) problems.push({path, message: `$ref ${ref} 在这份 schema 里解析不到（只能引用同一份 schema 里的位置或 $id）`});
+    }
     // 写法都合法、内容仍可能让校验抛出（例如坏的正则）：用一个值试一次，抛出就算不能用。
     if (problems.length === 0 && typeof schema === "object" && schema !== null) {
         try {

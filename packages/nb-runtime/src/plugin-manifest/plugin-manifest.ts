@@ -173,10 +173,24 @@ export interface ReadManifestOptions {
     readonly builtin?: boolean;
 }
 
-/** TypeBox 的实例路径（`/entries/browser/main`）转成清单字段路径（`entries.browser.main`）。 */
-function fieldPath(instancePath: string): string {
+/**
+ * TypeBox 的实例路径（`/entries/browser/main`）转成清单字段路径（`entries.browser.main`）。TypeBox 不转义键里的 `/`，合同 id
+ * （`example.notes/index`）在实例路径里会被切成两段：按清单里实际的合同 id 认回来，与语义问题的路径（`contracts.<合同 id>…`）
+ * 写法一致。
+ */
+function fieldPath(instancePath: string, value: unknown): string {
+    const contracts = typeof value === "object" && value !== null ? (value as {readonly contracts?: unknown}).contracts : undefined;
+    if (instancePath.startsWith("/contracts/") && typeof contracts === "object" && contracts !== null) {
+        const rest = instancePath.slice("/contracts/".length);
+        const contractId = Object.keys(contracts).sort((left, right) => right.length - left.length).find((key) => rest === key || rest.startsWith(`${key}/`));
+        if (contractId !== undefined) return ["contracts", contractId, ...rest.slice(contractId.length).split("/").filter((segment) => segment !== "")].join(".");
+    }
     return instancePath.split("/").filter((segment) => segment !== "").join(".");
 }
+
+/** 入口 id 也是默认的代码文件名（`<入口 id>.js`），构建预设还用它命名中间文件：只许单个文件名段。 */
+const ENTRY_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u;
+const ENTRY_ID_RULE = "入口 id 只能含字母、数字、连字符与下划线，并以字母或数字开头";
 
 function readList(value: ReadonlyArray<string> | undefined): ReadonlyArray<string> {
     return value ?? [];
@@ -193,7 +207,7 @@ function byPath(left: ManifestProblem, right: ManifestProblem): number {
 export function readPluginManifest(value: unknown, options: ReadManifestOptions): ManifestReadResult {
     if (!Value.Check(ManifestSchema, value)) {
         const problems: ManifestProblem[] = [...Value.Errors(ManifestSchema, value)].map((error) => ({
-            path: fieldPath(error.instancePath),
+            path: fieldPath(error.instancePath, value),
             message: `${error.instancePath === "" ? "/" : error.instancePath}：${error.message}`,
         }));
         return {status: "invalid", problems: problems.sort(byPath)};
@@ -270,8 +284,8 @@ export function readPluginManifest(value: unknown, options: ReadManifestOptions)
     const providersAt = new Map<string, string>();
     for (const [entryId, raw] of Object.entries(input.entries ?? {})) {
         const at = `entries.${entryId}`;
-        if (entryId.trim() === "") {
-            add(at, "入口 id 不能为空");
+        if (!ENTRY_ID.test(entryId)) {
+            add(at, `${ENTRY_ID_RULE}：${entryId}`);
             continue;
         }
         const main = raw.main;
@@ -532,6 +546,7 @@ export function manifestOf(source: ManifestSource, options: {readonly builtin?: 
                 continue;
             }
             seen.set(entry.id, entry);
+            if (!ENTRY_ID.test(entry.id)) add(`entries.${entry.id}`, `${ENTRY_ID_RULE}：${entry.id}`);
             const dependencies = entry.dependencies ?? [];
             for (const contract of [...(entry.remoteProvides ?? []), ...(entry.remoteDelegates ?? [])]) collect(contract);
             entries[entry.id] = {
@@ -552,7 +567,9 @@ export function manifestOf(source: ManifestSource, options: {readonly builtin?: 
     const points = new Map<string, ManifestContributionPoint>();
     for (const definition of definitions) {
         for (const point of definition.contributionPoints ?? []) {
-            const at = `contributionPoints.${point.id}`;
+            // 与 readPluginManifest 一样按写出的清单里的下标定位：清单的 contributionPoints 是数组。
+            const index = [...points.keys()].indexOf(point.id);
+            const at = `contributionPoints.${String(index === -1 ? points.size : index)}`;
             const known = points.get(point.id);
             if (known !== undefined) {
                 if (known.implementation !== point.implementation) add(at, "两个运行位置的 implementation 不同");

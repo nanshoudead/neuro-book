@@ -200,10 +200,14 @@ describe("readPluginManifest", () => {
         ["代理的合同不在 contracts 里", {...base, entries: {s: {location: "server", main: "s.js", remoteDelegates: ["other.x/y"]}}}, "entries.s.remoteDelegates"],
         ["合同的键与 id 不一致", {...base, contracts: {"example.notes/other": indexContractJson}}, "contracts.example.notes/other.id"],
         ["清单写了内置合同", {...base, contracts: {"nbook.storage/records": {...indexContractJson, id: "nbook.storage/records"}}}, "contracts.nbook.storage/records"],
-        // 结构问题的路径来自 TypeBox 的实例路径，合同 id 里的 / 在这里变成了点。
-        ["合同缺字段", {...base, contracts: {"example.notes/index": {id: "example.notes/index", version: 1}}}, "contracts.example.notes.index"],
+        // 结构问题与语义问题对同一合同用同一种路径：合同 id 原样一段。
+        ["合同缺字段", {...base, contracts: {"example.notes/index": {id: "example.notes/index", version: 1}}}, "contracts.example.notes/index"],
         ["合同的入参不是严格对象", {...base, contracts: {"example.notes/index": {...indexContractJson, methods: {list: {...indexContractJson.methods.list, input: {type: "object"}}}}}}, "contracts.example.notes/index"],
         ["合同 schema 的 type 不是 JSON 类型", {...base, contracts: {"example.notes/index": {...indexContractJson, methods: {list: {...indexContractJson.methods.list, output: {type: "nonsense"}}}}}}, "contracts.example.notes/index.methods.list.output"],
+        ["合同 schema 引用外部 URI", {...base, contracts: {"example.notes/index": {...indexContractJson, methods: {list: {...indexContractJson.methods.list, output: {$ref: "https://example.com/schema"}}}}}}, "contracts.example.notes/index.methods.list.output"],
+        ["合同 schema 的本地引用解析不到", {...base, contracts: {"example.notes/index": {...indexContractJson, methods: {list: {...indexContractJson.methods.list, output: {$defs: {A: {type: "string"}}, $ref: "#/$defs/B"}}}}}}, "contracts.example.notes/index.methods.list.output"],
+        ["入口 id 含路径分隔符", {...base, entries: {"a/b": {location: "server", main: "s.js"}}}, "entries.a/b"],
+        ["入口 id 是 ..", {...base, entries: {"..": {location: "server", main: "s.js"}}}, "entries..."],
         ["样式越出插件目录", {...base, style: "../style.css"}, "style"],
         ["合同 schema 里有坏的正则", {...base, contracts: {"example.notes/index": {...indexContractJson, methods: {list: {...indexContractJson.methods.list, output: {type: "string", pattern: "("}}}}}}, "contracts.example.notes/index.methods.list.output"],
     ];
@@ -213,6 +217,20 @@ describe("readPluginManifest", () => {
             expect(problemsOf(value)).toContain(path);
         });
     }
+
+    it("schema 按关键字的语义检查：名为 type、format 的属性与 default、const 里的数据不算 schema；同一份 schema 里的引用可以用", () => {
+        const output = Type.Object({
+            type: Type.Literal("add"),
+            format: Type.String(),
+            options: Type.Object({format: Type.String()}, {default: {format: "markdown", type: "nope"}}),
+            kind: Type.Unsafe({const: {type: "nope"}}),
+        });
+        const node = Type.Cyclic({Node: Type.Object({next: Type.Optional(Type.Ref("Node"))})}, "Node");
+        const pointer = {$defs: {A: {type: "string"}}, type: "object", properties: {a: {$ref: "#/$defs/A"}}};
+        const contract = {...indexContractJson, methods: {list: {...indexContractJson.methods.list, output}, tree: {...indexContractJson.methods.list, output: node}, pick: {...indexContractJson.methods.list, output: pointer}}};
+        const manifest = manifestOf(JSON.parse(JSON.stringify({...base, contracts: {"example.notes/index": contract}})));
+        expect(Object.keys(manifest.contracts["example.notes/index"]!.methods).sort()).toEqual(["list", "pick", "tree"]);
+    });
 
     it("版本与范围按调用方给的 npm 写法校验：非法的预发布标识、写错的范围都无效", () => {
         expect(problemsOf({...base, version: "1.0.0-01"})).toContain("version");
@@ -271,7 +289,8 @@ describe("manifestOf：代码定义写成清单", () => {
             ["入口 id 重复", [server, {...browser, entries: [{...browser.entries[0]!, id: "server"}]}], "entries.server"],
             ["合同用了 Refine", [{...server, entries: [{...server.entries[0]!, remoteProvides: [refined]}]}], "contracts.example.notes/index.methods.list.output"],
             ["同一 id 两份不同的合同", [server, {...browser, entries: [{...browser.entries[0]!, remoteDelegates: [changed]}]}], "contracts.example.notes/index"],
-            ["贡献点只写了 validate", [{...server, contributionPoints: [{id: "example.notes.kinds", implementation: "none", validate: () => null}]}], "contributionPoints.example.notes.kinds"],
+            ["入口 id 含路径分隔符", [{...server, entries: [{...server.entries[0]!, id: "a/b"}]}], "entries.a/b"],
+            ["贡献点只写了 validate", [{...server, contributionPoints: [{id: "example.notes.kinds", implementation: "none", validate: () => null}]}], "contributionPoints.0"],
         ];
         for (const [name, definitions, path] of cases) {
             const result = build({descriptor, definitions, engines: {neurobook: "^0.1.0"}});
