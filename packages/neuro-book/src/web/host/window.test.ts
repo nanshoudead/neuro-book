@@ -301,7 +301,7 @@ describe("窗口运行实例", () => {
         stub.stop();
     });
 
-    it("第三方插件不在构建里：按引导带来的描述登记顶层声明；构建里没有的 nbook.* 插件仍提示刷新（browser-host 输出 2、4）", async () => {
+    it("第三方插件不在构建里：按引导带来的清单登记顶层声明；清单读不了、构建里没有的 nbook.* 插件都提示刷新（browser-host 输出 2、4）", async () => {
         const seen: {listed: string[]} = {listed: []};
         const owner = {
             descriptor: {id: "test.notes-owner", version: "0.1.0", locations: ["browser"] as const},
@@ -315,7 +315,8 @@ describe("窗口运行实例", () => {
             } satisfies PluginDefinition,
         };
         const builtin = [...builtinBrowserPlugins, owner.descriptor];
-        const thirdParty = {id: "example.notes", version: "2.0.0", locations: [], contributions: [{capability: "test.notes", id: "example.notes/first", declaration: {}}]};
+        const manifest = {publisher: "example", name: "notes", version: "2.0.0", engines: {neurobook: ">=0.1.0"}, contributes: [{capability: "test.notes", id: "example.notes/first", declaration: {}}]};
+        const thirdParty = {id: "example.notes", version: "2.0.0", manifest, files: "/api/runtime/plugins/example.notes/files/0123456789abcdef/"};
         const plugins = [...builtin.map(({id, version}) => ({id, version})), thirdParty];
         const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins}));
         const definitions = {...browserPluginDefinitions, [owner.descriptor.id]: owner.definition};
@@ -331,6 +332,12 @@ describe("窗口运行实例", () => {
         await stale.start();
         expect(failureOf(stale.state)).toMatchObject({status: "incompatible", reason: expect.stringContaining("nbook.future")});
         future.stop();
+
+        const broken = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins: [...builtin.map(({id, version}) => ({id, version})), {...thirdParty, manifest: {...manifest, version: "x"}}]}));
+        const {browserWindow: unreadable} = openWindow({url: broken.url, builtin, definitions});
+        await unreadable.start();
+        expect(failureOf(unreadable.state)).toMatchObject({status: "incompatible", reason: expect.stringContaining("example.notes@2.0.0")});
+        broken.stop();
     });
 
     it("宿主适配器的表只收适配器：普通插件放进去编译不过", () => {

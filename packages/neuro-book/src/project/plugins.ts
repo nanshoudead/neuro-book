@@ -7,6 +7,7 @@
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
+import type {InstalledPlugin} from "nbook/backend/plugins/installed";
 import {definitionAt, pluginsAt, thirdPartyDefinition} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/backend/plugin";
@@ -27,6 +28,8 @@ export interface ProjectPluginContext {
      * 运行中先后打开的作品看到同一个集合。
      */
     readonly thirdParty: ReadonlyArray<PluginDescriptor>;
+    /** 同一批插件的安装信息（清单、安装目录、摘要），装载入口代码用；描述已由它得出。 */
+    readonly installed: ReadonlyArray<InstalledPlugin>;
     readonly store: DiagnosticsStore;
 }
 

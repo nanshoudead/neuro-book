@@ -7,6 +7,7 @@
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
+import type {InstalledPlugin} from "nbook/backend/plugins/installed";
 import {definitionAt, pluginsAt, thirdPartyDefinition} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
@@ -23,6 +24,7 @@ import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
 
 import {createBrowserBootstrapRoute} from "./browser-bootstrap";
 import type {ServerConfig} from "./config";
+import {createPluginFilesRoute} from "./plugin-files";
 
 export interface ServerPluginContext {
     readonly config: ServerConfig;
@@ -30,6 +32,8 @@ export interface ServerPluginContext {
     readonly manifest: ReadonlyArray<PluginDescriptor>;
     /** 本次启动登记的第三方插件（docs/specs/runtime/plugin-install.md）；安全模式下为空。 */
     readonly thirdParty: ReadonlyArray<PluginDescriptor>;
+    /** 同一批插件的安装信息（清单、安装目录、内容摘要）：浏览器引导与插件文件端点用。 */
+    readonly installed: ReadonlyArray<InstalledPlugin>;
     readonly store: DiagnosticsStore;
     readonly admission: HttpAdmission;
     readonly onListening: (url: string) => void;
@@ -69,7 +73,7 @@ export const serverHostPlugins: Readonly<Record<ServerHostPluginId, ServerHostPl
         port: context.config.port,
         onListening: context.onListening,
         allowOrigin: context.allowOrigin,
-        hostRoutes: [createBrowserBootstrapRoute(context.manifest, context.thirdParty, context.rpc, context.projectTitle)],
+        hostRoutes: [createBrowserBootstrapRoute(context.manifest, context.thirdParty, context.installed, context.rpc, context.projectTitle), createPluginFilesRoute(context.installed)],
         staticRoot: context.config.webRoot,
     }),
 };

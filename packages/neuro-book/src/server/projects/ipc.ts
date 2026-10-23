@@ -6,9 +6,11 @@
  * 行为合同见 docs/specs/runtime/plugin-channel.md 的“进程间链路”。
  */
 
-import type {PluginDescriptor} from "@notnotype/nb-runtime/plugins";
 import {Type} from "typebox";
 import {Value} from "typebox/value";
+
+import {InstalledPluginSchema} from "nbook/backend/plugins/installed";
+import type {InstalledPlugin} from "nbook/backend/plugins/installed";
 
 import {createSocketLink} from "nbook/shared/rpc-socket";
 import type {SocketLink} from "nbook/shared/rpc-socket";
@@ -16,22 +18,17 @@ import type {SocketLink} from "nbook/shared/rpc-socket";
 export type ProjectEnvelope =
     | {readonly t: "frame"; readonly d: string}
     /**
-     * 服务端起子进程后发的第一条消息：服务端本次启动登记、且在项目实例登记的第三方插件（docs/specs/runtime/plugin-install.md）。
-     * 子进程等到它才装配插件，不自己读登记表；不放环境变量：插件声明可以很大，单个环境字符串有长度上限。
+     * 服务端起子进程后发的第一条消息：服务端本次启动登记的第三方插件（docs/specs/runtime/plugin-install.md），带清单、安装目录
+     * 与内容摘要。子进程等到它才装配插件，不自己读登记表，也不自己算摘要；不放环境变量：清单可以很大，单个环境字符串有长度上限。
      */
-    | {readonly t: "plugins"; readonly descriptors: ReadonlyArray<PluginDescriptor>}
+    | {readonly t: "plugins"; readonly installed: ReadonlyArray<InstalledPlugin>}
     /** 项目宿主的启动结果：运行实例可用之后才报 `available`，不报半就绪。 */
     | {readonly t: "started"; readonly status: "available"}
     | {readonly t: "started"; readonly status: "failed"; readonly detail: string}
     /** 服务端请求项目宿主按停止序列停止。 */
     | {readonly t: "stop"};
 
-const DescriptorsSchema = Type.Array(Type.Object({
-    id: Type.String({minLength: 1}),
-    version: Type.String({minLength: 1}),
-    locations: Type.Array(Type.String({minLength: 1})),
-    contributions: Type.Optional(Type.Array(Type.Object({capability: Type.String({minLength: 1}), id: Type.String({minLength: 1}), declaration: Type.Unknown()}, {additionalProperties: false}))),
-}, {additionalProperties: false}));
+const InstalledListSchema = Type.Array(InstalledPluginSchema);
 
 /** 收到的消息不是约定的信封时为 null；调用方记诊断后丢弃。 */
 export function parseEnvelope(value: unknown): ProjectEnvelope | null {
@@ -46,8 +43,8 @@ export function parseEnvelope(value: unknown): ProjectEnvelope | null {
         case "stop":
             return {t: "stop"};
         case "plugins": {
-            const descriptors = (value as {readonly descriptors?: unknown}).descriptors;
-            return Value.Check(DescriptorsSchema, descriptors) ? {t: "plugins", descriptors} : null;
+            const installed = (value as {readonly installed?: unknown}).installed;
+            return Value.Check(InstalledListSchema, installed) ? {t: "plugins", installed} : null;
         }
         default:
             return null;

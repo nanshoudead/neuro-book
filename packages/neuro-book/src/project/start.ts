@@ -11,11 +11,14 @@ import {writeSync} from "node:fs";
 import type {StartupResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsStore, mechanismObservers, recordingEmergency, serializeDiagnosticError} from "@notnotype/nb-runtime/diagnostics";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
+import {descriptorOf} from "@notnotype/nb-runtime/plugin-manifest";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import type {InstanceDescriptor} from "@notnotype/nb-runtime/remote";
 
-import {productPlugins} from "nbook/manifest";
+import {manifestOfInstalled} from "nbook/backend/plugins/installed";
+import type {InstalledPlugin} from "nbook/backend/plugins/installed";
+import {pluginsAt, productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {startServerHost} from "nbook/server/host";
 import type {FatalKind, ProcessEvents, ServerHost} from "nbook/server/host";
@@ -91,7 +94,7 @@ export async function startProject(options: StartProjectOptions): Promise<Projec
         observer: {diagnosticRecorded: (diagnostic) => store.record({level: "warn", event: `remote.${diagnostic.reason}`, message: "远程服务诊断", data: diagnostic})},
     });
     // 服务端起子进程后的第一条消息是第三方插件集合（ipc.ts 的 `plugins`），装配插件前等它。
-    const thirdParty = Promise.withResolvers<ReadonlyArray<PluginDescriptor>>();
+    const thirdParty = Promise.withResolvers<ReadonlyArray<InstalledPlugin>>();
     const link = createEnvelopeLink(channel, (error) => store.record({level: "warn", event: "project.ipc.send-failed", message: "IPC 通道已断，帧没有发出", error}));
     channel.onMessage((value) => {
         const envelope = parseEnvelope(value);
@@ -101,7 +104,7 @@ export async function startProject(options: StartProjectOptions): Promise<Projec
         }
         if (envelope.t === "frame") link.receive(envelope.d);
         else if (envelope.t === "stop") requestStop("parent:stop");
-        else if (envelope.t === "plugins") thirdParty.resolve(envelope.descriptors);
+        else if (envelope.t === "plugins") thirdParty.resolve(envelope.installed);
         else store.record({level: "warn", event: "project.ipc.unexpected", message: `服务端不该发送 ${envelope.t}`});
     });
     channel.onDisconnect(() => {
@@ -118,7 +121,18 @@ export async function startProject(options: StartProjectOptions): Promise<Projec
         return 1;
     }
 
-    const context: ProjectPluginContext = {config, manifest: options.manifest ?? productPlugins, thirdParty: await thirdParty.promise, store};
+    const installed: InstalledPlugin[] = [];
+    const descriptors: PluginDescriptor[] = [];
+    for (const plugin of await thirdParty.promise) {
+        const read = manifestOfInstalled(plugin);
+        if (!read.ok) {
+            store.record({level: "warn", event: "project.plugins.invalid", message: `服务端交来的第三方插件 ${plugin.id} 清单不合格，不登记`, data: {id: plugin.id, detail: read.detail}});
+            continue;
+        }
+        installed.push(plugin);
+        descriptors.push(descriptorOf(read.manifest));
+    }
+    const context: ProjectPluginContext = {config, manifest: options.manifest ?? productPlugins, thirdParty: pluginsAt("project", descriptors), installed, store};
     let plugins: ReadonlyArray<PluginDefinition>;
     try {
         plugins = (options.plugins ?? manifestProjectPlugins)(context);

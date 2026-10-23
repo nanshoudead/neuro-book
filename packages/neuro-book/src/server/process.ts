@@ -65,5 +65,7 @@ export async function runServerProcess(manifest: ReadonlyArray<PluginDescriptor>
     const installed = await prepareInstalledPlugins({root: join(config.stateRoot, "plugins"), productVersion: PRODUCT_VERSION, safeMode: safeModeOf(process.env)});
     const server = startOrExit(config, manifest, installed, options);
     const {exitCode} = await server.stopped;
+    // 插件代码已经停了，放下版本租约，别的服务端下次启动就能回收这些版本。进程退出时锁也会放下，这里只是不等到那时。
+    await installed.release();
     process.exit(exitCode);
 }

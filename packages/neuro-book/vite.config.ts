@@ -68,6 +68,8 @@ export default defineConfig({
             "typebox",
             "typebox/value",
             "typebox/compile",
+            // 窗口读第三方插件的清单、判断插件版本范围（`nbook/shared/versions`）；它是 CommonJS，不预构建在浏览器里加载不了。
+            "semver",
         ],
     },
     build: {outDir: `${packageRoot}dist/web`, emptyOutDir: true, target: BROWSER_TARGETS},

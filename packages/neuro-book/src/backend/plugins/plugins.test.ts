@@ -15,7 +15,7 @@ import {lock} from "proper-lockfile";
 import {createPluginInventory} from "./inventory";
 import type {PluginInventory} from "./inventory";
 import {prepareInstalledPlugins} from "./startup";
-import type {StartupPlugins} from "./startup";
+import type {PreparedPlugins, StartupPlugins} from "./startup";
 
 const PRODUCT = "0.1.0";
 const BUILTIN = [{id: "nbook.settings", version: PRODUCT}];
@@ -27,7 +27,11 @@ beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-plugin-install", "第三方插件的安装与启动");
 });
 
+/** 每次模拟启动都持一份版本租约；用例结束后放下，免得锁的刷新计时器留在进程里。 */
+const releases: PreparedPlugins[] = [];
+
 afterAll(async () => {
+    for (const prepared of releases.splice(0)) await prepared.release();
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
@@ -37,7 +41,7 @@ interface World {
     readonly diagnostics: DiagnosticInput[];
     startup: StartupPlugins;
     inventory: PluginInventory;
-    /** 模拟重启：处理待生效变化、回收残留，换成新的插件集合与插件管理。 */
+    /** 模拟重启：上一次的服务端退出（放下版本租约），再处理待生效变化、回收残留，换成新的插件集合与插件管理。 */
     restart(options?: {readonly productVersion?: string; readonly safeMode?: boolean}): Promise<StartupPlugins>;
     /** 在 `base/sources/<name>` 写一个插件文件夹。 */
     source(name: string, manifest: Record<string, unknown>, files?: Readonly<Record<string, string>>): Promise<string>;
@@ -51,6 +55,7 @@ async function world(): Promise<World> {
     await mkdir(join(base, "sources"), {recursive: true});
     const diagnostics: DiagnosticInput[] = [];
     const make = (startup: StartupPlugins, productVersion = PRODUCT): PluginInventory => createPluginInventory({root, productVersion, builtin: BUILTIN, startup, record: (input) => diagnostics.push(input)});
+    let running: PreparedPlugins | null = null;
     const self: World = {
         base,
         root,
@@ -58,7 +63,10 @@ async function world(): Promise<World> {
         startup: {safeMode: false, registryProblem: null, plugins: []},
         inventory: make({safeMode: false, registryProblem: null, plugins: []}),
         restart: async (options = {}) => {
+            await running?.release();
             const prepared = await prepareInstalledPlugins({root, productVersion: options.productVersion ?? PRODUCT, safeMode: options.safeMode ?? false});
+            running = prepared;
+            releases.push(prepared);
             diagnostics.push(...prepared.diagnostics);
             self.startup = prepared.startup;
             self.inventory = make(prepared.startup, options.productVersion);
@@ -117,7 +125,14 @@ describe("安装与列表（输出 1、2、9）", () => {
         expect(itemOf(listed, "nbook.settings")).toEqual({id: "nbook.settings", version: PRODUCT, source: "builtin", state: "enabled", pending: [], notLoaded: null});
 
         const startup = await w.restart();
-        expect(startup.plugins).toEqual([{id: "example.hello", version: "1.0.0", state: "enabled", notLoaded: null, descriptor: {id: "example.hello", version: "1.0.0", locations: [], contributions: manifest().contributes as never}}]);
+        expect(startup.plugins).toEqual([{
+            id: "example.hello",
+            version: "1.0.0",
+            state: "enabled",
+            notLoaded: null,
+            descriptor: {id: "example.hello", version: "1.0.0", locations: [], contributions: manifest().contributes as never},
+            installed: {id: "example.hello", version: "1.0.0", root: join(w.root, "example.hello", "1.0.0"), digest: expect.stringMatching(/^[0-9a-f]{16}$/u), manifest: manifest()},
+        }]);
         expect(itemOf(await w.inventory.list(), "example.hello")?.pending).toEqual([]);
     });
 
@@ -279,7 +294,7 @@ describe("升级（输出 8、场景 12、16）", () => {
         await w.inventory.setEnabled("example.hello", false);
         await w.inventory.install(await w.source("v2", manifest("2.0.0")));
         const startup = await w.restart();
-        expect(startup.plugins).toEqual([{id: "example.hello", version: "2.0.0", state: "disabled", descriptor: null, notLoaded: null}]);
+        expect(startup.plugins).toEqual([{id: "example.hello", version: "2.0.0", state: "disabled", descriptor: null, installed: null, notLoaded: null}]);
     });
 });
 
@@ -355,7 +370,7 @@ describe("启动时的登记（输出 6、7）与回收（提交点表）", () =
         const release = await lock(held, {realpath: false, lockfilePath: held});
         try {
             await w.restart();
-            expect(await namesIn(w.root)).toEqual([".staging", "example.hello", "plugins.json"]);
+            expect(await namesIn(w.root)).toEqual([".pins", ".staging", "example.hello", "plugins.json"]);
             expect(await namesIn(join(w.root, "example.hello"))).toEqual(["1.0.0"]);
             expect(await namesIn(join(w.root, ".staging"))).toEqual(["preparing", "preparing.lock"]);
         } finally {
@@ -420,7 +435,7 @@ describe("同一状态根上的两个服务端进程（场景 15）", () => {
         await mine.install(await w.source("v2", manifest("2.0.0")));
         await mine.uninstall("example.other");
         // 另一个服务端在同一状态根上启动：消费掉待切换版本与卸载记录。
-        await prepareInstalledPlugins({root: w.root, productVersion: PRODUCT, safeMode: false});
+        releases.push(await prepareInstalledPlugins({root: w.root, productVersion: PRODUCT, safeMode: false}));
         expect(await w.record()).toMatchObject({plugins: {"example.hello": {version: "2.0.0", pendingVersion: null}}});
         const listed = await mine.list();
         expect(itemOf(listed, "example.hello")).toMatchObject({version: "1.0.0", pending: [{kind: "upgrade", version: "2.0.0"}]});
@@ -443,4 +458,32 @@ describe("同一状态根上的两个服务端进程（场景 15）", () => {
         for (const output of outputs) expect(output, output.err).toMatchObject({code: 0, out: expect.stringContaining("\"ok\":true")});
         expect(Object.keys(((await w.record()) as {plugins: Record<string, unknown>}).plugins).sort()).toEqual(["example.alpha", "example.beta"]);
     });
+
+    it("版本租约：另一个服务端启动时切换版本、移除卸载记录，但本服务端在用的版本目录留到它退出之后才回收", async () => {
+        const w = await world();
+        await w.inventory.install(await w.source("v1", manifest("1.0.0"), {"web.js": "v1"}));
+        await w.inventory.install(await w.source("other", {...manifest(), name: "other"}, {"web.js": "o"}));
+        await w.restart();
+        await w.inventory.install(await w.source("v2", manifest("2.0.0"), {"web.js": "v2"}));
+        await w.inventory.uninstall("example.other");
+        const second = async (): Promise<string[]> => {
+            const child = Bun.spawn({cmd: [process.execPath, join(import.meta.dir, "testing", "prepare-child.ts"), w.root], stdout: "pipe", stderr: "pipe"});
+            const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+            expect(code, err).toBe(0);
+            return JSON.parse(out) as string[];
+        };
+
+        // 另一个服务端（真实子进程）启动：登记表切到 2.0.0、移除 other；本服务端还租着 1.0.0 与 other，文件都在。
+        expect(await second()).toEqual(["example.hello@2.0.0"]);
+        expect(await w.record()).toEqual({schema: "nbook.plugins/v1", plugins: {"example.hello": {version: "2.0.0", pendingVersion: null, state: "enabled", deleteData: false}}});
+        expect(await readFile(join(w.root, "example.hello", "1.0.0", "web.js"), "utf8")).toBe("v1");
+        expect(await readFile(join(w.root, "example.other", "1.0.0", "web.js"), "utf8")).toBe("o");
+
+        // 本服务端退出（放下租约）后，下一次启动才回收。
+        await w.restart();
+        expect(await namesIn(join(w.root, "example.hello"))).toEqual(["2.0.0"]);
+        expect(await exists(join(w.root, "example.other"))).toBe(false);
+        expect(await namesIn(join(w.root, ".pins"))).toHaveLength(2);
+    });
 });
+

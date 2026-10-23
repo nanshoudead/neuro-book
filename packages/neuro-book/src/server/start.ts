@@ -22,7 +22,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote";
 
 import {createPluginInventory, pluginInventoryKey} from "nbook/backend/plugins/inventory";
-import {loadedDescriptors, NO_INSTALLED_PLUGINS} from "nbook/backend/plugins/startup";
+import {installedPlugins, loadedDescriptors, NO_INSTALLED_PLUGINS} from "nbook/backend/plugins/startup";
 import type {PreparedPlugins} from "nbook/backend/plugins/startup";
 import {productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
@@ -231,7 +231,7 @@ export function startServer(options: StartServerOptions): RunningServer {
 
     const builtinManifest = options.manifest ?? productPlugins;
     // 第三方插件集合在启动前已确定，进程生命期内不变（docs/specs/runtime/plugin-install.md）。
-    const installed = options.installed ?? {startup: NO_INSTALLED_PLUGINS, diagnostics: []};
+    const installed = options.installed ?? {startup: NO_INSTALLED_PLUGINS, diagnostics: [], release: async () => undefined};
     for (const record of installed.diagnostics) store.record(record);
     const thirdParty = loadedDescriptors(installed.startup);
     const thirdPartyIds = new Set(thirdParty.map((plugin) => plugin.id));
@@ -239,6 +239,7 @@ export function startServer(options: StartServerOptions): RunningServer {
         config,
         manifest: builtinManifest,
         thirdParty,
+        installed: installedPlugins(installed.startup),
         store,
         admission,
         onListening: (address) => {
@@ -367,7 +368,7 @@ export function startServer(options: StartServerOptions): RunningServer {
         env: options.projectEnv,
         output: options.projectOutput,
         record: (record) => void store.record(record),
-        thirdParty,
+        thirdParty: installedPlugins(installed.startup),
     });
     projects = projectManager;
     projectsReady.resolve(projectManager);

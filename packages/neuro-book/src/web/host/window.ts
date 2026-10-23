@@ -13,6 +13,7 @@ import type {StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsStore, mechanismObservers, recordingEmergency} from "@notnotype/nb-runtime/diagnostics";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
+import {descriptorOf, readPluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import {Value} from "typebox/value";
@@ -28,7 +29,7 @@ import type {RescuedText, WindowRescue} from "nbook/shared/host";
 import type {WindowConnection, WindowConnectionState, WindowNavigation} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import type {WindowProject} from "nbook/shared/projects";
-import {pluginVersionSatisfies} from "nbook/shared/versions";
+import {npmVersions, pluginVersionSatisfies} from "nbook/shared/versions";
 
 import {browserHostPlugins, browserPluginDefinitions, builtinBrowserPlugins, isBrowserHostPlugin} from "../plugins";
 import type {BrowserHostPluginFactory, BrowserHostPluginId, BrowserPluginContext} from "../plugins";
@@ -319,9 +320,13 @@ function selectPlugins(
         if (local === undefined) {
             // 内置插件的 id 以 `nbook.` 开头：本页面没有它，说明外壳与服务端不是同一次构建，刷新即可对齐。
             if (plugin.id.startsWith("nbook.")) throw new BootstrapRejected("incompatible", `本页面没有服务端启用的浏览器插件 ${plugin.id}@${plugin.version}`);
-            // 第三方插件不在构建里：按引导带来的描述登记它的顶层声明（`thirdPartyDefinition`）。
-            const descriptor: PluginDescriptor = {id: plugin.id, version: plugin.version, locations: plugin.locations ?? [], contributions: plugin.contributions ?? []};
-            selected.push({id: plugin.id, kind: "definition", definition: thirdPartyDefinition(descriptor), thirdParty: true});
+            // 第三方插件不在构建里：按引导带来的清单登记它的顶层声明（`thirdPartyDefinition`）。清单服务端已校验过，这里用同一个
+            // `readPluginManifest` 再读一遍，读不过说明外壳与服务端不是同一次构建。
+            const read = readPluginManifest(plugin.manifest, {versions: npmVersions});
+            if (read.status !== "valid" || read.manifest.id !== plugin.id || read.manifest.version !== plugin.version) {
+                throw new BootstrapRejected("incompatible", `服务端给的第三方插件 ${plugin.id}@${plugin.version} 的清单本页面读不了`);
+            }
+            selected.push({id: plugin.id, kind: "definition", definition: thirdPartyDefinition(descriptorOf(read.manifest)), thirdParty: true});
             continue;
         }
         if (local.version !== plugin.version) {
