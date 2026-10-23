@@ -7,8 +7,7 @@
 import type {AnyExtension} from "@tiptap/core";
 import {Placeholder} from "@tiptap/extension-placeholder";
 
-import type {MarkdownLanguage} from "@notnotype/nb-markdown/language";
-
+import type {MarkdownLanguage} from "../language/language";
 import {MarkdownImageViews} from "./image-views";
 import {MarkdownInlineCodeShortcut} from "./inline-code-shortcut";
 import {MarkdownReferenceLinks} from "./reference-links";

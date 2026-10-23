@@ -5,17 +5,17 @@ import {EditorState, Selection, TextSelection} from "@tiptap/pm/state";
 import type {Transaction} from "@tiptap/pm/state";
 import {inject, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 
+import "@notnotype/nb-markdown/markdown.css";
+
+import {createMarkdownEditorExtensions, REFRESH_REFERENCE_LINKS} from "@notnotype/nb-markdown/editor";
+import type {MarkdownViewHost} from "@notnotype/nb-markdown/editor";
 import {codecFor} from "@notnotype/nb-markdown/language";
 import type {MarkdownCodec, MarkdownLanguage, SourceMap} from "@notnotype/nb-markdown/language";
-import "@notnotype/nb-markdown/markdown.css";
 
 import type {EditorControlHandle, EditorOutline, TextEditorBinding, ViewStateSlot} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlEmits} from "nbook/plugins/editor/web/control";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
-import {createMarkdownEditorExtensions} from "../editor/markdown-editor-extensions";
-import {REFRESH_REFERENCE_LINKS} from "../editor/reference-links";
-import type {MarkdownViewHost} from "../editor/view-host";
 import {NBOOK_IMAGE_MISSING, nbookChips} from "../host";
 import {languageFor} from "../language-registry";
 import {markdownAssetsKey} from "../parts/asset-urls";

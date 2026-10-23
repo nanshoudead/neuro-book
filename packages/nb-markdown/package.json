@@ -13,6 +13,7 @@
         "./chip": "./src/chip/index.ts",
         "./display": "./src/display/index.ts",
         "./prompt": "./src/prompt/index.ts",
+        "./editor": "./src/editor/index.ts",
         "./markdown.css": "./src/display/markdown.css",
         "./lab-sources": "./src/lab/index.ts",
         "./tailwind.css": "./src/tailwind.css"

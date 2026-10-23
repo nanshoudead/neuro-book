@@ -11,10 +11,10 @@ import {afterEach, describe, expect, it} from "vitest";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {MarkdownDisplay} from "@notnotype/nb-markdown/display";
 import type {ResolveAsset} from "@notnotype/nb-markdown/display";
+import {createMarkdownEditorExtensions} from "@notnotype/nb-markdown/editor";
 import {markdownHostKey} from "@notnotype/nb-markdown/host";
 import {codecFor, defaultMarkdownLanguage as markdownLanguage} from "@notnotype/nb-markdown/language";
 
-import {createMarkdownEditorExtensions} from "../editor/markdown-editor-extensions";
 import {nbookChips, nbookMarkdownHost} from "../host";
 import {languageFor} from "../language-registry";
 import {SyntaxCatalog} from "../syntax-catalog";

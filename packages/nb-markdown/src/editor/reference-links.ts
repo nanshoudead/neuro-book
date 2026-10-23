@@ -1,9 +1,9 @@
 /**
- * 编辑器里指向作品里文件的链接画成引用小块（docs/specs/workspace/markdown-dialect.md 输出 27；外观见 nb-markdown 的 `chip/InlineChip.md`）：
+ * 编辑器里指向作品里文件的链接画成引用小块（docs/specs/workspace/markdown-dialect.md 输出 27；外观见 `../chip/InlineChip.md`）：
  * 文字仍是链接本身，照常可编辑、写回不变，外框与图标是装饰。
  *
  * 一个链接按“同一个链接标记的连续范围”算：批注只盖住链接的一部分时，它在 DOM 里被拆成几段元素，范围仍是一个，外框只在两端
- * 收口（nb-markdown `chip/chip.css` 的 `nb-chip-link`），图标只在开头一个。
+ * 收口（`../chip/chip.css` 的 `nb-chip-link`），图标只在开头一个。
  */
 
 import {Extension} from "@tiptap/core";
@@ -11,9 +11,8 @@ import type {Mark, Node as PMNode} from "@tiptap/pm/model";
 import {Plugin, PluginKey} from "@tiptap/pm/state";
 import {Decoration, DecorationSet} from "@tiptap/pm/view";
 
-import {showsAsChip} from "@notnotype/nb-markdown";
-import {chipView, renderChipIcon} from "@notnotype/nb-markdown/chip";
-
+import {chipView, renderChipIcon} from "../chip/chip";
+import {showsAsChip} from "../targets";
 import type {MarkdownViewHost} from "./view-host";
 
 const KEY = new PluginKey<DecorationSet>("nb-reference-links");

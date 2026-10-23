@@ -1,5 +1,5 @@
 /**
- * 编辑器里的图片（docs/specs/workspace/markdown-dialect.md 输出 18；外观见 nb-markdown 的 `display/MarkdownImage.md`）：节点视图是普通 DOM，
+ * 编辑器里的图片（docs/specs/workspace/markdown-dialect.md 输出 18；外观见 `../display/MarkdownImage.md`）：节点视图是普通 DOM，
  * 用 Vue 的 `render()` 把 `MarkdownImage` 挂进去。控件用的是 `@tiptap/core` 的编辑器、没有 `EditorContent`，Tiptap 的 Vue
  * 节点视图挂不上，所以不用它。
  *
@@ -12,9 +12,8 @@ import {Plugin} from "@tiptap/pm/state";
 import type {EditorView, NodeView} from "@tiptap/pm/view";
 import {h, render} from "vue";
 
-import {MarkdownImage} from "@notnotype/nb-markdown/display";
-import type {ResolveAsset} from "@notnotype/nb-markdown/display";
-
+import MarkdownImage from "../display/MarkdownImage.vue";
+import type {ResolveAsset} from "../display/MarkdownImage.vue";
 import type {MarkdownViewHost} from "./view-host";
 
 function imageView(initial: PMNode, view: EditorView, host: MarkdownViewHost): NodeView {
