@@ -183,3 +183,11 @@ export function classifyScheme(target: string): Target;   // 缺省规则
 ## 设计审查
 
 2026-10-23 Claude Sonnet 审第一版：重要 7、建议 5，全部成立并改进了计划（宿主接线移到懒加载的 `.vue`、六个服务组件都过宿主、小块的四条路径、`variant` 保住 work 与 user、测试归属与接线测试、Lab 的 `lab-sources`、`./language` 的导出清单等）。逐条处理与报告原文见 [evidences/design-review.txt](evidences/design-review.txt)。
+
+## 实施中的调整
+
+- **宿主不带语言**：`MarkdownHost.language` 改为可选，缺省语言由展示器自己取（`defaultMarkdownLanguage()`）。这样 `./host` 不引语言，按需加载的小块与 PromptEditor 不因宿主变重。nbook 的 `MarkdownHosted.vue` 只给展示器语言：展示器的加载连同 `language-registry` 一起等，挂上时模块已在。
+- **加载失败的回退在 `MarkdownHosted.vue` 里**：包组件的代码在它里面按需加载，加载失败时它记 `markdown.component.load-failed`、展示器按纯文字显示原文；插件的 `withHost` 只管 `MarkdownHosted` 自己的加载。
+- **测试**：`MarkdownDisplay.dom.test.ts` 整份留在 nbook，经 nbook 的宿主挂组件（场景 3 改引包的 `./editor`，不再搬）；包里另写一份不提供宿主、宿主换语言、组不成语言的测试。接线测试是 `MarkdownHosted.dom.test.ts`（直接挂 `MarkdownHosted`，祖先给方言目录与诊断，与 `withHost` 一样），没有经插件实例取 `markdownKey`；不包宿主时它的断言全部失败（变异检查过）。`MarkdownControl` 的接线由它自己的测试与 `editor-area.e2e.ts` 覆盖。
+- **Lab**：直接挂 PromptTextView 的场景经 `fixtures/markdown-host.ts` 包一层 nbook 的宿主；PromptEditor、MarkdownDisplay 的场景在夹具里 `provideMarkdownHost`。
+- **编辑器的图片地址服务**：`MarkdownViewHost.assets` 改为包里的接口 `MarkdownViewAssets`（`resolve`、`onChange`），nbook 的 `AssetUrls` 结构上满足它。
