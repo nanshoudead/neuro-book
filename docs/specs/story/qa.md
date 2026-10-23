@@ -62,7 +62,7 @@ type QaConfig = {
         baseUrl: string;            // OpenAI 兼容的服务地址
         id: string;                 // 模型名
         apiKeyEnv: string;          // 存密钥的环境变量名；密钥本身不写进配置
-        api?: "chat" | "responses"; // 接口：不写是 Chat Completions；Responses 时请求要思考摘要（见输出 36）
+        api?: "chat" | "responses"; // 接口：不写是 Chat Completions；Responses 且写了推理档时请求要思考摘要（见输出 36）
         contextWindow?: number;
         maxTokens?: number;
         thinking?: "low" | "medium" | "high" | "xhigh"; // 原样作为推理档发给端点；不写时请求不带推理档，由服务端的默认档决定
@@ -186,7 +186,7 @@ type QaConfig = {
     - `config.set {config, expect}`：整份写入，`expect` 是读取时的摘要（`absent` 表示只新建），按输出 20 校验与比对；校验不过是 `invalid_params`（说明不带原值），摘要对不上是 `config_conflict`。
     - `config.test`：用保存下来的配置按输出 21 发一个最小请求，最多等 60 秒；结果给模型名、推理档、用时与失败的归类和说明（已遮盖），不给模型回的正文。
 
-36. **接口与思考内容。** 问答模型的 `api` 不写或写 `chat` 时走 Chat Completions；写 `responses` 时走 Responses，请求带推理档（配置写了时）并要思考摘要。`ask`、网页的一轮与 `test` 都走配置的接口。模型回的思考内容（Responses 的思考摘要，或 Chat Completions 服务回的 `reasoning_content`）作为思考写进会话日志，网页的过程里显示；GPT 系列经 Chat Completions 不回思考内容，过程里就没有思考。抽取的模型不受这一项影响。
+36. **接口与思考内容。** 问答模型的 `api` 不写或写 `chat` 时走 Chat Completions；写 `responses` 时走 Responses，配置写了推理档时请求带推理档并要思考摘要；没写推理档时不要摘要，过程里没有思考（`config show` 写明）。同一个对话中途换了接口时，之前几轮的思考按文字交给模型。`ask`、网页的一轮与 `test` 都走配置的接口。模型回的思考内容（Responses 的思考摘要，或 Chat Completions 服务回的 `reasoning_content`）作为思考写进会话日志，网页的过程里显示；GPT 系列经 Chat Completions 不回思考内容，过程里就没有思考。抽取的模型不受这一项影响。
 37. **问题里的引用。** 问题里可以带 `[名称](entity://<对象 id>)`、`[章.段](paragraph://章.段)`、`[第 N 章](chapter://N)` 三种引用（网页的 `@` 菜单插入它们，命令行可以照样手写），原样交给模型；问答规则（Profile 版本 3）告诉模型：对象的引用按 id 查（查询工具的 `entity`、`perspective` 直接写这个 id），段与章的引用要看原文时按它读，答案里的出处照常写“章.段”。引用不改变防剧透与出处校验：晚于 P 的段照样读不到、不能引用。Profile 版本 2 时开的对话续问得到 F8 `qa_not_continuable`（输出 26），照常可以查看。
 
 ## 状态与转换
@@ -277,7 +277,7 @@ type QaConfig = {
 20. **网页的删除与停服（确定性）。** 首轮运行中 `qa.remove`：成功，列表里没有它，磁盘上没有它的文件，再删得到 `qa_record_not_found`。运行中删书：这一轮先停下保存，书再删掉。损坏的记录在 `qa.list` 里单列，可以删除。运行中向 `serve` 发 SIGTERM 或 SIGINT：这一轮保存为中断、登记撤销、退出码 0。
 21. **网页的全读与积压（确定性）。** 全读对话：`qa.get`、快照与日志帧里都没有原文、有问题与段数，存下的会话日志带原文。一个不读的推送连接积压超过上限被断开，同时另一个订阅者照常收到。
 22. **设置页的配置接口（确定性）。** 没有文件：`config.get` 给起始配置与 `absent`；`config.set` 带 `absent` 新建，再带 `absent` 得到 `config_conflict`；贴进密钥的变量名得到 `invalid_params`，说明与文件里都没有它；文件坏了只给原因、可以整份覆盖；`config.test` 通过时给模型名，401 时失败且没有密钥。并发写入（带摘要与不带摘要）都不交错，摘要对不上的那一个报冲突。
-23. **Responses 接口（确定性）。** `api` 设为 `responses`、推理档 `xhigh`：本机端点收到的两次请求都是 Responses 的形状，带 `reasoning: {effort: "xhigh", summary: "auto"}`；端点回的思考摘要按顺序作为思考写进会话日志，这一问照常交卷。`config set model.api responses` 后 `show` 写“接口：Responses”，写别的值不写盘。网页里一轮的思考在过程里逐步显示。
+23. **Responses 接口（确定性）。** `api` 设为 `responses`、推理档 `xhigh`：本机端点收到的两次请求都是 Responses 的形状，带 `reasoning: {effort: "xhigh", summary: "auto"}`；端点回的思考摘要按顺序作为思考写进会话日志，这一问照常交卷。`config set model.api responses` 后，没写推理档时 `show` 写“接口：Responses（没写推理档，不要思考摘要）”；写别的值是用法错误（退出 2），不写盘。网页里一轮的思考在过程里逐步显示。
 24. **问题里的引用（确定性）。** 问题写 `[地狱猫](entity://<南嘉鱼的 id>) 在 [37.8](paragraph://37.8) 做了什么？`：模型第一次请求里有这句原样的问题与读引用的规则；模型用这个 id 调 `card`，得到南嘉鱼的人物卡而不是查询失败。
 
 Smoke：在真实书库上用 100 章样例书与真实模型跑 `nbstory ask` 一问（图当目录），答案带出处、记录可以用 `nbstory qa` 列出与显示；网页问答页里问一题、追问一题、中途停止一次、刷新后接上；接口设为 Responses 时过程里有思考摘要。
