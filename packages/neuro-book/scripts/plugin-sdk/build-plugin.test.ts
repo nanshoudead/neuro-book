@@ -84,14 +84,15 @@ async function registeredFactory(code: string): Promise<(module: {exports: Recor
         head: {
             append(node) {
                 const script = node as PluginScript;
-                setTimeout(() => {
+                const execute = (): void => {
                     try {
                         new Function("document", code)({currentScript: script});
                     } catch (error) {
                         for (const listener of [...errorListeners]) listener({filename: script.src, message: error instanceof Error ? error.message : String(error)});
                     }
                     script.onload?.();
-                }, 0);
+                };
+                setTimeout(execute, 0);
             },
         },
         defaultView: {
