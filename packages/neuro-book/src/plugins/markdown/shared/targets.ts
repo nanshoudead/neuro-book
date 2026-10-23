@@ -3,6 +3,8 @@
  * 哪个文件。编辑器、展示器与 Composer 都按这里判断显示成什么；写回的地址不变，这里只读。
  */
 
+import {classifyScheme, decodeTarget, lastSegment, pathPart, schemeOf} from "@notnotype/nb-markdown";
+
 import {parseResource} from "nbook/plugins/files/shared/contracts";
 
 /** `work` 作品里的文件；`user` 用户资产；`attachment` Composer 的会话附件；`external` 外部链接；`other` 别的方案与解析不了的。 */
@@ -15,23 +17,6 @@ export interface Target {
     /** 显示与取图标用的文件名：路径的最后一段（解码后）；没有路径时为空字符串。 */
     readonly name: string;
 }
-
-const SCHEME = /^([A-Za-z][A-Za-z0-9+.-]*):/u;
-const EXTERNAL = new Set(["http", "https", "mailto"]);
-
-/** Markdown 链接的地址可能是百分号编码的（`%20`）；解不开的按原样。 */
-function decoded(text: string): string {
-    try {
-        return decodeURIComponent(text);
-    } catch {
-        return text;
-    }
-}
-
-/** 去掉 `?查询` 与 `#片段`：它们不是文件的一部分。 */
-const pathPart = (target: string): string => target.replace(/[?#].*$/su, "");
-
-const lastSegment = (path: string): string => decoded(path.split("/").filter((segment) => segment !== "").at(-1) ?? "");
 
 /** 按 `/` 拼出的段解析 `.` 与 `..`；越出根时为 null。 */
 function normalized(segments: ReadonlyArray<string>): string | null {
@@ -55,22 +40,21 @@ function resource(scheme: "project" | "user", path: string | null): string | nul
     return parseResource(address).ok ? address : null;
 }
 
-/** 这一类目标的链接显示成引用小块：外部链接是普通链接，别的都是小块（输出 27；“其它”不带文件图标）。 */
-export const showsAsChip = (kind: TargetKind): boolean => kind !== "external";
 
 /**
  * 归类并解析一个目标。`base` 是目标所在文件的地址（编辑器里的文档）；没有所在文件时（Composer、展示器）为 null，这时以 `/`
  * 开头的按作品根解析，相对地址无从解析，归为 `other`。
  */
 export function classifyTarget(target: string, base: string | null): Target {
-    const scheme = SCHEME.exec(target)?.[1]?.toLowerCase();
+    const scheme = schemeOf(target);
     const path = pathPart(target);
     if (scheme !== undefined) {
-        if (EXTERNAL.has(scheme)) return {kind: "external", address: null, name: ""};
+        // 外部链接按包的缺省规则判，两个宿主下同一个链接分类一致；文件与附件的方案是 NeuroBook 的。
+        if (classifyScheme(target).kind === "external") return {kind: "external", address: null, name: ""};
         if (scheme === "local") return {kind: "attachment", address: null, name: lastSegment(path.slice("local://".length))};
         if (scheme === "project" || scheme === "user") {
             const rest = path.slice(`${scheme}://`.length);
-            return {kind: scheme === "project" ? "work" : "user", address: resource(scheme, normalized(decoded(rest).split("/"))), name: lastSegment(rest)};
+            return {kind: scheme === "project" ? "work" : "user", address: resource(scheme, normalized(decodeTarget(rest).split("/"))), name: lastSegment(rest)};
         }
         return {kind: "other", address: null, name: ""};
     }
@@ -78,7 +62,7 @@ export function classifyTarget(target: string, base: string | null): Target {
     const baseResource = base === null ? null : parseResource(base);
     const root: "project" | "user" = baseResource?.ok === true && baseResource.resource.scheme === "user" ? "user" : "project";
     const kind: TargetKind = root === "user" ? "user" : "work";
-    const segments = decoded(path).split("/");
+    const segments = decodeTarget(path).split("/");
     if (path.startsWith("/")) return {kind, address: resource(root, normalized(segments)), name: lastSegment(path)};
     if (baseResource?.ok !== true) return {kind: "other", address: null, name: lastSegment(path)};
     const directory = baseResource.resource.path.split("/").slice(0, -1);
@@ -90,7 +74,7 @@ export function classifyTarget(target: string, base: string | null): Target {
  * 解码）仍是同一个文件。别的方案（外部链接）原样：那里的 `#`、`?` 本来就是片段与查询。
  */
 export function encodeFileTarget(target: string): string {
-    const scheme = SCHEME.exec(target)?.[1]?.toLowerCase();
+    const scheme = schemeOf(target);
     if (scheme !== undefined && scheme !== "project" && scheme !== "user") return target;
     const prefix = scheme === undefined ? "" : `${scheme}://`;
     const path = target.slice(prefix.length === 0 ? 0 : target.indexOf("://") + 3);

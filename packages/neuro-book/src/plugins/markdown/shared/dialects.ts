@@ -55,8 +55,9 @@ export function validateSyntaxContribution(descriptor: ContributionDescriptor): 
 }
 
 /**
- * 内置方言（输出 1）：声明投到 `markdown.dialects`，实现由 `nbook.markdown` 直接持有（`web/syntax/index.ts`）。顺序与标签名
- * 与各语法模块一致（`web/codec/word-count.test.ts` 核对）。核心语法不是方言，排在全部方言之后。
+ * 内置方言（输出 1）：声明投到 `markdown.dialects`，实现是 nb-markdown 的内置语法模块，由 `nbook.markdown` 直接持有、不经
+ * 贡献点（`web/builtin-syntaxes.ts`）。`order` 与标签名与各语法模块一致（`web/word-count.test.ts` 核对）。核心语法不是方言，
+ * 排在全部方言之后。
  */
 export const BUILTIN_DIALECTS: Readonly<Record<string, DialectDeclaration>> = {
     "nbook.markdown.comment": {order: 10, blockTags: ["comment"], inlineTags: ["comment", "inline-comment"]},

@@ -8,7 +8,7 @@
  *
  * 浏览器与项目进程都用这个算法，不能依赖编辑器的编解码器：扫描只按行与标签判断，原样内容的判据从 `markdown-dialect.ts` 取，
  * 方言标签按声明表（`dialectTable`，docs/specs/workspace/markdown-syntaxes.md 输出 9）。它与编解码器读出的正文是否一致，由
- * `web/codec/word-count.test.ts` 对照编辑器的语料核对；已知的偏差写在方言 Spec。
+ * `web/word-count.test.ts` 对照 nb-markdown 编解码器的语料核对；已知的偏差写在方言 Spec。
  */
 
 import {decodeHTMLStrict} from "entities";
@@ -22,7 +22,7 @@ import {
     OPENS_HTML_BLOCK,
     READABLE_INLINE_HTML,
     VOID_HTML_TAGS,
-} from "./markdown-dialect";
+} from "@notnotype/nb-markdown";
 
 const BOM = /^﻿/u;
 const FRONTMATTER = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/u;
@@ -79,7 +79,7 @@ export function countWords(text: string, table: DialectTable): number {
 const CONTAINER = /^(?:[ \t]*>|[ \t]*(?:[-*+]|\d{1,9}[.)])(?=[ \t]|$))*[ \t]*/u;
 const FENCE = /^(`{3,}(?=[^`]*$)|~{3,})/u;
 const HEADING = /^#{1,6}(?:[ \t]|$)/u;
-/** 可渲染 HTML 的开闭行（与编辑器的 `syntax/html-embed` 相同：只认不带属性的 `<html>`）。 */
+/** 可渲染 HTML 的开闭行（与 nb-markdown 的 `language/syntax/html-embed` 相同：只认不带属性的 `<html>`）。 */
 const EMBED_OPEN = /^<html>[ \t]*$/iu;
 const EMBED_CLOSE = /^<\/html\s*>[ \t]*$/iu;
 const EMBED_GLUED = /<html>[ \t]*$/iu;
@@ -288,7 +288,7 @@ function findLine(lines: ReadonlyArray<string>, from: number, test: (line: strin
 }
 
 /**
- * 从第 `index` 行开始的 HTML 块（原样块）的最后一行；不是 HTML 块返回 -1。认法与编辑器的 `syntax/raw` 一致：行首是方言之外的
+ * 从第 `index` 行开始的 HTML 块（原样块）的最后一行；不是 HTML 块返回 -1。认法与 nb-markdown 的 `language/syntax/raw` 一致：行首是方言之外的
  * 标签、到配对的闭标签为止的完整片段（可以跨空行）后面紧跟行尾时整体是原样块；否则按 CommonMark 的 HTML 块。
  */
 function htmlBlockEnd(joined: Scanned, lines: ReadonlyArray<string>, offsets: ReadonlyArray<number>, index: number, content: string, blockStart: boolean, table: DialectTable): number {

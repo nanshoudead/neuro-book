@@ -11,13 +11,9 @@ import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.
 import type ExplorerTree from "nbook/plugins/explorer/web/components/ExplorerTree.vue";
 import type FilesExplorerView from "nbook/plugins/explorer/web/components/FilesExplorerView.vue";
 import type FileIcon from "nbook/ui/file-icons/FileIcon.vue";
-import type InlineChip from "nbook/plugins/markdown/web/components/InlineChip.vue";
-import type MarkdownDisplay from "nbook/plugins/markdown/web/components/MarkdownDisplay.vue";
-import type MarkdownImage from "nbook/plugins/markdown/web/components/MarkdownImage.vue";
-import type PromptAttachmentStrip from "nbook/plugins/markdown/web/components/prompt/PromptAttachmentStrip.vue";
-import type PromptEditor from "nbook/plugins/markdown/web/components/prompt/PromptEditor.vue";
-import type PromptPasteFrame from "nbook/plugins/markdown/web/components/prompt/PromptPasteFrame.vue";
-import type PromptTextView from "nbook/plugins/markdown/web/components/prompt/PromptTextView.vue";
+import type {InlineChip} from "@notnotype/nb-markdown/chip";
+import type {MarkdownDisplay, MarkdownImage} from "@notnotype/nb-markdown/display";
+import type {PromptAttachmentStrip, PromptEditor, PromptPasteFrame, PromptTextView} from "@notnotype/nb-markdown/prompt";
 import type BookCard from "nbook/plugins/projects/web/components/BookCard.vue";
 import type WelcomePage from "nbook/plugins/projects/web/components/WelcomePage.vue";
 import type BookCover from "nbook/plugins/projects/web/components/BookCover.vue";
@@ -69,6 +65,7 @@ import type ViewportCanvas from "../components/ViewportCanvas.vue";
 import type {LabInputOf, LabJsonPropOf, LabSlotOf, LabSubjectProps} from "../lab-subject";
 
 import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
+import {withNbookMarkdownHost} from "./markdown-host";
 import {nbAgentUiFixtures} from "./nb-agent-ui";
 import {nbFormFixtures} from "./nb-form";
 import {nbUiFixtures} from "./nb-ui";
@@ -643,7 +640,7 @@ export const labFixtures: LabFixture[] = [
     defineSubjectFixture<typeof PromptTextView>({
         component: "PromptTextView",
         scenes: promptTextViewScenes,
-        subject: () => import("nbook/plugins/markdown/web/components/prompt/PromptTextView.vue"),
+        subject: async () => withNbookMarkdownHost((await import("@notnotype/nb-markdown/prompt")).PromptTextView),
         events: ["token-activate"],
         class: "w-full p-4 text-[13px] leading-[1.6] text-[var(--text-main)]",
         runtimeProps: () => Promise.resolve({resolveThumbnail: (target: string) => PROMPT_LAB_THUMBNAILS[target] ?? null}),
@@ -651,7 +648,7 @@ export const labFixtures: LabFixture[] = [
     defineSubjectFixture<typeof PromptAttachmentStrip>({
         component: "PromptAttachmentStrip",
         scenes: promptAttachmentStripScenes,
-        subject: () => import("nbook/plugins/markdown/web/components/prompt/PromptAttachmentStrip.vue"),
+        subject: async () => ({default: (await import("@notnotype/nb-markdown/prompt")).PromptAttachmentStrip}),
         events: ["activate", "remove", "retry", "hover"],
         writeBack: {hover: {layer: "props", key: "highlighted"}},
         class: "w-full",
@@ -659,7 +656,7 @@ export const labFixtures: LabFixture[] = [
     defineSubjectFixture<typeof PromptPasteFrame>({
         component: "PromptPasteFrame",
         scenes: promptPasteFrameScenes,
-        subject: () => import("nbook/plugins/markdown/web/components/prompt/PromptPasteFrame.vue"),
+        subject: async () => ({default: (await import("@notnotype/nb-markdown/prompt")).PromptPasteFrame}),
         events: ["hover"],
         class: "w-full",
     }),

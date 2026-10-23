@@ -1,12 +1,13 @@
 /**
  * Lab 组件索引的扫描：共享前端组件（`src/ui/`）、各插件的界面组件（`src/plugins/<插件>/web/components/`）、
- * nb-ui 的组件与 nb-form 渲染层的组件（经它们的公开入口 `lab-sources`），文档与组件同名并列。扫描结果换成逻辑路径
- * （`ui/…`、`<插件>/…`、`nb-ui/<分类>/…`、`nb-form/…`）交给 `buildLabIndex`；新插件的组件放进约定目录就会出现在
+ * nb-ui、nb-form、nb-agent-ui 与 nb-markdown 的组件（经它们的公开入口 `lab-sources`），文档与组件同名并列。扫描结果换成
+ * 逻辑路径（`ui/…`、`<插件>/…`、`nb-ui/<分类>/…`、`nb-form/…`、`nb-markdown/…`）交给 `buildLabIndex`；新插件的组件放进约定目录就会出现在
  * Lab 里，不用登记。
  */
 
 import {nbAgentUiComponentDocs, nbAgentUiComponentModules} from "@notnotype/nb-agent-ui/lab-sources";
 import {nbFormComponentDocs, nbFormComponentModules} from "@notnotype/nb-form/lab-sources";
+import {nbMarkdownComponentDocs, nbMarkdownComponentModules} from "@notnotype/nb-markdown/lab-sources";
 import {nbUiComponentDocs, nbUiComponentModules} from "@notnotype/nb-ui/lab-sources";
 
 import {buildLabIndex} from "./component-index-model";
@@ -37,11 +38,12 @@ const prefixed = (prefix: string) => <T>(entries: Readonly<Record<string, T>>): 
 const nbUi = prefixed("nb-ui");
 const nbForm = prefixed("nb-form");
 const nbAgentUi = prefixed("nb-agent-ui");
+const nbMarkdown = prefixed("nb-markdown");
 
 export const labComponents: LabComponentEntry[] = buildLabIndex(
     {
-        docs: {...rekey(sharedDocs), ...rekey(pluginDocs), ...nbUi(nbUiComponentDocs), ...nbForm(nbFormComponentDocs), ...nbAgentUi(nbAgentUiComponentDocs)},
-        modules: new Set(Object.keys({...rekey(sharedModules), ...rekey(pluginModules), ...nbUi(nbUiComponentModules), ...nbForm(nbFormComponentModules), ...nbAgentUi(nbAgentUiComponentModules)})),
+        docs: {...rekey(sharedDocs), ...rekey(pluginDocs), ...nbUi(nbUiComponentDocs), ...nbForm(nbFormComponentDocs), ...nbAgentUi(nbAgentUiComponentDocs), ...nbMarkdown(nbMarkdownComponentDocs)},
+        modules: new Set(Object.keys({...rekey(sharedModules), ...rekey(pluginModules), ...nbUi(nbUiComponentModules), ...nbForm(nbFormComponentModules), ...nbAgentUi(nbAgentUiComponentModules), ...nbMarkdown(nbMarkdownComponentModules)})),
     },
     (message) => console.warn(`[component-lab] ${message}`),
 );

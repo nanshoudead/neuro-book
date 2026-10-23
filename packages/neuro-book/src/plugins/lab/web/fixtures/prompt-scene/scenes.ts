@@ -4,10 +4,7 @@
  * 地址（开发者 2026-10-16 的决定 6）；保留一条旧应用的领域地址，看它按“其它”显示。
  */
 
-import type PromptAttachmentStrip from "nbook/plugins/markdown/web/components/prompt/PromptAttachmentStrip.vue";
-import type PromptEditor from "nbook/plugins/markdown/web/components/prompt/PromptEditor.vue";
-import type PromptPasteFrame from "nbook/plugins/markdown/web/components/prompt/PromptPasteFrame.vue";
-import type PromptTextView from "nbook/plugins/markdown/web/components/prompt/PromptTextView.vue";
+import type {PromptAttachmentStrip, PromptEditor, PromptPasteFrame, PromptTextView} from "@notnotype/nb-markdown/prompt";
 
 import type {LabInputOf} from "../../lab-subject";
 

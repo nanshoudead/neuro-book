@@ -3,9 +3,9 @@
  * 只放类型；运行时的贡献点 id 与声明校验在 `../shared/contracts.ts`。
  */
 
-import type {MarkdownSyntax} from "./syntax/types";
+import type {MarkdownSyntax} from "@notnotype/nb-markdown/language/types";
 
-export type {MarkdownSyntax} from "./syntax/types";
+export type {MarkdownSyntax} from "@notnotype/nb-markdown/language/types";
 
 /** `markdown.syntaxes` 的实现：交付后由 `nbook.markdown` 调用一次 `load()`。 */
 export interface MarkdownSyntaxImplementation {

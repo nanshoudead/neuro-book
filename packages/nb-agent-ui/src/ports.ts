@@ -1,7 +1,7 @@
 /**
  * 宿主注入的渲染组件要满足的形状：提示词编辑器、已发送文字的静态显示、Markdown 显示。本包不引用宿主源码，这里按结构
- * 写出本包实际用到的属性、事件与外露方法，宿主的组件与它结构兼容即可。neuro-book 由 `nbook.markdown` 注入，那边有
- * 一份类型断言对照它的 `.vue` 源组件（`src/plugins/markdown/web/prompt-ports.typecheck.ts`）。
+ * 写出本包实际用到的属性、事件与外露方法，宿主的组件与它结构兼容即可。真实的组件在 nb-markdown，那边有
+ * 一份类型断言对照它的 `.vue` 源组件（`packages/nb-markdown/src/prompt/agent-ports.typecheck.ts`）。
  *
  * 属性写成组件 `$props` 的形状，事件写成 `onX` 处理函数，这样“端口属性能赋给组件的 `$props`”就同时核对了属性、事件名
  * 与参数。文字写法（标签、附件、粘贴块怎样写进文字）见 docs/specs/ui/prompt-editor.md。

@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import MarkdownImage from "nbook/plugins/markdown/web/components/MarkdownImage.vue";
-import type {ResolveAsset} from "nbook/plugins/markdown/web/components/MarkdownImage.vue";
+import {MarkdownImage} from "@notnotype/nb-markdown/display";
+import type {ResolveAsset} from "@notnotype/nb-markdown/display";
+
+import {NBOOK_IMAGE_MISSING} from "nbook/plugins/markdown/web/host";
 
 import {useLabEventSink} from "../lab-event-sink";
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
@@ -21,6 +23,6 @@ const resolveAsset: ResolveAsset = (src) => {
 
 <template>
     <div class="w-full p-4 text-[17px] leading-[1.95] text-[var(--text-main)]">
-        <MarkdownImage data-lab-subject v-bind="subject.bindings.value" :resolve-asset="resolveAsset" @activate="events('activate')" />
+        <MarkdownImage data-lab-subject v-bind="subject.bindings.value" :resolve-asset="resolveAsset" :missing="NBOOK_IMAGE_MISSING" @activate="events('activate')" />
     </div>
 </template>
