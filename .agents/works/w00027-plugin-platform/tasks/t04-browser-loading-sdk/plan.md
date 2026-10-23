@@ -25,7 +25,7 @@ t03 已经能安装第三方插件、在三个运行位置登记它们的声明�
 |---|---|---|
 | 插件产物构建 | Vite 8 库模式（仓库已有）+ `@vitejs/plugin-vue` | 与宿主同一套工具链，处理 `.vue`、CSS 与 source map；否决 esbuild、`bun build`（不编译 `.vue`） |
 | 构建期执行作者的入口定义（生成清单） | Vite 的 `runnerImport` | 能加载 `.vue`、TS 与作者的别名，与产物构建共享插件配置；否决直接用 Bun 或 Node `import`（`.vue` 静态导入失败、Node 不剥离 `node_modules` 下的 `.ts`） |
-| SDK 的类型产物 | `rolldown-plugin-dts`（Vue 用 `vue-tsc`，仓库已有） | 与 Vite 8 的 Rolldown 同源，按 tsconfig 解析 `nbook/*` 别名，把类型打平成自包含的 `.d.ts`；否决 API Extractor（要先 `tsc` 出声明，不解析路径别名）、手写声明文件（会与实现分叉）。S2b 开头先做一次最小打包确认它处理 `.vue` 的类型，不行再退到“`vue-tsc` 出声明 + `rolldown-plugin-dts` 只打平” |
+| SDK 的类型产物 | `rolldown-plugin-dts` 0.27.14（Vue 用 `vue-tsc`，仓库已有；0.28 起要 rolldown 1.2，Vite 8.1 用的是 1.1，钉在能与它共用的版本） | 与 Vite 8 的 Rolldown 同源，按 tsconfig 解析 `nbook/*` 别名，把类型打平成自包含的 `.d.ts`；否决 API Extractor（要先 `tsc` 出声明，不解析路径别名）、手写声明文件（会与实现分叉）。S2b 开头先做一次最小打包确认它处理 `.vue` 的类型，不行再退到“`vue-tsc` 出声明 + `rolldown-plugin-dts` 只打平” |
 | 插件用到的图标 | `@iconify/utils` 的 `getIconCSS` + `@iconify-json/lucide`（仓库已有） | 与宿主 `@iconify/tailwind4` 同一份图标数据，生成的规则与宿主的类名一致；否决运行时按名取图标（要把整套图标数据发到浏览器） |
 | 版本范围判断 | `semver`（t03 已用） | 应用里只留一个 `satisfies`，内核注入与升级预览都调它 |
 
@@ -72,6 +72,7 @@ SDK 按 plugin-api 的定义“只含类型与少量纯函数，不依赖宿主�
 
   每导出一项都进入 `engines.neurobook` 的兼容范围；导出面由快照测试钉住（下文），增删要显式更新快照。
 - **page 分区的组合助手**：`settingsPageContribution({id, declaration, load, props})` 一次产出贡献声明、激活事件与实现，声明按 `SettingsPageDeclaration` 类型化。原来作者要在三处写同一个分区 id 并手拼 `{capability, id, declaration}`（`declaration` 是 `unknown`，写错字段要到运行时才静默丢掉）。snippets 改用它。
+- **实施记录（S2b）**：page 分区助手放在 `nbook.settings` 的 `web/page-contribution.ts`（`ui/` 不能引用插件），SDK 的 `browser` 再导出它。类型打包时，内核与 nb-form 的子路径要映射到源码：经 `node_modules` 解析到的工作区包被 TypeScript 当作外部库，不生成声明，打包器就找不到导出。构建期实现把 nb-ui 打进 `browser.js`（只在作者构建时执行），作者因此不必为了构建再装 nb-ui。
 - **仓库内**：应用的 tsconfig、Vite 与 Bun 都把 `@notnotype/nb-plugin-sdk`、`@notnotype/nb-plugin-sdk/browser` 解析到 `src/sdk/`（与 `nbook/*` 同一机制），示例与场景测试只从这两个名字导入。不新增工作区包，应用不依赖自己的 SDK 包，没有环。`src/architecture.test.ts` 对示例的导入规则改为只放行 SDK、`vue`、`@vue/reactivity`、`typebox` 与 nb-ui 的共享入口（场景测试与测试场地另有放行）。
 - **生成的产物**：应用脚本 `build:sdk` 产出 `packages/neuro-book/dist/plugin-sdk/`，是一个可以 `bun add <目录>` 安装的包 `@notnotype/nb-plugin-sdk`：
   - `index.js`、`browser.js`：打包后的实现，`vue`、`@vue/reactivity`、`typebox`、`@notnotype/nb-ui/components` 保持外部；只在构建期执行作者的入口定义、以及仓库外写测试时用，插件运行时用宿主那一份；
@@ -82,7 +83,9 @@ SDK 按 plugin-api 的定义“只含类型与少量纯函数，不依赖宿主�
   验收：在仓库外临时目录用普通 tsconfig 对一个只导入 SDK 的文件跑 `tsc --noEmit` 通过。nb-ui 组件的类型由作者另装 nb-ui（本地路径），写进 t05 的作者文档。
 - **导出面快照**：测试列出 `src/sdk/index.ts`、`browser.ts` 的运行时导出名与生成的 `.d.ts` 的导出名，与仓库里的快照比较。
 
-### 构建预设：`packages/neuro-book/src/sdk/build/`
+### 构建预设：`packages/neuro-book/scripts/plugin-sdk/`
+
+构建工具放在 `scripts/` 而不是 `src/`：它们用 Vite，而应用源码里只有开发监督进程能引用 Vite（架构测试）；`build:sdk` 把它们打进生成的 SDK 包（S2b 实施时改，原写 `src/sdk/build/`）。
 
 `buildPlugin({root, outDir})` 读作者目录：
 

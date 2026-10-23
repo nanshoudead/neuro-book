@@ -23,7 +23,7 @@ import type {JsonValue, SessionEntry, SessionEntryInput, SessionLog} from "@notn
 import {renderContext} from "./context.js";
 import {HarnessError} from "./errors.js";
 import {MissingModelKeyError, type ResolvedModel} from "./model.js";
-import {redactErrorMessage} from "./redact.js";
+import {redactEventMessages} from "./redact.js";
 import {classifyProviderError, usageEntry, UsageMeter, type RunError, type StopReason, type TurnResult} from "./run-result.js";
 import {bridgeTools} from "./tools/bridge.js";
 import {declarationJson, resolveEffectiveTools, restoreEffectiveTools, type ToolPolicy} from "./tools/effective.js";
@@ -243,8 +243,9 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
 
     const unsubscribeAgent = agent.subscribe((event) => {
         // provider 的错误正文可能回显收到的密钥：在交给订阅者、写日志、归类错误之前就地遮盖。改的是 Agent 状态里的
-        // 同一个对象，之后 classifyProviderError 读到的也是遮盖后的文字（输出 18）。
-        if (event.type === "message_end" && event.message.role === "assistant") redactErrorMessage(event.message as AssistantMessage, usedKeys);
+        // 同一个对象，之后 classifyProviderError 读到的也是遮盖后的文字（输出 18）。别的事件里的消息快照与消息列表也
+        // 一并遮盖：订阅者会把事件推到网络上（nb-story 的网页问答）。
+        redactEventMessages(event, usedKeys);
         for (const listener of [...listeners]) listener(event);
         if (event.type !== "message_end") return;
         const message = event.message;

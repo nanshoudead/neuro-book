@@ -45,7 +45,10 @@ function sse(chunks: object[]): string {
 /** 按请求决定回复；`index` 是这是第几次请求（从 0 起）。 */
 export type Responder = (body: Record<string, unknown>, index: number, headers: Headers) => EndpointReply;
 
-export function startEndpoint(replies: EndpointReply[] | Responder): Endpoint {
+/**
+ * `idleTimeoutSeconds` 是端点自己的空闲超时（Bun 默认 10 秒没有收发就断开）：要让请求挂得比这更久时给 0。
+ */
+export function startEndpoint(replies: EndpointReply[] | Responder, options: {idleTimeoutSeconds?: number} = {}): Endpoint {
     const authorizations: (string | null)[] = [];
     const bodies: Record<string, unknown>[] = [];
     let signalFirst!: () => void;
@@ -54,6 +57,7 @@ export function startEndpoint(replies: EndpointReply[] | Responder): Endpoint {
     const server = Bun.serve({
         port: 0,
         hostname: "127.0.0.1",
+        ...(options.idleTimeoutSeconds === undefined ? {} : {idleTimeout: options.idleTimeoutSeconds}),
         async fetch(request) {
             authorizations.push(request.headers.get("authorization"));
             signalFirst();

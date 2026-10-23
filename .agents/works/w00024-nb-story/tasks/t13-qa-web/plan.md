@@ -1,177 +1,196 @@
 # t13 实施计划：网页问答页与设置页
 
-> 初稿，未经开发者确认。“对话视图包”“nb-ui 新零件”两节与切片 1、2 已作废（README 决定 11：对话视图改为 w00019 的 `nb-agent-ui`）；其余部分等 w00019 t10、t11 完成后按那时的包接口改写。
+2026-10-23 第 3 版：按第 2 轮设计审查修订，并对齐审查期间已实施的部分（决定 19）。第 2 版：10-21 的初稿里“对话视图包”“nb-ui 新零件”两节由 w00019 做完（`nb-agent-ui`），Markdown 由 w00025 t16 的 `nb-markdown` 提供，换手写控件拿到搁置的 t14（决定 17）。本计划只做问答页、设置页、服务端运行与接口。
 
 ## Context
 
-开发者要把问答接进网页（[README](README.md) 决定 1 到 10），当作 neuro-book 主应用接入 Agent 对话的预演；t08 已经让引擎支持连续对话与可选的 `answer`。现状：
+开发者要把内置问答接进网页查看器，当作 neuro-book 主应用接入 Agent 对话的预演（[README](README.md) 决定 1、2）。版式与注意力排序已定（决定 6 到 10），对话视图用 `nb-agent-ui`（决定 11），Markdown 显示与输入框用 `nb-markdown`（决定 13），三条取舍按推荐（决定 14 到 16）。
 
-- 问答只有命令行入口：契约里没有 `qa.*` 方法，服务端没有任何流式接口（抽取进度是轮询的）。
-- 引擎的 `onProgress` 只有工具、退回、已答三种粗粒度事件，网页要的逐字输出与思考过程拿不到。
-- w00019 的对话视图在旧应用里（`packages/neuro-book-legacy/app/components/agent/`）。类型、注册表、分轮规则与滚动跟随都是纯逻辑；要断开的依赖只有 Nuxt 的 `useI18n`、旧应用的 `renderMarkdown`，以及 UnoCSS 图标类名。
+现状与它带来的约束：
 
-依据：[`story/qa.md`](../../../../../docs/specs/story/qa.md)、[`story/viewer.md`](../../../../../docs/specs/story/viewer.md)、[`story/cli-skill.md`](../../../../../docs/specs/story/cli-skill.md)，归档的 [`ui/agent-conversation-view.md`](../../../../../docs/archived/specs/ui/agent-conversation-view.md)，表单合同 [`ui/forms.md`](../../../../../docs/specs/ui/forms.md)。
+- 问答只有命令行入口：合同里没有 `qa.*` 方法，服务端没有流式接口（抽取进度靠 `ingest.status` 轮询）。
+- 引擎 `askQuestion`（`src/qa/engine.ts`）的会话日志在内存里（`createMemorySessionLog`），一轮结束才与记录成对写盘。新对话的第一轮在结束前磁盘上什么都没有；服务异常退出时这一轮整个丢失（qa 的“强行结束”规则不变）。
+- 有的失败轮在写用户消息之前就结束（缺密钥、开始前已取消），日志里只有一条 `run_end`：按“第 N 个用户提问是第 N 轮”对轮次会错位（审查实测）。
+- harness 的事件里，provider 回显的密钥只在 `message_end` 被遮盖，原样转发会把密钥推到网络上（审查实测）；`message_update` 每条带两份到当前为止的完整消息，原样推送随长度平方增长。
+- 命令行可以同时续问同一个对话（保存时按轮数判冲突，qa 输出 25）：两边各自从同一份日志恢复，新条目的 `seq` 相同、内容不同，不能按 `seq` 合并。
+- `saveQaConfig` 的临时文件名只按进程号区分；整份配置的校验不拒绝误贴的密钥（这条在命令行的字段编辑层）。
+- `nb-agent-ui` 已有网页要的：`AgentSessionList`、`processDisclosure: "live"`、结果节点 `outcome` 与退回一行、附注与条目渲染器、`createHarnessTranscript`（日志为准，事件只作运行中的临时显示，按 `seq` 去重，没有重置接口）。
+- w00019 t14 的静态稿（`.worktree/w00019-t14-drafts` 的 `src/web/drafts/qa/`）可参照工具登记与答案卡片，接口是旧版。
 
-工作方式：代码在 worktree `.worktree/w00024-nb-story`，Spec 与记录在主工作区 master 上改。前端审查派 Sonnet，后端审查用 omp。真实模型只做冒烟。
+依据：[`story/qa.md`](../../../../../docs/specs/story/qa.md)、[`story/viewer.md`](../../../../../docs/specs/story/viewer.md)、[`story/cli-skill.md`](../../../../../docs/specs/story/cli-skill.md)、[`ui/agent-conversation-view.md`](../../../../../docs/specs/ui/agent-conversation-view.md)、[`ui/markdown-display.md`](../../../../../docs/specs/ui/markdown-display.md)、[`ui/forms.md`](../../../../../docs/specs/ui/forms.md)；两个包 README 的宿主接入。
+
+工作方式：代码在新 worktree `.worktree/w00024-t13-qa-web`（分支 `feat/w00024-t13-qa-web`，从 master 拉出）。Spec 与记录在主工作区改。审查：引擎、服务端与配置派 omp，网页派 Sonnet。真实模型只做最后一次冒烟。
+
+## 技术选型
+
+- 流式通道：SSE，经 `StoryClient` 新加的 `subscribe`，页面不直接碰网络（viewer 的边界条款）。只有一种无名事件，`data` 是 `QaFrame` 的 JSON；心跳是注释行。浏览器端用 `fetch` 读流、`eventsource-parser` 切事件（新依赖，记进待确认清单）：`EventSource` 拿不到状态码、出错会自己重连（第 2 轮网页第 20 条）。否决 WebSocket：只要服务端推。
+- 配置写入的跨进程互斥：本包已有的 `platform/flock.ts` 的 `tryLock`，配置层异步重试（每 50 毫秒，最多 5 秒），锁文件是同目录常驻的 `.config.json.lock`。
+- 设置表单：`@notnotype/nb-form/vue` 的 `SchemaForm`，分组用它的 `layout`，提示用 `x-form` 已有的键。
+- 对话视图与 Markdown：`nb-agent-ui`、`nb-markdown`。
+- 网页的纯逻辑写成 `src/web/qa/*.ts` 的纯函数，`bun test` 覆盖（nb-story 没有 DOM 测试环境，组件行为靠 e2e）。
 
 ## 关键设计
 
-### 问答运行放在服务端：`src/server/qa-service.ts`（新）
+### 引擎：`src/qa/engine.ts`、`src/qa/read-ledger.ts`、`src/core/qa-records.ts`
 
-一轮问答在服务进程里跑，不绑在某个 HTTP 连接上。页面刷新、离开问答页都不打断它，回来时接着看。写法照 `ingest-service.ts`，主应用以后的 Agent 运行也是这个形状。
+- `AskInput` 加：
+  - `conversationId?: string`：新对话用调用方给的 id（服务端用 `newQaRecordId()` 生成，格式与记录层一致），续问时忽略；
+  - `onAgentEvent?: (event: QaAgentEvent) => void`：见下面的“推给网页的事件”；
+  - `onLogEntries?: (entries: readonly SessionEntry[]) => void`：会话日志新写入的条目。
+- 观察者与运行隔离：`onLogEntries` 由包一层会话日志实现，在底层 `append` 返回已编号条目之后调用，回调抛错只记一条诊断、不让 `append` 失败（否则 harness 会把会话判坏，审查实测）；`onAgentEvent` 同样包在 try 里。
+- 每一轮在记录里记下它在日志里的起点：`QaTurn` 加 `logFrom: number`（这一轮开始前日志的长度加一）。附注、轮次与日志的对应都按它，不数用户提问。旧记录没有这个字段，按“第 N 个用户提问”退回，并接受旧形状里的错位（只显示）。
+- 推给网页的事件（`QaAgentEvent`）：只转适配器用到的几种（`agent_start`、`agent_end`、`message_start`、`message_update`、`message_end`、`tool_execution_start`、`tool_execution_update`、`tool_execution_end`），`message_update` 去掉 `assistantMessageEvent`、只留当前消息；所有消息快照里的错误正文经 nb-harness 已有的遮盖（`redact.ts`）处理，不带 provider 原始错误字段。合同测试扫描真实 401 回显下每一帧序列化后的文字，不含假密钥。
+- 章数上限（决定 14）：`ReadPlan` 的拒绝加稳定的 `code`（`not_found`、`out_of_range`、`reversed`、`beyond_position`、`chapter_limit`），只有 `chapter_limit` 返回正常的工具结果（写明没读、已到上限、可以重读已读的章），其余照旧是工具错误。改 qa 输出 5、场景 2 与 14 的判据与对应测试：断言没有段落、已读集合不变、同一批只有一次真的读到、旧章照常可读、先按 P 裁再算上限、引用被拒的章照旧退回；补“反复超限不绕过上限”。不再写“模型行为不变”（当前 provider 不把 `isError` 送给模型，但没有用真实模型验证）。
+- 出处的认法抽到纯模块 `src/contract/refs.ts`（`REF_IN_TEXT`、逐字 NFKC 并记原文位置、范围统一成“—”的标准写法），引擎与网页共用。
+- 一轮分两步（第 2 轮 omp 前一段第 6 条）：`prepareQuestion(input)` 读配置、书、位置、全读原文、续问的记录与日志并建好 harness，开始前的错误都从它抛出；返回的 `PreparedQuestion` 带 `id`、`turn`、`logFrom`、`at`、`mode`，之后二选一：`run()` 或 `abandon()`。`askQuestion` 是两步连着调。
+- `withoutFullText(entry)`：全读对话的第一条用户消息换成问题加“已附阅读位置以前的全部原文，共 N 段”，网页拿到的日志都经过它；存盘的日志不变。
+- 答案与一轮的 schema 搬到不碰 node 的 `src/contract/qa-record.ts`，记录层、接口合同与网页共用。
 
-- `QaService`
-  - `start({book, conversation?, question, mode?, at?})`：返回 `{conversationId, turn}`；`at` 与 `mode` 只在新对话时用。
-  - `stop(conversationId)`
-  - `subscribe(conversationId, listener)`：订阅时先补发这一轮已有的事件，再接着推新事件。
-  - 运行中的轮次按对话 id 登记在内存里。
-- 一个对话同一时间只跑一轮：再发返回 `qa_busy`。不同对话可以同时跑。命令行同时续问同一个对话，由 t08 的 `expectTurns` 判成冲突。
-- 每次 `start` 都重新读配置文件。设置页改了配置，下一轮就生效；正在跑的一轮不受影响。
-- 服务退出时中断所有运行中的轮次（`AbortSignal`），按引擎现有的规则记为“中断”。
+### 服务端运行：`src/server/qa-service.ts`（新）
 
-### 引擎多给一路原始事件：`src/qa/engine.ts`
+一轮问答在服务进程里跑，不绑在 HTTP 连接上。
 
-`AskInput` 加 `onAgentEvent?: (event: AgentEvent) => void`，原样转发 `Harness.subscribe` 的事件。`onProgress` 保留给命令行。轮次开始与结束另发两种问答自己的事件：
+- **开始**：同步核对门与“这个对话已有一轮”（准备中或运行中，`qa_busy`），登记“准备中”后才 await；读配置、`prepareQuestion`。准备失败作为请求的错误返回，不留运行。准备完发现门已关（删除、停服在准备期间开始）就 `abandon()` 并报 `qa_busy`。准备成功才登记运行（`runId`、`turn`、`baseTurns = turn - 1`、`logFrom`、问题、P、做法、开始时间），后台 `run()`，返回 `{conversation, runId, turn}`。准备期间写下的会话快照条目先留着，登记时交给运行。
+- **结束后保留**：`ended` 的运行留在表里，直到这个对话下一轮开始、对话或书被删、或服务停止。保存成功后清掉它的条目（记录里有了）；没保存时它是这一轮唯一的来源（`saved: {ok: false, reason, message?}`）。
+- **推送**：订阅同步送出 `snapshot`（运行与已写条目；没有运行时 `run: null`），没有运行或已结束时随即结束这条流。运行中按发生顺序推 `log`、`event`，最后是 `ended`。`message_update` 合并成每 100 毫秒最多一帧，任何别的帧之前先送积着的那一帧，结束时清掉定时器。送帧抛错只退订那一个。
+- **门**：删除对话关这个对话的门，删除书（HTTP 层把 `book.remove` 整个包在 `exclusive(book, …)` 里，服务里删书只有这一个入口）关这本书的门，停服关全部；关门后取消并等待范围内准备中、运行中与保存中的轮次，再删、再停。
+- **停止**：`qa.stop` 只停已开始运行的（准备中的页面还拿不到），按引擎规则记为中断。
+- **停服**：OMP 一被导入就接管 SIGINT、SIGTERM、SIGHUP，`serve` 改经 nb-harness 新加的 `onProcessTermination` 收口：停抽取与问答、等保存完、撤销登记、停监听，退出码照旧 0（第 2 轮 omp 后一段第 1 条）。
+- **HTTP**：`GET /api/qa/events?book=&conversation=`，在登录校验之后；`server.timeout(请求, 0)` 关掉 Bun 默认 10 秒的空闲超时，RPC 设 120 秒（测试连接最多等 60 秒）；每 20 秒一条注释心跳；每个连接积压超过 2 MiB 就断开（页面重连补齐）。
+- **每次开始重新读配置**：设置页改了，下一轮生效。
 
-- `turn_start {conversationId, turn, question, at, mode}`
-- `turn_end {result: QaTurnResult, recordSaved, notSaved?}`
+```ts
+type QaFrame =
+    | {type: "snapshot"; run: QaRunView | null; entries: SessionEntry[]}  // 订阅时的第一帧
+    | {type: "log"; runId: string; entries: SessionEntry[]}               // 按 seq 递增
+    | {type: "event"; runId: string; event: QaAgentEvent}
+    | {type: "ended"; run: QaRunView};                                     // result、saved
+```
 
-### 接口：`src/contract/contract.ts`、`src/server/http.ts`
+### 合同与路由：`src/contract/contract.ts`、`src/server/http.ts`
 
-- 新增 RPC：
-  - `qa.list {book}` → 对话一行一个，字段同 `conversationLine`；
-  - `qa.get {book, id}` → 记录加历史消息：从会话日志的 `agent_message` 条目取出，用 `parseEntryLine` 解析；
-  - `qa.start`、`qa.stop`、`qa.remove`；
-  - `config.get` → 配置、文件路径、`apiKeyEnv` 指的环境变量在服务启动时有没有值；
-  - `config.set {config, expect}`：`expect` 是读取时的内容摘要，文件被命令行改过就返回 `config_conflict`；
-  - `config.test`：复用 `src/qa/probe.ts`。
-- 新增流式路由 `GET /api/qa/events?book=&conversation=`：用 nb-harness 的 `writeSseStream`，帧格式用 `serializeAgentEvent` 与 `serializeSseJsonEvent`。需要登录态，断开时退订。
+独立的 `QA_METHODS`（不进 `STORY_METHODS` 与 `storyContract`），`ViewerMethods` 合并它；HTTP 按方法表分派查询、抽取、问答三类。
 
-### 对话视图包：`packages/nb-agent-view`（新）
+| 方法 | 输入 | 输出 |
+|---|---|---|
+| `qa.list` | `{book}` | `{conversations, broken}`：一行一个对话（id、首问、记录轮数、最后一轮状态、P、做法、开始与更新时间、`run: {runId, state, saved} \| null`），合并只在内存里的首轮；读不成的记录单列（id、原因） |
+| `qa.get` | `{book, id}` | `{record, log, continuable, run}`：`record` 只在首轮还没保存时为 null；`log` 是 `{ok: true, entries}` 或 `{ok: false, problem}`；`continuable` 为假时写原因（旧形状、日志读不成、首轮没保存） |
+| `qa.start` | `{book, question, conversation?, mode?, at?}` | `{conversation, runId, turn}`；开始前的失败是方法的错误（`qa_unconfigured`、`full_read_unavailable`、`qa_not_continuable`、`qa_record_not_found`、`position_out_of_range`、`qa_busy`） |
+| `qa.stop` | `{book, conversation}` | 空 |
+| `qa.remove` | `{book, id}` | 空；命中运行先停、等保存再删；只有运行没有记录也算删成功；两者都没有是 `qa_record_not_found`；损坏的记录也能删 |
+| `config.get` | 空 | 三态：`absent`（给起始配置）、`valid`（配置）、`invalid`（只给原因，不回原文）；都带 `digest`、`path`、`keys`（变量名到“服务进程里有没有值”） |
+| `config.set` | `{config, expect}` | `{digest, path, keys}`；校验不过是 `invalid_params`（说明不带原值），摘要对不上是 `config_conflict` |
+| `config.test` | 空 | `{ok, model, thinking, ms, error}`，最多等 60 秒，错误已遮盖 |
 
-形状照 `nb-form`：
+- 失败码的 HTTP 状态：`qa_busy`、`config_conflict`、`qa_not_continuable` 为 409。
+- 任何响应、任何帧里都没有密钥（qa 输出 17），合同测试逐帧扫描。
 
-- `package.json` 的 `exports` 分两个入口：`.` 是纯逻辑，`./vue` 是组件。
-- 只依赖 `vue` 与 `@notnotype/nb-ui`。
-- 用 `boundary.test.ts` 核对导入。
-- 样式写 scoped CSS、用 nb-ui 的 token，不用原子类。
-- 图标沿用 nb-ui 的 `iconClass` 字符串。
+### 配置写入：`src/qa/config.ts`、`src/qa/config-schema.ts`（新）、`src/cli/config.ts`
 
-**从旧应用搬，只搬问答用得到的部分：**
+- schema 拆到不碰 node 的 `src/contract/config-schema.ts`（导出 schema 与 `x-form` 提示），`config.ts` 与网页都引它。
+- 三处 `apiKeyEnv` 的“只能是变量名、误贴密钥拒绝且不回显”下沉到整份配置的校验，文件读取、命令行与网页共用；不认识的字段拒绝。变量名另外拒绝像密钥的写法（常见前缀、32 字以上无下划线的长串），只防已知形状（第 2 轮 omp 前一段第 7 条）。
+- 摘要是文件原字节的 sha256，文件不在是 `absent`；`expect` 为 `absent` 时只能新建。不做规范化：手改空白也算改过，只会提示重新载入（待确认清单）。
+- 命令行 `init` 在提示之前记下摘要，写入时带 `expect`；不在提示期间持锁。
+- 所有程序写入（命令行 `init`、`set`、`unset` 与网页 `config.set`）共用一把按配置路径的跨进程锁：锁内重读、比对 `expect`（网页）、校验、写带随机后缀的临时文件、改名。手改文件不参与锁，只能尽力发现（写明）。
+- `config_conflict`：`expect` 与锁内重读的摘要不同；页面提示重新载入，命令行退出码 1。
 
-- 纯逻辑：
-  - `agent-view.types.ts`：裁掉 `branches`、`editing`、`pendingInputs`、`workflows`、`workspaceChanges` 和 `composer` 的附件部分；
-  - `agent-view-registry.ts`：只留角色、工具渲染器、条目渲染器、消息操作；
-  - `conversation-turns.ts`、`process-summary.ts`、`tool-args.ts`、`tool-detail-lines.ts`；
-  - 各自的测试一起搬。
-- 组件：`AgentConversationView`、`AgentConversationTurn`、`AgentTurnBlock`、`AgentChainSummary`、`AgentStepLine`、`AgentCard`、`AgentToolDetail`、`AgentRawView`、`AgentMessageActions`。
+### 网页：`src/web`
 
-**不搬：** 输入框的触发菜单、命令、附件、提问向导、面板、分支、就地编辑、待处理区、任务清单、文件改动条。等主应用接入时再搬，搬法同这次。
-
-**和旧版的不同：**
-
-1. **本地化**：去掉 `useI18n`，改成包内的文字表，加 `locale` prop，写法照 nb-form。
-2. **注入点**：Markdown 显示与输入框通过注册表的 `markdown` 与 `composer` 两个扩展点注入（README 决定 3）。视图不再自带 textarea。
-3. **结果类工具**：工具渲染器的呈现层级加一种 `result`。轮次里这种工具的最后一次成功调用算作结果：常显，整轮收起后仍然露出，地位同最终回复。失败的调用（被退回）照常留在过程里，算一次失败。`conversation-turns.ts` 判断“最终回复”时一起认它。
-4. **运行中的过程**：新增 prop `runningProcess: "collapsed" | "expanded"`，默认 `collapsed`（旧规则）。问答传 `expanded`（README 决定 7）：运行中思维链逐步展开，结束后整轮照旧收起。
-
-### nb-ui 新零件：`packages/nb-ui`
-
-- `composables/useStreamScroll.ts`：从旧应用的 `use-stream-scroll.ts` 搬来，接口不变。
-- `display/CodeBlock.vue`：从 `AgentCodeBlock` 来，提成通用的带行号文本块，支持增删色调、最大高度和截断说明。
-- `display/DisclosureRow.vue` 与 `display/DisclosureCard.vue`：从 `AgentStepLine` 与 `AgentCard` 提出来，是可折叠的一行和一张卡。包在现有的 `Collapsible` 上，内容收起时不渲染。
-
-每个都写同名 `.md`、导出，并在应用 Component Lab 的 nb-ui 场景里登记（`packages/neuro-book/src/plugins/lab/web/fixtures/nb-ui/`）。
-
-### nb-story 网页：`src/web`
-
-- **路由**：
-  - 书里新加页面 `qa`（`host/book.ts` 的 `PAGES`），导航放在“原文”之后。地址 `/book/<id>/qa?c=<对话 id>`。
-  - 新加 `/settings`。
+- **依赖与样式**：`package.json` 加 `nb-agent-ui`、`nb-markdown`、`nb-form`；`app.css` 在 nb-ui 之后导入两个包的 `tailwind.css`；问答页与设置页按需加载，编辑内核与解析器不进其他页面的首屏（看构建分块）。
+- **路由**：书里加页面 `qa`（导航在“原文”之后），地址 `/book/<id>/qa?c=<对话 id>`；加 `/settings`，书架右上角与书里顶栏的菜单各一个入口。
+- **`StoryClient.subscribe(book, conversation, {frame, end})`**：`fetch` 读流加 `eventsource-parser`；401 走已有的 `onUnauthorized`（viewer F1）；流正常结束报 `closed`，连不上或断开报 `dropped`。重连由数据源决定，客户端不自己重连。
 - **`pages/QaPage.vue`**：
-  - 宽屏时左侧是对话列表：新对话、每行写首问、轮数、状态和读到哪里；
-  - 右侧是 `AgentConversationView`，顶上写对话的阅读位置与做法（决定 9：不拦、不藏）；
-  - 平板与手机把列表收进顶部的“对话”下拉；
-  - 新对话用查看器当前的阅读位置，输入框旁可以选“图当目录”或“全读”。
-- **`qa/`（网页侧，新目录）**：
-  - `conversation-store.ts`：把 `qa.get` 的历史消息与 SSE 事件合成视图要的 `MessageView[]`；把 harness 的 `AgentMessage` 转成 `MessageView` 的函数写在这里，配单测；
-  - `registry.ts`：登记问答的工具渲染器。查询工具都归 `explore`，摘要写成“读了第 12–14 章”“查了人物卡”；`answer` 用 `result` 层级；
-  - `AnswerCard.vue`：按决定 8，结论类型徽标、结论、表或分点、出处一行常显，展开说明与覆盖范围点“详细”展开。出处与人名经现有的抽屉打开；
-  - `StoryMarkdown.vue`（作废，README 决定 13：改用 nb-markdown 的 `MarkdownDisplay`，出处先改写成链接）：用 `marked` 加 `dompurify`，版本同 dev-panel。文字里“章.段”形状的出处转成可点的出处；没核实的出处按 `unverifiedRefs` 在回复下面列出；
-  - `QaComposer.vue`：nb-ui 的 `Textarea` 加发送与停止按钮。回车发送，Shift+回车换行；运行中按钮变成停止。
-- **`shell/SettingsPage.vue`**：
-  - 用 `@notnotype/nb-form/vue` 的 `SchemaForm` 画 `QaConfig` 的 TypeBox schema，在 `src/qa/config.ts` 的 schema 上补 `x-form` 提示（字段名、说明、分组）；
-  - 密钥那一项只写变量名，旁边标“已设置”或“没有值”；
-  - 保存时带 `expect`；
-  - “测试连接”调用 `config.test`；
-  - 书架右上角与书里顶栏的菜单各加一个入口。
-- **换掉手写控件**（README 决定 5）：
-  - `BookFrame.vue` 的浮动抽屉与手机导航换成 nb-ui `Drawer`；
-  - `SearchBox.vue` 的浮层换成 `Popover`；
-  - `story-table` 换成 `Table`；
-  - `PageState`、`PagedList`、`BookShell` 的重试换成 `Button`，加载中换成 `Spinner`。
-
-  外观有变化的地方先截图核对。`Table` 不支持 `RecordsTable` 的吸顶分组时，这一处保留，并写明原因。
+  - 版式：按外壳的宽度档（`book.tier`），宽屏时左栏放 `AgentSessionList`，否则收进顶栏的“对话”下拉（`Popover`，内容给 `max-height` 与可滚动的容器；在真实页面看悬停与选中的材质，必要时给 nb-agent-ui 加 `surface`，见 w00019 待确认第 6 条）。下拉在选中或新建后关。列表 `labels` 把“会话”叫“对话”，每分钟更新 `now`。
+  - 顶栏：首问、P 与做法；阅读位置两个方向都写（决定 9）：对话的 P 晚于查看器位置时提醒色写“这个对话读到 X，晚于你现在的位置，答案可能含后文”，早于时中性色写读到哪里。运行中有独立的“停止”按钮（输入框有字时它的停止按钮会消失）。删除这个对话的入口见“待确认”。
+  - 对话视图：`processDisclosure: "live"`、`header: false`；`ctx.run` 用服务端的运行状态；读对话中、读不到给 `availability`；提示（没配置、没保存、基础不同、只按记录显示、不能续问、开始失败）由页面在视图上方用 nb-ui `Banner` 画（视图的连接状态与可用性横幅还没实现，第 2 轮网页第 2 条）。输入框的模式只在新对话时可选；草稿按对话各存一份，换对话时给新的草稿版本；新对话受理后草稿带到这个对话下。地址里的对话 id 是 `c`，只进地址、不进存下的状态。
+  - 页面实现的 action：`composer.submit`、`composer.stop`、`composer.draftChanged`、`mode.set`、`session.select`、`session.create`、`sessions.refresh`、`reference.open`（`paragraph://` 先解码再按标准写法开原文抽屉，`entity://` 开人物卡）、`link.open`、`message.copy`、`tool.copy`（答案卡片复制成文字）；其余忽略。不登记内置输入框登记（没有 `/` 命令）。
+  - 列表：看着的一轮结束时重取，有运行时每 5 秒；`now` 每分钟更新。
+  - `qa.start` 的失败留在输入框上方一行（草稿不清）；`recordSaved: false` 在对话顶上写“这一轮没有保存”与原因。
+- **`qa/source.ts`：一个对话一个数据源**（带 `dispose()`，每个回调先核对自己还是当前这一次加载）：
+  1. `qa.get`；运行要接在记录后面时（运行中，或结束了没保存，且 `baseTurns` 等于记录的轮数）订阅；已保存的运行不再管它；基础不同只标 `detached`，页面写明不会保存。
+  2. 转录按轮分开（`qa/turn-transcripts.ts`）：记录各轮的 `logFrom` 加运行的 `logFrom` 是各份的起点，条目按 seq 落到它那一轮，事件只给最后一轮；旧记录有一轮没有 `logFrom` 就一份到底（第 2 轮 omp 后一段第 4 条）。
+  3. 看着运行结束（`ended`）就重读、换新的转录；订阅时快照里的运行已结束并保存，同样重读一次；已结束没保存的，拿到快照条目就停。
+  4. 推送断开或被服务端断开：按 1、2、4…最多 15 秒退避重读；同一个运行还在跑就沿用原转录。
+  5. 分轮的补充（补提问、乐观提问、附注、按对象缓存）由 `qa/turns.ts` 做；日志读不成时按记录合成（`qa/record-messages.ts`）。
+  6. 一阵子到的帧合到下一次画面才算一次消息。
+- **`qa/tools.ts`**：查询工具都归 `explore`，`groupPhrase` 按这一组的调用写（“读了第 33–37 章”）；超出章数上限的读原文现在是正常结果，摘要写“已到章数上限，没读”；`answer` 是 `node` 加 `outcome`，退回时 `summary` 写“退回：原因”。注册表只用 `builtinRolesContribution`、`builtinMessageActionsContribution` 加自己的输入框登记与这份。
+- **`AnswerCard.vue`**（决定 8、15）：结论类型徽标、结论、“谁知道什么”的表或分点常显；依据一行分三格：“依据”标签（不收）、出处区（`flex: 1 1 0`，按宽度量出放得下几个，其余换成预留宽度的“等 N 处”）、“详细”按钮（不收），个数只随宽度变；说明、覆盖范围与全部出处收在“详细”里。卡片里各段文字的出处同样改成可点。
+- **人名**（决定 16）：去掉括号里的称呼后按名字调 `entity.card`（核心的精确解析，重名报 `entity_ambiguous`），唯一时做成链接；按书、查看器位置、数据版本与名字缓存，同时要的共用请求；“读者”这类固定词不查。问答页经注入（`QA_NAME_LOOKUP`）交给答案卡片。
+- **出处**：`StoryMarkdown.vue` 单根，属性原样转给 `MarkdownDisplay`（端口的 `onActivate` 属性接到它的 `activate` 事件；`qa/ports.typecheck.ts` 对照端口），显示前改写“章.段”为 `[38.12](paragraph://38.12)`：用 `contract/refs.ts` 的同一条规则，只改词法器认的纯文字；流式时文末没写完的出处先不改。`DrawerSource` 认跨章的出处（第 2 轮网页第 8 条）。答案卡片里的文字（结论、分点、说明）同样把出处画成可点的。
+- **抽屉的位置**：出处与人名的抽屉按查看器的位置打开（现有行为）：对话的 P 晚于查看器位置时，出处得到“还没读到，拨到第 N 章”，人名得到不存在的提示。写进 viewer.md。
+- **没核实的出处**：条目渲染器（`customType: "nb-story.unverified-refs"`），提醒色一行，出处可点。
+- **`shell/SettingsPage.vue`**：`SchemaForm` 画 `config-schema.ts` 的 schema，分组用 `layout`；密钥变量名旁按 `keys` 表经 `issues` 写“当前没有值”，改了名的写“保存后才知道”；保存带 `expect`，冲突时提示重新载入；“测试连接”调 `config.test`；`configured: false` 时从起始配置开始。可选对象里有必填字段（`ingest.model`、`ingest.recall.model`）的编辑先在 Lab 试一次。
 
 ## Spec 与文档改动
 
-- 新建 `docs/specs/ui/agent-conversation-view.md`（planned，owner `nb-agent-view`）：只收这次搬过来的部分，以及 `result` 层级、`runningProcess`、Markdown 与输入框的注入。其余条目仍留在归档里，写明“主应用接入时再搬”。
-- `story/viewer.md`：
-  - 删掉“不做问答”；
-  - 追加输出：问答页的版式、过程、答案卡片、阅读位置不同的对话、设置页；
-  - 地址形状加 `qa` 与 `/settings`；
-  - 验收里加问答页与设置页的组合场景。
 - `story/qa.md`：
-  - 边界一节补网页入口：服务端运行、一个对话一次只跑一轮、离开页面不中断、服务退出记为中断；
-  - 失败码加 `qa_busy`。
-- `story/cli-skill.md`：`config` 一节写明网页设置页改的是同一份文件，冲突时返回 `config_conflict`。
-- `docs/modules/monorepo-boundaries.md` 与 `packages/AGENTS.md`：登记 `nb-agent-view`；nb-story 的依赖加上 `nb-agent-view` 与 `nb-form`。
+  - 输出 5、场景 2 与 14：超出章数上限是正常结果；
+  - 问答记录：每轮记 `logFrom`；
+  - 边界与兼容：网页入口（服务端运行、一个对话一次一轮、离开页面不中断、正常停止记为中断、异常退出丢失本轮、删除先停）；
+  - 失败码加 `qa_busy`、`config_conflict`；
+  - 密钥：推给网页的事件与帧同样不含密钥；整份配置的校验拒绝误贴的密钥；
+  - 配置写入：程序写入共用跨进程锁，手改文件只能尽力发现。
+- `story/viewer.md`：删掉“不做问答”；问答页（版式与宽度切换、过程、答案卡片、阅读位置两个方向、出处与人名按查看器位置打开、失败与未配置、全读的第一条消息）与设置页的输出；地址形状加 `qa` 与 `/settings`；边界条款补“查询客户端有订阅”；实现合同的依赖加 nb-agent-ui、nb-markdown、nb-form；验收加问答页与设置页的组合场景。
+- `story/cli-skill.md`：`config` 一节写明网页设置页改的是同一份文件，程序写入共用锁，冲突时 `config_conflict`（退出码 1）；`serve` 在 SIGHUP 上也收口，停服务先停问答。
+- `story/viewer.md`：“副作用与数据”补问答记录与配置文件两种写入（第 2 轮网页第 18 条）；问答页的失败表。
+- `agent/harness.md` 输出 18、19：推给订阅者的事件同样遮盖；`onProcessTermination`。
+- `docs/modules/monorepo-boundaries.md`、`packages/AGENTS.md`、nb-story 的 AGENTS.md：nb-story 的依赖；`src/contract/` 是网页与服务端共用的不碰 node 的部分。
 
 ## 切片
 
-1. **nb-ui 零件**：`useStreamScroll`、`CodeBlock`、`DisclosureRow`、`DisclosureCard`，以及 `.md`、Lab 场景和组件测试。自跑 nb-ui 的 typecheck 与 test，跑 Lab smoke。
-2. **nb-agent-view**：
-   - 搬纯逻辑与测试，去掉 i18n，加 `result` 层级、`runningProcess`、注入点；
-   - 组件与 Lab 场景用旧 fixture 数据改成问答的消息：运行中、已答、文字回复、退回后再交、出错、中断。
-   - **视觉检查点**：把问答的几个场景截图（390 与 1200 宽、明暗）给开发者看，确认后再接服务端。这一步代替 design-review 流程里单独的草稿 worktree：版式在 w00019 已经确认过，这次新的只有答案卡片和运行中展开，直接用真组件看。
-3. **服务端**：`onAgentEvent`、`QaService`、`qa.*` 与 `config.*` 的 RPC、SSE 路由。合同测试用 `testing/openai-endpoint.ts` 的脚本端点，覆盖：订阅补发、停止、`qa_busy`、刷新后重订、服务退出时中断、`config_conflict`。
-4. **问答页与设置页**：`QaPage`、对话合成、答案卡片、Markdown、输入框、设置页、路由与入口。e2e 新加 `qa.e2e.ts`，用 `testing/replay-server.ts` 一类的子进程端点，加一个问答脚本。
-5. **换手写控件**：逐处替换，跑查看器全量 e2e，截图对照。
-6. **收尾**：Spec 补实现合同与证据；真实模型冒烟一次（网页里问一题、追问一题、中途停止一次）。
+每片单独提交、自跑验证。
 
-每片单独提交。切片 3 的接口和切片 4 的页面互相依赖：两片都完成后再合入 master。
+1. **引擎**：三项输入与观察者隔离、`logFrom`、`QaAgentEvent`（脱敏与裁剪）、`refs.ts`、章数上限的 `code` 与正常结果。测试：`engine.test.ts` 补 id、事件与条目转发、回调抛错不影响结果与保存、`logFrom`（含缺密钥的首轮失败）、401 回显下事件不含假密钥；场景 2、14 改判据。验证：nb-story `typecheck`、`test`。
+2. **配置**：`config-schema.ts`、整份校验拒绝误贴的密钥、跨进程写锁与随机临时文件，命令行接入。测试：三处变量名、并发写（两个写同时、命令行在网页比对之后提交）返回的摘要与磁盘一致。
+3. **服务端**：`QaService`、`qa.*`、`config.*`、SSE 路由。合同测试（脚本端点）：订阅快照与续推、多个订阅者一个先断、`qa.get` 之后才结束的轮次、首轮运行中的 `qa.list` 与 `qa.get`、保存失败的结果可取回、`qa_busy`、停止、正常停服记为中断、删除与新的 `start` 竞争、别的书不受影响、命令行先保存时网页运行的基础不同、逐帧没有密钥、`config_conflict`。
+4. **问答页**：依赖与样式、`StoryClient.subscribe`、`qa/` 的纯函数与数据源、登记、答案卡片、`StoryMarkdown`、人名、附注、页面。另写 e2e 用的问答端点子进程 `testing/qa-endpoint-server.ts`（照 `replay-server.ts`：脚本回复序列，按请求序号放行、挂起，读已收请求），`e2e/fixtures.ts` 加启动函数。单测（纯函数）：转录合成与附注挂轮（含首轮失败没有用户消息、停止在用户消息之前、命令行分支）、全读第一条消息、出处改写的排除项与流式、人名解析（找到、找不到、重名、括号）、出处一行的个数计算。e2e（`qa.e2e.ts`）：问一题看过程逐步展开、交卷后收成摘要只露答案、交卷被退回一行、文字回复带没核实出处、点出处开抽屉、点人名开人物卡、出处“等 N 处”与“详细”、追问、页头停止（输入框有字时）、新对话首轮里刷新接上、续问轮里刷新接上、`qa_busy`、未配置、旧记录只能看、对话 P 晚于查看器位置、手机宽度的下拉、宽屏打开抽屉后左栏收成下拉、其他页面首屏不加载编辑内核。
+5. **设置页**：页面与入口。e2e：改字段保存、命令行改过后保存报冲突、误贴密钥被拒、测试连接、首次未配置。
+6. **收尾**：Spec 的实现合同与证据；nb-story 全量 e2e；真实模型冒烟一次（网页里问一题、追问一题、中途停止一次、刷新接上）；实现审查。
+
+第 3、4 片互相依赖，四片都完成后才合入 master。
 
 ## 验收映射
 
-切片 2 落 Spec 时把条目编号写进来。先按能力列出：
-
 | 行为 | 覆盖 |
 |---|---|
-| 分轮、`result` 层级、`runningProcess` | `conversation-turns.test.ts`（nb-agent-view） |
-| 消息合成：历史加流式事件、断线重订不重复 | `conversation-store.test.ts`（nb-story web） |
-| 运行在服务端、一次一轮、停止、服务退出记为中断 | `qa-service.test.ts` |
-| SSE 补发与登录态 | `server.test.ts` |
-| 设置读写、冲突、密钥不出现在响应里 | `config` RPC 测试 |
-| 页面：问、看过程、答案卡片、点出处开抽屉、追问、停止、刷新后接着看 | `qa.e2e.ts` |
-| 设置页：改字段保存、命令行改过后保存报冲突、测试连接 | `qa.e2e.ts` 或 `settings.e2e.ts` |
-| 换控件后查看器行为不变 | 现有 `viewer.e2e.ts` 全量 |
-| 390 与 1200 宽、明暗 | Lab 截图与 e2e 截图 |
+| 新对话 id、事件与条目转发、观察者隔离、`logFrom`、事件不含密钥 | `engine.test.ts` |
+| 章数上限是正常结果，其余拒绝照旧（qa 场景 2、14） | `engine.test.ts`、`read-ledger` 测试 |
+| 配置的变量名校验、并发写、冲突 | `config.test.ts`、`cli/config.test.ts` |
+| 服务端运行、快照与续推、一次一轮、停止、停服（SIGINT、SIGTERM）、删除、首轮只在内存、全读去原文、积压上限、空闲超时、逐帧无密钥、配置三态与冲突、测试连接 | `src/server/qa.test.ts`、`server.test.ts` |
+| 准备与运行两步、放弃的一轮不写记录 | `engine.test.ts` |
+| 数据源（接与不接、结束后重读、断线退避、按轮分开）、转录合成、附注挂轮、出处改写、人名、出处个数、工具短语 | `src/web/qa/*.test.ts` |
+| 问答页的完整流程与失败态、阅读位置、宽度切换、首屏分块 | `qa.e2e.ts` |
+| 设置页 | `qa.e2e.ts` 或 `settings.e2e.ts` |
 
 ## 验证
 
-- 自动：nb-ui、nb-agent-view、nb-story 的 typecheck 与 test；Lab smoke；nb-story 全量 e2e。按记忆的做法，先构建三份产物，跑之前停掉多余的服务。
-- 手动：`nbstory serve` 打开问答页，用真实模型问一题、追问一题、中途停止一次，刷新页面看运行中的轮次能不能接上。
-- 未验证的边界：多个浏览器标签同时看同一个运行中的对话只做合同测试，不做 e2e；手机宽度只保证能用（同查看器）。
+- 自动：nb-story `typecheck` 与 `test`；nb-story 全量 e2e（先停掉多余的服务）。
+- 手动：`nbstory serve` 用真实模型问一题、追问一题、中途停止一次、刷新接上。
+- 未验证的边界：异常退出（只写进 Spec，不测）；手机宽度只保证能用（同查看器）。
 
 ## 不做与风险
 
-- **不做**：
-  - 主应用接入；
-  - 对话视图里的分支、编辑历史、附件、命令；
-  - 对话改名；
-  - 多个模型配置。
-- **风险**：
-  - 设置页能改 `baseUrl`，密钥会发到新地址。这和命令行改配置的权限相同，服务只听本机、要登录。在 Spec 的信任边界里写明。
-  - 一轮跑几分钟，期间服务重启会丢掉这一轮，按中断记录。
-  - 换 `Table` 可能改变现有页面的外观，切片 5 逐处截图核对。
-  - 旧组件搬家时，scoped CSS 替换原子类的工作量不确定。切片 2 先搬一个组件估一下，再定是否拆片。
+- 不做：主应用接入；换手写控件（t14）；对话改名；分支、编辑历史、附件、命令；多个模型配置；会话列表的筛选与搜索（`nb-agent-ui` t11）。
+- 风险：
+  - 设置页能改 `baseUrl`，密钥会发到新地址：和命令行改配置的权限相同，服务只听本机、要登录，写进 Spec 的信任边界。
+  - 一轮跑几分钟，期间服务异常退出就丢掉这一轮。
+  - 命令行与网页同时续问同一个对话时，网页这一轮不保存（已有取舍），页面写明。
+
+## 已定的取舍
+
+开发者 2026-10-23 定（README 决定 14 到 17）：
+
+1. 超出章数上限被拒的读原文不算失败：引擎返回正常的工具结果，只针对这一种拒绝（并入切片 1）。
+2. 依据出处常显一行，放不下时换成“等 N 处”，全部出处在“详细”里。
+3. 答案里的人名由问答页按名字查，找不到或重名时不做成链接；不改 `answer` 的参数形状。
+4. 换手写控件拿到 t14。
+
+## 已定：删除对话的入口
+
+开发者 2026-10-23 定（README 决定 18）：问答页顶栏放“删除这个对话”，点了弹确认框，运行中先停；损坏的记录在列表里单列一行，同样只能删除。
+
+## 设计审查
+
+2026-10-23 第 1 轮：omp 审引擎、服务端与配置（有效 12 条：重要 10、建议 2），Sonnet 审网页（27 条：重要 14、建议 13）。逐条处理见 [evidences/design-review.txt](evidences/design-review.txt)；第 2 版按它们修订。
+
+2026-10-23 第 2 轮（与实施同时进行，决定 19）：Sonnet 审网页 21 条，omp 审服务端与引擎（被时间上限截停，两段共 18 条，全部“重要”）。逐条处理见 [evidences/design-review-2.txt](evidences/design-review-2.txt)；第 3 版按它们修订，照推荐做的取舍记在 [待确认清单](../../pending-confirmations.md)。

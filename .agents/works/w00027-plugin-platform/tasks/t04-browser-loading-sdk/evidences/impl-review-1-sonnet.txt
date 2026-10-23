@@ -1,0 +1,182 @@
+# w00027/t04 第一轮实现审查（Sonnet）：浏览器一侧、SDK 接口形状、构建预设产物
+
+审查对象 `7372a3d9e..c9ca9f6d2`，固定在 `c9ca9f6d2`。实验文件在 `/tmp/review-t04-impl1-sonnet/`（结束时删除）。
+
+### 1. 构建预设的纯度检查漏掉动态 `import()`：表外模块与共享模块的动态导入都通过构建，运行时才失败
+
+- 严重程度：重要；类别：正确性、合同（plugin-code-loading 输出 4、5：“表外的引用在构建时就报”）
+- 位置：`packages/neuro-book/scripts/plugin-sdk/build-plugin.ts:199`（`factsPlugin` 只收 `output.imports`）、`:237`（`external`）、`:209-210`（登记外壳）
+- 现象：`factsPlugin` 从输出块的 `imports` 取外部引用，不看 `dynamicImports`。实测（`/tmp/review-t04-impl1-sonnet/author1`，用 `buildPlugin` + `IN_REPO_BUILD` 构建）：浏览器入口里写 `await import("@notnotype/nb-runtime/plugins")`、`await import("node:fs")`，构建返回 OK、没有警告。更糟的是共享模块的动态导入：`await import("vue")` 构建也 OK，而产物里它仍是字面的 `import("vue")`（`browser.js:25`），不经登记工厂的 `require`。浏览器里没有 import map（Spec 明说不用），裸说明符 `vue` 解析失败，抛的是原生 `TypeError`，进入 `code-threw` 一类的激活失败，而不是 `module-not-shared`。静态导入 `vue` 是 `let vue = require("vue")`，没有问题。
+- 为什么是问题：依赖库里惰性 `import("vue")`、`import("@vue/…")`（`@vue/runtime-*` 改写只对静态引用的 `resolveId` 生效，动态引用是否改写未验证）很常见；作者在构建期得不到任何提示，失败的原因文案也指不到“动态导入共享模块不能用”。Spec 验收 3 的 `module-not-shared` 同样只保证 `require`。
+- 如何核实：见上，两个动态导入各构建一次，对 `browser.js` 里 `grep -n "import("`。
+- 建议改法：浏览器产物里把外部的动态导入改写成 `Promise.resolve().then(() => require(id))`（Rolldown 在 `format: "cjs"` 下是否已有该选项需确认；没有就在 `renderChunk` 里按说明符替换），并让 `factsPlugin` 同时收 `dynamicImports` 里的外部引用，走同一套“未共享”检查。至少要对浏览器产物里残留的 `import(` 外部引用报构建错误。
+
+### 2. 图标规则只扫浏览器入口模块图里的源码字面量：清单声明里的图标、动态拼出的图标与别的图标集都静默没有规则
+
+- 严重程度：重要；类别：正确性、作者体验
+- 位置：`packages/neuro-book/scripts/plugin-sdk/build-plugin.ts:288-308`（`iconRules`）、`:380-385`（`browserSources` 只收 `location === "browser"` 入口的模块图）
+- 现象：实测（`/tmp/review-t04-impl1-sonnet/author2`）：`plugin.ts` 的 `descriptor.contributions` 里写 `settings.sections` 声明、`icon: "i-lucide-bell"`，浏览器入口模块不导入 `plugin.ts`；另在浏览器入口里写 `` `i-lucide-${name}` `` 与 `"i-catppuccin-folder"`。构建 OK，`warnings` 为空，输出只有 `browser.js`、`browser.js.map`、`package.json`，没有 `style.css`。也就是说，清单里声明的图标（宿主在入口激活前就用它画设置窗口左栏）没有 `--svg` 规则，显示为空白；作者没有任何提示。
+- 为什么是问题：Spec 与计划都把“声明里的图标激活前就要显示”当作样式随窗口登记加载的理由（plan 的“样式”一节）。但图标字面量的来源不止浏览器入口的模块图：描述文件 `plugin.ts`、服务端入口定义（贡献声明写在哪个位置的入口都进清单）、手写的 `package.json` 字段。示例 snippets 恰好把图标写在被浏览器入口导入的模块里，所以 e2e 看不出来。`i-catppuccin-*` 等其它图标集、拼接出的类名则是静默漏报：`iconRules` 的正则只认 `i-lucide-`，别的集不报警告。
+- 如何核实：见上，`ls` 输出目录。
+- 建议改法：把扫描对象改成“最终清单的 JSON 文本 + 所有位置入口模块图里的源码”，这样声明里的图标一定被覆盖；对匹配 `\bi-[a-z0-9]+-` 但不是 `i-lucide-` 的字面量给一条警告（“只支持 Lucide，这个图标不会显示”）；动态拼接无法静态发现，在作者文档里写明。
+
+### 3. 同一页面里两个窗口同时装同一文件：全局登记表按 URL 只存一个等待者，先到的窗口失败为 code-shape
+
+- 严重程度：建议（真实产品一个页面一个窗口，只在测试与 Lab 里会撞）；类别：不变量、共享状态
+- 位置：`packages/neuro-book/src/web/host/plugin-code.ts:107-121`（模块级 `waiting`）、`:148`（`waiting.set(absolute, …)`）、`:143`（`finish` 里 `waiting.delete(absolute)`）
+- 现象：`waiting` 是模块级 `Map<URL, Waiter>`，注释写“同一页面里几个窗口（测试）共用这一张”，但每个窗口各有自己的 `pending` 去重表，所以两个窗口同时取同一 URL 会各插一个 `<script>`、后者覆盖前者的 waiter；任一脚本执行时 `register` 只找到后者，后者 resolve 并 `delete` 掉登记，前者的脚本 `onload` 到来时无人等待，报 `code-shape`。实测（`/tmp/review-t04-impl1-sonnet/loader.test.ts`，用结构化的假文档，两个 `createPluginCodeHost` 同一 URL）输出 `A code-shape：…脚本执行了，但没有登记工厂…`、`B ok`。
+- 为什么是问题：注释把“共用一张表”写成了有意设计，实际它让并发窗口互相破坏；失败信息还会把作者引到“不是构建预设的产物”的错误方向。另外 `register` 绑在首个模块实例的闭包上（`Object.defineProperty(..., configurable: false)`），Vite 开发里这个模块被重新求值（HMR 或重复打包）后，新实例的 `waiting` 与旧登记对象的 `waiting` 不是同一张，之后所有装载都会超时或 `code-shape`。
+- 建议改法：`waiting` 做成 `Map<URL, Set<Waiter>>`（`register` 对集合里的每个等待者 resolve，`finish` 只删自己），或把表放进登记对象自身（登记对象单例，`createPluginCodeHost` 通过它注册等待者）。后一种同时解决 HMR 重新求值的错位。
+
+### 4. 生成的 SDK 包的 `index.js`、`index.d.ts` 引用了 `@vue/reactivity`，包的依赖里没有它；仓库外测试靠手工软链盖住了
+
+- 严重程度：重要；类别：正确性（生成包在仓库外能不能用）、测试
+- 位置：`packages/neuro-book/scripts/plugin-sdk/build-sdk.ts:29`（`PEERS`）、`:90`（只取 `vue`、`typebox` 做 peer）；`build-sdk.test.ts:64-66`
+- 现象：实测 `bun scripts/plugin-sdk/build-sdk.ts /tmp/review-t04-impl1-sonnet/sdk`：生成的 `index.js` 有 `from "@vue/reactivity"`，`index.d.ts`、`contracts-*.d.ts` 有 `import { DeepReadonly, Ref, UnwrapRef } from "@vue/reactivity"`；`package.json` 的 `peerDependencies` 只有 `vue`、`typebox`，`dependencies` 里也没有。`@vue/reactivity` 是 `vue` 的传递依赖：npm、Bun 的扁平布局碰巧能解析，pnpm 严格布局或 Yarn PnP 下 SDK 包自己的位置解析不到，`index.js` 导入失败、类型退化成找不到模块。
+- 为什么是问题：计划明写 peer 是 `vue`、`typebox`，实现的 `PEERS` 正则 `^@vue\/` 把 `@vue/reactivity` 当外部，但没把它补进 peer。`build-sdk.test.ts` 的“仓库外项目”还是手工把 `@vue/reactivity` 等九个包软链进 `node_modules/@vue/`，等于替 SDK 补上了缺的依赖，这条判据（“装进只有 vue、typebox、TypeScript 的作者项目”，测试头注释）实际没有被满足，测试说的和做的不一致。
+- 如何核实：`grep -n 'from "@vue' index.js *.d.ts`；对照 `package.json`。
+- 建议改法：`@vue/reactivity` 加进 peer（宿主模块表与 `SERVER_SHARED_MODULES` 把它当共享模块，作者本来就可能直接导入它）；测试里只软链 `vue` 的真实依赖闭包之外必需的，或者改成真正按 `package.json` 声明的依赖装一次（仓库里已有 bun，可以 `bun install` 一份临时项目，不联网时用本地 tarball），让“缺依赖”会让测试失败。
+
+> 对第 4 条的更正：测试里软链 `@vue/*` 是 `vue` 自己运行也需要的依赖闭包，扁平布局下作者项目本来就有，所以“替 SDK 补依赖”说重了。准确的说法：测试用的是扁平 `node_modules`，无法暴露 pnpm 严格布局下 SDK 包自己解析不到 `@vue/reactivity` 的问题；缺的是 `package.json` 声明，不是测试造假。严重程度维持“重要”（pnpm 是常见的作者环境）。
+
+### 5. `@vue/*` 一律外部且不许打包，连 `@vue/devtools-api` 也拦：引用 vue-router、Pinia 的插件构建失败，错误信息指不出路
+
+- 严重程度：重要；类别：作者体验、正确性
+- 位置：`packages/neuro-book/scripts/plugin-sdk/build-plugin.ts:47`（`ALWAYS_EXTERNAL` 的 `/^@vue\//u`）、`:237`（`external`）、`:273`（“未共享”文案）
+- 现象：实测（`/tmp/review-t04-impl1-sonnet/author4`）：浏览器入口 `import {createRouter, createMemoryHistory} from "vue-router"`，构建失败：`产物不纯：entries.browser：引用了宿主没有共享的模块 @vue/devtools-api：该入口未共享（共享的是 vue、@vue/reactivity、…）`。vue-router 与 Pinia 都依赖 `@vue/devtools-api`。
+- 为什么是问题：`FORBIDDEN_PACKAGES` 里真正会造成第二份运行时的只有 `vue`、`@vue/reactivity`、`@vue/runtime-core`、`@vue/runtime-dom`、`@vue/shared`；`@vue/devtools-api` 是独立小包，没有响应式状态，应该照常打进插件。现在的外部规则按前缀 `@vue/` 一刀切，作者碰到的是一个无法照着改的错误（要“让宿主共享”或“别用这个库”，而信息里只有“未共享”，没写“它被依赖 X 间接引入”，也没有路径）。
+- 如何核实：见上。
+- 建议改法：`ALWAYS_EXTERNAL` 与 `FORBIDDEN_PACKAGES` 的 `@vue/` 改成显式列表（`reactivity`、`runtime-core`、`runtime-dom`、`shared`，后两者改写到 `vue`，`shared` 的处理需要确认）；未共享错误里带上引入它的模块（Rolldown 的 `moduleIds` 之外还要记 importer，可在 `resolveId` 钩子里记 `importer`），告诉作者是哪个依赖引进来的。
+
+### 6. 构建产物从系统临时目录 `rename` 到输出目录，跨文件系统时 EXDEV 失败（`/tmp` 是 tmpfs 的机器上几乎必现）
+
+- 严重程度：重要；类别：正确性、作者体验
+- 位置：`packages/neuro-book/scripts/plugin-sdk/build-plugin.ts:371`（`mkdtemp(join(tmpdir(), …))`）、`:411-416`（`rename(join(directory, name), join(outDir, name))`）
+- 现象：实测：`TMPDIR=/dev/shm bun` 构建 snippets 到 `/tmp/…/out-exdev`（本机 `/tmp` 是 btrfs，`/dev/shm` 是 tmpfs），报 `EXDEV: cross-device link not permitted, rename '/dev/shm/nbook-plugin-build-fYqC7D/browser/browser.js' -> '/tmp/review-t04-impl1-sonnet/out-exdev/browser.js'`，输出目录里什么也没有。
+- 为什么是问题：作者的输出目录一般在项目目录（磁盘），多数 Linux 发行版的 `/tmp` 是 tmpfs；本机 `/tmp` 在根分区只是 2026-10-20 才改的，之前就是 tmpfs。macOS 的 `os.tmpdir()` 也在另一个卷的情况存在。当前测试与 e2e 的输出目录都在 `/tmp` 下，所以同一个文件系统，测不到。
+- 如何核实：见上。
+- 建议改法：中间产物放在输出目录同级的隐藏临时目录（`mkdtemp(join(dirname(outDir), ".nbook-build-"))`，失败与成功都在 `finally` 里删），或者改用 `copyFile` 再 `rm`。构建测试补一个“输出目录与临时目录不同文件系统”的用例，可以通过 `TMPDIR=/dev/shm` 子进程做到。
+
+### 7. 浏览器装载器 `plugin-code.ts` 没有任何单元测试；每次激活新实例、去重、超时、重试、窗口停止后移除样式这些判据都没被测到
+
+- 严重程度：重要；类别：测试
+- 位置：`packages/neuro-book/src/web/host/plugin-code.ts`（无 `plugin-code.test.ts`）；`src/web/host/window.test.ts`（只改了一条引导拒绝用例）；`e2e/plugin-code.e2e.ts`
+- 现象：`grep -rn "createPluginCodeHost\|timeoutMs\|PluginCodeError" src e2e examples` 除了 `plugin-code.ts` 与 `window.ts` 外没有任何引用。`PluginDocument` 的“按结构写、Bun 里也能测”的接口和 `timeoutMs` 选项正是为单元测试留的，却没有测试用它们。变异检查（逐项想象删掉后哪个测试会失败）：
+  - 把 `activateOf` 里每次新建 `module` 改成缓存第一次的 `module.exports`：无测试失败（Spec 输出 2、状态与转换“再次激活执行新的模块实例”；计划“重试与依赖恢复后的再激活不带上一代的顶层状态”）。e2e 没有激活两次的用例。
+  - 删掉 `pending` 去重：e2e 里设置窗口只会激活一次，同样不失败。
+  - `CODE_LOAD_TIMEOUT_MS` 超时分支、`signal.aborted` 分支、失败后重试重新插脚本（只有 e2e 的 `missing` 用例经 UI 重试间接覆盖了“失败不缓存”）。
+  - `window.ts` 的 `attachStyles`：`stop()` 里 `for (const link of styles) link.remove()` 删掉，无测试失败；样式表加载失败记诊断的分支也没有测试。
+  我自己用同样的结构化假文档写了 3 个用例（`/tmp/review-t04-impl1-sonnet/loader2.test.ts`：并发去重只插一个脚本且两次激活得到不同的 `exports`；超时报 `code-load-failed` 并释放监听、之后重试可成功；全局 `error` 事件按文件名匹配并忽略别的文件），在当前实现下全部通过，所以这些行为是对的，只是没人守着。
+- 为什么是问题：这些都是 Spec 明写的输出，且 e2e 对它们不敏感（e2e 里每个窗口只激活一次、30 秒超时测不起）。下一次改装载器（S5 的运行中注销要动这里）没有回归保护。
+- 建议改法：补 `plugin-code.test.ts`：用结构化假文档（页面里的 `document` 是真的，Bun 里没有，直接按 `PluginDocument` 写一个），覆盖上面四项加第 3 条的双窗口并发；`window.test.ts` 补一个窗口 `stop()` 后样式 `<link>` 被移除、样式加载失败进诊断的用例。
+
+### 8. e2e 没有兑现计划验收映射里的几项：主题与语言取自宿主、nb-ui 浮层、“分区图标有尺寸与背景”只断言了 `--svg` 变量
+
+- 严重程度：建议；类别：测试
+- 位置：`packages/neuro-book/e2e/plugin-code.e2e.ts:166-169`、整个文件；对照 plan.md“验收映射”表第 2 行与“样式与图标”行
+- 现象：
+  1. 计划写 S2e e2e“设置页出现并可改值、插件组件跟随宿主的主题与语言、nb-ui 浮层”；Spec 验收 1 也有“i18n 与主题取自宿主，nb-ui 浮层位置正确”。文件里没有主题、语言切换、浮层（如 `Select`、`Popover`）的断言。snippets 页面里是否用到 nb-ui 浮层也没验证。
+  2. 计划写“产品构建里断言分区图标有尺寸与背景”，实现只断言 `getComputedStyle(element).getPropertyValue("--svg")` 含 `url(`。`--svg` 是插件样式表里的自定义属性；图标最终是否显示还取决于宿主 `base` 层里的 `[class*="i-lucide-"]` 遮罩规则、层序与尺寸。只测变量，层序错了（例如插件样式表先于宿主层序声明被解析，`components` 排到 `base` 前面）或遮罩规则没生效，这条仍然通过。
+  3. “激活前请求数为 0”的断言（`expect(code.count()).toBe(0)`）紧跟在 `poll` 之后，只能说明那一刻没发过请求，并不排除稍后才发；它之所以可信是因为取码只由点击触发，但测试写法没有表达这一点。
+- 建议改法：图标断言改成计算样式：元素宽高大于 0 且 `mask-image` 不是 `none`（或 `getBoundingClientRect` 有尺寸）；snippets 页面里放（或另造一个故意写坏之外的示例页）一个 nb-ui 浮层并断言它挂在页面容器里、位置在触发元素附近；主题与语言用现有的外观切换入口各切一次并断言 snippets 页的文字与颜色变量跟着变。若暂不做，把计划的验收映射改成实际覆盖的范围，不要留着没做的承诺。
+
+### 9. 宿主模块表的加载失败被永久缓存，且不是 `PluginCodeError`：之后每次重试都得到同一个原始异常
+
+- 严重程度：建议（偏重要：典型触发是服务端升级后页面还开着，动态 chunk 的哈希文件 404）；类别：错误路径、合同（失败都抛 `PluginCodeError`，带插件 id、入口 id、URL）
+- 位置：`packages/neuro-book/src/web/host/plugin-code.ts:181-183`（`table ??= options.modules()`）；`window.ts:150-153`（`code()`）
+- 现象：`table` 是被缓存的 Promise，`modules()`（`import("./host/plugin-modules")`）失败后永远是 rejected，不会重新调用。实测（`/tmp/review-t04-impl1-sonnet/loader3.test.ts`）：`modules` 第一次抛 `TypeError("Failed to fetch dynamically imported module")`，第一次激活得到原始 `TypeError`（`name` 是 `TypeError`、没有 `code`、没有插件与入口），再次激活得到同一个错误对象，`modules` 总共只调用了一次。设置窗口里用户点“重试入口”不会有任何改善，直到刷新页面。
+- 为什么是问题：类头注释与计划都写“失败都抛 `PluginCodeError`……原因带插件 id、入口 id 与文件 URL”“失败后下次重试重新取回”，这一条路径两者都违反。另外这一步和 Spec 术语里“宿主模块表在根组件挂载前建立”不一致：实现是第一次第三方入口激活时才建（文件头注释也这么写，是有意的懒加载），Spec 与代码二选一要改一边——懒加载的收益（没有第三方入口的窗口少一个小 chunk，实测 `plugin-modules-*.js` 只有 5.9 KB、`.css` 2.7 KB，因为 nb-ui 与设置组件本来就在别的 chunk 里）很小，却换来了这个失败路径。
+- 建议改法：失败时清掉缓存（`table = null`）并把错误包成 `PluginCodeError("code-load-failed", …)`（需要时新增一个码，例如 `host-modules-failed`）；或者去掉懒加载，在 `boot.ts` 里随窗口启动一起导入，与 Spec 一致，这条路径就不存在了。
+
+### 10. 浏览器产物实际是非严格模式：注释说 `"use strict"` 落在函数体开头，产物里根本没有；同一份源码在浏览器与服务端语义不同
+
+- 严重程度：重要；类别：正确性、与注释不符
+- 位置：`packages/neuro-book/scripts/plugin-sdk/build-plugin.ts:205-210`（`REGISTER_BANNER`、`REGISTER_FOOTER` 与上方注释）；产物 `browser.js`
+- 现象：注释写“`"use strict"` 落在函数体开头，仍是指令”。实测构建 snippets 与一个自写样例，`grep -c "use strict" browser.js` 为 0；工厂函数体首行是 `Object.defineProperty(exports, Symbol.toStringTag, …)`。把样例的 `activate` 写成“对冻结对象赋值并看是否抛错”，用登记外壳的方式在 Bun 里执行产物（`/tmp/review-t04-impl1-sonnet/strict.mjs`）：输出 `strictModeWriteToFrozenThrows: false`，即赋值被静默忽略；同一份源码在构建期读声明（Vite SSR，ESM 严格）与服务端产物（ESM）里都会抛 `TypeError`。
+- 为什么是问题：作者写的是 ES 模块，规范上天然严格；打成登记工厂后变成脚本里的普通函数，非严格。后果是同一段代码在两端行为不同：对宿主冻结的模块表对象赋值、写只读属性、给未声明变量赋值、`this` 指向全局等，在浏览器静默通过，在服务端抛错；作者在浏览器里调通，到服务端才暴露，反过来 bug 被掩盖。注释声称已经处理，说明作者以为是严格的，没有任何测试断言（`registeredFactory` 用 `new Function(code)()`，也是非严格）。
+- 如何核实：见上；也可以对产物 `grep -n "use strict"`。
+- 建议改法：把 `"use strict";` 放进 `REGISTER_BANNER` 的函数体开头（`…function (module, exports, require) {"use strict";`）；构建测试加一条：产物里的工厂对冻结对象赋值会抛错，或者直接断言 banner 之后第一条语句是 `"use strict"`。
+
+### 11. SDK 的公开面与自己的示例、Spec 不自洽：缺 list 分区的贡献点与类型；`./build` 子路径没有类型；已被助手取代的低层导出继续算兼容承诺
+
+- 严重程度：建议；类别：接口形状、代码质量
+- 位置：`packages/neuro-book/src/sdk/index.ts:33-35`；`src/sdk/browser.ts:7-8`；`scripts/plugin-sdk/build-sdk.ts:96-100`
+- 现象与理由：
+  1. 缺失：`examples/plugins/snippets/web/plugin.ts` 的头注释教作者“list 分区是向 `settings.sections` 的顶层声明，写在插件描述里”，`defineSetting` 的 `section` 也引用这样的分区，但 SDK 只导出了 `SETTINGS_PAGES_POINT`、`SettingsPageDeclaration`，没有 `SETTINGS_SECTIONS_POINT`、`SettingsSectionDeclaration`（`SETTINGS_CHOICES_POINT`、`settingsChoicesEvent`、`SettingsChoicesDeclaration` 同样没有）。作者要写 list 分区只能手拼 `{capability: "settings.sections", …}`，而内核里 `declaration` 是 `unknown`——正是 `settingsPageContribution` 注释里说要避免的“字段写错要到运行时才被设置窗口静默拒掉”。
+  2. 冗余：`settingsPage`、`settingsPageEvent` 都被 `settingsPageContribution` 取代（示例与 SDK 测试之外无人使用，`settingsPage` 在 `examples/` 里零引用），却作为导出进入 `engines.neurobook` 兼容范围；`hostStateRootKey` 示例也零引用。公开面“最小”的要求是每一项都有场景；下一次删就是破坏性变更。
+  3. 名字：`provide`、`orThrow`、`localize`、`formatText`、`displayLocale` 这类一般性名字成为永久承诺。`provide` 与 Vue 的 `provide` 同名，同一个入口模块既要 `provide(…)` 服务又要在 `.vue` 里 `provide` 时必须改名导入。宿主能力键带 `host` 前缀（`hostClockKey`），内置插件的键不带（`settingsKey`、`storageKey`）、内核的也不带（`diagnosticsKey`），规则是“按来源”，作者看名字猜不出。
+  4. `build-sdk.ts` 的 `package.json` 里 `./build` 只有 `import`，没有 `types`；打包的 `build.js` 没有声明文件。TypeScript 作者写构建脚本 `import {buildPlugin} from "@notnotype/nb-plugin-sdk/build"` 会得到 TS7016，`BuildPluginOptions`/`BuildPluginResult`/`PluginBuildError` 的类型也拿不到；包里也没有 `bin`，作者怎么跑构建只能读 `build-plugin.ts` 的 `import.meta.main` 分支（`build.js` 里的同一分支在 Node 24.2 之前 `import.meta.main` 是 `undefined`，命令行入口不会执行）。
+- 如何核实：1、2 对照 `sdk.test.ts` 的名字清单与 `grep -rlw`；3 看 `src/sdk/index.ts`；4 看 `/tmp/review-t04-impl1-sonnet/sdk/package.json` 的 `exports` 与目录里没有 `build.d.ts`。
+- 建议改法：补 `SETTINGS_SECTIONS_POINT` 与 `SettingsSectionDeclaration`（可选再给 list 分区一个 `settingsSectionContribution`）；评估是否去掉 `settingsPage`、`settingsPageEvent`（产物第一版发布前去掉比以后便宜），或写一句保留理由；`./build` 生成声明文件并加 `types`，再加一个 `bin` 或在 `package.json` 里写 `scripts` 样例；`provide` 的撞名由开发者拍板是否在发布前改名（需要开发者决定）。
+
+### 12. 浏览器产物不压缩，且每个入口都带一整份 typebox（snippets 的 103 KB 里 77 KB 是 typebox）
+
+- 严重程度：建议；类别：体积、设计取舍
+- 位置：`packages/neuro-book/scripts/plugin-sdk/build-plugin.ts:246-247`（`minify: false`）、`:46-51`（共享表不含 `typebox`）
+- 现象：实测构建 snippets，`browser.js` 103,285 字节，按 `//#region` 统计 `node_modules/typebox` 占 76,997 字节；其余是插件自己的代码。原因：入口外壳导入整个定义模块，定义模块经 `shared/contracts.ts` 导入 `typebox` 定义配置项的 schema（`defineSetting` 的 `schema`）。SDK 的 `package.json` 已经把 `typebox` 列为 peer，宿主里也有同一个包，只是没进共享模块表。
+- 为什么是问题：浏览器每次装载都要下载、解析一份不压缩的第二个 typebox，每个第三方插件都有，插件数目线性放大；计划把“正例：打包 typebox”当作可接受（S2c 的测试），但没有给出体积数字或后续处理；计划风险一节“记录构建体积的前后差”要求的也是宿主一侧。typebox 若将来加入共享表，会变成兼容承诺，所以现在应有意识地选，而不是默认。
+- 建议改法：（需要开发者决定）要么把 `typebox` 加进 `BROWSER_SHARED_MODULES` 和 `SERVER_SHARED_MODULES`（schema 对象只是 JSON 数据，与宿主共享一份没有身份问题，且已经要求 peer），要么至少对浏览器产物开 `minify`（source map 保留），并把当前体积写进 Task 记录。
+
+### 13. 构建预设对常见输入错误给原始异常或没有位置信息；source map 的 `sources` 带着构建机的绝对路径
+
+- 严重程度：建议；类别：作者体验
+- 位置：`packages/neuro-book/scripts/plugin-sdk/build-plugin.ts:112-121`（`readAuthor`）、`:233-234`（`shell` 路径用入口 id）、`:253`（`sourcemap: true`，产物 `browser.js.map`）、`:273`（未共享文案）
+- 现象与理由：
+  1. 入口 id 含 `/`（清单只拒绝空 id 与 `main` 路径不合法，`a/b.js` 合法）时，`writeFile(join(workDir, "a/b.shell.ts"))` 抛 `ENOENT: no such file or directory, open '/tmp/nbook-plugin-build-iZOmzJ/a/b.shell.ts'`（实测），不是 `PluginBuildError`，作者看不出是入口 id 的问题。
+  2. 作者目录缺 `package.json` 或 JSON 写错时 `readAuthor` 抛原始的 `ENOENT`/`SyntaxError`（`readFile`、`JSON.parse` 未包），命令行入口只打印 `error.message`，没有文件名。
+  3. “未共享”文案：`引用了宿主没有共享的模块 X：该入口未共享（共享的是 …）`。没有说是哪个文件引进来的（常常是间接依赖），没有告诉作者能做什么（换库、让宿主共享需要产品改动）；服务端入口里混进浏览器代码（例如定义模块被两端共用，其中顶层导入了 `@notnotype/nb-ui/components`）时，错误落在 `entries.server`，也没提示“这个模块被服务端入口的模块图引用了”。
+  4. source map 的 `sources` 是相对临时构建目录算的（实测 `../../../home/notnotype/CodeRepository/…/node_modules/typebox/…`、`../browser.shell.ts`），文件移到输出目录后这些相对路径指向不存在的位置，同时把作者机器的绝对目录结构带进发布产物；`sourcesContent` 是有的，所以 DevTools 还能看到内容，只是路径是乱的。
+  5. 图标扫描排除 `node_modules`（`:383`）：打进插件的第三方 UI 库里写死的 `i-lucide-*` 类漏掉，且与第 2 条一样无提示。
+- 建议改法：入口 id 在 `manifestOf` 前用与 `main` 同一套规则校验（不含 `/`、`\`，或文件名做转义）；`readAuthor` 包成 `PluginBuildError`；未共享错误记 importer；`output.sourcemapPathTransform` 把路径改成相对作者目录的稳定形式。
+
+### 14. 全局登记对象一旦建立就不可写、不可删：同一进程里后到的测试（含建议补的装载器测试）会与构建测试互相踩
+
+- 严重程度：建议；类别：隐含的共享状态、测试隔离
+- 位置：`packages/neuro-book/src/web/host/plugin-code.ts:112-124`（`Object.defineProperty(scope, PLUGIN_REGISTRY_GLOBAL, {configurable: false, writable: false})`）、`scripts/plugin-sdk/build-plugin.test.ts:61-76`（`registeredFactory` 直接 `scope[PLUGIN_REGISTRY_GLOBAL] = {…}` 再 `delete`）
+- 现象：`createPluginCodeHost` 一建立就把登记对象定义成不可配置、不可写。实测（`/tmp/review-t04-impl1-sonnet/global.test.ts`）：建过一个装载器后，`scope[PLUGIN_REGISTRY_GLOBAL] = {…}` 抛 `Attempted to assign to readonly property.`，`delete` 抛 `Unable to delete property.`——这正是 `build-plugin.test.ts` 的 `registeredFactory` 做的事。`bun test` 默认把多个测试文件放在同一个进程里（`bunfig.toml` 没配隔离），现在没有测试创建装载器所以没撞；按第 7 条补 `plugin-code.test.ts` 后，两个文件的先后顺序就决定构建测试是否通过。从代码推断，未在合并运行里复现。
+- 为什么是问题：生产里这个不可变是想防插件改掉登记对象，但登记对象放全局、测试又必须直接操控全局，两者在同一进程里冲突；第 3 条的 HMR 重新求值也是同一个根。
+- 建议改法：登记对象的“谁在等”状态放进登记对象本身（单例），装载器通过它登记等待者；`registeredFactory` 改为装一个自己的 `PluginDocument` 并经装载器取工厂（同时就测到了装载器），不直接写全局。
+
+### 15. 装载进行中收到停止信号不会提前结束：激活要等到脚本加载完成或 30 秒超时，入口停止与窗口销毁随之被拖住
+
+- 严重程度：建议；类别：不变量（停止与收口）
+- 位置：`packages/neuro-book/src/web/host/plugin-code.ts:181-187`（`activateOf` 只在 `await Promise.all` 之后检查 `signal.aborted`）；内核 `packages/nb-runtime/src/plugins/host.ts:944-948`（入口的停止任务 `await attempt.outcome`）
+- 现象：实测（`/tmp/review-t04-impl1-sonnet/abort.test.ts`，假文档脚本一直不加载，`timeoutMs: 300`，20 毫秒时 `abort`）：`activateOf` 在 301 毫秒才以 `code-load-failed` 结算，不是 20 毫秒。内核给入口的停止任务会等 `attempt.outcome`（激活结束），所以窗口销毁（`browserWindow.stop()` → `host.destroy()`）时，只要有一个第三方入口卡在脚本加载上（服务端挂起、半开连接），销毁最多被拖 30 秒（`CODE_LOAD_TIMEOUT_MS`）。从代码推断，未做整窗销毁的实测。
+- 为什么是问题：`signal` 传进来就是为了让装载可取消；`<script>` 本身不能取消，但等待可以：装载器的等待方应该在 `signal` 触发时立刻放弃（移除监听、让脚本留在后台自己结束），不必等它。此外 `finish` 之前 `waiting` 与 `error` 监听、30 秒定时器一直占着，窗口已关闭仍在。
+- 建议改法：`activateOf` 对 `Promise.all` 与 `signal` 做竞争（`signal.addEventListener("abort", …)` 时 reject `signal.reason`，并在最后一个等待者离开时取消超时与监听）；单元测试用 `timeoutMs` 加手动 abort 断言“在超时之前结算”。
+
+### 16. 浏览器产物里 `import.meta.url` 被编成 `"" + {}.url`（即 `"undefined"`）：Vite 惯用的资源写法构建通过、运行时抛 `Invalid URL`
+
+- 严重程度：重要；类别：正确性、作者体验
+- 位置：`packages/neuro-book/scripts/plugin-sdk/build-plugin.ts:239-263`（`vite({… lib: {formats: ["cjs"]} …})` 没有为 `import.meta` 做任何处理）
+- 现象：实测（`/tmp/review-t04-impl1-sonnet/author4`）：浏览器入口里写 `new URL("./logo.svg", import.meta.url).href`（Vite 里引用静态资源的标准写法）。构建 OK、没有警告；产物里是 `new URL("data:image/svg+xml,…", "" + {}.url).href`。`{}.url` 是 `undefined`，基址串成 `"undefined"`，`new URL(绝对地址, "undefined")` 在 Bun 与 Node 里都抛 `Invalid URL`（`/tmp/review-t04-impl1-sonnet/url.mjs`），浏览器同样会因基址无效抛 `TypeError`。资源本身（lib 模式下全部内联成 data URI，17 KB 的样例也是）没问题，只是这一层包装让它在运行时必然失败。
+- 为什么是问题：产物是登记工厂，不是 ES 模块，`import.meta` 在 CJS 外壳里没有定义；计划与 Spec 只讲了 `require`、样式、图标，没有提 `import.meta`。依赖里的库也常用 `import.meta.url`（懒加载 worker、wasm、字体），作者拿不到构建期提示，只能在浏览器里看到 `Invalid URL`。
+- 如何核实：见上；`grep -n "new URL" browser.js`。
+- 建议改法：外壳里记下脚本地址：`REGISTER_BANNER` 在函数里 `const __nbookScriptUrl = document.currentScript.src`（或让 `register` 把 URL 当第四个参数传入），`define` 把 `import.meta.url` 换成它；或者在构建期检测产物里的 `{}.url` 并以 `PluginBuildError` 拒绝。至少补一条构建测试。
+
+### 17. `build:sdk` 与 `buildExample` 对传入的输出目录无条件递归删除，与 `buildPlugin` “输出目录必须为空”的做法不一致
+
+- 严重程度：建议；类别：作者体验、安全习惯
+- 位置：`packages/neuro-book/scripts/plugin-sdk/build-sdk.ts:54`（`rm(outDir, {recursive: true, force: true})`，`outDir` 来自 `process.argv[2]`）、`:107`；`build-examples.ts:141-142`
+- 现象：`bun run build:sdk <目录>` 先递归删除该目录再构建；传入 `.`、`~` 或项目目录会直接清空。`buildPlugin` 自己对非空输出目录拒绝并报错（`build-plugin.ts:324`），同一套脚本里两种做法。
+- 建议改法：`build-sdk` 只清理自己生成的内容（先检查目录里有没有自己写的 `package.json` 且 `name` 是 `@notnotype/nb-plugin-sdk`，或要求目录不存在/为空/带标记文件），否则拒绝。
+
+## 未发现问题的方面
+
+以下是我专门检查过、仔细检查后没有发现问题的地方（括号里是依据）：
+
+- 装载器的基本语义：同一文件并发只插一个脚本、两次激活得到不同的模块实例、超时后释放监听并可重试、全局 `error` 事件按文件名匹配并忽略别的文件（结构化假文档的 3 个用例全部通过，`/tmp/review-t04-impl1-sonnet/loader2.test.ts`）。问题只在周边：并发窗口、模块表失败缓存、停止信号。
+- 宿主模块表与构建产物的身份：开发会话的 `optimizeDeps.include` 同时列了 `vue` 与 `@vue/reactivity`，生产构建是同一个 Rollup 图，两条路径下模块表里的函数是宿主那一份（`plugin-modules.dom.test.ts` 按身份核对，我自己做了一次生产构建，`plugin-modules-*.js` 5.9 KB、只多一个 2.7 KB 的 CSS）。静态导入 `vue` 的 CommonJS 互操作正常（产物里是 `let vue = require("vue")`）。
+- `@vue/runtime-core`、`@vue/runtime-dom` 改写到外部的 `vue` 有效（实测，产物只有 `require("vue")`）；但没有测试（见第 7 条旁注：该特性无测试守着，我没有单列一条）。
+- 样式层序：宿主 `tailwind.css` 先声明 `@layer theme, base, components, utilities`，nb-ui 的图标遮罩规则在 `base`、插件的 `--svg` 在 `components`，窗口的 `<link>` 在宿主样式之后追加，层序不会反过来。
+- 生成的 SDK 包：声明文件在 `skipLibCheck: false` 下通过（`build-sdk.test.ts`）；`index.js` 与 `browser.js` 共享一个内核 chunk，`SETTINGS_PAGES_POINT` 等常量不会出现两份；构建预设里没有靠 `instanceof`、`Symbol`、`WeakMap` 的身份比较，内核在 `index.js` 与 `build.js` 各打一份不会出问题。
+- 依赖方向：架构测试对示例的导入规则与 `tsconfig`、Vite 别名一致；`git status` 干净，我的构建实验没有写进仓库（Vite 的 `noDiscovery` 没有在作者目录写缓存）。
+- 我跑过的：`bun run --cwd packages/neuro-book typecheck` 通过；`bun test src/web/host/window.test.ts src/sdk/sdk.test.ts src/architecture.test.ts` 32 通过；`bun test scripts/plugin-sdk` 12 通过。没有跑 e2e 与开发服务。
+
+## 汇总
+
+共 17 条：阻断 0，重要 8（第 1、2、4、5、6、7、10、16 条），建议 9（第 3、8、9、11、12、13、14、15、17 条）。
+
+条目按我核实的先后编号，没有按严重程度重排（报告文件只追加）。按影响从大到小建议处理的顺序：第 10 条（产物非严格模式，与注释相反）、第 6 条（跨文件系统 `rename` 失败）、第 1 条（动态 `import()` 绕过纯度检查）、第 16 条（`import.meta.url`）、第 2 条（清单声明里的图标没有规则）、第 4 条（SDK 包缺 `@vue/reactivity` 依赖声明）、第 5 条（`@vue/*` 一刀切）、第 7 条（装载器无测试）。
+
+> 补记（对“未发现问题的方面”第三条）：第 7 条正文没有写到 `@vue/runtime-core`、`@vue/runtime-dom` 改写无测试这一点，在此补上：`vueRuntimePlugin` 与 `VUE_REEXPORTED` 在 `build-plugin.test.ts` 与 `build-sdk.test.ts` 里零引用（`grep -rn "runtime-core\|runtime-dom"` 只有为依赖闭包软链的两行），删掉它测试仍全部通过；功能本身实测有效。实验文件已删除，报告里提到的 `/tmp/review-t04-impl1-sonnet/` 路径不再存在。

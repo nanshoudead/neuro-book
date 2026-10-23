@@ -89,6 +89,7 @@ ctx.messages = transcript.messages();
 
 - **日志是权威**：运行错误（`run_end`）与费用（`usage`，单价未知为 null）只从日志来。只推事件、不推日志的宿主看不到运行错误与费用。
 - **断线重连**：宿主按 `seq` 游标补发日志；适配器忽略重复与更旧的 `seq`。
+- **消息对到日志**：`logSeqOf(message)` 给出日志合成的消息来自哪一条日志（正在生成的临时消息为 null），宿主按它切分轮次等，不自己解析消息 id。
 - **图片**：harness 只给 base64，适配器把它写成 `data:` 定位符，`services.resolveAttachmentUrl` 原样返回即可。
 - **写坏的输入**：跳过并记进 `problems()`，不抛异常。宿主可以把它们写进自己的诊断。
 - **投递方式**：harness 没有 steer 与 followup，宿主把 `interaction.canSteer`、`canQueue` 都给 false，运行中能写不能发。

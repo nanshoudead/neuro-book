@@ -1,8 +1,8 @@
 /**
  * `nbstory serve`：启动查看器的独立服务（docs/specs/story/cli-skill.md 输出 5、F3）。
  *
- * 先后：拿服务锁 → 开始监听 → 写登记 → 装上停止信号的处理 → 打印登录链接。收到 SIGINT 或 SIGTERM 时：删登记 →
- * 停止监听（在途请求随连接断开结束）→ 放锁。
+ * 先后：拿服务锁 → 开始监听 → 装上停止信号的处理 → 写登记 → 打印登录链接。收到 SIGINT、SIGTERM 或 SIGHUP 时：
+ * 停下抽取与问答 → 删登记 → 停止监听（在途请求随连接断开结束）→ 放锁。
  * 信号处理必须在打印之前装：调用方读到登录链接就可能马上发 SIGTERM，Bun 在监听期间先打印、后装处理时，这个信号会
  * 按默认动作杀掉进程（退出码 143），登记留在书库里（2026-10-20 实测，先打印时 30 次全中）。
  * 任何一步启动失败（书库目录、锁、监听、登记）都先关掉已开的监听、放锁，不留下登记，退出码 3；`--json` 时失败也只
@@ -13,10 +13,13 @@ import {randomUUID} from "node:crypto";
 import {mkdir} from "node:fs/promises";
 import {join} from "node:path";
 
+import {onProcessTermination} from "@notnotype/nb-harness";
+
 import {createStoryApi} from "../core/api";
 import {defaultLibraryRoot} from "../core/library";
 import {coordinatedLibrary} from "../ingest/coordinator";
 import {createIngestService, type IngestService} from "./ingest-service";
+import {createQaService} from "./qa-service";
 import type {CliIo} from "../cli/main";
 import {createServeAuth} from "./auth";
 import {createHandler} from "./http";
@@ -68,6 +71,8 @@ export async function serveCommand(options: ServeOptions, io: CliIo): Promise<nu
     const api = createStoryApi({library: books});
     // 抽取的模型取自默认位置的配置（与 nbstory ingest 相同），每次发起时重读。
     ingest = createIngestService({library: books});
+    // 网页问答与设置页：配置取默认位置（与 nbstory config 相同），每轮开始时重读。
+    const qa = createQaService({api});
     let server: ReturnType<typeof Bun.serve>;
     let handler: ((request: Request) => Promise<Response>) | null = null;
     try {
@@ -83,40 +88,45 @@ export async function serveCommand(options: ServeOptions, io: CliIo): Promise<nu
 
     const port = server.port!;
     const auth = createServeAuth(port);
-    handler = createHandler({api, ingest, auth, instance, webRoot: WEB_ROOT});
+    handler = createHandler({api, ingest, qa, auth, instance, webRoot: WEB_ROOT, timeout: (request, seconds) => server.timeout(request, seconds)});
     const url = `http://127.0.0.1:${port}`;
+    const stop = async (): Promise<number> => {
+        // 先停下本服务的抽取任务、等它们放锁，再撤销登记、停监听（ingest-service.ts 模块头）；问答同样先取消、等保存完。
+        await Promise.all([ingest.close(), qa.close()]);
+        // 撤销登记失败（例如书库目录变成只读）也要停掉监听、放锁，否则进程停不下来并一直占着锁；这时退出码为 1。
+        let code = 0;
+        try {
+            await lock.withdraw();
+        } catch (error) {
+            code = 1;
+            io.stderr(`撤销服务登记失败：${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+            await server.stop(true);
+            lock.release();
+        }
+        return code;
+    };
+    // 问答引擎依赖的 OMP 一被导入就接管了 SIGINT、SIGTERM、SIGHUP（跑完清理就以 128 加信号号退出），自己装的处理拦不住，
+    // 所以经 nb-harness 登记：停完以 stop 的退出码退出。
+    // 在写登记之前登记：登记一出现别的进程就可能发信号来停它。
+    let unregister = () => {};
+    const exited = new Promise<number>(resolve => {
+        unregister = onProcessTermination(async () => {
+            const code = await stop();
+            resolve(code);
+            return code;
+        });
+    });
+
     try {
         await lock.publish({instance, url, port, pid: process.pid});
     } catch (error) {
+        unregister();
         await server.stop(true);
         await lock.withdraw();
         lock.release();
         return fail("serve_failed", `写服务登记失败：${error instanceof Error ? error.message : String(error)}`);
     }
-
-    const exited = new Promise<number>(resolve => {
-        let stopping = false;
-        const stop = async () => {
-            if (stopping) return;
-            stopping = true;
-            // 先停下本服务的抽取任务、等它们放锁，再撤销登记、停监听（ingest-service.ts 模块头）。
-            await ingest.close();
-            // 撤销登记失败（例如书库目录变成只读）也要停掉监听、放锁，否则进程停不下来并一直占着锁；这时退出码为 1。
-            let code = 0;
-            try {
-                await lock.withdraw();
-            } catch (error) {
-                code = 1;
-                io.stderr(`撤销服务登记失败：${error instanceof Error ? error.message : String(error)}`);
-            } finally {
-                await server.stop(true);
-                lock.release();
-            }
-            resolve(code);
-        };
-        process.once("SIGINT", stop);
-        process.once("SIGTERM", stop);
-    });
 
     const login = `${url}/login?token=${auth.token}`;
     if (options.json) io.stdout(JSON.stringify({ok: true, data: {login, url}}));

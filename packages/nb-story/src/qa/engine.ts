@@ -13,11 +13,14 @@
  * 第 2、3 步里 harness 抛出的错误（不是作为结果返回的）都是本机故障：收成 `model_failed`（`local`）的失败轮，
  * 不让它逃出这个函数；续问时恢复会话就失败的（Profile 或工具与快照不一致）在任何请求之前报 `qa_not_continuable`。
  * 保存失败不改变这一轮的结果，只在返回值里说明记录没保存。
+ *
+ * 第 1 步与建 harness 在 `prepareQuestion` 里做完，开始前的错误都从它抛出；`run` 做其余几步。
  */
 
 import {createHarness, createToolRegistry, HarnessError, registerPlugin, type Harness, type HarnessOptions, type TurnResult} from "@notnotype/nb-harness";
-import {createMemorySessionLog, parseEntryLine, type SessionEntry} from "@notnotype/nb-session";
+import {createMemorySessionLog, parseEntryLine, type JsonValue, type SessionEntry, type SessionLog} from "@notnotype/nb-session";
 
+import {refsInText} from "../contract/refs";
 import type {StoryApi} from "../core/api";
 import type {BookFeatures, Position} from "../core/dataset";
 import {StoryError} from "../core/errors";
@@ -26,9 +29,10 @@ import {newQaRecordId, QaRecords, type QaConversation, type QaMode, type QaReply
 import {qaLimits, type QaConfig} from "./config";
 import {configuredModel, thinkingOption} from "./harness-model";
 import {QaError} from "./errors";
-import {ReadLedger, refsInText} from "./read-ledger";
+import {ReadLedger} from "./read-ledger";
 import profile from "./story-qa.profile";
 import {storyQaPlugin, type QaToolState} from "./tools";
+import {webEventOf, type QaAgentEvent} from "./web-events";
 
 export type QaProgress = {kind: "tool"; tool: string; text: string} | {kind: "rejected"; text: string} | {kind: "answered"};
 
@@ -45,6 +49,14 @@ export interface AskInput {
     continueFrom?: string;
     signal?: AbortSignal;
     onProgress?: (event: QaProgress) => void;
+    /**
+     * 新对话的 id：网页问答由服务端先定下（`newQaRecordId()`），这一轮开始前就能告诉页面。不给时照旧生成；续问时忽略。
+     */
+    conversationId?: string;
+    /** 运行中的事件，只留网页用得到的部分（见 `web-events.ts`）。回调抛错不影响这一轮。 */
+    onAgentEvent?: (event: QaAgentEvent) => void;
+    /** 会话日志新写入的条目（带 seq，按写入顺序）。续问时读回的旧条目不再发。回调抛错不影响这一轮。 */
+    onLogEntries?: (entries: readonly SessionEntry[]) => void;
     /** 透传给 nb-harness 的 `createHarness`（它的公开选项）；测试用脚本化模型。 */
     streamFn?: HarnessOptions["streamFn"];
 }
@@ -100,7 +112,29 @@ async function fullReadMessage(input: AskInput, book: Awaited<ReturnType<StoryAp
     const paragraphs = outcome.value.paragraphs;
     const chars = paragraphs.reduce((sum, item) => sum + item.text.length, 0);
     if (chars > maxChars) throw new QaError("full_read_unavailable", `阅读位置 ${at.chapter}.${at.paragraph} 以前的原文有 ${chars} 字，超过全读上限 ${maxChars} 字：改用图当目录，或调大 fullReadMaxChars`);
-    return `以下是阅读位置以前的全部原文：\n${paragraphs.map(item => `${item.chapter}.${item.paragraph} ${item.text}`).join("\n")}\n\n问题：${input.question}`;
+    return `${FULL_READ_HEAD}\n${paragraphs.map(item => `${item.chapter}.${item.paragraph} ${item.text}`).join("\n")}${FULL_READ_QUESTION}${input.question}`;
+}
+
+const FULL_READ_HEAD = "以下是阅读位置以前的全部原文：";
+const FULL_READ_QUESTION = "\n\n问题：";
+
+/**
+ * 全读对话第一轮的用户消息换成问题加一句说明，不带原文：网页拿到的日志（`qa.get` 与运行中推送的条目）都经过它，
+ * 免得每次打开对话都传一整本书（qa.md 输出 34）。调用方只对全读对话第一轮的条目调用，并给出那一轮的问题：消息要
+ * 正好是“开头 + 原文 + 问题”才换，不从正文里猜分界（段落里可能有空行，普通问题也可能写成同样的开头）。存盘的日志不变，
+ * 续问照旧交回模型原文。
+ */
+export function withoutFullText(entry: SessionEntry, question: string): SessionEntry {
+    if (entry.kind !== "agent_message" || typeof entry.message !== "object" || entry.message === null || Array.isArray(entry.message)) return entry;
+    const message = entry.message as {readonly [key: string]: JsonValue};
+    if (message.role !== "user") return entry;
+    const content = message.content;
+    const text = typeof content === "string" ? content : Array.isArray(content) ? content.map(block => (typeof block === "object" && block !== null && !Array.isArray(block) && typeof block.text === "string" ? block.text : "")).join("") : "";
+    const tail = `${FULL_READ_QUESTION}${question}`;
+    if (!text.startsWith(FULL_READ_HEAD) || !text.endsWith(tail)) return entry;
+    const body = text.slice(FULL_READ_HEAD.length, text.length - tail.length);
+    const paragraphs = body.split("\n").filter(line => /^\d+\.\d+ /u.test(line)).length;
+    return {...entry, message: {...message, content: [{type: "text", text: `${question}\n\n（已附阅读位置以前的全部原文，共 ${paragraphs} 段，这里不显示）`}]}};
 }
 
 /** 一轮开始之前定下的东西：新对话现建，续问从记录读回。 */
@@ -131,7 +165,7 @@ async function startNew(input: AskInput, started: number): Promise<Start> {
         book,
         features: info.value.features,
         previous: null,
-        id: newQaRecordId(new Date(started)),
+        id: input.conversationId ?? newQaRecordId(new Date(started)),
         at,
         mode,
         maxChapters,
@@ -166,6 +200,31 @@ async function startContinued(input: AskInput, id: string): Promise<Start> {
     return {book, features: info.value.features, previous, id, at: previous.at, mode: previous.mode, maxChapters: previous.maxChapters, ledger, entries, firstMessage: input.question};
 }
 
+/**
+ * 观察者的回调与运行隔离：抛错只写一条诊断。日志的 `append` 一旦失败，harness 会把会话判坏、这一轮以本机错误结束，
+ * 而条目其实已经写进去了；网页断开等观察者一侧的错误不能改变这一轮的结果与保存。
+ */
+function notify(call: () => void): void {
+    try {
+        call();
+    } catch (error) {
+        console.error(`nbstory：问答的观察者出错，已忽略：${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+/** 包一层会话日志：底层 `append` 返回已编号的条目之后通知观察者。 */
+function observed(log: SessionLog, onEntries: AskInput["onLogEntries"]): SessionLog {
+    if (onEntries === undefined) return log;
+    return {
+        ...log,
+        async append(inputs) {
+            const entries = await log.append(inputs);
+            notify(() => onEntries(entries));
+            return entries;
+        },
+    };
+}
+
 /** 停下时的文字回复：去掉首尾空白后为空就没有回复（输出 10）；正文里没核实的出处列出来（输出 24）。 */
 function replyOf(result: TurnResult, ledger: ReadLedger): QaReply | null {
     const text = result.text.trim();
@@ -174,7 +233,34 @@ function replyOf(result: TurnResult, ledger: ReadLedger): QaReply | null {
     return {text, truncated: result.stopReason === "length", unverifiedRefs};
 }
 
+/** 问一轮：先准备（会抛出开始前的错误），再运行。`nbstory ask` 用它；网页问答分两步调（见 `prepareQuestion`）。 */
 export async function askQuestion(input: AskInput): Promise<QaOutcome> {
+    return (await prepareQuestion(input)).run();
+}
+
+/**
+ * 准备好、还没开始的一轮。开始前的错误（查询失败、全读超上限、续问不了）都在 `prepareQuestion` 里抛出，不会推迟到
+ * `run`：网页问答在准备成功后才登记运行、回复页面，失败的直接作为请求的错误返回，运行表里不会留下没人收口的一项。
+ * 准备好之后必须二选一：`run()` 一次，或者不运行了就 `abandon()` 关掉已建的 harness。
+ */
+export interface PreparedQuestion {
+    /** 对话 id：新对话是 `conversationId` 或新生成的，续问是原对话的。 */
+    readonly id: string;
+    /** 这一轮是对话的第几轮（从 1 数）。 */
+    readonly turn: number;
+    /** 这一轮在会话日志里从哪一条开始（同记录的 `logFrom`）。 */
+    readonly logFrom: number;
+    /** 对话的阅读位置与做法（续问时是记录里的）。 */
+    readonly at: Position;
+    readonly mode: QaMode;
+    /** 这一轮固定在哪本书（书 id）的哪一代上：同 id 删掉又导入的书是另一代，这一轮不属于它。 */
+    readonly book: string;
+    readonly generation: string;
+    run(): Promise<QaOutcome>;
+    abandon(): Promise<void>;
+}
+
+export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion> {
     const started = Date.now();
     const startedAt = new Date(started).toISOString();
     const model = configuredModel(input.config);
@@ -186,7 +272,9 @@ export async function askQuestion(input: AskInput): Promise<QaOutcome> {
     let rejections = 0;
     const registry = createToolRegistry();
     registerPlugin(registry, storyQaPlugin(state, start.features));
-    const sessionLog = createMemorySessionLog({sessionId: id, ...(start.entries === null ? {} : {entries: start.entries})});
+    // 这一轮在日志里从哪一条开始（记进记录，网页按它对轮次）。
+    const logFrom = (start.entries?.length ?? 0) + 1;
+    const sessionLog = observed(createMemorySessionLog({sessionId: id, ...(start.entries === null ? {} : {entries: start.entries})}), input.onLogEntries);
 
     let usage = emptyUsage();
     let outcome: Pick<QaTurn, "status" | "answer" | "reply" | "error"> = {status: "interrupted", answer: null, reply: null, error: null};
@@ -207,21 +295,11 @@ export async function askQuestion(input: AskInput): Promise<QaOutcome> {
         if (previous !== null && error instanceof HarnessError) throw new QaError("qa_not_continuable", `对话 ${id} 不能续问：${error.message}。请开新对话`);
         outcome = localFailure("本机错误", error);
     }
-    if (harness !== null) {
-        try {
-            await runTurn(harness);
-        } catch (error) {
-            outcome = localFailure("本机错误", error);
-        }
-        try {
-            await harness.close();
-        } catch (error) {
-            if (outcome.status !== "failed") outcome = localFailure("关闭会话失败", error);
-        }
-    }
 
     async function runTurn(harness: Harness): Promise<void> {
         harness.subscribe(event => {
+            const web = input.onAgentEvent === undefined ? null : webEventOf(event);
+            if (web !== null) notify(() => input.onAgentEvent!(web));
             if (event.type === "tool_execution_start") input.onProgress?.({kind: "tool", tool: event.toolName, text: describeTool(event.toolName, (event.args ?? {}) as Record<string, unknown>)});
             if (event.type === "tool_execution_end" && event.toolName === "answer" && event.isError) {
                 rejections += 1;
@@ -246,26 +324,64 @@ export async function askQuestion(input: AskInput): Promise<QaOutcome> {
         // 其余（aborted）：中断，保持初值。
     }
 
-    const turn: QaTurn = {question: input.question, ...outcome, chaptersRead: ledger.chapters(), rejections, usage, ms: Date.now() - started, model: input.config.model.id, startedAt};
-    const fixed = previous ?? {id, book: book.id, generation: book.generation, at, mode, maxChapters: start.maxChapters, startedAt};
-    const conversation: Omit<QaConversation, "log"> = {
-        id: fixed.id,
-        book: fixed.book,
-        generation: fixed.generation,
-        at: fixed.at,
-        mode: fixed.mode,
-        maxChapters: fixed.maxChapters,
-        read: ledger.snapshot(),
-        turns: [...(previous?.turns ?? []), turn],
-        startedAt: fixed.startedAt,
-    };
-    const result: QaTurnResult = {id, book: conversation.book, generation: conversation.generation, at, mode, turn: conversation.turns.length, ...turn};
-    const entries = await sessionLog.read();
-    let saved: Awaited<ReturnType<QaRecords["save"]>>;
-    try {
-        saved = await new QaRecords(input.api.library, book.id).save(conversation, entries.map(entry => `${JSON.stringify(entry)}\n`).join(""), {expectTurns: previous?.turns.length ?? 0});
-    } catch (error) {
-        return {result, conversation: {...conversation, log: null}, recordSaved: false, notSaved: {reason: "write_failed", message: error instanceof Error ? error.message : String(error)}};
+    async function finish(): Promise<QaOutcome> {
+        const turn: QaTurn = {question: input.question, ...outcome, chaptersRead: ledger.chapters(), rejections, usage, ms: Date.now() - started, model: input.config.model.id, startedAt, logFrom};
+        const fixed = previous ?? {id, book: book.id, generation: book.generation, at, mode, maxChapters: start.maxChapters, startedAt};
+        const conversation: Omit<QaConversation, "log"> = {
+            id: fixed.id,
+            book: fixed.book,
+            generation: fixed.generation,
+            at: fixed.at,
+            mode: fixed.mode,
+            maxChapters: fixed.maxChapters,
+            read: ledger.snapshot(),
+            turns: [...(previous?.turns ?? []), turn],
+            startedAt: fixed.startedAt,
+        };
+        const result: QaTurnResult = {id, book: conversation.book, generation: conversation.generation, at, mode, turn: conversation.turns.length, ...turn};
+        const entries = await sessionLog.read();
+        let saved: Awaited<ReturnType<QaRecords["save"]>>;
+        try {
+            saved = await new QaRecords(input.api.library, book.id).save(conversation, entries.map(entry => `${JSON.stringify(entry)}\n`).join(""), {expectTurns: previous?.turns.length ?? 0});
+        } catch (error) {
+            return {result, conversation: {...conversation, log: null}, recordSaved: false, notSaved: {reason: "write_failed", message: error instanceof Error ? error.message : String(error)}};
+        }
+        return saved.saved ? {result, conversation: saved.conversation, recordSaved: true} : {result, conversation: {...conversation, log: null}, recordSaved: false, notSaved: {reason: saved.reason}};
     }
-    return saved.saved ? {result, conversation: saved.conversation, recordSaved: true} : {result, conversation: {...conversation, log: null}, recordSaved: false, notSaved: {reason: saved.reason}};
+
+    const created = harness;
+    let settled = false;
+    const claim = (what: string) => {
+        if (settled) throw new Error(`这一轮已经${what}过了`);
+        settled = true;
+    };
+    return {
+        id,
+        turn: (previous?.turns.length ?? 0) + 1,
+        logFrom,
+        at,
+        mode,
+        book: book.id,
+        generation: book.generation,
+        async run() {
+            claim("运行或放弃");
+            if (created !== null) {
+                try {
+                    await runTurn(created);
+                } catch (error) {
+                    outcome = localFailure("本机错误", error);
+                }
+                try {
+                    await created.close();
+                } catch (error) {
+                    if (outcome.status !== "failed") outcome = localFailure("关闭会话失败", error);
+                }
+            }
+            return finish();
+        },
+        async abandon() {
+            claim("运行或放弃");
+            await created?.close();
+        },
+    };
 }

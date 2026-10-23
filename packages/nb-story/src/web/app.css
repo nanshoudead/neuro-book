@@ -8,6 +8,8 @@
  */
 @import "tailwindcss";
 @import "@notnotype/nb-ui/tailwind.css";
+@import "@notnotype/nb-agent-ui/tailwind.css";
+@import "@notnotype/nb-markdown/tailwind.css";
 @source "./**/*.vue";
 @source "./**/*.ts";
 

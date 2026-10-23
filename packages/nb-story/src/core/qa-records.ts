@@ -27,43 +27,15 @@ import {createHash, randomBytes} from "node:crypto";
 import {mkdir, readdir, readFile, rename, rm, stat, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
-import {Type, type Static} from "typebox";
+import {Type} from "typebox";
 import {Compile} from "typebox/compile";
 
+import {AnswerSchema, ChaptersSchema, QaFailureSchema, QaModeSchema, QaPositionSchema, QaStatusSchema, QaTurnSchema, QaUsageSchema, type Answer} from "../contract/qa-record";
 import type {Position} from "./dataset";
 import {StoryError, systemErrorCode} from "./errors";
 import type {Library} from "./library";
 
-/** 出处：“章.段”或“章.段—章.段”。 */
-const Ref = Type.String({description: "出处：“章.段”或“章.段—章.段”，例如 37.8 或 38.50—38.57"});
-
-/** 作答工具 `answer` 的参数，也是记录里答案的形状（qa.md 输出 7）。 */
-export const AnswerSchema = Type.Object(
-    {
-        conclusion: Type.String({description: "先给的结论"}),
-        conclusionType: Type.Union([Type.Literal("明说"), Type.Literal("推断"), Type.Literal("解读"), Type.Literal("无法确定")]),
-        knowledge: Type.Optional(
-            Type.Array(
-                Type.Object(
-                    {
-                        who: Type.String(),
-                        state: Type.Union([Type.Literal("知道"), Type.Literal("怀疑"), Type.Literal("不知道"), Type.Literal("原文没有表明")]),
-                        how: Type.String({description: "怎么知道的"}),
-                        refs: Type.Array(Ref),
-                    },
-                    {additionalProperties: false},
-                ),
-                {description: "“谁知道什么”的题：一行一人"},
-            ),
-        ),
-        points: Type.Optional(Type.Array(Type.Object({text: Type.String(), refs: Type.Array(Ref)}, {additionalProperties: false}), {description: "其他题：分点"})),
-        explanation: Type.String({description: "展开说明"}),
-        evidence: Type.Array(Ref, {description: "依据出处"}),
-        coverage: Type.String({description: "覆盖了哪些范围、可能漏了什么"}),
-    },
-    {additionalProperties: false},
-);
-export type Answer = Static<typeof AnswerSchema>;
+export {AnswerSchema, type Answer};
 
 export type QaStatus = "answered" | "failed" | "interrupted";
 export type QaMode = "graph" | "full";
@@ -104,6 +76,11 @@ export interface QaTurn {
     model: string;
     /** ISO 8601。 */
     startedAt: string;
+    /**
+     * 这一轮在会话日志里的第一条的 seq（这一轮开始前日志的长度加一）：网页按它把记录的各轮对到日志上（附注挂哪一条
+     * 回复），不数用户提问（有的失败轮在写用户消息之前就结束）。之前的记录没有它。
+     */
+    logFrom?: number;
 }
 
 /** 读过的段：闭区间 `[章, 起段, 止段]`，按章、段排序，同一章里不相邻的段分开存。 */
@@ -357,33 +334,15 @@ function logFileOf(conversation: QaConversation): string {
     return conversation.log?.file ?? `${conversation.id}.session.jsonl`;
 }
 
-const Usage = Type.Object({input: Type.Number(), output: Type.Number(), cacheRead: Type.Number(), cacheWrite: Type.Number(), cost: Type.Union([Type.Number(), Type.Null()]), complete: Type.Boolean()});
-const Status = Type.Union([Type.Literal("answered"), Type.Literal("failed"), Type.Literal("interrupted")]);
-const Failure = Type.Union([Type.Object({code: Type.String(), kind: Type.Optional(Type.String()), message: Type.String()}), Type.Null()]);
-const PositionSchema = Type.Object({chapter: Type.Integer({minimum: 1}), paragraph: Type.Integer({minimum: 1})});
-const Chapters = Type.Array(Type.Integer({minimum: 1}));
-const TurnSchema = Type.Object({
-    question: Type.String(),
-    status: Status,
-    answer: Type.Union([AnswerSchema, Type.Null()]),
-    reply: Type.Union([Type.Object({text: Type.String(), truncated: Type.Boolean(), unverifiedRefs: Type.Array(Type.String())}), Type.Null()]),
-    error: Failure,
-    chaptersRead: Chapters,
-    rejections: Type.Integer({minimum: 0}),
-    usage: Usage,
-    ms: Type.Number(),
-    model: Type.String(),
-    startedAt: Type.String(),
-});
 const ConversationSchema = Type.Object({
     id: Type.String(),
     book: Type.String(),
     generation: Type.String(),
-    at: PositionSchema,
-    mode: Type.Union([Type.Literal("graph"), Type.Literal("full")]),
+    at: QaPositionSchema,
+    mode: QaModeSchema,
     maxChapters: Type.Union([Type.Integer({minimum: 1}), Type.Null()]),
     read: Type.Array(Type.Tuple([Type.Integer({minimum: 1}), Type.Integer({minimum: 1}), Type.Integer({minimum: 1})])),
-    turns: Type.Array(TurnSchema, {minItems: 1}),
+    turns: Type.Array(QaTurnSchema, {minItems: 1}),
     log: Type.Object({file: Type.String(), sha256: Type.String()}),
     startedAt: Type.String(),
 });
@@ -394,14 +353,14 @@ const LegacySchema = Type.Object({
     book: Type.String(),
     generation: Type.String(),
     question: Type.String(),
-    at: PositionSchema,
-    mode: Type.Union([Type.Literal("graph"), Type.Literal("full")]),
-    status: Status,
+    at: QaPositionSchema,
+    mode: QaModeSchema,
+    status: QaStatusSchema,
     answer: Type.Union([AnswerSchema, Type.Null()]),
-    error: Failure,
-    chaptersRead: Chapters,
+    error: QaFailureSchema,
+    chaptersRead: ChaptersSchema,
     rejections: Type.Integer({minimum: 0}),
-    usage: Usage,
+    usage: QaUsageSchema,
     ms: Type.Number(),
     model: Type.String(),
     startedAt: Type.String(),

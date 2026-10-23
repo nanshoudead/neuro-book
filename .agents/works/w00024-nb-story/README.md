@@ -12,6 +12,10 @@ updated: 2026-10-21
 
 用已抽好的 V9 小说记忆图做剧情图谱第一版：网页查看器、问答界面、命令行与 Agent Skill；能单独使用，以后接成 NeuroBook 插件。设计依据是 w00005 的 nb-story 提案（accepted，2026-10-13）。
 
+## 待确认
+
+autonomous-delivery 推进时照推荐做了、本该由开发者决定的点，见 [待确认清单](pending-confirmations.md)。
+
 ## 后续安排
 
 开发者 2026-10-21 定：

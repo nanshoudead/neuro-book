@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t13-qa-web
-status: planned
-updated: 2026-10-21
+status: active
+updated: 2026-10-23
 ---
 
 # nb-story 网页问答页与设置页
@@ -21,7 +21,7 @@ updated: 2026-10-21
 2. 要有连续对话与简单的网页配置界面；连续对话与 `answer` 改成可选放在 t08 先做，本 Task 接在 t08 之后。
 3. 组件位置：通用零件进 nb-ui（`useStreamScroll`、可折叠的行与卡片、`CodeBlock`）；消息类型、分轮、对话视图与工具渲染的注册表单独建包 `nb-agent-view`，建在 nb-ui 之上。Markdown 显示与输入框编辑器由宿主经注册表注入（nb-story 先用简单实现，以后 neuro-book 接 `nbook.markdown` 的 `MarkdownDisplay`、`PromptEditor`）。
 4. 这次只收问答页要用的 nb-ui 零件；其余候选记入 Work README 的“后续安排”，按 w00029、w00030 的顺序另做，避免和 w00030 的结构整理撞车。
-5. 查看器里手写了 nb-ui 已有控件的几处（手机与平板的抽屉、搜索浮层、`story-table`、重试与加载中）并进本 Task 一起换。
+5. 查看器里手写了 nb-ui 已有控件的几处（手机与平板的抽屉、搜索浮层、`story-table`、重试与加载中）并进本 Task 一起换。（已由决定 17 拿出）
 
 注意力排序（开发者 2026-10-21 定）：
 
@@ -39,6 +39,19 @@ updated: 2026-10-21
 Markdown（开发者 2026-10-23 定，记录在 [w00025 t16](../../../w00025-editor/tasks/t16-nb-markdown-package/README.md)）：
 
 13. 不自写 Markdown 显示：问答页用 `@notnotype/nb-markdown`（`MarkdownDisplay`、`PromptEditor`、`PromptTextView`）接 nb-agent-ui 的注入口，在页面里 `provideMarkdownHost`；“章.段”出处由问答页先改写成链接（例如 `paragraph://41.20`），缺省分类下它是引用小块，点击发 `reference`。宿主接入见包的 README。
+
+计划的待确认（开发者 2026-10-23 定，全部按推荐）：
+
+14. 超出章数上限被拒的读原文不算失败：引擎改成返回正常的工具结果（写明没读、已到上限），qa 输出 5 相应改写；整轮摘要不再报失败。
+15. 依据出处常显一行，放不下时截断并写“等 N 处”，全部出处在“详细”展开后的说明里。
+16. 答案里的人名由问答页按名字查（`entities.list` 在 P 以内），找不到或重名时不做成链接；不改 `answer` 的参数形状。
+
+范围（开发者 2026-10-23 定）：
+
+17. 换手写控件（决定 5）从本 Task 拿出，另建搁置的 [t14](../t14-viewer-nb-ui-controls/README.md)：本 Task 做完后，开发者看过换前换后的效果再定。网页设计审查第 6、7 条（搜索浮层抢焦点、矩阵换不了 `Table`）记在那边。
+
+18. 删除对话的入口放在问答页顶栏（“删除这个对话”，点了弹确认框，运行中先停）；损坏的记录在列表里单列一行，同样只能删除（2026-10-23 定）。
+19. 第 2 轮设计审查进行的同时按 autonomous-delivery 开工（2026-10-23 定）：审查结论回来后处理，计划要变的先改计划，已实施的部分按需返工。
 
 ### w00019 t14 搭稿时发现的问题（2026-10-22）
 
@@ -66,6 +79,13 @@ w00019 [t14](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice
 - 2026-10-21 t08 完成后开始设计：定了注意力排序与设置页（决定 6 到 10）。计划初稿 [plan.md](plan.md) 写成后，开发者把对话视图改为完整版并移到 w00019（决定 11、12）；初稿里 nb-agent-view 与 nb-ui 零件的部分作废，等 w00019 t11 完成后按本 Task 剩下的范围改写，再给开发者确认。
 - 2026-10-22 w00019 t10 定了 nb-agent-ui 的接入合同（[计划](../../../w00019-agent-conversation-view/tasks/t10-migrate-nb-agent-ui/plan.md)）：适配器以 harness 会话日志为准、事件只作运行中的临时显示。问答引擎目前只发三种简化进度，本 Task 要让它按 nb-agent-ui README 的接入说明交出 harness 事件与带 `seq` 的日志条目。
 
+- 2026-10-23 前置齐了（nb-agent-ui 的会话列表与对话视图、nb-markdown 都已合入），按现在的接口重写 [plan.md](plan.md)，交开发者确认；开发者确认计划，三条待确认按推荐（决定 14 到 16）。
+
+- 2026-10-23 按 autonomous-delivery 开工（决定 19），代码在 `.worktree/w00024-t13-qa-web`（分支 `feat/w00024-t13-qa-web`）。切片 1 到 4 已实施：引擎（准备与运行两步、观察者、`logFrom`、章数上限是正常结果）、配置（整份校验、跨进程锁、摘要比对）、服务端（`qa.*`、`config.*`、推送、删除与停服的收口，nb-harness 加 `onProcessTermination`）、问答页（数据源、按轮分开的转录、答案卡片、出处与人名、e2e 4 条）。第 2 轮设计审查（Sonnet 21 条、omp 18 条）已逐条处理（[证据](evidences/design-review-2.txt)），计划改为第 3 版，照推荐做的取舍记进 [待确认清单](../../pending-confirmations.md)。
+
+- 2026-10-23 切片 5（设置页）与切片 6 的 Spec（story/qa、story/viewer、story/cli-skill、agent/harness、包边界）完成。收口验证：nb-story 类型检查通过、单测 398 条通过，nb-harness 73 条通过；nb-story 全量 e2e 27 条，机器负载约 9 时两次各有一条不同的计时类用例偶发失败（外壳换书、长列表 1 秒），单独重跑都通过。实现审查（Sonnet 网页 18 条、omp 服务端 13 条）已逐条处理，修正单独提交（[证据](evidences/impl-review.txt)）。
+
 ## 下一步
 
-等 w00019 t10、t11 完成后改写 plan.md。
+1. 真实模型冒烟（网页里问一题、追问一题、中途停止一次、刷新接上）：要调用真实模型，等开发者同意。
+2. 合入 master；合入后把 qa.md、viewer.md 证据里的代码路径改回链接。

@@ -1,0 +1,168 @@
+w00027 t04 第一轮实现审查修正：插件构建预设与生成的 SDK 包 —— 交付报告
+
+worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t04-fix-build（分支 w00027/t04-fix-build，基于 0475d0370）
+提交：0c96891fe
+改动文件（都在 packages/neuro-book/scripts/plugin-sdk/ 下）：
+  build-plugin.ts、build-plugin.test.ts、build-sdk.ts、build-sdk.test.ts、build-examples.ts
+没有新增依赖，没改 package.json、src/、nb-runtime、docs/。
+注意：本次派发时我的会话主目录是 w00027-t04-fix-loader，但任务说明写的是 fix-build。我只在 fix-build 里改动和提交，fix-loader 一个字节都没动。
+
+======================================================================
+逐条处理
+======================================================================
+
+1. 动态 import()（Sonnet 1、Opus 5）—— 成立，已改
+   - 打包器：Vite 8.1.4，底层是 Rolldown 1.1.5（vite 的依赖范围是 ~1.1.4，vite 下面没有嵌套另一份 rolldown）。
+   - 浏览器产物在 output 里设 dynamicImportInCjs: false。实测产物里 import("vue") 变成
+     Promise.resolve().then(()=>__toESM(require("vue")))，其中 require 是工厂的参数，所以走的是宿主模块表。
+     这条路走通了，所以没有再加“残留 import( 报错”的兜底检查。
+   - 纯度检查：实测 Rolldown 1.1 输出块的 imports、dynamicImports 都不列外部模块的动态导入，外部模块的
+     getModuleInfo 也不带 importers。现在改成在 generateBundle 里遍历打进来的每个模块，取它的
+     importedIds 与 dynamicallyImportedIds：不是绝对路径、不以 \0 开头、也不是本 bundle 产物的，就算外部引用，
+     同时记下引入它的模块。另外 output.imports 照收，是为了覆盖没有模块信息的运行时辅助代码（例如服务端的 node:module）。
+   - 用例：反例“动态导入未共享的模块”（浏览器 import("@notnotype/nb-ui/notifications")、服务端
+     import("@notnotype/nb-runtime/plugins")，都报未共享）；正例“浏览器里动态导入 vue、静态导入
+     @vue/runtime-core，都经 require 得到宿主那一份 vue”，断言 ref 是同一个函数，且 require 过的只有 "vue"。
+   - 说明：Opus 报告里的 @notnotype/nb-ui/forms 在当前 nb-ui 里不存在（exports 里没有），所以用例改用 notifications。
+
+2. 图标（Sonnet 2、13.5）—— 成立，已改
+   - 扫描对象是清单 JSON 文本，加上所有位置入口模块图里的源码（含打进来的 node_modules 模块，读的是磁盘原文件）。
+     清单取的是 early（构建前生成的那份），它和最终清单只差 style 字段，代码注释里写了这一点。
+   - 匹配 i-<集>-<名字> 但集不是 lucide 的字面量，给一条警告“图标类 X 不是 Lucide 图标：插件只能用 Lucide 图标，它不会显示”。
+   - 用例：图标只写在 plugin.ts 描述的 contributions 声明里，浏览器入口不导入它，style.css 里照样有
+     .i-lucide-bell 的规则；浏览器源码里的 "i-catppuccin-folder" 出现在警告里。
+   - 噪声实测：snippets、clock、notes、counter 四个示例（含打进来的 typebox）警告都是 0 条。
+
+3. 生成的 SDK 包（Sonnet 4、11.4）—— 成立，已改
+   - peerDependencies 加上 @vue/reactivity，范围与 vue 的 peer 范围相同（当前是 ^3.5.24）。理由：vue 3.5.39 经
+     runtime-dom、runtime-core 把 @vue/reactivity 钉死在 3.5.39，每个 vue 版本都带同版本号的 reactivity，用同一个
+     范围，作者项目里两者才配得成一对。没有用应用自己声明的 ^3.5.39，因为它比 vue 的 peer 还窄。如果“与宿主所用
+     vue 自带的一致”另有所指，改 build-sdk.ts 里 peers["@vue/reactivity"] 那一行就行。
+   - ./build 现在会生成 build.d.ts（rolldown-plugin-dts，用 tsconfig.json），exports 加了 types。声明里有
+     buildPlugin、BuildPluginOptions、BuildPluginResult、PluginBuildError、BuildAlias，ManifestProblem 内联进来了。
+   - 为了让 build.d.ts 不引用 vite 的类型（否则作者做类型检查时要连带检查 Vite 的声明，还得装 @types/node），
+     BuildPluginOptions.alias 的类型从 vite 的 Alias 换成本地的 BuildAlias {find, replacement}。仓库里用到的写法不受影响。
+   - build.d.ts 顶部多出一行 import { Type } from "typebox"（rolldown-plugin-dts 从 plugin-manifest 的声明里带过来的，
+     没有被用到）。typebox 本来就是 peer，类型检查能过，我没去处理它。
+   - 用例：仓库外作者项目加了 src/build.ts，导入 ./build 的值和类型并用上它们，tsc 在 skipLibCheck: false 下通过；
+     另有一条断言 peerDependencies 的键与 @vue/reactivity 的范围，以及 ./build 的 exports 带 types。
+   - bin 和命令行入口没做（留给 t05）。
+
+4. @vue/*（Sonnet 5 与报告末尾补记）—— 成立，已改
+   - 新增 HOST_VUE_PACKAGES = vue、@vue/reactivity、@vue/runtime-core、@vue/runtime-dom，与 nb-ui、SDK、内核合成
+     HOST_PACKAGES。外部规则（包名加子路径）和“打进去就失败”的目录检查都由它导出；原来的 FORBIDDEN_PACKAGES 与
+     /^@vue\// 删掉了。@vue/runtime-core、@vue/runtime-dom 照旧改写到 vue。
+   - @vue/shared、@vue/devtools-api 等其它 @vue/* 现在照常打进插件。原来那条“未共享”用例里的 @vue/shared 反例就不
+     成立了，我把它移出反例，放进新的正例。
+   - “未共享”的错误现在带引入者，路径相对作者目录，例如：
+     “引用了宿主没有共享的模块 @notnotype/nb-ui/notifications（由 web/plugin.ts 引入）：该入口未共享（…）”；
+     依赖引进来的会写成 node_modules/<包>/…。
+   - 用例：@vue/runtime-core 改写到 vue（并入第 1 条的正例）；在临时作者目录里造了一个本地的 @vue/devtools-api 包，
+     和 @vue/shared 一起导入，能构建，产物不 require 它们，激活结果正确。
+
+5. 跨文件系统（Sonnet 6）—— 成立，已改
+   - 中间产物放在 dirname(outDir) 下的隐藏临时目录 .nbook-plugin-build-XXXX（先 mkdir 上级目录），成功、失败都在原有
+     的 finally 里删掉。不再用 os.tmpdir()。
+   - 用例：子进程 TMPDIR=/dev/shm 跑 build-plugin.ts 的命令行入口，构建成功、stderr 为空，输出目录里没有残留的临时
+     目录。用例用 it.skipIf(!crossDevice)：/dev/shm 不存在，或与测试临时根在同一文件系统时才跳过。本机 /dev/shm 是
+     tmpfs，测试临时根 /tmp 是 btrfs，这条实际跑了、通过。
+   - 顺带修的：这条用例第一次跑时，子进程 stderr 出现 “WebSocket server error: Port undefined is already in use”。
+     原因是 loadModules 的 Vite 开发服务在中间件模式下、hmr: false 也会去监听固定的 HMR 端口，同机并行构建（另一个
+     任务也在跑测试）时端口被占。已加 server.ws: false，注释写了原因。这一项是任务说明之外的改动，但在允许的文件里，
+     而且是那条用例要求 stderr 为空才暴露的真实问题。
+
+6. 严格模式（Sonnet 10）—— 成立，已改
+   - 工厂函数体以 "use strict"; 开头。实测压缩后指令保留：function(e,t,n){"use strict";…。旧注释说已经处理了，与
+     事实不符，已改写。
+   - 用例：模块顶层一个冻结对象，activate 里对它赋值，捕到 TypeError。
+
+7. 体积（Sonnet 12）—— 成立，已改
+   - 浏览器产物 minify: true，source map 保留；服务端产物不压缩（从磁盘读，留着方便看栈）。
+   - snippets 的 browser.js：改前 103,293 字节 → 改后 21,871 字节；browser.js.map 600,636 → 568,057 字节。
+     typebox 是否共享没有动（留给开发者定）。
+   - 连带影响：压缩以后工厂的 require 参数会被改名，build-sdk.test.ts 原来按 require("…") 文本匹配的断言失效了。
+     现在先从登记外壳里取出第三个参数的名字，再找对它的调用。没有改成真正执行产物，是因为执行要直接写宿主的全局
+     登记对象，而这件事并行任务正在改成经装载器去做。
+
+8. 作者体验（Sonnet 13.2、13.4）—— 成立，已改
+   - readAuthor：package.json 读不到或解析不了时抛 PluginBuildError（path "package.json"，message 带绝对文件名，
+     cause 保留原始错误）。JSON 不是对象（null、数组、数字）也报 PluginBuildError。为了带 cause，PluginBuildError
+     的构造函数加了可选的第三个参数 ErrorOptions。
+   - source map：output.sourcemapPathTransform 统一换算。作者目录内的写成相对路径（web/plugin.ts）；作者目录外的
+     依赖（软链、提升到上层的 node_modules）取 node_modules/ 之后的部分；构建外壳写成 nbook-plugin-build/<入口>.shell.ts；
+     其它情况写成 external/<文件名>。实测 snippets 的 map 里 sources 不再有绝对目录结构。
+   - 入口 id：manifestOf 本身不调 readPluginManifest，原来完整的清单校验只在所有入口构建完之后才做，而 buildEntry 在那
+     之前就按入口 id 写了 <id>.shell.ts 和 <id>/ 目录。现在在 early manifestOf 之后、写任何文件之前，再调一次
+     readPluginManifest(early.json)。这样主会话把入口 id 规则加在 manifestOf 或 readPluginManifest 里都能生效。
+   - 用例：没有 package.json，以及 JSON 写错，两种情况都抛 PluginBuildError，信息里带文件路径；snippets 的 source map
+     sources 含 web/plugin.ts 和 node_modules/typebox/…，没有以 / 或 .. 开头、也没有带临时目录的项。
+
+9. import.meta.url（Sonnet 16）—— 成立，已改
+   - 登记外壳在脚本同步执行时把 document.currentScript.src 记进块作用域常量 __nbookScriptUrl，浏览器构建的 define 把
+     import.meta.url 换成它。外层套一个块，变量不会落到全局。压缩器把 banner 一起做了作用域分析，改名不会和工厂参数撞。
+   - 用例：浏览器 activate 返回的 import.meta.url 等于 "http://plugin.test/browser.js"；
+     new URL(/* @vite-ignore */ "./missing.svg", import.meta.url).href 等于 "http://plugin.test/missing.svg"。
+     服务端产物真的 import 进来执行一次，import.meta.url 等于 server.js 自己的 file URL，没有受影响。
+
+10. 递归删除（Sonnet 17）—— 成立，已改
+   - build-sdk.ts：输出目录只在不存在、为空，或 package.json 的 name 是 @notnotype/nb-plugin-sdk 时才清空，否则抛错
+     （package.json 解析失败也抛错，带 cause），里面的文件不动。
+   - build-examples.ts：输出目录只在不存在、为空，或里面 package.json 的 publisher、name 与该示例相同（即它上次的
+     产物）时才清空，否则抛 PluginBuildError。
+   - 用例：build-sdk 遇到别人的非空目录，拒绝且文件还在；beforeAll 先在 SDK 输出目录里放一份假的“上次产物”
+     （name 是 SDK 包名，外加 stale.js），构建后 stale.js 已被清掉，这样没多花一次 30 秒的构建就覆盖了清理分支。
+     buildExample 遇到含别的文件的目录，拒绝且文件还在；对同一示例上次的输出目录重建成功。
+
+======================================================================
+跑过的命令与结果（都在 worktree 里）
+======================================================================
+- bun run --cwd packages/neuro-book typecheck：通过（tsc，加两次 vue-tsc）
+- cd packages/neuro-book && bun test scripts/plugin-sdk/：3 个文件 26 个用例全部通过
+  （build-plugin.test.ts 17 个，跨文件系统那条实际跑了；build-sdk.test.ts 7 个；external-examples.test.ts 2 个）
+- bun test src/architecture.test.ts src/sdk/sdk.test.ts：5 个通过
+- bun run governance:check（仓库根）：本次改动没有失败项，也没有警告
+- 没跑 e2e，没起开发服务。
+
+======================================================================
+和 Spec 不一致的地方（Spec 由主会话改）
+======================================================================
+- plugin-code-loading.md 术语“纯度检查”与输出 5 写的是“打进了 Vue、@vue/*、nb-ui、SDK 或内核”就失败。现在只有
+  vue、@vue/reactivity、@vue/runtime-core、@vue/runtime-dom 不许打进去，其它 @vue/* 照常打进插件。
+- 输出 5、验收 2 写的“未共享”要改：动态导入也算外部引用；错误信息现在会写明引入者。
+- 输出 2 和插件样式一节说图标“为插件源码里出现的 Lucide 图标类生成规则”。现在的扫描范围是清单 JSON 加上所有位置
+  入口模块图里的源码（含打进来的依赖），非 Lucide 图标出警告。另外拼接出来的类名静态找不到，计划里说要写进作者文档（t05）。
+- 浏览器产物是压缩的；严格模式；import.meta.url 等于脚本 URL；source map 的 sources 相对作者目录。Spec 里都没写，
+  要不要写进合同，由主会话定。
+- 本来就存在、不是我引入的：Spec 术语“宿主模块表”说服务端与项目实例的模块表含 vue，但代码里的
+  SERVER_SHARED_MODULES 不含 vue（代码注释写了理由：后端不加载界面框架）。
+- 计划里“动态导入一律内联”只对插件自己的模块成立；共享模块的动态导入在浏览器里经 require 取、在服务端留作
+  import()。这一点要在计划或 Spec 里写清楚。
+
+======================================================================
+发现的新问题与给主会话的提醒
+======================================================================
+1. 与并行任务（fix-loader）合并：我新增的 activateBrowser 辅助函数调的是 `await registeredFactory(code)`，用 await
+   是为了 registeredFactory 改成 async 也能直接用。如果它的签名改成别的样子（比如要传文档或装载器），合并时要
+   跟着调这一处调用。registeredFactory 本身我没碰。snippets 那条用例里内联的模块表，和我新加的 hostModules() 内容
+   重复；为了少和并行任务冲突，我没去合并，合并后可以让那条用例也用 hostModules()。
+2. build-sdk.test.ts 对浏览器产物 require 了什么，现在靠文本匹配：从压缩后的外壳里取出参数名再找调用。等装载器测试
+   的写法定下来（不直接写全局），可以改成真正执行产物再记下 require 的 id，更贴近“测行为”。
+3. 服务端产物里共享模块的动态导入（例如 import("@notnotype/nb-plugin-sdk")）留作 import()。它能不能经 Bun.plugin
+   登记的宿主模块解析，我没有验证（属于服务端装载器）。从代码推断，Bun.plugin 的虚拟模块对动态导入同样生效。
+4. 非 Lucide 图标的警告会扫打进来的依赖源码。像 "i-am-…" 这种形状的字符串可能误报（只是警告，不影响构建）。四个
+   示例实测 0 条；以后误报多了，可以把非 Lucide 的检查只限在作者目录内的文件与清单上。
+5. 中间产物目录现在放在输出目录旁边。输出目录是 <作者目录>/dist 时，临时目录就在作者目录里（构建结束就删）。作者的
+   文件监视工具在构建期间可能看到它，影响不大，记在这里。
+6. 浏览器产物开压缩之后，CSS 也跟着压缩了（Vite 的 cssMinify 默认跟随 minify）。构建测试里 .echo-panel[data-v- 的
+   断言照样通过；e2e 里的样式与图标断言没有跑，没有验证。
+
+======================================================================
+禁止清单自查
+======================================================================
+- 程序分支不看错误文案（只有测试断言里出现 toThrow("不清理")）；新增的三处 catch 都包成带 cause 的错误再抛出，没有静默吞掉的。
+- 没有跳过测试、没有放宽断言。@vue/shared 那条反例按第 4 条的新规则移到了正例。skipIf 只用在任务说明允许的跨文件系统那条。
+- 删掉的代码都属于本任务：FORBIDDEN_PACKAGES 与 /^@vue\// 规则、os.tmpdir 的导入、与事实不符的 "use strict" 注释、
+  build-sdk 与 build-examples 无条件的 rm。其它注释没动。
+- 原有的 finally 清理保留了；临时目录换了位置，仍然由它删除。
+- 没有跨包深导入：新导入的 resolveTmpRoot 来自 @notnotype/neuro-book-test-support/tmp 的公开入口。
+- 仓库内没用 rm -rf；我自己的实验目录在 /tmp/w00027-t04-fix/build-work，已删除。
