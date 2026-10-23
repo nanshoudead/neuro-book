@@ -126,6 +126,21 @@ describe("nbstory ask", () => {
         expect(thinking).toEqual(["先想第 1 步", "先想第 2 步"]);
     });
 
+    test("问题里带引用：模型收到原样的引用与读引用的规则；按引用里的 id 查对象得到人物卡", async () => {
+        const found = await createStoryApi({library}).call("entities.list", {book: "fox", at: {chapter: 38, paragraph: 57}, query: "地狱猫"});
+        if (!found.ok) throw new Error(found.error.message);
+        const {id, label} = found.value.items[0]!;
+        const {config, endpoint} = await configFor([{kind: "tools", calls: [{name: "card", args: {entity: id}}]}, {kind: "text", text: "见人物卡"}]);
+        const question = `[地狱猫](entity://${id}) 在 [37.8](paragraph://37.8) 做了什么？`;
+        expect((await run(["ask", question, "--at", "38", "--config", config])).code).toBe(0);
+        const first = JSON.stringify(endpoint.bodies[0]);
+        expect(first).toContain(JSON.stringify(question).slice(1, -1));
+        expect(first).toContain("是用户指定的对象");
+        const toolResult = (endpoint.bodies[1]!.messages as {role: string; content: unknown}[]).find(message => message.role === "tool");
+        expect(JSON.stringify(toolResult?.content)).not.toContain("查询失败");
+        expect(JSON.stringify(toolResult?.content)).toContain(label);
+    });
+
     test("401 的错误正文回显了密钥：model_failed（auth），退出码 4，到处都没有密钥", async () => {
         const {config} = await configFor([{kind: "status", status: 401, echoKey: true}]);
         const result = await run(["ask", "问", "--config", config, "--json"]);

@@ -12,7 +12,7 @@ import {ANSWER_RULES, QA_RULES} from "./rules";
 import {ANSWER_TOOL_ID, OPTIONAL_TOOL_IDS, QUERY_TOOL_IDS} from "./tools";
 
 export default defineProfile({
-    manifest: {key: "story-qa", version: "2", name: "剧情问答", description: "按阅读位置回答小说剧情问题，查图、读原文、用 answer 交卷；不需要查书的话直接用文字回复。可以追问。"},
+    manifest: {key: "story-qa", version: "3", name: "剧情问答", description: "按阅读位置回答小说剧情问题，查图、读原文、用 answer 交卷；不需要查书的话直接用文字回复。可以追问。"},
     initialSchema: Type.Object({
         title: Type.String(),
         /** 阅读位置，写成“章.段”。 */

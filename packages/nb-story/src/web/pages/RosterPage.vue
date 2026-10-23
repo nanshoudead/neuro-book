@@ -6,6 +6,7 @@
 import {computed, ref} from "vue";
 
 import {useBook} from "../host/book";
+import {KIND_LABEL} from "../host/kinds";
 import {usePagedQuery, useStoryQuery} from "../host/query";
 import PagedList from "../parts/PagedList.vue";
 import PageState from "../parts/PageState.vue";
@@ -14,7 +15,6 @@ const book = useBook();
 /** 主要人物个数；出场少于这个数的算次要，默认收起。 */
 const MAIN = 8;
 const MINOR_BELOW = 20;
-const KIND: Record<string, string> = {person: "人物", persona: "身份", group: "组织", item: "物品", concept: "概念", place: "地点", task: "任务", other: "其他"};
 
 // 主要人物：出场最多的人物与身份（化名合并后代表对象可能是“身份”类）。名册第一页按出场排好，从里面取。
 const head = useStoryQuery("entities.list", () => ({limit: 50}));
@@ -49,7 +49,7 @@ const selected = computed(() => (book.drawer.value?.kind === "card" ? book.drawe
                 <PagedList :items="visibleOthers" :total="all.total.value" :loading="all.loading.value" :has-more="showMinor && all.hasMore.value" :error="all.error.value?.message ?? null" @more="all.more()" @retry="all.reload()">
                     <template #item="{item}">
                         <button type="button" class="other-row" :class="selected === item.id ? 'is-selected' : ''" @click="book.openCard(item.id)">
-                            <b>{{ item.label }}</b><span class="text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ KIND[item.kind] }}</span>
+                            <b>{{ item.label }}</b><span class="text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ KIND_LABEL[item.kind] }}</span>
                             <span class="ml-auto text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ item.mentions }}</span>
                         </button>
                     </template>
