@@ -4,8 +4,9 @@
 
 import {Compile} from "typebox/compile";
 
+import {refsInText} from "../contract/refs";
 import {AnswerSchema, type Answer} from "../core/qa-records";
-import {refsInText, type ReadLedger} from "./read-ledger";
+import type {ReadLedger} from "./read-ledger";
 
 const checkAnswer = Compile(AnswerSchema);
 

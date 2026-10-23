@@ -126,15 +126,29 @@ describe("防剧透（输出 4、验收 1）", () => {
 describe("章数上限（输出 5、验收 2）", () => {
     const config = testConfig({maxChapters: 2});
 
-    test("读第 3 个新章被拒、不给段落；已读的章照常再读", async () => {
-        const {model} = await askScripted(
+    test("读第 3 个新章被拒：正常结果写明没读、不给段落（决定 14）；已读的章照常再读；引用被拒的章交卷被退回", async () => {
+        const {model, outcome} = await askScripted(
             book,
-            [[read("r1", {chapter: 1, paragraph: 1}, {chapter: 1, paragraph: 2})], [read("r2", {chapter: 2, paragraph: 1}, {chapter: 2, paragraph: 2})], [read("r3", {chapter: 3, paragraph: 1})], [read("r4", {chapter: 1, paragraph: 3}, {chapter: 1, paragraph: 3})], answer({evidence: ["1.1"]})],
+            [[read("r1", {chapter: 1, paragraph: 1}, {chapter: 1, paragraph: 2})], [read("r2", {chapter: 2, paragraph: 1}, {chapter: 2, paragraph: 2})], [read("r3", {chapter: 3, paragraph: 1})], [read("r4", {chapter: 1, paragraph: 3}, {chapter: 1, paragraph: 3})], answer({evidence: ["3.1"]}), answer({evidence: ["1.1"]})],
             {at: P, config},
         );
-        expect(toolResults(model, 3)[0]).toMatchObject({isError: true});
-        expect(toolResults(model, 3)[0]!.text).toContain("最多读 2 个不同的章");
+        const refused = toolResults(model, 3)[0]!;
+        expect(refused.isError).toBe(false);
+        expect(refused.text).toStartWith("没有读：一问最多读 2 个不同的章");
+        expect(refused.text).not.toMatch(/^3\.1 /mu);
         expect(toolResults(model, 4)[0]!.text.startsWith("1.3  ")).toBe(true);
+        expect(toolResults(model, 5)[0]!.isError).toBe(true);
+        expect(outcome.result).toMatchObject({status: "answered", rejections: 1, chaptersRead: [1, 2]});
+    });
+
+    test("反复超限不绕过上限：每次都没读，已读的章不变", async () => {
+        const {model, outcome} = await askScripted(
+            book,
+            [[read("r1", {chapter: 1, paragraph: 1}, {chapter: 1, paragraph: 1})], [read("r2", {chapter: 2, paragraph: 1}, {chapter: 2, paragraph: 1})], [read("r3", {chapter: 3, paragraph: 1})], [read("r4", {chapter: 4, paragraph: 1})], [read("r5", {chapter: 3, paragraph: 2}, {chapter: 3, paragraph: 2})], answer({evidence: ["1.1"]})],
+            {at: P, config},
+        );
+        expect([3, 4, 5].map(request => toolResults(model, request)[0]!.text.startsWith("没有读："))).toEqual([true, true, true]);
+        expect(outcome.result.chaptersRead).toEqual([1, 2]);
     });
 
     test("同一条消息里读两个新章：只有一次成功；跨章请求整次被拒、不计入已读", async () => {
@@ -143,7 +157,8 @@ describe("章数上限（输出 5、验收 2）", () => {
             [[read("r1", {chapter: 1, paragraph: 1}, {chapter: 1, paragraph: 1})], [read("r2", {chapter: 2, paragraph: 1}, {chapter: 2, paragraph: 1}), read("r3", {chapter: 3, paragraph: 1}, {chapter: 3, paragraph: 1})], answer({evidence: ["1.1"]})],
             {at: P, config},
         );
-        expect(toolResults(batch.model, 2).map(result => result.isError)).toEqual([false, true]);
+        // 两次都是正常结果：一次真的读到（有段落），一次写明没读。
+        expect(toolResults(batch.model, 2).map(result => [result.isError, result.text.startsWith("没有读：")])).toEqual([[false, false], [false, true]]);
         expect(batch.outcome.result.chaptersRead).toEqual([1, 2]);
 
         const span = await askScripted(
@@ -151,7 +166,7 @@ describe("章数上限（输出 5、验收 2）", () => {
             [[read("r1", {chapter: 1, paragraph: 1}, {chapter: 1, paragraph: 1})], [read("r2", {chapter: 37, paragraph: chapter37Length - 1}, {chapter: 39, paragraph: 1})], answer({evidence: ["1.1"]})],
             {at: P, config},
         );
-        expect(toolResults(span.model, 2)[0]!.isError).toBe(true);
+        expect(toolResults(span.model, 2)[0]!.text).toStartWith("没有读：");
         expect(span.outcome.result.chaptersRead).toEqual([1]);
     });
 
@@ -372,7 +387,7 @@ describe("对话与追问（输出 5、26，验收 14、15、17）", () => {
             [[read("r1", {chapter: 26, paragraph: 4}, {chapter: 26, paragraph: 4})], [read("r2", {chapter: 25, paragraph: 1}, {chapter: 25, paragraph: 1})], [read("r3", {chapter: 24, paragraph: 1}, {chapter: 24, paragraph: 1})], answer({evidence: ["25.1", "26.4"]})],
             {continueFrom: id, config: later},
         );
-        expect([1, 2, 3].map(request => toolResults(model, request)[0]!.isError)).toEqual([false, false, true]);
+        expect([1, 2, 3].map(request => toolResults(model, request)[0]!.text.startsWith("没有读："))).toEqual([false, false, true]);
         expect(toolResults(model, 3)[0]!.text).toContain("前几轮读过的 26 章不算");
         expect(outcome.result).toMatchObject({status: "answered", chaptersRead: [25]});
     });
@@ -456,5 +471,66 @@ describe("对话与追问（输出 5、26，验收 14、15、17）", () => {
         }
         expect((error as QaError).code).toBe("qa_not_continuable");
         expect(await readFile(join(dir, `${legacyId}.json`), "utf8")).toBe(before);
+    });
+});
+
+describe("网页问答用的观察与轮次（t13）", () => {
+    async function storedLog(id: string): Promise<{seq: number; kind: string; text: string}[]> {
+        const generation = (await book.api.library.readMeta("fox")).generation;
+        const {log} = await new QaRecords(book.api.library, "fox").getWithLog(id, generation);
+        if (!log.ok) throw new Error(log.problem);
+        return log.jsonl.split("\n").filter(Boolean).map(line => {
+            const entry = JSON.parse(line) as {seq: number; kind: string};
+            return {seq: entry.seq, kind: entry.kind, text: line};
+        });
+    }
+
+    test("新对话用给定的 id；日志条目按写入顺序转发、与保存的日志一致；事件只留网页用的几种、不带半截消息的副本；logFrom 是 1", async () => {
+        const id = newQaRecordId(new Date());
+        const entries: number[] = [];
+        const events: string[] = [];
+        const {outcome} = await askScripted(book, [[read("r1", {chapter: 38, paragraph: 55}, {chapter: 38, paragraph: 55})], answer()], {
+            at: P,
+            conversationId: id,
+            onLogEntries: batch => entries.push(...batch.map(entry => entry.seq)),
+            onAgentEvent: event => events.push(JSON.stringify(event)),
+        });
+        expect(outcome.result).toMatchObject({id, status: "answered", logFrom: 1});
+        expect(entries).toEqual((await storedLog(id)).map(entry => entry.seq));
+        const types = new Set(events.map(event => (JSON.parse(event) as {type: string}).type));
+        expect([...types].every(type => ["agent_start", "agent_end", "message_start", "message_update", "tool_execution_start", "tool_execution_end"].includes(type))).toBe(true);
+        expect(types.has("tool_execution_end")).toBe(true);
+        expect(events.some(event => event.includes("assistantMessageEvent"))).toBe(false);
+    });
+
+    test("缺密钥的首轮在写用户消息之前就失败，也记 logFrom；续问的一轮按 logFrom 对得上它自己的提问", async () => {
+        const unset = {...testConfig(), model: {...testConfig().model, apiKeyEnv: "NBSTORY_QA_TEST_UNSET_CREDENTIAL"}};
+        const first = await askScripted(book, [answer()], {at: P, question: "缺密钥的第一问", config: unset});
+        expect(first.outcome.result).toMatchObject({status: "failed", logFrom: 1});
+        const id = first.outcome.result.id;
+        const before = (await storedLog(id)).length;
+        const continued: number[] = [];
+        const second = await askScripted(book, [answer({evidence: [], conclusionType: "无法确定"})], {continueFrom: id, question: "第二问", onLogEntries: batch => continued.push(...batch.map(entry => entry.seq))});
+        expect(second.outcome.result).toMatchObject({status: "answered", logFrom: before + 1});
+        // 只转发这一轮新写的条目；这一轮的第一条用户消息是“第二问”。
+        expect(continued[0]).toBe(before + 1);
+        const log = await storedLog(id);
+        const firstUser = log.find(entry => entry.seq >= before + 1 && entry.kind === "agent_message" && entry.text.includes("\"role\":\"user\""));
+        expect(firstUser?.text).toContain("第二问");
+        expect(log.filter(entry => entry.seq < before + 1).some(entry => entry.text.includes("\"role\":\"user\""))).toBe(false);
+    });
+
+    test("观察者抛错不影响这一轮的结果与保存", async () => {
+        const {outcome} = await askScripted(book, [answer({evidence: [], conclusionType: "无法确定"})], {
+            at: P,
+            onLogEntries: () => {
+                throw new Error("页面断开了");
+            },
+            onAgentEvent: () => {
+                throw new Error("页面断开了");
+            },
+        });
+        expect(outcome.result.status).toBe("answered");
+        expect(outcome.recordSaved).toBe(true);
     });
 });

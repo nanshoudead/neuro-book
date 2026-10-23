@@ -13,7 +13,7 @@ import {AIMessage, defineProfile, Message, ProfilePrompt, System, toolRef} from 
 import {createJsonlSessionLog} from "@notnotype/nb-session";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {Type} from "typebox";
-import {complete, createHarness, defineModel, HarnessError, REDACTED_KEY, type DefineModelOptions} from "../src";
+import {complete, createHarness, defineModel, HarnessError, REDACTED_KEY, serializeAgentEvent, type DefineModelOptions} from "../src";
 import {qaProfile, storyRegistry} from "./support";
 
 interface Seen {
@@ -132,14 +132,19 @@ describe("模型与密钥（输出 18）", () => {
         expect(server.seen).toEqual([]);
     });
 
-    test.each(["secret-key-echoed-123", "sk-abcd"])("401 的错误正文回显了密钥（%s）：结果与会话日志里都遮盖掉，归类仍是 auth（验收 7）", async (key) => {
+    test.each(["secret-key-echoed-123", "sk-abcd"])("401 的错误正文回显了密钥（%s）：结果、会话日志与交给订阅者的事件里都遮盖掉，归类仍是 auth（验收 7）", async (key) => {
         process.env.NB_PROVIDER_TEST_KEY = key;
         server.reply({status: 401, echoKey: true});
         const harness = await session();
+        // 订阅者收到的每个事件（序列化后推给网页的样子）也不含密钥：错误快照会出现在 message_start、turn_end、agent_end 里。
+        const events: string[] = [];
+        harness.subscribe((event) => events.push(serializeAgentEvent(event)));
         const result = await harness.turn("问");
         await harness.close();
         const logged = await readFile(join(root, `p${counter}.jsonl`), "utf8");
 
+        expect(events.length).toBeGreaterThan(3);
+        expect(events.filter((event) => event.includes(key))).toEqual([]);
         expect(result.error).toMatchObject({kind: "auth", status: 401});
         expect(result.error?.message).toContain(REDACTED_KEY);
         expect(result.error?.message).not.toContain(key);

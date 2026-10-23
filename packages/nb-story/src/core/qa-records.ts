@@ -104,6 +104,11 @@ export interface QaTurn {
     model: string;
     /** ISO 8601。 */
     startedAt: string;
+    /**
+     * 这一轮在会话日志里的第一条的 seq（这一轮开始前日志的长度加一）：网页按它把记录的各轮对到日志上（附注挂哪一条
+     * 回复），不数用户提问（有的失败轮在写用户消息之前就结束）。之前的记录没有它。
+     */
+    logFrom?: number;
 }
 
 /** 读过的段：闭区间 `[章, 起段, 止段]`，按章、段排序，同一章里不相邻的段分开存。 */
@@ -374,6 +379,7 @@ const TurnSchema = Type.Object({
     ms: Type.Number(),
     model: Type.String(),
     startedAt: Type.String(),
+    logFrom: Type.Optional(Type.Integer({minimum: 1})),
 });
 const ConversationSchema = Type.Object({
     id: Type.String(),
