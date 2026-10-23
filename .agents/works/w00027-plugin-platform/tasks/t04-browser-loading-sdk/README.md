@@ -44,6 +44,7 @@ updated: 2026-10-23
 - 2026-10-23 S2b（`bc29ef830`）：SDK 公开面 `src/sdk/`、`settingsPageContribution`、`build:sdk` 生成可安装的 SDK 包（仓库外 tsc 通过）；示例插件只从 SDK 导入，clock 改用宿主时钟。`test:affected` 里 llmlint 的 web 测试因缺 Nuxt 生成的 tsconfig 失败（主工作区同样缺，与本次无关）。
 - 2026-10-23 S2c（`abf503229`）：构建预设 `scripts/plugin-sdk/build-plugin.ts`（作者合同、经 Vite SSR 读声明、逐入口构建、浏览器登记工厂、模块图纯度检查、样式包进 `@layer components` 并生成 Lucide 图标规则、清单 `style` 字段），`build:examples`，生成的 SDK 包带上构建预设；测试 12 例（含仓库外用生成的包构建插件）。实施发现：Vite 的 `runnerImport` 不初始化 CSS 插件，改用不监听端口的开发服务 `ssrLoadModule`；Bun 的 `require.resolve` 会套用 tsconfig 路径别名，包根目录改为逐级找 `node_modules`；服务端与浏览器入口写在同一个定义模块里时，服务端产物会带上 `/browser`，纯度检查照常拦下（作者要分模块写，t05 写进作者文档）。
 - 2026-10-23 S2d（`2fd4088a6`）：启动数据带清单原文、版本目录与内容摘要；项目子进程的 `plugins` 消息改带安装信息；运行版本的跨进程租约（真实子进程测试：另一个服务端切换版本、移除卸载记录，但本服务端在用的目录留到它退出后才回收）；插件文件端点（真实请求测试编码穿越、摘要不符、符号链接、同版本重装后旧地址 404）；浏览器引导 v4。三处宿主仍只登记第三方插件的顶层声明（`thirdPartyDefinition`），按清单登记入口随装载器在 S2e（浏览器）、S3a（服务端与项目）接上。e2e 发现 S2a 的回归：窗口引入 `semver`（CommonJS）后开发会话白屏，加进 Vite 预构建清单后 `settings`、`plugins` 两组 e2e 17 例通过。
+- 2026-10-23 S2e（`c9ca9f6d2`）：浏览器装载器（`<script src>` 加登记工厂、只缓存成功的工厂、每次激活调用一次工厂、四个失败原因）、宿主模块表（页面入口在第一次装载时动态导入，窗口宿主代码不直接引用 nb-ui，Bun 里照常测试）、`thirdPartyDefinitionAt`（三处共用，含合同替换）、窗口按清单登记第三方入口与样式表。e2e `plugin-code.e2e.ts` 3 例：snippets 外置后在产品构建与开发会话里运行（打开分区才取代码且只取一次、图标先显示、能写设置），五个写坏的插件各自原位显示原因、文件找回后重试恢复；`plugins`、`settings`、`browser-host` 三组 24 例通过；单元 bun 1373、Vitest 357。第一轮实现审查（omp、Opus 审后端，Sonnet 审浏览器与 SDK）已在后台启动，范围 `7372a3d9e..c9ca9f6d2`。
 
 ## 下一步
 
