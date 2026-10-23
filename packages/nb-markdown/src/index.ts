@@ -5,6 +5,8 @@
 
 export * from "./link-syntax";
 export * from "./markdown-dialect";
+export {namesOf} from "./names";
+export type {SyntaxNameSource} from "./names";
 export {say} from "./locale";
 export type {MarkdownLocale, MarkdownText} from "./locale";
 export {classifyScheme, decodeTarget, lastSegment, pathPart, schemeOf, schemeTargets} from "./targets";

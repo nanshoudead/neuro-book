@@ -8,7 +8,7 @@
 import {mergeAttributes, Node} from "@tiptap/core";
 import type {MarkedExtension} from "marked";
 
-import {escapeAttribute} from "@notnotype/nb-markdown";
+import {escapeAttribute} from "../../../markdown-dialect";
 
 import {children} from "../core/write";
 import {blockTagExtension} from "../tags";

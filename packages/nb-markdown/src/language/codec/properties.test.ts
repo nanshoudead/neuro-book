@@ -18,13 +18,13 @@ import {Transform, findWrapping} from "@tiptap/pm/transform";
 import {describe, expect, it} from "bun:test";
 import fc from "fast-check";
 
-import {LONE_TAG, OPENS_HTML_BLOCK} from "@notnotype/nb-markdown";
+import {LONE_TAG, OPENS_HTML_BLOCK} from "../../markdown-dialect";
 
-import {markdownLanguage} from "../syntax";
+import {defaultMarkdownLanguage} from "../syntax";
 import {codecFor} from "./codec";
 import {equivalent} from "./compare";
 
-const language = markdownLanguage();
+const language = defaultMarkdownLanguage();
 const schema = getSchema([...language.extensions]);
 const codec = codecFor(schema, language);
 const CORPUS = join(import.meta.dir, "corpus");

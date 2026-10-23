@@ -8,8 +8,9 @@ import {describe, expect, it} from "bun:test";
 import type {Token} from "marked";
 
 import {findInlineLinks} from "@notnotype/nb-markdown";
+import {defaultMarkdownLanguage as markdownLanguage} from "@notnotype/nb-markdown/language";
+
 import {classifyTarget} from "../../../shared/targets";
-import {markdownLanguage} from "../../syntax";
 
 import {
     DEFAULT_PASTE_POLICY,

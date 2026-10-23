@@ -1,6 +1,6 @@
 /**
  * 编解码器的读入与原样写回（docs/specs/workspace/markdown-dialect.md 输出 1、4–7、9、19、20、25、26）。语料在 `corpus/`，
- * 语言与 schema 都是编辑器用的那一份（`markdownLanguage()`、`getSchema(language.extensions)`），不经 DOM。
+ * 语言与 schema 都是编辑器用的那一份（`defaultMarkdownLanguage()`、`getSchema(language.extensions)`），不经 DOM。
  */
 
 import {readdirSync, readFileSync} from "node:fs";
@@ -10,10 +10,10 @@ import {getSchema} from "@tiptap/core";
 import type {JSONContent} from "@tiptap/core";
 import {describe, expect, it} from "bun:test";
 
-import {markdownLanguage} from "../syntax";
+import {defaultMarkdownLanguage} from "../syntax";
 import {codecFor} from "./codec";
 
-const language = markdownLanguage();
+const language = defaultMarkdownLanguage();
 const schema = getSchema([...language.extensions]);
 const codec = codecFor(schema, language);
 const CORPUS = join(import.meta.dir, "corpus");

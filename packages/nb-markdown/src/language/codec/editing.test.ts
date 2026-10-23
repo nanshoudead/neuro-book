@@ -12,11 +12,11 @@ import {EditorState} from "@tiptap/pm/state";
 import {Transform} from "@tiptap/pm/transform";
 import {describe, expect, it} from "bun:test";
 
-import {markdownLanguage} from "../syntax";
+import {defaultMarkdownLanguage} from "../syntax";
 import {codecFor} from "./codec";
 import type {SourceMap} from "./read";
 
-const language = markdownLanguage();
+const language = defaultMarkdownLanguage();
 const schema = getSchema([...language.extensions]);
 const codec = codecFor(schema, language);
 

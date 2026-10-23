@@ -11,9 +11,10 @@ import {getSchema} from "@tiptap/core";
 import type {Node as PMNode, Schema} from "@tiptap/pm/model";
 import {DOMSerializer} from "@tiptap/pm/model";
 
+import {codecFor} from "@notnotype/nb-markdown/language";
+import type {MarkdownLanguage} from "@notnotype/nb-markdown/language";
+
 import {classifyTarget, showsAsChip} from "../../shared/targets";
-import {codecFor} from "../codec/codec";
-import type {MarkdownLanguage} from "../language";
 import {chipView, renderChipIcon} from "../parts/chip";
 import {STATIC_VIEWS} from "./static-views";
 import type {StaticView, StaticViewHost} from "./static-views";

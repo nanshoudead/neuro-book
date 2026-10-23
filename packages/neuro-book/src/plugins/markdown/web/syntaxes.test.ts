@@ -4,7 +4,8 @@
  */
 
 import {readFileSync} from "node:fs";
-import {join} from "node:path";
+import {dirname, join} from "node:path";
+import {fileURLToPath} from "node:url";
 
 import {afterEach, describe, expect, it} from "bun:test";
 
@@ -15,20 +16,22 @@ import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+import {codecFor, coreSyntax, createMarkdownLanguage} from "@notnotype/nb-markdown/language";
+import type {MarkdownLanguage} from "@notnotype/nb-markdown/language";
 
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 
 import {descriptor} from "../plugin";
 import {MARKDOWN_DIALECTS_POINT, MARKDOWN_SYNTAXES_POINT, validateSyntaxContribution} from "../shared/contracts";
 import {dialectsPoint} from "../shared/plugin";
-import {codecFor} from "./codec/codec";
-import {createMarkdownLanguage} from "./language";
-import type {MarkdownLanguage} from "./language";
 import {languageFor} from "./language-registry";
-import {builtinOrder, coreSyntax} from "./syntax";
+import {builtinOrder} from "./builtin-syntaxes";
 import {SyntaxCatalog} from "./syntax-catalog";
 import type {InactiveCode} from "./syntax-catalog";
 import {kbdDialectPlugin, kbdSyntax} from "./testing/kbd-dialect";
+
+/** 编解码器的语料在 nb-markdown 里（`src/language/codec/corpus/`），按包入口的位置找。 */
+const CORPUS = join(dirname(fileURLToPath(import.meta.resolve("@notnotype/nb-markdown/language"))), "codec", "corpus");
 
 const silent = {error: () => undefined};
 const started: Application[] = [];
@@ -189,7 +192,7 @@ describe("Spec workspace.markdown-syntaxes：方言的贡献", () => {
     });
 
     it("验收 3：内置方言逐个缺席时语言照常组成（核心语法不依赖可选的方言），方言语料不编辑写回字节不变", () => {
-        const corpus = ["dialect-blocks.md", "dialect-comments.md", "dialect-text.md"].map((name) => readFileSync(join(import.meta.dir, "codec/corpus", name), "utf8"));
+        const corpus = ["dialect-blocks.md", "dialect-comments.md", "dialect-text.md"].map((name) => readFileSync(join(CORPUS, name), "utf8"));
         for (const absent of builtinOrder()) {
             const language = createMarkdownLanguage([...builtinOrder().filter((entry) => entry.id !== absent.id).map((entry) => entry.syntax), coreSyntax]);
             for (const source of corpus) expect([absent.id, roundTrip(language, source).written]).toEqual([absent.id, source]);

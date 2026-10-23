@@ -1,7 +1,7 @@
 /**
- * NeuroBook Markdown 原样语法的判据与属性写法（docs/specs/workspace/markdown-dialect.md 输出 9、11–17、23–25）。编辑器的编解码器
- * （`plugins/markdown/web/syntax/`）与字数的轻量扫描（`word-count.ts`）都从这里取，两边认法一致。方言的标签名在方言声明里
- * （`dialects.ts`），不在这里。
+ * NeuroBook Markdown 原样语法的判据与属性写法（docs/specs/workspace/markdown-dialect.md 输出 9、11–17、23–25）。编解码器的语法模块
+ * （`language/syntax/`）与宿主的字数轻量扫描（neuro-book 的 `plugins/markdown/shared/word-count.ts`）都从这里取，两边认法一致。
+ * 方言的标签名在各语法模块与宿主的方言声明里，不在这里。
  *
  * 只放两边都要的东西：属性的读与写、原样内容的判据。标签的配对、读成什么节点由编辑器的语法模块决定。
  */

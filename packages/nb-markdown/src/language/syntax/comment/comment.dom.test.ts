@@ -11,9 +11,9 @@ import {afterEach, describe, expect, it} from "vitest";
 
 import {codecFor} from "../../codec/codec";
 import type {SourceMap} from "../../codec/read";
-import {markdownLanguage} from "..";
+import {defaultMarkdownLanguage} from "..";
 
-const language = markdownLanguage();
+const language = defaultMarkdownLanguage();
 const editors: Editor[] = [];
 
 afterEach(() => {

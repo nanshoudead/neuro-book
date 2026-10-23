@@ -7,12 +7,12 @@
 import type {Node as PMNode} from "@tiptap/pm/model";
 import {h, render} from "vue";
 
+import {buildCallout, renderHtmlEmbedElement} from "@notnotype/nb-markdown/language";
+
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import MarkdownImage from "../components/MarkdownImage.vue";
 import type {ResolveAsset} from "../components/MarkdownImage.vue";
-import {buildCallout} from "../syntax/callout";
-import {renderHtmlEmbedElement} from "../syntax/html-embed";
 
 export type DisplayActivation =
     | {readonly kind: "reference"; readonly target: string}

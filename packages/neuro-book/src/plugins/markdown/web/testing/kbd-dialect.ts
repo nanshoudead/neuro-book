@@ -10,11 +10,11 @@ import {Mark, mergeAttributes} from "@tiptap/core";
 import type {MarkedExtension, Token, Tokens} from "marked";
 
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
+import {closeInline, openTagAt, openTagIndex} from "@notnotype/nb-markdown/language";
 
 import {MARKDOWN_DIALECTS_POINT, MARKDOWN_SYNTAXES_POINT} from "../../shared/contracts";
 import type {DialectDeclaration} from "../../shared/contracts";
 import type {MarkdownSyntax, MarkdownSyntaxImplementation} from "../contracts";
-import {closeInline, openTagAt, openTagIndex} from "../syntax/tags";
 
 interface TagToken extends Tokens.Generic {
     readonly tokens: Token[];

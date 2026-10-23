@@ -8,10 +8,9 @@ import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+import {codecFor, defaultMarkdownLanguage as markdownLanguage} from "@notnotype/nb-markdown/language";
 
-import {codecFor} from "../codec/codec";
 import {createMarkdownEditorExtensions} from "../editor/markdown-editor-extensions";
-import {markdownLanguage} from "../syntax";
 import {markdownReportKey} from "../parts/report";
 import {SyntaxCatalog, syntaxCatalogKey} from "../syntax-catalog";
 import {startMarkdownBrowserHost} from "../testing/browser-host";

@@ -11,12 +11,12 @@ import {Fragment} from "@tiptap/pm/model";
 import type {Mark, Node as PMNode} from "@tiptap/pm/model";
 import {describe, expect, it} from "bun:test";
 
-import {markdownLanguage} from "../syntax";
+import {defaultMarkdownLanguage} from "../syntax";
 import {codecFor} from "./codec";
 import type {MarkdownCodec} from "./codec";
 import {equivalent} from "./compare";
 
-const language = markdownLanguage();
+const language = defaultMarkdownLanguage();
 const schema = getSchema([...language.extensions]);
 /**
  * 测试用换成内容相同的新节点对象来模拟“这块改过了”。产品的编解码器会按内容借用来源（`SourceMap.twins`，给真实撤销用），把这样

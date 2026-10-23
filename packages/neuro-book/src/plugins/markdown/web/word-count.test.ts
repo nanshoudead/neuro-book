@@ -5,21 +5,24 @@
  */
 
 import {readdirSync, readFileSync} from "node:fs";
-import {join} from "node:path";
+import {dirname, join} from "node:path";
+import {fileURLToPath} from "node:url";
 
 import {getSchema} from "@tiptap/core";
 import type {Node as PMNode} from "@tiptap/pm/model";
 import {describe, expect, it} from "bun:test";
 
+import {codecFor, defaultMarkdownLanguage as markdownLanguage} from "@notnotype/nb-markdown/language";
+
 import {BUILTIN_DIALECTS} from "nbook/plugins/markdown/shared/dialects";
 import {countWords, dialectTable} from "nbook/plugins/markdown/shared/word-count";
 
-import {BUILTIN_SYNTAXES, markdownLanguage} from "../syntax";
-import {codecFor} from "./codec";
+import {builtinOrder} from "./builtin-syntaxes";
 
 const language = markdownLanguage();
 const codec = codecFor(getSchema([...language.extensions]), language);
-const CORPUS = join(import.meta.dir, "corpus");
+/** 编解码器的语料在 nb-markdown 里（`src/language/codec/corpus/`），按包入口的位置找。 */
+const CORPUS = join(dirname(fileURLToPath(import.meta.resolve("@notnotype/nb-markdown/language"))), "codec", "corpus");
 const corpus = readdirSync(CORPUS).filter((name) => name.endsWith(".md")).sort();
 const TABLE = dialectTable(Object.values(BUILTIN_DIALECTS).map((declaration) => ({declaration})));
 const DECLARED_TAGS = Object.values(BUILTIN_DIALECTS).flatMap((declaration) => [...(declaration.blockTags ?? []), ...(declaration.inlineTags ?? [])]);
@@ -60,10 +63,12 @@ function deviates(node: PMNode): boolean {
 }
 
 describe("字数与编解码器一致", () => {
-    it("方言标签名单：每种内置方言的声明与它的语法模块交出的相同（docs/specs/workspace/markdown-syntaxes.md 输出 3）", () => {
-        expect(Object.keys(BUILTIN_SYNTAXES).sort()).toEqual(Object.keys(BUILTIN_DIALECTS).sort());
-        for (const [id, syntax] of Object.entries(BUILTIN_SYNTAXES)) {
+    it("方言标签名单与顺序：每种内置方言的声明与它的语法模块交出的相同（docs/specs/workspace/markdown-syntaxes.md 输出 3）", () => {
+        expect(builtinOrder().map((entry) => entry.id).sort()).toEqual(Object.keys(BUILTIN_DIALECTS).sort());
+        for (const {id, order, syntax} of builtinOrder()) {
             const declaration = BUILTIN_DIALECTS[id];
+            // 外来方言按数字插在内置方言之间，所以要数字相同，不只是先后相同。
+            expect([id, order]).toEqual([id, declaration?.order]);
             expect([id, new Set(Object.keys(syntax.blockOpens ?? {}))]).toEqual([id, new Set(declaration?.blockTags ?? [])]);
             expect([id, new Set(syntax.inlineTags ?? [])]).toEqual([id, new Set(declaration?.inlineTags ?? [])]);
         }

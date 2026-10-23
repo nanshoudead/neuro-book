@@ -9,11 +9,11 @@ import {join} from "node:path";
 import {getSchema} from "@tiptap/core";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {markdownLanguage} from "../syntax";
+import {defaultMarkdownLanguage} from "../syntax";
 import {codecFor} from "./codec";
 
 const CORPUS = join(__dirname, "corpus");
-const language = markdownLanguage();
+const language = defaultMarkdownLanguage();
 const codec = codecFor(getSchema([...language.extensions]), language);
 const parser = globalThis.DOMParser;
 

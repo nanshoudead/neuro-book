@@ -9,12 +9,13 @@
 import {shallowRef} from "vue";
 import type {InjectionKey, ShallowRef} from "vue";
 
+import type {MarkdownSyntax} from "@notnotype/nb-markdown/language/types";
+import {namesOf} from "@notnotype/nb-markdown";
 import type {ContributionDeclarations, ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
 
 import {BUILTIN_DIALECTS, MARKDOWN_DIALECTS_POINT} from "../shared/dialects";
 import type {DialectDeclaration} from "../shared/dialects";
 import type {MarkdownSyntaxImplementation} from "./contracts";
-import type {MarkdownSyntax} from "./syntax/types";
 
 /** 一种生效的外来方言。 */
 export interface ActiveSyntax {
@@ -33,21 +34,7 @@ export const syntaxCatalogKey: InjectionKey<SyntaxCatalog> = Symbol("nbook.markd
 type Handle = ContributionHandle<Record<string, never>, MarkdownSyntaxImplementation>;
 
 const blockTagsOf = (syntax: MarkdownSyntax): ReadonlyArray<string> => Object.keys(syntax.blockOpens ?? {});
-const tagsOf = (syntax: MarkdownSyntax): ReadonlyArray<string> => [...blockTagsOf(syntax), ...(syntax.inlineTags ?? [])];
 const sameSet = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean => new Set(a).size === new Set(b).size && a.every((item) => b.includes(item));
-
-/**
- * 一种方言占用的名字：标签、schema 里的节点与标记、写法、模块名（语言按模块名存写前准备）。两种方言占了同一个名字就撞名
- * （输出 4）。组合扩展里的子扩展名要展开才看得出，由 `language-registry.ts` 补。
- */
-export function namesOf(syntax: MarkdownSyntax): ReadonlyArray<string> {
-    return [
-        `module:${syntax.name}`,
-        ...tagsOf(syntax).map((tag) => `tag:${tag}`),
-        ...syntax.extensions.map((extension) => `type:${extension.name}`),
-        ...Object.keys({...syntax.writeBlock, ...syntax.writeInline, ...syntax.writeMark}).map((type) => `writer:${type}`),
-    ];
-}
 
 const BUILTIN_TAGS: ReadonlySet<string> = new Set(Object.values(BUILTIN_DIALECTS).flatMap((declaration) => [...(declaration.blockTags ?? []), ...(declaration.inlineTags ?? [])].map((tag) => `tag:${tag}`)));
 

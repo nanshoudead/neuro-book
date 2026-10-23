@@ -7,7 +7,7 @@
 
 import type {Token, Tokens, TokenizerExtension} from "marked";
 
-import {ATTRIBUTES_SOURCE, parseAttributes} from "@notnotype/nb-markdown";
+import {ATTRIBUTES_SOURCE, parseAttributes} from "../../markdown-dialect";
 
 /** 一个开标签：名字（小写）、属性与它在文字里的长度。 */
 export interface OpenTag {

@@ -8,7 +8,7 @@
  *
  * 浏览器与项目进程都用这个算法，不能依赖编辑器的编解码器：扫描只按行与标签判断，原样内容的判据从 `markdown-dialect.ts` 取，
  * 方言标签按声明表（`dialectTable`，docs/specs/workspace/markdown-syntaxes.md 输出 9）。它与编解码器读出的正文是否一致，由
- * `web/codec/word-count.test.ts` 对照编辑器的语料核对；已知的偏差写在方言 Spec。
+ * `web/word-count.test.ts` 对照 nb-markdown 编解码器的语料核对；已知的偏差写在方言 Spec。
  */
 
 import {decodeHTMLStrict} from "entities";

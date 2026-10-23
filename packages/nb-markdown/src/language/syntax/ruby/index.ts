@@ -12,7 +12,7 @@ import type {Mark as PMMark} from "@tiptap/pm/model";
 import type {MarkedExtension, Token, Tokens} from "marked";
 import {decodeHTMLStrict} from "entities";
 
-import {escapeAttribute} from "@notnotype/nb-markdown";
+import {escapeAttribute} from "../../../markdown-dialect";
 
 import {closeInline, openTagAt, openTagIndex} from "../tags";
 import {CODE_EXCLUSIVE} from "../types";

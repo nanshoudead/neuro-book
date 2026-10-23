@@ -12,6 +12,7 @@ import {afterEach, describe, expect, it} from "vitest";
 
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
+import {codecFor, defaultMarkdownLanguage as markdownLanguage} from "@notnotype/nb-markdown/language";
 
 import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";
 
@@ -19,8 +20,6 @@ import {MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlHandle, TextEditorBinding} from "nbook/plugins/editor/shared/contracts";
 import {createEditorArea} from "nbook/plugins/editor/web/area";
 import type {EditorArea} from "nbook/plugins/editor/web/area";
-import {codecFor} from "../codec/codec";
-import {markdownLanguage} from "../syntax";
 import {createAssetUrls, markdownAssetsKey} from "../parts/asset-urls";
 import {SyntaxCatalog, syntaxCatalogKey} from "../syntax-catalog";
 import MarkdownControl from "./MarkdownControl.vue";

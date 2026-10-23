@@ -6,11 +6,11 @@
 import {describe, expect, it} from "bun:test";
 import {Lexer} from "marked";
 
-import {markdownLanguage} from "../syntax";
+import {defaultMarkdownLanguage} from "../syntax";
 import {normalize, segment, splitFrontmatter} from "./source";
 
 // 宽容写法的规则用编辑器的那一份：标签名与“认不认这个开标签”都来自语法模块。
-const RULES = markdownLanguage().glued;
+const RULES = defaultMarkdownLanguage().glued;
 
 function cut(body: string) {
     const normalized = normalize(body, RULES);
