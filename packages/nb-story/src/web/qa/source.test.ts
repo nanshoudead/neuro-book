@@ -96,6 +96,18 @@ describe("记录与运行", () => {
         expect(h.subscribers).toHaveLength(1);
     });
 
+    test("读的时候在跑、订阅时已经结束并保存：重读一次，之后不再订阅；重读到的运行已保存就不再管它", async () => {
+        const saved = run({state: "ended", saved: {ok: true}});
+        const h = harness([got({run: run()}), got({record: record([turn("第一问", 1), turn("追问", 4)]), log: {ok: true, entries: [...FIRST, userEntry(4, "追问"), replyEntry(5, "追答")]}, run: saved})]);
+        await h.settle();
+        h.send({type: "snapshot", run: saved, entries: []});
+        h.subscribers[0]!.subscriber.end("closed");
+        await h.settle();
+        expect(h.gets()).toBe(2);
+        expect(h.subscribers).toHaveLength(1);
+        expect(texts(h.source.state())).toEqual(["问:第一问", "答:第一答", "问:追问", "答:追答"]);
+    });
+
     test("运行基于较早的记录（命令行先保存了一轮）：不接进来，标为 detached", async () => {
         const h = harness([got({record: record([turn("第一问", 1), turn("命令行的", 4)]), run: run({baseTurns: 1})})]);
         await h.settle();

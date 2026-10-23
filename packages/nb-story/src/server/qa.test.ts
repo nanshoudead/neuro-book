@@ -7,6 +7,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
+import {existsSync} from "node:fs";
 import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {connect} from "node:net";
 import {join} from "node:path";
@@ -268,14 +269,17 @@ describe("删除", () => {
         expect(code(await env.call("qa.list", {book: "fox"}))).toBe("book_not_found");
     });
 
-    test("运行中停服务（SIGTERM）：这一轮先停下、保存为中断，服务再以 0 退出", async () => {
-        const env = await setup([{kind: "hang"}]);
-        const {conversation} = (await env.call("qa.start", {book: "fox", question: "停服务", at: {chapter: 38}})).body as {conversation: string};
-        await env.endpoint.firstRequest;
-        expect(await env.serve.stop("SIGTERM")).toBe(0);
-        const record = JSON.parse(await readFile(join(env.library, "fox", "qa", `${conversation}.json`), "utf8")) as {turns: {status: string}[]};
-        expect(record.turns.map(turn => turn.status)).toEqual(["interrupted"]);
-    });
+    for (const signal of ["SIGTERM", "SIGINT"] as const) {
+        test(`运行中停服务（${signal}）：这一轮先停下、保存为中断，撤销登记，服务再以 0 退出`, async () => {
+            const env = await setup([{kind: "hang"}]);
+            const {conversation} = (await env.call("qa.start", {book: "fox", question: "停服务", at: {chapter: 38}})).body as {conversation: string};
+            await env.endpoint.firstRequest;
+            expect(await env.serve.stop(signal)).toBe(0);
+            const record = JSON.parse(await readFile(join(env.library, "fox", "qa", `${conversation}.json`), "utf8")) as {turns: {status: string}[]};
+            expect(record.turns.map(turn => turn.status)).toEqual(["interrupted"]);
+            expect(existsSync(join(env.library, ".serve.json"))).toBe(false);
+        });
+    }
 
     test("损坏的记录单列，可以删除", async () => {
         const env = await setup([]);

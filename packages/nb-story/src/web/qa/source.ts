@@ -147,8 +147,9 @@ export function createQaSource(options: QaSourceOptions): QaSource {
                 if (!current()) return;
                 switch (frame.type) {
                     case "snapshot":
-                        if (frame.run === null || frame.run.runId !== run.runId) {
-                            // 订阅之前这一轮已经被换掉（下一轮开始了，或对话被删了）：重读。
+                        if (frame.run === null || frame.run.runId !== run.runId || (frame.run.state === "ended" && frame.run.saved?.ok === true)) {
+                            // 读对话与订阅之间这一轮已经换掉（下一轮开始了、对话被删了），或已经结束并保存（条目在记录里，
+                            // 快照不再带）：重读一次。重读到的已保存的运行不再订阅，所以不会来回。
                             sawEnd = true;
                             void load(false);
                             return;
