@@ -10,6 +10,7 @@ import type {Token} from "marked";
 import {findInlineLinks} from "../link-syntax";
 import {defaultMarkdownLanguage as markdownLanguage} from "../language/syntax";
 
+import {schemeTargets} from "../targets";
 import type {MarkdownTargets} from "../targets";
 
 import {
@@ -184,9 +185,9 @@ describe("prompt-text Markdown 链接的写法", () => {
     });
 
     it("场景 4：`@` 菜单插入的引用是以 `/` 开头的作品根地址；含空格时加尖括号；文字里的方括号转义", () => {
-        expect(promptReferenceText("林雪", "/设定/林雪.md")).toBe("[林雪](/设定/林雪.md)");
-        expect(promptReferenceText("林 雪", "/设定/林 雪.md")).toBe("[林 雪](</设定/林 雪.md>)");
-        expect(one(promptReferenceText("a[1]", "/a.md"))).toMatchObject({kind: "reference", label: "a[1]", target: "/a.md"});
+        expect(promptReferenceText("林雪", "/设定/林雪.md", schemeTargets)).toBe("[林雪](/设定/林雪.md)");
+        expect(promptReferenceText("林 雪", "/设定/林 雪.md", schemeTargets)).toBe("[林 雪](</设定/林 雪.md>)");
+        expect(one(promptReferenceText("a[1]", "/a.md", schemeTargets))).toMatchObject({kind: "reference", label: "a[1]", target: "/a.md"});
     });
 });
 
@@ -410,11 +411,11 @@ describe("prompt-text 链接与代码", () => {
         expect(tokens("[设定](lorebook/world.md) [旧](chapter://c1) [根](/设定/a.md)").map(([kind]) => kind)).toEqual(["reference", "reference", "reference"]);
     });
 
-    it("场景 4：`promptReferenceText` 按宿主的 `encodeFile` 写地址，写出的引用读回的地址就是它；不给宿主时原样写", () => {
+    it("场景 4：`promptReferenceText` 按宿主的 `encodeFile` 写地址，写出的引用读回的地址就是它；不认文件方案的宿主原样写", () => {
         const targets: MarkdownTargets = {classify: () => ({kind: "file", name: ""}), encodeFile: (target) => target.replace(/#/gu, "%23")};
         const [token] = tokensOf(parsePromptText(promptReferenceText("名", "/设定/第1章#草稿.md", targets), {commands: []}));
         expect(token?.target).toBe("/设定/第1章%23草稿.md");
-        expect(promptReferenceText("名", "/设定/a#b.md")).toBe("[名](/设定/a#b.md)");
+        expect(promptReferenceText("名", "/设定/a#b.md", schemeTargets)).toBe("[名](/设定/a#b.md)");
     });
 
     it("没闭合的方括号、反引号与引号很多时仍是线性的（几万字的草稿每打一个字都要重新识别一行）", () => {

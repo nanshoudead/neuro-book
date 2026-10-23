@@ -40,8 +40,6 @@ function resource(scheme: "project" | "user", path: string | null): string | nul
     return parseResource(address).ok ? address : null;
 }
 
-/** 这一类目标的链接显示成引用小块：外部链接是普通链接，别的都是小块（输出 27；“其它”不带文件图标）。 */
-export const showsAsChip = (kind: TargetKind): boolean => kind !== "external";
 
 /**
  * 归类并解析一个目标。`base` 是目标所在文件的地址（编辑器里的文档）；没有所在文件时（Composer、展示器）为 null，这时以 `/`

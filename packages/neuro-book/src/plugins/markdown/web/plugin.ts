@@ -22,6 +22,7 @@ import type {MarkdownService} from "../shared/contracts";
 import {dialectsPoint} from "../shared/plugin";
 import {createAssetUrls, markdownAssetsKey} from "./parts/asset-urls";
 import type {AssetUrls} from "./parts/asset-urls";
+import {forwardExpose} from "./parts/forward-expose";
 import {markdownReportKey} from "./parts/report";
 import type {MarkdownReport} from "./parts/report";
 import {SyntaxCatalog, syntaxCatalogKey} from "./syntax-catalog";
@@ -46,11 +47,12 @@ function withHost(host: Host, name: string, load: () => Promise<Component>, fall
     return defineComponent({
         name,
         inheritAttrs: false,
-        setup: (_props, {attrs, slots}) => {
+        setup: (_props, {attrs, slots, expose}) => {
             provideToChildren(syntaxCatalogKey, host.catalog);
             provideToChildren(markdownAssetsKey, host.assets);
             provideToChildren(markdownReportKey, host.report);
-            return () => (failed.value && fallback !== undefined ? fallback(attrs) : h(inner, {...attrs, ...props}, slots));
+            const exposed = forwardExpose(expose);
+            return () => (failed.value && fallback !== undefined ? fallback(attrs) : h(inner, {...attrs, ...props, ref: exposed}, slots));
         },
     });
 }

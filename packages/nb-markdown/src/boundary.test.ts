@@ -5,8 +5,8 @@
  */
 
 import {describe, expect, it} from "bun:test";
-import {readdirSync, readFileSync} from "node:fs";
-import {join} from "node:path";
+import {existsSync, readdirSync, readFileSync, statSync} from "node:fs";
+import {dirname, join, resolve} from "node:path";
 
 import {scanImports, sourceFiles, type ImportRule} from "@notnotype/neuro-book-test-support/import-boundary";
 
@@ -26,7 +26,14 @@ describe("包的导入", () => {
     it("纯 TS 入口只引 entities 与 src 根上的文件，编辑内核只许 import type", () => {
         const core: ImportRule = {packages: [/^entities$/u], typeOnly: [/^@tiptap\//u, /^marked$/u], within: SOURCE_ROOT};
         expect(scanImports(coreFiles, core)).toEqual([]);
-        const intoSubdirectories = coreFiles.flatMap((file) => [...readFileSync(file, "utf8").matchAll(/from\s*"(\.\/[^"]+\/[^"]+)"/gu)].map((match) => `${file}: ${match[1]}`));
+        // 相对导入解析后要正好是 src 根上的文件：`./host`、`./language` 这类目录入口与 `./chip/chip` 都算子目录。
+        const intoSubdirectories = coreFiles.flatMap((file) => [...readFileSync(file, "utf8").matchAll(/(?:from|import)\s*"(\.[^"]*)"/gu)]
+            .map((match) => match[1]!)
+            .filter((specifier) => {
+                const target = resolve(dirname(file), specifier);
+                return dirname(target) !== SOURCE_ROOT || (existsSync(target) && statSync(target).isDirectory());
+            })
+            .map((specifier) => `${file}: ${specifier}`));
         expect(intoSubdirectories).toEqual([]);
     });
 

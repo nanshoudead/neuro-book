@@ -10,7 +10,7 @@ Markdown 的语言、编解码器与组件。行为合同见 [`ui/markdown-displ
 | `./host` | 宿主接口 `MarkdownHost`、`provideMarkdownHost`、`useMarkdownHost` |
 | `./display` | 只读显示 `MarkdownDisplay`、图片 `MarkdownImage` |
 | `./chip` | 行内小块 `InlineChip` 与它的外观判断 |
-| `./prompt` | 写给 Agent 的编辑组件 `PromptEditor`、已发送文字的显示 `PromptTextView`，以及拼引用写法的 `promptReferenceText` |
+| `./prompt` | 写给 Agent 的编辑组件 `PromptEditor`、已发送文字的显示 `PromptTextView`，以及拼引用写法的 `promptReferenceText`（目标分类必填） |
 | `./editor` | 富文本编辑器的扩展组（编辑器实例与文档绑定归宿主） |
 | `./markdown.css` | 正文与方言元素的样式（展示器自己带上；宿主的编辑器控件导入它） |
 | `./lab-sources` | 只给应用的 Component Lab 建组件索引 |
@@ -29,10 +29,10 @@ Markdown 的语言、编解码器与组件。行为合同见 [`ui/markdown-displ
 3. **宿主**：组件从祖先拿语言、链接目标的分类、文件图标与诊断出口。什么都不提供也能用：内置方言加核心语法；只认 `http`、`https`、`mailto` 为外部链接，别的方案（例如 `paragraph://41.20`）显示成引用小块，点击发出 `{kind: "reference", target}`。要换的时候在组件的祖先上提供：
 
    ```ts
-   import {defaultMarkdownHost, provideMarkdownHost} from "@notnotype/nb-markdown/host";
+   import {provideMarkdownHost} from "@notnotype/nb-markdown/host";
 
+   // 没给的项用缺省值；嵌套提供时里层不继承外层，是在缺省值上覆盖。
    provideMarkdownHost({
-       ...defaultMarkdownHost,
        chips: {targets: myTargets, fileIcon: (name) => ({className: "i-lucide-file"})},   // 目标分类与文件图标
        report: (event, message, error) => console.warn(event, message, error),
    });
@@ -54,5 +54,5 @@ Markdown 的语言、编解码器与组件。行为合同见 [`ui/markdown-displ
    宿主提供宿主接口的那个祖先要包住对话视图。
 
 5. **只认链接**：正文里的“41.20”这类出处要宿主先改写成链接（`[41.20](paragraph://41.20)`），本包不认纯文字的出处。
-6. **Vite**：关掉依赖自动发现（`optimizeDeps.noDiscovery`）的宿主，把 `marked`、`marked-cjk-friendly` 列进预构建清单。
+6. **Vite**：本包的第三方依赖（marked、TipTap、entities）都是 ES 模块，关掉依赖自动发现（`optimizeDeps.noDiscovery`）的宿主不必把它们列进预构建清单，按源码提供即可（neuro-book 就是这样，它清单里的 `marked` 是给别的组件的）。
 7. **按需加载**：编辑内核与解析器较大，宿主按组件 `import()` 入口（`./display`、`./prompt`），不放进首屏。neuro-book 的做法见 `packages/neuro-book/src/plugins/markdown/web/components/MarkdownHosted.vue`。

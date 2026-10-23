@@ -45,8 +45,13 @@ describe("不经插件挂上的展示器", () => {
         expect(wrapper.find("mark").text()).toBe("重点");
         const chip = wrapper.find("[data-reference-link='other']");
         expect(chip.text()).toBe("41.20");
-        await chip.trigger("click");
-        await wrapper.find("a[href='https://example.com']").trigger("click");
+        // 点链接本身：展示器在冒泡时拦下默认跳转，交给宿主（happy-dom 在链接上派发的点击没被拦下时会真的去取地址）。
+        const clicks = ["a[href='paragraph://41.20']", "a[href='https://example.com']"].map((selector) => {
+            const event = new MouseEvent("click", {bubbles: true, cancelable: true});
+            wrapper.find(selector).element.dispatchEvent(event);
+            return event.defaultPrevented;
+        });
+        expect(clicks).toEqual([true, true]);
         expect(activations).toEqual([{kind: "reference", target: "paragraph://41.20"}, {kind: "link", href: "https://example.com"}]);
     });
 

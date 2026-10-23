@@ -1,5 +1,5 @@
 ---
-标签: [state:local]
+标签: [state:local, state:inject]
 别名: ["写给 Agent 的编辑组件", "Composer 编辑组件", "Prompt Editor"]
 ---
 

@@ -6,7 +6,6 @@
  */
 
 import {findInlineLinks, unescapeMarkdown, writeInlineLink} from "../link-syntax";
-import {schemeTargets} from "../targets";
 import type {MarkdownTargets} from "../targets";
 import {findSelections, parseSelectionText} from "./prompt-selection";
 import type {PromptEditorPastePolicy, PromptEditorToken} from "./prompt-editor.types";
@@ -113,9 +112,10 @@ export function serializeFileToken(number: number, name: string, target: string)
 /**
  * 引用的写法：`@` 菜单的宿主用它拼 `insertText`。作品里的文件写以 `/` 开头的作品根地址（docs/specs/ui/prompt-editor.md 输出 3），
  * 地址含空白或括号时写成 `<地址>`；文件名里的 `%`、`#`、`?` 按宿主的 `targets.encodeFile` 百分号编码，读回仍指向同一个文件。
- * 不给 `targets` 时地址原样写（缺省规则不认文件方案）。
+ * `targets` 必填，不给缺省值：缺省成不编码时，忘了传的宿主写出的文件名带 `#` 的引用读回会指向别的文件。不认文件方案的宿主传
+ * `schemeTargets`。
  */
-export function promptReferenceText(label: string, target: string, targets: MarkdownTargets = schemeTargets): string {
+export function promptReferenceText(label: string, target: string, targets: MarkdownTargets): string {
     return writeInlineLink(label, targets.encodeFile(target));
 }
 

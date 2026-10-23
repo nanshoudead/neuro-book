@@ -36,7 +36,7 @@ export const defaultMarkdownHost: MarkdownHost = {
     report: () => undefined,
 };
 
-/** 在当前组件的 setup 里调用，给子树里的 nb-markdown 组件。没给的项用缺省值。 */
+/** 在当前组件的 setup 里调用，给子树里的 nb-markdown 组件。没给的项用缺省值；嵌套提供时里层不继承外层的宿主。 */
 export function provideMarkdownHost(host: Partial<MarkdownHost>): MarkdownHost {
     const full: MarkdownHost = {...defaultMarkdownHost, ...host};
     provide(markdownHostKey, full);

@@ -19,7 +19,7 @@
         "./tailwind.css": "./src/tailwind.css"
     },
     "scripts": {
-        "test": "bun test && vitest run --passWithNoTests",
+        "test": "bun test && vitest run",
         "typecheck": "tsc --noEmit && vue-tsc --noEmit -p tsconfig.vue.json"
     },
     "dependencies": {

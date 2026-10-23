@@ -12,7 +12,7 @@ import {afterEach, describe, expect, it} from "vitest";
 
 import type {ChipEnv} from "../chip/chip";
 import {defaultMarkdownHost, markdownHostKey} from "../host";
-import {classifyScheme} from "../targets";
+import {classifyScheme, schemeTargets} from "../targets";
 import PromptEditor from "./PromptEditor.vue";
 import type {PromptEditorAttachment, PromptEditorDraft, PromptEditorExpose, PromptEditorMenuContext} from "./prompt-editor.types";
 import {promptReferenceText} from "./prompt-text";
@@ -339,7 +339,7 @@ describe("PromptEditor 按键", () => {
 
 describe("PromptEditor `@` 菜单", () => {
     const resolveMenu = (context: PromptEditorMenuContext) => ({
-        items: context.trigger === "@" ? [{id: "林雪", label: "林雪", description: "设定/林雪.md", insertText: promptReferenceText("林雪", "/设定/林雪.md")}] : [],
+        items: context.trigger === "@" ? [{id: "林雪", label: "林雪", description: "设定/林雪.md", insertText: promptReferenceText("林雪", "/设定/林雪.md", schemeTargets)}] : [],
     });
 
     it("场景 4：确认作品里的文件，文字是以 `/` 开头的作品根地址，显示为引用小块，后面补一个空格", async () => {
