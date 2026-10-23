@@ -17,7 +17,7 @@ const replyEntry = (seq: number, text: string) => entry(seq, "agent_message", {m
 const snapshotEntry = (seq: number) => entry(seq, "session_snapshot", {profile: {key: "story-qa", version: "2"}, initial: {}, tools: []});
 
 const turn = (question: string, logFrom: number) => ({question, status: "answered" as const, answer: null, reply: {text: "答", truncated: false, unverifiedRefs: []}, error: null, chaptersRead: [], rejections: 0, usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null, complete: true}, ms: 1, model: "m", startedAt: AT, logFrom});
-const record = (turns: ReturnType<typeof turn>[]): QaRecordView => ({id: "c", at: {chapter: 38, paragraph: 57}, mode: "graph", maxChapters: 20, turns, startedAt: AT});
+const record = (turns: QaRecordView["turns"]): QaRecordView => ({id: "c", at: {chapter: 38, paragraph: 57}, mode: "graph", maxChapters: 20, turns, startedAt: AT});
 const run = (fields: Partial<QaRunView> = {}): QaRunView => ({runId: "r1", conversation: "c", turn: 2, baseTurns: 1, logFrom: 4, question: "追问", at: {chapter: 38, paragraph: 57}, mode: "graph", startedAt: AT, state: "running", result: null, saved: null, ...fields});
 
 /** 第一轮：快照、提问、回复。 */
