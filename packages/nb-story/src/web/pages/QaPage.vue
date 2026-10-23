@@ -15,6 +15,7 @@ import {formatAt, useBook} from "../host/book";
 import {StoryCallError, useStoryClient} from "../host/client";
 import AnswerCard from "../qa/AnswerCard.vue";
 import {REF_SCHEME} from "../qa/link-refs";
+import {CHAPTER_SCHEME, createMentionSearch, ENTITY_SCHEME, MENTION_LIMIT, mentionMenu, mentionPlainText, type MentionEntity} from "../qa/mentions";
 import {createNameResolver, QA_NAME_LOOKUP} from "../qa/names";
 import {createQaSource, type QaSource, type QaSourceState} from "../qa/source";
 import StoryMarkdown from "../qa/StoryMarkdown.vue";
@@ -28,11 +29,13 @@ const client = useStoryClient();
 provideMarkdownHost({report: (event, message, error) => console.warn({event, error}, message)});
 
 // nb-story 的 Agent 没有文件与命令工具：不登记内置工具（read 同名会冲突）与内置输入框命令（`/` 命令在这里没人处理）。
+// 输入框只登记 `@`（引用人物、章节与段落，w00024 t15 决定 2）。
 const registry = createAgentViewRegistry([
     builtinRolesContribution,
     builtinMessageActionsContribution,
     storyToolsContribution(AnswerCard),
     {source: "nb-story:qa-entries", entries: [{id: "nb-story.unverified-refs", customType: UNVERIFIED_REFS, component: UnverifiedRefs}]},
+    {source: "nb-story:qa-mentions", triggers: [{id: "nb-story.mention", char: "@"}]},
 ]);
 const renderers = {markdown: StoryMarkdown, promptEditor: PromptEditor, promptTextView: PromptTextView};
 
@@ -112,7 +115,7 @@ function before(a: {chapter: number; paragraph?: number}, b: {chapter: number; p
 const items = computed<AgentSessionListItem[]>(() => [
     ...rows.value.map(row => ({
         id: row.id,
-        title: row.question,
+        title: mentionPlainText(row.question),
         description: `${row.turns === 0 ? "第 1 轮" : `${row.turns} 轮`} · ${MODE_LABEL[row.mode]} · 读到 ${formatAt(row.at)}`,
         updatedAt: Date.parse(row.updatedAt) || 0,
         status: row.run?.state === "running" ? ("running" as const) : row.status === "failed" ? ("error" as const) : row.status === "interrupted" ? ("interrupted" as const) : ("idle" as const),
@@ -153,9 +156,42 @@ const record = computed(() => sourceState.value?.record ?? null);
 watch(running, (now, before) => {
     if (before && !now) void loadList();
 });
-const title = computed(() => record.value?.turns[0]?.question ?? run.value?.question ?? "");
+const title = computed(() => mentionPlainText(record.value?.turns[0]?.question ?? run.value?.question ?? ""));
 const conversationAt = computed(() => record.value?.at ?? run.value?.at ?? null);
 const conversationMode = computed(() => record.value?.mode ?? run.value?.mode ?? null);
+
+// ---- 输入框的 `@` 引用：候选按这个对话的阅读位置给（新对话用查看器的位置），晚于它的对象不在名单里 ----
+const mentionAt = computed(() => (selectedId.value === null ? book.at.value : (conversationAt.value ?? book.at.value)));
+/** 人物取到一次加一：services 换一个新的菜单函数，编辑器按当前查询重取（resolveTriggerMenu 的约定）。 */
+const mentionTick = ref(0);
+const mentions = createMentionSearch({
+    async search(query): Promise<MentionEntity[]> {
+        // 空查询给提及最多的几个人物（决定 4）：多取一些再筛人物与身份。
+        const result = await client.call("entities.list", {book: book.bookId, at: mentionAt.value, ...(query === "" ? {limit: 20} : {query, limit: MENTION_LIMIT})});
+        const entities = result.items.map(item => ({id: item.id, label: item.label, kind: item.kind, names: item.names.top}));
+        return query === "" ? entities.filter(item => item.kind === "person" || item.kind === "persona").slice(0, 6) : entities;
+    },
+    onChange: () => (mentionTick.value += 1),
+});
+// 换了位置先取好空查询的人物：第一次打 `@` 就有人物，菜单的高亮也不会先落在章节项上、人物到了还停在那里。
+watch(
+    [() => formatAt(mentionAt.value), book.dataVersion],
+    () => {
+        mentions.reset();
+        mentions.lookup("");
+        mentionTick.value += 1;
+    },
+    {immediate: true},
+);
+onBeforeUnmount(() => mentions.dispose());
+const services = computed(() => {
+    void mentionTick.value;
+    const at = mentionAt.value;
+    return {
+        resolveTriggerMenu: (context: {trigger: string; query: string}) =>
+            context.trigger === "@" ? mentionMenu(context.query, {entities: mentions.lookup(context.query), book: book.info, at}) : {items: []},
+    };
+});
 
 // ---- 输入框：草稿按对话各存一份 ----
 // 换对话时交给视图的草稿总带一个新版本号：输入框只在版本变了时换内容（nb-agent-ui README 的“草稿”）。
@@ -213,7 +249,12 @@ function openTarget(raw: string): void {
     // 正文里的出处链接经 Markdown 解析后是编码过的地址（“—”成了 %E2%80%94），先解码再按标准写法打开。
     const target = decodeTarget(raw);
     if (target.startsWith(REF_SCHEME)) book.openSource(normalizeRef(target.slice(REF_SCHEME.length)));
-    else if (target.startsWith("entity://")) book.openCard(target.slice("entity://".length));
+    else if (target.startsWith(ENTITY_SCHEME)) book.openCard(target.slice(ENTITY_SCHEME.length));
+    // 引用一章：打开这一章开头的原文（w00024 t15 决定 3）。
+    else if (target.startsWith(CHAPTER_SCHEME)) {
+        const chapter = target.slice(CHAPTER_SCHEME.length);
+        if (/^\d+$/u.test(chapter)) book.openSource(`${Number(chapter)}.1`);
+    }
 }
 
 async function submit(text: string): Promise<void> {
@@ -395,7 +436,7 @@ const unsaved = computed(() => {
             </div>
 
             <div class="qa-view">
-                <AgentConversationView :ctx="ctx" :services="{}" :registry="registry" :renderers="renderers" locale="zh-CN" :header="false" process-disclosure="live" @action="handle" />
+                <AgentConversationView :ctx="ctx" :services="services" :registry="registry" :renderers="renderers" locale="zh-CN" :header="false" process-disclosure="live" @action="handle" />
             </div>
         </section>
     </div>

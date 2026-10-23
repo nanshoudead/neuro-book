@@ -22,7 +22,7 @@ let cleanupLibrary: () => Promise<void>;
 let configFile: string;
 
 const READ_THEN_ANSWER = [
-    {kind: "tools", calls: [{name: "read", args: {from: {chapter: 37, paragraph: 8}, to: {chapter: 37, paragraph: 8}}}]},
+    {kind: "tools", calls: [{name: "read", args: {from: {chapter: 37, paragraph: 8}, to: {chapter: 37, paragraph: 8}}}], thinking: "先翻到 37 章找地狱猫"},
     {
         kind: "tools",
         calls: [
@@ -82,7 +82,8 @@ test("新对话：提问后看到过程与答案卡片；出处在抽屉里打�
     const card = page.locator("[data-qa-answer]");
     // 受理之后输入框清空（换到新对话的草稿也是新版本）。
     await expect(page.getByRole("textbox", {name: "消息输入框"})).toHaveText("");
-    // 运行中：过程逐步列出读原文的那一步，列表里这个对话在运行中。
+    // 运行中：过程逐步列出模型的思考与读原文的那一步，列表里这个对话在运行中。
+    await expect(page.getByText("先翻到 37 章找地狱猫").first()).toBeVisible();
     await expect(page.getByText("37.8—37.8").first()).toBeVisible();
     await expect(page.locator("aside").getByText("运行中")).toHaveCount(1);
     await endpoint.release();
@@ -134,6 +135,52 @@ test("运行中：过程逐步出现，点停止后这一轮记为已停止；�
     await page.getByRole("alertdialog").getByRole("button", {name: "删除"}).click();
     await expect(page).not.toHaveURL(/[?&]c=/u);
     await expect(page.getByRole("button", {name: /要停下的问题/u})).toHaveCount(0);
+});
+
+test("@ 引用：选人物、段落与章插进问题，模型收到带 id 的引用；问题里的小块点开在抽屉里；列表只显示名称", async ({page}) => {
+    await endpoint.script([{kind: "text", text: "引用收到了"}]);
+    await page.goto(`${server.base}/book/fox/qa?at=38.57`);
+    await page.getByRole("button", {name: "新对话"}).first().click();
+    const input = page.getByRole("textbox", {name: "消息输入框"});
+    await input.click();
+    const pick = async (typed: string, label: string) => {
+        await page.keyboard.type(typed);
+        const option = page.locator("[role='option']", {hasText: label}).first();
+        await expect(option).toBeVisible();
+        await page.keyboard.press("Enter");
+        await expect(option).toHaveCount(0);
+    };
+    await pick("@地狱猫", "地狱猫");
+    await pick("在 @37.8", "37.8");
+    await pick("和 @37", "第 37 章");
+    // 晚于阅读位置的段落列出但不能选。
+    await page.keyboard.type("@39");
+    await expect(page.locator("[role='option']", {hasText: "第 39 章"})).toHaveAttribute("aria-disabled", "true");
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.type("做了什么？");
+    await page.keyboard.press("Enter");
+    await expect(page.getByText("引用收到了")).toBeVisible();
+
+    const sent = JSON.stringify((await endpoint.bodies()).at(-1));
+    expect(sent).toMatch(/\]\(entity:\/\/[^)]+\) 在 \[37\.8\]\(paragraph:\/\/37\.8\) 和 \[第 37 章\]\(chapter:\/\/37\) 做了什么？/u);
+
+    // 已发出的问题里，三个引用是小块：点段落开原文，点章开这一章开头，点人物开人物卡。
+    const chips = page.locator("[data-qa-page] [data-inline-chip='reference']");
+    await chips.filter({hasText: "37.8"}).first().click();
+    await expect(page.getByTestId("drawer-source").locator(".is-cited").first()).toContainText("37.8");
+    await chips.filter({hasText: "第 37 章"}).first().click();
+    await expect(page.getByTestId("drawer-source").locator(".is-cited").first()).toContainText("37.1");
+    await chips.first().click();
+    await expect(page.getByTestId("drawer")).toContainText("南嘉鱼");
+    // 列表与页头里只有名称，没有引用的写法。
+    await expect(page.locator("aside").getByText(/在 37\.8 和 第 37 章 做了什么？/u).first()).toBeVisible();
+    await expect(page.locator("[data-qa-page]")).not.toContainText("entity://");
+    // 抽屉开着会记在这本书的阅读状态里，关上，免得盖住后面用例的输入框。
+    await page.getByTestId("drawer").getByRole("button", {name: "关闭"}).click();
+    await expect(page.locator("[data-testid='drawer']:not([data-closing])")).toHaveCount(0);
 });
 
 test("没有配置时：写明要先配置并给去设置的链接，不能发送", async ({page}) => {

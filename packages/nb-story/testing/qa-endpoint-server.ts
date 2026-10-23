@@ -6,7 +6,7 @@
  * - `/script`：`{replies: EndpointReply[]}` 换一份脚本，之后的请求按顺序回复（`after` 不能经 JSON 传，用下面的闸门）；
  * - `/hold?from=N`：从下一个请求往后数第 N 个（0 是下一个，缺省 0）起先等着，直到 `/release`；等的时候请求被取消就结束（页面点“停止”）；
  * - `/release`：放行等着的请求。
- * GET `/seen` 给已收到的请求数。脚本用完时回一段文字。进程收到 SIGTERM 时停止。
+ * GET `/seen` 给已收到的请求数，GET `/bodies` 给收到的每个请求的 JSON 正文。脚本用完时回一段文字。进程收到 SIGTERM 时停止。
  */
 
 import {startEndpoint, type EndpointReply} from "./openai-endpoint";
@@ -30,6 +30,7 @@ const control = Bun.serve({
     async fetch(request) {
         const url = new URL(request.url);
         if (url.pathname === "/seen") return Response.json({seen});
+        if (url.pathname === "/bodies") return Response.json({bodies: endpoint.bodies});
         if (url.pathname === "/script") {
             replies = ((await request.json()) as {replies: EndpointReply[]}).replies;
             return Response.json({ok: true});

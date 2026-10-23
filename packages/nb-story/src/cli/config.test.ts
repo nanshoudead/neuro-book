@@ -108,17 +108,19 @@ describe("init、show、set、unset", () => {
         expect(await written(path)).toMatchObject({model: {thinking: "xhigh"}});
         expect((await run(["config", "unset", "model.thinking", "--config", path])).code).toBe(0);
         expect((await written(path) as {model: object}).model).not.toHaveProperty("thinking");
+        expect((await run(["config", "set", "model.api", "responses", "--config", path])).code).toBe(0);
+        expect((await run(["config", "show", "--config", path])).stdout).toContain("接口：Responses（没写推理档，不要思考摘要）");
 
         const before = await readFile(path, "utf8");
         // 都不写盘，并行跑：每个都是一个命令行进程。`toString` 是普通对象从原型继承来的名字，也不是字段。
-        const wrong = [["set", "model.nope", "1"], ["unset", "toString"], ["set", "qa.maxChapters", "多"], ["set", "model.thinking", "max"], ["unset", "model.id"], ["set", "model.id"], ["bogus"], []];
+        const wrong = [["set", "model.nope", "1"], ["unset", "toString"], ["set", "qa.maxChapters", "多"], ["set", "model.thinking", "max"], ["set", "model.api", "grpc"], ["unset", "model.id"], ["set", "model.id"], ["bogus"], []];
         const codes = await Promise.all(wrong.map(async args => (await run(["config", ...args, "--config", path])).code));
         expect(codes).toEqual(wrong.map(() => 2));
         const outOfRange = await run(["config", "set", "qa.maxChapters", "21", "--config", path, "--json"]);
         expect(outOfRange.code).toBe(1);
         expect((JSON.parse(outOfRange.stdout) as {error: {code: string}}).error.code).toBe("qa_unconfigured");
         expect(await readFile(path, "utf8")).toBe(before);
-    });
+    }, 30_000);
 
     test("密钥环境变量名写成了别的（像是贴了密钥）：init 与 set 都是用法错误（2），不写盘，输出里没有原文", async () => {
         const pasted = "sk-pasted-credential-0042";

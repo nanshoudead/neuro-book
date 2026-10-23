@@ -129,6 +129,8 @@ export interface QaEndpoint {
     hold(from?: number): Promise<void>;
     release(): Promise<void>;
     seen(): Promise<number>;
+    /** 收到的每个请求的 JSON 正文。 */
+    bodies(): Promise<Record<string, unknown>[]>;
     stop(): Promise<void>;
 }
 
@@ -154,6 +156,7 @@ export async function startQaEndpoint(): Promise<QaEndpoint> {
         hold: from => post(from === undefined ? "/hold" : `/hold?from=${from}`),
         release: () => post("/release"),
         seen: async () => ((await (await fetch(`${control}/seen`)).json()) as {seen: number}).seen,
+        bodies: async () => ((await (await fetch(`${control}/bodies`)).json()) as {bodies: Record<string, unknown>[]}).bodies,
         async stop() {
             if (child.exitCode === null) child.kill("SIGTERM");
             await exited;

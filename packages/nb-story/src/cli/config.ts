@@ -26,6 +26,12 @@ function thinkingText(config: QaConfig): string {
     return config.model.thinking ?? `未写（${THINKING_NOTE}）`;
 }
 
+/** OMP 只在有推理档时组装 Responses 的推理参数，没写推理档就不要思考摘要（qa.md 输出 36）。 */
+function apiText(config: QaConfig): string {
+    if (config.model.api !== "responses") return "Chat Completions";
+    return config.model.thinking === undefined ? "Responses（没写推理档，不要思考摘要）" : "Responses";
+}
+
 function describe(path: string, config: QaConfig, env: NodeJS.ProcessEnv): string {
     const {model} = config;
     const limits = qaLimits(config);
@@ -34,6 +40,7 @@ function describe(path: string, config: QaConfig, env: NodeJS.ProcessEnv): strin
         `服务地址：${model.baseUrl}`,
         `模型：${model.id}`,
         `密钥环境变量：${model.apiKeyEnv}（${env[model.apiKeyEnv] ? "已设置" : "没有设置"}）`,
+        `接口：${apiText(config)}`,
         `推理档：${thinkingText(config)}`,
         ...(model.contextWindow === undefined ? [] : [`上下文窗口：${model.contextWindow}`]),
         ...(model.maxTokens === undefined ? [] : [`输出上限：${model.maxTokens}`]),
