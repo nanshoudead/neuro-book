@@ -13,6 +13,7 @@ import semver from "semver";
 import {Type} from "typebox";
 
 import type {PluginDefinition} from "../plugins/plugins";
+import {portabilityProblems} from "../plugins/plugins";
 import {defineRemoteService} from "../remote/remote";
 import {definitionOf, descriptorOf, manifestOf as build, readPluginManifest as read} from "./plugin-manifest";
 import type {ReadManifestOptions} from "./plugin-manifest";
@@ -206,6 +207,8 @@ describe("readPluginManifest", () => {
         ["合同 schema 的 type 不是 JSON 类型", {...base, contracts: {"example.notes/index": {...indexContractJson, methods: {list: {...indexContractJson.methods.list, output: {type: "nonsense"}}}}}}, "contracts.example.notes/index.methods.list.output"],
         ["合同 schema 引用外部 URI", {...base, contracts: {"example.notes/index": {...indexContractJson, methods: {list: {...indexContractJson.methods.list, output: {$ref: "https://example.com/schema"}}}}}}, "contracts.example.notes/index.methods.list.output"],
         ["合同 schema 的本地引用解析不到", {...base, contracts: {"example.notes/index": {...indexContractJson, methods: {list: {...indexContractJson.methods.list, output: {$defs: {A: {type: "string"}}, $ref: "#/$defs/B"}}}}}}, "contracts.example.notes/index.methods.list.output"],
+        ["合同 schema 的引用百分号编码写坏", {...base, contracts: {"example.notes/index": {...indexContractJson, methods: {list: {...indexContractJson.methods.list, output: {$defs: {a: {type: "string"}}, $ref: "#/$defs/a%"}}}}}}, "contracts.example.notes/index.methods.list.output"],
+        ["合同 schema 的 draft-07 dependencies 里 type 写错", {...base, contracts: {"example.notes/index": {...indexContractJson, methods: {list: {...indexContractJson.methods.list, output: {type: "object", dependencies: {a: {type: "nope"}}}}}}}}, "contracts.example.notes/index.methods.list.output.dependencies.a"],
         ["入口 id 含路径分隔符", {...base, entries: {"a/b": {location: "server", main: "s.js"}}}, "entries.a/b"],
         ["入口 id 是 ..", {...base, entries: {"..": {location: "server", main: "s.js"}}}, "entries..."],
         ["样式越出插件目录", {...base, style: "../style.css"}, "style"],
@@ -227,9 +230,18 @@ describe("readPluginManifest", () => {
         });
         const node = Type.Cyclic({Node: Type.Object({next: Type.Optional(Type.Ref("Node"))})}, "Node");
         const pointer = {$defs: {A: {type: "string"}}, type: "object", properties: {a: {$ref: "#/$defs/A"}}};
-        const contract = {...indexContractJson, methods: {list: {...indexContractJson.methods.list, output}, tree: {...indexContractJson.methods.list, output: node}, pick: {...indexContractJson.methods.list, output: pointer}}};
+        const anchored = {$defs: {A: {$anchor: "item", type: "string"}}, type: "array", items: {$ref: "#item"}};
+        const contract = {...indexContractJson, methods: {list: {...indexContractJson.methods.list, output}, tree: {...indexContractJson.methods.list, output: node}, pick: {...indexContractJson.methods.list, output: pointer}, anchor: {...indexContractJson.methods.list, output: anchored}}};
         const manifest = manifestOf(JSON.parse(JSON.stringify({...base, contracts: {"example.notes/index": contract}})));
-        expect(Object.keys(manifest.contracts["example.notes/index"]!.methods).sort()).toEqual(["list", "pick", "tree"]);
+        expect(Object.keys(manifest.contracts["example.notes/index"]!.methods).sort()).toEqual(["anchor", "list", "pick", "tree"]);
+    });
+
+    it("数据位置只接受 JSON 值：undefined、BigInt、Date、非有限数字都报出，manifestOf 不抛错", () => {
+        for (const schema of [{enum: ["a", undefined]}, {type: "integer", default: 10n}, {type: "string", default: new Date(0)}, {type: "number", maximum: Number.POSITIVE_INFINITY}]) {
+            expect(portabilityProblems(schema).length, JSON.stringify(schema, (_key, value: unknown) => (typeof value === "bigint" ? `${String(value)}n` : value))).toBeGreaterThan(0);
+        }
+        const result = build({descriptor: {id: "example.notes", version: "1.0.0", locations: ["server"]}, definitions: [{id: "example.notes", contributionPoints: [{id: "example.notes.kinds", implementation: "none", schema: {type: "integer", default: 10n} as never}], entries: []}], engines: {neurobook: "^0.1.0"}});
+        expect(result.status === "invalid" ? result.problems.map((problem) => problem.path) : []).toContain("contributionPoints.0.schema.default");
     });
 
     it("版本与范围按调用方给的 npm 写法校验：非法的预发布标识、写错的范围都无效", () => {

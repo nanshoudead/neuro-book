@@ -36,6 +36,18 @@ export function schemaProblem(schema: TSchema, value: unknown): string | null {
     }
 }
 
+/** 数据位置的值进不了 JSON 的原因；能原样进为 null。只看这一层，子项由调用方递归。 */
+function jsonValueProblem(value: unknown): string | null {
+    if (value === null || typeof value === "string" || typeof value === "boolean") return null;
+    if (typeof value === "number") return Number.isFinite(value) ? null : "不是有限的数字，进不了 JSON";
+    if (Array.isArray(value)) return null;
+    if (typeof value === "object") {
+        const prototype: unknown = Object.getPrototypeOf(value);
+        return prototype === Object.prototype || prototype === null ? null : "不是普通对象（例如 Date、Map），经过 JSON 会变成别的值";
+    }
+    return `是 ${typeof value}，进不了 JSON`;
+}
+
 /** 值是一份 schema 的关键字。 */
 const SCHEMA_KEYWORDS: ReadonlySet<string> = new Set([
     "additionalItems", "additionalProperties", "contains", "contentSchema", "else", "if", "items", "not", "propertyNames", "then",
@@ -46,13 +58,20 @@ const SCHEMA_LIST_KEYWORDS: ReadonlySet<string> = new Set(["allOf", "anyOf", "on
 /** 值是“名字到 schema”映射的关键字：映射本身不是 schema，它的每个值才是。 */
 const SCHEMA_MAP_KEYWORDS: ReadonlySet<string> = new Set(["$defs", "definitions", "dependentSchemas", "patternProperties", "properties"]);
 
-/** 按 JSON Pointer（`#/$defs/A`）在根 schema 里取值；取不到为 undefined。 */
+/** 按 JSON Pointer（`#/$defs/A`）在根 schema 里取值；取不到（含百分号编码写坏）为 undefined。 */
 function resolvePointer(root: unknown, pointer: string): unknown {
     if (pointer === "#") return root;
     if (!pointer.startsWith("#/")) return undefined;
     let node = root;
     for (const raw of pointer.slice(2).split("/")) {
-        const key = decodeURIComponent(raw).replaceAll("~1", "/").replaceAll("~0", "~");
+        let decoded: string;
+        try {
+            decoded = decodeURIComponent(raw);
+        } catch (error) {
+            if (error instanceof URIError) return undefined;
+            throw error;
+        }
+        const key = decoded.replaceAll("~1", "/").replaceAll("~0", "~");
         if (typeof node !== "object" || node === null || !Object.hasOwn(node, key)) return undefined;
         node = (node as Record<string, unknown>)[key];
     }
@@ -64,8 +83,10 @@ function resolvePointer(root: unknown, pointer: string): unknown {
  * 根为空字符串。只看写法，不判断两份 schema 是否等价。
  *
  * 按关键字的语义走：`properties` 这类映射的值、`items` 这类关键字的值才是 schema；`const`、`enum`、`default`、`examples`
- * 与不认识的关键字是数据，只查有没有函数（数据里的 `type`、`format` 不是 schema 的关键字，属性名叫 `type` 的对象很常见）。
- * `$ref` 只能指向同一份 schema 里的位置或 `$id`：宿主不为外部 URI 装载引用，解析不到的引用会让每个值都校验不通过。
+ * 与不认识的关键字是数据，只查它是不是 JSON 值（数据里的 `type`、`format` 不是 schema 的关键字，属性名叫 `type` 的对象很
+ * 常见）：`undefined`、BigInt、`Date` 这类值经过清单的 JSON 会变成别的值或让序列化抛错。
+ * `$ref` 只能指向同一份 schema 里的位置（JSON Pointer）、`$id` 或 `$anchor`：宿主不为外部 URI 装载引用，解析不到的引用会让
+ * 每个值都校验不通过。
  */
 export function portabilityProblems(schema: unknown): ReadonlyArray<{readonly path: string; readonly message: string}> {
     const problems: Array<{path: string; message: string}> = [];
@@ -75,6 +96,11 @@ export function portabilityProblems(schema: unknown): ReadonlyArray<{readonly pa
     const visitData = (node: unknown, path: string): void => {
         if (typeof node === "function") {
             problems.push({path, message: "含有函数"});
+            return;
+        }
+        const problem = jsonValueProblem(node);
+        if (problem !== null) {
+            problems.push({path, message: problem});
             return;
         }
         if (typeof node !== "object" || node === null) return;
@@ -107,11 +133,15 @@ export function portabilityProblems(schema: unknown): ReadonlyArray<{readonly pa
                 problems.push({path, message: `不是合法的正则：${pattern}`});
             }
         }
+        for (const [key, value] of Object.entries(record)) {
+            if (typeof value === "number" && !Number.isFinite(value)) problems.push({path: at(path, key), message: "不是有限的数字，进不了 JSON"});
+        }
         const types = Array.isArray(record.type) ? record.type : record.type === undefined ? [] : [record.type];
         for (const type of types) {
             if (typeof type !== "string" || !JSON_TYPES.has(type)) problems.push({path, message: `type 不是 JSON Schema 的类型：${String(type)}`});
         }
         if (typeof record.$id === "string") ids.add(record.$id);
+        if (typeof record.$anchor === "string") ids.add(`#${record.$anchor}`);
         if (record.$ref !== undefined) {
             if (typeof record.$ref === "string") refs.push({path, ref: record.$ref});
             else problems.push({path, message: "$ref 不是字符串"});
@@ -120,6 +150,12 @@ export function portabilityProblems(schema: unknown): ReadonlyArray<{readonly pa
             const here = at(path, key);
             if (SCHEMA_MAP_KEYWORDS.has(key) && isPlainObject(child)) {
                 for (const [name, value] of Object.entries(child)) visitSchema(value, at(here, name));
+            } else if (key === "dependencies" && isPlainObject(child)) {
+                // draft-07：值是属性名数组（数据）或 schema。
+                for (const [name, value] of Object.entries(child)) {
+                    if (Array.isArray(value)) visitData(value, at(here, name));
+                    else visitSchema(value, at(here, name));
+                }
             } else if (SCHEMA_LIST_KEYWORDS.has(key) && Array.isArray(child)) {
                 child.forEach((item, index) => visitSchema(item, at(here, String(index))));
             } else if (SCHEMA_KEYWORDS.has(key)) {

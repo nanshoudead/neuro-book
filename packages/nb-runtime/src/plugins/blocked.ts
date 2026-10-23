@@ -190,8 +190,11 @@ export function deriveBlocked(
 
 /**
  * 只按定义推导某个运行位置上各入口的受阻（不需要运行实例）：升级插件之前预览“重启后哪些入口会受阻”用，与宿主登记后的推导
- * 是同一个函数（plugin-install.md 输出 8.1）。`definitions` 之外提供的服务（宿主能力、没列进来的插件）都当作在场，所以只会
- * 推出这些定义之间的受阻：版本不符、提供方受阻、依赖环。全部入口按“已登记”推导。
+ * 是同一个函数（plugin-install.md 输出 8.1）。全部入口按“已登记”推导。
+ *
+ * 服务 id 以提供它的插件 id 开头（`<插件 id>/<名字>`，清单校验保证）：属于 `definitions` 里某个插件的服务，以这些定义为准，
+ * 本位置没有入口提供它就是缺席（别的位置提供为 `location-mismatch`，否则 `missing-service`），新版本去掉或挪走提供项能推出
+ * 来；属于别的插件或宿主的服务（内置插件、宿主能力、没列进来的插件）当作在场。
  */
 export function previewBlocked(definitions: ReadonlyArray<PluginDefinition>, location: RuntimeLocation, satisfies?: VersionCheck): ReadonlyMap<string, EntryBlocked | null> {
     const entries: EntrySnapshot[] = definitions.flatMap((definition) => definition.entries.map((entry) => ({
@@ -205,6 +208,8 @@ export function previewBlocked(definitions: ReadonlyArray<PluginDefinition>, loc
         status: "registered" as const,
     })));
     const provided = new Set(entries.filter((entry) => entry.location === location).flatMap((entry) => entry.provides.map((key) => key.name)));
-    const elsewhere = new Set(entries.flatMap((entry) => entry.dependencies.map((dependency) => dependency.key.name)).filter((key) => !provided.has(key)));
+    const listed = new Set(definitions.map((definition) => definition.id));
+    const ownedByListed = (key: string): boolean => listed.has(key.slice(0, Math.max(0, key.indexOf("/"))));
+    const elsewhere = new Set(entries.flatMap((entry) => entry.dependencies.map((dependency) => dependency.key.name)).filter((key) => !provided.has(key) && !ownedByListed(key)));
     return deriveBlocked(entries, location, elsewhere, satisfies);
 }

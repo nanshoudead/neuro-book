@@ -205,6 +205,15 @@ function byPath(left: ManifestProblem, right: ManifestProblem): number {
  * 调用方按 runtime.plugin-manifest 的失败规则不登记这个插件。问题按字段路径排序，同一输入总是同一结果。
  */
 export function readPluginManifest(value: unknown, options: ReadManifestOptions): ManifestReadResult {
+    // 给不可信输入用的校验器：任何意外的异常都报成清单问题，不抛给调用方（读清单在服务端启动的路径上，抛出会让它起不来）。
+    try {
+        return readManifest(value, options);
+    } catch (error) {
+        return {status: "invalid", problems: [{path: "", message: `读清单时出错：${error instanceof Error ? error.message : String(error)}`}]};
+    }
+}
+
+function readManifest(value: unknown, options: ReadManifestOptions): ManifestReadResult {
     if (!Value.Check(ManifestSchema, value)) {
         const problems: ManifestProblem[] = [...Value.Errors(ManifestSchema, value)].map((error) => ({
             path: fieldPath(error.instancePath, value),
@@ -523,11 +532,20 @@ export function manifestOf(source: ManifestSource, options: {readonly builtin?: 
     }
 
     const contracts = new Map<string, {readonly contract: RemoteContract; readonly json: string}>();
+    // JSON 表达不了的值（BigInt、循环引用）让序列化抛 TypeError：按“与登记的那份不同”处理，它自己的问题在第一次收集时已报出。
+    const jsonOf = (contract: RemoteContract): string | null => {
+        try {
+            return JSON.stringify(contractJson(contract));
+        } catch (error) {
+            if (error instanceof TypeError) return null;
+            throw error;
+        }
+    };
     const collect = (contract: RemoteContract): void => {
         if (contract.id.startsWith("nbook.")) return;
         const known = contracts.get(contract.id);
         if (known !== undefined) {
-            if (known.contract !== contract && known.json !== JSON.stringify(contractJson(contract))) add(`contracts.${contract.id}`, "同一合同 id 对应两份内容不同的合同");
+            if (known.contract !== contract && (known.json === "" || known.json !== jsonOf(contract))) add(`contracts.${contract.id}`, "同一合同 id 对应两份内容不同的合同");
             return;
         }
         const portable = contractSchemas(contract).flatMap(([path, schema]) => portabilityProblems(schema).map((problem) => ({path: joinPath(path, problem.path), message: problem.message})));
@@ -575,12 +593,14 @@ export function manifestOf(source: ManifestSource, options: {readonly builtin?: 
                 if (known.implementation !== point.implementation) add(at, "两个运行位置的 implementation 不同");
                 continue;
             }
-            if (point.schema !== undefined) {
-                for (const problem of portabilityProblems(point.schema)) add(joinPath(`${at}.schema`, problem.path), problem.message);
-            } else if (point.validate !== undefined && options.builtin !== true) {
+            const portable = point.schema === undefined ? [] : portabilityProblems(point.schema);
+            for (const problem of portable) add(joinPath(`${at}.schema`, problem.path), problem.message);
+            if (point.schema === undefined && point.validate !== undefined && options.builtin !== true) {
                 add(at, "只写了 validate 函数：函数进不了清单，用 schema 写出声明的结构");
             }
-            points.set(point.id, {id: point.id, implementation: point.implementation, ...(point.schema === undefined ? {} : {schema: JSON.parse(JSON.stringify(point.schema)) as unknown})});
+            // 有问题的 schema 不序列化（清单本来就不会生成）：其中进不了 JSON 的值会让序列化抛错。
+            const schema = point.schema === undefined || portable.length > 0 ? {} : {schema: JSON.parse(JSON.stringify(point.schema)) as unknown};
+            points.set(point.id, {id: point.id, implementation: point.implementation, ...schema});
         }
     }
 
