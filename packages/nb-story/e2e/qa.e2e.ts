@@ -88,7 +88,8 @@ test("新对话：提问后看到过程与答案卡片；出处在抽屉里打�
     await endpoint.release();
     await expect(card).toBeVisible();
     // 结束后整轮过程收成一行摘要。
-    await expect(page.getByText(/过程 · \d+ 次操作/u).first()).toBeVisible();
+    // 1 次操作（交卷是结果，不计），模型回了 2 次。
+    await expect(page.getByText("过程 · 1 次操作 · 2 次请求").first()).toBeVisible();
     await expect(card).toContainText("读者在 37.8 就知道了");
     await expect(card.getByText("明说")).toBeVisible();
     // 地址里记下了这个对话；列表里它不再是运行中。
