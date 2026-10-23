@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00027-plugin-platform",
+    "taskId": "t10-settings-window-chrome",
+    "artifactId": "review",
+    "ackId": "20261023T064539696Z-314b17c2",
+    "answers": [
+        "20261023T064450178Z-1bc39170"
+    ],
+    "through": "20261023T064450178Z-1bc39170",
+    "included": [
+        ".agents/works/w00027-plugin-platform/tasks/t10-settings-window-chrome/README.md"
+    ],
+    "ackedAt": "2026-10-23T06:45:39.696Z"
+}
