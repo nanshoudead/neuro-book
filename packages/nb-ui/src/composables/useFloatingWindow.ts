@@ -1,6 +1,8 @@
 /**
- * `Dialog` 非模态用法（浮动窗口）的定位、标题栏拖动与缩放。打开时按容器居中；拖动时窗口至少留一角在容器里，标题栏总能
- * 再抓住；缩放有六个手柄（右、下两条边加四个角），鼠标在松开时提交尺寸，方向键按 10px（Shift 1px）调整。
+ * `Dialog` 非模态用法（浮动窗口）的定位、拖动与缩放。打开时按容器居中；拖动时窗口至少留一角在容器里，顶上总能再抓住；
+ * 缩放有六个手柄（右、下两条边加四个角），鼠标在松开时提交尺寸，方向键按 10px（Shift 1px）调整。
+ *
+ * 拖动区域有几处（面板留白、标题栏、内容里标了 `data-dialog-drag` 的元素），按下处由 `startDrag` 判定，指针捕获在面板上。
  *
  * 容器：传送目标不是 body 时（例如组件 Lab 的画布）按目标的大小算，否则按浏览器窗口。尺寸按渲染后的实际大小夹紧，
  * 所以宽度可以写成 CSS 字符串。
@@ -46,8 +48,8 @@ export interface FloatingWindowOptions {
     readonly minHeight: () => number;
     /** 宿主声明的数字尺寸（px）；量不到实际尺寸时（刚挂上还没布局）按它。 */
     readonly declared: () => {readonly width: number | null; readonly height: number | null};
+    /** 面板：带 `data-dialog-surface` 的元素，拖动时指针捕获在它上面。 */
     readonly windowRef: Ref<HTMLElement | null>;
-    readonly dragHandleRef: Ref<HTMLElement | null>;
     readonly onResize: (dimension: "width" | "height", value: number) => void;
 }
 
@@ -127,16 +129,27 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
         };
     }
 
+    /**
+     * 按下处能不能起拖：面板自己（留白），或面板里标了 `data-dialog-drag` 的元素；其中的按钮、输入控件、链接与
+     * `[data-interactive]` 除外。按下处属于嵌套在里面的另一个窗口时不算：事件冒泡上来，由那个窗口自己处理。
+     */
+    function inDragRegion(element: HTMLElement, target: Element): boolean {
+        if (target.closest("[data-dialog-surface]") !== element) return false;
+        if (target === element) return true;
+        if (target.closest("button, input, textarea, a, select, [data-interactive]") !== null) return false;
+        const region = target.closest("[data-dialog-drag]");
+        return region !== null && element.contains(region);
+    }
+
+    /** 挂在面板的 pointerdown 上；不在拖动区域里的按下原样放过。 */
     function startDrag(event: PointerEvent): void {
         if (!options.enabled() || event.button !== 0 || options.busy()) return;
-        const target = event.target as HTMLElement | null;
-        if (target?.closest("button, input, textarea, a, select, [data-interactive]")) return;
-        const handle = options.dragHandleRef.value;
         const element = options.windowRef.value;
-        if (handle === null || element === null) return;
+        if (element === null || !(event.target instanceof Element) || !inDragRegion(element, event.target)) return;
         dragCleanup?.();
         event.preventDefault();
-        handle.setPointerCapture?.(event.pointerId);
+        // 拖动区域有多处，没有唯一的把手：指针捕获在面板上，移动与松开都在面板上收。
+        element.setPointerCapture?.(event.pointerId);
         const startClientX = event.clientX;
         const startClientY = event.clientY;
         const startLeft = clampedX.value;
@@ -148,18 +161,18 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
         };
         const finish = (): void => {
             try {
-                handle.releasePointerCapture?.(event.pointerId);
+                element.releasePointerCapture?.(event.pointerId);
             } catch {
                 // 已经释放过了
             }
-            handle.removeEventListener("pointermove", move);
-            handle.removeEventListener("pointerup", finish);
-            handle.removeEventListener("pointercancel", finish);
+            element.removeEventListener("pointermove", move);
+            element.removeEventListener("pointerup", finish);
+            element.removeEventListener("pointercancel", finish);
             dragCleanup = null;
         };
-        handle.addEventListener("pointermove", move);
-        handle.addEventListener("pointerup", finish);
-        handle.addEventListener("pointercancel", finish);
+        element.addEventListener("pointermove", move);
+        element.addEventListener("pointerup", finish);
+        element.addEventListener("pointercancel", finish);
         dragCleanup = finish;
     }
 

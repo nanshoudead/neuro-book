@@ -1038,6 +1038,69 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
         }
     });
 
+    /** 在 `target` 上按下、移动 (dx, dy)、松开，返回窗口的位移；按下与移动都是冒泡的真实 pointer 事件。 */
+    async function dragFrom(wrapper: ReturnType<typeof mountWindow>, target: Element, dx: number, dy: number): Promise<{dx: number; dy: number}> {
+        const windowElement = wrapper.get("[data-dialog-window]").element as HTMLElement;
+        const before = {left: Number.parseFloat(windowElement.style.left), top: Number.parseFloat(windowElement.style.top)};
+        target.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, button: 0, clientX: 200, clientY: 200, pointerId: 1}));
+        windowElement.dispatchEvent(new PointerEvent("pointermove", {bubbles: true, clientX: 200 + dx, clientY: 200 + dy, pointerId: 1}));
+        windowElement.dispatchEvent(new PointerEvent("pointerup", {bubbles: true, clientX: 200 + dx, clientY: 200 + dy, pointerId: 1}));
+        await nextTick();
+        return {dx: Number.parseFloat(windowElement.style.left) - before.left, dy: Number.parseFloat(windowElement.style.top) - before.top};
+    }
+
+    it("drags from the panel's blank space, the whole title bar and marked content regions", async () => {
+        const wrapper = mount(Dialog, {
+            props: {modelValue: true, modal: false, closable: true, showFooter: false, title: "浮动窗口", teleportTarget: false},
+            slots: {
+                "header-extra": "<span data-test-header-blank>头部空白</span>",
+                default: "<div data-dialog-drag><span data-test-region-text>可拖的标题</span></div><p data-test-plain>正文</p>",
+            },
+            attachTo: document.body,
+        });
+        try {
+            await nextTick();
+            const panel = wrapper.get("[data-dialog-window]").element;
+            expect(await dragFrom(wrapper, panel, 30, 20)).toEqual({dx: 30, dy: 20});
+            expect(await dragFrom(wrapper, wrapper.get("[data-test-header-blank]").element, 10, 10)).toEqual({dx: 10, dy: 10});
+            expect(await dragFrom(wrapper, wrapper.get("[data-test-region-text]").element, -15, 5)).toEqual({dx: -15, dy: 5});
+            // 正文里没标的地方照常选字、点击，不拖
+            expect(await dragFrom(wrapper, wrapper.get("[data-test-plain]").element, 40, 40)).toEqual({dx: 0, dy: 0});
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("does not drag from buttons and inputs inside a drag region", async () => {
+        const wrapper = mount(Dialog, {
+            props: {modelValue: true, modal: false, closable: true, showFooter: false, title: "浮动窗口", teleportTarget: false},
+            slots: {default: "<div data-dialog-drag><button data-test-button>操作</button><input data-test-input /></div>"},
+            attachTo: document.body,
+        });
+        try {
+            await nextTick();
+            expect(await dragFrom(wrapper, wrapper.get("[data-test-button]").element, 30, 30)).toEqual({dx: 0, dy: 0});
+            expect(await dragFrom(wrapper, wrapper.get("[data-test-input]").element, 30, 30)).toEqual({dx: 0, dy: 0});
+            expect(await dragFrom(wrapper, wrapper.get("[aria-label='关闭']").element, 30, 30)).toEqual({dx: 0, dy: 0});
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("puts the close button in the corner when there is no title bar and keeps the title as the accessible name", async () => {
+        const wrapper = mountWindow({showHeader: false});
+        try {
+            await nextTick();
+            const dialog = wrapper.get("[role='dialog']");
+            expect(wrapper.find("header").exists()).toBe(false);
+            expect(document.getElementById(dialog.attributes("aria-labelledby") ?? "")?.textContent).toBe("浮动窗口");
+            await wrapper.get("[aria-label='关闭']").trigger("click");
+            expect(wrapper.emitted("request-close")).toEqual([["close-button"]]);
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
     it("does not resize or close while busy", async () => {
         const wrapper = mountWindow({busy: true, resizable: true});
         try {

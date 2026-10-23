@@ -145,6 +145,12 @@
     --radius-dialog-compact: var(--radius-dialog);
 
     /*
+     * 浮动窗口（Dialog 的 modal=false）的圆角，缺省等于对话框。单列一档是因为窗口常开着、占的面积大，和应用窗口
+     * 是同一类东西：模态对话框那一档的大圆角画在它上面像一张卡片。主题需要时单独收小（nbook 就是）。
+     */
+    --radius-window: var(--radius-dialog);
+
+    /*
      * 这里曾经有 --corner-shape（超椭圆圆角）。已删：Chromium 的 backdrop-filter
      * 不跟随 corner-shape 裁切，玻璃面上开这一档会在四角露出没被模糊的月牙。
      * 完整判据与复查条件写在 `src/styles.css` 里 .nb-ui-popover-surface 上方那一段。
