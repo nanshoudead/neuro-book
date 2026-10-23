@@ -1072,10 +1072,10 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
         }
     });
 
-    it("does not drag from buttons and inputs inside a drag region", async () => {
+    it("does not drag from buttons, inputs and role=button inside a drag region, nor below the 3px threshold", async () => {
         const wrapper = mount(Dialog, {
             props: {modelValue: true, modal: false, closable: true, showFooter: false, title: "浮动窗口", teleportTarget: false},
-            slots: {default: "<div data-dialog-drag><button data-test-button>操作</button><input data-test-input /></div>"},
+            slots: {default: "<div data-dialog-drag><span data-test-blank>空白</span><button data-test-button>操作</button><input data-test-input /><span role=\"button\" data-test-role-button>自画的按钮</span></div>"},
             attachTo: document.body,
         });
         try {
@@ -1083,6 +1083,10 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
             expect(await dragFrom(wrapper, wrapper.get("[data-test-button]").element, 30, 30)).toEqual({dx: 0, dy: 0});
             expect(await dragFrom(wrapper, wrapper.get("[data-test-input]").element, 30, 30)).toEqual({dx: 0, dy: 0});
             expect(await dragFrom(wrapper, wrapper.get("[aria-label='关闭']").element, 30, 30)).toEqual({dx: 0, dy: 0});
+            expect(await dragFrom(wrapper, wrapper.get("[data-test-role-button]").element, 30, 30)).toEqual({dx: 0, dy: 0});
+            // 没超过 3px 的移动是一次点击，窗口不动
+            expect(await dragFrom(wrapper, wrapper.get("[data-test-blank]").element, 2, 0)).toEqual({dx: 0, dy: 0});
+            expect(await dragFrom(wrapper, wrapper.get("[data-test-blank]").element, 4, 0)).toEqual({dx: 4, dy: 0});
         } finally {
             wrapper.unmount();
         }

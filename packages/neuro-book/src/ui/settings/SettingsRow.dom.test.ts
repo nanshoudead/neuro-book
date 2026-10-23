@@ -26,6 +26,8 @@ afterEach(() => {
 
 /** 只读（schema 的 `readOnly`）与带生效时机的两项，产品里的三项都没有。 */
 const readOnlySetting = defineSetting({plugin: "example.rows", name: "library", schema: Type.String({readOnly: true}), default: "wugang-main", title: {"zh-CN": "书库", "en-US": "Library"}, description: {"zh-CN": "由作品决定", "en-US": "Decided by the book"}});
+/** 只能写在本作品层的项：没写时显示默认值，不是“来自用户设置”。 */
+const projectOnlySetting = defineSetting({plugin: "example.rows", name: "chapterPrefix", schema: Type.String(), default: "第", title: {"zh-CN": "章节前缀", "en-US": "Chapter prefix"}, layers: ["project"]});
 const restartSetting = defineSetting({plugin: "example.rows", name: "workers", schema: Type.Integer({minimum: 1, maximum: 8}), default: 2, title: {"zh-CN": "并发数", "en-US": "Workers"}, description: {"zh-CN": "同时抽取的章节数", "en-US": "Chapters extracted at once"}, applies: "restart"});
 
 function host(layers: {readonly user?: HostLayer; readonly project?: HostLayer}): SettingsHost {
@@ -36,6 +38,7 @@ function host(layers: {readonly user?: HostLayer; readonly project?: HostLayer})
             {plugin: "nbook.settings", definition: localeSetting},
             {plugin: "example.rows", definition: readOnlySetting},
             {plugin: "example.rows", definition: restartSetting},
+            {plugin: "example.rows", definition: projectOnlySetting},
         ] as ReadonlyArray<{plugin: string; definition: SettingDefinition<unknown>}>,
         sections: [],
         ...layers,
@@ -137,6 +140,20 @@ describe("SettingsRow", () => {
         expect(wrapper.attributes("data-settings-row-state")).toBe("inherit");
         expect(wrapper.find("[data-settings-row-inherited]").exists()).toBe(true);
         expect(slotOf(wrapper).text()).toBe("\"macos\"");
+    });
+
+    it("只能写在本作品层的项没写时显示默认值、不标“来自用户设置”；沿用的行在本作品层文件无效时控件停用、标签照旧", async () => {
+        const created = host({user: {values: {"nbook.workbench/theme": "macos"}}, project: {invalid: "第 2 行：缺少引号"}});
+        await flushPromises();
+        const projectOnly = row(created, projectOnlySetting as SettingDefinition<unknown>, "project");
+        expect(projectOnly.attributes("data-settings-row-state")).toBe("inherit");
+        expect(slotOf(projectOnly).text()).toBe("\"第\"");
+        expect(projectOnly.find("[data-settings-row-inherited]").exists()).toBe(false);
+
+        const inherited = row(created, themeSetting as SettingDefinition<unknown>, "project");
+        expect(inherited.attributes("data-settings-row-state")).toBe("inherit");
+        expect(slotOf(inherited).attributes("data-disabled")).toBe("true");
+        expect(inherited.find("[data-settings-row-inherited]").exists()).toBe(true);
     });
 
     it("层文件无效时控件停用、显示上一份有效值，动作停用；层连不上同样；恢复后自动解除", async () => {

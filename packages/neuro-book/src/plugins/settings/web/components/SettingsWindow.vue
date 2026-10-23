@@ -441,6 +441,11 @@ function onLeaveOpen(open: boolean): void {
     padding-right: max(0px, var(--nb-dialog-close-room) - var(--panel-p) - var(--space-6));
 }
 
+/* 内容列的竖滚动条贴着窗口右缘、从顶上起，上端会被关闭按钮盖住（按到的是关闭）：滚动条从按钮下面开始。 */
+.settings-window__scroll > :deep([data-orientation="vertical"]) {
+    margin-top: calc(var(--nb-dialog-close-room) - var(--panel-p));
+}
+
 .settings-window__split {
     display: flex;
     min-height: 0;

@@ -449,6 +449,10 @@ test("窗口没有标题栏：按住顶上的空白、左栏顶上的空白、�
     // 按在搜索框上是输入，不拖
     const input = await center("[data-settings-search] input");
     expect(await drag(input.x, input.y, 30, 30)).toEqual({dx: 0, dy: 0});
+    // 焦点在输入框里时点一下标题区：输入框照常失焦（拖动区域不拦按下的默认动作）
+    await expect(dialog.locator("[data-settings-search] input")).toBeFocused();
+    await page.mouse.click(title.x, title.y);
+    await expect(dialog.locator("[data-settings-search] input")).not.toBeFocused();
     const heading = await dialog.locator("[data-settings-heading]").boundingBox();
     if (heading === null) throw new Error("量不到标题区");
     // 标题区右端、说明之外的空白
@@ -457,6 +461,47 @@ test("窗口没有标题栏：按住顶上的空白、左栏顶上的空白、�
     // 关闭按钮照常关窗口
     await dialog.getByRole("button", {name: "关闭"}).click();
     await expect(dialog).toHaveCount(0);
+});
+
+test("关闭按钮浮在右上角：宽窗口、内容列贴近右缘的窗口、fill 视图与窄窗口里都不压内容；左栏顶边与标题区齐平", async ({page}) => {
+    await open(page, "/?project=book");
+    const dialog = page.getByRole("dialog", {name: "设置"});
+    const box = async (selector: string) => {
+        const found = await dialog.locator(selector).first().boundingBox();
+        if (found === null) throw new Error(`量不到 ${selector}`);
+        return found;
+    };
+    /** 标题区内容的右缘（去掉给关闭按钮让的右内边距）。 */
+    const headingContentRight = (): Promise<number> => dialog.locator("[data-settings-heading]").first().evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.right - Number.parseFloat(getComputedStyle(element).paddingRight);
+    });
+    const openAt = async (width: number): Promise<void> => {
+        await page.setViewportSize({width, height: 760});
+        await workbenchGear(page).click();
+        await expect(dialog).toBeVisible();
+        await dialog.evaluate((element) => Promise.all(element.getAnimations({subtree: true}).map((animation) => animation.finished)));
+    };
+    const close = async () => box("button[aria-label='关闭']");
+
+    // 窗口 960（内容列比 720 窄）与 868：标题区右缘离关闭按钮至少一档
+    for (const width of [1300, 900]) {
+        await openAt(width);
+        expect(await headingContentRight()).toBeLessThanOrEqual((await close()).x - 8);
+        expect(Math.abs((await box("[data-settings-tabs]")).y - (await box("[data-settings-heading]")).y)).toBeLessThanOrEqual(1);
+        // fill 视图（设置文件）同样
+        await dialog.locator("[data-settings-nav='file']").click();
+        await expect(dialog.locator("[data-settings-file]")).toBeVisible();
+        expect(await headingContentRight()).toBeLessThanOrEqual((await close()).x - 8);
+        await dialog.getByRole("button", {name: "关闭"}).click();
+        await expect(dialog).toHaveCount(0);
+    }
+
+    // 窄窗口：顶上那一行（层标签与搜索框）右端让位，标题区在它下面
+    await openAt(600);
+    const search = await box("[data-settings-search]");
+    expect(search.x + search.width).toBeLessThanOrEqual((await close()).x - 8);
+    expect((await box("[data-settings-heading]")).y).toBeGreaterThan((await close()).y + (await close()).height);
 });
 
 // ── 左栏与窄窗口（settings-window.md 输出 1、16）：要真实布局，DOM 测试量不到 ──

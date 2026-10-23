@@ -36,6 +36,9 @@ export const FLOATING_WINDOW_RESIZE_HANDLES: ReadonlyArray<FloatingWindowResizeH
     {id: "top-left", label: "调整窗口大小", direction: {width: -1, height: -1}, class: "top-0 left-0 h-3 w-3 cursor-nwse-resize"},
 ];
 
+/** 按下后移动超过这么多 CSS 像素才算拖动窗口；不到这一步松开就是一次普通的点击。 */
+const DRAG_THRESHOLD = 3;
+
 export interface FloatingWindowOptions {
     /** 是否用浮动窗口的定位（非模态时为真）；为假时本组合函数不做任何事。 */
     readonly enabled: () => boolean;
@@ -130,58 +133,68 @@ export function useFloatingWindow(options: FloatingWindowOptions) {
     }
 
     /**
-     * 按下处能不能起拖：面板或正文（`data-dialog-body`）自己，也就是没有内容的留白；或者面板里标了 `data-dialog-drag`
-     * 的元素，其中的按钮、输入控件、链接与 `[data-interactive]` 除外。正文为焦点光环留的那一圈压在面板的内边距上，
-     * 不算正文就只剩外沿几个像素能拖；按在正文的滚动条上是滚动，不算。按下处属于嵌套在里面的另一个窗口时不算：
-     * 事件冒泡上来，由那个窗口自己处理。
+     * 按下处能不能起拖：面板自己，或没有滚动的正文（`data-dialog-body`）自己，也就是没有内容的留白；或者面板里标了
+     * `data-dialog-drag` 的元素，其中的按钮、输入控件、链接、`role="button"` 与 `[data-interactive]` 除外。正文为焦点光环
+     * 留的那一圈压在面板的内边距上，不算正文就只剩外沿几个像素能拖；正文会滚动时不算：叠加式滚动条（macOS）不占位置，
+     * 量不出按的是不是滚动条。按下处属于嵌套在里面的另一个窗口时不算：事件冒泡上来，由那个窗口自己处理。
      */
-    function inDragRegion(element: HTMLElement, target: Element, event: PointerEvent): boolean {
+    function inDragRegion(element: HTMLElement, target: Element): boolean {
         if (target.closest("[data-dialog-surface]") !== element) return false;
         if (target === element) return true;
-        if (target.hasAttribute("data-dialog-body")) return !onScrollbar(target, event);
-        if (target.closest("button, input, textarea, a, select, [data-interactive]") !== null) return false;
+        if (target.hasAttribute("data-dialog-body")) return target.scrollHeight <= target.clientHeight && target.scrollWidth <= target.clientWidth;
+        const control = target.closest("button, input, textarea, a, select, [role='button'], [data-interactive]");
+        if (control !== null && element.contains(control)) return false;
         const region = target.closest("[data-dialog-drag]");
         return region !== null && element.contains(region);
     }
 
-    /** 按在元素自己的滚动条上：指针落在内边距盒（clientWidth、clientHeight 不含滚动条）之外。 */
-    function onScrollbar(target: Element, event: PointerEvent): boolean {
-        return (target.clientWidth > 0 && event.offsetX >= target.clientWidth) || (target.clientHeight > 0 && event.offsetY >= target.clientHeight);
-    }
-
-    /** 挂在面板的 pointerdown 上；不在拖动区域里的按下原样放过。 */
+    /**
+     * 挂在面板的 pointerdown 上；不在拖动区域里的按下原样放过。按下时不拦默认动作、不捕获指针：输入框照常失焦提交，
+     * 区域里没认出来的可点元素照常收到 click。移动超过 `DRAG_THRESHOLD` 才算拖动，这时才捕获指针、清掉选区并拦住选字。
+     */
     function startDrag(event: PointerEvent): void {
         if (!options.enabled() || event.button !== 0 || options.busy()) return;
         const element = options.windowRef.value;
-        if (element === null || !(event.target instanceof Element) || !inDragRegion(element, event.target, event)) return;
+        if (element === null || !(event.target instanceof Element) || !inDragRegion(element, event.target)) return;
         dragCleanup?.();
-        event.preventDefault();
-        // 拖动区域有多处，没有唯一的把手：指针捕获在面板上，移动与松开都在面板上收。
-        element.setPointerCapture?.(event.pointerId);
+        const pointerId = event.pointerId;
         const startClientX = event.clientX;
         const startClientY = event.clientY;
         const startLeft = clampedX.value;
         const startTop = clampedY.value;
         const scale = scaleOf(element);
+        let dragging = false;
+        const preventSelect = (selectEvent: Event): void => selectEvent.preventDefault();
         const move = (moveEvent: PointerEvent): void => {
-            x.value = startLeft + (moveEvent.clientX - startClientX) / scale.x;
-            y.value = startTop + (moveEvent.clientY - startClientY) / scale.y;
-        };
-        const finish = (): void => {
-            try {
-                element.releasePointerCapture?.(event.pointerId);
-            } catch {
-                // 已经释放过了
+            if (moveEvent.pointerId !== pointerId) return;
+            const dx = moveEvent.clientX - startClientX;
+            const dy = moveEvent.clientY - startClientY;
+            if (!dragging) {
+                if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+                dragging = true;
+                element.setPointerCapture?.(pointerId);
+                window.getSelection()?.removeAllRanges();
+                document.addEventListener("selectstart", preventSelect);
             }
-            element.removeEventListener("pointermove", move);
-            element.removeEventListener("pointerup", finish);
-            element.removeEventListener("pointercancel", finish);
+            x.value = startLeft + dx / scale.x;
+            y.value = startTop + dy / scale.y;
+        };
+        const finish = (endEvent: PointerEvent): void => {
+            if (endEvent.pointerId === pointerId) cleanup();
+        };
+        const cleanup = (): void => {
+            if (dragging && element.hasPointerCapture?.(pointerId)) element.releasePointerCapture(pointerId);
+            window.removeEventListener("pointermove", move);
+            window.removeEventListener("pointerup", finish);
+            window.removeEventListener("pointercancel", finish);
+            document.removeEventListener("selectstart", preventSelect);
             dragCleanup = null;
         };
-        element.addEventListener("pointermove", move);
-        element.addEventListener("pointerup", finish);
-        element.addEventListener("pointercancel", finish);
-        dragCleanup = finish;
+        // 还没捕获时指针可能移出面板，移动与松开在 window 上收；捕获之后事件仍冒泡到 window。
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", finish);
+        window.addEventListener("pointercancel", finish);
+        dragCleanup = cleanup;
     }
 
     function startResize(direction: FloatingWindowResizeDirection, event: PointerEvent): void {

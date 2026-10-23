@@ -329,6 +329,7 @@ async function run(action: RowAction): Promise<void> {
     font-size: var(--text-2xs);
     font-weight: var(--weight-normal);
     line-height: calc(var(--settings-row-description-h) - 2 * var(--border-w));
+    white-space: nowrap;
     color: var(--text-muted);
 }
 
