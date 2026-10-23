@@ -33,6 +33,10 @@ updated: 2026-10-23
 
 2026-10-23 设计审查：Claude Sonnet（界面，17 条：重要 11、建议 6）、omp（默认模型，写完 5 条重要后上游额度用完，换 openai-codex 与默认模型链续跑都因额度不足立即失败，按规则不再试探；后端剩下的部分改派 Claude Opus 补审）。报告在 [`evidences/`](evidences/)。全部成立，按 [plan.md](plan.md) 文末“设计审查的处理”修订；主要变化：SDK 加 `./components`（nb-ui 组件的实现与类型）与 `viewContribution`；内核贡献点加 `idPrefix`、清单 id 段改为字母开头、`manifestOf` 先逐份检查再聚合；menu 启动即激活并记收到菜单项的诊断；`create` 合并已有 `package.json`、`build --dev`；focus 只留 `minutes`，合同去掉 `finish`，浏览器状态抽成纯 TS store，场地加工作台替身；e2e 改用肯定判据。照推荐做的取舍记进 Work 的待确认清单。
 
+Claude Opus 补审后端（14 条：重要 7、建议 7），全部成立或部分成立，按 plan.md 的处理表修订：`--dev` 改用构建元数据、focus 的结算函数与条件保存、服务端记录 `locality: "shared"`、`minutes` 只在用户层、引用的 Spec 随 SDK 包复制、`create` 的合并与 `--sdk`。
+
+- 2026-10-23 S1（`8a7a6d4d3`）：内核贡献点 `idPrefix`、清单 id 段字母开头、`manifestOf` 先逐份检查再聚合并拒绝第三方 `validate`；SDK 工作台贡献点、`viewContribution`、`./components`（宿主模块表以它取代 nb-ui 的入口，直接导入 nb-ui 构建失败并提示）；menu、file-menu 外置。验证：内核 385 例、示例与 SDK 与构建预设 52 例、Vitest 47 例、两包 typecheck；e2e `plugin-code.e2e.ts` 4 例（menu、file-menu 的 `published` 与 menu 收到菜单项的诊断）。
+
 ## 下一步
 
-S1 实施中（Opus 的补审在后台）；之后按切片 S2–S5。
+S2 收口提交；之后 S3–S5。

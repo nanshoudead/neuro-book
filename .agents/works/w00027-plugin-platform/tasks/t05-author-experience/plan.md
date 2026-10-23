@@ -10,7 +10,7 @@ t04 把第三方插件的入口代码装载、SDK 公开面与构建预设做完
 
 工作方式：Work 分支 `feat/w00027-plugin-platform` 的 worktree；Spec 与 Task 记录在主工作区 master 上改。
 
-2026-10-23 设计审查（omp 默认模型、Claude Sonnet）后修订，逐条处理见文末“设计审查的处理”。
+2026-10-23 设计审查（omp 默认模型、Claude Sonnet，omp 额度用完后由 Claude Opus 补审后端）后修订，逐条处理见文末“设计审查的处理”。
 
 ## 技术选型
 
@@ -64,9 +64,9 @@ nbook-plugin create <目录> [--publisher <段>] [--name <段>]
 nbook-plugin build [作者目录，缺省 .] [--out <目录>，缺省 dist] [--clean] [--dev]
 ```
 
-- **`create`**：目录不存在、为空，或只有 `package.json`、锁文件与 `node_modules`（作者刚装完 SDK tarball）时才写，否则拒绝。已有 `package.json` 时合并：保留它已有的依赖（SDK 的 `file:` 或 tarball 写法就在这里）、补上缺的字段与 devDependencies；没有时 SDK 依赖写 `^<产品版本>`。publisher 缺省 `my`，name 缺省目录名转成 id 段；用内核的 id 段规则核对（字母开头），不合法时报错并说明规则。写完打印下一步（再装一次依赖、构建、在插件页安装 `dist` 的路径）。
+- **`create`**：可写的目录、`package.json` 的合并、`--sdk` 与 SDK 依赖的写法按 plugin-api 的“作者工具”；id 段规则用内核导出的 `isIdSegment`。写完打印下一步；SDK 依赖是 registry 版本时在标准错误提示先装 tarball。
 - **`build`**：调用 `buildPlugin`；`PluginBuildError` 按问题逐行打印、退出码 1；警告打印到 stderr、退出码 0。`--clean` 先清空“上次的产物”（清单的 publisher 与 name 与作者目录相同），与 `build-examples.ts` 的 `isPreviousBuild` 共用一个函数（移进 `build-plugin.ts` 导出）。
-- **`--dev`**：产物清单的版本写成 `<version>-dev.<UTC 时间戳>`。安装同一插件的另一个版本按升级处理（plugin-install 输入第 40 行），每次构建都是新版本，作者的循环是“`build --dev`、在插件页安装、重启”，不用改版本号也不用先卸载。
+- **`--dev`**：产物清单的版本写成 `<version>+dev.<UTC 时间到秒>.<毫秒>`（构建元数据，见 `devVersion` 的注释）。作者的循环是“`build --dev`、在插件页安装、重启”，不用改版本号也不用先卸载。
 - 运行时：Node 22 与 Bun 都能跑（构建预设只用 Node API 与 Vite）；`import.meta.main` 分支换成 bin 入口。
 - 仓库里的 `build:examples` 与作者的 `nbook-plugin build` 走同一个 `buildPlugin`。
 
@@ -87,14 +87,15 @@ nbook-plugin build [作者目录，缺省 .] [--out <目录>，缺省 dist] [--c
 
 写作时的番茄钟：覆盖设置项、命令、视图、状态栏条目、服务端远程服务与私有存储，只用 SDK 的接口。
 
-- **设置项**（`plugin.ts` 的顶层声明，list 分区 `example.focus.main`）：只有 `example.focus/minutes`（专注时长，整数 1–120，缺省 25）。
-- **远程合同** `example.focus/sessions`（`shared/contracts.ts`）：`start()`（已在进行时业务失败 `already-running`）、`cancel()`（空闲时 `not-running`）、`today()` 返回 `{running: {startedAt, endsAt} | null, completed, minutes, now}`；事件 `changed`。“结束”不是调用：服务端按 `endsAt` 自己结束。
-- **服务端入口** `backend/plugin.ts`：`activationEvents: ["onStartup"]`。进行中的会话与今天的汇总用 `nbook.storage` 的私有记录（用户层一条记录：进行中的会话、当天日期与完成数、分钟数；跨日时清零）。激活时读记录：进行中的会话已过 `endsAt` 就记为完成，否则用 `hostClockKey.schedule` 排到 `endsAt`；停止时取消。所以窗口关闭、服务端重启，进行中的会话照常结束。
+- **设置项**（`plugin.ts` 的顶层声明，list 分区 `example.focus.main`）：只有 `example.focus/minutes`（专注时长，整数 1–120，缺省 25，`layers: ["user"]`：服务端只读得到缺省与用户层，作品层的值在服务端不生效）。
+- **远程合同** `example.focus/sessions`（`shared/contracts.ts`）：`start()`（已在进行时业务失败 `already-running`）、`cancel()`（空闲时 `not-running`；三个方法写存储失败时都是 `storage-failed`）、`today()` 返回 `{running: {startedAt, endsAt} | null, completed, minutes, now}`；事件 `changed`。“结束”不是调用：服务端按 `endsAt` 自己结束。
+- **服务端入口** `backend/plugin.ts`：`activationEvents: ["onStartup"]`。进行中的会话与今天的汇总用 `nbook.storage` 的私有记录（用户层、`locality: "shared"`：缺省的 `local` 在服务端打不开；一条记录：进行中的会话 `{startedAt, endsAt}`、日期与完成数、分钟数）。
+- **结算**：一个 `settle(now)` 函数，在激活、`today`、`start`、`cancel` 里都先调用：进行中的会话已过 `endsAt` 就记为完成（完成算在 `endsAt` 那一天，日期按服务端本地时区；记录的日期不是今天时汇总清零）。写入用存储的条件保存，以 `startedAt` 作会话身份：同一状态根上的几个服务端（runtime/projects）都会激活 focus，冲突时重读，会话已被别人结算就不再记一次。计时器只负责到点调一次 `settle` 并推 `changed`；机器休眠推迟了计时器也不影响结果，下一次读写会先结算。存储失败作业务失败码 `storage-failed` 返回。
 - **浏览器状态** `web/focus-store.ts`（纯 TS）：依赖一个只含 `start`、`cancel`、`today`、`subscribe` 的接口，持有 `running`、`today`、`ready` 与 `now`。首次显示与 `changed`、`onResync` 都走“重读 `today()`”；剩余时间按 `endsAt - now` 算，`now` 用服务端给的 `now` 与本地时钟对齐（只记偏差），不每秒减一；只在有进行中的会话时用宿主时钟每秒推进 `now`，空闲时不排计时器，入口停止时取消。
 - **浏览器入口** `web/plugin.ts`：`activationEvents: ["onStartup"]`；侧栏视图 `example.focus.panel`（`viewContribution`，`layout: "scroll"`、`minimumSize: {width: 200}`）；状态栏条目（`ready` 前显示省略号；进行中显示剩余时间，否则显示今天的番茄数；点击执行 `example.focus.toggle`）；命令 `example.focus.start`、`example.focus.cancel`、`example.focus.toggle`（进命令面板，`effect: write`，不暴露给 Agent，示例里写明这个选择）。
 - **视图交互**：一个主按钮原位切换“开始”“放弃”（焦点留在按钮上）；剩余时间用 `role="timer"`，完成与放弃时用一个礼貌型 live 区域播报一次；按钮在窄宽下换行。
 - **场地的工作台替身**（`examples/testing/stage.ts`）：浏览器场地加一个只拥有 `workbench.views`、`workbench.statusbar-items` 两个贡献点的替身插件，校验用产品 `shared/views.ts`、`shared/items.ts` 的同一份函数，接收者把交付的实现收进表；场景读条目的 `text()`、`state()`。视图组件不在 Bun 里加载（`.vue`），由 dom 测试覆盖。
-- **场景测试** `examples/scenarios/07-focus.test.ts`：真实宿主上开始、推进注入的时钟、完成，核对记录、`changed`、状态栏文本；`already-running`、`not-running`；停掉服务端入口再启动后，已过期的会话记为完成、未到期的照常结束；浏览器入口停止后、空闲推进一天后 `clock.pending()` 为 0；重连（`onResync`）后状态与服务端一致。
+- **场景测试** `examples/scenarios/07-focus.test.ts`：真实宿主上开始、推进注入的时钟、完成，核对记录、`changed`、状态栏文本；两个服务端共用一个状态根，到点只记一次完成；会话跨零点算在结束那天；`already-running`、`not-running`；停掉服务端入口再启动后，已过期的会话记为完成、未到期的照常结束；浏览器入口停止后、空闲推进一天后 `clock.pending()` 为 0；重连（`onResync`）后状态与服务端一致。
 - **dom 测试**（Vitest）：组件对 store 状态的呈现与键盘行为（键盘开始后焦点仍在主按钮、`role="timer"`、播报一次）；store 用真实实现，接口用内存里的假实现，其返回值与场景 07 里真实远程的断言是同一组。
 - 讲解注释按示例的写法（每个文件开头说明演示什么、关键步骤说明为什么）。
 
@@ -102,7 +103,7 @@ nbook-plugin build [作者目录，缺省 .] [--out <目录>，缺省 dist] [--c
 
 - 作者文档写进 SDK 包的 `README.md`（`build-sdk.ts` 复制），自己讲清楚“怎么做”，Spec 链接只作规则细节的出口：安装 SDK 与 `create`、目录结构、写入口（运行位置、激活事件：视图与状态栏条目为什么要 `onStartup` 及代价、贡献）、**界面**（只用 SDK 的组件、`<style scoped>` 与 token 变量，不写原子类：插件样式包进 `@layer components`，宿主的原子类只按宿主源码生成，插件里写了要么不生效、要么只是碰巧生效；不覆写组件内部样式；图标写字面量 `i-lucide-*`；`layout` 与 `minimumSize` 的选法，侧栏默认约 240px）、构建与纯度检查的常见报错、开发循环（`build --dev`、安装、重启）、调试（服务端日志、诊断、浏览器开发者工具的 source map）、发布目录（`dist` 整个目录交给用户）。
 - 生成两份附表一起进 SDK 包：组件清单（从 `@notnotype/nb-ui/components` 的导出生成，属性看声明文件）、主题 token 清单（从 nb-ui 的 `tokens.css` 提取变量名与所在分组）。
-- Spec 链接改写成仓库公开地址并固定到构建时的提交（`git rev-parse HEAD`），SDK 版本与它读到的 Spec 一致。
+- 文档引用的 Spec 随 SDK 包复制一份（`specs/`），README 里的链接改写到包里的副本：SDK 版本与它读到的 Spec 一致，也不依赖构建时的提交在远端存在（Work 分支不 push）。副本里指向别的文档的链接不改写，`docs:check` 不检查包内文件。
 - `examples/README.md`：加“外部插件”一节（七个示例都按第三方插件构建、安装运行；怎样 `build:examples` 后在插件页安装），阅读顺序加 focus，“几个概念”里设置分区那行补 list 分区的写法。
 
 ### 仓库外 smoke
@@ -140,7 +141,8 @@ nbook-plugin build [作者目录，缺省 .] [--out <目录>，缺省 dist] [--c
 | plugin-manifest id 段、`idPrefix`、第三方 `validate` | `plugin-manifest.test.ts` |
 | plugins 贡献点 `idPrefix` 的拒绝 | 内核贡献登记测试、场景 03 |
 | plugin-code-loading 宿主模块表（SDK 组件子路径、直接导入 nb-ui 报错） | 构建预设测试、`plugin-code.e2e.ts`（snippets） |
-| plugin-install 输出 1、4、3（安装、启停、卸载，重启生效） | `plugin-authoring.e2e.ts` |
+| plugin-install 安装、启停、卸载在重启后生效（数据保留不在这里验） | `plugin-authoring.e2e.ts` |
+| plugin-api 作者工具的退出码、`--clean` 的拒绝、`create` 的合并与 `--sdk`、`--dev` 的版本先后 | `template.test.ts`（用 Node 运行生成的 `cli.js`） |
 | plugin-code-loading 输出 1–5（外置示例装载） | `plugin-code.e2e.ts`（加 menu、file-menu、focus） |
 | workbench/views 第三方视图贡献；workbench-shell 第三方状态栏条目 | `plugin-authoring.e2e.ts`（模板视图）、focus 的 e2e 与场景 07 |
 | 示例行为 | `examples/scenarios/03`、`07` 与 focus 的 dom 测试 |
@@ -159,7 +161,7 @@ nbook-plugin build [作者目录，缺省 .] [--out <目录>，缺省 dist] [--c
 
 ## 设计审查的处理
 
-报告在 [`evidences/`](evidences/)（`design-review-1-omp.txt`、`design-review-1-sonnet.txt`）。
+报告在 [`evidences/`](evidences/)（`design-review-1-omp.txt`、`design-review-1-sonnet.txt`、`design-review-1-opus.txt`）。
 
 | 条目 | 处理 |
 |---|---|
@@ -184,3 +186,17 @@ nbook-plugin build [作者目录，缺省 .] [--out <目录>，缺省 dist] [--c
 | omp 3（模板把 SDK 写成 registry 版本） | 成立，同 Sonnet F15 |
 | omp 4（menu 可能从未激活） | 成立，已改：menu 入口 `onStartup`，收到菜单项时记诊断，e2e 断言它 |
 | omp 5（`manifestOf` 提前去重跳过后续检查） | 成立，已改：每份定义先各自检查再聚合，聚合时核对一致 |
+| Opus O1（`--dev` 的预发布版本被当成降级、依赖范围不接受） | 成立，已改：构建元数据 `+dev.<秒>.<毫秒>`；实测时间戳连成 17 位数字时超过安全整数、两次构建比不出先后，所以分两段 |
+| Opus O2（合并只写了顶层、`npm init` 的 `type: commonjs`） | 成立，已改：`type` 用模板的，已有 `name` 不合规时提示 `--name`；Spec 按实现写全 |
+| Opus O3（服务端 user 记录要 `locality: "shared"`） | 成立，已改 |
+| Opus O4（完成只靠计时器、几个服务端重复记、存储失败没有码） | 成立，已改：`settle` 结算函数、按 `startedAt` 条件保存、`storage-failed`，场景 07 加两个服务端 |
+| Opus O5（空目录里 SDK 依赖写成 registry 版本） | 成立，已改：`--sdk`，registry 版本时提示；测试断言依赖写法原样保留 |
+| Opus O6（Node 版本） | 成立，已改：SDK 包写 `engines.node`；Node 22 仍未实测（本机 Node 26） |
+| Opus O7（`minutes` 的作品层在服务端不生效） | 成立，已改：`layers: ["user"]` |
+| Opus O8（“今天”的时区与跨零点） | 成立，已改：按服务端本地时区、完成算在 `endsAt` 那天 |
+| Opus O9（`.git`、`.npmrc` 被拒） | 成立，已改 |
+| Opus O10（固定到本地提交的链接 404） | 成立，已改：引用的 Spec 随 SDK 包复制 |
+| Opus O11（退出码没有测试、卸载数据的映射过头） | 成立，已改：`template.test.ts` 覆盖，验收映射改写 |
+| Opus O12（合同取舍没进待确认清单、`./components` 推翻 t04 的“两个子路径”） | 部分成立：前几项已在清单里（`3fef27102`）；补 `--dev` 版本写法一行，t04 那一行写上被 t05 改判 |
+| Opus O13（`--out` 的相对路径、参数错误的退出码） | 成立，已改：按当前目录解析，用法错误退出码 2，写进 Spec |
+| Opus O14（name 缺省的转写与 Spec 不一致、id 段规则另写一份） | 成立，已改：Spec 写明转写；内核导出 `isIdSegment` |

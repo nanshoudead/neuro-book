@@ -1,0 +1,187 @@
+# t05 设计审查（后端、命令行与流程部分，Claude Opus）
+
+审查对象：主工作区 `.agents/works/w00027-plugin-platform/tasks/t05-author-experience/plan.md`（186 行版）。代码以 worktree `.worktree/w00027-plugin-platform` 的 HEAD 为准（S1 未提交改动只作参照）。实验文件在 `/tmp/review-t05-opus/`。不重复 sonnet-report、omp-report 已列且计划已处理的条目。
+
+条目按核实顺序追加，末尾汇总时按影响排序。
+
+## 发现
+
+### O1 重要 / 接口与合同：`--dev` 用预发布后缀，装上后版本“更旧”，且任何依赖它的插件都会 `version-mismatch`
+
+- 位置：plan.md:69；Spec `runtime/plugin-api.md:133`（已写进 Spec）；代码 `packages/neuro-book/src/shared/versions.ts:35-45`、`src/backend/plugins/inventory.ts:225`、`scripts/plugin-sdk/build-plugin.ts:435`（HEAD）。
+- 现象：`<version>-dev.<时间戳>` 是 semver 预发布版本。实测（`bun /tmp/review-t05-opus/semver.ts`，调用应用自己的 `compareVersions`、`pluginVersionSatisfies`、`isCanonicalVersion`）：
+  - `compareVersions("0.1.0-dev.20261023120000", "0.1.0") = -1`：已装正式 0.1.0 时装 dev 构建，`inventory.ts:225` 判为 `downgrade`，确认界面按 plugin-install 输出 8.1 每次都提示“降级可能遇到新版本已迁移过的数据”；SDK 给的“上一次成功激活的版本”也会出现比当前版本新的值，插件的迁移逻辑若按 semver 比较会以为在降级。
+  - `pluginVersionSatisfies(dev, "^0.1.0")`、`">=0.0.0"`、`"*"` 全为 `false`：别的插件在 `pluginVersions` 里对它写任何范围，重启后都以 `version-mismatch` 受阻，升级预览也会把它们列为“将受阻”。作者在调试两个互相依赖的插件时，`--dev` 循环直接打断依赖方。
+  - 时间戳写法没定：ISO 写法 `2026-10-23T12:00:00.000Z` 不是合法 semver（`isCanonicalVersion` 为 false，清单校验失败）；纯数字段带前导零也非法。
+  - 构建预设现在要求 `descriptor.version === package.json version`（`build-plugin.ts:435`），清单版本又取自 `descriptor.version`（`plugin-manifest.ts:636`）；计划没写 `--dev` 改的是哪一份、核对放在改之前还是之后，照字面实现要么报“不一致”，要么只改了 package.json 一侧。
+- 为什么是问题：Spec 与计划都承诺“在插件页安装按升级处理”，实际是按降级处理；依赖关系里的范围判断与安装比较两套语义都被预发布规则改变，Spec 没写这层后果。
+- 如何核实：上面的脚本；`semver` 的缺省规则（`includePrerelease` 为 false）在 `versions.ts:33` 的注释里也写明了。
+- 建议改法：改用构建元数据 `<version>+dev.<YYYYMMDDHHmmssSSS>`。同一脚本实测：`isCanonicalVersion` 为 true（`versions.ts` 特意保留构建元数据）、`compareVersions(b1, "0.1.0") = 1`、两次 dev 构建之间 `= 1`、`pluginVersionSatisfies(b1, "^0.1.0") = true`；版本只进安装目录名，文件地址用内容摘要（`src/shared/plugin-files.ts:12-18`），`+` 不进 URL。Spec 写明时间戳的格式（UTC、毫秒、纯数字）与“只改产物清单与传给 `manifestOf` 的描述版本，作者源码与 `package.json` 不变”；`template.test.ts` 断言 dev 版本对正式版是升级、对 `^x.y.z` 仍满足。
+
+### O2 重要 / 遗漏：`create` 合并已有 `package.json` 的规则只到顶层，`npm init -y` 生成的那份会让模板构建不过或 `npm run build` 找不到脚本
+
+- 位置：plan.md:67、77、80；Spec `runtime/plugin-api.md:132`；代码 `scripts/plugin-sdk/build-plugin.ts:140-147、428-436`（HEAD）。
+- 现象：构建预设把 `package.json` 的 `name` 当插件 id 的 name 段、`version` 当插件版本，并要求 `plugin.ts` 的描述与它们一致（`build-plugin.ts:435`）。计划的占位符只有 publisher、name、显示名，模板描述的版本写死 `0.1.0`（plan.md:77）；合并规则是“保留已有字段，只补缺的”。本机 npm 12.1.0 在空目录 `npm init -y` 的结果（`/tmp/review-t05-opus/npminit/package.json`）：`name` 为目录名、`version: "1.0.0"`、`description: ""`、`scripts: {test: ...}`、`type: "commonjs"`。按计划字面合并：
+  1. `version` 保留 `1.0.0`，模板 `plugin.ts` 写 `0.1.0`：第一次构建就报“插件描述与 package.json 不一致”。
+  2. `name` 保留 npm 名：与 `--name` 或目录名转出的段谁优先没写；npm 名可以是 `@scope/x`、大写（老项目）或数字开头（目录名 `2048-timer`），都不是合法 id 段，计划只核对“`--name` 或目录名”。
+  3. `scripts` 已存在：只补顶层缺字段时 `build`、`dev`、`typecheck` 不会加进去，README 的 `npm run build` 报 Missing script。计划对 devDependencies 写了按键补，对 `scripts` 没写。
+  4. `description: ""` 会原样进清单（`build-plugin.ts:514`），清单 schema 不看它，无害；但同理 `license`、`engines` 若作者早写了不兼容的 `engines.neurobook`，保留后构建出的插件装不上（`incompatible-engine`），create 不提示。
+- 另外，“先 `npm install -D <tarball>` 再 `create .`”这条主路径本身会把作者推向 `npm init`：npm 在没有 `package.json` 的目录里向上找最近的含 `package.json` 的目录作前缀。实测 `/tmp/review-t05-opus/parent/child` 里 `npm prefix` 输出 `/tmp/review-t05-opus/parent`：作者在任何已有项目的子目录里新建插件目录，`npm install -D` 会装进上级项目、改上级的 `package.json`，新目录还是空的。README 若因此教“先 `npm init -y`”，上面 1–3 就是主路径而不是边角。
+- 为什么是问题：计划把合并作为 F15 的修法，但只说了“保留依赖、补缺字段”，没定冲突字段的胜负；Spec 第 132 行已照这句写成合同，S2 照字面实现会返工。`template.test.ts` 计划只测“合并已有 `package.json`”，没写用哪份输入，用只有 `devDependencies` 的那份就测不到这些。
+- 如何核实：`cd /tmp/review-t05-opus/npminit && cat package.json`；`cd /tmp/review-t05-opus/parent/child && npm prefix`；对照 `build-plugin.ts:435` 的一致性核对。
+- 建议改法：Spec 与计划写成明确的字段表：`publisher`、`name`、`version`、`displayName` 由 create 决定并覆写（`name` 按 `--name`、否则目录名；已有 `name` 与之不同时在输出里说明被替换，npm 名不作为插件名来源），`version` 已有且是合法 semver 时沿用并同时写进 `plugin.ts`（版本也做占位符，或者模板 `plugin.ts` 直接从 `package.json` 读 publisher、name、version，去掉两处重复）；`scripts`、`devDependencies` 按键合并、已有同名键保留；`type`、`main`、`keywords` 等不管。README 的第一步写 `npm init -y`（或 `echo {} > package.json`）再装 tarball，测试输入用 `npm init -y` 的真实产物。
+
+### O3 重要 / 依赖的机制：服务端打开 user 记录要写 `locality: "shared"`，缺省的 `local` 在服务端得到 `no-client`
+
+- 位置：plan.md:92；代码 `packages/neuro-book/src/shared/storage.ts:44、56`（`locality` 缺省 `local`），`src/plugins/storage/backend/owner.ts:48`、`src/plugins/storage/shared/facade.ts:64`；Spec `storage/persistence.md:89-95` 的“在哪里能打开什么”表（服务端实例打开 `local` 记录为 `no-client`）。
+- 现象：计划写“用 `nbook.storage` 的私有记录（用户层一条记录）”，没写 locality。`defineRecord({key, scope: "user", version, schema})` 不写 locality 时是 `local`，服务端入口 `open` 直接失败 `no-client`；focus 的服务端入口激活就读不到记录。
+- 为什么是问题：focus 是“私有存储”的教学示例，作者照抄最短写法会撞上这个失败；计划也没说 `open` 失败时入口怎么办（激活失败？只记诊断、远程方法返回业务失败？）。
+- 如何核实：读 `owner.ts:48` 与 Spec 表格。
+- 建议改法：计划写明 `scope: "user"`、`locality: "shared"`，讲解注释说明为什么（服务端没有客户端身份；“每台浏览器各记各的”与“这台机器上的用户只有一份今日统计”是两种产品语义，这里要后者）；写明 `open` 失败时入口的去向（建议激活失败并带原因，入口状态可查，场景 07 覆盖一次）。
+
+### O4 重要 / 遗漏：focus 的“完成”只由服务端计时器触发，没有按 revision 条件写；多服务端、机器休眠、存储失败下会重复记完成或一直停在“进行中”
+
+- 位置：plan.md:91-93、97；代码 `src/shared/storage.ts:154-163`（`save` 是按 `expect` 的条件写，`subscribe` 只推本进程的写入）、`packages/nb-runtime/src/lifecycle/clock.ts:11-17`（系统时钟的 `schedule` 是 `setTimeout`）；Spec `runtime/projects.md:111`（`projects.stats` 的条件保存做法）、`:175`（两个服务端“互相收不到对方写入的变更通知”）、`storage/persistence.md:121`。
+- 现象：
+  1. **多服务端**：plugin-install 与 projects 都支持同一状态根同时跑几个服务端，user 分区是同一个 `<状态根>/storage/user.sqlite`。第三方 `onStartup` 入口在每个服务端都激活，各自读到同一个进行中的会话、各自 `schedule` 到 `endsAt`。两边到点都“记为完成”：若实现是“读、加一、写”且冲突时重读重放（存储失败表里 `conflict` 的标准处理），第二个进程重读后照样加一，完成数记两次。反过来，会话在 A 上开始，B 激活得早、不知道（订阅只推本进程写入），A 在 `endsAt` 前退出后，B 上的 `today()` 一直返回 `running`，`endsAt - now` 变成负数，直到 B 重启。
+  2. **休眠**：`setTimeout` 走单调时钟，Linux 上挂起期间不计时；笔记本合盖 30 分钟，完成就晚 30 分钟，期间 `today()` 返回已过期的 `running`。
+  3. **存储失败**：计划没写 `conflict`、`unknown-outcome`、`busy`、`io-error`、`corrupt`、`unsupported-version` 各怎么办；`start()` 写失败时返回什么业务失败码、`changed` 发不发都没定。合同只有 `already-running`、`not-running` 两个失败码。
+- 为什么是问题：计划宣称“窗口关闭、服务端重启，进行中的会话照常结束”，但正确性只靠“唯一的进程、计时器准时”，这两条在受支持的部署里都不成立；完整示例会被作者照抄成“读改写不带条件”的范式。场景 07 只测单服务端、注入时钟，测不出来。
+- 如何核实：读上面的代码与 Spec；`storage.ts:162` 的注释“推送分区拥有者进程里的每次写入”。
+- 建议改法：把“结算”写成一个函数，在激活、`today()`、`start()`、`cancel()` 与计时器回调里都先调用：读记录，若进行中且 `endsAt <= now` 就以读到的 revision 条件保存“完成数加一、清掉进行中”；`conflict` 与 `unknown-outcome` 时重读，进行中的会话已不是这一个（以 `startedAt` 作会话身份）就放弃。计时器只负责“到点推一次 `changed`”，不承担正确性。合同加一个存储失败的业务码（例如 `storage-failed`，带原因），计划写出各失败码的处理（照 `projects.stats` 的做法）。场景 07 加：两个服务端实例共用状态根、各自到点只记一次完成；注入时钟越过 `endsAt` 但不触发计时器时 `today()` 已结算。
+
+### O5 重要 / 接口与合同、验收映射：空目录里 `create` 仍把 SDK 写成 `^<产品版本>`，而自动测试与 e2e 都走这条路并手工链接依赖，测不到断点
+
+- 位置：plan.md:67（“没有时 SDK 依赖写 `^<产品版本>`”）、84、110；Spec `runtime/plugin-api.md:132`（允许目录不存在或为空）；代码 `scripts/plugin-sdk/build-sdk.test.ts:85-102`（HEAD，作者项目的依赖是从仓库 `node_modules` 软链来的）。
+- 现象：Spec 允许在空目录或不存在的目录里 `create`（例如 `npx <tarball> create my-plugin`、`node <sdk>/cli.js create my-plugin`），这时生成的 `package.json` 写 `"@notnotype/nb-plugin-sdk": "^0.1.0"`。本轮不发布，`npm install` 去 registry 找它是 E404（omp 第 3 条已实测）。计划对 omp 3、F15 的修法只覆盖了“先装 tarball 再 `create .`”这一条路。`template.test.ts`（plan.md:84）与 `plugin-authoring.e2e.ts`（plan.md:110）都是“在临时目录 `create`，依赖从仓库链接”，正好走的是这条装不上的路，而且绕过了生成的依赖声明。
+- 为什么是问题：Spec 写进了一条作者照做必然失败的路径；自动验收对“生成的 `package.json` 能装上依赖”这件事没有任何覆盖，只有手动 smoke 一次。
+- 如何核实：对照 plan.md:67 与 plugin-api.md:132；`build-sdk.test.ts:85-102` 的软链做法。
+- 建议改法：二选一写进 Spec。（a）`create` 在目标目录没有已安装的 SDK 依赖时加 `--sdk <npm 依赖写法>`，缺省时拒绝并提示先装 tarball 或给 `--sdk`；发布后再把缺省改成 registry 版本。（b）只允许“已装 SDK 后 `create .`”，空目录拒绝。测试加一条：生成的 `package.json` 里 SDK 的写法等于目标目录原有的那条（逐字），并断言不含 registry 版本号写法；e2e 的临时目录按 README 的第一步先写出带 `file:` 依赖的 `package.json` 再 `create .`，链接 `node_modules` 只替代“真实下载”这一步。
+
+### O6 建议 / 遗漏：“Node 与 Bun 都能运行”没有自动覆盖，SDK 包也没声明 Node 下限
+
+- 位置：plan.md:70、127、158；Spec `runtime/plugin-api.md:130`；`node_modules` 里 `vite` 8.1.4、`rolldown` 1.1.5、`@vitejs/plugin-vue` 6.0.7 的 `engines.node` 都是 `^20.19.0 || >=22.12.0`；`build-sdk.ts`（HEAD 120-131）写出的 SDK `package.json` 没有 `engines`。
+- 现象：Spec 承诺 Node 能跑，计划只在 S2 手动用 Node 跑一次，自动测试（`build-sdk.test.ts` 用 `process.execPath`，即 Bun）都在 Bun 里。Node 22.0–22.11 装得上 SDK、跑起来才在 Vite 处失败，作者看到的是 Vite 的报错而不是版本要求。
+- 为什么是问题：命令行的运行时是 Spec 级承诺，回归只能靠人记得手动跑；构建预设内部的 `import.meta.main`、`Bun.*` 之类的 Bun 专有写法一旦混进来，Bun 测试全绿。
+- 如何核实：`node -e "console.log(require('vite/package.json').engines)"`（在应用包目录）。
+- 建议改法：SDK `package.json` 写 `engines.node: "^20.19.0 || >=22.12.0"`（取构建依赖的交集，由 `build-sdk.ts` 从依赖读出，不手写）；`template.test.ts` 在 `PATH` 上有 `node` 时用它跑 `cli.js create` 与 `build`（没有就跳过并说明原因），Spec 的“Node”写明下限。
+
+### O7 重要 / 接口与合同：`example.focus/minutes` 缺省同时允许 user 与 project 层，服务端只看得到 user 层，窗口里改的作品层值不会生效
+
+- 位置：plan.md:90-92；代码 `packages/neuro-book/src/shared/settings.ts:27-29、176`（`layers` 缺省 `["user", "project"]`）。
+- 现象：时长由服务端入口在 `start()` 时读（会话的权威在服务端）。服务端实例没有绑定作品，读到的有效值只来自 user 层；设置窗口在绑定了作品的窗口里会让用户把它改在作品层。用户在作品层设 50 分钟、点开始，实际得到 25 分钟的会话，视图与状态栏都按服务端返回的 `endsAt` 显示，用户看不到原因。
+- 为什么是问题：完整示例同时演示“设置项”与“服务端读设置”，这正是作者会照抄的组合；层与读取位置的匹配是 Spec 里的规则，计划没提。
+- 如何核实：读 `settings.ts:176`；`docs/specs/settings/configuration.md` 的层与读取位置。
+- 建议改法：`minutes` 声明 `layers: ["user"]`，讲解注释写明“在服务端读的设置只放 user 层，原因是服务端没有作品”；或者 `start(input: {minutes})` 由浏览器把它读到的有效值传过去、服务端按 schema 限 1–120（这样也更好测）。二者选一写进计划。
+
+### O8 建议 / 遗漏：“今天”按哪个时区、跨零点怎么算没定；空闲时浏览器不排计时器，状态栏会一直显示昨天的数
+
+- 位置：plan.md:92-93、97。
+- 现象：（1）服务端按自己的本地日期清零，浏览器显示“今天”；服务端与浏览器不在同一时区（远程访问）时，“今天”按谁没写。（2）23:50 开始、00:15 结束的会话记到哪一天没写。（3）计划要求空闲时浏览器不排计时器，并在场景里断言“空闲推进一天后 `clock.pending()` 为 0”；于是零点过后没有任何事件触发重读，状态栏一直显示昨天的完成数，直到下一次 `changed` 或重连。这条断言恰好把“零点刷新”排除掉了。
+- 为什么是问题：跨日清零是计划列出的行为，却没有可观察的定义；dom 测试与场景各自实现时会给出不同答案。
+- 如何核实：读计划这几行；我用真实 `Stage`（`/tmp/review-t05-opus/pending.ts`）确认服务端加窗口、无插件时推进一天 `pending()` 为 0，所以场景里的断言只取决于 focus 自己排不排零点计时器。
+- 建议改法：Spec 化一句：“今天”按服务端本地日期，会话按结束时刻计入；`today()` 返回 `date`，浏览器 store 空闲时排一个到下一个零点（按服务端 `now` 与偏差算）的单次计时器，到点重读；场景断言改成“零点后状态栏显示 0、入口停止后 `pending()` 为 0”。
+
+### O9 建议 / 别扭之处：`create` 的“非空目录”白名单会拒绝 `.git`、`.npmrc`，`npm install` 后还有 `.package-lock.json` 之类之外的常见文件
+
+- 位置：plan.md:67；Spec `runtime/plugin-api.md:132`。
+- 现象：允许的只有“`package.json`、锁文件与 `node_modules`”。作者常见的第一步 `git init`、为了走代理或私有源放的 `.npmrc`、编辑器生成的 `.vscode/`，都会让 `create .` 拒绝；“锁文件”是哪几个（`package-lock.json`、`npm-shrinkwrap.json`、`yarn.lock`、`pnpm-lock.yaml`、`bun.lock`、`bun.lockb`）也没列，Yarn PnP 的 `.pnp.cjs`、`.yarn/` 不在内。
+- 为什么是问题：规则的目的是“不覆盖作者的文件”，白名单做法既拒绝无害的文件，又要随包管理器的变化维护；create-vite、create-vue 的普遍做法是“目录为空或只有 `.git`”，或“只在模板要写的文件已存在时拒绝”。
+- 如何核实：对照 Spec 原文。
+- 建议改法：改为“模板要写的任何一个路径已存在（`package.json` 除外，按合并规则处理）就拒绝、不写任何文件，并列出冲突的路径”；以点开头的文件与目录、`node_modules`、锁文件不看。Spec 与 `template.test.ts` 按这条改。
+
+### O10 重要 / 依赖的机制：作者文档的 Spec 链接固定到 `git rev-parse HEAD`，而 Work 分支不 push，本 Work 期间生成的每个 SDK 包链接都是 404
+
+- 位置：plan.md:105、129（S4 验证只核对“链接都是固定到提交的绝对地址”）。
+- 现象：`git branch -r --contains HEAD` 在 worktree 里没有输出（HEAD `a433a9f7b` 不在任何远端分支上）；仓库是公开的（`gh repo view` 返回 `PUBLIC`），但开发者已定 Work 分支不 push。S5 的手动 smoke 与 e2e 用的 SDK 都从未 push 的提交生成，README 里每条 Spec 链接打开都是 404。工作区有未提交改动时，链接指向的提交里的 Spec 也不是 SDK 实际依据的那份。
+- 为什么是问题：S4 的目标是“作者文档自己讲清楚、Spec 只作规则细节的出口”，出口全部失效；验证只看格式，测不出来。合入 master 后若 master 也不及时 push，同样失效。
+- 如何核实：`git -C <worktree> branch -r --contains HEAD`；`gh repo view notnotype/neuro-book --json visibility`。
+- 建议改法：把作者文档引用到的 Spec 文件随 SDK 包一起复制（`docs/` 子目录，链接写成包内相对路径），“SDK 版本与它读到的 Spec 一致”由打包自然成立，离线也能读；同时可附一条“在线版本”链接，固定到 `git merge-base HEAD origin/master`。S4 的验证改为“README 里每个相对链接在包内都有目标文件”（可以复用 `docs:check` 的链接检查）。
+
+### O11 建议 / 验收映射：几条已写进 Spec 的判据没有对应的测试，有一条映射超出了 e2e 实际做的事
+
+- 位置：plan.md:84、110、134-146；Spec `runtime/plugin-api.md:133`、`runtime/plugin-install.md:130、132`（验收 1、3）。
+- 现象：
+  1. plugin-api 第 133 行的 `build` 合同：退出码 1 与逐行问题、只有警告时打到 stderr 且退出码 0、`--clean` 遇到“别的内容”拒绝，`template.test.ts` 的清单（plan.md:84）里都没有；只测了 `--dev` 的版本。
+  2. 验收映射把 plugin-install 的安装、卸载记到 `plugin-authoring.e2e.ts`，但验收 3 的“选择保留数据时私有存储仍在，重新安装并重启后插件读到原数据”需要插件有私有数据，模板只有浏览器入口和一个设置项，e2e 也只断言“插件页不再列出”。验收 1 里的“Agent 工具”模板也没有。
+  3. 场景 07“核对记录”：插件私有记录只有 owner 自己能打开（`storage/persistence.md:161`），测试要么去读 SQLite 文件（测实现），要么经 `today()`（与“核对 `changed`、状态栏文本”重复）。
+- 为什么是问题：映射表是 S5 收口时判断“做完了”的依据，照表打勾会把没覆盖的 Spec 判据当成已覆盖。
+- 如何核实：逐条对照上面的 Spec 行与 plan.md:84、110。
+- 建议改法：`template.test.ts` 加退出码与 stderr、`--clean` 拒绝两例（经子进程跑 `cli.js`，同时满足 O6）；映射表里 plugin-install 只写“安装、启停、卸载的重启生效”，数据保留仍归 t04 已有的 `plugins.e2e.ts`（若它覆盖了）或在 focus 的 e2e 里卸载保留后重装、断言今天的完成数还在；场景 07 写成“经 `today()` 与 `changed` 观察”，不读记录本身。
+
+### O12 建议 / 流程：几项自主决定没进待确认清单，其中一项推翻了 t04 待追认的第 27 行
+
+- 位置：Work `pending-confirmations.md:27、41-44`；plan.md:41、46、48、69。
+- 现象：t05 在清单里只登了四项（41–44）。计划里另有几项同样属于合同或接口取舍、开发者还没看过：
+  1. SDK 加 `./components` 子路径（plan.md:41）。第 27 行（t04，尚未追认）写的是“SDK 只有根与 `browser` 两个子路径，单一命名空间”，理由是“子路径越多，宿主模块表与兼容面越大”；`./components` 正好是新增一个进宿主模块表的子路径，并从表里去掉了 `@notnotype/nb-ui/components`。
+  2. 清单 id 段收紧为字母开头（plan.md:48，改 plugin-manifest 合同）。
+  3. 内核新增贡献点字段 `idPrefix`（plan.md:46，改 plugins 与 plugin-manifest 合同）。
+  4. `--dev` 的版本写法（plan.md:69；见 O1，写法本身还要改）。
+  5. `create` 合并已有 `package.json` 的规则（见 O2）。
+- 为什么是问题：按 autonomous-delivery 的约定，照推荐做的合同取舍要进清单等追认；第 1 项若不登，开发者追认第 27 行时会按“只有两个子路径”的前提拍板。
+- 如何核实：对照清单与计划。
+- 建议改法：补登这五行；第 27 行在“结果”栏注明“t05 加了 `./components`（及已有的 `./build`），见第 N 行”，或把第 27 行的决定改写成“按用途分子路径，不按所有者分”。
+
+### O13 建议 / 接口与合同：`build` 的路径基准与参数错误的退出码没定
+
+- 位置：plan.md:62-68；Spec `runtime/plugin-api.md:133`。
+- 现象：`nbook-plugin build ../my-plugin` 时缺省的 `dist` 是相对当前目录还是作者目录，`--out` 的相对路径按谁解析，都没写；`parseArgs` 在 `strict` 下遇到未知开关抛 `TypeError`，计划只定了“构建失败退出码 1”，参数错误、作者目录不存在、`package.json` 读不了（`build-plugin.ts:133-138` 抛的也是 `PluginBuildError`）各给什么退出码不清楚。
+- 为什么是问题：作者在 CI 里会依赖退出码；`--out` 解析到作者目录之外又配了 `--clean` 时，删的是哪个目录取决于这个基准。
+- 如何核实：读计划与 `build-plugin.ts:427-430`（`resolve(options.outDir)` 按进程当前目录解析）。
+- 建议改法：Spec 写明“缺省输出目录是作者目录下的 `dist`，`--out` 的相对路径按当前目录解析”（或都按作者目录，二选一）；参数错误退出码 2 并打印用法，其余失败 1。
+
+### O14 建议 / 与已定合同一致：name 缺省值“转成 id 段”与 Spec 的“取目录名、不合规则就拒绝”不一致；id 段规则在内核里没有导出
+
+- 位置：plan.md:67；Spec `runtime/plugin-api.md:132`；`packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts:43`（`ID_SEGMENT` 是模块内常量，`grep "^export"` 没有与 id 段有关的导出）。
+- 现象：计划说缺省 name 是“目录名转成 id 段”（大写转小写？空格转连字符？中文目录名？数字开头去掉还是拒绝？都没写），Spec 写的是“缺省取目录名；不符合清单的 id 段规则时拒绝”。“用内核的 id 段规则核对”要求 `cli.ts` 拿到这条规则，而它没有导出，照字面实现会在命令行里另写一份正则，与清单校验分叉（这次正要把它从“字母或数字开头”改成“字母开头”，分叉的风险就在眼前）。
+- 为什么是问题：Spec 与计划二选一，S2 照哪份实现都要返工另一份；复制正则违反“同一规则一处定义”。
+- 如何核实：读两处原文与 `plugin-manifest.ts:43`。
+- 建议改法：从 `@notnotype/nb-runtime/plugin-manifest` 导出 `isIdSegment`（构建预设已经打包这个子路径，SDK 不新增依赖）；转换规则写死成“小写化、非 `[a-z0-9-]` 的连续字符换成一个 `-`、去掉首尾 `-`”，转完仍不合规则（含数字开头）就拒绝并提示 `--name`，Spec 同步成这句。
+
+## 按影响排序
+
+1. O4 重要：focus 的完成没有条件写与惰性结算，多服务端重复记、休眠与对端退出时停在“进行中”。
+2. O2 重要：`create` 合并 `package.json` 只到顶层，`npm init -y` 的产物让首次构建失败或缺脚本；npm 向上找前缀让这成为主路径。
+3. O1 重要：`--dev` 的预发布后缀被当成降级、让依赖方 `version-mismatch`；改用 `+dev.<时间戳>` 构建元数据（已实测可行）。
+4. O5 重要：空目录 `create` 仍写 registry 版本，自动测试与 e2e 正好走这条路并软链依赖，测不到。
+5. O3 重要：服务端 user 记录要 `locality: "shared"`，缺省 `local` 是 `no-client`。
+6. O7 重要：`minutes` 缺省允许作品层，服务端读不到，作品层的值静默不生效。
+7. O10 重要：作者文档链接固定到未 push 的提交，全部 404；改为随包复制 Spec。
+8. O11 建议：`build` 退出码与 `--clean` 拒绝没测；数据保留的映射超出 e2e 实际内容（`plugins.e2e.ts` 也只有一例，不测保留数据）。
+9. O12 建议：五项自主决定没进待确认清单，`./components` 推翻 t04 第 27 行的前提。
+10. O8 建议：“今天”的时区、跨零点归属与零点刷新没定，场景断言把零点刷新排除了。
+11. O6 建议：Node 运行没有自动覆盖、SDK 没写 `engines.node`（Vite 8 要 `^20.19.0 || >=22.12.0`）。
+12. O9 建议：非空目录白名单拒绝 `.git`、`.npmrc`。
+13. O13 建议：`--out` 的路径基准与参数错误退出码。
+14. O14 建议：name 缺省值的转换与 Spec 不一致，id 段规则未导出。
+
+## 未发现问题的方面
+
+- 重点 4：`examples/testing/stage.ts` 的浏览器场地内置只有 state、settings、commands、storage（stage.ts:194），没有 `nbook.workbench`，替身拥有 `workbench.views`、`workbench.statusbar-items` 不会与产品撞 id；`src/plugins/workbench/shared/views.ts` 与 `items.ts` 在 Bun 里能直接导入（`/tmp/review-t05-opus/imp.ts` 实测 `validateViewContribution`、`itemValidator` 都是函数；`views.ts` 对 `@vue/reactivity` 只有类型导入）。SDK `browser.ts` 里静态再导出的 `.vue` 在 Bun 里按文件加载器得到路径字符串，场景 06 照常通过（4 pass），所以 focus 的 `web/plugin.ts` 能在场景 07 里导入。真实 `Stage` 起服务端加窗口、不装插件、推进一天，`clock.pending()` 始终为 0（`/tmp/review-t05-opus/pending.ts`），场景 07 的计时器断言只受 focus 自己影响。
+- 重点 5：仓库里的内置插件、六个示例与测试 fixture 没有数字开头的 publisher 或 name（全仓 grep 只有新加的 `2fa` 反例）；已装插件变成清单无效后按 plugin-install 第 116 行以“清单无效”不登记、可以卸载，有恢复路径；当前没有第三方插件。`idPrefix` 经 `definitionOf`（S1 改动）进到三端宿主的定义，内核核对放在 schema 之前，拒绝原因与 schema 同为 `invalid-declaration`。
+- 重点 3 里的机制本身都存在：`RecordHandle.save` 是按 revision 的条件写（`storage.ts:157`），可以支撑 O4 的修法；`hostClockKey.schedule` 是一次性、返回幂等取消函数（`nb-runtime/src/lifecycle/clock.ts:7-8`），`examples/plugins/clock` 已示范经 `context.scope.register` 在停止时取消；浏览器订阅的 `onResync`、`onEnd` 是 `RemoteSubscribeOptions` 的真实字段（`nb-runtime/src/remote/contract.ts:191-196`），只在同一服务端进程、同一项目代次内重连时调用，服务端换进程时窗口整体失效、要刷新，计划“重连后重读”的写法与此一致。
+- 重点 2 里与租约相关的部分：`--dev` 每次都是新版本，不会碰到同版本重装的 `version-in-use`；待切换期间再装另一个 dev 版本按 plugin-install 输出 8.2 取代原待切换版本；已安装比较用字符串相等（`inventory.ts:112`），`+dev` 元数据的两个构建不会被当成同一版本；插件文件地址用内容摘要而非版本（`src/shared/plugin-files.ts:12-18`），`+` 不进 URL。
+- `cli.js` 打包时把 `build-plugin.ts` 末尾的 `import.meta.main` 分支一起打进去会在 Node 24.2+ 与 Bun 下被当成主模块执行，计划已写“换成 bin 入口”，照做即可。
+
+## 数量
+
+阻断 0，重要 7（O1、O2、O3、O4、O5、O7、O10），建议 7（O6、O8、O9、O11、O12、O13、O14）。
+
+## 对待确认清单里 t05 各项的判断
+
+- 第 41 行（完整示例改为专注计时）：同意；它只用 SDK 的公开面，但要真能当“私有存储 + 服务端远程服务”的范本，需要先补 O3、O4、O7。
+- 第 42 行（SDK 只加视图与状态栏贡献点）：同意；改回代价确实低。
+- 第 43 行（命令名 `nbook-plugin`，只生成目录与 tarball）：同意命名与不发布；但“不发布”与 `create` 在空目录写 registry 版本（O5）矛盾，要在这一行的决定里写明本轮的依赖来源。
+- 第 44 行（第三方贡献点不能写 `validate`）：同意；配合 `idPrefix` 后菜单示例的规则都能进清单。“改回只警告”的代价写“低”成立。
+- 另需补登的五项见 O12。
+
+## 补充：审查期间 worktree 里出现的 S2 进行中改动（未提交，只作对照）
+
+审查中途 S1 已提交为 `8a7a6d4d3`，worktree 里多了未提交的 `scripts/plugin-sdk/cli.ts`、`create-plugin.ts`、`template/`。与上面各条的关系（从代码推断，未运行）：
+
+- O1 仍成立：`build-plugin.ts` 新增的 `devVersion` 写成 `${version}-dev.${YYYYMMDDHHmmss}`（预发布、精确到秒；同一秒内两次构建得到同一版本，待切换期间再装会 `already-installed`）。
+- O2 大部分已在实现里解决：`mergePackage` 让 `publisher`、`name`、`version` 用模板的值，`scripts` 与 `devDependencies` 按键合并；name 缺省取已有 `package.json` 的 `name`、再取目录名。剩下的问题：`...existing` 会用 `npm init` 写的 `"type": "commonjs"` 盖掉模板的 `"type": "module"`；已有 `name` 不合 id 段时直接拒绝而不是退回目录名，提示里应说明可用 `--name`。计划与 Spec 第 132 行要按实现的规则改写。
+- O5 仍成立：`template/_package.json` 里 SDK 是 `"^__SDK_VERSION__"`。
+- O9 仍成立：`ALLOWED_EXISTING` 是 `package.json`、四种锁文件与 `node_modules`，不含 `.git`、`.npmrc`、`npm-shrinkwrap.json`。
+- O13 部分解决：用法里写了 `--out` 缺省 `<作者目录>/dist`；`--out` 相对路径的基准与参数错误的退出码仍要看实现与 Spec 是否一致。
+- O14 成立且已出现：`create-plugin.ts:18` 另写了一份 `ID_SEGMENT`。
