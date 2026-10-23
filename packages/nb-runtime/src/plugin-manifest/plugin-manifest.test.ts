@@ -324,6 +324,13 @@ describe("manifestOf：代码定义写成清单", () => {
             const result = build({descriptor, definitions, engines: {neurobook: "^0.1.0"}});
             expect(result.status === "invalid" ? result.problems.map((problem) => problem.path) : [], name).toContain(path);
         }
+    
+        // 两份定义各写一个对象、带着同样的问题：同一条问题只报一次。
+        const unportable = () => ({id: "example.notes.kinds", implementation: "none", schema: Type.Object({label: Type.Refine(Type.String(), (value) => value.length > 0)}), validate: () => null} as const);
+        const twice = build({descriptor, definitions: [{...server, contributionPoints: [unportable()]}, {...browser, contributionPoints: [unportable()]}], engines: {neurobook: "^0.1.0"}});
+        const paths = twice.status === "invalid" ? twice.problems.map((problem) => problem.path) : [];
+        expect(paths.filter((path) => path === "contributionPoints.0")).toHaveLength(1);
+        expect(paths.filter((path) => path.startsWith("contributionPoints.0.schema"))).toHaveLength(1);
     });
 
     it("内置插件的贡献点可以只写 validate：随产品代码装配，不经清单登记", () => {

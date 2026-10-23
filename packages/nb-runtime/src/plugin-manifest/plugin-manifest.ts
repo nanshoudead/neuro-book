@@ -47,6 +47,9 @@ export function isIdSegment(value: string): boolean {
     return ID_SEGMENT.test(value);
 }
 
+/** 内置插件的 publisher：第三方插件不能用它（作者工具生成目录前同样核对）。 */
+export const BUILTIN_PUBLISHER = "nbook";
+
 const NonEmptyString = Type.String({minLength: 1});
 const StringArray = Type.Array(NonEmptyString);
 
@@ -244,7 +247,7 @@ function readManifest(value: unknown, options: ReadManifestOptions): ManifestRea
     if (!options.versions.isVersion(input.version)) add("version", `必须是 semver：${input.version}`);
     if (!options.versions.isRange(input.engines.neurobook)) add("engines.neurobook", `必须是版本范围：${input.engines.neurobook}`);
     const id = `${input.publisher}.${input.name}`;
-    if (id.startsWith("nbook.") && options.builtin !== true) add("publisher", `第三方插件的 id 不能以 nbook. 开头：${id}`);
+    if (input.publisher === BUILTIN_PUBLISHER && options.builtin !== true) add("publisher", `第三方插件的 id 不能以 ${BUILTIN_PUBLISHER}. 开头：${id}`);
 
     const points = new Set<string>();
     for (const [index, point] of (input.contributionPoints ?? []).entries()) {
@@ -597,6 +600,14 @@ export function manifestOf(source: ManifestSource, options: {readonly builtin?: 
     // 每份定义里的贡献点先各自检查，再按 id 聚合：同一个贡献点出现在几个运行位置的定义里时，检查不能只轮到先出现的那一份，
     // 几份也不能按定义的先后取第一份。
     const points = new Map<string, {readonly source: ContributionPointDefinition; readonly json: ManifestContributionPoint; readonly schemaText: string | null}>();
+    // 两份定义里是两个对象、带着同样不可移植的 schema 时，同一条问题只报一次。
+    const reported = new Set<string>();
+    const addOnce = (path: string, message: string): void => {
+        const key = `${path}\n${message}`;
+        if (reported.has(key)) return;
+        reported.add(key);
+        add(path, message);
+    };
     for (const definition of definitions) {
         for (const point of definition.contributionPoints ?? []) {
             const known = points.get(point.id);
@@ -606,9 +617,9 @@ export function manifestOf(source: ManifestSource, options: {readonly builtin?: 
             const index = [...points.keys()].indexOf(point.id);
             const at = `contributionPoints.${String(index === -1 ? points.size : index)}`;
             const portable = point.schema === undefined ? [] : portabilityProblems(point.schema);
-            for (const problem of portable) add(joinPath(`${at}.schema`, problem.path), problem.message);
+            for (const problem of portable) addOnce(joinPath(`${at}.schema`, problem.path), problem.message);
             if (point.validate !== undefined && options.builtin !== true) {
-                add(at, "写了 validate 函数：函数进不了清单，宿主里不会运行；用 schema 与 idPrefix 写声明的规则，跨条目的规则放在接收者里");
+                addOnce(at, "写了 validate 函数：函数进不了清单，宿主里不会运行；用 schema 与 idPrefix 写声明的规则，跨条目的规则放在接收者里");
             }
             // 有问题的 schema 不序列化（清单本来就不会生成）：其中进不了 JSON 的值会让序列化抛错。
             const schemaText = point.schema === undefined || portable.length > 0 ? null : JSON.stringify(point.schema);
