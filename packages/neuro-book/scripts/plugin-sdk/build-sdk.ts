@@ -92,7 +92,7 @@ async function writeAuthorDocs(outDir: string): Promise<void> {
     await writeFile(join(outDir, "README.md"), readme);
     for (const spec of specs) {
         await mkdir(dirname(join(outDir, "specs", spec)), {recursive: true});
-        await cp(join(SPECS_ROOT, spec), join(outDir, "specs", spec));
+        await writeFile(join(outDir, "specs", spec), specCopy(spec, await readFile(join(SPECS_ROOT, spec), "utf8"), specs));
     }
     await mkdir(join(outDir, "docs"), {recursive: true});
     await writeFile(join(outDir, "docs/components.md"), await componentsDoc());
@@ -116,6 +116,21 @@ function packageLink(url: string, specs: Set<string>): string {
     return `specs/${spec.split(sep).join("/")}${hash < 0 ? "" : url.slice(hash)}`;
 }
 
+/**
+ * Spec 副本：指向别的副本的链接不动；指向没有随包的文件的相对链接改成“文字（仓库里的 `路径`）”，作者在包里点到的链接
+ * 都能打开，也知道包外的那份在哪里。副本只随作者文档引用的那几份，不顺着链接把整个 `docs/` 带进包。
+ */
+function specCopy(spec: string, text: string, copied: ReadonlySet<string>): string {
+    const repoRoot = resolve(SPECS_ROOT, "../..");
+    return text.replace(/\[([^\]]*)\]\(([^()\s]+)\)/gu, (link, label: string, url: string) => {
+        if (/^[a-z][a-z0-9+.-]*:/iu.test(url) || url.startsWith("#")) return link;
+        const hash = url.indexOf("#");
+        const target = resolve(dirname(join(SPECS_ROOT, spec)), decodeURIComponent(hash < 0 ? url : url.slice(0, hash)));
+        if (copied.has(relative(SPECS_ROOT, target))) return link;
+        return `${label}（仓库里的 \`${relative(repoRoot, target).split(sep).join("/")}\`）`;
+    });
+}
+
 /** nb-ui 组件目录对应的分组标题。不认识的目录用目录名作标题，新加的目录不会漏掉组件。 */
 const COMPONENT_GROUPS: Readonly<Record<string, string>> = {controls: "控件", form: "表单", display: "展示", feedback: "反馈与浮层", popup: "弹出与菜单", layout: "布局", navigation: "导航"};
 
@@ -131,6 +146,12 @@ async function componentsDoc(): Promise<string> {
         groups.set(directory, [...groups.get(directory) ?? [], match[1]!]);
     }
     if (groups.size === 0) throw new Error("nb-ui 的组件入口里没有找到 `export {default as X} from \"./目录/X.vue\"` 形式的组件导出，组件清单的读法要跟着改");
+    // 换了写法的组件（单引号、跨行、同一行带类型导出、不在子目录）上面的读法认不出来：用宽松的读法再数一遍，对不上就报错，
+    // 免得它从作者的清单里悄悄消失。
+    const strict = new Set([...groups.values()].flat());
+    const loose = [...source.matchAll(/default\s+as\s+(\w+)[^;]*?\.vue["']/gu)].map((match) => match[1]!);
+    const missed = loose.filter((name) => !strict.has(name));
+    if (missed.length > 0) throw new Error(`nb-ui 的组件入口里这些组件的导出写法组件清单认不出来：${missed.join("、")}；改成 \`export {default as X} from "./目录/X.vue";\` 单独一行，或者改组件清单的读法`);
     const order = [...Object.keys(COMPONENT_GROUPS), ...[...groups.keys()].filter((name) => !(name in COMPONENT_GROUPS)).sort()];
     const sections = order.filter((name) => groups.has(name)).map((name) => {
         const items = groups.get(name)!.sort().map((component) => `- \`${component}\``);
@@ -203,6 +224,9 @@ async function tokensDoc(): Promise<string> {
     const list = /nbColorwayVarKeys\s*=\s*\[([\s\S]*?)\]\s*as const/u.exec(contract)?.[1];
     const colors = [...(list ?? "").matchAll(/"(--[a-z0-9-]+)"/gu)].map((match) => match[1]!);
     if (colors.length === 0) throw new Error("nb-ui 的配色合同里没有找到 nbColorwayVarKeys，主题变量清单的读法要跟着改");
+    // 只认逐个写出的双引号字面量；展开、单引号或常量引用会让一部分颜色读不到。
+    const unread = (list ?? "").replace(/\/\/[^\n]*/gu, "").replace(/"--[a-z0-9-]+"/gu, "").replace(/[\s,]/gu, "");
+    if (unread !== "") throw new Error(`nb-ui 的配色合同 nbColorwayVarKeys 里有读不了的写法：${unread.slice(0, 60)}；主题变量清单的读法要跟着改`);
     const design = new Map([...await cssTokens(join(NB_UI_SOURCE, "theme.css")), ...await cssTokens(join(NB_UI_SOURCE, "tokens.css"))]);
     for (const color of colors) design.delete(color);
     if (design.size === 0) throw new Error("nb-ui 的 tokens.css 与 theme.css 里没有找到变量声明");
@@ -292,7 +316,9 @@ export async function buildSdk(outDir: string): Promise<void> {
         },
         peerDependencies: peers,
         // 构建预设用的 Vite 8 要求的 Node 版本。
-        engines: {node: "^20.19.0 || >=22.12.0"},
+        // 构建与生成只要 Vite 要求的版本，但包里的实现（例如插件状态）用了 Node 22 起才有的 `Promise.withResolvers`，
+        // 写测试时会执行到它。
+        engines: {node: ">=22.12.0"},
         dependencies: await dependencyRanges(BUILD_DEPENDENCIES),
     }, null, 4)}\n`);
     await writeAuthorDocs(outDir);

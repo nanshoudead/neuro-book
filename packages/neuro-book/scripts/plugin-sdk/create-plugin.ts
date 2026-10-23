@@ -8,13 +8,16 @@
  * SDK 不发布到 npm：作者先在新目录里 `npm install -D <SDK 的 tarball>`，再在同一个目录运行 `create .`。所以目录里只有
  * `package.json`、锁文件与 `node_modules` 时也可以写，已有的 `package.json` 合并：保留它已有的字段与依赖（SDK 的 `file:` 写法
  * 就在这里），只补缺的。
+ *
+ * 先把每个文件的内容都算好（填占位符、合并 `package.json`）再写；写到一半失败（权限、磁盘满）时删掉这次写下的文件与新建的
+ * 目录、把 `package.json` 写回原样，目录回到运行前的样子，作者修好原因后重跑即可。
  */
 
 import {existsSync} from "node:fs";
-import {mkdir, readdir, readFile, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {basename, dirname, join, relative, resolve} from "node:path";
 
-import {isIdSegment} from "@notnotype/nb-runtime/plugin-manifest";
+import {BUILTIN_PUBLISHER, isIdSegment} from "@notnotype/nb-runtime/plugin-manifest";
 
 /** 清单的 id 段规则（docs/specs/runtime/plugin-manifest.md 的 `publisher`、`name`），写进报错。 */
 const ID_SEGMENT_RULE = "以小写字母开头，只含小写字母、数字与连字符";
@@ -63,12 +66,14 @@ type PackageJson = Record<string, unknown>;
 
 export async function createPlugin(options: CreatePluginOptions): Promise<CreatePluginResult> {
     const directory = resolve(options.directory);
-    const existing = await existingPackage(directory);
+    const existingText = await existingPackage(directory);
+    const existing = existingText === null ? null : parsePackage(directory, existingText);
     const publisher = options.publisher ?? "my";
     const name = options.name ?? (typeof existing?.name === "string" ? existing.name : segmentOf(basename(directory)));
     for (const [field, value] of [["publisher", publisher], ["name", name]] as const) {
         if (!isIdSegment(value)) throw new PluginCreateError(`${field} 不合规：${value}（${ID_SEGMENT_RULE}；插件 id 是 publisher.name，视图与命令的 id 以它开头）；用 --${field} 指定`);
     }
+    if (publisher === BUILTIN_PUBLISHER) throw new PluginCreateError(`publisher 不能是 ${BUILTIN_PUBLISHER}：它留给内置插件；用 --publisher 指定别的`);
     const id = `${publisher}.${name}`;
     const replacements: Readonly<Record<string, string>> = {
         __ID__: id,
@@ -79,7 +84,7 @@ export async function createPlugin(options: CreatePluginOptions): Promise<Create
     };
     const fill = (text: string): string => text.replace(/__(?:ID|PUBLISHER|NAME|DISPLAY_NAME|SDK_VERSION)__/gu, (token) => replacements[token]!);
 
-    const files: string[] = [];
+    const planned: Array<{readonly target: string; readonly content: string}> = [];
     let sdkFromRegistry = false;
     for (const source of await templateFiles(options.templateDir)) {
         const relativePath = relative(options.templateDir, source);
@@ -88,25 +93,73 @@ export async function createPlugin(options: CreatePluginOptions): Promise<Create
         let content = text;
         if (basename(relativePath) === "_package.json") {
             const merged = mergePackage(JSON.parse(text) as PackageJson, existing, options.sdk);
-            sdkFromRegistry = /^[\^~]?\d/u.test(sdkSpecOf(merged) ?? "");
+            sdkFromRegistry = isRegistrySpec(sdkSpecOf(merged));
             content = `${JSON.stringify(merged, null, 4)}\n`;
         }
-        await mkdir(dirname(target), {recursive: true});
-        await writeFile(target, content);
-        files.push(relative(directory, target));
+        planned.push({target, content});
     }
-    return {id, directory, files: files.sort(), sdkFromRegistry};
+    await writeAll(directory, planned, existingText);
+    return {id, directory, files: planned.map(({target}) => relative(directory, target)).sort(), sdkFromRegistry};
 }
 
-/** 目录不存在、为空，或只有刚装完 SDK 会有的东西时返回已有的 `package.json`（没有为 null）；否则拒绝。 */
-async function existingPackage(directory: string): Promise<PackageJson | null> {
+/** 依次写下；失败时撤掉这次写下的（见文件头），再以 `PluginCreateError` 报出原因。 */
+async function writeAll(directory: string, planned: ReadonlyArray<{readonly target: string; readonly content: string}>, existingPackageText: string | null): Promise<void> {
+    const createdDirectories: string[] = [];
+    const written: string[] = [];
+    try {
+        for (const {target, content} of planned) {
+            const created = await mkdir(dirname(target), {recursive: true});
+            if (created !== undefined) createdDirectories.push(created);
+            await writeFile(target, content);
+            written.push(target);
+        }
+    } catch (error) {
+        const leftovers: string[] = [];
+        const undo = async (action: () => Promise<void>, path: string): Promise<void> => {
+            try {
+                await action();
+            } catch {
+                leftovers.push(path);
+            }
+        };
+        for (const target of written.reverse()) {
+            const isPackage = target === join(directory, "package.json");
+            await undo(() => (isPackage && existingPackageText !== null ? writeFile(target, existingPackageText) : rm(target, {force: true})), target);
+        }
+        // `mkdir` 返回它新建的最外层目录；里面只有这次写下的文件，已经删掉了。
+        for (const created of createdDirectories.reverse()) await undo(() => rm(created, {recursive: true, force: true}), created);
+        const reason = error instanceof Error ? error.message : String(error);
+        const rest = leftovers.length === 0 ? "已撤掉这次写下的文件" : `撤不掉这些，要手动删：${leftovers.map((path) => relative(directory, path) || path).join("、")}`;
+        throw new PluginCreateError(`写插件目录失败：${reason}；${rest}`, {cause: error});
+    }
+}
+
+/**
+ * SDK 依赖的写法是不是从 npm 仓库装（SDK 没发布，装不上）：本地路径、`file:`、`link:`、`workspace:`、网址与 git 之外的
+ * 都算，例如 `^0.1.0`、`latest`、`>=0.1.0`。
+ */
+function isRegistrySpec(spec: string | undefined): boolean {
+    if (spec === undefined) return false;
+    return !/^(?:file:|link:|workspace:|portal:|\.{0,2}\/|~\/|[a-z][a-z+.-]*:\/\/|git[+:@]|github:)/u.test(spec);
+}
+
+/** 目录不存在、为空，或只有刚装完 SDK 会有的东西时返回已有的 `package.json` 原文（没有为 null）；否则拒绝。 */
+async function existingPackage(directory: string): Promise<string | null> {
     if (!existsSync(directory)) return null;
     const names = await readdir(directory);
     const others = names.filter((item) => !ALLOWED_EXISTING.has(item));
     if (others.length > 0) throw new PluginCreateError(`目录 ${directory} 里已经有别的文件（${others.slice(0, 5).join("、")}），不写；换一个空目录，或只留 package.json、锁文件与 node_modules`);
     if (!names.includes("package.json")) return null;
     try {
-        const value: unknown = JSON.parse(await readFile(join(directory, "package.json"), "utf8"));
+        return await readFile(join(directory, "package.json"), "utf8");
+    } catch (error) {
+        throw new PluginCreateError(`读不了 ${join(directory, "package.json")}：${error instanceof Error ? error.message : String(error)}`, {cause: error});
+    }
+}
+
+function parsePackage(directory: string, text: string): PackageJson {
+    try {
+        const value: unknown = JSON.parse(text);
         if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("不是 JSON 对象");
         return value as PackageJson;
     } catch (error) {

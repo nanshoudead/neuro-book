@@ -78,8 +78,8 @@ export interface BuildPluginOptions {
     /** 另外不许打进产物的目录。仓库里是应用源码：SDK 的别名指到那里，打进去就是第二份 SDK。 */
     readonly forbiddenDirectories?: ReadonlyArray<string>;
     /**
-     * 写进产物清单的版本，缺省是作者的 `version`。作者工具的 `--dev` 用它给每次构建一个新的预发布版本，在插件页安装时按升级
-     * 处理（docs/specs/runtime/plugin-api.md 的“作者工具”）。
+     * 写进产物清单的版本，缺省是作者的 `version`。作者工具的 `--dev` 用它给每次构建一个带构建元数据的新版本，在插件页
+     * 安装时按升级处理（docs/specs/runtime/plugin-api.md 的“作者工具”）。
      */
     readonly version?: string;
 }

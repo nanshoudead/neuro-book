@@ -2,7 +2,7 @@
 
 `@notnotype/nb-plugin-sdk` 给 NeuroBook 插件的作者用：类型、构建期实现、构建预设与命令 `nbook-plugin`。插件运行时用的是 NeuroBook 自己的那一份（宿主模块表），这个包里的实现只在你构建插件、写测试时执行。
 
-本文讲怎么做。规则细节链接到包里 `specs/` 下的 Spec 副本，它们与这个 SDK 是同一个版本；副本里指向别的文档的链接在包里打不开，要看时去 NeuroBook 仓库的 `docs/` 下找同名文件。两份附表：
+本文讲怎么做。规则细节链接到包里 `specs/` 下的 Spec 副本，它们与这个 SDK 是同一个版本；副本之间的链接在包里能打开；指向没有随包的文档（别的 Spec、架构决策、提案）的链接改成了文字，标出它在 NeuroBook 仓库里的路径。两份附表：
 
 - `docs/components.md`：能用的界面组件；
 - `docs/tokens.md`：写样式能用的主题变量。
@@ -28,7 +28,7 @@ npm install          # 装上 create 补进 package.json 的依赖
 npm run build        # 产物在 dist/
 ```
 
-- 要 Node `^20.19.0` 或 `>=22.12.0`（构建预设用的 Vite 要求），也可以用 Bun。
+- 要 Node `>=22.12.0`，也可以用 Bun。
 - 新目录在一个已有 npm 项目的子目录里时（上级有 `package.json`），先在新目录里 `npm init -y`：没有它，`npm install` 会向上找到那个项目、把 SDK 装进去。
 - `create` 会合并已有的 `package.json`：你写的字段与依赖保留（装 SDK 时写下的 `file:` 路径就在里面），`publisher`、`name`、`version` 与 `type` 用生成的，脚本与开发依赖只补缺的。目录里除了 `package.json`、锁文件、`node_modules`、`.git` 与 `.npmrc` 还有别的文件时，`create` 拒绝、什么也不写。
 - 插件 id 是 `<publisher>.<name>`。`--publisher` 缺省 `my`，发出去的插件请写自己的；`--name` 缺省取 `package.json` 的 `name`，没有时取目录名。两段都要以小写字母开头、只含小写字母、数字与连字符，不合规时 `create` 报错并提示用哪个开关指定。
@@ -78,7 +78,7 @@ hello/
 
 ### 贡献
 
-插件里所有贡献的 id（视图、命令、状态栏条目、设置分区）都以“插件 id 加 `.`”开头，例如 `acme.hello.panel`；每段以字母开头。
+插件里所有贡献的 id（视图、命令、状态栏条目、设置分区）都以“插件 id 加 `.`”开头，例如 `acme.hello.panel`；每段以字母开头。贡献、贡献点（包括自己定义贡献点时的 `schema` 与 `idPrefix`）与激活事件的规则见 [plugins](../../../../docs/specs/runtime/plugins.md)。
 
 - **设置项**：`defineSetting({plugin, name, schema, default, title, layers, applies, section?, group?})`，把 `.contribution` 写进 `plugin.ts` 描述的 `contributions`。读写要在入口的 `dependencies` 里声明 `settingsKey`，激活时 `context.services.require(settingsKey)` 拿到服务：`get(定义)` 读有效值，`inspect` 读各层，`update(定义, 值, {layer})` 写本插件声明的项。规则见 [configuration](../../../../docs/specs/settings/configuration.md)。写法见模板的 `shared/contracts.ts`。
 - **设置分区**：设置窗口左栏的一项。list 分区是写在 `plugin.ts` 描述里的顶层声明 `{capability: SETTINGS_SECTIONS_POINT, id, declaration: {title, icon, category, groups}}`，设置项用 `section`、`group` 归进去，窗口按设置项的 schema 画控件（模板就是这样写的）。值是列表、对象这类通用控件画不了的，改用 page 分区：浏览器入口用 `/browser` 的 `settingsPageContribution` 贡献，自己画页面，每一项用 `SettingsRow` 排。规则见 [settings-window 的“分区声明”](../../../../docs/specs/settings/settings-window.md#分区声明)。
@@ -168,7 +168,7 @@ hello/
 2. 在 NeuroBook 的“设置 → 插件”里点“安装…”，填 `dist` 的完整路径（是服务端那台机器上的路径），确认。开发版本每次都比上一次新，按升级处理，不用改版本号，也不用先卸载。
 3. 重启 NeuroBook，新版本生效。
 
-用 `npm run build` 构建的版本与已安装的相同时，安装会被拒绝（“已安装相同版本”）：提高版本号（`package.json` 与 `plugin.ts` 一起改），或者先卸载、重启后再装。安装、升级、启停与卸载都在下一次启动后生效，规则见 [plugin-install](../../../../docs/specs/runtime/plugin-install.md)。
+开发版本也比同号的正式版本新：装过 `0.1.0+dev.…` 之后再装 `npm run build` 的 `0.1.0`，插件页按降级处理并提示数据迁移的风险。发布前先提高版本号。用 `npm run build` 构建的版本与已安装的相同时，安装会被拒绝（“已安装相同版本”）：提高版本号（`package.json` 与 `plugin.ts` 一起改），或者先卸载、重启后再装。安装、升级、启停与卸载都在下一次启动后生效，规则见 [plugin-install](../../../../docs/specs/runtime/plugin-install.md)。
 
 ## 调试
 

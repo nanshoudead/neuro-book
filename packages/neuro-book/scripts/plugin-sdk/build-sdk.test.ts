@@ -1,7 +1,7 @@
 /**
  * 生成的 SDK 包能在仓库外使用（docs/specs/runtime/plugin-api.md 的“SDK”）：装进一个只有 vue、typebox、TypeScript 与
  * vue-tsc 的作者项目，普通 tsconfig 下类型检查通过（不跳过库文件，含单文件组件里用的 SDK 组件），构建预设的类型也能用，
- * 构建期实现能执行；类型导出的名字钉住，增删要改这里。作者文档、附表与它引用的 Spec 随包，链接在包里都打得开。
+ * 构建期实现能执行；类型导出的名字钉住，增删要改这里。作者文档、附表与它引用的 Spec 随包，包里 Markdown 的相对链接都打得开。
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
@@ -153,7 +153,7 @@ describe("生成的 SDK 包", () => {
         expect(await readdir(join(tmp, "sdk"))).not.toContain("stale.js");
     });
 
-    it("带作者文档、组件与主题变量两份附表和作者文档引用的 Spec；README 的相对链接都能在包里打开", async () => {
+    it("带作者文档、组件与主题变量两份附表和作者文档引用的 Spec；包里 Markdown 的相对链接都能打开，指向包外的改成文字", async () => {
         const sdk = join(tmp, "sdk");
         expect(await readFile(join(sdk, "docs/components.md"), "utf8")).toContain("`Button`");
         const tokens = await readFile(join(sdk, "docs/tokens.md"), "utf8");
@@ -169,6 +169,18 @@ describe("生成的 SDK 包", () => {
         const links = relativeLinks(await readFile(join(sdk, "README.md"), "utf8"));
         expect(links.length).toBe(relativeLinks(await readFile(sourceReadme, "utf8")).length);
         expect(links.filter((url) => relative(sdk, resolve(sdk, url)).startsWith("..") || !existsSync(resolve(sdk, url)))).toEqual([]);
+        // Spec 副本里指向没随包的文档的链接改成文字：包里的链接都打得开，包外的那份写明在仓库里的路径。
+        const broken: string[] = [];
+        for (const file of await readdir(join(sdk, "specs"), {recursive: true})) {
+            if (!file.endsWith(".md")) continue;
+            const text = await readFile(join(sdk, "specs", file), "utf8");
+            for (const url of relativeLinks(text)) {
+                const target = resolve(dirname(join(sdk, "specs", file)), url);
+                if (relative(sdk, target).startsWith("..") || !existsSync(target)) broken.push(`${file} → ${url}`);
+            }
+        }
+        expect(broken).toEqual([]);
+        expect(await readFile(join(sdk, "specs/runtime/plugin-api.md"), "utf8")).toContain("（仓库里的 `docs/adr/");
     });
 
     it("输出目录不是空的、也不是上次生成的 SDK 包：拒绝，不删里面的文件", async () => {

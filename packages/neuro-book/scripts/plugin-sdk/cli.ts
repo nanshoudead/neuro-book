@@ -100,6 +100,11 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
             console.error(USAGE);
             return 2;
         }
+        // 文件系统的错误（读不了目录、没有权限、磁盘满）：给一行原因，不打栈。
+        if (error instanceof Error && typeof (error as NodeJS.ErrnoException).syscall === "string") {
+            console.error(error.message);
+            return 1;
+        }
         throw error;
     }
 }

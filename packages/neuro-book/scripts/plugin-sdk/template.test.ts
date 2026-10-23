@@ -6,7 +6,7 @@
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 
-import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {chmod, mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {readPluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
@@ -95,7 +95,7 @@ describe("nbook-plugin", () => {
         expect(await readdir(other)).toEqual(["notes.txt"]);
     }, 120_000);
 
-    it("create 拒绝：目录里已有别的文件（一个文件都不写）、名字以数字开头（写明规则）；用法不对退出码 2", async () => {
+    it("create 拒绝：目录里已有别的文件（一个文件都不写）、名字以数字开头（写明规则）、publisher 是 nbook；写到一半失败时目录回到原样；用法不对退出码 2", async () => {
         const busy = await authorDirectoryNamed("busy");
         await writeFile(join(busy, "index.ts"), "export {};\n");
         const refused = cli(busy, "create", ".");
@@ -107,6 +107,25 @@ describe("nbook-plugin", () => {
         expect(digits.code).toBe(1);
         expect(digits.stderr).toContain("以小写字母开头");
         expect(await readdir(tmp)).not.toContain("2048-timer");
+
+        const builtin = cli(busy, "create", join(tmp, "reserved"), "--publisher", "nbook");
+        expect(builtin.code).toBe(1);
+        expect(builtin.stderr).toContain("publisher 不能是 nbook");
+        expect(await readdir(tmp)).not.toContain("reserved");
+
+        // package.json 只读：写到它时失败。之前写下的文件与目录撤掉，package.json 原样，报一行原因、不打栈。
+        const locked = await authorDirectoryNamed("locked");
+        const before = await readFile(join(locked, "package.json"), "utf8");
+        await chmod(join(locked, "package.json"), 0o444);
+        const failed = cli(locked, "create", ".");
+        await chmod(join(locked, "package.json"), 0o644);
+        expect(failed.code).toBe(1);
+        expect(failed.stderr).toContain("写插件目录失败");
+        expect(failed.stderr).toContain("已撤掉这次写下的文件");
+        expect(failed.stderr).not.toContain("    at ");
+        expect((await readdir(locked)).sort()).toEqual(["node_modules", "package.json"]);
+        expect(await readFile(join(locked, "package.json"), "utf8")).toBe(before);
+        expect(cli(locked, "create", ".").code).toBe(0);
 
         expect(cli(busy, "create").code).toBe(2);
         expect(cli(busy, "publish").code).toBe(2);
@@ -120,6 +139,7 @@ describe("nbook-plugin", () => {
         const pinned = cli(runner, "create", join(tmp, "pinned"), "--sdk", "file:/opt/nb-plugin-sdk-0.1.0.tgz");
         expect(pinned.code).toBe(0);
         expect(pinned.stderr).toBe("");
+        expect(cli(runner, "create", join(tmp, "latest"), "--sdk", "latest").stderr).toContain("SDK 还没有发布");
         expect((JSON.parse(await readFile(join(tmp, "pinned/package.json"), "utf8")) as {devDependencies: Record<string, string>}).devDependencies["@notnotype/nb-plugin-sdk"]).toBe("file:/opt/nb-plugin-sdk-0.1.0.tgz");
     }, 120_000);
 
