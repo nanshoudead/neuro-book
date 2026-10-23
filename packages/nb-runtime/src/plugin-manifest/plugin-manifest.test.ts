@@ -123,6 +123,11 @@ describe("readPluginManifest", () => {
         expect(() => definitionOf(manifest, "server")).toThrow("没有提供合同映射");
     });
 
+    it("样式表路径原样保留，没写为 null", () => {
+        expect(manifestOf({...base, style: "dist/style.css"}).style).toBe("dist/style.css");
+        expect(manifestOf(base).style).toBeNull();
+    });
+
     it("贡献点带 schema 时映射进定义；插件版本与版本要求也进定义", () => {
         const manifest = manifestOf({
             ...base,
@@ -199,6 +204,7 @@ describe("readPluginManifest", () => {
         ["合同缺字段", {...base, contracts: {"example.notes/index": {id: "example.notes/index", version: 1}}}, "contracts.example.notes.index"],
         ["合同的入参不是严格对象", {...base, contracts: {"example.notes/index": {...indexContractJson, methods: {list: {...indexContractJson.methods.list, input: {type: "object"}}}}}}, "contracts.example.notes/index"],
         ["合同 schema 的 type 不是 JSON 类型", {...base, contracts: {"example.notes/index": {...indexContractJson, methods: {list: {...indexContractJson.methods.list, output: {type: "nonsense"}}}}}}, "contracts.example.notes/index.methods.list.output"],
+        ["样式越出插件目录", {...base, style: "../style.css"}, "style"],
         ["合同 schema 里有坏的正则", {...base, contracts: {"example.notes/index": {...indexContractJson, methods: {list: {...indexContractJson.methods.list, output: {type: "string", pattern: "("}}}}}}, "contracts.example.notes/index.methods.list.output"],
     ];
 

@@ -93,6 +93,8 @@ const ManifestSchema = Type.Object({
     contributionPoints: Type.Optional(Type.Array(ContributionPointSchema)),
     activationEventPrefixes: Type.Optional(StringArray),
     pluginVersions: Type.Optional(Type.Record(Type.String(), NonEmptyString)),
+    /** 浏览器要加载的样式表，相对插件目录，规则同入口的 `main`（runtime/plugin-code-loading.md 的样式）。 */
+    style: Type.Optional(NonEmptyString),
     /** 入口的 `remoteProvides`、`remoteDelegates` 引用的合同，键是合同 id；`nbook.` 开头的内置合同由宿主提供，不写在这里。 */
     contracts: Type.Optional(Type.Record(Type.String(), ContractSchema)),
 });
@@ -145,6 +147,8 @@ export interface PluginManifest {
     readonly activationEventPrefixes: ReadonlyArray<string>;
     readonly pluginVersions: Readonly<Record<string, string>>;
     readonly contracts: Readonly<Record<string, ManifestContract>>;
+    /** 浏览器要加载的样式表，相对插件目录；没有为 null。 */
+    readonly style: string | null;
 }
 
 export interface ManifestProblem {
@@ -271,10 +275,7 @@ export function readPluginManifest(value: unknown, options: ReadManifestOptions)
             continue;
         }
         const main = raw.main;
-        const segments = main.split("/");
-        if (main.startsWith("/") || main.includes("\\") || main.includes("\0") || segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
-            add(`${at}.main`, `必须是相对插件目录、不含 .. 的路径：${main}`);
-        }
+        if (!isInsidePath(main)) add(`${at}.main`, `必须是相对插件目录、不含 .. 的路径：${main}`);
         const provides = readList(raw.provides);
         for (const serviceId of new Set(provides)) {
             if (!serviceId.startsWith(`${id}/`)) add(`${at}.provides`, `服务 id 必须以 ${id}/ 开头：${serviceId}`);
@@ -310,6 +311,8 @@ export function readPluginManifest(value: unknown, options: ReadManifestOptions)
         });
     }
 
+    if (input.style !== undefined && !isInsidePath(input.style)) add("style", `必须是相对插件目录、不含 .. 的路径：${input.style}`);
+
     if (problems.length > 0) return {status: "invalid", problems: problems.sort(byPath)};
 
     const locations: string[] = [];
@@ -332,8 +335,14 @@ export function readPluginManifest(value: unknown, options: ReadManifestOptions)
             activationEventPrefixes: readList(input.activationEventPrefixes),
             pluginVersions: {...input.pluginVersions},
             contracts: {...contracts},
+            style: input.style ?? null,
         },
     };
+}
+
+/** 相对插件目录、不越出它的路径：不以 `/` 开头，不含反斜杠、NUL、空段、`.` 与 `..`。 */
+function isInsidePath(path: string): boolean {
+    return !path.startsWith("/") && !path.includes("\\") && !path.includes("\0") && path.split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..");
 }
 
 function joinPath(base: string, inner: string): string {
@@ -438,6 +447,8 @@ export interface ManifestSource {
     readonly pluginVersions?: Readonly<Record<string, string>>;
     /** 入口的代码文件；缺省 `<入口 id>.js`。 */
     readonly mainOf?: (entry: PluginEntryDefinition) => string;
+    /** 浏览器要加载的样式表；没有样式时不写。 */
+    readonly style?: string;
 }
 
 export type ManifestBuildResult =
@@ -571,6 +582,7 @@ export function manifestOf(source: ManifestSource, options: {readonly builtin?: 
             activationEventPrefixes: [...new Set(definitions.flatMap((definition) => definition.activationEventPrefixes ?? []))],
             ...(source.pluginVersions === undefined || Object.keys(source.pluginVersions).length === 0 ? {} : {pluginVersions: {...source.pluginVersions}}),
             ...(contracts.size === 0 ? {} : {contracts: Object.fromEntries([...contracts.values()].map(({contract}) => [contract.id, contractJson(contract)]))}),
+            ...(source.style === undefined ? {} : {style: source.style}),
         },
     };
 }

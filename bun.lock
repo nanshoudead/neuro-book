@@ -468,6 +468,7 @@
         "@iconify-json/catppuccin": "^1.2.17",
         "@iconify-json/lucide": "^1.2.95",
         "@iconify/tailwind4": "^1.2.3",
+        "@iconify/utils": "3.1.4",
         "@notnotype/nb-agent-ui": "workspace:*",
         "@notnotype/nb-ui": "workspace:*",
         "@notnotype/neuro-book-test-support": "workspace:*",

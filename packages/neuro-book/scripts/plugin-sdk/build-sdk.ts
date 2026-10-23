@@ -6,7 +6,8 @@
  * - `index.d.ts`、`browser.d.ts`：打平的类型，不含应用内部的 `nbook/*` 别名，只引用 `vue`、`@vue/reactivity` 与
  *   `typebox`。内核与 nb-form 的子路径映射到源码，类型才会被打进来：经 `node_modules` 解析到的工作区包被 TypeScript
  *   当作外部库，不生成声明。
- * - `package.json`：版本取产品版本；`vue`、`typebox` 是 peer 依赖。
+ * - `build.js`：构建预设（`build-plugin.ts`），在 Node 或 Bun 里运行；Vite、单文件组件编译与图标数据是它的依赖。
+ * - `package.json`：版本取产品版本；`vue`、`typebox` 是 peer 依赖，构建预设的工具是普通依赖。
  *
  * 用法：`bun run build:sdk [输出目录]`，缺省输出到 `dist/plugin-sdk/`。
  */
@@ -37,14 +38,16 @@ function typePaths(): Record<string, string[]> {
     return paths;
 }
 
-async function peerRanges(): Promise<{readonly vue: string; readonly typebox: string}> {
+/** 构建预设在作者机器上运行时要的包；版本跟应用自己用的一致。 */
+const BUILD_DEPENDENCIES = ["vite", "@vitejs/plugin-vue", "@iconify/utils", "@iconify-json/lucide", "semver"];
+
+async function dependencyRanges(names: ReadonlyArray<string>): Promise<Record<string, string>> {
     const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as {dependencies: Record<string, string>; devDependencies: Record<string, string>};
-    const range = (name: string): string => {
+    return Object.fromEntries(names.map((name) => {
         const value = manifest.dependencies[name] ?? manifest.devDependencies[name];
         if (value === undefined) throw new Error(`应用的 package.json 里没有 ${name}`);
-        return value;
-    };
-    return {vue: range("vue"), typebox: range("typebox")};
+        return [name, value];
+    }));
 }
 
 export async function buildSdk(outDir: string): Promise<void> {
@@ -74,7 +77,17 @@ export async function buildSdk(outDir: string): Promise<void> {
         // 生成声明本来就慢（vue-tsc），不报插件耗时。
         checks: {pluginTimings: false},
     });
-    const peers = await peerRanges();
+    // 构建预设：Node 工具，打进内核的清单与应用的版本工具；Vite 与编译器、图标数据留作依赖。
+    await rolldown({
+        cwd: packageRoot,
+        input: {build: join(packageRoot, "scripts/plugin-sdk/build-plugin.ts")},
+        platform: "node",
+        external: [...PEERS, ...BUILD_DEPENDENCIES.map((name) => new RegExp(`^${name.replace("/", "\\/")}($|/)`, "u"))],
+        resolve: {alias: {nbook: join(packageRoot, "src")}},
+        output: {dir: outDir, format: "es", entryFileNames: "[name].js"},
+        checks: {pluginTimings: false},
+    });
+    const peers = await dependencyRanges(["vue", "typebox"]);
     await writeFile(join(outDir, "package.json"), `${JSON.stringify({
         name: "@notnotype/nb-plugin-sdk",
         version: PRODUCT_VERSION,
@@ -83,8 +96,10 @@ export async function buildSdk(outDir: string): Promise<void> {
         exports: {
             ".": {types: "./index.d.ts", import: "./index.js"},
             "./browser": {types: "./browser.d.ts", import: "./browser.js"},
+            "./build": {import: "./build.js"},
         },
-        peerDependencies: {vue: peers.vue, typebox: peers.typebox},
+        peerDependencies: peers,
+        dependencies: await dependencyRanges(BUILD_DEPENDENCIES),
     }, null, 4)}\n`);
 }
 

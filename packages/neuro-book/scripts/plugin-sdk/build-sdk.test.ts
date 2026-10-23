@@ -9,7 +9,10 @@ import {cp, mkdir, readFile, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
+import {readPluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+
+import {npmVersions} from "../../src/shared/versions";
 
 import {buildSdk} from "./build-sdk";
 
@@ -17,28 +20,33 @@ const repoModules = fileURLToPath(new URL("../../../../node_modules/", import.me
 let tmp = "";
 let project = "";
 
-/** 作者的插件源码：两端的入口、设置项、page 分区与宿主能力都从 SDK 取。 */
-const AUTHOR_SOURCE = `import {defineEntry, defineSetting, defineStore, hostClockKey, SETTINGS_PAGES_POINT, settingsKey} from "@notnotype/nb-plugin-sdk";
-import type {PluginDefinition, PluginDescriptor} from "@notnotype/nb-plugin-sdk";
-import {settingsPageContribution} from "@notnotype/nb-plugin-sdk/browser";
+/** 作者的插件源码：两端的入口、设置项、page 分区与宿主能力都从 SDK 取；服务端与浏览器的入口分模块写（服务端产物不能带浏览器的 SDK）。 */
+const AUTHOR_SOURCES: Readonly<Record<string, string>> = {
+    "src/shared.ts": `import {defineSetting} from "@notnotype/nb-plugin-sdk";
+import type {PluginDescriptor} from "@notnotype/nb-plugin-sdk";
 import {Type} from "typebox";
 
 export const greeting = defineSetting({plugin: "acme.hello", name: "greeting", schema: Type.String(), default: "hi", title: {"zh-CN": "问候", "en-US": "Greeting"}, layers: ["user"], applies: "now"});
 export const descriptor: PluginDescriptor = {id: "acme.hello", version: "1.0.0", locations: ["server", "browser"], contributions: [greeting.contribution]};
-const page = settingsPageContribution({id: "acme.hello.main", declaration: {title: {"zh-CN": "你好", "en-US": "Hello"}, category: "plugins", icon: "i-lucide-smile"}, load: async () => ({default: {}})});
+`,
+    "src/backend.ts": `import {defineEntry, defineStore, hostClockKey} from "@notnotype/nb-plugin-sdk";
+import type {PluginDefinition} from "@notnotype/nb-plugin-sdk";
+
 export const counter = defineStore("counter", () => ({state: {count: 0}, actions: {}}));
-export const plugin: PluginDefinition = {
-    id: "acme.hello",
-    entries: [
-        defineEntry({id: "server", location: "server", dependencies: [{key: hostClockKey}], activate: (context) => {
-            const now: number = context.services.require(hostClockKey).now();
-            void now;
-            return {};
-        }}),
-        defineEntry({id: "browser", location: "browser", activationEvents: [page.activationEvent], dependencies: [{key: settingsKey}], contributions: [page.contribution], activate: () => ({contributions: {[SETTINGS_PAGES_POINT]: {[page.id]: page.implementation()}}})}),
-    ],
+export const server: PluginDefinition = {id: "acme.hello", entries: [defineEntry({id: "server", location: "server", dependencies: [{key: hostClockKey}], activate: (context) => {
+    const now: number = context.services.require(hostClockKey).now();
+    void now;
+    return {};
+}})]};
+`,
+    "src/web.ts": `import {defineEntry, SETTINGS_PAGES_POINT, settingsKey} from "@notnotype/nb-plugin-sdk";
+import type {PluginDefinition} from "@notnotype/nb-plugin-sdk";
+import {settingsPageContribution} from "@notnotype/nb-plugin-sdk/browser";
+
+const page = settingsPageContribution({id: "acme.hello.main", declaration: {title: {"zh-CN": "你好", "en-US": "Hello"}, category: "plugins", icon: "i-lucide-smile"}, load: async () => ({default: {}})});
+export const browser: PluginDefinition = {id: "acme.hello", entries: [defineEntry({id: "browser", location: "browser", activationEvents: [page.activationEvent], dependencies: [{key: settingsKey}], contributions: [page.contribution], activate: () => ({contributions: {[SETTINGS_PAGES_POINT]: {[page.id]: page.implementation()}}})})]};
+`,
 };
-`;
 
 /** `.d.ts` 末尾 `export {…}` 里导出的名字（`a as b` 取 b，去掉 `type`）。 */
 function declaredExports(text: string): string[] {
@@ -55,13 +63,20 @@ beforeAll(async () => {
     await mkdir(join(project, "node_modules/@vue"), {recursive: true});
     await mkdir(join(project, "src"), {recursive: true});
     await cp(join(tmp, "sdk"), sdk, {recursive: true});
-    // 作者项目自己装的包：peer 依赖与 TypeScript。直接链到仓库里同一份，不联网安装。
-    for (const name of ["vue", "typebox", "typescript", "csstype"]) await symlink(join(repoModules, name), join(project, "node_modules", name));
+    // 作者项目自己装的包：peer 依赖、TypeScript 与构建预设的依赖。直接链到仓库里同一份，不联网安装。
+    await mkdir(join(project, "node_modules/@vitejs"), {recursive: true});
+    await mkdir(join(project, "node_modules/@iconify"), {recursive: true});
+    await mkdir(join(project, "node_modules/@iconify-json"), {recursive: true});
+    for (const name of ["vue", "typebox", "typescript", "csstype", "vite", "semver", "@vitejs/plugin-vue", "@iconify/utils", "@iconify-json/lucide"]) {
+        await symlink(join(repoModules, name), join(project, "node_modules", name));
+    }
     for (const name of ["reactivity", "runtime-core", "runtime-dom", "shared", "compiler-dom", "compiler-core", "compiler-sfc", "compiler-ssr", "server-renderer"]) {
         await symlink(join(repoModules, "@vue", name), join(project, "node_modules/@vue", name));
     }
     await writeFile(join(project, "tsconfig.json"), JSON.stringify({compilerOptions: {target: "ES2022", module: "ESNext", moduleResolution: "bundler", strict: true, noEmit: true, skipLibCheck: false, lib: ["ESNext", "DOM"]}, include: ["src"]}));
-    await writeFile(join(project, "src/plugin.ts"), AUTHOR_SOURCE);
+    for (const [path, text] of Object.entries(AUTHOR_SOURCES)) await writeFile(join(project, path), text);
+    await writeFile(join(project, "package.json"), JSON.stringify({publisher: "acme", name: "hello", version: "1.0.0", type: "module", nbook: {definitions: ["src/backend.ts", "src/web.ts"]}}));
+    await writeFile(join(project, "plugin.ts"), `export {descriptor} from "./src/shared";\n`);
 }, 120_000);
 
 afterAll(async () => {
@@ -109,4 +124,18 @@ describe("生成的 SDK 包", () => {
             "settingsPageContribution",
         ].sort());
     });
+
+    it("仓库外用生成的包里的构建预设构建插件：清单合格，产物只引用宿主共享的模块", async () => {
+        const {buildPlugin} = await import(join(project, "node_modules/@notnotype/nb-plugin-sdk/build.js")) as typeof import("./build-plugin");
+        const out = join(tmp, "hello-dist");
+        const result = await buildPlugin({root: project, outDir: out});
+        expect(result.files).toEqual(["browser.js", "browser.js.map", "package.json", "server.js", "server.js.map", "style.css"]);
+        const manifest = readPluginManifest(JSON.parse(await readFile(join(out, "package.json"), "utf8")), {versions: npmVersions});
+        if (manifest.status !== "valid") throw new Error(JSON.stringify(manifest.problems));
+        expect(manifest.manifest.entries.map((entry) => entry.id)).toEqual(["server", "browser"]);
+        expect(manifest.manifest.contributes.map((item) => item.id)).toEqual(["acme.hello/greeting"]);
+        const browser = await readFile(join(out, "browser.js"), "utf8");
+        expect([...new Set([...browser.matchAll(/require\("([^"]+)"\)/gu)].map((match) => match[1]))].sort()).toEqual(["@notnotype/nb-plugin-sdk", "@notnotype/nb-plugin-sdk/browser"]);
+    }, 120_000);
 });
+
