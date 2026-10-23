@@ -123,8 +123,8 @@ Smoke：场景 1 由 `web/components/late-dialect.dom.test.ts` 运行（真实�
 
 ## 实现合同
 
-- 公开入口：`nbook/plugins/markdown/shared/contracts` 的两个贡献点 id、声明的校验、`dialectTable`、`countWords` 与服务键 `markdownKey`；浏览器一侧 `web/contracts.ts` 的 `MarkdownSyntax` 类型。
-- owner 与依赖方向：`nbook.markdown` 拥有两个贡献点、方言目录与语言。编辑器区经 `markdownKey` 拿 Markdown 控件，书架统计只用 `shared/` 的纯函数与声明表，都不依赖语言与编解码器。插件定义与贡献的接收不碰 DOM 与编辑内核（服务端的类型检查不带 DOM）；语言只在组件一侧组成。
+- 公开入口：`nbook/plugins/markdown/shared/contracts` 的两个贡献点 id、声明的校验、`dialectTable`、`countWords` 与服务键 `markdownKey`；浏览器一侧 `web/contracts.ts` 的 `MarkdownSyntax` 类型（它是 nb-markdown 的 `@notnotype/nb-markdown/language/types`，语言、内置语法模块与编解码器也在 nb-markdown）。
+- owner 与依赖方向：`nbook.markdown` 拥有两个贡献点、方言目录与组语言（`language-registry.ts` 用 nb-markdown 的 `createMarkdownLanguage`、内置语法模块与保留名字）。编辑器区经 `markdownKey` 拿 Markdown 控件，书架统计只用 `shared/` 的纯函数与声明表，都不依赖语言与编解码器。插件定义与贡献的接收不碰 DOM 与编辑内核（服务端的类型检查不带 DOM）；语言只在组件一侧组成。
 - 不变量：
   - 撞名按组合扩展展开后的名字、原样语法的写法与语法模块名比较；按名字判不出、组成语言仍出错时外来方言都不生效，语言照常用内置方言组成（`syntaxes.test.ts` 的输出 4 两例）；
   - 生效的方言集合没变时不换数组，组成的语言还是同一份（`syntaxes.test.ts` 输出 6、7 的第二例）；

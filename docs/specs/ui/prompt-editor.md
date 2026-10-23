@@ -4,18 +4,18 @@ kind: behavior
 status: implemented
 capability: ui.prompt-editor
 owners:
-  - nbook.markdown
+  - packages/nb-markdown
 ---
 
 # 写给 Agent 的编辑组件
 
 ## 目标与非目标
 
-`PromptEditor` 是写给 Agent 的一段话的编辑组件：Agent 输入框与历史消息的就地编辑共用它；`PromptTextView` 用同一套写法静态显示已发送的消息。正文不做格式，但几类内容有专门的样子：引用、技能、命令显示为小块；图片与文件进上方的附件条，正文在插入处留 `#N` 小块；大段粘贴按大小折叠成粘贴块或转为文件附件。另有触发菜单与输入历史。两个组件经 `nbook.markdown` 的服务 `markdownKey` 交出。
+`PromptEditor` 是写给 Agent 的一段话的编辑组件：Agent 输入框与历史消息的就地编辑共用它；`PromptTextView` 用同一套写法静态显示已发送的消息。正文不做格式，但几类内容有专门的样子：引用、技能、命令显示为小块；图片与文件进上方的附件条，正文在插入处留 `#N` 小块；大段粘贴按大小折叠成粘贴块或转为文件附件。另有触发菜单与输入历史。两个组件是 nb-markdown 包的组件；neuro-book 经 `nbook.markdown` 的服务 `markdownKey` 交出，给的是作品文件的目标分类与文件图标。
 
 **文字是唯一真相**：组件对外只交出一段文字，特殊内容都按“文字写法”写在文字里；读进来的文字原样写回，一个字符都不变。
 
-属性、事件、布局与各状态的样子是组件合同，见组件文档 [`PromptEditor.md`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/PromptEditor.md) 与 [`PromptTextView.md`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/PromptTextView.md)。
+属性、事件、布局与各状态的样子是组件合同，见组件文档 [`PromptEditor.md`](../../../packages/nb-markdown/src/prompt/PromptEditor.md) 与 [`PromptTextView.md`](../../../packages/nb-markdown/src/prompt/PromptTextView.md)。
 
 不承诺：
 
@@ -28,7 +28,7 @@ owners:
 ## 术语与参与者
 
 - **宿主**：挂上组件的界面（以后的 Agent 输入框；本轮是 Lab 场景）。
-- **小块**：与正文同一行高、不可拆的行内块，外观是 [`InlineChip`](../../../packages/neuro-book/src/plugins/markdown/web/components/InlineChip.md)。
+- **小块**：与正文同一行高、不可拆的行内块，外观是 [`InlineChip`](../../../packages/nb-markdown/src/chip/InlineChip.md)。
 - **草稿**：宿主给的 `{text, version}`；版本号变了才读入。
 
 ## 输入与前置条件
@@ -106,12 +106,12 @@ owners:
 4. Given `@` 菜单列出作品里的 `设定/林雪.md`，When 确认，Then 文字是 `[林雪](/设定/林雪.md)`，显示为引用小块。
 5. Given 界面语言从中文换成英文，When 组件挂着，Then 粘贴块与附件条的按钮文字换成英文，正文与撤销历史不变。
 
-Smoke：`packages/neuro-book/src/plugins/markdown/web/components/prompt/` 下的 `prompt-text.test.ts`、`prompt-editor-extensions.dom.test.ts`、`PromptEditor.dom.test.ts`、`PromptTextView.dom.test.ts` 运行场景 1–5 与各输出条目；Lab 场景 `PromptEditor` 另在本机 Chrome 上由 `packages/neuro-book/e2e/lab-markdown.e2e.ts` 运行真实按键与粘贴的一组。
+Smoke：`packages/nb-markdown/src/prompt/` 下的 `prompt-text.test.ts`、`prompt-editor-extensions.dom.test.ts`、`PromptEditor.dom.test.ts`、`PromptTextView.dom.test.ts` 运行场景 1–5 与各输出条目；Lab 场景 `PromptEditor` 另在本机 Chrome 上由 `packages/neuro-book/e2e/lab-markdown.e2e.ts` 运行真实按键与粘贴的一组。
 
 ## 实现合同
 
-- 公开入口：服务 `markdownKey` 交出的 `components.PromptEditor` 与 `components.PromptTextView`，属性、事件与命令面见组件文档；宿主拼 `@` 菜单的插入文字用 `promptReferenceText`。
-- owner 与依赖方向：`nbook.markdown` 拥有。小块的外观用 `InlineChip`，引用的目标分类与 Markdown 编辑器、展示器共用（[workspace.markdown-dialect](../workspace/markdown-dialect.md) 输出 27）；链接的词法与编解码器写地址的函数共用一份。不用方言与语言，不依赖编辑器区。
+- 公开入口：`@notnotype/nb-markdown/prompt` 的 `PromptEditor` 与 `PromptTextView`，属性、事件与命令面见组件文档；引用小块的目标分类与文件图标来自祖先提供的宿主（`@notnotype/nb-markdown/host`），不提供时只认外部链接。宿主拼 `@` 菜单的插入文字用 `promptReferenceText(名称, 地址, 目标分类)`，文件地址按宿主的 `encodeFile` 编码。neuro-book 里是服务 `markdownKey` 交出的 `components.PromptEditor` 与 `components.PromptTextView`。
+- owner 与依赖方向：nb-markdown 拥有。小块的外观用 `InlineChip`，引用的目标分类来自宿主，与 Markdown 编辑器、展示器用同一份（[workspace.markdown-dialect](../workspace/markdown-dialect.md) 输出 27）；链接的词法与编解码器写地址的函数共用一份。不用方言与语言，不依赖编辑器区。
 - 不变量：
   - 读入的文字不编辑写回逐字符相同（`prompt-text.test.ts` 的读入与写回一组、`PromptEditor.dom.test.ts` 的场景 1）；
   - 识别的先后：命令与粘贴块先找出并遮住，再找选区与链接，重叠时起点早的胜；跨行的、代码片段与围栏代码块里的写法都是文字（`prompt-text.test.ts` 的链接与代码一组）；
@@ -121,6 +121,6 @@ Smoke：`packages/neuro-book/src/plugins/markdown/web/components/prompt/` 下的
 ## 证据
 
 - 批准依据：开发者 2026-10-16 的决定，记录在主工作区 master 的 `.agents/works/w00025-editor/tasks/t07-markdown-plugins/README.md`（“开发者的决定”2、4、6）与同目录的 `plan.md`；行为来自 w00019 t07 经开发者 2026-09-30 逐条确认的 `PromptEditor` 需求（分支 `archive/legacy-ui-tuning`，提交 `865c9f593`）。
-- 实现入口：[`PromptEditor.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/PromptEditor.vue)、[`PromptTextView.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/PromptTextView.vue)、[`prompt-text.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/prompt-text.ts)（文字写法的读写）、[`prompt-selection.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/prompt-selection.ts)（选区写法）、[`prompt-editor-extensions.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/prompt-editor-extensions.ts)（节点、按键与菜单）、[`shared/link-syntax.ts`](../../../packages/neuro-book/src/plugins/markdown/shared/link-syntax.ts)（链接的词法）
-- 合同测试：[`prompt-text.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/prompt-text.test.ts)、[`prompt-editor-extensions.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/prompt-editor-extensions.dom.test.ts)、[`PromptEditor.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/PromptEditor.dom.test.ts)（场景 1–5）、[`PromptTextView.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/PromptTextView.dom.test.ts)（输出 14）
+- 实现入口：[`PromptEditor.vue`](../../../packages/nb-markdown/src/prompt/PromptEditor.vue)、[`PromptTextView.vue`](../../../packages/nb-markdown/src/prompt/PromptTextView.vue)、[`prompt-text.ts`](../../../packages/nb-markdown/src/prompt/prompt-text.ts)（文字写法的读写）、[`prompt-selection.ts`](../../../packages/nb-markdown/src/prompt/prompt-selection.ts)（选区写法）、[`prompt-editor-extensions.ts`](../../../packages/nb-markdown/src/prompt/prompt-editor-extensions.ts)（节点、按键与菜单）、[nb-markdown 的 `link-syntax.ts`](../../../packages/nb-markdown/src/link-syntax.ts)（链接的词法）
+- 合同测试：[`prompt-text.test.ts`](../../../packages/nb-markdown/src/prompt/prompt-text.test.ts)、[`prompt-editor-extensions.dom.test.ts`](../../../packages/nb-markdown/src/prompt/prompt-editor-extensions.dom.test.ts)、[`PromptEditor.dom.test.ts`](../../../packages/nb-markdown/src/prompt/PromptEditor.dom.test.ts)（场景 1–5）、[`PromptTextView.dom.test.ts`](../../../packages/nb-markdown/src/prompt/PromptTextView.dom.test.ts)（输出 14）、neuro-book 的 [`prompt-reference.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/prompt-reference.dom.test.ts)（场景 4 按作品文件的分类往返）、[`MarkdownHosted.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownHosted.dom.test.ts)（作品文件的分类经宿主到达 PromptTextView）
 - Smoke：[`lab-markdown.e2e.ts`](../../../packages/neuro-book/e2e/lab-markdown.e2e.ts)（Lab 场景 `PromptEditor` 的真实按键与粘贴分档；候选菜单的位置、宽度、跳过禁用项、Tab 确认、加载、输入历史与英文界面，即输出 5、10、12、13，本机 Chrome）

@@ -1,0 +1,164 @@
+# t16 实现审查（2026-10-23，Claude Sonnet，reviewer 子代理）
+
+对象：`8bb280f7b..942706a8e`（6 个提交）与等合入后提交的 Spec、治理文档改动。阻断 0、重要 2、建议 15。修正提交 `047f85a4d`。
+
+| 条 | 级别 | 处理 |
+|---|---|---|
+| 1 | 重要 | 成立，已修。`withHost` 与 `MarkdownHosted` 用 `parts/forward-expose.ts` 把外露方法转给里面的组件；新增 `web/plugin.dom.test.ts` 起真实插件实例，断言 `markdownKey` 交出的 PromptEditor 上 `focus`、`insertText`、`insertFiles` 是函数（去掉 `withHost` 的转发时失败，变异检查过） |
+| 2 | 重要 | 成立，已修。`MarkdownHosted` 给 MarkdownImage 传 `missing`；同一份测试断言“不在作品里，不显示”（去掉时失败，变异检查过） |
+| 3 | 建议 | 成立，已修：`plugin.dom.test.ts` 断言 `local://` 小块是回形针 |
+| 4 | 建议 | 部分成立：MarkdownImage、PromptEditor 由 `plugin.dom.test.ts` 补上；包代码加载失败的回退没有测试（要伪造加载失败，只能替换模块），记为未验证 |
+| 5 | 建议 | 成立，已修：直接在链接上派发可取消的点击并断言 `defaultPrevented`，happy-dom 的取地址噪声没了 |
+| 6 | 建议 | 成立，已修：按解析后的路径判断是否落在 src 根目录（目录入口算子目录）；在 `index.ts` 引 `./host` 时测试失败（变异检查过） |
+| 7 | 建议 | 成立，已修：去掉 `--passWithNoTests` |
+| 8 | 建议 | 成立，已修：五个异步包装在模块里建一次，加载失败的状态与诊断也在模块里 |
+| 9 | 建议 | 成立，已修：只给展示器语言；它加载完才挂上，取不到只在加载失败时出现 |
+| 10 | 建议 | 成立，已修：`promptReferenceText` 的目标分类必填 |
+| 11 | 建议 | 成立，已修：删掉 nbook `shared/targets.ts` 里没人用的 `showsAsChip` |
+| 12 | 建议 | 成立，已修：neuro-book 的 package.json 删掉只有 nb-markdown 在用的 13 个依赖 |
+| 13 | 建议 | 不改：`shared/dialects.ts` 的注释已写明“`order` 与标签名与各语法模块一致（`web/word-count.test.ts` 核对）” |
+| 14 | 建议 | 成立，已修：README 改为依赖都是 ES 模块、不必列进预构建清单（与 neuro-book 的实际配置一致） |
+| 15 | 建议 | 成立，已修：示例去掉展开，`provideMarkdownHost` 注释写明嵌套不继承 |
+| 16 | 建议 | 成立，已修：`PromptEditor.md` 加 `state:inject` |
+| 17 | 建议 | 成立，已修：Spec 里链接的显示文字 |
+
+修正后：包 `bun run test` 261 + 110、typecheck 通过；neuro-book typecheck、vitest 相关目录 33 文件 169、bun markdown 27 通过；e2e lab-markdown、lab-agent-ui、editor-area、markdown-input、lab-scenes 71 通过，check:dist 通过；docs:check 只剩合入前 Spec 的旧路径（合入后随 Spec 提交）。
+
+---- 报告原文 ----
+# w00025 t16 实现审查报告（8bb280f7b..942706a8e）
+
+审查范围：6 个提交、159 个文件。运行验证都在 Work worktree（HEAD 942706a8e）上做，临时文件已删，`git status` 干净。
+基线已跑：`packages/nb-markdown` 的 `bun run test`（261 + 110 通过）、`packages/neuro-book` 的 `npx tsc --noEmit -p tsconfig.json`（退出 0）、`npx vitest run src/plugins/markdown`（43 通过）、`bun test src/plugins/markdown`（27 通过）。
+
+## 重要
+
+### 1. 服务交出的 `PromptEditor` 不再转发模板引用，对话视图的输入框拿不到 `PromptEditorExpose`
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/markdown/web/plugin.ts:36-57`（`withHost`）、`:78-86`（`hosted(...)`）；`packages/neuro-book/src/plugins/markdown/web/components/MarkdownHosted.vue`；消费方 `packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue:33,282`（`ref="editorRef"`）与 `use-editor-handle.ts`
+- **现象**：基线里 `PromptEditor` 是 `defineAsyncComponent(...)`，Vue 对异步包装器会把模板 ref 转给内层的真实组件，所以 `editorRef.value` 是 PromptEditor 的实例，`focus`、`addFiles`、`insertText` 等外露方法可用。现在服务交出的是 `withHost` 造的普通组件（`setup` 返回渲染函数、没有 `expose`），里面再套 `MarkdownHosted`（`<script setup>`，没有 `defineExpose`），ref 停在最外层，外露的方法全部缺失。
+- **为什么是问题**：Composer 经 `useEditorHandle` 调 `editor.focus()` 等，会得到 `TypeError: ... is not a function` 或静默不做；Spec `ui/prompt-editor` 把 `PromptEditorExpose` 列为命令面。`agent-ports.typecheck.ts` 的注释还写着“包的那一层只转发属性与插槽，不在这里核对”，把 ref 漏在了外面。Lab 的 nb-agent-ui 夹具直接把包里的 `PromptEditor` 当 renderer（`fixtures/nb-agent-ui/host.ts`），e2e 绕过了真实的服务包装，所以抓不到。
+- **如何核实**：在 Work worktree 里临时写了一个 dom 测试：父组件 `h(component, {ref: r, ...})`。`defineAsyncComponent(() => import("@notnotype/nb-markdown/prompt").PromptEditor)`（基线形状）得到的 `r.value.focus` 是 function；`MarkdownHosted`（现在的形状，`component: "PromptEditor"`）得到的 `r.value?.focus` 是 undefined。外层 `withHost` 比 `MarkdownHosted` 更不转发，结论只会更差。
+- **建议改法**：让包装层转发外露：`MarkdownHosted` 与 `withHost` 都用 `expose` 代理到内层实例（例如拿内层的 ref，`expose(new Proxy({}, {get: (_, key) => inner.value?.[key]}))`），或者换结构，不用中间组件提供宿主（插件在应用层 `provide`、或让 `hosted(...)` 对 PromptEditor 直接返回 `defineAsyncComponent` 加 `provide` 的方式）。再补一例：经服务交出的 `PromptEditor` 上 `ref.value.focus` 是函数（用 `startMarkdownBrowserHost` 起真实插件）。
+
+### 2. 经服务交出的 `MarkdownImage` 丢了“不在作品里，不显示”的说明
+- **严重程度**：重要；**类别**：正确性（用户可见文字回归，且与组件文档不符）
+- **位置**：`packages/neuro-book/src/plugins/markdown/web/components/MarkdownHosted.vue`（`extra` 只给 InlineChip）；`packages/nb-markdown/src/display/MarkdownImage.vue`（不 inject 宿主，`missing` 缺省“{name}（不显示）”）；`MarkdownHosted.md` 写“诊断落到插件交给它的诊断出口；图片不显示时写明‘不在作品里’”
+- **现象**：基线 `MarkdownImage` 不显示时文字是“{name}（不在作品里，不显示）”；现在 `markdownKey` 交出的 `MarkdownImage` 显示“{name}（不显示）”。展示器内的图片、编辑器里的图片、Lab 夹具都显式传了 `imageMissing`/`missing`，只有这条“服务交出的单独组件”路径漏了。
+- **为什么是问题**：计划与开发者决定是“用户可见行为不变”；`MarkdownHosted.md` 白纸黑字声称五个组件都带这句说明；`MarkdownHosted.dom.test.ts` 只测了 3 个组件，没测 MarkdownImage。
+- **如何核实**：在 Work worktree 里临时测试挂 `MarkdownHosted`（`component: "MarkdownImage"`，`src: "../外面.png"`），实际文本是“外面（不显示）”，期望“外面（不在作品里，不显示）”，断言失败。
+- **建议改法**：`MarkdownHosted` 给 MarkdownImage 同样带属性（`extra` 按组件分：`InlineChip → {env}`，`MarkdownImage → {missing: NBOOK_IMAGE_MISSING}`），并在 `MarkdownHosted.dom.test.ts` 里补 MarkdownImage 与 PromptEditor 各一例。顺带考虑把 `MarkdownImage` 的 `missing` 改成必须由调用方给，或让包默认文字与 neuro-book 一致，避免之后的宿主漏掉。
+
+## 建议（测试）
+
+### 3. 搬家后丢了“附件（`local://`）引用小块用回形针图标”这一条断言，且没有任何测试能抓到
+- **严重程度**：建议；**类别**：测试
+- **位置**：`packages/nb-markdown/src/chip/InlineChip.dom.test.ts`（基线 `plugins/markdown/web/components/InlineChip.dom.test.ts` 有 `find(".i-lucide-paperclip")`）；`packages/nb-markdown/src/chip/chip.ts` 的 `REFERENCE_ICONS.attachment`
+- **现象**：基线测试断言 `local://截图.png` 的小块有 `.i-lucide-paperclip`。新测试里 `local://截图.png` 没传 `env`，走缺省分类（`other`），断言改成了 `.i-lucide-link`；带 nbook 宿主的 `MarkdownHosted.dom.test.ts` 只断言展示器里 `data-reference-link` 为 `attachment`，没看图标。全仓库 `grep paperclip` 在测试里零命中。
+- **为什么是问题**：包的 `attachment` 类别与回形针图标现在没有任何测试走到；把 `REFERENCE_ICONS.attachment` 改成别的图标，所有测试仍通过。计划写“搬家后覆盖不丢”。
+- **如何核实**：`grep -rn paperclip packages/nb-markdown/src packages/neuro-book/src packages/neuro-book/e2e` 只剩 `chip.ts`；对比基线测试清单。
+- **建议改法**：在 `InlineChip.dom.test.ts` 的测试宿主 `classify` 里加一个返回 `{kind: "attachment", name: ""}` 的分支并断言回形针；或在 `MarkdownHosted.dom.test.ts` 的小块例里加 `local://` 一项。
+
+### 4. `MarkdownHosted.dom.test.ts` 只覆盖了五个组件里的三个，新增的“加载失败回退”与“语言取不到”两条路径没有测试
+- **严重程度**：建议；**类别**：测试
+- **位置**：`packages/neuro-book/src/plugins/markdown/web/components/MarkdownHosted.dom.test.ts`；`MarkdownHosted.vue` 的 `failed` 分支与 `language()` 里的 `throw`
+- **现象**：测试只挂了 `MarkdownDisplay`、`PromptTextView`、`InlineChip`。`MarkdownImage`（见第 2 条）、`PromptEditor`（见第 1 条）没测；包代码 `import()` 失败时的纯文字回退（`MarkdownHosted` 里新写的 `<div v-if="failed && ...">`）与 `markdown.component.load-failed` 诊断没有测试，基线里同样没有，但这次这段逻辑是新写的第二层。`MarkdownHosted.md` 与 Spec“失败与恢复”都承诺了这个行为。
+- **建议改法**：补 MarkdownImage、PromptEditor 各一例；失败路径可以用 vitest 的模块替换不现实，那就把 `LOADERS` 提到模块级并导出一个可注入的加载器，或接受不测但在报告里写“未验证”。
+
+### 5. 包内显示测试点击引用小块时 happy-dom 会真的去 `fetch("paragraph://41.20")`，每次运行在输出里留一段 `DOMException` 栈
+- **严重程度**：建议；**类别**：测试
+- **位置**：`packages/nb-markdown/src/display/MarkdownDisplay.dom.test.ts` 第一例（`chip.trigger("click")`）
+- **现象**：`bun run test` 的 Vitest 部分输出 `DOMException [NotSupportedError]: Failed to fetch from "paragraph://41.20": URL scheme "paragraph" is not supported.`，测试仍通过。小块的 span 在 `<a>` 里面，happy-dom 在事件冒泡经过 `<a>` 时就执行默认跳转，早于根元素监听器的 `preventDefault()`。真实浏览器的默认动作在全部监听器之后，没有这个问题。
+- **为什么是问题**：不是产品缺陷，但常驻的噪声会盖住真正的错误输出，也说明这条测试没有断言“默认跳转被拦住”。
+- **建议改法**：对 `<a>` 本身触发点击并断言 `defaultPrevented`（`new MouseEvent("click", {bubbles: true, cancelable: true})` 后看 `event.defaultPrevented`），或在测试里给 `window.open`/导航加一个 noop。
+
+### 6. 包的 `boundary.test.ts` 拦不住“纯 TS 入口引子目录的入口文件”，与它自己的注释相反
+- **严重程度**：建议；**类别**：测试
+- **位置**：`packages/nb-markdown/src/boundary.test.ts:30-37`；`packages/neuro-book-test-support/src/import-boundary.ts`
+- **现象**：第一例想保证 `src/` 根上的纯 TS 文件“只引 entities 与 src 根上的文件”。它的判据是 `within: SOURCE_ROOT`（子目录也在里面）加一条正则 `from "(\.\/[^"]+\/[^"]+)"`（要求路径里至少两段）。`from "./host"` 这类指向目录入口（`host/index.ts`）的写法两条都不命中。
+- **如何核实**：变异检查：在 Work worktree 的 `packages/nb-markdown/src/index.ts` 末尾加 `export {useMarkdownHost} from "./host";`，`bun test src/boundary.test.ts` 仍是 2 pass 0 fail；还原。同一个变异下 `tsc --noEmit` 会失败（`chip.ts` 用了 `Document`、`Element`，纯 TS 配置没有 DOM 库），所以 `typecheck` 能兜住带 DOM 类型的情形，但引入 `vue`（`host/index.ts`）本身、或只引不用 DOM 类型的子目录模块（例如 `./language` 的某些文件）不会被拦。
+- **建议改法**：核心文件的相对导入用 `excluding`/解析后判定“落在 `src/` 根目录本身而不是子目录”（`dirname(resolve(...)) === SOURCE_ROOT`），不要靠两段路径的正则；`./host`、`./language` 这类目录入口要显式算子目录。
+
+### 7. 包的 `test` 脚本用了 `vitest run --passWithNoTests`，包里已有 dom 测试，这个开关只会让“include 写错、一个测试都没跑”变成通过
+- **严重程度**：建议；**类别**：测试
+- **位置**：`packages/nb-markdown/package.json` 的 `scripts.test`；对照 `packages/nb-agent-ui/package.json`（`bun test && vitest run`）
+- **建议改法**：去掉 `--passWithNoTests`，与同类包一致。
+
+## 建议（代码质量）
+
+### 8. `MarkdownHosted` 每个实例都新建 `defineAsyncComponent`，不再共享已解析的组件
+- **严重程度**：建议；**类别**：代码质量（也影响长对话的挂载成本）
+- **位置**：`packages/neuro-book/src/plugins/markdown/web/components/MarkdownHosted.vue:50-57`
+- **现象**：基线里 `withHost` 只建一次异步包装器，第一次解析后后续实例同步渲染。现在 `defineAsyncComponent(...)` 写在 `<script setup>` 里，每挂一个 `MarkdownDisplay`（长对话里每条消息一个）都新建一个包装器，各自再等一轮 `Promise.all([import, import])`，`onMounted` 晚一个异步周期；`failed` 也变成每实例一份，和 `withHost` 里共享的 `failed` 形成两套不同语义的失败处理，回退的 `<div>` 与插件里的 `fallback` 还各写了一遍。
+- **建议改法**：把五个异步组件提到模块级（`const INNER = {MarkdownDisplay: defineAsyncComponent(...), ...}`，`languageOf` 也放模块级，加载完才有值，且只有展示器用），`failed` 用模块级的 ref 或交给 `withHost` 统一；回退文字只留一处。
+
+### 9. 宿主的 `language()` 在“不是展示器”的实例上是个会抛错的陷阱
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`MarkdownHosted.vue:28-34`；`packages/nb-markdown/src/host/index.ts`（`language?(): MarkdownLanguage`）
+- **现象**：`MarkdownHosted` 给五个组件都提供同一个宿主，但 `language()` 只在 `component === "MarkdownDisplay"` 时才可用，其余实例调用就抛 `MarkdownHosted：只有展示器取语言…`。今天只有 `MarkdownDisplay` 调它，展示器里抛错会被 `onMounted` 的 try/catch 接住，变成“纯文字显示 + 一条 `markdown.display.failed` 诊断”，原因不容易看出。以后包里再有组件用语言（例如 PromptEditor 的内联渲染）就会静默降级。
+- **建议改法**：让 `language` 在非展示器实例上给缺省值（`undefined`，组件自己取 `defaultMarkdownLanguage()`），或模块级预加载后所有实例都能用；至少别用 `throw` 表达“当前实例不该调”。
+
+### 10. `promptReferenceText` 的第三个参数缺省成“不编码”，调用方少传一个参数会静默写出读回会错的引用
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`packages/nb-markdown/src/prompt/prompt-text.ts:118`
+- **现象**：基线 `promptReferenceText(label, target)` 永远按作品文件规则编码 `%`、`#`、`?`；现在两参数形式不编码。neuro-book 里唯一调用方（Lab 的菜单）传了 `nbookTargets`，`nbookTargets` 也只能在 `plugins/markdown/web/host.ts` 里拿到，其它插件（对话视图的宿主）在没有导出途径的情况下很可能只调两参数形式，之后在文件名含 `#` 时读回指向别的文件，这正是基线 P18 修过的缺陷，类型不会提示。
+- **建议改法**：把 `targets` 做成必填，或让宿主经 `useMarkdownHost().chips.targets` 取；neuro-book 通过服务（`markdownKey`）再导出一个已绑定 `nbookTargets` 的 `promptReferenceText`。
+
+### 11. nbook 的 `shared/targets.ts` 里 `showsAsChip(kind)` 成了死代码，两个同名不同参的函数并存
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`packages/neuro-book/src/plugins/markdown/shared/targets.ts:44`
+- **现象**：所有调用方都改用了包里的 `showsAsChip(target)`，全仓库对 nbook 这一个的引用为 0（`grep -rn showsAsChip packages/neuro-book/src` 只剩定义）。
+- **建议改法**：删掉。
+
+### 12. `neuro-book/package.json` 里一批依赖已经只有 nb-markdown 在用
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`packages/neuro-book/package.json`
+- **现象**：`grep` neuro-book 的 `src`、`scripts`、`e2e`、`vite.config.ts`，没有任何文件再引 `marked-cjk-friendly`、`@tiptap/extension-list`、`@tiptap/extension-code`、`@tiptap/extension-image`、`@tiptap/extension-link`、`@tiptap/extension-paragraph`、`@tiptap/extension-placeholder`、`@tiptap/extension-table`、`@tiptap/starter-kit`、`@tiptap/vue-3`、`@tiptap/markdown`、`@tiptap/extension-hard-break`、`fast-check`（仍用的是 `@tiptap/core`、`@tiptap/pm`、`entities`、`marked`）。
+- **为什么是问题**：不影响运行，但留着会让人以为 neuro-book 自己依赖它们，以后升级时漏改包里那一份。
+- **建议改法**：从 neuro-book 删掉这些条目（`bun.lock` 随之更新）；若有意保留（例如为了 Vite 预构建），在 package.json 旁边写原因。
+
+### 13. 内置方言的 `order` 在包和 nbook 声明里各存一份
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`packages/nb-markdown/src/language/syntax/index.ts` 的 `BUILTIN`；`packages/neuro-book/src/plugins/markdown/shared/dialects.ts` 的 `BUILTIN_DIALECTS`
+- **现象**：基线里 `order` 只在声明表里，实现按 id 取；现在两处各写一份数字，靠 `web/word-count.test.ts` 逐项核对。测试在，所以不是缺陷，但是新增的重复事实；包里的 `builtinSyntaxes()` 的 `order` 在 nbook 以外没有消费者。
+- **建议改法**：可保留，但在 `dialects.ts` 的注释里写明“与 nb-markdown 的 BUILTIN 同数字、由 word-count.test.ts 核对”（目前只在包那一边写了）。
+
+## 建议（文档）
+
+### 14. 包 README 的 Vite 建议与 neuro-book 自己的配置不符
+- **严重程度**：建议；**类别**：文档
+- **位置**：`packages/nb-markdown/README.md` 第 6 条；`packages/neuro-book/vite.config.ts:46-68`
+- **现象**：README 要求“关掉依赖自动发现的宿主，把 `marked`、`marked-cjk-friendly` 列进预构建清单”。neuro-book 是唯一这样配置的宿主，清单里只有 `marked`，没有 `marked-cjk-friendly`，基线也没有。二者必有一个不对；我没有起开发服务验证哪个对（未验证）。
+- **建议改法**：以开发服务实测为准改 README（或补 neuro-book 的清单），并写明理由。
+
+### 15. README 里 `provideMarkdownHost({...defaultMarkdownHost, ...})` 的展开是多余的
+- **严重程度**：建议；**类别**：文档
+- **位置**：`packages/nb-markdown/README.md` 第 3 条示例
+- **现象**：`provideMarkdownHost` 接收 `Partial<MarkdownHost>` 并在内部与 `defaultMarkdownHost` 合并，示例先展开一遍再传，读者会以为必须这样写，也会误以为嵌套提供时是在父宿主上叠加（实际是在缺省上叠加，父宿主的 `language` 等会丢）。
+- **建议改法**：示例去掉展开，并在 `host/index.ts` 的 `provideMarkdownHost` 注释里写明“嵌套提供不继承父宿主”。
+
+### 16. `PromptEditor.md` 的能力标签写 `[state:local]`，但它的小块分类依赖祖先提供的宿主
+- **严重程度**：建议；**类别**：文档
+- **位置**：`packages/nb-markdown/src/prompt/PromptEditor.md` 头部；对照 `PromptTokenView.md`（`[state:inject]`）、`PromptTextView.md`（`[state:local, state:inject]`）
+- **现象**：`PromptEditor.md` 正文已经写“引用小块的目标分类与文件图标来自祖先提供的宿主”，实测组件级 `provide` 能到达节点视图；按 `docs/standards/code/components.md`，经 provide/inject 取能力的应该标 `state:inject`，调用方才会知道要提供宿主。
+- **建议改法**：加上 `state:inject`。
+
+### 17. 更新后的 Spec 里一条链接的显示文字还是旧路径
+- **严重程度**：建议；**类别**：文档
+- **位置**：`docs.diff` 里 `docs/specs/ui/prompt-editor.md` 的“实现入口”：文字 `shared/link-syntax.ts`，目标已是 `packages/nb-markdown/src/link-syntax.ts`
+- **建议改法**：文字改成 `nb-markdown 的 link-syntax.ts`。链接目标本身全部能解析（我对 docs.diff 里新增的每条相对链接和包里改动的 `.md` 都做了存在性检查，没有断链）。
+
+## 未发现问题的方面
+
+- **目标分类与基线逐项一致**：`data-reference-link`（展示器静态视图、编辑器装饰、小块色调类 `nb-chip--<变体>`）对 work、user、attachment、external、other 都与基线相同；`reference`/`link` 的点击判断相同；`linkAttrs` 里“不带方案且不以 `/` 开头才算其它”与基线 `classifyTarget(target, null).kind === "other"` 在 `base` 为 null 时等价；`nbookTargets.encodeFile` 往返用 `prompt-reference.dom.test.ts` 验过。
+- **宿主到达**：对 `MarkdownDisplay`、`PromptTextView`、`InlineChip`（`env`）、`PromptEditor` 的节点视图，宿主都到达。变异检查：删掉 `MarkdownHosted` 里的 `env: nbookChips`，`MarkdownHosted.dom.test.ts` 的小块例失败；删掉 `PromptTokenView` 的 `:env="host.chips"`，`PromptEditor.dom.test.ts` 的新例失败（两处已还原，`git status` 干净）。组件级 `provideMarkdownHost`（不是应用级 `global.provide`）也能到达 TipTap 节点视图（临时测试验证）。
+- **首屏与后端类型检查**：插件入口只静态引包的纯 TS 入口（无 DOM、无编辑内核）与 `language/types` 的类型；`./host` 与 `./chip` 的源码里没有任何运行时引 `language`（仅 `host/index.ts` 一处 `import type`）；`packages/neuro-book` 的 `tsc --noEmit -p tsconfig.json` 退出 0，`vue-tsc -p tsconfig.web.json` 退出 0，`packages/nb-markdown` 的 `bun run typecheck` 退出 0。没有跑生产构建与 `check:dist`（规则不让），所以首屏里 `entities` 是否被摇树掉是未验证的：根入口的 `export *` 同时带出 `markdown-dialect.ts`（引 `entities`），而 `syntax-catalog.ts` 只用 `namesOf`；`check-dist` 只查 ProseMirror 与 marked 的两条标记，不会报 `entities`。
+- **`lab-sources`**：glob 只扫 `chip`、`display`、`prompt` 三个目录，不会扫进 `language/codec/corpus` 的语料 `.md`。
+- **搬家覆盖**：基线 markdown 目录下 297 条 `it(`，现在 nb-markdown 加 neuro-book 的相同目录共 311 条；基线里的条目名按文本对照只有两条改名（对应的新测试是拆分后的版本），没有整条丢失（只丢了第 3 条里的一条断言）。
+- **包的依赖与导出**：`package.json` 的每个 `dependencies`/`peerDependencies` 在源码里都有引用；`exports` 的每个路径对应的文件都存在；包内没有跨包深导入（`nb-ui` 只走 `./components`）；文档里的相对链接（含 docs.diff 新增的）全部能解析。
+- **`readdirSync`/`import.meta.resolve` 找语料**：`word-count.test.ts` 与 `syntaxes.test.ts` 用 `import.meta.resolve("@notnotype/nb-markdown/language")` 再拼 `codec/corpus`，在 `bun test` 下通过；它依赖 `language/index.ts` 与 `codec/` 的相对位置，位置变了会立即以 ENOENT 失败，不会静默。
+
+## 各级数量
+
+- 阻断：0
+- 重要：2（第 1、2 条）
+- 建议：15（第 3 至 17 条：测试 5、代码质量 6、文档 4）
