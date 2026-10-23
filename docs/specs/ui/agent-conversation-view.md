@@ -293,15 +293,16 @@ type AgentSessionListItem = {
     description?: string;          // 第二行的补充说明，宿主写好，例如“3 轮 · 图当目录”
     updatedAt: number;             // 最近活动的时刻（毫秒）
     status: "idle" | "running" | "interrupted" | "error";   // 宿主按自己的状态映射
-    note?: {text: string; icon?: string};                   // 需要注意的一句，提醒色另起一行
+    note?: {text: string; icon?: string};                   // 需要注意的一句，提醒色，在说明那一行的右侧
 };
 // 属性：items、selectedId、state（"ready" | "loading" | "error"，缺省 ready）、errorMessage?、now、locale、
 // header?（是否显示标题行与新建按钮，缺省显示）、labels?（覆盖标题、新建、加载中、空、出错、重试、未命名的文字）
 ```
 
-- 每行：标题（单行截断）与时间同一行；说明与状态同一行，运行中是转圈加“运行中”，已中断与出错是标记；有提醒时另起一行提醒色小字。选中的行用强调色浅底并标为当前项。状态除颜色外都有文字。
+- 每行固定两行，所有行等高：标题（单行截断）与时间同一行；第二行总在，左边是说明，右边依次是提醒（提醒色小字）与状态，运行中是转圈加“运行中”，已中断与出错是标记。宽度不够时说明先截完，提醒再截断。选中的行用强调色浅底并标为当前项。状态除颜色外都有文字。
+- 加载中、空列表与出错同一版式：居中的圆底图标加一句说明；加载中的图标是转圈，出错时说明下面有“重试”。
 - 时间按本地时区的日历日写：与 `now` 同一天写时刻，前一天写“昨天”，同一年写月日，否则加上年；`updatedAt` 晚于 `now` 时按同一天写。宿主要定期更新 `now`。
-- 点一行（含已选中的）发出 `session.select`，点新建发出 `session.create`；出错时显示说明与“重试”，点击发出 `sessions.refresh`。列表不持有展开状态：放在下拉里时，由宿主收到选中或新建后关下拉。
+- 点一行（含已选中的）发出 `session.select`，点新建发出 `session.create`；出错时点“重试”发出 `sessions.refresh`。列表不持有展开状态：放在下拉里时，由宿主收到选中或新建后关下拉。
 - 加载中、空、出错三种状态都保留标题行与新建按钮。
 - 是导航式列表：每行一个按钮、Tab 逐行经过，不做方向键漫游。
 
@@ -400,7 +401,7 @@ type AgentSessionListItem = {
 24. Given 没有可选模型与思考档位、`header` 为 false、也不提供 `resolveAttachmentUrl` 与 `resolveTriggerMenu` 的宿主，When 显示，Then 没有顶栏与模型下拉，附件显示不可用占位且点击不报错，输入 `@` 不打开空菜单；消息流为空且 `availability` 为 `loading` 时显示加载中。
 25. Given 两个工具渲染器声明同一工具名，When 构造注册表，Then 构造失败并指出工具名；前缀 `list_` 与 `list_x_` 同时登记时 `list_x_items` 匹配后者，与登记顺序无关。
 
-26. Given 五个会话（选中、运行中、已中断、出错、带提醒），When 显示会话列表，Then 每行有标题、说明、时间、状态与提醒；点一行（含已选中的）发出 `session.select`，点新建发出 `session.create`；时间按日历日写今天的时刻、昨天、月日、年月日。
+26. Given 五个会话（选中、运行中、已中断、出错、带提醒），When 显示会话列表，Then 每行有标题、说明、时间、状态与提醒，各行等高；点一行（含已选中的）发出 `session.select`，点新建发出 `session.create`；时间按日历日写今天的时刻、昨天、月日、年月日。
 27. Given 会话列表处于加载中、空、出错，When 显示，Then 各有对应的说明且保留标题行与新建按钮；出错时点重试发出 `sessions.refresh`；`header` 为 false 时没有标题行；`labels` 覆盖包内文字。
 28. Given 最终回复带一条已登记 `customType` 的附注，When 整轮收起，Then 宿主组件画在回复气泡里，收到 ctx、服务、界面语言、这条附注与消息，点出处发出的 `reference.open` 到达宿主；附注在中间文字上时随那一行展开显示，在没有文字的消息上时作为独立一行；没登记的 `customType` 与抛错的组件都显示为淡色一行；两个条目渲染器声明同一 `customType` 时构造失败。
 29. Given 结果工具退回一次再交成功，When 展开整轮，Then 被退回的那次是思维链里的一行，宿主的 `node` 组件只出现一次，退回前后的过程是同一条思维链；全部被退回时这一轮没有结果区；运行结束时仍没有结果的结果调用同样是一行。Given 回复之后依次是压缩分隔线与系统提醒，Then 回复仍在结果区。
