@@ -1,0 +1,57 @@
+# t05 作者体验实施计划设计审查：后端、作者工具与流程
+
+审查对象：主工作区 `w00027-plugin-platform/tasks/t05-author-experience/plan.md`（2026-10-23）；代码参照指定 `review-t05-design` worktree 的 t04 实现；行为合同读取主工作区最新版。只读审查，实验限定在 `/tmp/review-t05-design/x/`，不运行 e2e 或开发服务。以下按影响记录已核实的问题。
+
+## 1. 接收者的 published 过滤不能满足 titles 的拒绝语义
+
+- **严重程度**：重要。
+- **类别**：合同一致性、贡献登记与交付时序。
+- **位置**：t05 `plan.md:38-39`；worktree `packages/neuro-book/examples/plugins/menu/backend/plugin.ts:49-60`、`shared/contracts.ts:35-36`、`examples/scenarios/03-contribution-point.test.ts:115-130`；主工作区 `docs/specs/runtime/plugins.md:79`、`runtime/plugin-manifest.md:95-98`。
+- **现象**：计划把 id 前缀校验放到接收者的 `published`，同时要求被拒条目不出现在 `titles()` 且原因可查。现有 `titles()` 直接查询 `context.declarations.list()`；这个目录在登记阶段确定，`published` 跳过条目只影响动态的 `items` 表，不能把已接受声明改为 rejected。尚未激活的贡献甚至不会执行这个过滤。
+- **为什么是问题**：按计划实现后，非法 id 的条目仍会经 `titles()` 暴露，内核目录仍显示 accepted；场景 03 宣称的“声明先于实现且拒绝原因可查”与实际结果分裂。直接把原断言换成 `items()` 断言会漏掉这一行为退化；改在 `prepare` 抛错也不等价，它可能使整次贡献方激活失败，不能保留逐条拒绝。
+- **如何核实**：执行 `bun /tmp/review-t05-design/x/menu-contract.ts`（cwd 为指定 worktree 的 `packages/neuro-book`），用真实 `Stage`、内核与现有 menu 服务，在临时定义里按计划改为 schema 加 `published` 前缀过滤。非法 `open` 在激活前、后均得到 `titles:[{id:"open",title:"打开",plugin:"example.careless"}]`、`validation:{status:"accepted"}`，激活后 `items:[]`、`ignored:["open"]`；贡献方激活成功，场地正常关闭。这里验证的是计划中的过滤机制，不是声称 t05 已有实现。
+- **建议改法**：保留 schema 的登记校验；提取同一个 id 谓词，同时用于 `titles()` 的声明过滤和 `published` 的实现过滤，并明确这是 menu 自己的领域筛选、在 menu 诊断里查询原因，不声称内核拒绝了它。场景分别验证未激活声明、已发布实现和领域诊断；若必须维持登记层 rejected，则需要明确支持检查贡献元数据的可序列化校验合同，单靠声明 schema 与接收者做不到。
+
+## 2. 模板要使用 nb-ui，但作者包没有获得组件实现与类型的路径
+
+- **严重程度**：重要。
+- **类别**：正确性、作者依赖与分发。
+- **位置**：t05 `plan.md:60-64,67,88-89`；worktree `packages/neuro-book/scripts/plugin-sdk/build-sdk.ts:115-130`、`build-plugin.ts:163-180`、`packages/nb-ui/package.json:4,8-11`。
+- **现象**：模板的 `HelloView.vue` 要用 nb-ui，模板依赖却只有 SDK、Vue、TypeBox、TypeScript；SDK 既不依赖 nb-ui，也不导出通用组件。`@notnotype/nb-ui` 当前为私有工作区源码包，计划没有提供它的安装包或类型入口。宿主模块表只解决运行期共享，不解决作者项目中 Vite 读取定义时的组件导入与 TypeScript 模块解析。
+- **为什么是问题**：模板采用现有示例的静态 `.vue` 导入写法时，首次构建就在执行定义阶段失败；改为懒导入能绕过这次构建期求值，但编辑器与正常类型检查仍找不到组件类型。只链接仓库依赖的自动 smoke 不能证明作者拿到的 tarball 自带这项接入能力。
+- **如何核实**：先执行 `bun packages/neuro-book/scripts/plugin-sdk/build-sdk.ts /tmp/review-t05-design/x/sdk`，14.50 秒生成真实 SDK。随后 `node /tmp/review-t05-design/x/author-probe.mjs` 在隔离作者目录里只提供计划所列依赖及 SDK 的构建依赖：静态 `HelloView.vue` 导入 `Button` 时得到 `执行入口定义失败：web/plugin.ts：Cannot find module '@notnotype/nb-ui/components' imported from '/tmp/review-t05-design/x/author/web/HelloView.vue'`；改为懒导入后构建成功。再执行 `node /tmp/review-t05-design/x/author/node_modules/typescript/bin/tsc --noEmit --strict --skipLibCheck false --moduleResolution bundler --module esnext --target es2020 /tmp/review-t05-design/x/author/consumer.ts`，退出码 2，报 `TS2307: Cannot find module '@notnotype/nb-ui/components' or its corresponding type declarations.`。实际运行时为 Node `v26.10.0`，未验证 Node 22。
+- **建议改法**：在 S2 明确 nb-ui 的作者分发路径：给已共享的 `@notnotype/nb-ui/components` 提供可本地安装的构建期实现与类型包并写进模板依赖，或由 SDK 明确提供一组所需组件。与 SDK 一起打包、安装和取证，不依赖 monorepo 的源码软链；用模板真实 `.vue` 文件做 `vue-tsc` 检查，覆盖构建成功但类型缺失的情况。
+
+## 3. 模板把 SDK 写成 registry 版本，和本轮仅用本地目录或 tarball 的分发方式冲突
+
+- **严重程度**：重要。
+- **类别**：正确性、脚手架与仓库外流程。
+- **位置**：t05 `plan.md:19,51,60,89,127`。
+- **现象**：本轮不发布 SDK，作者应使用 `file:` 或 tarball 安装；模板却固定生成版本等于产品版本的 SDK devDependency。`create` 的输入也没有 SDK 本地包位置。作者即使先在工具目录装好 SDK 并执行 create，进入新目录运行模板要求的安装命令，包管理器仍会按这个 semver 去 registry 找包。
+- **为什么是问题**：计划承诺生成目录能直接安装依赖、构建；目前按字面流程走不到构建。自动 e2e 手动把 SDK 复制或链接进 node_modules，会绕过生成的依赖声明，无法抓住这个断点；若手动 smoke 临时改 package.json 才成功，也不再是照 README 的字面步骤。
+- **如何核实**：对照计划“只生成目录并可 npm pack，作者用 file: 或 tarball”与模板 SDK 数字版本声明；执行 `npm view @notnotype/nb-plugin-sdk@0.1.0 version --json --cache /tmp/review-t05-design/x/npm-cache`，当前公共 registry 返回 `E404`，退出码 1。本轮无需依赖这次查询仍可判断合同冲突：未发布的数字版本不能表达作者持有的本地产物。
+- **建议改法**：明确本地分发的 bootstrap 与 create 后依赖来源。可让 create 接受 SDK tarball/file spec 并按生成目录改写相对路径，或在生成 README 的安装命令中明确用绝对 tarball 路径安装并持久化该 dependency spec；把同样的步骤用于真实网络 smoke。不要只靠自动测试预置 node_modules。
+
+### 审查期间的计划修订
+
+主工作区计划从首次读取的 132 行版更新为 182 行版（读取快照 `2FDD`），不是本审查修改。上述 1–3 条保留原核实记录，当前状态均为“计划已回应、实现尚待验证”：第 1 条改用可序列化的 `idPrefix: "plugin"` 在内核登记时拒绝（新版 46、53 行）；第 2 条改为 SDK `./components` 并增加仓库外 `vue-tsc`（41–42、76、80、83 行）；第 3 条改为先安装 SDK tarball、再 `create .` 合并保留本地依赖（22、66、111 行）。后续条目按新版计划核对，不把这三项继续计作当前待修订缺口。
+
+## 4. 新版菜单验收允许拥有者从未激活，不能证明两个示例都已运行
+
+- **严重程度**：重要。
+- **类别**：测试、激活时序与验收完整性。
+- **位置**：新版 t05 `plan.md:53-55,125,143`；worktree `packages/neuro-book/examples/plugins/menu/backend/plugin.ts:42-48`、`file-menu/backend/plugin.ts:26-35`。
+- **现象**：新版只要求 file-menu 的 onStartup 入口有 published；menu 写成“若随之激活”才核对。menu 没有启动事件，file-menu 也不依赖它的服务。贡献的发布不会自动激活拥有者，所以这个条件不会使 menu 运行。
+- **为什么是问题**：已定验收要求所有示例经构建、安装运行。只发布 file-menu 的实现不能证明 menu 的接收者、领域校验或服务可用；整个 menu 入口的装载与激活即使坏掉，这条 e2e 仍可通过。不要通过给 file-menu 增加必需依赖来解决，这会破坏示例要教的“贡献不构成依赖”。
+- **如何核实**：执行 `bun /tmp/review-t05-design/x/menu-activation.ts`（cwd 为指定 worktree 的 `packages/neuro-book`），在真实 Stage 仅装 menu 与 file-menu。结果：menu 为 `registered`、`generation:null`，file-menu 为 `available`、`generation:1`，`example.file-menu.open` 为 accepted 但交付状态是 `waiting-receiver`；场地正常关闭。未运行 e2e。
+- **建议改法**：为安装验收明确一次 menu 的激活来源，例如 menu 自己 onStartup 并在接收到菜单项后输出可断言的正向诊断，或通过一个实际查询它的远程接口触发懒激活。断言接收后的 file-menu 项及一次执行结果，不保留“若激活”的条件判据。
+
+## 5. manifestOf 的提前去重会绕过后续定义中的 validate 禁令
+
+- **严重程度**：重要。
+- **类别**：正确性、清单生成合同。
+- **位置**：新版 t05 `plan.md:46-49`；worktree `packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts:585-603`、`plugin-manifest.test.ts:297-314`。
+- **现象**：同一个贡献点在服务端、浏览器定义中出现时，`manifestOf` 遇到已知 id，只比较 implementation 随即 continue；schema 可移植性与 validate 检查都在后面。只把现有条件从“只有 validate”改成“凡有 validate”仍会漏掉第二份定义的函数。
+- **为什么是问题**：新版保证“第三方贡献点写了 validate 就报问题”，但多位置插件的检查仍取决于 definitions 顺序；构建成功后丢掉函数的原问题未被完全解决。新增 idPrefix 也应明确同 id 多份定义是否必须一致，不能默默采用第一份。
+- **如何核实**：执行 `bun /tmp/review-t05-design/x/manifest-probe.ts`，调用真实 manifestOf：第一份定义有 schema、第二份同 id 贡献点只有 validate 时结果 valid；交换顺序结果 invalid，问题路径为 `contributionPoints.0`。这个去重分支位于待修改条件之前，单改条件不能改变结果；尚未有 t05 实现，不宣称已验证未来修法。
+- **建议改法**：对每份原始贡献点先检查不允许的字段与 schema，再进行聚合；聚合时核对 schema、implementation、idPrefix 的一致性。测试覆盖两个定义顺序下 validate 都失败，以及 idPrefix 冲突不得按顺序生效；保留 builtin 模式允许 validate 的现有合同。

@@ -62,6 +62,7 @@ type QaConfig = {
         baseUrl: string;            // OpenAI 兼容的服务地址
         id: string;                 // 模型名
         apiKeyEnv: string;          // 存密钥的环境变量名；密钥本身不写进配置
+        api?: "chat" | "responses"; // 接口：不写是 Chat Completions；Responses 且写了推理档时请求要思考摘要（见输出 36）
         contextWindow?: number;
         maxTokens?: number;
         thinking?: "low" | "medium" | "high" | "xhigh"; // 原样作为推理档发给端点；不写时请求不带推理档，由服务端的默认档决定
@@ -149,7 +150,7 @@ type QaConfig = {
 15. **每个对话一条记录。** 记录有书、这一代的代号、P、做法、开始时间、对话开始时的章数上限（全读为空）、读过的段、它对应的会话日志（文件名与内容摘要），与按顺序的各轮（问题、状态、答案或文字回复、失败码与错误归类、这一轮新读的章、退回次数、用量、用时、模型名、开始时间，以及这一轮在会话日志里的第一条的序号 `logFrom`）。`logFrom` 从网页问答起写下，之前的记录没有它，照常读、照常续问。每一轮结束时（交卷、文字回复、失败或中断）写一份新的会话日志，再整条重写记录指向它：读者看到的记录与它指向的日志总是成对的，保存失败时旧的一对原样保留。中断与失败的那一轮没有答案与文字回复，不留半条答案。
 16. **查看与删除。** `nbstory qa` 列出这本书当前一代的对话，一行一个：id、时间、最后一轮的状态、轮数、第一轮的问题、P，新的在前；`nbstory qa <id>` 按轮显示整个对话；`nbstory qa rm <id>` 删除整个对话。别的一代的记录不列出、不能显示（`qa_record_not_found`）。读不成记录的文件（损坏）列在最后、标为损坏，不影响其余记录；显示它得到 `qa_record_broken`，可以用 `qa rm` 删除。对话之前的一问一条的记录按一轮的对话列出与显示。
 17. **密钥不落地。** 密钥只从配置指定的环境变量读出交给 HTTP 客户端，不出现在记录、会话日志、标准输出与标准错误里，也不出现在网页接口的任何响应与推送的任何一帧里；模型服务的错误正文回显了密钥时也一样（错误归类与状态码照常保留）。
-18. **配置命令。** `nbstory config` 的 `show` 显示配置文件路径与各字段，并说明密钥环境变量设没设置，不打印密钥；`set <字段> <值>` 改一个字段，`unset <字段>` 去掉一个可选字段（服务地址、模型名、密钥环境变量名不能去掉）。字段用点路径：`model.baseUrl`、`model.id`、`model.apiKeyEnv`、`model.contextWindow`、`model.maxTokens`、`model.thinking`、`model.price`（值写 JSON）、`qa.maxChapters`、`qa.fullReadMaxChars`。配置文件不存在时 `show`、`set`、`unset` 以 `qa_unconfigured` 失败，下一步指向 `config init`。所有动作都接受 `--config` 与 `--json`。
+18. **配置命令。** `nbstory config` 的 `show` 显示配置文件路径与各字段，并说明密钥环境变量设没设置，不打印密钥；`set <字段> <值>` 改一个字段，`unset <字段>` 去掉一个可选字段（服务地址、模型名、密钥环境变量名不能去掉）。字段用点路径：`model.baseUrl`、`model.id`、`model.apiKeyEnv`、`model.api`、`model.contextWindow`、`model.maxTokens`、`model.thinking`、`model.price`（值写 JSON）、`qa.maxChapters`、`qa.fullReadMaxChars`。配置文件不存在时 `show`、`set`、`unset` 以 `qa_unconfigured` 失败，下一步指向 `config init`。所有动作都接受 `--config` 与 `--json`。
 19. **init。** `--base-url`、`--model`、`--api-key-env` 三项给齐就直接写（可加 `--thinking`）；缺的在终端里交互问，已有配置的值作默认，选项里给了的不再问。密钥环境变量名这一项只收环境变量名的写法，把密钥本身贴进来会被拒绝并说明。已有配置文件时：交互里先确认覆盖（默认不覆盖），非交互需要 `--force`；覆盖时没给的字段保留原值。不在终端里（或加了 `--json`）而缺必填项：用法错误，不等待输入。交互中取消：退出码 130，不写盘。
 20. **写入规则。** 写之前整份配置过校验，不通过就不写、原文件不变（`qa_unconfigured`，写明哪个字段，说明里不带字段的值）；不认识的字段一律不收。三处密钥环境变量名（`model`、`ingest.model`、`ingest.recall.model` 的 `apiKeyEnv`）只收变量名的写法，另外拒绝像密钥的写法（常见密钥前缀、32 个字符以上没有下划线的一整串）：这只挡得住已知形状，随机得像变量名的密钥仍会被当作变量名。通过的写同目录临时文件（名字随机）再改名，正在读它的 `ask` 读到的要么是旧的整份、要么是新的整份；写不进去报 `qa_config_write_failed`（F7）。配置里只有环境变量名，密钥值不出现在配置文件、输出与错误里。
     程序的写入（命令行的 `init`、`set`、`unset` 与网页设置页）共用一把跨进程锁（同目录常驻的 `.config.json.lock`，等别的写入最多 5 秒），锁内重读文件、比对读取时的摘要（文件原字节的 SHA-256，文件不在时是 `absent`；读不出来时不当作不在，报 `qa_config_write_failed`）、校验、写入。摘要对不上（别处在这之间改过）就不写，报 `config_conflict`（F10）。命令行在开始改之前（`init` 在提问之前）读下摘要。手改文件不走锁，只能靠摘要尽力发现；摘要按原字节算，只改了空白也算改过。
@@ -184,6 +185,9 @@ type QaConfig = {
     - `config.get`：配置文件的路径、此刻的摘要、配置里写到的每个密钥环境变量名在服务进程的环境里有没有值，以及三种状态之一：没有文件（给一份起始配置）、合格（给配置）、读不成或不合格（只给原因，不回传文件内容：里面可能有贴错位置的密钥）。
     - `config.set {config, expect}`：整份写入，`expect` 是读取时的摘要（`absent` 表示只新建），按输出 20 校验与比对；校验不过是 `invalid_params`（说明不带原值），摘要对不上是 `config_conflict`。
     - `config.test`：用保存下来的配置按输出 21 发一个最小请求，最多等 60 秒；结果给模型名、推理档、用时与失败的归类和说明（已遮盖），不给模型回的正文。
+
+36. **接口与思考内容。** 问答模型的 `api` 不写或写 `chat` 时走 Chat Completions；写 `responses` 时走 Responses，配置写了推理档时请求带推理档并要思考摘要；没写推理档时不要摘要，过程里没有思考（`config show` 写明）。同一个对话中途换了接口时，之前几轮的思考按文字交给模型。`ask`、网页的一轮与 `test` 都走配置的接口。模型回的思考内容（Responses 的思考摘要，或 Chat Completions 服务回的 `reasoning_content`）作为思考写进会话日志，网页的过程里显示；GPT 系列经 Chat Completions 不回思考内容，过程里就没有思考。抽取的模型不受这一项影响。
+37. **问题里的引用。** 问题里可以带 `[名称](entity://<对象 id>)`、`[章.段](paragraph://章.段)`、`[第 N 章](chapter://N)` 三种引用（网页的 `@` 菜单插入它们，命令行可以照样手写），原样交给模型；问答规则（Profile 版本 3）告诉模型：对象的引用按 id 查（查询工具的 `entity`、`perspective` 直接写这个 id），段与章的引用要看原文时按它读，答案里的出处照常写“章.段”。引用不改变防剧透与出处校验：晚于 P 的段照样读不到、不能引用。Profile 版本 2 时开的对话续问得到 F8 `qa_not_continuable`（输出 26），照常可以查看。
 
 ## 状态与转换
 
@@ -273,8 +277,10 @@ type QaConfig = {
 20. **网页的删除与停服（确定性）。** 首轮运行中 `qa.remove`：成功，列表里没有它，磁盘上没有它的文件，再删得到 `qa_record_not_found`。运行中删书：这一轮先停下保存，书再删掉。损坏的记录在 `qa.list` 里单列，可以删除。运行中向 `serve` 发 SIGTERM 或 SIGINT：这一轮保存为中断、登记撤销、退出码 0。
 21. **网页的全读与积压（确定性）。** 全读对话：`qa.get`、快照与日志帧里都没有原文、有问题与段数，存下的会话日志带原文。一个不读的推送连接积压超过上限被断开，同时另一个订阅者照常收到。
 22. **设置页的配置接口（确定性）。** 没有文件：`config.get` 给起始配置与 `absent`；`config.set` 带 `absent` 新建，再带 `absent` 得到 `config_conflict`；贴进密钥的变量名得到 `invalid_params`，说明与文件里都没有它；文件坏了只给原因、可以整份覆盖；`config.test` 通过时给模型名，401 时失败且没有密钥。并发写入（带摘要与不带摘要）都不交错，摘要对不上的那一个报冲突。
+23. **Responses 接口（确定性）。** `api` 设为 `responses`、推理档 `xhigh`：本机端点收到的两次请求都是 Responses 的形状，带 `reasoning: {effort: "xhigh", summary: "auto"}`；端点回的思考摘要按顺序作为思考写进会话日志，这一问照常交卷。`config set model.api responses` 后，没写推理档时 `show` 写“接口：Responses（没写推理档，不要思考摘要）”；写别的值是用法错误（退出 2），不写盘。网页里一轮的思考在过程里逐步显示。
+24. **问题里的引用（确定性）。** 问题写 `[地狱猫](entity://<南嘉鱼的 id>) 在 [37.8](paragraph://37.8) 做了什么？`：模型第一次请求里有这句原样的问题与读引用的规则；模型用这个 id 调 `card`，得到南嘉鱼的人物卡而不是查询失败。
 
-Smoke：在真实书库上用 100 章样例书与真实模型跑 `nbstory ask` 一问（图当目录），答案带出处、记录可以用 `nbstory qa` 列出与显示；网页问答页里问一题、追问一题、中途停止一次、刷新后接上。
+Smoke：在真实书库上用 100 章样例书与真实模型跑 `nbstory ask` 一问（图当目录），答案带出处、记录可以用 `nbstory qa` 列出与显示；网页问答页里问一题、追问一题、中途停止一次、刷新后接上；接口设为 Responses 时过程里有思考摘要。
 
 ## 实现合同
 
@@ -295,5 +301,5 @@ Smoke：在真实书库上用 100 章样例书与真实模型跑 `nbstory ask` �
 
 - 批准依据：[剧情图谱第一版提案](../../proposals/novel-story-app.md)（accepted，2026-10-15 改为做内置问答）；[nb-harness 提案](../../proposals/nb-harness-profile-and-tools.md)；开发者 2026-10-15、2026-10-16 在 [w00024 t05](../../../.agents/works/w00024-nb-story/tasks/t05-qa/README.md) 的决定（第 13 条一个 Agent 从头答到尾，第 16 到 20 条 Spec 要点；回归的输入清单见该 Task 的计划）；开发者 2026-10-21 在 [w00024 t08](../../../.agents/works/w00024-nb-story/tasks/t08-qa-conversation/README.md) 的决定（`answer` 可选、连续对话、回归不重跑）；网页问答与设置页（输出 27 到 35）依据开发者 2026-10-21、2026-10-23 在 [w00024 t13](../../../.agents/works/w00024-nb-story/tasks/t13-qa-web/README.md) 的决定（第 6 到 19 条），照推荐做的取舍见 [待确认清单](../../../.agents/works/w00024-nb-story/pending-confirmations.md)。
 - 实现入口：[`engine.ts`](../../../packages/nb-story/src/qa/engine.ts)、[`ask.ts`](../../../packages/nb-story/src/cli/ask.ts)、[`config.ts`](../../../packages/nb-story/src/cli/config.ts)、[`qa-service.ts`](../../../packages/nb-story/src/server/qa-service.ts)
-- 合同测试：[`engine.test.ts`](../../../packages/nb-story/src/qa/engine.test.ts)、[`core/qa-records.test.ts`](../../../packages/nb-story/src/core/qa-records.test.ts)、[`ask.test.ts`](../../../packages/nb-story/src/cli/ask.test.ts)、[`cli/config.test.ts`](../../../packages/nb-story/src/cli/config.test.ts)、[`qa/config.test.ts`](../../../packages/nb-story/src/qa/config.test.ts)、[`cli/ingest.test.ts`](../../../packages/nb-story/src/cli/ingest.test.ts)（输出 23）、[`server/qa.test.ts`](../../../packages/nb-story/src/server/qa.test.ts)（输出 27 到 35，验收 19 到 22）
+- 合同测试：[`engine.test.ts`](../../../packages/nb-story/src/qa/engine.test.ts)、[`core/qa-records.test.ts`](../../../packages/nb-story/src/core/qa-records.test.ts)、[`ask.test.ts`](../../../packages/nb-story/src/cli/ask.test.ts)（含输出 36、37，验收 23、24）、[`cli/config.test.ts`](../../../packages/nb-story/src/cli/config.test.ts)、[`qa/config.test.ts`](../../../packages/nb-story/src/qa/config.test.ts)、[`cli/ingest.test.ts`](../../../packages/nb-story/src/cli/ingest.test.ts)（输出 23）、[`server/qa.test.ts`](../../../packages/nb-story/src/server/qa.test.ts)（输出 27 到 35，验收 19 到 22）
 - Smoke：[`qa-eval.ts`](../../../.agents/works/w00024-nb-story/tasks/t05-qa/scripts/qa-eval.ts)（验收 9 的回归，真实模型逐题跑 `nbstory ask`；2026-10-16 一审答错 11/168、4/48，均在门槛内；之后 `answer` 改为可选、加了对话，没有重跑，只在样例书上用真实模型冒烟了“你好”与一段两轮追问）

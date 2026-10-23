@@ -107,6 +107,8 @@ export type TurnMetrics = {
     durationMs: number | null;
     /** 本轮工具调用次数。 */
     steps: number;
+    /** 本轮模型回了几次（助手消息条数）；provider 丢弃后重试的请求看不到，不算。 */
+    requests: number;
     /** 出错或参数无效的工具调用次数。 */
     failed: number;
     filesRead: number;
@@ -609,6 +611,7 @@ function computeMetrics(
     return {
         durationMs: truncatedStart ? null : Math.max(0, end - group[0]!.timestamp),
         steps: tools.filter((tool) => !outcomeCalls.has(tool.call.id)).length,
+        requests: group.filter((message) => message.kind === "assistant").length,
         failed: tools.filter(isFailed).length,
         filesRead: read.size,
         filesChanged: changed.size,

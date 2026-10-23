@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 答案卡片（w00024 t13 决定 8、15、16）：常显结论类型、结论、“谁知道什么”的表或分点、一行依据；说明、覆盖范围与
-// 全部依据收在“详细”里。出处与人名发 reference.open，由问答页交给查看器的抽屉。说明见同名 .md。
+// 全部依据在“详细”里，默认展开、可收起。出处与人名发 reference.open，由问答页交给查看器的抽屉。说明见同名 .md。
 import {computed, inject, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import {argArray, argString, type HostComponentEmits, type ToolComponentProps} from "@notnotype/nb-agent-ui";
 
@@ -35,7 +35,8 @@ const points = computed<Point[]>(() =>
 const evidence = computed(() => strings(argArray(props.call, "evidence")));
 const explanation = computed(() => argString(props.call, "explanation"));
 const coverage = computed(() => argString(props.call, "coverage"));
-const detailed = ref(false);
+// 默认展开：说明与覆盖范围是判断答案靠不靠得住的依据，收起时藏得太深（开发者 2026-10-23 试用后定）。
+const detailed = ref(true);
 
 const STATE_TONE: Record<string, string> = {"知道": "is-yes", "怀疑": "is-maybe", "不知道": "is-no", "原文没有表明": "is-unknown"};
 const TYPE_TONE: Record<string, string> = {"明说": "is-yes", "推断": "is-maybe", "解读": "is-reading", "无法确定": "is-unknown"};

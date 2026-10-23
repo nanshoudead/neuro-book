@@ -463,7 +463,7 @@ describe("对话与追问（输出 5、26，验收 14、15、17）", () => {
         const legacyId = newQaRecordId(new Date("2026-10-16T10:00:00Z"));
         const {reply: _reply, ...turn} = conversation.turns[0]!;
         await writeFile(join(dir, `${legacyId}.json`), JSON.stringify({id: legacyId, book: "fox", generation: conversation.generation, at: conversation.at, mode: "graph", ...turn, answer: null, status: "failed", error: {code: "no_answer", message: "旧"}}));
-        await writeFile(join(dir, `${legacyId}.session.jsonl`), original.replace('"version":"2"', '"version":"1"'));
+        await writeFile(join(dir, `${legacyId}.session.jsonl`), original.replace(/"key":"story-qa","version":"\d+"/u, '"key":"story-qa","version":"1"'));
         const before = await readFile(join(dir, `${legacyId}.json`), "utf8");
         let error: unknown;
         try {

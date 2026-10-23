@@ -459,7 +459,7 @@ describe("buildTurns 结果节点（验收 20）", () => {
 });
 
 describe("buildTurns 汇总", () => {
-    it("统计用时、工具次数、读写文件数、tokens 与费用；改动文件按路径合并，只算成功的调用", () => {
+    it("统计用时、工具次数、模型回复次数、读写文件数、tokens 与费用；改动文件按路径合并，只算成功的调用", () => {
         const start = clock + 1000;
         const turns = buildTurns(input([
             user("u1", "改稿"),
@@ -481,7 +481,7 @@ describe("buildTurns 汇总", () => {
 
         const {metrics, changedFiles} = turns[0]!;
         expect(metrics).toEqual({
-            durationMs: clock - start, steps: 7, failed: 2, filesRead: 1, filesChanged: 2, tokens: 410, cost: 0.03,
+            durationMs: clock - start, steps: 7, requests: 3, failed: 2, filesRead: 1, filesChanged: 2, tokens: 410, cost: 0.03,
             usage: {input: 300, output: 50, cacheRead: 50, cacheWrite: 10},
         });
         expect(changedFiles).toEqual([

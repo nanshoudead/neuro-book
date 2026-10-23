@@ -127,7 +127,7 @@ complete({profile, initial, input, model, signal?}): Promise<CompleteResult>
     - `entries` 只含这次运行写下的条目。
     - 运行期的出错按 `stopReason: "error"` 返回，不抛异常。
 11. **用量。** `usage` 是这次运行里交到 Agent 手上的模型消息的用量之和。发生过取消、或察觉到 provider 层重试（被丢弃的那次请求的用量拿不到）时，`complete` 为 `false`，调用方应把它当作下界（“至少”）。`cost` 在模型的单价未知时为 `null`；单价已知、计量不完整时 `cost` 照算，`complete` 为 `false`。
-12. **错误归类。** `kind` 由 provider 返回的状态码与错误标记决定，不按错误文字判断，优先级从上到下：认证失败或 401、403 为 `auth`；余额或配额用尽为 `quota`；429 为 `rate_limit`；上下文超长为 `context_overflow`；网络中断与网关超时为 `network`；其余 provider 错误为 `provider`。harness 自己的步骤出错：密钥缺失为 `auth`；渲染 Profile、写会话日志失败为 `local`。
+12. **错误归类。** `kind` 由 provider 返回的状态码与错误标记决定，不按错误文字判断，优先级从上到下：余额或配额用尽为 `quota`（网关常以 403 回余额不足，同时带认证失败的标记，仍归 `quota`）；认证失败或 401、403 为 `auth`；429 为 `rate_limit`；上下文超长为 `context_overflow`；网络中断与网关超时为 `network`；其余 provider 错误为 `provider`。harness 自己的步骤出错：密钥缺失为 `auth`；渲染 Profile、写会话日志失败为 `local`。
 
 ### 收尾工具
 

@@ -38,13 +38,13 @@ owners:
 清单有两种载体，字段与规则相同：
 
 - 第三方插件安装时，清单是插件目录中的 `package.json`；
-- 内置插件的清单是代码中的插件描述与各运行位置的入口定义，不另存 `package.json`。代码定义里 `requires`、`remoteProvides`、`remoteDelegates` 写服务键与合同对象，`package.json` 写 id；两者按 id 对应。代码定义里的函数（入口的激活函数、贡献点的校验函数）是运行期钩子，不属于清单；除此之外，每个内置插件的代码定义都必须能表达为 `package.json` 形式，并通过同一套校验，转回代码定义后相同。第三方插件的清单由 SDK 构建预设从代码定义生成，与内置插件用同一个转换；第三方插件的贡献点只能用 `schema` 表达声明的结构，不能只写校验函数：登记时没有插件代码可调。贡献点与激活事件前缀属于插件：清单把它们写在插件一级，第三方插件在它有入口的每个运行位置都定义它们；内置插件的代码定义可以只在部分运行位置定义（例如只在项目实例里需要方言贡献点、没有入口），比较时按插件汇总。
+- 内置插件的清单是代码中的插件描述与各运行位置的入口定义，不另存 `package.json`。代码定义里 `requires`、`remoteProvides`、`remoteDelegates` 写服务键与合同对象，`package.json` 写 id；两者按 id 对应。代码定义里的函数（入口的激活函数、贡献点的校验函数）是运行期钩子，不属于清单；除此之外，每个内置插件的代码定义都必须能表达为 `package.json` 形式，并通过同一套校验，转回代码定义后相同。第三方插件的清单由 SDK 构建预设从代码定义生成，与内置插件用同一个转换；第三方插件的贡献点只能用 `schema` 与 `idPrefix` 表达声明的规则，不能写校验函数：登记时没有插件代码可调，写了也不会在宿主里运行。同一个贡献点在几个运行位置的定义里出现时，各份的 `implementation`、`schema` 与 `idPrefix` 必须一致。贡献点与激活事件前缀属于插件：清单把它们写在插件一级，第三方插件在它有入口的每个运行位置都定义它们；内置插件的代码定义可以只在部分运行位置定义（例如只在项目实例里需要方言贡献点、没有入口），比较时按插件汇总。
 
 下表按 `package.json` 的字段写。与本能力有关的字段：
 
 | 字段 | 含义与约束 |
 |---|---|
-| `name`、`publisher`、`version` | 组成插件 id `publisher.name`。`publisher` 与 `name` 各为一段：以小写字母或数字开头，只含小写字母、数字与连字符（不接受 npm 的 `@scope/` 写法）；内置插件的 `publisher` 为 `nbook`。`version` 为 semver，内置插件的 `version` 等于产品版本 |
+| `name`、`publisher`、`version` | 组成插件 id `publisher.name`。`publisher` 与 `name` 各为一段：以小写字母开头，只含小写字母、数字与连字符（视图、状态栏条目、菜单这些带插件 id 前缀的 id 每段都要字母开头）（不接受 npm 的 `@scope/` 写法）；内置插件的 `publisher` 为 `nbook`。`version` 为 semver，内置插件的 `version` 等于产品版本 |
 | `engines.neurobook` | 兼容的 NeuroBook 版本范围，由 [`runtime.plugin-install`](plugin-install.md) 检查 |
 | `entries` | 入口 id 到入口声明的映射；可以为空（只含声明式贡献的插件）。入口 id 只含字母、数字、连字符与下划线，以字母或数字开头：它也是默认的代码文件名 |
 | `entries.<id>.location` | 运行位置 |
@@ -58,7 +58,7 @@ owners:
 | `entries.<id>.activationEvents` | 激活事件列表 |
 | `entries.<id>.contributes` | 需要本入口提供实现的贡献，例如命令、视图、Agent 工具、路由、公开状态的键（`state.public`，实现是激活时绑定的读取函数，[`state.public`](../state/public-state.md)） |
 | `contributes` | 只有声明、不需要实现的贡献，例如菜单项、设置项、菜单位置 |
-| `contributionPoints` | 本插件拥有的贡献点：`id`、该贡献点的贡献是否需要实现（`implementation`，决定贡献写在入口下还是顶层），以及可选的声明结构 `schema` |
+| `contributionPoints` | 本插件拥有的贡献点：`id`、该贡献点的贡献是否需要实现（`implementation`，决定贡献写在入口下还是顶层），以及可选的声明结构 `schema` 与贡献 id 前缀 `idPrefix`（只有一个取值 `"plugin"`：贡献 id 必须以贡献方插件 id 加 `.` 开头） |
 | `activationEventPrefixes` | 本插件拥有的激活事件前缀，例如 `nbook.commands` 的 `onCommand`；只有拥有者能触发以它开头的事件 |
 | `pluginVersions` | 所依赖第三方插件的版本范围；只约束版本，是否必需由各入口的 `requires` 决定（输出 3 的 `version-mismatch` 与其后的可选依赖规则） |
 | `style` | 可选，浏览器要加载的样式表，相对插件目录，规则同入口的 `main`；窗口登记插件时就加载（[`runtime.plugin-code-loading`](plugin-code-loading.md) 的插件样式） |
@@ -93,7 +93,7 @@ owners:
 8. **关闭顺序严格为依赖逆序。** 依赖者先关闭，提供者后关闭。
 9. **登记顺序没有语义。** 全部清单登记后再计算依赖图；诊断按插件 id 排序输出，同一输入得到同一结果。
 10. **贡献校验按单条贡献进行。** 贡献点由拥有者在 `contributionPoints` 中定义，校验所需的 schema 与“是否需要实现”都来自拥有者，所以校验只在拥有者已登记时进行：
-    - 拥有者已登记：先按其 `schema` 校验，再交拥有者的校验函数（内置插件才有）；不合格的贡献（包括需要实现却写在顶层 `contributes`、不需要实现却写在入口下）只这一条被拒绝，原因可查询，插件的其它部分照常；
+    - 拥有者已登记：先核对 `idPrefix`、再按其 `schema` 校验，再交拥有者的校验函数（内置插件才有）；不合格的贡献（包括需要实现却写在顶层 `contributes`、不需要实现却写在入口下）只这一条被拒绝，原因可查询，插件的其它部分照常；
     - 拥有者未安装或已禁用：贡献处于“待校验”，不显示、不报错；拥有者登记后再校验，合格的生效，不合格的被拒绝。拥有者已登记但其接收贡献的入口受阻时，贡献照常校验，是否显示由拥有者决定；
     - 没有任何已登记插件定义该贡献点：贡献处于“待校验”，并在插件详情中标注“未知贡献点”，便于发现拼写错误。
 

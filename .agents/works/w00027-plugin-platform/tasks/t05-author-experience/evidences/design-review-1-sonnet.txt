@@ -1,0 +1,155 @@
+# t05 设计审查（界面部分，Sonnet）
+
+审查对象：`.agents/works/w00027-plugin-platform/tasks/t05-author-experience/plan.md`。只看浏览器界面一半。下面按核实顺序追加，末尾汇总再按影响排序。
+
+## 发现
+
+### F1 重要 / 依赖的机制：作者拿不到 nb-ui 的类型与文档，模板的 `HelloView.vue` 在仓库外无法类型检查
+- 位置：plan.md“脚手架模板”（`web/HelloView.vue` 用 nb-ui 组件画；devDependencies 只有 SDK、vue、typebox、typescript）；`scripts/plugin-sdk/build-sdk.ts` 第 97 行（dts 构建把 `@notnotype/nb-ui` 列为 external）；`packages/nb-ui/package.json`（`private: true`，exports 指向 `.ts` 源码）。
+- 现象：宿主模块表确实共享 `@notnotype/nb-ui/components`（`src/shared/plugin-modules.ts`），构建时它被当外部引用，所以 `build` 能过（我在 Node 26 上用生成的 SDK 包实测：`.vue` 里 `import {Button} from "@notnotype/nb-ui/components"`，作者目录没装 nb-ui，`buildPlugin` 成功）。但 SDK 包的 `package.json` 没有 nb-ui 的依赖或 peer，nb-ui 本身是私有包、未发布，作者装不到它的类型。模板的 `HelloView.vue` 用 vue-tsc 或编辑器检查会报“找不到模块”，组件有哪些、props 是什么也无处可查（组件 props 只在仓库的 `.vue` 源码与 Component Lab 里）。
+- 为什么是问题：t05 的目标是“仓库外的人按文档从零写出插件”。作者写的第一个视图就在编辑器里一片红；`build-sdk.test.ts` 的仓库外项目只有 vue、typebox、TypeScript，没有覆盖“用 nb-ui 组件”这条路，`template.test.ts` 计划只构建、不类型检查，缺口不会被测试发现。nb-ui 约 60 个导出，共享 `@notnotype/nb-ui/components` 整个入口是兼容承诺（plugin-code-loading.md“共享入口即兼容承诺”），但计划没有写作者怎样知道其中哪些能用。
+- 如何核实：`/tmp/review-t05-design/x/` 里 `bun scripts/plugin-sdk/build-sdk.ts` 生成 SDK，建只含 `HelloView.vue`（import nb-ui 的 Button）的作者目录，Node 跑 `build.js` 的 `buildPlugin` 过；再对它跑 vue-tsc 必然找不到 nb-ui（nb-ui 不在 `node_modules`）。
+- 建议改法：二选一并写进计划。(a) SDK 包把 nb-ui 组件的类型作为公开面的一部分生成（`@notnotype/nb-plugin-sdk/ui` 之类的类型入口，或 SDK 生成 nb-ui 的 `.d.ts` 并作 `types` 映射），模板的 tsconfig `paths`/依赖对上；(b) 模板的视图不用 nb-ui 组件，只用原生元素加 token 变量，作者文档明说“nb-ui 组件目前没有对外类型，等发布后再用”。不管哪种，`template.test.ts` 要加一步仓库外的类型检查（`vue-tsc`，或至少 `tsc` 配 `*.vue` 声明），才拦得住这类缺口。
+
+### F2 重要 / 接口与合同：视图组件只收到 `context`，计划没有给作者把设置、命令结果、远程服务交给视图的办法
+- 位置：plan.md“关键设计”SDK 一节（只加 `ViewImplementation`、`ViewContext` 类型）、模板一节（“`HelloView.vue`：读 `ViewContext`”；“一条命令 `<id>.say-hello`（经设置项读问候语，结果显示在视图里）”）、focus 一节（视图显示倒计时、按钮、今天的统计）。依据：`src/plugins/workbench/web/contracts.ts` 的 `ViewImplementation`（`load(): Promise<Component>`，组件 props 只有 `{context: ViewContext}`，`ViewContext` 里只有 id、代际、可见性、位置）。
+- 现象：视图组件拿不到设置服务、命令、远程服务或激活上下文里的任何东西。内置的资源管理器是用渲染函数写一个“视图宿主”组件（`src/plugins/explorer/web/view-host.ts`，`defineComponent` + `h(...)`）把会话绑成 props，且 `.vue` 在 Bun 里不能导入。设置页有 `settingsPageContribution(...).implementation(() => props)` 这个助手，视图没有对应的东西。另外 `load()` 要返回 `Component` 本身，`() => import("./X.vue")` 返回的是模块对象（`{default}`），直接写会得到“渲染出错”，设置页的助手内部才解包。
+- 为什么是问题：模板要“读设置项显示问候语”，focus 要“订阅 changed 更新视图”，两者都需要把入口里取得的服务交给视图。计划没写办法，实施时要么每个作者自己手写 `defineComponent` 包装（模板里是最该写对、最该简单的地方），要么发现缺口后临时在 SDK 上补一个新合同，模板与 S1 的 SDK 面就要返工（SDK 每加一项都是兼容承诺，计划自己也这么说）。
+- 如何核实：读 `src/plugins/settings/web/page-contribution.ts`（有 `implementation(props)`）对照 `workbench/web/contracts.ts`（没有）；读 `explorer/web/plugin.ts` 的 `view.load`（手写 `createExplorerViewHost`）。
+- 建议改法：S1 把“视图贡献助手”算进 SDK 面，对称于 `settingsPageContribution`：`viewContribution({id, declaration, load, props?})` 返回 `{contribution, implementation}`，内部解包模块对象，`props` 在渲染时求值、与 `context` 一起传给组件；声明按 `ViewDeclaration` 核对。同时给状态栏条目一个同样的小助手或至少在作者文档里写出标准写法。这比只导出三个类型更能让模板简短。
+
+### F3 重要 / 遗漏：模板的 TypeScript 配置没有 `.vue` 声明，生成后第一次 `tsc` 就失败
+- 位置：plan.md 模板一节（`tsconfig.json`：bundler 解析、strict；devDependencies 有 typescript，没有 vue-tsc；入口里按示例的写法动态导入 `.vue`）。
+- 现象：实测（Node 26，生成的 SDK 包，作者目录只有 `plugin.ts` 与 `web/plugin.ts`，后者 `() => import("./HelloView.vue")`），`tsc -p .` 报 `TS2307: Cannot find module './HelloView.vue' or its corresponding type declarations`。仓库里的示例（snippets）靠仓库根的 `*.vue` 声明，模板没有。
+- 为什么是问题：模板的 README 会让作者跑构建，不会跑 `tsc`；但编辑器里会红，`typescript` 既然在 devDependencies 里就等于承诺能检查。`build-sdk.test.ts` 的作者项目也避开了 `.vue`，所以现有测试没碰到。
+- 如何核实：见上，`/tmp/review-t05-design/x/author` 里复现。
+- 建议改法：模板带 `env.d.ts`（`declare module "*.vue" { import type {Component} from "vue"; const component: Component; export default component; }`），`scripts.typecheck = "vue-tsc --noEmit"`（devDependencies 换成 `vue-tsc`），`template.test.ts` 在仓库外目录跑它。与 F1 一起解决才完整。
+
+### F4 重要 / 遗漏：模板与 focus 的浏览器入口必须写 `activationEvents: ["onStartup"]`，计划没提
+- 位置：plan.md 模板一节、focus 一节；依据 `docs/specs/workbench/views.md` 第 20 行（“第一版里贡献视图的入口按自己的激活事件激活”）、`ui/workbench-shell.md` 验收 38（条目随贡献方入口激活出现、停止消失）、`runtime/plugins.md` 输出 21。
+- 现象：视图与状态栏条目的实现都在入口 `activate` 的返回值里交付。入口不声明激活事件，就只在被别的入口依赖或收到远程调用时才激活（浏览器入口没有 `onRemote` 触发），状态栏条目永远不出现，视图显示成“还没交付”。
+- 为什么是问题：作者照模板改、删掉不认识的 `activationEvents` 一行就会得到一个安静的坏插件；作者文档若不讲“视图和条目为什么要 onStartup、代价是每个窗口启动时都下载并执行该入口”，作者也无从判断。
+- 如何核实：读上述 Spec 条目；e2e `plugin-authoring` 若漏了这行会在“视图出现”这步失败，所以这条是文档与注释缺口，不是测试缺口。
+- 建议改法：模板的入口带这一行与一句注释（为什么、代价）；作者文档“激活事件”一节专门讲视图与状态栏条目的取舍；focus 同理，服务端入口另说（见 F9）。
+
+### F5 重要 / 依赖的机制：focus 的设置项 `sound`（结束时是否提示）在“只用 SDK 已有接口”的前提下没有实现路径
+- 位置：plan.md focus 一节（设置项 `example.focus/sound`；“只用 SDK 已有的接口”）与关键设计 SDK 一节（明确不加 `notificationsKey`、`quickPickKey`）。
+- 现象：SDK 现有面（`src/sdk/index.ts`、`browser.ts`）没有通知服务；计划又不加。剩下的“提示”只能靠浏览器自己的 `Audio`/`AudioContext` 或 `Notification` API。前者受自动播放策略限制：窗口刷新后、用户还没在这一页点过东西时，结束音会被浏览器静默拦掉（没有错误），后者要权限弹窗。插件目录里的静态文件也没有对作者开放的取用方式（只有入口与 `style.css`），所以没有现成音频资源可播。
+- 为什么是问题：作者读示例是为了学“设置项怎样驱动行为”。一个开关打开后什么也不发生（或只在部分情况下发生）会让示例变成反面教材，而且场景测试和 e2e 都测不出来。
+- 如何核实：`grep notificationsKey packages/neuro-book/src/sdk` 无结果；读 `workbench/web/contracts.ts` 没有别的提示出口；唯一对条目开放的是 `ItemImplementation.state()`（`normal | warning | error`）与 `tooltip()`。
+- 建议改法：把 `sound` 换成 SDK 里确实有出口的提示：设置项改成“结束后状态栏高亮到我看过为止”（条目 `state()` 返回 `warning`，视图或点击后清除），这用到了 `ItemImplementation.state`，也是 S1 新导出的类型里原本没演示的一块；或者干脆去掉这一项，设置项只留 `minutes`。若要保留声音，计划必须写明用哪个 API 以及刷新后被拦截时的退化。
+
+### F6 重要 / 验收映射：场景 07 要核对“状态栏文本”，但示例场地没有工作台，计划没安排替身
+- 位置：plan.md focus 一节（“场景测试 `07-focus.test.ts` ……核对记录、事件与状态栏文本”）；`examples/testing/stage.ts`（窗口只装 `statePlugin`、`nbook.settings` 浏览器核心、`commandsPlugin`、`storageBrowserPlugin`）。
+- 现象：`workbench.views`、`workbench.statusbar-items` 的拥有者是 `nbook.workbench`，场地没有它；第三方入口向没有拥有者的贡献点交条目，条目停在“等待接收者”，`text()` 没人读。计划没有说用什么读到它。内置的做法是测试里自写一个拥有者插件、挂 `ItemRegistry`（`src/plugins/workbench/web/items/registry.test.ts`），需要引用工作台的内部实现，且 Bun 里不能加载 `.vue`，所以视图的 `load()` 在场景里也不能真跑。
+- 为什么是问题：S3 的验收映射“示例行为 → 场景 07 与 dom 测试”看上去完整，实际要先给 `stage.ts` 加一个“只有两个贡献点与接收者”的工作台替身（并决定它是用真实的 `itemValidator`/`validateViewContribution` 还是自己的），这不是一两行的事，且替身与真实工作台的合同要对一次（AGENTS.md：替身要与真实实现对过契约）。不写进计划，S3 的工作量被低估，也容易走成“场景里手搓一个对象假装是状态栏”。
+- 如何核实：读 `stage.ts` 的 `window()` 装配表；`grep -rn "workbench" examples/` 无结果。
+- 建议改法：S3 单列一步“场地加工作台替身”：定义两个贡献点用产品的校验函数（`shared/views.ts`、`shared/items.ts` 已是纯数据，Bun 可导入），接收者把交付的实现收进 Map，场景用 `text()`、`state()` 读；视图组件靠 dom 测试验。并在 S3 的验证里加一条“替身用的校验函数就是产品的那一份”。
+
+### F7 重要 / 接口与合同：`create` 的 name 校验若只按插件 id 的规则，会放行以数字开头的名字，生成的视图、条目 id 会在宿主里被静默拒绝
+- 位置：plan.md“`nbook-plugin` 命令”（“name 缺省目录名转成 id 段（不合法时报错并说明规则）”）；`packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts:39`（`ID_SEGMENT = /^[a-z0-9][a-z0-9-]*$/`，数字可开头）对照 `src/plugins/workbench/shared/views.ts` 的 `VIEW_ID` 与 `shared/items.ts` 的 `ITEM_ID`（`^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$`，每段必须字母开头）。
+- 现象：实测正则，`my.2fa` 是合法插件 id，但 `my.2fa.hello` 不匹配视图 id 规则。模板的视图 id `<id>.hello`、命令 `<id>.say-hello`、focus 之类的条目都带插件 id 前缀，publisher 或 name 以数字开头就整个被登记校验拒绝。构建通过、清单有效，装上后视图不出现，只在服务端或窗口诊断里有一行。
+- 为什么是问题：脚手架是新作者的第一站，目录名 `2048-timer`、`3d-view` 这类很常见；生成的目录“能直接构建并安装”是计划写进 Spec 的验收（plugin-api 作者工具），这条会让承诺落空。
+- 如何核实：`node -e` 里对两个正则各测 `2fa`（见上），结果 `true false`。
+- 建议改法：`create` 的校验按“所有会派生出来的 id 都合法”的更严规则（段首必须字母），报错里写明原因；顺带评估把清单的 `ID_SEGMENT` 收紧到同一规则（若有已发布的以数字开头的插件再决定，目前还没有第三方插件，是改上游成本最低的时候）。模板测试加一例“数字开头被拒”。
+
+### F8 重要 / 遗漏：focus 的倒计时、重连与首次显示没有写出来，三处“凭感觉”就会写错
+- 位置：plan.md focus 一节（“倒计时”“订阅 `changed` 更新视图与状态栏”“窗口关闭再打开，进行中的会话照常结束”）。依据：`browser-host.md` 第 56 行（重连后“仍有效的订阅重建并收到 `onResync`”）；`examples/plugins/notes/web/plugin.ts` 的 `onEnd`；`RuntimeClock` 只有一次性的 `schedule`（`nb-runtime/src/lifecycle/clock.ts`）。
+- 现象与问题：
+  1. 倒计时必须由 `endsAt - now` 算出，而不是每秒减一：后台标签页的计时器会被浏览器节流到每秒甚至每分钟一次，窗口休眠后回来，减法式显示会错得很远。计划没写。`text()` 要响应式读一个会变的量，所以入口里要有一个“now”的 ref，由 `hostClockKey.schedule` 链式推进；计划没提计时源由谁拥有、空闲时是否停止（不停止则每个窗口永远 1 次/秒）、入口停止时是否取消（场地的 `StageClock.pending()` 能核对这一点，计划没把它列为判据）。
+  2. 首次显示：订阅 `changed` 不保证先推一次当前值（notes 的做法是服务端订阅建立时先推一次）。`today` 方法是否带上进行中的会话（`endsAt`）、窗口一开是不是先调它，计划没写；条目文本在数据到达前显示“今天 0 个”就是错的数据（`ItemImplementation` 不承担隐藏，隐藏只能靠声明里的 `when` 与公开状态）。
+  3. 断线重连：订阅有 `onResync`，计划只写订阅。重连后若不重新调 `today`，期间在别的窗口开始或结束的会话不会反映。
+  4. 时间基准：`endsAt` 是服务端时间，浏览器按自己的时钟算剩余。本地应用上同机没问题，但从另一台设备访问时会偏。服务端同时返回 `remainingMs`，浏览器据此对齐，成本很低。
+- 如何核实：读上面各文件；想验证 1 可以在 Chrome 后台标签页里观察 `setTimeout` 链的实际间隔。
+- 建议改法：focus 一节补一段“状态与时间”：浏览器入口持有一个 store（`defineStore`），字段 `session`（含 `endsAt`、服务端给的 `remainingMs` 对齐值）、`today`、`ready`；订阅回调与 `onResync` 都走同一个“重读 today”；`ready` 为假时条目 `when` 不满足（或 `text()` 返回 `…`）；tick 只在有进行中的会话时运行，入口停止时取消；场景测试加两条判据：入口停止后 `clock.pending()` 为 0、空闲推进一天时钟后无计时器。
+
+### F9 建议 / 接口与合同：远程合同的 `finish` 与“计时的权威在服务端”矛盾，`start` 的重复调用、`cancel` 的空闲调用没有定义
+- 位置：plan.md focus 一节（远程合同 `start`、`finish`、`cancel`、`today`）。
+- 现象：服务端靠计时器（或 `endsAt` 与当前时间的比较）结束会话，浏览器调 `finish` 要做什么？若是“浏览器提前完成”，就与服务端权威冲突；若浏览器在倒计时到零时调它，则窗口关闭时会话由谁结束？计划同一段又写“窗口关闭再打开，进行中的会话照常结束”，两句话说的是两种实现。另外多个窗口同时点开始、已在进行时再点开始、空闲时点放弃，各返回什么业务失败码没有写（合同照字面实现时会各自发明）。
+- 为什么是问题：合同进了 `shared/contracts.ts` 就是示例的“公开接口”，作者会照抄。
+- 建议改法：合同只留 `start`、`cancel`、`today`（含进行中的会话）与事件 `changed`，“结束”是服务端按 `endsAt` 推导出来的状态变化，不是调用；业务失败码写成 `already-running`、`not-running`；服务端入口声明 `activationEvents: ["onStartup"]` 或明确“只靠 `endsAt` 推导、不需要启动即激活”，二者择一并写进头注释。
+
+### F10 重要 / 遗漏：作者文档没有一节讲“怎样画界面”，而这正是第三方插件最容易静默出错的地方
+- 位置：plan.md“作者文档”一节（目录：安装 SDK、create、目录结构、写入口、构建与纯度检查报错、安装与重启、调试、发布目录）。依据：`scripts/plugin-sdk/build-plugin.ts` 头注释（样式包进 `@layer components`、只补 Lucide 图标规则）；`packages/nb-ui/src/tailwind.css` 头注释（宿主的原子类由宿主 Tailwind 扫描宿主源码生成）；`examples/plugins/snippets/web/SnippetsEditor.vue`（实际写法：nb-ui 组件 + `<style scoped>` + `var(--space-4)` 一类 token）。
+- 现象：我在 Node 上用生成的 SDK 构建了一个 `HelloView.vue`（模板里写 `class="p-4 flex gap-2"`），构建通过、没有任何警告；运行时这些类是否生效取决于宿主源码里恰好用没用过它们，同一个模板在不同产品版本里表现不同。样式包进 `@layer components` 之后，会输给宿主 `utilities` 层里 nb-ui 组件自带的原子类，所以“覆盖按钮的宽度、内边距”会静默失败。图标只认字面量的 `i-lucide-*`，拼接出来的类名找不到。主题 token 约 90 个（`nb-ui/src/tokens.css`、各主题的 colorway），没有任何对外清单；明暗两套主题只有用 token 才会跟着变。视图声明的 `layout`（`scroll` 或 `fill`）没有缺省值，必须选。
+- 为什么是问题：这些都是 t04 已经定下的约束（插件不能依赖宿主的原子类、图标只支持 Lucide），但约束落到作者手里只有文档一个渠道；计划里没有对应的章节，模板也没有示范（计划没说模板视图怎样写样式）。结果是作者按直觉写 Tailwind 风格的类，开发时恰好有效，换个主题或升级后失效。
+- 如何核实：`/tmp/review-t05-design/x/author`（生成的 SDK + Node 构建）里 `HelloView.vue` 的 `p-4 flex gap-2` 不产生警告；`dist/style.css` 只有 scoped 规则。
+- 建议改法：作者文档加一节“界面”：①只用 nb-ui 组件（列出可用清单与 props 的查阅方法，见 F1）加 `<style scoped>` 与 token 变量，不写原子类；②token 清单（由 nb-ui 生成一页）与明暗主题要求；③图标写字面量 `i-lucide-*`；④不要覆写 nb-ui 组件内部样式（层序原因）；⑤`layout`、`minimumSize` 的选法与窄侧栏（默认约 240px）的写法；⑥无障碍（见 F12）。模板视图按这些写，并在 `template.test.ts` 里断言模板源码不含原子类样式的典型写法（宽松的正则即可）。同时评估构建预设对 `.vue` 模板里明显的原子类字面量（`class="… p-4 flex …"`）给一条警告，成本是一个正则扫描，收益是把“静默失效”变成构建期的提示。
+
+### F11 建议 / 对照参照：改一行界面要走“构建、卸载、重启、安装、重启”，计划的作者文档没有回答内循环
+- 位置：plan.md“作者文档”（“安装与重启、调试”）、“不做”（就地加载与热重载推迟）。依据：`docs/specs/runtime/plugin-install.md` 第 40 行（安装同一版本被拒：“开发者需要提高版本号，或先卸载、重启后再安装”）。
+- 现象：同一版本号不能覆盖安装；升级路径要换版本号并重启一次。VS Code 的扩展有 F5 的扩展开发主机，`create-vite` 的模板有 `dev` 脚本，两者的第一屏体验都是“改了就看到”。计划把热重载列为不做是合理的（开发者已定推迟），但没有给出替代的最短循环。
+- 为什么是问题：作者调一个视图的样式可能要改几十次，每次手点卸载和两次重启，会直接劝退。
+- 建议改法：成本最小的做法，仍在“不做热重载”的范围内：`build` 增加 `--dev`，把清单版本写成 `<version>-dev.<构建序号>`（需确认清单版本字段允许预发布段），配合“安装同一插件的更高版本是升级”，循环缩成“构建、安装路径回车、重启一次”；作者文档把这条循环写成明确的步骤，并建议用 Vite 给视图组件单独起一个页面预览（模板可带一个 `preview/` 页面用 nb-ui 渲染 `HelloView`，不依赖宿主），把 90% 的样式调整挪出宿主。若不做，至少在文档里把循环和 `nbdev`/命令行安装的路径（如果有）写清楚。
+
+### F12 建议 / 遗漏：专注计时视图与状态栏条目的键盘与读屏行为没有定，计划里的按钮切换方式会丢焦点
+- 位置：plan.md focus 一节（“倒计时、开始与放弃按钮”“状态栏条目（进行中显示剩余时间，否则显示今天的番茄数）”“命令 `example.focus.start`、`example.focus.cancel`”）；依据 `shared/items.ts`（条目的 `command` 可选，没有命令的条目不可点）。
+- 现象与问题：
+  1. “开始”与“放弃”若按进行状态用 `v-if` 换成两个按钮，键盘用户在“开始”上按回车后，被聚焦的元素被移出 DOM，焦点落到 `body`，要重新 Tab 一遍才能到“放弃”。同一个按钮改文字与动作，或换按钮时把焦点移过去，二选一，计划没写。
+  2. 倒计时每秒变一次，若放进 `aria-live` 区域，读屏每秒念一次；应当用 `role="timer"`（隐式不播报）显示剩余，只在完成与放弃时用一个独立的礼貌型 live 区域播报一次。
+  3. 状态栏条目计划里没有 `command`，条目就是纯文字，键盘无法聚焦，鼠标也点不开视图。条目的 `command` 是静态引用，而 `start` 与 `cancel` 是两条命令，都不适合挂在它上面；需要一条 `example.focus.toggle`（空闲时开始、进行中放弃）或“显示面板”之类，计划的命令表里没有。
+  4. 窄侧栏：侧栏默认宽约 240px（`ui/workbench-shell.md` 默认意图 240），视图声明的 `minimumSize.width` 缺省是 64px 的有效下限；倒计时大字号加两个按钮并排在这个宽度会溢出。`layout: "scroll"` 还是 `"fill"`、`minimumSize` 取值计划没定。
+  5. 声明里每个命令有必填的英文 `description`（给 Agent 看）与 `effect`；`start` 是 `write`、`cancel` 是 `write`，默认会不会暴露给 Agent（`expose.agent`）计划没写，示例里该显式说明。
+- 为什么是问题：示例的作用就是被抄；上面几处抄了就会带进作者的插件里，而 Spec 对插件视图有可用性要求（命令面板、键位、读屏名称）。
+- 如何核实：读 `shared/items.ts`、`shared/views.ts`、`plugins/commands/shared/contracts.ts` 的 `CommandDeclarationSchema`。
+- 建议改法：focus 一节补“交互”小段：单个主按钮原位切换，倒计时 `role="timer"`，完成与放弃的一次性播报，状态栏条目挂 `example.focus.toggle`，视图 `layout: "scroll"`、`minimumSize: {width: 200}`、按钮在窄宽下换行（用 `flex-wrap`）；dom 测试加“键盘开始后焦点仍在主按钮上”“窄宽下两按钮不溢出（happy-dom 量不了像素，则放进 e2e 的 390px 视口）”。
+
+### F13 建议 / 验收映射：focus 视图的 dom 测试跑在 Node 的 Vitest 里，而示例的服务端依赖 SQLite（只有 Bun 有），计划没说怎样不用替身
+- 位置：plan.md focus 一节（“视图组件的 Vitest dom 测试按 snippets 的写法”）；依据 `examples/plugins/snippets/web/SnippetsPage.dom.test.ts` 头注释（“不用示例自己的 `testing/stage.ts`：它装了 `nbook.storage`，SQLite 只在 Bun 里有，而组件测试在 Node 里跑”）。
+- 现象：snippets 的页面只依赖配置服务，所以能用设置的多实例场地。focus 的视图读的是远程合同加私有存储，Node 里无法起真实的服务端，只能给视图一个手写的假远程。AGENTS.md 要求替身与真实实现对过契约，计划没提。
+- 为什么是问题：视图的交互逻辑（点开始后按钮状态、完成后统计刷新、重连后重读）恰好在这层，用没对过契约的假远程测，容易测出“假远程的行为”。
+- 建议改法：把状态逻辑从 `.vue` 里抽成纯 TS 的 store（F8 的 store），它依赖一个只含 `start`、`cancel`、`today`、`subscribe` 的接口；Bun 场景里用真实远程驱动这个 store（核对合同），Node 的 dom 测试只测组件对 store 状态的呈现与键盘行为，store 用同一份真实实现配一个内存里的假接口，假接口的返回由场景里同样的断言钉住。
+
+### F14 重要 / 验收映射：e2e 的几条判据用“没有失败”“消失”这类否定形式，计划没要求先证明对象真的存在过
+- 位置：plan.md“仓库外 smoke”与“验收映射”（`plugin-code.e2e.ts` 加 menu、file-menu、focus；`plugin-authoring.e2e.ts`：“禁用、重启后视图消失”“卸载、重启后插件页不再列出”“侧栏出现模板的视图”）。依据 `e2e/plugin-code.e2e.ts` 第 229–253 行。
+- 现象与问题：
+  1. 现有用例对按需激活的入口只能写“没有 `activation-threw|code-load-failed|...`”，注释里自己说“其余入口按需激活，这里只核对没有激活失败”。入口从没被激活也满足这条，等于判据不会失败。计划里 menu、file-menu 的接法延续了这个形式（“核对服务端日志里没有激活失败”），然后才说“menu 的服务列出 file-menu 的菜单项”，后者是肯定判据，但写成“改为经远程合同查询，选能从 e2e 观察的那种”的二选一，没定。
+  2. “侧栏出现模板的视图”：视图的标题与图标来自清单里的声明，入口代码加载失败时（`load()` 失败、模块不共享、组件抛错）工作台仍然画出视图容器，只是内部显示错误摘要与“重新加载”。判据必须落在视图内部由 `HelloView.vue` 渲染出来的元素上（模板自带一个 `data-hello-view` 标记，并断言问候语文字来自设置项的值），否则代码坏了这条也能过。
+  3. “禁用、重启后视图消失”“卸载、重启后不再列出”：消失类判据要在窗口就绪（`data-window-state="ready"`）之后再断言，并配一个肯定判据（插件行显示“已禁用”或“待生效变化”），否则页面还没渲染完时就“没有视图”，用例在改动前也会过。
+  4. focus 的 e2e 因为没有服务端时钟入口（`e2e/fixtures.ts` 的 `startProbeServer` 只有 `NBOOK_PROJECT_GRACE_MS`、`NBOOK_TEST_PLUGINS` 等环境变量，没有时钟）只能核对“开始与放弃”；而设置项 `minutes` 下限是 5，真实运行里连“完成”这条路径都走不到。
+- 为什么是问题：验收映射表里“focus 的 e2e”承接“workbench/views 第三方视图贡献”，如果只是开始与放弃，完成与跨重启恢复这两条最容易写错的路径就只剩进程内场景在测，真实浏览器没人看。
+- 如何核实：读上述文件与 `fixtures.ts`。
+- 建议改法：①对按需激活的入口用肯定判据：经远程调用或经界面触发一次，再核对“被调用且得到预期结果”；②所有视图类判据落在内部元素与来自设置值的文本；③消失类判据两步法；④让完成路径能在 e2e 里确定地走到：不引入产品代码里的时钟入口，而是在启动服务端之前往状态根里写一条已过期的“进行中会话”记录（e2e 本来就持有 `stateRoot`，`nbook.storage` 的 user 库文件格式在 e2e 内可以通过先起一次服务端调用 `start` 再停止、改写 `endsAt` 得到），重启后核对状态栏的今日数加一、视图显示完成；这条同时验证“服务端重启后进行中的会话照常结束”这条设计，是 e2e 里唯一不用等 5 分钟的办法。
+
+### F15 重要 / 接口与合同：SDK 不发布，但模板的 devDependencies 写“版本等于产品版本”，`create` 又只接受空目录，计划里的头一条路径走不通
+- 位置：plan.md“技术选型”（SDK 分发：本轮只生成目录并可 `npm pack`，作者用 `file:` 或 tarball 路径安装）与模板一节（`package.json`：devDependencies 里 SDK “版本等于产品版本”）、`create`（“目录不存在或为空才写”）、Task README（“例如 `bunx nbook-plugin create`”）。依据 `build-sdk.ts` 生成的 `package.json`（无 `bin`、无 `files`、无 README，是 `build:sdk` 的产物）。
+- 现象：
+  1. 生成的模板里写 `"@notnotype/nb-plugin-sdk": "0.1.0"`，而这个包不在 npm 上（计划自己说不发布），作者在新目录里 `bun install` / `npm install` 得到 404。smoke 里手动一遍时作者得手动改 package.json 指向 tarball，这和“按文档字面步骤”矛盾。
+  2. 要运行 `create` 必须先有 `nbook-plugin` 这条 bin，而它在 SDK 包里；作者在一个空目录里装 SDK tarball（得到 `package.json`、`node_modules`）再 `create .` 会被“目录不为空”拒绝；`bunx nbook-plugin create` 因为包不在 registry 里也根本不可用（README 举的例子）。
+- 为什么是问题：脚手架是 S2 的核心承诺，“生成的目录能直接构建并安装”是写进 Spec 的验收；以上两处让它在没有 registry 的现实里不成立，计划的 `template.test.ts` 又用本地链接绕过，测不出来。
+- 如何核实：读 `build-sdk.ts` 与计划的两节；`npm view @notnotype/nb-plugin-sdk` 应当 404（我没有联网核对，从计划自述“不发布”推断）。
+- 建议改法：`create` 在写 package.json 时把 SDK 依赖写成它自己所在包的 `file:` 路径（相对或绝对，命令参数 `--sdk <spec>` 可覆盖，缺省取自己的安装位置），并在输出里提示；文档里的第一步写成 `npx --package ./nb-plugin-sdk-0.1.0.tgz nbook-plugin create <目录>`（Bun 对应 `bunx --package`），作者目录是新建的，不会撞“非空”；`template.test.ts` 用这个真实路径而不是链接 `node_modules`，并在 `plugin-authoring.e2e.ts` 里至少有一处真实 `npm install <tgz>`（离线可行：tarball 的依赖已在本机缓存时用 `--prefer-offline`，否则用仓库的 `node_modules` 做离线镜像）。顺便把 README 里的 `bunx nbook-plugin create` 改掉。
+
+### F16 建议 / 对照参照：作者文档的链接指向仓库，没有固定到与 SDK 版本对应的提交
+- 位置：plan.md“作者文档”（“`build-sdk.ts` 在复制时把相对链接改写成仓库地址”）。
+- 现象：Spec 会随主分支演进（文件名、输出编号、章节都可能变），SDK 0.1.0 的作者文档若链到 `master`，半年后读到的 Spec 与手里的 SDK 不一致；Spec 文件里是带“输出第 N 条”的内部编号，作者读起来也不友好。`vsce`/`create-vite` 的文档链接都是带版本的或自带的。
+- 建议改法：改写成 `https://github.com/notnotype/neuro-book/blob/<标签或提交>/docs/specs/...`，标签取产品版本（构建时读 `PRODUCT_VERSION` 与 `git rev-parse`），没有标签时用提交号；README 里面向作者的“怎么做”留在 README 里自己讲清楚，Spec 链接只作“规则细节”的出口，不作为教学路径。
+
+### F17 建议 / 与已定设计一致：计划说“menu 示例同时写了 schema 与 validate”，实际 menu 只写了 `validate`；第 4 条待追认取舍的动因要改写
+- 位置：plan.md“`packages/nb-runtime/.../plugin-manifest.ts`：第三方贡献点不能带 `validate`”（“同时写了两者时照常生成清单……menu 示例正是这样写的”）与 Task README“当前状态”（“menu 示例暴露：写了也会在宿主里悄悄失效”）；对照 `examples/plugins/menu/backend/plugin.ts:40`（`{id: MENU_POINT, implementation: "required", validate: validateMenuItem}`，没有 `schema`）与 `plugin-manifest.ts:598`（只有 validate 的第三方贡献点已被拒绝）。
+- 现象：menu 今天就会被现有规则拒绝，所以外置 menu 必须先改写成 `schema`，这是已定的“menu 外置”，与“schema 加 validate 同写也拒绝”是两件事。后者是新增的收紧，没有示例依赖它。
+- 为什么是问题：不影响结论，但待追认记录里的理由站不住，开发者追认时会被误导；这个收紧是否值得做要按它自己的理由判断：第三方作者同时写 schema 与 validate 时，validate 在宿主里不会运行，静默失效确实是坑，拒绝比默默忽略好。
+- 建议改法：把理由改成“schema 加 validate 同写时，validate 在宿主按清单还原的贡献点上不会运行”，不要再说 menu 示例暴露。另外值得追问上游：内置的 views、items、activitybar、menus 四处校验都重复写“id 以插件 id 加 `.` 开头”这一条（`shared/views.ts`、`shared/items.ts`、`commands/shared/menus.ts`），第三方贡献点也会碰到同一需求。给 `ContributionPointDefinition` 加一个可进清单的声明式字段（例如 `idPrefix: "plugin"`），就能让第三方贡献点不写 `validate` 也得到同一规则，menu 示例里被迫挪进接收者的那条也就不用挪（这是 S1 范围外的上游改动，作为候选交给开发者，不要求本 Task 做）。
+
+## 更正与补充（追加）
+- F10 里“同一个模板在不同产品版本里表现不同”“取决于宿主源码里恰好用没用过这些类”是从 Tailwind 的扫描机制（`nb-ui/src/tailwind.css` 头注释：原子类只按宿主源码生成）推断，没有在浏览器里对照实测。构建不报任何警告这一点是实测的。
+- F14 第 4 点的建议改法里“改写 `endsAt`”要做在 `nbook.storage` 的 SQLite 上，而 Playwright 的 Node 进程里没有 `bun:sqlite`；可行的做法是像 `plugin-code.e2e.ts` 的 `beforeAll` 那样用一次 `bun -e` 子进程去写，但会把 e2e 绑到 storage 的内部格式。更稳的替代：把 `minutes` 的下限降到 1 并让 e2e 只在这一条用例里真实等约 65 秒（单条可接受，且不绑内部格式）；或者把“结束”与“重启恢复”交给 Bun 场景测试（计划已有），e2e 明确声明不覆盖这两条路径，不要在验收映射里写成覆盖。两种都比不写好。
+- F15 的“npm 上查不到”没有联网核对，依据是计划自己写明不发布。
+- 本次实测环境：Node v26.10.0，`build:sdk` 在 worktree 里生成到 `/tmp/review-t05-design/x/sdk`（28 秒），SDK 包 `browser.js` 185 KB，里面已经内联了 nb-ui 与 reka-ui，Node 与 Bun 都能直接导入（所以 Node 上读入口定义不会因为 SDK 的 `browser.js` 而失败）；作者目录只有 `plugin.ts`、`web/plugin.ts`（动态导入 `.vue`）、`web/HelloView.vue` 时，Node 跑 `buildPlugin` 成功，产物 `browser.js`、`browser.js.map`、`package.json`、`style.css`；`tsc -p .` 报 TS2307 找不到 `./HelloView.vue`。
+
+## 未发现问题的方面
+- Node 上跑构建预设：读 `.vue`（经 Vite SSR 的动态导入不被执行）与 TypeScript 的描述文件、SDK 的 `browser.js` 在 Node 下导入，都实测可行；计划列为风险的“Node 上跑生成的 `cli.js` 读声明”在构建预设这一层没有发现问题。`import.meta.main` 的替换点是 `cli.ts` 自己的事，不在这里。
+- SDK 新增导出与快照：`ViewDeclaration`、`ViewLocation`、`ItemDeclaration`、`WORKBENCH_VIEWS_POINT`、`WORKBENCH_STATUSBAR_ITEMS_POINT` 在 `workbench/shared/contracts.ts` 已经导出，纯数据、前后端都能引用；`ViewImplementation`、`ViewContext`、`ItemImplementation` 在 `web/contracts.ts`，依赖 Vue 只在类型层面；`sdk.test.ts` 与 `build-sdk.test.ts` 的快照改法没有问题（除 F2 提的助手也要进快照）。
+- 图标：t04 的约束（只认字面量 `i-lucide-*`、清单 JSON 与模块图源码一并扫描、不存在的图标给警告）与视图声明的 `icon` 字段配合正常，视图图标在入口激活前就能显示的路径与 snippets 的 e2e 同一条，计划无需额外处理。
+- 开发者已定项逐条对照：示例外置、t05 补 menu 与 file-menu、六个示例经构建与安装、进程内场景保留、t04 与 t05 自主推进，计划都覆盖，没有悄悄改变。
+
+## 汇总
+
+- 阻断 0；重要 11（F1、F2、F3、F4、F5、F6、F7、F8、F10、F14、F15）；建议 6（F9、F11、F12、F13、F16、F17）。
+- 按影响排序：F2（视图拿不到服务，没有 `viewContribution` 之类的助手）、F15（SDK 不发布与模板依赖、`create` 非空目录的矛盾）、F1（nb-ui 对作者没有类型与文档）、F7（数字开头的名字生成静默被拒的视图 id）、F4（`activationEvents: ["onStartup"]` 没写）、F6（场地没有工作台，场景 07 读不到状态栏）、F14（e2e 判据的否定形式与 5 分钟下限）、F8（倒计时、首次显示、重连）、F10（作者文档缺“界面”一节）、F3（模板没有 `.vue` 声明）、F5（`sound` 无实现路径），之后是 F9、F12、F13、F11、F16、F17。
+
+## 对四项待追认取舍的判断
+1. **完整示例改为“专注计时”**：同意方向（不把文件与统计的内部合同放进 SDK 是对的），但它的代价被低估：要时钟、跨重启恢复、重连、两个贡献点的接收者替身（F6、F8）。如果只想要一个“设置项、命令、视图、远程服务、私有存储”齐全的小示例，把 `sound` 去掉（F5）、`finish` 去掉（F9）后规模合适；计划里的“最近 50 条会话、每天汇总”可以收成一条记录，少一半状态。
+2. **SDK 加工作台视图与状态栏贡献点**：同意，且不加 `notificationsKey`、`quickPickKey` 的克制是对的；但只导出三个类型不够，必须有视图的 props 绑定助手（F2），否则模板与示例都要手写 `defineComponent`，这条取舍的真实成本在助手，不在类型导出。
+3. **命令名 `nbook-plugin`**：同意；包名 `@notnotype/nb-plugin-sdk` 与命令名不一致是常见的（`vsce`、`create-vite`），不会误导。真正的风险不是名字，是 `npx` 解析不到未发布的包（F15）；这点写进文档比改名重要。
+4. **第三方贡献点不能写 `validate`**：同意结论（静默失效比拒绝更糟），但理由要改写（F17），并作为候选向开发者提出上游改法：给贡献点定义加可进清单的声明式 `idPrefix`，让第三方贡献点不写 `validate` 也能得到“id 以插件 id 开头”这条已被四处手写的规则。

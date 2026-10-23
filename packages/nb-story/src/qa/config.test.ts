@@ -96,6 +96,7 @@ describe("写配置（config 命令）", () => {
             "model.apiKeyEnv": "OTHER_ENV",
             "model.contextWindow": "128000",
             "model.maxTokens": "64000",
+            "model.api": "responses",
             "model.thinking": "xhigh",
             "model.price": '{"input":1,"output":4,"currency":"USD"}',
             // 整组先写入，之后才能逐项改。
@@ -122,7 +123,7 @@ describe("写配置（config 命令）", () => {
         let config = base;
         for (const [name, text] of Object.entries(values)) config = setConfigField(config, name, text, "");
         expect(config).toEqual({
-            model: {baseUrl: "http://x/v1", id: "other", apiKeyEnv: "OTHER_ENV", contextWindow: 128000, maxTokens: 64000, thinking: "xhigh", price: {input: 1, output: 4, currency: "USD"}},
+            model: {baseUrl: "http://x/v1", id: "other", apiKeyEnv: "OTHER_ENV", api: "responses", contextWindow: 128000, maxTokens: 64000, thinking: "xhigh", price: {input: 1, output: 4, currency: "USD"}},
             ingest: {
                 model: {baseUrl: "http://z/v1", id: "ingest", apiKeyEnv: "INGEST_ENV", contextWindow: 64000, maxTokens: 16000, price: {input: 2, output: 8, currency: "CNY"}},
                 recall: {enabled: true, model: {baseUrl: "http://s/v1", id: "recall", apiKeyEnv: "RECALL_ENV", contextWindow: 32000, maxTokens: 4000, price: {input: 0.5, output: 1, currency: "USD"}}},

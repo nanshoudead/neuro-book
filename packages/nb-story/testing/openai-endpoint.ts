@@ -2,12 +2,16 @@
  * 本机的 OpenAI 兼容端点：按顺序给出脚本里的回复（或由一个函数按请求内容决定回复），记下每次请求带的认证头与正文。
  * 命令行测试用它代替真实模型服务，请求经真实的 OMP provider 或 OpenAI SDK 与 HTTP 发出（写法同 nb-harness 的
  * tests/provider.test.ts）。
+ *
+ * 发到 `/responses` 的请求按 Responses 接口的流式事件回复（只支持 `text`、`tools`、`status`，`text` 不支持自定的结束原因与用量，事件形状照 OMP
+ * `openai-responses` 解析的那些），别的路径按 Chat Completions 回复。`thinking` 在 Responses 里是思考摘要，在
+ * Chat Completions 里是 `reasoning_content`（deepseek 一类服务的写法）。
  */
 
 export type EndpointReply =
-    | {kind: "tools"; calls: {name: string; args: Record<string, unknown>}[]}
+    | {kind: "tools"; calls: {name: string; args: Record<string, unknown>}[]; thinking?: string}
     /** 正常的文字回复；`finishReason` 默认 `stop`，`usage` 默认一组固定的小数。 */
-    | {kind: "text"; text: string; finishReason?: string; usage?: Record<string, unknown>}
+    | {kind: "text"; text: string; finishReason?: string; usage?: Record<string, unknown>; thinking?: string}
     /** 先给这段文字，然后一直输出空白，直到请求被取消（“跑飞”）。 */
     | {kind: "runaway"; text: string}
     /** 给这段文字后直接结束，没有结束原因也没有用量（流中断）。 */
@@ -42,6 +46,59 @@ function sse(chunks: object[]): string {
     return `${chunks.map(chunk => `data: ${JSON.stringify({id: "c", object: "chat.completion.chunk", created: 0, model: "m", ...chunk})}\n\n`).join("")}data: [DONE]\n\n`;
 }
 
+/** Responses 接口的一串流式事件。 */
+function responsesSse(events: Record<string, unknown>[]): string {
+    return events.map(event => `event: ${String(event.type)}\ndata: ${JSON.stringify(event)}\n\n`).join("");
+}
+
+/** `text`、`tools` 回复按 Responses 接口的事件写出：思考摘要（有时）、文字或工具调用、`response.completed`。 */
+function responsesReply(reply: Extract<EndpointReply, {kind: "text" | "tools"}>, nextCall: () => number): string {
+    const events: Record<string, unknown>[] = [{type: "response.created", response: {id: "resp_1", status: "in_progress", output: []}}];
+    let index = 0;
+    if (reply.thinking !== undefined) {
+        const id = "rs_1";
+        const at = {item_id: id, output_index: index, summary_index: 0};
+        const part = {type: "summary_text", text: reply.thinking};
+        events.push(
+            {type: "response.output_item.added", output_index: index, item: {type: "reasoning", id, summary: []}},
+            {type: "response.reasoning_summary_part.added", ...at, part: {type: "summary_text", text: ""}},
+            {type: "response.reasoning_summary_text.delta", ...at, delta: reply.thinking},
+            {type: "response.reasoning_summary_text.done", ...at, text: reply.thinking},
+            {type: "response.reasoning_summary_part.done", ...at, part},
+            {type: "response.output_item.done", output_index: index, item: {type: "reasoning", id, summary: [part]}},
+        );
+        index += 1;
+    }
+    if (reply.kind === "text") {
+        const id = "msg_1";
+        const at = {item_id: id, output_index: index, content_index: 0};
+        const content = {type: "output_text", text: reply.text, annotations: []};
+        events.push(
+            {type: "response.output_item.added", output_index: index, item: {type: "message", id, role: "assistant", status: "in_progress", content: []}},
+            {type: "response.content_part.added", ...at, part: {type: "output_text", text: "", annotations: []}},
+            {type: "response.output_text.delta", ...at, delta: reply.text},
+            {type: "response.output_text.done", ...at, text: reply.text},
+            {type: "response.output_item.done", output_index: index, item: {type: "message", id, role: "assistant", status: "completed", content: [content]}},
+        );
+    } else {
+        for (const call of reply.calls) {
+            const number = nextCall();
+            const item = {type: "function_call", id: `fc_${number}`, call_id: `call_${number}`, name: call.name};
+            const args = JSON.stringify(call.args);
+            events.push(
+                {type: "response.output_item.added", output_index: index, item: {...item, arguments: "", status: "in_progress"}},
+                {type: "response.function_call_arguments.delta", item_id: item.id, output_index: index, delta: args},
+                {type: "response.function_call_arguments.done", item_id: item.id, output_index: index, arguments: args},
+                {type: "response.output_item.done", output_index: index, item: {...item, arguments: args, status: "completed"}},
+            );
+            index += 1;
+        }
+    }
+    const usage = {input_tokens: 100, output_tokens: 10, total_tokens: 110, input_tokens_details: {cached_tokens: 0}, output_tokens_details: {reasoning_tokens: 0}};
+    events.push({type: "response.completed", response: {id: "resp_1", status: "completed", output: [], usage}});
+    return responsesSse(events);
+}
+
 /** 按请求决定回复；`index` 是这是第几次请求（从 0 起）。 */
 export type Responder = (body: Record<string, unknown>, index: number, headers: Headers) => EndpointReply;
 
@@ -71,6 +128,14 @@ export function startEndpoint(replies: EndpointReply[] | Responder, options: {id
             }
             const usage = {choices: [], usage: {prompt_tokens: 100, completion_tokens: 10, total_tokens: 110}};
             const encoder = new TextEncoder();
+            if (new URL(request.url).pathname.endsWith("/responses") && reply.kind !== "status") {
+                if (reply.kind !== "text" && reply.kind !== "tools") throw new Error(`测试端点的 Responses 接口不支持 ${reply.kind} 回复`);
+                // 截断与自定的用量在 Responses 里是另一套事件（response.incomplete 等），这里没写：明确拒绝，免得照 Chat 写的脚本悄悄测成普通成功。
+                if (reply.kind === "text" && (reply.finishReason !== undefined || reply.usage !== undefined)) throw new Error("测试端点的 Responses 接口不支持自定的 finishReason 与 usage");
+                return new Response(responsesReply(reply, () => (calls += 1)), {headers: {"content-type": "text/event-stream"}});
+            }
+            // Chat Completions 的思考内容：在正文之前单独一块。
+            const reasoning = (reply.kind === "text" || reply.kind === "tools") && reply.thinking !== undefined ? [{choices: [{index: 0, delta: {role: "assistant", reasoning_content: reply.thinking}, finish_reason: null}]}] : [];
             switch (reply.kind) {
                 case "status": {
                     const message = reply.echoKey ? `invalid api key: ${request.headers.get("authorization") ?? ""}` : "error";
@@ -81,6 +146,7 @@ export function startEndpoint(replies: EndpointReply[] | Responder, options: {id
                 case "text":
                     return new Response(
                         sse([
+                            ...reasoning,
                             {choices: [{index: 0, delta: {role: "assistant", content: reply.text}, finish_reason: null}]},
                             {choices: [{index: 0, delta: {}, finish_reason: reply.finishReason ?? "stop"}]},
                             reply.usage ? {choices: [], usage: reply.usage} : usage,
@@ -134,7 +200,7 @@ export function startEndpoint(replies: EndpointReply[] | Responder, options: {id
                         calls += 1;
                         return {index, id: `call_${calls}`, type: "function", function: {name: call.name, arguments: JSON.stringify(call.args)}};
                     });
-                    return new Response(sse([{choices: [{index: 0, delta: {role: "assistant", tool_calls: toolCalls}, finish_reason: null}]}, {choices: [{index: 0, delta: {}, finish_reason: "tool_calls"}]}, usage]), {
+                    return new Response(sse([...reasoning, {choices: [{index: 0, delta: {role: "assistant", tool_calls: toolCalls}, finish_reason: null}]}, {choices: [{index: 0, delta: {}, finish_reason: "tool_calls"}]}, usage]), {
                         headers: {"content-type": "text/event-stream"},
                     });
                 }

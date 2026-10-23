@@ -1,0 +1,153 @@
+# w00027 t05 实现审查（后端、内核与作者工具部分）— Opus
+
+审查对象：`a433a9f7b..c11de13bd`，worktree `.worktree/review-t05-impl`。浏览器界面不在本报告范围。变异实验都在 `/tmp/review-t05-impl/x/wt`（worktree 的 reflink 副本）里做，没有改 worktree。
+
+基线：`bun test examples/scenarios/07-focus.test.ts examples/scenarios/03-contribution-point.test.ts` 9 过 0 败。
+
+## 发现（按核实顺序追加，最后汇总排序）
+
+### F1 重要｜测试｜场景 07 测不到 focus 服务端的三条核心机制：条件保存、激活时结算、服务端到点计时器
+
+- 位置：`packages/neuro-book/examples/scenarios/07-focus.test.ts:122-160`；`examples/plugins/focus/backend/plugin.ts:111-116,136,155-156`
+- 现象：在副本里分别做三个变异，场景 07 都是 6 过 0 败：
+  1. 去掉条件保存（保存前重读一次，用最新 revision 作 `expect`，等于盲写）；
+  2. 删掉激活时的 `const first = await update(() => null)` 与随后的检查；
+  3. 删掉 `arm` 里的 `clock.schedule(...)`（服务端完全不排计时器）。
+  另在原实现上给冲突分支加日志，整个场景 07 只走到 1 次 `conflict`。
+- 为什么是问题：计划 S3（plan.md 第 93、98 行）把“停掉服务端入口再启动后已过期的会话记为完成”“两个服务端到点只记一次”“核对记录、`changed`”列为场景 07 的判据，场景头注释也说“服务端到点结算并推送”。实际上：
+  - 第 3 例在重新激活之后用 `sessions.today({})` 读结果，`today` 自己会先结算，所以激活时有没有结算都一样；
+  - 第 4 例两个服务端从同一份旧记录各自结算，`settle` 是幂等的，盲写也只得到 `completed: 1`（见 F2），条件保存有没有都一样；
+  - 第 1 例状态栏变成“今天 1 个番茄”是窗口 store 走到零时自己 `refresh()` 拿到的，不是服务端计时器推来的 `changed`。
+  这三段代码删掉后全部判据照过，示例的教学要点（文件头 1–3 条）没有一条有测试兜底。
+- 如何核实：`/tmp/review-t05-impl/x/wt/packages/neuro-book` 下替换 `backend/plugin.ts` 后 `bun test examples/scenarios/07-focus.test.ts`。
+- 建议改法：
+  - 激活时结算：重新激活后不调 `today`，改为先订阅 `changed`（或用存储探针直接读记录），断言首推/记录里已经是 `completed: 1`；
+  - 服务端计时器：不挂窗口（只用远程探针订阅 `changed`），推进时钟过 `endsAt` 后等到推来 `running: null, completed: 1`；
+  - 条件保存：见 F2，测它真正防的东西（丢更新），例如服务端 A 的结算与 B 上的新一次 `start` 交错后，新的一次没有被盖掉。
+
+### F2 重要｜代码质量（教学注释讲错）｜focus 把“不重复记数”归功于条件保存，实际靠的是 `settle` 幂等；条件保存真正防的“丢更新”没讲也没测
+
+- 位置：`examples/plugins/focus/backend/plugin.ts:9-10`（文件头第 3 条）、`:54-56`（`settle` 注释）；`examples/scenarios/07-focus.test.ts:7-8,144`；计划 plan.md 第 93 行
+- 现象：文件头说“冲突了就重读：别的服务端已经结算过，重读之后没有要记的，这一次就不会被记两遍”。但两个服务端都从同一份旧记录（`running` 为那一次、`completed: 0`）结算时，各自算出的都是 `{running: null, completed: 1}`，盲写两次结果仍是 1；读到对方已写的记录时 `running` 已是 null，也不会再加。F1 的变异 1（去掉条件保存）下场景 07 第 4 例“只记一次”照过，就是这个原因。`settle` 的注释自己也写了“纯函数……几个服务端各自结算不会多记”，与文件头的说法互相矛盾。
+- 条件保存实际防的是丢更新（从代码推断，未在真实运行时复现出交错）：服务端 A 的到点结算读到旧记录后、写入前，用户经服务端 B（或 A 上另一个并发调用）开始了新的一次；A 盲写 `{running: null, completed: 1}` 会把新的一次盖掉。条件保存让 A 冲突、重读，看到新的一次，不再写。`cancel` 与到点结算交错同理。
+- 为什么是问题：`examples/` 是教学材料，读者会照着“条件保存 = 防重复记数”去理解，换成非幂等的改动（例如“每次结算 `completed += 1`”这类读改写）时仍以为有保护的是计数而不是整条记录；场景名“只记一次”也给了错误的证据。
+- 如何核实：读 `settle` 与 F1 的变异 1 结果。我在副本里写了 A 计时器结算与 B 上 `start` 交错的实验（10 轮×两种交错），原实现与盲写都没有丢更新，说明时序难撞上，场景测试要构造确定的交错（例如在 A 读完、写之前插入 B 的 `start`）。
+- 建议改法：文件头第 3 条改为“`settle` 幂等，所以几个服务端各自结算不会多记；条件保存防的是丢更新：结算读到旧记录后别处已经开始了新的一次，盲写会把它盖掉”；场景 07 第 4 例改测丢更新，或至少把名字与头注释改成与实际证据一致。
+
+### F3 建议｜正确性（竞态）｜`changed` 订阅的首推可能是旧状态，且之后的推送已经错过
+
+- 位置：`examples/plugins/focus/backend/plugin.ts:170-176`（`subscribe`）与 `:131-134`（没变就不写、不推）
+- 现象（从代码推断）：订阅先 `await update(() => null)`，读完记录到把 `sink` 加进 `sinks` 之间隔着 `handle.read()` 这次 await。这期间同一服务端上另一个调用（例如另一个窗口的 `start`）完成写入并推送，新订阅还不在 `sinks` 里，收不到；而本次 `update` 读到的是写入前的记录，`settle` 后与读到的相同，走“没变”分支，返回旧的“今天”。于是新窗口的基线是“空闲”，又错过了“开始”的推送；store 只在有进行中的一次时走表，所以会一直显示空闲，直到用户再操作（`already-running` 后 `refresh`）或重连。
+- 为什么是问题：文件头与合同注释都说“订阅建立时先推一次当前的，订阅方拿它当基线”，基线可能比随后（已错过的）推送更旧。窗口打开与另一窗口开始专注几乎同时时出现；概率低，但出现后不会自愈。
+- 建议改法：先把 `sink` 加进 `sinks`（用一个本订阅的标记记住“已经推过更新的”），再读当前状态；首推前若这条订阅已经收到过写入推送就不再推旧的基线。或者给推送带上 revision，基线只在不旧于已推的 revision 时推。
+
+### F4 建议｜正确性（失败方式）｜记录 `corrupt` 或 `unsupported-version` 时 focus 激活永久失败，示例没有用存储为此准备的 `reset`；诊断里丢了 `detail`
+
+- 位置：`examples/plugins/focus/backend/plugin.ts:126`、`:155-156`
+- 现象：`update` 遇到 `corrupt`、`unsupported-version` 返回 `storage-failed`；激活时这次结算失败就 `throw new Error(\`读不了专注记录：${first.detail.code}\`)`。persistence.md 读取分类第 3 条：“版本不同，高低都算”，所以插件把记录版本从 1 改到 2 后再降级、或 schema 改了没升版本，记录都会进入这两种状态；之后每次启动入口都激活失败，`today`/`start`/`cancel` 都不可用。宿主没有给用户清插件私有存储的入口，用户无法自救。抛出的错误只带 `code`（`corrupt`），丢掉了存储给的 `detail`（哪个字段不符），诊断里看不出原因。
+- 为什么是问题：focus 的记录只是“今天的汇总 + 进行中的一次”，丢了代价很小；存储专门提供了 `reset`（先把原件存进原件区再写新值，persistence.md 第 105 行），正适合这里。“完整示例”教作者对坏记录直接让入口激活失败，作者照抄到自己的插件里会得到同样不可恢复的失败。
+- 建议改法：激活时遇到 `corrupt`/`unsupported-version` 用 `handle.reset(空记录, {expect: snapshot.revision})` 重置（原件保留），写一条诊断带上 `detail`，并在注释里讲为什么这里选择重置而不是失败；若坚持失败，至少把 `detail` 带进错误消息，并在注释里写明用户如何恢复。
+
+### F5 建议｜正确性（产品行为）｜`--dev` 构建之后装同版本号的正式构建，插件页按“降级”处理并提示数据迁移风险
+
+- 位置：`scripts/plugin-sdk/build-plugin.ts:550-560`（`devVersion`）；`src/shared/versions.ts:43-45`（`compareVersions` = `semver.compareBuild`）；`src/backend/plugins/inventory.ts:225`
+- 现象：实测（`/tmp/review-t05-impl/x/ver.ts`）`compareVersions("0.1.0", "0.1.0+dev.20261023120000.9")` 为 -1：`compareBuild` 把带构建元数据的版本排在不带的之后。作者按模板的循环 `npm run dev` 装了几次 `0.1.0+dev.*`，再 `npm run build` 装正式的 `0.1.0` 时，`inventory.ts:225` 判为 `downgrade`，确认界面按 plugin-install.md 第 56 行另外提示“降级可能遇到新版本已迁移过的数据”。
+- 为什么是问题：Spec（plugin-api.md 第 133 行）只承诺“每次构建都比上一次新”，没说开发构建比同号的正式构建新；作者面对的是一条误导的降级警告。现实里作者通常会在发布前改版本号，影响有限。
+- 其余核实过、没有问题的：`isCanonicalVersion` 接受 `+dev.<14 位>.<毫秒>`；毫秒 9 与 10、秒进位的先后正确（数字段按数值比较）；`pluginVersionSatisfies("0.1.0+dev…", "^0.1.0")` 为 true；版本串里的 `+` 作目录名、租约名在 Linux 上没问题；每次构建版本不同，避开了同版本重装的 `version-in-use`。
+- 建议改法：要么在 plugin-api.md 与作者文档“开发循环”一节写明“开发构建比同号正式构建新，发布前先升版本号”；要么插件页对“只差构建元数据且新版本没有 `+dev`”的情况不当成降级提示。前者成本最低。
+
+### F6 建议｜文档一致性｜待确认清单第 49 行仍写 `build --dev` 产出 `<version>-dev.<UTC 时间戳>`（预发布段），与第 51 行、实现与 Spec 的构建元数据写法矛盾
+
+- 位置：`.agents/works/w00027-plugin-platform/pending-confirmations.md:49`（主工作区 master）
+- 现象：第 49 行“`build --dev` 产出 `<version>-dev.<UTC 时间戳>` 版本，安装按升级处理”；第 51 行与 `devVersion` 是 `+dev.<秒>.<毫秒>`。按第 49 行的写法，安装恰恰会被当成降级（第 51 行自己给的理由）。
+- 建议改法：第 49 行改成指向第 51 行的写法，开发者追认时不会看到两个互相矛盾的版本格式。
+
+### F7 建议｜代码质量（作者文档）｜SDK 包里复制的 Spec 副本内部链接大多打不开：379 个相对链接里 301 个指向包里不存在的文件
+
+- 位置：`scripts/plugin-sdk/build-sdk.ts:88-117`（`writeAuthorDocs`、`packageLink`）；`build-sdk.test.ts` 新增的“README 的相对链接都能在包里打开”一例
+- 现象：在 `/tmp/review-t05-impl/x/sdk` 生成 SDK 后统计 `specs/**/*.md` 的行内相对链接：379 个，301 个目标不存在，例如 `specs/runtime/plugin-api.md` 里的 `plugins.md`（`runtime.plugins`，贡献点、`idPrefix` 的正文所在）、`../../adr/0027-…`、`../../proposals/…`。副本是原样 `cp`，只有 README 的链接被改写与核对。
+- 为什么是问题：文件头给出的复制理由是“指向仓库的链接作者打不开”，副本里同样的问题原封不动；而且 README 链接写错会构建失败，副本链接失效却悄无声息，两边的失败方式不一致。测试描述写“链接在包里都打得开”，只验了 README。作者从 plugin-api.md 点 `plugins.md` 想看贡献点的规则时直接断掉。
+- 如何核实：生成 SDK 后用 `\]\(([^()\s]+)\)` 扫 `specs/` 下各文件，按所在目录解析目标、检查存在。
+- 建议改法：二选一。（1）副本里指向未复制文件的链接改写成纯文字（或指向仓库的固定网址，若将来公开），并由测试核对副本里的相对链接全部可达；（2）按副本里的链接把引用到的 Spec 递归复制进来（只限 `docs/specs/`，ADR 与提案改写成文字）。至少把 `runtime/plugins.md` 加进副本，它是 SDK 贡献点合同的正文。
+
+### F8 建议｜正确性（失败方式）｜组件清单与主题变量清单只在“一个都没读到”时报错，源码格式部分变化时静默漏项
+
+- 位置：`scripts/plugin-sdk/build-sdk.ts:126-133`（`componentsDoc` 的正则）、`:181-189`（`cssTokens`）、`:202-205`（`nbColorwayVarKeys`）
+- 现象：组件导出的正则只认单行、双引号、`{default as X}` 单独一项、路径带一级目录的写法。用同一正则实测：`'./controls/Fancy.vue'`（单引号）、`{default as Fancy2, type Fancy2Size}`（同一行带类型导出，nb-ui 现在正把类型另起一行写，见 `components/index.ts:60` 起）、跨行的 `export {\n default as X,\n}`、`"./Fancy4.vue"`（不在子目录）都匹配 0 次。当前 nb-ui 入口 52 个 `.vue` 默认导出，清单里也是 52 个，现在没有漏；但只要有一个组件换了写法，它就从作者清单里消失，构建照常通过（`groups.size === 0` 才报错）。颜色变量同理：`nbColorwayVarKeys` 里改用展开（`...baseKeys`）时只少读一部分，不报错。
+- 为什么是问题：任务要求“遇到源码格式变化时大声失败”；现在的检查只挡“全变了”，挡不住最常见的“新加的一个写法不同”。这份清单是作者能用哪些组件的唯一说明。
+- 建议改法：组件清单改从已经生成的 `components.d.ts`（或打包后的 `components.js` 的导出名）取名字，再按入口源码里能找到的目录分组，找不到目录的进“其它”；或者至少用宽松的正则（`default as (\w+)[^;]*\.vue`）数一遍，与严格正则的结果数目不等就报错。颜色变量可以直接 `import` 配色合同模块（它是纯 TS，不碰 DOM）取 `nbColorwayVarKeys`。
+
+### F9 建议｜正确性（失败方式）｜`create` 写到一半失败时留下半个目录，重跑被自己拒绝；文件系统错误以未捕获异常的栈退出
+
+- 位置：`scripts/plugin-sdk/create-plugin.ts:84-97`（边读模板边写）；`cli.ts:87-104`（只认 `PluginBuildError`、`PluginCreateError`、用法错误，其余 `throw error`）
+- 现象（实测，用 `/tmp/review-t05-impl/x/sdk` 的 `cli.js`）：
+  - 目录里的 `package.json` 只读（`chmod 444`）时，`create part` 先写出 `.gitignore`、`README.md`，到 `package.json` 时 EACCES 退出；改回可写后重跑，报“目录里已经有别的文件（.gitignore、README.md），不写”，作者要自己猜该删哪些。
+  - 只读目录、目标是文件（`create fileplug`）时，标准错误是 Node 的 `triggerUncaughtException` 栈与 `[Error: EACCES …]` 对象转储，不是一行说明。退出码 1 与 Spec 一致，但输出不是“逐行列出问题”的样子。
+- 为什么是问题：Spec 写的是 `create` 只写可写的目录、拒绝时一个文件都不写（`template.test.ts` 第 98 行的用例名也是“一个文件都不写”），这只对预先检查出来的拒绝成立；写入中途失败没有收口。磁盘满、权限、杀进程都会走到这里。
+- 建议改法：先把全部文件内容在内存里算好（填占位符、合并 `package.json`、`JSON.parse` 都在写之前完成），再写；写失败时删掉本次新写的文件（记下列表，只删自己写的，`package.json` 写回原文），并以 `PluginCreateError` 报出“写 X 失败：原因”。`cli.ts` 对带 `code` 的 Node 系统错误（`ENOENT`、`EACCES`、`ENOTDIR`、`ENOSPC`）按码给一行说明，退出码仍为 1。
+
+### F10 建议｜正确性｜`create --publisher nbook` 生成一个永远构建不过的插件
+
+- 位置：`scripts/plugin-sdk/create-plugin.ts:69-71`
+- 现象（实测）：`create . --publisher nbook` 退出码 0，生成 `nbook.a-nbook`；随后 `build` 退出码 1：“publisher：第三方插件的 id 不能以 nbook. 开头”。`create` 只用 `isIdSegment` 核对，清单校验里的“第三方不用 `nbook.`”在生成时没查。
+- 为什么是问题：`create` 的注释说生成前用清单的 id 段规则核对，作者在第一步就该被拦下，而不是写完代码、装好依赖后才在构建时发现要改 publisher（还要手改 `plugin.ts` 与 `package.json` 里的 id）。
+- 建议改法：内核导出 `isIdSegment` 时一并导出“第三方保留前缀”的判定（或直接导出一个 `pluginIdProblem(publisher, name, {builtin: false})`），`create` 用它；测试加一例。
+
+### F4 补充（升为重要）
+
+作者文档 `scripts/plugin-sdk/README.md:128` 教作者“改了值的形状要升 `version`，旧数据读出来是 `unsupported-version`”。focus 照这条路升级（`focusRecord` 的 `version` 从 1 改到 2）后，用户已有的 v1 记录在新版本里读出 `unsupported-version`，按现在的写法激活直接失败，插件从此不可用；`unsupported-version` 的快照不带值，插件也没法自己迁移，唯一出路就是 `reset`。也就是说，按作者文档的升级建议加上“完整示例”的失败处理，第一次改记录形状就会让所有老用户的插件坏掉。所以 F4 的严重程度改为“重要”：focus 应示范 `reset`（原件进原件区），README 的这一条也应说明升版本之后旧记录要用 `reset` 替换。
+
+### F7 补充（更正）
+
+`scripts/plugin-sdk/README.md:5` 已写明“副本里指向别的文档的链接在包里打不开，要看时去 NeuroBook 仓库的 `docs/` 下找同名文件”，所以这是有意的取舍，不是疏漏。保留为“建议”的理由：同一份 README 与 `build-sdk.ts` 文件头说仓库不公开、Work 分支不推远端，作者拿不到仓库，“去仓库找”走不通；`runtime/plugins.md`（贡献点与 `idPrefix` 的正文，plugin-api.md 多处链接它）不在副本里；`build-sdk.test.ts` 新用例的描述“链接在包里都打得开”只对 README 成立，应改成准确的说法。
+
+### F11 建议｜代码质量｜几处小问题（各自影响小，合在一条）
+
+1. `packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts:607-621`：同一个贡献点在两份定义里是两个不同对象、带同样不可移植的 schema 时，同一条问题报两遍（实测 `[{"path":"contributionPoints.0.schema","message":"用了 Refine…"}, 同上]`）。建议对已有 `known` 的那份只做一致性比较、不再重复报可移植性问题，或对问题去重。
+2. 同文件 `:618`：schema 一致性用 `JSON.stringify` 比较，对键顺序敏感。实测两份定义分别写 `Type.Object({a, b})` 与 `Type.Object({b, a})` 时报“两个运行位置的 schema 不同”。失败方向是安全的（构建报错而不是静默接受），作者按惯例从 `shared/` 引同一个常量也不会碰到；若想消除误报，可复用 `src/shared/storage.ts` 的 `canonical` 那种按键排序的规范化。记在这里，不必改。
+3. `scripts/plugin-sdk/build-plugin.ts:81-82`：`version` 选项的注释仍写“给每次构建一个新的预发布版本”，实际是构建元数据（同文件 `devVersion` 的注释正是解释为什么不用预发布段），注释与实现相反。
+4. `examples/plugins/focus/backend/plugin.ts:47-51`：`dayOf` 用服务端进程的本地时区，注释说“‘今天’是用户坐在机器前的今天”。服务端跑在别的机器或时区为 UTC 的容器里时（插件页的“服务端那台机器上的路径”说明这种部署存在），零点按服务端算，用户看到的“今天”在本地傍晚或早上清零。作为示例可以接受，建议注释写明这条假设与失效条件，而不是断言它成立。
+5. `scripts/plugin-sdk/create-plugin.ts:91`：`sdkFromRegistry` 用 `/^[\^~]?\d/` 判断“registry 版本”，`latest`、`>=0.1.0`、`0.x` 这类同样装不上的写法不提示。影响只是少一条提示。
+
+### F1 补充：第四个变异，服务端计时器的作用域登记同样测不到
+
+去掉 `backend/plugin.ts:105-108` 的 `context.scope.register({kind: "host-timer", …})`（入口停止时不再取消计时器），场景 07 仍 6 过 0 败。第 3 例在计时中停掉服务端入口后推进 30 分钟，残留的计时器照样触发，只是经已释放的存储门面读到 `unavailable` 后静默返回，没有可观察的结果；场景只对浏览器入口断言了“停止后不再占计时器”（第 6 例），服务端入口没有。建议第 3 例在 `focus.stop()` 之后断言 `stage.clock.pending()` 不含 focus 的计时器（或停掉后推进到 `endsAt` 之后，核对诊断里没有 focus 的存储失败）。
+
+### F12 建议｜正确性（兼容声明）｜SDK 包的 `engines.node` 写 `^20.19.0`，但 SDK 根入口里有 Node 22 才有的 `Promise.withResolvers`
+
+- 位置：`scripts/plugin-sdk/build-sdk.ts:294-295`（`engines`）；生成的 `index.js` 第 342、511 行（`PersistedFieldState`，来自 `src/shared/store/persisted.ts`）
+- 现象：扫描生成的 SDK 包，只有这一处用到 Node 22 起才有的 API。它在类的字段与方法里，模块顶层不执行，所以 Node 20.19 上 `create` 与 `build`（只执行入口模块顶层）不受影响；但作者在 Node 20 里按 README 第 3 行说的“写测试时”实际构造插件状态，会抛 `Promise.withResolvers is not a function`。
+- 建议改法：`engines.node` 的注释写明它只保证作者工具（构建与生成），或把下限提到 `>=22.12.0`；后者与 README 第 31 行一起改。base 上 `persisted.ts` 已经这样写，问题在于本次新加的 `engines` 声明把 Node 20 列为支持。
+
+## 汇总（按影响排序）
+
+| 编号 | 严重程度 | 类别 | 一句话 |
+|---|---|---|---|
+| F1 | 重要 | 测试 | 场景 07 测不到 focus 服务端的条件保存、激活时结算、服务端计时器与它的作用域登记（四个变异全过） |
+| F4 | 重要 | 失败方式 | 记录 `corrupt`/`unsupported-version` 时 focus 激活永久失败；照作者文档“升 version”升级会让老用户的插件全坏；应示范 `reset` |
+| F2 | 重要 | 教学注释 | “不重复记数”靠的是 `settle` 幂等，不是条件保存；条件保存防的是丢更新，没讲也没测 |
+| F3 | 建议 | 竞态 | `changed` 订阅的首推可能比已错过的推送更旧，窗口停在“空闲” |
+| F9 | 建议 | 失败方式 | `create` 写到一半失败留下半个目录、重跑被拒；系统错误以未捕获异常的栈退出 |
+| F10 | 建议 | 正确性 | `create --publisher nbook` 成功，生成的插件永远构建不过 |
+| F5 | 建议 | 产品行为 | `--dev` 之后装同号正式构建被当成降级并提示数据迁移风险 |
+| F8 | 建议 | 失败方式 | 组件与颜色清单只在一个都读不到时报错，部分格式变化静默漏项 |
+| F7 | 建议 | 作者文档 | Spec 副本 379 个相对链接 301 个打不开（README 已声明，但理由不成立；`plugins.md` 未复制；测试名不准） |
+| F12 | 建议 | 兼容声明 | `engines.node` 声明 Node 20.19，SDK 根入口有 Node 22 的 API |
+| F6 | 建议 | 文档一致性 | 待确认清单第 49 行仍是预发布段写法，与第 51 行矛盾 |
+| F11 | 建议 | 代码质量 | 重复报问题、schema 比较键顺序敏感（安全方向）、`version` 注释写反、`dayOf` 时区假设、`sdkFromRegistry` 判定窄 |
+
+## 未发现问题的方面
+
+- 内核 `idPrefix`：贡献点定义、清单 schema（只许 `"plugin"`）、`definitionOf` 还原、宿主登记时在 `implementation` 之后、`schema` 之前核对，原因写明前缀；`sourcex` 这类缺点号的前缀被拒。内置插件现在没有贡献点用 `idPrefix`，与待确认清单第 45 行（内置视图、条目、菜单仍用带 `nbook.` 例外的校验函数）一致。
+- 清单 id 段改为字母开头：`ID_SEGMENT` 同时用于 `publisher`、`name` 与 `pluginVersions` 的键，与视图、条目、菜单、编辑器页的 id 正则（都是 `[a-z][a-z0-9-]*` 每段）一致；`isIdSegment` 与清单校验同一个正则。
+- `manifestOf` 聚合：同一对象复用时跳过；后一份定义的 `validate`、`idPrefix`、`implementation`、`schema` 不一致都能报出（测试覆盖前后两种顺序）；问题路径的下标就是写出数组里的位置（`Map` 插入序 = 输出序）；内置插件仍可写 `validate`。
+- `cli.ts` 的用法错误按 `ERR_PARSE_ARGS_*` 码识别，不按文案；Node 与 Bun 下 parseArgs 的错误都是带码的 `TypeError`（实测三种）。`--clean` 的保护（作者根目录、别的目录、只有中断残留）与 Spec 一致。
+- `devVersion`：毫秒、秒进位、跨两段数字的先后正确；`isCanonicalVersion` 接受；`^0.1.0` 接受开发版本；每次版本不同，避开同版本重装与 `version-in-use`。`--dev` 只改产物清单的版本，`plugin.ts` 与 `package.json` 的一致性检查在改之前做，安装后的清单与登记表比较用的是同一个产物版本。
+- `build-sdk.ts`：README 链接写错（指向 `docs/specs/` 之外或文件不存在）时构建失败；`cli.js` 有 shebang 与 755 权限，`bin` 字段正确（自动测试直接 `node cli.js`，经 `.bin` 的路径由手动 smoke 覆盖）；模板依赖范围从应用 `package.json` 读、缺失时报错，生成的模板里四个范围都已填上；组件清单当前 52/52 无遗漏；`components.js` 在 Node 里能加载。
+- focus 服务端：同一进程内并发的 `update` 由条件保存串行化（实测一次 `conflict` 后重读成功）；计时器提前触发时自我重排、不会空转；入口停止时 `arm` 看 `signal` 不再排、作用域收口取消；订阅在 `signal` 已中止时不登记；订阅抛错由远程层记 `provider-threw` 并以 `provider-error` 结束，窗口进入失败提示；`start` 在每次重试里重读设置与时间。跨零点的结算按 `endsAt` 的日期、汇总按今天清零，逻辑正确。
+- 场地工作台替身用的贡献点 id、`implementation` 与校验函数和真实工作台（`web/plugin.ts:78-80`）同一份。
+- 运行过的检查：`nb-runtime` 清单与拥有者贡献点测试 91 过；`template.test.ts`、`build-sdk.test.ts`、`build-plugin.test.ts` 32 过；场景 03、07 9 过；`neuro-book` 与 `nb-runtime` 的 `typecheck` 通过。
+
+## 各级数量
+
+阻断 0，重要 3（F1、F2、F4），建议 9（F3、F5、F6、F7、F8、F9、F10、F11、F12）。

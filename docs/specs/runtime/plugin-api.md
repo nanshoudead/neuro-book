@@ -22,7 +22,7 @@ owners:
 
 ## 术语与参与者
 
-- **SDK**：作者依赖的包 `@notnotype/nb-plugin-sdk`，只含类型与少量纯函数，不依赖宿主内部模块；内置插件的合同、宿主能力的键与设置窗口给页面用的组件由它提供。两个入口：根入口各运行位置通用，`/browser` 是要 Vue 或 DOM 的部分。插件运行时，这两个入口由宿主模块表给出宿主自己的那一份（[`runtime.plugin-code-loading`](plugin-code-loading.md) 输出 2）；作者安装的包里是类型与构建期执行入口定义用的实现。
+- **SDK**：作者依赖的包 `@notnotype/nb-plugin-sdk`，只含类型与少量纯函数，不依赖宿主内部模块；内置插件的合同、宿主能力的键与设置窗口给页面用的组件由它提供。三个入口：根入口各运行位置通用，`/browser` 是要 Vue 或 DOM 的部分，`/components` 是 nb-ui 的组件。插件运行时，这些入口由宿主模块表给出宿主自己的那一份（[`runtime.plugin-code-loading`](plugin-code-loading.md) 输出 2）；作者安装的包里是类型与构建期执行入口定义用的实现。
 - **激活上下文 `ctx`**：宿主在激活入口时注入的对象，按运行位置提供不同成员。
 - **远程形态**：满足下文五条约束的接口形态。
 - **结构化结果**：`{ok: true, value}` 或 `{ok: false, code, cause?, detail?}`，调用不以抛出异常表达失败；只想要值的调用方可以用 `orThrow` 把失败转成异常（[远程服务与 RPC 协议](plugin-channel.md) 输出第 1 条）。
@@ -125,6 +125,13 @@ owners:
 - 入口停止时只拒绝该入口的新调用、结算该入口排队与在途的调用，并终止正在执行这些调用的 worker；同一插件其它入口的调用与 worker 不受影响。
 - worker 被终止到真正停止之间仍占用名额：Bun 中执行 JS 的 worker 在 1 秒内停止；Chrome 中约 2 秒；执行 WebAssembly 或原生阻塞调用时要等其返回（见“边界与兼容”）。
 
+### 作者工具
+
+SDK 包带命令 `nbook-plugin`，在 Node 与 Bun 里都能运行：
+
+- `nbook-plugin create <目录> [--publisher <段>] [--name <段>] [--sdk <依赖写法>]`：在目录里写出一个能直接构建、类型检查并安装的插件（一个浏览器入口、一个侧栏视图、一条命令、一个设置项）。目录不存在、为空，或只有 `package.json`、锁文件、`node_modules`、`.git` 与 `.npmrc` 时才写，否则拒绝、不写任何文件。已有 `package.json` 时合并：`publisher`、`name`、`version` 与 `type` 用生成的（它们要与生成的插件描述一致），其余字段与依赖保留，脚本与开发依赖按键补缺的。publisher 缺省 `my`；name 缺省取已有 `package.json` 的 `name`，没有时取目录名（转小写，其它字符换成连字符）；不符合清单的 id 段规则、或 publisher 是内置插件用的 `nbook` 时拒绝，写明规则与对应的开关。写到一半失败（权限、磁盘满）时删掉这次写下的文件与目录、`package.json` 写回原样，退出码 1，标准错误一行写明原因。SDK 依赖的写法：给了 `--sdk` 用它，否则保留已有的，都没有时写 `^<SDK 版本>`；最后这种在 SDK 没有发布时装不上，命令在标准错误提示先装 SDK 的 tarball。
+- `nbook-plugin build [作者目录] [--out <目录>] [--clean] [--dev]`：按构建预设构建（[`runtime.plugin-code-loading`](plugin-code-loading.md)）。作者目录缺省当前目录，输出目录缺省 `<作者目录>/dist`，`--out` 的相对路径按当前目录解析。构建失败退出码 1，逐行列出每个问题；只有警告时打印到标准错误、退出码 0；用法不对（不认识的子命令或开关、少了参数）退出码 2。输出目录不为空时拒绝；`--clean` 先清空输出目录里上次构建的同一插件的产物，输出目录是别的内容时拒绝、不删。`--dev` 时产物的版本是 `<version>+dev.<UTC 时间到秒>.<毫秒>`：构建元数据不改变 semver 的优先级，依赖它的插件写的范围照样接受；插件管理按构建元数据排出先后，每次构建都比上一次新，在插件页安装按升级处理，重启后生效，作者不用改版本号或先卸载。开发版本也比同号的正式版本新：之后再装同号的正式构建按降级处理，所以发布前先提高版本号。
+
 ## 状态与转换
 
 - 转发器：有效 → 已撤销（提供方入口停止）；撤销后调用返回 `plugin-unavailable`，不再变回有效。
@@ -150,7 +157,7 @@ owners:
 - **owner**：runtime（SDK 与宿主注入）；配置与密钥归 `nbook.settings`。
 - **不在运行时 import 宿主或其它插件。** 状态只在 `activate` 内建立并登记到激活作用域，不在模块顶层保存；这是热插拔撤回与代码回收的前提。
 - **worker 的限制。** 调用方在中止后立即得到 `interrupted`，但 worker 中的 WebAssembly 与原生阻塞调用要等其返回 JS 才停止（Bun），死循环只能随进程重启回收；Chrome 中 worker 终止后约 2 秒才停。未停止的 worker 继续占用名额，并在诊断中按插件显示。开发者已确认不强制插件把 WebAssembly 计算切成小段，只在插件作者文档中写明。
-- **SDK 的组成**：公开面写在应用里（`src/sdk/index.ts` 与 `src/sdk/browser.ts`），只再导出已有实现；仓库里的示例经别名直接用它的源码。可以安装的包由应用生成（`build:sdk`）：打包的构建期实现、打平的类型声明（只引用 `vue`、`@vue/reactivity` 与 `typebox`，作者项目用普通 tsconfig 即可类型检查）与 `package.json`（版本等于产品版本，`vue`、`@vue/reactivity`、`typebox` 是 peer 依赖），`/build` 子路径是构建预设，带类型声明。宿主能力的键带 `host` 前缀（`hostClockKey`、`hostStateRootKey`），免得与插件自己的服务键重名。设置窗口的 page 分区有组合助手 `settingsPageContribution({id, declaration, load})`，一次给出贡献声明、激活事件与实现，声明按 `SettingsPageDeclaration` 核对。
+- **SDK 的组成**：公开面写在应用里（`src/sdk/index.ts` 与 `src/sdk/browser.ts`），只再导出已有实现；仓库里的示例经别名直接用它的源码。可以安装的包由应用生成（`build:sdk`）：打包的构建期实现、打平的类型声明（只引用 `vue`、`@vue/reactivity` 与 `typebox`，作者项目用普通 tsconfig 即可类型检查）与 `package.json`（版本等于产品版本，`vue`、`@vue/reactivity`、`typebox` 是 peer 依赖），`/build` 子路径是构建预设，带类型声明。宿主能力的键带 `host` 前缀（`hostClockKey`、`hostStateRootKey`），免得与插件自己的服务键重名。设置窗口的 page 分区有组合助手 `settingsPageContribution({id, declaration, load})`，一次给出贡献声明、激活事件与实现，声明按 `SettingsPageDeclaration` 核对。工作台的视图（`workbench.views`）与状态栏条目（`workbench.statusbar-items`）的贡献点 id 与类型在 SDK 里；视图有同样的助手 `viewContribution({id, declaration, load})`，实现 `implementation(props?)` 把入口激活时拿到的服务经 `props` 交给视图组件，组件另收 `context`。
 - **兼容**：SDK 的公开面与内置插件导出的服务、合同属于 `engines.neurobook` 的兼容范围，按产品版本的 semver 判断；产品版本为 0.x 时，minor 号变化表示可能有不兼容的改动。形态约束让以后把插件移到共享插件宿主 worker 时远程合同不变；依赖了内部服务的插件不在此列，移出宿主进程需要改写。
 - **构建预设提示**：可以提示从未使用 `signal` 的异步处理函数，不作为构建失败条件。
 
@@ -167,8 +174,9 @@ owners:
 9. **开发模式克隆检查。** 跨插件调用传函数时，开发模式报告违规。
 10. **入口粒度。** 同一插件 `main` 与 `tts` 入口各有一个运行中的 worker 调用；`tts` 停止时只有它的调用被结算，`main` 的调用正常完成。
 11. **密钥不可解密。** 用无法解密的密文替换插件密钥后读取，得到 `secret-unreadable`，密文仍在；重新写入后读取成功。
+12. **仓库外写插件。** 在仓库外的空目录装上生成的 SDK 包，`create`、类型检查、`build`，在插件页安装产物并重启：模板的视图显示设置项的值，命令可执行，改设置项后视图跟着变；禁用、卸载各在重启后生效。
 
-Smoke：示例外部插件在服务端与 Chromium 中各执行一次 worker 调用与中止，核对场景 1、4、6、7。
+Smoke：示例外部插件在服务端与 Chromium 中各执行一次 worker 调用与中止，核对场景 1、4、6、7；场景 12 由 `e2e/plugin-authoring.e2e.ts` 与照作者文档的一次手动安装覆盖。
 
 ## 证据
 

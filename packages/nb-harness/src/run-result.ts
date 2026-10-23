@@ -42,7 +42,8 @@ const NETWORK_STATUSES = new Set([408, 502, 503, 504, 520, 521, 522, 523, 524]);
 
 /**
  * provider 返回的错误按状态码与 OMP 的错误标记归类，优先级见输出 12；不看错误文字。
- * 余额与配额用尽在 OMP 里是 `UsageLimit` 标记（可能带 402 或 429），先于 429 归为 `quota`。
+ * 余额与配额用尽在 OMP 里是 `UsageLimit` 标记（可能带 402、403 或 429），排在最前：网关常以 403 回余额不足，OMP 同时打上
+ * `AuthFailed`，按认证归类会让人去查密钥。
  * 没有状态码不等于网络故障（SSE 里的内容拦截、模型终态错误也没有状态码）：只有网关类状态码、超时标记，
  * 或没有状态码而带瞬时故障标记时才归 `network`，证据不够时归 `provider`。
  */
@@ -52,8 +53,8 @@ export function classifyProviderError(message: AssistantMessage): RunError {
     const has = (flag: number): boolean => (flags & flag) !== 0;
     const text = message.errorMessage ?? "模型请求失败";
     let kind: ErrorKind;
-    if (has(Flag.AuthFailed) || status === 401 || status === 403) kind = "auth";
-    else if (has(Flag.UsageLimit) || status === 402) kind = "quota";
+    if (has(Flag.UsageLimit) || status === 402) kind = "quota";
+    else if (has(Flag.AuthFailed) || status === 401 || status === 403) kind = "auth";
     else if (status === 429) kind = "rate_limit";
     else if (has(Flag.ContextOverflow)) kind = "context_overflow";
     else if (has(Flag.ContentBlocked) || has(Flag.ProviderFinishError)) kind = "provider";
