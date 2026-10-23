@@ -1,13 +1,14 @@
 /**
  * 生成的 SDK 包能在仓库外使用（docs/specs/runtime/plugin-api.md 的“SDK”）：装进一个只有 vue、typebox、TypeScript 与
  * vue-tsc 的作者项目，普通 tsconfig 下类型检查通过（不跳过库文件，含单文件组件里用的 SDK 组件），构建预设的类型也能用，
- * 构建期实现能执行；类型导出的名字钉住，增删要改这里。
+ * 构建期实现能执行；类型导出的名字钉住，增删要改这里。作者文档、附表与它引用的 Spec 随包，链接在包里都打得开。
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 
+import {existsSync} from "node:fs";
 import {cp, mkdir, readdir, readFile, rm, symlink, writeFile} from "node:fs/promises";
-import {join} from "node:path";
+import {dirname, join, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
 import {readPluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
@@ -44,10 +45,10 @@ export const server: PluginDefinition = {id: "acme.hello", entries: [defineEntry
     return {};
 }})]};
 `,
-    "src/web.ts": `import {defineEntry, SETTINGS_CHOICES_POINT, SETTINGS_PAGES_POINT, settingsChoicesEvent, settingsKey, WORKBENCH_VIEWS_POINT} from "@notnotype/nb-plugin-sdk";
-import type {ContributionDeclaration, PluginDefinition, SettingsChoicesDeclaration} from "@notnotype/nb-plugin-sdk";
+    "src/web.ts": `import {defineEntry, SETTINGS_CHOICES_POINT, SETTINGS_PAGES_POINT, settingsChoicesEvent, settingsKey, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "@notnotype/nb-plugin-sdk";
+import type {ContributionDeclaration, ItemDeclaration, PluginDefinition, SettingsChoicesDeclaration} from "@notnotype/nb-plugin-sdk";
 import {settingsPageContribution, viewContribution} from "@notnotype/nb-plugin-sdk/browser";
-import type {OptionSource, SettingsChoicesImplementation} from "@notnotype/nb-plugin-sdk/browser";
+import type {ItemImplementation, OptionSource, SettingsChoicesImplementation} from "@notnotype/nb-plugin-sdk/browser";
 // 静态导入单文件组件：构建预设读入口定义时会执行到它对 SDK 组件的导入，组件的构建期实现要在 SDK 包里。
 import HelloView from "./HelloView.vue";
 
@@ -58,7 +59,10 @@ const page = settingsPageContribution({id: "acme.hello.main", declaration: {titl
 const voices: ContributionDeclaration<SettingsChoicesDeclaration> = {capability: SETTINGS_CHOICES_POINT, id: "acme.hello.voices", declaration: {}};
 const options = (): OptionSource<string> => ({status: "ready", items: [{value: "calm", label: {"zh-CN": "平静", "en-US": "Calm"}}]});
 const choices: SettingsChoicesImplementation = {source: options};
-export const browser: PluginDefinition = {id: "acme.hello", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup", page.activationEvent, settingsChoicesEvent(voices.id)], dependencies: [{key: settingsKey}], contributions: [page.contribution, voices, view.contribution], activate: () => ({contributions: {[SETTINGS_PAGES_POINT]: {[page.id]: page.implementation()}, [SETTINGS_CHOICES_POINT]: {[voices.id]: choices}, [WORKBENCH_VIEWS_POINT]: {[view.id]: view.implementation(() => ({greeting: "hi"}))}}})})]};
+// 状态栏条目按作者文档（README.md）的标准写法：声明是纯数据，实现是几个函数。
+const status: ItemDeclaration = {title: {"zh-CN": "你好", "en-US": "Hello"}, alignment: "right", order: 100, priority: 0, command: {id: "acme.hello.say"}};
+const item: ItemImplementation = {text: () => "hi", tooltip: () => "hello", state: () => "normal"};
+export const browser: PluginDefinition = {id: "acme.hello", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup", page.activationEvent, settingsChoicesEvent(voices.id)], dependencies: [{key: settingsKey}], contributions: [page.contribution, voices, view.contribution, {capability: WORKBENCH_STATUSBAR_ITEMS_POINT, id: "acme.hello.status", declaration: status}], activate: () => ({contributions: {[SETTINGS_PAGES_POINT]: {[page.id]: page.implementation()}, [SETTINGS_CHOICES_POINT]: {[voices.id]: choices}, [WORKBENCH_VIEWS_POINT]: {[view.id]: view.implementation(() => ({greeting: "hi"}))}, [WORKBENCH_STATUSBAR_ITEMS_POINT]: {"acme.hello.status": item}}})})]};
 `,
     "src/HelloView.vue": `<script setup lang="ts">
 import {Button} from "@notnotype/nb-plugin-sdk/components";
@@ -92,6 +96,14 @@ export async function run(): Promise<BuildPluginResult | ReadonlyArray<string>> 
 }
 `,
 };
+
+/** Markdown 行内链接里的相对路径（去掉锚点并解码）；绝对地址与页内锚点不算。 */
+function relativeLinks(markdown: string): string[] {
+    return [...markdown.matchAll(/\]\(([^()\s]+)\)/gu)]
+        .map((match) => match[1]!)
+        .filter((url) => !/^[a-z][a-z0-9+.-]*:/iu.test(url) && !url.startsWith("#"))
+        .map((url) => decodeURIComponent(url.split("#", 1)[0]!));
+}
 
 /** `.d.ts` 末尾 `export {…}` 里导出的名字（`a as b` 取 b，去掉 `type`）。 */
 function declaredExports(text: string): string[] {
@@ -139,6 +151,24 @@ describe("生成的 SDK 包", () => {
         expect(manifest.peerDependencies["@vue/reactivity"]).toBe(manifest.peerDependencies.vue!);
         expect(manifest.exports["./build"]).toEqual({types: "./build.d.ts", import: "./build.js"});
         expect(await readdir(join(tmp, "sdk"))).not.toContain("stale.js");
+    });
+
+    it("带作者文档、组件与主题变量两份附表和作者文档引用的 Spec；README 的相对链接都能在包里打开", async () => {
+        const sdk = join(tmp, "sdk");
+        expect(await readFile(join(sdk, "docs/components.md"), "utf8")).toContain("`Button`");
+        const tokens = await readFile(join(sdk, "docs/tokens.md"), "utf8");
+        expect(tokens).toContain("`--space-2`");
+        expect(tokens).toContain("`--accent-main`");
+        // 仓库里的作者文档指向 docs/specs/ 的每一份 Spec，包里都有副本。
+        const sourceReadme = fileURLToPath(new URL("./README.md", import.meta.url));
+        const specsRoot = fileURLToPath(new URL("../../../../docs/specs/", import.meta.url));
+        const referenced = [...new Set(relativeLinks(await readFile(sourceReadme, "utf8")).map((url) => relative(specsRoot, resolve(dirname(sourceReadme), url))))];
+        expect(referenced.length).toBeGreaterThan(0);
+        expect(referenced.filter((spec) => !existsSync(join(sdk, "specs", spec)))).toEqual([]);
+        // 包里的 README 不指向包外：作者装的包里只有这些文件。
+        const links = relativeLinks(await readFile(join(sdk, "README.md"), "utf8"));
+        expect(links.length).toBe(relativeLinks(await readFile(sourceReadme, "utf8")).length);
+        expect(links.filter((url) => relative(sdk, resolve(sdk, url)).startsWith("..") || !existsSync(resolve(sdk, url)))).toEqual([]);
     });
 
     it("输出目录不是空的、也不是上次生成的 SDK 包：拒绝，不删里面的文件", async () => {

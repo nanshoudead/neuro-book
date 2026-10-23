@@ -1,6 +1,6 @@
 # 示例插件
 
-六个按第三方插件写法写的示例插件，演示内核的主要机制与内置插件（`nbook.storage`、`nbook.state`、`nbook.commands`、`nbook.settings`）的用法，也可以当写新插件的样板。每个示例插件都装进真实的内置插件运行，由六个场景测试核对行为。
+七个按第三方插件写法写的示例插件，演示内核的主要机制与内置插件（`nbook.storage`、`nbook.state`、`nbook.commands`、`nbook.settings`）的用法，也可以当写新插件的样板。每个示例插件都装进真实的内置插件运行，由七个场景测试核对行为。
 
 讲解写在代码旁边：每个文件开头说明它演示什么、对应哪个场景，关键的每一步说明做什么、为什么、不这样会怎样，并链接 Spec。本文件只做目录、概念与阅读顺序，不贴代码。
 
@@ -35,7 +35,7 @@
 | 贡献与贡献点 | 声明式扩展：拥有者定义扩展点，别的插件交“声明 + 实现”，彼此没有依赖 | 同一实例 | 插件定义的 `contributionPoints`，入口的 `receives` 与 `contributions` | menu 定义、file-menu 贡献；counter 向 `nbook.commands`、`nbook.state` 贡献 |
 | 插件状态 | 一个入口的内存、持久化、派生与公开状态，只经 action 写，随入口代次创建与释放 | 一个入口 | `defineStore`（`nbook/shared/store/store`），公开键 `definePublicState` | counter 的计数与公开键 `example.counter/nonzero` |
 | 配置项 | 用户主动设定的偏好，用户层（`<状态根>/settings.json`）与项目层（`<项目目录>/.nbook/settings.json`）各存一份，越具体越优先、整体覆盖；所有插件都能读，只有声明它的插件能写 | 跨所有运行位置 | `defineSetting`（`nbook/shared/settings`），写在插件描述的 `contributions` 里；经 `nbook.settings` 的 `settingsKey` 读（`get` 有效值、`inspect` 各层）、写（`update(定义, 值, {layer})`） | snippets 的 `example.snippets/items` |
-| 设置分区 | 设置窗口左栏的一项：list 分区由窗口按配置项画通用控件，page 分区由插件自己画页面 | 窗口 | 贡献点 `settings.sections`（list 分区，写在插件描述的顶层）与 `settings.pages`（page 分区，浏览器入口贡献，实现交 `load()`），都由 `nbook.settings` 拥有；页面用 `nbook/ui/settings/` 的 `SettingsRow` 画每一项 | snippets 的 page 分区 `example.snippets.main` |
+| 设置分区 | 设置窗口左栏的一项：list 分区由窗口按配置项画通用控件，page 分区由插件自己画页面 | 窗口 | 贡献点 `settings.sections`（list 分区）与 `settings.pages`（page 分区），都由 `nbook.settings` 拥有。list 分区是插件描述 `contributions` 里的顶层声明 `{capability: SETTINGS_SECTIONS_POINT, id, declaration: {title, icon, category, groups}}`，配置项的 `section`、`group` 写分区 id 与小组 id 归进去，不需要代码；page 分区由浏览器入口用 `settingsPageContribution` 贡献，实现交 `load()`，页面用 SDK `/browser` 的 `SettingsRow` 画每一项 | snippets 的 page 分区 `example.snippets.main`；list 分区见作者模板的 [`shared/contracts.ts`](../scripts/plugin-sdk/template/shared/contracts.ts) |
 
 几个概念之间的关系，以 counter 与 notes 为例：
 
@@ -102,7 +102,7 @@ examples/
 
 目录格式与应用包的内置插件相同（[`packages/neuro-book/AGENTS.md`](../AGENTS.md) 的“目录约定”）：
 
-- 示例插件按第三方插件的写法：引用内核只经 `@notnotype/nb-runtime/<机制>`；引用内置插件与别的示例插件，在运行时只引用对方的 `shared/contracts.ts`，类型可以 `import type`；宿主能力的键与 `defineRecord`、`defineStore`、`defineSetting` 这类各插件都要用的工具来自 `nbook/shared/`，宿主与插件共用的界面组件（例如 `SettingsRow`）来自 `nbook/ui/`。`src/architecture.test.ts` 检查这些规则，产品代码也不能反过来引用 `examples/`。
+- 示例插件按第三方插件的写法：只从 SDK 导入（`@notnotype/nb-plugin-sdk`、`/browser`、`/components`），另外只用 `vue`、`@vue/reactivity` 与 `typebox`；引用别的示例插件在运行时只引用对方的 `shared/contracts.ts`，类型可以 `import type`。测试文件（场景、组件测试）不受这条限制。`src/architecture.test.ts` 检查这些规则，产品代码也不能反过来引用 `examples/`。
 - 服务键按服务 id 识别，只在提供方的 `shared/contracts.ts` 定义一次（[ADR 0025](../../../docs/adr/0025-service-keys-by-id.md)）。
 - 插件定义是常量，没有工厂参数（[ADR 0026](../../../docs/adr/0026-plugin-definitions-as-constants.md)）：要宿主的东西就依赖宿主能力，对别的插件的依赖同样写在入口的 `dependencies` 里。定义按代码所在的一侧导出，后端不能引用浏览器代码；一份后端定义可以含 `server` 与 `project` 两个位置的入口。
 - `web/` 与 `backend/` 互不引用，只经 `shared/` 交换类型与 schema；`plugin.ts`、`shared/` 与 `web/` 也过浏览器那份类型检查，不用 Bun 与 Node 的接口。
@@ -119,15 +119,19 @@ examples/
 | [snippets](plugins/snippets/) | browser（配置项在每个实例登记） | 配置项写在插件描述里、由宿主登记进每个实例；向 `settings.pages` 贡献 page 分区，`load()` 按需加载页面；页面用 `SettingsRow` 的宽排法按 `context.layer` 只编辑这一层，按层读（`inspect`）与按层写（`update(..., {layer})`）；什么时候用 page 而不是 list |
 | [focus](plugins/focus/) | server、browser | 完整示例“专注计时”：list 分区里的设置项、命令、侧栏视图（`viewContribution` 把 store 交给组件）、状态栏条目（挂切换命令）、服务端远程服务与私有存储；计时的权威在服务端，到点由结算函数记完成、条件保存防止几个服务端重复记；窗口按 `endsAt` 算剩余、只在计时时走表、重连后重取 |
 
-## 可安装的外置插件
+## 外部插件
 
-插件可以经设置窗口的“插件”页安装（[`runtime.plugin-install`](../../../docs/specs/runtime/plugin-install.md)）：清单是插件文件夹里的 `package.json`（[`runtime.plugin-manifest`](../../../docs/specs/runtime/plugin-manifest.md)），装进状态根、重启后生效；入口的代码在激活时才装载（[`runtime.plugin-code-loading`](../../../docs/specs/runtime/plugin-code-loading.md)）。
+示例插件都按第三方插件构建、安装运行：每个示例目录有一份 `package.json`（作者合同：`publisher`、`name`、`version` 与可选的 `pluginVersions`），用的构建预设与仓库外作者经 SDK 的 `nbook-plugin build` 用的是同一个（[`scripts/plugin-sdk/build-plugin.ts`](../scripts/plugin-sdk/build-plugin.ts)）。产物里的 `package.json` 是构建预设从代码定义生成的清单（[`runtime.plugin-manifest`](../../../docs/specs/runtime/plugin-manifest.md)），经设置窗口的“插件”页装进状态根、重启后生效（[`runtime.plugin-install`](../../../docs/specs/runtime/plugin-install.md)）；入口的代码在激活时才装载（[`runtime.plugin-code-loading`](../../../docs/specs/runtime/plugin-code-loading.md)）。
 
-- [declarative](external/declarative/package.json)：只有声明、没有代码的插件，文件夹本身就能安装。一项配置 `example.hello/greeting`，用户层与本作品层都能改。
-- snippets、clock、notes、counter：各带一份 `package.json`（作者合同：`publisher`、`name`、`version` 与可选的 `pluginVersions`），在应用包目录运行 `bun run build:examples <名…>` 用构建预设构建到各自的 `dist/`，安装 `dist/`。构建预设从代码定义生成清单、每个入口打成一个文件，宿主共享的模块（Vue、`@vue/reactivity`、nb-ui 的组件、SDK）不打进去；仓库里构建时 SDK 的包名指到应用源码。notes 写了 `pluginVersions` 要求 clock 是 `^0.1.0`。
-- menu、file-menu 还没有 `package.json`，只在仓库里按源码装配（t05 补上）。
+装一个示例：
 
-外置之后的行为与按源码装配时相同，由 `scripts/plugin-sdk/external-examples.test.ts`（构建、按清单登记、装载器装载，再跑场景里同样的调用）与 `e2e/plugin-code.e2e.ts`（真实浏览器与产品服务端）核对。
+1. 在应用包目录运行 `bun run build:examples [名…]`（不写名字就构建全部），产物在各示例的 `dist/`（git 忽略）。每个入口打成一个文件，宿主共享的模块（Vue、`@vue/reactivity`、SDK 与它的组件入口）不打进去；仓库里构建时 SDK 的包名指到应用源码，应用源码列为不许打进产物的目录，示例绕过 SDK 引用了应用内部时构建失败。
+2. 在 NeuroBook 的“设置 → 插件”里点“安装…”，填某个示例 `dist` 的完整路径（例如 `<仓库>/packages/neuro-book/examples/plugins/snippets/dist`），确认。
+3. 重启 NeuroBook。menu 与 file-menu 要一起装：file-menu 的菜单项交给 menu，menu 收到时记一条诊断，在服务端日志里看得到。notes 写了 `pluginVersions` 要求 clock 是 `^0.1.0`（clock 是它的可选依赖，不装也能用）。
+
+另有 [declarative](external/declarative/package.json)：只有声明、没有代码的插件，文件夹本身就能安装，不用构建。一项配置 `example.hello/greeting`，用户层与本作品层都能改。
+
+外置之后的行为与按源码装配时相同，由 `scripts/plugin-sdk/external-examples.test.ts`（构建、按清单登记、装载器装载，再跑场景里同样的调用）与 `e2e/plugin-code.e2e.ts`（真实浏览器与产品服务端）核对。在仓库外从零写插件，看 SDK 包的作者文档（[`scripts/plugin-sdk/README.md`](../scripts/plugin-sdk/README.md)）。
 
 ## 场景
 
@@ -151,7 +155,6 @@ examples/
 ## 还没演示的
 
 - **拥有者定义的激活事件**（`activationEventPrefixes`）：现在只有宿主能触发，插件写不出“菜单打开时才激活贡献方”，file-menu 因此启动即激活（见它的注释）。是否给插件补触发接口由开发者决定。
-- **带代码的外置插件**：入口代码的装载实现后，上面的示例插件分批改成 `external/` 下的外置插件。
 
 ## 写法与维护
 
