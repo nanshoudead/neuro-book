@@ -6,9 +6,8 @@
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 
-import {cp, mkdir, readdir, readFile, rm, symlink, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
-import {fileURLToPath} from "node:url";
 
 import {readPluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -18,34 +17,19 @@ import {compareVersions, npmVersions, pluginVersionSatisfies} from "../../src/sh
 import {devVersion} from "./build-plugin";
 
 import {buildSdk} from "./build-sdk";
+import {authorDirectory, cliOf} from "./testing/author";
 
-const repoModules = fileURLToPath(new URL("../../../../node_modules/", import.meta.url));
 let tmp = "";
 let sdk = "";
 
-/** 作者目录：装好了 SDK 与模板要的依赖（链接到仓库里同一份），`package.json` 是 `npm install -D <SDK>` 写下的那样。 */
-async function authorDirectory(name: string): Promise<string> {
-    const directory = join(tmp, name);
-    const modules = join(directory, "node_modules");
-    await mkdir(join(modules, "@notnotype"), {recursive: true});
-    await cp(sdk, join(modules, "@notnotype/nb-plugin-sdk"), {recursive: true});
-    for (const scope of ["@vue", "@vitejs", "@iconify", "@iconify-json"]) await mkdir(join(modules, scope), {recursive: true});
-    for (const item of ["vue", "typebox", "typescript", "vue-tsc", "csstype", "vite", "semver", "@vitejs/plugin-vue", "@iconify/utils", "@iconify-json/lucide"]) {
-        await symlink(join(repoModules, item), join(modules, item));
-    }
-    for (const item of ["reactivity", "runtime-core", "runtime-dom", "shared", "compiler-dom", "compiler-core", "compiler-sfc", "compiler-ssr", "server-renderer"]) {
-        await symlink(join(repoModules, "@vue", item), join(modules, "@vue", item));
-    }
-    await writeFile(join(directory, "package.json"), `${JSON.stringify({devDependencies: {"@notnotype/nb-plugin-sdk": "file:../nb-plugin-sdk-0.1.0.tgz"}}, null, 2)}\n`);
-    return directory;
-}
+const authorDirectoryNamed = (name: string): Promise<string> => authorDirectory(join(tmp, name), sdk);
 
 function node(cwd: string, ...args: string[]): {readonly code: number; readonly stdout: string; readonly stderr: string} {
     const result = Bun.spawnSync({cmd: ["node", ...args], cwd, stdout: "pipe", stderr: "pipe"});
     return {code: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString()};
 }
 
-const cli = (cwd: string, ...args: string[]) => node(cwd, join(cwd, "node_modules/@notnotype/nb-plugin-sdk/cli.js"), ...args);
+const cli = (cwd: string, ...args: string[]) => node(cwd, cliOf(cwd), ...args);
 
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-sdk", "template");
@@ -59,7 +43,7 @@ afterAll(async () => {
 
 describe("nbook-plugin", () => {
     it("create . 在装好 SDK 的目录里写出模板、合并 package.json；生成的插件能类型检查、构建，清单合格；build --clean --dev 给出开发版本", async () => {
-        const author = await authorDirectory("hello-world");
+        const author = await authorDirectoryNamed("hello-world");
         const created = cli(author, "create", ".");
         expect(created.stderr).toBe("");
         expect(created.code).toBe(0);
@@ -100,7 +84,7 @@ describe("nbook-plugin", () => {
     }, 240_000);
 
     it("--clean 的输出目录不是这个插件上次的产物：拒绝，里面的文件还在", async () => {
-        const author = await authorDirectory("clean-guard");
+        const author = await authorDirectoryNamed("clean-guard");
         expect(cli(author, "create", ".").code).toBe(0);
         const other = join(tmp, "not-a-build");
         await mkdir(other, {recursive: true});
@@ -112,7 +96,7 @@ describe("nbook-plugin", () => {
     }, 120_000);
 
     it("create 拒绝：目录里已有别的文件（一个文件都不写）、名字以数字开头（写明规则）；用法不对退出码 2", async () => {
-        const busy = await authorDirectory("busy");
+        const busy = await authorDirectoryNamed("busy");
         await writeFile(join(busy, "index.ts"), "export {};\n");
         const refused = cli(busy, "create", ".");
         expect(refused.code).toBe(1);
@@ -129,7 +113,7 @@ describe("nbook-plugin", () => {
     }, 120_000);
 
     it("create 到空目录：SDK 依赖写成 registry 版本时提示先装 tarball；给了 --sdk 就按它写", async () => {
-        const runner = await authorDirectory("runner");
+        const runner = await authorDirectoryNamed("runner");
         const fresh = cli(runner, "create", join(tmp, "fresh"));
         expect(fresh.code).toBe(0);
         expect(fresh.stderr).toContain("SDK 还没有发布");
@@ -140,13 +124,13 @@ describe("nbook-plugin", () => {
     }, 120_000);
 
     it("create 合并 npm init 写下的 package.json：type、version 用模板的，作者的 test 脚本保留；name 不合规时提示 --name", async () => {
-        const author = await authorDirectory("npm-init");
+        const author = await authorDirectoryNamed("npm-init");
         await writeFile(join(author, "package.json"), JSON.stringify({name: "npm-init", version: "1.0.0", type: "commonjs", scripts: {test: "echo no test"}, devDependencies: {"@notnotype/nb-plugin-sdk": "file:../sdk.tgz"}}));
         expect(cli(author, "create", ".").code).toBe(0);
         const manifest = JSON.parse(await readFile(join(author, "package.json"), "utf8")) as Record<string, unknown>;
         expect(manifest).toMatchObject({name: "npm-init", version: "0.1.0", type: "module", scripts: {test: "echo no test", build: "nbook-plugin build --clean"}});
 
-        const scoped = await authorDirectory("scoped");
+        const scoped = await authorDirectoryNamed("scoped");
         await writeFile(join(scoped, "package.json"), JSON.stringify({name: "@me/scoped"}));
         const refused = cli(scoped, "create", ".");
         expect(refused.code).toBe(1);
