@@ -83,9 +83,9 @@ w00019 [t14](../../../w00019-agent-conversation-view/tasks/t14-qa-vertical-slice
 
 - 2026-10-23 按 autonomous-delivery 开工（决定 19），代码在 `.worktree/w00024-t13-qa-web`（分支 `feat/w00024-t13-qa-web`）。切片 1 到 4 已实施：引擎（准备与运行两步、观察者、`logFrom`、章数上限是正常结果）、配置（整份校验、跨进程锁、摘要比对）、服务端（`qa.*`、`config.*`、推送、删除与停服的收口，nb-harness 加 `onProcessTermination`）、问答页（数据源、按轮分开的转录、答案卡片、出处与人名、e2e 4 条）。第 2 轮设计审查（Sonnet 21 条、omp 18 条）已逐条处理（[证据](evidences/design-review-2.txt)），计划改为第 3 版，照推荐做的取舍记进 [待确认清单](../../pending-confirmations.md)。
 
-- 2026-10-23 切片 5（设置页）与切片 6 的 Spec（story/qa、story/viewer、story/cli-skill、agent/harness、包边界）完成。收口验证：nb-story 类型检查通过、单测 398 条通过，nb-harness 73 条通过；nb-story 全量 e2e 27 条，机器负载约 9 时两次各有一条不同的计时类用例偶发失败（外壳换书、长列表 1 秒），单独重跑都通过。实现审查已开始（omp 审服务端与引擎、Sonnet 审网页，提交范围 `e9ab762b2..ad8c8494c`），实现审查待处理。
+- 2026-10-23 切片 5（设置页）与切片 6 的 Spec（story/qa、story/viewer、story/cli-skill、agent/harness、包边界）完成。收口验证：nb-story 类型检查通过、单测 398 条通过，nb-harness 73 条通过；nb-story 全量 e2e 27 条，机器负载约 9 时两次各有一条不同的计时类用例偶发失败（外壳换书、长列表 1 秒），单独重跑都通过。实现审查（Sonnet 网页 18 条、omp 服务端 13 条）已逐条处理，修正单独提交（[证据](evidences/impl-review.txt)）。
 
 ## 下一步
 
 1. 真实模型冒烟（网页里问一题、追问一题、中途停止一次、刷新接上）：要调用真实模型，等开发者同意。
-2. 处理实现审查，修正单独提交；合入 master；合入后把 qa.md、viewer.md 证据里的代码路径改回链接。
+2. 合入 master；合入后把 qa.md、viewer.md 证据里的代码路径改回链接。
