@@ -16,13 +16,16 @@
     "scripts": {
         "test": "bun test",
         "nbstory": "bun src/cli.ts",
-        "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.core.json && vue-tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p e2e/tsconfig.json",
+        "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.core.json && vue-tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.web-test.json && tsc --noEmit -p e2e/tsconfig.json",
         "build:web": "vite build",
         "test:e2e": "bun run build:web && playwright test -c e2e/playwright.config.ts"
     },
     "dependencies": {
         "@clack/prompts": "^1.0.0",
+        "@notnotype/nb-agent-ui": "workspace:*",
+        "@notnotype/nb-form": "workspace:*",
         "@notnotype/nb-harness": "workspace:*",
+        "@notnotype/nb-markdown": "workspace:*",
         "@notnotype/nb-profile": "workspace:*",
         "@notnotype/nb-runtime": "workspace:*",
         "@notnotype/nb-session": "workspace:*",
@@ -30,6 +33,7 @@
         "@sigma/node-border": "3.0.0",
         "@sigma/utils": "3.0.0",
         "commander": "^14.0.2",
+        "eventsource-parser": "^3.0.6",
         "graphology": "0.26.0",
         "graphology-layout-forceatlas2": "0.10.1",
         "graphology-layout-noverlap": "0.4.2",
