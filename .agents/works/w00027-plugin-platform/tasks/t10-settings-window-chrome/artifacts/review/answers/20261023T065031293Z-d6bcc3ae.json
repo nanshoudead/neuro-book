@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00027-plugin-platform",
+    "taskId": "t10-settings-window-chrome",
+    "artifactId": "review",
+    "answerId": "20261023T065031293Z-d6bcc3ae",
+    "artifactVersion": 2,
+    "contentHash": "f18531ac5a289921a674b4e8c648b8349b1f324b5a2ce771731bbfb7ae68f22d",
+    "submittedAt": "2026-10-23T06:50:30.841Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r2-side": "none",
+        "r2-title": "xl",
+        "r2-inherit-word": "from-user"
+    },
+    "comments": {},
+    "note": null
+}
