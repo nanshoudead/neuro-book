@@ -125,8 +125,8 @@ export interface QaEndpoint {
     url: string;
     /** 换一份脚本：之后的请求按顺序回复。 */
     script(replies: unknown[]): Promise<void>;
-    /** 之后的请求先等着，直到 release。 */
-    hold(): Promise<void>;
+    /** 从下一个请求往后数第 `from` 个（缺省 0，即下一个）起先等着，直到 release。 */
+    hold(from?: number): Promise<void>;
     release(): Promise<void>;
     seen(): Promise<number>;
     stop(): Promise<void>;
@@ -151,7 +151,7 @@ export async function startQaEndpoint(): Promise<QaEndpoint> {
     return {
         url,
         script: replies => post("/script", {replies}),
-        hold: () => post("/hold"),
+        hold: from => post(from === undefined ? "/hold" : `/hold?from=${from}`),
         release: () => post("/release"),
         seen: async () => ((await (await fetch(`${control}/seen`)).json()) as {seen: number}).seen,
         async stop() {

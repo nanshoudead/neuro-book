@@ -4,7 +4,7 @@
  *
  * 视图只在用户提问处开新的一轮。有的轮在写用户消息之前就结束了（缺密钥、开始前就停了），日志里只有一条运行结束，
  * 合成出来是一条错误或“已停止”，会接到上一轮后面、把上一轮标成出错。所以按记录每轮的 `logFrom`（这一轮在日志里的
- * 起点；适配器的消息 id 是 `h<seq>`）把消息分到各轮，某一轮开头不是用户提问时用记录里的问题补一条。运行中、提问
+ * 起点；消息来自日志的哪一条按适配器的 `logSeqOf`）把消息分到各轮，某一轮开头不是用户提问时用记录里的问题补一条。运行中、提问
  * 还没写进日志时也先放一条（乐观的提问，`delivery: "pending"`）。
  *
  * 每一轮的提问 id 固定为 `q:<对话 id>:<轮号>`（包括日志里真的那条，换成同一个 id）：乐观的、补的与真的前后是同一个
@@ -16,7 +16,7 @@
  * 打节拍时原对象原样交回。
  */
 
-import type {MessageView, UserMessageView} from "@notnotype/nb-agent-ui";
+import {logSeqOf, type MessageView, type UserMessageView} from "@notnotype/nb-agent-ui";
 
 /** 记录里一轮在这里用到的部分。 */
 export interface TurnInfo {
@@ -60,11 +60,6 @@ function cached(cache: MessageCache, message: MessageView, key: string, make: ()
     return made;
 }
 
-/** 适配器给日志消息的 id 是 `h<seq>`；运行中的临时消息不是。 */
-export function seqOf(message: MessageView): number | null {
-    const match = /^h(\d+)$/u.exec(message.id);
-    return match === null ? null : Number(match[1]);
-}
 
 const isQuestion = (message: MessageView): message is UserMessageView => message.kind === "user" && message.intent === "normal";
 
@@ -97,7 +92,7 @@ export function composeMessages(messages: readonly MessageView[], input: Compose
     };
     const groups: MessageView[][] = turns.map(() => []);
     for (const message of messages) {
-        const seq = seqOf(message);
+        const seq = logSeqOf(message);
         // 运行中的临时消息（没有 seq）属于最后一轮。
         groups[seq === null ? turns.length - 1 : turnOf(seq)]!.push(message);
     }

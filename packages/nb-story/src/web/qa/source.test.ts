@@ -108,6 +108,18 @@ describe("记录与运行", () => {
         expect(texts(h.source.state())).toEqual(["问:第一问", "答:第一答", "问:追问", "答:追答"]);
     });
 
+    test("看着它结束并保存、重读回来之前：这一轮照样接在记录后面，提问 id 不变", async () => {
+        // 重读的 qa.get 还没回（脚本里只有第一次的结果，第二次会抛错，但检查在它之前）。
+        const h = harness([got({run: run()})]);
+        await h.settle();
+        h.send({type: "snapshot", run: run(), entries: [userEntry(4, "追问"), replyEntry(5, "追答")]});
+        const ids = () => h.source.state().messages.map(message => message.id);
+        const before = ids();
+        expect(before).toContain("q:c:2");
+        h.send({type: "ended", run: run({state: "ended", saved: {ok: true}})});
+        expect(ids()).toEqual(before);
+    });
+
     test("运行基于较早的记录（命令行先保存了一轮）：不接进来，标为 detached", async () => {
         const h = harness([got({record: record([turn("第一问", 1), turn("命令行的", 4)]), run: run({baseTurns: 1})})]);
         await h.settle();
@@ -162,6 +174,20 @@ describe("断线与换对话", () => {
         expect(after.slice(0, before.length).every((message, index) => message === before[index])).toBe(true);
         expect(texts(h.source.state()).at(-1)).toBe("答:接着");
         expect([0, 1, 2, 3, 4, 5].map(retryDelay)).toEqual([1000, 2000, 4000, 8000, 15000, 15000]);
+    });
+
+    test("推送一连上就断（qa.get 照常成功）：重连间隔照样 1、2、4 秒变长；收到快照才清零", async () => {
+        const h = harness([got({run: run()}), got({run: run()}), got({run: run()}), got({run: run()})]);
+        await h.settle();
+        for (let round = 0; round < 3; round += 1) {
+            h.subscribers.at(-1)!.subscriber.end("dropped");
+            h.timers.at(-1)!.run();
+            await h.settle();
+        }
+        expect(h.timers.map(timer => timer.ms)).toEqual([1000, 2000, 4000]);
+        h.send({type: "snapshot", run: run(), entries: []});
+        h.subscribers.at(-1)!.subscriber.end("dropped");
+        expect(h.timers.at(-1)!.ms).toBe(1000);
     });
 
     test("dispose 之后，晚到的读取结果与帧都不再生效", async () => {

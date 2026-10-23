@@ -1,5 +1,5 @@
 ---
-标签: ["state:inject"]
+标签: ["state:local", "state:inject"]
 ---
 
 # 答案卡片
@@ -21,6 +21,8 @@ defineEmits<HostComponentEmits>();   // action：reference.open
 - 人名发 `{type: "reference.open", target: "entity://<对象 id>"}`；只有查到唯一对象的才是链接。
 
 ## 隐藏通道理由
+
+`state:local`：“详细”的展开、查到的人名、依据一行放得下几个，都是这张卡片自己的显示状态，初始为收起、没有链接、全部列出（量宽之前）。量宽用 ResizeObserver 与 requestAnimationFrame，只读自己的元素尺寸。
 
 `state:inject`：人名的查法经 `QA_NAME_LOOKUP`（`names.ts`）从问答页注入。卡片挂在对话视图的工具节点里，属性由 nb-agent-ui 给，宿主的查法只能经祖先注入。没有注入时人名都是纯文字。
 

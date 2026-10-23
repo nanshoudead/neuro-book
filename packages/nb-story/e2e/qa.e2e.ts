@@ -75,12 +75,20 @@ test("新对话：提问后看到过程与答案卡片；出处在抽屉里打�
     await endpoint.script(READ_THEN_ANSWER);
     await page.goto(`${server.base}/book/fox/qa?at=38.57`);
     await expect(page.getByText("新对话按你现在的位置 38.57 回答")).toBeVisible();
+    // 第一个请求（读原文）照常回，第二个（交卷）先等着：这时页面停在运行中。
+    await endpoint.hold(1);
     await ask(page, "地狱猫是谁？");
 
     const card = page.locator("[data-qa-answer]");
     // 受理之后输入框清空（换到新对话的草稿也是新版本）。
     await expect(page.getByRole("textbox", {name: "消息输入框"})).toHaveText("");
+    // 运行中：过程逐步列出读原文的那一步，列表里这个对话在运行中。
+    await expect(page.getByText("37.8—37.8").first()).toBeVisible();
+    await expect(page.locator("aside").getByText("运行中")).toHaveCount(1);
+    await endpoint.release();
     await expect(card).toBeVisible();
+    // 结束后整轮过程收成一行摘要。
+    await expect(page.getByText(/过程 · \d+ 次操作/u).first()).toBeVisible();
     await expect(card).toContainText("读者在 37.8 就知道了");
     await expect(card.getByText("明说")).toBeVisible();
     // 地址里记下了这个对话；列表里它不再是运行中。
@@ -116,6 +124,10 @@ test("运行中：过程逐步出现，点停止后这一轮记为已停止；�
     await endpoint.release();
     await expect(stop).toBeHidden();
     await expect(page.getByText("要停下的问题").first()).toBeVisible();
+    // 这一轮记为已停止，刷新后（按记录显示）也是。
+    await expect(page.getByText("已停止").first()).toBeVisible();
+    await page.reload();
+    await expect(page.getByText("已停止").first()).toBeVisible();
 
     await page.locator("[data-qa-remove]").click();
     await page.getByRole("alertdialog").getByRole("button", {name: "删除"}).click();
@@ -137,13 +149,20 @@ test("没有配置时：写明要先配置并给去设置的链接，不能发�
 
 test("手机宽度：对话列表收进顶栏的下拉，选中后下拉关上", async ({page}) => {
     await page.setViewportSize({width: 390, height: 844});
+    // 自己先建一个对话，不靠别的用例留下的。
+    await endpoint.script([{kind: "text", text: "手机上的回答"}]);
     await page.goto(`${server.base}/book/fox/qa`);
+    await ask(page, "手机上问的");
+    await expect(page.getByText("手机上的回答")).toBeVisible();
+    // 回到新对话，再从下拉里选回刚才那个。
+    await page.locator("[data-qa-page] header").getByRole("button", {name: "新对话"}).click();
+    await expect(page.getByText("手机上的回答")).toHaveCount(0);
     await page.locator("[data-qa-switch]").click();
-    const first = page.getByRole("dialog").getByRole("button", {name: /地狱猫是谁？/u}).first();
+    const first = page.getByRole("dialog").getByRole("button", {name: /手机上问的/u}).first();
     await expect(first).toBeVisible();
     await first.click();
     await expect(page.getByRole("dialog")).toBeHidden();
-    await expect(page.locator("[data-qa-answer]")).toBeVisible();
+    await expect(page.getByText("手机上的回答")).toBeVisible();
 });
 
 test.describe("设置页", () => {

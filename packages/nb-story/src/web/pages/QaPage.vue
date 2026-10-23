@@ -47,12 +47,14 @@ const resolveName = createNameResolver(async name => {
     try {
         return (await client.call("entity.card", {book: book.bookId, at: book.at.value, entity: name})).id;
     } catch (error) {
-        // 找不到、重名都是“不做成链接”；别的失败同样不做成链接，留一条诊断。
-        if (!(error instanceof StoryCallError && (error.code === "entity_not_found" || error.code === "entity_ambiguous"))) console.warn({error, name}, "按名字查人物失败");
-        return null;
+        // 找不到、重名都是“不做成链接”；别的失败抛给缓存（不记下，下次再查），这一次同样不做成链接。
+        if (error instanceof StoryCallError && (error.code === "entity_not_found" || error.code === "entity_ambiguous")) return null;
+        console.warn({error, name}, "按名字查人物失败");
+        throw error;
     }
 });
-provide(QA_NAME_LOOKUP, who => resolveName(`${book.bookId}@${formatAt(book.at.value)}#${book.dataVersion.value}`, who));
+const nameScope = () => `${book.bookId}@${formatAt(book.at.value)}#${book.dataVersion.value}`;
+provide(QA_NAME_LOOKUP, {scope: nameScope, resolve: who => resolveName(nameScope(), who)});
 
 // ---- 设置：没配置时输入框停用，给“去设置” ----
 const configured = ref<boolean | null>(null);
@@ -82,6 +84,11 @@ async function loadList(): Promise<void> {
         listState.value = "ready";
     } catch (error) {
         if (token !== listToken) return;
+        // 已经有行时（轮询中途）一次失败只留诊断，列表不换成错误提示；下一次轮询再试。
+        if (listState.value === "ready") {
+            console.warn({error}, "重取问答对话列表失败");
+            return;
+        }
         listState.value = "error";
         listError.value = error instanceof Error ? error.message : String(error);
     }
@@ -118,8 +125,8 @@ const brokenIds = computed(() => new Set(broken.value.map(item => item.id)));
 
 // ---- 选中的对话与它的数据源 ----
 const selectedId = computed(() => book.qaConversation.value);
-/** 正在发起一轮（qa.start 还没返回）。 */
-const starting = ref(false);
+/** 正在发起一轮（qa.start 还没返回，或续问后数据源还没读到它）的对话；新对话是 NEW。 */
+const starting = ref<string | null>(null);
 /** 发起、停止或删除失败的原因，写在输入框上方；草稿不清。换对话时清掉。 */
 const startError = ref<string | null>(null);
 const sourceState = shallowRef<QaSourceState | null>(null);
@@ -184,6 +191,7 @@ const ctx = computed<AgentConversationContext>(() => {
     const state = sourceState.value;
     const id = selectedId.value;
     const canContinue = id === null || (state?.phase === "ready" && state.continuable.ok);
+    const startingHere = starting.value === (id ?? NEW);
     return createAgentContext({
         session: id === null ? null : {id, title: title.value, summary: "", profileName: "问答", profileIcon: "i-lucide-messages-square", archived: false, summaryState: "idle"},
         availability:
@@ -192,8 +200,8 @@ const ctx = computed<AgentConversationContext>(() => {
                 : state?.phase === "failed"
                   ? {status: "load-error", message: state.error?.message ?? "读不到这个对话", actions: []}
                   : {status: "ready", message: "", actions: []},
-        interaction: {canSend: configured.value === true && canContinue && !running.value && !starting.value, canStop: running.value},
-        run: running.value || starting.value ? {status: "running", phase: ""} : {status: "idle", phase: ""},
+        interaction: {canSend: configured.value === true && canContinue && !running.value && !startingHere, canStop: running.value},
+        run: running.value || startingHere ? {status: "running", phase: ""} : {status: "idle", phase: ""},
         messages: state?.messages ?? ([] as MessageView[]),
         composer: composer.value,
         now: now.value,
@@ -210,31 +218,38 @@ function openTarget(raw: string): void {
 
 async function submit(text: string): Promise<void> {
     const question = text.trim();
-    if (question === "" || starting.value) return;
-    const id = selectedId.value;
-    starting.value = true;
+    // 发出时的对话与草稿：等受理的这段时间里用户可能换了对话，回来的结果只写回发出的那一个（草稿按对话各存一份）。
+    const target = selectedId.value;
+    const key = target ?? NEW;
+    if (question === "" || starting.value === key) return;
+    const sent = composer.value;
+    const stillHere = () => (selectedId.value ?? NEW) === key;
+    starting.value = key;
     startError.value = null;
     try {
         const started = await client.call("qa.start", {
             book: book.bookId,
             question,
-            ...(id === null ? {mode: composer.value.mode === "full" ? ("full" as const) : ("graph" as const), at: book.at.value} : {conversation: id}),
+            ...(target === null ? {mode: sent.mode === "full" ? ("full" as const) : ("graph" as const), at: book.at.value} : {conversation: target}),
         });
         // 受理了才清空草稿；失败时草稿留着，原因写在输入框上方。新对话的草稿（含输入历史）带到这个对话下，模式只在新对话时可选。
-        const accepted = acceptSubmission(composer.value, text);
-        if (id === null) {
+        const accepted = acceptSubmission(sent, text);
+        if (target === null) {
             composers.delete(NEW);
             composers.set(started.conversation, {...accepted, modes: []});
-            book.qaConversation.value = started.conversation;
-        } else {
+            if (stillHere()) book.qaConversation.value = started.conversation;
+        } else if (stillHere()) {
             setComposer(accepted);
-            source?.refresh();
-        }
+            // 等数据源读到这一轮再放开“正在发起”：否则这段时间页面像是空闲的，还能再发一次。
+            await source?.refresh();
+        } else composers.set(target, accepted);
         void loadList();
     } catch (error) {
-        startError.value = error instanceof Error ? error.message : String(error);
+        const message = error instanceof Error ? error.message : String(error);
+        if (stillHere()) startError.value = message;
+        else console.warn({error, conversation: target}, "问答开始失败（已经换到别的对话）");
     } finally {
-        starting.value = false;
+        if (starting.value === key) starting.value = null;
     }
 }
 

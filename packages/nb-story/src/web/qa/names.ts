@@ -17,7 +17,7 @@ export function nameToLook(who: string): string | null {
     return name === "" || NOT_NAMES.has(name) ? null : name;
 }
 
-/** 查到的对象 id；找不到、重名或查询失败都是 null。 */
+/** 查到的对象 id；找不到、重名是 null。别的失败（网络）抛出：不进缓存，下次再查。 */
 export type NameLookup = (name: string) => Promise<string | null>;
 
 /**
@@ -32,12 +32,23 @@ export function createNameResolver(lookup: NameLookup): (scope: string, who: str
         const key = `${scope}\u0000${name}`;
         let found = cache.get(key);
         if (found === undefined) {
-            found = lookup(name).catch(() => null);
+            found = lookup(name).catch(() => {
+                cache.delete(key);
+                return null;
+            });
             cache.set(key, found);
         }
         return found;
     };
 }
 
-/** 问答页提供给答案卡片的查法（卡片是对话视图里的工具节点，经祖先注入拿到它）：给一个“谁”，查到唯一对象时给 id。 */
-export const QA_NAME_LOOKUP: InjectionKey<(who: string) => Promise<string | null>> = Symbol("nb-story qa name lookup");
+/**
+ * 问答页提供给答案卡片的查法（卡片是对话视图里的工具节点，经祖先注入拿到它）。`scope` 是响应式的（书、查看器位置、
+ * 数据版本）：它变了卡片要重查，往回拨后不该再是链接的人名才会变回文字。
+ */
+export interface QaNameLookup {
+    scope(): string;
+    /** 给一个“谁”，查到唯一对象时给 id。 */
+    resolve(who: string): Promise<string | null>;
+}
+export const QA_NAME_LOOKUP: InjectionKey<QaNameLookup> = Symbol("nb-story qa name lookup");

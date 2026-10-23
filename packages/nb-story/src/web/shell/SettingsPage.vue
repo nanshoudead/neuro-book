@@ -38,8 +38,9 @@ const value = shallowRef<unknown>(null);
 /** 最近一次读到或存下的内容，判断有没有没保存的改动。 */
 const savedText = ref("");
 const revision = ref(0);
-/** 表单里还有没提交的草稿（正在输入的文字、数字）。 */
-const drafting = ref(false);
+/** 各字段没提交的草稿（正在输入的文字、数字），按字段路径记：一个字段变干净不代表别的也干净。 */
+const drafts = ref<ReadonlyMap<string, "dirty" | "unparseable">>(new Map());
+const drafting = computed(() => drafts.value.size > 0);
 const saving = ref(false);
 const notice = ref<{tone: "success" | "error" | "warning"; text: string; conflict?: boolean} | null>(null);
 const testing = ref(false);
@@ -53,6 +54,7 @@ async function load(): Promise<void> {
         value.value = result.state === "invalid" ? STARTER : result.config;
         savedText.value = result.state === "valid" ? JSON.stringify(result.config) : "";
         revision.value += 1;
+        drafts.value = new Map();
         notice.value = null;
         tested.value = null;
     } catch (error) {
@@ -113,46 +115,58 @@ async function test(): Promise<void> {
     }
 }
 
-function onDraftState(state: {state: "clean" | "dirty" | "unparseable"}): void {
-    drafting.value = state.state !== "clean";
+function onDraftState(state: {path: ReadonlyArray<string | number>; state: "clean" | "dirty" | "unparseable"}): void {
+    const next = new Map(drafts.value);
+    const key = JSON.stringify(state.path);
+    if (state.state === "clean") next.delete(key);
+    else next.set(key, state.state);
+    drafts.value = next;
+}
+
+/** 从别的页面进来的回到那里；直接打开地址的（没有上一页）回书架。 */
+function back(): void {
+    if ((window.history.state as {back?: unknown} | null)?.back) router.back();
+    else void router.push("/");
 }
 </script>
 
 <template>
-    <main class="settings-page" data-testid="settings-page">
-        <div class="settings-head">
-            <Button size="sm" variant="ghost" icon-class="i-lucide-arrow-left" @click="router.back()">返回</Button>
-            <h1 class="settings-title"><span class="i-lucide-settings" />设置</h1>
-        </div>
-        <p v-if="loaded" class="settings-path">配置文件 <code>{{ loaded.path }}</code>，与命令行 <code>nbstory config</code> 改的是同一份。</p>
+    <main class="story-scroll-y h-full" data-testid="settings-page">
+        <div class="settings-page">
+            <div class="settings-head">
+                <Button size="sm" variant="ghost" icon-class="i-lucide-arrow-left" @click="back()">返回</Button>
+                <h1 class="settings-title"><span class="i-lucide-settings" />设置</h1>
+            </div>
+            <p v-if="loaded" class="settings-path">配置文件 <code>{{ loaded.path }}</code>，与命令行 <code>nbstory config</code> 改的是同一份。</p>
 
-        <Banner v-if="loadError" tone="error" :message="`读不到配置：${loadError}`" />
-        <Banner v-if="loaded?.state === 'absent'" tone="info" message="还没有配置文件：填好下面的模型后保存，会新建它。" data-testid="settings-absent" />
-        <Banner v-if="loaded?.state === 'invalid'" tone="error" :message="`配置文件有问题：${loaded.problem}。下面从一份空的配置开始，保存会整份覆盖它。`" data-testid="settings-invalid" />
+            <Banner v-if="loadError" tone="error" :message="`读不到配置：${loadError}`" />
+            <Banner v-if="loaded?.state === 'absent'" tone="info" message="还没有配置文件：填好下面的模型后保存，会新建它。" data-testid="settings-absent" />
+            <Banner v-if="loaded?.state === 'invalid'" tone="error" :message="`配置文件有问题：${loaded.problem}。下面从一份空的配置开始，保存会整份覆盖它。`" data-testid="settings-invalid" />
 
-        <SchemaForm
-            v-if="loaded"
-            ref="form"
-            v-model="value"
-            :schema="ConfigSchema"
-            :layout="LAYOUT"
-            locale="zh-CN"
-            :issues="issues"
-            :revision="revision"
-            @draft-state="onDraftState"
-        />
+            <SchemaForm
+                v-if="loaded"
+                ref="form"
+                v-model="value"
+                :schema="ConfigSchema"
+                :layout="LAYOUT"
+                locale="zh-CN"
+                :issues="issues"
+                :revision="revision"
+                @draft-state="onDraftState"
+            />
 
-        <Banner v-if="notice" :tone="notice.tone" :message="notice.text" data-testid="settings-notice">
-            <template v-if="notice.conflict" #actions><Button size="sm" @click="load()">重新载入</Button></template>
-        </Banner>
-        <div v-if="loaded" class="settings-actions">
-            <Button :disabled="!dirty || saving" data-testid="settings-save" @click="save()">{{ saving ? "保存中…" : "保存" }}</Button>
-            <Button variant="secondary" :disabled="dirty || testing || loaded.state !== 'valid'" :title="dirty ? '先保存，测试的是保存下来的配置' : undefined" data-testid="settings-test" @click="test()">{{ testing ? "测试中…" : "测试连接" }}</Button>
-            <span v-if="dirty" class="settings-hint">有没保存的改动；测试连接测的是保存下来的配置</span>
-        </div>
-        <div v-if="tested" class="settings-tested" :class="tested.ok ? 'is-ok' : 'is-failed'" data-testid="settings-tested">
-            <template v-if="tested.ok">通过：{{ tested.model }} 正常回话（{{ (tested.ms / 1000).toFixed(1) }} 秒）。推理档：{{ tested.thinking ?? "未设" }}，一个小请求证明不了服务端是否按这个档思考。</template>
-            <template v-else>没通过（{{ tested.model }}）：{{ tested.error?.message }}</template>
+            <Banner v-if="notice" :tone="notice.tone" :message="notice.text" data-testid="settings-notice">
+                <template v-if="notice.conflict" #actions><Button size="sm" @click="load()">重新载入</Button></template>
+            </Banner>
+            <div v-if="loaded" class="settings-actions">
+                <Button :disabled="!dirty || saving" data-testid="settings-save" @click="save()">{{ saving ? "保存中…" : "保存" }}</Button>
+                <Button variant="secondary" :disabled="dirty || testing || loaded.state !== 'valid'" :title="dirty ? '先保存，测试的是保存下来的配置' : undefined" data-testid="settings-test" @click="test()">{{ testing ? "测试中…" : "测试连接" }}</Button>
+                <span v-if="dirty" class="settings-hint">有没保存的改动；测试连接测的是保存下来的配置</span>
+            </div>
+            <div v-if="tested" class="settings-tested" :class="tested.ok ? 'is-ok' : 'is-failed'" data-testid="settings-tested">
+                <template v-if="tested.ok">通过：{{ tested.model }} 正常回话（{{ (tested.ms / 1000).toFixed(1) }} 秒）。推理档：{{ tested.thinking ?? "未设" }}，一个小请求证明不了服务端是否按这个档思考。</template>
+                <template v-else>没通过（{{ tested.model }}）：{{ tested.error?.message }}</template>
+            </div>
         </div>
     </main>
 </template>
@@ -166,5 +180,5 @@ function onDraftState(state: {state: "clean" | "dirty" | "unparseable"}): void {
 .settings-hint { color: var(--text-muted); font-size: var(--text-xs); }
 .settings-tested { border-radius: var(--radius-control); padding: 8px 10px; font-size: var(--text-sm); }
 .settings-tested.is-ok { background: var(--status-success-bg); color: var(--status-success); }
-.settings-tested.is-failed { background: var(--status-error-bg, var(--status-warning-bg)); color: var(--status-error, var(--status-warning)); }
+.settings-tested.is-failed { background: var(--status-danger-bg); color: var(--status-danger); }
 </style>

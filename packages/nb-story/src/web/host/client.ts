@@ -9,6 +9,9 @@ import {createParser} from "eventsource-parser";
 
 import type {QaFrame, StoryMethod, ViewerMethod, ViewerParams, ViewerResult} from "../../contract/contract";
 
+/** 推送多久没有收到任何字节就当断了：两个心跳间隔多一点（服务端每 20 秒一次）。 */
+const SUBSCRIBE_IDLE_MS = 45_000;
+
 /** 推送结束的原因：`closed` 是服务端正常结束了这条流，`dropped` 是连不上、断开或被拒。 */
 export type SubscriptionEnd = "closed" | "dropped";
 
@@ -62,7 +65,17 @@ export function createHttpClient(onUnauthorized: () => void): StoryClient {
                 ended = true;
                 subscriber.end(reason);
             };
+            // 服务端每 20 秒发一次心跳：这么久没有任何字节（休眠醒来、中间悬挂的连接）就当断了，交给数据源重连。
+            let idle: ReturnType<typeof setTimeout> | null = null;
+            const alive = () => {
+                if (idle !== null) clearTimeout(idle);
+                idle = setTimeout(() => {
+                    end("dropped");
+                    controller.abort();
+                }, SUBSCRIBE_IDLE_MS);
+            };
             void (async () => {
+                alive();
                 const response = await fetch(`/api/qa/events?book=${encodeURIComponent(book)}&conversation=${encodeURIComponent(conversation)}`, {signal: controller.signal});
                 if (response.status === 401) onUnauthorized();
                 if (!response.ok || response.body === null) return end("dropped");
@@ -72,12 +85,22 @@ export function createHttpClient(onUnauthorized: () => void): StoryClient {
                     },
                 });
                 const decoder = new TextDecoder();
-                for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) parser.feed(decoder.decode(chunk, {stream: true}));
+                const reader = response.body.getReader();
+                for (;;) {
+                    const {done, value} = await reader.read();
+                    if (done) break;
+                    alive();
+                    parser.feed(decoder.decode(value, {stream: true}));
+                }
                 end("closed");
-            })().catch((error: unknown) => {
-                if (!controller.signal.aborted) console.warn({error, conversation}, "问答推送断开");
-                end("dropped");
-            });
+            })()
+                .catch((error: unknown) => {
+                    if (!controller.signal.aborted) console.warn({error, conversation}, "问答推送断开");
+                    end("dropped");
+                })
+                .finally(() => {
+                    if (idle !== null) clearTimeout(idle);
+                });
             return {close: () => controller.abort()};
         },
         async call(method, params, options = {}) {

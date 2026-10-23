@@ -4,7 +4,7 @@
  *
  * 控制接口（POST，正文是 JSON）：
  * - `/script`：`{replies: EndpointReply[]}` 换一份脚本，之后的请求按顺序回复（`after` 不能经 JSON 传，用下面的闸门）；
- * - `/hold`：之后的请求先等着，直到 `/release`；等的时候请求被取消就结束（页面点“停止”）；
+ * - `/hold?from=N`：从下一个请求往后数第 N 个（0 是下一个，缺省 0）起先等着，直到 `/release`；等的时候请求被取消就结束（页面点“停止”）；
  * - `/release`：放行等着的请求。
  * GET `/seen` 给已收到的请求数。脚本用完时回一段文字。进程收到 SIGTERM 时停止。
  */
@@ -12,13 +12,14 @@
 import {startEndpoint, type EndpointReply} from "./openai-endpoint";
 
 let replies: EndpointReply[] = [];
-let gate: {promise: Promise<void>; open: () => void} | null = null;
+let gate: {promise: Promise<void>; open: () => void; from: number} | null = null;
 let seen = 0;
 const endpoint = startEndpoint(
     () => {
+        const index = seen;
         seen += 1;
         const reply = replies.shift() ?? {kind: "text", text: "脚本用完了"};
-        return gate === null ? reply : {kind: "after", ready: gate.promise, reply};
+        return gate === null || index < gate.from ? reply : {kind: "after", ready: gate.promise, reply};
     },
     {idleTimeoutSeconds: 0},
 );
@@ -37,7 +38,8 @@ const control = Bun.serve({
             if (gate === null) {
                 let open!: () => void;
                 const promise = new Promise<void>(resolve => (open = resolve));
-                gate = {promise, open};
+                const from = url.searchParams.get("from");
+                gate = {promise, open, from: seen + (from === null ? 0 : Number(from))};
             }
             return Response.json({ok: true});
         }

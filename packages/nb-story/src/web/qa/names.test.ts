@@ -11,7 +11,7 @@ describe("人名", () => {
         expect(["南嘉鱼（地狱猫）", "苏天晴 (晴)", "读者", " 花铃 ", "（无名）"].map(nameToLook)).toEqual(["南嘉鱼", "苏天晴", null, "花铃", null]);
     });
 
-    test("同一范围同一名字只查一次，同时要的共用请求；换了范围重新查；查询出错当作没有", async () => {
+    test("同一范围同一名字只查一次，同时要的共用请求；换了范围重新查；查询出错当作没有、不进缓存", async () => {
         const asked: string[] = [];
         const resolve = createNameResolver(async name => {
             asked.push(name);
@@ -22,5 +22,8 @@ describe("人名", () => {
         expect(await resolve("书@40.1#1", "南嘉鱼")).toBe("e1");
         expect(await resolve("书@38.57#1", "坏")).toBeNull();
         expect(asked).toEqual(["南嘉鱼", "南嘉鱼", "坏"]);
+        // 失败（网络）不进缓存：同一范围下次再查。
+        expect(await resolve("书@38.57#1", "坏")).toBeNull();
+        expect(asked).toEqual(["南嘉鱼", "南嘉鱼", "坏", "坏"]);
     });
 });

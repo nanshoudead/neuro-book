@@ -44,16 +44,19 @@ function openRef(refText: string): void {
     emit("action", {type: "reference.open", target: refTarget(refText)});
 }
 
-// 人名：问答页按名字查到唯一的对象才做成链接（决定 16）；查之前与查不到都是纯文字。
+// 人名：问答页按名字查到唯一的对象才做成链接（决定 16）；查之前与查不到都是纯文字。参数写完（调用成功）才查，
+// 流式时的半截名字不查；查看器的位置或数据版本变了（scope）重查。
 const lookup = inject(QA_NAME_LOOKUP, null);
 const people = shallowRef<ReadonlyMap<string, string>>(new Map());
+const lookupKey = computed(() => (lookup === null || props.call.status !== "success" ? "" : JSON.stringify([lookup.scope(), knowledge.value.map(row => row.who)])));
 watch(
-    () => knowledge.value.map(row => row.who),
-    async (names, _old, onCleanup) => {
+    lookupKey,
+    async (key, _old, onCleanup) => {
         let stale = false;
         onCleanup(() => (stale = true));
-        if (lookup === null) return;
-        const found = await Promise.all(names.map(async name => [name, await lookup(name)] as const));
+        if (key === "" || lookup === null) return;
+        const names = [...new Set(knowledge.value.map(row => row.who))];
+        const found = await Promise.all(names.map(async name => [name, await lookup.resolve(name)] as const));
         if (!stale) people.value = new Map(found.filter((pair): pair is readonly [string, string] => pair[1] !== null));
     },
     {immediate: true},
@@ -113,7 +116,7 @@ const hidden = computed(() => Math.max(0, evidence.value.length - shown.value));
                     <td><span v-if="row.state" class="answer-badge" :class="STATE_TONE[row.state]">{{ row.state }}</span></td>
                     <td class="answer-how">{{ row.how }}</td>
                     <td class="answer-row-refs">
-                        <button v-for="refText in row.refs" :key="refText" type="button" class="answer-ref" @click="openRef(refText)">{{ refText }}</button>
+                        <button v-for="(refText, refIndex) in row.refs" :key="refIndex" type="button" class="answer-ref" @click="openRef(refText)">{{ refText }}</button>
                         <span v-if="row.refs.length === 0" class="answer-muted">—</span>
                     </td>
                 </tr>
@@ -125,14 +128,14 @@ const hidden = computed(() => Math.max(0, evidence.value.length - shown.value));
                     <button v-if="part.ref" type="button" class="answer-ref" @click="openRef(part.ref)">{{ part.text }}</button>
                     <template v-else>{{ part.text }}</template>
                 </template>
-                <button v-for="refText in point.refs" :key="refText" type="button" class="answer-ref" @click="openRef(refText)">{{ refText }}</button>
+                <button v-for="(refText, refIndex) in point.refs" :key="refIndex" type="button" class="answer-ref" @click="openRef(refText)">{{ refText }}</button>
             </li>
         </ol>
 
         <div class="answer-foot">
             <span class="answer-muted shrink-0">依据</span>
             <span ref="line" class="answer-line">
-                <button v-for="refText in evidence.slice(0, shown)" :key="refText" type="button" class="answer-ref" @click="openRef(refText)">{{ refText }}</button>
+                <button v-for="(refText, refIndex) in evidence.slice(0, shown)" :key="refIndex" type="button" class="answer-ref" @click="openRef(refText)">{{ refText }}</button>
                 <button v-if="hidden > 0" type="button" class="answer-more-refs" @click="detailed = true">等 {{ hidden }} 处</button>
                 <span v-if="evidence.length === 0" class="answer-muted">没有</span>
             </span>
@@ -141,7 +144,7 @@ const hidden = computed(() => Math.max(0, evidence.value.length - shown.value));
             </button>
             <!-- 量宽度用：与上面同样的小块，不显示、不占位。 -->
             <span ref="measure" class="answer-ruler" aria-hidden="true">
-                <span v-for="refText in evidence" :key="refText" class="answer-ref" data-ref-chip>{{ refText }}</span>
+                <span v-for="(refText, refIndex) in evidence" :key="refIndex" class="answer-ref" data-ref-chip>{{ refText }}</span>
                 <span class="answer-more-refs" data-ref-more>等 {{ evidence.length }} 处</span>
             </span>
         </div>
@@ -155,7 +158,7 @@ const hidden = computed(() => Math.max(0, evidence.value.length - shown.value));
             <p class="answer-muted"><span class="answer-label">覆盖范围</span>{{ coverage }}</p>
             <p v-if="evidence.length > 0" class="answer-all-refs">
                 <span class="answer-label">全部依据</span>
-                <button v-for="refText in evidence" :key="refText" type="button" class="answer-ref" @click="openRef(refText)">{{ refText }}</button>
+                <button v-for="(refText, refIndex) in evidence" :key="refIndex" type="button" class="answer-ref" @click="openRef(refText)">{{ refText }}</button>
             </p>
         </div>
     </div>

@@ -342,7 +342,26 @@ export function createQaService(options: QaServiceOptions): QaService {
         return {ok: true, entries};
     }
 
+    /**
+     * 读记录要 await，期间这一轮可能刚保存完，读到的记录与运行状态不是同一时刻的：
+     * - 运行已结束并保存，记录却是保存前的：再读一次记录；
+     * - 记录已有这一轮，运行还没标结束：保存完到标结束只隔几个微任务，让出一次事件循环再读。让出之后仍是这样，就是
+     *   命令行先保存了一轮（运行基于较早的记录），照实返回。
+     * 页面拿到的记录与运行因此是同一时刻的（实现审查网页第 14 条）。
+     */
     async function get(params: ViewerParams<"qa.get">): Promise<ViewerResult<"qa.get">> {
+        for (let attempt = 0; ; attempt += 1) {
+            const result = await getOnce(params);
+            const run = runs.get(keyOf(params.book, params.id));
+            const turns = result.record?.turns.length ?? 0;
+            const stale = run?.state === "ended" && run.saved?.ok === true && turns < run.fixed.turn;
+            const unfinished = run?.state === "running" && turns >= run.fixed.turn;
+            if ((!stale && !unfinished) || attempt >= 2) return run === undefined ? result : {...result, run: viewOf(run)};
+            if (unfinished) await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    }
+
+    async function getOnce(params: ViewerParams<"qa.get">): Promise<ViewerResult<"qa.get">> {
         const run = runs.get(keyOf(params.book, params.id));
         const {records, generation} = await openRecords(params.book);
         let conversation: QaConversation;

@@ -51,7 +51,8 @@ export interface QaSourceOptions {
 export interface QaSource {
     state(): QaSourceState;
     /** 重新读（例如这个对话刚开始了新的一轮）。 */
-    refresh(): void;
+    /** 读完（或失败、被下一次加载取代）时完成。 */
+    refresh(): Promise<void>;
     dispose(): void;
 }
 
@@ -93,7 +94,13 @@ export function createQaSource(options: QaSourceOptions): QaSource {
     let cache: MessageCache = createMessageCache();
     let subscription: {close(): void} | null = null;
     let cancelRetry: (() => void) | null = null;
+    /** 连续重连了几次：订阅收到快照才清零（qa.get 成功而推送一连就断时，间隔照样变长）。 */
     let attempts = 0;
+    /**
+     * 看着结束并保存了、还没重读到记录的那一轮：重读回来之前照样接在记录后面，这一轮的消息不并进上一轮、提问 id 不变
+     * （turns.ts 的“同一个 id”）。
+     */
+    let settling: string | null = null;
     let scheduled = false;
 
     function emit(): void {
@@ -103,7 +110,7 @@ export function createQaSource(options: QaSourceOptions): QaSource {
     /** 运行的这一轮要不要接在记录后面。 */
     function attachedRun(record: QaRecordView | null, run: QaRunView | null): QaRunView | null {
         if (run === null) return null;
-        if (run.state === "ended" && run.saved?.ok === true) return null;
+        if (run.state === "ended" && run.saved?.ok === true && run.runId !== settling) return null;
         return run.baseTurns === (record?.turns.length ?? 0) ? run : null;
     }
 
@@ -166,6 +173,7 @@ export function createQaSource(options: QaSourceOptions): QaSource {
                             void load(false);
                             return;
                         }
+                        attempts = 0;
                         for (const entry of frame.entries) transcript.applyLogEntry(entry);
                         wasRunning = frame.run.state === "running";
                         sawEnd = !wasRunning;
@@ -181,6 +189,7 @@ export function createQaSource(options: QaSourceOptions): QaSource {
                         break;
                     case "ended":
                         sawEnd = true;
+                        if (frame.run.saved?.ok === true) settling = frame.run.runId;
                         state = {...state, run: frame.run};
                         break;
                 }
@@ -219,7 +228,7 @@ export function createQaSource(options: QaSourceOptions): QaSource {
             return;
         }
         if (token !== generation || disposed) return;
-        attempts = 0;
+        settling = null;
         const sameRun = keep && got.run !== null && got.run.state === "running" && got.run.runId === state.run?.runId;
         const attached = attachedRun(got.record, got.run);
         if (!sameRun) {
@@ -236,9 +245,7 @@ export function createQaSource(options: QaSourceOptions): QaSource {
 
     return {
         state: () => state,
-        refresh() {
-            if (!disposed) void load(false);
-        },
+        refresh: () => (disposed ? Promise.resolve() : load(false)),
         dispose() {
             disposed = true;
             generation += 1;
