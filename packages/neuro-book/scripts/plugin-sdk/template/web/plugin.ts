@@ -25,7 +25,8 @@ const sayHello: CommandDeclaration = {
     // 给 Agent 看的说明，用英文写。
     description: "Count one more greeting in the __DISPLAY_NAME__ view",
     args: Type.Object({}, {additionalProperties: false}),
-    effect: "read",
+    // 会改状态（这里是计数）就是 `write`：只读模式下 Agent 不能执行它。
+    effect: "write",
 };
 
 export const browserPlugin: PluginDefinition = {

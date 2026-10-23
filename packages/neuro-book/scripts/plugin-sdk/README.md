@@ -82,7 +82,7 @@ hello/
 
 - **设置项**：`defineSetting({plugin, name, schema, default, title, layers, applies, section?, group?})`，把 `.contribution` 写进 `plugin.ts` 描述的 `contributions`。读写要在入口的 `dependencies` 里声明 `settingsKey`，激活时 `context.services.require(settingsKey)` 拿到服务：`get(定义)` 读有效值，`inspect` 读各层，`update(定义, 值, {layer})` 写本插件声明的项。规则见 [configuration](../../../../docs/specs/settings/configuration.md)。写法见模板的 `shared/contracts.ts`。
 - **设置分区**：设置窗口左栏的一项。list 分区是写在 `plugin.ts` 描述里的顶层声明 `{capability: SETTINGS_SECTIONS_POINT, id, declaration: {title, icon, category, groups}}`，设置项用 `section`、`group` 归进去，窗口按设置项的 schema 画控件（模板就是这样写的）。值是列表、对象这类通用控件画不了的，改用 page 分区：浏览器入口用 `/browser` 的 `settingsPageContribution` 贡献，自己画页面，每一项用 `SettingsRow` 排。规则见 [settings-window 的“分区声明”](../../../../docs/specs/settings/settings-window.md#分区声明)。
-- **视图**：`/browser` 的 `viewContribution({id, declaration, load})`。`contribution` 写进入口的 `contributions`；`activate` 返回 `{contributions: {[WORKBENCH_VIEWS_POINT]: {[view.id]: view.implementation(() => ({…}))}}}`。组件收到 `context`（视图 id、是否可见、所在位置）与 `implementation` 的函数返回的属性；组件里拿不到服务，入口激活时拿到的服务、状态与回调都经这个函数交过去，它在渲染时求值，读到的响应式值变了视图跟着更新。声明的字段见 [views 的“输入与前置条件”](../../../../docs/specs/workbench/views.md#输入与前置条件)，写法见模板的 `web/plugin.ts`。
+- **视图**：`/browser` 的 `viewContribution({id, declaration, load})`。`contribution` 写进入口的 `contributions`；`activate` 返回 `{contributions: {[WORKBENCH_VIEWS_POINT]: {[view.id]: view.implementation(() => ({…}))}}}`。组件收到 `context`（视图 id、是否可见、所在位置）与 `implementation` 的函数返回的属性（函数返回的同名 `context` 会被宿主的覆盖）；属性名与组件的 `defineProps` 对不上时编译期不报错，写错的属性落到组件根元素上，所以两边一起改；组件里拿不到服务，入口激活时拿到的服务、状态与回调都经这个函数交过去，它在渲染时求值，读到的响应式值变了视图跟着更新。声明的字段见 [views 的“输入与前置条件”](../../../../docs/specs/workbench/views.md#输入与前置条件)，写法见模板的 `web/plugin.ts`。
 - **命令**：`{capability: COMMANDS_POINT, id, declaration}`，声明里 `title` 给人看，`description` 用英文写给 Agent 看，`args` 是关闭额外属性的对象 schema，`effect` 是 `read` 或 `write`；实现 `{run(args)}` 返回 `{ok: true, value}` 或失败结果。写法见模板的 `web/plugin.ts`。
 - **状态栏条目**：声明是纯数据，实现是三个函数，不需要助手：
 
@@ -136,9 +136,9 @@ hello/
 - **不覆写组件内部的样式**（选组件的内部类名、`:deep(...)`）：构建预设把插件的样式整体包进 `@layer components`，与宿主组件的样式同一层，谁赢取决于样式表的先后，不可靠；要换外观用组件给的属性（`variant`、`size`）。
 - **颜色随主题变**：颜色变量的值随用户选的配色与明暗变化，不写死颜色，也不按明暗自己分支；要淡一点的颜色用 `color-mix(in srgb, var(--accent-main) 12%, transparent)`。
 - **图标写完整的字面量**：`i-lucide-<名字>`（[Lucide](https://lucide.dev/icons/) 图标），写在声明或源码里都行，构建预设按出现的类名生成图标规则。拼出来的类名（`` `i-lucide-${name}` ``）构建时找不到，不会显示：要按状态换图标就写一张字面量的表。别的图标集给构建警告、不显示。
-- **视图的 `layout`**：内容是普通的一列（表单、短列表、说明文字）选 `scroll`，外壳给内边距并负责滚动；视图要占满、自己管滚动（长列表、树、编辑器）选 `fill`，内边距用外壳给的 `var(--view-inset-inline)`、`var(--view-inset-block)`。
+- **视图的 `layout`**：内容是普通的一列（表单、短列表、说明文字）选 `scroll`，外壳给内边距并负责滚动，组件根上不要再加内边距；视图要占满、自己管滚动（长列表、树、编辑器）选 `fill`，内边距用外壳给的 `var(--view-inset-inline)`、`var(--view-inset-block)`。
 - **视图的宽度**：侧栏默认约 240px，按这个宽度设计，按钮与长文字在窄宽下要能换行。内容窄于某个宽度就没法用时，声明 `minimumSize: {width: …}`；不要声明比需要更大的最小宽度，它会挤占同一栏里别的视图。
-- **无障碍**：可点的东西用 `Button`、`IconButton` 这类真按钮，不在 `div` 上绑 `click`，键盘才能 Tab 到、Enter 或空格执行；只有图标的按钮给 `title` 或 `ariaLabel` 作读屏名称；状态变化（完成、出错）需要被听到时放进 `aria-live="polite"` 的区域，只播报一次；操作后焦点留在用户刚操作的地方，不让它掉到页面开头。
+- **无障碍**：可点的东西用 `Button`、`IconButton` 这类真按钮，不在 `div` 上绑 `click`，键盘才能 Tab 到、Enter 或空格执行；只有图标的按钮给 `title` 或 `ariaLabel` 作读屏名称；状态变化（完成、出错）需要被听到时放进 `aria-live="polite"` 的区域，只播报一次。区域本身一直在页面上，每次播报换一个新的文字节点（例如给里面的元素一个随事件递增的 `:key`）：只改文字时，连着两次相同的文字不会改动 DOM，读屏不念第二次；操作后焦点留在用户刚操作的地方，不让它掉到页面开头。
 
 构建预设怎样处理插件样式与图标，见 [plugin-code-loading 的“术语与参与者”](../../../../docs/specs/runtime/plugin-code-loading.md#术语与参与者)里的“插件样式”。
 
