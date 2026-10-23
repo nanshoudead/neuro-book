@@ -14,6 +14,7 @@ import {askScripted, testConfig, toolResults} from "../../testing/qa";
 import {smallDataset} from "../../testing/sample";
 import {newQaRecordId, QaRecords} from "../core/qa-records";
 import {QaError} from "./errors";
+import {EVENT_RESULT_CHARS} from "./web-events";
 
 let book: TestBook;
 let chapter37Length = 0;
@@ -489,7 +490,7 @@ describe("网页问答用的观察与轮次（t13）", () => {
         const id = newQaRecordId(new Date());
         const entries: number[] = [];
         const events: string[] = [];
-        const {outcome} = await askScripted(book, [[read("r1", {chapter: 38, paragraph: 55}, {chapter: 38, paragraph: 55})], answer()], {
+        const {outcome} = await askScripted(book, [[read("r1", {chapter: 38, paragraph: 1}, {chapter: 38, paragraph: 57})], answer()], {
             at: P,
             conversationId: id,
             onLogEntries: batch => entries.push(...batch.map(entry => entry.seq)),
@@ -501,6 +502,10 @@ describe("网页问答用的观察与轮次（t13）", () => {
         expect([...types].every(type => ["agent_start", "agent_end", "message_start", "message_update", "tool_execution_start", "tool_execution_end"].includes(type))).toBe(true);
         expect(types.has("tool_execution_end")).toBe(true);
         expect(events.some(event => event.includes("assistantMessageEvent"))).toBe(false);
+        // 工具结果只留开头一段：读原文的结果整份在日志里。
+        const ends = events.map(event => JSON.parse(event) as {type: string; result?: {content: {text: string}[]}}).filter(event => event.type === "tool_execution_end");
+        expect(ends.every(event => event.result!.content[0]!.text.length <= EVENT_RESULT_CHARS + 1)).toBe(true);
+        expect(ends.some(event => event.result!.content[0]!.text.endsWith("…"))).toBe(true);
     });
 
     test("缺密钥的首轮在写用户消息之前就失败，也记 logFrom；续问的一轮按 logFrom 对得上它自己的提问", async () => {
