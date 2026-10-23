@@ -30,8 +30,8 @@ export const fileMenuBackendPlugin: PluginDefinition = {
             //
             // 更好的写法是“菜单打开时才激活”：menu 拥有一个激活事件前缀（`activationEventPrefixes`，例如 `onMenu`），
             // 本入口写 `activationEvents: ["onMenu:file"]`，菜单打开时 menu 触发这个事件（docs/specs/runtime/plugins.md
-            // 输出第 21 条）。但现在只有宿主能调用 `triggerActivationEvent`，激活上下文里没有触发事件的入口，menu 写
-            // 不出“打开时触发”这一步。这个缺口记在 t62 的计划里，等开发者决定是否给插件补触发接口。
+            // 输出第 21 条），用激活上下文的 `context.activation.trigger("onMenu:file")`。示例的 menu 没有“打开菜单”这一步，
+            // 为了让场景 3 简单，这里仍启动即激活。
             activationEvents: ["onStartup"],
             contributions: [
                 {capability: MENU_POINT, id: OPEN, declaration: {title: "打开文件"} satisfies MenuItemDeclaration},
