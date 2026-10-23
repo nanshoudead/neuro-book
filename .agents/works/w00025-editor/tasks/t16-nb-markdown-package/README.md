@@ -24,7 +24,15 @@ updated: 2026-10-23
 
 ## 当前状态
 
-2026-10-23 开发者要求按 autonomous-delivery 推进（主会话实施，Sonnet 只做前端审查）。计划见 [plan.md](plan.md)，代码在 `.worktree/w00025-t16-nb-markdown`（分支 `feat/w00025-t16-nb-markdown`）。
+2026-10-23 开发者要求按 autonomous-delivery 推进（主会话实施，Sonnet 只做前端审查）。计划见 [plan.md](plan.md)，设计审查（Sonnet，重要 7、建议 5，全部成立）已处理，证据 [evidences/design-review.txt](evidences/design-review.txt)。代码在 `.worktree/w00025-t16-nb-markdown`（分支 `feat/w00025-t16-nb-markdown`）：
+
+| 切片 | 提交 | 验证 |
+|---|---|---|
+| 1 包与纯 TS 核心 | `f154421d2` | 包 typecheck、test；neuro-book typecheck、test:affected（无关失败：llmlint 缺 tsconfig、dev-panel herdr、nb-history 性能、test-support 路径） |
+| 2 语言与编解码器 | `e6bc0e40d` | 包 165 + 26；neuro-book typecheck 与 markdown 测试；e2e editor-area、markdown-input 35 通过；ProseMirror 只有一份 |
+| 3 宿主、小块与显示 | `1f493d62d` | 包 165 + 37；neuro-book typecheck、vitest 34 文件 238；接线测试的变异检查；build 与 check:dist；e2e lab-markdown、lab-agent-ui、lab-scenes、markdown-input 41 通过；Lab 截图核对图标 |
+
+不 push：分支从 master 拉出，master 领先 origin 960 多个提交（含别的 Work），push 分支会一并发布，留给开发者决定。
 
 ## 下一步
 
