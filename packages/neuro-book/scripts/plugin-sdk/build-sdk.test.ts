@@ -148,14 +148,14 @@ describe("生成的 SDK 包", () => {
             "ActivationContext", "COMMANDS_POINT", "CommandDeclaration", "CommandImplementation", "ContributionDeclaration", "ContributionDescriptor",
             "ContributionHandle", "ContributionPointDefinition", "ContributionReceiver", "DiagnosticsService", "DisplayLocale", "LocalizedText",
             "PluginDefinition", "PluginDescriptor", "PluginEntryDefinition", "RecordDefinition", "RecordHandle", "RemoteContract", "RemoteOutcome",
-            "RemoteResult", "RemoteSink", "RuntimeClock", "SETTINGS_PAGES_POINT", "ServiceKey", "SettingDefinition", "SettingLayer", "SettingWriteResult",
-            "SettingsFailure", "SettingsPageDeclaration", "SettingsService", "StateRoot", "StorageService", "defineEntry", "definePublicState",
+            "RemoteResult", "RemoteSink", "RuntimeClock", "SETTINGS_CHOICES_POINT", "SETTINGS_PAGES_POINT", "SETTINGS_SECTIONS_POINT", "ServiceKey", "SettingDefinition", "SettingLayer", "SettingWriteResult",
+            "SettingsChoicesDeclaration", "SettingsFailure", "SettingsPageDeclaration", "SettingsSectionCategory", "SettingsSectionDeclaration", "SettingsService", "StateRoot", "StorageService", "defineEntry", "definePublicState",
             "defineRecord", "defineRemoteService", "defineServiceKey", "defineSetting", "defineStore", "diagnosticsKey", "displayLocale", "formatText",
-            "hostClockKey", "hostStateRootKey", "localize", "orThrow", "provide", "providePerConsumer", "provideRemote", "settingsKey", "settingsPageEvent",
+            "hostClockKey", "hostStateRootKey", "localize", "orThrow", "provide", "providePerConsumer", "provideRemote", "settingsChoicesEvent", "settingsKey",
             "storageKey",
         ].sort());
         expect(declaredExports(await readFile(join(project, "node_modules/@notnotype/nb-plugin-sdk/browser.d.ts"), "utf8"))).toEqual([
-            "SettingsPageActions", "SettingsPageContext", "SettingsPageContribution", "SettingsPageList", "SettingsRow", "SettingsSaveBar", "settingsPage",
+            "SettingsChoicesImplementation", "SettingsPageActions", "SettingsPageContext", "SettingsPageContribution", "SettingsPageList", "SettingsRow", "SettingsSaveBar",
             "settingsPageContribution",
         ].sort());
     });

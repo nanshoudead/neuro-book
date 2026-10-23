@@ -319,7 +319,10 @@ export const echoBrowser = {id: "acme.echo", entries: [defineEntry({id: "browser
             "backend/plugin.ts": `export const s = {id: "acme.meta-url", entries: [{id: "server", location: "server", activate: async () => ({url: import.meta.url})}]};\n`,
         });
         await build(root);
-        expect((await activateBrowser(root)).value).toEqual({url: "http://plugin.test/browser.js", asset: "http://plugin.test/missing.svg"});
+        // 假页面给每次装载一个自己的目录（`registeredFactory`）：基址是那个脚本的地址，资源与脚本在同一目录。
+        const {url, asset} = (await activateBrowser(root)).value as {readonly url: string; readonly asset: string};
+        expect(url).toMatch(/^http:\/\/plugin\.test\/.+\/browser\.js$/u);
+        expect(asset).toBe(url.replace(/browser\.js$/u, "missing.svg"));
         const server = await import(join(root, "dist/server.js")) as {activate: () => Promise<{url: string}>};
         expect((await server.activate()).url).toBe(pathToFileURL(join(root, "dist/server.js")).href);
     }, 60_000);

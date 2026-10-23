@@ -147,8 +147,14 @@ test("snippets 外置：打开分区时才取回代码、只取一次；图标�
         await openSettings(page, bookUrl(server.url));
         const nav = page.locator(`[data-settings-nav="${SNIPPETS_SECTION}"]`);
         await expect(nav).toBeVisible();
-        // 图标规则在插件的样式表里：窗口登记插件时就加载，入口还没激活。
-        await expect.poll(() => nav.locator(".i-lucide-text-quote").evaluate((element) => getComputedStyle(element).getPropertyValue("--svg"))).toContain("url(");
+        // 图标规则在插件的样式表里：窗口登记插件时就加载，入口还没激活。图标真的画出来要宿主的遮罩规则与插件的 --svg 都
+        // 生效、层序对：看遮罩图与尺寸，不只看变量。
+        await expect.poll(() => nav.locator(".i-lucide-text-quote").evaluate((element) => {
+            const style = getComputedStyle(element);
+            const box = element.getBoundingClientRect();
+            return {mask: style.maskImage.startsWith("url(") || style.getPropertyValue("-webkit-mask-image").startsWith("url("), sized: box.width > 0 && box.height > 0};
+        })).toEqual({mask: true, sized: true});
+        // 取码只由点开分区触发：到这里为止一次都没有。
         expect(code.count()).toBe(0);
 
         await nav.click();
