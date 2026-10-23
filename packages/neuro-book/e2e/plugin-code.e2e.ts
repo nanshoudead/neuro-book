@@ -30,6 +30,8 @@ import type {ProductServer} from "./fixtures";
 const SNIPPETS_SECTION = "example.snippets.main";
 let tmp = "";
 let built = "";
+/** clock、notes、counter 的构建产物（服务端与项目入口）。 */
+let backend: string[] = [];
 
 /** 一个手写的、故意写坏的插件：浏览器入口贡献一个 page 分区，`body` 是登记工厂里的模块体。 */
 interface Broken {
@@ -96,7 +98,9 @@ test.beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-e2e", "plugin-code");
     built = join(tmp, "snippets-dist");
     // 构建示例：与作者在仓库外构建同一个预设，仓库里 SDK 的包名指到应用源码（`scripts/plugin-sdk/build-examples.ts`）。
-    await run("bun", ["-e", `import {buildExample} from "./scripts/plugin-sdk/build-examples"; await buildExample("snippets", ${JSON.stringify(built)});`]);
+    backend = ["clock", "notes", "counter"].map((name) => join(tmp, `${name}-dist`));
+    const builds = [["snippets", built], ...["clock", "notes", "counter"].map((name, index) => [name, backend[index]!])];
+    await run("bun", ["-e", `import {buildExample} from "./scripts/plugin-sdk/build-examples"; for (const [name, out] of ${JSON.stringify(builds)}) await buildExample(name, out);`]);
 });
 
 test.afterAll(async () => {
@@ -215,3 +219,24 @@ test("开发会话里同样装载：页面经 Vite 提供时，插件拿到的�
         expect(await dev.exit).toBe(0);
     }
 });
+
+test("clock、notes、counter 外置：产品服务端与项目子进程装载它们的入口，没有激活失败；插件页不再标“部分功能暂不可用”", async ({page}) => {
+    const stateRoot = await stateRootWith("backend", [built, ...backend]);
+    const server = await startProductServer(stateRoot);
+    try {
+        await openSettings(page, bookUrl(server.url));
+        await page.locator("[data-settings-nav='nbook.plugins.installed']").click();
+        for (const id of ["example.clock", "example.notes", "example.counter", "example.snippets"]) {
+            await expect(page.locator(`[data-plugin-row="${id}"]`)).toBeVisible();
+        }
+        await expect(page.locator("[data-plugin-not-loaded]")).toHaveCount(0);
+        // counter 的服务端入口启动即激活。装载失败会作为插件诊断写进服务端的诊断日志（同样的写坏产物手动核对过会出现）。
+        const log = await readFile(join(stateRoot, "logs", "server-current.jsonl"), "utf8");
+        expect(log).toContain("http.listening");
+        expect(log).not.toMatch(/activation-threw|code-load-failed|code-threw|code-shape/u);
+    } finally {
+        await page.goto("about:blank");
+        expect(await server.stop()).toBe(0);
+    }
+});
+

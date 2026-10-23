@@ -294,9 +294,7 @@ async function startupPlugin(options: PrepareOptions, id: string, entry: RecordE
     } catch (error) {
         return {...base, descriptor: null, notLoaded: {code: "manifest-invalid", detail: `读不了安装目录：${brief(error)}`}};
     }
-    // 入口代码的装载还没有实现（plugin-code-loading）：本次只登记顶层声明。
-    const notLoaded: NotLoaded | null = manifest.entries.length === 0 ? null : {code: "entries-not-loaded", detail: "入口代码的装载尚未实现，本次只登记顶层声明"};
-    return {...base, descriptor: descriptorOf(manifest), installed: {id, version: entry.version, root, digest, manifest: read.raw}, notLoaded};
+    return {...base, descriptor: descriptorOf(manifest), installed: {id, version: entry.version, root, digest, manifest: read.raw}, notLoaded: null};
 }
 
 /**

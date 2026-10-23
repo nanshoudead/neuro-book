@@ -33,11 +33,11 @@ const THIRD_PARTY: Readonly<Record<string, PluginListItem[]>> = {
     "not-loaded": [
         third("example.broken", "1.0.0", {notLoaded: {code: "manifest-invalid", detail: "入口文件不存在：dist/browser.js"}}),
         third("example.future", "3.0.0", {notLoaded: {code: "incompatible-engine", detail: "要求 NeuroBook >=2.0.0，当前是 0.1.0"}}),
-        third("example.panel", "1.2.0", {notLoaded: {code: "entries-not-loaded", detail: ""}}),
     ],
     "safe-mode": [third("example.hello", "1.0.0", {notLoaded: {code: "safe-mode", detail: ""}})],
     "long": [third("acme-really-long-publisher.an-extremely-long-plugin-name-for-overflow", "12.340.5678-beta.10", {pending: [{kind: "upgrade", version: "12.341.0-beta.10+build.20261017.sha.abcdef"}]})],
     "downgrade": [third("example.hello", "1.0.0")],
+    "blocked": [third("example.reader", "1.0.0"), third("example.panel", "1.0.0"), third("example.tts", "1.0.0")],
     "english": [third("example.hello", "1.0.0", {pending: [{kind: "upgrade", version: "1.10.0-beta.3"}]})],
     "write-failed": [third("example.hello", "1.0.0")],
     "write-failed-english": [third("example.hello", "1.0.0")],
@@ -45,8 +45,16 @@ const THIRD_PARTY: Readonly<Record<string, PluginListItem[]>> = {
 };
 
 const PREVIEW: Readonly<Record<string, InstallPreview>> = {
-    pending: {id: "example.hello", version: "1.1.0", installed: "1.0.0", relation: "upgrade"},
-    downgrade: {id: "example.hello", version: "0.9.0", installed: "1.0.0", relation: "downgrade"},
+    pending: {id: "example.hello", version: "1.1.0", installed: "1.0.0", relation: "upgrade", blocked: [], unchecked: []},
+    downgrade: {id: "example.hello", version: "0.9.0", installed: "1.0.0", relation: "downgrade", blocked: [], unchecked: []},
+    blocked: {
+        id: "example.tts",
+        version: "2.0.0",
+        installed: "1.0.0",
+        relation: "upgrade",
+        blocked: [{plugin: "example.panel", entries: ["main"], reason: "provider-blocked"}, {plugin: "example.reader", entries: ["main", "ui"], reason: "version-mismatch", range: "^1.0.0"}],
+        unchecked: ["example.broken"],
+    },
 };
 
 let plugins: PluginListItem[] = [...(THIRD_PARTY[props.scene] ?? []), ...BUILTIN];
@@ -76,7 +84,7 @@ const registry: PluginsRegistry = {
     },
     inspect: async ({path}: {path: string}) => {
         record("inspect", {path});
-        return {ok: true as const, value: PREVIEW[props.scene] ?? {id: "example.new", version: "1.0.0", installed: null, relation: "install" as const}};
+        return {ok: true as const, value: PREVIEW[props.scene] ?? {id: "example.new", version: "1.0.0", installed: null, relation: "install" as const, blocked: [], unchecked: []}};
     },
     install: async ({path}: {path: string}) => {
         record("install", {path});

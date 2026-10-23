@@ -10,7 +10,7 @@ import {computed, nextTick, onMounted, ref} from "vue";
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
-import type {InstallPreview, PendingChange, PluginFailureCode, PluginListItem, PluginsRegistry} from "../../shared/contracts";
+import type {BlockedPlugin, InstallPreview, PendingChange, PluginFailureCode, PluginListItem, PluginsRegistry} from "../../shared/contracts";
 
 defineOptions({name: "PluginsPage"});
 
@@ -40,6 +40,10 @@ const TEXT = {
     cancel: {"zh-CN": "取消", "en-US": "Cancel"},
     trust: {"zh-CN": "插件完全受信任：安装后它可以访问全部作品、服务器与本机资源。只安装你信任的来源。", "en-US": "Plugins are fully trusted: once installed, a plugin can access all books, the server and local resources. Only install plugins you trust."},
     downgrade: {"zh-CN": "降级后插件可能读到新版本已迁移过的数据。", "en-US": "After a downgrade the plugin may read data already migrated by the newer version."},
+    blocked: {"zh-CN": "重启后这些插件的部分功能将不可用：", "en-US": "After the restart, parts of these plugins will be unavailable:"},
+    blockedVersion: {"zh-CN": "{plugin}（{entries}）：要求版本 {range}", "en-US": "{plugin} ({entries}): requires version {range}"},
+    blockedProvider: {"zh-CN": "{plugin}（{entries}）：依赖的插件不可用", "en-US": "{plugin} ({entries}): a plugin it depends on will be unavailable"},
+    unchecked: {"zh-CN": "这些已安装插件的清单读不了，没有核对：{plugins}", "en-US": "These installed plugins could not be checked: {plugins}"},
     unknownFailure: {"zh-CN": "操作没有完成", "en-US": "The operation did not complete"},
 } satisfies Record<string, LocalizedText>;
 
@@ -64,7 +68,6 @@ const NOT_LOADED: Record<NotLoadedCode, {readonly text: LocalizedText; readonly 
     "incompatible-engine": {text: {"zh-CN": "不兼容", "en-US": "Incompatible"}, tone: "danger", showDetail: true},
     "safe-mode": {text: {"zh-CN": "安全模式未加载", "en-US": "Not loaded in safe mode"}, tone: "neutral", showDetail: false},
     // 入口代码的装载还没有实现：只有声明（例如设置项）生效。
-    "entries-not-loaded": {text: {"zh-CN": "部分功能暂不可用", "en-US": "Some features unavailable"}, tone: "neutral", showDetail: false},
 };
 
 type FailureCode = PluginFailureCode | RemoteFailureCode;
@@ -96,7 +99,10 @@ type Failure = {readonly ok: false; readonly code: FailureCode; readonly detail?
 type Problem = {readonly serial: number; readonly code: string; readonly reason: string; readonly lines: ReadonlyArray<string>};
 
 const text = (value: LocalizedText): string => localize(value, props.locale);
+
 const format = (value: LocalizedText, values: Record<string, string>): string => localize(formatText(value, values), props.locale);
+/** 升级确认框里一条受阻的插件：版本不符时写出它要求的范围。 */
+const blockedLine = (item: BlockedPlugin): string => format(item.reason === "version-mismatch" ? TEXT.blockedVersion : TEXT.blockedProvider, {plugin: item.plugin, entries: item.entries.join("、"), range: item.range ?? ""});
 
 const state = ref<"loading" | "failed" | "ready">("loading");
 const loadFailure = ref<string>("");
@@ -382,6 +388,13 @@ onMounted(() => {
             <template v-if="preview !== null">
                 <p class="plugins-page__dialog-subject">{{ preview.installed === null ? `${preview.id} ${preview.version}` : `${preview.id} ${preview.installed} → ${preview.version}` }}</p>
                 <p v-if="preview.relation === 'downgrade'" class="plugins-page__dialog-warning">{{ text(TEXT.downgrade) }}</p>
+                <div v-if="preview.blocked.length > 0" class="plugins-page__dialog-warning" data-plugin-preview-blocked>
+                    <p class="plugins-page__dialog-list-title">{{ text(TEXT.blocked) }}</p>
+                    <ul class="plugins-page__dialog-list">
+                        <li v-for="item in preview.blocked" :key="item.plugin" :data-plugin-preview-blocked-item="item.plugin">{{ blockedLine(item) }}</li>
+                    </ul>
+                </div>
+                <p v-if="preview.unchecked.length > 0" class="plugins-page__dialog-text" data-plugin-preview-unchecked>{{ format(TEXT.unchecked, {plugins: preview.unchecked.join("、")}) }}</p>
                 <p class="plugins-page__dialog-text">{{ text(TEXT.trust) }}</p>
                 <p class="plugins-page__path">{{ previewPath }}</p>
             </template>
@@ -637,6 +650,15 @@ onMounted(() => {
     font-size: var(--text-sm);
     line-height: var(--leading-ui);
     color: var(--status-warning);
+}
+
+.plugins-page__dialog-list-title {
+    margin: 0;
+}
+
+.plugins-page__dialog-list {
+    margin: var(--space-1) 0 0;
+    padding-left: var(--space-5);
 }
 
 .plugins-page__dialog-text {

@@ -1,0 +1,11 @@
+{
+    "name": "notes",
+    "publisher": "example",
+    "version": "0.1.0",
+    "description": "笔记：服务端入口提供远程服务、把笔记存进 nbook.storage，可选依赖 clock 给笔记记时刻；浏览器入口按调用方提供视图",
+    "private": true,
+    "type": "module",
+    "pluginVersions": {
+        "example.clock": "^0.1.0"
+    }
+}

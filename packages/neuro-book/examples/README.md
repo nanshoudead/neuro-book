@@ -119,11 +119,13 @@ examples/
 
 ## 可安装的外置插件
 
-[`external/`](external/) 下是可以经设置窗口的“插件”页安装的插件文件夹（[`runtime.plugin-install`](../../../docs/specs/runtime/plugin-install.md)）：清单就是文件夹里的 `package.json`（[`runtime.plugin-manifest`](../../../docs/specs/runtime/plugin-manifest.md)），装进状态根、重启后生效。入口代码的装载还没有实现（[`runtime.plugin-code-loading`](../../../docs/specs/runtime/plugin-code-loading.md)），所以现在只有只含声明的插件：
+插件可以经设置窗口的“插件”页安装（[`runtime.plugin-install`](../../../docs/specs/runtime/plugin-install.md)）：清单是插件文件夹里的 `package.json`（[`runtime.plugin-manifest`](../../../docs/specs/runtime/plugin-manifest.md)），装进状态根、重启后生效；入口的代码在激活时才装载（[`runtime.plugin-code-loading`](../../../docs/specs/runtime/plugin-code-loading.md)）。
 
-- [declarative](external/declarative/package.json)：一项配置 `example.hello/greeting`，用户层与本作品层都能改。安装、重启后设置窗口出现这一项；禁用、重启后消失。
+- [declarative](external/declarative/package.json)：只有声明、没有代码的插件，文件夹本身就能安装。一项配置 `example.hello/greeting`，用户层与本作品层都能改。
+- snippets、clock、notes、counter：各带一份 `package.json`（作者合同：`publisher`、`name`、`version` 与可选的 `pluginVersions`），在应用包目录运行 `bun run build:examples <名…>` 用构建预设构建到各自的 `dist/`，安装 `dist/`。构建预设从代码定义生成清单、每个入口打成一个文件，宿主共享的模块（Vue、`@vue/reactivity`、nb-ui 的组件、SDK）不打进去；仓库里构建时 SDK 的包名指到应用源码。notes 写了 `pluginVersions` 要求 clock 是 `^0.1.0`。
+- menu、file-menu 还没有 `package.json`，只在仓库里按源码装配（t05 补上）。
 
-上面六个示例插件在代码装载实现后分批改成外置插件。
+外置之后的行为与按源码装配时相同，由 `scripts/plugin-sdk/external-examples.test.ts`（构建、按清单登记、装载器装载，再跑场景里同样的调用）与 `e2e/plugin-code.e2e.ts`（真实浏览器与产品服务端）核对。
 
 ## 场景
 

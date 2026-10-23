@@ -260,11 +260,11 @@ describe("升级（输出 8、场景 12、16）", () => {
         expect(await namesIn(join(w.root, "example.hello"))).toEqual(["1.0.0", "3.0.0"]);
         // 与当前版本或待切换版本相同都拒绝：待切换不能靠再装旧版本撤销。
         // 确认之前的预览：只读，区分升级与降级，冲突照样报出。
-        expect(await w.inventory.inspect(await w.source("v4", manifest("4.0.0")))).toEqual({ok: true, value: {id: "example.hello", version: "4.0.0", installed: "1.0.0", relation: "upgrade"}});
-        expect(await w.inventory.inspect(await w.source("v0", manifest("0.9.0")))).toEqual({ok: true, value: {id: "example.hello", version: "0.9.0", installed: "1.0.0", relation: "downgrade"}});
+        expect(await w.inventory.inspect(await w.source("v4", manifest("4.0.0")))).toEqual({ok: true, value: {id: "example.hello", version: "4.0.0", installed: "1.0.0", relation: "upgrade", blocked: [], unchecked: []}});
+        expect(await w.inventory.inspect(await w.source("v0", manifest("0.9.0")))).toEqual({ok: true, value: {id: "example.hello", version: "0.9.0", installed: "1.0.0", relation: "downgrade", blocked: [], unchecked: []}});
         expect(await w.inventory.inspect(await w.source("v3-peek", manifest("3.0.0")))).toMatchObject({ok: false, code: "already-installed"});
         // 只差构建元数据的版本不是降级；`v1.0.0` 这类非规范写法不是合法版本，免得同一版本装成两个目录。
-        expect(await w.inventory.inspect(await w.source("v1-build", manifest("1.0.0+build.2")))).toMatchObject({ok: true, value: {relation: "upgrade"}});
+        expect(await w.inventory.inspect(await w.source("v1-build", manifest("1.0.0+build.2")))).toMatchObject({ok: true, value: {relation: "upgrade", blocked: [], unchecked: []}});
         expect(await w.inventory.inspect(await w.source("v1-alias", manifest("v1.0.0")))).toMatchObject({ok: false, code: "manifest-invalid"});
         expect(await namesIn(join(w.root, "example.hello"))).toEqual(["1.0.0", "3.0.0"]);
         expect(await w.inventory.install(await w.source("v1-again", manifest("1.0.0")))).toMatchObject({ok: false, code: "already-installed"});
@@ -332,7 +332,7 @@ describe("启停与卸载（输出 3、4、场景 13、14、16）", () => {
 });
 
 describe("启动时的登记（输出 6、7）与回收（提交点表）", () => {
-    it("不兼容、清单无效与安全模式不登记，原因可查，用户状态不变；有入口的插件只登记顶层声明", async () => {
+    it("不兼容、清单无效与安全模式不登记，原因可查，用户状态不变；有入口的插件照常登记", async () => {
         const w = await world();
         await w.inventory.install(await w.source("hello", manifest()));
         await w.inventory.install(await w.source("entries", {...manifest(), name: "entries", contributes: [], entries: {ui: {location: "browser", main: "ui.js"}}}, {"ui.js": ""}));
@@ -342,7 +342,7 @@ describe("启动时的登记（输出 6、7）与回收（提交点表）", () =
         const startup = await w.restart();
         expect(startup.plugins.map((plugin) => [plugin.id, plugin.notLoaded?.code ?? null, plugin.descriptor === null])).toEqual([
             ["example.broken", "manifest-invalid", true],
-            ["example.entries", "entries-not-loaded", false],
+            ["example.entries", null, false],
             ["example.hello", null, false],
         ]);
 
@@ -484,6 +484,35 @@ describe("同一状态根上的两个服务端进程（场景 15）", () => {
         expect(await namesIn(join(w.root, "example.hello"))).toEqual(["2.0.0"]);
         expect(await exists(join(w.root, "example.other"))).toBe(false);
         expect(await namesIn(join(w.root, ".pins"))).toHaveLength(2);
+    });
+
+    it("升级预览列出重启后会受阻的插件（plugin-install 输出 8.1）：版本不符的与经它传递受阻的；禁用的不算；读不了清单的列为没核对", async () => {
+        const w = await world();
+        const entry = (extra: Record<string, unknown>) => ({entries: {main: {location: "server", main: "main.js", ...extra}}});
+        const plugin = (name: string, version: string, extra: Record<string, unknown> = {}) => ({...manifest(version), name, contributes: [], ...extra});
+        await w.inventory.install(await w.source("tts1", plugin("tts", "1.0.0", entry({provides: ["example.tts/voice"]})), {"main.js": ""}));
+        await w.inventory.install(await w.source("reader", plugin("reader", "1.0.0", {...entry({requires: ["example.tts/voice"], provides: ["example.reader/text"]}), pluginVersions: {"example.tts": "^1.0.0"}}), {"main.js": ""}));
+        await w.inventory.install(await w.source("panel", plugin("panel", "1.0.0", entry({requires: ["example.reader/text"]})), {"main.js": ""}));
+        await w.inventory.install(await w.source("off", plugin("off", "1.0.0", {...entry({requires: ["example.tts/voice"]}), pluginVersions: {"example.tts": "^1.0.0"}}), {"main.js": ""}));
+        await w.inventory.install(await w.source("broken", plugin("broken", "1.0.0"), {}));
+        await w.restart();
+        expect(await w.inventory.setEnabled("example.off", false)).toMatchObject({ok: true});
+        await writeFile(join(w.root, "example.broken", "1.0.0", "package.json"), "{");
+
+        const preview = await w.inventory.inspect(await w.source("tts2", plugin("tts", "2.0.0", entry({provides: ["example.tts/voice"]})), {"main.js": ""}));
+        expect(preview).toEqual({ok: true, value: {
+            id: "example.tts",
+            version: "2.0.0",
+            installed: "1.0.0",
+            relation: "upgrade",
+            blocked: [
+                {plugin: "example.panel", entries: ["main"], reason: "provider-blocked"},
+                {plugin: "example.reader", entries: ["main"], reason: "version-mismatch", range: "^1.0.0"},
+            ],
+            unchecked: ["example.broken"],
+        }});
+        // 范围接受的新版本：没有受阻的。
+        expect(await w.inventory.inspect(await w.source("tts11", plugin("tts", "1.1.0", entry({provides: ["example.tts/voice"]})), {"main.js": ""}))).toMatchObject({ok: true, value: {blocked: []}});
     });
 });
 

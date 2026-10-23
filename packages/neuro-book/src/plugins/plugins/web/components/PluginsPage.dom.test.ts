@@ -78,7 +78,7 @@ function registry(initial: PluginListItem[], options: {readonly safeMode?: boole
             }
             return {ok: true as const, value: {safeMode: options.safeMode ?? false, plugins}};
         },
-        inspect: ({path}: {path: string}) => write(`inspect ${path}`, () => ({ok: true as const, value: options.preview ?? {id: "example.new", version: "1.0.0", installed: null, relation: "install" as const}})),
+        inspect: ({path}: {path: string}) => write(`inspect ${path}`, () => ({ok: true as const, value: options.preview ?? {id: "example.new", version: "1.0.0", installed: null, relation: "install" as const, blocked: [], unchecked: []}})),
         install: ({path}: {path: string}) => write(`install ${path}`, () => ({ok: true as const, value: {plugin: set({id: "example.new", version: "1.0.0", source: "third-party", state: "enabled", pending: [{kind: "install"}], notLoaded: null})}})),
         enable: ({id}: {id: string}) => write(`enable ${id}`, () => ({ok: true as const, value: {plugin: set({...find(id), state: "enabled", pending: []})}})),
         disable: ({id}: {id: string}) => write(`disable ${id}`, () => ({ok: true as const, value: {plugin: set({...find(id), state: "disabled", pending: [{kind: "disable"}]})}})),
@@ -206,13 +206,30 @@ describe("PluginsPage", () => {
     });
 
     it("降级的确认框写出版本变化与数据提示", async () => {
-        const fake = registry([BUILTIN, HELLO], {preview: {id: "example.hello", version: "0.9.0", installed: "1.0.0", relation: "downgrade"}});
+        const fake = registry([BUILTIN, HELLO], {preview: {id: "example.hello", version: "0.9.0", installed: "1.0.0", relation: "downgrade", blocked: [], unchecked: []}});
         const wrapper = await open(fake.client);
         await submitPath(wrapper, "/plugins/old");
         const dialog = document.querySelector("[role=dialog]");
         expect(dialog?.textContent).toContain("降级插件");
         expect(dialog?.textContent).toContain("example.hello 1.0.0 → 0.9.0");
         expect(dialog?.textContent).toContain("新版本已迁移过的数据");
+    });
+
+    it("升级的确认框列出重启后会受阻的插件与要求的范围，确认照常可点；读不了清单的插件写明没有核对", async () => {
+        const fake = registry([BUILTIN, HELLO], {preview: {
+            id: "example.hello",
+            version: "2.0.0",
+            installed: "1.0.0",
+            relation: "upgrade",
+            blocked: [{plugin: "example.panel", entries: ["main"], reason: "provider-blocked"}, {plugin: "example.reader", entries: ["main", "ui"], reason: "version-mismatch", range: "^1.0.0"}],
+            unchecked: ["example.broken"],
+        }});
+        const wrapper = await open(fake.client);
+        await submitPath(wrapper, "/plugins/new");
+        const items = [...document.querySelectorAll("[data-plugin-preview-blocked-item]")].map((item) => item.textContent);
+        expect(items).toEqual(["example.panel（main）：依赖的插件不可用", "example.reader（main、ui）：要求版本 ^1.0.0"]);
+        expect(document.querySelector("[data-plugin-preview-unchecked]")?.textContent).toContain("example.broken");
+        expect((document.querySelector("[data-plugin-install-confirm]") as HTMLButtonElement | null)?.disabled).toBe(false);
     });
 
     it("失败按码显示：清单无效带出错字段；只说原因的码不重复详情；不认识的码给通用文字与路由层的说明", async () => {

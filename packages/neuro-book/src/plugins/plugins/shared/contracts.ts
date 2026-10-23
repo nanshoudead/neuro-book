@@ -22,12 +22,9 @@ export const PendingChangeSchema = Type.Union([
 
 export type PendingChange = Static<typeof PendingChangeSchema>;
 
-/**
- * 本次启动没有登记的原因（plugin-install 输出 1、6、7）：清单无效、不兼容、安全模式；`entries-not-loaded` 是插件
- * 有入口，而入口代码的装载（docs/specs/runtime/plugin-code-loading.md）还没有实现，本次只登记了它的顶层声明。
- */
+/** 本次启动没有登记的原因（plugin-install 输出 1、6、7）：清单无效、不兼容、安全模式。 */
 export const NotLoadedSchema = Type.Object({
-    code: Type.Union([Type.Literal("manifest-invalid"), Type.Literal("incompatible-engine"), Type.Literal("safe-mode"), Type.Literal("entries-not-loaded")]),
+    code: Type.Union([Type.Literal("manifest-invalid"), Type.Literal("incompatible-engine"), Type.Literal("safe-mode")]),
     detail: Type.String(),
 }, {additionalProperties: false});
 
@@ -60,11 +57,28 @@ export type PluginList = Static<typeof ListSchema>;
  * 安装前的预览（plugin-install 输出 8.1）：确认界面据此区分首次安装、升级与降级，降级时提示数据可能已被新版本迁移。
  * `installed` 是已安装的当前版本，没有安装为 null。
  */
+/**
+ * 换版本之后、重启时会受阻的插件入口（plugin-install.md 输出 8.1）：版本不在别的插件 `pluginVersions` 的范围里，或经必需依赖
+ * 传递受阻。只是说明，安装照常可以确认。
+ */
+const BlockedPluginSchema = Type.Object({
+    plugin: Type.String({minLength: 1}),
+    entries: Type.Array(Type.String({minLength: 1})),
+    reason: Type.Union([Type.Literal("version-mismatch"), Type.Literal("provider-blocked")]),
+    /** `version-mismatch`：这个插件要求的版本范围。 */
+    range: Type.Optional(Type.String({minLength: 1})),
+}, {additionalProperties: false});
+
+export type BlockedPlugin = Static<typeof BlockedPluginSchema>;
+
 const InstallPreviewSchema = Type.Object({
     id: Type.String({minLength: 1}),
     version: Type.String({minLength: 1}),
     installed: Type.Union([Type.String({minLength: 1}), Type.Null()]),
     relation: Type.Union([Type.Literal("install"), Type.Literal("upgrade"), Type.Literal("downgrade")]),
+    blocked: Type.Array(BlockedPluginSchema),
+    /** 清单读不了、没参与预览的已安装插件。 */
+    unchecked: Type.Array(Type.String({minLength: 1})),
 }, {additionalProperties: false});
 
 export type InstallPreview = Static<typeof InstallPreviewSchema>;
@@ -96,7 +110,8 @@ export type PluginFailureCode = keyof typeof errors;
 
 export const pluginsRegistryContract = defineRemoteService({
     id: "nbook.plugins/registry",
-    version: 1,
+    // 版本 2：安装预览带重启后受阻的插件。
+    version: 2,
     provider: "server",
     callers: ["browser"],
     methods: {

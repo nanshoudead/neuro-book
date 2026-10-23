@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import {defineServiceKey} from "../services/services";
-import {deriveBlocked} from "./blocked";
+import {deriveBlocked, previewBlocked} from "./blocked";
 import type {EntrySnapshot} from "./blocked";
 import type {EntryBlocked} from "./contracts";
 
@@ -62,4 +62,15 @@ describe("入口受阻纯推导", () => {
         expect(deriveBlocked([{...consumer, dependencies: [{key: b, required: false}]}, provider], "server", new Set(), caret).get("a/main")).toBeNull();
         expect(deriveBlocked([{...consumer, pluginVersions: {}}, provider], "server", new Set(), caret).get("a/main")).toBeNull();
     });
+
+    it("按定义预览：定义之外的服务当作在场；只推出版本不符与经它传递的受阻", () => {
+        const tts = {id: "x.tts", version: "2.0.0", entries: [{id: "main", location: "server" as const, provides: [b], activate: () => ({})}]};
+        const reader = {id: "x.reader", pluginVersions: {"x.tts": "^1.0.0"}, entries: [{id: "main", location: "server" as const, provides: [a], dependencies: [{key: b}, {key: missing}], activate: () => ({})}]};
+        const panel = {id: "x.panel", entries: [{id: "main", location: "server" as const, dependencies: [{key: a}], activate: () => ({})}]};
+        const blocked = previewBlocked([tts, reader, panel], "server", caret);
+        expect(blocked.get("x.reader/main")).toMatchObject({reason: "version-mismatch", version: "2.0.0", range: "^1.0.0"});
+        expect(blocked.get("x.panel/main")).toMatchObject({reason: "provider-blocked", path: ["x.panel/main", "x.reader/main", "x.tts/main"]});
+        expect(previewBlocked([{...tts, version: "1.5.0"}, reader, panel], "server", caret).get("x.reader/main")).toBeNull();
+    });
 });
+

@@ -42,6 +42,7 @@ import {storageBackendPlugin} from "nbook/plugins/storage/backend/plugin";
 import {storageBrowserPlugin} from "nbook/plugins/storage/web/plugin";
 import {clockKey, stateRootKey, windowConnectionKey} from "nbook/shared/host";
 import {currentProjectKey, windowProjectKey} from "nbook/shared/projects";
+import {pluginVersionSatisfies} from "nbook/shared/versions";
 
 /** 场地的时钟：手动推进，并能数出插件还占着几个计时器（核对插件停止时有没有把它们还回来）。 */
 export class StageClock implements RuntimeClock {
@@ -250,7 +251,8 @@ export class Stage {
         const app = createApplication(
             // 宿主给出的上下文：实例身份、停止来源、紧急输出。
             {identity, stopSignal: new AbortController().signal, emergency: () => undefined},
-            {capabilities, plugins: [diagnostics, ...builtins, ...options.plugins], gates: [], remote},
+            // 插件版本要求（`pluginVersions`）的范围判断与产品宿主同一个：外置构建的示例会写它。
+            {capabilities, plugins: [diagnostics, ...builtins, ...options.plugins], gates: [], remote, satisfies: pluginVersionSatisfies},
         );
         this.#apps.push(app);
         const startup = await app.startup;

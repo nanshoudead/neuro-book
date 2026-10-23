@@ -1040,10 +1040,11 @@ function shelfFixtures(): LabFixture[] {
             scenes: [
                 {id: "pending", label: "有待生效的变化（升级、安装、禁用、卸载）", input: {props: {locale: "zh-CN"}}},
                 {id: "empty", label: "没有第三方插件", input: {props: {locale: "zh-CN"}}},
-                {id: "not-loaded", label: "没有登记：清单无效、不兼容、只有声明", input: {props: {locale: "zh-CN"}}},
+                {id: "not-loaded", label: "没有登记：清单无效、不兼容", input: {props: {locale: "zh-CN"}}},
                 {id: "safe-mode", label: "安全模式", input: {props: {locale: "zh-CN"}}},
                 {id: "long", label: "很长的 id 与版本", input: {props: {locale: "zh-CN"}}},
                 {id: "downgrade", label: "安装预览为降级", input: {props: {locale: "zh-CN"}}},
+                {id: "blocked", label: "升级预览列出重启后受阻的插件", input: {props: {locale: "zh-CN"}}},
                 {id: "loading", label: "读取中", input: {props: {locale: "zh-CN"}}},
                 {id: "failed", label: "读取失败", input: {props: {locale: "zh-CN"}}},
                 {id: "english", label: "英文界面", input: {props: {locale: "en-US"}}},

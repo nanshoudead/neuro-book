@@ -6,7 +6,7 @@
 import type {RuntimeLocation} from "../lifecycle/lifecycle";
 import type {ServiceDependency, ServiceKey} from "../services/services";
 
-import type {EntryBlocked, EntryRef, EntryStatus} from "./contracts";
+import type {EntryBlocked, EntryRef, EntryStatus, PluginDefinition} from "./contracts";
 
 export interface EntrySnapshot extends EntryRef {
     readonly location: RuntimeLocation;
@@ -186,4 +186,25 @@ export function deriveBlocked(
         }
     }
     return results;
+}
+
+/**
+ * 只按定义推导某个运行位置上各入口的受阻（不需要运行实例）：升级插件之前预览“重启后哪些入口会受阻”用，与宿主登记后的推导
+ * 是同一个函数（plugin-install.md 输出 8.1）。`definitions` 之外提供的服务（宿主能力、没列进来的插件）都当作在场，所以只会
+ * 推出这些定义之间的受阻：版本不符、提供方受阻、依赖环。全部入口按“已登记”推导。
+ */
+export function previewBlocked(definitions: ReadonlyArray<PluginDefinition>, location: RuntimeLocation, satisfies?: VersionCheck): ReadonlyMap<string, EntryBlocked | null> {
+    const entries: EntrySnapshot[] = definitions.flatMap((definition) => definition.entries.map((entry) => ({
+        plugin: definition.id,
+        entry: entry.id,
+        location: entry.location,
+        pluginVersion: definition.version ?? null,
+        pluginVersions: definition.pluginVersions ?? {},
+        provides: entry.provides ?? [],
+        dependencies: entry.dependencies ?? [],
+        status: "registered" as const,
+    })));
+    const provided = new Set(entries.filter((entry) => entry.location === location).flatMap((entry) => entry.provides.map((key) => key.name)));
+    const elsewhere = new Set(entries.flatMap((entry) => entry.dependencies.map((dependency) => dependency.key.name)).filter((key) => !provided.has(key)));
+    return deriveBlocked(entries, location, elsewhere, satisfies);
 }

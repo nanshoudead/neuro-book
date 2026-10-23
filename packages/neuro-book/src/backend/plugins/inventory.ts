@@ -15,12 +15,14 @@ import {join, relative, resolve, isAbsolute} from "node:path";
 
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
+import {previewBlocked} from "@notnotype/nb-runtime/plugins";
+import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import {holdLock} from "nbook/backend/locked-replace";
-import type {InstallPreview, PendingChange, PluginFailureCode, PluginList, PluginListItem} from "nbook/plugins/plugins/shared/contracts";
-import {compareVersions, engineAccepts} from "nbook/shared/versions";
+import type {BlockedPlugin, InstallPreview, PendingChange, PluginFailureCode, PluginList, PluginListItem} from "nbook/plugins/plugins/shared/contracts";
+import {compareVersions, engineAccepts, pluginVersionSatisfies} from "nbook/shared/versions";
 
 import {collectCopyRange, copyRange} from "./copy";
 import {assertHeld, brief, byId, isLink, LockLost, ownedPath, readRecord, STAGING_DIR, withRecordLock, writeRecord} from "./record";
@@ -192,7 +194,41 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
         if (!prepared.ok) return prepared;
         const {manifest, installed} = prepared.value;
         const relation = installed === null ? "install" : compareVersions(manifest.version, installed) > 0 ? "upgrade" : "downgrade";
-        return {ok: true, value: {id: manifest.id, version: manifest.version, installed, relation}};
+        const preview = relation === "install" ? {blocked: [], unchecked: []} : await blockedAfter(manifest);
+        return {ok: true, value: {id: manifest.id, version: manifest.version, installed, relation, ...preview}};
+    }
+
+    /**
+     * 把 `next` 换进重启后生效的集合（启用的插件，有待切换版本的取那个版本），用内核的同一份推导与同一个 `satisfies`，
+     * 列出比换之前多出来的受阻入口。读不了清单的插件不参与，列进 `unchecked`，预览照常给出。
+     */
+    async function blockedAfter(next: PluginManifest): Promise<{readonly blocked: BlockedPlugin[]; readonly unchecked: string[]}> {
+        const record = await readRecord(root);
+        if (!record.ok) return {blocked: [], unchecked: []};
+        const current: PluginManifest[] = [];
+        const unchecked: string[] = [];
+        for (const [id, entry] of Object.entries(record.record.plugins)) {
+            if (entry.state !== "enabled") continue;
+            const read = await installedManifest(join(root, id, entry.pendingVersion ?? entry.version));
+            if (read.ok) current.push(read.manifest);
+            else if (id !== next.id) unchecked.push(id);
+        }
+        const after = [...current.filter((item) => item.id !== next.id), next];
+        const locations = [...new Set([...current, next].flatMap((item) => item.entries.map((entry) => entry.location)))];
+        const byPlugin = new Map<string, BlockedPlugin>();
+        for (const location of locations) {
+            const before = previewBlocked(current.map(previewDefinition), location, pluginVersionSatisfies);
+            for (const [key, blocked] of previewBlocked(after.map(previewDefinition), location, pluginVersionSatisfies)) {
+                if (blocked === null || (before.get(key) ?? null) !== null) continue;
+                const [plugin, entry] = splitEntry(key);
+                const known = byPlugin.get(plugin);
+                const range = blocked.reason === "version-mismatch" ? blocked.range : undefined;
+                const reason = blocked.reason === "version-mismatch" ? "version-mismatch" : "provider-blocked";
+                if (known === undefined) byPlugin.set(plugin, {plugin, entries: [entry], reason, ...(range === undefined ? {} : {range})});
+                else byPlugin.set(plugin, {...known, entries: [...known.entries, entry], ...(known.reason === "provider-blocked" && reason === "version-mismatch" ? {reason, ...(range === undefined ? {} : {range})} : {})});
+            }
+        }
+        return {blocked: [...byPlugin.values()].sort((left, right) => (left.plugin < right.plugin ? -1 : 1)), unchecked: unchecked.sort()};
     }
 
     async function install(sourcePath: string): Promise<InventoryResult<PluginListItem>> {
@@ -340,3 +376,26 @@ function filesOf(raw: unknown): ReadonlyArray<string> | null | undefined {
     const files = raw.files;
     return Array.isArray(files) && files.every((item): item is string => typeof item === "string" && item.trim() !== "") ? files : undefined;
 }
+
+/** 预览用的定义：只有推导受阻要的东西（版本、版本要求、依赖与提供项），不会登记、不会激活。 */
+function previewDefinition(manifest: PluginManifest): PluginDefinition {
+    return {
+        id: manifest.id,
+        version: manifest.version,
+        pluginVersions: manifest.pluginVersions,
+        entries: manifest.entries.map((entry) => ({
+            id: entry.id,
+            location: entry.location,
+            provides: entry.provides.map((id) => defineServiceKey(id)),
+            dependencies: [...entry.requires.map((id) => ({key: defineServiceKey(id)})), ...entry.optional.map((id) => ({key: defineServiceKey(id), required: false}))],
+            activate: () => ({}),
+        })),
+    };
+}
+
+/** 推导结果的键是 `<插件 id>/<入口 id>`；插件 id 不含 `/`。 */
+function splitEntry(key: string): [string, string] {
+    const slash = key.indexOf("/");
+    return [key.slice(0, slash), key.slice(slash + 1)];
+}
+
