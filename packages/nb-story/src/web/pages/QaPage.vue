@@ -5,10 +5,12 @@ import {computed, onBeforeUnmount, provide, ref, shallowRef, watch, watchEffect}
 import {AlertDialog, Banner, Button, IconButton, Popover} from "@notnotype/nb-ui/components";
 import {acceptSubmission, applyComposerAction, createAgentContext, createAgentViewRegistry, type AgentConversationContext, type AgentSessionListItem, type AgentViewAction, type ComposerView, type MessageView} from "@notnotype/nb-agent-ui";
 import {AgentConversationView, AgentSessionList, builtinMessageActionsContribution, builtinRolesContribution} from "@notnotype/nb-agent-ui/vue";
+import {decodeTarget} from "@notnotype/nb-markdown";
 import {provideMarkdownHost} from "@notnotype/nb-markdown/host";
 import {PromptEditor, PromptTextView} from "@notnotype/nb-markdown/prompt";
 
 import type {QaRunView, ViewerResult} from "../../contract/contract";
+import {normalizeRef} from "../../contract/refs";
 import {formatAt, useBook} from "../host/book";
 import {StoryCallError, useStoryClient} from "../host/client";
 import AnswerCard from "../qa/AnswerCard.vue";
@@ -199,8 +201,10 @@ const ctx = computed<AgentConversationContext>(() => {
 });
 
 // ---- 操作 ----
-function openTarget(target: string): void {
-    if (target.startsWith(REF_SCHEME)) book.openSource(target.slice(REF_SCHEME.length));
+function openTarget(raw: string): void {
+    // 正文里的出处链接经 Markdown 解析后是编码过的地址（“—”成了 %E2%80%94），先解码再按标准写法打开。
+    const target = decodeTarget(raw);
+    if (target.startsWith(REF_SCHEME)) book.openSource(normalizeRef(target.slice(REF_SCHEME.length)));
     else if (target.startsWith("entity://")) book.openCard(target.slice("entity://".length));
 }
 

@@ -94,9 +94,14 @@ test("新对话：提问后看到过程与答案卡片；出处在抽屉里打�
     await expect(page.locator("[data-qa-answer]")).toContainText("读者在 37.8 就知道了");
     await expect(page.getByRole("button", {name: /地狱猫是谁？/u}).first()).toBeVisible();
 
-    await endpoint.script([{kind: "text", text: "接着说：见 37.8。"}]);
+    await endpoint.script([{kind: "text", text: "接着说：见 37.110—38.2。"}]);
     await ask(page, "再说说？");
     await expect(page.getByText("接着说：见")).toBeVisible();
+    // 跨章的出处：抽屉从起点那一章读到终点那一章，引用的几段高亮。
+    await page.locator("[data-qa-page] main, [data-qa-page]").getByText("37.110—38.2").first().click();
+    const drawer = page.getByTestId("drawer-source");
+    await expect(drawer.locator(".is-cited").first()).toContainText("37.110");
+    await expect(drawer.locator(".is-cited").last()).toContainText("38.2");
 });
 
 test("运行中：过程逐步出现，点停止后这一轮记为已停止；删除对话要确认，删后列表里没有它", async ({page}) => {

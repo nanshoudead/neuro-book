@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 问答页注入对话视图的 Markdown 显示（同名 .md）：先把正文里的“章.段”改写成出处链接，再交给 nb-markdown 的
-// MarkdownDisplay；出处链接在那里显示成引用小块，点击发 reference（问答页打开原文抽屉）。属性原样转过去。
+// MarkdownDisplay；出处链接在那里显示成引用小块，点击发 reference（问答页打开原文抽屉）。属性原样转过去；端口的
+// `onActivate` 是属性，MarkdownDisplay 发的是 `activate` 事件，在这里接上。
 import {computed} from "vue";
 import type {MarkdownDisplayPortProps} from "@notnotype/nb-agent-ui";
 import {MarkdownDisplay} from "@notnotype/nb-markdown/display";
@@ -17,5 +18,5 @@ const linked = computed(() => linkRefs(props.text, lexer, {streaming: props.stre
 </script>
 
 <template>
-    <MarkdownDisplay :text="linked" :locale="props.locale" :streaming="props.streaming" :resolve-asset="props.resolveAsset" :on-activate="props.onActivate" />
+    <MarkdownDisplay :text="linked" :locale="props.locale" :streaming="props.streaming" :resolve-asset="props.resolveAsset" @activate="activation => props.onActivate?.(activation)" />
 </template>
