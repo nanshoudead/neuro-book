@@ -369,7 +369,7 @@ const unsaved = computed(() => {
 
             <div v-if="configured === false || unsaved || sourceState?.detached || sourceState?.logProblem || (selectedId !== null && sourceState?.phase === 'ready' && !sourceState.continuable.ok && !running) || startError || brokenIds.has(selectedId ?? '')" class="qa-notices">
                 <Banner v-if="configured === false" tone="warning" title="还没有配置问答用的模型" message="先在设置页填好模型，才能提问。">
-                    <RouterLink to="/settings" class="qa-link">去设置</RouterLink>
+                    <template #actions><RouterLink to="/settings" class="qa-link">去设置</RouterLink></template>
                 </Banner>
                 <Banner v-if="brokenIds.has(selectedId ?? '')" tone="error" title="这份记录读不出来" message="只能删除。" />
                 <Banner v-if="unsaved" tone="warning" :message="unsaved" data-qa-unsaved />

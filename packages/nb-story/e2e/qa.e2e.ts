@@ -5,7 +5,7 @@
  * 服务读用例自己的配置（XDG_CONFIG_HOME），密钥是编的假值，只发往本机端点。
  */
 
-import {mkdir, rm, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {expect, test, type Page} from "@playwright/test";
@@ -144,4 +144,71 @@ test("手机宽度：对话列表收进顶栏的下拉，选中后下拉关上",
     await first.click();
     await expect(page.getByRole("dialog")).toBeHidden();
     await expect(page.locator("[data-qa-answer]")).toBeVisible();
+});
+
+test.describe("设置页", () => {
+    const original = () => ({model: {baseUrl: endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}});
+    test.afterEach(async () => {
+        await writeFile(configFile, JSON.stringify(original()));
+    });
+
+    test("从书架进入；改模型名保存后写进同一份文件；有没保存的改动时不能测试连接；测试连接通过", async ({page}) => {
+        // 打开 `/` 会回到上次读的书，从书里点“回到书架”进书架。
+        await page.goto(`${server.base}/book/fox/overview`);
+        await page.getByTestId("go-shelf").click();
+        await page.getByTestId("go-settings").click();
+        await expect(page).toHaveURL(/\/settings$/u);
+        await expect(page.getByTestId("settings-page")).toContainText("config.json");
+
+        await endpoint.script([{kind: "text", text: "好"}]);
+        await page.getByTestId("settings-test").click();
+        await expect(page.getByTestId("settings-tested")).toContainText("通过：qa-model");
+
+        const modelId = page.getByLabel("模型名").first();
+        await modelId.fill("qa-model-2");
+        await modelId.press("Tab");
+        await expect(page.getByTestId("settings-test")).toBeDisabled();
+        await page.getByTestId("settings-save").click();
+        await expect(page.getByTestId("settings-notice")).toContainText("已保存");
+        expect(JSON.parse(await readFile(configFile, "utf8")).model.id).toBe("qa-model-2");
+        await expect(page.getByTestId("settings-test")).toBeEnabled();
+    });
+
+    test("别处改过再保存：报冲突，重新载入后是别处写的内容；误贴的密钥不收、文件不变", async ({page}) => {
+        await page.goto(`${server.base}/settings`);
+        const modelId = page.getByLabel("模型名").first();
+        await expect(modelId).toHaveValue("qa-model");
+        await writeFile(configFile, JSON.stringify({model: {...original().model, id: "changed-by-cli"}}));
+        await modelId.fill("from-page");
+        await modelId.press("Tab");
+        await page.getByTestId("settings-save").click();
+        await expect(page.getByTestId("settings-notice")).toContainText("别处");
+        await page.getByRole("button", {name: "重新载入"}).click();
+        await expect(modelId).toHaveValue("changed-by-cli");
+
+        const pasted = "sk-pasted-in-settings-e2e-0042";
+        const keyEnv = page.getByLabel("密钥环境变量").first();
+        await keyEnv.fill(pasted);
+        await keyEnv.press("Tab");
+        await page.getByTestId("settings-save").click();
+        await expect(page.getByTestId("settings-notice")).toContainText("没有保存");
+        await expect(page.getByTestId("settings-notice")).not.toContainText(pasted);
+        expect(await readFile(configFile, "utf8")).not.toContain(pasted);
+    });
+
+    test("还没有配置文件：从空的配置开始，填好保存后新建；书里的菜单也能进入", async ({page}) => {
+        await rm(configFile);
+        await page.goto(`${server.base}/book/fox/overview`);
+        await page.getByRole("button", {name: "转生反派萝莉，找茬魔法少女"}).click();
+        await page.getByRole("menuitem", {name: "设置"}).click();
+        await expect(page.getByTestId("settings-absent")).toBeVisible();
+        await page.getByLabel("服务地址").first().fill(endpoint.url);
+        await page.getByLabel("模型名").first().fill("new-model");
+        const keyEnv = page.getByLabel("密钥环境变量").first();
+        await keyEnv.fill(KEY_ENV);
+        await keyEnv.press("Tab");
+        await page.getByTestId("settings-save").click();
+        await expect(page.getByTestId("settings-notice")).toContainText("已保存");
+        expect(JSON.parse(await readFile(configFile, "utf8"))).toEqual({model: {baseUrl: endpoint.url, id: "new-model", apiKeyEnv: KEY_ENV}});
+    });
 });
