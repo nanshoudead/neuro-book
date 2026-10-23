@@ -3,6 +3,7 @@
  * 配置重新过 schema，所以字段之间的约束（例如 `maxChapters` 的范围）只在 schema 一处。
  */
 
+import {ENV_NAME_PATTERN} from "../contract/config-schema";
 import {parseQaConfig, type QaConfig} from "./config";
 
 /** 字段名不认识、值的写法不对，或要去掉必填字段：用法错误，不是配置错误。 */
@@ -59,14 +60,14 @@ export const CONFIG_FIELDS: Readonly<Record<string, FieldSpec>> = {
 
 const THINKING_LEVELS = ["low", "medium", "high", "xhigh"];
 
-const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+const ENV_NAME = new RegExp(ENV_NAME_PATTERN, "u");
 
 /**
  * 密钥环境变量名的写法不对时的说明，对时为 undefined。常见的错是把密钥本身贴进来，那样密钥就落进配置文件、又被
  * 输出回显，所以写法不对一律拒绝，说明里也不带原文。交互的 `init` 用同一条检查。
  */
 export function envNameProblem(text: string): string | undefined {
-    return ENV_NAME.test(text) ? undefined : "密钥环境变量名只能是字母、数字、下划线（例如 OPENAI_API_KEY），这里要填变量名，不是密钥本身";
+    return ENV_NAME.test(text) ? undefined : "密钥环境变量名只能是字母、数字、下划线，也不能像密钥（例如 OPENAI_API_KEY），这里要填变量名，不是密钥本身";
 }
 
 /** 这个字段的值能不能原样回显：整组的 JSON 里可能有贴进来的密钥（哪怕最后被同名键覆盖），只回显字段名。 */

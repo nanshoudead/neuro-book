@@ -11,8 +11,12 @@
 
 import {Type, type Static} from "typebox";
 
-/** 环境变量名的写法（与 `qa/config-edit.ts` 的 `ENV_NAME` 相同）。 */
-export const ENV_NAME_PATTERN = "^[A-Za-z_][A-Za-z0-9_]*$";
+/**
+ * 环境变量名的写法（`qa/config-edit.ts` 的字段编辑也用它）。只靠“字母、数字、下划线”挡不住下划线形状的密钥
+ * （`sk_…`），所以另外拒绝两种像密钥的写法：常见密钥前缀（`sk_`、`gsk_`、`ghp_` 等，大小写都算），以及 32 个字符
+ * 以上、中间没有下划线的一整串。这只能挡住已知形状：随机得像变量名的密钥仍会被当作变量名（qa.md 的“配置”）。
+ */
+export const ENV_NAME_PATTERN = "^(?![Ss][Kk]_|[Gg][Ss][Kk]_|[Gg][Hh][PpOoSsUu]_|[Xx][Aa][Ii]_|[Pp][Kk]_|[Rr][Kk]_)(?![A-Za-z0-9]{32,}$)[A-Za-z_][A-Za-z0-9_]*$";
 
 const apiKeyEnv = () => Type.String({minLength: 1, pattern: ENV_NAME_PATTERN, "x-form": {label: "密钥环境变量", help: "存密钥的环境变量名（例如 OPENAI_API_KEY），不是密钥本身；服务启动时读它"}});
 const baseUrl = () => Type.String({minLength: 1, "x-form": {label: "服务地址", placeholder: "https://api.example.com/v1"}});

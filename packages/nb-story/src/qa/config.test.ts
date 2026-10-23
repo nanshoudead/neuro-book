@@ -9,7 +9,7 @@ import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {ABSENT_CONFIG, currentConfigDigest, defaultConfigPath, loadQaConfig, parseQaConfig, qaLimits, readQaConfigFile, saveQaConfig} from "./config";
-import {CONFIG_FIELDS, ConfigEditError, setConfigField, unsetConfigField} from "./config-edit";
+import {CONFIG_FIELDS, ConfigEditError, envNameProblem, setConfigField, unsetConfigField} from "./config-edit";
 import {QaError} from "./errors";
 
 let root = "";
@@ -160,6 +160,17 @@ describe("写配置（config 命令）", () => {
 
 describe("整份写入（网页设置页与命令行共用，t13）", () => {
     const pasted = "sk-review-fake-pasted-value-0042";
+
+    test("像密钥的变量名也拒绝：常见前缀、没有下划线的长串；正常的变量名照收", () => {
+        for (const value of ["sk_abcdefghijklmnopqrstuvwxyz123456", "GSK_abc123", "ghp_abc", "AbCdEfGhIjKlMnOpQrStUvWxYz012345"]) {
+            expect(() => parseQaConfig({model: {...model, apiKeyEnv: value}}, " 测试 ")).toThrow(QaError);
+            expect(envNameProblem(value)).toBeString();
+        }
+        for (const value of ["OPENAI_API_KEY", "deepseekKey", "SKY_KEY", "_PRIVATE_KEY_FOR_THE_STORY_ENGINE_2026"]) {
+            expect(parseQaConfig({model: {...model, apiKeyEnv: value}}, " 测试 ").model.apiKeyEnv).toBe(value);
+            expect(envNameProblem(value)).toBeUndefined();
+        }
+    });
 
     test("三处密钥环境变量名都只收变量名，误贴密钥被拒且报错里没有原文；不认识的字段不收", () => {
         const configs = [
