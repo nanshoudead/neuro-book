@@ -1,0 +1,54 @@
+### 重要｜正确性｜未声明依赖的检查按服务值形状比较，不能按服务键识别
+
+- **位置**：`packages/neuro-book/src/sdk/plugin.ts:80-82,98-101`（本报告源码路径均相对 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t15-impl-review`）。
+- **现象**：声明 `a = defineServiceKey<{now(): number}>("acme.test/a")` 后，未声明的同形状键 `b = defineServiceKey<{now(): number}>("acme.test/b")` 仍能直接传给 `context.services.require(b)` 与 `resolve(b)`，类型检查无诊断；声明 `ServiceKey<{}>` 时，连不同接口的键也能通过。
+- **为什么是问题**：S5 与计划 3.7 承诺未声明键在编辑器就报错，但 `ServiceKey<T>.name` 是普通 `string`，`Declared` 只比较值类型的结构可赋值性。两个实际不同的服务恰好同接口时，检查完全失效；真实激活会因未解析的必需依赖抛 `TypeError`，入口失败。现有反例用 `now()` 与 `other()` 两种不同形状，漏掉了最基本的同形状不同 id。
+- **如何核实**：仓库外 `/tmp/review-t15-impl-omp/types.ts`；执行 `node node_modules/typescript/bin/tsc -p /tmp/review-t15-impl-omp/tsconfig.json --pretty false`，TypeScript 5.9.3 退出 0，无诊断。执行 `bun /tmp/review-t15-impl-omp/dependency-runtime.ts`，真实 `createApplication` 启动返回激活失败，原文 `acme.test/b 不是入口 acme.test/server 已解析的必需依赖`，最后正常关闭。基线无此编译期检查；这是本次新增判据未实现，不是把原有运行时限制当回归。
+- **建议改法**：服务键类型携带稳定 id 的字面量类型，依赖检查按 id 比较；同步迁移键的定义与声明生成。若暂时无法保留 id，明确撤回“未声明键必然编译不过”的承诺，不能以值接口的结构兼容性冒充键身份。增加同形状不同 id、可选键与必需键同形状的编译期反例。
+
+### 重要｜正确性｜方法上下文的 fail 接受联合失败码时可漏掉必需详情
+
+- **位置**：`packages/nb-runtime/src/remote/contract.ts:190-199`。
+- **现象**：方法有 `missing: Type.Undefined()` 和 `bad: Type.Object({max: Type.Number()})` 两个业务码，输入 `code` 类型为 `"missing" | "bad"`。实现直接写 `get: ({code}, ctx) => ctx.fail(code)` 无需断言便编译通过；输入 `bad` 时实际上没有交出必需的 `{max}`。
+- **为什么是问题**：`DetailArgs` 在整个 `Code` 联合上检查 `undefined extends Static<errors[Code]>`：只要任何一个码允许无详情，所有码的详情参数都变成可选。返回类型又声称是合法的 `BusinessFailure`，绕过外层结果校验。提供方按新推荐写法转交输入里的业务码，调用方却得到 `provider-error` 而不是声明的业务失败。改前根助手 `fail(code)` 的结果会在 `provideRemote` 处正确报缺详情，本次上下文助手反而抹掉了这个错误。
+- **如何核实**：`/tmp/review-t15-impl-omp/union-types.ts` 同时包含新助手的错误实现（无错误抑制）与根助手反例（`@ts-expect-error`）；`node node_modules/typescript/bin/tsc -p /tmp/review-t15-impl-omp/tsconfig.json --pretty false` 退出 0。真实运行 `bun /tmp/review-t15-impl-omp/union-fail.ts`，`bad` 返回 `{"ok":false,"code":"provider-error","detail":"失败 bad 的详情不符合合同：/：must be object"}`，`missing` 返回 `{"ok":false,"code":"missing"}`；应用正常关闭。
+- **建议改法**：将参数建模为按业务码分布的元组联合（`[code: "missing", detail?: undefined] | [code: "bad", detail: {max: number}]`），让码和详情保持相关；或拒绝未收窄的联合码，要求作者先按码分支。补“一个无详情码加一个有详情码，联合码不得无详情调用”的编译期反例。
+
+### 建议｜正确性｜错误堆栈解析拒绝合法目录名，丢失作者模块定位
+
+- **位置**：`packages/neuro-book/src/plugin-platform/build/build-plugin.ts:236-256`。
+- **现象**：作者目录叫 `author (copy)` 时，共享模块 `shared/contracts.ts:2` 顶层抛错，构建问题却定位到导入它的 `backend/plugin.ts`，消息附的是 Vite 的 `module-runner.js:6:17`；没有真正的作者文件与行号。
+- **为什么是问题**：新正则把 `(`、`)`、`:` 一律排除在路径外；括号是合法且常见的目录名，包含它的所有作者堆栈帧都被丢掉。S7 的合同是找到堆栈中首个作者位置，不应因目录命名而退回错误的入口定位。原生 Windows 盘符/反斜杠路径也不符合这个正则（此项为代码推断，未在 Windows 运行）。
+- **如何核实**：`bun /tmp/review-t15-impl-omp/build-path.ts` 经真实 Vite 加载作者模块，输出 `[{"path":"backend/plugin.ts","message":"来自共享文件（.../node_modules/vite/dist/node/module-runner.js:6:17）"}]`。源码与目录均在本次指定实验根内；没有调用私有函数、伪造异常堆栈。
+- **建议改法**：从行尾先解析数字的 `:行:列`，再拆可选的函数名/外层括号，保留路径内部的括号与盘符；对路径或 URL 统一规范化后做作者目录判断。补含括号目录的真实构建用例；Windows 路径用平台用例验证。
+
+## 未发现问题的方面
+
+- **update 的状态表与未知结果**：仔细检查后没有发现实现问题。实现只重试 `conflict`；`missing/ok/corrupt/unsupported-version/error` 的分支与 Spec 输出 8 一致。额外运行 `bun /tmp/review-t15-impl-omp/storage-unknown.ts`：真实服务端 SQLite 落下 `count=1` 后，在服务端订阅回调里切断浏览器链路；`update` 返回 `unknown-outcome（disconnected）`，`change` 仅调用 1 次，重连前后都读到 `count=1, revision="1"`，两个实例均正常关闭。没有重复写。
+- **eventSource 的登记与停止时序**：仔细检查后没有发现实现问题。新增真实路由测试覆盖两位调用方、过滤、初始推送、退订与初始化失败；额外运行 `bun /tmp/review-t15-impl-omp/event-lifecycle.ts`，`onSubscribe` 推初值后仍在等待时停止真实提供方：`size` 从 1 变 0，`signal.aborted=true`，订阅结束原因是 `provider-stopped`；随后放行初始化并继续推送，观察值仍只有 `[1]`，没有迟到事件。
+- **子路径迁移与宿主模块表**：负责范围内仔细检查后没有发现遗漏消费者。旧 `nb-plugin-sdk/browser` 与 `plugin.command/setting/section` 在应用包中无命中；共享模块、两端宿主表、作者构建别名、tsconfig、模板、示例、打包声明同步迁移。子路径闭包与生成 SDK 的仓库外类型/构建用例通过。
+- **Bun 打包、nbooke、create、模板**：负责范围内仔细检查后没有发现新问题。真实 `bun pm pack` 生成的 tarball 被包/模板测试解开并使用，生成的命令与构建预设能运行，作者项目的 Vue 类型检查通过。没有把这些证据说成已跑过真实 `bun add` 安装或真实发布。
+- **构建报错的普通目录路径**：`bun /tmp/review-t15-impl-omp/build-path-normal.ts` 对照输出 `[{"path":"shared/contracts.ts:2:12","message":"来自共享文件"}]`；含括号目录才触发上面的定位问题。缺省/verbose 的既有真实构建测试通过。
+- **常见返工项**：检查到的 `as never`、`as unknown as` 来自基线已有实现/边界包装，没有作为本次新增问题上报；负责差异里未发现新增按错误文案分支、静默吞掉失败、mock/spy/假计时器或跨包深导入。
+
+## 已运行的验证
+
+源码固定点：`29c69bdb63e6bfab228dabbf096af0f5bb8a6941`。源码与测试未修改；实验仅在 `/tmp/review-t15-impl-omp/`，报告只追加写入指定位置。
+
+| 工作目录 | 命令 | 实际结果 |
+|---|---|---|
+| worktree 根 | `bun test packages/neuro-book/src/plugins/storage/storage.test.ts packages/nb-runtime/src/remote/outcome.test.ts packages/nb-runtime/src/remote/routing.test.ts` | 83 pass，0 fail，909 次断言 |
+| `packages/neuro-book` | `bun test plugin-sdk/build-plugin.test.ts src/sdk/plugin.test.ts src/sdk/surface.test.ts src/sdk/sdk.test.ts` | 31 pass，0 fail，109 次断言 |
+| `packages/neuro-book` | `bun test plugin-sdk/pack.test.ts plugin-sdk/template.test.ts` | 17 pass，0 fail，98 次断言，186.78s |
+| `packages/nb-runtime` | `bun run typecheck` | 通过，包含服务端与浏览器两份 tsc 配置 |
+| worktree 根 | `node node_modules/typescript/bin/tsc -p /tmp/review-t15-impl-omp/tsconfig.json --pretty false` | 退出 0；包含依赖身份与联合失败码探针及根助手对照反例 |
+
+未运行：e2e、开发服务、Windows 原生环境、真实模型、远端写操作。没有开启子审查。
+
+| `packages/neuro-book` | `bun run typecheck` | 通过：`tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json`，66.59s |
+
+## 数量
+
+阻断：0；重要：2；建议：1；共 3 条。
+
+自查命令：`grep -c "^### " /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00027-plugin-platform/tasks/t15-author-api-round2/reports/impl-review-omp.md`，输出 `3`。

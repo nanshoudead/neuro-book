@@ -1,0 +1,63 @@
+# w00027/t15 第一期实现审查（前端与作者体验，Sonnet）
+固定在 29c69bdb6；base 9bd9260de。实验目录 /tmp/review-t15-impl-sonnet/（仓库副本，node_modules 软链）。
+类型检查（bun run typecheck，副本）通过；view-commands.test.ts 10 例通过。以下每条已核实。
+
+## F1 [重要] 测试：打开视图命令的声明属性与整条接线没有任何测试
+- 位置：packages/neuro-book/src/plugins/workbench/web/commands/view-commands.test.ts:179-227；declarations 在 view-commands.ts:33-43
+- 现象：测试只直接调用 viewCommands(...)[OPEN_VIEW_COMMAND].run(...)。声明里的 expose.agent "never"、effect "write"、when 要 layoutReady 三项（计划第 6 节“Agent 调用：not-exposed”）没有一例断言；“经真实命令注册表登记”那一例只登记 MOVE_VIEW_COMMAND。
+- 核实（副本里变异，重跑 view-commands.test.ts）：把打开视图的 expose.agent 改成 "auto"、effect 改成 "read"、when 去掉 layoutReady，三种变异都是 10 例全过（0 失败）。对照：去掉“展开收起的视图”、reveal 改成只显示侧栏、去掉 reveal、未知视图码改 unavailable，各有 1 例失败，说明行为本身测到了。
+- 为什么是问题：“不对 Agent 开放”是安全属性，被改成 auto 后 Agent 可以直接改布局记录而无人发现；when 去掉后外壳没打开时命令面板仍会列出它（run 里虽然有 unavailable 兜底，但与 Spec 输出 14“when 要布局已就绪”不一致）。
+- 建议：在测试里用真实注册表登记 OPEN_VIEW_COMMAND（同 MOVE 那一例），断言 Agent 调用得 not-exposed、布局没打开时 isEnabled 为 unavailable、打开后可用。
+
+## F2 [重要] 作者 API：statusItem 的 command 收下任何助手，“写错类型编译不过”不成立
+- 位置：packages/neuro-book/src/sdk/workbench-helpers.ts:70-79（ItemCommand 与 itemCommandOf）；测试 src/sdk/browser-helpers.dom.test.ts:44-47 与文件末尾 typeChecks
+- 现象：ItemCommand = CommandHelper | ViewHelper | {id, args?}。任何助手都有 `id: string`，变量（非字面量）传进来不做多余属性检查，所以落进第三个成员。运行时 itemCommandOf 里 `"contribution" in command` 为真、贡献点不是视图，就当命令处理，产出 `{id: 助手的 id}`。
+- 核实：在副本里写 scratch 文件，`statusItem(plugin, {name, title, command: settingsPage 助手})`、`command: 另一个 statusItem 助手`、`command: choices 助手` 三个都通过 vue-tsc（tsconfig.web.json）；运行时得到指向并不存在的命令的条目，点击没有任何反应（见 F3）。把 ItemCommand 的第三个成员改成 `NonNullable<ItemDeclaration["command"]> & {readonly contribution?: never}` 后这三个都按预期报错（同时需要在 itemCommandOf 里对 `command.contribution` 做 undefined 收窄）。
+- 为什么是问题：计划 3.4 写明“命令助手与视图助手按各自的 kind 字段区分，不再用 `"contribution" in command`，写错类型编译不过”，且这是上一轮 Sonnet F09 的处理结论。实现仍用 `"contribution" in command`，也没有写进计划第 10 节的调整；测试只有正例，typeChecks 里没有一条 @ts-expect-error 反例，所以退化没有被发现。
+- 建议：按上面的类型改法收紧（或按计划给助手加 kind 字段），在 typeChecks 里加三条反例（设置页助手、状态栏条目助手、选项来源助手）；若保留 capability 比较，把偏离写进计划第 10 节。
+
+## F3 [建议] 前端行为：状态栏条目点击丢弃命令结果，视图打不开时没有任何反应
+- 位置：packages/neuro-book/src/plugins/workbench/web/titlebar/titlebar-source.ts:183-186（runItem：`void commands.execute(...)`）；失败通知 commands/failure-notice.ts 只接命令面板与键位
+- 现象：状态栏条目收视图助手后，点击执行 nbook.view.open {viewId}。视图所属入口激活失败、声明被拒或插件被禁用时，命令返回 invalid-args（“没有这个视图”），结果被丢弃，用户点了没有反应、也没有通知；按钮此刻是可点的（isEnabled 只看 layoutReady，不看目标视图是否存在）。同理，command 收一个有必填参数的命令助手（expose: {human: false}，类型允许）时点击得 invalid-args，同样静默。
+- 为什么是问题：failure-notice.ts 开头的理由就是“点了没反应是作者与用户都看不出原因的失败”，作者文档“命令没反应”一条只讲命令面板与快捷键，状态栏条目是遗漏的第三个入口；本次新增的“条目点击打开视图”正好把唯一的失败路径（invalid-args）放在了这个入口上。Spec（workbench-shell 外壳四条目点击）只写了“命令不可用时禁用并以原因作提示”，没写失败反馈，所以是缺口而不是违约。
+- 核实：从代码推断（runItem 与 failureNotice 的调用点）；未跑 e2e。
+- 建议：runItem 的结果交给 failureNotice 同一条通知路径；或在 README 的“命令没反应”里补一句状态栏条目的失败不会弹通知。
+
+## F4 [重要] Spec：views 输出 14 没有验收场景与证据条目，workbench-shell 没动
+- 位置：docs/specs/workbench/views.md:107（输出 14）、“验收与 Smoke”（约 154-166 行，只有 1 到 9）、“证据”节；docs/specs/ui/workbench-shell.md（无改动）
+- 现象：4deadb07c 只在 views.md 加了输出 14 一段、commands.md 加了表格一行、plugin-api.md 改了文字。views.md 的验收列表仍是 1 到 9，“证据”节没有 view-commands.test.ts 与新 e2e 的条目（grep docs/specs 里 view-commands.test 只出现在 workbench-shell.md:408 的另一条里，没有打开视图）。
+- 为什么是问题：计划第 4 节的表写明“workbench/views.md、ui/workbench-shell.md：行为、失败与验收”，第 6 节“写 Spec 条目时补编号；每条行为对应一个测试”并列了 8 个场景（三个区域、拖到零/收起、多视图展开、紧凑、未知 id、选择取消、Agent not-exposed、状态栏点击）。现在实现有单元测试与 e2e，但没有编号可追溯，Spec 的验收也没有对应；这几个场景里 3 个（紧凑、Agent、状态栏点击）实际没有测试（见 F1、F5）。
+- 建议：补验收 10（Given/When/Then 覆盖第 6 节场景），证据节登记 view-commands.test.ts 与 workbench-views.e2e.ts 的新一例，并让每个验收有测试可指；没有测试的场景要么补测试要么从 Spec 里删。
+
+## F5 [建议] 测试：打开视图的单元测试名称超出实际断言，右栏、拖到零、紧凑没有命令级覆盖
+- 位置：packages/neuro-book/src/plugins/workbench/web/commands/view-commands.test.ts:183-193（第一例）
+- 现象：用例名“所在区域被隐藏、面板收起时一并显示”，但只对侧栏 setPartHidden(true)、面板 setPanelHidden(true)；面板从未被收起（collapsed 始终 false），末尾 `toMatchObject({hidden: false, collapsed: false})` 里的 collapsed 项是恒真断言。目录里没有 auxiliarybar 视图，右栏（shownParts 记为主动显示）、侧栏/面板拖到零（dragCollapsed）都没有用例；计划第 6 节的“紧凑呈现下打开”也没有。
+- 核实：我在副本里写实验用例，右栏视图（隐藏/未主动显示过）打开后 selected 与 shownParts 都按预期写入；侧栏、面板拖到零加面板收起时打开，dragCollapsed 与 collapsed 都清掉，行为是对的。所以是覆盖缺口，不是实现缺陷：这些靠 layout-store.test.ts 的 applyView reveal 用例（第 220 行）间接保证，命令这一层只会把 `part` 传错（M5 变异“reveal 固定写 sidebar”确实被第一例抓到，因为面板用例失败）。
+- 建议：把用例名改成实际断言的内容，或补面板收起（setPanelCollapsed(true)）、拖到零（commitSizes 的 dragCollapsed）与右栏各一例；紧凑呈现同一代码路径，可以在 Spec 里说明“与分栏一致，不另测”后从计划场景里去掉。
+
+## F6 [建议] 作者文档与实际行为：“作者可用的内置命令”一节缺参数可选、失败码、viewId 取值，npm 残留
+- 位置：packages/neuro-book/plugin-sdk/README.md:259-267；README.md:137；plugin-sdk/template/env.d.ts:1；plugin-sdk/template/web/plugin.ts:38；plugin-sdk/template/README.md:15
+- 现象 1：表格写参数 `{viewId}`，实际 viewId 可选，不给时在界面上弹出选择（从代码调用会弹出命令面板的选择，等用户操作），文档没说；也没写失败码（没有这个视图 invalid-args、不在工作台页面 unavailable）和 viewId 就是视图助手的 `.id`（如 `hello.id`）。这一节是计划 3.4 里承诺的“兼容范围”，作者要依赖就需要这些。
+- 现象 2：S1 的目标是“只用 Bun”，但 README.md:137 仍写 `npm run typecheck`，模板里的两处注释（env.d.ts:1、web/plugin.ts:38）也写 `npm run typecheck`，每个生成的插件都会带着这两句。（grep -rnE "npm run|npx|nbook-plugin" 全部命中即这三处。）
+- 现象 3：类型检查要 Node（vue-tsc 的抬头行；README.md:43 写了，计划第 10 节也记了），但模板 README（作者生成插件后第一眼看的）写“类型检查：bun run typecheck”没提 Node，create 的“下一步”提示也没列类型检查。只有 Bun 的机器上会得到 `env: node` 找不到之类的错误，不知道原因。
+- 建议：表格里写 `{viewId?}`、省略时的行为、失败码；三处 npm 改 bun；模板 README 与 create 提示加一句类型检查需要 Node。
+
+## F7 [建议] 小项（可不改）
+- Lab 场景注释错位：src/plugins/lab/web/fixtures/PluginsPageFixture.vue:93-94 两行 JSDoc 叠在一起，原来属于 `failing` 的注释（“write-failed”“version-in-use”“busy”场景的安装结果）现在悬在 `FailureOf` 类型上面，`failing` 自己没有注释。`FailureOf<"enable">` 同时给 disable、uninstall 用，当前三者失败类型相同所以没问题，哪天分开会静默变形。把 `FailureOf` 的注释放到类型上，`failing` 的注释放回去。
+- 空操作也会写记录：对已选中且可见的视图再打开一次，applyView 因为传了 reveal 仍提交一次修改。记录已存在时 persisted 层判为 unchanged 不写盘（实测 queue 短暂为 1 后回 0，display 不变）；记录不存在时（用户从没改过布局）会因此创建布局记录（实测 base 从 missing 变 ok），右栏视图还会多写一个 shownParts。后果只是多一条记录，属于拖动预备区那条规则（layout-store.ts:213-216“意图无变化时照样显示”）的副作用，收益很小，可以不改。
+- examples/plugins/focus/shared/contracts.ts:88-94 原来给 `focusCommand` 的说明（“用户自己的节奏，不交给 Agent……写在合同模块里，别的插件按 id 执行它们”）现在挂在 `focusCommandBase` 上，读起来像在说一个常量；三条命令的 `// 直接调用 command` 注释又在下面。可以把说明挪到三条命令前。
+
+## 未发现问题的方面（已查）
+- nbook.view.open 的行为与外壳现有选容器、显示区域一致：ActivityBar 点击走 select-container 加 setPartHidden(false)，命令走 applyView 的 reveal，两者都清隐藏位与拖到零；命令比 ActivityBar 少“点当前项收起”的切换，是对的（命令幂等，不会把已显示的区域收起）。面板走 reveal 同时清 hidden 与 collapsed，右栏记 shownParts，与 Spec 输出 39 一致。实测：右栏隐藏后打开得到 selected 加 shownParts 并清隐藏位；侧栏与面板拖到零、面板收起后打开，dragCollapsed 与 collapsed 都清掉；最大化面板时打开面板视图，最大化保持。
+- 展开与选中是两次提交，第二次在第一次之后顺序入队，没有中间状态被保存下来的路径；展开被拒绝时按 resultOf 映射成 invalid-args，不会写第二次。
+- 选择流程：取消成功且不写（实测 display 不变）；选中后 openView 重新读最新状态，选择期间视图被移走时返回 invalid-args，不用过期数据。
+- 失败码：未知视图 invalid-args、无布局 unavailable，与 Spec 输出 14 一致；viewId 上限 160 不小于视图 id 上限 128（VIEW_ID_MAX_LENGTH）。
+- README 里的入口、状态栏条目（视图助手）、远程服务（remoteService、eventSource、方法实现里的 ok/fail）三段示例，我拼成一个文件放进副本的 tsconfig.web.json 范围，vue-tsc 通过，能照抄。
+- 类型检查：副本上 `bun run typecheck`（tsc、vue-tsc 两份配置）通过；view-commands.test.ts 10 例通过；变异“去掉展开”“reveal 固定为侧栏”“去掉 reveal”“未知视图码改 unavailable”都被抓到。
+- e2e 新增一例：只读审查，未运行；从代码看选择器（data-activity-container、data-tool-part）与同文件其它用例一致，取消后 revision 不变的断言先读后比，不依赖固定等待。
+- 没有发现按错误文案做分支、静默 catch、跨包深导入、`as never`/`as unknown as` 的新增（view-commands.ts 里 `raw as {viewId?}` 沿用 MOVE 的写法，命令层参数已经按 schema 校验过）。
+
+## 汇总（按影响排序）
+- 阻断 0
+- 重要 3：F1（声明属性与状态栏点击接线无测试；Agent 暴露、effect、when 变异全部存活）、F2（statusItem 的 command 收任何助手，计划承诺的“写错类型编译不过”不成立）、F4（Spec 输出 14 没有验收与证据条目，计划列的场景有 3 个没有测试）
+- 建议 4：F3（状态栏点击丢弃命令结果，视图打不开时无反应）、F5（测试名超出断言、右栏与拖到零无命令级覆盖）、F6（作者文档：参数可选与失败码缺失、npm 残留三处、Node 提示缺）、F7（三个小项，可不改）

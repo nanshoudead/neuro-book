@@ -162,6 +162,7 @@ interface ViewContext {
 
 8. Given 测试插件给样例视图声明一个 `menu` 动作，另一个测试插件往同一视图贡献一个按钮与一个“⋯”项，When 打开产品页，Then 标题行里视图自己的按钮在前、贡献的按钮在后，“⋯”里自己的项在前、分隔线之后是贡献的项；When 点贡献的“⋯”项（`context: "instance"`），Then 命令收到这个视图实例的 id 与代际。
 9. Given 侧栏里的资源管理器与一个 `scroll` 布局、内容溢出的样例视图，When 鼠标在侧栏之外，Then 标题动作透明、滑块不可见，内容宽度与没有滚动条时相同；When 鼠标移入视图，Then 动作与滑块出现；When 鼠标移开、焦点用 Tab 进到标题动作，Then 动作仍可见；When 打开“移动到”菜单并把鼠标移到菜单上，Then 动作不消失；When 拖滑块，Then 内容按比例滚动（输出 10、12）。
+10. Given 侧栏被隐藏，When 从命令面板执行“打开视图”并选侧栏里的一个视图，Then 侧栏显示、选中它的容器；When 再执行一次并取消，Then 布局记录不变（输出 14）。
 
 Smoke 入口：`e2e/workbench-views.e2e.ts`（e2e 构建装上测试插件 `test.sample-views`）。
 
@@ -174,6 +175,6 @@ Smoke 入口：`e2e/workbench-views.e2e.ts`（e2e 构建装上测试插件 `test
 ## 证据
 
 - 实现入口：[`web/views/registry.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/registry.ts)、[`web/components/WorkbenchViewInstances.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewInstances.vue)、[`web/components/WorkbenchViewFrame.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchViewFrame.vue)、[`web/host/window-plugins.ts`](../../../packages/neuro-book/src/web/host/window-plugins.ts)
-- 合同测试：标题动作（输出 10、11：placement 与“⋯”、别的插件贡献的项、按钮上限、按 key 执行）为 [`workbench/view-actions.test.ts`](../../../packages/neuro-book/src/plugins/workbench/view-actions.test.ts)（真实内核的命令系统与公开状态：可用与原因、按下态、instance 参数、实例还没建立）；[`views/registry.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/registry.test.ts)（真实内核：从未交付、受阻、激活失败与重试、停止、加载中停止、拥有者停止）
-- Smoke：别的插件贡献的标题动作（验收 8）为 `workbench-views.e2e.ts` 的“视图自己的按钮在前、贡献的在后……”一例（测试插件 `test.menus`）；标题动作与滚动条随鼠标显示（验收 9）为同一文件的“标题动作与滚动条随鼠标显示……”一例；标题动作为 [`files-explorer.e2e.ts`](../../../packages/neuro-book/e2e/files-explorer.e2e.ts)（经标题动作新建、全部收起、切换清单文件）；[`workbench-views.e2e.ts`](../../../packages/neuro-book/e2e/workbench-views.e2e.ts)（测试插件 `test.sample-views`：全链路、激活失败与重试、入口停止与刷新、加载失败与渲染出错）
+- 合同测试：标题动作（输出 10、11：placement 与“⋯”、别的插件贡献的项、按钮上限、按 key 执行）为 [`workbench/view-actions.test.ts`](../../../packages/neuro-book/src/plugins/workbench/view-actions.test.ts)（真实内核的命令系统与公开状态：可用与原因、按下态、instance 参数、实例还没建立）；[`views/registry.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/views/registry.test.ts)（真实内核：从未交付、受阻、激活失败与重试、停止、加载中停止、拥有者停止）；打开视图（输出 14）为 [`commands/view-commands.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/view-commands.test.ts)（真实布局 store 与真实命令注册表：侧栏与面板被隐藏、面板收起时显示并选中容器，多视图容器里收起的视图展开，未知视图与没有布局，选择与取消，Agent 调用得 `not-exposed`）
+- Smoke：打开视图（验收 10）为 `workbench-views.e2e.ts` 的“命令面板的打开视图……”一例；别的插件贡献的标题动作（验收 8）为 `workbench-views.e2e.ts` 的“视图自己的按钮在前、贡献的在后……”一例（测试插件 `test.menus`）；标题动作与滚动条随鼠标显示（验收 9）为同一文件的“标题动作与滚动条随鼠标显示……”一例；标题动作为 [`files-explorer.e2e.ts`](../../../packages/neuro-book/e2e/files-explorer.e2e.ts)（经标题动作新建、全部收起、切换清单文件）；[`workbench-views.e2e.ts`](../../../packages/neuro-book/e2e/workbench-views.e2e.ts)（测试插件 `test.sample-views`：全链路、激活失败与重试、入口停止与刷新、加载失败与渲染出错）
 - 批准依据：标题动作（输出 10）为 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md) 第 5 节，开发者 2026-10-12 确认；[外壳设计稿](../../proposals/workbench-shell-abstractions.md)（2026-10-07 `accepted`）第 4、5 节；视图合同提前到外壳二的决策记录见同一设计稿末尾。输出 10 的显示规则、输出 12 与验收 9 来自 [t89 的评审板](../../../.agents/works/w00017-application-runtime-architecture/tasks/t89-explorer-polish-2/README.md#决定)，开发者 2026-10-14 确认。

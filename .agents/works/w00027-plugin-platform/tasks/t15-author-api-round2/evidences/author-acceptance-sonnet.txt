@@ -1,0 +1,168 @@
+# 第二轮作者验收（Sonnet）：acme.word-goal
+（摘要、总用时、文件清单与对照上一轮的结论写在文末；以下发现按发生顺序追加。）
+
+[F01] 建议 / 工具 / `bunx nbooke create --help`
+现象：`nbooke` 不认 `--help`，打印“Unknown option '--help'. To specify a positional argument…”（这是 Bun 参数解析器的英文原文，不是本工具的），随后才是中文用法。退出码非 0。
+问题：第一行是与 NeuroBook 无关的英文，还建议“用 -- 传位置参数”，对第一次用的作者是干扰。
+建议：识别 `--help`/`-h` 直接打印用法并退出 0；未知选项的第一行用中文说“未知选项 --help”。
+
+[F02] 重要 / 工具+文档 / `nbooke create` 与 README“目录结构”
+现象：模板只生成浏览器入口（`locations: ["browser"]`、无 `backend/`）。本任务要服务端入口，必须自己：改 `definePlugin` 的 locations、新建 `backend/plugin.ts`、再把服务端的 import 路径对上。README 说“backend/plugin.ts 模板没有，要时自己加”，但没有一份“给已有插件加服务端”的最小步骤；只能去读 focus 示例（680 行）。
+问题：服务端入口加几个文件、哪几处要同步（locations、package.json?）靠猜。
+建议：`create --with-server`，或 README 在“服务端入口与远程服务”前加“给已有插件加服务端入口”的 5 行清单。
+
+[F03] 建议 / 文档 / 生成的 README.md
+现象：生成的项目 README 写“显示设置里的问候语、命令面板里‘打个招呼’”——这是模板演示功能的描述，不是插件自己的；`displayName` 为 "Word Goal"，`description` 为空，视图/命令/设置项/图标全用 hello 演示（`i-lucide-hand`、`say-hello`）。需要手改的演示残留遍布 5 个文件。
+建议：模板里用显眼标记（如 `TODO(author)`）标出必改处。
+
+[F04] 建议 / 文档 / README“设置分区与设置项”
+现象：README 只写了 `get`、`inspect`、`update`，没提 `onDidChange`；我写“目标字数改了就推给浏览器”时靠读 `settings-*.d.ts` 才发现它，又翻 `specs/settings/configuration.md` 才知道 (a) 回调参数是变化的键集合，要用 `设置项.key` 比，(b) 监听随入口这一代自动释放（该 Spec 第 191 行）。我先保守地又写了一遍 `context.onStop(stopWatching)`，是多余的。
+问题：“入口停止时释放”这一类要求，README 没有一张“哪些东西自动释放、哪些要自己 onStop”的清单：远程订阅自动（有写）、onDidChange 自动（没写）、`clock.schedule` 要自己取消（focus 示例里自己 onStop）、`handle.subscribe` 自动（有写）。
+建议：在“激活上下文”后加一张 4 行小表：自动释放 / 需 onStop。
+
+[F05] 建议 / 文档 / 类型声明与示例的一致性（正面）
+现象：照 README 与 focus 示例写完 4 个文件（合同、服务端、浏览器、视图），第一次 `bun run typecheck` 就通过（约 14 秒），`bun run build` 约 0.8 秒通过，没有一处猜错需要回头。`fail("too-many", {max})`、`ok(...)` 作为方法第二参数的写法直接照抄 README 即可；`statusItem(..., {command: panel})` 点击打开视图也是一行。
+
+== 故意写错的实验（每个实验在 /tmp/t15-author/exp-<名> 里，先 typecheck 再 build）==
+
+[F06] 重要 / 类型+错误信息 / 漏实现一项贡献（exp-1-missing：声明了 status 却没在 activate 产出里 implement）
+现象：`bun run typecheck` 报错落在 `activate:` 那一行（web/plugin.ts(16,5)），共 7 行，每行 450–600 个字符的泛型展开；真正有用的一句“Property 'status' is missing in type …”在第 7 行。第一行是“Type '(context: AuthorActivationContext<readonly []>) => Promise<…>' is not assignable to type …”，完全看不出缺的是哪个贡献。`bun run build` 退出码 0、正常产出 dist/（没有任何构建期检查）。
+问题：README 写“报错里写着是哪一项”，属实但要读到第 7 行、且夹在一堆泛型里；只跑 build 不跑 typecheck 的作者会把缺实现的插件装出去，视图只有标题没有内容，还不知道为什么。
+建议：(1) 构建时也核对“声明的贡献都有实现”（构建期会执行入口顶层，但 activate 不执行，所以做不到就在 README 说明“build 不检查这件事”）；(2) 类型上让缺的键以 `Problem<"缺少 status 的实现">` 的形式出现在第一行，和下面几类错误一致。
+
+[F07] 建议 / 类型 / 缺实现的类型错误落点（同 exp-1）
+现象：错误落在 `activate` 属性（整个函数），而不是 `return {contributions: {...}}` 那一行；activate 函数体长时，编辑器红线画在函数名上，作者要自己找 return。
+建议：若可行，让 `contributions` 产出本身做收窄（例如 activate 返回类型的泛型参数放到 `contributions` 的属性上）。
+
+[F08] 建议 / 错误信息 / 把视图写进服务端入口（exp-2-view-in-server）
+类型期：`backend/plugin.ts(30,21)`（落在 `contributions: {v}` 的 `v` 上，位置准），第一行“Type 'ViewHelper<…> ' is not assignable to type 'ViewHelper<…> & "只能写进浏览器入口：v"'”——中文原因在引号里，能读懂，但形式是一个品牌类型不匹配，不是一句话；只有 2 行，比 F06 好很多。
+构建期：退出码 1，标题“产物不纯”，3 条：vue、vue/server-renderer（由 web/GoalView.vue 引入）、`@notnotype/nb-plugin-sdk/workbench`（由 backend/plugin.ts 引入）。只有第 3 条末尾写了“只给浏览器入口用（要 Vue）；服务端入口不导入它，两端共用的合同放在 shared/”。每条后面都重复一遍“共享的是 @vue/reactivity、typebox、…”的 9 项清单（约 200 字），3 条就是 3 遍。
+问题：(1) 标题“产物不纯”不是作者的语言，看不出是“服务端入口引用了浏览器专用模块”；(2) 最有用的建议在最后一条的末尾；(3) 没有文件:行，只有“由 backend/plugin.ts 引入”（该文件的哪一行不知道）；(4) vue、vue/server-renderer 两条是同一个原因的衍生噪音。
+建议：按“来源模块”分组，一个原因一条，先写原因与改法，把“共享清单”放到 --verbose；标题改“服务端入口引用了不能在服务端用的模块”。
+
+[F09] 建议 / 类型 / 远程方法返回失败码拼错（exp-3-code-typo：`fail("too-manny", …)`）
+类型期：`backend/plugin.ts(50,56): Argument of type '"too-manny"' is not assignable to parameter of type '"too-many"'.` 只有一行，落点精确到字符串字面量，且因为只有一个码，参数类型就是唯一合法码，足够清楚。构建期：通过（退出 0），没有核对。
+评价：好。有多个码时参数类型是联合，报错同样列出全部合法值（TS 的“did you mean”也会给），未实测多码。README 说“第一行就列出能用的码”属实。
+注意：在 add 里直接 `return {ok: false, code: "too-manny", detail: ...}` 不走 `fail` 助手也能写，没试，因为 README 推荐助手。
+
+[F10] 建议 / 类型 / 详情形状写错（exp-4-detail-shape：`{limit: …}`；exp-4b-detail-type：`{max: "50000"}`）
+形状错：`backend/plugin.ts(50,69): Object literal may only specify known properties, and 'limit' does not exist in type '{ max: number; }'.` 一行，落点在多余属性上，并告诉了正确形状。
+类型错：`(50,69): Type 'string' is not assignable to type 'number'.` 一行，落点在值上，但没有出现属性名 `max`（TS 的默认行为）。
+评价：都够用。构建期通过。这两条说明“详情形状按合同检查”这条承诺在类型期兑现了。
+
+[F11] 建议 / 错误信息 / 有必填参数的命令（exp-5-required-arg）
+类型期：`web/plugin.ts(11,33)`，第一行是一大段对象类型（约 400 字）的“not assignable to Omit<CommandDeclaration,…> & … & Problem<…>”，中文原因（“命令参数有必填项：命令面板不收集参数，参数改成可选，或者写 expose: {human: false}”）出现在第 1 行末尾（Problem<"…"> 里）和第 2 行开头。能找到，但要扫一整行。
+构建期：很好：退出 1，“执行入口定义失败”，`web/plugin.ts:11:17：命令 acme.word-goal.add-500 的参数有必填项（n），命令面板不收集参数：参数改成可选，或者写 expose: {human: false} 只给 Agent 与代码用` 一行，带文件:行:列、点名了参数 `n`、给了两种改法。
+评价：构建期报错是这次所有实验里最好的范本。
+
+[F12] 建议 / 类型 / require 一个没声明的服务（exp-6-require：从 dependencies 去掉 hostClockKey）
+类型期：`backend/plugin.ts(30,48)`（落在 `require(hostClockKey)` 的实参上，位置准），2 行，第 1 行末尾 `Problem<"这个服务没有写进入口的 dependencies（可选依赖用 resolve）">`，告诉了原因与替代做法，未点名是哪个服务（从落点能知道）。构建期：通过，退出 0；运行时才会炸（未实测，因为不装进 NeuroBook）。
+建议：类型期已经足够；构建期若能看出 `require` 的实参会更好，但做不到静态识别，可以不做，只在 README 说明“这一类只靠 typecheck”。
+
+[F13] 建议 / 错误信息 / 设置项名写成烤串（exp-7-kebab-setting：`daily-goal`）
+类型期：`shared/contracts.ts(10,42)`，第 1 行约 600 字的对象类型展开，末尾才是 `Problem<…>`，第 2 行开头才是 `Property '"设置项名用小驼峰（点分段）：daily-goal"' is missing …`（中文原因在这里）。构建期：很好，`shared/contracts.ts:10:26：配置项名 daily-goal 不合规则：以点分段的小驼峰，至多 128 个字符`，退出 1。
+小问题：构建期说“配置项名”、类型期说“设置项名”，用词不一致；构建期没有写出建议的写法（dailyGoal）。类型期的 Problem 文字里没有 128 字符上限。
+建议：统一为“设置项名”；构建期加一句“例如 dailyGoal”。
+
+[F14] 重要 / 类型+工具 / 产出远程服务却不写 remoteProvides（exp-8-no-remoteProvides）
+类型期：`backend/plugin.ts(27,5)`（落在 `activate:` 上），共 8 行，每行 450–580 字符的泛型展开；中文原因“入口没有声明 remoteProvides：要交出它，先在入口上写 remoteProvides”在第 6 行（短行），属性名行在第 8 行。第 1 行完全是 AuthorActivationContext 的泛型展开。
+构建期：通过、退出 0，产出的 dist/package.json 里该服务端入口的 `remoteProvides` 是 `[]`、浏览器调用它只会得到运行时失败。构建时明明读得到合同与入口声明，却没有核对“activate 会交出远程服务”（做不到），也没有核对“浏览器 `context.remote.use(合同)` 的目标没有任何入口提供”（可以做）。
+问题：这是作者最容易漏的一项（合同写了、provideRemote 写了、声明忘了），类型报错的有用信息被埋在第 6 行，构建期还静默通过。
+建议：同 F06：缺的声明在第一行用 Problem 给出；README“构建与常见报错”表加一行；构建期对“插件内浏览器入口 use 的合同没有被本插件任何入口 remoteProvides”给警告。
+
+[F15] 建议 / 错误信息 / 记录不写 locality（exp-9-no-locality）
+类型期：`backend/plugin.ts(11,28): Property 'locality' is missing in type '{ key: string; scope: "user"; … }' but required in type 'RecordOptions<…>'.` 第 2 行，位置精确到 defineRecord 的实参。构建期：很好，`backend/plugin.ts:11:15：记录定义 daily 不合规则：locality 必填：服务端入口的记录写 shared，按客户端分开存写 local`，退出 1，带文件:行:列和改法。
+评价：好。
+
+[F16] 建议 / 错误信息 / definePlugin 的 locations 与实际入口不符（exp-10、exp-11）
+exp-10（locations 只写 browser、却有 backend 入口）：typecheck 通过（类型期不查），build 退出 1：“入口定义不合格 / plugin.ts：插件描述的 locations 没有写 server，可是这些位置有入口。在 definePlugin 的 locations 里加上它们”。exp-11（locations 写了 server、backend/plugin.ts 被删）：“plugin.ts：插件描述的 locations 写了 server，可是这些位置没有入口。去掉它们，或者检查入口模块是否导出了插件定义”。
+问题：(1) 报错的位置写 `plugin.ts`（读描述的那个文件），而该改的是 `shared/contracts.ts` 的 `definePlugin` 那一行；作者会先打开 plugin.ts 找不到 locations；(2) exp-11 没说“缺省找 backend/plugin.ts 与 web/plugin.ts”，删文件/拼错目录名的作者会不知道为什么“没有入口”（README 目录结构一节写了，但报错没指回去）。
+建议：位置指向 `definePlugin` 调用处的文件:行（构建时能取到 definePlugin 的调用栈）；exp-11 的报错补“已找的入口模块：backend/plugin.ts（不存在）”。
+
+[F17] 建议 / 错误信息 / package.json 版本与 definePlugin 不一致（exp-13）
+build 退出 1：“插件描述与 package.json 不一致 / plugin.ts：描述是 acme.word-goal@0.1.0，package.json 是 acme.word-goal@0.2.0”。清楚，两边的值都给了；同样没点出 `definePlugin` 在哪个文件（F16），typecheck 不查。README“三处不一致时构建报错”属实。
+
+[F18] 建议 / 类型 / 远程调用与事件 emit 的类型（exp-12-misc）
+`changed.emit({words: "x"})`：`backend/plugin.ts(55,35): Type 'string' is not assignable to type 'number'.`；`remote.add({count: 500})`：`web/plugin.ts(31,45): … 'count' does not exist in type '{ words: number; }'`；`r.detail.limit`：`(31,116): Property 'limit' does not exist on type '{ max: number; }'`。都是一行、落点准。也就是说合同写一遍，服务端实现、事件、浏览器调用、失败详情四处都有类型，这是 API 最好的部分。
+
+[F19] 重要 / 文档 / README 与模板里出现 `npm run typecheck`
+位置：README“贡献”里视图一条（“`npm run typecheck`（vue-tsc）按组件的 defineProps 检查…”），模板 `web/plugin.ts` 第 38 行注释同样。
+问题：规则是只用 Bun，同一份 README 前面还特意说“bun run typecheck 用 Node 运行”；作者照字面 `npm run typecheck` 会真的去用 npm（有的环境没有 npm）。
+建议：改 `bun run typecheck`，两处。
+
+[F20] 重要 / 文档 / 没有“怎么在装进 NeuroBook 之前验证逻辑”的说明
+现象：README 开头说构建期实现“只在你构建插件、写测试时执行”，但全文没有一节讲测试。我试了一下：`import {serverPlugin} from "./backend/plugin"` 在 bun 里能跑，得到 `{id, entries: [{location, dependencies, remoteProvides, contributions, activate}]}`；要测 `add` 的 too-many，就得手搓 `context.services.require`（storageKey、settingsKey、hostClockKey）、`context.onStop`、`context.signal`，再从 `activate` 的返回值里拆出 `provideRemote(...)` 的内部形状——后者不透明、没有文档，也没有测试替身（内存存储、假设置、假时钟）。
+问题：本任务里“too-many”“跨天清零”这类业务逻辑唯一能验证的办法是装进真实 NeuroBook；示例插件的场景测试在仓库里，不随包（plugin-api 写“examples/ 不带场景测试”）。
+建议：包里加一个 `@notnotype/nb-plugin-sdk/testing`（内存的 storage/settings/clock 与“激活入口、调用远程方法”的 helper），或者至少在 README 写“要测业务逻辑，把逻辑抽成纯函数放 shared/，入口只做接线”。我这次的实现里把 MAX_WORDS 校验与跨天累加都写在 activate 里，正是因此没法单独测。
+
+[F21] 建议 / API 形状 / 同一件事要写几遍（以本插件为例的清点）
+- 插件身份：package.json（publisher、name、version 三项）+ definePlugin（id、version）= 5 个值写 2 遍，build 核对（OK，有报错）。
+- 运行位置：definePlugin 的 `locations` + 入口的 `location` + 文件放在哪个目录（backend/、web/）= 3 处，build 核对。
+- 每个浏览器贡献的“键”：以视图为例，`view(plugin,{name:"panel"})`、入口 `contributions: {panel, …}`、`implement` 产出里的 `panel:` = 同一个标识符出现 3 次，其中后两次的键是作者自取，漏写由类型检查（F06）。
+- 设置项：`setting(...)` 定义 + `plugin.descriptor([main, dailyGoal])` 列出 + 要读写还要 `dependencies: [{key: settingsKey}]` = 3 处；`descriptor([...])` 漏列一个设置项会怎样？没实测（见 F22）。
+- 远程服务：合同里的 `provider`、`callers` + 入口 `remoteProvides: [progress]` + 激活里 `provideRemote(progress, …)` = 合同被写进入口声明和产出两遍，漏一处靠类型（F14）。
+- 依赖：`dependencies: [{key: storageKey}]` 为什么每项要包成 `{key: …}` 对象，我没有看到文档解释（可能为了 optional）；单键数组写 `[storageKey]` 更顺手。
+- 本插件“多语言”字符串：title 同一个词（Word Goal）在 section、view、statusItem 里各写一次。
+建议：优先消除“键写三遍”（让 `implement` 的产出按声明顺序/按 name 自动匹配，或者 `contributions` 允许数组，`implement` 产出也是数组）和 descriptor 手工列表（构建时本来就会执行 shared/contracts.ts，可以收集所有 `section`/`setting`）。
+
+[F22] 建议 / 工具 / `plugin.descriptor([...])` 漏列设置项（只是推测，未实测）
+README 说设置分区、设置项“都写进 plugin.descriptor([…])”。我没有故意漏列做实验，但这是第二遍清单，和 F21 同类：漏列的设置项在设置窗口里不会出现，作者不一定能想到是 descriptor 的原因。建议构建时核对：shared/ 里 `setting()` 调用过的都在 descriptor 里（构建已经执行了该模块）。
+
+[F23] 建议 / 文档 / “常用名字”里 `hostClockKey` 的出处
+我用了 `hostClockKey`（取时间做“今天”）。它在 README 里只在“常用名字”一行列出，没有说它给的 `RuntimeClock` 有 `now()` 与 `schedule()`，要去读 `index.d.ts` 才知道；focus 示例用 `clock.schedule`。直接用 `Date.now()` 当然也行，但文档没有说“为什么要用宿主时钟”（可测性？），作者不知道该不该用。
+建议：“常用名字”后加两句：宿主时钟的用途与成员。
+
+[F22 补] 重要 / 工具 / descriptor 漏列设置项——已实测（exp-14-descriptor）
+`plugin.descriptor([main])`（漏掉 dailyGoal，而服务端 `settings.get(dailyGoal)` 与 `contracts.ts` 里的 `setting(...)` 都还在）：typecheck 通过，build 退出 0、无警告，dist/package.json 里完全没有 dailyGoal（`grep -c` 为 0）。运行时设置窗口不会出现这一项，`settings.get(dailyGoal)` 的行为未实测（可能返回 default，也可能抛错）。这是最容易被漏、而且全程静默的一项。把 F22 升为“重要”。
+建议：构建时核对“入口依赖/使用的设置项都在 descriptor 里”，或让 descriptor 自动收集。
+
+[F24 追加说明] README 的“完整远程服务”示例可照抄（实测）
+把 README 里 contracts/backend/web 三段原样放进新生成的项目（只补了 plugin.ts 与一个浏览器入口外壳），`bun run typecheck` 通过。小瑕疵：backend 片段 `import {eventSource, ok, provideRemote}` 之后又在 `add: async ({by}, {fail, ok})` 里解构出同名 `ok`，遮蔽了导入（能编译，lint 的 no-shadow 会报）；README 同时推荐“根入口的 ok”和“方法第二参数的 ok”，没说用哪个，我的实现用了第二参数。（此条算在 F05 同类“正面”里，不计入重要。）
+
+======================================================================
+## 对照上一轮作者验收报告（t14 author-acceptance-sonnet.txt）逐条（只用我这一轮的实测）
+
+[旧F01 状态栏点击打开视图] 已解决：`statusItem(plugin, {name, title, command: panel})` 直接收视图助手，typecheck/build 通过；README 新增“作者可用的内置命令”表（`nbook.view.open`、`OPEN_VIEW_COMMAND`）。运行时是否真的打开未验证（不装 NeuroBook）。
+[旧F02 失败码/详情写错落在方法名、嵌套深] 已解决：方法第二参数的 `fail` 按方法定型，`fail("too-manny")` 报在该字符串上、一行（exp-3）；详情形状/类型写错各一行、落在该属性/值上（exp-4、4b）。
+[旧F03 调用方 detail 是 unknown] 已解决：`added.detail.max` 随码收窄（README 示例与 exp-12 里 `r.detail.limit` 报“不存在于 {max:number}”）。
+[旧F04 缺实现的编译错误很深] 仍然存在：exp-1 仍是 7 行、每行 450 到 600 字符，原因在第 7 行，落在 `activate:`；和上一轮 6 行 3000 字符基本一样（本轮 F06、F07）。
+[旧F05 忘 remoteProvides 完全不提这个词] 部分解决：现在 Problem 文字“入口没有声明 remoteProvides：要交出它，先在入口上写 remoteProvides”出现了，但在第 6 行，前面 5 行泛型展开；构建期仍静默通过（本轮 F14）。
+[旧F06 locations 报错里位置名是空的] 已解决：现在写“locations 没有写 server，可是这些位置有入口”“locations 写了 server，可是这些位置没有入口”，冒号后不再留空（exp-10、11）；残留的是报错指向 plugin.ts 而非 definePlugin 所在文件（本轮 F16）。
+[旧F07 构建期先打印 vite 堆栈] 已解决：默认输出只有两行（标题 + `文件:行:列：消息`），路径指向真正出错的文件（exp-5 web/plugin.ts:11:17、exp-7 shared/contracts.ts:10:26、exp-9 backend/plugin.ts:11:15）；vite 堆栈在 `--verbose` 里（实测，另见一处小问题：verbose 的第一条堆栈位置是 web/plugin.ts:26:50，与摘要里的 11:17 不一致，应是转译后的行号，以摘要为准）。
+[旧F08 类型层能表达却拖到构建期]
+  - 命令必填参数：已解决（exp-5 typecheck 也报，且构建期仍报）。
+  - 设置项名烤串：已解决（exp-7 typecheck 报“设置项名用小驼峰”，构建期也报）。
+  - `require` 未声明的服务：已解决（exp-6 typecheck 报并指出可选依赖用 resolve）；构建期仍不查。
+  - 合同 id 前缀写错：不再适用（remoteService 只写短名，id 由助手拼）。
+  - 记录 schema `additionalProperties: true`：仍然存在（exp-15 typecheck 通过，build 报“schema 须为顶层 type: object 且 additionalProperties: false”，文案清楚；类型层没收窄，README 已写“这类 TypeBox 类型里看不出来的构建时报”）。
+  综合：部分解决。
+[旧F09 storage 类型没从根入口导出] 已解决：`/storage` 导出 `RecordSnapshot`、`Revision`、`StorageFailure`、`UpdateResult`、`WriteResult` 等（docs/exports.md），我用了 `RecordHandle`。（`OpenResult` 仍未导出，我没用到。）
+[旧F10 事件要手写订阅集合与 abort 清理] 已解决：`eventSource<T>()`，我只写了 `emit`，没写订阅集合；README 说明在 activate/工厂里建。
+[旧F11 合同 id 要手写、id/version/locations 冗余] 部分解决：合同 id 由 `remoteService(plugin,{name})` 拼，已解决；package.json 与 definePlugin 里的 id、version、locations 仍要各写一遍（本轮 F21），由构建核对且报错清楚。
+[旧F12 设置项 layers/applies 与服务端只读用户层没写] 已解决：README“设置分区与设置项”一条写了缺省值、含义和“服务端入口只读得到缺省值与用户层，服务端用的写 layers: ["user"]”。
+[旧F13 命令 expose 缺省没写] 已解决：README 命令一条写了 `expose.agent` 不写就是不开放、`confirm`/`auto` 的含义。
+[旧F14 README 示例不能照抄、没有存储片段] 已解决：远程服务示例可原样放进项目通过 typecheck（F24），“私有存储”里有 open/update/subscribe 的片段。残留：F20（没有测试说明）。
+[旧F15 create 的模板上加服务端要手工多步] 仍然存在：模板仍只有浏览器入口，加服务端要自己改 locations、建 backend/、删演示残留（本轮 F02、F03）；publisher 的报错文案已不再说“视图与命令的 id 以它开头”（改成“definePlugin 用它拼出各项贡献的 id”），这一半已解决。
+[旧F16 NumberInput 的 v-model 是字符串] 仍然存在：components.d.ts 里 `modelValue?: string`、`update:modelValue: (value: string)` 未变（只核对类型，我的插件没用）。
+
+对照统计（16 条）：已解决 10（旧F01 F02 F03 F06 F07 F09 F10 F12 F13 F14）；部分解决 3（旧F05 F08 F11）；仍然存在 3（旧F04 F15 F16）；不再适用 0（旧F08 的“合同 id 前缀”一支不再适用，已并入 F08 的综合结论）。
+（核对：10+3+3=16。）
+
+======================================================================
+## 摘要
+
+照 SDK 的 README 与 focus 示例，从零写出 acme.word-goal（设置分区与整数设置项缺省 2000、服务端远程服务 add/today 与 changed 事件、私有记录按日累计、浏览器侧栏视图含进度条、状态栏百分比点击打开视图、命令“记一笔 500 字”，入口停止时释放），`bun run typecheck` 与 `bun run build` 第一次就通过，没有一步需要回头猜。故意写错的 15 组实验里，业务错误（失败码、详情形状、必填参数命令、未声明依赖、设置项名、locality、locations、版本）现在编译期或构建期都有落点准、带改法的报错，比上一轮明显好；仍差的是三类：(1) 漏实现一项贡献、忘 remoteProvides 的类型错误仍埋在 7 到 8 行泛型展开里（原因在第 6、7 行），且构建期静默通过；(2) `plugin.descriptor([...])` 漏列设置项时全程静默，是最容易漏的一项；(3) 没有任何关于“装进 NeuroBook 之前怎么测业务逻辑”的说明。文档层面 README 里残留 `npm run typecheck`。
+
+## 数量
+阻断 0；重要 6（F02 F06 F14 F19 F20 F22）；建议 17（F01 F03 F04 F05 F07 F08 F09 F10 F11 F12 F13 F15 F16 F17 F18 F21 F23，另含 F24 说明）；共 23 条加 F22 补、F24 说明各一段。
+故意写错实验：漏实现（F06）、视图写进服务端（F08）、失败码拼错（F09）、详情形状/类型写错（F10）、必填参数命令（F11）、require 未声明（F12）、设置项烤串（F13）、不写 remoteProvides（F14）、不写 locality（F15）、locations 不符（F16）、版本不符（F17）、descriptor 漏列（F22 补）、additionalProperties:true（对照段）。
+
+## 未验证
+没有装进运行中的 NeuroBook：`nbook.view.open` 的实际效果、changed 事件实时更新、too-many 分支的实际返回、跨天清零、`require` 未声明服务和 descriptor 漏列时的运行时行为，均只按类型与构建产物推断。
+
+## 总用时
+约 17 分钟（含 build:sdk 与 15 组实验）。
+
+## 插件最终文件清单与行数（/tmp/t15-author/word-goal）
+package.json 21；plugin.ts 3；shared/contracts.ts 37；backend/plugin.ts 63；web/plugin.ts 36；web/GoalView.vue 18；env.d.ts 6；tsconfig.json 13；README.md 26（模板生成，内容未改）。手写部分共 157 行（plugin.ts、contracts、backend、web/plugin、vue）。实验副本在 /tmp/t15-author/exp-*，README 示例对照在 /tmp/t15-author/readme-ex。
+

@@ -53,6 +53,15 @@ updated: 2026-10-23
 - 设置窗口的插件清单显示插件的详细信息：作者可以给更新地址（从 git 安装的，地址就是那个仓库），以后也考虑从 nbook 平台安装；
 - 插件可以附带 README.md，在插件详情里显示。
 
+t15 第一期的实现审查与作者验收留下的（[t15 plan.md 第 11 节](tasks/t15-author-api-round2/plan.md)）：
+
+- 给作者的测试替身：SDK 的 `/testing` 子路径（内存里的存储、设置与时钟，激活一个入口再调用它的远程方法）；
+- `nbooke create --with-server`：生成带服务端入口与远程服务的模板；
+- 状态栏条目点击执行命令失败时也弹通知（现在只有命令面板与快捷键弹）；
+- 纯度检查的报错按来源模块分组、先写原因与改法，共享清单放进 `--verbose`；
+- 服务键带 id 的字面量类型，`require` 未声明的服务按 id 而不是接口核对（改内核 `defineServiceKey` 与全部定义）；
+- nb-ui 的 NumberInput 的 `modelValue` 是字符串。
+
 ## 关键现状
 
 平台设计已 acceptance，机制部分已实现，但外部插件的运行路径完全没有：应用只用代码里的静态 `productPlugins` 装配内置插件，没有从目录发现、安装或执行外部代码的入口（`packages/neuro-book/src/manifest.ts`、`server/plugins.ts`、`web/plugins.ts`）。详见 [t01](tasks/t01-requirements/README.md)。
