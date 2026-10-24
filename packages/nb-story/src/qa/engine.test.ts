@@ -661,11 +661,13 @@ describe("每一轮的模型（t16）", () => {
         return {...base, providers: {test: {...base.providers!.test!, models: [{id: "scripted"}, {id: "other"}]}}, models: ["test/scripted", "test/other"]};
     })();
 
-    test("这一轮按选的模型跑，记录写引用；续问没选就接着用上一轮的，选了就换", async () => {
+    test("这一轮按选的模型跑，记录写引用；续问没选就接着用上一轮的（只给推理档也是），选了就换", async () => {
         const first = await askScripted(book, [answer()], {at: P, config: two, model: {model: "test/other"}});
         expect(first.outcome.result.model).toBe("test/other");
         const second = await askScripted(book, [answer()], {continueFrom: first.outcome.result.id, config: two});
         expect(second.outcome.result.model).toBe("test/other");
+        const thinkingOnly = await askScripted(book, [answer()], {continueFrom: first.outcome.result.id, config: two, model: {thinking: "high"}});
+        expect(thinkingOnly.outcome.result.model).toBe("test/other");
         const third = await askScripted(book, [answer()], {continueFrom: first.outcome.result.id, config: two, model: {model: "test/scripted"}});
         expect(third.outcome.result.model).toBe("test/scripted");
     });

@@ -298,7 +298,8 @@ export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion
     const startedAt = new Date(started).toISOString();
     const start = input.continueFrom === undefined ? await startNew(input, started) : await startContinued(input, input.continueFrom);
     const {book, at, mode, ledger, previous, id} = start;
-    const qaModel = resolveQaModel(input.config, input.model ?? (previous === null ? {} : continuedChoice(input.config, previous)));
+    // 没选模型（包括只给了推理档）时续问接着用上一轮的模型（qa.md 输出 40）。
+    const qaModel = resolveQaModel(input.config, {...(previous === null ? {} : continuedChoice(input.config, previous)), ...input.model});
 
     const state: QaToolState = {book, at, ledger, answer: null};
     // 作答被退回的次数：不只是我们的校验，OMP 的参数校验与“收尾要单独调用”的退回也算，所以按工具结束事件数。
