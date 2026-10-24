@@ -43,6 +43,16 @@ updated: 2026-10-23
 | [t14](tasks/t14-plugin-author-api/README.md) | 作者 API 的形状：`definePlugin` 与贡献助手、结果助手、短名与缺省值、出错可见（t13 design.md A1 到 A9，开发者 2026-10-24 定 D5） |
 | [t15](tasks/t15-author-api-round2/README.md) | 作者 API 第二轮：t14 作者验收提出的打开视图、类型报错落点、调用方失败详情、规则提前到编辑器、构建报错格式、事件助手、合同 id（范围评估完，待开发者定范围） |
 
+## 后续的插件功能
+
+开发者 2026-10-24 记下，还没排进 Task：
+
+- 从 git（GitHub、GitLab）安装插件；
+- 从压缩包安装插件；
+- 开发调试体验：热插拔（[`runtime.plugin-hot-plug`](../../../docs/specs/runtime/plugin-hot-plug.md)）；
+- 设置窗口的插件清单显示插件的详细信息：作者可以给更新地址（从 git 安装的，地址就是那个仓库），以后也考虑从 nbook 平台安装；
+- 插件可以附带 README.md，在插件详情里显示。
+
 ## 关键现状
 
 平台设计已 acceptance，机制部分已实现，但外部插件的运行路径完全没有：应用只用代码里的静态 `productPlugins` 装配内置插件，没有从目录发现、安装或执行外部代码的入口（`packages/neuro-book/src/manifest.ts`、`server/plugins.ts`、`web/plugins.ts`）。详见 [t01](tasks/t01-requirements/README.md)。

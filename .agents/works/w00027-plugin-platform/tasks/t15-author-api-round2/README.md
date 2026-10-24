@@ -33,10 +33,28 @@ updated: 2026-10-24
 
 合计：比 t14 小一些，约为它的一半到三分之二。B4 里 `require` 的类型一项改动面最大，可以单独拿出来。
 
+开发者 2026-10-24 定：B1 到 B7 按评估全做，先记录。
+
+## 先处理的事（开发者 2026-10-24）
+
+开发者要求 t15 先处理下面几件事，再做 B1 到 B7。第 3、5、6、7、8 条是问题，先回答、需要定的交开发者定；第 9 条只记录，写在 [Work README](../../README.md) 的“后续的插件功能”。
+
+| 编号 | 事项 | 查到的现状 | 待定 |
+|---|---|---|---|
+| P1 | 文档治理：根 README、`packages/*/README.md` 等 | 根 README 的下载、安装、使用说明还是 master 上旧版本的，写着“新应用尚不可用”；`packages/neuro-book` 有 README，`dev-panel`、`owned-process`、`neuro-book-contracts`、`neuro-book-test-support` 没有 | 按 P2 的结论写新应用的安装与使用 |
+| P2 | 发布一个版本，完成插件的闭环 | 本分支没有新应用的发布链（[repository-workflow](../../../../../docs/standards/repository-workflow.md) 的“发布授权”）；应用版本 0.1.0，旧应用发到 0.10.2-canary；SDK 不发布，作者要先拿 tarball；npm 上已有 nb-story 与 8 个包（ADR 0029，`bun publish`） | 发什么、版本号、渠道 |
+| P3 | SDK 为什么在 `packages/neuro-book` | [ADR 0030](../../../../../docs/adr/0030-plugin-platform-layering.md) 第 3、4 条（开发者 2026-10-24 定）：SDK 是 NeuroBook 专有的，公开面再导出应用的内置插件合同；拆成独立包要违反“领域包不得依赖应用”、打平类型、复制测试设施；版本等于产品版本 | 回答即可；要独立发布 SDK 时按 ADR 0030 的“后果”搬出 |
+| P4 | 只用 Bun：npm 的地方改成 bun | 作者文档、`create` 的提示、模板 README 写 `npm install`、`npx`、`npm run`；打包用 `npm pack`；模板测试用 `node` 跑作者命令；`create` 专门处理 `npm init` 的占位；SDK 的 `engines.node` | 无，照做 |
+| P5 | 命令行：`nbook` 与 `nbook-plugin` 要不要合并 | 现有 `nbook-plugin`（SDK 包的 bin：`create`、`build`），`nbstory`（nb-story），`nbdev`（仓库开发工具，不发布）；没有 `nbook`，应用靠 `bun run start` 启动 | 一个还是两个 |
+| P6 | 内置插件的版本 | 已同步：内置插件的版本等于产品版本 `PRODUCT_VERSION`（`src/shared/product.ts`，测试核对与 `package.json` 一致；plugin-manifest 的字段表），都是 0.1.0 因为产品是 0.1.0 | 新应用第一个版本的版本号（随 P2） |
+| P7 | `defineRecord` 由 SDK 提供，是否耦合 | 不在内核：`defineRecord` 在应用的 `shared/storage.ts`，归内置插件 `nbook.storage`；SDK 根入口把内核的 API 与设置、存储、命令、工作台几个内置插件的合同平铺在一起，看不出哪个归谁 | 是否按内置插件分子路径 |
+| P8 | `RecordHandle` 的“轮询” | 没有轮询：`subscribe` 已推送写入；作者文档里的循环是条件保存冲突后的重试 | 是否加 `update(改写函数)` 助手，并在文档里写 `subscribe` |
+| P9 | 后续的插件功能 | — | 只记录 |
+
 ## 当前状态
 
-2026-10-24 建立并完成范围评估，等开发者定范围。
+2026-10-24 记下 P1 到 P9，等开发者定 P2、P5、P7、P8。
 
 ## 下一步
 
-开发者定范围后写 plan.md（autonomous-delivery 的流程：计划、计划审查、实施、实现审查）。
+开发者定了以后写 plan.md（autonomous-delivery 的流程：计划、计划审查、实施、实现审查）。
