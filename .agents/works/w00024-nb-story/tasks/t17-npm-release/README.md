@@ -59,6 +59,7 @@ nb-story 连同 8 个内部依赖包（nb-ui、nb-agent-ui、nb-form、nb-markdo
   - nb-story README 补“抽取只用 OpenAI Chat 接口，用目录模型时另写 `ingest.model`”。
   - 复跑：`scripts/release` 10 条、nb-story 命令行与 Skill 41 条、nb-story 与 nb-markdown typecheck、脚本类型检查、`release:check`、`release:smoke` 全部通过。
 - 2026-10-24 合入 master（`fec3782ca`，不 push）；Spec 去掉 planned 标记、补实现入口与合同测试。
+- 2026-10-24 在 master 上跑 `bun run release:publish`（不带 `--yes`）：门禁全部通过（会发布的目录干净、在 master、清单检查、9 个包 typecheck、冒烟），停在“npm 没有登录”。
 
 ## 下一步
 
