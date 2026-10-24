@@ -205,6 +205,26 @@ describe("PluginsPage", () => {
         expect(goal.querySelector("[data-plugin-problems=contributions]")).toBeNull();
     });
 
+    it("顶层声明被拒时服务端与本窗口各有一条，合成一条显示；没有问题时不显示快照说明；卸载后不再听本窗口的变化", async () => {
+        const top = (location: string): PluginProblem => ({kind: "contribution-rejected", plugin: "example.goal", entry: null, location, capability: "settings.sections", id: "other.main", reason: "invalid-declaration", detail: "前缀不对"});
+        let windowProblems: ReadonlyArray<PluginProblem> = [];
+        let listening = 0;
+        const windowPlugins = {problems: () => windowProblems, onChange: () => {
+            listening += 1;
+            return () => void (listening -= 1);
+        }};
+        const quiet = await open(registry([BUILTIN, {...HELLO, id: "example.goal"}]).client, "zh-CN", windowPlugins);
+        expect(document.querySelector("[data-plugins-snapshot]")).toBeNull();
+        quiet.unmount();
+        mounted.splice(mounted.indexOf(quiet), 1);
+        expect(listening).toBe(0);
+
+        windowProblems = [top("browser")];
+        await open(registry([BUILTIN, {...HELLO, id: "example.goal", problems: [top("server")]}]).client, "zh-CN", windowPlugins);
+        expect([...row("example.goal").querySelectorAll("[data-plugin-problem-line]")]).toHaveLength(1);
+        expect(row("example.goal").querySelector("[data-plugin-problems=contributions]")?.textContent).toContain("1 项贡献被拒");
+    });
+
     it("安装先预览：确认框写明首次安装与完全信任；取消不安装；确认后清空输入框、列表出现“重启后安装”", async () => {
         const fake = registry([BUILTIN]);
         const wrapper = await open(fake.client);

@@ -17,7 +17,6 @@ const MESSAGES = {
     lineUnsupported: {"zh-CN": "当前编辑器不支持行号跳转", "en-US": "The active editor does not support line navigation"},
     editorNotReady: {"zh-CN": "编辑器尚未就绪", "en-US": "The editor is not ready yet"},
     commandFailed: {"zh-CN": "{title}没有完成", "en-US": "{title} did not complete"},
-    commandNeedsArgs: {"zh-CN": "这个命令需要参数，命令面板与快捷键不收集参数。", "en-US": "This command needs arguments; the command palette and shortcuts do not collect them."},
 } satisfies Record<string, LocalizedText>;
 
 export type PaletteMessage = keyof typeof MESSAGES;

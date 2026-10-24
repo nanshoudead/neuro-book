@@ -56,4 +56,14 @@ export function typeChecks(): void {
     // @ts-expect-error 视图只能写进浏览器入口
     plugin.entry({location: "server", contributions: {panel}, activate: () => ({contributions: {panel: panel.implement(() => ({greeting: "hi"}))}})});
     plugin.entry({location: "browser", contributions: {panel}, activate: () => ({contributions: {panel: panel.implement(() => ({greeting: "hi"}))}})});
+    // 其它三个浏览器助手同样只能写进浏览器入口。
+    const page = settingsPage(plugin, {name: "main", title: "x", icon: "i-lucide-x", load: () => import("./testing/GreetingProbe.vue")});
+    const count = statusItem(plugin, {name: "count", title: "x"});
+    const voices = choices(plugin, {name: "voices"});
+    // @ts-expect-error 设置页只能写进浏览器入口
+    plugin.entry({location: "server", contributions: {page}, activate: () => ({contributions: {page: page.implement(() => ({greeting: "hi"}))}})});
+    // @ts-expect-error 状态栏条目只能写进浏览器入口
+    plugin.entry({location: "server", contributions: {count}, activate: () => ({contributions: {count: count.implement({text: () => "1"})}})});
+    // @ts-expect-error 选项来源只能写进浏览器入口
+    plugin.entry({location: "server", contributions: {voices}, activate: () => ({contributions: {voices: voices.implement(() => ({status: "ready", items: []}))}})});
 }

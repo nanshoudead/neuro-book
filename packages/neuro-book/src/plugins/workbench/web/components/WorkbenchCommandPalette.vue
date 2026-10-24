@@ -9,7 +9,7 @@
 import {QuickPick} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, ref, watch} from "vue";
 
-import {currentKeyPlatform, formatKeybinding} from "nbook/plugins/commands/shared/contracts";
+import {currentKeyPlatform, formatKeybinding, runsWithoutArgs} from "nbook/plugins/commands/shared/contracts";
 import type {CommandMetadata} from "nbook/plugins/commands/shared/contracts";
 import {textOf} from "nbook/shared/localized-text";
 
@@ -53,13 +53,11 @@ let pending: PendingSelection | null = null;
 
 const parsedQuery = computed(() => parseCommandQuery(host.query.value));
 
-/** 参数有必填项的命令：面板不收集参数，执行它必然 `invalid-args`，不列（docs/specs/workbench/commands.md 的“执行入口”）。 */
-const needsArgs = (command: CommandMetadata): boolean => ((command.args as {readonly required?: ReadonlyArray<string>}).required?.length ?? 0) > 0;
 
-/** 候选：人类可见、当前可用、不要参数的 canonical 命令。可用性读的上下文若是响应式的，变化时这里随之重算。 */
+/** 候选：人类可见、当前可用、不带参数能执行的 canonical 命令（面板不收集参数，docs/specs/workbench/quick-open.md 的“排序”）。可用性读的上下文若是响应式的，变化时这里随之重算。 */
 const visibleCommands = computed<readonly CommandMetadata[]>(() => {
     void host.revision.value;
-    return host.commands.list().filter((command) => command.expose?.human !== false && !needsArgs(command) && host.commands.isEnabled(command.id).ok);
+    return host.commands.list().filter((command) => command.expose?.human !== false && runsWithoutArgs(command.args) && host.commands.isEnabled(command.id).ok);
 });
 
 interface LineState {

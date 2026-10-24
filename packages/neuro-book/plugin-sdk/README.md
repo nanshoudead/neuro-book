@@ -126,7 +126,7 @@ export const browserPlugin = plugin.definition([plugin.entry({
 - **设置分区与设置项**：`plugin.section({name, title, icon, groups})` 是设置窗口左栏的一项（list 分区，`category` 缺省 `plugins`），窗口按设置项的 schema 画控件；`plugin.setting({name, schema, default, title, layers, applies, section, group})` 是一个设置项，`section` 收分区本身，`group` 只能是那个分区的组 id，写错编译不过。两者都写进 `plugin.descriptor([…])`。读写要在入口的 `dependencies` 里声明 `settingsKey`，激活时 `context.services.require(settingsKey)` 拿到服务：`get(设置项)` 读有效值，`inspect` 读各层，`update(设置项, 值, {layer})` 写本插件声明的项。规则见 [configuration](../../../docs/specs/settings/configuration.md)，写法见模板的 `shared/contracts.ts`。
 - **page 分区**：值是列表、对象这类通用控件画不了的，用 `/browser` 的 `settingsPage(plugin, {name, title, icon, load})` 自己画页面，每一项用 `SettingsRow` 排；规则见 [settings-window 的“分区声明”](../../../docs/specs/settings/settings-window.md#分区声明)，写法见示例 snippets。
 - **视图**：`/browser` 的 `view(plugin, {name, title, icon, load})`，`location` 缺省 `sidebar`，`layout` 缺省 `scroll`。`implement(() => 属性)` 交出实现：组件收到宿主给的 `context`（视图 id、是否可见、所在位置）与这个函数返回的属性。组件里拿不到服务，入口激活时拿到的服务、状态与回调都经这个函数交过去；它在渲染时求值，读到的响应式值变了视图跟着更新。`npm run typecheck`（vue-tsc）按组件的 `defineProps` 检查这些属性：必填属性漏写、名字写错或类型不对都报错，可选属性的笔误查不出来。声明的字段见 [views 的“输入与前置条件”](../../../docs/specs/workbench/views.md#输入与前置条件)，写法见模板的 `web/plugin.ts`。
-- **命令**：`plugin.command({name, title, description, effect, args?})`，`title` 给人看，`description` 用英文写给 Agent 看，`effect` 是 `read` 或 `write`（只读模式下 Agent 不能执行 `write` 的命令）。`args` 缺省为空对象，写了没写 `additionalProperties` 的补成 `false`。命令面板不收集参数：**给人用的命令，参数要全部可选**；参数有必填项的命令只给 Agent 与代码调用，要写 `expose: {human: false}`，否则加载就抛错。实现 `command.implement((args) => 结果)` 返回 `{ok: true, value}` 或 `{ok: false, code, reason}`（类型 `CommandResult`）。
+- **命令**：`plugin.command({name, title, description, effect, args?})`，`title` 给人看，`description` 用英文写给 Agent 看，`effect` 是 `read` 或 `write`（只读模式下 Agent 不能执行 `write` 的命令）。`args` 缺省为空对象，写了没写 `additionalProperties` 的补成 `false`。命令面板不收集参数：**给人用的命令，参数要全部可选**（不带参数也能通过校验）；参数有必填项的命令只给 Agent 与代码调用，要写 `expose: {human: false}`，否则加载就抛错。实现 `command.implement((args) => 结果)` 返回 `{ok: true, value}` 或 `{ok: false, code, reason}`（类型 `CommandResult`）。
 - **状态栏条目**：`/browser` 的 `statusItem(plugin, {name, title, command?, order?})`，`alignment` 缺省 `right`、`order` 与 `priority` 缺省 0，`command` 可以直接给命令助手（点了执行它，不带参数）。实现是三个函数：
 
   ```ts
@@ -268,7 +268,7 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 ## 调试
 
 - **先看插件页**：插件装上、重启后没出现或用不了，先打开设置里的插件页。你的插件那一行列出此刻的问题：哪个入口激活失败（带错误消息）、哪个入口受阻（缺哪个服务）、哪项贡献被拒（贡献点、id 与原因）。服务端的问题是打开页面时的，本窗口的随时更新；在作品里运行的入口不在这里，看日志。
-- **命令没反应**：从命令面板或快捷键执行失败时，右下角弹一条警告，写命令名与原因。有必填参数的命令不出现在面板里（面板不收集参数），`definePlugin` 的 `command` 遇到这种写法会直接报错，除非写了 `expose: {human: false}`。远程调用得到 `unavailable` 时，详情里带着提供方入口激活失败的原因。
+- **命令没反应**：从命令面板或快捷键执行失败时，右下角弹一条警告，写命令名与原因。不带参数过不了校验的命令不出现在面板里（面板不收集参数），`definePlugin` 的 `command` 遇到这种写法会直接报错，除非写了 `expose: {human: false}`。远程调用得到 `unavailable` 时，详情里带着提供方入口激活失败的原因。
 - **服务端日志**：`<状态根>/logs/server-current.jsonl`，一行一条 JSON，按插件 id 搜：服务端与项目入口的受阻、激活失败与装载失败都记在这里（事件 `plugins.diagnostic`），比插件页多出时间与上下文。服务端的 `console.warn`、`console.error` 也会记进去；要写结构化的记录就依赖 `diagnosticsKey`，用 `record({level, event, message, data, source: {plugin, entry}})`，`event` 写成以插件 id 开头的名字，方便搜。
 - **浏览器**：开发者工具的控制台里有这个窗口的诊断，浏览器入口的激活失败也在这里；浏览器入口的产物带 source map（源文件路径相对你的插件目录），在 Sources 面板里按原文件名找到代码、打断点。视图渲染出错时只有这个视图原位显示错误与“重试”，别的视图照常。
 - 服务端入口的产物同样带 source map（`server.js.map`）。

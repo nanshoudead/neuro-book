@@ -71,4 +71,29 @@ describe("WorkbenchCommandHost", () => {
         expect(reported).toHaveLength(2);
         wrapper.unmount();
     });
+
+    it("面板执行的命令失败：同样记诊断并弹警告；invalid-args 照原因写（命令自己返回的不一定是缺参数）", async () => {
+        const registry = createCommandRegistry({contextKeys: contextTable({}), report: () => undefined});
+        const slot = new PaletteSlot();
+        registry.register({id: OPEN_COMMANDS_ID, source: "nbook.workbench", declaration: OPEN_COMMANDS_DECLARATION, run: () => slot.command.run({})});
+        registry.register({
+            id: "nbook.app.count",
+            source: "nbook.test",
+            declaration: {title: {"zh-CN": "统计", "en-US": "Count"}, description: "count", args: Type.Object({}, {additionalProperties: false}), effect: "read"},
+            run: () => ({ok: false, code: "invalid-args", reason: "选区里没有文字"}),
+        });
+        const notices: NotificationInput[] = [];
+        const reported: string[] = [];
+        const wrapper = mount(WorkbenchCommandHost, {
+            props: {commands: registry, attach: (host) => slot.attach(host), report: (error: Error) => reported.push(error.message), locale: ref<DisplayLocale>("zh-CN"), notify: (input: NotificationInput) => notices.push(input)},
+            attachTo: document.body,
+        });
+        await nextTick();
+        shortcut();
+        await vi.waitFor(() => expect(document.body.querySelector('[role="option"][id$="-option-nbook.app.count"]')).not.toBeNull());
+        document.body.querySelector('[role="combobox"]')?.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+        await vi.waitFor(() => expect(notices).toEqual([{tone: "warning", title: "统计没有完成", message: "选区里没有文字"}]));
+        expect(reported).toEqual(["命令 nbook.app.count 执行失败：选区里没有文字"]);
+        wrapper.unmount();
+    });
 });

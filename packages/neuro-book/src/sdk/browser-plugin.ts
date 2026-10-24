@@ -28,7 +28,8 @@ type Loaded<Load> = Load extends () => Promise<infer Module> ? (Module extends {
 /**
  * 组件的属性类型，去掉宿主给的 `context` 与 Vue 给每个组件都加的属性。用 vue-tsc 检查时，`load: () => import("./X.vue")`
  * 带着组件的 `defineProps`，`implement` 给的属性漏了必填项、写错名或类型不对都编译不过；可选属性的笔误查不出（返回的对象
- * 不做多余属性检查）。只有 tsc 时单文件组件是没有属性信息的 `Component`，不检查也不误报。
+ * 不做多余属性检查）。带泛型参数的单文件组件（`<script setup generic="…">`）推不出属性，回落成不检查。只有 tsc 时单文件组件
+ * 是没有属性信息的 `Component`，不检查也不误报。
  */
 export type PropsOf<Load> = Loaded<Load> extends abstract new (...args: never) => {readonly $props: infer Props}
     ? Omit<Props, keyof VNodeProps | keyof AllowedComponentProps | keyof ComponentCustomProps | "context">

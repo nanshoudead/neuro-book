@@ -9,7 +9,7 @@
 import {ref, shallowRef} from "vue";
 import type {Ref, ShallowRef} from "vue";
 
-import type {CommandFailureCode, CommandService} from "nbook/plugins/commands/shared/contracts";
+import type {CommandFailure, CommandService} from "nbook/plugins/commands/shared/contracts";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {QuickPickRequest, QuickPickResult} from "../../shared/contracts";
@@ -65,7 +65,7 @@ export interface PaletteHost {
     closePalette(): void;
     remember(id: string): void;
     /** 从面板执行的命令失败了：交给宿主决定怎样告诉用户（产品页弹通知）。 */
-    failed(id: string, failure: {readonly code: CommandFailureCode; readonly reason: string}): void;
+    failed(id: string, failure: CommandFailure): void;
     /** 停止跟踪命令表并关闭面板。 */
     dispose(): void;
 }
@@ -76,7 +76,7 @@ export interface PaletteHostOptions {
     /** 面板开合时通知；Lab 用它填上下文键 `quick-open-visible`。 */
     readonly onVisibleChange?: (visible: boolean) => void;
     /** 面板执行的命令失败时调用；不给时（Lab 的命令场景）失败只留在命令服务的结果里。 */
-    readonly onFailure?: (id: string, failure: {readonly code: CommandFailureCode; readonly reason: string}) => void;
+    readonly onFailure?: (id: string, failure: CommandFailure) => void;
 }
 
 const RECENT_LIMIT = 30;

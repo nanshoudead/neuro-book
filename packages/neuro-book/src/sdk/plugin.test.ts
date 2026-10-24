@@ -57,6 +57,8 @@ describe("definePlugin", () => {
         expect(loose.contribution.declaration.args).toMatchObject({additionalProperties: false});
         expect("additionalProperties" in optional).toBe(false);
         expect(() => plugin.command({name: "needs", title: "x", description: "x", effect: "write", args: Type.Object({words: Type.Integer()})})).toThrow("命令面板不收集参数");
+        // 没有 required，但空对象过不了校验：同样抛错。
+        expect(() => plugin.command({name: "few", title: "x", description: "x", effect: "write", args: Type.Object({words: Type.Optional(Type.Integer())}, {minProperties: 1})})).toThrow("收不下空对象");
         expect(plugin.command({name: "agent-only", title: "x", description: "x", effect: "write", args: Type.Object({words: Type.Integer()}), expose: {human: false}}).id).toBe("acme.hello.agent-only");
         expect(() => plugin.command({name: "open", title: "x", description: "x", effect: "read", args: Type.Object({}, {additionalProperties: true})})).toThrow("additionalProperties");
     });

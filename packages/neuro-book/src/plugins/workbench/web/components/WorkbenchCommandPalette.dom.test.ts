@@ -93,6 +93,8 @@ describe("WorkbenchCommandPalette", () => {
         app.register("nbook.quick-open.open-commands", {expose: {human: false}});
         // 有必填参数：面板不收集参数，执行必然失败，不列。
         app.register("nbook.app.needs-words", {args: Type.Object({words: Type.Integer()}, {additionalProperties: false})});
+        // 没有 required，但同样收不下空对象。
+        app.register("nbook.app.needs-some", {args: Type.Object({words: Type.Optional(Type.Integer())}, {additionalProperties: false, minProperties: 1})});
 
         await open(app.host);
         expect(options()).toEqual([]);

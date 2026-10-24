@@ -8,6 +8,7 @@
 
 import {Type} from "typebox";
 import type {Static, TSchema} from "typebox";
+import {Value} from "typebox/value";
 
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
@@ -34,6 +35,20 @@ export type CommandFailureCode =
     | "stale-target";
 
 export type CommandResult<T> = {ok: true; value: T} | {ok: false; code: CommandFailureCode; reason: string};
+
+/** 失败的结果里调用方要读的两项。 */
+export interface CommandFailure {
+    readonly code: CommandFailureCode;
+    readonly reason: string;
+}
+
+/**
+ * 不带参数执行时参数能通过校验：命令面板、快捷键与状态栏条目都以 `{}` 执行（执行入口把省略的参数归一成 `{}`）。
+ * 按校验结果判断而不是只看 `required`：`Union`、`Intersect`、`minProperties` 这类写法没有 `required` 也收不下 `{}`。
+ */
+export function runsWithoutArgs(args: TSchema): boolean {
+    return Value.Check(args, {});
+}
 
 export type CommandInvocation = {source: "user"} | {source: "agent"; callerId: string};
 

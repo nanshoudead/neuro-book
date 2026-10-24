@@ -22,7 +22,7 @@ import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import {Type} from "typebox";
 import type {Static, TObject, TSchema} from "typebox";
 
-import {COMMANDS_POINT} from "nbook/plugins/commands/shared/contracts";
+import {COMMANDS_POINT, runsWithoutArgs} from "nbook/plugins/commands/shared/contracts";
 import type {CommandDeclaration, CommandImplementation, CommandResult} from "nbook/plugins/commands/shared/contracts";
 import {SETTINGS_SECTIONS_POINT} from "nbook/plugins/settings/shared/sections";
 import type {SettingsSectionCategory, SettingsSectionDeclaration} from "nbook/plugins/settings/shared/sections";
@@ -244,9 +244,10 @@ export function definePlugin<const Id extends string>(options: {readonly id: Id;
             const id = contributionId(plugin, command.name, "命令", COMMAND_SEGMENT);
             const {name: _name, title, category, args, ...rest} = command;
             const schema = strictObject(args ?? Type.Object({}), `命令 ${id} 的 args `);
-            const required = (schema as {readonly required?: ReadonlyArray<string>}).required ?? [];
-            if (required.length > 0 && rest.expose?.human !== false) {
-                throw new TypeError(`命令 ${id} 的参数有必填项（${required.join("、")}），命令面板不收集参数：参数改成可选，或者写 expose: {human: false} 只给 Agent 与代码用`);
+            if (!runsWithoutArgs(schema) && rest.expose?.human !== false) {
+                const required = (schema as {readonly required?: ReadonlyArray<string>}).required ?? [];
+                const which = required.length > 0 ? `有必填项（${required.join("、")}）` : "收不下空对象";
+                throw new TypeError(`命令 ${id} 的参数${which}，命令面板不收集参数：参数改成可选，或者写 expose: {human: false} 只给 Agent 与代码用`);
             }
             const declaration: CommandDeclaration = {...rest, title: localizedText(title), ...(category === undefined ? {} : {category: localizedText(category)}), args: schema};
             return {

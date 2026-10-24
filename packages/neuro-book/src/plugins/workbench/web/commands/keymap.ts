@@ -8,7 +8,7 @@
  */
 
 import {parseKeybinding} from "nbook/plugins/commands/shared/contracts";
-import type {CommandFailureCode, CommandService, KeyModifiers, KeyPlatform, Release} from "nbook/plugins/commands/shared/contracts";
+import type {CommandFailure, CommandService, KeyModifiers, KeyPlatform, Release} from "nbook/plugins/commands/shared/contracts";
 
 /** 分发器读取的按键事件字段；浏览器的 KeyboardEvent 满足它。 */
 export interface KeyInput {
@@ -51,7 +51,7 @@ function normalizeEventKey(key: string): string | null {
 /**
  * `failed`：快捷键执行的命令失败时调用（与命令面板同一种告诉用户的方式）；诊断照记。
  */
-export function createKeymapDispatcher(commands: CommandService, platform: KeyPlatform, report: (error: Error) => void, failed?: (id: string, failure: {readonly code: CommandFailureCode; readonly reason: string}) => void): KeymapDispatcher {
+export function createKeymapDispatcher(commands: CommandService, platform: KeyPlatform, report: (error: Error) => void, failed?: (id: string, failure: CommandFailure) => void): KeymapDispatcher {
     let bindings = new Map<string, string>();
     const reported = new Set<string>();
     const reportOnce = (key: string, message: string): void => {
