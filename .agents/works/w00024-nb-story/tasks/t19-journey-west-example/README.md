@@ -27,7 +27,7 @@ updated: 2026-10-24
 ## 当前状态
 
 - 2026-10-24 11:27 开抽，模型是开发者配置的 `custom/gpt-6-luna`；费用按 deepseek-flash 低谷价（输入未命中 ¥1/M、命中 ¥0.02/M、输出 ¥4/M）从 token 用量折算。第 1 回 220 秒，输入 57,769、输出 9,147 token，折合约 ¥0.09（每百万字约 ¥14）。
-- 第一次启动在第 1 回第一步就以“密钥环境变量没有设置”退出：在 `packages/nb-story` 下运行时 Bun 不加载仓库根的 `.env`，而同一目录下 `config show` 却报密钥已设置。改在仓库根运行后正常。两者不一致的原因待查（疑为 OMP 自己加载了 `.env`），记作抽取管线的易用性问题。
+- 第一次启动在第 1 回第一步就以“密钥环境变量没有设置”退出：在 `packages/nb-story` 下运行时 Bun 不加载仓库根的 `.env`，而同一目录下 `config show` 却报密钥已设置。改在仓库根运行后正常。原因已查明（读 `node_modules/@oh-my-pi/pi-utils/src/env.ts`）：OMP 一被导入就解析 `~/.env`、OMP 配置目录与 agent 目录下的 `.env`、当前目录的 `.env`，并入进程环境；`config show`、`ask`、`serve` 导入了 OMP，看得到这些文件里的密钥，`nbstory ingest` 与它的 Worker 不导入 OMP，看不到。同一份配置问答能用、抽取报缺密钥，取决于密钥放在哪个文件里；nb-story 也因此在 Spec 没写的地方读了 OMP 的 `.env`。记作抽取管线的问题，交开发者定怎么统一。
 
 ## 下一步
 
