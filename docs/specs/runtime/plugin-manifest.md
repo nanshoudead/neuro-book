@@ -23,7 +23,8 @@ owners:
 
 ## 术语与参与者
 
-- **插件**：以 `publisher.name` 标识，是安装、启用、禁用、升级、卸载的单位。内置插件的 id 以 `nbook.` 开头，第三方插件的 id 不得以 `nbook.` 开头。内置插件与第三方插件能力相同，区别只有：id 前缀；内置插件随产品打包、默认启用、不经安装；内置插件的版本等于产品版本（[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）。
+- **平台档案**：宿主交给内核的“这是哪个应用”的事实：清单 `engines` 里的引擎键，与保留给内置插件的发布者。内核不写任何应用的名字，清单的读、生成与内置判断都按宿主给的档案进行。NeuroBook 的档案是引擎键 `neurobook`、保留发布者 `nbook`，本 Spec 里的 `engines.neurobook` 与 `nbook.` 都是这份档案的取值。内核自己的命名空间 `runtime`（内核自带的诊断插件 `runtime.diagnostics`）在任何平台上都保留，与保留发布者同样对待。
+- **插件**：以 `publisher.name` 标识，是安装、启用、禁用、升级、卸载的单位。内置插件的 id 以保留发布者（NeuroBook 是 `nbook`，另有内核的 `runtime`）开头，第三方插件的 id 不得以它们开头。内置插件与第三方插件能力相同，区别只有：id 前缀；内置插件随产品打包、默认启用、不经安装；内置插件的版本等于产品版本（[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）。
 - **入口**：插件在一个运行位置上的运行单位，有插件内唯一的入口 id。与 `runtime.plugins` 中的入口是同一概念：各自激活、各自失败、各自有代次。
 - **运行位置**：入口运行的宿主。`server` 是服务端运行实例，每个服务端进程一个；`project` 是项目实例，每个打开的项目一个（在子进程中）；`browser` 是浏览器运行实例，每个窗口一个；`tui` 是终端界面实例，每个会话一个。
 - **服务**：以 `<插件 id>/<名称>` 标识的导出 API。服务属于运行实例：在每个运行位置上由该插件至多一个入口提供，不同位置的入口可以提供同一个 id，各自在本位置的实例里提供。
@@ -38,7 +39,7 @@ owners:
 清单有两种载体，字段与规则相同：
 
 - 第三方插件安装时，清单是插件目录中的 `package.json`；
-- 内置插件的清单是代码中的插件描述与各运行位置的入口定义，不另存 `package.json`。代码定义里 `requires`、`remoteProvides`、`remoteDelegates` 写服务键与合同对象，`package.json` 写 id；两者按 id 对应。代码定义里的函数（入口的激活函数、贡献点的校验函数）是运行期钩子，不属于清单；除此之外，每个内置插件的代码定义都必须能表达为 `package.json` 形式，并通过同一套校验，转回代码定义后相同。第三方插件的清单由 SDK 构建预设从代码定义生成，与内置插件用同一个转换；第三方插件的贡献点只能用 `schema` 与 `idPrefix` 表达声明的规则，不能写校验函数：登记时没有插件代码可调，写了也不会在宿主里运行。同一个贡献点在几个运行位置的定义里出现时，各份的 `implementation`、`schema` 与 `idPrefix` 必须一致。贡献点与激活事件前缀属于插件：清单把它们写在插件一级，第三方插件在它有入口的每个运行位置都定义它们；内置插件的代码定义可以只在部分运行位置定义（例如只在项目实例里需要方言贡献点、没有入口），比较时按插件汇总。
+- 内置插件的清单是代码中的插件描述与各运行位置的入口定义，不另存 `package.json`。代码定义里 `requires`、`remoteProvides`、`remoteDelegates` 写服务键与合同对象，`package.json` 写 id；两者按 id 对应。代码定义里的函数（入口的激活函数、贡献点的校验函数）是运行期钩子，不属于清单；除此之外，每个内置插件的代码定义都必须能表达为 `package.json` 形式，并通过同一套校验，转回代码定义后相同。第三方插件的清单由 SDK 构建预设从代码定义生成，与内置插件用同一个转换；生成之后立刻按读清单的规则读一遍，结果要么是读得回来的清单，要么是问题列表，`description` 与 `license` 取自作者的 `package.json`，随生成写入；第三方插件的贡献点只能用 `schema` 与 `idPrefix` 表达声明的规则，不能写校验函数：登记时没有插件代码可调，写了也不会在宿主里运行。同一个贡献点在几个运行位置的定义里出现时，各份的 `implementation`、`schema` 与 `idPrefix` 必须一致。贡献点与激活事件前缀属于插件：清单把它们写在插件一级，第三方插件在它有入口的每个运行位置都定义它们；内置插件的代码定义可以只在部分运行位置定义（例如只在项目实例里需要方言贡献点、没有入口），比较时按插件汇总。
 
 下表按 `package.json` 的字段写。与本能力有关的字段：
 
@@ -58,7 +59,7 @@ owners:
 | `entries.<id>.activationEvents` | 激活事件列表 |
 | `entries.<id>.contributes` | 需要本入口提供实现的贡献，例如命令、视图、Agent 工具、路由、公开状态的键（`state.public`，实现是激活时绑定的读取函数，[`state.public`](../state/public-state.md)） |
 | `contributes` | 只有声明、不需要实现的贡献，例如菜单项、设置项、菜单位置 |
-| `contributionPoints` | 本插件拥有的贡献点：`id`、该贡献点的贡献是否需要实现（`implementation`，决定贡献写在入口下还是顶层），以及可选的声明结构 `schema` 与贡献 id 前缀 `idPrefix`（只有一个取值 `"plugin"`：贡献 id 必须以贡献方插件 id 加 `.` 开头） |
+| `contributionPoints` | 本插件拥有的贡献点：`id`、该贡献点的贡献是否需要实现（`implementation`，决定贡献写在入口下还是顶层），以及可选的声明结构 `schema` 与贡献 id 前缀 `idPrefix`（只有一个取值 `"plugin"`：贡献 id 必须以贡献方插件 id 加 `.` 开头；发布者是保留发布者的插件也可以只以发布者加 `.` 开头，[`runtime.plugins`](plugins.md) 输出 15） |
 | `activationEventPrefixes` | 本插件拥有的激活事件前缀，例如 `nbook.commands` 的 `onCommand`；只有拥有者能触发以它开头的事件 |
 | `pluginVersions` | 所依赖第三方插件的版本范围；只约束版本，是否必需由各入口的 `requires` 决定（输出 3 的 `version-mismatch` 与其后的可选依赖规则） |
 | `style` | 可选，浏览器要加载的样式表，相对插件目录，规则同入口的 `main`；窗口登记插件时就加载（[`runtime.plugin-code-loading`](plugin-code-loading.md) 的插件样式） |
