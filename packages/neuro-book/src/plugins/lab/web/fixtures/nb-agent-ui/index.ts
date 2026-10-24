@@ -5,7 +5,7 @@
  * 一起加载。要注入 Markdown 与编辑器的零件经 `host.ts` 包一层，`host.ts` 引用了 Markdown 插件的组件，只在选中场景时动态加载。
  */
 
-import type {AgentConversationView, AgentSessionList} from "@notnotype/nb-agent-ui/vue";
+import type {AgentConversationView, AgentModelCatalog, AgentSessionList} from "@notnotype/nb-agent-ui/vue";
 import type {
     AgentChainSummary,
     AgentCommandDetail,
@@ -33,6 +33,7 @@ import type {Component} from "vue";
 import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
 import {defineSubjectFixture} from "../subject-fixture";
+import {agentModelCatalogScenes} from "./catalog.scenes";
 import {agentSessionListScenes} from "./session-list.scenes";
 import {agentConversationComposerScenes, agentModelPickerScenes, agentQueuedMessagesScenes} from "./composer.scenes";
 import {
@@ -70,6 +71,13 @@ export const nbAgentUiFixtures: LabFixture[] = [
         component: "AgentSessionList", scenes: agentSessionListScenes, class: "h-[480px] w-[280px]",
         subject: async () => ({default: (await import("@notnotype/nb-agent-ui/vue")).AgentSessionList}),
         events: ["action"],
+    }),
+    // 目录对话框也不 inject（语言走 prop），直接从公开入口取；它渲染到 body，根是传送门。
+    defineSubjectFixture<typeof AgentModelCatalog>({
+        component: "AgentModelCatalog", scenes: agentModelCatalogScenes, rootless: true,
+        subject: async () => ({default: (await import("@notnotype/nb-agent-ui/vue")).AgentModelCatalog}),
+        events: ["update:open", "pick", "add-provider"],
+        writeBack: {"update:open": {layer: "model", key: "open"}},
     }),
     defineLabFixture<typeof AgentConversationComposer>({
         component: "AgentConversationComposer", scenes: agentConversationComposerScenes,
@@ -115,7 +123,7 @@ export const nbAgentUiFixtures: LabFixture[] = [
     }),
     defineSubjectFixture<typeof AgentModelPicker>({
         component: "AgentModelPicker", scenes: agentModelPickerScenes, subject: agentSubject("AgentModelPicker"),
-        events: ["select-model", "select-thinking"],
+        events: ["select-model", "select-thinking", "manage"],
         writeBack: {"select-model": {layer: "props", key: "modelKey"}, "select-thinking": {layer: "props", key: "thinking"}},
     }),
     defineSubjectFixture<typeof AgentQueuedMessages>({component: "AgentQueuedMessages", scenes: agentQueuedMessagesScenes, subject: agentSubject("AgentQueuedMessages"), class: "w-full"}),

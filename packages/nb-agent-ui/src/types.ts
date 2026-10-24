@@ -166,6 +166,8 @@ export type InteractionView = {
     canChangeRuntime: boolean;
     canArchive: boolean;
     canRestore: boolean;
+    /** 宿主有管理模型的地方（例如设置页）：为真时模型下拉的末尾有“管理模型…”，发出 `model.manage`。 */
+    canManageModels: boolean;
 };
 
 export type RunStatus = "idle" | "running" | "waiting" | "stopping";
@@ -244,7 +246,15 @@ export type ComposerModeView = {
     icon?: string;
 };
 
-export type ComposerModelView = {key: string; label: string; supportsImages: boolean};
+export type ComposerModelView = {
+    key: string;
+    label: string;
+    supportsImages: boolean;
+    /** 分组名（例如服务商）；同组的排在一起、组名做小标题，不同组里的同名模型分得清。 */
+    group?: string;
+    /** 用不了的原因（例如密钥没有设置）；有它时这一项灰掉、不能选，悬停看原因。 */
+    unavailable?: string;
+};
 
 export type ComposerView = {
     models: ComposerModelView[];
@@ -383,6 +393,7 @@ export type BuiltinAgentViewAction =
     | {type: "mode.set"; mode: string}
     | {type: "model.set"; modelKey: string}
     | {type: "thinking.set"; level: string}
+    | {type: "model.manage"}
     | {type: "runtime.reset"}
     // 提问
     | {type: "input.submit"; batchKey: string; resolutions: JsonValue}

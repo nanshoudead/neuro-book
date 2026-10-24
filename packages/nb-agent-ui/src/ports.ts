@@ -111,6 +111,8 @@ export interface PromptEditorPortExpose {
     focus(at?: "start" | "end"): void;
     insertText(text: string): void;
     insertFiles(files: readonly File[]): void;
+    /** 聚焦到末尾并插入触发字符，打开它的菜单；前一个字不是空白或标点时先补空格（nb-markdown 的 PromptEditor）。 */
+    openTrigger(char: string): void;
 }
 
 export type PromptTextViewPortProps = {

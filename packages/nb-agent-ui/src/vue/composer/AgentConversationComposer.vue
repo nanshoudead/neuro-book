@@ -9,19 +9,24 @@ import type {
     PromptToken,
 } from "../../ports";
 import type {AgentConversationContext, AgentConversationServices} from "../../types";
-import {visibleEntries, type AgentViewRegistry} from "../../registry";
+import {visibleEntries, type AgentViewRegistry, type ToolbarButtonEntry} from "../../registry";
 import {commandMenu, nextMode, resolveSubmission, sendBlockedReason} from "../../composer-actions";
+import AgentContextMeter from "./AgentContextMeter.vue";
 import AgentModelPicker from "./AgentModelPicker.vue";
 import AgentQueuedMessages from "./AgentQueuedMessages.vue";
 import {useAgentRenderers, useAgentText} from "../host";
 import {useEditorHandle} from "./use-editor-handle";
 import {tokenAction, type ViewAction} from "../view-action";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     ctx: AgentConversationContext;
     services: AgentConversationServices;
     registry: AgentViewRegistry;
-}>();
+    /** `stacked`：正文在上、工具栏在下（缺省）；`inline`：正文与控件同一行（见同名 .md 的“单行版式”）。 */
+    layout?: "stacked" | "inline";
+}>(), {
+    layout: "stacked",
+});
 
 const emit = defineEmits<{
     (e: "action", action: ViewAction): void;
@@ -47,6 +52,17 @@ const triggers = computed(() => visibleEntries(props.registry.list("triggers"), 
     .map((entry) => entry.char)
     .filter((char) => char === "/" || props.services.resolveTriggerMenu !== undefined));
 const toolbarButtons = computed(() => visibleEntries(props.registry.list("toolbarButtons"), props.ctx));
+const leadingButtons = computed(() => toolbarButtons.value.filter((button) => button.placement === "leading"));
+const trailingButtons = computed(() => toolbarButtons.value.filter((button) => button.placement !== "leading"));
+
+/** 带 `trigger` 的按钮往编辑器里插触发字符、打开它的菜单（编辑器负责聚焦与补空格），其余发出登记的 action。 */
+function onToolbarButton(button: ToolbarButtonEntry): void {
+    if (button.trigger !== undefined) {
+        const trigger = button.trigger;
+        withEditor((editor) => editor.openTrigger(trigger));
+    }
+    else if (button.action !== undefined) emit("action", button.action);
+}
 
 /**
  * 编辑器在函数身份变化时按当前查询重新取菜单：宿主换了 resolveTriggerMenu、登记的命令或界面语言变了，
@@ -196,6 +212,16 @@ const currentModel = computed(() => composer.value.models.find((model) => model.
 const acceptFiles = computed(() => props.ctx.interaction.canRegisterAttachments && !renderers.value.plainEditor);
 const acceptImages = computed(() => acceptFiles.value && (currentModel.value?.supportsImages ?? false));
 
+// ─── 单行版式 ───────────────────────────────────────────────────────────
+
+/** 单行版式没有附件条的位置：宿主收附件时退回两层。 */
+const inline = computed(() => props.layout === "inline" && !acceptFiles.value);
+/** 上下文大小只在单行版式里画（两层版式的宿主由状态栏显示用量）；不知道窗口或还没有用量时不画。 */
+const contextMeter = computed(() => {
+    const {contextTokens, contextLimit} = props.ctx.usage;
+    return inline.value && contextLimit !== null && contextLimit > 0 && contextTokens > 0 ? {used: contextTokens, limit: contextLimit} : null;
+});
+
 function onAttachmentAdd(payload: {localId: string; kind: PromptAttachmentKind; file: File}): void {
     liveAttachments.value = new Set(liveAttachments.value).add(payload.localId);
     emit("action", {type: "composer.attachmentAdded", localId: payload.localId, kind: payload.kind, file: payload.file});
@@ -276,7 +302,20 @@ defineExpose({
                 @click="rejectNotice = null"
             />
         </p>
-        <div class="acv-composer__frame" :class="{'is-readonly': readonly}">
+        <div class="acv-composer__frame" :class="{'is-readonly': readonly, 'is-inline': inline}" :data-composer-layout="inline ? 'inline' : 'stacked'">
+            <div v-if="inline && leadingButtons.length > 0" class="acv-composer__leading">
+                <IconButton
+                    v-for="button in leadingButtons"
+                    :key="button.id"
+                    size="sm"
+                    :icon-class="button.icon"
+                    :disabled="readonly"
+                    :title="text(button.label)"
+                    :aria-label="text(button.label)"
+                    :data-composer-toolbar="button.id"
+                    @click="onToolbarButton(button)"
+                />
+            </div>
             <div class="acv-composer__editor">
                 <component
                     :is="renderers.promptEditor"
@@ -311,6 +350,19 @@ defineExpose({
             </div>
             <div class="acv-composer__toolbar">
                 <div class="acv-composer__tools">
+                    <template v-if="!inline">
+                        <IconButton
+                            v-for="button in leadingButtons"
+                            :key="button.id"
+                            size="sm"
+                            :icon-class="button.icon"
+                            :disabled="readonly"
+                            :title="text(button.label)"
+                            :aria-label="text(button.label)"
+                            :data-composer-toolbar="button.id"
+                            @click="onToolbarButton(button)"
+                        />
+                    </template>
                     <IconButton
                         v-if="acceptFiles"
                         size="sm"
@@ -343,11 +395,15 @@ defineExpose({
                         :thinking-levels="composer.thinkingLevels"
                         :thinking="composer.thinking"
                         :disabled="runtimeDisabled"
+                        :show-image-support="acceptFiles"
+                        :can-manage="props.ctx.interaction.canManageModels"
                         @select-model="emit('action', {type: 'model.set', modelKey: $event})"
                         @select-thinking="emit('action', {type: 'thinking.set', level: $event})"
+                        @manage="emit('action', {type: 'model.manage'})"
                     />
+                    <AgentContextMeter v-if="contextMeter !== null" :used="contextMeter.used" :limit="contextMeter.limit" />
                     <IconButton
-                        v-for="button in toolbarButtons"
+                        v-for="button in trailingButtons"
                         :key="button.id"
                         size="sm"
                         :icon-class="button.icon"
@@ -355,7 +411,7 @@ defineExpose({
                         :title="text(button.label)"
                         :aria-label="text(button.label)"
                         :data-composer-toolbar="button.id"
-                        @click="emit('action', button.action)"
+                        @click="onToolbarButton(button)"
                     />
                 </div>
                 <div class="acv-composer__send">
@@ -537,6 +593,69 @@ defineExpose({
 .acv-composer__chip-icon {
     width: 13px;
     height: 13px;
+}
+
+/*
+ * 单行版式：正文与控件同一行，控件贴在右下（正文长高时它们留在底边）。容器窄于 520px 时控件整排折到正文下面，
+ * 前置按钮（`+`）留在正文前。按容器宽度定折行点，不靠 flex-wrap 按内容挤：模型名变长时换行点不至于跟着跳。
+ */
+.acv-composer__frame.is-inline {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 2px;
+    padding: 4px 6px;
+}
+
+/*
+ * 控件贴底，并与正文最后一行的中线对齐：编辑器一行比控件高，上下留白对称，控件底下垫上半个差值（单行时与文字齐平，
+ * 多行时对着最后一行）。差值随编辑器的行高变；改了编辑器的内边距要重看这里。
+ */
+.acv-composer__leading,
+.acv-composer__frame.is-inline .acv-composer__toolbar {
+    margin-bottom: 6px;
+}
+
+.acv-composer__leading {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 2px;
+}
+
+.acv-composer__frame.is-inline .acv-composer__editor {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 0;
+    align-self: center;
+}
+
+.acv-composer__frame.is-inline .acv-composer__toolbar {
+    flex: none;
+    padding: 0;
+}
+
+.acv-composer__frame.is-inline .acv-composer__tools {
+    flex: none;
+}
+
+.acv-composer.is-expanded .acv-composer__frame.is-inline {
+    align-content: stretch;
+}
+
+.acv-composer.is-expanded .acv-composer__frame.is-inline .acv-composer__editor {
+    align-self: stretch;
+}
+
+@container (max-width: 520px) {
+    .acv-composer__frame.is-inline .acv-composer__toolbar {
+        flex: 1 0 100%;
+        justify-content: flex-end;
+    }
+
+    .acv-composer__frame.is-inline .acv-composer__tools {
+        flex: 1 1 auto;
+    }
 }
 
 /* 窄屏时模式按钮只留图标，给模型名留出位置。 */

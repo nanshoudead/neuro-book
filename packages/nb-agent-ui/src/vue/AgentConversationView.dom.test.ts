@@ -18,7 +18,7 @@ function context(): AgentConversationContext {
     return {
         session: {id: "s1", title: "第三章", summary: "", profileName: "写作助手", profileIcon: "i-lucide-feather", archived: false, summaryState: "idle"},
         availability: {status: "ready", message: "", actions: []},
-        interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canMutateHistory: true, canStop: true, canRegisterAttachments: false, canChangeRuntime: true, canArchive: true, canRestore: true},
+        interaction: {canSend: true, canSteer: true, canQueue: true, canAnswer: true, canMutateHistory: true, canStop: true, canRegisterAttachments: false, canChangeRuntime: true, canArchive: true, canRestore: true, canManageModels: false},
         run: {status: "idle", phase: ""},
         messages: [
             {kind: "user", id: "u1", timestamp: 1, intent: "normal", blocks: [{kind: "text", text: "画张图"}], contentOmitted: false},

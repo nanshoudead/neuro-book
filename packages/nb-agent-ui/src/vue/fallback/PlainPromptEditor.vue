@@ -93,6 +93,14 @@ const expose: PromptEditorPortExpose = {
     },
     // 普通文本框收不了附件；输入框在缺省实现下不显示“添加附件”。
     insertFiles() {},
+    // 普通文本框没有触发菜单：照样插到末尾（前一个字不是空白时补空格），用户接着手打。
+    openTrigger(char) {
+        if (props.readonly) return;
+        const needsSpace = value.value !== "" && !/\s$/u.test(value.value);
+        value.value = `${value.value}${needsSpace ? " " : ""}${char}`;
+        emit("change", value.value);
+        expose.focus("end");
+    },
 };
 
 defineExpose(expose);

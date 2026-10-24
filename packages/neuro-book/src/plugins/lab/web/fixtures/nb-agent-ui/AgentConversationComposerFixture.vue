@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * AgentConversationComposer 的 Lab 夹具。ctx 来自场景输入，可在数据 tab 直接编辑；宿主由 `useLabComposerHost` 扮演
- * （发送、排队、附件上传、模式与模型、命令）。另登记一个插件的工具栏按钮，演示“输入框工具栏按钮”扩展点。
+ * （发送、排队、附件上传、模式与模型、命令）。另登记两个插件的工具栏按钮，演示“输入框工具栏按钮”扩展点：前置的 `+`
+ * 插 `@` 打开引用菜单，另一个发出插件 action。
  * 输入框放在撑满画布的一列底部，展开时按这一列的高度长高。按钮带 `data-lab-action` 供 smoke 定位。
  */
 import {computed} from "vue";
@@ -24,7 +25,10 @@ const subject = useLabSubject<typeof AgentConversationComposer>(() => props.inpu
 
 const labPlugin: AgentViewContribution = {
     source: "lab:plugin",
-    toolbarButtons: [{id: "lab-attachments", icon: "i-lucide-images", label: "插入会话附件（插件按钮）", action: {type: "lab:open-attachments"}}],
+    toolbarButtons: [
+        {id: "lab-reference", icon: "i-lucide-plus", label: "插入引用（前置按钮，同 @）", placement: "leading", trigger: "@"},
+        {id: "lab-attachments", icon: "i-lucide-images", label: "插入会话附件（插件按钮）", action: {type: "lab:open-attachments"}},
+    ],
 };
 
 const registry = createAgentViewRegistry([builtinComposerContribution, labPlugin]);
