@@ -26,8 +26,9 @@ updated: 2026-10-24
 
 ## 当前状态
 
-- 2026-10-24 开草稿 worktree `.worktree/w00024-t16-drafts`（分支 `t16/drafts`，不提交），出第 1 轮静态稿。
+- 2026-10-24 开草稿 worktree `.worktree/w00024-t16-drafts`（分支 `t16/drafts`，不提交），第 1 轮静态稿发在评审板 [review](artifacts/review/index.html) v1，5 道题：输入框版式、模型目录版式、设置页结构、目录列哪些服务商、Markdown 出处自动改一次。草稿场地是 nb-story 包里的 `drafts-t16-stage.ts` 与 `drafts-t16-shoot.ts`（只在草稿 worktree）。
+- 搭稿时发现：问答页没有设 `interaction.canChangeRuntime`，模式按钮一直禁用，网页上新对话切不到全读，e2e 没覆盖；本 Task 一起修并补 e2e。
 
 ## 下一步
 
-1. 第 1 轮静态稿发评审板，等开发者定版式。
+1. 等开发者答评审板，决定写进本文件，再写计划。
