@@ -283,3 +283,4 @@ NeuroBook 的插件系统大部分 Spec 还是 `planned`，插件接入要等它
 | 2026-10-15 | 开发者 | 本提案与 V9 记忆图提案从 w00005 分支搬到 master（w00024 t02）。界面设计经 w00024 t01 九轮评审定稿，决定记在该 Task 的 README；按决定写 `docs/specs/story/` 下四份 `planned` Spec。 |
 | 2026-10-15 | 开发者 | 第一版不做内置问答：不做网页问答页、顶栏提问框，也不做 `nbstory ask`；问答由外部 Agent 读 Skill、调命令行完成。命令行与以后插件给 Agent 的工具共用同一套查询接口。等 Agent 框架与 nb-harness 定了，再用这套接口做内置问答（w00024 t02 决定 5）。 |
 | 2026-10-15 | 开发者 | 第一版（查看器、命令行、Skill）合入后，接着做内置问答与抽取，改掉上一条和第二节“抽取不做”的非目标。问答：引擎建在 nb-harness 上，挑章 Agent 用查询接口当工具；网页问答页与 `nbstory ask` 共用；两种做法都可选、默认图当目录（w00024 t05）。抽取：把 w00005 t29 的 v2 管线搬进 nb-story，命令行与网页都能导入原文并抽取、看进度，能追加新章接着抽（w00024 t06）。先做问答，再做抽取。 |
+| 2026-10-24 | 开发者 | 改掉第二节“打包发布”与第五节“第一版只从仓库运行，不发布”：nb-story 连同依赖的 8 个工作区包发布到 npm，只用 Bun 运行，加 `nbstory skill install`；形态见 [ADR 0029](../adr/0029-workspace-packages-publish-source-to-npm.md)，行为见 [`story.cli`](../specs/story/cli-skill.md)（w00024 t17）。 |

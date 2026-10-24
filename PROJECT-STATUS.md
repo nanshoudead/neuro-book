@@ -13,6 +13,7 @@
 | `packages/neuro-book-legacy` | 旧应用（Nuxt），只作代码与行为参照；含 w00017 阶段 1 的内核、三类宿主与内置插件实现（内核已复制到 `nb-runtime`，旧副本不再维护） |
 | `docs/archived/` | 旧应用时期的 Spec、代码规范、人工评测与用户文档站 |
 | 交付链 | Manager、桌面版、打包、发布、安装与部署脚本已在本分支删除；新应用的交付另行设计 |
+| npm 包 | nb-story 与它依赖的 8 个工作区包以源码发布到 npm 的 `@notnotype` 下，只用 Bun（[ADR 0029](docs/adr/0029-workspace-packages-publish-source-to-npm.md)）；发布步骤见 [`repository-workflow.md`](docs/standards/repository-workflow.md#npm-包) |
 
 ## 推进顺序
 
