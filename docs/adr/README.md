@@ -28,3 +28,4 @@ ADR 0001–0021 是旧应用的决策，随旧包留在 [`../../packages/neuro-b
 | [0026](0026-plugin-definitions-as-constants.md) | 插件定义是常量，宿主的东西走宿主能力服务；沿用 0025 的服务 id 与合同模块约定 |
 | [0027](0027-builtin-and-third-party-plugins-are-equal.md) | 内置插件与第三方插件能力相同，信任所有插件：删除代理允许清单，内部服务对所有插件开放 |
 | [0028](0028-tailwind-only-host-compiles-nb-ui.md) | 全仓只用 Tailwind v4 一套原子 CSS 引擎，nb-ui 不发预编译产物，宿主编译 nb-ui 源码并按 Tailwind 标准分层 |
+| [0029](0029-workspace-packages-publish-source-to-npm.md) | nb-story 与它依赖的 8 个工作区包以源码发布到 npm，只承诺 Bun，内部依赖 `workspace:^`，版本手工管理 |
