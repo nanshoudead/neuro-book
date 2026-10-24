@@ -7,8 +7,8 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "build": "nbook-plugin build --clean",
-        "dev": "nbook-plugin build --clean --dev",
+        "build": "nbooke build --clean",
+        "dev": "nbooke build --clean --dev",
         "typecheck": "vue-tsc --noEmit"
     },
     "devDependencies": {

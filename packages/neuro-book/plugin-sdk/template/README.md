@@ -4,15 +4,15 @@ NeuroBook 插件 `__ID__`：在侧栏放一个视图，显示设置里的问候�
 
 ## 三步装进 NeuroBook
 
-1. 装依赖：`npm install`（或 `bun install`）。
-2. 构建：`npm run build`，产物在 `dist/`。
+1. 装依赖：`bun install`。
+2. 构建：`bun run build`，产物在 `dist/`。
 3. 安装：NeuroBook 的“设置 → 插件”里点“安装…”，填 `dist` 在服务端机器上的完整路径，确认后重启。
 
 ## 改代码之后
 
-`npm run dev` 每次构建出一个新的开发版本号（`0.1.0+dev.<UTC 时间>.<毫秒>`）；在插件页再安装一次 `dist`，按升级处理，重启后生效，不用改版本号，也不用先卸载。
+`bun run dev` 每次构建出一个新的开发版本号（`0.1.0+dev.<UTC 时间>.<毫秒>`）；在插件页再安装一次 `dist`，按升级处理，重启后生效，不用改版本号，也不用先卸载。
 
-类型检查：`npm run typecheck`。
+类型检查：`bun run typecheck`。
 
 ## 目录
 

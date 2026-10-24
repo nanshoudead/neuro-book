@@ -1,11 +1,11 @@
 /**
- * `nbook-plugin create`（docs/specs/runtime/plugin-api.md 的“作者工具”）：把模板写成一个能直接构建、类型检查并安装的插件目录。
+ * `nbooke create`（docs/specs/runtime/plugin-api.md 的“作者工具”）：把模板写成一个能直接构建、类型检查并安装的插件目录。
  *
  * 模板在 SDK 包的 `template/` 里（仓库里是 `plugin-sdk/template/`，`build:sdk` 复制时填上依赖的版本范围）。文本文件里
  * 的 `__ID__`、`__PUBLISHER__`、`__NAME__`、`__DISPLAY_NAME__` 换成这个插件的；`_package.json`、`_gitignore` 写成去掉下划线的
- * 名字：模板目录里有真的 `package.json` 会被当成一个包，`.gitignore` 会被 `npm pack` 丢掉。
+ * 名字：模板目录里有真的 `package.json` 会被当成一个包，`.gitignore` 会被打包丢掉。
  *
- * SDK 不发布到 npm：作者先在新目录里 `npm install -D <SDK 的 tarball>`，再在同一个目录运行 `create .`。所以目录里只有
+ * SDK 不发布到 npm：作者先在新目录里 `bun add -d <SDK 的 tarball>`，再在同一个目录运行 `create .`。所以目录里只有
  * `package.json`、锁文件与 `node_modules` 时也可以写，已有的 `package.json` 合并：保留它已有的字段与依赖（SDK 的 `file:` 写法
  * 就在这里），只补缺的。
  *
@@ -24,10 +24,10 @@ import {manifestFormat} from "../src/plugin-platform-profile";
 const SDK_PACKAGE = "@notnotype/nb-plugin-sdk";
 
 /**
- * 刚装完 SDK（或 `npm init`、`git init` 之后）的目录里会有的东西；有别的文件就不写，免得盖掉作者已有的代码。模板里的文件
+ * 刚装完 SDK（或 `git init` 之后）的目录里会有的东西；有别的文件就不写，免得盖掉作者已有的代码。模板里的文件
  * （例如 `.gitignore`）已经存在时同样拒绝，不覆盖。
  */
-const ALLOWED_EXISTING = new Set(["package.json", "package-lock.json", "bun.lock", "bun.lockb", "yarn.lock", "pnpm-lock.yaml", "node_modules", ".git", ".npmrc"]);
+const ALLOWED_EXISTING = new Set(["package.json", "bun.lock", "bun.lockb", "node_modules", ".git", ".npmrc"]);
 
 const RENAMED: Readonly<Record<string, string>> = {"_package.json": "package.json", "_gitignore": ".gitignore"};
 
@@ -57,7 +57,7 @@ export interface CreatePluginResult {
     readonly directory: string;
     /** 相对插件目录、写下或改过的文件。 */
     readonly files: ReadonlyArray<string>;
-    /** `package.json` 里 SDK 依赖的写法是 registry 版本（SDK 还没发布，`npm install` 装不上）：调用方提示作者先装 tarball。 */
+    /** `package.json` 里 SDK 依赖的写法是 registry 版本（SDK 还没发布，`bun install` 装不上）：调用方提示作者先装 tarball。 */
     readonly sdkFromRegistry: boolean;
 }
 
@@ -91,7 +91,7 @@ export async function createPlugin(options: CreatePluginOptions): Promise<Create
         const text = fill(await readFile(source, "utf8"));
         let content = text;
         if (basename(relativePath) === "_package.json") {
-            const merged = mergePackage(JSON.parse(text) as PackageJson, existing === null ? null : withoutNpmInitPlaceholders(existing, directory), options.sdk);
+            const merged = mergePackage(JSON.parse(text) as PackageJson, existing, options.sdk);
             sdkFromRegistry = isRegistrySpec(sdkSpecOf(merged));
             content = `${JSON.stringify(merged, null, 4)}\n`;
         }
@@ -134,7 +134,7 @@ async function writeAll(directory: string, planned: ReadonlyArray<{readonly targ
 }
 
 /**
- * SDK 依赖的写法是不是从 npm 仓库装（SDK 没发布，装不上）：本地路径、`file:`、`link:`、`workspace:`、网址与 git 之外的
+ * SDK 依赖的写法是不是从 registry 装（SDK 没发布，装不上）：本地路径、`file:`、`link:`、`workspace:`、网址与 git 之外的
  * 都算，例如 `^0.1.0`、`latest`、`>=0.1.0`。
  */
 function isRegistrySpec(spec: string | undefined): boolean {
@@ -169,8 +169,8 @@ function parsePackage(directory: string, text: string): PackageJson {
 /**
  * 模板的 `package.json` 与已有的合并：已有的字段与依赖不动（作者装 SDK 时写下的 `file:` 路径、自己加的依赖），模板只补缺的
  * 字段、脚本与开发依赖。已经在 `dependencies` 里的包不再加进 `devDependencies`。`publisher`、`name`、`version` 用模板的：
- * 它们组成插件 id 与版本，要与写出的 `plugin.ts` 一致，构建时会核对；`type` 也用模板的（`npm init` 写下的 `commonjs` 会让
- * 模板的 ESM 写法读不了）。给了 `sdk` 时 SDK 依赖按它写。
+ * 它们组成插件 id 与版本，要与写出的 `plugin.ts` 一致，构建时会核对；`type` 也用模板的（已有的 `commonjs` 会让模板的 ESM
+ * 写法读不了）。给了 `sdk` 时 SDK 依赖按它写。
  */
 function mergePackage(template: PackageJson, existing: PackageJson | null, sdk: string | undefined): PackageJson {
     const merged = existing === null ? template : mergeExisting(template, existing);
@@ -186,26 +186,6 @@ function sdkSpecOf(manifest: PackageJson): string | undefined {
         if (typeof value === "string") return value;
     }
     return undefined;
-}
-
-/** `npm init -y` 写下的缺省测试脚本：一运行就报错退出。 */
-const NPM_INIT_TEST = 'echo "Error: no test specified" && exit 1';
-
-/**
- * 去掉 `npm init` 留下的占位：指向不存在文件的 `main`、npm 缺省的报错测试脚本、空的 `keywords` 与 `author`。插件不需要它们，
- * 留着会让作者以为要去补一个 `index.js` 或测试。作者自己写过的值都不动。
- */
-function withoutNpmInitPlaceholders(existing: PackageJson, directory: string): PackageJson {
-    const cleaned: PackageJson = {...existing};
-    if (typeof cleaned.main === "string" && !existsSync(join(directory, cleaned.main))) delete cleaned.main;
-    if (Array.isArray(cleaned.keywords) && cleaned.keywords.length === 0) delete cleaned.keywords;
-    if (cleaned.author === "") delete cleaned.author;
-    const scripts = cleaned.scripts;
-    if (typeof scripts === "object" && scripts !== null && !Array.isArray(scripts) && (scripts as Record<string, unknown>).test === NPM_INIT_TEST) {
-        const {test: _test, ...rest} = scripts as Record<string, unknown>;
-        cleaned.scripts = rest;
-    }
-    return cleaned;
 }
 
 function mergeExisting(template: PackageJson, existing: PackageJson): PackageJson {

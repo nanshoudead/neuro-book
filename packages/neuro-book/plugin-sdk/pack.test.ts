@@ -246,7 +246,7 @@ export const props = lazyPanel.implement(() => ({greting: "hi"}));
     it("构建期实现能在作者项目里执行，运行时导出与源码的导出面相同", async () => {
         const probe = join(project, "probe.mjs");
         await writeFile(probe, `const index = await import("@notnotype/nb-plugin-sdk");\nconsole.log(JSON.stringify(Object.keys(index).sort()));\n`);
-        const result = Bun.spawnSync({cmd: ["node", probe], cwd: project, stdout: "pipe", stderr: "pipe"});
+        const result = Bun.spawnSync({cmd: ["bun", probe], cwd: project, stdout: "pipe", stderr: "pipe"});
         expect(result.stderr.toString()).toBe("");
         expect(JSON.parse(result.stdout.toString())).toEqual(Object.keys(await import("../src/sdk/index")).sort());
     }, 60_000);

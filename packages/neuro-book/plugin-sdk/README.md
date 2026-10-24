@@ -1,6 +1,6 @@
 # NeuroBook 插件 SDK
 
-`@notnotype/nb-plugin-sdk` 给 NeuroBook 插件的作者用：类型、构建期实现、构建预设与命令 `nbook-plugin`。插件运行时用的是 NeuroBook 自己的那一份（宿主模块表），这个包里的实现只在你构建插件、写测试时执行。
+`@notnotype/nb-plugin-sdk` 给 NeuroBook 插件的作者用：类型、构建期实现、构建预设与命令 `nbooke`。插件运行时用的是 NeuroBook 自己的那一份（宿主模块表），这个包里的实现只在你构建插件、写测试时执行。
 
 本文讲怎么做。规则细节链接到包里 `specs/` 下的 Spec 副本，它们与这个 SDK 是同一个版本；副本之间的链接在包里能打开；指向没有随包的文档（别的 Spec、架构决策、提案）的链接改成了文字，标出它在 NeuroBook 仓库里的路径。两份附表：
 
@@ -14,7 +14,7 @@
 | `@notnotype/nb-plugin-sdk` | 入口、服务、远程服务、贡献点、设置项、存储、命令、工作台贡献点的 id 与类型 | 各运行位置 |
 | `@notnotype/nb-plugin-sdk/browser` | 视图与设置页的助手、设置页用的组件 | 只在浏览器入口 |
 | `@notnotype/nb-plugin-sdk/components` | 界面组件（见 `docs/components.md`） | 只在浏览器入口 |
-| `@notnotype/nb-plugin-sdk/build` | 构建预设 `buildPlugin`，自己写构建脚本时用 | Node 或 Bun 脚本 |
+| `@notnotype/nb-plugin-sdk/build` | 构建预设 `buildPlugin`，自己写构建脚本时用 | Bun 脚本 |
 
 ## 前置条件
 
@@ -24,23 +24,24 @@
 
 ## 安装 SDK，生成插件
 
-SDK 不发布到 npm，先拿到它的 tarball：别人给的，或者在 NeuroBook 仓库里自己生成（在 `packages/neuro-book` 目录 `bun run build:sdk`，最后一行打印 tarball 的路径，缺省在 `dist/` 下）。命令 `nbook-plugin` 在 SDK 包里，所以先装 SDK、再生成插件：
+SDK 不发布到 npm，先拿到它的 tarball：别人给的，或者在 NeuroBook 仓库里自己生成（在 `packages/neuro-book` 目录 `bun run build:sdk`，最后一行打印 tarball 的路径，缺省在 `dist/` 下）。命令 `nbooke` 在 SDK 包里，所以先装 SDK、再生成插件：
 
 ```sh
 mkdir hello && cd hello
-npm install -D /path/to/notnotype-nb-plugin-sdk-<版本>.tgz
-npx nbook-plugin create . --publisher acme
-npm install          # 装上 create 补进 package.json 的依赖
-npm run build        # 产物在 dist/
+bun add -d /path/to/notnotype-nb-plugin-sdk-<版本>.tgz
+bunx nbooke create . --publisher acme
+bun install          # 装上 create 补进 package.json 的依赖
+bun run build        # 产物在 dist/
 ```
 
-- 要 Node `>=22.12.0`，也可以用 Bun。
-- 新目录在一个已有 npm 项目的子目录里时（上级有 `package.json`），先在新目录里 `npm init -y`：没有它，`npm install` 会向上找到那个项目、把 SDK 装进去。
-- `create` 会合并已有的 `package.json`：你写的字段与依赖保留（装 SDK 时写下的 `file:` 路径就在里面），`publisher`、`name`、`version` 与 `type` 用生成的，脚本与开发依赖只补缺的。目录里除了 `package.json`、锁文件、`node_modules`、`.git` 与 `.npmrc` 还有别的文件时，`create` 拒绝、什么也不写。
+- 只用 Bun（版本见 SDK 包 `package.json` 的 `engines.bun`）。例外是类型检查：`vue-tsc` 在 Bun 的运行时里认不出 `.vue` 文件，`bun run typecheck` 按它自己的抬头行用 Node 运行，所以机器上要有 Node。
+- 一定先装 SDK 再运行 `bunx nbooke`：目录里没有装 SDK 时，`bunx` 会去 npm 仓库找同名的包。
+- 新目录在一个已有项目的子目录里时（上级有 `package.json`），先在新目录里写一个空的 `package.json`（`echo {} > package.json`）：没有它，`bun add` 会向上找到那个项目、把 SDK 装进去。
+- `create` 会合并已有的 `package.json`：你写的字段与依赖保留（装 SDK 时写下的 tarball 路径就在里面），`publisher`、`name`、`version` 与 `type` 用生成的，脚本与开发依赖只补缺的。目录里除了 `package.json`、`bun.lock`、`node_modules`、`.git` 与 `.npmrc` 还有别的文件时，`create` 拒绝、什么也不写。
 - 插件 id 是 `<publisher>.<name>`。`--publisher` 缺省 `my`，发出去的插件请写自己的；`--name` 缺省取 `package.json` 的 `name`，没有时取目录名。两段都要以小写字母开头、只含小写字母、数字与连字符，不合规时 `create` 报错并提示用哪个开关指定。
 - 完整的行为（合并规则、`--sdk`、退出码）见 [plugin-api 的“作者工具”](../../../docs/specs/runtime/plugin-api.md#作者工具)。
 
-生成的插件能直接构建、类型检查（`npm run typecheck`）并安装：侧栏里一个视图显示设置里的问候语，命令面板里一条命令让视图里的计数加一。
+生成的插件能直接构建、类型检查（`bun run typecheck`）并安装：侧栏里一个视图显示设置里的问候语，命令面板里一条命令让视图里的计数加一。
 
 ## 目录结构
 
@@ -96,7 +97,7 @@ export const browserPlugin = plugin.definition([plugin.entry({
 ```
 
 - **只写短名**：助手的 `name` 拼成贡献 id `<插件 id>.<name>`（设置项的键是 `<插件 id>/<name>`），不会写错前缀；短名不合规则（视图、条目、分区：小写字母开头，只含小写字母、数字与连字符；命令的段可以数字开头；设置项名是小驼峰）时加载就抛错，写明是哪一个。
-- **声明与实现用同一个键**：`contributions: {键: 助手}` 声明，激活产出的 `contributions` 用同样的键交 `助手.implement(…)`。漏写一项、多写一项、在某个键上交了别的助手的实现，`npm run typecheck` 都报错，报错里写着是哪一项。入口 id 缺省取运行位置名；同一个插件的两个入口不能同 id（不按位置分），重复时组装就抛错。
+- **声明与实现用同一个键**：`contributions: {键: 助手}` 声明，激活产出的 `contributions` 用同样的键交 `助手.implement(…)`。漏写一项、多写一项、在某个键上交了别的助手的实现，`bun run typecheck` 都报错，报错里写着是哪一项。入口 id 缺省取运行位置名；同一个插件的两个入口不能同 id（不按位置分），重复时组装就抛错。
 - **只在浏览器有意义的助手**（`view`、`settingsPage`、`statusItem`、`choices`）从 `/browser` 导入，第一个参数是 `plugin`；把它们写进服务端入口编译不过。
 - **激活上下文**：`context.services.require(键)` 取 `dependencies` 里声明的服务，`context.remote` 调用远程服务，`context.signal` 在入口开始停止时触发，`context.onStop(() => …)` 登记入口停止时要做的事（取消计时器、关掉句柄）；没有 `scope`，不用自己管作用域。完整的成员见 [plugin-api 的“激活上下文”](../../../docs/specs/runtime/plugin-api.md#激活上下文)，入口与服务、远程服务、贡献怎么选见同文的[“选用规则”](../../../docs/specs/runtime/plugin-api.md#选用规则)，助手的完整规则见同文的[“作者 API”](../../../docs/specs/runtime/plugin-api.md#作者-api)。
 - **不经助手的贡献**：向别的插件自己定义的贡献点提交时，声明写在入口的 `rawContributions`（`{capability, id, declaration}` 的数组），实现写在产出的 `rawContributions: {贡献点: {id: 实现}}`；id 用 `` `${plugin.id}.<名>` as const `` 拼。自己定义贡献点时写在 `plugin.definition({contributionPoints, entries})` 里，接收的入口写 `receives` 并在产出里交 `receivers`。示例 menu、file-menu 是这两种写法。
@@ -270,7 +271,7 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 
 ## 构建与常见报错
 
-`npm run build`（`nbook-plugin build --clean`）先清掉上次的产物再构建。构建失败时退出码 1，逐行列出每个问题（问题的路径多是 `entries.<入口 id>` 或清单字段）；只有警告时打印到标准错误、退出码 0；用法不对退出码 2。
+`bun run build`（`nbooke build --clean`）先清掉上次的产物再构建。构建失败时退出码 1，逐行列出每个问题（问题的路径多是 `entries.<入口 id>` 或清单字段）；只有警告时打印到标准错误、退出码 0；用法不对退出码 2。
 
 | 报错里有 | 原因 | 怎么改 |
 |---|---|---|
@@ -290,11 +291,11 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 
 ## 开发循环
 
-1. 改代码，`npm run dev`（`nbook-plugin build --clean --dev`）。产物的版本是 `<version>+dev.<UTC 时间到秒>.<毫秒>`，例如 `0.1.0+dev.20261023101500.123`。
+1. 改代码，`bun run dev`（`nbooke build --clean --dev`）。产物的版本是 `<version>+dev.<UTC 时间到秒>.<毫秒>`，例如 `0.1.0+dev.20261023101500.123`。
 2. 在 NeuroBook 的“设置 → 插件”里点“安装…”，填 `dist` 的完整路径（是服务端那台机器上的路径），确认。开发版本每次都比上一次新，按升级处理，不用改版本号，也不用先卸载。
 3. 重启 NeuroBook，新版本生效。
 
-开发版本也比同号的正式版本新：装过 `0.1.0+dev.…` 之后再装 `npm run build` 的 `0.1.0`，插件页按降级处理并提示数据迁移的风险。发布前先提高版本号。用 `npm run build` 构建的版本与已安装的相同时，安装会被拒绝（“已安装相同版本”）：提高版本号（`package.json` 与 `definePlugin` 一起改），或者先卸载、重启后再装。安装、升级、启停与卸载都在下一次启动后生效，规则见 [plugin-install](../../../docs/specs/runtime/plugin-install.md)。
+开发版本也比同号的正式版本新：装过 `0.1.0+dev.…` 之后再装 `bun run build` 的 `0.1.0`，插件页按降级处理并提示数据迁移的风险。发布前先提高版本号。用 `bun run build` 构建的版本与已安装的相同时，安装会被拒绝（“已安装相同版本”）：提高版本号（`package.json` 与 `definePlugin` 一起改），或者先卸载、重启后再装。安装、升级、启停与卸载都在下一次启动后生效，规则见 [plugin-install](../../../docs/specs/runtime/plugin-install.md)。
 
 ## 调试
 

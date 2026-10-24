@@ -1,5 +1,5 @@
 /**
- * 测试里的作者目录：装好 SDK 包与作者机器上要有的包，`package.json` 是作者 `npm install -D <SDK 的 tarball>` 之后会留下的
+ * 测试里的作者目录：装好 SDK 包与作者机器上要有的包，`package.json` 是作者 `bun add -d <SDK 的 tarball>` 之后会留下的
  * 那样。依赖从仓库的 `node_modules` 链接，不联网；SDK 包从打包产出的 tarball 解开（作者装的就是它）。Bun 的测试与
  * Playwright（Node）都用它，所以只用 Node 的 API。
  */
@@ -13,7 +13,7 @@ import {AUTHOR_PACKAGES, BUILD_DEPENDENCIES} from "../dependencies";
 
 const REPO_MODULES = fileURLToPath(new URL("../../../../node_modules/", import.meta.url));
 
-/** npm 装 vue 时一起装上的包：vue 自己的依赖（`@vue/*`、类型用的 csstype）。 */
+/** 装 vue 时一起装上的包：vue 自己的依赖（`@vue/*`、类型用的 csstype）。 */
 const VUE_DEPENDENCIES = ["csstype", ...["reactivity", "runtime-core", "runtime-dom", "shared", "compiler-dom", "compiler-core", "compiler-sfc", "compiler-ssr", "server-renderer"].map((name) => `@vue/${name}`)];
 
 /** 把作者机器上要有的包（加上 `extra`）从仓库的 `node_modules` 链进 `directory/node_modules`。 */
@@ -30,9 +30,10 @@ export async function authorDirectory(directory: string, tarball: string): Promi
     await linkAuthorModules(directory);
     const sdk = join(directory, "node_modules/@notnotype/nb-plugin-sdk");
     await mkdir(sdk, {recursive: true});
-    // npm 的 tarball 里文件都在 `package/` 下。
+    // tarball 里文件都在 `package/` 下。
     execFileSync("tar", ["-xzf", tarball, "-C", sdk, "--strip-components=1"]);
-    await writeFile(join(directory, "package.json"), `${JSON.stringify({devDependencies: {"@notnotype/nb-plugin-sdk": `file:../${basename(tarball)}`}}, null, 2)}\n`);
+    // `bun add -d <tarball>` 写下的样子：依赖写法是相对路径，不带 `file:`，另有一个空的 `dependencies`。
+    await writeFile(join(directory, "package.json"), `${JSON.stringify({dependencies: {}, devDependencies: {"@notnotype/nb-plugin-sdk": `../${basename(tarball)}`}}, null, 2)}\n`);
     return directory;
 }
 

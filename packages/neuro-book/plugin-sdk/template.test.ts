@@ -1,7 +1,7 @@
 /**
- * 作者工具 `nbook-plugin`（docs/specs/runtime/plugin-api.md 的“作者工具”）：用生成的 SDK 包，在仓库外按作者文档的步骤走一遍。
- * 作者先在新目录里装 SDK（这里写下 `npm install -D <SDK>` 会留下的 `package.json`，依赖从仓库的 `node_modules` 链接，不联网），
- * 再用 Node（不是 Bun）运行包里的 `cli.js`：`create .`、类型检查、`build`、`build --clean --dev`；以及几种拒绝。
+ * 作者工具 `nbooke`（docs/specs/runtime/plugin-api.md 的“作者工具”）：用生成的 SDK 包，在仓库外按作者文档的步骤走一遍。
+ * 作者先在新目录里装 SDK（这里写下 `bun add -d <SDK>` 会留下的 `package.json`，依赖从仓库的 `node_modules` 链接，不联网），
+ * 再用 Bun 运行包里的 `cli.js`：`create .`、类型检查、`build`、`build --clean --dev`；以及几种拒绝。
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
@@ -25,12 +25,12 @@ let tarball = "";
 
 const authorDirectoryNamed = (name: string): Promise<string> => authorDirectory(join(tmp, name), tarball);
 
-function node(cwd: string, ...args: string[]): {readonly code: number; readonly stdout: string; readonly stderr: string} {
-    const result = Bun.spawnSync({cmd: ["node", ...args], cwd, stdout: "pipe", stderr: "pipe"});
+function run(cmd: ReadonlyArray<string>, cwd: string): {readonly code: number; readonly stdout: string; readonly stderr: string} {
+    const result = Bun.spawnSync({cmd: [...cmd], cwd, stdout: "pipe", stderr: "pipe"});
     return {code: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString()};
 }
 
-const cli = (cwd: string, ...args: string[]) => node(cwd, cliOf(cwd), ...args);
+const cli = (cwd: string, ...args: string[]) => run(["bun", cliOf(cwd), ...args], cwd);
 
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-sdk", "template");
@@ -41,7 +41,7 @@ afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-describe("nbook-plugin", () => {
+describe("nbooke", () => {
     it("create . 在装好 SDK 的目录里写出模板、合并 package.json；生成的插件能类型检查、构建，清单合格；build --clean --dev 给出开发版本", async () => {
         const author = await authorDirectoryNamed("hello-world");
         const created = cli(author, "create", ".");
@@ -50,13 +50,14 @@ describe("nbook-plugin", () => {
         expect(created.stdout).toContain("my.hello-world");
 
         const manifest = JSON.parse(await readFile(join(author, "package.json"), "utf8")) as Record<string, Record<string, string> | string>;
-        expect(manifest).toMatchObject({publisher: "my", name: "hello-world", version: "0.1.0", scripts: {build: "nbook-plugin build --clean"}});
+        expect(manifest).toMatchObject({publisher: "my", name: "hello-world", version: "0.1.0", scripts: {build: "nbooke build --clean"}});
         // 装 SDK 时写下的依赖写法不动，模板补上缺的开发依赖。
-        expect((manifest.devDependencies as Record<string, string>)["@notnotype/nb-plugin-sdk"]).toBe(`file:../${basename(tarball)}`);
+        expect((manifest.devDependencies as Record<string, string>)["@notnotype/nb-plugin-sdk"]).toBe(`../${basename(tarball)}`);
         expect(Object.keys(manifest.devDependencies as Record<string, string>).sort()).toEqual(["@notnotype/nb-plugin-sdk", "typebox", "typescript", "vue", "vue-tsc"]);
         expect(await readdir(author)).toEqual(expect.arrayContaining([".gitignore", "README.md", "env.d.ts", "plugin.ts", "shared", "tsconfig.json", "web"]));
 
-        const checked = node(author, join(author, "node_modules/vue-tsc/bin/vue-tsc.js"), "--noEmit", "-p", author);
+        // vue-tsc 在 Bun 的运行时里认不出 `.vue` 模块（实测），按它的抬头行用 Node 跑，与模板的 `bun run typecheck` 一样。
+        const checked = run(["node", join(author, "node_modules/vue-tsc/bin/vue-tsc.js"), "--noEmit", "-p", author], author);
         expect(`${checked.stdout}${checked.stderr}`).toBe("");
         expect(checked.code).toBe(0);
 
@@ -145,23 +146,12 @@ describe("nbook-plugin", () => {
         expect((JSON.parse(await readFile(join(tmp, "pinned/package.json"), "utf8")) as {devDependencies: Record<string, string>}).devDependencies["@notnotype/nb-plugin-sdk"]).toBe("file:/opt/nb-plugin-sdk-0.1.0.tgz");
     }, 120_000);
 
-    it("create 合并 npm init 写下的 package.json：type、version 用模板的，作者的 test 脚本保留；name 不合规时提示 --name", async () => {
-        const author = await authorDirectoryNamed("npm-init");
-        await writeFile(join(author, "package.json"), JSON.stringify({name: "npm-init", version: "1.0.0", type: "commonjs", scripts: {test: "echo no test"}, devDependencies: {"@notnotype/nb-plugin-sdk": "file:../sdk.tgz"}}));
+    it("create 合并已有的 package.json：type、version 用模板的，作者的 test 脚本保留；name 不合规时提示 --name", async () => {
+        const author = await authorDirectoryNamed("existing");
+        await writeFile(join(author, "package.json"), JSON.stringify({name: "existing", version: "1.0.0", type: "commonjs", scripts: {test: "echo no test"}, devDependencies: {"@notnotype/nb-plugin-sdk": "../sdk.tgz"}}));
         expect(cli(author, "create", ".").code).toBe(0);
         const manifest = JSON.parse(await readFile(join(author, "package.json"), "utf8")) as Record<string, unknown>;
-        expect(manifest).toMatchObject({name: "npm-init", version: "0.1.0", type: "module", scripts: {test: "echo no test", build: "nbook-plugin build --clean"}});
-
-        // `npm init -y` 留下的占位去掉：指向不存在文件的 main、缺省的报错测试脚本、空的 keywords 与 author。
-        const initialized = await authorDirectoryNamed("npm-init-y");
-        await writeFile(join(initialized, "package.json"), JSON.stringify({name: "npm-init-y", version: "1.0.0", main: "index.js", scripts: {test: 'echo "Error: no test specified" && exit 1'}, keywords: [], author: "", license: "ISC", devDependencies: {"@notnotype/nb-plugin-sdk": "file:../sdk.tgz"}}));
-        expect(cli(initialized, "create", ".").code).toBe(0);
-        const cleaned = JSON.parse(await readFile(join(initialized, "package.json"), "utf8")) as Record<string, unknown>;
-        expect(cleaned).not.toHaveProperty("main");
-        expect(cleaned).not.toHaveProperty("keywords");
-        expect(cleaned).not.toHaveProperty("author");
-        expect(cleaned).toMatchObject({license: "ISC"});
-        expect((cleaned.scripts as Record<string, string>).test).toBeUndefined();
+        expect(manifest).toMatchObject({name: "existing", version: "0.1.0", type: "module", scripts: {test: "echo no test", build: "nbooke build --clean"}});
 
         const scoped = await authorDirectoryNamed("scoped");
         await writeFile(join(scoped, "package.json"), JSON.stringify({name: "@me/scoped"}));

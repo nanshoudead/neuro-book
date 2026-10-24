@@ -1,6 +1,6 @@
 /**
  * 仓库外写插件（docs/specs/runtime/plugin-api.md 的“作者工具”与验收 12，plugin-install.md 的安装、启停与卸载）：用生成的
- * SDK 包在临时目录里 `create`、`build`（Node 运行包里的命令），在设置窗口的插件页安装产物、重启；模板的侧栏视图显示设置项的
+ * SDK 包在临时目录里 `create`、`build`（Bun 运行包里的命令），在设置窗口的插件页安装产物、重启；模板的侧栏视图显示设置项的
  * 问候语，命令面板里的命令让视图里的计数加一，改设置项后视图跟着变；禁用、卸载各在重启后生效。“重启”是有序停止服务端再在
  * 同一个状态根上起一个新进程。
  *
@@ -56,11 +56,11 @@ test.beforeAll(async () => {
     await writeFile(join(book, ".nbook", "project.json"), JSON.stringify({schema: 1, id}));
     await writeFile(join(stateRoot, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: book}]}));
 
-    // 作者的那一边：生成 SDK 包的 tarball（命令最后一行打印它的路径），在仓库外的目录里装上它，用 Node 运行包里的命令生成、构建。
+    // 作者的那一边：生成 SDK 包的 tarball（命令最后一行打印它的路径），在仓库外的目录里装上它，用 Bun 运行包里的命令生成、构建。
     const tarball = (await run("bun", ["plugin-sdk/pack.ts", join(tmp, "sdk")], PACKAGE_ROOT)).trim().split("\n").at(-1)!;
     author = await authorDirectory(join(tmp, "hello-world"), tarball);
-    await run("node", [cliOf(author), "create", "."], author);
-    await run("node", [cliOf(author), "build"], author);
+    await run("bun", [cliOf(author), "create", "."], author);
+    await run("bun", [cliOf(author), "build"], author);
 });
 
 test.afterAll(async () => {

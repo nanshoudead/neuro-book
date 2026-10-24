@@ -1,7 +1,6 @@
 /**
- * 作者命令 `nbook-plugin`（docs/specs/runtime/plugin-api.md 的“作者工具”），SDK 包的 bin：`build:sdk` 把它打包成 `cli.js`，
- * 模板目录 `template/` 放在它旁边。在 Node 与 Bun 里都能运行，所以不用 `import.meta.main`（Node 24.2 之前没有）：这个模块
- * 只作命令入口，被导入就会执行。
+ * 作者命令 `nbooke`（docs/specs/runtime/plugin-api.md 的“作者工具”），SDK 包的 bin：`build:sdk` 把它打包成 `cli.js`，
+ * 模板目录 `template/` 放在它旁边。只用 Bun 运行（`cli.js` 的抬头行是 `bun`）。这个模块只作命令入口，被导入就会执行。
  *
  * 退出码：0 成功（构建只有警告时也是 0，警告打到标准错误）；1 构建或生成失败，标准错误逐行列出问题；2 用法不对。
  */
@@ -16,8 +15,8 @@ import {buildPlugin, PluginBuildError} from "./build";
 import {createPlugin, PluginCreateError} from "./create-plugin";
 
 const USAGE = `用法：
-  nbook-plugin create <目录> [--publisher <段>] [--name <段>] [--sdk <依赖写法>]
-  nbook-plugin build [作者目录，缺省 .] [--out <目录>，缺省 <作者目录>/dist] [--clean] [--dev]`;
+  nbooke create <目录> [--publisher <段>] [--name <段>] [--sdk <依赖写法>]
+  nbooke build [作者目录，缺省 .] [--out <目录>，缺省 <作者目录>/dist] [--clean] [--dev]`;
 
 class UsageError extends Error {}
 
@@ -35,12 +34,12 @@ async function create(args: ReadonlyArray<string>): Promise<number> {
     });
     console.log(`已生成插件 ${result.id}：${result.directory}`);
     if (result.sdkFromRegistry) {
-        console.error("注意：SDK 还没有发布到 npm，package.json 里的 SDK 依赖装不上。先在插件目录里 npm install -D <SDK 的 tarball 路径>，或重新运行 create 并加 --sdk file:<tarball 路径>。");
+        console.error("注意：SDK 还没有发布到 npm，package.json 里的 SDK 依赖装不上。先在插件目录里 bun add -d <SDK 的 tarball 路径>，或重新运行 create 并加 --sdk file:<tarball 路径>。");
     }
     console.log("下一步：");
     console.log(`  cd ${result.directory}`);
-    console.log("  npm install          # 装上模板补的依赖");
-    console.log("  npm run build        # 产物在 dist/");
+    console.log("  bun install          # 装上模板补的依赖");
+    console.log("  bun run build        # 产物在 dist/");
     console.log(`  在 NeuroBook 的“设置 → 插件”里点“安装…”，填 ${join(result.directory, "dist")}，确认后重启`);
     return 0;
 }

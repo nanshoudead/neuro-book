@@ -6,9 +6,9 @@
  * - `index.d.ts`、`browser.d.ts`、`components.d.ts`：打平的类型，不含应用内部的 `nbook/*` 别名，只引用 `vue`、
  *   `@vue/reactivity` 与 `typebox`。内核、nb-form 与 nb-ui 的子路径映射到源码，类型才会被打进来：经 `node_modules` 解析到的工作区包被 TypeScript
  *   当作外部库，不生成声明。
- * - `build.js`、`build.d.ts`：构建预设（`build.ts`，绑定 NeuroBook 平台档案的那一层），在 Node 或 Bun 里运行；Vite、单文件组件编译与图标数据是它的
+ * - `build.js`、`build.d.ts`：构建预设（`build.ts`，绑定 NeuroBook 平台档案的那一层），在 Bun 里运行；Vite、单文件组件编译与图标数据是它的
  *   依赖。
- * - `cli.js` 与 `template/`：作者命令 `nbook-plugin`（`cli.ts`）与 `create` 用的模板；模板 `_package.json` 的开发依赖在这里
+ * - `cli.js` 与 `template/`：作者命令 `nbooke`（`cli.ts`）与 `create` 用的模板；模板 `_package.json` 的开发依赖在这里
  *   补上作者项目自己装的包，范围与应用自己用的一致。
  * - `examples/`：示例插件的源码（`plugin-sdk/examples/` 的 `plugins/` 与 `external/`），作者照着读；场景测试与场地不随包。
  * - `package.json`：版本取产品版本；`vue`、`@vue/reactivity`、`typebox` 是 peer 依赖，构建预设的工具是普通依赖。
@@ -16,7 +16,7 @@
  *   配色合同、主题样式表生成的两份附表；`specs/`：作者文档链接到的 Spec 的副本。作者文档在仓库里用指向 `docs/specs/` 的相对
  *   链接写，复制时改写到包里的副本：SDK 不发布、Work 分支也不推到远端，指向仓库的链接作者打不开，副本还与这个 SDK 版本一致。
  *
- * 生成的目录再用 `npm pack` 打成 tarball，放在目录旁边，作者 `npm install -D <tarball>` 装它。
+ * 生成的目录再用 `bun pm pack` 打成 tarball，放在目录旁边，作者 `bun add -d <tarball>` 装它。
  *
  * 用法：`bun run build:sdk [输出目录]`，缺省输出到 `dist/plugin-sdk/`，最后一行打印 tarball 的路径。输出目录只在不存在、
  * 为空或者是上次生成的 SDK 包时清空重建，否则拒绝。
@@ -72,6 +72,13 @@ async function dependencyRanges(names: ReadonlyArray<string>): Promise<Record<st
         if (value === undefined) throw new Error(`应用的 package.json 里没有 ${name}`);
         return [name, value];
     }));
+}
+
+/** 应用自己要求的 Bun 版本范围（`package.json` 的 `engines.bun`）：SDK 与应用在同一个 Bun 上验证。 */
+async function bunRange(): Promise<string> {
+    const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as {engines?: {bun?: string}};
+    if (manifest.engines?.bun === undefined) throw new Error("应用的 package.json 里没有 engines.bun");
+    return manifest.engines.bun;
 }
 
 /**
@@ -273,7 +280,7 @@ ${colorSections.join("\n")}
 ${designSections.join("\n")}`;
 }
 
-/** 生成的 SDK 包：解开的目录与 `npm pack` 打出的 tarball（在目录旁边）。 */
+/** 生成的 SDK 包：解开的目录与 `bun pm pack` 打出的 tarball（在目录旁边）。 */
 export interface BuiltSdk {
     readonly directory: string;
     readonly tarball: string;
@@ -314,7 +321,7 @@ export async function buildSdk(outDir: string): Promise<BuiltSdk> {
         // 生成声明本来就慢（vue-tsc），不报插件耗时。
         checks: {pluginTimings: false},
     });
-    // 构建预设：Node 工具，打进内核的清单与应用的版本工具；Vite 与编译器、图标数据留作依赖。声明文件一并生成，作者的
+    // 构建预设：命令行工具，打进内核的清单与应用的版本工具；Vite 与编译器、图标数据留作依赖。声明文件一并生成，作者的
     // 构建脚本用得上 `BuildPluginOptions`、`PluginBuildError` 这些类型。
     await rolldown({
         cwd: packageRoot,
@@ -323,7 +330,7 @@ export async function buildSdk(outDir: string): Promise<BuiltSdk> {
         external: [...PEERS, ...BUILD_DEPENDENCIES.map((name) => new RegExp(`^${name.replace("/", "\\/")}($|/)`, "u"))],
         resolve: {alias: {nbook: join(packageRoot, "src")}},
         plugins: [dts({cwd: packageRoot, tsconfig: "tsconfig.json", compilerOptions: {paths: typePaths()}})],
-        output: {dir: outDir, format: "es", entryFileNames: "[name].js", banner: (chunk) => (chunk.isEntry && chunk.name === "cli" ? "#!/usr/bin/env node" : "")},
+        output: {dir: outDir, format: "es", entryFileNames: "[name].js", banner: (chunk) => (chunk.isEntry && chunk.name === "cli" ? "#!/usr/bin/env bun" : "")},
         checks: {pluginTimings: false},
     });
     await chmod(join(outDir, "cli.js"), 0o755);
@@ -346,30 +353,29 @@ export async function buildSdk(outDir: string): Promise<BuiltSdk> {
         version: PRODUCT_VERSION,
         description: "NeuroBook 插件 SDK：类型与构建期实现；插件运行时由宿主提供同一份",
         type: "module",
-        bin: {"nbook-plugin": "./cli.js"},
+        bin: {nbooke: "./cli.js"},
         exports: {
             ...Object.fromEntries(SDK_ENTRIES.map((entry) => [entry.subpath, {types: `./${entryName(entry)}.d.ts`, import: `./${entryName(entry)}.js`}])),
             "./build": {types: "./build.d.ts", import: "./build.js"},
         },
         peerDependencies: peers,
-        // 构建与生成要 Vite 8 要求的 Node 版本；包里的实现（例如插件状态）还用了 Node 22 起才有的 `Promise.withResolvers`，
-        // 作者写测试时会执行到它。
-        engines: {node: ">=22.12.0"},
+        // 只用 Bun 运行：作者命令的抬头行是 bun，构建预设与包里的实现都只在 Bun 上验证。
+        engines: {bun: await bunRange()},
         dependencies: await dependencyRanges(BUILD_DEPENDENCIES),
     }, null, 4)}\n`);
     await writeAuthorDocs(outDir);
-    return {directory: outDir, tarball: await npmPack(outDir)};
+    return {directory: outDir, tarball: await bunPack(outDir)};
 }
 
 /**
- * 用 `npm pack` 把生成的目录打成作者 `npm install` 的 tarball，放在目录旁边；同名的旧 tarball 被覆盖。文件名取标准输出的
- * 最后一行：`--json` 的形状在 npm 11 前后不同（数组与按包名的对象），这一行各版本一样。
+ * 用 `bun pm pack` 把生成的目录打成作者 `bun add` 的 tarball，放在目录旁边，文件名按 npm 的惯例 `<作用域>-<名字>-<版本>.tgz`；
+ * 同名的旧 tarball 被覆盖。`--filename` 直接给出路径，不解析命令的输出。
  */
-async function npmPack(directory: string): Promise<string> {
-    const {stdout} = await promisify(execFile)("npm", ["pack", "--pack-destination", dirname(directory)], {cwd: directory});
-    const filename = stdout.trim().split("\n").at(-1)?.trim() ?? "";
-    if (!filename.endsWith(".tgz")) throw new Error(`npm pack 没有打出 tarball：${stdout}`);
-    return join(dirname(directory), filename);
+async function bunPack(directory: string): Promise<string> {
+    const tarball = join(dirname(directory), `${SDK_NAME.replace(/^@/u, "").replace("/", "-")}-${PRODUCT_VERSION}.tgz`);
+    await promisify(execFile)("bun", ["pm", "pack", "--quiet", "--filename", tarball], {cwd: directory});
+    if (!existsSync(tarball)) throw new Error(`bun pm pack 没有打出 ${tarball}`);
+    return tarball;
 }
 
 if (import.meta.main) {

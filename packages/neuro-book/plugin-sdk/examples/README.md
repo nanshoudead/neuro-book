@@ -123,7 +123,7 @@ examples/
 
 ## 外部插件
 
-示例插件都按第三方插件构建、安装运行：每个示例目录有一份 `package.json`（作者合同：`publisher`、`name`、`version` 与可选的 `pluginVersions`），用的构建预设与仓库外作者经 SDK 的 `nbook-plugin build` 用的是同一个（[`plugin-sdk/build.ts`](../build.ts)）。产物里的 `package.json` 是构建预设从代码定义生成的清单（[`runtime.plugin-manifest`](../../../../docs/specs/runtime/plugin-manifest.md)），经设置窗口的“插件”页装进状态根、重启后生效（[`runtime.plugin-install`](../../../../docs/specs/runtime/plugin-install.md)）；入口的代码在激活时才装载（[`runtime.plugin-code-loading`](../../../../docs/specs/runtime/plugin-code-loading.md)）。
+示例插件都按第三方插件构建、安装运行：每个示例目录有一份 `package.json`（作者合同：`publisher`、`name`、`version` 与可选的 `pluginVersions`），用的构建预设与仓库外作者经 SDK 的 `nbooke build` 用的是同一个（[`plugin-sdk/build.ts`](../build.ts)）。产物里的 `package.json` 是构建预设从代码定义生成的清单（[`runtime.plugin-manifest`](../../../../docs/specs/runtime/plugin-manifest.md)），经设置窗口的“插件”页装进状态根、重启后生效（[`runtime.plugin-install`](../../../../docs/specs/runtime/plugin-install.md)）；入口的代码在激活时才装载（[`runtime.plugin-code-loading`](../../../../docs/specs/runtime/plugin-code-loading.md)）。
 
 装一个示例：
 
