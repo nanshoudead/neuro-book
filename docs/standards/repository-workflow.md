@@ -77,4 +77,14 @@ llmlint 从 `packages/llmlint/skill` 单一源生成产品投影，不手工编�
 
 ## 发布授权
 
-当前分支没有发布链（v2 重建期间已删除，交付方式另行设计）；master 上的发布流程不在本分支执行。未经明确授权，不修改版本、创建 release commit、push 资产、创建 GitHub Release、部署或删除历史发布数据。
+当前分支没有新应用的发布链（v2 重建期间已删除，交付方式另行设计）；master 上的发布流程不在本分支执行。未经明确授权，不修改版本、创建 release commit、push 资产、创建 GitHub Release、部署或删除历史发布数据。
+
+### npm 包
+
+nb-story 与它依赖的 8 个工作区包按 [ADR 0029](../adr/0029-workspace-packages-publish-source-to-npm.md) 发布到 npm。改版本与发布都要开发者授权，`bun publish` 由开发者执行：
+
+1. 改要发的包的 `version`（依赖它、又要用到新接口的包一起改），合入 master。内部依赖写 `workspace:^`，发布时改写成 `^<版本>`。
+2. `bun run release:check`：发布清单（license、`files`、`LICENSE`、README、内部依赖写法、源码导入的包都写进依赖）。
+3. `bun run release:smoke`：打包装进仓库外的空项目，跑命令行、`serve` 加真实浏览器与 Vite 宿主构建。直连 registry 慢时整条命令前加 `prox`。
+4. `npm login`，再 `bun run release:publish`：过门禁（会发布的目录没有未提交的改动、在 master 上、上面两步与 9 个包的 typecheck），列出要发的包；确认后带 `--yes` 重跑。开了两步验证时加 `--auth-type web`（一个 OTP 只有 30 秒，发不完 9 个包）。中途失败就停，重跑会跳过已发布的版本。
+5. 发布后跑 `bun run release:smoke -- --from registry`，结果记进对应 Task 的证据。
