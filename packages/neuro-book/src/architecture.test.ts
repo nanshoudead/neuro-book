@@ -18,6 +18,7 @@ import {readdirSync, readFileSync} from "node:fs";
 import {dirname, join, relative, resolve} from "node:path";
 
 import {SDK_ENTRIES} from "./sdk/entries";
+import {sourceImports} from "./testing/source-imports";
 
 const SRC = join(import.meta.dir);
 const EXAMPLE_PLUGINS = join(SRC, "..", "plugin-sdk", "examples", "plugins");
@@ -45,16 +46,9 @@ function sourceFiles(directory: string): string[] {
     });
 }
 
-const IMPORT_PATTERN = /^\s*(?:import|export)\s+(type\s+)?(?:[^"';]*?\sfrom\s+)?["']([^"']+)["']/gmu;
-const DYNAMIC_IMPORT_PATTERN = /\bimport\(\s*["']([^"']+)["']\s*\)/gu;
-
 function importsOf(file: string): ImportUse[] {
-    const text = readFileSync(file, "utf8");
     const at = relative(SRC, file);
-    return [
-        ...[...text.matchAll(IMPORT_PATTERN)].map((match) => ({file: at, specifier: match[2] as string, typeOnly: match[1] !== undefined})),
-        ...[...text.matchAll(DYNAMIC_IMPORT_PATTERN)].map((match) => ({file: at, specifier: match[1] as string, typeOnly: false, dynamic: true})),
-    ];
+    return sourceImports(file, readFileSync(file, "utf8")).map(({specifier, typeOnly, dynamic}) => ({file: at, specifier, typeOnly, ...(dynamic ? {dynamic} : {})}));
 }
 
 /** 导入目标在 src 内的相对路径；包名与 node 内置返回 null。 */
