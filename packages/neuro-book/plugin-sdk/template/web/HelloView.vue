@@ -4,7 +4,7 @@
  * 插件里写了要么不生效、要么只是碰巧生效。视图声明了 `layout: "scroll"`，外壳已经给了内边距，根上不再加。计数放在
  * `role="status"` 里：点按钮或从命令面板执行命令之后，读屏会念出新的计数。
  */
-import type {ViewContext} from "@notnotype/nb-plugin-sdk/browser";
+import type {ViewContext} from "@notnotype/nb-plugin-sdk/workbench";
 import {Button} from "@notnotype/nb-plugin-sdk/components";
 
 const props = defineProps<{

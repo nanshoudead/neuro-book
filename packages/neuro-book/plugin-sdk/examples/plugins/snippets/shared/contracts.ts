@@ -10,6 +10,7 @@ import {Type} from "typebox";
 import type {Static} from "typebox";
 
 import {definePlugin} from "@notnotype/nb-plugin-sdk";
+import {setting} from "@notnotype/nb-plugin-sdk/settings";
 
 /** 插件的身份（读法见 `../../clock/shared/contracts.ts`）。snippets 只在浏览器窗口里有入口：它不存数据，配置项的读写全交给 `nbook.settings`。 */
 export const plugin = definePlugin({id: "example.snippets", version: "0.1.0", locations: ["browser"]});
@@ -38,7 +39,7 @@ export type Snippet = Static<typeof SnippetSchema>;
  * - 层与层之间整体覆盖、不合并（configuration.md 输出 6）：本作品写了列表，用户设置里的片段在这部作品里就整个看不到。
  *   页面因此按“这一层整份列表”来编辑。
  */
-export const itemsSetting = plugin.setting({
+export const itemsSetting = setting(plugin, {
     name: "items",
     schema: Type.Array(SnippetSchema, {maxItems: 100}),
     default: [

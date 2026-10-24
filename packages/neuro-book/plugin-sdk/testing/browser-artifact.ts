@@ -22,7 +22,12 @@ export async function browserHostModules(): Promise<Readonly<Record<BrowserShare
         "typebox/value": () => import("typebox/value"),
         "typebox/compile": () => import("typebox/compile"),
         "@notnotype/nb-plugin-sdk": () => import("../../src/sdk/index"),
-        "@notnotype/nb-plugin-sdk/browser": () => import("../../src/sdk/browser"),
+        "@notnotype/nb-plugin-sdk/state": () => import("../../src/sdk/state"),
+        "@notnotype/nb-plugin-sdk/storage": () => import("../../src/sdk/storage"),
+        "@notnotype/nb-plugin-sdk/settings": () => import("../../src/sdk/settings"),
+        "@notnotype/nb-plugin-sdk/settings/browser": () => import("../../src/sdk/settings-browser"),
+        "@notnotype/nb-plugin-sdk/commands": () => import("../../src/sdk/commands"),
+        "@notnotype/nb-plugin-sdk/workbench": () => import("../../src/sdk/workbench"),
         "@notnotype/nb-plugin-sdk/components": async () => ({}),
     };
     return Object.fromEntries(await Promise.all(Object.entries(modules).map(async ([id, load]) => [id, await load()]))) as Record<BrowserSharedModule, unknown>;

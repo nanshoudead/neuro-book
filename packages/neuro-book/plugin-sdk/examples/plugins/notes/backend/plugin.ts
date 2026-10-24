@@ -16,8 +16,9 @@
 
 import {Type} from "typebox";
 
-import {defineRecord, diagnosticsKey, provideRemote, storageKey} from "@notnotype/nb-plugin-sdk";
-import type {RecordHandle} from "@notnotype/nb-plugin-sdk";
+import {diagnosticsKey, provideRemote} from "@notnotype/nb-plugin-sdk";
+import {defineRecord, storageKey} from "@notnotype/nb-plugin-sdk/storage";
+import type {RecordHandle} from "@notnotype/nb-plugin-sdk/storage";
 
 import {clockKey} from "../../clock/shared/contracts";
 import {NoteSchema, notesContract, plugin} from "../shared/contracts";

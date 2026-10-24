@@ -20,8 +20,9 @@ import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {rm} from "node:fs/promises";
 import {join} from "node:path";
 
-import {defineEntry, defineRecord, storageKey} from "@notnotype/nb-plugin-sdk";
+import {defineEntry} from "@notnotype/nb-plugin-sdk";
 import type {PluginDefinition} from "@notnotype/nb-plugin-sdk";
+import {defineRecord, storageKey} from "@notnotype/nb-plugin-sdk/storage";
 import {Type} from "typebox";
 
 import type {PluginRemoteAccess} from "@notnotype/nb-runtime/plugins";

@@ -17,8 +17,10 @@
 import {computed, watch} from "@vue/reactivity";
 import {Type} from "typebox";
 
-import {defineRecord, defineStore, diagnosticsKey, fail, ok, provideRemote, storageKey} from "@notnotype/nb-plugin-sdk";
+import {diagnosticsKey, fail, ok, provideRemote} from "@notnotype/nb-plugin-sdk";
 import type {RemoteSink} from "@notnotype/nb-plugin-sdk";
+import {defineStore} from "@notnotype/nb-plugin-sdk/state";
+import {defineRecord, storageKey} from "@notnotype/nb-plugin-sdk/storage";
 
 import {counterContract, counterState, plugin, projectCounterContract, reset} from "../shared/contracts";
 

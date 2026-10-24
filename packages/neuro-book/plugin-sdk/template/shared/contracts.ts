@@ -6,15 +6,16 @@
  */
 
 import {definePlugin} from "@notnotype/nb-plugin-sdk";
+import {section, setting} from "@notnotype/nb-plugin-sdk/settings";
 import {Type} from "typebox";
 
 export const plugin = definePlugin({id: "__ID__", version: "0.1.0", locations: ["browser"]});
 
 /** 设置窗口左栏里本插件的分区；设置项写进它。界面文字可以只写一个字符串（两种界面语言显示同一句）。 */
-export const main = plugin.section({name: "main", title: "__DISPLAY_NAME__", icon: "i-lucide-hand", groups: [{id: "basic", title: {"zh-CN": "基本", "en-US": "Basic"}}]});
+export const main = section(plugin, {name: "main", title: "__DISPLAY_NAME__", icon: "i-lucide-hand", groups: [{id: "basic", title: {"zh-CN": "基本", "en-US": "Basic"}}]});
 
 /** 问候语：视图里显示它；在设置窗口里改了，视图立刻跟着变。 */
-export const greeting = plugin.setting({
+export const greeting = setting(plugin, {
     name: "greeting",
     schema: Type.String({maxLength: 80}),
     default: "你好",

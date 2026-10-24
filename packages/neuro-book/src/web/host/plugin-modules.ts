@@ -12,9 +12,14 @@ import * as typeboxCompile from "typebox/compile";
 import * as typeboxValue from "typebox/value";
 import * as vue from "vue";
 
-import * as sdkBrowser from "nbook/sdk/browser";
+import * as sdkCommands from "nbook/sdk/commands";
 import * as sdkComponents from "nbook/sdk/components";
 import * as sdk from "nbook/sdk/index";
+import * as sdkSettings from "nbook/sdk/settings";
+import * as sdkSettingsBrowser from "nbook/sdk/settings-browser";
+import * as sdkState from "nbook/sdk/state";
+import * as sdkStorage from "nbook/sdk/storage";
+import * as sdkWorkbench from "nbook/sdk/workbench";
 import type {BrowserSharedModule} from "nbook/plugin-platform-profile";
 
 export function hostModules(): Readonly<Record<BrowserSharedModule, unknown>> {
@@ -25,7 +30,12 @@ export function hostModules(): Readonly<Record<BrowserSharedModule, unknown>> {
         "typebox/value": typeboxValue,
         "typebox/compile": typeboxCompile,
         "@notnotype/nb-plugin-sdk": sdk,
-        "@notnotype/nb-plugin-sdk/browser": sdkBrowser,
+        "@notnotype/nb-plugin-sdk/state": sdkState,
+        "@notnotype/nb-plugin-sdk/storage": sdkStorage,
+        "@notnotype/nb-plugin-sdk/settings": sdkSettings,
+        "@notnotype/nb-plugin-sdk/settings/browser": sdkSettingsBrowser,
+        "@notnotype/nb-plugin-sdk/commands": sdkCommands,
+        "@notnotype/nb-plugin-sdk/workbench": sdkWorkbench,
         "@notnotype/nb-plugin-sdk/components": sdkComponents,
     } satisfies Record<BrowserSharedModule, object>;
     return Object.freeze(Object.fromEntries(Object.entries(table).map(([id, module]) => [id, Object.freeze({...module})]))) as Readonly<Record<BrowserSharedModule, unknown>>;

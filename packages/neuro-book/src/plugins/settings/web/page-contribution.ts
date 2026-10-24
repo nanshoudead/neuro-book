@@ -1,6 +1,6 @@
 /**
- * 一个 page 分区的贡献、激活事件与实现，分区 id 只写一次（docs/specs/settings/settings-window.md“分区声明”）。给插件作者
- * 用，经 SDK 的 `@notnotype/nb-plugin-sdk/browser` 导出。
+ * 一个 page 分区的贡献、激活事件与实现，分区 id 只写一次（docs/specs/settings/settings-window.md“分区声明”）。SDK 的设置页
+ * 助手 `settingsPage`（`/settings/browser`）建在它上面；它本身不在 SDK 的公开面上。
  *
  * 不用它时作者要在三处写同一个分区 id、手拼 `{capability, id, declaration}`，而贡献的 `declaration` 在内核里是 `unknown`：
  * 字段写错要到运行时才被设置窗口拒掉、分区静默不出现。这里按 `SettingsPageDeclaration` 核对声明。

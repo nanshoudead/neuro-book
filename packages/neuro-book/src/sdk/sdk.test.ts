@@ -21,53 +21,22 @@ function sdkPaths(file: string): Record<string, ReadonlyArray<string>> {
 }
 
 describe("SDK 的导出面", () => {
-    it("各运行位置通用的部分", async () => {
-        expect(Object.keys(await import("./index")).sort()).toEqual([
-            "COMMANDS_POINT",
-            "SETTINGS_CHOICES_POINT",
-            "SETTINGS_PAGES_POINT",
-            "SETTINGS_SECTIONS_POINT",
-            "WORKBENCH_STATUSBAR_ITEMS_POINT",
-            "WORKBENCH_VIEWS_POINT",
-            "defineEntry",
-            "definePlugin",
-            "definePublicState",
-            "defineRecord",
-            "defineRemoteService",
-            "defineServiceKey",
-            "defineSetting",
-            "defineStore",
-            "diagnosticsKey",
-            "displayLocale",
-            "fail",
-            "formatText",
-            "hostClockKey",
-            "hostStateRootKey",
-            "localize",
-            "ok",
-            "orThrow",
-            "provideRemote",
-            "provideService",
-            "provideServicePerConsumer",
-            "settingsChoicesEvent",
-            "settingsKey",
-            "storageKey",
-        ]);
-    });
+    // 每个子路径的运行时导出，按子路径表的顺序。只给浏览器的两个也在 Bun 里导入：它们只再导出，单文件组件经测试的预加载编译。
+    const EXPORTS: Readonly<Record<string, ReadonlyArray<string>>> = {
+        "index": ["defineEntry", "definePlugin", "defineRemoteService", "defineServiceKey", "diagnosticsKey", "fail", "formatText", "hostClockKey", "hostStateRootKey", "localize", "ok", "orThrow", "provideRemote", "provideService", "provideServicePerConsumer"],
+        "state": ["definePublicState", "defineStore"],
+        "storage": ["defineRecord", "storageKey"],
+        "settings": ["SETTINGS_CHOICES_POINT", "SETTINGS_PAGES_POINT", "SETTINGS_SECTIONS_POINT", "defineSetting", "displayLocale", "section", "setting", "settingsChoicesEvent", "settingsKey"],
+        "settings-browser": ["SettingsPageActions", "SettingsPageList", "SettingsRow", "SettingsSaveBar", "choices", "settingsPage"],
+        "commands": ["COMMANDS_POINT", "command", "commandServiceKey"],
+        "workbench": ["WORKBENCH_STATUSBAR_ITEMS_POINT", "WORKBENCH_VIEWS_POINT", "statusItem", "view"],
+    };
 
-    it("只在浏览器入口里用的部分", async () => {
-        expect(Object.keys(await import("./browser")).sort()).toEqual([
-            "SettingsPageActions",
-            "SettingsPageList",
-            "SettingsRow",
-            "SettingsSaveBar",
-            "choices",
-            "settingsPage",
-            "settingsPageContribution",
-            "statusItem",
-            "view",
-            "viewContribution",
-        ]);
+    it("每个子路径的运行时导出；子路径表里除组件以外的子路径都在这张清单上", async () => {
+        expect(SDK_ENTRIES.map((entry) => entry.file.replace(/\.ts$/u, "")).filter((name) => name !== "components")).toEqual(Object.keys(EXPORTS));
+        for (const [file, names] of Object.entries(EXPORTS)) {
+            expect({file, names: Object.keys(await import(`./${file}`) as object).sort()}).toEqual({file, names: [...names].sort()});
+        }
     });
 
     it("组件子路径逐个列名，与 nb-ui 组件入口里的单文件组件逐个对上：nb-ui 新增组件漏列、或列了入口里没有的，这里失败", () => {

@@ -1,6 +1,7 @@
 /**
- * 作者 API：`definePlugin` 与不碰 Vue 的贡献助手（docs/specs/runtime/plugin-api.md 的“作者 API”）。SDK 根入口服务端也加载，
- * 这里不能引用 Vue；视图、设置页、状态栏条目、选项来源这些只在浏览器有意义的助手在 `browser-plugin.ts`（`/browser`）。
+ * 作者 API 的框架部分：`definePlugin` 与各贡献助手共用的积木（docs/specs/runtime/plugin-api.md 的“作者 API”）。SDK 根入口
+ * 服务端也加载，这里不能引用 Vue，也不引用内置插件：贡献助手按所属的内置插件放在各自的子路径（`settings-helpers.ts`、
+ * `command-helpers.ts`、`workbench-helpers.ts`、`settings-browser-helpers.ts`），第一个参数是 `plugin`。
  *
  * 助手建在内核与内置插件已有的合同之上，产出的仍是内核的插件描述、插件定义与入口定义；内置插件不用它们。作者只写贡献的
  * 短名，id 由这里拼成 `<插件 id>.<短名>`，类型上是字面量：入口的激活产出按声明逐项核对，漏写、多写、换错助手都编译不过。
@@ -19,16 +20,8 @@ import type {
 } from "@notnotype/nb-runtime/plugins";
 import type {RemoteContract} from "@notnotype/nb-runtime/remote";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
-import {Type} from "typebox";
-import type {Static, TObject, TSchema} from "typebox";
 
-import {COMMANDS_POINT, runsWithoutArgs} from "nbook/plugins/commands/shared/contracts";
-import type {CommandDeclaration, CommandImplementation, CommandResult} from "nbook/plugins/commands/shared/contracts";
-import {SETTINGS_SECTIONS_POINT} from "nbook/plugins/settings/shared/sections";
-import type {SettingsSectionCategory, SettingsSectionDeclaration} from "nbook/plugins/settings/shared/sections";
 import type {LocalizedText} from "nbook/shared/localized-text";
-import {defineSetting} from "nbook/shared/settings";
-import type {SettingDefinition, SettingOptions} from "nbook/shared/settings";
 
 /** 界面文字：一个字符串时两种界面语言显示同一句。 */
 export type Text = string | LocalizedText;
@@ -65,7 +58,7 @@ export function bound<Point extends string, Id extends string>(capability: Point
 /** 贡献 id 的一段：小写字母开头，只含小写字母、数字与连字符（视图、状态栏条目、设置分区的规则）。 */
 const SEGMENT = /^[a-z][a-z0-9-]*$/u;
 /** 命令 id 的一段可以数字开头（`workbench.commands` 的规则）。 */
-const COMMAND_SEGMENT = /^[a-z0-9][a-z0-9-]*$/u;
+export const COMMAND_SEGMENT = /^[a-z0-9][a-z0-9-]*$/u;
 const ID_MAX_LENGTH = 128;
 
 /** 拼出贡献 id；短名不合这个贡献点的规则时加载即抛错，不留到登记时静默被拒。 */
@@ -74,32 +67,6 @@ export function contributionId<Id extends string, Name extends string>(plugin: I
     if (!name.split(".").every((part) => segment.test(part))) throw new TypeError(`${noun}的短名 ${name} 不合规则：以点分的段，每段${segment === COMMAND_SEGMENT ? "以小写字母或数字开头" : "以小写字母开头"}，只含小写字母、数字与连字符`);
     if (id.length > ID_MAX_LENGTH) throw new TypeError(`${noun} id ${id} 超过 ${String(ID_MAX_LENGTH)} 个字符`);
     return id;
-}
-
-/**
- * 对象 schema 收紧成不许多余字段的一份（命令参数的规则）：没写 `additionalProperties` 的补成 `false`，返回新对象、不改传进来的；
- * 写了别的值时抛错。
- */
-function strictObject(schema: TSchema, noun: string): TSchema {
-    const record = schema as unknown as {readonly type?: unknown; readonly additionalProperties?: unknown};
-    if (record.type !== "object") throw new TypeError(`${noun}必须是对象 schema`);
-    if (record.additionalProperties === false) return schema;
-    if (record.additionalProperties !== undefined) throw new TypeError(`${noun}不许多余字段：additionalProperties 不写或写 false`);
-    return Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(schema), additionalProperties: {value: false, enumerable: true, writable: false, configurable: true}}) as TSchema;
-}
-
-/** list 分区助手：设置项的 `section` 收它，`group` 只能是它的组 id。 */
-export interface SectionHelper<Id extends string = string, Group extends string = string> {
-    readonly id: Id;
-    readonly contribution: ContributionDeclaration<SettingsSectionDeclaration> & {readonly capability: typeof SETTINGS_SECTIONS_POINT; readonly id: Id};
-    /** 只在类型上：分区的组 id。 */
-    readonly groups?: Group;
-}
-
-export interface CommandHelper<Id extends string = string, Args = unknown> extends ContributionHelper<typeof COMMANDS_POINT, Id, CommandDeclaration> {
-    readonly where: "anywhere";
-    /** 执行命令；`args` 已按声明的 schema 校验过。 */
-    implement(run: (args: Args) => CommandResult<unknown> | Promise<CommandResult<unknown>>): BoundImplementation<typeof COMMANDS_POINT, Id>;
 }
 
 type Helpers = Readonly<Record<string, ContributionHelper>>;
@@ -160,33 +127,6 @@ export interface PluginBuilder<Id extends string> {
     readonly id: Id;
     readonly version: string;
     readonly locations: ReadonlyArray<RuntimeLocation>;
-    /** list 分区：设置窗口左栏的一项，窗口按设置项的 schema 画控件；`category` 缺省 `plugins`。 */
-    section<const Name extends string, const Group extends string = never>(options: {
-        readonly name: Name;
-        readonly title: Text;
-        readonly description?: Text;
-        readonly icon: string;
-        readonly category?: SettingsSectionCategory;
-        readonly order?: number;
-        readonly groups?: ReadonlyArray<{readonly id: Group; readonly title: Text}>;
-    }): SectionHelper<`${Id}.${Name}`, Group>;
-    /** 设置项；键是 `<插件 id>/<name>`。`section` 收分区助手（`group` 只能是它的组），引用别的插件的分区时写分区 id。 */
-    setting<Schema extends TSchema, const Section extends SectionHelper | string = never>(options: Omit<SettingOptions<Schema>, "plugin" | "title" | "description" | "section" | "group"> & {
-        readonly title: Text;
-        readonly description?: Text;
-        readonly section?: Section;
-        readonly group?: Section extends SectionHelper<string, infer Group> ? Group : string;
-    }): SettingDefinition<Static<Schema>>;
-    /**
-     * 命令；`args` 缺省为空对象，没写 `additionalProperties` 的补成 `false`。参数有必填项的命令在命令面板里执行不了：
-     * 这种命令要写 `expose: {human: false}`，否则加载即抛错。
-     */
-    command<const Name extends string, Args extends TObject = TObject<{}>>(options: Omit<CommandDeclaration, "title" | "category" | "args"> & {
-        readonly name: Name;
-        readonly title: Text;
-        readonly category?: Text;
-        readonly args?: Args;
-    }): CommandHelper<`${Id}.${Name}`, Static<Args>>;
     /** 插件描述：`contributions` 收设置项、分区这类不要实现的声明（也收内核的贡献声明）。 */
     descriptor(contributions?: ReadonlyArray<{readonly contribution: ContributionDeclaration} | ContributionDeclaration>): PluginDescriptor;
     /**
@@ -217,47 +157,6 @@ export function definePlugin<const Id extends string>(options: {readonly id: Id;
         id: plugin,
         version: options.version,
         locations: options.locations,
-        section(section) {
-            const id = contributionId(plugin, section.name, "设置分区");
-            const declaration: SettingsSectionDeclaration = {
-                title: localizedText(section.title),
-                ...(section.description === undefined ? {} : {description: localizedText(section.description)}),
-                icon: section.icon,
-                category: section.category ?? "plugins",
-                ...(section.order === undefined ? {} : {order: section.order}),
-                ...(section.groups === undefined ? {} : {groups: section.groups.map((group) => ({id: group.id, title: localizedText(group.title)}))}),
-            };
-            return {id, contribution: {capability: SETTINGS_SECTIONS_POINT, id, declaration}};
-        },
-        setting(setting) {
-            const {title, description, section, group, ...rest} = setting;
-            return defineSetting({
-                ...rest,
-                plugin,
-                title: localizedText(title),
-                ...(description === undefined ? {} : {description: localizedText(description)}),
-                ...(section === undefined ? {} : {section: typeof section === "string" ? section : (section as SectionHelper).id}),
-                ...(group === undefined ? {} : {group}),
-            } as SettingOptions<TSchema>) as never;
-        },
-        command(command) {
-            const id = contributionId(plugin, command.name, "命令", COMMAND_SEGMENT);
-            const {name: _name, title, category, args, ...rest} = command;
-            const schema = strictObject(args ?? Type.Object({}), `命令 ${id} 的 args `);
-            if (!runsWithoutArgs(schema) && rest.expose?.human !== false) {
-                const required = (schema as {readonly required?: ReadonlyArray<string>}).required ?? [];
-                const which = required.length > 0 ? `有必填项（${required.join("、")}）` : "收不下空对象";
-                throw new TypeError(`命令 ${id} 的参数${which}，命令面板不收集参数：参数改成可选，或者写 expose: {human: false} 只给 Agent 与代码用`);
-            }
-            const declaration: CommandDeclaration = {...rest, title: localizedText(title), ...(category === undefined ? {} : {category: localizedText(category)}), args: schema};
-            return {
-                id,
-                contribution: {capability: COMMANDS_POINT, id, declaration},
-                where: "anywhere",
-                activationEvents: [],
-                implement: (run) => bound(COMMANDS_POINT, id, {run: (input: unknown) => run(input as never)} satisfies CommandImplementation),
-            };
-        },
         descriptor(contributions = []) {
             return {
                 id: plugin,

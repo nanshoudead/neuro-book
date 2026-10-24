@@ -1,17 +1,11 @@
 /**
- * 作者 API 里只在浏览器入口用的贡献助手（docs/specs/runtime/plugin-api.md 的“作者 API”）：视图、设置页、状态栏条目与选项
- * 来源。它们要 Vue 或只在窗口里有意义，所以不在 `definePlugin` 的对象上（根入口服务端也加载），第一个参数是 `plugin`，
- * 读它的 id 拼贡献 id；带 `where: "browser"`，写进别的位置的入口编译不过。
+ * `nbook.workbench` 的贡献助手（docs/specs/runtime/plugin-api.md 的“作者 API”）：侧栏与面板的视图、状态栏条目。SDK 的
+ * `/workbench` 导出它们；工作台只在浏览器里有意义，整个子路径只给浏览器入口用。第一个参数是 `plugin`，读它的 id 拼贡献 id；
+ * 带 `where: "browser"`，写进别的位置的入口编译不过。
  */
 
-import type {AllowedComponentProps, Component, ComponentCustomProps, MaybeRefOrGetter, VNodeProps} from "vue";
+import type {AllowedComponentProps, Component, ComponentCustomProps, VNodeProps} from "vue";
 
-import type {OptionSource} from "@notnotype/nb-form";
-
-import {SETTINGS_CHOICES_POINT, settingsChoicesEvent} from "nbook/plugins/settings/shared/sections";
-import type {SettingsPageDeclaration} from "nbook/plugins/settings/shared/sections";
-import type {SettingsChoicesImplementation} from "nbook/plugins/settings/web/contracts";
-import {settingsPageContribution} from "nbook/plugins/settings/web/page-contribution";
 import {WORKBENCH_STATUSBAR_ITEMS_POINT} from "nbook/plugins/workbench/shared/items";
 import type {ItemDeclaration} from "nbook/plugins/workbench/shared/items";
 import {WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/views";
@@ -19,8 +13,9 @@ import type {ViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {ItemImplementation} from "nbook/plugins/workbench/web/contracts";
 import {viewContribution} from "nbook/plugins/workbench/web/view-contribution";
 
+import type {CommandHelper} from "./command-helpers";
 import {bound, contributionId, localizedText} from "./plugin";
-import type {BoundImplementation, CommandHelper, ContributionHelper, PluginBuilder, Text} from "./plugin";
+import type {BoundImplementation, ContributionHelper, PluginBuilder, Text} from "./plugin";
 
 /** `load` 取到的组件。 */
 type Loaded<Load> = Load extends () => Promise<infer Module> ? (Module extends {readonly default: infer Value} ? Value : Module) : never;
@@ -35,7 +30,7 @@ export type PropsOf<Load> = Loaded<Load> extends abstract new (...args: never) =
     ? Omit<Props, keyof VNodeProps | keyof AllowedComponentProps | keyof ComponentCustomProps | "context">
     : Readonly<Record<string, unknown>>;
 
-type ComponentLoad = () => Promise<Component | {readonly default: Component}>;
+export type ComponentLoad = () => Promise<Component | {readonly default: Component}>;
 
 export interface ViewHelper<Id extends string, Load extends ComponentLoad> extends ContributionHelper<typeof WORKBENCH_VIEWS_POINT, Id, ViewDeclaration> {
     readonly where: "browser";
@@ -63,45 +58,6 @@ export function view<const Id extends string, const Name extends string, const L
         where: "browser",
         activationEvents: [],
         implement: (props) => bound(WORKBENCH_VIEWS_POINT, id, helper.implementation(props as (() => Readonly<Record<string, unknown>>) | undefined)),
-    };
-}
-
-export interface SettingsPageHelper<Id extends string, Load extends ComponentLoad> extends ContributionHelper<"settings.pages", Id, SettingsPageDeclaration> {
-    readonly where: "browser";
-    implement(props?: () => PropsOf<Load>): BoundImplementation<"settings.pages", Id>;
-}
-
-/**
- * 设置窗口的 page 分区：插件自己画页面，每一项用 `SettingsRow` 排。`category` 缺省 `plugins`。设置窗口第一次显示这个分区时
- * 才激活入口：激活事件由 `plugin.entry` 自动并入。
- */
-export function settingsPage<const Id extends string, const Name extends string, const Load extends ComponentLoad>(plugin: PluginBuilder<Id>, options: Omit<SettingsPageDeclaration, "title" | "description" | "category" | "keywords"> & {
-    readonly name: Name;
-    readonly title: Text;
-    readonly description?: Text;
-    readonly category?: SettingsPageDeclaration["category"];
-    readonly keywords?: ReadonlyArray<Text>;
-    readonly load: Load;
-}): SettingsPageHelper<`${Id}.${Name}`, Load> {
-    const id = contributionId(plugin.id, options.name, "设置页");
-    const {name: _name, title, description, category, keywords, load, ...rest} = options;
-    const helper = settingsPageContribution({
-        id,
-        declaration: {
-            ...rest,
-            title: localizedText(title),
-            ...(description === undefined ? {} : {description: localizedText(description)}),
-            category: category ?? "plugins",
-            ...(keywords === undefined ? {} : {keywords: keywords.map(localizedText)}),
-        },
-        load,
-    });
-    return {
-        id,
-        contribution: helper.contribution,
-        where: "browser",
-        activationEvents: [helper.activationEvent],
-        implement: (props) => bound(helper.contribution.capability, id, helper.implementation(props as (() => Readonly<Record<string, unknown>>) | undefined)),
     };
 }
 
@@ -142,20 +98,3 @@ export function statusItem<const Id extends string, const Name extends string>(p
     };
 }
 
-export interface ChoicesHelper<Id extends string> extends ContributionHelper<typeof SETTINGS_CHOICES_POINT, Id> {
-    readonly where: "browser";
-    /** 给设置项的下拉列表供选项；设置项的 `choices` 写 `{from: 这个助手.id}`。 */
-    implement(source: () => MaybeRefOrGetter<OptionSource<string>>): BoundImplementation<typeof SETTINGS_CHOICES_POINT, Id>;
-}
-
-/** 选项来源：设置窗口要它的选项时才激活入口，激活事件由 `plugin.entry` 自动并入。 */
-export function choices<const Id extends string, const Name extends string>(plugin: PluginBuilder<Id>, options: {readonly name: Name}): ChoicesHelper<`${Id}.${Name}`> {
-    const id = contributionId(plugin.id, options.name, "选项来源");
-    return {
-        id,
-        contribution: {capability: SETTINGS_CHOICES_POINT, id, declaration: {}},
-        where: "browser",
-        activationEvents: [settingsChoicesEvent(id)],
-        implement: (source) => bound(SETTINGS_CHOICES_POINT, id, {source} satisfies SettingsChoicesImplementation),
-    };
-}

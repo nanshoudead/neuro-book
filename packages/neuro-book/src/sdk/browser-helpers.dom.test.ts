@@ -5,8 +5,10 @@
 
 import {describe, expect, it} from "vitest";
 
-import {choices, settingsPage, statusItem, view} from "./browser-plugin";
+import {command} from "./command-helpers";
 import {definePlugin} from "./plugin";
+import {choices, settingsPage} from "./settings-browser-helpers";
+import {statusItem, view} from "./workbench-helpers";
 
 const plugin = definePlugin({id: "acme.hello", version: "1.0.0", locations: ["browser", "server"]});
 
@@ -32,7 +34,7 @@ describe("浏览器一侧的助手", () => {
     });
 
     it("状态栏条目：alignment 缺省 right，order、priority 缺省 0；command 收命令助手", () => {
-        const say = plugin.command({name: "say", title: "打招呼", description: "Say hello", effect: "write"});
+        const say = command(plugin, {name: "say", title: "打招呼", description: "Say hello", effect: "write"});
         const count = statusItem(plugin, {name: "count", title: "次数", command: say});
         expect(count.contribution.declaration).toEqual({title: {"zh-CN": "次数", "en-US": "次数"}, alignment: "right", order: 0, priority: 0, command: {id: "acme.hello.say"}});
         const text = () => "3";

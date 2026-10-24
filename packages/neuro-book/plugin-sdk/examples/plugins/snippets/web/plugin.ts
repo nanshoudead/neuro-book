@@ -17,8 +17,8 @@
  * 对应的场景：`scenarios/06-settings-page.test.ts`。
  */
 
-import {settingsKey} from "@notnotype/nb-plugin-sdk";
-import {settingsPage} from "@notnotype/nb-plugin-sdk/browser";
+import {settingsKey} from "@notnotype/nb-plugin-sdk/settings";
+import {settingsPage} from "@notnotype/nb-plugin-sdk/settings/browser";
 
 import {plugin, SNIPPETS_PAGE} from "../shared/contracts";
 

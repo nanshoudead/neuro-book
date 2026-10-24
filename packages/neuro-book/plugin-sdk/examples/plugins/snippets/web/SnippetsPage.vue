@@ -29,10 +29,12 @@
  */
 import {computed, ref, watch} from "vue";
 
-import {displayLocale, formatText, localize} from "@notnotype/nb-plugin-sdk";
-import type {LocalizedText, SettingsFailure, SettingsService} from "@notnotype/nb-plugin-sdk";
-import {SettingsRow} from "@notnotype/nb-plugin-sdk/browser";
-import type {SettingsPageContext} from "@notnotype/nb-plugin-sdk/browser";
+import {formatText, localize} from "@notnotype/nb-plugin-sdk";
+import type {LocalizedText} from "@notnotype/nb-plugin-sdk";
+import {displayLocale} from "@notnotype/nb-plugin-sdk/settings";
+import type {SettingsFailure, SettingsService} from "@notnotype/nb-plugin-sdk/settings";
+import {SettingsRow} from "@notnotype/nb-plugin-sdk/settings/browser";
+import type {SettingsPageContext} from "@notnotype/nb-plugin-sdk/settings/browser";
 
 import {itemsSetting} from "../shared/contracts";
 import type {Snippet} from "../shared/contracts";

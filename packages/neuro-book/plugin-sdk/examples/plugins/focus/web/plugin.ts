@@ -13,8 +13,8 @@
  */
 
 import {hostClockKey} from "@notnotype/nb-plugin-sdk";
-import type {CommandResult} from "@notnotype/nb-plugin-sdk";
-import {statusItem, view} from "@notnotype/nb-plugin-sdk/browser";
+import type {CommandResult} from "@notnotype/nb-plugin-sdk/commands";
+import {statusItem, view} from "@notnotype/nb-plugin-sdk/workbench";
 
 import {cancelCommand, plugin, sessionsContract, startCommand, toggleCommand} from "../shared/contracts";
 import type {FocusSource} from "../shared/contracts";

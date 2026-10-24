@@ -1,6 +1,6 @@
 /**
- * 一个视图的贡献与实现，视图 id 只写一次（docs/specs/workbench/views.md）。给插件作者用，经 SDK 的
- * `@notnotype/nb-plugin-sdk/browser` 导出，与设置页的 `settingsPageContribution` 对称。
+ * 一个视图的贡献与实现，视图 id 只写一次（docs/specs/workbench/views.md）。SDK 的视图助手 `view`（`/workbench`）建在它上面，
+ * 与设置页的 `settingsPageContribution` 对称；它本身不在 SDK 的公开面上。
  *
  * 视图组件只收到 `context`（`ViewContext`）；入口激活时拿到的服务、远程句柄经 `implementation(props)` 交给组件。不用它时作者
  * 要自己写一个 `defineComponent` 包装，还要记得把 `import()` 得到的模块对象解开成组件。

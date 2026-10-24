@@ -8,6 +8,26 @@
 import type {ServerSharedModule} from "nbook/plugin-platform-profile";
 
 export async function serverHostModules(): Promise<Readonly<Record<ServerSharedModule, object>>> {
-    const [reactivity, typebox, typeboxValue, typeboxCompile, sdk] = await Promise.all([import("@vue/reactivity"), import("typebox"), import("typebox/value"), import("typebox/compile"), import("nbook/sdk/index")]);
-    return {"@vue/reactivity": reactivity, "typebox": typebox, "typebox/value": typeboxValue, "typebox/compile": typeboxCompile, "@notnotype/nb-plugin-sdk": sdk};
+    const [reactivity, typebox, typeboxValue, typeboxCompile, sdk, state, storage, settings, commands] = await Promise.all([
+        import("@vue/reactivity"),
+        import("typebox"),
+        import("typebox/value"),
+        import("typebox/compile"),
+        import("nbook/sdk/index"),
+        import("nbook/sdk/state"),
+        import("nbook/sdk/storage"),
+        import("nbook/sdk/settings"),
+        import("nbook/sdk/commands"),
+    ]);
+    return {
+        "@vue/reactivity": reactivity,
+        "typebox": typebox,
+        "typebox/value": typeboxValue,
+        "typebox/compile": typeboxCompile,
+        "@notnotype/nb-plugin-sdk": sdk,
+        "@notnotype/nb-plugin-sdk/state": state,
+        "@notnotype/nb-plugin-sdk/storage": storage,
+        "@notnotype/nb-plugin-sdk/settings": settings,
+        "@notnotype/nb-plugin-sdk/commands": commands,
+    } satisfies Record<ServerSharedModule, object>;
 }

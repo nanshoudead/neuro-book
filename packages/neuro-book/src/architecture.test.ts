@@ -254,7 +254,7 @@ describe("包内依赖方向", () => {
             use("plugins/lab/web/fixtures/command-scene/lab-command-scene.ts", "nbook/plugins/commands/shared/registry"),
             use("plugins/lab/web/fixtures/command-scene/LabCommandSceneLayer.vue", "nbook/plugins/workbench/web/components/WorkbenchCommandPalette.vue"),
             use("../plugin-sdk/examples/plugins/notes/backend/plugin.ts", "@notnotype/nb-plugin-sdk"),
-            use("../plugin-sdk/examples/plugins/snippets/web/plugin.ts", "@notnotype/nb-plugin-sdk/browser"),
+            use("../plugin-sdk/examples/plugins/snippets/web/plugin.ts", "@notnotype/nb-plugin-sdk/settings/browser"),
             use("../plugin-sdk/examples/plugins/counter/backend/plugin.ts", "@vue/reactivity"),
             use("../plugin-sdk/examples/plugins/notes/backend/plugin.ts", "../../clock/shared/contracts"),
             use("../plugin-sdk/examples/plugins/notes/web/plugin.ts", "../shared/contracts"),

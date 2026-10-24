@@ -8,6 +8,8 @@ import type {Static} from "typebox";
 
 import {definePlugin, defineRemoteService} from "@notnotype/nb-plugin-sdk";
 import type {RemoteResult, RemoteSubscribeOptions, RemoteSubscription} from "@notnotype/nb-plugin-sdk";
+import {section, setting} from "@notnotype/nb-plugin-sdk/settings";
+import {command} from "@notnotype/nb-plugin-sdk/commands";
 
 /**
  * 插件的身份（读法见 `../../clock/shared/contracts.ts`）。专注计时：服务端记着进行中的一次专注与今天完成的次数，窗口里有
@@ -16,13 +18,13 @@ import type {RemoteResult, RemoteSubscribeOptions, RemoteSubscription} from "@no
 export const plugin = definePlugin({id: "example.focus", version: "0.1.0", locations: ["server", "browser"]});
 
 /** 设置窗口左栏的分区（list 分区：设置项按声明画成表单，不用写页面）；`category` 缺省 `plugins`。 */
-export const section = plugin.section({name: "main", title: {"zh-CN": "专注计时", "en-US": "Focus timer"}, icon: "i-lucide-timer", groups: [{id: "timer", title: {"zh-CN": "计时", "en-US": "Timer"}}]});
+export const mainSection = section(plugin, {name: "main", title: {"zh-CN": "专注计时", "en-US": "Focus timer"}, icon: "i-lucide-timer", groups: [{id: "timer", title: {"zh-CN": "计时", "en-US": "Timer"}}]});
 
 /**
  * 一次专注多少分钟。只放在用户层：开始计时的是服务端，服务端只读得到缺省值与用户层（作品层属于项目，项目实例才读得到），
  * 写在作品层的值在这里不会生效，用户也看不出为什么。
  */
-export const minutesSetting = plugin.setting({
+export const minutesSetting = setting(plugin, {
     name: "minutes",
     schema: Type.Integer({minimum: 1, maximum: 120}),
     default: 25,
@@ -31,7 +33,7 @@ export const minutesSetting = plugin.setting({
     layers: ["user"],
     applies: "now",
     // 收分区助手本身，`group` 只能是它的组。
-    section,
+    section: mainSection,
     group: "timer",
 });
 
@@ -90,7 +92,7 @@ export interface FocusSource {
  * id 执行它们。
  */
 function focusCommand<const Name extends string>(name: Name, zh: string, en: string, description: string) {
-    return plugin.command({name, title: {"zh-CN": `专注计时：${zh}`, "en-US": `Focus timer: ${en}`}, description, effect: "write", expose: {agent: "never"}});
+    return command(plugin, {name, title: {"zh-CN": `专注计时：${zh}`, "en-US": `Focus timer: ${en}`}, description, effect: "write", expose: {agent: "never"}});
 }
 
 export const startCommand = focusCommand("start", "开始", "Start", "Start a focus session of the configured length");

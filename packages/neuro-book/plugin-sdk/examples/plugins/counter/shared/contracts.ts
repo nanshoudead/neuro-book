@@ -7,7 +7,9 @@
 
 import {Type} from "typebox";
 
-import {definePlugin, definePublicState, defineRemoteService} from "@notnotype/nb-plugin-sdk";
+import {definePlugin, defineRemoteService} from "@notnotype/nb-plugin-sdk";
+import {definePublicState} from "@notnotype/nb-plugin-sdk/state";
+import {command} from "@notnotype/nb-plugin-sdk/commands";
 
 /**
  * 插件的身份（读法见 `../../clock/shared/contracts.ts`）。counter 在两种后端位置各有一个入口：服务端一份全局的计数，
@@ -80,7 +82,7 @@ export const counterState = definePublicState(plugin.id, {
  * 只给内置插件（docs/specs/workbench/commands.md 的“命名与域词表（第一批）”）。声明随插件定义登记，入口还没激活时命令
  * 面板就能列出它。写在合同模块里：别的插件按 `RESET_COMMAND` 执行它。
  */
-export const reset = plugin.command({
+export const reset = command(plugin, {
     name: "reset",
     title: {"zh-CN": "计数器：归零", "en-US": "Counter: Reset"},
     description: "Reset the server-side example counter to zero",

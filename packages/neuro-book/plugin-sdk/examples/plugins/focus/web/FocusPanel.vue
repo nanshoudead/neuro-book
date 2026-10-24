@@ -12,7 +12,7 @@
  *   放不下时换行。
  */
 
-import type {ViewContext} from "@notnotype/nb-plugin-sdk/browser";
+import type {ViewContext} from "@notnotype/nb-plugin-sdk/workbench";
 import {Button} from "@notnotype/nb-plugin-sdk/components";
 
 import {formatRemaining} from "./focus-store";

@@ -21,8 +21,11 @@
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
-import {defineRecord, hostClockKey, provideRemote, settingsKey, storageKey} from "@notnotype/nb-plugin-sdk";
-import type {RecordHandle, RemoteSink, RuntimeClock} from "@notnotype/nb-plugin-sdk";
+import {hostClockKey, provideRemote} from "@notnotype/nb-plugin-sdk";
+import type {RemoteSink, RuntimeClock} from "@notnotype/nb-plugin-sdk";
+import {defineRecord, storageKey} from "@notnotype/nb-plugin-sdk/storage";
+import type {RecordHandle} from "@notnotype/nb-plugin-sdk/storage";
+import {settingsKey} from "@notnotype/nb-plugin-sdk/settings";
 
 import {minutesSetting, plugin, RunningSchema, sessionsContract} from "../shared/contracts";
 import type {Today} from "../shared/contracts";

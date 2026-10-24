@@ -2,8 +2,9 @@
 
 `@notnotype/nb-plugin-sdk` 给 NeuroBook 插件的作者用：类型、构建期实现、构建预设与命令 `nbooke`。插件运行时用的是 NeuroBook 自己的那一份（宿主模块表），这个包里的实现只在你构建插件、写测试时执行。
 
-本文讲怎么做。规则细节链接到包里 `specs/` 下的 Spec 副本，它们与这个 SDK 是同一个版本；副本之间的链接在包里能打开；指向没有随包的文档（别的 Spec、架构决策、提案）的链接改成了文字，标出它在 NeuroBook 仓库里的路径。两份附表：
+本文讲怎么做。规则细节链接到包里 `specs/` 下的 Spec 副本，它们与这个 SDK 是同一个版本；副本之间的链接在包里能打开；指向没有随包的文档（别的 Spec、架构决策、提案）的链接改成了文字，标出它在 NeuroBook 仓库里的路径。三份附表：
 
+- `docs/exports.md`：每个子路径导出了什么，服务端入口能不能用；
 - `docs/components.md`：能用的界面组件；
 - `docs/tokens.md`：写样式能用的主题变量。
 
@@ -11,8 +12,13 @@
 
 | 导入 | 内容 | 在哪里用 |
 |---|---|---|
-| `@notnotype/nb-plugin-sdk` | 入口、服务、远程服务、贡献点、设置项、存储、命令、工作台贡献点的 id 与类型 | 各运行位置 |
-| `@notnotype/nb-plugin-sdk/browser` | 视图与设置页的助手、设置页用的组件 | 只在浏览器入口 |
+| `@notnotype/nb-plugin-sdk` | 插件框架：`definePlugin`、入口、服务、远程服务、诊断、宿主能力、多语言文字 | 各运行位置 |
+| `@notnotype/nb-plugin-sdk/state` | 内置插件 `nbook.state`：插件状态 `defineStore`、公开状态 `definePublicState` | 各运行位置 |
+| `@notnotype/nb-plugin-sdk/storage` | 内置插件 `nbook.storage`：私有存储 `defineRecord`、`storageKey` | 各运行位置 |
+| `@notnotype/nb-plugin-sdk/settings` | 内置插件 `nbook.settings`：设置项 `setting`、list 分区 `section`、`settingsKey` | 各运行位置 |
+| `@notnotype/nb-plugin-sdk/settings/browser` | 设置页 `settingsPage`、选项来源 `choices`、设置页组件 `SettingsRow` 等 | 只在浏览器入口 |
+| `@notnotype/nb-plugin-sdk/commands` | 内置插件 `nbook.commands`：命令 `command`、从代码执行命令的 `commandServiceKey` | 各运行位置 |
+| `@notnotype/nb-plugin-sdk/workbench` | 内置插件 `nbook.workbench`：视图 `view`、状态栏条目 `statusItem` | 只在浏览器入口 |
 | `@notnotype/nb-plugin-sdk/components` | 界面组件（见 `docs/components.md`） | 只在浏览器入口 |
 | `@notnotype/nb-plugin-sdk/build` | 构建预设 `buildPlugin`，自己写构建脚本时用 | Bun 脚本 |
 
@@ -79,11 +85,12 @@ export const descriptor = plugin.descriptor();   // 有设置项、分区时：p
 
 ```ts
 // web/plugin.ts
-import {view} from "@notnotype/nb-plugin-sdk/browser";
+import {command} from "@notnotype/nb-plugin-sdk/commands";
+import {view} from "@notnotype/nb-plugin-sdk/workbench";
 import {plugin} from "../shared/contracts";
 
 const hello = view(plugin, {name: "hello", title: "你好", icon: "i-lucide-hand", load: () => import("./HelloView.vue")});
-const say = plugin.command({name: "say", title: "打个招呼", description: "Say hello", effect: "write"});
+const say = command(plugin, {name: "say", title: "打个招呼", description: "Say hello", effect: "write"});
 
 export const browserPlugin = plugin.definition([plugin.entry({
     location: "browser",
@@ -98,7 +105,7 @@ export const browserPlugin = plugin.definition([plugin.entry({
 
 - **只写短名**：助手的 `name` 拼成贡献 id `<插件 id>.<name>`（设置项的键是 `<插件 id>/<name>`），不会写错前缀；短名不合规则（视图、条目、分区：小写字母开头，只含小写字母、数字与连字符；命令的段可以数字开头；设置项名是小驼峰）时加载就抛错，写明是哪一个。
 - **声明与实现用同一个键**：`contributions: {键: 助手}` 声明，激活产出的 `contributions` 用同样的键交 `助手.implement(…)`。漏写一项、多写一项、在某个键上交了别的助手的实现，`bun run typecheck` 都报错，报错里写着是哪一项。入口 id 缺省取运行位置名；同一个插件的两个入口不能同 id（不按位置分），重复时组装就抛错。
-- **只在浏览器有意义的助手**（`view`、`settingsPage`、`statusItem`、`choices`）从 `/browser` 导入，第一个参数是 `plugin`；把它们写进服务端入口编译不过。
+- **助手从它所属的内置插件的子路径导入**，第一个参数是 `plugin`：看导入路径就知道在用哪个内置插件。要 Vue 的部分：整个内置插件只在浏览器里有意义的（工作台）占一个只给浏览器的子路径；两端都要的（设置）把浏览器部分放在 `/settings/browser`。只给浏览器的助手（`view`、`statusItem`、`settingsPage`、`choices`）写进服务端入口编译不过。
 - **激活上下文**：`context.services.require(键)` 取 `dependencies` 里声明的服务，`context.remote` 调用远程服务，`context.signal` 在入口开始停止时触发，`context.onStop(() => …)` 登记入口停止时要做的事（取消计时器、关掉句柄）；没有 `scope`，不用自己管作用域。完整的成员见 [plugin-api 的“激活上下文”](../../../docs/specs/runtime/plugin-api.md#激活上下文)，入口与服务、远程服务、贡献怎么选见同文的[“选用规则”](../../../docs/specs/runtime/plugin-api.md#选用规则)，助手的完整规则见同文的[“作者 API”](../../../docs/specs/runtime/plugin-api.md#作者-api)。
 - **不经助手的贡献**：向别的插件自己定义的贡献点提交时，声明写在入口的 `rawContributions`（`{capability, id, declaration}` 的数组），实现写在产出的 `rawContributions: {贡献点: {id: 实现}}`；id 用 `` `${plugin.id}.<名>` as const `` 拼。自己定义贡献点时写在 `plugin.definition({contributionPoints, entries})` 里，接收的入口写 `receives` 并在产出里交 `receivers`。示例 menu、file-menu 是这两种写法。
 
@@ -110,7 +117,7 @@ export const browserPlugin = plugin.definition([plugin.entry({
 | `project` | 每个打开的项目一个 | `backend/`（与服务端共用目录，入口的 `location` 不同） |
 | `browser` | 每个窗口一个 | `web/` |
 
-服务端与浏览器的入口分模块写：服务端的产物只能引用 `@vue/reactivity`、SDK 的根入口与 Node 内置模块，服务端模块（以及它导入的东西）一旦导入了 `/browser`、`/components` 或 `.vue` 文件，构建就报“未共享”。两端共用的合同与 schema 放在 `shared/`，只写纯数据与 TypeBox schema。
+服务端与浏览器的入口分模块写：服务端的产物只能引用 `@vue/reactivity`、SDK 里服务端能用的子路径与 Node 内置模块，服务端模块（以及它导入的东西）一旦导入了 `/workbench`、`/settings/browser`、`/components` 或 `.vue` 文件，构建就报“未共享”。两端共用的合同与 schema 放在 `shared/`，只写纯数据与 TypeBox schema。
 
 ### 激活事件
 
@@ -124,11 +131,11 @@ export const browserPlugin = plugin.definition([plugin.entry({
 
 界面文字（`title`、`description` 这类）可以写一个字符串，两种界面语言显示同一句；要分开写时给 `{"zh-CN": …, "en-US": …}`。贡献、贡献点（包括自己定义贡献点时的 `schema` 与 `idPrefix`）与激活事件的规则见 [plugins](../../../docs/specs/runtime/plugins.md)。
 
-- **设置分区与设置项**：`plugin.section({name, title, icon, groups})` 是设置窗口左栏的一项（list 分区，`category` 缺省 `plugins`），窗口按设置项的 schema 画控件；`plugin.setting({name, schema, default, title, layers, applies, section, group})` 是一个设置项，`section` 收分区本身，`group` 只能是那个分区的组 id，写错编译不过。`layers` 是用户能在哪几层改它：缺省 `["user", "project"]`（用户层与作品层，作品层覆盖用户层）；服务端入口只读得到缺省值与用户层（作品层属于项目，项目实例与打开了项目的窗口才读得到），给服务端用的设置项写 `layers: ["user"]`。`applies` 告诉用户改了何时生效，只影响设置窗口的提示：缺省 `now`，另有 `next-run`、`next-session`、`restart`。两者都写进 `plugin.descriptor([…])`。读写要在入口的 `dependencies` 里声明 `settingsKey`，激活时 `context.services.require(settingsKey)` 拿到服务：`get(设置项)` 读有效值，`inspect` 读各层，`update(设置项, 值, {layer})` 写本插件声明的项。规则见 [configuration](../../../docs/specs/settings/configuration.md)，写法见模板的 `shared/contracts.ts`。
-- **page 分区**：值是列表、对象这类通用控件画不了的，用 `/browser` 的 `settingsPage(plugin, {name, title, icon, load})` 自己画页面，每一项用 `SettingsRow` 排；规则见 [settings-window 的“分区声明”](../../../docs/specs/settings/settings-window.md#分区声明)，写法见示例 snippets。
-- **视图**：`/browser` 的 `view(plugin, {name, title, icon, load})`，`location` 缺省 `sidebar`，`layout` 缺省 `scroll`。`implement(() => 属性)` 交出实现：组件收到宿主给的 `context`（视图 id、是否可见、所在位置）与这个函数返回的属性。组件里拿不到服务，入口激活时拿到的服务、状态与回调都经这个函数交过去；它在渲染时求值，读到的响应式值变了视图跟着更新。`npm run typecheck`（vue-tsc）按组件的 `defineProps` 检查这些属性：必填属性漏写、名字写错或类型不对都报错，可选属性的笔误查不出来。声明的字段见 [views 的“输入与前置条件”](../../../docs/specs/workbench/views.md#输入与前置条件)，写法见模板的 `web/plugin.ts`。
-- **命令**：`plugin.command({name, title, description, effect, args?})`，`title` 给人看，`description` 用英文写给 Agent 看，`effect` 是 `read` 或 `write`（只读模式下 Agent 不能执行 `write` 的命令）。Agent 缺省不能调用命令：`expose.agent` 不写就是不开放，写 `"confirm"` 时每次调用先问用户，写 `"auto"` 时直接执行（同时写了 `hints.destructive: true` 的仍按 `"confirm"`）。`args` 缺省为空对象，写了没写 `additionalProperties` 的补成 `false`。命令面板不收集参数：**给人用的命令，参数要全部可选**（不带参数也能通过校验）；参数有必填项的命令只给 Agent 与代码调用，要写 `expose: {human: false}`，否则加载就抛错。实现 `command.implement((args) => 结果)` 返回 `{ok: true, value}` 或 `{ok: false, code, reason}`（类型 `CommandResult`）。
-- **状态栏条目**：`/browser` 的 `statusItem(plugin, {name, title, command?, order?})`，`alignment` 缺省 `right`、`order` 与 `priority` 缺省 0，`command` 可以直接给命令助手（点了执行它，不带参数）。实现是三个函数：
+- **设置分区与设置项**：`/settings` 的 `section(plugin, {name, title, icon, groups})` 是设置窗口左栏的一项（list 分区，`category` 缺省 `plugins`），窗口按设置项的 schema 画控件；`setting(plugin, {name, schema, default, title, layers, applies, section, group})` 是一个设置项，`section` 收分区本身，`group` 只能是那个分区的组 id，写错编译不过。`layers` 是用户能在哪几层改它：缺省 `["user", "project"]`（用户层与作品层，作品层覆盖用户层）；服务端入口只读得到缺省值与用户层（作品层属于项目，项目实例与打开了项目的窗口才读得到），给服务端用的设置项写 `layers: ["user"]`。`applies` 告诉用户改了何时生效，只影响设置窗口的提示：缺省 `now`，另有 `next-run`、`next-session`、`restart`。两者都写进 `plugin.descriptor([…])`。读写要在入口的 `dependencies` 里声明 `settingsKey`，激活时 `context.services.require(settingsKey)` 拿到服务：`get(设置项)` 读有效值，`inspect` 读各层，`update(设置项, 值, {layer})` 写本插件声明的项。规则见 [configuration](../../../docs/specs/settings/configuration.md)，写法见模板的 `shared/contracts.ts`。
+- **page 分区**：值是列表、对象这类通用控件画不了的，用 `/settings/browser` 的 `settingsPage(plugin, {name, title, icon, load})` 自己画页面，每一项用 `SettingsRow` 排；规则见 [settings-window 的“分区声明”](../../../docs/specs/settings/settings-window.md#分区声明)，写法见示例 snippets。
+- **视图**：`/workbench` 的 `view(plugin, {name, title, icon, load})`，`location` 缺省 `sidebar`，`layout` 缺省 `scroll`。`implement(() => 属性)` 交出实现：组件收到宿主给的 `context`（视图 id、是否可见、所在位置）与这个函数返回的属性。组件里拿不到服务，入口激活时拿到的服务、状态与回调都经这个函数交过去；它在渲染时求值，读到的响应式值变了视图跟着更新。`npm run typecheck`（vue-tsc）按组件的 `defineProps` 检查这些属性：必填属性漏写、名字写错或类型不对都报错，可选属性的笔误查不出来。声明的字段见 [views 的“输入与前置条件”](../../../docs/specs/workbench/views.md#输入与前置条件)，写法见模板的 `web/plugin.ts`。
+- **命令**：`/commands` 的 `command(plugin, {name, title, description, effect, args?})`，`title` 给人看，`description` 用英文写给 Agent 看，`effect` 是 `read` 或 `write`（只读模式下 Agent 不能执行 `write` 的命令）。Agent 缺省不能调用命令：`expose.agent` 不写就是不开放，写 `"confirm"` 时每次调用先问用户，写 `"auto"` 时直接执行（同时写了 `hints.destructive: true` 的仍按 `"confirm"`）。`args` 缺省为空对象，写了没写 `additionalProperties` 的补成 `false`。命令面板不收集参数：**给人用的命令，参数要全部可选**（不带参数也能通过校验）；参数有必填项的命令只给 Agent 与代码调用，要写 `expose: {human: false}`，否则加载就抛错。实现 `command.implement((args) => 结果)` 返回 `{ok: true, value}` 或 `{ok: false, code, reason}`（类型 `CommandResult`）。
+- **状态栏条目**：`/workbench` 的 `statusItem(plugin, {name, title, command?, order?})`，`alignment` 缺省 `right`、`order` 与 `priority` 缺省 0，`command` 可以直接给命令助手（点了执行它，不带参数）。实现是三个函数：
 
   ```ts
   const count = statusItem(plugin, {name: "count", title: "次数", command: say});
@@ -224,8 +231,8 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 - 读写的写法（服务端入口的 `activate` 里）：
 
   ```ts
-  import {defineRecord, storageKey} from "@notnotype/nb-plugin-sdk";
-  import type {RecordHandle, Revision} from "@notnotype/nb-plugin-sdk";
+  import {defineRecord, storageKey} from "@notnotype/nb-plugin-sdk/storage";
+  import type {RecordHandle, Revision} from "@notnotype/nb-plugin-sdk/storage";
   import {Type} from "typebox";
 
   const progress = defineRecord({key: "progress", scope: "user", locality: "shared", version: 1, schema: Type.Object({words: Type.Integer()})});
@@ -254,7 +261,7 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 
 ### 常用名字
 
-根入口：`definePlugin`、`ok`、`fail`、`defineRemoteService`、`provideRemote`、`defineRecord`、`defineStore`、`definePublicState`、`provideService`（同一实例里的本地服务）、`defineServiceKey`、`settingsKey`、`storageKey`、`diagnosticsKey`、`hostClockKey`（宿主给的时钟）。`/browser`：`view`、`settingsPage`、`statusItem`、`choices`、`SettingsRow`。别的名字是这些的类型与少用的部分，`index.d.ts` 里都有说明。
+根入口：`definePlugin`、`ok`、`fail`、`defineRemoteService`、`provideRemote`、`provideService`（同一实例里的本地服务）、`defineServiceKey`、`diagnosticsKey`、`hostClockKey`（宿主给的时钟）。`/state`：`defineStore`、`definePublicState`。`/storage`：`defineRecord`、`storageKey`。`/settings`：`section`、`setting`、`settingsKey`。`/settings/browser`：`settingsPage`、`choices`、`SettingsRow`。`/commands`：`command`、`commandServiceKey`。`/workbench`：`view`、`statusItem`。每个子路径的完整名单见 `docs/exports.md`，说明在各自的 `.d.ts` 里。
 
 ## 界面
 
@@ -276,7 +283,7 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 | 报错里有 | 原因 | 怎么改 |
 |---|---|---|
 | “打进了 vue 的实现”（或 `@vue/reactivity`、SDK、内核） | 产物里有了第二份宿主的包，常见于某个依赖自带一份 Vue，或者经相对路径绕过包名引用了它 | 从包名导入；换掉自带 Vue 的依赖。插件里出现第二份 Vue 时界面会静默失效，所以构建直接拦下 |
-| “引用了宿主没有共享的模块 X”“该入口未共享” | 引用了这个运行位置的宿主模块表里没有的模块：服务端入口导入了 `/browser`、`/components` 或 `.vue`；引用了 SDK 或 Vue 没有共享的子路径 | 按报错里“由谁引入”找到那一行，换写法或把代码挪到对的一端 |
+| “引用了宿主没有共享的模块 X”“该入口未共享” | 引用了这个运行位置的宿主模块表里没有的模块：服务端入口导入了 `/workbench`、`/settings/browser`、`/components` 或 `.vue`（报错后面附有原因）；引用了 SDK 或 Vue 没有共享的子路径 | 按报错里“由谁引入”找到那一行，换写法或把代码挪到对的一端 |
 | 上一行再加“nb-ui 的组件从 @notnotype/nb-plugin-sdk/components 导入” | 直接导入了 `@notnotype/nb-ui` | 改从 `@notnotype/nb-plugin-sdk/components` 导入 |
 | “不支持顶层 await” | 浏览器入口打成同步执行的登记工厂，模块顶层不能 `await` | 挪进 `activate` |
 | 清单的 schema 问题（路径指向某个合同方法或贡献点的 `schema`） | 远程合同或贡献点的 schema 不是纯 JSON Schema（`Refine`、`Codec`、自己注册的 format、指向外部的 `$ref`） | 改成纯 JSON Schema；跨字段的规则放进实现里检查 |

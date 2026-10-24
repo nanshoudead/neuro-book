@@ -116,6 +116,7 @@ async function writeAuthorDocs(outDir: string): Promise<void> {
         await writeFile(join(outDir, "specs", spec), specCopy(spec, await readFile(join(SPECS_ROOT, spec), "utf8"), specs));
     }
     await mkdir(join(outDir, "docs"), {recursive: true});
+    await writeFile(join(outDir, "docs/exports.md"), await exportsDoc());
     await writeFile(join(outDir, "docs/components.md"), await componentsDoc());
     await writeFile(join(outDir, "docs/tokens.md"), await tokensDoc());
 }
@@ -172,6 +173,39 @@ async function sdkComponentNames(): Promise<string[]> {
  * 组件清单：SDK 组件入口导出的组件，按它在 nb-ui 里所在的目录分组（nb-ui 组件入口旁的各目录里的 `<名字>.vue`）。在 nb-ui 里
  * 找不到单文件组件的名字进“其它”，不会从清单里消失。
  */
+/** 一个子路径入口文件里再导出的名字，值与类型分开；读语法树，不执行（入口带单文件组件时 Bun 加载不了）。 */
+async function entryExports(entry: SdkEntry): Promise<{readonly values: string[]; readonly types: string[]}> {
+    const source = ts.createSourceFile(entry.file, await readFile(join(packageRoot, "src/sdk", entry.file), "utf8"), ts.ScriptTarget.Latest);
+    const values: string[] = [];
+    const types: string[] = [];
+    for (const statement of source.statements) {
+        if (!ts.isExportDeclaration(statement) || statement.exportClause === undefined || !ts.isNamedExports(statement.exportClause)) continue;
+        for (const element of statement.exportClause.elements) (statement.isTypeOnly || element.isTypeOnly ? types : values).push(element.name.text);
+    }
+    return {values: values.sort(), types: types.sort()};
+}
+
+/** 每个子路径导出了什么（组件另见 `components.md`）：作者文档链接它，不手写名单，免得与导出面对不上。 */
+async function exportsDoc(): Promise<string> {
+    const sections: string[] = [];
+    for (const entry of SDK_ENTRIES) {
+        if (entry.subpath === "./components") continue;
+        const {values, types} = await entryExports(entry);
+        const list = (names: ReadonlyArray<string>) => (names.length === 0 ? "无" : names.map((name) => `\`${name}\``).join("、"));
+        sections.push(`## \`${entry.specifier}\`
+
+- 服务端入口能不能用：${entry.server ? "能" : "不能（要 Vue，只给浏览器入口）"}
+- 值：${list(values)}
+- 类型：${list(types)}
+`);
+    }
+    return `# 各子路径的导出
+
+由 SDK 的构建从 SDK 的入口生成，不要手改。根入口是插件框架，其余每个子路径归一个内置插件；nb-ui 的组件见 [components.md](components.md)。
+
+${sections.join("\n")}`;
+}
+
 async function componentsDoc(): Promise<string> {
     const nbUiComponents = dirname(fileURLToPath(import.meta.resolve("@notnotype/nb-ui/components")));
     const directoryOf = new Map<string, string>();

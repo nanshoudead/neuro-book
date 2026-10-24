@@ -4,15 +4,16 @@
 
 import {ref} from "vue";
 
-import {settingsKey} from "@notnotype/nb-plugin-sdk";
-import {view} from "@notnotype/nb-plugin-sdk/browser";
+import {settingsKey} from "@notnotype/nb-plugin-sdk/settings";
+import {command} from "@notnotype/nb-plugin-sdk/commands";
+import {view} from "@notnotype/nb-plugin-sdk/workbench";
 
 import {greeting, plugin} from "../shared/contracts";
 
 /** 侧栏视图；第一次显示时才加载组件。`location` 缺省侧栏、`layout` 缺省 `scroll`。 */
 const hello = view(plugin, {name: "hello", title: "__DISPLAY_NAME__", icon: "i-lucide-hand", load: () => import("./HelloView.vue")});
 
-const sayHello = plugin.command({
+const sayHello = command(plugin, {
     name: "say-hello",
     title: {"zh-CN": "__DISPLAY_NAME__：打个招呼", "en-US": "__DISPLAY_NAME__: Say hello"},
     // 给 Agent 看的说明，用英文写。

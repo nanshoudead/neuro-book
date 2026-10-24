@@ -9,7 +9,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {ref} from "vue";
 
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
-import type {ViewLocation} from "@notnotype/nb-plugin-sdk";
+import type {ViewLocation} from "@notnotype/nb-plugin-sdk/workbench";
 
 import type {FocusSource, Today} from "../shared/contracts";
 import FocusPanel from "./FocusPanel.vue";

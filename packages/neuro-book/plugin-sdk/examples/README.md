@@ -16,7 +16,7 @@
 6. [06-settings-page](scenarios/06-settings-page.test.ts)：配置项与设置窗口的 page 分区。读 [snippets](plugins/snippets/)：`plugin.ts` → `shared/contracts.ts` → `web/plugin.ts` → `web/snippets.ts` → `web/SnippetsPage.vue`（与 `SnippetsEditor.vue`）。
 7. [07-focus](scenarios/07-focus.test.ts)：完整示例，前面几样连在一起。读 [focus](plugins/focus/)：`shared/contracts.ts` → `backend/plugin.ts` → `web/focus-store.ts` → `web/plugin.ts` → `web/FocusPanel.vue`。
 
-场景用到的场地与探针在 [`testing/`](testing/)。示例插件只从 SDK（`@notnotype/nb-plugin-sdk`，浏览器专用的部分在 `/browser`）导入宿主与内置插件的东西，宿主给的时钟能力也在 SDK 里（`hostClockKey`）。
+场景用到的场地与探针在 [`testing/`](testing/)。示例插件只从 SDK（根入口是插件框架，各内置插件在自己的子路径，例如 `/storage`、`/workbench`）导入宿主与内置插件的东西，宿主给的时钟能力也在 SDK 里（`hostClockKey`）。
 
 ## 运行
 
@@ -35,7 +35,7 @@
 | 贡献与贡献点 | 声明式扩展：拥有者定义扩展点，别的插件交“声明 + 实现”，彼此没有依赖 | 同一实例 | 插件定义的 `contributionPoints`，入口的 `receives` 与 `contributions` | menu 定义、file-menu 贡献；counter 向 `nbook.commands`、`nbook.state` 贡献 |
 | 插件状态 | 一个入口的内存、持久化、派生与公开状态，只经 action 写，随入口代次创建与释放 | 一个入口 | `defineStore`（`nbook/shared/store/store`），公开键 `definePublicState` | counter 的计数与公开键 `example.counter/nonzero` |
 | 配置项 | 用户主动设定的偏好，用户层（`<状态根>/settings.json`）与项目层（`<项目目录>/.nbook/settings.json`）各存一份，越具体越优先、整体覆盖；所有插件都能读，只有声明它的插件能写 | 跨所有运行位置 | `defineSetting`（`nbook/shared/settings`），写在插件描述的 `contributions` 里；经 `nbook.settings` 的 `settingsKey` 读（`get` 有效值、`inspect` 各层）、写（`update(定义, 值, {layer})`） | snippets 的 `example.snippets/items` |
-| 设置分区 | 设置窗口左栏的一项：list 分区由窗口按配置项画通用控件，page 分区由插件自己画页面 | 窗口 | 贡献点 `settings.sections`（list 分区）与 `settings.pages`（page 分区），都由 `nbook.settings` 拥有。list 分区是 `plugin.section(…)`，写进插件描述，配置项（`plugin.setting`）的 `section` 收分区本身、`group` 写它的小组 id，不需要代码；page 分区由浏览器入口用 `/browser` 的 `settingsPage(plugin, …)` 贡献，实现交 `load()`，页面用 SDK `/browser` 的 `SettingsRow` 画每一项 | snippets 的 page 分区 `example.snippets.main`；list 分区见作者模板的 [`shared/contracts.ts`](../template/shared/contracts.ts) |
+| 设置分区 | 设置窗口左栏的一项：list 分区由窗口按配置项画通用控件，page 分区由插件自己画页面 | 窗口 | 贡献点 `settings.sections`（list 分区）与 `settings.pages`（page 分区），都由 `nbook.settings` 拥有。list 分区是 `/settings` 的 `section(plugin, …)`，写进插件描述，配置项（`setting(plugin, …)`）的 `section` 收分区本身、`group` 写它的小组 id，不需要代码；page 分区由浏览器入口用 `/settings/browser` 的 `settingsPage(plugin, …)` 贡献，实现交 `load()`，页面用同一子路径的 `SettingsRow` 画每一项 | snippets 的 page 分区 `example.snippets.main`；list 分区见作者模板的 [`shared/contracts.ts`](../template/shared/contracts.ts) |
 
 几个概念之间的关系，以 counter 与 notes 为例：
 
@@ -104,7 +104,7 @@ examples/
 
 目录格式与应用包的内置插件相同（[`packages/neuro-book/AGENTS.md`](../../AGENTS.md) 的“目录约定”）：
 
-- 示例插件按第三方插件的写法：只从 SDK 导入（`@notnotype/nb-plugin-sdk`、`/browser`、`/components`），另外只用 `vue`、`@vue/reactivity` 与 `typebox`；引用别的示例插件在运行时只引用对方的 `shared/contracts.ts`，类型可以 `import type`。测试文件（场景、组件测试）不受这条限制。`src/architecture.test.ts` 检查这些规则，产品代码也不能反过来引用 `examples/`。
+- 示例插件按第三方插件的写法：只从 SDK 导入（`@notnotype/nb-plugin-sdk` 与它的子路径），另外只用 `vue`、`@vue/reactivity` 与 `typebox`；引用别的示例插件在运行时只引用对方的 `shared/contracts.ts`，类型可以 `import type`。测试文件（场景、组件测试）不受这条限制。`src/architecture.test.ts` 检查这些规则，产品代码也不能反过来引用 `examples/`。
 - 服务键按服务 id 识别，只在提供方的 `shared/contracts.ts` 定义一次（[ADR 0025](../../../../docs/adr/0025-service-keys-by-id.md)）。
 - 插件定义是常量，没有工厂参数（[ADR 0026](../../../../docs/adr/0026-plugin-definitions-as-constants.md)）：要宿主的东西就依赖宿主能力，对别的插件的依赖同样写在入口的 `dependencies` 里。定义按代码所在的一侧导出，后端不能引用浏览器代码；一份后端定义可以含 `server` 与 `project` 两个位置的入口。
 - `web/` 与 `backend/` 互不引用，只经 `shared/` 交换类型与 schema；`plugin.ts`、`shared/` 与 `web/` 也过浏览器那份类型检查，不用 Bun 与 Node 的接口。
