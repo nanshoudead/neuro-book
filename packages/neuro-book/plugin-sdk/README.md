@@ -267,7 +267,9 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 
 ## 调试
 
-- **服务端日志**：`<状态根>/logs/server-current.jsonl`，一行一条 JSON，按插件 id 搜：服务端与项目入口的受阻、激活失败与装载失败都记在这里（事件 `plugins.diagnostic`；插件页现在只管安装与启停，不显示入口的运行状态）。服务端的 `console.warn`、`console.error` 也会记进去；要写结构化的记录就依赖 `diagnosticsKey`，用 `record({level, event, message, data, source: {plugin, entry}})`，`event` 写成以插件 id 开头的名字，方便搜。
+- **先看插件页**：插件装上、重启后没出现或用不了，先打开设置里的插件页。你的插件那一行列出此刻的问题：哪个入口激活失败（带错误消息）、哪个入口受阻（缺哪个服务）、哪项贡献被拒（贡献点、id 与原因）。服务端的问题是打开页面时的，本窗口的随时更新；在作品里运行的入口不在这里，看日志。
+- **命令没反应**：从命令面板或快捷键执行失败时，右下角弹一条警告，写命令名与原因。有必填参数的命令不出现在面板里（面板不收集参数），`definePlugin` 的 `command` 遇到这种写法会直接报错，除非写了 `expose: {human: false}`。远程调用得到 `unavailable` 时，详情里带着提供方入口激活失败的原因。
+- **服务端日志**：`<状态根>/logs/server-current.jsonl`，一行一条 JSON，按插件 id 搜：服务端与项目入口的受阻、激活失败与装载失败都记在这里（事件 `plugins.diagnostic`），比插件页多出时间与上下文。服务端的 `console.warn`、`console.error` 也会记进去；要写结构化的记录就依赖 `diagnosticsKey`，用 `record({level, event, message, data, source: {plugin, entry}})`，`event` 写成以插件 id 开头的名字，方便搜。
 - **浏览器**：开发者工具的控制台里有这个窗口的诊断，浏览器入口的激活失败也在这里；浏览器入口的产物带 source map（源文件路径相对你的插件目录），在 Sources 面板里按原文件名找到代码、打断点。视图渲染出错时只有这个视图原位显示错误与“重试”，别的视图照常。
 - 服务端入口的产物同样带 source map（`server.js.map`）。
 
