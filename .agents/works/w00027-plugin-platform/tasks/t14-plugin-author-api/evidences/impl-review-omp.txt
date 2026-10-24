@@ -1,0 +1,46 @@
+### 1. 命令必填参数检查只看 `required`，schema 约束仍可让人类命令加载后必然失败
+- 严重程度：重要
+- 类别：正确性
+- 位置：`packages/neuro-book/src/sdk/plugin.ts:243-250`
+- 现象：`plugin.command` 只读取顶层 `schema.required`，用 `required.length > 0` 判断命令是否有人类不可执行；但 TypeBox/JSON Schema 还可以用 `minProperties`、`anyOf` 等约束让空对象 `{}` 不合法，而 `args` 的类型与运行时都接受这些写法。命令因此没有 `expose.human: false` 也能加载。
+- 为什么是问题：命令面板不收集参数，执行时只能传空对象。此类命令会出现在面板候选中，点击后固定得到 `invalid-args`，违反计划与 Spec 的“有必填参数而人能执行时加载即抛错”以及“面板不列这种命令”；作者也不会在定义位置得到诊断。
+- 如何核实：在审查 worktree 运行：`bun -e 'import {Type} from "typebox"; import {definePlugin} from "./packages/neuro-book/src/sdk/plugin.ts"; const p=definePlugin({id:"acme.test",version:"1.0.0",locations:["browser"]}); for (const args of [Type.Object({}, {minProperties:1}), Type.Object({}, {anyOf:[Type.Object({x:Type.String()})]})]) { try { const c=p.command({name:"x"+Math.random().toString(36).slice(2,5),title:"x",description:"x",effect:"read",args:args as never}); console.log("accepted", JSON.stringify(c.contribution.declaration.args)); } catch(e) { console.log("rejected", String(e)); }}'`；两种 schema 都输出 `accepted`，且保留了使 `{}` 无效的约束。
+- 建议改法：用与命令运行时相同的 TypeBox 校验，对空参数对象实际执行 `Value.Check(schema, {})`；只要 `{}` 不通过且 `expose.human !== false` 就拒绝。若产品明确只支持“顶层 required”判定，则应把 schema 允许的其它约束收窄并在定义时拒绝，不能静默接受后交给面板失败。
+### 2. 作者示例仍把已移除的 `context.scope` 当作公开 API
+- 严重程度：重要
+- 类别：文档
+- 位置：`packages/neuro-book/plugin-sdk/examples/README.md:142`、`packages/neuro-book/plugin-sdk/examples/scenarios/01-services.test.ts:9`
+- 现象：S2 已把作者激活上下文收窄为没有 `scope`、用 `context.onStop` 登记释放；clock 示例实现也已经改成 `context.onStop`。但示例场景目录和场景文件的教学文字仍写“停止时 `signal` 与 `scope` 的分工”“`context.scope` 上登记的宿主计时器被释放”。
+- 为什么是问题：作者按示例阅读会继续尝试访问已经不在作者类型里的 `scope`/`scope.register`，与 README 同一页宣称的 `context.onStop` 合同矛盾。这个错误不只是措辞：它会把作者引回内核 `ResourceSpec`，正好破坏 A2/F04 的收窄目标。
+- 如何核实：读取 `packages/neuro-book/src/sdk/plugin.ts:107-108` 可见 `AuthorActivationContext = Omit<ActivationContext, "scope">`；读取 `packages/neuro-book/plugin-sdk/examples/plugins/clock/backend/plugin.ts:64-72` 可见实际示例已使用 `context.onStop`，而上述两个教学位置仍出现 `context.scope`。
+- 建议改法：把两处改成“`signal` 在入口开始停止时触发，`onStop` 登记的释放回调在入口收口时执行”，不要在作者材料里出现 `scope`；同步检查示例场景的说明文本，保留内核测试专用的内部上下文说明只能放在内核材料中。
+### 3. 清单读取没有按 Spec 原样保留 `displayName` 与 `description`
+- 严重程度：建议
+- 类别：正确性
+- 位置：`packages/nb-runtime/src/plugin-manifest/read.ts:199-203`
+- 现象：`textOrNull` 对字段执行 `.trim()`，并把纯空白字符串改成 `null`；S5 同提交的测试还把这个行为固定成“去掉首尾空白”。`runtime/plugin-manifest.md` 的输入表要求这两个字段“读取时原样保留”。
+- 为什么是问题：作者在 `package.json` 里写的显示名与说明会在清单读取、插件列表与跨进程返回前被静默改写；例如故意用首尾空格表达的显示名/说明不能再恢复。实现额外改变了公开清单数据，而不是仅增加字段。
+- 如何核实：运行 `bun test packages/nb-runtime/src/plugin-manifest/plugin-manifest.test.ts`，新增测试会断言 `" Daily Goal "` 变成 `"Daily Goal"`；对照 `docs/specs/runtime/plugin-manifest.md` 输入表中 `displayName`、`description` 的“原样保留”合同。
+- 建议改法：读取时保留非 `undefined` 的原字符串，未写时才用 `null`；若产品确实要清理首尾空白，应先修订 Spec，并把清理作为作者输入校验或明确的规范化合同，而不是在读取函数里悄悄改变值。
+### 4. 远程业务详情测试没有守住 `undefined` 与 `null` 的边界，也没有守住继承来的错误码
+- 严重程度：建议
+- 类别：测试
+- 位置：`packages/nb-runtime/src/remote/routing.test.ts:689-700`、`packages/nb-runtime/src/remote/outcome.test.ts:38-50`
+- 现象：现有运行时测试覆盖了缺详情、错误对象和给 `Type.Undefined()` 的额外对象，但没有让提供方显式返回 `detail: null`；也没有使用带原型错误码的 `errors` 对象验证 `Object.hasOwn` 的守卫。类型测试只用 `@ts-expect-error` 守住“有错误”，没有运行时边界。
+- 为什么是问题：`undefined` 是“无详情”的合法值，`null` 不是；错误码也只能来自合同自己的自有属性。两处正是本次运行时核对最容易被 `??`、原型链查找或“有值”判断改坏的边界。当前实现看起来已按这两个规则写，但现有测试不会在这类回归后失败。
+- 如何核实：运行 `bun test src/remote/routing.test.ts src/remote/outcome.test.ts` 可见全部现有用例通过；读取 `refuse` 测试实现可见 `extra-detail` 返回 `{x: 1}`，没有 `null`，错误码测试也没有继承属性场景。
+- 建议改法：增加真实远程调用：对 `Type.Undefined()` 分别返回省略 `detail`、`detail: undefined` 与 `detail: null`，前两者按合同成功、后者为 `provider-error`；另用 `Object.create({inherited: Type.Undefined()})` 作为 `errors`，返回 `inherited` 必须仍为 `provider-error`，并保持 `Object.hasOwn` 核对。
+## 未发现问题的方面
+- 远程结果实现：提供方与调用方都按成功输出和业务失败详情校验；`Object.hasOwn`、未声明 `errors`、`undefined`/`null` 的实现路径符合合同。本轮只发现对应测试边界不足，未发现实现错误。
+- `defineRemoteService` 与合同内容比较：`getOwnPropertyDescriptors` 保留了 TypeBox 的 `~kind`、`~refine`、`~codec` 等不可枚举元数据；自动补 `additionalProperties: false` 后，内置合同与 JSON 往返后的第三方合同内容一致，带校验函数的合同按预期不视为可移植同合同。
+- `onStop` 与 `defineStore`：激活成功、激活失败、入口停止都执行登记的释放；Store 的字段 flush、关闭和响应式收口行为保持原实现语义。
+- 插件作者 API 的贡献合成、重复入口 id、激活事件去重、rawContributions 形状、助手位置限制与现有内核核对衔接：定向测试与类型检查通过，未发现实现问题。
+- 插件问题读模型、纯 JSON 边界、服务端列表调用时机、插件管理合同版本 4 的 list/写操作返回分离：定向测试通过，未发现实现问题。
+- 构建预设的位置核对：动态定义可读、只有声明的插件、入口模块未导出/读取失败时的错误边界均未发现误报问题。
+- `locality` 必填、记录 schema 自动收紧、模板与七个示例的记录/命令/`onStop` 写法：示例场景与记录测试通过；除第 2 条列出的遗留教学文案外，未发现实现或示例行为问题。
+
+## 数量
+- 阻断：0
+- 重要：2
+- 建议：2
+- 共 4 条。
