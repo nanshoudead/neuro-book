@@ -26,8 +26,8 @@
 
 | 概念 | 是什么 | 范围 | 代码里 | 示例 |
 |---|---|---|---|---|
-| 插件 | 发布、启用、版本的单位，一个目录 | 跨所有运行位置 | `plugin.ts` 的插件描述 `PluginDescriptor`（id、版本、运行位置） | 每个插件目录的 `plugin.ts` |
-| 入口 | 插件在某一种运行位置上的代码，单独激活、单独受阻，有自己的激活代次；同一位置可以有多个入口 | 一个运行实例 | 插件定义常量 `PluginDefinition` 的 `entries`，每个实例只激活本位置的入口 | counter 一份后端定义含 `server` 与 `project` 两个入口；notes 有服务端与浏览器两份定义 |
+| 插件 | 发布、启用、版本的单位，一个目录 | 跨所有运行位置 | `definePlugin({id, version, locations})`（写在 `shared/contracts.ts`），`plugin.ts` 用它导出插件描述 | 每个插件的 `shared/contracts.ts` 与 `plugin.ts` |
+| 入口 | 插件在某一种运行位置上的代码，单独激活、单独受阻，有自己的激活代次；同一位置可以有多个入口 | 一个运行实例 | `plugin.entry(…)`，经 `plugin.definition([…])` 组成插件定义（常量），每个实例只激活本位置的入口 | counter 一份后端定义含 `server` 与 `project` 两个入口；notes 有服务端与浏览器两份定义 |
 | 服务 | 一个入口交给**同一实例里**其它入口用的对象，以服务 id 标识 | 同一实例 | `provideService`（共享一份）、`provideServicePerConsumer`（每个调用方一份） | clock 的报时服务（共享）；notes 窗口里的笔记视图（按调用方） |
 | 依赖 | **入口**声明“我需要服务 id 为 S 的服务”；只在本实例里解析，提供方先激活、后停止；必需依赖缺了只有这个入口受阻，可选依赖缺了只有用到它的那一处不可用 | 同一实例 | 入口的 `dependencies`；激活时 `context.services.require(键)`（必需）或 `resolve(键)`（可选） | notes 必需依赖 `nbook.storage`、可选依赖 clock |
 | 宿主能力 | 宿主交给本实例插件的东西（时钟、状态根、项目），插件像依赖服务一样声明 | 同一实例 | 宿主在应用清单的 `capabilities` 里给出；插件在 `dependencies` 里声明 | clock 依赖宿主时钟 |
@@ -35,7 +35,7 @@
 | 贡献与贡献点 | 声明式扩展：拥有者定义扩展点，别的插件交“声明 + 实现”，彼此没有依赖 | 同一实例 | 插件定义的 `contributionPoints`，入口的 `receives` 与 `contributions` | menu 定义、file-menu 贡献；counter 向 `nbook.commands`、`nbook.state` 贡献 |
 | 插件状态 | 一个入口的内存、持久化、派生与公开状态，只经 action 写，随入口代次创建与释放 | 一个入口 | `defineStore`（`nbook/shared/store/store`），公开键 `definePublicState` | counter 的计数与公开键 `example.counter/nonzero` |
 | 配置项 | 用户主动设定的偏好，用户层（`<状态根>/settings.json`）与项目层（`<项目目录>/.nbook/settings.json`）各存一份，越具体越优先、整体覆盖；所有插件都能读，只有声明它的插件能写 | 跨所有运行位置 | `defineSetting`（`nbook/shared/settings`），写在插件描述的 `contributions` 里；经 `nbook.settings` 的 `settingsKey` 读（`get` 有效值、`inspect` 各层）、写（`update(定义, 值, {layer})`） | snippets 的 `example.snippets/items` |
-| 设置分区 | 设置窗口左栏的一项：list 分区由窗口按配置项画通用控件，page 分区由插件自己画页面 | 窗口 | 贡献点 `settings.sections`（list 分区）与 `settings.pages`（page 分区），都由 `nbook.settings` 拥有。list 分区是插件描述 `contributions` 里的顶层声明 `{capability: SETTINGS_SECTIONS_POINT, id, declaration: {title, icon, category, groups}}`，配置项的 `section`、`group` 写分区 id 与小组 id 归进去，不需要代码；page 分区由浏览器入口用 `settingsPageContribution` 贡献，实现交 `load()`，页面用 SDK `/browser` 的 `SettingsRow` 画每一项 | snippets 的 page 分区 `example.snippets.main`；list 分区见作者模板的 [`shared/contracts.ts`](../template/shared/contracts.ts) |
+| 设置分区 | 设置窗口左栏的一项：list 分区由窗口按配置项画通用控件，page 分区由插件自己画页面 | 窗口 | 贡献点 `settings.sections`（list 分区）与 `settings.pages`（page 分区），都由 `nbook.settings` 拥有。list 分区是 `plugin.section(…)`，写进插件描述，配置项（`plugin.setting`）的 `section` 收分区本身、`group` 写它的小组 id，不需要代码；page 分区由浏览器入口用 `/browser` 的 `settingsPage(plugin, …)` 贡献，实现交 `load()`，页面用 SDK `/browser` 的 `SettingsRow` 画每一项 | snippets 的 page 分区 `example.snippets.main`；list 分区见作者模板的 [`shared/contracts.ts`](../template/shared/contracts.ts) |
 
 几个概念之间的关系，以 counter 与 notes 为例：
 
@@ -62,12 +62,12 @@
 
 | 类别 | 内容 | 在哪个示例里 |
 |---|---|---|
-| 静态声明（激活前内核就知道） | `location`、`activationEvents`、`dependencies`、`provides`、`remoteProvides`、`receives`、`contributions`；代理入口另有 `remoteDelegates` | 各插件的 `defineEntry`；`remoteDelegates` 见 notes 的浏览器入口 |
+| 静态声明（激活前内核就知道） | `location`、`activationEvents`、`dependencies`、`provides`、`remoteProvides`、`receives`、`contributions`；代理入口另有 `remoteDelegates` | 各插件的 `plugin.entry`；`remoteDelegates` 见 notes 的浏览器入口 |
 | 激活时能用的（`activate(context)`） | `context.services.require` 与 `resolve` 取本地服务 | clock（`require`）、notes 服务端（`resolve`） |
 | | `context.remote.use(合同).at(目标)` 调用、订阅远程服务；`lookup` 不激活地查询提供方；`instances()` 列出实例；代理入口的 `remote.on(调用方)` | 场景 04 的面板（`use`、`lookup`、`instances`）；notes 浏览器入口（`remote.on`） |
 | | `context.declarations` 查询已接受的贡献声明 | menu 的 `titles()` |
-| | `context.scope` 登记资源，`context.signal` 得知自己被停止 | clock |
-| 激活产出 | 本地服务、远程服务、贡献的实现、本插件贡献点的接收者；用 `defineEntry` 定义时，产出与静态声明对不上在编译期报错 | 全部示例 |
+| | `context.onStop` 登记停止时要做的事，`context.signal` 得知自己被停止 | clock |
+| 激活产出 | 本地服务、远程服务、贡献的实现、本插件贡献点的接收者；产出与静态声明对不上在编译期报错（助手的贡献按键逐项核对） | 全部示例 |
 | 内核替它做的 | 依赖的服务先激活；停止时先停依赖它的入口；撤回它交出去的服务、贡献、远程门面与订阅；关闭它的作用域 | 场景 01、02、03、04 |
 
 ## 选哪种方式
@@ -95,7 +95,7 @@
 examples/
 ├── plugins/<插件>/
 │   ├── plugin.ts            插件描述：id、版本、有入口的运行位置
-│   ├── shared/contracts.ts  对其它插件公开的合同：服务接口与键、远程服务合同、贡献点、公开键与命令 id
+│   ├── shared/contracts.ts  `definePlugin` 与对其它插件公开的合同：服务接口与键、远程服务合同、贡献点、设置项、公开键与命令
 │   ├── backend/plugin.ts    后端代码的插件定义常量（server、project 位置的入口）
 │   └── web/plugin.ts        浏览器代码的插件定义常量；界面组件（`.vue`）与它并列，只在用到时动态导入
 ├── scenarios/NN-*.test.ts   场景：把插件装进运行实例、核对行为
@@ -113,13 +113,13 @@ examples/
 
 | 插件 | 运行位置 | 演示什么 |
 |---|---|---|
-| [clock](plugins/clock/) | server | 依赖宿主能力里的时钟，包成共享服务（`provideService`）；不声明激活事件，有入口依赖它时才激活；`context.scope` 登记宿主计时器、收口时释放，`context.signal` 一触发就答复还在等的调用 |
+| [clock](plugins/clock/) | server | 依赖宿主能力里的时钟，包成共享服务（`provideService`）；不声明激活事件，有入口依赖它时才激活；`context.onStop` 登记还回宿主计时器，`context.signal` 一触发就答复还在等的调用 |
 | [notes](plugins/notes/) | server、browser | 服务端：必需依赖 `nbook.storage`（真实 SQLite，按调用方插件分开）、可选依赖 clock（`resolve`，按原因分别处理），`provideRemote` 按调用方生成门面，事件 `changed`。浏览器：按调用方提供笔记视图，以调用方身份代理（`remote.on`、`remoteDelegates`），维护同步可读的缓存，`nbook.storage` 的缩小版 |
 | [counter](plugins/counter/) | server、project | 一份后端定义两个入口。服务端：`defineStore` 把计数持久化进 `nbook.storage`，公开键 `example.counter/nonzero`，命令 `example.counter.reset` 的 `when` 引用它，远程合同与订阅、提供方看到的调用方。项目：每个项目实例一份的计数，第一次调用时按需激活，窗口省略 `.at()` 即到达绑定的项目 |
 | [menu](plugins/menu/) | server | 定义贡献点 `menu.items`：规则写成 `schema` 与 `idPrefix`、登记时逐条校验，启动即激活、收到菜单项记诊断，接收者 `published` 与 `revoke`、执行时经 `implementation()` 取实现；`context.declarations` 列出已接受声明的标题，贡献方还没激活也列得出 |
 | [file-menu](plugins/file-menu/) | server | 向贡献点提交声明与实现，与拥有者之间没有服务依赖；注释说明这里为什么仍启动即激活、按需激活怎样写 |
 | [snippets](plugins/snippets/) | browser（配置项在每个实例登记） | 配置项写在插件描述里、由宿主登记进每个实例；向 `settings.pages` 贡献 page 分区，`load()` 按需加载页面；页面用 `SettingsRow` 的宽排法按 `context.layer` 只编辑这一层，按层读（`inspect`）与按层写（`update(..., {layer})`）；什么时候用 page 而不是 list |
-| [focus](plugins/focus/) | server、browser | 完整示例“专注计时”：list 分区里的设置项、命令、侧栏视图（`viewContribution` 把 store 交给组件）、状态栏条目（挂切换命令）、服务端远程服务与私有存储；计时的权威在服务端，到点由结算函数记完成（纯函数，几个服务端各自结算不会多记），条件保存防丢更新，坏记录用 `reset` 重来；窗口按 `endsAt` 算剩余、只在计时时走表、重连后重取 |
+| [focus](plugins/focus/) | server、browser | 完整示例“专注计时”：list 分区里的设置项、命令、侧栏视图（`view` 助手的 `implement` 把 store 交给组件）、状态栏条目（挂切换命令）、服务端远程服务与私有存储；计时的权威在服务端，到点由结算函数记完成（纯函数，几个服务端各自结算不会多记），条件保存防丢更新，坏记录用 `reset` 重来；窗口按 `endsAt` 算剩余、只在计时时走表、重连后重取 |
 
 ## 外部插件
 
@@ -164,5 +164,5 @@ examples/
 - 注释是教学材料，是注释规则的例外（根 [`AGENTS.md`](../../../../AGENTS.md) 的“注释”）：逐步讲这一步做什么、为什么、不这样会怎样，链接 Spec 时写路径与条目编号。注释里写的行为要有场景覆盖，改代码时同一提交里改讲解与场景。
 - 示例文件头列出的每个教学要点，各要有一条删掉它就会失败的场景断言；写完之后做一次变异核对：逐个删掉这些机制再跑场景，确认各有一例失败（场景 07 的第一版删掉三处核心机制后照样全过）。
 - 场景里断言没有计时器时，推进时钟直到没有登记的计时器，不直接断言 `pending()` 为 0：场地的时钟是共用的，设置服务等别的服务也会在上面排计时器。
-- 入口都用 `defineEntry` 定义，激活产出与静态声明对不上在编译期报错；按运行位置分支时在整个产出上分支。
+- 入口都用 `plugin.entry` 定义，贡献只写短名、按键交实现，激活产出与静态声明对不上在编译期报错；不经助手的贡献写在 `rawContributions`（file-menu），自己定义的贡献点写在 `plugin.definition` 的 `contributionPoints`（menu）。
 - 内核或内置插件的公开接口改动时，同一提交里更新受影响的示例。

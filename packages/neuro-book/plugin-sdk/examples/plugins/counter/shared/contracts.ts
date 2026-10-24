@@ -7,7 +7,13 @@
 
 import {Type} from "typebox";
 
-import {definePublicState, defineRemoteService} from "@notnotype/nb-plugin-sdk";
+import {definePlugin, definePublicState, defineRemoteService} from "@notnotype/nb-plugin-sdk";
+
+/**
+ * 插件的身份（读法见 `../../clock/shared/contracts.ts`）。counter 在两种后端位置各有一个入口：服务端一份全局的计数，
+ * 每个打开的项目一份自己的计数。
+ */
+export const plugin = definePlugin({id: "example.counter", version: "0.1.0", locations: ["server", "project"]});
 
 const Empty = Type.Object({}, {additionalProperties: false});
 const Increment = Type.Object({by: Type.Integer({minimum: 1})}, {additionalProperties: false});
@@ -65,12 +71,22 @@ export const projectCounterContract = defineRemoteService({
  * `unready` 是还没有绑定（入口没激活、或已停止）时读到的值；`reason` 是值不为 true 时给用户看的原因，命令面板用它
  * 解释命令为什么不可用。
  */
-export const counterState = definePublicState("example.counter", {
+export const counterState = definePublicState(plugin.id, {
     nonzero: {type: "boolean", unready: false, reason: {"zh-CN": "计数已经是 0", "en-US": "The count is already zero"}},
 });
 
 /**
- * 命令 id：别的插件按 id 执行它。第三方插件的命令 id 写成“自己的插件 id + `.` + 动作”；`nbook.<域>.<动作>` 只给内置
- * 插件（docs/specs/workbench/commands.md 的“命名与域词表（第一批）”，规则由 `nbook.commands` 的贡献点校验）。
+ * reset 命令：`plugin.command` 只写短名，命令 id 是“插件 id + `.` + 短名”（`example.counter.reset`）；`nbook.<域>.<动作>`
+ * 只给内置插件（docs/specs/workbench/commands.md 的“命名与域词表（第一批）”）。声明随插件定义登记，入口还没激活时命令
+ * 面板就能列出它。写在合同模块里：别的插件按 `RESET_COMMAND` 执行它。
  */
-export const RESET_COMMAND = "example.counter.reset";
+export const reset = plugin.command({
+    name: "reset",
+    title: {"zh-CN": "计数器：归零", "en-US": "Counter: Reset"},
+    description: "Reset the server-side example counter to zero",
+    effect: "write",
+    // `when` 只引用本运行位置声明的布尔公开键。键为 false 或还没绑定时命令不可用，原因取键声明里的 `reason`。
+    when: {requires: [counterState.key("nonzero")]},
+});
+
+export const RESET_COMMAND = reset.id;

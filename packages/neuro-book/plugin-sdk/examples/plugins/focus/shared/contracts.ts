@@ -6,24 +6,23 @@
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
-import {defineRemoteService, defineSetting, SETTINGS_SECTIONS_POINT} from "@notnotype/nb-plugin-sdk";
-import type {ContributionDeclaration, RemoteResult, RemoteSubscribeOptions, RemoteSubscription, SettingsSectionDeclaration} from "@notnotype/nb-plugin-sdk";
+import {definePlugin, defineRemoteService} from "@notnotype/nb-plugin-sdk";
+import type {RemoteResult, RemoteSubscribeOptions, RemoteSubscription} from "@notnotype/nb-plugin-sdk";
 
-const PLUGIN = "example.focus";
+/**
+ * 插件的身份（读法见 `../../clock/shared/contracts.ts`）。专注计时：服务端记着进行中的一次专注与今天完成的次数，窗口里有
+ * 侧栏视图、状态栏条目与命令。
+ */
+export const plugin = definePlugin({id: "example.focus", version: "0.1.0", locations: ["server", "browser"]});
 
-/** 设置窗口左栏的分区（list 分区：设置项按声明画成表单，不用写页面）。 */
-export const section: ContributionDeclaration<SettingsSectionDeclaration> = {
-    capability: SETTINGS_SECTIONS_POINT,
-    id: `${PLUGIN}.main`,
-    declaration: {title: {"zh-CN": "专注计时", "en-US": "Focus timer"}, icon: "i-lucide-timer", category: "plugins", groups: [{id: "timer", title: {"zh-CN": "计时", "en-US": "Timer"}}]},
-};
+/** 设置窗口左栏的分区（list 分区：设置项按声明画成表单，不用写页面）；`category` 缺省 `plugins`。 */
+export const section = plugin.section({name: "main", title: {"zh-CN": "专注计时", "en-US": "Focus timer"}, icon: "i-lucide-timer", groups: [{id: "timer", title: {"zh-CN": "计时", "en-US": "Timer"}}]});
 
 /**
  * 一次专注多少分钟。只放在用户层：开始计时的是服务端，服务端只读得到缺省值与用户层（作品层属于项目，项目实例才读得到），
  * 写在作品层的值在这里不会生效，用户也看不出为什么。
  */
-export const minutesSetting = defineSetting({
-    plugin: PLUGIN,
+export const minutesSetting = plugin.setting({
     name: "minutes",
     schema: Type.Integer({minimum: 1, maximum: 120}),
     default: 25,
@@ -31,7 +30,8 @@ export const minutesSetting = defineSetting({
     description: {"zh-CN": "下一次开始时生效；进行中的那次不变", "en-US": "Applies from the next start; a running session keeps its length"},
     layers: ["user"],
     applies: "now",
-    section: section.id,
+    // 收分区助手本身，`group` 只能是它的组。
+    section,
     group: "timer",
 });
 
@@ -84,6 +84,20 @@ export interface FocusSource {
     subscribe(listener: (today: Today) => void, options: RemoteSubscribeOptions): Promise<RemoteResult<RemoteSubscription>>;
 }
 
-export const START_COMMAND = `${PLUGIN}.start`;
-export const CANCEL_COMMAND = `${PLUGIN}.cancel`;
-export const TOGGLE_COMMAND = `${PLUGIN}.toggle`;
+/**
+ * 命令：进命令面板，有写入（`effect: "write"`），没有参数（`args` 缺省为空对象）。`expose.agent: "never"`：开始、放弃计时
+ * 是用户自己的节奏，不交给 Agent；想让 Agent 也能用，改成 `confirm`（每次问用户）或 `auto`。写在合同模块里，别的插件按
+ * id 执行它们。
+ */
+function focusCommand<const Name extends string>(name: Name, zh: string, en: string, description: string) {
+    return plugin.command({name, title: {"zh-CN": `专注计时：${zh}`, "en-US": `Focus timer: ${en}`}, description, effect: "write", expose: {agent: "never"}});
+}
+
+export const startCommand = focusCommand("start", "开始", "Start", "Start a focus session of the configured length");
+export const cancelCommand = focusCommand("cancel", "放弃", "Give up", "Give up the running focus session without counting it");
+/** 状态栏条目的命令是静态的一条，所以要一条“切换”命令，而不是开始、放弃各挂一个。 */
+export const toggleCommand = focusCommand("toggle", "开始或放弃", "Start or give up", "Start a focus session, or give up the running one");
+
+export const START_COMMAND = startCommand.id;
+export const CANCEL_COMMAND = cancelCommand.id;
+export const TOGGLE_COMMAND = toggleCommand.id;

@@ -16,12 +16,11 @@
 
 import {Type} from "typebox";
 
-import {defineEntry, defineRecord, diagnosticsKey, provideRemote, storageKey} from "@notnotype/nb-plugin-sdk";
-import type {PluginDefinition, RecordHandle} from "@notnotype/nb-plugin-sdk";
+import {defineRecord, diagnosticsKey, provideRemote, storageKey} from "@notnotype/nb-plugin-sdk";
+import type {RecordHandle} from "@notnotype/nb-plugin-sdk";
 
 import {clockKey} from "../../clock/shared/contracts";
-import {descriptor} from "../plugin";
-import {NoteSchema, notesContract} from "../shared/contracts";
+import {NoteSchema, notesContract, plugin} from "../shared/contracts";
 import type {Note} from "../shared/contracts";
 
 /**
@@ -73,111 +72,107 @@ async function readNotes(handle: RecordHandle<NotesValue>): Promise<{readonly ok
     }
 }
 
-export const notesBackendPlugin: PluginDefinition = {
-    id: descriptor.id,
-    entries: [
-        defineEntry({
-            id: "server",
-            location: "server",
-            dependencies: [
-                // 必需依赖：缺了它这个入口受阻、不激活。内核在激活本入口之前先激活提供方（`nbook.storage` 的服务端入口）。
-                {key: storageKey},
-                // 诊断：内置的诊断服务，记录给运维人员看的事件（packages/neuro-book/AGENTS.md 的“后端”）。
-                {key: diagnosticsKey},
-                // 可选依赖：缺了它本入口照常激活，只是用到它的那一处功能不可用。
-                {key: clockKey, required: false},
-            ],
-            remoteProvides: [notesContract],
-            activate: async (context) => {
-                const storage = context.services.require(storageKey);
-                const diagnostics = context.services.require(diagnosticsKey);
+export const notesBackendPlugin = plugin.definition([
+    plugin.entry({
+        location: "server",
+        dependencies: [
+            // 必需依赖：缺了它这个入口受阻、不激活。内核在激活本入口之前先激活提供方（`nbook.storage` 的服务端入口）。
+            {key: storageKey},
+            // 诊断：内置的诊断服务，记录给运维人员看的事件（packages/neuro-book/AGENTS.md 的“后端”）。
+            {key: diagnosticsKey},
+            // 可选依赖：缺了它本入口照常激活，只是用到它的那一处功能不可用。
+            {key: clockKey, required: false},
+        ],
+        remoteProvides: [notesContract],
+        activate: async (context) => {
+            const storage = context.services.require(storageKey);
+            const diagnostics = context.services.require(diagnosticsKey);
 
-                // 可选依赖不能 `require`（会抛错）：用 `resolve`，它返回结构化结果、不抛。解析会按需激活 clock 的入口。
-                // 拿到的服务只在本入口的这一代里有效，内核管它的寿命：clock 停止之前，本入口先停（依赖的先激活、后停止）。
-                // 不要把它存到寿命更长的地方（例如模块顶层的变量）：本入口停止后它就失效了，下一代要重新解析。
-                const clock = await context.services.resolve(clockKey);
-                if (clock.status !== "resolved") {
-                    // 两种原因要分开处理：`missing-provider` 是没有任何插件提供报时服务，这项功能本来就不存在；其它原因
-                    // （例如 `provider-rejected`：clock 装了，但它自己缺宿主时钟而受阻）是提供方在但现在用不了，值得
-                    // 提醒（docs/specs/runtime/plugin-api.md 的“可选功能”）。
-                    diagnostics.record({
-                        level: clock.reason === "missing-provider" ? "info" : "warn",
-                        event: "example.notes.clock-unavailable",
-                        message: "没有可用的报时服务，笔记不带写入时刻",
-                        data: {reason: clock.reason},
-                        source: {plugin: descriptor.id, entry: "server"},
-                    });
-                }
-                const stamp = async (): Promise<number | null> => (clock.status === "resolved" ? clock.instance.now() : null);
+            // 可选依赖不能 `require`（会抛错）：用 `resolve`，它返回结构化结果、不抛。解析会按需激活 clock 的入口。
+            // 拿到的服务只在本入口的这一代里有效，内核管它的寿命：clock 停止之前，本入口先停（依赖的先激活、后停止）。
+            // 不要把它存到寿命更长的地方（例如模块顶层的变量）：本入口停止后它就失效了，下一代要重新解析。
+            const clock = await context.services.resolve(clockKey);
+            if (clock.status !== "resolved") {
+                // 两种原因要分开处理：`missing-provider` 是没有任何插件提供报时服务，这项功能本来就不存在；其它原因
+                // （例如 `provider-rejected`：clock 装了，但它自己缺宿主时钟而受阻）是提供方在但现在用不了，值得
+                // 提醒（docs/specs/runtime/plugin-api.md 的“可选功能”）。
+                diagnostics.record({
+                    level: clock.reason === "missing-provider" ? "info" : "warn",
+                    event: "example.notes.clock-unavailable",
+                    message: "没有可用的报时服务，笔记不带写入时刻",
+                    data: {reason: clock.reason},
+                    source: {plugin: plugin.id, entry: "server"},
+                });
+            }
+            const stamp = async (): Promise<number | null> => (clock.status === "resolved" ? clock.instance.now() : null);
 
-                // 远程提供项：内核对每个调用方调用一次工厂，参数是内核填写的调用方身份，调用方自报不了。同一个调用方
-                // 入口的同一代复用同一个门面；调用方入口停止、或本入口停止时门面释放，之后再用它的调用得到失败码。
-                return {
-                    remote: [
-                        provideRemote(notesContract, (consumer) => {
-                            // 调用方插件 id 就是它那份笔记的资源 id。经窗口里的代理来的调用，`plugin` 仍是窗口里的原插件，
-                            // `via` 才是代理：同一个插件在服务端直接写、在窗口里经代理写，落在同一份列表里。
-                            const owner = consumer.plugin ?? "host";
-                            const via = consumer.via?.plugin ?? null;
-                            const open = async () => {
-                                const opened = await storage.open(notesRecord, owner);
-                                return opened.ok ? opened : storageFailed(opened);
-                            };
-                            return {
-                                methods: {
-                                    add: async ({text}) => {
-                                        const opened = await open();
-                                        if (!opened.ok) return opened;
-                                        const note: Note = {text, writtenAt: await stamp(), via};
-                                        // 条件保存：只在记录仍是刚读到的那个 revision 时写入，别处先写了就得到 `conflict`。
-                                        // 不带条件直接覆盖，两个同时追加的调用会有一条笔记悄悄丢掉。
-                                        for (let attempt = 1; ; attempt += 1) {
-                                            const current = await readNotes(opened.handle);
-                                            if (!current.ok) return current;
-                                            const saved = await opened.handle.save({items: [...current.value, note]}, {expect: current.revision});
-                                            if (saved.ok) return {ok: true, value: note};
-                                            if (saved.code !== "conflict" || attempt === SAVE_ATTEMPTS) return storageFailed(saved);
-                                        }
-                                    },
-                                    list: async () => {
-                                        const opened = await open();
-                                        if (!opened.ok) return opened;
+            // 远程提供项：内核对每个调用方调用一次工厂，参数是内核填写的调用方身份，调用方自报不了。同一个调用方
+            // 入口的同一代复用同一个门面；调用方入口停止、或本入口停止时门面释放，之后再用它的调用得到失败码。
+            return {
+                remote: [
+                    provideRemote(notesContract, (consumer) => {
+                        // 调用方插件 id 就是它那份笔记的资源 id。经窗口里的代理来的调用，`plugin` 仍是窗口里的原插件，
+                        // `via` 才是代理：同一个插件在服务端直接写、在窗口里经代理写，落在同一份列表里。
+                        const owner = consumer.plugin ?? "host";
+                        const via = consumer.via?.plugin ?? null;
+                        const open = async () => {
+                            const opened = await storage.open(notesRecord, owner);
+                            return opened.ok ? opened : storageFailed(opened);
+                        };
+                        return {
+                            methods: {
+                                add: async ({text}) => {
+                                    const opened = await open();
+                                    if (!opened.ok) return opened;
+                                    const note: Note = {text, writtenAt: await stamp(), via};
+                                    // 条件保存：只在记录仍是刚读到的那个 revision 时写入，别处先写了就得到 `conflict`。
+                                    // 不带条件直接覆盖，两个同时追加的调用会有一条笔记悄悄丢掉。
+                                    for (let attempt = 1; ; attempt += 1) {
                                         const current = await readNotes(opened.handle);
-                                        return current.ok ? {ok: true, value: [...current.value]} : current;
+                                        if (!current.ok) return current;
+                                        const saved = await opened.handle.save({items: [...current.value, note]}, {expect: current.revision});
+                                        if (saved.ok) return {ok: true, value: note};
+                                        if (saved.code !== "conflict" || attempt === SAVE_ATTEMPTS) return storageFailed(saved);
+                                    }
+                                },
+                                list: async () => {
+                                    const opened = await open();
+                                    if (!opened.ok) return opened;
+                                    const current = await readNotes(opened.handle);
+                                    return current.ok ? {ok: true, value: [...current.value]} : current;
+                                },
+                            },
+                            events: {
+                                changed: {
+                                    // 每个订阅调用一次。`signal` 在订阅因任何原因结束时触发（调用方释放、任一端停止、连接
+                                    // 断开），这里用它释放对 Storage 记录的订阅；不释放，Storage 会一直替一个已经不存在的
+                                    // 订阅方推送。
+                                    subscribe: async (_filter, sink, {signal}) => {
+                                        const opened = await open();
+                                        // 抛错时内核记一条诊断，以 `provider-error` 结束这条订阅，订阅方的 `onEnd` 收到它。
+                                        if (!opened.ok) throw new Error(`打不开 ${owner} 的笔记：${opened.detail.code}`);
+                                        // Storage 的订阅先推一次当前快照、之后推每次写入，正好就是 `changed` 的语义。它在本
+                                        // 实例里同步通知，早于保存返回：`add` 的结果送回调用方之前，新列表已经推出去了。
+                                        const subscribed = await opened.handle.subscribe((snapshot) => {
+                                            if (snapshot.status === "ok") sink.next([...snapshot.value.items]);
+                                            else if (snapshot.status === "missing") sink.next([]);
+                                            // 读取出错或记录坏了：不推，订阅方保留上一份列表，下次 `list` 会拿到原因。记一条
+                                            // 诊断，否则订阅方只会看到列表不再更新，查不到为什么。
+                                            else diagnostics.record({level: "warn", event: "example.notes.snapshot-unreadable", message: `${owner} 的笔记读不出来，没有推送`, data: {status: snapshot.status}, source: {plugin: plugin.id, entry: "server"}});
+                                        });
+                                        if (!subscribed.ok) throw new Error(`订阅不了 ${owner} 的笔记：${subscribed.code}`);
+                                        // Storage 的订阅自己结束，只会发生在 notes 的这一代停止（它的 Storage 门面随之释放）或
+                                        // Storage 停止时；notes 依赖 Storage、比它先停，两种情况下内核都已经结束了这条远程订阅，
+                                        // 所以不用 `onEnd`。
+                                        if (signal.aborted) subscribed.handle.release();
+                                        else signal.addEventListener("abort", () => subscribed.handle.release(), {once: true});
                                     },
                                 },
-                                events: {
-                                    changed: {
-                                        // 每个订阅调用一次。`signal` 在订阅因任何原因结束时触发（调用方释放、任一端停止、连接
-                                        // 断开），这里用它释放对 Storage 记录的订阅；不释放，Storage 会一直替一个已经不存在的
-                                        // 订阅方推送。
-                                        subscribe: async (_filter, sink, {signal}) => {
-                                            const opened = await open();
-                                            // 抛错时内核记一条诊断，以 `provider-error` 结束这条订阅，订阅方的 `onEnd` 收到它。
-                                            if (!opened.ok) throw new Error(`打不开 ${owner} 的笔记：${opened.detail.code}`);
-                                            // Storage 的订阅先推一次当前快照、之后推每次写入，正好就是 `changed` 的语义。它在本
-                                            // 实例里同步通知，早于保存返回：`add` 的结果送回调用方之前，新列表已经推出去了。
-                                            const subscribed = await opened.handle.subscribe((snapshot) => {
-                                                if (snapshot.status === "ok") sink.next([...snapshot.value.items]);
-                                                else if (snapshot.status === "missing") sink.next([]);
-                                                // 读取出错或记录坏了：不推，订阅方保留上一份列表，下次 `list` 会拿到原因。记一条
-                                                // 诊断，否则订阅方只会看到列表不再更新，查不到为什么。
-                                                else diagnostics.record({level: "warn", event: "example.notes.snapshot-unreadable", message: `${owner} 的笔记读不出来，没有推送`, data: {status: snapshot.status}, source: {plugin: descriptor.id, entry: "server"}});
-                                            });
-                                            if (!subscribed.ok) throw new Error(`订阅不了 ${owner} 的笔记：${subscribed.code}`);
-                                            // Storage 的订阅自己结束，只会发生在 notes 的这一代停止（它的 Storage 门面随之释放）或
-                                            // Storage 停止时；notes 依赖 Storage、比它先停，两种情况下内核都已经结束了这条远程订阅，
-                                            // 所以不用 `onEnd`。
-                                            if (signal.aborted) subscribed.handle.release();
-                                            else signal.addEventListener("abort", () => subscribed.handle.release(), {once: true});
-                                        },
-                                    },
-                                },
-                            };
-                        }),
-                    ],
-                };
-            },
-        }),
-    ],
-};
+                            },
+                        };
+                    }),
+                ],
+            };
+        },
+    }),
+]);

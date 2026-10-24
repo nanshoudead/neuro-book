@@ -11,8 +11,14 @@
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
-import {defineRemoteService, defineServiceKey} from "@notnotype/nb-plugin-sdk";
+import {definePlugin, defineRemoteService, defineServiceKey} from "@notnotype/nb-plugin-sdk";
 import type {RemoteResult, ServiceKey} from "@notnotype/nb-plugin-sdk";
+
+/**
+ * 插件的身份（读法见 `../../clock/shared/contracts.ts`）。notes 在两个运行位置有入口：服务端存数据、提供远程服务；浏览器
+ * 窗口里给本窗口的插件一份同步可读的缓存。两个入口各自激活、各自受阻，彼此只经远程合同通信。
+ */
+export const plugin = definePlugin({id: "example.notes", version: "0.1.0", locations: ["server", "browser"]});
 
 const Text = Type.String({minLength: 1, maxLength: 1000});
 

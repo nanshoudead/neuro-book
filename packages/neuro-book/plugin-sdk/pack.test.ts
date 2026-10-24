@@ -253,7 +253,7 @@ export const props = lazyPanel.implement(() => ({greting: "hi"}));
 
     it("类型导出的名字", async () => {
         expect(declaredExports(await readFile(join(installed, "index.d.ts"), "utf8"))).toEqual([
-            "ActivationContext", "AuthorActivationContext", "AuthorEntry", "AuthorEntryOutput", "BoundImplementation", "COMMANDS_POINT", "CommandHelper", "ContributionHelper", "PluginBuilder", "SectionHelper", "Text", "definePlugin", "CommandDeclaration", "CommandImplementation", "ContributionDeclaration", "ContributionDescriptor",
+            "ActivationContext", "AuthorActivationContext", "AuthorEntry", "AuthorEntryOutput", "BoundImplementation", "COMMANDS_POINT", "CommandHelper", "CommandResult", "ContributionHelper", "PluginBuilder", "SectionHelper", "Text", "definePlugin", "CommandDeclaration", "CommandImplementation", "ContributionDeclaration", "ContributionDescriptor",
             "ContributionHandle", "ContributionPointDefinition", "ContributionReceiver", "DiagnosticsService", "DisplayLocale", "LocalizedText",
             "PluginDefinition", "PluginDescriptor", "PluginEntryDefinition", "RecordDefinition", "RecordHandle", "RemoteContract", "RemoteOutcome",
             "RemoteResult", "RemoteSink", "RemoteSubscribeOptions", "RemoteSubscription", "RuntimeClock", "SETTINGS_CHOICES_POINT", "SETTINGS_PAGES_POINT", "SETTINGS_SECTIONS_POINT", "ServiceKey", "SettingDefinition", "SettingLayer", "SettingWriteResult",

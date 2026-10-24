@@ -52,7 +52,7 @@ export type {RecordDefinition, RecordHandle, StorageService} from "nbook/shared/
 
 // 命令（nbook.commands）。
 export {COMMANDS_POINT} from "nbook/plugins/commands/shared/contracts";
-export type {CommandDeclaration, CommandImplementation} from "nbook/plugins/commands/shared/contracts";
+export type {CommandDeclaration, CommandImplementation, CommandResult} from "nbook/plugins/commands/shared/contracts";
 
 // 工作台（nbook.workbench）：侧栏与面板的视图、状态栏条目。视图的实现用 `/browser` 的 `viewContribution`。
 // 从叶子模块取，不经工作台合同的汇总模块：汇总模块连着首页、浮层、菜单这些不对外的部分（公开面闭包见 `surface.test.ts`）。

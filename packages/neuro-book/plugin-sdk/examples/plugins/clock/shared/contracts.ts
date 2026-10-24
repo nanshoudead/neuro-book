@@ -6,8 +6,14 @@
  * 也会跟着 clock 的内部改动而改动。
  */
 
-import {defineServiceKey} from "@notnotype/nb-plugin-sdk";
+import {definePlugin, defineServiceKey} from "@notnotype/nb-plugin-sdk";
 import type {ServiceKey} from "@notnotype/nb-plugin-sdk";
+
+/**
+ * 插件的身份：id、版本，以及它在哪些运行位置有入口。`definePlugin` 绑定插件 id，入口与贡献都从它取；放在合同模块里，
+ * 插件描述（`plugin.ts`）与各侧的入口模块都引用这里，互相之间不引用。报时只在服务端有入口。
+ */
+export const plugin = definePlugin({id: "example.clock", version: "0.1.0", locations: ["server"]});
 
 /** `until` 的结果：到点为 `ok: true`；clock 的入口停止时还没到点为 `stopped`。 */
 export type UntilResult = {readonly ok: true} | {readonly ok: false; readonly code: "stopped"};

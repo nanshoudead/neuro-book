@@ -16,12 +16,11 @@
  * 对应的场景：`scenarios/03-contribution-point.test.ts`。
  */
 
-import {defineEntry, diagnosticsKey, provideService} from "@notnotype/nb-plugin-sdk";
-import type {ContributionHandle, ContributionReceiver, PluginDefinition} from "@notnotype/nb-plugin-sdk";
+import {diagnosticsKey, provideService} from "@notnotype/nb-plugin-sdk";
+import type {ContributionHandle, ContributionReceiver} from "@notnotype/nb-plugin-sdk";
 import {Type} from "typebox";
 
-import {descriptor} from "../plugin";
-import {MENU_POINT, menuKey} from "../shared/contracts";
+import {MENU_POINT, menuKey, plugin} from "../shared/contracts";
 import type {MenuItemDeclaration, MenuItemImplementation, MenuService} from "../shared/contracts";
 
 type MenuHandle = ContributionHandle<MenuItemDeclaration, MenuItemImplementation>;
@@ -32,15 +31,13 @@ type MenuHandle = ContributionHandle<MenuItemDeclaration, MenuItemImplementation
  */
 const MenuItemSchema = Type.Object({title: Type.String({pattern: "\\S"})}, {additionalProperties: false});
 
-export const menuBackendPlugin: PluginDefinition = {
-    id: descriptor.id,
-    // 贡献点写在插件顶层：插件一登记，它就存在，别的插件的声明就按它的规则校验。`implementation: "required"` 表示
+export const menuBackendPlugin = plugin.definition({
+    // 贡献点写在插件定义上：插件一登记，它就存在，别的插件的声明就按它的规则校验。`implementation: "required"` 表示
     // 贡献要写在入口下并在激活时给出实现；`none` 表示只有声明（例如纯配置）。
     // `idPrefix: "plugin"`：贡献 id 要以贡献方的插件 id 加“.”开头，两个插件就不会撞同一个 id。
     contributionPoints: [{id: MENU_POINT, implementation: "required", schema: MenuItemSchema, idPrefix: "plugin"}],
     entries: [
-        defineEntry({
-            id: "server",
+        plugin.entry({
             location: "server",
             provides: [menuKey],
             // 启动即激活。贡献方发布菜单项不会激活本入口（贡献不构成依赖）：不写这一行时，只有依赖 `menuKey` 的插件
@@ -62,7 +59,7 @@ export const menuBackendPlugin: PluginDefinition = {
                             event: "example.menu.item-received",
                             message: `菜单收到 ${handle.id}`,
                             data: {item: handle.id, plugin: handle.plugin},
-                            source: {plugin: descriptor.id, entry: "server"},
+                            source: {plugin: plugin.id, entry: "server"},
                         });
                     },
                     // 只删自己放进去的那一个：同一个 id 的新一代可能已经放进来了，不能把它误删。
@@ -85,4 +82,4 @@ export const menuBackendPlugin: PluginDefinition = {
             },
         }),
     ],
-};
+});

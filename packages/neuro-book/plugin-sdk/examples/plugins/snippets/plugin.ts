@@ -10,9 +10,7 @@
  * 对应的场景：`scenarios/06-settings-page.test.ts`。
  */
 
-import type {PluginDescriptor} from "@notnotype/nb-plugin-sdk";
-
-import {itemsSetting} from "./shared/contracts";
+import {itemsSetting, plugin} from "./shared/contracts";
 
 /** 常用片段：写作时常插入的几段固定文字，用户设置里一份，每部作品可以另备一份。 */
-export const descriptor: PluginDescriptor = {id: "example.snippets", version: "0.1.0", locations: ["browser"], contributions: [itemsSetting.contribution]};
+export const descriptor = plugin.descriptor([itemsSetting]);

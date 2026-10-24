@@ -6,8 +6,11 @@
  * 能校验；实现是入口激活时交出的对象，激活之后才有。菜单的标题属于声明，点击之后做什么属于实现。
  */
 
-import {defineServiceKey} from "@notnotype/nb-plugin-sdk";
+import {definePlugin, defineServiceKey} from "@notnotype/nb-plugin-sdk";
 import type {ServiceKey} from "@notnotype/nb-plugin-sdk";
+
+/** 插件的身份（读法见 `../../clock/shared/contracts.ts`）。菜单：定义贡献点 `menu.items`，别的插件往里加菜单项；本插件统一列出与执行。 */
+export const plugin = definePlugin({id: "example.menu", version: "0.1.0", locations: ["server"]});
 
 /**
  * 贡献点 id。贡献 id 写“贡献方的插件 id + `.` + 名字”，例如 `example.file-menu.open`：内核要求贡献 id 在同一个贡献点
