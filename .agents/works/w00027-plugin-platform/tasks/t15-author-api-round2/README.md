@@ -68,6 +68,9 @@ updated: 2026-10-24
 - S2 `4d7a9c084`：SDK 按内置插件分子路径（根入口是插件框架；`/state`、`/storage`、`/settings`、`/settings/browser`、`/commands`、`/workbench`、`/components`），贡献助手改成所属子路径的函数，`/commands` 公开 `commandServiceKey`，低层组合函数不再公开；宿主模块表、打包、闭包与导出测试按子路径；服务端导入浏览器子路径时报错附原因；打包生成 `docs/exports.md`。验证：类型检查，Bun 1474 例、Vitest 372 例，插件 e2e 8 例。
 - S3 `616fdd635`：记录句柄加 `update`（读改写，冲突时重算，坏记录与别的版本写下的返回同名失败与 revision）；作者文档改用它并写 `subscribe`。验证：storage 真实三端测试 3 例（含冲突重算与 attempts 用完）。
 - S4 `f2e414c70`：调用方的远程结果按方法定型（`RemoteResultFor`）；事件助手 `eventSource`；`remoteService(plugin, {name})`；counter 示例改用 `eventSource`，三个示例的合同改用 `remoteService`。验证：内核 401 例（含 `eventSource` 的真实路由测试与调用方收窄的编译期反例）、应用 Bun 1477 例、Vitest 372 例、类型检查。
+- S5 `611c9c49e`：远程方法的上下文带按方法定型的 `ok`、`fail`；作者入口产出了远程服务或服务却没声明时报错写明去声明；短名、设置项名、要参数又给人用的命令、`require` 没声明的服务在类型检查时就报（实测记录见 plan.md 第 10 节）。验证：编译期反例、仓库外作者项目的 vue-tsc 诊断（`pack.test.ts`）、内核 401 例、应用 Bun 1477 例。
+- S6 `cac4532d1`：命令 `nbook.view.open`；状态栏条目收视图助手；`/workbench` 导出 `OPEN_VIEW_COMMAND`；作者文档加“作者可用的内置命令”。验证：真实布局 store 的命令测试 4 例、工作台 e2e 42 例（含新的一例）。
+- S7 `651724c3e`：构建时执行入口定义出错报作者文件:行:列，`--verbose` 附日志与堆栈。验证：构建测试、`plugin-sdk/` 71 例。
 
 2026-10-24 P2、P5、P7、P8 已定。第一期（发布前改完作者 API）的计划见 [plan.md](plan.md)，开发者 2026-10-24 确认（含助手都改成所属子路径的函数、子路径表、`nbook.view.open`、作者命令名 `nbooke`）。计划审查两份（omp 阻断 5、重要 8、建议 1；Sonnet 重要 6、建议 15）逐条处理见 plan.md 第 9 节，开始实施 S1。
 

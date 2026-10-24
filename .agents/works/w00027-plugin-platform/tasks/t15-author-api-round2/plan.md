@@ -232,4 +232,9 @@ eventSource<Payload, Filter = unknown>(options?: {
 
 - S1：模板的 `typecheck` 不用 `bun --bun`：`vue-tsc` 在 Bun 的运行时里认不出 `.vue` 模块（仓库外作者项目实测，计划审查的实验项目里没有 `.vue` 文件），按它的抬头行用 Node 跑，与仓库自己的 `typecheck` 一样。作者文档与 plugin-api Spec 写明类型检查要 Node。
 - S1：`bun add -d <tarball>` 写下的依赖是相对路径（不带 `file:`）加一个空的 `dependencies`；在已有项目的子目录里它同样向上找到上级的 `package.json`，作者文档改成先写一个空的 `package.json`。
+- S5：入口产出漏写、多写贡献实现的报错不另改：实测（TypeScript 5.9.3、vue-tsc 3）箭头函数直接返回对象时报错已落在 `contributions` 上（“Property 'ping' is missing”“'pnig' does not exist”）；`async` 且有函数体时 TypeScript 比较整个函数类型，链条深是它的行为，最后一行已写明缺哪一项。
+- S5：“没声明 `remoteProvides`、`provides`”的问题名只加在 SDK 的作者入口类型上，内核 `defineEntry` 照旧用 `undefined`：内置插件按运行位置分支（`remoteProvides: browser ? [合同] : []`），TypeScript 只有在那一项是 `undefined` 这种单值类型时才按它拆开联合。
+- S5：`require` 只收声明过的依赖做在 SDK 的作者上下文类型上（`AuthorActivationContext<依赖>`），不改内核的 `ActivationContext`：内置插件不经作者 API，改内核类型对它们没有收益。
+- S5：记录与远程方法 `input` 写 `additionalProperties: true` 不能在类型上报：TypeBox 的 `TObject` 类型不带选项（实测），照旧在加载与构建时报。
+- S5：短名的核对要看到字面量；示例 focus 原来把 `command` 包在 `<Name extends string>` 的函数里，改成直接调用。
 
