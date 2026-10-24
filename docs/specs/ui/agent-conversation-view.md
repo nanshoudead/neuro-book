@@ -76,6 +76,8 @@ type AgentConversationViewProps = {
     header?: boolean;
     /** 运行中过程的展开方式；缺省 "collapsed"（见“展开与折叠”）。 */
     processDisclosure?: "collapsed" | "live";
+    /** 输入框版式；缺省 "stacked"（见“输入框与待处理区”的单行版式）。 */
+    composerLayout?: "stacked" | "inline";
 };
 
 type AgentConversationViewEmits = {
@@ -84,7 +86,7 @@ type AgentConversationViewEmits = {
 };
 ```
 
-视图对外暴露两个方法：`focusComposer()` 聚焦输入框，`scrollToLatest()` 滚动到最新内容。没有插槽；扩展一律通过注册表。包公开的组件是这个视图与会话列表（见“会话列表”）；视图里的零件（轮次、输入框等）不是宿主接口。
+视图对外暴露两个方法：`focusComposer()` 聚焦输入框，`scrollToLatest()` 滚动到最新内容。没有插槽；扩展一律通过注册表。包公开的组件是这个视图、会话列表（见“会话列表”）与模型目录对话框（见“模型目录”）；视图里的零件（轮次、输入框等）不是宿主接口。
 
 ### ctx 的组成
 
@@ -92,7 +94,7 @@ type AgentConversationViewEmits = {
 |---|---|
 | `session` | 当前会话的标题、摘要、Profile 名称与图标、状态、后台摘要状态；未选择会话时为 `null` |
 | `availability` | `ready`、`loading`、`empty`、`unselected`、`archived`、`profile-unavailable`、`load-error` 之一，附用户可读说明和可执行的恢复动作 |
-| `interaction` | 当前允许的操作：发送、运行中补充说明（steer）、运行中排队（followup）、回答提问、修改历史、停止、登记附件、修改模型与模式、归档、恢复 |
+| `interaction` | 当前允许的操作：发送、运行中补充说明（steer）、运行中排队（followup）、回答提问、修改历史、停止、登记附件、修改模型与模式、归档、恢复、宿主有没有管理模型的地方 |
 | `run` | 运行状态 `idle`、`running`、`waiting`、`stopping`，当前运行阶段文案，正在运行的轮次 |
 | `messages` | 已加载的全部消息，按时间顺序排列，包含运行中尚未落盘的内容（见下文“消息”） |
 | `history` | 是否还有更早的消息、是否正在加载、加载错误 |
@@ -101,8 +103,8 @@ type AgentConversationViewEmits = {
 | `pendingInputs` | 等待用户回答的提问与审批，含题目、选项、表单规格 |
 | `workflows` | 按工具调用 id 索引的 Workflow 运行状态：阶段、当前动作、等待中的问题、结果 |
 | `workspaceChanges` | 待审阅的文件变更分组、每组的 diff 状态、加载与错误 |
-| `composer` | 可选模型与当前模型、思考档位、Agent 模式、排队中的消息、已登记的会话附件、模型是否支持图片、输入框中附件（图片与文件）的上传状态（就绪的带附件目标）、已发送内容（供输入历史使用）、粘贴分档设置、草稿（文字加版本号；版本号变化时视图用它替换输入框内容） |
-| `usage` | 上下文用量与上限、累计 tokens、缓存读写、缓存命中率、累计费用、费用显示币种 |
+| `composer` | 可选模型（各带分组名与用不了的原因，可选）与当前模型、思考档位、Agent 模式、排队中的消息、已登记的会话附件、模型是否支持图片、输入框中附件（图片与文件）的上传状态（就绪的带附件目标）、已发送内容（供输入历史使用）、粘贴分档设置、草稿（文字加版本号；版本号变化时视图用它替换输入框内容） |
+| `usage` | 上下文用量与上限、累计 tokens、缓存读写、缓存命中率、累计费用、费用显示币种。上下文用量取最近一次模型请求的输入（含缓存读写，同 OMP 的口径），运行中是上一次请求的值 |
 | `connection` | 连接状态与是否需要用户操作 |
 | `panels` | 附件列表页、关联 Agent、系统提示、会话列表页、分支树、上下文检查数据 |
 | `now` | 宿主提供的当前时间，用于显示运行中的用时 |
@@ -159,7 +161,7 @@ type ToolCallView = {
 | 状态栏条目 | 条目组件 |
 | 输入框命令 | 命令名、说明、参数提示 |
 | 输入框触发字符 | 触发字符；菜单通过服务解析 |
-| 输入框工具栏按钮 | 图标与名称；点击后发出的 action |
+| 输入框工具栏按钮 | 图标与名称；放在正文前还是工具栏里；点击后发出的 action，或者往编辑器插入的触发字符（打开它的菜单，不发 action） |
 
 工具名匹配：精确工具名优先于名称前缀；前缀互相包含时取最长的那个，与登记顺序无关。两个渲染器声明相同的工具名或相同的前缀、两个条目渲染器声明相同的 `customType` 时构造失败（见“失败与恢复”）。
 
@@ -267,6 +269,9 @@ Markdown 扩展与空状态起手提示在本规范中只预留，不要求实�
 
 - 回车发送。运行中（含等待回答与停止中）：回车在 `interaction` 允许补充说明时为 steer，否则在允许排队时为 followup，否则不发送；Ctrl/⌘+回车只在允许排队时为 followup。两者都不允许时运行中仍可输入，发送按钮禁用并提示运行结束后发送。`/` 命令不受这两项限制。运行中且输入为空时，发送按钮变为停止。Shift+Tab 切换 Agent 模式。发送后输入框不自行清空，宿主受理后给出新版本的空草稿。
 - 输入框下方是工具栏：左侧依次为添加附件、Agent 模式（点击循环切换）、模型与思考档位（同一个下拉；没有可选的模型与思考档位时不显示）、登记的工具栏按钮；右侧为展开与发送/停止。展开后输入框占视图高度的大部分，回车换行，Ctrl/⌘+回车发送（运行中允许排队时为 followup，否则按回车的规则），发送按钮仍按回车的规则发送。
+- 单行版式（`composerLayout: "inline"`）：正文与控件同一行，依次是前置的登记按钮、编辑器、控件（模式、模型与思考档位、上下文大小、其余登记按钮、展开、发送）。正文长高时只有编辑器长高，控件留在右下、对着最后一行；输入框窄于 520px 时控件整排折到正文下面，前置按钮留在正文前。上下文大小是一个圆环加百分比，70% 起警告色、90% 起危险色，超过窗口时满格并写实际百分比，数字在提示里；只在单行版式里画，`usage` 不知道上限或还没有用量时不画。宿主允许登记附件时（单行没有附件条的位置）退回两层。
+- 模型下拉：同组的模型右侧写组名（不同服务商的同名模型分得清）；用不了的模型灰掉、不能选，悬停看原因；宿主不收附件时不标“不支持图片”。`interaction.canManageModels` 为真时末尾有“管理模型…”，发出 `model.manage`。
+- 带触发字符的工具栏按钮（例如“插入引用”插 `@`）：编辑器聚焦到末尾，前一个字不是空白或标点时先补一个空格，再插入触发字符并打开它的菜单。
 - 输入以 `/` 开头且命令名与已登记的输入框命令一致时，发出 `command.run`；否则按普通文字发送。
 - 触发字符（`@`、`$`、`/` 及登记的其他字符）打开候选菜单，菜单内容来自 `services.resolveTriggerMenu`；`/` 位于正文开头时改为列出登记的输入框命令，显示说明与参数提示。方向键选择，回车或 Tab 确认，Escape 关闭。
 - 输入框的内容始终是一段文字：引用、技能、选区、命令、图片、文件附件与粘贴块按统一的文字写法保存（见组件文档 `PromptEditor.md` 的“文字写法”），在输入框里显示为整体的标签或块，光标跨过和退格删除都按一整个算。输入框与历史消息的就地编辑共用这个编辑器。
@@ -306,6 +311,15 @@ type AgentSessionListItem = {
 - 加载中、空、出错三种状态都保留标题行与新建按钮。
 - 是导航式列表：每行一个按钮、Tab 逐行经过，不做方向键漫游。
 
+### 模型目录
+
+`AgentModelCatalog` 是从很大的模型目录里挑几个模型的对话框，宿主在自己的设置里用（不在对话视图里）。数据（服务商、模型、密钥状态、哪些已选过）全由宿主给，选好的引用经 `pick` 交回。
+
+- 左栏是“全部”与各服务商：能用的在前（自定义的、密钥有值的最前），每家一个密钥状态圆点与模型数；用不了的（要登录而变量没值、云凭据链）排在分隔线后、变暗。右栏顶上一个搜索框，下面是模型表：模型（显示名与 `服务商/模型名`）、接口、上下文、推理、图片、单价（未知写“未知”，不写成免费）。
+- 搜索按 `服务商/模型名` 与显示名，分精确、连续子串、模糊三层；左栏显示各家的命中数。一次最多画 200 行，多了写还有几个。
+- 勾选多个后“加入候选”；已选过的写“已添加”、用不了的服务商的模型不能勾。点用不了的服务商时右栏是说明页：要设哪个环境变量、是否只能登录、目录里有几个模型。“添加自定义服务商…”发出 `add-provider`，表单由宿主做。
+- 窄于 720px 先去掉接口列，窄于 560px 再去掉推理与图片列；窄于 640px 时左栏收成顶上的下拉。
+
 ### 面板与弹窗
 
 - 附件面板：网格浏览、搜索、翻页、原图预览、插入到输入框（纯界面行为）。
@@ -323,7 +337,7 @@ type AgentSessionListItem = {
 | 消息 | `message.copy {messageId}`、`message.editStart {messageId}`、`message.editCancel`、`message.editSubmit {messageId, text}`、`message.retry {messageId}`、`message.branchFrom {messageId}`、`message.resend {messageId}`、`message.dismiss {messageId}`、`branch.switch {messageId, direction}`、`tool.copy {toolCallId}`、`history.loadPrevious`、`history.refresh` |
 | 引用与文件 | `reference.open {target}`、`link.open {href}`、`file.openDiff {path, toolCallId}`、`attachment.open {target}`、`skill.open {name}` |
 | 输入框 | `composer.submit {text, delivery}`（`delivery` 为 `prompt`、`steer` 或 `followup`；附件都写在文字里，不另带）、`composer.stop`、`composer.draftChanged {text}`、`composer.attachmentAdded {localId, kind, file}`（`kind` 为 `image` 或 `file`）、`composer.attachmentRetry {localId}`、`composer.attachmentRemoved {localId}`、`command.run {name, argsText}`、`menu.opened {trigger}` |
-| 运行设置 | `mode.set {mode}`、`model.set {modelKey}`、`thinking.set {level}`、`runtime.reset` |
+| 运行设置 | `mode.set {mode}`、`model.set {modelKey}`、`thinking.set {level}`、`model.manage`、`runtime.reset` |
 | 提问 | `input.submit {batchKey, resolutions}`、`input.cancelRun`、`input.resync` |
 | 恢复 | `availability.act {action}`、`connection.reconnect` |
 | 面板数据 | `attachments.query {search, offset}`、`linkedAgents.refresh`、`systemPrompt.load {refresh}`、`tree.activate {entryId}`、`tree.copyId {entryId}`、`context.selectTrace {traceId}`、`context.refresh` |
@@ -407,8 +421,11 @@ type AgentSessionListItem = {
 29. Given 结果工具退回一次再交成功，When 展开整轮，Then 被退回的那次是思维链里的一行，宿主的 `node` 组件只出现一次，退回前后的过程是同一条思维链；全部被退回时这一轮没有结果区；运行结束时仍没有结果的结果调用同样是一行。Given 回复之后依次是压缩分隔线与系统提醒，Then 回复仍在结果区。
 30. Given 思考第一行是 `**Finding X**`、`## X` 或两段粗体首尾相接，When 思考折叠，Then 露出去掉标记的文字，首尾相接的只露出第一段；行内代码里的星号、`snake_case`、`读取_章节_摘要`、`#伏笔` 保留；宿主注入了 `markdownPreview` 时用它。
 31. Given 一个 `explore` 渲染器在一组里处理了三次调用，When 显示组头，Then 它的合并摘要收到这三次调用、可以按参数写（例如“读了第 33–37 章”）；合并摘要抛错时退回“调用了 3 次”。
+32. Given 单行版式、带“插入引用”前置按钮（触发字符 `@`）的输入框，When 显示，Then 前置按钮在正文前、控件在同一行；正文以中文结尾时点按钮，Then 正文变成“原文 @”且引用菜单打开，没有发出插件 action；允许登记附件时退回两层。上下文用量 21%、75%、95%、120% 依次是普通、警告、危险、危险（写 120%），没有用量或不知道上限时不画。
+33. Given 模型下拉里有两家的同名模型、其中一家用不了，`canManageModels` 为真，When 打开，Then 两项右侧各写服务商，用不了的那项灰掉并写原因，末尾“管理模型…”发出 `model.manage`。
+34. Given 模型目录（能用、没值、要登录、云凭据链的服务商各一），When 打开，Then 左栏分两段；搜 `gpt` 只剩命中，勾两个后“加入候选”按勾选先后交回引用并关闭；已选过的写“已添加”不能勾；点要登录的服务商右栏写明要设的变量。
 
-Smoke：分轮、摘要、发送规则与注册表有单元测试（`packages/nb-agent-ui` 的 `bun run test`，第 13、14、15、20、23、25、28 到 31 条）；第 21、22、24、26 到 29 条另有挂载测试与 e2e；消息流随时间变化的行为与输入框由新应用的 `bun run test:e2e -- lab-agent-ui` 覆盖（第 4、7、9、10、11 条及“历史与滚动”），全部 Lab 场景的手机宽度巡检在 `lab-scenes.e2e.ts`。其余条目随后续切片补充。
+Smoke：分轮、摘要、发送规则与注册表有单元测试（`packages/nb-agent-ui` 的 `bun run test`，第 13、14、15、20、23、25、28 到 31、34 条的搜索）；第 21、22、24、26 到 29、32 到 34 条另有挂载测试（`*.dom.test.ts`）与 e2e；消息流随时间变化的行为与输入框由新应用的 `bun run test:e2e -- lab-agent-ui` 覆盖（第 4、7、9、10、11 条及“历史与滚动”），全部 Lab 场景的手机宽度巡检在 `lab-scenes.e2e.ts`。其余条目随后续切片补充。
 
 ## 实现合同
 
