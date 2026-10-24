@@ -173,7 +173,7 @@ HTML 预览（[workbench.html-preview](../workbench/html-preview.md)）运行在
 ## 实现合同
 
 - 公开入口：`nbook/plugins/files/shared/contracts.ts`（远程合同 `filesUserContract`/`filesProjectContract`、方法表、失败码 `FILES_FAILURES`、`TEXT_BUDGET_BYTES`/`encodedTextBytes`/`encodedBytes`）；浏览器客户端 `files/web/client.ts`、`filesKey`。
-- owner 与依赖方向：`workspace-files` 拥有分区库之外的文件原语与远程服务；依赖内核的按调用方门面、远程服务与跨实例委托（同 `storage.persistence` 的依赖写法），服务端/项目入口依赖 [`platform.files`](../platform/files.md) 的受根约束原语与 `nbook.diagnostics`；浏览器入口只依赖 `filesKey`，不直接访问真实路径。
+- owner 与依赖方向：`workspace-files` 拥有分区库之外的文件原语与远程服务；依赖内核的按调用方门面、远程服务与跨实例委托（同 `storage.persistence` 的依赖写法），服务端/项目入口依赖 [`platform.files`](../platform/files.md) 的受根约束原语与 `runtime.diagnostics`；浏览器入口只依赖 `filesKey`，不直接访问真实路径。
 - 不变量：
   - 控制目录（项目根下 `.nbook`）在词法路径与解析符号链接后的真实路径两处都拒绝（`rooted.test.ts`）；
   - 条件保存与排他改名在系统调用层核对身份，核对与系统调用之间的窗口不承诺抵御恶意并发替换（`rooted.test.ts`、`exclusive.test.ts`）；

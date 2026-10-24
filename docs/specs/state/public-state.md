@@ -120,7 +120,7 @@ Smoke：`e2e/state.e2e.ts`，同一浏览器的两个标签页里各自切换探
 ## 实现合同
 
 - **公开入口**：`nbook/plugins/state/shared/contracts`（`PUBLIC_STATE_POINT`、`publicStateKey`、`PublicStateService`、`PublicStateDeclaration`、`PublicStateBinding`、`PublicStateRead`）；插件定义 `statePlugin`（`nbook/plugins/state/shared/plugin`，服务端、项目、浏览器三个入口代码相同）。插件作者写声明与绑定用 [`state.store`](store.md) 的 `definePublicState`。
-- **owner 与依赖方向**：`nbook.state` 拥有贡献点 `state.public`，依赖 `nbook.diagnostics` 与 `@vue/reactivity`，未绑定键的声明从内核的已接受贡献查询；读取方（`nbook.commands` 的 `when`）只依赖 `publicStateKey`。
+- **owner 与依赖方向**：`nbook.state` 拥有贡献点 `state.public`，依赖 `runtime.diagnostics` 与 `@vue/reactivity`，未绑定键的声明从内核的已接受贡献查询；读取方（`nbook.commands` 的 `when`）只依赖 `publicStateKey`。
 - **关键不变量**：
   - 贡献点校验只看这一条声明；同名交给内核的 `duplicate-contribution`，两条都拒（输出 1、2）。
   - 绑定在贡献方发布（接收者的 `published`）后才放进响应式绑定表，入口停止时撤回；`read` 先读这张表再同步调用读取函数、不缓存值，所以绑定、撤回与拥有者状态的变化都使读过它的 `computed` 重新求值（输出 4、6、9）。

@@ -41,3 +41,7 @@ w00027 开始让第三方插件真正可以安装。此前有两处按“内置�
 - 内核删除代理允许清单的选项与核对；宿主不再给出允许清单。代理调用的被拒原因只剩身份核对不过与合同未声明。
 - 规范同步修改：`runtime.services` 输出 13 与委托被拒、`runtime.plugins` 的代理入口与输出 20、`runtime.plugin-channel` 的经代理调用、`runtime.application` 的应用清单、`runtime.plugin-manifest` 的 `remoteDelegates` 与清单无效条件、`runtime.plugin-api` 的选用规则、`workbench.commands`、`state.public-state`、`settings.configuration` 与 `workspace.markdown-syntaxes` 中“只给内置插件”的条目。
 - 不改变的：`nbook.` 命名空间只给内置插件；安装确认、安全模式作为兜底；插件只经合同模块引用别的插件，不 import 宿主内部模块或别的插件的实现。
+
+## 后续修订
+
+- 2026-10-24（[w00027 t13](../../.agents/works/w00027-plugin-platform/tasks/t13-sdk-package-split/README.md)）：决策 1 的“id 以 `nbook.` 开头”改由平台档案给出（NeuroBook 保留 `nbook`，内核保留 `runtime`，诊断插件改名为 `runtime.diagnostics`）；另加一条区别：贡献点写 `idPrefix: "plugin"` 时，保留发布者的插件也可以只以发布者加 `.` 开头（内置插件的贡献常在别的内置插件名下），由内核统一核对（`runtime.plugins` 输出 15）。
