@@ -123,10 +123,10 @@ export const browserPlugin = plugin.definition([plugin.entry({
 
 界面文字（`title`、`description` 这类）可以写一个字符串，两种界面语言显示同一句；要分开写时给 `{"zh-CN": …, "en-US": …}`。贡献、贡献点（包括自己定义贡献点时的 `schema` 与 `idPrefix`）与激活事件的规则见 [plugins](../../../docs/specs/runtime/plugins.md)。
 
-- **设置分区与设置项**：`plugin.section({name, title, icon, groups})` 是设置窗口左栏的一项（list 分区，`category` 缺省 `plugins`），窗口按设置项的 schema 画控件；`plugin.setting({name, schema, default, title, layers, applies, section, group})` 是一个设置项，`section` 收分区本身，`group` 只能是那个分区的组 id，写错编译不过。两者都写进 `plugin.descriptor([…])`。读写要在入口的 `dependencies` 里声明 `settingsKey`，激活时 `context.services.require(settingsKey)` 拿到服务：`get(设置项)` 读有效值，`inspect` 读各层，`update(设置项, 值, {layer})` 写本插件声明的项。规则见 [configuration](../../../docs/specs/settings/configuration.md)，写法见模板的 `shared/contracts.ts`。
+- **设置分区与设置项**：`plugin.section({name, title, icon, groups})` 是设置窗口左栏的一项（list 分区，`category` 缺省 `plugins`），窗口按设置项的 schema 画控件；`plugin.setting({name, schema, default, title, layers, applies, section, group})` 是一个设置项，`section` 收分区本身，`group` 只能是那个分区的组 id，写错编译不过。`layers` 是用户能在哪几层改它：缺省 `["user", "project"]`（用户层与作品层，作品层覆盖用户层）；服务端入口只读得到缺省值与用户层（作品层属于项目，项目实例与打开了项目的窗口才读得到），给服务端用的设置项写 `layers: ["user"]`。`applies` 告诉用户改了何时生效，只影响设置窗口的提示：缺省 `now`，另有 `next-run`、`next-session`、`restart`。两者都写进 `plugin.descriptor([…])`。读写要在入口的 `dependencies` 里声明 `settingsKey`，激活时 `context.services.require(settingsKey)` 拿到服务：`get(设置项)` 读有效值，`inspect` 读各层，`update(设置项, 值, {layer})` 写本插件声明的项。规则见 [configuration](../../../docs/specs/settings/configuration.md)，写法见模板的 `shared/contracts.ts`。
 - **page 分区**：值是列表、对象这类通用控件画不了的，用 `/browser` 的 `settingsPage(plugin, {name, title, icon, load})` 自己画页面，每一项用 `SettingsRow` 排；规则见 [settings-window 的“分区声明”](../../../docs/specs/settings/settings-window.md#分区声明)，写法见示例 snippets。
 - **视图**：`/browser` 的 `view(plugin, {name, title, icon, load})`，`location` 缺省 `sidebar`，`layout` 缺省 `scroll`。`implement(() => 属性)` 交出实现：组件收到宿主给的 `context`（视图 id、是否可见、所在位置）与这个函数返回的属性。组件里拿不到服务，入口激活时拿到的服务、状态与回调都经这个函数交过去；它在渲染时求值，读到的响应式值变了视图跟着更新。`npm run typecheck`（vue-tsc）按组件的 `defineProps` 检查这些属性：必填属性漏写、名字写错或类型不对都报错，可选属性的笔误查不出来。声明的字段见 [views 的“输入与前置条件”](../../../docs/specs/workbench/views.md#输入与前置条件)，写法见模板的 `web/plugin.ts`。
-- **命令**：`plugin.command({name, title, description, effect, args?})`，`title` 给人看，`description` 用英文写给 Agent 看，`effect` 是 `read` 或 `write`（只读模式下 Agent 不能执行 `write` 的命令）。`args` 缺省为空对象，写了没写 `additionalProperties` 的补成 `false`。命令面板不收集参数：**给人用的命令，参数要全部可选**（不带参数也能通过校验）；参数有必填项的命令只给 Agent 与代码调用，要写 `expose: {human: false}`，否则加载就抛错。实现 `command.implement((args) => 结果)` 返回 `{ok: true, value}` 或 `{ok: false, code, reason}`（类型 `CommandResult`）。
+- **命令**：`plugin.command({name, title, description, effect, args?})`，`title` 给人看，`description` 用英文写给 Agent 看，`effect` 是 `read` 或 `write`（只读模式下 Agent 不能执行 `write` 的命令）。Agent 缺省不能调用命令：`expose.agent` 不写就是不开放，写 `"confirm"` 时每次调用先问用户，写 `"auto"` 时直接执行（同时写了 `hints.destructive: true` 的仍按 `"confirm"`）。`args` 缺省为空对象，写了没写 `additionalProperties` 的补成 `false`。命令面板不收集参数：**给人用的命令，参数要全部可选**（不带参数也能通过校验）；参数有必填项的命令只给 Agent 与代码调用，要写 `expose: {human: false}`，否则加载就抛错。实现 `command.implement((args) => 结果)` 返回 `{ok: true, value}` 或 `{ok: false, code, reason}`（类型 `CommandResult`）。
 - **状态栏条目**：`/browser` 的 `statusItem(plugin, {name, title, command?, order?})`，`alignment` 缺省 `right`、`order` 与 `priority` 缺省 0，`command` 可以直接给命令助手（点了执行它，不带参数）。实现是三个函数：
 
   ```ts
@@ -154,7 +154,10 @@ export const browserPlugin = plugin.definition([plugin.entry({
 
 ```ts
 // shared/contracts.ts
+import {defineRemoteService, definePlugin} from "@notnotype/nb-plugin-sdk";
 import {Type} from "typebox";
+
+export const plugin = definePlugin({id: "acme.hello", version: "0.1.0", locations: ["browser", "server"]});
 export const counter = defineRemoteService({
     id: "acme.hello/counter",
     version: 1,
@@ -170,6 +173,7 @@ export const counter = defineRemoteService({
 // backend/plugin.ts
 import {fail, ok, provideRemote} from "@notnotype/nb-plugin-sdk";
 import type {RemoteSink} from "@notnotype/nb-plugin-sdk";
+import {counter, plugin} from "../shared/contracts";
 export const serverPlugin = plugin.definition([plugin.entry({
     location: "server",
     remoteProvides: [counter],
@@ -216,6 +220,33 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 - `scope: "user"` 存在服务端的用户分区，`"project"` 要在项目实例里打开。
 - `locality` 必填：服务端入口的记录写 `"shared"`（各客户端共用一份）；`"local"` 按客户端分开存，服务端没有客户端身份，打不开它。
 - `schema` 是对象 schema，没写 `additionalProperties` 的补成 `false`。
+- 读写的写法（服务端入口的 `activate` 里）：
+
+  ```ts
+  import {defineRecord, storageKey} from "@notnotype/nb-plugin-sdk";
+  import type {RecordHandle, Revision} from "@notnotype/nb-plugin-sdk";
+  import {Type} from "typebox";
+
+  const progress = defineRecord({key: "progress", scope: "user", locality: "shared", version: 1, schema: Type.Object({words: Type.Integer()})});
+
+  const opened = await context.services.require(storageKey).open(progress);
+  if (!opened.ok) throw new Error(`打不开记录：${opened.detail}`);       // 入口激活失败，插件页显示这条原因
+  const handle: RecordHandle<{words: number}> = opened.handle;
+
+  /** 读出当前值再加上 `by`；别人刚好也写了（`conflict`）就重读再写。 */
+  async function add(by: number): Promise<number> {
+      for (;;) {
+          const snapshot = await handle.read();
+          if (snapshot.status !== "ok" && snapshot.status !== "missing") throw new Error(`记录读不了：${snapshot.status}`);
+          const current = snapshot.status === "ok" ? snapshot.value.words : 0;
+          const expect: Revision | null = snapshot.revision;
+          const saved = await handle.save({words: current + by}, {expect});
+          if (saved.ok) return current + by;
+          if (saved.code !== "conflict") throw new Error(`写不进去：${saved.detail}`);
+      }
+  }
+  ```
+
 - 改了值的形状要升 `version`，旧数据读出来是 `unsupported-version`，不会被当成新形状。这时普通的 `save` 被拒（`protected`），要么按旧形状迁移，要么用 `reset` 换成新值（原件留在存储的原件区）；什么都不做的话，老用户的这条记录从此读写都失败。SDK 包里示例 `examples/plugins/focus` 的服务端入口示范了 `reset`。
 
 规则见 [persistence](../../../docs/specs/storage/persistence.md)；写法见示例 notes 的 `backend/plugin.ts`。

@@ -255,12 +255,12 @@ export const props = lazyPanel.implement(() => ({greting: "hi"}));
         expect(declaredExports(await readFile(join(installed, "index.d.ts"), "utf8"))).toEqual([
             "ActivationContext", "AuthorActivationContext", "AuthorEntry", "AuthorEntryOutput", "BoundImplementation", "COMMANDS_POINT", "CommandHelper", "CommandResult", "ContributionHelper", "PluginBuilder", "SectionHelper", "Text", "definePlugin", "CommandDeclaration", "CommandImplementation", "ContributionDeclaration", "ContributionDescriptor",
             "ContributionHandle", "ContributionPointDefinition", "ContributionReceiver", "DiagnosticsService", "DisplayLocale", "LocalizedText",
-            "PluginDefinition", "PluginDescriptor", "PluginEntryDefinition", "RecordDefinition", "RecordHandle", "RemoteContract", "RemoteOutcome",
-            "RemoteResult", "RemoteSink", "RemoteSubscribeOptions", "RemoteSubscription", "RuntimeClock", "SETTINGS_CHOICES_POINT", "SETTINGS_PAGES_POINT", "SETTINGS_SECTIONS_POINT", "ServiceKey", "SettingDefinition", "SettingLayer", "SettingWriteResult",
-            "SettingsChoicesDeclaration", "SettingsFailure", "SettingsPageDeclaration", "SettingsSectionCategory", "SettingsSectionDeclaration", "SettingsService", "StateRoot", "StorageService", "defineEntry", "definePublicState",
+            "PluginDefinition", "PluginDescriptor", "PluginEntryDefinition", "RecordDefinition", "RecordHandle", "RecordSnapshot", "RemoteContract", "RemoteOutcome",
+            "RemoteResult", "RemoteSink", "RemoteSubscribeOptions", "RemoteSubscription", "Revision", "RuntimeClock", "SETTINGS_CHOICES_POINT", "SETTINGS_PAGES_POINT", "SETTINGS_SECTIONS_POINT", "ServiceKey", "SettingDefinition", "SettingLayer", "SettingWriteResult",
+            "SettingsChoicesDeclaration", "SettingsFailure", "SettingsPageDeclaration", "SettingsSectionCategory", "SettingsSectionDeclaration", "SettingsService", "StateRoot", "StorageFailure", "StorageService", "defineEntry", "definePublicState",
             "defineRecord", "defineRemoteService", "defineServiceKey", "defineSetting", "defineStore", "diagnosticsKey", "displayLocale", "formatText",
             "fail", "hostClockKey", "hostStateRootKey", "localize", "ok", "orThrow", "provideService", "provideServicePerConsumer", "provideRemote", "settingsChoicesEvent", "settingsKey",
-            "storageKey", "ItemDeclaration", "ViewDeclaration", "ViewLocation", "WORKBENCH_STATUSBAR_ITEMS_POINT", "WORKBENCH_VIEWS_POINT",
+            "storageKey", "ItemDeclaration", "ViewDeclaration", "ViewLocation", "WORKBENCH_STATUSBAR_ITEMS_POINT", "WORKBENCH_VIEWS_POINT", "WriteResult",
         ].sort());
         expect(declaredExports(await readFile(join(installed, "browser.d.ts"), "utf8"))).toEqual([
             "ChoicesHelper", "PropsOf", "SettingsPageHelper", "StatusItemHelper", "ViewHelper", "choices", "settingsPage", "statusItem", "view",

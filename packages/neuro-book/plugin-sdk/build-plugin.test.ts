@@ -323,9 +323,9 @@ export const s = {id: "acme.refined", entries: [defineEntry({id: "server", locat
     it("插件描述的 locations 与实际有入口的位置不一致：构建失败，写明多写或漏写的位置", async () => {
         const root = await authorProject("located", {"web/plugin.ts": "export const p = {id: \"acme.located\", entries: [{id: \"browser\", location: \"browser\", activate: () => ({})}]};\n"});
         await writeFile(join(root, "plugin.ts"), `export const descriptor = {id: "acme.located", version: "1.0.0", locations: ["server", "browser"]};\n`);
-        expect(await failure(root)).toEqual([expect.stringContaining("写了 server，但没有这些位置的入口")]);
+        expect(await failure(root)).toEqual([expect.stringContaining("写了 server，可是这些位置没有入口")]);
         await writeFile(join(root, "plugin.ts"), `export const descriptor = {id: "acme.located", version: "1.0.0", locations: []};\n`);
-        expect(await failure(root)).toEqual([expect.stringContaining("没有写 browser，但有这些位置的入口")]);
+        expect(await failure(root)).toEqual([expect.stringContaining("没有写 browser，可是这些位置有入口")]);
     }, 60_000);
 
     it("入口定义模块忘了 export 或导出了两个插件定义：构建失败，指出模块（不再静默少一个入口）", async () => {

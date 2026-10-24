@@ -28,7 +28,7 @@ import {minutesSetting, plugin, RunningSchema, sessionsContract} from "../shared
 import type {Today} from "../shared/contracts";
 
 /**
- * 记录：用户层、不分客户端（`locality: "shared"`：缺省的 `local` 按客户端分开存，服务端没有客户端身份，打不开它）。
+ * 记录：用户层、不分客户端（`locality: "shared"`：`local` 按客户端分开存，服务端没有客户端身份，打不开它）。
  * `day` 是汇总所属的日期（服务端本地时区），不是今天时汇总按零算。
  */
 const FocusRecordSchema = Type.Object({

@@ -48,7 +48,7 @@ export type {SettingDefinition, SettingLayer, SettingsFailure, SettingsService, 
 // 存储（nbook.storage）。
 export {storageKey} from "nbook/plugins/storage/shared/contracts";
 export {defineRecord} from "nbook/shared/storage";
-export type {RecordDefinition, RecordHandle, StorageService} from "nbook/shared/storage";
+export type {RecordDefinition, RecordHandle, RecordSnapshot, Revision, StorageFailure, StorageService, WriteResult} from "nbook/shared/storage";
 
 // 命令（nbook.commands）。
 export {COMMANDS_POINT} from "nbook/plugins/commands/shared/contracts";

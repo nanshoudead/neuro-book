@@ -506,8 +506,8 @@ export async function buildPlugin(profile: PlatformProfile, options: BuildPlugin
     const missing = [...actual].filter((location) => !declared.has(location));
     const unused = [...declared].filter((location) => !actual.has(location));
     const consistent = problems.length === 0;
-    if (consistent && missing.length > 0) problems.push({path: "plugin.ts", message: `插件描述的 locations 没有写 ${missing.join("、")}，但有这些位置的入口：在 definePlugin 的 locations 里加上`});
-    if (consistent && unused.length > 0) problems.push({path: "plugin.ts", message: `插件描述的 locations 写了 ${unused.join("、")}，但没有这些位置的入口：去掉它们，或者检查入口模块是否导出了插件定义`});
+    if (consistent && missing.length > 0) problems.push({path: "plugin.ts", message: `插件描述的 locations 没有写 ${missing.join("、")}，可是这些位置有入口。在 definePlugin 的 locations 里加上它们`});
+    if (consistent && unused.length > 0) problems.push({path: "plugin.ts", message: `插件描述的 locations 写了 ${unused.join("、")}，可是这些位置没有入口。去掉它们，或者检查入口模块是否导出了插件定义`});
     if (problems.length > 0) throw new PluginBuildError("入口定义不合格", problems);
 
     const source: ManifestSource = {

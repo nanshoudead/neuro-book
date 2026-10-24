@@ -70,7 +70,7 @@ export async function createPlugin(options: CreatePluginOptions): Promise<Create
     const publisher = options.publisher ?? "my";
     const name = options.name ?? (typeof existing?.name === "string" ? existing.name : segmentOf(basename(directory)));
     for (const [field, value] of [["publisher", publisher], ["name", name]] as const) {
-        if (!isIdSegment(value)) throw new PluginCreateError(`${field} 不合规：${value}（${ID_SEGMENT_RULE}；插件 id 是 publisher.name，视图与命令的 id 以它开头）；用 --${field} 指定`);
+        if (!isIdSegment(value)) throw new PluginCreateError(`${field} 不合规：${value}（${ID_SEGMENT_RULE}；插件 id 是 publisher.name，definePlugin 用它拼出各项贡献的 id）；用 --${field} 指定`);
     }
     if (manifestFormat.isReservedPublisher(publisher)) throw new PluginCreateError(`publisher 不能是 ${publisher}：它留给内置插件；用 --publisher 指定别的`);
     const id = `${publisher}.${name}`;
