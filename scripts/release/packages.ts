@@ -1,0 +1,294 @@
+#!/usr/bin/env bun
+/**
+ * 发布到 npm 的工作区包清单，与发布前对它们的检查（ADR 0029）。`bun run release:check` 运行检查；
+ * `pack-smoke.ts` 与 `publish.ts` 用这里的清单与依赖顺序。
+ *
+ * 检查只读文件，不打包、不联网。源码导入的检查只看会发布的文件（按 `files` 白名单），因为装到用户机器上时
+ * 只有它们会被执行或被宿主编译；仓库根 `node_modules` 的提升会掩盖漏写的依赖，所以不能靠“在仓库里能跑”。
+ */
+
+import {builtinModules} from "node:module";
+import {readFileSync} from "node:fs";
+import {join, relative} from "node:path";
+
+/** 要发布的包（`packages/` 下的目录名）。加包时同步 ADR 0029 与根 README 的列表。 */
+export const RELEASE_PACKAGES = [
+    "nb-profile",
+    "nb-session",
+    "nb-runtime",
+    "nb-ui",
+    "nb-harness",
+    "nb-form",
+    "nb-markdown",
+    "nb-agent-ui",
+    "nb-story",
+] as const;
+
+export const RELEASE_LICENSE = "AGPL-3.0-only";
+const REPOSITORY_URL = "git+https://github.com/notnotype/neuro-book.git";
+const SCOPE = "@notnotype/";
+
+type DependencyMap = Readonly<Record<string, string>>;
+
+export type PackageManifest = {
+    name: string;
+    version: string;
+    private?: boolean;
+    license?: string;
+    files?: string[];
+    engines?: Record<string, string>;
+    publishConfig?: {access?: string};
+    repository?: {type?: string; url?: string; directory?: string};
+    dependencies?: DependencyMap;
+    devDependencies?: DependencyMap;
+    peerDependencies?: DependencyMap;
+    optionalDependencies?: DependencyMap;
+};
+
+export type ReleasePackage = {
+    /** `packages/` 下的目录名。 */
+    dir: string;
+    /** 包目录的绝对路径。 */
+    path: string;
+    manifest: PackageManifest;
+};
+
+export type Finding = {
+    package: string;
+    code:
+        | "private"
+        | "license"
+        | "license_file"
+        | "files"
+        | "engines"
+        | "publish_config"
+        | "repository"
+        | "internal_dependency"
+        | "undeclared_import"
+        | "dependency_cycle";
+    message: string;
+};
+
+export function loadReleasePackages(root: string, dirs: readonly string[] = RELEASE_PACKAGES): ReleasePackage[] {
+    return dirs.map((dir) => {
+        const path = join(root, "packages", dir);
+        return {dir, path, manifest: JSON.parse(readFileSync(join(path, "package.json"), "utf8")) as PackageManifest};
+    });
+}
+
+/**
+ * 按依赖排序：被依赖的在前，同一层按清单顺序。只看 dependencies 与 peerDependencies：devDependencies 不进用户的
+ * 安装，发布先后对它们无关紧要。有环时抛错（环里的包无论先发哪个，另一个都要引用还不存在的版本）。
+ */
+export function publishOrder(packages: readonly ReleasePackage[]): ReleasePackage[] {
+    const byName = new Map(packages.map((entry) => [entry.manifest.name, entry]));
+    const ordered: ReleasePackage[] = [];
+    const placed = new Set<string>();
+    const visiting = new Set<string>();
+    const visit = (entry: ReleasePackage, path: readonly string[]) => {
+        const name = entry.manifest.name;
+        if (placed.has(name)) return;
+        if (visiting.has(name)) throw new Error(`发布清单里有依赖环：${[...path, name].join(" → ")}`);
+        visiting.add(name);
+        for (const dependency of runtimeDependencyNames(entry.manifest)) {
+            const target = byName.get(dependency);
+            if (target) visit(target, [...path, name]);
+        }
+        visiting.delete(name);
+        placed.add(name);
+        ordered.push(entry);
+    };
+    for (const entry of packages) visit(entry, []);
+    return ordered;
+}
+
+function runtimeDependencyNames(manifest: PackageManifest): string[] {
+    return [...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.peerDependencies ?? {})];
+}
+
+export function checkReleasePackages(root: string, packages: readonly ReleasePackage[]): Finding[] {
+    const findings: Finding[] = [];
+    const rootLicense = readFileSync(join(root, "LICENSE"));
+    const releaseNames = new Set(packages.map((entry) => entry.manifest.name));
+    for (const entry of packages) {
+        const report = (code: Finding["code"], message: string) => findings.push({package: entry.manifest.name, code, message});
+        const {manifest} = entry;
+        if (manifest.private !== undefined) report("private", "去掉 private：发布的包不能是私有的");
+        if (manifest.license !== RELEASE_LICENSE) report("license", `license 要写 ${RELEASE_LICENSE}，现在是 ${manifest.license ?? "空"}`);
+        const license = readOptional(join(entry.path, "LICENSE"));
+        if (!license) report("license_file", "包目录里没有 LICENSE");
+        else if (!license.equals(rootLicense)) report("license_file", "LICENSE 与仓库根的不同");
+        if (!manifest.files?.length) report("files", "缺少 files 白名单");
+        else if (!manifest.files.includes("LICENSE") || !manifest.files.includes("README.md")) report("files", "files 要包括 LICENSE 与 README.md");
+        if (!manifest.engines?.bun) report("engines", "engines 要写 bun 的最低版本");
+        if (manifest.publishConfig?.access !== "public") report("publish_config", "publishConfig.access 要写 public（scope 包缺省是私有）");
+        const directory = `packages/${entry.dir}`;
+        if (manifest.repository?.url !== REPOSITORY_URL || manifest.repository.directory !== directory) {
+            report("repository", `repository 要写 {type: "git", url: "${REPOSITORY_URL}", directory: "${directory}"}`);
+        }
+        for (const [field, map] of dependencyFields(manifest)) {
+            for (const [name, spec] of Object.entries(map)) {
+                if (!name.startsWith(SCOPE)) continue;
+                const released = releaseNames.has(name);
+                // devDependencies 可以引用不发布的工作区包（例如测试支持包），发布后它们不会被安装。
+                if (!released && field !== "devDependencies") report("internal_dependency", `${field} 里的 ${name} 不在发布清单里`);
+                if (released && spec !== "workspace:^") report("internal_dependency", `${field} 里的 ${name} 要写 workspace:^，现在是 ${spec}`);
+            }
+        }
+        for (const finding of undeclaredImports(entry)) report("undeclared_import", finding);
+    }
+    try {
+        publishOrder(packages);
+    } catch (error) {
+        findings.push({package: "*", code: "dependency_cycle", message: (error as Error).message});
+    }
+    return findings;
+}
+
+function dependencyFields(manifest: PackageManifest): [string, DependencyMap][] {
+    return [
+        ["dependencies", manifest.dependencies ?? {}],
+        ["peerDependencies", manifest.peerDependencies ?? {}],
+        ["optionalDependencies", manifest.optionalDependencies ?? {}],
+        ["devDependencies", manifest.devDependencies ?? {}],
+    ];
+}
+
+function readOptional(path: string): Buffer | null {
+    try {
+        return readFileSync(path);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw error;
+    }
+}
+
+/**
+ * 会发布的文件：按 `files` 展开（目录写法匹配其下全部文件，`!` 开头的排除在后面统一生效）。npm 总会带上的
+ * `package.json` 不在这里，它不是源码。
+ */
+export function publishedFiles(entry: ReleasePackage): string[] {
+    const includes: Bun.Glob[] = [];
+    const excludes: Bun.Glob[] = [];
+    for (const pattern of entry.manifest.files ?? []) {
+        const negated = pattern.startsWith("!");
+        const body = negated ? pattern.slice(1) : pattern;
+        const globs = /[*?[{]/u.test(body) ? [body] : [body, `${body}/**`];
+        for (const glob of globs) (negated ? excludes : includes).push(new Bun.Glob(glob));
+    }
+    const files: string[] = [];
+    for (const file of new Bun.Glob("**").scanSync({cwd: entry.path, onlyFiles: true, dot: true})) {
+        if (file.startsWith("node_modules/")) continue;
+        if (!includes.some((glob) => glob.match(file))) continue;
+        if (excludes.some((glob) => glob.match(file))) continue;
+        files.push(file);
+    }
+    return files.sort();
+}
+
+const SCRIPT_BLOCK = /<script\b([^>]*)>([\s\S]*?)<\/script>/gu;
+const CSS_REFERENCE = /@(?:import|plugin)\s+["']([^"']+)["']/gu;
+const JSX_PRAGMA = /@jsxImportSource\s+(\S+)/u;
+const BUILTINS = new Set(builtinModules);
+
+/**
+ * 发布文件里的值导入指向的包，有没有写在本包的 dependencies、peerDependencies 或 optionalDependencies 里。
+ * 只有类型的导入不算：Bun 执行时会去掉它们（`Bun.Transpiler.scanImports` 也不报）。
+ */
+function undeclaredImports(entry: ReleasePackage): string[] {
+    const {manifest} = entry;
+    const declared = new Set([
+        manifest.name,
+        ...Object.keys(manifest.dependencies ?? {}),
+        ...Object.keys(manifest.peerDependencies ?? {}),
+        ...Object.keys(manifest.optionalDependencies ?? {}),
+    ]);
+    const missing = new Map<string, string>();
+    for (const file of publishedFiles(entry)) {
+        for (const specifier of importSpecifiers(join(entry.path, file))) {
+            const name = packageName(specifier);
+            if (name && !declared.has(name) && !missing.has(name)) missing.set(name, file);
+        }
+    }
+    return [...missing].map(([name, file]) => `${name}（${file} 导入）没有写进 dependencies 或 peerDependencies`);
+}
+
+export function importSpecifiers(path: string): string[] {
+    const source = readFileSync(path, "utf8");
+    if (path.endsWith(".css")) {
+        const withoutComments = source.replace(/\/\*[\s\S]*?\*\//gu, "");
+        return [...withoutComments.matchAll(CSS_REFERENCE)].map((match) => match[1] as string);
+    }
+    if (path.endsWith(".vue")) {
+        return [...source.matchAll(SCRIPT_BLOCK)].flatMap((match) => {
+            const loader = /lang=["']tsx["']/u.test(match[1] as string) ? "tsx" : "ts";
+            return scanScript(match[2] as string, loader);
+        });
+    }
+    if (/\.(?:[cm]?[jt]s|tsx|jsx)$/u.test(path)) return scanScript(source, path.endsWith("x") ? "tsx" : "ts");
+    return [];
+}
+
+function scanScript(source: string, loader: "ts" | "tsx"): string[] {
+    // 文件自己用 @jsxImportSource 指定 JSX 运行时时照它扫，否则 Bun 按缺省的 react 插入导入。发布的包里不带
+    // tsconfig，Bun 在用户机器上执行它们时用的正是这两种之一。
+    const pragma = loader === "tsx" ? JSX_PRAGMA.exec(source)?.[1] : undefined;
+    const transpiler = new Bun.Transpiler({
+        loader,
+        ...(pragma ? {tsconfig: {compilerOptions: {jsx: "react-jsx", jsxImportSource: pragma}}} : {}),
+    });
+    // scanImports 不认文件开头的 shebang（`bin` 入口都有），只清掉那一行的内容，行号不变。
+    const paths = transpiler.scanImports(source.replace(/^#!.*/u, "")).map((entry) => entry.path);
+    // 指定了运行时的文件，scanImports 仍会多报一个 `react`（createElement 的后备）；实测没装 react 时这类文件照常
+    // 执行，所以去掉它。文件自己导入 react 时照样报。
+    return pragma && !/from\s+["']react["']/u.test(source) ? paths.filter((path) => path !== "react") : paths;
+}
+
+/** 裸说明符的包名；相对路径、内置模块与 Vite 的虚拟模块返回 null。 */
+export function packageName(specifier: string): string | null {
+    const path = specifier.split("?")[0] as string;
+    if (path.startsWith(".") || path.startsWith("/") || path.startsWith("#") || path.startsWith("virtual:")) return null;
+    if (path.startsWith("node:") || path.startsWith("bun:") || path === "bun") return null;
+    const parts = path.split("/");
+    const name = path.startsWith("@") ? parts.slice(0, 2).join("/") : (parts[0] as string);
+    return BUILTINS.has(name) ? null : name;
+}
+
+/** `--root` 换仓库根、`--package` 只查给出的包（可重复），都为检查别的目录树而设，缺省查本仓库的整份清单。 */
+function parseArguments(argv: readonly string[]): {root: string; dirs: readonly string[]; json: boolean} {
+    let root = join(import.meta.dir, "..", "..");
+    const dirs: string[] = [];
+    let json = false;
+    for (let index = 0; index < argv.length; index += 1) {
+        const argument = argv[index];
+        const value = argv[index + 1];
+        if (argument === "--json") json = true;
+        else if (argument === "--root" && value) root = argv[(index += 1)] as string;
+        else if (argument === "--package" && value) dirs.push(argv[(index += 1)] as string);
+        else throw new UsageError(`未知参数或缺少值：${argument}`);
+    }
+    return {root, dirs: dirs.length > 0 ? dirs : RELEASE_PACKAGES, json};
+}
+
+class UsageError extends Error {}
+
+if (import.meta.main) {
+    try {
+        const {root, dirs, json} = parseArguments(Bun.argv.slice(2));
+        const packages = loadReleasePackages(root, dirs);
+        const findings = checkReleasePackages(root, packages);
+        const order = findings.some((finding) => finding.code === "dependency_cycle") ? [] : publishOrder(packages);
+        if (json) {
+            console.log(JSON.stringify({ok: findings.length === 0, findings, order: order.map((entry) => entry.manifest.name)}));
+        } else if (findings.length === 0) {
+            console.log(`发布清单检查通过，发布顺序：${order.map((entry) => `${entry.manifest.name}@${entry.manifest.version}`).join("、")}`);
+        } else {
+            for (const finding of findings) console.error(`${finding.package} [${finding.code}] ${finding.message}`);
+            console.error(`发布清单检查失败：${findings.length} 处（在 ${relative(process.cwd(), root) || "."}）`);
+        }
+        process.exit(findings.length === 0 ? 0 : 1);
+    } catch (error) {
+        console.error((error as Error).message);
+        process.exit(error instanceof UsageError ? 2 : 1);
+    }
+}
