@@ -36,9 +36,10 @@ export interface ServeOptions {
 }
 
 function openInBrowser(url: string): void {
-    const command = process.platform === "darwin" ? "open" : "xdg-open";
+    // Windows 上用 cmd 的 start（第一个引号参数是窗口标题，留空）；登录链接里只有 `?token=`，没有 cmd 要转义的字符。
+    const command = process.platform === "darwin" ? ["open", url] : process.platform === "win32" ? ["cmd", "/c", "start", "", url] : ["xdg-open", url];
     try {
-        Bun.spawn([command, url], {stdout: "ignore", stderr: "ignore"}).unref();
+        Bun.spawn(command, {stdout: "ignore", stderr: "ignore"}).unref();
     } catch (error) {
         console.error({error}, "打开浏览器失败");
     }

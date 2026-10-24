@@ -192,7 +192,7 @@ nbstory --help
 
 | 包 | 内容 |
 |---|---|
-| [`@notnotype/nb-story`](packages/nb-story/README.md) | 剧情图谱：`nbstory` 命令行、本机网页查看器与问答、外部 Agent 的 Skill（Linux 与 macOS） |
+| [`@notnotype/nb-story`](packages/nb-story/README.md) | 剧情图谱：`nbstory` 命令行、本机网页查看器与问答、外部 Agent 的 Skill |
 | [`@notnotype/nb-harness`](packages/nb-harness/README.md) | Agent harness：Profile、工具与一次运行 |
 | [`@notnotype/nb-profile`](packages/nb-profile/README.md) | Profile 的定义、加载与 JSX 渲染 |
 | [`@notnotype/nb-session`](packages/nb-session/README.md) | Agent 会话日志 |
