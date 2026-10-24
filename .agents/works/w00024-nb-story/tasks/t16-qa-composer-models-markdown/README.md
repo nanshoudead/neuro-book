@@ -39,7 +39,7 @@ updated: 2026-10-24
 
 - 2026-10-24 开发者答完评审板（决定 5 到 9）。
 
-- 2026-10-24 计划 [plan.md](plan.md) 写好，等开发者确认。
+- 2026-10-24 计划 [plan.md](plan.md) 写好。开发者要求仿照 OMP 的做法，派 Sonnet 调研（[omp-research.txt](evidences/omp-research.txt)），关键结论在仓库的 OMP 18.2.5 上核对后改了计划：认证按 `authPolicyFor` 与 `providerEntry().envVars` 分四类、自定义模型按模型名从目录补参数、`/models` 发现、目录界面照 OMP 的 `/models`。等开发者确认。
 
 ## 下一步
 

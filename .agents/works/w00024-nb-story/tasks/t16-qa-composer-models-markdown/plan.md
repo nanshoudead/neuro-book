@@ -18,17 +18,32 @@
 
 ## 技术选型
 
-- 模型目录与密钥变量名：用 nb-harness 已依赖的 `@oh-my-pi/pi-catalog`（`getBundledProviders`、`getBundledModels`）与 `@oh-my-pi/pi-ai`（`getEnvApiKeyName`），不自己维护模型表。
-- 自定义服务商的模型列表：服务的 `GET {baseUrl}/models`（OpenAI 兼容服务都有）。用 nb-story 已有的 `openai` 依赖的 `models.list()`；Anthropic、Gemini 的服务商不提供“从服务读取”，只能手动添加。
+仿照 OMP 自己的做法（开发者 2026-10-24 要求；调研见 [evidences/omp-research.txt](evidences/omp-research.txt)，关键结论已在仓库装的 18.2.5 上核对）：
+
+- 模型目录：`@oh-my-pi/pi-catalog` 的 `getBundledProviders`、`getBundledModels`。
+- 认证方式与密钥变量：`@oh-my-pi/pi-catalog/compat/auth` 的 `authPolicyFor(id)`（登录方式、刷新方式、env 规则）与 `compat/providers` 的 `providerEntry(id).envVars`（有序的变量名列表）。不用 `getEnvApiKeyName`：它只在单个变量时有值，anthropic、moonshot、bedrock 等都返回空。
+- 密钥是否就绪：`@oh-my-pi/pi-ai` 的 `getEnvApiKey`，非空且不是占位的 `<authenticated>`（同 OMP 的 `hasConcreteAuth`）。
+- 推理档：`pi-catalog/model-thinking` 的 `getSupportedEfforts(model)`，只列模型支持的档。
+- 自定义模型缺参数时按模型名从目录补齐：`getBundledModelReferenceIndex` 加 `resolveModelReference`（同 OMP 的 `finalizeCustomModel`）。
+- 自定义服务商的模型列表：`fetchOpenAICompatibleModels`（`GET {baseUrl}/models`，同 OMP 的 `openai-models-list` 发现）；Anthropic、Gemini 接口的服务商只能手动添加。
+- 不直接用 `pi-coding-agent`（它的 ModelRegistry 会读 `~/.omp` 与 agent.db），只参照。
+
+这些子路径靠包的 `"./*"` 通配导出，结构随 OMP 版本变（AuthStorage 在 18.2.5 到 18.12.3 之间就改过），所以用快照对照测试锁住几家服务商的分类，升级 OMP 时重跑。
 - 其余无新增依赖。
 
 ## 关键设计
 
 ### `packages/nb-harness/src/model.ts`：目录列表与自定义服务商
 
-- 新增 `listCatalog(): CatalogProvider[]`：`{id, name, auth: "key" | "login", keyEnv: string | null, models: CatalogModel[]}`，`CatalogModel` 为 `{id, name, api, contextWindow, reasoning, efforts, images, price}`。哪些服务商要登录（ChatGPT 登录、Copilot、Cursor 等）要按 OMP 的认证元数据判断：实测 `getEnvApiKeyName("anthropic")` 也返回空，不能只看它，第一片先查清 OMP 的做法并写成对照测试。
-- `defineModel` 已收 `api`，自定义服务商的四种接口直接映射为 OMP 的 `openai-completions`、`openai-responses`、`anthropic-messages`、`google-generative-ai`；provider 名仍用宿主自己的名字，不套目录的修正。
-- 目录模型照旧用 `resolveModel("provider/id")`。
+- 新增 `listCatalog(): CatalogProvider[]`：`{id, name, auth, keyEnvs: string[], keyReady: boolean, models: CatalogModel[]}`，`CatalogModel` 为 `{id, name, api, contextWindow, reasoning, efforts, images, price}`（`efforts` 取 `getSupportedEfforts`）。`auth` 四类，按 OMP 的元数据定：
+  - `login`：刷新方式是 `request` 或 `hook`，即会过期的登录令牌（anthropic、openai-codex、github-copilot、cursor、google-gemini-cli 等）；
+  - `chain`：env 规则是 hook 且有原生认证接口（amazon-bedrock、google-vertex，走云厂商凭据链）；
+  - `key`：有 `envVars`，或登录结果就是一个 API key（openrouter）；
+  - `none`：没有任何认证元数据（minimax-cn）。
+- 能不能选：`key` 能选；`login` 只有在它的某个变量已经有值时能选（例如 anthropic 设了 `ANTHROPIC_API_KEY`），否则灰掉并写“要登录，问答用不了”；`chain`、`none` 灰掉。nb-story 不读 OMP 的登录态（存在 agent.db），只认环境变量。
+- `resolveModel` 的密钥按 `keyEnvs` 顺序取第一个非空值，缺失时的错误列出全部变量名（现在多变量的服务商会写成 null）。
+- `defineModel` 已收 `api`；自定义服务商的接口直接用 OMP 的名字 `openai-completions`、`openai-responses`、`anthropic-messages`、`google-generative-ai`。没写的上下文、最大输出、推理档、图片支持先按模型名从目录补齐，再交给 `defineModel`：它在 `buildModel` 之后用宿主的值整个盖回去，先补后传才不会冲掉。单价不补（未知就是未知，仍按 `priceKnown`）。
+- 对照测试：anthropic、openai-codex、github-copilot、cursor、amazon-bedrock、google-vertex、moonshot、openrouter、minimax-cn 的分类与变量名。
 - Spec：[`agent/harness.md`](../../../../../docs/specs/agent/harness.md) 的“模型”补 `listCatalog`。
 
 ### `packages/nb-story/src/contract/config-schema.ts` 与 `src/qa/config.ts`：配置第 2 版
@@ -37,10 +52,10 @@
 type QaConfig = {
     providers?: Record<string, {         // 自定义服务商；键是服务商 id，不能与 OMP 目录的 id 重名
         name?: string;
-        api: "chat" | "responses" | "anthropic" | "gemini";
+        api: "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";  // 名字同 OMP
         baseUrl: string;
         apiKeyEnv: string;
-        models: {id: string; contextWindow?: number; maxTokens?: number; efforts?: Thinking[]; images?: boolean; price?: Price}[];
+        models: {id: string; name?: string; contextWindow?: number; maxTokens?: number; reasoning?: boolean; images?: boolean; price?: Price}[];  // 没写的按模型名从目录补
     }>;
     models: string[];                    // 候选，写成 "服务商/模型名"（目录的或自定义的），至少一个
     model: {use: string; thinking?: Thinking};  // 默认模型，必须在候选里
@@ -49,7 +64,8 @@ type QaConfig = {
 };
 ```
 
-- 读到第 1 版（`model` 是 `{baseUrl, id, apiKeyEnv, …}`）时在内存里升级：建一个自定义服务商 `custom`（接口取原来的 `api`），候选与默认都是 `custom/<id>`，推理档、上下文、单价跟过去。写回一律写第 2 版。升级是 `config.ts` 里的一个纯函数，命令行、服务端、设置页共用。
+- 校验照 OMP：自定义服务商必须有 `baseUrl` 与 `apiKeyEnv`，上下文与最大输出为正。与 OMP 不同的两处：密钥只写变量名（OMP 的 `apiKey` 一个字段兼作变量名、命令与明文，变量名拼错会把它当明文发出去）；自定义服务商 id 不能与目录重名（OMP 允许同名覆盖目录服务商；我们要换地址就建一个自定义服务商，少一套合并规则）。
+- 读到第 1 版（`model` 是 `{baseUrl, id, apiKeyEnv, …}`）时在内存里升级：建一个自定义服务商 `custom`（`chat` → `openai-completions`，`responses` → `openai-responses`），候选与默认都是 `custom/<id>`，推理档、上下文、单价跟过去。写回一律写第 2 版。升级是 `config.ts` 里的一个纯函数，命令行、服务端、设置页共用。
 - 抽取模型（`ingest.model`、`ingest.recall.model`）维持原样，不在本 Task 改；抽取没写模型时用问答的默认模型（经解析后的服务地址、密钥变量）。
 - `src/qa/harness-model.ts` 的 `configuredModel(config)` 改成 `resolveQaModel(config, ref?)`：按引用找自定义服务商或目录，返回 `ResolvedModel` 与 `{contextWindow, efforts}`；引用不在候选里报 `qa_unconfigured`。
 
@@ -70,7 +86,7 @@ type QaConfig = {
 ### `src/server`：接口
 
 - 新增 `models.catalog`：目录加自定义服务商，每家带密钥变量与“服务启动时有没有值”（沿用 `config.get` 的 `keys` 做法）。
-- 新增 `models.discover {provider}`：读自定义服务商的 `/models`，只返回模型名。
+- 新增 `models.discover {provider}`：用 `fetchOpenAICompatibleModels` 读自定义服务商的 `/models`，按模型名从目录补参数后返回；结果分“读到 N 个”“空的”“服务不支持（404）”“密钥不对（401、403）”“连不上”几种，界面照着写。
 - `qa.ask` 与续问加 `model`、`thinking`；新对话另加 `answer`。
 
 ### `packages/nb-agent-ui`：输入框与模型界面
@@ -79,11 +95,18 @@ type QaConfig = {
 - `ComposerView` 加 `context?: {used: number; window: number | null}`，新零件 `AgentContextMeter`（圆环、70% 黄、90% 红、悬停写数字）。
 - 登记的输入框按钮加 `placement: "leading"` 与 `insert?: string`：放在正文前，点了往编辑器插入文字，不发 action。nb-story 用它做 `+`。
 - `AgentModelPicker` 末尾加“管理模型…”，发出 `model.manage` action；宿主没登记处理时不显示（`services` 里给开关）。
-- 新组件 `AgentModelCatalog`（左右两栏的目录对话框）与 `AgentProviderForm`（自定义服务商表单），都是纯视图：数据与动作经 props、emits，读取 `/models`、保存由宿主做。各配同名 `.md` 与 Lab 场景。
+- 新组件 `AgentModelCatalog`（左右两栏的目录对话框）与 `AgentProviderForm`（自定义服务商表单），都是纯视图。目录的做法参照 OMP 的 `/models`：
+  - 左栏依次是“最近用过”、“全部”、各服务商；能用的在前、标可用模型数，用不了的排在分隔线后、变暗。
+  - 右栏顶上一个搜索框，按 `服务商/模型名` 搜，结果分精确、连续子串、模糊三层，同层里选过、最近用过的在前；搜索时左栏显示各服务商的命中数。
+  - 默认顺序：最近用过、服务商、版本号新的在前、名字。
+  - 模型表的列：模型、接口、上下文、推理、图片、单价；单价未知写“未知”，不写成免费；窄了先丢接口列、再丢图片与推理列。
+  - 点到用不了的服务商时右栏是说明页：要设哪个环境变量（列出全部可选的变量名）、是否只能登录、目录里有几个模型。
+  - 自定义服务商的发现状态（读到、空、404、密钥不对、连不上）在表单里照写。
+  - 都是纯视图：数据与动作经 props、emits，读取 `/models`、保存由宿主做。各配同名 `.md` 与 Lab 场景。
 
 ### `packages/nb-story/src/web`：问答页与设置页
 
-- `QaPage.vue`：用 `inline` 版式；候选、默认模型与推理档来自 `models.catalog`；发送带上当前选的模型与推理档；上下文大小取最近一条助手消息的用量与所选模型的窗口；修 `canChangeRuntime`（运行中以外都为真），模式按钮能切全读；`model.manage` 去设置页。
+- `QaPage.vue`：用 `inline` 版式；候选、默认模型来自 `models.catalog`，推理档只列所选模型支持的档（不支持推理的模型不出推理档）；发送带上当前选的模型与推理档；上下文大小取最近一条助手消息的用量与所选模型的窗口；修 `canChangeRuntime`（运行中以外都为真），模式按钮能切全读；`model.manage` 去设置页。
 - `SettingsPage.vue`：“模型”一节换成候选列表、服务商列表，加两个对话框；限额与抽取仍用 `SchemaForm`。保存仍是整份 `config.set`，冲突处理不变。
 
 ## Spec 与文档改动
@@ -130,5 +153,5 @@ type QaConfig = {
 
 - 抽取模型不改成引用写法。
 - 网页上没有作答方式的开关，只在设置（`qa.answer`）与 `ask --structured`。
-- 风险：OMP 判断“要登录”的元数据如果拿不到，退回到按服务商 id 的已知清单，并在代码里写明来源。
+- 风险：认证分类依赖 OMP 的通配导出子路径（`compat/auth`、`compat/providers`），结构随版本变；对照测试会在升级时报出来。
 - 风险：Profile v4 让旧对话不能续问（t15 刚发生过一次）。
