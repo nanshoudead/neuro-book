@@ -349,7 +349,7 @@ test.describe("设置页", () => {
 
         // 保存后目录补上了推理档：改档再保存。
         await expect(page.locator("[data-settings-thinking]"), "OMP 目录里的 gpt-5.6-sol 应该会推理（目录升级改了？）").toBeVisible();
-        await page.locator("[data-settings-thinking] [role='combobox']").click();
+        await page.locator("[data-settings-thinking]").click();
         await page.getByRole("option", {name: "推理档：高"}).click();
         await page.getByTestId("settings-save").click();
         await expect(page.getByTestId("settings-notice")).toContainText("已保存");
