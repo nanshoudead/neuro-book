@@ -66,6 +66,8 @@ updated: 2026-10-24
 
 - S1 `e48e57ec8`：作者工具只用 Bun（`bun pm pack`、`engines.bun`、`cli.js` 的抬头行、文档与提示）；作者命令改名 `nbooke`；`create` 不再处理 `npm init` 的占位。类型检查例外：`vue-tsc` 在 Bun 的运行时里认不出 `.vue`，模板的 `typecheck` 按它的抬头行用 Node（plan.md 第 10 节）。验证：`plugin-sdk/` 70 例、类型检查、`plugin-authoring` e2e。
 - S2 `4d7a9c084`：SDK 按内置插件分子路径（根入口是插件框架；`/state`、`/storage`、`/settings`、`/settings/browser`、`/commands`、`/workbench`、`/components`），贡献助手改成所属子路径的函数，`/commands` 公开 `commandServiceKey`，低层组合函数不再公开；宿主模块表、打包、闭包与导出测试按子路径；服务端导入浏览器子路径时报错附原因；打包生成 `docs/exports.md`。验证：类型检查，Bun 1474 例、Vitest 372 例，插件 e2e 8 例。
+- S3 `616fdd635`：记录句柄加 `update`（读改写，冲突时重算，坏记录与别的版本写下的返回同名失败与 revision）；作者文档改用它并写 `subscribe`。验证：storage 真实三端测试 3 例（含冲突重算与 attempts 用完）。
+- S4 `f2e414c70`：调用方的远程结果按方法定型（`RemoteResultFor`）；事件助手 `eventSource`；`remoteService(plugin, {name})`；counter 示例改用 `eventSource`，三个示例的合同改用 `remoteService`。验证：内核 401 例（含 `eventSource` 的真实路由测试与调用方收窄的编译期反例）、应用 Bun 1477 例、Vitest 372 例、类型检查。
 
 2026-10-24 P2、P5、P7、P8 已定。第一期（发布前改完作者 API）的计划见 [plan.md](plan.md)，开发者 2026-10-24 确认（含助手都改成所属子路径的函数、子路径表、`nbook.view.open`、作者命令名 `nbooke`）。计划审查两份（omp 阻断 5、重要 8、建议 1；Sonnet 重要 6、建议 15）逐条处理见 plan.md 第 9 节，开始实施 S1。
 
