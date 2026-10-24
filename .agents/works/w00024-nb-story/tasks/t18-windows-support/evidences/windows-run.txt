@@ -1,0 +1,22 @@
+2026-10-24 在 pc-notype（Windows x64，Bun 1.3.14，经 ssh）上实测。tarball 由 t18 worktree 打包（nb-story、nb-harness、nb-profile、nb-runtime、nb-session），脚本见 win-smoke.ts。
+
+锁原型（kernel32 CreateFileW + LockFileEx）：
+- 访问权限按有符号数传（0x80000000 | 0x40000000）时，LockFileEx 一律失败，Win32 错误 5；改成无符号后：
+- 持有者拿到锁；同进程第二个句柄拿不到（错误 33 ERROR_LOCK_VIOLATION）；另一进程在持有期间拿不到；
+- 持有者退出（含 exit 9）后，新进程能拿到。
+
+win-smoke.ts（ssh 会话里 nbstory.exe 指向 scoop 的 bun\current 目录联接，跟不过去，所以用 bun 直接跑装好的 cli.ts）：
+✓ bun install
+✓ node_modules/.bin 里有 nbstory：nbstory.bunx,nbstory.exe
+✓ nbstory --help
+✓ 空书库 books
+✓ skill install --dir 两次：installed、unchanged
+✓ skill install --agent codex 按 USERPROFILE：<USERPROFILE>\.agents\skills\nbstory
+✓ config init 与 set（要拿配置锁）
+✓ serve 启动
+✓ 登录后取到网页与脚本：302 200 200
+✓ 同一书库第二个 serve 退出 3（锁生效）：already_running
+✓ 第一个 serve 被强行结束后再启动成功（锁随进程放掉）
+另：config show 加载 OMP 的 Windows 原生模块，退出 0。
+
+未在 Windows 上测：控制台里 Ctrl-C 停服务、ingest（Worker 与模型调用）、ask、serve --open。
