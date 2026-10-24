@@ -5,22 +5,27 @@
  */
 
 import {NEUROBOOK_PROFILE} from "../../src/plugin-platform-profile";
+import type {BrowserSharedModule} from "../../src/plugin-platform-profile";
 import {fakePage} from "../../src/plugin-platform/testing/fake-page";
 import type {ModuleFactory} from "../../src/plugin-platform/testing/fake-page";
 import {createPluginCodeHost} from "../../src/plugin-platform/web/plugin-code";
 
-/** 浏览器一侧宿主模块表里的真实模块。nb-ui 的组件是单文件组件，Bun 加载不了；产物在这里不渲染，组件入口给一个空对象。 */
-export async function browserHostModules(): Promise<Readonly<Record<string, unknown>>> {
-    return {
-        "vue": await import("vue"),
-        "@vue/reactivity": await import("@vue/reactivity"),
-        "typebox": await import("typebox"),
-        "typebox/value": await import("typebox/value"),
-        "typebox/compile": await import("typebox/compile"),
-        "@notnotype/nb-plugin-sdk": await import("../../src/sdk/index"),
-        "@notnotype/nb-plugin-sdk/browser": await import("../../src/sdk/browser"),
-        "@notnotype/nb-plugin-sdk/components": {},
+/**
+ * 浏览器一侧宿主模块表里的真实模块，键按共享名单（`BrowserSharedModule`）写全，名单变了这里编译不过。nb-ui 的组件是单文件
+ * 组件，Bun 加载不了；产物在这里不渲染，组件入口给一个空对象。
+ */
+export async function browserHostModules(): Promise<Readonly<Record<BrowserSharedModule, unknown>>> {
+    const modules: Record<BrowserSharedModule, () => Promise<unknown>> = {
+        "vue": () => import("vue"),
+        "@vue/reactivity": () => import("@vue/reactivity"),
+        "typebox": () => import("typebox"),
+        "typebox/value": () => import("typebox/value"),
+        "typebox/compile": () => import("typebox/compile"),
+        "@notnotype/nb-plugin-sdk": () => import("../../src/sdk/index"),
+        "@notnotype/nb-plugin-sdk/browser": () => import("../../src/sdk/browser"),
+        "@notnotype/nb-plugin-sdk/components": async () => ({}),
     };
+    return Object.fromEntries(await Promise.all(Object.entries(modules).map(async ([id, load]) => [id, await load()]))) as Record<BrowserSharedModule, unknown>;
 }
 
 /**
@@ -46,7 +51,11 @@ export async function registeredFactory(code: string): Promise<ModuleFactory> {
     return factory as ModuleFactory;
 }
 
-/** 用宿主模块表执行一次工厂：返回模块的导出与经 require 取过的模块（按取的先后，可重复）；取表外的模块抛错。 */
+/**
+ * 用宿主模块表执行一次工厂：返回模块的导出与经 require 取过的模块（按取的先后，可重复）；取表外的模块抛错。只看得到工厂
+ * 执行期间的 require：构建产物把外部模块的 require 提到模块顶层，`activate` 里懒取的模块要调了 `activate` 才记得到。
+ * 引用了不共享的模块，构建预设自己的纯度检查先拦下（plugin-code-loading 输出 5）。
+ */
 export async function runFactory(factory: ModuleFactory): Promise<{readonly exports: Record<string, unknown>; readonly required: ReadonlyArray<string>}> {
     const table = await browserHostModules();
     const required: string[] = [];
@@ -54,7 +63,7 @@ export async function runFactory(factory: ModuleFactory): Promise<{readonly expo
     factory(module, module.exports, (id) => {
         required.push(id);
         if (!Object.hasOwn(table, id)) throw new Error(`表外模块 ${id}`);
-        return table[id];
+        return (table as Readonly<Record<string, unknown>>)[id];
     });
     return {exports: module.exports, required};
 }

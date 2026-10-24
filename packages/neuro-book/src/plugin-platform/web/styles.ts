@@ -14,6 +14,8 @@ export interface PluginStyleOptions {
     /** `<link>` 上标记插件 id 的 dataset 名（平台档案的 `styleDataset`）。 */
     readonly dataset: string;
     readonly record: (input: DiagnosticInput) => void;
+    /** 样式表加载失败时那条诊断的事件名：宿主沿用自己的事件前缀。 */
+    readonly failedEvent: string;
 }
 
 /** 给每个带样式的插件加一个 `<link>`；没有页面文档时什么也不做。返回加上的链接，窗口结束时移除。 */
@@ -26,7 +28,7 @@ export function attachPluginStyles(plugins: ReadonlyArray<{readonly id: string; 
         link.rel = "stylesheet";
         link.href = pluginFileUrl(plugin.files, plugin.manifest.style);
         link.dataset[options.dataset] = plugin.id;
-        link.addEventListener("error", () => options.record({level: "warn", event: "browser-host.plugin.style-failed", message: `第三方插件 ${plugin.id} 的样式表加载失败`, data: {plugin: plugin.id, url: link.href}}));
+        link.addEventListener("error", () => options.record({level: "warn", event: options.failedEvent, message: `第三方插件 ${plugin.id} 的样式表加载失败`, data: {plugin: plugin.id, url: link.href}}));
         document.head.append(link);
         links.push(link);
     }

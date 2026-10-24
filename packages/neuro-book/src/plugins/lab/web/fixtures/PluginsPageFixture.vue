@@ -33,7 +33,7 @@ const THIRD_PARTY: Readonly<Record<string, PluginListItem[]>> = {
         third("example.quiet", "2.1.0", {state: "disabled", pending: [{kind: "disable"}]}),
     ],
     "not-loaded": [
-        third("example.broken", "1.0.0", {notLoaded: {code: "manifest-invalid", detail: "入口文件不存在：dist/browser.js"}}),
+        third("example.broken", "1.0.0", {notLoaded: {code: "entry-missing", detail: "入口文件不存在：dist/browser.js"}}),
         third("example.future", "3.0.0", {notLoaded: {code: "incompatible-engine", detail: "要求 NeuroBook >=2.0.0，当前是 0.1.0"}}),
     ],
     "safe-mode": [third("example.hello", "1.0.0", {notLoaded: {code: "safe-mode", detail: ""}})],

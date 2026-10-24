@@ -5,6 +5,9 @@
 
 import {Button} from "@notnotype/nb-ui/components";
 import {computed} from "@vue/reactivity";
+import {Type} from "typebox";
+import {Compile} from "typebox/compile";
+import {Value} from "typebox/value";
 import {describe, expect, it} from "vitest";
 import {defineComponent, ref} from "vue";
 
@@ -21,6 +24,9 @@ describe("浏览器的宿主模块表", () => {
         expect(table["vue"]!.ref).toBe(ref);
         expect(table["vue"]!.defineComponent).toBe(defineComponent);
         expect(table["@vue/reactivity"]!.computed).toBe(computed);
+        expect(table["typebox"]!.Type).toBe(Type);
+        expect(table["typebox/value"]!.Value).toBe(Value);
+        expect(table["typebox/compile"]!.Compile).toBe(Compile);
         // 组件经 SDK 的子路径给出，仍是宿主用的那一份 nb-ui。
         expect(table["@notnotype/nb-plugin-sdk/components"]!.Button).toBe(Button);
         expect(table["@notnotype/nb-plugin-sdk"]!.defineEntry).toBe(defineEntry);

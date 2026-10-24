@@ -6,6 +6,9 @@
 import {describe, expect, it} from "bun:test";
 import {readFileSync} from "node:fs";
 import {join} from "node:path";
+import {fileURLToPath} from "node:url";
+
+import ts from "typescript";
 
 import {SDK_ENTRIES} from "./entries";
 
@@ -60,14 +63,28 @@ describe("SDK 的导出面", () => {
         ]);
     });
 
-    it("组件子路径逐个列名：nb-ui 入口里给工作台用的内部件不对外（Bun 加载不了单文件组件，按源码核对名单）", () => {
-        const source = readFileSync(join(import.meta.dir, "components.ts"), "utf8");
-        expect(source).not.toMatch(/export \*/u);
-        const names = [...source.matchAll(/export (?:type )?\{([^}]+)\}/gu)].flatMap((match) => match[1]!.split(",").map((name) => name.trim()).filter((name) => name !== ""));
-        expect(names).toContain("Button");
-        expect(names.filter((name) => /^(?:createGrid|Grid|NB_FIELD|useFieldContext|suggestionMenuOptions|Splitter(?:Gesture))/u.test(name))).toEqual([]);
+    it("组件子路径逐个列名，与 nb-ui 组件入口里的单文件组件逐个对上：nb-ui 新增组件漏列、或列了入口里没有的，这里失败", () => {
+        const sdk = readFileSync(join(import.meta.dir, "components.ts"), "utf8");
+        expect(sdk).not.toMatch(/export \*/u);
+        const nbUi = fileURLToPath(import.meta.resolve("@notnotype/nb-ui/components"));
+        const listed = exportedValues(sdk).map((item) => item.name).sort();
+        const components = exportedValues(readFileSync(nbUi, "utf8")).filter((item) => item.from.endsWith(".vue")).map((item) => item.name).filter((name) => !Object.hasOwn(NOT_FOR_PLUGINS, name)).sort();
+        expect(listed).toEqual(components);
     });
 });
+
+/** nb-ui 组件入口里不给插件用的单文件组件，与理由。现在没有。 */
+const NOT_FOR_PLUGINS: Readonly<Record<string, string>> = {};
+
+/** 模块里非 `type` 的具名再导出：导出名与来源。读语法树，不执行（单文件组件 Bun 加载不了）。 */
+function exportedValues(text: string): Array<{readonly name: string; readonly from: string}> {
+    const source = ts.createSourceFile("module.ts", text, ts.ScriptTarget.Latest);
+    return source.statements.flatMap((statement) => {
+        if (!ts.isExportDeclaration(statement) || statement.isTypeOnly || statement.exportClause === undefined || !ts.isNamedExports(statement.exportClause)) return [];
+        const from = statement.moduleSpecifier !== undefined && ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : "";
+        return statement.exportClause.elements.filter((element) => !element.isTypeOnly).map((element) => ({name: element.name.text, from}));
+    });
+}
 
 describe("SDK 的子路径表", () => {
     it("两份 tsconfig 的 SDK 别名与子路径表一致：新增子路径漏改一处时这里失败", () => {

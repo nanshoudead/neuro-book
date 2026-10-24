@@ -141,7 +141,13 @@ async function submitPath(wrapper: Awaited<ReturnType<typeof open>>, value: stri
 
 describe("PluginsPage", () => {
     it("第三方插件在前、内置插件标“内置”且没有操作；待生效变化与没有登记的原因显示在行上", async () => {
-        const fake = registry([BUILTIN, {...HELLO, pending: [{kind: "upgrade", version: "2.0.0"}]}, {...HELLO, id: "example.old", notLoaded: {code: "incompatible-engine", detail: "要求 NeuroBook >=2.0.0，当前是 0.1.0"}}]);
+        const fake = registry([
+            BUILTIN,
+            {...HELLO, pending: [{kind: "upgrade", version: "2.0.0"}]},
+            {...HELLO, id: "example.old", notLoaded: {code: "incompatible-engine", detail: "要求 NeuroBook >=2.0.0，当前是 0.1.0"}},
+            {...HELLO, id: "example.gutted", notLoaded: {code: "entry-missing", detail: "入口文件不存在：dist/browser.js"}},
+            {...HELLO, id: "example.locked", notLoaded: {code: "unreadable", detail: "EACCES"}},
+        ]);
         await open(fake.client);
         const groups = [...document.querySelectorAll("[data-plugin-group]")].map((group) => group.getAttribute("data-plugin-group"));
         expect(groups).toEqual(["third-party", "builtin"]);
@@ -151,6 +157,10 @@ describe("PluginsPage", () => {
         expect(row("example.hello").querySelector("[data-plugin-pending=upgrade]")?.textContent).toContain("重启后升级到 2.0.0");
         expect(row("example.old").querySelector("[data-plugin-not-loaded=incompatible-engine]")?.textContent).toContain("不兼容");
         expect(row("example.old").textContent).toContain("要求 NeuroBook >=2.0.0");
+        expect(row("example.gutted").querySelector("[data-plugin-not-loaded=entry-missing]")?.textContent).toContain("入口文件缺失");
+        expect(row("example.gutted").textContent).toContain("入口文件不存在：dist/browser.js");
+        expect(row("example.locked").querySelector("[data-plugin-not-loaded=unreadable]")?.textContent).toContain("安装目录读不了");
+        expect(row("example.locked").textContent).toContain("EACCES");
         expect(row("example.hello").querySelector("[data-plugin-uninstall]")?.getAttribute("aria-label")).toBe("卸载 example.hello");
         expect(document.querySelector("[data-plugins-restart]")?.textContent).toContain("重启 NeuroBook 后生效");
     });

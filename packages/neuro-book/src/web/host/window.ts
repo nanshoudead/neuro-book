@@ -21,6 +21,13 @@ import {Value} from "typebox/value";
 
 import {definitionAt} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
+import {manifestFormat, NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
+import {thirdPartyDefinitionsFor} from "nbook/plugin-platform/shared/definitions";
+import {pluginFileUrl} from "nbook/plugin-platform/shared/plugin-files";
+import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
+import {createPluginCodeHost, pageDocument} from "nbook/plugin-platform/web/plugin-code";
+import type {PluginCodeHost, PluginDocument, PluginLink} from "nbook/plugin-platform/web/plugin-code";
+import {attachPluginStyles} from "nbook/plugin-platform/web/styles";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {workbenchRootKey} from "nbook/plugins/workbench/web/contracts";
 import type {WorkbenchRoot} from "nbook/plugins/workbench/web/contracts";
@@ -28,21 +35,14 @@ import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersio
 import {clockKey, windowConnectionKey, windowNavigationKey, windowPluginsKey, windowRescueKey} from "nbook/shared/host";
 import type {RescuedText, WindowRescue} from "nbook/shared/host";
 import type {WindowConnection, WindowConnectionState, WindowNavigation} from "nbook/shared/host";
-import {pluginFileUrl} from "nbook/plugin-platform/shared/plugin-files";
 import {windowProjectKey} from "nbook/shared/projects";
 import type {WindowProject} from "nbook/shared/projects";
-import {manifestFormat, NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
-import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 
 import {browserHostPlugins, browserPluginDefinitions, builtinBrowserPlugins, isBrowserHostPlugin} from "../plugins";
 import type {BrowserHostPluginFactory, BrowserHostPluginId, BrowserPluginContext} from "../plugins";
 import {BrowserRuntimeHost} from "./browser-host";
 import type {BrowserHost, PageLifecycleTarget} from "./browser-host";
 import type {Connection, RpcEndpoint} from "./connection";
-import {thirdPartyDefinitionsFor} from "nbook/plugin-platform/shared/definitions";
-import {createPluginCodeHost, pageDocument} from "nbook/plugin-platform/web/plugin-code";
-import type {PluginCodeHost, PluginDocument, PluginLink} from "nbook/plugin-platform/web/plugin-code";
-import {attachPluginStyles} from "nbook/plugin-platform/web/styles";
 import {createRemoteSession} from "./remote-session";
 import {createWindowPlugins} from "./window-plugins";
 import type {RemoteSession} from "./remote-session";
@@ -239,12 +239,13 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                 load: (entry, activation) => loadCode().activateOf({plugin: plugin.id, entry: entry.id, url: pluginFileUrl(plugin.files, entry.main), signal: activation.signal}),
             })), {builtin: builtinDefinitions, record: (input) => void store.record(input), unregistrableEvent: "browser-host.plugin.unregistrable"}).map((definition) => [definition.id, definition]));
             const plugins = selected.flatMap((plugin) => {
+                // 引导集合里的第三方插件都在浏览器有入口或顶层声明（服务端按 `pluginsAt("browser")` 选），这里总能取到。
                 if (plugin.kind === "third-party") return thirdParty.get(plugin.id) ?? [];
                 const definition = plugin.kind === "host" ? plugin.factory(context) : plugin.definition;
                 if (definition.id !== plugin.id) throw new Error(`浏览器插件 ${plugin.id} 的装配定义是插件 ${definition.id}`);
                 return [definition];
             });
-            styles = attachPluginStyles(thirdPartyPlugins, options.document ?? pageDocument(), {dataset: NEUROBOOK_PROFILE.styleDataset, record: (input) => void store.record(input)});
+            styles = attachPluginStyles(thirdPartyPlugins, options.document ?? pageDocument(), {dataset: NEUROBOOK_PROFILE.styleDataset, record: (input) => void store.record(input), failedEvent: "browser-host.plugin.style-failed"});
             host = adapter.start({
                 instanceId,
                 client: clientIdentity,
@@ -334,7 +335,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
 
 /**
  * 按引导响应选出要登记的插件。协议版本先于结构校验：新版本的服务端可能改了结构，此时应提示刷新而不是报格式错误。
- * 服务端启用了本外壳没有的内置插件（`nbook.` 开头），或构建里有的插件版本不同，说明外壳与服务端不是同一次构建，刷新即可
+ * 服务端启用了本外壳没有的内置插件（发布者是保留的发布者），或构建里有的插件版本不同，说明外壳与服务端不是同一次构建，刷新即可
  * 对齐。构建里没有的其它插件是第三方插件，按引导带来的描述登记（docs/specs/runtime/browser-host.md 输出 2、4）。
  */
 type SelectedPlugin =
@@ -359,7 +360,7 @@ function selectPlugins(
         if (selected.some((item) => item.id === plugin.id)) throw new BootstrapRejected("startup-failed", `引导集合中插件重复：${plugin.id}`);
         const local = builtin.find((item) => item.id === plugin.id);
         if (local === undefined) {
-            // 内置插件的 id 以 `nbook.` 开头：本页面没有它，说明外壳与服务端不是同一次构建，刷新即可对齐。
+            // 内置插件（发布者是保留的发布者）本页面没有：外壳与服务端不是同一次构建，刷新即可对齐。
             if (manifestFormat.isBuiltinId(plugin.id)) throw new BootstrapRejected("incompatible", `本页面没有服务端启用的浏览器插件 ${plugin.id}@${plugin.version}`);
             // 第三方插件不在构建里：按引导带来的清单登记（入口的代码在激活时经插件文件端点取回）。清单服务端已校验过，这里用
             // 同一个清单格式再读一遍，读不过说明外壳与服务端不是同一次构建。

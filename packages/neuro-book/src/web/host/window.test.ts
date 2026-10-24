@@ -359,6 +359,8 @@ describe("窗口运行实例", () => {
         await waitUntil("样式表失败的诊断", () => warnings.find((record) => (record as {event?: string}).event === "browser-host.plugin.style-failed"));
         expect(warnings).toContainEqual(expect.objectContaining({event: "browser-host.plugin.style-failed", data: {plugin: "example.styled", url: `${files}style.css`}}));
 
+        // 窗口登记插件只加样式表；入口的代码在激活时才装载，这个插件没有入口。
+        expect(page.scripts()).toEqual([]);
         await browserWindow.stop();
         expect(attached()).toEqual([]);
         stub.stop();

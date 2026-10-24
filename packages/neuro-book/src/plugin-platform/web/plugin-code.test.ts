@@ -67,6 +67,8 @@ describe("浏览器入口代码的装载", () => {
         expect(second).not.toBe(first);
         expect(run(second)).toEqual({count: 1, vue: hostTable.vue});
         expect(page.scriptsFor("counter.js")).toHaveLength(1);
+        // 装载器只插脚本；样式表由窗口在登记插件时加（styles.ts）。
+        expect(page.styles()).toEqual([]);
     });
 
     it("同一文件的并发激活只插入一个脚本，两次激活都成功、各得一份模块实例", async () => {

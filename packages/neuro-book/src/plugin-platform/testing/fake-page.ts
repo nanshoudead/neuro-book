@@ -143,6 +143,8 @@ export function fakePage(registryGlobal: string) {
         register(path: string, factory: ModuleFactory): void {
             registry(registryGlobal).register(new URL(path, baseURI).href, factory);
         },
+        /** 插入过的全部脚本元素，按插入先后。 */
+        scripts: (): ReadonlyArray<FakeScript> => [...scripts],
         /** 插入过的、指向这个文件的脚本元素，按插入先后。 */
         scriptsFor: (path: string): ReadonlyArray<FakeScript> => scripts.filter((script) => script.src === new URL(path, baseURI).href),
         /** 页面上还挂着的全局 error 监听数。 */
