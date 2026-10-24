@@ -51,7 +51,9 @@ updated: 2026-10-24
 
 - 2026-10-24 切片 1 到 4 已提交（分支 `feat/w00024-t16-qa-composer-models`）：dfb331aa1 nb-harness 模型目录；112518bf6 配置第 2 版；6bbf19335 作答方式、出处复查、每轮选模型、Profile v4；097622402 选模型的接口与 `discoverModels`。对应 Spec 提交在 master（34831d835、4c12e8c38、7a55bb946、37f6ba4b8）。实施中定的几处：语义校验的目录查表由调用方传入（单独导入 pi-catalog 也会接管 Ctrl-C，`nbstory ingest` 不能加载它），所以抽取的回落收窄到自定义服务商；`qa.start` 给 `thinking` 时必须同时给 `model`；换接口的测试放在引擎测试里（要 Responses 端点）。nb-story 单测 439 条全过。
 
+- 2026-10-24 切片 5 已提交（9aa9c3884）：nb-agent-ui 的单行版式、上下文大小（圆环加百分比：只有圆环时像加载中的转圈）、带触发字符的前置按钮（nb-markdown 的 PromptEditor 加 `openTrigger`）、`canManageModels` 与 `model.manage`、模型下拉的分组与不可用原因、模型目录 `AgentModelCatalog`；Lab 场景与 e2e（lab-agent-ui、lab-scenes 26 条）通过。Spec 在 master 774a867a1。截图核对时修了两处：控件对齐正文最后一行的中线（垫 6px）；Lab 里目录对话框按“紧凑”画布摆会被压扁，登记成撑满画布。
+
 ## 下一步
 
-1. 切片 5（nb-agent-ui）与切片 6（nb-story 网页），每片单独提交。
+1. 切片 6（nb-story 网页：问答页接线、设置页与服务商表单、出处复查的过程行、e2e），提交。
 2. 收口：nb-story 全量 e2e，派实现审查（前端 Sonnet、后端 omp），合入 master。
