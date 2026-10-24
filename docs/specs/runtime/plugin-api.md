@@ -43,7 +43,7 @@ owners:
 | 接口的性质 | 用什么 | 说明 |
 |---|---|---|
 | 只传数据，调用方可能在别的运行实例 | 远程服务合同（[远程服务与 RPC 协议](plugin-channel.md)） | 所有调用方都直接 `ctx.remote.use(合同)`，同一实例里的调用方也一样（走本地路径，不序列化，身份与代次照样核对）；不写只原样转发的本地服务包装。本地与远程共用一个提供者登记，只在本实例用、含不可序列化内容的接口才另登记为本地服务（[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 4 节，[ADR 0024](../../adr/0024-multi-instance-runtime-topology.md) 第 4 条）。合同因此是插件对外的公开接口，改动按合同版本处理 |
-| 只在同一实例里用、只传数据 | 本地服务（`provide`、`providePerConsumer`），按下节的数据面约束写 | 以后把插件移出宿主进程时只换传输（[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条）；需要同步或传引用时写成内部服务 |
+| 只在同一实例里用、只传数据 | 本地服务（`provideService`、`provideServicePerConsumer`），按下节的数据面约束写 | 以后把插件移出宿主进程时只换传输（[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条）；需要同步或传引用时写成内部服务 |
 | 要同步调用，或要传响应式值、对象引用 | 内部服务，或下节的宿主适配对象 | 例如命令面板求 `when` 时同步读公开状态；任何插件都可以依赖内部服务（[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)），代价见“边界与兼容” |
 | 许多插件各交“声明 + 实现”，由一个拥有者统一管理 | 贡献点 | 命令、页面、公开状态键；贡献方与拥有者之间没有依赖 |
 | 在远程服务之上加东西 | 本地服务包装远程服务 | 同步的响应式视图、缓存、按分区选路、代调用方身份访问（例如 `nbook.storage`）；包装处写明加了什么 |
@@ -88,6 +88,7 @@ owners:
 |---|---|---|
 | `ctx.plugin` | 两端 | 插件 id、当前版本、上一次成功激活的版本（首次为空，用于数据迁移） |
 | `ctx.signal` | 两端 | 入口停止时触发 |
+| `ctx.onStop(release)` | 两端 | 登记一件这一代入口停止时做的事（释放计时器、句柄），激活失败时同样执行，与别的资源并行释放；这一代已收口后调用抛错。作者不必接触作用域（`ctx.scope`）与资源规格 |
 | `ctx.services.require(键)` | 两端 | 取得 `dependencies` 中声明的必需依赖，返回服务本身；键是提供方 `shared/contracts.ts` 里定义的服务键对象（[ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)）。未声明或只声明为可选的键抛错：这是写错了入口定义，不是运行期的失败 |
 | `ctx.services.resolve(键)` | 两端 | 解析声明过的依赖（含可选依赖），返回结构化结果，用法见上文“可选功能” |
 | `ctx.remote` | 各位置 | `use(合同).at(目标)` 调用与订阅任意实例的远程服务；`lookup(合同, 目标?)` 不激活提供方地查询目标实例是否提供这份合同；本入口的远程提供项经激活产出的 `remote` 交出（[远程服务与 RPC 协议](plugin-channel.md)） |
