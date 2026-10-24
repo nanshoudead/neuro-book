@@ -17,10 +17,9 @@ import {existsSync} from "node:fs";
 import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {basename, dirname, join, relative, resolve} from "node:path";
 
-import {BUILTIN_PUBLISHER, isIdSegment} from "@notnotype/nb-runtime/plugin-manifest";
+import {ID_SEGMENT_RULE, isIdSegment} from "@notnotype/nb-runtime/plugin-manifest";
 
-/** 清单的 id 段规则（docs/specs/runtime/plugin-manifest.md 的 `publisher`、`name`），写进报错。 */
-const ID_SEGMENT_RULE = "以小写字母开头，只含小写字母、数字与连字符";
+import {manifestFormat} from "../../src/plugin-platform-profile";
 
 const SDK_PACKAGE = "@notnotype/nb-plugin-sdk";
 
@@ -73,7 +72,7 @@ export async function createPlugin(options: CreatePluginOptions): Promise<Create
     for (const [field, value] of [["publisher", publisher], ["name", name]] as const) {
         if (!isIdSegment(value)) throw new PluginCreateError(`${field} 不合规：${value}（${ID_SEGMENT_RULE}；插件 id 是 publisher.name，视图与命令的 id 以它开头）；用 --${field} 指定`);
     }
-    if (publisher === BUILTIN_PUBLISHER) throw new PluginCreateError(`publisher 不能是 ${BUILTIN_PUBLISHER}：它留给内置插件；用 --publisher 指定别的`);
+    if (manifestFormat.isReservedPublisher(publisher)) throw new PluginCreateError(`publisher 不能是 ${publisher}：它留给内置插件；用 --publisher 指定别的`);
     const id = `${publisher}.${name}`;
     const replacements: Readonly<Record<string, string>> = {
         __ID__: id,

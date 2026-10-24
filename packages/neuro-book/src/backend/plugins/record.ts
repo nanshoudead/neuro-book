@@ -17,8 +17,11 @@ import {Type} from "typebox";
 import type {Static} from "typebox";
 import {Value} from "typebox/value";
 
+import {isPluginId} from "@notnotype/nb-runtime/plugin-manifest";
+
 import {errno, holdLock} from "nbook/backend/locked-replace";
 import type {HeldLock} from "nbook/backend/locked-replace";
+import {manifestFormat} from "nbook/plugin-platform-profile";
 import {npmVersions} from "nbook/shared/versions";
 
 export const RECORD_FILE = "plugins.json";
@@ -47,15 +50,12 @@ export const EMPTY_RECORD: PluginRecord = {schema: RECORD_SCHEMA, plugins: {}};
 
 export type RecordRead = {readonly ok: true; readonly record: PluginRecord} | {readonly ok: false; readonly detail: string};
 
-/** 第三方插件 id：两段小写 id，不以 `nbook.` 开头（plugin-manifest 的输入表）。 */
-const THIRD_PARTY_ID = /^[a-z0-9][a-z0-9-]*\.[a-z0-9][a-z0-9-]*$/u;
-
 /**
  * 登记表里每一项的 id 与版本都要能当安装目录的一段路径用：启动时要按它们删除与回收目录，坏掉或被手改的登记表
  * 不能让删除越出 `<State Root>/plugins/`。有一项不合格就整表不可用。
  */
 function entryProblem(id: string, entry: RecordEntry): string | null {
-    if (!THIRD_PARTY_ID.test(id) || id.startsWith("nbook.")) return `插件 id 不合格：${id}`;
+    if (!isPluginId(id) || manifestFormat.isBuiltinId(id)) return `插件 id 不合格：${id}`;
     if (!npmVersions.isVersion(entry.version)) return `${id} 的版本不合格：${entry.version}`;
     if (entry.pendingVersion !== null && !npmVersions.isVersion(entry.pendingVersion)) return `${id} 的待切换版本不合格：${entry.pendingVersion}`;
     return null;

@@ -11,11 +11,10 @@ import {mkdir, readdir, readFile, rm, symlink, writeFile} from "node:fs/promises
 import {dirname, join} from "node:path";
 import {fileURLToPath, pathToFileURL} from "node:url";
 
-import {readPluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
 import {createTestTmpRoot, resolveTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {PLUGIN_REGISTRY_GLOBAL} from "../../src/shared/plugin-modules";
-import {npmVersions} from "../../src/shared/versions";
+import {manifestFormat} from "../../src/plugin-platform-profile";
 import {createPluginCodeHost} from "../../src/web/host/plugin-code";
 import type {PluginDocument, PluginScript} from "../../src/web/host/plugin-code";
 import {buildExample, EXAMPLES_ROOT, IN_REPO_BUILD} from "./build-examples";
@@ -169,7 +168,7 @@ describe("构建示例 snippets", () => {
         const result = await buildExample("snippets", out);
         expect(result.files).toEqual(["browser.js", "browser.js.map", "package.json", "style.css"]);
         const manifest = JSON.parse(await readFile(join(out, "package.json"), "utf8")) as Record<string, unknown>;
-        const read = readPluginManifest(manifest, {versions: npmVersions});
+        const read = manifestFormat.read(manifest);
         if (read.status !== "valid") throw new Error(JSON.stringify(read.problems));
         expect(read.manifest.id).toBe("example.snippets");
         expect(read.manifest.style).toBe("style.css");

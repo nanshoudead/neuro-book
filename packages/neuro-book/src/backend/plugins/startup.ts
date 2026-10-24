@@ -17,7 +17,7 @@ import {lstat, readdir, readFile, rm, rmdir, stat, unlink} from "node:fs/promise
 import {join, relative} from "node:path";
 
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
-import {descriptorOf, readPluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
+import {descriptorOf} from "@notnotype/nb-runtime/plugin-manifest";
 import type {PluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
 import type {PluginDescriptor} from "@notnotype/nb-runtime/plugins";
 import {check} from "proper-lockfile";
@@ -25,7 +25,8 @@ import {check} from "proper-lockfile";
 import {errno, LOCK_STALE_MS} from "nbook/backend/locked-replace";
 import type {HeldLock} from "nbook/backend/locked-replace";
 import type {NotLoaded} from "nbook/plugins/plugins/shared/contracts";
-import {engineAccepts, npmVersions} from "nbook/shared/versions";
+import {manifestFormat} from "nbook/plugin-platform-profile";
+import {engineAccepts} from "nbook/shared/versions";
 
 import type {InstalledPlugin} from "./installed";
 import {livePins, pinKey, pinVersions} from "./pins";
@@ -311,8 +312,8 @@ async function startupPlugin(options: PrepareOptions, id: string, entry: RecordE
     if (manifest.id !== id || manifest.version !== entry.version) {
         return {...base, descriptor: null, notLoaded: {code: "manifest-invalid", detail: `清单声明的是 ${manifest.id}@${manifest.version}`}};
     }
-    if (!engineAccepts(options.productVersion, manifest.engines.neurobook)) {
-        return {...base, descriptor: null, notLoaded: {code: "incompatible-engine", detail: `要求 NeuroBook ${manifest.engines.neurobook}，当前是 ${options.productVersion}`}};
+    if (!engineAccepts(options.productVersion, manifest.engine)) {
+        return {...base, descriptor: null, notLoaded: {code: "incompatible-engine", detail: `要求 NeuroBook ${manifest.engine}，当前是 ${options.productVersion}`}};
     }
     const missing = await missingEntries(join(options.root, id, entry.version), manifest);
     if (missing.length > 0) return {...base, descriptor: null, notLoaded: {code: "manifest-invalid", detail: `入口文件不存在：${missing.join("、")}`}};
@@ -374,7 +375,7 @@ export async function installedManifest(directory: string): Promise<ManifestFile
     } catch {
         return {ok: false, code: "manifest-invalid", detail: "package.json 不是合法 JSON"};
     }
-    const read = readPluginManifest(raw, {versions: npmVersions});
+    const read = manifestFormat.read(raw);
     if (read.status !== "valid") {
         const problems = read.problems.map((problem) => `${problem.path === "" ? "（根）" : problem.path}：${problem.message}`);
         // 启动时的“没有登记”原因只有这一句（不带问题列表），写出第一处问题。

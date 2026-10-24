@@ -22,6 +22,7 @@ import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import {errno, holdLock} from "nbook/backend/locked-replace";
 import type {BlockedPlugin, InstallPreview, PendingChange, PluginFailureCode, PluginList, PluginListItem} from "nbook/plugins/plugins/shared/contracts";
+import {manifestFormat} from "nbook/plugin-platform-profile";
 import {compareVersions, engineAccepts, pluginVersionSatisfies} from "nbook/shared/versions";
 
 import {collectCopyRange, copyRange} from "./copy";
@@ -116,7 +117,7 @@ function conflict(entry: RecordEntry | undefined, id: string, version: string): 
 export function createPluginInventory(options: PluginInventoryOptions): PluginInventory {
     const root = resolve(options.root);
     const startupOf = new Map(options.startup.plugins.map((plugin) => [plugin.id, plugin]));
-    const isBuiltin = (id: string): boolean => id.startsWith("nbook.") || options.builtin.some((plugin) => plugin.id === id);
+    const isBuiltin = (id: string): boolean => manifestFormat.isBuiltinId(id) || options.builtin.some((plugin) => plugin.id === id);
     const reportLock = (event: string, error: unknown): void => {
         options.record({level: "warn", event: `plugins.${event}`, message: "插件登记表的写入锁出错", error});
     };
@@ -199,12 +200,13 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
         const read = await installedManifest(source);
         if (!read.ok) {
             // 保留的出版者单独给出原因，先于清单的其余问题。
-            if (publisherOf(read.raw) === "nbook") return failure("reserved-id", "第三方插件的 id 不能以 nbook. 开头");
+            const publisher = publisherOf(read.raw);
+            if (typeof publisher === "string" && manifestFormat.isReservedPublisher(publisher)) return failure("reserved-id", `第三方插件的 id 不能以 ${publisher}. 开头`);
             return failure(read.code, read.detail, read.problems);
         }
         const {manifest, raw} = read;
-        if (!engineAccepts(options.productVersion, manifest.engines.neurobook)) {
-            return failure("incompatible-engine", `插件要求 NeuroBook ${manifest.engines.neurobook}，当前是 ${options.productVersion}`);
+        if (!engineAccepts(options.productVersion, manifest.engine)) {
+            return failure("incompatible-engine", `插件要求 NeuroBook ${manifest.engine}，当前是 ${options.productVersion}`);
         }
         const files = filesOf(raw);
         if (files === undefined) return failure("manifest-invalid", "package.json 的 files 必须是字符串数组", ["files：必须是字符串数组"]);

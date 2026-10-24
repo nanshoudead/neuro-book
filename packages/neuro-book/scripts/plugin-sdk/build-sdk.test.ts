@@ -11,10 +11,9 @@ import {cp, mkdir, readdir, readFile, rm, symlink, writeFile} from "node:fs/prom
 import {dirname, join, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
-import {readPluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {npmVersions} from "../../src/shared/versions";
+import {manifestFormat} from "../../src/plugin-platform-profile";
 
 import {buildSdk} from "./build-sdk";
 
@@ -239,7 +238,7 @@ describe("生成的 SDK 包", () => {
         const out = join(tmp, "hello-dist");
         const result = await buildPlugin({root: project, outDir: out});
         expect(result.files).toEqual(["browser.js", "browser.js.map", "package.json", "server.js", "server.js.map", "style.css"]);
-        const manifest = readPluginManifest(JSON.parse(await readFile(join(out, "package.json"), "utf8")), {versions: npmVersions});
+        const manifest = manifestFormat.read(JSON.parse(await readFile(join(out, "package.json"), "utf8")));
         if (manifest.status !== "valid") throw new Error(JSON.stringify(manifest.problems));
         expect(manifest.manifest.entries.map((entry) => entry.id)).toEqual(["server", "browser"]);
         expect(manifest.manifest.contributes.map((item) => item.id)).toEqual(["acme.hello/greeting", "acme.hello.list"]);

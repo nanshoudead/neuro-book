@@ -6,7 +6,6 @@ import {describe, expect, it} from "bun:test";
 
 import {createApplication} from "@notnotype/nb-runtime/application";
 import type {HostContext} from "@notnotype/nb-runtime/application";
-import {manifestOf, readPluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
 import type {PluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
 import type {ActivationOutput, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {defineRemoteService, provideRemote} from "@notnotype/nb-runtime/remote";
@@ -14,7 +13,8 @@ import type {RemoteContract} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import {Type} from "typebox";
 
-import {npmVersions, pluginVersionSatisfies} from "nbook/shared/versions";
+import {manifestFormat} from "nbook/plugin-platform-profile";
+import {pluginVersionSatisfies} from "nbook/shared/versions";
 
 import {definitionAt, pluginsAt, thirdPartyDefinitionAt} from "./manifest";
 import type {PluginDescriptor} from "./manifest";
@@ -64,13 +64,13 @@ describe("thirdPartyDefinitionAt：插件代码产出的合同换成清单登记
 
     /** 插件构建时的代码定义写成清单、经 JSON 交给宿主：宿主手里的合同是 `definitionOf` 从清单还原的另一份对象。 */
     function installed(): PluginManifest {
-        const built = manifestOf({
+        const built = manifestFormat.build({
             descriptor: {id: "x.notes", version: "1.0.0", locations: ["server"]},
             definitions: [{id: "x.notes", entries: [{id: "server", location: "server", provides: [cacheKey], remoteProvides: [contract(["browser"]), other], activate: () => ({})}]}],
-            engines: {neurobook: "^0.1.0"},
-        }, {});
+            engine: "^0.1.0",
+        });
         if (built.status !== "valid") throw new Error(JSON.stringify(built.problems));
-        const read = readPluginManifest(JSON.parse(JSON.stringify(built.json)), {versions: npmVersions});
+        const read = manifestFormat.read(JSON.parse(JSON.stringify(built.json)));
         if (read.status !== "valid") throw new Error(JSON.stringify(read.problems));
         return read.manifest;
     }

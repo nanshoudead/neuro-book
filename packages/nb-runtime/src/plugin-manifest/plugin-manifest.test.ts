@@ -15,21 +15,28 @@ import {Type} from "typebox";
 import type {PluginDefinition} from "../plugins/plugins";
 import {portabilityProblems} from "../plugins/plugins";
 import {defineRemoteService} from "../remote/remote";
-import {definitionOf, descriptorOf, manifestOf as build, readPluginManifest as read} from "./plugin-manifest";
-import type {ReadManifestOptions} from "./plugin-manifest";
+import {createManifestFormat, definitionOf, descriptorOf} from "./plugin-manifest";
+import type {ManifestSource, VersionSyntax} from "./plugin-manifest";
 
 /** 调用方注入的写法校验，这里用 npm 的 semver（测试依赖，内核运行时不依赖它）；应用侧另外只接受规范写法。 */
-const versions: ReadManifestOptions["versions"] = {isVersion: (value) => semver.valid(value) !== null, isRange: (value) => semver.validRange(value) !== null};
+const versions: VersionSyntax = {isVersion: (value) => semver.valid(value) !== null, isRange: (value) => semver.validRange(value) !== null};
+
+/** 测试用的平台：引擎键与保留发布者都叫 acme，内核里没有任何应用的名字。 */
+const format = createManifestFormat({engine: "acme", reservedPublishers: ["acme"]}, versions);
 
 function readPluginManifest(value: unknown, options: {readonly builtin?: boolean} = {}) {
-    return read(value, {...options, versions});
+    return format.read(value, options);
+}
+
+function build(source: ManifestSource, options: {readonly builtin?: boolean} = {}) {
+    return format.build(source, options);
 }
 
 const base = {
     name: "notes",
     publisher: "example",
     version: "1.0.0",
-    engines: {neurobook: ">=0.1.0"},
+    engines: {acme: ">=0.1.0"},
 };
 
 const indexContractJson = {
@@ -53,7 +60,7 @@ function manifestOf(value: unknown): Extract<ReturnType<typeof readPluginManifes
     return result.manifest;
 }
 
-describe("readPluginManifest", () => {
+describe("读清单", () => {
     it("只有顶层声明的清单：位置为空、贡献保留", () => {
         const manifest = manifestOf({
             ...base,
@@ -77,8 +84,8 @@ describe("readPluginManifest", () => {
                 ui: {
                     location: "browser",
                     main: "dist/browser.js",
-                    requires: ["nbook.settings/settings"],
-                    optional: ["nbook.editor/document"],
+                    requires: ["acme.settings/settings"],
+                    optional: ["acme.editor/document"],
                     provides: ["example.notes/view"],
                     receives: ["example.notes.items"],
                     activationEvents: ["onStartup", "onNotes:open"],
@@ -97,8 +104,8 @@ describe("readPluginManifest", () => {
         expect(entry.location).toBe("browser");
         expect(entry.activationEvents).toEqual(["onStartup", "onNotes:open"]);
         expect(entry.dependencies?.map((dependency) => [dependency.key.name, dependency.required ?? true])).toEqual([
-            ["nbook.settings/settings", true],
-            ["nbook.editor/document", false],
+            ["acme.settings/settings", true],
+            ["acme.editor/document", false],
         ]);
         expect(entry.provides?.map((key) => key.name)).toEqual(["example.notes/view"]);
         expect(entry.receives).toEqual(["example.notes.items"]);
@@ -110,12 +117,12 @@ describe("readPluginManifest", () => {
         const manifest = manifestOf({
             ...base,
             entries: {
-                s: {location: "server", main: "s.js", remoteProvides: ["example.notes/index"], remoteDelegates: ["nbook.storage/records"]},
+                s: {location: "server", main: "s.js", remoteProvides: ["example.notes/index"], remoteDelegates: ["acme.storage/records"]},
                 t: {location: "server", main: "t.js", remoteDelegates: ["example.notes/index"]},
             },
             contracts: {"example.notes/index": indexContractJson},
         });
-        const records = {id: "nbook.storage/records", version: 1, provider: "server", callers: ["server"], methods: {}, events: {}} as const;
+        const records = {id: "acme.storage/records", version: 1, provider: "server", callers: ["server"], methods: {}, events: {}} as const;
         const [s, t] = definitionOf(manifest, "server", {contractOf: () => records}).entries;
         const restored = s!.remoteProvides![0]!;
         expect(restored).toMatchObject({id: "example.notes/index", version: 2, provider: "server", callers: ["browser"]});
@@ -147,7 +154,7 @@ describe("readPluginManifest", () => {
     });
 
     it("任何插件都可以声明 remoteDelegates（ADR 0027）", () => {
-        expect(readPluginManifest({...base, entries: {s: {location: "server", main: "s.js", remoteDelegates: ["nbook.storage/records"]}}}).status).toBe("valid");
+        expect(readPluginManifest({...base, entries: {s: {location: "server", main: "s.js", remoteDelegates: ["acme.storage/records"]}}}).status).toBe("valid");
     });
 
     it("不同位置的入口可以提供同一服务", () => {
@@ -160,20 +167,20 @@ describe("readPluginManifest", () => {
         }).status).toBe("valid");
     });
 
-    it("内置插件可以用 nbook. 前缀并约束内置插件版本", () => {
-        expect(readPluginManifest({...base, publisher: "nbook", pluginVersions: {"nbook.editor": "^0.1.0"}}, {builtin: true}).status).toBe("valid");
+    it("内置插件可以用 acme. 前缀并约束内置插件版本", () => {
+        expect(readPluginManifest({...base, publisher: "acme", pluginVersions: {"acme.editor": "^0.1.0"}}, {builtin: true}).status).toBe("valid");
     });
 
     // 每一行是一种使整份清单无效的原因，以及报告的字段路径。
     const invalid: ReadonlyArray<readonly [string, unknown, string]> = [
         ["缺少必需字段", {name: "notes"}, ""],
-        ["缺少 engines.neurobook", {...base, engines: {}}, "engines"],
+        ["缺少 engines.acme", {...base, engines: {}}, "engines"],
         ["publisher 不是单个 id 段", {...base, publisher: "@scope/x"}, "publisher"],
         ["name 含大写", {...base, name: "Notes"}, "name"],
         ["name 以数字开头（派生的视图、条目 id 每段要字母开头）", {...base, name: "2fa"}, "name"],
         ["contributionPoints 的 idPrefix 只能是 plugin", {...base, contributionPoints: [{id: "example.notes.kinds", implementation: "none", idPrefix: "publisher"}]}, "contributionPoints.0.idPrefix"],
         ["version 不是 semver", {...base, version: "1.0"}, "version"],
-        ["第三方用 nbook. 前缀", {...base, publisher: "nbook"}, "publisher"],
+        ["第三方用 acme. 前缀", {...base, publisher: "acme"}, "publisher"],
         ["入口缺少 main（缺字段报在所在对象上）", {...base, entries: {b: {location: "browser"}}}, "entries.b"],
         ["main 是绝对路径", {...base, entries: {b: {location: "browser", main: "/abs.js"}}}, "entries.b.main"],
         ["main 越出插件目录", {...base, entries: {b: {location: "browser", main: "dist/../../x.js"}}}, "entries.b.main"],
@@ -191,10 +198,10 @@ describe("readPluginManifest", () => {
         ["声明 onStartup 为前缀", {...base, activationEventPrefixes: ["onStartup"]}, "activationEventPrefixes.0"],
         ["前缀含冒号", {...base, activationEventPrefixes: ["a:b"]}, "activationEventPrefixes.0"],
         ["前缀重复", {...base, activationEventPrefixes: ["a", "a"]}, "activationEventPrefixes.1"],
-        ["约束内置插件版本", {...base, pluginVersions: {"nbook.editor": "^1.0.0"}}, "pluginVersions.nbook.editor"],
+        ["约束内置插件版本", {...base, pluginVersions: {"acme.editor": "^1.0.0"}}, "pluginVersions.acme.editor"],
         ["pluginVersions 的键不是插件 id", {...base, pluginVersions: {editor: "^1.0.0"}}, "pluginVersions.editor"],
         ["pluginVersions 的值不是版本范围", {...base, pluginVersions: {"example.tts": "latest"}}, "pluginVersions.example.tts"],
-        ["engines.neurobook 不是版本范围", {...base, engines: {neurobook: "not a range"}}, "engines.neurobook"],
+        ["engines.acme 不是版本范围", {...base, engines: {acme: "not a range"}}, "engines.acme"],
         ["贡献缺少字段", {...base, contributes: [{capability: "settings.properties"}]}, "contributes.0"],
         ["贡献点 implementation 不合法", {...base, contributionPoints: [{id: "x", implementation: "maybe"}]}, "contributionPoints.0.implementation"],
         ["贡献点 id 重复", {...base, contributionPoints: [{id: "x", implementation: "none"}, {id: "x", implementation: "none"}]}, "contributionPoints.1.id"],
@@ -202,7 +209,7 @@ describe("readPluginManifest", () => {
         ["引用的合同不在 contracts 里", {...base, entries: {s: {location: "server", main: "s.js", remoteProvides: ["example.notes/index"]}}}, "entries.s.remoteProvides"],
         ["代理的合同不在 contracts 里", {...base, entries: {s: {location: "server", main: "s.js", remoteDelegates: ["other.x/y"]}}}, "entries.s.remoteDelegates"],
         ["合同的键与 id 不一致", {...base, contracts: {"example.notes/other": indexContractJson}}, "contracts.example.notes/other.id"],
-        ["清单写了内置合同", {...base, contracts: {"nbook.storage/records": {...indexContractJson, id: "nbook.storage/records"}}}, "contracts.nbook.storage/records"],
+        ["清单写了内置合同", {...base, contracts: {"acme.storage/records": {...indexContractJson, id: "acme.storage/records"}}}, "contracts.acme.storage/records"],
         // 结构问题与语义问题对同一合同用同一种路径：合同 id 原样一段。
         ["合同缺字段", {...base, contracts: {"example.notes/index": {id: "example.notes/index", version: 1}}}, "contracts.example.notes/index"],
         ["合同的入参不是严格对象", {...base, contracts: {"example.notes/index": {...indexContractJson, methods: {list: {...indexContractJson.methods.list, input: {type: "object"}}}}}}, "contracts.example.notes/index"],
@@ -242,18 +249,18 @@ describe("readPluginManifest", () => {
         for (const schema of [{enum: ["a", undefined]}, {type: "integer", default: 10n}, {type: "string", default: new Date(0)}, {type: "number", maximum: Number.POSITIVE_INFINITY}]) {
             expect(portabilityProblems(schema).length, JSON.stringify(schema, (_key, value: unknown) => (typeof value === "bigint" ? `${String(value)}n` : value))).toBeGreaterThan(0);
         }
-        const result = build({descriptor: {id: "example.notes", version: "1.0.0", locations: ["server"]}, definitions: [{id: "example.notes", contributionPoints: [{id: "example.notes.kinds", implementation: "none", schema: {type: "integer", default: 10n} as never}], entries: []}], engines: {neurobook: "^0.1.0"}});
+        const result = build({descriptor: {id: "example.notes", version: "1.0.0", locations: ["server"]}, definitions: [{id: "example.notes", contributionPoints: [{id: "example.notes.kinds", implementation: "none", schema: {type: "integer", default: 10n} as never}], entries: []}], engine: "^0.1.0"});
         expect(result.status === "invalid" ? result.problems.map((problem) => problem.path) : []).toContain("contributionPoints.0.schema.default");
     });
 
     it("版本与范围按调用方给的 npm 写法校验：非法的预发布标识、写错的范围都无效", () => {
         expect(problemsOf({...base, version: "1.0.0-01"})).toContain("version");
-        expect(problemsOf({...base, engines: {neurobook: ">=0.0.0-01"}})).toContain("engines.neurobook");
+        expect(problemsOf({...base, engines: {acme: ">=0.0.0-01"}})).toContain("engines.acme");
     });
 
     it("接受 npm 的常见范围写法", () => {
         for (const range of ["*", "0.1.0", ">=0.1.0", "^0.1", "~1.x", ">=0.1.0 <0.2.0", "1.0.0 - 2.0.0", "^0.1.0 || ^1.0.0", "0.1.0-beta.1", "=0.1.0", "1.0.0 ||"]) {
-            expect(readPluginManifest({...base, engines: {neurobook: range}}).status, range).toBe("valid");
+            expect(readPluginManifest({...base, engines: {acme: range}}).status, range).toBe("valid");
         }
     });
 
@@ -263,7 +270,7 @@ describe("readPluginManifest", () => {
     });
 });
 
-describe("manifestOf：代码定义写成清单", () => {
+describe("生成清单：代码定义写成清单", () => {
     const index = defineRemoteService({
         id: "example.notes/index",
         version: 2,
@@ -281,12 +288,12 @@ describe("manifestOf：代码定义写成清单", () => {
     const browser: PluginDefinition = {id: "example.notes", entries: [{id: "browser", location: "browser", remoteDelegates: [index], activate: () => ({})}]};
 
     function built(definitions: ReadonlyArray<PluginDefinition>, options: {readonly builtin?: boolean} = {}): Record<string, unknown> {
-        const result = build({descriptor, definitions, engines: {neurobook: "^0.1.0"}, pluginVersions: {"example.tts": "^1.0.0"}}, options);
+        const result = build({descriptor, definitions, engine: "^0.1.0", pluginVersions: {"example.tts": "^1.0.0"}}, options);
         if (result.status !== "valid") throw new Error(`期望能写成清单：${JSON.stringify(result.problems)}`);
         return result.json;
     }
 
-    it("写出的清单通过 readPluginManifest，再经 definitionOf 还原出同样的入口、合同与贡献点", () => {
+    it("写出的清单读得回来（生成结果直接带着读出的清单），再经 definitionOf 还原出同样的入口、合同与贡献点", () => {
         const manifest = manifestOf(built([server, browser, server]));
         expect(Object.keys(manifest.contracts)).toEqual(["example.notes/index"]);
         const back = definitionOf(manifest, "server");
@@ -321,20 +328,54 @@ describe("manifestOf：代码定义写成清单", () => {
             ["两份定义的 schema 不同", [server, {...browser, contributionPoints: [{...kinds, schema: Type.Object({label: Type.Number()})}]}], "contributionPoints.0"],
         ];
         for (const [name, definitions, path] of cases) {
-            const result = build({descriptor, definitions, engines: {neurobook: "^0.1.0"}});
+            const result = build({descriptor, definitions, engine: "^0.1.0"});
             expect(result.status === "invalid" ? result.problems.map((problem) => problem.path) : [], name).toContain(path);
         }
     
         // 两份定义各写一个对象、带着同样的问题：同一条问题只报一次。
         const unportable = () => ({id: "example.notes.kinds", implementation: "none", schema: Type.Object({label: Type.Refine(Type.String(), (value) => value.length > 0)}), validate: () => null} as const);
-        const twice = build({descriptor, definitions: [{...server, contributionPoints: [unportable()]}, {...browser, contributionPoints: [unportable()]}], engines: {neurobook: "^0.1.0"}});
+        const twice = build({descriptor, definitions: [{...server, contributionPoints: [unportable()]}, {...browser, contributionPoints: [unportable()]}], engine: "^0.1.0"});
         const paths = twice.status === "invalid" ? twice.problems.map((problem) => problem.path) : [];
         expect(paths.filter((path) => path === "contributionPoints.0")).toHaveLength(1);
         expect(paths.filter((path) => path.startsWith("contributionPoints.0.schema"))).toHaveLength(1);
     });
 
+    it("生成结果带着读出的清单；description 与 license 由内核写进清单", () => {
+        const result = build({descriptor, definitions: [server], engine: "^0.1.0", description: "笔记", license: "MIT"});
+        if (result.status !== "valid") throw new Error(JSON.stringify(result.problems));
+        expect(result.json).toMatchObject({description: "笔记", license: "MIT", engines: {acme: "^0.1.0"}});
+        expect(result.manifest).toMatchObject({id: "example.notes", engine: "^0.1.0"});
+    });
+
+    it("生成的清单读不回来时给出读清单的问题：第三方插件用了保留发布者", () => {
+        const reserved = {id: "acme.notes", version: "1.0.0", locations: []} as const;
+        const result = build({descriptor: reserved, definitions: [], engine: "^0.1.0"});
+        expect(result.status === "invalid" ? result.problems.map((problem) => problem.path) : []).toContain("publisher");
+        expect(build({descriptor: reserved, definitions: [], engine: "^0.1.0"}, {builtin: true}).status).toBe("valid");
+    });
+
     it("内置插件的贡献点可以只写 validate：随产品代码装配，不经清单登记", () => {
         expect(built([{...server, contributionPoints: [{id: "example.notes.kinds", implementation: "none", validate: () => null}]}], {builtin: true}).contributionPoints).toEqual([{id: "example.notes.kinds", implementation: "none"}]);
+    });
+});
+
+describe("平台档案", () => {
+    it("引擎键与保留发布者随平台：同一份清单在另一个平台上要写那个平台的引擎键，acme 在那里只是普通发布者", () => {
+        const other = createManifestFormat({engine: "other", reservedPublishers: ["other"]}, versions);
+        const manifest = {...base, publisher: "acme", engines: {other: "^1.0.0"}};
+        const read = other.read(manifest);
+        expect(read.status === "valid" ? read.manifest.engine : read.problems).toBe("^1.0.0");
+        expect(problemsOf(manifest)).toContain("engines");
+        const reserved = other.read({...manifest, publisher: "other"});
+        expect(reserved.status === "invalid" ? reserved.problems.map((problem) => problem.path) : []).toContain("publisher");
+    });
+
+    it("内核的 runtime 命名空间在任何平台上都保留：第三方插件不能用，内置判断认它", () => {
+        expect(problemsOf({...base, publisher: "runtime"})).toContain("publisher");
+        expect(format.isBuiltinId("runtime.diagnostics")).toBe(true);
+        expect(format.isBuiltinId("acme.files/files")).toBe(true);
+        expect(format.isBuiltinId("example.notes")).toBe(false);
+        expect(format.isReservedPublisher("acme")).toBe(true);
     });
 });
 

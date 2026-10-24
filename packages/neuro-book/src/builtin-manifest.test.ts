@@ -1,9 +1,9 @@
 /**
  * 内置插件的代码定义就是它的清单（runtime/plugin-manifest.md 的“输入与前置条件”）：每个内置插件的描述与各运行位置的
- * 定义转成 `package.json` 形式，经第三方插件同一个 `readPluginManifest` 校验，再用 `descriptorOf`、`definitionOf` 转回，
+ * 定义转成 `package.json` 形式，经第三方插件同一个清单格式校验，再用 `descriptorOf`、`definitionOf` 转回，
  * 与原定义相同。这样第三方插件能写出内置插件写得出的一切，两种载体不会各自漂移（ADR 0027）。
  *
- * “定义 → 清单”用内核的 `manifestOf`（第三方插件的构建预设用同一个），这里只做往返比较。
+ * “定义 → 清单”用清单格式的 `build`（第三方插件的构建预设用同一个），这里只做往返比较。
  *
  * 不比较的只有运行期钩子：入口的 `activate` 与贡献点的 `validate`。服务键按 id、合同按合同 id 比较；依赖不计先后，
  * 激活顺序只由依赖图决定。贡献点与激活事件前缀按插件汇总：内置插件可以只在部分运行位置定义它们（例如项目实例
@@ -13,11 +13,11 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {definitionOf, descriptorOf, manifestOf, readPluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
+import {definitionOf, descriptorOf} from "@notnotype/nb-runtime/plugin-manifest";
 import type {ContributionPointDefinition, PluginDefinition, PluginDescriptor, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 import type {RemoteContract} from "@notnotype/nb-runtime/remote";
 
-import {npmVersions} from "nbook/shared/versions";
+import {manifestFormat} from "nbook/plugin-platform-profile";
 import {productPlugins} from "nbook/manifest";
 import {projectPluginDefinitions} from "nbook/project/plugins";
 import {serverPluginDefinitions} from "nbook/server/plugins";
@@ -49,11 +49,11 @@ function locatedDefinitions(descriptor: PluginDescriptor): Located[] {
     });
 }
 
-/** 代码定义写成 `package.json` 的形式：用第三方插件构建时同一个 `manifestOf`。 */
+/** 代码定义写成 `package.json` 的形式：用第三方插件构建时同一个清单格式。 */
 function manifestJson(descriptor: PluginDescriptor, located: ReadonlyArray<Located>): Record<string, unknown> {
     // 后端定义同时含服务端与项目入口：只把本位置的入口交出去，另一个位置的入口由那个位置的定义带。
     const definitions = located.map(({definition, entries}): PluginDefinition => ({...definition, entries}));
-    const result = manifestOf({descriptor, definitions, engines: {neurobook: PRODUCT_VERSION}}, {builtin: true});
+    const result = manifestFormat.build({descriptor, definitions, engine: PRODUCT_VERSION}, {builtin: true});
     if (result.status !== "valid") throw new Error(`${descriptor.id} 的代码定义写不成清单：${JSON.stringify(result.problems)}`);
     return result.json;
 }
@@ -90,7 +90,7 @@ describe("内置插件的代码定义与清单格式对齐", () => {
         it(`${descriptor.id}：转成清单通过校验，转回后除运行期钩子外相同`, () => {
             expect(descriptor.version).toBe(PRODUCT_VERSION);
             const located = locatedDefinitions(descriptor);
-            const result = readPluginManifest(manifestJson(descriptor, located), {builtin: true, versions: npmVersions});
+            const result = manifestFormat.read(manifestJson(descriptor, located), {builtin: true});
             if (result.status !== "valid") throw new Error(`${descriptor.id} 的清单无效：${JSON.stringify(result.problems)}`);
             const {manifest} = result;
 

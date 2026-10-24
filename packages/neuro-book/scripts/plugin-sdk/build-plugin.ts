@@ -10,7 +10,7 @@
  * - 每个入口定义模块导出一个或多个 `PluginDefinition`，与内置插件同一写法。模块顶层会在构建时执行一次（为了读出声明）。
  *
  * 产物：
- * - `package.json`：作者的字段加上由代码定义生成的清单（内核的 `manifestOf`），生成后用 `readPluginManifest` 再校验一遍；
+ * - `package.json`：作者的字段加上由代码定义生成的清单（NeuroBook 清单格式的 `build`，生成即校验）；
  * - 每个入口一个文件 `<入口 id>.js`（带 source map，`sources` 是相对作者目录的路径），只导出 `activate`，声明以清单为准。
  *   服务端与项目入口是 ESM；浏览器入口包成登记工厂并压缩，脚本执行时调用宿主的 `register`，每次激活宿主调用一次工厂。
  *   插件自己的动态导入都内联进这个文件，共享模块的动态导入在浏览器产物里也经工厂的 `require` 取；
@@ -28,8 +28,7 @@ import {builtinModules, createRequire} from "node:module";
 import {stripVTControlCharacters} from "node:util";
 import {basename, dirname, isAbsolute, join, relative, resolve, sep} from "node:path";
 
-import {manifestOf, readPluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
-import type {ManifestProblem} from "@notnotype/nb-runtime/plugin-manifest";
+import type {ManifestProblem, ManifestSource} from "@notnotype/nb-runtime/plugin-manifest";
 import type {PluginDefinition, PluginDescriptor, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 import {getIconData, iconToHTML, iconToSVG, svgToURL} from "@iconify/utils";
 import vue from "@vitejs/plugin-vue";
@@ -39,7 +38,7 @@ import type {Plugin} from "vite";
 
 import {BROWSER_SHARED_MODULES, PLUGIN_REGISTRY_GLOBAL, SERVER_SHARED_MODULES} from "../../src/shared/plugin-modules";
 import {PRODUCT_VERSION} from "../../src/shared/product";
-import {npmVersions} from "../../src/shared/versions";
+import {manifestFormat} from "../../src/plugin-platform-profile";
 
 const DEFAULT_DEFINITIONS = ["backend/plugin.ts", "web/plugin.ts"];
 const BUILT_LOCATIONS = ["server", "project", "browser"] as const;
@@ -114,7 +113,7 @@ interface AuthorPackage {
     readonly version: string;
     readonly description?: string;
     readonly license?: string;
-    readonly engines?: {readonly neurobook?: string};
+    readonly engines?: Readonly<Record<string, string>>;
     readonly pluginVersions?: Readonly<Record<string, string>>;
     readonly nbook?: {readonly definitions?: ReadonlyArray<string>};
 }
@@ -467,14 +466,19 @@ export async function buildPlugin(options: BuildPluginOptions): Promise<BuildPlu
     }
     if (problems.length > 0) throw new PluginBuildError("入口定义不合格", problems);
 
-    const engines = {neurobook: author.engines?.neurobook ?? `^${PRODUCT_VERSION}`};
-    const source = {descriptor: {...descriptor, version: options.version ?? descriptor.version}, definitions, engines, pluginVersions: author.pluginVersions, mainOf: (entry: PluginEntryDefinition) => `${entry.id}.js`};
-    // 清单表达不了的定义（入口 id 重复、schema 进不了 JSON……）在构建前就报出。清单校验也在这里先做一遍：下面要按入口 id
-    // 写文件，入口 id 的规则由校验保证。
-    const early = manifestOf(source);
+    const source: ManifestSource = {
+        descriptor: {...descriptor, version: options.version ?? descriptor.version},
+        definitions,
+        engine: author.engines?.[manifestFormat.platform.engine] ?? `^${PRODUCT_VERSION}`,
+        ...(author.pluginVersions === undefined ? {} : {pluginVersions: author.pluginVersions}),
+        ...(author.description === undefined ? {} : {description: author.description}),
+        ...(author.license === undefined ? {} : {license: author.license}),
+        mainOf: (entry: PluginEntryDefinition) => `${entry.id}.js`,
+    };
+    // 清单表达不了的定义（入口 id 重复、schema 进不了 JSON……）在构建前就报出：下面要按入口 id 写文件，入口 id 的规则由
+    // 清单校验保证。
+    const early = manifestFormat.build(source);
     if (early.status === "invalid") throw new PluginBuildError("代码定义写不成清单", early.problems);
-    const earlyChecked = readPluginManifest(early.json, {versions: npmVersions});
-    if (earlyChecked.status === "invalid") throw new PluginBuildError("生成的清单不合格", earlyChecked.problems);
 
     // 2. 逐入口构建（Rolldown 的多入口构建不能同时关掉代码分割）。
     const forbidden: Array<{readonly name: string; readonly directory: string}> = [];
@@ -517,15 +521,9 @@ export async function buildPlugin(options: BuildPluginOptions): Promise<BuildPlu
         const style = merged.length === 0 && icons.css === "" ? null : `@layer components {\n${[...merged, icons.css].filter((text) => text !== "").join("\n")}\n}\n`;
 
         // 4. 清单与输出。
-        const final = manifestOf({...source, ...(style === null ? {} : {style: "style.css"})});
+        const final = manifestFormat.build({...source, ...(style === null ? {} : {style: "style.css"})});
         if (final.status === "invalid") throw new PluginBuildError("代码定义写不成清单", final.problems);
-        const manifest: Record<string, unknown> = {
-            ...final.json,
-            ...(author.description === undefined ? {} : {description: author.description}),
-            ...(author.license === undefined ? {} : {license: author.license}),
-        };
-        const checked = readPluginManifest(manifest, {versions: npmVersions});
-        if (checked.status === "invalid") throw new PluginBuildError("生成的清单不合格", checked.problems);
+        const manifest = final.json;
 
         await mkdir(outDir, {recursive: true});
         for (const {located: item, directory} of built) {

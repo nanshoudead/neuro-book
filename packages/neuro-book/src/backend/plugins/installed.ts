@@ -3,12 +3,11 @@
  * 入口代码与文件端点都用它。清单交的是 `package.json` 的原始内容，接收方各自用同一个 `readPluginManifest` 再读一遍。
  */
 
-import {readPluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
 import type {PluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
-import {npmVersions} from "nbook/shared/versions";
+import {manifestFormat} from "nbook/plugin-platform-profile";
 
 export const InstalledPluginSchema = Type.Object({
     id: Type.String({minLength: 1}),
@@ -25,7 +24,7 @@ export type InstalledPlugin = Static<typeof InstalledPluginSchema>;
 
 /** 读出清单；不合格（服务端与接收方的校验规则不一致，或内容被改过）时给出原因。 */
 export function manifestOfInstalled(plugin: InstalledPlugin): {readonly ok: true; readonly manifest: PluginManifest} | {readonly ok: false; readonly detail: string} {
-    const read = readPluginManifest(plugin.manifest, {versions: npmVersions});
+    const read = manifestFormat.read(plugin.manifest);
     if (read.status !== "valid") return {ok: false, detail: read.problems.map((problem) => `${problem.path}：${problem.message}`).join("；")};
     if (read.manifest.id !== plugin.id || read.manifest.version !== plugin.version) return {ok: false, detail: `清单是 ${read.manifest.id}@${read.manifest.version}`};
     return {ok: true, manifest: read.manifest};

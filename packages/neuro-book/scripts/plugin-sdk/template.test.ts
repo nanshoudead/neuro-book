@@ -9,10 +9,10 @@ import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 import {chmod, mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
-import {readPluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {compareVersions, npmVersions, pluginVersionSatisfies} from "../../src/shared/versions";
+import {manifestFormat} from "../../src/plugin-platform-profile";
+import {compareVersions, pluginVersionSatisfies} from "../../src/shared/versions";
 
 import {devVersion} from "./build-plugin";
 
@@ -63,7 +63,7 @@ describe("nbook-plugin", () => {
         const built = cli(author, "build");
         expect(built.stderr).toBe("");
         expect(built.code).toBe(0);
-        const result = readPluginManifest(JSON.parse(await readFile(join(author, "dist/package.json"), "utf8")), {versions: npmVersions});
+        const result = manifestFormat.read(JSON.parse(await readFile(join(author, "dist/package.json"), "utf8")));
         if (result.status !== "valid") throw new Error(JSON.stringify(result.problems));
         expect(result.manifest.id).toBe("my.hello-world");
         expect(result.manifest.entries.map((entry) => [entry.id, entry.activationEvents])).toEqual([["browser", ["onStartup"]]]);
@@ -105,7 +105,7 @@ describe("nbook-plugin", () => {
 
         const digits = cli(busy, "create", join(tmp, "2048-timer"));
         expect(digits.code).toBe(1);
-        expect(digits.stderr).toContain("以小写字母开头");
+        expect(digits.stderr).toContain("字母开头");
         expect(await readdir(tmp)).not.toContain("2048-timer");
 
         const builtin = cli(busy, "create", join(tmp, "reserved"), "--publisher", "nbook");
