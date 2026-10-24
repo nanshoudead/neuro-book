@@ -1,0 +1,111 @@
+# t14 计划设计审查（前端与作者体验部分，Sonnet）
+审查对象：.agents/works/w00027-plugin-platform/tasks/t14-plugin-author-api/plan.md 的 3.3（浏览器一侧）、3.5 插件页、3.6 命令面板、3.7 作者文档与模板。
+实验文件在 /tmp/claude-1000/review-t14-design/scratch/（a.ts 数组方案、b.ts 键对象方案、v/ 属性类型推导）；没有改仓库。
+
+[D01] 阻断 / 可实现性（分层）/ 计划 3.3 示例与“definePlugin 返回对象的方法”；packages/neuro-book/src/sdk/entries.ts:13-17、src/ui/bound-component.ts:10
+现象：计划把 `plugin.view(...)`、`plugin.settingsPage(...)` 写成 `definePlugin` 返回对象上的方法，`plugin` 定义在作者的 `plugin.ts`（描述文件），同一文件被服务端入口、共享合同、构建预设（读描述生成清单）引用；同时又说“浏览器专有的助手在 browser.ts”。两句不能同时成立：视图和设置页的 `implement` 要 `boundComponent`，它 `import {defineComponent, h} from "vue"`；SDK 根入口在 entries.ts 里 `server: true`，宿主模块表里的根入口不得带 Vue。
+为什么是问题：照字面做，要么根入口（服务端也加载）拉进 Vue、纯度检查失败，要么 `plugin.view` 在服务端对象上不存在而示例代码编译不过。S2 做到一半才会发现，返工的是整个 `definePlugin` 的类型形状（S2、S4 的 7 个示例、README 都跟着改）。
+建议：计划里先定死拆法，二选一写进 3.3：(a) 根入口的 `plugin` 只带无 Vue 的助手（setting、section、command、statusItem、descriptor、entry、definition），视图与设置页用 `/browser` 的独立函数 `view(plugin, {name, ...})`、`settingsPage(plugin, {...})`，它们读 `plugin.id` 拼 id、返回同样的助手形状；(b) 助手的声明部分放根入口（`plugin.view({name,title,icon})` 只产出声明，无 Vue），实现绑定放 `/browser` 的 `implementView(helper, load, props)`。(a) 更接近计划示例，示例里 `load` 本来只在浏览器文件里写。另外 `plugin.view` 等“只能在浏览器入口里用”的助手，`plugin.entry({location:"server", contributions:[view]})` 应在类型上拒绝（视图、状态栏、设置页的校验函数都是 `descriptor.location !== "browser"` 才拒绝，现在是运行时静默丢弃，正是 F11 同类）：助手带一个位置标记，`entry` 的 `location` 与之核对。
+
+[D02] 重要 / 类型（验收判据不成立）/ 计划 3.3 “plugin.entry”与第 6 节验收映射“报错第一行写明哪一项”
+现象：按计划写法（`contributions: [view, say, status]` 声明、激活产出 `contributions: [view.implement(..), ...]` 数组，用 id 集合差做以问题命名的属性）我在 scratch/a.ts 实测：漏一项与多一项都能编译报错，但 tsc 输出的第一行是 `Argument of type '{ contributions: [Helper<...>...] ...}' is not assignable to parameter of type ...`（实验里 468 字符，真实的 ViewDeclaration 展开后更长），问题名 `Property '"缺少贡献实现：acme.status"' is missing ...` 在第二行。而且数组写法不查重复：`[view.implement(a), view.implement(b), say.implement(c)]` 对声明 `[view, say]` 编译通过（id 集合相等），运行时是后者覆盖还是抛错，计划没说。
+为什么：判据“第一行写明哪一项”按 tsc 的输出结构做不到，S2 的类型反例测试会按字面写断言然后失败，或者被悄悄放宽成“报错里含这个名字”；重复实现是计划漏掉的另一条静默失败。
+建议：判据改成“报错信息里含 `缺少贡献实现：<id>` / `多写的贡献实现：<id>`”（可以测）。若要真正做到名字在最前面，改用键对象写法（scratch/b.ts 实测）：声明 `contributions: {view, say, status}`，产出 `{contributions: {view: view.implement(..), say: say.implement(..), status: status.implement(..)}}`，产出类型用映射类型 `{[K in keyof Decl]: Bound<Decl[K]["id"]>}`。漏一项时 tsc 直接报 `Property 'status' is missing in type ... but required in type ...`，位置落在产出的 contributions 上，不再套一层 Argument 头；换错助手（`view: say.implement()`）报 `Type 'Bound<"a.say">' is not assignable to type 'Bound<"a.view">'`；重复在语法上就不可能。多写一项仍不会被报（实测：箭头函数返回值不做多余属性检查），需要沿用 `defineEntry` 已有的 `NoExtraKeys` 技巧；`activate` 要写成 `Output | Promise<Output>`（我实验里漏了 Promise 分支，async 的 activate 直接不过）。键对象写法也让 3.3 的“也收现有原始声明”有地方放：原始声明放在另一个键下，见 D03。
+
+[D03] 重要 / 遗漏（和现有代码不符）/ 计划 3.3“也收现有的原始声明”与 3.7“模板与 7 个示例改用 3.3 的写法”；plugin-sdk/examples/plugins/{counter,focus,menu,file-menu}
+现象：计划说 `plugin.entry` 的 `contributions` 也收原始声明，但激活产出被定义成“已绑定实现的数组”；原始声明没有 `implement`，它的实现往哪放没写。7 个示例里至少这几处落在助手之外：menu 插件自己定义的贡献点（`contributionPoints: [{id: MENU_POINT ...}]` 加 `receivers`）；file-menu 向别人的点提交（`contributions: {[MENU_POINT]: items}`）；counter 与 focus 的 `defineStore(...).contributions` 与 `definePublicState` 产出，它们是内核格式 `{[state.public]: {...}}`，counter/backend/plugin.ts:106 把 `counterState.contributions` 数组展开进声明，:134 把 `store.contributions` 对象展开进产出。数组产出放不进内核格式的对象，反过来对象也没法 `...` 进数组。3.7 又要求文档里补 `defineStore`、`definePublicState` 各一段，这两个正好是 3.3 没覆盖的。
+为什么：S4 改示例时才会发现 4 个示例改不动，要么回头改 S2 的 `entry` 形状，要么示例留着旧写法，与“示例改用新写法”“最终检验按文档写一遍”矛盾。
+建议：3.3 明说混合形状。键对象写法下最自然：`contributions: {view, say}` 之外加 `extra: [...原始声明]` 与产出里的 `raw: {[point]: {[id]: impl}}`（原样并入内核格式，沿用内核的核对），或者让 `defineStore`/`definePublicState` 也产出助手形状。计划里至少要列出“哪几类贡献不经助手、产出怎么写”并让 S2 的测试覆盖 counter 与 file-menu 的写法。
+
+[D04] 重要 / 遗漏（F09 b 未处理，且可以做到）/ 计划 3.3“视图与设置页的 implement(props?) 同现有 implementation(props?)”；view-contribution.ts:26-30、page-contribution.ts:30
+现象：计划原样保留 `props?: () => Readonly<Record<string, unknown>>`，视图组件 `defineProps` 的属性名与 `implement` 给的属性对不上依然编译、构建都过（F09 b 的现象）。计划没有说为什么不处理，也没有放进 8 节“不做”。
+可行性（实测，scratch/v/）：`load: () => import("./X.vue")` 在 vue-tsc 下的类型是 `{default: DefineComponent<...>}`，用 `PropsOf<M> = M extends {default: abstract new (...a: any) => {$props: infer P}} ? P : never`，再 `Omit<P, "context" | VNode 内置属性>` 作为 `implement` 的 props 返回类型。实测 `() => ({wordz: 1})` 报 `Property 'words' is missing`，`() => ({words: "a"})` 报 `string` 不能赋给 `number`。限制：只对必填属性的笔误有效，可选属性写错（`label` 写成 `lable`）仍通过，因为箭头函数返回值不做多余属性检查；纯 tsc（没有 .vue 垫片）下属性退化成 `{}`，不报错但也不误报。
+为什么：这是作者体验报告里点名的两种最常犯的笔误之一，计划只解决了 (a)。
+建议：`plugin.view`、`settingsPage` 的泛型从 `load` 推出 Props，`implement(props: () => PropsFor<M>)`；README 写明“可选属性的笔误查不出来”。若决定不做，在 8 节“不做”里写理由，并把 README 里“属性名不被检查”的提醒保留。
+
+[D05] 重要 / 边界（同一个 id 只写一次没有做全）/ 计划 3.3 示例 `plugin.setting({..., section: "main", group: "basic"})`；src/shared/settings.ts:79-86、120-122
+现象：示例里设置项写 `section: "main"`、`group: "basic"`，两个都是裸字符串。现有 `SettingDeclaration.section` 是完整的分区 id（可指向别的插件的分区），`group` 是该分区 `groups` 里的 id。计划没说 `plugin.setting` 是否把短名 "main" 拼成 `acme.hello.main`、拼不拼别的插件的分区、组名是否核对；示例里 `greeting` 先于 `section` 定义，也没法引用它。短名拼错 → 设置项落到不存在的分区，现有行为是“分区存不存在不在登记时核对”，也就是静默不出现，和 F11 同一类。另外 `setting` 的返回值现在是 `SettingDefinition`（有 `key`，设置服务的 `get/update` 要它的类型品牌），计划写的助手返回值是 `{id, contribution, implement}`，两者怎么合并没说。
+为什么：这是“id 要在几处写”问题的最后一处，也是设置项页面唯一一个要手写字符串关联的地方；漏掉它，作者体验报告 F05、F11 的意图只做了一半。
+建议：`section` 先于 `setting` 定义，设置项收助手本身：`section: main`（类型推出 id），`group` 收 `main.group("basic")` 或从 `groups` 的字面量推导出联合类型；要引用别的插件的分区时才收裸字符串。`setting` 的返回值写明是 `SettingDefinition & {id}` 还是别的，`settings.get(greeting)` 的写法在 README 里保持不变。
+
+[D06] 重要 / 边界（静默失败）/ 计划 3.3 `settingsPage`、`choices` 助手；page-contribution.ts:25-26
+现象：现有 `settingsPageContribution` 返回 `activationEvent`，作者要自己写进入口的 `activationEvents`，漏了则入口永远不被设置窗口激活，页面静默不出现。计划的 `plugin.entry` 示例只写了 `activationEvents: ["onStartup"]`，没说助手的激活事件会不会自动并入；`choices` 助手也在“只收短名”的列表里，但 implement 的形状（`SettingsChoicesImplementation`）和 `settingsChoicesEvent` 一个字没提。
+为什么：这是现有助手已经暴露出来、作者手写最容易漏的一项，新助手若沿用，F05 想消除的“id/事件在几处写”只消除了一半。
+建议：`plugin.entry` 把 `contributions` 里助手带的 `activationEvent` 自动并入 `activationEvents`（和显式写的去重），3.3 补 `choices` 助手的 `implement` 形状与事件。
+
+[D07] 建议 / 边界（A5 漏了命令）/ 计划 3.3 “命令 args 缺省空对象 schema”与 3.4；src/plugins/commands/shared/contracts.ts（CommandDeclarationSchema 的 args）
+现象：A5 的“自动补 additionalProperties: false”只覆盖记录与远程 `input`/`filter`。命令的 `args` 要求“对象且关闭额外属性”，登记时校验。作者写 `plugin.command({args: Type.Object({words: Type.Integer()})})`（F02 同样的笔误）：编译过，登记时命令被拒，现象是命令静默不出现。另外助手的短名各有格式：视图、命令、状态栏的 id 段是 `[a-z][a-z0-9-]*`，设置项名是小驼峰（`NAME` 正则），分区是点分小写；计划只说“只收短名”，没说短名违反格式时在助手调用时抛错还是留到登记时拒绝。
+为什么：F11 的根因是“规则只在运行时、静默”；助手能在模块加载时校验名字就该校验，否则 `plugin.view({name: "My Panel"})` 又回到静默消失。
+建议：`command` 的 `args` 同记录一样自动补 `additionalProperties: false`（显式 `true` 抛错）；每个助手在调用时按对应格式校验 `name`，抛带名字的 TypeError，写进 3.3。
+
+[D08] 重要 / 与现有代码不符 / 计划 3.2“scope 收窄为 {register(release)}”；src/shared/store/store.ts:70、:111、:190；examples/clock/backend/plugin.ts:74、focus/web/plugin.ts:76、focus/backend/plugin.ts:112
+现象：现有 `scope.register` 的参数是 ResourceSpec `{kind, label, value, release}`（store.ts:190 和三个示例都这样用），计划把作者可见的 `register` 改成接受一个 `release` 函数，同时说“落到内核作用域的哪个调用、释放先后，实现时读 lifecycle 合同确定”，等于签名与语义都没定。另外 `defineStore(...).create(context: ActivationContext, ...)`（store.ts:70）和 `definePublicState` 要求完整的内核 `ActivationContext`，作者拿到的是收窄后的 `AuthorActivationContext`，传不进去，类型直接不通过；而 3.3 又保留这两个并要求 3.7 写文档。
+为什么：F04 的原问题是作者不该接触 Scope/ResourceSpec，收窄方向对，但 `defineStore.create` 是 S2 之后马上会被所有有状态的示例（counter、focus）用到的路径，不先定好会在 S4 卡住。
+建议：3.2 写死 `register` 的签名（例如 `register(release)`，内部包成 `{kind: "author", label: <入口 id>, value: undefined, release}`），并明确 `defineStore.create` 的参数改收 `AuthorActivationContext`（或另给 `plugin.store(...)` 助手，内部拿内核上下文）；示例里的 `{kind, label, value, release}` 写法随之改成新签名，计入 S4 的改动面。
+
+[D09] 重要 / 与现有代码不符（数据来源）/ 计划 3.5 “displayName、description（取清单）”；packages/nb-runtime/src/plugin-manifest/build.ts:31-32、schema.ts、docs/specs/runtime/plugin-manifest.md:42
+现象：清单（PluginManifest）只有 `description` 和 `license`，没有 `displayName`（`ManifestSource` 只收 description、license；清单 schema 到处是 `additionalProperties: false`）。`displayName` 现在只存在于作者的 `package.json`（模板 `_package.json:5`），装进 State Root 后服务端读的清单里没有它。内置插件没有清单（plugin-manifest.md:42“内置插件的清单是代码中的插件描述…不另存 package.json”），`inventory.list` 里的内置项现在只有 `{id, version}`（inventory.ts:313-314），所以内置插件的显示名与描述也无处取。
+为什么：计划第 4 节的 Spec 改动表没有 `runtime/plugin-manifest.md`，也没有内核清单 schema 的改动；照计划做，S5 实现时才发现要改清单格式（内核、构建预设、清单读取、Spec、作者 `package.json`→清单的生成），而且内置那一组行（总数最多）仍然没有显示名和描述，两组版式不一致。
+建议：3.5 明说两件事：(1) 清单加可选 `displayName`（构建预设从 `package.json` 取，沿用 `description` 的路径），补进 plugin-manifest.md 与第 4 节的表；(2) 内置插件的显示名与描述怎么来：要么不显示（插件页只在第三方一组显示这两项，写进 PluginsPage.md），要么由内置插件的描述补可选字段。显示名需要多语言吗也要定（`package.json` 的是单字符串，界面有 zh-CN 与 en-US 两种语言）。
+
+[D10] 重要 / 与现有代码不符（数据通路）/ 计划 3.5 “浏览器入口的状态与被拒贡献由插件页在本窗口经 window.plugins 与内核查询补上”；src/web/host/window-plugins.ts:30-52、PluginsPage.vue 属性、web/plugin.ts:55-62
+现象：`window.plugins`（windowPluginsKey）现在只有 `entryState(ref)`、`activationEvents(ref)`、`onChange`、`retry`，都要先给出 `{plugin, entry}`；没有“列出本窗口全部插件与入口”，没有“被拒贡献”。views.md:149 还写着它“不是插件公开 API”。`nbook.plugins` 的浏览器入口目前对它没有依赖（只依赖 settingsKey），要加 `{key: windowPluginsKey, required: false}` 才拿得到（settings 与 workbench 插件就是这样依赖它的）；PluginsPage 的属性现在只有 `registry` 与 `locale`，经 `withRegistry` 补；浏览器一侧的数据要经新属性进来，并且 `required: false` 意味着页面要处理“拿不到”这一种状态（Lab、测试）。被拒贡献的来源是内核 `declarations`（accepted），拒绝原因在内核目录的诊断里，计划写的“内核查询”没有对应的现有 API。
+还有三点计划没写：(1) `PluginListItemSchema` 同时是 `install/enable/disable/uninstall` 四个写方法的返回（`One = {plugin: PluginListItemSchema}`），给它加 `entries`、`rejected`、`displayName` 会让写方法的返回也带运行状态，而这些写操作的结果是“重启后才生效”，此时给的状态是旧进程的，读起来是错的；应该是 `list` 专有的字段，或者做成可选。(2) 合同要升 `version`（现在 3）。(3) 入口状态是快照：浏览器入口多数是按需激活（`onSettingsPage` 等），插件页读一次后状态会变，计划没写什么时候刷新（`window.plugins.onChange` 只对浏览器一侧有效，服务端一侧没有推送）。
+为什么：S5 的“服务端与合同一提交，界面一提交”只覆盖了服务端和合同；浏览器一侧要新增一个宿主能力的扩展，并改 browser-host.md / views.md 的 `window.plugins` 描述，计划第 4 节的表里没有。
+建议：3.5 补一张“数据来源表”：每个字段（入口状态、被拒贡献）在服务端入口、浏览器入口、项目入口各从哪取；明说要扩 `window.plugins`（例如 `catalog()` 与 `rejected()`）并改相应 Spec；`entries`、`rejected` 只放在 `list` 的返回里（单独的 `PluginListItem` 子类型）；写明刷新策略（进入页面读一次、写操作后重读、浏览器一侧订阅 `onChange`，服务端一侧不刷新并在页面上写“状态为打开页面时的快照”）。
+
+[D11] 重要 / 界面（信息层级与版式，需要开发者看图）/ 计划 3.5 “行里显示显示名与描述；有失败…逐条列出（危险色），没有时不占位”；PluginsPage.md“布局”第 4 条、“不支持”；PluginsPage.vue:355-367、CSS .plugins-page__reason/.plugins-page__heading
+现象与冲突点（逐项）：
+1. 现有一行的结构是 左：`id` + 版本 + 徽标（内置、待生效、没有登记的原因）、徽标下面另起一行原因（次要文字色 `--text-secondary`）；右：开关与卸载。严重程度靠徽标的 tone（danger/neutral）表达，原因行不上色。计划新增的入口失败与被拒贡献用“危险色文字逐条列出”，和现有“danger 徽标 + 次要色原因行”的模式不一致；同一页里两种表达“出错了”的方式。建议沿用：行上加一个 danger 徽标（例如“1 个入口失败”“2 条贡献被拒”，放在 `.plugins-page__heading` 里），下面用次要色逐条写原因，和 `notLoaded` 的 `showDetail` 同一写法。
+2. 显示名与 id 谁是主标题没定。现在 `id` 是主文字（`.plugins-page__id`，text-sm、main 色），`data-plugin-row` 与开关/卸载的 aria-label（“启用 {id}”）都用 id；页面文案与 e2e 都按 id 找。若显示名当主标题，id 变成次要信息，aria-label、e2e 选择器、组件测试的断言要一起改；若 id 仍主，显示名只是附加，对 F20（“第三方插件行只显示 id 和版本串”）没有解决。这是首屏信息层级，应当出静态稿让开发者选（design-review 技能的“注意力排序”）。
+3. 描述放哪：行已经有三层（标题行、徽标、原因行），第四层再放描述，长描述在窄屏（行左边最小 240px）下会拉高所有行。多数行（内置插件）没有描述（D09）。需要定：单行截断还是换行、内置组是否显示。
+4. 与现有的 `notLoaded` / `BlockedPluginSchema` 重叠：入口 `blocked` 的原因（版本不匹配、缺服务、依赖成环、经依赖传递受阻）已有一套枚举和文字（预览对话框在用），`notLoaded` 的“不兼容”等是整个插件没登记。计划新写“一句原因”的自由文本，会出现同一个原因两套文字、en-US 界面下还是中文。建议入口失败的原因复用这套枚举，只有“激活抛错”才带原文。
+5. 文案/无障碍：列出的失败行是静态信息，不要加 `role="alert"`（页面顶部的失败说明区已经是 alert，用于操作失败）；只靠“危险色”表达不够，要加图标或文字前缀。
+6. “只在有问题时才列”与 `entries` 带 `active | inactive` 不一致：服务端传了每个入口的完整状态，界面却只展示 failed/blocked，F20 想要的“入口：server 已激活 / browser 已激活”没有出现。要么界面只收问题（合同字段缩成 `failures`），要么给一个折叠的“入口”小节；`inactive` 对按需激活的浏览器入口是正常状态，直接显示“未激活”会被读成故障。
+7. 项目入口“只列出在作品里运行”是另一行文字，位置没说；内置插件几十个，它们的入口失败也会出现在“内置插件”组里，行数和样式一样。
+8. PluginsPage.md 的“不支持”一节明写“不显示插件入口的运行状态与受阻原因”，数据一节的 data-* 约定、状态一节也要改；计划第 4 节的表只写了 `plugin-install.md`，没有列 PluginsPage.md 与 Lab 夹具（lab/web/fixtures/index.ts:1038 的 PluginsPage 场景）。
+建议：S5 的界面一提交之前，用 design-review 技能出一轮静态稿，问两件事：显示名与 id 谁是主标题；问题展示用“徽标 + 次要色原因”还是“危险色逐条”。其余按上面 4、5、6 项在计划里写定。
+
+[D12] 重要 / 与现有流程的关系 / 计划 3.6 命令面板通知；WorkbenchCommandPalette.vue:126-129、149；palette-host.ts；workbench/web/notifications.ts；docs/specs/workbench/commands.md:103
+现象与问题：
+1. 机制写错了：计划说“用 nb-ui 的 useNotification”。工作台已经有本窗口的通知服务 `notificationsKey`（workbench/web/plugin.ts:92、180 提供，notifications.ts 包着 nb-ui 的队列，页面根有 NotificationStack），其它插件都经它发通知；直接用 nb-ui 的 composable 会另起一个队列，不会显示。面板宿主 `createPaletteHost` 现在只收 `commands`、`locale`、`onVisibleChange`，也没有通知入口：产品页的 `WorkbenchCommandHost` 和 Lab 命令场景各建一份，要加可选的 `notify`，Lab 不接时退回现状（commands.md:103 写 Lab 在检视区的 role=alert 区域呈现）。
+2. 面板对命令参数永远传 `{}`（WorkbenchCommandPalette.vue:149 `pending = {id, args: {}, ...}`），所以带必填参数的命令在面板里必然 invalid-args。F12 的根因是“面板列出了一个它一定执行不了的命令”。事后弹通知能让作者知道，但用户（装了别人插件的人）每次点都白弹一次。更根本的做法：面板的候选里排除 `args` 有必填项的命令（`visibleCommands` 已经在按 `expose.human` 与 isEnabled 过滤），或者保留候选、选中时提示。再配合 SDK：`plugin.command` 在模块加载时检查 args 有必填项且没设 `expose.human: false` 就抛带命令名的错误，作者在构建/启动时就知道，而不是点命令时才知道。
+3. “哪些失败不该弹”：计划只排除 `denied` 和用户取消。实测面板路径（source: "user"）上：`confirmation-required`/`not-exposed`/`read-only` 只对 Agent 调用出现，不会发生；`denied` 对用户来源也会出现（commands.md:149 配置写入失败 `denied` → `denied`），排除它等于吞掉“设置写入被拒”这类真实失败；`stale-target`（等待期间条目被替换、视图被移走）是用户操作造成的，再弹一条是噪声；“用户取消选择”是成功不用管。建议按码列表：弹 `invalid-args`、`execution-error`、`unavailable`、`unknown-command`；`denied` 弹但文案用 reason；`stale-target` 不弹。已经自己呈现了失败的命令（比如 QuickPick 选择后写入失败自己 notify）会重复弹，在 commands.md 里写一句约定。
+4. 通知的 tone 与时长：notifications.ts 的 `durationOf` 对 `error` 一律常驻（不自动消失），面板里点错一个命令就留一条常驻错误通知并叠起来；应当用 `warning` 或明确 `sticky: false`，并说明同一命令连续失败是否合并。
+5. 文案要走 palette-messages.ts（双语，按显示语言），“这个命令需要参数，命令面板不收集参数”写进去；`reason` 是命令表按求值时语言给的，不要再拼一次。
+6. 现行 Spec（commands.md:103）写的是“产品页记入诊断”，不弹；计划第 4 节表里写了改 `workbench/commands.md`，要改的是这一句和“键位分发”那一条：快捷键触发同一个命令得到的 `invalid-args` 走 keymap 的 `report`（只记诊断），计划没说键位路径要不要同样提示，两条触发路径行为不一致。
+建议：3.6 改成“经 notificationsKey；排除必填参数命令（或选中提示）；弹的码清单；tone；两条触发路径一致”，并把 SDK 的加载时检查写进 3.3 的 `command`。
+
+[D13] 重要 / 遗漏（F 条目覆盖）/ 计划第 1 节问题清单、第 6 节验收映射
+逐条对照作者体验报告（只列没覆盖或处理方式不解决原问题的）：
+- F09 b（视图属性名对不上）：没处理也没写进“不做”，见 D04，可以做。
+- F20：界面只展示失败，不展示“入口已激活”“贡献了哪些视图/命令”；原报告还指出升级行写“重启后升级到 0.1.0”而安装对话框写“降级插件”措辞不一致，计划没提（PluginsPage.vue 里 pending 文字与 PREVIEW_TEXT 的关系）。见 D11 第 6 项。
+- F13 的第二半（locations 与入口不一致）：计划只在构建时核对。原报告建议“locations 删掉，由入口模块推出”，计划保留 `definePlugin({locations})` 再加核对，作者仍是两处写一样的信息；可以接受，但要在文档里承认，不要写成“只写一次”（见 D15）。
+- F11（id 前缀错）：助手路径解决了；但 `plugin.entry` 仍收“原始声明”（3.3），原始声明的 id 写错前缀依旧静默，必须靠 3.5 的“被拒贡献”兜底。验收映射里没有“原始声明被拒时插件页能看到”这条。
+- F12：弹通知只解决“知道出错”，见 D12 第 2 项。
+- F04/F17：narrow scope 与 `register` 的签名没定（D08）；“SDK 根入口去掉作者用不到的名字”一条，计划实际只把 `provide` 改名，其余按 t13 保留，F17 的“IDE 补全里几十个用不到的名字”没有变化，计划应明说“只做改名，不拆 /advanced”并在 README 里给出“作者常用名字”清单。
+- F06 (3)（locality 缺省）：3.4 做了；但 F06 (1) 的“插件页每行显示入口状态”依赖 D10 的数据通路。
+- 验收映射缺项：没有覆盖 3.7 的 README/模板改动之外的判据（例如“示例的 `typecheck` 通过”）、`plugin.entry` 里混用原始声明、激活事件自动并入（D06）、助手 name 格式校验（D07）。
+
+[D14] 建议 / 验收 / 计划第 7 节“作者体验的最终检验…主会话自己做，不派子代理”
+现象：最终检验让写计划与实现的同一个主会话按文档写一遍“每日字数目标”。原来的发现是 Sonnet 以第三方作者身份从空白上下文写出来的（t12）。
+为什么：作者体验类缺陷（文档缺前置条件、报错难读）恰恰是熟悉实现的人看不见的；同一个会话做检验，F08、F14 这类“文档缺什么”几乎不会再发现。
+建议：S4/S5 完成后再派一次空白上下文的作者（Sonnet，沿用 t12 的做法与任务说明）验收，主会话自己做的那遍留作冒烟。不增加范围，只是换谁来跑。
+
+[D15] 建议 / 文档（承诺过头）/ 计划第 1 节与 3.3 的措辞“id 只写一次”
+现象：实现后插件 id 仍写在 package.json（publisher.name）、`definePlugin({id})` 两处（F15 已定不做），版本写在 package.json 与 `definePlugin({version})` 两处（构建核对一致），运行位置写在 `locations` 与入口文件存在两处（构建核对）。真正只写一次的是“贡献 id”（短名）。
+为什么：README 若沿用“id 只写一次”的说法，作者改了 package.json 的 name 忘了 `definePlugin`，得到的是构建期的不一致报错，和 F15 的抱怨是同一件事。
+建议：README 和 Spec 的措辞限定为“贡献的 id 只写短名”，并列出“仍需手工保持一致的三项，不一致时构建报错”。
+
+[D16] 建议 / 校正
+D07 里“视图、命令、状态栏的 id 段都是 [a-z][a-z0-9-]*”不完全准确：视图与条目是 `[a-z][a-z0-9-]*`（views.ts、items.ts 的 VIEW_ID/ITEM_ID），命令的段允许数字开头（registry.ts:79 `[a-z0-9][a-z0-9-]*`），设置项名是小驼峰（settings.ts NAME），三者不同，更说明助手要各自校验。
+
+## 未发现问题的方面
+- 状态栏条目的 `command` 直接收命令助手返回值：声明里的 `command` 只是 `{id, args?}`（items.ts CommandReference），助手取 `id` 即可，没有类型或运行时障碍。
+- 缺省值（A4）：alignment/order/priority、location/layout、`args` 缺省空对象都在现有声明 schema 的可选范围外补默认，线上格式不变，没有发现冲突；`effect` 仍必填的理由成立（只读模式依据）。
+- F19（create 去 npm init 占位）、F01/F14（tarball 与示例随包）：前者 3.7 写得明确，后者已在 t13 S4 落地。
+- 键对象与数组两种写法在类型上都能做到“漏一项编译报错”；问题只在判据措辞与重复项（D02）。
+- 文字字段收 `string` 或 `LocalizedText`：没有发现冲突；`description` 是给 Agent 的英文单字符串，文档里提醒它不是 LocalizedText 即可。
+
+## 数量
+阻断 1（D01）；重要 11（D02 D03 D04 D05 D06 D08 D09 D10 D11 D12 D13）；建议 3（D07 D14 D15）；D16 是对 D07 的校正，不计数。共 15 条。

@@ -36,99 +36,126 @@ t12 让 Sonnet 以第三方作者身份从零写了一个插件（[作者体验�
 - `RemoteOutcome<Method>` 的失败一支按码分布：`{ok: false; code: C; detail?: Static<Method["errors"][C]>}`，`detail` 按合同的 schema 检查，写错形状编译报错。现有提供方（内置插件、示例）里不合的详情随之改正。
 - `defineRemoteService` 对方法的 `input` 与事件的 `filter`：没写 `additionalProperties` 的对象 schema 补成 `false`（返回新的冻结合同，不改作者传进来的对象）；显式写了 `true` 的仍报错（A5 的远程一半）。
 
-### 3.2 内核 `packages/nb-runtime/src/plugins/`：`provide` 改名、激活上下文对作者收窄（A6、A2 的一部分）
+### 3.2 内核 `packages/nb-runtime/src/plugins/`：`provide` 改名、`unavailable` 带原因（A6、A7 的远程一半）
 
-- `provide` 改名 `provideService`，`providePerConsumer` 改名 `provideServicePerConsumer`，旧名删除（SDK 未发布，内置插件与示例一起改）。
-- 激活上下文的作用域：新增类型 `AuthorActivationContext`，`scope` 收窄为 `{register(release: () => void | Promise<void>): void}`（只能登记“入口停止时做的事”），其余成员不变。内核的 `ActivationContext` 不变；SDK 的入口助手（3.3）给作者的是收窄后的类型。`register` 落到内核作用域的哪个调用、释放先后，实现时读 `lifecycle` 的作用域合同确定，写进 Spec。
-- 远程调用失败为 `unavailable` 时（提供入口激活失败、受阻），`detail` 带上原因与错误的一句消息，例如 `提供入口 acme.x/server 不可用：activate/activation-threw：local 记录 progress 需要客户端身份`（A7 的远程一半，`host.ts` 构造 reason 处）。
+- `provide` 改名 `provideService`，`providePerConsumer` 改名 `provideServicePerConsumer`，旧名删除（SDK 未发布，内置插件与示例一起改）。SDK 根入口的其余名字（`defineServiceKey`、`defineStore`、`definePublicState`、宿主能力与诊断的键）按 t13 已定保留，不拆 `/advanced`（F17 只做改名）；作者文档给一张“常用名字”清单。
+- 远程调用失败为 `unavailable` 时（提供入口激活失败、受阻），`detail` 带上原因与错误的一句消息，例如 `提供入口 acme.x/server 不可用：activate/activation-threw：local 记录 progress 需要客户端身份`（`host.ts` 构造 reason 处，激活结果里有错误时取它的 `message`）。
 
 ### 3.3 SDK `packages/neuro-book/src/sdk/`：`definePlugin` 与贡献助手（A2、A3、A4）
 
-新模块 `src/sdk/plugin.ts`（经 SDK 根入口导出），浏览器专有的助手在 `src/sdk/browser.ts`。只建在已有的内核与内置插件合同之上，内置插件不改用它。
+助手只建在已有的内核与内置插件合同之上，内置插件不改用它。分两处（计划审查 D01）：SDK 根入口（服务端也加载，不能带 Vue）的 `definePlugin` 只带不碰 Vue 的助手；要 Vue 或只在浏览器有意义的助手是 `/browser` 的独立函数，第一个参数是 `plugin`，读它的 id 拼贡献 id。
 
 ```ts
-// plugin.ts（作者的插件描述）
+// plugin.ts（插件描述，服务端与构建预设也读它）
 export const plugin = definePlugin({id: "acme.hello", version: "0.1.0", locations: ["server", "browser"]});
-export const greeting = plugin.setting({name: "greeting", schema: Type.String(), default: "你好", title: "问候语", section: "main", group: "basic"});
-export const section = plugin.section({name: "main", title: "你好", icon: "i-lucide-hand", groups: [{id: "basic", title: "基本"}]});
-export const descriptor = plugin.descriptor([greeting, section]);
+export const main = plugin.section({name: "main", title: "你好", icon: "i-lucide-hand", groups: [{id: "basic", title: "基本"}]});
+export const greeting = plugin.setting({name: "greeting", schema: Type.String(), default: "你好", title: "问候语", section: main, group: "basic"});
+export const descriptor = plugin.descriptor([main, greeting]);
 
 // web/plugin.ts
-const view = plugin.view({name: "panel", title: "你好", icon: "i-lucide-hand", load: () => import("./HelloView.vue")});
+import {settingsPage, statusItem, view} from "@notnotype/nb-plugin-sdk/browser";
+const panel = view(plugin, {name: "panel", title: "你好", icon: "i-lucide-hand", load: () => import("./HelloView.vue")});
 const say = plugin.command({name: "say-hello", title: "打个招呼", description: "Count one more greeting", effect: "write"});
-const status = plugin.statusItem({name: "count", title: "问候次数", command: say});
+const count = statusItem(plugin, {name: "count", title: "问候次数", command: say});
 export const browserPlugin = plugin.definition([plugin.entry({
     location: "browser",
     activationEvents: ["onStartup"],
     dependencies: [{key: settingsKey}],
-    contributions: [view, say, status],
+    contributions: {panel, say, count},
     activate: (context) => {
-        const count = ref(0);
-        return {contributions: [
-            view.implement(() => ({count: count.value})),
-            say.implement(() => { count.value += 1; return {ok: true, value: count.value}; }),
-            status.implement({text: () => String(count.value)}),
-        ]};
+        const total = ref(0);
+        return {contributions: {
+            panel: panel.implement(() => ({count: total.value})),
+            say: say.implement(() => { total.value += 1; return {ok: true, value: total.value}; }),
+            count: count.implement({text: () => String(total.value)}),
+        }};
     },
 })]);
 ```
 
-- **`definePlugin({id, version, locations})`**：`const` 推导插件 id 的字面量。返回的对象：
-  - `setting`、`settings`（等同现有 `defineSettings`）、`section`（list 分区，`category` 缺省 `plugins`）、`settingsPage`、`choices`、`view`、`command`、`statusItem`：只收短名 `name`，id 由 SDK 拼成 `<插件 id>.<name>`（设置项是 `<插件 id>/<name>`，与现在一致），类型上是字面量（A3）；
-  - `descriptor(声明式贡献)`：插件描述，`contributions` 收设置项与分区等助手的返回值；
-  - `entry(…)`、`definition(入口…)`：见下。
-- **贡献助手的返回值**：`{id, contribution, implement(…)}`。`implement` 返回带贡献点与 id 的“已绑定实现”；没有实现的（list 分区、设置项）没有 `implement`。视图与设置页的 `implement(props?)` 同现有 `implementation(props?)`；命令的 `implement(run)`；状态栏条目的 `implement({text, tooltip?, state?})`。
-- **`plugin.entry`**：`contributions` 收助手的返回值（也收现有的原始声明，供不在助手里的贡献点）；激活产出的 `contributions` 写成已绑定实现的数组，SDK 换成内核的 `{[贡献点]: {[id]: 实现}}`。类型核对：产出数组里的 id 集合恰好等于声明的 id 集合，缺的与多的各成一个以问题命名的属性（`缺少贡献实现：acme.hello.count`、`多写的贡献实现：…`），编译错误的第一行就写明缺哪一项（F10）。服务、远程服务、接收者的核对沿用内核 `defineEntry`；`entry.id` 缺省取运行位置名。激活上下文是 3.2 的收窄类型。
-- **缺省值（A4）**：文字字段收 `string`（两种语言同一句）或 `LocalizedText`，助手里统一成 `LocalizedText`，线上的声明格式不变；状态栏条目 `alignment` 缺省 `right`、`order` 与 `priority` 缺省 0；视图 `location` 缺省 `sidebar`、`layout` 缺省 `scroll`；命令 `args` 缺省空对象 schema；`effect` 仍必填（只读模式拦截 Agent 的唯一依据，不猜）；状态栏条目的 `command` 可以直接给命令助手的返回值。
-- **SDK 根入口去掉作者用不到的名字（F17 的取舍）**：`provide`、`providePerConsumer` 随改名换成新名；`defineServiceKey`、`defineStore`、`definePublicState`、`diagnosticsKey`、`hostClockKey`、`hostStateRootKey` 按 t13 已定保留（公开 API，补文档）。`/components` 已逐个列名（t13）。
+- **`definePlugin({id, version, locations})`**（根入口）：`const` 推导插件 id 的字面量。返回的对象上：
+  - `section({name, …})`：list 分区，`category` 缺省 `plugins`，`groups` 的 id 推成字面量联合；
+  - `setting({name, section?, group?, …})`、`settings({…})`：返回现有的 `SettingDefinition`（`settings.get(定义)` 照旧），`section` 收分区助手（类型推出 id，`group` 只能是那个分区的组 id）；引用别的插件的分区时才写分区 id 字符串（计划审查 D05）；
+  - `command({name, args?, …})`：`args` 缺省空对象 schema，没写 `additionalProperties` 的补成 `false`（D07）；`args` 有必填属性而没写 `expose.human: false` 时加载即抛错，写明“命令面板不收集参数”（D12）；
+  - `descriptor(声明式贡献)`、`entry(…)`、`definition(入口…)`。
+- **`/browser` 的助手**：`view(plugin, {name, load, …})`、`settingsPage(plugin, {name, load, …})`、`statusItem(plugin, {name, …})`、`choices(plugin, {name, …})`。它们带“只在浏览器”的位置标记，`plugin.entry({location: "server", contributions: {panel}})` 编译报错（D01）。
+- **短名**：每个助手调用时按对应贡献点的 id 规则校验 `name`（视图与条目一段 `[a-z][a-z0-9-]*`，命令一段 `[a-z0-9][a-z0-9-]*`，设置项名小驼峰点分），不合抛带名字的 TypeError，不留到登记时静默被拒（D07、D16）。贡献 id 是 `<插件 id>.<name>`（设置项 `<插件 id>/<name>`），类型上是字面量（A3）。
+- **助手的返回值**：`{id, contribution, implement(…)}`；没有实现的（分区、设置项）没有 `implement`。`implement` 返回带贡献点、id 与位置的“已绑定实现”。
+  - 视图与设置页的 `implement(props?)`：属性的类型从 `load` 推出（`load: () => import("./X.vue")` 在 vue-tsc 下带组件的 `$props`），去掉宿主给的 `context`；必填属性漏写、写错名或类型不对编译报错，可选属性的笔误查不出（文档写明）；纯 tsc 下退化成不检查（F09 b，D04）。
+  - 命令 `implement(run)`；状态栏条目 `implement({text, tooltip?, state?})`；选项来源 `implement(source)`（`SettingsChoicesImplementation`）。
+- **`plugin.entry`**（键对象写法，D02）：
+  - `contributions: {键: 助手}`，激活产出 `contributions: {键: 助手.implement(…)}`；产出的类型由声明映射出来：漏一项报 “Property 'x' is missing”，换错助手报两种已绑定实现不兼容，同一项写两次在语法上不可能；多写的键沿用内核 `defineEntry` 的以问题命名的属性（`多写的贡献实现：x`）。`activate` 可以是 async。
+  - 不经助手的贡献（自定义贡献点 `contributionPoints` 与 `receives`、向别的插件的点提交、`defineStore`/`definePublicState` 产出的公开状态）写在 `raw`：声明 `raw: [原始声明…]`，产出 `raw: {[贡献点]: {[id]: 实现}}`，原样并进内核格式，核对沿用内核 `defineEntry`（D03）。S2 的测试覆盖 counter 与 file-menu 的写法。
+  - 助手带的激活事件（设置页的 `onSettingsPage:`、选项来源的事件）自动并入 `activationEvents`，与显式写的去重（D06）。
+  - `entry.id` 缺省取运行位置名；同一插件同一位置有两个入口时要显式写 `id`（定义时报错）。
+  - 激活上下文对作者收窄（A2）：`scope` 只留 `register`（签名不变，仍收 `{kind, label, value, release}`），没有 `acquire`、`borrow`、`accept`、`recover` 等；其余成员不变。运行时传进去的仍是内核的上下文，只是类型窄。`defineStore(…).create` 与 `definePublicState` 改收它们实际用到的最小接口（`plugin`、`entry`、`signal`、`scope.register`），内核上下文与作者上下文都满足（D08）。
+- **缺省值（A4）**：文字字段收 `string`（两种语言同一句）或 `LocalizedText`，助手里统一成 `LocalizedText`，线上的声明格式不变；`description`（给 Agent 的英文说明）仍是单个字符串。状态栏条目 `alignment` 缺省 `right`、`order` 与 `priority` 缺省 0；视图 `location` 缺省 `sidebar`、`layout` 缺省 `scroll`；`effect` 仍必填（只读模式拦截 Agent 的唯一依据，不猜）；状态栏条目的 `command` 收命令助手的返回值。
+- **措辞**：作者只写一次的是“贡献 id 的短名”；插件 id、版本、运行位置仍在 `package.json`、`definePlugin` 与入口文件里各写一处，不一致时构建报错（F15 已定不做），文档照实写（D15）。
 
 ### 3.4 记录 `packages/neuro-book/src/shared/storage.ts`（A5）
 
 - `defineRecord` 的 `locality` 改为必填（类型与校验都要求），不再缺省 `local`。
 - `schema` 是没写 `additionalProperties` 的对象时补成 `false`；显式 `true` 仍报错。
-- 内置插件与示例里省略了 `locality` 的记录逐个补上（行为不变，补的就是原来的缺省 `local`）。
+- 内置插件与示例里省略了 `locality` 的记录逐个补上（行为不变，补的就是原来的缺省 `local`；已存的数据不受影响）。
 
 ### 3.5 出错可见（A7）
 
-- **插件页**（`src/plugins/plugins/`）：
-  - 合同 `list` 的每项加 `displayName`、`description`（取清单）、`entries`（每个入口：运行位置、状态 `active | inactive | failed | blocked`、失败或受阻的一句原因）、`rejected`（被拒的贡献：贡献点、id、原因）。服务端入口的状态与被拒贡献由服务端宿主经插件管理给出（`inventory` 收一个读本实例插件状态的函数，宿主建它时传入）；浏览器入口的状态与被拒贡献由插件页在本窗口经 `window.plugins` 与内核查询补上；项目入口只列出“在作品里运行”，不显示状态（各作品一个实例，插件页不跨实例查询）。
-  - 行里显示显示名与描述；有失败、受阻的入口或被拒的贡献时，行下面逐条列出（危险色），没有时不占位。外观按现有插件页的行与徽标，交 Sonnet 前端审查。
-- **构建预设**（`src/plugin-platform/build/`）：插件描述的 `locations` 与实际有入口的运行位置不一致时构建失败，列出多的与少的（F13 的第二半；第一半“忘了 export”t13 S2c 已做）。
-- 远程调用 `unavailable` 的原因见 3.2。
+**数据来源**（D09、D10）：
 
-### 3.6 命令面板（A8，`src/plugins/workbench/web/` 的面板与 `nbook.commands`）
+| 字段 | 服务端入口 | 浏览器入口 | 项目入口 |
+|---|---|---|---|
+| 入口状态（失败、受阻） | 服务端宿主的内核 `catalog()`，经插件管理（`inventory` 收一个读本实例目录的函数，宿主建它时传入） | 本窗口的内核目录，经 `window.plugins` 新加的 `catalog()`（纯查询） | 不显示（各作品一个实例，插件页不跨实例查询），行里写“另有在作品里运行的入口” |
+| 被拒的贡献 | 同上，`catalog()` 里每个插件的贡献与校验结果 | 同上 | 不显示 |
+| 显示名、描述 | 清单：加可选的 `displayName`（构建预设从 `package.json` 取，与 `description` 同路），只有第三方插件有 | — | — |
 
-从命令面板执行命令失败时（`invalid-args`、`execution-error`、`unavailable` 等，`denied` 与用户取消确认除外）弹一条通知：命令标题与失败原因（`reason`）。`invalid-args` 的原因写明“这个命令需要参数，命令面板不收集参数”。不做参数表单。
+- 合同：`list` 的返回改为专有的条目类型，带 `displayName`、`description`、`problems`（服务端入口的失败与受阻、服务端被拒的贡献）；`install`、`enable`、`disable`、`uninstall` 的返回不带这些（它们的结果重启后才生效，带运行状态会误导）。合同版本 3 升到 4。
+- 浏览器一侧：`nbook.plugins` 的浏览器入口加可选依赖 `windowPluginsKey`，插件页合并本窗口的问题；拿不到时（Lab、测试）只显示服务端的。
+- 原因的文字：入口受阻复用现有 `BlockedPlugin` 的原因枚举与双语文字；激活抛错带错误消息原文；被拒贡献按内核的拒绝原因给固定文字，再接贡献点与 id。
+- 刷新：打开页面读一次、写操作后重读、本窗口一侧订阅 `window.plugins.onChange`；服务端一侧是打开页面时的快照，页面上写明。
+- 界面（按现有行的写法，D11）：
+  - 第三方插件的行：主标题仍是 id（`data-plugin-row`、按钮的可访问名称、e2e 都按 id），有显示名时跟在 id 后面、次要文字色；描述在下面一行、单行截断、悬停看全文。内置插件没有清单，不显示这两项。
+  - 有问题时标题里加一个危险色徽标（“1 个入口失败”“2 条贡献被拒”），下面逐条用次要文字色写原因，与现有“没有登记的原因”同一写法；没问题时不占位。不列正常的入口（按需激活的入口没激活是常态）。不加 `role="alert"`。
+  - 待生效的降级写“重启后降级到 x”，与安装对话框的“降级插件”一致（F20）。
+  - `PluginsPage.md` 的“不支持”一节、数据属性约定与 Lab 场景随之改。外观交 Sonnet 前端审查，截图放进汇报。
+- **构建预设**（`src/plugin-platform/build/`）：插件描述的 `locations` 与实际有入口的运行位置不一致时构建失败，列出多的与少的（F13 的第二半）。
+
+### 3.6 命令面板（A8，`src/plugins/workbench/web/` 的面板与键位，D12）
+
+- 面板的候选里不列 `args` 有必填属性的命令（它们在面板里必然 `invalid-args`）；`plugin.command` 在加载时就拦下这种声明（3.3），作者在构建时知道。
+- 从面板或快捷键执行命令失败时，经工作台的通知服务（`notificationsKey`；面板宿主加可选的 `notify`，Lab 不接时照现状）弹一条警告级、会自动消失的通知：命令标题与 `reason`。弹的码：`invalid-args`、`execution-error`、`unavailable`、`unknown-command`、`denied`；不弹 `stale-target`（用户自己的操作让目标换了）。文案走 `palette-messages.ts` 的双语表。自己已经呈现了失败的命令会多一条通知，在 commands.md 写明约定。
+- 改 commands.md 里“产品页记入诊断”那一句与键位分发一条。
 
 ### 3.7 作者文档与 `create`（A9）
 
-- `plugin-sdk/README.md`：前置条件（怎样拿到能装插件的 NeuroBook、怎样重启，视图在作品窗口里才出现）；改用 3.3 的写法；订阅随入口停止自动释放，提前取消用订阅句柄；插件状态（`defineStore`）与公开状态（`definePublicState`）各一段；一段远程服务加订阅的完整代码（服务端提供、浏览器调用与订阅）；命令小节写明“给人用的命令参数要全部可选”；`ok`、`fail`。
-- 模板与 7 个示例插件改用 3.3 的写法；示例的教学注释随之改，场景测试照跑。
+- `plugin-sdk/README.md`：前置条件（怎样拿到能装插件的 NeuroBook、怎样重启，视图在作品窗口里才出现）；改用 3.3 的写法；订阅随入口停止自动释放，提前取消用订阅句柄；插件状态（`defineStore`）与公开状态（`definePublicState`）各一段；一段远程服务加订阅的完整代码（服务端提供、浏览器调用与订阅）；命令小节写明“给人用的命令参数要全部可选”；`ok`、`fail`；常用名字清单；视图属性只查必填属性。
+- 模板与 7 个示例插件改用 3.3 的写法，示例的教学注释随之改，场景测试照跑。
 - `create` 合并 `package.json` 时去掉 `npm init` 留下的占位：`main` 指向不存在的文件、`scripts.test` 是 npm 的缺省报错命令、空的 `keywords`。
 
 ## 4. Spec 与文档改动
 
 | 文件 | 改什么 |
 |---|---|
-| `runtime/plugin-api.md` | `definePlugin` 与贡献助手、短名、缺省值、收窄的激活上下文、`provideService` 改名、SDK 根入口的名字 |
+| `runtime/plugin-api.md` | `definePlugin` 与贡献助手（根入口与 `/browser` 的分工）、短名与校验、键对象的入口与 `raw`、激活事件并入、视图属性的推导、缺省值、收窄的激活上下文、`provideService` 改名 |
 | `runtime/plugin-channel.md` | `ok`、`fail`；业务失败的详情按码检查；`input`、`filter` 自动补 `additionalProperties: false`；`unavailable` 的详情带原因 |
 | `runtime/services.md`、`runtime/plugins.md` | `provide` 改名 |
+| `runtime/plugin-manifest.md` | 清单加可选 `displayName` |
 | `storage/persistence.md` | `locality` 必填、schema 自动补 |
-| `runtime/plugin-install.md` 与插件页所在的 Spec | `list` 的新字段；插件页显示显示名、描述、入口状态与被拒的贡献 |
+| `runtime/plugin-install.md`、`settings/settings-window.md`（插件页） | `list` 的专有条目与新字段、合同版本 4；插件页的显示名、描述与问题 |
+| `runtime/browser-host.md`、`workbench/views.md` | `window.plugins` 加 `catalog()` |
 | `runtime/plugin-code-loading.md` | 构建核对 `locations` |
-| `workbench/commands.md` | 命令面板执行失败的通知 |
-| ADR 0026、0027 | 不改（只是作者层的助手） |
+| `workbench/commands.md` | 面板不列必填参数的命令；执行失败的通知（面板与快捷键） |
+| `PluginsPage.md`、Lab 场景 | 见 3.5 |
 
 ## 5. 切片
 
 | 片 | 内容 | 提交 | 自跑验证 |
 |---|---|---|---|
 | S1 | 3.1、3.2：`ok`/`fail`、按码的详情、合同自动补 schema、`provideService` 改名、`unavailable` 带原因；内置插件与示例跟上 | 一提交，Spec 同步 | 内核 `bun test`；应用 `bun run typecheck`、`bun run test` |
-| S2 | 3.3：`definePlugin` 与助手、`plugin.entry` 的类型核对（含编译期的反例测试）、收窄的上下文 | 一提交 | 应用测试；类型反例用 `@ts-expect-error` |
+| S2 | 3.3：`definePlugin`、`/browser` 助手、键对象的入口与 `raw`、名字校验、激活事件并入、属性推导、收窄的上下文与 `defineStore` 的最小接口 | 一到两个提交 | 应用测试；类型反例用 `@ts-expect-error`，并用 vue-tsc 编一个带 `.vue` 的作者项目核对属性推导 |
 | S3 | 3.4：记录 `locality` 必填与 schema 自动补 | 一提交 | 应用测试 |
 | S4 | 模板与 7 个示例改用新写法；作者文档（3.7）；`create` 去占位 | 一到两个提交 | 应用测试、`plugin-sdk` 测试、`plugin-authoring`、`plugin-code` e2e |
-| S5 | 3.5：插件页的入口状态、被拒贡献、显示名与描述；构建核对 `locations` | 服务端与合同一提交，界面一提交 | 插件页组件测试、`plugins` e2e、Lab 场景截图 |
-| S6 | 3.6：命令面板失败通知 | 一提交 | 面板组件测试、命令 e2e |
+| S5 | 3.5：清单 `displayName`、`window.plugins.catalog()`、`list` 的问题、插件页界面、构建核对 `locations` | 内核与服务端一提交，界面一提交 | 插件页组件测试、`plugins` e2e、Lab 场景截图 |
+| S6 | 3.6：面板不列必填参数的命令、失败通知 | 一提交 | 面板组件测试、命令 e2e |
 
 ## 6. 验收映射
 
@@ -137,21 +164,48 @@ export const browserPlugin = plugin.definition([plugin.entry({
 | 远程方法用 `fail("too-many", {max: 1})` 不写 `as const` 能编译；详情形状不对、码不在合同里编译报错 | 内核类型反例测试 |
 | 合同的 `input` 没写 `additionalProperties` 时被补成 `false`，多余字段被拒 | 内核远程合同测试 |
 | 提供入口激活失败时调用方的 `unavailable` 带错误消息 | 内核远程测试 |
-| 助手拼出的 id 是 `<插件 id>.<name>`；产出漏一项、多一项编译报错，报错第一行写明哪一项 | SDK 类型测试 |
+| 助手拼出的 id 是 `<插件 id>.<name>`；名字不合规则加载时抛错 | SDK 单元测试 |
+| 入口产出漏一项、多一项、换错助手编译报错，报错里写明哪一项；服务端入口收浏览器助手编译报错 | SDK 类型反例 |
+| `raw` 里的原始声明与实现照内核核对；counter、file-menu 的写法能表达 | SDK 测试与示例场景 |
+| 设置页、选项来源的激活事件自动并入 | SDK 测试 |
+| 视图 `implement` 的必填属性写错名编译报错（vue-tsc） | 仓库外作者项目的类型检查（`plugin-sdk/pack.test.ts`） |
 | 文字写字符串时两种语言相同；缺省值按 3.3 | SDK 单元测试 |
+| 命令 `args` 有必填属性而人类可见时加载抛错；面板不列这种命令 | SDK 测试、面板测试 |
 | `defineRecord` 不写 `locality` 编译报错并在加载时抛错 | 记录测试 |
-| 插件页列出失败入口与原因、被拒贡献、显示名与描述 | 插件页组件测试、`plugins` e2e |
+| 插件页列出服务端与本窗口的失败入口、被拒贡献（含原始声明的前缀写错）、显示名与描述；写方法的返回不带运行状态 | 插件页组件测试、`plugins` e2e |
 | 构建时 `locations` 与入口不一致失败 | 构建预设测试 |
-| 命令面板执行参数不合规的命令弹出通知 | 面板测试 |
-| 模板按新写法 `create`、构建、安装、运行 | `plugin-authoring` e2e |
+| 面板与快捷键执行失败弹通知，`stale-target` 不弹 | 面板测试 |
+| 模板按新写法 `create`、类型检查、构建、安装、运行；7 个示例的类型检查与场景测试通过 | `plugin-authoring` e2e、应用测试 |
 
 ## 7. 验证
 
-每片跑上表的命令；S4、S5 结束跑插件相关的三份 e2e；收口前跑全量 e2e。作者体验的最终检验：S4 之后按作者文档在仓库外写一遍 t12 的“每日字数目标”插件（主会话自己做，不派子代理），核对 F02、F03、F05、F09、F10、F11、F16 不再出现。
+每片跑上表的命令；S4、S5 结束跑插件相关的三份 e2e；收口前跑全量 e2e。作者体验的最终检验：S5 之后派一个空白上下文的 Sonnet，沿用 t12 的任务说明以第三方作者身份再写一遍“每日字数目标”插件，核对 F02、F03、F05、F06、F09、F10、F11、F12、F16、F20 不再出现；主会话自己按文档走的那一遍只作冒烟（计划审查 D14）。
 
 ## 8. 不做与风险
 
-- 不做：插件描述由 `package.json` 生成（F15）；命令参数的输入表单；插件页跨作品实例查询项目入口的状态；`NumberInput` 的数值类型（F18）。
-- 风险一：`plugin.entry` 的数组产出在类型上要按 id 集合核对，联合类型大时报错可能变长。S2 先写反例测试看报错的第一行，再定写法。
+- 不做：插件描述由 `package.json` 生成（F15）；命令参数的输入表单；插件页跨作品实例查询项目入口的状态，以及列出正常激活的入口与贡献清单（F20 的“展开显示贡献”）；内置插件的显示名与描述；`NumberInput` 的数值类型（F18）；SDK 根入口拆 `/advanced`（F17）。
+- 风险一：视图属性的推导依赖 vue-tsc 给 `.vue` 模块的类型；作者用纯 tsc 时不检查也不误报，文档写明。
 - 风险二：`RemoteOutcome` 按码分布后，现有提供方里不合的详情会编译报错，改动可能比预期多；按报错逐个改，不放宽类型。
 - 风险三：示例是教学材料，改写面大；场景测试守住行为，注释随之改。
+
+## 9. 设计审查的处理
+
+第一轮：Sonnet 审前端与作者体验部分（[报告](evidences/design-review-sonnet.txt)，阻断 1、重要 11、建议 3）；omp 审内核、服务端与计划整体（待开）。
+
+| 条 | 处理 |
+|---|---|
+| D01 | 成立：根入口不能带 Vue。浏览器助手改为 `/browser` 的独立函数，带位置标记，服务端入口收它编译报错 |
+| D02 | 成立：改用键对象写法，漏项与换错助手由 tsc 原生报，多写沿用 `NoExtraKeys`，`activate` 可 async |
+| D03 | 成立：不经助手的贡献写在 `raw`，原样并入内核格式 |
+| D04 | 成立：视图与设置页的属性从 `load` 推出，只查必填属性，文档写明 |
+| D05 | 成立：设置项的 `section` 收分区助手，`group` 推成那个分区的组 id |
+| D06 | 成立：助手的激活事件自动并入 |
+| D07、D16 | 成立：命令 `args` 自动补 `additionalProperties: false`；各助手按各自的规则校验短名 |
+| D08 | 成立，改法换小：作者上下文的 `scope` 只留现有签名的 `register`（design.md A2 原话“作用域只留 register”），不另造签名；`defineStore`、`definePublicState` 改收最小接口 |
+| D09 | 成立：清单加可选 `displayName`；内置插件不显示显示名与描述 |
+| D10 | 成立：补数据来源表；`window.plugins` 加 `catalog()`；`list` 专有条目、合同升版本；刷新策略 |
+| D11 | 成立：按现有行的写法（徽标加次要色原因行）；主标题仍是 id。显示名的位置是产品取舍，进待确认清单 |
+| D12 | 成立：经 `notificationsKey`；面板不列必填参数的命令；按码列出弹与不弹；警告级；快捷键同样 |
+| D13 | 成立：F17 写明只改名；验收映射补项；F20 的降级措辞并入 |
+| D14 | 成立：最终验收派空白上下文的 Sonnet |
+| D15 | 成立：措辞限定为“贡献 id 的短名” |
