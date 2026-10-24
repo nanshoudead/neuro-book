@@ -10,10 +10,11 @@ import {join} from "node:path";
 import {toolCall, type ScriptedInput} from "@notnotype/nb-harness/testing";
 
 import {openTestBook, type TestBook} from "../../testing/api";
-import {askScripted, prepareScripted, testConfig, toolResults} from "../../testing/qa";
+import {startEndpoint} from "../../testing/openai-endpoint";
+import {askScripted, prepareScripted, TEST_KEY_ENV, testConfig, toolResults} from "../../testing/qa";
 import {smallDataset} from "../../testing/sample";
 import {newQaRecordId, QaRecords} from "../core/qa-records";
-import {withoutFullText} from "./engine";
+import {askQuestion, continuationProblem, withoutFullText} from "./engine";
 import {QaError} from "./errors";
 import {EVENT_RESULT_CHARS} from "./web-events";
 
@@ -564,5 +565,140 @@ describe("网页问答用的观察与轮次（t13）", () => {
         const projected = withoutFullText(user(text), "真问题") as unknown as {message: {content: {text: string}[]}};
         expect(projected.message.content[0]!.text).toBe("真问题\n\n（已附阅读位置以前的全部原文，共 3 段，这里不显示）");
         expect(withoutFullText(user(text), "别的问题")).toEqual(user(text));
+    });
+});
+
+async function storedEntries(id: string): Promise<{seq: number; kind: string; key?: string; value?: unknown; tools?: {name: string}[]}[]> {
+    const generation = (await book.api.library.readMeta("fox")).generation;
+    const {log} = await new QaRecords(book.api.library, "fox").getWithLog(id, generation);
+    if (!log.ok) throw new Error(log.problem);
+    return log.jsonl.split("\n").filter(Boolean).map(line => JSON.parse(line) as never);
+}
+
+describe("Markdown 作答与出处复查（t16）", () => {
+    const markdown = {answer: "markdown" as const};
+    const read55 = [read("r1", {chapter: 38, paragraph: 55}, {chapter: 38, paragraph: 55})];
+    const toolNames = (model: {requests: readonly {tools?: readonly {name: string}[]}[]}, request: number) => (model.requests[request]!.tools ?? []).map(tool => tool.name);
+
+    test("Markdown 对话：模型看不到 answer，规则写 Markdown；出处都读过时不复查；续问仍没有 answer", async () => {
+        const {model, outcome, progress} = await askScripted(book, [read55, "结论：她就是地狱猫（38.55）。"], {at: P, ...markdown});
+        expect(toolNames(model, 0)).not.toContain("answer");
+        expect(toolNames(model, 0)).toContain("read");
+        const system = [model.requests[0]!.systemPrompt ?? []].flat().join("\n");
+        expect(system).toContain("直接用 Markdown 写回答");
+        expect(system).not.toContain("用 answer 工具交答案");
+        expect(outcome.result).toMatchObject({status: "answered", answer: null, reply: {text: "结论：她就是地狱猫（38.55）。", unverifiedRefs: []}});
+        expect(outcome.result).not.toHaveProperty("recheck");
+        expect(outcome.conversation.answer).toBe("markdown");
+        expect(model.requests).toHaveLength(2);
+        expect(progress.some(event => event.kind === "recheck")).toBe(false);
+        const entries = await storedEntries(outcome.result.id);
+        expect(entries[0]!.tools!.map(tool => tool.name)).not.toContain("answer");
+
+        const second = await askScripted(book, ["接着说（38.55）。"], {continueFrom: outcome.result.id, question: "然后呢"});
+        expect(toolNames(second.model, 0)).not.toContain("answer");
+        expect(second.outcome.result).toMatchObject({status: "answered", turn: 2, reply: {unverifiedRefs: []}});
+    });
+
+    test("结构化对话照旧有 answer；配置的 qa.answer 决定新对话的作答方式", async () => {
+        const structured = await askScripted(book, [read55, answer()], {at: P});
+        expect(toolNames(structured.model, 0)).toContain("answer");
+        expect(structured.outcome.conversation.answer).toBe("structured");
+        const byConfig = await askScripted(book, ["你好，我能回答这本书的问题。"], {at: P, config: testConfig({answer: "markdown"})});
+        expect(toolNames(byConfig.model, 0)).not.toContain("answer");
+    });
+
+    test("复查后改对：同一个 harness 再跑一次，第二次的回复是结果；日志里有复查的 meta；事件只处理一遍", async () => {
+        const {model, outcome, progress} = await askScripted(
+            book,
+            [read55, {content: "她是地狱猫（38.55、38.56）。", usage: {input: 10, output: 5}}, [read("r2", {chapter: 38, paragraph: 56}, {chapter: 38, paragraph: 56})], {content: "她是地狱猫（38.55、38.56），核对过了。", usage: {input: 20, output: 7}}],
+            {at: P, ...markdown},
+        );
+        expect(outcome.result).toMatchObject({status: "answered", reply: {text: "她是地狱猫（38.55、38.56），核对过了。", unverifiedRefs: []}, recheck: {unverified: 1, outcome: "rewritten"}});
+        expect(progress.filter(event => event.kind === "recheck")).toEqual([{kind: "recheck", refs: ["38.56"]}]);
+        // 两次 read 各一条进度：订阅不随第二次 turn 叠加。
+        expect(progress.filter(event => event.kind === "tool")).toHaveLength(2);
+        const recheck = model.requests[2]!.messages.at(-1) as {role: string; content: string};
+        expect(recheck.role).toBe("user");
+        expect(recheck.content).toContain("出处检查");
+        expect(recheck.content).toContain("38.56");
+        expect(outcome.result.usage.input).toBeGreaterThanOrEqual(30);
+        const entries = await storedEntries(outcome.result.id);
+        expect(entries.filter(entry => entry.kind === "meta")).toMatchObject([{key: "nb-story.reply-check", value: {unverified: ["38.56"]}}]);
+    });
+
+    test("复查后仍不对：照旧标出没核实的出处；只复查一次", async () => {
+        const {model, outcome} = await askScripted(book, [read55, "她是地狱猫（38.56）。", "她还是地狱猫（38.56）。"], {at: P, ...markdown});
+        expect(outcome.result).toMatchObject({status: "answered", reply: {text: "她还是地狱猫（38.56）。", unverifiedRefs: ["38.56"]}, recheck: {unverified: 1, outcome: "rewritten"}});
+        expect(model.requests).toHaveLength(3);
+    });
+
+    test("复查那一次出错：保留第一次的回复，记下复查没完成", async () => {
+        const {outcome} = await askScripted(book, [read55, "她是地狱猫（38.56）。", {content: "", stopReason: "error", error: {message: "上游断开"}}], {at: P, ...markdown});
+        expect(outcome.result).toMatchObject({status: "answered", error: null, reply: {text: "她是地狱猫（38.56）。", unverifiedRefs: ["38.56"]}, recheck: {unverified: 1, outcome: "failed"}});
+        expect(outcome.recordSaved).toBe(true);
+    });
+
+    test("复查那一次被取消：保留第一次的回复，记下取消", async () => {
+        const controller = new AbortController();
+        let release = (): void => undefined;
+        const gate = new Promise<void>(resolve => (release = resolve));
+        const {outcome} = await askScripted(book, [read55, "她是地狱猫（38.56）。", {content: "不会到这里", onRequest: () => (controller.abort(), release()), gate}], {at: P, ...markdown, signal: controller.signal});
+        expect(outcome.result).toMatchObject({status: "answered", reply: {text: "她是地狱猫（38.56）。"}, recheck: {unverified: 1, outcome: "aborted"}});
+    });
+
+    test("结构化对话的文字回复不复查", async () => {
+        const {model, outcome} = await askScripted(book, ["她是地狱猫（38.56）。"], {at: P});
+        expect(outcome.result).toMatchObject({status: "answered", reply: {unverifiedRefs: ["38.56"]}});
+        expect(outcome.result).not.toHaveProperty("recheck");
+        expect(model.requests).toHaveLength(1);
+    });
+});
+
+describe("每一轮的模型（t16）", () => {
+    const two = (() => {
+        const base = testConfig();
+        return {...base, providers: {test: {...base.providers!.test!, models: [{id: "scripted"}, {id: "other"}]}}, models: ["test/scripted", "test/other"]};
+    })();
+
+    test("这一轮按选的模型跑，记录写引用；续问没选就接着用上一轮的，选了就换", async () => {
+        const first = await askScripted(book, [answer()], {at: P, config: two, model: {model: "test/other"}});
+        expect(first.outcome.result.model).toBe("test/other");
+        const second = await askScripted(book, [answer()], {continueFrom: first.outcome.result.id, config: two});
+        expect(second.outcome.result.model).toBe("test/other");
+        const third = await askScripted(book, [answer()], {continueFrom: first.outcome.result.id, config: two, model: {model: "test/scripted"}});
+        expect(third.outcome.result.model).toBe("test/scripted");
+    });
+
+    test("不在候选里的模型：开始前报 qa_unconfigured，不发请求", async () => {
+        const failure = await askScripted(book, [answer()], {at: P, config: two, model: {model: "test/missing"}}).catch((error: unknown) => error);
+        expect((failure as QaError).code).toBe("qa_unconfigured");
+    });
+
+    test("早先版本的 Profile 开始的对话不能续问", () => {
+        const snapshot = {kind: "session_snapshot", seq: 1, at: "2026-10-01T00:00:00.000Z", profile: {key: "story-qa", version: "3"}, initial: {}, tools: []} as const;
+        expect(continuationProblem(snapshot)).toContain("早先版本");
+        expect(continuationProblem({...snapshot, profile: {key: "story-qa", version: "4"}})).toBeNull();
+        expect(continuationProblem(undefined)).toContain("没有快照");
+    });
+
+    test("同一对话来回换接口：Chat Completions、Responses、再回 Chat，请求照发，第一轮的日志不变", async () => {
+        const endpoint = startEndpoint([{kind: "text", text: "第一轮"}, {kind: "text", text: "第二轮"}, {kind: "text", text: "第三轮"}]);
+        try {
+            process.env[TEST_KEY_ENV] ??= "scripted-model-placeholder";
+            const provider = {baseUrl: endpoint.url, apiKeyEnv: TEST_KEY_ENV, models: [{id: "m"}]};
+            const config = {providers: {chat: {...provider, api: "openai-completions" as const}, resp: {...provider, api: "openai-responses" as const}}, models: ["chat/m", "resp/m"], model: {use: "chat/m"}, qa: {answer: "markdown" as const}};
+            const ask = (question: string, ref: string, continueFrom?: string) => askQuestion({api: book.api, at: P, mode: "graph", question, config, model: {model: ref}, ...(continueFrom === undefined ? {} : {continueFrom, at: undefined})});
+            const first = await ask("一", "chat/m");
+            const id = first.result.id;
+            const afterFirst = await storedEntries(id);
+            const second = await ask("二", "resp/m", id);
+            const third = await ask("三", "chat/m", id);
+            expect([first, second, third].map(outcome => outcome.result.reply?.text)).toEqual(["第一轮", "第二轮", "第三轮"]);
+            expect(endpoint.bodies.map(body => ("input" in body ? "responses" : "messages" in body ? "chat" : "?"))).toEqual(["chat", "responses", "chat"]);
+            expect((await storedEntries(id)).slice(0, afterFirst.length)).toEqual(afterFirst);
+        } finally {
+            endpoint.stop();
+        }
     });
 });

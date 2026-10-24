@@ -7,7 +7,8 @@
  *    与会话日志，书、这一代、阅读位置、做法与章数上限都取记录里的，账本带上前几轮读过的段。查询类失败在这里以
  *    StoryError 抛出，全读超上限与续问不了以 QaError 抛出：这时还没开始运行，不写记录。
  * 2. 为这一轮新建登记表、登记工具，建内存里的会话日志（续问时带着读回的旧条目）与 harness，`turn(问题)`。
- * 3. 按停止原因定这一轮的结果（输出 10）；不再提醒。
+ * 3. 按停止原因定这一轮的结果（输出 10）。Markdown 作答的回复里有没核实的出处时，在同一个 harness 上再跑一次
+ *    `turn` 让模型改一次（出处复查），之后不再提醒。
  * 4. 关 harness，把会话日志排成 JSONL 与对话记录一起保存。运行期间书库里不写任何东西：删除书的改名与
  *    递归删除不会和写入交错（见 core/qa-records.ts）。
  * 第 2、3 步里 harness 抛出的错误（不是作为结果返回的）都是本机故障：收成 `model_failed`（`local`）的失败轮，
@@ -25,16 +26,18 @@ import type {StoryApi} from "../core/api";
 import type {BookFeatures, Position} from "../core/dataset";
 import {StoryError} from "../core/errors";
 import type {PositionInput} from "../core/position";
-import {newQaRecordId, QaRecords, type QaConversation, type QaMode, type QaReply, type QaTurn, type QaUsage} from "../core/qa-records";
+import type {QaAnswerMode} from "../contract/qa-record";
+import {answerModeOf, newQaRecordId, QaRecords, type QaConversation, type QaMode, type QaReply, type QaTurn, type QaUsage} from "../core/qa-records";
 import {qaLimits, type QaConfig} from "./config";
-import {resolveQaModel, thinkingOption} from "./harness-model";
+import {resolveQaModel, thinkingOption, type QaModelChoice} from "./harness-model";
 import {QaError} from "./errors";
 import {ReadLedger} from "./read-ledger";
+import {recheckMessage} from "./rules";
 import profile from "./story-qa.profile";
 import {storyQaPlugin, type QaToolState} from "./tools";
 import {webEventOf, type QaAgentEvent} from "./web-events";
 
-export type QaProgress = {kind: "tool"; tool: string; text: string} | {kind: "rejected"; text: string} | {kind: "answered"};
+export type QaProgress = {kind: "tool"; tool: string; text: string} | {kind: "rejected"; text: string} | {kind: "recheck"; refs: string[]} | {kind: "answered"};
 
 export interface AskInput {
     api: StoryApi;
@@ -45,6 +48,13 @@ export interface AskInput {
     mode?: QaMode;
     question: string;
     config: QaConfig;
+    /**
+     * 这一轮用的模型与推理档。不给时：新对话用配置的默认模型；续问用这个对话最近一轮的模型（还在候选里时），否则用
+     * 默认模型。
+     */
+    model?: QaModelChoice;
+    /** 新对话的作答方式；不给时按配置的 `qa.answer`，再缺省是 Markdown。续问时不给（取记录里的）。 */
+    answer?: QaAnswerMode;
     /** 在这个对话里追问（qa.md 输出 26）。 */
     continueFrom?: string;
     signal?: AbortSignal;
@@ -147,6 +157,7 @@ interface Start {
     at: Position;
     mode: QaMode;
     maxChapters: number | null;
+    answer: QaAnswerMode;
     ledger: ReadLedger;
     /** 续问时读回的会话日志条目。 */
     entries: SessionEntry[] | null;
@@ -169,6 +180,7 @@ async function startNew(input: AskInput, started: number): Promise<Start> {
         at,
         mode,
         maxChapters,
+        answer: input.answer ?? input.config.qa?.answer ?? "markdown",
         ledger: new ReadLedger({paragraphs: book.meta.paragraphs, at, maxChapters, readAll: mode === "full"}),
         entries: null,
         firstMessage: mode === "full" ? await fullReadMessage(input, book, at, limits.fullReadMaxChars) : input.question,
@@ -189,6 +201,8 @@ async function startContinued(input: AskInput, id: string): Promise<Start> {
         if (entry === null) throw notContinuable("会话日志有读不成的行");
         entries.push(entry);
     }
+    const problem = continuationProblem(entries[0]);
+    if (problem !== null) throw notContinuable(problem);
     const info = await book.call("book.info", {at: previous.at});
     if (!info.ok) throw new StoryError(info.error.code, info.error.message);
     let ledger: ReadLedger;
@@ -197,7 +211,24 @@ async function startContinued(input: AskInput, id: string): Promise<Start> {
     } catch (error) {
         throw notContinuable(error instanceof Error ? error.message : String(error));
     }
-    return {book, features: info.value.features, previous, id, at: previous.at, mode: previous.mode, maxChapters: previous.maxChapters, ledger, entries, firstMessage: input.question};
+    return {book, features: info.value.features, previous, id, at: previous.at, mode: previous.mode, maxChapters: previous.maxChapters, answer: answerModeOf(previous), ledger, entries, firstMessage: input.question};
+}
+
+/**
+ * 会话日志能不能接着用当前的 Profile 续问；能时为 null。只看第一条快照的 Profile 版本（harness 恢复时还会核对工具
+ * 声明）：网页在提交之前就要知道能不能续问（`qa.get` 的 `continuable`），不等到恢复会话才失败。
+ */
+export function continuationProblem(snapshot: SessionEntry | undefined): string | null {
+    if (snapshot?.kind !== "session_snapshot") return "会话日志没有快照，是早先的格式，只能查看";
+    const {key, version} = profile.manifest;
+    if (snapshot.profile.key !== key || snapshot.profile.version !== version) return "这个对话是用早先版本的问答开始的，只能查看";
+    return null;
+}
+
+/** 续问没指定模型时接着用最近一轮的（还在候选里时）；早先记录里的裸模型名不在候选里，用默认模型。 */
+function continuedChoice(config: QaConfig, previous: QaConversation): QaModelChoice {
+    const last = previous.turns.at(-1)?.model;
+    return last !== undefined && config.models.includes(last) ? {model: last} : {};
 }
 
 /**
@@ -263,27 +294,28 @@ export interface PreparedQuestion {
 export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion> {
     const started = Date.now();
     const startedAt = new Date(started).toISOString();
-    const qaModel = resolveQaModel(input.config);
     const start = input.continueFrom === undefined ? await startNew(input, started) : await startContinued(input, input.continueFrom);
     const {book, at, mode, ledger, previous, id} = start;
+    const qaModel = resolveQaModel(input.config, input.model ?? (previous === null ? {} : continuedChoice(input.config, previous)));
 
     const state: QaToolState = {book, at, ledger, answer: null};
     // 作答被退回的次数：不只是我们的校验，OMP 的参数校验与“收尾要单独调用”的退回也算，所以按工具结束事件数。
     let rejections = 0;
     const registry = createToolRegistry();
-    registerPlugin(registry, storyQaPlugin(state, start.features));
+    registerPlugin(registry, storyQaPlugin(state, start.features, start.answer));
     // 这一轮在日志里从哪一条开始（记进记录，网页按它对轮次）。
     const logFrom = (start.entries?.length ?? 0) + 1;
     const sessionLog = observed(createMemorySessionLog({sessionId: id, ...(start.entries === null ? {} : {entries: start.entries})}), input.onLogEntries);
 
     let usage = emptyUsage();
     let outcome: Pick<QaTurn, "status" | "answer" | "reply" | "error"> = {status: "interrupted", answer: null, reply: null, error: null};
+    let recheck: QaTurn["recheck"];
     const localFailure = (what: string, error: unknown): typeof outcome => ({status: "failed", answer: null, reply: null, error: {code: "model_failed", kind: "local", message: `${what}：${error instanceof Error ? error.message : String(error)}`}});
     let harness: Harness | null = null;
     try {
         harness = await createHarness({
             profile,
-            ...(previous === null ? {initial: {title: book.meta.title, at: `${at.chapter}.${at.paragraph}`, mode, maxChapters: start.maxChapters, ...(start.features.ledger ? {} : {ledger: false})}} : {}),
+            ...(previous === null ? {initial: {title: book.meta.title, at: `${at.chapter}.${at.paragraph}`, mode, maxChapters: start.maxChapters, ...(start.features.ledger ? {} : {ledger: false}), answer: start.answer}} : {}),
             registry,
             model: qaModel.resolved,
             sessionLog,
@@ -296,8 +328,28 @@ export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion
         outcome = localFailure("本机错误", error);
     }
 
-    async function runTurn(harness: Harness): Promise<void> {
-        harness.subscribe(event => {
+    /** 一次 `turn` 的结果 → 这一轮的结果；中断（aborted）为 null，保持初值。 */
+    function outcomeOf(result: TurnResult): typeof outcome | null {
+        if (result.stopReason === "finished" && state.answer !== null) return {status: "answered", answer: state.answer, reply: null, error: null};
+        if (result.stopReason === "error") {
+            const error = result.error!;
+            return {status: "failed", answer: null, reply: null, error: {code: "model_failed", kind: error.kind, message: error.message}};
+        }
+        if (result.stopReason === "stop" || result.stopReason === "length") {
+            const reply = replyOf(result, ledger);
+            return reply === null
+                ? {status: "failed", answer: null, reply: null, error: {code: "no_answer", message: "模型停下时既没有用 answer 交卷，也没有文字回复"}}
+                : {status: "answered", answer: null, reply, error: null};
+        }
+        return null;
+    }
+
+    /**
+     * 跑这一轮：一次 `turn`，Markdown 作答而回复里有没核实的出处时再跑一次（出处复查，qa.md 的“出处复查”）。订阅在两次
+     * 之间共用一份、结束时取消：每次各订一份而不取消，第二次的事件会被处理两遍（退回次数、网页事件都会重复）。
+     */
+    async function runTurns(harness: Harness): Promise<void> {
+        const unsubscribe = harness.subscribe(event => {
             const web = input.onAgentEvent === undefined ? null : webEventOf(event);
             if (web !== null) notify(() => input.onAgentEvent!(web));
             if (event.type === "tool_execution_start") input.onProgress?.({kind: "tool", tool: event.toolName, text: describeTool(event.toolName, (event.args ?? {}) as Record<string, unknown>)});
@@ -307,25 +359,33 @@ export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion
                 input.onProgress?.({kind: "rejected", text: result?.content?.map(block => block.text ?? "").join("") ?? ""});
             }
         });
-        const result = await harness.turn(start.firstMessage, input.signal === undefined ? undefined : {signal: input.signal});
-        usage = addUsage(usage, result.usage);
-        if (result.stopReason === "finished" && state.answer !== null) {
-            outcome = {status: "answered", answer: state.answer, reply: null, error: null};
-            input.onProgress?.({kind: "answered"});
-        } else if (result.stopReason === "error") {
-            const error = result.error!;
-            outcome = {status: "failed", answer: null, reply: null, error: {code: "model_failed", kind: error.kind, message: error.message}};
-        } else if (result.stopReason === "stop" || result.stopReason === "length") {
-            const reply = replyOf(result, ledger);
-            outcome = reply === null
-                ? {status: "failed", answer: null, reply: null, error: {code: "no_answer", message: "模型停下时既没有用 answer 交卷，也没有文字回复"}}
-                : {status: "answered", answer: null, reply, error: null};
+        const options = input.signal === undefined ? undefined : {signal: input.signal};
+        try {
+            const first = await harness.turn(start.firstMessage, options);
+            usage = addUsage(usage, first.usage);
+            outcome = outcomeOf(first) ?? outcome;
+            const refs = start.answer === "markdown" ? (outcome.reply?.unverifiedRefs ?? []) : [];
+            if (refs.length > 0) {
+                // 审计用：日志里看得出这一轮为什么多了一条用户消息。meta 不进模型上下文，问题清单写在复查消息里。
+                await sessionLog.append([{kind: "meta", key: "nb-story.reply-check", value: {unverified: refs}}]);
+                input.onProgress?.({kind: "recheck", refs});
+                const second = await harness.turn(recheckMessage(refs), options);
+                usage = addUsage(usage, second.usage);
+                const rewritten = outcomeOf(second);
+                // 第二次出错、被取消或没有文字：保留第一次的回复（用户已经看到它了），只记下复查没完成。
+                if (rewritten?.reply != null) {
+                    outcome = rewritten;
+                    recheck = {unverified: refs.length, outcome: "rewritten"};
+                } else recheck = {unverified: refs.length, outcome: second.stopReason === "aborted" ? "aborted" : "failed"};
+            }
+            if (outcome.answer !== null) input.onProgress?.({kind: "answered"});
+        } finally {
+            unsubscribe();
         }
-        // 其余（aborted）：中断，保持初值。
     }
 
     async function finish(): Promise<QaOutcome> {
-        const turn: QaTurn = {question: input.question, ...outcome, chaptersRead: ledger.chapters(), rejections, usage, ms: Date.now() - started, model: qaModel.ref, startedAt, logFrom};
+        const turn: QaTurn = {question: input.question, ...outcome, chaptersRead: ledger.chapters(), rejections, usage, ms: Date.now() - started, model: qaModel.ref, startedAt, logFrom, ...(recheck === undefined ? {} : {recheck})};
         const fixed = previous ?? {id, book: book.id, generation: book.generation, at, mode, maxChapters: start.maxChapters, startedAt};
         const conversation: Omit<QaConversation, "log"> = {
             id: fixed.id,
@@ -334,6 +394,7 @@ export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion
             at: fixed.at,
             mode: fixed.mode,
             maxChapters: fixed.maxChapters,
+            answer: start.answer,
             read: ledger.snapshot(),
             turns: [...(previous?.turns ?? []), turn],
             startedAt: fixed.startedAt,
@@ -367,7 +428,7 @@ export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion
             claim("运行或放弃");
             if (created !== null) {
                 try {
-                    await runTurn(created);
+                    await runTurns(created);
                 } catch (error) {
                     outcome = localFailure("本机错误", error);
                 }

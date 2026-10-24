@@ -26,7 +26,7 @@ import {StoryError, type StoryErrorCode} from "../core/errors";
 import {QaRecords, newQaRecordId, type QaConversation, type QaTurn} from "../core/qa-records";
 import {QA_METHODS, type QaFrame, type QaMethod, type QaRunView, type ViewerParams, type ViewerResult} from "../contract/contract";
 import {ABSENT_CONFIG, currentConfigDigest, defaultConfigPath, readQaConfigFile, saveQaConfig, type QaConfig} from "../qa/config";
-import {prepareQuestion, withoutFullText, type AskInput, type PreparedQuestion, type QaOutcome} from "../qa/engine";
+import {continuationProblem, prepareQuestion, withoutFullText, type AskInput, type PreparedQuestion, type QaOutcome} from "../qa/engine";
 import {QaError, type QaErrorCode} from "../qa/errors";
 import {configCatalog, resolveQaModel} from "../qa/harness-model";
 import {probeModel} from "../qa/probe";
@@ -378,13 +378,21 @@ export function createQaService(options: QaServiceOptions): QaService {
         }
     }
 
+    /** 会话日志的第一条（快照）；读不成时为 undefined。 */
+    function firstEntry(read: {log: {ok: true; jsonl: string} | {ok: false}}): SessionEntry | undefined {
+        if (!read.log.ok) return undefined;
+        const line = read.log.jsonl.split("\n", 1)[0] ?? "";
+        return parseEntryLine(line) ?? undefined;
+    }
+
     async function getOnce(params: ViewerParams<"qa.get">): Promise<{result: ViewerResult<"qa.get">; generation: string}> {
         const {records, generation} = await openRecords(params.book);
         const run = runOf(params.book, params.id, generation);
         let conversation: QaConversation;
         let log: ViewerResult<"qa.get">["log"];
+        let read: Awaited<ReturnType<typeof records.getWithLog>> | undefined;
         try {
-            const read = await records.getWithLog(params.id, generation);
+            read = await records.getWithLog(params.id, generation);
             conversation = read.conversation;
             log = read.log.ok ? parseLog(read.log.jsonl, read.conversation) : {ok: false, problem: read.log.problem};
         } catch (error) {
@@ -392,11 +400,15 @@ export function createQaService(options: QaServiceOptions): QaService {
             const reason = run.state === "running" ? "第一轮还在运行" : "第一轮没有保存，不能续问";
             return {result: {record: null, log: {ok: true, entries: []}, continuable: {ok: false, reason}, run: viewOf(run)}, generation};
         }
+        // 早先版本的 Profile 开始的对话在这里就报不能续问（同续问时的检查），不等到恢复会话才失败。
+        const problem = log.ok && read !== undefined ? continuationProblem(firstEntry(read)) : null;
         const continuable: ViewerResult<"qa.get">["continuable"] = conversation.log === null
             ? {ok: false, reason: "这是旧形状的记录，只能查看，不能续问"}
-            : log.ok
-              ? {ok: true}
-              : {ok: false, reason: log.problem};
+            : !log.ok
+              ? {ok: false, reason: log.problem}
+              : problem === null
+                ? {ok: true}
+                : {ok: false, reason: problem};
         const {id, at, mode, maxChapters, turns, startedAt} = conversation;
         return {result: {record: {id, at, mode, maxChapters, turns, startedAt}, log, continuable, run: run === undefined ? null : viewOf(run)}, generation};
     }

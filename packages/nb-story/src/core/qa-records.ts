@@ -30,7 +30,7 @@ import {join} from "node:path";
 import {Type} from "typebox";
 import {Compile} from "typebox/compile";
 
-import {AnswerSchema, ChaptersSchema, QaFailureSchema, QaModeSchema, QaPositionSchema, QaStatusSchema, QaTurnSchema, QaUsageSchema, type Answer} from "../contract/qa-record";
+import {AnswerSchema, ChaptersSchema, QaAnswerModeSchema, QaFailureSchema, QaModeSchema, QaPositionSchema, QaStatusSchema, QaTurnSchema, QaUsageSchema, type Answer, type QaAnswerMode} from "../contract/qa-record";
 import type {Position} from "./dataset";
 import {StoryError, systemErrorCode} from "./errors";
 import type {Library} from "./library";
@@ -81,6 +81,12 @@ export interface QaTurn {
      * 回复），不数用户提问（有的失败轮在写用户消息之前就结束）。之前的记录没有它。
      */
     logFrom?: number;
+    recheck?: {unverified: number; outcome: "rewritten" | "failed" | "aborted"};
+}
+
+/** 对话的作答方式；没有这一项的旧记录（t16 之前）都是结构化的。 */
+export function answerModeOf(conversation: Pick<QaConversation, "answer">): QaAnswerMode {
+    return conversation.answer ?? "structured";
 }
 
 /** 读过的段：闭区间 `[章, 起段, 止段]`，按章、段排序，同一章里不相邻的段分开存。 */
@@ -94,6 +100,8 @@ export interface QaConversation {
     mode: QaMode;
     /** 对话开始时的章数上限；全读为 null。续问用它，不看当时的配置（qa.md 输出 26）。 */
     maxChapters: number | null;
+    /** 作答方式，开对话时定下。没有这一项的旧记录都是结构化的（见 `answerModeOf`）。 */
+    answer?: QaAnswerMode;
     /** 对话里读过的段；全读的对话不存（P 以前都算读过）。 */
     read: ReadRange[];
     turns: QaTurn[];
@@ -341,6 +349,7 @@ const ConversationSchema = Type.Object({
     at: QaPositionSchema,
     mode: QaModeSchema,
     maxChapters: Type.Union([Type.Integer({minimum: 1}), Type.Null()]),
+    answer: Type.Optional(QaAnswerModeSchema),
     read: Type.Array(Type.Tuple([Type.Integer({minimum: 1}), Type.Integer({minimum: 1}), Type.Integer({minimum: 1})])),
     turns: Type.Array(QaTurnSchema, {minItems: 1}),
     log: Type.Object({file: Type.String(), sha256: Type.String()}),

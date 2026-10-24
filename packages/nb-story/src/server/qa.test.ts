@@ -87,7 +87,7 @@ async function setup(replies: EndpointReply[], options: {config?: unknown; endpo
     const endpoint = startEndpoint(replies, options.endpointIdleTimeout === undefined ? {} : {idleTimeoutSeconds: options.endpointIdleTimeout});
     cleanups.push(() => endpoint.stop());
     const configFile = join(configHome, "nbstory", "config.json");
-    if (options.config !== null) await writeFile(configFile, JSON.stringify(options.config ?? {model: {baseUrl: endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}}));
+    if (options.config !== null) await writeFile(configFile, JSON.stringify(options.config ?? {model: {baseUrl: endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}, qa: {answer: "structured"}}));
     const library = join(dir, "library");
     const imported = await createStoryApi({library}).call("book.import", {file: sampleFile, title: "样例", id: "fox"});
     if (!imported.ok) throw new Error(imported.error.message);
@@ -222,7 +222,7 @@ describe("一轮问答在服务里跑，进展经推送到页面", () => {
         const unconfigured = await env.call("qa.start", {book: "fox", question: "问", at: {chapter: 38}});
         expect(unconfigured.status).toBe(400);
         expect(code(unconfigured)).toBe("qa_unconfigured");
-        await writeFile(env.configFile, JSON.stringify({model: {baseUrl: env.endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}}));
+        await writeFile(env.configFile, JSON.stringify({model: {baseUrl: env.endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}, qa: {answer: "structured"}}));
         const missing = await env.call("qa.start", {book: "fox", question: "问", conversation: "20261023000000000-abcdef"});
         expect(code(missing)).toBe("qa_record_not_found");
         const beyond = await env.call("qa.start", {book: "fox", question: "问", at: {chapter: 999}});
@@ -279,14 +279,14 @@ describe("没保存的一轮与别的一代", () => {
         await env.endpoint.stop();
         const webEndpoint = startEndpoint([gate.reply], {idleTimeoutSeconds: 0});
         cleanups.push(() => webEndpoint.stop());
-        await writeFile(env.configFile, JSON.stringify({model: {baseUrl: webEndpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}}));
+        await writeFile(env.configFile, JSON.stringify({model: {baseUrl: webEndpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}, qa: {answer: "structured"}}));
         expect((await env.call("qa.start", {book: "fox", question: "网页的第二问", conversation})).status).toBe(200);
         await webEndpoint.firstRequest;
 
         const cliEndpoint = startEndpoint([GIVE_UP]);
         cleanups.push(() => cliEndpoint.stop());
         const cliConfig = join(env.library, "..", "cli-config.json");
-        await writeFile(cliConfig, JSON.stringify({model: {baseUrl: cliEndpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}}));
+        await writeFile(cliConfig, JSON.stringify({model: {baseUrl: cliEndpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}, qa: {answer: "structured"}}));
         const cli = Bun.spawn(["bun", CLI, "ask", "命令行的第二问", "--continue", conversation, "--config", cliConfig, "--library", env.library], {stdout: "pipe", stderr: "pipe", env: {...process.env, [KEY_ENV]: FAKE_KEY}});
         expect(await cli.exited).toBe(0);
 
