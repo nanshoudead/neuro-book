@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t16-qa-composer-models-markdown
-status: active
+status: done
 updated: 2026-10-24
 ---
 
@@ -70,4 +70,4 @@ updated: 2026-10-24
 
 ## 下一步
 
-1. 待开发者批准：Responses、Anthropic、Gemini 接口与真实服务 `/models` 的真实模型冒烟。
+无。开发者 2026-10-24 定：Responses、Anthropic、Gemini 接口与真实服务 `/models` 的真实模型冒烟不做；待确认清单里本 Task 的 7 条全部追认。
