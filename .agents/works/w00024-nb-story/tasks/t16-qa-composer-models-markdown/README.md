@@ -66,7 +66,8 @@ updated: 2026-10-24
     - 配置初始化的两条交互测试超时：不成立。审查 worktree 没装依赖，测试解析到 master 上的旧 nb-harness（报 `clampEffort` 不存在）；在实现 worktree 里这 4 个文件连跑两遍 99 条全过。
   - 修正提交：41483d2f0（nb-agent-ui）、9e6ca226d（nb-harness）、51cd016a5、1f3850e05、c99c4c2a2（nb-story）。复跑：nb-harness 85 条、nb-story 单测 452 条、nb-agent-ui bun 184 条与 DOM 51 条、各包 typecheck 通过；nb-story 全量 e2e 30 条通过、新补的改推理档用例选择器写错（c99c4c2a2 改正），问答页 e2e 11 条再跑通过。
 
+- 2026-10-24 合入 master（b265707b2，不 push）；审查 worktree 与草稿 worktree 已删。
+
 ## 下一步
 
-1. 合入 master（不 push），删掉审查 worktree 与草稿 worktree。
-2. 待开发者批准：Responses、Anthropic、Gemini 接口与真实服务 `/models` 的真实模型冒烟。
+1. 待开发者批准：Responses、Anthropic、Gemini 接口与真实服务 `/models` 的真实模型冒烟。
