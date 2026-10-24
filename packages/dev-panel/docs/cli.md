@@ -115,6 +115,7 @@
 - 输出目录：带 `--work --task` 时是 `.local/agent/works/<W>/tasks/<T>/shots/<UTC 时间>/`，否则是 `.local/agent/shots/<UTC 时间>/`。
 - `TMPDIR` 指到 `/dev/shm/nbdev-shot-<随机>`，跑完删掉：`/tmp` 是带配额的内存盘，Chrome 的临时数据会把它占满。
 - 参数：交给 `lab:shot` 的是 `--url <地址> --out <目录>`，交给 `page:shot` 的是 `--url <地址> --path <路径> --out <目录>`，再接 `--` 之后的参数，原样、顺序不变（`page:shot` 的点击、等待步骤按出现的顺序执行）。路径是否同源由 `page:shot` 自己核对。
+- 不要在 `--` 之后再给 `--out`：输出目录由 nbdev 定，再给一个会让它报 0 个文件。
 - 不注入浏览器路径。`package.json` 里没有要用的脚本报 `shot_unavailable`（3，`details.script` 是缺的脚本名 `lab:shot` 或 `page:shot`），`package.json` 不是合法 JSON 报 `invalid_record`（1，`details.path`）；脚本失败报 `shot_failed`（1），带它 stderr 的末尾。
 
 ### 会话与租约
