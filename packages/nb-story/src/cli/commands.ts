@@ -35,6 +35,10 @@ const mode: Decoder = (value, name) => {
     if (value !== "graph" && value !== "full") throw new UsageError(`${name} 只能是 graph（图当目录）或 full（全读）：${value}`);
     return value;
 };
+const agent: Decoder = (value, name) => {
+    if (value !== "claude" && value !== "codex") throw new UsageError(`${name} 只能是 claude 或 codex：${value}`);
+    return value;
+};
 const list: Decoder = value =>
     value
         .split(",")
@@ -233,6 +237,19 @@ export const COMMANDS: readonly CommandSpec[] = [
             ingest: {decode: () => true},
         },
     }),
+    command({
+        name: "skill",
+        method: null,
+        summary: "把随包的 Skill 装进外部 Agent 的 Skill 目录：install",
+        book: false,
+        paged: false,
+        positionals: [{name: "动作", decode: value => ({action: value}), optional: true}],
+        options: {
+            agent: {decode: agent},
+            dir: {decode: value => resolve(value)},
+            force: {decode: () => true},
+        },
+    }),
 ];
 
 /** 所有命令都接受的选项（不进方法参数）。 */
@@ -271,7 +288,9 @@ export const OPTION_HELP: Record<string, string> = {
     "api-key-env": "存密钥的环境变量名（密钥本身不进配置）",
     thinking: "推理档：minimal、low、medium、high、xhigh、max；模型不支持时往下夹；不写则请求不带推理档",
     structured: "新对话用 answer 工具交结构化的卷（默认按配置的 qa.answer，再缺省是 Markdown）",
-    force: "覆盖已有的配置文件",
+    force: "覆盖已有的配置文件；skill install 时换掉内容不同的 Skill 目录（目录里多出的文件会被删掉）",
+    agent: "装给哪个 Agent：claude（~/.claude/skills，默认）或 codex（~/.agents/skills）",
+    dir: "装到这个目录下的 nbstory/；不能与 --agent 同时给",
     preview: "只切章并列出结果，不调用模型、不写书库",
     status: "看抽取进度；不给 --book 时列出全部",
     "no-ledger": "新建时不记数值（钱、道具、任务进度）；之后不能改",

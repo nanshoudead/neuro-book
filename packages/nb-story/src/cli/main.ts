@@ -123,6 +123,10 @@ export async function main(argv: readonly string[], io: CliIo = processIo): Prom
         const {configCommand} = await import("./config");
         return configCommand({params, json: parsed.json}, io);
     }
+    if (spec.name === "skill") {
+        const {skillCommand} = await import("./skill");
+        return skillCommand({params, json: parsed.json}, io);
+    }
     if (spec.name === "ingest") {
         const {ingestCommand} = await import("./ingest");
         return ingestCommand({library, params, json: parsed.json}, io);

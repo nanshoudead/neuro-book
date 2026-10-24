@@ -14,8 +14,9 @@ export interface CliRun {
     stderr: string;
 }
 
-export async function runCli(args: readonly string[]): Promise<CliRun> {
-    const child = Bun.spawn(["bun", CLI, ...args], {stdout: "pipe", stderr: "pipe"});
+/** `env` 补进子进程的环境变量（例如换掉 HOME）。 */
+export async function runCli(args: readonly string[], env: Record<string, string> = {}): Promise<CliRun> {
+    const child = Bun.spawn(["bun", CLI, ...args], {stdout: "pipe", stderr: "pipe", env: {...process.env, ...env}});
     const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return {code, stdout, stderr};
 }
