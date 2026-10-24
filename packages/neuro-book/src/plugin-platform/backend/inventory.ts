@@ -23,7 +23,7 @@ import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import {errno, holdLock} from "nbook/backend/locked-replace";
 import type {BlockedPlugin, InstallPreview, PendingChange, PluginFailureCode, PluginList, PluginListItem} from "nbook/plugins/plugins/shared/contracts";
 import {manifestFormat} from "nbook/plugin-platform-profile";
-import {compareVersions, engineAccepts, pluginVersionSatisfies} from "nbook/shared/versions";
+import {compareVersions, engineAccepts, pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 
 import {collectCopyRange, copyRange} from "./copy";
 import {livePins, pinKey} from "./pins";

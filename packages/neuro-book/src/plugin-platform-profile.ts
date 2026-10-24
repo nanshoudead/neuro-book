@@ -6,7 +6,7 @@
 import {createManifestFormat} from "@notnotype/nb-runtime/plugin-manifest";
 import type {PluginPlatform} from "@notnotype/nb-runtime/plugin-manifest";
 
-import {npmVersions} from "./shared/versions";
+import {npmVersions} from "./plugin-platform/shared/versions";
 
 export const NEUROBOOK_PLATFORM: PluginPlatform = {engine: "neurobook", reservedPublishers: ["nbook"]};
 

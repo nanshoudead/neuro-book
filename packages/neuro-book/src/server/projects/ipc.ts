@@ -9,8 +9,8 @@
 import {Type} from "typebox";
 import {Value} from "typebox/value";
 
-import {InstalledPluginSchema} from "nbook/backend/plugins/installed";
-import type {InstalledPlugin} from "nbook/backend/plugins/installed";
+import {InstalledPluginSchema} from "nbook/plugin-platform/backend/installed";
+import type {InstalledPlugin} from "nbook/plugin-platform/backend/installed";
 
 import {createSocketLink} from "nbook/shared/rpc-socket";
 import type {SocketLink} from "nbook/shared/rpc-socket";

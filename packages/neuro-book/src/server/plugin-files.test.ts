@@ -12,10 +12,10 @@ import {join} from "node:path";
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {createPluginInventory} from "nbook/backend/plugins/inventory";
-import {installedPlugins, NO_INSTALLED_PLUGINS, prepareInstalledPlugins} from "nbook/backend/plugins/startup";
-import type {PreparedPlugins} from "nbook/backend/plugins/startup";
-import {pluginFilesPrefix} from "nbook/shared/plugin-files";
+import {createPluginInventory} from "nbook/plugin-platform/backend/inventory";
+import {installedPlugins, NO_INSTALLED_PLUGINS, prepareInstalledPlugins} from "nbook/plugin-platform/backend/startup";
+import type {PreparedPlugins} from "nbook/plugin-platform/backend/startup";
+import {pluginFilesPrefix} from "nbook/plugin-platform/shared/plugin-files";
 
 import {PROJECT_LIMIT_DEFAULTS} from "./config";
 import {createPluginFilesRoute} from "./plugin-files";

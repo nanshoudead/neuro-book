@@ -15,8 +15,8 @@ import {counterContract, projectCounterContract, RESET_COMMAND} from "../../exam
 import {notesContract} from "../../examples/plugins/notes/shared/contracts";
 import {remoteProbe, serviceProbe} from "../../examples/testing/probes";
 import {Stage} from "../../examples/testing/stage";
-import type {InstalledPlugin} from "../../src/backend/plugins/installed";
-import {thirdPartyDefinitionsAt} from "../../src/backend/plugins/loader";
+import type {InstalledPlugin} from "../../src/plugin-platform/backend/installed";
+import {thirdPartyDefinitionsAt} from "../../src/plugin-platform/backend/loader";
 import {commandServiceKey} from "../../src/plugins/commands/shared/contracts";
 import {buildExample} from "./build-examples";
 

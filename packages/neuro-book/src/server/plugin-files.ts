@@ -1,7 +1,7 @@
 /**
  * 插件文件端点（docs/specs/runtime/plugin-code-loading.md 输出 8）：浏览器经它取第三方插件的入口代码、样式与静态资源。
  *
- * - 只服务本次启动登记的插件的当前版本目录，地址带内容摘要（`nbook/shared/plugin-files`）；摘要不是当前的为 404。
+ * - 只服务本次启动登记的插件的当前版本目录，地址带内容摘要（`nbook/plugin-platform/shared/plugin-files`）；摘要不是当前的为 404。
  * - 路径按原始 `pathname` 的 `/` 切段、逐段解码。明文的 `..` 与 `%2e%2e` 在到达这里之前已被 URL 规范化掉，能带进来的只有
  *   编码的分隔符（`%2F`、`%5C`）与 NUL：解码后的段含 `/`、`\`、NUL，或等于 `.`、`..`、空串时 400，不尝试纠正。
  * - 逐段 `lstat`，不跟随符号链接：安装时已拒绝链接，这里遇到也按不存在处理。
@@ -15,10 +15,10 @@ import {join} from "node:path";
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 
 import {errno} from "nbook/backend/locked-replace";
-import type {InstalledPlugin} from "nbook/backend/plugins/installed";
+import type {InstalledPlugin} from "nbook/plugin-platform/backend/installed";
 import {errorResponse} from "nbook/plugins/http/backend/dispatch";
 import type {HostRoute} from "nbook/plugins/http/backend/plugin";
-import {PLUGIN_FILES_ROUTE} from "nbook/shared/plugin-files";
+import {PLUGIN_FILES_ROUTE} from "nbook/plugin-platform/shared/plugin-files";
 
 /** 分发器转交宿主路由时已去掉挂载前缀 `/api/runtime`（`dispatch.ts` 的 `forwardedRequest`）。 */
 const PREFIX = "/plugins/";

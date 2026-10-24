@@ -42,7 +42,7 @@ import {projectProbeContract, remoteProbeContract, remoteProbeDescriptor} from "
 
 import {browserHostPlugins, browserPluginDefinitions, builtinBrowserPlugins} from "../plugins";
 import {createConnection} from "./connection";
-import type {PluginDocument, PluginLink, PluginScript} from "./plugin-code";
+import type {PluginDocument, PluginLink, PluginScript} from "../../plugin-platform/web/plugin-code";
 import {createBrowserWindow} from "./window";
 import type {BrowserWindowOptions, WindowState} from "./window";
 

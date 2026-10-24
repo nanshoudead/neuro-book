@@ -12,13 +12,13 @@
 
 import {createHash} from "node:crypto";
 
-import type {InstalledPlugin} from "nbook/backend/plugins/installed";
+import type {InstalledPlugin} from "nbook/plugin-platform/backend/installed";
 import {pluginsAt} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import type {HostRoute} from "nbook/plugins/http/backend/plugin";
 import {BROWSER_PROTOCOL_VERSION} from "nbook/shared/browser-bootstrap";
 import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
-import {pluginFilesPrefix} from "nbook/shared/plugin-files";
+import {pluginFilesPrefix} from "nbook/plugin-platform/shared/plugin-files";
 
 /** 相对 `/api/runtime/` 的路径；完整路径见 `BROWSER_BOOTSTRAP_PATH`。 */
 const ROUTE_PATH = "/browser-bootstrap";

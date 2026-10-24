@@ -32,8 +32,8 @@ import type {RemoteContract} from "@notnotype/nb-runtime/remote";
 import {errno} from "nbook/backend/locked-replace";
 import {pluginsAt, thirdPartyDefinition, thirdPartyDefinitionAt} from "nbook/manifest";
 import type {EntryLoader} from "nbook/manifest";
-import {PluginCodeError} from "nbook/shared/plugin-code-error";
-import {SERVER_SHARED_MODULES} from "nbook/shared/plugin-modules";
+import {PluginCodeError} from "nbook/plugin-platform/shared/plugin-code-error";
+import {SERVER_SHARED_MODULES} from "nbook/plugin-platform/shared/plugin-modules";
 
 import {manifestOfInstalled} from "./installed";
 import type {InstalledPlugin} from "./installed";

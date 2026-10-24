@@ -17,7 +17,7 @@
  * - `style.css`：各入口的样式合并后包进 `@layer components`，加上插件用到的 Lucide 图标的规则（宿主只为自己源码里出现过的
  *   图标类生成规则）。
  *
- * 共享模块（`nbook/shared/plugin-modules`）留作外部引用；纯度检查按打包器的模块图核对：打进了宿主那一份 Vue（`vue`、
+ * 共享模块（`nbook/plugin-platform/shared/plugin-modules`）留作外部引用；纯度检查按打包器的模块图核对：打进了宿主那一份 Vue（`vue`、
  * `@vue/reactivity`、`@vue/runtime-*`）、nb-ui 或 SDK 的实现就失败，外部引用（静态与动态导入）不在宿主模块表里也失败
  * （“未共享”），两件事都在构建时报出。
  */
@@ -36,7 +36,7 @@ import * as compiler from "vue/compiler-sfc";
 import {build as vite, createServer} from "vite";
 import type {Plugin} from "vite";
 
-import {BROWSER_SHARED_MODULES, PLUGIN_REGISTRY_GLOBAL, SERVER_SHARED_MODULES} from "../../src/shared/plugin-modules";
+import {BROWSER_SHARED_MODULES, PLUGIN_REGISTRY_GLOBAL, SERVER_SHARED_MODULES} from "../../src/plugin-platform/shared/plugin-modules";
 import {PRODUCT_VERSION} from "../../src/shared/product";
 import {manifestFormat} from "../../src/plugin-platform-profile";
 

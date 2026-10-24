@@ -21,9 +21,9 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote";
 
-import {createPluginInventory, pluginInventoryKey} from "nbook/backend/plugins/inventory";
-import {installedPlugins, loadedDescriptors, NO_INSTALLED_PLUGINS} from "nbook/backend/plugins/startup";
-import type {PreparedPlugins} from "nbook/backend/plugins/startup";
+import {createPluginInventory, pluginInventoryKey} from "nbook/plugin-platform/backend/inventory";
+import {installedPlugins, loadedDescriptors, NO_INSTALLED_PLUGINS} from "nbook/plugin-platform/backend/startup";
+import type {PreparedPlugins} from "nbook/plugin-platform/backend/startup";
 import {productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {HTTP_DRAIN_LIMIT_MS, HttpAdmission, HttpAdmissionRejected} from "nbook/plugins/http/backend/admission";
@@ -32,7 +32,7 @@ import {clockKey, stateRootKey, userDirectoriesKey} from "nbook/shared/host";
 import {PRODUCT_VERSION} from "nbook/shared/product";
 import {projectsKey} from "nbook/shared/projects";
 import {RPC_PATH} from "nbook/shared/rpc-socket";
-import {pluginVersionSatisfies} from "nbook/shared/versions";
+import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 
 import {loopbackOrigins} from "./config";
 import type {ServerConfig} from "./config";

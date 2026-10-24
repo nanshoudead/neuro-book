@@ -1,6 +1,6 @@
 /**
  * 设置窗口的插件页（同名 .md）。远程合同的客户端是按合同类型写的内存替身：页面的行为只取决于合同的输入输出，
- * 服务端的实现与经内核的往返由 `../../plugins.test.ts` 与 `src/backend/plugins/plugins.test.ts` 覆盖（真实实现用
+ * 服务端的实现与经内核的往返由 `../../plugins.test.ts` 与 `src/plugin-platform/backend/plugins.test.ts` 覆盖（真实实现用
  * Bun 的 API，进不了 Vitest）。替身的写方法可以先挂起、再由用例结算，用来看进行中的界面。
  */
 

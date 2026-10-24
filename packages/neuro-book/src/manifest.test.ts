@@ -14,7 +14,7 @@ import {Type} from "typebox";
 
 import {createApplication} from "nbook/application";
 import {manifestFormat} from "nbook/plugin-platform-profile";
-import {pluginVersionSatisfies} from "nbook/shared/versions";
+import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 
 import {definitionAt, pluginsAt, thirdPartyDefinitionAt} from "./manifest";
 import type {PluginDescriptor} from "./manifest";

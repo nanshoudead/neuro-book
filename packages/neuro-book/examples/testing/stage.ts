@@ -42,7 +42,7 @@ import {storageBackendPlugin} from "nbook/plugins/storage/backend/plugin";
 import {storageBrowserPlugin} from "nbook/plugins/storage/web/plugin";
 import {clockKey, stateRootKey, windowConnectionKey} from "nbook/shared/host";
 import {currentProjectKey, windowProjectKey} from "nbook/shared/projects";
-import {pluginVersionSatisfies} from "nbook/shared/versions";
+import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 
 /** 场地的时钟：手动推进，并能数出插件还占着几个计时器（核对插件停止时有没有把它们还回来）。 */
 export class StageClock implements RuntimeClock {

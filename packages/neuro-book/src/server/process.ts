@@ -9,8 +9,8 @@
 import {writeSync} from "node:fs";
 import {join} from "node:path";
 
-import {prepareInstalledPlugins, safeModeOf} from "nbook/backend/plugins/startup";
-import type {PreparedPlugins} from "nbook/backend/plugins/startup";
+import {prepareInstalledPlugins, safeModeOf} from "nbook/plugin-platform/backend/startup";
+import type {PreparedPlugins} from "nbook/plugin-platform/backend/startup";
 import type {PluginDescriptor} from "nbook/manifest";
 import {PRODUCT_VERSION} from "nbook/shared/product";
 

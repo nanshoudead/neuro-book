@@ -7,8 +7,8 @@
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import type {InstalledPlugin} from "nbook/backend/plugins/installed";
-import {thirdPartyDefinitionsAt} from "nbook/backend/plugins/loader";
+import type {InstalledPlugin} from "nbook/plugin-platform/backend/installed";
+import {thirdPartyDefinitionsAt} from "nbook/plugin-platform/backend/loader";
 import {definitionAt, pluginsAt} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/backend/plugin";

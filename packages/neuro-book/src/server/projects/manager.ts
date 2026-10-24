@@ -22,7 +22,7 @@ import type {BindRequest, CallerFrame, InstanceDescriptor, ProjectBindResult, Re
 import {perConsumer} from "@notnotype/nb-runtime/services";
 import type {ConsumerIdentity, PerConsumerProvision} from "@notnotype/nb-runtime/services";
 
-import type {InstalledPlugin} from "nbook/backend/plugins/installed";
+import type {InstalledPlugin} from "nbook/plugin-platform/backend/installed";
 import {PROJECT_ENV} from "nbook/project/config";
 import {projectInstance} from "nbook/project/start";
 import type {

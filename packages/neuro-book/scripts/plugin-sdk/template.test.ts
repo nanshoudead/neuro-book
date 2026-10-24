@@ -12,7 +12,7 @@ import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {manifestFormat} from "../../src/plugin-platform-profile";
-import {compareVersions, pluginVersionSatisfies} from "../../src/shared/versions";
+import {compareVersions, pluginVersionSatisfies} from "../../src/plugin-platform/shared/versions";
 
 import {devVersion} from "./build-plugin";
 

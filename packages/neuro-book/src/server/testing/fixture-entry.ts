@@ -11,7 +11,7 @@
 
 import {join} from "node:path";
 
-import {prepareInstalledPlugins, safeModeOf} from "nbook/backend/plugins/startup";
+import {prepareInstalledPlugins, safeModeOf} from "nbook/plugin-platform/backend/startup";
 import {definitionAt, pluginsAt, productPlugins, thirdPartyDefinition} from "nbook/manifest";
 import {readServerConfig} from "nbook/server/config";
 import {devSampleEnabled, startDevSample} from "nbook/server/dev/sample";

@@ -1,5 +1,5 @@
 /**
- * `nbook.plugins` 的服务端入口：把宿主的插件管理（`nbook/backend/plugins/inventory`）交给窗口，作为远程服务。
+ * `nbook.plugins` 的服务端入口：把宿主的插件管理（`nbook/plugin-platform/backend/inventory`）交给窗口，作为远程服务。
  *
  * 安装目录、登记表与本次启动的插件集合都归服务端宿主：宿主在装配插件之前就要确定集合，所以由它创建插件管理并作为宿主
  * 能力提供，本入口只做合同的输入输出与失败码映射。
@@ -10,8 +10,8 @@ import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 
-import {pluginInventoryKey} from "nbook/backend/plugins/inventory";
-import type {InventoryFailure} from "nbook/backend/plugins/inventory";
+import {pluginInventoryKey} from "nbook/plugin-platform/backend/inventory";
+import type {InventoryFailure} from "nbook/plugin-platform/backend/inventory";
 
 import {descriptor} from "../plugin";
 import {pluginsRegistryContract} from "../shared/contracts";

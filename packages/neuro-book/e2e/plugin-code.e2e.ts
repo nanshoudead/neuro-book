@@ -18,10 +18,10 @@ import type {Page} from "@playwright/test";
 import {parse as parseJsonc} from "jsonc-parser";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {createPluginInventory} from "nbook/backend/plugins/inventory";
-import {NO_INSTALLED_PLUGINS} from "nbook/backend/plugins/startup";
+import {createPluginInventory} from "nbook/plugin-platform/backend/inventory";
+import {NO_INSTALLED_PLUGINS} from "nbook/plugin-platform/backend/startup";
 import {productPlugins} from "nbook/manifest";
-import {PLUGIN_REGISTRY_GLOBAL} from "nbook/shared/plugin-modules";
+import {PLUGIN_REGISTRY_GLOBAL} from "nbook/plugin-platform/shared/plugin-modules";
 import {PRODUCT_VERSION} from "nbook/shared/product";
 
 import {PACKAGE_ROOT, startDevSession, startProductServer} from "./fixtures";

@@ -16,8 +16,8 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import type {InstanceDescriptor} from "@notnotype/nb-runtime/remote";
 
-import {manifestOfInstalled} from "nbook/backend/plugins/installed";
-import type {InstalledPlugin} from "nbook/backend/plugins/installed";
+import {manifestOfInstalled} from "nbook/plugin-platform/backend/installed";
+import type {InstalledPlugin} from "nbook/plugin-platform/backend/installed";
 import {pluginsAt, productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {startServerHost} from "nbook/server/host";
@@ -26,7 +26,7 @@ import {createEnvelopeLink, parseEnvelope} from "nbook/server/projects/ipc";
 import type {EnvelopeChannel} from "nbook/server/projects/ipc";
 import {clockKey} from "nbook/shared/host";
 import {currentProjectKey} from "nbook/shared/projects";
-import {pluginVersionSatisfies} from "nbook/shared/versions";
+import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 
 import type {ProjectConfig} from "./config";
 import {manifestProjectPlugins} from "./plugins";

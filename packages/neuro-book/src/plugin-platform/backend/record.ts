@@ -22,7 +22,7 @@ import {isPluginId} from "@notnotype/nb-runtime/plugin-manifest";
 import {errno, holdLock} from "nbook/backend/locked-replace";
 import type {HeldLock} from "nbook/backend/locked-replace";
 import {manifestFormat} from "nbook/plugin-platform-profile";
-import {npmVersions} from "nbook/shared/versions";
+import {npmVersions} from "nbook/plugin-platform/shared/versions";
 
 export const RECORD_FILE = "plugins.json";
 export const RECORD_SCHEMA = "nbook.plugins/v1";

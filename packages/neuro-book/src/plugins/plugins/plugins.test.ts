@@ -1,7 +1,7 @@
 /**
  * `nbook.plugins/registry` 经内核远程调用（docs/specs/runtime/plugin-install.md 输出 1–4 与失败码表）：真实的服务端
  * 运行实例与窗口运行实例经路由连起来，窗口里的插件只用合同。安装、启停与卸载的文件系统细节由
- * `src/backend/plugins/plugins.test.ts` 覆盖，这里核对合同的输入输出与失败码到得了窗口。
+ * `src/plugin-platform/backend/plugins.test.ts` 覆盖，这里核对合同的输入输出与失败码到得了窗口。
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
@@ -16,8 +16,8 @@ import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {createApplication} from "nbook/application";
-import {createPluginInventory, pluginInventoryKey} from "nbook/backend/plugins/inventory";
-import {NO_INSTALLED_PLUGINS} from "nbook/backend/plugins/startup";
+import {createPluginInventory, pluginInventoryKey} from "nbook/plugin-platform/backend/inventory";
+import {NO_INSTALLED_PLUGINS} from "nbook/plugin-platform/backend/startup";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 
 import {pluginsBackendPlugin} from "./backend/plugin";

@@ -10,7 +10,7 @@ import {defineComponent, ref} from "vue";
 
 import {settingsPageContribution} from "nbook/sdk/browser";
 import {defineEntry} from "nbook/sdk/index";
-import {BROWSER_SHARED_MODULES} from "nbook/shared/plugin-modules";
+import {BROWSER_SHARED_MODULES} from "nbook/plugin-platform/shared/plugin-modules";
 
 import {hostModules} from "./plugin-modules";
 

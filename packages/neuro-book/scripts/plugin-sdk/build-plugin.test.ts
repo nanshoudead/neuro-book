@@ -13,10 +13,10 @@ import {fileURLToPath, pathToFileURL} from "node:url";
 
 import {createTestTmpRoot, resolveTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {PLUGIN_REGISTRY_GLOBAL} from "../../src/shared/plugin-modules";
+import {PLUGIN_REGISTRY_GLOBAL} from "../../src/plugin-platform/shared/plugin-modules";
 import {manifestFormat} from "../../src/plugin-platform-profile";
-import {createPluginCodeHost} from "../../src/web/host/plugin-code";
-import type {PluginDocument, PluginScript} from "../../src/web/host/plugin-code";
+import {createPluginCodeHost} from "../../src/plugin-platform/web/plugin-code";
+import type {PluginDocument, PluginScript} from "../../src/plugin-platform/web/plugin-code";
 import {buildExample, EXAMPLES_ROOT, IN_REPO_BUILD} from "./build-examples";
 import {buildPlugin, PluginBuildError} from "./build-plugin";
 

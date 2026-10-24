@@ -30,19 +30,19 @@ import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersio
 import {clockKey, windowConnectionKey, windowNavigationKey, windowPluginsKey, windowRescueKey} from "nbook/shared/host";
 import type {RescuedText, WindowRescue} from "nbook/shared/host";
 import type {WindowConnection, WindowConnectionState, WindowNavigation} from "nbook/shared/host";
-import {pluginFileUrl} from "nbook/shared/plugin-files";
+import {pluginFileUrl} from "nbook/plugin-platform/shared/plugin-files";
 import {windowProjectKey} from "nbook/shared/projects";
 import type {WindowProject} from "nbook/shared/projects";
 import {manifestFormat} from "nbook/plugin-platform-profile";
-import {pluginVersionSatisfies} from "nbook/shared/versions";
+import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 
 import {browserHostPlugins, browserPluginDefinitions, builtinBrowserPlugins, isBrowserHostPlugin} from "../plugins";
 import type {BrowserHostPluginFactory, BrowserHostPluginId, BrowserPluginContext} from "../plugins";
 import {BrowserRuntimeHost} from "./browser-host";
 import type {BrowserHost, PageLifecycleTarget} from "./browser-host";
 import type {Connection, RpcEndpoint} from "./connection";
-import {createPluginCodeHost, pageDocument} from "./plugin-code";
-import type {PluginCodeHost, PluginDocument, PluginLink} from "./plugin-code";
+import {createPluginCodeHost, pageDocument} from "../../plugin-platform/web/plugin-code";
+import type {PluginCodeHost, PluginDocument, PluginLink} from "../../plugin-platform/web/plugin-code";
 import {createRemoteSession} from "./remote-session";
 import {createWindowPlugins} from "./window-plugins";
 import type {RemoteSession} from "./remote-session";

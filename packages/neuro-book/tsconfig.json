@@ -21,6 +21,8 @@
         "src/server",
         "src/project",
         "src/shared",
+        "src/plugin-platform/backend",
+        "src/plugin-platform/shared",
         "src/sdk/index.ts",
         "src/types",
         "src/plugins/*/plugin.ts",

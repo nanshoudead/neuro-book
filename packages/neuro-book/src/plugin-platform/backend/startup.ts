@@ -26,7 +26,7 @@ import {errno, LOCK_STALE_MS} from "nbook/backend/locked-replace";
 import type {HeldLock} from "nbook/backend/locked-replace";
 import type {NotLoaded} from "nbook/plugins/plugins/shared/contracts";
 import {manifestFormat} from "nbook/plugin-platform-profile";
-import {engineAccepts} from "nbook/shared/versions";
+import {engineAccepts} from "nbook/plugin-platform/shared/versions";
 
 import type {InstalledPlugin} from "./installed";
 import {livePins, pinKey, pinVersions} from "./pins";

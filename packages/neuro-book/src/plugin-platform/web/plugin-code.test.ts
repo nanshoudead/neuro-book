@@ -10,8 +10,8 @@ import {describe, expect, it} from "bun:test";
 
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
-import {PluginCodeError} from "nbook/shared/plugin-code-error";
-import {PLUGIN_REGISTRY_GLOBAL} from "nbook/shared/plugin-modules";
+import {PluginCodeError} from "nbook/plugin-platform/shared/plugin-code-error";
+import {PLUGIN_REGISTRY_GLOBAL} from "nbook/plugin-platform/shared/plugin-modules";
 
 import {createPluginCodeHost} from "./plugin-code";
 import type {PluginCodeHostOptions, PluginDocument, PluginLink, PluginScript} from "./plugin-code";

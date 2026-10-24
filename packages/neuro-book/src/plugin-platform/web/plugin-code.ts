@@ -14,9 +14,9 @@
 
 import type {PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {PluginCodeError} from "nbook/shared/plugin-code-error";
-import type {PluginCodeFailure} from "nbook/shared/plugin-code-error";
-import {PLUGIN_REGISTRY_GLOBAL} from "nbook/shared/plugin-modules";
+import {PluginCodeError} from "nbook/plugin-platform/shared/plugin-code-error";
+import type {PluginCodeFailure} from "nbook/plugin-platform/shared/plugin-code-error";
+import {PLUGIN_REGISTRY_GLOBAL} from "nbook/plugin-platform/shared/plugin-modules";
 
 /** 从插入脚本起（含下载）多久还没登记工厂算失败；回环上的服务端正常情况下远不到这么久。 */
 export const CODE_LOAD_TIMEOUT_MS = 30_000;
