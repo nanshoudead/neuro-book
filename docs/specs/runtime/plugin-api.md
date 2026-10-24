@@ -26,7 +26,8 @@ owners:
 - **激活上下文 `ctx`**：宿主在激活入口时注入的对象，按运行位置提供不同成员。
 - **远程形态**：满足下文五条约束的接口形态。
 - **结构化结果**：`{ok: true, value}` 或 `{ok: false, code, cause?, detail?}`，调用不以抛出异常表达失败；只想要值的调用方可以用 `orThrow` 把失败转成异常（[远程服务与 RPC 协议](plugin-channel.md) 输出第 1 条）。
-- **作用域登记**：经 `ctx` 建立的订阅、定时器、句柄都登记在入口的激活作用域上，入口停止时自动撤回。
+- **作用域登记**：经 `ctx` 建立的订阅、定时器、句柄都登记在入口的激活作用域上，入口停止时自动撤回；作者自己要在停止时做的事用 `ctx.onStop` 登记。
+- **作者 API**：SDK 在 `defineEntry` 之上给作者的一层：`definePlugin` 绑定插件 id，贡献助手只收短名（见下文“作者 API”）。内置插件不用它。
 
 ## 输入与前置条件
 
@@ -125,6 +126,17 @@ owners:
 - 按（插件，模块）复用空闲 worker；全局上限为逻辑 CPU 数减 1（至少 1），每个插件上限 2；满员时排队，排队中的调用同样响应中止。
 - 入口停止时只拒绝该入口的新调用、结算该入口排队与在途的调用，并终止正在执行这些调用的 worker；同一插件其它入口的调用与 worker 不受影响。
 - worker 被终止到真正停止之间仍占用名额：Bun 中执行 JS 的 worker 在 1 秒内停止；Chrome 中约 2 秒；执行 WebAssembly 或原生阻塞调用时要等其返回（见“边界与兼容”）。
+
+### 作者 API
+
+`definePlugin({id, version, locations})`（根入口）返回绑定插件 id 的对象；作者在插件描述的模块里调用一次，别的模块都从那里取。
+
+- **助手与短名**：根入口的对象上有 `section`（list 分区，`category` 缺省 `plugins`）、`setting`、`command`；`/browser` 有 `view(plugin, …)`、`settingsPage(plugin, …)`、`statusItem(plugin, …)`、`choices(plugin, …)`（它们要 Vue 或只在窗口里有意义，根入口服务端也加载）。助手只收短名 `name`，贡献 id 是 `<插件 id>.<name>`（设置项的键是 `<插件 id>/<name>`），类型上是字面量；短名不合这个贡献点的 id 规则时加载即抛错，写明是哪一个。
+- **文字与缺省值**：界面文字可以只写一个字符串，两种界面语言显示同一句；视图 `location` 缺省 `sidebar`、`layout` 缺省 `scroll`；状态栏条目 `alignment` 缺省 `right`、`order` 与 `priority` 缺省 0，`command` 可以直接给命令助手；命令 `args` 缺省空对象，没写 `additionalProperties` 的补成 `false`，`effect` 必填。命令的参数有必填项而没写 `expose: {human: false}` 时加载即抛错：命令面板不收集参数（[`workbench.commands`](../workbench/commands.md)）。设置项的 `section` 收分区助手，`group` 只能是那个分区的组 id。
+- **插件描述与定义**：`plugin.descriptor(声明式贡献)` 给出插件描述；`plugin.definition(入口)` 或 `plugin.definition({entries, contributionPoints?, activationEventPrefixes?})` 给出插件定义，入口 id 重复时抛错（入口 id 在一个插件里唯一，不按运行位置分）。
+- **入口**：`plugin.entry({id?, location, contributions?, rawContributions?, receives?, provides?, remoteProvides?, …, activate})`。`id` 缺省取运行位置名。`contributions` 是 `{键: 助手}`，激活产出的 `contributions` 用同样的键交 `助手.implement(…)`：漏写、多写、在某个键上交了别的助手的实现都编译不过，诊断里写明是哪一项；只在浏览器有意义的助手写进别的位置的入口编译不过。助手带的激活事件（设置页的 `onSettingsPage:`、选项来源的 `onSettingsChoices:`）并进 `activationEvents`。不经助手的贡献（向别的插件定义的贡献点提交、插件状态的公开键）写在 `rawContributions`，实现写在产出的 `rawContributions: {贡献点: {id: 实现}}`；插件自己定义的贡献点写在插件定义的 `contributionPoints`，接收者照 `receives` 与产出的 `receivers` 写。服务、远程服务、接收者与 `rawContributions` 的核对同 `defineEntry`。
+- **激活上下文**：作者拿到的上下文类型上没有 `scope`，入口停止时做的事用 `ctx.onStop`；运行时是同一个上下文。
+- **视图与设置页的属性**：`implement(props?)` 的属性类型从 `load` 推出：用 vue-tsc 检查时，必填属性漏写、名字写错或类型不对编译不过，可选属性的笔误查不出；只用 tsc 时不检查。
 
 ### 作者工具
 

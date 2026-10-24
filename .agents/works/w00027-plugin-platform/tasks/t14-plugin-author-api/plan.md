@@ -238,3 +238,8 @@ type PluginProblem =
 | omp 9 | 成立：诊断文字由仓库外作者项目的 `vue-tsc` 输出断言，`@ts-expect-error` 只守不可编译 |
 | omp 10 | 成立：入口 id 全局唯一，组装时报错 |
 | omp 11 | 成立：`ok`、`fail` 从 SDK 根入口导出 |
+
+## 10. 实施中的调整
+
+- S2：`plugin.settings({…})`（多条设置项一次声明）没有做：SDK 根入口本来就没导出 `defineSettings`，作者逐条写 `plugin.setting` 已经不再重复插件 id。
+- S2：内核 `define.ts` 导出两个类型积木（`EntryOutputFor`、`ExtraOutputKeys`），SDK 的 `plugin.entry` 在它们之上组合，不重抄一份核对规则。

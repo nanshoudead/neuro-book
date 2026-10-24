@@ -27,7 +27,7 @@ owners:
 
 - **记录定义**：插件共享模块里 `defineRecord({...})` 的结果，三端共用同一份。
 - **owner**：记录所属插件的 id。按插件划分命名空间，不按入口。
-- **scope**：`user`（随用户）或 `project`（随项目目录）。**locality**：`local`（每个客户端一份，缺省）或 `shared`（同一 owner、同一 scope 共用一份）。
+- **scope**：`user`（随用户）或 `project`（随项目目录）。**locality**：`local`（每个客户端一份）或 `shared`（同一 owner、同一 scope 共用一份），必填。
 - **客户端身份**：客户端实例跨重新加载稳定的标识，同一浏览器配置的标签页共用一个（[`runtime.browser-host`](../runtime/browser-host.md)）；服务端与项目实例没有。
 - **分区拥有者**：user 分区归服务端实例，project 分区归该项目当前的项目实例（[`runtime.projects`](../runtime/projects.md)）。
 - **revision**：每次写入或删除得到的新标识；对插件不透明，分区内单调递增、不复用、不保证连续。
@@ -49,9 +49,9 @@ export const sizesRecord = defineRecord({
 | 字段 | 规则 |
 |---|---|
 | `key` | 1–64 个字符，`[a-z0-9]` 开头，其余为 `[a-z0-9.-]` |
-| `scope`、`locality` | 见术语；`locality` 缺省 `local` |
+| `scope`、`locality` | 见术语；`locality` 必填，没有缺省（缺省成 `local` 时服务端入口的记录打不开：服务端没有客户端身份） |
 | `version` | 正整数 |
-| `schema` | 顶层为对象且 `additionalProperties: false` 的 TypeBox schema |
+| `schema` | 顶层为对象的 TypeBox schema，不许多余字段：没写 `additionalProperties` 时 `defineRecord` 补成 `false`（描述与指纹里是补过的一份），写了别的值报错 |
 | `keyed` | 缺省 `false`；`true` 时按资源 id 寻址，一个资源 id 一条记录 |
 | `maxBytes` | 值的 JSON 文本按 UTF-8 计的上限，1 到 1 MiB，缺省 64 KiB |
 
