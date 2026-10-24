@@ -9,6 +9,7 @@
 ## 边界
 
 - 运行时依赖只有 TypeBox（合同 schema）：不依赖 UI 或 HTTP 框架、进程信号、DOM、文件或数据库驱动，也不依赖任何产品领域。需要这些能力的部分由宿主或插件实现后注入。
+- 与应用无关：源码不写任何应用的名字。清单的引擎键与保留的发布者由宿主以平台档案（`PluginPlatform`）传入，内核只保留发布者 `runtime`（自带的诊断插件 `runtime.diagnostics`）。非测试源码由扫描测试核对，测试里的示例插件用 `acme.*`（[ADR 0030](../../docs/adr/0030-plugin-platform-layering.md)）。第三方插件的安装、登记、装载与构建不在本包，在应用的 `src/plugin-platform/`。
 - 每个机制一个公开入口，即 `package.json` 的 `exports` 子路径，对应 `src/<机制>/<机制>.ts`；其余文件是实现细节，包外不深导入。
 - 机制之间只引用对方的公开入口，且单向：services 引用 lifecycle，plugins 引用前两者，plugin-manifest 引用 plugins（只用公开入口），application 引用前几者，diagnostics 可引用它们（application 只引用类型）。各机制的边界测试读取同目录源码核对导入，新增文件同样受约束。
 - 模块顶层没有 I/O、单例与计时器。

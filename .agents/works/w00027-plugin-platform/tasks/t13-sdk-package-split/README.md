@@ -29,6 +29,9 @@ updated: 2026-10-24
 - S2 验证：Bun 1439 例、Vitest 364 例、类型检查，`plugin-code`、`plugins`、`plugin-authoring` 三份 e2e 7 例；合入 master（`051b04811`）。合并后全量 Bun 有一例资源管理器树的测试偶发失败（来自同时合进来的别的会话的改动，单独重跑三次都过），与本 Task 无关。
 - S3 `df9708d87`：SDK 子路径收成 `src/sdk/entries.ts`，Vite 与示例构建的别名、两端共享模块、打包入口与 `exports` 由它生成，两份 tsconfig 由测试对照；`/components` 逐个列出 52 个组件与 67 个类型；公开面闭包快照（运行时导入，36 个文件降到 29 个；命令插件的快捷键与菜单经它的合同模块再导出，按跨插件规则留着）；typebox、typebox/value、typebox/compile 进两端宿主模块表，构建预设不再把它打进插件。Spec `f70a9567d`。验证：Bun 与 Vitest 全过（Vitest 里 snippets 设置页的一个用例在全量时偶发失败一次，单独跑通过），插件 e2e 7 例；合入 master（`23753a10e`）。t11（激活产出形状由内核核对）并入本 Task 的 S1b。
 
+- S4 `7ee383b26`、`4834058bb`：作者材料与示例搬进应用包的 `plugin-sdk/`（产品代码不引用它，架构测试守住）；打包产出 tarball、带示例插件的源码；作者文档的组件清单取 SDK 组件入口，主题变量取 nb-ui 导出的配色合同与样式表；测试共用一份假页面（`src/plugin-platform/testing/fake-page.ts`）、一处作者目录与一次 SDK 构建，产物按执行看取了哪些模块（F14、F15）；作者文档与示例说明修正（F16、F17）。验证：类型检查，Bun 1444 例、Vitest 364 例（搬家一片前后用例数相同，第二片多两例），插件 e2e 7 例，全量 e2e 291 例；合入 master（`22a3de487`）。实施中的调整见 plan.md 第 10 节。
+- S5：[ADR 0030](../../../../../docs/adr/0030-plugin-platform-layering.md)（编号 0029 已被占用）、包边界、内核与应用包的说明、plugin-api 的“SDK 的组成”；`docs:check`、`governance:check` 无失败。
+
 ## 下一步
 
-S4：建 `plugin-sdk/`，迁入作者材料与示例，构建预设封装，打包产出 tarball，作者文档改用 nb-ui 的导出生成。
+收口：启动实现审查（不阻塞），然后做 t12 剩下的第三方视图缺省排序，再建作者 API 的 Task（A1 到 A9）。
