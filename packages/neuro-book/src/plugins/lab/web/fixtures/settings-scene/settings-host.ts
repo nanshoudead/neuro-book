@@ -122,6 +122,8 @@ export function createSettingsHost(options: SettingsHostOptions): SettingsHost {
         },
         retry: (ref) => retry(sectionOf.get(ref.plugin) ?? ""),
         activationEvents: (ref) => options.activationEvents?.[ref.plugin] ?? [],
+        // 场景里的插件没有问题可报：设置窗口不读它，插件页的场景另给数据。
+        problems: () => [],
     };
     const changed = (): void => {
         for (const listener of [...listeners]) listener();

@@ -1038,7 +1038,9 @@ function shelfFixtures(): LabFixture[] {
         defineLabFixture<typeof PluginsPage>({
             component: "PluginsPage",
             scenes: [
-                {id: "pending", label: "有待生效的变化（升级、安装、禁用、卸载）", input: {props: {locale: "zh-CN"}}},
+                {id: "pending", label: "有待生效的变化（升级、降级、安装、禁用、卸载）", input: {props: {locale: "zh-CN"}}},
+                {id: "problems", label: "显示名、说明，服务端与本窗口的问题（入口失败、受阻、贡献被拒）", input: {props: {locale: "zh-CN"}}},
+                {id: "problems-english", label: "显示名、说明与问题，英文界面", input: {props: {locale: "en-US"}}},
                 {id: "empty", label: "没有第三方插件", input: {props: {locale: "zh-CN"}}},
                 {id: "not-loaded", label: "没有登记：清单无效、不兼容", input: {props: {locale: "zh-CN"}}},
                 {id: "safe-mode", label: "安全模式", input: {props: {locale: "zh-CN"}}},

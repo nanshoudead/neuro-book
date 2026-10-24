@@ -5,18 +5,23 @@
  */
 import type {RemoteFailureCode} from "@notnotype/nb-runtime/remote";
 import {Badge, Button, Dialog, Input, Spinner, Switch} from "@notnotype/nb-ui/components";
-import {computed, nextTick, onMounted, ref} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef} from "vue";
 
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
-import type {BlockedPlugin, InstallPreview, PendingChange, PluginFailureCode, PluginListItem, PluginsRegistry} from "../../shared/contracts";
+import {compareVersions} from "nbook/plugin-platform/shared/versions";
+import type {WindowPlugins} from "nbook/shared/host";
+
+import type {BlockedPlugin, InstallPreview, PendingChange, PluginFailureCode, PluginListEntry, PluginListItem, PluginProblem, PluginsRegistry} from "../../shared/contracts";
 
 defineOptions({name: "PluginsPage"});
 
 const props = defineProps<{
     registry: PluginsRegistry;
     locale: DisplayLocale;
+    /** 本窗口的插件问题与变化通知；拿不到时（Lab、测试）只显示服务端给的问题。 */
+    windowPlugins?: Pick<WindowPlugins, "problems" | "onChange"> | null;
 }>();
 
 const TEXT = {
@@ -47,6 +52,14 @@ const TEXT = {
     blockedCycle: {"zh-CN": "{plugin}（{entries}）：依赖成环", "en-US": "{plugin} ({entries}): its dependencies form a cycle"},
     unchecked: {"zh-CN": "这些已安装插件的清单读不了，没有核对：{plugins}", "en-US": "These installed plugins could not be checked: {plugins}"},
     unknownFailure: {"zh-CN": "操作没有完成", "en-US": "The operation did not complete"},
+    entryProblems: {"zh-CN": "{count} 个入口没有运行", "en-US": "{count} entry point(s) not running"},
+    rejectedProblems: {"zh-CN": "{count} 项贡献被拒", "en-US": "{count} contribution(s) rejected"},
+    entryFailed: {"zh-CN": "入口 {entry}（{location}）激活失败：{reason}", "en-US": "Entry {entry} ({location}) failed to activate: {reason}"},
+    entryBlocked: {"zh-CN": "入口 {entry}（{location}）受阻：{reason}", "en-US": "Entry {entry} ({location}) is blocked: {reason}"},
+    contributionRejected: {"zh-CN": "{capability} 的 {id} 被拒：{reason}", "en-US": "{id} for {capability} was rejected: {reason}"},
+    withDetail: {"zh-CN": "{reason}（{detail}）", "en-US": "{reason} ({detail})"},
+    pendingDowngrade: {"zh-CN": "重启后降级到 {version}", "en-US": "Downgrade to {version} on restart"},
+    problemsSnapshot: {"zh-CN": "服务端的状态是打开这一页时的；本窗口的随时更新。", "en-US": "Server status is as of opening this page; this window's status updates live."},
 } satisfies Record<string, LocalizedText>;
 
 const PREVIEW_TEXT: Record<InstallPreview["relation"], {readonly title: LocalizedText; readonly confirm: LocalizedText}> = {
@@ -117,7 +130,7 @@ const blockedLine = (item: BlockedPlugin): string => format(BLOCKED_TEXT[item.re
 
 const state = ref<"loading" | "failed" | "ready">("loading");
 const loadFailure = ref<string>("");
-const items = ref<ReadonlyArray<PluginListItem>>([]);
+const items = ref<ReadonlyArray<PluginListEntry>>([]);
 const safeMode = ref(false);
 /** 进行中的写操作：`preview`、`install`、`toggle:<id>`、`uninstall:<id>`；没有为 null。 */
 const busy = ref<string | null>(null);
@@ -140,6 +153,53 @@ function rememberTitle(key: string, element: unknown): void {
 }
 
 const hasPending = computed(() => items.value.some((item) => item.pending.length > 0));
+
+/** 本窗口的问题：变化通知到来时重读（通知不精确，读方重新查询）。 */
+const windowProblems = shallowRef<ReadonlyArray<PluginProblem>>(props.windowPlugins?.problems() ?? []);
+const stopWindow = props.windowPlugins?.onChange(() => {
+    windowProblems.value = props.windowPlugins?.problems() ?? [];
+});
+onBeforeUnmount(() => stopWindow?.());
+
+const problemKey = (problem: PluginProblem): string => [problem.kind, problem.entry ?? "", problem.location, problem.kind === "contribution-rejected" ? `${problem.capability} ${problem.id}` : ""].join("|");
+
+/** 一个插件的问题：服务端的加上本窗口的。顶层声明在每个实例里都登记，被拒时两边各有一条，按贡献合成一条。 */
+function problemsOf(item: PluginListEntry): ReadonlyArray<PluginProblem> {
+    const merged = new Map<string, PluginProblem>();
+    for (const problem of [...item.problems, ...windowProblems.value.filter((candidate) => candidate.plugin === item.id)]) {
+        const key = problem.kind === "contribution-rejected" && problem.entry === null ? `top|${problem.capability} ${problem.id}` : problemKey(problem);
+        if (!merged.has(key)) merged.set(key, problem);
+    }
+    return [...merged.values()];
+}
+
+const hasProblems = computed(() => items.value.some((item) => problemsOf(item).length > 0));
+const entryProblemCount = (item: PluginListEntry): number => problemsOf(item).filter((problem) => problem.kind !== "contribution-rejected").length;
+const rejectedCount = (item: PluginListEntry): number => problemsOf(item).filter((problem) => problem.kind === "contribution-rejected").length;
+
+const BLOCKED_REASON: Readonly<Record<Extract<PluginProblem, {kind: "entry-blocked"}>["reason"], LocalizedText>> = {
+    "missing-service": {"zh-CN": "需要的服务 {key} 没有提供", "en-US": "the service {key} it needs is not provided"},
+    "location-mismatch": {"zh-CN": "需要的服务 {key} 不在这个位置提供", "en-US": "the service {key} it needs is not provided at this location"},
+    "provider-blocked": {"zh-CN": "提供 {key} 的插件受阻", "en-US": "the plugin providing {key} is blocked"},
+    "provider-failed": {"zh-CN": "提供 {key} 的插件激活失败", "en-US": "the plugin providing {key} failed to activate"},
+    "dependency-cycle": {"zh-CN": "依赖成环（{key}）", "en-US": "its dependencies form a cycle ({key})"},
+    "version-mismatch": {"zh-CN": "{key} 的版本不在要求的范围里", "en-US": "the version of {key} is outside the required range"},
+};
+
+const REJECTED_REASON: Readonly<Record<Extract<PluginProblem, {kind: "contribution-rejected"}>["reason"], LocalizedText>> = {
+    "invalid-declaration": {"zh-CN": "声明不合规则", "en-US": "the declaration is invalid"},
+    "implementation-required": {"zh-CN": "这个贡献点要实现，要写在入口里", "en-US": "this contribution point needs an implementation; declare it in an entry"},
+    "implementation-not-accepted": {"zh-CN": "这个贡献点只收声明，不收实现", "en-US": "this contribution point takes declarations only"},
+    "duplicate-contribution": {"zh-CN": "别的插件用了同一个 id", "en-US": "another plugin uses the same id"},
+};
+
+/** 一条问题写成一句话：固定的部分按界面语言，激活错误的消息与拒绝的详情原样接上。 */
+function problemLine(problem: PluginProblem): string {
+    if (problem.kind === "entry-failed") return format(TEXT.entryFailed, {entry: problem.entry, location: problem.location, reason: problem.message ?? `${problem.stage}/${problem.reason}`});
+    if (problem.kind === "entry-blocked") return format(TEXT.entryBlocked, {entry: problem.entry, location: problem.location, reason: format(BLOCKED_REASON[problem.reason], {key: problem.key})});
+    const reason = text(REJECTED_REASON[problem.reason]);
+    return format(TEXT.contributionRejected, {capability: problem.capability, id: problem.id, reason: problem.detail === null ? reason : format(TEXT.withDetail, {reason, detail: problem.detail})});
+}
 /** 第三方插件在前：它们才有操作；内置插件随产品，放在后面。 */
 const groups = computed(() => [
     {key: "third-party", heading: TEXT.thirdPartyHeading, items: items.value.filter((item) => item.source === "third-party")},
@@ -203,8 +263,9 @@ async function retry(): Promise<void> {
     else if (after === "ready") thirdPartyTitle?.focus();
 }
 
+/** 写操作的结果换上行的状态；显示名、说明与问题是列表才有的，留着上一次读到的。 */
 function replace(item: PluginListItem): void {
-    items.value = items.value.map((current) => (current.id === item.id ? item : current));
+    items.value = items.value.map((current) => (current.id === item.id ? {...current, ...item} : current));
     if (reading) void refresh();
 }
 
@@ -292,8 +353,10 @@ function blockedFor(key: string): boolean {
     return busy.value !== null && busy.value !== key;
 }
 
-function pendingText(change: PendingChange): string {
-    return change.kind === "upgrade" ? format(PENDING_TEXT.upgrade, {version: change.version}) : text(PENDING_TEXT[change.kind]);
+/** 换到更低的版本写“降级”，与安装确认框的说法一致。 */
+function pendingText(change: PendingChange, current: string): string {
+    if (change.kind !== "upgrade") return text(PENDING_TEXT[change.kind]);
+    return format(compareVersions(change.version, current) < 0 ? TEXT.pendingDowngrade : PENDING_TEXT.upgrade, {version: change.version});
 }
 
 function openUninstall(item: PluginListItem): void {
@@ -324,6 +387,10 @@ onMounted(() => {
         <p v-if="safeMode" class="plugins-page__note plugins-page__note--warning" data-plugins-safe-mode>
             <span class="i-lucide-shield-alert plugins-page__note-icon" aria-hidden="true"></span>
             <span>{{ text(TEXT.safeMode) }}</span>
+        </p>
+        <p v-if="hasProblems" class="plugins-page__note" data-plugins-snapshot>
+            <span class="i-lucide-info plugins-page__note-icon" aria-hidden="true"></span>
+            <span>{{ text(TEXT.problemsSnapshot) }}</span>
         </p>
 
         <form class="plugins-page__install" @submit.prevent="startInstall">
@@ -358,12 +425,17 @@ onMounted(() => {
                         <div class="plugins-page__meta">
                             <div class="plugins-page__heading">
                                 <span class="plugins-page__id">{{ item.id }}</span>
+                                <span v-if="item.displayName !== null" class="plugins-page__display-name" data-plugin-display-name>{{ item.displayName }}</span>
                                 <span class="plugins-page__version">{{ item.version }}</span>
                                 <Badge v-if="item.source === 'builtin'" size="sm" variant="soft">{{ text(TEXT.builtin) }}</Badge>
-                                <Badge v-for="change in item.pending" :key="change.kind" class="plugins-page__badge" size="sm" variant="soft" tone="warning" :data-plugin-pending="change.kind">{{ pendingText(change) }}</Badge>
+                                <Badge v-for="change in item.pending" :key="change.kind" class="plugins-page__badge" size="sm" variant="soft" tone="warning" :data-plugin-pending="change.kind">{{ pendingText(change, item.version) }}</Badge>
                                 <Badge v-if="item.notLoaded !== null" class="plugins-page__badge" size="sm" variant="soft" :tone="NOT_LOADED[item.notLoaded.code].tone" :data-plugin-not-loaded="item.notLoaded.code">{{ text(NOT_LOADED[item.notLoaded.code].text) }}</Badge>
+                                <Badge v-if="entryProblemCount(item) > 0" class="plugins-page__badge" size="sm" variant="soft" tone="danger" data-plugin-problems="entries">{{ format(TEXT.entryProblems, {count: String(entryProblemCount(item))}) }}</Badge>
+                                <Badge v-if="rejectedCount(item) > 0" class="plugins-page__badge" size="sm" variant="soft" tone="danger" data-plugin-problems="contributions">{{ format(TEXT.rejectedProblems, {count: String(rejectedCount(item))}) }}</Badge>
                             </div>
                             <p v-if="item.notLoaded !== null && NOT_LOADED[item.notLoaded.code].showDetail" class="plugins-page__reason">{{ item.notLoaded.detail }}</p>
+                            <p v-if="item.description !== null" class="plugins-page__description" :title="item.description" data-plugin-description>{{ item.description }}</p>
+                            <p v-for="line in problemsOf(item).map(problemLine)" :key="line" class="plugins-page__reason" data-plugin-problem-line>{{ line }}</p>
                         </div>
                         <div v-if="item.source === 'third-party' && item.state !== 'uninstalling'" class="plugins-page__actions">
                             <Switch
@@ -630,6 +702,23 @@ onMounted(() => {
 .plugins-page__version {
     font-size: var(--text-xs);
     color: var(--text-muted);
+}
+
+.plugins-page__display-name {
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+}
+
+/* 说明只占一行，放不下截断，悬停看全文：多数行没有说明，长说明不把窄屏下的每一行都拉高。 */
+.plugins-page__description {
+    margin: 0;
+    overflow: hidden;
+    font-size: var(--text-xs);
+    line-height: var(--leading-ui);
+    color: var(--text-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .plugins-page__reason {

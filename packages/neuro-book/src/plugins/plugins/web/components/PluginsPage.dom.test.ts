@@ -8,7 +8,7 @@ import {flushPromises, mount} from "@vue/test-utils";
 import type {VueWrapper} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
-import type {InstallPreview, PluginListItem, PluginsRegistry} from "../../shared/contracts";
+import type {InstallPreview, PluginListEntry, PluginListItem, PluginProblem, PluginsRegistry} from "../../shared/contracts";
 import PluginsPage from "./PluginsPage.vue";
 
 const mounted: VueWrapper[] = [];
@@ -22,8 +22,10 @@ afterEach(() => {
 type Registry = PluginsRegistry;
 type Outcome = {readonly ok: true; readonly value: unknown} | {readonly ok: false; readonly code: string; readonly detail?: unknown};
 
-const BUILTIN: PluginListItem = {id: "nbook.settings", version: "0.1.0", source: "builtin", state: "enabled", pending: [], notLoaded: null};
-const HELLO: PluginListItem = {id: "example.hello", version: "1.0.0", source: "third-party", state: "enabled", pending: [], notLoaded: null};
+/** 列表才有的字段：显示名、说明与问题；写操作的结果没有它们。 */
+const LISTED: Pick<PluginListEntry, "displayName" | "description" | "problems"> = {displayName: null, description: null, problems: []};
+const BUILTIN: PluginListEntry = {id: "nbook.settings", version: "0.1.0", source: "builtin", state: "enabled", pending: [], notLoaded: null, ...LISTED};
+const HELLO: PluginListEntry = {id: "example.hello", version: "1.0.0", source: "third-party", state: "enabled", pending: [], notLoaded: null, ...LISTED};
 
 interface Fake {
     readonly client: Registry;
@@ -38,15 +40,17 @@ interface Fake {
     hangNextList(): void;
 }
 
-function registry(initial: PluginListItem[], options: {readonly safeMode?: boolean; readonly preview?: InstallPreview} = {}): Fake {
+function registry(initial: PluginListEntry[], options: {readonly safeMode?: boolean; readonly preview?: InstallPreview} = {}): Fake {
     let plugins = [...initial];
     const calls: string[] = [];
     let nextList: Outcome | null = null;
     let hangList = false;
     let nextAnswer: Outcome | null = null;
     let hold: Promise<void> | null = null;
+    // 像服务端一样：表里存列表的条目，写操作返回不带列表字段的那一部分。
     const set = (item: PluginListItem): PluginListItem => {
-        plugins = plugins.some((plugin) => plugin.id === item.id) ? plugins.map((plugin) => (plugin.id === item.id ? item : plugin)) : [...plugins, item];
+        const listed: PluginListEntry = {...LISTED, ...plugins.find((plugin) => plugin.id === item.id), ...item};
+        plugins = plugins.some((plugin) => plugin.id === item.id) ? plugins.map((plugin) => (plugin.id === item.id ? listed : plugin)) : [...plugins, listed];
         return item;
     };
     const find = (id: string): PluginListItem => plugins.find((plugin) => plugin.id === id)!;
@@ -104,8 +108,8 @@ function registry(initial: PluginListItem[], options: {readonly safeMode?: boole
     };
 }
 
-async function open(client: Registry, locale: "zh-CN" | "en-US" = "zh-CN") {
-    const wrapper = mount(PluginsPage, {props: {registry: client, locale}, attachTo: document.body});
+async function open(client: Registry, locale: "zh-CN" | "en-US" = "zh-CN", windowPlugins: {problems(): ReadonlyArray<PluginProblem>; onChange(listener: () => void): () => void} | null = null) {
+    const wrapper = mount(PluginsPage, {props: {registry: client, locale, windowPlugins}, attachTo: document.body});
     mounted.push(wrapper);
     await flushPromises();
     return wrapper;
@@ -163,6 +167,42 @@ describe("PluginsPage", () => {
         expect(row("example.locked").textContent).toContain("EACCES");
         expect(row("example.hello").querySelector("[data-plugin-uninstall]")?.getAttribute("aria-label")).toBe("卸载 example.hello");
         expect(document.querySelector("[data-plugins-restart]")?.textContent).toContain("重启 NeuroBook 后生效");
+    });
+
+    it("显示名跟在 id 后面、说明在下一行；服务端与本窗口的问题按种类计数、逐条写出原因，本窗口的随变化通知更新；换到更低的版本写“降级”", async () => {
+        const failed: PluginProblem = {kind: "entry-failed", plugin: "example.goal", entry: "server", location: "server", stage: "activate", reason: "activation-threw", message: "local 记录需要客户端身份"};
+        const rejected: PluginProblem = {kind: "contribution-rejected", plugin: "example.goal", entry: "browser", location: "browser", capability: "workbench.views", id: "other.goal", reason: "invalid-declaration", detail: "前缀不对"};
+        const blocked: PluginProblem = {kind: "entry-blocked", plugin: "example.goal", entry: "browser", location: "browser", reason: "missing-service", key: "example.goal/progress"};
+        let windowProblems: ReadonlyArray<PluginProblem> = [rejected];
+        let notify: () => void = () => undefined;
+        const fake = registry([
+            BUILTIN,
+            {...HELLO, id: "example.goal", displayName: "Daily Goal", description: "每天写多少字", problems: [failed]},
+            {...HELLO, pending: [{kind: "upgrade", version: "0.9.0"}]},
+        ]);
+        await open(fake.client, "zh-CN", {problems: () => windowProblems, onChange: (listener) => {
+            notify = listener;
+            return () => undefined;
+        }});
+        const goal = row("example.goal");
+        expect(goal.querySelector("[data-plugin-display-name]")?.textContent).toBe("Daily Goal");
+        expect(goal.querySelector("[data-plugin-description]")?.textContent).toBe("每天写多少字");
+        expect(goal.querySelector("[data-plugin-problems=entries]")?.textContent).toContain("1 个入口没有运行");
+        expect(goal.querySelector("[data-plugin-problems=contributions]")?.textContent).toContain("1 项贡献被拒");
+        const lines = () => [...goal.querySelectorAll("[data-plugin-problem-line]")].map((line) => line.textContent);
+        expect(lines()).toEqual(["入口 server（server）激活失败：local 记录需要客户端身份", "workbench.views 的 other.goal 被拒：声明不合规则（前缀不对）"]);
+        expect(document.querySelector("[data-plugins-snapshot]")).not.toBeNull();
+        // 内置插件没有清单，不显示显示名与说明；没有问题的行不占位。
+        expect(row("nbook.settings").querySelector("[data-plugin-display-name]")).toBeNull();
+        expect(row("example.hello").querySelector("[data-plugin-problems]")).toBeNull();
+        expect(row("example.hello").querySelector("[data-plugin-pending=upgrade]")?.textContent).toContain("重启后降级到 0.9.0");
+
+        windowProblems = [blocked];
+        notify();
+        await flushPromises();
+        expect(lines()).toEqual(["入口 server（server）激活失败：local 记录需要客户端身份", "入口 browser（browser）受阻：需要的服务 example.goal/progress 没有提供"]);
+        expect(goal.querySelector("[data-plugin-problems=entries]")?.textContent).toContain("2 个入口没有运行");
+        expect(goal.querySelector("[data-plugin-problems=contributions]")).toBeNull();
     });
 
     it("安装先预览：确认框写明首次安装与完全信任；取消不安装；确认后清空输入框、列表出现“重启后安装”", async () => {

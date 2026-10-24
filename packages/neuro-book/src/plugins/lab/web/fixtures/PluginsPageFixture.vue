@@ -3,11 +3,12 @@
  * PluginsPage 的 Lab 场景：`nbook.plugins/registry` 的客户端是内存里的插件表，按场景摆出列表的各种状态。写操作照常改这张
  * 表并记进事件 tab；安装总是预览为首次安装 `example.new`（“pending”场景预览为升级、“downgrade”场景为降级、“blocked”场景
  * 为升级并列出重启后受阻的插件）。“write-failed”场景的写操作都以带出错字段的“清单无效”失败，“version-in-use”场景的写操作
- * 以“版本还被别的服务端用着”失败，“busy”场景的写操作永不结算。场景名带 `-english` 的是同一场景的英文界面。
+ * 以“版本还被别的服务端用着”失败，“busy”场景的写操作永不结算。“problems”场景摆出显示名、说明、服务端与本窗口的问题。
+ * 场景名带 `-english` 的是同一场景的英文界面。
  */
 import {computed} from "vue";
 
-import type {InstallPreview, PluginListItem, PluginsRegistry} from "nbook/plugins/plugins/shared/contracts";
+import type {InstallPreview, PluginListEntry, PluginProblem, PluginsRegistry} from "nbook/plugins/plugins/shared/contracts";
 import type {InstallFailureCode, ManageFailureCode} from "nbook/plugin-platform/shared/types";
 import PluginsPage from "nbook/plugins/plugins/web/components/PluginsPage.vue";
 
@@ -19,18 +20,36 @@ const props = defineProps<LabFixtureProps>();
 const record = useLabEventSink();
 const subject = useLabSubject<typeof PluginsPage>(() => props.input, []);
 
-const BUILTIN: PluginListItem[] = ["nbook.commands", "nbook.editor", "nbook.explorer", "nbook.plugins", "nbook.settings", "nbook.workbench"]
-    .map((id) => ({id, version: "0.1.0", source: "builtin", state: "enabled", pending: [], notLoaded: null}));
-const third = (id: string, version: string, extra: Partial<PluginListItem> = {}): PluginListItem => ({id, version, source: "third-party", state: "enabled", pending: [], notLoaded: null, ...extra});
+const BUILTIN: PluginListEntry[] = ["nbook.commands", "nbook.editor", "nbook.explorer", "nbook.plugins", "nbook.settings", "nbook.workbench"]
+    .map((id) => ({id, version: "0.1.0", source: "builtin", state: "enabled", pending: [], notLoaded: null, displayName: null, description: null, problems: []}));
+const third = (id: string, version: string, extra: Partial<PluginListEntry> = {}): PluginListEntry => ({id, version, source: "third-party", state: "enabled", pending: [], notLoaded: null, displayName: null, description: null, problems: [], ...extra});
+
+/** “problems”场景里本窗口的问题：浏览器入口缺服务受阻。 */
+const WINDOW_PROBLEMS: ReadonlyArray<PluginProblem> = [{kind: "entry-blocked", plugin: "example.daily-goal", entry: "browser", location: "browser", reason: "missing-service", key: "example.daily-goal/progress"}];
 
 /** 场景 → 第三方插件。 */
-const THIRD_PARTY: Readonly<Record<string, PluginListItem[]>> = {
+const THIRD_PARTY: Readonly<Record<string, PluginListEntry[]>> = {
     "empty": [],
     "pending": [
         third("example.gone", "1.0.0", {state: "uninstalling", pending: [{kind: "uninstall"}]}),
         third("example.hello", "1.0.0", {pending: [{kind: "upgrade", version: "1.10.0-beta.3"}]}),
         third("example.notes-lite", "0.2.0", {pending: [{kind: "install"}]}),
         third("example.quiet", "2.1.0", {state: "disabled", pending: [{kind: "disable"}]}),
+        third("example.rollback", "1.2.0", {pending: [{kind: "upgrade", version: "1.1.0"}]}),
+    ],
+    "problems": [
+        third("example.daily-goal", "0.1.0", {
+            displayName: "Daily Goal",
+            description: "每天写多少字，状态栏显示今天的进度；这句说明故意写得长一些，看窄的时候怎样单行截断。",
+            problems: [{kind: "entry-failed", plugin: "example.daily-goal", entry: "server", location: "server", stage: "activate", reason: "activation-threw", message: "local 记录 progress 需要客户端身份，这个位置没有"}],
+        }),
+        third("example.hello", "1.0.0", {displayName: "Hello"}),
+        third("example.typo", "1.0.0", {
+            problems: [
+                {kind: "contribution-rejected", plugin: "example.typo", entry: "browser", location: "browser", capability: "workbench.views", id: "other.goal", reason: "invalid-declaration", detail: "贡献 id 要以插件 id example.typo 加“.”开头：other.goal"},
+                {kind: "contribution-rejected", plugin: "example.typo", entry: "server", location: "server", capability: "commands.definitions", id: "example.typo.say", reason: "duplicate-contribution", detail: null},
+            ],
+        }),
     ],
     "not-loaded": [
         third("example.broken", "1.0.0", {notLoaded: {code: "entry-missing", detail: "入口文件不存在：dist/browser.js"}}),
@@ -61,13 +80,15 @@ const PREVIEW: Readonly<Record<string, InstallPreview>> = {
 
 /** 去掉 `-english` 后缀的场景名：英文界面的场景与中文的用同一份数据。 */
 const base = props.scene.replace(/-english$/u, "");
-let plugins: PluginListItem[] = [...(THIRD_PARTY[base] ?? []), ...BUILTIN];
-const set = (item: PluginListItem): PluginListItem => {
+let plugins: PluginListEntry[] = [...(THIRD_PARTY[base] ?? []), ...BUILTIN];
+const set = (item: PluginListEntry): PluginListEntry => {
     // 与服务端一样按 id 排序。
     plugins = (plugins.some((plugin) => plugin.id === item.id) ? plugins.map((plugin) => (plugin.id === item.id ? item : plugin)) : [...plugins, item]).sort((left, right) => (left.id < right.id ? -1 : 1));
     return item;
 };
-const find = (id: string): PluginListItem => plugins.find((plugin) => plugin.id === id)!;
+const find = (id: string): PluginListEntry => plugins.find((plugin) => plugin.id === id)!;
+/** 本窗口的问题只在“problems”场景里有；变化通知不会来。 */
+const windowPlugins = base === "problems" ? {problems: () => WINDOW_PROBLEMS, onChange: () => () => undefined} : null;
 
 const never = <T>(): Promise<T> => new Promise<T>(() => undefined);
 /** “write-failed”“version-in-use”“busy”场景的安装结果；其余场景为 null，照常改内存里的表。 */
@@ -118,5 +139,5 @@ const bindings = computed(() => subject.bindings.value);
 </script>
 
 <template>
-    <PluginsPage v-bind="bindings" :registry="registry" data-lab-subject />
+    <PluginsPage v-bind="bindings" :registry="registry" :window-plugins="windowPlugins" data-lab-subject />
 </template>

@@ -127,3 +127,33 @@ test("安装 → 重启后配置项出现、能写进本作品层 → 禁用 →
     await expect(pluginRow(page, "example.hello")).toHaveCount(0);
     expect(problems).toEqual([]);
 });
+
+test("入口激活失败的插件：重启后插件页这一行显示“入口没有运行”与错误消息（按旧 SDK 构建的产物就是这样）", async ({page}) => {
+    // 一个手写的产物：服务端入口启动即激活、激活就抛错，模仿按旧 SDK 构建、调用了已经改名的 provide 的插件。
+    const source = join(tmp, "broken");
+    await mkdir(source, {recursive: true});
+    await writeFile(join(source, "package.json"), JSON.stringify({
+        publisher: "example",
+        name: "broken",
+        version: "1.0.0",
+        displayName: "Broken",
+        engines: {neurobook: ">=0.1.0"},
+        entries: {server: {location: "server", main: "server.js", activationEvents: ["onStartup"]}},
+    }));
+    await writeFile(join(source, "server.js"), "export async function activate() {\n    throw new TypeError(\"provide is not a function\");\n}\n");
+
+    await restart(page);
+    await openSettings(page, "nbook.plugins.installed");
+    await page.locator("[data-plugin-path] input, input[data-plugin-path]").first().fill(source);
+    await page.locator("[data-plugin-install]").click();
+    await page.getByRole("dialog", {name: "安装插件"}).getByRole("button", {name: "安装"}).click();
+    await expect(pluginRow(page, "example.broken").locator("[data-plugin-pending='install']")).toBeVisible();
+
+    await restart(page);
+    await openSettings(page, "nbook.plugins.installed");
+    const row = pluginRow(page, "example.broken");
+    await expect(row.locator("[data-plugin-display-name]")).toHaveText("Broken");
+    await expect(row.locator("[data-plugin-problems='entries']")).toContainText("1 个入口没有运行");
+    await expect(row.locator("[data-plugin-problem-line]")).toContainText("入口 server（server）激活失败：provide is not a function");
+    await expect(page.locator("[data-plugins-snapshot]")).toBeVisible();
+});
