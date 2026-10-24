@@ -20,7 +20,10 @@ updated: 2026-10-24
 进展：
 
 - S1 `00f04ff4e`：内核 `ok`/`fail`；业务失败的详情按码定型，提供方与调用方都按该码的 schema 核对，不合为 `provider-error`（诊断 `error-detail-invalid`）；合同的 `input`、`filter` 没写 `additionalProperties` 时补成 `false`；`provide` 改名 `provideService`、`providePerConsumer` 改名 `provideServicePerConsumer`；激活上下文加 `onStop`，`defineStore` 改用它；提供入口激活失败时 `unavailable` 带错误消息。新类型顺带查出 focus 示例里一处失败码被反推错的类型。验证：内核 397 例、应用 Bun 1465 例、Vitest 364 例、类型检查、插件 e2e 7 例；合入 master（`592eccf10`）。
+- S2 `1dc451be0`：`definePlugin` 与根入口的分区、设置项、命令助手，`/browser` 的视图、设置页、状态栏条目、选项来源助手；入口按键逐项交实现，漏写、多写、换错、浏览器助手写进服务端入口都编译不过，仓库外作者项目的 vue-tsc 诊断写明是哪一项；激活事件并入；`rawContributions`；属性从 `load` 推出；作者上下文没有 `scope`。
+- S3 `b8c5296c0`：记录的 `locality` 必填，schema 自动补 `additionalProperties: false`。产品与示例的记录原本都写了 `locality`，没有要补的。
+- S2、S3 验证：类型检查，应用 Bun 1472 例、Vitest 368 例；合入 master。
 
 ## 下一步
 
-按 plan.md 第 5 节的切片实施，当前 S2。
+按 plan.md 第 5 节的切片实施，当前 S4（模板、示例与作者文档改用新写法）。
