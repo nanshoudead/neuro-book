@@ -161,10 +161,23 @@ describe("读 /models", () => {
         }
     });
 
-    test("连不上：unreachable", async () => {
+    test("连不上，或者回了响应头、响应体超时没发完：unreachable", async () => {
         const server = serve(() => json({data: []}));
         const url = server.url;
         server.stop();
         expect((await discoverModels({api: "openai-completions", baseUrl: url})).state).toBe("unreachable");
+
+        // 先发响应头与半个 JSON，之后不再发。
+        let stall: ReadableStreamDefaultController<Uint8Array> | null = null;
+        const slow = serve(() => new Response(new ReadableStream<Uint8Array>({start(controller) {
+            stall = controller;
+            controller.enqueue(new TextEncoder().encode('{"data":['));
+        }}), {status: 200, headers: {"content-type": "application/json"}}));
+        try {
+            expect(await discoverModels({api: "openai-completions", baseUrl: slow.url, timeoutMs: 200})).toMatchObject({state: "unreachable"});
+        } finally {
+            (stall as ReadableStreamDefaultController<Uint8Array> | null)?.close();
+            slow.stop();
+        }
     });
 });

@@ -189,7 +189,8 @@ export interface DiscoverModelsOptions {
 
 /**
  * 读 OpenAI 兼容服务的 `/models`（同 OMP 的 `openai-models-list` 发现）。OMP 的 `fetchOpenAICompatibleModels` 失败时
- * 只回 `null`，所以把 `fetch` 包一层，记下这次请求的状态码或网络错误来分原因，不按错误文案猜。
+ * 只回 `null`，所以把 `fetch` 包一层，记下这次请求的状态码或网络错误来分原因，不按错误文案猜。响应体也在这一层读完：
+ * OMP 读响应体出错（包括超时中止）同样只回 `null`，读不完要算连不上，不能落到“回应不是模型列表”。
  */
 export async function discoverModels(options: DiscoverModelsOptions): Promise<DiscoveryResult> {
     let status: number | null = null;
@@ -197,8 +198,10 @@ export async function discoverModels(options: DiscoverModelsOptions): Promise<Di
     const recording = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]): Promise<Response> => {
         try {
             const response = await fetch(input, init);
+            // 请求的 signal（OMP 的超时）同样中止响应体的读取。
+            const body = await response.text();
             status = response.status;
-            return response;
+            return new Response(body, {status: response.status, statusText: response.statusText, headers: response.headers});
         } catch (error) {
             networkError = error;
             throw error;
