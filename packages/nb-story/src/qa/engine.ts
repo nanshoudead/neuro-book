@@ -27,7 +27,7 @@ import {StoryError} from "../core/errors";
 import type {PositionInput} from "../core/position";
 import {newQaRecordId, QaRecords, type QaConversation, type QaMode, type QaReply, type QaTurn, type QaUsage} from "../core/qa-records";
 import {qaLimits, type QaConfig} from "./config";
-import {configuredModel, thinkingOption} from "./harness-model";
+import {resolveQaModel, thinkingOption} from "./harness-model";
 import {QaError} from "./errors";
 import {ReadLedger} from "./read-ledger";
 import profile from "./story-qa.profile";
@@ -263,7 +263,7 @@ export interface PreparedQuestion {
 export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion> {
     const started = Date.now();
     const startedAt = new Date(started).toISOString();
-    const model = configuredModel(input.config);
+    const qaModel = resolveQaModel(input.config);
     const start = input.continueFrom === undefined ? await startNew(input, started) : await startContinued(input, input.continueFrom);
     const {book, at, mode, ledger, previous, id} = start;
 
@@ -285,9 +285,9 @@ export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion
             profile,
             ...(previous === null ? {initial: {title: book.meta.title, at: `${at.chapter}.${at.paragraph}`, mode, maxChapters: start.maxChapters, ...(start.features.ledger ? {} : {ledger: false})}} : {}),
             registry,
-            model,
+            model: qaModel.resolved,
             sessionLog,
-            ...thinkingOption(input.config),
+            ...thinkingOption(qaModel),
             ...(input.streamFn === undefined ? {} : {streamFn: input.streamFn}),
         });
     } catch (error) {
@@ -325,7 +325,7 @@ export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion
     }
 
     async function finish(): Promise<QaOutcome> {
-        const turn: QaTurn = {question: input.question, ...outcome, chaptersRead: ledger.chapters(), rejections, usage, ms: Date.now() - started, model: input.config.model.id, startedAt, logFrom};
+        const turn: QaTurn = {question: input.question, ...outcome, chaptersRead: ledger.chapters(), rejections, usage, ms: Date.now() - started, model: qaModel.ref, startedAt, logFrom};
         const fixed = previous ?? {id, book: book.id, generation: book.generation, at, mode, maxChapters: start.maxChapters, startedAt};
         const conversation: Omit<QaConversation, "log"> = {
             id: fixed.id,

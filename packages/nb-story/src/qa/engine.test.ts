@@ -510,7 +510,8 @@ describe("网页问答用的观察与轮次（t13）", () => {
     });
 
     test("缺密钥的首轮在写用户消息之前就失败，也记 logFrom；续问的一轮按 logFrom 对得上它自己的提问", async () => {
-        const unset = {...testConfig(), model: {...testConfig().model, apiKeyEnv: "NBSTORY_QA_TEST_UNSET_CREDENTIAL"}};
+        const base = testConfig();
+        const unset = {...base, providers: {test: {...base.providers!.test!, apiKeyEnv: "NBSTORY_QA_TEST_UNSET_CREDENTIAL"}}};
         const first = await askScripted(book, [answer()], {at: P, question: "缺密钥的第一问", config: unset});
         expect(first.outcome.result).toMatchObject({status: "failed", logFrom: 1});
         const id = first.outcome.result.id;

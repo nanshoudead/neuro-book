@@ -361,9 +361,10 @@ describe("设置页的配置", () => {
     test("没有配置文件时给起始配置；按摘要整份写入，别处改过就报冲突；密钥变量有没有值按服务的环境", async () => {
         const env = await setup([], {config: null});
         const absent = await env.call("config.get", {});
-        expect(absent.body).toMatchObject({state: "absent", digest: "absent", keys: {OPENAI_API_KEY: false}});
+        // 起点是第 2 版的空配置：还没有候选，也就没有要看的密钥变量。
+        expect(absent.body).toMatchObject({state: "absent", digest: "absent", config: {models: [], model: {use: ""}}, keys: {}});
 
-        const config = {model: {baseUrl: env.endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}};
+        const config = {providers: {custom: {api: "openai-completions", baseUrl: env.endpoint.url, apiKeyEnv: KEY_ENV, models: [{id: "qa-model"}]}}, models: ["custom/qa-model"], model: {use: "custom/qa-model"}};
         const created = await env.call("config.set", {config, expect: "absent"});
         expect(created.status).toBe(200);
         expect(created.body.keys).toEqual({[KEY_ENV]: true});
@@ -374,7 +375,14 @@ describe("设置页的配置", () => {
         const valid = await env.call("config.get", {});
         expect(valid.body).toMatchObject({state: "valid", config, digest: created.body.digest});
         const pasted = "sk-pasted-into-settings-0042";
-        const rejected = await env.call("config.set", {config: {model: {...config.model, apiKeyEnv: pasted}}, expect: created.body.digest});
+        const rejected = await env.call("config.set", {config: {...config, providers: {custom: {...config.providers.custom, apiKeyEnv: pasted}}}, expect: created.body.digest});
+        expect(code(rejected)).toBe("invalid_params");
+        // 字段之间的约束不成立同样不收：默认模型不在候选里。
+        expect(code(await env.call("config.set", {config: {...config, model: {use: "custom/other"}}, expect: created.body.digest}))).toBe("invalid_params");
+        // 第 1 版整份写进来，存下的是第 2 版。
+        const legacy = await env.call("config.set", {config: {model: {baseUrl: env.endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}}, expect: created.body.digest});
+        expect(legacy.status).toBe(200);
+        expect(JSON.parse(await readFile(env.configFile, "utf8"))).toEqual(config);
         expect(code(rejected)).toBe("invalid_params");
         expect(JSON.stringify(rejected.body)).not.toContain(pasted);
         expect(await readFile(env.configFile, "utf8")).not.toContain(pasted);
@@ -399,7 +407,7 @@ describe("设置页的配置", () => {
     test("测试连接：通过时给模型与用时；模型回 401 时失败原因里没有密钥", async () => {
         const env = await setup([{kind: "text", text: "好"}, {kind: "status", status: 401, echoKey: true}]);
         const passed = await env.call("config.test", {});
-        expect(passed.body).toMatchObject({ok: true, model: "qa-model", thinking: null, error: null});
+        expect(passed.body).toMatchObject({ok: true, model: "custom/qa-model", thinking: null, error: null});
         const failed = await env.call("config.test", {});
         expect(failed.body).toMatchObject({ok: false, error: {kind: expect.any(String), message: expect.any(String)}});
     });

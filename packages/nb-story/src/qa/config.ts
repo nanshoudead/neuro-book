@@ -15,29 +15,126 @@ import type {Static} from "typebox";
 import {Compile} from "typebox/compile";
 
 import {tryLock} from "../platform/flock";
-import {ConfigSchema, type IngestModelSchema, type PriceSchema, type QaConfig} from "../contract/config-schema";
+import {ConfigSchema, LegacyModelSchema, PROVIDER_ID_PATTERN, type IngestModelSchema, type PriceSchema, type ProviderConfig, type QaConfig} from "../contract/config-schema";
 import {QaError} from "./errors";
 
-export type {QaConfig} from "../contract/config-schema";
+export type {CustomModelConfig, Effort, ProviderApi, ProviderConfig, QaConfig} from "../contract/config-schema";
 
 /** 图当目录一问最多读的不同章数（开发者定的上限，配置只能调小）。 */
 export const MAX_CHAPTERS = 20;
 export const DEFAULT_FULL_READ_MAX_CHARS = 300_000;
 
 const checkConfig = Compile(ConfigSchema);
+const checkLegacyModel = Compile(LegacyModelSchema);
+
+const PROVIDER_ID = new RegExp(PROVIDER_ID_PATTERN, "u");
+
+/** 第 1 版配置升级后，那个唯一的模型所在的自定义服务商。 */
+export const LEGACY_PROVIDER_ID = "custom";
 
 /** 配置文件的默认位置：`$XDG_CONFIG_HOME/nbstory/config.json`，未设置时 `~/.config/nbstory/config.json`。 */
 export function defaultConfigPath(env: NodeJS.ProcessEnv = process.env): string {
     return join(env.XDG_CONFIG_HOME || join(homedir(), ".config"), "nbstory", "config.json");
 }
 
-/** 按配置的 schema 校验；不对时报 `qa_unconfigured`，写明是哪个字段（最多三处）。`source` 说明这份配置从哪来。 */
+/**
+ * 第 1 版（`model` 是 `{baseUrl, id, apiKeyEnv, …}`）在内存里升级成第 2 版：建自定义服务商 `custom`，候选与默认都是
+ * `custom/<id>`，接口、推理档、上下文、最大输出与单价跟过去。认不出第 1 版的原样返回，交给 schema 报错。纯函数，
+ * 命令行、服务端与设置页共用；写回一律写第 2 版。
+ */
+export function upgradeQaConfig(value: unknown): unknown {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+    const {model, ...rest} = value as {model?: unknown};
+    if (!checkLegacyModel.Check(model)) return value;
+    const {baseUrl, id, apiKeyEnv, api, contextWindow, maxTokens, thinking, price} = model;
+    const provider: ProviderConfig = {
+        api: api === "responses" ? "openai-responses" : "openai-completions",
+        baseUrl,
+        apiKeyEnv,
+        models: [
+            {
+                id,
+                ...(contextWindow === undefined ? {} : {contextWindow}),
+                ...(maxTokens === undefined ? {} : {maxTokens}),
+                // 第 1 版写了推理档就按推理模型发（harness-model.ts 当时的做法），升级后照旧。
+                ...(thinking === undefined ? {} : {reasoning: true}),
+                ...(price === undefined ? {} : {price}),
+            },
+        ],
+    };
+    const ref = `${LEGACY_PROVIDER_ID}/${id}`;
+    return {...rest, providers: {[LEGACY_PROVIDER_ID]: provider}, models: [ref], model: {use: ref, ...(thinking === undefined ? {} : {thinking})}};
+}
+
+/**
+ * 升级后按配置的 schema 校验形状；不对时报 `qa_unconfigured`，写明是哪个字段（最多三处）。`source` 说明这份配置从哪来。
+ * 字段之间的约束（候选、默认、服务商）在 `configProblems`。
+ */
 export function parseQaConfig(value: unknown, source: string): QaConfig {
-    if (!checkConfig.Check(value)) {
-        const problems = [...checkConfig.Errors(value)].slice(0, 3).map(item => `${item.instancePath || "/"} ${item.message}`);
+    const upgraded = upgradeQaConfig(value);
+    if (!checkConfig.Check(upgraded)) {
+        const problems = [...checkConfig.Errors(upgraded)].slice(0, 3).map(item => `${item.instancePath || "/"} ${item.message}`);
         throw new QaError("qa_unconfigured", `问答配置${source}不对：${problems.join("；")}`);
     }
-    return value;
+    return upgraded;
+}
+
+/** 模型引用 `服务商/模型名`：第一个 `/` 之前是服务商（模型名里可以再有 `/`）。 */
+export function parseModelRef(ref: string): {provider: string; model: string} {
+    const slash = ref.indexOf("/");
+    return slash <= 0 ? {provider: "", model: ref} : {provider: ref.slice(0, slash), model: ref.slice(slash + 1)};
+}
+
+/**
+ * OMP 目录的查表，由已经加载了 nb-harness 的调用方给（见 harness-model.ts 的 `configCatalog`）。这里不导入它：
+ * `pi-catalog` 一被导入就接管中断信号，`nbstory ingest` 要自己处理 Ctrl-C。不给时只查自定义服务商这一侧。
+ */
+export interface ConfigCatalog {
+    hasProvider(id: string): boolean;
+    hasModel(provider: string, model: string): boolean;
+}
+
+/** 字段之间的约束不成立之处（qa.md 的“配置”），全成立时为空。 */
+export function configProblems(config: QaConfig, catalog: ConfigCatalog | null): string[] {
+    const problems: string[] = [];
+    const providers = config.providers ?? {};
+    for (const [id, provider] of Object.entries(providers)) {
+        if (!PROVIDER_ID.test(id)) problems.push(`自定义服务商的 id ${JSON.stringify(id)} 只能有小写字母、数字与连字符`);
+        if (catalog?.hasProvider(id)) problems.push(`自定义服务商 ${id} 与 OMP 目录里的服务商重名，换个 id`);
+        const seen = new Set<string>();
+        for (const model of provider.models) {
+            if (seen.has(model.id)) problems.push(`自定义服务商 ${id} 里模型 ${model.id} 写了两次`);
+            seen.add(model.id);
+        }
+    }
+    if (config.models.length === 0) problems.push("候选模型（models）至少要有一个");
+    const candidates = new Set<string>();
+    for (const ref of config.models) {
+        if (candidates.has(ref)) problems.push(`候选模型 ${ref} 写了两次`);
+        candidates.add(ref);
+        const problem = refProblem(config, ref, catalog);
+        if (problem !== null) problems.push(problem);
+    }
+    if (config.models.length > 0 && !candidates.has(config.model.use)) problems.push(`默认模型 ${config.model.use} 不在候选模型里`);
+    return problems;
+}
+
+/** 一个引用指向的模型不存在时的说明。目录那一侧没给 `catalog` 时不查。 */
+export function refProblem(config: QaConfig, ref: string, catalog: ConfigCatalog | null): string | null {
+    const {provider, model} = parseModelRef(ref);
+    const custom = config.providers?.[provider];
+    if (custom !== undefined) return custom.models.some(item => item.id === model) ? null : `候选模型 ${ref}：自定义服务商 ${provider} 里没有模型 ${model}`;
+    if (catalog === null) return null;
+    if (!catalog.hasProvider(provider)) return `候选模型 ${ref}：没有服务商 ${provider}（既不是自定义服务商，也不在 OMP 目录里）`;
+    return catalog.hasModel(provider, model) ? null : `候选模型 ${ref}：OMP 目录的 ${provider} 里没有模型 ${model}`;
+}
+
+/** 形状与字段之间的约束都校验；不对时报 `qa_unconfigured`。所有读写配置的入口共用（见 qa.md 的“配置”）。 */
+export function validateQaConfig(value: unknown, source: string, catalog: ConfigCatalog | null): QaConfig {
+    const config = parseQaConfig(value, source);
+    const problems = configProblems(config, catalog);
+    if (problems.length > 0) throw new QaError("qa_unconfigured", `问答配置${source}不对：${problems.slice(0, 3).join("；")}`);
+    return config;
 }
 
 /** 配置文件内容的摘要：写入时比对用（`config.set` 的 `expect`）。文件不在时是 `absent`。 */
@@ -57,26 +154,35 @@ async function readConfigBytes(path: string): Promise<Buffer | null> {
     }
 }
 
-function parseConfigText(path: string, text: string): QaConfig {
-    let value: unknown;
+function parseConfigText(path: string, text: string): unknown {
     try {
-        value = JSON.parse(text) as unknown;
+        return JSON.parse(text) as unknown;
     } catch (error) {
         throw new QaError("qa_unconfigured", `问答配置 ${path} 不是 JSON`, {cause: error});
     }
-    return parseQaConfig(value, ` ${path} `);
 }
 
-/** 读并校验配置；文件不在、不是 JSON 或字段不对都报 `qa_unconfigured`，写明是哪个字段。 */
-export async function loadQaConfig(path: string = defaultConfigPath()): Promise<QaConfig> {
-    return (await readQaConfigFile(path)).config;
+async function readConfigValue(path: string): Promise<{value: unknown; digest: ConfigDigest}> {
+    const bytes = await readConfigBytes(path);
+    if (bytes === null) throw new QaError("qa_unconfigured", `读不到问答配置 ${path}：先用 nbstory config init 写好它（字段见 docs/specs/story/qa.md 的“配置”）`);
+    return {value: parseConfigText(path, bytes.toString("utf8")), digest: digestOf(bytes)};
+}
+
+/** 读并校验配置；文件不在、不是 JSON 或字段不对都报 `qa_unconfigured`，写明是哪个字段。第 1 版读出来是升级后的第 2 版。 */
+export async function loadQaConfig(path: string = defaultConfigPath(), catalog: ConfigCatalog | null = null): Promise<QaConfig> {
+    return (await readQaConfigFile(path, catalog)).config;
 }
 
 /** 读配置连同它此刻的摘要（之后改写时带上，见 `saveQaConfig` 的 `expect`）。 */
-export async function readQaConfigFile(path: string = defaultConfigPath()): Promise<{config: QaConfig; digest: ConfigDigest}> {
-    const bytes = await readConfigBytes(path);
-    if (bytes === null) throw new QaError("qa_unconfigured", `读不到问答配置 ${path}：先用 nbstory config init 写好它（字段见 docs/specs/story/qa.md 的“配置”）`);
-    return {config: parseConfigText(path, bytes.toString("utf8")), digest: digestOf(bytes)};
+export async function readQaConfigFile(path: string = defaultConfigPath(), catalog: ConfigCatalog | null = null): Promise<{config: QaConfig; digest: ConfigDigest}> {
+    const {value, digest} = await readConfigValue(path);
+    return {config: validateQaConfig(value, ` ${path} `, catalog), digest};
+}
+
+/** 只校验形状地读：字段之间的约束不成立的配置也读得出来，供 `config set` 修好它；写回时照样全校验。 */
+export async function readQaConfigShape(path: string): Promise<{config: QaConfig; digest: ConfigDigest}> {
+    const {value, digest} = await readConfigValue(path);
+    return {config: parseQaConfig(value, ` ${path} `), digest};
 }
 
 /**
@@ -139,8 +245,9 @@ async function withConfigLock<T>(path: string, run: () => Promise<T>): Promise<T
  * 读者（正在跑的 `ask`）要么读到旧的整份，要么读到新的整份；校验不过或写失败时原文件不动。给了 `expect` 时，锁内重读
  * 的摘要与它不同就报 `config_conflict`（别处改过了）。密钥不在配置里（只有环境变量名），所以文件用普通权限。
  */
-export async function saveQaConfig(path: string, config: unknown, options: {expect?: ConfigDigest} = {}): Promise<{config: QaConfig; digest: ConfigDigest}> {
-    const valid = parseQaConfig(config, ` ${path} `);
+export async function saveQaConfig(path: string, config: unknown, options: {expect?: ConfigDigest; catalog?: ConfigCatalog | null} = {}): Promise<{config: QaConfig; digest: ConfigDigest}> {
+    // 校验只看内容、不看文件，放在锁外与锁内等价。
+    const valid = validateQaConfig(config, ` ${path} `, options.catalog ?? null);
     return withConfigLock(path, async () => {
         if (options.expect !== undefined) {
             const current = await digestBeforeWrite(path);
@@ -177,17 +284,37 @@ export interface IngestModel {
     apiKeyEnv: string;
     maxTokens: number;
     price: Static<typeof PriceSchema> | null;
-    /** 取自哪一节：`ingest.model`，或没有它时的问答 `model`。 */
+    /** 取自哪一节：`ingest.model`，或没有它时问答的默认模型。 */
     source: "ingest.model" | "model";
 }
 
 /** 挑选相关说法用的模型；多一种来源 `ingest.recall.model`。 */
 export type RecallModel = Omit<IngestModel, "source"> & {source: IngestModel["source"] | "ingest.recall.model"};
 
-/** 抽取用的模型：`ingest.model`，没有时用问答的 `model`（其中的 `thinking` 不用）。 */
+/**
+ * 抽取用的模型：`ingest.model`；没有时用问答的默认模型（其中的推理档不用）。抽取管线只会 OpenAI Chat 协议，所以
+ * 回落只在默认模型是 `openai-completions` 接口的自定义服务商时成立；目录模型与别的接口报 `qa_unconfigured` 并写明
+ * 原因（目录模型的地址与密钥要加载 OMP 才知道，抽取不加载它）。
+ */
 export function ingestModel(config: QaConfig): IngestModel {
     const own = config.ingest?.model;
-    return {...asModel(own ?? config.model), source: own ? "ingest.model" : "model"};
+    if (own) return {...asModel(own), source: "ingest.model"};
+    const fallback = defaultIngestFallback(config);
+    if (typeof fallback === "string") throw new QaError("qa_unconfigured", fallback);
+    return {...fallback, source: "model"};
+}
+
+/**
+ * 问答默认模型能不能给抽取用：能时是抽取的模型，不能时是原因。设置页与 `config show` 用它说明抽取用什么。
+ */
+export function defaultIngestFallback(config: QaConfig): Omit<IngestModel, "source"> | string {
+    const ref = config.model.use;
+    const {provider: providerId, model: modelId} = parseModelRef(ref);
+    const provider = config.providers?.[providerId];
+    if (provider === undefined) return `抽取要单独写模型（ingest.model）：问答默认模型 ${ref} 是 OMP 目录里的模型，抽取只用自定义服务商的 OpenAI Chat 接口`;
+    if (provider.api !== "openai-completions") return `抽取要单独写模型（ingest.model）：问答默认模型 ${ref} 用的接口是 ${provider.api}，抽取只会 OpenAI Chat 接口（openai-completions）`;
+    const model = provider.models.find(item => item.id === modelId);
+    return {baseUrl: provider.baseUrl, id: modelId, apiKeyEnv: provider.apiKeyEnv, maxTokens: model?.maxTokens ?? DEFAULT_INGEST_MAX_TOKENS, price: model?.price ?? null};
 }
 
 /** 挑选相关说法用的模型；没开（默认）时为 null。整节继承：`ingest.recall.model`，没有时用抽取的模型。 */
@@ -197,6 +324,6 @@ export function recallModel(config: QaConfig): RecallModel | null {
     return recall.model ? {...asModel(recall.model), source: "ingest.recall.model"} : ingestModel(config);
 }
 
-function asModel(model: Static<typeof IngestModelSchema> | QaConfig["model"]): Omit<IngestModel, "source"> {
+function asModel(model: Static<typeof IngestModelSchema>): Omit<IngestModel, "source"> {
     return {baseUrl: model.baseUrl, id: model.id, apiKeyEnv: model.apiKeyEnv, maxTokens: model.maxTokens ?? DEFAULT_INGEST_MAX_TOKENS, price: model.price ?? null};
 }

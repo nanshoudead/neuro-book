@@ -28,6 +28,7 @@ import {QA_METHODS, type QaFrame, type QaMethod, type QaRunView, type ViewerPara
 import {ABSENT_CONFIG, currentConfigDigest, defaultConfigPath, readQaConfigFile, saveQaConfig, type QaConfig} from "../qa/config";
 import {prepareQuestion, withoutFullText, type AskInput, type PreparedQuestion, type QaOutcome} from "../qa/engine";
 import {QaError, type QaErrorCode} from "../qa/errors";
+import {configCatalog, resolveQaModel} from "../qa/harness-model";
 import {probeModel} from "../qa/probe";
 import type {QaAgentEvent} from "../qa/web-events";
 
@@ -64,7 +65,8 @@ export interface QaServiceOptions {
 }
 
 /** 没有配置文件时设置页的起点：必填的几项空着，由表单提示补上。 */
-const STARTER_CONFIG = {model: {baseUrl: "", id: "", apiKeyEnv: "OPENAI_API_KEY"}};
+/** 没有配置文件时的起点：第 2 版的空配置，不合格（候选为空），保存前要先选一个模型。 */
+const STARTER_CONFIG = {models: [], model: {use: ""}};
 
 type RunSaved = QaRunView["saved"];
 
@@ -215,7 +217,7 @@ export function createQaService(options: QaServiceOptions): QaService {
         /** 准备期间写下的日志条目（建 harness 时写的会话快照）：登记运行时交给它。 */
         const early: SessionEntry[] = [];
         const preparation = (async (): Promise<PreparedQuestion> => {
-            const {config} = await readQaConfigFile(configPath);
+            const {config} = await readQaConfigFile(configPath, configCatalog());
             return prepareQuestion({
                 api,
                 book: params.book,
@@ -400,8 +402,8 @@ export function createQaService(options: QaServiceOptions): QaService {
     }
 
     function keysOf(config: unknown): Record<string, boolean> {
-        const value = config as {model?: {apiKeyEnv?: unknown}; ingest?: {model?: {apiKeyEnv?: unknown}; recall?: {model?: {apiKeyEnv?: unknown}}}};
-        const names = [value.model?.apiKeyEnv, value.ingest?.model?.apiKeyEnv, value.ingest?.recall?.model?.apiKeyEnv];
+        const value = config as {providers?: Record<string, {apiKeyEnv?: unknown}>; ingest?: {model?: {apiKeyEnv?: unknown}; recall?: {model?: {apiKeyEnv?: unknown}}}};
+        const names = [...Object.values(value.providers ?? {}).map(provider => provider.apiKeyEnv), value.ingest?.model?.apiKeyEnv, value.ingest?.recall?.model?.apiKeyEnv];
         // 用 fromEntries 建字典：变量名可以是 `__proto__`，按下标赋值会落到原型的 setter 上。
         return Object.fromEntries(names.filter((name): name is string => typeof name === "string" && name !== "").map(name => [name, (env[name] ?? "") !== ""]));
     }
@@ -418,7 +420,7 @@ export function createQaService(options: QaServiceOptions): QaService {
         if (digest === ABSENT_CONFIG) return {state: "absent", config: STARTER_CONFIG, digest, path: configPath, keys: keysOf(STARTER_CONFIG)};
         let read: {config: QaConfig; digest: string};
         try {
-            read = await readQaConfigFile(configPath);
+            read = await readQaConfigFile(configPath, configCatalog());
         } catch (error) {
             if (error instanceof QaError && error.code === "qa_unconfigured") return {state: "invalid", problem: error.message, digest, path: configPath, keys: {}};
             throw error;
@@ -429,7 +431,7 @@ export function createQaService(options: QaServiceOptions): QaService {
     async function configSet(params: ViewerParams<"config.set">): Promise<ViewerResult<"config.set">> {
         let saved: {config: QaConfig; digest: string};
         try {
-            saved = await saveQaConfig(configPath, params.config, {expect: params.expect});
+            saved = await saveQaConfig(configPath, params.config, {expect: params.expect, catalog: configCatalog()});
         } catch (error) {
             // 校验不过：说明里只有字段与规则，没有原值（qa 输出 19）。
             if (error instanceof QaError && error.code === "qa_unconfigured") throw new StoryError("invalid_params", error.message);
@@ -439,8 +441,9 @@ export function createQaService(options: QaServiceOptions): QaService {
     }
 
     async function configTest(): Promise<ViewerResult<"config.test">> {
-        const {config} = await readQaConfigFile(configPath);
-        const fixed = {model: config.model.id, thinking: config.model.thinking ?? null};
+        const {config} = await readQaConfigFile(configPath, configCatalog());
+        // 只测默认模型；推理档是夹过之后实际发出的。
+        const fixed = {model: config.model.use, thinking: resolveQaModel(config).thinking ?? null};
         const started = Date.now();
         let result: Awaited<ReturnType<typeof probeModel>>;
         try {

@@ -1,14 +1,16 @@
 /**
- * `nbstory config`（docs/specs/story/qa.md 输出 18 到 21）：写、看、改问答配置，并检查它能不能用。由 main.ts 动态导入，
- * 只有 `test` 和 `init` 的交互才加载模型库与交互库。
+ * `nbstory config`（docs/specs/story/qa.md 输出 18 到 21）：写、看、改问答配置，并检查它能不能用。由 main.ts 动态导入。
+ * 查 OMP 目录（校验候选、看目录服务商的密钥）要加载模型库，所以 `show`、`set`、`unset`、`init` 也会加载它；只有
+ * `init` 的交互才加载交互库。
  *
  * 密钥不经过这里：配置里只有存密钥的环境变量名，`show` 与 `test` 只说那个环境变量设没设置。
  */
 
 import {access} from "node:fs/promises";
 
-import {defaultConfigPath, digestBeforeWrite, ingestModel, loadQaConfig, parseQaConfig, qaLimits, readQaConfigFile, recallModel, saveQaConfig, type QaConfig} from "../qa/config";
-import {ConfigEditError, echoable, envNameProblem, setConfigField, unsetConfigField} from "../qa/config-edit";
+import {defaultConfigPath, defaultIngestFallback, LEGACY_PROVIDER_ID, digestBeforeWrite, ingestModel, loadQaConfig, parseModelRef, qaLimits, readQaConfigShape, recallModel, saveQaConfig, type ConfigCatalog, type Effort, type QaConfig} from "../qa/config";
+import {EFFORTS} from "../contract/config-schema";
+import {applyInitAnswers, ConfigEditError, echoable, envNameProblem, setConfigField, unsetConfigField, type InitAnswers} from "../qa/config-edit";
 import {QaError} from "../qa/errors";
 import {EXIT_INTERRUPTED, EXIT_QA_FAILED, runInterruptible} from "./ask";
 import type {CliIo} from "./main";
@@ -22,29 +24,49 @@ const USAGE = "用法：nbstory config init | show | set <字段> <值> | unset 
 
 const THINKING_NOTE = "不写：请求不带推理档，由服务端的默认档决定";
 
-function thinkingText(config: QaConfig): string {
-    return config.model.thinking ?? `未写（${THINKING_NOTE}）`;
+/** 目录查表与目录服务商的密钥状态；加载 OMP，所以按需动态导入。 */
+async function catalogTools(): Promise<{catalog: ConfigCatalog; keyReady: (provider: string) => boolean; keyEnvs: (provider: string) => readonly string[]; resolve: typeof import("../qa/harness-model").resolveQaModel}> {
+    const [{configCatalog, resolveQaModel}, {listCatalog, providerKeyReady}] = await Promise.all([import("../qa/harness-model"), import("@notnotype/nb-harness")]);
+    const envs = new Map(listCatalog().map(provider => [provider.id, provider.keyEnvs]));
+    return {catalog: configCatalog(), keyReady: providerKeyReady, keyEnvs: provider => envs.get(provider) ?? [], resolve: resolveQaModel};
+}
+type CatalogTools = Awaited<ReturnType<typeof catalogTools>>;
+
+/** 用到的服务商（候选里出现的，加上全部自定义服务商）与密钥状态。 */
+function providersOf(config: QaConfig, tools: CatalogTools, env: NodeJS.ProcessEnv): {id: string; source: "custom" | "catalog"; keyEnvs: readonly string[]; keySet: boolean; api?: string; baseUrl?: string}[] {
+    const ids = [...new Set([...Object.keys(config.providers ?? {}), ...config.models.map(ref => parseModelRef(ref).provider)])];
+    return ids.map(id => {
+        const custom = config.providers?.[id];
+        if (custom !== undefined) return {id, source: "custom", keyEnvs: [custom.apiKeyEnv], keySet: Boolean(env[custom.apiKeyEnv]), api: custom.api, baseUrl: custom.baseUrl};
+        return {id, source: "catalog", keyEnvs: tools.keyEnvs(id), keySet: tools.keyReady(id)};
+    });
 }
 
-/** OMP 只在有推理档时组装 Responses 的推理参数，没写推理档就不要思考摘要（qa.md 输出 36）。 */
-function apiText(config: QaConfig): string {
-    if (config.model.api !== "responses") return "Chat Completions";
-    return config.model.thinking === undefined ? "Responses（没写推理档，不要思考摘要）" : "Responses";
+function thinkingText(config: QaConfig, sent: string | undefined): string {
+    const written = config.model.thinking;
+    if (written === undefined) return `未写（${THINKING_NOTE}）`;
+    if (sent === written) return written;
+    return sent === undefined ? `${written}（模型不支持推理档，不发）` : `${written}（模型不支持这一档，实际发 ${sent}）`;
 }
 
-function describe(path: string, config: QaConfig, env: NodeJS.ProcessEnv): string {
-    const {model} = config;
+function describe(path: string, config: QaConfig, tools: CatalogTools, env: NodeJS.ProcessEnv): string {
     const limits = qaLimits(config);
+    const resolved = tools.resolve(config);
+    // OMP 只在有推理档时组装 Responses 的推理参数，没发推理档就不要思考摘要（qa.md 输出 36）。
+    const summary = resolved.resolved.model.api === "openai-responses" && resolved.thinking === undefined ? "；Responses 接口，没有推理档就不要思考摘要" : "";
     return [
         `配置文件：${path}`,
-        `服务地址：${model.baseUrl}`,
-        `模型：${model.id}`,
-        `密钥环境变量：${model.apiKeyEnv}（${env[model.apiKeyEnv] ? "已设置" : "没有设置"}）`,
-        `接口：${apiText(config)}`,
-        `推理档：${thinkingText(config)}`,
-        ...(model.contextWindow === undefined ? [] : [`上下文窗口：${model.contextWindow}`]),
-        ...(model.maxTokens === undefined ? [] : [`输出上限：${model.maxTokens}`]),
-        ...(model.price === undefined ? [] : [`价格（每百万 token）：输入 ${model.price.input}，输出 ${model.price.output}${model.price.cacheRead === undefined ? "" : `，缓存读取 ${model.price.cacheRead}`}，${model.price.currency}`]),
+        `默认模型：${config.model.use}（${resolved.resolved.model.api}）`,
+        `推理档：${thinkingText(config, resolved.thinking)}${summary}`,
+        "候选模型：",
+        ...config.models.map(ref => `  ${ref === config.model.use ? "*" : "-"} ${ref}`),
+        "服务商：",
+        ...providersOf(config, tools, env).map(item => {
+            const where = item.source === "custom" ? `自定义，${item.api}，${item.baseUrl}` : "OMP 目录";
+            const key = item.keyEnvs.length === 0 ? "不用环境变量" : `密钥环境变量 ${item.keyEnvs.join(" 或 ")}（${item.keySet ? "已设置" : "没有设置"}）`;
+            return `  ${item.id}（${where}）：${key}`;
+        }),
+        `作答方式：${config.qa?.answer === "structured" ? "结构化（answer 工具）" : "Markdown"}`,
         `图当目录最多读 ${limits.maxChapters} 章；全读上限 ${limits.fullReadMaxChars} 字`,
         ingestLine(config, env),
         recallLine(config, env),
@@ -52,9 +74,9 @@ function describe(path: string, config: QaConfig, env: NodeJS.ProcessEnv): strin
 }
 
 function recallLine(config: QaConfig, env: NodeJS.ProcessEnv): string {
-    const model = recallModel(config);
-    if (model === null) return "挑相关说法：关（ingest.recall.enabled）";
-    if (model.source !== "ingest.recall.model") return "挑相关说法：开，用抽取模型";
+    if (config.ingest?.recall?.enabled !== true) return "挑相关说法：关（ingest.recall.enabled）";
+    if (!config.ingest.recall.model) return "挑相关说法：开，用抽取模型";
+    const model = recallModel(config)!;
     return [
         `挑相关说法：开，模型 ${model.id}（${model.baseUrl}）`,
         `挑选的密钥环境变量：${model.apiKeyEnv}（${env[model.apiKeyEnv] ? "已设置" : "没有设置"}）`,
@@ -63,14 +85,24 @@ function recallLine(config: QaConfig, env: NodeJS.ProcessEnv): string {
 }
 
 function ingestLine(config: QaConfig, env: NodeJS.ProcessEnv): string {
+    if (!config.ingest?.model) {
+        const fallback = defaultIngestFallback(config);
+        return typeof fallback === "string" ? `抽取模型：${fallback}` : "抽取模型：没有单独配置（ingest.model），用问答的默认模型，推理档由抽取按步骤固定";
+    }
     const model = ingestModel(config);
-    if (model.source === "model") return "抽取模型：没有单独配置（ingest.model），用上面的模型，推理档由抽取按步骤固定";
     return [
         `抽取模型：${model.id}（${model.baseUrl}）`,
         `抽取的密钥环境变量：${model.apiKeyEnv}（${env[model.apiKeyEnv] ? "已设置" : "没有设置"}）`,
         `抽取的输出上限：${model.maxTokens}`,
         ...(model.price === null ? [] : [`抽取的价格（每百万 token）：输入 ${model.price.input}，输出 ${model.price.output}${model.price.cacheRead === undefined ? "" : `，缓存读取 ${model.price.cacheRead}`}，${model.price.currency}`]),
     ].join("\n");
+}
+
+/** 抽取用什么，给 `show --json`：模型与来源，或回落不成立的原因。 */
+function ingestData(config: QaConfig, env: NodeJS.ProcessEnv): {source: string; id: string; apiKeySet: boolean} | {unavailable: string} {
+    if (!config.ingest?.model && typeof defaultIngestFallback(config) === "string") return {unavailable: defaultIngestFallback(config) as string};
+    const model = ingestModel(config);
+    return {source: model.source, id: model.id, apiKeySet: Boolean(env[model.apiKeyEnv])};
 }
 
 export async function configCommand(options: ConfigOptions, io: CliIo): Promise<number> {
@@ -101,25 +133,30 @@ export async function configCommand(options: ConfigOptions, io: CliIo): Promise<
     try {
         switch (action) {
             case "show": {
-                const config = await loadQaConfig(path);
-                const ingest = ingestModel(config);
-                const recall = recallModel(config);
+                const tools = await catalogTools();
+                const config = await loadQaConfig(path, tools.catalog);
+                const ingest = ingestData(config, process.env);
+                const recall = config.ingest?.recall?.enabled === true && !("unavailable" in ingest) ? recallModel(config) : null;
                 return done(
                     {
-                        path, config, apiKeySet: Boolean(process.env[config.model.apiKeyEnv]),
-                        ingest: {source: ingest.source, id: ingest.id, apiKeySet: Boolean(process.env[ingest.apiKeyEnv])},
+                        path, config,
+                        model: {use: config.model.use, thinking: tools.resolve(config).thinking ?? null},
+                        providers: providersOf(config, tools, process.env),
+                        ingest,
                         recall: recall === null ? null : {source: recall.source, id: recall.id, apiKeySet: Boolean(process.env[recall.apiKeyEnv])},
                     },
-                    describe(path, config, process.env),
+                    describe(path, config, tools, process.env),
                 );
             }
             case "set":
             case "unset": {
+                const {catalog} = await catalogTools();
                 // 读的时候记下摘要，写的时候核对：中间被网页设置页或另一个命令改过就报 config_conflict，不盖掉它。
-                const {config, digest} = await readQaConfigFile(path);
+                // 读的时候只校验形状：配置坏在字段之间的约束上时，正要用 set 修好它。
+                const {config, digest} = await readQaConfigShape(path);
                 const field = params.field as string;
-                const changed = action === "set" ? setConfigField(config, field, params.value as string, ` ${path} `) : unsetConfigField(config, field, ` ${path} `);
-                await saveQaConfig(path, changed, {expect: digest});
+                const changed = action === "set" ? setConfigField(config, field, params.value as string, ` ${path} `, catalog) : unsetConfigField(config, field, ` ${path} `, catalog);
+                await saveQaConfig(path, changed, {expect: digest, catalog});
                 return done({path, config: changed}, action === "set" ? (echoable(field) ? `已改 ${field} = ${String(params.value)}` : `已改 ${field}`) : `已去掉 ${field}`);
             }
             case "init":
@@ -146,36 +183,48 @@ async function exists(path: string): Promise<boolean> {
 }
 
 /**
- * 写配置。三个必填项（服务地址、模型名、密钥环境变量名）在选项里给齐就直接写，缺的在终端里交互问；已有配置只在
- * `--force` 或终端里确认后才改，没给的字段保留原值。
+ * 写配置。用目录里的模型（`--model 服务商/模型名`）或自定义地址（`--base-url`、`--model`、`--api-key-env`）；选项给齐
+ * 就直接写，缺的在终端里交互问。选的模型加进候选并设为默认。已有配置只在 `--force` 或终端里确认后才改，没给的字段保留。
  */
 async function init(params: Record<string, unknown>, path: string, io: CliIo, json: boolean, done: Done, usageError: (message: string) => number): Promise<number> {
+    const tools = await catalogTools();
     const present = await exists(path);
     // 交互问完之前别人可能改了文件：写的时候按开始时的样子核对（读不成的坏文件也有摘要，确认覆盖后整份重写）。
     const expect = await digestBeforeWrite(path);
     let existing: QaConfig | null = null;
     if (present) {
-        // 文件在但读不成配置（坏了）：确认覆盖后当作没有，整份重写。
-        existing = await loadQaConfig(path).catch((error: unknown) => {
-            if (error instanceof QaError) return null;
-            throw error;
-        });
+        // 文件在但读不成配置（坏了）：确认覆盖后当作没有，整份重写。字段之间的约束不成立的仍以它为底，写回前再校验。
+        existing = await readQaConfigShape(path).then(
+            read => read.config,
+            (error: unknown) => {
+                if (error instanceof QaError) return null;
+                throw error;
+            },
+        );
     }
-    const flags = {"model.baseUrl": params.baseUrl, "model.id": params.model, "model.apiKeyEnv": params.apiKeyEnv, "model.thinking": params.thinking} as Record<string, string | undefined>;
-    const missing = existing ? [] : (["model.baseUrl", "model.id", "model.apiKeyEnv"] as const).filter(name => flags[name] === undefined);
-    // 要问字段：没有配置而缺必填项，或已有配置而一个字段选项都没给。要确认覆盖：已有文件而没加 --force。两件事都要
-    // 问人，只有在终端里（且没加 --json）才能问，否则是用法错误，不挂起等输入。
-    const needsInput = existing ? Object.values(flags).every(text => text === undefined) : missing.length > 0;
+    const flags = {baseUrl: params.baseUrl, model: params.model, apiKeyEnv: params.apiKeyEnv, thinking: params.thinking} as Record<"baseUrl" | "model" | "apiKeyEnv" | "thinking", string | undefined>;
     // 贴了密钥本身的写法在任何校验之前就当用法错误报（不写盘、不回显原文）；整份校验也会拦，但那是另一种失败。
-    const pastedKey = flags["model.apiKeyEnv"] === undefined ? undefined : envNameProblem(flags["model.apiKeyEnv"]);
-    if (pastedKey !== undefined) return usageError(`model.apiKeyEnv：${pastedKey}`);
+    const pastedKey = flags.apiKeyEnv === undefined ? undefined : envNameProblem(flags.apiKeyEnv);
+    if (pastedKey !== undefined) return usageError(`--api-key-env：${pastedKey}`);
+    if (flags.thinking !== undefined && !(EFFORTS as readonly string[]).includes(flags.thinking)) return usageError(`--thinking 只能是 ${EFFORTS.join("、")}：${flags.thinking}`);
+
+    // 给了地址或密钥变量是自定义地址；只给 `服务商/模型名` 且服务商在目录里是目录模型。自定义地址没给的地址与密钥变量
+    // 沿用已有的自定义服务商 `custom`。
+    const custom = flags.baseUrl !== undefined || flags.apiKeyEnv !== undefined || (flags.model !== undefined && !tools.catalog.hasProvider(parseModelRef(flags.model).provider));
+    const legacy = existing?.providers?.[LEGACY_PROVIDER_ID];
+    const filled = {baseUrl: flags.baseUrl ?? legacy?.baseUrl, model: flags.model, apiKeyEnv: flags.apiKeyEnv ?? legacy?.apiKeyEnv};
+    const missing = custom ? (["baseUrl", "model", "apiKeyEnv"] as const).filter(name => filled[name] === undefined) : [];
+    const answers: InitAnswers | null = flags.model === undefined ? null : custom ? (missing.length > 0 ? null : {kind: "custom", baseUrl: filled.baseUrl!, id: flags.model, apiKeyEnv: filled.apiKeyEnv!}) : {kind: "catalog", ref: flags.model};
+    // 要问字段：没有配置而没给齐一个模型，或已有配置而一个字段选项都没给。要确认覆盖：已有文件而没加 --force。两件事
+    // 都要问人，只有在终端里（且没加 --json）才能问，否则是用法错误，不挂起等输入。
+    const needsInput = existing ? Object.values(flags).every(text => text === undefined) || missing.length > 0 : answers === null;
     const needsConfirm = present && params.force !== true;
     const canPrompt = !json && process.stdin.isTTY === true;
 
     if (needsConfirm && !canPrompt) return usageError(`已有配置 ${path}：加 --force 覆盖其中给出的字段（没给的保留），或用 nbstory config set 改单个字段`);
     if (needsInput && !canPrompt) {
-        const names = {"model.baseUrl": "--base-url", "model.id": "--model", "model.apiKeyEnv": "--api-key-env"} as const;
-        const wanted = existing ? "至少给一个字段选项（--base-url、--model、--api-key-env、--thinking）" : `缺少 ${missing.map(name => names[name]).join("、")}`;
+        const names = {baseUrl: "--base-url", model: "--model", apiKeyEnv: "--api-key-env"} as const;
+        const wanted = missing.length > 0 ? `自定义地址缺少 ${missing.map(name => names[name]).join("、")}` : existing ? "至少给一个字段选项（--model、--base-url、--api-key-env、--thinking）" : "缺少 --model（目录里的 服务商/模型名，或者自定义地址另给 --base-url 与 --api-key-env）";
         return usageError(`${wanted}${json ? "" : "；在终端里运行可以交互填写"}`);
     }
     const cancelled = (): number => {
@@ -186,26 +235,28 @@ async function init(params: Record<string, unknown>, path: string, io: CliIo, js
     let config: QaConfig;
     if (needsInput) {
         const {initInteractively} = await import("./config-init");
-        const answered = await initInteractively({path, confirmOverwrite: needsConfirm, existing, flags});
+        const answered = await initInteractively({path, confirmOverwrite: needsConfirm, existing, flags, catalog: tools.catalog});
         if (answered === null) return cancelled();
         config = answered;
     } else {
         // 先按选项算出新配置：写法不对在确认覆盖之前就报。
-        config = existing ?? parseQaConfig({model: {baseUrl: flags["model.baseUrl"], id: flags["model.id"], apiKeyEnv: flags["model.apiKeyEnv"]}}, ` ${path} `);
-        for (const [name, text] of Object.entries(flags)) if (text !== undefined) config = setConfigField(config, name, text, ` ${path} `);
+        config = applyInitAnswers(existing, answers, flags.thinking as Effort | undefined, ` ${path} `, tools.catalog);
         if (needsConfirm) {
             const {confirmOverwrite} = await import("./config-init");
             if (!(await confirmOverwrite(path))) return cancelled();
         }
     }
-    await saveQaConfig(path, config, {expect});
-    const warning = process.env[config.model.apiKeyEnv] ? "" : `\n· 环境变量 ${config.model.apiKeyEnv} 现在没有设置，问答前要先设置它`;
+    await saveQaConfig(path, config, {expect, catalog: tools.catalog});
+    const missingKey = providersOf(config, tools, process.env).find(item => item.id === parseModelRef(config.model.use).provider && item.keyEnvs.length > 0 && !item.keySet);
+    const warning = missingKey === undefined ? "" : `\n· 环境变量 ${missingKey.keyEnvs.join(" 或 ")} 现在没有设置，问答前要先设置它`;
     return done({path, config}, `已写 ${path}${warning}\n下一步：nbstory config test 检查能不能用`);
 }
 
 /** 向配置的模型发一个最小请求（见 qa/probe.ts）。失败的归类同 `ask`：退出码 4，取消 130。 */
 async function test(path: string, signal: AbortSignal, io: CliIo, json: boolean, done: Done, fail: Fail): Promise<number> {
-    const config = await loadQaConfig(path);
+    const {catalog, resolve} = await catalogTools();
+    const config = await loadQaConfig(path, catalog);
+    const sent = resolve(config).thinking;
     const {probeModel} = await import("../qa/probe");
     let result: Awaited<ReturnType<typeof probeModel>>;
     try {
@@ -216,12 +267,12 @@ async function test(path: string, signal: AbortSignal, io: CliIo, json: boolean,
     if (result.ok) {
         const seconds = (result.ms / 1000).toFixed(1);
         const text = [
-            `通过：${config.model.id} 正常回话（${seconds} 秒，输入 ${result.usage.input}、输出 ${result.usage.output} token）`,
-            `推理档：${thinkingText(config)}。这里只说明配置里写了什么，一个小请求证明不了服务端是否按这个档思考`,
+            `通过：${config.model.use} 正常回话（${seconds} 秒，输入 ${result.usage.input}、输出 ${result.usage.output} token）`,
+            `推理档：${thinkingText(config, sent)}。这里只说明发了什么档，一个小请求证明不了服务端是否按这个档思考`,
         ].join("\n");
-        return done({path, model: config.model.id, thinking: config.model.thinking ?? null, ms: result.ms, usage: result.usage}, text);
+        return done({path, model: config.model.use, thinking: sent ?? null, ms: result.ms, usage: result.usage}, text);
     }
-    io.stderr(`· ${config.model.baseUrl} ${config.model.id}`);
+    io.stderr(`· ${config.model.use}`);
     if (result.reason === "aborted") return fail("cancelled", "已取消", EXIT_INTERRUPTED);
     if (result.reason === "not_finished") return fail("model_failed", `模型没有正常结束（${result.stopReason}）`, EXIT_QA_FAILED, "local");
     return fail("model_failed", result.error.message, EXIT_QA_FAILED, result.error.kind);
