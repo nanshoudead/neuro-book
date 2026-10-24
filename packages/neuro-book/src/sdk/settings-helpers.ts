@@ -12,7 +12,12 @@ import {defineSetting} from "nbook/shared/settings";
 import type {SettingDefinition, SettingOptions} from "nbook/shared/settings";
 
 import {contributionId, localizedText} from "./plugin";
-import type {PluginBuilder, Text} from "./plugin";
+import type {PluginBuilder, Problem, ShortNameRule, Text} from "./plugin";
+
+/** 设置项名在编辑器里就核对的部分：小驼峰（点分段），不写连字符、下划线与空格，不以大写开头。完整规则在加载时核对。 */
+type SettingNameRule<Name extends string> = Name extends `${string}${"-" | "_" | " " | "/"}${string}`
+    ? Problem<`设置项名用小驼峰（点分段）：${Name}`>
+    : Name extends `${infer First}${string}` ? (First extends Lowercase<First> ? unknown : Problem<`设置项名用小驼峰（点分段）：${Name}`>) : unknown;
 
 /** list 分区助手：设置项的 `section` 收它，`group` 只能是它的组 id。 */
 export interface SectionHelper<Id extends string = string, Group extends string = string> {
@@ -31,7 +36,7 @@ export function section<const Id extends string, const Name extends string, cons
     readonly category?: SettingsSectionCategory;
     readonly order?: number;
     readonly groups?: ReadonlyArray<{readonly id: Group; readonly title: Text}>;
-}): SectionHelper<`${Id}.${Name}`, Group> {
+} & ShortNameRule<Name>): SectionHelper<`${Id}.${Name}`, Group> {
     const id = contributionId(plugin.id, options.name, "设置分区");
     const declaration: SettingsSectionDeclaration = {
         title: localizedText(options.title),
@@ -48,12 +53,13 @@ export function section<const Id extends string, const Name extends string, cons
  * 设置项；键是 `<插件 id>/<name>`。`section` 收分区助手（`group` 只能是它的组），引用别的插件的分区时写分区 id。写进
  * `plugin.descriptor([…])`。
  */
-export function setting<const Id extends string, Schema extends TSchema, const Section extends SectionHelper | string = never>(plugin: PluginBuilder<Id>, options: Omit<SettingOptions<Schema>, "plugin" | "title" | "description" | "section" | "group"> & {
+export function setting<const Id extends string, const Name extends string, Schema extends TSchema, const Section extends SectionHelper | string = never>(plugin: PluginBuilder<Id>, options: Omit<SettingOptions<Schema>, "plugin" | "name" | "title" | "description" | "section" | "group"> & {
+    readonly name: Name;
     readonly title: Text;
     readonly description?: Text;
     readonly section?: Section;
     readonly group?: Section extends SectionHelper<string, infer Group> ? Group : string;
-}): SettingDefinition<Static<Schema>> {
+} & SettingNameRule<Name>): SettingDefinition<Static<Schema>> {
     const {title, description, section: owner, group, ...rest} = options;
     return defineSetting({
         ...rest,

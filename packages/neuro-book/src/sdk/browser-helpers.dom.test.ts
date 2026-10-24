@@ -41,7 +41,8 @@ describe("浏览器一侧的助手", () => {
         expect(count.implement({text})).toEqual({capability: "workbench.statusbar-items", id: "acme.hello.count", implementation: {text}});
     });
 
-    it("短名不合规则时抛错", () => {
+    it("短名不合规则时抛错（大写在编辑器里就报）", () => {
+        // @ts-expect-error 短名只用小写
         expect(() => view(plugin, {name: "Panel", title: "x", icon: "i-lucide-x", load: () => import("./testing/GreetingProbe.vue")})).toThrow("Panel");
     });
 });

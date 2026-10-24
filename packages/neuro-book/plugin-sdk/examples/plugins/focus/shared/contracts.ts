@@ -91,14 +91,13 @@ export interface FocusSource {
  * 是用户自己的节奏，不交给 Agent；想让 Agent 也能用，改成 `confirm`（每次问用户）或 `auto`。写在合同模块里，别的插件按
  * id 执行它们。
  */
-function focusCommand<const Name extends string>(name: Name, zh: string, en: string, description: string) {
-    return command(plugin, {name, title: {"zh-CN": `专注计时：${zh}`, "en-US": `Focus timer: ${en}`}, description, effect: "write", expose: {agent: "never"}});
-}
+const focusCommandBase = {effect: "write", expose: {agent: "never"}} as const;
 
-export const startCommand = focusCommand("start", "开始", "Start", "Start a focus session of the configured length");
-export const cancelCommand = focusCommand("cancel", "放弃", "Give up", "Give up the running focus session without counting it");
+// 直接调用 `command`，不包一层泛型函数：短名的核对（只用小写）要看到字面量，包在 `<Name extends string>` 的函数里推不出来。
+export const startCommand = command(plugin, {...focusCommandBase, name: "start", title: {"zh-CN": "专注计时：开始", "en-US": "Focus timer: Start"}, description: "Start a focus session of the configured length"});
+export const cancelCommand = command(plugin, {...focusCommandBase, name: "cancel", title: {"zh-CN": "专注计时：放弃", "en-US": "Focus timer: Give up"}, description: "Give up the running focus session without counting it"});
 /** 状态栏条目的命令是静态的一条，所以要一条“切换”命令，而不是开始、放弃各挂一个。 */
-export const toggleCommand = focusCommand("toggle", "开始或放弃", "Start or give up", "Start a focus session, or give up the running one");
+export const toggleCommand = command(plugin, {...focusCommandBase, name: "toggle", title: {"zh-CN": "专注计时：开始或放弃", "en-US": "Focus timer: Start or give up"}, description: "Start a focus session, or give up the running one"});
 
 export const START_COMMAND = startCommand.id;
 export const CANCEL_COMMAND = cancelCommand.id;

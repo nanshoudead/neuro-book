@@ -8,13 +8,15 @@ import {afterEach, describe, expect, it} from "bun:test";
 
 import type {Application} from "@notnotype/nb-runtime/application";
 import type {ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
+import {provideRemote} from "@notnotype/nb-runtime/remote";
+import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import {Type} from "typebox";
 
 import {createApplication} from "nbook/application";
 import {COMMANDS_POINT} from "nbook/plugins/commands/shared/contracts";
 
 import {command} from "./command-helpers";
-import {definePlugin} from "./plugin";
+import {definePlugin, remoteService} from "./plugin";
 import {section, setting} from "./settings-helpers";
 
 const plugin = definePlugin({id: "acme.hello", version: "1.0.0", locations: ["server"]});
@@ -43,8 +45,10 @@ describe("definePlugin", () => {
         expect(plugin.descriptor([main, greeting])).toEqual({id: "acme.hello", version: "1.0.0", locations: ["server"], contributions: [main.contribution, greeting.contribution]});
     });
 
-    it("短名不合贡献点的规则时加载即抛错，写明是哪一个", () => {
+    it("短名不合贡献点的规则时加载即抛错，写明是哪一个（大写与空格在编辑器里就报，加载时照样核对）", () => {
+        // @ts-expect-error 短名只用小写
         expect(() => section(plugin, {name: "My Section", title: "x", icon: "i-lucide-x"})).toThrow("My Section");
+        // @ts-expect-error 短名只用小写
         expect(() => command(plugin, {name: "Say", title: "x", description: "x", effect: "read"})).toThrow("Say");
         // 命令的一段可以数字开头，分区不可以。
         expect(command(plugin, {name: "2x", title: "x", description: "x", effect: "read"}).id).toBe("acme.hello.2x");
@@ -58,6 +62,7 @@ describe("definePlugin", () => {
         const loose = command(plugin, {name: "loose", title: "x", description: "x", effect: "write", args: optional});
         expect(loose.contribution.declaration.args).toMatchObject({additionalProperties: false});
         expect("additionalProperties" in optional).toBe(false);
+        // @ts-expect-error 有必填参数又给人用：编辑器里就报
         expect(() => command(plugin, {name: "needs", title: "x", description: "x", effect: "write", args: Type.Object({words: Type.Integer()})})).toThrow("命令面板不收集参数");
         // 没有 required，但空对象过不了校验：同样抛错。
         expect(() => command(plugin, {name: "few", title: "x", description: "x", effect: "write", args: Type.Object({words: Type.Optional(Type.Integer())}, {minProperties: 1})})).toThrow("收不下空对象");
@@ -132,4 +137,29 @@ export function typeChecks(): void {
     setting(plugin, {name: "x", schema: Type.String(), default: "", title: "x", section: main, group: "advanced"});
     // async 的 activate 照样核对。
     plugin.entry({location: "server", contributions: {say}, activate: async () => ({contributions: {say: say.implement(async () => ({ok: true, value: null}))}})});
+    // 设置项名用小驼峰。
+    // @ts-expect-error 设置项名不能有连字符
+    setting(plugin, {name: "daily-goal", schema: Type.Integer(), default: 0, title: "x"});
+    // `require` 只收入口 `dependencies` 里声明的必需服务；可选依赖用 `resolve`。
+    const clockKey = defineServiceKey<{now(): number}>("acme.hello/clock");
+    const otherKey = defineServiceKey<{other(): void}>("acme.hello/other");
+    plugin.entry({location: "server", dependencies: [{key: clockKey}, {key: otherKey, required: false}], activate: (context) => {
+        context.services.require(clockKey).now();
+        // @ts-expect-error 可选依赖不能 require
+        context.services.require(otherKey);
+        void context.services.resolve(otherKey);
+        return {};
+    }});
+    plugin.entry({location: "server", activate: (context) => {
+        // @ts-expect-error 入口没有声明任何依赖
+        context.services.require(clockKey);
+        return {};
+    }});
+    // 产出了远程服务却没声明 remoteProvides：报错写着去声明它。
+    const contract = remoteService(plugin, {name: "echo", version: 1, provider: "server", callers: ["browser"], methods: {get: {input: Type.Object({}), output: Type.String(), effect: "read"}}});
+    // @ts-expect-error 入口没有声明 remoteProvides
+    plugin.entry({location: "server", activate: async () => ({remote: [provideRemote(contract, () => ({methods: {get: () => ({ok: true, value: "x"})}}))]})});
+    plugin.entry({location: "server", remoteProvides: [contract], activate: async () => ({remote: [provideRemote(contract, () => ({methods: {get: () => ({ok: true, value: "x"})}}))]})});
+    // @ts-expect-error 合同短名只用小写
+    remoteService(plugin, {name: "Echo", version: 1, provider: "server", callers: ["browser"], methods: {}});
 }

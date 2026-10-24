@@ -53,6 +53,22 @@ describe("结果助手", () => {
     });
 });
 
+/** 方法上下文里的 `ok`、`fail`（编译期）：按这个方法的合同定型，写错时报错落在这一次调用的参数上。 */
+export function contextChecks(): void {
+    provideRemote(counter, () => ({methods: {
+        add: async ({words}, {fail: refuse, ok: accept}) => {
+            if (words < 0) return refuse("closed");
+            // @ts-expect-error 合同没有声明 too-manny
+            if (words > 99) return refuse("too-manny", {max: 5});
+            // @ts-expect-error 详情的 max 要是整数
+            if (words > 9) return refuse("too-many", {max: "5"});
+            // @ts-expect-error too-many 要带详情
+            if (words > 5) return refuse("too-many");
+            return accept(words);
+        },
+    }}));
+}
+
 /** 调用方一侧（编译期）：失败按码区分，业务失败的 `detail` 是该码 schema 的类型，运行时失败的不是。 */
 export function callerChecks(client: RemoteClient<typeof counter>): void {
     void client.add({words: 1}).then((result) => {

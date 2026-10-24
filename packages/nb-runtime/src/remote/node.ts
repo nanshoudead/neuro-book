@@ -10,8 +10,8 @@ import type {RuntimeClock} from "../lifecycle/lifecycle";
 import {perConsumer} from "../services/services";
 import type {ConsumerIdentity, PerConsumerProvision} from "../services/services";
 
-import {providerAccepts} from "./contract";
-import type {LookupTarget, RemoteClient, RemoteContract, RemoteImplementation, RemoteProviderLocation, RemoteSubscribeOptions, RemoteUse} from "./contract";
+import {fail as businessFail, ok as businessOk, providerAccepts} from "./contract";
+import type {LookupTarget, RemoteClient, RemoteContract, RemoteImplementation, RemoteMethodContext, RemoteMethodSpec, RemoteProviderLocation, RemoteSubscribeOptions, RemoteUse} from "./contract";
 import {Peer} from "./peer";
 import type {Reply, RequestOptions, SubscribeHandlers, SubscriptionChannel} from "./peer";
 import {
@@ -844,7 +844,9 @@ export class RemoteNodeImpl implements RemoteNode {
             if (run === undefined) {
                 throw new Error(`实现缺少方法 ${frame.method}`);
             }
-            outcome = await run(frame.input, {signal: linked.signal});
+            // `ok`、`fail` 与根入口的同名助手是同一对函数；按方法定型只在类型上（RemoteMethodContext），运行时不分方法。
+            const context = {signal: linked.signal, ok: businessOk, fail: businessFail} as RemoteMethodContext<RemoteMethodSpec>;
+            outcome = await run(frame.input, context);
         } catch (error) {
             this.#record("provider-threw", contract.id, error instanceof Error ? error.message : String(error));
             fail("provider-error", "提供方执行失败");

@@ -108,8 +108,10 @@ function implementation(consumer: ConsumerIdentity, probe: Probe): RemoteImpleme
                 probe.onEnter?.();
                 return {ok: true, value: await gate(name).promise};
             },
-            refuse: ({how}) => {
+            refuse: ({how}, context) => {
                 if (how === "plain") return fail("no-luck");
+                // 方法上下文里的 `fail` 与根入口的同一个，按这个方法的合同定型。
+                if (how === "context") return context.fail("too-many", {max: 4});
                 if (how === "detail") return fail("too-many", {max: 3});
                 // 下面几种绕过类型交出不合合同的详情：缺详情、详情形状不对、不该有详情却给了。
                 if (how === "missing-detail") return {ok: false, code: "too-many"} as never;
@@ -696,6 +698,7 @@ describe("Spec plugin-channel 输出 4：请求阶段与失败码", () => {
         const atServer = t.remote(t.browser1).use(echo).at("server");
         expect(await atServer.refuse({how: "plain"})).toEqual({ok: false, code: "no-luck"});
         expect(await atServer.refuse({how: "detail"})).toEqual({ok: false, code: "too-many", detail: {max: 3}});
+        expect(await atServer.refuse({how: "context"})).toEqual({ok: false, code: "too-many", detail: {max: 4}});
         expect(await atServer.refuse({how: "undefined-detail"})).toEqual({ok: false, code: "no-luck"});
         for (const how of ["missing-detail", "bad-detail", "extra-detail", "null-detail"]) {
             expect(await atServer.refuse({how})).toMatchObject({ok: false, code: "provider-error", detail: expect.stringContaining("详情不符合合同")});

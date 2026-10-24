@@ -13,7 +13,7 @@ import type {SettingsChoicesImplementation} from "nbook/plugins/settings/web/con
 import {settingsPageContribution} from "nbook/plugins/settings/web/page-contribution";
 
 import {bound, contributionId, localizedText} from "./plugin";
-import type {BoundImplementation, ContributionHelper, PluginBuilder, Text} from "./plugin";
+import type {BoundImplementation, ContributionHelper, PluginBuilder, ShortNameRule, Text} from "./plugin";
 import type {ComponentLoad, PropsOf} from "./workbench-helpers";
 
 export interface SettingsPageHelper<Id extends string, Load extends ComponentLoad> extends ContributionHelper<"settings.pages", Id, SettingsPageDeclaration> {
@@ -32,7 +32,7 @@ export function settingsPage<const Id extends string, const Name extends string,
     readonly category?: SettingsPageDeclaration["category"];
     readonly keywords?: ReadonlyArray<Text>;
     readonly load: Load;
-}): SettingsPageHelper<`${Id}.${Name}`, Load> {
+} & ShortNameRule<Name>): SettingsPageHelper<`${Id}.${Name}`, Load> {
     const id = contributionId(plugin.id, options.name, "设置页");
     const {name: _name, title, description, category, keywords, load, ...rest} = options;
     const helper = settingsPageContribution({
@@ -62,7 +62,7 @@ export interface ChoicesHelper<Id extends string> extends ContributionHelper<typ
 }
 
 /** 选项来源：设置窗口要它的选项时才激活入口，激活事件由 `plugin.entry` 自动并入。 */
-export function choices<const Id extends string, const Name extends string>(plugin: PluginBuilder<Id>, options: {readonly name: Name}): ChoicesHelper<`${Id}.${Name}`> {
+export function choices<const Id extends string, const Name extends string>(plugin: PluginBuilder<Id>, options: {readonly name: Name} & ShortNameRule<Name>): ChoicesHelper<`${Id}.${Name}`> {
     const id = contributionId(plugin.id, options.name, "选项来源");
     return {
         id,

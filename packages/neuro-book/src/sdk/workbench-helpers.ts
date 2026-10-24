@@ -15,7 +15,7 @@ import {viewContribution} from "nbook/plugins/workbench/web/view-contribution";
 
 import type {CommandHelper} from "./command-helpers";
 import {bound, contributionId, localizedText} from "./plugin";
-import type {BoundImplementation, ContributionHelper, PluginBuilder, Text} from "./plugin";
+import type {BoundImplementation, ContributionHelper, PluginBuilder, ShortNameRule, Text} from "./plugin";
 
 /** `load` 取到的组件。 */
 type Loaded<Load> = Load extends () => Promise<infer Module> ? (Module extends {readonly default: infer Value} ? Value : Module) : never;
@@ -48,7 +48,7 @@ export function view<const Id extends string, const Name extends string, const L
     readonly location?: ViewDeclaration["location"];
     readonly layout?: ViewDeclaration["layout"];
     readonly load: Load;
-}): ViewHelper<`${Id}.${Name}`, Load> {
+} & ShortNameRule<Name>): ViewHelper<`${Id}.${Name}`, Load> {
     const id = contributionId(plugin.id, options.name, "视图");
     const {name: _name, title, location, layout, load, ...rest} = options;
     const helper = viewContribution({id, declaration: {...rest, title: localizedText(title), location: location ?? "sidebar", layout: layout ?? "scroll"}, load});
@@ -78,7 +78,7 @@ export function statusItem<const Id extends string, const Name extends string>(p
     readonly order?: number;
     readonly priority?: number;
     readonly command?: CommandHelper | NonNullable<ItemDeclaration["command"]>;
-}): StatusItemHelper<`${Id}.${Name}`> {
+} & ShortNameRule<Name>): StatusItemHelper<`${Id}.${Name}`> {
     const id = contributionId(plugin.id, options.name, "状态栏条目");
     const {name: _name, title, alignment, order, priority, command, ...rest} = options;
     const declaration: ItemDeclaration = {

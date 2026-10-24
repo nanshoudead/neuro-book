@@ -187,6 +187,18 @@ export interface RemoteCallContext {
     readonly signal: AbortSignal;
 }
 
+/** 某个码的详情参数：没有详情的码（schema 收 `undefined`）可以不写。 */
+type DetailArgs<Method extends RemoteMethodSpec, Code extends BusinessCodes<Method>> = undefined extends Static<NonNullable<Method["errors"]>[Code]> ? [detail?: Static<NonNullable<Method["errors"]>[Code]>] : [detail: Static<NonNullable<Method["errors"]>[Code]>];
+
+/**
+ * 方法实现收到的上下文：终止信号，加上按这个方法的合同定型的 `ok`、`fail`。码或详情写错时报错落在这一次 `fail(…)` 的参数上，
+ * 第一行就写着能用的码；根入口的 `ok`、`fail` 留给写在方法外的辅助函数。
+ */
+export interface RemoteMethodContext<Method extends RemoteMethodSpec> extends RemoteCallContext {
+    ok(value: Static<Method["output"]>): {readonly ok: true; readonly value: Static<Method["output"]>};
+    fail<const Code extends BusinessCodes<Method>>(code: Code, ...detail: DetailArgs<Method, Code>): Extract<BusinessFailure<Method>, {readonly code: Code}>;
+}
+
 export interface RemoteSink<Payload> {
     next(payload: Payload): void;
 }
@@ -246,7 +258,7 @@ export interface RemoteImplementation<Contract extends RemoteContract> {
     readonly methods: {
         readonly [Name in keyof Contract["methods"]]: (
             input: Static<Contract["methods"][Name]["input"]>,
-            context: RemoteCallContext,
+            context: RemoteMethodContext<Contract["methods"][Name]>,
         ) => RemoteOutcome<Contract["methods"][Name]> | Promise<RemoteOutcome<Contract["methods"][Name]>>;
     };
     readonly events?: {

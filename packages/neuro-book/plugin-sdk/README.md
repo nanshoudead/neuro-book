@@ -106,6 +106,7 @@ export const browserPlugin = plugin.definition([plugin.entry({
 - **只写短名**：助手的 `name` 拼成贡献 id `<插件 id>.<name>`（设置项的键是 `<插件 id>/<name>`），不会写错前缀；短名不合规则（视图、条目、分区：小写字母开头，只含小写字母、数字与连字符；命令的段可以数字开头；设置项名是小驼峰）时加载就抛错，写明是哪一个。
 - **声明与实现用同一个键**：`contributions: {键: 助手}` 声明，激活产出的 `contributions` 用同样的键交 `助手.implement(…)`。漏写一项、多写一项、在某个键上交了别的助手的实现，`bun run typecheck` 都报错，报错里写着是哪一项。入口 id 缺省取运行位置名；同一个插件的两个入口不能同 id（不按位置分），重复时组装就抛错。
 - **助手从它所属的内置插件的子路径导入**，第一个参数是 `plugin`：看导入路径就知道在用哪个内置插件。要 Vue 的部分：整个内置插件只在浏览器里有意义的（工作台）占一个只给浏览器的子路径；两端都要的（设置）把浏览器部分放在 `/settings/browser`。只给浏览器的助手（`view`、`statusItem`、`settingsPage`、`choices`）写进服务端入口编译不过。
+- **在编辑器里就报的错**（`bun run typecheck`，报错里写着问题与改法）：短名带大写、空格或下划线；设置项名不是小驼峰；参数有必填项的命令没写 `expose: {human: false}`；`context.services.require` 了没写进 `dependencies` 的服务（可选依赖用 `resolve`）；产出了远程服务或服务却没写 `remoteProvides`、`provides`。把助手包进一个泛型函数（`<Name extends string>(name: Name) => command(plugin, {name, …})`）时短名的核对推不出来，直接调用助手。记录 schema 写 `additionalProperties: true` 这类 TypeBox 类型里看不出来的，构建时报。
 - **激活上下文**：`context.services.require(键)` 取 `dependencies` 里声明的服务，`context.remote` 调用远程服务，`context.signal` 在入口开始停止时触发，`context.onStop(() => …)` 登记入口停止时要做的事（取消计时器、关掉句柄）；没有 `scope`，不用自己管作用域。完整的成员见 [plugin-api 的“激活上下文”](../../../docs/specs/runtime/plugin-api.md#激活上下文)，入口与服务、远程服务、贡献怎么选见同文的[“选用规则”](../../../docs/specs/runtime/plugin-api.md#选用规则)，助手的完整规则见同文的[“作者 API”](../../../docs/specs/runtime/plugin-api.md#作者-api)。
 - **不经助手的贡献**：向别的插件自己定义的贡献点提交时，声明写在入口的 `rawContributions`（`{capability, id, declaration}` 的数组），实现写在产出的 `rawContributions: {贡献点: {id: 实现}}`；id 用 `` `${plugin.id}.<名>` as const `` 拼。自己定义贡献点时写在 `plugin.definition({contributionPoints, entries})` 里，接收的入口写 `receives` 并在产出里交 `receivers`。示例 menu、file-menu 是这两种写法。
 
@@ -153,7 +154,7 @@ export const browserPlugin = plugin.definition([plugin.entry({
 
 - 服务端入口写在 `backend/plugin.ts`，`location: "server"`（每个打开的项目一份的写 `"project"`）。
 - 跨实例给别人用的接口写成远程服务合同：`shared/contracts.ts` 里 `remoteService(plugin, {name, …})`（id 是插件 id 加短名；代理别的插件的合同时用 `defineRemoteService` 写完整 id），服务端入口声明 `remoteProvides` 并在激活产出里用 `provideRemote` 交出实现；浏览器（或别的实例）里 `context.remote.use(合同).at(目标)` 调用、订阅事件。方法的参数与结果要能结构化克隆，失败以结构化结果返回。规则见 [plugin-channel](../../../docs/specs/runtime/plugin-channel.md)。
-- 方法的 `input` 与事件的 `filter` 没写 `additionalProperties` 时补成 `false`，多余字段被拒。业务失败的码写在方法的 `errors` 里，值是这个码的详情 schema（没有详情写 `Type.Undefined()`）；实现里用 `ok(值)`、`fail(码, 详情)` 构造结果，不用写 `as const`，详情的形状按合同检查，交出不合的详情时调用方得到 `provider-error`。
+- 方法的 `input` 与事件的 `filter` 没写 `additionalProperties` 时补成 `false`，多余字段被拒。业务失败的码写在方法的 `errors` 里，值是这个码的详情 schema（没有详情写 `Type.Undefined()`）；实现里用 `ok(值)`、`fail(码, 详情)` 构造结果，不用写 `as const`，详情的形状按合同检查，交出不合的详情时调用方得到 `provider-error`。方法实现的第二个参数除了 `signal` 还有按这个方法定型的 `ok`、`fail`（`add: async ({by}, {fail, ok}) => …`）：码或详情写错时报错落在这一次 `fail(…)` 上，第一行就列出能用的码。
 - 合同的 schema 进清单，只能写纯 JSON Schema（不用 TypeBox 的 `Refine`、`Codec` 与自己注册的 format）。
 - 推事件用 `eventSource<值>()`：它本身就是合同 `events` 里的那一项，`emit(值)` 推给此刻的订阅，`match` 按订阅的 filter 过滤，`onSubscribe` 给新订阅推初始值；在 `activate` 或 `provideRemote` 的工厂里建（工厂里建时每个调用方一份），不在模块顶层。
 - 调用方拿到的失败按码区分：`if (!r.ok && r.code === "too-many") r.detail.max` 直接有类型；`unavailable`、`timeout` 这类运行时失败的 `detail` 是说明文字。
@@ -182,7 +183,7 @@ export const counter = remoteService(plugin, {
 });
 
 // backend/plugin.ts
-import {eventSource, fail, ok, provideRemote} from "@notnotype/nb-plugin-sdk";
+import {eventSource, ok, provideRemote} from "@notnotype/nb-plugin-sdk";
 import {counter, plugin} from "../shared/contracts";
 export const serverPlugin = plugin.definition([plugin.entry({
     location: "server",
@@ -193,7 +194,7 @@ export const serverPlugin = plugin.definition([plugin.entry({
         const changed = eventSource<number>();
         return {remote: [provideRemote(counter, () => ({
             methods: {
-                add: async ({by}) => {
+                add: async ({by}, {fail, ok}) => {
                     if (value + by > 1000) return fail("too-many", {max: 1000});
                     value += by;
                     changed.emit(value);

@@ -237,8 +237,10 @@ describe("生成的 SDK 包", () => {
         }
     }, 60_000);
 
-    it("作者 API 的入口写错时，类型检查的诊断写明是哪一项：漏写、多写、浏览器助手写进服务端入口、视图属性名写错", async () => {
-        await writeFile(join(project, "src/wrong-entry.ts"), `import {definePlugin} from "@notnotype/nb-plugin-sdk";
+    it("作者 API 写错时，类型检查的诊断写明是哪一项：漏写、多写、浏览器助手写进服务端入口、视图属性名写错、没声明的依赖、设置项名、要参数的命令、没声明 remoteProvides", async () => {
+        await writeFile(join(project, "src/wrong-entry.ts"), `import {definePlugin, hostClockKey, provideRemote, remoteService} from "@notnotype/nb-plugin-sdk";
+import {setting} from "@notnotype/nb-plugin-sdk/settings";
+import {Type} from "typebox";
 import {command} from "@notnotype/nb-plugin-sdk/commands";
 import {view} from "@notnotype/nb-plugin-sdk/workbench";
 import HelloView from "./HelloView.vue";
@@ -247,20 +249,30 @@ const say = command(plugin, {name: "say", title: "x", description: "x", effect: 
 const ping = command(plugin, {name: "ping", title: "x", description: "x", effect: "read"});
 const panel = view(plugin, {name: "panel", title: "x", icon: "i-lucide-x", load: async () => HelloView});
 const lazyPanel = view(plugin, {name: "lazy", title: "x", icon: "i-lucide-x", load: () => import("./HelloView.vue")});
+const echo = remoteService(plugin, {name: "echo", version: 1, provider: "server", callers: ["browser"], methods: {get: {input: Type.Object({}), output: Type.String(), effect: "read"}}});
 export const missing = plugin.entry({location: "server", contributions: {say, ping}, activate: () => ({contributions: {say: say.implement(() => ({ok: true, value: null}))}})});
 export const extra = plugin.entry({location: "server", contributions: {say}, activate: () => ({contributions: {say: say.implement(() => ({ok: true, value: null})), surplus: ping.implement(() => ({ok: true, value: null}))}})});
 export const misplaced = plugin.entry({location: "server", contributions: {panel}, activate: () => ({contributions: {panel: panel.implement()}})});
 export const props = lazyPanel.implement(() => ({greting: "hi"}));
+export const undeclared = plugin.entry({location: "server", activate: (context) => { void context.services.require(hostClockKey); return {}; }});
+export const kebab = setting(plugin, {name: "daily-goal", schema: Type.Integer(), default: 0, title: "x"});
+export const needsArgs = command(plugin, {name: "add", title: "x", description: "x", effect: "write", args: Type.Object({words: Type.Integer()})});
+export const noProvides = plugin.entry({location: "server", activate: async () => ({remote: [provideRemote(echo, () => ({methods: {get: () => ({ok: true, value: "x"})}}))]})});
 `);
         try {
             const result = Bun.spawnSync({cmd: ["node", join(project, "node_modules/vue-tsc/bin/vue-tsc.js"), "-p", project, "--pretty", "false"], cwd: project, stdout: "pipe"});
             // 一条诊断是“文件(行,列): error …”一行，加上它下面缩进的说明链。
             const diagnostics = result.stdout.toString().split(/\n(?=\S)/u);
             const at = (row: number): string => diagnostics.filter((text) => text.startsWith(`src/wrong-entry.ts(${String(row)},`)).join("\n");
-            expect(at(10)).toContain("'ping'");
-            expect(at(11)).toContain("多写的贡献实现：surplus");
-            expect(at(12)).toContain("只能写进浏览器入口：panel");
-            expect(at(13)).toContain("greting");
+            expect(at(13)).toContain("'ping'");
+            expect(at(14)).toContain("多写的贡献实现：surplus");
+            expect(at(15)).toContain("只能写进浏览器入口：panel");
+            expect(at(16)).toContain("greting");
+            // 规则提前到编辑器：报错里写着问题与改法。
+            expect(at(17)).toContain("这个服务没有写进入口的 dependencies");
+            expect(at(18)).toContain("设置项名用小驼峰（点分段）：daily-goal");
+            expect(at(19)).toContain("命令参数有必填项");
+            expect(at(20)).toContain("入口没有声明 remoteProvides");
         } finally {
             await rm(join(project, "src/wrong-entry.ts"));
         }

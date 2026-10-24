@@ -17,10 +17,11 @@ import type {
     PluginDefinition,
     PluginDescriptor,
     PluginEntryDefinition,
+    ProvidedService,
 } from "@notnotype/nb-runtime/plugins";
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
-import type {RemoteContract, RemoteEventSpec, RemoteMethodSpec, RemoteProviderLocation} from "@notnotype/nb-runtime/remote";
-import type {ServiceKey} from "@notnotype/nb-runtime/services";
+import type {RemoteContract, RemoteEventSpec, RemoteMethodSpec, RemoteProviderLocation, RemoteProvision} from "@notnotype/nb-runtime/remote";
+import type {ResolveOptions, ResolveResult, ServiceDependency, ServiceKey} from "@notnotype/nb-runtime/services";
 
 import type {LocalizedText} from "nbook/shared/localized-text";
 
@@ -73,7 +74,39 @@ export function contributionId<Id extends string, Name extends string>(plugin: I
 type Helpers = Readonly<Record<string, ContributionHelper>>;
 
 /** 激活上下文对作者收窄：没有 `scope`，入口停止时做的事用 `onStop`。运行时传进来的仍是内核的上下文。 */
-export type AuthorActivationContext = Omit<ActivationContext, "scope">;
+export type AuthorActivationContext<Dependencies extends ReadonlyArray<ServiceDependency> = ReadonlyArray<ServiceDependency>> = Omit<ActivationContext, "scope" | "services"> & {
+    readonly services: {
+        /** 取入口 `dependencies` 里声明的必需服务；没声明的键编译不过（可选依赖用 `resolve`）。 */
+        require<T>(key: ServiceKey<T> & Declared<ServiceKey<T>, RequiredKeys<Dependencies>, "这个服务没有写进入口的 dependencies（可选依赖用 resolve）">): T;
+        /** 解析入口声明过的服务（必需与可选的都行）。 */
+        resolve<T>(key: ServiceKey<T> & Declared<ServiceKey<T>, Dependencies[number]["key"], "这个服务没有写进入口的 dependencies">, options?: ResolveOptions): Promise<ResolveResult<T>>;
+    };
+};
+
+/** 编译期的问题：以问题命名的必填属性，报错写成“缺少属性 <问题>”。 */
+export type Problem<Message extends string> = {readonly [Name in Message]: true};
+
+/**
+ * 贡献与合同的短名在编辑器里就核对的部分：只用小写（含大写的、带空格或下划线的编译不过）。完整的规则（每段开头、长度）
+ * 在加载时由 `contributionId` 核对。
+ */
+export type ShortNameRule<Name extends string> = Name extends Lowercase<Name>
+    ? (Name extends `${string}${" " | "_" | "/"}${string}` ? Problem<`短名只用小写字母、数字、连字符与点：${Name}`> : unknown)
+    : Problem<`短名只用小写字母、数字、连字符与点：${Name}`>;
+
+/** 必需依赖的键（`required` 缺省为 true）。 */
+type RequiredKeys<Dependencies extends ReadonlyArray<ServiceDependency>> = Exclude<Dependencies[number], {readonly required: false}>["key"];
+
+/** 键在声明过的键里时没有要求，不在时要求一个以问题命名的属性。 */
+type Declared<Key, Allowed, Message extends string> = [Key] extends [Allowed] ? unknown : Problem<Message>;
+
+/**
+ * 声明里没写、产出里却交了的服务或远程服务：那种数组再带一个以改法命名的属性，报错写成“缺少属性 入口没有声明 …”，看得出
+ * 去声明哪个字段（内核的 `defineEntry` 写的是 `undefined`，报错只说“不能赋给 undefined”）。元素类型照实写：否则 TypeScript
+ * 先报元素不能赋给 never。只在作者 API 上这样写：内核的入口按运行位置分支（`remoteProvides: browser ? [合同] : []`），
+ * 那里要 `undefined` 这种单值类型，TypeScript 才会按它拆开联合。
+ */
+type Undeclared<Field extends string, Item> = ReadonlyArray<Item> & Problem<`入口没有声明 ${Field}：要交出它，先在入口上写 ${Field}`>;
 
 /** 激活产出：服务、远程服务、接收者照内核写；助手的贡献按声明的键逐项交实现；不经助手的贡献在 `rawContributions`。 */
 export type AuthorEntryOutput<
@@ -82,7 +115,9 @@ export type AuthorEntryOutput<
     Receives extends ReadonlyArray<string>,
     Raw extends ReadonlyArray<ContributionDeclaration>,
     Contributions extends Helpers,
-> = Omit<EntryOutputFor<Provides, Remote, Receives, readonly []>, "contributions">
+> = Omit<EntryOutputFor<Provides, Remote, Receives, readonly []>, "contributions" | "services" | "remote">
+    & (Provides extends readonly [] ? {readonly services?: Undeclared<"provides", ProvidedService<unknown>>} : Pick<EntryOutputFor<Provides, Remote, Receives, readonly []>, "services">)
+    & (Remote extends readonly [] ? {readonly remote?: Undeclared<"remoteProvides", RemoteProvision>} : Pick<EntryOutputFor<Provides, Remote, Receives, readonly []>, "remote">)
     & (Raw extends readonly [] ? {readonly rawContributions?: undefined} : {readonly rawContributions: EntryOutputFor<readonly [], readonly [], readonly [], Raw>["contributions"]})
     & (keyof Contributions extends never ? {readonly contributions?: undefined} : {readonly contributions: {readonly [Key in keyof Contributions]: ReturnType<Contributions[Key]["implement"]>}});
 
@@ -107,12 +142,13 @@ export interface AuthorEntry<
     Receives extends ReadonlyArray<string>,
     Raw extends ReadonlyArray<ContributionDeclaration>,
     Output,
+    Dependencies extends ReadonlyArray<ServiceDependency> = readonly [],
 > {
     /** 缺省取运行位置名；入口 id 在一个插件里不能重复（不按位置分）。 */
     readonly id?: string;
     readonly location: Location;
     readonly activationEvents?: PluginEntryDefinition["activationEvents"];
-    readonly dependencies?: PluginEntryDefinition["dependencies"];
+    readonly dependencies?: Dependencies;
     readonly provides?: Provides;
     readonly remoteProvides?: Remote;
     readonly remoteDelegates?: PluginEntryDefinition["remoteDelegates"];
@@ -121,7 +157,7 @@ export interface AuthorEntry<
     readonly contributions?: Contributions & PlacedHelpers<NoInfer<Contributions>, NoInfer<Location>>;
     /** 不经助手的贡献：内核的贡献声明，实现写在产出的 `rawContributions` 里。 */
     readonly rawContributions?: Raw;
-    activate(context: AuthorActivationContext): Output | Promise<Output>;
+    activate(context: AuthorActivationContext<Dependencies>): Output | Promise<Output>;
 }
 
 export interface PluginBuilder<Id extends string> {
@@ -142,7 +178,8 @@ export interface PluginBuilder<Id extends string> {
         const Receives extends ReadonlyArray<string> = readonly [],
         const Raw extends ReadonlyArray<ContributionDeclaration> = readonly [],
         const Output extends AuthorEntryOutput<Provides, Remote, Receives, Raw, Contributions> = AuthorEntryOutput<Provides, Remote, Receives, Raw, Contributions>,
-    >(entry: AuthorEntry<Location, Contributions, Provides, Remote, Receives, Raw, Output> & NoExtraAuthorKeys<Output, NoInfer<Receives>, NoInfer<Raw>, NoInfer<Contributions>>): PluginEntryDefinition;
+        const Dependencies extends ReadonlyArray<ServiceDependency> = readonly [],
+    >(entry: AuthorEntry<Location, Contributions, Provides, Remote, Receives, Raw, Output, Dependencies> & NoExtraAuthorKeys<Output, NoInfer<Receives>, NoInfer<Raw>, NoInfer<Contributions>>): PluginEntryDefinition;
     /** 插件定义（入口模块导出它）；插件自己定义的贡献点写在 `contributionPoints`。入口 id 重复时抛错。 */
     definition(entries: ReadonlyArray<PluginEntryDefinition> | {
         readonly entries: ReadonlyArray<PluginEntryDefinition>;
@@ -214,7 +251,7 @@ export function remoteService<
     readonly callers: ReadonlyArray<string>;
     readonly methods: Methods;
     readonly events?: Events;
-}): RemoteContract<Methods, Events, Provider> {
+} & ShortNameRule<Name>): RemoteContract<Methods, Events, Provider> {
     const {name, ...rest} = spec;
     if (!SEGMENT.test(name)) throw new TypeError(`远程服务的短名 ${name} 不合规则：小写字母开头，只含小写字母、数字与连字符`);
     return defineRemoteService<Methods, Provider, Events>({...rest, id: `${plugin.id}/${name}`});

@@ -9,7 +9,15 @@ import {COMMANDS_POINT, runsWithoutArgs} from "nbook/plugins/commands/shared/con
 import type {CommandDeclaration, CommandImplementation, CommandResult} from "nbook/plugins/commands/shared/contracts";
 
 import {bound, COMMAND_SEGMENT, contributionId, localizedText} from "./plugin";
-import type {BoundImplementation, ContributionHelper, PluginBuilder, Text} from "./plugin";
+import type {BoundImplementation, ContributionHelper, PluginBuilder, Problem, ShortNameRule, Text} from "./plugin";
+
+/**
+ * 参数有必填项又给人用的命令：命令面板不收集参数，在编辑器里就报。按静态类型判断，表达不了的写法（`minProperties`）由
+ * 加载时的 `runsWithoutArgs` 兜住。
+ */
+type HumanArgsRule<Args extends TObject, Expose> = {} extends Static<Args>
+    ? unknown
+    : Expose extends {readonly human: false} ? unknown : Problem<"命令参数有必填项：命令面板不收集参数，参数改成可选，或者写 expose: {human: false}">;
 
 export interface CommandHelper<Id extends string = string, Args = unknown> extends ContributionHelper<typeof COMMANDS_POINT, Id, CommandDeclaration> {
     readonly where: "anywhere";
@@ -33,12 +41,13 @@ function strictObject(schema: TSchema, noun: string): TSchema {
  * 命令；`args` 缺省为空对象，没写 `additionalProperties` 的补成 `false`。不带参数过不了校验的命令在命令面板里执行不了：
  * 这种命令要写 `expose: {human: false}`，否则加载即抛错。
  */
-export function command<const Id extends string, const Name extends string, Args extends TObject = TObject<{}>>(plugin: PluginBuilder<Id>, options: Omit<CommandDeclaration, "title" | "category" | "args"> & {
+export function command<const Id extends string, const Name extends string, Args extends TObject = TObject<{}>, const Expose extends CommandDeclaration["expose"] = undefined>(plugin: PluginBuilder<Id>, options: Omit<CommandDeclaration, "title" | "category" | "args" | "expose"> & {
     readonly name: Name;
     readonly title: Text;
     readonly category?: Text;
     readonly args?: Args;
-}): CommandHelper<`${Id}.${Name}`, Static<Args>> {
+    readonly expose?: Expose;
+} & ShortNameRule<Name> & HumanArgsRule<Args, Expose>): CommandHelper<`${Id}.${Name}`, Static<Args>> {
     const id = contributionId(plugin.id, options.name, "命令", COMMAND_SEGMENT);
     const {name: _name, title, category, args, ...rest} = options;
     const schema = strictObject(args ?? Type.Object({}), `命令 ${id} 的 args `);
