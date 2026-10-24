@@ -160,6 +160,7 @@ owners:
 | `nbook.view.set-panel-collapsed` | 收起为标题头 / Collapse to Title Bar | `{collapsed?}`（布尔）；省略时切换 | `nbook.workbench/panelHorizontal` | write | never |
 | `nbook.view.toggle-panel-maximized` | 最大化/还原面板 / Maximize or Restore Panel | `{}` | `nbook.workbench/panelMaximizable`、`nbook.workbench/nonCompact` | write | never |
 | `nbook.view.move-view` | 移动视图 / Move View | `{viewId, sourceContainerId, targetContainerId}` 或 `{viewId, sourceContainerId, newContainerIn}`（`sidebar`\|`auxiliarybar`\|`panel`），或全部省略；省略时经选择先选视图、再选目标 | `nbook.workbench/layoutReady` | write | never |
+| `nbook.view.open` | 打开视图 / Open View | `{viewId?}`；省略时经选择列出已落位的视图 | `nbook.workbench/layoutReady` | write | never |
 | `nbook.view.refresh-files` | 刷新文件 / Refresh Files | `{viewId, generation}`（精确实例代际） | 该实例贡献了 refresh 动作 | read | never |
 | `nbook.view.set-part-hidden` | 切换区域显隐 / Toggle Area Visibility | `{part?, hidden?}`（`part`：`sidebar`\|`auxiliarybar`\|`activitybar`；`hidden` 布尔）；`part` 省略时经选择列出三个区域并标出可见与否，`hidden` 省略时按可见切换 | `nbook.workbench/layoutReady` | write | never |
 
