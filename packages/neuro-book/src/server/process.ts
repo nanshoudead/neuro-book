@@ -12,7 +12,7 @@ import {join} from "node:path";
 import {prepareInstalledPlugins, safeModeOf} from "nbook/plugin-platform/backend/startup";
 import type {PreparedPlugins} from "nbook/plugin-platform/backend/startup";
 import type {PluginDescriptor} from "nbook/manifest";
-import {PRODUCT_VERSION} from "nbook/shared/product";
+import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 
 import {readServerConfig, ServerConfigError} from "./config";
 import type {ServerConfig} from "./config";
@@ -62,7 +62,7 @@ export interface ServerProcessOptions {
 export async function runServerProcess(manifest: ReadonlyArray<PluginDescriptor>, options: ServerProcessOptions = {}): Promise<never> {
     const config = readConfigOrExit();
     // 第三方插件集合在装配之前确定：要处理上次留下的待生效变化，并取跨进程的写入锁。
-    const installed = await prepareInstalledPlugins({root: join(config.stateRoot, "plugins"), productVersion: PRODUCT_VERSION, safeMode: safeModeOf(process.env)});
+    const installed = await prepareInstalledPlugins({root: join(config.stateRoot, "plugins"), profile: NEUROBOOK_PROFILE, safeMode: safeModeOf(process.env, NEUROBOOK_PROFILE)});
     const server = startOrExit(config, manifest, installed, options);
     const {exitCode} = await server.stopped;
     // 插件代码已经停了，放下版本租约，别的服务端下次启动就能回收这些版本。进程退出时锁也会放下，这里只是不等到那时。

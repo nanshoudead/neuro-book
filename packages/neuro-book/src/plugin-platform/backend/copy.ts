@@ -115,7 +115,7 @@ async function includeFile(context: Walk, path: string): Promise<void> {
 
 /**
  * `main` 与 `bin` 指向的文件（npm 总是包含）。越出源文件夹或写法不对的不算进复制范围，也不使安装失败：它们不是
- * NeuroBook 的入口，入口文件另由清单的 `entries` 核对。
+ * 插件的入口，入口文件另由清单的 `entries` 核对。
  */
 function entryPoints(raw: unknown): string[] {
     if (typeof raw !== "object" || raw === null) return [];

@@ -16,13 +16,13 @@ import {createPluginInventory} from "nbook/plugin-platform/backend/inventory";
 import {installedPlugins, NO_INSTALLED_PLUGINS, prepareInstalledPlugins} from "nbook/plugin-platform/backend/startup";
 import type {PreparedPlugins} from "nbook/plugin-platform/backend/startup";
 import {pluginFilesPrefix} from "nbook/plugin-platform/shared/plugin-files";
+import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 
 import {PROJECT_LIMIT_DEFAULTS} from "./config";
 import {createPluginFilesRoute} from "./plugin-files";
 import {startServer} from "./start";
 import type {RunningServer} from "./start";
 
-const PRODUCT = "0.1.0";
 let tmp = "";
 let server: RunningServer;
 let prepared: PreparedPlugins;
@@ -47,7 +47,7 @@ async function source(name: string, code: string): Promise<string> {
 }
 
 function inventory(startup = NO_INSTALLED_PLUGINS) {
-    return createPluginInventory({root: join(tmp, "state", "plugins"), productVersion: PRODUCT, builtin: [], startup, record: () => undefined});
+    return createPluginInventory({root: join(tmp, "state", "plugins"), profile: NEUROBOOK_PROFILE, builtin: [], startup, record: () => undefined});
 }
 
 /** 原样发出路径（`fetch` 会先规范化掉 `..`）。 */
@@ -69,7 +69,7 @@ beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-plugin-files", "plugin-files");
     const installed = await inventory().install(await source("v1", "console.log('v1');"));
     if (!installed.ok) throw new Error(JSON.stringify(installed));
-    prepared = await prepareInstalledPlugins({root: join(tmp, "state", "plugins"), productVersion: PRODUCT, safeMode: false});
+    prepared = await prepareInstalledPlugins({root: join(tmp, "state", "plugins"), profile: NEUROBOOK_PROFILE, safeMode: false});
     const [plugin] = installedPlugins(prepared.startup);
     if (plugin === undefined) throw new Error("插件没有登记");
     prefix = pluginFilesPrefix(plugin.id, plugin.digest);
@@ -152,7 +152,7 @@ describe("插件文件端点", () => {
         const root = join(tmp, "state", "plugins");
         // 另一轮启动：卸载、重启（运行中的服务端还租着旧目录，回收推迟），再装同一版本的新内容。
         expect(await inventory(prepared.startup).uninstall("example.files")).toMatchObject({ok: true});
-        const afterUninstall = await prepareInstalledPlugins({root, productVersion: PRODUCT, safeMode: false});
+        const afterUninstall = await prepareInstalledPlugins({root, profile: NEUROBOOK_PROFILE, safeMode: false});
         const newer = await source("v1-again", "console.log('again');");
         expect(await inventory(afterUninstall.startup).install(newer)).toMatchObject({ok: false, code: "version-in-use"});
         // 运行中的服务端照旧从原目录送出原内容。
@@ -162,7 +162,7 @@ describe("插件文件端点", () => {
         await prepared.release();
         expect(await inventory(afterUninstall.startup).install(newer)).toMatchObject({ok: true});
         await afterUninstall.release();
-        const again = await prepareInstalledPlugins({root, productVersion: PRODUCT, safeMode: false});
+        const again = await prepareInstalledPlugins({root, profile: NEUROBOOK_PROFILE, safeMode: false});
         try {
             const [after] = installedPlugins(again.startup);
             expect(after!.version).toBe(before!.version);

@@ -118,6 +118,71 @@ function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
     return found;
 }
 
+/**
+ * 通用的第三方插件管理（`src/plugin-platform/`，docs/modules/monorepo-boundaries.md）：将来要抽成通用包的部分，只依赖内核与
+ * 列名的通用件，不引用应用的插件、合同与档案；“这是哪个应用”的事实都由调用方交来的平台档案给出，源码里不写应用名。
+ * 构建预设所在的 `build/` 另可以用打包器。测试与 `testing/` 不受限。
+ */
+const PLATFORM_ALLOWED_PACKAGES = /^(?:@notnotype\/nb-runtime\/[a-z-]+|typebox|typebox\/value|semver|proper-lockfile|bun|node:.+)$/u;
+const PLATFORM_BUILD_PACKAGES = /^(?:vite|rolldown|@vitejs\/plugin-vue|vue\/compiler-sfc|@iconify\/utils)$/u;
+const PLATFORM_SHARED_UTILITIES = new Set(["backend/locked-replace"]);
+const APP_NAMES = /nbook|neurobook/iu;
+
+function platformViolations(uses: ReadonlyArray<ImportUse>): string[] {
+    return uses.flatMap((use) => {
+        if (!use.file.startsWith("plugin-platform/")) return [];
+        const target = targetInSrc(use);
+        if (target === null) {
+            if (PLATFORM_ALLOWED_PACKAGES.test(use.specifier)) return [];
+            if (use.file.startsWith("plugin-platform/build/") && PLATFORM_BUILD_PACKAGES.test(use.specifier)) return [];
+            return [`通用插件管理只能用内核与列名的包：${use.file} -> ${use.specifier}`];
+        }
+        if (target.startsWith("plugin-platform/") || PLATFORM_SHARED_UTILITIES.has(target)) return [];
+        return [`通用插件管理不引用应用的代码：${use.file} -> ${use.specifier}`];
+    });
+}
+
+/** 去掉导入语句之后仍出现应用名的行：导入说明符里的 `nbook/` 是应用的路径别名，不算。 */
+function appNameLines(file: string): string[] {
+    const at = relative(SRC, file);
+    return readFileSync(file, "utf8").split("\n").flatMap((line, index) => {
+        const code = line.replace(/(?:from|import)\s*\(?\s*["'][^"']+["']/gu, "");
+        return APP_NAMES.test(code) ? [`${at}:${String(index + 1)}：${line.trim()}`] : [];
+    });
+}
+
+describe("通用插件管理的边界", () => {
+    const sources = sourceFiles(join(SRC, "plugin-platform"));
+
+    it("只依赖内核与列名的通用件，不引用应用的插件、合同与档案", () => {
+        expect(sources.length).toBeGreaterThan(10);
+        expect(platformViolations(sources.flatMap(importsOf))).toEqual([]);
+    });
+
+    it("源码里不写应用名：这是哪个应用由平台档案给出", () => {
+        expect(sources.flatMap(appNameLines)).toEqual([]);
+    });
+
+    it("每条规则都能拦下对应的违规", () => {
+        const use = (file: string, specifier: string): ImportUse => ({file, specifier, typeOnly: false});
+        const cases = [
+            use("plugin-platform/backend/inventory.ts", "nbook/plugins/plugins/shared/contracts"),
+            use("plugin-platform/backend/record.ts", "nbook/plugin-platform-profile"),
+            use("plugin-platform/web/plugin-code.ts", "nbook/sdk/index"),
+            use("plugin-platform/backend/loader.ts", "vite"),
+            use("plugin-platform/shared/types.ts", "vue"),
+        ];
+        expect(cases.map((item) => platformViolations([item]).length)).toEqual(cases.map(() => 1));
+        expect(platformViolations([
+            use("plugin-platform/build/build-plugin.ts", "vite"),
+            use("plugin-platform/backend/record.ts", "nbook/backend/locked-replace"),
+            use("plugin-platform/backend/record.ts", "@notnotype/nb-runtime/plugin-manifest"),
+            use("plugin-platform/backend/startup.ts", "./record"),
+        ])).toEqual([]);
+        expect(APP_NAMES.test("const name = \"NeuroBook\";".replace(/(?:from|import)\s*\(?\s*["'][^"']+["']/gu, ""))).toBe(true);
+    });
+});
+
 describe("包内依赖方向", () => {
     it("前后端、共用代码与插件之间只按目录约定引用", () => {
         expect(violationsOf([...sourceFiles(SRC), ...sourceFiles(EXAMPLE_PLUGINS)].flatMap(importsOf))).toEqual([]);

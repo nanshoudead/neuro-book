@@ -21,8 +21,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {createPluginInventory} from "nbook/plugin-platform/backend/inventory";
 import {NO_INSTALLED_PLUGINS} from "nbook/plugin-platform/backend/startup";
 import {productPlugins} from "nbook/manifest";
-import {PLUGIN_REGISTRY_GLOBAL} from "nbook/plugin-platform/shared/plugin-modules";
-import {PRODUCT_VERSION} from "nbook/shared/product";
+import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 
 import {PACKAGE_ROOT, startDevSession, startProductServer} from "./fixtures";
 import type {ProductServer} from "./fixtures";
@@ -44,7 +43,7 @@ interface Broken {
     readonly code: string;
 }
 
-const REGISTER = `globalThis[${JSON.stringify(PLUGIN_REGISTRY_GLOBAL)}].register(document.currentScript.src, function (module, exports, require) {`;
+const REGISTER = `globalThis[${JSON.stringify(NEUROBOOK_PROFILE.registryGlobal)}].register(document.currentScript.src, function (module, exports, require) {`;
 const sectionOf = (name: string): string => `fixture.${name}.main`;
 /** 能正常工作的页面：恢复的那个插件用它。 */
 const workingBody = (name: string): string => `const vue = require("vue");
@@ -79,7 +78,7 @@ async function brokenSource(item: Broken): Promise<string> {
 
 /** 用插件管理的安装接口装进状态根；下一次启动生效。 */
 async function install(stateRoot: string, sources: ReadonlyArray<string>): Promise<void> {
-    const inventory = createPluginInventory({root: join(stateRoot, "plugins"), productVersion: PRODUCT_VERSION, builtin: productPlugins, startup: NO_INSTALLED_PLUGINS, record: () => undefined});
+    const inventory = createPluginInventory({root: join(stateRoot, "plugins"), profile: NEUROBOOK_PROFILE, builtin: productPlugins, startup: NO_INSTALLED_PLUGINS, record: () => undefined});
     for (const source of sources) {
         const result = await inventory.install(source);
         if (!result.ok) throw new Error(`安装 ${source} 失败：${JSON.stringify(result)}`);

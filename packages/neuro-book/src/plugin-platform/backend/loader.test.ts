@@ -13,10 +13,15 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {createApplication} from "nbook/application";
+import {serverHostModules} from "nbook/backend/plugin-host-modules";
+import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import * as hostSdk from "nbook/sdk/index";
 
 import type {InstalledPlugin} from "./installed";
 import {thirdPartyDefinitionsAt} from "./loader";
+
+/** 这份测试装载的是用 NeuroBook 的 SDK 写的入口，宿主模块表用应用的那一份。 */
+const SERVER_LOADER = {profile: NEUROBOOK_PROFILE, hostModules: serverHostModules};
 
 let tmp = "";
 
@@ -62,7 +67,7 @@ function application(plugins: ReadonlyArray<PluginDefinition>): Application {
 }
 
 function definitions(plugin: InstalledPlugin, records: DiagnosticInput[] = []): PluginDefinition[] {
-    return thirdPartyDefinitionsAt("server", [plugin], [], (input) => records.push(input));
+    return thirdPartyDefinitionsAt("server", [plugin], [], (input) => records.push(input), SERVER_LOADER);
 }
 
 const COUNTER = `import * as sdk from "@notnotype/nb-plugin-sdk";
@@ -181,7 +186,7 @@ describe("服务端入口代码的装载", () => {
     it("清单读不了的插件不登记，记一条诊断", () => {
         const records: DiagnosticInput[] = [];
         const plugin: InstalledPlugin = {id: "fixture.bad", version: "1.0.0", root: join(tmp, "bad"), digest: "0", manifest: {publisher: "fixture", name: "bad", version: "x"}};
-        expect(thirdPartyDefinitionsAt("server", [plugin], [], (input) => records.push(input))).toEqual([]);
+        expect(thirdPartyDefinitionsAt("server", [plugin], [], (input) => records.push(input), SERVER_LOADER)).toEqual([]);
         expect(records).toEqual([expect.objectContaining({event: "plugins.startup.manifest-unreadable", data: expect.objectContaining({plugin: "fixture.bad"})})]);
     });
 });

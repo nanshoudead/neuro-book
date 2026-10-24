@@ -8,7 +8,9 @@ import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import type {InstalledPlugin} from "nbook/plugin-platform/backend/installed";
+import {serverHostModules} from "nbook/backend/plugin-host-modules";
 import {thirdPartyDefinitionsAt} from "nbook/plugin-platform/backend/loader";
+import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import {definitionAt, pluginsAt} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/backend/plugin";
@@ -61,5 +63,5 @@ export function manifestProjectPlugins(context: ProjectPluginContext): PluginDef
         return definitionAt("project", plugin, plugin.id === "runtime.diagnostics" ? projectHostPlugins[plugin.id](context) : projectPluginDefinitions[plugin.id]);
     });
     // 第三方插件按清单登记，入口激活时装载代码。
-    return [...builtin, ...thirdPartyDefinitionsAt("project", context.installed, builtin, (input) => void context.store.record(input))];
+    return [...builtin, ...thirdPartyDefinitionsAt("project", context.installed, builtin, (input) => void context.store.record(input), {profile: NEUROBOOK_PROFILE, hostModules: serverHostModules})];
 }

@@ -17,7 +17,7 @@
  * - `style.css`：各入口的样式合并后包进 `@layer components`，加上插件用到的 Lucide 图标的规则（宿主只为自己源码里出现过的
  *   图标类生成规则）。
  *
- * 共享模块（`nbook/plugin-platform/shared/plugin-modules`）留作外部引用；纯度检查按打包器的模块图核对：打进了宿主那一份 Vue（`vue`、
+ * 共享模块（平台档案 `src/plugin-platform-profile.ts` 的两张表）留作外部引用；纯度检查按打包器的模块图核对：打进了宿主那一份 Vue（`vue`、
  * `@vue/reactivity`、`@vue/runtime-*`）、nb-ui 或 SDK 的实现就失败，外部引用（静态与动态导入）不在宿主模块表里也失败
  * （“未共享”），两件事都在构建时报出。
  */
@@ -36,9 +36,8 @@ import * as compiler from "vue/compiler-sfc";
 import {build as vite, createServer} from "vite";
 import type {Plugin} from "vite";
 
-import {BROWSER_SHARED_MODULES, PLUGIN_REGISTRY_GLOBAL, SERVER_SHARED_MODULES} from "../../src/plugin-platform/shared/plugin-modules";
 import {PRODUCT_VERSION} from "../../src/shared/product";
-import {manifestFormat} from "../../src/plugin-platform-profile";
+import {BROWSER_SHARED_MODULES, manifestFormat, NEUROBOOK_PROFILE, SERVER_SHARED_MODULES} from "../../src/plugin-platform-profile";
 
 const DEFAULT_DEFINITIONS = ["backend/plugin.ts", "web/plugin.ts"];
 const BUILT_LOCATIONS = ["server", "project", "browser"] as const;
@@ -258,7 +257,7 @@ function factsPlugin(facts: BundleFacts): Plugin {
  *   `import.meta.url` 在构建时换成它（见 `buildEntry` 的 `define`）。外层的块让这个变量不落到全局。
  */
 const SCRIPT_URL = "__nbookScriptUrl";
-const REGISTER_BANNER = `{const ${SCRIPT_URL} = document.currentScript.src; globalThis[${JSON.stringify(PLUGIN_REGISTRY_GLOBAL)}].register(${SCRIPT_URL}, function (module, exports, require) {"use strict";`;
+const REGISTER_BANNER = `{const ${SCRIPT_URL} = document.currentScript.src; globalThis[${JSON.stringify(NEUROBOOK_PROFILE.registryGlobal)}].register(${SCRIPT_URL}, function (module, exports, require) {"use strict";`;
 const REGISTER_FOOTER = "});}";
 
 /** 入口的外壳模块：从定义模块里取出这个入口，只导出它的 `activate`。 */

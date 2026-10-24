@@ -21,8 +21,8 @@ import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import {errno, holdLock} from "nbook/backend/locked-replace";
-import type {BlockedPlugin, InstallPreview, PendingChange, PluginFailureCode, PluginList, PluginListItem} from "nbook/plugins/plugins/shared/contracts";
-import {manifestFormat} from "nbook/plugin-platform-profile";
+import type {BlockedPlugin, InstallPreview, PendingChange, PluginFailureCode, PluginList, PluginListItem} from "nbook/plugin-platform/shared/types";
+import type {PlatformProfile} from "nbook/plugin-platform/shared/profile";
 import {compareVersions, engineAccepts, pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 
 import {collectCopyRange, copyRange} from "./copy";
@@ -45,13 +45,13 @@ export interface PluginInventory {
     uninstall(id: string): Promise<InventoryResult<PluginListItem>>;
 }
 
-/** 服务端宿主提供（host 能力 `host.plugin-inventory`），`nbook.plugins` 的服务端入口经它实现远程服务。 */
-export const pluginInventoryKey: ServiceKey<PluginInventory> = defineServiceKey<PluginInventory>("nbook/plugin-inventory");
+/** 服务端宿主提供的宿主能力，应用的插件管理界面（插件页的远程服务）经它实现。服务 id 不带应用名：它属于通用的插件管理。 */
+export const pluginInventoryKey: ServiceKey<PluginInventory> = defineServiceKey<PluginInventory>("plugin-platform/inventory");
 
 export interface PluginInventoryOptions {
     /** `<State Root>/plugins`。 */
     readonly root: string;
-    readonly productVersion: string;
+    readonly profile: PlatformProfile;
     /** 本进程装配的内置插件；列表里标为内置，启停与卸载被拒绝。 */
     readonly builtin: ReadonlyArray<{readonly id: string; readonly version: string}>;
     readonly startup: StartupPlugins;
@@ -117,7 +117,7 @@ function conflict(entry: RecordEntry | undefined, id: string, version: string): 
 export function createPluginInventory(options: PluginInventoryOptions): PluginInventory {
     const root = resolve(options.root);
     const startupOf = new Map(options.startup.plugins.map((plugin) => [plugin.id, plugin]));
-    const isBuiltin = (id: string): boolean => manifestFormat.isBuiltinId(id) || options.builtin.some((plugin) => plugin.id === id);
+    const isBuiltin = (id: string): boolean => options.profile.format.isBuiltinId(id) || options.builtin.some((plugin) => plugin.id === id);
     const reportLock = (event: string, error: unknown): void => {
         options.record({level: "warn", event: `plugins.${event}`, message: "插件登记表的写入锁出错", error});
     };
@@ -162,7 +162,7 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
     /** 持写入锁读改写登记表；`change` 返回 null 表示不用写。 */
     async function update(change: (record: PluginRecord) => InventoryResult<RecordEntry | null>, id: string): Promise<InventoryResult<PluginListItem>> {
         const locked = await withRecordLock(root, reportLock, async (lock): Promise<InventoryResult<PluginListItem>> => {
-            const read = await readRecord(root);
+            const read = await readRecord(root, options.profile);
             if (!read.ok) return failure("registry-failed", read.detail);
             const changed = change(read.record);
             if (!changed.ok) return changed;
@@ -197,22 +197,23 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
         // 两个方向都拒绝：源在安装根里会把已安装的插件当安装源，安装根在源里会把准备目录复制进自己。
         if (within(source, realRoot) || within(realRoot, source)) return failure("path-rejected", "安装源不能与插件目录互相包含");
 
-        const read = await installedManifest(source);
+        const read = await installedManifest(source, options.profile.format);
         if (!read.ok) {
             // 保留的出版者单独给出原因，先于清单的其余问题。
             const publisher = publisherOf(read.raw);
-            if (typeof publisher === "string" && manifestFormat.isReservedPublisher(publisher)) return failure("reserved-id", `第三方插件的 id 不能以 ${publisher}. 开头`);
+            if (typeof publisher === "string" && options.profile.format.isReservedPublisher(publisher)) return failure("reserved-id", `第三方插件的 id 不能以 ${publisher}. 开头`);
             return failure(read.code, read.detail, read.problems);
         }
         const {manifest, raw} = read;
-        if (!engineAccepts(options.productVersion, manifest.engine)) {
-            return failure("incompatible-engine", `插件要求 NeuroBook ${manifest.engine}，当前是 ${options.productVersion}`);
+        const {productName, productVersion} = options.profile;
+        if (!engineAccepts(productVersion, manifest.engine)) {
+            return failure("incompatible-engine", `插件要求 ${productName} ${manifest.engine}，当前是 ${productVersion}`);
         }
         const files = filesOf(raw);
         if (files === undefined) return failure("manifest-invalid", "package.json 的 files 必须是字符串数组", ["files：必须是字符串数组"]);
 
         // 不持锁的核对：免得白复制，也让确认界面先知道结果；提交时持锁再核对。
-        const record = await readRecord(root);
+        const record = await readRecord(root, options.profile);
         if (!record.ok) return failure("registry-failed", record.detail);
         const existing = record.record.plugins[manifest.id];
         const early = conflict(existing, manifest.id, manifest.version);
@@ -234,7 +235,7 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
      * 列出比换之前多出来的受阻入口。读不了清单的插件不参与，列进 `unchecked`，预览照常给出。
      */
     async function blockedAfter(next: PluginManifest): Promise<{readonly blocked: BlockedPlugin[]; readonly unchecked: string[]}> {
-        const record = await readRecord(root);
+        const record = await readRecord(root, options.profile);
         if (!record.ok) return {blocked: [], unchecked: []};
         // 禁用的插件升级后仍是禁用的，重启后不登记，依赖它的入口在升级前后一样受阻：没有新增的受阻。
         if (record.record.plugins[next.id]?.state === "disabled") return {blocked: [], unchecked: []};
@@ -243,7 +244,7 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
         for (const [id, entry] of Object.entries(record.record.plugins)) {
             if (entry.state !== "enabled") continue;
             const version = entry.pendingVersion ?? entry.version;
-            const read = await installedManifest(join(root, id, version));
+            const read = await installedManifest(join(root, id, version), options.profile.format);
             // 与启动时一样核对目录里的清单就是登记的那个插件与版本：对不上的重启后不登记，不能参与推导。
             if (read.ok && read.manifest.id === id && read.manifest.version === version) current.push(read.manifest);
             else if (id !== next.id) unchecked.push(id);
@@ -307,7 +308,7 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
      */
     async function commit(id: string, version: string, staging: string): Promise<InventoryResult<PluginListItem>> {
         const locked = await withRecordLock(root, reportLock, async (lock): Promise<InventoryResult<PluginListItem>> => {
-            const read = await readRecord(root);
+            const read = await readRecord(root, options.profile);
             if (!read.ok) return failure("registry-failed", read.detail);
             const existing = read.record.plugins[id];
             const late = conflict(existing, id, version);
@@ -372,7 +373,7 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
 
     return {
         list: async () => {
-            const read = await readRecord(root);
+            const read = await readRecord(root, options.profile);
             if (!read.ok) return failure("registry-failed", read.detail);
             const builtin: PluginListItem[] = options.builtin
                 .map((plugin): PluginListItem => ({id: plugin.id, version: plugin.version, source: "builtin", state: "enabled", pending: [], notLoaded: null}))

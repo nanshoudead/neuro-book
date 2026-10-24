@@ -1,7 +1,7 @@
 /**
  * 第三方插件浏览器入口代码的装载（docs/specs/runtime/plugin-code-loading.md 输出 1–4）。
  *
- * 构建预设把入口打成登记工厂：脚本执行时调用 `globalThis[PLUGIN_REGISTRY_GLOBAL].register(脚本 URL, factory)`，
+ * 构建预设把入口打成登记工厂：脚本执行时调用 `globalThis[<平台档案的 registryGlobal>].register(脚本 URL, factory)`，
  * `factory(module, exports, require)` 才是 CommonJS 模块体（`scripts/plugin-sdk/build-plugin.ts`）。这里：
  *
  * - 同一个文件只插入一次同源 `<script src>`，脚本有真实的文件名，source map 照常，不需要 `unsafe-eval`；只缓存登记成功的
@@ -16,7 +16,6 @@ import type {PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {PluginCodeError} from "nbook/plugin-platform/shared/plugin-code-error";
 import type {PluginCodeFailure} from "nbook/plugin-platform/shared/plugin-code-error";
-import {PLUGIN_REGISTRY_GLOBAL} from "nbook/plugin-platform/shared/plugin-modules";
 
 /** 从插入脚本起（含下载）多久还没登记工厂算失败；回环上的服务端正常情况下远不到这么久。 */
 export const CODE_LOAD_TIMEOUT_MS = 30_000;
@@ -90,9 +89,9 @@ interface PluginRegistry {
     wait(url: string, waiter: (factory: Factory) => void): () => void;
 }
 
-function registry(): PluginRegistry {
+function registry(name: string): PluginRegistry {
     const scope = globalThis as unknown as Record<string, PluginRegistry | undefined>;
-    const existing = scope[PLUGIN_REGISTRY_GLOBAL];
+    const existing = scope[name];
     if (existing !== undefined) return existing;
     const waiting = new Map<string, Set<(factory: Factory) => void>>();
     const created: PluginRegistry = Object.freeze({
@@ -117,7 +116,7 @@ function registry(): PluginRegistry {
             };
         },
     });
-    Object.defineProperty(scope, PLUGIN_REGISTRY_GLOBAL, {value: created, configurable: false, enumerable: false, writable: false});
+    Object.defineProperty(scope, name, {value: created, configurable: false, enumerable: false, writable: false});
     return created;
 }
 
@@ -131,6 +130,8 @@ export interface PluginCodeHost {
 
 export interface PluginCodeHostOptions {
     readonly document: PluginDocument;
+    /** 产物登记工厂用的全局对象名（平台档案的 `registryGlobal`），与构建预设写进产物的是同一个。 */
+    readonly registryGlobal: string;
     /**
      * 宿主模块表：模块 id → 冻结的模块对象。第一次装载时才取（只有第三方浏览器入口用到它）；取不到时不缓存失败，下一次激活
      * 重新取。
@@ -155,7 +156,7 @@ interface Loading {
 
 export function createPluginCodeHost(options: PluginCodeHostOptions): PluginCodeHost {
     const timeoutMs = options.timeoutMs ?? CODE_LOAD_TIMEOUT_MS;
-    const shared = registry();
+    const shared = registry(options.registryGlobal);
     /** 登记成功的工厂，按脚本的绝对 URL；失败的不缓存，下次激活重新插入脚本。 */
     const factories = new Map<string, Factory>();
     const loadings = new Map<string, Loading>();

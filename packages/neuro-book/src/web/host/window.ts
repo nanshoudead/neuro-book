@@ -33,7 +33,7 @@ import type {WindowConnection, WindowConnectionState, WindowNavigation} from "nb
 import {pluginFileUrl} from "nbook/plugin-platform/shared/plugin-files";
 import {windowProjectKey} from "nbook/shared/projects";
 import type {WindowProject} from "nbook/shared/projects";
-import {manifestFormat} from "nbook/plugin-platform-profile";
+import {manifestFormat, NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 
 import {browserHostPlugins, browserPluginDefinitions, builtinBrowserPlugins, isBrowserHostPlugin} from "../plugins";
@@ -41,8 +41,8 @@ import type {BrowserHostPluginFactory, BrowserHostPluginId, BrowserPluginContext
 import {BrowserRuntimeHost} from "./browser-host";
 import type {BrowserHost, PageLifecycleTarget} from "./browser-host";
 import type {Connection, RpcEndpoint} from "./connection";
-import {createPluginCodeHost, pageDocument} from "../../plugin-platform/web/plugin-code";
-import type {PluginCodeHost, PluginDocument, PluginLink} from "../../plugin-platform/web/plugin-code";
+import {createPluginCodeHost, pageDocument} from "nbook/plugin-platform/web/plugin-code";
+import type {PluginCodeHost, PluginDocument, PluginLink} from "nbook/plugin-platform/web/plugin-code";
 import {createRemoteSession} from "./remote-session";
 import {createWindowPlugins} from "./window-plugins";
 import type {RemoteSession} from "./remote-session";
@@ -150,7 +150,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         if (document === undefined) throw new Error("没有页面文档，装载不了第三方插件的代码");
         const modules = options.pluginModules;
         if (modules === undefined) throw new Error("这个窗口没有宿主模块表，装载不了第三方插件的代码");
-        codeHost ??= createPluginCodeHost({document, modules});
+        codeHost ??= createPluginCodeHost({document, modules, registryGlobal: NEUROBOOK_PROFILE.registryGlobal});
         return codeHost;
     };
 

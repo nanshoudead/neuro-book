@@ -18,6 +18,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {createApplication} from "nbook/application";
 import {createPluginInventory, pluginInventoryKey} from "nbook/plugin-platform/backend/inventory";
 import {NO_INSTALLED_PLUGINS} from "nbook/plugin-platform/backend/startup";
+import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 
 import {pluginsBackendPlugin} from "./backend/plugin";
@@ -55,7 +56,7 @@ async function world() {
             capabilities: [{
                 id: "host.plugin-inventory",
                 key: pluginInventoryKey,
-                create: () => createPluginInventory({root: join(base, "state", "plugins"), productVersion: "0.1.0", builtin: [{id: "nbook.plugins", version: "0.1.0"}], startup: NO_INSTALLED_PLUGINS, record: () => undefined}),
+                create: () => createPluginInventory({root: join(base, "state", "plugins"), profile: NEUROBOOK_PROFILE, builtin: [{id: "nbook.plugins", version: "0.1.0"}], startup: NO_INSTALLED_PLUGINS, record: () => undefined}),
             }],
             plugins: [silentDiagnostics("server", "hub"), pluginsBackendPlugin],
             gates: [],

@@ -13,7 +13,7 @@ import {fileURLToPath, pathToFileURL} from "node:url";
 
 import {createTestTmpRoot, resolveTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {PLUGIN_REGISTRY_GLOBAL} from "../../src/plugin-platform/shared/plugin-modules";
+import {NEUROBOOK_PROFILE} from "../../src/plugin-platform-profile";
 import {manifestFormat} from "../../src/plugin-platform-profile";
 import {createPluginCodeHost} from "../../src/plugin-platform/web/plugin-code";
 import type {PluginDocument, PluginScript} from "../../src/plugin-platform/web/plugin-code";
@@ -103,6 +103,7 @@ async function registeredFactory(code: string): Promise<(module: {exports: Recor
     };
     const host = createPluginCodeHost({
         document: page,
+        registryGlobal: NEUROBOOK_PROFILE.registryGlobal,
         // 宿主模块表里的真实模块。nb-ui 的组件是单文件组件，Bun 加载不了；页面没有渲染，给一个空对象就够。
         modules: async () => ({
             "vue": await import("vue"),
@@ -112,7 +113,7 @@ async function registeredFactory(code: string): Promise<(module: {exports: Recor
             "@notnotype/nb-plugin-sdk/components": {},
         }),
     });
-    const registry = (globalThis as unknown as Record<string, {wait(url: string, waiter: (factory: unknown) => void): () => void}>)[PLUGIN_REGISTRY_GLOBAL];
+    const registry = (globalThis as unknown as Record<string, {wait(url: string, waiter: (factory: unknown) => void): () => void}>)[NEUROBOOK_PROFILE.registryGlobal];
     let factory: unknown = null;
     const stop = registry.wait(url, (registered) => {
         factory = registered;

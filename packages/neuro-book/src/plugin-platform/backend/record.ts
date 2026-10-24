@@ -5,7 +5,7 @@
  * `.staging/<随机名>/`（各带自己的锁 `<随机名>.lock`），以及安装目录 `<插件 id>/<版本>/`。
  *
  * 同一状态根可以有多个服务端进程（docs/specs/runtime/projects.md 不加目录锁），所以登记表的读改写与版本目录的
- * 改名都在写入锁里做；锁是跨进程的（`nbook/backend/locked-replace` 的 `holdLock`）。只读的列表不取锁：登记表
+ * 改名都在写入锁里做；锁是跨进程的（`backend/locked-replace.ts` 的 `holdLock`）。只读的列表不取锁：登记表
  * 用临时文件改名替换，读者只会读到完整的旧表或新表。
  */
 
@@ -21,11 +21,10 @@ import {isPluginId} from "@notnotype/nb-runtime/plugin-manifest";
 
 import {errno, holdLock} from "nbook/backend/locked-replace";
 import type {HeldLock} from "nbook/backend/locked-replace";
-import {manifestFormat} from "nbook/plugin-platform-profile";
+import type {PlatformProfile} from "nbook/plugin-platform/shared/profile";
 import {npmVersions} from "nbook/plugin-platform/shared/versions";
 
 export const RECORD_FILE = "plugins.json";
-export const RECORD_SCHEMA = "nbook.plugins/v1";
 export const STAGING_DIR = ".staging";
 const LOCK_NAME = `.${RECORD_FILE}.lock`;
 
@@ -38,15 +37,18 @@ const EntrySchema = Type.Object({
     deleteData: Type.Boolean(),
 }, {additionalProperties: false});
 
+/** `schema` 的取值由平台档案给出（`registrySchema`），读时另行核对。 */
 const RecordSchema = Type.Object({
-    schema: Type.Literal(RECORD_SCHEMA),
+    schema: Type.String(),
     plugins: Type.Record(Type.String(), EntrySchema),
 }, {additionalProperties: false});
 
 export type PluginRecord = Static<typeof RecordSchema>;
 export type RecordEntry = PluginRecord["plugins"][string];
 
-export const EMPTY_RECORD: PluginRecord = {schema: RECORD_SCHEMA, plugins: {}};
+export function emptyRecord(profile: PlatformProfile): PluginRecord {
+    return {schema: profile.registrySchema, plugins: {}};
+}
 
 export type RecordRead = {readonly ok: true; readonly record: PluginRecord} | {readonly ok: false; readonly detail: string};
 
@@ -54,20 +56,20 @@ export type RecordRead = {readonly ok: true; readonly record: PluginRecord} | {r
  * 登记表里每一项的 id 与版本都要能当安装目录的一段路径用：启动时要按它们删除与回收目录，坏掉或被手改的登记表
  * 不能让删除越出 `<State Root>/plugins/`。有一项不合格就整表不可用。
  */
-function entryProblem(id: string, entry: RecordEntry): string | null {
-    if (!isPluginId(id) || manifestFormat.isBuiltinId(id)) return `插件 id 不合格：${id}`;
+function entryProblem(id: string, entry: RecordEntry, profile: PlatformProfile): string | null {
+    if (!isPluginId(id) || profile.format.isBuiltinId(id)) return `插件 id 不合格：${id}`;
     if (!npmVersions.isVersion(entry.version)) return `${id} 的版本不合格：${entry.version}`;
     if (entry.pendingVersion !== null && !npmVersions.isVersion(entry.pendingVersion)) return `${id} 的待切换版本不合格：${entry.pendingVersion}`;
     return null;
 }
 
 /** 读登记表：不存在视为空表；不是合法 JSON 或结构不符时整体不可用，调用方不得覆盖它。 */
-export async function readRecord(root: string): Promise<RecordRead> {
+export async function readRecord(root: string, profile: PlatformProfile): Promise<RecordRead> {
     let text: string;
     try {
         text = await readFile(join(root, RECORD_FILE), "utf8");
     } catch (error) {
-        if (errno(error) === "ENOENT") return {ok: true, record: EMPTY_RECORD};
+        if (errno(error) === "ENOENT") return {ok: true, record: emptyRecord(profile)};
         return {ok: false, detail: `读取插件登记表失败：${brief(error)}`};
     }
     let parsed: unknown;
@@ -76,13 +78,15 @@ export async function readRecord(root: string): Promise<RecordRead> {
     } catch (error) {
         return {ok: false, detail: "插件登记表不是合法 JSON"};
     }
+    const schema = profile.registrySchema;
     if (!Value.Check(RecordSchema, parsed)) {
         const first = [...Value.Errors(RecordSchema, parsed)][0];
-        return {ok: false, detail: `插件登记表不符合 ${RECORD_SCHEMA}：${first === undefined ? "" : `${first.instancePath} ${first.message}`}`};
+        return {ok: false, detail: `插件登记表不符合 ${schema}：${first === undefined ? "" : `${first.instancePath} ${first.message}`}`};
     }
+    if (parsed.schema !== schema) return {ok: false, detail: `插件登记表不符合 ${schema}：模式标记是 ${parsed.schema}`};
     for (const [id, entry] of Object.entries(parsed.plugins)) {
-        const problem = entryProblem(id, entry);
-        if (problem !== null) return {ok: false, detail: `插件登记表不符合 ${RECORD_SCHEMA}：${problem}`};
+        const problem = entryProblem(id, entry, profile);
+        if (problem !== null) return {ok: false, detail: `插件登记表不符合 ${schema}：${problem}`};
     }
     return {ok: true, record: parsed};
 }

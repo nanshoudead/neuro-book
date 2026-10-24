@@ -17,7 +17,7 @@ import {readServerConfig} from "nbook/server/config";
 import {devSampleEnabled, startDevSample} from "nbook/server/dev/sample";
 import {serverPlugin} from "nbook/server/plugins";
 import {startServer} from "nbook/server/start";
-import {PRODUCT_VERSION} from "nbook/shared/product";
+import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import type {DevTask, StartServerOptions} from "nbook/server/start";
 import {remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
 import {testMenusDescriptor} from "nbook/shared/testing/menus-contract";
@@ -63,7 +63,7 @@ const server = startServer({
     devTask: sampleTask(),
     projectEntry: join(import.meta.dir, "..", "..", "project", "testing", "fixture-entry.ts"),
     // 与产品入口相同：安装过的第三方插件照常登记（插件管理的 e2e 用它）。
-    installed: await prepareInstalledPlugins({root: join(config.stateRoot, "plugins"), productVersion: PRODUCT_VERSION, safeMode: safeModeOf(process.env)}),
+    installed: await prepareInstalledPlugins({root: join(config.stateRoot, "plugins"), profile: NEUROBOOK_PROFILE, safeMode: safeModeOf(process.env, NEUROBOOK_PROFILE)}),
     // 产品插件按产品清单取定义（测试插件不在产品的表里），宿主适配器拿到的上下文仍是含测试插件的清单。
     plugins: (context) => [
         ...pluginsAt("server", manifest).map((plugin) => definitionAt("server", plugin, plugin.locations.includes("server") ? serverPlugin(plugin.id, context) : undefined)),

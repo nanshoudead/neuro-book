@@ -8,7 +8,9 @@ import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import type {InstalledPlugin} from "nbook/plugin-platform/backend/installed";
+import {serverHostModules} from "nbook/backend/plugin-host-modules";
 import {thirdPartyDefinitionsAt} from "nbook/plugin-platform/backend/loader";
+import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import {definitionAt, pluginsAt} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
@@ -94,5 +96,5 @@ function isServerHostPlugin(id: string): id is ServerHostPluginId {
  */
 export function manifestServerPlugins(context: ServerPluginContext): PluginDefinition[] {
     const builtin = pluginsAt("server", context.manifest).map((plugin) => definitionAt("server", plugin, plugin.locations.includes("server") ? serverPlugin(plugin.id, context) : undefined));
-    return [...builtin, ...thirdPartyDefinitionsAt("server", context.installed, builtin, (input) => void context.store.record(input))];
+    return [...builtin, ...thirdPartyDefinitionsAt("server", context.installed, builtin, (input) => void context.store.record(input), {profile: NEUROBOOK_PROFILE, hostModules: serverHostModules})];
 }

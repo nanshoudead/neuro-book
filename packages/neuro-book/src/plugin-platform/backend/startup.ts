@@ -18,14 +18,14 @@ import {join, relative} from "node:path";
 
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import {descriptorOf} from "@notnotype/nb-runtime/plugin-manifest";
-import type {PluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
+import type {ManifestFormat, PluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
 import type {PluginDescriptor} from "@notnotype/nb-runtime/plugins";
 import {check} from "proper-lockfile";
 
 import {errno, LOCK_STALE_MS} from "nbook/backend/locked-replace";
 import type {HeldLock} from "nbook/backend/locked-replace";
-import type {NotLoaded} from "nbook/plugins/plugins/shared/contracts";
-import {manifestFormat} from "nbook/plugin-platform-profile";
+import type {NotLoaded} from "nbook/plugin-platform/shared/types";
+import type {PlatformProfile} from "nbook/plugin-platform/shared/profile";
 import {engineAccepts} from "nbook/plugin-platform/shared/versions";
 
 import type {InstalledPlugin} from "./installed";
@@ -58,11 +58,9 @@ export interface StartupPlugins {
     readonly plugins: ReadonlyArray<StartupPlugin>;
 }
 
-/** 安全模式的开关（plugin-install 的“输入与前置条件”）：值为 `1` 时本次启动不加载任何第三方插件。 */
-export const SAFE_MODE_ENV = "NEURO_BOOK_SAFE_MODE";
-
-export function safeModeOf(env: Readonly<Record<string, string | undefined>>): boolean {
-    return env[SAFE_MODE_ENV] === "1";
+/** 安全模式的开关（plugin-install 的“输入与前置条件”）：档案里的环境变量值为 `1` 时本次启动不加载任何第三方插件。 */
+export function safeModeOf(env: Readonly<Record<string, string | undefined>>, profile: PlatformProfile): boolean {
+    return env[profile.safeModeEnv] === "1";
 }
 
 /** 测试与不读安装目录的宿主用：没有第三方插件。 */
@@ -76,7 +74,7 @@ export function loadedDescriptors(startup: StartupPlugins): PluginDescriptor[] {
 export interface PrepareOptions {
     /** `<State Root>/plugins`。 */
     readonly root: string;
-    readonly productVersion: string;
+    readonly profile: PlatformProfile;
     readonly safeMode: boolean;
 }
 
@@ -124,7 +122,7 @@ export async function prepareInstalledPlugins(options: PrepareOptions): Promise<
     const reportPin = (event: string, error: unknown): void => warn(`plugins.${event}`, "插件版本租约出错，别的服务端可能回收本次在用的版本", undefined, error);
     let pin: VersionPin | null = null;
     const applied = await withRecordLock(options.root, (event, error) => warn(`plugins.${event}`, "插件登记表的写入锁出错", undefined, error), async (lock) => {
-        const read = await readRecord(options.root);
+        const read = await readRecord(options.root, options.profile);
         if (!read.ok) return read;
         const pins = await livePins(options.root, warn);
         const record = await applyPending(options.root, read.record, lock, pins, info, warn);
@@ -141,7 +139,7 @@ export async function prepareInstalledPlugins(options: PrepareOptions): Promise<
         // 锁外读登记表、写租约：另一个服务端可能在两者之间回收了刚读到的版本目录，租约挡不住已经开始的回收（降级的启动，接受这个
         // 窗口）。先写租约、再读各版本目录的清单：在那之前被回收掉的读清单时就不登记并记诊断，之后才删的入口激活时以
         // code-load-failed 失败。
-        const read = await readRecord(options.root);
+        const read = await readRecord(options.root, options.profile);
         if (!read.ok) return failed(options, read.detail, diagnostics.connect, warn);
         record = read.record;
         pin = await pinFor(options, record, reportPin);
@@ -306,14 +304,15 @@ async function startupPlugin(options: PrepareOptions, id: string, entry: RecordE
     const base = {id, version: entry.version, state: entry.state, installed: null};
     if (entry.state !== "enabled") return {...base, descriptor: null, notLoaded: null};
     if (options.safeMode) return {...base, descriptor: null, notLoaded: {code: "safe-mode", detail: "安全模式下不加载第三方插件"}};
-    const read = await installedManifest(join(options.root, id, entry.version));
+    const read = await installedManifest(join(options.root, id, entry.version), options.profile.format);
     if (!read.ok) return {...base, descriptor: null, notLoaded: {code: "manifest-invalid", detail: read.detail}};
     const {manifest} = read;
     if (manifest.id !== id || manifest.version !== entry.version) {
         return {...base, descriptor: null, notLoaded: {code: "manifest-invalid", detail: `清单声明的是 ${manifest.id}@${manifest.version}`}};
     }
-    if (!engineAccepts(options.productVersion, manifest.engine)) {
-        return {...base, descriptor: null, notLoaded: {code: "incompatible-engine", detail: `要求 NeuroBook ${manifest.engine}，当前是 ${options.productVersion}`}};
+    const {productName, productVersion} = options.profile;
+    if (!engineAccepts(productVersion, manifest.engine)) {
+        return {...base, descriptor: null, notLoaded: {code: "incompatible-engine", detail: `要求 ${productName} ${manifest.engine}，当前是 ${productVersion}`}};
     }
     const missing = await missingEntries(join(options.root, id, entry.version), manifest);
     if (missing.length > 0) return {...base, descriptor: null, notLoaded: {code: "manifest-invalid", detail: `入口文件不存在：${missing.join("、")}`}};
@@ -357,7 +356,7 @@ export type ManifestFileRead =
     | {readonly ok: false; readonly code: "manifest-invalid" | "path-rejected"; readonly detail: string; readonly problems?: ReadonlyArray<string>; readonly raw?: unknown};
 
 /** 读插件文件夹根上的 `package.json` 并按第三方插件的规则校验清单；`package.json` 本身是符号链接时拒绝。 */
-export async function installedManifest(directory: string): Promise<ManifestFileRead> {
+export async function installedManifest(directory: string, format: ManifestFormat): Promise<ManifestFileRead> {
     const file = join(directory, "package.json");
     let text: string;
     try {
@@ -375,7 +374,7 @@ export async function installedManifest(directory: string): Promise<ManifestFile
     } catch {
         return {ok: false, code: "manifest-invalid", detail: "package.json 不是合法 JSON"};
     }
-    const read = manifestFormat.read(raw);
+    const read = format.read(raw);
     if (read.status !== "valid") {
         const problems = read.problems.map((problem) => `${problem.path === "" ? "（根）" : problem.path}：${problem.message}`);
         // 启动时的“没有登记”原因只有这一句（不带问题列表），写出第一处问题。

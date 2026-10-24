@@ -25,11 +25,11 @@ import {createPluginInventory, pluginInventoryKey} from "nbook/plugin-platform/b
 import {installedPlugins, loadedDescriptors, NO_INSTALLED_PLUGINS} from "nbook/plugin-platform/backend/startup";
 import type {PreparedPlugins} from "nbook/plugin-platform/backend/startup";
 import {productPlugins} from "nbook/manifest";
+import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import type {PluginDescriptor} from "nbook/manifest";
 import {HTTP_DRAIN_LIMIT_MS, HttpAdmission, HttpAdmissionRejected} from "nbook/plugins/http/backend/admission";
 import type {DrainClock} from "nbook/plugins/http/backend/admission";
 import {clockKey, stateRootKey, userDirectoriesKey} from "nbook/shared/host";
-import {PRODUCT_VERSION} from "nbook/shared/product";
 import {projectsKey} from "nbook/shared/projects";
 import {RPC_PATH} from "nbook/shared/rpc-socket";
 import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
@@ -317,7 +317,7 @@ export function startServer(options: StartServerOptions): RunningServer {
                     key: pluginInventoryKey,
                     create: () => createPluginInventory({
                         root: join(options.config.stateRoot, "plugins"),
-                        productVersion: PRODUCT_VERSION,
+                        profile: NEUROBOOK_PROFILE,
                         builtin: builtinManifest.map(({id, version}) => ({id, version})),
                         startup: installed.startup,
                         record: (record) => void store.record(record),

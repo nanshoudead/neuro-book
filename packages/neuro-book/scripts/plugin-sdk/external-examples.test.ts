@@ -16,9 +16,13 @@ import {notesContract} from "../../examples/plugins/notes/shared/contracts";
 import {remoteProbe, serviceProbe} from "../../examples/testing/probes";
 import {Stage} from "../../examples/testing/stage";
 import type {InstalledPlugin} from "../../src/plugin-platform/backend/installed";
+import {serverHostModules} from "../../src/backend/plugin-host-modules";
 import {thirdPartyDefinitionsAt} from "../../src/plugin-platform/backend/loader";
+import {NEUROBOOK_PROFILE} from "../../src/plugin-platform-profile";
 import {commandServiceKey} from "../../src/plugins/commands/shared/contracts";
 import {buildExample} from "./build-examples";
+
+const SERVER_LOADER = {profile: NEUROBOOK_PROFILE, hostModules: serverHostModules};
 
 let tmp = "";
 let installed: InstalledPlugin[] = [];
@@ -57,7 +61,7 @@ describe("外置的示例插件", () => {
         const seen: Array<{readonly event: string}> = [];
         // 探针站在执行命令的插件（例如命令面板）的位置上，经同步的命令服务查询命令是否可用。
         const shell = serviceProbe("example.shell", "server", [commandServiceKey]);
-        const {router} = await stage.server({plugins: [...thirdPartyDefinitionsAt("server", installed, [], (input) => seen.push(input)), shell.definition]});
+        const {router} = await stage.server({plugins: [...thirdPartyDefinitionsAt("server", installed, [], (input) => seen.push(input), SERVER_LOADER), shell.definition]});
         expect(seen).toEqual([]);
         const panel = remoteProbe("example.panel", "browser");
         await stage.window(router, "window-1", {plugins: [panel.definition]});
@@ -77,9 +81,9 @@ describe("外置的示例插件", () => {
 
     it("项目入口在每个项目实例里各一份，第一次调用时才装载、激活", async () => {
         const stage = newStage();
-        const {router} = await stage.server({plugins: thirdPartyDefinitionsAt("server", installed, [], () => undefined)});
-        const alpha = await stage.project(router, "alpha", {plugins: thirdPartyDefinitionsAt("project", installed, [], () => undefined)});
-        await stage.project(router, "beta", {plugins: thirdPartyDefinitionsAt("project", installed, [], () => undefined)});
+        const {router} = await stage.server({plugins: thirdPartyDefinitionsAt("server", installed, [], () => undefined, SERVER_LOADER)});
+        const alpha = await stage.project(router, "alpha", {plugins: thirdPartyDefinitionsAt("project", installed, [], () => undefined, SERVER_LOADER)});
+        await stage.project(router, "beta", {plugins: thirdPartyDefinitionsAt("project", installed, [], () => undefined, SERVER_LOADER)});
         const inAlpha = remoteProbe("example.panel", "browser");
         await stage.window(router, "window-a", {plugins: [inAlpha.definition], project: "alpha"});
         const inBeta = remoteProbe("example.panel", "browser");

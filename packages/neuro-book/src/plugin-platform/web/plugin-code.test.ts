@@ -11,7 +11,7 @@ import {describe, expect, it} from "bun:test";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {PluginCodeError} from "nbook/plugin-platform/shared/plugin-code-error";
-import {PLUGIN_REGISTRY_GLOBAL} from "nbook/plugin-platform/shared/plugin-modules";
+import {ACME_PROFILE} from "../testing/profile";
 
 import {createPluginCodeHost} from "./plugin-code";
 import type {PluginCodeHostOptions, PluginDocument, PluginLink, PluginScript} from "./plugin-code";
@@ -38,7 +38,7 @@ let pageSequence = 0;
 
 /** 产物脚本看到的全局登记对象（装载器建立它）；与构建预设的登记外壳一样只读这个全局，不写它。 */
 function globalRegistry(): {register(url: string, factory: unknown): void} {
-    const registry = (globalThis as unknown as Record<string, {register(url: string, factory: unknown): void} | undefined>)[PLUGIN_REGISTRY_GLOBAL];
+    const registry = (globalThis as unknown as Record<string, {register(url: string, factory: unknown): void} | undefined>)[ACME_PROFILE.registryGlobal];
     if (registry === undefined) throw new Error("页面上还没有登记对象：装载器没有建立");
     return registry;
 }
@@ -124,7 +124,7 @@ function fakePage() {
 const hostTable: Readonly<Record<string, unknown>> = Object.freeze({vue: Object.freeze({marker: "宿主的 vue"})});
 
 function loader(page: ReturnType<typeof fakePage>, options: Partial<PluginCodeHostOptions> = {}) {
-    return createPluginCodeHost({document: page.document, modules: async () => hostTable, ...options});
+    return createPluginCodeHost({document: page.document, registryGlobal: ACME_PROFILE.registryGlobal, modules: async () => hostTable, ...options});
 }
 
 /** 模块顶层有一个计数器：每份模块实例从 0 开始；`activate` 返回加一后的值与取到的 vue。 */

@@ -17,6 +17,7 @@ import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import type {InstanceDescriptor} from "@notnotype/nb-runtime/remote";
 
 import {manifestOfInstalled} from "nbook/plugin-platform/backend/installed";
+import {manifestFormat} from "nbook/plugin-platform-profile";
 import type {InstalledPlugin} from "nbook/plugin-platform/backend/installed";
 import {pluginsAt, productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
@@ -124,7 +125,7 @@ export async function startProject(options: StartProjectOptions): Promise<Projec
     const installed: InstalledPlugin[] = [];
     const descriptors: PluginDescriptor[] = [];
     for (const plugin of await thirdParty.promise) {
-        const read = manifestOfInstalled(plugin);
+        const read = manifestOfInstalled(plugin, manifestFormat);
         if (!read.ok) {
             store.record({level: "warn", event: "project.plugins.invalid", message: `服务端交来的第三方插件 ${plugin.id} 清单不合格，不登记`, data: {id: plugin.id, detail: read.detail}});
             continue;

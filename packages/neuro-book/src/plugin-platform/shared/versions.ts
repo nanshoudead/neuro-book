@@ -23,7 +23,7 @@ export const npmVersions: VersionSyntax = {
     isRange: (value) => semver.validRange(value) !== null,
 };
 
-/** 产品版本是否在插件声明的 `engines.neurobook` 范围内；范围已由清单校验过写法。 */
+/** 产品版本是否在插件声明的 `engines.<引擎键>` 范围内；范围已由清单校验过写法。 */
 export function engineAccepts(productVersion: string, range: string): boolean {
     return semver.satisfies(productVersion, range);
 }
