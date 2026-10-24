@@ -32,6 +32,12 @@ updated: 2026-10-24
 8. 目录列出全部服务商，要登录的灰掉不能选（`catalog-scope=all-but-login`）；没验证过的接口照常可选，出错按现有归类报。
 9. Markdown 回复出处不对时自动让模型改一次（`markdown-recheck=once`）：这一轮要结束时检查出处，没读过或晚于阅读位置就带着问题清单让模型接着跑一次；重写的作为结果，第一次的留在过程里，还不对就照旧标出。
 
+开发者 2026-10-24 在会话里确认计划：
+
+10. 问答页默认 Markdown 作答即可，加不加开关都行（计划取不加：网页上改默认在设置的 `qa.answer`，命令行有 `ask --structured`）。
+11. 单行版式只给 nb-story，NeuroBook 的对话视图不变；抽取模型不改成目录引用；Profile 升到 v4、t16 之前的对话不能续问，接受。
+12. 按 autonomous-delivery 推进：计划审查（omp 管后端与计划，Sonnet 管前端设计），之后按切片实施。
+
 ## 当前状态
 
 - 2026-10-24 开草稿 worktree `.worktree/w00024-t16-drafts`（分支 `t16/drafts`，不提交），第 1 轮静态稿发在评审板 [review](artifacts/review/index.html) v1，5 道题：输入框版式、模型目录版式、设置页结构、目录列哪些服务商、Markdown 出处自动改一次。草稿场地是 nb-story 包里的 `drafts-t16-stage.ts` 与 `drafts-t16-shoot.ts`（只在草稿 worktree）。
@@ -39,7 +45,7 @@ updated: 2026-10-24
 
 - 2026-10-24 开发者答完评审板（决定 5 到 9）。
 
-- 2026-10-24 计划 [plan.md](plan.md) 写好。开发者要求仿照 OMP 的做法，派 Sonnet 调研（[omp-research.txt](evidences/omp-research.txt)），关键结论在仓库的 OMP 18.2.5 上核对后改了计划：认证按 `authPolicyFor` 与 `providerEntry().envVars` 分四类、自定义模型按模型名从目录补参数、`/models` 发现、目录界面照 OMP 的 `/models`。等开发者确认。
+- 2026-10-24 计划 [plan.md](plan.md) 写好。开发者要求仿照 OMP 的做法，派 Sonnet 调研（[omp-research.txt](evidences/omp-research.txt)），关键结论在仓库的 OMP 18.2.5 上核对后改了计划：认证按 `authPolicyFor` 与 `providerEntry().envVars` 分四类、自定义模型按模型名从目录补参数、`/models` 发现、目录界面照 OMP 的 `/models`。开发者已确认（决定 10 到 12）。
 
 ## 下一步
 
