@@ -17,6 +17,10 @@ updated: 2026-10-24
 
 2026-10-24 经 nbdev 新建；实施计划见 [plan.md](plan.md)。计划审查两份：Sonnet（前端与作者体验，阻断 1、重要 11、建议 3）、omp（内核、服务端与计划整体，阻断 2、重要 8、建议 2），全部成立，逐条处理见 plan.md 第 9 节；其中一条“接受取舍”（旧产物不设兼容窗口）与四条产品取舍进了待确认清单。开始实施。
 
+进展：
+
+- S1 `00f04ff4e`：内核 `ok`/`fail`；业务失败的详情按码定型，提供方与调用方都按该码的 schema 核对，不合为 `provider-error`（诊断 `error-detail-invalid`）；合同的 `input`、`filter` 没写 `additionalProperties` 时补成 `false`；`provide` 改名 `provideService`、`providePerConsumer` 改名 `provideServicePerConsumer`；激活上下文加 `onStop`，`defineStore` 改用它；提供入口激活失败时 `unavailable` 带错误消息。新类型顺带查出 focus 示例里一处失败码被反推错的类型。验证：内核 397 例、应用 Bun 1465 例、Vitest 364 例、类型检查、插件 e2e 7 例；合入 master（`592eccf10`）。
+
 ## 下一步
 
-按 plan.md 第 5 节的切片实施，当前 S1。
+按 plan.md 第 5 节的切片实施，当前 S2。
