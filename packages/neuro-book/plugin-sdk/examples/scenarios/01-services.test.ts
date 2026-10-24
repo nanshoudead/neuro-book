@@ -6,7 +6,7 @@
  *   可选依赖 clock，clock 随之激活。
  * - 必需依赖与可选依赖缺失时的不同结果：clock 缺宿主时钟而受阻，只有它不可用；notes 照常工作，只是笔记不带时刻。
  *   可选依赖的原因分两种：clock 装了但用不了是 `provider-rejected`，根本没装是 `missing-provider`。
- * - 入口停止时：`context.signal` 让 clock 立即答复还在等的调用方，`context.scope` 上登记的宿主计时器被释放。
+ * - 入口停止时：`context.signal` 让 clock 立即答复还在等的调用方，`context.onStop` 登记的释放把占用的宿主计时器还回。
  *
  * 阅读顺序：`plugins/clock/`（`shared/contracts.ts` → `backend/plugin.ts`）→ `plugins/notes/shared/contracts.ts` →
  * `plugins/notes/backend/plugin.ts` → 这里。场地见 `testing/stage.ts`，探针见 `testing/probes.ts`。
@@ -107,7 +107,7 @@ describe("场景 1：服务与依赖", () => {
         expect(stage.diagnostics("hub").query({event: "example.notes.clock-unavailable"}).records).toMatchObject([{level: "info", data: {reason: "missing-provider"}}]);
     });
 
-    it("clock 停止时：还在等的 until 立即以 stopped 结算（signal），它占用的宿主计时器全部还回（scope）", async () => {
+    it("clock 停止时：还在等的 until 立即以 stopped 结算（signal），它占用的宿主计时器全部还回（onStop）", async () => {
         const stage = newStage();
         const alarm = serviceProbe("example.alarm", "server", [clockKey]);
         await stage.server({plugins: [clockBackendPlugin, alarm.definition]});

@@ -139,7 +139,7 @@ examples/
 
 | 场景 | 用到的插件 | 核对的行为 | 行为合同 |
 |---|---|---|---|
-| [01-services](scenarios/01-services.test.ts) | clock、notes（服务端） | 按需激活与激活顺序；宿主不给时钟时 clock 受阻、notes 照常，可选依赖的原因 `provider-rejected` 与 `missing-provider`；停止时 `signal` 与 `scope` 的分工 | [services](../../../../docs/specs/runtime/services.md)、[plugins](../../../../docs/specs/runtime/plugins.md)、[plugin-api](../../../../docs/specs/runtime/plugin-api.md) |
+| [01-services](scenarios/01-services.test.ts) | clock、notes（服务端） | 按需激活与激活顺序；宿主不给时钟时 clock 受阻、notes 照常，可选依赖的原因 `provider-rejected` 与 `missing-provider`；停止时 `signal` 与 `onStop` 的分工 | [services](../../../../docs/specs/runtime/services.md)、[plugins](../../../../docs/specs/runtime/plugins.md)、[plugin-api](../../../../docs/specs/runtime/plugin-api.md) |
 | [02-per-consumer](scenarios/02-per-consumer.test.ts) | notes（服务端） | 两个调用方各自只看到自己的笔记；调用方停止后旧门面不能再用、数据还在；服务端重启后笔记仍在 | [services](../../../../docs/specs/runtime/services.md) 输出第 11–12 条、[plugin-channel](../../../../docs/specs/runtime/plugin-channel.md)、[persistence](../../../../docs/specs/storage/persistence.md) |
 | [03-contribution-point](scenarios/03-contribution-point.test.ts) | menu、file-menu | 校验不合格只拒那一条；贡献方停止后撤回；声明先于激活 | [plugins](../../../../docs/specs/runtime/plugins.md) 输出第 15–18、23、24 条 |
 | [04-remote-service](scenarios/04-remote-service.test.ts) | counter | 窗口直接用合同、`orThrow`、订阅归发起入口；项目按绑定到达与按需激活；`lookup` 的 `not-provided` 降级；`instances()`；计数持久化，命令随公开键可用与不可用 | [plugin-channel](../../../../docs/specs/runtime/plugin-channel.md)、[projects](../../../../docs/specs/runtime/projects.md)、[store](../../../../docs/specs/state/store.md)、[public-state](../../../../docs/specs/state/public-state.md)、[commands](../../../../docs/specs/workbench/commands.md) |

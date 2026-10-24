@@ -114,6 +114,11 @@ function implementation(consumer: ConsumerIdentity, probe: Probe): RemoteImpleme
                 // 下面几种绕过类型交出不合合同的详情：缺详情、详情形状不对、不该有详情却给了。
                 if (how === "missing-detail") return {ok: false, code: "too-many"} as never;
                 if (how === "bad-detail") return fail("too-many", {max: "x"}) as never;
+                // `undefined` 是“没有详情”，`null` 是一个值：不收详情的码给了 null 同样不合。
+                if (how === "undefined-detail") return {ok: false, code: "no-luck", detail: undefined};
+                if (how === "null-detail") return fail("no-luck", null) as never;
+                // 码只认合同 `errors` 自己的键，原型链上的不算（`errors` 是普通对象，`toString` 在原型上）。
+                if (how === "inherited-code") return {ok: false, code: "toString"} as never;
                 return fail("no-luck", {x: 1}) as never;
             },
             misbehave: ({how}) => {
@@ -691,9 +696,11 @@ describe("Spec plugin-channel 输出 4：请求阶段与失败码", () => {
         const atServer = t.remote(t.browser1).use(echo).at("server");
         expect(await atServer.refuse({how: "plain"})).toEqual({ok: false, code: "no-luck"});
         expect(await atServer.refuse({how: "detail"})).toEqual({ok: false, code: "too-many", detail: {max: 3}});
-        for (const how of ["missing-detail", "bad-detail", "extra-detail"]) {
+        expect(await atServer.refuse({how: "undefined-detail"})).toEqual({ok: false, code: "no-luck"});
+        for (const how of ["missing-detail", "bad-detail", "extra-detail", "null-detail"]) {
             expect(await atServer.refuse({how})).toMatchObject({ok: false, code: "provider-error", detail: expect.stringContaining("详情不符合合同")});
         }
+        expect(await atServer.refuse({how: "inherited-code"})).toMatchObject({ok: false, code: "provider-error"});
         expect(await atServer.misbehave({how: "throw"})).toMatchObject({ok: false, code: "provider-error"});
         expect(await atServer.misbehave({how: "bad-output"})).toMatchObject({ok: false, code: "provider-error"});
         expect(await atServer.misbehave({how: "undeclared"})).toMatchObject({ok: false, code: "provider-error"});
