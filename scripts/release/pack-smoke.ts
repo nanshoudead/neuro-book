@@ -113,8 +113,8 @@ async function smokeStory(root: string, from: ReturnType<typeof sources>): Promi
     const env = {HOME: home, XDG_CONFIG_HOME: join(home, ".config"), XDG_DATA_HOME: join(home, ".local", "share")};
 
     await mustRun("nbstory --help", [nbstory, "--help"], {cwd: app, env});
-    const books = JSON.parse(await mustRun("nbstory books", [nbstory, "books", "--library", library, "--json"], {cwd: app, env})) as {ok: boolean};
-    if (!books.ok) fail(`nbstory books 没有成功：${JSON.stringify(books)}`);
+    const books = JSON.parse(await mustRun("nbstory books", [nbstory, "books", "--library", library, "--json"], {cwd: app, env})) as {ok: boolean; data?: {books?: unknown[]}};
+    if (!books.ok || books.data?.books?.length !== 0) fail(`空书库上 nbstory books 应成功且没有书：${JSON.stringify(books)}`);
     step("nbstory --help 与空书库上的 books");
 
     // config show 会加载 OMP 的模型目录（nb-harness 与它的原生模块）；没写配置时以 qa_unconfigured 退出 1。
