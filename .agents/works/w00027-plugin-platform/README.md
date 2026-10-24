@@ -39,6 +39,7 @@ updated: 2026-10-23
 | [t08](tasks/t08-secret-store/README.md) | 密钥存储（搁置）：开发者 2026-10-20 定暂时不做加密，API Key 用明文的普通配置项；计划、审查与调研留作重开时的参考 |
 | [t11](tasks/t11-activation-output-shape/README.md) | 内核核对入口激活产出的形状，不对时报 `activation-threw`（t05 回写建议，2026-10-24 开发者批准；未开工） |
 | [t12](tasks/t12-plugin-dx-review/README.md) | 插件开发体验（Sonnet 以作者身份走一遍）与可维护性复查，及待确认清单改判的三项（2026-10-24 开发者要求） |
+| [t13](tasks/t13-sdk-package-split/README.md) | SDK 拆成独立包（作者工具、模板、文档、示例）、内核去掉 NeuroBook 常量、通用插件管理在目录上分开（开发者 2026-10-24 定；计划待写） |
 
 ## 关键现状
 
