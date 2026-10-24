@@ -9,7 +9,6 @@ import {afterEach, describe, expect, it} from "bun:test";
 import {computed, ref, toValue} from "@vue/reactivity";
 
 import type {OptionSource} from "@notnotype/nb-form";
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
@@ -20,6 +19,7 @@ import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {Type} from "typebox";
 
+import {createApplication} from "nbook/application";
 import {definitionAt} from "nbook/manifest";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {clockKey, windowConnectionKey, windowPluginsKey} from "nbook/shared/host";
@@ -141,7 +141,7 @@ describe("选项提供者的登记校验", () => {
         ]);
         const validation = (id: string) => application.plugins.contribution(SETTINGS_CHOICES_POINT, id)[0]?.validation;
         expect(validation("x.models.list")).toEqual({status: "accepted"});
-        expect(validation("other.list")).toMatchObject({status: "rejected", reason: "invalid-declaration", detail: "插件 x.models 的选项提供者 id 必须以 x.models. 开头：other.list"});
+        expect(validation("other.list")).toMatchObject({status: "rejected", reason: "invalid-declaration", detail: "贡献 id 要以插件 id x.models 加“.”开头：other.list"});
         expect(validation("x.models.Upper")).toMatchObject({status: "rejected", reason: "invalid-declaration"});
         expect(validation("x.extra.list")).toMatchObject({status: "rejected", reason: "invalid-declaration"});
         // 浏览器实例里装不进服务端入口，直接用拥有者的校验函数验。

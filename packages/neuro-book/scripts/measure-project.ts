@@ -16,11 +16,11 @@ import {readdir, readFile, rm} from "node:fs/promises";
 import {mkdir} from "node:fs/promises";
 import {join, resolve} from "node:path";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
+import {createApplication} from "../src/application";
 import {createConsoleExporterFactory, createConsoleFallback} from "../src/plugins/diagnostics/web/console-exporter";
 import {storageBackendPlugin} from "../src/plugins/storage/backend/plugin";
 import {createProjectManager} from "../src/server/projects/manager";

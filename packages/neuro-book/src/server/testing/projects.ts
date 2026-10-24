@@ -9,7 +9,6 @@ import {join} from "node:path";
 
 import {expect} from "bun:test";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
@@ -17,6 +16,7 @@ import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import type {RemoteNode, RemoteRouter} from "@notnotype/nb-runtime/remote";
 
+import {createApplication} from "nbook/application";
 import {FIXTURE_READY_LINE} from "nbook/project/testing/fault-plugin";
 import type {ProjectFault} from "nbook/project/testing/fault-plugin";
 import {clockKey, stateRootKey, userDirectoriesKey} from "nbook/shared/host";

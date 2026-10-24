@@ -7,7 +7,7 @@ import {Type} from "typebox";
 import type {Static} from "typebox";
 import {Value} from "typebox/value";
 
-import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
+import type {ContributionDescriptor, ContributionPointDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {LocalizedTextSchema} from "nbook/shared/localized-text";
 
@@ -55,16 +55,14 @@ export type ActivityBarItemDeclaration = Static<typeof ActivityBarItemDeclaratio
 const ITEM_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u;
 
 /**
- * 两个条目贡献点的登记校验：只看这一条声明本身。id 规则与视图相同（内置插件 `nbook.` 开头，其它插件以自己的插件 id
- * 开头）；同 id 的两条由内核一起拒绝。标题栏的条目只放在右侧操作区。
+ * 两个条目贡献点的登记校验：只看这一条声明本身。id 的前缀由内核按贡献点的 `idPrefix` 核对（同视图）；同 id 的两条由内核
+ * 一起拒绝。标题栏的条目只放在右侧操作区。
  */
 export function itemValidator(point: WorkbenchItemsPoint): (descriptor: ContributionDescriptor) => string | null {
     return (descriptor) => {
         if (descriptor.location !== "browser") return `${point} 只接受浏览器入口的贡献`;
         const id = descriptor.id;
         if (id.length > 128 || !ITEM_ID.test(id)) return `条目 id 必须是点分的小写段、至多 128 个字符：${id}`;
-        const prefix = descriptor.plugin.startsWith("nbook.") ? "nbook." : `${descriptor.plugin}.`;
-        if (!id.startsWith(prefix)) return `插件 ${descriptor.plugin} 的条目 id 必须以 ${prefix} 开头：${id}`;
         if (!Value.Check(ItemDeclarationSchema, descriptor.declaration)) {
             const first = [...Value.Errors(ItemDeclarationSchema, descriptor.declaration)][0];
             return `条目 ${id} 的声明不合格：${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}：${first.message}`}`;
@@ -82,11 +80,14 @@ export function validateActivityBarItemContribution(descriptor: ContributionDesc
     if (descriptor.location !== "browser") return `${WORKBENCH_ACTIVITYBAR_ITEMS_POINT} 只接受浏览器入口的贡献`;
     const id = descriptor.id;
     if (id.length > 128 || !ITEM_ID.test(id)) return `条目 id 必须是点分的小写段、至多 128 个字符：${id}`;
-    const prefix = descriptor.plugin.startsWith("nbook.") ? "nbook." : `${descriptor.plugin}.`;
-    if (!id.startsWith(prefix)) return `插件 ${descriptor.plugin} 的条目 id 必须以 ${prefix} 开头：${id}`;
     if (!Value.Check(ActivityBarItemDeclarationSchema, descriptor.declaration)) {
         const first = [...Value.Errors(ActivityBarItemDeclarationSchema, descriptor.declaration)][0];
         return `条目 ${id} 的声明不合格：${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}：${first.message}`}`;
     }
     return null;
 }
+
+/** 三个条目贡献点：插件与测试都用这一份定义。条目只有声明，内核却只能对整个贡献点规定要不要实现：要实现，贡献方交空对象。 */
+export const statusbarItemsPoint: ContributionPointDefinition = {id: WORKBENCH_STATUSBAR_ITEMS_POINT, implementation: "required", idPrefix: "plugin", validate: itemValidator(WORKBENCH_STATUSBAR_ITEMS_POINT)};
+export const titlebarItemsPoint: ContributionPointDefinition = {id: WORKBENCH_TITLEBAR_ITEMS_POINT, implementation: "required", idPrefix: "plugin", validate: itemValidator(WORKBENCH_TITLEBAR_ITEMS_POINT)};
+export const activityBarItemsPoint: ContributionPointDefinition = {id: WORKBENCH_ACTIVITYBAR_ITEMS_POINT, implementation: "required", idPrefix: "plugin", validate: validateActivityBarItemContribution};

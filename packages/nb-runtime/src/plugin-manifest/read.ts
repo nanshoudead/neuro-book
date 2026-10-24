@@ -5,10 +5,9 @@
 
 import {Value} from "typebox/value";
 
-import {KERNEL_ACTIVATION_PREFIXES, portabilityProblems} from "../plugins/plugins";
+import {isBuiltinId, isReservedPublisher, KERNEL_ACTIVATION_PREFIXES, portabilityProblems} from "../plugins/plugins";
+import type {PluginPlatform} from "../plugins/plugins";
 
-import {isBuiltinId, isReservedPublisher} from "./platform";
-import type {PluginPlatform} from "./platform";
 import {byPath, contractSchemas, ENTRY_ID, ENTRY_ID_RULE, ID_SEGMENT_RULE, isIdSegment, isInsidePath, isPluginId, joinPath, manifestSchema, restoreContract} from "./schema";
 import type {ManifestEntry, ManifestInput, ManifestProblem, ManifestReadResult, VersionSyntax} from "./schema";
 

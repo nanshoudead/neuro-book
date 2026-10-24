@@ -10,15 +10,15 @@ import {computed} from "@vue/reactivity";
 import {defineComponent} from "vue";
 import type {Component} from "vue";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
 import type {ActivationContext, ContributionHandle, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import {createApplication} from "nbook/application";
 import {createWindowPlugins} from "nbook/web/host/window-plugins";
 
-import {validateViewContribution, WORKBENCH_VIEWS_POINT} from "../../shared/views";
+import {viewsPoint, WORKBENCH_VIEWS_POINT} from "../../shared/views";
 import type {ViewDeclaration} from "../../shared/views";
 import type {ViewImplementation} from "../contracts";
 import {ViewRegistry} from "./registry";
@@ -44,7 +44,7 @@ interface Owner {
 function ownerPlugin(owner: Owner, plugins: () => ReturnType<typeof createWindowPlugins>["capability"]): PluginDefinition {
     return {
         id: "test.owner",
-        contributionPoints: [{id: WORKBENCH_VIEWS_POINT, implementation: "required", validate: validateViewContribution}],
+        contributionPoints: [viewsPoint],
         entries: [{
             id: "browser",
             location: "browser",
@@ -122,7 +122,7 @@ describe("视图注册表", () => {
         const {application, registry} = await start([lazy, wrong]);
         expect([...registry.catalog.keys()]).toEqual(["test.lazy.one"]);
         expect(registry.delivery("test.lazy.one")).toEqual({kind: "declared"});
-        expect(application.plugins.contribution(WORKBENCH_VIEWS_POINT, "other.view")[0]?.validation).toEqual({status: "rejected", reason: "invalid-declaration", detail: "插件 test.wrong 的视图 id 必须以 test.wrong. 开头：other.view"});
+        expect(application.plugins.contribution(WORKBENCH_VIEWS_POINT, "other.view")[0]?.validation).toEqual({status: "rejected", reason: "invalid-declaration", detail: "贡献 id 要以插件 id test.wrong 加“.”开头：other.view"});
         expect(await registry.load("test.lazy.one")).toEqual({status: "stale"});
     });
 

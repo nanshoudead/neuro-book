@@ -4,7 +4,6 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {HostContext} from "@notnotype/nb-runtime/application";
 import type {PluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
 import type {ActivationOutput, PluginDefinition} from "@notnotype/nb-runtime/plugins";
@@ -13,6 +12,7 @@ import type {RemoteContract} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import {Type} from "typebox";
 
+import {createApplication} from "nbook/application";
 import {manifestFormat} from "nbook/plugin-platform-profile";
 import {pluginVersionSatisfies} from "nbook/shared/versions";
 

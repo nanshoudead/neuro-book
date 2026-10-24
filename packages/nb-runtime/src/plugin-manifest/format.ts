@@ -3,10 +3,11 @@
  * 构建预设与作者命令都用同一个对象，id 规则与内置判断只有这一份。
  */
 
+import {isBuiltinId, isReservedPublisher} from "../plugins/plugins";
+import type {PluginPlatform} from "../plugins/plugins";
+
 import {buildManifest} from "./build";
 import type {ManifestBuildResult, ManifestSource} from "./build";
-import {isBuiltinId, isReservedPublisher} from "./platform";
-import type {PluginPlatform} from "./platform";
 import {readManifest} from "./read";
 import {manifestSchema} from "./schema";
 import type {ManifestReadResult, VersionSyntax} from "./schema";

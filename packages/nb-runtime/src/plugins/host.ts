@@ -59,6 +59,9 @@ import type {
 import {KERNEL_ACTIVATION_PREFIXES, parseActivationEvent, validateDefinition} from "./registration";
 import {schemaProblem} from "./schema";
 import {deriveBlocked, entryIdentity, versionMismatch} from "./blocked";
+import {sameContractContent} from "./contract-content";
+import {isReservedPublisher} from "./platform";
+import type {PluginPlatform} from "./platform";
 import type {EntrySnapshot, VersionCheck} from "./blocked";
 
 const CANCELLED: unique symbol = Symbol("cancelled");
@@ -275,6 +278,7 @@ export class PluginHostImpl implements PluginHost {
     readonly #observer: PluginObserver | undefined;
     readonly #remote: RemoteHostBinding | null;
     readonly #satisfies: VersionCheck | undefined;
+    readonly #platform: Pick<PluginPlatform, "reservedPublishers">;
     readonly #plugins = new Map<string, PluginRecord>();
     /** 贡献目录：贡献点 id + 贡献 id → 全部当前登记，重复判定不区分运行位置。 */
     readonly #contributions = new Map<string, ContributionRecord[]>();
@@ -314,6 +318,7 @@ export class PluginHostImpl implements PluginHost {
         this.#observer = options.observer;
         this.#remote = options.remote ?? null;
         this.#satisfies = options.satisfies;
+        this.#platform = options.platform ?? {reservedPublishers: []};
         this.#remote?.attach({
             lookup: (contractId, chain, signal) => this.#lookupRemote(contractId, chain, signal),
             describe: (contractId) => this.#describeRemote(contractId),
@@ -819,6 +824,19 @@ export class PluginHostImpl implements PluginHost {
         return null;
     }
 
+    /**
+     * `idPrefix: "plugin"` 的核对：贡献 id 以贡献方插件 id 加 `.` 开头；发布者在平台的保留名单里时，也可以只以发布者加 `.`
+     * 开头（内置插件的贡献常在别的内置插件名下，例如工作台的命令）。
+     */
+    #idPrefixProblem(pluginId: string, contributionId: string): string | null {
+        if (contributionId.startsWith(`${pluginId}.`)) return null;
+        const publisher = pluginId.slice(0, pluginId.indexOf("."));
+        if (isReservedPublisher(this.#platform, publisher)) {
+            return contributionId.startsWith(`${publisher}.`) ? null : `贡献 id 要以 ${publisher}. 开头：${contributionId}`;
+        }
+        return `贡献 id 要以插件 id ${pluginId} 加“.”开头：${contributionId}`;
+    }
+
     #pointFor(contribution: ContributionRecord): ContributionPointDefinition | null {
         return this.#pointOwner(contribution.definition.capability)?.points.get(contribution.definition.capability) ?? null;
     }
@@ -855,8 +873,9 @@ export class PluginHostImpl implements PluginHost {
         if (point.implementation === "none" && contribution.kind === "entry") {
             return {status: "rejected", reason: "implementation-not-accepted", detail: null};
         }
-        if (point.idPrefix === "plugin" && !contribution.definition.id.startsWith(`${contribution.plugin.id}.`)) {
-            return {status: "rejected", reason: "invalid-declaration", detail: `贡献 id 要以插件 id ${contribution.plugin.id} 加“.”开头：${contribution.definition.id}`};
+        if (point.idPrefix === "plugin") {
+            const detail = this.#idPrefixProblem(contribution.plugin.id, contribution.definition.id);
+            if (detail !== null) return {status: "rejected", reason: "invalid-declaration", detail};
         }
         if (point.schema !== undefined) {
             const detail = schemaProblem(point.schema, contribution.definition.declaration);
@@ -1082,7 +1101,12 @@ export class PluginHostImpl implements PluginHost {
             acquired = await attempt.work.acquire<ActivationOutput>({
                 kind: "plugin-activation",
                 label: `${plugin}/${entry}`,
-                acquire: () => record.definition.activate(context),
+                acquire: async () => {
+                    const output: unknown = await record.definition.activate(context);
+                    // 在取得之内核对：不是对象的产出不进作用域，也就不会在释放时被当作产出读字段（runtime/plugins.md）。
+                    if (typeof output !== "object" || output === null) throw new TypeError(`入口的 activate 没有返回激活产出（对象），得到的是 ${output === null ? "null" : typeof output}`);
+                    return output as ActivationOutput;
+                },
                 release: (output) => this.#releaseOutput(attempt, output),
             });
         } catch (error) {
@@ -1122,15 +1146,18 @@ export class PluginHostImpl implements PluginHost {
             if (!remoteDeclared.includes(item.contract.id) || remote.has(item.contract.id)) {
                 return fail("output", "undeclared-remote", {key: item.contract.id});
             }
-            // 提供方查询按静态声明回答版本与调用方种类，调用按产出的合同核对：两者必须是同一个合同对象，
-            // 否则同 id 不同版本时查询说“在”、调用却一直 version-changed（runtime/plugins.md 输出第 22 条）。
-            if (!(record.definition.remoteProvides ?? []).includes(item.contract)) {
+            // 提供方查询按静态声明回答版本与调用方种类，调用按产出的合同核对：两者必须是同一个合同，否则同 id 不同版本时
+            // 查询说“在”、调用却一直 version-changed（runtime/plugins.md 输出第 22 条）。按内容核对：第三方入口产出的是插件
+            // 自己打包的那一份，与按清单还原的声明不是同一个对象；内容相同时换成声明的那份，查询与调用用的就是同一个对象。
+            const declared = (record.definition.remoteProvides ?? []).find((contract) => contract.id === item.contract.id)!;
+            if (declared !== item.contract && !sameContractContent(declared, item.contract)) {
                 return fail("output", "remote-contract-mismatch", {key: item.contract.id});
             }
-            if (this.#misplacedRemote(item)) {
+            const provision = declared === item.contract ? item : {...item, contract: declared};
+            if (this.#misplacedRemote(provision)) {
                 return fail("output", "remote-location-mismatch", {key: item.contract.id});
             }
-            remote.set(item.contract.id, item);
+            remote.set(item.contract.id, provision);
         }
         for (const id of remoteDeclared) {
             if (!remote.has(id)) {

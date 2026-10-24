@@ -8,7 +8,7 @@ import {Type} from "typebox";
 import type {Static} from "typebox";
 import {Value} from "typebox/value";
 
-import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
+import type {ContributionDescriptor, ContributionPointDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {LocalizedTextSchema} from "nbook/shared/localized-text";
 
@@ -73,15 +73,13 @@ export function viewSizeLimits(declaration: ViewDeclaration, axis: "width" | "he
 }
 
 /**
- * `workbench.views` 的登记校验：只看这一条声明本身。id 规则与命令相同的思路：内置插件写 `nbook.` 开头，其它插件以
- * 自己的插件 id 加 `.` 开头，避免第三方占用内置命名空间或彼此撞名。
+ * `workbench.views` 的登记校验：只看这一条声明本身。id 的前缀由贡献点的 `idPrefix: "plugin"` 交给内核核对（内置插件
+ * 以保留的发布者开头，其它插件以自己的插件 id 加 `.` 开头，runtime/plugins.md），这里只看形状与声明。
  */
 export function validateViewContribution(descriptor: ContributionDescriptor): string | null {
     if (descriptor.location !== "browser") return `${WORKBENCH_VIEWS_POINT} 只接受浏览器入口的贡献`;
     const id = descriptor.id;
     if (id.length > VIEW_ID_MAX_LENGTH || !VIEW_ID.test(id)) return `视图 id 必须是点分的小写段、至多 ${VIEW_ID_MAX_LENGTH} 个字符：${id}`;
-    const prefix = descriptor.plugin.startsWith("nbook.") ? "nbook." : `${descriptor.plugin}.`;
-    if (!id.startsWith(prefix)) return `插件 ${descriptor.plugin} 的视图 id 必须以 ${prefix} 开头：${id}`;
     if (!Value.Check(ViewDeclarationSchema, descriptor.declaration)) {
         const first = [...Value.Errors(ViewDeclarationSchema, descriptor.declaration)][0];
         return `视图 ${id} 的声明不合格：${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}：${first.message}`}`;
@@ -93,3 +91,6 @@ export function validateViewContribution(descriptor: ContributionDescriptor): st
     }
     return null;
 }
+
+/** `workbench.views` 贡献点：插件与测试都用这一份定义。 */
+export const viewsPoint: ContributionPointDefinition = {id: WORKBENCH_VIEWS_POINT, implementation: "required", idPrefix: "plugin", validate: validateViewContribution};

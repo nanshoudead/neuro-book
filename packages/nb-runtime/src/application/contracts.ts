@@ -108,6 +108,8 @@ export interface ApplicationManifest {
     readonly remote?: PluginHostOptions["remote"];
     /** 插件版本范围的判断，交给插件宿主（`PluginHostOptions.satisfies`）。 */
     readonly satisfies?: PluginHostOptions["satisfies"];
+    /** 平台档案，交给插件宿主（`PluginHostOptions.platform`）；不给时只保留内核的 `runtime`。 */
+    readonly platform?: PluginHostOptions["platform"];
 }
 
 export type GateOutcome =

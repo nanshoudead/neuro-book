@@ -11,7 +11,6 @@ import {computed} from "@vue/reactivity";
 import {defineComponent} from "vue";
 import type {Component} from "vue";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
@@ -21,6 +20,7 @@ import type {ActivationContext, PluginDefinition, PluginEntryDefinition} from "@
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import {Type} from "typebox";
 
+import {createApplication} from "nbook/application";
 import {definitionAt} from "nbook/manifest";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {clockKey, windowConnectionKey, windowPluginsKey} from "nbook/shared/host";
@@ -158,7 +158,7 @@ async function stopEntry(toggle: Control): Promise<void> {
 }
 
 describe("分区的登记校验", () => {
-    it("id 规则同视图：nbook.* 写 nbook.<名>，其它插件以自己的插件 id 加点开头；两个贡献点相同；不合格的只拒这一条", async () => {
+    it("id 规则同视图（内核按 idPrefix 核对）：nbook.* 写 nbook.<名>，其它插件以自己的插件 id 加点开头；两个贡献点相同；不合格的只拒这一条", async () => {
         const {application, source} = await start([
             contributor("x.notes", {"x.notes.main": page(), "other.page": page(), "x.notes": page(), "x.notes.Upper": page(), [`x.notes.${"a".repeat(121)}`]: page(), "x.notes.list": list(), "other.list": list()}, control()),
             contributor("nbook.extra", {"nbook.extra-page": page(), "x.notes.stolen": page()}, control()),
@@ -166,9 +166,9 @@ describe("分区的登记校验", () => {
         expect(validation(application, SETTINGS_PAGES_POINT, "x.notes.main")).toEqual({status: "accepted"});
         expect(validation(application, SETTINGS_PAGES_POINT, "nbook.extra-page")).toEqual({status: "accepted"});
         expect(validation(application, SETTINGS_SECTIONS_POINT, "x.notes.list")).toEqual({status: "accepted"});
-        expect(validation(application, SETTINGS_PAGES_POINT, "other.page")).toMatchObject({status: "rejected", reason: "invalid-declaration", detail: "插件 x.notes 的分区 id 必须以 x.notes. 开头：other.page"});
-        expect(validation(application, SETTINGS_SECTIONS_POINT, "other.list")).toMatchObject({status: "rejected", reason: "invalid-declaration", detail: "插件 x.notes 的分区 id 必须以 x.notes. 开头：other.list"});
-        expect(validation(application, SETTINGS_PAGES_POINT, "x.notes.stolen")).toMatchObject({status: "rejected", detail: "插件 nbook.extra 的分区 id 必须以 nbook. 开头：x.notes.stolen"});
+        expect(validation(application, SETTINGS_PAGES_POINT, "other.page")).toMatchObject({status: "rejected", reason: "invalid-declaration", detail: "贡献 id 要以插件 id x.notes 加“.”开头：other.page"});
+        expect(validation(application, SETTINGS_SECTIONS_POINT, "other.list")).toMatchObject({status: "rejected", reason: "invalid-declaration", detail: "贡献 id 要以插件 id x.notes 加“.”开头：other.list"});
+        expect(validation(application, SETTINGS_PAGES_POINT, "x.notes.stolen")).toMatchObject({status: "rejected", detail: "贡献 id 要以 nbook. 开头：x.notes.stolen"});
         for (const id of ["x.notes", "x.notes.Upper", `x.notes.${"a".repeat(121)}`]) expect(validation(application, SETTINGS_PAGES_POINT, id), id).toMatchObject({status: "rejected", reason: "invalid-declaration"});
         // 被拒的分区不进目录；入口照常激活，接受的分区照常交付。
         expect(source.sections().map((section) => section.id)).toEqual(["nbook.appearance", "nbook.extra-page", "x.notes.list", "x.notes.main"]);

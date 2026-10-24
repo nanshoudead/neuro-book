@@ -7,12 +7,12 @@ import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 import {mkdir, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application, HostContext} from "@notnotype/nb-runtime/application";
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
+import {createApplication} from "nbook/application";
 import * as hostSdk from "nbook/sdk/index";
 
 import type {InstalledPlugin} from "./installed";
@@ -161,7 +161,7 @@ describe("服务端入口代码的装载", () => {
         expect(await app.stop()).toEqual({status: "closed"});
     });
 
-    it("模块顶层抛错之后重试：模块重新求值，条件满足时激活成功；activate 没有返回对象：code-shape", async () => {
+    it("模块顶层抛错之后重试：模块重新求值，条件满足时激活成功；activate 没有返回对象：内核以 activation-threw 结束", async () => {
         const plugin = await installed("transient", {main: "server.js", empty: "empty.js"}, {
             "server.js": "globalThis.__nbookLoaderProbe.evaluations += 1;\nif (!globalThis.__nbookLoaderProbe.ready) throw new Error(\"还没准备好\");\nexport const activate = () => ({});\n",
             "empty.js": "export function activate() {}\n",
@@ -174,7 +174,7 @@ describe("服务端入口代码的装载", () => {
         await app.plugins.recover({plugin: plugin.id, entry: "main"});
         expect(await app.plugins.activate({plugin: plugin.id, entry: "main"})).toMatchObject({status: "activated"});
         expect(probe.evaluations).toBe(2);
-        expect(await app.plugins.activate({plugin: plugin.id, entry: "empty"})).toMatchObject({status: "failed", error: {message: expect.stringContaining("code-shape")}});
+        expect(await app.plugins.activate({plugin: plugin.id, entry: "empty"})).toMatchObject({status: "failed", reason: "activation-threw", error: {message: expect.stringContaining("没有返回激活产出")}});
         expect(await app.stop()).toEqual({status: "closed"});
     });
 

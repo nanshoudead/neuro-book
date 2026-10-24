@@ -8,14 +8,14 @@ import {afterEach, describe, expect, it} from "bun:test";
 
 import {computed, shallowReactive} from "@vue/reactivity";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import {createApplication} from "nbook/application";
 import type {PublicStateRead} from "nbook/plugins/state/shared/contracts";
 
-import {itemValidator, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../../shared/items";
+import {statusbarItemsPoint, titlebarItemsPoint, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../../shared/items";
 import type {ItemDeclaration} from "../../shared/items";
 import type {ItemImplementation} from "../contracts";
 import {ItemRegistry} from "./registry";
@@ -43,8 +43,8 @@ function ownerPlugin(owner: Owner): PluginDefinition {
     return {
         id: "test.owner",
         contributionPoints: [
-            {id: WORKBENCH_STATUSBAR_ITEMS_POINT, implementation: "required", validate: itemValidator(WORKBENCH_STATUSBAR_ITEMS_POINT)},
-            {id: WORKBENCH_TITLEBAR_ITEMS_POINT, implementation: "required", validate: itemValidator(WORKBENCH_TITLEBAR_ITEMS_POINT)},
+            statusbarItemsPoint,
+            titlebarItemsPoint,
         ],
         entries: [{
             id: "browser",
@@ -129,7 +129,7 @@ describe("条目注册表", () => {
         expect(owner.status!.shown("zh-CN")).toEqual([]);
         expect(owner.title!.shown("zh-CN")).toEqual([]);
         expect(application.plugins.contribution(WORKBENCH_STATUSBAR_ITEMS_POINT, "test.one.same").map((entry) => entry.validation.status)).toEqual(["rejected", "rejected"]);
-        expect(application.plugins.contribution(WORKBENCH_STATUSBAR_ITEMS_POINT, "other.item")[0]?.validation).toMatchObject({status: "rejected", detail: "插件 test.two 的条目 id 必须以 test.two. 开头：other.item"});
+        expect(application.plugins.contribution(WORKBENCH_STATUSBAR_ITEMS_POINT, "other.item")[0]?.validation).toMatchObject({status: "rejected", detail: "贡献 id 要以插件 id test.two 加“.”开头：other.item"});
         expect(application.plugins.contribution(WORKBENCH_TITLEBAR_ITEMS_POINT, "test.three.left")[0]?.validation).toMatchObject({status: "rejected", detail: "标题栏的条目只放在右侧：test.three.left"});
     });
 

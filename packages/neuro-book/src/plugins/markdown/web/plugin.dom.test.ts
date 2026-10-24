@@ -9,12 +9,12 @@ import {h, shallowRef} from "vue";
 import type {Component} from "vue";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import {createApplication} from "nbook/application";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";

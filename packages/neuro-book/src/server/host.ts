@@ -10,8 +10,9 @@
 import {createInterface} from "node:readline";
 import type {Interface} from "node:readline";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application, ApplicationManifest, EmergencyReport, StopResult} from "@notnotype/nb-runtime/application";
+
+import {createApplication} from "nbook/application";
 
 export type FatalKind = "uncaught-exception" | "unhandled-rejection";
 

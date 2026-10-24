@@ -8,7 +8,6 @@ import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
@@ -16,6 +15,7 @@ import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote
 import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
+import {createApplication} from "nbook/application";
 import {createPluginInventory, pluginInventoryKey} from "nbook/backend/plugins/inventory";
 import {NO_INSTALLED_PLUGINS} from "nbook/backend/plugins/startup";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";

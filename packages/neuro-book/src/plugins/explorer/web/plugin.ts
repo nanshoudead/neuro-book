@@ -87,7 +87,7 @@ function systemClipboard(): {writeText(text: string): Promise<void>} | undefined
 export const explorerBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
     // 右键菜单的贡献点：菜单项只有声明，同工作台的菜单位置交空实现（docs/specs/workbench/menus.md）。
-    contributionPoints: [{id: EXPLORER_CONTEXT_POINT, implementation: "required", validate: validateExplorerContextItem}],
+    contributionPoints: [{id: EXPLORER_CONTEXT_POINT, implementation: "required", validate: validateExplorerContextItem, idPrefix: "plugin"}],
     entries: [defineEntry({
         id: "browser",
         location: "browser",

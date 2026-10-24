@@ -7,10 +7,11 @@ import {afterEach, expect, it} from "bun:test";
 import {rm} from "node:fs/promises";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-import {createApplication} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 
 import {createServerDiagnosticsPlugin} from "./plugin";
+
+import {createApplication} from "nbook/application";
 
 const original = {warn: console.warn, error: console.error};
 let root = "";

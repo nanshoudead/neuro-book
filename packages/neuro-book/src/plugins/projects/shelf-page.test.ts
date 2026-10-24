@@ -7,7 +7,6 @@
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {rm} from "node:fs/promises";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
@@ -19,6 +18,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {ref} from "vue";
 
+import {createApplication} from "nbook/application";
 import {definitionAt} from "nbook/manifest";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {settingsKey} from "nbook/plugins/settings/shared/contracts";

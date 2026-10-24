@@ -11,12 +11,12 @@ import {computed, ref} from "@vue/reactivity";
 import type {Ref} from "@vue/reactivity";
 import {Type} from "typebox";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
+import {createApplication} from "nbook/application";
 import {COMMANDS_POINT, commandServiceKey, menuImplementations, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
@@ -26,7 +26,7 @@ import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/con
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
 import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 
-import {validateTitlebarMenuItem, WORKBENCH_TITLEBAR_MENU_POINT} from "./shared/menus";
+import {titlebarMenuPoint, WORKBENCH_TITLEBAR_MENU_POINT} from "./shared/menus";
 import type {TitlebarMenuItemDeclaration} from "./shared/menus";
 import {ActivityItemRegistry} from "./web/items/activity-items";
 import {ItemRegistry} from "./web/items/registry";
@@ -55,7 +55,7 @@ const title = (zh: string) => ({"zh-CN": zh, "en-US": zh});
 function ownerPlugin(owner: {chrome: ShellChrome | null}): PluginDefinition {
     return {
         id: "test.owner",
-        contributionPoints: [{id: WORKBENCH_TITLEBAR_MENU_POINT, implementation: "required", validate: validateTitlebarMenuItem}],
+        contributionPoints: [titlebarMenuPoint],
         entries: [{
             id: "browser",
             location: "browser",
@@ -210,7 +210,7 @@ describe("标题栏菜单的贡献", () => {
         ]);
         expect(chrome.menus("zh-CN")).toEqual([]);
         const validation = (id: string) => application.plugins.contribution(WORKBENCH_TITLEBAR_MENU_POINT, id).map((entry) => entry.validation);
-        expect(validation("other.item")[0]).toMatchObject({status: "rejected", detail: "插件 test.bad 的菜单项 id 必须以 test.bad. 开头：other.item"});
+        expect(validation("other.item")[0]).toMatchObject({status: "rejected", detail: "贡献 id 要以插件 id test.bad 加“.”开头：other.item"});
         expect(validation("test.bad.group")[0]).toMatchObject({status: "rejected"});
         expect(validation("test.bad.extensions")[0]).toMatchObject({status: "rejected"});
         expect(validation("test.server.item")[0]).toMatchObject({status: "rejected", detail: `${WORKBENCH_TITLEBAR_MENU_POINT} 只接受浏览器入口的贡献`});

@@ -10,6 +10,8 @@ import type {FailureError, RuntimeLocation, Scope, ScopeId} from "../lifecycle/l
 import type {RemoteAccess, RemoteContract, RemoteHostBinding, RemoteProvision, RemoteUse} from "../remote/remote";
 import type {ConsumerIdentity, EntryId, ResolveOptions, ResolveResult, ServiceDependency, ServiceKey} from "../services/services";
 
+import type {PluginPlatform} from "./platform";
+
 export type {FailureError} from "../lifecycle/lifecycle";
 
 /** 插件入口的稳定身份：插件 id + 入口 id。 */
@@ -482,6 +484,11 @@ export interface PluginHostOptions {
      * 同一个宿主的升级预览也要用同一个函数，结论才与重启后一致。
      */
     readonly satisfies?: (version: string, range: string) => boolean;
+    /**
+     * 平台档案（`./platform`）：发布者在保留名单里的插件，贡献 id 也可以只以发布者加 `.` 开头（`idPrefix: "plugin"`）。不给时只
+     * 保留内核的 `runtime`，前缀按严格的“插件 id 加点”核对。
+     */
+    readonly platform?: Pick<PluginPlatform, "reservedPublishers">;
 }
 
 /** 贡献未发布或已撤回时取实现、以及向 runtime.services 交付未激活成功的实例时抛出。 */

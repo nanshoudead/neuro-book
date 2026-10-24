@@ -79,12 +79,10 @@ export type SettingsPageDeclaration = Static<typeof SettingsPageDeclarationSchem
 /** 选项提供者的声明（`settings.choices`）。 */
 export type SettingsChoicesDeclaration = Static<typeof SettingsChoicesDeclarationSchema>;
 
-/** id 的形状与前缀：内置插件写 `nbook.<名>`，其它插件以自己的插件 id 加 `.` 开头（同视图）。 */
+/** id 的形状；前缀由内核按贡献点的 `idPrefix` 核对（同视图）。 */
 function idProblem(descriptor: ContributionDescriptor, noun = "分区"): string | null {
     const id = descriptor.id;
     if (!isSettingsSectionId(id)) return `${noun} id 必须是点分的小写段、至多 ${String(SETTINGS_SECTION_ID_MAX_LENGTH)} 个字符：${id}`;
-    const prefix = descriptor.plugin.startsWith("nbook.") ? "nbook." : `${descriptor.plugin}.`;
-    if (!id.startsWith(prefix)) return `插件 ${descriptor.plugin} 的${noun} id 必须以 ${prefix} 开头：${id}`;
     return null;
 }
 

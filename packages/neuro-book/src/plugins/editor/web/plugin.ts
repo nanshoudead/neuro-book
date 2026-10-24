@@ -69,13 +69,13 @@ const INTENTS = {"save": SAVE_COMMAND, "close": CLOSE_COMMAND, "split-right": SP
 export const editorBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
     contributionPoints: [
-        {id: EDITOR_PAGES_POINT, implementation: "required", validate: validateEditorPageContribution},
+        {id: EDITOR_PAGES_POINT, implementation: "required", validate: validateEditorPageContribution, idPrefix: "plugin"},
         // 编辑区标题的菜单项只有声明，同工作台的菜单位置交空实现（docs/specs/workbench/menus.md）。
-        {id: EDITOR_TITLE_POINT, implementation: "required", validate: validateEditorTitleItem},
+        {id: EDITOR_TITLE_POINT, implementation: "required", validate: validateEditorTitleItem, idPrefix: "plugin"},
         // 标签右键的菜单项（输出 57）：同上，只有声明。
-        {id: EDITOR_TAB_CONTEXT_POINT, implementation: "required", validate: validateEditorTabContextItem},
+        {id: EDITOR_TAB_CONTEXT_POINT, implementation: "required", validate: validateEditorTabContextItem, idPrefix: "plugin"},
         // 编辑器（docs/specs/workbench/editor.md 输出 36）：内置的两个也声明在这里。
-        {id: EDITOR_EDITORS_POINT, implementation: "required", validate: validateEditorContribution},
+        {id: EDITOR_EDITORS_POINT, implementation: "required", validate: validateEditorContribution, idPrefix: "plugin"},
         // 语言（输出 43）：源码编辑器（Monaco）自带的也声明在这里。
         {id: EDITOR_LANGUAGES_POINT, implementation: "required", validate: validateLanguageContribution},
     ],

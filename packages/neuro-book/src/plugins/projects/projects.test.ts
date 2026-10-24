@@ -9,7 +9,6 @@ import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {mkdir, readdir, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {Application} from "@notnotype/nb-runtime/application";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
@@ -21,6 +20,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {ref} from "vue";
 
+import {createApplication} from "nbook/application";
 import {definitionAt} from "nbook/manifest";
 import {commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";

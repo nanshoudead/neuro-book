@@ -7,13 +7,14 @@ import {afterEach, describe, expect, it} from "bun:test";
 
 import {defineComponent} from "vue";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {WORKBENCH_EDITOR_AREA_POINT} from "../shared/contracts";
 import type {EditorAreaImplementation} from "./contracts";
 import {EditorAreaSlot, validateEditorAreaContribution} from "./editor-area";
+
+import {createApplication} from "nbook/application";
 
 const started: Application[] = [];
 

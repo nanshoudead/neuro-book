@@ -11,7 +11,6 @@ import {afterEach, describe, expect, it} from "bun:test";
 
 import {getSchema, Mark} from "@tiptap/core";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
@@ -19,6 +18,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {codecFor, coreSyntax, createMarkdownLanguage} from "@notnotype/nb-markdown/language";
 import type {MarkdownLanguage} from "@notnotype/nb-markdown/language";
 
+import {createApplication} from "nbook/application";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 
 import {descriptor} from "../plugin";

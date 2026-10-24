@@ -21,8 +21,8 @@ export {definitionOf, descriptorOf} from "./definition";
 export type {DefinitionOptions} from "./definition";
 export {createManifestFormat} from "./format";
 export type {ManifestFormat, ManifestFormatOptions} from "./format";
-export {isBuiltinId, isReservedPublisher, RUNTIME_PUBLISHER} from "./platform";
-export type {PluginPlatform} from "./platform";
+export {isBuiltinId, isReservedPublisher, RUNTIME_PUBLISHER} from "../plugins/plugins";
+export type {PluginPlatform} from "../plugins/plugins";
 export {ID_SEGMENT_RULE, isIdSegment, isPluginId} from "./schema";
 export type {
     ManifestContract,

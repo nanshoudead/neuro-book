@@ -27,13 +27,14 @@ afterEach(async () => {
     await Promise.all(roots.splice(0).map((scope) => scope.close()));
 });
 
-function fixture() {
+function fixture(options: {readonly reservedPublishers?: ReadonlyArray<string>} = {}) {
     const runtime = createRuntimeInstance({location: "server", instanceId: "contribution-contract"});
     runtime.root.open();
     roots.push(runtime.root);
     const assembly = createServiceAssembly(runtime);
     const diagnostics: PluginDiagnostic[] = [];
-    const host = createPluginHost(runtime, assembly, {observer: {diagnosticRecorded: (diagnostic) => diagnostics.push(diagnostic)}});
+    const platform = options.reservedPublishers === undefined ? {} : {platform: {reservedPublishers: options.reservedPublishers}};
+    const host = createPluginHost(runtime, assembly, {observer: {diagnosticRecorded: (diagnostic) => diagnostics.push(diagnostic)}, ...platform});
     return {host, root: runtime.root, assembly, diagnostics};
 }
 
@@ -127,6 +128,22 @@ describe("拥有者贡献点合同", () => {
         expect(state(host, "source.ok").validation).toEqual({status: "accepted"});
         expect(state(host, "other.run").validation).toEqual({status: "rejected", reason: "invalid-declaration", detail: "贡献 id 要以插件 id source 加“.”开头：other.run"});
         expect(state(host, "sourcex").validation).toMatchObject({status: "rejected", detail: "贡献 id 要以插件 id source 加“.”开头：sourcex"});
+    });
+
+    it("idPrefix 为 plugin 时，平台保留发布者的插件也可以只以发布者加“.”开头；内核的 runtime 总是保留；不给平台档案时按严格前缀", async () => {
+        const reserved = fixture({reservedPublishers: ["acme"]});
+        register(reserved.host, owner([{...point(), idPrefix: "plugin"}], {commands: recordingReceiver([])}), reserved.root);
+        register(reserved.host, source("acme.files", [declaration("acme.files"), declaration("acme.view.open"), declaration("other.run")]), reserved.root);
+        register(reserved.host, source("runtime.tools", [declaration("runtime.reload")]), reserved.root);
+        expect(state(reserved.host, "acme.files").validation).toEqual({status: "accepted"});
+        expect(state(reserved.host, "acme.view.open").validation).toEqual({status: "accepted"});
+        expect(state(reserved.host, "other.run").validation).toEqual({status: "rejected", reason: "invalid-declaration", detail: "贡献 id 要以 acme. 开头：other.run"});
+        expect(state(reserved.host, "runtime.reload").validation).toEqual({status: "accepted"});
+
+        const strict = fixture();
+        register(strict.host, owner([{...point(), idPrefix: "plugin"}], {commands: recordingReceiver([])}), strict.root);
+        register(strict.host, source("acme.files", [declaration("acme.view.open")]), strict.root);
+        expect(state(strict.host, "acme.view.open").validation).toEqual({status: "rejected", reason: "invalid-declaration", detail: "贡献 id 要以插件 id acme.files 加“.”开头：acme.view.open"});
     });
 
     it("场景 2：required 拒绝顶层声明，none 拒绝入口实现，只拒绝单条贡献", async () => {

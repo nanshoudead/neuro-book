@@ -8,13 +8,14 @@ import {afterEach, describe, expect, it} from "vitest";
 import {defineComponent, h} from "vue";
 import type {Component} from "vue";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {EDITOR_PAGES_POINT, validateEditorPageContribution} from "../shared/contracts";
 import {EditorPageRegistry} from "./pages";
 import type {EditorPageImplementation} from "./pages";
+
+import {createApplication} from "nbook/application";
 
 const PAGE_ID = "test.pages.sample";
 

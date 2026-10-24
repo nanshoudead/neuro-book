@@ -354,7 +354,7 @@ function selectPlugins(
         const local = builtin.find((item) => item.id === plugin.id);
         if (local === undefined) {
             // 内置插件的 id 以 `nbook.` 开头：本页面没有它，说明外壳与服务端不是同一次构建，刷新即可对齐。
-            if (plugin.id.startsWith("nbook.")) throw new BootstrapRejected("incompatible", `本页面没有服务端启用的浏览器插件 ${plugin.id}@${plugin.version}`);
+            if (manifestFormat.isBuiltinId(plugin.id)) throw new BootstrapRejected("incompatible", `本页面没有服务端启用的浏览器插件 ${plugin.id}@${plugin.version}`);
             // 第三方插件不在构建里：按引导带来的清单登记（入口的代码在激活时经插件文件端点取回）。清单服务端已校验过，这里用
             // 同一个清单格式再读一遍，读不过说明外壳与服务端不是同一次构建。
             const read = manifestFormat.read(plugin.manifest);

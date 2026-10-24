@@ -24,6 +24,7 @@ export const settingsPoint: ContributionPointDefinition<SettingDeclaration> = {
 export const sectionsPoint: ContributionPointDefinition<SettingsSectionDeclaration> = {
     id: SETTINGS_SECTIONS_POINT,
     implementation: "none",
+    idPrefix: "plugin",
     validate: validateSectionContribution,
 };
 
@@ -31,6 +32,7 @@ export const sectionsPoint: ContributionPointDefinition<SettingsSectionDeclarati
 export const pagesPoint: ContributionPointDefinition<SettingsPageDeclaration> = {
     id: SETTINGS_PAGES_POINT,
     implementation: "required",
+    idPrefix: "plugin",
     validate: validatePageContribution,
 };
 
@@ -38,6 +40,7 @@ export const pagesPoint: ContributionPointDefinition<SettingsPageDeclaration> = 
 export const choicesPoint: ContributionPointDefinition<SettingsChoicesDeclaration> = {
     id: SETTINGS_CHOICES_POINT,
     implementation: "required",
+    idPrefix: "plugin",
     validate: validateChoiceContribution,
 };
 

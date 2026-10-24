@@ -367,6 +367,18 @@ describe("Spec 验收 2：激活一次、执行两次", () => {
 });
 
 describe("Spec 验收 3、8：入口独立与跨位置非原子", () => {
+    it("activate 没有返回对象（作者忘了 return）：以 activation-threw 结束这一代，原因写明产出不是对象", async () => {
+        const server = await setup("server");
+        const definition = plugin("forgot", {...commandEntry("main", ["forgot.run"]), activate: () => undefined as never});
+        accepted(server.host, definition, server.root);
+        expect(await server.host.activate({plugin: "forgot", entry: "main"})).toMatchObject({
+            status: "failed",
+            stage: "activate",
+            reason: "activation-threw",
+            error: {name: "TypeError", message: expect.stringContaining("没有返回激活产出")},
+        });
+    });
+
     it("同一定义在 server 与 browser 宿主分别激活；一处失败不阻止另一处可用，结果分别报告", async () => {
         const server = await setup("server");
         const browser = await setup("browser", "browser-1");

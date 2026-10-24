@@ -100,11 +100,10 @@ export type EditorPageDeclaration = Static<typeof EditorPageDeclarationSchema>;
 
 const PAGE_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u;
 
-/** 页面 id 的规则与视图相同：内置插件写 `nbook.` 开头，其它插件以自己的插件 id 加 `.` 开头。 */
+/** 页面 id 的前缀由内核按贡献点的 `idPrefix` 核对（同视图），这里只看形状与声明。 */
 export function validateEditorPageContribution(descriptor: ContributionDescriptor): string | null {
     if (descriptor.location !== "browser") return `${EDITOR_PAGES_POINT} 只接受浏览器入口的贡献`;
-    const prefix = descriptor.plugin.startsWith("nbook.") ? "nbook." : `${descriptor.plugin}.`;
-    if (!PAGE_ID.test(descriptor.id) || !descriptor.id.startsWith(prefix)) return `插件 ${descriptor.plugin} 的页面 id 必须是点分的小写段、以 ${prefix} 开头：${descriptor.id}`;
+    if (!PAGE_ID.test(descriptor.id)) return `页面 id 必须是点分的小写段：${descriptor.id}`;
     if (!Value.Check(EditorPageDeclarationSchema, descriptor.declaration)) {
         const first = [...Value.Errors(EditorPageDeclarationSchema, descriptor.declaration)][0];
         return `页面 ${descriptor.id} 的声明不合格：${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}：${first.message}`}`;
@@ -145,8 +144,7 @@ export type EditorDeclaration = Static<typeof EditorDeclarationSchema>;
 
 export function validateEditorContribution(descriptor: ContributionDescriptor): string | null {
     if (descriptor.location !== "browser") return `${EDITOR_EDITORS_POINT} 只接受浏览器入口的贡献`;
-    const prefix = descriptor.plugin.startsWith("nbook.") ? "nbook." : `${descriptor.plugin}.`;
-    if (!PAGE_ID.test(descriptor.id) || !descriptor.id.startsWith(prefix)) return `插件 ${descriptor.plugin} 的编辑器 id 必须是点分的小写段、以 ${prefix} 开头：${descriptor.id}`;
+    if (!PAGE_ID.test(descriptor.id)) return `编辑器 id 必须是点分的小写段：${descriptor.id}`;
     if (!Value.Check(EditorDeclarationSchema, descriptor.declaration)) {
         const first = [...Value.Errors(EditorDeclarationSchema, descriptor.declaration)][0];
         return `编辑器 ${descriptor.id} 的声明不合格：${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}：${first.message}`}`;

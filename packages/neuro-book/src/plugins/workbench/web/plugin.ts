@@ -32,12 +32,12 @@ import {PART_COMMAND_DECLARATIONS, partCommands} from "./commands/part-commands"
 import {VIEW_COMMAND_DECLARATIONS, viewCommands} from "./commands/view-commands";
 import {appearanceSetting, notificationsKey, quickPickKey, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
 import {validateHomeContribution, WORKBENCH_HOME_POINT, WORKBENCH_PATH} from "../shared/home";
-import {itemValidator, validateActivityBarItemContribution, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../shared/items";
+import {activityBarItemsPoint, statusbarItemsPoint, titlebarItemsPoint, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../shared/items";
 import type {ActivityBarItemDeclaration, ItemDeclaration} from "../shared/items";
-import {validateTitlebarMenuItem, validateViewTitleItem, WORKBENCH_TITLEBAR_MENU_POINT, WORKBENCH_VIEW_TITLE_POINT} from "../shared/menus";
+import {titlebarMenuPoint, viewTitlePoint, WORKBENCH_TITLEBAR_MENU_POINT, WORKBENCH_VIEW_TITLE_POINT} from "../shared/menus";
 import type {TitlebarMenuItemDeclaration, ViewTitleItemDeclaration} from "../shared/menus";
-import {validateOverlayContribution, WORKBENCH_OVERLAYS_POINT} from "../shared/overlays";
-import {validateViewContribution, WORKBENCH_VIEWS_POINT} from "../shared/views";
+import {overlaysPoint, WORKBENCH_OVERLAYS_POINT} from "../shared/overlays";
+import {viewsPoint, WORKBENCH_VIEWS_POINT} from "../shared/views";
 import type {ViewDeclaration} from "../shared/views";
 import {workbenchRootKey} from "./contracts";
 import type {ActivityBarItemImplementation} from "./contracts";
@@ -75,17 +75,15 @@ export const workbenchBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
     contributionPoints: [
         {id: WORKBENCH_PAGES_POINT, implementation: "required", validate: validatePageContribution},
-        {id: WORKBENCH_VIEWS_POINT, implementation: "required", validate: validateViewContribution},
+        viewsPoint,
         {id: WORKBENCH_EDITOR_AREA_POINT, implementation: "required", validate: validateEditorAreaContribution},
-        {id: WORKBENCH_STATUSBAR_ITEMS_POINT, implementation: "required", validate: itemValidator(WORKBENCH_STATUSBAR_ITEMS_POINT)},
-        {id: WORKBENCH_TITLEBAR_ITEMS_POINT, implementation: "required", validate: itemValidator(WORKBENCH_TITLEBAR_ITEMS_POINT)},
-        // 条目只有声明，内核却只能对整个贡献点规定要不要实现：要实现，贡献方交空对象（同设置的 list 分区）。
-        {id: WORKBENCH_ACTIVITYBAR_ITEMS_POINT, implementation: "required", validate: validateActivityBarItemContribution},
-        {id: WORKBENCH_OVERLAYS_POINT, implementation: "required", validate: validateOverlayContribution},
+        statusbarItemsPoint,
+        titlebarItemsPoint,
+        activityBarItemsPoint,
+        overlaysPoint,
         {id: WORKBENCH_HOME_POINT, implementation: "required", validate: validateHomeContribution},
-        // 菜单项只有声明，同活动栏条目交空实现：这样它随贡献方入口出现与消失（docs/specs/workbench/menus.md）。
-        {id: WORKBENCH_TITLEBAR_MENU_POINT, implementation: "required", validate: validateTitlebarMenuItem},
-        {id: WORKBENCH_VIEW_TITLE_POINT, implementation: "required", validate: validateViewTitleItem},
+        titlebarMenuPoint,
+        viewTitlePoint,
     ],
     entries: [defineEntry({
         id: "browser",

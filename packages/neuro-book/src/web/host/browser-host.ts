@@ -6,8 +6,10 @@
  * 同一页面的多个实例按 instanceId 隔离；释放一个实例不向服务端发送全局停止。
  */
 
-import {createApplication, createInstanceTable, stopTimeout} from "@notnotype/nb-runtime/application";
+import {createInstanceTable, stopTimeout} from "@notnotype/nb-runtime/application";
 import type {Application, ApplicationManifest, EmergencyReport, StopResult} from "@notnotype/nb-runtime/application";
+
+import {createApplication} from "nbook/application";
 
 /** 适配器需要的最小页面事件接口；浏览器里传 `window`。 */
 export interface PageLifecycleTarget {

@@ -10,9 +10,8 @@
 import type {RemoteContract, RemoteProviderLocation} from "../remote/remote";
 
 import type {ContributionPointDefinition, PluginDefinition, PluginDescriptor, PluginEntryDefinition} from "../plugins/plugins";
-import {portabilityProblems} from "../plugins/plugins";
+import {isBuiltinId, portabilityProblems} from "../plugins/plugins";
 
-import {isBuiltinId} from "./platform";
 import {readManifest} from "./read";
 import type {ReadContext} from "./read";
 import {byPath, contractSchemas, ENTRY_ID, ENTRY_ID_RULE, joinPath} from "./schema";

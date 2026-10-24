@@ -1416,6 +1416,28 @@ describe("Spec plugins 输出 22：远程提供项的位置与合同", () => {
         expect(await app.startup).toMatchObject({status: "available", failures: [{source: "demo.drifted/main", reason: "output/remote-contract-mismatch", required: false}]});
     });
 
+    it("产出的合同与声明的是两个对象但内容相同（第三方插件打包了自己的一份）：入口照常可用，不报 remote-contract-mismatch", async () => {
+        const copy = defineRemoteService({...atServer});
+        expect(copy).not.toBe(atServer);
+        const copied: PluginDefinition = {
+            id: "demo.copied",
+            entries: [{
+                id: "main",
+                location: "server",
+                activationEvents: ["onStartup"],
+                remoteProvides: [atServer],
+                activate: () => ({remote: [provideRemote(copy, () => ({methods: {where: () => ({ok: true, value: "server"})}}))]}),
+            }],
+        };
+        const node = createRemoteNode({instance: {id: "hub", kind: "server", role: "hub", project: null, client: null}});
+        const app = createApplication(
+            {identity: {location: "server", instanceId: "hub"}, stopSignal: new AbortController().signal, emergency: () => undefined},
+            {plugins: [copied], gates: [], remote: node},
+        );
+        expect(await app.startup).toMatchObject({status: "available", failures: []});
+        expect(app.plugins.entryState({plugin: "demo.copied", entry: "main"})).toMatchObject({status: "available"});
+    });
+
     it("同一入口的 remoteProvides 里同一合同 id 出现两次（例如两个版本）：登记即拒绝 duplicate-remote-contract", async () => {
         // 按 id 查到的声明必须唯一：否则一项产出能同时满足两项声明，查询按其中一个版本回答、调用按另一个核对。
         const atServerV2 = defineRemoteService({...atServer, version: 2});

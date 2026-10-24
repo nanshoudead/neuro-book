@@ -123,6 +123,19 @@ describe("包内依赖方向", () => {
         expect(violationsOf([...sourceFiles(SRC), ...sourceFiles(EXAMPLE_PLUGINS)].flatMap(importsOf))).toEqual([]);
     });
 
+    it("装配运行实例一律经 src/application.ts：内核的 createApplication 只在那里导入（漏传平台档案时内置插件的贡献会被拒）", () => {
+        const KERNEL_CREATE = /import\s*\{[^}]*\bcreateApplication\b[^}]*\}\s*from\s*["']@notnotype\/nb-runtime\/application["']/u;
+        const everywhere = (directory: string): string[] => readdirSync(directory, {withFileTypes: true}).flatMap((entry) => {
+            const path = join(directory, entry.name);
+            if (entry.isDirectory()) return entry.name === "node_modules" || entry.name === "dist" ? [] : everywhere(path);
+            return /\.(ts|vue)$/u.test(entry.name) ? [path] : [];
+        });
+        const root = resolve(SRC, "..");
+        const users = ["src", "examples", "scripts", "e2e"].flatMap((directory) => everywhere(join(root, directory))).filter((file) => file !== import.meta.path && KERNEL_CREATE.test(readFileSync(file, "utf8"))).map((file) => relative(root, file));
+        expect(users).toEqual(["src/application.ts"]);
+        expect(KERNEL_CREATE.test('import {createInstanceTable, createApplication} from "@notnotype/nb-runtime/application";')).toBe(true);
+    });
+
     it("import.meta.glob 只出现在 Lab", () => {
         expect(globUsers(sourceFiles(SRC)).filter((file) => !globAllowed(file))).toEqual([]);
         expect(globUsers(sourceFiles(SRC))).toContain("plugins/lab/web/component-index.ts");
