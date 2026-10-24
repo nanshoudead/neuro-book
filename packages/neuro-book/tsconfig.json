@@ -30,15 +30,11 @@
         "src/plugins/*/backend",
         "src/plugins/*/shared",
         "src/**/*.test.ts",
-        "examples/testing",
-        "examples/scenarios",
-        "examples/plugins/*/plugin.ts",
-        "examples/plugins/*/backend",
-        "examples/plugins/*/shared",
+        "plugin-sdk",
         "scripts",
         "vite.config.ts",
         "vite.e2e.config.ts",
         "vitest.config.ts"
     ],
-    "exclude": ["scripts/plugin-sdk/template", "src/**/*.dom.test.ts", "src/plugins/*/web/**/*.test.ts", "scripts/lab-shot.ts", "scripts/page-shot.ts", "scripts/page-shot.test.ts", "scripts/perf/files-perf.ts", "scripts/perf/page-agent.ts", "scripts/perf/browser-runner.ts"]
+    "exclude": ["plugin-sdk/template", "plugin-sdk/examples/plugins/*/web", "plugin-sdk/examples/**/*.dom.test.ts", "src/**/*.dom.test.ts", "src/plugins/*/web/**/*.test.ts", "scripts/lab-shot.ts", "scripts/page-shot.ts", "scripts/page-shot.test.ts", "scripts/perf/files-perf.ts", "scripts/perf/page-agent.ts", "scripts/perf/browser-runner.ts"]
 }

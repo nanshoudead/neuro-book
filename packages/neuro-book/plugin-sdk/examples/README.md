@@ -35,7 +35,7 @@
 | 贡献与贡献点 | 声明式扩展：拥有者定义扩展点，别的插件交“声明 + 实现”，彼此没有依赖 | 同一实例 | 插件定义的 `contributionPoints`，入口的 `receives` 与 `contributions` | menu 定义、file-menu 贡献；counter 向 `nbook.commands`、`nbook.state` 贡献 |
 | 插件状态 | 一个入口的内存、持久化、派生与公开状态，只经 action 写，随入口代次创建与释放 | 一个入口 | `defineStore`（`nbook/shared/store/store`），公开键 `definePublicState` | counter 的计数与公开键 `example.counter/nonzero` |
 | 配置项 | 用户主动设定的偏好，用户层（`<状态根>/settings.json`）与项目层（`<项目目录>/.nbook/settings.json`）各存一份，越具体越优先、整体覆盖；所有插件都能读，只有声明它的插件能写 | 跨所有运行位置 | `defineSetting`（`nbook/shared/settings`），写在插件描述的 `contributions` 里；经 `nbook.settings` 的 `settingsKey` 读（`get` 有效值、`inspect` 各层）、写（`update(定义, 值, {layer})`） | snippets 的 `example.snippets/items` |
-| 设置分区 | 设置窗口左栏的一项：list 分区由窗口按配置项画通用控件，page 分区由插件自己画页面 | 窗口 | 贡献点 `settings.sections`（list 分区）与 `settings.pages`（page 分区），都由 `nbook.settings` 拥有。list 分区是插件描述 `contributions` 里的顶层声明 `{capability: SETTINGS_SECTIONS_POINT, id, declaration: {title, icon, category, groups}}`，配置项的 `section`、`group` 写分区 id 与小组 id 归进去，不需要代码；page 分区由浏览器入口用 `settingsPageContribution` 贡献，实现交 `load()`，页面用 SDK `/browser` 的 `SettingsRow` 画每一项 | snippets 的 page 分区 `example.snippets.main`；list 分区见作者模板的 [`shared/contracts.ts`](../scripts/plugin-sdk/template/shared/contracts.ts) |
+| 设置分区 | 设置窗口左栏的一项：list 分区由窗口按配置项画通用控件，page 分区由插件自己画页面 | 窗口 | 贡献点 `settings.sections`（list 分区）与 `settings.pages`（page 分区），都由 `nbook.settings` 拥有。list 分区是插件描述 `contributions` 里的顶层声明 `{capability: SETTINGS_SECTIONS_POINT, id, declaration: {title, icon, category, groups}}`，配置项的 `section`、`group` 写分区 id 与小组 id 归进去，不需要代码；page 分区由浏览器入口用 `settingsPageContribution` 贡献，实现交 `load()`，页面用 SDK `/browser` 的 `SettingsRow` 画每一项 | snippets 的 page 分区 `example.snippets.main`；list 分区见作者模板的 [`shared/contracts.ts`](../template/shared/contracts.ts) |
 
 几个概念之间的关系，以 counter 与 notes 为例：
 
@@ -70,7 +70,7 @@
 
 ## 选哪种方式
 
-全文见 [`runtime.plugin-api`](../../../docs/specs/runtime/plugin-api.md) 的“选用规则”与“可选功能”。
+全文见 [`runtime.plugin-api`](../../../../docs/specs/runtime/plugin-api.md) 的“选用规则”与“可选功能”。
 
 | 接口的性质 | 用什么 | 示例 |
 |---|---|---|
@@ -100,11 +100,11 @@ examples/
 └── testing/                 场地与探针：测试支持代码，不含断言
 ```
 
-目录格式与应用包的内置插件相同（[`packages/neuro-book/AGENTS.md`](../AGENTS.md) 的“目录约定”）：
+目录格式与应用包的内置插件相同（[`packages/neuro-book/AGENTS.md`](../../AGENTS.md) 的“目录约定”）：
 
 - 示例插件按第三方插件的写法：只从 SDK 导入（`@notnotype/nb-plugin-sdk`、`/browser`、`/components`），另外只用 `vue`、`@vue/reactivity` 与 `typebox`；引用别的示例插件在运行时只引用对方的 `shared/contracts.ts`，类型可以 `import type`。测试文件（场景、组件测试）不受这条限制。`src/architecture.test.ts` 检查这些规则，产品代码也不能反过来引用 `examples/`。
-- 服务键按服务 id 识别，只在提供方的 `shared/contracts.ts` 定义一次（[ADR 0025](../../../docs/adr/0025-service-keys-by-id.md)）。
-- 插件定义是常量，没有工厂参数（[ADR 0026](../../../docs/adr/0026-plugin-definitions-as-constants.md)）：要宿主的东西就依赖宿主能力，对别的插件的依赖同样写在入口的 `dependencies` 里。定义按代码所在的一侧导出，后端不能引用浏览器代码；一份后端定义可以含 `server` 与 `project` 两个位置的入口。
+- 服务键按服务 id 识别，只在提供方的 `shared/contracts.ts` 定义一次（[ADR 0025](../../../../docs/adr/0025-service-keys-by-id.md)）。
+- 插件定义是常量，没有工厂参数（[ADR 0026](../../../../docs/adr/0026-plugin-definitions-as-constants.md)）：要宿主的东西就依赖宿主能力，对别的插件的依赖同样写在入口的 `dependencies` 里。定义按代码所在的一侧导出，后端不能引用浏览器代码；一份后端定义可以含 `server` 与 `project` 两个位置的入口。
 - `web/` 与 `backend/` 互不引用，只经 `shared/` 交换类型与 schema；`plugin.ts`、`shared/` 与 `web/` 也过浏览器那份类型检查，不用 Bun 与 Node 的接口。
 
 ## 插件
@@ -121,36 +121,36 @@ examples/
 
 ## 外部插件
 
-示例插件都按第三方插件构建、安装运行：每个示例目录有一份 `package.json`（作者合同：`publisher`、`name`、`version` 与可选的 `pluginVersions`），用的构建预设与仓库外作者经 SDK 的 `nbook-plugin build` 用的是同一个（[`scripts/plugin-sdk/build-plugin.ts`](../scripts/plugin-sdk/build-plugin.ts)）。产物里的 `package.json` 是构建预设从代码定义生成的清单（[`runtime.plugin-manifest`](../../../docs/specs/runtime/plugin-manifest.md)），经设置窗口的“插件”页装进状态根、重启后生效（[`runtime.plugin-install`](../../../docs/specs/runtime/plugin-install.md)）；入口的代码在激活时才装载（[`runtime.plugin-code-loading`](../../../docs/specs/runtime/plugin-code-loading.md)）。
+示例插件都按第三方插件构建、安装运行：每个示例目录有一份 `package.json`（作者合同：`publisher`、`name`、`version` 与可选的 `pluginVersions`），用的构建预设与仓库外作者经 SDK 的 `nbook-plugin build` 用的是同一个（[`plugin-sdk/build.ts`](../build.ts)）。产物里的 `package.json` 是构建预设从代码定义生成的清单（[`runtime.plugin-manifest`](../../../../docs/specs/runtime/plugin-manifest.md)），经设置窗口的“插件”页装进状态根、重启后生效（[`runtime.plugin-install`](../../../../docs/specs/runtime/plugin-install.md)）；入口的代码在激活时才装载（[`runtime.plugin-code-loading`](../../../../docs/specs/runtime/plugin-code-loading.md)）。
 
 装一个示例：
 
 1. 在应用包目录运行 `bun run build:examples [名…]`（不写名字就构建全部），产物在各示例的 `dist/`（git 忽略）。每个入口打成一个文件，宿主共享的模块（Vue、`@vue/reactivity`、SDK 与它的组件入口）不打进去；仓库里构建时 SDK 的包名指到应用源码，应用源码列为不许打进产物的目录，示例绕过 SDK 引用了应用内部时构建失败。
-2. 在 NeuroBook 的“设置 → 插件”里点“安装…”，填某个示例 `dist` 的完整路径（例如 `<仓库>/packages/neuro-book/examples/plugins/snippets/dist`），确认。
+2. 在 NeuroBook 的“设置 → 插件”里点“安装…”，填某个示例 `dist` 的完整路径（例如 `<仓库>/packages/neuro-book/plugin-sdk/examples/plugins/snippets/dist`），确认。
 3. 重启 NeuroBook。menu 与 file-menu 要一起装：file-menu 的菜单项交给 menu，menu 收到时记一条诊断，在服务端日志里看得到。notes 写了 `pluginVersions` 要求 clock 是 `^0.1.0`（clock 是它的可选依赖，不装也能用）。
 
 另有 [declarative](external/declarative/package.json)：只有声明、没有代码的插件，文件夹本身就能安装，不用构建。一项配置 `example.hello/greeting`，用户层与本作品层都能改。
 
-外置之后的行为与按源码装配时相同，由 `scripts/plugin-sdk/external-examples.test.ts`（构建、按清单登记、装载器装载，再跑场景里同样的调用）与 `e2e/plugin-code.e2e.ts`（真实浏览器与产品服务端）核对。在仓库外从零写插件，看 SDK 包的作者文档（[`scripts/plugin-sdk/README.md`](../scripts/plugin-sdk/README.md)）。
+外置之后的行为与按源码装配时相同，由 `plugin-sdk/external-examples.test.ts`（构建、按清单登记、装载器装载，再跑场景里同样的调用）与 `e2e/plugin-code.e2e.ts`（真实浏览器与产品服务端）核对。在仓库外从零写插件，看 SDK 包的作者文档（[`plugin-sdk/README.md`](../README.md)）。
 
 ## 场景
 
 | 场景 | 用到的插件 | 核对的行为 | 行为合同 |
 |---|---|---|---|
-| [01-services](scenarios/01-services.test.ts) | clock、notes（服务端） | 按需激活与激活顺序；宿主不给时钟时 clock 受阻、notes 照常，可选依赖的原因 `provider-rejected` 与 `missing-provider`；停止时 `signal` 与 `scope` 的分工 | [services](../../../docs/specs/runtime/services.md)、[plugins](../../../docs/specs/runtime/plugins.md)、[plugin-api](../../../docs/specs/runtime/plugin-api.md) |
-| [02-per-consumer](scenarios/02-per-consumer.test.ts) | notes（服务端） | 两个调用方各自只看到自己的笔记；调用方停止后旧门面不能再用、数据还在；服务端重启后笔记仍在 | [services](../../../docs/specs/runtime/services.md) 输出第 11–12 条、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md)、[persistence](../../../docs/specs/storage/persistence.md) |
-| [03-contribution-point](scenarios/03-contribution-point.test.ts) | menu、file-menu | 校验不合格只拒那一条；贡献方停止后撤回；声明先于激活 | [plugins](../../../docs/specs/runtime/plugins.md) 输出第 15–18、23、24 条 |
-| [04-remote-service](scenarios/04-remote-service.test.ts) | counter | 窗口直接用合同、`orThrow`、订阅归发起入口；项目按绑定到达与按需激活；`lookup` 的 `not-provided` 降级；`instances()`；计数持久化，命令随公开键可用与不可用 | [plugin-channel](../../../docs/specs/runtime/plugin-channel.md)、[projects](../../../docs/specs/runtime/projects.md)、[store](../../../docs/specs/state/store.md)、[public-state](../../../docs/specs/state/public-state.md)、[commands](../../../docs/specs/workbench/commands.md) |
-| [05-delegating-proxy](scenarios/05-delegating-proxy.test.ts) | notes（浏览器端） | 两个插件经代理各写各的，服务端看到原调用方与 `via`；同步缓存随 `changed` 更新 | [services](../../../docs/specs/runtime/services.md) 输出第 13 条、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md) 输出第 10 条 |
-| [06-settings-page](scenarios/06-settings-page.test.ts) | snippets | 配置项在服务端、项目实例与窗口都被接受；page 分区交付给设置窗口、插件停用后撤回；按层写用户层与本作品层，`inspect` 读回各层、`get` 读有效值，删掉本作品层回到沿用，不带 `layer` 时按 `auto` 选层；写别人的项为 `denied`、不合 schema 为 `invalid-value` | [settings-window](../../../docs/specs/settings/settings-window.md)、[configuration](../../../docs/specs/settings/configuration.md) 输出第 3、6、11、12 条 |
-| [07-focus](scenarios/07-focus.test.ts) | focus | 命令开始、时长取设置项、到点结算后状态栏更新；`already-running`、`not-running`；没有窗口时服务端到点推送；服务端入口停止时计时器跟着取消，停着时到点的那次之后第一次读时记上；记录版本不同时换成空记录；同一状态根上两个服务端只记一次；跨零点算在结束那天；断线重连后补上别处的变化；入口停止、空闲后不占计时器 | [plugin-api](../../../docs/specs/runtime/plugin-api.md)、[persistence](../../../docs/specs/storage/persistence.md)、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md)、[workbench-shell](../../../docs/specs/ui/workbench-shell.md) |
+| [01-services](scenarios/01-services.test.ts) | clock、notes（服务端） | 按需激活与激活顺序；宿主不给时钟时 clock 受阻、notes 照常，可选依赖的原因 `provider-rejected` 与 `missing-provider`；停止时 `signal` 与 `scope` 的分工 | [services](../../../../docs/specs/runtime/services.md)、[plugins](../../../../docs/specs/runtime/plugins.md)、[plugin-api](../../../../docs/specs/runtime/plugin-api.md) |
+| [02-per-consumer](scenarios/02-per-consumer.test.ts) | notes（服务端） | 两个调用方各自只看到自己的笔记；调用方停止后旧门面不能再用、数据还在；服务端重启后笔记仍在 | [services](../../../../docs/specs/runtime/services.md) 输出第 11–12 条、[plugin-channel](../../../../docs/specs/runtime/plugin-channel.md)、[persistence](../../../../docs/specs/storage/persistence.md) |
+| [03-contribution-point](scenarios/03-contribution-point.test.ts) | menu、file-menu | 校验不合格只拒那一条；贡献方停止后撤回；声明先于激活 | [plugins](../../../../docs/specs/runtime/plugins.md) 输出第 15–18、23、24 条 |
+| [04-remote-service](scenarios/04-remote-service.test.ts) | counter | 窗口直接用合同、`orThrow`、订阅归发起入口；项目按绑定到达与按需激活；`lookup` 的 `not-provided` 降级；`instances()`；计数持久化，命令随公开键可用与不可用 | [plugin-channel](../../../../docs/specs/runtime/plugin-channel.md)、[projects](../../../../docs/specs/runtime/projects.md)、[store](../../../../docs/specs/state/store.md)、[public-state](../../../../docs/specs/state/public-state.md)、[commands](../../../../docs/specs/workbench/commands.md) |
+| [05-delegating-proxy](scenarios/05-delegating-proxy.test.ts) | notes（浏览器端） | 两个插件经代理各写各的，服务端看到原调用方与 `via`；同步缓存随 `changed` 更新 | [services](../../../../docs/specs/runtime/services.md) 输出第 13 条、[plugin-channel](../../../../docs/specs/runtime/plugin-channel.md) 输出第 10 条 |
+| [06-settings-page](scenarios/06-settings-page.test.ts) | snippets | 配置项在服务端、项目实例与窗口都被接受；page 分区交付给设置窗口、插件停用后撤回；按层写用户层与本作品层，`inspect` 读回各层、`get` 读有效值，删掉本作品层回到沿用，不带 `layer` 时按 `auto` 选层；写别人的项为 `denied`、不合 schema 为 `invalid-value` | [settings-window](../../../../docs/specs/settings/settings-window.md)、[configuration](../../../../docs/specs/settings/configuration.md) 输出第 3、6、11、12 条 |
+| [07-focus](scenarios/07-focus.test.ts) | focus | 命令开始、时长取设置项、到点结算后状态栏更新；`already-running`、`not-running`；没有窗口时服务端到点推送；服务端入口停止时计时器跟着取消，停着时到点的那次之后第一次读时记上；记录版本不同时换成空记录；同一状态根上两个服务端只记一次；跨零点算在结束那天；断线重连后补上别处的变化；入口停止、空闲后不占计时器 | [plugin-api](../../../../docs/specs/runtime/plugin-api.md)、[persistence](../../../../docs/specs/storage/persistence.md)、[plugin-channel](../../../../docs/specs/runtime/plugin-channel.md)、[workbench-shell](../../../../docs/specs/ui/workbench-shell.md) |
 
 ## 场地与探针
 
 - [`testing/stage.ts`](testing/stage.ts) 像应用包的宿主那样装配运行实例：每个实例装上与产品宿主相同的内置插件（诊断、`nbook.state`、`nbook.storage`，服务端与窗口另有 `nbook.commands`），给出状态根、时钟与项目；服务端带路由，项目实例与窗口经进程内链路连上它，帧照样经 JSON 编解码。状态根在场景的临时目录里，同一个场地再起服务端读到的是上一次写下的数据。`attach` 把一个插件装进子作用域并激活，用来演示调用方停止。
 - [`testing/probes.ts`](testing/probes.ts) 的探针站在“使用这些服务的插件”的位置上，把拿到的本地服务（`serviceProbe`）或以探针身份的远程访问（`remoteProbe`）交给场景；产品里没有这样的插件。要以某个示例插件**自己**的身份调用时（场景 06 写这个插件声明的配置项），探针作为一个入口加进那个插件的定义，而不是另起一个插件。
 - [`testing/workbench.ts`](testing/workbench.ts) 是工作台的替身：场地不装真正的工作台，替身只拥有视图与状态栏条目两个贡献点，校验用产品里同一份函数，场景直接读条目的 `text()`。视图组件不在 Bun 里加载，由组件测试（`*.dom.test.ts`）覆盖。
-- 场景遵守[测试写法](../../../docs/testing/README.md#测试写法)：真实内核实例与真实内置插件，不用 mock、spy、假计时器与固定等待；时间由场地时钟推进；每个场景在 `afterEach` 里停止全部实例并核对正常关闭，临时目录在 `afterAll` 删除。
+- 场景遵守[测试写法](../../../../docs/testing/README.md#测试写法)：真实内核实例与真实内置插件，不用 mock、spy、假计时器与固定等待；时间由场地时钟推进；每个场景在 `afterEach` 里停止全部实例并核对正常关闭，临时目录在 `afterAll` 删除。
 
 ## 还没演示的
 
@@ -159,7 +159,7 @@ examples/
 ## 写法与维护
 
 - 示例在精不在多：一个插件只演示少数几件事，新机制优先补进已有插件与场景，确实放不下才加插件。
-- 注释是教学材料，是注释规则的例外（根 [`AGENTS.md`](../../../AGENTS.md) 的“注释”）：逐步讲这一步做什么、为什么、不这样会怎样，链接 Spec 时写路径与条目编号。注释里写的行为要有场景覆盖，改代码时同一提交里改讲解与场景。
+- 注释是教学材料，是注释规则的例外（根 [`AGENTS.md`](../../../../AGENTS.md) 的“注释”）：逐步讲这一步做什么、为什么、不这样会怎样，链接 Spec 时写路径与条目编号。注释里写的行为要有场景覆盖，改代码时同一提交里改讲解与场景。
 - 示例文件头列出的每个教学要点，各要有一条删掉它就会失败的场景断言；写完之后做一次变异核对：逐个删掉这些机制再跑场景，确认各有一例失败（场景 07 的第一版删掉三处核心机制后照样全过）。
 - 场景里断言没有计时器时，推进时钟直到没有登记的计时器，不直接断言 `pending()` 为 0：场地的时钟是共用的，设置服务等别的服务也会在上面排计时器。
 - 入口都用 `defineEntry` 定义，激活产出与静态声明对不上在编译期报错；按运行位置分支时在整个产出上分支。

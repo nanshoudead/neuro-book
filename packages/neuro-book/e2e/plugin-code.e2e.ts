@@ -97,12 +97,12 @@ async function run(command: string, args: ReadonlyArray<string>): Promise<void> 
 test.beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-e2e", "plugin-code");
     built = join(tmp, "snippets-dist");
-    // 构建示例：与作者在仓库外构建同一个预设，仓库里 SDK 的包名指到应用源码（`scripts/plugin-sdk/build-examples.ts`）。
+    // 构建示例：与作者在仓库外构建同一个预设，仓库里 SDK 的包名指到应用源码（`plugin-sdk/build-examples.ts`）。
     const backendExamples = ["clock", "notes", "counter", "menu", "file-menu"];
     focus = join(tmp, "focus-dist");
     backend = backendExamples.map((name) => join(tmp, `${name}-dist`));
     const builds = [["snippets", built], ["focus", focus], ...backendExamples.map((name, index) => [name, backend[index]!])];
-    await run("bun", ["-e", `import {buildExample} from "./scripts/plugin-sdk/build-examples"; for (const [name, out] of ${JSON.stringify(builds)}) await buildExample(name, out);`]);
+    await run("bun", ["-e", `import {buildExample} from "./plugin-sdk/build-examples"; for (const [name, out] of ${JSON.stringify(builds)}) await buildExample(name, out);`]);
 });
 
 test.afterAll(async () => {

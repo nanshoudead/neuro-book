@@ -2,7 +2,7 @@
  * 第三方插件浏览器入口代码的装载（docs/specs/runtime/plugin-code-loading.md 输出 1–4）。
  *
  * 构建预设把入口打成登记工厂：脚本执行时调用 `globalThis[<平台档案的 registryGlobal>].register(脚本 URL, factory)`，
- * `factory(module, exports, require)` 才是 CommonJS 模块体（`scripts/plugin-sdk/build-plugin.ts`）。这里：
+ * `factory(module, exports, require)` 才是 CommonJS 模块体（`plugin-platform/build/build-plugin.ts`）。这里：
  *
  * - 同一个文件只插入一次同源 `<script src>`，脚本有真实的文件名，source map 照常，不需要 `unsafe-eval`；只缓存登记成功的
  *   工厂，失败的下次重试重新插入脚本。

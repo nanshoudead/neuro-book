@@ -13,13 +13,13 @@ import {fileURLToPath, pathToFileURL} from "node:url";
 
 import {createTestTmpRoot, resolveTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {BROWSER_SHARED_MODULES, manifestFormat, NEUROBOOK_PROFILE} from "../../src/plugin-platform-profile";
-import {createPluginCodeHost} from "../../src/plugin-platform/web/plugin-code";
-import type {PluginDocument, PluginScript} from "../../src/plugin-platform/web/plugin-code";
+import {BROWSER_SHARED_MODULES, manifestFormat, NEUROBOOK_PROFILE} from "../src/plugin-platform-profile";
+import {createPluginCodeHost} from "../src/plugin-platform/web/plugin-code";
+import type {PluginDocument, PluginScript} from "../src/plugin-platform/web/plugin-code";
 import {buildExample, EXAMPLES_ROOT, IN_REPO_BUILD} from "./build-examples";
 import {buildPlugin, PluginBuildError} from "./build";
 
-const repoModules = fileURLToPath(new URL("../../../../node_modules/", import.meta.url));
+const repoModules = fileURLToPath(new URL("../../../node_modules/", import.meta.url));
 let tmp = "";
 
 beforeAll(async () => {
@@ -110,8 +110,8 @@ async function registeredFactory(code: string): Promise<(module: {exports: Recor
             "typebox": await import("typebox"),
             "typebox/value": await import("typebox/value"),
             "typebox/compile": await import("typebox/compile"),
-            "@notnotype/nb-plugin-sdk": await import("../../src/sdk/index"),
-            "@notnotype/nb-plugin-sdk/browser": await import("../../src/sdk/browser"),
+            "@notnotype/nb-plugin-sdk": await import("../src/sdk/index"),
+            "@notnotype/nb-plugin-sdk/browser": await import("../src/sdk/browser"),
             "@notnotype/nb-plugin-sdk/components": {},
         }),
     });
@@ -134,8 +134,8 @@ async function hostModules(): Promise<Readonly<Record<string, unknown>>> {
     return {
         "vue": await import("vue"),
         "@vue/reactivity": await import("@vue/reactivity"),
-        "@notnotype/nb-plugin-sdk": await import("../../src/sdk/index"),
-        "@notnotype/nb-plugin-sdk/browser": await import("../../src/sdk/browser"),
+        "@notnotype/nb-plugin-sdk": await import("../src/sdk/index"),
+        "@notnotype/nb-plugin-sdk/browser": await import("../src/sdk/browser"),
         "@notnotype/nb-plugin-sdk/components": {},
     };
 }
@@ -193,8 +193,8 @@ describe("构建示例 snippets", () => {
             "typebox": await import("typebox"),
             "typebox/value": await import("typebox/value"),
             "typebox/compile": await import("typebox/compile"),
-            "@notnotype/nb-plugin-sdk": await import("../../src/sdk/index"),
-            "@notnotype/nb-plugin-sdk/browser": await import("../../src/sdk/browser"),
+            "@notnotype/nb-plugin-sdk": await import("../src/sdk/index"),
+            "@notnotype/nb-plugin-sdk/browser": await import("../src/sdk/browser"),
             // nb-ui 的组件是单文件组件，Bun 加载不了；页面没有渲染，给一个空对象就够。
             "@notnotype/nb-plugin-sdk/components": {},
         };

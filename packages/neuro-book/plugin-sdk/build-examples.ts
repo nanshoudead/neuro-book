@@ -1,5 +1,5 @@
 /**
- * 把仓库里的示例插件（`examples/plugins/<名>`）构建成可以安装的插件目录，供 e2e 与手动安装。示例按第三方插件写，只从
+ * 把仓库里的示例插件（`plugin-sdk/examples/plugins/<名>`）构建成可以安装的插件目录，供 e2e 与手动安装。示例按第三方插件写，只从
  * SDK 包名导入；仓库里没有安装 SDK 包，这里把包名指到应用源码（与 tsconfig、Vite 的别名相同），并把应用源码列为不许打进
  * 产物的目录：示例要是绕过 SDK 直接引用了应用内部，构建就失败。
  *
@@ -11,13 +11,13 @@ import {readdir} from "node:fs/promises";
 import {isAbsolute, join, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
-import {SDK_ENTRIES} from "../../src/sdk/entries";
+import {SDK_ENTRIES} from "../src/sdk/entries";
 
 import {buildPlugin, PluginBuildError} from "./build";
 import type {BuildPluginResult} from "./build";
 
-const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
-export const EXAMPLES_ROOT = join(packageRoot, "examples/plugins");
+const packageRoot = fileURLToPath(new URL("../", import.meta.url));
+export const EXAMPLES_ROOT = join(packageRoot, "plugin-sdk/examples/plugins");
 
 /** 仓库里构建示例的别名与禁止目录。 */
 export const IN_REPO_BUILD = {

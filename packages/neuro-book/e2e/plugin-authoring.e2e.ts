@@ -16,7 +16,7 @@ import {expect, test} from "@playwright/test";
 import type {Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {authorDirectory, cliOf} from "../scripts/plugin-sdk/testing/author";
+import {authorDirectory, cliOf} from "../plugin-sdk/testing/author";
 
 import {PACKAGE_ROOT, startProductServer} from "./fixtures";
 import type {ProductServer} from "./fixtures";
@@ -52,7 +52,7 @@ test.beforeAll(async () => {
 
     // 作者的那一边：生成 SDK 包，在仓库外的目录里装上它，用 Node 运行包里的命令生成、构建。
     const sdk = join(tmp, "sdk");
-    await run("bun", ["-e", `import {buildSdk} from "./scripts/plugin-sdk/build-sdk"; await buildSdk(${JSON.stringify(sdk)});`], PACKAGE_ROOT);
+    await run("bun", ["-e", `import {buildSdk} from "./plugin-sdk/pack"; await buildSdk(${JSON.stringify(sdk)});`], PACKAGE_ROOT);
     author = await authorDirectory(join(tmp, "hello-world"), sdk);
     await run("node", [cliOf(author), "create", "."], author);
     await run("node", [cliOf(author), "build"], author);

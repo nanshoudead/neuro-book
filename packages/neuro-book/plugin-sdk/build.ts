@@ -3,12 +3,12 @@
  * 示例构建与 SDK 包的 `./build` 子路径都用这一层。
  */
 
-import {buildPlugin as buildWithProfile, isPreviousBuild as isPreviousBuildFor} from "../../src/plugin-platform/build/build-plugin";
-import type {BuildPluginOptions, BuildPluginResult} from "../../src/plugin-platform/build/build-plugin";
-import {NEUROBOOK_PROFILE} from "../../src/plugin-platform-profile";
+import {buildPlugin as buildWithProfile, isPreviousBuild as isPreviousBuildFor} from "../src/plugin-platform/build/build-plugin";
+import type {BuildPluginOptions, BuildPluginResult} from "../src/plugin-platform/build/build-plugin";
+import {NEUROBOOK_PROFILE} from "../src/plugin-platform-profile";
 
-export {devVersion, PluginBuildError} from "../../src/plugin-platform/build/build-plugin";
-export type {BuildAlias, BuildPluginOptions, BuildPluginResult} from "../../src/plugin-platform/build/build-plugin";
+export {devVersion, PluginBuildError} from "../src/plugin-platform/build/build-plugin";
+export type {BuildAlias, BuildPluginOptions, BuildPluginResult} from "../src/plugin-platform/build/build-plugin";
 
 export function buildPlugin(options: BuildPluginOptions): Promise<BuildPluginResult> {
     return buildWithProfile(NEUROBOOK_PROFILE, options);

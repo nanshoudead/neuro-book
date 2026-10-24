@@ -13,11 +13,11 @@ import {fileURLToPath} from "node:url";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {manifestFormat} from "../../src/plugin-platform-profile";
+import {manifestFormat} from "../src/plugin-platform-profile";
 
-import {buildSdk} from "./build-sdk";
+import {buildSdk} from "./pack";
 
-const repoModules = fileURLToPath(new URL("../../../../node_modules/", import.meta.url));
+const repoModules = fileURLToPath(new URL("../../../node_modules/", import.meta.url));
 let tmp = "";
 let project = "";
 
@@ -112,7 +112,7 @@ function declaredExports(text: string): string[] {
 }
 
 beforeAll(async () => {
-    tmp = await createTestTmpRoot("neuro-book-sdk", "build-sdk");
+    tmp = await createTestTmpRoot("neuro-book-sdk", "pack");
     project = join(tmp, "author");
     const sdk = join(project, "node_modules/@notnotype/nb-plugin-sdk");
     // 输出目录里是上次生成的 SDK 包：清空重建，旧文件不留。
@@ -160,7 +160,7 @@ describe("生成的 SDK 包", () => {
         expect(tokens).toContain("`--accent-main`");
         // 仓库里的作者文档指向 docs/specs/ 的每一份 Spec，包里都有副本。
         const sourceReadme = fileURLToPath(new URL("./README.md", import.meta.url));
-        const specsRoot = fileURLToPath(new URL("../../../../docs/specs/", import.meta.url));
+        const specsRoot = fileURLToPath(new URL("../../../docs/specs/", import.meta.url));
         const referenced = [...new Set(relativeLinks(await readFile(sourceReadme, "utf8")).map((url) => relative(specsRoot, resolve(dirname(sourceReadme), url))))];
         expect(referenced.length).toBeGreaterThan(0);
         expect(referenced.filter((spec) => !existsSync(join(sdk, "specs", spec)))).toEqual([]);
@@ -211,7 +211,7 @@ describe("生成的 SDK 包", () => {
         await writeFile(probe, `const index = await import("@notnotype/nb-plugin-sdk");\nconsole.log(JSON.stringify(Object.keys(index).sort()));\n`);
         const result = Bun.spawnSync({cmd: ["node", probe], cwd: project, stdout: "pipe", stderr: "pipe"});
         expect(result.stderr.toString()).toBe("");
-        expect(JSON.parse(result.stdout.toString())).toEqual(Object.keys(await import("../../src/sdk/index")).sort());
+        expect(JSON.parse(result.stdout.toString())).toEqual(Object.keys(await import("../src/sdk/index")).sort());
     }, 60_000);
 
     it("类型导出的名字", async () => {
@@ -230,7 +230,7 @@ describe("生成的 SDK 包", () => {
             "settingsPageContribution", "ItemImplementation", "ViewContext", "ViewContribution", "ViewImplementation", "viewContribution",
         ].sort());
         // 组件子路径的声明与源码里逐个列出的名单一致：nb-ui 入口里别的导出不会混进来。
-        const listed = [...(await readFile(fileURLToPath(new URL("../../src/sdk/components.ts", import.meta.url)), "utf8")).matchAll(/export (?:type )?\{([^}]+)\}/gu)].flatMap((match) => match[1]!.split(",").map((name) => name.trim()).filter((name) => name !== ""));
+        const listed = [...(await readFile(fileURLToPath(new URL("../src/sdk/components.ts", import.meta.url)), "utf8")).matchAll(/export (?:type )?\{([^}]+)\}/gu)].flatMap((match) => match[1]!.split(",").map((name) => name.trim()).filter((name) => name !== ""));
         expect(declaredExports(await readFile(join(project, "node_modules/@notnotype/nb-plugin-sdk/components.d.ts"), "utf8"))).toEqual([...listed].sort());
     });
 

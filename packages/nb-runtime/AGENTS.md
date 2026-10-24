@@ -4,7 +4,7 @@
 
 `@notnotype/nb-runtime` 是 NeuroBook 的内核，新应用的后端与浏览器宿主共用。七个机制各有一份行为合同：[`lifecycle`](../../docs/specs/runtime/lifecycle.md)（运行作用域与资源生命周期）、[`services`](../../docs/specs/runtime/services.md)（服务装配）、[`plugins`](../../docs/specs/runtime/plugins.md)（插件描述、激活与贡献）、[`application`](../../docs/specs/runtime/application.md)（运行实例与启动门禁）、[`diagnostics`](../../docs/specs/runtime/diagnostics.md)（诊断记录）、[`remote`](../../docs/specs/runtime/plugin-channel.md)（远程服务与 RPC 协议）、[`plugin-manifest`](../../docs/specs/runtime/plugin-manifest.md)（`package.json` 清单解析为插件描述与定义）。
 
-典型用法见应用包的 [`examples/`](../neuro-book/examples/README.md)：示例教的是怎么写应用插件，要和内置插件（`nbook.storage`、`nbook.state`、`nbook.commands`）一起用，放在本包会让内核依赖应用包。本包只留自己的合同测试。公开接口改动时同一提交里更新受影响的示例（应用包的 `bun run test` 会运行它们），新增机制或新的典型用法时补插件与场景。插件描述的类型 `PluginDescriptor` 归本包（`plugins` 入口），应用包经 `src/manifest.ts` 引用。
+典型用法见应用包的示例插件 [`plugin-sdk/examples/`](../neuro-book/plugin-sdk/examples/README.md)：示例教的是怎么写应用插件，要和内置插件（`nbook.storage`、`nbook.state`、`nbook.commands`）一起用，放在本包会让内核依赖应用包。本包只留自己的合同测试。公开接口改动时同一提交里更新受影响的示例（应用包的 `bun run test` 会运行它们），新增机制或新的典型用法时补插件与场景。插件描述的类型 `PluginDescriptor` 归本包（`plugins` 入口），应用包经 `src/manifest.ts` 引用。
 
 ## 边界
 

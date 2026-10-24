@@ -11,12 +11,12 @@ import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {manifestFormat} from "../../src/plugin-platform-profile";
-import {compareVersions, pluginVersionSatisfies} from "../../src/plugin-platform/shared/versions";
+import {manifestFormat} from "../src/plugin-platform-profile";
+import {compareVersions, pluginVersionSatisfies} from "../src/plugin-platform/shared/versions";
 
 import {devVersion} from "./build";
 
-import {buildSdk} from "./build-sdk";
+import {buildSdk} from "./pack";
 import {authorDirectory, cliOf} from "./testing/author";
 
 let tmp = "";

@@ -8,7 +8,7 @@ import {cp, mkdir, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
-const REPO_MODULES = fileURLToPath(new URL("../../../../../node_modules/", import.meta.url));
+const REPO_MODULES = fileURLToPath(new URL("../../../../node_modules/", import.meta.url));
 
 /** 模板与构建预设在作者机器上要的包。 */
 const LINKED = ["vue", "typebox", "typescript", "vue-tsc", "csstype", "vite", "semver", "@vitejs/plugin-vue", "@iconify/utils", "@iconify-json/lucide"];

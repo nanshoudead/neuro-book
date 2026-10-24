@@ -11,7 +11,7 @@
  * - `cli.js` 与 `template/`：作者命令 `nbook-plugin`（`cli.ts`）与 `create` 用的模板；模板 `_package.json` 里的依赖范围在这里
  *   填上，与应用自己用的一致。
  * - `package.json`：版本取产品版本；`vue`、`@vue/reactivity`、`typebox` 是 peer 依赖，构建预设的工具是普通依赖。
- * - `README.md`：作者文档（`scripts/plugin-sdk/README.md`）；`docs/components.md`、`docs/tokens.md`：从 nb-ui 的组件入口与
+ * - `README.md`：作者文档（`plugin-sdk/README.md`）；`docs/components.md`、`docs/tokens.md`：从 nb-ui 的组件入口与
  *   主题文件生成的两份附表；`specs/`：作者文档链接到的 Spec 的副本。作者文档在仓库里用指向 `docs/specs/` 的相对链接写，复制时
  *   改写到包里的副本：SDK 不发布、Work 分支也不推到远端，指向仓库的链接作者打不开，副本还与这个 SDK 版本一致。
  *
@@ -29,11 +29,11 @@ import {build as rolldown} from "rolldown";
 import {dts} from "rolldown-plugin-dts";
 import {build as vite} from "vite";
 
-import {SDK_ENTRIES, SDK_NAME} from "../../src/sdk/entries";
-import type {SdkEntry} from "../../src/sdk/entries";
-import {PRODUCT_VERSION} from "../../src/shared/product";
+import {SDK_ENTRIES, SDK_NAME} from "../src/sdk/entries";
+import type {SdkEntry} from "../src/sdk/entries";
+import {PRODUCT_VERSION} from "../src/shared/product";
 
-const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
+const packageRoot = fileURLToPath(new URL("../", import.meta.url));
 /** 打包的入口：产物文件名（不带扩展名）→ 源文件，按 SDK 的子路径表。 */
 const ENTRIES = Object.fromEntries(SDK_ENTRIES.map((entry) => [entryName(entry), join(packageRoot, "src/sdk", entry.file)]));
 
@@ -85,7 +85,7 @@ async function clearPreviousSdk(outDir: string): Promise<void> {
     await rm(outDir, {recursive: true});
 }
 
-const AUTHOR_README = join(packageRoot, "scripts/plugin-sdk/README.md");
+const AUTHOR_README = join(packageRoot, "plugin-sdk/README.md");
 const SPECS_ROOT = join(packageRoot, "../../docs/specs");
 /** nb-ui 的源码只当数据读（组件入口、主题文件），不导入：它的模块要 DOM，构建脚本的类型检查没有 DOM。 */
 const NB_UI_SOURCE = join(packageRoot, "../nb-ui/src");
@@ -288,7 +288,7 @@ export async function buildSdk(outDir: string): Promise<void> {
     // 构建脚本用得上 `BuildPluginOptions`、`PluginBuildError` 这些类型。
     await rolldown({
         cwd: packageRoot,
-        input: {build: join(packageRoot, "scripts/plugin-sdk/build.ts"), cli: join(packageRoot, "scripts/plugin-sdk/cli.ts")},
+        input: {build: join(packageRoot, "plugin-sdk/build.ts"), cli: join(packageRoot, "plugin-sdk/cli.ts")},
         platform: "node",
         external: [...PEERS, ...BUILD_DEPENDENCIES.map((name) => new RegExp(`^${name.replace("/", "\\/")}($|/)`, "u"))],
         resolve: {alias: {nbook: join(packageRoot, "src")}},
@@ -299,7 +299,7 @@ export async function buildSdk(outDir: string): Promise<void> {
     await chmod(join(outDir, "cli.js"), 0o755);
     // 命令的声明文件用不上：它只作 bin。
     await rm(join(outDir, "cli.d.ts"), {force: true});
-    await cp(join(packageRoot, "scripts/plugin-sdk/template"), join(outDir, "template"), {recursive: true});
+    await cp(join(packageRoot, "plugin-sdk/template"), join(outDir, "template"), {recursive: true});
     const templatePackage = join(outDir, "template/_package.json");
     const ranges = await dependencyRanges(["typebox", "typescript", "vue", "vue-tsc"]);
     await writeFile(templatePackage, (await readFile(templatePackage, "utf8"))

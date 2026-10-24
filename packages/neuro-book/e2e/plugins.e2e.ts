@@ -1,6 +1,6 @@
 /**
  * 第三方插件的安装与启停在真实 Chrome 与生产构建上的验收（docs/specs/runtime/plugin-install.md 输出 1–4、9 与场景 1、3、13，
- * docs/specs/runtime/plugin-manifest.md 输出 11）：从设置窗口的插件页安装 `examples/external/declarative`，重启后它的配置项
+ * docs/specs/runtime/plugin-manifest.md 输出 11）：从设置窗口的插件页安装 `plugin-sdk/examples/external/declarative`，重启后它的配置项
  * 出现在设置窗口、能写进本作品层（项目子进程登记了它的声明）；禁用、重启后消失；卸载、重启后登记表与安装目录清空。
  * “重启”是有序停止服务端再在同一个状态根上起一个新进程。
  */
@@ -17,7 +17,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {PACKAGE_ROOT, startProductServer} from "./fixtures";
 import type {ProductServer} from "./fixtures";
 
-const SOURCE = join(PACKAGE_ROOT, "examples", "external", "declarative");
+const SOURCE = join(PACKAGE_ROOT, "plugin-sdk", "examples", "external", "declarative");
 const SETTING = "example.hello/greeting";
 
 let tmp = "";

@@ -10,7 +10,7 @@ import {join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {parseArgs} from "node:util";
 
-import {PRODUCT_VERSION} from "../../src/shared/product";
+import {PRODUCT_VERSION} from "../src/shared/product";
 
 import {buildPlugin, PluginBuildError} from "./build";
 import {createPlugin, PluginCreateError} from "./create-plugin";

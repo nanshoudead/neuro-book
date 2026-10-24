@@ -11,15 +11,15 @@ import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {counterContract, projectCounterContract, RESET_COMMAND} from "../../examples/plugins/counter/shared/contracts";
-import {notesContract} from "../../examples/plugins/notes/shared/contracts";
-import {remoteProbe, serviceProbe} from "../../examples/testing/probes";
-import {Stage} from "../../examples/testing/stage";
-import type {InstalledPlugin} from "../../src/plugin-platform/backend/installed";
-import {serverHostModules} from "../../src/backend/plugin-host-modules";
-import {thirdPartyDefinitionsAt} from "../../src/plugin-platform/backend/loader";
-import {NEUROBOOK_PROFILE} from "../../src/plugin-platform-profile";
-import {commandServiceKey} from "../../src/plugins/commands/shared/contracts";
+import {counterContract, projectCounterContract, RESET_COMMAND} from "./examples/plugins/counter/shared/contracts";
+import {notesContract} from "./examples/plugins/notes/shared/contracts";
+import {remoteProbe, serviceProbe} from "./examples/testing/probes";
+import {Stage} from "./examples/testing/stage";
+import type {InstalledPlugin} from "../src/plugin-platform/backend/installed";
+import {serverHostModules} from "../src/backend/plugin-host-modules";
+import {thirdPartyDefinitionsAt} from "../src/plugin-platform/backend/loader";
+import {NEUROBOOK_PROFILE} from "../src/plugin-platform-profile";
+import {commandServiceKey} from "../src/plugins/commands/shared/contracts";
 import {buildExample} from "./build-examples";
 
 const SERVER_LOADER = {profile: NEUROBOOK_PROFILE, hostModules: serverHostModules};

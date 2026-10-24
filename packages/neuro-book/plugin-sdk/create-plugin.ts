@@ -1,7 +1,7 @@
 /**
  * `nbook-plugin create`（docs/specs/runtime/plugin-api.md 的“作者工具”）：把模板写成一个能直接构建、类型检查并安装的插件目录。
  *
- * 模板在 SDK 包的 `template/` 里（仓库里是 `scripts/plugin-sdk/template/`，`build:sdk` 复制时填上依赖的版本范围）。文本文件里
+ * 模板在 SDK 包的 `template/` 里（仓库里是 `plugin-sdk/template/`，`build:sdk` 复制时填上依赖的版本范围）。文本文件里
  * 的 `__ID__`、`__PUBLISHER__`、`__NAME__`、`__DISPLAY_NAME__` 换成这个插件的；`_package.json`、`_gitignore` 写成去掉下划线的
  * 名字：模板目录里有真的 `package.json` 会被当成一个包，`.gitignore` 会被 `npm pack` 丢掉。
  *
@@ -19,7 +19,7 @@ import {basename, dirname, join, relative, resolve} from "node:path";
 
 import {ID_SEGMENT_RULE, isIdSegment} from "@notnotype/nb-runtime/plugin-manifest";
 
-import {manifestFormat} from "../../src/plugin-platform-profile";
+import {manifestFormat} from "../src/plugin-platform-profile";
 
 const SDK_PACKAGE = "@notnotype/nb-plugin-sdk";
 

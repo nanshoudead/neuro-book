@@ -1,7 +1,7 @@
 /**
  * 片段设置页的交互（`SnippetsPage.vue` 与 `SnippetsEditor.vue`）：把页面挂在 happy-dom 里，像用户那样点按钮、改输入框，
  * 再看配置文件里真的写了什么。场景 06 在 Bun 里核对插件的声明、交付与按层写入，但 Bun 不能加载 `.vue`，页面本身由
- * 这个测试负责，由 Vitest 运行（`examples/README.md` 的“运行”）。
+ * 这个测试负责，由 Vitest 运行（`plugin-sdk/examples/README.md` 的“运行”）。
  *
  * 要说明的事：
  * - “用户”标签下改的是用户层：添加、下移、改名都写进 `<状态根>/settings.json`；名字为空不合 schema，写入被拒，
