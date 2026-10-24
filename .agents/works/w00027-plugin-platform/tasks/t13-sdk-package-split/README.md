@@ -22,8 +22,12 @@ updated: 2026-10-24
 - S1a `0ffd9455c`：清单格式按平台档案建（`createManifestFormat`），拆成读、生成、还原；应用的 `src/plugin-platform-profile.ts` 给出 NeuroBook 档案，id 规则只剩一份。
 - S1b `e0fa57fe0`：内核装配收平台档案；`idPrefix` 对保留发布者放宽，8 个内置贡献点改用它，工作台的贡献点定义导出一份供插件与测试共用；合同按内容核对，删掉应用的补丁；激活产出不是对象报 `activation-threw`（t11）；应用经 `src/application.ts` 装配，架构测试守住。三处新行为做过变异核对。
 - S1c `30710af3a`：诊断插件改名 `runtime.diagnostics`；内核源码不再出现应用名，有扫描测试。
-- Spec 与 ADR `65921ae97`（master）。验证：内核 393 例、应用 Bun 1434 例、Vitest 364 例、类型检查、`plugin-code` 与 `plugins` 两份 e2e 6 例；已合入 master。t11（激活产出形状由内核核对）并入本 Task 的 S1b。
+- Spec 与 ADR `65921ae97`（master）。验证：内核 393 例、应用 Bun 1434 例、Vitest 364 例、类型检查、`plugin-code` 与 `plugins` 两份 e2e 6 例；已合入 master。
+- S2a `c7087471a`、`ea5c60623`：第三方插件管理搬进 `src/plugin-platform/{backend,web,shared}`（纯搬家前后用例数相同）；平台档案分纯数据与按位置的宿主模块表，通用目录里的 NeuroBook 字面量改从档案读；插件管理的数据与失败码归 `shared/types`；架构测试守边界与应用名；通用目录自己的测试用 `acme` 档案。
+- S2b `fcbd57e92`、`7ce9baf7a`、`dacb14064`：三处宿主共用 `thirdPartyDefinitionsFor`；去掉并排的 `thirdParty` 描述数组；版本目录与升级预览拆出；`isInside` 修正 `..foo`（有变异核对过的用例）；失败码按方法分组、删 `reserved-id`，启动原因加 `entry-missing`、`unreadable`（D4）；文件端点的处理归平台、应用留适配器；“未共享”的说法与装载错误文案各一份。Spec `044bb4f6a`。
+- S2c `8d43caf3d`：构建预设搬进 `src/plugin-platform/build`、收平台档案作参数，NeuroBook 的绑定在 `scripts/plugin-sdk/build.ts`；按导出名取定义，忘了 export 或一个模块两个定义时报错（副作用：定义模块里入口用不到的导出会被摇掉，已写进构建预设说明）；输出目录清理与开发版本收进预设。
+- S2 验证：Bun 1439 例、Vitest 364 例、类型检查，`plugin-code`、`plugins`、`plugin-authoring` 三份 e2e 7 例；合入 master（`051b04811`）。合并后全量 Bun 有一例资源管理器树的测试偶发失败（来自同时合进来的别的会话的改动，单独重跑三次都过），与本 Task 无关。t11（激活产出形状由内核核对）并入本 Task 的 S1b。
 
 ## 下一步
 
-S2a：文件搬进 `src/plugin-platform/`（纯搬家），档案两层与字面量进档案，`types.ts` 反转。
+S3：SDK 入口表与别名对照、`/components` 逐个列名、公开面闭包快照与缩小、typebox 进宿主模块表。
