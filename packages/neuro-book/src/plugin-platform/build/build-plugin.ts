@@ -171,11 +171,21 @@ async function readAuthor(root: string): Promise<{readonly author: AuthorPackage
     return {author: raw as unknown as AuthorPackage, raw};
 }
 
-/** 作者 `package.json` 里档案字段下的入口定义模块；没写为 undefined。 */
+/**
+ * 作者 `package.json` 里档案字段下的入口定义模块；没写为 undefined。写了但不是字符串数组时构建失败：写错的设置不能当没写，
+ * 否则会改找缺省的模块、静默漏掉作者指定的入口。
+ */
 function definitionsField(raw: Record<string, unknown>, field: string): ReadonlyArray<string> | undefined {
     const settings = raw[field];
-    const definitions = typeof settings === "object" && settings !== null ? (settings as {readonly definitions?: unknown}).definitions : undefined;
-    return Array.isArray(definitions) && definitions.every((item): item is string => typeof item === "string") ? definitions : undefined;
+    if (settings === undefined) return undefined;
+    const path = `${field}.definitions`;
+    if (typeof settings !== "object" || settings === null || Array.isArray(settings)) throw new PluginBuildError("插件目录的 package.json 不合规则", [{path: field, message: "必须是对象"}]);
+    const definitions = (settings as {readonly definitions?: unknown}).definitions;
+    if (definitions === undefined) return undefined;
+    if (!Array.isArray(definitions)) throw new PluginBuildError("插件目录的 package.json 不合规则", [{path, message: "必须是入口定义模块路径的数组"}]);
+    const problems = definitions.flatMap((item, index) => (typeof item === "string" && item !== "" ? [] : [{path: `${path}.${String(index)}`, message: "必须是非空的模块路径"}]));
+    if (problems.length > 0) throw new PluginBuildError("插件目录的 package.json 不合规则", problems);
+    return definitions as ReadonlyArray<string>;
 }
 
 /**

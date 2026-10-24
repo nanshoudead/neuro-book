@@ -328,5 +328,9 @@ export const s = {id: "acme.refined", entries: [defineEntry({id: "server", locat
         expect(await failure(root)).toEqual([expect.stringContaining("忘了 export")]);
         await writeFile(join(root, "backend/plugin.ts"), "export const a = {id: \"acme.unexported\", entries: []};\nexport const b = {id: \"acme.unexported\", entries: []};\n");
         expect(await failure(root)).toEqual([expect.stringContaining("导出了 2 个插件定义")]);
+        // 显式写了入口模块、但写错：构建失败，不改找缺省的模块。
+        const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8")) as Record<string, unknown>;
+        await writeFile(join(root, "package.json"), JSON.stringify({...manifest, nbook: {definitions: ["web/plugin.ts", 42]}}));
+        expect(await failure(root)).toEqual(["必须是非空的模块路径"]);
     }, 60_000);
 });
