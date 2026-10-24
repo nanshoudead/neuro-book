@@ -5,7 +5,7 @@
  */
 
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
-import {defineEntry, providePerConsumer} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provideServicePerConsumer} from "@notnotype/nb-runtime/plugins";
 
 import {windowProjectKey} from "nbook/shared/projects";
 import type {StorageService} from "nbook/shared/storage";
@@ -27,7 +27,7 @@ export const storageBrowserPlugin: PluginDefinition = {
         activate: (context) => {
             const bound = context.services.require(windowProjectKey).project !== null;
             const facades = new WeakMap<StorageService, StorageFacade>();
-            const storage = providePerConsumer(
+            const storage = provideServicePerConsumer(
                 storageKey,
                 (consumer): StorageService => {
                     const facade = createStorageFacade(consumer, {

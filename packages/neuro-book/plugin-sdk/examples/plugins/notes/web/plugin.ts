@@ -2,7 +2,7 @@
  * `example.notes` 的浏览器入口：给本窗口里的每个插件一份笔记视图（`NotesView`），以**那个插件的身份**访问服务端。
  * 结构是 `nbook.storage` 浏览器入口的缩小版（`src/plugins/storage/web/plugin.ts`）。读这个文件学三件事：
  *
- * 1. **按调用方提供本地服务**：`providePerConsumer` 的工厂对每个依赖 `notesViewKey` 的入口各调用一次，参数是内核
+ * 1. **按调用方提供本地服务**：`provideServicePerConsumer` 的工厂对每个依赖 `notesViewKey` 的入口各调用一次，参数是内核
  *    签发的调用方身份。门面随调用方入口的这一代释放（docs/specs/runtime/services.md 输出第 11–13 条）。
  * 2. **以调用方身份代理**：`context.remote.on(调用方).use(合同)` 发出的调用与订阅，到达服务端时调用方是窗口里的原
  *    插件，另附 `via`（本入口）。任何插件都可以这样做（ADR 0027），内核只核对合同写在 `remoteDelegates` 里、身份是
@@ -14,7 +14,7 @@
  * 对应的场景：`scenarios/05-delegating-proxy.test.ts`。
  */
 
-import {defineEntry, providePerConsumer} from "@notnotype/nb-plugin-sdk";
+import {defineEntry, provideServicePerConsumer} from "@notnotype/nb-plugin-sdk";
 import type {PluginDefinition, RemoteResult} from "@notnotype/nb-plugin-sdk";
 
 import {descriptor} from "../plugin";
@@ -32,7 +32,7 @@ export const notesBrowserPlugin: PluginDefinition = {
             remoteDelegates: [notesContract],
             activate: (context) => ({
                 services: [
-                    providePerConsumer(notesViewKey, (consumer): NotesView => {
+                    provideServicePerConsumer(notesViewKey, (consumer): NotesView => {
                         // 用调用方的身份，而不是本入口自己的身份（`context.remote.use`）：后者到达服务端时调用方全是
                         // `example.notes`，所有插件的笔记就混在一份里了。
                         //

@@ -11,7 +11,7 @@ import {defineAsyncComponent, defineComponent, h, provide as provideToChildren, 
 import type {Component} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
-import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {filesKey} from "nbook/plugins/files/shared/contracts";
@@ -89,7 +89,7 @@ export const markdownBrowserPlugin: PluginDefinition = {
                     PromptTextView: hosted("PromptTextView"),
                 },
             };
-            return {services: [provide(markdownKey, service)], receivers: {[MARKDOWN_SYNTAXES_POINT]: catalog.receiver()}};
+            return {services: [provideService(markdownKey, service)], receivers: {[MARKDOWN_SYNTAXES_POINT]: catalog.receiver()}};
         },
     })],
 };

@@ -39,9 +39,9 @@ export function createPluginHost(instance: RuntimeInstance, assembly: ServiceAss
 /**
  * 构造激活产出中按调用方提供的一项服务：每个调用方（插件入口的每次激活）解析时得到
  * `facade(调用方)` 生成的门面，`release` 在该调用方的这次激活结束时调用。门面应是由函数组成的
- * 普通对象；需要交出响应式对象等运行期值时用 `provide`。
+ * 普通对象；需要交出响应式对象等运行期值时用 `provideService`。
  */
-export function providePerConsumer<T extends object>(
+export function provideServicePerConsumer<T extends object>(
     key: ServiceKey<T>,
     facade: (consumer: ConsumerIdentity) => T,
     options: {readonly release?: (facade: T, consumer: ConsumerIdentity) => void | Promise<void>} = {},
@@ -54,7 +54,7 @@ export function providePerConsumer<T extends object>(
  * 构造激活产出中的一项提供服务；`release` 在服务代次关闭或激活产出被收口时调用一次。服务类型只取自键，
  * 实例按它核对。
  */
-export function provide<T>(key: ServiceKey<T>, instance: NoInfer<T>, release?: (instance: T) => void | Promise<void>): ProvidedService<T> {
+export function provideService<T>(key: ServiceKey<T>, instance: NoInfer<T>, release?: (instance: T) => void | Promise<void>): ProvidedService<T> {
     return {
         key,
         instance,

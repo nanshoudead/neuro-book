@@ -5,7 +5,7 @@ import type {Scope} from "../lifecycle/lifecycle";
 import {createServiceAssembly, defineServiceKey, ServiceRevokedError} from "../services/services";
 import type {ConsumerIdentity} from "../services/services";
 
-import {createPluginHost, providePerConsumer} from "./plugins";
+import {createPluginHost, provideServicePerConsumer} from "./plugins";
 import type {ActivationContext, PluginDefinition, PluginHost} from "./plugins";
 
 interface Store {
@@ -33,7 +33,7 @@ function setup(): Fixture {
             location: "server",
             provides: [storeKey],
             activate: () => ({
-                services: [providePerConsumer(storeKey, (consumer) => ({who: () => consumer}), {release: (_facade, consumer) => void released.push(consumer)})],
+                services: [provideServicePerConsumer(storeKey, (consumer) => ({who: () => consumer}), {release: (_facade, consumer) => void released.push(consumer)})],
             }),
         }],
     };

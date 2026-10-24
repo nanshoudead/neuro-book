@@ -8,7 +8,7 @@ import {computed, defineAsyncComponent, defineComponent, h, provide as provideTo
 import type {Component, PropType} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
-import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, menuImplementations, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
@@ -261,7 +261,7 @@ export const editorBrowserPlugin: PluginDefinition = {
             };
             const published = bindingsOf(editorState, editorStateValues(session.area));
             return {
-                services: [provide(documentCoordinatorKey, session.coordinator)],
+                services: [provideService(documentCoordinatorKey, session.coordinator)],
                 receivers: {[EDITOR_PAGES_POINT]: pages.receiver(), [EDITOR_TITLE_POINT]: titleItems.receiver(), [EDITOR_TAB_CONTEXT_POINT]: tabMenuItems.receiver(), [EDITOR_EDITORS_POINT]: editors.receiver(), [EDITOR_LANGUAGES_POINT]: languages.receiver()},
                 contributions: {
                     [WORKBENCH_EDITOR_AREA_POINT]: {[EDITOR_AREA_ID]: area},

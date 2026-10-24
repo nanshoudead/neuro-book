@@ -9,7 +9,7 @@ import {dirname, join} from "node:path";
 
 import {computed} from "@vue/reactivity";
 
-import {defineEntry, providePerConsumer} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provideServicePerConsumer} from "@notnotype/nb-runtime/plugins";
 import type {ActivationContext, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 import type {RemoteLink} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
@@ -402,7 +402,7 @@ describe("用户编辑（输出 19）", () => {
                 provides: [relayKey],
                 remoteDelegates: [userSettingsContract, projectSettingsContract],
                 activate: (context) => ({
-                    services: [providePerConsumer(relayKey, (consumer) => ({
+                    services: [provideServicePerConsumer(relayKey, (consumer) => ({
                         edit: (contract: SettingsContract, key: string, value: unknown) => call(context.remote.on(consumer), contract, "edit", key, value),
                     }))],
                 }),

@@ -3,7 +3,7 @@ import {describe, expect, it, vi} from "bun:test";
 import {createRuntimeInstance} from "../lifecycle/lifecycle";
 import type {Scope} from "../lifecycle/lifecycle";
 import {createServiceAssembly, defineServiceKey} from "../services/services";
-import {createPluginHost, provide} from "./plugins";
+import {createPluginHost, provideService} from "./plugins";
 import type {ActivationOutput, PluginDefinition} from "./plugins";
 
 const firstKey = defineServiceKey<string>("owner/first");
@@ -53,9 +53,9 @@ describe("第一轮审查边界回归", () => {
         const host = createPluginHost(runtime, assembly, {});
         const released: string[] = [];
         host.register({id: "owner", entries: [{id: "main", location: "server", provides: [firstKey, lastKey], activate: () => ({services: [
-            provide(firstKey, "shared", () => {released.push("first");}),
-            provide(badKey, "shared", () => {released.push("bad");}),
-            provide(lastKey, "last", () => {released.push("last");}),
+            provideService(firstKey, "shared", () => {released.push("first");}),
+            provideService(badKey, "shared", () => {released.push("bad");}),
+            provideService(lastKey, "last", () => {released.push("last");}),
         ]})}]}, {scope: runtime.root});
         expect(await host.activate({plugin: "owner", entry: "main"})).toMatchObject({status: "failed", stage: "output", reason: "undeclared-service", key: badKey.name});
         expect((await runtime.root.close()).status).toBe("closed");
@@ -71,12 +71,12 @@ describe("第一轮审查边界回归", () => {
         const released: string[] = [];
         let failing = true;
         host.register({id: "owner", entries: [{id: "main", location: "server", provides: [firstKey, lastKey], activate: () => ({services: [
-            provide(firstKey, "first", (value) => {released.push(value);}),
-            provide(foreignKey, "foreign", (value) => {
+            provideService(firstKey, "first", (value) => {released.push(value);}),
+            provideService(foreignKey, "foreign", (value) => {
                 released.push(value);
                 if (failing) {throw new Error("release failed");}
             }),
-            provide(lastKey, "last", (value) => {released.push(value);}),
+            provideService(lastKey, "last", (value) => {released.push(value);}),
         ]})}]}, {scope: runtime.root});
         expect(await host.activate({plugin: "owner", entry: "main"})).toMatchObject({status: "failed", reason: "undeclared-service"});
         expect((await runtime.root.close()).status).toBe("incomplete");
@@ -102,7 +102,7 @@ describe("第一轮审查边界回归", () => {
         const activation = host.activate({plugin: "owner", entry: "main"});
         await started.promise;
         const closing = runtime.root.close();
-        output.resolve({services: [provide(firstKey, "first", (value) => {released.push(value);}), provide(lastKey, "last", (value) => {released.push(value);})]});
+        output.resolve({services: [provideService(firstKey, "first", (value) => {released.push(value);}), provideService(lastKey, "last", (value) => {released.push(value);})]});
         expect(await activation).toMatchObject({status: "stopped"});
         expect((await closing).status).toBe("closed");
         expect(released).toEqual(["last", "first"]);
@@ -125,7 +125,7 @@ describe("第一轮审查边界回归", () => {
         host.register({id: "owner", entries: [{id: "main", location: "server", provides: [firstKey], activate: (context) => {
             activationScope = context.scope.parent;
             context.scope.register({kind: "owned", label: "own", value: null, release: () => {released.push("own");}});
-            return {services: [provide(firstKey, "instance", () => {released.push("instance");})]};
+            return {services: [provideService(firstKey, "instance", () => {released.push("instance");})]};
         }}]}, {scope: runtime.root});
         assembly.declare({id: "consumer", location: "server", scope: runtime.root, dependencies: [{key: firstKey}]});
         const resolved = await assembly.access("consumer").resolve(firstKey);

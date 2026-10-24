@@ -9,7 +9,7 @@
  */
 
 import type {FormOptionSources} from "@notnotype/nb-form/vue";
-import {providePerConsumer} from "@notnotype/nb-runtime/plugins";
+import {provideServicePerConsumer} from "@notnotype/nb-runtime/plugins";
 import type {ProvidedService} from "@notnotype/nb-runtime/plugins";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
@@ -126,7 +126,7 @@ export function choiceReferences(declarations: ReadonlyMap<string, DeclaredSetti
 
 /** 只发给 `owner` 插件自己、没有经过代理的调用方（见模块头）。 */
 export function provideSettingsWindowSource(source: SettingsWindowSource, owner: string): ProvidedService<SettingsWindowSource> {
-    return providePerConsumer(settingsWindowSourceKey, (consumer) => {
+    return provideServicePerConsumer(settingsWindowSourceKey, (consumer) => {
         if (consumer.plugin !== owner || consumer.via !== null) throw new TypeError(`${settingsWindowSourceKey.name} 只提供给 ${owner} 自己的入口，调用方是 ${consumer.plugin ?? "宿主"}`);
         return {...source};
     });

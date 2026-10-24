@@ -9,7 +9,7 @@
 import {join} from "node:path";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
-import {defineEntry, providePerConsumer} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provideServicePerConsumer} from "@notnotype/nb-runtime/plugins";
 import type {ActivationContext, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
@@ -49,7 +49,7 @@ function partitionEntry(location: "server" | "project", placement: ServiceKey<un
             // 入口停止时关库：先结束本地订阅；别的实例的订阅随远程提供项撤回由内核结束。
             context.scope.register({kind: "storage-partition", label: `${descriptor.id} ${scope}`, value: owner, release: (value) => value.close()});
             const facades = new WeakMap<StorageService, StorageFacade>();
-            const storage = providePerConsumer(
+            const storage = provideServicePerConsumer(
                 storageKey,
                 (consumer): StorageService => {
                     const facade = createStorageFacade(consumer, {

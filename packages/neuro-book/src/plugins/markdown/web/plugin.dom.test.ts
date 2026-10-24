@@ -10,7 +10,7 @@ import type {Component} from "vue";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
-import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
@@ -34,7 +34,7 @@ async function served(): Promise<MarkdownComponents> {
     const memory = createMemoryFiles({project: [], user: []});
     let components: MarkdownComponents | null = null;
     // 服务键按插件 id 归属（`nbook.files/...`），替身用同一个 id。
-    const files: PluginDefinition = {id: "nbook.files", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], provides: [filesKey], activate: () => ({services: [provide(filesKey, memory.files)]})})]};
+    const files: PluginDefinition = {id: "nbook.files", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], provides: [filesKey], activate: () => ({services: [provideService(filesKey, memory.files)]})})]};
     const probe: PluginDefinition = {id: "test.probe", entries: [defineEntry({id: "browser", location: "browser", activationEvents: ["onStartup"], dependencies: [{key: markdownKey}], activate: (context) => {
         components = context.services.require(markdownKey).components;
         return {};

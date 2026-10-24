@@ -8,7 +8,7 @@
 
 import type {RuntimeLocation} from "../lifecycle/lifecycle";
 import type {ActivationContext, PluginDefinition} from "../plugins/plugins";
-import {defineEntry, provide} from "../plugins/plugins";
+import {defineEntry, provideService} from "../plugins/plugins";
 import {defineServiceKey} from "../services/services";
 import type {ServiceKey} from "../services/services";
 
@@ -65,7 +65,7 @@ export function createDiagnosticsPlugin(options: DiagnosticsPluginOptions): Plug
                         await closeUnpublishedExporter(outcome);
                         throw error;
                     }
-                    return {services: [provide(diagnosticsKey, createService(options.store), () => options.store.shutdown())]};
+                    return {services: [provideService(diagnosticsKey, createService(options.store), () => options.store.shutdown())]};
                 },
             }),
         ],

@@ -140,7 +140,8 @@ describe("Spec plugin-channel 术语：远程服务合同", () => {
             {id: "files", version: 1, provider: "any", callers: ["browser"], methods: {list: method}},
             {id: "acme.files/files", version: 0, provider: "any", callers: ["browser"], methods: {list: method}},
             {id: "acme.files/files", version: 1, provider: "any", callers: [], methods: {list: method}},
-            {id: "acme.files/files", version: 1, provider: "any", callers: ["browser"], methods: {list: {...method, input: Type.Object({uri: Type.String()})}}},
+            {id: "acme.files/files", version: 1, provider: "any", callers: ["browser"], methods: {list: {...method, input: Type.Object({uri: Type.String()}, {additionalProperties: true})}}},
+            {id: "acme.files/files", version: 1, provider: "any", callers: ["browser"], methods: {list: {...method, input: Type.String()}}},
             {id: "acme.files/files", version: 1, provider: "any", callers: ["browser"], methods: {list: {...method, errors: {timeout: Type.Object({})}}}},
             {id: "acme.files/files", version: 1, provider: "any", callers: ["browser"], methods: {events: method}},
             {id: "acme.files/files", version: 1, provider: "any", callers: ["browser"], methods: {list: method}, events: {list: {filter: Input, payload: Type.Null()}}},
@@ -153,5 +154,17 @@ describe("Spec plugin-channel 术语：远程服务合同", () => {
         for (const spec of bad) {
             expect(() => defineRemoteService(spec), spec.id).toThrow(TypeError);
         }
+    });
+
+    it("入参与订阅过滤没写 additionalProperties 时补成 false：返回的合同拒绝多余字段，作者传进来的 schema 不变", () => {
+        const input = Type.Object({uri: Type.String()});
+        const filter = Type.Object({topic: Type.String()});
+        const contract = defineRemoteService({id: "acme.files/files", version: 1, provider: "any", callers: ["browser"], methods: {list: {input, output: Type.Null(), effect: "read"}}, events: {changed: {filter, payload: Type.Null()}}});
+        expect(contract.methods.list.input).toMatchObject({type: "object", additionalProperties: false});
+        expect(contract.events.changed.filter).toMatchObject({type: "object", additionalProperties: false});
+        expect(validationProblems(contract.methods.list.input, {uri: "a", extra: 1})).not.toBeNull();
+        expect(validationProblems(contract.methods.list.input, {uri: "a"})).toBeNull();
+        expect("additionalProperties" in input).toBe(false);
+        expect("additionalProperties" in filter).toBe(false);
     });
 });

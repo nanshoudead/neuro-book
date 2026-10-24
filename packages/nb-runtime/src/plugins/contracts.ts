@@ -80,6 +80,12 @@ export interface ActivationContext {
     /** 激活作用域的停止信号；入口 owner 停止时触发，迟到的成功不会发布。 */
     readonly signal: AbortSignal;
     /**
+     * 登记一件这一代入口停止时做的事（释放计时器、句柄）：登记到 `scope`，随它收口，激活失败时同样执行；与 `scope` 上
+     * 别的无依赖资源并行释放，不保证先后（runtime/lifecycle.md 的释放顺序）。停止过程中登记的照样执行；这一代已经收口之后
+     * 调用抛 LifecycleStateError。
+     */
+    onStop(release: () => void | Promise<void>): void;
+    /**
      * 跨实例调用与订阅远程服务（docs/specs/runtime/plugin-channel.md）。宿主没有配置远程节点时，
      * 调用一律得到 `unavailable`。
      */
@@ -105,7 +111,7 @@ export interface ActivationContext {
 declare const providedType: unique symbol;
 
 /**
- * 激活产出的一项对外提供服务；用 `provide(key, instance, release?)` 构造。类型参数只在编译期，供 `defineEntry`
+ * 激活产出的一项对外提供服务；用 `provideService(key, instance, release?)` 构造。类型参数只在编译期，供 `defineEntry`
  * 核对服务类型。
  */
 export interface ProvidedService<T = unknown> {

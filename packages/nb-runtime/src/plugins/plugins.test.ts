@@ -10,7 +10,7 @@ import type {RuntimeInstance, RuntimeLocation, Scope} from "../lifecycle/lifecyc
 import {createServiceAssembly, defineServiceKey} from "../services/services";
 import type {ServiceAssembly} from "../services/services";
 
-import {createPluginHost, PluginStateError, provide} from "./plugins";
+import {createPluginHost, PluginStateError, provideService} from "./plugins";
 import type {
     ActivationContext,
     ActivationOutput,
@@ -125,7 +125,7 @@ function receiverOwner(location: RuntimeLocation, receivers: Readonly<Record<str
         validate: ({declaration}) => declaration.title.trim() === "" ? "title 不能为空" : null,
     }));
     return {id: "receivers", contributionPoints, entries: [{
-        id: "main", location, provides: [receiverKey], receives: Object.keys(receivers), activate: () => ({services: [provide(receiverKey, true)], receivers}),
+        id: "main", location, provides: [receiverKey], receives: Object.keys(receivers), activate: () => ({services: [provideService(receiverKey, true)], receivers}),
     }]};
 }
 
@@ -252,7 +252,7 @@ describe("描述登记", () => {
 
     it("登记不创建资源、不调用 activate；目录列出依赖、提供项与贡献描述；其它位置的入口只进描述", async () => {
         const {host, root, assembly} = await setup("server", "catalog", {}, false);
-        const activate = vi.fn(async () => ({contributions: {commands: {"p.run": () => "run"}}, services: [provide(clockKey, {now: () => 1})]}));
+        const activate = vi.fn(async () => ({contributions: {commands: {"p.run": () => "run"}}, services: [provideService(clockKey, {now: () => 1})]}));
         accepted(
             host,
             plugin(
@@ -292,7 +292,7 @@ describe("Spec 验收 1：描述先于实现", () => {
             await gate.promise;
             return {
                 contributions: {commands: {"clock.show": () => `now=${context.generation}`}},
-                services: [provide(clockKey, {now: () => 42})],
+                services: [provideService(clockKey, {now: () => 42})],
             };
         });
         accepted(host, plugin("clock", {...commandEntry("main", ["clock.show"], {provides: [clockKey]}), activate}), root);
@@ -424,8 +424,8 @@ describe("Spec 验收 3、8：入口独立与跨位置非原子", () => {
         const browser = await setup("browser", "browser-1");
         const definition = plugin(
             "clock",
-            {id: "server", location: "server", provides: [clockKey], activate: () => ({services: [provide(clockKey, {now: () => 1})]})},
-            {id: "browser", location: "browser", provides: [clockKey], activate: () => ({services: [provide(clockKey, {now: () => 2})]})},
+            {id: "server", location: "server", provides: [clockKey], activate: () => ({services: [provideService(clockKey, {now: () => 1})]})},
+            {id: "browser", location: "browser", provides: [clockKey], activate: () => ({services: [provideService(clockKey, {now: () => 2})]})},
         );
         accepted(server.host, definition, server.root);
         accepted(browser.host, definition, browser.root);
@@ -699,7 +699,7 @@ describe("Spec 验收 10：重试前置收口", () => {
                     if (attempts === 1) {
                         throw new Error("boot failed");
                     }
-                    return {services: [provide(clockKey, {now: () => attempts})]};
+                    return {services: [provideService(clockKey, {now: () => attempts})]};
                 },
             }),
             root,
@@ -793,7 +793,7 @@ describe("提供项与依赖协作", () => {
         const {host, root, assembly} = await setup();
         const release = vi.fn();
         const scope = openedChild(root, "op");
-        accepted(host, plugin("clock", {...commandEntry("main", [], {provides: [clockKey]}), activate: () => ({services: [provide(clockKey, {now: () => 1}, release)]})}), scope);
+        accepted(host, plugin("clock", {...commandEntry("main", [], {provides: [clockKey]}), activate: () => ({services: [provideService(clockKey, {now: () => 1}, release)]})}), scope);
         assembly.declare({id: "consumer", location: "server", scope, dependencies: [{key: clockKey}]});
         const resolved = await assembly.access("consumer").resolve(clockKey);
         expect(resolved.status).toBe("resolved");
@@ -804,7 +804,7 @@ describe("提供项与依赖协作", () => {
         }
         expect(host.entryState({plugin: "clock", entry: "main"})).toMatchObject({status: "closed"});
 
-        accepted(host, plugin("extra", {...commandEntry("main", []), activate: () => ({services: [provide(loggerKey, {lines: [], log: () => undefined})]})}), root);
+        accepted(host, plugin("extra", {...commandEntry("main", []), activate: () => ({services: [provideService(loggerKey, {lines: [], log: () => undefined})]})}), root);
         expect(await host.activate({plugin: "extra", entry: "main"})).toMatchObject({status: "failed", stage: "output", reason: "undeclared-service", key: "clock/logger"});
     });
 
@@ -822,8 +822,8 @@ describe("提供项与依赖协作", () => {
         accepted(host, plugin("clock", {
             ...commandEntry("main", [], {provides: [clockKey, loggerKey]}),
             activate: () => ({services: [
-                provide(clockKey, {now: () => 1}, failingOnce("adopted")),
-                provide(loggerKey, {lines: [], log: () => undefined}, failingOnce("unadopted")),
+                provideService(clockKey, {now: () => 1}, failingOnce("adopted")),
+                provideService(loggerKey, {lines: [], log: () => undefined}, failingOnce("unadopted")),
             ]}),
         }), scope);
         assembly.declare({id: "consumer", location: "server", scope, dependencies: [{key: clockKey}]});
@@ -857,14 +857,14 @@ describe("提供项与依赖协作", () => {
             id: "main",
             location: "server",
             provides: [aKey],
-            activate: () => ({services: [provide(aKey, {name: "a"})]}),
+            activate: () => ({services: [provideService(aKey, {name: "a"})]}),
         }), runtime.root);
         accepted(host, plugin("cascade-b", {
             id: "main",
             location: "server",
             dependencies: [{key: aKey}],
             provides: [bKey],
-            activate: () => ({services: [provide(bKey, {name: "b"})]}),
+            activate: () => ({services: [provideService(bKey, {name: "b"})]}),
         }), runtime.root);
         accepted(host, plugin("cascade-c", {
             id: "main",
@@ -883,7 +883,7 @@ describe("提供项与依赖协作", () => {
                     dependsOn: [dependency.binding.dependency],
                     release: releaseDownstream,
                 });
-                return {services: [provide(cKey, {name: "c"})]};
+                return {services: [provideService(cKey, {name: "c"})]};
             },
         }), runtime.root);
 

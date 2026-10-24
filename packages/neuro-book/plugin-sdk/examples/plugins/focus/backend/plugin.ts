@@ -82,7 +82,8 @@ function storageFailed(failure: {readonly code: string; readonly detail: string}
     return {ok: false, code: "storage-failed", detail: {code: failure.code, detail: failure.detail}};
 }
 
-type Refusal<Code extends string> = {readonly ok: false; readonly code: Code; readonly detail: Record<string, never>};
+/** 业务失败；按码分布，`Refusal<never>` 是 never（不拒绝的改动）。 */
+type Refusal<Code extends string> = Code extends string ? {readonly ok: false; readonly code: Code; readonly detail: Record<string, never>} : never;
 
 /** 一次读写要做的改动（在结算之后）：返回新记录，返回 null 表示只结算，或者一个业务失败（不写）。 */
 type Change<Code extends string> = (record: FocusRecord, now: number) => FocusRecord | null | Refusal<Code>;
@@ -167,7 +168,8 @@ export const focusBackendPlugin: PluginDefinition = {
                         // 计时只有一份，不按调用方分；工厂对每个调用方调用一次，返回同一套实现。
                         provideRemote(sessionsContract, () => ({
                             methods: {
-                                today: () => update(() => null),
+                                // 只结算、不拒绝：写明 never，免得失败码从合同反推成 storage-failed。
+                                today: () => update<never>(() => null),
                                 start: () => update(start),
                                 cancel: () => update(cancel),
                             },

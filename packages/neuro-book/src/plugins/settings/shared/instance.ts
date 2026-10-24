@@ -15,7 +15,7 @@ import type {ShallowRef} from "@vue/reactivity";
 
 import type {DiagnosticsService} from "@notnotype/nb-runtime/diagnostics";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
-import {providePerConsumer} from "@notnotype/nb-runtime/plugins";
+import {provideServicePerConsumer} from "@notnotype/nb-runtime/plugins";
 import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 
 import type {WindowConnection} from "nbook/shared/host";
@@ -316,7 +316,7 @@ export function createSettingsInstance(options: SettingsInstanceOptions): Settin
 /** 按调用方交出配置服务：每个调用方一个门面，门面随调用方入口的这一代释放。 */
 export function provideSettings(instance: SettingsInstance) {
     const facades = new WeakMap<SettingsService, SettingsFacade>();
-    return providePerConsumer(
+    return provideServicePerConsumer(
         settingsKey,
         (consumer): SettingsService => {
             const facade = instance.facade(consumer);

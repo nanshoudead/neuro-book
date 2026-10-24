@@ -12,7 +12,7 @@ import type {ActivationContext, PluginDefinition} from "../plugins/plugins";
 import type {Scope} from "../lifecycle/lifecycle";
 import type {ConsumerIdentity} from "../services/services";
 
-import {createRemoteNode, createRemoteRouter, defineRemoteService, provideRemote, WIRE_PROTOCOL_VERSION} from "./remote";
+import {createRemoteNode, createRemoteRouter, defineRemoteService, fail, provideRemote, WIRE_PROTOCOL_VERSION} from "./remote";
 import type {InstanceDescriptor, RemoteAccess, RemoteImplementation, RemoteNode, RemoteRouter, RemoteRouterOptions, RemoteTarget} from "./remote";
 import {createLinkPair} from "./testing/in-process";
 
@@ -32,7 +32,8 @@ const echo = defineRemoteService({
         /** 等到测试放行才返回；用来制造“已 ACK 未回复”。 */
         hold: {input: Type.Object({name: Type.String()}, {additionalProperties: false}), output: Type.String(), effect: "write"},
         peek: {input: Type.Object({name: Type.String()}, {additionalProperties: false}), output: Type.String(), effect: "read"},
-        refuse: {input: Empty, output: Type.Null(), effect: "write", errors: {"no-luck": Type.Object({}, {additionalProperties: false})}},
+        /** 按 `how` 交出各种业务失败：合规的（有详情、没有详情）与详情不合合同的。 */
+        refuse: {input: Type.Object({how: Type.String()}, {additionalProperties: false}), output: Type.Null(), effect: "write", errors: {"no-luck": Type.Undefined(), "too-many": Type.Object({max: Type.Integer()}, {additionalProperties: false})}},
         misbehave: {input: Type.Object({how: Type.String()}, {additionalProperties: false}), output: Type.String(), effect: "read"},
         /** 合同不限制值的形状：用来检验链路编码失败。`"function"` 让提供方返回一个函数。 */
         relay: {input: Type.Object({value: Type.Unknown()}, {additionalProperties: false}), output: Type.Unknown(), effect: "read"},
@@ -107,7 +108,14 @@ function implementation(consumer: ConsumerIdentity, probe: Probe): RemoteImpleme
                 probe.onEnter?.();
                 return {ok: true, value: await gate(name).promise};
             },
-            refuse: () => ({ok: false, code: "no-luck"}),
+            refuse: ({how}) => {
+                if (how === "plain") return fail("no-luck");
+                if (how === "detail") return fail("too-many", {max: 3});
+                // 下面几种绕过类型交出不合合同的详情：缺详情、详情形状不对、不该有详情却给了。
+                if (how === "missing-detail") return {ok: false, code: "too-many"} as never;
+                if (how === "bad-detail") return fail("too-many", {max: "x"}) as never;
+                return fail("no-luck", {x: 1}) as never;
+            },
             misbehave: ({how}) => {
                 if (how === "throw") {
                     throw new Error("boom");
@@ -116,7 +124,7 @@ function implementation(consumer: ConsumerIdentity, probe: Probe): RemoteImpleme
                     return {ok: true, value: 42 as unknown as string};
                 }
                 // 故意返回合同没有声明的失败码
-                return {ok: false, code: "unheard-of" as never};
+                return {ok: false, code: "unheard-of"} as never;
             },
             relay: ({value}) => ({ok: true, value: value === "function" ? () => "not sendable" : value}),
         },
@@ -386,7 +394,8 @@ describe("Spec plugin-channel 输出 1–3、5：调用、寻址与按需激活"
         expect(await fromBrowser.ping({})).toMatchObject({ok: false, code: "not-provided"});
 
         expect(t.hub.app.plugins.register(brokenLatePlugin, {scope: t.hub.app.root})).toMatchObject({status: "accepted"});
-        expect(await fromBrowser.ping({})).toMatchObject({ok: false, code: "unavailable"});
+        // 详情带上提供入口激活时抛出的消息：调用方多在别的实例，只看得到这一句。
+        expect(await fromBrowser.ping({})).toMatchObject({ok: false, code: "unavailable", detail: expect.stringContaining("activation-threw：激活失败")});
     });
 
     it("实例查询列出服务端与在线实例", async () => {
@@ -677,10 +686,14 @@ describe("Spec plugin-channel 输出 4：请求阶段与失败码", () => {
         expect(released).toEqual(["app.caller"]);
     });
 
-    it("回复阶段：业务失败码原样返回；抛错、输出不符合合同、未声明的失败码都是 provider-error", async () => {
+    it("回复阶段：业务失败码与详情原样返回；抛错、输出不符合合同、未声明的失败码、详情不符合该码的 schema 都是 provider-error", async () => {
         const t = await topology();
         const atServer = t.remote(t.browser1).use(echo).at("server");
-        expect(await atServer.refuse({})).toEqual({ok: false, code: "no-luck"});
+        expect(await atServer.refuse({how: "plain"})).toEqual({ok: false, code: "no-luck"});
+        expect(await atServer.refuse({how: "detail"})).toEqual({ok: false, code: "too-many", detail: {max: 3}});
+        for (const how of ["missing-detail", "bad-detail", "extra-detail"]) {
+            expect(await atServer.refuse({how})).toMatchObject({ok: false, code: "provider-error", detail: expect.stringContaining("详情不符合合同")});
+        }
         expect(await atServer.misbehave({how: "throw"})).toMatchObject({ok: false, code: "provider-error"});
         expect(await atServer.misbehave({how: "bad-output"})).toMatchObject({ok: false, code: "provider-error"});
         expect(await atServer.misbehave({how: "undeclared"})).toMatchObject({ok: false, code: "provider-error"});

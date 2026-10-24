@@ -212,7 +212,7 @@ describe("读清单", () => {
         ["清单写了内置合同", {...base, contracts: {"acme.storage/records": {...indexContractJson, id: "acme.storage/records"}}}, "contracts.acme.storage/records"],
         // 结构问题与语义问题对同一合同用同一种路径：合同 id 原样一段。
         ["合同缺字段", {...base, contracts: {"example.notes/index": {id: "example.notes/index", version: 1}}}, "contracts.example.notes/index"],
-        ["合同的入参不是严格对象", {...base, contracts: {"example.notes/index": {...indexContractJson, methods: {list: {...indexContractJson.methods.list, input: {type: "object"}}}}}}, "contracts.example.notes/index"],
+        ["合同的入参允许多余字段", {...base, contracts: {"example.notes/index": {...indexContractJson, methods: {list: {...indexContractJson.methods.list, input: {type: "object", additionalProperties: true}}}}}}, "contracts.example.notes/index"],
         ["合同 schema 的 type 不是 JSON 类型", {...base, contracts: {"example.notes/index": {...indexContractJson, methods: {list: {...indexContractJson.methods.list, output: {type: "nonsense"}}}}}}, "contracts.example.notes/index.methods.list.output"],
         ["合同 schema 引用外部 URI", {...base, contracts: {"example.notes/index": {...indexContractJson, methods: {list: {...indexContractJson.methods.list, output: {$ref: "https://example.com/schema"}}}}}}, "contracts.example.notes/index.methods.list.output"],
         ["合同 schema 的本地引用解析不到", {...base, contracts: {"example.notes/index": {...indexContractJson, methods: {list: {...indexContractJson.methods.list, output: {$defs: {A: {type: "string"}}, $ref: "#/$defs/B"}}}}}}, "contracts.example.notes/index.methods.list.output"],

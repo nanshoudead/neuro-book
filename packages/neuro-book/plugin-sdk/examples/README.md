@@ -28,7 +28,7 @@
 |---|---|---|---|---|
 | 插件 | 发布、启用、版本的单位，一个目录 | 跨所有运行位置 | `plugin.ts` 的插件描述 `PluginDescriptor`（id、版本、运行位置） | 每个插件目录的 `plugin.ts` |
 | 入口 | 插件在某一种运行位置上的代码，单独激活、单独受阻，有自己的激活代次；同一位置可以有多个入口 | 一个运行实例 | 插件定义常量 `PluginDefinition` 的 `entries`，每个实例只激活本位置的入口 | counter 一份后端定义含 `server` 与 `project` 两个入口；notes 有服务端与浏览器两份定义 |
-| 服务 | 一个入口交给**同一实例里**其它入口用的对象，以服务 id 标识 | 同一实例 | `provide`（共享一份）、`providePerConsumer`（每个调用方一份） | clock 的报时服务（共享）；notes 窗口里的笔记视图（按调用方） |
+| 服务 | 一个入口交给**同一实例里**其它入口用的对象，以服务 id 标识 | 同一实例 | `provideService`（共享一份）、`provideServicePerConsumer`（每个调用方一份） | clock 的报时服务（共享）；notes 窗口里的笔记视图（按调用方） |
 | 依赖 | **入口**声明“我需要服务 id 为 S 的服务”；只在本实例里解析，提供方先激活、后停止；必需依赖缺了只有这个入口受阻，可选依赖缺了只有用到它的那一处不可用 | 同一实例 | 入口的 `dependencies`；激活时 `context.services.require(键)`（必需）或 `resolve(键)`（可选） | notes 必需依赖 `nbook.storage`、可选依赖 clock |
 | 宿主能力 | 宿主交给本实例插件的东西（时钟、状态根、项目），插件像依赖服务一样声明 | 同一实例 | 宿主在应用清单的 `capabilities` 里给出；插件在 `dependencies` 里声明 | clock 依赖宿主时钟 |
 | 远程服务 | 跨实例的协议：异步、可序列化、有失败码，不构成依赖；第一次调用时激活提供方。同一实例里的调用方也直接用合同 | 任意实例之间 | `defineRemoteService`、`provideRemote`；调用方 `context.remote.use(合同).at(目标)` | notes、counter 的合同 |
@@ -113,7 +113,7 @@ examples/
 
 | 插件 | 运行位置 | 演示什么 |
 |---|---|---|
-| [clock](plugins/clock/) | server | 依赖宿主能力里的时钟，包成共享服务（`provide`）；不声明激活事件，有入口依赖它时才激活；`context.scope` 登记宿主计时器、收口时释放，`context.signal` 一触发就答复还在等的调用 |
+| [clock](plugins/clock/) | server | 依赖宿主能力里的时钟，包成共享服务（`provideService`）；不声明激活事件，有入口依赖它时才激活；`context.scope` 登记宿主计时器、收口时释放，`context.signal` 一触发就答复还在等的调用 |
 | [notes](plugins/notes/) | server、browser | 服务端：必需依赖 `nbook.storage`（真实 SQLite，按调用方插件分开）、可选依赖 clock（`resolve`，按原因分别处理），`provideRemote` 按调用方生成门面，事件 `changed`。浏览器：按调用方提供笔记视图，以调用方身份代理（`remote.on`、`remoteDelegates`），维护同步可读的缓存，`nbook.storage` 的缩小版 |
 | [counter](plugins/counter/) | server、project | 一份后端定义两个入口。服务端：`defineStore` 把计数持久化进 `nbook.storage`，公开键 `example.counter/nonzero`，命令 `example.counter.reset` 的 `when` 引用它，远程合同与订阅、提供方看到的调用方。项目：每个项目实例一份的计数，第一次调用时按需激活，窗口省略 `.at()` 即到达绑定的项目 |
 | [menu](plugins/menu/) | server | 定义贡献点 `menu.items`：规则写成 `schema` 与 `idPrefix`、登记时逐条校验，启动即激活、收到菜单项记诊断，接收者 `published` 与 `revoke`、执行时经 `implementation()` 取实现；`context.declarations` 列出已接受声明的标题，贡献方还没激活也列得出 |

@@ -11,7 +11,7 @@
 import {computed, defineAsyncComponent, h, watch} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
-import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, menuImplementations, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
@@ -177,7 +177,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                 {path: WORKBENCH_PATH, title: "NeuroBook", load: async () => workbenchPages.workbench},
             ]);
             return {
-                services: [provide(workbenchRootKey, {pages: () => pages.list()}), provide(quickPickKey, palettes.quickPick), provide(notificationsKey, {notify: (input) => notifications.notify(input)})],
+                services: [provideService(workbenchRootKey, {pages: () => pages.list()}), provideService(quickPickKey, palettes.quickPick), provideService(notificationsKey, {notify: (input) => notifications.notify(input)})],
                 receivers: {[WORKBENCH_PAGES_POINT]: pages.receiver(), [WORKBENCH_VIEWS_POINT]: views.receiver(), [WORKBENCH_EDITOR_AREA_POINT]: editorArea.receiver(), [WORKBENCH_STATUSBAR_ITEMS_POINT]: statusItems.receiver(), [WORKBENCH_TITLEBAR_ITEMS_POINT]: titleItems.receiver(), [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: activityItems.receiver(), [WORKBENCH_OVERLAYS_POINT]: overlays.receiver(), [WORKBENCH_HOME_POINT]: homeSlot.receiver(), [WORKBENCH_TITLEBAR_MENU_POINT]: titlebarMenu.receiver(), [WORKBENCH_VIEW_TITLE_POINT]: viewTitle.receiver()},
                 contributions: {
                     [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: {[PROFILE_ITEM]: NO_IMPLEMENTATION},

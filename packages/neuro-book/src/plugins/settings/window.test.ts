@@ -19,7 +19,7 @@ import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
-import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ActivationContext, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -391,7 +391,7 @@ describe("按需激活（输出 4）：窗口显示 page 分区时触发 onSetti
         let broken = true;
         const provider: PluginDefinition = {id: "x.dep", entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], provides: [dependency], activate: () => {
             if (broken) throw new Error("依赖启动失败");
-            return {services: [provide(dependency, {})]};
+            return {services: [provideService(dependency, {})]};
         }}]};
         const page = contributor("x.notes", {"x.notes.page": pageSection()}, toggle({implementation: {load: async () => Page}}), [], {...onPage("x.notes.page"), dependencies: [{key: dependency}]});
         const started = await start([provider, page]);

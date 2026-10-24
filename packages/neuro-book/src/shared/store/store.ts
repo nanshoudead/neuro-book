@@ -64,10 +64,13 @@ export interface Store<S extends object, A extends Actions> {
     readonly contributions: Readonly<Record<string, Readonly<Record<string, PublicStateBinding>>>>;
 }
 
+/** `create` 用到的激活上下文成员：内核的上下文与给作者的收窄上下文都满足。 */
+export type StoreContext = Pick<ActivationContext, "plugin" | "entry" | "signal" | "onStop">;
+
 export interface StoreDefinition<S extends object, A extends Actions> {
     readonly name: string;
-    /** 在入口的 `activate` 里调用：运行一次 setup，store 登记在 `context.scope` 上、随这一代入口释放。 */
-    create(context: ActivationContext, options: StoreOptions): Store<S, A>;
+    /** 在入口的 `activate` 里调用：运行一次 setup，store 经 `context.onStop` 随这一代入口释放。 */
+    create(context: StoreContext, options: StoreOptions): Store<S, A>;
 }
 
 const STORE_NAME = /^[a-z][a-z0-9-]{0,63}$/u;
@@ -108,7 +111,7 @@ export function defineStore<S extends object, A extends Actions>(name: string, s
 function createStore<S extends object, A extends Actions>(
     name: string,
     setup: (context: StoreSetupContext) => StoreShape<S, A>,
-    context: ActivationContext,
+    context: StoreContext,
     options: StoreOptions,
 ): Store<S, A> {
     const label = `${context.plugin} 的 store ${name}`;
@@ -187,26 +190,21 @@ function createStore<S extends object, A extends Actions>(
     const exposed: Record<string, unknown> = Object.fromEntries(Object.entries(shape.state).map(([key, value]) => [key, typeof value === "object" && value !== null && views.has(value) ? views.get(value) : value]));
     const state = readonly(exposed) as unknown as StoreView<S>;
 
-    context.scope.register({
-        kind: "plugin-store",
-        label,
-        value: fields,
-        release: async (owned) => {
-            accepting = false;
-            try {
-                const cancelled = await Promise.all(owned.map((field) => field.flush()));
-                const total = cancelled.reduce((sum, count) => sum + count, 0);
-                if (total > 0) record("warn", "store.intents-cancelled", `${label} 停止时有 ${String(total)} 条修改没有发出`, {cancelled: total});
-            } finally {
-                for (const field of owned) field.close();
-                // effectScope 停得了 watch 与 effect，停不了 computed（它是惰性的，读就会重新求值）：第一层的 ref 与
-                // computed 换成释放时的值，旧视图之后读到的就是这一刻的值。
-                for (const [key, value] of Object.entries(exposed)) {
-                    if (isRef(value)) exposed[key] = value.value;
-                }
-                scope.stop();
+    context.onStop(async () => {
+        accepting = false;
+        try {
+            const cancelled = await Promise.all(fields.map((field) => field.flush()));
+            const total = cancelled.reduce((sum, count) => sum + count, 0);
+            if (total > 0) record("warn", "store.intents-cancelled", `${label} 停止时有 ${String(total)} 条修改没有发出`, {cancelled: total});
+        } finally {
+            for (const field of fields) field.close();
+            // effectScope 停得了 watch 与 effect，停不了 computed（它是惰性的，读就会重新求值）：第一层的 ref 与
+            // computed 换成释放时的值，旧视图之后读到的就是这一刻的值。
+            for (const [key, value] of Object.entries(exposed)) {
+                if (isRef(value)) exposed[key] = value.value;
             }
-        },
+            scope.stop();
+        }
     });
     for (const field of fields) {
         field.attach(options.storage as StorageService, (event, error) => record("error", event, `${label} 的 Storage 调用抛出异常`, undefined, error));

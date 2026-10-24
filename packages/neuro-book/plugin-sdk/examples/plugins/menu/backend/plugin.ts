@@ -16,7 +16,7 @@
  * 对应的场景：`scenarios/03-contribution-point.test.ts`。
  */
 
-import {defineEntry, diagnosticsKey, provide} from "@notnotype/nb-plugin-sdk";
+import {defineEntry, diagnosticsKey, provideService} from "@notnotype/nb-plugin-sdk";
 import type {ContributionHandle, ContributionReceiver, PluginDefinition} from "@notnotype/nb-plugin-sdk";
 import {Type} from "typebox";
 
@@ -81,7 +81,7 @@ export const menuBackendPlugin: PluginDefinition = {
                         return {ok: true, value: await handle.implementation().run()};
                     },
                 };
-                return {services: [provide(menuKey, menu)], receivers: {[MENU_POINT]: receiver}};
+                return {services: [provideService(menuKey, menu)], receivers: {[MENU_POINT]: receiver}};
             },
         }),
     ],

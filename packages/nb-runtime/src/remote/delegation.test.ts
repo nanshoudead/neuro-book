@@ -12,7 +12,7 @@ import {createApplication} from "../application/application";
 import {createRuntimeInstance} from "../lifecycle/lifecycle";
 import type {Scope} from "../lifecycle/lifecycle";
 import {ManualClock} from "../lifecycle/testing/manual-clock";
-import {createPluginHost, providePerConsumer} from "../plugins/plugins";
+import {createPluginHost, provideServicePerConsumer} from "../plugins/plugins";
 import type {ActivationContext, PluginDefinition, PluginHost} from "../plugins/plugins";
 import {createServiceAssembly, defineServiceKey} from "../services/services";
 import type {ConsumerIdentity} from "../services/services";
@@ -101,7 +101,7 @@ function proxyPlugin(id: string, key: typeof proxyKey, events: string[], context
             activate: (context) => {
                 contexts.set(id, context);
                 return {
-                services: [providePerConsumer(key, (consumer): Proxy => ({
+                services: [provideServicePerConsumer(key, (consumer): Proxy => ({
                     whoami: () => context.remote.on(consumer).use(echo).whoami({}),
                     ping: () => context.remote.on(consumer).use(other).ping({}),
                     whoamiAs: (identity) => context.remote.on(identity).use(echo).whoami({}),

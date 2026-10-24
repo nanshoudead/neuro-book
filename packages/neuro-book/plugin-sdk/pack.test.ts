@@ -231,7 +231,7 @@ describe("生成的 SDK 包", () => {
             "RemoteResult", "RemoteSink", "RemoteSubscribeOptions", "RemoteSubscription", "RuntimeClock", "SETTINGS_CHOICES_POINT", "SETTINGS_PAGES_POINT", "SETTINGS_SECTIONS_POINT", "ServiceKey", "SettingDefinition", "SettingLayer", "SettingWriteResult",
             "SettingsChoicesDeclaration", "SettingsFailure", "SettingsPageDeclaration", "SettingsSectionCategory", "SettingsSectionDeclaration", "SettingsService", "StateRoot", "StorageService", "defineEntry", "definePublicState",
             "defineRecord", "defineRemoteService", "defineServiceKey", "defineSetting", "defineStore", "diagnosticsKey", "displayLocale", "formatText",
-            "hostClockKey", "hostStateRootKey", "localize", "orThrow", "provide", "providePerConsumer", "provideRemote", "settingsChoicesEvent", "settingsKey",
+            "fail", "hostClockKey", "hostStateRootKey", "localize", "ok", "orThrow", "provideService", "provideServicePerConsumer", "provideRemote", "settingsChoicesEvent", "settingsKey",
             "storageKey", "ItemDeclaration", "ViewDeclaration", "ViewLocation", "WORKBENCH_STATUSBAR_ITEMS_POINT", "WORKBENCH_VIEWS_POINT",
         ].sort());
         expect(declaredExports(await readFile(join(installed, "browser.d.ts"), "utf8"))).toEqual([

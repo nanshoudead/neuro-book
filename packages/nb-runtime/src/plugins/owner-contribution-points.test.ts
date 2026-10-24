@@ -4,7 +4,7 @@ import {createRuntimeInstance} from "../lifecycle/lifecycle";
 import type {Scope} from "../lifecycle/lifecycle";
 import {createServiceAssembly, defineServiceKey} from "../services/services";
 
-import {createPluginHost, PluginStateError, provide} from "./plugins";
+import {createPluginHost, PluginStateError, provideService} from "./plugins";
 import type {
     ActivationContext,
     ContributionDeclaration,
@@ -321,7 +321,7 @@ describe("拥有者贡献点合同", () => {
         };
         const definition = owner([point()], {commands: receiver});
         const firstDefinition: PluginDefinition = {...definition, entries: [{...definition.entries[0]!, provides: [ownerOutputKey], activate: () => ({
-            receivers: {commands: receiver}, services: [provide(ownerOutputKey, output, (value) => {value.alive = false; events.push("release:output");})],
+            receivers: {commands: receiver}, services: [provideService(ownerOutputKey, output, (value) => {value.alive = false; events.push("release:output");})],
         })}]};
         register(host, source("source", [declaration("one")]), root);
         register(host, firstDefinition, ownerScope);
@@ -545,7 +545,7 @@ describe("拥有者贡献点合同", () => {
         };
         const definition = owner([point()], {commands: receiver});
         register(host, {...definition, entries: [{...definition.entries[0]!, provides: [ownerOutputKey], activate: () => ({
-            receivers: {commands: receiver}, services: [provide(ownerOutputKey, output, (value) => {value.alive = false; events.push("release");})],
+            receivers: {commands: receiver}, services: [provideService(ownerOutputKey, output, (value) => {value.alive = false; events.push("release");})],
         })}]}, ownerScope);
         await host.activate({plugin: "owner", entry: "main"});
         register(host, source("source", [declaration("one")]), root);
@@ -603,7 +603,7 @@ describe("拥有者贡献点合同", () => {
         };
         const definition = owner([point()], {commands: receiver});
         register(host, {...definition, entries: [{...definition.entries[0]!, provides: [ownerOutputKey], activate: () => ({
-            receivers: {commands: receiver}, services: [provide(ownerOutputKey, output, (value) => {value.alive = false; events.push("release");})],
+            receivers: {commands: receiver}, services: [provideService(ownerOutputKey, output, (value) => {value.alive = false; events.push("release");})],
         })}]}, ownerScope);
         const consumerScope = child(ownerScope, "consumer");
         assembly.declare({id: "consumer", location: "server", scope: consumerScope, dependencies: [{key: ownerOutputKey}]});

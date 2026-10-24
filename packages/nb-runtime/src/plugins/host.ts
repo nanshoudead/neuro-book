@@ -671,7 +671,8 @@ export class PluginHostImpl implements PluginHost {
         }
         const result = await this.#activate({plugin: record.plugin, entry: record.definition.id}, {signal, chain});
         if (result.status !== "activated") {
-            const reason = result.status === "failed" ? `${result.stage}/${result.reason}` : result.status === "rejected" ? `rejected:${result.reason}` : result.status;
+            // 激活抛错时带上错误消息：调用方（多是别的实例里的作者）只看得到这一句（runtime/plugin-channel.md 的 unavailable）。
+            const reason = result.status === "failed" ? `${result.stage}/${result.reason}${result.error === null ? "" : `：${result.error.message}`}` : result.status === "rejected" ? `rejected:${result.reason}` : result.status;
             return {status: "unavailable", reason: `提供入口 ${record.plugin}/${record.definition.id} 不可用：${reason}`};
         }
         const attempt = record.current;
@@ -1061,6 +1062,9 @@ export class PluginHostImpl implements PluginHost {
             generation,
             scope: attempt.work,
             signal: scope.stopSignal,
+            onStop: (release) => {
+                attempt.work.register({kind: "plugin-on-stop", label: `${plugin}/${entry} 停止时`, value: release, release: (run) => run()});
+            },
             remote: this.#remoteAccess(attempt, record, plugin, entry),
             declarations: this.#declarations,
             activation: {

@@ -14,7 +14,7 @@ import {Value} from "typebox/value";
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsService} from "@notnotype/nb-runtime/diagnostics";
 import type {RuntimeLocation} from "@notnotype/nb-runtime/lifecycle";
-import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {ContributionDeclarations, ContributionDescriptor, ContributionHandle, ContributionReceiver, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {LocalizedTextSchema} from "nbook/shared/localized-text";
@@ -68,7 +68,7 @@ function stateEntry(location: RuntimeLocation): PluginEntryDefinition {
                 },
             };
             const service = createService(location, bindings, context.declarations, context.services.require(diagnosticsKey));
-            return {services: [provide(publicStateKey, service)], receivers: {[PUBLIC_STATE_POINT]: receiver}};
+            return {services: [provideService(publicStateKey, service)], receivers: {[PUBLIC_STATE_POINT]: receiver}};
         },
     });
 }

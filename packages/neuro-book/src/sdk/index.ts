@@ -8,7 +8,7 @@
  */
 
 // 内核：入口、服务、远程服务与贡献。
-export {defineEntry, provide, providePerConsumer} from "@notnotype/nb-runtime/plugins";
+export {defineEntry, provideService, provideServicePerConsumer} from "@notnotype/nb-runtime/plugins";
 export type {
     ActivationContext,
     ContributionDeclaration,
@@ -22,7 +22,7 @@ export type {
 } from "@notnotype/nb-runtime/plugins";
 export {defineServiceKey} from "@notnotype/nb-runtime/services";
 export type {ServiceKey} from "@notnotype/nb-runtime/services";
-export {defineRemoteService, orThrow, provideRemote} from "@notnotype/nb-runtime/remote";
+export {defineRemoteService, fail, ok, orThrow, provideRemote} from "@notnotype/nb-runtime/remote";
 export type {RemoteContract, RemoteOutcome, RemoteResult, RemoteSink, RemoteSubscribeOptions, RemoteSubscription} from "@notnotype/nb-runtime/remote";
 export {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 export type {DiagnosticsService} from "@notnotype/nb-runtime/diagnostics";

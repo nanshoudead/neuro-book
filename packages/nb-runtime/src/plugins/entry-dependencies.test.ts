@@ -2,7 +2,7 @@ import {describe, expect, it, vi} from "bun:test";
 
 import {createRuntimeInstance} from "../lifecycle/lifecycle";
 import {createServiceAssembly, defineServiceKey} from "../services/services";
-import {createPluginHost, provide} from "./plugins";
+import {createPluginHost, provideService} from "./plugins";
 import type {ActivationResult, PluginDefinition, PluginEntryDefinition} from "./plugins";
 
 const aKey = defineServiceKey("a/service");
@@ -19,7 +19,7 @@ function setup() {
 }
 
 function definition(id: string, dependencies: PluginEntryDefinition["dependencies"] = [], provides: PluginEntryDefinition["provides"] = []): PluginDefinition {
-    return {id, entries: [{id: "main", location: "server", dependencies, provides, activate: () => ({services: provides.map((key) => provide(key, id))})}]};
+    return {id, entries: [{id: "main", location: "server", dependencies, provides, activate: () => ({services: provides.map((key) => provideService(key, id))})}]};
 }
 
 describe("入口与服务级依赖合同", () => {
@@ -81,7 +81,7 @@ describe("入口与服务级依赖合同", () => {
     it("验收 6：提供方失败使依赖方受阻，显式恢复后依赖方可激活", async () => {
         const {runtime, host} = setup();
         let failed = true;
-        host.register({id: "b", entries: [{id: "main", location: "server", provides: [bKey], activate: () => {if (failed) {throw new Error("provider failed");} return {services: [provide(bKey, "B")]};}}]}, {scope: runtime.root});
+        host.register({id: "b", entries: [{id: "main", location: "server", provides: [bKey], activate: () => {if (failed) {throw new Error("provider failed");} return {services: [provideService(bKey, "B")]};}}]}, {scope: runtime.root});
         host.register(definition("a", [{key: bKey}]), {scope: runtime.root});
         await host.activate({plugin: "b", entry: "main"});
         expect(host.entryState({plugin: "a", entry: "main"})!.blocked).toEqual({reason: "provider-failed", key: bKey.name, path: ["a/main", "b/main"]});
@@ -148,7 +148,7 @@ describe("入口与服务级依赖合同", () => {
 
     it("验收 10：受阻激活不调用入口、不消耗代次，服务解析也不触发受阻提供方", async () => {
         const {runtime, assembly, host} = setup();
-        const activate = vi.fn(() => ({services: [provide(aKey, "A")]}));
+        const activate = vi.fn(() => ({services: [provideService(aKey, "A")]}));
         host.register({id: "a", entries: [{...definition("a", [{key: missing}], [aKey]).entries[0]!, activate}]}, {scope: runtime.root});
         const state = host.entryState({plugin: "a", entry: "main"});
         const result: ActivationResult = {status: "rejected", plugin: "a", entry: "main", reason: "blocked", blocked: {reason: "missing-service", key: missing.name, path: ["a/main"]}};

@@ -4,8 +4,8 @@
  * 1. **依赖宿主能力**：入口在 `dependencies` 里声明 SDK 的 `hostClockKey`，激活时用 `context.services.require` 取出
  *    宿主给的时钟。插件定义是常量，宿主的东西不经工厂参数交进来（docs/adr/0026-plugin-definitions-as-constants.md）：
  *    宿主在每个运行实例给出这项本地能力，产品里是系统时钟，场景测试里是可以手动推进的时钟。
- * 2. **提供共享服务**：`provide(clockKey, 服务)` 交出一个对象，所有依赖 `clockKey` 的入口拿到同一个
- *    （docs/specs/runtime/plugins.md 输出第 19 条）。要按调用方区分时用 `providePerConsumer`，见 `notes` 的浏览器入口。
+ * 2. **提供共享服务**：`provideService(clockKey, 服务)` 交出一个对象，所有依赖 `clockKey` 的入口拿到同一个
+ *    （docs/specs/runtime/plugins.md 输出第 19 条）。要按调用方区分时用 `provideServicePerConsumer`，见 `notes` 的浏览器入口。
  * 3. **按需激活**：入口不写 `activationEvents`。只有当某个要激活的入口依赖 `clockKey`，或者解析它的可选依赖时，内核
  *    才先激活 clock；没人用就一直停在“已登记”，不占资源（docs/specs/runtime/services.md 输出第 9 条）。
  * 4. **停止时收拾干净**：`context.signal` 在入口开始停止时触发，用来尽早答复还在等的调用方；`context.scope.register`
@@ -14,7 +14,7 @@
  * 对应的场景：`scenarios/01-services.test.ts`。
  */
 
-import {defineEntry, hostClockKey, provide} from "@notnotype/nb-plugin-sdk";
+import {defineEntry, hostClockKey, provideService} from "@notnotype/nb-plugin-sdk";
 import type {PluginDefinition} from "@notnotype/nb-plugin-sdk";
 
 import {descriptor} from "../plugin";
@@ -103,7 +103,7 @@ export const clockBackendPlugin: PluginDefinition = {
                         return promise;
                     },
                 };
-                return {services: [provide(clockKey, service)]};
+                return {services: [provideService(clockKey, service)]};
             },
         }),
     ],
