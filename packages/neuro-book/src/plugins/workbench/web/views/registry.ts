@@ -2,7 +2,7 @@
  * 视图注册表（docs/specs/workbench/views.md 输出 1–6、8）：两种输入分开。
  *
  * - 声明目录：工作台入口激活时从已接受的声明取得，之后不变（当前是静态清单）。未交付实现的视图也在目录里，导航不随
- *   交付先后跳动。
+ *   交付先后跳动。第三方插件的视图没写 `order` 时，目录里补上 `THIRD_PARTY_VIEW_ORDER`，排在内置视图之后。
  * - 交付句柄：接收者在 `published` 时记下句柄、`revoke` 时去掉。每次加载都经句柄的 `implementation()` 取实现，不缓存，
  *   这样撤回之后不会再用旧实现。
  *
@@ -16,6 +16,7 @@ import type {Component} from "vue";
 
 import type {ContributionDescriptor, ContributionHandle, ContributionReceiver, EntryState, RevokeReason} from "@notnotype/nb-runtime/plugins";
 
+import {manifestFormat} from "nbook/plugin-platform-profile";
 import type {WindowPluginRetry, WindowPlugins} from "nbook/shared/host";
 
 import type {ViewDeclaration} from "../../shared/views";
@@ -50,6 +51,17 @@ function entryReason(state: EntryState): string {
     return state.failure?.error?.message ?? state.failure?.reason ?? state.status;
 }
 
+/**
+ * 第三方插件（发布者不是保留的发布者）的视图没写 `order` 时取的顺序：装上插件后工作台一打开，侧栏仍先显示内置视图
+ * （docs/specs/workbench/views.md 输出 13）。内置视图的 `order` 都小于它。
+ */
+export const THIRD_PARTY_VIEW_ORDER = 1000;
+
+function catalogDeclaration(descriptor: ContributionDescriptor<ViewDeclaration>): ViewDeclaration {
+    if (descriptor.declaration.order !== undefined || manifestFormat.isBuiltinId(descriptor.plugin)) return descriptor.declaration;
+    return {...descriptor.declaration, order: THIRD_PARTY_VIEW_ORDER};
+}
+
 export class ViewRegistry implements ViewSource {
     readonly catalog: ViewCatalog;
     readonly #owners: ReadonlyMap<string, {readonly plugin: string; readonly entry: string | null}>;
@@ -61,7 +73,7 @@ export class ViewRegistry implements ViewSource {
     #stopped = false;
 
     constructor(declarations: ReadonlyArray<ContributionDescriptor<ViewDeclaration>>, plugins: WindowPlugins | null, signal: AbortSignal) {
-        this.catalog = new Map(declarations.map((descriptor) => [descriptor.id, descriptor.declaration]));
+        this.catalog = new Map(declarations.map((descriptor) => [descriptor.id, catalogDeclaration(descriptor)]));
         this.#owners = new Map(declarations.map((descriptor) => [descriptor.id, {plugin: descriptor.plugin, entry: descriptor.entry}]));
         this.#plugins = plugins;
         const unsubscribe = plugins?.onChange(() => this.#bump());
