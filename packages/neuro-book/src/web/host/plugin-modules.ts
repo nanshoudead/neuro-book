@@ -7,20 +7,26 @@
  */
 
 import * as reactivity from "@vue/reactivity";
+import * as typebox from "typebox";
+import * as typeboxCompile from "typebox/compile";
+import * as typeboxValue from "typebox/value";
 import * as vue from "vue";
 
 import * as sdkBrowser from "nbook/sdk/browser";
 import * as sdkComponents from "nbook/sdk/components";
 import * as sdk from "nbook/sdk/index";
-import type {BROWSER_SHARED_MODULES} from "nbook/plugin-platform-profile";
+import type {BrowserSharedModule} from "nbook/plugin-platform-profile";
 
-export function hostModules(): Readonly<Record<(typeof BROWSER_SHARED_MODULES)[number], unknown>> {
+export function hostModules(): Readonly<Record<BrowserSharedModule, unknown>> {
     const table = {
         "vue": vue,
         "@vue/reactivity": reactivity,
+        "typebox": typebox,
+        "typebox/value": typeboxValue,
+        "typebox/compile": typeboxCompile,
         "@notnotype/nb-plugin-sdk": sdk,
         "@notnotype/nb-plugin-sdk/browser": sdkBrowser,
         "@notnotype/nb-plugin-sdk/components": sdkComponents,
-    } satisfies Record<(typeof BROWSER_SHARED_MODULES)[number], object>;
-    return Object.freeze(Object.fromEntries(Object.entries(table).map(([id, module]) => [id, Object.freeze({...module})]))) as Readonly<Record<(typeof BROWSER_SHARED_MODULES)[number], unknown>>;
+    } satisfies Record<BrowserSharedModule, object>;
+    return Object.freeze(Object.fromEntries(Object.entries(table).map(([id, module]) => [id, Object.freeze({...module})]))) as Readonly<Record<BrowserSharedModule, unknown>>;
 }

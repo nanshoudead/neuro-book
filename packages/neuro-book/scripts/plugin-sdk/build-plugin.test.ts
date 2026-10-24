@@ -13,8 +13,7 @@ import {fileURLToPath, pathToFileURL} from "node:url";
 
 import {createTestTmpRoot, resolveTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {NEUROBOOK_PROFILE} from "../../src/plugin-platform-profile";
-import {manifestFormat} from "../../src/plugin-platform-profile";
+import {BROWSER_SHARED_MODULES, manifestFormat, NEUROBOOK_PROFILE} from "../../src/plugin-platform-profile";
 import {createPluginCodeHost} from "../../src/plugin-platform/web/plugin-code";
 import type {PluginDocument, PluginScript} from "../../src/plugin-platform/web/plugin-code";
 import {buildExample, EXAMPLES_ROOT, IN_REPO_BUILD} from "./build-examples";
@@ -108,6 +107,9 @@ async function registeredFactory(code: string): Promise<(module: {exports: Recor
         modules: async () => ({
             "vue": await import("vue"),
             "@vue/reactivity": await import("@vue/reactivity"),
+            "typebox": await import("typebox"),
+            "typebox/value": await import("typebox/value"),
+            "typebox/compile": await import("typebox/compile"),
             "@notnotype/nb-plugin-sdk": await import("../../src/sdk/index"),
             "@notnotype/nb-plugin-sdk/browser": await import("../../src/sdk/browser"),
             "@notnotype/nb-plugin-sdk/components": {},
@@ -188,6 +190,9 @@ describe("构建示例 snippets", () => {
         const table: Readonly<Record<string, unknown>> = {
             "vue": await import("vue"),
             "@vue/reactivity": await import("@vue/reactivity"),
+            "typebox": await import("typebox"),
+            "typebox/value": await import("typebox/value"),
+            "typebox/compile": await import("typebox/compile"),
             "@notnotype/nb-plugin-sdk": await import("../../src/sdk/index"),
             "@notnotype/nb-plugin-sdk/browser": await import("../../src/sdk/browser"),
             // nb-ui 的组件是单文件组件，Bun 加载不了；页面没有渲染，给一个空对象就够。
@@ -201,14 +206,16 @@ describe("构建示例 snippets", () => {
             return table[id];
         });
         expect(typeof module.exports.activate).toBe("function");
-        expect([...new Set(required)].every((id) => ["vue", "@vue/reactivity", "@notnotype/nb-plugin-sdk", "@notnotype/nb-plugin-sdk/browser", "@notnotype/nb-plugin-sdk/components"].includes(id))).toBe(true);
+        expect([...new Set(required)].every((id) => (BROWSER_SHARED_MODULES as ReadonlyArray<string>).includes(id))).toBe(true);
+        // typebox 由宿主共享，不打进产物（plugin-code-loading 的宿主模块表）。
+        expect(required).toContain("typebox");
         expect(code).toContain("//# sourceMappingURL=browser.js.map");
     }, 60_000);
 
-    it("source map 的源文件是相对作者目录的路径，不带构建机的目录结构；依赖写成 node_modules 下的路径", async () => {
+    it("source map 的源文件是相对作者目录的路径，不带构建机的目录结构；宿主共享的 typebox 不在里面", async () => {
         const map = JSON.parse(await readFile(join(tmp, "snippets/browser.js.map"), "utf8")) as {sources: string[]};
         expect(map.sources).toContain("web/plugin.ts");
-        expect(map.sources.some((source) => source.startsWith("node_modules/typebox/"))).toBe(true);
+        expect(map.sources.some((source) => source.includes("typebox"))).toBe(false);
         expect(map.sources.filter((source) => source.startsWith("/") || source.startsWith("..") || source.includes(tmp))).toEqual([]);
     });
 
@@ -229,7 +236,7 @@ describe("构建示例 snippets", () => {
 });
 
 describe("作者项目", () => {
-    it("服务端入口是 ESM、只引用 SDK；远程合同写进清单；浏览器入口的定义模块静态导入 .vue 也能生成清单；typebox 打进产物", async () => {
+    it("服务端入口是 ESM、只引用宿主共享的 SDK 与 typebox；远程合同写进清单；浏览器入口的定义模块静态导入 .vue 也能生成清单", async () => {
         const root = await authorProject("echo", {
             "shared/contracts.ts": `import {defineRemoteService} from "@notnotype/nb-plugin-sdk";
 import {Type} from "typebox";
@@ -254,7 +261,7 @@ export const echoBrowser = {id: "acme.echo", entries: [defineEntry({id: "browser
         expect(result.files).toEqual(["browser.js", "browser.js.map", "package.json", "server.js", "server.js.map", "style.css"]);
         expect(Object.keys(result.manifest.contracts as object)).toEqual(["acme.echo/echo"]);
         const server = await readFile(join(root, "dist/server.js"), "utf8");
-        expect([...server.matchAll(/^import .* from "([^"]+)";$/gmu)].map((match) => match[1])).toEqual(["@notnotype/nb-plugin-sdk"]);
+        expect([...server.matchAll(/^import .* from "([^"]+)";$/gmu)].map((match) => match[1]).sort()).toEqual(["@notnotype/nb-plugin-sdk", "typebox"]);
         expect(server).toContain("export {");
         expect(await readFile(join(root, "dist/style.css"), "utf8")).toContain(".echo-panel[data-v-");
     }, 120_000);
@@ -311,6 +318,9 @@ export const echoBrowser = {id: "acme.echo", entries: [defineEntry({id: "browser
         const {value, required} = await activateBrowser(root);
         expect(value).toEqual({devtools: "devtools", array: true});
         expect(required).toEqual([]);
+        // 打进来的依赖在 source map 里写成 node_modules 下的路径，不带构建机的目录结构。
+        const map = JSON.parse(await readFile(join(root, "dist/browser.js.map"), "utf8")) as {sources: string[]};
+        expect(map.sources.some((source) => source.startsWith("node_modules/@vue/shared/"))).toBe(true);
     }, 60_000);
 
     it("浏览器产物是严格模式：对冻结对象赋值会抛错", async () => {

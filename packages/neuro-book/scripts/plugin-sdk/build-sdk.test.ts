@@ -229,8 +229,9 @@ describe("生成的 SDK 包", () => {
             "OptionSource", "SettingsChoicesImplementation", "SettingsPageActions", "SettingsPageContext", "SettingsPageContribution", "SettingsPageList", "SettingsRow", "SettingsSaveBar",
             "settingsPageContribution", "ItemImplementation", "ViewContext", "ViewContribution", "ViewImplementation", "viewContribution",
         ].sort());
-        // 组件入口的类型就是 nb-ui 组件入口的导出。
-        expect(declaredExports(await readFile(join(project, "node_modules/@notnotype/nb-plugin-sdk/components.d.ts"), "utf8"))).toContain("Button");
+        // 组件子路径的声明与源码里逐个列出的名单一致：nb-ui 入口里别的导出不会混进来。
+        const listed = [...(await readFile(fileURLToPath(new URL("../../src/sdk/components.ts", import.meta.url)), "utf8")).matchAll(/export (?:type )?\{([^}]+)\}/gu)].flatMap((match) => match[1]!.split(",").map((name) => name.trim()).filter((name) => name !== ""));
+        expect(declaredExports(await readFile(join(project, "node_modules/@notnotype/nb-plugin-sdk/components.d.ts"), "utf8"))).toEqual([...listed].sort());
     });
 
     it("仓库外用生成的包里的构建预设构建插件：清单合格，产物只引用宿主共享的模块", async () => {

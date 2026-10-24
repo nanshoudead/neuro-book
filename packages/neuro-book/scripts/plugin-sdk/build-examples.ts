@@ -11,6 +11,8 @@ import {readdir} from "node:fs/promises";
 import {isAbsolute, join, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
+import {SDK_ENTRIES} from "../../src/sdk/entries";
+
 import {buildPlugin, PluginBuildError} from "./build";
 import type {BuildPluginResult} from "./build";
 
@@ -20,9 +22,7 @@ export const EXAMPLES_ROOT = join(packageRoot, "examples/plugins");
 /** 仓库里构建示例的别名与禁止目录。 */
 export const IN_REPO_BUILD = {
     alias: [
-        {find: /^@notnotype\/nb-plugin-sdk\/browser$/u, replacement: join(packageRoot, "src/sdk/browser.ts")},
-        {find: /^@notnotype\/nb-plugin-sdk\/components$/u, replacement: join(packageRoot, "src/sdk/components.ts")},
-        {find: /^@notnotype\/nb-plugin-sdk$/u, replacement: join(packageRoot, "src/sdk/index.ts")},
+        ...SDK_ENTRIES.map((entry) => ({find: new RegExp(`^${entry.specifier.replaceAll("/", "\\/")}$`, "u"), replacement: join(packageRoot, "src/sdk", entry.file)})),
         {find: /^nbook\//u, replacement: join(packageRoot, "src/")},
     ],
     forbiddenDirectories: [join(packageRoot, "src")],

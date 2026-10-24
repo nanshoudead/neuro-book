@@ -4,6 +4,18 @@
  */
 
 import {describe, expect, it} from "bun:test";
+import {readFileSync} from "node:fs";
+import {join} from "node:path";
+
+import {SDK_ENTRIES} from "./entries";
+
+const PACKAGE_ROOT = join(import.meta.dir, "..", "..");
+
+/** 一份 tsconfig 里 SDK 包名的路径别名（tsconfig 允许注释与尾逗号，这里的两份没有，按 JSON 读）。 */
+function sdkPaths(file: string): Record<string, ReadonlyArray<string>> {
+    const config = JSON.parse(readFileSync(join(PACKAGE_ROOT, file), "utf8")) as {compilerOptions: {paths: Record<string, ReadonlyArray<string>>}};
+    return Object.fromEntries(Object.entries(config.compilerOptions.paths).filter(([name]) => name.startsWith("@notnotype/nb-plugin-sdk")));
+}
 
 describe("SDK 的导出面", () => {
     it("各运行位置通用的部分", async () => {
@@ -46,5 +58,21 @@ describe("SDK 的导出面", () => {
             "settingsPageContribution",
             "viewContribution",
         ]);
+    });
+
+    it("组件子路径逐个列名：nb-ui 入口里给工作台用的内部件不对外（Bun 加载不了单文件组件，按源码核对名单）", () => {
+        const source = readFileSync(join(import.meta.dir, "components.ts"), "utf8");
+        expect(source).not.toMatch(/export \*/u);
+        const names = [...source.matchAll(/export (?:type )?\{([^}]+)\}/gu)].flatMap((match) => match[1]!.split(",").map((name) => name.trim()).filter((name) => name !== ""));
+        expect(names).toContain("Button");
+        expect(names.filter((name) => /^(?:createGrid|Grid|NB_FIELD|useFieldContext|suggestionMenuOptions|Splitter(?:Gesture))/u.test(name))).toEqual([]);
+    });
+});
+
+describe("SDK 的子路径表", () => {
+    it("两份 tsconfig 的 SDK 别名与子路径表一致：新增子路径漏改一处时这里失败", () => {
+        const expected = Object.fromEntries(SDK_ENTRIES.map((entry) => [entry.specifier, [`./src/sdk/${entry.file}`]]));
+        expect(sdkPaths("tsconfig.json")).toEqual(expected);
+        expect(sdkPaths("tsconfig.web.json")).toEqual(expected);
     });
 });

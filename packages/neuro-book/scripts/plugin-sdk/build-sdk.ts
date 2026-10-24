@@ -29,11 +29,17 @@ import {build as rolldown} from "rolldown";
 import {dts} from "rolldown-plugin-dts";
 import {build as vite} from "vite";
 
+import {SDK_ENTRIES, SDK_NAME} from "../../src/sdk/entries";
+import type {SdkEntry} from "../../src/sdk/entries";
 import {PRODUCT_VERSION} from "../../src/shared/product";
 
 const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
-const SDK_NAME = "@notnotype/nb-plugin-sdk";
-const ENTRIES = {index: join(packageRoot, "src/sdk/index.ts"), browser: join(packageRoot, "src/sdk/browser.ts"), components: join(packageRoot, "src/sdk/components.ts")};
+/** 打包的入口：产物文件名（不带扩展名）→ 源文件，按 SDK 的子路径表。 */
+const ENTRIES = Object.fromEntries(SDK_ENTRIES.map((entry) => [entryName(entry), join(packageRoot, "src/sdk", entry.file)]));
+
+function entryName(entry: SdkEntry): string {
+    return entry.subpath === "." ? "index" : entry.subpath.slice("./".length);
+}
 /** 由作者的项目提供、不打进 SDK 的包：插件运行时宿主给的是同一份。 */
 const PEERS = [/^vue($|\/)/u, /^@vue\//u, /^typebox($|\/)/u];
 const RUNTIME_SUBPATHS = ["lifecycle", "services", "plugins", "plugin-manifest", "application", "diagnostics", "remote"];
@@ -309,9 +315,7 @@ export async function buildSdk(outDir: string): Promise<void> {
         type: "module",
         bin: {"nbook-plugin": "./cli.js"},
         exports: {
-            ".": {types: "./index.d.ts", import: "./index.js"},
-            "./browser": {types: "./browser.d.ts", import: "./browser.js"},
-            "./components": {types: "./components.d.ts", import: "./components.js"},
+            ...Object.fromEntries(SDK_ENTRIES.map((entry) => [entry.subpath, {types: `./${entryName(entry)}.d.ts`, import: `./${entryName(entry)}.js`}])),
             "./build": {types: "./build.d.ts", import: "./build.js"},
         },
         peerDependencies: peers,

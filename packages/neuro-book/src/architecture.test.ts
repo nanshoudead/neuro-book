@@ -17,6 +17,8 @@ import {describe, expect, it} from "bun:test";
 import {readdirSync, readFileSync} from "node:fs";
 import {dirname, join, relative, resolve} from "node:path";
 
+import {SDK_ENTRIES} from "./sdk/entries";
+
 const SRC = join(import.meta.dir);
 const EXAMPLE_PLUGINS = join(SRC, "..", "examples", "plugins");
 
@@ -83,7 +85,7 @@ const isTestLibrary = (specifier: string): boolean => TEST_LIBRARIES.some((name)
  * 示例插件按第三方插件写：宿主与内置插件的东西只经 SDK 取，此外只有宿主模块表共享的包与 TypeBox
  * （docs/specs/runtime/plugin-code-loading.md 输出 2、plugin-api.md 的“SDK”）。外置构建时它们就只能这样导入。
  */
-const EXAMPLE_PACKAGES = ["@notnotype/nb-plugin-sdk", "@notnotype/nb-plugin-sdk/browser", "@notnotype/nb-plugin-sdk/components", "vue", "@vue/reactivity", "typebox"];
+const EXAMPLE_PACKAGES: ReadonlyArray<string> = [...SDK_ENTRIES.map((entry) => entry.specifier), "vue", "@vue/reactivity", "typebox"];
 
 function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
     const found: string[] = [];

@@ -9,6 +9,8 @@ import vue from "@vitejs/plugin-vue";
 import {defineConfig} from "vite";
 import type {Plugin} from "vite";
 
+import {SDK_ENTRIES} from "./src/sdk/entries";
+
 /** 浏览器基线（runtime.browser-host）：内核用到 Promise.withResolvers 与 AbortSignal.any。 */
 export const BROWSER_TARGETS = ["chrome119", "edge119", "firefox124", "safari17.4"];
 
@@ -38,10 +40,8 @@ export default defineConfig({
         alias: [
             {find: STYLE_ENTRY, replacement: `${packageRoot}src/web/tailwind.product.css`},
             {find: /^nbook\//u, replacement: `${packageRoot}src/`},
-            // 示例插件按第三方插件的写法从 SDK 包名导入；仓库里直接用 SDK 的源码（runtime/plugin-api.md 的“SDK”）。
-            {find: /^@notnotype\/nb-plugin-sdk\/browser$/u, replacement: `${packageRoot}src/sdk/browser.ts`},
-            {find: /^@notnotype\/nb-plugin-sdk\/components$/u, replacement: `${packageRoot}src/sdk/components.ts`},
-            {find: /^@notnotype\/nb-plugin-sdk$/u, replacement: `${packageRoot}src/sdk/index.ts`},
+            // 示例插件按第三方插件的写法从 SDK 包名导入；仓库里直接用 SDK 的源码（runtime/plugin-api.md 的“SDK”）。子路径按 SDK 的子路径表。
+            ...SDK_ENTRIES.map((entry) => ({find: new RegExp(`^${entry.specifier.replaceAll("/", "\\/")}$`, "u"), replacement: `${packageRoot}src/sdk/${entry.file}`})),
         ],
     },
     // 关闭依赖发现、预构建清单写死：依赖发现进行中时 Vite 的 close() 不结算（Bun 与 Node 都是），开发监督进程停止时

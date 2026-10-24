@@ -35,8 +35,9 @@ export type {StateRoot} from "nbook/shared/host";
 // 内置插件的合同：设置（nbook.settings）。
 // 设置窗口左栏的分区：list 分区是向 `settings.sections` 的顶层声明，page 分区用 `/browser` 的 `settingsPageContribution`；
 // 选项来源（`settings.choices`）给设置项的下拉列表供数据。
-export {displayLocale, SETTINGS_CHOICES_POINT, SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT, settingsChoicesEvent, settingsKey} from "nbook/plugins/settings/shared/contracts";
-export type {SettingsChoicesDeclaration, SettingsPageDeclaration, SettingsSectionCategory, SettingsSectionDeclaration} from "nbook/plugins/settings/shared/contracts";
+export {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
+export {SETTINGS_CHOICES_POINT, SETTINGS_PAGES_POINT, SETTINGS_SECTIONS_POINT, settingsChoicesEvent} from "nbook/plugins/settings/shared/sections";
+export type {SettingsChoicesDeclaration, SettingsPageDeclaration, SettingsSectionCategory, SettingsSectionDeclaration} from "nbook/plugins/settings/shared/sections";
 export {defineSetting} from "nbook/shared/settings";
 export type {SettingDefinition, SettingLayer, SettingsFailure, SettingsService, SettingWriteResult} from "nbook/shared/settings";
 
@@ -50,8 +51,11 @@ export {COMMANDS_POINT} from "nbook/plugins/commands/shared/contracts";
 export type {CommandDeclaration, CommandImplementation} from "nbook/plugins/commands/shared/contracts";
 
 // 工作台（nbook.workbench）：侧栏与面板的视图、状态栏条目。视图的实现用 `/browser` 的 `viewContribution`。
-export {WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/contracts";
-export type {ItemDeclaration, ViewDeclaration, ViewLocation} from "nbook/plugins/workbench/shared/contracts";
+// 从叶子模块取，不经工作台合同的汇总模块：汇总模块连着首页、浮层、菜单这些不对外的部分（公开面闭包见 `surface.test.ts`）。
+export {WORKBENCH_STATUSBAR_ITEMS_POINT} from "nbook/plugins/workbench/shared/items";
+export type {ItemDeclaration} from "nbook/plugins/workbench/shared/items";
+export {WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/views";
+export type {ViewDeclaration, ViewLocation} from "nbook/plugins/workbench/shared/views";
 
 // 插件状态与公开状态（nbook.state）。
 export {defineStore} from "nbook/shared/store/store";

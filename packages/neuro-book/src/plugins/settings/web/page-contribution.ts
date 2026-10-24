@@ -10,8 +10,8 @@ import type {Component} from "vue";
 
 import {settingsPage} from "nbook/ui/settings/settings-page";
 
-import {SETTINGS_PAGES_POINT, settingsPageEvent} from "../shared/contracts";
-import type {SettingsPageDeclaration} from "../shared/contracts";
+import {SETTINGS_PAGES_POINT, settingsPageEvent} from "../shared/sections";
+import type {SettingsPageDeclaration} from "../shared/sections";
 import type {SettingsPageImplementation} from "./contracts";
 
 export interface SettingsPageContribution<Id extends string> {

@@ -10,8 +10,8 @@ import type {Component} from "vue";
 
 import {boundComponent} from "nbook/ui/bound-component";
 
-import {WORKBENCH_VIEWS_POINT} from "../shared/contracts";
-import type {ViewDeclaration} from "../shared/contracts";
+import {WORKBENCH_VIEWS_POINT} from "../shared/views";
+import type {ViewDeclaration} from "../shared/views";
 import type {ViewImplementation} from "./contracts";
 
 export interface ViewContribution<Id extends string> {
