@@ -49,7 +49,7 @@ export interface ServerPluginContext {
 export type ServerHostPluginFactory = (context: ServerPluginContext) => PluginDefinition;
 
 /** 服务端的宿主适配器只有这两个；表的键收窄到它们，普通插件进不了这张表。 */
-export type ServerHostPluginId = "nbook.diagnostics" | "nbook.http";
+export type ServerHostPluginId = "runtime.diagnostics" | "nbook.http";
 
 /** 普通插件：只能放定义常量。 */
 export const serverPluginDefinitions: Readonly<Record<string, PluginDefinition>> = {
@@ -67,7 +67,7 @@ export const serverPluginDefinitions: Readonly<Record<string, PluginDefinition>>
  * 配置随工厂传入（ADR 0026 决策第 5 条）。新增一项要说明同样的启动或停机依赖。
  */
 export const serverHostPlugins: Readonly<Record<ServerHostPluginId, ServerHostPluginFactory>> = {
-    "nbook.diagnostics": (context) => createServerDiagnosticsPlugin({store: context.store, exporter: {directory: context.config.logDirectory}}),
+    "runtime.diagnostics": (context) => createServerDiagnosticsPlugin({store: context.store, exporter: {directory: context.config.logDirectory}}),
     "nbook.http": (context) => createHttpPlugin({
         admission: context.admission,
         host: context.config.host,

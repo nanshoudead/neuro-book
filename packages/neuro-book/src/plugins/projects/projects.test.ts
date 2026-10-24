@@ -135,7 +135,7 @@ async function commandWindow(h: ProjectHarness, host: PaletteHost, navigations: 
                 {id: "test.notifications", key: notificationsKey, create: () => createNotifications((message) => store.record({level: "warn", event: "workbench.notifications", message}))},
                 ...settings.capabilities,
             ],
-            plugins: [browserHostPlugins["nbook.diagnostics"]!({store, console: silentConsole}), statePlugin, storageBrowserPlugin, ...settings.plugins, commandsPlugin, projectsBrowserPlugin, commandReader((service) => {
+            plugins: [browserHostPlugins["runtime.diagnostics"]!({store, console: silentConsole}), statePlugin, storageBrowserPlugin, ...settings.plugins, commandsPlugin, projectsBrowserPlugin, commandReader((service) => {
                 commands = service;
             })],
             gates: [],
@@ -295,7 +295,7 @@ describe("Spec projects 输出 10：命令登记", () => {
         const store = createDiagnosticsStore({identity: {location: "browser", instanceId: "window-1"}});
         let commands: CommandService | null = null;
         const plugins = [
-            browserHostPlugins["nbook.diagnostics"]!({store, console: silentConsole}),
+            browserHostPlugins["runtime.diagnostics"]!({store, console: silentConsole}),
             ...["nbook.state", "nbook.settings", "nbook.commands", "nbook.storage", "nbook.workbench", "nbook.projects"].map((id) => browserPluginDefinitions[id]!),
             commandReader((service) => {
                 commands = service;
@@ -310,7 +310,7 @@ describe("Spec projects 输出 10：命令登记", () => {
                     ...standaloneSettings("browser", tmp, {windowProject: false}).capabilities,
                 ],
                 plugins,
-                requiredPlugins: ["nbook.diagnostics", "nbook.commands", "nbook.workbench"],
+                requiredPlugins: ["runtime.diagnostics", "nbook.commands", "nbook.workbench"],
                 gates: [],
             },
         );

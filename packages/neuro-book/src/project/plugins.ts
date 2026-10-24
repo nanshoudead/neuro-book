@@ -37,7 +37,7 @@ export interface ProjectPluginContext {
 export type ProjectHostPluginFactory = (context: ProjectPluginContext) => PluginDefinition;
 
 /** 项目宿主的宿主适配器只有诊断；表的键收窄到它，普通插件进不了这张表。 */
-export type ProjectHostPluginId = "nbook.diagnostics";
+export type ProjectHostPluginId = "runtime.diagnostics";
 
 /** 普通插件：只能放定义常量。 */
 export const projectPluginDefinitions: Readonly<Record<string, PluginDefinition>> = {
@@ -51,14 +51,14 @@ export const projectPluginDefinitions: Readonly<Record<string, PluginDefinition>
 
 /** 宿主适配器：诊断要在内核启动之前就能记录（ADR 0026 决策第 5 条）。 */
 export const projectHostPlugins: Readonly<Record<ProjectHostPluginId, ProjectHostPluginFactory>> = {
-    "nbook.diagnostics": (context) => createServerDiagnosticsPlugin({store: context.store, exporter: {directory: context.config.logDirectory}, location: "project"}),
+    "runtime.diagnostics": (context) => createServerDiagnosticsPlugin({store: context.store, exporter: {directory: context.config.logDirectory}, location: "project"}),
 };
 
 /** 按清单装配项目实例的插件：有项目入口的，加上只有顶层声明式贡献的；有项目入口而两张表都没有时直接失败。 */
 export function manifestProjectPlugins(context: ProjectPluginContext): PluginDefinition[] {
     const builtin = pluginsAt("project", context.manifest).map((plugin) => {
         if (!plugin.locations.includes("project")) return definitionAt("project", plugin, undefined);
-        return definitionAt("project", plugin, plugin.id === "nbook.diagnostics" ? projectHostPlugins[plugin.id](context) : projectPluginDefinitions[plugin.id]);
+        return definitionAt("project", plugin, plugin.id === "runtime.diagnostics" ? projectHostPlugins[plugin.id](context) : projectPluginDefinitions[plugin.id]);
     });
     // 第三方插件按清单登记，入口激活时装载代码。
     return [...builtin, ...thirdPartyDefinitionsAt("project", context.installed, builtin, (input) => void context.store.record(input))];

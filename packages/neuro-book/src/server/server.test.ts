@@ -149,7 +149,7 @@ describe("后端宿主（真实子进程）", () => {
         const log = await readLog(server.stateRoot);
         // http、公开状态、配置、命令系统、Storage、文件与项目管理界面都只依赖诊断（配置、文件与项目管理界面另依赖宿主能力），它们之间没有先后。
         const published = pluginOrder(log, "publish");
-        expect(published[0]).toBe("nbook.diagnostics");
+        expect(published[0]).toBe("runtime.diagnostics");
         expect(published.slice(1).sort()).toEqual(["nbook.commands", "nbook.files", "nbook.http", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.storage"]);
         expect(pluginOrder(log, "close").sort()).toEqual(["nbook.commands", "nbook.files", "nbook.http", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.storage"]);
     }, 20_000);

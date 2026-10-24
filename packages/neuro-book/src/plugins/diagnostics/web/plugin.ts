@@ -1,5 +1,5 @@
 /**
- * `nbook.diagnostics` 浏览器入口：每个窗口运行实例一份诊断存储，出口写 console。
+ * `runtime.diagnostics` 浏览器入口：每个窗口运行实例一份诊断存储，出口写 console。
  *
  * 不桥接 console.warn、console.error（后端入口会桥接）：浏览器出口本身写 console，桥接会把每条记录再记一次。
  */

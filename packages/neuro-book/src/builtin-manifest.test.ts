@@ -24,7 +24,7 @@ import {serverPluginDefinitions} from "nbook/server/plugins";
 import {PRODUCT_VERSION} from "nbook/shared/product";
 import {browserPluginDefinitions} from "nbook/web/plugins";
 
-const HOST_ADAPTERS = new Set(["nbook.diagnostics", "nbook.http"]);
+const HOST_ADAPTERS = new Set(["runtime.diagnostics", "nbook.http"]);
 
 const definitionTables: Readonly<Record<string, Readonly<Record<string, PluginDefinition>>>> = {
     server: serverPluginDefinitions,

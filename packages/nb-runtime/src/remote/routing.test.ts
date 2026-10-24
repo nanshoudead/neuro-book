@@ -998,7 +998,7 @@ describe("Spec plugin-channel WebSocket 传输第 3 条：握手", () => {
     it("wire 不同的 hello 即使其余字段是另一版本的形状，也得到 wire-version 拒绝并关闭，不登记", async () => {
         const t = await topology();
         const link = rawLink(t.router);
-        link.send({type: "hello", wire: 99, instance: {id: "browser-9"}, plugins: [{id: "nbook.files", version: "9.0.0"}]});
+        link.send({type: "hello", wire: 99, instance: {id: "browser-9"}, plugins: [{id: "acme.files", version: "9.0.0"}]});
         await link.closed;
 
         expect(link.frames).toEqual([{type: "reject", reason: "wire-version", message: expect.any(String)}]);

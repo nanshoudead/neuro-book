@@ -62,7 +62,7 @@ export interface RemoteContract<
     Events extends Readonly<Record<string, RemoteEventSpec>> = Readonly<Record<string, RemoteEventSpec>>,
     Provider extends RemoteProviderLocation = RemoteProviderLocation,
 > {
-    /** 以提供它的插件 id 加 `/` 开头，例如 `nbook.files/files`。 */
+    /** 以提供它的插件 id 加 `/` 开头，例如 `acme.files/files`。 */
     readonly id: string;
     /** 第一版按整数精确匹配。 */
     readonly version: number;

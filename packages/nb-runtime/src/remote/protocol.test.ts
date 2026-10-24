@@ -5,14 +5,14 @@ import {Type} from "typebox";
 import {defineRemoteService, failureFor, leaseHolderOf, parseFrame, reservedKeys, validationProblems, WIRE_PROTOCOL_VERSION, wireMismatch} from "./remote";
 import type {RemoteCause} from "./remote";
 
-const caller = {instanceId: "browser-1", location: "browser", client: "profile-1", plugin: "nbook.files", entry: "web", generation: 1, via: null};
+const caller = {instanceId: "browser-1", location: "browser", client: "profile-1", plugin: "acme.files", entry: "web", generation: 1, via: null};
 
 function request(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     return {
         type: "request",
         id: "r1",
         target: "project",
-        contract: "nbook.files/files",
+        contract: "acme.files/files",
         version: 1,
         method: "list",
         effect: "read",
@@ -63,7 +63,7 @@ describe("Spec plugin-channel 输入：帧、握手与保留字段", () => {
     it("握手先只看 wire 版本：另一版本的 hello 不论其余字段是什么形状都得到 wire-version 拒绝，拒绝帧是本版本的合法帧", () => {
         const instance = {id: "browser-1", kind: "browser", role: "client" as const, project: null, client: "profile-1"};
         expect(wireMismatch({type: "hello", wire: WIRE_PROTOCOL_VERSION, instance})).toBeNull();
-        const foreign = {type: "hello", wire: WIRE_PROTOCOL_VERSION + 1, instance: {id: "x"}, plugins: [{id: "nbook.files", version: "9"}]};
+        const foreign = {type: "hello", wire: WIRE_PROTOCOL_VERSION + 1, instance: {id: "x"}, plugins: [{id: "acme.files", version: "9"}]};
         expect(parseFrame(foreign)).toBeNull();
         const reject = wireMismatch(foreign);
         expect(reject).toMatchObject({type: "reject", reason: "wire-version"});
@@ -90,7 +90,7 @@ describe("Spec plugin-channel 输入：帧、握手与保留字段", () => {
     });
 
     it("租约持有者的编码含实例、插件、入口与激活代次，不含委托代理", () => {
-        const delegated = {...caller, via: {plugin: "nbook.storage", entry: "main", generation: 3}};
+        const delegated = {...caller, via: {plugin: "acme.storage", entry: "main", generation: 3}};
         expect(leaseHolderOf(delegated)).toBe(leaseHolderOf(caller));
         expect(leaseHolderOf({...caller, generation: 2})).not.toBe(leaseHolderOf(caller));
         expect(leaseHolderOf({...caller, instanceId: "browser-2"})).not.toBe(leaseHolderOf(caller));
@@ -121,7 +121,7 @@ describe("Spec plugin-channel 术语：远程服务合同", () => {
 
     it("合法合同被冻结并保留方法与事件", () => {
         const contract = defineRemoteService({
-            id: "nbook.files/files",
+            id: "acme.files/files",
             version: 1,
             provider: "project",
             callers: ["browser", "tui", "server"],
@@ -138,15 +138,15 @@ describe("Spec plugin-channel 术语：远程服务合同", () => {
         const method = {input: Input, output: Type.Null(), effect: "read" as const};
         const bad: ReadonlyArray<Parameters<typeof defineRemoteService>[0]> = [
             {id: "files", version: 1, provider: "any", callers: ["browser"], methods: {list: method}},
-            {id: "nbook.files/files", version: 0, provider: "any", callers: ["browser"], methods: {list: method}},
-            {id: "nbook.files/files", version: 1, provider: "any", callers: [], methods: {list: method}},
-            {id: "nbook.files/files", version: 1, provider: "any", callers: ["browser"], methods: {list: {...method, input: Type.Object({uri: Type.String()})}}},
-            {id: "nbook.files/files", version: 1, provider: "any", callers: ["browser"], methods: {list: {...method, errors: {timeout: Type.Object({})}}}},
-            {id: "nbook.files/files", version: 1, provider: "any", callers: ["browser"], methods: {events: method}},
-            {id: "nbook.files/files", version: 1, provider: "any", callers: ["browser"], methods: {list: method}, events: {list: {filter: Input, payload: Type.Null()}}},
-            {id: "nbook.files/files", version: 1, provider: "everywhere" as never, callers: ["browser"], methods: {list: method}},
-            {id: "nbook.files/files", version: 1, provider: "any", callers: ["browser"], methods: {at: method}},
-            {id: "nbook.files/files", version: 1, provider: "any", callers: ["browser"], methods: {list: {...method, errors: {"not-provided": Type.Object({})}}}},
+            {id: "acme.files/files", version: 0, provider: "any", callers: ["browser"], methods: {list: method}},
+            {id: "acme.files/files", version: 1, provider: "any", callers: [], methods: {list: method}},
+            {id: "acme.files/files", version: 1, provider: "any", callers: ["browser"], methods: {list: {...method, input: Type.Object({uri: Type.String()})}}},
+            {id: "acme.files/files", version: 1, provider: "any", callers: ["browser"], methods: {list: {...method, errors: {timeout: Type.Object({})}}}},
+            {id: "acme.files/files", version: 1, provider: "any", callers: ["browser"], methods: {events: method}},
+            {id: "acme.files/files", version: 1, provider: "any", callers: ["browser"], methods: {list: method}, events: {list: {filter: Input, payload: Type.Null()}}},
+            {id: "acme.files/files", version: 1, provider: "everywhere" as never, callers: ["browser"], methods: {list: method}},
+            {id: "acme.files/files", version: 1, provider: "any", callers: ["browser"], methods: {at: method}},
+            {id: "acme.files/files", version: 1, provider: "any", callers: ["browser"], methods: {list: {...method, errors: {"not-provided": Type.Object({})}}}},
             {id: "runtime/catalog", version: 1, provider: "any", callers: ["browser"], methods: {list: method}},
             {id: "runtime/files", version: 1, provider: "any", callers: ["browser"], methods: {list: method}},
         ];

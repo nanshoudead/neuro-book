@@ -253,7 +253,7 @@ describe("窗口运行实例", () => {
     it("结构不合法或缺少必需插件：启动失败", async () => {
         for (const body of [
             {protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", plugins: "nbook.workbench"},
-            {protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", plugins: [{id: "nbook.diagnostics", version: "0.1.0"}]},
+            {protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", plugins: [{id: "runtime.diagnostics", version: "0.1.0"}]},
         ]) {
             const stub = serveBootstrap(() => Response.json(body));
             const {browserWindow} = openWindow({url: stub.url});
@@ -284,7 +284,7 @@ describe("窗口运行实例", () => {
     });
 
     it("宿主适配器的工厂抛错：同样是启动失败，不停在 starting", async () => {
-        const {browserWindow} = openWindow({hostPlugins: {"nbook.diagnostics": () => {
+        const {browserWindow} = openWindow({hostPlugins: {"runtime.diagnostics": () => {
             throw new Error("诊断装配失败（测试注入）");
         }}});
         await browserWindow.start();
@@ -411,7 +411,7 @@ describe("窗口运行实例", () => {
     it("宿主适配器的表只收适配器：普通插件放进去编译不过", () => {
         const options: Partial<BrowserWindowOptions> = {
             // @ts-expect-error 普通插件的定义是常量，不能经宿主适配器的工厂取宿主上下文
-            hostPlugins: {"nbook.diagnostics": browserHostPlugins["nbook.diagnostics"], "nbook.commands": () => browserPluginDefinitions["nbook.commands"]!},
+            hostPlugins: {"runtime.diagnostics": browserHostPlugins["runtime.diagnostics"], "nbook.commands": () => browserPluginDefinitions["nbook.commands"]!},
         };
         expect(options.hostPlugins).toBeDefined();
     });

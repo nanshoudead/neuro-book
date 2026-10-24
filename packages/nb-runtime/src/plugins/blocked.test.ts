@@ -75,7 +75,7 @@ describe("入口受阻纯推导", () => {
 
     it("按定义预览：列出的插件自己的服务以定义为准，新版本去掉或挪走提供项时依赖方受阻；别的插件的服务当作在场", () => {
         const speech = defineServiceKey("x.tts/speech");
-        const builtin = defineServiceKey("nbook.storage/storage");
+        const builtin = defineServiceKey("acme.storage/storage");
         const reader = {id: "x.reader", entries: [{id: "main", location: "server" as const, dependencies: [{key: speech}, {key: builtin}], activate: () => ({})}]};
         const tts = {id: "x.tts", entries: [{id: "main", location: "server" as const, provides: [speech], activate: () => ({})}]};
         expect(previewBlocked([tts, reader], "server").get("x.reader/main")).toBeNull();

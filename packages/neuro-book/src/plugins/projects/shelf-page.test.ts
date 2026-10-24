@@ -207,7 +207,7 @@ async function world(initial: ShelfItem[], options: {readonly failShelf?: Script
         {
             capabilities: [...standalone.capabilities],
             // 读出配置服务与远程上下文的入口顶着 `nbook.projects` 的身份：配置只让声明它的插件写。
-            plugins: [browserHostPlugins["nbook.diagnostics"]!({store, console: silentConsole}), statePlugin, ...standalone.plugins, definitionAt("browser", projectsDescriptor, {
+            plugins: [browserHostPlugins["runtime.diagnostics"]!({store, console: silentConsole}), statePlugin, ...standalone.plugins, definitionAt("browser", projectsDescriptor, {
                 id: projectsDescriptor.id,
                 entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], dependencies: [{key: settingsKey}], activate: (context) => {
                     captured = {remote: context.remote, settings: context.services.require(settingsKey)};
