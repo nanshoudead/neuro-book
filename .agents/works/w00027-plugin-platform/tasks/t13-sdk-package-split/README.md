@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t13-sdk-package-split
-status: planned
+status: active
 updated: 2026-10-24
 ---
 
@@ -15,8 +15,8 @@ updated: 2026-10-24
 
 ## 当前状态
 
-2026-10-24 经 nbdev 新建。架构设计见 [design.md](design.md)，实施计划见 [plan.md](plan.md)；两轮设计审查（Sonnet）已处理，见 plan.md 第 9 节；待开发者确认 design.md 第 5 节的 D0 到 D5。t11（激活产出形状由内核核对）并入本 Task 的 S1b。
+2026-10-24 经 nbdev 新建。架构设计见 [design.md](design.md)，实施计划见 [plan.md](plan.md)；两轮设计审查（Sonnet）已处理，见 plan.md 第 9 节；开发者 2026-10-24 定 design.md 第 5 节 D0 到 D5 全部按推荐，并指定按 autonomous-delivery 推进；开工。t11（激活产出形状由内核核对）并入本 Task 的 S1b。
 
 ## 下一步
 
-处理设计审查，交开发者确认 design.md 第 5 节的待决 D1 到 D5，再按 plan.md 的切片实施。
+按 plan.md 的切片 S1a 起逐片实施。
