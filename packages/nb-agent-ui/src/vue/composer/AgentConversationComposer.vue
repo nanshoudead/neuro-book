@@ -609,7 +609,8 @@ defineExpose({
 
 /*
  * 控件贴底，并与正文最后一行的中线对齐：编辑器一行比控件高，上下留白对称，控件底下垫上半个差值（单行时与文字齐平，
- * 多行时对着最后一行）。差值随编辑器的行高变；改了编辑器的内边距要重看这里。
+ * 多行时对着最后一行）。编辑器由宿主注入，行高不归本组件管，这里按 nb-markdown 的 PromptEditor 实测：一行 36.8px
+ * （14px × 1.6 加上下各 7.2px 内边距），控件 26px，垫 6px 时字形中线与控件中线差 0.1px 以内。换了编辑器或它的内边距要重量。
  */
 .acv-composer__leading,
 .acv-composer__frame.is-inline .acv-composer__toolbar {
@@ -648,9 +649,11 @@ defineExpose({
 }
 
 @container (max-width: 520px) {
+    /* 折到正文下面以后不再和文字对齐，去掉垫高。 */
     .acv-composer__frame.is-inline .acv-composer__toolbar {
         flex: 1 0 100%;
         justify-content: flex-end;
+        margin-bottom: 0;
     }
 
     .acv-composer__frame.is-inline .acv-composer__tools {

@@ -2,7 +2,7 @@
 import {computed, ref, watch} from "vue";
 import {Button, Checkbox, Dialog, Input, Select} from "@notnotype/nb-ui/components";
 import {agentText, type AgentTextKey} from "../../messages";
-import {hitCounts, orderProviders, providerSelectable, searchCatalog, type CatalogHit, type CatalogModelView, type CatalogProviderView} from "../../model-catalog";
+import {hitCounts, orderCatalog, orderProviders, providerSelectable, searchCatalog, type CatalogHit, type CatalogModelView, type CatalogProviderView} from "../../model-catalog";
 import type {AgentLocale} from "../../types";
 
 const props = defineProps<{
@@ -41,10 +41,16 @@ watch(() => props.open, (open) => {
 });
 
 const ordered = computed(() => orderProviders(props.providers));
+// 服务商换了（例如从这里去加了自定义服务商再回来）而选中的那家已不在时，回到“全部”。
+watch(() => props.providers, (providers) => {
+    if (active.value !== ALL && !providers.some((provider) => provider.id === active.value)) active.value = ALL;
+});
 const activeProvider = computed(() => props.providers.find((provider) => provider.id === active.value) ?? null);
 const chosenSet = computed(() => new Set(props.chosen));
 const searching = computed(() => query.value.trim() !== "");
-const hits = computed(() => searchCatalog(props.providers, query.value));
+// 排序只随服务商数据重算，每次按键只做匹配。
+const sorted = computed(() => orderCatalog(props.providers));
+const hits = computed(() => searchCatalog(sorted.value, query.value));
 const counts = computed(() => hitCounts(hits.value));
 const shown = computed<CatalogHit[]>(() => (activeProvider.value === null ? hits.value : hits.value.filter((hit) => hit.provider.id === activeProvider.value!.id)));
 const visible = computed(() => shown.value.slice(0, ROW_LIMIT));

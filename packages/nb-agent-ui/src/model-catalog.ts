@@ -64,9 +64,20 @@ export function orderProviders(providers: readonly CatalogProviderView[]): {usab
  */
 export function compareModels(a: CatalogModelView, b: CatalogModelView): number {
     const family = (id: string) => id.replace(/\d.*$/u, "");
-    const byFamily = family(a.id).localeCompare(family(b.id));
+    const byFamily = COLLATOR.compare(family(a.id), family(b.id));
     if (byFamily !== 0) return byFamily;
-    return b.id.localeCompare(a.id, undefined, {numeric: true});
+    return COLLATOR.compare(b.id, a.id);
+}
+
+/** 带选项的 `localeCompare` 每次调用都要新建一个比较器，排五千个模型就是几十万次；共用一个。 */
+const COLLATOR = new Intl.Collator(undefined, {numeric: true});
+
+/** 搜索用的默认顺序：服务商按 `orderProviders`，每家的模型按 `compareModels`。只随服务商数据变，数据变了才重算。 */
+export type OrderedCatalog = readonly {provider: CatalogProviderView; models: readonly CatalogModelView[]}[];
+
+export function orderCatalog(providers: readonly CatalogProviderView[]): OrderedCatalog {
+    const {usable, locked} = orderProviders(providers);
+    return [...usable, ...locked].map(provider => ({provider, models: [...provider.models].sort(compareModels)}));
 }
 
 /** 一条搜索结果；`tier` 0 是精确，1 是连续子串，2 是模糊（字符按顺序出现）。 */
@@ -78,16 +89,14 @@ export function catalogRef(provider: CatalogProviderView, model: CatalogModelVie
 }
 
 /**
- * 在这些服务商里搜：按 `服务商/模型名` 与显示名匹配，大小写不分。结果按层排，同层里能选的服务商在前，再按服务商顺序与
- * `compareModels`。查询为空时是全部模型的默认顺序（`tier` 都是 0）。
+ * 在排好的目录里搜：按 `服务商/模型名` 与显示名匹配，大小写不分。结果按层排，同层里保持 `orderCatalog` 的顺序。查询为空时
+ * 是全部模型的默认顺序（`tier` 都是 0）。
  */
-export function searchCatalog(providers: readonly CatalogProviderView[], query: string): CatalogHit[] {
-    const {usable, locked} = orderProviders(providers);
-    const ordered = [...usable, ...locked];
+export function searchCatalog(catalog: OrderedCatalog, query: string): CatalogHit[] {
     const q = query.trim().toLowerCase();
     const hits: (CatalogHit & {order: number})[] = [];
-    ordered.forEach((provider, order) => {
-        for (const model of [...provider.models].sort(compareModels)) {
+    catalog.forEach(({provider, models}, order) => {
+        for (const model of models) {
             const ref = catalogRef(provider, model);
             const tier = q === "" ? 0 : matchTier(q, ref.toLowerCase(), model.id.toLowerCase(), model.name.toLowerCase());
             if (tier !== null) hits.push({provider, model, ref, tier, order});

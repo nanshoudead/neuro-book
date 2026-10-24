@@ -1,6 +1,6 @@
 import {describe, expect, test} from "bun:test";
 
-import {compareModels, hitCounts, orderProviders, providerSelectable, searchCatalog, type CatalogModelView, type CatalogProviderView} from "./model-catalog";
+import {compareModels, hitCounts, orderCatalog, orderProviders, providerSelectable, searchCatalog, type CatalogModelView, type CatalogProviderView} from "./model-catalog";
 
 const model = (id: string, name = id): CatalogModelView => ({id, name, api: "openai-completions", contextWindow: null, reasoning: false, images: false, price: null});
 const provider = (id: string, fields: Partial<CatalogProviderView> = {}): CatalogProviderView => ({id, name: id, source: "catalog", access: "key", keyEnvs: [], keySet: false, models: [], ...fields});
@@ -33,23 +33,24 @@ describe("模型的默认顺序与搜索", () => {
         provider("openrouter", {models: [model("openai/gpt-5.6-sol"), model("anthropic/claude-sonnet-5")]}),
         provider("anthropic", {access: "login", models: [model("claude-sonnet-5", "Claude Sonnet 5")]}),
     ];
+    const catalog = orderCatalog(providers);
 
     test("三层：精确在前，然后连续子串，然后模糊；同层能选的服务商在前", () => {
-        const hits = searchCatalog(providers, "gpt-5.6-sol");
+        const hits = searchCatalog(catalog, "gpt-5.6-sol");
         expect(hits.map(hit => [hit.ref, hit.tier])).toEqual([["openai/gpt-5.6-sol", 0], ["openrouter/openai/gpt-5.6-sol", 1]]);
-        const sonnet = searchCatalog(providers, "sonnet");
+        const sonnet = searchCatalog(catalog, "sonnet");
         // anthropic 用不了，同层排在后面。
         expect(sonnet.map(hit => hit.ref)).toEqual(["openrouter/anthropic/claude-sonnet-5", "anthropic/claude-sonnet-5"]);
-        const fuzzy = searchCatalog(providers, "gpt56");
+        const fuzzy = searchCatalog(catalog, "gpt56");
         expect(fuzzy.map(hit => [hit.ref, hit.tier])).toEqual([["openai/gpt-5.6-sol", 2], ["openrouter/openai/gpt-5.6-sol", 2]]);
         // 显示名也算，大小写不分。
-        expect(searchCatalog(providers, "Claude Sonnet").map(hit => hit.ref)).toEqual(["anthropic/claude-sonnet-5"]);
-        expect(searchCatalog(providers, "不存在")).toEqual([]);
+        expect(searchCatalog(catalog, "Claude Sonnet").map(hit => hit.ref)).toEqual(["anthropic/claude-sonnet-5"]);
+        expect(searchCatalog(catalog, "不存在")).toEqual([]);
     });
 
     test("查询为空是全部模型的默认顺序；命中数按服务商数", () => {
-        const all = searchCatalog(providers, "  ");
+        const all = searchCatalog(catalog, "  ");
         expect(all.map(hit => hit.ref)).toEqual(["openai/gpt-5.6-sol", "openai/gpt-4", "openrouter/anthropic/claude-sonnet-5", "openrouter/openai/gpt-5.6-sol", "anthropic/claude-sonnet-5"]);
-        expect([...hitCounts(searchCatalog(providers, "gpt")).entries()]).toEqual([["openai", 2], ["openrouter", 1]]);
+        expect([...hitCounts(searchCatalog(catalog, "gpt")).entries()]).toEqual([["openai", 2], ["openrouter", 1]]);
     });
 });
