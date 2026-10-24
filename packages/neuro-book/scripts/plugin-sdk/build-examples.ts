@@ -7,12 +7,12 @@
  */
 
 import {existsSync} from "node:fs";
-import {readdir, rm} from "node:fs/promises";
+import {readdir} from "node:fs/promises";
 import {isAbsolute, join, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
-import {buildPlugin, isPreviousBuild, PluginBuildError} from "./build-plugin";
-import type {BuildPluginResult} from "./build-plugin";
+import {buildPlugin, PluginBuildError} from "./build";
+import type {BuildPluginResult} from "./build";
 
 const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
 export const EXAMPLES_ROOT = join(packageRoot, "examples/plugins");
@@ -38,11 +38,7 @@ export async function buildExample(name: string, outDir: string = join(EXAMPLES_
     const target = resolve(outDir);
     const fromTarget = relative(target, root);
     if (fromTarget === "" || (!fromTarget.startsWith("..") && !isAbsolute(fromTarget))) throw new PluginBuildError("输出目录不能是示例目录或它的上级", [{path: "", message: target}]);
-    if (existsSync(target) && (await readdir(target)).length > 0) {
-        if (!(await isPreviousBuild(root, target))) throw new PluginBuildError("输出目录里不是这个示例上次的产物，不清理", [{path: "", message: target}]);
-        await rm(target, {recursive: true});
-    }
-    return buildPlugin({root, outDir: target, ...IN_REPO_BUILD});
+    return buildPlugin({root, outDir: target, clean: true, ...IN_REPO_BUILD});
 }
 
 if (import.meta.main) {

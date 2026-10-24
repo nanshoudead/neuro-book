@@ -25,3 +25,5 @@
 
 @source "../";
 @source not "../**/*.test.ts";
+/* 构建预设（作者工具，不进产品页面）里有大量像类名的字符串（图标规则、产物外壳），不扫。 */
+@source not "../plugin-platform/build";

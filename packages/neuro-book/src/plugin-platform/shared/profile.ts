@@ -29,6 +29,10 @@ export interface PlatformProfile {
     readonly filesMount: string;
     /** 构建预设在输出目录里放中间产物的隐藏目录前缀。 */
     readonly buildTempPrefix: string;
+    /** 宿主提供、不许打进插件产物的包（Vue 由构建预设自己认）：打进去会出现第二份，例如第二份内核或 SDK。 */
+    readonly hostPackages: ReadonlyArray<string>;
+    /** 构建时报“未共享”时按包名附上的改法提示。 */
+    readonly notSharedHints: ReadonlyArray<{readonly packageName: string; readonly hint: string}>;
     /** 宿主与第三方插件共享的模块名（plugin-code-loading.md 输出 2–5），按运行位置。构建预设把它们留作外部引用。 */
     readonly sharedModules: {readonly browser: ReadonlyArray<string>; readonly server: ReadonlyArray<string>};
 }

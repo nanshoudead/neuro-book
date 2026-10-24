@@ -2,23 +2,28 @@
  * 第三方插件的构建预设（docs/specs/runtime/plugin-api.md 的“SDK”、plugin-code-loading.md 输出 2–5）：把作者目录构建成
  * 可以安装的插件目录。
  *
+ * 与应用无关：“这是哪个应用”的事实（引擎键、共享模块、宿主提供的包、登记全局名……）都来自调用方交来的平台档案，应用另有
+ * 一层绑定自己档案的封装给作者用。
+ *
  * 作者合同：
- * - `package.json` 给 `publisher`、`name`、`version`，可选 `description`、`license`、`engines.neurobook`（缺省取
- *   `^<产品版本>`）、`pluginVersions`，以及 `nbook.definitions`（入口定义模块，缺省 `backend/plugin.ts`、`web/plugin.ts`
- *   里存在的）；
+ * - `package.json` 给 `publisher`、`name`、`version`，可选 `description`、`license`、`engines.<引擎键>`（缺省取
+ *   `^<产品版本>`）、`pluginVersions`，以及 `<档案的 authorField>.definitions`（入口定义模块，缺省 `backend/plugin.ts`、
+ *   `web/plugin.ts` 里存在的）；
  * - `plugin.ts` 导出插件描述 `descriptor`，id 是 `<publisher>.<name>`、版本与 `package.json` 相同；
  * - 每个入口定义模块导出一个或多个 `PluginDefinition`，与内置插件同一写法。模块顶层会在构建时执行一次（为了读出声明）。
+ *   入口模块存在却没有导出任何插件定义时构建失败：多半是忘了 `export`。
  *
  * 产物：
- * - `package.json`：作者的字段加上由代码定义生成的清单（NeuroBook 清单格式的 `build`，生成即校验）；
+ * - `package.json`：作者的字段加上由代码定义生成的清单（档案里清单格式的 `build`，生成即校验）；
  * - 每个入口一个文件 `<入口 id>.js`（带 source map，`sources` 是相对作者目录的路径），只导出 `activate`，声明以清单为准。
+ *   外壳只引用这个入口所在的插件定义，定义模块里入口用不到的别的导出（以及它们的样式）照常被摇掉。
  *   服务端与项目入口是 ESM；浏览器入口包成登记工厂并压缩，脚本执行时调用宿主的 `register`，每次激活宿主调用一次工厂。
  *   插件自己的动态导入都内联进这个文件，共享模块的动态导入在浏览器产物里也经工厂的 `require` 取；
  * - `style.css`：各入口的样式合并后包进 `@layer components`，加上插件用到的 Lucide 图标的规则（宿主只为自己源码里出现过的
  *   图标类生成规则）。
  *
- * 共享模块（平台档案 `src/plugin-platform-profile.ts` 的两张表）留作外部引用；纯度检查按打包器的模块图核对：打进了宿主那一份 Vue（`vue`、
- * `@vue/reactivity`、`@vue/runtime-*`）、nb-ui 或 SDK 的实现就失败，外部引用（静态与动态导入）不在宿主模块表里也失败
+ * 共享模块（档案的 `sharedModules`）留作外部引用；纯度检查按打包器的模块图核对：打进了宿主那一份 Vue（`vue`、
+ * `@vue/reactivity`、`@vue/runtime-*`）或档案列出的宿主包的实现就失败，外部引用（静态与动态导入）不在宿主模块表里也失败
  * （“未共享”），两件事都在构建时报出。
  */
 
@@ -36,9 +41,9 @@ import * as compiler from "vue/compiler-sfc";
 import {build as vite, createServer} from "vite";
 import type {Plugin} from "vite";
 
-import {PRODUCT_VERSION} from "../../src/shared/product";
-import {notSharedMessage} from "../../src/plugin-platform/shared/plugin-code-error";
-import {BROWSER_SHARED_MODULES, manifestFormat, NEUROBOOK_PROFILE, SERVER_SHARED_MODULES} from "../../src/plugin-platform-profile";
+import {isInside} from "../backend/paths";
+import {notSharedMessage} from "../shared/plugin-code-error";
+import type {PlatformProfile} from "../shared/profile";
 
 const DEFAULT_DEFINITIONS = ["backend/plugin.ts", "web/plugin.ts"];
 const BUILT_LOCATIONS = ["server", "project", "browser"] as const;
@@ -50,11 +55,16 @@ type BuiltLocation = (typeof BUILT_LOCATIONS)[number];
  */
 const HOST_VUE_PACKAGES = ["vue", "@vue/reactivity", "@vue/runtime-core", "@vue/runtime-dom"];
 /**
- * 由宿主提供、不许打进产物的包：打进去会出现第二份（第二份 Vue、第二份内核）。它们（含子路径）的引用一律留作外部，再按
+ * 由宿主提供、不许打进产物的包：Vue 加上档案列出的宿主包（打进去会出现第二份）。它们（含子路径）的引用一律留作外部，再按
  * 模块表判断能不能用；经相对路径之类绕过包名、解析到它们目录里的模块，就是打进了第二份。
  */
-const HOST_PACKAGES = [...HOST_VUE_PACKAGES, "@notnotype/nb-ui", "@notnotype/nb-plugin-sdk", "@notnotype/nb-runtime"];
-const ALWAYS_EXTERNAL = HOST_PACKAGES.map((name) => new RegExp(`^${name.replaceAll("/", "\\/")}($|\\/)`, "u"));
+function hostPackages(profile: PlatformProfile): string[] {
+    return [...HOST_VUE_PACKAGES, ...profile.hostPackages];
+}
+
+function packagePattern(name: string): RegExp {
+    return new RegExp(`^${name.replaceAll("/", "\\/")}($|\\/)`, "u");
+}
 /** 从 `vue` 再导出的包：引用改写成外部的 `vue`，与宿主是同一份（依赖里的库常直接引用它们）。 */
 const VUE_REEXPORTED = /^@vue\/runtime-(?:core|dom)$/u;
 
@@ -77,10 +87,12 @@ export interface BuildPluginOptions {
     /** 另外不许打进产物的目录。仓库里是应用源码：SDK 的别名指到那里，打进去就是第二份 SDK。 */
     readonly forbiddenDirectories?: ReadonlyArray<string>;
     /**
-     * 写进产物清单的版本，缺省是作者的 `version`。作者工具的 `--dev` 用它给每次构建一个带构建元数据的新版本，在插件页
+     * 开发构建（作者工具的 `--dev`）：产物清单的版本是作者的 `version` 加上这一刻的构建元数据（`devVersion`），在插件页
      * 安装时按升级处理（docs/specs/runtime/plugin-api.md 的“作者工具”）。
      */
-    readonly version?: string;
+    readonly dev?: {readonly now: Date};
+    /** 输出目录里是这个插件上次的产物（或中断的构建留下的中间目录）时先清空；不是的话照样拒绝，不删别人的目录。 */
+    readonly clean?: boolean;
 }
 
 export interface BuildPluginResult {
@@ -115,14 +127,14 @@ interface AuthorPackage {
     readonly license?: string;
     readonly engines?: Readonly<Record<string, string>>;
     readonly pluginVersions?: Readonly<Record<string, string>>;
-    readonly nbook?: {readonly definitions?: ReadonlyArray<string>};
 }
 
 interface LocatedEntry {
     readonly entry: PluginEntryDefinition;
     readonly location: BuiltLocation;
-    /** 定义这个入口的模块（绝对路径）。 */
+    /** 定义这个入口的模块（绝对路径）与模块里插件定义的导出名。 */
     readonly module: string;
+    readonly exportName: string;
 }
 
 /** 一次构建里打包器看到的事实，供纯度检查与图标扫描。 */
@@ -136,22 +148,34 @@ function isPluginDefinition(value: unknown): value is PluginDefinition {
     return typeof value === "object" && value !== null && typeof (value as {id?: unknown}).id === "string" && Array.isArray((value as {entries?: unknown}).entries);
 }
 
-async function readAuthor(root: string): Promise<AuthorPackage> {
-    const file = join(root, "package.json");
+/** 读一个 JSON 对象；读不了、不是 JSON 或不是对象时以 `PluginBuildError` 失败。 */
+async function readJsonObject(file: string, what: string): Promise<Record<string, unknown>> {
     let raw: unknown;
     try {
         raw = JSON.parse(await readFile(file, "utf8"));
     } catch (error) {
-        throw new PluginBuildError("读不了插件目录的 package.json", [{path: "package.json", message: `${file}：${error instanceof Error ? error.message : String(error)}`}], {cause: error});
+        throw new PluginBuildError(`读不了${what}`, [{path: "package.json", message: `${file}：${error instanceof Error ? error.message : String(error)}`}], {cause: error});
     }
-    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new PluginBuildError("插件目录的 package.json 不是对象", [{path: "package.json", message: file}]);
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new PluginBuildError(`${what}不是对象`, [{path: "package.json", message: file}]);
+    return raw as Record<string, unknown>;
+}
+
+async function readAuthor(root: string): Promise<{readonly author: AuthorPackage; readonly raw: Record<string, unknown>}> {
+    const raw = await readJsonObject(join(root, "package.json"), "插件目录的 package.json");
     const record = raw as Partial<Record<keyof AuthorPackage, unknown>>;
     const problems: ManifestProblem[] = [];
     for (const field of ["publisher", "name", "version"] as const) {
         if (typeof record[field] !== "string" || record[field] === "") problems.push({path: field, message: "package.json 必须写这个字段"});
     }
     if (problems.length > 0) throw new PluginBuildError("插件目录的 package.json 不完整", problems);
-    return raw as AuthorPackage;
+    return {author: raw as unknown as AuthorPackage, raw};
+}
+
+/** 作者 `package.json` 里档案字段下的入口定义模块；没写为 undefined。 */
+function definitionsField(raw: Record<string, unknown>, field: string): ReadonlyArray<string> | undefined {
+    const settings = raw[field];
+    const definitions = typeof settings === "object" && settings !== null ? (settings as {readonly definitions?: unknown}).definitions : undefined;
+    return Array.isArray(definitions) && definitions.every((item): item is string => typeof item === "string") ? definitions : undefined;
 }
 
 /**
@@ -209,15 +233,10 @@ function isNodeBuiltin(specifier: string): boolean {
     return specifier.startsWith("node:") || specifier === "bun" || specifier.startsWith("bun:") || builtinModules.includes(specifier);
 }
 
-function within(file: string, directory: string): boolean {
-    const path = relative(directory, file);
-    return path === "" || (!path.startsWith("..") && !isAbsolute(path));
-}
-
 /** `@vue/runtime-core`、`@vue/runtime-dom` 的引用改成外部的 `vue`。在 `external` 判断之后、解析时改写：别名做不到。 */
 function vueRuntimePlugin(): Plugin {
     return {
-        name: "nbook-plugin-vue-runtime",
+        name: "plugin-vue-runtime",
         enforce: "pre",
         resolveId: (id) => (VUE_REEXPORTED.test(id) ? {id: "vue", external: true} : null),
     };
@@ -230,7 +249,7 @@ function vueRuntimePlugin(): Plugin {
  */
 function factsPlugin(facts: BundleFacts): Plugin {
     return {
-        name: "nbook-plugin-facts",
+        name: "plugin-bundle-facts",
         generateBundle(_options, bundle) {
             const record = (id: string, importer: string | null): void => {
                 if (!isAbsolute(id) && !id.startsWith("\0") && !Object.hasOwn(bundle, id) && !facts.externals.has(id)) facts.externals.set(id, importer);
@@ -257,17 +276,18 @@ function factsPlugin(facts: BundleFacts): Plugin {
  * - 脚本地址在脚本执行时记下：`document.currentScript` 只在脚本同步执行期间有值，工厂是之后每次激活才调用的。
  *   `import.meta.url` 在构建时换成它（见 `buildEntry` 的 `define`）。外层的块让这个变量不落到全局。
  */
-const SCRIPT_URL = "__nbookScriptUrl";
-const REGISTER_BANNER = `{const ${SCRIPT_URL} = document.currentScript.src; globalThis[${JSON.stringify(NEUROBOOK_PROFILE.registryGlobal)}].register(${SCRIPT_URL}, function (module, exports, require) {"use strict";`;
+const SCRIPT_URL = "__pluginScriptUrl";
+
+function registerBanner(registryGlobal: string): string {
+    return `{const ${SCRIPT_URL} = document.currentScript.src; globalThis[${JSON.stringify(registryGlobal)}].register(${SCRIPT_URL}, function (module, exports, require) {"use strict";`;
+}
 const REGISTER_FOOTER = "});}";
 
-/** 入口的外壳模块：从定义模块里取出这个入口，只导出它的 `activate`。 */
-function shellSource(plugin: string, located: LocatedEntry): string {
-    const match = `(item) => item.id === ${JSON.stringify(located.entry.id)} && item.location === ${JSON.stringify(located.location)}`;
+/** 入口的外壳模块：按读声明时记下的导出名取出插件定义里的这个入口，只导出它的 `activate`。 */
+function shellSource(located: LocatedEntry): string {
     return [
         `import * as source from ${JSON.stringify(located.module)};`,
-        `const definition = Object.values(source).find((value) => value !== null && typeof value === "object" && value.id === ${JSON.stringify(plugin)} && Array.isArray(value.entries) && value.entries.some(${match}));`,
-        `const entry = definition.entries.find(${match});`,
+        `const entry = source[${JSON.stringify(located.exportName)}].entries.find((item) => item.id === ${JSON.stringify(located.entry.id)} && item.location === ${JSON.stringify(located.location)});`,
         // 只提供组件、没有初始化逻辑的浏览器入口可以不写 activate（plugin-api.md 的“输入与前置条件”）。
         `export const activate = entry.activate ?? (() => ({}));`,
         "",
@@ -279,8 +299,8 @@ function shellSource(plugin: string, located: LocatedEntry): string {
  * `node_modules`、软链）取 `node_modules/` 之后的部分；构建时生成的外壳取它在临时目录里的名字。
  */
 function sourcePath(file: string, root: string, workDir: string): string {
-    const path = within(file, workDir) ? join("nbook-plugin-build", relative(workDir, file))
-        : within(file, root) ? relative(root, file)
+    const path = isInside(file, workDir) ? join("plugin-build", relative(workDir, file))
+        : isInside(file, root) ? relative(root, file)
         : file.includes(`${sep}node_modules${sep}`) ? file.slice(file.lastIndexOf(`${sep}node_modules${sep}`) + 1)
         : join("external", basename(file));
     return path.split(sep).join("/");
@@ -288,17 +308,18 @@ function sourcePath(file: string, root: string, workDir: string): string {
 
 async function buildEntry(input: {
     readonly root: string;
-    readonly plugin: string;
+    readonly profile: PlatformProfile;
     readonly located: LocatedEntry;
     readonly alias: ReadonlyArray<BuildAlias>;
     readonly workDir: string;
 }): Promise<{readonly directory: string; readonly facts: BundleFacts}> {
     const {located} = input;
     const shell = join(input.workDir, `${located.entry.id}.shell.ts`);
-    await writeFile(shell, shellSource(input.plugin, located));
+    await writeFile(shell, shellSource(located));
     const directory = join(input.workDir, located.entry.id);
     const facts: BundleFacts = {modules: [], externals: new Map()};
-    const external = (id: string): boolean => !VUE_REEXPORTED.test(id) && (ALWAYS_EXTERNAL.some((pattern) => pattern.test(id)) || isNodeBuiltin(id));
+    const alwaysExternal = hostPackages(input.profile).map(packagePattern);
+    const external = (id: string): boolean => !VUE_REEXPORTED.test(id) && (alwaysExternal.some((pattern) => pattern.test(id)) || isNodeBuiltin(id));
     const browser = located.location === "browser";
     try {
         await vite({
@@ -323,9 +344,9 @@ async function buildEntry(input: {
                         codeSplitting: false,
                         sourcemapPathTransform: (source, sourcemapPath) => sourcePath(resolve(dirname(sourcemapPath), source), input.root, input.workDir),
                         ...(browser
-                            // CommonJS 产物里外部模块的动态导入默认留成 `import("vue")`：经典脚本里没有 import map，裸说明符解析失败。
+                            // CommonJS 产物里外部模块的动态导入默认留成 `import(<包名>)`：经典脚本里没有 import map，裸说明符解析失败。
                             // 改成 `require`，与静态导入一样从宿主模块表取。
-                            ? {banner: REGISTER_BANNER, footer: REGISTER_FOOTER, dynamicImportInCjs: false}
+                            ? {banner: registerBanner(input.profile.registryGlobal), footer: REGISTER_FOOTER, dynamicImportInCjs: false}
                             : {entryFileNames: `${located.entry.id}.js`, format: "es" as const}),
                     },
                 },
@@ -359,6 +380,7 @@ function bundlerError(error: unknown, root: string, located: LocatedEntry): Plug
  * 作者要知道换哪个库。
  */
 function purityProblems(input: {
+    readonly profile: PlatformProfile;
     readonly location: BuiltLocation;
     readonly entry: string;
     readonly facts: BundleFacts;
@@ -368,12 +390,12 @@ function purityProblems(input: {
 }): ManifestProblem[] {
     const {location, entry, facts, forbidden} = input;
     const problems: ManifestProblem[] = [];
-    const allowed: ReadonlyArray<string> = location === "browser" ? BROWSER_SHARED_MODULES : SERVER_SHARED_MODULES;
+    const allowed = location === "browser" ? input.profile.sharedModules.browser : input.profile.sharedModules.server;
     for (const [specifier, importer] of facts.externals) {
         if (allowed.includes(specifier) || (location !== "browser" && isNodeBuiltin(specifier))) continue;
         const from = importer === null || !isAbsolute(importer) ? "" : `（由 ${sourcePath(importer.split("?")[0]!, input.root, input.workDir)} 引入）`;
-        // nb-ui 不发布，作者项目里本来装不到它；仓库里照着内置插件的写法直接导入时提示改法。
-        const hint = /^@notnotype\/nb-ui($|\/)/u.test(specifier) ? "；nb-ui 的组件从 @notnotype/nb-plugin-sdk/components 导入" : "";
+        // 档案给的改法提示：例如应用的私有组件库不发布，作者照着内置插件的写法直接导入时，提示从 SDK 的子路径导入。
+        const hint = input.profile.notSharedHints.filter((item) => packagePattern(item.packageName).test(specifier)).map((item) => `；${item.hint}`).join("");
         problems.push({path: `entries.${entry}`, message: `${notSharedMessage(specifier)}${from}：该入口未共享（共享的是 ${allowed.join("、")}）${hint}`});
     }
     const bundled = new Map<string, string>();
@@ -381,7 +403,7 @@ function purityProblems(input: {
         // `\0` 开头的是打包器的虚拟模块（运行时辅助代码），不是磁盘上的文件。
         const file = module.split("?")[0]!;
         if (!isAbsolute(file)) continue;
-        const hit = forbidden.find((item) => within(file, item.directory));
+        const hit = forbidden.find((item) => isInside(file, item.directory));
         if (hit !== undefined && !bundled.has(hit.name)) bundled.set(hit.name, file);
     }
     for (const [name, file] of bundled) problems.push({path: `entries.${entry}`, message: `打进了 ${name} 的实现（${file}）：它由宿主提供，插件要从包名导入、不能自带一份`});
@@ -428,16 +450,16 @@ function iconSetFile(root: string): string {
     }
 }
 
-export async function buildPlugin(options: BuildPluginOptions): Promise<BuildPluginResult> {
+export async function buildPlugin(profile: PlatformProfile, options: BuildPluginOptions): Promise<BuildPluginResult> {
     const root = resolve(options.root);
     const outDir = resolve(options.outDir);
     const alias = options.alias ?? [];
-    if (existsSync(outDir) && (await readdir(outDir)).length > 0) throw new PluginBuildError("输出目录不是空的", [{path: "", message: outDir}]);
-    const author = await readAuthor(root);
+    await prepareOutDir(profile, root, outDir, options.clean === true);
+    const {author, raw} = await readAuthor(root);
     const id = `${author.publisher}.${author.name}`;
 
     // 1. 读声明：执行描述与入口定义模块，不调用 activate。
-    const definitionFiles = (author.nbook?.definitions ?? DEFAULT_DEFINITIONS.filter((file) => existsSync(join(root, file)))).map((file) => join(root, file));
+    const definitionFiles = (definitionsField(raw, profile.authorField) ?? DEFAULT_DEFINITIONS.filter((file) => existsSync(join(root, file)))).map((file) => join(root, file));
     const [descriptorModule, ...definitionModules] = await loadModules(root, alias, [join(root, "plugin.ts"), ...definitionFiles]);
     const descriptor = descriptorModule!.descriptor as PluginDescriptor | undefined;
     if (descriptor === undefined) throw new PluginBuildError("plugin.ts 没有导出 descriptor", [{path: "plugin.ts", message: "要导出插件描述 descriptor"}]);
@@ -448,8 +470,10 @@ export async function buildPlugin(options: BuildPluginOptions): Promise<BuildPlu
     const located: LocatedEntry[] = [];
     const problems: ManifestProblem[] = [];
     for (const [index, file] of definitionFiles.entries()) {
-        for (const value of Object.values(definitionModules[index]!)) {
-            if (!isPluginDefinition(value)) continue;
+        const found = Object.entries(definitionModules[index]!).filter((item): item is [string, PluginDefinition] => isPluginDefinition(item[1]));
+        if (found.length === 0) problems.push({path: relative(root, file), message: "没有导出插件定义：是否忘了 export？"});
+        if (found.length > 1) problems.push({path: relative(root, file), message: `导出了 ${String(found.length)} 个插件定义（${found.map(([name]) => name).join("、")}），一个模块只能导出一个`});
+        for (const [exportName, value] of found) {
             if (value.id !== id) {
                 problems.push({path: relative(root, file), message: `导出的插件定义的 id 是 ${value.id}，插件是 ${id}`});
                 continue;
@@ -460,16 +484,16 @@ export async function buildPlugin(options: BuildPluginOptions): Promise<BuildPlu
                     problems.push({path: `entries.${entry.id}`, message: `构建预设只构建 ${BUILT_LOCATIONS.join("、")} 位置的入口：${entry.location}`});
                     continue;
                 }
-                located.push({entry, location: entry.location as BuiltLocation, module: file});
+                located.push({entry, location: entry.location as BuiltLocation, module: file, exportName});
             }
         }
     }
     if (problems.length > 0) throw new PluginBuildError("入口定义不合格", problems);
 
     const source: ManifestSource = {
-        descriptor: {...descriptor, version: options.version ?? descriptor.version},
+        descriptor: {...descriptor, version: options.dev === undefined ? descriptor.version : devVersion(author.version, options.dev.now)},
         definitions,
-        engine: author.engines?.[manifestFormat.platform.engine] ?? `^${PRODUCT_VERSION}`,
+        engine: author.engines?.[profile.format.platform.engine] ?? `^${profile.productVersion}`,
         ...(author.pluginVersions === undefined ? {} : {pluginVersions: author.pluginVersions}),
         ...(author.description === undefined ? {} : {description: author.description}),
         ...(author.license === undefined ? {} : {license: author.license}),
@@ -477,12 +501,12 @@ export async function buildPlugin(options: BuildPluginOptions): Promise<BuildPlu
     };
     // 清单表达不了的定义（入口 id 重复、schema 进不了 JSON……）在构建前就报出：下面要按入口 id 写文件，入口 id 的规则由
     // 清单校验保证。
-    const early = manifestFormat.build(source);
+    const early = profile.format.build(source);
     if (early.status === "invalid") throw new PluginBuildError("代码定义写不成清单", early.problems);
 
     // 2. 逐入口构建（Rolldown 的多入口构建不能同时关掉代码分割）。
     const forbidden: Array<{readonly name: string; readonly directory: string}> = [];
-    for (const name of HOST_PACKAGES) {
+    for (const name of hostPackages(profile)) {
         const directory = await packageRoot(root, name);
         if (directory !== null) forbidden.push({name, directory});
     }
@@ -491,15 +515,15 @@ export async function buildPlugin(options: BuildPluginOptions): Promise<BuildPlu
     // 常在另一个文件系统（tmpfs），输出目录的父目录可能不可写或在挂载点之外，两处都会让 rename 失败。构建被中断时残留也只在
     // 输出目录里，下次构建前要先清空它（输出目录必须为空）。
     await mkdir(outDir, {recursive: true});
-    const workDir = await mkdtemp(join(outDir, ".nbook-plugin-build-"));
+    const workDir = await mkdtemp(join(outDir, profile.buildTempPrefix));
     const files: string[] = [];
     const styles: string[] = [];
     const sources = new Set<string>();
     try {
         const built: Array<{readonly located: LocatedEntry; readonly directory: string}> = [];
         for (const item of located) {
-            const {directory, facts} = await buildEntry({root, plugin: id, located: item, alias, workDir});
-            problems.push(...purityProblems({location: item.location, entry: item.entry.id, facts, forbidden, root, workDir}));
+            const {directory, facts} = await buildEntry({root, profile, located: item, alias, workDir});
+            problems.push(...purityProblems({profile, location: item.location, entry: item.entry.id, facts, forbidden, root, workDir}));
             for (const module of facts.modules) {
                 const file = module.split("?")[0]!;
                 if (isAbsolute(file) && existsSync(file)) sources.add(file);
@@ -521,7 +545,7 @@ export async function buildPlugin(options: BuildPluginOptions): Promise<BuildPlu
         const style = merged.length === 0 && icons.css === "" ? null : `@layer components {\n${[...merged, icons.css].filter((text) => text !== "").join("\n")}\n}\n`;
 
         // 4. 清单与输出。
-        const final = manifestFormat.build({...source, ...(style === null ? {} : {style: "style.css"})});
+        const final = profile.format.build({...source, ...(style === null ? {} : {style: "style.css"})});
         if (final.status === "invalid") throw new PluginBuildError("代码定义写不成清单", final.problems);
         const manifest = final.json;
 
@@ -561,36 +585,19 @@ export function devVersion(version: string, now: Date): string {
  * 输出目录里是不是这个插件上次的产物（可以清空重建）：清单的 publisher、name 与作者的相同，并且有 `entries`（构建预设总会写，
  * 作者的 `package.json` 不写）；或者只有中断的构建留下的中间目录。
  */
-export async function isPreviousBuild(root: string, outDir: string): Promise<boolean> {
+export async function isPreviousBuild(profile: PlatformProfile, root: string, outDir: string): Promise<boolean> {
     const names = await readdir(outDir);
-    if (names.every((item) => item.startsWith(".nbook-plugin-build-"))) return true;
+    if (names.every((item) => item.startsWith(profile.buildTempPrefix))) return true;
     const manifest = join(outDir, "package.json");
     if (!existsSync(manifest)) return false;
-    const [author, previous] = await Promise.all([readJsonObject(join(root, "package.json")), readJsonObject(manifest)]);
+    const [author, previous] = await Promise.all([readJsonObject(join(root, "package.json"), "插件目录的 package.json"), readJsonObject(manifest, "输出目录里的 package.json")]);
     return previous.publisher === author.publisher && previous.name === author.name && typeof previous.entries === "object" && previous.entries !== null;
 }
 
-async function readJsonObject(file: string): Promise<Record<string, unknown>> {
-    try {
-        const value: unknown = JSON.parse(await readFile(file, "utf8"));
-        return typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
-    } catch (error) {
-        throw new PluginBuildError("读不了 package.json", [{path: "", message: `${file}：${error instanceof Error ? error.message : String(error)}`}], {cause: error});
-    }
-}
-
-if (import.meta.main) {
-    const [root, outDir] = process.argv.slice(2);
-    if (root === undefined || outDir === undefined) {
-        console.error("用法：bun scripts/plugin-sdk/build-plugin.ts <插件目录> <输出目录>");
-        process.exit(2);
-    }
-    try {
-        const result = await buildPlugin({root, outDir});
-        for (const warning of result.warnings) console.warn(warning);
-        console.log(`插件已构建：${resolve(outDir)}（${result.files.join("、")}）`);
-    } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
-        process.exit(1);
-    }
+/** 输出目录要么不存在、为空，要么（`clean` 时）是这个插件上次的产物，先清空；别的情况拒绝，不递归删除不是自己生成的目录。 */
+async function prepareOutDir(profile: PlatformProfile, root: string, outDir: string, clean: boolean): Promise<void> {
+    if (!existsSync(outDir) || (await readdir(outDir)).length === 0) return;
+    if (!clean) throw new PluginBuildError("输出目录不是空的", [{path: "", message: outDir}]);
+    if (!(await isPreviousBuild(profile, root, outDir))) throw new PluginBuildError("输出目录里不是这个插件上次的产物，不清理", [{path: "", message: outDir}]);
+    await rm(outDir, {recursive: true});
 }

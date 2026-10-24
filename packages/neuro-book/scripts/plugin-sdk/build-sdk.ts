@@ -6,7 +6,7 @@
  * - `index.d.ts`、`browser.d.ts`、`components.d.ts`：打平的类型，不含应用内部的 `nbook/*` 别名，只引用 `vue`、
  *   `@vue/reactivity` 与 `typebox`。内核、nb-form 与 nb-ui 的子路径映射到源码，类型才会被打进来：经 `node_modules` 解析到的工作区包被 TypeScript
  *   当作外部库，不生成声明。
- * - `build.js`、`build.d.ts`：构建预设（`build-plugin.ts`），在 Node 或 Bun 里运行；Vite、单文件组件编译与图标数据是它的
+ * - `build.js`、`build.d.ts`：构建预设（`build.ts`，绑定 NeuroBook 平台档案的那一层），在 Node 或 Bun 里运行；Vite、单文件组件编译与图标数据是它的
  *   依赖。
  * - `cli.js` 与 `template/`：作者命令 `nbook-plugin`（`cli.ts`）与 `create` 用的模板；模板 `_package.json` 里的依赖范围在这里
  *   填上，与应用自己用的一致。
@@ -282,7 +282,7 @@ export async function buildSdk(outDir: string): Promise<void> {
     // 构建脚本用得上 `BuildPluginOptions`、`PluginBuildError` 这些类型。
     await rolldown({
         cwd: packageRoot,
-        input: {build: join(packageRoot, "scripts/plugin-sdk/build-plugin.ts"), cli: join(packageRoot, "scripts/plugin-sdk/cli.ts")},
+        input: {build: join(packageRoot, "scripts/plugin-sdk/build.ts"), cli: join(packageRoot, "scripts/plugin-sdk/cli.ts")},
         platform: "node",
         external: [...PEERS, ...BUILD_DEPENDENCIES.map((name) => new RegExp(`^${name.replace("/", "\\/")}($|/)`, "u"))],
         resolve: {alias: {nbook: join(packageRoot, "src")}},

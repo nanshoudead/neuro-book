@@ -46,5 +46,8 @@ export const NEUROBOOK_PROFILE: PlatformProfile = {
     styleDataset: "nbookPluginStyle",
     filesMount: "/api/runtime",
     buildTempPrefix: ".nbook-plugin-build-",
+    hostPackages: ["@notnotype/nb-ui", "@notnotype/nb-plugin-sdk", "@notnotype/nb-runtime"],
+    // nb-ui 不发布，作者项目里本来装不到它；仓库里照着内置插件的写法直接导入时提示改法。
+    notSharedHints: [{packageName: "@notnotype/nb-ui", hint: "nb-ui 的组件从 @notnotype/nb-plugin-sdk/components 导入"}],
     sharedModules: {browser: BROWSER_SHARED_MODULES, server: SERVER_SHARED_MODULES},
 };

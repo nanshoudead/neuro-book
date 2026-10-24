@@ -234,7 +234,7 @@ describe("生成的 SDK 包", () => {
     });
 
     it("仓库外用生成的包里的构建预设构建插件：清单合格，产物只引用宿主共享的模块", async () => {
-        const {buildPlugin} = await import(join(project, "node_modules/@notnotype/nb-plugin-sdk/build.js")) as typeof import("./build-plugin");
+        const {buildPlugin} = await import(join(project, "node_modules/@notnotype/nb-plugin-sdk/build.js")) as typeof import("./build");
         const out = join(tmp, "hello-dist");
         const result = await buildPlugin({root: project, outDir: out});
         expect(result.files).toEqual(["browser.js", "browser.js.map", "package.json", "server.js", "server.js.map", "style.css"]);

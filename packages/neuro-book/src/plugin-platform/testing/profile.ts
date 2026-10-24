@@ -19,6 +19,8 @@ export const ACME_PROFILE: PlatformProfile = {
     styleDataset: "acmePluginStyle",
     filesMount: "/acme/files-api",
     buildTempPrefix: ".acme-plugin-build-",
+    hostPackages: ["@acme/sdk"],
+    notSharedHints: [],
     sharedModules: {browser: ["vue", "@vue/reactivity", "@acme/sdk"], server: ["@vue/reactivity", "@acme/sdk"]},
 };
 

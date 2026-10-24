@@ -18,7 +18,7 @@ import {manifestFormat} from "../../src/plugin-platform-profile";
 import {createPluginCodeHost} from "../../src/plugin-platform/web/plugin-code";
 import type {PluginDocument, PluginScript} from "../../src/plugin-platform/web/plugin-code";
 import {buildExample, EXAMPLES_ROOT, IN_REPO_BUILD} from "./build-examples";
-import {buildPlugin, PluginBuildError} from "./build-plugin";
+import {buildPlugin, PluginBuildError} from "./build";
 
 const repoModules = fileURLToPath(new URL("../../../../node_modules/", import.meta.url));
 let tmp = "";
@@ -244,8 +244,10 @@ export const echoServer = {id: "acme.echo", entries: [defineEntry({id: "server",
             "web/plugin.ts": `import {defineEntry} from "@notnotype/nb-plugin-sdk";
 import Panel from "./Panel.vue";
 import {echoContract} from "../shared/contracts";
-export const panel = Panel;
-export const echoBrowser = {id: "acme.echo", entries: [defineEntry({id: "browser", location: "browser", remoteDelegates: [echoContract], activate: () => ({})})]};
+export const echoBrowser = {id: "acme.echo", entries: [defineEntry({id: "browser", location: "browser", remoteDelegates: [echoContract], activate: () => {
+    (globalThis as {echoPanel?: unknown}).echoPanel = Panel;
+    return {};
+}})]};
 `,
         });
         const result = await build(root);
@@ -376,7 +378,7 @@ export const echoBrowser = {id: "acme.echo", entries: [defineEntry({id: "browser
             "web/plugin.ts": `export const p = {id: "acme.cross-device", entries: [{id: "browser", location: "browser", activate: () => ({})}]};\n`,
         });
         const child = Bun.spawn({
-            cmd: [process.execPath, fileURLToPath(new URL("./build-plugin.ts", import.meta.url)), root, join(root, "dist")],
+            cmd: [process.execPath, fileURLToPath(new URL("./cli.ts", import.meta.url)), "build", root],
             env: {...process.env, TMPDIR: "/dev/shm"},
             stdout: "pipe",
             stderr: "pipe",
@@ -413,5 +415,15 @@ export const s = {id: "acme.refined", entries: [defineEntry({id: "server", locat
         await mkdir(join(root, "dist"), {recursive: true});
         await writeFile(join(root, "dist/left.txt"), "x");
         expect(await failure(root)).toEqual([join(root, "dist")]);
+    }, 60_000);
+
+    it("入口定义模块忘了 export 或导出了两个插件定义：构建失败，指出模块（不再静默少一个入口）", async () => {
+        const root = await authorProject("unexported", {
+            "web/plugin.ts": "export const p = {id: \"acme.unexported\", entries: [{id: \"browser\", location: \"browser\", activate: () => ({})}]};\n",
+            "backend/plugin.ts": "const s = {id: \"acme.unexported\", entries: [{id: \"server\", location: \"server\", activate: () => ({})}]};\nexport const unrelated = 1;\n",
+        });
+        expect(await failure(root)).toEqual([expect.stringContaining("忘了 export")]);
+        await writeFile(join(root, "backend/plugin.ts"), "export const a = {id: \"acme.unexported\", entries: []};\nexport const b = {id: \"acme.unexported\", entries: []};\n");
+        expect(await failure(root)).toEqual([expect.stringContaining("导出了 2 个插件定义")]);
     }, 60_000);
 });

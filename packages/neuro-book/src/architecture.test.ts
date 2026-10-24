@@ -2,7 +2,7 @@
  * 包内依赖方向（packages/neuro-book/AGENTS.md 目录约定）：前端代码不引后端与 Bun/Node；后端不引前端；
  * 共用目录、插件描述与产品清单不引任何一侧；跨插件的运行时导入只能指向对方的 `shared/contracts.ts`，类型照旧可以
  * `import type`（docs/adr/0025-service-keys-by-id.md；例外：Lab 的场景可以在运行时引用别的插件的前端与共用代码，用来
- * 挂载它们的组件、建场景自己的局部宿主；Lab 只在开发模式加载）；只有开发监督进程能引 Vite；测试库只在测试里用；
+ * 挂载它们的组件、建场景自己的局部宿主；Lab 只在开发模式加载）；只有开发监督进程与构建预设（`plugin-platform/build/`，产品代码不引用它）能引 Vite；测试库只在测试里用；
  * 开发清单与开发插件（Lab）只经开发入口引用（后端、项目子进程与前端各一个），前端开发入口只能动态加载，生产构建才不含它们。
  * `src/ui/` 是宿主与插件共用的前端组件，只用前端库与共用代码；`import.meta.glob` 只给 Lab 的组件索引用：
  * 它把扫描到的模块全部带进构建图，用在别处会把整片目录打进产品。
@@ -101,7 +101,8 @@ function violationsOf(uses: ReadonlyArray<ImportUse>): string[] {
         if (from !== null && to !== null && from !== to && !use.typeOnly && !isPluginContracts(target as string) && !labSceneMayImport(use.file, target as string)) {
             found.push(`跨插件的运行时导入只能指向对方的 shared/contracts.ts：${where}`);
         }
-        if ((use.specifier === "vite" || use.specifier.startsWith("vite/")) && !use.file.startsWith("server/dev/")) found.push(`只有开发监督进程能引用 Vite：${where}`);
+        if ((use.specifier === "vite" || use.specifier.startsWith("vite/")) && !use.file.startsWith("server/dev/") && !use.file.startsWith("plugin-platform/build/")) found.push(`只有开发监督进程与构建预设能引用 Vite：${where}`);
+        if (target !== null && target.startsWith("plugin-platform/build/") && !use.file.startsWith("plugin-platform/build/")) found.push(`构建预设只给作者工具用，产品代码不引用：${where}`);
         if (isTestLibrary(use.specifier)) found.push(`产品代码引用了测试库：${where}`);
         if (importsTesting(use, target)) found.push(`产品代码引用了测试支持代码（testing/ 或内核的 */testing 入口）：${where}`);
         if (target !== null && isExample(target) && !isExample(use.file)) found.push(`产品代码引用了示例：${where}`);
@@ -219,6 +220,7 @@ describe("包内依赖方向", () => {
             use("shared/browser-bootstrap.ts", "nbook/plugins/http/backend/dispatch"),
             use("plugins/workbench/web/plugin.ts", "nbook/plugins/diagnostics/web/plugin"),
             use("web/main.ts", "vite"),
+            use("server/start.ts", "nbook/plugin-platform/build/build-plugin"),
             use("web/host/window.ts", "@vue/test-utils"),
             use("server/main.ts", "nbook/development-manifest"),
             use("web/plugins.ts", "nbook/plugins/lab/web/plugin"),

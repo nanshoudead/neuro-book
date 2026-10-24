@@ -14,7 +14,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {manifestFormat} from "../../src/plugin-platform-profile";
 import {compareVersions, pluginVersionSatisfies} from "../../src/plugin-platform/shared/versions";
 
-import {devVersion} from "./build-plugin";
+import {devVersion} from "./build";
 
 import {buildSdk} from "./build-sdk";
 import {authorDirectory, cliOf} from "./testing/author";

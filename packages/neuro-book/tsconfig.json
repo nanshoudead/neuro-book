@@ -23,6 +23,7 @@
         "src/shared",
         "src/plugin-platform/backend",
         "src/plugin-platform/shared",
+        "src/plugin-platform/build",
         "src/sdk/index.ts",
         "src/types",
         "src/plugins/*/plugin.ts",

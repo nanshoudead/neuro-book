@@ -6,15 +6,13 @@
  * 退出码：0 成功（构建只有警告时也是 0，警告打到标准错误）；1 构建或生成失败，标准错误逐行列出问题；2 用法不对。
  */
 
-import {existsSync} from "node:fs";
-import {readdir, readFile, rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {parseArgs} from "node:util";
 
 import {PRODUCT_VERSION} from "../../src/shared/product";
 
-import {buildPlugin, devVersion, isPreviousBuild, PluginBuildError} from "./build-plugin";
+import {buildPlugin, PluginBuildError} from "./build";
 import {createPlugin, PluginCreateError} from "./create-plugin";
 
 const USAGE = `用法：
@@ -52,26 +50,11 @@ async function build(args: ReadonlyArray<string>): Promise<number> {
     if (positionals.length > 1) throw new UsageError("build 至多一个作者目录");
     const root = resolve(positionals[0] ?? ".");
     const outDir = values.out === undefined ? join(root, "dist") : resolve(values.out);
-    if (values.clean === true && existsSync(outDir) && (await readdir(outDir)).length > 0) {
-        // 只删这个插件上次的产物：`--out` 写错成别的目录时不能把它清空。
-        if (!(await isPreviousBuild(root, outDir))) throw new PluginBuildError("输出目录里不是这个插件上次的产物，不清理", [{path: "", message: outDir}]);
-        await rm(outDir, {recursive: true});
-    }
-    const version = values.dev === true ? devVersion(await authorVersion(root), new Date()) : undefined;
-    const result = await buildPlugin({root, outDir, ...(version === undefined ? {} : {version})});
+    // `--clean` 只删这个插件上次的产物：`--out` 写错成别的目录时不能把它清空（构建预设核对）。
+    const result = await buildPlugin({root, outDir, clean: values.clean === true, ...(values.dev === true ? {dev: {now: new Date()}} : {})});
     for (const warning of result.warnings) console.error(`警告：${warning}`);
     console.log(`已构建 ${String(result.manifest.publisher)}.${String(result.manifest.name)}@${String(result.manifest.version)}：${outDir}（${result.files.join("、")}）`);
     return 0;
-}
-
-async function authorVersion(root: string): Promise<string> {
-    try {
-        const value = (JSON.parse(await readFile(join(root, "package.json"), "utf8")) as {version?: unknown} | null)?.version;
-        if (typeof value === "string") return value;
-    } catch (error) {
-        throw new PluginBuildError("读不了 package.json", [{path: "", message: `${join(root, "package.json")}：${error instanceof Error ? error.message : String(error)}`}], {cause: error});
-    }
-    throw new PluginBuildError("package.json 没有 version", [{path: "version", message: "要写插件的版本"}]);
 }
 
 async function main(argv: ReadonlyArray<string>): Promise<number> {
