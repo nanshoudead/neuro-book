@@ -37,8 +37,11 @@ type Implementations<Declared extends ReadonlyArray<ContributionDeclaration>> = 
     readonly [Point in Declared[number]["capability"]]: {readonly [Id in IdsAt<Declared, Point>]: unknown};
 };
 
-/** 声明要求的产出。声明是空元组时那一类不能出现；`NoInfer` 防止从产出反推声明，使核对落空。 */
-type ExpectedOutput<
+/**
+ * 声明要求的产出。声明是空元组时那一类不能出现；`NoInfer` 防止从产出反推声明，使核对落空。导出给在 `defineEntry` 之上
+ * 再包一层的作者 API（SDK 的 `plugin.entry`）组合用。
+ */
+export type ExpectedOutput<
     Provides extends ReadonlyArray<ServiceKey<unknown>>,
     Remote extends ReadonlyArray<RemoteContract>,
     Receives extends ReadonlyArray<string>,
@@ -55,7 +58,7 @@ type RuntimeKeys<T> = `${Exclude<keyof T, symbol>}`;
  * 实际产出里多写的接收者与贡献实现。约束只要求声明的键都在，多出来的键要另外从实际产出里找：赋值给对象类型时
  * TypeScript 不报多余属性。
  */
-type ExtraKeys<Output, Receives extends ReadonlyArray<string>, Contributions extends ReadonlyArray<ContributionDeclaration>> =
+export type ExtraKeys<Output, Receives extends ReadonlyArray<string>, Contributions extends ReadonlyArray<ContributionDeclaration>> =
     | (Output extends {readonly receivers: infer Actual} ? `多写的接收者：${Exclude<RuntimeKeys<Actual>, Receives[number]>}` : never)
     | (Output extends {readonly contributions: infer Actual}
         ? {

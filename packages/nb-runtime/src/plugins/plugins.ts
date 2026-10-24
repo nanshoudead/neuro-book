@@ -22,6 +22,7 @@ import {PluginHostImpl} from "./host";
 export type * from "./contracts";
 export {PluginStateError} from "./contracts";
 export {defineEntry} from "./define";
+export type {ExpectedOutput as EntryOutputFor, ExtraKeys as ExtraOutputKeys} from "./define";
 export {KERNEL_ACTIVATION_PREFIXES} from "./registration";
 export {portabilityProblems, schemaProblem} from "./schema";
 export {previewBlocked} from "./blocked";

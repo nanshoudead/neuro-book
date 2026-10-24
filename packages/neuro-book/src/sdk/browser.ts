@@ -3,6 +3,10 @@
  * 规则同 `index.ts`。
  */
 
+// 作者 API 里只在浏览器入口用的贡献助手：第一个参数是 `definePlugin` 的返回值。
+export {choices, settingsPage, statusItem, view} from "./browser-plugin";
+export type {ChoicesHelper, PropsOf, SettingsPageHelper, StatusItemHelper, ViewHelper} from "./browser-plugin";
+
 export {settingsPageContribution} from "nbook/plugins/settings/web/page-contribution";
 export type {SettingsPageContribution} from "nbook/plugins/settings/web/page-contribution";
 export type {SettingsChoicesImplementation, SettingsPageContext} from "nbook/plugins/settings/web/contracts";

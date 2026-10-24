@@ -30,6 +30,7 @@ describe("SDK 的导出面", () => {
             "WORKBENCH_STATUSBAR_ITEMS_POINT",
             "WORKBENCH_VIEWS_POINT",
             "defineEntry",
+            "definePlugin",
             "definePublicState",
             "defineRecord",
             "defineRemoteService",
@@ -60,7 +61,11 @@ describe("SDK 的导出面", () => {
             "SettingsPageList",
             "SettingsRow",
             "SettingsSaveBar",
+            "choices",
+            "settingsPage",
             "settingsPageContribution",
+            "statusItem",
+            "view",
             "viewContribution",
         ]);
     });

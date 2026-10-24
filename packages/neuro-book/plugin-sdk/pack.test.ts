@@ -215,6 +215,34 @@ describe("生成的 SDK 包", () => {
         }
     }, 60_000);
 
+    it("作者 API 的入口写错时，类型检查的诊断写明是哪一项：漏写、多写、浏览器助手写进服务端入口、视图属性名写错", async () => {
+        await writeFile(join(project, "src/wrong-entry.ts"), `import {definePlugin} from "@notnotype/nb-plugin-sdk";
+import {view} from "@notnotype/nb-plugin-sdk/browser";
+import HelloView from "./HelloView.vue";
+const plugin = definePlugin({id: "acme.hello", version: "1.0.0", locations: ["server", "browser"]});
+const say = plugin.command({name: "say", title: "x", description: "x", effect: "write"});
+const ping = plugin.command({name: "ping", title: "x", description: "x", effect: "read"});
+const panel = view(plugin, {name: "panel", title: "x", icon: "i-lucide-x", load: async () => HelloView});
+const lazyPanel = view(plugin, {name: "lazy", title: "x", icon: "i-lucide-x", load: () => import("./HelloView.vue")});
+export const missing = plugin.entry({location: "server", contributions: {say, ping}, activate: () => ({contributions: {say: say.implement(() => ({ok: true, value: null}))}})});
+export const extra = plugin.entry({location: "server", contributions: {say}, activate: () => ({contributions: {say: say.implement(() => ({ok: true, value: null})), surplus: ping.implement(() => ({ok: true, value: null}))}})});
+export const misplaced = plugin.entry({location: "server", contributions: {panel}, activate: () => ({contributions: {panel: panel.implement()}})});
+export const props = lazyPanel.implement(() => ({greting: "hi"}));
+`);
+        try {
+            const result = Bun.spawnSync({cmd: ["node", join(project, "node_modules/vue-tsc/bin/vue-tsc.js"), "-p", project, "--pretty", "false"], cwd: project, stdout: "pipe"});
+            // 一条诊断是“文件(行,列): error …”一行，加上它下面缩进的说明链。
+            const diagnostics = result.stdout.toString().split(/\n(?=\S)/u);
+            const at = (row: number): string => diagnostics.filter((text) => text.startsWith(`src/wrong-entry.ts(${String(row)},`)).join("\n");
+            expect(at(9)).toContain("'ping'");
+            expect(at(10)).toContain("多写的贡献实现：surplus");
+            expect(at(11)).toContain("只能写进浏览器入口：panel");
+            expect(at(12)).toContain("greting");
+        } finally {
+            await rm(join(project, "src/wrong-entry.ts"));
+        }
+    }, 60_000);
+
     it("构建期实现能在作者项目里执行，运行时导出与源码的导出面相同", async () => {
         const probe = join(project, "probe.mjs");
         await writeFile(probe, `const index = await import("@notnotype/nb-plugin-sdk");\nconsole.log(JSON.stringify(Object.keys(index).sort()));\n`);
@@ -225,7 +253,7 @@ describe("生成的 SDK 包", () => {
 
     it("类型导出的名字", async () => {
         expect(declaredExports(await readFile(join(installed, "index.d.ts"), "utf8"))).toEqual([
-            "ActivationContext", "COMMANDS_POINT", "CommandDeclaration", "CommandImplementation", "ContributionDeclaration", "ContributionDescriptor",
+            "ActivationContext", "AuthorActivationContext", "AuthorEntry", "AuthorEntryOutput", "BoundImplementation", "COMMANDS_POINT", "CommandHelper", "ContributionHelper", "PluginBuilder", "SectionHelper", "Text", "definePlugin", "CommandDeclaration", "CommandImplementation", "ContributionDeclaration", "ContributionDescriptor",
             "ContributionHandle", "ContributionPointDefinition", "ContributionReceiver", "DiagnosticsService", "DisplayLocale", "LocalizedText",
             "PluginDefinition", "PluginDescriptor", "PluginEntryDefinition", "RecordDefinition", "RecordHandle", "RemoteContract", "RemoteOutcome",
             "RemoteResult", "RemoteSink", "RemoteSubscribeOptions", "RemoteSubscription", "RuntimeClock", "SETTINGS_CHOICES_POINT", "SETTINGS_PAGES_POINT", "SETTINGS_SECTIONS_POINT", "ServiceKey", "SettingDefinition", "SettingLayer", "SettingWriteResult",
@@ -235,6 +263,7 @@ describe("生成的 SDK 包", () => {
             "storageKey", "ItemDeclaration", "ViewDeclaration", "ViewLocation", "WORKBENCH_STATUSBAR_ITEMS_POINT", "WORKBENCH_VIEWS_POINT",
         ].sort());
         expect(declaredExports(await readFile(join(installed, "browser.d.ts"), "utf8"))).toEqual([
+            "ChoicesHelper", "PropsOf", "SettingsPageHelper", "StatusItemHelper", "ViewHelper", "choices", "settingsPage", "statusItem", "view",
             "OptionSource", "SettingsChoicesImplementation", "SettingsPageActions", "SettingsPageContext", "SettingsPageContribution", "SettingsPageList", "SettingsRow", "SettingsSaveBar",
             "settingsPageContribution", "ItemImplementation", "ViewContext", "ViewContribution", "ViewImplementation", "viewContribution",
         ].sort());

@@ -7,6 +7,10 @@
  * 放在 `browser.ts`。
  */
 
+// 作者 API：绑定插件 id 的助手（不碰 Vue 的部分；视图、设置页、状态栏条目、选项来源在 `/browser`）。
+export {definePlugin} from "./plugin";
+export type {AuthorActivationContext, AuthorEntry, AuthorEntryOutput, BoundImplementation, CommandHelper, ContributionHelper, PluginBuilder, SectionHelper, Text} from "./plugin";
+
 // 内核：入口、服务、远程服务与贡献。
 export {defineEntry, provideService, provideServicePerConsumer} from "@notnotype/nb-runtime/plugins";
 export type {

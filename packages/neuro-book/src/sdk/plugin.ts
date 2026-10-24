@@ -1,0 +1,297 @@
+/**
+ * 作者 API：`definePlugin` 与不碰 Vue 的贡献助手（docs/specs/runtime/plugin-api.md 的“作者 API”）。SDK 根入口服务端也加载，
+ * 这里不能引用 Vue；视图、设置页、状态栏条目、选项来源这些只在浏览器有意义的助手在 `browser-plugin.ts`（`/browser`）。
+ *
+ * 助手建在内核与内置插件已有的合同之上，产出的仍是内核的插件描述、插件定义与入口定义；内置插件不用它们。作者只写贡献的
+ * 短名，id 由这里拼成 `<插件 id>.<短名>`，类型上是字面量：入口的激活产出按声明逐项核对，漏写、多写、换错助手都编译不过。
+ */
+
+import type {RuntimeLocation} from "@notnotype/nb-runtime/lifecycle";
+import type {
+    ActivationContext,
+    ContributionDeclaration,
+    ContributionPointDefinition,
+    EntryOutputFor,
+    ExtraOutputKeys,
+    PluginDefinition,
+    PluginDescriptor,
+    PluginEntryDefinition,
+} from "@notnotype/nb-runtime/plugins";
+import type {RemoteContract} from "@notnotype/nb-runtime/remote";
+import type {ServiceKey} from "@notnotype/nb-runtime/services";
+import {Type} from "typebox";
+import type {Static, TObject, TSchema} from "typebox";
+
+import {COMMANDS_POINT} from "nbook/plugins/commands/shared/contracts";
+import type {CommandDeclaration, CommandImplementation, CommandResult} from "nbook/plugins/commands/shared/contracts";
+import {SETTINGS_SECTIONS_POINT} from "nbook/plugins/settings/shared/sections";
+import type {SettingsSectionCategory, SettingsSectionDeclaration} from "nbook/plugins/settings/shared/sections";
+import type {LocalizedText} from "nbook/shared/localized-text";
+import {defineSetting} from "nbook/shared/settings";
+import type {SettingDefinition, SettingOptions} from "nbook/shared/settings";
+
+/** 界面文字：一个字符串时两种界面语言显示同一句。 */
+export type Text = string | LocalizedText;
+
+export function localizedText(text: Text): LocalizedText {
+    return typeof text === "string" ? {"zh-CN": text, "en-US": text} : text;
+}
+
+declare const boundPoint: unique symbol;
+
+/** 一项贡献的实现，带它的贡献点与 id：入口的激活产出写它，SDK 换成内核的 `{[贡献点]: {[id]: 实现}}`。 */
+export interface BoundImplementation<Point extends string = string, Id extends string = string> {
+    readonly capability: Point;
+    readonly id: Id;
+    readonly implementation: unknown;
+    /** 只在类型上：不同贡献点、不同 id 的实现互不兼容，换错助手编译不过。 */
+    readonly [boundPoint]?: readonly [Point, Id];
+}
+
+/** 要在入口里交实现的贡献助手。`where` 是能用它的运行位置：`browser` 的只能写进浏览器入口。 */
+export interface ContributionHelper<Point extends string = string, Id extends string = string, Declaration = unknown> {
+    readonly id: Id;
+    readonly contribution: ContributionDeclaration<Declaration> & {readonly capability: Point; readonly id: Id};
+    readonly where: "anywhere" | "browser";
+    /** 交出这项贡献时入口要声明的激活事件（例如设置页的 `onSettingsPage:`）；`plugin.entry` 自动并入。 */
+    readonly activationEvents: ReadonlyArray<string>;
+    implement(...args: never[]): BoundImplementation<Point, Id>;
+}
+
+export function bound<Point extends string, Id extends string>(capability: Point, id: Id, implementation: unknown): BoundImplementation<Point, Id> {
+    return {capability, id, implementation};
+}
+
+/** 贡献 id 的一段：小写字母开头，只含小写字母、数字与连字符（视图、状态栏条目、设置分区的规则）。 */
+const SEGMENT = /^[a-z][a-z0-9-]*$/u;
+/** 命令 id 的一段可以数字开头（`workbench.commands` 的规则）。 */
+const COMMAND_SEGMENT = /^[a-z0-9][a-z0-9-]*$/u;
+const ID_MAX_LENGTH = 128;
+
+/** 拼出贡献 id；短名不合这个贡献点的规则时加载即抛错，不留到登记时静默被拒。 */
+export function contributionId<Id extends string, Name extends string>(plugin: Id, name: Name, noun: string, segment: RegExp = SEGMENT): `${Id}.${Name}` {
+    const id = `${plugin}.${name}` as const;
+    if (!name.split(".").every((part) => segment.test(part))) throw new TypeError(`${noun}的短名 ${name} 不合规则：以点分的段，每段${segment === COMMAND_SEGMENT ? "以小写字母或数字开头" : "以小写字母开头"}，只含小写字母、数字与连字符`);
+    if (id.length > ID_MAX_LENGTH) throw new TypeError(`${noun} id ${id} 超过 ${String(ID_MAX_LENGTH)} 个字符`);
+    return id;
+}
+
+/**
+ * 对象 schema 收紧成不许多余字段的一份（命令参数的规则）：没写 `additionalProperties` 的补成 `false`，返回新对象、不改传进来的；
+ * 写了别的值时抛错。
+ */
+function strictObject(schema: TSchema, noun: string): TSchema {
+    const record = schema as unknown as {readonly type?: unknown; readonly additionalProperties?: unknown};
+    if (record.type !== "object") throw new TypeError(`${noun}必须是对象 schema`);
+    if (record.additionalProperties === false) return schema;
+    if (record.additionalProperties !== undefined) throw new TypeError(`${noun}不许多余字段：additionalProperties 不写或写 false`);
+    return Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(schema), additionalProperties: {value: false, enumerable: true, writable: false, configurable: true}}) as TSchema;
+}
+
+/** list 分区助手：设置项的 `section` 收它，`group` 只能是它的组 id。 */
+export interface SectionHelper<Id extends string = string, Group extends string = string> {
+    readonly id: Id;
+    readonly contribution: ContributionDeclaration<SettingsSectionDeclaration> & {readonly capability: typeof SETTINGS_SECTIONS_POINT; readonly id: Id};
+    /** 只在类型上：分区的组 id。 */
+    readonly groups?: Group;
+}
+
+export interface CommandHelper<Id extends string = string, Args = unknown> extends ContributionHelper<typeof COMMANDS_POINT, Id, CommandDeclaration> {
+    readonly where: "anywhere";
+    /** 执行命令；`args` 已按声明的 schema 校验过。 */
+    implement(run: (args: Args) => CommandResult<unknown> | Promise<CommandResult<unknown>>): BoundImplementation<typeof COMMANDS_POINT, Id>;
+}
+
+type Helpers = Readonly<Record<string, ContributionHelper>>;
+
+/** 激活上下文对作者收窄：没有 `scope`，入口停止时做的事用 `onStop`。运行时传进来的仍是内核的上下文。 */
+export type AuthorActivationContext = Omit<ActivationContext, "scope">;
+
+/** 激活产出：服务、远程服务、接收者照内核写；助手的贡献按声明的键逐项交实现；不经助手的贡献在 `rawContributions`。 */
+export type AuthorEntryOutput<
+    Provides extends ReadonlyArray<ServiceKey<unknown>>,
+    Remote extends ReadonlyArray<RemoteContract>,
+    Receives extends ReadonlyArray<string>,
+    Raw extends ReadonlyArray<ContributionDeclaration>,
+    Contributions extends Helpers,
+> = Omit<EntryOutputFor<Provides, Remote, Receives, readonly []>, "contributions">
+    & (Raw extends readonly [] ? {readonly rawContributions?: undefined} : {readonly rawContributions: EntryOutputFor<readonly [], readonly [], readonly [], Raw>["contributions"]})
+    & (keyof Contributions extends never ? {readonly contributions?: undefined} : {readonly contributions: {readonly [Key in keyof Contributions]: ReturnType<Contributions[Key]["implement"]>}});
+
+/** 实际产出里多写的接收者、原始贡献与助手的实现：每个问题成一个以它命名的属性，报错写成“缺少属性 多写的…”。 */
+type ExtraAuthorKeys<Output, Receives extends ReadonlyArray<string>, Raw extends ReadonlyArray<ContributionDeclaration>, Contributions extends Helpers> =
+    | ExtraOutputKeys<(Output extends {readonly receivers: infer Actual} ? {readonly receivers: Actual} : unknown) & (Output extends {readonly rawContributions: infer Actual} ? {readonly contributions: Actual} : unknown), Receives, Raw>
+    | (Output extends {readonly contributions: infer Actual} ? `多写的贡献实现：${Exclude<Exclude<keyof Actual, symbol>, keyof Contributions> & string}` : never);
+
+type NoExtraAuthorKeys<Output, Receives extends ReadonlyArray<string>, Raw extends ReadonlyArray<ContributionDeclaration>, Contributions extends Helpers> =
+    [ExtraAuthorKeys<Output, Receives, Raw, Contributions>] extends [never] ? unknown : {readonly [Problem in ExtraAuthorKeys<Output, Receives, Raw, Contributions>]: never};
+
+/** 只能在浏览器入口里用的助手写进别的位置的入口：那一项的类型变成以问题命名的字符串，编译不过。 */
+type PlacedHelpers<Contributions extends Helpers, Location extends string> = {
+    readonly [Key in keyof Contributions]: Contributions[Key]["where"] extends "browser" ? (Location extends "browser" ? Contributions[Key] : `只能写进浏览器入口：${Key & string}`) : Contributions[Key];
+};
+
+export interface AuthorEntry<
+    Location extends RuntimeLocation,
+    Contributions extends Helpers,
+    Provides extends ReadonlyArray<ServiceKey<unknown>>,
+    Remote extends ReadonlyArray<RemoteContract>,
+    Receives extends ReadonlyArray<string>,
+    Raw extends ReadonlyArray<ContributionDeclaration>,
+    Output,
+> {
+    /** 缺省取运行位置名；入口 id 在一个插件里不能重复（不按位置分）。 */
+    readonly id?: string;
+    readonly location: Location;
+    readonly activationEvents?: PluginEntryDefinition["activationEvents"];
+    readonly dependencies?: PluginEntryDefinition["dependencies"];
+    readonly provides?: Provides;
+    readonly remoteProvides?: Remote;
+    readonly remoteDelegates?: PluginEntryDefinition["remoteDelegates"];
+    readonly receives?: Receives;
+    /** 助手给出的贡献，键随作者取，激活产出的 `contributions` 用同样的键交实现。 */
+    readonly contributions?: Contributions & PlacedHelpers<NoInfer<Contributions>, NoInfer<Location>>;
+    /** 不经助手的贡献：内核的贡献声明，实现写在产出的 `rawContributions` 里。 */
+    readonly rawContributions?: Raw;
+    activate(context: AuthorActivationContext): Output | Promise<Output>;
+}
+
+export interface PluginBuilder<Id extends string> {
+    readonly id: Id;
+    readonly version: string;
+    readonly locations: ReadonlyArray<RuntimeLocation>;
+    /** list 分区：设置窗口左栏的一项，窗口按设置项的 schema 画控件；`category` 缺省 `plugins`。 */
+    section<const Name extends string, const Group extends string = never>(options: {
+        readonly name: Name;
+        readonly title: Text;
+        readonly description?: Text;
+        readonly icon: string;
+        readonly category?: SettingsSectionCategory;
+        readonly order?: number;
+        readonly groups?: ReadonlyArray<{readonly id: Group; readonly title: Text}>;
+    }): SectionHelper<`${Id}.${Name}`, Group>;
+    /** 设置项；键是 `<插件 id>/<name>`。`section` 收分区助手（`group` 只能是它的组），引用别的插件的分区时写分区 id。 */
+    setting<Schema extends TSchema, const Section extends SectionHelper | string = never>(options: Omit<SettingOptions<Schema>, "plugin" | "title" | "description" | "section" | "group"> & {
+        readonly title: Text;
+        readonly description?: Text;
+        readonly section?: Section;
+        readonly group?: Section extends SectionHelper<string, infer Group> ? Group : string;
+    }): SettingDefinition<Static<Schema>>;
+    /**
+     * 命令；`args` 缺省为空对象，没写 `additionalProperties` 的补成 `false`。参数有必填项的命令在命令面板里执行不了：
+     * 这种命令要写 `expose: {human: false}`，否则加载即抛错。
+     */
+    command<const Name extends string, Args extends TObject = TObject<{}>>(options: Omit<CommandDeclaration, "title" | "category" | "args"> & {
+        readonly name: Name;
+        readonly title: Text;
+        readonly category?: Text;
+        readonly args?: Args;
+    }): CommandHelper<`${Id}.${Name}`, Static<Args>>;
+    /** 插件描述：`contributions` 收设置项、分区这类不要实现的声明（也收内核的贡献声明）。 */
+    descriptor(contributions?: ReadonlyArray<{readonly contribution: ContributionDeclaration} | ContributionDeclaration>): PluginDescriptor;
+    /**
+     * 一个入口。激活产出的 `contributions` 按声明的键逐项交 `助手.implement(…)`：漏写、换错助手、多写编译不过；助手带的
+     * 激活事件并进 `activationEvents`。服务、远程服务、接收者与 `rawContributions` 的核对同内核的 `defineEntry`。
+     */
+    entry<
+        const Location extends RuntimeLocation,
+        const Contributions extends Helpers = Readonly<Record<never, ContributionHelper>>,
+        const Provides extends ReadonlyArray<ServiceKey<unknown>> = readonly [],
+        const Remote extends ReadonlyArray<RemoteContract> = readonly [],
+        const Receives extends ReadonlyArray<string> = readonly [],
+        const Raw extends ReadonlyArray<ContributionDeclaration> = readonly [],
+        const Output extends AuthorEntryOutput<Provides, Remote, Receives, Raw, Contributions> = AuthorEntryOutput<Provides, Remote, Receives, Raw, Contributions>,
+    >(entry: AuthorEntry<Location, Contributions, Provides, Remote, Receives, Raw, Output> & NoExtraAuthorKeys<Output, NoInfer<Receives>, NoInfer<Raw>, NoInfer<Contributions>>): PluginEntryDefinition;
+    /** 插件定义（入口模块导出它）；插件自己定义的贡献点写在 `contributionPoints`。入口 id 重复时抛错。 */
+    definition(entries: ReadonlyArray<PluginEntryDefinition> | {
+        readonly entries: ReadonlyArray<PluginEntryDefinition>;
+        readonly contributionPoints?: ReadonlyArray<ContributionPointDefinition>;
+        readonly activationEventPrefixes?: ReadonlyArray<string>;
+    }): PluginDefinition;
+}
+
+/** 绑定插件 id 的作者 API；在插件描述的模块（`plugin.ts`）里调用一次，别的模块都从那里取它。 */
+export function definePlugin<const Id extends string>(options: {readonly id: Id; readonly version: string; readonly locations: ReadonlyArray<RuntimeLocation>}): PluginBuilder<Id> {
+    const plugin = options.id;
+    return {
+        id: plugin,
+        version: options.version,
+        locations: options.locations,
+        section(section) {
+            const id = contributionId(plugin, section.name, "设置分区");
+            const declaration: SettingsSectionDeclaration = {
+                title: localizedText(section.title),
+                ...(section.description === undefined ? {} : {description: localizedText(section.description)}),
+                icon: section.icon,
+                category: section.category ?? "plugins",
+                ...(section.order === undefined ? {} : {order: section.order}),
+                ...(section.groups === undefined ? {} : {groups: section.groups.map((group) => ({id: group.id, title: localizedText(group.title)}))}),
+            };
+            return {id, contribution: {capability: SETTINGS_SECTIONS_POINT, id, declaration}};
+        },
+        setting(setting) {
+            const {title, description, section, group, ...rest} = setting;
+            return defineSetting({
+                ...rest,
+                plugin,
+                title: localizedText(title),
+                ...(description === undefined ? {} : {description: localizedText(description)}),
+                ...(section === undefined ? {} : {section: typeof section === "string" ? section : (section as SectionHelper).id}),
+                ...(group === undefined ? {} : {group}),
+            } as SettingOptions<TSchema>) as never;
+        },
+        command(command) {
+            const id = contributionId(plugin, command.name, "命令", COMMAND_SEGMENT);
+            const {name: _name, title, category, args, ...rest} = command;
+            const schema = strictObject(args ?? Type.Object({}), `命令 ${id} 的 args `);
+            const required = (schema as {readonly required?: ReadonlyArray<string>}).required ?? [];
+            if (required.length > 0 && rest.expose?.human !== false) {
+                throw new TypeError(`命令 ${id} 的参数有必填项（${required.join("、")}），命令面板不收集参数：参数改成可选，或者写 expose: {human: false} 只给 Agent 与代码用`);
+            }
+            const declaration: CommandDeclaration = {...rest, title: localizedText(title), ...(category === undefined ? {} : {category: localizedText(category)}), args: schema};
+            return {
+                id,
+                contribution: {capability: COMMANDS_POINT, id, declaration},
+                where: "anywhere",
+                activationEvents: [],
+                implement: (run) => bound(COMMANDS_POINT, id, {run: (input: unknown) => run(input as never)} satisfies CommandImplementation),
+            };
+        },
+        descriptor(contributions = []) {
+            return {
+                id: plugin,
+                version: options.version,
+                locations: options.locations,
+                contributions: contributions.map((item) => ("contribution" in item ? item.contribution : item)),
+            };
+        },
+        entry(entry) {
+            const {id, contributions, rawContributions, activate, activationEvents, ...rest} = entry as AuthorEntry<RuntimeLocation, Helpers, [], [], [], ReadonlyArray<ContributionDeclaration>, {readonly contributions?: Readonly<Record<string, BoundImplementation>>; readonly rawContributions?: Readonly<Record<string, Readonly<Record<string, unknown>>>>}>;
+            const helpers = Object.values(contributions ?? {}) as ReadonlyArray<ContributionHelper>;
+            const events = [...new Set([...(activationEvents ?? []), ...helpers.flatMap((helper) => helper.activationEvents)])];
+            const definition: PluginEntryDefinition = {
+                ...rest,
+                id: id ?? entry.location,
+                ...(events.length === 0 && activationEvents === undefined ? {} : {activationEvents: events}),
+                contributions: [...helpers.map((helper) => helper.contribution), ...(rawContributions ?? [])],
+                activate: async (context) => {
+                    const {contributions: implemented, rawContributions: raw, ...output} = await activate(context);
+                    const merged: Record<string, Record<string, unknown>> = {};
+                    for (const [point, items] of Object.entries(raw ?? {})) merged[point] = {...items};
+                    for (const item of Object.values(implemented ?? {})) (merged[item.capability] ??= {})[item.id] = item.implementation;
+                    return {...output, ...(Object.keys(merged).length === 0 ? {} : {contributions: merged})};
+                },
+            };
+            return definition;
+        },
+        definition(input) {
+            const {entries, ...rest} = Array.isArray(input) ? {entries: input as ReadonlyArray<PluginEntryDefinition>} : input as {readonly entries: ReadonlyArray<PluginEntryDefinition>};
+            const seen = new Set<string>();
+            for (const entry of entries) {
+                if (seen.has(entry.id)) throw new TypeError(`插件 ${plugin} 有两个入口 id 都是 ${entry.id}：入口 id 在一个插件里不能重复（不按运行位置分），给其中一个写 id`);
+                seen.add(entry.id);
+            }
+            return {id: plugin, ...rest, entries};
+        },
+    };
+}
