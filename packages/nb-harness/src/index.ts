@@ -4,6 +4,8 @@ export type {CompleteOptions} from "./complete.js";
 export {complete} from "./complete.js";
 export type {HarnessErrorCode} from "./errors.js";
 export {HarnessError} from "./errors.js";
+export type {CatalogModel, CatalogProvider, CatalogSuggestion, ProviderAccess, ThinkingEffort} from "./catalog.js";
+export {clampEffort, listCatalog, providerKeyReady, suggestFromCatalog, supportedEfforts, THINKING_EFFORTS} from "./catalog.js";
 export type {DefineModelOptions, ModelPrice, ResolvedModel} from "./model.js";
 export {defineModel, listProviders, MissingModelKeyError, resolveModel} from "./model.js";
 export type {CompleteResult, ErrorKind, RunError, StopReason, TurnResult, Usage} from "./run-result.js";

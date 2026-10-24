@@ -7,16 +7,22 @@
  * 家目录的 `.env` 补进环境变量，“只读宿主给的变量”在 OMP 进程里不成立。
  */
 
-import {getEnvApiKey, getEnvApiKeyName} from "@oh-my-pi/pi-ai";
+import {getEnvApiKey} from "@oh-my-pi/pi-ai";
 import {NO_AUTH_SENTINEL} from "@oh-my-pi/pi-ai/providers/openai-shared";
 import {getBundledModel, getBundledModels, getBundledProviders, type Model} from "@oh-my-pi/pi-catalog";
 import {buildModel} from "@oh-my-pi/pi-catalog/build";
 
-/** 指定的密钥变量缺失或为空。 */
+import {catalogPrice, providerAccess, providerKeyEnvs} from "./catalog.js";
+
+/** 指定的密钥变量缺失或为空。`variables` 是可以设的变量（目录服务商可能有几个，按 OMP 查找的顺序）。 */
 export class MissingModelKeyError extends Error {
-    constructor(readonly variable: string | null) {
-        super(variable === null ? "模型没有指定密钥来源" : `模型的密钥变量 ${variable} 没有设置`);
+    readonly variables: readonly string[];
+
+    constructor(variables: string | readonly string[]) {
+        const list = typeof variables === "string" ? [variables] : variables;
+        super(list.length === 0 ? "模型没有指定密钥来源" : `模型的密钥变量 ${list.join(" 或 ")} 没有设置`);
         this.name = "MissingModelKeyError";
+        this.variables = list;
     }
 }
 
@@ -93,22 +99,24 @@ export function listProviders(): readonly string[] {
     return getBundledProviders();
 }
 
-type CatalogProvider = Parameters<typeof getBundledModel>[0];
+type BundledProvider = Parameters<typeof getBundledModel>[0];
 
 /**
- * 内置目录里的模型（`provider/modelId`，或全局唯一的裸 modelId）。密钥按该 provider 的环境变量取，缺失同样失败；
- * 单价取目录里的（目录有单价）。
+ * 内置目录里的模型（`provider/modelId`，或全局唯一的裸 modelId）。密钥用 OMP 的 `getEnvApiKey` 取：它在目录登记的变量
+ * 之外还走 OMP 的 hook（例如 anthropic 也认 `ANTHROPIC_OAUTH_TOKEN`），自己按变量列表取会漏掉这些来源。缺失时失败，
+ * 只有不要认证的服务商（`keyless`）不带密钥发请求。单价按目录，全为 0 当未知（见 `catalogPrice`）。
  */
 export function resolveModel(reference: string): ResolvedModel {
     const model = lookupModel(reference);
-    const variable = getEnvApiKeyName(model.provider) ?? null;
+    const keyless = providerAccess(model.provider) === "keyless";
     return {
         model,
-        priceKnown: true,
+        priceKnown: catalogPrice(model) !== null,
         apiKey: () => {
             const value = getEnvApiKey(model.provider);
-            if (typeof value !== "string" || value.trim() === "") throw new MissingModelKeyError(variable);
-            return value;
+            if (typeof value === "string" && value.trim() !== "") return value;
+            if (keyless) return NO_AUTH_SENTINEL;
+            throw new MissingModelKeyError(providerKeyEnvs(model.provider));
         },
     };
 }
@@ -123,7 +131,7 @@ function lookupModel(reference: string): Model {
         if (!listProviders().includes(provider)) throw new Error(`未知 provider：${provider}（模型引用：${reference}）`);
         let model: Model | undefined;
         try {
-            model = getBundledModel(provider as CatalogProvider, modelId) as Model | undefined;
+            model = getBundledModel(provider as BundledProvider, modelId) as Model | undefined;
         } catch (error) {
             throw new Error(`未知模型：${reference}`, {cause: error});
         }
@@ -132,7 +140,7 @@ function lookupModel(reference: string): Model {
     }
     const matches: Model[] = [];
     for (const provider of getBundledProviders()) {
-        for (const model of getBundledModels(provider as CatalogProvider)) {
+        for (const model of getBundledModels(provider as BundledProvider)) {
             if (model.id === trimmed) matches.push(model);
         }
     }
