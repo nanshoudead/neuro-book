@@ -1,0 +1,97 @@
+t14 前端部分实现审查（Sonnet）。worktree 固定在 34471b3b9，对照 base 746866803。
+已跑：vitest 四个相关文件 34 项全过；bun test src/sdk src/plugin-platform/shared 11 项全过；bun run typecheck（tsc + 两份 vue-tsc）通过。
+未跑：e2e、Lab（需要开发服务；版式相关的条目标“从代码推断”）。实验文件在 /tmp/review-t14-impl-sonnet/。
+
+======== 重要 ========
+
+[重要-1] 正确性（失败呈现）
+位置：src/plugins/workbench/web/commands/failure-notice.ts:26；对照 src/plugins/commands/shared/registry.ts:312、355
+现象：failureNotice 对 invalid-args 一律把正文换成“这个命令需要参数，命令面板与快捷键不收集参数。”，丢掉 failure.reason。
+为什么是问题：invalid-args 有两个来源。(a) 注册表的参数校验（registry.ts:312，reason 是“参数校验失败：<失败位置>”，Spec 要求“指出失败位置”）；(b) 命令处理函数自己返回的码（registry.ts:355 把处理函数给的 code 原样放行，Spec commands.md 第 149 行配置写入 invalid-value 映射成 invalid-args，第 169 行 move-view 的“视图不存在”也是 invalid-args）。来源 (b) 的 reason 是作者写的、能直接指出问题（例如“先选中一个文件”），换成“需要参数”是误导：命令明明没有参数。来源 (a) 在面板已经不列有必填参数的命令之后，只剩 union、allOf 等 required 看不出的 schema（见建议-1）与快捷键触发，换掉后也失去失败位置。t14 的目标正是让作者“看到为什么”，这里把作者给出的原因抹掉了。
+如何核实：读 registry.ts:355-358；写一个 args 为 Type.Object({})、run 返回 {ok:false, code:"invalid-args", reason:"请先选中一个文件"} 的命令，绑快捷键按下，通知正文是“需要参数”。
+建议改法：只有 reason 以注册表的校验前缀出现、或由注册表给出结构化来源时才换文案；最简单是不换：正文用 failure.reason，仅在 reason 为空时回落到说明。这条 Spec 写死了（commands.md 第 103 行“invalid-args 换成需要参数的说明”），属于上游选择：改它要同步改 Spec 和 WorkbenchCommandHost.md；若保留，则至少把校验位置接在说明后面。
+
+[重要-2] 与 Spec 不一致 / 不变量（诊断）
+位置：src/plugins/workbench/web/commands/WorkbenchCommandHost.vue:35-39（onFailure）、WorkbenchCommandPalette.vue:128-135（run）；对照 docs/specs/workbench/commands.md 第 103 行、WorkbenchCommandPalette.md“不支持”一节
+现象：面板路径的失败只弹通知，不记诊断；快捷键路径是先 report 再弹通知。Spec 写“产品页记入诊断，并对命令面板与快捷键执行的失败弹一条……通知”，WorkbenchCommandPalette.md 写“产品页弹警告通知并记入诊断”。实际 onFailure 只调 notify，面板的 run 只调 host.failed，没有任何一处把面板失败交给 report 或 diagnostics（grep onDidExecute 在产品代码里只有 Lab 命令场景使用）。
+为什么是问题：通知 4.2 秒自动消失（notifications.md 输出 3），消失后面板路径的失败没有任何痕迹；作者事后查诊断找不到。两条路径行为不一致，文档说的与代码不符。base 上面板失败也无诊断，所以不是回归，但这次 t14 把文档改成“记入诊断”，并且 Host 测试只在快捷键路径断言了 reported（WorkbenchCommandHost.dom.test.ts 末尾 expect(reported).toHaveLength(2)），面板路径无断言。
+如何核实：在 Host 里挂真实面板，选一条 run 返回失败的命令按 Enter，props.report 不会被调用。
+建议改法：把 report 放进 onFailure（Host.vue 一处），keymap 里的 report 去掉，两条路径共用；补一条面板路径的 Host 测试。
+
+======== 建议 ========
+
+[建议-1] 正确性（needsArgs 判据不完整）
+位置：src/plugins/workbench/web/components/WorkbenchCommandPalette.vue:56-57
+现象：needsArgs 只读顶层 args.required。我用仓库的 typebox 实测 Value.Check(schema, {})：Type.Union([Object{a}, Object{b}]) 的 required 为 undefined 但 Check({}) 为 false；Type.Intersect 同；Type.Object({a: Optional}, {minProperties: 1}) 同；Type.Union([Object{}, Object{a}]) 的 Check({}) 为 true，判断正确。前三类命令仍被列进面板，执行后 invalid-args。另外还靠 `as {required?: ...}` 绕过 CommandMetadata.args 的类型。
+为什么是问题：判据与“面板执行 {} 必然失败”不是同一个条件；Spec quick-open.md 第 44 行写的是“参数没有必填项”，可以接受，但“必然失败”的注释和测试名与实现不符，且会撞上重要-1 的“需要参数”文案。
+如何核实：/tmp/review-t14-impl-sonnet/needs.ts（bun needs.ts）。
+建议改法：用 registry 校验用的同一个函数，Value.Check(command.args, {}) 取反；去掉类型断言。
+
+[建议-2] 正确性（stale-target 不弹的理由）
+位置：failure-notice.ts:14-18 的注释；Spec commands.md 第 103 行
+现象：理由是“等待期间用户自己换了目标（条目被替换、视图被移走）”。“条目被替换”对应 registry.ts:335，但那是 Agent 调用的确认通道里才有（source=agent 且 exposure=confirm），用户从面板或快捷键调用永远走不到。用户入口能得到 stale-target 的只有命令处理函数自己返回它（refresh-files 的迟到点击、move-view 过期、作者命令）。
+为什么是问题：作者命令返回 stale-target 时，用户按快捷键什么也看不到，也没有诊断（见重要-2 的面板路径），正是 t14 要消除的“点了没反应”；而“用户自己换了目标”只是其中一种原因。
+建议改法：不在通知层按码一刀切；要抑制噪声，由返回 stale-target 的命令自己决定（例如 reason 为空时不弹），或至少记诊断。属上游 Spec 选择，供开发者裁决。
+
+[建议-3] 范围（其它用户入口仍静默）
+位置：src/plugins/workbench/web/titlebar/titlebar-source.ts:185（runItem）、components/WorkbenchShell.vue:139-141（run）、plugins/editor/web/plugin.ts:192
+现象：只有面板和快捷键走通知。状态栏、活动栏、标题栏条目的点击（`void commands.execute(...)`）、外壳按钮、编辑器空组提示的失败仍无声。statusItem 助手是 t14 新增的作者路径：command 收 CommandHelper，类型上不拦有必填参数的命令，而点击执行不带参数，必然 invalid-args 且无任何提示。
+为什么是问题：作者用 statusItem({command}) 点了没反应，与这次 3.5/3.6 的目标相同。Spec 把范围限定为面板与快捷键，所以不是违规，是覆盖面问题。
+建议改法：把“用户入口执行命令并告诉用户失败”收成一个函数（命令服务外一层，如 executeForUser），各入口共用；至少让 statusItem 的类型拒绝有必填参数的 CommandHelper，或在构造时抛错。
+
+[建议-4] 正确性（语言）
+位置：failure-notice.ts:25-27
+现象：标题随界面语言（“保存没有完成”/“Save did not complete”），正文 failure.reason 是注册表与命令里写死的中文（“未登记的命令”“参数校验失败”“需要活动编辑器”等，见 registry.ts 与 contextTable 的原因）。英文界面是英文标题加中文原因。通知按触发时语言生成、之后切换语言不变，这一点可以接受（通知 4.2 秒消失，切换语言本身要打开设置）。
+为什么是问题：英文界面的用户读不到原因。属已有的 reason 不本地化问题，通知把它暴露出来。
+建议改法：记录为已知限制（followups），不在这次改。
+
+[建议-5] 不变量（回调抛错）
+位置：keymap.ts:100-103；WorkbenchCommandPalette.vue:130-135；Host.vue onFailure
+现象：failed?.(id, result) 在 `void commands.execute(...).then(...)` 里，onFailure 里的 props.commands.get、failureNotice、props.notify 任何一个抛错都会变成未处理的 Promise 拒绝，不经 report。面板的 run 同样（`void run(...)`）。当前 notify 是同步的、不太会抛，风险小。
+建议改法：onFailure 内部 try/catch 经 report 记一条；或不做，写一句理由。
+
+[建议-6] 测试（失败通知）
+位置：failure-notice.ts（无测试文件）、WorkbenchCommandHost.dom.test.ts、WorkbenchCommandPalette.dom.test.ts
+现象：(a) failureNotice 本身没有单测：invalid-args 的文案分支、命令已注销时标题回落成 id、NOTIFIED 之外的码（not-exposed、read-only、confirmation-required）都没有断言，只有 stale-target 和 execution-error 在 Host 测试里间接走到。(b) 面板路径：Palette 测试用一个记录数组代替 onFailure，Host.vue 里 createPaletteHost({..., onFailure}) 漏传也不会有测试失败，面板路径到通知的接线没有被任何测试覆盖。(c) workbench/web/plugin.ts 里 notify 到 notifications.notify 的接线没有测试（src/web/mount.dom.test.ts 与 e2e 都没有失败通知的用例）。
+稳定性：Host 新用例里 J（stale）先按、K 后按，两次执行同深度的异步，J 的结果必先于 K，waitFor 在 notices 恰好等于 [K 的通知] 时通过，若 stale 被误弹则 notices 含两条而超时失败，判据成立；reported 的断言在 K 的通知到达之后读，J、K 的 report 都已发生，不会抢跑。没有发现不稳定。
+建议改法：补 failure-notice.test.ts（表驱动一条）；Host 测试加一条面板路径（真实面板选中失败命令，断言 notices 和 reported）。
+
+[建议-7] 测试（插件页）
+位置：PluginsPage.dom.test.ts:172-206
+现象：新用例确实测到“本窗口问题随变化通知更新”（windowProblems 换成 [blocked]、notify() 后行与徽标计数都变），这点成立。没覆盖的：(a) problemsOf 里最绕的分支，顶层贡献在服务端与浏览器两边各一条、按 `top|capability id` 合成一条；(b) 卸载时 stopWindow 被调用（onBeforeUnmount）；(c) windowPlugins 为 null 时没有 data-plugins-snapshot；(d) 服务端与本窗口同一条问题（同入口同位置）去重。另外一个 it 里装了六种行为（显示名、说明、两类徽标、逐条原因、快照提示、降级、内置不显示显示名、实时更新），失败时定位困难，与“一条行为一个测试”不符。
+建议改法：拆成显示名与说明 / 问题计数与原因 / 实时更新 / 合并去重 / 卸载释放订阅，各自小用例。
+
+[建议-8] 正确性（窗口问题更新的时机依赖诊断次序）
+位置：src/web/host/window-plugins.ts:34-39（problems）与 PluginsPage.vue:157-162
+现象：我用真实 PluginHost（createApplication + createWindowPlugins，/tmp/review-t14-impl-sonnet/exp2/probe.ts）让一个浏览器入口在 activate 里抛错，并在每次 onChange 里同步读 problems()。结果六次通知读到的数量依次是 0、0、0、0、0、1：失败那一条诊断（host.ts:1023 的 #record）发在 attempt.settled 赋值之前（host.ts:975），此时入口状态还是 activating，pluginProblems 只收 status==="failed" 的，所以那次通知读到 0 条；到最后一条“closed”诊断（host.ts:1001，收口完成后）才读到失败。页面能最终更新，但依赖“失败之后还会有一条诊断”。收口抛错（“入口资源收口未完成”）时不会有“closed”，窗口里的失败就不显示，直到别的诊断触发。视图失败呈现用同一个 onChange 读 entryState，同样的次序依赖是已有的（base 就有），这里 t14 新增了一个读者。
+如何核实：bun /tmp/review-t14-impl-sonnet/exp2/probe.ts。
+建议改法：window-plugins 的 notify 延后一拍（queueMicrotask 或在 activation 结果之后），或在注释里写明“读方要容忍先后”。属内核次序，另一位审查者的范围可能更合适，供主 Agent 取舍。
+
+[建议-9] UI（版式，从代码推断，未在 Lab 截图验证）
+位置：PluginsPage.vue:438、:713-722、:688-694
+现象：(a) 逐条问题行没有上限：一个插件有 50 项贡献被拒或激活错误消息很长（原样接 error.message，PluginProblemSchema 没限长），这一行会无限撑高，列表自己不滚动，整页被一个坏插件顶开；说明（description）却特意截成一行，两者不一致。(b) 说明截断后“悬停看全文”靠 title 属性：触屏与键盘用户读不到，窄屏（390px）正是截断最常出现的场景。(c) 徽标“N 个入口没有运行”数的是问题条数而不是入口数；目前每个入口至多一条激活问题，数得对，但文案与数据不是同一回事。
+建议改法：问题行超过几条折叠成“还有 N 条”，或限制每条最多两行；说明截断时给可聚焦的展开方式。需要在 Lab 的 problems 场景加一个“长消息与很多问题”的窄屏场景再看。
+
+[建议-10] 测试与文档（PropsOf）
+位置：src/sdk/browser-plugin.ts:36-38；browser-plugin.dom.test.ts 末尾 typeChecks
+现象：我在 vue-tsc 下实测（/tmp/review-t14-impl-sonnet/exp/exp.ts）：普通 SFC 漏写必填属性、defineModel({required}) 的 modelValue、.ts 里 defineComponent、load 直接返回组件，都会报错，推导成立；template 的 env.d.ts（Component 垫片）下回落成 Record<string, unknown>，不误报、不检查。但带泛型的 SFC（<script setup generic>）默认导出不是构造函数类型，同样回落成 Record，连 `() => ({})` 也不报，静默放过，注释与 Spec 都只提“只有 tsc 时”，没有提泛型组件。另外位置核对（where: "browser"）的反例只写了 view 一个，settingsPage、statusItem、choices 的 where 没有 @ts-expect-error 对照。
+建议改法：PropsOf 注释补一句“泛型组件不检查”；typeChecks 里为另三个助手各补一条写进服务端入口的反例。
+
+[建议-11] 代码质量
+位置：keymap.ts:54、palette-host.ts:67、:79、WorkbenchCommandHost.vue:35
+现象：`{readonly code: CommandFailureCode; readonly reason: string}` 内联写了四遍。commands 合同里已经有 CommandResult 的失败分支，可以取 Extract<CommandResult<unknown>, {ok:false}>，或在 failure-notice.ts 导出一个 CommandFailure 类型，四处共用。
+
+======== 未发现问题的方面 ========
+- PropsOf 在 vue-tsc 下的必填漏写、类型写错能被查出（实测）；只有 tsc 时垫片是 Component，不误报（实测 exp2.ts 无报错）。
+- 插件页对窗口问题的订阅在 onBeforeUnmount 里释放；windowPlugins 为 null 或宿主未建立时 problems() 返回空，降级成立；服务端与本窗口的合并按 kind、entry、location、贡献去重，顶层贡献跨位置合并的 key 正确（只是没有测试，见建议-7）。
+- data-* 钩子与 PluginsPage.md 逐项对得上（data-plugin-display-name、description、problems、problem-line、plugins-snapshot）；:key="line" 的重复键不会出现（入口名在插件内唯一，entry 的贡献行带入口信息或被合并）。
+- onFailure 取命令标题时命令已被注销：get 返回失败时回落成 id，不抛错。
+- 面板与快捷键两条路径对同一次用户动作各自只走一条，不会重复弹；keymap 已有 event.repeat 过滤，长按不会连弹。
+- Lab 不接 notify（Host 不挂）时 host.failed 是空操作，失败只留在命令服务结果与检视区，与 WorkbenchCommandHost.md、WorkbenchCommandPalette.md 的说法一致。
+- 通知按触发时语言生成、之后不跟语言切换：可以接受（见建议-4）。
+- invalid-args 的“需要参数”说明在面板已不列必填参数命令之后，仍可能出现在：快捷键触发的命令（keymap 不看 args）、union 等 required 看不出的 schema（建议-1）；所以说明还有出现的场合，但见重要-1。
+- Host 新用例的两次按键先后与 vi.waitFor 的断言稳定（见建议-6 末段）。
+- e2e 新增用例：串行（workers: 1）、与前一条共用状态根，开头 restart，不依赖前一条的残留；不跑，未验证实际通过。
+
+======== 数量 ========
+阻断 0；重要 2；建议 11（其中 4、5、11 为轻微）。
