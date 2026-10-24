@@ -1,6 +1,6 @@
 {
     "name": "@notnotype/nb-story",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "license": "AGPL-3.0-only",
     "repository": {
         "type": "git",
@@ -67,10 +67,6 @@
         "vue-router": "^5.1.0",
         "vue-tsc": "^3.3.7"
     },
-    "os": [
-        "linux",
-        "darwin"
-    ],
     "files": [
         "src",
         "!src/web",

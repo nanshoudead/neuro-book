@@ -10,7 +10,7 @@
 
 ## 安装
 
-要先装 [Bun](https://bun.sh)（1.3.14 以上）。只支持 Linux 与 macOS。
+要先装 [Bun](https://bun.sh)（1.3.14 以上），Linux、macOS 与 Windows 都能用。
 
 ```bash
 bun add -g @notnotype/nb-story
