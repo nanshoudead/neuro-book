@@ -28,6 +28,8 @@ updated: 2026-10-24
 - S5 `ca7227daf`、`5224c3217`：问题读模型 `pluginProblems`（本位置的入口激活失败与受阻、被拒的贡献，纯 JSON）；清单加可选 `displayName`、`description`；插件管理的 `list` 带显示名、说明与服务端的问题（合同版本 4）；`window.plugins.problems()`；构建核对插件描述的 `locations` 与实际入口；插件页显示显示名、说明与逐条问题，Lab 加“问题”场景，e2e 加一个入口激活失败的插件。验证：类型检查、Bun 1474 例、Vitest 369 例、插件 e2e 8 例，截图核对过。
 - S6 `24b63e7b9`：命令面板不列有必填参数的命令；从面板或快捷键执行失败时弹一条警告通知（命令名与原因，`stale-target` 不弹），Lab 不接时照旧。作者文档的“调试”一节改写（`8f8ddf3a7`）。Spec：plugin-install 输出 10、plugin-manifest、browser-host、views、plugin-code-loading、commands、quick-open（master `696b8952c`）。验证：类型检查、工作台 Bun 234 例、Vitest 140 例（workbench、lab、web）。合入 master。
 
+- 收口：全量 e2e 292 例通过（25 分钟，`34471b3b9`）。实现审查与作者验收已启动，固定在 `34471b3b9`，实现审查待处理。
+
 ## 下一步
 
-收口：全量 e2e；然后启动实现审查（后端 omp、前端 Sonnet）与一次空白上下文的作者验收（Sonnet 照 t12 的做法从零写插件，并逐条对照 t12 的作者体验报告），不阻塞。
+处理实现审查（后端 omp、前端 Sonnet）与一次空白上下文的作者验收（Sonnet 照 t12 的做法从零写插件，并逐条对照 t12 的作者体验报告），不阻塞。
