@@ -12,7 +12,7 @@ import {Type} from "typebox";
 
 import {FailureDetail, installFailureDetails, InstallPreviewSchema, manageFailureDetails, PluginListItemSchema, PluginListSchema} from "nbook/plugin-platform/shared/types";
 
-export type {BlockedPlugin, InstallPreview, NotLoaded, PendingChange, PluginFailureCode, PluginList, PluginListItem} from "nbook/plugin-platform/shared/types";
+export type {BlockedPlugin, InstallPreview, NotLoaded, PendingChange, PluginFailureCode, PluginList, PluginListEntry, PluginListItem, PluginProblem} from "nbook/plugin-platform/shared/types";
 
 const IdInput = Type.Object({id: Type.String({minLength: 1})}, {additionalProperties: false});
 const PathInput = Type.Object({path: Type.String({minLength: 1})}, {additionalProperties: false});
@@ -20,7 +20,7 @@ const One = Type.Object({plugin: PluginListItemSchema}, {additionalProperties: f
 
 export const pluginsRegistryContract = defineRemoteService({
     id: "nbook.plugins/registry",
-    version: 3,
+    version: 4,
     provider: "server",
     callers: ["browser"],
     methods: {

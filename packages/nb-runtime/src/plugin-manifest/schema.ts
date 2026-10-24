@@ -83,6 +83,9 @@ export function manifestSchema(engine: string) {
         name: NonEmptyString,
         publisher: NonEmptyString,
         version: NonEmptyString,
+        /** 给人看的名字与一句说明（npm 的同名字段）；宿主的插件页显示它们。 */
+        displayName: Type.Optional(Type.String()),
+        description: Type.Optional(Type.String()),
         engines: Type.Object({[engine]: NonEmptyString}, {additionalProperties: true}),
         entries: Type.Optional(Type.Record(Type.String(), EntrySchema)),
         contributes: Type.Optional(Type.Array(ContributionSchema)),
@@ -139,6 +142,10 @@ export interface PluginManifest {
     readonly publisher: string;
     readonly name: string;
     readonly version: string;
+    /** 给人看的名字；没写或是空串为 null。 */
+    readonly displayName: string | null;
+    /** 一句说明；没写或是空串为 null。 */
+    readonly description: string | null;
     /** `engines.<平台的引擎键>`：插件要求的宿主版本范围。 */
     readonly engine: string;
     /** 有入口的运行位置，按入口在清单里出现的顺序。 */

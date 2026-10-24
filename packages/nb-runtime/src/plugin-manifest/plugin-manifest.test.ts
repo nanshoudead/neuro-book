@@ -131,6 +131,11 @@ describe("读清单", () => {
         expect(() => definitionOf(manifest, "server")).toThrow("没有提供合同映射");
     });
 
+    it("显示名与说明原样保留（去掉首尾空白），没写或是空串为 null", () => {
+        expect(manifestOf({...base, displayName: " Daily Goal ", description: "每天写多少字"})).toMatchObject({displayName: "Daily Goal", description: "每天写多少字"});
+        expect(manifestOf({...base, description: ""})).toMatchObject({displayName: null, description: null});
+    });
+
     it("样式表路径原样保留，没写为 null", () => {
         expect(manifestOf({...base, style: "dist/style.css"}).style).toBe("dist/style.css");
         expect(manifestOf(base).style).toBeNull();

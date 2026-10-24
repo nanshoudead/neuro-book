@@ -19,7 +19,7 @@ import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import {errno, holdLock} from "nbook/backend/locked-replace";
-import type {InstallFailureCode, InstallPreview, ManageFailureCode, PendingChange, PluginFailureCode, PluginList, PluginListItem} from "nbook/plugin-platform/shared/types";
+import type {InstallFailureCode, InstallPreview, ManageFailureCode, PendingChange, PluginFailureCode, PluginList, PluginListEntry, PluginListItem, PluginProblem} from "nbook/plugin-platform/shared/types";
 import type {PlatformProfile} from "nbook/plugin-platform/shared/profile";
 import {compareVersions, engineAccepts} from "nbook/plugin-platform/shared/versions";
 
@@ -56,6 +56,11 @@ export interface PluginInventoryOptions {
     readonly builtin: ReadonlyArray<{readonly id: string; readonly version: string}>;
     readonly startup: StartupPlugins;
     readonly record: (input: DiagnosticInput) => void;
+    /**
+     * 本实例（服务端）此刻的插件问题，列表里按插件分给各项（plugin-install 的插件页）。宿主建插件管理时传入，读的是自己的
+     * 内核目录；没给时列表不带问题。
+     */
+    readonly problems?: () => ReadonlyArray<PluginProblem>;
 }
 
 /** `prepare` 核对通过的安装源。 */
@@ -310,12 +315,20 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
         list: async () => {
             const read = await readRecord(root, options.profile);
             if (!read.ok) return failure("registry-failed", read.detail);
-            const builtin: PluginListItem[] = options.builtin
-                .map((plugin): PluginListItem => ({id: plugin.id, version: plugin.version, source: "builtin", state: "enabled", pending: [], notLoaded: null}))
+            const problems = options.problems?.() ?? [];
+            const problemsOf = (id: string): PluginProblem[] => problems.filter((problem) => problem.plugin === id);
+            const builtin: PluginListEntry[] = options.builtin
+                .map((plugin): PluginListEntry => ({id: plugin.id, version: plugin.version, source: "builtin", state: "enabled", pending: [], notLoaded: null, displayName: null, description: null, problems: problemsOf(plugin.id)}))
                 .sort(byId);
             // 本次启动时还在、已被另一个服务端卸载掉记录的插件也列出：本进程里它仍在运行，重启后才没有。
             const ids = new Set([...Object.keys(read.record.plugins), ...startupOf.keys()]);
-            const thirdParty = [...ids].map((id) => itemOf(id, read.record.plugins[id])).sort(byId);
+            const thirdParty = await Promise.all([...ids].sort().map(async (id): Promise<PluginListEntry> => {
+                const item = itemOf(id, read.record.plugins[id]);
+                // 显示名与说明取行上那个版本的清单（运行中的，或重启后要装上的）；读不了时不显示，原因另在 notLoaded 里。
+                const manifest = item.version === "" ? null : await installedManifest(join(root, id, item.version), options.profile.format);
+                const shown = manifest?.ok === true ? manifest.manifest : null;
+                return {...item, displayName: shown?.displayName ?? null, description: shown?.description ?? null, problems: problemsOf(id)};
+            }));
             return {ok: true, value: {safeMode: options.startup.safeMode, plugins: [...builtin, ...thirdParty]}};
         },
         inspect: (sourcePath) => inspect(sourcePath),

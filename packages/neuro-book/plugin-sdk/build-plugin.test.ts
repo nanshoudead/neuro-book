@@ -34,7 +34,9 @@ async function authorProject(name: string, files: Readonly<Record<string, string
     const root = join(tmp, name);
     await linkAuthorModules(root, extra);
     await writeFile(join(root, "package.json"), JSON.stringify({publisher: "acme", name, version: "1.0.0", type: "module"}));
-    await writeFile(join(root, "plugin.ts"), `export const descriptor = {id: "acme.${name}", version: "1.0.0", locations: ["server", "browser"]};\n`);
+    // 运行位置按写出的入口模块给：插件描述的 locations 与实际的入口要一致，构建核对。
+    const locations = [...("backend/plugin.ts" in files ? ["server"] : []), ...("web/plugin.ts" in files ? ["browser"] : [])];
+    await writeFile(join(root, "plugin.ts"), `export const descriptor = {id: "acme.${name}", version: "1.0.0", locations: ${JSON.stringify(locations)}};\n`);
     await writeAll(root, files);
     return root;
 }
@@ -167,11 +169,10 @@ export const echoBrowser = {id: "acme.echo", entries: [defineEntry({id: "browser
     }, 60_000);
 
     it("引用宿主没有共享的模块（直接导入 nb-ui、绕过 SDK 的内核）：构建失败，写明未共享与引入它的模块；nb-ui 提示改从 SDK 导入组件", async () => {
-        const root = await authorProject("unshared", {}, ["@notnotype/nb-ui", "@notnotype/nb-runtime"]);
-        await writeAll(root, {
+        const root = await authorProject("unshared", {
             "web/plugin.ts": `import {Button} from "@notnotype/nb-ui/components";\nimport {useNotification} from "@notnotype/nb-ui/notifications";\nexport const p = {id: "acme.unshared", entries: [{id: "browser", location: "browser", activate: () => { useNotification(); void Button; return {}; }}]};\n`,
             "backend/plugin.ts": `import {defineEntry} from "@notnotype/nb-runtime/plugins";\nexport const s = {id: "acme.unshared", entries: [defineEntry({id: "server", location: "server", activate: () => ({})})]};\n`,
-        });
+        }, ["@notnotype/nb-ui", "@notnotype/nb-runtime"]);
         const problems = await failure(root);
         expect(problems).toContainEqual(expect.stringContaining("引用了宿主没有共享的模块 @notnotype/nb-ui/notifications（由 web/plugin.ts 引入）"));
         expect(problems).toContainEqual(expect.stringMatching(/引用了宿主没有共享的模块 @notnotype\/nb-ui\/components（由 web\/plugin\.ts 引入）.*nb-ui 的组件从 @notnotype\/nb-plugin-sdk\/components 导入/u));
@@ -179,11 +180,10 @@ export const echoBrowser = {id: "acme.echo", entries: [defineEntry({id: "browser
     }, 60_000);
 
     it("动态导入宿主没有共享的模块（浏览器里的 nb-ui 其它入口、服务端绕过 SDK 的内核）：同样构建失败", async () => {
-        const root = await authorProject("dynamic-unshared", {}, ["@notnotype/nb-ui", "@notnotype/nb-runtime"]);
-        await writeAll(root, {
+        const root = await authorProject("dynamic-unshared", {
             "web/plugin.ts": `export const p = {id: "acme.dynamic-unshared", entries: [{id: "browser", location: "browser", activate: async () => { await import("@notnotype/nb-ui/notifications"); return {}; }}]};\n`,
             "backend/plugin.ts": `export const s = {id: "acme.dynamic-unshared", entries: [{id: "server", location: "server", activate: async () => { await import("@notnotype/nb-runtime/plugins"); return {}; }}]};\n`,
-        });
+        }, ["@notnotype/nb-ui", "@notnotype/nb-runtime"]);
         const problems = await failure(root);
         expect(problems).toContainEqual(expect.stringContaining("引用了宿主没有共享的模块 @notnotype/nb-ui/notifications"));
         expect(problems).toContainEqual(expect.stringContaining("引用了宿主没有共享的模块 @notnotype/nb-runtime/plugins"));
@@ -318,6 +318,14 @@ export const s = {id: "acme.refined", entries: [defineEntry({id: "server", locat
         await mkdir(join(root, "dist"), {recursive: true});
         await writeFile(join(root, "dist/left.txt"), "x");
         expect(await failure(root)).toEqual([join(root, "dist")]);
+    }, 60_000);
+
+    it("插件描述的 locations 与实际有入口的位置不一致：构建失败，写明多写或漏写的位置", async () => {
+        const root = await authorProject("located", {"web/plugin.ts": "export const p = {id: \"acme.located\", entries: [{id: \"browser\", location: \"browser\", activate: () => ({})}]};\n"});
+        await writeFile(join(root, "plugin.ts"), `export const descriptor = {id: "acme.located", version: "1.0.0", locations: ["server", "browser"]};\n`);
+        expect(await failure(root)).toEqual([expect.stringContaining("写了 server，但没有这些位置的入口")]);
+        await writeFile(join(root, "plugin.ts"), `export const descriptor = {id: "acme.located", version: "1.0.0", locations: []};\n`);
+        expect(await failure(root)).toEqual([expect.stringContaining("没有写 browser，但有这些位置的入口")]);
     }, 60_000);
 
     it("入口定义模块忘了 export 或导出了两个插件定义：构建失败，指出模块（不再静默少一个入口）", async () => {

@@ -117,7 +117,7 @@ function itemOf(listed: Awaited<ReturnType<PluginInventory["list"]>>, id: string
 describe("安装与列表（输出 1、2、9）", () => {
     it("安装写入登记表为已启用、复制到版本目录；本次运行列为“重启后安装”，重启后登记它的描述", async () => {
         const w = await world();
-        const source = await w.source("hello", manifest(), {"README.md": "说明"});
+        const source = await w.source("hello", manifest("1.0.0", {displayName: "Hello", description: "打个招呼"}), {"README.md": "说明"});
         const installed = await w.inventory.install(source);
         expect(installed).toMatchObject({ok: true, value: {id: "example.hello", version: "1.0.0", source: "third-party", state: "enabled", pending: [{kind: "install"}], notLoaded: null}});
         expect(await w.record()).toEqual({schema: "acme.plugins/v1", plugins: {"example.hello": {version: "1.0.0", pendingVersion: null, state: "enabled", deleteData: false}}});
@@ -125,7 +125,9 @@ describe("安装与列表（输出 1、2、9）", () => {
         expect(await namesIn(join(w.root, ".staging"))).toEqual([]);
 
         const listed = await w.inventory.list();
-        expect(itemOf(listed, "acme.settings")).toEqual({id: "acme.settings", version: PRODUCT, source: "builtin", state: "enabled", pending: [], notLoaded: null});
+        expect(itemOf(listed, "acme.settings")).toEqual({id: "acme.settings", version: PRODUCT, source: "builtin", state: "enabled", pending: [], notLoaded: null, displayName: null, description: null, problems: []});
+        // 第三方插件的显示名与说明取行上那个版本的清单（这里是重启后要装上的版本）。
+        expect(itemOf(listed, "example.hello")).toMatchObject({displayName: "Hello", description: "打个招呼", problems: []});
 
         const startup = await w.restart();
         expect(startup.plugins).toEqual([{
@@ -134,7 +136,7 @@ describe("安装与列表（输出 1、2、9）", () => {
             state: "enabled",
             notLoaded: null,
             descriptor: {id: "example.hello", version: "1.0.0", locations: [], contributions: manifest().contributes as never},
-            installed: {id: "example.hello", version: "1.0.0", root: join(w.root, "example.hello", "1.0.0"), digest: expect.stringMatching(/^[0-9a-f]{16}$/u), manifest: manifest()},
+            installed: {id: "example.hello", version: "1.0.0", root: join(w.root, "example.hello", "1.0.0"), digest: expect.stringMatching(/^[0-9a-f]{16}$/u), manifest: manifest("1.0.0", {displayName: "Hello", description: "打个招呼"})},
         }]);
         expect(itemOf(await w.inventory.list(), "example.hello")?.pending).toEqual([]);
     });

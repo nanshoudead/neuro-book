@@ -23,6 +23,7 @@ import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote
 
 import {createPluginInventory, pluginInventoryKey} from "nbook/plugin-platform/backend/inventory";
 import {installedPlugins, NO_PREPARED_PLUGINS} from "nbook/plugin-platform/backend/startup";
+import {pluginProblems} from "nbook/plugin-platform/shared/problems";
 import type {PluginsPreparation} from "nbook/plugin-platform/backend/startup";
 import {productPlugins} from "nbook/manifest";
 import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
@@ -320,6 +321,8 @@ export function startServer(options: StartServerOptions): RunningServer {
                         builtin: builtinManifest.map(({id, version}) => ({id, version})),
                         startup: prepared.startup,
                         record: (record) => void store.record(record),
+                        // 插件页列表时才调用，那时 `host` 已经建好：本实例（服务端）此刻的入口失败、受阻与被拒的贡献。
+                        problems: () => pluginProblems(host.application.plugins.catalog(), "server"),
                     }),
                 },
                 {

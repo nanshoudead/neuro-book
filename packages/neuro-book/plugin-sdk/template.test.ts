@@ -66,6 +66,8 @@ describe("nbook-plugin", () => {
         const result = manifestFormat.read(JSON.parse(await readFile(join(author, "dist/package.json"), "utf8")));
         if (result.status !== "valid") throw new Error(JSON.stringify(result.problems));
         expect(result.manifest.id).toBe("my.hello-world");
+        // 显示名从 package.json 进清单（插件页显示它）；模板的说明是空串，清单里为 null。
+        expect(result.manifest).toMatchObject({displayName: "Hello World", description: null});
         expect(result.manifest.entries.map((entry) => [entry.id, entry.activationEvents])).toEqual([["browser", ["onStartup"]]]);
         expect(result.manifest.entries[0]!.contributes.map((item) => item.id).sort()).toEqual(["my.hello-world.hello", "my.hello-world.say-hello"]);
         expect(await readdir(join(author, "dist"))).toEqual(expect.arrayContaining(["browser.js", "package.json", "style.css"]));

@@ -28,6 +28,7 @@ export interface ManifestSource {
     /** 要求的宿主版本范围，写进 `engines.<平台的引擎键>`。 */
     readonly engine: string;
     readonly pluginVersions?: Readonly<Record<string, string>>;
+    readonly displayName?: string;
     readonly description?: string;
     readonly license?: string;
     /** 入口的代码文件；缺省 `<入口 id>.js`。 */
@@ -179,6 +180,7 @@ export function buildManifest(source: ManifestSource, context: ReadContext): Man
         publisher: descriptor.id.slice(0, dot),
         name: descriptor.id.slice(dot + 1),
         version: descriptor.version,
+        ...(source.displayName === undefined ? {} : {displayName: source.displayName}),
         ...(source.description === undefined ? {} : {description: source.description}),
         ...(source.license === undefined ? {} : {license: source.license}),
         engines: {[platform.engine]: source.engine},

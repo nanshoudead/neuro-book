@@ -181,6 +181,8 @@ function read(value: unknown, context: ReadContext): ManifestReadResult {
             publisher: input.publisher,
             name: input.name,
             version: input.version,
+            displayName: textOrNull(input.displayName),
+            description: textOrNull(input.description),
             engine,
             locations,
             entries,
@@ -192,4 +194,10 @@ function read(value: unknown, context: ReadContext): ManifestReadResult {
             style: input.style ?? null,
         },
     };
+}
+
+/** 给人看的文字：去掉首尾空白，空的为 null。 */
+function textOrNull(value: string | undefined): string | null {
+    const trimmed = value?.trim() ?? "";
+    return trimmed === "" ? null : trimmed;
 }

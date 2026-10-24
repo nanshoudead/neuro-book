@@ -6,7 +6,7 @@
  * 一层绑定自己档案的封装给作者用。
  *
  * 作者合同：
- * - `package.json` 给 `publisher`、`name`、`version`，可选 `description`、`license`、`engines.<引擎键>`（缺省取
+ * - `package.json` 给 `publisher`、`name`、`version`，可选 `displayName`、`description`、`license`、`engines.<引擎键>`（缺省取
  *   `^<产品版本>`）、`pluginVersions`，以及 `<档案的 authorField>.definitions`（入口定义模块，缺省 `backend/plugin.ts`、
  *   `web/plugin.ts` 里存在的）；
  * - `plugin.ts` 导出插件描述 `descriptor`，id 是 `<publisher>.<name>`、版本与 `package.json` 相同；
@@ -123,6 +123,7 @@ interface AuthorPackage {
     readonly publisher: string;
     readonly name: string;
     readonly version: string;
+    readonly displayName?: string;
     readonly description?: string;
     readonly license?: string;
     readonly engines?: Readonly<Record<string, string>>;
@@ -498,6 +499,15 @@ export async function buildPlugin(profile: PlatformProfile, options: BuildPlugin
             }
         }
     }
+    // 插件描述的运行位置要与实际有入口的位置一致：宿主按描述决定在哪些实例里装哪一侧的定义，多写或漏写都会让入口静默不登记。
+    // 只在定义本身没问题时核对：模块没导出定义时，“少了这个位置的入口”只是它的后果。
+    const declared = new Set<string>(descriptor.locations);
+    const actual = new Set<string>(located.map((item) => item.location));
+    const missing = [...actual].filter((location) => !declared.has(location));
+    const unused = [...declared].filter((location) => !actual.has(location));
+    const consistent = problems.length === 0;
+    if (consistent && missing.length > 0) problems.push({path: "plugin.ts", message: `插件描述的 locations 没有写 ${missing.join("、")}，但有这些位置的入口：在 definePlugin 的 locations 里加上`});
+    if (consistent && unused.length > 0) problems.push({path: "plugin.ts", message: `插件描述的 locations 写了 ${unused.join("、")}，但没有这些位置的入口：去掉它们，或者检查入口模块是否导出了插件定义`});
     if (problems.length > 0) throw new PluginBuildError("入口定义不合格", problems);
 
     const source: ManifestSource = {
@@ -505,7 +515,8 @@ export async function buildPlugin(profile: PlatformProfile, options: BuildPlugin
         definitions,
         engine: author.engines?.[profile.format.platform.engine] ?? `^${profile.productVersion}`,
         ...(author.pluginVersions === undefined ? {} : {pluginVersions: author.pluginVersions}),
-        ...(author.description === undefined ? {} : {description: author.description}),
+        ...(typeof author.displayName === "string" ? {displayName: author.displayName} : {}),
+        ...(typeof author.description === "string" ? {description: author.description} : {}),
         ...(author.license === undefined ? {} : {license: author.license}),
         mainOf: (entry: PluginEntryDefinition) => `${entry.id}.js`,
     };

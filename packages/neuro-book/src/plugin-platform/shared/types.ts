@@ -39,11 +39,65 @@ export const PluginListItemSchema = Type.Object({
 
 export type PluginListItem = Static<typeof PluginListItemSchema>;
 
+/**
+ * 一个插件此刻在某个运行实例里的问题（plugin-install 的插件页）：入口激活失败、入口受阻、贡献被拒。纯 JSON，按码给，界面按
+ * 语言翻译固定的部分；`message` 是激活时抛出的错误消息，插件自己的文字（信任所有插件，不脱敏）。
+ */
+export const PluginProblemSchema = Type.Union([
+    Type.Object({
+        kind: Type.Literal("entry-failed"),
+        plugin: Type.String({minLength: 1}),
+        entry: Type.String({minLength: 1}),
+        location: Type.String({minLength: 1}),
+        /** 内核的激活阶段与原因，例如 `activate`、`activation-threw`。 */
+        stage: Type.String({minLength: 1}),
+        reason: Type.String({minLength: 1}),
+        message: Type.Union([Type.String(), Type.Null()]),
+    }, {additionalProperties: false}),
+    Type.Object({
+        kind: Type.Literal("entry-blocked"),
+        plugin: Type.String({minLength: 1}),
+        entry: Type.String({minLength: 1}),
+        location: Type.String({minLength: 1}),
+        reason: Type.Union([Type.Literal("missing-service"), Type.Literal("location-mismatch"), Type.Literal("provider-blocked"), Type.Literal("provider-failed"), Type.Literal("dependency-cycle"), Type.Literal("version-mismatch")]),
+        /** 受阻牵涉的服务键或插件。 */
+        key: Type.String(),
+    }, {additionalProperties: false}),
+    Type.Object({
+        kind: Type.Literal("contribution-rejected"),
+        plugin: Type.String({minLength: 1}),
+        /** 顶层声明为 null。 */
+        entry: Type.Union([Type.String({minLength: 1}), Type.Null()]),
+        location: Type.String({minLength: 1}),
+        capability: Type.String({minLength: 1}),
+        id: Type.String({minLength: 1}),
+        reason: Type.Union([Type.Literal("invalid-declaration"), Type.Literal("implementation-required"), Type.Literal("implementation-not-accepted"), Type.Literal("duplicate-contribution")]),
+        detail: Type.Union([Type.String(), Type.Null()]),
+    }, {additionalProperties: false}),
+]);
+
+export type PluginProblem = Static<typeof PluginProblemSchema>;
+
+/**
+ * 列表里的一项：插件管理的条目加上给人看的名字、说明与此刻的问题。只有 `list` 返回它；安装、启停、卸载的结果下一次启动才
+ * 生效，它们返回不带运行状态的 `PluginListItem`。
+ */
+export const PluginListEntrySchema = Type.Object({
+    ...PluginListItemSchema.properties,
+    /** 清单的显示名与说明；内置插件没有清单，为 null。 */
+    displayName: Type.Union([Type.String(), Type.Null()]),
+    description: Type.Union([Type.String(), Type.Null()]),
+    /** 服务端实例里的问题（浏览器一侧的由窗口自己查）；按入口、贡献点与 id 排好。 */
+    problems: Type.Array(PluginProblemSchema),
+}, {additionalProperties: false});
+
+export type PluginListEntry = Static<typeof PluginListEntrySchema>;
+
 export const PluginListSchema = Type.Object({
     /** 本次启动是否为安全模式（plugin-install 输出 7）。 */
     safeMode: Type.Boolean(),
     /** 内置插件在前、第三方插件在后，各自按 id 排序；界面照这个顺序画。 */
-    plugins: Type.Array(PluginListItemSchema),
+    plugins: Type.Array(PluginListEntrySchema),
 }, {additionalProperties: false});
 
 export type PluginList = Static<typeof PluginListSchema>;
