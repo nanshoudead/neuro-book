@@ -26,6 +26,8 @@
         "cli/create-agent-worktree.ts",
         "cli/test-affected.ts",
         "release/packages.ts",
+        "release/pack-smoke.ts",
+        "release/publish.ts",
         "ci/validate-proper-lockfile-patch.ts",
         "types/proper-lockfile.d.ts"
     ]

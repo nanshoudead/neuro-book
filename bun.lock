@@ -212,6 +212,7 @@
         "vue-tsc": "^3.3.7",
       },
       "peerDependencies": {
+        "typescript": "^5.4.0 || ^6.0.0",
         "vue": "^3.5.24",
       },
     },
@@ -234,6 +235,7 @@
         "vue-tsc": "^3.3.7",
       },
       "peerDependencies": {
+        "typescript": "^5.4.0 || ^6.0.0",
         "vue": "^3.5.24",
       },
     },
@@ -305,6 +307,7 @@
         "vue-tsc": "^3.3.7",
       },
       "peerDependencies": {
+        "typescript": "^5.4.0 || ^6.0.0",
         "vue": "^3.5.24",
       },
     },
@@ -428,6 +431,7 @@
       "peerDependencies": {
         "@nuxt/kit": "^4.3.1",
         "nuxt": "^4.3.1",
+        "typescript": "^5.4.0 || ^6.0.0",
         "vue": "^3.5.24",
       },
       "optionalPeers": [
