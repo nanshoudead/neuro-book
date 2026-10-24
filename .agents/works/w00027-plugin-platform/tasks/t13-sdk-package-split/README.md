@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t13-sdk-package-split
-status: active
+status: done
 updated: 2026-10-24
 ---
 
@@ -40,8 +40,12 @@ updated: 2026-10-24
   5. 插件页的 `entry-missing`、`unreadable` 没有组件测试：补上，Lab 场景与组件文档跟上。
   6. 样式失败的事件名写死在通用目录：改由宿主给；过时注释与导入分组修正；被跳过的第三方插件补一句为什么取得到。
   7. 宿主模块表的组件测试补 typebox 三项的身份核对。
-  后端的 omp 报告还在跑，**待处理**。验证：类型检查，Bun 1463 例、Vitest 364 例。
+  后端、内核、构建与作者工具的报告（[impl-review-omp.txt](evidences/impl-review-omp.txt)，omp）：重要 2、建议 1，三条都成立并已修，合入 `3ccea07df`：
+  1. 合同按内容核对时，TypeBox 的 `Refine`、`Codec` 把函数放在不可枚举的键上，JSON 比较看不见，带校验函数的产出合同被换成声明那份、校验丢失（`4ab105fe7`）：带函数的合同按不同处理，可移植的仍按内容比较；用例同时覆盖“按清单还原的 JSON 对 TypeBox 产出”可用。
+  2. 作者 `package.json` 的 `definitions` 写错类型时退回缺省模块、静默漏掉入口（`4a4ca3e80`）：写错即构建失败。
+  3. 架构测试与公开面闭包的导入扫描漏同一行第二条语句、模板字符串的动态导入（`746866803`）：两份测试改用共用的读法（`src/testing/source-imports.ts`，TypeScript 语法树），有自己的测试。
+  验证：类型检查，内核 394 例，应用 Bun 1465 例（全量时 `files/project-child.test.ts` 偶发失败一例，单独连跑三次都过，与本次无关）、Vitest 364 例。审查 worktree 已删。
 
 ## 下一步
 
-实现审查的报告回来后逐条核实处理，修正单独提交；审查完删掉审查 worktree。同时推进 t12 剩下的第三方视图缺省排序与作者 API 的 Task。
+无。本 Task 完成；作者 API 在 [t14](../t14-plugin-author-api/README.md)。

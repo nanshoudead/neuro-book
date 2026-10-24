@@ -1,0 +1,85 @@
+# w00027 t13 实现审查
+
+审查范围：`0ffd9455c^..4834058bb`，按任务给定路径过滤；浏览器侧实现不在本报告范围。
+
+## 1. JSON 比较把带不同校验函数的代码合同当作相同，静默替换了产出的合同
+
+- **严重程度：重要；类别：正确性。**
+- **位置：** `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t13-review/packages/nb-runtime/src/plugins/contract-content.ts:20-26`、`packages/nb-runtime/src/plugins/host.ts:1152-1156`。
+- **现象：** `sameContractContent` 只遍历可枚举字段，TypeBox 的 `Refine`、`Codec` 等不可枚举元数据完全不参加比较。声明的输入是普通严格对象、产出的同 id 合同给它加 `Type.Refine(..., value > 0)` 时，两份合同被当成相同，入口激活成功，提供项被换回无 Refine 的声明合同；实际调用 `{value: -1}` 成功进入实现。
+- **为什么是问题：** 这次把只供第三方清单适配器使用的 JSON 比较提升为全部代码定义入口的合同核对，却没有保留原来对非 JSON Schema 代码合同的约束。`defineRemoteService` 接受 Refine，代码定义也不经过清单的 `portabilityProblems`；两份校验语义不同的合同应按 `runtime.plugins` 输出 22 拒绝为 `remote-contract-mismatch`，而不是静默丢掉产出合同的校验。base 的 `host.ts` 只接受同一对象，以上两个不同对象会被拒；base 的应用补丁只作用于第三方清单路径，不能解释新的内核行为。
+- **如何核实：** 执行 `bun /tmp/claude-1000/review-t13-impl/scratch/contract-content-smoke.ts`，通过真实 `createApplication`、`createRemoteNode({validateLocal: true})`、两个插件与 `provideRemote` 激活并调用。结果：`declaredAcceptsNegative=true`、`producedAcceptsNegative=false`、`equalJson=true`，启动 `failures=[]`、入口 `available`，负数调用 `{ok:true,value:true}`、实现调用次数 `1`；停止为 `closed`。不是只直接调用比较函数的实验。
+- **建议改法：** 先按同一对象接受；只对可无损表达成 JSON Schema 的合同启用规范化 JSON 比较。含 Refine、Codec、函数、自定义 format 等不可移植信息的不同对象保留 `remote-contract-mismatch`，或实现能比较这些信息的无损比较。将上述场景补到现有远程提供项合同核对行为测试，同时保留纯 JSON 合同的键序、可选字段与 `$id` 覆盖。
+
+## 2. 显式的 definitions 写错类型时退回自动发现，构建成功却漏掉全部入口
+
+- **严重程度：重要；类别：正确性。**
+- **位置：** `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t13-review/packages/neuro-book/src/plugin-platform/build/build-plugin.ts:174-178,462`。
+- **现象：** 新的 `definitionsField` 把“没写设置”和“写了不合格设置”都变成 `undefined`。例如作者明确写 `nbook.definitions: ["src/server.ts", 42]`、实际服务端定义在 `src/server.ts`，预设没有指出第二项不是字符串，而是改找缺省的 `backend/plugin.ts`、`web/plugin.ts`；两者都没有时仍成功，只有 `package.json`，其中 `entries: {}`，没有任何警告。
+- **为什么是问题：** 错误设置不能等同于未配置，否则这次新增的“忘记导出定义要报错”检查也被绕过：配置指向的模块根本没有加载。作者得到成功退出的产物，安装后功能全部消失。base 直接对显式的 `author.nbook.definitions` 执行 `.map(file => join(root, file))`；该输入会在第二项失败，不会静默生成少入口的包。新的降级行为来自本次抽出的设置读取函数。
+- **如何核实：** 执行 `bun /tmp/claude-1000/review-t13-impl/scratch/definitions-smoke.ts`，调用真实绑定 NeuroBook 档案的 `plugin-sdk/build.ts`。作者描述声明 `locations: ["server"]`，`src/server.ts` 有有效的服务端定义；输出为 `files=["package.json"]`、`warnings=[]`、清单 `entries={}`，命令退出码 `0`。base 对照见合并 diff 中 `author.nbook?.definitions` 被替换为 `definitionsField(...)` 的部分。
+- **建议改法：** 只有该字段缺省才返回 `undefined`；字段存在而不是字符串数组时抛 `PluginBuildError`，路径写出 `<authorField>.definitions` 及错误项。扩充现有“入口定义模块忘了 export 或导出两个定义”的测试：显式配置错误必须失败，不能切换到另一组模块。
+
+## 3. 新增边界与闭包机检会漏掉同一行的第二条导入或导出语句
+
+- **严重程度：建议；类别：测试。**
+- **位置：** `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t13-review/packages/neuro-book/src/sdk/surface.test.ts:14-15,34-37`、`packages/neuro-book/src/architecture.test.ts:48-56,171-187`。
+- **现象：** 静态导入/再导出扫描强制语句位于行首；`export const local = 1; export {target} from "./target";` 中的第二条导出完全不进 SDK 闭包，平台代码同样写法的跨层再导出也不进违规列表。动态导入的无插值模板字面量也不被扫描。新规则的反例直接手造 `ImportUse`，没有覆盖“源码解析成功才会走到规则”这一段。
+- **为什么是问题：** 本 Task 没有真实的第二个应用，边界机检与公开面闭包是设计列出的替代证据。只因排版或引号形式变化就漏掉依赖，无法守住该证据；这不是要求支持任意动态计算路径。`architecture.test.ts` 的正则本身在 base 已存在，不把它整体算成本次回归；这里报告的是本次新增的平台边界对该解析器的依赖，以及全新的闭包测试也复制了缺口。plan.md 第 10 节记录允许按导入语句扫描，但不等于允许合法的导入语句不进入扫描。
+- **如何核实：** `bun /tmp/claude-1000/review-t13-impl/scratch/guard-smoke.ts` 只读取审查 worktree 的两个真实测试文件，在仓库外编译并调用其原有解析与判定函数，没有编辑仓库。静态导入、再导出、侧效应导入与换行动态导入均被拦；同一行第二条再导出、无插值模板字面量动态导入都得到 `imports=[]`、`violations=[]`。同一个真实 `target.ts`，单独一行再导出时闭包包含它，放到第二条语句后闭包只剩入口文件。
+- **建议改法：** 复用 TypeScript 编译器 API 遍历 ImportDeclaration、ExportDeclaration、ImportExpression；`.vue` 先取脚本块。至少把上述合法语法加到解析器反例，而不只给判定函数手造输入。两份测试共享解析工具，避免边界与闭包各自维护近似的正则。
+
+## 未发现问题的方面
+
+以下是本次已读代码与已执行验证的范围，不是全量验收结论：
+
+- 平台档案覆盖清单的引擎键、保留发布者与应用装配；`runtime` 命名空间固定保留。第三方清单不能借保留发布者取得贡献前缀放宽；保留发布者以外仍按自己的插件 id 校验。另一份 `acme` 档案的相关合同测试通过。
+- `runtime.diagnostics` 的 id 与服务键、应用装配入口及三处宿主的相关调用点在 diff 中一致切换，没有发现本范围内遗留的旧入口。
+- 插件管理失败码在 `shared/types.ts`、`nbook.plugins` 合同、服务端映射与主工作区 Spec 的方法分组一致；安装、启停、卸载、升级、租约与启动盘点合同测试通过，真实路由上的失败码能到达调用方。新增的 `entry-missing` 覆盖安装后入口文件消失；`unreadable` 的摘要读取失败分支从代码可达，但本次没有做磁盘 I/O 故障实验。
+- `isInside` 使用分隔符判定 `..`，名为 `..foo` 的子目录不再漏判。安装源先 realpath；构建的纯度目录以包根真实路径核对。符号链接与大小写行为依赖当前操作系统路径语义，本次只在 Linux 验证，没有声称验证 Windows、macOS 或大小写不敏感文件系统。
+- 文件端点保持本次启动集合、内容摘要匹配、逐段拒绝符号链接、错误响应不缓存与安全响应头；应用的 HTTP 适配器仍将去掉挂载前缀后的路径交给处理函数。对应合同测试通过。
+- 构建预设按导出名定位定义，忘记 export、同模块两个定义、静态与动态未共享模块、TypeBox 外部化与 source map 等原有用例通过。未使用导出与样式的摇树变化已在 plan.md 第 10 节明确记录，不另列问题。
+- SDK 入口表生成共享模块名单、Vite/示例别名与包 exports；两份 tsconfig 与表对照通过。SDK 打包、tarball、模板依赖按 JSON 补齐、示例过滤、Node 作者 CLI 与仓库外类型检查/构建通过；输出目录守卫的允许及拒绝场景通过。
+- `builtSdk()` 的同进程缓存让 pack 与 template 共用构建 Promise，调用者把 tarball 解到独立目录，不改共享 SDK，进程退出同步清理。`authorDirectory` 当前只用 Node API；测试中的 Node CLI 调用通过，但本次没有执行 Playwright 工作者进程。
+
+## 已执行验证
+
+命令均在审查 worktree 的相应包目录运行；没有编辑产品源码、测试、Spec 或 Task 文件，没有 commit、push、stash 或切换分支。
+
+| 目录 | 命令 | 实际结果 |
+|---|---|---|
+| `packages/nb-runtime` | `bun test src/plugin-manifest/plugin-manifest.test.ts src/plugins/owner-contribution-points.test.ts src/plugins/plugins.test.ts src/remote/routing.test.ts src/app-neutral.test.ts` | 186 pass、0 fail，1356 次断言 |
+| `packages/neuro-book` | `bun test src/plugin-platform/backend/plugins.test.ts src/plugin-platform/backend/loader.test.ts src/manifest.test.ts src/builtin-manifest.test.ts src/sdk/sdk.test.ts src/architecture.test.ts` | 63 pass、0 fail，427 次断言 |
+| `packages/neuro-book` | `bun test plugin-sdk/pack.test.ts plugin-sdk/template.test.ts plugin-sdk/build-plugin.test.ts` | 35 pass、0 fail，148 次断言；110.53 s。负向构建场景打印一次 `✗ Build failed in 15ms`，测试最终无失败 |
+| `packages/neuro-book` | `bun test src/sdk/surface.test.ts src/server/plugin-files.test.ts src/server/browser-bootstrap.test.ts src/plugins/plugins/backend/plugin.test.ts plugin-sdk/external-examples.test.ts` | 实际命中 4 个文件，13 pass、0 fail，77 次断言；其中 `src/plugins/plugins/backend/plugin.test.ts` 不存在，未计为验证 |
+| `packages/neuro-book` | `bun test src/plugins/plugins/plugins.test.ts` | 改用实际合同测试路径，2 pass、0 fail，19 次断言 |
+| `packages/nb-runtime` | `bun run typecheck` | `tsc --noEmit && tsc --noEmit -p tsconfig.browser.json`，退出码 0 |
+| `packages/neuro-book` | `bun run typecheck` | `tsc --noEmit && vue-tsc --noEmit -p tsconfig.web.json && vue-tsc --noEmit -p tsconfig.browser-test.json`，退出码 0 |
+| 仓库外实验 | `bun /tmp/claude-1000/review-t13-impl/scratch/contract-content-smoke.ts` | 复现发现 1；真实应用停止 `closed` |
+| 仓库外实验 | `bun /tmp/claude-1000/review-t13-impl/scratch/definitions-smoke.ts` | 复现发现 2；退出码 0，漏掉入口 |
+| 仓库外实验 | `bun /tmp/claude-1000/review-t13-impl/scratch/guard-smoke.ts` | 复现发现 3；对比正常写法与漏扫写法 |
+
+未运行：e2e、开发服务、浏览器侧审查、完整包测试、Vitest、全量生产构建、远端操作与真实模型调用。Task README 中原作者的全量/e2e 结果不是本次审查者的运行证据。
+
+补充运行：
+
+| 目录 | 命令 | 实际结果 |
+|---|---|---|
+| `packages/nb-runtime` | `bun test src/diagnostics/diagnostics.test.ts src/application/application-startup.test.ts` | 37 pass、0 fail，336 次断言 |
+| `packages/neuro-book` | `bun test src/server/server.test.ts` | 23 pass、0 fail，105 次断言；真实服务端子进程的启动、诊断先后与停止路径通过 |
+
+本次共运行 22 个不同测试文件，359 pass、0 fail、2468 次断言；两包类型检查通过。另有 3 个仓库外实验，均保留在用户指定的 scratch 目录，没有写入仓库。没有把这些实验计为永久测试。
+
+## 各级数量
+
+- 阻断：0。
+- 重要：2（发现 1、2）。
+- 建议：1（发现 3）。
+- 合计：3。已用 `grep` 核对 3 条编号标题和 3 条严重程度，与逐条核实数量一致。
+
+本报告只审固定提交 `4834058bb`，不把主工作区在审查期间的后续修正混入本次结论。组件导出名单与宿主模块表的后续处理已见主工作区 Task 记录，不重复列为本报告发现。
+
+## 流程反思
+
+本次有路径猜测、重复恢复上下文与读取已覆盖区段的损耗；已有“先定位再读取”“不重复已读材料”的规则覆盖，不建议再追加同义规范。未修改规则、Skill 或治理真相源。
+
