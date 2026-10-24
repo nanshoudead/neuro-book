@@ -1,0 +1,128 @@
+# 插件作者体验报告（Sonnet，只追加；开头摘要在最后补）
+
+## 发现（按确认顺序追加，最后整理排序）
+
+[F01] 重要 / 工具+文档 / `bun run build:sdk` 的输出与 README“安装 SDK”小节
+现象：build:sdk 只打印“插件 SDK 已生成：.../dist/plugin-sdk”，那是个目录，不是 tarball。要自己进目录 `npm pack`（README 写了，但构建输出不提）。
+为什么：任务和 README 都说“拿 tarball”，第一步就得读文档再猜。
+建议：build:sdk 末尾直接 pack，并打印 tgz 路径；或输出里写“下一步：cd dist/plugin-sdk && npm pack”。
+
+[F02] 重要 / 类型 / `defineRecord({schema})`
+现象：`schema: Type.Object({date: Type.String(), words: Type.Integer()})` 类型检查（vue-tsc）全过，`npm run build` 才报“记录定义 progress 不合规则：schema 须为顶层 type: object 且 additionalProperties: false”。同类的远程方法 `input` 也有同一要求，但 `output`、事件 `payload` 不要求，规则不一致。
+为什么：规则明确且能在类型层表达，却拖到构建时才发现；要求 additionalProperties:false 的位置不统一，作者只能靠试。
+建议：类型上收窄为 `TObject<..., {additionalProperties: false}>`，或提供 `Strict.Object(...)` / `defineRecord` 自动补 `additionalProperties:false`（作者不会想要放开）。远程 `input` 同理，由 `defineRemoteService` 自动补，别让作者每个方法写一遍 `{additionalProperties: false}`（我的合同里写了 5 次）。
+（好的一面：构建报错带了文件名 backend/plugin.ts，消息直接说明规则。）
+
+[F03] 重要 / 类型 / 远程方法实现返回业务失败
+现象：`add: async ({words}) => { if (...) return {ok: false, code: "too-many", detail: {max: 50000}}; ... }` 报 7 行嵌套的“Type 'string' is not assignable to type '"too-many"'”，原因是 async 箭头函数里 `code` 被放宽成 string，要写 `"too-many" as const`。`detail` 声明了 schema（errors），但类型是 `unknown`，写错形状也过编译。
+为什么：每个有业务错误码的方法都会踩；报错信息指向整个方法而不是那个 code。
+建议：SDK 给结果构造助手：`ok(value)` / `fail("too-many", {max: 50000})`，签名由合同方法推出（`Method["errors"][Code]` 的 Static 类型作 detail），无需 `as const`。
+
+[F04] 建议 / 文档 / 订阅的释放
+现象：README 没说 `remote.events.x.subscribe` 返回的订阅句柄要不要手动释放。我先写了 `context.scope.register(sub.value)`，类型报错（要 `ResourceSpec{kind,label,value,release}`），为此读了 Scope 的类型才发现作用域机制；最后在 specs/runtime/plugin-channel.md 第 7 条才看到“登记在订阅方的激活作用域上”，入口停止自动退订。
+为什么：作者不该接触 Scope/ResourceSpec 这套生命周期内部概念，却因为文档没一句话而被引过去（`ActivationContext.scope` 的类型上有 acquire、borrow、accept、recover 等全套内部 API 暴露在 SDK d.ts）。
+建议：README 远程服务小节加一句“订阅随入口停止自动释放，不需要手动 release，除非想提前取消”；`ActivationContext` 对作者只暴露需要的字段，`scope` 标 `@internal` 或收窄类型。
+
+[F05] 建议 / API 形状+文档 / 视图、命令、状态栏条目的助手不对称
+现象：视图有 `viewContribution`，设置页有 `settingsPageContribution`，设置项有 `defineSetting`；命令和状态栏条目没有助手，要手写 `{capability: COMMANDS_POINT, id, declaration}` 再在 activate 里按 `[COMMANDS_POINT]: {[ID]: impl}` 对一次（README 也承认“不需要助手”）。同一个 id 要在三处出现（常量、contributions、activate 产出）。
+建议：`commandContribution({id, declaration, run})` / `statusItemContribution({id, declaration, ...})` 返回 `{contribution, implementation}`，与视图一致；更进一步，`defineEntry` 里直接收 `views: [...]`, `commands: [...]`，由 SDK 拼 contributions 与产出。
+
+[F06] 重要 / 错误信息+API 形状 / 服务端入口激活失败 -> 浏览器看到的只有 `unavailable`
+现象（真实跑出）：我忘了给 `defineRecord` 写 `locality: "shared"`（README 的“私有存储”小节写了这条，我读漏）。构建通过、typecheck 通过、安装通过、重启后视图与状态栏正常显示，唯独点“记一笔”后视图里显示 `失败：unavailable`；`remote.add()` 的 `detail`/`cause` 对作者没有任何指向。真正的原因（“local 记录 progress 需要客户端身份，这个位置没有”）只在 `.dev-state/logs/server-current.jsonl` 里，且是我自己 `throw new Error(opened.detail)` 抛的——没有直接告诉作者“你的服务端入口激活失败了，原因是……”。
+为什么：浏览器里调用方看到的 `unavailable` 与“服务没装/正在重启”无法区分；作者要先知道去翻 jsonl 日志（README“调试”小节有写，但是要主动找；插件页也不显示入口的运行状态，README 自己承认）。
+建议：(1) 插件页每行显示入口状态（已激活/失败 + 一行原因）；(2) 浏览器端远程调用失败时，如果提供方入口激活失败，`detail` 带上 `{reason: "provider-activation-failed", message}`（开发模式至少如此）；(3) `defineRecord` 缺省值按 scope 与入口位置推导：服务端入口里默认 shared，或者类型层就让 `locality` 必填，或者在 `storage.open` 的 TS 类型里区分“服务端可用的记录”。作者写服务端插件时 `local` 永远是错的，缺省值却是 `local`。
+
+[F07] 建议 / 工具 / `nbdev dev start` 的 READY 早于页面可用
+现象：READY 行输出后第一次打开页面是空白（4 秒后截图全白，没有控制台报错，`[data-workbench-root]` 已存在但无内容），等 12 秒才正常。
+为什么：作者以为插件有问题。首次编译/依赖预热不在 READY 里体现。
+建议：READY 前对页面发一次预热请求，或日志里明确“首次加载较慢”。（这条属于仓库开发工具，不是 SDK，影响小。）
+
+[F08] 重要 / 文档 / 作者怎样得到一个能装插件的 NeuroBook
+现象：README、模板 README 都只说“在‘设置 → 插件’里点‘安装…’，填 dist 的完整路径，重启”，没有说 NeuroBook 从哪来、怎么启动、怎么重启、哪个 URL（我是靠任务给的 `nbdev dev start` 才跑起来；作者没有这个命令）。例子 `?project=book`、打开某个作品才能看到活动栏（书架首页没有设置里的插件视图入口，设置齿轮在书架首页右上角、在工作台左下角，两处位置不同）也没写。
+建议：README 开头加“前置条件：已安装 NeuroBook（版本 ≥ x），如何重启（退出应用再打开；开发服务用 …）”，并说明视图在作品窗口里才出现。
+
+[F09] 重要 / 类型 / 贡献实现的 id 与视图属性名都不被类型检查（实测）
+现象：(a) 在 activate 产出里把命令实现的键写成 `[ADD_WORDS + "-typo"]`：`vue-tsc` 通过、`nbook-plugin build` 通过，错误只能到运行期（入口激活时缺实现）才暴露。原因是 id 都是 `${descriptor.id}.xxx` 这种模板串，类型上就是 `string`，`defineEntry` 的“声明与产出对得上”核对对 id 层失效，只能核对“贡献点”一层（漏写整个贡献点会编译期报错，这一点很好）。(b) 视图 `implementation(() => ({wordz: ...}))` 与组件 `defineProps` 的 `words` 对不上：编译与构建都过（README 已自述）。
+为什么：这是插件作者最常犯的两种笔误，模板的写法恰好让它们都逃过检查。
+建议：`commandContribution` / `viewContribution` 这类助手把实现和声明绑在同一个返回值里（`view.implementation(...)` 本来就这样做了，命令和状态栏没有），`defineEntry` 直接收这些返回值，产出由 SDK 拼，作者不再手写 `[POINT]: {[ID]: impl}` 这层映射。视图属性：`viewContribution<Props>({load: () => import("./X.vue")})` 能从 `.vue` 的 `defineProps` 推出 `Props` 时，`implementation(() => props)` 就能核对；推不出时至少让 `implementation` 的泛型参数可手写（`implementation<Props>(...)`）。
+
+[F10] 建议 / 错误信息 / 缺实现的编译错误位置
+现象：删掉状态栏条目的实现后，vue-tsc 报错落在 `activate:` 那一行，是 4 层嵌套的“Type ... is not assignable to ...”，含整段 ViewDeclaration 展开（每层约 800 字符），真正的原因（`Property '"workbench.statusbar-items"' is missing`）在最后一层。
+为什么：能拦住是好事，但报错信息作者读不下去；需要拉到最后一行才知道缺哪个贡献点。
+建议：像 `NoExtraKeys` 那样把“缺什么”做成以问题命名的属性（`缺少贡献实现：workbench.statusbar-items/<id>`），让第一行就能读懂。
+
+[F11] 重要 / 错误信息 / 贡献 id 不以插件 id 加 "." 开头：构建与运行都静默
+现象（真实跑出）：把视图 id 写成 `other.goal`（违反 README“所有贡献的 id 都以插件 id 加 `.` 开头”）：vue-tsc 通过；`nbook-plugin build` 成功；安装、重启后插件页正常、`dx.daily-goal/browser` 激活并 published，但活动栏里没有这个视图，浏览器控制台、`server-current.jsonl` 里都没有任何一条指向 `other.goal` 的告警。
+spec 里 plugins.md 写着 `idPrefix: "plugin"` 的校验还是 `（planned）`，所以应该是尚未实现；README 却把它写成了作者的硬规则。
+为什么：最容易写错的规则之一（复制示例改名时忘了改前缀），后果是“视图凭空消失”且零线索。
+建议：构建期就拒绝（作者的 id 都来自 `descriptor.id`，构建预设能读出所有贡献声明）；或至少安装/激活时记 warn 并在插件页该行显示“n 条贡献被拒：原因”。更根本地：让 SDK 的助手接收短名（`viewContribution({name: "goal", ...})`），id 由 SDK 拼成 `${pluginId}.goal`，作者根本不用写前缀（VS Code 的 `contributes.commands` 也是作者写全 id，但它会在 Extension Host 日志与 `Developer: Show Running Extensions` 里提示无效贡献；Obsidian 的 `addCommand({id})` 由 Obsidian 自动加插件 id 前缀，作者不会写错）。
+
+[F12] 重要 / 命令 / 带必填参数的命令在命令面板里点了没有任何反馈
+现象（真实跑出）：命令 `add-words` 的 `args` 要求 `{words: integer}`。在面板里选“每日字数：记一笔”回车，没有参数输入、没有 toast、没有错误；数字没变（从状态栏条目点它带了 `args: {words: 100}` 才成功）。README 的命令小节没有说“人类入口不会收集参数，带必填参数的命令应当 `expose: {human: false}` 或参数全可选”。
+为什么：作者很自然会写带参数的命令（给 Agent 用），却在面板里得到“静默什么都没发生”。
+建议：命令面板执行遇到 `invalid-args` 时弹出失败提示（含 `reason`）；README 命令小节加一句规则；或 SDK 声明里支持 `args` 的“人类输入表单”（nb-form 已存在，可按 schema 画）。
+
+[F13] 重要 / 工具 / 忘了 `export` 插件定义：整个服务端被静默丢掉
+现象（真实跑出）：`backend/plugin.ts` 里把 `export const serverPlugin: PluginDefinition = {...}` 的 `export` 去掉（或只是改了导出名，改名倒是照常识别，说明构建按“导出里形状像 PluginDefinition 的那个”找）。构建成功、无警告，产物目录里只有 `browser.js`，没有 `server.js`，清单里也没有 server 入口。装上之后远程服务就是 `not-provided`/`unavailable`。
+同类：`plugin.ts` 的 `locations` 写成 `["browser"]`（少了 "server"）而 backend/plugin.ts 存在，构建照样产出 server.js，没有任何提示——说明 `locations` 要么多余要么没被核对。
+为什么：丢整端入口是比 id 写错更严重的静默失败。README 说“构建预设读的入口模块缺省是 backend/plugin.ts 与 web/plugin.ts 里存在的”，但没说“模块里没导出定义怎么办”。
+建议：入口模块文件存在但找不到可用导出时，构建报错（“backend/plugin.ts 没有导出 PluginDefinition：是否忘了 export？”）；`locations` 删掉，由入口模块推出；或者构建时核对一致。
+
+[F14] 建议 / 文档 / “仓库里能照着读的示例”作者拿不到
+现象：README 在“服务端入口与远程服务”“私有存储”两小节让作者看仓库里的 `packages/neuro-book/examples/plugins/notes`、`counter`、`focus`；SDK tarball（37 个文件）里没有 examples，外部作者没有 NeuroBook 仓库。我自己写 backend 时全靠 d.ts 与 README 的文字，没有一份可抄的“远程服务 + 存储 + 事件”完整代码，README 里甚至没有一个 `provideRemote` 的片段。
+建议：把 `focus`（设置项、命令、视图、状态栏、远程服务、存储）打进 tarball 的 `examples/`，或在 README 内贴一份最小的远程服务+订阅代码（约 30 行）。这是本次最不顺的一段文档：我最耗时的三处（远程实现的返回类型、订阅怎么往 sink 推、记录 revision 的条件保存）都是在 d.ts 里读 JSDoc 才学会的。
+
+[F15] 建议 / 命名 / 近义名词太多：Definition、Descriptor、Declaration
+现象：`PluginDefinition`（入口模块导出）、`PluginDescriptor`（plugin.ts 导出）、`PluginEntryDefinition`、`ContributionDeclaration`、`ContributionDescriptor`、`ViewDeclaration`、`CommandDeclaration`、`SettingDefinition`、`RecordDefinition`。作者写第一个插件要同时导出 `descriptor: PluginDescriptor` 与 `browserPlugin: PluginDefinition`，两者都带 `id`，id 在三处出现（package.json 的 publisher+name、descriptor.id、PluginDefinition.id），构建时再核对一致。
+建议：只有一个“插件”概念：`defineWeb(...)`/`defineServer(...)` 返回的值，id、版本从 package.json 读，`descriptor` 由构建生成（构建本来就在读 package.json）。`PLUGIN_ID` 常量模板里放在 shared/contracts.ts，而 web/plugin.ts 里用 `descriptor.id`，同一个值两种写法，作者要自己决定用哪个。
+对照：VS Code 的 `package.json` 里 `contributes` 是纯声明，实现按 id 在 `activate` 里注册；NeuroBook 的“声明在 TS、实现在 activate 产出”也类似，但 VS Code 只有“package.json 一份描述 + activate 一个函数”两个概念。
+
+[F16] 建议 / 样板 / 文本与字段的固定写法
+现象：`LocalizedText` 要求 `zh-CN` 和 `en-US` 两个键都写（我写了 7 处，每处重复两次）；`ItemDeclaration` 的 `alignment`、`order`、`priority` 全必填（没有缺省），`ViewDeclaration` 的 `location`、`layout` 必填；`defineSetting` 要写 `plugin: PLUGIN_ID`（SDK 本来知道插件 id）、`layers`、`applies`；命令 `args` 要写 `Type.Object({}, {additionalProperties: false})`；`effect` 必填。写完一个视图+一个命令+一个状态栏条目+一个设置项，仅“声明”部分就约 60 行。
+建议：`title` 接受 `string`（当作所有语言的文本）或 `{"zh-CN"}` 之一，缺省语言回退；`alignment` 缺省 `right`、`order`/`priority` 缺省 0；`layout` 缺省 `scroll`、`location` 缺省 `sidebar`；`defineSetting` 去掉 `plugin`（构建期注入）；命令无参数时 `args` 可省。
+
+[F17] 建议 / API 形状 / SDK 根入口带出了作者不该关心的内部件
+现象：`index.d.ts` 导出 `defineStore`、`definePublicState`、`defineServiceKey`、`diagnosticsKey`、`hostClockKey`、`hostStateRootKey`、`RuntimeClock`、`providePerConsumer`、`provide`；`ActivationContext.scope` 是完整的内核 `Scope`（`acquire`、`borrow`、`accept`、`recover`、`createChild`……）；`/components` 导出 `createGrid`、`GRID_SNAPSHOT_VERSION`、`SashCollapsePolicy`、`buildGridBranchPanels` 等 Grid 内部件，但 `docs/components.md` 里没有 Grid，二者不一致。README 对 `defineStore`/`definePublicState` 一个字都没提。
+为什么：IDE 自动补全里是几十个作者用不到的名字，且一部分（Scope）会把作者引向错误的做法（见 F04）。
+建议：根入口只留文档里写的；其余走 `@notnotype/nb-plugin-sdk/advanced`（或 `@internal`）。
+
+[F18] 建议 / 类型 / `NumberInput` 的 `v-model` 是字符串
+现象：`NumberInput` 的 `modelValue: string`、`min/max/step: string`，我要 `Number(draft)` 才能得到数；`v-model` 数值输入却给字符串，与 `Slider`/`Progress` 的 number 不一致。
+建议：`NumberInput` 用 `number | null`（空为 null）。（这条属于 nb-ui，非 SDK 本身。）
+
+[F19] 建议 / 工具 / `nbook-plugin` 的前缀噪声与卸载说明
+现象：`npm run build` 输出里每行前有 `npm notice run daily-goal@0.1.0 build` 之类的行（这是我本机 npm 的设置，不是 SDK 的锅，不记严重度）；`create .` 生成的 `package.json` 保留了 `npm init -y` 留下的 `"test": "echo \"Error: no test specified\" && exit 1"`、`"main": "index.js"`、`"keywords": []`，而 `index.js` 不存在。README 已建议先 `npm init -y`。
+建议：`create` 合并时把 npm init 的默认 `main`/`test` 占位识别并去掉；或 README 改成“`npm init -y` 后无需手工处理”以外的写法（先 `create` 再装 SDK）。当前顺序（装 SDK 才能有命令，命令才能生成）是 chicken-and-egg，README 用 npm init 绕过去了，可以接受。
+
+[F20] 建议 / 界面 / 插件页显示的信息少
+现象（截图 02、04）：第三方插件行只显示 `dx.daily-goal` 与版本串；`package.json` 的 `displayName`（“Daily Goal”）、`description` 都没出现；升级时行内写“重启后升级到 0.1.0”，但安装对话框当时标题是“降级插件”（0.1.0+dev 到 0.1.0），两处措辞不一致。入口的激活状态、贡献了哪些视图/命令也看不到（README 自己说“插件页现在只管安装与启停”）。
+建议：行里加 displayName 与一行描述；展开显示“入口：server 已激活 / browser 已激活；贡献：1 视图、1 命令、1 状态栏条目、1 设置项”；激活失败显示原因（对应 F06）。
+
+======================================================================
+## 摘要（补在最后，因为文件只追加；阅读时请先看这一节）
+
+插件：`dx.daily-goal`“每日字数目标”，/tmp/nb-plugin-dx/daily-goal。用到：1 个设置项（dailyTarget，另留了模板的 greeting）、1 条命令（add-words，带参数）、1 个侧栏视图（Progress、NumberInput、Button）、1 个状态栏条目（`500/2000`，点击带参数执行命令）、1 个服务端远程服务（progress：3 个方法、1 个事件 changed、1 条业务错误码）、私有存储（defineRecord，user 范围、shared）。共约 260 行，其中声明与样板占一半以上。
+走通：SDK tarball（需手动 npm pack）、create、build、build --dev、typecheck、安装（含升级、降级对话框）、重启后视图/状态栏/命令/设置项全部生效；设置窗口改目标，视图与状态栏立即变；点“记一笔”，服务端写存储并经 changed 事件推回浏览器（视图数字更新），状态栏点击执行带参数命令成功。截图 19 张在 /tmp/nb-plugin-dx/shots/（06、11、13、14、16 是关键）。
+卡住/绕路：无一处“阻断”；但有三处耗时：忘 locality 导致的 unavailable（F06，查日志才知道）、defineRecord schema 缺 additionalProperties（F02）、命令面板里带参数命令无反应（F12）。全程没有读仓库源码来写插件；去过仓库只是为了驱动浏览器（e2e 文件）与启动服务（cli.md）。读过的 SDK 包内 spec 副本：plugin-channel（查订阅是否自动释放）、plugins（查 id 前缀规则）。
+总耗时：约 45 分钟（含两次重启服务、写报告）。
+环境说明：本机 playwright 的 chromium 没装，我用 /opt/google/chrome/chrome 的 executablePath 驱动。`nbdev dev start` 是长命令，我第一次没放后台被 300 秒超时（cli.md 写了，是我的疏忽）；之后 pkill -f 误杀了自己的 shell（AGENTS.md 已警告，同样是我的失误）；这两条不计入发现。
+
+## 数量
+阻断 0；重要 9（F01 F02 F03 F06 F08 F09 F11 F12 F13）；建议 11（F04 F05 F07 F10 F14 F15 F16 F17 F18 F19 F20）；共 20。
+其中 F07、F18、F19、F20 属于周边（开发工具、nb-ui、npm 噪声、插件页），SDK 本体 API 的发现是 F02 F03 F04 F05 F09 F10 F13 F15 F16 F17。
+
+## 概念数（写出第一个能用的插件要学的）
+最小可用（只要视图+设置）约 10 个：PluginDescriptor、PluginDefinition、defineEntry、activationEvents(onStartup)、dependencies+ServiceKey(settingsKey)、contributions 与贡献点常量、LocalizedText、defineSetting 与设置分区声明、viewContribution 与 implementation(props)、命令/实现。加上远程服务+存储再加：defineRemoteService（provider/callers/methods/events/errors）、provideRemote、RemoteOutcome 与 RemoteResult、defineRecord（scope/locality/version/additionalProperties）、storageKey、revision 条件保存。内部细节漏出：Scope、ServiceKey 的 per-consumer 语义、`activationEvents` 的 onStartup 理由、`locality`。
+
+## 与 VS Code / Obsidian 对照
+- 更好：设置项带 schema，设置窗口自动画控件且热更新（比 Obsidian 的 loadData/saveData + 手写设置页省太多）；`defineEntry` 在编译期核对“声明的贡献点都交了实现”，VS Code 的 package.json 与 activate 对不上只能运行时发现；远程服务合同两端共用类型，调用方的返回类型 `RemoteResult<T, Code>` 带业务码，端到端类型推导顺（合同→实现→调用方：我在调用方 `r.code === "too-many"` 能补全）；构建期纯度检查（第二份 Vue、服务端误引 components）很有价值，报错也清楚。
+- 更绕：声明与实现分两处、id 手写三遍（VS Code 是 package.json 声明 + registerCommand(id)，同样两处，但 Obsidian 的 addCommand 一处写完并自动加前缀）；每个贡献都要手工拼 `{capability, id, declaration}` 与 `[POINT]: {[id]: impl}`；本地化文本必须双语；没有示例随包；失败反馈弱于 VS Code 的“Running Extensions”面板。
+
+## 体验好的地方
+1. `nbook-plugin create/build` 的报错文案具体到文件与规则（“记录定义 progress 不合规则：schema 须为……”；“插件描述与 package.json 不一致”；“引用了宿主没有共享的模块……（由 backend/plugin.ts 引入）”；create 对非空目录与非法 name 的提示），能直接定位。
+2. 编译期核对激活产出与声明（漏掉整个贡献点实现立刻报错），`remote.add()` 等返回的 `RemoteResult` 在 `code` 上带业务码联合，合同→实现→调用方一路推导。
+3. 开发循环清楚：`build --dev` 版本号自动递增，安装对话框正确区分安装/升级/降级并给出风险提示；设置项与状态栏条目热更新；订阅事件推送到浏览器第一次就通。
+4. 构建预设吃掉 Vite/Vue/图标/样式整合，作者的 `package.json` 只有 5 个依赖；`/components` 的组件在宿主主题下外观一致（截图 06、16）。
+5. README 内容详尽、规则带链接；视图“属性名不被类型检查”这类已知缺口也如实写出。
+
+更正：总耗时按时间戳实测约 30 分钟（上文“约 45 分钟”估高了）。收尾：dev 服务已用 nbdev dev stop 停掉；机器上另有两个不是我启动的 'bun src/server/dev/main.ts' 进程（pid 2028896 在主工作区，pid 3128771 在该 worktree，启动于我开始之前），未动。dx.daily-goal 仍装在 .dev-state 里（待生效的升级），acme.hello 也还在。

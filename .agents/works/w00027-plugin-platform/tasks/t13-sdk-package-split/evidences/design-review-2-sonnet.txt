@@ -1,0 +1,202 @@
+t13 设计审查（第 2 轮，Sonnet，只读）：design.md 与 plan.md 修订稿对照代码事实
+对象：.agents/works/w00027-plugin-platform/tasks/t13-sdk-package-split/design.md、plan.md（修订稿，含第 9 节处理表）
+说明：路径除注明外相对 worktree 的 packages/neuro-book；按核实顺序追加。实验文件在 /tmp/nb-review-t13-r2/（应用与内核的拷贝 ws/、rolldown 实验 rd/、闭包脚本），仓库未改。
+前提：第 1 轮已处理的不重复；只在处理不到位时指出。
+
+========================================================================
+N1  [重要 / 接口与构建 / 档案分层]  “纯数据档案”和“惰性模块提供函数”被放进同一个文件 src/plugin-platform-profile.ts，会让 Node 类型检查和 SDK 构建同时失败
+位置：design 3.4（“平台档案分两层”与“应用给出自己的档案 src/plugin-platform-profile.ts：上面的取值，加上提供模块的函数”）；plan 3 的 S2；
+      src/web/boot.ts:60；src/backend/plugins/loader.ts:45；scripts/plugin-sdk/build-sdk.ts:213-220（第二次 rolldown，入口 build 与 cli）；tsconfig.json include 的 src/*.ts
+现象：第 1 轮 R3 的处理是“分两层”，但 3.4 写的落点仍是一个文件。构建预设（plan 里进 build/）、作者命令（cli.ts、create-plugin.ts）都要导入数据层；
+  数据层所在的文件若还含 hostModules，里面有对 nbook/sdk/browser、nbook/sdk/components 的动态导入（浏览器分支必须用 vue 与 nb-ui 的 .vue 组件）。
+  实测两处：
+  1) Node 的类型检查。在 /tmp/nb-review-t13-r2/ws 的拷贝里加一个 src/plugin-platform-profile.ts，内容只有 hostModules 的两个动态导入
+     （nbook/sdk/browser、nbook/sdk/components），`tsc --noEmit -p tsconfig.json`：基线 0 个错误，加文件后 62 个错误
+     （nb-ui/src/components/index.ts 的 `*.vue` 无导出成员等）。原因：tsconfig.json 的 include 里有 `src/*.ts`，把它纳入了没有 .vue 声明的 Node 程序；
+     现在浏览器模块表在 src/web/host/plugin-modules.ts，只在 tsconfig.web.json 的程序里。
+  2) SDK 打包。构建预设与 cli 是 build-sdk.ts 里 rolldown 的入口（无 Vue 插件）。用 /tmp/nb-review-t13-r2/rd 复现：入口只导入档案文件里的数据，
+     档案文件里有一个未被入口使用的动态导入指向含 .vue 的模块，rolldown 报 PARSE_ERROR（Unexpected JSX expression，在 .vue 文件上）。
+     就是说 build.js 与 cli.js 打不出来。
+  另外服务端与浏览器共用 hostModules(location) 一个函数也有同样问题：浏览器分支进了服务端与项目子进程的程序，服务端分支进了浏览器的程序。
+为什么是问题：不是静默通过，S2c 或 S4 的构建与类型检查会立刻红；但这是设计层面要先定的文件划分，S2a 就会碰到（搬家后的 backend/loader 要从档案取表）。
+  同一点还决定浏览器首屏：boot.ts 现在用 `await import("./host/plugin-modules")` 保住懒加载，档案静态导入后，hostModules 必须只含动态导入，不能静态导入 sdk。
+如何核实：见上两处实验；命令 `cd /tmp/nb-review-t13-r2/ws/packages/neuro-book && bunx tsc --noEmit -p tsconfig.json`；rd/run.ts。
+建议改法：档案拆成至少三个文件，写进 design 3.4：
+  (a) profile 数据文件（Node、浏览器、构建预设、作者命令都能导入，只含常量与纯函数，不导入 SDK、nb-ui、vue）；
+  (b) 服务端/项目的模块提供函数（只导入 @vue/reactivity 与 nbook/sdk/index，放进 tsconfig.json 的程序）；
+  (c) 浏览器的模块提供函数（放进 tsconfig.web.json 的程序，boot.ts 动态导入它，保住现状）。
+  再加一条测试：构建 SDK 后 build.js、cli.js 的文本里不含 sdk 实现（例如不出现 Vue 或 nb-ui 的标记）。tsconfig.web.json 的 include 是逐个文件列的（src/manifest.ts 等），档案数据文件要补进去。
+
+========================================================================
+N2  [重要 / 内核 / D2 与 platform 可选]  “不给 platform 的 47 个调用不用改”不成立：把 8 份前缀计算换成严格的 idPrefix 后，应用里已有 18 个 Bun 用例失败，生产装配漏传 platform 则静默降级
+位置：design 3.3（“不给时只保留 runtime……这样 47 个调用 createApplication 的测试与夹具不用改”）；plan 5 的 S1b；plan 9 的 R19 行；
+      nb-runtime src/plugins/host.ts:858（现有 idPrefix 检查是严格的“插件 id 加点”）；8 处前缀计算：
+      src/plugins/commands/shared/menus.ts:86、editor/shared/contracts.ts:106 与 :148、workbench/shared/views.ts:83、items.ts:66 与 :85、overlays.ts:29、settings/shared/sections.ts:86
+现象：内置插件大量贡献不在自己 id 之下的 id。用 bun 加载三份装配表（服务端、项目、浏览器，.vue 用桩）逐个比对，
+  贡献 id 不以 `<插件 id>.` 开头的有：nbook.workbench 的命令 nbook.settings.switch-theme、nbook.view.* 等；nbook.projects 的设置分区 `nbook.works`；
+  nbook.settings 的活动栏条目 `nbook.settings`；nbook.explorer 的视图 `nbook.explorer`（等于插件 id，连末尾的点都没有）；
+  http.routes 里 nbook.projects、nbook.files（同样等于插件 id）。设计的“发布者加点”放宽规则能放行它们，不给 platform 时严格规则会拒绝。
+  实验：在 ws 拷贝里把上面 8 处的 `descriptor.plugin.startsWith("nbook.") ? "nbook." : ...` 改成只留 `${descriptor.plugin}.`（等价于“只保留 runtime、严格前缀”），
+  `bun test src`：基线 1 个失败（拷贝路径造成的无关用例），改后 19 个失败，即新增 18 个，全在设置插件：
+  settings/window.test.ts 11 个、settings/web/sections.test.ts 5 个、settings/commands.test.ts 与 settings/settings.test.ts 各 1 个。
+  这 4 个文件都用 createApplication 直接装真实的 nbook.projects 与 nbook.settings，要补 platform（settings/testing/world.ts、standalone.ts 等夹具同改）。
+  examples 的 33 个用例照过（示例插件的 id 都在自己名下）；vitest 的 .dom 用例我这里跑不起来，未验证。
+为什么是问题：1) “不用改”的前提错了，至少 4 个文件加夹具要改；2) 更重要的是生产装配：server/start.ts、project/start.ts、web/host/window.ts 三处各要传 platform，
+  漏一处，该宿主里 nbook.works 分区、活动栏条目等只是被拒（诊断里一条，界面缺东西），没有类型错误也没有测试天然拦住。plan 的 S1b 验证写的是“改了文案的校验器测试同步”，没有这一项。
+如何核实：见 /tmp/nb-review-t13-r2/contrib.ts 与 contrib2.ts（贡献 id 比对）、/tmp/nb-review-t13-r2/strict.txt（19 个失败的名字）。
+建议改法：(1) 在 S1b 写明：应用侧给一个包一层的 createApplication（或测试夹具的公共入口）默认带 NeuroBook 的 platform，生产三处与测试夹具走它；
+  (2) 加一条应用测试：三处生产装配（server/start.ts、project/start.ts、window.ts）装出的宿主里，`nbook.projects` 的 `nbook.works` 分区状态为 accepted；
+  (3) design 的“47 个不用改”改成实际数字（至少 4 个文件的夹具）。
+
+========================================================================
+N3  [重要 / 边界 / D0]  plugin-sdk/ 的允许导入表（design 3.2 第 103 行）不完整，写出来的机检要么落空要么要开例外
+位置：design 3.1、3.2；scripts/plugin-sdk/cli.ts:15、build-sdk.ts:32（都导入 ../../src/shared/product 的 PRODUCT_VERSION）；
+      create-plugin.ts:20（现在导入内核的 BUILTIN_PUBLISHER、isIdSegment，按 3.3 要改成从档案取）；build-sdk.ts 读取 tsconfig.web.json、tsconfig.json、package.json、docs/specs、nb-ui/src
+现象：表里 plugin-sdk/ 只许依赖“src/sdk/（经 SDK 包名）、src/plugin-platform/build/、内核、nb-ui 的公开子路径”。实际需要而表里没有的：
+  1) src/shared/product（PRODUCT_VERSION）：cli.ts 的 create 与 build-sdk.ts 的包版本都用；
+  2) 档案数据文件（见 N1）：作者命令里的 id 规则、publisher 规则、engine 键都从它取，3.3 明说“作者命令都从那里取”；
+  3) 应用 package.json 与两份 tsconfig 的文件读取（不是导入，架构测试看不到，也不违规，但 pack.ts 的“只经 src/sdk/ 与 build/ 用应用”的说法与事实不符）。
+  测试不算（architecture.test.ts 不扫 *.test.ts），但 build-plugin.test.ts、external-examples.test.ts 现在导入 src/web/host/plugin-code、src/backend/plugins/loader
+  （搬家后是 plugin-platform 的 web/ 与 backend/），它们在表里也不属于“内置插件的实现”，表里“场景测试与场地另可引用内置插件的实现”不覆盖。
+为什么是问题：设计声明的是“机检守住的边界”。按表写规则，build-sdk.ts 与 cli.ts 的第一行导入就违规；放宽成“可以导入 src 的任何东西”则边界没有意义。
+如何核实：`grep -n "src/shared/product" scripts/plugin-sdk/*.ts`；`grep -n "nb-runtime/plugin-manifest" scripts/plugin-sdk/create-plugin.ts`。
+建议改法：把表补成实际依赖：加 `src/shared/product`、档案数据文件、`src/plugin-platform/` 的 shared 与 build；测试另列一行（可引用 plugin-platform 的 backend 与 web、内置插件）。
+  或者把 PRODUCT_VERSION 与档案数据一并从 src/sdk/ 导出（作者命令与 pack 只从那一个入口取），表就保持短。后者更接近“只经 src/sdk/ 用应用”的本意，建议选后者。
+
+========================================================================
+N4  [重要 / 边界 / 档案方向]  src/plugin-platform/build/ 要用档案和产品版本，设计没写它怎么拿到，写出来会违反 plugin-platform 自己的规则；打进 SDK 包的 build.js 入口也没定
+位置：design 3.2（plugin-platform 行：不引用 src/shared 里的 NeuroBook 合同，允许导入列表里没有档案）、3.4（“由 NeuroBook 的平台档案配置”）；
+      scripts/plugin-sdk/build-plugin.ts:40-42（现在导入 ../../src/shared/plugin-modules、product、versions）、:117-119、:441、:470（engines.neurobook、nbook.definitions、PRODUCT_VERSION）；
+      build-sdk.ts:213-220（build.js 与 cli.js 的入口）与 :263-270（package.json exports 的 "./build"）
+现象：构建预设读 engines 键、作者 package.json 字段 nbook、产品版本、共享模块名，全是档案字段。若 build/ 直接导入应用的档案文件，
+  就是 plugin-platform 导入了应用的非通用代码，与 3.2 的第一条边界冲突；若改成由调用方传入，那么 SDK 包导出的 `build.js`（作者自己的构建脚本会 import 它，build-sdk.test.ts:238 就这样测）
+  就需要一个“绑定了 NeuroBook 档案”的薄封装，而不是 build/ 里的通用函数。设计没说这个封装放哪、谁是 rolldown 的入口、`BuildPluginOptions` 的类型是否对外变化。
+为什么是问题：这是 S2c 与 S4 的直接前提，也决定 build.d.ts 对外的形状；SDK 还没发布，现在定成本最低。
+如何核实：读 build-plugin.ts 头部导入与 :441、:470 附近。
+建议改法：build/ 的函数收一个 profile 参数（纯数据，N1 的 (a)），不导入应用；plugin-sdk/ 里放一个约十行的封装 `build.ts`（绑定 NeuroBook 档案后再导出 buildPlugin 等），
+  作为 rolldown 的 build 入口；cli.ts 同样从档案取。在 design 3.6 的目录图里把它画出来。
+
+========================================================================
+N5  [重要 / 切片可提交性 / D0]  S4 单独提交时 docs:check 与 e2e 过不了；有一批路径在字符串里，类型检查看不到
+位置：plan 5 的 S4 与 S5 两行、plan 4（Spec 与文档表）；
+      docs/modules/monorepo-boundaries.md:14（链接 ../../packages/neuro-book/examples/README.md）；docs/specs/settings/settings-window.md:272（链接 examples/scenarios/06-settings-page.test.ts 与 examples/plugins/snippets/）；
+      AGENTS.md:32；docs/standards/code/common.md:22；e2e/plugin-authoring.e2e.ts:19 与 :55；e2e/plugin-code.e2e.ts:101-106；e2e/plugins.e2e.ts:20
+现象：
+  1) S4 的自跑验证包含 docs:check，而 docs:check 对 docs/ 下的链接目标是否存在做检查（isActiveMarkdown 覆盖 docs/、.agents/、根文档）。上面第一二处链接在 S4 之后就断了，
+     修它们的是 S5，S5 排在后面且在 master 上；S4 在 worktree 上单独提交时 docs:check 必红。
+  2) plan 第 4 节的文档表漏了：settings-window.md（Spec，要改链接）、根 AGENTS.md 第 32 行与 docs/standards/code/common.md 第 22 行（写着 `packages/neuro-book/examples/`，是注释规范的例外条款）。
+     表里写的是 `packages/neuro-book/AGENTS.md`、nb-runtime 的说明、scripts/AGENTS.md（后者现在并没有提到 plugin-sdk，改什么不清楚）。
+  3) e2e 里有三处用字符串写路径：plugin-authoring.e2e.ts:55 的 `bun -e 'import {buildSdk} from "./scripts/plugin-sdk/build-sdk"'`、plugin-code.e2e.ts:106 的 `./scripts/plugin-sdk/build-examples`、
+     plugins.e2e.ts:20 的 `join(PACKAGE_ROOT, "examples", "external", "declarative")`。tsc 看不到这些字符串，搬家后只有跑 e2e 才红；
+     S4 的验证只列了 plugin-authoring.e2e.ts，plugin-code 与 plugins 两个要等到“合入前”才跑。
+  4) 同一类的“少一级目录”：build-examples.ts:17、build-sdk.ts:34 的 `new URL("../../", import.meta.url)` 是包根；testing/author.ts:11 的 `"../../../../../node_modules/"` 是仓库根。
+     搬到 plugin-sdk/<子目录>/ 后层数各变，路径指错时 existsSync/读文件才报，不是编译错误（风险二只讲了“测试静默不跑”，没讲这一类）。
+为什么是问题：S4 要求“每片单独提交后检查通过”，按现在写法做不到。
+如何核实：`git grep -n "scripts/plugin-sdk\|neuro-book/examples" -- docs AGENTS.md packages/*/AGENTS.md e2e`。
+建议改法：S4 同一提交里改 monorepo-boundaries.md、settings-window.md、AGENTS.md:32、common.md:22、nb-runtime/AGENTS.md:7 的链接或路径（它们是路径改动，不是 S5 的“收尾”）；
+  S4 验证加跑 plugin-code 与 plugins 两个 e2e；风险二补一条：搬家前后各打印一次“包根、仓库根”两个常量并对照。
+
+N2 补充（更正举例，结论不变）：上面列的贡献里，只有落在那 8 个贡献点上的才受前缀规则影响——设置分区（nbook.works，来自 nbook.projects）、
+  工作台视图（nbook.explorer，等于插件 id）、活动栏/状态栏条目（nbook.settings）。http.routes 上的 nbook.projects、nbook.files 与 nbook.workbench 的 nbook.settings.switch-theme 等命令
+  不在这 8 个点上（命令是域规则，http.routes 没有前缀规则），拿来当“严格前缀会拒绝”的例子不对。18 个失败用例的实测不受这个更正影响。
+
+========================================================================
+N6  [建议 / 范围 / 公开面闭包]  “闭包不超过 30 个文件”按计划列的三处改动达不到：36 个只能到 34，第 1 轮实验的下限是 33
+位置：design 3.5（“目标是闭包不超过 30 个文件”）；plan 3 的 S3；sdk/index.ts:53-54、:38-39、:49-50；plugins/commands/shared/contracts.ts:169-172；plugins/workbench/shared/contracts.ts:21-26
+现象：当前运行时闭包 36 个文件 4282 行（/tmp/nb-review-t13/list.ts 的列表，三个入口合并）。计划的三处：
+  (a) 工作台贡献助手 web/view-contribution.ts 改引用叶子；(b) 设置贡献助手 web/page-contribution.ts 改引用叶子；(c) 命令合同去掉末尾对 keybinding.ts、menus.ts 的再导出。
+  只有 (c) 确实少 2 个文件（这两个文件在闭包里只被 commands/shared/contracts.ts 引用，已逐个 grep）。(a) 与 (b) 不会少：sdk/index.ts 自己就导入
+  `nbook/plugins/workbench/shared/contracts`（WORKBENCH_VIEWS_POINT、WORKBENCH_STATUSBAR_ITEMS_POINT 及类型）与 settings 的 contracts，那个门面还会带着 home.ts、menus.ts、overlays.ts 进闭包；
+  要少这 3 个，sdk/index.ts 也得改指叶子（views.ts、items.ts），计划没写。按计划的三处我数出 34；把 index.ts 也改成叶子再加其余再导出，第 1 轮的 leaf.ts 实验给出下限 33（运行时导入）。
+  再往下只能不公开设置页组件（ui/settings 共 9 个文件、约 1100 行）或 persisted.ts（537 行）这类“有意公开的功能”，而 design 明说不动它们。
+为什么是问题：S3 的完成判据不可达，会让实施时反复纠结，或者在不想动的地方硬缩。快照测试本身不卡数字，所以只是判据写错。
+如何核实：`bun /tmp/nb-review-t13/closure.ts`、`bun /tmp/nb-review-t13/leaf.ts`；`grep -n "workbench/shared/contracts" src/sdk/index.ts`。
+建议改法：判据改成“闭包快照入库，三处缩小后不超过 34；以后新增文件在评审中确认”，或者列出 index.ts 也改叶子的第四处并把目标写成 33。
+
+========================================================================
+N7  [建议 / 边界 / shared/definitions.ts]  registerThirdParty 搬进 shared/ 之后还剩一个违规：它要用的 definitionAt、pluginsAt 留在 src/manifest.ts，而那个文件导入全部 15 个内置插件描述
+位置：design 3.4（definitions.ts：三处宿主共用的 registerThirdParty）、plan 3 的 S2（“src/manifest.ts 里第三方的部分进 shared/definitions.ts”）；src/manifest.ts:14-28 与 :44-72
+现象：thirdPartyDefinitionAt（manifest.ts:73-97）调用 definitionAt（:53-62，内置与第三方共用），loader.ts 还调用 pluginsAt（:38-40）。两个函数是通用的，
+  但与 productPlugins 在同一个文件，该文件静态导入 15 个 `./plugins/*/plugin`。搬走“第三方的部分”后，definitions.ts 只要导入 `nbook/manifest` 就违反 3.2 的“不引用 src/plugins/”；
+  要不违规，definitionAt 与 pluginsAt 也得挪进 plugin-platform/shared。调用它们的非测试文件 14 个（loader.ts、server/plugins.ts、project/plugins.ts、project/start.ts、window.ts、browser-bootstrap.ts、web/plugins.ts、web/development-plugins.ts、
+  server/testing/fixture-entry.ts、files/testing/scene.ts、settings/testing/{world,standalone}.ts、examples/testing/stage.ts），测试 12 个。
+  其余要搬的东西我逐个看了导入，没有服务端或浏览器专有的：definitions.ts 需要的 PluginCodeError（shared/plugin-code-error.ts，纯类）、内核类型、canonical 比较（D3 之后进内核）都是纯 TS。
+  versions.ts 导入 semver（Node 与浏览器都能用，vite.config.ts 的 optimizeDeps 已列）。结论：能放进 shared，前提是把 definitionAt、pluginsAt 一起搬。
+为什么是问题：设计说的“搬完没有违规”漏了这两个函数；plan 只写“第三方的部分”。
+建议改法：plan 3 的 S2 写明 definitionAt、pluginsAt 随 definitions.ts 搬进 plugin-platform/shared，manifest.ts 保留 productPlugins，并从 plugin-platform/shared 再导出这两个名字（19 个导入点就不用逐个改，S2a 纯搬家更干净）。
+
+========================================================================
+N8  [建议 / 机检语义 / 字面量扫描]  “非测试源码不出现 nbook、neurobook、NeuroBook”与应用别名 `nbook/` 冲突，档案字段也漏了几个内部名字
+位置：design 3.2（plugin-platform 行：由什么机检）、3.4（字段表）；src/backend/plugins/loader.ts:52、:95；scripts/plugin-sdk/build-plugin.ts:221、:234、:261、:283、:490、:568；src/backend/plugins/record.ts:8 等
+现象：1) plugin-platform 允许导入应用的通用件 `nbook/backend/locked-replace`，import 说明符里就有 `nbook`；搬来的文件今天还大量用 `nbook/shared/versions` 之类的别名。
+     逐字扫描会在每个别名导入、以及注释里提到 `nbook/...` 路径的地方报警。
+  2) 档案字段没覆盖、但含 nbook 的内部名字：Bun 运行期插件名 `nbook-plugin-host-modules`、`nbook-plugin-imports:`（loader.ts）；构建期 Rolldown/Vite 插件名 `nbook-plugin-vue-runtime`、`nbook-plugin-facts`；
+     注入的变量 `__nbookScriptUrl`；工作目录 `nbook-plugin-build`、`.nbook-plugin-build-`（后两者属于“临时目录前缀”字段，前几个不属于任何字段）。
+     它们不是用户可见常量，直接改成中性名字即可，不必进档案。
+为什么是问题：规则字面上执行会有几十处噪声，容易被实施者用豁免名单“修好”，规则就松了。
+建议改法：写明扫描只看标识符与字符串字面量，不看 import 说明符；档案之外的内部名字改成 `plugin-host-modules` 这类中性名；
+  对 plugin-platform 用相对路径导入同目录件，只有 locked-replace 一处带 `nbook/`，在扫描里点名豁免。
+
+========================================================================
+N9  [建议 / 切片 / S1a 与 S1b 的落点]  S1a、S1b 需要应用的“平台档案”与“清单格式对象”，但它们要到 S2a 才建
+位置：plan 5 的 S1a（“应用各处改用格式对象”）、S1b（“内核装配收 platform”）、S2a（建档案）；design 3.3 “应用在平台档案模块里建一次”
+现象：S1a 要让服务端盘点、窗口、构建预设、作者命令从同一个地方取格式对象；S1b 要让 server/start.ts、project/start.ts、window.ts 传 platform。
+  而 src/plugin-platform-profile.ts 与 plugin-platform/shared/profile.ts 到 S2a 才出现。这两片之间应用要有一个临时落点，并在 S2a 再搬一次，plan 没写。
+  S2a 又要求“纯搬家单独一提交”，格式对象的临时落点会在这次搬家里再动。
+建议改法：S1a 就建 src/plugin-platform-profile.ts 的数据部分（只含 engine、reservedPublishers 与 createManifestFormat 的实例，N1 的文件 (a)），S2a 再往里加字段；S1b 也从它取 platform。
+
+========================================================================
+N10  [建议 / 范围 / D1 的清单与 isBuiltinId 语义]  诊断插件改名的影响面比 plan 列的多几处，isBuiltinId 对 runtime 的含义没写
+位置：plan 4（Spec 表“共 8 处”）与 S1c；src/plugins/diagnostics/plugin.ts:5（应用侧的描述 id）；src/server/plugins.ts:52、:70；src/project/plugins.ts:40、:54、:61；src/web/plugins.ts:37、:40、:62；src/web/host/window.ts:110、:356；
+      src/builtin-manifest.test.ts:27；docs/adr/0026、0027；packages/neuro-book/README.md:7
+现象：1) 8 处 Spec 的数字核对无误（server-host 4、browser-host 1、public-state 1、persistence 1、files 1）。但 S1c 的完成判据只扫“现行代码与 Spec”，
+     ADR 0026（第 5 条）、ADR 0027（决策 1）、应用 README 仍写 nbook.diagnostics；ADR 0027 本来就要改，顺手改；ADR 0026 与 README 要不要改，plan 没说。
+  2) 应用的描述 id、三个装配表里的字面量类型（`ServerHostPluginId = "nbook.diagnostics" | ...`）也要改，是类型层面的改动，tsc 会拦，没有风险，只是 plan 的位置清单里没列。
+  3) window.ts:356 把“内置插件”判成 id 以 `nbook.` 开头；改成 isBuiltinId 后，runtime.diagnostics 要被判为内置。design 3.3 写了“runtime 总是保留”，
+     没写 isBuiltinId 对 runtime 返回 true；这条决定“服务端引导里出现 runtime.* 却找不到本页面描述”时走“提示刷新”还是被当成第三方去读清单。需要一条测试固定。
+  4) 与 D2 的交互：保留发布者放宽对 runtime 也生效吗？runtime.diagnostics 目前没有贡献，不影响，但规则要写。
+建议改法：S1c 的 rg 范围含 docs/adr 与 README 并逐个判；3.3 补一句 isBuiltinId 与保留名单的关系（`reservedPublishers ∪ {runtime}`），并在清单格式测试里加 runtime.* 的用例。
+
+========================================================================
+N11  [建议 / 机检 / 架构测试的改法]  架构测试的“示例”判定写死了 `../examples/` 前缀，S4 要改的不止一处；plugin-sdk/ 与 platform 的新规则也要新增扫描根
+位置：src/architecture.test.ts:15（EXAMPLE_PLUGINS）、:68-70（pluginOf、isExample、isPluginContracts 的正则）、:158-191（约 15 个用例字符串）、:9-13 头注释
+现象：架构测试只扫 sourceFiles(SRC) 与 examples/plugins。S4 之后：示例路径前缀变；“plugin-sdk/ 不依赖应用其余源码”“产品代码不引用 plugin-sdk/”这两条需要新扫描根（cli、pack 等）；
+  “产品代码不引用 build/”“build/ 可用 Vite”要改 `startsWith("server/dev/")` 的判定。这些 plan 只用一句“架构测试”概括。另外 src/plugin-platform-profile.ts 不属于 web、backend、neutral 任何一类
+  （classification 靠路径段，neutral 只认 manifest.ts、development-manifest.ts 两个文件名），web 与 server 都导入它，需要把档案数据文件加进 neutral 名单，否则它导入什么都不被检查。
+建议改法：plan 3 的 S2 与 S4 各列一句具体改动点；把“规则能拦下对应违规”的用例（现有结构已有）为 platform 与 plugin-sdk 的新规则各补一条。
+
+------------------------------------------------------------------------
+更正（追加，覆盖上面两条里写得不准的数字；不是新发现）：
+N6 更正：我又用边跳过的方式精确算了一遍（/tmp/nb-review-t13-r2/clo3.ts）。基线 36；只做计划里的 (c)（命令合同去掉两条再导出）得 34；
+  如果闭包里所有文件都不再导入 workbench/shared/contracts 这个门面、而改指 views.ts 与 items.ts 两个叶子，得 30（门面连同 home.ts、menus.ts、overlays.ts 一起出闭包，叶子保留）。
+  所以“≤30”可达，但要求 sdk/index.ts、web/view-contribution.ts、workbench/web/contracts.ts 等所有导入门面的地方都改，余量为 0；计划只写了“两个贡献助手”，
+  不含 sdk/index.ts，按字面做只有 34。建议改法改为：在 plan 的 S3 写明“闭包内不再有文件导入 workbench/shared/contracts 门面（含 sdk/index.ts）”，目标 30 就有根据；
+  上一版里“下限 33”那句不要引用（第 1 轮 leaf.ts 把设置门面也算进了叶子集合，口径不同）。严重程度仍为建议。
+N7 更正：非测试的调用点是 13 个（14 个文件里减去 manifest.ts 自己），不是“19 个导入点”；测试文件 12 个。再导出的建议不变。
+
+========================================================================
+附：核对后没有发现问题的方面
+1. 作者材料放 plugin-sdk/ 不会卷进产品产物：vite 的 root 是 src/web，Tailwind 的 @source 是 src/web/tailwind.css 里的 `../`（即 src/），plugin-sdk/ 在其外；
+   build:server 从 src/server/main.ts 与 src/project/main.ts 打包，只含导入图；check-dist.ts 只扫 dist/web 与 dist/server；smoke-server.ts 不引用 examples 或 scripts/plugin-sdk
+   （grep 已核）。唯一要注意的是 src/plugin-platform/build/ 在 src/ 之下会被 Tailwind 扫到，plan 的 S2c 已写排除。
+2. 现有的 tsconfig、Vitest、bunfig 的要改处 plan 列全了：tsconfig.json 的 include 里 examples/testing、examples/scenarios、examples/plugins/*/{plugin.ts,backend,shared} 与 "scripts"，exclude 里 scripts/plugin-sdk/template；
+   tsconfig.web.json 的 examples/plugins/*/{web,plugin.ts,shared}；tsconfig.browser-test.json 的 examples/**/*.dom.test.ts；vitest.config.ts 的 include；bunfig 只排除 *.dom.test.ts，不用改。
+   .gitignore 是通用的 `dist/`，示例产物不用改。治理检查（agent-governance、test-conventions 的 STRICT_TEST_ROOTS 是包根）和 workspace-package-matrix 不看包内目录，不用改。
+3. 合同按内容核对（D3）对内置插件：内置插件的产出合同与 remoteProvides 本来是同一个对象，路径不变；只放宽“内容相同的另一个对象”，不会让现有行为变严。
+   host.ts:1124 的注释强调的“同 id 不同版本”仍被拒（canonical 比较包含 version）。没有发现问题。
+4. 激活产出形状（t11 并入）：内核 host.ts:1083 之后直接读 output.services，产出为空会在内核里抛 TypeError；改成 activation-threw 是纯收紧。没有发现问题。
+5. 构建与装载的“惰性”本身可以保住（N1 的前提是文件划分对），server 侧 loader.ts:45 已经是函数内的动态导入，浏览器侧 boot.ts:60 同理。
+6. 切片 S1c、S2b、S2c、S3 单独提交的可通过性：除 N2、N5、N9 指出的以外，没有发现依赖后一片的东西；S3 依赖 S2a 的共享模块名（已在 S2a 迁入档案）。
+7. 处理表 R1、R2、R5、R6、R7、R10、R11、R12、R13、R15、R16、R17、R18 的处理我认同。不认同的：R3（落点仍是一个文件，见 N1）、R14（边界表补得不全，见 N3、N4）、
+   R8（目标数字的前提不完整，见 N6 更正）、R19（“不用改”不成立，见 N2）。
+
+========================================================================
+数量：阻断 0，重要 5（N1 到 N5），建议 6（N6 到 N11）。另有两处对前文的更正（N2 补充、N6/N7 更正），不计数。
+
+对 D0 到 D5 的判断：
+D0：同意改为应用包内目录，比独立包少违反治理规则、少复制测试设施；我没找到更自然的第三种（原位不动只加机检也行，但不满足开发者“作者材料分开”的要求）。前提是补全边界表和 build/ 与档案的方向（N3、N4），并让 S4 自己能通过 docs:check 与 e2e（N5）。
+D1：同意方向；影响面比 plan 多几处文档与类型，isBuiltinId 对 runtime 的语义要写（N10）。
+D2：同意方向；缺省 platform 的行为要配应用侧的默认入口和一条测试，否则生产装配漏传是静默降级（N2）。
+D3：仔细检查后没有发现问题（见上第 3 条）。
+D4：不在本轮重点，只看了 types.ts 的搬运，没有核失败码收窄的细节，未审。
+D5：作者 API 的 A1 到 A9 不在本轮重点，未审。

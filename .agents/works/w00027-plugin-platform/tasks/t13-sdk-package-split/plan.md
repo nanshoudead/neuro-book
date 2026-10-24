@@ -51,7 +51,9 @@
   - 合同对所有入口按“同一对象或规范化内容相同”核对，以登记的那份为准（D3）；
   - 激活产出不是对象时以 `activation-threw` 结束（t11）。
 - **诊断插件改名（D1）：** `diagnostics/plugin.ts` 改为 `runtime.diagnostics`，服务键改为 `runtime.diagnostics/diagnostics`。
-- **测试：** 示例 id 由 `nbook.*` 改为 `acme.*`；加两项测试，一是用另一份平台档案跑清单与装配，二是扫描非测试源码不出现 `nbook`、`neurobook`。
+- **应用的落点（S1a 就建）：** 纯数据档案 `src/plugin-platform-profile.ts`，先只含 `engine`、`reservedPublishers` 与清单格式对象，S2a 再加其余字段。
+- **应用的默认装配入口（S1b）：** 默认带 NeuroBook 档案，生产三处宿主与测试夹具都走它；装真实内置插件的 4 个设置测试文件（`settings/window.test.ts`、`web/sections.test.ts`、`commands.test.ts`、`settings.test.ts`）及其夹具改用它；加一条测试：三处生产装配里 `nbook.works` 分区被接受。
+- **测试：** 示例 id 由 `nbook.*` 改为 `acme.*`；清单格式测试覆盖 `runtime.*`（`isBuiltinId` 为真）；加两项测试，一是用另一份平台档案跑清单与装配，二是扫描非测试源码不出现 `nbook`、`neurobook`。
 - **不变量：**
   - 不给 `platform` 时内核行为与现在相同，只是贡献前缀不放宽；
   - NeuroBook 的清单格式不变，已安装插件的清单照常读得出（D1 那一处除外）。
@@ -67,11 +69,14 @@
   - `src/shared/plugin-modules.ts`、`plugin-files.ts`、`plugin-code-error.ts` 进 `shared/protocol.ts` 与同级文件，`src/shared/versions.ts` 进 `shared/versions.ts`；
   - `src/server/plugin-files.ts` 的请求处理进 `backend/`，应用留适配器；
   - `scripts/plugin-sdk/build-plugin.ts` 进 `build/`。
+- **`definitionAt`、`pluginsAt`** 随 `registerThirdParty` 搬进 `shared/definitions.ts`，`src/manifest.ts` 保留 `productPlugins` 并再导出这两个名字，13 个调用点不用改。
+- **档案的三个文件：** 纯数据、服务端模块表 `src/backend/plugin-host-modules.ts`、浏览器模块表（现有的 `src/web/host/plugin-modules.ts`）；`tsconfig.web.json` 的 include 补上纯数据档案。
 - **字面量进档案：** 通用代码里的 NeuroBook 字面量（design.md 第 2.2 节列的那些）全部改从档案读。持久的两项取原值：登记表的模式标记、作者 `package.json` 的字段名。
 - **类型反转：** 列表、预览、未装载原因、失败码的模式移到 `shared/types.ts`，`src/plugins/plugins/shared/contracts.ts` 改为引用它们；失败码按方法收窄（D4）。
 - **边界机检：**
   - 架构测试按子目录列出允许的导入，`build/` 例外可用 Vite；
-  - 扫描非测试源码不出现 `nbook`、`neurobook`、`NeuroBook`；
+  - 扫描非测试源码的标识符与字符串字面量不出现 `nbook`、`neurobook`、`NeuroBook`，不看导入说明符；宿主模块的虚拟命名空间、脚本地址的全局名这类内部名字改成中性名；
+  - 每条新规则配一条“能拦下违规”的用例；
   - Tailwind 源码扫描排除 `build/`；
   - 两份 tsconfig 的 include 按 `shared`、`backend`、`web` 分。
 - **不变量：** 安装、启停、卸载、升级、版本租约、启动盘点、装载、文件端点的外部行为不变；用户状态根里已有的登记表照常读写。
@@ -80,7 +85,7 @@
 
 - **入口表：** 新增 `entries.ts`，共享模块表与构建预设的外部名单由它生成；再加一条测试，把两份 tsconfig 与 Vite 的别名和入口表对照。
 - **`/components`** 改为具名再导出，三个子路径都有导出名单快照。
-- **公开面闭包：** 新增闭包快照测试 `surface.test.ts`；工作台与设置的两个贡献助手改为引用叶子模块，命令合同去掉末尾对快捷键与菜单的再导出，目标是闭包不超过 30 个文件。
+- **公开面闭包：** 新增闭包快照测试 `surface.test.ts`；闭包里不再有文件经工作台合同的汇总模块取东西（两个贡献助手与 `src/sdk/index.ts`），命令合同去掉末尾对快捷键与菜单的再导出；目标 30 个文件（第二轮审查实测）。
 - **typebox 进宿主模块表：** 共享 `typebox`、`typebox/value`、`typebox/compile`，浏览器与服务端两张表都加，构建预设不再把它打进插件。
 
 ### `packages/neuro-book/plugin-sdk/`（S4）
@@ -88,13 +93,18 @@
 - **迁入：**
   - `scripts/plugin-sdk/` 里除构建预设以外的部分：命令行、`create`、模板、作者文档、打包、测试与测试工具；
   - `examples/` 整个。
+- **构建预设的封装：** `plugin-sdk/build.ts` 绑定 NeuroBook 档案，打包成 SDK 的 `./build`；`src/plugin-platform/build/` 只收档案参数。
 - **打包：**
   - 产出 tarball 并打印路径；
+  - 构建预设与作者命令的产物里不含 SDK 的实现（测试核对）；
   - tarball 带 `examples/` 下的示例插件；
   - 作者文档的清单改用 nb-ui 的导出（nb-ui 的 `package.json` 加 `./tokens.css`、`./theme.css`）。
 - **测试设施与脚本：**
   - 应用的 tsconfig、Vitest、bunfig 的路径从 `examples/`、`scripts/plugin-sdk/` 改为 `plugin-sdk/`；
   - `build:sdk`、`build:examples` 两个脚本改为指向新位置，脚本名不变；
+  - 架构测试里写死的 `../examples/` 前缀（约 15 处）改为新路径；
+  - e2e 里写在字符串里的路径（`bun -e` 调用的脚本等）与按相对层数写的路径（`new URL("../../")`、`../../../../../node_modules/`）逐个改，类型检查看不到它们；
+  - 同一提交里改引用旧路径的文档链接：`docs/modules/monorepo-boundaries.md`、`docs/specs/settings/settings-window.md`、根 `AGENTS.md`、`docs/standards/code/common.md`、`packages/nb-runtime/AGENTS.md`，否则这一片过不了 `docs:check`；
   - 测试工具去重（F14、F15）。
 - **作者文档：** 修正过时与重复的内容（F16、F17），补上缺的说明（design.md A9 里属于文档的部分可以先做）。
 - **不变量：** 产品代码不引用 `plugin-sdk/`；示例只用 SDK 的名字。
@@ -114,6 +124,7 @@
 | `docs/adr/0029-plugin-platform-layering.md`（新） | 内核与应用无关、平台档案；通用插件管理暂留应用并按目录机检；作者材料留在应用包的 `plugin-sdk/`；记录做法 A、B、C1 与“现在抽包”的否决理由 |
 | `docs/modules/monorepo-boundaries.md` | 内核一行写明“与应用无关，应用名由平台档案给出”；应用一行写明 `src/plugin-platform/` 与 `plugin-sdk/` 的定位 |
 | `packages/nb-runtime` 的说明、`packages/neuro-book/AGENTS.md`、`scripts/AGENTS.md` | 同上的定位；目录约定加 `src/plugin-platform/`、`plugin-sdk/`，去掉 `scripts/plugin-sdk/` 与 `examples/` |
+| 引用 `examples/`、`scripts/plugin-sdk/` 路径的文档：`docs/specs/settings/settings-window.md`、根 `AGENTS.md`、`docs/standards/code/common.md`、`packages/nb-runtime/AGENTS.md` | 路径改到 `plugin-sdk/`，随 S4 同一提交 |
 
 ## 5. 切片
 
@@ -121,12 +132,12 @@
 |---|---|---|---|
 | S1a | 平台档案、清单格式对象、清单文件拆分；应用各处改用格式对象（id 规则只剩一份）；内核测试改 `acme.*` 并加另一份档案的用例 | 内核与应用调用方同一提交 | 内核 `bun test`；应用 `bun run typecheck`，`bun test src/backend src/server scripts/plugin-sdk` |
 | S1b | 内核装配收 `platform`；`idPrefix` 统一（D2），删 8 份前缀计算，另 5 处改用 `isBuiltinId`；合同按内容核对（D3），删应用补丁；激活产出形状（t11）；内核源码的应用名扫描 | 一提交 | 内核 `bun test`；应用 `bun run test`（Bun 与 Vitest），改了文案的校验器测试同步 |
-| S1c | 诊断插件改名（D1）；重建示例产物 | 一提交 | `rg "nbook\.diagnostics"` 在现行代码与 Spec 里为零；内核与应用测试；`e2e/plugin-code.e2e.ts` |
+| S1c | 诊断插件改名（D1）；重建示例产物；ADR 0026、0027 与应用 README 里的提法 | 一提交 | `rg "nbook\.diagnostics"` 在现行代码、Spec、ADR、README 里逐个判过；内核与应用测试；`e2e/plugin-code.e2e.ts` |
 | S2a | 文件搬进 `src/plugin-platform/`，只搬家；档案两层与字面量进档案；`types.ts` 反转；架构测试与 tsconfig 的 include | 纯搬家单独一提交，档案与反转另一提交 | 应用 `bun run typecheck`、`bun run test`；`e2e/plugin-code.e2e.ts`、`e2e/plugins.e2e.ts`；搬家前后 Bun 与 Vitest 的用例总数相等 |
 | S2b | `registerThirdParty` 合并、主线命名、失败码收窄（D4）、F20 各项（含 `..foo` 修正，补用例）、文件端点的处理函数与适配器 | 一提交，Spec 同步 | 同上 |
 | S2c | 构建预设搬进 `build/` 及其小修；Vite 例外与 Tailwind 排除 | 一提交 | 同上，外加构建预设的测试；`bun run build:web` 产物里没有 `build/` 的代码 |
 | S3 | 入口表与别名对照测试、`/components` 具名、导出名单快照、闭包快照与三处缩小、typebox 进模块表 | 一到两个提交 | 应用全部测试；`plugin-code.e2e.ts`；在仓库外装 SDK 构建一个插件，确认产物里没有 typebox |
-| S4 | 建 `plugin-sdk/`，迁入作者材料与示例；打包产出 tarball 并带示例；nb-ui 的 CSS 导出与文档生成；测试设施路径与去重；作者文档修正 | 迁移一提交，去重与文档另一提交 | 应用全部测试，用例总数与搬家前相等；`e2e/plugin-authoring.e2e.ts`；`docs:check` |
+| S4 | 建 `plugin-sdk/`，迁入作者材料与示例；构建预设封装；打包产出 tarball 并带示例；nb-ui 的 CSS 导出与文档生成；测试设施路径与去重；路径改动牵连的文档链接；作者文档修正 | 迁移（含文档链接）一提交，去重与作者文档另一提交 | 应用全部测试，用例总数与搬家前相等；`e2e/plugin-authoring.e2e.ts`、`plugin-code.e2e.ts`、`plugins.e2e.ts`；`docs:check` |
 | S5 | ADR 0029、ADR 0027 补充、包边界、各包说明、Spec 收尾 | 一提交（master 上） | `docs:check`、`governance:check` |
 
 S1 到 S3 不改目录布局，可以逐片合入 master；S4 改了作者材料的位置，合入前跑全量 e2e。
@@ -202,3 +213,19 @@ S1 到 S3 不改目录布局，可以逐片合入 master；S4 改了作者材料
 | R17 | 成立：和 VS Code 的对照只对一半 | 改写对照，写明我们的 SDK 带实现拷贝 |
 | R18 | 成立：五组发现没有着落 | F20 各项进 S2b（`..foo` 是真实错误）；DX F10、F11、F19、F20 进作者 API 的 A2、A7、A9；F17 定为补文档不收名字；DX F18 记为 nb-ui 后续 |
 | R19 | 成立 | `platform` 可选并写明缺省行为；扫描范围是非测试源码含注释，内核测试的示例 id 改为 `acme.*` |
+
+第二轮（Sonnet，2026-10-24，阻断 0、重要 5、建议 6；报告见 [evidences/design-review-2-sonnet.txt](evidences/design-review-2-sonnet.txt)）：全部成立，已改。
+
+| 编号 | 处理 |
+|---|---|
+| N1 | 档案分三个文件：纯数据、服务端模块表、浏览器模块表；加“构建预设与作者命令的产物不含 SDK 实现”的测试 |
+| N2 | 应用给默认带 NeuroBook 档案的装配入口，生产三处与测试夹具都走它；4 个设置测试文件改用它；加 `nbook.works` 分区被接受的测试；删掉“47 个调用不用改”的说法 |
+| N3 | `plugin-sdk/` 的允许导入补上纯数据档案与 `src/plugin-platform/` 的 `shared`、`build`；测试另列 |
+| N4 | `build/` 只收档案参数；绑定档案的封装放 `plugin-sdk/build.ts`，打包成 `./build` |
+| N5 | 牵连的文档链接、字符串里的路径、按层数写的相对路径都并入 S4 的同一提交；S4 加跑 `plugin-code`、`plugins` 两个 e2e |
+| N6 | 闭包缩小的做法写全（含 `src/sdk/index.ts`），目标 30 |
+| N7 | `definitionAt`、`pluginsAt` 随 `registerThirdParty` 搬进 `shared/definitions.ts`，`src/manifest.ts` 再导出 |
+| N8 | 扫描只看标识符与字符串字面量，不看导入说明符；内部名字改中性名或进档案 |
+| N9 | S1a 就建纯数据档案，S2a 再加字段 |
+| N10 | S1c 的检查范围含 ADR 与 README；写明 `isBuiltinId` 含 `runtime`，并有用例 |
+| N11 | 架构测试的具体改动列进 S2、S4；新规则各配一条能拦下违规的用例 |

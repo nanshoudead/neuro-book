@@ -2,7 +2,7 @@
 
 本文是 t13 的架构设计：讲现状的耦合在哪里、目标分层是什么、每层的边界怎么守，以及哪些事要开发者决定。实施顺序与验证见 [plan.md](plan.md)。
 
-第一轮设计审查（Sonnet，19 条，报告存为 [evidences/design-review-1-sonnet.txt](evidences/design-review-1-sonnet.txt)）推翻了初稿里“SDK 拆成独立工作区包”的做法：仓库的治理检查明文禁止任何包依赖主应用，绕开它的代价又很高（第 3.7 节）。本稿改为把作者材料收进应用包里一个独立的目录，并列为待决 D0：这条改变了开发者 2026-10-24 同意的做法，要开发者重新确认。
+两轮设计审查（Sonnet；第一轮 19 条、第二轮 11 条，报告在 [evidences/](evidences/)，处理见 plan.md 第 9 节）里，第一轮推翻了初稿里“SDK 拆成独立工作区包”的做法：仓库的治理检查明文禁止任何包依赖主应用，绕开它的代价又很高（第 3.7 节）。本稿改为把作者材料收进应用包里一个独立的目录，并列为待决 D0：这条改变了开发者 2026-10-24 同意的做法，要开发者重新确认。
 
 ## 1. 背景与已定的方向
 
@@ -97,10 +97,10 @@ packages/nb-runtime（内核，与应用无关）
 | 层 | 可以依赖 | 不可以依赖 | 由什么机检 |
 |---|---|---|---|
 | nb-runtime | TypeBox | 任何应用名；文件系统与打包器 | 内核测试用另一份平台档案（`acme`）跑清单与装配；非测试源码（含注释）扫描不出现 `nbook`、`neurobook`；测试里的示例 id 一并改为 `acme.*` |
-| `src/plugin-platform/` | nb-runtime、`typebox`、`semver`、`proper-lockfile`、Node 与 Bun 内置模块、应用的通用件 `src/backend/locked-replace.ts`；`build/` 另可用 Vite、Rolldown、`@vitejs/plugin-vue`、`@iconify/utils` | `src/plugins/`、`src/shared/` 里的 NeuroBook 合同、`src/sdk/` | 架构测试按子目录列出允许的导入；非测试源码不出现 `nbook`、`neurobook`、`NeuroBook` 字面量；子目录沿用 `shared`、`backend`、`web` 的路径段，现有前后端规则自动适用 |
+| `src/plugin-platform/` | nb-runtime、`typebox`、`semver`、`proper-lockfile`、Node 与 Bun 内置模块、应用的通用件 `src/backend/locked-replace.ts`；`build/` 另可用 Vite、Rolldown、`@vitejs/plugin-vue`、`@iconify/utils` | `src/plugins/`、`src/shared/` 里的 NeuroBook 合同、`src/sdk/`、应用的档案 | 架构测试按子目录列出允许的导入；非测试源码的标识符与字符串字面量不出现 `nbook`、`neurobook`、`NeuroBook`（不看导入说明符：应用的路径别名叫 `nbook/`），内部名字（宿主模块的虚拟命名空间、脚本地址的全局名等）改成中性名或进档案；子目录沿用 `shared`、`backend`、`web` 的路径段，现有前后端规则自动适用 |
 | `src/sdk/` | 内核、内置插件的公开合同模块 | 内部实现 | 导出名单快照（三个子路径）；公开面闭包快照 |
 | 应用其余部分 | 以上全部 | `plugin-sdk/` | 架构测试 |
-| `plugin-sdk/` | `src/sdk/`（经 SDK 包名）、`src/plugin-platform/build/`、内核、nb-ui 的公开子路径；场景测试与场地另可引用内置插件的实现（它们是应用的集成测试设施，现有规则也这样放行） | 应用其余源码 | 架构测试 |
+| `plugin-sdk/` | `src/sdk/`（经 SDK 包名）、`src/plugin-platform/` 的 `shared` 与 `build`、应用的纯数据档案（含产品版本）、内核、nb-ui 的公开子路径；测试与场地另可引用 `src/plugin-platform/` 的 `backend`、`web` 与内置插件的实现（它们是应用的集成测试设施，现有规则也这样放行） | 应用其余源码 | 架构测试，新规则各配一条“能拦下违规”的用例 |
 | 示例插件 | SDK 包名、`vue`、`@vue/reactivity`、`typebox` | 应用的任何东西 | 架构测试（现有规则，随目录迁移） |
 
 ### 3.3 内核：平台档案
@@ -122,7 +122,11 @@ interface PluginPlatform {
   - `build` 生成之后立刻按 `read` 校验，调用方不会忘了第二步，`description`、`license` 也归内核生成（F5）。
   - `plugin-manifest.ts` 一个文件 663 行做三件事，借这次改动拆成“读与校验”“由定义生成”“还原定义”三个文件，合同 schema 的遍历只写一份（F11）。
 - **内核装配也收平台档案。** 应用清单（`ApplicationManifest`）加可选字段 `platform`，传到插件宿主，和现有的 `satisfies` 走同一条路。
-  - 不给时只保留内核自己的 `runtime`，贡献前缀按严格的“插件 id 加点”执行。这样 47 个调用 `createApplication` 的测试与夹具不用改。
+  - 不给时只保留内核自己的 `runtime`，贡献前缀按严格的“插件 id 加点”执行。内核自己的测试与只装示例插件的测试不用改。
+  - 应用这边不能漏传。内置插件有不少贡献不在自己的 id 之下：`nbook.projects` 的设置分区 `nbook.works`、`nbook.explorer` 的视图 `nbook.explorer`。漏传 `platform` 时它们会被拒，界面少东西，却没有类型错误。
+  - 所以应用给一个默认带 NeuroBook 档案的装配入口，生产的三处宿主与测试夹具都走它；装真实内置插件的 4 个设置测试文件及其夹具改用它。
+  - 再加一条应用测试：三处生产装配装出的宿主里，`nbook.works` 分区被接受。
+  - `isBuiltinId(id)` 的含义是“发布者在保留名单里或是 `runtime`”，清单格式测试覆盖 `runtime.*`。
 - **贡献 id 前缀统一由内核执行（D2）。** `idPrefix: "plugin"` 对保留发布者放宽：这类插件的贡献 id 也可以只以发布者加 `.` 开头。
   - 内置贡献点的 8 个校验器里各自手写的前缀计算删掉，改写 `idPrefix: "plugin"`。
   - 命令的域规则（`nbook.<域>.<动作>`）不是前缀规则，留在命令插件。
@@ -148,7 +152,7 @@ src/plugin-platform/
 │   ├── profile.ts     平台档案的形状：内核的 PluginPlatform 加下文的字段，纯数据
 │   ├── protocol.ts    构建与装载共用的约定：共享模块名单、登记全局名、产物目录结构、插件文件 URL 的拼与解
 │   ├── types.ts       列表、预览、未装载原因、失败码的 TypeBox 模式；nbook.plugins 的合同引用这里
-│   ├── definitions.ts 三处宿主共用的第三方定义登记 registerThirdParty
+│   ├── definitions.ts 三处宿主共用的第三方定义登记 registerThirdParty，以及它用到的 definitionAt、pluginsAt（从 src/manifest.ts 迁来，manifest.ts 再导出）
 │   └── versions.ts    版本比较与范围（从 src/shared/versions.ts 迁来）
 ├── backend/           登记表、复制、版本目录读取、租约、升级预览、安装与启停卸载、启动盘点、服务端装载、插件文件的请求处理
 ├── web/               浏览器装载：脚本、样式、宿主模块表的取用
@@ -168,11 +172,17 @@ src/plugin-platform/
   - 浏览器登记全局名、样式标记名、临时目录前缀；
   - 插件文件端点的挂载前缀；
   - 两张共享模块表的模块名。
-- **惰性的模块提供函数** `hostModules(location): Promise<Record<string, object>>`，只有装载器调用。没有第三方入口的窗口与项目进程不为它付出加载成本，这是现有的行为。
+- **惰性的模块提供函数**，只有装载器调用，服务端与浏览器各一个，分在两个文件里：
+  - 浏览器那个要引用 Vue 组件，放进服务端的类型检查或构建预设的打包就会失败（第二轮审查实测：类型错误从 0 到 62，打包报解析错误）；
+  - 没有第三方入口的窗口与项目进程不为它付出加载成本，这是现有的行为。
 
 NeuroBook 专有的部分留在原处，只做三件事：
 
-- 应用给出自己的档案 `src/plugin-platform-profile.ts`：上面的取值，加上提供模块的函数。
+- 应用给出自己的档案，分三个文件：
+  - 纯数据 `src/plugin-platform-profile.ts`：上面的取值，加上用它建好的清单格式对象。只含常量与纯函数，不引用 SDK、nb-ui、Vue。
+  - 服务端模块表 `src/backend/plugin-host-modules.ts`：只引用 `@vue/reactivity`、typebox 与 `src/sdk/index.ts`。
+  - 浏览器模块表 `src/web/host/plugin-modules.ts`：现有文件，仍由启动代码动态导入。
+  - 构建 SDK 后另有一条测试：构建预设与作者命令的产物里不含 SDK 的实现。
 - 内置插件 `nbook.plugins` 的界面与远程合同建在 `plugin-platform` 的类型与服务上。
 - 一个约 20 行的适配器，把 `backend/` 的插件文件请求处理挂到 `nbook.http` 的路由上。平台侧只给 `handlePluginFile(request, …) → Response`，错误响应自己写，不再引用 `nbook.http` 的实现。
 
@@ -195,7 +205,7 @@ NeuroBook 专有的部分留在原处，只做三件事：
   - 删掉只给一条测试用的命令行入口（F7）；
   - 输出目录的清理规则、读 `package.json` 各收成一个函数（F8）。
 
-构建预设从 `scripts/` 挪进 `src/plugin-platform/build/`，理由是它和装载器之间是一对协议，格式要一起改。随之要做三件事：
+构建预设从 `scripts/` 挪进 `src/plugin-platform/build/`，理由是它和装载器之间是一对协议，格式要一起改。它的函数收一个纯数据档案作参数，不引用应用的档案；绑定 NeuroBook 档案的那层封装放在 `plugin-sdk/build.ts`，打包成 SDK 的 `./build` 子路径。随之要做三件事：
 
 - 架构测试原有“应用源码只有开发监督进程能用 Vite”的规则，加一个例外：`build/` 也可以，且产品代码不引用它；
 - Tailwind 的源码扫描排除 `build/`；
@@ -212,7 +222,7 @@ NeuroBook 专有的部分留在原处，只做三件事：
 - **根入口的名字不删。** `defineStore`、`definePublicState`、宿主能力的键、诊断服务的键都是 [plugin-api](../../../../../docs/specs/runtime/plugin-api.md) 写明的公开 API，示例也在用。作者体验 F17 觉得它们多余，是因为作者文档没讲它们。处理办法是补文档（第 4 节 A9），不收名字。
 - **公开面闭包：可见，适度缩小。**
   - 测试从三个入口出发，算出可达的应用文件清单并与快照比较，`.vue` 文件用 `@vue/compiler-sfc` 取出脚本块再解析。以后有新文件进入闭包，评审时看一眼是不是有意公开的。
-  - 缩小只做确定能缩的三处：工作台与设置的两个贡献助手改为引用叶子模块，命令合同去掉末尾对快捷键与菜单的再导出。目标是闭包不超过 30 个文件，其余的有意公开功能不动。
+  - 缩小只做确定能缩的：闭包里不再有文件经工作台合同的汇总模块取东西（包括两个贡献助手与 `src/sdk/index.ts` 自己），命令合同去掉末尾对快捷键与菜单的再导出。按第二轮审查的实测，这样闭包从 36 个文件降到 30 个，其余的有意公开功能不动。
 - **typebox 进宿主模块表**（待确认清单改判第 15 行）。共享的说明符是宿主自己用到的 `typebox`、`typebox/value`、`typebox/compile`，浏览器与服务端两张表都加。
   - 共享之后，插件拿到的就是宿主的那一份；宿主升级 TypeBox 的次版本，会影响所有已装插件。
   - 所以宿主的 TypeBox 版本范围要写进兼容说明，与 Vue 同等对待。
@@ -227,6 +237,7 @@ packages/neuro-book/plugin-sdk/
 ├── template/     create 拷出去的模板
 ├── docs/         作者文档的源（README、组件与设计变量清单的生成）
 ├── examples/     示例插件、场景测试、场地（从应用的 examples/ 迁来）
+├── build.ts      绑定 NeuroBook 档案的构建预设封装，打包成 SDK 的 ./build 子路径
 └── pack.ts       打出可安装的 tarball（原 build:sdk）
 ```
 
