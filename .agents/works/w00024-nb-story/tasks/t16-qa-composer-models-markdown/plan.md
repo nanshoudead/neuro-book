@@ -72,7 +72,7 @@ type QaConfig = {
 - 与 OMP 不同的两处：密钥只写变量名（OMP 的 `apiKey` 一个字段兼作变量名、命令与明文）；自定义服务商 id 不能与目录重名（OMP 允许同名覆盖；我们要换地址就建自定义服务商，少一套合并规则）。
 - 读到第 1 版（`model` 是 `{baseUrl, id, apiKeyEnv, …}`）时在内存里升级：建自定义服务商 `custom`（`chat` → `openai-completions`，`responses` → `openai-responses`），候选与默认都是 `custom/<id>`，推理档、上下文、最大输出、单价跟过去。写回一律写第 2 版。升级是 `config.ts` 里的纯函数，命令行、服务端、设置页共用。
 - 没有配置文件时 `config.get` 给第 2 版的空起点 `{models: [], model: {use: ""}}`（`state: "absent"`）；它不合法，保存前要先选一个模型。
-- 抽取（`ingest.model`、`ingest.recall.model`）写法不变。没写抽取模型时回落到问答默认模型，只在它能用抽取的 OpenAI Chat 管线时成立：默认模型的接口是 `openai-completions`，地址取自定义服务商的 `baseUrl` 或目录模型的 `baseUrl`，密钥变量取自定义服务商的 `apiKeyEnv` 或目录服务商 `keyEnvs` 里第一个有值的（都没值取第一个）。否则 `ingestModel` 返回“用不了”与原因（“问答默认模型 X 用的接口是 Y，抽取要单独写模型”），`ingest start`、导入页预览与设置页照写。
+- 抽取（`ingest.model`、`ingest.recall.model`）写法不变。没写抽取模型时回落到问答默认模型，只在它是 `openai-completions` 接口的自定义服务商时成立（目录模型也不回落：查目录要加载 OMP，单独导入 pi-catalog 就会接管 Ctrl-C，`nbstory ingest` 不加载它）。语义校验要查目录，所以 `config.ts` 收调用方给的 `ConfigCatalog` 查表，不给时只查自定义服务商这一侧。否则 `ingestModel` 返回“用不了”与原因（“问答默认模型 X 用的接口是 Y，抽取要单独写模型”），`ingest start`、导入页预览与设置页照写。
 - `src/qa/harness-model.ts` 的 `configuredModel(config)` 改成 `resolveQaModel(config, choice?: {model?, thinking?})`：按引用找自定义服务商或目录，返回 `ResolvedModel`、`{ref, contextWindow, efforts}` 与实际发出的推理档。
 
 ### `src/cli/config.ts`、`src/qa/config-edit.ts`：命令行

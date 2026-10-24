@@ -57,26 +57,43 @@ owners:
 配置文件默认在 `$XDG_CONFIG_HOME/nbstory/config.json`（未设置时为 `~/.config/nbstory/config.json`），`--config` 可另指定。`ask` 读它，`nbstory config` 维护它（也可以手编，字段规则相同）。
 
 ```ts
+type Effort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 type QaConfig = {
+    providers?: Record<string, {     // 自定义服务商；键是 id：小写字母、数字、连字符，不能与 OMP 目录里的服务商重名
+        name?: string;
+        api: "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";
+        baseUrl: string;
+        apiKeyEnv: string;           // 存密钥的环境变量名；密钥本身不写进配置
+        models: {
+            id: string;
+            name?: string;
+            contextWindow?: number;  // 没写的上下文、最大输出、推理与图片，运行时按模型名从 OMP 目录补
+            maxTokens?: number;
+            reasoning?: boolean;
+            images?: boolean;
+            price?: {input: number; output: number; cacheRead?: number; currency: string}; // 每百万 token；不补，不写时费用未知
+        }[];
+    }>;
+    models: string[];                // 候选模型，写成 "服务商/模型名"（自定义服务商的，或 OMP 目录的）
     model: {
-        baseUrl: string;            // OpenAI 兼容的服务地址
-        id: string;                 // 模型名
-        apiKeyEnv: string;          // 存密钥的环境变量名；密钥本身不写进配置
-        api?: "chat" | "responses"; // 接口：不写是 Chat Completions；Responses 且写了推理档时请求要思考摘要（见输出 36）
-        contextWindow?: number;
-        maxTokens?: number;
-        thinking?: "low" | "medium" | "high" | "xhigh"; // 原样作为推理档发给端点；不写时请求不带推理档，由服务端的默认档决定
-        price?: {input: number; output: number; cacheRead?: number; currency: string}; // 每百万 token；不写时费用未知
+        use: string;                 // 默认模型
+        thinking?: Effort;           // 默认模型的推理档；不写时请求不带推理档，由服务端的默认档决定
     };
     qa?: {
-        maxChapters?: number;       // 图当目录一问最多读几个不同的章：1 到 20 的整数，默认 20
-        fullReadMaxChars?: number;  // 全读的原文上限（字数），默认 300000
+        maxChapters?: number;        // 图当目录一问最多读几个不同的章：1 到 20 的整数，默认 20
+        fullReadMaxChars?: number;   // 全读的原文上限（字数），默认 300000
+        answer?: "markdown" | "structured"; // 新对话的作答方式，默认 markdown
     };
+    ingest?: …;                      // 抽取的模型，见 story.ingest 的“抽取模型”
 };
 ```
 
 - 全读的上限按字数算，不按 token。字数在上限内不保证放得进模型的上下文窗口：放不进时这一问以 `model_failed`（`context_overflow`）失败。
 - 字段类型不对、`maxChapters` 不是 1 到 20 的整数、`fullReadMaxChars` 不是正整数，都按缺少必填字段处理（`qa_unconfigured`）。
+- 字段之间的约束同样按 `qa_unconfigured` 处理：候选至少一个、不重复；默认模型在候选里；每个候选指向的服务商与模型都存在（自定义服务商里有，或 OMP 目录里有）；自定义服务商的 id 写法合法、不与目录重名。
+- 目录里的模型密钥按 OMP 的取法从环境变量取（见 [`agent.harness`](../agent/harness.md#模型目录)）；单价按目录，目录单价全为 0 时当未知。
+- 推理档不在模型支持的档里时往下夹到支持的档；模型不支持推理时不发。`config show` 写出实际发的档。
+- **第 1 版。** 早先的配置（`model` 是 `{baseUrl, id, apiKeyEnv, api?, contextWindow?, maxTokens?, thinking?, price?}`）读的时候升级成第 2 版：建自定义服务商 `custom`（`api` 不写或 `chat` 是 `openai-completions`，`responses` 是 `openai-responses`；写了推理档的模型标成支持推理），候选与默认都是 `custom/<id>`，其余字段跟过去。命令行与网页写回的一律是第 2 版。
 
 ## 输出与可观察行为
 
@@ -150,13 +167,13 @@ type QaConfig = {
 15. **每个对话一条记录。** 记录有书、这一代的代号、P、做法、开始时间、对话开始时的章数上限（全读为空）、读过的段、它对应的会话日志（文件名与内容摘要），与按顺序的各轮（问题、状态、答案或文字回复、失败码与错误归类、这一轮新读的章、退回次数、用量、用时、模型名、开始时间，以及这一轮在会话日志里的第一条的序号 `logFrom`）。`logFrom` 从网页问答起写下，之前的记录没有它，照常读、照常续问。每一轮结束时（交卷、文字回复、失败或中断）写一份新的会话日志，再整条重写记录指向它：读者看到的记录与它指向的日志总是成对的，保存失败时旧的一对原样保留。中断与失败的那一轮没有答案与文字回复，不留半条答案。
 16. **查看与删除。** `nbstory qa` 列出这本书当前一代的对话，一行一个：id、时间、最后一轮的状态、轮数、第一轮的问题、P，新的在前；`nbstory qa <id>` 按轮显示整个对话；`nbstory qa rm <id>` 删除整个对话。别的一代的记录不列出、不能显示（`qa_record_not_found`）。读不成记录的文件（损坏）列在最后、标为损坏，不影响其余记录；显示它得到 `qa_record_broken`，可以用 `qa rm` 删除。对话之前的一问一条的记录按一轮的对话列出与显示。
 17. **密钥不落地。** 密钥只从配置指定的环境变量读出交给 HTTP 客户端，不出现在记录、会话日志、标准输出与标准错误里，也不出现在网页接口的任何响应与推送的任何一帧里；模型服务的错误正文回显了密钥时也一样（错误归类与状态码照常保留）。
-18. **配置命令。** `nbstory config` 的 `show` 显示配置文件路径与各字段，并说明密钥环境变量设没设置，不打印密钥；`set <字段> <值>` 改一个字段，`unset <字段>` 去掉一个可选字段（服务地址、模型名、密钥环境变量名不能去掉）。字段用点路径：`model.baseUrl`、`model.id`、`model.apiKeyEnv`、`model.api`、`model.contextWindow`、`model.maxTokens`、`model.thinking`、`model.price`（值写 JSON）、`qa.maxChapters`、`qa.fullReadMaxChars`。配置文件不存在时 `show`、`set`、`unset` 以 `qa_unconfigured` 失败，下一步指向 `config init`。所有动作都接受 `--config` 与 `--json`。
-19. **init。** `--base-url`、`--model`、`--api-key-env` 三项给齐就直接写（可加 `--thinking`）；缺的在终端里交互问，已有配置的值作默认，选项里给了的不再问。密钥环境变量名这一项只收环境变量名的写法，把密钥本身贴进来会被拒绝并说明。已有配置文件时：交互里先确认覆盖（默认不覆盖），非交互需要 `--force`；覆盖时没给的字段保留原值。不在终端里（或加了 `--json`）而缺必填项：用法错误，不等待输入。交互中取消：退出码 130，不写盘。
-20. **写入规则。** 写之前整份配置过校验，不通过就不写、原文件不变（`qa_unconfigured`，写明哪个字段，说明里不带字段的值）；不认识的字段一律不收。三处密钥环境变量名（`model`、`ingest.model`、`ingest.recall.model` 的 `apiKeyEnv`）只收变量名的写法，另外拒绝像密钥的写法（常见密钥前缀、32 个字符以上没有下划线的一整串）：这只挡得住已知形状，随机得像变量名的密钥仍会被当作变量名。通过的写同目录临时文件（名字随机）再改名，正在读它的 `ask` 读到的要么是旧的整份、要么是新的整份；写不进去报 `qa_config_write_failed`（F7）。配置里只有环境变量名，密钥值不出现在配置文件、输出与错误里。
+18. **配置命令。** `nbstory config` 的 `show` 显示配置文件路径、默认模型与实际发的推理档、候选模型、用到的服务商（自定义的写接口与地址），并说明各服务商的密钥环境变量设没设置，不打印密钥；`set <字段> <值>` 改一个字段，`unset <字段>` 去掉一个可选字段（默认模型、候选、自定义服务商的接口、地址、密钥变量与模型列表不能去掉）。字段用点路径：`model.use`、`model.thinking`、`models`（值写 JSON 数组）、`providers.<id>`（整个服务商，值写 JSON）、`providers.<id>.name|api|baseUrl|apiKeyEnv|models`、`qa.maxChapters`、`qa.fullReadMaxChars`、`qa.answer`。改完字段之间的约束不成立（例如默认模型不在候选里、服务商 id 与目录重名）是用法错误。第 1 版的路径（`model.baseUrl`、`model.id`、`model.apiKeyEnv`、`model.api`、`model.contextWindow`、`model.maxTokens`、`model.price`）是用法错误，错误里写出第 2 版里对应的路径。配置文件不存在时 `show`、`set`、`unset` 以 `qa_unconfigured` 失败，下一步指向 `config init`。所有动作都接受 `--config` 与 `--json`。
+19. **init。** 两种写法：用 OMP 目录里的模型，`--model <服务商/模型名>`；用自定义地址，`--base-url`、`--model <模型名>`、`--api-key-env` 三项（写进自定义服务商 `custom`，已有它时没给的地址与密钥变量沿用）。都可加 `--thinking`。选的模型加进候选并设为默认。给齐就直接写；缺的在终端里交互问：先问用目录里的模型还是自定义地址，已有配置的值作默认，选项里给了的不再问。目录里没有的模型不收。密钥环境变量名这一项只收环境变量名的写法，把密钥本身贴进来会被拒绝并说明。已有配置文件时：交互里先确认覆盖（默认不覆盖），非交互需要 `--force`；覆盖时没给的字段保留原值。不在终端里（或加了 `--json`）而缺必填项：用法错误，不等待输入。交互中取消：退出码 130，不写盘。
+20. **写入规则。** 写之前整份配置过校验，不通过就不写、原文件不变（`qa_unconfigured`，写明哪个字段，说明里不带字段的值）；不认识的字段一律不收。各处密钥环境变量名（自定义服务商、`ingest.model`、`ingest.recall.model` 的 `apiKeyEnv`）只收变量名的写法，另外拒绝像密钥的写法（常见密钥前缀、32 个字符以上没有下划线的一整串）：这只挡得住已知形状，随机得像变量名的密钥仍会被当作变量名。通过的写同目录临时文件（名字随机）再改名，正在读它的 `ask` 读到的要么是旧的整份、要么是新的整份；写不进去报 `qa_config_write_failed`（F7）。配置里只有环境变量名，密钥值不出现在配置文件、输出与错误里。
     程序的写入（命令行的 `init`、`set`、`unset` 与网页设置页）共用一把跨进程锁（同目录常驻的 `.config.json.lock`，等别的写入最多 5 秒），锁内重读文件、比对读取时的摘要（文件原字节的 SHA-256，文件不在时是 `absent`；读不出来时不当作不在，报 `qa_config_write_failed`）、校验、写入。摘要对不上（别处在这之间改过）就不写，报 `config_conflict`（F10）。命令行在开始改之前（`init` 在提问之前）读下摘要。手改文件不走锁，只能靠摘要尽力发现；摘要按原字节算，只改了空白也算改过。
-21. **test。** 用配置里的模型、推理档和密钥环境变量，经与问答相同的路径向模型发一个最小请求：通过时输出模型名、用时、用量，以及配置里写的推理档；失败按 `ask` 的归类以 `model_failed` 失败，退出码 4；取消 130。请求带推理档当且仅当配置写了。输出只报告配置里写的推理档，不声称服务端已按该档思考。
+21. **test。** 用配置的默认模型、推理档和密钥，经与问答相同的路径向模型发一个最小请求（其余候选不测）：通过时输出模型引用、用时、用量，以及实际发的推理档；失败按 `ask` 的归类以 `model_failed` 失败，退出码 4；取消 130。请求带推理档当且仅当配置写了且模型支持推理。输出只报告发了什么档，不声称服务端已按该档思考。
 22. **config 的退出码。** 0 成功；1 配置不合格、写失败或别处改过（`qa_unconfigured`、`qa_config_write_failed`、`config_conflict`）；2 用法错误（未知动作、参数个数不对、字段名或值的写法不对、缺必填项又不在终端、已有配置而没有 `--force`）；`test` 失败为 4，取消为 130。
-23. **抽取模型。** `show` 另显示抽取用的模型（[`story.ingest`](ingest.md#抽取模型) 的 `ingest.model`，没有时写明用 `model`）。`config set ingest.model '<JSON>'` 整节写入（必须一次给齐 `baseUrl`、`id`、`apiKeyEnv`，不收 `thinking`），之后 `ingest.model.<字段>` 可以逐个改；`config unset ingest.model` 整节去掉，抽取回到 `model`。`config test --ingest` 用抽取实际用的模型，按抽取固定的两档（`minimal`、`medium`）各发一个最小请求，分别报告通过或失败；模型不接受某一档时报 `model_failed`（`provider`），不降档。挑相关说法（[`story.ingest`](ingest.md#抽取模型) 的 `ingest.recall`）：`show` 写明开没开、用哪个模型；`config set ingest.recall.enabled true|false` 开关；`ingest.recall.model` 的写法同 `ingest.model`（整节写入后才能逐个改，`unset` 整节去掉后回到抽取模型）；`ingest.recall` 里没有字段了整节去掉。开着时 `config test --ingest` 再用挑选的模型发一个 `minimal` 的请求，单独报告。
+23. **抽取模型。** `show` 另显示抽取用的模型（[`story.ingest`](ingest.md#抽取模型) 的 `ingest.model`）。没有它时回落到问答的默认模型，只在默认模型是 `openai-completions` 接口的自定义服务商时成立（抽取只会 OpenAI Chat 协议，也不加载 OMP 目录）；不成立时 `show` 写明“抽取要单独写模型”与原因，`ingest` 开始时以 `qa_unconfigured` 失败。`config set ingest.model '<JSON>'` 整节写入（必须一次给齐 `baseUrl`、`id`、`apiKeyEnv`，不收 `thinking`），之后 `ingest.model.<字段>` 可以逐个改；`config unset ingest.model` 整节去掉，抽取回到问答的默认模型（按上面的条件）。`config test --ingest` 用抽取实际用的模型，按抽取固定的两档（`minimal`、`medium`）各发一个最小请求，分别报告通过或失败；模型不接受某一档时报 `model_failed`（`provider`），不降档。挑相关说法（[`story.ingest`](ingest.md#抽取模型) 的 `ingest.recall`）：`show` 写明开没开、用哪个模型；`config set ingest.recall.enabled true|false` 开关；`ingest.recall.model` 的写法同 `ingest.model`（整节写入后才能逐个改，`unset` 整节去掉后回到抽取模型）；`ingest.recall` 里没有字段了整节去掉。开着时 `config test --ingest` 再用挑选的模型发一个 `minimal` 的请求，单独报告。
 
 ### 对话
 
@@ -186,7 +203,7 @@ type QaConfig = {
     - `config.set {config, expect}`：整份写入，`expect` 是读取时的摘要（`absent` 表示只新建），按输出 20 校验与比对；校验不过是 `invalid_params`（说明不带原值），摘要对不上是 `config_conflict`。
     - `config.test`：用保存下来的配置按输出 21 发一个最小请求，最多等 60 秒；结果给模型名、推理档、用时与失败的归类和说明（已遮盖），不给模型回的正文。
 
-36. **接口与思考内容。** 问答模型的 `api` 不写或写 `chat` 时走 Chat Completions；写 `responses` 时走 Responses，配置写了推理档时请求带推理档并要思考摘要；没写推理档时不要摘要，过程里没有思考（`config show` 写明）。同一个对话中途换了接口时，之前几轮的思考按文字交给模型。`ask`、网页的一轮与 `test` 都走配置的接口。模型回的思考内容（Responses 的思考摘要，或 Chat Completions 服务回的 `reasoning_content`）作为思考写进会话日志，网页的过程里显示；GPT 系列经 Chat Completions 不回思考内容，过程里就没有思考。抽取的模型不受这一项影响。
+36. **接口与思考内容。** 模型走它的服务商的接口（自定义服务商的 `api`，或目录里模型的接口）。Responses 接口在发推理档时要思考摘要；不发推理档时不要摘要，过程里没有思考（`config show` 写明）。同一个对话中途换了接口时，之前几轮的思考按文字交给模型。`ask`、网页的一轮与 `test` 都走配置的接口。模型回的思考内容（Responses 的思考摘要，或 Chat Completions 服务回的 `reasoning_content`）作为思考写进会话日志，网页的过程里显示；GPT 系列经 Chat Completions 不回思考内容，过程里就没有思考。抽取的模型不受这一项影响。
 37. **问题里的引用。** 问题里可以带 `[名称](entity://<对象 id>)`、`[章.段](paragraph://章.段)`、`[第 N 章](chapter://N)` 三种引用（网页的 `@` 菜单插入它们，命令行可以照样手写），原样交给模型；问答规则（Profile 版本 3）告诉模型：对象的引用按 id 查（查询工具的 `entity`、`perspective` 直接写这个 id），段与章的引用要看原文时按它读，答案里的出处照常写“章.段”。引用不改变防剧透与出处校验：晚于 P 的段照样读不到、不能引用。Profile 版本 2 时开的对话续问得到 F8 `qa_not_continuable`（输出 26），照常可以查看。
 
 ## 状态与转换
@@ -277,7 +294,7 @@ type QaConfig = {
 20. **网页的删除与停服（确定性）。** 首轮运行中 `qa.remove`：成功，列表里没有它，磁盘上没有它的文件，再删得到 `qa_record_not_found`。运行中删书：这一轮先停下保存，书再删掉。损坏的记录在 `qa.list` 里单列，可以删除。运行中向 `serve` 发 SIGTERM 或 SIGINT：这一轮保存为中断、登记撤销、退出码 0。
 21. **网页的全读与积压（确定性）。** 全读对话：`qa.get`、快照与日志帧里都没有原文、有问题与段数，存下的会话日志带原文。一个不读的推送连接积压超过上限被断开，同时另一个订阅者照常收到。
 22. **设置页的配置接口（确定性）。** 没有文件：`config.get` 给起始配置与 `absent`；`config.set` 带 `absent` 新建，再带 `absent` 得到 `config_conflict`；贴进密钥的变量名得到 `invalid_params`，说明与文件里都没有它；文件坏了只给原因、可以整份覆盖；`config.test` 通过时给模型名，401 时失败且没有密钥。并发写入（带摘要与不带摘要）都不交错，摘要对不上的那一个报冲突。
-23. **Responses 接口（确定性）。** `api` 设为 `responses`、推理档 `xhigh`：本机端点收到的两次请求都是 Responses 的形状，带 `reasoning: {effort: "xhigh", summary: "auto"}`；端点回的思考摘要按顺序作为思考写进会话日志，这一问照常交卷。`config set model.api responses` 后，没写推理档时 `show` 写“接口：Responses（没写推理档，不要思考摘要）”；写别的值是用法错误（退出 2），不写盘。网页里一轮的思考在过程里逐步显示。
+23. **Responses 接口（确定性）。** `api` 设为 `responses`、推理档 `xhigh`：本机端点收到的两次请求都是 Responses 的形状，带 `reasoning: {effort: "xhigh", summary: "auto"}`；端点回的思考摘要按顺序作为思考写进会话日志，这一问照常交卷。`config set providers.custom.api openai-responses` 后，没写推理档时 `show` 写明“Responses 接口，没有推理档就不要思考摘要”；写别的值是用法错误（退出 2），不写盘。网页里一轮的思考在过程里逐步显示。
 24. **问题里的引用（确定性）。** 问题写 `[地狱猫](entity://<南嘉鱼的 id>) 在 [37.8](paragraph://37.8) 做了什么？`：模型第一次请求里有这句原样的问题与读引用的规则；模型用这个 id 调 `card`，得到南嘉鱼的人物卡而不是查询失败。
 
 Smoke：在真实书库上用 100 章样例书与真实模型跑 `nbstory ask` 一问（图当目录），答案带出处、记录可以用 `nbstory qa` 列出与显示；网页问答页里问一题、追问一题、中途停止一次、刷新后接上；接口设为 Responses 时过程里有思考摘要。
