@@ -82,7 +82,7 @@ describe("发布清单检查", () => {
         expect(output.order).toEqual(["@notnotype/base", "@notnotype/app"]);
     });
 
-    it("发布的源码值导入了没写进依赖的包时报出；测试文件、只有类型的导入与 JSX 运行时之外的不算", async () => {
+    it("发布的源码值导入了没写进依赖的包时报出，含单文件组件的样式与 JSX 文件自己写的 react；测试文件、只有类型的导入、JSX 补出的 react 不算", async () => {
         const root = await fixtureRoot();
         await writePackage(root, "lib", manifest("lib", {dependencies: {declared: "^1.0.0"}, devDependencies: {devonly: "^1.0.0", "@notnotype/test-support": "workspace:*"}}), {
             "src/index.ts": [
@@ -94,16 +94,31 @@ describe("发布清单检查", () => {
                 `export type Y = B;`,
             ].join("\n"),
             "src/index.test.ts": `import {t} from "testonly";\nexport const z = t;\n`,
-            "src/view.vue": `<template><div /></template>\n<script setup lang="ts">\nimport {ref} from "vue";\n</script>\n`,
+            "src/view.vue": `<template><div /></template>\n<script setup lang="ts">\nimport {ref} from "vue";\n</script>\n<style>\n@import "styledep/theme.css";\n</style>\n`,
             "src/style.css": `/* @plugin "commented"; */\n@import "declared/style.css";\n@plugin "tailwind-plugin";\n`,
             "src/profile.tsx": `/** @jsxImportSource declared */\nexport const p = <section />;\n`,
+            "src/explicit.tsx": `/** @jsxImportSource declared */\nimport "react";\nexport const e = <section />;\n`,
         });
 
         const {status, output} = runCheck(["--root", root, "--package", "lib"]);
         const missing = output.findings.filter((finding) => finding.code === "undeclared_import").map((finding) => finding.message.split("（")[0]);
 
         expect(status).toBe(1);
-        expect(missing.sort()).toEqual(["@scope/dynamic", "devonly", "tailwind-plugin", "vue"]);
+        expect(missing.sort()).toEqual(["@scope/dynamic", "devonly", "react", "styledep", "tailwind-plugin", "vue"]);
+    });
+
+    it("只用 JSX 的文件：要求声明 pragma 指定的运行时，不要求 react", async () => {
+        const root = await fixtureRoot();
+        const source = `/** @jsxImportSource @notnotype/runtime */\nconst props = {};\nexport const p = <section {...props} />;\n`;
+        await writePackage(root, "jsx", manifest("jsx", {dependencies: {"@notnotype/runtime": "workspace:^"}}), {"src/profile.tsx": source});
+        await writePackage(root, "runtime", manifest("runtime"), {"src/index.ts": "export {};\n"});
+        await writePackage(root, "bare", manifest("bare"), {"src/profile.tsx": source});
+
+        const declared = runCheck(["--root", root, "--package", "jsx", "--package", "runtime"]);
+        const bare = runCheck(["--root", root, "--package", "bare"]);
+
+        expect(declared.output.findings).toEqual([]);
+        expect(bare.output.findings.map((finding) => finding.message.split("（")[0])).toEqual(["@notnotype/runtime"]);
     });
 
     it("没去掉 private、LICENSE 与仓库根不同、内部依赖没写 workspace:^ 时逐条报出", async () => {

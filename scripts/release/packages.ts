@@ -189,6 +189,8 @@ export function publishedFiles(entry: ReleasePackage): string[] {
 }
 
 const SCRIPT_BLOCK = /<script\b([^>]*)>([\s\S]*?)<\/script>/gu;
+const STYLE_BLOCK = /<style\b([^>]*)>([\s\S]*?)<\/style>/gu;
+const SRC_ATTRIBUTE = /\bsrc=["']([^"']+)["']/u;
 const CSS_REFERENCE = /@(?:import|plugin)\s+["']([^"']+)["']/gu;
 const JSX_PRAGMA = /@jsxImportSource\s+(\S+)/u;
 const BUILTINS = new Set(builtinModules);
@@ -217,18 +219,24 @@ function undeclaredImports(entry: ReleasePackage): string[] {
 
 export function importSpecifiers(path: string): string[] {
     const source = readFileSync(path, "utf8");
-    if (path.endsWith(".css")) {
-        const withoutComments = source.replace(/\/\*[\s\S]*?\*\//gu, "");
-        return [...withoutComments.matchAll(CSS_REFERENCE)].map((match) => match[1] as string);
-    }
+    if (path.endsWith(".css")) return scanCss(source);
     if (path.endsWith(".vue")) {
-        return [...source.matchAll(SCRIPT_BLOCK)].flatMap((match) => {
+        // 单文件组件的脚本与样式都由宿主编译，两种块里的导入都算；`src` 属性指向的外部文件也是导入。
+        const scripts = [...source.matchAll(SCRIPT_BLOCK)].flatMap((match) => {
             const loader = /lang=["']tsx["']/u.test(match[1] as string) ? "tsx" : "ts";
             return scanScript(match[2] as string, loader);
         });
+        const styles = [...source.matchAll(STYLE_BLOCK)].flatMap((match) => scanCss(match[2] as string));
+        const sources = [...source.matchAll(SCRIPT_BLOCK), ...source.matchAll(STYLE_BLOCK)].flatMap((match) => SRC_ATTRIBUTE.exec(match[1] as string)?.[1] ?? []);
+        return [...scripts, ...styles, ...sources];
     }
     if (/\.(?:[cm]?[jt]s|tsx|jsx)$/u.test(path)) return scanScript(source, path.endsWith("x") ? "tsx" : "ts");
     return [];
+}
+
+function scanCss(source: string): string[] {
+    const withoutComments = source.replace(/\/\*[\s\S]*?\*\//gu, "");
+    return [...withoutComments.matchAll(CSS_REFERENCE)].map((match) => match[1] as string);
 }
 
 function scanScript(source: string, loader: "ts" | "tsx"): string[] {
@@ -240,10 +248,14 @@ function scanScript(source: string, loader: "ts" | "tsx"): string[] {
         ...(pragma ? {tsconfig: {compilerOptions: {jsx: "react-jsx", jsxImportSource: pragma}}} : {}),
     });
     // scanImports 不认文件开头的 shebang（`bin` 入口都有），只清掉那一行的内容，行号不变。
-    const paths = transpiler.scanImports(source.replace(/^#!.*/u, "")).map((entry) => entry.path);
-    // 指定了运行时的文件，scanImports 仍会多报一个 `react`（createElement 的后备）；实测没装 react 时这类文件照常
-    // 执行，所以去掉它。文件自己导入 react 时照样报。
-    return pragma && !/from\s+["']react["']/u.test(source) ? paths.filter((path) => path !== "react") : paths;
+    const entries = transpiler.scanImports(source.replace(/^#!.*/u, ""));
+    // 文件里有 JSX 时，scanImports 在显式导入之后补两条 require：JSX 运行时，再一个 `react`（createElement 的后备）。
+    // 指定了运行时的文件实测没装 react 也照常执行，所以只去掉末尾补出来的这个 `react`；文件自己写的 react 导入在前面，
+    // 照样报。Bun 改了这个顺序时 packages.test.ts 的 JSX 用例会失败。
+    const last = entries.at(-1);
+    const runtime = entries.at(-2);
+    const injected = pragma !== undefined && last?.kind === "require-call" && last.path === "react" && runtime?.kind === "require-call" && runtime.path.startsWith(`${pragma}/jsx`);
+    return (injected ? entries.slice(0, -1) : entries).map((entry) => entry.path);
 }
 
 /** 裸说明符的包名；相对路径、内置模块与 Vite 的虚拟模块返回 null。 */

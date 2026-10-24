@@ -71,6 +71,8 @@
         "src",
         "!src/**/*.test.ts",
         "!src/**/*.test.tsx",
+        "!src/**/*.typecheck.ts",
+        "!src/language/codec/corpus",
         "README.md",
         "LICENSE"
     ]

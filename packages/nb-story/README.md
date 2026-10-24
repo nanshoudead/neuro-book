@@ -16,9 +16,13 @@ nbstory --help
 ## 用起来
 
 ```bash
-# 1. 配置模型（交互；问答与抽取要用）。配置文件默认在 ~/.config/nbstory/config.json
+# 1. 配置问答模型（交互）：OMP 目录里的服务商，或自己的 OpenAI 兼容地址。配置文件默认在 ~/.config/nbstory/config.json
 nbstory config init
 nbstory config test
+
+#    抽取只用 OpenAI Chat 接口。问答用的是这种自定义地址时直接沿用；用了目录里的模型时，另写一个抽取模型：
+nbstory config set ingest.model '{"baseUrl": "https://api.example.com/v1", "id": "模型名", "apiKeyEnv": "EXAMPLE_API_KEY"}'
+nbstory config test --ingest
 
 # 2. 导入 TXT 原文并逐章抽取（调用模型；先加 --preview 看切章结果）
 nbstory ingest 小说.txt --title 书名 --preview

@@ -8,7 +8,7 @@ import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {runCli} from "../../testing/processes";
+import {CLI, runCli} from "../../testing/processes";
 import {SKILL_SOURCE} from "./skill";
 
 const roots: string[] = [];
@@ -26,7 +26,7 @@ async function tempRoot(): Promise<string> {
     return root;
 }
 
-async function install(args: readonly string[], env: Record<string, string> = {}): Promise<{code: number; body: {ok: boolean; data?: {path: string; state: string}; error?: {code: string}}}> {
+async function install(args: readonly string[], env: Record<string, string> = {}): Promise<{code: number; body: {ok: boolean; data?: {path: string; state: string; leftover?: string}; error?: {code: string}}}> {
     const run = await runCli(["skill", "install", "--json", ...args], env);
     return {code: run.code, body: JSON.parse(run.stdout)};
 }
@@ -85,6 +85,21 @@ describe("skill install", () => {
         expect(await sameAsPackage(join(home, ".agents", "skills", "nbstory"))).toBe(true);
     });
 
+    test("HOME 为空或是相对路径时不装进当前目录：退出 1，提示用 --dir", async () => {
+        const cwd = await tempRoot();
+        const results = [];
+        for (const home of ["", "relative-home"]) {
+            const child = Bun.spawn(["bun", CLI, "skill", "install", "--json"], {cwd, stdout: "pipe", stderr: "pipe", env: {...process.env, HOME: home}});
+            const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited]);
+            results.push({code, body: JSON.parse(stdout) as {error?: {code: string; message: string}}});
+        }
+
+        expect(results.map(result => [result.code, result.body.error?.code])).toEqual([[1, "skill_install_failed"], [1, "skill_install_failed"]]);
+        expect(results[1]?.body.error?.message).toContain("--dir");
+        // Bun 自己会在给它的 HOME 下建 .bun 缓存，所以只看有没有装出 Skill 目录。
+        expect((await readdir(cwd, {recursive: true})).filter(path => path.includes(".claude"))).toEqual([]);
+    });
+
     test("目标是符号链接或普通文件：拒绝，不跟随、不覆盖，带 --force 也一样", async () => {
         const root = await tempRoot();
         const real = join(root, "real");
@@ -101,6 +116,37 @@ describe("skill install", () => {
         expect([filed.code, filed.body.error?.code]).toEqual([2, "skill_target_invalid"]);
         expect(await readdir(real)).toEqual([]);
         expect(await readFile(join(root, "file-parent", "nbstory"), "utf8")).toBe("文件\n");
+    });
+
+    test("目标读不了时退出 1，--json 照样只有一份错误 JSON，目标不动", async () => {
+        const root = await tempRoot();
+        const target = join(root, "nbstory");
+        await mkdir(target);
+        await writeFile(join(target, "SKILL.md"), "旧的\n");
+        await chmod(target, 0o000);
+
+        const result = await install(["--dir", root, "--force"]);
+        await chmod(target, 0o700);
+
+        expect([result.code, result.body.error?.code]).toEqual([1, "skill_install_failed"]);
+        expect(await readFile(join(target, "SKILL.md"), "utf8")).toBe("旧的\n");
+    });
+
+    test("新目录就位后删旧目录失败：替换算成功，data.leftover 给出留下的旧目录", async () => {
+        const root = await tempRoot();
+        const target = join(root, "nbstory");
+        await mkdir(join(target, "local"), {recursive: true});
+        await writeFile(join(target, "local", "note.md"), "删不掉\n");
+        await chmod(join(target, "local"), 0o500);
+
+        const result = await install(["--dir", root, "--force"]);
+        const leftover = result.body.data?.leftover;
+        if (leftover) await chmod(join(leftover, "local"), 0o700);
+
+        expect([result.code, result.body.data?.state]).toEqual([0, "replaced"]);
+        expect(await sameAsPackage(target)).toBe(true);
+        expect(leftover?.startsWith(join(root, ".nbstory-skill-old-"))).toBe(true);
+        expect(await readFile(join(leftover as string, "local", "note.md"), "utf8")).toBe("删不掉\n");
     });
 
     test("写不进去时退出 1，目标保持原样（原来没有的仍然没有，原来有的不变）", async () => {
