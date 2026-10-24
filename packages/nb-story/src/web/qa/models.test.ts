@@ -2,7 +2,7 @@ import {describe, expect, test} from "bun:test";
 
 import type {MessageView} from "@notnotype/nb-agent-ui";
 
-import {candidateInfos, clampThinking, contextTokensOf, defaultChoice, type CatalogProvider} from "./models";
+import {candidateInfos, clampThinking, contextTokensOf, defaultChoice, providerNote, resolveChoice, type CatalogProvider} from "./models";
 
 const model = (id: string, fields: Partial<CatalogProvider["models"][number]> = {}): CatalogProvider["models"][number] => ({id, name: id.toUpperCase(), api: "openai-completions", contextWindow: 200_000, maxTokens: null, reasoning: true, efforts: ["low", "high", "max"], images: false, price: null, ...fields});
 const PROVIDERS: CatalogProvider[] = [
@@ -17,10 +17,18 @@ describe("候选模型", () => {
         expect([...infos.values()].map(info => info.view)).toEqual([
             {key: "jiji/gpt-5.6-sol", label: "GPT-5.6-SOL", supportsImages: true, group: "jiji"},
             {key: "deepseek/deepseek-flash", label: "DEEPSEEK-FLASH", supportsImages: false, group: "DeepSeek", unavailable: "DEEPSEEK_API_KEY 没有值"},
-            {key: "anthropic/claude-sonnet-5", label: "CLAUDE-SONNET-5", supportsImages: false, group: "Anthropic", unavailable: "要登录才能用"},
+            {key: "anthropic/claude-sonnet-5", label: "CLAUDE-SONNET-5", supportsImages: false, group: "Anthropic", unavailable: "要登录，这里用不了"},
             {key: "jiji/gone", label: "gone", supportsImages: false, group: "jiji", unavailable: "目录里没有这个模型"},
         ]);
         expect(infos.get("deepseek/deepseek-flash")).toMatchObject({contextWindow: 1_000_000, efforts: ["low", "high", "max"]});
+    });
+
+    test("服务商的密钥状态：用不了的服务商即使变量有值也用不了；不设密钥也能用的写明", () => {
+        const base = PROVIDERS[1]!;
+        expect(providerNote({...base, access: "unsupported", keySet: true})).toEqual({usable: false, text: "这家服务商在这里用不了"});
+        expect(providerNote({...base, access: "keyless", keyEnvs: []})).toEqual({usable: true, text: "不设密钥也能用"});
+        expect(providerNote({...base, keySet: true})).toEqual({usable: true, text: "DEEPSEEK_API_KEY 已设置"});
+        expect(providerNote(PROVIDERS[0]!)).toEqual({usable: true, text: "JIJI_KEY 已设置"});
     });
 
     test("推理档往下夹；没有档时不写；比最低档还低取最低档", () => {
@@ -38,9 +46,17 @@ describe("候选模型", () => {
         expect(defaultChoice(config, "qa-model")).toEqual({model: "jiji/gpt-5.6-sol", thinking: "high"});
     });
 
-    test("上下文用量取最近一条带用量的助手消息，含缓存读写", () => {
-        const assistant = (id: string, usage?: {input: number; cacheRead: number; cacheWrite: number}): MessageView => ({kind: "assistant", id, timestamp: 0, status: "done", text: "", thinking: "", model: "m", toolCalls: [], contentOmitted: false, ...(usage === undefined ? {} : {usage: {...usage, output: 9, cost: null}})});
+    test("选过的模型还在候选里时用选的；在设置里被去掉后当作没选过", () => {
+        const config = {models: ["jiji/gpt-5.6-sol", "deepseek/deepseek-flash"], model: {use: "jiji/gpt-5.6-sol", thinking: "high" as const}};
+        expect(resolveChoice(config, {modelKey: "deepseek/deepseek-flash", thinking: "low"}, null)).toEqual({model: "deepseek/deepseek-flash", requested: "low"});
+        expect(resolveChoice(config, {modelKey: "jiji/removed", thinking: "low"}, null)).toEqual({model: "jiji/gpt-5.6-sol", requested: "high"});
+        expect(resolveChoice(config, {modelKey: null, thinking: null}, "deepseek/deepseek-flash")).toEqual({model: "deepseek/deepseek-flash", requested: null});
+    });
+
+    test("上下文用量取最近一条正常完成、带用量的助手消息，含缓存读写", () => {
+        const assistant = (id: string, usage?: {input: number; cacheRead: number; cacheWrite: number}, status: "done" | "stopped" | "error" = "done"): MessageView => ({kind: "assistant", id, timestamp: 0, status, text: "", thinking: "", model: "m", toolCalls: [], contentOmitted: false, ...(usage === undefined ? {} : {usage: {...usage, output: 9, cost: null}})});
         expect(contextTokensOf([assistant("a", {input: 100, cacheRead: 0, cacheWrite: 0}), assistant("b", {input: 20, cacheRead: 3000, cacheWrite: 50}), assistant("c")])).toBe(3070);
+        expect(contextTokensOf([assistant("a", {input: 100, cacheRead: 0, cacheWrite: 0}), assistant("b", {input: 0, cacheRead: 0, cacheWrite: 0}, "stopped"), assistant("c", {input: 0, cacheRead: 0, cacheWrite: 0}, "error")])).toBe(100);
         expect(contextTokensOf([])).toBe(0);
     });
 });

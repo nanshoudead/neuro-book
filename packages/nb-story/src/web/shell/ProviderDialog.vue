@@ -5,6 +5,7 @@ import {Badge, Button, Checkbox, Dialog, Field, IconButton, Input, Select} from 
 import {Compile} from "typebox/compile";
 
 import {ENV_NAME_PATTERN, PROVIDER_ID_PATTERN, ProviderSchema, type CustomModelConfig, type ProviderApi, type ProviderConfig} from "../../contract/config-schema";
+import {formatTokenCount} from "../qa/models";
 
 type Discovered = {state: "found" | "empty" | "not_supported" | "auth" | "unreachable" | "failed"; status: number | null; message: string | null; models: {id: string}[]; keySet: boolean};
 type Suggestion = {from: string; contextWindow: number | null; maxTokens: number | null; reasoning: boolean; images: boolean};
@@ -105,14 +106,9 @@ function removeRow(key: number): void {
     rows.value = rows.value.filter(row => row.key !== key);
 }
 
-function tokens(value: number | null): string {
-    if (value === null) return "";
-    return value >= 1_000_000 ? `${Number((value / 1_000_000).toFixed(2))}M` : value >= 1_000 ? `${Number((value / 1_000).toFixed(1))}K` : String(value);
-}
-
 function placeholder(row: Row, field: "contextWindow" | "maxTokens"): string {
     const value = props.suggest(row.id.trim())?.[field] ?? null;
-    return value === null ? "自动" : `自动（目录 ${tokens(value)}）`;
+    return value === null ? "自动" : `自动（目录 ${formatTokenCount(value)}）`;
 }
 
 function triPlaceholder(row: Row, field: "reasoning" | "images"): string {

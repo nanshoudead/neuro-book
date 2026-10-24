@@ -15,7 +15,7 @@ import {Type} from "typebox";
 import {ConfigSchema, type ProviderConfig, type QaConfig} from "../../contract/config-schema";
 import type {ViewerResult} from "../../contract/contract";
 import {StoryCallError, useStoryClient} from "../host/client";
-import {candidateInfos, clampThinking, type CatalogProvider} from "../qa/models";
+import {candidateInfos, clampThinking, formatTokenCount, providerNote, type CatalogProvider} from "../qa/models";
 import ProviderDialog from "./ProviderDialog.vue";
 
 const client = useStoryClient();
@@ -83,9 +83,12 @@ function update(patch: Partial<Draft>): void {
 
 // ---- 服务商与候选 ----
 
-/** 模型目录用的服务商：编辑中的自定义服务商（保存过的模型带服务端补过的参数）在前，再是 OMP 目录。 */
+/**
+ * 模型目录用的服务商：编辑中的自定义服务商在前，再是 OMP 目录。自定义模型以表单里写的为准，写成“自动”的字段取服务端
+ * 上次补的值（保存过才有）；推理档只有服务端知道，没保存过的推理模型档未知（见 `effortsPending`）。
+ */
+const savedCustom = computed(() => new Map(catalog.value.filter(provider => provider.source === "custom").map(provider => [provider.id, provider])));
 const providers = computed<CatalogProvider[]>(() => {
-    const saved = new Map(catalog.value.filter(provider => provider.source === "custom").map(provider => [provider.id, provider]));
     const custom = Object.entries(value.value.providers ?? {}).map(([id, provider]): CatalogProvider => ({
         id,
         name: provider.name ?? id,
@@ -93,13 +96,25 @@ const providers = computed<CatalogProvider[]>(() => {
         access: "key",
         keyEnvs: [provider.apiKeyEnv],
         keySet: keys.value[provider.apiKeyEnv] ?? false,
-        models: provider.models.map(model => saved.get(id)?.models.find(item => item.id === model.id) ?? {
-            id: model.id, name: model.name ?? model.id, api: provider.api, contextWindow: model.contextWindow ?? null, maxTokens: model.maxTokens ?? null,
-            reasoning: model.reasoning ?? false, efforts: [], images: model.images ?? false, price: model.price ?? null,
+        models: provider.models.map(model => {
+            const known = savedCustom.value.get(id)?.models.find(item => item.id === model.id);
+            const reasoning = model.reasoning ?? known?.reasoning ?? false;
+            return {
+                id: model.id, name: model.name ?? known?.name ?? model.id, api: provider.api,
+                contextWindow: model.contextWindow ?? known?.contextWindow ?? null, maxTokens: model.maxTokens ?? known?.maxTokens ?? null,
+                reasoning, efforts: reasoning ? (known?.efforts ?? []) : [], images: model.images ?? known?.images ?? false, price: model.price ?? known?.price ?? null,
+            };
         }),
     }));
     return [...custom, ...catalog.value.filter(provider => provider.source === "catalog")];
 });
+/** 这个候选的推理档要等保存后才知道：本地新加、可能会推理的自定义模型。 */
+function effortsPending(ref: string): boolean {
+    const slash = ref.indexOf("/");
+    const model = value.value.providers?.[ref.slice(0, slash)]?.models.find(item => item.id === ref.slice(slash + 1));
+    if (model === undefined || model.reasoning === false) return false;
+    return savedCustom.value.get(ref.slice(0, slash))?.models.some(item => item.id === model.id) !== true;
+}
 const catalogIds = computed(() => catalog.value.filter(provider => provider.source === "catalog").map(provider => provider.id));
 const infos = computed(() => candidateInfos(value.value, providers.value));
 const defaultRef = computed(() => value.value.model.use);
@@ -110,21 +125,26 @@ const thinking = computed({
     set: (next: string) => update({model: {use: value.value.model.use, ...(next === "none" ? {} : {thinking: next as NonNullable<Draft["model"]["thinking"]>})}}),
 });
 
-/** 设为默认：推理档夹到新默认支持的档，不支持推理就去掉。 */
+/** 设为默认：推理档夹到新默认支持的档，不支持推理就去掉；档还不知道（见 `effortsPending`）时留着，保存后再夹。 */
 function setDefault(ref: string): void {
-    const kept = clampThinking(infos.value.get(ref)?.efforts ?? [], value.value.model.thinking ?? null);
+    const current = value.value.model.thinking ?? null;
+    const kept = effortsPending(ref) ? current : clampThinking(infos.value.get(ref)?.efforts ?? [], current);
     update({model: {use: ref, ...(kept === null ? {} : {thinking: kept as NonNullable<Draft["model"]["thinking"]>})}});
 }
 
-function removeCandidates(refs: readonly string[]): void {
+/** 去掉候选；去掉的是默认模型时改用第一个。`lead` 是调用方要先说的话，与默认模型的变化写进同一条提示。 */
+function removeCandidates(refs: readonly string[], lead: string | null = null): void {
     const models = value.value.models.filter(ref => !refs.includes(ref));
     update({models});
+    let change: string | null = null;
     if (refs.includes(value.value.model.use)) {
         const next = models[0] ?? "";
         if (next === "") update({model: {use: ""}});
         else setDefault(next);
-        notice.value = {tone: "info", text: next === "" ? "去掉了默认模型；先添加一个模型才能保存。" : `去掉了默认模型，默认改成了 ${infos.value.get(next)?.view.label ?? next}。`};
+        change = next === "" ? "去掉了默认模型；先添加一个模型才能保存。" : `去掉了默认模型，默认改成了 ${infos.value.get(next)?.view.label ?? next}。`;
     }
+    const text = [lead, change].filter(part => part !== null).join("");
+    if (text !== "") notice.value = {tone: "info", text};
 }
 
 function addCandidates(refs: readonly string[]): void {
@@ -140,11 +160,10 @@ const usedProviders = computed(() => {
 });
 
 function keyText(provider: CatalogProvider): {text: string; tone: "success" | "warning" | "neutral"} {
-    if (provider.access === "keyless" && !provider.keySet) return {text: "不设密钥也能用", tone: "neutral"};
-    if (provider.keyEnvs.length === 0) return {text: "要登录，这里用不了", tone: "warning"};
-    const env = provider.keyEnvs.join(" 或 ");
-    if (provider.source === "custom" && !(provider.keyEnvs[0]! in keys.value)) return {text: `${env}：保存后才知道`, tone: "neutral"};
-    return provider.keySet ? {text: `${env} 已设置`, tone: "success"} : {text: `${env} 没有值`, tone: "warning"};
+    // 改了名的密钥变量，服务启动时有没有值要保存后才知道。
+    if (provider.source === "custom" && !(provider.keyEnvs[0]! in keys.value)) return {text: `${provider.keyEnvs.join(" 或 ")}：保存后才知道`, tone: "neutral"};
+    const note = providerNote(provider);
+    return {text: note.text, tone: !note.usable ? "warning" : provider.keySet ? "success" : "neutral"};
 }
 
 // ---- 对话框 ----
@@ -170,8 +189,7 @@ function saveProvider(saved: {id: string; config: ProviderConfig}): void {
     update({providers: {...value.value.providers, [saved.id]: saved.config}});
     // 服务商里去掉的模型，候选里也去掉。
     const gone = value.value.models.filter(ref => ref.startsWith(`${saved.id}/`) && !saved.config.models.some(model => ref === `${saved.id}/${model.id}`));
-    if (gone.length > 0) removeCandidates(gone);
-    notice.value = {tone: "info", text: editing.value === null ? `已添加服务商 ${saved.id}：用“添加模型…”把它的模型加进候选，然后保存。` : `已改服务商 ${saved.id}，保存后生效。`};
+    removeCandidates(gone, editing.value === null ? `已添加服务商 ${saved.id}：用“添加模型…”把它的模型加进候选，然后保存。` : `已改服务商 ${saved.id}，保存后生效。`);
 }
 
 function removeProvider(): void {
@@ -236,19 +254,29 @@ async function save(): Promise<void> {
     }
     saving.value = true;
     notice.value = null;
+    let saved = false;
     try {
         const result = await client.call("config.set", {config: value.value, expect: loaded.value.digest});
         loaded.value = {state: "valid", config: value.value as never, digest: result.digest, path: result.path, keys: result.keys};
         savedText.value = JSON.stringify(value.value);
         tested.value = null;
+        saved = true;
         notice.value = {tone: "success", text: "已保存。下一轮问答与下一次抽取开始时用新的配置。"};
-        // 服务端补过参数的自定义模型（上下文、推理档）跟着刷新。
-        catalog.value = (await client.call("models.catalog", {})).providers;
     } catch (error) {
         if (error instanceof StoryCallError && error.code === "config_conflict") notice.value = {tone: "warning", text: "配置在别处（命令行或另一个页面）改过了。重新载入会丢掉这里没保存的改动。", conflict: true};
         else notice.value = {tone: "error", text: `没有保存：${error instanceof Error ? error.message : String(error)}`};
     } finally {
         saving.value = false;
+    }
+    if (saved) await refreshCatalog();
+}
+
+/** 保存后刷新目录：服务端补过参数的自定义模型（上下文、推理档）跟着变。刷新失败不改“已保存”的结论。 */
+async function refreshCatalog(): Promise<void> {
+    try {
+        catalog.value = (await client.call("models.catalog", {})).providers;
+    } catch (error) {
+        notice.value = {tone: "warning", text: `已保存，但没能刷新模型目录（${error instanceof Error ? error.message : String(error)}）：重新载入页面后再看上下文与推理档。`};
     }
 }
 
@@ -279,8 +307,7 @@ function back(): void {
 }
 
 function contextText(window: number | null): string {
-    if (window === null) return "上下文未知";
-    return `上下文 ${window >= 1_000_000 ? `${Number((window / 1_000_000).toFixed(2))}M` : `${Math.round(window / 1000)}K`}`;
+    return window === null ? "上下文未知" : `上下文 ${formatTokenCount(window)}`;
 }
 </script>
 
@@ -308,7 +335,7 @@ function contextText(window: number | null): string {
                         <div class="models-main">
                             <div class="models-name">{{ infos.get(ref)?.view.label ?? ref }}<Badge v-if="ref === defaultRef" size="sm" variant="soft" tone="accent">默认</Badge></div>
                             <div class="models-meta">
-                                {{ infos.get(ref)?.view.group }} · {{ contextText(infos.get(ref)?.contextWindow ?? null) }}<template v-if="(infos.get(ref)?.efforts.length ?? 0) > 0"> · 推理</template>
+                                {{ infos.get(ref)?.view.group }} · {{ contextText(infos.get(ref)?.contextWindow ?? null) }}<template v-if="(infos.get(ref)?.efforts.length ?? 0) > 0"> · 推理</template><template v-else-if="effortsPending(ref)"> · 推理档保存后才知道</template>
                                 <template v-if="infos.get(ref)?.view.unavailable"> · <span class="models-warn">{{ infos.get(ref)?.view.unavailable }}</span></template>
                             </div>
                         </div>

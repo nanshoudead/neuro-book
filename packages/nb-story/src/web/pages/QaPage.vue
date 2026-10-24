@@ -31,7 +31,7 @@ import AnswerCard from "../qa/AnswerCard.vue";
 import {REF_SCHEME} from "../qa/link-refs";
 import {CHAPTER_SCHEME, createMentionSearch, ENTITY_SCHEME, MENTION_LIMIT, mentionMenu, mentionPlainText, type MentionEntity} from "../qa/mentions";
 import {createNameResolver, QA_NAME_LOOKUP} from "../qa/names";
-import {candidateInfos, clampThinking, contextTokensOf, defaultChoice, type CatalogProvider} from "../qa/models";
+import {candidateInfos, clampThinking, contextTokensOf, resolveChoice, type CatalogProvider} from "../qa/models";
 import {createQaSource, type QaSource, type QaSourceState} from "../qa/source";
 import StoryMarkdown from "../qa/StoryMarkdown.vue";
 import {storyToolsContribution} from "../qa/tools";
@@ -240,16 +240,13 @@ function setComposer(next: ComposerView): void {
 }
 
 /**
- * 这一轮用的模型与推理档。存档里的 `modelKey` 为 null 表示这个对话还没选过：按 `defaultChoice`（新对话用默认模型，续问
- * 接着用上一轮的）。`requested` 是选的档，`thinking` 是按所选模型夹过、真正发出的档。
+ * 这一轮用的模型与推理档。存档里的 `modelKey` 为 null 表示这个对话还没选过（规则见 `resolveChoice`）。`requested` 是选的档，
+ * `thinking` 是按所选模型夹过、真正发出的档。
  */
 const choice = computed(() => {
     if (config.value === null) return null;
     const lastTurn = run.value?.model ?? record.value?.turns.at(-1)?.model ?? null;
-    const fallback = defaultChoice(config.value, lastTurn);
-    const stored = composer.value;
-    const model = stored.modelKey ?? fallback.model;
-    const requested = stored.modelKey === null ? fallback.thinking : stored.thinking;
+    const {model, requested} = resolveChoice(config.value, composer.value, lastTurn);
     return {model, requested, thinking: clampThinking(candidates.value.get(model)?.efforts ?? [], requested)};
 });
 /** 交给视图的输入框：存档叠上候选与所选模型的推理档。 */
@@ -426,6 +423,7 @@ async function removeConversation(): Promise<void> {
     if (id === null) return;
     try {
         await client.call("qa.remove", {book: book.bookId, id});
+        composerStore.delete(storeKey(id));
         book.qaConversation.value = null;
     } catch (error) {
         startError.value = `删除失败：${error instanceof Error ? error.message : String(error)}`;

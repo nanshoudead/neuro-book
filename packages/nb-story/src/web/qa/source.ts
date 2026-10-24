@@ -20,7 +20,7 @@ import type {QaRecordView, QaRunView, ViewerResult} from "../../contract/contrac
 import {StoryCallError, type StoryClient, type SubscriptionEnd} from "../host/client";
 import {messagesFromRecord} from "./record-messages";
 import {createTurnTranscripts, type TurnTranscripts} from "./turn-transcripts";
-import {composeMessages, createMessageCache, type MessageCache, type TurnInfo} from "./turns";
+import {composeMessages, createMessageCache, replyCheckOf, type MessageCache, type TurnInfo} from "./turns";
 
 export interface QaSourceState {
     readonly phase: "loading" | "ready" | "failed";
@@ -92,6 +92,13 @@ export function createQaSource(options: QaSourceOptions): QaSource {
     let generation = 0;
     let transcript: TurnTranscripts = createTurnTranscripts(null);
     let cache: MessageCache = createMessageCache();
+    /** 日志里的出处复查元数据（`seq` → 没读过的出处），随转录一起换。 */
+    let replyChecks = new Map<number, readonly string[]>();
+    function applyLogEntry(entry: unknown): void {
+        const check = replyCheckOf(entry);
+        if (check !== null) replyChecks.set(check.seq, check.refs);
+        transcript.applyLogEntry(entry);
+    }
     let subscription: {close(): void} | null = null;
     let cancelRetry: (() => void) | null = null;
     /** 连续重连了几次：订阅收到快照才清零（qa.get 成功而推送一连就断时，间隔照样变长）。 */
@@ -121,7 +128,7 @@ export function createQaSource(options: QaSourceOptions): QaSource {
         const info: TurnInfo[] = turns.map(turn => ({question: turn.question, startedAt: turn.startedAt, unverifiedRefs: turn.reply?.unverifiedRefs ?? [], ...(turn.logFrom === undefined ? {} : {logFrom: turn.logFrom})}));
         const run = attachedRun(next.record, next.run);
         const running = run === null ? null : {question: run.question, startedAt: run.startedAt, logFrom: run.logFrom, unverifiedRefs: run.result?.reply?.unverifiedRefs ?? []};
-        return composeMessages(transcript.messages(), {conversationId: conversation, turns: info, running}, cache);
+        return composeMessages(transcript.messages(), {conversationId: conversation, turns: info, running, replyChecks}, cache);
     }
 
     function update(patch: Partial<QaSourceState>): void {
@@ -174,14 +181,14 @@ export function createQaSource(options: QaSourceOptions): QaSource {
                             return;
                         }
                         attempts = 0;
-                        for (const entry of frame.entries) transcript.applyLogEntry(entry);
+                        for (const entry of frame.entries) applyLogEntry(entry);
                         wasRunning = frame.run.state === "running";
                         sawEnd = !wasRunning;
                         state = {...state, run: frame.run};
                         break;
                     case "log":
                         if (frame.runId !== run.runId) return;
-                        for (const entry of frame.entries) transcript.applyLogEntry(entry);
+                        for (const entry of frame.entries) applyLogEntry(entry);
                         break;
                     case "event":
                         if (frame.runId !== run.runId) return;
@@ -234,7 +241,8 @@ export function createQaSource(options: QaSourceOptions): QaSource {
         if (!sameRun) {
             transcript = createTurnTranscripts(turnStarts(got.record, attached));
             cache = createMessageCache();
-            if (got.log.ok) for (const entry of got.log.entries) transcript.applyLogEntry(entry);
+            replyChecks = new Map();
+            if (got.log.ok) for (const entry of got.log.entries) applyLogEntry(entry);
         }
         update({phase: "ready", error: null, record: got.record, run: got.run, continuable: got.continuable, logProblem: got.log.ok ? null : got.log.problem, detached: got.run !== null && attached === null && !(got.run.state === "ended" && got.run.saved?.ok === true)});
         emit();

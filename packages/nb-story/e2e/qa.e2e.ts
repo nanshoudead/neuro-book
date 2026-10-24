@@ -281,17 +281,29 @@ test.describe("输入框与模型", () => {
         await expect(page.locator("[data-context-meter]")).toBeVisible();
     });
 
-    test("管理模型…去设置页，回来草稿还在", async ({page}) => {
+    test("管理模型…去设置页，回来草稿还在；选过的模型在设置里被去掉后回到默认模型，发问用默认模型", async ({page}) => {
         await page.goto(`${server.base}/book/fox/qa?at=38.57`);
         await page.getByRole("button", {name: "新对话"}).first().click();
         const input = page.getByRole("textbox", {name: "消息输入框"});
         await input.click();
         await page.keyboard.type("没发出去的草稿");
         await page.locator("[data-model-picker]").click();
+        await page.getByRole("menuitemradio", {name: /gpt-5\.6-sol/u}).click();
+        await page.locator("[data-model-picker]").click();
         await page.getByRole("menuitem", {name: "管理模型…"}).click();
         await expect(page).toHaveURL(/\/settings$/u);
+        await page.locator("[data-settings-candidate='custom/gpt-5.6-sol'] [data-settings-remove-candidate]").click();
+        await page.getByTestId("settings-save").click();
+        await expect(page.getByTestId("settings-notice")).toContainText("已保存");
         await page.goBack();
         await expect(page.getByRole("textbox", {name: "消息输入框"})).toHaveText("没发出去的草稿");
+        await expect(page.locator("[data-model-picker]")).toContainText("qa-model");
+
+        await endpoint.script([{kind: "text", text: "好的。"}]);
+        const before = (await endpoint.bodies()).length;
+        await ask(page, "介绍一下");
+        await expect(page.getByText("好的。")).toBeVisible();
+        expect((await endpoint.bodies()).slice(before).map(body => body.model)).toEqual(["qa-model"]);
     });
 });
 
@@ -317,20 +329,32 @@ test.describe("设置页", () => {
 
         await page.locator("[data-settings-provider='custom'] [data-settings-edit-provider]").click();
         await dialog(page).getByRole("button", {name: "手动添加"}).click();
-        await dialog(page).locator("[data-provider-model-row]").last().getByPlaceholder("模型名").fill("qa-model-2");
+        // gpt-5.6-sol 是 OMP 目录认得的模型名：推理留“自动”，保存后服务端按目录补上推理档。
+        await dialog(page).locator("[data-provider-model-row]").last().getByPlaceholder("模型名").fill("gpt-5.6-sol");
         await page.locator("[data-provider-save]").click();
         await page.locator("[data-settings-add-model]").click();
-        await page.locator("[data-catalog-search] input").fill("qa-model-2");
-        await page.locator("[data-catalog-model='custom/qa-model-2']").click();
+        await page.locator("[data-catalog-search] input").fill("gpt-5.6-sol");
+        await page.locator("[data-catalog-model='custom/gpt-5.6-sol']").click();
         await page.locator("[data-catalog-confirm]").click();
-        await page.locator("[data-settings-candidate='custom/qa-model-2'] [data-settings-default]").click();
+        const added = page.locator("[data-settings-candidate='custom/gpt-5.6-sol']");
+        await added.locator("[data-settings-default]").click();
+        await expect(added).toContainText("推理档保存后才知道");
         await expect(page.getByTestId("settings-test")).toBeDisabled();
         await page.getByTestId("settings-save").click();
         await expect(page.getByTestId("settings-notice")).toContainText("已保存");
-        const written = JSON.parse(await readFile(configFile, "utf8"));
-        expect(written).toMatchObject({providers: {custom: {models: [{id: "qa-model"}, {id: "qa-model-2"}]}}, models: ["custom/qa-model", "custom/qa-model-2"], model: {use: "custom/qa-model-2"}, qa: {answer: "structured"}});
+        let written = JSON.parse(await readFile(configFile, "utf8"));
+        expect(written).toMatchObject({providers: {custom: {models: [{id: "qa-model"}, {id: "gpt-5.6-sol"}]}}, models: ["custom/qa-model", "custom/gpt-5.6-sol"], model: {use: "custom/gpt-5.6-sol"}, qa: {answer: "structured"}});
         expect(written).not.toHaveProperty("model.baseUrl");
         await expect(page.getByTestId("settings-test")).toBeEnabled();
+
+        // 保存后目录补上了推理档：改档再保存。
+        await expect(page.locator("[data-settings-thinking]"), "OMP 目录里的 gpt-5.6-sol 应该会推理（目录升级改了？）").toBeVisible();
+        await page.locator("[data-settings-thinking] [role='combobox']").click();
+        await page.getByRole("option", {name: "推理档：高"}).click();
+        await page.getByTestId("settings-save").click();
+        await expect(page.getByTestId("settings-notice")).toContainText("已保存");
+        written = JSON.parse(await readFile(configFile, "utf8"));
+        expect(written.model).toEqual({use: "custom/gpt-5.6-sol", thinking: "high"});
     });
 
     test("别处改过再保存：报冲突，重新载入后是别处写的内容；服务商表单里误贴的密钥不收、文件不变", async ({page}) => {
@@ -341,6 +365,7 @@ test.describe("设置页", () => {
         await expect(page.getByTestId("settings-notice")).toContainText("去掉了默认模型");
         await page.locator("[data-settings-add-model]").click();
         await page.locator("[data-catalog-search] input").fill("deepseek-flash");
+        await expect(page.locator("[data-catalog-model='deepseek/deepseek-flash']"), "OMP 目录里没有 deepseek/deepseek-flash（目录升级改了名？）").toBeVisible();
         await page.locator("[data-catalog-model='deepseek/deepseek-flash']").click();
         await page.locator("[data-catalog-confirm]").click();
         await page.getByTestId("settings-save").click();
@@ -366,6 +391,7 @@ test.describe("设置页", () => {
         await expect(page.getByTestId("settings-absent")).toBeVisible();
         await page.locator("[data-settings-add-model]").click();
         await page.locator("[data-catalog-search] input").fill("deepseek-flash");
+        await expect(page.locator("[data-catalog-model='deepseek/deepseek-flash']"), "OMP 目录里没有 deepseek/deepseek-flash（目录升级改了名？）").toBeVisible();
         await page.locator("[data-catalog-model='deepseek/deepseek-flash']").click();
         await page.locator("[data-catalog-confirm]").click();
         await expect(page.getByTestId("settings-ingest-note")).toContainText("抽取要单独写模型");

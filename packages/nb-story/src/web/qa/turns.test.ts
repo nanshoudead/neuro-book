@@ -7,7 +7,7 @@ import {describe, expect, test} from "bun:test";
 
 import type {AssistantMessageView, MessageView} from "@notnotype/nb-agent-ui";
 
-import {composeMessages, createMessageCache, questionId, UNVERIFIED_REFS} from "./turns";
+import {composeMessages, createMessageCache, questionId, replyCheckOf, UNVERIFIED_REFS} from "./turns";
 
 const user = (seq: number, text: string): MessageView => ({kind: "user", id: `h${seq}`, timestamp: seq, intent: "normal", blocks: [{kind: "text", text}], contentOmitted: false});
 const reply = (seq: number, text: string): AssistantMessageView => ({kind: "assistant", id: `h${seq}`, timestamp: seq, status: "done", text, thinking: "", model: "m", toolCalls: [], contentOmitted: false});
@@ -52,9 +52,20 @@ describe("按记录分轮", () => {
     test("出处复查：同一轮里第一问之后的用户消息是过程里的一行，不开新的一轮；最后的回复是复查后的", () => {
         // 日志：1 快照，2 提问，3 回复（出处没读过），4 复查的 meta（适配器不出消息），5 复查消息，6 改过的回复。
         const messages = [user(2, "地狱猫是谁"), reply(3, "她是（37.8）"), user(5, "出处检查：回答里这些出处不是这个对话里读过的段落：37.8、38.1。先用 read 读这些段落核对"), reply(6, "改过的（37.8）")];
-        const composed = composeMessages(messages, {conversationId: "c", turns: [turn("地狱猫是谁", 1)], running: null}, createMessageCache());
+        const replyChecks = new Map([[4, ["37.8", "38.1"]]]);
+        const composed = composeMessages(messages, {conversationId: "c", turns: [turn("地狱猫是谁", 1)], running: null, replyChecks}, createMessageCache());
         expect(composed.map(message => [message.kind, message.id])).toEqual([["user", questionId("c", 1)], ["assistant", "h3"], ["system", "h5"], ["assistant", "h6"]]);
         expect(composed[2]).toMatchObject({source: "reminder", label: "出处检查", text: "37.8、38.1 没读过，已让模型重写"});
         expect(composed.filter(message => message.kind === "user")).toHaveLength(1);
+        // 没收到元数据时（例如日志被截断）照样是一行，不列出处。
+        expect(composeMessages(messages, {conversationId: "c", turns: [turn("地狱猫是谁", 1)], running: null}, createMessageCache())[2]).toMatchObject({kind: "system", text: "有没读过的出处，已让模型重写"});
+        expect(replyCheckOf({seq: 4, kind: "meta", key: "nb-story.reply-check", value: {unverified: ["37.8"]}})).toEqual({seq: 4, refs: ["37.8"]});
+        expect(replyCheckOf({seq: 4, kind: "meta", key: "other", value: {}})).toBeNull();
+    });
+
+    test("一轮开头不是提问时补一条，日志里的提问仍是提问，不当成复查", () => {
+        const messages = [reply(2, "旧的错误"), user(3, "地狱猫是谁"), reply(4, "她是")];
+        const composed = composeMessages(messages, {conversationId: "c", turns: [turn("地狱猫是谁", 1)], running: null}, createMessageCache());
+        expect(composed.filter(message => message.kind === "system")).toEqual([]);
     });
 });
