@@ -45,16 +45,17 @@ export function resolveQaModel(config: QaConfig, choice: QaModelChoice = {}): Qa
     const ref = choice.model ?? config.model.use;
     if (!config.models.includes(ref)) throw new QaError("qa_unconfigured", `模型 ${ref} 不在候选模型里`);
     const requested = choice.thinking ?? (ref === config.model.use ? config.model.thinking : undefined);
-    const resolved = resolveRef(config, ref);
+    const resolved = modelOf(config, ref);
     const efforts = supportedEfforts(resolved.model);
     return {resolved, ref, contextWindow: resolved.model.contextWindow ?? null, efforts, thinking: clampEffort(resolved.model, requested)};
 }
 
 /**
- * 自定义服务商的模型：没写的上下文、最大输出、推理与图片按模型名从 OMP 目录补（同 OMP 的 `finalizeCustomModel`），
- * 单价不补。provider 名用自定义服务商的 id：它不与目录重名，OMP 按通用的兼容端点处理。
+ * 引用指向的模型，不看在不在候选里（设置页要列出自定义服务商的全部模型）。自定义服务商的模型：没写的上下文、最大
+ * 输出、推理与图片按模型名从 OMP 目录补（同 OMP 的 `finalizeCustomModel`），单价不补。provider 名用自定义服务商的 id：
+ * 它不与目录重名，OMP 按通用的兼容端点处理。
  */
-function resolveRef(config: QaConfig, ref: string): ResolvedModel {
+export function modelOf(config: QaConfig, ref: string): ResolvedModel {
     const {provider: providerId, model: modelId} = parseModelRef(ref);
     const provider = config.providers?.[providerId];
     if (provider === undefined) {

@@ -281,6 +281,8 @@ export interface PreparedQuestion {
     readonly turn: number;
     /** 这一轮在会话日志里从哪一条开始（同记录的 `logFrom`）。 */
     readonly logFrom: number;
+    /** 这一轮用的模型，`服务商/模型名`。 */
+    readonly model: string;
     /** 对话的阅读位置与做法（续问时是记录里的）。 */
     readonly at: Position;
     readonly mode: QaMode;
@@ -420,6 +422,7 @@ export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion
         id,
         turn: (previous?.turns.length ?? 0) + 1,
         logFrom,
+        model: qaModel.ref,
         at,
         mode,
         book: book.id,
