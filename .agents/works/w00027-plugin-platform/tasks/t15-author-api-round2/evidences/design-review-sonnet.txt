@@ -1,0 +1,175 @@
+# t15 第一期计划审查（前端与作者体验，Sonnet）
+审查对象：.agents/works/w00027-plugin-platform/tasks/t15-author-api-round2/plan.md（master 9d83ef8bd）
+范围：3.2 子路径对作者的写法、3.4 打开视图、作者文档与示例的改法；3.1 里 Bun 相关机制按说明第 2 条实测。
+实验目录：/tmp/review-t15-design-sonnet/（build:sdk 产物、bun add/bunx/bun pm pack 实测、嵌套子路径构建实验）
+每条核实后追加；最后有汇总。
+
+[F01] 重要 / 遗漏 / 3.2 子路径表没有给 nbook.state 的导出找归属
+位置：plan.md 3.2 表；src/sdk/index.ts 第 56-58 行（defineStore、definePublicState）
+现象：现在根入口导出 defineStore、definePublicState（内置插件 nbook.state）。3.2 的表只有 storage / settings / commands / workbench 四个内置插件，根入口的描述也没提这两个，也没提 defineSetting、WORKBENCH_*_POINT、SETTINGS_*_POINT、COMMANDS_POINT、settingsChoicesEvent 这些原始贡献点常量和 defineRecord 之外的 storage 低层名字去哪。开发者的决定是“所有贡献助手都改成所属子路径的函数，子路径按内置插件分”，nbook.state 是同一类内置插件。
+为什么是问题：S2 的实现者只能自己猜：放根入口就违反“根入口只留插件框架”，加 /state 就是表之外的新子路径（每个子路径都是 engines.neurobook 内的承诺，也要进宿主模块表、两份 tsconfig、pack）。counter 示例同时用 defineRecord、storageKey、defineStore、definePublicState（plugin-sdk/examples/plugins/counter/backend/plugin.ts:20、shared/contracts.ts:10），这是真实用例，不是边角。
+如何核实：grep -n "defineStore\|definePublicState" packages/neuro-book/src/sdk/index.ts；对照 plan.md 3.2 表无一行含它们。
+建议改法：表里补一行 `/state`（server 可用，defineStore、definePublicState 与类型）；另列一张“现有导出 -> 新子路径”的逐名对照（含上面那些点常量、defineSetting、StorageService/RecordHandle 等类型），S2 验收就是 sdk.test.ts 的导出面快照按这张表更新，不靠实现者判断。同时写明被移走的名字在根入口不留别名（SDK 未发布，开发者已定不保留旧名可沿用）。
+
+[F02] 建议 / 作者体验 / 3.1 `bunx nbooke create .` 在没装 SDK 的目录里会去 npm 取同名包
+位置：plan.md 3.1 第一条
+现象：实测（bun 1.4.2）：在装了 SDK tarball 的目录里 `bunx nbook-plugin create . --publisher acme` 走本地 node_modules/.bin，正常；在空目录里 `bunx <不存在的包名> create .` 直接向 registry 取该名字的包（本例 404）。nbooke 是 bin 名，不是包名（包是 @notnotype/nb-plugin-sdk），`npm view nbooke` 现在 404，也就是谁先注册这个名字，谁就在“忘了先装 SDK”或装 SDK 失败的作者机器上拿到代码执行。`npm view nbook` 已经是别人的包（0.0.4），P5 第二期的 `bunx nbook` 同理。
+为什么是问题：文档顺序是“先 bun add -d SDK，再 bunx nbooke create .”，顺序对时没事；但 bunx 对写错顺序没有任何保护，而且这是新手最常见的失误。
+如何核实：/tmp/review-t15-design-sonnet/empty 下 `bunx nbook-plugin-nonexistent-xyz create .` 得到 `error: GET https://registry.npmjs.org/... - 404`；auth1 目录下 `bunx nbook-plugin create .` 成功。
+建议改法：二选一或都做：(1) 发布前在 npm 上占位 nbooke（和第二期的 nbook 命名一并看）；(2) 文档里把第一步写成不依赖 bin 名的形式：`bunx --package @notnotype/nb-plugin-sdk nbooke create .`（发布后可直接用），tarball 阶段写 `bun add -d <tgz>` 之后 `bun run nbooke create .` 或 `./node_modules/.bin/nbooke create .`。
+
+[F03] 建议 / 机制 / 3.1 / 2 “bun pm pack 产出同样的 tarball”：内容等价，但 pack.ts 解析输出的方式要改
+位置：plan.md 第 2 节、3.1；plugin-sdk/pack.ts 的 npmPack（取 stdout 最后一行当文件名）
+现象：实测：同一个 build:sdk 输出目录，npm pack 与 bun pm pack 打出的 tarball 解开后 `diff -rq` 无差异，cli.js 可执行位都保留（尺寸 571350 对 569441 字节，压缩层差异）。但 bun pm pack 默认 stdout 是逐文件列表，最后几行是 `Packed size: 0.57MB`，不是文件名；只有加 `--quiet` 才只打印 tarball 的绝对路径（已实测）。npmPack 现在的“最后一行必须以 .tgz 结尾，否则抛错”会直接抛。--pack-destination 在 bun 里叫 --destination，cwd 用 --cwd。
+为什么是问题：计划只说“换成 bun pm pack”，S1 的实现者会遇到一次失败才发现；pack.test.ts 若有对 npm 输出形状的断言也要同步。
+如何核实：/tmp/review-t15-design-sonnet/cmp（两份解包目录），`bun pm pack --quiet --cwd <dir> --destination <dir2>`。
+建议改法：计划 3.1 写明 `bun pm pack --quiet --destination <目录旁>`，并保留“结果必须以 .tgz 结尾”的检查；pack.ts 顶部注释与 pack.test.ts 里提到 npm pack 的地方一并改。
+
+[F04] 重要 / 机制 / 3.4 “显示区域”点名的 setPartHidden 管不了面板，布局里已有更合适的 applyView 的 reveal 选项
+位置：plan.md 3.4 第一条；web/state/layout-store.ts:172（setPartHidden）、:217（applyView 的 options.reveal）；web/shell/sizes.ts:19-21
+现象：计划写“选中容器、显示区域（布局已有 applyView({kind: "select-container"}) 与 setPartHidden）”。setPartHidden 的参数类型 ShellHideablePart 只有 titlebar / activitybar / sidebar / auxiliarybar，sizes.ts 的注释写明“面板走自己的 hidden”，面板要用 setPanelHidden（还要清收起、清拖到零、清最大化）。视图在面板里时照计划实现没有可调用的东西。而 applyView(intent, {reveal: part}) 正是为“选中容器并同一次写入显示该 Part”做的：它处理侧栏/右栏的隐藏位、拖到零、右栏“主动显示过”，也处理面板的 hidden 与 collapsed，并且“意图本身无变化（选中本来就选中的容器）时照样显示”（layout-store.test.ts:252 有这条用例）。
+为什么是问题：(1) 按计划字面实现，面板里的视图（标题栏、Agent 要打开的常见落点）打不开；(2) 选中与显示分成两次 customizations.commit，既不是同一次写入，也可能被保存冲突重放拆开，Spec 外壳二输出 39 对“放进不显示的 Part”要求的就是同一次写入；(3) 再加展开多视图容器里收起的视图（intent set-view-collapsed，只在 mode=multiple 生效）就是三次写。
+如何核实：sed -n 10,24p src/plugins/workbench/web/shell/sizes.ts；layout-store.ts 172 行 setPartHidden 的签名；layout-store.test.ts 252-257 行。
+建议改法：3.4 改写为：由 placement.views.get(viewId) 得容器，由容器得 part；`applyView({kind:"select-container", part, containerId}, {reveal: part})`，再在容器 mode 为 multiple 且该视图 collapsed 时 `applyView({kind:"set-view-collapsed", viewId, collapsed:false})`（或让 applyView 一次接收这两个意图，避免两次提交）；删掉 setPartHidden 的说法。验收里写一条“视图在面板、面板收起 / 隐藏时打开后可见”。
+
+[F05] 重要 / 合同 / 3.4 “人与 Agent 都能用，expose.agent: auto，只读”与布局命令的现行约定、与命令执行规则冲突
+位置：plan.md 3.4 第一条；web/commands/{view,part,panel,theme}-commands.ts 的声明；docs/specs/workbench/commands.md 第 43、66、269 行
+现象：(1) “只读”不对：打开视图会写布局记录（选中的容器、右栏 shownParts、面板 hidden/collapsed、视图 collapsed 都落进 customizations 的保存），现有布局命令（panel-commands 五条、part-commands、view-commands）全是 effect: "write"、expose.agent: "never"；唯一 agent: "auto" 的是主题命令，它同样是 effect: "write"。effect 是只读模式（discuss/plan）阻断 Agent 的唯一依据（commands.md 第 43 行），写成 read 会让 plan 模式下的 Agent 改用户的布局。(2) “人也能用”：命令面板用 {} 执行命令，viewId 若是必填，面板里这条命令会一直 invalid-args；SDK 的 plugin.command 对这种情况加载即抛错并要求 expose.human: false，内置命令没有这道检查（runsWithoutArgs 只在 SDK 助手里调用），所以不会有人提醒。现行做法是 viewId 可选，省略时走 quickPick 选（move-view、set-part-hidden、主题命令都这样）。(3) 计划没说 agent 的默认：commands.md 第 269 行“暴露默认关闭，逐条显式开放”，要开放就要写理由。
+为什么是问题：effect 写错是安全语义错误，且 Spec 与测试会照“只读”写；required viewId 会让命令面板出现一条必败的命令。
+如何核实：grep -n 'effect\|expose' src/plugins/workbench/web/commands/*-commands.ts；commands.md 第 43、269 行。
+建议改法：声明 `effect: "write"`；`args: {viewId?: string}`，省略时 quickPick 列出所有已登记的视图（标题 + 所在区域），选中后同一路径执行（相当于 VS Code 的 “View: Open View…”）；agent 暴露 `auto` 还是 `never` 由开发者在计划里点名决定并写进 workbench-shell Spec 的命令表（Agent 能让用户的侧栏换页，我倾向 auto 但要显式写 effect: write，plan 模式下被挡）。
+
+[F06] 重要 / 机制缺失 / 3.4 “焦点给视图”没有现成的实现，“返回 ok”的含义也没定
+位置：plan.md 3.4 第一条；web/state/layout-store.ts:246（focusPart）；web/components/WorkbenchShellLayout.vue:160-168（focusTarget）；docs/specs/ui/workbench-shell.md 外壳一输出 10、外壳二输出 27
+现象：布局里唯一叫“焦点”的动作 focusPart 只是把内存里的 focusedPart 改成某个值（Spec 输出 27：它记“最近获得焦点的 Part”，且只由外壳里的 focusin 改）；真正把 DOM 焦点移走的只有 WorkbenchShellLayout.focusTarget，它只会落到 data-shell-focus-target 的 "panel-toggle" / "panel-title" 两个固定元素，用于“焦点内容被隐藏”的兜底。没有任何代码能把 DOM 焦点送进某个视图（视图内容是插件自己的组件，不一定有可聚焦元素），Spec 也没规定落点（视图标题把手？内容根？内容里第一个可聚焦元素？）。Spec 输出 10 还要求“焦点在外壳之外（菜单、对话框）时不抢”，状态栏条目的点击发生在外壳内，菜单触发则在外壳外。另外 applyView 的提交是 void customizations.commit(...)，命令返回时视图还没渲染出来（也可能还在 load() 组件、入口还没激活：views.md 第 20 行写明 onView 按需激活不在第一版），所以“聚焦”要等渲染后再做，“ok”也只能是“已接受”，不是“已可见”。
+为什么是问题：三个子需求（选中、显示、展开）在布局里都有现成动作，焦点这一项是新机制，计划把它和前三项并列写成“布局已有”，实现时才会发现要新写焦点落点、时序和 Spec；Agent 调用时 ok 不代表用户已看到。
+如何核实：grep -rn "\.focus(" src/plugins/workbench/web 只有 teleport-memory、drag-session、focusTarget 等，没有视图聚焦；sed -n 160,168p WorkbenchShellLayout.vue。
+建议改法：二选一并写进 Spec：(a) 第一期不聚焦，只保证可见（选中 + 显示 + 展开），命令参数留可选 `focus?: boolean` 供以后加；(b) 要聚焦就写明落点（建议：该视图 section 的标题把手或内容根设 tabindex=-1，nextTick 后 focus({preventScroll:true})，焦点原本在外壳之外时不抢，Agent 来源默认不抢），并加 `focus` 参数，对应 VS Code 的 view.show(preserveFocus) / <viewId>.focus 的区别。另在 Spec 写明 ok = 已接受并写入布局，入口未激活时视图显示等待状态。
+
+[F07] 建议 / 一致性 / 3.4 失败码：“视图不在布局里返回 unavailable”与同族命令的映射不一致
+位置：plan.md 3.4；web/commands/view-commands.ts:resultOf、web/commands/part-commands.ts:56
+现象：现有布局命令：布局没打开（layout() 为 null）→ unavailable；意图被 applyIntent 拒绝：stale-source → stale-target，其它（unknown-view、unknown-container 等）→ invalid-args，并把 reason 原样带出。计划把“视图不在布局里、没有已接受的声明”归到 unavailable。
+为什么是问题：同一组命令里，未知 viewId 在 move-view 是 invalid-args、在 open 是 unavailable；调用方（Agent、状态栏的 failure-notice）按码分流，会得到两套含义。
+如何核实：view-commands.ts 的 resultOf；IntentRejection 的取值见 views/intents.ts。
+建议改法：unknown-view → invalid-args（reason 写明视图 id 与可能原因：插件未启用 / 声明被拒）；unavailable 只留给布局没打开；若想区分“插件被停用所以视图暂时没有”，用 reason 文字区分，不新增码。
+
+[F08] 重要 / 机制 / 3.4 openView(viewHelper) 在第一期没有任何作者能用的消费者
+位置：plan.md 3.4 第二条；src/sdk/index.ts 的导出（只有 WORKBENCH_STATUSBAR_ITEMS_POINT，没有标题栏、活动栏、菜单项的点常量或助手）
+现象：计划让 `openView(viewHelper)` 返回 `{id, args}`，“给标题栏、菜单这类收命令引用的地方用”。作者现在能用的助手里，只有 statusItem 收命令（而且 3.4 让它直接收视图助手，不需要 openView）。标题栏条目（WORKBENCH_TITLEBAR_ITEMS_POINT）、活动栏条目、菜单项（commands/shared/menus）在 SDK 里既没有助手也没有导出的点常量，作者只能手写 rawContributions 才用得上这些点，且常量拿不到。
+为什么是问题：新增一个公开面的名字就是一条 engines.neurobook 内的兼容承诺（entries.ts 顶部注释、plugin-api.md “兼容”）；没有消费者的承诺既无法用真实运行时测试（验收映射不出来），又会在以后加标题栏助手时被迫改形状。
+如何核实：grep -n "TITLEBAR\|ACTIVITYBAR\|MENU" packages/neuro-book/src/sdk/*.ts 无结果；SDK 里的 command 引用只有 statusItem 的 `command`。
+建议改法：第一期删掉 openView，只做 statusItem 收视图助手；等标题栏或菜单助手进 SDK 时再加。如果要保留，把它挂在视图助手上（`panel.open`，返回命令引用），不要另起一个自由函数：命令引用跟着视图走，读者看 `panel.` 的补全就能发现，也对应 VS Code 每个视图自带 `<viewId>.focus` 命令的做法。
+
+[F09] 建议 / 实现陷阱 / 3.4 statusItem 的 command 同时收命令助手与视图助手，现有的区分写法会把视图助手当成命令助手
+位置：src/sdk/browser-plugin.ts statusItem 里的 `"contribution" in command ? {id: command.id} : command`
+现象：命令助手和视图助手都有 `contribution` 字段（ContributionHelper 的公共形状）。现在的判别是“有 contribution 就取 id”，对视图助手会得到 `{id: "acme.x.panel"}`，也就是把视图 id 当命令 id 去执行；类型上两者都满足联合，编译不报错，点击时才得到 unknown-command。
+为什么是问题：“点了即打开视图”恰好是 3.4 的核心路径，写错不会被类型或构建发现。
+如何核实：读 browser-plugin.ts statusItem 的 declaration 构造；ViewHelper 与 CommandHelper 都 extends ContributionHelper（带 contribution）。
+建议改法：判别用 `contribution.capability`（COMMANDS_POINT 或 WORKBENCH_VIEWS_POINT）；视图助手分支产出 `{id: "nbook.view.open", args: {viewId: helper.id}}`；加一例“用视图助手和用命令助手的状态栏条目点击后各自生效”的测试（S6 的工作台 e2e 之外，单元里就能用真实命令表测）。
+
+[F10] 建议 / 对照参照 / 缺“从代码里执行命令”，t14 F01 的后半没有被计划接住
+位置：plan.md 3.4；author-acceptance-sonnet.txt F01（“也没有从代码里执行另一条命令的服务”）；src/plugins/commands/shared/contracts.ts:139（commandServiceKey）未导出到 SDK
+现象：VS Code 的作者既能在 package.json 里静态挂命令，也能 `vscode.commands.executeCommand("workbench.view.extension.x")`，并且每个视图自带 `<viewId>.focus`。计划只做了静态一半（状态栏点击）。作者在自己命令的处理函数里、或收到远程事件后想“顺便把我的视图亮出来”，仍然做不到：SDK 不导出 commandServiceKey，AuthorActivationContext 也没有执行命令的入口；也没有 `view.reveal` 这类视图对象上的方法。
+为什么是问题：F01 的现象就写了这两件缺失；开发者定了“B1 到 B7 全做”，作者验收（收口那一步）很可能再次写出“命令里打开视图”这类插件，再记一条同样的发现。
+如何核实：grep -n "commandServiceKey" src/sdk/*.ts 无结果。
+建议改法：在计划里明确范围：要么第一期补一个窄口子（SDK 导出 `commandServiceKey` 的类型化只用 execute 的子集；或视图助手 `implement` 之外给 browser 入口的 `context.services` 一个 `openView(helper)`），要么在计划“不做”里写明“从代码执行命令不做，原因与以后做法”，作者文档说清楚此限制，免得验收再报一次。
+
+[F11] 建议 / 作者体验 / 3.2 浏览器专用子路径被服务端入口导入时，报错只有“宿主没有共享的模块”，没有指向原因
+位置：plan.md 3.2；src/plugin-platform-profile.ts notSharedHints（目前只有 nb-ui 一条）；src/plugin-platform/shared/plugin-code-error.ts notSharedMessage
+现象：现在 /browser、/components 被服务端入口导入时，构建报“引用了宿主没有共享的模块 @notnotype/nb-plugin-sdk/browser（由 backend/plugin.ts 引入）”，没有提示“这是浏览器专用”。3.2 把浏览器专用子路径增加到 /workbench、/settings/browser、/components 三个，/workbench 是整个子路径浏览器专用，名字里没有 browser，更容易误导入（例如在服务端入口里为了类型 import {ViewDeclaration} from ".../workbench"：type 导入会被擦掉，不报；写成 `import {WORKBENCH_VIEWS_POINT}` 之类值导入才报）。
+为什么是问题：错误出现在构建时，作者要靠猜才知道该换入口，而不是看文案。
+如何核实：build-plugin.test.ts:178 对 nb-ui 有“提示改法”的断言，对浏览器专用子路径没有；NEUROBOOK_PROFILE.notSharedHints 只有 nb-ui。
+建议改法：SDK_ENTRIES 本来就有 server:false 这一列，由它生成 notSharedHints：服务端位置的“未共享”若命中 server:false 的子路径，追加“该子路径只能在浏览器入口里导入”；补一条构建测试。
+
+[F12] 建议 / 一致性 / 3.2 浏览器专用部分的命名规则不统一：settings 有 /settings/browser，workbench 整个就是浏览器专用
+位置：plan.md 3.2 表
+现象：规则一：X 与 X/browser（settings）；规则二：整个 X 浏览器专用（workbench、components）。作者看到 /settings/browser 会推断 /workbench/browser、/commands/browser 也存在；而 /workbench 里放的又都是只在窗口里有意义的东西，视图/条目的声明类型 ViewDeclaration、ItemDeclaration 本是 Vue 无关的（shared/views.ts、shared/items.ts），现在连同挪进“服务端不可用”的子路径。
+为什么是问题：不影响正确性，影响可预测性；将来 workbench 出现服务端可用的东西（例如远程触发打开视图的合同）要么拆出 /workbench/shared，要么破坏已承诺的 server:false。
+如何核实：对照 3.2 表与 src/plugins/workbench/shared/{views,items}.ts 的导入（无 Vue）。
+建议改法：定一条规则写进 plugin-api.md：子路径名 = 内置插件名，服务端可用的在 X，浏览器专用的在 X/browser；workbench 当前没有服务端可用的内容，所以只有 /workbench/browser 一个，或者按规则一把视图与条目的“声明类型”留在 X、助手进 X/browser，让 `/workbench` 和 `/settings` 同构。只选一种，不要两种并存。
+
+[F13] 建议 / 作者体验 / 3.2 之后“某个名字去哪找”变难，作者文档的“常用名字”是手写清单，会失真
+位置：plugin-sdk/README.md “常用名字”一节（第 256 行）；plan.md 3.2 最后一条“作者文档……随之改”
+现象：根入口的名字现在分散到 9 个子路径，README 的“常用名字”是一行手写的列表（今天就已漏 settings、components 的名字，把 `settingsKey`、`storageKey` 都算在根入口）。没有地方查“defineRecord 在哪个子路径”。docs/components.md、docs/tokens.md 已经有“由构建从源生成”的先例。
+为什么是问题：分子路径的代价是导入行变多、名字去处要记；这笔代价要靠文档和编辑器自动导入补回。自动导入靠 d.ts 工作，但读 README 的作者（和 Agent）需要一张表。手写表在每次增删子路径时都会过期，sdk.test.ts 钉住的导出面也没人对照它。
+如何核实：看 README 第 256 行与 sdk.test.ts 的导出面清单。
+建议改法：构建时从 SDK 的导出面（entries.ts 加 sdk.test 已有的名字清单，或读各 .d.ts 的导出）生成 docs/imports.md：每个子路径一节，列名字与一句话；README 只链接它。pack.test.ts 核对生成物与导出一致（同 components.md 的做法）。
+
+[F14] 建议 / 验收映射 / 3.2 “服务端可用子路径的闭包里没有 Vue（沿用 t13 的公开面闭包测试）”：现有测试既不分子路径，也不查 Vue
+位置：plan.md 3.2 倒数第二条；src/sdk/surface.test.ts
+现象：surface.test.ts 的 closure() 把 ["index.ts","browser.ts","components.ts"] 三个入口写死，求的是三者并集的“应用源文件”列表，遇到包名一律返回 null，不记录；因此它既不能回答“某个子路径的闭包”，也看不到 `vue` 之类的包导入。我用同样的解析方式单独求 sdk/index.ts 的闭包：没有 .vue 文件、没有 vue 包的值导入（只有 shared/settings.ts 对 @notnotype/nb-form 核心的导入），当前根入口是干净的，所以这条测试要写新的，不是“沿用”。
+为什么是问题：S2 的验收写成了一条已有测试，实际要新写（按 SDK_ENTRIES 逐子路径求闭包，并记录包导入）；不写的话 server:true 子路径悄悄引入 Vue 时只会在服务端装载时才炸。
+如何核实：/tmp/review-t15-design-sonnet/closure/check.ts（`bun check.ts sdk/index.ts` 得到 .vue 文件为空、vue 类包导入只有 nb-form）；surface.test.ts 第 36-50 行。
+建议改法：3.2 把这条写成新增测试：对 SDK_ENTRIES 里 server:true 的每个子路径求闭包，断言无 `.vue` 文件、无 vue 与 @vue/*（除 @vue/reactivity）、无 nb-ui 的值导入；闭包文件清单改成按子路径分开钉住，新增文件时能看出归哪个子路径。
+
+[F15] 建议 / 验收映射 / 3.1 作者流程的新写法没有任何自动测试会真的执行
+位置：plan.md 3.1、第 5 节 S1 的“bun test plugin-sdk/”；plugin-sdk/testing/author.ts、template.test.ts、pack.test.ts
+现象：这些测试都不联网：authorDirectory 把仓库的 node_modules 软链进作者目录、用 tar 把 tarball 解进 node_modules、手写一个 `file:../x.tgz` 的 package.json，再用 `node` 去跑 cli.js 与 vue-tsc。也就是说 `bun add -d <tgz>`、`bunx`/`bun run build`、真实 bin 软链与 shebang 从来没被测试执行过，S1 把“用 bun 运行作者命令”改成测试，覆盖的仍是 tar 解开后的文件。我实测了真实路径（bun 1.4.2，build:sdk 产物）：`bun add -d <tgz>` 在空目录里写出 `{"dependencies": {}, "devDependencies": {"@notnotype/nb-plugin-sdk": "<路径>"}}`（绝对路径写绝对，相对路径写 `../sdk.tgz`，都没有 `file:` 前缀），`bunx nbook-plugin create . --publisher acme` 成功（create 的“目录里只有 package.json、锁文件与 node_modules”检查对 bun.lock 通过，sdkFromRegistry 的判别对这两种写法都认作本地路径），`bun install` 之后 `bun run build`、`bun run --bun build`、`bun run typecheck`（vue-tsc）全部通过。
+为什么是问题：计划是对的，但这个结论是我这次手工得到的；改 shebang、engines、去掉 npm init 兼容之后没有测试会再保护它。fixture 的 `file:` 写法也与 Bun 的真实输出不一致。
+如何核实：/tmp/review-t15-design-sonnet/auth1（完整走通一次）、/tmp/review-t15-design-sonnet/auth2/proj/package.json（相对路径写法）。
+建议改法：(1) authorDirectory 改成写 Bun 的真实形状（无 `file:`）；(2) 加一条标成慢速、需要网络的测试或收口脚本，真跑一遍 `bun add -d <tgz>` -> `bunx` create -> `bun install` -> `bun run build` -> `bun run typecheck`，不放进默认的 bun test；(3) 把我这次的实测写进 S1 的证据；(4) 计划里写明 shebang 改成 bun 的位置在 pack.ts 的 banner（第 337 行附近 `#!/usr/bin/env node`），不是 cli.ts。
+
+[F16] 建议 / 遗漏 / 3.11 改名的清单有不存在的项，也漏了真实位置
+位置：plan.md 3.11；全仓库 grep "nbook-plugin"
+现象：计划列“SDK 包的 bin、模板的脚本、作者文档、Spec、插件页里的提示文字”。grep 结果里 src/plugins/plugins（插件页）没有 nbook-plugin 字样，该项不存在。实际出现的位置：plugin-sdk/cli.ts（USAGE、帮助文字）、create-plugin.ts（报错与提示）、pack.ts（bin 字段、banner）、template/_package.json、README.md、examples/README.md、template.test.ts、docs/specs/runtime/plugin-api.md 第 143-146 行；另外 src/plugin-platform-profile.ts 的 buildTempPrefix ".nbook-plugin-build-" 是临时目录前缀，不是命令名，批量替换会把它一起改掉（只影响清理旧的中断构建目录，但属于计划之外的行为变化）。
+为什么是问题：按计划的名单去找会找不到，按全仓库替换又会误伤。
+如何核实：grep -rn "nbook-plugin" packages/neuro-book --exclude-dir=node_modules。
+建议改法：3.11 的名单换成上面真实的位置，并写明 buildTempPrefix 不改。
+
+[更正 F15] 上面 F15 建议第 (4) 条的行号写错：`#!/usr/bin/env node` 在 plugin-sdk/pack.ts:326（不是 337），cli.ts 里没有 shebang。
+[更正 F13] 上面 F13“现象”里括号“今天就已漏 settings、components 的名字，把 settingsKey、storageKey 都算在根入口”写得不清：根入口今天确实导出 settingsKey、storageKey，README 的列表是“常用名字”故意不全。F13 的论点只是：9 个子路径之后需要一张按子路径列名字的表，且应当从导出面生成而不是手写。
+
+[F17] 建议 / 遗漏 / 3.2 浏览器入口里的低层导出与 Settings* 组件没有安排去处，是否继续公开也没说
+位置：plan.md 3.2 表；src/sdk/browser.ts
+现象：现在 /browser 导出：视图、设置页、状态栏条目、选项来源四个助手，加上 settingsPageContribution、viewContribution（助手底下的低层函数）、SettingsPageActions / SettingsPageList / SettingsRow / SettingsSaveBar 四个 Vue 组件，以及 SettingsPageContribution、SettingsChoicesImplementation、SettingsPageContext、OptionSource、ItemImplementation、ViewContext、ViewImplementation、ViewContribution 等类型。3.2 的表只给了助手与“视图与条目的类型”；示例直接用到 SettingsRow、SettingsPageContext（snippets/web/SnippetsPage.vue:34-35）和 ViewContext（focus/web/FocusPanel.vue:15、template/web/HelloView.vue:7），pack.test.ts 的作者样例还用了 settingsPageContribution、viewContribution。
+为什么是问题：/browser 被删，这些名字必须落到某处；Settings* 组件是 Vue 组件，放 /settings/browser 合理，但表里没写；两个低层函数在有了助手之后是否还要给作者，没有人决定，它们是 engines.neurobook 内的承诺，SDK 还没发布，现在是不用承诺的最后时机。
+如何核实：sed -n 1,24p src/sdk/browser.ts；grep -rn "viewContribution\|settingsPageContribution" plugin-sdk 只在 pack.test.ts 的作者样例里出现，README 和示例没有用。
+建议改法：表里补列这些名字的去处（Settings* 组件、SettingsPageContext、OptionSource 进 /settings/browser，ViewContext、ViewImplementation、ItemImplementation 进 /workbench），并明确删掉 viewContribution / settingsPageContribution 的公开导出（内置插件走各自的内部路径，不经 SDK），pack.test.ts 的样例改用助手；这样公开面比现在少两个承诺。
+
+[F18] 建议 / 合同 / 3.4 “作者文档加‘作者可用的内置命令’一节”：内置命令 id 与参数成了新的兼容承诺，计划没有说承诺哪些、怎样防拼错
+位置：plan.md 3.4 最后一条；docs/specs/runtime/plugin-api.md“兼容”（SDK 公开面、内置插件导出的服务与合同属于 engines.neurobook 范围）
+现象：t14 验收 F01 已经走过一次弯路：作者读 Spec 翻到 nbook.view.set-part-hidden 并用它绕过去（命令 id 与参数是裸字符串，拼错时 typecheck 与 build 都通过，F08 另记）。计划新增一节“作者可用的内置命令”，但没说列哪些、哪些承诺稳定、其余算不算内部。nbook.view.* 现有三条命令里 move-view、set-part-hidden 的 agent 暴露是 never，主题两条是 auto，列表里放什么靠谁判断没有标准。
+为什么是问题：写进作者文档就是对 id 与参数形状的兼容承诺，且裸字符串没有类型保护；不列又会让作者继续去翻 Spec。
+如何核实：docs/specs/workbench/commands.md 命令目录与 web/commands/*-commands.ts 的声明。
+建议改法：只承诺 nbook.view.open（因为有视图助手 / openView 的类型化入口，作者不用手写 id），其余内置命令在作者文档里明说“不在兼容范围内，用法可能变”；Spec 的兼容一节加一句“内置命令中只有标明给作者用的才算”。
+
+[F19] 重要 / 验收映射 / 3.4 与第 6 节：没有给出 nbook.view.open 的验收场景，能列的都能用真实运行时写
+位置：plan.md 第 6 节“写 Spec 条目时补编号”；3.4；S6 的验证只写“命令测试、工作台 e2e 一例”
+现象：3.4 的失败路径与边界没有一条写成可验收的场景。工作台已有真实 LayoutStore 的单元测试（layout-store.test.ts、view-commands.test.ts 用真实 store 与 applyView），可以覆盖布局这一半，不必都靠 e2e。
+为什么是问题：S6 只有一个 e2e 例，会漏掉实际会出错的组合（见 F04、F06）；视图在面板、侧栏被拖到零、多视图容器收起等是这个命令存在的理由。
+如何核实：layout-store.test.ts 第 220-260 行的 reveal 用例形态；view-commands.test.ts。
+建议改法：在 3.4 或第 6 节列出至少这些场景，每条一个真实 store / 真实命令表的测试：(1) 视图在已选中的容器、侧栏可见：返回 ok，布局记录不新增写；(2) 容器未选中：选中它；(3) 侧栏隐藏、拖到零各一例：显示且恢复记忆尺寸；(4) 右栏从未显示过：显示并记为主动显示过；(5) 视图在面板，面板隐藏 / 收起 / 最大化各一例；(6) multiple 容器里该视图收起：展开，其余视图的收起状态不变；(7) 用户把视图移到自建容器 custom:… 后再打开：跟着当前位置；(8) 紧凑呈现；(9) 未知 viewId：invalid-args 且不写；(10) 布局没打开：unavailable；(11) 省略 viewId：quickPick 列出视图并选中打开（人用）；取消不写；(12) Agent 以 plan 模式调用被拒（effect=write），discuss 同；(13) 保存被暂停（布局记录写失败）时命令仍返回 ok 但界面有“保存暂停”提示（Spec 对 ok 的含义要写清，见 F06）；(14) statusItem 收视图助手：点击经真实命令表打开视图（单元），e2e 一例验证 DOM 上可见与焦点（若做焦点）。
+
+[F20] 建议 / 机制 / 3.1 “只用 Bun”：bun run 默认仍用 Node 跑带 node 抬头行的工具，去掉 engines.node 后没有版本护栏
+位置：plan.md 3.1；plugin-sdk/template/_package.json 的 scripts（"typecheck": "vue-tsc --noEmit"）；pack.ts 的 engines.node
+现象：实测（bun 1.4.2，本机 node v26）：node_modules/.bin 里抬头行是 `#!/usr/bin/env node` 的程序，`bun run <脚本>` 和 `bunx` 用真正的 Node 运行（process.versions.bun 为空），只有 `bun run --bun <脚本>` 才用 Bun。作者的 `bun run typecheck`（vue-tsc 是 node 抬头行）因此仍是 Node 在跑；`bun run --bun typecheck` 在 Bun 下也能通过（auth1 目录，15 秒）。构建命令在 cli.js 改成 bun 抬头行后确实用 Bun（`bun run build` 与 `bun run --bun build` 都通过）。
+为什么是问题：计划把 engines 的 node 去掉、写 bun，作者文档说“只用 Bun”；但 Vite 8 与 vue-tsc 的 Node 版本要求（pack.ts 注释写的 >=22.12.0 就是为 Vite 8）在作者机器上老 Node 时仍会生效，却没有任何声明或提示；没装 Node 的机器上 Bun 会自己充当 node，没有问题。要么写清楚，要么让脚本都走 Bun。
+如何核实：/tmp/review-t15-design-sonnet/shebang 的探针（三种调用方式的输出）；pack.ts:326 的 banner。
+建议改法：模板的 scripts 写成 `bun --bun vue-tsc --noEmit` 或 `bun run --bun`（实测可行）让整条链都在 Bun 里；或在作者文档里写“工具链可能由已装的 Node 运行，Node 需 >=22.12”；engines 同时写 bun 与 node 的最低版本，而不是去掉 node。
+
+[F21] 建议 / 对照参照 / VS Code 有而计划没有的（供决定，不是都要做）
+位置：plan.md 3.4
+现象：(1) executeCommand：见 F10。(2) 每个视图自带的 `<viewId>.focus` 命令：对应这里应是视图助手上的命令引用（F08）。(3) `preserveFocus` / `view.show(preserveFocus)`：命令没有“只显示不抢焦点”的开关（F06）。(4) `TreeView.onDidChangeVisibility` / WebviewView：入口一侧没有“视图可见了/不可见了”的事件，作者想在不可见时暂停轮询或订阅只能从视图组件的 context.visible 里间接拿；ViewContext 里已有 visible，组件能用，入口不能。(5) 视图徽标（badge）、视图标题的动态改写：没有，本期不做没问题。(6) 视图 `when`：views.md 说 `when` 随消费者加入，现在总是空，所以命令不需要处理“视图被条件隐藏”，但要在 Spec 里写一句它加入后 nbook.view.open 怎么答（建议 unavailable + 原因）。
+为什么是问题：(4)(6) 是以后加时会改命令语义的点，现在写进 Spec 的“后续”一句话就够，不必实现。
+如何核实：对照 VS Code 扩展 API（commands.executeCommand、WebviewView.show、TreeView.reveal 的 focus/select/expand、onDidChangeVisibility）与 src/plugins/workbench/web/views/presentation.ts 里 hidden 的注释。
+建议改法：第一期只做 F06 的 focus 开关与 F10 的决定；(4)(6) 在 views.md 的“后续”小节各记一句。
+
+[更正 F04] F04 第 (2) 点里引用的“Spec 外壳二输出 39”应为 workbench-shell.md“工作台打磨”小节的输出 39（第 209 行）；F06 里的“外壳二输出 27”（焦点 Part，第 111 行）和“外壳一输出 10”（第 80 行）是对的。
+
+======================================================================
+## 未发现问题的方面（仔细检查后）
+- 开发者已定的决定（只用 Bun、子路径按内置插件分、助手改成子路径函数、plugin 对象只剩 id/descriptor/entry/definition、记录 update、nbook.view.open、nbooke、B1 到 B7 全做、发布前做完）计划都逐条覆盖，没有悄悄改变已定项。
+- 嵌套子路径 /settings 与 /settings/browser 的打包机制可行：我在 /tmp/review-t15-design-sonnet/nest 用与 pack.ts 同一套工具（Vite lib 多入口 + rolldown-plugin-dts）实测，入口键 "settings/browser" 产出 settings/browser.js 与 settings/browser.d.ts，共享类型进共享 chunk（BoundImplementation 里的 unique symbol 只声明一份，跨子路径身份一致）。exports 映射里 ./settings 与 ./settings/browser 并存没有冲突。
+- 宿主模块表、构建预设的“未共享”检查、Vite 别名、架构测试的示例允许名单（EXAMPLE_PACKAGES）都从 SDK_ENTRIES 生成；手写的两处（src/web/host/plugin-modules.ts、src/backend/plugin-host-modules.ts）与 plugin-sdk/testing/browser-artifact.ts 都用 Record<…SharedModule, …> 约束，漏项会编译失败；两份 tsconfig 的路径由 sdk.test.ts 对照。e2e 的测试插件（src/web/testing、src/server/testing）走内部合同、不用 SDK，不受 3.2 影响。
+- 迁移面小：plugin.command/setting/section( 的调用在示例、模板、README、测试里合计 33 处（plugin.test.ts 18 处为主），S2 一次改完可行。
+- bun pm pack 与 npm pack 的 tarball 内容等价（diff -rq 无差异，cli.js 可执行位保留），见 F03 的输出解析差别。
+- 真实 Bun 流程可走通（F15 的实测）：bun add -d <tgz> -> bunx create -> bun install -> bun run build / typecheck；create 对 bun 写出的 package.json（含 "dependencies": {}、无 file: 前缀的路径）合并正确。
+- 切片顺序（S1 到 S7）对前端部分没有反向依赖：S2 先搬助手，S6 再改 statusItem，不会返工。
+
+## 数量
+阻断 0；重要 6（F01 F04 F05 F06 F08 F19）；建议 15（F02 F03 F07 F09 F10 F11 F12 F13 F14 F15 F16 F17 F18 F20 F21）；共 21 条。更正三处（F13、F15、F04）不计数。
+
+## 未验证
+- 没有运行工作台（不跑开发服务与 e2e）：F04 到 F07 是读 layout-store.ts / view-commands.ts / Spec 与现有单元测试得出，没有写出 nbook.view.open 的原型来跑。
+- 没有在 vue-tsc 下实测 3.5、3.7 的报错落点（属于另一位审查者的分工）。
+- F02 的 `nbooke` 未注册、`nbook` 已被他人占用，是 2026-10-24 当天 npm view 的结果。
