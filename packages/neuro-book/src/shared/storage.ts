@@ -41,8 +41,13 @@ export interface RecordDefinition<T> extends RecordDescriptor {
 export interface RecordOptions<Schema extends TObject> {
     readonly key: string;
     readonly scope: RecordScope;
-    readonly locality?: RecordLocality;
+    /**
+     * 必填：`local` 按客户端分开存（只有浏览器、TUI 这类有客户端身份的实例能打开），`shared` 各客户端共用（服务端入口用它）。
+     * 不给缺省：缺省成 `local` 时服务端入口的记录打不开，作者只看到远程调用 `unavailable`。
+     */
+    readonly locality: RecordLocality;
     readonly version: number;
+    /** 对象 schema；没写 `additionalProperties` 的补成 `false`，写了别的值报错。 */
     readonly schema: Schema;
     readonly keyed?: boolean;
     readonly maxBytes?: number;
@@ -53,16 +58,26 @@ export function defineRecord<Schema extends TObject>(options: RecordOptions<Sche
     const descriptor: RecordDescriptor = {
         key: options.key,
         scope: options.scope,
-        locality: options.locality ?? "local",
+        locality: options.locality,
         version: options.version,
         keyed: options.keyed ?? false,
         maxBytes: options.maxBytes ?? DEFAULT_RECORD_MAX_BYTES,
-        schema: options.schema,
+        schema: strictObjectSchema(options.schema),
     };
     const problem = descriptorProblem(descriptor);
     if (problem !== null) throw new TypeError(`记录定义 ${String(options.key)} 不合规则：${problem}`);
     const frozen = Object.freeze(descriptor);
     return Object.freeze({...frozen, descriptor: frozen, fingerprint: recordFingerprint(frozen)});
+}
+
+/**
+ * 没写 `additionalProperties` 的对象 schema 补成 `false`（返回新对象，TypeBox 放在不可枚举键上的元数据一并带上）；别的原样
+ * 返回，由 `descriptorProblem` 报出。
+ */
+function strictObjectSchema(schema: TSchema): TSchema {
+    const record = schema as unknown as {readonly type?: unknown; readonly additionalProperties?: unknown};
+    if (record.type !== "object" || record.additionalProperties !== undefined) return schema;
+    return Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(schema), additionalProperties: {value: false, enumerable: true, writable: false, configurable: true}}) as TSchema;
 }
 
 /**
@@ -75,6 +90,7 @@ export function descriptorProblem(value: unknown): string | null {
     if (extra.length > 0) return `多出字段 ${extra.join("、")}`;
     if (typeof descriptor.key !== "string" || !KEY_PATTERN.test(descriptor.key)) return "key 须为 1–64 个字符，[a-z0-9] 开头，其余为 [a-z0-9.-]";
     if (descriptor.scope !== "user" && descriptor.scope !== "project") return "scope 须为 user 或 project";
+    if (descriptor.locality === undefined) return "locality 必填：服务端入口的记录写 shared，按客户端分开存写 local";
     if (descriptor.locality !== "local" && descriptor.locality !== "shared") return "locality 须为 local 或 shared";
     if (typeof descriptor.version !== "number" || !Number.isSafeInteger(descriptor.version) || descriptor.version < 1) return "version 须为正整数";
     if (typeof descriptor.keyed !== "boolean") return "keyed 须为布尔";
