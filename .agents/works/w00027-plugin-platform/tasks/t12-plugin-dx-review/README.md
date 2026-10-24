@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t12-plugin-dx-review
-status: active
+status: done
 updated: 2026-10-24
 ---
 
@@ -26,6 +26,8 @@ updated: 2026-10-24
 - 作者 API 形状的结论（结果助手、贡献助手、短名、缺省值、出错可见等）整理为 t13 design.md 第 4 节的 A1 到 A9，开发者确认后单独建 Task。
 - 待确认清单改判的三项：typebox 进宿主模块表并入 t13 的 S3；`provide` 改名并入作者 API（A6）；第三方视图排在内置之后留在本 Task 做。
 
+- 第三方视图的缺省排序 `c3c3cee5f`：第三方插件的视图没写 `order` 时按 1000 排，排在内置视图之后（[views](../../../../../docs/specs/workbench/views.md) 输出 13）；测试插件 `test.sample-views` 的视图写明 `order`，e2e 依赖的位置与默认指纹不变。验证：视图注册表的新用例（变异核对过：去掉这条缺省就失败）、类型检查、架构测试与工作台的 Bun 测试、Vitest 364 例，`workbench-views`、`workbench-dnd`、`plugin-code`、`plugin-authoring` 四份 e2e 59 例；合入 master（`aacc2c631`）。
+
 ## 下一步
 
-改第三方视图的缺省排序（没写 `order` 的第三方视图排在内置视图之后），补测试后合入，本 Task 完成。
+无。本 Task 完成；作者 API 的 A1 到 A9 另建 Task。
