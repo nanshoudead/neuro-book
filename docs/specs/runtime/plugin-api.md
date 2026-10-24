@@ -22,7 +22,7 @@ owners:
 
 ## 术语与参与者
 
-- **SDK**：作者依赖的包 `@notnotype/nb-plugin-sdk`，只含类型与少量纯函数，不依赖宿主内部模块；内置插件的合同、宿主能力的键与设置窗口给页面用的组件由它提供。根入口是插件框架（`definePlugin`、内核的入口、服务、远程服务与诊断、宿主能力、多语言文字），其余按内置插件各占子路径：`/state`、`/storage`、`/settings`、`/commands` 各运行位置可用；`/settings/browser`（设置页、选项来源与设置页组件）与 `/workbench`（视图、状态栏条目）要 Vue，只给浏览器入口；`/components` 是 nb-ui 的组件，只给浏览器入口。要 Vue 的部分：整个内置插件只在浏览器里有意义的占一个只给浏览器的子路径，两端都要的把浏览器部分放在 `/<插件>/browser`。插件运行时，这些入口由宿主模块表给出宿主自己的那一份（[`runtime.plugin-code-loading`](plugin-code-loading.md) 输出 2）；作者安装的包里是类型与构建期执行入口定义用的实现。
+- **SDK**：作者依赖的包 `@notnotype/nb-plugin-sdk`，只含类型与少量纯函数，不依赖宿主内部模块；内置插件的合同、宿主能力的键与设置窗口给页面用的组件由它提供。根入口是插件框架（`definePlugin`、内核的入口、服务、远程服务（含 `remoteService`、`eventSource`）与诊断、宿主能力、多语言文字），其余按内置插件各占子路径：`/state`、`/storage`、`/settings`、`/commands` 各运行位置可用；`/settings/browser`（设置页、选项来源与设置页组件）与 `/workbench`（视图、状态栏条目）要 Vue，只给浏览器入口；`/components` 是 nb-ui 的组件，只给浏览器入口。要 Vue 的部分：整个内置插件只在浏览器里有意义的占一个只给浏览器的子路径，两端都要的把浏览器部分放在 `/<插件>/browser`。插件运行时，这些入口由宿主模块表给出宿主自己的那一份（[`runtime.plugin-code-loading`](plugin-code-loading.md) 输出 2）；作者安装的包里是类型与构建期执行入口定义用的实现。
 - **激活上下文 `ctx`**：宿主在激活入口时注入的对象，按运行位置提供不同成员。
 - **远程形态**：满足下文五条约束的接口形态。
 - **结构化结果**：`{ok: true, value}` 或 `{ok: false, code, cause?, detail?}`，调用不以抛出异常表达失败；只想要值的调用方可以用 `orThrow` 把失败转成异常（[远程服务与 RPC 协议](plugin-channel.md) 输出第 1 条）。

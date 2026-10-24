@@ -74,7 +74,12 @@ interface RecordHandle<T> {
     remove(options: {readonly expect: Revision | null}): Promise<WriteResult>;
     reset(value: T, options: {readonly expect: Revision | null}): Promise<WriteResult>;
     subscribe(listener: (snapshot: RecordSnapshot<T>) => void, options?: {onEnd?(reason: string): void}): Promise<SubscribeResult>;
+    update(change: (current: T | null) => T, options?: {readonly attempts?: number}): Promise<UpdateResult<T>>;
 }
+type UpdateResult<T> =
+    | {ok: true; value: T; revision: Revision}
+    | {ok: false; code: StorageFailure; detail: string}
+    | {ok: false; code: "corrupt" | "unsupported-version"; revision: Revision; detail: string};
 type RecordSnapshot<T> =
     | {status: "missing"; revision: Revision | null}
     | {status: "ok"; value: T; revision: Revision}
@@ -105,6 +110,7 @@ type SubscribeResult = {ok: true; handle: {release(): void}} | {ok: false; code:
 5. **删除与重置**：`remove` 同样以 revision 为条件，留下删除标记。`reset` 以 revision 为条件写入新值；当前是 `corrupt` 或 `unsupported-version` 时先把原件保存进原件区（每个分区最多 64 份、合计 4 MiB，满了为 `originals-full`），对其它状态与 `save` 相同。对 `corrupt`、`unsupported-version` 做 `save`、`remove` 为 `protected`。
 6. **订阅**：先推一次当前快照，之后推送分区拥有者进程里对同一条记录（owner、键、资源 id、客户端分区）的每次写入，按写入顺序送达；只推当前状态，不重放每个中间值。
 7. **命名空间**：owner 取内核填写的调用方身份里的插件，经代理时也是原插件；`local` 记录另按调用方的客户端身份分开。插件之间的同名记录互不可见；同一客户端身份的两个窗口共用一份 `local` 记录。接口上没有 owner、客户端或项目参数，插件无法指定别人的命名空间。命名空间是对守约插件的隔离，不是安全边界：代理入口可以用它收到的调用方身份访问该调用方的记录（[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）。
+8. **读改写**：`update(change)` 读出当前值，以它调用 `change`（`missing` 时为 `null`），再以读到的 revision 条件保存，成功返回新值与新 revision。保存得到 `conflict` 时重读、重算，最多保存 `attempts` 次（缺省 5，必须是不小于 1 的整数，否则抛 `TypeError`），用完仍冲突时返回 `conflict`。读到 `corrupt` 或 `unsupported-version` 时不调用 `change`，返回同名失败并带上当前 revision（作者迁移或以它 `reset`）；读取失败（`error`）返回同一个失败码与详情；别的保存失败（含 `unknown-outcome`、`unavailable`）立即返回，不重试。`change` 抛错时 `update` 以同一个错误失败，不写入。`update` 只组合 `read` 与 `save`，不是新的原子操作：两次之间别人的写入由条件保存发现。
 
 ## 状态与转换
 
