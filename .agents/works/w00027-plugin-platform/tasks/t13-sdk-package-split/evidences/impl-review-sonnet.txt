@@ -1,0 +1,69 @@
+t13 实现审查（浏览器一侧与前端包代码，sonnet）
+审查 worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t13-review（4834058bb）
+范围：src/plugin-platform/web、testing/fake-page.ts、src/web/host、各插件 web/ 的 idPrefix 改动、PluginsPage.vue、src/sdk/components.ts 与 entries.ts、nb-ui package.json、plugin-sdk/testing/browser-artifact.ts 及其用法
+已跑：bun test src/plugin-platform/web/plugin-code.test.ts src/web/host/window.test.ts（41 通过）；浏览器宿主模块表的变异实验（scratch/artifact-mut.ts）。未跑 e2e。
+
+====================================================================
+[1] 重要 / 测试+不变量：editor 四个贡献点与 explorer 一个贡献点的 idPrefix 没有任何测试守着，漏写会静默放开命名空间
+位置：src/plugins/editor/web/plugin.ts:72-78；src/plugins/explorer/web/plugin.ts:90；对照 src/plugins/workbench/shared/{items,menus,overlays,views}.ts 末尾的共用点定义
+现象：base 上前缀核对写在 validate 函数里（editor 两个 validate、menuItemValidator），点定义一旦引用 validate 就带着核对，漏不了。t13 把核对挪到内核的 idPrefix 字段后，每个点定义都得自己写 `idPrefix: "plugin"`。workbench 的 8 个点抽成了共用常量（viewsPoint、statusbarItemsPoint 等），插件和测试用同一份，所以测试能守住；editor 的 EDITOR_PAGES、EDITOR_TITLE、EDITOR_TAB_CONTEXT、EDITOR_EDITORS 与 explorer 的 EXPLORER_CONTEXT 仍是 plugin.ts 里的内联字面量。
+为什么是问题：全仓库没有测试引用 editorBrowserPlugin 或 explorerBrowserPlugin（grep 只命中 src/web/plugins.ts 的装配表）；editor-registry.test.ts、pages.dom.test.ts 用自己拼的 owner 插件，直接传 validateEditorContribution，不带 idPrefix。把这 5 处的 `idPrefix: "plugin"` 删掉，所有测试照样通过，而第三方插件可以往 editor.pages、editor.editors、explorer 右键菜单等点里贡献 `nbook.` 开头或别的插件名下的 id（占用内置命名空间、与别的插件撞名）。base 上同一规则在 editor 两个 validate 里，不会这样丢。menus.test.ts 里原有的“other.menu 被拒”也随之删掉，换成的 titlebar-menu.test.ts 只覆盖 workbench 的两个菜单点。
+如何核实：grep -rn "editorBrowserPlugin\|explorerBrowserPlugin" src（除 web/plugins.ts 与各自 plugin.ts 外无命中）；从代码推断，未做删除变异（只读规则）。
+建议改法：二选一。(a) 与 workbench 一样把 5 个点定义抽成 shared 里的常量，plugin.ts 与测试共用，并在 editor、explorer 各补一条“别的插件名下的 id 被拒”的用例；(b) 加一条统一的合同测试：遍历 browserPluginDefinitions 与 server 侧各插件的 contributionPoints，凡 validate 里按 id 判断的点（或显式白名单之外的点）必须带 idPrefix，新增点漏写时失败。
+
+[2] 建议 / 测试：`/components` 的名单“漏列”没有任何检查，注释说的核对并不存在
+位置：src/sdk/components.ts 文件头注释（“nb-ui 新增组件时在这里加一项，`sdk.test.ts` 与 `plugin-sdk/pack.test.ts` 核对名单”）；src/sdk/sdk.test.ts:62-68；plugin-sdk/pack.test.ts:241-243
+现象：sdk.test.ts 只做两件事：源码里没有 `export *`，以及名字里没有命中一条写死的黑名单正则 /^(?:createGrid|Grid|NB_FIELD|useFieldContext|suggestionMenuOptions|Splitter(?:Gesture))/。pack.test.ts 拿生成的 components.d.ts 的导出与“从 components.ts 读出的同一份名单”比，是自己和自己比。两处都不读 nb-ui 的 components/index.ts。
+为什么是问题：nb-ui 新增一个组件（或新增一个作者需要的类型）时，没有任何测试失败，作者文档的组件清单（componentsDoc 读 components.ts）也跟着少一个，只有作者在编辑器里发现 import 不到才知道。反过来，内部件新增导出时黑名单也拦不住：实测该正则对 `suggestionOptionId`、`FieldContext` 返回 false（nb-ui 入口里这两个都是内部件）；把它们加进 components.ts 测试照过。当前 52 个组件与 nb-ui 入口的 `default as` 导出逐一核对过是一致的（comm 比对无差异），所以眼下没有错，问题在于保证机制缺位。
+如何核实：bun -e 'const re=/^(?:createGrid|Grid|NB_FIELD|useFieldContext|suggestionMenuOptions|Splitter(?:Gesture))/u; console.log(re.test("suggestionOptionId"), re.test("FieldContext"))' 输出 false false。
+建议改法：改成“显式承诺 + 显式排除”两张表，测试读 nb-ui/src/components/index.ts 的导出（按语法树，与 pack.ts 的 sdkComponentNames 同一读法），要求 nb-ui 导出 = 名单 ∪ 明确排除的内部件，且二者不相交；新增导出时必须在两边选一边。注释里的措辞同时改成测试实际做的事。
+
+[3] 建议 / 测试：browser-artifact 的宿主模块表是手写的第三份，与 BROWSER_SHARED_MODULES 之间没有同步保证；工厂只在顶层执行，懒加载的 require 看不到
+位置：plugin-sdk/testing/browser-artifact.ts:13-24（browserHostModules）、:53-63（runFactory）；用法 plugin-sdk/build-plugin.test.ts:100-104、pack.test.ts:256-258
+现象：(a) browserHostModules 返回 Record<string, unknown>，8 项逐个手写。src/web/host/plugin-modules.ts 那张用 `satisfies Record<BrowserSharedModule, object>` 在编译期与档案同步，这张没有。SDK_ENTRIES 或 TYPEBOX_MODULES 增项时，档案自动变，真宿主表编译失败提醒，这张表静默落后——只有恰好有产物 require 新模块时才以“表外模块”失败。(b) 判定“产物只经宿主 require 取共享模块”靠执行：装载器先用这张表执行一次工厂，runFactory 再执行一次（模块顶层副作用跑两遍），`required` 只含工厂执行期间调用过的 id。产物里 activate 内才执行的懒 require（例如作者写 `await import("<外部包>")` 编译成的懒 require）不会出现。我用 scratch/artifact-mut.ts 对手写的登记外壳做了变异：顶层 require("@vue/shared") 与 require("typebox/schema") 都被拦（抛 module-not-shared）；把同样的 require 放进 exports.activate 里，registeredFactory 与 runFactory 都返回 OK、required 为 []，只有真的调用 activate 才抛“表外模块”。旧实现（正则扫压缩产物全文）看得到这类引用。
+为什么是问题：重点 2 的问题（能否拦下“产物引用了宿主没共享的模块”）答案是：顶层引用能拦，懒引用要靠调用方自己去调 activate。实际风险被降低：构建预设自己有按模块图的纯度检查（build-plugin.test.ts 的“动态导入未共享模块”用例覆盖），pack.test 的模板产物里 `load: () => import("./HelloView.vue")` 的外部 require 被提升到工厂顶层（测试里 required 含 components 与 vue 就是证据），所以当前没有漏网。但它不再是一道独立的第二防线。
+如何核实：bun /tmp/claude-1000/review-t13-impl/scratch/artifact-mut.ts（输出见上述 5 种情形）。
+建议改法：(a) 给 browserHostModules 标注返回类型 Readonly<Record<BrowserSharedModule, unknown>> 并用 satisfies，漏项编译失败；或再加一条 `Object.keys(await browserHostModules()).sort()` 等于 BROWSER_SHARED_MODULES 的用例。(b) runFactory 里让 require 同时记录并在 `required` 之外导出“表内 id 清单”，或在 pack.test 里额外对产物全文做一次宽松的 `require("…")` 扫描作兜底；至少在注释里写明“只覆盖工厂执行期间的 require”。
+
+[4] 建议 / 测试：合并成共用假页面后，窗口样式用例与装载器用例各丢了一道原来的断言（有人插脚本/插样式表时直接抛错）
+位置：src/plugin-platform/testing/fake-page.ts:94-150；src/web/host/window.test.ts:343-366；src/plugin-platform/web/plugin-code.test.ts
+现象：base 的 window.test.ts 里的 styleDocument 在窗口插入脚本时直接抛 “这些用例不装第三方入口代码”，base 的 plugin-code.test.ts 里的 fakePage 在装载器插入样式表时抛 “装载器不插样式表”。共用的 fakePage 两种元素都收：脚本插入后排一个 setTimeout 去执行，没有 serve 的文件按 “missing” 触发 script.onerror。fakePage 只暴露按路径查的 scriptsFor(path)，窗口用例不知道路径，没法断言“整个页面一个脚本也没插”；装载器用例也没有断言“页面上没有样式表”（styles() 可用但没人调）。
+为什么是问题：窗口的样式用例名义上守的是“窗口登记插件时只挂样式表，入口代码到激活才取”。如果窗口回归成在登记时就预取入口脚本，现在的行为是：脚本异步 404（missing），装载器报 code-load-failed，窗口仍是 ready，用例仍然通过。当前用例里第三方清单没有 entries，所以这条回归今天也触发不了，但这正是原断言的存在理由。差异很小，风险低。
+如何核实：对照 `git show 0ffd9455c^:packages/neuro-book/src/web/host/window.test.ts` 的 styleDocument 与 `git show 0ffd9455c^:packages/neuro-book/src/web/host/plugin-code.test.ts` 的 createElement。
+建议改法：fakePage 加一个 scripts() 访问器（插入过的全部脚本）；窗口用例在样式断言后加 `expect(page.scripts()).toEqual([])`，装载器用例加 `expect(page.styles()).toEqual([])`。
+
+[5] 建议 / 测试+文档：插件页新增的两个“未登记原因”（entry-missing、unreadable）没有用例、没有 Lab 场景，伴随文档 PluginsPage.md 也没更新，Lab 场景还在用旧码表示同一件事
+位置：src/plugins/plugins/web/components/PluginsPage.vue:70-71；PluginsPage.md 第 17、69 行；src/plugins/lab/web/fixtures/PluginsPageFixture.vue:36；PluginsPage.dom.test.ts
+现象：t13 把启动时“入口文件缺失”报成 notLoaded.code = entry-missing、“读不了安装目录”报成 unreadable，PluginsPage.vue 为此加了两条徽标文字，且 showDetail: true（会在行下另起一行写原因）。但 (a) PluginsPage.dom.test.ts 没有任何用例构造这两个码（grep entry-missing/unreadable 在测试里无命中，只有 FAILURE_TEXT 里的安装失败码）；(b) Lab 的 PluginsPageFixture.vue:36 仍用 `notLoaded: {code: "manifest-invalid", detail: "入口文件不存在：dist/browser.js"}` 表示“入口缺失”——这正是新码 entry-missing 的场景，Lab 里给开发者看的外观与真实产品对不上，两个新徽标没有场景可看；(c) 按仓库约定“改组件要读并改并列的同名 .md”，PluginsPage.md 第 17 行写的是“清单无效与不兼容时下面另起一行写原因”，现在入口缺失、目录读不了也会另起一行，文档没跟着。
+为什么是问题：这是用户在插件页上看得见的行为变化，而三道保障（用例、Lab 场景、组件说明）都没有覆盖；NOT_LOADED 是 Record<NotLoadedCode, …>，类型强制每个码有文字，但文字写对没写对、详情行显不显示没人看。
+如何核实：grep -rn "entry-missing" src/plugins/plugins/web src/plugins/lab 只命中 PluginsPage.vue；打开 PluginsPage.md 第 17 行。
+建议改法：PluginsPageFixture 把 example.broken 的码改成 entry-missing（保留 manifest-invalid 的另一个场景），再加一个 unreadable；PluginsPage.dom.test.ts 加一条参数化用例：每个 notLoaded 码都画出徽标（data-plugin-not-loaded=码）且 safe-mode 之外的码都显示详情行；PluginsPage.md 的列表与“另起一行写原因”的范围改成与 NOT_LOADED 一致。
+
+[6] 建议 / 代码质量：窗口装配第三方插件处几处别扭——被通用登记函数跳过的插件静默消失、样式失败事件名写死而登记失败事件名是注入的、过期注释
+位置：src/web/host/window.ts:231-246（thirdParty Map 与 `?? []`）、:362（注释）；src/plugin-platform/web/styles.ts:29；对照 src/plugin-platform/shared/definitions.ts 的 unregistrableEvent 参数
+现象：
+(a) base 对每个引导带来的第三方插件都调 thirdPartyDefinitionIn，本位置没有入口也没有顶层贡献的会得到空定义；现在先过 thirdPartyDefinitionsFor（内部 `pluginsAt(location, [descriptor]).length === 0` 就 continue），再 `thirdParty.get(plugin.id) ?? []`，这样的插件直接不登记，且没有任何诊断。服务端的 browserBootstrap 本来就按 pluginsAt("browser", …) 过滤，所以今天走不到；但一旦服务端与窗口对“该不该登记”的判断分歧，窗口会静默少装一个插件，而不是像 `definition.id !== plugin.id` 那样直接报错。
+(b) 同一个通用目录里，定义登记失败的事件名由调用方注入（unregistrableEvent: "browser-host.plugin.unregistrable"），样式表失败的事件名却在 styles.ts 里写死 "browser-host.plugin.style-failed"。通用部分对事件前缀的态度不一致，将来抽成通用包时这里要再改。
+(c) window.ts:362 的注释“内置插件的 id 以 `nbook.` 开头”已过期：判断改成了 manifestFormat.isBuiltinId，保留发布者除 nbook 还有 runtime（内核常量 RUNTIME_PUBLISHER），文件头 :337 同。
+(d) window.ts 里新加的 import（definitions、plugin-code、styles）落在 ./connection 等相对导入之后，和上面按“包、nbook/*、相对路径”分组的写法不一致（仓库没有机检，只是风格）。
+为什么是问题：(a) 是静默吞掉的分支；(b)(c)(d) 是可维护性。都不影响当前行为。
+如何核实：读 definitions.ts 的 thirdPartyDefinitionsFor 开头的 continue；grep -n "style-failed" src/plugin-platform/web/styles.ts。
+建议改法：(a) 在 `thirdParty.get(plugin.id)` 取不到时抛 BootstrapRejected("startup-failed", …)，或让 thirdPartyDefinitionsFor 对跳过的插件返回空定义（保持 base 行为）；(b) PluginStyleOptions 加 event 名参数或把两个事件名放进平台档案；(c) 注释改成“内置插件（保留发布者 nbook、runtime）”；(d) 顺手把 import 归位。
+
+====================================================================
+[7] 建议 / 测试：宿主模块表的身份用例没有覆盖新加的三个 typebox 项
+位置：src/web/host/plugin-modules.dom.test.ts:19-33；src/web/host/plugin-modules.ts:20-31
+现象：用例标题与文件头都说“按身份核对，不按行为”，实际只核对了 vue、@vue/reactivity、sdk 三项的一个导出与 Button；t13 新加的 typebox、typebox/value、typebox/compile 只在“键集合 = BROWSER_SHARED_MODULES”那一行里出现。`satisfies Record<BrowserSharedModule, object>` 只管键齐全，不管键对应哪个命名空间：把 "typebox/value" 写成 typebox（或 typebox/compile 写成 typeboxValue）编译与这条用例都通过，插件里 `Value.Check`/`Compile` 取到 undefined，到 e2e 或用户机器上才暴露。
+如何核实：读用例；vitest run src/web/host/plugin-modules.dom.test.ts 通过（1 用例），其中无 typebox 断言。
+建议改法：补三行 `expect(table["typebox"]!.Type).toBe(Type)`、`table["typebox/value"]!.Value`、`table["typebox/compile"]!.Compile` 与宿主 import 的同一份相等。
+
+====================================================================
+未发现问题的方面（逐项核对过）
+- 假页面时序：脚本在插入后下一轮执行、执行出错先派发带文件名的全局 error 再 load、取不到触发 script.onerror、移除元素不撤回已开始的取回，与浏览器规范和 e2e 参照一致；与 base 三份替身比，除 [4] 说的两道抛错断言外行为一致（plugin-code.test.ts 仍是 13 条，与 base 一一对应；window.test.ts 与 plugin-code.test.ts 共 41 条通过）。
+- 浏览器共享名单：BROWSER_SHARED_MODULES 由 TYPEBOX_MODULES 与 SDK_ENTRIES 推出，hostModules() 用 satisfies 与它同步，plugin-modules.dom.test.ts 核对键集合；与 Spec plugin-code-loading.md 第 27 行逐项一致（vue、@vue/reactivity、typebox 三个说明符、SDK 三个子路径）；开发模式（Vite）下 vite.config.ts 的 optimizeDeps.include 含这三个 typebox 说明符，别名由 SDK_ENTRIES 生成，与宿主同一份实例。
+- `/components` 当前名单：52 个组件与 nb-ui/src/components/index.ts 的 `default as` 导出逐个比对无差异；类型名由 tsc 保证存在；作者文档的组件清单读 components.ts 的语法树，名单变化时自动跟着变（保证“漏列被发现”的机制缺位见 [2]）。
+- idPrefix 迁移完整性：base 上带 `nbook.` 前缀判断的点共 5 个菜单点（titlebar 菜单、view-title、editor-title、editor-tab-context、explorer-context）、editor 页面与编辑器 2 个、设置 3 个（sections、pages、choices）、条目 3 个、overlays、views；新代码这些点都带 `idPrefix: "plugin"`，EDITOR_LANGUAGES 等 base 就没有前缀检查的点没有多加。被拒贡献仍走原来的 validation = {status: "rejected", reason: "invalid-declaration", detail} 通道，只是 detail 文字改成内核的“贡献 id 要以……开头”，相关用例（sections、choices、views、items、overlays、activity-items、titlebar-menu）都断言了新文字。
+- 类型检查：packages/neuro-book 下 bun run typecheck（tsc + 两份 vue-tsc）退出码 0。
+- 没有跑：e2e（plugin-code.e2e.ts 的开发会话与产品构建两条）、plugin-sdk/pack.test.ts 与 build-plugin.test.ts 的整套构建用例（需要较长构建时间，另一位审查者负责构建预设与打包）。需要 e2e 确认的一点：开发会话（Vite 提供页面）里 typebox 三个说明符确实取到页面那一份——e2e 现有两条用例走 snippets 示例，其构建产物 require typebox，应能覆盖，但本次没有跑。
+
+各级数量：阻断 0，重要 1（[1]），建议 6（[2]、[3]、[4]、[5]、[6]、[7]）。

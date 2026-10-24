@@ -32,7 +32,15 @@ updated: 2026-10-24
 - S4 `7ee383b26`、`4834058bb`：作者材料与示例搬进应用包的 `plugin-sdk/`（产品代码不引用它，架构测试守住）；打包产出 tarball、带示例插件的源码；作者文档的组件清单取 SDK 组件入口，主题变量取 nb-ui 导出的配色合同与样式表；测试共用一份假页面（`src/plugin-platform/testing/fake-page.ts`）、一处作者目录与一次 SDK 构建，产物按执行看取了哪些模块（F14、F15）；作者文档与示例说明修正（F16、F17）。验证：类型检查，Bun 1444 例、Vitest 364 例（搬家一片前后用例数相同，第二片多两例），插件 e2e 7 例，全量 e2e 291 例；合入 master（`22a3de487`）。实施中的调整见 plan.md 第 10 节。
 - S5：[ADR 0030](../../../../../docs/adr/0030-plugin-platform-layering.md)（编号 0029 已被占用）、包边界、内核与应用包的说明、plugin-api 的“SDK 的组成”；`docs:check`、`governance:check` 无失败。
 
-- 收口：实现审查 2026-10-24 启动（不阻塞）：后端、内核、构建与作者工具由 omp（默认模型），浏览器一侧由 Sonnet；审查 worktree 固定在 `4834058bb`。**实现审查待处理**。
+- 收口：实现审查 2026-10-24 启动（不阻塞）：后端、内核、构建与作者工具由 omp（默认模型），浏览器一侧由 Sonnet；审查 worktree 固定在 `4834058bb`。浏览器一侧的报告（[impl-review-sonnet.txt](evidences/impl-review-sonnet.txt)）：阻断 0、重要 1、建议 6，七条都成立并已修（`c48a492e2`，合入 `51d72dc85`）：
+  1. 重要：editor 与 explorer 的 5 个贡献点删掉 `idPrefix` 测试照过。新加 `src/contribution-prefixes.test.ts`，对三张产品定义表里每个贡献点（自有 id 规则的 9 个列名豁免）注册一条用别人前缀的第三方贡献，断言因前缀被拒；变异核对过。
+  2. `/components` 名单没和 nb-ui 对照：`sdk.test.ts` 改为用语法树把名单与 nb-ui 组件入口的单文件组件逐个对上。
+  3. 测试用的宿主模块表是手写副本：按 `BrowserSharedModule` 定型，名单变了编译不过；注释写明只记得到工厂执行期间的 require。
+  4. 合并假页面后丢了“没插脚本或样式表”的断言：补回两处，假页面加 `scripts()`。
+  5. 插件页的 `entry-missing`、`unreadable` 没有组件测试：补上，Lab 场景与组件文档跟上。
+  6. 样式失败的事件名写死在通用目录：改由宿主给；过时注释与导入分组修正；被跳过的第三方插件补一句为什么取得到。
+  7. 宿主模块表的组件测试补 typebox 三项的身份核对。
+  后端的 omp 报告还在跑，**待处理**。验证：类型检查，Bun 1463 例、Vitest 364 例。
 
 ## 下一步
 
