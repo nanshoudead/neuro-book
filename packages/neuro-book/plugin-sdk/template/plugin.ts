@@ -1,10 +1,8 @@
 /**
- * 插件描述：id、版本、运行位置与不需要代码就能读的声明（设置项、设置分区）。构建时读它生成清单；版本要与 package.json 的
- * `version` 相同，改版本时两处一起改。
+ * 插件描述：构建时读它生成清单。`contributions` 写不需要代码就能读的声明（设置分区、设置项）：插件还没激活，设置窗口就能
+ * 列出它们。
  */
 
-import type {PluginDescriptor} from "@notnotype/nb-plugin-sdk";
+import {greeting, main, plugin} from "./shared/contracts";
 
-import {greeting, PLUGIN_ID, section} from "./shared/contracts";
-
-export const descriptor: PluginDescriptor = {id: PLUGIN_ID, version: "0.1.0", locations: ["browser"], contributions: [greeting.contribution, section]};
+export const descriptor = plugin.descriptor([main, greeting]);

@@ -150,6 +150,17 @@ describe("nbook-plugin", () => {
         const manifest = JSON.parse(await readFile(join(author, "package.json"), "utf8")) as Record<string, unknown>;
         expect(manifest).toMatchObject({name: "npm-init", version: "0.1.0", type: "module", scripts: {test: "echo no test", build: "nbook-plugin build --clean"}});
 
+        // `npm init -y` 留下的占位去掉：指向不存在文件的 main、缺省的报错测试脚本、空的 keywords 与 author。
+        const initialized = await authorDirectoryNamed("npm-init-y");
+        await writeFile(join(initialized, "package.json"), JSON.stringify({name: "npm-init-y", version: "1.0.0", main: "index.js", scripts: {test: 'echo "Error: no test specified" && exit 1'}, keywords: [], author: "", license: "ISC", devDependencies: {"@notnotype/nb-plugin-sdk": "file:../sdk.tgz"}}));
+        expect(cli(initialized, "create", ".").code).toBe(0);
+        const cleaned = JSON.parse(await readFile(join(initialized, "package.json"), "utf8")) as Record<string, unknown>;
+        expect(cleaned).not.toHaveProperty("main");
+        expect(cleaned).not.toHaveProperty("keywords");
+        expect(cleaned).not.toHaveProperty("author");
+        expect(cleaned).toMatchObject({license: "ISC"});
+        expect((cleaned.scripts as Record<string, string>).test).toBeUndefined();
+
         const scoped = await authorDirectoryNamed("scoped");
         await writeFile(join(scoped, "package.json"), JSON.stringify({name: "@me/scoped"}));
         const refused = cli(scoped, "create", ".");

@@ -91,7 +91,7 @@ export async function createPlugin(options: CreatePluginOptions): Promise<Create
         const text = fill(await readFile(source, "utf8"));
         let content = text;
         if (basename(relativePath) === "_package.json") {
-            const merged = mergePackage(JSON.parse(text) as PackageJson, existing, options.sdk);
+            const merged = mergePackage(JSON.parse(text) as PackageJson, existing === null ? null : withoutNpmInitPlaceholders(existing, directory), options.sdk);
             sdkFromRegistry = isRegistrySpec(sdkSpecOf(merged));
             content = `${JSON.stringify(merged, null, 4)}\n`;
         }
@@ -186,6 +186,26 @@ function sdkSpecOf(manifest: PackageJson): string | undefined {
         if (typeof value === "string") return value;
     }
     return undefined;
+}
+
+/** `npm init -y` 写下的缺省测试脚本：一运行就报错退出。 */
+const NPM_INIT_TEST = 'echo "Error: no test specified" && exit 1';
+
+/**
+ * 去掉 `npm init` 留下的占位：指向不存在文件的 `main`、npm 缺省的报错测试脚本、空的 `keywords` 与 `author`。插件不需要它们，
+ * 留着会让作者以为要去补一个 `index.js` 或测试。作者自己写过的值都不动。
+ */
+function withoutNpmInitPlaceholders(existing: PackageJson, directory: string): PackageJson {
+    const cleaned: PackageJson = {...existing};
+    if (typeof cleaned.main === "string" && !existsSync(join(directory, cleaned.main))) delete cleaned.main;
+    if (Array.isArray(cleaned.keywords) && cleaned.keywords.length === 0) delete cleaned.keywords;
+    if (cleaned.author === "") delete cleaned.author;
+    const scripts = cleaned.scripts;
+    if (typeof scripts === "object" && scripts !== null && !Array.isArray(scripts) && (scripts as Record<string, unknown>).test === NPM_INIT_TEST) {
+        const {test: _test, ...rest} = scripts as Record<string, unknown>;
+        cleaned.scripts = rest;
+    }
+    return cleaned;
 }
 
 function mergeExisting(template: PackageJson, existing: PackageJson): PackageJson {

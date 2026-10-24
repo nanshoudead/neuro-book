@@ -18,8 +18,8 @@ NeuroBook 插件 `__ID__`：在侧栏放一个视图，显示设置里的问候�
 
 | 文件 | 内容 |
 |---|---|
-| `plugin.ts` | 插件描述：id、版本、运行位置、设置项与设置分区 |
-| `shared/contracts.ts` | 插件 id 与设置项 |
+| `plugin.ts` | 插件描述：构建时读它生成清单 |
+| `shared/contracts.ts` | `definePlugin`（插件 id、版本、运行位置）、设置分区与设置项 |
 | `web/plugin.ts` | 浏览器入口：视图与命令 |
 | `web/HelloView.vue` | 视图组件 |
 
