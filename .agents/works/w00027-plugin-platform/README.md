@@ -40,6 +40,7 @@ updated: 2026-10-23
 | [t11](tasks/t11-activation-output-shape/README.md) | 内核核对入口激活产出的形状，不对时报 `activation-threw`（t05 回写建议；2026-10-24 并入 t13 S1b 完成） |
 | [t12](tasks/t12-plugin-dx-review/README.md) | 插件开发体验（Sonnet 以作者身份走一遍）与可维护性复查，及待确认清单改判的三项（2026-10-24 开发者要求） |
 | [t13](tasks/t13-sdk-package-split/README.md) | SDK 拆成独立包（作者工具、模板、文档、示例）、内核去掉 NeuroBook 常量、通用插件管理在目录上分开（开发者 2026-10-24 定；计划待写） |
+| [t14](tasks/t14-plugin-author-api/README.md) | 作者 API 的形状：`definePlugin` 与贡献助手、结果助手、短名与缺省值、出错可见（t13 design.md A1 到 A9，开发者 2026-10-24 定 D5） |
 
 ## 关键现状
 
