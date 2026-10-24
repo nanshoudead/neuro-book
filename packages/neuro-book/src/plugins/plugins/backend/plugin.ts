@@ -12,15 +12,21 @@ import {provideRemote} from "@notnotype/nb-runtime/remote";
 
 import {pluginInventoryKey} from "nbook/plugin-platform/backend/inventory";
 import type {InventoryFailure} from "nbook/plugin-platform/backend/inventory";
+import type {InstallFailureCode, ManageFailureCode} from "nbook/plugin-platform/shared/types";
 
 import {descriptor} from "../plugin";
 import {pluginsRegistryContract} from "../shared/contracts";
 
-/** 清单无效时带上出错的字段，其余码只带说明。 */
-function refused(failure: InventoryFailure) {
+/** 安装与预览的失败：清单无效时带上出错的字段，其余码只带说明。 */
+function refusedInstall(failure: InventoryFailure<InstallFailureCode>) {
     return failure.code === "manifest-invalid"
         ? {ok: false as const, code: failure.code, detail: {detail: failure.detail, problems: [...(failure.problems ?? [])]}}
         : {ok: false as const, code: failure.code, detail: {detail: failure.detail}};
+}
+
+/** 启停与卸载的失败：都只带说明。 */
+function refusedManage(failure: InventoryFailure<ManageFailureCode>) {
+    return {ok: false as const, code: failure.code, detail: {detail: failure.detail}};
 }
 
 export const pluginsBackendPlugin: PluginDefinition = {
@@ -42,23 +48,23 @@ export const pluginsBackendPlugin: PluginDefinition = {
                         },
                         inspect: async ({path}) => {
                             const preview = await inventory.inspect(path);
-                            return preview.ok ? {ok: true as const, value: preview.value} : refused(preview);
+                            return preview.ok ? {ok: true as const, value: preview.value} : refusedInstall(preview);
                         },
                         install: async ({path}) => {
                             const installed = await inventory.install(path);
-                            return installed.ok ? {ok: true as const, value: {plugin: installed.value}} : refused(installed);
+                            return installed.ok ? {ok: true as const, value: {plugin: installed.value}} : refusedInstall(installed);
                         },
                         enable: async ({id}) => {
                             const enabled = await inventory.setEnabled(id, true);
-                            return enabled.ok ? {ok: true as const, value: {plugin: enabled.value}} : refused(enabled);
+                            return enabled.ok ? {ok: true as const, value: {plugin: enabled.value}} : refusedManage(enabled);
                         },
                         disable: async ({id}) => {
                             const disabled = await inventory.setEnabled(id, false);
-                            return disabled.ok ? {ok: true as const, value: {plugin: disabled.value}} : refused(disabled);
+                            return disabled.ok ? {ok: true as const, value: {plugin: disabled.value}} : refusedManage(disabled);
                         },
                         uninstall: async ({id}) => {
                             const removed = await inventory.uninstall(id);
-                            return removed.ok ? {ok: true as const, value: {plugin: removed.value}} : refused(removed);
+                            return removed.ok ? {ok: true as const, value: {plugin: removed.value}} : refusedManage(removed);
                         },
                     },
                 }))],

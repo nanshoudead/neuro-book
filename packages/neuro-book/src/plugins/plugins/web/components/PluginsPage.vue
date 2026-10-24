@@ -67,6 +67,8 @@ type NotLoadedCode = NonNullable<PluginListItem["notLoaded"]>["code"];
 
 const NOT_LOADED: Record<NotLoadedCode, {readonly text: LocalizedText; readonly tone: "danger" | "neutral"; readonly showDetail: boolean}> = {
     "manifest-invalid": {text: {"zh-CN": "清单无效", "en-US": "Invalid manifest"}, tone: "danger", showDetail: true},
+    "entry-missing": {text: {"zh-CN": "入口文件缺失", "en-US": "Entry file missing"}, tone: "danger", showDetail: true},
+    "unreadable": {text: {"zh-CN": "安装目录读不了", "en-US": "Install directory unreadable"}, tone: "danger", showDetail: true},
     "incompatible-engine": {text: {"zh-CN": "不兼容", "en-US": "Incompatible"}, tone: "danger", showDetail: true},
     "safe-mode": {text: {"zh-CN": "安全模式未加载", "en-US": "Not loaded in safe mode"}, tone: "neutral", showDetail: false},
 };
@@ -76,7 +78,6 @@ type FailureCode = PluginFailureCode | RemoteFailureCode;
 /** 业务失败码（plugin-install 的失败码表）都有文字；路由层失败码只写常见的三个，其余显示“操作没有完成”与详情。 */
 const FAILURE_TEXT: Readonly<Record<PluginFailureCode, LocalizedText> & Partial<Record<RemoteFailureCode, LocalizedText>>> = {
     "manifest-invalid": {"zh-CN": "插件的清单无效", "en-US": "The plugin manifest is invalid"},
-    "reserved-id": {"zh-CN": "第三方插件的 id 不能以 nbook. 开头", "en-US": "Third-party plugin ids cannot start with nbook."},
     "incompatible-engine": {"zh-CN": "插件与当前版本的 NeuroBook 不兼容", "en-US": "The plugin is not compatible with this version of NeuroBook"},
     "already-installed": {"zh-CN": "这个版本已经安装，或已在等待重启后切换", "en-US": "This version is already installed or waiting for the restart"},
     "uninstall-pending": {"zh-CN": "插件正在卸载，重启后再操作", "en-US": "The plugin is being uninstalled; restart first"},

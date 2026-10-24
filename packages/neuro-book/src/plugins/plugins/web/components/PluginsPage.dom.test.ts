@@ -250,10 +250,11 @@ describe("PluginsPage", () => {
         expect(document.querySelector("[data-plugin-problem] p")).not.toBe(first);
         expect(document.querySelector("[role=dialog]")).toBeNull();
 
-        fake.answerNext({ok: false, code: "reserved-id", detail: {detail: "第三方插件的 id 不能以 nbook. 开头"}});
-        await submitPath(wrapper, "/plugins/reserved");
+        // 不带详情的码只显示码的文字一次（详情不重复一遍）。
+        fake.answerNext({ok: false, code: "already-installed", detail: {detail: "example.hello@1.0.0 已安装或等待重启后切换"}});
+        await submitPath(wrapper, "/plugins/again");
         problem = document.querySelector("[data-plugin-problem]");
-        expect(problem?.textContent?.match(/nbook\. 开头/gu)).toHaveLength(1);
+        expect(problem?.textContent?.match(/已经安装/gu)).toHaveLength(1);
 
         fake.answerNext({ok: false, code: "version-in-use", detail: {detail: "还有运行中的服务端在用 example.hello@1.0.0 的旧目录，关掉或重启它之后再装"}});
         await submitPath(wrapper, "/plugins/in-use");

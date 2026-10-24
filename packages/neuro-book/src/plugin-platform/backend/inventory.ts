@@ -19,7 +19,7 @@ import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import {errno, holdLock} from "nbook/backend/locked-replace";
-import type {InstallPreview, PendingChange, PluginFailureCode, PluginList, PluginListItem} from "nbook/plugin-platform/shared/types";
+import type {InstallFailureCode, InstallPreview, ManageFailureCode, PendingChange, PluginFailureCode, PluginList, PluginListItem} from "nbook/plugin-platform/shared/types";
 import type {PlatformProfile} from "nbook/plugin-platform/shared/profile";
 import {compareVersions, engineAccepts} from "nbook/plugin-platform/shared/versions";
 
@@ -32,17 +32,17 @@ import {blockedAfter} from "./preview";
 import type {StartupPlugins} from "./startup";
 import {installedManifest, missingEntries} from "./version-dir";
 
-export type InventoryFailure = {readonly ok: false; readonly code: PluginFailureCode; readonly detail: string; readonly problems?: ReadonlyArray<string>};
-export type InventoryResult<T> = {readonly ok: true; readonly value: T} | InventoryFailure;
+export type InventoryFailure<Code extends PluginFailureCode = PluginFailureCode> = {readonly ok: false; readonly code: Code; readonly detail: string; readonly problems?: ReadonlyArray<string>};
+export type InventoryResult<T, Code extends PluginFailureCode = PluginFailureCode> = {readonly ok: true; readonly value: T} | InventoryFailure<Code>;
 
 export interface PluginInventory {
-    list(): Promise<InventoryResult<PluginList>>;
+    list(): Promise<InventoryResult<PluginList, "registry-failed">>;
     /** 只读：安装这个文件夹会是首次安装、升级还是降级；校验与 `install` 相同，但不复制、不写登记表。 */
-    inspect(sourcePath: string): Promise<InventoryResult<InstallPreview>>;
+    inspect(sourcePath: string): Promise<InventoryResult<InstallPreview, InstallFailureCode>>;
     /** `sourcePath` 是服务端本地的插件文件夹；已安装另一版本时按升级处理。 */
-    install(sourcePath: string): Promise<InventoryResult<PluginListItem>>;
-    setEnabled(id: string, enabled: boolean): Promise<InventoryResult<PluginListItem>>;
-    uninstall(id: string): Promise<InventoryResult<PluginListItem>>;
+    install(sourcePath: string): Promise<InventoryResult<PluginListItem, InstallFailureCode>>;
+    setEnabled(id: string, enabled: boolean): Promise<InventoryResult<PluginListItem, ManageFailureCode>>;
+    uninstall(id: string): Promise<InventoryResult<PluginListItem, ManageFailureCode>>;
 }
 
 /** 服务端宿主提供的宿主能力，应用的插件管理界面（插件页的远程服务）经它实现。服务 id 不带应用名：它属于通用的插件管理。 */
@@ -68,7 +68,7 @@ interface Prepared {
     readonly installed: string | null;
 }
 
-function failure(code: PluginFailureCode, detail: string, problems?: ReadonlyArray<string>): InventoryFailure {
+function failure<Code extends PluginFailureCode>(code: Code, detail: string, problems?: ReadonlyArray<string>): InventoryFailure<Code> {
     return {ok: false, code, detail, ...(problems === undefined ? {} : {problems})};
 }
 
@@ -84,7 +84,7 @@ async function exists(path: string): Promise<boolean> {
 }
 
 /** 已安装的记录不接受这次安装的原因；没有为 null。 */
-function conflict(entry: RecordEntry | undefined, id: string, version: string): InventoryFailure | null {
+function conflict(entry: RecordEntry | undefined, id: string, version: string): InventoryFailure<InstallFailureCode> | null {
     if (entry === undefined) return null;
     if (entry.state === "uninstalling") return failure("uninstall-pending", `${id} 正在卸载，重启后再安装`);
     if (entry.version === version || entry.pendingVersion === version) return failure("already-installed", `${id}@${version} 已安装或等待重启后切换`);
@@ -137,8 +137,8 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
     }
 
     /** 持写入锁读改写登记表；`change` 返回 null 表示不用写。 */
-    async function update(change: (record: PluginRecord) => InventoryResult<RecordEntry | null>, id: string): Promise<InventoryResult<PluginListItem>> {
-        const locked = await withRecordLock(root, reportLock, async (lock): Promise<InventoryResult<PluginListItem>> => {
+    async function update(change: (record: PluginRecord) => InventoryResult<RecordEntry | null, ManageFailureCode>, id: string): Promise<InventoryResult<PluginListItem, ManageFailureCode>> {
+        const locked = await withRecordLock(root, reportLock, async (lock): Promise<InventoryResult<PluginListItem, ManageFailureCode>> => {
             const read = await readRecord(root, options.profile);
             if (!read.ok) return failure("registry-failed", read.detail);
             const changed = change(read.record);
@@ -156,7 +156,7 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
     }
 
     /** 安装前的核对，`inspect` 与 `install` 共用：源路径、清单、兼容、`files` 写法与登记表里的冲突。 */
-    async function prepare(sourcePath: string): Promise<InventoryResult<Prepared>> {
+    async function prepare(sourcePath: string): Promise<InventoryResult<Prepared, InstallFailureCode>> {
         let source: string;
         try {
             source = await realpath(resolve(sourcePath));
@@ -176,9 +176,6 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
 
         const read = await installedManifest(source, options.profile.format);
         if (!read.ok) {
-            // 保留的出版者单独给出原因，先于清单的其余问题。
-            const publisher = publisherOf(read.raw);
-            if (typeof publisher === "string" && options.profile.format.isReservedPublisher(publisher)) return failure("reserved-id", `第三方插件的 id 不能以 ${publisher}. 开头`);
             return failure(read.code, read.detail, read.problems);
         }
         const {manifest, raw} = read;
@@ -198,7 +195,7 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
         return {ok: true, value: {source, manifest, raw, files, installed: existing?.version ?? null}};
     }
 
-    async function inspect(sourcePath: string): Promise<InventoryResult<InstallPreview>> {
+    async function inspect(sourcePath: string): Promise<InventoryResult<InstallPreview, InstallFailureCode>> {
         const prepared = await prepare(sourcePath);
         if (!prepared.ok) return prepared;
         const {manifest, installed} = prepared.value;
@@ -207,7 +204,7 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
         return {ok: true, value: {id: manifest.id, version: manifest.version, installed, relation, ...preview}};
     }
 
-    async function install(sourcePath: string): Promise<InventoryResult<PluginListItem>> {
+    async function install(sourcePath: string): Promise<InventoryResult<PluginListItem, InstallFailureCode>> {
         const prepared = await prepare(sourcePath);
         if (!prepared.ok) return prepared;
         const {source, manifest, raw, files} = prepared.value;
@@ -244,8 +241,8 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
      * 持锁提交：再核对一次、改名进安装目录、写登记表，提交之后在同一把锁里删除被取代的待切换版本。每一步删改之前核对仍
      * 持有锁；失去锁之后什么都不再删：接管者可能已经提交了同名目录，留下的残留由下次启动的回收处理。
      */
-    async function commit(id: string, version: string, staging: string): Promise<InventoryResult<PluginListItem>> {
-        const locked = await withRecordLock(root, reportLock, async (lock): Promise<InventoryResult<PluginListItem>> => {
+    async function commit(id: string, version: string, staging: string): Promise<InventoryResult<PluginListItem, InstallFailureCode>> {
+        const locked = await withRecordLock(root, reportLock, async (lock): Promise<InventoryResult<PluginListItem, InstallFailureCode>> => {
             const read = await readRecord(root, options.profile);
             if (!read.ok) return failure("registry-failed", read.detail);
             const existing = read.record.plugins[id];
@@ -350,10 +347,6 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
             return result;
         }),
     };
-}
-
-function publisherOf(raw: unknown): unknown {
-    return typeof raw === "object" && raw !== null && "publisher" in raw ? raw.publisher : undefined;
 }
 
 /** `files`：没有写为 null；写了但不是字符串数组为 undefined。 */

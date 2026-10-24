@@ -141,7 +141,9 @@ describe("安装与列表（输出 1、2、9）", () => {
 
     it("拒绝：保留 id、不兼容、清单无效（带字段）、同一版本、源不存在、源在插件目录里、缺入口文件；都不留下文件与记录", async () => {
         const w = await world();
-        expect(await w.inventory.install(await w.source("reserved", {...manifest(), publisher: "acme", name: ""}))).toMatchObject({ok: false, code: "reserved-id"});
+        const reserved = await w.inventory.install(await w.source("reserved", {...manifest(), publisher: "acme"}));
+        expect(reserved).toMatchObject({ok: false, code: "manifest-invalid"});
+        expect(reserved.ok ? [] : reserved.problems).toEqual([expect.stringMatching(/^publisher：/u)]);
         expect(await w.inventory.install(await w.source("future", manifest("1.0.0", {engines: {acme: ">=2.0.0"}})))).toMatchObject({ok: false, code: "incompatible-engine"});
         const invalid = await w.inventory.install(await w.source("invalid", manifest("1.0")));
         expect(invalid).toMatchObject({ok: false, code: "manifest-invalid"});
@@ -343,18 +345,22 @@ describe("启停与卸载（输出 3、4、场景 13、14、16）", () => {
 });
 
 describe("启动时的登记（输出 6、7）与回收（提交点表）", () => {
-    it("不兼容、清单无效与安全模式不登记，原因可查，用户状态不变；有入口的插件照常登记", async () => {
+    it("不兼容、清单无效、入口文件缺失与安全模式不登记，原因可查，用户状态不变；有入口的插件照常登记", async () => {
         const w = await world();
         await w.inventory.install(await w.source("hello", manifest()));
         await w.inventory.install(await w.source("entries", {...manifest(), name: "entries", contributes: [], entries: {ui: {location: "browser", main: "ui.js"}}}, {"ui.js": ""}));
         await w.inventory.install(await w.source("broken", {...manifest(), name: "broken"}));
         await writeFile(join(w.root, "example.broken", "1.0.0", "package.json"), "{");
+        await w.inventory.install(await w.source("lost", {...manifest(), name: "lost", contributes: [], entries: {ui: {location: "browser", main: "ui.js"}}}, {"ui.js": ""}));
+        await rm(join(w.root, "example.lost", "1.0.0", "ui.js"));
 
         const startup = await w.restart();
         expect(startup.plugins.map((plugin) => [plugin.id, plugin.notLoaded?.code ?? null, plugin.descriptor === null])).toEqual([
             ["example.broken", "manifest-invalid", true],
             ["example.entries", null, false],
             ["example.hello", null, false],
+            // 安装时有、之后被删掉的入口文件：与安装时同一个码。
+            ["example.lost", "entry-missing", true],
         ]);
 
         const older = await w.restart({productVersion: "0.0.9"});

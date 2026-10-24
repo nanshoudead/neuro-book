@@ -17,9 +17,9 @@ export const PendingChangeSchema = Type.Union([
 
 export type PendingChange = Static<typeof PendingChangeSchema>;
 
-/** 本次启动没有登记的原因（plugin-install 输出 1、6、7）：清单无效、不兼容、安全模式。 */
+/** 本次启动没有登记的原因（plugin-install 输出 1、6、7）：清单无效、入口文件缺失、安装目录读不了、不兼容、安全模式。 */
 export const NotLoadedSchema = Type.Object({
-    code: Type.Union([Type.Literal("manifest-invalid"), Type.Literal("incompatible-engine"), Type.Literal("safe-mode")]),
+    code: Type.Union([Type.Literal("manifest-invalid"), Type.Literal("entry-missing"), Type.Literal("unreadable"), Type.Literal("incompatible-engine"), Type.Literal("safe-mode")]),
     detail: Type.String(),
 }, {additionalProperties: false});
 
@@ -88,10 +88,12 @@ export const FailureDetail = Type.Object({detail: Type.String()}, {additionalPro
 /** 清单无效时另带出错的字段（`entries.ui.main：……`）。 */
 export const ManifestFailureDetail = Type.Object({detail: Type.String(), problems: Type.Array(Type.String())}, {additionalProperties: false});
 
-/** 每个业务失败码的详情（plugin-install 的“失败与恢复”）。 */
-export const pluginFailureDetails = {
+/**
+ * 业务失败码与详情（plugin-install 的“失败与恢复”），按方法分组：安装与预览、启停与卸载各自只会返回自己那一组，调用方的
+ * 联合类型里没有不可能的分支。
+ */
+export const installFailureDetails = {
     "manifest-invalid": ManifestFailureDetail,
-    "reserved-id": FailureDetail,
     "incompatible-engine": FailureDetail,
     "already-installed": FailureDetail,
     "uninstall-pending": FailureDetail,
@@ -99,9 +101,16 @@ export const pluginFailureDetails = {
     "path-rejected": FailureDetail,
     "entry-missing": FailureDetail,
     "copy-failed": FailureDetail,
-    "not-installed": FailureDetail,
-    "builtin-fixed": FailureDetail,
     "registry-failed": FailureDetail,
 } as const;
 
-export type PluginFailureCode = keyof typeof pluginFailureDetails;
+export const manageFailureDetails = {
+    "builtin-fixed": FailureDetail,
+    "not-installed": FailureDetail,
+    "uninstall-pending": FailureDetail,
+    "registry-failed": FailureDetail,
+} as const;
+
+export type InstallFailureCode = keyof typeof installFailureDetails;
+export type ManageFailureCode = keyof typeof manageFailureDetails;
+export type PluginFailureCode = InstallFailureCode | ManageFailureCode;

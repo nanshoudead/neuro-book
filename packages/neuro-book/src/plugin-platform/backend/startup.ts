@@ -314,13 +314,13 @@ async function startupPlugin(options: PrepareOptions, id: string, entry: RecordE
         return {...base, descriptor: null, notLoaded: {code: "incompatible-engine", detail: `要求 ${productName} ${manifest.engine}，当前是 ${productVersion}`}};
     }
     const missing = await missingEntries(join(options.root, id, entry.version), manifest);
-    if (missing.length > 0) return {...base, descriptor: null, notLoaded: {code: "manifest-invalid", detail: `入口文件不存在：${missing.join("、")}`}};
+    if (missing.length > 0) return {...base, descriptor: null, notLoaded: {code: "entry-missing", detail: `入口文件不存在：${missing.join("、")}`}};
     const root = join(options.root, id, entry.version);
     let digest: string;
     try {
         digest = await directoryDigest(root);
     } catch (error) {
-        return {...base, descriptor: null, notLoaded: {code: "manifest-invalid", detail: `读不了安装目录：${brief(error)}`}};
+        return {...base, descriptor: null, notLoaded: {code: "unreadable", detail: `读不了安装目录：${brief(error)}`}};
     }
     return {...base, descriptor: descriptorOf(manifest), installed: {id, version: entry.version, root, digest, manifest: read.raw}, notLoaded: null};
 }

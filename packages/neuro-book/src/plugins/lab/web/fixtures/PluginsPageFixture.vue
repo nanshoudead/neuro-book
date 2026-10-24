@@ -7,7 +7,8 @@
  */
 import {computed} from "vue";
 
-import type {InstallPreview, PluginFailureCode, PluginListItem, PluginsRegistry} from "nbook/plugins/plugins/shared/contracts";
+import type {InstallPreview, PluginListItem, PluginsRegistry} from "nbook/plugins/plugins/shared/contracts";
+import type {InstallFailureCode, ManageFailureCode} from "nbook/plugin-platform/shared/types";
 import PluginsPage from "nbook/plugins/plugins/web/components/PluginsPage.vue";
 
 import {useLabEventSink} from "../lab-event-sink";
@@ -69,11 +70,17 @@ const set = (item: PluginListItem): PluginListItem => {
 const find = (id: string): PluginListItem => plugins.find((plugin) => plugin.id === id)!;
 
 const never = <T>(): Promise<T> => new Promise<T>(() => undefined);
-/** “write-failed”“version-in-use”“busy”场景的写操作结果；其余场景为 null，照常改内存里的表。 */
-const failing = (): Promise<{ok: false; code: PluginFailureCode; detail: {detail: string; problems?: string[]}}> | null => {
+/** “write-failed”“version-in-use”“busy”场景的安装结果；其余场景为 null，照常改内存里的表。 */
+const failing = (): Promise<{ok: false; code: InstallFailureCode; detail: {detail: string; problems?: string[]}}> | null => {
     if (base === "busy") return never();
     if (base === "write-failed") return Promise.resolve({ok: false, code: "manifest-invalid", detail: {detail: "清单有错误", problems: ["entries.ui.main：入口文件必须在插件目录里", "contributes.0.id：必须以插件 id 开头"]}});
     if (base === "version-in-use") return Promise.resolve({ok: false, code: "version-in-use", detail: {detail: "还有运行中的服务端（也可能就是这一个）在用 example.hello@1.0.0 的旧目录，关掉或重启它之后再装"}});
+    return null;
+};
+/** 启停与卸载的结果：“write-failed”是登记表写不进去，“busy”永不结算；其余场景为 null。 */
+const failingManage = (): Promise<{ok: false; code: ManageFailureCode; detail: {detail: string}}> | null => {
+    if (base === "busy") return never();
+    if (base === "write-failed") return Promise.resolve({ok: false, code: "registry-failed", detail: {detail: "写插件登记表失败：EACCES"}});
     return null;
 };
 
@@ -96,15 +103,15 @@ const registry: PluginsRegistry = {
     },
     enable: async ({id}: {id: string}) => {
         record("enable", {id});
-        return failing() ?? {ok: true as const, value: {plugin: set({...find(id), state: "enabled", pending: []})}};
+        return failingManage() ?? {ok: true as const, value: {plugin: set({...find(id), state: "enabled", pending: []})}};
     },
     disable: async ({id}: {id: string}) => {
         record("disable", {id});
-        return failing() ?? {ok: true as const, value: {plugin: set({...find(id), state: "disabled", pending: [{kind: "disable"}]})}};
+        return failingManage() ?? {ok: true as const, value: {plugin: set({...find(id), state: "disabled", pending: [{kind: "disable"}]})}};
     },
     uninstall: async ({id}: {id: string}) => {
         record("uninstall", {id});
-        return failing() ?? {ok: true as const, value: {plugin: set({...find(id), state: "uninstalling", pending: [{kind: "uninstall"}]})}};
+        return failingManage() ?? {ok: true as const, value: {plugin: set({...find(id), state: "uninstalling", pending: [{kind: "uninstall"}]})}};
     },
 };
 const bindings = computed(() => subject.bindings.value);

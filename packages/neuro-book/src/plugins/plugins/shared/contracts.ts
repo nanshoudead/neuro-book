@@ -10,7 +10,7 @@ import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 import {Type} from "typebox";
 
-import {FailureDetail, InstallPreviewSchema, pluginFailureDetails, PluginListItemSchema, PluginListSchema} from "nbook/plugin-platform/shared/types";
+import {FailureDetail, installFailureDetails, InstallPreviewSchema, manageFailureDetails, PluginListItemSchema, PluginListSchema} from "nbook/plugin-platform/shared/types";
 
 export type {BlockedPlugin, InstallPreview, NotLoaded, PendingChange, PluginFailureCode, PluginList, PluginListItem} from "nbook/plugin-platform/shared/types";
 
@@ -20,16 +20,16 @@ const One = Type.Object({plugin: PluginListItemSchema}, {additionalProperties: f
 
 export const pluginsRegistryContract = defineRemoteService({
     id: "nbook.plugins/registry",
-    version: 2,
+    version: 3,
     provider: "server",
     callers: ["browser"],
     methods: {
         list: {input: Type.Object({}, {additionalProperties: false}), output: PluginListSchema, effect: "read", errors: {"registry-failed": FailureDetail}},
-        inspect: {input: PathInput, output: InstallPreviewSchema, effect: "read", errors: pluginFailureDetails},
-        install: {input: PathInput, output: One, effect: "write", errors: pluginFailureDetails},
-        enable: {input: IdInput, output: One, effect: "write", errors: pluginFailureDetails},
-        disable: {input: IdInput, output: One, effect: "write", errors: pluginFailureDetails},
-        uninstall: {input: IdInput, output: One, effect: "write", errors: pluginFailureDetails},
+        inspect: {input: PathInput, output: InstallPreviewSchema, effect: "read", errors: installFailureDetails},
+        install: {input: PathInput, output: One, effect: "write", errors: installFailureDetails},
+        enable: {input: IdInput, output: One, effect: "write", errors: manageFailureDetails},
+        disable: {input: IdInput, output: One, effect: "write", errors: manageFailureDetails},
+        uninstall: {input: IdInput, output: One, effect: "write", errors: manageFailureDetails},
     },
 });
 
