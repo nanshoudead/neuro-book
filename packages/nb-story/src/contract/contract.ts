@@ -12,8 +12,8 @@ import type {Static, TSchema} from "typebox";
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 
 import {ENTITY_KINDS, FACETS, KNOWLEDGE_STATES, STATEMENT_KINDS} from "../core/dataset";
-import {ConfigSchema} from "./config-schema";
-import {QaModeSchema, QaPositionSchema, QaStatusSchema, QaTurnSchema} from "./qa-record";
+import {ConfigSchema, EffortSchema, ENV_NAME_PATTERN} from "./config-schema";
+import {QaAnswerModeSchema, QaModeSchema, QaPositionSchema, QaStatusSchema, QaTurnSchema} from "./qa-record";
 
 const strict = {additionalProperties: false} as const;
 
@@ -527,8 +527,10 @@ const IngestPlanSchema = Type.Object({
     newChapters: Type.Integer(),
     /** 已提交到第几章。 */
     committed: Type.Integer(),
-    /** 抽取会用的模型；配置读不出来时为 null（开始时得到 qa_unconfigured）。 */
+    /** 抽取会用的模型；配置读不出来、或没写抽取模型而问答的默认模型不能给抽取用时为 null（开始时得到 qa_unconfigured）。 */
     model: Type.Union([Type.Object({id: Type.String(), source: oneOf(["ingest.model", "model"] as const)}), Type.Null()]),
+    /** 配置读得出来、但抽取没有能用的模型时的原因（例如“抽取要单独写模型”）；其余为 null。 */
+    modelProblem: Type.Union([Type.String(), Type.Null()]),
     /** 生效的开关：新建时是请求值（没给的项为开），已有抽取记录时是保存的值。 */
     features: Features,
 });
@@ -575,6 +577,8 @@ const QaRunSchema = Type.Object({
     question: Type.String(),
     at: QaPositionSchema,
     mode: QaModeSchema,
+    /** 这一轮用的模型，`服务商/模型名`。 */
+    model: Type.String(),
     startedAt: Type.String(),
     state: oneOf(["running", "ended"] as const),
     /** 结束后的这一轮；运行中为 null。 */
@@ -588,10 +592,43 @@ const QaRecordViewSchema = Type.Object({
     id: Type.String(),
     at: QaPositionSchema,
     mode: QaModeSchema,
+    /** 作答方式；之前的记录按结构化给。 */
+    answer: QaAnswerModeSchema,
     maxChapters: Type.Union([Type.Integer(), Type.Null()]),
     turns: Type.Array(QaTurnSchema),
     startedAt: Type.String(),
 });
+
+/** 每百万 token 的单价（nb-harness 的 `ModelPrice`）；目录里的带缓存写单价，配置里的没有。 */
+const CatalogPriceSchema = Type.Object({input: Type.Number(), output: Type.Number(), cacheRead: Type.Optional(Type.Number()), cacheWrite: Type.Optional(Type.Number()), currency: Type.String()});
+
+/** 目录或自定义服务商里的一个模型（nb-harness 的 `CatalogModel`）；自定义模型没写的参数已按模型名从目录补上。 */
+const CatalogModelSchema = Type.Object({
+    id: Type.String(),
+    name: Type.String(),
+    api: Type.String(),
+    contextWindow: Type.Union([Type.Integer(), Type.Null()]),
+    maxTokens: Type.Union([Type.Integer(), Type.Null()]),
+    reasoning: Type.Boolean(),
+    /** 能选的推理档；不支持推理或推理档不可控时为空。 */
+    efforts: Type.Array(EffortSchema),
+    images: Type.Boolean(),
+    /** 未知时为 null（目录单价全为 0 的也算未知）。 */
+    price: Type.Union([CatalogPriceSchema, Type.Null()]),
+});
+const CatalogProviderSchema = Type.Object({
+    id: Type.String(),
+    name: Type.String(),
+    source: oneOf(["catalog", "custom"] as const),
+    /** 只认环境变量时能不能用（nb-harness 的 `ProviderAccess`）；自定义服务商是 `key`。 */
+    access: oneOf(["keyless", "login", "key", "unsupported"] as const),
+    /** 可以设的密钥变量，按查找的顺序。 */
+    keyEnvs: Type.Array(Type.String()),
+    /** 服务启动时有没有可用的密钥（自定义服务商按此刻的服务环境）。 */
+    keySet: Type.Boolean(),
+    models: Type.Array(CatalogModelSchema),
+});
+const SuggestionSchema = Type.Object({from: Type.String(), contextWindow: Type.Union([Type.Integer(), Type.Null()]), maxTokens: Type.Union([Type.Integer(), Type.Null()]), reasoning: Type.Boolean(), images: Type.Boolean()});
 const QaErrors = {invalid_params: Type.Object({}), book_not_found: Type.Object({}), unsupported_format: Type.Object({})};
 const ConfigState = {
     /** 配置文件此刻的摘要，`config.set` 时原样带回；文件不在时是 `absent`。 */
@@ -650,9 +687,14 @@ export const QA_METHODS = {
                 question: Type.String({minLength: 1}),
                 /** 续问的对话；不给是新对话。 */
                 conversation: Type.Optional(Type.String({minLength: 1})),
-                /** 只在新对话时用。 */
+                /** 只在新对话时用；续问时写了是 invalid_params。 */
                 mode: Type.Optional(QaModeSchema),
                 at: Type.Optional(PositionInputSchema),
+                answer: Type.Optional(QaAnswerModeSchema),
+                /** 这一轮的模型，必须在配置的候选里；不给时新对话用默认模型，续问接着用最近一轮的。 */
+                model: Type.Optional(Type.String({minLength: 1})),
+                /** 这一轮的推理档，必须是 `model` 支持的档，给它就要同时给 `model`；不给时按 qa.md 输出 40。 */
+                thinking: Type.Optional(EffortSchema),
             },
             strict,
         ),
@@ -685,6 +727,28 @@ export const QA_METHODS = {
         output: Type.Object(ConfigState),
         effect: "write",
         errors: {invalid_params: Type.Object({}), config_conflict: Type.Object({}), qa_config_write_failed: Type.Object({})},
+    },
+    "models.catalog": {
+        /** OMP 目录的全部服务商加配置里的自定义服务商（自定义的在前），给设置页与输入框选模型。 */
+        input: Empty,
+        output: Type.Object({providers: Type.Array(CatalogProviderSchema)}),
+        effect: "read",
+        errors: {invalid_params: Type.Object({})},
+    },
+    "models.discover": {
+        /** 用对话框里正在编辑的值读这个服务的 `/models`，不读配置文件；只认 OpenAI 兼容的两种接口。 */
+        input: Type.Object({api: oneOf(["openai-completions", "openai-responses"] as const), baseUrl: Type.String({minLength: 1}), apiKeyEnv: Type.String({minLength: 1, pattern: ENV_NAME_PATTERN})}, strict),
+        output: Type.Object({
+            state: oneOf(["found", "empty", "not_supported", "auth", "unreachable", "failed"] as const),
+            status: Type.Union([Type.Integer(), Type.Null()]),
+            message: Type.Union([Type.String(), Type.Null()]),
+            /** 读到的模型；`suggested` 是按模型名在目录里找到的参照，界面显示为“自动”，不写进配置。 */
+            models: Type.Array(Type.Object({id: Type.String(), name: Type.String(), suggested: Type.Union([SuggestionSchema, Type.Null()])})),
+            /** 这个环境变量在服务的环境里有没有值。 */
+            keySet: Type.Boolean(),
+        }),
+        effect: "read",
+        errors: {invalid_params: Type.Object({})},
     },
     "config.test": {
         input: Empty,

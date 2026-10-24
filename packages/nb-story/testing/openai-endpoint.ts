@@ -102,10 +102,14 @@ function responsesReply(reply: Extract<EndpointReply, {kind: "text" | "tools"}>,
 /** 按请求决定回复；`index` 是这是第几次请求（从 0 起）。 */
 export type Responder = (body: Record<string, unknown>, index: number, headers: Headers) => EndpointReply;
 
+/** `GET <地址>/models` 的回应：`models` 列出模型名，`status` 回这个状态码。不给时是空列表。“连不上”用关掉的端口测。 */
+export type ModelsReply = {kind: "models"; ids: string[]} | {kind: "status"; status: number};
+
 /**
- * `idleTimeoutSeconds` 是端点自己的空闲超时（Bun 默认 10 秒没有收发就断开）：要让请求挂得比这更久时给 0。
+ * `idleTimeoutSeconds` 是端点自己的空闲超时（Bun 默认 10 秒没有收发就断开）：要让请求挂得比这更久时给 0。`models`
+ * 决定 `GET /models` 怎么回（设置页读服务的模型列表）；这类请求不算进 `bodies` 与脚本。
  */
-export function startEndpoint(replies: EndpointReply[] | Responder, options: {idleTimeoutSeconds?: number} = {}): Endpoint {
+export function startEndpoint(replies: EndpointReply[] | Responder, options: {idleTimeoutSeconds?: number; models?: () => ModelsReply} = {}): Endpoint {
     const authorizations: (string | null)[] = [];
     const bodies: Record<string, unknown>[] = [];
     let signalFirst!: () => void;
@@ -116,6 +120,10 @@ export function startEndpoint(replies: EndpointReply[] | Responder, options: {id
         hostname: "127.0.0.1",
         ...(options.idleTimeoutSeconds === undefined ? {} : {idleTimeout: options.idleTimeoutSeconds}),
         async fetch(request) {
+            if (request.method === "GET" && new URL(request.url).pathname.endsWith("/models")) {
+                const models = options.models?.() ?? {kind: "models", ids: []};
+                return models.kind === "status" ? new Response("no", {status: models.status}) : Response.json({object: "list", data: models.ids.map(id => ({id, object: "model"}))});
+            }
             authorizations.push(request.headers.get("authorization"));
             signalFirst();
             const body = JSON.parse(await request.text()) as Record<string, unknown>;

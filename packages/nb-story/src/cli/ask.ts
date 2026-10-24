@@ -13,7 +13,8 @@ import {createStoryApi} from "../core/api";
 import {StoryError} from "../core/errors";
 import type {PositionInput} from "../core/position";
 import type {QaMode} from "../core/qa-records";
-import {loadQaConfig} from "../qa/config";
+import {EFFORTS} from "../contract/config-schema";
+import {defaultConfigPath, loadQaConfig, type Effort} from "../qa/config";
 import {askQuestion, type QaOutcome, type QaProgress} from "../qa/engine";
 import {QaError} from "../qa/errors";
 import {turnText} from "../qa/format";
@@ -28,6 +29,8 @@ function progressLine(event: QaProgress): string {
             return `· ${event.text}`;
         case "rejected":
             return `· 作答被退回：${event.text.replace(/^答案没有通过校验，改了再交：\n/u, "").replace(/\n/gu, " ")}`;
+        case "recheck":
+            return `· 出处检查：${event.refs.join("、")} 没读过，已让模型重写`;
         case "answered":
             return "· 已交卷";
     }
@@ -67,14 +70,24 @@ async function ask(options: AskOptions, io: CliIo, signal: AbortSignal): Promise
     };
 
     const continueFrom = params.continue as string | undefined;
-    if (continueFrom !== undefined && (params.at !== undefined || params.mode !== undefined)) {
-        io.stderr("用法错误：--continue 追问时阅读位置与做法取对话开始时的，不能再写 --at 或 --mode");
+    if (continueFrom !== undefined && (params.at !== undefined || params.mode !== undefined || params.structured === true)) {
+        io.stderr("用法错误：--continue 追问时阅读位置、做法与作答方式取对话开始时的，不能再写 --at、--mode 或 --structured");
+        return 2;
+    }
+    if (params.thinking !== undefined && !(EFFORTS as readonly string[]).includes(params.thinking as string)) {
+        io.stderr(`用法错误：--thinking 只能是 ${EFFORTS.join("、")}`);
         return 2;
     }
 
     let outcome: QaOutcome;
     try {
-        const config = await loadQaConfig(...(typeof params.config === "string" ? [params.config] : []));
+        const {configCatalog} = await import("../qa/harness-model");
+        const config = await loadQaConfig(typeof params.config === "string" ? params.config : defaultConfigPath(), configCatalog());
+        // 只对这一问：模型要在候选里，推理档按模型夹（同网页，qa.md 的 qa.start）。
+        if (typeof params.model === "string" && !config.models.includes(params.model)) {
+            io.stderr(`用法错误：--model ${params.model} 不在配置的候选模型里（nbstory config show 看候选）`);
+            return 2;
+        }
         outcome = await askQuestion({
             api: createStoryApi(options.library === undefined ? {} : {library: options.library}),
             ...(typeof params.book === "string" ? {book: params.book} : {}),
@@ -83,6 +96,8 @@ async function ask(options: AskOptions, io: CliIo, signal: AbortSignal): Promise
             ...(continueFrom === undefined ? {} : {continueFrom}),
             question: params.question as string,
             config,
+            ...(params.model === undefined && params.thinking === undefined ? {} : {model: {...(typeof params.model === "string" ? {model: params.model} : {}), ...(typeof params.thinking === "string" ? {thinking: params.thinking as Effort} : {})}}),
+            ...(params.structured === true ? {answer: "structured" as const} : {}),
             signal,
             onProgress: event => io.stderr(progressLine(event)),
         });

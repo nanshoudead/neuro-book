@@ -181,7 +181,7 @@ export const COMMANDS: readonly CommandSpec[] = [
         book: true,
         paged: false,
         positionals: [{name: "问题", decode: value => ({question: value})}],
-        options: {mode: {decode: mode}, config: {decode: value => resolve(value)}, continue: {decode: text}},
+        options: {mode: {decode: mode}, config: {decode: value => resolve(value)}, continue: {decode: text}, model: {decode: text}, thinking: {decode: text}, structured: {decode: () => true}},
     }),
     command({
         name: "qa",
@@ -238,7 +238,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 /** 所有命令都接受的选项（不进方法参数）。 */
 export const GLOBAL_OPTIONS = new Set(["library", "json", "help"]);
 /** 不带值的开关。 */
-export const FLAGS = new Set(["json", "help", "open", "force", "preview", "status", "ingest", "no-ledger", "no-secrets"]);
+export const FLAGS = new Set(["json", "help", "open", "force", "preview", "status", "ingest", "no-ledger", "no-secrets", "structured"]);
 
 /** 选项在 `--help` 里的说明；同名选项在各命令里含义相同，所以按名字写一份。 */
 export const OPTION_HELP: Record<string, string> = {
@@ -267,9 +267,10 @@ export const OPTION_HELP: Record<string, string> = {
     continue: "在这个对话里追问（对话 id 见 nbstory qa）；不能同时写 --at、--mode",
     config: "配置文件（默认 ~/.config/nbstory/config.json）",
     "base-url": "OpenAI 兼容服务的地址",
-    model: "模型名",
+    model: "模型：服务商/模型名（OMP 目录里的，或配置里的候选）；config init 用自定义地址时写模型名",
     "api-key-env": "存密钥的环境变量名（密钥本身不进配置）",
-    thinking: "推理档：low、medium、high、xhigh；不写则请求不带推理档",
+    thinking: "推理档：minimal、low、medium、high、xhigh、max；模型不支持时往下夹；不写则请求不带推理档",
+    structured: "新对话用 answer 工具交结构化的卷（默认按配置的 qa.answer，再缺省是 Markdown）",
     force: "覆盖已有的配置文件",
     preview: "只切章并列出结果，不调用模型、不写书库",
     status: "看抽取进度；不给 --book 时列出全部",
@@ -313,8 +314,8 @@ export function usage(): string {
         ...lines,
         "",
         "通用选项：--library <目录>、--json；书级命令另有 --book <书>、--at <章或章.段>；列表命令另有 --limit、--cursor。",
-        "ask 另有 --mode graph|full（图当目录或全读，默认 graph）、--config <配置文件>、--continue <对话 id>（追问）。",
-        "config 的动作：init（交互或用 --base-url --model --api-key-env 写配置）、show、set <字段> <值>、unset <字段>、test（加 --ingest 检查抽取模型）。",
+        "ask 另有 --mode graph|full（图当目录或全读，默认 graph）、--config <配置文件>、--continue <对话 id>（追问）、--model <服务商/模型名>、--thinking <档>（只对这一问）、--structured（新对话结构化作答）。",
+        "config 的动作：init（交互；或 --model <服务商/模型名> 用目录里的模型，--base-url --model --api-key-env 用自定义地址）、show、set <字段> <值>、unset <字段>、test（加 --ingest 检查抽取模型）。",
         "ingest 另有 --title、--id、--preview、--book <书 id>（用保存的原文接着抽）、--status、--config；新建时可加 --no-ledger（不记数值）、--no-secrets（不记秘密）。",
     ].join("\n");
 }

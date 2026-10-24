@@ -14,6 +14,7 @@ import {formatResult} from "../cli/format";
 import {STORY_METHODS, type StoryMethod} from "../contract/contract";
 import {PERSPECTIVE_METHODS, type BookSession} from "../core/api";
 import type {BookFeatures, Position} from "../core/dataset";
+import type {QaAnswerMode} from "../contract/qa-record";
 import {AnswerSchema, type Answer} from "../core/qa-records";
 import {validateAnswer} from "./answer";
 import type {ReadLedger} from "./read-ledger";
@@ -145,11 +146,14 @@ function answerTool(state: QaToolState): {declaration: PluginToolDeclaration; im
     };
 }
 
-/** 这一问的全部工具，作为一个插件交给 nb-harness 的登记表；书关掉的那一类的查询不登记。 */
-export function storyQaPlugin(state: QaToolState, features: BookFeatures): HarnessPlugin {
+/**
+ * 这一问的全部工具，作为一个插件交给 nb-harness 的登记表；书关掉的那一类的查询不登记，`answer` 只在结构化作答的
+ * 对话里登记（Profile 里它是可选的，见 story-qa.profile.tsx）。
+ */
+export function storyQaPlugin(state: QaToolState, features: BookFeatures, answer: QaAnswerMode): HarnessPlugin {
     const open = QUERY_COMMANDS.filter(name => {
         const feature = FEATURE_OF[name];
         return feature === undefined || features[feature];
     });
-    return {name: "nb-story", version: "1", tools: [...open.map(name => queryTool(name, state)), answerTool(state)]};
+    return {name: "nb-story", version: "1", tools: [...open.map(name => queryTool(name, state)), ...(answer === "structured" ? [answerTool(state)] : [])]};
 }

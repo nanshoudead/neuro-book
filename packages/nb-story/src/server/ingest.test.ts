@@ -8,7 +8,7 @@
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
 import {existsSync, watch} from "node:fs";
-import {mkdir, readdir, rm, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -145,6 +145,15 @@ describe("预览、发起、停止、继续（viewer 验收 9 的服务部分）
         const plan = preview.body as {id: string; action: string; chapters: unknown[]; model: unknown};
         expect({action: plan.action, chapters: plan.chapters.length, model: plan.model}).toEqual({action: "new", chapters: 10, model: {id: "qa-model", source: "model"}});
         expect(env.endpoint.bodies).toEqual([]);
+
+        // 问答的默认模型换成目录里的模型、又没写抽取模型：预览写明抽取要单独写模型（qa.md 输出 23）。
+        const configFile = join(env.childEnv.XDG_CONFIG_HOME!, "nbstory", "config.json");
+        const saved = await readFile(configFile, "utf8");
+        await writeFile(configFile, JSON.stringify({models: ["deepseek/deepseek-flash"], model: {use: "deepseek/deepseek-flash"}}));
+        const unusable = (await env.call("ingest.preview", {content, title: "转生反派萝莉"})).body as {model: unknown; modelProblem: string | null};
+        expect(unusable.model).toBeNull();
+        expect(unusable.modelProblem).toContain("抽取要单独写模型");
+        await writeFile(configFile, saved);
 
         const started = await env.call("ingest.start", {content, title: "转生反派萝莉"});
         expect(started.body).toEqual({id: plan.id, action: "new"});

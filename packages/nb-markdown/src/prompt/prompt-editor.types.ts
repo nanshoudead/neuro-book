@@ -72,6 +72,11 @@ export interface PromptEditorExpose {
     insertText(text: string): void;
     /** 在光标处加入文件，与粘贴文件相同；只读时不做任何事。 */
     insertFiles(files: readonly File[]): void;
+    /**
+     * 聚焦、光标移到末尾，插入触发字符打开它的菜单（例如输入框的 `+` 按钮插 `@`）；前一个字不是空白或标点时先补一个
+     * 空格，否则触发不成立。只读时不做任何事。
+     */
+    openTrigger(char: string): void;
 }
 
 /** 附件条里的一张卡片。 */

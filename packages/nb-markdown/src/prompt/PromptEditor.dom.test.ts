@@ -363,6 +363,28 @@ describe("PromptEditor `@` 菜单", () => {
     });
 });
 
+describe("PromptEditor openTrigger", () => {
+    const resolveMenu = (context: PromptEditorMenuContext) => ({items: context.trigger === "@" ? [{id: "林雪", label: "林雪", insertText: "林雪"}] : []});
+
+    it("正文以中文结尾时先补一个空格再插触发字符，菜单打开；空正文、以空格或中文标点结尾时直接插", async () => {
+        for (const [text, expected] of [["介绍一下", "介绍一下 @"], ["", "@"], ["介绍一下 ", "介绍一下 @"], ["介绍一下，", "介绍一下，@"]] as const) {
+            const wrapper = await mountEditor({draft: {text, version: 1}, triggers: ["@"], resolveMenu});
+            prosemirror(wrapper).dispatchEvent(new FocusEvent("focusin", {bubbles: true}));
+            exposed(wrapper).openTrigger("@");
+            await nextTick();
+            expect(changes(wrapper).at(-1)).toBe(expected);
+            expect(wrapper.emitted("menu-open")).toEqual([[{trigger: "@"}]]);
+        }
+    });
+
+    it("只读时什么也不做", async () => {
+        const wrapper = await mountEditor({draft: {text: "介绍一下", version: 1}, triggers: ["@"], resolveMenu, readonly: true});
+        exposed(wrapper).openTrigger("@");
+        await nextTick();
+        expect(changes(wrapper)).toEqual([]);
+    });
+});
+
 describe("PromptEditor 界面语言", () => {
     it("场景 5：换成英文后粘贴块与附件条的按钮文字跟着换，正文与撤销历史不变", async () => {
         const wrapper = await mountEditor({draft: {text: "前", version: 1}, acceptImages: true});

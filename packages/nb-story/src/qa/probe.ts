@@ -9,7 +9,7 @@ import {createHarness, createToolRegistry, type HarnessOptions, type RunError, t
 import {createMemorySessionLog} from "@notnotype/nb-session";
 
 import type {QaConfig} from "./config";
-import {configuredModel, thinkingOption} from "./harness-model";
+import {resolveQaModel, thinkingOption} from "./harness-model";
 import probeProfile from "./probe.profile";
 
 export type ProbeResult =
@@ -20,13 +20,14 @@ export type ProbeResult =
 
 export async function probeModel(config: QaConfig, options: {signal?: AbortSignal; streamFn?: HarnessOptions["streamFn"]} = {}): Promise<ProbeResult> {
     const started = Date.now();
+    const model = resolveQaModel(config);
     const harness = await createHarness({
         profile: probeProfile,
         initial: {},
         registry: createToolRegistry(),
-        model: configuredModel(config),
+        model: model.resolved,
         sessionLog: createMemorySessionLog({sessionId: "config-test"}),
-        ...thinkingOption(config),
+        ...thinkingOption(model),
         ...(options.streamFn === undefined ? {} : {streamFn: options.streamFn}),
     });
     try {

@@ -15,7 +15,11 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {startEndpoint, type Endpoint, type EndpointReply} from "../../testing/openai-endpoint";
 import {CLI} from "../../testing/processes";
+import {parseQaConfig} from "../qa/config";
+import {configCatalog} from "../qa/harness-model";
 import {confirmOverwrite, initInteractively} from "./config-init";
+
+const catalog = configCatalog();
 
 const KEY_ENV = "NBSTORY_CONFIG_TEST_CREDENTIAL";
 const FAKE_KEY = "fake-credential-for-config-test-0042";
@@ -50,22 +54,51 @@ async function written(path: string): Promise<unknown> {
     return JSON.parse(await readFile(path, "utf8"));
 }
 
+/** `INIT_FLAGS` 写出的第 2 版：自定义服务商 custom 里的 m1。 */
+function customConfig(models: string[] = ["m1"], extra: object = {}): object {
+    return {providers: {custom: {api: "openai-completions", baseUrl: "http://127.0.0.1:1/v1", apiKeyEnv: KEY_ENV, models: models.map(id => ({id}))}}, models: models.map(id => `custom/${id}`), ...extra};
+}
+
 describe("init、show、set、unset", () => {
     test("选项给齐就直接写，目录不存在时建出来；show 说明密钥环境变量设没设置，不打印密钥", async () => {
         const path = freshPath();
         const init = await run(["config", "init", ...INIT_FLAGS, "--thinking", "xhigh", "--config", path]);
         expect(init.code).toBe(0);
-        expect(await written(path)).toEqual({model: {baseUrl: "http://127.0.0.1:1/v1", id: "m1", apiKeyEnv: KEY_ENV, thinking: "xhigh"}});
+        const first = customConfig(["m1"], {model: {use: "custom/m1", thinking: "xhigh"}}) as {providers: {custom: {models: object[]}}};
+        first.providers.custom.models = [{id: "m1", reasoning: true}];
+        expect(await written(path)).toEqual(first);
 
         const set = await run(["config", "show", "--config", path]);
-        expect(set.stdout).toContain(`密钥环境变量：${KEY_ENV}（已设置）`);
+        expect(set.stdout).toContain(`密钥环境变量 ${KEY_ENV}（已设置）`);
+        expect(set.stdout).toContain("默认模型：custom/m1");
         expect(set.stdout).toContain("推理档：xhigh");
         expect(`${set.stdout}${set.stderr}`).not.toContain(FAKE_KEY);
         const unset = await run(["config", "show", "--config", path], {[KEY_ENV]: undefined});
         expect(unset.stdout).toContain("没有设置");
 
         const json = await run(["config", "show", "--config", path, "--json"]);
-        expect(JSON.parse(json.stdout)).toEqual({ok: true, data: {path, config: await written(path), apiKeySet: true, ingest: {source: "model", id: "m1", apiKeySet: true}, recall: null}});
+        expect(JSON.parse(json.stdout)).toEqual({
+            ok: true,
+            data: {
+                path, config: await written(path),
+                model: {use: "custom/m1", thinking: "xhigh"},
+                providers: [{id: "custom", source: "custom", keyEnvs: [KEY_ENV], keySet: true, api: "openai-completions", baseUrl: "http://127.0.0.1:1/v1"}],
+                ingest: {source: "model", id: "m1", apiKeySet: true},
+                recall: null,
+            },
+        });
+    });
+
+    test("用目录里的模型：只给 服务商/模型名；推理档往下夹；目录里没有的模型是用法错误", async () => {
+        const path = freshPath();
+        const init = await run(["config", "init", "--model", "deepseek/deepseek-flash", "--thinking", "medium", "--config", path]);
+        expect(init.code).toBe(0);
+        expect(await written(path)).toEqual({models: ["deepseek/deepseek-flash"], model: {use: "deepseek/deepseek-flash", thinking: "medium"}});
+        const show = await run(["config", "show", "--config", path], {DEEPSEEK_API_KEY: undefined});
+        expect(show.stdout).toContain("推理档：medium（模型不支持这一档，实际发 low）");
+        expect(show.stdout).toContain("deepseek（OMP 目录）：密钥环境变量 DEEPSEEK_API_KEY");
+        expect(show.stdout).toContain("抽取模型：抽取要单独写模型");
+        expect((await run(["config", "init", "--model", "deepseek/not-a-model", "--config", freshPath()])).code).toBe(2);
     });
 
     test("缺必填项又不在终端：用法错误，退出码 2，不写文件，不挂起等输入", async () => {
@@ -74,6 +107,7 @@ describe("init、show、set、unset", () => {
         expect(result.code).toBe(2);
         expect(result.stderr).toContain("--base-url");
         expect(result.stderr).toContain("--api-key-env");
+        expect((await run(["config", "init", "--config", path])).stderr).toContain("缺少 --model");
         expect(await readdir(join(path, "..")).catch(() => [])).toEqual([]);
     });
 
@@ -86,14 +120,17 @@ describe("init、show、set、unset", () => {
         expect(refused.code).toBe(2);
         expect(refused.stderr).toContain("--force");
         expect(await readFile(path, "utf8")).toBe(before);
+        // 只给模型名：沿用自定义服务商的地址与密钥变量，m2 加进候选并设为默认。
         const forced = await run(["config", "init", "--model", "m2", "--thinking", "high", "--force", "--config", path]);
         expect(forced.code).toBe(0);
-        expect(await written(path)).toEqual({model: {baseUrl: "http://127.0.0.1:1/v1", id: "m2", apiKeyEnv: KEY_ENV, thinking: "high"}, qa: {maxChapters: 7}});
+        const expected = customConfig(["m1", "m2"], {model: {use: "custom/m2", thinking: "high"}, qa: {maxChapters: 7}}) as {providers: {custom: {models: object[]}}};
+        expected.providers.custom.models = [{id: "m1"}, {id: "m2", reasoning: true}];
+        expect(await written(path)).toEqual(expected);
     });
 
     test("没有配置时 show、set、unset 报 qa_unconfigured（退出码 1）并指向 init", async () => {
         const path = freshPath();
-        for (const args of [["show"], ["set", "model.id", "x"], ["unset", "model.thinking"]]) {
+        for (const args of [["show"], ["set", "model.use", "custom/x"], ["unset", "model.thinking"]]) {
             const result = await run(["config", ...args, "--config", path]);
             expect(result.code).toBe(1);
             expect(result.stderr).toContain("qa_unconfigured");
@@ -108,14 +145,22 @@ describe("init、show、set、unset", () => {
         expect(await written(path)).toMatchObject({model: {thinking: "xhigh"}});
         expect((await run(["config", "unset", "model.thinking", "--config", path])).code).toBe(0);
         expect((await written(path) as {model: object}).model).not.toHaveProperty("thinking");
-        expect((await run(["config", "set", "model.api", "responses", "--config", path])).code).toBe(0);
-        expect((await run(["config", "show", "--config", path])).stdout).toContain("接口：Responses（没写推理档，不要思考摘要）");
+        expect((await run(["config", "set", "providers.custom.api", "openai-responses", "--config", path])).code).toBe(0);
+        const responses = (await run(["config", "show", "--config", path])).stdout;
+        expect(responses).toContain("自定义，openai-responses");
+        expect(responses).toContain("Responses 接口，没有推理档就不要思考摘要");
 
         const before = await readFile(path, "utf8");
         // 都不写盘，并行跑：每个都是一个命令行进程。`toString` 是普通对象从原型继承来的名字，也不是字段。
-        const wrong = [["set", "model.nope", "1"], ["unset", "toString"], ["set", "qa.maxChapters", "多"], ["set", "model.thinking", "max"], ["set", "model.api", "grpc"], ["unset", "model.id"], ["set", "model.id"], ["bogus"], []];
-        const codes = await Promise.all(wrong.map(async args => (await run(["config", ...args, "--config", path])).code));
-        expect(codes).toEqual(wrong.map(() => 2));
+        const wrong = [
+            ["set", "model.nope", "1"], ["unset", "toString"], ["set", "qa.maxChapters", "多"], ["set", "model.thinking", "ultra"], ["set", "providers.custom.api", "grpc"],
+            ["unset", "model.use"], ["set", "model.use"], ["bogus"], [],
+            // 字段之间的约束不成立、第 1 版的路径。
+            ["set", "model.use", "custom/other"], ["set", "providers.deepseek", '{"api":"openai-completions","baseUrl":"http://x/v1","apiKeyEnv":"X_ENV","models":[]}'], ["set", "model.baseUrl", "http://x/v1"],
+        ];
+        const results = await Promise.all(wrong.map(args => run(["config", ...args, "--config", path])));
+        expect(results.map(result => result.code)).toEqual(wrong.map(() => 2));
+        expect(results.at(-1)!.stderr).toContain("providers.custom.baseUrl");
         const outOfRange = await run(["config", "set", "qa.maxChapters", "21", "--config", path, "--json"]);
         expect(outOfRange.code).toBe(1);
         expect((JSON.parse(outOfRange.stdout) as {error: {code: string}}).error.code).toBe("qa_unconfigured");
@@ -131,7 +176,7 @@ describe("init、show、set、unset", () => {
 
         await run(["config", "init", ...INIT_FLAGS, "--config", path]);
         const before = await readFile(path, "utf8");
-        const set = await run(["config", "set", "model.apiKeyEnv", pasted, "--config", path, "--json"]);
+        const set = await run(["config", "set", "providers.custom.apiKeyEnv", pasted, "--config", path, "--json"]);
         expect(set.code).toBe(2);
         expect(await readFile(path, "utf8")).toBe(before);
         for (const result of [init, set]) expect(`${result.stdout}${result.stderr}`).not.toContain(pasted);
@@ -173,7 +218,7 @@ describe("config test", () => {
         const {path, endpoint} = await configWithEndpoint([{kind: "text", text: `好，${FAKE_KEY}`}], "xhigh");
         const result = await run(["config", "test", "--config", path]);
         expect(result.code).toBe(0);
-        expect(result.stdout).toContain("通过：test-model");
+        expect(result.stdout).toContain("通过：custom/test-model");
         expect(result.stdout).toContain("推理档：xhigh");
         expect(endpoint.bodies.map(body => body.reasoning_effort)).toEqual(["xhigh"]);
         expect(endpoint.authorizations).toEqual([`Bearer ${FAKE_KEY}`]);
@@ -226,15 +271,31 @@ describe("init 的交互", () => {
         return {streams: {input, output}, type, close};
     }
 
-    test("依次问地址、模型名、密钥环境变量名、推理档，返回新配置", async () => {
+    test("自定义地址：依次问地址、模型名、密钥环境变量名、推理档，返回新配置", async () => {
         const term = terminal();
         try {
-            const result = initInteractively({path: "/x/config.json", confirmOverwrite: false, existing: null, flags: {}, streams: term.streams});
+            const result = initInteractively({path: "/x/config.json", confirmOverwrite: false, existing: null, flags: {}, catalog, streams: term.streams});
+            // 没有配置时默认选自定义地址。
+            await term.type("\r", "用哪里的模型");
             await term.type("http://h/v1\r", "OpenAI 兼容服务的地址");
             await term.type("m9\r", "模型名");
             await term.type("MY_KEY\r", "存密钥的环境变量名");
-            await term.type("\u001b[B\u001b[B\u001b[B\u001b[B\r", "推理档");
-            expect(await result).toEqual({model: {baseUrl: "http://h/v1", id: "m9", apiKeyEnv: "MY_KEY", thinking: "xhigh"}});
+            await term.type("\u001b[B\u001b[B\u001b[B\u001b[B\u001b[B\r", "推理档");
+            expect(await result).toEqual({providers: {custom: {api: "openai-completions", baseUrl: "http://h/v1", apiKeyEnv: "MY_KEY", models: [{id: "m9", reasoning: true}]}}, models: ["custom/m9"], model: {use: "custom/m9", thinking: "xhigh"}});
+        } finally {
+            term.close();
+        }
+    });
+
+    test("目录里的模型：问 服务商/模型名，目录里没有的不收", async () => {
+        const term = terminal();
+        try {
+            const result = initInteractively({path: "/x/config.json", confirmOverwrite: false, existing: null, flags: {}, catalog, streams: term.streams});
+            await term.type("\u001b[A\r", "用哪里的模型");
+            await term.type("deepseek/nope\r", "服务商/模型名");
+            await term.type(`${"\u007f".repeat(4)}deepseek-flash\r`, "里没有模型 nope");
+            await term.type("\r", "推理档");
+            expect(await result).toEqual({models: ["deepseek/deepseek-flash"], model: {use: "deepseek/deepseek-flash"}});
         } finally {
             term.close();
         }
@@ -244,11 +305,11 @@ describe("init 的交互", () => {
         const term = terminal();
         try {
             const pasted = "sk-abc-123";
-            const result = initInteractively({path: "/x/config.json", confirmOverwrite: false, existing: null, flags: {"model.baseUrl": "http://h/v1", "model.id": "m"}, streams: term.streams});
+            const result = initInteractively({path: "/x/config.json", confirmOverwrite: false, existing: null, flags: {baseUrl: "http://h/v1", model: "m"}, catalog, streams: term.streams});
             await term.type(`${pasted}\r`, "存密钥的环境变量名");
             await term.type(`${"\u007f".repeat(pasted.length)}MY_KEY\r`, "不是密钥本身");
             await term.type("\r", "推理档");
-            expect(await result).toEqual({model: {baseUrl: "http://h/v1", id: "m", apiKeyEnv: "MY_KEY"}});
+            expect(await result).toEqual({providers: {custom: {api: "openai-completions", baseUrl: "http://h/v1", apiKeyEnv: "MY_KEY", models: [{id: "m"}]}}, models: ["custom/m"], model: {use: "custom/m"}});
         } finally {
             term.close();
         }
@@ -257,8 +318,8 @@ describe("init 的交互", () => {
     test("中途取消返回 null，调用方不写盘", async () => {
         const term = terminal();
         try {
-            const result = initInteractively({path: "/x/config.json", confirmOverwrite: false, existing: null, flags: {}, streams: term.streams});
-            await term.type("\u0003", "OpenAI 兼容服务的地址");
+            const result = initInteractively({path: "/x/config.json", confirmOverwrite: false, existing: null, flags: {}, catalog, streams: term.streams});
+            await term.type("\u0003", "用哪里的模型");
             expect(await result).toBeNull();
         } finally {
             term.close();
@@ -266,10 +327,10 @@ describe("init 的交互", () => {
     });
 
     test("已有配置：默认不覆盖，选否即取消；选是后保留没问到的字段，推理档选“不写”会去掉原来的", async () => {
-        const existing = {model: {baseUrl: "http://old/v1", id: "old", apiKeyEnv: "OLD_KEY", thinking: "high" as const}, qa: {maxChapters: 5}};
+        const existing = parseQaConfig({model: {baseUrl: "http://old/v1", id: "old", apiKeyEnv: "OLD_KEY", thinking: "high"}, qa: {maxChapters: 5}}, "");
         const refused = terminal();
         try {
-            const first = initInteractively({path: "/x/config.json", confirmOverwrite: true, existing, flags: {}, streams: refused.streams});
+            const first = initInteractively({path: "/x/config.json", confirmOverwrite: true, existing, flags: {}, catalog, streams: refused.streams});
             await refused.type("\r", "覆盖");
             expect(await first).toBeNull();
         } finally {
@@ -278,13 +339,15 @@ describe("init 的交互", () => {
 
         const term = terminal();
         try {
-            const result = initInteractively({path: "/x/config.json", confirmOverwrite: true, existing, flags: {}, streams: term.streams});
+            const result = initInteractively({path: "/x/config.json", confirmOverwrite: true, existing, flags: {}, catalog, streams: term.streams});
             await term.type("y", "覆盖");
+            // 已有的默认模型在自定义服务商里：默认选自定义地址，各项默认是原来的值。
+            await term.type("\r", "用哪里的模型");
             await term.type("\r", "OpenAI 兼容服务的地址");
             await term.type("\r", "模型名");
             await term.type("\r", "存密钥的环境变量名");
-            await term.type("\u001b[A\u001b[A\u001b[A\r", "推理档");
-            expect(await result).toEqual({model: {baseUrl: "http://old/v1", id: "old", apiKeyEnv: "OLD_KEY"}, qa: {maxChapters: 5}});
+            await term.type("\u001b[A\u001b[A\u001b[A\u001b[A\r", "推理档");
+            expect(await result).toEqual({providers: {custom: {api: "openai-completions", baseUrl: "http://old/v1", apiKeyEnv: "OLD_KEY", models: [{id: "old", reasoning: true}]}}, models: ["custom/old"], model: {use: "custom/old"}, qa: {maxChapters: 5}});
         } finally {
             term.close();
         }

@@ -197,11 +197,15 @@ export type ComposerTriggerEntry = RegistryEntryBase & {
     char: string;
 };
 
+/**
+ * 输入框工具栏上的按钮。点了发出 `action`，或者（给了 `trigger` 时）往编辑器里插这个触发字符、打开它的菜单，不发 action，
+ * 例如 nb-story 的 `+` 插 `@` 选引用。`placement` 为 `leading` 时放在正文前面（单行版式）或工具栏最前（两层版式）。
+ */
 export type ToolbarButtonEntry = RegistryEntryBase & {
     icon: string;
     label: ViewText;
-    action: AgentViewAction;
-};
+    placement?: "leading" | "trailing";
+} & ({action: AgentViewAction; trigger?: never} | {trigger: string; action?: never});
 
 // ─── 注册表 ─────────────────────────────────────────────────────────────
 

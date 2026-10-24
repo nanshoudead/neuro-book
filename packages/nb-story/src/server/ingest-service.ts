@@ -61,19 +61,25 @@ export function createIngestService(options: {library: Library; configPath?: str
 
     async function preview(params: ViewerParams<"ingest.preview">): Promise<ViewerResult<"ingest.preview">> {
         const plan = await planFromText(library, {text: decodeContent(params.content), title: titleOf(params), ...(params.id === undefined ? {} : {id: params.id}), ...(params.features === undefined ? {} : {features: params.features})});
-        // 预览不要求配置可用：读不出来时只是不写模型，开始时再报 qa_unconfigured。
-        const model = await loadConfig().then(
-            config => {
+        // 预览不要求配置可用：读不出来时只是不写模型，开始时再报 qa_unconfigured。配置读得出来、抽取却没有能用的模型
+        // （问答的默认模型不能给抽取用）时写明原因。
+        const config = await loadConfig().catch((error: unknown) => {
+            if (error instanceof QaError) return null;
+            throw error;
+        });
+        let model: {id: string; source: "ingest.model" | "model"} | null = null;
+        let modelProblem: string | null = null;
+        if (config !== null) {
+            try {
                 const {id, source} = ingestModel(config);
-                return {id, source};
-            },
-            (error: unknown) => {
-                if (error instanceof QaError) return null;
-                throw error;
-            },
-        );
+                model = {id, source};
+            } catch (error) {
+                if (!(error instanceof QaError)) throw error;
+                modelProblem = error.message;
+            }
+        }
         const {source: _source, ...rest} = plan;
-        return {...rest, model};
+        return {...rest, model, modelProblem};
     }
 
     function register(runner: Runner): void {

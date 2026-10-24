@@ -61,6 +61,8 @@ type AgentConversationViewProps = {
     header?: boolean;
     /** 运行中过程的展开方式："collapsed" 折叠；"live" 时运行中的思维链与工具组逐步展开，结束后照常收起。默认 "collapsed"。 */
     processDisclosure?: "collapsed" | "live";
+    /** 输入框版式："stacked" 正文在上、工具栏在下；"inline" 正文与控件同一行（见 AgentConversationComposer 的“单行版式”）。默认 "stacked"。 */
+    composerLayout?: "stacked" | "inline";
 };
 
 type AgentConversationViewEmits = {

@@ -22,6 +22,7 @@ import {isProfileDefinition, ProfileError, type ProfileDefinition} from "@notnot
 import type {JsonValue, SessionEntry, SessionEntryInput, SessionLog} from "@notnotype/nb-session";
 import {renderContext} from "./context.js";
 import {HarnessError} from "./errors.js";
+import type {ThinkingEffort} from "./catalog.js";
 import {MissingModelKeyError, type ResolvedModel} from "./model.js";
 import {redactEventMessages} from "./redact.js";
 import {classifyProviderError, usageEntry, UsageMeter, type RunError, type StopReason, type TurnResult} from "./run-result.js";
@@ -37,7 +38,8 @@ export interface HarnessOptions {
     readonly policy?: ToolPolicy;
     readonly model: ResolvedModel;
     readonly sessionLog: SessionLog;
-    readonly thinkingLevel?: Effort;
+    /** 不写就不发推理参数。模型不支持的档由 OMP 拒绝；宿主先用 `clampEffort` 夹好。 */
+    readonly thinkingLevel?: ThinkingEffort;
     /** 替换模型输出（测试用）；provider 层仍走 OMP 的 `streamSimple`。 */
     readonly streamFn?: StreamFn;
 }
@@ -234,7 +236,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
             return undefined;
         },
     });
-    if (options.thinkingLevel !== undefined) agent.setThinkingLevel(options.thinkingLevel);
+    if (options.thinkingLevel !== undefined) agent.setThinkingLevel(options.thinkingLevel as Effort);
 
     agent.addBeforeModelCallHook(() => {
         // 取消可能发生在 prompt 刚开始、Agent 还没有可中止的请求时：在进模型之前补一次中止。

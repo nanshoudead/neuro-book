@@ -36,7 +36,7 @@ export function createAgentContext(patch: AgentContextPatch = {}): AgentConversa
         availability: {status: "ready", message: "", actions: [], ...defined(availability)},
         interaction: {
             canSend: false, canSteer: false, canQueue: false, canAnswer: false, canMutateHistory: false,
-            canStop: false, canRegisterAttachments: false, canChangeRuntime: false, canArchive: false, canRestore: false,
+            canStop: false, canRegisterAttachments: false, canChangeRuntime: false, canArchive: false, canRestore: false, canManageModels: false,
             ...defined(interaction),
         },
         run: {status: "idle", phase: "", ...defined(run)},

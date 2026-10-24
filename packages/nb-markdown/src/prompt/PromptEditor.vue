@@ -78,7 +78,9 @@ import {
     pasteMarkerAttrs,
     renumberInsertion,
     resolvePastePolicy,
+    PROMPT_ATOM_CHAR,
     tokenNode,
+    triggerNeedsSpace,
     usedPromptNumbers,
     type PromptNodeJSON,
     type PromptNumberSet,
@@ -944,6 +946,17 @@ defineExpose({
         if (current && !props.readonly && files.length > 0) {
             addFiles(current, files);
         }
+    },
+    openTrigger(char: string): void {
+        const current = editor.value;
+        if (!current || props.readonly) {
+            return;
+        }
+        // 先聚焦再插：菜单只在聚焦时打开，插入位置也要是末尾（按钮被点时光标可能在正文中间或不在编辑器里）。
+        focusAt("end");
+        const {state} = current;
+        const before = state.doc.textBetween(Math.max(0, state.selection.from - 1), state.selection.from, "\n", PROMPT_ATOM_CHAR);
+        current.view.dispatch(state.tr.insertText(triggerNeedsSpace(before) ? ` ${char}` : char));
     },
 });
 </script>
