@@ -48,4 +48,13 @@ describe("按记录分轮", () => {
         const messages = [user(3, "问"), reply(4, "答")];
         expect(composeMessages(messages, {conversationId: "c", turns: [{question: "问", startedAt: "2026-10-23T00:00:00.000Z"}], running: null}, createMessageCache())).toEqual(messages);
     });
+
+    test("出处复查：同一轮里第一问之后的用户消息是过程里的一行，不开新的一轮；最后的回复是复查后的", () => {
+        // 日志：1 快照，2 提问，3 回复（出处没读过），4 复查的 meta（适配器不出消息），5 复查消息，6 改过的回复。
+        const messages = [user(2, "地狱猫是谁"), reply(3, "她是（37.8）"), user(5, "出处检查：回答里这些出处不是这个对话里读过的段落：37.8、38.1。先用 read 读这些段落核对"), reply(6, "改过的（37.8）")];
+        const composed = composeMessages(messages, {conversationId: "c", turns: [turn("地狱猫是谁", 1)], running: null}, createMessageCache());
+        expect(composed.map(message => [message.kind, message.id])).toEqual([["user", questionId("c", 1)], ["assistant", "h3"], ["system", "h5"], ["assistant", "h6"]]);
+        expect(composed[2]).toMatchObject({source: "reminder", label: "出处检查", text: "37.8、38.1 没读过，已让模型重写"});
+        expect(composed.filter(message => message.kind === "user")).toHaveLength(1);
+    });
 });

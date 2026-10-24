@@ -21,6 +21,9 @@ let server: StoryServer;
 let cleanupLibrary: () => Promise<void>;
 let configFile: string;
 
+/** 第 1 版的配置（服务读到时升级成第 2 版）；作答方式写成结构化：下面多数用例用 answer 交卷。 */
+const baseConfig = () => ({model: {baseUrl: endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}, qa: {answer: "structured"}});
+
 const READ_THEN_ANSWER = [
     {kind: "tools", calls: [{name: "read", args: {from: {chapter: 37, paragraph: 8}, to: {chapter: 37, paragraph: 8}}}], thinking: "先翻到 37 章找地狱猫"},
     {
@@ -49,7 +52,7 @@ test.beforeAll(async () => {
     const configHome = join(root, "xdg");
     await mkdir(join(configHome, "nbstory"), {recursive: true});
     configFile = join(configHome, "nbstory", "config.json");
-    await writeFile(configFile, JSON.stringify({model: {baseUrl: endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}}));
+    await writeFile(configFile, JSON.stringify(baseConfig()));
     server = await startServe(library.library, {XDG_CONFIG_HOME: configHome, [KEY_ENV]: "fake-e2e-qa-credential"});
 });
 
@@ -191,7 +194,7 @@ test("没有配置时：写明要先配置并给去设置的链接，不能发�
         await expect(page.getByRole("link", {name: "去设置"})).toHaveAttribute("href", "/settings");
         await expect(page.getByRole("button", {name: "发送"})).toBeDisabled();
     } finally {
-        await writeFile(configFile, JSON.stringify({model: {baseUrl: endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}}));
+        await writeFile(configFile, JSON.stringify(baseConfig()));
     }
 });
 
@@ -213,69 +216,189 @@ test("手机宽度：对话列表收进顶栏的下拉，选中后下拉关上",
     await expect(page.getByText("手机上的回答")).toBeVisible();
 });
 
-test.describe("设置页", () => {
-    const original = () => ({model: {baseUrl: endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}});
+test.describe("输入框与模型", () => {
+    /** 两个候选，作答方式 Markdown。gpt-5.6-sol 是 OMP 目录认得的模型名：上下文与推理档按它补。 */
+    const twoModels = () => ({
+        providers: {custom: {api: "openai-completions", baseUrl: endpoint.url, apiKeyEnv: KEY_ENV, models: [{id: "qa-model"}, {id: "gpt-5.6-sol"}]}},
+        models: ["custom/qa-model", "custom/gpt-5.6-sol"],
+        model: {use: "custom/qa-model"},
+    });
+    test.beforeEach(async () => {
+        await writeFile(configFile, JSON.stringify(twoModels()));
+    });
     test.afterEach(async () => {
-        await writeFile(configFile, JSON.stringify(original()));
+        await writeFile(configFile, JSON.stringify(baseConfig()));
     });
 
-    test("从书架进入；改模型名保存后写进同一份文件；有没保存的改动时不能测试连接；测试连接通过", async ({page}) => {
+    test("一行的输入框：切全读、换模型与推理档后发问，请求里是新模型；+ 插 @ 打开引用菜单；Markdown 回复的出处复查是过程里的一行；上下文大小", async ({page}) => {
+        await page.goto(`${server.base}/book/fox/qa?at=38.57`);
+        await page.getByRole("button", {name: "新对话"}).first().click();
+        await expect(page.locator("[data-composer-layout='inline']")).toBeVisible();
+
+        // 模式按钮点得动（t16 之前 canChangeRuntime 没给，一直禁用）。
+        const mode = page.locator("[data-composer-action='mode']");
+        await expect(mode).toBeEnabled();
+        await mode.click();
+        await expect(mode).toContainText("全读");
+        await mode.click();
+        await expect(mode).toContainText("图当目录");
+
+        // + 在中文后面补空格再插 @，菜单打开。
+        const input = page.getByRole("textbox", {name: "消息输入框"});
+        await input.click();
+        await page.keyboard.type("介绍一下");
+        await page.locator("[data-composer-toolbar='nb-story.insert-ref']").click();
+        await expect(page.locator("[role='option']").first()).toBeVisible();
+        await expect(input).toHaveText("介绍一下 @");
+        await page.keyboard.press("Escape");
+        await input.fill("");
+
+        // 换到 gpt-5.6-sol、推理档“高”。
+        await page.locator("[data-model-picker]").click();
+        await page.getByRole("menuitemradio", {name: /gpt-5\.6-sol/u}).click();
+        await page.locator("[data-model-picker]").click();
+        await page.getByRole("menuitem", {name: /思考/u}).hover();
+        await page.getByRole("menuitemradio", {name: "高", exact: true}).click();
+        await expect(page.locator("[data-model-picker]")).toContainText("gpt-5.6-sol");
+        await expect(page.locator("[data-model-picker]")).toContainText("高");
+
+        await endpoint.script([
+            {kind: "text", text: "她是地狱猫（37.8）。"},
+            {kind: "tools", calls: [{name: "read", args: {from: {chapter: 37, paragraph: 8}, to: {chapter: 37, paragraph: 8}}}]},
+            {kind: "text", text: "核对过了：她是地狱猫（37.8）。"},
+        ]);
+        const before = (await endpoint.bodies()).length;
+        await ask(page, "地狱猫是谁？");
+        await expect(page.getByText("核对过了：她是地狱猫（37.8）。")).toBeVisible();
+        const bodies = (await endpoint.bodies()).slice(before);
+        expect(bodies.map(body => body.model)).toEqual(["gpt-5.6-sol", "gpt-5.6-sol", "gpt-5.6-sol"]);
+        expect(bodies[0]!.reasoning_effort).toBe("high");
+        // 一轮只有一个提问；复查是过程里的一行。
+        await expect(page.locator(".qa-view").getByText("地狱猫是谁？")).toHaveCount(1);
+        await expect(page.getByText(/回答里这些出处不是/u)).toHaveCount(0);
+        await page.getByText(/^过程 · /u).first().click();
+        await expect(page.getByText("37.8 没读过，已让模型重写")).toBeVisible();
+        await expect(page.locator("[data-context-meter]")).toBeVisible();
+    });
+
+    test("管理模型…去设置页，回来草稿还在", async ({page}) => {
+        await page.goto(`${server.base}/book/fox/qa?at=38.57`);
+        await page.getByRole("button", {name: "新对话"}).first().click();
+        const input = page.getByRole("textbox", {name: "消息输入框"});
+        await input.click();
+        await page.keyboard.type("没发出去的草稿");
+        await page.locator("[data-model-picker]").click();
+        await page.getByRole("menuitem", {name: "管理模型…"}).click();
+        await expect(page).toHaveURL(/\/settings$/u);
+        await page.goBack();
+        await expect(page.getByRole("textbox", {name: "消息输入框"})).toHaveText("没发出去的草稿");
+    });
+});
+
+test.describe("设置页", () => {
+    test.afterEach(async () => {
+        await writeFile(configFile, JSON.stringify(baseConfig()));
+    });
+    const dialog = (page: Page) => page.locator("[data-provider-dialog]");
+
+    test("从书架进入；第 1 版显示成第 2 版；给服务商手动加模型、经模型目录加进候选并设为默认，保存后文件是第 2 版；有没保存的改动时不能测试连接", async ({page}) => {
         // 打开 `/` 会回到上次读的书，从书里点“回到书架”进书架。
         await page.goto(`${server.base}/book/fox/overview`);
         await page.getByTestId("go-shelf").click();
         await page.getByTestId("go-settings").click();
         await expect(page).toHaveURL(/\/settings$/u);
         await expect(page.getByTestId("settings-page")).toContainText("config.json");
+        await expect(page.locator("[data-settings-candidate='custom/qa-model']")).toContainText("默认");
+        await expect(page.locator("[data-settings-provider='custom']")).toContainText(endpoint.url);
 
         await endpoint.script([{kind: "text", text: "好"}]);
         await page.getByTestId("settings-test").click();
-        await expect(page.getByTestId("settings-tested")).toContainText("通过：qa-model");
+        await expect(page.getByTestId("settings-tested")).toContainText("通过：custom/qa-model");
 
-        const modelId = page.getByLabel("模型名").first();
-        await modelId.fill("qa-model-2");
-        await modelId.press("Tab");
+        await page.locator("[data-settings-provider='custom'] [data-settings-edit-provider]").click();
+        await dialog(page).getByRole("button", {name: "手动添加"}).click();
+        await dialog(page).locator("[data-provider-model-row]").last().getByPlaceholder("模型名").fill("qa-model-2");
+        await page.locator("[data-provider-save]").click();
+        await page.locator("[data-settings-add-model]").click();
+        await page.locator("[data-catalog-search] input").fill("qa-model-2");
+        await page.locator("[data-catalog-model='custom/qa-model-2']").click();
+        await page.locator("[data-catalog-confirm]").click();
+        await page.locator("[data-settings-candidate='custom/qa-model-2'] [data-settings-default]").click();
         await expect(page.getByTestId("settings-test")).toBeDisabled();
         await page.getByTestId("settings-save").click();
         await expect(page.getByTestId("settings-notice")).toContainText("已保存");
-        expect(JSON.parse(await readFile(configFile, "utf8")).model.id).toBe("qa-model-2");
+        const written = JSON.parse(await readFile(configFile, "utf8"));
+        expect(written).toMatchObject({providers: {custom: {models: [{id: "qa-model"}, {id: "qa-model-2"}]}}, models: ["custom/qa-model", "custom/qa-model-2"], model: {use: "custom/qa-model-2"}, qa: {answer: "structured"}});
+        expect(written).not.toHaveProperty("model.baseUrl");
         await expect(page.getByTestId("settings-test")).toBeEnabled();
     });
 
-    test("别处改过再保存：报冲突，重新载入后是别处写的内容；误贴的密钥不收、文件不变", async ({page}) => {
+    test("别处改过再保存：报冲突，重新载入后是别处写的内容；服务商表单里误贴的密钥不收、文件不变", async ({page}) => {
         await page.goto(`${server.base}/settings`);
-        const modelId = page.getByLabel("模型名").first();
-        await expect(modelId).toHaveValue("qa-model");
-        await writeFile(configFile, JSON.stringify({model: {...original().model, id: "changed-by-cli"}}));
-        await modelId.fill("from-page");
-        await modelId.press("Tab");
+        await expect(page.locator("[data-settings-candidate='custom/qa-model']")).toBeVisible();
+        await writeFile(configFile, JSON.stringify({model: {...baseConfig().model, id: "changed-by-cli"}}));
+        await page.locator("[data-settings-candidate='custom/qa-model'] [data-settings-remove-candidate]").click();
+        await expect(page.getByTestId("settings-notice")).toContainText("去掉了默认模型");
+        await page.locator("[data-settings-add-model]").click();
+        await page.locator("[data-catalog-search] input").fill("deepseek-flash");
+        await page.locator("[data-catalog-model='deepseek/deepseek-flash']").click();
+        await page.locator("[data-catalog-confirm]").click();
         await page.getByTestId("settings-save").click();
         await expect(page.getByTestId("settings-notice")).toContainText("别处");
         await page.getByRole("button", {name: "重新载入"}).click();
-        await expect(modelId).toHaveValue("changed-by-cli");
+        await expect(page.locator("[data-settings-candidate='custom/changed-by-cli']")).toBeVisible();
 
+        const before = await readFile(configFile, "utf8");
         const pasted = "sk-pasted-in-settings-e2e-0042";
-        const keyEnv = page.getByLabel("密钥环境变量").first();
-        await keyEnv.fill(pasted);
-        await keyEnv.press("Tab");
-        await page.getByTestId("settings-save").click();
-        await expect(page.getByTestId("settings-notice")).toContainText("没有保存");
-        await expect(page.getByTestId("settings-notice")).not.toContainText(pasted);
-        expect(await readFile(configFile, "utf8")).not.toContain(pasted);
+        await page.locator("[data-settings-provider='custom'] [data-settings-edit-provider]").click();
+        await dialog(page).getByLabel("密钥环境变量").fill(pasted);
+        await page.locator("[data-provider-save]").click();
+        await expect(page.locator("[data-provider-error]")).toContainText("不是密钥本身");
+        await expect(page.locator("[data-provider-error]")).not.toContainText(pasted);
+        expect(await readFile(configFile, "utf8")).toBe(before);
     });
 
-    test("还没有配置文件：从空的配置开始，填好保存后新建；书里的菜单也能进入", async ({page}) => {
+    test("还没有配置文件：书里的菜单进入，经模型目录选一个目录里的模型，保存后新建", async ({page}) => {
         await rm(configFile);
         await page.goto(`${server.base}/book/fox/overview`);
         await page.getByRole("button", {name: "转生反派萝莉，找茬魔法少女"}).click();
         await page.getByRole("menuitem", {name: "设置"}).click();
         await expect(page.getByTestId("settings-absent")).toBeVisible();
-        await page.getByLabel("服务地址").first().fill(endpoint.url);
-        await page.getByLabel("模型名").first().fill("new-model");
-        const keyEnv = page.getByLabel("密钥环境变量").first();
-        await keyEnv.fill(KEY_ENV);
-        await keyEnv.press("Tab");
+        await page.locator("[data-settings-add-model]").click();
+        await page.locator("[data-catalog-search] input").fill("deepseek-flash");
+        await page.locator("[data-catalog-model='deepseek/deepseek-flash']").click();
+        await page.locator("[data-catalog-confirm]").click();
+        await expect(page.getByTestId("settings-ingest-note")).toContainText("抽取要单独写模型");
         await page.getByTestId("settings-save").click();
         await expect(page.getByTestId("settings-notice")).toContainText("已保存");
-        expect(JSON.parse(await readFile(configFile, "utf8"))).toEqual({model: {baseUrl: endpoint.url, id: "new-model", apiKeyEnv: KEY_ENV}});
+        expect(JSON.parse(await readFile(configFile, "utf8"))).toEqual({models: ["deepseek/deepseek-flash"], model: {use: "deepseek/deepseek-flash"}});
+    });
+
+    test("添加自定义服务商：从服务读到两个模型、勾一个加进来，经模型目录加进候选；去掉默认候选后默认改成剩下的那个；删掉还被用着的服务商要确认", async ({page}) => {
+        await endpoint.models({kind: "models", ids: ["m-a", "m-b"]});
+        await page.goto(`${server.base}/settings`);
+        await page.locator("[data-settings-add-provider]").click();
+        await dialog(page).getByLabel("名称").fill("jiji");
+        await dialog(page).getByLabel("服务地址").fill(endpoint.url);
+        await dialog(page).getByLabel("密钥环境变量").fill(KEY_ENV);
+        await page.locator("[data-provider-discover]").click();
+        await expect(page.locator("[data-provider-discovery]")).toContainText("读到 2 个模型");
+        await page.locator("[data-provider-found]").getByText("m-a").click();
+        await page.locator("[data-provider-add-found]").click();
+        await page.locator("[data-provider-save]").click();
+        await expect(page.locator("[data-settings-provider='jiji']")).toBeVisible();
+
+        await page.locator("[data-settings-add-model]").click();
+        await page.locator("[data-catalog-model='jiji/m-a']").click();
+        await page.locator("[data-catalog-confirm]").click();
+        await page.locator("[data-settings-candidate='custom/qa-model'] [data-settings-remove-candidate]").click();
+        await expect(page.locator("[data-settings-candidate='jiji/m-a']")).toContainText("默认");
+
+        await page.locator("[data-settings-provider='custom'] [data-settings-remove-provider]").click();
+        await page.getByRole("alertdialog").getByRole("button", {name: "删除"}).click();
+        await expect(page.locator("[data-settings-provider='custom']")).toHaveCount(0);
+        await page.getByTestId("settings-save").click();
+        await expect(page.getByTestId("settings-notice")).toContainText("已保存");
+        expect(JSON.parse(await readFile(configFile, "utf8"))).toMatchObject({providers: {jiji: {api: "openai-completions", baseUrl: endpoint.url, apiKeyEnv: KEY_ENV, models: [{id: "m-a"}]}}, models: ["jiji/m-a"], model: {use: "jiji/m-a"}});
     });
 });

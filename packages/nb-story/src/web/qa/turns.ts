@@ -12,11 +12,14 @@
  *
  * 附注：每一轮最后一条有文字的助手消息挂“没核实的出处”（`nb-story.unverified-refs`）。
  *
+ * 出处复查（docs/specs/story/qa.md 输出 39）：一轮里第一条提问之后的用户消息是引擎写给模型的复查消息（nb-story 不发
+ * steer，同一轮里不会有别的用户消息）。它换成过程里的一行系统消息，不让视图在这里开新的一轮。
+ *
  * 换 id、补消息、挂附注都换成新对象，并按原对象缓存（调用方给 `cache`）：视图按消息对象是否相同决定一轮要不要重算，
  * 打节拍时原对象原样交回。
  */
 
-import {logSeqOf, type MessageView, type UserMessageView} from "@notnotype/nb-agent-ui";
+import {logSeqOf, type MessageView, type SystemMessageView, type UserMessageView} from "@notnotype/nb-agent-ui";
 
 /** 记录里一轮在这里用到的部分。 */
 export interface TurnInfo {
@@ -80,6 +83,22 @@ function syntheticQuestion(conversationId: string, turn: number, info: TurnInfo,
     };
 }
 
+/**
+ * 复查消息里没读过的出处（引擎的写法见 src/qa/rules.ts 的 `recheckMessage`：“……读过的段落：37.8、38.1。……”）；
+ * 认不出时为空。
+ */
+function recheckRefs(message: UserMessageView): string[] {
+    const text = message.blocks.map(block => (block.kind === "text" ? block.text : "")).join("");
+    const listed = /读过的段落：([^。]+)。/u.exec(text)?.[1];
+    return listed === undefined ? [] : listed.split("、").filter(ref => ref !== "");
+}
+
+function recheckLine(message: UserMessageView): SystemMessageView {
+    const refs = recheckRefs(message);
+    // 标签已经写了“出处检查”，正文不再重复。
+    return {kind: "system", id: message.id, timestamp: message.timestamp, source: "reminder", label: "出处检查", text: refs.length === 0 ? "有没读过的出处，已让模型重写" : `${refs.join("、")} 没读过，已让模型重写`};
+}
+
 export function composeMessages(messages: readonly MessageView[], input: ComposeInput, cache: MessageCache): MessageView[] {
     const turns = input.running === null ? input.turns : [...input.turns, input.running];
     // 旧记录（没有 logFrom）不能按日志位置分轮：原样交出，接受旧形状里的错位。
@@ -108,6 +127,11 @@ export function composeMessages(messages: readonly MessageView[], input: Compose
             group[0] = question.id === id ? question : cached(cache, question, `id:${id}`, () => ({...question, id}));
         } else {
             group.unshift(syntheticQuestion(input.conversationId, turn, info, pending && firstQuestion < 0));
+        }
+        // 这一轮的提问已经在开头：后面的用户提问都是复查消息。
+        for (let index = 1; index < group.length; index += 1) {
+            const message = group[index]!;
+            if (isQuestion(message)) group[index] = cached(cache, message, "recheck", () => recheckLine(message));
         }
         const refs = info.unverifiedRefs ?? [];
         if (refs.length > 0) {

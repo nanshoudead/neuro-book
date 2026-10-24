@@ -83,6 +83,7 @@ describe("AgentConversationComposer 单行版式", () => {
         expect(tone(180, 200)?.[0]).toBe("danger");
         expect(tone(240, 200)).toEqual(["danger", "上下文 240 / 200（120%）"]);
         expect(tone(0, 200)).toBeNull();
+        expect(tone(330, 1_050_000)?.[1]).toBe("上下文 330 / 1,050,000（<1%）");
         expect(tone(10, null)).toBeNull();
         expect(tone(150, 200, "stacked")).toBeNull();
     });

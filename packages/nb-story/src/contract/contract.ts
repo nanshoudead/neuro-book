@@ -527,8 +527,10 @@ const IngestPlanSchema = Type.Object({
     newChapters: Type.Integer(),
     /** 已提交到第几章。 */
     committed: Type.Integer(),
-    /** 抽取会用的模型；配置读不出来时为 null（开始时得到 qa_unconfigured）。 */
+    /** 抽取会用的模型；配置读不出来、或没写抽取模型而问答的默认模型不能给抽取用时为 null（开始时得到 qa_unconfigured）。 */
     model: Type.Union([Type.Object({id: Type.String(), source: oneOf(["ingest.model", "model"] as const)}), Type.Null()]),
+    /** 配置读得出来、但抽取没有能用的模型时的原因（例如“抽取要单独写模型”）；其余为 null。 */
+    modelProblem: Type.Union([Type.String(), Type.Null()]),
     /** 生效的开关：新建时是请求值（没给的项为开），已有抽取记录时是保存的值。 */
     features: Features,
 });
