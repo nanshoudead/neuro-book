@@ -29,8 +29,19 @@ nb-story 连同 8 个内部依赖包（nb-ui、nb-agent-ui、nb-form、nb-markdo
 
 ## 当前状态
 
-2026-10-24 计划写好，待设计审查。
+- 2026-10-24 计划写好（[plan.md](plan.md)）。
+- 2026-10-24 设计审查：omp 一份，11 条（阻断 2、重要 8、建议 1，[design-review-omp.txt](evidences/design-review-omp.txt)），全部成立，已改进计划：
+  - nb-story 两个 `.profile.tsx` 直接导入 nb-profile，留在运行时依赖；发布检查加“源码导入的包都写进依赖”的扫描。
+  - nb-ui 的 `tailwind.css` 要 `@iconify/tailwind4` 与 `@iconify-json/lucide`，移进 dependencies；冒烟在仓库外的临时项目里装。
+  - nb-story 的书库锁只有 Linux 与 macOS，`package.json` 写 `os`。
+  - 仓库没有 `scripts:typecheck`，改用 `bunx tsc -p scripts/tsconfig.json`，新入口加进 include。
+  - `release:publish` 加前置门禁（工作树干净、在 master、清单检查、typecheck、冒烟）、登录检查、只把 `E404` 当“没发布”、转交 `--otp` 与 `--auth-type`。
+  - `skill install --force` 改成临时目录加改名替换，符号链接与普通文件拒绝；错误码与输出写进 Spec。
+  - nb-ui 首发版本改成 `0.2.0`，不用 `alpha` tag。
+  - 冒烟用真实浏览器打开页面；加 `--from registry`，发布后补一次。
+  - 另按 Codex 文档（2026-10-24 查）把 `--agent codex` 的目录改成 `$HOME/.agents/skills`。
 
 ## 下一步
 
-1. omp 设计审查（后端、计划）；处理后按切片实施。
+1. 切片 1：Spec 与 ADR（主工作区）。
+2. 切片 2 到 5 在 worktree `.worktree/w00024-t17` 实施。

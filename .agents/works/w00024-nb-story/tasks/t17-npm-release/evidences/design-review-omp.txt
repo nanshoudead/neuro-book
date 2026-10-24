@@ -1,0 +1,90 @@
+### 1. nb-story 直接使用 nb-profile 却计划移除其运行时依赖
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`plan.md:36`；`packages/nb-story/src/qa/story-qa.profile.tsx:9`；`packages/nb-story/src/qa/probe.profile.tsx:7`
+- **现象**：计划列出的 `dependencies` 没有 `@notnotype/nb-profile`，但两个 `.profile.tsx` 生产模块都直接值导入它；`engine.ts` 与 `probe.ts` 又直接加载这两个 profile。当前 `package.json` 的 `dependencies` 中仍有 `nb-profile`，计划没有说明保留。
+- **为什么是问题**：`nb-harness` 的传递依赖不能替代 nb-story 对自己直接导入包的声明。解析器可以偶然把传递依赖提升到根目录，但嵌套安装、不同 Bun 解析布局或后续 nb-harness 改依赖后，`ask`、`config test`、`serve` 会在加载 profile 时找不到 `@notnotype/nb-profile`。这也使 `.` 入口的运行时依赖合同不完整。
+- **如何核实**：读取 `story-qa.profile.tsx` 和 `probe.profile.tsx` 的值导入；对照计划的运行时依赖清单，确认清单只写 `nb-harness`、`nb-runtime`、`nb-session`，未写 `nb-profile`。
+- **建议改法**：把 `@notnotype/nb-profile: workspace:^` 保留在 nb-story 的 `dependencies`，并在发布清单检查中校验所有生产值导入都有直接运行时依赖；Smoke 至少覆盖 `serve` 或 `config test` 的 profile 加载。
+### 2. nb-ui 发布的 Tailwind 入口依赖两个未发布的开发依赖
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：`plan.md:33、75`；`packages/nb-ui/src/tailwind.css:45-49`；`packages/nb-ui/package.json:49-65`
+- **现象**：发布白名单会包含 `src/tailwind.css`，其中执行 `@plugin "@iconify/tailwind4"` 并按 `prefixes: lucide` 自动查找 `@iconify-json/lucide`。这两个包当前都只在 nb-ui 的 `devDependencies`；计划没有把它们提升到运行时依赖，也没有给宿主一个必须额外安装的完整清单。
+- **为什么是问题**：外部 Vite/Tailwind 宿主导入 `@notnotype/nb-ui/tailwind.css` 时，Tailwind 会从已安装的 nb-ui 依赖树解析插件和图标集。npm 包不携带 devDependencies，插件的实际加载器在找不到图标集时会报 `Cannot load icon set for "lucide"`。工作区构建可以从根 `node_modules` 提升这两个包，因而掩盖发布包失败；计划中的 Vite 宿主 Smoke 若复用工作区依赖也会漏报。
+- **如何核实**：读取 `tailwind.css` 的 `@plugin`；读取插件包的解析实现可见它按 `@iconify-json/${prefix}/icons.json` 查找；读取 nb-ui 配置确认两个包在 `devDependencies` 而非 `dependencies`。
+- **建议改法**：把 `@iconify/tailwind4` 与 `@iconify-json/lucide` 放进 nb-ui 的 `dependencies`（Tailwind 本身仍由宿主提供并按 README 安装），或明确把它们声明为宿主必须安装的 peer 依赖并在隔离临时项目中验证。Vite Smoke 必须从不继承仓库根依赖的临时项目安装 tarball 后再构建。
+### 3. 只声明 Bun 没有声明 nb-story 的系统平台边界
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`plan.md:32、73、110`；`packages/nb-story/src/platform/flock.ts:3、8-20`；`packages/nb-story/src/cli/main.ts:12`；`packages/nb-story/src/ingest/store.ts:26`
+- **现象**：计划只加入 `engines.bun`，README 也只计划写“只用 Bun”。但 CLI 主模块静态导入 `ingest/coordinator`，它值导入 `ingest/store`，再值导入使用 `bun:ffi` 的 `platform/flock`。锁实现只处理 Linux 的 `libc.so.6` 和 macOS 的 `libSystem.B.dylib`，其它平台运行到锁时抛出“不支持该平台”。计划只记为“Windows 与 macOS 未验证”，没有形成支持/不支持合同。
+- **为什么是问题**：`engines.bun` 会让 Bun on Windows 的安装看起来受支持；`nbstory serve`、导入、删除等路径随后在 `bun:ffi`/libc 锁阶段失败，且 `skill install` 等本不需要锁的子命令也被同一 CLI 模块图绑住。用户装好后才会遇到平台错误，发布元数据不能表达这个限制。
+- **如何核实**：沿 `cli/main.ts` → `ingest/coordinator.ts` → `ingest/store.ts` → `platform/flock.ts` 的值导入链读取源码；`flock.ts` 的平台分支只有 Linux/macOS。
+- **建议改法**：二选一并写进 README、Smoke 与包元数据：实现 Windows 可用的锁，或在 `package.json` 的 `os`/文档中明确只支持 `linux`、`darwin`，并把锁模块延迟到需要它的命令，令不涉及书库锁的安装/帮助命令仍可工作。平台失败还应映射到既定的 CLI 错误通道，而不是未捕获异常。
+### 4. 验收引用的 `scripts:typecheck` 当前不存在，发布脚本也未登记进 tsconfig
+- **严重程度**：阻断；**类别**：测试
+- **位置**：`plan.md:62、94`；`package.json:36-43`；`scripts/tsconfig.json:19-30`
+- **现象**：计划把 `bun run scripts:typecheck` 列为发布脚本切片验收，但根 `package.json` 当前没有 `scripts:typecheck`，仓库也没有 `scripts/typecheck.ts`；`scripts/tsconfig.json` 的 `include` 是逐文件清单，也没有 `release/` 入口。计划只说根包增加“这两个脚本”（`release:smoke`、`release:publish`），没有新增类型检查命令或更新 include。
+- **为什么是问题**：照计划实施后，验收命令会直接失败；即便把命令临时改成 `tsc`，新建的 `scripts/release/*.ts` 也可能完全不被 `scripts/tsconfig.json` 检查，形成“脚本写了但没有类型门禁”的假通过。脚本规则明确要求新入口加入该 include。
+- **如何核实**：读取根 `package.json` scripts 和 `scripts/tsconfig.json`；两处都没有 `scripts:typecheck` 或 `release` include。
+- **建议改法**：在计划中明确新增一个可执行的 `scripts:typecheck`（或把验收命令改为仓库现有的 `bun x tsc --noEmit -p scripts/tsconfig.json`），并把 `release/*.ts` 逐项加入 `scripts/tsconfig.json`，再为 release smoke/publish 的失败码和参数补聚焦测试。
+### 5. `release:publish --yes` 没有发布前完整门禁
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`plan.md:61、91-97、104-110`
+- **现象**：`publish.ts` 计划只先跑包清单检查，然后逐包查询并发布；类型检查、受影响测试、`release:smoke`、文档/治理检查都分散在各切片的验证说明里。计划没有要求 `publish.ts` 或一条不可绕过的发布命令确认 Smoke/typecheck/test 已通过，也没有检查 Git 工作树干净、当前在 `master`（或已明确的发布 revision）。
+- **为什么是问题**：开发者按文档直接执行 `release:publish --yes` 时，可以在未跑验证、脏工作树或错误分支上发布。包清单只检查 package.json 合同，不能发现源码、网页产物、锁文件或文档状态与已验证 revision 不一致；npm 版本一旦发布，错误版本只能在有限窗口内撤回。
+- **如何核实**：对照 `publish.ts` 计划的唯一前置步骤和验收映射；清单检查项目没有 typecheck/test/smoke、`git status` 或分支检查。
+- **建议改法**：把发布前门禁设计成明确的单一入口：先运行隔离的 `release:smoke`、九包 typecheck/受影响测试和必要的文档/治理检查，再检查 `git status --porcelain` 为空及允许的发布分支/HEAD；所有检查失败必须在 `--yes` 前停止。若不把耗时检查放进 publish，至少保存并校验已验证 revision，不能只靠 README 中人工记忆。
+### 6. 发布状态查询和 2FA/OTP 没有可恢复的失败语义
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`plan.md:61、110`
+- **现象**：计划对每个版本执行 `npm view <name>@<version> version`，但没有规定如何区分“版本确实不存在”和 registry 超时、认证失败、scope 无权限、5xx 等其它非零结果；随后又允许 `--yes` 继续发布。计划也没有 `--otp` 参数、OTP 环境变量约定或发布前 2FA 检查。
+- **为什么是问题**：网络或权限故障可能被误判为“未发布”，脚本进入 `bun publish`，中途再失败；更严重时会在部分包已发布后把一次临时故障变成不可逆的版本占用。开启 npm 2FA 的账号会在任一包发布时等待/拒绝 OTP，留下半发布状态，虽然重跑能跳过已发版本，但没有明确的认证失败通道和操作说明。
+- **如何核实**：读取 `publish.ts` 的计划描述；其中只有“已发布跳过、其它继续”和“开发者先 npm login”，没有错误分类、registry/auth 预检、OTP 传递或失败码合同。
+- **建议改法**：只把明确的 404 当作未发布，其余 `npm view` 失败立即停止并报告 registry/认证错误；发布前做一次 scope、registry、登录状态和 2FA 能力预检；提供 `--otp`/环境变量到 `bun publish` 的明确传递方式。每个包的发布结果写出可重跑的状态，避免把网络故障当成可发布状态。
+### 7. `skill install --force` 先删目录会造成数据丢失和半安装
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：`plan.md:42-49`
+- **现象**：目标目录内容不同且带 `--force` 时，计划明确“先删目标、再复制”；没有规定目标是用户改过的目录、含额外文件、目录本身是符号链接、复制中途失败或进程被终止时的处理。内容比较也没有定义是否把目标中的额外文件算作不同。
+- **为什么是问题**：用户可能在 `~/.claude/skills/nbstory` 或 `~/.codex/skills/nbstory` 增加本地规则、代理配置或参考资料；先删会无备份地清掉这些文件。目标是符号链接时，安装行为还可能破坏用户维护的链接语义。删除成功后复制失败则留下不存在或不完整的 Skill，后续 Agent 直接读取坏资产。
+- **如何核实**：逐条读取计划的状态转换和 `--force` 描述；它只定义了 `replaced`，没有备份、原子替换、符号链接拒绝/跟随和复制失败恢复。
+- **建议改法**：拒绝把符号链接当作可覆盖目录；递归比较时明确额外文件的语义；先复制到同父目录的临时目录、校验完整内容，再原子 rename 交换，失败保留旧目录。若 `--force` 允许删除用户额外文件，应至少给出将删除清单并把该行为写入 Spec，而不是静默递归删除。
+### 8. nb-ui 只发布 alpha tag 会让文档中的直接安装命令失败
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`plan.md:35、61、73-75`
+- **现象**：版本方案保留 nb-ui `0.2.0-alpha.0`，发布时只给它 `--tag alpha`；其余包是 `0.1.0`。因此 registry 的 `latest` 不会指向 nb-ui 的这个 prerelease，用户按 README 计划写的 `bun add @notnotype/nb-ui` 没有可解析的 `latest` 版本，必须显式写 `@alpha` 或 `@0.2.0-alpha.0`。计划只说明依赖会改写成 `^0.2.0-alpha.0`，没有处理直接安装语义。
+- **为什么是问题**：nb-ui 是九包中被 UI 消费者直接安装的包，未写 tag 的示例会在首次发布后才失败；`^0.2.0-alpha.0` 本身可以匹配 alpha 及后续兼容版本，但这不能替代 direct add 的 dist-tag。发布后再补同一版本的 tag 需要额外 registry 操作，且 README、peer 依赖安装步骤必须同步。
+- **如何核实**：计划的发布 tag 与版本列表如上；使用仓库已有 semver 依赖核对 `^0.2.0-alpha.0` 的范围可匹配 `0.2.0-alpha.0`，问题在未指定版本时选择 `latest`，不是 caret 解析。
+- **建议改法**：首发把 nb-ui 版本升为稳定的 `0.2.0`，或明确所有 nb-ui 安装命令使用 `@alpha`、把预发布状态写进 README，并为后续切稳定版本定义迁移规则。发布 Smoke 也应分别验证带 tag 的直接安装和稳定包依赖的 alpha 解析。
+### 9. release:smoke 只取网页资源，不证明安装后的网页能执行
+- **严重程度**：重要；**类别**：测试
+- **位置**：`plan.md:55-60、101-109`
+- **现象**：故事包 Smoke 启动服务、取登录链接后的首页，只断言 HTML 和引用的脚本能取到；Vite 宿主 Smoke 只导入九包中的三个 UI 包并执行 `vite build`。没有在从 tarball 安装的 `@notnotype/nb-story` 的 `dist/web` 上用真实浏览器加载页面、执行路由和读取首屏错误，也没有检查 CSS/JS 执行后的可见状态。
+- **为什么是问题**：HTTP 200 和脚本 200 仍可能对应 JS 运行时异常、history fallback 路由异常、CSS 入口解析错误或首次模块初始化失败。Vite 宿主构建验证的是外部消费者重新编译 UI 包，不等于 nb-story prepack 生成的已发布网页 bundle 在服务端能运行；这类问题会在用户打开链接时才暴露。
+- **如何核实**：逐项对照计划中故事 Smoke 的断言与现有 `viewer.e2e.ts` 已有的真实浏览器场景；计划只取页面和资源，不执行页面。
+- **建议改法**：保留不调用真实模型的决定，但在隔离 tarball 项目中用现有浏览器 E2E 的最小场景打开登录链接，等待一个可见页面标记，断言浏览器错误为零、至少访问一个 RPC 页面并验证登录失效/资源路由；将这条作为 release smoke 的非模型验收。
+### 10. 计划没有发布后的 registry 安装验收
+- **严重程度**：重要；**类别**：测试
+- **位置**：`plan.md:57-61、106-110`
+- **现象**：计划明确把“真正的 `bun publish` 与从 registry 安装”列为未验证，只设计本地 tarball overrides Smoke；最后由开发者执行 publish，但没有后续的 registry Smoke 命令或成功判据。
+- **为什么是问题**：本地 tarball 只能证明当前文件被打包并能被 Bun 安装，不能证明 registry 上的 scope 权限、dist-tag、metadata 中的 `workspace:` 改写、九包之间的版本解析、发布后的 tarball 内容和默认 registry 选择都正确。尤其本计划还依赖 nb-ui prerelease tag，这个风险正好不会被 overrides 安装覆盖。
+- **如何核实**：读取计划的“未验证的边界”和验收映射；两处都在发布前停止，没有发布后从干净临时项目按 npm registry 安装九包的步骤。
+- **建议改法**：在开发者发布后补一个只读/不调用模型的 `registry-smoke`：固定版本和 tag，从新的临时目录执行 `bun add`/`bun install`，逐包运行入口、`nbstory books`、`skill install` 和最小 UI 构建；把 registry、版本、tag、退出码和安装目录记录为发布证据。发布脚本仍可在 smoke 通过后才允许下一轮版本发布。
+### 11. skill install 的失败输出与路径语义没有写成可实现合同
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`plan.md:40-50`；验收映射 `plan.md:101`
+- **现象**：计划只定义成功时 `data: {path, state}`，以及“内容不同且无 `--force` 退出 2”；没有定义目标是普通文件、父目录不可写、源 Skill 缺失、复制/删除中途失败、路径不存在时是否创建父目录、相对 `--dir` 的解析基准、`--json` 失败时的 error code/message 和 stderr 规则。内容比较也没有确定是比较完整目录还是只比较包内已知文件。
+- **为什么是问题**：实现者只能凭经验决定这些分支，后续测试无法按 Spec 判定；尤其 `--json` 的失败可能混入普通错误文本，破坏现有“标准输出只有一个 JSON”的 CLI 合同，目标为文件时也可能把错误归成目录已存在。`--dir`、`--agent` 互斥和 `--force` 的退出码有测试计划，但文件系统失败通道没有验收映射。
+- **如何核实**：逐项对照计划的形状、状态和现有 CLI 的 JSON 外壳；计划没有新增错误码表或失败场景，只引用“沿用 config”。
+- **建议改法**：在 Spec/计划中定义路径归一化、目标类型、权限/复制失败的稳定错误码、JSON 与人读输出、退出码和清理结果；把父目录创建、目标文件、不可写目录、源文件缺失和中断复制加入真实临时目录测试。
+
+## 未发现问题的方面
+
+- 已确认的 7 项开发者决定在计划中都有对应范围：不做发布前真实模型冒烟、AGPL-3.0-only、只支持 Bun、九个包分别发布、`nbstory skill install`、文档与 README、最后由开发者执行 publish；未发现计划悄悄把它们改成其它产品取舍。
+- 现有源码中 `dist/web`、`skill/`、`src/ingest/rules.md`、`src/ingest/worker.ts`、nb-ui 的 `themes/*` 与公开 CSS 入口目标，按计划的 `src`/`dist/web`/`skill`/`themes` 白名单都能找到对应文件；本轮没有确认到一个已知 exports/bin/CSS 目标必然落在白名单外的问题。
+- `workspace:^` 被 Bun 1.4.2 改写成版本范围、`^0.2.0-alpha.0` 对已发布 alpha 版本的范围解析、以及用逐包 `file:` tarball overrides 替换已声明顶层依赖的机制本身没有发现问题；问题在 nb-ui 未指定 tag 的 direct install 与计划未覆盖的依赖/发布门禁。
+- 计划给出的发布拓扑顺序覆盖了当前九包的内部依赖方向；未发现现有 `nb-story` 的 CLI、服务端、核心和合同入口需要网页包作为运行时值依赖，网页包仅从 `src/web` 值导入。例外是第 1 条所述的 `nb-profile` 直接运行时依赖遗漏。
+
+## 数量
+
+- 阻断：2
+- 重要：8
+- 建议：1
