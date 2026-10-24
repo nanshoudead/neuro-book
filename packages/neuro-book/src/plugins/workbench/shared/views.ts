@@ -14,6 +14,9 @@ import {LocalizedTextSchema} from "nbook/shared/localized-text";
 
 export const WORKBENCH_VIEWS_POINT = "workbench.views";
 
+/** 打开视图的命令 id（docs/specs/workbench/views.md 输出 14），参数 `{viewId?}`；作者的状态栏条目收视图助手时执行它。 */
+export const OPEN_VIEW_COMMAND = "nbook.view.open";
+
 /** 能承载视图容器的三个 Part（ToolPart），也是视图声明的默认位置。 */
 export const VIEW_LOCATIONS = ["sidebar", "auxiliarybar", "panel"] as const;
 

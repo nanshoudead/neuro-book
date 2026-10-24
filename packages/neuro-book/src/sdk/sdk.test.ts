@@ -29,7 +29,7 @@ describe("SDK 的导出面", () => {
         "settings": ["SETTINGS_CHOICES_POINT", "SETTINGS_PAGES_POINT", "SETTINGS_SECTIONS_POINT", "defineSetting", "displayLocale", "section", "setting", "settingsChoicesEvent", "settingsKey"],
         "settings-browser": ["SettingsPageActions", "SettingsPageList", "SettingsRow", "SettingsSaveBar", "choices", "settingsPage"],
         "commands": ["COMMANDS_POINT", "command", "commandServiceKey"],
-        "workbench": ["WORKBENCH_STATUSBAR_ITEMS_POINT", "WORKBENCH_VIEWS_POINT", "statusItem", "view"],
+        "workbench": ["OPEN_VIEW_COMMAND", "WORKBENCH_STATUSBAR_ITEMS_POINT", "WORKBENCH_VIEWS_POINT", "statusItem", "view"],
     };
 
     it("每个子路径的运行时导出；子路径表里除组件以外的子路径都在这张清单上", async () => {

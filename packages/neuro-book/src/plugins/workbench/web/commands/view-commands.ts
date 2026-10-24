@@ -1,5 +1,6 @@
 /**
- * 移动视图命令（docs/specs/workbench/commands.md 第二批，docs/specs/ui/workbench-shell.md 外壳二输出 24）：“移动到”菜单
+ * 视图命令。打开视图（docs/specs/workbench/views.md 输出 14）：选中视图所在的容器、显示它所在的区域、多视图容器里展开它；
+ * 不给 `viewId` 时经选择挑一个。移动视图（docs/specs/workbench/commands.md 第二批，docs/specs/ui/workbench-shell.md 外壳二输出 24）：“移动到”菜单
  * 带三项参数直接执行（目标是已有容器 `targetContainerId`，或在某个 Part 新建自建容器 `newContainerIn`）；命令面板执行
  * `{}`，经选择先选视图、再选目标。实现调布局 store 的 `applyView`，合成与校验都在那里，这里只把合成结果翻成命令结果。
  *
@@ -14,7 +15,7 @@ import type {CommandDeclaration, CommandImplementation, CommandResult} from "nbo
 import type {LocalizedText} from "nbook/shared/localized-text";
 
 import type {QuickPick} from "../../shared/contracts";
-import {VIEW_LOCATIONS} from "../../shared/views";
+import {OPEN_VIEW_COMMAND, VIEW_LOCATIONS} from "../../shared/views";
 import type {ViewLocation} from "../../shared/views";
 import type {LayoutStore} from "../state/layout-store";
 import {workbenchState} from "../state/public-state";
@@ -23,10 +24,21 @@ import {moveTargetsOf} from "../views/presentation";
 import type {IntentResult, ViewIntent} from "../views/intents";
 
 export const MOVE_VIEW_COMMAND = "nbook.view.move-view";
+export {OPEN_VIEW_COMMAND};
 
 const Id = Type.String({minLength: 1, maxLength: 160});
 
 export const VIEW_COMMAND_DECLARATIONS = {
+    [OPEN_VIEW_COMMAND]: {
+        title: {"zh-CN": "打开视图", "en-US": "Open View"},
+        category: {"zh-CN": "视图", "en-US": "View"},
+        description: "Show a view: select the container it is in, show that part of the window and expand the view. Give viewId, or nothing to pick one.",
+        args: Type.Object({viewId: Type.Optional(Id)}, {additionalProperties: false}),
+        // 会改写布局记录（选中的容器、区域显隐、视图展开），所以是写入；与别的布局命令一样不给 Agent。
+        effect: "write",
+        expose: {agent: "never"},
+        when: {requires: [workbenchState.key("layoutReady")]},
+    },
     [MOVE_VIEW_COMMAND]: {
         title: {"zh-CN": "移动视图", "en-US": "Move View"},
         category: {"zh-CN": "视图", "en-US": "View"},
@@ -51,6 +63,10 @@ export const PART_LABELS: Readonly<Record<ViewLocation, LocalizedText>> = {
 
 const TEXT = {
     pickView: {"zh-CN": "选择要移动的视图", "en-US": "Pick a view to move"},
+    pickOpen: {"zh-CN": "选择要打开的视图", "en-US": "Pick a view to open"},
+    noOpenable: {"zh-CN": "没有可以打开的视图", "en-US": "No view to open"},
+    unknownView: "没有这个视图（没有已接受的声明）：",
+    unplaced: "视图不在布局里：",
     pickTarget: {"zh-CN": "移动到", "en-US": "Move to"},
     noViews: {"zh-CN": "没有可以移动的视图", "en-US": "No view can be moved"},
     reset: {"zh-CN": "重置位置", "en-US": "Reset Location"},
@@ -130,10 +146,53 @@ async function pickAndMove(store: LayoutStore, quickPick: QuickPick): Promise<Co
     return resultOf(store.actions.applyView(moveIntent(targets.viewId, targets.sourceContainerId, part === undefined ? {targetContainerId: pickedTarget.id} : {newContainerIn: part})));
 }
 
+/**
+ * 打开一个视图：多视图容器里收起的先展开，再一次选中容器并显示所在区域（`reveal` 清掉隐藏、拖到零与面板收起）。
+ * 不移动焦点：成功表示布局已改，视图在下一次渲染时出现。
+ */
+function openView(store: LayoutStore, viewId: string): CommandResult<null> {
+    const {catalog, placement, presentation} = store.state;
+    if (!catalog.has(viewId)) return {ok: false, code: "invalid-args", reason: `${TEXT.unknownView}${viewId}`};
+    const containerId = placement.views.get(viewId)?.container;
+    const part = containerId === undefined ? undefined : VIEW_LOCATIONS.find((location) => placement.parts[location].includes(containerId));
+    if (containerId === undefined || part === undefined) return {ok: false, code: "invalid-args", reason: `${TEXT.unplaced}${viewId}`};
+    const container = presentation.containers.get(containerId);
+    if (container?.mode === "multiple" && container.views.some((view) => view.id === viewId && view.collapsed)) {
+        const expanded = store.actions.applyView({kind: "set-view-collapsed", viewId, collapsed: false});
+        if (expanded.kind === "rejected") return resultOf(expanded);
+    }
+    return resultOf(store.actions.applyView({kind: "select-container", part, containerId}, {reveal: part}));
+}
+
+async function pickAndOpen(store: LayoutStore, quickPick: QuickPick): Promise<CommandResult<null>> {
+    const {catalog, placement, presentation} = store.state;
+    const openable = [...catalog.keys()].filter((viewId) => placement.views.has(viewId));
+    const picked = await quickPick.pick({
+        title: TEXT.pickOpen,
+        placeholder: TEXT.pickOpen,
+        empty: TEXT.noOpenable,
+        items: openable.map((viewId) => {
+            const title = presentation.containers.get(placement.views.get(viewId)!.container)?.title;
+            return {id: viewId, label: catalog.get(viewId)!.title, ...(title === undefined ? {} : {detail: title})};
+        }),
+    });
+    if (picked.kind === "unavailable") return {ok: false, code: "unavailable", reason: picked.reason};
+    if (picked.kind !== "item") return DONE;
+    return openView(store, picked.id);
+}
+
 type ViewCommands = {readonly [K in keyof typeof VIEW_COMMAND_DECLARATIONS]: CommandImplementation};
 
 export function viewCommands(layout: () => LayoutStore | null, quickPick: QuickPick): ViewCommands {
     return {
+        [OPEN_VIEW_COMMAND]: {
+            run: (raw) => {
+                const store = layout();
+                if (store === null) return {ok: false, code: "unavailable", reason: TEXT.noLayout};
+                const {viewId} = raw as {readonly viewId?: string};
+                return viewId === undefined ? pickAndOpen(store, quickPick) : openView(store, viewId);
+            },
+        },
         [MOVE_VIEW_COMMAND]: {
             run: (raw) => {
                 const store = layout();

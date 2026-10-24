@@ -10,6 +10,7 @@ export type {PropsOf, StatusItemHelper, ViewHelper} from "./workbench-helpers";
 
 export {WORKBENCH_STATUSBAR_ITEMS_POINT} from "nbook/plugins/workbench/shared/items";
 export type {ItemDeclaration} from "nbook/plugins/workbench/shared/items";
-export {WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/views";
+// 打开视图的内置命令：入口依赖 `/commands` 的 `commandServiceKey` 时可以从代码执行它（`{viewId}`）。
+export {OPEN_VIEW_COMMAND, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/views";
 export type {ViewDeclaration, ViewLocation} from "nbook/plugins/workbench/shared/views";
 export type {ItemImplementation, ViewContext, ViewImplementation} from "nbook/plugins/workbench/web/contracts";

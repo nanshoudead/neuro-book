@@ -136,7 +136,7 @@ export const browserPlugin = plugin.definition([plugin.entry({
 - **page 分区**：值是列表、对象这类通用控件画不了的，用 `/settings/browser` 的 `settingsPage(plugin, {name, title, icon, load})` 自己画页面，每一项用 `SettingsRow` 排；规则见 [settings-window 的“分区声明”](../../../docs/specs/settings/settings-window.md#分区声明)，写法见示例 snippets。
 - **视图**：`/workbench` 的 `view(plugin, {name, title, icon, load})`，`location` 缺省 `sidebar`，`layout` 缺省 `scroll`。`implement(() => 属性)` 交出实现：组件收到宿主给的 `context`（视图 id、是否可见、所在位置）与这个函数返回的属性。组件里拿不到服务，入口激活时拿到的服务、状态与回调都经这个函数交过去；它在渲染时求值，读到的响应式值变了视图跟着更新。`npm run typecheck`（vue-tsc）按组件的 `defineProps` 检查这些属性：必填属性漏写、名字写错或类型不对都报错，可选属性的笔误查不出来。声明的字段见 [views 的“输入与前置条件”](../../../docs/specs/workbench/views.md#输入与前置条件)，写法见模板的 `web/plugin.ts`。
 - **命令**：`/commands` 的 `command(plugin, {name, title, description, effect, args?})`，`title` 给人看，`description` 用英文写给 Agent 看，`effect` 是 `read` 或 `write`（只读模式下 Agent 不能执行 `write` 的命令）。Agent 缺省不能调用命令：`expose.agent` 不写就是不开放，写 `"confirm"` 时每次调用先问用户，写 `"auto"` 时直接执行（同时写了 `hints.destructive: true` 的仍按 `"confirm"`）。`args` 缺省为空对象，写了没写 `additionalProperties` 的补成 `false`。命令面板不收集参数：**给人用的命令，参数要全部可选**（不带参数也能通过校验）；参数有必填项的命令只给 Agent 与代码调用，要写 `expose: {human: false}`，否则加载就抛错。实现 `command.implement((args) => 结果)` 返回 `{ok: true, value}` 或 `{ok: false, code, reason}`（类型 `CommandResult`）。
-- **状态栏条目**：`/workbench` 的 `statusItem(plugin, {name, title, command?, order?})`，`alignment` 缺省 `right`、`order` 与 `priority` 缺省 0，`command` 可以直接给命令助手（点了执行它，不带参数）。实现是三个函数：
+- **状态栏条目**：`/workbench` 的 `statusItem(plugin, {name, title, command?, order?})`，`alignment` 缺省 `right`、`order` 与 `priority` 缺省 0，`command` 可以直接给命令助手（点了执行它，不带参数）或视图助手（点了打开那个视图）。实现是三个函数：
 
   ```ts
   const count = statusItem(plugin, {name: "count", title: "次数", command: say});
@@ -255,6 +255,16 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 - 改了值的形状要升 `version`，旧数据读出来是 `unsupported-version`，不会被当成新形状。这时普通的 `save` 被拒（`protected`），要么按旧形状迁移，要么用 `reset` 换成新值（原件留在存储的原件区）；什么都不做的话，老用户的这条记录从此读写都失败。SDK 包里示例 `examples/plugins/focus` 的服务端入口示范了 `reset`。
 
 规则见 [persistence](../../../docs/specs/storage/persistence.md)；写法见示例 notes 的 `backend/plugin.ts`。
+
+### 作者可用的内置命令
+
+内置插件的命令很多，作者能依赖的（属于 `engines.neurobook` 的兼容范围）只有下面这些；别的内置命令随产品改动，不要写进插件。
+
+| 命令 | 参数 | 做什么 |
+|---|---|---|
+| `nbook.view.open`（`/workbench` 的 `OPEN_VIEW_COMMAND`） | `{viewId}` | 打开一个视图：选中它所在的容器、显示所在的区域，收起的展开；不移动焦点。状态栏条目直接收视图助手时就是执行它。 |
+
+从代码执行命令：入口在 `dependencies` 里声明 `/commands` 的 `commandServiceKey`，激活后 `context.services.require(commandServiceKey).execute(id, args)`，得到 `{ok: true, value}` 或 `{ok: false, code, reason}`。
 
 ### 常用名字
 

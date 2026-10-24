@@ -24,7 +24,7 @@ import type {ViewDeclaration, ViewLocation} from "../../shared/views";
 import type {LayoutStore} from "../state/layout-store";
 import {workbenchStateBindings} from "../state/public-state";
 import {openLayout} from "../testing/layout";
-import {MOVE_VIEW_COMMAND, VIEW_COMMAND_DECLARATIONS, viewCommands} from "./view-commands";
+import {MOVE_VIEW_COMMAND, OPEN_VIEW_COMMAND, VIEW_COMMAND_DECLARATIONS, viewCommands} from "./view-commands";
 
 let tmp = "";
 let counter = 0;
@@ -173,5 +173,55 @@ describe("移动视图", () => {
         const store = await layout();
         expect(await run(store, picker(() => ({kind: "unavailable", reason: "没有命令面板"})), {})).toEqual({ok: false, code: "unavailable", reason: "没有命令面板"});
         expect(await viewCommands(() => null, picker(() => ({kind: "cancelled"})))[MOVE_VIEW_COMMAND].run({})).toMatchObject({ok: false, code: "unavailable"});
+    });
+});
+
+describe("打开视图（docs/specs/workbench/views.md 输出 14）", () => {
+    const open = (store: LayoutStore | null, quickPick: QuickPick, args: Record<string, unknown>) => viewCommands(() => store, quickPick)[OPEN_VIEW_COMMAND].run(args);
+    const silent = picker(() => ({kind: "cancelled"}));
+
+    it("侧栏、面板里的视图：选中所在容器，所在区域被隐藏、面板收起时一并显示", async () => {
+        const store = await layout();
+        store.actions.setPartHidden("sidebar", true);
+        expect(await open(store, silent, {viewId: "test.b"})).toEqual({ok: true, value: null});
+        expect(store.state.placement.selected.sidebar).toBe("view:test.b");
+        expect(store.state.hiddenParts).not.toContain("sidebar");
+
+        store.actions.setPanelHidden(true);
+        expect(store.state.panel.hidden).toBe(true);
+        expect(await open(store, silent, {viewId: "test.c"})).toEqual({ok: true, value: null});
+        expect(store.state.placement.selected.panel).toBe("view:test.c");
+        expect(store.state.panel).toMatchObject({hidden: false, collapsed: false});
+    });
+
+    it("多视图容器里收起的视图：展开它", async () => {
+        const store = await layout();
+        expect(await run(store, silent, {viewId: "test.b", sourceContainerId: "view:test.b", targetContainerId: "view:test.a"})).toEqual({ok: true, value: null});
+        expect(store.actions.applyView({kind: "set-view-collapsed", viewId: "test.b", collapsed: true}).kind).toBe("patch");
+        const collapsed = () => store.state.presentation.containers.get("view:test.a")?.views.find((item) => item.id === "test.b")?.collapsed;
+        expect(collapsed()).toBe(true);
+        expect(await open(store, silent, {viewId: "test.b"})).toEqual({ok: true, value: null});
+        expect(collapsed()).toBe(false);
+        expect(store.state.placement.selected.sidebar).toBe("view:test.a");
+    });
+
+    it("没有这个视图为 invalid-args 且不写；外壳没打开为 unavailable", async () => {
+        const store = await layout();
+        expect(await open(store, silent, {viewId: "test.nowhere"})).toMatchObject({ok: false, code: "invalid-args", reason: expect.stringContaining("test.nowhere")});
+        expect(store.state.customizations.queue).toBe(0);
+        expect(await open(null, silent, {viewId: "test.a"})).toMatchObject({ok: false, code: "unavailable"});
+    });
+
+    it("不给 viewId：经选择挑一个（标签是视图标题、说明是所在容器）；取消时成功且不写", async () => {
+        const store = await layout();
+        const chooser = picker((request) => ({kind: "item", id: request.items.find((item) => item.id === "test.c")!.id}));
+        expect(await open(store, chooser, {})).toEqual({ok: true, value: null});
+        expect(labels(chooser.requests[0])).toContain("test.c:C/C");
+        expect(store.state.placement.selected.panel).toBe("view:test.c");
+        await waitUntil("保存完成", () => store.state.customizations.queue === 0);
+
+        const before = JSON.stringify(store.state.customizations.display);
+        expect(await open(store, silent, {})).toEqual({ok: true, value: null});
+        expect(JSON.stringify(store.state.customizations.display)).toBe(before);
     });
 });

@@ -358,6 +358,31 @@ test.describe("产品页：测试插件贡献的视图", () => {
         await expect.poll(async () => (await customizations(page)).revision).toBeGreaterThan(before);
     });
 
+    test("命令面板的打开视图（views.md 输出 14）：选一个视图，所在的侧栏被隐藏时一并显示、选中它的容器；取消不写", async ({page}) => {
+        await open(page);
+        const item = (viewId: string) => page.locator(`[data-activity-container="view:${viewId}"]`);
+        // 先在本窗口写下一份定制记录（切到乙），再把它改成隐藏侧栏，刷新后生效。
+        await item(B).click();
+        await expect.poll(async () => ((await customizations(page)).value?.selected as Record<string, string> | undefined)?.sidebar).toBe(`view:${B}`);
+        await hideSidebarInRecord(page);
+        await page.reload();
+        await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-window-state", "ready");
+        await expect(page.locator('[data-tool-part="sidebar"]')).toBeHidden();
+
+        const before = (await customizations(page)).revision;
+        await runCommand(page, "打开视图");
+        await expect(page.getByRole("combobox", {name: "选择要打开的视图"})).toBeFocused();
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("combobox")).toHaveCount(0);
+        expect((await customizations(page)).revision).toBe(before);
+
+        await runCommand(page, "打开视图");
+        await pick(page, "选择要打开的视图", "样例丙");
+        await expect(page.locator('[data-tool-part="sidebar"]')).toBeVisible();
+        await expect(item(C)).toHaveAttribute("aria-pressed", "true");
+        await expect(sample(page, C)).toBeVisible();
+    });
+
     test("收起：multiple 点标题行收起甲 → 乙移出后甲在 single 展开但记录不变 → 乙回来甲重新收起；面板横向收起成竖条、键盘展开", async ({page}) => {
         await open(page);
         await page.locator(`[data-activity-container="view:${B}"]`).click();

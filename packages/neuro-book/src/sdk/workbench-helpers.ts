@@ -8,7 +8,7 @@ import type {AllowedComponentProps, Component, ComponentCustomProps, VNodeProps}
 
 import {WORKBENCH_STATUSBAR_ITEMS_POINT} from "nbook/plugins/workbench/shared/items";
 import type {ItemDeclaration} from "nbook/plugins/workbench/shared/items";
-import {WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/views";
+import {OPEN_VIEW_COMMAND, WORKBENCH_VIEWS_POINT} from "nbook/plugins/workbench/shared/views";
 import type {ViewDeclaration} from "nbook/plugins/workbench/shared/views";
 import type {ItemImplementation} from "nbook/plugins/workbench/web/contracts";
 import {viewContribution} from "nbook/plugins/workbench/web/view-contribution";
@@ -67,9 +67,19 @@ export interface StatusItemHelper<Id extends string> extends ContributionHelper<
     implement(implementation: ItemImplementation): BoundImplementation<typeof WORKBENCH_STATUSBAR_ITEMS_POINT, Id>;
 }
 
+/** 状态栏条目点了做什么：执行一条命令（助手或 `{id, args}`），或打开一个视图（视图助手）。 */
+type ItemCommand = CommandHelper | ViewHelper<string, ComponentLoad> | NonNullable<ItemDeclaration["command"]>;
+
+/** 助手按它的贡献点区分：视图助手换成以它的 id 执行 `nbook.view.open`。 */
+function itemCommandOf(command: ItemCommand): NonNullable<ItemDeclaration["command"]> {
+    if (!("contribution" in command)) return command;
+    if (command.contribution.capability === WORKBENCH_VIEWS_POINT) return {id: OPEN_VIEW_COMMAND, args: {viewId: command.id}};
+    return {id: command.id};
+}
+
 /**
  * 状态栏条目（docs/specs/ui/workbench-shell.md 外壳四）：`alignment` 缺省 `right`，`order`、`priority` 缺省 0；`command`
- * 收命令助手（点击执行它，不带参数）或 `{id, args}`。
+ * 收命令助手（点击执行它，不带参数）、视图助手（点击打开那个视图）或 `{id, args}`。
  */
 export function statusItem<const Id extends string, const Name extends string>(plugin: PluginBuilder<Id>, options: Omit<ItemDeclaration, "title" | "alignment" | "order" | "priority" | "command"> & {
     readonly name: Name;
@@ -77,7 +87,7 @@ export function statusItem<const Id extends string, const Name extends string>(p
     readonly alignment?: ItemDeclaration["alignment"];
     readonly order?: number;
     readonly priority?: number;
-    readonly command?: CommandHelper | NonNullable<ItemDeclaration["command"]>;
+    readonly command?: ItemCommand;
 } & ShortNameRule<Name>): StatusItemHelper<`${Id}.${Name}`> {
     const id = contributionId(plugin.id, options.name, "状态栏条目");
     const {name: _name, title, alignment, order, priority, command, ...rest} = options;
@@ -87,7 +97,7 @@ export function statusItem<const Id extends string, const Name extends string>(p
         alignment: alignment ?? "right",
         order: order ?? 0,
         priority: priority ?? 0,
-        ...(command === undefined ? {} : {command: "contribution" in command ? {id: command.id} : command}),
+        ...(command === undefined ? {} : {command: itemCommandOf(command)}),
     };
     return {
         id,
