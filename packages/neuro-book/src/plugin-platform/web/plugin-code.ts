@@ -14,21 +14,11 @@
 
 import type {PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {PluginCodeError} from "nbook/plugin-platform/shared/plugin-code-error";
+import {ModuleNotShared, PluginCodeError} from "nbook/plugin-platform/shared/plugin-code-error";
 import type {PluginCodeFailure} from "nbook/plugin-platform/shared/plugin-code-error";
 
 /** 从插入脚本起（含下载）多久还没登记工厂算失败；回环上的服务端正常情况下远不到这么久。 */
 export const CODE_LOAD_TIMEOUT_MS = 30_000;
-
-/** 宿主模块表外的 id；只在工厂执行期间抛出，由装载器换成带插件与入口的 `PluginCodeError`。 */
-class ModuleNotShared extends Error {
-    readonly id: string;
-
-    constructor(id: string) {
-        super(`引用了宿主没有共享的模块 ${id}`);
-        this.id = id;
-    }
-}
 
 /**
  * 装载器用到的那一点文档接口。按结构写而不是用 DOM 的 `Document`：窗口宿主的代码也在 Bun 里做类型检查与测试，那里没有 DOM 库；
@@ -203,17 +193,17 @@ export function createPluginCodeHost(options: PluginCodeHostOptions): PluginCode
         };
         // 脚本自身的语法错误不触发 onerror：浏览器派发全局 error 事件，事件的文件名就是脚本 URL，之后 onload 照常触发。
         const onScriptError = (event: {readonly filename: string; readonly message: string}): void => {
-            if (event.filename === absolute) finish({error: fail("code-threw", `的脚本执行出错：${event.message}`)});
+            if (event.filename === absolute) finish({error: fail("code-threw", `脚本执行出错：${event.message}`)});
         };
-        const timer = setTimeout(() => finish({error: fail("code-load-failed", `在 ${String(timeoutMs)} 毫秒内没有登记`)}), timeoutMs);
+        const timer = setTimeout(() => finish({error: fail("code-load-failed", `脚本在 ${String(timeoutMs)} 毫秒内没有登记工厂`)}), timeoutMs);
         const stopWaiting = shared.wait(absolute, (registered) => finish({factory: registered}));
         const loading: Loading = {factory, users: 0, cancel: () => finish(null)};
         view?.addEventListener("error", onScriptError);
         script.async = true;
         script.src = absolute;
         // 登记发生在脚本执行时，早于 load 事件：到 load 还没登记，就是脚本执行了但没有交出工厂。
-        script.onload = () => finish({error: fail("code-shape", "的脚本执行了，但没有登记工厂（不是用构建预设生成的产物？）")});
-        script.onerror = () => finish({error: fail("code-load-failed", "的脚本加载失败（文件不存在，或服务端不可达）")});
+        script.onload = () => finish({error: fail("code-shape", "脚本执行了，但没有登记工厂（不是用构建预设生成的产物？）")});
+        script.onerror = () => finish({error: fail("code-load-failed", "脚本加载失败（文件不存在，或服务端不可达）")});
         loadings.set(absolute, loading);
         options.document.head.append(script);
         return loading;
@@ -253,8 +243,8 @@ export function createPluginCodeHost(options: PluginCodeHostOptions): PluginCode
             try {
                 factory(module, module.exports, require);
             } catch (error) {
-                if (error instanceof ModuleNotShared) throw new PluginCodeError("module-not-shared", {plugin, entry, url, detail: `${error.message}`});
-                throw new PluginCodeError("code-threw", {plugin, entry, url, detail: `的模块顶层抛出：${error instanceof Error ? error.message : String(error)}`});
+                if (error instanceof ModuleNotShared) throw new PluginCodeError("module-not-shared", {plugin, entry, url, detail: error.message});
+                throw new PluginCodeError("code-threw", {plugin, entry, url, detail: `模块顶层抛出：${error instanceof Error ? error.message : String(error)}`});
             }
             const activate = module.exports.activate;
             if (typeof activate !== "function") throw new PluginCodeError("code-shape", {plugin, entry, url, detail: "没有导出 activate"});

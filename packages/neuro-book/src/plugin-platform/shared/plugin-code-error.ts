@@ -18,13 +18,31 @@ export class PluginCodeError extends Error {
     /** 浏览器里是文件 URL，服务端是安装目录里的相对路径。 */
     readonly url: string;
 
-    /** `cause` 是底层的失败（例如宿主模块表的动态导入失败），随错误保留，诊断能看到原始错误。 */
+    /** `detail` 是独立的一句（例如“没有导出 activate”）。`cause` 是底层的失败（例如宿主模块表的动态导入失败），随错误保留，诊断能看到原始错误。 */
     constructor(code: PluginCodeFailure, input: {readonly plugin: string; readonly entry: string; readonly url: string; readonly detail: string; readonly cause?: unknown}) {
-        super(`${code}：插件 ${input.plugin} 的入口 ${input.entry}（${input.url}）${input.detail}`, input.cause === undefined ? undefined : {cause: input.cause});
+        super(`${code}：插件 ${input.plugin} 的入口 ${input.entry}（${input.url}）：${input.detail}`, input.cause === undefined ? undefined : {cause: input.cause});
         this.name = "PluginCodeError";
         this.code = code;
         this.plugin = input.plugin;
         this.entry = input.entry;
         this.url = input.url;
+    }
+}
+
+/** “宿主没有共享这个模块”的说法：构建预设、服务端与浏览器的装载器共用。 */
+export function notSharedMessage(id: string): string {
+    return `引用了宿主没有共享的模块 ${id}`;
+}
+
+/** 插件代码导入了宿主模块表之外的裸说明符；装载器换成带插件与入口的 `module-not-shared`。`importer` 是引入它的文件（知道时）。 */
+export class ModuleNotShared extends Error {
+    readonly id: string;
+    readonly importer: string | null;
+
+    constructor(id: string, importer: string | null = null) {
+        super(notSharedMessage(id));
+        this.name = "ModuleNotShared";
+        this.id = id;
+        this.importer = importer;
     }
 }

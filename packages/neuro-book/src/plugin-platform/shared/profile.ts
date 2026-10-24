@@ -25,6 +25,8 @@ export interface PlatformProfile {
     readonly registryGlobal: string;
     /** 窗口里插件样式表 `<link>` 的 dataset 名，用来认出自己挂上的样式。 */
     readonly styleDataset: string;
+    /** 插件文件端点挂在哪个路径前缀下（不以 `/` 结尾），浏览器引导据此拼出文件地址。 */
+    readonly filesMount: string;
     /** 构建预设在输出目录里放中间产物的隐藏目录前缀。 */
     readonly buildTempPrefix: string;
     /** 宿主与第三方插件共享的模块名（plugin-code-loading.md 输出 2–5），按运行位置。构建预设把它们留作外部引用。 */

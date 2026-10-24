@@ -30,7 +30,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {errno} from "nbook/backend/locked-replace";
 import {thirdPartyDefinitionsFor} from "nbook/plugin-platform/shared/definitions";
 import type {EntryLoader, ThirdPartySource} from "nbook/plugin-platform/shared/definitions";
-import {PluginCodeError} from "nbook/plugin-platform/shared/plugin-code-error";
+import {ModuleNotShared, PluginCodeError} from "nbook/plugin-platform/shared/plugin-code-error";
 import type {PlatformProfile} from "nbook/plugin-platform/shared/profile";
 
 import {manifestOfInstalled} from "./installed";
@@ -57,18 +57,6 @@ function registerHostModules(provide: ServerLoaderOptions["hostModules"]): Promi
         throw error;
     });
     return hostModules;
-}
-
-/** 插件脚本导入了宿主模块表之外的裸说明符；由 `onLoad` 抛出，装载器换成带插件与入口的 `module-not-shared`。 */
-class ModuleNotShared extends Error {
-    readonly id: string;
-    readonly importer: string;
-
-    constructor(id: string, importer: string) {
-        super(`引用了宿主没有共享的模块 ${id}`);
-        this.id = id;
-        this.importer = importer;
-    }
 }
 
 const BUILTIN: ReadonlySet<string> = new Set(builtinModules);
@@ -124,7 +112,7 @@ export function serverEntryLoader(plugin: InstalledPlugin, options: ServerLoader
         } catch (error) {
             if (error instanceof PluginCodeError) throw error;
             const code = errno(error);
-            const detail = code === "ENOENT" || code === "ENOTDIR" ? "的文件不存在" : `的文件读不了（${code ?? "未知错误"}）`;
+            const detail = code === "ENOENT" || code === "ENOTDIR" ? "文件不存在" : `文件读不了（${code ?? "未知错误"}）`;
             throw new PluginCodeError("code-load-failed", {...at, detail, cause: error});
         }
         // 版本目录是 `<插件根目录>/<插件 id>/<版本>`。
@@ -139,7 +127,7 @@ export function serverEntryLoader(plugin: InstalledPlugin, options: ServerLoader
             module = (await import(attempt === 0 ? file : `${file}?attempt=${String(attempt)}`)) as Record<string, unknown>;
         } catch (error) {
             if (error instanceof ModuleNotShared) {
-                throw new PluginCodeError("module-not-shared", {...at, detail: `${error.message}（由 ${relative(root, error.importer)} 引入）`, cause: error});
+                throw new PluginCodeError("module-not-shared", {...at, detail: error.importer === null ? error.message : `${error.message}（由 ${relative(root, error.importer)} 引入）`, cause: error});
             }
             if (errno(error) === "ERR_MODULE_NOT_FOUND") {
                 throw new PluginCodeError("code-load-failed", {...at, detail: `导入的文件不存在：${error instanceof Error ? error.message : String(error)}`, cause: error});

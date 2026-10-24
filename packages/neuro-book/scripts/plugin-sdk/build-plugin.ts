@@ -37,6 +37,7 @@ import {build as vite, createServer} from "vite";
 import type {Plugin} from "vite";
 
 import {PRODUCT_VERSION} from "../../src/shared/product";
+import {notSharedMessage} from "../../src/plugin-platform/shared/plugin-code-error";
 import {BROWSER_SHARED_MODULES, manifestFormat, NEUROBOOK_PROFILE, SERVER_SHARED_MODULES} from "../../src/plugin-platform-profile";
 
 const DEFAULT_DEFINITIONS = ["backend/plugin.ts", "web/plugin.ts"];
@@ -373,7 +374,7 @@ function purityProblems(input: {
         const from = importer === null || !isAbsolute(importer) ? "" : `（由 ${sourcePath(importer.split("?")[0]!, input.root, input.workDir)} 引入）`;
         // nb-ui 不发布，作者项目里本来装不到它；仓库里照着内置插件的写法直接导入时提示改法。
         const hint = /^@notnotype\/nb-ui($|\/)/u.test(specifier) ? "；nb-ui 的组件从 @notnotype/nb-plugin-sdk/components 导入" : "";
-        problems.push({path: `entries.${entry}`, message: `引用了宿主没有共享的模块 ${specifier}${from}：该入口未共享（共享的是 ${allowed.join("、")}）${hint}`});
+        problems.push({path: `entries.${entry}`, message: `${notSharedMessage(specifier)}${from}：该入口未共享（共享的是 ${allowed.join("、")}）${hint}`});
     }
     const bundled = new Map<string, string>();
     for (const module of facts.modules) {

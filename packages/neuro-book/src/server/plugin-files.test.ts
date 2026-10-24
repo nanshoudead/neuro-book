@@ -72,7 +72,7 @@ beforeAll(async () => {
     prepared = await prepareInstalledPlugins({root: join(tmp, "state", "plugins"), profile: NEUROBOOK_PROFILE, safeMode: false});
     const [plugin] = installedPlugins(prepared.startup);
     if (plugin === undefined) throw new Error("插件没有登记");
-    prefix = pluginFilesPrefix(plugin.id, plugin.digest);
+    prefix = pluginFilesPrefix(NEUROBOOK_PROFILE.filesMount, plugin.id, plugin.digest);
     server = startServer({
         config: {host: "127.0.0.1", port: 0, stateRoot: join(tmp, "state"), logDirectory: join(tmp, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, shiftPorts: false, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
         prepared,
@@ -117,8 +117,8 @@ describe("插件文件端点", () => {
         await symlink(join(tmp, "state", "plugins", "plugins.json"), join(plugin!.root, "linked.json"));
         try {
             for (const url of [
-                pluginFilesPrefix("example.files", "0000000000000000") + "browser.js",
-                pluginFilesPrefix("example.other", plugin!.digest) + "browser.js",
+                pluginFilesPrefix(NEUROBOOK_PROFILE.filesMount, "example.files", "0000000000000000") + "browser.js",
+                pluginFilesPrefix(NEUROBOOK_PROFILE.filesMount, "example.other", plugin!.digest) + "browser.js",
                 `${prefix}missing.js`,
                 `${prefix}assets`,
                 `${prefix}linked.json`,
@@ -169,7 +169,7 @@ describe("插件文件端点", () => {
             expect(after!.digest).not.toBe(before!.digest);
             const route = createPluginFilesRoute(installedPlugins(again.startup), () => undefined);
             // 直接调宿主路由时给的是分发器转交的形式：已去掉挂载前缀 `/api/runtime`。
-            const at = (digest: string) => route.handle(new Request(new URL(`${pluginFilesPrefix("example.files", digest).slice("/api/runtime".length)}browser.js`, "http://127.0.0.1").href));
+            const at = (digest: string) => route.handle(new Request(new URL(`${pluginFilesPrefix(NEUROBOOK_PROFILE.filesMount, "example.files", digest).slice(NEUROBOOK_PROFILE.filesMount.length)}browser.js`, "http://127.0.0.1").href));
             expect((await at(before!.digest)).status).toBe(404);
             const fresh = await at(after!.digest);
             expect([fresh.status, await fresh.text()]).toEqual([200, "console.log('again');"]);

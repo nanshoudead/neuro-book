@@ -14,7 +14,7 @@ import {createHash} from "node:crypto";
 
 import {descriptorsOf} from "nbook/plugin-platform/backend/installed";
 import type {InstalledPlugin} from "nbook/plugin-platform/backend/installed";
-import {manifestFormat} from "nbook/plugin-platform-profile";
+import {manifestFormat, NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import {pluginsAt} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import type {HostRoute} from "nbook/plugins/http/backend/plugin";
@@ -37,7 +37,7 @@ export function browserBootstrap(builtin: ReadonlyArray<PluginDescriptor>, insta
     const third = pluginsAt("browser", descriptorsOf(installed, manifestFormat)).map(({id, version}) => {
         const plugin = byId.get(id);
         if (plugin === undefined) throw new Error(`第三方插件 ${id} 没有安装信息`);
-        return {id, version, manifest: browserManifest(plugin.manifest), files: pluginFilesPrefix(id, plugin.digest), digest: plugin.digest};
+        return {id, version, manifest: browserManifest(plugin.manifest), files: pluginFilesPrefix(NEUROBOOK_PROFILE.filesMount, id, plugin.digest), digest: plugin.digest};
     });
     const browser = [
         ...pluginsAt("browser", builtin).map(({id, version}) => ({id, version, digest: null as string | null})),

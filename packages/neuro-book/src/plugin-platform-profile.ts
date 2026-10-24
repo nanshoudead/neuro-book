@@ -44,6 +44,7 @@ export const NEUROBOOK_PROFILE: PlatformProfile = {
     authorField: "nbook",
     registryGlobal: "__NBOOK_PLUGIN_REGISTRY__",
     styleDataset: "nbookPluginStyle",
+    filesMount: "/api/runtime",
     buildTempPrefix: ".nbook-plugin-build-",
     sharedModules: {browser: BROWSER_SHARED_MODULES, server: SERVER_SHARED_MODULES},
 };
