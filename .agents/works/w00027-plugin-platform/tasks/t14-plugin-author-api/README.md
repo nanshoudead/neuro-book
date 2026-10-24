@@ -25,6 +25,9 @@ updated: 2026-10-24
 - S2、S3 验证：类型检查，应用 Bun 1472 例、Vitest 368 例；合入 master。
 - S4 `b44bc03a2`、`ea467516d`：模板与 7 个示例改用新写法（`definePlugin` 放在合同模块，避免与 `plugin.ts` 循环引用；命令、设置项、分区、视图、状态栏条目、设置页用助手；menu 的自定义贡献点、file-menu 的提交、counter 的公开状态走 `contributionPoints` 与 `rawContributions`；停止时用 `onStop`；远程结果用 `ok`/`fail`）；`create` 去掉 `npm init` 的占位；作者文档补前置条件、远程服务加订阅的完整代码、插件状态与公开状态、命令参数规则与常用名字；SDK 根入口导出 `CommandResult`。验证：类型检查、Bun 1472 例、Vitest 368 例、插件 e2e 7 例。
 
+- S5 `ca7227daf`、`5224c3217`：问题读模型 `pluginProblems`（本位置的入口激活失败与受阻、被拒的贡献，纯 JSON）；清单加可选 `displayName`、`description`；插件管理的 `list` 带显示名、说明与服务端的问题（合同版本 4）；`window.plugins.problems()`；构建核对插件描述的 `locations` 与实际入口；插件页显示显示名、说明与逐条问题，Lab 加“问题”场景，e2e 加一个入口激活失败的插件。验证：类型检查、Bun 1474 例、Vitest 369 例、插件 e2e 8 例，截图核对过。
+- S6 `24b63e7b9`：命令面板不列有必填参数的命令；从面板或快捷键执行失败时弹一条警告通知（命令名与原因，`stale-target` 不弹），Lab 不接时照旧。作者文档的“调试”一节改写（`8f8ddf3a7`）。Spec：plugin-install 输出 10、plugin-manifest、browser-host、views、plugin-code-loading、commands、quick-open（master `696b8952c`）。验证：类型检查、工作台 Bun 234 例、Vitest 140 例（workbench、lab、web）。合入 master。
+
 ## 下一步
 
-按 plan.md 第 5 节的切片实施，当前 S5（插件页显示问题、清单的显示名与描述、构建核对运行位置）。
+收口：全量 e2e；然后启动实现审查（后端 omp、前端 Sonnet）与一次空白上下文的作者验收（Sonnet 照 t12 的做法从零写插件，并逐条对照 t12 的作者体验报告），不阻塞。
