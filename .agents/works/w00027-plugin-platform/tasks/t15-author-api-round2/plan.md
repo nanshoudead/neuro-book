@@ -227,3 +227,9 @@ eventSource<Payload, Filter = unknown>(options?: {
 | Sonnet F20 | 去掉 `engines.node` 后 `vue-tsc` 仍用本机 Node | 成立，模板脚本用 `bun --bun` |
 | Sonnet F21 | VS Code 有的焦点、可见性事件 | 写进 Spec 的“后续” |
 | omp 待确认项 | B2、B4 的报错文字随版本变 | 验收断言位置与问题名，完整文字只作证据 |
+
+## 10. 实施中的调整
+
+- S1：模板的 `typecheck` 不用 `bun --bun`：`vue-tsc` 在 Bun 的运行时里认不出 `.vue` 模块（仓库外作者项目实测，计划审查的实验项目里没有 `.vue` 文件），按它的抬头行用 Node 跑，与仓库自己的 `typecheck` 一样。作者文档与 plugin-api Spec 写明类型检查要 Node。
+- S1：`bun add -d <tarball>` 写下的依赖是相对路径（不带 `file:`）加一个空的 `dependencies`；在已有项目的子目录里它同样向上找到上级的 `package.json`，作者文档改成先写一个空的 `package.json`。
+
