@@ -8,9 +8,10 @@
 
 import {existsSync} from "node:fs";
 import {readdir} from "node:fs/promises";
-import {isAbsolute, join, relative, resolve} from "node:path";
+import {join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
+import {isInside} from "../src/plugin-platform/backend/paths";
 import {SDK_ENTRIES} from "../src/sdk/entries";
 
 import {buildPlugin, PluginBuildError} from "./build";
@@ -36,8 +37,7 @@ export const IN_REPO_BUILD = {
 export async function buildExample(name: string, outDir: string = join(EXAMPLES_ROOT, name, "dist")): Promise<BuildPluginResult> {
     const root = join(EXAMPLES_ROOT, name);
     const target = resolve(outDir);
-    const fromTarget = relative(target, root);
-    if (fromTarget === "" || (!fromTarget.startsWith("..") && !isAbsolute(fromTarget))) throw new PluginBuildError("输出目录不能是示例目录或它的上级", [{path: "", message: target}]);
+    if (isInside(root, target)) throw new PluginBuildError("输出目录不能是示例目录或它的上级", [{path: "", message: target}]);
     return buildPlugin({root, outDir: target, clean: true, ...IN_REPO_BUILD});
 }
 

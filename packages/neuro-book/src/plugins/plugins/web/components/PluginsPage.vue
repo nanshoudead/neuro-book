@@ -104,7 +104,6 @@ type Problem = {readonly serial: number; readonly code: string; readonly reason:
 const text = (value: LocalizedText): string => localize(value, props.locale);
 
 const format = (value: LocalizedText, values: Record<string, string>): string => localize(formatText(value, values), props.locale);
-/** 升级确认框里一条受阻的插件：版本不符时写出它要求的范围。 */
 /** 列表按界面语言连接（“a、b和c”“a, b, and c”）。 */
 const list = (items: ReadonlyArray<string>): string => new Intl.ListFormat(props.locale, {type: "conjunction"}).format(items);
 const BLOCKED_TEXT: Readonly<Record<BlockedPlugin["reason"], LocalizedText>> = {
@@ -113,6 +112,7 @@ const BLOCKED_TEXT: Readonly<Record<BlockedPlugin["reason"], LocalizedText>> = {
     "dependency-cycle": TEXT.blockedCycle,
     "provider-blocked": TEXT.blockedProvider,
 };
+/** 升级确认框里一条受阻的插件：版本不符时写出它要求的范围。 */
 const blockedLine = (item: BlockedPlugin): string => format(BLOCKED_TEXT[item.reason], {plugin: item.plugin, entries: list(item.entries), range: item.range ?? "", service: item.service ?? ""});
 
 const state = ref<"loading" | "failed" | "ready">("loading");

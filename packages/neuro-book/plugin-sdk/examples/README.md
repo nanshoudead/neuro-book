@@ -20,7 +20,7 @@
 
 ## 运行
 
-在应用包目录运行 `bun test examples` 只跑示例的场景；示例插件界面组件的测试（`*.dom.test.ts`，例如 snippets 的设置页）由 Vitest 在 happy-dom 里跑，`bun run test:vitest` 连同应用包的组件测试一起跑（Bun 不能加载 `.vue`）。`bun run test` 两样都跑（示例随它运行，内核的公开接口改了、示例没跟上会直接失败）。类型检查随 `bun run typecheck`：后端、共用代码与场景在 `tsconfig.json`，浏览器与共用代码在 `tsconfig.web.json`。
+在应用包目录运行 `bun test plugin-sdk/examples` 只跑示例的场景；示例插件界面组件的测试（`*.dom.test.ts`，例如 snippets 的设置页）由 Vitest 在 happy-dom 里跑，`bun run test:vitest` 连同应用包的组件测试一起跑（Bun 不能加载 `.vue`）。`bun run test` 两样都跑（示例随它运行，内核的公开接口改了、示例没跟上会直接失败）。类型检查随 `bun run typecheck`：后端、共用代码与场景在 `tsconfig.json`，浏览器与共用代码在 `tsconfig.web.json`。
 
 ## 几个概念
 
@@ -58,6 +58,8 @@
 
 ## 一个入口能做的事
 
+每一项的完整说明见 plugin-api 的[“激活上下文”](../../../../docs/specs/runtime/plugin-api.md#激活上下文)，这里只列在哪个示例里：
+
 | 类别 | 内容 | 在哪个示例里 |
 |---|---|---|
 | 静态声明（激活前内核就知道） | `location`、`activationEvents`、`dependencies`、`provides`、`remoteProvides`、`receives`、`contributions`；代理入口另有 `remoteDelegates` | 各插件的 `defineEntry`；`remoteDelegates` 见 notes 的浏览器入口 |
@@ -70,16 +72,16 @@
 
 ## 选哪种方式
 
-全文见 [`runtime.plugin-api`](../../../../docs/specs/runtime/plugin-api.md) 的“选用规则”与“可选功能”。
+规则见 [`runtime.plugin-api`](../../../../docs/specs/runtime/plugin-api.md) 的[“选用规则”](../../../../docs/specs/runtime/plugin-api.md#选用规则)与“可选功能”，这里只列每种情况在哪个示例里：
 
 | 接口的性质 | 用什么 | 示例 |
 |---|---|---|
-| 只传数据，调用方可能在别的实例 | 远程服务合同，所有调用方（含同一实例里的）直接用合同，不写只原样转发的本地服务 | notes、counter 的合同 |
-| 只在同一实例里用 | 本地服务；给第三方插件的按数据面约束写（方法返回 Promise、只传可克隆的数据、失败以结构化结果返回） | clock 的报时服务、menu 的菜单服务 |
+| 只传数据，调用方可能在别的实例 | 远程服务合同 | notes、counter 的合同 |
+| 只在同一实例里用 | 本地服务 | clock 的报时服务、menu 的菜单服务 |
 | 许多插件各交声明与实现，由一个拥有者统一管理 | 贡献点 | menu 的 `menu.items`；`nbook.commands` 的命令 |
-| 在远程服务之上加东西（同步视图、缓存、代调用方身份访问） | 本地服务包装远程服务，包装处写明加了什么 | notes 的浏览器入口；产品里的 `nbook.storage` |
-| 对方不在时只有一部分功能不可用 | 可选依赖加 `resolve`；对方在别的实例时用远程调用，按 `not-provided` 与 `unavailable` 分别降级，调用前想知道就 `lookup` | notes 服务端的可选 clock；场景 04 的项目计数 |
-| 用户可以改的偏好 | 配置项，不自己存文件；值是开关、选项、数字与单行文字时只写声明，设置窗口按 schema 画；别的类型（列表、对象）贡献 page 分区自己画 | snippets |
+| 在远程服务之上加东西（同步视图、缓存、代调用方身份访问） | 本地服务包装远程服务 | notes 的浏览器入口；产品里的 `nbook.storage` |
+| 对方不在时只有一部分功能不可用 | 可选依赖；对方在别的实例时按远程调用的失败码降级 | notes 服务端的可选 clock；场景 04 的项目计数 |
+| 用户可以改的偏好 | 配置项（list 分区或 page 分区） | snippets |
 
 ## 运行位置与目录
 
@@ -115,7 +117,7 @@ examples/
 | [notes](plugins/notes/) | server、browser | 服务端：必需依赖 `nbook.storage`（真实 SQLite，按调用方插件分开）、可选依赖 clock（`resolve`，按原因分别处理），`provideRemote` 按调用方生成门面，事件 `changed`。浏览器：按调用方提供笔记视图，以调用方身份代理（`remote.on`、`remoteDelegates`），维护同步可读的缓存，`nbook.storage` 的缩小版 |
 | [counter](plugins/counter/) | server、project | 一份后端定义两个入口。服务端：`defineStore` 把计数持久化进 `nbook.storage`，公开键 `example.counter/nonzero`，命令 `example.counter.reset` 的 `when` 引用它，远程合同与订阅、提供方看到的调用方。项目：每个项目实例一份的计数，第一次调用时按需激活，窗口省略 `.at()` 即到达绑定的项目 |
 | [menu](plugins/menu/) | server | 定义贡献点 `menu.items`：规则写成 `schema` 与 `idPrefix`、登记时逐条校验，启动即激活、收到菜单项记诊断，接收者 `published` 与 `revoke`、执行时经 `implementation()` 取实现；`context.declarations` 列出已接受声明的标题，贡献方还没激活也列得出 |
-| [file-menu](plugins/file-menu/) | server | 向贡献点提交声明与实现，与拥有者之间没有服务依赖；注释说明为什么还只能启动即激活 |
+| [file-menu](plugins/file-menu/) | server | 向贡献点提交声明与实现，与拥有者之间没有服务依赖；注释说明这里为什么仍启动即激活、按需激活怎样写 |
 | [snippets](plugins/snippets/) | browser（配置项在每个实例登记） | 配置项写在插件描述里、由宿主登记进每个实例；向 `settings.pages` 贡献 page 分区，`load()` 按需加载页面；页面用 `SettingsRow` 的宽排法按 `context.layer` 只编辑这一层，按层读（`inspect`）与按层写（`update(..., {layer})`）；什么时候用 page 而不是 list |
 | [focus](plugins/focus/) | server、browser | 完整示例“专注计时”：list 分区里的设置项、命令、侧栏视图（`viewContribution` 把 store 交给组件）、状态栏条目（挂切换命令）、服务端远程服务与私有存储；计时的权威在服务端，到点由结算函数记完成（纯函数，几个服务端各自结算不会多记），条件保存防丢更新，坏记录用 `reset` 重来；窗口按 `endsAt` 算剩余、只在计时时走表、重连后重取 |
 
@@ -154,7 +156,7 @@ examples/
 
 ## 还没演示的
 
-- **拥有者定义的激活事件**（`activationEventPrefixes`）：现在只有宿主能触发，插件写不出“菜单打开时才激活贡献方”，file-menu 因此启动即激活（见它的注释）。是否给插件补触发接口由开发者决定。
+- **拥有者触发自己的激活事件**（`activationEventPrefixes` 与 `context.activation.trigger`）：插件可以写出“菜单打开时才激活贡献方”，但示例的 menu 没有“打开菜单”这一步，为了让场景 3 简单，file-menu 仍启动即激活；写法见它的注释。
 
 ## 写法与维护
 

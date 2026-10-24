@@ -29,13 +29,19 @@ let stateRoot = "";
 let author = "";
 let server: ProductServer | null = null;
 
-async function run(command: string, args: ReadonlyArray<string>, cwd: string): Promise<void> {
+/** 运行命令，失败时带上全部输出抛错；成功时返回标准输出。 */
+async function run(command: string, args: ReadonlyArray<string>, cwd: string): Promise<string> {
     const child = spawn(command, args, {cwd, stdio: ["ignore", "pipe", "pipe"]});
+    let stdout = "";
     let output = "";
-    child.stdout.on("data", (chunk: Buffer) => (output += chunk.toString()));
+    child.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString();
+        output += chunk.toString();
+    });
     child.stderr.on("data", (chunk: Buffer) => (output += chunk.toString()));
     const code = await new Promise<number>((resolve) => child.on("exit", (exit) => resolve(exit ?? 1)));
     if (code !== 0) throw new Error(`${command} ${args.join(" ")} 失败：\n${output}`);
+    return stdout;
 }
 
 test.beforeAll(async () => {
@@ -50,10 +56,9 @@ test.beforeAll(async () => {
     await writeFile(join(book, ".nbook", "project.json"), JSON.stringify({schema: 1, id}));
     await writeFile(join(stateRoot, "projects.json"), JSON.stringify({schema: 1, projects: [{id, name: "book", path: book}]}));
 
-    // 作者的那一边：生成 SDK 包，在仓库外的目录里装上它，用 Node 运行包里的命令生成、构建。
-    const sdk = join(tmp, "sdk");
-    await run("bun", ["-e", `import {buildSdk} from "./plugin-sdk/pack"; await buildSdk(${JSON.stringify(sdk)});`], PACKAGE_ROOT);
-    author = await authorDirectory(join(tmp, "hello-world"), sdk);
+    // 作者的那一边：生成 SDK 包的 tarball（命令最后一行打印它的路径），在仓库外的目录里装上它，用 Node 运行包里的命令生成、构建。
+    const tarball = (await run("bun", ["plugin-sdk/pack.ts", join(tmp, "sdk")], PACKAGE_ROOT)).trim().split("\n").at(-1)!;
+    author = await authorDirectory(join(tmp, "hello-world"), tarball);
     await run("node", [cliOf(author), "create", "."], author);
     await run("node", [cliOf(author), "build"], author);
 });

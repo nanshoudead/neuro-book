@@ -7,7 +7,7 @@
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 
 import {chmod, mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
-import {join} from "node:path";
+import {basename, join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
@@ -16,13 +16,14 @@ import {compareVersions, pluginVersionSatisfies} from "../src/plugin-platform/sh
 
 import {devVersion} from "./build";
 
-import {buildSdk} from "./pack";
 import {authorDirectory, cliOf} from "./testing/author";
+import {builtSdk} from "./testing/sdk";
 
 let tmp = "";
-let sdk = "";
+/** 测试共用的那份 SDK 包打出的 tarball。 */
+let tarball = "";
 
-const authorDirectoryNamed = (name: string): Promise<string> => authorDirectory(join(tmp, name), sdk);
+const authorDirectoryNamed = (name: string): Promise<string> => authorDirectory(join(tmp, name), tarball);
 
 function node(cwd: string, ...args: string[]): {readonly code: number; readonly stdout: string; readonly stderr: string} {
     const result = Bun.spawnSync({cmd: ["node", ...args], cwd, stdout: "pipe", stderr: "pipe"});
@@ -33,9 +34,8 @@ const cli = (cwd: string, ...args: string[]) => node(cwd, cliOf(cwd), ...args);
 
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-sdk", "template");
-    sdk = join(tmp, "sdk");
-    await buildSdk(sdk);
-}, 120_000);
+    tarball = (await builtSdk()).tarball;
+}, 240_000);
 
 afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
@@ -52,7 +52,7 @@ describe("nbook-plugin", () => {
         const manifest = JSON.parse(await readFile(join(author, "package.json"), "utf8")) as Record<string, Record<string, string> | string>;
         expect(manifest).toMatchObject({publisher: "my", name: "hello-world", version: "0.1.0", scripts: {build: "nbook-plugin build --clean"}});
         // 装 SDK 时写下的依赖写法不动，模板补上缺的开发依赖。
-        expect((manifest.devDependencies as Record<string, string>)["@notnotype/nb-plugin-sdk"]).toBe("file:../nb-plugin-sdk-0.1.0.tgz");
+        expect((manifest.devDependencies as Record<string, string>)["@notnotype/nb-plugin-sdk"]).toBe(`file:../${basename(tarball)}`);
         expect(Object.keys(manifest.devDependencies as Record<string, string>).sort()).toEqual(["@notnotype/nb-plugin-sdk", "typebox", "typescript", "vue", "vue-tsc"]);
         expect(await readdir(author)).toEqual(expect.arrayContaining([".gitignore", "README.md", "env.d.ts", "plugin.ts", "shared", "tsconfig.json", "web"]));
 

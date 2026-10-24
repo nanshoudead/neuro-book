@@ -15,10 +15,13 @@
         "./notifications": "./src/composables/useNotification.ts",
         "./lab-sources": "./src/lab/sources.ts",
         "./colorway": "./src/colorway/index.ts",
+        "./colorway-contract": "./src/colorway/colorway-contract.ts",
         "./theme": "./src/theme/index.ts",
         "./themes/*": "./themes/*/index.ts",
         "./utils": "./src/utils/index.ts",
-        "./tailwind.css": "./src/tailwind.css"
+        "./tailwind.css": "./src/tailwind.css",
+        "./tokens.css": "./src/tokens.css",
+        "./theme.css": "./src/theme.css"
     },
     "scripts": {
         "dev": "nuxt dev playground",

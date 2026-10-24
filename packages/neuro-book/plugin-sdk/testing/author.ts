@@ -1,27 +1,38 @@
 /**
- * 测试里的作者目录：装好生成的 SDK 包与模板要的依赖，`package.json` 是作者 `npm install -D <SDK 的 tarball>` 之后会留下的
- * 那样。依赖从仓库的 `node_modules` 链接，不联网；SDK 包整个复制（作者装的是 tarball 解开的一份，不是链接）。Bun 的测试与
+ * 测试里的作者目录：装好 SDK 包与作者机器上要有的包，`package.json` 是作者 `npm install -D <SDK 的 tarball>` 之后会留下的
+ * 那样。依赖从仓库的 `node_modules` 链接，不联网；SDK 包从打包产出的 tarball 解开（作者装的就是它）。Bun 的测试与
  * Playwright（Node）都用它，所以只用 Node 的 API。
  */
 
-import {cp, mkdir, symlink, writeFile} from "node:fs/promises";
-import {join} from "node:path";
+import {execFileSync} from "node:child_process";
+import {mkdir, symlink, writeFile} from "node:fs/promises";
+import {basename, dirname, join} from "node:path";
 import {fileURLToPath} from "node:url";
+
+import {AUTHOR_PACKAGES, BUILD_DEPENDENCIES} from "../dependencies";
 
 const REPO_MODULES = fileURLToPath(new URL("../../../../node_modules/", import.meta.url));
 
-/** 模板与构建预设在作者机器上要的包。 */
-const LINKED = ["vue", "typebox", "typescript", "vue-tsc", "csstype", "vite", "semver", "@vitejs/plugin-vue", "@iconify/utils", "@iconify-json/lucide"];
-const VUE_PACKAGES = ["reactivity", "runtime-core", "runtime-dom", "shared", "compiler-dom", "compiler-core", "compiler-sfc", "compiler-ssr", "server-renderer"];
+/** npm 装 vue 时一起装上的包：vue 自己的依赖（`@vue/*`、类型用的 csstype）。 */
+const VUE_DEPENDENCIES = ["csstype", ...["reactivity", "runtime-core", "runtime-dom", "shared", "compiler-dom", "compiler-core", "compiler-sfc", "compiler-ssr", "server-renderer"].map((name) => `@vue/${name}`)];
 
-export async function authorDirectory(directory: string, sdk: string): Promise<string> {
+/** 把作者机器上要有的包（加上 `extra`）从仓库的 `node_modules` 链进 `directory/node_modules`。 */
+export async function linkAuthorModules(directory: string, extra: ReadonlyArray<string> = []): Promise<void> {
     const modules = join(directory, "node_modules");
-    await mkdir(join(modules, "@notnotype"), {recursive: true});
-    await cp(sdk, join(modules, "@notnotype/nb-plugin-sdk"), {recursive: true});
-    for (const scope of ["@vue", "@vitejs", "@iconify", "@iconify-json"]) await mkdir(join(modules, scope), {recursive: true});
-    for (const item of LINKED) await symlink(join(REPO_MODULES, item), join(modules, item));
-    for (const item of VUE_PACKAGES) await symlink(join(REPO_MODULES, "@vue", item), join(modules, "@vue", item));
-    await writeFile(join(directory, "package.json"), `${JSON.stringify({devDependencies: {"@notnotype/nb-plugin-sdk": "file:../nb-plugin-sdk-0.1.0.tgz"}}, null, 2)}\n`);
+    for (const name of [...AUTHOR_PACKAGES, ...BUILD_DEPENDENCIES, ...VUE_DEPENDENCIES, ...extra]) {
+        await mkdir(dirname(join(modules, name)), {recursive: true});
+        await symlink(join(REPO_MODULES, name), join(modules, name));
+    }
+}
+
+/** 作者目录：链好依赖，解开 SDK 的 tarball，写下装 SDK 时留下的 `package.json`。 */
+export async function authorDirectory(directory: string, tarball: string): Promise<string> {
+    await linkAuthorModules(directory);
+    const sdk = join(directory, "node_modules/@notnotype/nb-plugin-sdk");
+    await mkdir(sdk, {recursive: true});
+    // npm 的 tarball 里文件都在 `package/` 下。
+    execFileSync("tar", ["-xzf", tarball, "-C", sdk, "--strip-components=1"]);
+    await writeFile(join(directory, "package.json"), `${JSON.stringify({devDependencies: {"@notnotype/nb-plugin-sdk": `file:../${basename(tarball)}`}}, null, 2)}\n`);
     return directory;
 }
 

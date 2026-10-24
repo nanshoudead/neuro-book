@@ -7,7 +7,7 @@
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 
 import {existsSync} from "node:fs";
-import {cp, mkdir, readdir, readFile, rm, symlink, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {dirname, join, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
@@ -15,11 +15,18 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {manifestFormat} from "../src/plugin-platform-profile";
 
-import {buildSdk} from "./pack";
+import {AUTHOR_PACKAGES} from "./dependencies";
+import {buildSdk, clearPreviousSdk} from "./pack";
+import type {BuiltSdk} from "./pack";
+import {authorDirectory} from "./testing/author";
+import {registeredFactory, runFactory} from "./testing/browser-artifact";
+import {builtSdk} from "./testing/sdk";
 
-const repoModules = fileURLToPath(new URL("../../../node_modules/", import.meta.url));
 let tmp = "";
 let project = "";
+let built: BuiltSdk;
+/** 作者项目里装好的 SDK 包（从 tarball 解开的）。 */
+let installed = "";
 
 /** 作者的插件源码：两端的入口、设置项、page 分区与宿主能力都从 SDK 取；服务端与浏览器的入口分模块写（服务端产物不能带浏览器的 SDK）。 */
 const AUTHOR_SOURCES: Readonly<Record<string, string>> = {
@@ -113,47 +120,49 @@ function declaredExports(text: string): string[] {
 
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-sdk", "pack");
-    project = join(tmp, "author");
-    const sdk = join(project, "node_modules/@notnotype/nb-plugin-sdk");
-    // 输出目录里是上次生成的 SDK 包：清空重建，旧文件不留。
-    await mkdir(join(tmp, "sdk"), {recursive: true});
-    await writeFile(join(tmp, "sdk/package.json"), JSON.stringify({name: "@notnotype/nb-plugin-sdk", version: "0.0.0"}));
-    await writeFile(join(tmp, "sdk/stale.js"), "");
-    await buildSdk(join(tmp, "sdk"));
-    await mkdir(join(project, "node_modules/@vue"), {recursive: true});
+    built = await builtSdk();
+    // 作者项目：装上 SDK 的 tarball 与作者机器上要有的包（peer 依赖、TypeScript 与构建预设的依赖，链到仓库里同一份，不联网）。
+    project = await authorDirectory(join(tmp, "author"), built.tarball);
+    installed = join(project, "node_modules/@notnotype/nb-plugin-sdk");
     await mkdir(join(project, "src"), {recursive: true});
-    await cp(join(tmp, "sdk"), sdk, {recursive: true});
-    // 作者项目自己装的包：peer 依赖、TypeScript 与构建预设的依赖。直接链到仓库里同一份，不联网安装。
-    await mkdir(join(project, "node_modules/@vitejs"), {recursive: true});
-    await mkdir(join(project, "node_modules/@iconify"), {recursive: true});
-    await mkdir(join(project, "node_modules/@iconify-json"), {recursive: true});
-    for (const name of ["vue", "typebox", "typescript", "vue-tsc", "csstype", "vite", "semver", "@vitejs/plugin-vue", "@iconify/utils", "@iconify-json/lucide"]) {
-        await symlink(join(repoModules, name), join(project, "node_modules", name));
-    }
-    for (const name of ["reactivity", "runtime-core", "runtime-dom", "shared", "compiler-dom", "compiler-core", "compiler-sfc", "compiler-ssr", "server-renderer"]) {
-        await symlink(join(repoModules, "@vue", name), join(project, "node_modules/@vue", name));
-    }
     await writeFile(join(project, "tsconfig.json"), JSON.stringify({compilerOptions: {target: "ES2022", module: "ESNext", moduleResolution: "bundler", strict: true, noEmit: true, skipLibCheck: false, lib: ["ES2020", "DOM"]}, include: ["src"]}));
     for (const [path, text] of Object.entries(AUTHOR_SOURCES)) await writeFile(join(project, path), text);
     await writeFile(join(project, "package.json"), JSON.stringify({publisher: "acme", name: "hello", version: "1.0.0", type: "module", nbook: {definitions: ["src/backend.ts", "src/web.ts"]}}));
     await writeFile(join(project, "plugin.ts"), `export {descriptor} from "./src/shared";\n`);
-}, 120_000);
+}, 240_000);
 
 afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
 describe("生成的 SDK 包", () => {
-    it("peer 依赖是 vue、@vue/reactivity（与 vue 同一范围，两者成对发布）与 typebox；./build 带类型；上次生成的旧文件已清掉", async () => {
-        const manifest = JSON.parse(await readFile(join(tmp, "sdk/package.json"), "utf8")) as {peerDependencies: Record<string, string>; exports: Record<string, Record<string, string>>};
+    it("peer 依赖是 vue、@vue/reactivity（与 vue 同一范围，两者成对发布）与 typebox；./build 带类型", async () => {
+        const manifest = JSON.parse(await readFile(join(installed, "package.json"), "utf8")) as {peerDependencies: Record<string, string>; exports: Record<string, Record<string, string>>};
         expect(Object.keys(manifest.peerDependencies).sort()).toEqual(["@vue/reactivity", "typebox", "vue"]);
         expect(manifest.peerDependencies["@vue/reactivity"]).toBe(manifest.peerDependencies.vue!);
         expect(manifest.exports["./build"]).toEqual({types: "./build.d.ts", import: "./build.js"});
-        expect(await readdir(join(tmp, "sdk"))).not.toContain("stale.js");
+    });
+
+    it("tarball 里有示例插件的源码与模板（含 `_gitignore`）；不带场景测试、场地、测试文件与构建产物；模板的开发依赖带上作者项目自己装的包", async () => {
+        const files = (await readdir(installed, {recursive: true})).map((file) => file.split("\\").join("/"));
+        expect(files).toEqual(expect.arrayContaining(["examples/plugins/focus/plugin.ts", "examples/plugins/focus/web/FocusPanel.vue", "examples/external/declarative/package.json", "template/_gitignore", "template/_package.json"]));
+        expect(files.filter((file) => file.startsWith("examples/") && (/^examples\/(scenarios|testing)\//u.test(file) || file.endsWith(".test.ts") || file.split("/").includes("dist")))).toEqual([]);
+        const template = JSON.parse(await readFile(join(installed, "template/_package.json"), "utf8")) as {devDependencies: Record<string, string>};
+        expect(Object.keys(template.devDependencies).sort()).toEqual(["@notnotype/nb-plugin-sdk", ...AUTHOR_PACKAGES].sort());
+        expect(Object.values(template.devDependencies).filter((range) => range.includes("__") && range !== "^__SDK_VERSION__")).toEqual([]);
+    });
+
+    it("输出目录是上次生成的 SDK 包：清空，旧文件不留", async () => {
+        const previous = join(tmp, "previous");
+        await mkdir(previous, {recursive: true});
+        await writeFile(join(previous, "package.json"), JSON.stringify({name: "@notnotype/nb-plugin-sdk", version: "0.0.0"}));
+        await writeFile(join(previous, "stale.js"), "");
+        await clearPreviousSdk(previous);
+        expect(existsSync(previous)).toBe(false);
     });
 
     it("带作者文档、组件与主题变量两份附表和作者文档引用的 Spec；包里 Markdown 的相对链接都能打开，指向包外的改成文字", async () => {
-        const sdk = join(tmp, "sdk");
+        const sdk = installed;
         expect(await readFile(join(sdk, "docs/components.md"), "utf8")).toContain("`Button`");
         const tokens = await readFile(join(sdk, "docs/tokens.md"), "utf8");
         expect(tokens).toContain("`--space-2`");
@@ -215,7 +224,7 @@ describe("生成的 SDK 包", () => {
     }, 60_000);
 
     it("类型导出的名字", async () => {
-        expect(declaredExports(await readFile(join(project, "node_modules/@notnotype/nb-plugin-sdk/index.d.ts"), "utf8"))).toEqual([
+        expect(declaredExports(await readFile(join(installed, "index.d.ts"), "utf8"))).toEqual([
             "ActivationContext", "COMMANDS_POINT", "CommandDeclaration", "CommandImplementation", "ContributionDeclaration", "ContributionDescriptor",
             "ContributionHandle", "ContributionPointDefinition", "ContributionReceiver", "DiagnosticsService", "DisplayLocale", "LocalizedText",
             "PluginDefinition", "PluginDescriptor", "PluginEntryDefinition", "RecordDefinition", "RecordHandle", "RemoteContract", "RemoteOutcome",
@@ -225,17 +234,17 @@ describe("生成的 SDK 包", () => {
             "hostClockKey", "hostStateRootKey", "localize", "orThrow", "provide", "providePerConsumer", "provideRemote", "settingsChoicesEvent", "settingsKey",
             "storageKey", "ItemDeclaration", "ViewDeclaration", "ViewLocation", "WORKBENCH_STATUSBAR_ITEMS_POINT", "WORKBENCH_VIEWS_POINT",
         ].sort());
-        expect(declaredExports(await readFile(join(project, "node_modules/@notnotype/nb-plugin-sdk/browser.d.ts"), "utf8"))).toEqual([
+        expect(declaredExports(await readFile(join(installed, "browser.d.ts"), "utf8"))).toEqual([
             "OptionSource", "SettingsChoicesImplementation", "SettingsPageActions", "SettingsPageContext", "SettingsPageContribution", "SettingsPageList", "SettingsRow", "SettingsSaveBar",
             "settingsPageContribution", "ItemImplementation", "ViewContext", "ViewContribution", "ViewImplementation", "viewContribution",
         ].sort());
         // 组件子路径的声明与源码里逐个列出的名单一致：nb-ui 入口里别的导出不会混进来。
         const listed = [...(await readFile(fileURLToPath(new URL("../src/sdk/components.ts", import.meta.url)), "utf8")).matchAll(/export (?:type )?\{([^}]+)\}/gu)].flatMap((match) => match[1]!.split(",").map((name) => name.trim()).filter((name) => name !== ""));
-        expect(declaredExports(await readFile(join(project, "node_modules/@notnotype/nb-plugin-sdk/components.d.ts"), "utf8"))).toEqual([...listed].sort());
+        expect(declaredExports(await readFile(join(installed, "components.d.ts"), "utf8"))).toEqual([...listed].sort());
     });
 
     it("仓库外用生成的包里的构建预设构建插件：清单合格，产物只引用宿主共享的模块", async () => {
-        const {buildPlugin} = await import(join(project, "node_modules/@notnotype/nb-plugin-sdk/build.js")) as typeof import("./build");
+        const {buildPlugin} = await import(join(installed, "build.js")) as typeof import("./build");
         const out = join(tmp, "hello-dist");
         const result = await buildPlugin({root: project, outDir: out});
         expect(result.files).toEqual(["browser.js", "browser.js.map", "package.json", "server.js", "server.js.map", "style.css"]);
@@ -243,12 +252,8 @@ describe("生成的 SDK 包", () => {
         if (manifest.status !== "valid") throw new Error(JSON.stringify(manifest.problems));
         expect(manifest.manifest.entries.map((entry) => entry.id)).toEqual(["server", "browser"]);
         expect(manifest.manifest.contributes.map((item) => item.id)).toEqual(["acme.hello/greeting", "acme.hello.list"]);
-        // 浏览器产物压缩过，工厂的 require 参数改了名：从登记外壳里取出它的名字，再找对它的调用。这里不执行产物，执行要
-        // 写宿主的全局登记对象（build-plugin.test.ts 经装载器做）。
-        const browser = await readFile(join(out, "browser.js"), "utf8");
-        const requireName = /register\([\w$]+,\s*function\s*\([\w$]+,\s*[\w$]+,\s*([\w$]+)\)/u.exec(browser)?.[1];
-        if (requireName === undefined) throw new Error("产物里没有登记外壳");
-        const required = [...browser.matchAll(new RegExp(`(?<![\\w$.])${requireName.replaceAll("$", "\\$")}\\(["'\`]([^"'\`]+)["'\`]\\)`, "gu"))].map((match) => match[1]);
+        // 像宿主那样执行浏览器产物，看工厂经 require 真的取了哪些模块。
+        const {required} = await runFactory(await registeredFactory(await readFile(join(out, "browser.js"), "utf8")));
         // 单文件组件编译后引用 vue。
         expect([...new Set(required)].sort()).toEqual(["@notnotype/nb-plugin-sdk", "@notnotype/nb-plugin-sdk/browser", "@notnotype/nb-plugin-sdk/components", "vue"]);
     }, 120_000);

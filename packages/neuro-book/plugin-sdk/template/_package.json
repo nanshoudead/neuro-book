@@ -12,10 +12,6 @@
         "typecheck": "vue-tsc --noEmit"
     },
     "devDependencies": {
-        "@notnotype/nb-plugin-sdk": "^__SDK_VERSION__",
-        "typebox": "__TYPEBOX_RANGE__",
-        "typescript": "__TYPESCRIPT_RANGE__",
-        "vue": "__VUE_RANGE__",
-        "vue-tsc": "__VUE_TSC_RANGE__"
+        "@notnotype/nb-plugin-sdk": "^__SDK_VERSION__"
     }
 }

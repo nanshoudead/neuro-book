@@ -7,19 +7,18 @@
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
 
 import {existsSync, statSync} from "node:fs";
-import {mkdir, readdir, readFile, rm, symlink, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {fileURLToPath, pathToFileURL} from "node:url";
 
 import {createTestTmpRoot, resolveTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {BROWSER_SHARED_MODULES, manifestFormat, NEUROBOOK_PROFILE} from "../src/plugin-platform-profile";
-import {createPluginCodeHost} from "../src/plugin-platform/web/plugin-code";
-import type {PluginDocument, PluginScript} from "../src/plugin-platform/web/plugin-code";
+import {BROWSER_SHARED_MODULES, manifestFormat} from "../src/plugin-platform-profile";
 import {buildExample, EXAMPLES_ROOT, IN_REPO_BUILD} from "./build-examples";
 import {buildPlugin, PluginBuildError} from "./build";
+import {registeredFactory, runFactory} from "./testing/browser-artifact";
+import {linkAuthorModules} from "./testing/author";
 
-const repoModules = fileURLToPath(new URL("../../../node_modules/", import.meta.url));
 let tmp = "";
 
 beforeAll(async () => {
@@ -30,13 +29,10 @@ afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-/** 在临时目录里写一个作者项目：`files` 是相对路径到内容；依赖链到仓库里同一份。 */
+/** 在临时目录里写一个作者项目：`files` 是相对路径到内容；作者机器上的依赖（加上 `extra`）链到仓库里同一份。 */
 async function authorProject(name: string, files: Readonly<Record<string, string>>, extra: ReadonlyArray<string> = []): Promise<string> {
     const root = join(tmp, name);
-    await mkdir(join(root, "node_modules/@vue"), {recursive: true});
-    await mkdir(join(root, "node_modules/@notnotype"), {recursive: true});
-    for (const item of ["vue", "typebox", ...extra]) await symlink(join(repoModules, item), join(root, "node_modules", item));
-    for (const item of ["reactivity", "runtime-core", "runtime-dom", "shared"]) await symlink(join(repoModules, "@vue", item), join(root, "node_modules/@vue", item));
+    await linkAuthorModules(root, extra);
     await writeFile(join(root, "package.json"), JSON.stringify({publisher: "acme", name, version: "1.0.0", type: "module"}));
     await writeFile(join(root, "plugin.ts"), `export const descriptor = {id: "acme.${name}", version: "1.0.0", locations: ["server", "browser"]};\n`);
     await writeAll(root, files);
@@ -64,94 +60,10 @@ async function failure(root: string): Promise<ReadonlyArray<string>> {
     throw new Error("期望构建失败");
 }
 
-let pageSequence = 0;
-
-/**
- * 像宿主那样装载浏览器产物，返回脚本登记的工厂，调用方用自己的 `require` 执行它。经装载器（`createPluginCodeHost`）把产物
- * 插进一个假页面：脚本在插入后的下一轮事件循环里执行（`document.currentScript` 是这个脚本），经全局登记对象交出工厂，之后
- * 才触发 load；执行出错时派发带文件名的全局 error 事件。装载器用宿主模块表执行一次工厂并核对导出了 `activate`；工厂本身经
- * 全局登记对象的等待取得：同一 URL 的每个等待者都收到登记，这里与装载器一样是一个等待者，不写那个全局属性。
- */
-async function registeredFactory(code: string): Promise<(module: {exports: Record<string, unknown>}, exports: Record<string, unknown>, require: (id: string) => unknown) => void> {
-    // 每次一个新页面：全局登记对象在整个测试进程里只有一个，不同调用的登记不能互相交错。
-    pageSequence += 1;
-    const baseURI = `http://plugin.test/page-${String(pageSequence)}/`;
-    const url = `${baseURI}browser.js`;
-    const errorListeners = new Set<(event: {readonly filename: string; readonly message: string}) => void>();
-    const page: PluginDocument = {
-        baseURI,
-        head: {
-            append(node) {
-                const script = node as PluginScript;
-                const execute = (): void => {
-                    try {
-                        new Function("document", code)({currentScript: script});
-                    } catch (error) {
-                        for (const listener of [...errorListeners]) listener({filename: script.src, message: error instanceof Error ? error.message : String(error)});
-                    }
-                    script.onload?.();
-                };
-                setTimeout(execute, 0);
-            },
-        },
-        defaultView: {
-            addEventListener: (_type, listener) => errorListeners.add(listener),
-            removeEventListener: (_type, listener) => errorListeners.delete(listener),
-        },
-        createElement: (() => ({src: "", async: false, onload: null, onerror: null, remove: () => undefined})) as unknown as PluginDocument["createElement"],
-    };
-    const host = createPluginCodeHost({
-        document: page,
-        registryGlobal: NEUROBOOK_PROFILE.registryGlobal,
-        // 宿主模块表里的真实模块。nb-ui 的组件是单文件组件，Bun 加载不了；页面没有渲染，给一个空对象就够。
-        modules: async () => ({
-            "vue": await import("vue"),
-            "@vue/reactivity": await import("@vue/reactivity"),
-            "typebox": await import("typebox"),
-            "typebox/value": await import("typebox/value"),
-            "typebox/compile": await import("typebox/compile"),
-            "@notnotype/nb-plugin-sdk": await import("../src/sdk/index"),
-            "@notnotype/nb-plugin-sdk/browser": await import("../src/sdk/browser"),
-            "@notnotype/nb-plugin-sdk/components": {},
-        }),
-    });
-    const registry = (globalThis as unknown as Record<string, {wait(url: string, waiter: (factory: unknown) => void): () => void}>)[NEUROBOOK_PROFILE.registryGlobal];
-    let factory: unknown = null;
-    const stop = registry.wait(url, (registered) => {
-        factory = registered;
-    });
-    try {
-        await host.activateOf({plugin: "acme.test", entry: "browser", url: "browser.js", signal: new AbortController().signal});
-    } finally {
-        stop();
-    }
-    if (typeof factory !== "function") throw new Error("脚本没有登记工厂");
-    return factory as never;
-}
-
-/** 宿主模块表里的真实模块。nb-ui 的组件是单文件组件，Bun 加载不了；这里的产物不渲染，给一个空对象就够。 */
-async function hostModules(): Promise<Readonly<Record<string, unknown>>> {
-    return {
-        "vue": await import("vue"),
-        "@vue/reactivity": await import("@vue/reactivity"),
-        "@notnotype/nb-plugin-sdk": await import("../src/sdk/index"),
-        "@notnotype/nb-plugin-sdk/browser": await import("../src/sdk/browser"),
-        "@notnotype/nb-plugin-sdk/components": {},
-    };
-}
-
 /** 像宿主那样执行一次浏览器产物并激活：返回 activate 的结果与工厂经 require 取过的模块。 */
 async function activateBrowser(root: string): Promise<{readonly value: Record<string, unknown>; readonly required: ReadonlyArray<string>}> {
-    const factory = await registeredFactory(await readFile(join(root, "dist/browser.js"), "utf8"));
-    const table = await hostModules();
-    const required: string[] = [];
-    const module = {exports: {} as Record<string, unknown>};
-    factory(module, module.exports, (id) => {
-        required.push(id);
-        if (!Object.hasOwn(table, id)) throw new Error(`表外模块 ${id}`);
-        return table[id];
-    });
-    const activate = module.exports.activate as (context: unknown) => Promise<Record<string, unknown>>;
+    const {exports, required} = await runFactory(await registeredFactory(await readFile(join(root, "dist/browser.js"), "utf8")));
+    const activate = exports.activate as (context: unknown) => Promise<Record<string, unknown>>;
     return {value: await activate({}), required};
 }
 
@@ -185,27 +97,8 @@ describe("构建示例 snippets", () => {
 
     it("浏览器产物登记工厂；工厂只经宿主的 require 取共享模块，导出 activate", async () => {
         const code = await readFile(join(tmp, "snippets/browser.js"), "utf8");
-        const factory = await registeredFactory(code);
-        // 宿主模块表里的真实模块。
-        const table: Readonly<Record<string, unknown>> = {
-            "vue": await import("vue"),
-            "@vue/reactivity": await import("@vue/reactivity"),
-            "typebox": await import("typebox"),
-            "typebox/value": await import("typebox/value"),
-            "typebox/compile": await import("typebox/compile"),
-            "@notnotype/nb-plugin-sdk": await import("../src/sdk/index"),
-            "@notnotype/nb-plugin-sdk/browser": await import("../src/sdk/browser"),
-            // nb-ui 的组件是单文件组件，Bun 加载不了；页面没有渲染，给一个空对象就够。
-            "@notnotype/nb-plugin-sdk/components": {},
-        };
-        const required: string[] = [];
-        const module = {exports: {} as Record<string, unknown>};
-        factory(module, module.exports, (id) => {
-            required.push(id);
-            if (!Object.hasOwn(table, id)) throw new Error(`表外模块 ${id}`);
-            return table[id];
-        });
-        expect(typeof module.exports.activate).toBe("function");
+        const {exports, required} = await runFactory(await registeredFactory(code));
+        expect(typeof exports.activate).toBe("function");
         expect([...new Set(required)].every((id) => (BROWSER_SHARED_MODULES as ReadonlyArray<string>).includes(id))).toBe(true);
         // typebox 由宿主共享，不打进产物（plugin-code-loading 的宿主模块表）。
         expect(required).toContain("typebox");
@@ -350,7 +243,7 @@ export const echoBrowser = {id: "acme.echo", entries: [defineEntry({id: "browser
             "backend/plugin.ts": `export const s = {id: "acme.meta-url", entries: [{id: "server", location: "server", activate: async () => ({url: import.meta.url})}]};\n`,
         });
         await build(root);
-        // 假页面给每次装载一个自己的目录（`registeredFactory`）：基址是那个脚本的地址，资源与脚本在同一目录。
+        // 每次装载一个新的假页面（`registeredFactory`）：基址是那个脚本的地址，资源与脚本在同一目录。
         const {url, asset} = (await activateBrowser(root)).value as {readonly url: string; readonly asset: string};
         expect(url).toMatch(/^http:\/\/plugin\.test\/.+\/browser\.js$/u);
         expect(asset).toBe(url.replace(/browser\.js$/u, "missing.svg"));

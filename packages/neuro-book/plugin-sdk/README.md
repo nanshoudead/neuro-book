@@ -18,7 +18,7 @@
 
 ## 安装 SDK，生成插件
 
-SDK 不发布到 npm，先拿到它的 tarball：别人给的，或者在 NeuroBook 仓库里自己生成（在 `packages/neuro-book` 目录 `bun run build:sdk`，再到 `dist/plugin-sdk` 里 `npm pack`）。命令 `nbook-plugin` 在 SDK 包里，所以先装 SDK、再生成插件：
+SDK 不发布到 npm，先拿到它的 tarball：别人给的，或者在 NeuroBook 仓库里自己生成（在 `packages/neuro-book` 目录 `bun run build:sdk`，最后一行打印 tarball 的路径，缺省在 `dist/` 下）。命令 `nbook-plugin` 在 SDK 包里，所以先装 SDK、再生成插件：
 
 ```sh
 mkdir hello && cd hello
@@ -185,6 +185,7 @@ hello/
 
 ## 附表与 Spec
 
-- `docs/components.md`：组件清单，由 NeuroBook 的组件入口生成。
+- `docs/components.md`：组件清单，由 SDK 的组件入口生成。
 - `docs/tokens.md`：主题变量清单，由 NeuroBook 的主题文件生成。
+- `examples/`：示例插件的源码，`plugins/` 下每个目录是一个插件，`external/declarative` 是只有声明的插件。
 - `specs/`：本文引用的 Spec 的副本：[plugin-api](../../../docs/specs/runtime/plugin-api.md)（SDK 与作者工具）、[plugin-code-loading](../../../docs/specs/runtime/plugin-code-loading.md)（构建预设、宿主模块表、纯度检查、插件样式）、[plugin-manifest](../../../docs/specs/runtime/plugin-manifest.md)（清单与 id 规则）、[plugin-install](../../../docs/specs/runtime/plugin-install.md)（安装、升级、卸载）、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md)（远程服务）、[views](../../../docs/specs/workbench/views.md)（视图）、[workbench-shell](../../../docs/specs/ui/workbench-shell.md)（状态栏条目）、[configuration](../../../docs/specs/settings/configuration.md)（设置项）、[settings-window](../../../docs/specs/settings/settings-window.md)（设置分区）、[persistence](../../../docs/specs/storage/persistence.md)（私有存储）。
