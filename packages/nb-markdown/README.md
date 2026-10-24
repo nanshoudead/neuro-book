@@ -16,6 +16,14 @@ Markdown 的语言、编解码器与组件。行为合同见 [`ui/markdown-displ
 | `./lab-sources` | 只给应用的 Component Lab 建组件索引 |
 | `./tailwind.css` | 让宿主的 Tailwind 扫到本包的图标类名 |
 
+## 安装
+
+```bash
+bun add @notnotype/nb-markdown
+```
+
+只支持 Bun。包里是 TypeScript 与 `.vue` 源码，不带编译产物，由宿主的 Vite 与 Tailwind v4 编译（[ADR 0028](../../docs/adr/0028-tailwind-only-host-compiles-nb-ui.md)、[ADR 0029](../../docs/adr/0029-workspace-packages-publish-source-to-npm.md)）。peer 依赖 `vue` 与 `typescript`（编译单文件组件时解析导入的 props 类型要用），Bun 安装时会自动装上；宿主另装 `vite`、`@vitejs/plugin-vue`、`tailwindcss` 与 `@tailwindcss/vite`。许可证 AGPL-3.0-only。
+
 ## 宿主接入
 
 1. **依赖**：`vue` 是 peer 依赖，其余随包安装。

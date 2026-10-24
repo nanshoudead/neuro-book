@@ -178,6 +178,27 @@ AI 助手干活的规矩是可以改的，而且不用写代码。每个助手�
 
 共享依赖方向、治理继承和运行态边界见 [Monorepo Module 边界与迁移规范](docs/modules/monorepo-boundaries.md) 与 [packages/AGENTS.md](packages/AGENTS.md)。
 
+## npm 包
+
+剧情图谱 `nbstory` 与它用到的 8 个包发布在 npm 的 `@notnotype` 下（只用 Bun 运行，许可证 AGPL-3.0-only；发布形态见 [ADR 0029](docs/adr/0029-workspace-packages-publish-source-to-npm.md)）：
+
+```bash
+bun add -g @notnotype/nb-story
+nbstory --help
+```
+
+| 包 | 内容 |
+|---|---|
+| [`@notnotype/nb-story`](packages/nb-story/README.md) | 剧情图谱：`nbstory` 命令行、本机网页查看器与问答、外部 Agent 的 Skill（Linux 与 macOS） |
+| [`@notnotype/nb-harness`](packages/nb-harness/README.md) | Agent harness：Profile、工具与一次运行 |
+| [`@notnotype/nb-profile`](packages/nb-profile/README.md) | Profile 的定义、加载与 JSX 渲染 |
+| [`@notnotype/nb-session`](packages/nb-session/README.md) | Agent 会话日志 |
+| [`@notnotype/nb-runtime`](packages/nb-runtime/README.md) | 内核：生命周期、服务装配、插件、启动门禁、诊断、远程服务 |
+| [`@notnotype/nb-ui`](packages/nb-ui/README.md) | Vue 基础组件与主题（宿主用 Vite 与 Tailwind v4 编译） |
+| [`@notnotype/nb-agent-ui`](packages/nb-agent-ui/README.md) | Agent 对话视图 |
+| [`@notnotype/nb-form`](packages/nb-form/README.md) | 按数据 schema 画表单 |
+| [`@notnotype/nb-markdown`](packages/nb-markdown/README.md) | Markdown 的语言、编解码器与组件 |
+
 ## 社区
 
 - LINUX DO：https://linux.do/

@@ -9,14 +9,15 @@ description: 回答书库里某本小说的剧情问题：人物、身份与化�
 
 ## 怎么跑
 
-从仓库运行（第一版没有安装包）：
+装了 npm 包 `@notnotype/nb-story`（要 Bun）后，`nbstory` 就在 PATH 上：
 
 ```bash
-bun <仓库>/packages/nb-story/src/cli.ts <命令> [参数] [选项]
-# 或在 packages/nb-story 下：bun run nbstory <命令> …
+nbstory <命令> [参数] [选项]
 ```
 
-下文写作 `nbstory`。先用 `nbstory books` 确认书库里有哪些书；不止一本时，每条命令都加 `--book <书 id>`。书库不在默认位置时加 `--library <目录>`。要拿结构化结果加 `--json`（输出 `{"ok": true, "data": …}` 或 `{"ok": false, "error": {"code", "message"}}`）。全部命令见 [references/commands.md](references/commands.md)。
+从仓库运行时把 `nbstory` 换成 `bun <仓库>/packages/nb-story/src/cli.ts`。
+
+先用 `nbstory books` 确认书库里有哪些书；不止一本时，每条命令都加 `--book <书 id>`。书库不在默认位置时加 `--library <目录>`。要拿结构化结果加 `--json`（输出 `{"ok": true, "data": …}` 或 `{"ok": false, "error": {"code", "message"}}`）。全部命令见 [references/commands.md](references/commands.md)。
 
 ## 先问读到哪里
 
