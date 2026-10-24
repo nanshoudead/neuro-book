@@ -47,7 +47,7 @@ owners:
 ## 输入与前置条件
 
 - 输入与输出按合同 schema 严格校验，多余字段被拒绝；校验在提供方执行一次（输入）、调用方执行一次（输出）。方法的输入与事件的订阅过滤是对象 schema：没写 `additionalProperties` 时 `defineRemoteService` 补成 `false`（返回的合同里是补过的一份，不改作者传进来的 schema），写了别的值在定义时报错。
-- 业务失败的详情按合同里这个码的 schema 校验，在提供方与调用方各一次；没有详情的码写 `Type.Undefined()`。提供方用 `ok(value)`、`fail(code, detail)` 构造结果（`@notnotype/nb-runtime/remote` 与 SDK 根入口导出），类型由合同推出：码要是合同声明的，详情要符合该码的 schema，不用写 `as const`。调用方拿到的结果按方法定型（`RemoteResultFor<方法>`）：业务失败按码区分，`detail` 随 `code` 收窄成该码 schema 的类型（没有详情的码这一项可以不在）；运行时失败（`unavailable`、`timeout` 等）的 `detail` 是说明。
+- 业务失败的详情按合同里这个码的 schema 校验，在提供方与调用方各一次；没有详情的码写 `Type.Undefined()`。提供方用 `ok(value)`、`fail(code, detail)` 构造结果（`@notnotype/nb-runtime/remote` 与 SDK 根入口导出），类型由合同推出：码要是合同声明的，详情要符合该码的 schema，不用写 `as const`。方法实现的第二个参数（`RemoteMethodContext<方法>`）除了终止信号还有同一对 `ok`、`fail`，类型按这个方法的合同给出，码或详情写错时报错落在那一次 `fail(…)` 上。调用方拿到的结果按方法定型（`RemoteResultFor<方法>`）：业务失败按码区分，`detail` 随 `code` 收窄成该码 schema 的类型（没有详情的码这一项可以不在）；运行时失败（`unavailable`、`timeout` 等）的 `detail` 是说明。
 - **事件助手。** `eventSource<值, 过滤>({match?, onSubscribe?})`（`@notnotype/nb-runtime/remote` 与 SDK 根入口导出）本身就是合同 `events` 里一项的实现，另有 `emit(值)` 与 `size`。每个订阅先登记、再调用 `onSubscribe`（推初始值、建这个订阅自己的资源），订阅的 `signal` 触发时移除；`emit` 只推给此刻已登记、`match` 通过的订阅。`onSubscribe` 抛错时撤销登记，订阅以 `provider-error` 结束（订阅在提供方的 `subscribe` 结算前已向调用方确认）。在激活函数里建，所有调用方共享一份；在远程实现的工厂里建，每个调用方一份；不在模块顶层建（会跨入口代次留下）。
 - **合同 id 从插件拼。** 作者 API 的 `remoteService(plugin, {name, …})` 以 `<插件 id>/<name>` 为 id，其余同 `defineRemoteService`（[`runtime.plugin-api`](plugin-api.md) 的“作者 API”）。
 - 帧上的调用方身份（含委托身份）与激活链只由内核填写，放在以 `$nb` 开头的帧字段里，与业务参数分开传递；业务参数（调用的输入、订阅的过滤参数）出现 `$nb` 开头的键，请求在未派发阶段以 `invalid-input` 拒绝。

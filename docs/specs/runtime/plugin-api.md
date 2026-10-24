@@ -135,7 +135,8 @@ owners:
 - **文字与缺省值**：界面文字可以只写一个字符串，两种界面语言显示同一句；视图 `location` 缺省 `sidebar`、`layout` 缺省 `scroll`；状态栏条目 `alignment` 缺省 `right`、`order` 与 `priority` 缺省 0，`command` 可以直接给命令助手；命令 `args` 缺省空对象，没写 `additionalProperties` 的补成 `false`，`effect` 必填。命令的参数不带值就过不了校验（有必填项，或 `minProperties` 这类写法）而没写 `expose: {human: false}` 时加载即抛错：命令面板不收集参数，以空对象执行（[`workbench.commands`](../workbench/commands.md)）。设置项的 `section` 收分区助手，`group` 只能是那个分区的组 id。
 - **插件描述与定义**：`plugin.descriptor(声明式贡献)` 给出插件描述；`plugin.definition(入口)` 或 `plugin.definition({entries, contributionPoints?, activationEventPrefixes?})` 给出插件定义，入口 id 重复时抛错（入口 id 在一个插件里唯一，不按运行位置分）。
 - **入口**：`plugin.entry({id?, location, contributions?, rawContributions?, receives?, provides?, remoteProvides?, …, activate})`。`id` 缺省取运行位置名。`contributions` 是 `{键: 助手}`，激活产出的 `contributions` 用同样的键交 `助手.implement(…)`：漏写、多写、在某个键上交了别的助手的实现都编译不过，诊断里写明是哪一项；只在浏览器有意义的助手写进别的位置的入口编译不过。助手带的激活事件（设置页的 `onSettingsPage:`、选项来源的 `onSettingsChoices:`）并进 `activationEvents`。不经助手的贡献（向别的插件定义的贡献点提交、插件状态的公开键）写在 `rawContributions`，实现写在产出的 `rawContributions: {贡献点: {id: 实现}}`；插件自己定义的贡献点写在插件定义的 `contributionPoints`，接收者照 `receives` 与产出的 `receivers` 写。服务、远程服务、接收者与 `rawContributions` 的核对同 `defineEntry`。
-- **激活上下文**：作者拿到的上下文类型上没有 `scope`，入口停止时做的事用 `ctx.onStop`；运行时是同一个上下文。
+- **激活上下文**：作者拿到的上下文类型上没有 `scope`，入口停止时做的事用 `ctx.onStop`；`services.require` 只收入口 `dependencies` 里声明的必需服务，`services.resolve` 只收声明过的服务（必需与可选），没声明的键编译不过；运行时是同一个上下文。
+- **在编辑器里核对的规则**：类型检查时就报、报错写着问题与改法的有：短名带大写、空格或下划线；设置项名不是小驼峰；参数有必填项（按静态类型）的命令没写 `expose: {human: false}`；`require` 没声明的服务；产出了服务或远程服务却没写 `provides`、`remoteProvides`。TypeBox 的类型里看不出来的（记录与远程方法 `input` 写 `additionalProperties: true`、`minProperties` 让空参数过不了校验）照旧在加载或构建时报。短名的核对要看到字面量：包在泛型函数里的助手调用推不出来。
 - **视图与设置页的属性**：`implement(props?)` 的属性类型从 `load` 推出：用 vue-tsc 检查时，必填属性漏写、名字写错或类型不对编译不过，可选属性的笔误查不出；只用 tsc 时不检查。
 
 ### 作者工具
