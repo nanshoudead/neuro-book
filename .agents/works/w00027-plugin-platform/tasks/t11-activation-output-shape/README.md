@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t11-activation-output-shape
-status: planned
+status: done
 updated: 2026-10-24
 ---
 
@@ -15,8 +15,8 @@ updated: 2026-10-24
 
 ## 当前状态
 
-2026-10-24 经 nbdev 新建，尚未开工。
+2026-10-24 并入 [t13](../t13-sdk-package-split/README.md) 的 S1b（`e0fa57fe0`）完成：内核在取得激活产出时核对形状，不是对象以 `activation-threw` 结束这一代，错误写明产出不是对象（[plugins](../../../../../docs/specs/runtime/plugins.md) 的“失败与恢复”）。
 
 ## 下一步
 
-待补充。
+无。

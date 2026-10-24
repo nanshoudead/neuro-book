@@ -164,6 +164,11 @@ interface PromptEditorExpose {
     insertText(text: string): void;
     /** 在光标处加入文件，与粘贴文件相同：按 acceptImages、acceptFiles 接受或发出 attachment-reject；只读时不做任何事。例如输入框的“添加附件”按钮。 */
     insertFiles(files: readonly File[]): void;
+    /**
+     * 聚焦、光标移到末尾，插入触发字符并打开它的菜单，例如输入框的 `+` 按钮插 `@`。触发字符只在开头、空白、`(` 或中文标点之后
+     * 才算，所以前一个字不是这些时先补一个空格（`介绍一下` 变成 `介绍一下 @`）。只读时不做任何事。
+     */
+    openTrigger(char: string): void;
 }
 ```
 

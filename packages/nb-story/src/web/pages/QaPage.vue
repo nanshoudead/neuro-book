@@ -1,7 +1,20 @@
+<script lang="ts">
+import type {ComposerView as StoredComposer} from "@notnotype/nb-agent-ui";
+
+/**
+ * 输入框的存档（草稿、输入历史、模式与这个对话选的模型和推理档），按“书 id + 对话”记在模块里：去设置页（“管理模型…”）
+ * 再回来页面重建，草稿还在。只在这一个标签页的内存里，刷新就没了。
+ */
+const composerStore = new Map<string, StoredComposer>();
+/** 交给过视图的最大草稿版本号：换对话时的新版本要大过它（受理发送时 acceptSubmission 在当前版本上加一）。 */
+let shownVersion = 0;
+</script>
+
 <script setup lang="ts">
 // 书里的“问答”页（docs/specs/story/viewer.md 的问答页，w00024 t13 决定 6 到 10、15 到 18）：对话列表在宽屏左栏、窄屏
 // 顶栏的下拉；对话视图用 nb-agent-ui，数据经 qa/source.ts（一个对话一个）；出处与人名在右侧抽屉打开。
 import {computed, onBeforeUnmount, provide, ref, shallowRef, watch, watchEffect} from "vue";
+import {useRouter} from "vue-router";
 import {AlertDialog, Banner, Button, IconButton, Popover} from "@notnotype/nb-ui/components";
 import {acceptSubmission, applyComposerAction, createAgentContext, createAgentViewRegistry, type AgentConversationContext, type AgentSessionListItem, type AgentViewAction, type ComposerView, type MessageView} from "@notnotype/nb-agent-ui";
 import {AgentConversationView, AgentSessionList, builtinMessageActionsContribution, builtinRolesContribution} from "@notnotype/nb-agent-ui/vue";
@@ -9,6 +22,7 @@ import {decodeTarget} from "@notnotype/nb-markdown";
 import {provideMarkdownHost} from "@notnotype/nb-markdown/host";
 import {PromptEditor, PromptTextView} from "@notnotype/nb-markdown/prompt";
 
+import type {QaConfig} from "../../contract/config-schema";
 import type {QaRunView, ViewerResult} from "../../contract/contract";
 import {normalizeRef} from "../../contract/refs";
 import {formatAt, useBook} from "../host/book";
@@ -17,6 +31,7 @@ import AnswerCard from "../qa/AnswerCard.vue";
 import {REF_SCHEME} from "../qa/link-refs";
 import {CHAPTER_SCHEME, createMentionSearch, ENTITY_SCHEME, MENTION_LIMIT, mentionMenu, mentionPlainText, type MentionEntity} from "../qa/mentions";
 import {createNameResolver, QA_NAME_LOOKUP} from "../qa/names";
+import {candidateInfos, clampThinking, contextTokensOf, resolveChoice, type CatalogProvider} from "../qa/models";
 import {createQaSource, type QaSource, type QaSourceState} from "../qa/source";
 import StoryMarkdown from "../qa/StoryMarkdown.vue";
 import {storyToolsContribution} from "../qa/tools";
@@ -25,17 +40,19 @@ import UnverifiedRefs from "../qa/UnverifiedRefs.vue";
 
 const book = useBook();
 const client = useStoryClient();
+const router = useRouter();
 
 provideMarkdownHost({report: (event, message, error) => console.warn({event, error}, message)});
 
 // nb-story 的 Agent 没有文件与命令工具：不登记内置工具（read 同名会冲突）与内置输入框命令（`/` 命令在这里没人处理）。
-// 输入框只登记 `@`（引用人物、章节与段落，w00024 t15 决定 2）。
+// 输入框只登记 `@`（引用人物、章节与段落，w00024 t15 决定 2）；问题前面的 `+` 插 `@` 打开同一个菜单（t16 决定 1）。
 const registry = createAgentViewRegistry([
     builtinRolesContribution,
     builtinMessageActionsContribution,
     storyToolsContribution(AnswerCard),
     {source: "nb-story:qa-entries", entries: [{id: "nb-story.unverified-refs", customType: UNVERIFIED_REFS, component: UnverifiedRefs}]},
     {source: "nb-story:qa-mentions", triggers: [{id: "nb-story.mention", char: "@"}]},
+    {source: "nb-story:qa-insert", toolbarButtons: [{id: "nb-story.insert-ref", icon: "i-lucide-plus", label: "插入引用（人物、章节、段落），同 @", placement: "leading", trigger: "@"}]},
 ]);
 const renderers = {markdown: StoryMarkdown, promptEditor: PromptEditor, promptTextView: PromptTextView};
 
@@ -59,15 +76,26 @@ const resolveName = createNameResolver(async name => {
 const nameScope = () => `${book.bookId}@${formatAt(book.at.value)}#${book.dataVersion.value}`;
 provide(QA_NAME_LOOKUP, {scope: nameScope, resolve: who => resolveName(nameScope(), who)});
 
-// ---- 设置：没配置时输入框停用，给“去设置” ----
+// ---- 设置：没配置时输入框停用，给“去设置”；候选模型与目录给输入框的模型下拉 ----
+const config = shallowRef<QaConfig | null>(null);
 const configured = ref<boolean | null>(null);
 void client.call("config.get", {}).then(
-    result => (configured.value = result.state === "valid"),
+    result => {
+        configured.value = result.state === "valid";
+        config.value = result.state === "valid" ? result.config : null;
+    },
     (error: unknown) => {
         console.warn({error}, "读问答配置失败");
         configured.value = false;
     },
 );
+const catalog = shallowRef<readonly CatalogProvider[]>([]);
+void client.call("models.catalog", {}).then(
+    result => (catalog.value = result.providers),
+    // 读不到目录时候选照样列出（灰掉，写“目录里没有这个模型”），发问时由服务端报真正的原因。
+    (error: unknown) => console.warn({error}, "读模型目录失败"),
+);
+const candidates = computed(() => (config.value === null ? new Map() : candidateInfos(config.value, catalog.value)));
 
 // ---- 对话列表 ----
 type Row = ViewerResult<"qa.list">["conversations"][number];
@@ -193,25 +221,46 @@ const services = computed(() => {
     };
 });
 
-// ---- 输入框：草稿按对话各存一份 ----
+// ---- 输入框：存档按对话各存一份（见上面的 composerStore） ----
 // 换对话时交给视图的草稿总带一个新版本号：输入框只在版本变了时换内容（nb-agent-ui README 的“草稿”）。
 const NEW = "";
-const composers = new Map<string, ComposerView>();
 const baseComposer = createAgentContext({}).composer;
-/** 交给过视图的最大版本号：换对话时的新版本要大过它（受理发送时 acceptSubmission 在当前版本上加一）。 */
-let shownVersion = baseComposer.draft.version;
+const storeKey = (id: string | null): string => `${book.bookId}\u0000${id ?? NEW}`;
 function composerOf(id: string | null): ComposerView {
-    const saved = composers.get(id ?? NEW) ?? {...baseComposer, modes: id === null ? MODES : [], mode: "graph"};
+    const saved = composerStore.get(storeKey(id)) ?? {...baseComposer, modes: id === null ? MODES : [], mode: "graph"};
     shownVersion += 1;
     return {...saved, draft: {...saved.draft, version: shownVersion}};
 }
 const composer = shallowRef<ComposerView>(composerOf(selectedId.value));
 watch(selectedId, id => (composer.value = composerOf(id)));
 function setComposer(next: ComposerView): void {
-    composers.set(selectedId.value ?? NEW, next);
+    composerStore.set(storeKey(selectedId.value), next);
     shownVersion = Math.max(shownVersion, next.draft.version);
     composer.value = next;
 }
+
+/**
+ * 这一轮用的模型与推理档。存档里的 `modelKey` 为 null 表示这个对话还没选过（规则见 `resolveChoice`）。`requested` 是选的档，
+ * `thinking` 是按所选模型夹过、真正发出的档。
+ */
+const choice = computed(() => {
+    if (config.value === null) return null;
+    const lastTurn = run.value?.model ?? record.value?.turns.at(-1)?.model ?? null;
+    const {model, requested} = resolveChoice(config.value, composer.value, lastTurn);
+    return {model, requested, thinking: clampThinking(candidates.value.get(model)?.efforts ?? [], requested)};
+});
+/** 交给视图的输入框：存档叠上候选与所选模型的推理档。 */
+const viewComposer = computed<ComposerView>(() => {
+    const current = choice.value;
+    if (current === null) return composer.value;
+    return {
+        ...composer.value,
+        models: [...candidates.value.values()].map(info => info.view),
+        modelKey: current.model,
+        thinkingLevels: [...(candidates.value.get(current.model)?.efforts ?? [])],
+        thinking: current.thinking,
+    };
+});
 
 const removeOpen = ref(false);
 const listOpen = ref(false);
@@ -236,10 +285,12 @@ const ctx = computed<AgentConversationContext>(() => {
                 : state?.phase === "failed"
                   ? {status: "load-error", message: state.error?.message ?? "读不到这个对话", actions: []}
                   : {status: "ready", message: "", actions: []},
-        interaction: {canSend: configured.value === true && canContinue && !running.value && !startingHere, canStop: running.value},
+        // 模式、模型与推理档运行中以外都能改（canChangeRuntime 缺省为假，不给时模式按钮一直点不动）。
+        interaction: {canSend: configured.value === true && canContinue && !running.value && !startingHere, canStop: running.value, canChangeRuntime: !running.value && !startingHere, canManageModels: true},
         run: running.value || startingHere ? {status: "running", phase: ""} : {status: "idle", phase: ""},
         messages: state?.messages ?? ([] as MessageView[]),
-        composer: composer.value,
+        composer: viewComposer.value,
+        usage: {contextTokens: contextTokensOf(state?.messages ?? []), contextLimit: choice.value === null ? null : (candidates.value.get(choice.value.model)?.contextWindow ?? null)},
         now: now.value,
     });
 });
@@ -264,6 +315,7 @@ async function submit(text: string): Promise<void> {
     const key = target ?? NEW;
     if (question === "" || starting.value === key) return;
     const sent = composer.value;
+    const picked = choice.value;
     const stillHere = () => (selectedId.value ?? NEW) === key;
     starting.value = key;
     startError.value = null;
@@ -272,18 +324,19 @@ async function submit(text: string): Promise<void> {
             book: book.bookId,
             question,
             ...(target === null ? {mode: sent.mode === "full" ? ("full" as const) : ("graph" as const), at: book.at.value} : {conversation: target}),
+            ...(picked === null ? {} : {model: picked.model, ...(picked.thinking === null ? {} : {thinking: picked.thinking as NonNullable<QaConfig["model"]["thinking"]>})}),
         });
         // 受理了才清空草稿；失败时草稿留着，原因写在输入框上方。新对话的草稿（含输入历史）带到这个对话下，模式只在新对话时可选。
         const accepted = acceptSubmission(sent, text);
         if (target === null) {
-            composers.delete(NEW);
-            composers.set(started.conversation, {...accepted, modes: []});
+            composerStore.delete(storeKey(null));
+            composerStore.set(storeKey(started.conversation), {...accepted, modes: []});
             if (stillHere()) book.qaConversation.value = started.conversation;
         } else if (stillHere()) {
             setComposer(accepted);
             // 等数据源读到这一轮再放开“正在发起”：否则这段时间页面像是空闲的，还能再发一次。
             await source?.refresh();
-        } else composers.set(target, accepted);
+        } else composerStore.set(storeKey(target), accepted);
         void loadList();
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -313,7 +366,10 @@ function answerText(args: unknown): string {
 }
 
 function handle(action: AgentViewAction): void {
-    const next = applyComposerAction(composer.value, action);
+    // 换模型或推理档前先把“没选过”落成当前的选择：不然换了模型，原来缺省的推理档就丢了。
+    const current = choice.value;
+    const base = (action.type === "model.set" || action.type === "thinking.set") && current !== null ? {...composer.value, modelKey: current.model, thinking: current.requested} : composer.value;
+    const next = applyComposerAction(base, action);
     if (next !== null) {
         setComposer(next);
         return;
@@ -335,6 +391,9 @@ function handle(action: AgentViewAction): void {
             return;
         case "sessions.refresh":
             void loadList();
+            return;
+        case "model.manage":
+            void router.push("/settings");
             return;
         case "reference.open":
             openTarget(action.target);
@@ -364,6 +423,7 @@ async function removeConversation(): Promise<void> {
     if (id === null) return;
     try {
         await client.call("qa.remove", {book: book.bookId, id});
+        composerStore.delete(storeKey(id));
         book.qaConversation.value = null;
     } catch (error) {
         startError.value = `删除失败：${error instanceof Error ? error.message : String(error)}`;
@@ -436,7 +496,7 @@ const unsaved = computed(() => {
             </div>
 
             <div class="qa-view">
-                <AgentConversationView :ctx="ctx" :services="services" :registry="registry" :renderers="renderers" locale="zh-CN" :header="false" process-disclosure="live" @action="handle" />
+                <AgentConversationView :ctx="ctx" :services="services" :registry="registry" :renderers="renderers" locale="zh-CN" :header="false" process-disclosure="live" composer-layout="inline" @action="handle" />
             </div>
         </section>
     </div>

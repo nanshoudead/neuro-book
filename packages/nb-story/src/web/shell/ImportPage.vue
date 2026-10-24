@@ -227,6 +227,7 @@ async function start(): Promise<void> {
                     <div v-else><span class="i-lucide-circle-check mr-1 align-[-2px] text-[var(--status-success)]" />这本书已经全部抽完（{{ plan.chapters.length }} 章）。<RouterLink :to="`/book/${encodeURIComponent(plan.id)}`" class="text-[var(--accent-text)]">打开书</RouterLink></div>
                     <div v-if="plan.action !== 'done'" class="text-[var(--text-muted)]">
                         <template v-if="plan.model">抽取模型 {{ plan.model.id }}{{ plan.model.source === "ingest.model" ? "（配置文件的 ingest.model）" : "（没有配置 ingest.model，用的是问答的模型）" }}。</template>
+                        <template v-else-if="plan.modelProblem"><span class="text-[var(--status-warning)]" data-testid="import-model-problem">{{ plan.modelProblem }}</span>（在设置页的“抽取”里写）。</template>
                         <template v-else>还没有配置抽取用的模型：先在终端里运行 <code>nbstory config init</code>。</template>
                         {{ plan.action === "new" ? "每章约 4 到 5 分钟，抽完第 1 章就能打开；随时可以停下，之后接着抽。" : "每章约 4 到 5 分钟，随时可以停下，之后接着抽。" }}
                     </div>

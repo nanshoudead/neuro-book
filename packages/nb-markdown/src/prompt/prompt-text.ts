@@ -351,6 +351,15 @@ export function classifyPaste(text: string, policy: PromptEditorPastePolicy, acc
 }
 
 /**
+ * 要在 `before`（光标前的文字）之后插入一个触发字符并让它生效，前面要不要先补一个空格：触发字符只在开头、空白、`(`
+ * 或中文标点之后才算（见 `findPromptTrigger`），`介绍一下@` 不算。
+ */
+export function triggerNeedsSpace(before: string): boolean {
+    const last = before.at(-1);
+    return last !== undefined && !/\s/u.test(last) && !TRIGGER_PREFIX.test(last);
+}
+
+/**
  * 光标前同一行的文字里正在进行的触发：触发字符位于开头、空白之后、`(` 或中文标点之后，
  * 后面到光标为止没有空白，也没有行内标签。
  */

@@ -33,12 +33,15 @@ const props = withDefaults(defineProps<{
     header?: boolean;
     /** 运行中过程的展开方式：缺省折叠；live 时运行中的思维链与工具组逐步展开。 */
     processDisclosure?: "collapsed" | "live";
+    /** 输入框版式：缺省两层；`inline` 正文与控件同一行（AgentConversationComposer.md 的“单行版式”）。 */
+    composerLayout?: "stacked" | "inline";
 }>(), {
     viewMode: undefined,
     teleportTarget: false,
     renderers: () => ({}),
     header: true,
     processDisclosure: "collapsed",
+    composerLayout: "stacked",
 });
 
 const emit = defineEmits<{
@@ -322,6 +325,7 @@ defineExpose({focusComposer, scrollToLatest});
             :ctx="props.ctx"
             :services="props.services"
             :registry="props.registry"
+            :layout="props.composerLayout"
             @action="onAction"
         />
         <OriginalImagePreviewDialog

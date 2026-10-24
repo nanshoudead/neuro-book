@@ -38,7 +38,7 @@ async function configFor(replies: EndpointReply[], model: Record<string, unknown
     const endpoint = startEndpoint(replies);
     endpoints.push(endpoint);
     const config = join(root, `config-${endpoints.length}.json`);
-    await writeFile(config, JSON.stringify({model: {baseUrl: endpoint.url, id: "test-model", apiKeyEnv: KEY_ENV, ...model}}));
+    await writeFile(config, JSON.stringify({model: {baseUrl: endpoint.url, id: "test-model", apiKeyEnv: KEY_ENV, ...model}, qa: {answer: "structured"}}));
     return {config, endpoint};
 }
 
@@ -217,10 +217,36 @@ describe("nbstory ask 的文字回复与追问（输出 10、12、26，验收 13
         expect(shown.stdout).toContain("第 2 轮（已答）：能问剧情吗");
     });
 
+    test("Markdown 作答：没读过的出处让模型改一次，进度写明；--model 与 --thinking 只对这一问", async () => {
+        const endpoint = startEndpoint([
+            {kind: "text", text: "她是地狱猫（37.8）。"},
+            {kind: "tools", calls: [{name: "read", args: {from: {chapter: 37, paragraph: 8}, to: {chapter: 37, paragraph: 8}}}]},
+            {kind: "text", text: "她是地狱猫（37.8），核对过了。"},
+        ]);
+        endpoints.push(endpoint);
+        const config = join(root, "config-markdown.json");
+        const provider = {api: "openai-completions", baseUrl: endpoint.url, apiKeyEnv: KEY_ENV, models: [{id: "a"}, {id: "b", reasoning: true}]};
+        await writeFile(config, JSON.stringify({providers: {custom: provider}, models: ["custom/a", "custom/b"], model: {use: "custom/a"}}));
+        const result = await run(["ask", "地狱猫是谁？", "--at", "38", "--model", "custom/b", "--thinking", "high", "--config", config, "--json"]);
+        expect(result.code).toBe(0);
+        expect(result.stderr).toContain("· 出处检查：37.8 没读过，已让模型重写");
+        expect(JSON.parse(result.stdout)).toMatchObject({ok: true, data: {model: "custom/b", answer: null, reply: {text: "她是地狱猫（37.8），核对过了。", unverifiedRefs: []}, recheck: {unverified: 1, outcome: "rewritten"}}});
+        expect(endpoint.bodies.map(body => body.model)).toEqual(["b", "b", "b"]);
+        // 标了支持推理的自定义模型：选的档照发。
+        expect(endpoint.bodies.map(body => body.reasoning_effort)).toEqual(["high", "high", "high"]);
+        expect(endpoint.bodies[0]!.tools as {function: {name: string}}[]).not.toContainEqual(expect.objectContaining({function: expect.objectContaining({name: "answer"})}));
+    });
+
     test("--continue 与 --at 或 --mode 同时写是用法错误；没有这个对话是 qa_record_not_found", async () => {
         const {config, endpoint} = await configFor([]);
         expect((await run(["ask", "问", "--continue", "20261016100000000-abcdef", "--at", "38", "--config", config])).code).toBe(2);
         expect((await run(["ask", "问", "--continue", "20261016100000000-abcdef", "--mode", "full", "--config", config])).code).toBe(2);
+        expect((await run(["ask", "问", "--continue", "20261016100000000-abcdef", "--structured", "--config", config])).code).toBe(2);
+        // 不在候选里的模型、不认识的推理档：用法错误，不发请求。
+        const outside = await run(["ask", "问", "--at", "38", "--model", "custom/other", "--config", config]);
+        expect(outside.code).toBe(2);
+        expect(outside.stderr).toContain("不在配置的候选模型里");
+        expect((await run(["ask", "问", "--at", "38", "--thinking", "ultra", "--config", config])).code).toBe(2);
         const missing = await run(["ask", "问", "--continue", "20261016100000000-abcdef", "--config", config, "--json"]);
         expect(missing.code).toBe(1);
         expect(JSON.parse(missing.stdout)).toMatchObject({ok: false, error: {code: "qa_record_not_found"}});

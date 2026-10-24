@@ -17,6 +17,7 @@ import {createParser} from "eventsource-parser";
 
 import type {QaFrame, QaRunView} from "../contract/contract";
 import {createStoryApi} from "../core/api";
+import {QaRecords} from "../core/qa-records";
 import {startEndpoint, type Endpoint, type EndpointReply} from "../../testing/openai-endpoint";
 import {CLI, loginCookie, rpc, startServe, type ServeProcess} from "../../testing/processes";
 import {makeSampleRoot} from "../../testing/sample";
@@ -87,7 +88,7 @@ async function setup(replies: EndpointReply[], options: {config?: unknown; endpo
     const endpoint = startEndpoint(replies, options.endpointIdleTimeout === undefined ? {} : {idleTimeoutSeconds: options.endpointIdleTimeout});
     cleanups.push(() => endpoint.stop());
     const configFile = join(configHome, "nbstory", "config.json");
-    if (options.config !== null) await writeFile(configFile, JSON.stringify(options.config ?? {model: {baseUrl: endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}}));
+    if (options.config !== null) await writeFile(configFile, JSON.stringify(options.config ?? {model: {baseUrl: endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}, qa: {answer: "structured"}}));
     const library = join(dir, "library");
     const imported = await createStoryApi({library}).call("book.import", {file: sampleFile, title: "样例", id: "fox"});
     if (!imported.ok) throw new Error(imported.error.message);
@@ -222,7 +223,7 @@ describe("一轮问答在服务里跑，进展经推送到页面", () => {
         const unconfigured = await env.call("qa.start", {book: "fox", question: "问", at: {chapter: 38}});
         expect(unconfigured.status).toBe(400);
         expect(code(unconfigured)).toBe("qa_unconfigured");
-        await writeFile(env.configFile, JSON.stringify({model: {baseUrl: env.endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}}));
+        await writeFile(env.configFile, JSON.stringify({model: {baseUrl: env.endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}, qa: {answer: "structured"}}));
         const missing = await env.call("qa.start", {book: "fox", question: "问", conversation: "20261023000000000-abcdef"});
         expect(code(missing)).toBe("qa_record_not_found");
         const beyond = await env.call("qa.start", {book: "fox", question: "问", at: {chapter: 999}});
@@ -279,14 +280,14 @@ describe("没保存的一轮与别的一代", () => {
         await env.endpoint.stop();
         const webEndpoint = startEndpoint([gate.reply], {idleTimeoutSeconds: 0});
         cleanups.push(() => webEndpoint.stop());
-        await writeFile(env.configFile, JSON.stringify({model: {baseUrl: webEndpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}}));
+        await writeFile(env.configFile, JSON.stringify({model: {baseUrl: webEndpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}, qa: {answer: "structured"}}));
         expect((await env.call("qa.start", {book: "fox", question: "网页的第二问", conversation})).status).toBe(200);
         await webEndpoint.firstRequest;
 
         const cliEndpoint = startEndpoint([GIVE_UP]);
         cleanups.push(() => cliEndpoint.stop());
         const cliConfig = join(env.library, "..", "cli-config.json");
-        await writeFile(cliConfig, JSON.stringify({model: {baseUrl: cliEndpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}}));
+        await writeFile(cliConfig, JSON.stringify({model: {baseUrl: cliEndpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}, qa: {answer: "structured"}}));
         const cli = Bun.spawn(["bun", CLI, "ask", "命令行的第二问", "--continue", conversation, "--config", cliConfig, "--library", env.library], {stdout: "pipe", stderr: "pipe", env: {...process.env, [KEY_ENV]: FAKE_KEY}});
         expect(await cli.exited).toBe(0);
 
@@ -361,9 +362,10 @@ describe("设置页的配置", () => {
     test("没有配置文件时给起始配置；按摘要整份写入，别处改过就报冲突；密钥变量有没有值按服务的环境", async () => {
         const env = await setup([], {config: null});
         const absent = await env.call("config.get", {});
-        expect(absent.body).toMatchObject({state: "absent", digest: "absent", keys: {OPENAI_API_KEY: false}});
+        // 起点是第 2 版的空配置：还没有候选，也就没有要看的密钥变量。
+        expect(absent.body).toMatchObject({state: "absent", digest: "absent", config: {models: [], model: {use: ""}}, keys: {}});
 
-        const config = {model: {baseUrl: env.endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}};
+        const config = {providers: {custom: {api: "openai-completions", baseUrl: env.endpoint.url, apiKeyEnv: KEY_ENV, models: [{id: "qa-model"}]}}, models: ["custom/qa-model"], model: {use: "custom/qa-model"}};
         const created = await env.call("config.set", {config, expect: "absent"});
         expect(created.status).toBe(200);
         expect(created.body.keys).toEqual({[KEY_ENV]: true});
@@ -374,7 +376,14 @@ describe("设置页的配置", () => {
         const valid = await env.call("config.get", {});
         expect(valid.body).toMatchObject({state: "valid", config, digest: created.body.digest});
         const pasted = "sk-pasted-into-settings-0042";
-        const rejected = await env.call("config.set", {config: {model: {...config.model, apiKeyEnv: pasted}}, expect: created.body.digest});
+        const rejected = await env.call("config.set", {config: {...config, providers: {custom: {...config.providers.custom, apiKeyEnv: pasted}}}, expect: created.body.digest});
+        expect(code(rejected)).toBe("invalid_params");
+        // 字段之间的约束不成立同样不收：默认模型不在候选里。
+        expect(code(await env.call("config.set", {config: {...config, model: {use: "custom/other"}}, expect: created.body.digest}))).toBe("invalid_params");
+        // 第 1 版整份写进来，存下的是第 2 版。
+        const legacy = await env.call("config.set", {config: {model: {baseUrl: env.endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}}, expect: created.body.digest});
+        expect(legacy.status).toBe(200);
+        expect(JSON.parse(await readFile(env.configFile, "utf8"))).toEqual(config);
         expect(code(rejected)).toBe("invalid_params");
         expect(JSON.stringify(rejected.body)).not.toContain(pasted);
         expect(await readFile(env.configFile, "utf8")).not.toContain(pasted);
@@ -399,7 +408,7 @@ describe("设置页的配置", () => {
     test("测试连接：通过时给模型与用时；模型回 401 时失败原因里没有密钥", async () => {
         const env = await setup([{kind: "text", text: "好"}, {kind: "status", status: 401, echoKey: true}]);
         const passed = await env.call("config.test", {});
-        expect(passed.body).toMatchObject({ok: true, model: "qa-model", thinking: null, error: null});
+        expect(passed.body).toMatchObject({ok: true, model: "custom/qa-model", thinking: null, error: null});
         const failed = await env.call("config.test", {});
         expect(failed.body).toMatchObject({ok: false, error: {kind: expect.any(String), message: expect.any(String)}});
     });
@@ -457,5 +466,91 @@ describe("推送的积压上限", () => {
         // 上限加上内核的套接字缓冲：断开时推给它的字节数在上限之上、不会多出太多。
         expect(rounds * 300_000).toBeGreaterThan(EVENTS_BACKLOG_BYTES);
         await reader.cancel();
+    });
+});
+
+describe("选模型的接口（t16）", () => {
+    function customConfig(url: string, extra: object = {}) {
+        return {providers: {custom: {api: "openai-completions", baseUrl: url, apiKeyEnv: KEY_ENV, models: [{id: "qa-model"}, {id: "gpt-5.6-sol"}]}}, models: ["custom/qa-model", "custom/gpt-5.6-sol"], model: {use: "custom/qa-model"}, ...extra};
+    }
+    const QUESTION = {book: "fox", question: "地狱猫是谁？", at: {chapter: 38}};
+
+    test("qa.start 的模型与推理档：不在候选、不支持的档、只给档、续问带作答方式都在开始前报 invalid_params，不发请求、不留运行", async () => {
+        const env = await setup([], {config: null});
+        await writeFile(env.configFile, JSON.stringify(customConfig(env.endpoint.url)));
+        for (const extra of [{model: "custom/missing"}, {model: "custom/qa-model", thinking: "high"}, {thinking: "high"}, {model: "custom/gpt-5.6-sol", thinking: "minimal"}]) {
+            const result = await env.call("qa.start", {...QUESTION, ...extra});
+            expect([result.status, code(result)]).toEqual([400, "invalid_params"]);
+        }
+        expect((await env.call("qa.start", {book: "fox", question: "追问", conversation: "20261024000000000-abcdef", answer: "markdown"})).body.code).toBe("invalid_params");
+        expect(env.endpoint.bodies).toEqual([]);
+        expect((await env.call("qa.list", {book: "fox"})).body).toEqual({conversations: [], broken: []});
+    });
+
+    test("选了模型与档：这一轮用它，运行与记录都写引用；对话记录带作答方式", async () => {
+        const env = await setup([{kind: "text", text: "你好"}], {config: null});
+        await writeFile(env.configFile, JSON.stringify(customConfig(env.endpoint.url)));
+        const started = await env.call("qa.start", {...QUESTION, model: "custom/gpt-5.6-sol", thinking: "max"});
+        expect(started.status).toBe(200);
+        const {conversation} = started.body as {conversation: string};
+        await waitUntil("这一轮保存", async () => (await env.call("qa.get", {book: "fox", id: conversation})).body.record !== null);
+        const got = (await env.call("qa.get", {book: "fox", id: conversation})).body;
+        expect(got.record).toMatchObject({answer: "markdown", turns: [{model: "custom/gpt-5.6-sol", status: "answered"}]});
+        expect(got.run).toMatchObject({model: "custom/gpt-5.6-sol"});
+        expect(got.continuable).toEqual({ok: true});
+        expect(env.endpoint.bodies.map(body => body.model)).toEqual(["gpt-5.6-sol"]);
+    });
+
+    test("早先版本的 Profile 开始的对话：qa.get 报不能续问，照常可以查看", async () => {
+        const env = await setup([]);
+        const api = createStoryApi({library: env.library});
+        const book = await api.openBook("fox");
+        const at = new Date().toISOString();
+        const turn = {question: "旧问题", status: "answered" as const, answer: null, reply: {text: "旧回答", truncated: false, unverifiedRefs: []}, error: null, chaptersRead: [], rejections: 0, usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null, complete: true}, ms: 1, model: "qa-model", startedAt: at, logFrom: 1};
+        const id = "20261020000000000-abcdef";
+        const snapshot = {kind: "session_snapshot", seq: 1, at, profile: {key: "story-qa", version: "3"}, initial: {}, tools: []};
+        const saved = await new QaRecords(api.library, "fox").save({id, book: "fox", generation: book.generation, at: {chapter: 38, paragraph: 1}, mode: "graph", maxChapters: 20, read: [], turns: [turn], startedAt: at}, `${JSON.stringify(snapshot)}\n`, {expectTurns: 0});
+        expect(saved.saved).toBe(true);
+        const got = (await env.call("qa.get", {book: "fox", id})).body;
+        expect(got.record).toMatchObject({answer: "structured", turns: [{question: "旧问题"}]});
+        expect(got.continuable).toMatchObject({ok: false, reason: expect.stringContaining("早先版本")});
+    });
+
+    test("models.catalog：自定义服务商在前，没写的参数按模型名补上、密钥按服务的环境；目录服务商带分类与密钥变量", async () => {
+        const env = await setup([], {config: null});
+        await writeFile(env.configFile, JSON.stringify(customConfig(env.endpoint.url)));
+        const {providers} = (await env.call("models.catalog", {})).body as {providers: {id: string; source: string; access: string; keyEnvs: string[]; keySet: boolean; models: {id: string; contextWindow: number | null; efforts: string[]; price: unknown}[]}[]};
+        expect(providers[0]).toMatchObject({id: "custom", source: "custom", access: "key", keyEnvs: [KEY_ENV], keySet: true});
+        expect(providers[0]!.models.find(model => model.id === "gpt-5.6-sol")).toMatchObject({contextWindow: 1_050_000, price: null});
+        expect(providers[0]!.models.find(model => model.id === "qa-model")).toMatchObject({contextWindow: null, efforts: []});
+        expect(providers.find(provider => provider.id === "deepseek")).toMatchObject({source: "catalog", access: "key", keyEnvs: ["DEEPSEEK_API_KEY"]});
+        expect(providers.find(provider => provider.id === "anthropic")).toMatchObject({access: "login"});
+        expect(providers.filter(provider => provider.source === "catalog")).toHaveLength(69);
+        // 没有配置文件时只有目录。
+        await rm(env.configFile);
+        expect(((await env.call("models.catalog", {})).body.providers as {source: string}[]).every(provider => provider.source === "catalog")).toBe(true);
+    });
+
+    test("models.discover：用给的地址与密钥变量读 /models，不读配置；结果里没有密钥；不认的接口是 invalid_params", async () => {
+        const env = await setup([]);
+        const authorizations: (string | null)[] = [];
+        const server = Bun.serve({
+            port: 0,
+            hostname: "127.0.0.1",
+            fetch(request) {
+                authorizations.push(request.headers.get("authorization"));
+                return new URL(request.url).pathname === "/v1/models" ? Response.json({data: [{id: "gpt-5.6-sol"}, {id: "house"}]}) : new Response("no", {status: 404});
+            },
+        });
+        cleanups.push(() => server.stop(true));
+        const url = `http://127.0.0.1:${server.port}/v1`;
+        const found = (await env.call("models.discover", {api: "openai-completions", baseUrl: url, apiKeyEnv: KEY_ENV})).body;
+        expect(found).toMatchObject({state: "found", keySet: true, models: [{id: "gpt-5.6-sol", suggested: {from: "openai/gpt-5.6-sol"}}, {id: "house", suggested: null}]});
+        expect(authorizations).toEqual([`Bearer ${FAKE_KEY}`]);
+        const missing = (await env.call("models.discover", {api: "openai-responses", baseUrl: `http://127.0.0.1:${server.port}/nothing`, apiKeyEnv: "NBSTORY_NOT_SET_ANYWHERE"})).body;
+        expect(missing).toMatchObject({state: "not_supported", status: 404, keySet: false, models: []});
+        expect(authorizations.at(-1)).toBeNull();
+        expect(code(await env.call("models.discover", {api: "anthropic-messages", baseUrl: url, apiKeyEnv: KEY_ENV}))).toBe("invalid_params");
+        expect(code(await env.call("models.discover", {api: "openai-completions", baseUrl: url, apiKeyEnv: "sk-pasted-0042"}))).toBe("invalid_params");
     });
 });

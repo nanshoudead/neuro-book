@@ -132,7 +132,7 @@ type QaConfig = {
   - 出处复查：`turns.ts` 的 `composeMessages` 把一个记录轮（或正在跑的一轮）里第一条提问之后的用户消息改成过程里的一行系统消息“出处检查：N 处没读过，已让模型重写”，不另开一轮。nb-story 不发 steer，同一记录轮里的第二条用户消息只会来自复查。运行中第一次回复会先显示为回复，复查开始后收进过程。
 - `SettingsPage.vue`：
   - “模型”一节换成候选列表与服务商列表，加“添加模型”（`AgentModelCatalog`）与“自定义服务商”对话框；限额与抽取仍用 `SchemaForm`。保存仍是整份 `config.set`，冲突处理不变。
-  - 自定义服务商对话框放在 nb-story（`web/shell/ProviderDialog.vue`）：名称、接口、地址、密钥变量用 `SchemaForm` 配从 `config-schema.ts` 拆出的 `ProviderSchema`（沿用 `ENV_NAME_PATTERN` 等校验，不另抄一份）；下面的模型表手写，“从服务读取”调 `models.discover`，建议值显示为“自动”。
+  - 自定义服务商对话框放在 nb-story（`web/shell/ProviderDialog.vue`）：名称、接口、地址、密钥变量四个字段与模型表手写（实施时改：这四个字段与模型表要一起排版，SchemaForm 画不出模型表里的“自动（目录 1.05M）”占位），保存时用 `config-schema.ts` 的 `ProviderSchema` 与 `ENV_NAME_PATTERN` 校验，不另抄一份规则；“从服务读取”调 `models.discover`，建议值显示为“自动”。
   - 编辑时维持不变量：删默认候选时把默认改成剩下的第一个并提示；删被候选引用的服务商要确认，并一并去掉它的候选；服务商 id 由名称生成、建好后只读。保存前再走一遍语义校验，失败时指出是哪一项。
   - 抽取一节的标题与导入页预览在默认模型不能用于抽取时写明“抽取要单独写模型”。
   - 空起点：没有配置文件时“模型”一节只有“添加模型…”，选了第一个即成默认。

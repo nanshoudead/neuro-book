@@ -11,8 +11,9 @@ import type {TestBook} from "./api";
 /** 脚本化模型不发请求，但 harness 每次请求前都要取到密钥：用一个只在测试进程里存在的假值。 */
 export const TEST_KEY_ENV = "NBSTORY_QA_TEST_CREDENTIAL";
 
+/** 测试用的配置。作答方式缺省写成结构化：大多数用例测的是 answer 交卷；测 Markdown 的用例另给 `answer`。 */
 export function testConfig(qa: QaConfig["qa"] = {}): QaConfig {
-    return {model: {baseUrl: "http://127.0.0.1:9/v1", id: "scripted", apiKeyEnv: TEST_KEY_ENV}, qa};
+    return {providers: {test: {api: "openai-completions", baseUrl: "http://127.0.0.1:9/v1", apiKeyEnv: TEST_KEY_ENV, models: [{id: "scripted"}]}}, models: ["test/scripted"], model: {use: "test/scripted"}, qa: {answer: "structured", ...qa}};
 }
 
 export interface ScriptedAsk {

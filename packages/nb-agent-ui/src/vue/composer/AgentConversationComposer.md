@@ -16,9 +16,10 @@
 - **排队中的消息**：`ctx.composer.queued` 不为空时由 [`AgentQueuedMessages`](AgentQueuedMessages.md) 显示在外框上方。以后收进待处理区（S7）。
 - **拒收提示**：添加的附件被拒收时，外框上方一行淡色说明，右端可关闭；发送或宿主换了草稿时也会消失。
 - **外框**：圆角、描边、输入底色，焦点在框内时描边换成焦点色；只读时用只读底色。框里是编辑器（不带自己的外框，附件条在正文上方）和工具栏。
-- **工具栏**：左侧依次为“添加附件”、模式按钮（图标加名称；当前不是第一种模式时用强调色）、模型与思考档位的下拉 [`AgentModelPicker`](AgentModelPicker.md)（没有可选的模型与思考档位时不显示）、登记的工具栏按钮；右侧为展开/收起与发送/停止。左侧放不下时，模式按钮只留图标，模型名截断。
+- **工具栏**：左侧依次为前置的登记按钮（`placement: "leading"`）、“添加附件”、模式按钮（图标加名称；当前不是第一种模式时用强调色）、模型与思考档位的下拉 [`AgentModelPicker`](AgentModelPicker.md)（没有可选的模型与思考档位时不显示）、其余登记的工具栏按钮；右侧为展开/收起与发送/停止。左侧放不下时，模式按钮只留图标，模型名截断。
+- **单行版式**（`layout: "inline"`）：外框里只有一行，依次是前置的登记按钮、编辑器、控件（模式、模型与思考档位、上下文大小 [`AgentContextMeter`](AgentContextMeter.md)、其余登记按钮、展开、发送）。正文长高时只有编辑器长高，控件留在右下。输入框宽度小于 520px 时控件整排折到正文下面、靠右，前置按钮留在正文前。展开后编辑器撑满外框，控件仍在右下。上下文大小只在这个版式里画，`ctx.usage.contextLimit` 为空或 `contextTokens` 为 0 时不画。允许登记附件时（单行没有附件条的位置）退回两层版式。
 - **高度**：平时编辑器随内容长高，最多约 200px，超出后内部滚动。展开后输入框占父元素高度的 55%（最多 560px），编辑器撑满外框，消息流让出高度。
-- **`390×844`**：结构不变，模式按钮只留图标。
+- **`390×844`**：结构不变，模式按钮只留图标；单行版式的控件折到正文下面。
 
 ## 交互
 
@@ -36,8 +37,8 @@
 - 触发字符取自登记的输入框触发字符。`/` 位于正文开头时，菜单列出登记的命令（名称、说明与参数提示），按名称过滤；其余情况的菜单来自 `services.resolveTriggerMenu`；宿主没有提供它时只把 `/` 交给编辑器，别的触发字符不打开菜单；正文中间打 `/` 时菜单只说明命令要写在开头。菜单每次从关到开发出 `menu.opened`。
 - 附件：编辑器的 `attachment-add`、`attachment-retry`、`attachment-remove` 依次发出 `composer.attachmentAdded`、`composer.attachmentRetry`、`composer.attachmentRemoved`。“添加附件”打开文件选择，选中的文件插在光标处，与粘贴相同。允许登记附件时接受文件；当前模型支持图片时才接受图片。被拒收时显示提示：模型不支持图片、会话不能登记附件，分别说明。
 - 点击正文里的标签或附件卡片：引用与选区发出 `reference.open`，技能发出 `skill.open`，文件发出 `attachment.open`，图片发出 `image.preview` 的 action，由对话视图打开原图预览；规则与已发送消息相同。
-- 模式按钮点击与 Shift+Tab 相同；模型与思考档位在下拉里选，发出 `model.set`、`thinking.set`。不允许修改运行设置时三者都禁用。
-- 登记的工具栏按钮点击后发出各自的 action。
+- 模式按钮点击与 Shift+Tab 相同；模型与思考档位在下拉里选，发出 `model.set`、`thinking.set`。不允许修改运行设置时三者都禁用。`interaction.canManageModels` 为真时下拉末尾有“管理模型…”，发出 `model.manage`。不允许登记附件时下拉不标“不支持图片”。
+- 登记的工具栏按钮点击后发出各自的 action；带 `trigger` 的按钮（例如 nb-story 的 `+`）不发 action，而是让编辑器聚焦到末尾、插入这个触发字符并打开它的菜单（编辑器的 `openTrigger`：前一个字不是空白或标点时先补空格）。
 - 展开/收起只改变高度与回车的含义，不改变正文；切换后焦点留在编辑器。
 
 ## 数据
@@ -53,6 +54,8 @@ type AgentConversationComposerProps = {
     services: AgentConversationServices;
     /** 必填。用到 commands、triggers、toolbarButtons 三个扩展点。 */
     registry: AgentViewRegistry;
+    /** 版式，默认 "stacked"；"inline" 见“单行版式”。 */
+    layout?: "stacked" | "inline";
 };
 
 type AgentConversationComposerEmits = {

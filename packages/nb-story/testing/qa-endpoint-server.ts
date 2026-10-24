@@ -5,13 +5,15 @@
  * 控制接口（POST，正文是 JSON）：
  * - `/script`：`{replies: EndpointReply[]}` 换一份脚本，之后的请求按顺序回复（`after` 不能经 JSON 传，用下面的闸门）；
  * - `/hold?from=N`：从下一个请求往后数第 N 个（0 是下一个，缺省 0）起先等着，直到 `/release`；等的时候请求被取消就结束（页面点“停止”）；
- * - `/release`：放行等着的请求。
+ * - `/release`：放行等着的请求；
+ * - `/models`：`ModelsReply`，之后 `GET <端点>/models` 这样回（设置页读服务的模型列表）；缺省是空列表。
  * GET `/seen` 给已收到的请求数，GET `/bodies` 给收到的每个请求的 JSON 正文。脚本用完时回一段文字。进程收到 SIGTERM 时停止。
  */
 
-import {startEndpoint, type EndpointReply} from "./openai-endpoint";
+import {startEndpoint, type EndpointReply, type ModelsReply} from "./openai-endpoint";
 
 let replies: EndpointReply[] = [];
+let models: ModelsReply = {kind: "models", ids: []};
 let gate: {promise: Promise<void>; open: () => void; from: number} | null = null;
 let seen = 0;
 const endpoint = startEndpoint(
@@ -21,7 +23,7 @@ const endpoint = startEndpoint(
         const reply = replies.shift() ?? {kind: "text", text: "脚本用完了"};
         return gate === null || index < gate.from ? reply : {kind: "after", ready: gate.promise, reply};
     },
-    {idleTimeoutSeconds: 0},
+    {idleTimeoutSeconds: 0, models: () => models},
 );
 
 const control = Bun.serve({
@@ -33,6 +35,10 @@ const control = Bun.serve({
         if (url.pathname === "/bodies") return Response.json({bodies: endpoint.bodies});
         if (url.pathname === "/script") {
             replies = ((await request.json()) as {replies: EndpointReply[]}).replies;
+            return Response.json({ok: true});
+        }
+        if (url.pathname === "/models") {
+            models = (await request.json()) as ModelsReply;
             return Response.json({ok: true});
         }
         if (url.pathname === "/hold") {

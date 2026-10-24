@@ -12,13 +12,20 @@ const props = withDefaults(defineProps<{
     thinkingLevels: readonly string[];
     thinking: string | null;
     disabled?: boolean;
+    /** 不支持图片的模型标不标图标；宿主收不了附件时标了只是噪声。 */
+    showImageSupport?: boolean;
+    /** 末尾有“管理模型…”。 */
+    canManage?: boolean;
 }>(), {
     disabled: false,
+    showImageSupport: true,
+    canManage: false,
 });
 
 const emit = defineEmits<{
     (e: "select-model", modelKey: string): void;
     (e: "select-thinking", level: string): void;
+    (e: "manage"): void;
 }>();
 
 defineOptions({inheritAttrs: false});
@@ -27,13 +34,14 @@ const {t} = useAgentText();
 
 const MODEL_PREFIX = "model:";
 const THINKING_PREFIX = "thinking:";
+const MANAGE = "manage";
 
 function thinkingLabel(level: string): string {
     const key = THINKING_LEVEL_KEYS[level];
     return key === undefined ? level : t(key);
 }
 
-const noImageValues = computed(() => new Set(props.models.filter((model) => !model.supportsImages).map((model) => `${MODEL_PREFIX}${model.key}`)));
+const noImageValues = computed(() => new Set(props.showImageSupport ? props.models.filter((model) => !model.supportsImages).map((model) => `${MODEL_PREFIX}${model.key}`) : []));
 
 const currentModel = computed(() => props.models.find((model) => model.key === props.modelKey) ?? null);
 const currentThinking = computed(() => props.thinking === null ? null : thinkingLabel(props.thinking));
@@ -45,10 +53,15 @@ const items = computed<DropdownMenuItemData[]>(() => {
         type: "radio",
         group: "model",
         checked: model.key === props.modelKey,
-        ...(model.supportsImages ? {} : {title: t("composer.model.noImages")}),
+        // 组名（服务商）写在右侧：同名模型分得清。用不了的灰掉，悬停看原因。
+        ...(model.group === undefined ? {} : {shortcut: model.group}),
+        ...(model.unavailable !== undefined ? {disabled: true, title: model.unavailable} : props.showImageSupport && !model.supportsImages ? {title: t("composer.model.noImages")} : {}),
     }));
+    const manage: DropdownMenuItemData[] = props.canManage
+        ? [{value: "sep-manage", label: "", separator: true}, {value: MANAGE, label: t("composer.model.manage"), iconClass: "i-lucide-settings-2"}]
+        : [];
     if (props.thinkingLevels.length === 0) {
-        return models;
+        return [...models, ...manage];
     }
     return [
         ...models,
@@ -65,6 +78,7 @@ const items = computed<DropdownMenuItemData[]>(() => {
                 checked: level === props.thinking,
             })),
         },
+        ...manage,
     ];
 });
 
@@ -74,6 +88,9 @@ function onSelect(value: string): void {
     }
     else if (value.startsWith(THINKING_PREFIX)) {
         emit("select-thinking", value.slice(THINKING_PREFIX.length));
+    }
+    else if (value === MANAGE) {
+        emit("manage");
     }
 }
 </script>

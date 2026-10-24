@@ -48,29 +48,67 @@ const ingestModelSchema = (form?: {label: string; help: string}) =>
 
 export const IngestModelSchema = ingestModelSchema();
 
+/** 推理档，同 OMP 的六档（nb-harness 的 `ThinkingEffort`）。这里不导入 nb-harness：网页也用这份 schema。 */
+export const EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export const EffortSchema = Type.Union(
+    [Type.Literal("minimal"), Type.Literal("low"), Type.Literal("medium"), Type.Literal("high"), Type.Literal("xhigh"), Type.Literal("max")],
+    {"x-form": {label: "推理档"}},
+);
+
+/** 自定义服务商的接口，名字同 OMP。 */
+export const PROVIDER_APIS = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"] as const;
+
+/** 自定义服务商的 id：小写字母、数字与连字符。不能有 `/`（引用写成 `服务商/模型名`）与 `.`（命令行的字段路径）。 */
+export const PROVIDER_ID_PATTERN = "^[a-z0-9][a-z0-9-]*$";
+
+/** 自定义服务商的一个模型。没写的上下文、最大输出、推理与图片在运行时按模型名从 OMP 目录补（qa.md 的“配置”）。 */
+export const CustomModelSchema = Type.Object(
+    {
+        id: modelId(),
+        name: Type.Optional(Type.String({minLength: 1, "x-form": {label: "显示名"}})),
+        contextWindow: Type.Optional(Type.Integer({minimum: 1, "x-form": {label: "上下文窗口", unit: "token"}})),
+        maxTokens: Type.Optional(Type.Integer({minimum: 1, "x-form": {label: "单次输出上限", unit: "token"}})),
+        reasoning: Type.Optional(Type.Boolean({"x-form": {label: "支持推理"}})),
+        images: Type.Optional(Type.Boolean({"x-form": {label: "收图片"}})),
+        price: Type.Optional(PriceSchema),
+    },
+    {additionalProperties: false},
+);
+
+export const ProviderSchema = Type.Object(
+    {
+        name: Type.Optional(Type.String({minLength: 1, "x-form": {label: "名称", help: "只用来显示与区分，例如 jiji、公司网关"}})),
+        api: Type.Union([Type.Literal("openai-completions"), Type.Literal("openai-responses"), Type.Literal("anthropic-messages"), Type.Literal("google-generative-ai")], {"x-form": {label: "接口"}}),
+        baseUrl: baseUrl(),
+        apiKeyEnv: apiKeyEnv(),
+        models: Type.Array(CustomModelSchema),
+    },
+    {additionalProperties: false},
+);
+
+/** 模型引用：`服务商/模型名`。服务商是自定义服务商的 id 或 OMP 目录的 id；模型名里可以再有 `/`（OpenRouter 的写法）。 */
+export const MODEL_REF_PATTERN = "^[^/\\s]+/\\S.*$";
+const modelRef = () => Type.String({pattern: MODEL_REF_PATTERN});
+
 export const ConfigSchema = Type.Object(
     {
+        // 键的写法（PROVIDER_ID_PATTERN）在语义校验里查：TypeBox 的 Record 不按键的 pattern 校验。
+        providers: Type.Optional(Type.Record(Type.String(), ProviderSchema)),
+        /** 输入框里能换的候选，至少一个、不重复（语义校验，见 `qa/config.ts`）。 */
+        models: Type.Array(modelRef()),
         model: Type.Object(
             {
-                baseUrl: baseUrl(),
-                id: modelId(),
-                apiKeyEnv: apiKeyEnv(),
-                api: Type.Optional(
-                    Type.Union([Type.Literal("chat"), Type.Literal("responses")], {
-                        "x-form": {label: "接口", help: "不写是 Chat Completions。GPT 系列要看思考过程选 Responses 并写推理档（服务要支持 /v1/responses）"},
-                    }),
-                ),
-                contextWindow: Type.Optional(Type.Integer({minimum: 1, "x-form": {label: "上下文窗口", unit: "token"}})),
-                maxTokens: Type.Optional(Type.Integer({minimum: 1, "x-form": {label: "单次输出上限", unit: "token"}})),
-                thinking: Type.Optional(Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high"), Type.Literal("xhigh")], {"x-form": {label: "推理档"}})),
-                price: Type.Optional(PriceSchema),
+                /** 默认模型，必须在候选里。 */
+                use: modelRef(),
+                /** 默认模型的推理档；不写就不发。模型不支持这一档时运行时往下夹。 */
+                thinking: Type.Optional(EffortSchema),
             },
-            {additionalProperties: false, "x-form": {label: "问答模型"}},
+            {additionalProperties: false},
         ),
         ingest: Type.Optional(
             Type.Object(
                 {
-                    model: Type.Optional(ingestModelSchema({label: "抽取模型", help: "不写时用问答模型"})),
+                    model: Type.Optional(ingestModelSchema({label: "抽取模型", help: "不写时用问答的默认模型（只在它是 OpenAI Chat 接口的自定义服务商时可以）"})),
                     // 挑选相关说法（docs/specs/story/ingest.md 输出 4）：默认关；开着时用 `model`，没写就用抽取的模型。
                     recall: Type.Optional(
                         Type.Object(
@@ -90,6 +128,7 @@ export const ConfigSchema = Type.Object(
                 {
                     maxChapters: Type.Optional(Type.Integer({minimum: 1, maximum: 20, "x-form": {label: "一问最多读的章数", help: "图当目录做法下，一问新读的不同章数上限（最多 20）"}})),
                     fullReadMaxChars: Type.Optional(Type.Integer({minimum: 1, "x-form": {label: "全读的原文上限", unit: "字"}})),
+                    answer: Type.Optional(Type.Union([Type.Literal("markdown"), Type.Literal("structured")], {"x-form": {label: "作答方式", help: "新对话用 Markdown 文字回答，还是用 answer 工具交结构化的卷；不写是 Markdown"}})),
                 },
                 {additionalProperties: false, "x-form": {label: "问答"}},
             ),
@@ -98,4 +137,26 @@ export const ConfigSchema = Type.Object(
     {additionalProperties: false},
 );
 
+/**
+ * 第 1 版的问答模型（t16 之前）：只有一个 OpenAI 兼容的地址。只用来认出第 1 版并升级（`qa/config.ts` 的
+ * `upgradeQaConfig`），不再写出。
+ */
+export const LegacyModelSchema = Type.Object(
+    {
+        baseUrl: baseUrl(),
+        id: modelId(),
+        apiKeyEnv: apiKeyEnv(),
+        api: Type.Optional(Type.Union([Type.Literal("chat"), Type.Literal("responses")])),
+        contextWindow: Type.Optional(Type.Integer({minimum: 1})),
+        maxTokens: Type.Optional(Type.Integer({minimum: 1})),
+        thinking: Type.Optional(Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high"), Type.Literal("xhigh")])),
+        price: Type.Optional(PriceSchema),
+    },
+    {additionalProperties: false},
+);
+
 export type QaConfig = Static<typeof ConfigSchema>;
+export type ProviderConfig = Static<typeof ProviderSchema>;
+export type CustomModelConfig = Static<typeof CustomModelSchema>;
+export type Effort = (typeof EFFORTS)[number];
+export type ProviderApi = (typeof PROVIDER_APIS)[number];

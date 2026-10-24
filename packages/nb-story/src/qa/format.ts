@@ -36,6 +36,8 @@ function usageText(usage: QaUsage): string {
     return `${tokens}；${cost}${usage.complete ? "" : "（不完整，只是下界）"}`;
 }
 
+const RECHECK_WORDS: Record<NonNullable<QaTurn["recheck"]>["outcome"], string> = {rewritten: "让模型重写了一次", failed: "重写时出错，保留第一次的回复", aborted: "重写时被取消，保留第一次的回复"};
+
 /** 文字回复：正文，截断与没核实的出处另起一行说明（qa.md 输出 12、24）。 */
 export function replyText(reply: QaReply): string {
     const lines = [reply.text];
@@ -54,7 +56,8 @@ function turnBody(turn: QaTurn, mode: QaMode): string[] {
             ? [`失败（${turn.error.code}${turn.error.kind ? `，${turn.error.kind}` : ""}）：${turn.error.message}`]
             : ["已中断，没有答案"];
     const read = mode === "full" ? "全读" : `读过的章：${turn.chaptersRead.join("、") || "无"}`;
-    return [...body, "", `${read}；作答被退回 ${turn.rejections} 次`, `用量：${usageText(turn.usage)}`, `用时 ${(turn.ms / 1000).toFixed(1)} 秒；模型 ${turn.model}`];
+    const recheck = turn.recheck === undefined ? [] : [`出处检查：${turn.recheck.unverified} 处没读过，${RECHECK_WORDS[turn.recheck.outcome]}`];
+    return [...body, "", `${read}；作答被退回 ${turn.rejections} 次`, ...recheck, `用量：${usageText(turn.usage)}`, `用时 ${(turn.ms / 1000).toFixed(1)} 秒；模型 ${turn.model}`];
 }
 
 function positionText(conversation: Pick<QaConversation, "at" | "mode">): string {

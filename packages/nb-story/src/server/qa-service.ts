@@ -23,11 +23,14 @@ import {parseEntryLine, type SessionEntry} from "@notnotype/nb-session";
 
 import {schemaProblems, type StoryApi} from "../core/api";
 import {StoryError, type StoryErrorCode} from "../core/errors";
-import {QaRecords, newQaRecordId, type QaConversation, type QaTurn} from "../core/qa-records";
+import {answerModeOf, QaRecords, newQaRecordId, type QaConversation, type QaTurn} from "../core/qa-records";
 import {QA_METHODS, type QaFrame, type QaMethod, type QaRunView, type ViewerParams, type ViewerResult} from "../contract/contract";
-import {ABSENT_CONFIG, currentConfigDigest, defaultConfigPath, readQaConfigFile, saveQaConfig, type QaConfig} from "../qa/config";
-import {prepareQuestion, withoutFullText, type AskInput, type PreparedQuestion, type QaOutcome} from "../qa/engine";
+import {ABSENT_CONFIG, currentConfigDigest, defaultConfigPath, readQaConfigFile, readQaConfigShape, saveQaConfig, type Effort, type QaConfig} from "../qa/config";
+import {continuationProblem, prepareQuestion, withoutFullText, type AskInput, type PreparedQuestion, type QaOutcome} from "../qa/engine";
 import {QaError, type QaErrorCode} from "../qa/errors";
+import {catalogModel, discoverModels, listCatalog, providerKeyReady} from "@notnotype/nb-harness";
+
+import {configCatalog, modelOf, resolveQaModel} from "../qa/harness-model";
 import {probeModel} from "../qa/probe";
 import type {QaAgentEvent} from "../qa/web-events";
 
@@ -63,8 +66,8 @@ export interface QaServiceOptions {
     probeTimeoutMs?: number;
 }
 
-/** 没有配置文件时设置页的起点：必填的几项空着，由表单提示补上。 */
-const STARTER_CONFIG = {model: {baseUrl: "", id: "", apiKeyEnv: "OPENAI_API_KEY"}};
+/** 没有配置文件时的起点：第 2 版的空配置，不合格（候选为空），保存前要先选一个模型。 */
+const STARTER_CONFIG = {models: [], model: {use: ""}};
 
 type RunSaved = QaRunView["saved"];
 
@@ -102,6 +105,8 @@ export function createQaService(options: QaServiceOptions): QaService {
     const updateInterval = options.updateIntervalMs ?? 100;
     const probeTimeout = options.probeTimeoutMs ?? 60_000;
     const streamFn = options.streamFn === undefined ? {} : {streamFn: options.streamFn};
+    // 目录服务商的密钥有没有值：服务启动时取一次（OMP 的取法读进程环境与 .env，不收注入的 env；qa.md 的 models.catalog）。
+    const catalogKeys = new Map(listCatalog().map(provider => [provider.id, providerKeyReady(provider.id)]));
 
     const runs = new Map<string, Run>();
     /** 已经接纳、还在准备的轮次，按“书/对话”；settle 时这一轮要么已登记进 `runs`，要么已放弃。 */
@@ -214,14 +219,19 @@ export function createQaService(options: QaServiceOptions): QaService {
         let run: Run | null = null;
         /** 准备期间写下的日志条目（建 harness 时写的会话快照）：登记运行时交给它。 */
         const early: SessionEntry[] = [];
+        if (params.conversation !== undefined && (params.mode !== undefined || params.at !== undefined || params.answer !== undefined)) {
+            throw new StoryError("invalid_params", "续问时阅读位置、做法与作答方式取对话开始时的，不能再给 mode、at 或 answer");
+        }
         const preparation = (async (): Promise<PreparedQuestion> => {
-            const {config} = await readQaConfigFile(configPath);
+            const {config} = await readQaConfigFile(configPath, configCatalog());
+            const choice = modelChoice(config, params);
             return prepareQuestion({
                 api,
                 book: params.book,
                 question: params.question,
                 config,
-                ...(params.conversation === undefined ? {conversationId: id, mode: params.mode ?? "graph", ...(params.at === undefined ? {} : {at: params.at})} : {continueFrom: id}),
+                ...(choice === null ? {} : {model: choice}),
+                ...(params.conversation === undefined ? {conversationId: id, mode: params.mode ?? "graph", ...(params.at === undefined ? {} : {at: params.at}), ...(params.answer === undefined ? {} : {answer: params.answer})} : {continueFrom: id}),
                 signal: controller.signal,
                 // 事件只在运行时有；日志条目在准备时就有一条（会话快照），先留着。
                 onAgentEvent: event => {
@@ -261,6 +271,7 @@ export function createQaService(options: QaServiceOptions): QaService {
                     question: params.question,
                     at: prepared.at,
                     mode: prepared.mode,
+                    model: prepared.model,
                     startedAt: new Date().toISOString(),
                 },
                 controller,
@@ -289,6 +300,23 @@ export function createQaService(options: QaServiceOptions): QaService {
             preparing.delete(key);
             registered();
         }
+    }
+
+    /**
+     * 这一轮指定的模型与推理档；都没给时为 null（引擎按 qa.md 输出 40 取）。模型不在候选里、推理档不是这个模型支持的档
+     * 是这次请求的错（invalid_params），在登记运行之前报：页面过期的选择不应变成配置错误，也不留运行项。
+     */
+    function modelChoice(config: QaConfig, params: ViewerParams<"qa.start">): {model?: string; thinking?: Effort} | null {
+        if (params.model === undefined && params.thinking === undefined) return null;
+        if (params.model !== undefined && !config.models.includes(params.model)) throw new StoryError("invalid_params", `模型 ${params.model} 不在配置的候选模型里`);
+        if (params.thinking !== undefined) {
+            // 推理档要对着这一轮实际用的模型查；续问没给模型时那是引擎按记录定的，所以给推理档就要同时给模型。
+            if (params.model === undefined) throw new StoryError("invalid_params", "给 thinking 时要同时给 model");
+            const ref = params.model;
+            const efforts = resolveQaModel(config, {model: ref}).efforts;
+            if (!efforts.includes(params.thinking)) throw new StoryError("invalid_params", efforts.length === 0 ? `模型 ${ref} 不支持选推理档` : `模型 ${ref} 不支持推理档 ${params.thinking}（支持 ${efforts.join("、")}）`);
+        }
+        return {...(params.model === undefined ? {} : {model: params.model}), ...(params.thinking === undefined ? {} : {thinking: params.thinking})};
     }
 
     async function stop(params: ViewerParams<"qa.stop">): Promise<ViewerResult<"qa.stop">> {
@@ -376,13 +404,21 @@ export function createQaService(options: QaServiceOptions): QaService {
         }
     }
 
+    /** 会话日志的第一条（快照）；读不成时为 undefined。 */
+    function firstEntry(read: {log: {ok: true; jsonl: string} | {ok: false}}): SessionEntry | undefined {
+        if (!read.log.ok) return undefined;
+        const line = read.log.jsonl.split("\n", 1)[0] ?? "";
+        return parseEntryLine(line) ?? undefined;
+    }
+
     async function getOnce(params: ViewerParams<"qa.get">): Promise<{result: ViewerResult<"qa.get">; generation: string}> {
         const {records, generation} = await openRecords(params.book);
         const run = runOf(params.book, params.id, generation);
         let conversation: QaConversation;
         let log: ViewerResult<"qa.get">["log"];
+        let read: Awaited<ReturnType<typeof records.getWithLog>> | undefined;
         try {
-            const read = await records.getWithLog(params.id, generation);
+            read = await records.getWithLog(params.id, generation);
             conversation = read.conversation;
             log = read.log.ok ? parseLog(read.log.jsonl, read.conversation) : {ok: false, problem: read.log.problem};
         } catch (error) {
@@ -390,18 +426,22 @@ export function createQaService(options: QaServiceOptions): QaService {
             const reason = run.state === "running" ? "第一轮还在运行" : "第一轮没有保存，不能续问";
             return {result: {record: null, log: {ok: true, entries: []}, continuable: {ok: false, reason}, run: viewOf(run)}, generation};
         }
+        // 早先版本的 Profile 开始的对话在这里就报不能续问（同续问时的检查），不等到恢复会话才失败。
+        const problem = log.ok && read !== undefined ? continuationProblem(firstEntry(read)) : null;
         const continuable: ViewerResult<"qa.get">["continuable"] = conversation.log === null
             ? {ok: false, reason: "这是旧形状的记录，只能查看，不能续问"}
-            : log.ok
-              ? {ok: true}
-              : {ok: false, reason: log.problem};
+            : !log.ok
+              ? {ok: false, reason: log.problem}
+              : problem === null
+                ? {ok: true}
+                : {ok: false, reason: problem};
         const {id, at, mode, maxChapters, turns, startedAt} = conversation;
-        return {result: {record: {id, at, mode, maxChapters, turns, startedAt}, log, continuable, run: run === undefined ? null : viewOf(run)}, generation};
+        return {result: {record: {id, at, mode, answer: answerModeOf(conversation), maxChapters, turns, startedAt}, log, continuable, run: run === undefined ? null : viewOf(run)}, generation};
     }
 
     function keysOf(config: unknown): Record<string, boolean> {
-        const value = config as {model?: {apiKeyEnv?: unknown}; ingest?: {model?: {apiKeyEnv?: unknown}; recall?: {model?: {apiKeyEnv?: unknown}}}};
-        const names = [value.model?.apiKeyEnv, value.ingest?.model?.apiKeyEnv, value.ingest?.recall?.model?.apiKeyEnv];
+        const value = config as {providers?: Record<string, {apiKeyEnv?: unknown}>; ingest?: {model?: {apiKeyEnv?: unknown}; recall?: {model?: {apiKeyEnv?: unknown}}}};
+        const names = [...Object.values(value.providers ?? {}).map(provider => provider.apiKeyEnv), value.ingest?.model?.apiKeyEnv, value.ingest?.recall?.model?.apiKeyEnv];
         // 用 fromEntries 建字典：变量名可以是 `__proto__`，按下标赋值会落到原型的 setter 上。
         return Object.fromEntries(names.filter((name): name is string => typeof name === "string" && name !== "").map(name => [name, (env[name] ?? "") !== ""]));
     }
@@ -418,7 +458,7 @@ export function createQaService(options: QaServiceOptions): QaService {
         if (digest === ABSENT_CONFIG) return {state: "absent", config: STARTER_CONFIG, digest, path: configPath, keys: keysOf(STARTER_CONFIG)};
         let read: {config: QaConfig; digest: string};
         try {
-            read = await readQaConfigFile(configPath);
+            read = await readQaConfigFile(configPath, configCatalog());
         } catch (error) {
             if (error instanceof QaError && error.code === "qa_unconfigured") return {state: "invalid", problem: error.message, digest, path: configPath, keys: {}};
             throw error;
@@ -429,7 +469,7 @@ export function createQaService(options: QaServiceOptions): QaService {
     async function configSet(params: ViewerParams<"config.set">): Promise<ViewerResult<"config.set">> {
         let saved: {config: QaConfig; digest: string};
         try {
-            saved = await saveQaConfig(configPath, params.config, {expect: params.expect});
+            saved = await saveQaConfig(configPath, params.config, {expect: params.expect, catalog: configCatalog()});
         } catch (error) {
             // 校验不过：说明里只有字段与规则，没有原值（qa 输出 19）。
             if (error instanceof QaError && error.code === "qa_unconfigured") throw new StoryError("invalid_params", error.message);
@@ -438,9 +478,47 @@ export function createQaService(options: QaServiceOptions): QaService {
         return {digest: saved.digest, path: configPath, keys: keysOf(saved.config)};
     }
 
+    /**
+     * 目录加配置里的自定义服务商。配置读不成（没有、坏了）时只给目录：设置页正要靠它写出第一份配置。字段之间的约束不成立
+     * 的配置照样列出它的自定义服务商。
+     */
+    async function modelsCatalog(): Promise<ViewerResult<"models.catalog">> {
+        const config = await readQaConfigShape(configPath).then(
+            read => read.config,
+            (error: unknown) => {
+                if (error instanceof QaError && error.code === "qa_unconfigured") return null;
+                throw error;
+            },
+        );
+        const custom = Object.entries(config?.providers ?? {}).map(([id, provider]) => ({
+            id,
+            name: provider.name ?? id,
+            source: "custom" as const,
+            access: "key" as const,
+            keyEnvs: [provider.apiKeyEnv],
+            keySet: (env[provider.apiKeyEnv] ?? "") !== "",
+            models: provider.models.map(model => catalogModel(modelOf(config!, `${id}/${model.id}`).model)),
+        }));
+        const catalog = listCatalog().map(provider => ({...provider, source: "catalog" as const, keySet: catalogKeys.get(provider.id) ?? false}));
+        return {providers: [...custom, ...catalog] as ViewerResult<"models.catalog">["providers"]};
+    }
+
+    async function modelsDiscover(params: ViewerParams<"models.discover">): Promise<ViewerResult<"models.discover">> {
+        const key = env[params.apiKeyEnv] ?? "";
+        const result = await discoverModels({api: params.api, baseUrl: params.baseUrl, ...(key === "" ? {} : {apiKey: key})});
+        return {
+            state: result.state,
+            status: "status" in result ? result.status : null,
+            message: "message" in result ? result.message : null,
+            models: result.state === "found" ? [...result.models] : [],
+            keySet: key !== "",
+        };
+    }
+
     async function configTest(): Promise<ViewerResult<"config.test">> {
-        const {config} = await readQaConfigFile(configPath);
-        const fixed = {model: config.model.id, thinking: config.model.thinking ?? null};
+        const {config} = await readQaConfigFile(configPath, configCatalog());
+        // 只测默认模型；推理档是夹过之后实际发出的。
+        const fixed = {model: config.model.use, thinking: resolveQaModel(config).thinking ?? null};
         const started = Date.now();
         let result: Awaited<ReturnType<typeof probeModel>>;
         try {
@@ -458,6 +536,8 @@ export function createQaService(options: QaServiceOptions): QaService {
         "qa.list": list,
         "qa.get": get,
         "qa.start": start,
+        "models.catalog": modelsCatalog,
+        "models.discover": modelsDiscover,
         "qa.stop": stop,
         "qa.remove": remove,
         "config.get": configGet,

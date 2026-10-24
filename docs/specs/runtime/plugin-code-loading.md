@@ -27,7 +27,7 @@ owners:
 - **宿主模块表**：两端宿主给插件代码的共享模块。浏览器在第一次装载第三方入口时建立并冻结（没有第三方浏览器入口的窗口不取它；取不到时下一次激活重新取），含 `vue`、`@vue/reactivity`、`@notnotype/nb-plugin-sdk`、`@notnotype/nb-plugin-sdk/browser` 与 `@notnotype/nb-plugin-sdk/components`（nb-ui 的组件，宿主给的是自己用的那一份）；服务端与项目实例含 `@vue/reactivity` 与 `@notnotype/nb-plugin-sdk`（后端不加载界面框架）。Vue 与 `@vue/reactivity` 必须是宿主那一份：两份响应式系统互相看不见，`computed` 不更新、`watch` 不触发，也不报错。
 - **纯度检查**：构建预设按打包器的模块图检查两端的产物：打进了宿主那一份 Vue（`vue`、`@vue/reactivity`、`@vue/runtime-core`、`@vue/runtime-dom`）、nb-ui、SDK 或内核的实现，或者外部引用（静态与动态导入）不在本位置的宿主模块表里（“未共享”），构建失败。其它无状态的 `@vue/*` 工具包（`@vue/shared`、`@vue/devtools-api`）照常打进插件。
 - **插件样式**：清单的 `style` 指向一份样式表。构建预设把各入口的样式合并后包进 `@layer components`（与宿主组件样式同层，宿主的原子类仍能覆盖插件组件），并为插件用到的 Lucide 图标类（`i-lucide-<名字>`）生成规则：宿主只为自己源码里出现过的类名生成规则，插件不能依赖宿主的原子类。扫描清单本身（声明里的图标）与各位置入口模块图里的源码（含打进来的依赖）；别的图标集的类名给构建警告，拼接出来的类名找不到。
-- **插件文件端点**：`GET /api/runtime/plugins/<插件 id>/files/<内容摘要>/<相对路径>`，提供插件的浏览器代码、样式与静态资源。内容摘要是本次启动时算出的版本目录全部文件的摘要。
+- **插件文件端点**：`GET <挂载前缀>/plugins/<插件 id>/files/<内容摘要>/<相对路径>`，提供插件的浏览器代码、样式与静态资源。挂载前缀由平台档案给出（[`runtime.plugin-manifest`](plugin-manifest.md) 的术语），NeuroBook 是 `/api/runtime`。内容摘要是本次启动时算出的版本目录全部文件的摘要。
 
 ## 输入与前置条件
 

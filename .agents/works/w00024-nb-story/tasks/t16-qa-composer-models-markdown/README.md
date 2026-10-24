@@ -51,7 +51,23 @@ updated: 2026-10-24
 
 - 2026-10-24 切片 1 到 4 已提交（分支 `feat/w00024-t16-qa-composer-models`）：dfb331aa1 nb-harness 模型目录；112518bf6 配置第 2 版；6bbf19335 作答方式、出处复查、每轮选模型、Profile v4；097622402 选模型的接口与 `discoverModels`。对应 Spec 提交在 master（34831d835、4c12e8c38、7a55bb946、37f6ba4b8）。实施中定的几处：语义校验的目录查表由调用方传入（单独导入 pi-catalog 也会接管 Ctrl-C，`nbstory ingest` 不能加载它），所以抽取的回落收窄到自定义服务商；`qa.start` 给 `thinking` 时必须同时给 `model`；换接口的测试放在引擎测试里（要 Responses 端点）。nb-story 单测 439 条全过。
 
+- 2026-10-24 切片 5 已提交（9aa9c3884）：nb-agent-ui 的单行版式、上下文大小（圆环加百分比：只有圆环时像加载中的转圈）、带触发字符的前置按钮（nb-markdown 的 PromptEditor 加 `openTrigger`）、`canManageModels` 与 `model.manage`、模型下拉的分组与不可用原因、模型目录 `AgentModelCatalog`；Lab 场景与 e2e（lab-agent-ui、lab-scenes 26 条）通过。Spec 在 master 774a867a1。截图核对时修了两处：控件对齐正文最后一行的中线（垫 6px）；Lab 里目录对话框按“紧凑”画布摆会被压扁，登记成撑满画布。
+
+- 2026-10-24 切片 6 已提交（8f9027193）：问答页的单行输入框、选模型与推理档（换模型时往下夹；续问缺省接着用上一轮的模型）、上下文大小、`+` 插 `@`、“管理模型…”（输入框存档挪到模块里，回来草稿还在）、`canChangeRuntime` 修好（新对话能切全读）；设置页的候选与默认、服务商列表、模型目录与服务商表单（`ProviderDialog`，读 `/models`）；出处复查在网页上是过程里的一行；导入页预览写明“抽取要单独写模型”。Spec 在 master d3b0a3b7f。真实页面截图核对时修了：复查行标签与正文重复、用量很小时写 `<1%`、手机宽度下默认候选被推理档挤窄、服务商表单的模型表在窄屏被压扁。
+- 收口验证：nb-harness 85 条、nb-story 单测 449 条、nb-agent-ui（bun 184 条、DOM 51 条）、nb-markdown 编辑器 DOM 测试、各包 typecheck、`docs:check` 无失败；Lab e2e（lab-agent-ui、lab-scenes）26 条通过；nb-story 全量 e2e 31 条通过，最后一轮修正后问答页 e2e 11 条再跑通过。证据：截图在本地 `shots/s5`、`shots/s6`。
+- 2026-10-24 实现审查（审查 worktree 固定在 8f9027193）：
+  - Sonnet 审前端 10 条（重要 2、建议 8，[impl-review-web.txt](evidences/impl-review-web.txt)）：
+    - 成立、已改：目录每次按键整表重排（改成排序只随服务商重算，合成的六千个模型每次匹配约 3 毫秒）；选过的模型在设置里被去掉后输入框写“未选择模型”、发问被拒（改成回到默认，补单测与 e2e）；保存成功后刷新目录失败报“没有保存”；服务商表单改的参数保存前不生效、没保存过的推理模型设为默认时推理档被丢掉；e2e 补改推理档保存；出处复查行改从 `nb-story.reply-check` 元数据取出处、不解析给模型的文字，开头补提问时日志里的提问不再当复查；服务商状态在 nb-story 收成一个 `providerNote`（复用 `providerSelectable`，用不了的服务商变量有值也不算能用）、数字短写收成一个；`saveProvider` 的提示盖掉默认模型变化；删对话时清掉输入框存档；上下文大小跳过被停止或出错的消息；目录换了服务商后选中项回到“全部”；e2e 用到的目录模型加了说明来源的断言。
+    - 部分成立：控件垫高 6px，审查按 13px 字号算应为 4.6px；Lab 里实测编辑器是 14px，6px 时字形中线与控件中线差 0.1px 以内，保留 6px、注释写明实测依据。折行后多出的垫高成立，已去掉。目录对话框的文案在 nb-agent-ui 里走 i18n，没有和 nb-story 共用一份。
+    - 没改：服务端 `invalid_params` 的页面显示没有专门的 e2e。冲突那条用例已经覆盖了“没有保存”的错误通道，单独构造服务端拒绝收益小。
+  - omp 审后端 3 条（重要 3，[impl-review-omp.txt](evidences/impl-review-omp.txt)）：
+    - `/models` 响应体超时被分成“回应不是模型列表”：成立，响应体改在包的那层读完，补了慢响应体的测试。
+    - `ask --thinking` 不带 `--model`：按 Spec 输出 12、40，命令行允许只给推理档（按模型往下夹），与 `qa.start` 的成对要求不同是有意的；但追查时发现续问只给推理档会换回默认模型，违反输出 40，已修并补引擎测试。
+    - 配置初始化的两条交互测试超时：不成立。审查 worktree 没装依赖，测试解析到 master 上的旧 nb-harness（报 `clampEffort` 不存在）；在实现 worktree 里这 4 个文件连跑两遍 99 条全过。
+  - 修正提交：41483d2f0（nb-agent-ui）、9e6ca226d（nb-harness）、51cd016a5、1f3850e05、c99c4c2a2（nb-story）。复跑：nb-harness 85 条、nb-story 单测 452 条、nb-agent-ui bun 184 条与 DOM 51 条、各包 typecheck 通过；nb-story 全量 e2e 30 条通过、新补的改推理档用例选择器写错（c99c4c2a2 改正），问答页 e2e 11 条再跑通过。
+
+- 2026-10-24 合入 master（b265707b2，不 push）；审查 worktree 与草稿 worktree 已删。
+
 ## 下一步
 
-1. 切片 5（nb-agent-ui）与切片 6（nb-story 网页），每片单独提交。
-2. 收口：nb-story 全量 e2e，派实现审查（前端 Sonnet、后端 omp），合入 master。
+1. 待开发者批准：Responses、Anthropic、Gemini 接口与真实服务 `/models` 的真实模型冒烟。

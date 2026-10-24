@@ -12,11 +12,15 @@
  *
  * 附注：每一轮最后一条有文字的助手消息挂“没核实的出处”（`nb-story.unverified-refs`）。
  *
+ * 出处复查（docs/specs/story/qa.md 输出 39）：一轮里第一条提问之后的用户消息是引擎写给模型的复查消息（nb-story 不发
+ * steer，同一轮里不会有别的用户消息）。它换成过程里的一行系统消息，不让视图在这里开新的一轮。没读过的出处取自复查消息
+ * 之前那条 `nb-story.reply-check` 元数据（适配器不把元数据变成消息，由调用方用 `replyCheckOf` 收集），不解析给模型的文字。
+ *
  * 换 id、补消息、挂附注都换成新对象，并按原对象缓存（调用方给 `cache`）：视图按消息对象是否相同决定一轮要不要重算，
  * 打节拍时原对象原样交回。
  */
 
-import {logSeqOf, type MessageView, type UserMessageView} from "@notnotype/nb-agent-ui";
+import {logSeqOf, type MessageView, type SystemMessageView, type UserMessageView} from "@notnotype/nb-agent-ui";
 
 /** 记录里一轮在这里用到的部分。 */
 export interface TurnInfo {
@@ -35,6 +39,17 @@ export interface ComposeInput {
     readonly turns: readonly TurnInfo[];
     /** 运行中（或刚结束、记录还没读回）的这一轮；没有时为 null。 */
     readonly running: (TurnInfo & {readonly logFrom: number}) | null;
+    /** 日志里的出处复查元数据：`seq` → 没读过的出处。 */
+    readonly replyChecks?: ReadonlyMap<number, readonly string[]>;
+}
+
+/** 日志条目是出处复查的元数据时，取出它的 `seq` 与没读过的出处（引擎写法见 src/qa/engine.ts 的 `runTurns`）。 */
+export function replyCheckOf(entry: unknown): {seq: number; refs: string[]} | null {
+    if (typeof entry !== "object" || entry === null) return null;
+    const {kind, key, seq, value} = entry as {kind?: unknown; key?: unknown; seq?: unknown; value?: unknown};
+    if (kind !== "meta" || key !== "nb-story.reply-check" || typeof seq !== "number") return null;
+    const unverified = (value as {unverified?: unknown} | null)?.unverified;
+    return {seq, refs: Array.isArray(unverified) ? unverified.filter((ref): ref is string => typeof ref === "string") : []};
 }
 
 export const UNVERIFIED_REFS = "nb-story.unverified-refs";
@@ -80,6 +95,20 @@ function syntheticQuestion(conversationId: string, turn: number, info: TurnInfo,
     };
 }
 
+/** 复查消息之前最近的那条复查元数据里的出处；找不到时为空。 */
+function recheckRefs(message: UserMessageView, replyChecks: ReadonlyMap<number, readonly string[]>): readonly string[] {
+    const seq = logSeqOf(message);
+    if (seq === null) return [];
+    let found: number | null = null;
+    for (const at of replyChecks.keys()) if (at < seq && (found === null || at > found)) found = at;
+    return found === null ? [] : replyChecks.get(found)!;
+}
+
+function recheckLine(message: UserMessageView, refs: readonly string[]): SystemMessageView {
+    // 标签已经写了“出处检查”，正文不再重复。
+    return {kind: "system", id: message.id, timestamp: message.timestamp, source: "reminder", label: "出处检查", text: refs.length === 0 ? "有没读过的出处，已让模型重写" : `${refs.join("、")} 没读过，已让模型重写`};
+}
+
 export function composeMessages(messages: readonly MessageView[], input: ComposeInput, cache: MessageCache): MessageView[] {
     const turns = input.running === null ? input.turns : [...input.turns, input.running];
     // 旧记录（没有 logFrom）不能按日志位置分轮：原样交出，接受旧形状里的错位。
@@ -108,6 +137,14 @@ export function composeMessages(messages: readonly MessageView[], input: Compose
             group[0] = question.id === id ? question : cached(cache, question, `id:${id}`, () => ({...question, id}));
         } else {
             group.unshift(syntheticQuestion(input.conversationId, turn, info, pending && firstQuestion < 0));
+        }
+        // 这一轮的提问之后的用户提问都是复查消息。开头是补的提问而日志里有提问时，日志里的第一条仍是提问，不算复查。
+        const askedAt = firstQuestion <= 0 ? 0 : firstQuestion + 1;
+        for (let index = askedAt + 1; index < group.length; index += 1) {
+            const message = group[index]!;
+            if (!isQuestion(message)) continue;
+            const refs = recheckRefs(message, input.replyChecks ?? new Map());
+            group[index] = cached(cache, message, `recheck:${refs.join(",")}`, () => recheckLine(message, refs));
         }
         const refs = info.unverifiedRefs ?? [];
         if (refs.length > 0) {

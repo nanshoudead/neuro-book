@@ -128,6 +128,8 @@ export interface QaEndpoint {
     /** 从下一个请求往后数第 `from` 个（缺省 0，即下一个）起先等着，直到 release。 */
     hold(from?: number): Promise<void>;
     release(): Promise<void>;
+    /** 之后 `GET <端点>/models` 这样回（设置页读服务的模型列表）。 */
+    models(reply: {kind: "models"; ids: string[]} | {kind: "status"; status: number}): Promise<void>;
     seen(): Promise<number>;
     /** 收到的每个请求的 JSON 正文。 */
     bodies(): Promise<Record<string, unknown>[]>;
@@ -155,6 +157,7 @@ export async function startQaEndpoint(): Promise<QaEndpoint> {
         script: replies => post("/script", {replies}),
         hold: from => post(from === undefined ? "/hold" : `/hold?from=${from}`),
         release: () => post("/release"),
+        models: reply => post("/models", reply),
         seen: async () => ((await (await fetch(`${control}/seen`)).json()) as {seen: number}).seen,
         bodies: async () => ((await (await fetch(`${control}/bodies`)).json()) as {bodies: Record<string, unknown>[]}).bodies,
         async stop() {

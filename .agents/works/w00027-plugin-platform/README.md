@@ -37,7 +37,7 @@ updated: 2026-10-23
 | [t06](tasks/t06-settings-ui-polish/README.md) | 设置界面的样式收口：按设计稿重新收口设置窗口与设置组件的外观（t02 之后） |
 | [t10](tasks/t10-settings-window-chrome/README.md) | 设置窗口的外框（去掉标题栏、可拖、圆角）与“本作品”沿用行（控件一直在、标“来自用户设置”）；开发者看 t06 实现后提出 |
 | [t08](tasks/t08-secret-store/README.md) | 密钥存储（搁置）：开发者 2026-10-20 定暂时不做加密，API Key 用明文的普通配置项；计划、审查与调研留作重开时的参考 |
-| [t11](tasks/t11-activation-output-shape/README.md) | 内核核对入口激活产出的形状，不对时报 `activation-threw`（t05 回写建议，2026-10-24 开发者批准；未开工） |
+| [t11](tasks/t11-activation-output-shape/README.md) | 内核核对入口激活产出的形状，不对时报 `activation-threw`（t05 回写建议；2026-10-24 并入 t13 S1b 完成） |
 | [t12](tasks/t12-plugin-dx-review/README.md) | 插件开发体验（Sonnet 以作者身份走一遍）与可维护性复查，及待确认清单改判的三项（2026-10-24 开发者要求） |
 | [t13](tasks/t13-sdk-package-split/README.md) | SDK 拆成独立包（作者工具、模板、文档、示例）、内核去掉 NeuroBook 常量、通用插件管理在目录上分开（开发者 2026-10-24 定；计划待写） |
 
