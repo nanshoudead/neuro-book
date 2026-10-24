@@ -14,7 +14,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {createPluginInventory} from "nbook/plugin-platform/backend/inventory";
 import {installedPlugins, NO_INSTALLED_PLUGINS, prepareInstalledPlugins} from "nbook/plugin-platform/backend/startup";
-import type {PreparedPlugins} from "nbook/plugin-platform/backend/startup";
+import type {PluginsPreparation} from "nbook/plugin-platform/backend/startup";
 import {pluginFilesPrefix} from "nbook/plugin-platform/shared/plugin-files";
 import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 
@@ -25,7 +25,7 @@ import type {RunningServer} from "./start";
 
 let tmp = "";
 let server: RunningServer;
-let prepared: PreparedPlugins;
+let prepared: PluginsPreparation;
 let prefix = "";
 
 /** 一个带浏览器入口与样式的插件文件夹。 */
@@ -75,7 +75,7 @@ beforeAll(async () => {
     prefix = pluginFilesPrefix(plugin.id, plugin.digest);
     server = startServer({
         config: {host: "127.0.0.1", port: 0, stateRoot: join(tmp, "state"), logDirectory: join(tmp, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, shiftPorts: false, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
-        installed: prepared,
+        prepared,
         process: new EventEmitter(),
         writeFatal: () => undefined,
     });

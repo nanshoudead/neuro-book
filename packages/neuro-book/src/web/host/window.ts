@@ -14,14 +14,12 @@ import {createDiagnosticsStore, mechanismObservers, recordingEmergency} from "@n
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
-import {descriptorOf} from "@notnotype/nb-runtime/plugin-manifest";
 import type {PluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
-import type {RemoteContract} from "@notnotype/nb-runtime/remote";
 import {Value} from "typebox/value";
 
-import {definitionAt, thirdPartyDefinition, thirdPartyDefinitionAt} from "nbook/manifest";
+import {definitionAt} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {workbenchRootKey} from "nbook/plugins/workbench/web/contracts";
@@ -41,8 +39,10 @@ import type {BrowserHostPluginFactory, BrowserHostPluginId, BrowserPluginContext
 import {BrowserRuntimeHost} from "./browser-host";
 import type {BrowserHost, PageLifecycleTarget} from "./browser-host";
 import type {Connection, RpcEndpoint} from "./connection";
+import {thirdPartyDefinitionsFor} from "nbook/plugin-platform/shared/definitions";
 import {createPluginCodeHost, pageDocument} from "nbook/plugin-platform/web/plugin-code";
 import type {PluginCodeHost, PluginDocument, PluginLink} from "nbook/plugin-platform/web/plugin-code";
+import {attachPluginStyles} from "nbook/plugin-platform/web/styles";
 import {createRemoteSession} from "./remote-session";
 import {createWindowPlugins} from "./window-plugins";
 import type {RemoteSession} from "./remote-session";
@@ -232,13 +232,19 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
             const windowPlugins = createWindowPlugins(() => host?.application.plugins ?? null, (error) => store.record({level: "warn", event: "browser-host.plugins-listener.failed", message: "入口状态的监听抛错", error}));
             // 登记看的是定义里的 id，引导集合与必需插件看的是表项的 id：两者不一致时不装，否则会装进集合之外的插件。
             const builtinDefinitions = selected.flatMap((plugin) => (plugin.kind === "definition" ? [plugin.definition] : []));
-            const plugins = selected.map((plugin) => {
-                if (plugin.kind === "third-party") return thirdPartyDefinitionIn(plugin, builtinDefinitions, store, code());
+            const thirdPartyPlugins = selected.flatMap((plugin) => (plugin.kind === "third-party" ? [plugin] : []));
+            const loadCode = code();
+            const thirdParty = new Map(thirdPartyDefinitionsFor("browser", thirdPartyPlugins.map((plugin) => ({
+                manifest: plugin.manifest,
+                load: (entry, activation) => loadCode().activateOf({plugin: plugin.id, entry: entry.id, url: pluginFileUrl(plugin.files, entry.main), signal: activation.signal}),
+            })), {builtin: builtinDefinitions, record: (input) => void store.record(input), unregistrableEvent: "browser-host.plugin.unregistrable"}).map((definition) => [definition.id, definition]));
+            const plugins = selected.flatMap((plugin) => {
+                if (plugin.kind === "third-party") return thirdParty.get(plugin.id) ?? [];
                 const definition = plugin.kind === "host" ? plugin.factory(context) : plugin.definition;
                 if (definition.id !== plugin.id) throw new Error(`浏览器插件 ${plugin.id} 的装配定义是插件 ${definition.id}`);
-                return definition;
+                return [definition];
             });
-            styles = attachStyles(selected, options.document ?? pageDocument(), store);
+            styles = attachPluginStyles(thirdPartyPlugins, options.document ?? pageDocument(), {dataset: NEUROBOOK_PROFILE.styleDataset, record: (input) => void store.record(input)});
             host = adapter.start({
                 instanceId,
                 client: clientIdentity,
@@ -444,47 +450,3 @@ function createRescue(report: (error: unknown) => void): {readonly capability: W
         },
     };
 }
-
-/**
- * 第三方插件在窗口里的定义：按清单登记入口，激活时经装载器取回代码（`plugin-code.ts`）。清单引用了本窗口不认识的内置合同等
- * 登记不了的情况，只登记它的顶层声明并记诊断：一个插件出错不挡窗口启动。
- */
-function thirdPartyDefinitionIn(plugin: Extract<SelectedPlugin, {kind: "third-party"}>, builtin: ReadonlyArray<PluginDefinition>, store: DiagnosticsStore, code: () => PluginCodeHost): PluginDefinition {
-    const contracts = new Map<string, RemoteContract>();
-    for (const definition of builtin) {
-        for (const entry of definition.entries) {
-            for (const contract of [...(entry.remoteProvides ?? []), ...(entry.remoteDelegates ?? [])]) contracts.set(contract.id, contract);
-        }
-    }
-    try {
-        return thirdPartyDefinitionAt("browser", plugin.manifest, {
-            load: (entry, context) => code().activateOf({plugin: plugin.id, entry: entry.id, url: pluginFileUrl(plugin.files, entry.main), signal: context.signal}),
-            contractOf: (id) => {
-                const contract = contracts.get(id);
-                if (contract === undefined) throw new Error(`引用了本窗口没有的合同 ${id}`);
-                return contract;
-            },
-        });
-    } catch (error) {
-        store.record({level: "warn", event: "browser-host.plugin.unregistrable", message: `第三方插件 ${plugin.id} 的入口登记不了，只登记它的顶层声明`, error, data: {plugin: plugin.id}});
-        return thirdPartyDefinition(descriptorOf(plugin.manifest));
-    }
-}
-
-/** 窗口登记插件时就加入它们的样式表：清单里的声明（例如设置分区的图标）在入口激活前就要显示。加载失败只记诊断。 */
-function attachStyles(selected: ReadonlyArray<SelectedPlugin>, document: PluginDocument | undefined, store: DiagnosticsStore): PluginLink[] {
-    const links: PluginLink[] = [];
-    for (const plugin of selected) {
-        if (plugin.kind !== "third-party" || plugin.manifest.style === null) continue;
-        if (document === undefined) continue;
-        const link = document.createElement("link");
-        link.rel = "stylesheet";
-        link.href = pluginFileUrl(plugin.files, plugin.manifest.style);
-        link.dataset.nbookPluginStyle = plugin.id;
-        link.addEventListener("error", () => store.record({level: "warn", event: "browser-host.plugin.style-failed", message: `第三方插件 ${plugin.id} 的样式表加载失败`, data: {plugin: plugin.id, url: link.href}}));
-        document.head.append(link);
-        links.push(link);
-    }
-    return links;
-}
-

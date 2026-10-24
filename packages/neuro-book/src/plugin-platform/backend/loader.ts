@@ -25,13 +25,11 @@ import {readFile, realpath, stat} from "node:fs/promises";
 import {dirname, extname, join, relative, sep} from "node:path";
 
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
-import {descriptorOf} from "@notnotype/nb-runtime/plugin-manifest";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
-import type {RemoteContract} from "@notnotype/nb-runtime/remote";
 
 import {errno} from "nbook/backend/locked-replace";
-import {pluginsAt, thirdPartyDefinition, thirdPartyDefinitionAt} from "nbook/plugin-platform/shared/definitions";
-import type {EntryLoader} from "nbook/plugin-platform/shared/definitions";
+import {thirdPartyDefinitionsFor} from "nbook/plugin-platform/shared/definitions";
+import type {EntryLoader, ThirdPartySource} from "nbook/plugin-platform/shared/definitions";
 import {PluginCodeError} from "nbook/plugin-platform/shared/plugin-code-error";
 import type {PlatformProfile} from "nbook/plugin-platform/shared/profile";
 
@@ -156,9 +154,8 @@ export function serverEntryLoader(plugin: InstalledPlugin, options: ServerLoader
 }
 
 /**
- * 服务端或项目实例登记的第三方插件定义：本位置有入口的、或有顶层声明式贡献的插件（`pluginsAt`），入口激活时经本文件的
- * 装载器取回代码。清单引用的内置合同从本位置的内置插件定义里找。清单读不了（服务端与接收方的校验规则不一致）或引用了
- * 本位置不认识的合同时，跳过它或只登记它的顶层声明，并记诊断：一个插件出错不挡实例启动。
+ * 服务端或项目实例登记的第三方插件定义（`thirdPartyDefinitionsFor`），入口激活时经本文件的装载器取回代码。清单读不了
+ * （服务端与接收方的校验规则不一致）时跳过它并记诊断。
  */
 export function thirdPartyDefinitionsAt(
     location: "server" | "project",
@@ -167,34 +164,14 @@ export function thirdPartyDefinitionsAt(
     record: (input: DiagnosticInput) => void,
     options: ServerLoaderOptions,
 ): PluginDefinition[] {
-    const contracts = new Map<string, RemoteContract>();
-    for (const definition of builtin) {
-        for (const entry of definition.entries) {
-            for (const contract of [...(entry.remoteProvides ?? []), ...(entry.remoteDelegates ?? [])]) contracts.set(contract.id, contract);
-        }
-    }
-    const definitions: PluginDefinition[] = [];
+    const sources: ThirdPartySource[] = [];
     for (const plugin of installed) {
         const read = manifestOfInstalled(plugin, options.profile.format);
         if (!read.ok) {
             record({level: "warn", event: "plugins.startup.manifest-unreadable", message: `第三方插件 ${plugin.id} 的清单读不了，不登记`, data: {plugin: plugin.id, detail: read.detail}});
             continue;
         }
-        const descriptor = descriptorOf(read.manifest);
-        if (pluginsAt(location, [descriptor]).length === 0) continue;
-        try {
-            definitions.push(thirdPartyDefinitionAt(location, read.manifest, {
-                load: serverEntryLoader(plugin, options),
-                contractOf: (id) => {
-                    const contract = contracts.get(id);
-                    if (contract === undefined) throw new Error(`引用了本位置没有的合同 ${id}`);
-                    return contract;
-                },
-            }));
-        } catch (error) {
-            record({level: "warn", event: "plugins.startup.unregistrable", message: `第三方插件 ${plugin.id} 的入口登记不了，只登记它的顶层声明`, error, data: {plugin: plugin.id}});
-            definitions.push(thirdPartyDefinition(descriptor));
-        }
+        sources.push({manifest: read.manifest, load: serverEntryLoader(plugin, options)});
     }
-    return definitions;
+    return thirdPartyDefinitionsFor(location, sources, {builtin, record, unregistrableEvent: "plugins.startup.unregistrable"});
 }

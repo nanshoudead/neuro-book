@@ -12,7 +12,9 @@
 
 import {createHash} from "node:crypto";
 
+import {descriptorsOf} from "nbook/plugin-platform/backend/installed";
 import type {InstalledPlugin} from "nbook/plugin-platform/backend/installed";
+import {manifestFormat} from "nbook/plugin-platform-profile";
 import {pluginsAt} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import type {HostRoute} from "nbook/plugins/http/backend/plugin";
@@ -30,9 +32,9 @@ function browserManifest(raw: unknown): unknown {
     return {...(raw as object), entries};
 }
 
-export function browserBootstrap(builtin: ReadonlyArray<PluginDescriptor>, thirdParty: ReadonlyArray<PluginDescriptor>, installed: ReadonlyArray<InstalledPlugin>, rpc: BrowserBootstrap["rpc"]): BrowserBootstrap {
+export function browserBootstrap(builtin: ReadonlyArray<PluginDescriptor>, installed: ReadonlyArray<InstalledPlugin>, rpc: BrowserBootstrap["rpc"]): BrowserBootstrap {
     const byId = new Map(installed.map((plugin) => [plugin.id, plugin]));
-    const third = pluginsAt("browser", thirdParty).map(({id, version}) => {
+    const third = pluginsAt("browser", descriptorsOf(installed, manifestFormat)).map(({id, version}) => {
         const plugin = byId.get(id);
         if (plugin === undefined) throw new Error(`第三方插件 ${id} 没有安装信息`);
         return {id, version, manifest: browserManifest(plugin.manifest), files: pluginFilesPrefix(id, plugin.digest), digest: plugin.digest};
@@ -46,8 +48,8 @@ export function browserBootstrap(builtin: ReadonlyArray<PluginDescriptor>, third
     return {protocolVersion: BROWSER_PROTOCOL_VERSION, revision, plugins, rpc: {port: rpc.port, path: rpc.path}};
 }
 
-export function createBrowserBootstrapRoute(builtin: ReadonlyArray<PluginDescriptor>, thirdParty: ReadonlyArray<PluginDescriptor>, installed: ReadonlyArray<InstalledPlugin>, rpc: BrowserBootstrap["rpc"], projectTitle: (reference: string) => Promise<string | null>): HostRoute {
-    const body = browserBootstrap(builtin, thirdParty, installed, rpc);
+export function createBrowserBootstrapRoute(builtin: ReadonlyArray<PluginDescriptor>, installed: ReadonlyArray<InstalledPlugin>, rpc: BrowserBootstrap["rpc"], projectTitle: (reference: string) => Promise<string | null>): HostRoute {
+    const body = browserBootstrap(builtin, installed, rpc);
     return {
         method: "GET",
         path: ROUTE_PATH,

@@ -22,8 +22,8 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote";
 
 import {createPluginInventory, pluginInventoryKey} from "nbook/plugin-platform/backend/inventory";
-import {installedPlugins, loadedDescriptors, NO_INSTALLED_PLUGINS} from "nbook/plugin-platform/backend/startup";
-import type {PreparedPlugins} from "nbook/plugin-platform/backend/startup";
+import {installedPlugins, NO_PREPARED_PLUGINS} from "nbook/plugin-platform/backend/startup";
+import type {PluginsPreparation} from "nbook/plugin-platform/backend/startup";
 import {productPlugins} from "nbook/manifest";
 import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import type {PluginDescriptor} from "nbook/manifest";
@@ -61,7 +61,7 @@ export interface StartServerOptions {
      * 本次启动的第三方插件，由进程入口在启动之前用 `prepareInstalledPlugins` 得出（它要取跨进程的锁，是异步的）。
      * 缺省没有第三方插件。
      */
-    readonly installed?: PreparedPlugins;
+    readonly prepared?: PluginsPreparation;
     readonly process?: ProcessEvents;
     readonly signals?: ReadonlyArray<NodeJS.Signals>;
     readonly stopInput?: NodeJS.ReadableStream | null;
@@ -231,19 +231,18 @@ export function startServer(options: StartServerOptions): RunningServer {
 
     const builtinManifest = options.manifest ?? productPlugins;
     // 第三方插件集合在启动前已确定，进程生命期内不变（docs/specs/runtime/plugin-install.md）。
-    const installed = options.installed ?? {startup: NO_INSTALLED_PLUGINS, connectDiagnostics: () => undefined, release: async () => undefined};
+    const prepared = options.prepared ?? NO_PREPARED_PLUGINS;
     // 租约在宿主停止之后才放下，其间（以及锁在运行中失效时）的记录存储已不再收：写到 stderr，不丢掉“在用的版本可能被回收”这条线索。
-    installed.connectDiagnostics((record) => {
+    prepared.connectDiagnostics((record) => {
         if (store.record(record).status !== "rejected") return;
         writeFatal(`${JSON.stringify({level: record.level, event: record.event, message: record.message, ...(record.error === undefined ? {} : {error: serializeDiagnosticError(record.error)})})}\n`);
     });
-    const thirdParty = loadedDescriptors(installed.startup);
-    const thirdPartyIds = new Set(thirdParty.map((plugin) => plugin.id));
+    const installed = installedPlugins(prepared.startup);
+    const thirdPartyIds = new Set(installed.map((plugin) => plugin.id));
     const context: ServerPluginContext = {
         config,
         manifest: builtinManifest,
-        thirdParty,
-        installed: installedPlugins(installed.startup),
+        installed,
         store,
         admission,
         onListening: (address) => {
@@ -319,7 +318,7 @@ export function startServer(options: StartServerOptions): RunningServer {
                         root: join(options.config.stateRoot, "plugins"),
                         profile: NEUROBOOK_PROFILE,
                         builtin: builtinManifest.map(({id, version}) => ({id, version})),
-                        startup: installed.startup,
+                        startup: prepared.startup,
                         record: (record) => void store.record(record),
                     }),
                 },
@@ -372,7 +371,7 @@ export function startServer(options: StartServerOptions): RunningServer {
         env: options.projectEnv,
         output: options.projectOutput,
         record: (record) => void store.record(record),
-        thirdParty: installedPlugins(installed.startup),
+        installed,
     });
     projects = projectManager;
     projectsReady.resolve(projectManager);

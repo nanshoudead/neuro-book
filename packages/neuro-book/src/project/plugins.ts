@@ -27,11 +27,9 @@ export interface ProjectPluginContext {
     readonly config: ProjectConfig;
     readonly manifest: ReadonlyArray<PluginDescriptor>;
     /**
-     * 服务端本次启动登记、且在项目实例登记的第三方插件（IPC 的 `plugins` 消息）：子进程不自己读登记表，同一次服务端
-     * 运行中先后打开的作品看到同一个集合。
+     * 服务端本次启动登记的第三方插件的安装信息（IPC 的 `plugins` 消息）：子进程不自己读登记表，同一次服务端运行中先后打开的
+     * 作品看到同一个集合。清单在登记时校验（`thirdPartyDefinitionsAt`）。
      */
-    readonly thirdParty: ReadonlyArray<PluginDescriptor>;
-    /** 同一批插件的安装信息（清单、安装目录、摘要），装载入口代码用；描述已由它得出。 */
     readonly installed: ReadonlyArray<InstalledPlugin>;
     readonly store: DiagnosticsStore;
 }

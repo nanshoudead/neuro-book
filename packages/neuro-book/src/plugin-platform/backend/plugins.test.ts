@@ -18,7 +18,7 @@ import {createPluginInventory} from "./inventory";
 import type {PluginInventory} from "./inventory";
 import {livePins, pinKey, pinVersions, PINS_DIR} from "./pins";
 import {prepareInstalledPlugins} from "./startup";
-import type {PreparedPlugins, StartupPlugins} from "./startup";
+import type {PluginsPreparation, StartupPlugins} from "./startup";
 
 const PRODUCT = ACME_PROFILE.productVersion;
 const BUILTIN = [{id: "acme.settings", version: PRODUCT}];
@@ -31,7 +31,7 @@ beforeAll(async () => {
 });
 
 /** 每次模拟启动都持一份版本租约；用例结束后放下，免得锁的刷新计时器留在进程里。 */
-const releases: PreparedPlugins[] = [];
+const releases: PluginsPreparation[] = [];
 
 afterAll(async () => {
     for (const prepared of releases.splice(0)) await prepared.release();
@@ -58,7 +58,7 @@ async function world(): Promise<World> {
     await mkdir(join(base, "sources"), {recursive: true});
     const diagnostics: DiagnosticInput[] = [];
     const make = (startup: StartupPlugins, productVersion = PRODUCT): PluginInventory => createPluginInventory({root, profile: acmeAt(productVersion), builtin: BUILTIN, startup, record: (input) => diagnostics.push(input)});
-    let running: PreparedPlugins | null = null;
+    let running: PluginsPreparation | null = null;
     const self: World = {
         base,
         root,
@@ -157,6 +157,14 @@ describe("安装与列表（输出 1、2、9）", () => {
         expect(await namesIn(w.root)).toEqual([".staging", "example.hello", "plugins.json"]);
         expect(await namesIn(join(w.root, "example.hello"))).toEqual(["1.0.0"]);
         expect(await namesIn(join(w.root, ".staging"))).toEqual([]);
+    });
+
+    it("安装源在插件目录里时拒绝，目录名以 .. 开头的子目录也算在里面", async () => {
+        const w = await world();
+        const inside = join(w.root, "..stash", "hello");
+        await mkdir(inside, {recursive: true});
+        await writeFile(join(inside, "package.json"), JSON.stringify(manifest()));
+        expect(await w.inventory.install(inside)).toMatchObject({ok: false, code: "path-rejected"});
     });
 });
 

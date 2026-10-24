@@ -11,26 +11,26 @@
 
 import {randomUUID} from "node:crypto";
 import {lstat, mkdir, realpath, rename, rm, stat} from "node:fs/promises";
-import {join, relative, resolve, isAbsolute} from "node:path";
+import {join, resolve} from "node:path";
 
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
-import {previewBlocked} from "@notnotype/nb-runtime/plugins";
-import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import {errno, holdLock} from "nbook/backend/locked-replace";
-import type {BlockedPlugin, InstallPreview, PendingChange, PluginFailureCode, PluginList, PluginListItem} from "nbook/plugin-platform/shared/types";
+import type {InstallPreview, PendingChange, PluginFailureCode, PluginList, PluginListItem} from "nbook/plugin-platform/shared/types";
 import type {PlatformProfile} from "nbook/plugin-platform/shared/profile";
-import {compareVersions, engineAccepts, pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
+import {compareVersions, engineAccepts} from "nbook/plugin-platform/shared/versions";
 
 import {collectCopyRange, copyRange} from "./copy";
+import {isInside} from "./paths";
 import {livePins, pinKey} from "./pins";
 import {assertHeld, brief, byId, isLink, LockLost, ownedPath, readRecord, STAGING_DIR, withRecordLock, writeRecord} from "./record";
 import type {PluginRecord, RecordEntry} from "./record";
-import {installedManifest, missingEntries} from "./startup";
+import {blockedAfter} from "./preview";
 import type {StartupPlugins} from "./startup";
+import {installedManifest, missingEntries} from "./version-dir";
 
 export type InventoryFailure = {readonly ok: false; readonly code: PluginFailureCode; readonly detail: string; readonly problems?: ReadonlyArray<string>};
 export type InventoryResult<T> = {readonly ok: true; readonly value: T} | InventoryFailure;
@@ -71,29 +71,6 @@ interface Prepared {
 function failure(code: PluginFailureCode, detail: string, problems?: ReadonlyArray<string>): InventoryFailure {
     return {ok: false, code, detail, ...(problems === undefined ? {} : {problems})};
 }
-
-/** `inner` 等于 `outer` 或在它里面。两者都必须是真实路径。 */
-function within(inner: string, outer: string): boolean {
-    const path = relative(outer, inner);
-    return path === "" || (!path.startsWith("..") && !isAbsolute(path));
-}
-
-/** 预览给出的原因：别的位置提供（`location-mismatch`）对用户来说也是“这里不再提供”；提供方失败在预览里推不出来。 */
-function previewReason(reason: string): BlockedPlugin["reason"] {
-    switch (reason) {
-        case "version-mismatch":
-        case "dependency-cycle":
-            return reason;
-        case "missing-service":
-        case "location-mismatch":
-            return "missing-service";
-        default:
-            return "provider-blocked";
-    }
-}
-
-/** 同一插件几行原因的先后，越小越具体：版本不符与服务不再提供能直接指出原因，经别的插件传递受阻只说明“依赖的插件不可用”。 */
-const REASON_RANK: Readonly<Record<BlockedPlugin["reason"], number>> = {"version-mismatch": 0, "missing-service": 1, "dependency-cycle": 2, "provider-blocked": 3};
 
 /** 路径上有没有东西；只有 ENOENT 算没有，别的错误（权限）抛出，由调用方按复制失败处理。 */
 async function exists(path: string): Promise<boolean> {
@@ -195,7 +172,7 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
             return failure("copy-failed", `无法创建插件目录：${brief(error)}`);
         }
         // 两个方向都拒绝：源在安装根里会把已安装的插件当安装源，安装根在源里会把准备目录复制进自己。
-        if (within(source, realRoot) || within(realRoot, source)) return failure("path-rejected", "安装源不能与插件目录互相包含");
+        if (isInside(source, realRoot) || isInside(realRoot, source)) return failure("path-rejected", "安装源不能与插件目录互相包含");
 
         const read = await installedManifest(source, options.profile.format);
         if (!read.ok) {
@@ -226,47 +203,8 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
         if (!prepared.ok) return prepared;
         const {manifest, installed} = prepared.value;
         const relation = installed === null ? "install" : compareVersions(manifest.version, installed) > 0 ? "upgrade" : "downgrade";
-        const preview = relation === "install" ? {blocked: [], unchecked: []} : await blockedAfter(manifest);
+        const preview = relation === "install" ? {blocked: [], unchecked: []} : await blockedAfter(root, options.profile, manifest);
         return {ok: true, value: {id: manifest.id, version: manifest.version, installed, relation, ...preview}};
-    }
-
-    /**
-     * 把 `next` 换进重启后生效的集合（启用的插件，有待切换版本的取那个版本），用内核的同一份推导与同一个 `satisfies`，
-     * 列出比换之前多出来的受阻入口。读不了清单的插件不参与，列进 `unchecked`，预览照常给出。
-     */
-    async function blockedAfter(next: PluginManifest): Promise<{readonly blocked: BlockedPlugin[]; readonly unchecked: string[]}> {
-        const record = await readRecord(root, options.profile);
-        if (!record.ok) return {blocked: [], unchecked: []};
-        // 禁用的插件升级后仍是禁用的，重启后不登记，依赖它的入口在升级前后一样受阻：没有新增的受阻。
-        if (record.record.plugins[next.id]?.state === "disabled") return {blocked: [], unchecked: []};
-        const current: PluginManifest[] = [];
-        const unchecked: string[] = [];
-        for (const [id, entry] of Object.entries(record.record.plugins)) {
-            if (entry.state !== "enabled") continue;
-            const version = entry.pendingVersion ?? entry.version;
-            const read = await installedManifest(join(root, id, version), options.profile.format);
-            // 与启动时一样核对目录里的清单就是登记的那个插件与版本：对不上的重启后不登记，不能参与推导。
-            if (read.ok && read.manifest.id === id && read.manifest.version === version) current.push(read.manifest);
-            else if (id !== next.id) unchecked.push(id);
-        }
-        const after = [...current.filter((item) => item.id !== next.id), next];
-        const locations = [...new Set([...current, next].flatMap((item) => item.entries.map((entry) => entry.location)))];
-        // 按插件与原因分组：同一插件的几个入口原因不同时各占一行，范围与服务 id 只跟着它自己的入口。
-        const byPlugin = new Map<string, BlockedPlugin>();
-        for (const location of locations) {
-            const before = previewBlocked(current.map(previewDefinition), location, pluginVersionSatisfies);
-            for (const [key, blocked] of previewBlocked(after.map(previewDefinition), location, pluginVersionSatisfies)) {
-                if (blocked === null || (before.get(key) ?? null) !== null) continue;
-                const [plugin, entry] = splitEntry(key);
-                const reason = previewReason(blocked.reason);
-                const detail: {readonly range?: string; readonly service?: string} = reason === "version-mismatch" && blocked.reason === "version-mismatch" ? {range: blocked.range} : reason === "missing-service" ? {service: blocked.key} : {};
-                const group = `${plugin}\n${reason}\n${detail.range ?? detail.service ?? ""}`;
-                const known = byPlugin.get(group);
-                byPlugin.set(group, known === undefined ? {plugin, entries: [entry], reason, ...detail} : {...known, entries: [...known.entries, entry]});
-            }
-        }
-        const order = (item: BlockedPlugin): string => `${item.plugin}\n${String(REASON_RANK[item.reason])}`;
-        return {blocked: [...byPlugin.values()].sort((left, right) => (order(left) < order(right) ? -1 : 1)), unchecked: unchecked.sort()};
     }
 
     async function install(sourcePath: string): Promise<InventoryResult<PluginListItem>> {
@@ -424,26 +362,3 @@ function filesOf(raw: unknown): ReadonlyArray<string> | null | undefined {
     const files = raw.files;
     return Array.isArray(files) && files.every((item): item is string => typeof item === "string" && item.trim() !== "") ? files : undefined;
 }
-
-/** 预览用的定义：只有推导受阻要的东西（版本、版本要求、依赖与提供项），不会登记、不会激活。 */
-function previewDefinition(manifest: PluginManifest): PluginDefinition {
-    return {
-        id: manifest.id,
-        version: manifest.version,
-        pluginVersions: manifest.pluginVersions,
-        entries: manifest.entries.map((entry) => ({
-            id: entry.id,
-            location: entry.location,
-            provides: entry.provides.map((id) => defineServiceKey(id)),
-            dependencies: [...entry.requires.map((id) => ({key: defineServiceKey(id)})), ...entry.optional.map((id) => ({key: defineServiceKey(id), required: false}))],
-            activate: () => ({}),
-        })),
-    };
-}
-
-/** 推导结果的键是 `<插件 id>/<入口 id>`；插件 id 不含 `/`。 */
-function splitEntry(key: string): [string, string] {
-    const slash = key.indexOf("/");
-    return [key.slice(0, slash), key.slice(slash + 1)];
-}
-

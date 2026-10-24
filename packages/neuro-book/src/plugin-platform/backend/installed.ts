@@ -3,7 +3,9 @@
  * 入口代码与文件端点都用它。清单交的是 `package.json` 的原始内容，接收方各自用同一个 `readPluginManifest` 再读一遍。
  */
 
+import {descriptorOf} from "@notnotype/nb-runtime/plugin-manifest";
 import type {ManifestFormat, PluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
+import type {PluginDescriptor} from "@notnotype/nb-runtime/plugins";
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
@@ -27,4 +29,12 @@ export function manifestOfInstalled(plugin: InstalledPlugin, format: ManifestFor
     if (read.status !== "valid") return {ok: false, detail: read.problems.map((problem) => `${problem.path}：${problem.message}`).join("；")};
     if (read.manifest.id !== plugin.id || read.manifest.version !== plugin.version) return {ok: false, detail: `清单是 ${read.manifest.id}@${read.manifest.version}`};
     return {ok: true, manifest: read.manifest};
+}
+
+/** 一批已安装插件的描述；清单读不了的跳过（启动时已经校验过，读不了说明两处的规则不一致，由登记它们的地方记诊断）。 */
+export function descriptorsOf(installed: ReadonlyArray<InstalledPlugin>, format: ManifestFormat): PluginDescriptor[] {
+    return installed.flatMap((plugin) => {
+        const read = manifestOfInstalled(plugin, format);
+        return read.ok ? [descriptorOf(read.manifest)] : [];
+    });
 }

@@ -33,9 +33,10 @@ export interface ServerPluginContext {
     readonly config: ServerConfig;
     /** 本进程加载的内置插件：产品清单，开发入口另加开发清单。 */
     readonly manifest: ReadonlyArray<PluginDescriptor>;
-    /** 本次启动登记的第三方插件（docs/specs/runtime/plugin-install.md）；安全模式下为空。 */
-    readonly thirdParty: ReadonlyArray<PluginDescriptor>;
-    /** 同一批插件的安装信息（清单、安装目录、内容摘要）：浏览器引导与插件文件端点用。 */
+    /**
+     * 本次启动登记的第三方插件的安装信息（清单、安装目录、内容摘要；docs/specs/runtime/plugin-install.md）：插件装配、浏览器
+     * 引导与插件文件端点用。安全模式下为空。
+     */
     readonly installed: ReadonlyArray<InstalledPlugin>;
     readonly store: DiagnosticsStore;
     readonly admission: HttpAdmission;
@@ -76,7 +77,7 @@ export const serverHostPlugins: Readonly<Record<ServerHostPluginId, ServerHostPl
         port: context.config.port,
         onListening: context.onListening,
         allowOrigin: context.allowOrigin,
-        hostRoutes: [createBrowserBootstrapRoute(context.manifest, context.thirdParty, context.installed, context.rpc, context.projectTitle), createPluginFilesRoute(context.installed, (input) => context.store.record(input))],
+        hostRoutes: [createBrowserBootstrapRoute(context.manifest, context.installed, context.rpc, context.projectTitle), createPluginFilesRoute(context.installed, (input) => context.store.record(input))],
         staticRoot: context.config.webRoot,
     }),
 };

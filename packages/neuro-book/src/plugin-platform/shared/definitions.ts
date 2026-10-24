@@ -4,6 +4,7 @@
  * （`src/manifest.ts`）再导出 `pluginsAt` 与 `definitionAt`。
  */
 
+import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import type {RuntimeLocation} from "@notnotype/nb-runtime/lifecycle";
 import {definitionOf, descriptorOf} from "@notnotype/nb-runtime/plugin-manifest";
 import type {ManifestEntry, PluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
@@ -63,4 +64,50 @@ export function thirdPartyDefinitionAt(location: RuntimeLocation, manifest: Plug
         };
     });
     return definitionAt(location, descriptorOf(manifest), {...definition, entries});
+}
+
+/** 一个要按清单登记的第三方插件：清单与它的入口装载器（服务端经 Bun 装载、窗口经脚本装载）。 */
+export interface ThirdPartySource {
+    readonly manifest: PluginManifest;
+    readonly load: EntryLoader;
+}
+
+export interface ThirdPartyOptions {
+    /** 本位置的内置插件定义：清单引用的内置合同从这里找。 */
+    readonly builtin: ReadonlyArray<PluginDefinition>;
+    readonly record: (input: DiagnosticInput) => void;
+    /** 登记不了时那条诊断的事件名：各宿主沿用自己的事件前缀。 */
+    readonly unregistrableEvent: string;
+}
+
+/**
+ * 三处宿主共用的第三方插件登记：本位置有入口或有顶层声明式贡献的（`pluginsAt`）按清单登记，入口激活时经各自的装载器
+ * 取回代码。引用了本位置不认识的合同等登记不了的情况，只登记它的顶层声明并记诊断：一个插件出错不挡实例启动。
+ */
+export function thirdPartyDefinitionsFor(location: RuntimeLocation, sources: ReadonlyArray<ThirdPartySource>, options: ThirdPartyOptions): PluginDefinition[] {
+    const contracts = new Map<string, RemoteContract>();
+    for (const definition of options.builtin) {
+        for (const entry of definition.entries) {
+            for (const contract of [...(entry.remoteProvides ?? []), ...(entry.remoteDelegates ?? [])]) contracts.set(contract.id, contract);
+        }
+    }
+    const definitions: PluginDefinition[] = [];
+    for (const {manifest, load} of sources) {
+        const descriptor = descriptorOf(manifest);
+        if (pluginsAt(location, [descriptor]).length === 0) continue;
+        try {
+            definitions.push(thirdPartyDefinitionAt(location, manifest, {
+                load,
+                contractOf: (id) => {
+                    const contract = contracts.get(id);
+                    if (contract === undefined) throw new Error(`引用了本位置没有的合同 ${id}`);
+                    return contract;
+                },
+            }));
+        } catch (error) {
+            options.record({level: "warn", event: options.unregistrableEvent, message: `第三方插件 ${manifest.id} 的入口登记不了，只登记它的顶层声明`, error, data: {plugin: manifest.id}});
+            definitions.push(thirdPartyDefinition(descriptor));
+        }
+    }
+    return definitions;
 }

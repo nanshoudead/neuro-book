@@ -70,7 +70,7 @@ export interface ProjectManagerOptions {
     /** 子进程输出的去处（每行已加前缀与换行）；缺省本进程的标准输出与标准错误。 */
     readonly output?: {readonly stdout: (text: string) => void; readonly stderr: (text: string) => void};
     /** 服务端本次启动登记的第三方插件；每个子进程都收到这份，自己挑出在项目实例登记的。 */
-    readonly thirdParty?: ReadonlyArray<InstalledPlugin>;
+    readonly installed?: ReadonlyArray<InstalledPlugin>;
 }
 
 export interface ProjectManager {
@@ -169,14 +169,14 @@ class ProjectManagerImpl implements ProjectManager {
      */
     readonly #serial = new Map<string, Promise<void>>();
     /** 交给每个子进程的第三方插件，服务端启动时就定了。 */
-    readonly #thirdParty: ReadonlyArray<InstalledPlugin>;
+    readonly #installed: ReadonlyArray<InstalledPlugin>;
     #admission = true;
 
     constructor(options: ProjectManagerOptions) {
         this.registry = options.registry;
         this.#options = options;
         this.#clock = options.clock ?? systemClock;
-        this.#thirdParty = options.thirdParty ?? [];
+        this.#installed = options.installed ?? [];
         this.#children = createChildInstances<ProjectChild>(options.application, {
             create: (id, generation) => this.#create(id, generation),
             stop: (child, {signal}) => this.#stop(child, signal),
@@ -494,7 +494,7 @@ class ProjectManagerImpl implements ProjectManager {
         child.proc = proc;
         this.#processes.set(record.id, child);
         // 第一条消息：子进程等到它才装配插件（ipc.ts 的 `plugins`）。
-        this.#send(child, {t: "plugins", installed: this.#thirdParty});
+        this.#send(child, {t: "plugins", installed: this.#installed});
         const output = this.#options.output ?? {stdout: (text: string) => void process.stdout.write(text), stderr: (text: string) => void process.stderr.write(text)};
         for (const [stream, write] of [[proc.stdout, output.stdout], [proc.stderr, output.stderr]] as const) {
             forwardLines(stream, label, write).catch((error: unknown) => this.#options.record({level: "warn", event: "project.output.failed", message: `${label}转发子进程输出失败`, error}));
