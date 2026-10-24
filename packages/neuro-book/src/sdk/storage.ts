@@ -6,4 +6,4 @@
 
 export {storageKey} from "nbook/plugins/storage/shared/contracts";
 export {defineRecord} from "nbook/shared/storage";
-export type {RecordDefinition, RecordHandle, RecordSnapshot, Revision, StorageFailure, StorageService, WriteResult} from "nbook/shared/storage";
+export type {RecordDefinition, RecordHandle, RecordSnapshot, Revision, StorageFailure, StorageService, UpdateResult, WriteResult} from "nbook/shared/storage";

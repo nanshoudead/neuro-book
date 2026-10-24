@@ -7,7 +7,7 @@
 
 import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 
-import {resourceProblem} from "nbook/shared/storage";
+import {resourceProblem, updateRecord} from "nbook/shared/storage";
 import type {RecordDefinition, RecordDescriptor, RecordHandle, RecordSnapshot, StorageFailed, StorageService, SubscribeResult, WriteResult} from "nbook/shared/storage";
 
 export interface RecordRequest {
@@ -70,41 +70,46 @@ export function createStorageFacade(consumer: ConsumerIdentity, routes: StorageR
         return {ok: true, handle: handleFor<T>(route, request)};
     };
 
-    const handleFor = <T>(route: PartitionRoute, request: RecordRequest): RecordHandle<T> => ({
-        read: async () => (released ? {status: "error", ...withoutOk(gone())} : ((await route.read(request)) as RecordSnapshot<T>)),
-        save: (value, {expect}) => (released ? Promise.resolve(gone()) : route.write(request, {kind: "save", value, expect})),
-        remove: ({expect}) => (released ? Promise.resolve(gone()) : route.write(request, {kind: "remove", expect})),
-        reset: (value, {expect}) => (released ? Promise.resolve(gone()) : route.write(request, {kind: "reset", value, expect})),
-        subscribe: async (listener, options = {}) => {
-            if (released) return gone();
-            // 每条订阅至多结束一次。结束可能早于建立返回（例如首快照的监听里停了提供方），这时不再登记为活订阅。
-            let ended = false;
-            const end = (reason: string): void => {
-                if (ended) return;
-                ended = true;
-                subscriptions.delete(end);
-                options.onEnd?.(reason);
-            };
-            const result = await route.subscribe(request, listener as (snapshot: RecordSnapshot<unknown>) => void, end);
-            if (!result.ok) return result;
-            const handle = result.handle;
-            if (released) {
-                handle.release();
-                return gone();
-            }
-            if (!ended) subscriptions.set(end, handle);
-            return {
-                ok: true,
-                handle: {
-                    // 调用方自己释放不算结束，不调用 onEnd。
-                    release: () => {
-                        ended = true;
-                        if (subscriptions.delete(end)) handle.release();
+    const handleFor = <T>(route: PartitionRoute, request: RecordRequest): RecordHandle<T> => {
+        const read = async (): Promise<RecordSnapshot<T>> => (released ? {status: "error", ...withoutOk(gone())} : ((await route.read(request)) as RecordSnapshot<T>));
+        const save = (value: T, {expect}: {readonly expect: string | null}): Promise<WriteResult> => (released ? Promise.resolve(gone()) : route.write(request, {kind: "save", value, expect}));
+        return {
+            read,
+            save,
+            update: (change, options) => updateRecord<T>({read, save}, change, options),
+            remove: ({expect}) => (released ? Promise.resolve(gone()) : route.write(request, {kind: "remove", expect})),
+            reset: (value, {expect}) => (released ? Promise.resolve(gone()) : route.write(request, {kind: "reset", value, expect})),
+            subscribe: async (listener, options = {}) => {
+                if (released) return gone();
+                // 每条订阅至多结束一次。结束可能早于建立返回（例如首快照的监听里停了提供方），这时不再登记为活订阅。
+                let ended = false;
+                const end = (reason: string): void => {
+                    if (ended) return;
+                    ended = true;
+                    subscriptions.delete(end);
+                    options.onEnd?.(reason);
+                };
+                const result = await route.subscribe(request, listener as (snapshot: RecordSnapshot<unknown>) => void, end);
+                if (!result.ok) return result;
+                const handle = result.handle;
+                if (released) {
+                    handle.release();
+                    return gone();
+                }
+                if (!ended) subscriptions.set(end, handle);
+                return {
+                    ok: true,
+                    handle: {
+                        // 调用方自己释放不算结束，不调用 onEnd。
+                        release: () => {
+                            ended = true;
+                            if (subscriptions.delete(end)) handle.release();
+                        },
                     },
-                },
-            };
-        },
-    });
+                };
+            },
+        };
+    };
 
     return {
         service: {open},

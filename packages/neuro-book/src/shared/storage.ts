@@ -167,6 +167,18 @@ export type WriteResult = {readonly ok: true; readonly revision: Revision} | Sto
 export type OpenResult<T> = {readonly ok: true; readonly handle: RecordHandle<T>} | StorageFailed;
 export type SubscribeResult = {readonly ok: true; readonly handle: {release(): void}} | StorageFailed;
 
+/**
+ * `update` 的结果。当前值是坏记录（`corrupt`）或别的版本写下的（`unsupported-version`）时不改写，带上它的 revision：作者决定
+ * 迁移或者用 `reset(新值, {expect: revision})` 换掉。
+ */
+export type UpdateResult<T> =
+    | {readonly ok: true; readonly value: T; readonly revision: Revision}
+    | StorageFailed
+    | {readonly ok: false; readonly code: "corrupt" | "unsupported-version"; readonly revision: Revision; readonly detail: string};
+
+/** `update` 缺省最多保存几次（第一次加冲突后的重试）。 */
+export const UPDATE_ATTEMPTS = 5;
+
 export interface RecordHandle<T> {
     read(): Promise<RecordSnapshot<T>>;
     /** 条件保存：只在当前 revision 等于 `expect` 时写入；从未写过为 null。 */
@@ -177,6 +189,31 @@ export interface RecordHandle<T> {
     reset(value: T, options: {readonly expect: Revision | null}): Promise<WriteResult>;
     /** 先推一次当前快照，之后推送分区拥有者进程里的每次写入。 */
     subscribe(listener: (snapshot: RecordSnapshot<T>) => void, options?: {readonly onEnd?: (reason: string) => void}): Promise<SubscribeResult>;
+    /**
+     * 读出当前值（没有为 `null`）、用 `change` 算出新值、条件保存；别人先写了（`conflict`）就重读重算，最多保存 `attempts` 次
+     * （缺省 5）。读不了、坏记录、别的版本写下的与别的保存失败都立即返回，不调用或不再调用 `change`；`change` 抛错时以同一个
+     * 错误失败，不写入（docs/specs/storage/persistence.md 输出 8）。
+     */
+    update(change: (current: T | null) => T, options?: {readonly attempts?: number}): Promise<UpdateResult<T>>;
+}
+
+/** 用一个句柄的 `read` 与 `save` 做 `update`（各种句柄共用这一份规则）。 */
+export async function updateRecord<T>(handle: Pick<RecordHandle<T>, "read" | "save">, change: (current: T | null) => T, options: {readonly attempts?: number} = {}): Promise<UpdateResult<T>> {
+    const attempts = options.attempts ?? UPDATE_ATTEMPTS;
+    if (!Number.isInteger(attempts) || attempts < 1) throw new TypeError(`update 的 attempts 必须是不小于 1 的整数：${String(attempts)}`);
+    let conflict: StorageFailed | null = null;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+        const snapshot = await handle.read();
+        if (snapshot.status === "error") return {ok: false, code: snapshot.code, detail: snapshot.detail};
+        if (snapshot.status === "corrupt" || snapshot.status === "unsupported-version") return {ok: false, code: snapshot.status, revision: snapshot.revision, detail: snapshot.detail};
+        const value = change(snapshot.status === "ok" ? snapshot.value : null);
+        const saved = await handle.save(value, {expect: snapshot.revision});
+        if (saved.ok) return {ok: true, value, revision: saved.revision};
+        // 只有冲突说明“别人先写了、重算有意义”；`unknown-outcome` 可能已经写进去，重试会重复写。
+        if (saved.code !== "conflict") return saved;
+        conflict = saved;
+    }
+    return conflict!;
 }
 
 /** `nbook.storage` 交给每个调用方插件的服务；owner 由内核填写的调用方身份决定。 */

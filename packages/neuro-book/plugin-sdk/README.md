@@ -224,7 +224,7 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 
 插件自己的数据存进内置插件 `nbook.storage`，不自己写文件：
 
-- 用 `defineRecord({key, scope, locality, version, schema, keyed?})` 定义记录，入口依赖 `storageKey`，激活后 `storage.open(记录)` 拿到句柄读写；同时写的几方用条件保存，冲突时重读再写。
+- 用 `defineRecord({key, scope, locality, version, schema, keyed?})` 定义记录，入口依赖 `storageKey`，激活后 `storage.open(记录)` 拿到句柄读写；改值用 `update(旧值 => 新值)`，它做条件保存、别人先写了就重读重算；坏记录与别的版本写下的不改写，返回同名失败与 revision。
 - `scope: "user"` 存在服务端的用户分区，`"project"` 要在项目实例里打开。
 - `locality` 必填：服务端入口的记录写 `"shared"`（各客户端共用一份）；`"local"` 按客户端分开存，服务端没有客户端身份，打不开它。
 - `schema` 是对象 schema，没写 `additionalProperties` 的补成 `false`。
@@ -232,7 +232,7 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 
   ```ts
   import {defineRecord, storageKey} from "@notnotype/nb-plugin-sdk/storage";
-  import type {RecordHandle, Revision} from "@notnotype/nb-plugin-sdk/storage";
+  import type {RecordHandle} from "@notnotype/nb-plugin-sdk/storage";
   import {Type} from "typebox";
 
   const progress = defineRecord({key: "progress", scope: "user", locality: "shared", version: 1, schema: Type.Object({words: Type.Integer()})});
@@ -241,18 +241,14 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
   if (!opened.ok) throw new Error(`打不开记录：${opened.detail}`);       // 入口激活失败，插件页显示这条原因
   const handle: RecordHandle<{words: number}> = opened.handle;
 
-  /** 读出当前值再加上 `by`；别人刚好也写了（`conflict`）就重读再写。 */
-  async function add(by: number): Promise<number> {
-      for (;;) {
-          const snapshot = await handle.read();
-          if (snapshot.status !== "ok" && snapshot.status !== "missing") throw new Error(`记录读不了：${snapshot.status}`);
-          const current = snapshot.status === "ok" ? snapshot.value.words : 0;
-          const expect: Revision | null = snapshot.revision;
-          const saved = await handle.save({words: current + by}, {expect});
-          if (saved.ok) return current + by;
-          if (saved.code !== "conflict") throw new Error(`写不进去：${saved.detail}`);
-      }
-  }
+  // 读出当前值（没有为 null）、算出新值、条件保存；别人先写了就重读重算。
+  const added = await handle.update((current) => ({words: (current?.words ?? 0) + 500}));
+  if (!added.ok) console.warn(`没记上：${added.code}`);
+
+  // 订阅：先推一次当前快照，之后每次写入（本插件别处的写入也算）都推一次；入口停止时自动结束。
+  await handle.subscribe((snapshot) => {
+      if (snapshot.status === "ok") total.value = snapshot.value.words;
+  });
   ```
 
 - 改了值的形状要升 `version`，旧数据读出来是 `unsupported-version`，不会被当成新形状。这时普通的 `save` 被拒（`protected`），要么按旧形状迁移，要么用 `reset` 换成新值（原件留在存储的原件区）；什么都不做的话，老用户的这条记录从此读写都失败。SDK 包里示例 `examples/plugins/focus` 的服务端入口示范了 `reset`。

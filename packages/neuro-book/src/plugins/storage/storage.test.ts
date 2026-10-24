@@ -5,6 +5,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
+import {Database} from "bun:sqlite";
 import {existsSync} from "node:fs";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
@@ -35,6 +36,7 @@ const notes = defineRecord({key: "notes", scope: "user", locality: "shared", ver
 const prefs = defineRecord({key: "prefs", scope: "user", locality: "local", version: 1, schema: Text});
 const board = defineRecord({key: "board", scope: "project", locality: "shared", version: 1, schema: Text});
 const draft = defineRecord({key: "draft", scope: "project", locality: "local", version: 1, schema: Text});
+const prefsOnServer = defineRecord({key: "server-prefs", scope: "user", locality: "shared", version: 1, schema: Text});
 
 let tmp = "";
 let counter = 0;
@@ -331,6 +333,85 @@ describe("Spec storage.persistence 场景 4、6：条件保存与定义冲突经
         expect(await storage.open(notes, "task-1")).toMatchObject({ok: false, code: "invalid-resource"});
         const handle = await opened(storage, notes);
         expect(await handle.save({text: 1} as unknown as {text: string}, {expect: null})).toMatchObject({ok: false, code: "invalid-value"});
+    });
+});
+
+describe("Spec storage.persistence 输出 8：update 读出、改写、条件保存，冲突时重算", () => {
+    it("没有值时以 null 调用、有值时以当前值调用；返回新值与 revision", async () => {
+        const w = await world();
+        const handle = await opened(storageOf(w, "app.notes", "hub"), notes);
+        const seen: Array<{text: string} | null> = [];
+        const first = await handle.update((current) => {
+            seen.push(current);
+            return {text: "一"};
+        });
+        expect(first).toMatchObject({ok: true, value: {text: "一"}});
+        const second = await handle.update((current) => {
+            seen.push(current);
+            return {text: `${current?.text ?? ""}二`};
+        });
+        expect(second).toMatchObject({ok: true, value: {text: "一二"}});
+        expect(seen).toEqual([null, {text: "一"}]);
+        expect(await handle.read()).toMatchObject({status: "ok", value: {text: "一二"}, revision: second.ok ? second.revision : "?"});
+    });
+
+    it("读出之后别人先写了：保存冲突，重读重算；attempts 用完仍冲突时返回 conflict", async () => {
+        const w = await world();
+        const storage = storageOf(w, "app.notes", "hub");
+        const handle = await opened(storage, notes);
+        const other = await opened(storage, notes);
+        const start = await handle.save({text: "起"}, {expect: null});
+        if (!start.ok) throw new Error(start.detail);
+        // 第一次算的时候插进一次别人的写入（先于这次保存发出）：这次保存必然冲突，第二次读到别人的值再算。
+        let calls = 0;
+        const result = await handle.update((current) => {
+            calls += 1;
+            if (calls === 1) void other.save({text: "起+别人"}, {expect: start.revision});
+            return {text: `${current?.text ?? ""}+我`};
+        });
+        expect(result).toMatchObject({ok: true, value: {text: "起+别人+我"}});
+        expect(calls).toBe(2);
+
+        if (!result.ok) throw new Error(result.detail);
+        let tries = 0;
+        const exhausted = await handle.update((current) => {
+            tries += 1;
+            void other.save({text: "抢先"}, {expect: result.revision});
+            return current ?? {text: ""};
+        }, {attempts: 1});
+        expect(exhausted).toMatchObject({ok: false, code: "conflict"});
+        expect(tries).toBe(1);
+    });
+
+    it("坏记录与别的版本写下的：不调用改写函数，返回同名失败与 revision；读不了时返回读的失败；change 抛错时不写入", async () => {
+        const w = await world();
+        const handle = await opened(storageOf(w, "app.notes", "hub"), notes);
+        await handle.save({text: "原来"}, {expect: null});
+        const never = (): {text: string} => {
+            throw new Error("不该调用");
+        };
+
+        const db = new Database(w.userPath);
+        db.query("UPDATE records SET version = 2 WHERE owner = 'app.notes' AND key = 'notes'").run();
+        db.close();
+        const outdated = await handle.update(never);
+        expect(outdated).toMatchObject({ok: false, code: "unsupported-version"});
+        expect(typeof (outdated as {revision?: unknown}).revision).toBe("string");
+
+        const corrupted = new Database(w.userPath);
+        corrupted.query("UPDATE records SET version = 1, value = '{坏的' WHERE owner = 'app.notes' AND key = 'notes'").run();
+        corrupted.close();
+        expect(await handle.update(never)).toMatchObject({ok: false, code: "corrupt"});
+
+        const fresh = await opened(storageOf(w, "app.notes", "hub"), prefsOnServer);
+        await expect(fresh.update(() => {
+            throw new Error("算不出来");
+        })).rejects.toThrow("算不出来");
+        expect(await fresh.read()).toMatchObject({status: "missing"});
+        expect(() => fresh.update((value) => value ?? {text: ""}, {attempts: 0})).toThrow("attempts");
+
+        expect(await w.hub.stop()).toMatchObject({status: "closed"});
+        expect(await fresh.update(never)).toMatchObject({ok: false, code: "unavailable"});
     });
 });
 
