@@ -49,7 +49,9 @@ updated: 2026-10-24
 
 - 2026-10-24 设计审查：omp 审后端与计划 19 条（阻断 2、重要 17，[design-review-omp.txt](evidences/design-review-omp.txt)），Sonnet 审网页与组件 16 条（重要 12、建议 4，[design-review-web.txt](evidences/design-review-web.txt)），逐条核实都成立，已并入 [plan.md](plan.md)（文末“设计审查的处理”）。主要改动：Profile v4 的 `answer` 改为可选、只在结构化对话里登记；能否续问按快照的 Profile 版本判；出处复查消息在网页上由 `composeMessages` 改成过程行，第二次出错或取消时保留第一次的回复；认证分类按优先级取第一个、运行时取密钥仍走 `getEnvApiKey`；配置加语义校验与空起点；推理档用 OMP 六档并夹档；抽取只在默认模型是 `openai-completions` 时回落；`models.discover` 用对话框里的值、建议值不写盘；上下文大小复用 `ctx.usage`；`+` 经编辑器端口 `openTrigger` 打开菜单；服务商对话框放 nb-story。取舍写进 [待确认清单](../../pending-confirmations.md) 7 条。实施在 `.worktree/w00024-t16`。
 
+- 2026-10-24 切片 1 到 4 已提交（分支 `feat/w00024-t16-qa-composer-models`）：dfb331aa1 nb-harness 模型目录；112518bf6 配置第 2 版；6bbf19335 作答方式、出处复查、每轮选模型、Profile v4；097622402 选模型的接口与 `discoverModels`。对应 Spec 提交在 master（34831d835、4c12e8c38、7a55bb946、37f6ba4b8）。实施中定的几处：语义校验的目录查表由调用方传入（单独导入 pi-catalog 也会接管 Ctrl-C，`nbstory ingest` 不能加载它），所以抽取的回落收窄到自定义服务商；`qa.start` 给 `thinking` 时必须同时给 `model`；换接口的测试放在引擎测试里（要 Responses 端点）。nb-story 单测 439 条全过。
+
 ## 下一步
 
-1. 按 plan.md 的切片 1 到 6 实施，每片单独提交。
+1. 切片 5（nb-agent-ui）与切片 6（nb-story 网页），每片单独提交。
 2. 收口：nb-story 全量 e2e，派实现审查（前端 Sonnet、后端 omp），合入 master。
