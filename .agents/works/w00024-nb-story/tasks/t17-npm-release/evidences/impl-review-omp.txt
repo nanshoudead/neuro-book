@@ -1,0 +1,125 @@
+# w00024 t17 只读实现审查
+
+审查范围：`df9cf3d15..689ff3a1e`。代码以 `.worktree/review-w00024-t17-impl` 为准；命令与运行时实验使用 `.worktree/w00024-t17`。ADR、Spec 与发布流程读取主工作区版本。未运行任何发布、登录或真实模型调用。
+
+### 1. 已有 Skill 目录不可读时，F6 错误越过 JSON 错误外壳
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`.worktree/review-w00024-t17-impl/packages/nb-story/src/cli/skill.ts:47-52,94-101,135-140`。
+- **现象**：目标目录存在但不能读取时，`skill install --json` 退出 1，stdout 是空串；stderr 是 Bun 的未捕获 `EACCES` 堆栈，没有 `skill_install_failed`。`--force` 也先走同一段比较逻辑。
+- **为什么是问题**：`sameTree` 在 `installSkill` 的 `try` 之外，`readdir` / `readFile` 的系统异常没有转换成 `SkillInstallError`；`skillCommand` 只接住后一种错误。违反 `story.cli` 输出 2 与 F6：stdout 必须是一份包含错误码、路径与系统错误码的 JSON。权限问题不是罕见的内部异常，是已明确承诺处理的用户输入边界。
+- **如何核实**：在实验目录创建 `nbstory/SKILL.md`，对 `nbstory` 执行 `chmod 000`，在实现 worktree 运行 `bun packages/nb-story/src/cli.ts skill install --dir /tmp/claude-1000/review-w00024-t17-impl/exp/skill-unreadable --json`。实际退出码 1、stdout 0 字节，stderr 指向 `listFiles` 的 `readdir` 并报 `EACCES`。实验后恢复权限。现有 6 条 Skill 测试全过：权限用例只让父目录不可写，失败发生在 staging 创建阶段，没有触及比较阶段。
+- **建议改法**：将目标检查、目录比较与复制替换一起置于统一的 IO 异常转换边界内；保持已分类的 Skill 错误不变，把其它系统错误转换成 `skill_install_failed`。在 F6 的真实目录测试中覆盖“目标目录不可读”和“目标某个文件不可读”，核对完整 JSON 及原目录不变。
+
+### 2. 新 Skill 就位后删除旧目录失败，命令报失败但目标已经被替换
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`.worktree/review-w00024-t17-impl/packages/nb-story/src/cli/skill.ts:64-80`。
+- **现象**：旧目录能比较和改名，但其中一个子目录不可写时，带 `--force` 安装会先把新 Skill 放到目标，再因 `rm(previous)` 的 `EACCES` 退出 1；此时目标已经变成新内容，旁边还留下 `.nbstory-skill-old-<uuid>`。
+- **为什么是问题**：`story.cli` 输出 17 与 F6 明确要求“任何一步失败，目标保持原样，临时目录清掉”。这里只有第二次 rename 失败时恢复旧目标；删除旧目录失败直接进入外层错误处理，既没有恢复，也没有把已经完成的替换与清理失败区分开。用户收到失败后不能依赖原目录仍在，重跑又会因新目录相同返回 `unchanged`，旧备份永远不清理。递归删除还可能先删除一部分旧内容，届时不能简单 rename 回滚。
+- **如何核实**：在实验目录建 `nbstory/SKILL.md` 和 `nbstory/local/note.md`，对 `local` 执行 `chmod 500`；在实现 worktree 运行 `bun packages/nb-story/src/cli.ts skill install --dir /tmp/claude-1000/review-w00024-t17-impl/exp/skill-undeletable --force --json`。实际退出码 1、`skill_install_failed` / `EACCES`；目标 `SKILL.md` 首行已从 `old` 变为随包的 `---`，原文件留在隐藏 old 目录。现有权限测试失败于创建 staging 之前，没有覆盖提交后的清理失败。
+- **建议改法**：先明确替换的提交点。不能把不可回滚的旧树删除纳入“任何失败原样恢复”的事务；若保留该强合同，先采用能保证恢复的保存策略并测试删除中途失败。更简单的合同是：第二次 rename 成功即替换成功，旧备份清理失败单独诊断并保留可定位备份，而不是返回暗示目标未变的 F6；这需要同步修改 Spec，不能仅改实现的错误码。补充真实权限场景验证最终目标、旧备份及返回状态一致。
+
+### 3. 带 JSX pragma 的文件显式导入 `react`，清单检查仍会漏报
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`.worktree/review-w00024-t17-impl/scripts/release/packages.ts:234-246`。
+- **现象**：文件有 `@jsxImportSource custom`，同时写 `import "react"` 或 `require("react")` 时，检查器把真实的 `react` 依赖当作 Bun 自动补出的后备导入删除。未声明该依赖也得到 `ok: true`；实际 Bun 执行失败。
+- **为什么是问题**：保留显式导入的条件只匹配 `from "react"`，不覆盖副作用导入与 CommonJS 值导入。该门禁的承诺是所有发布源码的值导入都有依赖声明，不能因为同一文件恰好有 JSX pragma 就跳过真实导入。当前九个包没有发现这类导入；问题在已新增的通用发布门禁会给出错误通过结果。
+- **如何核实**：`bun /tmp/claude-1000/review-w00024-t17-impl/exp/scan-audit.ts` 创建真实包夹具，其入口是 `/** @jsxImportSource custom */`、`import "react";`、`export const node=<div />;`，只声明并提供本地 `custom` JSX runtime。运行 `bun scripts/release/packages.ts --root /tmp/claude-1000/review-w00024-t17-impl/exp/scan-fixture --package lib --json`，实际退出 0 / `findings: []`；再用 Bun 执行该入口，退出 1，报 `Cannot find package 'react'`。这不是把未使用的类型导入误算成依赖。
+- **建议改法**：不要按 `from` 文本猜真实导入。先用不产生自动 JSX 导入的扫描方式收集显式导入，再补入 pragma 所需的 JSX runtime；或使用语法级导入信息区分自动注入与真实导入。把副作用导入、`require` 与重导出加入扫描器的真实运行时合同测试。
+
+### 4. Chrome 启动失败时，冒烟没有停止已启动的 `nbstory serve`
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`.worktree/review-w00024-t17-impl/scripts/release/pack-smoke.ts:122-125,143-149`。
+- **现象**：`serve` 先启动，`chromium.launch` 却在 `try/finally` 之前。机器未安装系统 Chrome 时，launch 抛错，停止子进程的 finally 完全不执行。带 `--keep` 的真实冒烟在打印失败后仍不退出，实验在 90 秒由看门狗终止。
+- **为什么是问题**：发布机器缺 Chrome、Chrome 无法启动都是可预期的前置条件失败，不能把常驻的服务留给执行者手动找。且已有 finally 也先 `await browser.close()` 再 kill，close 抛错会再次跳过 kill；页面断言失败时，finally 后的 `await child.exited` 同样不会执行，不能证明收口完成。违反计划“子进程在失败时也要收口”与测试规范的资源所有权要求。
+- **如何核实**：`prox node /tmp/claude-1000/review-w00024-t17-impl/exp/no-chrome.mjs` 在 bwrap 的独立挂载视图里临时隐藏 `/opt/google/chrome`，其它文件与 Bun/Playwright/安装包均用真实实现，执行 `bun run release:smoke -- --keep`。前五步通过后报 `Chromium distribution 'chrome' is not found`，未打印正常 SIGTERM 收口步骤；进程持续运行至实验 90 秒看门狗 SIGKILL（最终 signal `SIGKILL`）。实验负责杀掉自己创建的进程。未修改仓库或本机 Chrome。
+- **建议改法**：从生成 `serve` 子进程之后立即建立外层 finally；浏览器用可空资源句柄，在独立内层 try/finally 中关闭，任何浏览器错误都不能阻断服务的 SIGTERM 与 `await child.exited`。给停服设置有诊断的有界等待与兜底终止。补真实 Chrome 启动失败、浏览器步骤失败的聚焦故障测试，而不只证明成功路径。
+
+### 5. Vue 单文件组件中的 CSS 包导入完全不进依赖检查
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`.worktree/review-w00024-t17-impl/scripts/release/packages.ts:218-230`。
+- **现象**：`.vue` 分支只提取 `<script>`，不读取任何 `<style>`。组件的 `<style>@import "缺失包/theme.css";</style>` 没有声明依赖时，`release:check` 仍成功；Vite 实际构建因该包缺失失败。
+- **为什么是问题**：ADR 0029 第 3 项明确包括 CSS 的 `@import` / `@plugin`，发布的是 `.vue` 源码，样式由宿主编译，依赖并不限于独立 `.css` 文件。当前九个包的 Vue 样式里没有此类包导入，故尚未造成当前 tarball 运行失败；但新增门禁对它承诺覆盖的源码格式存在整类漏报，仓库根提升仍会掩盖此问题。
+- **如何核实**：`node /tmp/claude-1000/review-w00024-t17-impl/exp/css-scan.mjs` 建立含真实 Vue SFC 的发布包夹具；`bun scripts/release/packages.ts --root /tmp/claude-1000/review-w00024-t17-impl/exp/css-fixture --package lib --json` 返回 `ok: true` / 空 findings。随后用实际 Vite 与 `@vitejs/plugin-vue` 构建该包，退出 1，明确报 `Unable to resolve @import "nbstory-review-missing-css-689ff3a1e/theme.css"`。组件脚本和模板本身可编译，失败来自漏掉的样式依赖。
+- **建议改法**：按 SFC 结构扫描全部 script 与 style 内容，style 重用现有 CSS 去注释及导入提取逻辑；同时处理 SFC 的 `script src` / `style src` 等真实外部依赖入口。为 SFC 样式包导入补一条真实编译对照用例。
+
+### 6. README 把问答配置当成通用模型配置，目录模型用户照做不能导入小说
+
+- **严重程度**：建议；**类别**：文档。
+- **位置**：`.worktree/review-w00024-t17-impl/packages/nb-story/README.md:19-25,44`。
+- **现象**：“配置模型（问答与抽取要用）”只给 `config init` / `config test`，下一步直接 `ingest`。但向导支持并宣传 OMP 目录模型；选择该类模型后不会产生 `ingest.model`，随后抽取立即报 `qa_unconfigured`。README 也没有给单独配置抽取模型的命令。
+- **为什么是问题**：这是面向不克隆仓库的新用户的主使用路径，不是措辞偏好。问答模型校验通过不代表抽取可用；`story.ingest` 配置合同只允许 OpenAI Chat 自定义服务商回落，目录模型不能回落。用户只能去找 README 指向的仓库相对 Spec 猜缺失步骤。
+- **如何核实**：在独立 HOME/XDG 目录运行 `config init --model deepseek/deepseek-flash --json`，成功产物只有 `models` 与 `model.use`。再对一章 TXT 执行 `ingest --title 书名 --library <实验目录> --json`，退出 1，错误原文为“抽取要单独写模型（ingest.model）：问答默认模型 deepseek/deepseek-flash 是 OMP 目录里的模型，抽取只用自定义服务商的 OpenAI Chat 接口”。未运行 `config test`，未调用模型；失败在模型选择阶段，可由实际 CLI 输出证明。
+- **建议改法**：在首次使用步骤中区分问答与抽取配置，给出 `config set ingest.model '<JSON>'` 的完整字段示例与 `config test --ingest`，写清何时可以复用问答模型、密钥应通过环境变量提供。不要让“问答连通性通过”被当作“抽取配置完成”。
+
+### 7. nb-markdown 仍发布测试语料与依赖未发布 devDependency 的类型断言文件
+
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`.worktree/review-w00024-t17-impl/packages/nb-markdown/package.json:70-75`；`.worktree/review-w00024-t17-impl/scripts/release/pack-smoke.ts:25-26,59-60`。
+- **现象**：真实 tarball 包含 `src/language/codec/corpus/` 的 19 份纯测试语料，以及 `src/prompt/agent-ports.typecheck.ts`，合计 20 个文件、9501 字节。冒烟输出文件清单检查通过。
+- **为什么是问题**：ADR 0029 第 3 项和计划明确“不发测试、夹具与开发配置”；排除 `*.test.ts` 并没有排除测试资产。`agent-ports.typecheck.ts` 只为仓库内部契约验证服务，且类型导入只列为 devDependency 的 `@notnotype/nb-agent-ui`；外部宿主使用源码检查并覆盖该文件时会遇到自身无法满足的类型依赖。它们不属于 Lab 的公开组件 Markdown，Lab 索引也明确排除 corpus。
+- **如何核实**：`bun pm pack --destination /tmp/claude-1000/review-w00024-t17-impl/exp/pack --quiet` 后用 `tar -tvzf` 列出 nb-markdown tarball，19 个 corpus 文件与类型断言文件均在其中；独立类型导入扫描只找到该文件的 `@notnotype/nb-agent-ui` 缺运行时/peer 声明。实际 `release:smoke` 仍全部通过。语料只被 4 个测试文件读取，不被生产编解码入口或 Lab 索引引用。
+- **建议改法**：在 nb-markdown 的 `files` 明确排除 corpus 和只用于类型检查的文件；对应 tarball 检查覆盖真实资产目录，而不是只匹配测试文件后缀。保留 `lab-sources` 需要的组件 Markdown 与 Vue 源码，不笼统排除所有 Markdown。
+
+### 8. 计划中的 registry 指定版本命令没有实现
+
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`.worktree/review-w00024-t17-impl/scripts/release/pack-smoke.ts:74-78,193-202`；主工作区 `.agents/works/w00024-nb-story/tasks/t17-npm-release/plan.md:68`。
+- **现象**：计划给出的 `release:smoke --from registry --version <版本>` 不能执行，解析器只接受 `--from` 和 `--keep`；registry 模式始终用当前 checkout 的九个 package.json 版本。
+- **为什么是问题**：发布后证据无法显式绑定刚发布的版本。一旦 checkout 的版本已经推进，脚本会去安装下一个版本，而不是复核本次发布；按计划照抄命令更是直接失败。这不是 registry 尚未发布导致的失败，而是命令在联网之前就拒绝了已承诺的参数。九个包当前也不共享同一个版本（nb-ui 0.2.0，其余 0.1.0），需要明确版本参数的含义。
+- **如何核实**：在实现 worktree 运行 `bun run release:smoke -- --from registry --version 0.1.0`，退出 1，报“未知参数或取值：--version”。没有发起发布或模型请求。
+- **建议改法**：提供明确的版本固定方式，例如一个按包名映射版本的发布清单或发布 revision，而不是含糊的单一版本号；输出实际安装的九包版本。若决定只支持“当前 checkout 版本”，须同步修正计划并写明必须从发布 revision 运行，不能保留不存在的参数合同。
+
+### 9. 空或相对 HOME 会让默认安装写进当前目录，返回的 path 也不是绝对路径
+
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`.worktree/review-w00024-t17-impl/packages/nb-story/src/cli/skill.ts:41-44`。
+- **现象**：`HOME=""` 时 `??` 不会回退到 `homedir()`，`join` 得到相对的 `.claude/skills/nbstory`，安装成功但实际落在执行目录下；JSON 的 `data.path` 也原样返回相对路径。相对 HOME 有相同问题。
+- **为什么是问题**：输出 16 要求 `path` 是绝对路径，缺省安装是用户级目录，而不是与调用命令所在项目耦合。被服务、容器或清理环境的 shell 以空 HOME 启动时，命令会静默污染项目并让 Agent 仍找不到 Skill。
+- **如何核实**：实验以独立目录作 cwd、仅给子进程 `HOME=""`，通过实际 CLI 执行 `skill install --json`。退出 0，stdout 是 `{"ok":true,"data":{"path":".claude/skills/nbstory","state":"installed"}}`，文件落在该实验 cwd 的 `.claude/skills/nbstory`。
+- **建议改法**：在边界上要求可用的绝对 HOME；未设置或空值时使用操作系统的可靠用户目录来源，无法取得时返回稳定的安装失败，不静默解释成 cwd。无论来源如何，输出前保证目标是绝对路径。给空 HOME、未设置 HOME、相对 HOME 增加真实子进程场景。
+
+## 按影响阅读顺序
+
+本报告按核实时间只追加；处理时按以下顺序阅读：2（失败后目标已改变）、1（文件读取错误破坏 JSON 合同）、4（冒烟失败资源未收口）、3 与 5（依赖门禁错误通过）、7（发布白名单）、9（HOME 路径合同）、8（registry 固定版本）、6（首次使用步骤）。前 5 条为重要问题，其余 4 条为建议。
+
+## 未发现问题的方面
+
+- 当前九包没有确认到缺失的生产值导入依赖：独立 TypeScript AST 加 Vue SFC 解析交叉检查了 454 个发布源码文件，没有发现 Bun 扫描漏掉的现有裸值导入。两个 JSX Profile 的 nb-profile 依赖、nb-ui 的图标插件与图标集都已按设计审查补进 dependencies。
+- 真实九包 tarball 与 `publishedFiles` 在当前目录白名单、`!src/web` 与 `!src/**/*.test.ts[x]` 写法下相符（除打包器自动包含的 `package.json`）。`exports` / `bin` 目标检查通过；nb-story 含完整 `dist/web`、Skill、抽取规则及 Worker，nb-ui 含主题。没有把 `@source` 当成 CSS 包依赖的误报；`export * from`、具名重导出、动态导入、多个 SFC script 块能被当前扫描器识别。
+- 本地打包冒烟确实从仓库外安装并运行。保留实验的 Bun lock 显示 story、harness、profile、runtime、session 均来自本次 tarball，不是工作区链接或 registry 同名版本；Vue 宿主构建也通过。HOME、XDG_CONFIG_HOME、XDG_DATA_HOME 对产品运行子进程显式隔离，未发现这几条路径写入开发者真实书库/配置。
+- `skill install` 的 installed / unchanged / replaced 主路径、文件集合与字节比较、额外普通文件、普通文件与符号链接拒绝、`--dir` / `--agent` 互斥均有真实子进程测试。对第二次 rename 注入单次 EIO 后，实际 CLI 返回 `skill_install_failed`，旧 `SKILL.md` 保持 `old`，证明“第二次 rename 失败、恢复成功”的路径有效；这不覆盖恢复也失败或第 2 条的旧树删除失败。
+- 发布入口缺省不发布，当前实现分支运行时以退出 1 停在分支门禁；代码没有从该失败继续到登录或 publish 的路径。typecheck / smoke 的非零退出均阻止后续发布。真实 npm 查询的成功 JSON 被分类为 published，真实 E404 stdout JSON 被分类为 unpublished；其它错误分类的聚焦测试通过。`--otp`、`--auth-type` 按参数传给 Bun，不经 shell 拼接；未发现脚本主动打印 npm token。
+- prepack 确实重新构建网页。Bun 官方发布合同说明从包目录 `bun publish` 会运行生命周期脚本，传 tarball 则不运行（来源：https://bun.sh/docs/pm/cli/publish）。实际 `bun pm pack` 的 syscall 跟踪中，仓库写入位于 `packages/nb-story/dist/web` 与 `node_modules/.vite-temp`，没有确认到被跟踪源码的写入；因此本轮不把“prepack 会运行”本身报成缺陷。真正的 `bun publish` 未运行。
+- `bun.lock` 的第三方 `packages` 对象与基线逐项序列化比较相同；变化只有 6 个 workspace 记录，与声明的依赖重分、peer 新增及 nb-ui 版本变动对应。新应用与 dev-panel 的实际 typecheck 均通过，未确认到仓库消费者解析回归。
+
+## 本轮实际验证
+
+以下命令均从 `.worktree/w00024-t17` 执行，除明确写出的只读 npm 查询和实验外，没有调用模型：
+
+| 命令或实验 | 结果 |
+|---|---|
+| `bun run release:check -- --json` | 退出 0；9 包、findings 为空 |
+| 九包逐个 `bun pm pack --destination /tmp/claude-1000/review-w00024-t17-impl/exp/pack --quiet` | 全部退出 0；核对真实 tarball 与入口 |
+| `bunx vitest run scripts/release/packages.test.ts scripts/release/publish.test.ts` | 2 个文件、9 条测试通过 |
+| `bun test packages/nb-story/src/cli/skill.test.ts` | 6 条测试、26 个断言通过 |
+| `bunx tsc --noEmit -p scripts/tsconfig.json` | 退出 0 |
+| 逐个 `bun run --cwd packages/<包目录> typecheck`，包目录为 nb-profile、nb-session、nb-runtime、nb-ui、nb-harness、nb-form、nb-markdown、nb-agent-ui、nb-story、neuro-book、dev-panel | 11 个包全部通过；总耗时 456.84 秒 |
+| `prox bun run release:smoke` | 退出 0；打包、隔离安装、帮助、books、config show、Skill 两次、真实 Chrome 书架与设置页、SIGTERM 退出 0、Vite 宿主全部通过；15.34 秒 |
+| `bun run release:publish`（没有 `--yes`） | 预期退出 1：`要在 master 上发布，现在是 feat/w00024-t17-npm-release`；没有执行 publish |
+| `bun run release:smoke -- --from registry --version 0.1.0` | 退出 1：未知参数 `--version`，见第 8 条 |
+| 真实权限、Bun 缺包执行、Vite SFC 构建及缺 Chrome 故障实验 | 结果逐条写在发现中；缺 Chrome 实验看门狗已收口，登记中的 PID 142996 已不存在 |
+
+未运行：nb-story e2e、开发服务、全仓测试、真实模型、npm 登录、任何形式的 `bun publish` / `npm publish`、真实 registry 安装冒烟、macOS/Windows 执行。发布循环的远端写入、中途 registry 已写入但客户端失败的状态，以及认证过程未作运行验证，不当作已验证通过。
+
+## 数量
+
+- 阻断：0。
+- 重要：5（第 1、2、3、4、5 条）。
+- 建议：4（第 6、7、8、9 条）。
+- 合计：9。
+

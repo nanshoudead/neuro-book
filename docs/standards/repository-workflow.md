@@ -87,4 +87,4 @@ nb-story 与它依赖的 8 个工作区包按 [ADR 0029](../adr/0029-workspace-p
 2. `bun run release:check`：发布清单（license、`files`、`LICENSE`、README、内部依赖写法、源码导入的包都写进依赖）。
 3. `bun run release:smoke`：打包装进仓库外的空项目，跑命令行、`serve` 加真实浏览器与 Vite 宿主构建。直连 registry 慢时整条命令前加 `prox`。
 4. `npm login`，再 `bun run release:publish`：过门禁（会发布的目录没有未提交的改动、在 master 上、上面两步与 9 个包的 typecheck），列出要发的包；确认后带 `--yes` 重跑。开了两步验证时加 `--auth-type web`（一个 OTP 只有 30 秒，发不完 9 个包）。中途失败就停，重跑会跳过已发布的版本。
-5. 发布后跑 `bun run release:smoke -- --from registry`，结果记进对应 Task 的证据。
+5. 发布后在发布用的那个提交上跑 `bun run release:smoke --from registry`（按当前 checkout 的版本号从 registry 装，装到的版本对不上就失败），结果记进对应 Task 的证据。
