@@ -53,7 +53,12 @@ updated: 2026-10-24
 
 - 2026-10-24 切片 5 已提交（9aa9c3884）：nb-agent-ui 的单行版式、上下文大小（圆环加百分比：只有圆环时像加载中的转圈）、带触发字符的前置按钮（nb-markdown 的 PromptEditor 加 `openTrigger`）、`canManageModels` 与 `model.manage`、模型下拉的分组与不可用原因、模型目录 `AgentModelCatalog`；Lab 场景与 e2e（lab-agent-ui、lab-scenes 26 条）通过。Spec 在 master 774a867a1。截图核对时修了两处：控件对齐正文最后一行的中线（垫 6px）；Lab 里目录对话框按“紧凑”画布摆会被压扁，登记成撑满画布。
 
+- 2026-10-24 切片 6 已提交（8f9027193）：问答页的单行输入框、选模型与推理档（换模型时往下夹；续问缺省接着用上一轮的模型）、上下文大小、`+` 插 `@`、“管理模型…”（输入框存档挪到模块里，回来草稿还在）、`canChangeRuntime` 修好（新对话能切全读）；设置页的候选与默认、服务商列表、模型目录与服务商表单（`ProviderDialog`，读 `/models`）；出处复查在网页上是过程里的一行；导入页预览写明“抽取要单独写模型”。Spec 在 master d3b0a3b7f。真实页面截图核对时修了：复查行标签与正文重复、用量很小时写 `<1%`、手机宽度下默认候选被推理档挤窄、服务商表单的模型表在窄屏被压扁。
+- 收口验证：nb-harness 85 条、nb-story 单测 449 条、nb-agent-ui（bun 184 条、DOM 51 条）、nb-markdown 编辑器 DOM 测试、各包 typecheck、`docs:check` 无失败；Lab e2e（lab-agent-ui、lab-scenes）26 条通过；nb-story 全量 e2e 31 条通过，最后一轮修正后问答页 e2e 11 条再跑通过。证据：截图在本地 `shots/s5`、`shots/s6`。
+- 实现审查已启动（前端 Sonnet、后端 omp），审查 worktree `.worktree/review-w00024-t16-impl`（固定在 8f9027193）。实现审查待处理。
+
 ## 下一步
 
-1. 切片 6（nb-story 网页：问答页接线、设置页与服务商表单、出处复查的过程行、e2e），提交。
+1. 处理实现审查（修正单独提交），然后合入 master（不 push），删掉审查 worktree 与草稿 worktree。
+2. 待开发者批准：Responses、Anthropic、Gemini 接口与真实服务 `/models` 的真实模型冒烟。
 2. 收口：nb-story 全量 e2e，派实现审查（前端 Sonnet、后端 omp），合入 master。
