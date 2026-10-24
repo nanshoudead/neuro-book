@@ -42,7 +42,7 @@ owners:
 
 ## 输出与可观察行为
 
-1. **列表。** 返回全部内置与第三方插件：id、版本、来源（内置或第三方）、用户状态、待生效变化、汇总运行状态与原因（见 [`runtime.plugin-manifest`](plugin-manifest.md)），以及不兼容、清单无效、安全模式未加载等不登记原因。内置插件标为内置，不提供启用、禁用与卸载操作。
+1. **列表。** 返回全部内置与第三方插件：id、版本、来源（内置或第三方）、用户状态、待生效变化、汇总运行状态与原因（见 [`runtime.plugin-manifest`](plugin-manifest.md)），以及不登记的原因：`manifest-invalid`（清单无效）、`entry-missing`（安装时有的入口文件不见了，与安装时同一个码）、`unreadable`（读不了安装目录）、`incompatible-engine`（不兼容）、`safe-mode`（安全模式未加载）。内置插件标为内置，不提供启用、禁用与卸载操作。
 2. **安装。**
    1. 校验清单（[`runtime.plugin-manifest`](plugin-manifest.md) 的全部规则）与 `engines.neurobook`；第三方 id 以 `nbook.` 开头时拒绝。
    2. 安装确认界面必须说明完全信任的后果：插件可以访问全部作品、服务器与本机资源。
@@ -95,12 +95,11 @@ owners:
 
 ## 失败与恢复
 
-插件管理接口的业务失败码：
+插件管理接口的业务失败码。每个方法只返回自己的那一组：列表只有 `registry-failed`；预览与安装是 `manifest-invalid`、`incompatible-engine`、`already-installed`、`uninstall-pending`、`version-in-use`、`path-rejected`、`entry-missing`、`copy-failed`、`registry-failed`；启用、禁用与卸载是 `builtin-fixed`、`not-installed`、`uninstall-pending`、`registry-failed`。
 
 | 码 | 含义 | 调用方怎么办 |
 |---|---|---|
-| `manifest-invalid` | 清单不存在、不是合法 JSON 或不符合 [`runtime.plugin-manifest`](plugin-manifest.md)，详情给出出错字段 | 修改插件清单后重试 |
-| `reserved-id` | 第三方 id 以 `nbook.` 开头 | 换 publisher |
+| `manifest-invalid` | 清单不存在、不是合法 JSON 或不符合 [`runtime.plugin-manifest`](plugin-manifest.md)（包括第三方 id 用了保留的发布者 `nbook`），详情给出出错字段 | 修改插件清单后重试 |
 | `incompatible-engine` | `engines.neurobook` 不接受产品版本 | 换兼容的插件版本 |
 | `already-installed` | 同一 id 与版本已安装或待切换 | 提高版本号，或卸载、重启后再装 |
 | `uninstall-pending` | 插件处于卸载中 | 重启后再安装 |
