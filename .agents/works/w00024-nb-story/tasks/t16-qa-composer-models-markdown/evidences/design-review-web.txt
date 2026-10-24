@@ -1,0 +1,189 @@
+# w00024 t16 设计审查：nb-agent-ui 与 nb-story 网页
+
+审查对象：plan.md 的“packages/nb-agent-ui”“packages/nb-story/src/web”两节、切片 5 到 6、Spec 改动里 viewer.md 与 ui/agent-conversation-view.md、静态稿评审板。代码基线：提交 9a9d26046。未发现的运行证据一律写“从代码推断”。
+
+### 1. 出处复查那条用户消息在网页上没有任何机制能显示成“过程里的一行”，验收映射也指错了文件
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan.md“src/qa/engine.ts 与 Profile”最后一条、验收映射“复查消息在网页上显示为过程里的一行 | record-messages.test.ts + e2e”；`packages/nb-agent-ui/src/harness.ts:319`、`conversation-turns.ts:226`、`packages/nb-story/src/web/qa/turns.ts`、`turn-transcripts.ts`
+- **现象**：计划写“网页按 `meta` 条目把紧跟其后的那条用户消息显示成过程里的一行”。但网页拿到的消息是 nb-agent-ui 适配器合成的，适配器对 `meta` 条目明确 `return`（harness.ts:319 的注释“会话快照与元数据不显示”），`meta` 的存在与 seq 在 `MessageView[]` 里已经看不到。复查消息本身在日志里是一条普通 user 消息（harness.ts:188，只有 `steering === true` 才是 `intent: "steer"`），视图在 `intent === "normal"` 的 user 消息处开新的一轮（conversation-turns.ts:226）。`turns.ts` 的 `composeMessages` 只认每个记录轮的第一条提问（`firstQuestion`），同一记录轮里的第二条 user 消息原样保留。
+- **为什么是问题**：照计划字面实现，复查那一次会在页面上变成“又一轮提问”：第一次（出处不对的）回复被收进上一轮、新开一轮里出现用户气泡，内容是引擎写给模型的复查文字；一个记录轮在视图里成了两轮，轮数、摘要、展开状态的 id（`q:<对话>:<轮号>`）都与记录对不上。实时运行时（SSE 的 `event` 帧只给最后一份适配器）第一次回复还会先显示成最终回复、复查开始后又缩进过程，页面跳一次。计划没说谁来承担这件事：改 nb-agent-ui 适配器让 `meta` 透出，还是 nb-story 在 `turn-transcripts.ts` 里自己截 `meta` 并记 seq、让 `composeMessages` 把紧随其后的 user 消息改写。前者要进 slice 5 的包改动清单和 Spec，后者要说明“紧跟其后”按 seq 相邻还是按位置（中间可能夹别的条目）。
+- **验收映射错位**：`record-messages.ts` 是日志读不成时只按记录合成的退路（文件头注释写明“没有过程”），里面不会有 `meta`，复查消息不可能在这里显示。该行为的测试应放在 `turns.test.ts` / `turn-transcripts.test.ts`，并用真实日志条目序列（含 `meta`、复查 user 消息、第二次助手回复）断言：一个记录轮只有一个提问、复查那条在过程里、最终回复是第二次的文字、`没核实的出处` 附注挂在第二次回复上。
+- **如何核实**：读 harness.ts:300 到 325 与 conversation-turns.ts:220 到 230；在主工作区喂一段含 `meta` 与第二条 user 的日志给 `createHarnessTranscript`，看输出的 `MessageView[]`（从代码推断，未跑）。
+- **建议改法**：计划里写明承担者。较小的做法：适配器对带 `customType` 的 `meta` 给一条可由宿主识别的占位（或提供“宿主钩子”），nb-story 的 `composeMessages` 把紧随其后的 user 消息改成 `intent: "steer"` 或并入过程；并把测试挪到 `turns.test.ts`。
+
+### 2. 换模型后当前推理档不被新模型支持时没有处理，`applyComposerAction` 的现成路径会留下过期的档
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan.md“QaPage.vue：推理档只列所选模型支持的档”；`packages/nb-agent-ui/src/composer-actions.ts` 的 `applyComposerAction`；`QaPage.vue:315-320` 的 `handle`
+- **现象**：`QaPage.handle` 先调 `applyComposerAction`，非 null 就 `setComposer` 并返回。`model.set` 在那里只改 `modelKey`，不碰 `thinking` 与 `thinkingLevels`。计划要求 `thinkingLevels` 随所选模型变，但没写谁、何时重算，也没写当前档不在新模型的档里怎么办。静态稿的“21%、中”说明默认模型有档，换到只有 low/medium 的候选或不支持推理的模型时，`composer.thinking` 仍是旧值。
+- **为什么是问题**：旧值会随 `qa.start` 的 `thinking` 发出。pi-ai 对“有推理且声明了档位表”的模型在档不在表里时抛错（`stream.ts` 的 `requireSupportedEffort`，错误文案形如 `Thinking effort xhigh is not supported by …`），agent 循环没有先夹到支持的档（`agent-loop.ts:1823` 直接把 `config.reasoning` 往下传），所以这一轮会以请求错误失败（从代码推断，未在真实运行时复现）。另外两处缺口：
+  1. 词汇不一致：目录的档位含 `minimal`、`max`（OMP 的 `Effort` 枚举），而配置的 `model.thinking` 与现有 schema 只有 low/medium/high/xhigh；`qa.start` 新增的 `thinking` 参数类型计划没写，写成配置那四个就装不下目录给的档，写成目录的就要同步改 schema 与 Spec。
+  2. 每个候选没有各自的默认档：配置只有 `model: {use, thinking}`，默认模型的档只对默认模型有意义。切到别的候选后显示什么（不选？夹到最近的档？）计划没写；OMP 自己用 `clampThinkingLevelForModel`（向下取最近的支持档，非推理模型取 undefined）解决同一个问题。
+- **如何核实**：读 composer-actions.ts 末尾的 switch；读 `node_modules/@oh-my-pi/pi-ai/src/stream.ts` 约 1947 到 1956 行与 `pi-catalog/src/model-thinking.ts` 的 `requireSupportedEffort`、`clampThinkingLevelForModel`。
+- **建议改法**：QaPage 不把模型相关字段存进草稿存档，而是由“所选模型”算出 `thinkingLevels`，所选档不在其中时按 `clampThinkingLevelForModel` 的规则夹到支持的档（非推理模型为 null），夹后的值才随请求发出；`qa.start` 的 `thinking` 沿用目录的档位词汇，配置 schema 一并放开。Spec 与 slice 6 的 e2e 补一条“从有档的模型换到没有档的模型后，请求里没有推理参数”。
+
+### 3. `models.discover {provider}` 按服务商 id 读，新建或编辑中的服务商没法发现，与“对话框草稿不落盘”矛盾
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan.md“src/server：接口”第二条、“SettingsPage.vue：加两个对话框”、README 决定 7；`packages/nb-story/src/web/shell/SettingsPage.vue:86-104`（整份 `config.set`）
+- **现象**：`models.discover` 的入参是 `{provider}`，即读已保存配置里那个自定义服务商的 `baseUrl`、`apiKeyEnv`。设置页的编辑流程是：对话框里改自定义服务商（名称、接口、地址、密钥变量）、点“从服务读取”、选模型，整份配置到点“保存”才写盘。新建服务商时配置里根本没有这个 id；编辑中改了地址也读不到新地址。
+- **为什么是问题**：用户要先保存一个还没选好模型的服务商（`models` 至少一个？计划里候选要至少一个，服务商的 `models` 是否可空没写），再回头发现，否则“读到 N 个/404/401/连不上”这五种状态永远看不到新地址的结果。改成传草稿参数则合同要写：`{api, baseUrl, apiKeyEnv}` 三个值由页面给。这不增加新的攻击面：已登录的会话本来就能用 `config.set` 加 `config.test` 让服务端把任意环境变量发往任意地址（`auth.ts` 的会话是 `SameSite=Strict` 的 Cookie），所以不需要为此再加限制。
+- **如何核实**：读 contract.ts 的 `config.set`/`config.test` 与 `qa-service.ts:441` 的 `configTest`（只测已保存配置）。
+- **建议改法**：`models.discover` 入参改为草稿三元组（可再带“用哪个服务商 id 的已保存密钥变量”），服务端不读配置文件；返回里带“服务启动时这个环境变量有没有值”，对话框就地显示，不依赖保存。
+
+### 4. 发现结果“按模型名从目录补参数后返回”，页面拿到补好的值再存盘会把推断值固化成用户输入
+
+- **严重程度**：重要；**类别**：不变量
+- **位置**：plan.md“src/server：接口”、“AgentProviderForm …目录补参数的显示”、“config-schema：没写的按模型名从目录补”
+- **现象**：配置第 2 版的语义是“没写的上下文、推理档、图片按模型名在运行时从目录补”。`models.discover` 却把补好的值返回给页面，`AgentProviderForm` 再把这些值放进表单字段，保存时一并写进 `providers.<id>.models[]`。接口没给每个字段的来源（读到的、目录补的、用户填的），表单分不清。
+- **为什么是问题**：目录补的值是按名字猜的（代理服务上叫 `gpt-4` 的模型窗口与官方不同；同名不同版）。一旦写盘就和用户手填无法区分：之后升级 OMP 目录不会再改它，用户也看不出它是推断的；还会让配置文件里充满本该由程序推断的字段。同时 `resolveQaModel` 运行时再补一次，写盘前后行为不同。表单没法按“只保存用户改过的字段”做，因为不知道哪些是补的。
+- **如何核实**：对照 plan.md 的两处描述（接口返回“补参数后”；配置“没写的按模型名补”）；读 harness.md“模型”现有语义。
+- **建议改法**：discover 返回 `{id, suggested?: {contextWindow, reasoning, efforts, images}, suggestedFrom: "provider/model"}`，表单把建议显示为占位或“自动”标记，只在用户改动时写进配置；运行时补参数留在 `resolveQaModel` 一处。
+
+### 5. 候选、默认模型与推理档存进“按对话各存一份”的草稿存档，会过期，续问与不可用候选也没写
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan.md“QaPage.vue：候选、默认模型来自 models.catalog … 发送带上当前选的模型与推理档”；`QaPage.vue:196-214`（`composers` Map、`composerOf`、`baseComposer`）
+- **现象**：`composer` 在 `<script setup>` 里同步用 `composerOf(selectedId)` 建，`composers` 把 `ComposerView` 整份按对话存。`models.catalog` 是异步的，且设置页改过后才有新候选。若把 `models`、`modelKey`、`thinkingLevels`、`thinking` 也放进这份存档：
+  1. 目录到达前已建的那份存档是空候选；到达后要逐份补，漏了的对话里选择器空着。
+  2. 续问（已有对话）的初始模型没定：默认模型？该对话最近一轮用的（记录里写了引用）？切走再回来、整页刷新后显示什么？
+  3. 候选里某个服务商的密钥环境变量没有值，或候选引用的模型已不在目录里（OMP 升级删了模型）：`ComposerModelView` 只有 `{key, label, supportsImages}`，选择器没法标灰与说明，选了发送才得到 `qa_unconfigured`。
+  4. 标签只写模型名：不同服务商下的同名模型（OpenRouter 与 Anthropic 都有 Claude）在下拉里无法区分，应带服务商名。
+  5. nb-story 没有附件，选择器仍给每个不支持图片的模型画“不支持图片”图标（`AgentModelPicker.vue` 的 `noImageValues`），对只问文字的页面是噪声。
+- **为什么是问题**：任何一条都会表现为“选了发不出去”或“显示的不是实际用的”。第 2 条尤其容易：记录里每轮的 `model` 是引用，用户期望续问延续上一轮的选择。
+- **如何核实**：读 QaPage.vue:196 到 214 与 composer-actions.ts 的 `applyComposerAction`（`model.set` 落进存档）。
+- **建议改法**：存档只存草稿、历史、模式；`models`、`modelKey`、`thinkingLevels`、`thinking` 由 computed 从“目录 + 该对话的选择”叠加在存档之上，选择为空时按“该对话最近一轮的引用，其次默认”；给 `ComposerModelView` 加可选的 `unavailable?: string`（密钥缺失等）与可选的 `group?`（服务商名），并在 `canRegisterAttachments` 为假时不画图片图标。
+
+### 6. `+` 往编辑器插 `@`：按计划的做法在中文正文里菜单不会打开，焦点与插入位置的先后也没写
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan.md“登记的输入框按钮加 `placement: "leading"` 与 `insert`”、评审板“`+` 在正文末尾插入 `@`”；`packages/nb-markdown/src/prompt/prompt-text.ts:357` `findPromptTrigger`；`PromptEditor.vue:348`（`menuOpen` 要求 `focused`）、`PromptEditor.vue:936` `insertText`
+- **现象**（已在主工作区用真实的 `findPromptTrigger` 跑过，脚本在 `/tmp/claude-1000/review-w00024-t16-design/web/trig.ts`）：触发字符前面必须是文首、空白、`(` 或中文标点。输入 `介绍一下@` 返回 null，`介绍一下 @` 与 `介绍一下，@` 才命中。`insertText` 是 `insertParsed` 加事务，触发插件每次事务后按光标前文字重算，所以程序插入的 `@` 与手打同样响应，但只在上述前缀条件下。另外 `menuOpen` 要 `focused`：点按钮后焦点在按钮上，不先聚焦编辑器菜单不开。
+- **为什么是问题**：用户写了半句中文再点 `+`，没有任何反应（`@` 悄悄落在正文里，没有菜单）。再加一个顺序陷阱：`insertText` 插在当前选区，`focus("end")` 把光标移到末尾；若先插后聚焦，`@` 可能落在中间而光标在末尾，触发不成立，与评审板“在正文末尾插入”也不一致。`insert` 若是任意字符串，也没有“要不要补空格”的约定。
+- **如何核实**：运行上面的脚本；读 PromptEditor.vue 的 `focused` 与 `menuOpen`。nb-markdown 的 `PromptEditor` 在 plan 的改动清单里没有，而这条需要它（或 ports.ts）配合。
+- **建议改法**：不要让登记项带任意 `insert` 字符串。更稳的是在 `PromptEditorPortExpose` 加 `openTrigger(char)`：编辑器自己聚焦、移到末尾、必要时先补一个空格、再插字符；`+` 按钮的登记项写 `trigger: "@"`。slice 5 的 dom 测试用真实的 `PromptEditor`（不是 `PlainPromptEditor`）覆盖“正文以中文结尾时点 `+` 后菜单打开”。
+
+### 7. `ComposerView.context` 与已有的 `ctx.usage.contextTokens/contextLimit` 重复，取数口径也没定
+
+- **严重程度**：重要；**类别**：代码质量 / 正确性
+- **位置**：plan.md“`ComposerView` 加 `context?: {used; window}`”与“上下文大小取最近一条助手消息的用量”；`packages/nb-agent-ui/src/types.ts:271-282`（`UsageSummaryView`）；Spec“`usage` | 上下文用量与上限 …”与状态栏“显示上下文用量（点击打开上下文检查器）”
+- **现象**：`ctx.usage` 里已经有 `contextTokens`、`contextLimit`，Spec 的数据表和状态栏条目都用它们；目前没有视图读取（只在 `context.ts` 默认值里出现）。计划另给 `ComposerView` 加一份 `context`，没说明为什么不用现成字段。
+- **为什么是问题**：两处表达同一个量，将来状态栏（S7）与输入框的上下文大小会各算各的。口径也没定，且 OMP 自己的做法是现成的：`calculatePromptTokens` 是 `input + cacheRead + cacheWrite`（pi-agent-core 的 compaction.ts），pi-ai 的 `input` 不含缓存命中。若按计划字面写“输入 token”，缓存命中高的对话（图当目录每轮读同样的前缀）会严重偏低，几乎到不了 70%。其余没写的边界：(a) 运行中流式时最近一条带 usage 的助手消息是上一次请求的（当前这条的 usage 在请求结束后才来），应说明；(b) 一条回复的输出也是下次请求前缀的一部分，口径要不要加 `output`；(c) 换模型后窗口是新模型的而 `used` 来自旧模型，超过 100% 时圆环与文字怎么画（全读模式第一次请求就可能超窗）；(d) 没有任何带 usage 的助手消息（新对话、日志读不成“过程没有保留”）显示什么：评审板写“不显示”，计划没写；(e) 悬停才有数字，手机没有悬停。
+- **如何核实**：读 types.ts:271 与 agent-conversation-view.md 数据表；读 `node_modules/@oh-my-pi/pi-agent-core/src/compaction/compaction.ts:271-300`。
+- **建议改法**：复用 `ctx.usage.contextTokens/contextLimit`（若 `contextLimit` 需要随所选模型变，就在宿主按所选模型算），口径定为 `input + cacheRead + cacheWrite`；Spec 写明 (a) 到 (e)，圆环在 100% 以上夹住并在文字里写实际百分比，窄屏用点击展开或 `title`+`aria-label`。
+
+### 6b-占位（勿删）
+
+（更正：上一行“6b-占位”是误写的空条目，不是发现，请忽略；下文从第 8 条继续编号，条数以最后的汇总为准。）
+
+### 8. 设置页里删候选、删服务商、改服务商 id 的级联没有设计，坏配置只能到保存时得到一句笼统的失败
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan.md“配置第 2 版”（`model.use` 必须在候选里、候选写成 `服务商/模型名`、服务商键即 id）、“SettingsPage.vue：候选列表、服务商列表，加两个对话框”；`SettingsPage.vue:86-104`
+- **现象**：整份配置有跨字段约束：`models` 至少一个、`model.use` 在 `models` 里、候选的服务商必须存在。设置页要提供的操作却会直接打破它们：删掉默认的那个候选；删掉仍被候选引用的自定义服务商；服务商 id 可改（引用都是 id，改了就全断）；服务商 id 的字符集没写（含 `/` 会让 `服务商/模型名` 解析歧义，含 `.` 会让命令行的 `providers.<id>.<字段>` 路径无法写）。`ConfigSchema` 的 TypeBox 表达不了这些跨字段规则，只能服务端 `config.set` 返回 `invalid_params`，页面现在只显示“没有保存：<message>”。
+- **为什么是问题**：用户删了默认候选、点保存，得到一条难懂的失败，改回去也没有指引；更糟的是校验漏掉一种组合时 `resolveQaModel` 运行期才报 `qa_unconfigured`。
+- **如何核实**：读 plan.md“配置第 2 版”的约束列表；读 config-schema.ts（现无跨字段规则）。
+- **建议改法**：页面在编辑时就维持不变量：删默认候选时要求先选新默认（或自动改默认并提示）；删被引用的服务商时提示并一并移除它的候选；服务商 id 由名称生成、建好后只读，字符集限为 `[a-z0-9-]`；配置文件里这些规则写进 Spec 的校验清单。
+
+### 9. 自定义服务商表单放进 nb-agent-ui：包边界、已有的 nb-form 与校验规则都被绕开
+
+- **严重程度**：重要；**类别**：代码质量（上游选择）
+- **位置**：plan.md“新组件 `AgentProviderForm`（自定义服务商表单），纯视图”；`packages/nb-agent-ui/AGENTS.md`“边界”；`packages/nb-agent-ui/src/boundary.test.ts`；`packages/nb-story/src/contract/config-schema.ts` 与 `SettingsPage.vue`（`SchemaForm`）
+- **现象**：
+  1. nb-agent-ui 只许依赖 `vue` 与 `@notnotype/nb-ui`；表单的现成方案是 nb-form（“按数据 schema 画表单”，AGENTS 里列了“设置”用途），nb-story 的设置页现在就是 `SchemaForm`。服务商的名称、接口、地址、密钥变量、模型列表正是 schema 驱动的表单。计划没有比较“nb-story 用 SchemaForm 画服务商，nb-agent-ui 只出目录”这个做法。
+  2. 现有校验在 schema 里：`ENV_NAME_PATTERN` 拒绝像密钥的变量名（Spec 与现有 e2e“误贴的密钥不收”都依赖它）、数字最小值、必填。纯视图 `AgentProviderForm` 没有这份 schema，要么在组件里再抄一遍规则（第三份，另两份是 `config-schema.ts` 与 `config-edit.ts` 的 `envNameProblem`），要么由宿主算好 `issues` 再传进来（计划没写 props 里有 `issues`）。
+  3. 包自己的文档说“包公开的组件是这个视图与会话列表”“`./vue` 入口只导出 `AgentConversationView`、`AgentSessionList` 与内置登记”（AGENTS.md、ui/agent-conversation-view.md 的组件清单）。新增两个公开组件要改这两处，计划的“Spec 与文档改动”只提了 Spec，没提 AGENTS.md，也没提 `docs:check` 对受管组件标签的要求。包的定位是“对话视图”，目录与服务商表单与会话数据无关，把它们放进来的理由只有“以后 NeuroBook 也用”，而 NeuroBook 是否采用环境变量式密钥是未定的。
+- **为什么是问题**：重复的校验规则会漂移（误贴密钥的拦截是安全相关的）；包职责变宽后，核心“不依赖任何包”的约束与它的测试要为不相关的组件让路。
+- **如何核实**：读 AGENTS.md 的“边界”、boundary.test.ts 的 `VUE` 规则、`docs/specs/ui/forms.md` 与 nb-form 的 README。
+- **建议改法**：服务商表单留在 nb-story，用 `SchemaForm` 配 `ProviderSchema`（从 `config-schema.ts` 拆出，`issues` 沿用现有“服务启动时没有值/保存后才知道”的提示）；nb-agent-ui 只放与选模型相关、与会话选择器同一概念的 `AgentModelCatalog`（若坚持放进来，则改 AGENTS.md、公开组件清单与受管组件登记）。
+
+### 10. `AgentModelCatalog` 的 props 与 emits 没有定，计划列出的行为里有几项在纯视图里没有数据来源
+
+- **严重程度**：重要；**类别**：文档 / 代码质量
+- **位置**：plan.md“`AgentModelCatalog` … 目录的做法参照 OMP 的 `/models`”；评审板第 2 题与 `r1/52-catalog-A.webp`、`55-catalog-B-phone.webp`；README 决定 6、8
+- **现象**：计划只写“数据与动作经 props、emits”。逐项看计划列的行为：
+  1. “最近用过”“同层里选过、最近用过的在前”：OMP 的 `/models` 是切换当前模型，有“最近”概念；这里的对话框是从设置页“添加模型…”加入候选（评审板 52 号图有“选中：…”与“加入候选”按钮）。“选过”是已在候选里，“最近用过”在 nb-story 没有数据：没有存储位置（`web/host/prefs.ts` 还是服务端、按书还是全局、哪个事件更新），记录里的每轮 `model` 引用按书存放，跨书汇总没有接口。要么写清来源，要么删掉。
+  2. 单选还是多选：评审板只显示一个“选中”并有“取消/加入候选”，一次只能加一个，而决定 7 的候选是列表，加三个模型要开三次对话框。
+  3. 用不了的服务商要显示“设哪个环境变量（列出全部可选）、是否只能登录、目录里有几个模型”：这些是 `CatalogProvider` 的字段（`keyEnvs`、`auth`），nb-agent-ui 核心不依赖 nb-harness，要在 `types.ts` 里另定视图类型并由宿主映射；`auth` 的四个值（`login/chain/key/none`）是 OMP 的概念，进了视图包就成了公开合同，没有写是否照搬。
+  4. 搜索的“精确、连续子串、模糊”三层和命中数是纯函数，应放核心并带单测；5111 个模型（OpenRouter 一家 525 个）每次按键全量排序、渲染 525 行表格，没写防抖或分页/虚拟化。
+  5. 发现状态（读到 N 个、空、404、401/403、连不上）与加载中是异步的，表单要有 `discovery` 的 props 与一个 `discover` 的 emit（见第 3 条），计划没写。
+  6. 手机宽度：评审板只给了被否决的 B 方案的手机图（55 号），选定的两栏（决定 6）在 390px 下没有设计，计划只写了“窄了先丢接口列、再丢图片与推理列”，没写左栏怎么办（收成顶部下拉？）；`lab-scenes.e2e.ts` 的手机宽度巡检会覆盖所有 Lab 场景，这个场景一旦横向溢出就会红。
+- **为什么是问题**：切片 5 照字面实现会在 props 形状上反复，后面 nb-story 接线时再返工；手机退化没有稿就要边做边定，违背“静态稿先行”的流程。
+- **如何核实**：读评审板 index.html 的第 2 题（B 方案手机图）与 r1 目录的文件名（没有 A 方案的手机图）；读 plan.md 对应小节。
+- **建议改法**：切片 5 开工前在计划里补 props 与 emits 的类型草案（`providers: CatalogProviderView[]`、`selected`、`recent?`、`discovery`、`onPick`、`onClose`），决定单选或多选，砍掉没有数据源的“最近用过”（或写出来源），补一张两栏在 390px 的静态稿。
+
+### 11. `model.manage` 与“宿主不处理时不显示”的开关放在 `services`，与包里表达宿主能力的现成位置不一致
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：plan.md“`AgentModelPicker` 末尾加‘管理模型…’ … `services` 里给开关”；`packages/nb-agent-ui/src/types.ts:156-169`（`InteractionView`）、`:328-337`（`AgentConversationServices`）、`context.ts` 头注释
+- **现象**：宿主声明自己支持哪些操作的位置是 `ctx.interaction.canX`（`context.ts` 注释：“宿主声明自己支持哪些操作，不声明时输入框是只读的”），`services` 是纯函数集合（解析地址、触发菜单）。计划把一个布尔开关放进 `services`，且 nb-story 的 `services` 每次 `mentionTick` 变化都会换新对象（`QaPage.vue:187`）。
+- **为什么是问题**：同一个“宿主支持不支持”的信息有两处表达，插件作者与读者要去两个地方找；`interaction` 默认全 false，天然就是“宿主不处理时不显示”的语义，不需要额外的开关。
+- **建议改法**：`InteractionView` 加 `canManageModels`，默认 false；`model.manage` 加进 `BuiltinAgentViewAction`；`services` 不动。
+
+### 12. “管理模型…”跳到设置页会丢掉输入框里写到一半的问题
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：plan.md“`model.manage` 去设置页”；`QaPage.vue:196-214`、`router.ts`（没有 `KeepAlive`，已核对）
+- **现象**：草稿存在 `QaPage` 实例里的 `composers` Map，路由切到 `/settings` 时组件卸载，Map 随之销毁。用户写了半个长问题、发现缺个模型、点“管理模型…”，回来时问题没了。
+- **建议改法**：草稿按书存进 `sessionStorage`（或模块级 Map，按 `bookId + 对话 id` 键），或让设置在页内抽屉里打开；二选一写进计划。
+
+### 13. 抽取“没写模型就用问答的默认模型”在默认模型是目录里非 OpenAI 兼容的模型时不成立，设置页与导入页的文字都会说错
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan.md“抽取没写模型时用问答的默认模型（经解析后的服务地址、密钥变量）”与“不做：抽取模型不改”；`packages/nb-story/src/qa/config.ts:170-199`（`IngestModel` 只有 `baseUrl/id/apiKeyEnv`）、`ingest/model.ts:190`（按 `baseURL` 走 OpenAI 兼容客户端）；`SettingsPage.vue:28` 的分组标题“抽取（可选，不写时用问答模型）”；viewer.md 导入页预览“抽取用的模型”
+- **现象**：第 2 版允许默认模型是目录里任意服务商的任意模型，包括 `anthropic-messages`、`google-generative-ai`、`openai-responses`，以及多个密钥变量的服务商。抽取管线只会说“baseUrl + 一个 apiKeyEnv”的 OpenAI 兼容线协议。“经解析后的服务地址、密钥变量”对这些模型没有可解析的值（Anthropic 的地址不是 OpenAI 兼容端点，多变量服务商没有单一的 `apiKeyEnv`）。
+- **为什么是问题**：用户把默认换成 Claude，设置页仍写“不写时用问答模型”，导入页预览仍显示“抽取用的模型：anthropic/claude…”，实际开始抽取才失败（或在某些代理上悄悄走错协议）。这是 slice 6 要改的两处界面文字，而界面没得到“抽取能不能用默认”的信息。引擎侧的处理方式（回退时报错、还是要求显式 `ingest.model`）另有人审，但网页必须有对应的状态：`ingest.preview` 要能返回“用不了”，设置页要在默认模型不兼容时提示“抽取需要单独写模型”。
+- **如何核实**：读 qa/config.ts:170-199 与 ingest/model.ts 的请求构造；读 viewer.md 导入页一条（输出 37 附近）。
+- **建议改法**：计划里写明回退规则（建议：只在默认模型是 `openai-completions` 且单一密钥变量时回退，否则抽取要求显式模型并在预览与设置页写明原因）；slice 6 给导入页与设置页各加这一态的界面与 e2e。
+
+### 14. 设置页改成候选与对话框后，现有设置页行为与 e2e 的去向没有交代，端点也缺 `/models`
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：plan.md“验收映射”“切片 6”；`packages/nb-story/e2e/qa.e2e.ts:219-279`（设置页四条用例）、`e2e/fixtures.ts`、`testing/qa-endpoint-server.ts:32-47`、viewer.md 输出 48 与验收 11
+- **现象**：
+  1. 现有四条设置页 e2e 都绑在旧表单上：“改模型名保存写进同一份文件，有没保存的改动时不能测试连接，测试连接通过”“别处改过再保存得到冲突，重新载入后是别处的内容”“贴进密钥的变量名不收、文件不变”“没有配置文件时从空配置开始，填好保存后新建”（后一条断言保存的内容恰好是一个 v1 的 `model` 对象）。第 2 版换了形状，这些用例和 viewer.md 验收 11 都要重写，plan 的验收映射没有一行提它们，只列了新行为；STARTER 空配置在第 2 版里是什么也没写（`models` 至少一个，空起点从哪来：先开目录选第一个模型？）。
+  2. “第 1 版配置在网页里读出来并保存成第 2 版”没有 e2e：fixtures 与 `qa.e2e.ts:52` 现在写的都是第 1 版文件，是现成的入口，但计划没把它列为一条场景。
+  3. 自定义服务商的发现要五种状态（读到、空、404、401/403、连不上），`testing/qa-endpoint-server.ts` 只有 `/seen /bodies /script /hold /release`，没有 `/v1/models`，也没有“让这个路由返回 404/401/空/断开”的控制；计划没把这个测试支持文件列进改动，e2e“自定义服务商”按字面只能覆盖手动添加。
+  4. “上下文大小三档”要用端点：`testing/openai-endpoint.ts:97` 的用量是固定的 `input_tokens: 100`，要得到 70% 与 90% 必须把自定义模型的 `contextWindow` 设成约 120 与 105；这可行，但要写进用例的前置；用量口径（见第 7 条）也要对：端点的 `cached_tokens: 0`，覆盖不到缓存命中的口径。
+  5. “测试连接”测的是保存下来的默认模型（`qa-service.ts:441`），多候选后不测其余候选，计划没提；若这是有意的，设置页文字要写明“测的是默认模型”。
+- **为什么是问题**：设置页现有的“冲突、误贴密钥、空起点”是已定行为（Spec 与验收 11 都写了），重写时最容易悄悄丢。
+- **如何核实**：读 qa.e2e.ts:219 到 279 与 qa-endpoint-server.ts 的路由。
+- **建议改法**：验收映射补“沿用并改写”的四行，加一条“第 1 版文件在设置页显示、保存后是第 2 版”，把 `testing/qa-endpoint-server.ts` 的 `/models` 与失败开关列进切片 6 的改动，并写明测试连接只测默认模型。
+
+### 15. 单行版式落到 `AgentConversationComposer` 的几处合同条目与折行判据没有逐条写出
+
+- **严重程度**：建议；**类别**：文档
+- **位置**：plan.md“`AgentConversationComposer`：新增版式 `inline`”；`AgentConversationComposer.vue:265-386`（两层结构）、`AgentConversationComposer.md` 的“布局/高度/390×844”；ui/agent-conversation-view.md 输入框一节第 266 到 276 行（工具栏次序、展开、回车规则）
+- **现象**：我核对了你要求的几项，多数能成立，下面只列没写出来的：
+  1. “正文变长时控件贴右下”：编辑器正文区自带 `maxHeight: 200px` 并在内部滚动（`PromptEditor.vue:971`），控件在编辑器外，用 `align-items: flex-end` 就一直贴右下，滚动时仍成立。这一条没问题。
+  2. “窄到放不下时控件折到下一行”：用 `flex-wrap` 时，换行取决于编辑器的基准宽度加控件宽度，控件宽度随模型标签（最长 12em）与模式标签变，换行点不固定；评审板 390px 的图里 `+` 留在第一行、其余控件落到第二行且两端对齐。应写明用容器查询的固定宽度断点（现有 `@container (max-width: 420px)` 只管模式标签），还是用 `flex-wrap` 加 `+` 的位置规则。
+  3. 展开/收起：评审板 22 号图（选定的 A 方案）保留了展开按钮，计划的控件清单里没有它；展开后 `enter-submits` 变 false，`fill` 把编辑器撑满，行版式下展开与控件的关系没写。
+  4. 附件条在编辑器里面（正文上方），行版式下 `+`、编辑器、控件同一行，`acceptFiles` 为真的宿主（回形针、附件条）怎么放没写；计划说“只给 nb-story”，应写成“`inline` 在 `canRegisterAttachments` 为真时不受支持/忽略”并进组件文档。
+  5. 排队消息、拒收提示、只读、运行中停止都在框外或框内按钮上，行版式不影响；但 Spec 第 269 行“工具栏左侧依次为…右侧为展开与发送/停止”、第 104 行 `composer` 数据行、第 162 行“输入框工具栏按钮：图标与名称；点击后发出的 action”、第 325 行 action 表、第 87 行“视图里的零件不是宿主接口”都要改，计划只写了笼统一句。
+- **建议改法**：把第 2 到 4 项补进 plan 与 `AgentConversationComposer.md` 的“布局”，Spec 改动清单逐行列出上面第 5 项的行号。
+
+### 16. 接口名与合同里的小错：`qa.ask` 不存在，`config.test` 没跟着多模型改
+
+- **严重程度**：建议；**类别**：文档
+- **位置**：plan.md“src/server：接口”第三条“`qa.ask` 与续问加 `model`、`thinking`；新对话另加 `answer`”；`packages/nb-story/src/contract/contract.ts:646`（`qa.start`）
+- **现象**：合同里的方法名是 `qa.start`（QaPage 也调 `qa.start`，续问靠 `conversation` 参数）；`ask` 是命令行名。计划按字面实现会新建一个并行的方法。`qa.start` 的 `strict` 输入也要加 `model`、`thinking`、`answer`，`QaRunView` 与记录是否要回传这一轮用的模型引用（页面显示“用的哪个模型”、上下文大小按它的窗口算）也没写。
+- **建议改法**：计划与后续 Spec 统一写 `qa.start`；列出 `QaRunView`、`QaRecordViewSchema.turns[]` 增加的字段。
+
+## 未发现问题的方面
+
+- “正文变长时控件贴右下”：编辑器内部滚动（`maxHeight: 200px`）时仍成立，控件在编辑器外（第 15 条第 1 点）。
+- 排队消息、拒收提示、只读、运行中停止按钮在行版式下不受影响（都在框外或是同一个主按钮）。
+- `canChangeRuntime` 修复本身：QaPage 在发起中 `canSend` 为假、输入框只读，选择器随之禁用；续问时 `modes` 为空数组所以没有模式按钮，`Shift+Tab` 的 `nextMode` 对少于两种模式返回 null。按“运行中以外都为真”实现不会引出问题。
+- `models.discover` 与 `config.test` 的安全面：服务有口令登录与 `SameSite=Strict` 会话，已登录用户本来就能经 `config.set` 加 `config.test` 让服务端把任意环境变量发往任意地址，discover 不增加新的暴露（第 3 条已说明，不需要为此加限制）。
+- 读取登记的 `toolbarButtons` 没有别的使用方（仅 Lab 夹具与旧应用的同名文件），给它加字段不会破坏现有登记。
+
+## 汇总
+
+说明：文件里有一个误写的空标题“6b-占位”，是我追加时的失误，不是发现，也不能在只追加规则下删除；它出现在第 7 条与第 8 条之间。真实的发现共 16 条，用 `grep -c '^### '` 会得到 17。
+
+- 阻断：0
+- 重要：12（第 1 到 10 条、第 13 条、第 14 条）
+- 建议：4（第 11、12、15、16 条）
+
+最严重的几条：第 1 条（出处复查的消息网页上没有可行的显示机制，适配器丢掉 `meta`、视图把复查消息当新一轮提问，验收映射也指错文件）、第 2 条（换模型后推理档过期，pi-ai 会抛“不支持该档”）、第 3 条与第 4 条（`discover` 按已保存 id 读与草稿流程矛盾，补参数写盘会把推断值固化）、第 6 条（`+` 插 `@` 在中文正文里菜单不开，已用真实函数验证）、第 13 条（抽取回落到非 OpenAI 兼容的默认模型）。

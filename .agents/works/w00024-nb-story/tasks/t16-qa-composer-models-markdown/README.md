@@ -47,6 +47,9 @@ updated: 2026-10-24
 
 - 2026-10-24 计划 [plan.md](plan.md) 写好。开发者要求仿照 OMP 的做法，派 Sonnet 调研（[omp-research.txt](evidences/omp-research.txt)），关键结论在仓库的 OMP 18.2.5 上核对后改了计划：认证按 `authPolicyFor` 与 `providerEntry().envVars` 分四类、自定义模型按模型名从目录补参数、`/models` 发现、目录界面照 OMP 的 `/models`。开发者已确认（决定 10 到 12）。
 
+- 2026-10-24 设计审查：omp 审后端与计划 19 条（阻断 2、重要 17，[design-review-omp.txt](evidences/design-review-omp.txt)），Sonnet 审网页与组件 16 条（重要 12、建议 4，[design-review-web.txt](evidences/design-review-web.txt)），逐条核实都成立，已并入 [plan.md](plan.md)（文末“设计审查的处理”）。主要改动：Profile v4 的 `answer` 改为可选、只在结构化对话里登记；能否续问按快照的 Profile 版本判；出处复查消息在网页上由 `composeMessages` 改成过程行，第二次出错或取消时保留第一次的回复；认证分类按优先级取第一个、运行时取密钥仍走 `getEnvApiKey`；配置加语义校验与空起点；推理档用 OMP 六档并夹档；抽取只在默认模型是 `openai-completions` 时回落；`models.discover` 用对话框里的值、建议值不写盘；上下文大小复用 `ctx.usage`；`+` 经编辑器端口 `openTrigger` 打开菜单；服务商对话框放 nb-story。取舍写进 [待确认清单](../../pending-confirmations.md) 7 条。实施在 `.worktree/w00024-t16`。
+
 ## 下一步
 
-1. 开发者确认计划后开 worktree 实施。
+1. 按 plan.md 的切片 1 到 6 实施，每片单独提交。
+2. 收口：nb-story 全量 e2e，派实现审查（前端 Sonnet、后端 omp），合入 master。
