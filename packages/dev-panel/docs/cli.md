@@ -61,7 +61,7 @@
 
 ### 开发服务、worktree、查找与截图（t14）
 
-**`dev start`** 自己就是监管进程，留在前台，由 Agent 的后台机制托管（Claude Code 的 `run_in_background`、omp 的 `proc://`），会话结束时随会话退出（全局规则“后台与长驻进程”）。要活过会话的服务不在本命令范围内。
+**`dev start`** 自己就是监管进程，留在前台，由 Agent 的后台机制托管（Claude Code 的 `run_in_background`、omp 的 `proc://`），会话结束时随会话退出（全局规则“后台与长驻进程”）。要活过会话的服务不在本命令范围内。它的输出不要接 `head` 之类会提前关闭管道的命令，否则开发服务随之退出；要看启动输出就放后台，或者读它的日志文件。
 
 - **起法**：在 `<checkout>/<package>` 里运行 `setpriv --pdeathsig TERM -- setsid bun run <script>`。服务的 stdout、stderr 直接是日志文件的描述符，监管进程不在了也不会 BrokenPipe。找不到 `setpriv` 或 `setsid` 报 `tool_missing`，`package.json` 里没有这个脚本报 `script_not_found`，`package.json` 不是合法 JSON 报 `invalid_record`（`details.path`）。
 - **日志**：带 `--work --task` 时是主工作区 `.local/agent/works/<W>/tasks/<T>/logs/<runId>.log`，否则是 `.local/agent/logs/dev/<checkout key>-<runId>.log`，独占创建；不自动清理。
