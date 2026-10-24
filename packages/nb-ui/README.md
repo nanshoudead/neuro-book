@@ -2,6 +2,19 @@
 
 Shared Vue/Nuxt UI primitives for NeuroBook-derived projects.
 
+## Install
+
+```bash
+bun add @notnotype/nb-ui
+```
+
+Bun only. The package ships TypeScript and `.vue` sources, no compiled output; the host's Vite and
+Tailwind v4 compile them ([ADR 0028](../../docs/adr/0028-tailwind-only-host-compiles-nb-ui.md),
+[ADR 0029](../../docs/adr/0029-workspace-packages-publish-source-to-npm.md)). Peer dependencies are `vue`
+and `typescript` (Vue's SFC compiler needs it to resolve imported prop types); Bun installs peers
+automatically. The host also installs `vite`, `@vitejs/plugin-vue`, `tailwindcss` and `@tailwindcss/vite`.
+The Tailwind icon plugin and the Lucide icon set come with nb-ui. Licence: AGPL-3.0-only.
+
 ## Local development
 
 ```bash

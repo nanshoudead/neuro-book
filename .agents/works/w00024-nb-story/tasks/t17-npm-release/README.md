@@ -50,7 +50,17 @@ nb-story 连同 8 个内部依赖包（nb-ui、nb-agent-ui、nb-form、nb-markdo
   - 验证：9 个包 typecheck、`bunx tsc -p scripts/tsconfig.json`、`scripts/release` 9 条测试、nb-story 单测 458 条、nb-ui 565 条、`release:check`、`release:smoke` 全部通过；`docs:check` 无失败。`release:publish` 在 worktree 上停在“会发布的目录有未提交的改动”（当时确实有），门禁生效。
   - `test:affected` 另报 llmlint（24 个测试文件转译失败）与 neuro-book-test-support（`paths.test.ts` 一条）失败；master 上同样失败，不是本 Task 引起的。
 
+- 2026-10-24 收口：nb-story 全量 e2e 30 条通过、1 条失败（`viewer.e2e.ts` 的长列表“1 秒内出首屏”计时用例，单独重跑通过，属负载下的计时抖动，与依赖重分无关）。
+- 2026-10-24 实现审查：omp 一份，9 条（重要 5、建议 4，[impl-review-omp.txt](evidences/impl-review-omp.txt)），全部成立，修正在 `00ced8044`、`7cb739a52`：
+  - `skill install`：目标读不了时错误越过 JSON 外壳，改成整段都在错误转换里；新目录就位后删旧目录失败原先报失败、目标却已换掉，改成以新目录就位为提交点，之后删不掉旧目录照样成功，`data.leftover` 给出旧目录（Spec 输出 16、17 与 F6 同步改，见待确认清单）；HOME 为空或相对路径时原先装进当前目录，改成报 `skill_install_failed` 并建议 `--dir`（Bun 的 `os.homedir()`、`os.userInfo()` 都只读 HOME，没有可靠后备）。补 3 条测试，共 9 条。
+  - `release:check`：JSX pragma 文件自己写的 `import "react"` 被当成 Bun 补出的后备导入删掉，改成只去掉末尾补出的那一条，补只用 JSX 的夹具并做了变异检查；单文件组件的 `<style>` 与 `src` 属性原先不扫，补上。
+  - `release:smoke`：浏览器起不来时 `serve` 没停，改成服务一启动就归外层收口、停服有 15 秒兜底，先出的错误优先；用不存在的浏览器 `msedge` 实测停服照样以 0 退出。另外打印并核对装上的版本（`--from registry` 因此绑在发布用的提交上，计划里的 `--version` 不做）；空书库的 `books` 核对空列表。
+  - nb-markdown 不再发编解码器语料与 `*.typecheck.ts`，冒烟的禁发清单补这两类。
+  - nb-story README 补“抽取只用 OpenAI Chat 接口，用目录模型时另写 `ingest.model`”。
+  - 复跑：`scripts/release` 10 条、nb-story 命令行与 Skill 41 条、nb-story 与 nb-markdown typecheck、脚本类型检查、`release:check`、`release:smoke` 全部通过。
+- 2026-10-24 合入 master（`fec3782ca`，不 push）；Spec 去掉 planned 标记、补实现入口与合同测试。
+- 2026-10-24 在 master 上跑 `bun run release:publish`（不带 `--yes`）：门禁全部通过（会发布的目录干净、在 master、清单检查、9 个包 typecheck、冒烟），停在“npm 没有登录”。
+
 ## 下一步
 
-1. nb-story 全量 e2e，然后启动实现审查（omp），处理后合入 master。
-2. 开发者发布：`npm login`，`bun run release:publish`，确认后带 `--yes`；发布后 `bun run release:smoke --from registry` 补证据。
+1. 开发者发布：`npm login`，`bun run release:publish`，确认后带 `--yes`；发布后在发布用的提交上跑 `bun run release:smoke --from registry` 补证据。

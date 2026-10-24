@@ -6,6 +6,14 @@ Agent 对话视图。行为合同见 [`ui.agent-conversation-view`](../../docs/s
 - `@notnotype/nb-agent-ui/vue`：渲染层。宿主挂 `AgentConversationView`，要会话列表时另挂 `AgentSessionList`；注册表用内置登记（`builtinContributions` 或四份单独的）加自己的。
 - `@notnotype/nb-agent-ui/lab`：只给应用的 Component Lab，单独挂内部零件与算轮次样例；不是宿主接口，形状随时会变。
 
+## 安装
+
+```bash
+bun add @notnotype/nb-agent-ui
+```
+
+只支持 Bun。包里是 TypeScript 与 `.vue` 源码，不带编译产物，由宿主的 Vite 与 Tailwind v4 编译（[ADR 0028](../../docs/adr/0028-tailwind-only-host-compiles-nb-ui.md)、[ADR 0029](../../docs/adr/0029-workspace-packages-publish-source-to-npm.md)）。peer 依赖 `vue` 与 `typescript`（编译单文件组件时解析导入的 props 类型要用），Bun 安装时会自动装上；宿主另装 `vite`、`@vitejs/plugin-vue`、`tailwindcss` 与 `@tailwindcss/vite`。许可证 AGPL-3.0-only。
+
 ## 宿主接入
 
 1. **依赖**：只进前端构建的宿主放 `devDependencies`；`vue` 是 peer 依赖。
