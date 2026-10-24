@@ -74,4 +74,13 @@ export function typeChecks(): void {
     plugin.entry({location: "server", contributions: {count}, activate: () => ({contributions: {count: count.implement({text: () => "1"})}})});
     // @ts-expect-error 选项来源只能写进浏览器入口
     plugin.entry({location: "server", contributions: {voices}, activate: () => ({contributions: {voices: voices.implement(() => ({status: "ready", items: []}))}})});
+    // 状态栏条目的 command 只收命令助手、视图助手与 {id, args}：别的助手也有 id，不能当成命令 id 收下。
+    statusItem(plugin, {name: "opens", title: "x", command: panel});
+    statusItem(plugin, {name: "runs", title: "x", command: {id: "acme.test.run", args: {n: 1}}});
+    // @ts-expect-error 设置页助手不是命令
+    statusItem(plugin, {name: "page-item", title: "x", command: page});
+    // @ts-expect-error 状态栏条目助手不是命令
+    statusItem(plugin, {name: "count-item", title: "x", command: count});
+    // @ts-expect-error 选项来源助手不是命令
+    statusItem(plugin, {name: "voices-item", title: "x", command: voices});
 }

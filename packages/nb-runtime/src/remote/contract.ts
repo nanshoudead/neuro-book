@@ -187,8 +187,19 @@ export interface RemoteCallContext {
     readonly signal: AbortSignal;
 }
 
-/** 某个码的详情参数：没有详情的码（schema 收 `undefined`）可以不写。 */
-type DetailArgs<Method extends RemoteMethodSpec, Code extends BusinessCodes<Method>> = undefined extends Static<NonNullable<Method["errors"]>[Code]> ? [detail?: Static<NonNullable<Method["errors"]>[Code]>] : [detail: Static<NonNullable<Method["errors"]>[Code]>];
+/** `Code` 是不止一个码的联合时为 `true`。 */
+type IsUnion<Code, All = Code> = Code extends unknown ? ([All] extends [Code] ? false : true) : never;
+
+/** 联合里有没有要详情的码（schema 不收 `undefined`）：按码分布判断，不能拿整个联合一次判断。 */
+type NeedsDetail<Method extends RemoteMethodSpec, Code extends BusinessCodes<Method>> = Code extends unknown ? (undefined extends Static<NonNullable<Method["errors"]>[Code]> ? false : true) : never;
+
+/**
+ * 某个码的详情参数：没有详情的码（schema 收 `undefined`）可以不写。码还是没收窄的联合、其中又有要详情的码时，详情与码对
+ * 不上（`ctx.fail(input.code)` 会让要详情的码也不交详情），报错要求先按码分支。
+ */
+type DetailArgs<Method extends RemoteMethodSpec, Code extends BusinessCodes<Method>> = true extends IsUnion<Code>
+    ? (true extends NeedsDetail<Method, Code> ? [detail: {readonly "码是联合、其中有要详情的码：先按码分支，各自 fail(码, 详情)": true}] : [detail?: undefined])
+    : undefined extends Static<NonNullable<Method["errors"]>[Code]> ? [detail?: Static<NonNullable<Method["errors"]>[Code]>] : [detail: Static<NonNullable<Method["errors"]>[Code]>];
 
 /**
  * 方法实现收到的上下文：终止信号，加上按这个方法的合同定型的 `ok`、`fail`。码或详情写错时报错落在这一次 `fail(…)` 的参数上，

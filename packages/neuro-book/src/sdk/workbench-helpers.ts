@@ -67,12 +67,15 @@ export interface StatusItemHelper<Id extends string> extends ContributionHelper<
     implement(implementation: ItemImplementation): BoundImplementation<typeof WORKBENCH_STATUSBAR_ITEMS_POINT, Id>;
 }
 
-/** 状态栏条目点了做什么：执行一条命令（助手或 `{id, args}`），或打开一个视图（视图助手）。 */
-type ItemCommand = CommandHelper | ViewHelper<string, ComponentLoad> | NonNullable<ItemDeclaration["command"]>;
+/**
+ * 状态栏条目点了做什么：执行一条命令（助手或 `{id, args}`），或打开一个视图（视图助手）。`{id, args}` 那一项写明没有
+ * `contribution`：别的助手（设置页、另一个状态栏条目）也有 `id`，不排除的话会被当成命令 id 收下，点了没有反应。
+ */
+type ItemCommand = CommandHelper | ViewHelper<string, ComponentLoad> | (NonNullable<ItemDeclaration["command"]> & {readonly contribution?: never});
 
 /** 助手按它的贡献点区分：视图助手换成以它的 id 执行 `nbook.view.open`。 */
 function itemCommandOf(command: ItemCommand): NonNullable<ItemDeclaration["command"]> {
-    if (!("contribution" in command)) return command;
+    if (command.contribution === undefined) return {id: command.id, ...(command.args === undefined ? {} : {args: command.args})};
     if (command.contribution.capability === WORKBENCH_VIEWS_POINT) return {id: OPEN_VIEW_COMMAND, args: {viewId: command.id}};
     return {id: command.id};
 }

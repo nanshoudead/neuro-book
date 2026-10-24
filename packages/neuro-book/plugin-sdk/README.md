@@ -66,6 +66,7 @@ hello/
 - 插件 id、版本与运行位置写在三处：`package.json`（`publisher.name` 与 `version`）、`definePlugin({id, version, locations})`、实际有入口的模块。三处不一致时构建报错，改的时候一起改。贡献的 id 只写短名（见下文“写入口”），不用再写插件 id。
 - 构建预设读的入口模块缺省是 `backend/plugin.ts` 与 `web/plugin.ts` 里存在的；放在别处时在 `package.json` 写 `"nbook": {"definitions": ["src/server.ts", "src/web.ts"]}`，写错（不是路径的数组）构建报错。
 - 构建时会执行 `plugin.ts` 与入口模块的顶层一次（为了读出声明，不调用 `activate`），顶层不要有副作用。
+- 给模板加服务端入口：`definePlugin` 的 `locations` 加上 `"server"`；新建 `backend/plugin.ts`，导出 `plugin.definition([plugin.entry({location: "server", activate: …})])`；构建预设会找到它，`package.json` 不用改。服务端入口只从两端都能用的子路径导入（根入口、`/state`、`/storage`、`/settings`、`/commands`），完整的写法见下文“服务端入口与远程服务”的示例。
 
 ## 写入口
 
@@ -104,10 +105,10 @@ export const browserPlugin = plugin.definition([plugin.entry({
 ```
 
 - **只写短名**：助手的 `name` 拼成贡献 id `<插件 id>.<name>`（设置项的键是 `<插件 id>/<name>`），不会写错前缀；短名不合规则（视图、条目、分区：小写字母开头，只含小写字母、数字与连字符；命令的段可以数字开头；设置项名是小驼峰）时加载就抛错，写明是哪一个。
-- **声明与实现用同一个键**：`contributions: {键: 助手}` 声明，激活产出的 `contributions` 用同样的键交 `助手.implement(…)`。漏写一项、多写一项、在某个键上交了别的助手的实现，`bun run typecheck` 都报错，报错里写着是哪一项。入口 id 缺省取运行位置名；同一个插件的两个入口不能同 id（不按位置分），重复时组装就抛错。
+- **声明与实现用同一个键**：`contributions: {键: 助手}` 声明，激活产出的 `contributions` 用同样的键交 `助手.implement(…)`。漏写一项、多写一项、在某个键上交了别的助手的实现，`bun run typecheck` 都报错，报错的最后几行写着是哪一项（前面几行是 TypeScript 展开的整个函数类型）。漏写实现、产出了远程服务却没写 `remoteProvides` 只有类型检查查得出，构建不执行 `activate`、查不到：构建之前先跑一遍 `bun run typecheck`。入口 id 缺省取运行位置名；同一个插件的两个入口不能同 id（不按位置分），重复时组装就抛错。
 - **助手从它所属的内置插件的子路径导入**，第一个参数是 `plugin`：看导入路径就知道在用哪个内置插件。要 Vue 的部分：整个内置插件只在浏览器里有意义的（工作台）占一个只给浏览器的子路径；两端都要的（设置）把浏览器部分放在 `/settings/browser`。只给浏览器的助手（`view`、`statusItem`、`settingsPage`、`choices`）写进服务端入口编译不过。
-- **在编辑器里就报的错**（`bun run typecheck`，报错里写着问题与改法）：短名带大写、空格或下划线；设置项名不是小驼峰；参数有必填项的命令没写 `expose: {human: false}`；`context.services.require` 了没写进 `dependencies` 的服务（可选依赖用 `resolve`）；产出了远程服务或服务却没写 `remoteProvides`、`provides`。把助手包进一个泛型函数（`<Name extends string>(name: Name) => command(plugin, {name, …})`）时短名的核对推不出来，直接调用助手。记录 schema 写 `additionalProperties: true` 这类 TypeBox 类型里看不出来的，构建时报。
-- **激活上下文**：`context.services.require(键)` 取 `dependencies` 里声明的服务，`context.remote` 调用远程服务，`context.signal` 在入口开始停止时触发，`context.onStop(() => …)` 登记入口停止时要做的事（取消计时器、关掉句柄）；没有 `scope`，不用自己管作用域。完整的成员见 [plugin-api 的“激活上下文”](../../../docs/specs/runtime/plugin-api.md#激活上下文)，入口与服务、远程服务、贡献怎么选见同文的[“选用规则”](../../../docs/specs/runtime/plugin-api.md#选用规则)，助手的完整规则见同文的[“作者 API”](../../../docs/specs/runtime/plugin-api.md#作者-api)。
+- **在编辑器里就报的错**（`bun run typecheck`，报错里写着问题与改法）：短名带大写、空格或下划线；设置项名不是小驼峰；参数有必填项的命令没写 `expose: {human: false}`；`context.services.require` 了没写进 `dependencies` 的服务（可选依赖用 `resolve`；按服务的接口核对，两个服务的接口一模一样时分辨不出，取了没声明的那个时入口激活失败、写明是哪个服务）；产出了远程服务或服务却没写 `remoteProvides`、`provides`。把助手包进一个泛型函数（`<Name extends string>(name: Name) => command(plugin, {name, …})`）时短名的核对推不出来，直接调用助手。记录 schema 写 `additionalProperties: true` 这类 TypeBox 类型里看不出来的，构建时报。
+- **激活上下文**：`context.services.require(键)` 取 `dependencies` 里声明的服务，`context.remote` 调用远程服务，`context.signal` 在入口开始停止时触发，`context.onStop(() => …)` 登记入口停止时要做的事（取消计时器、关掉句柄）；没有 `scope`，不用自己管作用域。随这一代入口自动结束、不用 `onStop` 的：远程订阅、记录句柄的 `subscribe`、设置服务的 `onDidChange`、`eventSource` 的订阅；要自己在 `onStop` 里收掉的：宿主时钟 `schedule` 的计时、自己开的定时器、连接与句柄。完整的成员见 [plugin-api 的“激活上下文”](../../../docs/specs/runtime/plugin-api.md#激活上下文)，入口与服务、远程服务、贡献怎么选见同文的[“选用规则”](../../../docs/specs/runtime/plugin-api.md#选用规则)，助手的完整规则见同文的[“作者 API”](../../../docs/specs/runtime/plugin-api.md#作者-api)。
 - **不经助手的贡献**：向别的插件自己定义的贡献点提交时，声明写在入口的 `rawContributions`（`{capability, id, declaration}` 的数组），实现写在产出的 `rawContributions: {贡献点: {id: 实现}}`；id 用 `` `${plugin.id}.<名>` as const `` 拼。自己定义贡献点时写在 `plugin.definition({contributionPoints, entries})` 里，接收的入口写 `receives` 并在产出里交 `receivers`。示例 menu、file-menu 是这两种写法。
 
 ### 运行位置
@@ -132,9 +133,9 @@ export const browserPlugin = plugin.definition([plugin.entry({
 
 界面文字（`title`、`description` 这类）可以写一个字符串，两种界面语言显示同一句；要分开写时给 `{"zh-CN": …, "en-US": …}`。贡献、贡献点（包括自己定义贡献点时的 `schema` 与 `idPrefix`）与激活事件的规则见 [plugins](../../../docs/specs/runtime/plugins.md)。
 
-- **设置分区与设置项**：`/settings` 的 `section(plugin, {name, title, icon, groups})` 是设置窗口左栏的一项（list 分区，`category` 缺省 `plugins`），窗口按设置项的 schema 画控件；`setting(plugin, {name, schema, default, title, layers, applies, section, group})` 是一个设置项，`section` 收分区本身，`group` 只能是那个分区的组 id，写错编译不过。`layers` 是用户能在哪几层改它：缺省 `["user", "project"]`（用户层与作品层，作品层覆盖用户层）；服务端入口只读得到缺省值与用户层（作品层属于项目，项目实例与打开了项目的窗口才读得到），给服务端用的设置项写 `layers: ["user"]`。`applies` 告诉用户改了何时生效，只影响设置窗口的提示：缺省 `now`，另有 `next-run`、`next-session`、`restart`。两者都写进 `plugin.descriptor([…])`。读写要在入口的 `dependencies` 里声明 `settingsKey`，激活时 `context.services.require(settingsKey)` 拿到服务：`get(设置项)` 读有效值，`inspect` 读各层，`update(设置项, 值, {layer})` 写本插件声明的项。规则见 [configuration](../../../docs/specs/settings/configuration.md)，写法见模板的 `shared/contracts.ts`。
+- **设置分区与设置项**：`/settings` 的 `section(plugin, {name, title, icon, groups})` 是设置窗口左栏的一项（list 分区，`category` 缺省 `plugins`），窗口按设置项的 schema 画控件；`setting(plugin, {name, schema, default, title, layers, applies, section, group})` 是一个设置项，`section` 收分区本身，`group` 只能是那个分区的组 id，写错编译不过。`layers` 是用户能在哪几层改它：缺省 `["user", "project"]`（用户层与作品层，作品层覆盖用户层）；服务端入口只读得到缺省值与用户层（作品层属于项目，项目实例与打开了项目的窗口才读得到），给服务端用的设置项写 `layers: ["user"]`。`applies` 告诉用户改了何时生效，只影响设置窗口的提示：缺省 `now`，另有 `next-run`、`next-session`、`restart`。两者都写进 `plugin.descriptor([…])`，漏写的构建时报。读写要在入口的 `dependencies` 里声明 `settingsKey`，激活时 `context.services.require(settingsKey)` 拿到服务：`get(设置项)` 读有效值，`inspect` 读各层，`update(设置项, 值, {layer})` 写本插件声明的项，`onDidChange((keys) => …)` 在有效值变化时通知（`keys` 是变了的键，和 `设置项.key` 比）。规则见 [configuration](../../../docs/specs/settings/configuration.md)，写法见模板的 `shared/contracts.ts`。
 - **page 分区**：值是列表、对象这类通用控件画不了的，用 `/settings/browser` 的 `settingsPage(plugin, {name, title, icon, load})` 自己画页面，每一项用 `SettingsRow` 排；规则见 [settings-window 的“分区声明”](../../../docs/specs/settings/settings-window.md#分区声明)，写法见示例 snippets。
-- **视图**：`/workbench` 的 `view(plugin, {name, title, icon, load})`，`location` 缺省 `sidebar`，`layout` 缺省 `scroll`。`implement(() => 属性)` 交出实现：组件收到宿主给的 `context`（视图 id、是否可见、所在位置）与这个函数返回的属性。组件里拿不到服务，入口激活时拿到的服务、状态与回调都经这个函数交过去；它在渲染时求值，读到的响应式值变了视图跟着更新。`npm run typecheck`（vue-tsc）按组件的 `defineProps` 检查这些属性：必填属性漏写、名字写错或类型不对都报错，可选属性的笔误查不出来。声明的字段见 [views 的“输入与前置条件”](../../../docs/specs/workbench/views.md#输入与前置条件)，写法见模板的 `web/plugin.ts`。
+- **视图**：`/workbench` 的 `view(plugin, {name, title, icon, load})`，`location` 缺省 `sidebar`，`layout` 缺省 `scroll`。`implement(() => 属性)` 交出实现：组件收到宿主给的 `context`（视图 id、是否可见、所在位置）与这个函数返回的属性。组件里拿不到服务，入口激活时拿到的服务、状态与回调都经这个函数交过去；它在渲染时求值，读到的响应式值变了视图跟着更新。`bun run typecheck`（vue-tsc）按组件的 `defineProps` 检查这些属性：必填属性漏写、名字写错或类型不对都报错，可选属性的笔误查不出来。声明的字段见 [views 的“输入与前置条件”](../../../docs/specs/workbench/views.md#输入与前置条件)，写法见模板的 `web/plugin.ts`。
 - **命令**：`/commands` 的 `command(plugin, {name, title, description, effect, args?})`，`title` 给人看，`description` 用英文写给 Agent 看，`effect` 是 `read` 或 `write`（只读模式下 Agent 不能执行 `write` 的命令）。Agent 缺省不能调用命令：`expose.agent` 不写就是不开放，写 `"confirm"` 时每次调用先问用户，写 `"auto"` 时直接执行（同时写了 `hints.destructive: true` 的仍按 `"confirm"`）。`args` 缺省为空对象，写了没写 `additionalProperties` 的补成 `false`。命令面板不收集参数：**给人用的命令，参数要全部可选**（不带参数也能通过校验）；参数有必填项的命令只给 Agent 与代码调用，要写 `expose: {human: false}`，否则加载就抛错。实现 `command.implement((args) => 结果)` 返回 `{ok: true, value}` 或 `{ok: false, code, reason}`（类型 `CommandResult`）。
 - **状态栏条目**：`/workbench` 的 `statusItem(plugin, {name, title, command?, order?})`，`alignment` 缺省 `right`、`order` 与 `priority` 缺省 0，`command` 可以直接给命令助手（点了执行它，不带参数）或视图助手（点了打开那个视图）。实现是三个函数：
 
@@ -154,7 +155,7 @@ export const browserPlugin = plugin.definition([plugin.entry({
 
 - 服务端入口写在 `backend/plugin.ts`，`location: "server"`（每个打开的项目一份的写 `"project"`）。
 - 跨实例给别人用的接口写成远程服务合同：`shared/contracts.ts` 里 `remoteService(plugin, {name, …})`（id 是插件 id 加短名；代理别的插件的合同时用 `defineRemoteService` 写完整 id），服务端入口声明 `remoteProvides` 并在激活产出里用 `provideRemote` 交出实现；浏览器（或别的实例）里 `context.remote.use(合同).at(目标)` 调用、订阅事件。方法的参数与结果要能结构化克隆，失败以结构化结果返回。规则见 [plugin-channel](../../../docs/specs/runtime/plugin-channel.md)。
-- 方法的 `input` 与事件的 `filter` 没写 `additionalProperties` 时补成 `false`，多余字段被拒。业务失败的码写在方法的 `errors` 里，值是这个码的详情 schema（没有详情写 `Type.Undefined()`）；实现里用 `ok(值)`、`fail(码, 详情)` 构造结果，不用写 `as const`，详情的形状按合同检查，交出不合的详情时调用方得到 `provider-error`。方法实现的第二个参数除了 `signal` 还有按这个方法定型的 `ok`、`fail`（`add: async ({by}, {fail, ok}) => …`）：码或详情写错时报错落在这一次 `fail(…)` 上，第一行就列出能用的码。
+- 方法的 `input` 与事件的 `filter` 没写 `additionalProperties` 时补成 `false`，多余字段被拒。业务失败的码写在方法的 `errors` 里，值是这个码的详情 schema（没有详情写 `Type.Undefined()`）；实现里用 `ok(值)`、`fail(码, 详情)` 构造结果，不用写 `as const`，详情的形状按合同检查，交出不合的详情时调用方得到 `provider-error`。方法实现的第二个参数除了 `signal` 还有按这个方法定型的 `ok`、`fail`（`add: async ({by}, {fail, ok}) => …`）：码或详情写错时报错落在这一次 `fail(…)` 上，第一行就列出能用的码。方法里用这一对；根入口的 `ok`、`fail` 留给写在方法外面的辅助函数。
 - 合同的 schema 进清单，只能写纯 JSON Schema（不用 TypeBox 的 `Refine`、`Codec` 与自己注册的 format）。
 - 推事件用 `eventSource<值>()`：它本身就是合同 `events` 里的那一项，`emit(值)` 推给此刻的订阅，`match` 按订阅的 filter 过滤，`onSubscribe` 给新订阅推初始值；在 `activate` 或 `provideRemote` 的工厂里建（工厂里建时每个调用方一份），不在模块顶层。
 - 调用方拿到的失败按码区分：`if (!r.ok && r.code === "too-many") r.detail.max` 直接有类型；`unavailable`、`timeout` 这类运行时失败的 `detail` 是说明文字。
@@ -183,7 +184,7 @@ export const counter = remoteService(plugin, {
 });
 
 // backend/plugin.ts
-import {eventSource, ok, provideRemote} from "@notnotype/nb-plugin-sdk";
+import {eventSource, provideRemote} from "@notnotype/nb-plugin-sdk";
 import {counter, plugin} from "../shared/contracts";
 export const serverPlugin = plugin.definition([plugin.entry({
     location: "server",
@@ -200,7 +201,7 @@ export const serverPlugin = plugin.definition([plugin.entry({
                     changed.emit(value);
                     return ok(value);
                 },
-                current: async () => ok(value),
+                current: async (_input, {ok}) => ok(value),
             },
             events: {changed},
         }))]};
@@ -262,13 +263,13 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 
 | 命令 | 参数 | 做什么 |
 |---|---|---|
-| `nbook.view.open`（`/workbench` 的 `OPEN_VIEW_COMMAND`） | `{viewId}` | 打开一个视图：选中它所在的容器、显示所在的区域，收起的展开；不移动焦点。状态栏条目直接收视图助手时就是执行它。 |
+| `nbook.view.open`（`/workbench` 的 `OPEN_VIEW_COMMAND`） | `{viewId?}`：视图 id，就是视图助手的 `.id` | 打开一个视图：选中它所在的容器、显示所在的区域，收起的展开；不移动焦点。不给 `viewId` 时弹出选择，用户挑一个，取消也算成功。没有这个视图（入口没激活、插件被禁用）得到 `invalid-args`，不在工作台页面得到 `unavailable`。状态栏条目直接收视图助手时就是执行它。 |
 
 从代码执行命令：入口在 `dependencies` 里声明 `/commands` 的 `commandServiceKey`，激活后 `context.services.require(commandServiceKey).execute(id, args)`，得到 `{ok: true, value}` 或 `{ok: false, code, reason}`。
 
 ### 常用名字
 
-根入口：`definePlugin`、`ok`、`fail`、`remoteService`、`eventSource`、`provideRemote`、`provideService`（同一实例里的本地服务）、`defineServiceKey`、`diagnosticsKey`、`hostClockKey`（宿主给的时钟）。`/state`：`defineStore`、`definePublicState`。`/storage`：`defineRecord`、`storageKey`。`/settings`：`section`、`setting`、`settingsKey`。`/settings/browser`：`settingsPage`、`choices`、`SettingsRow`。`/commands`：`command`、`commandServiceKey`。`/workbench`：`view`、`statusItem`。每个子路径的完整名单见 `docs/exports.md`，说明在各自的 `.d.ts` 里。
+根入口：`definePlugin`、`ok`、`fail`、`remoteService`、`eventSource`、`provideRemote`、`provideService`（同一实例里的本地服务）、`defineServiceKey`、`diagnosticsKey`、`hostClockKey`（宿主给的时钟：`now()` 取时间，`schedule(回调, 毫秒)` 定时并返回取消函数）。`/state`：`defineStore`、`definePublicState`。`/storage`：`defineRecord`、`storageKey`。`/settings`：`section`、`setting`、`settingsKey`。`/settings/browser`：`settingsPage`、`choices`、`SettingsRow`。`/commands`：`command`、`commandServiceKey`。`/workbench`：`view`、`statusItem`。每个子路径的完整名单见 `docs/exports.md`，说明在各自的 `.d.ts` 里。
 
 ## 界面
 
@@ -298,10 +299,15 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 | “必须是单个小写 id 段（字母开头…）” | `publisher` 或 `name` 以数字开头、有大写或别的字符 | 改 `package.json` 与 `definePlugin` 里的 id |
 | “插件描述与 package.json 不一致” | `definePlugin` 的 id 或版本与 `package.json` 不同 | 两处改成一样 |
 | “输出目录里不是这个插件上次的产物，不清理” | `--out` 指到了别的目录 | 检查 `--out`，或换一个空目录 |
+| “定义了，却没有写进 plugin.descriptor([…])” | 用 `setting`、`section` 定义了，却没列进 `plugin.ts` 的 `plugin.descriptor([…])`：没列的不进清单，设置窗口里没有它 | 列进去 |
 
 警告：图标类在 Lucide 里不存在、或不是 Lucide 图标时，构建成功但给警告，那个图标不会显示。
 
 纯度检查的完整规则见 [plugin-code-loading 的“输出与可观察行为”](../../../docs/specs/runtime/plugin-code-loading.md#输出与可观察行为)第 5 条，清单字段与 schema 的要求见 [plugin-manifest 的“输入与前置条件”](../../../docs/specs/runtime/plugin-manifest.md#输入与前置条件)。
+
+## 测试业务逻辑
+
+SDK 还没有给作者的测试替身（内存里的存储、设置与时钟，激活一个入口再调用它的远程方法）。眼下把能单独验证的逻辑写成 `shared/` 里的纯函数（收当前状态与输入，返回新状态或失败），入口只做接线，用 `bun test` 测这些函数；接线与界面装进 NeuroBook 之后验证。
 
 ## 开发循环
 
@@ -314,7 +320,7 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 ## 调试
 
 - **先看插件页**：插件装上、重启后没出现或用不了，先打开设置里的插件页。你的插件那一行列出此刻的问题：哪个入口激活失败（带错误消息）、哪个入口受阻（缺哪个服务）、哪项贡献被拒（贡献点、id 与原因）。服务端的问题是打开页面时的，本窗口的随时更新；在作品里运行的入口不在这里，看日志。
-- **命令没反应**：从命令面板或快捷键执行失败时，右下角弹一条警告，写命令名与原因。不带参数过不了校验的命令不出现在面板里（面板不收集参数），`definePlugin` 的 `command` 遇到这种写法会直接报错，除非写了 `expose: {human: false}`。远程调用得到 `unavailable` 时，详情里带着提供方入口激活失败的原因。
+- **命令没反应**：从命令面板或快捷键执行失败时，右下角弹一条警告，写命令名与原因；点状态栏条目执行失败时眼下不弹，要查原因就从命令面板执行同一条命令。不带参数过不了校验的命令不出现在面板里（面板不收集参数），`/commands` 的 `command` 遇到这种写法会直接报错，除非写了 `expose: {human: false}`。远程调用得到 `unavailable` 时，详情里带着提供方入口激活失败的原因。
 - **服务端日志**：`<状态根>/logs/server-current.jsonl`，一行一条 JSON，按插件 id 搜：服务端与项目入口的受阻、激活失败与装载失败都记在这里（事件 `plugins.diagnostic`），比插件页多出时间与上下文。服务端的 `console.warn`、`console.error` 也会记进去；要写结构化的记录就依赖 `diagnosticsKey`，用 `record({level, event, message, data, source: {plugin, entry}})`，`event` 写成以插件 id 开头的名字，方便搜。
 - **浏览器**：开发者工具的控制台里有这个窗口的诊断，浏览器入口的激活失败也在这里；浏览器入口的产物带 source map（源文件路径相对你的插件目录），在 Sources 面板里按原文件名找到代码、打断点。视图渲染出错时只有这个视图原位显示错误与“重试”，别的视图照常。
 - 服务端入口的产物同样带 source map（`server.js.map`）。

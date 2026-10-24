@@ -68,7 +68,7 @@ const labels = (request: QuickPickRequest | undefined): string[] => (request?.it
 const run = (store: LayoutStore, quickPick: QuickPick, args: Record<string, unknown>) => viewCommands(() => store, quickPick)[MOVE_VIEW_COMMAND].run(args);
 
 describe("移动视图", () => {
-    it("经真实命令注册表登记；布局没打开时不可用，打开后可用", async () => {
+    it("移动、打开视图经真实命令注册表登记：布局没打开时不可用，打开后可用；Agent 不能打开视图（not-exposed）", async () => {
         const store = await layout();
         const current = shallowRef<LayoutStore | null>(null);
         const bindings = workbenchStateBindings(current) as unknown as Readonly<Record<string, {readonly value: unknown}>>;
@@ -80,11 +80,17 @@ describe("移动视图", () => {
         const registry = createCommandRegistry({contextKeys, report: (error) => {
             throw error;
         }});
-        const registered = registry.register({id: MOVE_VIEW_COMMAND, source: "nbook.workbench", declaration: VIEW_COMMAND_DECLARATIONS[MOVE_VIEW_COMMAND], run: viewCommands(() => current.value, picker(() => ({kind: "cancelled"})))[MOVE_VIEW_COMMAND].run});
-        expect(registered.ok).toBe(true);
-        expect(registry.isEnabled(MOVE_VIEW_COMMAND)).toMatchObject({ok: false, code: "unavailable"});
+        const implementations = viewCommands(() => current.value, picker(() => ({kind: "cancelled"})));
+        for (const id of [MOVE_VIEW_COMMAND, OPEN_VIEW_COMMAND] as const) {
+            expect(registry.register({id, source: "nbook.workbench", declaration: VIEW_COMMAND_DECLARATIONS[id], run: implementations[id].run}).ok).toBe(true);
+            expect(registry.isEnabled(id)).toMatchObject({ok: false, code: "unavailable"});
+        }
         current.value = store;
-        expect(registry.isEnabled(MOVE_VIEW_COMMAND)).toEqual({ok: true, value: true});
+        for (const id of [MOVE_VIEW_COMMAND, OPEN_VIEW_COMMAND] as const) expect(registry.isEnabled(id)).toEqual({ok: true, value: true});
+        expect(await registry.execute(OPEN_VIEW_COMMAND, {viewId: "test.b"}, {source: "agent", callerId: "test.agent"})).toMatchObject({ok: false, code: "not-exposed"});
+        expect(store.state.placement.selected.sidebar).not.toBe("view:test.b");
+        expect(await registry.execute(OPEN_VIEW_COMMAND, {viewId: "test.b"})).toEqual({ok: true, value: null});
+        expect(store.state.placement.selected.sidebar).toBe("view:test.b");
     });
 
     it("三项参数直接移动；只给一部分为 invalid-args；来源已变为 stale-target 且不写；不可移动、目标不存在为 invalid-args", async () => {
@@ -187,8 +193,9 @@ describe("打开视图（docs/specs/workbench/views.md 输出 14）", () => {
         expect(store.state.placement.selected.sidebar).toBe("view:test.b");
         expect(store.state.hiddenParts).not.toContain("sidebar");
 
+        store.actions.setPanelCollapsed(true);
         store.actions.setPanelHidden(true);
-        expect(store.state.panel.hidden).toBe(true);
+        expect(store.state.panel).toMatchObject({hidden: true, collapsed: true});
         expect(await open(store, silent, {viewId: "test.c"})).toEqual({ok: true, value: null});
         expect(store.state.placement.selected.panel).toBe("view:test.c");
         expect(store.state.panel).toMatchObject({hidden: false, collapsed: false});

@@ -293,10 +293,10 @@ export const echoBrowser = {id: "acme.echo", entries: [defineEntry({id: "browser
         expect((await readdir(join(root, "dist"))).sort()).toEqual(["browser.js", "browser.js.map", "package.json"]);
     }, 60_000);
 
-    it("执行入口定义时出错：报出错的作者文件:行:列与消息（不是引入它的入口文件）；--verbose 另附完整堆栈", async () => {
+    it("执行入口定义时出错：报出错的作者文件:行:列与消息（不是引入它的入口文件，路径里有括号也一样）；--verbose 另附完整堆栈", async () => {
         const root = await authorProject("thrower", {
-            "shared/contracts.ts": `export const ok = 1;\nexport const value: number = (() => {\n    throw new Error("合同模块算不出来");\n})();\n`,
-            "backend/plugin.ts": `import {defineEntry} from "@notnotype/nb-plugin-sdk";\nimport {value} from "../shared/contracts";\nexport const server = {id: "acme.thrower", entries: [defineEntry({id: "server", location: "server", activate: () => (void value, {})})]};\n`,
+            "shared(copy)/contracts.ts": `export const ok = 1;\nexport const value: number = (() => {\n    throw new Error("合同模块算不出来");\n})();\n`,
+            "backend/plugin.ts": `import {defineEntry} from "@notnotype/nb-plugin-sdk";\nimport {value} from "../shared(copy)/contracts";\nexport const server = {id: "acme.thrower", entries: [defineEntry({id: "server", location: "server", activate: () => (void value, {})})]};\n`,
         });
         const problemsOf = async (verbose: boolean) => {
             try {
@@ -308,10 +308,36 @@ export const echoBrowser = {id: "acme.echo", entries: [defineEntry({id: "browser
             throw new Error("期望构建失败");
         };
         const [quiet] = await problemsOf(false);
-        expect(quiet).toEqual({path: expect.stringMatching(/^shared\/contracts\.ts:3:\d+$/u), message: "合同模块算不出来"});
+        expect(quiet).toEqual({path: expect.stringMatching(/^shared\(copy\)\/contracts\.ts:3:\d+$/u), message: "合同模块算不出来"});
         const [verbose] = await problemsOf(true);
         expect(verbose!.path).toBe(quiet!.path);
         expect(verbose!.message).toContain("合同模块算不出来\nError: 合同模块算不出来\n");
+    }, 60_000);
+
+    it("用助手定义了设置项却没写进 plugin.descriptor([…])（定义在只有入口引入的模块里也查得到）：构建失败，写明是哪一项", async () => {
+        const root = await authorProject("unlisted", {
+            "shared/contracts.ts": `import {definePlugin} from "@notnotype/nb-plugin-sdk";
+import {setting} from "@notnotype/nb-plugin-sdk/settings";
+import {Type} from "typebox";
+export const plugin = definePlugin({id: "acme.unlisted", version: "1.0.0", locations: ["server"]});
+export const listed = setting(plugin, {name: "listed", schema: Type.Boolean(), default: false, title: "Listed"});
+`,
+            "backend/plugin.ts": `import {setting} from "@notnotype/nb-plugin-sdk/settings";
+import {Type} from "typebox";
+import {plugin} from "../shared/contracts";
+export const forgotten = setting(plugin, {name: "forgotten", schema: Type.Boolean(), default: false, title: "Forgotten"});
+export const server = plugin.definition([plugin.entry({location: "server", activate: () => ({})})]);
+`,
+            "plugin.ts": `import {listed, plugin} from "./shared/contracts";\nexport const descriptor = plugin.descriptor([listed]);\n`,
+        });
+        let caught: unknown = null;
+        try {
+            await build(root);
+        } catch (error) {
+            caught = error;
+        }
+        expect(caught).toBeInstanceOf(PluginBuildError);
+        expect((caught as PluginBuildError).problems).toEqual([{path: "plugin.ts", message: expect.stringContaining("设置项 acme.unlisted/forgotten 定义了，却没有写进 plugin.descriptor([…])")}]);
     }, 60_000);
 
     it("远程合同用了 Refine：构建前就失败，指出合同与方法", async () => {

@@ -24,6 +24,7 @@ import type {RemoteContract, RemoteEventSpec, RemoteMethodSpec, RemoteProviderLo
 import type {ResolveOptions, ResolveResult, ServiceDependency, ServiceKey} from "@notnotype/nb-runtime/services";
 
 import type {LocalizedText} from "nbook/shared/localized-text";
+import {DESCRIPTOR_CHECK} from "nbook/plugin-platform/shared/descriptor-check";
 
 /** 界面文字：一个字符串时两种界面语言显示同一句。 */
 export type Text = string | LocalizedText;
@@ -97,7 +98,10 @@ export type ShortNameRule<Name extends string> = Name extends Lowercase<Name>
 /** 必需依赖的键（`required` 缺省为 true）。 */
 type RequiredKeys<Dependencies extends ReadonlyArray<ServiceDependency>> = Exclude<Dependencies[number], {readonly required: false}>["key"];
 
-/** 键在声明过的键里时没有要求，不在时要求一个以问题命名的属性。 */
+/**
+ * 键在声明过的键里时没有要求，不在时要求一个以问题命名的属性。按服务的接口比较：`ServiceKey` 的类型里只有服务的接口、没有
+ * 名字的字面量（键多半写成 `ServiceKey<X>` 的注解），接口一样的两个服务分辨不出，这时由激活时的依赖检查报。
+ */
 type Declared<Key, Allowed, Message extends string> = [Key] extends [Allowed] ? unknown : Problem<Message>;
 
 /**
@@ -191,17 +195,18 @@ export interface PluginBuilder<Id extends string> {
 /** 绑定插件 id 的作者 API；在插件描述的模块（`plugin.ts`）里调用一次，别的模块都从那里取它。 */
 export function definePlugin<const Id extends string>(options: {readonly id: Id; readonly version: string; readonly locations: ReadonlyArray<RuntimeLocation>}): PluginBuilder<Id> {
     const plugin = options.id;
-    return {
+    const builder: PluginBuilder<Id> = {
         id: plugin,
         version: options.version,
         locations: options.locations,
         descriptor(contributions = []) {
-            return {
-                id: plugin,
-                version: options.version,
-                locations: options.locations,
-                contributions: contributions.map((item) => ("contribution" in item ? item.contribution : item)),
-            };
+            const listed = contributions.map((item) => ("contribution" in item ? item.contribution : item));
+            const descriptor: PluginDescriptor = {id: plugin, version: options.version, locations: options.locations, contributions: listed};
+            // 构建执行完全部定义模块后调用：设置项可以定义在描述模块没有引入的模块里，生成描述时还没执行到。
+            const check = (): ReadonlyArray<string> => (describedOnly.get(builder) ?? [])
+                .filter((item) => !listed.some((declaration) => declaration.capability === item.contribution.capability && declaration.id === item.contribution.id))
+                .map((item) => `${item.noun} ${item.contribution.id} 定义了，却没有写进 plugin.descriptor([…])：没写进去的不进清单，设置窗口里没有它`);
+            return Object.defineProperty(descriptor, DESCRIPTOR_CHECK, {value: check, enumerable: false});
         },
         entry(entry) {
             const {id, contributions, rawContributions, activate, activationEvents, ...rest} = entry as AuthorEntry<RuntimeLocation, Helpers, [], [], [], ReadonlyArray<ContributionDeclaration>, {readonly contributions?: Readonly<Record<string, BoundImplementation>>; readonly rawContributions?: Readonly<Record<string, Readonly<Record<string, unknown>>>>}>;
@@ -232,6 +237,19 @@ export function definePlugin<const Id extends string>(options: {readonly id: Id;
             return {id: plugin, ...rest, entries};
         },
     };
+    return builder;
+}
+
+/**
+ * 只写进插件描述的声明（设置项、设置分区）：助手定义时记在插件上，构建时核对它们都写进了 `plugin.descriptor([…])`。漏写的
+ * 不进清单、设置窗口里没有它，类型检查与清单校验都看不出来。
+ */
+const describedOnly = new WeakMap<PluginBuilder<string>, Array<{readonly noun: string; readonly contribution: ContributionDeclaration}>>();
+
+export function recordDescribed(plugin: PluginBuilder<string>, noun: string, contribution: ContributionDeclaration): void {
+    const items = describedOnly.get(plugin) ?? [];
+    items.push({noun, contribution});
+    describedOnly.set(plugin, items);
 }
 
 /**

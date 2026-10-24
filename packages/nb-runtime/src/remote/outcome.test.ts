@@ -64,6 +64,9 @@ export function contextChecks(): void {
             if (words > 9) return refuse("too-many", {max: "5"});
             // @ts-expect-error too-many 要带详情
             if (words > 5) return refuse("too-many");
+            const code: "too-many" | "closed" = words > 3 ? "too-many" : "closed";
+            // @ts-expect-error 码没收窄、其中 too-many 要详情：不能一并不写详情
+            if (words > 2) return refuse(code);
             return accept(words);
         },
     }}));

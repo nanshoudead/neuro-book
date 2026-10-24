@@ -12,7 +12,7 @@ NeuroBook 插件 `__ID__`：在侧栏放一个视图，显示设置里的问候�
 
 `bun run dev` 每次构建出一个新的开发版本号（`0.1.0+dev.<UTC 时间>.<毫秒>`）；在插件页再安装一次 `dist`，按升级处理，重启后生效，不用改版本号，也不用先卸载。
 
-类型检查：`bun run typecheck`。
+类型检查：`bun run typecheck`。它用的 `vue-tsc` 在 Bun 里认不出 `.vue` 文件，所以按自己的抬头行用 Node 运行，机器上要装有 Node。
 
 ## 目录
 

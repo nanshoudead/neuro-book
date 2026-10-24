@@ -20,8 +20,14 @@ const USAGE = `用法：
 
 class UsageError extends Error {}
 
+function usage(): number {
+    console.log(USAGE);
+    return 0;
+}
+
 async function create(args: ReadonlyArray<string>): Promise<number> {
-    const {values, positionals} = parseArgs({args: [...args], options: {publisher: {type: "string"}, name: {type: "string"}, sdk: {type: "string"}}, allowPositionals: true});
+    const {values, positionals} = parseArgs({args: [...args], options: {publisher: {type: "string"}, name: {type: "string"}, sdk: {type: "string"}, help: {type: "boolean", short: "h"}}, allowPositionals: true});
+    if (values.help === true) return usage();
     const directory = positionals[0];
     if (directory === undefined || positionals.length > 1) throw new UsageError("create 要一个目录");
     const result = await createPlugin({
@@ -39,13 +45,15 @@ async function create(args: ReadonlyArray<string>): Promise<number> {
     console.log("下一步：");
     console.log(`  cd ${result.directory}`);
     console.log("  bun install          # 装上模板补的依赖");
+    console.log("  bun run typecheck    # 类型检查（vue-tsc 用 Node 运行，要装有 Node）");
     console.log("  bun run build        # 产物在 dist/");
     console.log(`  在 NeuroBook 的“设置 → 插件”里点“安装…”，填 ${join(result.directory, "dist")}，确认后重启`);
     return 0;
 }
 
 async function build(args: ReadonlyArray<string>): Promise<number> {
-    const {values, positionals} = parseArgs({args: [...args], options: {out: {type: "string"}, clean: {type: "boolean"}, dev: {type: "boolean"}, verbose: {type: "boolean"}}, allowPositionals: true});
+    const {values, positionals} = parseArgs({args: [...args], options: {out: {type: "string"}, clean: {type: "boolean"}, dev: {type: "boolean"}, verbose: {type: "boolean"}, help: {type: "boolean", short: "h"}}, allowPositionals: true});
+    if (values.help === true) return usage();
     if (positionals.length > 1) throw new UsageError("build 至多一个作者目录");
     const root = resolve(positionals[0] ?? ".");
     const outDir = values.out === undefined ? join(root, "dist") : resolve(values.out);
@@ -61,10 +69,7 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
     try {
         if (command === "create") return await create(rest);
         if (command === "build") return await build(rest);
-        if (command === "--help" || command === "-h" || command === "help") {
-            console.log(USAGE);
-            return 0;
-        }
+        if (command === "--help" || command === "-h" || command === "help") return usage();
         throw new UsageError(command === undefined ? "缺少子命令" : `不认识的子命令：${command}`);
     } catch (error) {
         if (error instanceof PluginBuildError) {

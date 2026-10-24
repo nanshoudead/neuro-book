@@ -63,11 +63,12 @@ describe("SDK 的公开面闭包", () => {
 
 /** 每个子路径连带分发的应用源文件。 */
 const CLOSURES: Readonly<Record<string, ReadonlyArray<string>>> = {
-    ".": ["shared/host.ts", "shared/localized-text.ts"],
+    ".": ["plugin-platform/shared/descriptor-check.ts", "shared/host.ts", "shared/localized-text.ts"],
     "./state": ["plugins/state/shared/contracts.ts", "shared/store/persisted.ts", "shared/store/public.ts", "shared/store/store.ts"],
     "./storage": ["plugins/storage/shared/contracts.ts", "shared/storage.ts"],
-    "./settings": ["plugins/settings/shared/contracts.ts", "plugins/settings/shared/sections.ts", "shared/localized-text.ts", "shared/settings.ts"],
+    "./settings": ["plugin-platform/shared/descriptor-check.ts", "plugins/settings/shared/contracts.ts", "plugins/settings/shared/sections.ts", "shared/localized-text.ts", "shared/settings.ts"],
     "./settings/browser": [
+        "plugin-platform/shared/descriptor-check.ts",
         "plugins/settings/shared/sections.ts",
         "plugins/settings/web/page-contribution.ts",
         "shared/localized-text.ts",
@@ -84,7 +85,7 @@ const CLOSURES: Readonly<Record<string, ReadonlyArray<string>>> = {
         "ui/settings/setting-text.ts",
         "ui/settings/settings-page.ts",
     ],
-    "./commands": ["plugins/commands/shared/contracts.ts", "plugins/commands/shared/keybinding.ts", "plugins/commands/shared/menus.ts", "shared/localized-text.ts"],
-    "./workbench": ["plugins/workbench/shared/items.ts", "plugins/workbench/shared/views.ts", "plugins/workbench/web/view-contribution.ts", "shared/localized-text.ts", "ui/bound-component.ts"],
+    "./commands": ["plugin-platform/shared/descriptor-check.ts", "plugins/commands/shared/contracts.ts", "plugins/commands/shared/keybinding.ts", "plugins/commands/shared/menus.ts", "shared/localized-text.ts"],
+    "./workbench": ["plugin-platform/shared/descriptor-check.ts", "plugins/workbench/shared/items.ts", "plugins/workbench/shared/views.ts", "plugins/workbench/web/view-contribution.ts", "shared/localized-text.ts", "ui/bound-component.ts"],
     "./components": [],
 };

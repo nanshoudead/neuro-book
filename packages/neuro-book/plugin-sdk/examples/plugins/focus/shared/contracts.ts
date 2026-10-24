@@ -86,14 +86,16 @@ export interface FocusSource {
     subscribe(listener: (today: Today) => void, options: RemoteSubscribeOptions): Promise<RemoteResult<RemoteSubscription>>;
 }
 
-/**
+/** 三条命令共用的两项：有写入，不交给 Agent。 */
+const focusCommandBase = {effect: "write", expose: {agent: "never"}} as const;
+
+/*
  * 命令：进命令面板，有写入（`effect: "write"`），没有参数（`args` 缺省为空对象）。`expose.agent: "never"`：开始、放弃计时
  * 是用户自己的节奏，不交给 Agent；想让 Agent 也能用，改成 `confirm`（每次问用户）或 `auto`。写在合同模块里，别的插件按
  * id 执行它们。
+ *
+ * 直接调用 `command`，不包一层泛型函数：短名的核对（只用小写）要看到字面量，包在 `<Name extends string>` 的函数里推不出来。
  */
-const focusCommandBase = {effect: "write", expose: {agent: "never"}} as const;
-
-// 直接调用 `command`，不包一层泛型函数：短名的核对（只用小写）要看到字面量，包在 `<Name extends string>` 的函数里推不出来。
 export const startCommand = command(plugin, {...focusCommandBase, name: "start", title: {"zh-CN": "专注计时：开始", "en-US": "Focus timer: Start"}, description: "Start a focus session of the configured length"});
 export const cancelCommand = command(plugin, {...focusCommandBase, name: "cancel", title: {"zh-CN": "专注计时：放弃", "en-US": "Focus timer: Give up"}, description: "Give up the running focus session without counting it"});
 /** 状态栏条目的命令是静态的一条，所以要一条“切换”命令，而不是开始、放弃各挂一个。 */

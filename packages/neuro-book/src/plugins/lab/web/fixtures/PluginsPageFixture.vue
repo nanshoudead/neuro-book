@@ -90,10 +90,10 @@ const find = (id: string): PluginListEntry => plugins.find((plugin) => plugin.id
 const windowPlugins = base === "problems" ? {problems: () => WINDOW_PROBLEMS, onChange: () => () => undefined} : null;
 
 const never = <T>(): Promise<T> => new Promise<T>(() => undefined);
-/** “write-failed”“version-in-use”“busy”场景的安装结果；其余场景为 null，照常改内存里的表。 */
 /** 一个方法的失败结果，取插件管理客户端的类型：失败按码区分，详情随码定型。 */
 type FailureOf<Method extends keyof PluginsRegistry> = PluginsRegistry[Method] extends (...args: never[]) => Promise<infer Result> ? Extract<Result, {readonly ok: false}> : never;
 
+/** “write-failed”“version-in-use”“busy”场景的安装结果；其余场景为 null，照常改内存里的表。 */
 const failing = (): Promise<FailureOf<"install">> | null => {
     if (base === "busy") return never();
     if (base === "write-failed") return Promise.resolve({ok: false, code: "manifest-invalid", detail: {detail: "清单有错误", problems: ["entries.ui.main：入口文件必须在插件目录里", "contributes.0.id：必须以插件 id 开头"]}});

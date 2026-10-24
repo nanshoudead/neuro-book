@@ -43,6 +43,8 @@ import {build as vite, createServer} from "vite";
 import type {Plugin} from "vite";
 
 import {isInside} from "../backend/paths";
+import {DESCRIPTOR_CHECK} from "../shared/descriptor-check";
+import type {DescriptorCheck} from "../shared/descriptor-check";
 import {notSharedMessage} from "../shared/plugin-code-error";
 import type {PlatformProfile} from "../shared/profile";
 
@@ -233,13 +235,19 @@ async function loadModules(root: string, alias: ReadonlyArray<BuildAlias>, files
     }
 }
 
-/** 堆栈里的一个位置：`at 名字 (文件:行:列)` 或 `at 文件:行:列`，文件可以是 `file://` 地址。 */
-const STACK_FRAME = /\(?((?:file:\/\/)?\/[^():]+):(\d+):(\d+)\)?\s*$/u;
+/**
+ * 堆栈里的一个位置：`at 名字 (文件:行:列)` 或 `at 文件:行:列`，文件可以是 `file://` 地址或带盘符的路径。路径里可以有括号与
+ * 空格（目录叫 `author (copy)` 很常见），所以不按括号切：从 `at ` 或最左边的 `(` 后面第一个像路径开头的地方起，到行尾的
+ * `:行:列` 为止。
+ */
+const STACK_FRAME = /(?:^at |\()((?:file:\/\/)?(?:\/|[A-Za-z]:[\\/]).*?):(\d+):(\d+)\)?$/u;
 
 /**
  * 执行入口定义时抛出的错误 → 一条构建问题。路径是堆栈里第一个落在作者目录里（不在 `node_modules`）的位置，写成
  * “文件:行:列”：错误常常抛在被引入的模块里（例如命令写在 `shared/contracts.ts`），不是正在执行的那个入口文件。找不到作者
  * 的位置（打包器或依赖自己出错）时路径是那个入口文件，消息后面带堆栈的第一个位置。`verbose` 时消息后面附完整堆栈。
+ * 作者目录的路径里有空格时也走这条退路：Vite 执行模块时用 `//# sourceURL=<路径>` 标出文件，Bun（1.4）不认带空格的
+ * `sourceURL`，堆栈里只剩 Vite 自己的文件。
  */
 function evaluationProblem(error: unknown, root: string, file: string, verbose: boolean): ManifestProblem {
     const message = error instanceof Error ? error.message : String(error);
@@ -536,6 +544,9 @@ export async function buildPlugin(profile: PlatformProfile, options: BuildPlugin
     const consistent = problems.length === 0;
     if (consistent && missing.length > 0) problems.push({path: "plugin.ts", message: `插件描述的 locations 没有写 ${missing.join("、")}，可是这些位置有入口。在 definePlugin 的 locations 里加上它们`});
     if (consistent && unused.length > 0) problems.push({path: "plugin.ts", message: `插件描述的 locations 写了 ${unused.join("、")}，可是这些位置没有入口。去掉它们，或者检查入口模块是否导出了插件定义`});
+    // 描述的自检在全部定义模块执行之后调用：它查的声明定义在这些模块里。
+    const check = (descriptor as {readonly [DESCRIPTOR_CHECK]?: DescriptorCheck})[DESCRIPTOR_CHECK];
+    for (const message of check?.() ?? []) problems.push({path: "plugin.ts", message});
     if (problems.length > 0) throw new PluginBuildError("入口定义不合格", problems);
 
     const source: ManifestSource = {

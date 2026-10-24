@@ -11,7 +11,7 @@ import type {SettingsSectionCategory, SettingsSectionDeclaration} from "nbook/pl
 import {defineSetting} from "nbook/shared/settings";
 import type {SettingDefinition, SettingOptions} from "nbook/shared/settings";
 
-import {contributionId, localizedText} from "./plugin";
+import {contributionId, localizedText, recordDescribed} from "./plugin";
 import type {PluginBuilder, Problem, ShortNameRule, Text} from "./plugin";
 
 /** 设置项名在编辑器里就核对的部分：小驼峰（点分段），不写连字符、下划线与空格，不以大写开头。完整规则在加载时核对。 */
@@ -46,7 +46,9 @@ export function section<const Id extends string, const Name extends string, cons
         ...(options.order === undefined ? {} : {order: options.order}),
         ...(options.groups === undefined ? {} : {groups: options.groups.map((group) => ({id: group.id, title: localizedText(group.title)}))}),
     };
-    return {id, contribution: {capability: SETTINGS_SECTIONS_POINT, id, declaration}};
+    const contribution = {capability: SETTINGS_SECTIONS_POINT, id, declaration} as const;
+    recordDescribed(plugin, "设置分区", contribution);
+    return {id, contribution};
 }
 
 /**
@@ -61,12 +63,14 @@ export function setting<const Id extends string, const Name extends string, Sche
     readonly group?: Section extends SectionHelper<string, infer Group> ? Group : string;
 } & SettingNameRule<Name>): SettingDefinition<Static<Schema>> {
     const {title, description, section: owner, group, ...rest} = options;
-    return defineSetting({
+    const definition = defineSetting({
         ...rest,
         plugin: plugin.id,
         title: localizedText(title),
         ...(description === undefined ? {} : {description: localizedText(description)}),
         ...(owner === undefined ? {} : {section: typeof owner === "string" ? owner : (owner as SectionHelper).id}),
         ...(group === undefined ? {} : {group}),
-    } as SettingOptions<TSchema>) as never;
+    } as SettingOptions<TSchema>);
+    recordDescribed(plugin, "设置项", definition.contribution);
+    return definition as never;
 }

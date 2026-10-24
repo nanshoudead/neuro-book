@@ -220,7 +220,7 @@ export function settingDeclarationProblem(plugin: string, key: string, declarati
     const prefix = `${plugin}/`;
     if (!key.startsWith(prefix)) return `配置项 ${key} 必须写成 ${prefix}<名>`;
     const name = key.slice(prefix.length);
-    if (name.length > MAX_NAME || !NAME.test(name)) return `配置项名 ${name} 不合规则：以点分段的小驼峰，至多 ${String(MAX_NAME)} 个字符`;
+    if (name.length > MAX_NAME || !NAME.test(name)) return `设置项名 ${name} 不合规则：以点分段的小驼峰（例如 dailyGoal、editor.fontSize），至多 ${String(MAX_NAME)} 个字符`;
     if (typeof declaration !== "object" || declaration === null) return `配置项 ${key} 的声明必须是对象`;
     const fields = declaration as Record<string, unknown>;
     const extra = Object.keys(fields).filter((field) => !FIELDS.has(field));

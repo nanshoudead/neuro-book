@@ -35,7 +35,7 @@ export const browserPlugin = plugin.definition([plugin.entry({
         const count = ref(0);
         const greet = (): number => (count.value += 1);
         return {contributions: {
-            // 属性在渲染时求值：读到的设置与计数变化时，视图跟着更新。属性名与组件的 `defineProps` 对不上时 `npm run typecheck` 报错。
+            // 属性在渲染时求值：读到的设置与计数变化时，视图跟着更新。属性名与组件的 `defineProps` 对不上时 `bun run typecheck` 报错。
             hello: hello.implement(() => ({greeting: settings.get(greeting), count: count.value, sayHello: () => void greet()})),
             sayHello: sayHello.implement(() => ({ok: true, value: greet()})),
         }};
