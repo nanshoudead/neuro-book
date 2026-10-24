@@ -53,10 +53,13 @@ let pending: PendingSelection | null = null;
 
 const parsedQuery = computed(() => parseCommandQuery(host.query.value));
 
-/** 候选：人类可见且当前可用的 canonical 命令。可用性读的上下文若是响应式的，变化时这里随之重算。 */
+/** 参数有必填项的命令：面板不收集参数，执行它必然 `invalid-args`，不列（docs/specs/workbench/commands.md 的“执行入口”）。 */
+const needsArgs = (command: CommandMetadata): boolean => ((command.args as {readonly required?: ReadonlyArray<string>}).required?.length ?? 0) > 0;
+
+/** 候选：人类可见、当前可用、不要参数的 canonical 命令。可用性读的上下文若是响应式的，变化时这里随之重算。 */
 const visibleCommands = computed<readonly CommandMetadata[]>(() => {
     void host.revision.value;
-    return host.commands.list().filter((command) => command.expose?.human !== false && host.commands.isEnabled(command.id).ok);
+    return host.commands.list().filter((command) => command.expose?.human !== false && !needsArgs(command) && host.commands.isEnabled(command.id).ok);
 });
 
 interface LineState {
@@ -122,10 +125,14 @@ function onUpdateOpen(open: boolean): void {
     if (!open) host.closePalette();
 }
 
-/** 成功执行的面板选中项进会话 MRU；行号动作与面板入口本身不是“用过的命令”。 */
+/** 成功执行的面板选中项进会话 MRU；行号动作与面板入口本身不是“用过的命令”。失败交给宿主告诉用户。 */
 async function run(id: string, args: unknown): Promise<void> {
     const result = await host.commands.execute(id, args, {source: "user"});
-    if (result.ok && id !== GO_TO_LINE_ID && id !== OPEN_COMMANDS_ID) host.remember(id);
+    if (!result.ok) {
+        host.failed(id, result);
+        return;
+    }
+    if (id !== GO_TO_LINE_ID && id !== OPEN_COMMANDS_ID) host.remember(id);
 }
 
 function onAccept(id: string): void {

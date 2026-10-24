@@ -31,6 +31,7 @@ import {PANEL_COMMAND_DECLARATIONS, panelCommands} from "./commands/panel-comman
 import {PART_COMMAND_DECLARATIONS, partCommands} from "./commands/part-commands";
 import {VIEW_COMMAND_DECLARATIONS, viewCommands} from "./commands/view-commands";
 import {appearanceSetting, notificationsKey, quickPickKey, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
+import type {NotificationInput} from "../shared/contracts";
 import {validateHomeContribution, WORKBENCH_HOME_POINT, WORKBENCH_PATH} from "../shared/home";
 import {activityBarItemsPoint, statusbarItemsPoint, titlebarItemsPoint, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../shared/items";
 import type {ActivityBarItemDeclaration, ItemDeclaration} from "../shared/items";
@@ -164,7 +165,7 @@ export const workbenchBrowserPlugin: PluginDefinition = {
                     layout.acquire();
                     return (await import("./components/WorkbenchShell.vue")).default;
                 }, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, locale: locale.value})},
-                renderCommandHost: () => h(CommandHost, {commands, report, locale, attach: (host: PaletteHost) => palettes.attach(host)}),
+                renderCommandHost: () => h(CommandHost, {commands, report, locale, notify: (input: NotificationInput) => void notifications.notify(input), attach: (host: PaletteHost) => palettes.attach(host)}),
                 renderNotifications: () => h(Notifications, {queue: notifications.queue}),
                 renderOverlays: () => h(OverlayHost),
                 projectName,

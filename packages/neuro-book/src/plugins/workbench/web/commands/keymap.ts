@@ -8,7 +8,7 @@
  */
 
 import {parseKeybinding} from "nbook/plugins/commands/shared/contracts";
-import type {CommandService, KeyModifiers, KeyPlatform, Release} from "nbook/plugins/commands/shared/contracts";
+import type {CommandFailureCode, CommandService, KeyModifiers, KeyPlatform, Release} from "nbook/plugins/commands/shared/contracts";
 
 /** 分发器读取的按键事件字段；浏览器的 KeyboardEvent 满足它。 */
 export interface KeyInput {
@@ -48,7 +48,10 @@ function normalizeEventKey(key: string): string | null {
     return key === "Escape" || key === "Enter" || F_KEY.test(key) ? key : null;
 }
 
-export function createKeymapDispatcher(commands: CommandService, platform: KeyPlatform, report: (error: Error) => void): KeymapDispatcher {
+/**
+ * `failed`：快捷键执行的命令失败时调用（与命令面板同一种告诉用户的方式）；诊断照记。
+ */
+export function createKeymapDispatcher(commands: CommandService, platform: KeyPlatform, report: (error: Error) => void, failed?: (id: string, failure: {readonly code: CommandFailureCode; readonly reason: string}) => void): KeymapDispatcher {
     let bindings = new Map<string, string>();
     const reported = new Set<string>();
     const reportOnce = (key: string, message: string): void => {
@@ -95,7 +98,9 @@ export function createKeymapDispatcher(commands: CommandService, platform: KeyPl
             event.preventDefault();
             event.stopImmediatePropagation();
             void commands.execute(id, {}, {source: "user"}).then((result) => {
-                if (!result.ok) report(new Error(`命令 ${id} 执行失败：${result.reason}`));
+                if (result.ok) return;
+                report(new Error(`命令 ${id} 执行失败：${result.reason}`));
+                failed?.(id, result);
             });
         },
         dispose() {
