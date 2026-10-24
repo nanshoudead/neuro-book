@@ -51,9 +51,18 @@ updated: 2026-10-24
 | P8 | `RecordHandle` 的“轮询” | 没有轮询：`subscribe` 已推送写入；作者文档里的循环是条件保存冲突后的重试 | 是否加 `update(改写函数)` 助手，并在文档里写 `subscribe` |
 | P9 | 后续的插件功能 | — | 只记录 |
 
+开发者 2026-10-24 的决定：
+
+- P2：新应用与 SDK 一起发到 npm（`@notnotype/neuro-book`、`@notnotype/nb-plugin-sdk`，同一个版本号，接在旧应用 0.10.x 之后）；改版本与 `bun publish` 按 [repository-workflow](../../../../../docs/standards/repository-workflow.md) 的“npm 包”由开发者授权、执行。
+- P5：命令行按受众分两个：`nbook` 给用户与 Agent（启动、建作品、改配置、装与启停插件），随应用发布；作者工具像 VS Code 的 `vsce` 一样另起，名字 `nbooke`（取代 `nbook-plugin`），在 SDK 包里、跟 SDK 版本走。
+- P7：SDK 按内置插件分子路径：根入口只留插件框架，`/storage`、`/settings`、`/commands`、`/workbench` 各归一个内置插件。
+- P8：记录句柄加 `update(改写函数)` 助手，作者文档补 `subscribe`。
+
+顺序：只用 Bun（P4）→ SDK 分子路径与 `update`（P7、P8）→ B1 到 B7 → 命令行（P5）→ 文档治理（P1）→ 发布（P2）。会改作者 API 的都在发布之前做完。
+
 ## 当前状态
 
-2026-10-24 记下 P1 到 P9，等开发者定 P2、P5、P7、P8。
+2026-10-24 P2、P5、P7、P8 已定，下一步写 plan.md。
 
 ## 下一步
 
