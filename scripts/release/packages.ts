@@ -59,6 +59,7 @@ export type Finding = {
         | "private"
         | "license"
         | "license_file"
+        | "readme"
         | "files"
         | "engines"
         | "publish_config"
@@ -118,6 +119,7 @@ export function checkReleasePackages(root: string, packages: readonly ReleasePac
         const license = readOptional(join(entry.path, "LICENSE"));
         if (!license) report("license_file", "包目录里没有 LICENSE");
         else if (!license.equals(rootLicense)) report("license_file", "LICENSE 与仓库根的不同");
+        if (!readOptional(join(entry.path, "README.md"))) report("readme", "包目录里没有 README.md（npm 的包页面显示它）");
         if (!manifest.files?.length) report("files", "缺少 files 白名单");
         else if (!manifest.files.includes("LICENSE") || !manifest.files.includes("README.md")) report("files", "files 要包括 LICENSE 与 README.md");
         if (!manifest.engines?.bun) report("engines", "engines 要写 bun 的最低版本");

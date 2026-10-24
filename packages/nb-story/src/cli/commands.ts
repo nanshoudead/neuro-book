@@ -336,5 +336,6 @@ export function usage(): string {
         "ask 另有 --mode graph|full（图当目录或全读，默认 graph）、--config <配置文件>、--continue <对话 id>（追问）、--model <服务商/模型名>、--thinking <档>（只对这一问）、--structured（新对话结构化作答）。",
         "config 的动作：init（交互；或 --model <服务商/模型名> 用目录里的模型，--base-url --model --api-key-env 用自定义地址）、show、set <字段> <值>、unset <字段>、test（加 --ingest 检查抽取模型）。",
         "ingest 另有 --title、--id、--preview、--book <书 id>（用保存的原文接着抽）、--status、--config；新建时可加 --no-ledger（不记数值）、--no-secrets（不记秘密）。",
+        "skill install 另有 --agent claude|codex（装进 ~/.claude/skills 或 ~/.agents/skills，默认 claude）、--dir <目录>、--force（换掉内容不同的已装目录）。",
     ].join("\n");
 }
