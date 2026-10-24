@@ -71,7 +71,19 @@ defineProfile({
 | `contextWindow`、`maxTokens` | 否 | 不设限 |
 | `price`：每百万 token 的输入、输出、缓存读、缓存写单价与币种 | 否 | 单价未知 |
 
-宿主也可以给内置目录里的模型（`provider/id`），密钥按该 provider 的环境变量取。
+宿主也可以给内置目录里的模型（`resolveModel("provider/id")`）：密钥按 OMP 的取法从环境变量取（目录登记的变量，加上 OMP 另认的来源，例如 anthropic 的 `ANTHROPIC_OAUTH_TOKEN`），都没有值时同输出 18 以 `auth` 结束，只有不要认证的服务商（下面的 `keyless`）不带密钥请求；单价按目录，目录单价全为 0 时当未知。
+
+宿主自定义的模型没写的上下文、最大输出、推理与图片支持，可以先用 `suggestFromCatalog(modelId)` 按模型名在目录里找参照补上，再交给 `defineModel`；单价不补。
+
+### 模型目录
+
+给宿主画选模型的界面用，只读：
+
+- `listCatalog()`：OMP 内置目录的全部服务商，每家 `{id, name, access, keyEnvs, models}`；每个模型 `{id, name, api, contextWindow, maxTokens, reasoning, efforts, images, price}`，`efforts` 是能选的推理档（不支持推理时为空），`price` 未知时为 `null`。
+- `access` 说的是只认环境变量的宿主能不能用这家，按顺序取第一个符合的：`keyless`（不设密钥也能请求）、`login`（要登录 OMP 拿会过期的令牌；宿主不读登录态，只有它的变量有值时能用）、`key`（设环境变量就能用）、`unsupported`（云厂商凭据链，或目录没写认证方式）。
+- `keyEnvs`：目录登记的密钥变量，按 OMP 查找的顺序；OMP 另认的来源不在其中。
+- `providerKeyReady(id)`：这家在当前进程环境里有没有可用的密钥（云凭据链的占位不算）。它读进程环境与 OMP 补进来的 `.env`，宿主要“启动时”的状态就在启动时取一次。
+- 推理档是 `minimal`、`low`、`medium`、`high`、`xhigh`、`max`；`clampEffort(model, effort)` 把选的档往下夹到模型支持的档，不支持推理的模型得到“不发”。`thinkingLevel` 给了模型不支持的档时由 OMP 拒绝，所以宿主先夹。
 
 ### 会话
 
@@ -103,7 +115,7 @@ complete({profile, initial, input, model, signal?}): Promise<CompleteResult>
 ### 上下文
 
 7. **渲染结果就是上下文。** 每次模型请求前，这次运行之前写下的条目都已写进会话日志；交给模型的系统提示词与消息正是 Profile 按会话日志渲染的结果。
-8. **历史保真。** 会话日志存模型消息的原样：内容块的顺序、thinking 与签名、provider 回放字段、工具调用与工具结果（含工具名与结构化结果）。渲染时工具调用与它的结果总在一起；关闭再恢复后，模型收到的历史与关闭前逐字段相同。
+8. **历史保真。** 会话日志存模型消息的原样：内容块的顺序、thinking 与签名、provider 回放字段、工具调用与工具结果（含工具名与结构化结果）。渲染时工具调用与它的结果总在一起；关闭再恢复后，同一个模型收到的历史与关闭前逐字段相同。同一会话换了服务商或接口时，日志照样不改，发给新模型的历史由 OMP 按目标转换：别家的签名思考去掉或转成文字，Responses 的原生回放字段只在同一模型时使用。
 9. **前缀稳定。** 同一会话的两次模型请求之间，已经交给模型的历史只追加、不改写。请求带上会话 id 作为前缀缓存的路由键（provider 支持时）。
 
 ### 一次运行的结果
@@ -204,6 +216,7 @@ complete({profile, initial, input, model, signal?}): Promise<CompleteResult>
 5. **两个会话。** 同一 Profile 以不同 `initial` 开两个会话并行运行，各自的工具调用拿到各自的 `initial`（输出 5）。
 6. **用量与重试。** provider 第一次返回空回复、第二次正常：`usage` 只含第二次，`complete` 为 `false`；单价未知时 `cost` 为 `null`（输出 11）。
 7. **密钥不外泄。** `apiKeyEnv` 指向的变量未设、另有同一 provider 的默认密钥时：运行以 `auth` 结束，没有任何请求发出（输出 18）。端点回 401、错误正文里带着收到的密钥时：运行以 `auth` 结束，`error.message` 与会话日志里都没有这个密钥（输出 18）。
+8. **模型目录。** 对仓库锁定的 OMP 版本，全部服务商的 `access` 与 `keyEnvs` 与快照一致；目录模型的上下文、推理档来自目录，单价全为 0 的 `price` 为 `null`、`priceKnown` 为假；多变量的服务商任一变量有值即“有值”，都没有时错误列出全部变量；`keyless` 的服务商没有值时不报错；`clampEffort` 往下夹到支持的档。
 
 Smoke：用真实模型跑两条：自定义端点（`defineModel`）的一次 `turn`；带收尾工具的 Profile 以 `finished` 结束。缺凭据时跳过并记为未验证。
 

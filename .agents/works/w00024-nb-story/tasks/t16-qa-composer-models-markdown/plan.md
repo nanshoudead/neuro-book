@@ -47,7 +47,7 @@
 - 单价：18.2.5 的目录没有定价状态字段，分不出“免费”和“没标价”，所以 cost 全为 0 的一律当未知（`price: null`、`priceKnown: false`，费用记 `null`）；有非零单价的才是已知。`resolveModel` 现在固定写 `priceKnown: true`，一并改。
 - `defineModel` 已收 `api`；自定义服务商的接口用 OMP 的名字 `openai-completions`、`openai-responses`、`anthropic-messages`、`google-generative-ai`。没写的上下文、最大输出、推理、图片先按模型名从目录补，再交给 `defineModel`（它在 `buildModel` 之后用宿主的值整个盖回去，先补后传才不会冲掉）。单价不补。
 - 换服务商时的历史：日志永远原样；发给另一个服务商或接口时由 OMP 的 `transformMessages` 按目标转换（别家的签名思考会去掉或转成文字，Responses 的原生回放只在同一模型时用）。harness.md 的“历史逐字段保真”改成只约束日志与同一模型的回放。
-- 测试：69 家的 `access` 与 `keyEnvs` 快照；目录模型的上下文、推理档、未知单价；`keyless` 无值不报错；脚本端点上同一对话从 `openai-completions` 换到 `openai-responses` 再换回，第二、三次请求能发出且日志不变。
+- 测试：69 家的 `access` 与 `keyEnvs` 快照；目录模型的上下文、推理档、未知单价；`keyless` 无值不报错。换接口的测试放到切片 3：要 nb-story 测试端点已有的 Responses 回复。
 
 ### `packages/nb-story/src/contract/config-schema.ts` 与 `src/qa/config.ts`：配置第 2 版
 
@@ -163,7 +163,7 @@ type QaConfig = {
 | 行为 | 测试 |
 |---|---|
 | 69 家的 `access` 与 `keyEnvs`；目录模型的上下文、推理档、未知单价；`keyless` 无值不报错 | nb-harness `model.test.ts` |
-| 同一对话换接口后请求照发、日志不变 | nb-harness `provider.test.ts` |
+| 同一对话换接口（`openai-completions` 与 `openai-responses` 来回）后请求照发、日志不变 | `engine.test.ts` |
 | 第 1 版配置读出等价的第 2 版，写回是第 2 版；空起点；语义校验各项 | `config.test.ts` |
 | 抽取回落：`openai-completions` 成立，其它接口报原因 | `config.test.ts` |
 | 语义校验不过、第 1 版路径 → 退出 2 并写新路径 | `cli/config.test.ts` |
