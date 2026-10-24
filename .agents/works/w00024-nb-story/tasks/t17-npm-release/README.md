@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t17-npm-release
-status: active
+status: done
 updated: 2026-10-24
 ---
 
@@ -61,6 +61,9 @@ nb-story 连同 8 个内部依赖包（nb-ui、nb-agent-ui、nb-form、nb-markdo
 - 2026-10-24 合入 master（`fec3782ca`，不 push）；Spec 去掉 planned 标记、补实现入口与合同测试。
 - 2026-10-24 在 master 上跑 `bun run release:publish`（不带 `--yes`）：门禁全部通过（会发布的目录干净、在 master、清单检查、9 个包 typecheck、冒烟），停在“npm 没有登录”。
 
+- 2026-10-24 开发者发布了 9 个包。registry 上 nb-ui 是 `0.2.0`、其余 `0.1.0`，都在 `latest`，许可证 AGPL-3.0-only。`bun run release:smoke --from registry` 通过：从 registry 装 nb-story 与 Vue 宿主，命令行、Skill、`serve` 加真实 Chrome、Vite 构建都通过。
+- 发布之后 master 上 nb-runtime 又有改动（w00027 t14 S1、S2：`provide` 改名 `provideService` 等不兼容的改名），版本号仍是 `0.1.0`；registry 上的 `0.1.0` 不含这些改动，与已发布的 nb-story `0.1.0` 一致。
+
 ## 下一步
 
-1. 开发者发布：`npm login`，`bun run release:publish`，确认后带 `--yes`；发布后在发布用的提交上跑 `bun run release:smoke --from registry` 补证据。
+无。下次发布前要改版本号：nb-runtime 已有不兼容的改动，按 0.x 的惯例升到 `0.2.0`；用到新接口的包一起升。步骤见 `docs/standards/repository-workflow.md` 的“npm 包”。
