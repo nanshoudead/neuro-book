@@ -1438,6 +1438,32 @@ describe("Spec plugins 输出 22：远程提供项的位置与合同", () => {
         expect(app.plugins.entryState({plugin: "demo.copied", entry: "main"})).toMatchObject({status: "available"});
     });
 
+    it("按清单还原的声明是普通 JSON、产出是 TypeBox 的 schema（带不可枚举的元数据）：内容相同即可用；产出带校验函数（Refine）时按不同处理", async () => {
+        const Positive = Type.Object({n: Type.Number()}, {additionalProperties: false});
+        const typed = defineRemoteService({id: "demo.strict/server", version: 1, provider: "server", callers: ["browser"], methods: {take: {input: Positive, output: Type.Boolean(), effect: "read"}}});
+        // 清单里的合同是 JSON：还原出来的 schema 没有 TypeBox 的不可枚举元数据。
+        const restored = defineRemoteService(JSON.parse(JSON.stringify(typed)) as typeof typed);
+        const refined = defineRemoteService({...typed, methods: {take: {input: Type.Refine(Positive, (value) => value.n > 0), output: Type.Boolean(), effect: "read"}}});
+        const provider = (id: string, produced: typeof typed): PluginDefinition => ({
+            id,
+            entries: [{
+                id: "main",
+                location: "server",
+                activationEvents: ["onStartup"],
+                remoteProvides: [restored],
+                activate: () => ({remote: [provideRemote(produced, () => ({methods: {take: () => ({ok: true, value: true})}}))]}),
+            }],
+        });
+        const node = createRemoteNode({instance: {id: "hub", kind: "server", role: "hub", project: null, client: null}});
+        const app = createApplication(
+            {identity: {location: "server", instanceId: "hub"}, stopSignal: new AbortController().signal, emergency: () => undefined},
+            {plugins: [provider("demo.portable", typed), provider("demo.refined", refined)], gates: [], remote: node},
+        );
+        // 校验函数表达不进清单：两份合同的校验语义不同，放过就会丢掉产出那份的校验。
+        expect(await app.startup).toMatchObject({status: "available", failures: [{source: "demo.refined/main", reason: "output/remote-contract-mismatch", required: false}]});
+        expect(app.plugins.entryState({plugin: "demo.portable", entry: "main"})).toMatchObject({status: "available"});
+    });
+
     it("同一入口的 remoteProvides 里同一合同 id 出现两次（例如两个版本）：登记即拒绝 duplicate-remote-contract", async () => {
         // 按 id 查到的声明必须唯一：否则一项产出能同时满足两项声明，查询按其中一个版本回答、调用按另一个核对。
         const atServerV2 = defineRemoteService({...atServer, version: 2});
