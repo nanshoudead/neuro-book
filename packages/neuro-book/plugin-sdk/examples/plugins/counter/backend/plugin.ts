@@ -17,8 +17,7 @@
 import {computed, watch} from "@vue/reactivity";
 import {Type} from "typebox";
 
-import {diagnosticsKey, fail, ok, provideRemote} from "@notnotype/nb-plugin-sdk";
-import type {RemoteSink} from "@notnotype/nb-plugin-sdk";
+import {diagnosticsKey, eventSource, fail, ok, provideRemote} from "@notnotype/nb-plugin-sdk";
 import {defineStore} from "@notnotype/nb-plugin-sdk/state";
 import {defineRecord, storageKey} from "@notnotype/nb-plugin-sdk/storage";
 
@@ -67,20 +66,6 @@ function untilReady(field: {readonly ready: boolean}): Promise<void> {
     });
 }
 
-/** 订阅者的登记：每个订阅调用一次 `subscribe`，订阅结束时 `signal` 触发，在那里把它移出去。 */
-function subscribers() {
-    const sinks = new Set<RemoteSink<number>>();
-    return {
-        next: (value: number) => {
-            for (const sink of sinks) sink.next(value);
-        },
-        subscribe: (_filter: unknown, sink: RemoteSink<number>, {signal}: {readonly signal: AbortSignal}) => {
-            sinks.add(sink);
-            signal.addEventListener("abort", () => sinks.delete(sink), {once: true});
-        },
-    };
-}
-
 export const counterBackendPlugin = plugin.definition([
     plugin.entry({
         location: "server",
@@ -100,7 +85,9 @@ export const counterBackendPlugin = plugin.definition([
             // 启动时 `current` 读到的是 `initial`（0），不是存着的计数，公开键也是 false。服务端的分区就在本进程里，
             // 首个快照通常转眼就到；在窗口或项目里用远程分区时，这段时间长得多。入口在 `activate` 完成之前不接受调用。
             await untilReady(store.state.count);
-            const changed = subscribers();
+            // 订阅者的登记：`eventSource` 管订阅集合（订阅结束时自动移出），这里只管 `emit`。在激活函数里建：所有调用方
+            // 共享一份，入口下一次激活时是新的一份（建在模块顶层会跨代次留下旧的订阅）。
+            const changed = eventSource<number>();
             // 已确认的计数：store 的 `base` 只随 Storage 的订阅更新。服务端的 Storage 先通知订阅者、再返回保存
             // 结果，所以提交结算为 `saved` 时，`base` 已经是刚写下的值。
             const confirmed = (): number => {
@@ -110,7 +97,7 @@ export const counterBackendPlugin = plugin.definition([
             // 每次写入成功就推送一次。推送早于返回结果：调用方拿到结果时，同一条链路上的事件已经先到了。
             const write = async (action: () => Promise<string>): Promise<string> => {
                 const result = await action();
-                if (result === "saved") changed.next(confirmed());
+                if (result === "saved") changed.emit(confirmed());
                 return result;
             };
             return {
@@ -136,7 +123,7 @@ export const counterBackendPlugin = plugin.definition([
                             current: async () => ok(confirmed()),
                             caller: async () => ok({plugin: consumer.plugin, instance: consumer.instanceId}),
                         },
-                        events: {changed: {subscribe: changed.subscribe}},
+                        events: {changed},
                     })),
                 ],
             };
@@ -151,19 +138,19 @@ export const counterBackendPlugin = plugin.definition([
             // 计数放在内存里：只活在这个项目实例里，项目关掉就没了。要留到下次打开，就用 `nbook.storage` 的
             // project 记录（`scope: "project"`，库在项目目录的 `.nbook/storage.sqlite`）。
             let count = 0;
-            const changed = subscribers();
+            const changed = eventSource<number>();
             return {
                 remote: [
                     provideRemote(projectCounterContract, () => ({
                         methods: {
                             increment: ({by}) => {
                                 count += by;
-                                changed.next(count);
+                                changed.emit(count);
                                 return ok(count);
                             },
                             current: () => ok(count),
                         },
-                        events: {changed: {subscribe: changed.subscribe}},
+                        events: {changed},
                     })),
                 ],
             };

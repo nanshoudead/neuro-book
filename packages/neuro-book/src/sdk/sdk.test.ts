@@ -23,7 +23,7 @@ function sdkPaths(file: string): Record<string, ReadonlyArray<string>> {
 describe("SDK 的导出面", () => {
     // 每个子路径的运行时导出，按子路径表的顺序。只给浏览器的两个也在 Bun 里导入：它们只再导出，单文件组件经测试的预加载编译。
     const EXPORTS: Readonly<Record<string, ReadonlyArray<string>>> = {
-        "index": ["defineEntry", "definePlugin", "defineRemoteService", "defineServiceKey", "diagnosticsKey", "fail", "formatText", "hostClockKey", "hostStateRootKey", "localize", "ok", "orThrow", "provideRemote", "provideService", "provideServicePerConsumer"],
+        "index": ["defineEntry", "definePlugin", "defineRemoteService", "defineServiceKey", "diagnosticsKey", "eventSource", "fail", "formatText", "hostClockKey", "hostStateRootKey", "localize", "ok", "orThrow", "provideRemote", "provideService", "provideServicePerConsumer", "remoteService"],
         "state": ["definePublicState", "defineStore"],
         "storage": ["defineRecord", "storageKey"],
         "settings": ["SETTINGS_CHOICES_POINT", "SETTINGS_PAGES_POINT", "SETTINGS_SECTIONS_POINT", "defineSetting", "displayLocale", "section", "setting", "settingsChoicesEvent", "settingsKey"],

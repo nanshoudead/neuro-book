@@ -147,7 +147,8 @@ export const notesBackendPlugin = plugin.definition([
                                 changed: {
                                     // 每个订阅调用一次。`signal` 在订阅因任何原因结束时触发（调用方释放、任一端停止、连接
                                     // 断开），这里用它释放对 Storage 记录的订阅；不释放，Storage 会一直替一个已经不存在的
-                                    // 订阅方推送。
+                                    // 订阅方推送。这里不用 `eventSource`（counter 用它）：每个订阅转发的是自己的 Storage 订阅，
+                                    // 没有一个由提供方统一 `emit` 的值。
                                     subscribe: async (_filter, sink, {signal}) => {
                                         const opened = await open();
                                         // 抛错时内核记一条诊断，以 `provider-error` 结束这条订阅，订阅方的 `onEnd` 收到它。

@@ -11,7 +11,7 @@
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
-import {definePlugin, defineRemoteService, defineServiceKey} from "@notnotype/nb-plugin-sdk";
+import {definePlugin, defineServiceKey, remoteService} from "@notnotype/nb-plugin-sdk";
 import type {RemoteResult, ServiceKey} from "@notnotype/nb-plugin-sdk";
 
 /**
@@ -40,7 +40,7 @@ const Empty = Type.Object({}, {additionalProperties: false});
 
 /**
  * 业务失败：`nbook.storage` 读写失败时原样带上它的失败码。不能把 Storage 的码直接声明成本合同的业务失败码：
- * `denied`、`unavailable`、`unknown-outcome` 与路由层的失败码重名，`defineRemoteService` 在模块加载时就会拒绝这份
+ * `denied`、`unavailable`、`unknown-outcome` 与路由层的失败码重名，`remoteService` 在模块加载时就会拒绝这份
  * 合同；调用方也就分不清“路由没送到”与“Storage 拒绝了”。`nbook.storage` 自己的合同是同样的做法。
  */
 const StorageFailed = Type.Object({code: Type.String(), detail: Type.String()}, {additionalProperties: false});
@@ -56,8 +56,8 @@ const StorageFailed = Type.Object({code: Type.String(), detail: Type.String()}, 
  *   （同文输出第 4 条）；读方法可以放心重试。
  * - 合同是本插件对外的公开接口：改动要升 `version`，旧调用方得到 `version-changed`。
  */
-export const notesContract = defineRemoteService({
-    id: "example.notes/remote",
+export const notesContract = remoteService(plugin, {
+    name: "remote",
     version: 1,
     provider: "server",
     callers: ["server", "browser"],

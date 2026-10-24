@@ -3,7 +3,7 @@
  * 调用方用 `orThrow` 把失败转成异常。
  */
 
-import type {RemoteFailure, RemoteResult} from "./protocol";
+import type {RemoteFailure} from "./protocol";
 
 /**
  * 远程调用失败。失败结果原样放在 `failure`，不放进 `cause`：`Error.cause` 的含义是“引起它的错误”，与远程失败的
@@ -29,7 +29,7 @@ export class RemoteCallError extends Error {
  * 成功给值，失败抛 `RemoteCallError`。抛出不改变失败的含义：写请求的 `unknown-outcome` 被抛出后副作用仍可能已经
  * 发生，调用方不能把它当作确定失败去重试。
  */
-export function orThrow<T, Code extends string>(result: RemoteResult<T, Code>): T {
+export function orThrow<T>(result: {readonly ok: true; readonly value: T} | RemoteFailure<string>): T {
     if (result.ok) return result.value;
     throw new RemoteCallError(result);
 }

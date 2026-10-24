@@ -10,7 +10,7 @@
 
 // 作者 API 的框架：绑定插件 id 的 `definePlugin`。各内置插件的贡献助手在它们自己的子路径（`/settings`、`/commands`、
 // `/workbench`、`/settings/browser`）。
-export {definePlugin} from "./plugin";
+export {definePlugin, remoteService} from "./plugin";
 export type {AuthorActivationContext, AuthorEntry, AuthorEntryOutput, BoundImplementation, ContributionHelper, PluginBuilder, Text} from "./plugin";
 
 // 内核：入口、服务、远程服务与贡献。
@@ -28,8 +28,8 @@ export type {
 } from "@notnotype/nb-runtime/plugins";
 export {defineServiceKey} from "@notnotype/nb-runtime/services";
 export type {ServiceKey} from "@notnotype/nb-runtime/services";
-export {defineRemoteService, fail, ok, orThrow, provideRemote} from "@notnotype/nb-runtime/remote";
-export type {RemoteContract, RemoteOutcome, RemoteResult, RemoteSink, RemoteSubscribeOptions, RemoteSubscription} from "@notnotype/nb-runtime/remote";
+export {defineRemoteService, eventSource, fail, ok, orThrow, provideRemote} from "@notnotype/nb-runtime/remote";
+export type {EventSource, RemoteContract, RemoteOutcome, RemoteResult, RemoteResultFor, RemoteSink, RemoteSubscribeOptions, RemoteSubscription} from "@notnotype/nb-runtime/remote";
 export {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 export type {DiagnosticsService} from "@notnotype/nb-runtime/diagnostics";
 export type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";

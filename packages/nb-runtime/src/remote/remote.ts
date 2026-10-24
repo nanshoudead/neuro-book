@@ -8,7 +8,7 @@
  */
 
 export type * from "./contract";
-export {defineRemoteService, fail, ok} from "./contract";
+export {defineRemoteService, eventSource, fail, ok} from "./contract";
 export type * from "./protocol";
 export {failureFor, leaseHolderOf, parseFrame, REMOTE_FAILURE_CODES, reservedKeys, validationProblems, WIRE_PROTOCOL_VERSION, wireMismatch} from "./protocol";
 export {decodeJsonFrame, encodeJsonFrame, encodeJsonValue, FrameEncodingError} from "./json-codec";

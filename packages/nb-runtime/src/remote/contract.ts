@@ -8,7 +8,7 @@ import type {Static, TSchema} from "typebox";
 import type {ConsumerIdentity} from "../services/services";
 
 import {KERNEL_CONTRACT_PREFIX, REMOTE_FAILURE_CODES, RESERVED_KEY_PREFIX} from "./protocol";
-import type {RemoteResult, RemoteTarget} from "./protocol";
+import type {RemoteCause, RemoteFailure, RemoteFailureCode, RemoteResult, RemoteTarget} from "./protocol";
 
 /**
  * 提供方位置：哪种拓扑角色的实例提供这份合同。`client` 指浏览器、TUI 这类客户端实例；`any` 指每个
@@ -157,9 +157,12 @@ export function defineRemoteService<
 /** 方法声明过的业务失败码。`errors` 是可选字段：宽类型的方法（`RemoteMethodSpec`）也得到 `string`，不是 never。 */
 type BusinessCodes<Method extends RemoteMethodSpec> = NonNullable<Method["errors"]> extends Readonly<Record<string, TSchema>> ? keyof NonNullable<Method["errors"]> & string : never;
 
+/** 一种失败的详情：schema 收 `undefined` 的码（没有详情）可以不写这一项，跨实例传过来时也没有这个键。 */
+type DetailOf<Schema extends TSchema> = undefined extends Static<Schema> ? {readonly detail?: Static<Schema>} : {readonly detail: Static<Schema>};
+
 /** 一种业务失败：码与按该码 schema 的详情。按码分布，`detail` 的类型随 `code` 收窄。 */
 type BusinessFailure<Method extends RemoteMethodSpec> = {
-    readonly [Code in BusinessCodes<Method>]: {readonly ok: false; readonly code: Code; readonly detail: Static<NonNullable<Method["errors"]>[Code]>};
+    readonly [Code in BusinessCodes<Method>]: {readonly ok: false; readonly code: Code} & DetailOf<NonNullable<Method["errors"]>[Code]>;
 }[BusinessCodes<Method>];
 
 /** 提供方方法的返回：成功值，或合同声明过的业务失败。用 `ok(value)`、`fail(code, detail)` 构造，不用写 `as const`。 */
@@ -188,6 +191,56 @@ export interface RemoteSink<Payload> {
     next(payload: Payload): void;
 }
 
+/** 一个远程事件的提供方实现：每个订阅调用一次 `subscribe`。 */
+export interface RemoteEventImplementation<Payload, Filter> {
+    subscribe(filter: Filter, sink: RemoteSink<Payload>, context: RemoteCallContext): void | Promise<void>;
+}
+
+/** `eventSource` 的结果：本身就是事件的实现（放进 `events` 的那一项），另有 `emit` 推给此刻的订阅。 */
+export interface EventSource<Payload, Filter = unknown> extends RemoteEventImplementation<Payload, Filter> {
+    /** 推给此刻已登记、`match` 通过的订阅；订阅结束（调用方退订、任一方停止）后不再推给它。 */
+    emit(payload: Payload): void;
+    /** 此刻的订阅数。 */
+    readonly size: number;
+}
+
+/**
+ * 推事件的助手（docs/specs/runtime/plugin-channel.md 的“事件助手”）：管订阅集合，订阅在 `signal` 触发时移除，提供方只写
+ * `emit(值)`。在激活函数或远程实现的工厂里创建，不在模块顶层：在工厂里创建时每个调用方一份，在激活函数里创建时所有调用方
+ * 共享；模块顶层的对象会跨入口代次留下。
+ *
+ * 时序：先登记订阅，再调用 `onSubscribe`（推初始值、建这个订阅自己的资源都写在这里），所以初始值不会排在登记之前的
+ * `emit` 之后漏掉。`onSubscribe` 抛错时撤销登记；订阅在 `subscribe` 结算前就已向调用方确认，所以它以 `provider-error` 结束。
+ */
+export function eventSource<Payload, Filter = unknown>(options: {
+    readonly match?: (filter: Filter, payload: Payload) => boolean;
+    readonly onSubscribe?: (filter: Filter, sink: RemoteSink<Payload>, context: RemoteCallContext) => void | Promise<void>;
+} = {}): EventSource<Payload, Filter> {
+    const subscribers = new Set<{readonly filter: Filter; readonly sink: RemoteSink<Payload>}>();
+    return {
+        async subscribe(filter, sink, context) {
+            if (context.signal.aborted) return;
+            const entry = {filter, sink};
+            subscribers.add(entry);
+            context.signal.addEventListener("abort", () => subscribers.delete(entry), {once: true});
+            try {
+                await options.onSubscribe?.(filter, sink, context);
+            } catch (error) {
+                subscribers.delete(entry);
+                throw error;
+            }
+        },
+        emit(payload) {
+            for (const entry of [...subscribers]) {
+                if (options.match === undefined || options.match(entry.filter, payload)) entry.sink.next(payload);
+            }
+        },
+        get size() {
+            return subscribers.size;
+        },
+    };
+}
+
 /** 提供方为某个调用方交出的实现；调用方身份已由按调用方门面的工厂收到。 */
 export interface RemoteImplementation<Contract extends RemoteContract> {
     readonly methods: {
@@ -197,10 +250,8 @@ export interface RemoteImplementation<Contract extends RemoteContract> {
         ) => RemoteOutcome<Contract["methods"][Name]> | Promise<RemoteOutcome<Contract["methods"][Name]>>;
     };
     readonly events?: {
-        readonly [Name in keyof Contract["events"]]?: {
-            /** 每个订阅调用一次；`signal` 在订阅因任何原因结束时触发，过滤由这里完成。 */
-            subscribe(filter: Static<Contract["events"][Name]["filter"]>, sink: RemoteSink<Static<Contract["events"][Name]["payload"]>>, context: RemoteCallContext): void | Promise<void>;
-        };
+        /** 每个订阅调用一次 `subscribe`；`signal` 在订阅因任何原因结束时触发，过滤由这里完成。`eventSource` 给出的就是这一项。 */
+        readonly [Name in keyof Contract["events"]]?: RemoteEventImplementation<Static<Contract["events"][Name]["payload"]>, Static<Contract["events"][Name]["filter"]>>;
     };
 }
 
@@ -238,12 +289,21 @@ export type LookupTarget<Contract extends RemoteContract> = Contract["provider"]
     ? [target?: RemoteTargetFor<Contract["provider"]>]
     : [target: RemoteTargetFor<Contract["provider"]>];
 
+/**
+ * 调用方拿到的一个方法的结果：成功、运行时失败（`unavailable`、`timeout` 等，`detail` 是说明），或合同声明过的业务失败
+ * （按码区分，`detail` 是该码 schema 的类型）。`if (!r.ok && r.code === "too-many") r.detail.max` 直接有类型。
+ */
+export type RemoteResultFor<Method extends RemoteMethodSpec> =
+    | {readonly ok: true; readonly value: Static<Method["output"]>}
+    | RemoteFailure<RemoteFailureCode>
+    | (BusinessFailure<Method> & {readonly cause?: RemoteCause});
+
 /** 调用方拿到的客户端：方法返回结构化结果，不抛业务失败。 */
 export type RemoteClient<Contract extends RemoteContract> = {
     readonly [Name in keyof Contract["methods"]]: (
         input: Static<Contract["methods"][Name]["input"]>,
         options?: RemoteCallOptions,
-    ) => Promise<RemoteResult<Static<Contract["methods"][Name]["output"]>, BusinessCodes<Contract["methods"][Name]>>>;
+    ) => Promise<RemoteResultFor<Contract["methods"][Name]>>;
 } & {
     readonly events: {
         readonly [Name in keyof Contract["events"]]: {

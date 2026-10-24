@@ -12,8 +12,8 @@ import type {ActivationContext, PluginDefinition} from "../plugins/plugins";
 import type {Scope} from "../lifecycle/lifecycle";
 import type {ConsumerIdentity} from "../services/services";
 
-import {createRemoteNode, createRemoteRouter, defineRemoteService, fail, provideRemote, WIRE_PROTOCOL_VERSION} from "./remote";
-import type {InstanceDescriptor, RemoteAccess, RemoteImplementation, RemoteNode, RemoteRouter, RemoteRouterOptions, RemoteTarget} from "./remote";
+import {createRemoteNode, createRemoteRouter, defineRemoteService, eventSource, fail, provideRemote, WIRE_PROTOCOL_VERSION} from "./remote";
+import type {EventSource, InstanceDescriptor, RemoteAccess, RemoteImplementation, RemoteNode, RemoteRouter, RemoteRouterOptions, RemoteTarget} from "./remote";
 import {createLinkPair} from "./testing/in-process";
 
 // ---------- 合同 ----------
@@ -1535,5 +1535,66 @@ describe("Spec plugin-channel 输出 4、7：调用与订阅结束后不留下�
             await drain();
         }
         expect([count(browserCaller.signal), count(hubCaller.signal), count(t.probes.hub.signal)]).toEqual(before);
+    });
+});
+
+describe("Spec plugin-channel 事件助手：eventSource 管订阅集合", () => {
+    const feed = defineRemoteService({
+        id: "demo.feed/feed",
+        version: 1,
+        provider: "server",
+        callers: ["browser"],
+        methods: {},
+        events: {posted: {filter: Type.Object({topic: Type.String()}), payload: Type.String()}},
+    });
+
+    it("在激活函数里创建：几个调用方共享；先登记再推初始值；emit 只推给 match 通过、还没结束的订阅；onSubscribe 抛错时订阅结束、不留登记", async () => {
+        const t = await topology();
+        let source: EventSource<string, {readonly topic: string}> | null = null;
+        const provider: PluginDefinition = {
+            id: "demo.feed",
+            entries: [{id: "main", location: "server", remoteProvides: [feed], activate: () => {
+                const posted = eventSource<string, {readonly topic: string}>({
+                    match: (filter, payload) => payload.startsWith(`${filter.topic}:`),
+                    onSubscribe: (filter, sink) => {
+                        if (filter.topic === "boom") throw new Error("建不起来");
+                        // 登记已经完成：这里推的初始值排在之后的 emit 之前。
+                        sink.next(`${filter.topic}:hello`);
+                        posted.emit(`${filter.topic}:joined`);
+                    },
+                });
+                source = posted;
+                return {remote: [provideRemote(feed, () => ({methods: {}, events: {posted}}))]};
+            }}],
+        };
+        expect(t.hub.app.plugins.register(provider, {scope: hubRegistration(t, "demo.feed")})).toMatchObject({status: "accepted"});
+
+        const first: string[] = [];
+        const second: string[] = [];
+        const a = await t.remote(t.browser1).use(feed).at("server").events.posted.subscribe({topic: "a"}, (value) => void first.push(value));
+        const b = await t.remote(t.browser2).use(feed).at("server").events.posted.subscribe({topic: "b"}, (value) => void second.push(value));
+        expect([a.ok, b.ok]).toEqual([true, true]);
+        await drain();
+        expect(source!.size).toBe(2);
+
+        source!.emit("a:one");
+        source!.emit("b:two");
+        await drain();
+        expect(first).toEqual(["a:hello", "a:joined", "a:one"]);
+        expect(second).toEqual(["b:hello", "b:joined", "b:two"]);
+
+        if (a.ok) a.value.release();
+        await drain();
+        expect(source!.size).toBe(1);
+        source!.emit("a:after");
+        await drain();
+        expect(first).toEqual(["a:hello", "a:joined", "a:one"]);
+
+        // 订阅在提供方的 subscribe 结算前就已确认：onSubscribe 抛错时订阅以 provider-error 结束，登记撤销。
+        const ended: string[] = [];
+        await t.remote(t.browser1).use(feed).at("server").events.posted.subscribe({topic: "boom"}, () => undefined, {onEnd: (reason) => ended.push(reason)});
+        await drain();
+        expect(ended).toEqual(["provider-error"]);
+        expect(source!.size).toBe(1);
     });
 });

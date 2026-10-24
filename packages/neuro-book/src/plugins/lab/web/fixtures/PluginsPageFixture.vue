@@ -9,7 +9,6 @@
 import {computed} from "vue";
 
 import type {InstallPreview, PluginListEntry, PluginProblem, PluginsRegistry} from "nbook/plugins/plugins/shared/contracts";
-import type {InstallFailureCode, ManageFailureCode} from "nbook/plugin-platform/shared/types";
 import PluginsPage from "nbook/plugins/plugins/web/components/PluginsPage.vue";
 
 import {useLabEventSink} from "../lab-event-sink";
@@ -92,14 +91,17 @@ const windowPlugins = base === "problems" ? {problems: () => WINDOW_PROBLEMS, on
 
 const never = <T>(): Promise<T> => new Promise<T>(() => undefined);
 /** “write-failed”“version-in-use”“busy”场景的安装结果；其余场景为 null，照常改内存里的表。 */
-const failing = (): Promise<{ok: false; code: InstallFailureCode; detail: {detail: string; problems?: string[]}}> | null => {
+/** 一个方法的失败结果，取插件管理客户端的类型：失败按码区分，详情随码定型。 */
+type FailureOf<Method extends keyof PluginsRegistry> = PluginsRegistry[Method] extends (...args: never[]) => Promise<infer Result> ? Extract<Result, {readonly ok: false}> : never;
+
+const failing = (): Promise<FailureOf<"install">> | null => {
     if (base === "busy") return never();
     if (base === "write-failed") return Promise.resolve({ok: false, code: "manifest-invalid", detail: {detail: "清单有错误", problems: ["entries.ui.main：入口文件必须在插件目录里", "contributes.0.id：必须以插件 id 开头"]}});
     if (base === "version-in-use") return Promise.resolve({ok: false, code: "version-in-use", detail: {detail: "还有运行中的服务端（也可能就是这一个）在用 example.hello@1.0.0 的旧目录，关掉或重启它之后再装"}});
     return null;
 };
 /** 启停与卸载的结果：“write-failed”是登记表写不进去，“busy”永不结算；其余场景为 null。 */
-const failingManage = (): Promise<{ok: false; code: ManageFailureCode; detail: {detail: string}}> | null => {
+const failingManage = (): Promise<FailureOf<"enable">> | null => {
     if (base === "busy") return never();
     if (base === "write-failed") return Promise.resolve({ok: false, code: "registry-failed", detail: {detail: "写插件登记表失败：EACCES"}});
     return null;

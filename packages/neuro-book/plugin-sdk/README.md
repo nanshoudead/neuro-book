@@ -152,9 +152,11 @@ export const browserPlugin = plugin.definition([plugin.entry({
 ### 服务端入口与远程服务
 
 - 服务端入口写在 `backend/plugin.ts`，`location: "server"`（每个打开的项目一份的写 `"project"`）。
-- 跨实例给别人用的接口写成远程服务合同：`shared/contracts.ts` 里 `defineRemoteService`，服务端入口声明 `remoteProvides` 并在激活产出里用 `provideRemote` 交出实现；浏览器（或别的实例）里 `context.remote.use(合同).at(目标)` 调用、订阅事件。方法的参数与结果要能结构化克隆，失败以结构化结果返回。规则见 [plugin-channel](../../../docs/specs/runtime/plugin-channel.md)。
+- 跨实例给别人用的接口写成远程服务合同：`shared/contracts.ts` 里 `remoteService(plugin, {name, …})`（id 是插件 id 加短名；代理别的插件的合同时用 `defineRemoteService` 写完整 id），服务端入口声明 `remoteProvides` 并在激活产出里用 `provideRemote` 交出实现；浏览器（或别的实例）里 `context.remote.use(合同).at(目标)` 调用、订阅事件。方法的参数与结果要能结构化克隆，失败以结构化结果返回。规则见 [plugin-channel](../../../docs/specs/runtime/plugin-channel.md)。
 - 方法的 `input` 与事件的 `filter` 没写 `additionalProperties` 时补成 `false`，多余字段被拒。业务失败的码写在方法的 `errors` 里，值是这个码的详情 schema（没有详情写 `Type.Undefined()`）；实现里用 `ok(值)`、`fail(码, 详情)` 构造结果，不用写 `as const`，详情的形状按合同检查，交出不合的详情时调用方得到 `provider-error`。
 - 合同的 schema 进清单，只能写纯 JSON Schema（不用 TypeBox 的 `Refine`、`Codec` 与自己注册的 format）。
+- 推事件用 `eventSource<值>()`：它本身就是合同 `events` 里的那一项，`emit(值)` 推给此刻的订阅，`match` 按订阅的 filter 过滤，`onSubscribe` 给新订阅推初始值；在 `activate` 或 `provideRemote` 的工厂里建（工厂里建时每个调用方一份），不在模块顶层。
+- 调用方拿到的失败按码区分：`if (!r.ok && r.code === "too-many") r.detail.max` 直接有类型；`unavailable`、`timeout` 这类运行时失败的 `detail` 是说明文字。
 - 订阅（`events.<名>.subscribe(…)`）随入口停止自动结束，不用手动释放；想提前取消时调用订阅句柄（结果的 `value`）的 `release()`。
 - 提供方入口激活失败时，调用方得到 `unavailable`，`detail` 里带着失败原因与错误消息。
 
@@ -162,12 +164,13 @@ export const browserPlugin = plugin.definition([plugin.entry({
 
 ```ts
 // shared/contracts.ts
-import {defineRemoteService, definePlugin} from "@notnotype/nb-plugin-sdk";
+import {definePlugin, remoteService} from "@notnotype/nb-plugin-sdk";
 import {Type} from "typebox";
 
 export const plugin = definePlugin({id: "acme.hello", version: "0.1.0", locations: ["browser", "server"]});
-export const counter = defineRemoteService({
-    id: "acme.hello/counter",
+// 合同 id 是插件 id 加短名：acme.hello/counter。
+export const counter = remoteService(plugin, {
+    name: "counter",
     version: 1,
     provider: "server",
     callers: ["browser"],
@@ -179,29 +182,26 @@ export const counter = defineRemoteService({
 });
 
 // backend/plugin.ts
-import {fail, ok, provideRemote} from "@notnotype/nb-plugin-sdk";
-import type {RemoteSink} from "@notnotype/nb-plugin-sdk";
+import {eventSource, fail, ok, provideRemote} from "@notnotype/nb-plugin-sdk";
 import {counter, plugin} from "../shared/contracts";
 export const serverPlugin = plugin.definition([plugin.entry({
     location: "server",
     remoteProvides: [counter],
     activate: () => {
         let value = 0;
-        const sinks = new Set<RemoteSink<number>>();
+        // 订阅集合由 eventSource 管：订阅结束时自动移出，这里只 emit。在 activate 里建，不在模块顶层。
+        const changed = eventSource<number>();
         return {remote: [provideRemote(counter, () => ({
             methods: {
                 add: async ({by}) => {
                     if (value + by > 1000) return fail("too-many", {max: 1000});
                     value += by;
-                    for (const sink of sinks) sink.next(value);
+                    changed.emit(value);
                     return ok(value);
                 },
                 current: async () => ok(value),
             },
-            events: {changed: {subscribe: (_filter, sink, {signal}) => {
-                sinks.add(sink);
-                signal.addEventListener("abort", () => sinks.delete(sink), {once: true});
-            }}},
+            events: {changed},
         }))]};
     },
 })]);
@@ -209,7 +209,7 @@ export const serverPlugin = plugin.definition([plugin.entry({
 // web/plugin.ts 的 activate 里
 const remote = context.remote.use(counter);                // provider 是 server，不用写 .at(…)
 const added = await remote.add({by: 1});
-if (!added.ok && added.code === "too-many") console.warn("超过上限", added.detail);   // 详情在调用方是 unknown，形状按合同
+if (!added.ok && added.code === "too-many") console.warn(`超过上限 ${added.detail.max}`);   // 详情随码收窄成合同里的类型
 await remote.events.changed.subscribe({}, (value) => { total.value = value; });   // 入口停止时自动退订
 ```
 
@@ -257,7 +257,7 @@ SDK 包里 `examples/plugins/` 下的示例能照着读：`notes`（服务端远
 
 ### 常用名字
 
-根入口：`definePlugin`、`ok`、`fail`、`defineRemoteService`、`provideRemote`、`provideService`（同一实例里的本地服务）、`defineServiceKey`、`diagnosticsKey`、`hostClockKey`（宿主给的时钟）。`/state`：`defineStore`、`definePublicState`。`/storage`：`defineRecord`、`storageKey`。`/settings`：`section`、`setting`、`settingsKey`。`/settings/browser`：`settingsPage`、`choices`、`SettingsRow`。`/commands`：`command`、`commandServiceKey`。`/workbench`：`view`、`statusItem`。每个子路径的完整名单见 `docs/exports.md`，说明在各自的 `.d.ts` 里。
+根入口：`definePlugin`、`ok`、`fail`、`remoteService`、`eventSource`、`provideRemote`、`provideService`（同一实例里的本地服务）、`defineServiceKey`、`diagnosticsKey`、`hostClockKey`（宿主给的时钟）。`/state`：`defineStore`、`definePublicState`。`/storage`：`defineRecord`、`storageKey`。`/settings`：`section`、`setting`、`settingsKey`。`/settings/browser`：`settingsPage`、`choices`、`SettingsRow`。`/commands`：`command`、`commandServiceKey`。`/workbench`：`view`、`statusItem`。每个子路径的完整名单见 `docs/exports.md`，说明在各自的 `.d.ts` 里。
 
 ## 界面
 

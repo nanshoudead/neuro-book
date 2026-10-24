@@ -6,7 +6,7 @@
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
-import {definePlugin, defineRemoteService} from "@notnotype/nb-plugin-sdk";
+import {definePlugin, remoteService} from "@notnotype/nb-plugin-sdk";
 import type {RemoteResult, RemoteSubscribeOptions, RemoteSubscription} from "@notnotype/nb-plugin-sdk";
 import {section, setting} from "@notnotype/nb-plugin-sdk/settings";
 import {command} from "@notnotype/nb-plugin-sdk/commands";
@@ -59,8 +59,8 @@ const StorageFailed = Type.Object({code: Type.String(), detail: Type.String()}, 
  * 专注会话的远程服务。“结束”不是一个调用：服务端按 `endsAt` 自己结束（见服务端入口的“结算”），窗口关了、服务端重启了，
  * 到点的那次照样记为完成。
  */
-export const sessionsContract = defineRemoteService({
-    id: "example.focus/sessions",
+export const sessionsContract = remoteService(plugin, {
+    name: "sessions",
     version: 1,
     provider: "server",
     callers: ["browser"],

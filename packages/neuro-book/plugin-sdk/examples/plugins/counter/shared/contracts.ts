@@ -7,7 +7,7 @@
 
 import {Type} from "typebox";
 
-import {definePlugin, defineRemoteService} from "@notnotype/nb-plugin-sdk";
+import {definePlugin, remoteService} from "@notnotype/nb-plugin-sdk";
 import {definePublicState} from "@notnotype/nb-plugin-sdk/state";
 import {command} from "@notnotype/nb-plugin-sdk/commands";
 
@@ -26,8 +26,8 @@ const Increment = Type.Object({by: Type.Integer({minimum: 1})}, {additionalPrope
  * `provider: "server"`：调用方省略 `.at()` 就是发往服务端。`callers: ["browser"]`：只允许窗口里的插件调用；服务端
  * 自己的插件调用会得到 `denied`（docs/specs/runtime/plugin-channel.md 输出第 4 条“不在允许的调用方种类”）。
  */
-export const counterContract = defineRemoteService({
-    id: "example.counter/remote",
+export const counterContract = remoteService(plugin, {
+    name: "remote",
     version: 1,
     provider: "server",
     callers: ["browser"],
@@ -51,8 +51,8 @@ export const counterContract = defineRemoteService({
  * “哪个项目”的参数；窗口没有绑定项目时得到 `target-gone`，不会落到别的项目上（docs/specs/runtime/plugin-channel.md
  * 输出第 1 条、“输入与前置条件”）。
  */
-export const projectCounterContract = defineRemoteService({
-    id: "example.counter/project",
+export const projectCounterContract = remoteService(plugin, {
+    name: "project",
     version: 1,
     provider: "project",
     callers: ["browser"],

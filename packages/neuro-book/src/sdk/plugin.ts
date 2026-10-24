@@ -18,7 +18,8 @@ import type {
     PluginDescriptor,
     PluginEntryDefinition,
 } from "@notnotype/nb-runtime/plugins";
-import type {RemoteContract} from "@notnotype/nb-runtime/remote";
+import {defineRemoteService} from "@notnotype/nb-runtime/remote";
+import type {RemoteContract, RemoteEventSpec, RemoteMethodSpec, RemoteProviderLocation} from "@notnotype/nb-runtime/remote";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import type {LocalizedText} from "nbook/shared/localized-text";
@@ -194,4 +195,27 @@ export function definePlugin<const Id extends string>(options: {readonly id: Id;
             return {id: plugin, ...rest, entries};
         },
     };
+}
+
+/**
+ * 本插件提供的远程服务合同：id 是 `<插件 id>/<name>`，不用手写插件 id；其余同 `defineRemoteService`（docs/specs/runtime/plugin-channel.md）。
+ * 代理别的插件的合同、内置插件的合同仍用 `defineRemoteService` 写完整的 id。
+ */
+export function remoteService<
+    const Id extends string,
+    const Name extends string,
+    const Methods extends Readonly<Record<string, RemoteMethodSpec>>,
+    const Provider extends RemoteProviderLocation,
+    const Events extends Readonly<Record<string, RemoteEventSpec>> = Readonly<Record<never, RemoteEventSpec>>,
+>(plugin: PluginBuilder<Id>, spec: {
+    readonly name: Name;
+    readonly version: number;
+    readonly provider: Provider;
+    readonly callers: ReadonlyArray<string>;
+    readonly methods: Methods;
+    readonly events?: Events;
+}): RemoteContract<Methods, Events, Provider> {
+    const {name, ...rest} = spec;
+    if (!SEGMENT.test(name)) throw new TypeError(`远程服务的短名 ${name} 不合规则：小写字母开头，只含小写字母、数字与连字符`);
+    return defineRemoteService<Methods, Provider, Events>({...rest, id: `${plugin.id}/${name}`});
 }
