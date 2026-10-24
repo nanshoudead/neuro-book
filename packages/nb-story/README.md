@@ -2,6 +2,10 @@
 
 剧情图谱：把一部小说抽成按阅读位置可查的记忆图（人物、称呼与身份、谁知道什么、关系、数值与任务、悬念、时间线、情节、原文），用命令行 `nbstory`、本机网页查看器与内置问答来读它，并给 Claude Code、Codex 等外部 Agent 一份 Skill。所有查询都能只给到“读到哪里”为止的内容，不剧透。
 
+![nbstory 的网页查看器：秘密页，读到第 38 章时每个秘密谁知道、谁不知道，各自附原文出处](https://raw.githubusercontent.com/notnotype/neuro-book/master/packages/nb-story/docs/secrets.webp)
+
+网页查看器的“秘密”页：读到第 38 章为止，每个秘密谁知道、谁不知道、怎么知道的，各自附“章.段”出处；之后才揭晓的不出现。另有关系图、人物卡、数值、悬念、时间线、情节、原文与问答页。
+
 行为合同见 [`story.cli`](../../docs/specs/story/cli-skill.md)、[`story.queries`](../../docs/specs/story/queries.md)、[`story.viewer`](../../docs/specs/story/viewer.md)、[`story.qa`](../../docs/specs/story/qa.md)、[`story.ingest`](../../docs/specs/story/ingest.md)。
 
 ## 安装
