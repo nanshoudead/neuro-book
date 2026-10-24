@@ -243,3 +243,6 @@ type PluginProblem =
 
 - S2：`plugin.settings({…})`（多条设置项一次声明）没有做：SDK 根入口本来就没导出 `defineSettings`，作者逐条写 `plugin.setting` 已经不再重复插件 id。
 - S2：内核 `define.ts` 导出两个类型积木（`EntryOutputFor`、`ExtraOutputKeys`），SDK 的 `plugin.entry` 在它们之上组合，不重抄一份核对规则。
+- S5：插件页不显示在作品里（项目实例）运行的入口的问题：列表只带服务端实例的，窗口只查自己的；作者文档写明这一类看日志。
+- S5：插件管理合同升到版本 4（`list` 返回带显示名、说明与问题的专有条目，安装与启停的结果仍是不带运行状态的条目）。
+- S6：面板与快捷键执行失败的通知不弹 `stale-target`（用户自己换了目标）；`not-exposed`、`read-only`、`confirmation-required` 只对 Agent 的调用出现，也不弹。

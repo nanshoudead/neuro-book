@@ -44,13 +44,15 @@ export class SkillInstallError extends Error {
 const EXIT: Record<SkillErrorCode, number> = {skill_exists: 2, skill_target_invalid: 2, skill_install_failed: 1};
 
 /**
- * 目标目录：`--dir` 优先，否则按 Agent 放进 $HOME 下的约定位置。HOME 为空或是相对路径时报错，不去猜：拼出来的
- * 相对路径会装进当前目录；Bun 的 `os.homedir()` 与 `os.userInfo().homedir` 也只是读 HOME，没有可靠的后备。
+ * 目标目录：`--dir` 优先，否则按 Agent 放进用户目录下的约定位置。用户目录在 Windows 上是 USERPROFILE（Claude Code
+ * 与 Codex 在 Windows 上都按它找 `.claude`、`.agents`），其余平台是 HOME。为空或是相对路径时报错，不去猜：拼出来的
+ * 相对路径会装进当前目录；Bun 的 `os.homedir()` 与 `os.userInfo().homedir` 也只是读这两个变量，没有可靠的后备。
  */
 export function skillTarget(options: {agent?: SkillAgent; dir?: string; home?: string}): string {
     if (options.dir !== undefined) return join(resolve(options.dir), SKILL_NAME);
-    const home = options.home ?? process.env.HOME ?? "";
-    if (!isAbsolute(home)) throw new SkillInstallError("skill_install_failed", `HOME 不是绝对路径（${home === "" ? "空" : home}），找不到用户级 Skill 目录；设好 HOME，或用 --dir 指定目录`);
+    const variable = process.platform === "win32" ? "USERPROFILE" : "HOME";
+    const home = options.home ?? process.env[variable] ?? "";
+    if (!isAbsolute(home)) throw new SkillInstallError("skill_install_failed", `${variable} 不是绝对路径（${home === "" ? "空" : home}），找不到用户级 Skill 目录；设好 ${variable}，或用 --dir 指定目录`);
     return join(home, ...AGENT_SKILL_DIRS[options.agent ?? "claude"], SKILL_NAME);
 }
 

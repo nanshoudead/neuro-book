@@ -1,0 +1,36 @@
+---
+schema: nbook.task/v2
+taskId: t19-journey-west-example
+status: active
+updated: 2026-10-24
+---
+
+# 《西游记》全书示例
+
+## 目标与范围
+
+用当前抽取管线抽《西游记》100 回，作为公版示例放进仓库，nb-story README 链接，截图换成这本书
+
+合同：行为合同未变（用现有抽取管线；示例与 README 是文档）。
+
+## 决定
+
+开发者 2026-10-24 定：用《西游记》全部 100 回；直接抽取，顺便验证当前抽取管线好不好用；示例放仓库里，README 链接。
+
+## 原文
+
+- 来源：维基文库《西遊記》（世德堂本系，`西遊記/第001回` 到 `第100回`），2026-10-24 经 MediaWiki API 取 wikitext。原作明代，公有领域。
+- 处理（[scripts/fetch.py](scripts/fetch.py)、[scripts/t2s.py](scripts/t2s.py)）：删页头、页脚、版权模板；行内異文 `{{另|甲|乙}}` 取甲，参校 `{{參|字|注}}` 取字，补缺字模板换成对应的字，繁简标记取繁体；诗词行去掉行首缩进标记；再用 OpenCC `t2s` 整本转简体。
+- 规模：100 回，汉字 589,155，含标点 716,796；每回约 5,000 到 9,600 字。
+- 抽取库在 `.local/agent/works/w00024-nb-story/tasks/t19-journey-west-example/library`（不入库），日志 `ingest.log` 同目录。
+
+## 当前状态
+
+- 2026-10-24 11:27 开抽，模型是开发者配置的 `custom/gpt-6-luna`；费用按 deepseek-flash 低谷价（输入未命中 ¥1/M、命中 ¥0.02/M、输出 ¥4/M）从 token 用量折算。第 1 回 220 秒，输入 57,769、输出 9,147 token，折合约 ¥0.09（每百万字约 ¥14）。
+- 第一次启动在第 1 回第一步就以“密钥环境变量没有设置”退出：在 `packages/nb-story` 下运行时 Bun 不加载仓库根的 `.env`，而同一目录下 `config show` 却报密钥已设置。改在仓库根运行后正常。原因已查明（读 `node_modules/@oh-my-pi/pi-utils/src/env.ts`）：OMP 一被导入就解析 `~/.env`、OMP 配置目录与 agent 目录下的 `.env`、当前目录的 `.env`，并入进程环境；`config show`、`ask`、`serve` 导入了 OMP，看得到这些文件里的密钥，`nbstory ingest` 与它的 Worker 不导入 OMP，看不到。同一份配置问答能用、抽取报缺密钥，取决于密钥放在哪个文件里；nb-story 也因此在 Spec 没写的地方读了 OMP 的 `.env`。记作抽取管线的问题，交开发者定怎么统一。
+
+## 下一步
+
+1. 抽完 100 回，汇总用时、token、折合费用、丢弃条数与出错。
+2. 示例放 `packages/nb-story/examples/journey-to-the-west/`（书库与走读），nb-story README 链接，截图换成这本书。
+3. 抽取管线的问题（含上面的 `.env`）整理成清单交开发者。

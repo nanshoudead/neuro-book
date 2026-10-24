@@ -23,7 +23,8 @@ updated: 2026-10-24
 - S2 `1dc451be0`：`definePlugin` 与根入口的分区、设置项、命令助手，`/browser` 的视图、设置页、状态栏条目、选项来源助手；入口按键逐项交实现，漏写、多写、换错、浏览器助手写进服务端入口都编译不过，仓库外作者项目的 vue-tsc 诊断写明是哪一项；激活事件并入；`rawContributions`；属性从 `load` 推出；作者上下文没有 `scope`。
 - S3 `b8c5296c0`：记录的 `locality` 必填，schema 自动补 `additionalProperties: false`。产品与示例的记录原本都写了 `locality`，没有要补的。
 - S2、S3 验证：类型检查，应用 Bun 1472 例、Vitest 368 例；合入 master。
+- S4 `b44bc03a2`、`ea467516d`：模板与 7 个示例改用新写法（`definePlugin` 放在合同模块，避免与 `plugin.ts` 循环引用；命令、设置项、分区、视图、状态栏条目、设置页用助手；menu 的自定义贡献点、file-menu 的提交、counter 的公开状态走 `contributionPoints` 与 `rawContributions`；停止时用 `onStop`；远程结果用 `ok`/`fail`）；`create` 去掉 `npm init` 的占位；作者文档补前置条件、远程服务加订阅的完整代码、插件状态与公开状态、命令参数规则与常用名字；SDK 根入口导出 `CommandResult`。验证：类型检查、Bun 1472 例、Vitest 368 例、插件 e2e 7 例。
 
 ## 下一步
 
-按 plan.md 第 5 节的切片实施，当前 S4（模板、示例与作者文档改用新写法）。
+按 plan.md 第 5 节的切片实施，当前 S5（插件页显示问题、清单的显示名与描述、构建核对运行位置）。

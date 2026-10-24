@@ -16,7 +16,7 @@ owners:
 明确不承诺：
 
 - 只有 `ask`（内置问答）、`config test`（检查问答配置）与 `ingest`（抽取）调用模型，见 [`story.qa`](qa.md)、[`story.ingest`](ingest.md)；其余命令不调用模型。Skill 教外部 Agent 自己查、自己答，不引导它调 `ask`。
-- 只用 Bun 运行，只支持 Linux 与 macOS（书库锁用 libc 的 `flock`）。命令行作为 npm 包 `@notnotype/nb-story` 发布（[ADR 0029](../../adr/0029-workspace-packages-publish-source-to-npm.md)），也可以从仓库运行。
+- 只用 Bun 运行，支持 Linux、macOS 与 Windows（[ADR 0031](../../adr/0031-nb-story-supports-windows.md)）。命令行作为 npm 包 `@notnotype/nb-story` 发布（[ADR 0029](../../adr/0029-workspace-packages-publish-source-to-npm.md)），也可以从仓库运行。
 - Skill 不保证外部 Agent 一定按它做；它给出步骤、规则与判据。
 
 ## 术语与参与者
