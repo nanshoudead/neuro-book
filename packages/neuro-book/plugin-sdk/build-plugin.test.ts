@@ -293,6 +293,27 @@ export const echoBrowser = {id: "acme.echo", entries: [defineEntry({id: "browser
         expect((await readdir(join(root, "dist"))).sort()).toEqual(["browser.js", "browser.js.map", "package.json"]);
     }, 60_000);
 
+    it("执行入口定义时出错：报出错的作者文件:行:列与消息（不是引入它的入口文件）；--verbose 另附完整堆栈", async () => {
+        const root = await authorProject("thrower", {
+            "shared/contracts.ts": `export const ok = 1;\nexport const value: number = (() => {\n    throw new Error("合同模块算不出来");\n})();\n`,
+            "backend/plugin.ts": `import {defineEntry} from "@notnotype/nb-plugin-sdk";\nimport {value} from "../shared/contracts";\nexport const server = {id: "acme.thrower", entries: [defineEntry({id: "server", location: "server", activate: () => (void value, {})})]};\n`,
+        });
+        const problemsOf = async (verbose: boolean) => {
+            try {
+                await buildPlugin({root, outDir: join(root, "dist"), ...IN_REPO_BUILD, verbose});
+            } catch (error) {
+                if (error instanceof PluginBuildError) return error.problems;
+                throw error;
+            }
+            throw new Error("期望构建失败");
+        };
+        const [quiet] = await problemsOf(false);
+        expect(quiet).toEqual({path: expect.stringMatching(/^shared\/contracts\.ts:3:\d+$/u), message: "合同模块算不出来"});
+        const [verbose] = await problemsOf(true);
+        expect(verbose!.path).toBe(quiet!.path);
+        expect(verbose!.message).toContain("合同模块算不出来\nError: 合同模块算不出来\n");
+    }, 60_000);
+
     it("远程合同用了 Refine：构建前就失败，指出合同与方法", async () => {
         const root = await authorProject("refined", {
             "backend/plugin.ts": `import {defineEntry, defineRemoteService, provideRemote} from "@notnotype/nb-plugin-sdk";

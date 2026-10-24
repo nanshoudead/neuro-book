@@ -32,6 +32,7 @@ import {mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, writeFile} from
 import {builtinModules, createRequire} from "node:module";
 import {stripVTControlCharacters} from "node:util";
 import {basename, dirname, isAbsolute, join, relative, resolve, sep} from "node:path";
+import {fileURLToPath} from "node:url";
 
 import type {ManifestProblem, ManifestSource} from "@notnotype/nb-runtime/plugin-manifest";
 import type {PluginDefinition, PluginDescriptor, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
@@ -93,6 +94,8 @@ export interface BuildPluginOptions {
     readonly dev?: {readonly now: Date};
     /** 输出目录里是这个插件上次的产物（或中断的构建留下的中间目录）时先清空；不是的话照样拒绝，不删别人的目录。 */
     readonly clean?: boolean;
+    /** 打印 Vite 的日志；执行入口定义出错时报告带完整堆栈（作者工具的 `--verbose`）。缺省只报作者文件里出错的位置与消息。 */
+    readonly verbose?: boolean;
 }
 
 export interface BuildPluginResult {
@@ -202,11 +205,12 @@ function vuePlugin(): Plugin {
  * 插件与别名，能加载 `.vue` 与 TypeScript。关掉依赖发现：发现进行中时 `close()` 不结算。关掉 WebSocket 服务：中间件模式
  * 下 `hmr: false` 也仍会监听固定的 HMR 端口，同一台机器上并行构建时端口被占，报错打到输出里。
  */
-async function loadModules(root: string, alias: ReadonlyArray<BuildAlias>, files: ReadonlyArray<string>): Promise<Array<Record<string, unknown>>> {
+async function loadModules(root: string, alias: ReadonlyArray<BuildAlias>, files: ReadonlyArray<string>, verbose: boolean): Promise<Array<Record<string, unknown>>> {
     const server = await createServer({
         configFile: false,
         root,
-        logLevel: "error",
+        // 缺省不打印：执行出错时 Vite 先打一段自己的日志与堆栈，作者的错误淹在里面；这里自己报（evaluationProblem）。
+        logLevel: verbose ? "info" : "silent",
         appType: "custom",
         plugins: [vuePlugin()],
         resolve: {alias: [...alias]},
@@ -219,13 +223,37 @@ async function loadModules(root: string, alias: ReadonlyArray<BuildAlias>, files
             try {
                 loaded.push(await server.ssrLoadModule(file));
             } catch (error) {
-                throw new PluginBuildError("执行入口定义失败", [{path: relative(root, file), message: error instanceof Error ? error.message : String(error)}]);
+                if (error instanceof Error) server.ssrFixStacktrace(error);
+                throw new PluginBuildError("执行入口定义失败", [evaluationProblem(error, root, file, verbose)]);
             }
         }
         return loaded;
     } finally {
         await server.close();
     }
+}
+
+/** 堆栈里的一个位置：`at 名字 (文件:行:列)` 或 `at 文件:行:列`，文件可以是 `file://` 地址。 */
+const STACK_FRAME = /\(?((?:file:\/\/)?\/[^():]+):(\d+):(\d+)\)?\s*$/u;
+
+/**
+ * 执行入口定义时抛出的错误 → 一条构建问题。路径是堆栈里第一个落在作者目录里（不在 `node_modules`）的位置，写成
+ * “文件:行:列”：错误常常抛在被引入的模块里（例如命令写在 `shared/contracts.ts`），不是正在执行的那个入口文件。找不到作者
+ * 的位置（打包器或依赖自己出错）时路径是那个入口文件，消息后面带堆栈的第一个位置。`verbose` 时消息后面附完整堆栈。
+ */
+function evaluationProblem(error: unknown, root: string, file: string, verbose: boolean): ManifestProblem {
+    const message = error instanceof Error ? error.message : String(error);
+    const frames = (error instanceof Error ? error.stack ?? "" : "").split("\n").slice(1).flatMap((line) => {
+        const match = STACK_FRAME.exec(line.trim());
+        if (match === null) return [];
+        const path = match[1]!.startsWith("file://") ? fileURLToPath(match[1]!) : match[1]!;
+        return [{path, line: match[2]!, column: match[3]!}];
+    });
+    const own = frames.find((frame) => isInside(frame.path, root) && !frame.path.split(sep).includes("node_modules"));
+    const stack = verbose && error instanceof Error && error.stack !== undefined ? `\n${error.stack}` : "";
+    if (own !== undefined) return {path: `${relative(root, own.path)}:${own.line}:${own.column}`, message: `${message}${stack}`};
+    const first = frames[0];
+    return {path: relative(root, file), message: `${message}${stack === "" && first !== undefined ? `（${first.path}:${first.line}:${first.column}）` : stack}`};
 }
 
 /**
@@ -471,7 +499,7 @@ export async function buildPlugin(profile: PlatformProfile, options: BuildPlugin
 
     // 1. 读声明：执行描述与入口定义模块，不调用 activate。
     const definitionFiles = (definitionsField(raw, profile.authorField) ?? DEFAULT_DEFINITIONS.filter((file) => existsSync(join(root, file)))).map((file) => join(root, file));
-    const [descriptorModule, ...definitionModules] = await loadModules(root, alias, [join(root, "plugin.ts"), ...definitionFiles]);
+    const [descriptorModule, ...definitionModules] = await loadModules(root, alias, [join(root, "plugin.ts"), ...definitionFiles], options.verbose === true);
     const descriptor = descriptorModule!.descriptor as PluginDescriptor | undefined;
     if (descriptor === undefined) throw new PluginBuildError("plugin.ts 没有导出 descriptor", [{path: "plugin.ts", message: "要导出插件描述 descriptor"}]);
     if (descriptor.id !== id || descriptor.version !== author.version) {

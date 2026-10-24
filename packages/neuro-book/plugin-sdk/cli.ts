@@ -16,7 +16,7 @@ import {createPlugin, PluginCreateError} from "./create-plugin";
 
 const USAGE = `用法：
   nbooke create <目录> [--publisher <段>] [--name <段>] [--sdk <依赖写法>]
-  nbooke build [作者目录，缺省 .] [--out <目录>，缺省 <作者目录>/dist] [--clean] [--dev]`;
+  nbooke build [作者目录，缺省 .] [--out <目录>，缺省 <作者目录>/dist] [--clean] [--dev] [--verbose]`;
 
 class UsageError extends Error {}
 
@@ -45,12 +45,12 @@ async function create(args: ReadonlyArray<string>): Promise<number> {
 }
 
 async function build(args: ReadonlyArray<string>): Promise<number> {
-    const {values, positionals} = parseArgs({args: [...args], options: {out: {type: "string"}, clean: {type: "boolean"}, dev: {type: "boolean"}}, allowPositionals: true});
+    const {values, positionals} = parseArgs({args: [...args], options: {out: {type: "string"}, clean: {type: "boolean"}, dev: {type: "boolean"}, verbose: {type: "boolean"}}, allowPositionals: true});
     if (positionals.length > 1) throw new UsageError("build 至多一个作者目录");
     const root = resolve(positionals[0] ?? ".");
     const outDir = values.out === undefined ? join(root, "dist") : resolve(values.out);
     // `--clean` 只删这个插件上次的产物：`--out` 写错成别的目录时不能把它清空（构建预设核对）。
-    const result = await buildPlugin({root, outDir, clean: values.clean === true, ...(values.dev === true ? {dev: {now: new Date()}} : {})});
+    const result = await buildPlugin({root, outDir, clean: values.clean === true, verbose: values.verbose === true, ...(values.dev === true ? {dev: {now: new Date()}} : {})});
     for (const warning of result.warnings) console.error(`警告：${warning}`);
     console.log(`已构建 ${String(result.manifest.publisher)}.${String(result.manifest.name)}@${String(result.manifest.version)}：${outDir}（${result.files.join("、")}）`);
     return 0;
