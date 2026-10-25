@@ -58,6 +58,8 @@ updated: 2026-10-24
 - P7：SDK 按内置插件分子路径：根入口只留插件框架，`/storage`、`/settings`、`/commands`、`/workbench` 各归一个内置插件。
 - P8：记录句柄加 `update(改写函数)` 助手，作者文档补 `subscribe`。
 
+2026-10-25 第二期两项已定：`nbook` 的状态根缺省按平台的数据目录（Linux 遵守 `XDG_DATA_HOME`，缺省 `~/.local/share/neuro-book`；macOS `~/Library/Application Support/NeuroBook`；Windows `%LOCALAPPDATA%\NeuroBook`），`NBOOK_STATE_ROOT` 仍可覆盖；第一版子命令是启动加插件管理（`start`；`plugin list/install/enable/disable/uninstall`，下一次启动生效）。应用的 npm 包发什么、桌面端怎么发，开发者要先讨论。
+
 顺序：只用 Bun（P4）→ SDK 分子路径与 `update`（P7、P8）→ B1 到 B7 → 命令行（P5）→ 文档治理（P1）→ 发布（P2）。会改作者 API 的都在发布之前做完。
 
 ## 当前状态
