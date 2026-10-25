@@ -60,6 +60,15 @@ updated: 2026-10-24
 
 2026-10-25 第二期两项已定：`nbook` 的状态根缺省按平台的数据目录（Linux 遵守 `XDG_DATA_HOME`，缺省 `~/.local/share/neuro-book`；macOS `~/Library/Application Support/NeuroBook`；Windows `%LOCALAPPDATA%\NeuroBook`），`NBOOK_STATE_ROOT` 仍可覆盖；第一版子命令是启动加插件管理（`start`；`plugin list/install/enable/disable/uninstall`，下一次启动生效）。应用的 npm 包发什么、桌面端怎么发，开发者要先讨论。
 
+2026-10-25 发行方向（草稿 [evidences/p2-direction-draft.txt](evidences/p2-direction-draft.txt)，omp 审查 [evidences/p2-direction-review-omp.txt](evidences/p2-direction-review-omp.txt)：重要 7、建议 2，实测服务端运行时不要 Vite、插件登记表多写者安全、作品登记表两进程丢一半登记、单文件的项目子进程与内嵌资源都起不来）。据审查修订、开发者确认：
+
+- 第二期仍只做 npm 包：应用包发构建产物，用单独的发布清单（照 SDK 的暂存目录做法），自带 `nbook`；
+- 一个状态根只跑一个服务端实例：启动时拿状态根的锁并写下地址，后来的启动发现已有实例就打开它的页面；要多实例各用一个 `NBOOK_STATE_ROOT`。这改动 projects 与 server-host 里“同一状态根可以有多个服务端进程”的合同；
+- 状态根的版本与降级门禁先不做，到桌面端（多渠道）时再定；
+- 发行按两个维度：运行时来自用户的 Bun 或捆绑的 Bun（目录包，单文件以后再说），界面在浏览器、浏览器安装的独立窗口或原生窗口；桌面壳在 Electrobun、Tauri、Electron（都把 Bun 当独立进程）里实测后选，窗口直接加载回环的 http 页面；
+- Docker 与远端部署另写服务器部署提案，前提是鉴权；不恢复旧 Manager；
+- 离线的 `nbook plugin list` 只报登记表里的目标状态，运行时状态未知。
+
 顺序：只用 Bun（P4）→ SDK 分子路径与 `update`（P7、P8）→ B1 到 B7 → 命令行（P5）→ 文档治理（P1）→ 发布（P2）。会改作者 API 的都在发布之前做完。
 
 ## 当前状态

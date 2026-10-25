@@ -1,0 +1,154 @@
+# w00027/t15 第二期发行方向只读审查
+
+审查基线：detached `3766b9fc4`；规范与代码使用审查 worktree，草稿使用指定主工作区文件。2026-10-25。本文逐条追加，实验均限 `/tmp/review-t15-p2/`，未执行发布、开发服务或 e2e。
+
+### 重要｜不变量｜共享状态根不能等同于允许多层同时写入
+
+- **位置**：草稿第 27–28 行；`packages/neuro-book/src/server/projects/registry.ts`（进程内写队列）；`docs/specs/runtime/projects.md:154,175`；主工作区 Work README:84–86。
+- **现象**：提议让 npm、二进制、桌面端默认打开同一个状态根，却没有规定重复启动应复用现有实例、拒绝还是启动另一个实例。现有端口自动顺延会让第二个服务端成功启动。插件表已做跨进程锁，不代表状态根全部安全：`projects.json` 合同仍是“服务端进程独占写入、进程内串行”，两个服务端登记不同作品会覆盖；项目 Storage 合同明确两个进程互收不到变更通知。
+- **为什么是问题**：用户先 `nbook start` 再点桌面图标是正常路径，不需要主动配置多实例就会进入这个边界。换 `NBOOK_STATE_ROOT` 只能隔离有意的多实例，不能处理默认根的重复启动；不同根也不会阻止用户同时打开同一作品。
+- **如何核实**：已读取 `server-host.md:37` 的 10 组端口顺延、`projects.md:154,175`，以及 Work 已登记的相同缺陷；后续实验补充真实两个进程结果。当前判断为代码与合同证据，不声称已做跨层桌面实验。
+- **建议改法**：第 1 层就明确“同一状态根一个服务实例”，启动时拿进程寿命锁并发布就绪地址，后来的启动器复用/打开既有实例；或者明确承诺多写者并先补齐项目登记表跨进程锁和其它共享文件审计。前者改动更小；有意多实例仍用不同状态根。桌面窗口与服务生命周期分开，不恢复完整 Manager 也必须保留这一保护。
+
+### 重要｜不变量｜共用数据目录缺少跨渠道版本与降级合同
+
+- **位置**：草稿第 20–21、27 行；`docs/specs/runtime/plugin-install.md:56–59,125`；`src/plugin-platform/backend/record.ts:67–90`；`src/plugins/storage/backend/partition.ts:24–25,139–148`。
+- **现象**：桌面自动更新、手动下载的可执行文件与全局 npm 包是三个独立升级入口，却默认写同一个根。插件升级允许数据迁移且明确不回滚；当前只有具体格式的拒读保护（插件表 schema、Storage 分区格式、记录版本），没有状态根级“哪个应用版本已经写过、最低可读写版本、是否允许降级”的启动门禁。
+- **为什么是问题**：新桌面版先迁移数据、用户后跑旧 `nbook`，不能仅凭同一路径和同一产品版本命名保证安全。运行版本租约只保代码目录，不保插件私有数据的前后兼容；旧版不能安全接管新版已迁移的数据。两个版本同时跑时更不能边写边迁移。不能把应用二进制回退说成用户数据回退。
+- **如何核实**：已核对上述实现与合同：插件不兼容时不登记、用户状态保留；Storage 新版记录保护存在，但不是所有配置、项目文件和插件自有存储的整体迁移协议。未制造不存在的未来 migration，也未声称已复现未来数据损坏。
+- **建议改法**：共享路径前先定义独立的数据格式/最低写入版本与渠道策略；不支持降级时在任何写入和启动清理前拒绝并给出恢复方法。预览版用独立根是低成本选择；迁移必须在独占服务实例条件下完成，自动更新先排空并停止服务与项目子进程。框架 updater 只解决应用文件，不替代这份合同。
+
+### 重要｜正确性｜单文件不是现有构建再加一个开关：项目进程入口已经失败
+
+- **位置**：草稿第 20、29、34 行；`src/server/start.ts:128–131`；`src/server/projects/manager.ts:471–487`。
+- **现象**：`bun build src/server/main.ts --compile --outfile /tmp/review-t15-p2/nbook` 编译成功、HTTP health 可用，但真实 RPC 绑定作品时项目进程失败：stderr 为 `[project probe#1] {"level":"fatal","event":"runtime.config.invalid","code":"unknown-argument","message":"未知参数：/$bunfs/project/main.ts"}`。编译后 `process.execPath` 指向应用自己，`[process.execPath, entry]` 重新执行服务端，而不是把参数当 Bun 脚本。当前根据扩展名计算入口还选择了不存在的内嵌路径。
+- **为什么是问题**：第 2 层并非只“加 Bun 运行时”，它要改项目宿主定位与子进程启动协议。桌面端不必依赖这条未成立的单文件路径；如果先把第 1 层 API 固化成“execPath 永远是 Bun、项目永远是同目录 project.js”，第 2 层必返工。
+- **如何核实**：Bun 1.4.2，隔离目录无 node_modules。普通 JS bundle 经 RPC 绑定得到 `welcome`，同样状态根下编译版绑定产生上述错误；进程 PID 与日志见实验附录。编译版也已成功从状态根加载 `server.js`，其 SDK、`@vue/reactivity`、TypeBox 和 `bun:sqlite` 探针写出 `sdk=function/ref=42/type=string`，所以不把失败误归为动态插件或 SQLite 不支持。
+- **建议改法**：把第 2 层改称“免安装 Bun 的独立发行”，先允许 zip/tar 目录包：固定 Bun + `dist/server` + `dist/web`，桌面壳也能直接复用。真要单文件，再验证同一 executable 的内部 project 子命令（静态打入项目宿主），或 `BUN_BE_BUN=1` 加可寻址的项目脚本。后者是 Bun [官方机制](https://bun.sh/docs/bundler/executables#act-as-the-bun-cli)，仍需验证 IPC、停止与资源定位。第 1 层只需留出明确的宿主启动适配点，不要求立即做第 2 层。
+
+### 重要｜代码质量｜不能因 Electron 自带 Node 就把它排除
+
+- **位置**：草稿第 26 行。
+- **现象**：草稿用“Electron 自带 Node，服务端只认 Bun”推出“不用 Electron”，同时接受 Tauri 把 Bun 可执行程序当 sidecar。两者不矛盾：Electron 主进程同样可以通过 Node 的 `child_process.spawn` 启动独立 Bun 服务端，窗口加载回环 HTTP 页面；不是让服务端改跑 Node。
+- **为什么是问题**：这个排除理由不成立，会在尚未比较 WebKit 编辑器兼容性、中文输入、Monaco worker、更新与安装成本前失去一个固定 Chromium 的候选。正确的代价是额外带 Node/Chromium/Bun 的体积与更新面，不是技术上做不了。
+- **如何核实**：[Electron 进程模型](https://www.electronjs.org/docs/latest/tutorial/process-model)的主进程是 Node 环境；[Node 官方 child_process.spawn](https://nodejs.org/api/child_process.html#child_processspawncommand-args-options)可运行外部 executable。Electron 的 [`utilityProcess.fork`](https://www.electronjs.org/docs/latest/api/utility-process)确实是 Node 子进程，不能误用它跑 Bun，但不妨碍普通 spawn。Tauri [sidecar](https://v2.tauri.app/develop/sidecar/)也是独立二进制，要求每个目标架构有对应文件。未在本次安装或运行任何桌面框架。
+- **建议改法**：把决定改为“桌面壳待选”，保留 Electron + 独立 Bun；统一比较进程启动/排空、包体积、三平台编辑器与插件 smoke。Tauri 的轻壳和 Electrobun 的 Bun 主进程仍可优先验证，但不能把 Electron 的 Node 当作淘汰条件。
+
+补充第 1 条的真实运行证据：`bun /tmp/review-t15-p2/project-race.ts` 起两个生产 bundle 服务端（PID `3142379`、`3142418`），经 `nbook.projects/projects` v3 的真实 RPC 同时各登记 20 个不同作品。40 次返回成功、0 次失败，`projects.json` 最后只有 20 条，丢了 20 条登记；两进程均经 stdin 停止，退出码 0。这不是靠手调私有函数或构造虚假写入时序得到的结果。
+
+### 重要｜安全与性能｜桌面壳的页面来源和原生权限不是可互换的默认项
+
+- **位置**：草稿第 21、26–27 行；`docs/specs/runtime/server-host.md:38,55–62`；`runtime/plugin-code-loading.md:42,52,85`；`src/server/config.ts:117–132`。
+- **现象**：当前 HTTP 写入与 WebSocket 只接受本服务的回环 HTTP 来源和额外回环 HTTP 白名单；`file://`、`tauri://localhost`、`views://` 不能直接填进 `NBOOK_ALLOWED_ORIGINS`。插件脚本、样式和文件端点又要求同源（`Cross-Origin-Resource-Policy: same-origin`）。桌面模板通常从自己的协议加载资源；仅换一个窗口并不会自动符合这套合同。
+- **为什么是问题**：若按框架模板从私有协议提供主页面，再跨源取回环插件脚本，浏览器插件和 RPC 会受到现有来源限制；只放宽 `NBOOK_ALLOWED_ORIGINS` 也不能解决同源文件合同。反过来直接把 Tauri shell 权限、Electron Node 或 Electrobun 全功能 RPC 桥开放到工作台，会把它们交给同一 JS 上下文执行的所有已安装浏览器插件。现有“完全信任插件”允许这项取舍，但不能误以为框架的隔离还能把同窗口插件挡在原生桥外。
+- **如何核实**：当前配置代码明确只认回环 `http:`；[Tauri capability 文档](https://v2.tauri.app/security/capabilities/#remote-api-access)明确远程页面默认不能使用原生 API，需显式开放；[Electron 安全清单](https://www.electronjs.org/docs/latest/tutorial/security)要求 Node 隔离、校验 IPC sender、限制导航；[Electrobun 官方 UI 示例](https://framework.blackboard.sh/electrobun/guides/creating-ui/)使用 `views://` 页面和原生 preload。未在三种框架里做实际浏览器验证。
+- **建议改法**：桌面原型统一让窗口直接加载服务端实际的 `http://127.0.0.1:<port>/`，保留同源插件和现有准入规则；由主进程启动/停止服务、打开文件和执行更新，浏览器只拿最小桥，不把任意 spawn/更新接口交给页面。若决定从框架协议加载，先另写来源与插件资源合同，不能靠加 `*`、接受 `Origin: null` 或关闭 webSecurity 解决。选型验收必须包含同源插件脚本、Monaco worker、中文输入、粘贴、文件对话框和服务停止，不能只显示首页。
+
+### 重要｜正确性｜Web 资源能内嵌，但当前静态服务不能直接读取内嵌根
+
+- **位置**：草稿第 20、34 行；`src/plugins/http/backend/static.ts:25–34,66–74`。
+- **现象**：普通编译版不设 `NBOOK_WEB_ROOT` 时 health 正常、`GET /` 为 404；指向外部 `dist/web` 后 `GET /` 为 200。进一步用 Bun 1.4.2 的 `--asset ./isolated/web` 真正内嵌全部 215 个 Web 文件，启动包装器把根设为 `/$bunfs/root/web`：`stat` 判定目录存在、`readdir` 返回 8 项，但 `fs.promises.realpath` 返回 `ENOENT`，HTTP 必需插件激活失败、整个进程以 1 退出。
+- **为什么是问题**：Bun 支持资产内嵌不等于应用现有基于真实文件系统的静态服务能直接使用它。当前入口会先 `realpath(root)`，逐个请求也 `realpath(candidate)`；这层为真实目录防符号链接越界而设，不能简单删掉以迁就内嵌文件。第 2 层还要单独设计内嵌资源寻址与安全服务，不只是携带一个 Bun。
+- **如何核实**：`bun build embedded-main.ts --compile --asset ./isolated/web --root . --outfile /tmp/review-t15-p2/nbook-embedded-corrected`，从 `/tmp/review-t15-p2` 启动，状态根 `/tmp/review-t15-p2/state`，两个端口均为 0；PID `3149214`，`embeddedFiles=215`，`rootStat.directory=true`、`rootReal.error=ENOENT`、退出码 1。之前第一次资产路径误取 `isolated/web`，已依据 `Bun.embeddedFiles` 的真实名字修正为 `web` 后重试，仍在 `realpath` 失败，未把路径笔误当产品缺陷。[Bun 内嵌资产文档](https://bun.sh/docs/bundler/executables#embed-assets--files)只证明资产能力，不证明应用合同。
+- **建议改法**：第 2 层先用目录包即可复用现有静态服务；要坚持单文件，再加独立的内嵌资源读取 Adapter，以已生成的路径清单寻址，同时保留原有 GET/HEAD、SPA 回退、API 不回退、MIME、缓存与路径边界。不要为单文件改坏第 1 层真实目录的符号链接保护，也不必为了桌面窗口先解决真单文件。
+
+### 重要｜正确性｜“Docker 以后出镜像”遗漏了服务器部署前提，不是包装工作
+
+- **位置**：草稿第 28 行；`docs/specs/runtime/server-host.md:37–38,138–140`；`src/server/config.ts`；归档交付合同 `docs/archived/vitepress/locales/zh-Hans/operator-bridge.md:89–127,162–174`。
+- **现象**：当前应用没有鉴权，只允许回环监听；容器内的 `127.0.0.1` 不能用普通 `docker -p` 从容器外访问，设 `NBOOK_HOST=0.0.0.0` 又被当前配置拒绝。旧 Manager 的 ghcr/source-docker 路径不仅产镜像，还拥有持久化卷、运行状态、固定版本、更新互斥、停止与恢复流程。
+- **为什么是问题**：不恢复 Manager 可以，但不能把旧有服务器部署能力归为“以后补镜像”就算完成方向判断。真正恢复容器/远端部署还要鉴权或一个明确定义的安全入口、非回环监听、外部来源、HTTP/RPC 两端口和状态卷合同；这里存在产品安全前置，不是选择哪个桌面框架能解决的。
+- **如何核实**：现行 server-host 合同与配置明确禁止非回环；归档 Manager 文档列出 `ghcr`、`source-dev/source-product/source-docker`、Windows Portable，以及更新锁、版本目录和原子切换。本次未启动 Docker、没有声称已经做过容器网络实验。
+- **建议改法**：不恢复完整 Manager，但列明能力去向：多实例由启动器/状态根合同负责；Windows 免 Bun 一键启动可由目录版或桌面安装器负责；源码构建继续由仓库构建命令负责，不必承诺受管源码升级；Docker/远端明确为独立服务器部署提案，依赖鉴权与端口/来源合同，而不是“另出镜像”。固定 Bun、更新时停止项目、版本一致性和失败恢复必须由新的发行/启动器或包管理器承接，不能因删除 Manager 一并消失。
+
+### 建议｜代码质量｜第 1 层需要独立的发布清单，不应原样发布源码包的依赖图
+
+- **位置**：草稿第 25、33 行；`packages/neuro-book/package.json:7–9,18–25,33–79`；`packages/neuro-book/AGENTS.md:26`；`scripts/check-dist.ts:49–75`。
+- **现象**：服务端已经把依赖打进两个 JS 文件；复制 `dist/server` 与 `dist/web` 到无 node_modules 的 `/tmp` 后可启动、提供页面、起项目进程和安装插件，不需要 Vite。`Bun.Transpiler.scanImports` 的两个产物 `nonBuiltin=[]`；额外搜索没有 `vite`、`@vitejs/plugin-vue`、`vue/compiler-sfc` 外部导入。但源码包仍有 11 个普通依赖，其中 3 个是 `workspace:*`；这份清单同时用于开发监督进程的源码监视，不能简单把它们全挪到 devDependencies。
+- **为什么是问题**：只加 `files`、取消 `private`，会让安装器再安装一份不被 bundle 使用的依赖图；`bun publish` 能改写 `workspace:`，但不会替你删除冗余依赖、区分开发清单与发行清单，也不会自动构建。当前 check:dist 检查开发标记、路径与 CSS，不检查 npm 依赖闭包或可安装性。若白名单写整个 `dist/`，还会带上同目录下的 SDK/其它生成物。
+- **如何核实**：本次 `bun run build` 通过，用时 5.18 秒。服务端 2 文件、3,422,591 字节（`main.js` 1,815,714，`project.js` 1,606,877）；Web 215 文件、8,175,128 字节。仅用构建产物、LICENSE 和最小清单做候选 `bun pm pack --destination /tmp/review-t15-p2 --ignore-scripts`：219 文件、解包 11,632,433 字节、压缩 3,162,051 字节；白名单排除了故意放入的 src、plugin-sdk 与其它 dist 文件。它是包体积/选文件实验，不是尚不存在的 nbook CLI 验收。裸单文件 65,293,424 字节，内嵌 Web 的诊断版 73,567,344 字节，均未压缩，不能与 tgz 的压缩大小直接当同比。
+- **建议改法**：复用已有 SDK 的“生成 staging 发布目录/清单再 pack”模式，应用源码包保持开发依赖，发行清单仅留 CLI 和真实外部运行依赖（以最终 CLI bundle 重测），白名单精确到 `dist/server`、`dist/web`、命令入口和许可材料。不必把应用变成新的公共库、再另起仅转发的 CLI 包；同一应用包放 bin、内部保留可复用启动 Module 已足够。单文件放进 npm 第 1 层反而引入按 OS/CPU/libc 分包/选择与大运行时，不值得作为默认。发布前对实际 tarball 做干净目录安装与启动，而不是仓库内 smoke；构建与打包可显式由发布脚本控制，不依赖用户 install 时跑 Vite。[Bun 发布行为](https://bun.sh/docs/pm/cli/publish)和 [pack 白名单规则](https://bun.sh/docs/pm/cli/pm#pack)均有官方依据。
+
+### 建议｜代码质量｜把发行包装与界面宿主分成两个维度，补上目录版和浏览器安装模式
+
+- **位置**：草稿第 15–21、29 行。
+- **现象**：三层表把“是否捆绑 Bun”和“是否有原生桌面窗口”串成必须逐级完成的阶梯，遗漏 zip/tar 目录版，以及浏览器自身的独立窗口/安装模式。它们能分别满足“不装 Bun”和“像应用一样打开”，不需要先完成真单文件或原生桥。
+- **为什么是问题**：桌面壳可以直接启动固定 Bun + 两个 JS 产物，无须等单文件把项目 IPC 和虚拟文件系统做完；现有浏览器工作台也不必等托盘、文件关联、自动更新全套才作为日常入口。强行层层依赖会把可独立交付的东西绑在最难的包装形式上。
+- **如何核实**：[MDN 安装性文档](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable)明确 localhost/127.0.0.1 可安装，Chromium 支持独立窗口，Safari 17+ 可 Add to Dock；安装不一定要求 service worker。这里核实的是官方能力，不声称当前应用已满足 manifest 条件或已做 PWA 安装实验。
+- **建议改法**：方向写成“服务端产物一份；运行时来源为用户 Bun 或捆绑 Bun；界面宿主为浏览器/浏览器安装模式/原生窗口”。目录版是第 2 层的低风险实现，不是第四套核心。PWA 不能自己拉起 Bun、不能替代服务安装与更新；若采用，须解决服务启动、固定入口/端口（当前端口自动顺延会改变 origin）、旧页面/缓存与后端版本匹配，不能宣传成无后端的纯浏览器本地应用。暂时不加 service worker 缓存业务壳，可避免无意缓存旧插件集合；先用浏览器“安装此站点”或独立窗口验证价值即可。
+
+## 四个未核实假设的逐项结果
+
+| 草稿假设 | 核实结果与边界 |
+|---|---|
+| 生产服务端是否依赖 Vite 等构建工具 | **已验证不依赖**：1013/975 个模块分别进入 main/project bundle，外部静态说明符只剩 Node/Bun 内置模块；源码 backend 的安装、启动清理、装载路径没有进入插件构建预设。Vite、Vue SFC 编译与图标构建属于 SDK 作者侧 `plugin-sdk/pack.ts`/build，不是用户 install。隔离运行与真实插件安装成功。最终 nbook CLI 还未实现，须在其打包后重新核对外部依赖，不能把本次后端证据冒充最终 CLI 验收。 |
+| 单文件：Web、项目子进程、动态插件、SQLite | **部分成立、两处失败**：裸 binary 可启动；从状态根动态 import 已安装 ESM、共享 SDK/reactivity/TypeBox、调用 bun:sqlite 成功。现有项目启动把二进制误当 Bun；Web 资源需要显式内嵌，正确内嵌后现有 realpath 静态服务仍失败。不是 Bun 完全做不到，而是当前应用不满足“只加包装”的假设。 |
+| Windows | **仅代码推断，未实测**：不能从 ADR 0031 的 nb-story 支持推出应用已支持；也不能从 owned-process 的 POSIX 文件推出新应用跑不了，见下节。 |
+| 在线服务与 CLI 并发写插件表 | **已验证现有机制可复用**：两个真实生产服务端经远程管理接口同时装 alpha/beta，第三个进程用库存接口装 offline；3 次都成功、表里 3 条都保留。现有 `withRecordLock` 在锁内重读再提交，复制阶段有 staging 锁，运行版本有 pin，CLI 不需要自己再写一套 JSON 合并。没有发现“必须改为只经在线 RPC 安装”的依据。 |
+
+离线 CLI 复用时仍有两个明确约束：不要为了 `plugin list/install` 调用会消费待升级/卸载并回收目录的 `prepareInstalledPlugins`；也不要把本地空的 StartupPlugins 冒充运行中服务端快照。离线命令应报告目标登记状态、明确运行态未知；需要实际运行态时按服务实例寻址。两者不改变已定的“下一次启动生效”。
+
+## Windows 与平台边界（从代码推断）
+
+- 新应用 `package.json` 没有依赖 owned-process；项目启动实际用 `Bun.spawn`，没走 POSIX 监督脚本。owned-process 自己也不是 POSIX-only：`src/index.ts:20–27` 在 Windows 分派给 Job Object/FFI 的 Windows Adapter，当前限制 Windows x64。这个包的限制不能直接套到新应用。
+- 服务端与项目入口没有 `/bin/sh`、`bash` 或负 PID 进程组调用；启动、IPC、路径拼接都走 Bun/Node。合作停止可经 `--stop-stdin`，项目正常停止经 IPC，不要求 Windows 外部发送 SIGTERM；超时才 `kill("SIGKILL")`。因此源码没有显示“必须整体换掉监督系统才能跑 Windows”的证据，但 Windows 的 IPC 断开、杀进程与父退出后收口仍未验证。
+- 文件服务不是纯 JS：`src/plugins/files/backend/exclusive.ts:65–104` 的 Windows 分支用 `kernel32.dll` 的 `MoveFileExW`，macOS 用 `renamex_np`，Linux 明确载入 `libc.so.6`。三套实现只有 Linux 现有实测；不能因 Bun 提供 musl target 就宣称 Alpine 的文件移动合同可用。插件锁用 proper-lockfile 的文件系统机制，不是只支持 POSIX flock 的锁。
+- 发行的 JS bundle 本身没有按当前 OS 打入某个原生 npm addon，作为跨平台 npm 产物有条件成立；“平台无关的包”和“已支持三平台”是两件事。需覆盖含空格/中文的路径、文件排他改名、原子替换、两进程插件安装、IPC 与 stdin 停止。Windows/macOS 的执行证据本次均没有；Bun 最低 `>=1.3.14` 也没有重测，loader 的缓存/回收行为只在 1.4.2 有代码内记录，本次也只用了 1.4.2。
+
+## 桌面选型的可比较合同（官方事实与尚未验证项）
+
+| 方案 | 服务端与 Web 引擎 | 来源、插件和原生权限 | 更新与数据根 |
+|---|---|---|---|
+| Electrobun | [1.18.1 对应提交的 README](https://raw.githubusercontent.com/blackboardsh/electrobun/4eba723c85b97559e1d9e13439d9a92ede0832e8/README.md)确认 Bun 主进程、系统 webview、可选 CEF，官方 macOS 14+/Windows 11+/Ubuntu 22.04+；不是所有 Linux 都官方支持。 | 可加载回环页面，不能因“Bun 原生”跳过 shared modules/插件/编辑器实际验证；若直接把服务端放进桌面主进程，不能调用当前结尾 `process.exit` 的 `runServerProcess`，应由宿主拥有 `startServer` 的停止与退出。 | 1.18.1 README 确认差分更新；实际签名校验、在本项目里的停止与恢复未验证。检索时[官方在线文档](https://framework.blackboard.sh/electrobun/guides/compatability/)已是 2.x/Hutch，默认 Bun 1.4.0，并要求原生 CI runner；不能把最新文档的 API/平台表当 1.18.1 的合同，先固定框架与 Bun 版本。 |
+| Tauri + Bun sidecar | [官方 sidecar](https://v2.tauri.app/develop/sidecar/)支持任意语言可执行文件，每个目标 triple 都要对应产物；Bun-only 不构成障碍，也不要求 binary 真单文件。系统 WebView 的编辑器/插件表现需逐平台验收。 | 回环页面应使用现有 HTTP/RPC 来源规则；远程页面原生 API 默认关闭，不能给整个页面 shell:allow-spawn 等宽权限。sidecar 应由 Rust/可信宿主启动，不由插件所在页面直接管理。 | [Updater](https://v2.tauri.app/plugin/updater/)要求不可关闭的更新签名；会替换安装产物，不会替本项目迁移/锁定状态根，也不等于退出时自动完成 Bun 项目树有序收口。 |
+| Electron + Bun sidecar | 固定 Chromium + Node 主进程 + 独立 Bun，运行时冗余是体积与维护代价，不是 Bun 不可运行。`utilityProcess.fork` 是 Node，改用普通 spawn。 | 关闭 nodeIntegration，启用 contextIsolation/sandbox，限制导航/新窗口并校验桥调用；第三方脚本仍在浏览器页面里运行，与其它壳一样应加载回环同源页面。 | [autoUpdater](https://www.electronjs.org/docs/latest/api/auto-updater)内建只支持 Windows/macOS，Linux 需包管理器或另选更新方案；macOS 更新要求签名。数据迁移与降级不由框架包办。 |
+| 浏览器 / 安装为应用 | 继续使用用户浏览器；Bun 服务独立存在。最少引入一种壳与更新机制。 | 与现有插件同源、HTTP 与 RPC 最接近；不解决服务端自动启动。安装入口受 origin/端口约束。 | 浏览器更新不等于 NeuroBook 后端更新；需要启动器或用户包管理器，状态根仍要版本合同。 |
+
+本次没有安装/运行 Electrobun、Tauri、Electron，也没有做视觉、输入法或 PWA 安装验证；表格不是框架性能测试或已通过的兼容矩阵。
+
+## 实验命令与有效证据
+
+工作目录为审查 worktree 的 `packages/neuro-book`，除注明 `/tmp` 之外：
+
+1. `bun run build`：退出 0，总计 5.18 秒，Vite 构建 4.21 秒，check:dist 通过；有单 chunk 超过 500 kB 的体积警告，不把它算成本方向阻断。main/project 分别 1013/975 模块。
+2. `bun build src/server/main.ts --compile --outfile /tmp/review-t15-p2/nbook`：编译成功；输出文件 65,293,424 字节。编译日志 bundle 56 ms、compile 71 ms，不等于服务启动耗时。
+3. 隔离目录通过原样复制 dist/server、dist/web 建立，不带 node_modules；实际执行 `/usr/bin/bun /tmp/review-t15-p2/isolated/server/main.js --stop-stdin`，注入 `NBOOK_STATE_ROOT=/tmp/review-t15-p2/state NBOOK_PORT=0 NBOOK_RPC_PORT=0 NBOOK_WEB_ROOT=/tmp/review-t15-p2/isolated/web`。HTTP health+首页 200、RPC 绑定项目 welcome。PID `3126369`，一次进程启动到 health 为 198 ms，stdin 正常停止 exit 0。
+4. 相同环境去掉 `NBOOK_WEB_ROOT`，执行 `/tmp/review-t15-p2/nbook --stop-stdin`：PID `3126420`，health 200，启动 205 ms，首页 404，项目子进程打印 unknown-argument。插件探针文件 `3126420.plugin.json` 是 `{pid:3126420,sdk:"function",ref:42,type:"string"}`。后来执行相同 binary 并给外部 Web 根，PID `3132423`，health 211 ms、首页 200，RPC 显式返回 `reject/project-unavailable`，服务端仍正常 exit 0。以上都是一次样本，不是冷启动性能基准。
+5. 在 `/tmp/review-t15-p2` 执行 `bun build embedded-main.ts --compile --asset ./isolated/web --root . --outfile /tmp/review-t15-p2/nbook-embedded-corrected`；再执行 `nbook-embedded-corrected --stop-stdin`、状态根同上、双端口 0：有 215 个内嵌资产，HTTP 未就绪、exit 1；具体结果 `embedded-corrected-results.json`，stderr 保留 realpath 失败链。无外部 Web 目录 fallback，未伪装为“已提供内嵌页面”。
+6. `bun /tmp/review-t15-p2/probe.ts` 的并发阶段：PID `3132455`、`3132473`，同一根 `/tmp/review-t15-p2/concurrent-state`，双端口分别为系统分配；两个服务端 RPC 的 install 加离线库存 install，3/3 成功、登记表保留 3 条。结果 `probe-results-phase2.json`；两服务均 exit 0。
+7. `bun /tmp/review-t15-p2/project-race.ts`：两个生产服务端的 40 次项目登记 RPC 全成功，最终仅 20 条；结果 `project-race-results.json`。两服务均 exit 0。
+8. 在 `/tmp/review-t15-p2/npm-stage` 执行 `bun pm pack --destination /tmp/review-t15-p2 --ignore-scripts`：实际 tgz 与成员检查见 `pack-results.json`；没有调用 publish，也没有装全局包。
+9. 分别设 `NBOOK_ALLOWED_ORIGINS=tauri://localhost`、`views://mainview`、`file:///`，执行 `/usr/bin/bun /tmp/review-t15-p2/isolated/server/main.js`：3 次都以 `invalid-origin`、exit 1 拒绝。结果 `origin-results.json`。
+
+实验绕路如实记录：初版探针错误地假定 SQLite 在 health 前建库，报 ENOENT（实际按需打开）；后改为通过真实插件调用 bun:sqlite。初版握手探针等错了拒绝帧名 `rejected`，实际协议是 `reject`，导致 10 秒 harness deadline；修正后直接观察到 `project-unavailable`，没有把探针超时本身算成产品缺陷。内嵌根首次取错路径，修正后仍失败的原因才计入发现。探针脚本在每步失败时也 finally 终止并等待自己创建的进程；启动日志直接落 `/tmp/review-t15-p2/*.stdout.txt` 与 `*.stderr.txt`，不是仅挂会话管道。
+
+未运行：e2e、开发服务、完整自动测试/类型检查、Windows/macOS 实机、Docker、桌面壳、PWA 安装、真实发布、最终 nbook CLI tarball 安装验收、未来版本升级/降级迁移。构建产物检查不等于这些项目通过。
+
+## 按影响阅读的顺序
+
+正文按核实完成时逐条追加，未回写或覆盖早先条目。处理顺序为：共享根并发丢登记 → 跨渠道版本/降级 → 单文件项目进程 → 内嵌静态资源 → 桌面来源/权限 → Docker 部署前提 → Electron 排除理由 → npm 发布清单 → 目录版/浏览器安装模式。前 7 条是重要问题，后 2 条是建议。
+
+进程收口复核：已对实验记录的 11 个服务端 PID `3125018,3126369,3126420,3132423,3132455,3132473,3136750,3142377,3142379,3142418,3149214` 逐个做存在性检查，剩余 0；结果 `/tmp/review-t15-p2/cleanup-results.json`。启动失败的项目子进程由真实宿主观察到 exit 1，普通 bundle 的项目进程随服务端停止收口；本次没有启动长驻开发服务。
+
+## 对“要不要改方向”的结论
+
+**要改切分和约束，不需要改掉第二期先发 npm 的目标。** 保留预构建应用包与 SDK 同版本发布、nbook 启动加插件管理；把“三级阶梯”改成“同一服务端核心的运行时包装 × 界面宿主”，第 2 层先允许固定 Bun 的目录发行，不以真单文件为桌面前置；撤回基于 Node 排除 Electron 的决定，桌面壳在实际编辑器/插件/生命周期验证后选。共享状态根不能继续无条件承诺：现有代码真实丢项目登记，跨版本又没有整体迁移/降级门禁；这些约束应在第 1 层建立。若选择同根只运行一个服务，这是对现有允许多服务合同的产品改判，需明确修订，不能偷偷加锁；若保持既有合同，则先补多写者安全。桌面选型和 Docker 可后置，但实例所有权、停止与版本策略不能一起后置。
+
+## 对草稿“提议”1 到 5 的判断
+
+1. **发构建产物：保留。** 用独立发行清单和实际 tarball smoke 证明闭包；ADR 0029 决策 6 已排除新应用，这属于补充交付决策，不是推翻 9 个库包发源码的决定。
+2. **桌面不用 Electron：撤回这个排除条件。** Electrobun、Tauri sidecar 和 Electron sidecar 都有可行架构，当前没有本项目实测足以定胜负。
+3. **共用状态根：改为有条件共享。** 先约定同根实例所有权、写入并发、兼容与降级，插件版本 pin 不是整根兼容保证。
+4. **不恢复 Manager：可以，但必须迁移必要保护。** 多实例/重复启动、固定运行时、更新与停止、Windows 一键入口要有归属，Docker 是独立的安全部署能力，不是只补镜像。
+5. **第二期只做第 1 层：保留范围，补齐其依赖合同。** 不要求现在做桌面或单文件，但不能把 npm 包的发布闭包、CLI 不消费待生效变更、同根并发与生命周期留成隐含假设。
+
+## 未发现问题的方面与数量
+
+- **发预构建产物而不是让普通用户安装时编译**：从生产 bundle、隔离真实运行和 3.16 MB 候选 tgz 看，没有发现需要改回“应用发源码、用户运行 Vite”的理由；这不是最终 CLI 已完成的声明。
+- **插件管理与 SDK 作者构建分开**：安装复制、校验、登记与运行时代码装载不需要 Vite/@vitejs/plugin-vue/vue/compiler-sfc，没有发现生产启动要引入作者构建链的问题。
+- **现有插件登记表跨进程机制**：真实 3 写者实验成功，未发现草稿担心的插件表丢更新；不要把项目登记表的缺陷移花接木到插件表。
+- **单文件动态插件与 SQLite 的基本能力**：本次 Linux/Bun 1.4.2 真实应用路径成功，不应列为不可行；未验证回收/L2 或其它 Bun/OS 版本。
+- **不恢复完整旧 Manager、应用包内带 nbook**：没有发现必须重建旧管理器或多建一个公共“应用库包 + CLI 包”的依据；被管理器承担过的保护仍要迁移。
+
+发现合计 **9 条：阻断 0、重要 7、建议 2**。阻断为 0 不表示可按草稿原样发布；7 条重要问题必须在对应承诺生效前处理，其中第二期直接受影响的是发布闭包、插件 CLI 语义和状态根并发/版本策略。
+
+规范回写建议（只建议，未改仓库）：`server-host.md` 仍在已安装插件处写“尚未实现”，`plugin-install.md`/`plugin-code-loading.md` 的状态也仍为 planned；后续由实现 owner 按有效验收证据更新这些旧描述，保留本次 Windows、降级和单文件的未验证边界，不直接把整份合同改成已完成。
