@@ -1,0 +1,142 @@
+# w00024 t20 只读设计审查
+
+审查对象：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t20-ingest-pipeline-fixes/plan.md`。
+代码根：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-t20`。下文代码路径均相对这个 worktree；Spec 与任务记录相对主工作区。仅审查设计，未修改仓库。
+
+## 发现（按影响排序）
+
+### 1. 阻断｜不变量：进程内快照挡不住 Bun 在用户代码之前加载 `.env`
+
+- **位置**：主工作区 `plan.md:35-39,73,83`（均指审查对象）。
+- **现象**：即使 `platform/process-env.ts` 是入口的第一个依赖，当前目录 `.env` 中的密钥已经进入它拷贝的 `process.env`；`config`、`ingest`、`ask`、`serve` 都会把它当作启动环境。计划声称“只在 `.env` 里有时没有设置”的验收无法由这个设计满足。
+- **为什么是问题**：已定方案 A 是不读任何 `.env`，不只是排除 OMP 的二次注入。Bun 的自动加载早于 ESM 求值，换静态 import 顺序无效；npm 的 bin 目前是 `#!/usr/bin/env bun`（`packages/nb-story/src/cli.ts:1`），从源码运行同样没有禁用加载。
+- **如何核实（已实测）**：在 `/tmp/review-t20-design/dotenv/` 创建只含假变量 `REVIEW_T20_ONLY_DOTENV=only-from-file` 的 `.env`；执行 `env -u REVIEW_T20_ONLY_DOTENV bun snapshot.ts`，第一条用户语句的快照为 `"only-from-file"`；执行 `env -u REVIEW_T20_ONLY_DOTENV bun --no-env-file snapshot.ts`，快照为 `null`。脚本不导入 OMP。上游现成依据：主工作区 `node_modules/@oh-my-pi/pi-utils/src/env.ts:110-131` 也明确区分 launch env 与 Bun 自动加载后的环境。
+- **建议改法**：把禁用 Bun dotenv 自动加载作为真实启动边界设计，覆盖 npm bin、源码入口和真子进程验收，并明确跨 Linux/macOS/Windows 的启动方式；随后再隔离 OMP 注入。不要以调整 import 顺序或只测 OMP 目录的 `.env` 代替。
+
+### 2. 阻断｜不变量：自动重跑在释放书锁后没有“旧任务不得复活”的边界
+
+- **位置**：主工作区 `plan.md:29-33,62,72`。
+- **现象（从代码推断）**：按计划在 `cli/ingest.ts` 外包“失败→等 5/10/15 分钟→再 startIngest”的循环，每轮失败都会先释放 id 锁。等待期间另一个进程可以成功删书或占用同 id；旧命令随后用原文再次启动，可以把已删除的书作为 `new` 写回来，或续抽另一次新建的同 id 书。
+- **为什么是问题**：`story.ingest` 输出 16（主工作区 `docs/specs/story/ingest.md:152`）承诺删除成功后旧任务不再写入。现有 `runner.ts:119-130` 在 `runner.done` 完成前已经写 run-end、置 stopped、放锁，`status.ts:139-145` 也以锁判运行。计划没有定义自动续跑的逻辑任务寿命、等待期的锁归属或书代号核对。只在开头检查 id、或 `--book` 重启，不能防止删除后重建的 ABA 情形。
+- **如何核实**：已逐行核对上述收口及 `runner.ts:68-85` 每次按当前书库重新判定的路径。实施验收应跑真实 CLI：首轮 bad_reply 后进入等待，第二个进程 remove，再以同 id 新建；推进续跑等待后，旧进程不得发请求、不得提交、不得重新创建原书。计划列出的 4 个自动重跑用例均不覆盖这个边界。尚未实现自动重跑，未声称已有复现。
+- **建议改法**：明确一次 CLI 自动续跑的逻辑任务边界：优先让编排层在全部轮次及等待期间持有同一把 id 锁，轮内请求与章尝试另记；若必须放锁，则必须绑定可验证的抽取源实例/书代号并在锁内核对，删除、被其他任务接管或换代后永久退出。不要在重试时重新走无条件 new。
+
+### 3. 重要｜正确性：HTTP 错误码不是“未计费”的证据，5xx 不能一概结算为完整的 0
+
+- **位置**：主工作区 `plan.md:19-21,54,70`。
+- **现象**：计划把有 HTTP 状态码的失败（明确包含 5xx）全部记成 `complete: true`、token 全 0。兼容渠道可以在上游已生成、已计费后由网关返回 502/503；客户端没收到内容不等于上游没执行。若仅凭 `ModelError.status` 判断，还会把请求所处阶段的信息丢掉。
+- **为什么是问题**：这会把费用下界伪报成完整统计，直接破坏 `story.ingest` 输出 13 的语义。当前 `model.ts:234-257,280-298` 已有 `streaming` 与已收到的 usage，可区分流前失败、流内失败和已知用量；`ModelError` 只有 kind/status/message，不能独自证明未计费。SDK 的真实流内 error 事件由 `openai/src/core/streaming.ts:69-70` 抛出 `APIError(undefined, …, response.headers)`，不会让已开始的 HTTP 200 流突然变成 HTTP 5xx；验收不能伪造“流中途切换 HTTP 状态码”来证明它正确。
+- **如何核实**：已核对真实 SDK 的流解析与本包结算路径。可回放真实的 200 SSE 内容后 error/断流，断言不完整；可回放网关 502，但本机回放不能证明真实供应商未扣费。计划没有提供供应商的计费保证，不能从 HTTP 状态推导它。
+- **建议改法**：仅对有明确“未受理”语义的拒绝（例如确认的 401/限流 429）记完整 0；5xx、408、网关故障等无法证明未执行的情况保留不完整，已知 usage 保留为下界。结算分类在持有原始错误和流阶段信息的 `attemptOnce` 完成，不按错误文字分支。
+
+### 4. 重要｜不变量：快照只用于“有没有密钥”的判断，问答实际取值仍交给被污染的 OMP 环境
+
+- **位置**：主工作区 `plan.md:37-39,55,63,73`。
+- **现象（已核对代码机制）**：计划给 Worker 传快照里的密钥值，却只给问答增加“快照没有时拒绝”的前置检查，没有把问答实际使用的密钥绑定到快照。自定义模型的 `defineModel().apiKey` 仍读实时 `process.env/Bun.env`；目录模型的 `resolveModel().apiKey` 仍走 OMP 的 `getEnvApiKey`。后者还认目录 `keyEnvs` 未列出的认证 hook。
+- **为什么是问题**：有一个已 export 的有效变量，不代表 OMP 最后选用的也是它。例如启动环境有 `ANTHROPIC_API_KEY`，只有家目录 `.env` 有优先级更高的 `ANTHROPIC_OAUTH_TOKEN`，按“快照里有密钥”放行后，OMP 会选 `.env` 的 token；反过来仅按目录变量名扫描快照，会漏掉用户确实 export 的 OAuth 变量。只修 UI 的 keySet 与预检查不能兑现方案 A，也不能保证界面与请求使用同一凭据。
+- **如何核实**：`packages/nb-story/src/qa/harness-model.ts:58-85`；`packages/nb-harness/src/model.ts:83-94,109-120`；`catalog.ts:53-58,81-87`；主工作区 `node_modules/@oh-my-pi/pi-ai/src/registry/hooks/env.ts:26-31`。网页还有独立的 `config.get/set`、`models.catalog/discover`、`config.test`（`server/qa-service.ts:442-532`），不能只测 config/ingest 两条 CLI。已实测 OMP 导入会把隔离 HOME 的假变量加入主线程环境，见后文实验记录；尚未调用真实供应商。
+- **建议改法**：在 nb-story 的模型适配边界绑定同一份启动环境的实际 key resolver，经 `ResolvedModel.apiKey` 提供给 harness；目录模型明确支持的 hook/变量优先级及 keyless 语义。不要临时改回全局 process.env（并发网页问答会相互干扰）。`config show/test`、ask（含续问换模型）、网页配置/发现/问答共用同一个解析结果，并用假密钥与本机端点断言真正发出的认证头。同步更新 `story.qa` 配置、输出 35 等合同；计划目前只列改 story.cli。
+
+### 5. 重要｜正确性：按“章提交就删全部坏回复”会立刻删除仍未解决的失败证据
+
+- **位置**：主工作区 `plan.md:23-27,61,71`。
+- **现象（从真实分支推断）**：`asker` 不只服务会失败停下的 beats/draft，也服务 recall 和 consolidation。后两者两次坏回复分别退回规则、跳过整理，随后本章照常提交。按计划通用回调先落盘，再在章提交时删除，该次仍未成功的坏回复在同一轮就消失；保存的问题说明还可能指向已经删除的文件。
+- **为什么是问题**：这两条容错是既有合同，不能为保留文件而把它们改成整章失败；但也不能把“章提交”误当作“这个步骤的失败已解决”。本次留存的目标是事后诊断不成形回复，当前清理条件会消灭这类真实故障的唯一原文。
+- **如何核实**：`packages/nb-story/src/ingest/chapter.ts:105-123,160-170,274-279`；`job.ts:148-171` 把回退/跳过说明写入已提交章。现有 `chapter.test.ts` 已有“挑选两次不成形退回规则”及 `runner.test.ts:178-199` 的“整理跳过但章提交”回放路径，都是本机端点可复现的验收，不需要真实模型。
+- **建议改法**：区分“同一步后来成功”与“本章容错提交”。为尚未解决的 fallback/skipped 诊断确定有界保留策略，不在普通章提交后无条件全删；问题记录中的路径必须真实可用，或者明确说明已清除。验收补上 recall、consolidation，不只测两次非 JSON 后整章失败。
+
+### 6. 重要｜不变量：诊断文件的写入与清理失败没有独立语义，提交后崩溃也没有补偿点
+
+- **位置**：主工作区 `plan.md:25-27,61,71`。
+- **现象**：计划只说“写文件、覆盖、提交后删除”，没有定义 await/原子发布、保存失败时的错误码、清理失败是否影响已提交的章，以及提交成功后进程被杀的恢复清理。若提交后再删文件，进程恰在两者之间被杀，随后 `--book` 返回 done 时不会启动 Worker，残留永远没有清理机会；若覆盖时直接写最终文件，强杀可让原有完整证据变成半份 JSON。
+- **为什么是问题**：既有提交点只拥有 `book.json` 的原子改名，`.ingest` 里的新文件不在其中（`store.ts:5-7`，`library.ts:315-350`）。诊断写入被拒绝（EACCES/EROFS/ENOSPC）时，不能报告一个并不存在的路径；诊断删除失败也不能把已经提交的章重新解释成未提交失败，触发自动重跑。当前 Worker 的未归类异常会转为 `model_failed/local`（`worker.ts:54-57`），这个后果需要明确，而不是由 Promise 是否 await 偶然决定。
+- **如何核实**：已核对 `runner.ts:79-82` 的 done 短路、`job.ts:163-171` 的提交点与 `store.ts` 的现有持久化约定。可用 /tmp 下真实目录与子进程测试：写临时文件后强杀、发布后强杀、章提交后清理前强杀、只读诊断子目录、两次同章同步骤失败，再用新进程读状态与续跑。计划验收只有正常写入/删除，没有这些异常路径。
+- **建议改法**：沿用同目录临时文件+改名发布单个诊断；写入失败给结构化 local 诊断且不伪造路径。把提交后的清理作为幂等的非回滚维护，在恢复/发起路径基于实际已提交章数补偿，done 也覆盖；清理失败明确报告，不改变提交事实。所有写入与清理在任务放锁前收口，删书仍复用现有 `.ingest/<id>` 整目录删除。
+
+### 7. 重要｜正确性：第 7 点漏掉实际存在的身份连接错误，改显示名会掩盖多人混为一人的错误
+
+- **位置**：主工作区 `plan.md:47-50,64,74`。
+- **现象（已用真实 CLI 核实）**：5 条 consolidation merges 没有一条涉及法明 `e9-8` 或玄奘 `e9-9`；两者在草稿里也各自存在。真正连接它们的是第 9 章 `s9-16`：文本是“法明和尚为江流剃发取法名”，却标 `family: identity`、`about: [e9-9,e9-8]`。编译默认得到确定事实，查询核心按身份连接把两人合成一个点。计划只列 merges、mergedFrom、称呼、label，没有把 statements 的 identity、确定性与查询分组列入调查合同。
+- **为什么是问题**：法明是玄奘的师父，不是他的正当别名。`core/book-index.ts:149-155` 与 `identity.ts:217-225` 把确定 identity 当等价关系并传递闭包，显示名只是最终代表对象主名的结果（`identity.ts:89-98`）。改显示名会让错误更难看见，不会分开人物、知情、关系与情节。数据里还有同类错误，例如 `s9-38` 明说“没有明确说明”但未标 uncertain，及把玄奘与唐王连接的 `s14-10`、把“女妖捆玄奘”两端标 identity 的 `s72-5`，不能只围绕 5 条整理合并作修补。
+- **如何核实**：只读解析主工作区 `.local/agent/works/w00024-nb-story/tasks/t19-journey-west-example/library/xiyouji/extraction-100.json` 的 `.consolidations[].merges`、第 9 章实体和 identity 说法。运行（cwd 为实现 worktree）`bun --no-env-file packages/nb-story/src/cli.ts card e9-9 --book xiyouji --at 9.17 --library /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t19-journey-west-example/library --json`：返回 `id: e9-8`、`entities: [e9-8,e9-9]`、identity 出处 `9.17`。原文 `9.16-9.21` 明确写救养、师徒与取名。
+- **建议改法**：把两条不同的合并链（整理物理去重、查询 identity 分组）都列为调查输入，沿首条错误身份说法追到 draft/review/checklist 与默认确定性的产生处，再确定修复范围。验收至少包含“给人取名不表示二人相同”“不确定叙述不产生确定合并”“真实身份揭晓仍按阅读位置合并”。如果改抽取请求文字，仍遵守已定真实模型审批；不应以离线改显示名替代质量修复。
+
+### 8. 重要｜接口与合同：多轮自动续跑没有定义 thisRun、等待状态和一次命令的最终输出
+
+- **位置**：主工作区 `plan.md:31-33,54,62,72`。
+- **现象（从代码推断）**：现有每次 `startIngest` 都生成新 `run`，每轮各记 run-start/end 与 chapter-start/end；最终 CLI 小结直接拿 `status.thisRun`。外层重跑一次后，最终成功的小结只剩最后一轮的用量和时间，前一轮已付费的失败请求不在“这次命令”里。两轮之间现有状态报 stopped、`current: null`，没有计划里 5/10/15 分钟的重跑等待；现有 SIGINT 监听也只包 `await runner.done`，等待期间的取消状态/退出码不能靠沿用原处理器自动成立。
+- **为什么是问题**：`story.ingest` 输出 13、14 要求可观察的等待、这次任务的统计，以及 stdout 只有一个 JSON。直接重复调用目前的 `run()` 还会在首轮 `fail()` 时就输出 JSON，中间失败与最终成功变成多份 JSON。反之复用同一个 run id 却重复 run-start/end，会被 `status.ts:92-128` 的 Map 覆盖起点或重复结算章时间。计划必须先选择逻辑命令与轮次的模型，不能等实现时临时混用。
+- **如何核实**：`runner.ts:92-112,119-142`；`job.ts:99-104,118-119,137-171`；`status.ts:92-128,147-168`；`cli/ingest.ts:67-78,261-280`。计划的“先失败再成功”用例只列结局，没有累计用量、时间、状态或 stdout 数量的判据。
+- **建议改法**：定义命令级编排持有全程取消信号、固定书实例与明确的逻辑任务统计；轮内请求/章尝试记录仍可保留独立 id，但明确如何汇总。中间轮次只发 stderr 进度，最外层只输出一次最终 JSON。失败计数跟踪实际失败章号/已提交进展，新增提交后清零，但中止、锁冲突、换代不进入重跑。补“两次在同章失败→提交下一章→下一章获得完整新额度”“等待中 Ctrl-C”“前轮产生非零用量后成功的汇总”真进程判据。
+
+#### 发现 4 的追加实测证据
+
+已执行真实 nb-harness/OMP→本机 HTTP 端点：
+
+```sh
+env -u ANTHROPIC_OAUTH_TOKEN ANTHROPIC_API_KEY=review-exported-key HOME=/tmp/review-t20-design/home XDG_CONFIG_HOME=/tmp/review-t20-design/home/config bun --no-env-file /tmp/review-t20-design/runtime/credentials.ts
+```
+
+启动快照为 `ANTHROPIC_API_KEY=review-exported-key`、OAuth 为 null；隔离 HOME 的 `.env` 只提供假 OAuth。实际端点收到 `authorization: Bearer review-oauth-only-from-file` 和 `x-api-key: review-oauth-only-from-file`，而不是 export 的 key。端点返回 401，结果 `error/auth`。未调用真实供应商；仅把目录模型的 baseUrl 改为本机端点，密钥解析、OMP provider 与 HTTP 均使用真实实现。
+
+### 9. 重要｜测试：验收映射缺少跨 Worker/真 CLI 的时间控制与持久化入口
+
+- **位置**：主工作区 `plan.md:68-78`。
+- **现象**：`model.test.ts` 的 sleep 注入只覆盖同进程 `callModel`；真 CLI 经 runner→Worker，没有传递 sleep/clock 的通道。自动重跑回放“首轮失败再成功”至少要等 5 分钟，“3 次用完”仅外层等待就要 30 分钟；限流 12 次的表等待是 203 分钟。计划把这些列为快速合同测试，却没有设计真进程可控时间的接入。另把“文件内容、路径、提交后删除”全放到 `chapter.test.ts`，而该文件只调用 extractChapter/compile/consolidate，不经过 IngestStore、runIngest 或真实章提交。
+- **为什么是问题**：在测试里换 sleep 后直接调用内部函数，只能证明局部循环，不能证明跨线程停止、书锁、CLI stdout、退出码及提交清理。测试里自行写文件再自己删也不能验收产品的留存/清理。`docs/testing/README.md:16,24,67` 要求真实依赖、可控等待与快速预算，不能靠 5 分钟固定等待或只测内部回调冒充真进程验收。
+- **如何核实**：`CallOptions.sleep`（`model.ts:96-97`）→`ChapterRun.sleep`→`JobOptions.sleep` 的机制存在，但 `WorkerStart`（`worker.ts:17-27`）和 `startIngest` 没有该能力；`cli/ingest.test.ts:61-68` 直接启动正式入口。`chapter.test.ts:74-115` 的测试编排不含持久化与提交。现有 `EndpointReply` 的 status 分支（`testing/openai-endpoint.ts:27-28,148-150`）也不收 headers，要测真正的 Retry-After 需扩展真实回放端点，不是造 APIError。
+- **建议改法**：在计划里明确两层验收：同进程注入时钟验证退避/预算边界；可注入依赖的专用进程启动器经真实 runner/Worker 验证暂停、恢复、锁、输出与取消，注入能力不成为产品环境变量或测试专用产品分支。坏回复持久化/提交清理移到 job/runner/CLI 的真目录路径。环境验收须覆盖真实 bin、当前目录 Bun dotenv、OMP HOME dotenv、export 与 dotenv 并存、ask/网页配置与 Worker 的实际认证头。人物修复也补到映射，不只列“改提示词才跑真实模型”。
+
+## 未发现问题的方面
+
+- **已定取舍**：计划保留按章顺序、失败后重做同一章；不跳章、不做网页任务级自动重跑、不内置价目表。没有重新争议这些决定。
+- **callModel 长退避本身不阻塞停止**：当前 `defaultSleep` 监听 AbortSignal 并清 timer（`model.ts:116-132`），重试前再检查 signal（`197-205`）；Worker 停止消息会 abort controller，共享标志在下一步和提交前检查。只要沿用同一 signal，而不是增加不可中止的 Bun.sleep，分钟级等待不会天然破坏停止 5 秒不再请求的合同。既有 runner 的 15 秒强杀宽限不等于允许 15 秒内继续发新请求。此次未启动独立服务实测 5 秒合同，不能把机制审查写成该验收通过。
+- **maxAttempts 能保留 config test 的一次尝试**：`cli/config.ts:300-305` 明确传 `maxAttempts: 1`；当前逻辑在挑等待表之前检查上限。限流新增表必须继续受它约束。两档合计正常会发 2 次请求（开 recall 再加 1 次），不是整个命令只能发 1 次。
+- **Retry-After 的实际载体已确认**：OpenAI SDK 抛出的 `APIError.headers` 是标准 `Headers | undefined`，应读 `error.headers?.get("retry-after")`；不是普通对象下标。真实 HTTP 429 实验输出 `headersType: Headers`、`get: "7"`、下标读取 `null`。当前 classify 转成 ModelError 时会丢头，实施需在转换前提取成结构化重试元数据，不要把真实渠道未带头误当 SDK 不支持。
+- **入口顺序能挡 OMP 的后加载，但挡不了 Bun**：`cli/main.ts:10-19` 的静态依赖没有 OMP；ask、config、serve 分支之后才动态加载，config 的静态依赖又经 ask 引入 nb-harness。真实 Bun 实验按“快照模块→main→动态 nb-harness”运行，快照中假变量为 null，OMP 导入后主线程变量才出现。没有发现这个当前依赖图要求 OMP 必定先于入口首个无依赖快照求值；阻断点是发现 1 的更早 Bun 加载，而非笼统说所有静态 import 都不可能有顺序。
+- **Worker 环境的计划依据不符合本机实测，但显式传值方向正确**：Bun 1.4.2 中，OMP 导入后主线程假变量为 `home-dotenv-only`，随后创建的真实 Worker 读到 `null`，并未继承该次主线程注入。实验脚本没有导入业务 Worker，故这里只确认 Bun 的真实 Worker 机制，不声称已验收 serve；计划 `38` 行的“线程环境同样含 OMP 注入”不能当成既有保证。显式传选定密钥仍比依赖线程环境更稳，主线程也须统一使用同一来源。
+- **删书包含诊断子目录的方向正确**：`Library.removeBook` 在 id 锁内把整个 `.ingest/<id>` 改名后递归删除（`core/library.ts:394-420`），把坏回复放在它下面不需要建立第二条独立删除通道；但必须保持发现 2、6 所述的任务寿命和写入收口。
+- **原文不应经诊断对象进入状态接口**：现有 `IngestStatus` 只承载状态、计数、用量与 `stopReason.message`（`status.ts:42-58,160-170`），没有 raw replies 字段。按计划仅在 message 放相对路径，不要求把 `text` 传到主线程、JSON、小结或网页。此项是从接口形状确认的安全设计方向；未实现的新回调及网页响应仍需用可辨认小说片段与假密钥做“不外泄”验收。
+- **同章同步骤覆盖**：计划明确是最新两份回复的有界诊断，不是完整失败历史；这属于已写明的保留取舍，不另算遗漏。问题在原子覆盖、未成功步骤的清理条件及崩溃恢复，而不是要求无限追加。
+- **价格提醒**：stderr 提示不破坏 stdout 的单 JSON 合同；无价仍报 token 数、不内置价格的方向没有发现问题。存在独立 recall 模型时也应按其实际 price 状态提示，不能只看配置文本中有没有 ingest.model。
+
+## 对计划风险的判断
+
+1. **“Retry-After 格式多样，只认秒数，其余走表”**：这是明确的降级，不是 SDK 限制；HTTP-date 可由本机真实端点测，不需等供应商，若保留降级须在合同中明示，并对有限、非负秒数及 30 分钟上限给出边界判据，避免空串/负数/NaN 变成立即重试。
+2. **“快照保证先于 OMP，用测试守住 import 顺序”**：仅守 OMP 顺序不够，真实反例已见发现 1、4；应守住启动边界和实际认证头，不写仅检查源码 import 排列的变更探测测试。
+3. **时间预算的数字**：12 次 HTTP 尝试有 11 段等待，按 `1+2+5+10+15+20+30×5` 合计 **203 分钟（3 小时 23 分钟）**，不是仅退避就约 5 小时；若每次最多再占 10 分钟，请求与等待合计最多 **323 分钟（5 小时 23 分钟）**（不计存储与其它调度）。外层默认 3 次自动重跑意味着最多 4 轮；429 立即返回时，同章同一步纯表等待加外层等待已经是 `203×4+5+10+15=842` 分钟，即 **14 小时 2 分钟**。这不是反对已定自动续跑，而是应把单请求与整命令的预算分开写，避免“5 小时”被误当总上限。
+4. **第 7 点真实模型审批**：先只读调查与需要真实模型时申请批准是正确权限边界；但调查完成后须根据真实根因定范围，不能把“离线只改显示名”当已足够的替代验收，见发现 7。
+
+## 验证记录与未运行项
+
+环境：Linux，`bun --version` 输出 **1.4.2**。所有自建实验脚本/假 `.env` 只放 `/tmp/review-t20-design/`，未修改仓库，未 commit/push/stash/切分支，未开子审查。
+
+| 命令或实验 | 实际结果 |
+| --- | --- |
+| `env -u REVIEW_T20_ONLY_DOTENV bun snapshot.ts`（cwd `/tmp/review-t20-design/dotenv`） | 第一条用户语句已读到 `.env` 的假变量 |
+| 同 cwd `env -u REVIEW_T20_ONLY_DOTENV bun --no-env-file snapshot.ts` | 假变量为 null |
+| `env -u REVIEW_T20_INJECTED HOME=/tmp/review-t20-design/home XDG_CONFIG_HOME=/tmp/review-t20-design/home/config bun --no-env-file /tmp/review-t20-design/runtime/imports.ts` | 快照/OMP 前 null，OMP 后主线程有值，新 Worker 为 null |
+| `bun --no-env-file /tmp/review-t20-design/runtime/sdk-headers.ts` | 真 SDK 收到 429；headers 为 Headers；get 取得字符串 7 |
+| `/tmp/review-t20-design/runtime/credentials.ts` 的完整命令见发现 4 追加证据 | 真 OMP provider 向本机发出了 dotenv 假 OAuth，而不是 export 的假 API key |
+| 发现 7 的真实 `nbstory card … --at 9.17 --json` 命令 | 返回 e9-8 与 e9-9 被身份连接合成同一点 |
+| `bun test packages/nb-story/src/ingest/model.test.ts`（cwd 实现 worktree） | **4 pass、0 fail，11 expect() calls，437.00ms** |
+
+未运行：类型检查、全包合同测试、docs:check、e2e、开发服务、独立 serve 的 HTTP/浏览器验收、真实供应商/模型、5 小时真实计时。没有 t20 实现可验收；针对计划中尚未实现路径的结果均明确标作从代码推断或建议验收，不把旧测试通过当成新设计已实现。
+
+## 数量
+
+| 严重程度 | 数量 |
+| --- | ---: |
+| 阻断 | 2 |
+| 重要 | 7 |
+| 建议 | 0 |
+| 合计 | 9 |
+
+## 回写建议（未执行）
+
+| 类别 | 依据 | 建议修改 | 目标位置 |
+| --- | --- | --- | --- |
+| 踩坑／规范依据不实 | 本机 Bun 1.4.2 实测主线程运行时环境注入不自动传入随后创建的 Worker；计划目前以相反假设解释故障 | 改写为：“跨 Worker 的凭据由主线程按已定来源显式选择后传递，不以线程继承运行时修改的环境为前提；启动环境与依赖加载后的环境分别验证。” | t20 plan 的密钥小节、获批后形成的 ADR 0032 |
+
+不建议把本机单个 Bun 版本的继承行为写成跨版本通用保证；不修改任何真相源，本报告供主 Agent 逐条核实与修订计划。
+
