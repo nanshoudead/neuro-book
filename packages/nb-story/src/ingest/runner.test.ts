@@ -6,8 +6,8 @@
  */
 
 import {afterEach, describe, expect, test} from "bun:test";
-import {mkdirSync, watch} from "node:fs";
-import {mkdir, readdir, readFile, rm, rmdir, writeFile} from "node:fs/promises";
+import {mkdirSync, watch, writeFileSync} from "node:fs";
+import {mkdir, readdir, readFile, rm, rmdir, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -22,6 +22,7 @@ import {Library} from "../core/library";
 import {readCommitted} from "./job";
 import {ingestCoordinator, runnerTable} from "./coordinator";
 import {startIngest, type Runner} from "./runner";
+import {BAD_REPLY_KEEP, IngestStore} from "./store";
 import {ingestStatus, ingestStatuses} from "./status";
 
 const KEY_ENV = "NBSTORY_INGEST_TEST_KEY";
@@ -485,6 +486,69 @@ describe("提交的先后（输出 6）", () => {
 });
 
 const TEN_MINUTES = 600_000;
+
+describe("坏回复留存（输出 10）", () => {
+    const BAD = "不是 JSON 的回复，里面有小说片段：星月狐";
+    const badDir = (env: Awaited<ReturnType<typeof setup>>, id: string) => join(env.root, "library", ".ingest", id, "bad-replies");
+
+    test("写其余记录两次不成形：任务以 ingest_bad_reply 停下，两次回复的原文留在书库里，错误信息写路径，状态与输出里没有原文", async () => {
+        const env = await setup("bad-draft", key => (key.chapter === 2 && key.step === "draft" ? {kind: "text", text: BAD} : undefined));
+        const run = await env.start({text: await sampleSourceText(3), id: "bad-draft"});
+        const outcome = await run.runner!.done;
+        expect(outcome.kind === "failed" && outcome.code).toBe("ingest_bad_reply");
+        expect(outcome.kind === "failed" && outcome.message).toContain(".ingest/bad-draft/bad-replies/2-draft.json");
+
+        const saved = JSON.parse(await readFile(join(badDir(env, "bad-draft"), "2-draft.json"), "utf8"));
+        expect(saved).toMatchObject({chapter: 2, step: "draft", why: "回复不是 JSON"});
+        expect(saved.replies.map((reply: {round: number; text: string}) => [reply.round, reply.text])).toEqual([[1, BAD], [2, BAD]]);
+        expect(JSON.stringify(await ingestStatus(env.library, "bad-draft"))).not.toContain("星月狐");
+    }, 120_000);
+
+    test("整理两次不成形（容错：这一章照常提交）：原文照样留下，提交之后也还在", async () => {
+        const env = await setup("bad-consolidation", key => (key.chapter === 5 && key.step === "consolidation" ? {kind: "text", text: BAD} : undefined));
+        const run = await env.start({text: await sampleSourceText(5), id: "bad-consolidation"});
+        expect(await run.runner!.done).toEqual({kind: "done"});
+        const saved = JSON.parse(await readFile(join(badDir(env, "bad-consolidation"), "5-consolidation.json"), "utf8"));
+        expect(saved.replies).toHaveLength(2);
+        const {data} = await readCommitted(env.library, "bad-consolidation");
+        expect(data.chapters.find(item => item.chapter === 5)!.problems.join("")).toContain("bad-replies/5-consolidation.json");
+    }, 120_000);
+
+    test("留不下来（目录被同名文件占着）：抽取照样以 ingest_bad_reply 停下，错误信息里没有路径", async () => {
+        // 第一次请求到达时抽取记录目录已经建好：在里面放一个同名文件，`bad-replies/` 就建不出来。
+        let blocked = false;
+        const env = await setup("bad-unwritable", key => {
+            if (key.chapter !== 1 || key.step !== "beats") return undefined;
+            if (!blocked) {
+                blocked = true;
+                writeFileSync(join(badDir(env, "bad-unwritable")), "占位");
+            }
+            return {kind: "text", text: BAD};
+        });
+        const run = await env.start({text: await sampleSourceText(3), id: "bad-unwritable"});
+        const outcome = await run.runner!.done;
+        expect(outcome.kind === "failed" && outcome.code).toBe("ingest_bad_reply");
+        expect(outcome.kind === "failed" && outcome.message).not.toContain("bad-replies");
+    }, 120_000);
+
+    test(`只留最近 ${BAD_REPLY_KEEP} 个，同章同步骤再失败覆盖旧的`, async () => {
+        const env = await setup("bad-keep");
+        const store = new IngestStore(env.library, "keep");
+        const dir = badDir(env, "keep");
+        for (let chapter = 1; chapter <= BAD_REPLY_KEEP + 2; chapter++) {
+            await store.writeBadReply({chapter, step: "draft", why: "回复不是 JSON", replies: [{round: 1, finishReason: "stop", text: `第 ${chapter} 章`}]});
+            // 文件系统的时间戳精度不够分出先后，按章号手工排好。
+            await utimes(join(dir, `${chapter}-draft.json`), chapter, chapter);
+        }
+        const names = (await readdir(dir)).sort();
+        expect(names).toHaveLength(BAD_REPLY_KEEP);
+        expect(names).not.toContain("1-draft.json");
+        expect(names).not.toContain("2-draft.json");
+        await store.writeBadReply({chapter: 22, step: "draft", why: "回复被截断", replies: [{round: 1, finishReason: "length", text: "新的"}]});
+        expect(JSON.parse(await readFile(join(dir, "22-draft.json"), "utf8")).why).toBe("回复被截断");
+        expect(await readdir(dir)).toHaveLength(BAD_REPLY_KEEP);
+    });
+});
 
 describe("用量与用时（输出 13）", () => {
     test("停下后换了币种接着抽：费用按币种分开；用时含作废的尝试，历次用时不少于各章之和", async () => {

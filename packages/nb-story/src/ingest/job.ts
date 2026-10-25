@@ -15,7 +15,7 @@ import {randomUUID} from "node:crypto";
 import {featuresOf, type Dataset, type SourceChapter} from "../core/dataset";
 import {StoryError} from "../core/errors";
 import type {Library} from "../core/library";
-import {consolidate, extractChapter, IngestBadReply, type ChapterRun, type RecallSource, type Step} from "./chapter";
+import {consolidate, extractChapter, IngestBadReply, STEP_NAMES, type ChapterRun, type RecallSource, type Step} from "./chapter";
 import {compile} from "./compile";
 import type {RawDraft} from "./draft-tools";
 import {ModelAborted, ModelError, type Attempt, type ModelEndpoint} from "./model";
@@ -187,6 +187,15 @@ function chapterRun(options: JobOptions, chapter: number, checkStop: () => void,
             options.onEvent({type: "step", chapter, step});
         },
         onRetry: (step, info) => options.onEvent({type: "retry", chapter, step, attempt: info.attempt, waitMs: info.waitMs, message: info.error.message}),
+        // 坏回复只是诊断：留不下来（只读目录、磁盘满）时写一行到标准错误，不让抽取失败，也不让错误信息指向不存在的文件。
+        onBadReply: async record => {
+            try {
+                return await options.store.writeBadReply(record);
+            } catch (error) {
+                console.error(`第 ${record.chapter} 章${STEP_NAMES[record.step]}的坏回复没能留下：${error instanceof Error ? error.message : String(error)}`);
+                return null;
+            }
+        },
         // 开始的那一行写完才发请求（callModel 等它），进程在请求中途被杀时账上一定有它。
         onAttemptStart: (step, attempt) => {
             const id = randomUUID();

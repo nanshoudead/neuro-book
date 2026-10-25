@@ -11,20 +11,21 @@
  *                  没有结算的，是进程在这次请求中途被杀：用量不知道，合计标为不完整
  *   activity.jsonl 任务与每章每次尝试的起止时间，只追加：用时按它算，作废的尝试也算在内
  *   state.json     瞬时状态：由谁运行、当前章与步骤、在等的重试、停下的原因
+ *   bad-replies/   一步的回复两次都不成形时留下的原文（诊断用，里面有小说原文，不进状态与输出），最多留最近 20 个
  *
  * 锁文件放在不随抽取记录删除的 `.locks/` 里：flock 锁的是 inode，锁文件跟着记录一起删掉再建，就会出现两把互不
  * 排他的锁（w00024 t06 计划审查第 3 条）。
  */
 
 import {randomUUID} from "node:crypto";
-import {appendFile, mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
+import {appendFile, mkdir, readdir, readFile, rename, rm, stat, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {BookFeatures, SourceChapter} from "../core/dataset";
 import {StoryError, systemErrorCode} from "../core/errors";
 import type {Library} from "../core/library";
 import {tryLock, type FileLock} from "../platform/flock";
-import type {Step} from "./chapter";
+import type {BadReplyRecord, Step} from "./chapter";
 
 export interface IngestSource {
     id: string;
@@ -72,6 +73,9 @@ export interface IngestState {
 }
 
 const isMissing = (error: unknown) => systemErrorCode(error) === "ENOENT" || systemErrorCode(error) === "ENOTDIR";
+
+/** `bad-replies/` 里最多留几个文件。 */
+export const BAD_REPLY_KEEP = 20;
 
 export class IngestStore {
     readonly #library: Library;
@@ -172,6 +176,23 @@ export class IngestStore {
         const temp = join(this.dir, `state.json.${randomUUID()}.tmp`);
         await writeFile(temp, JSON.stringify(state));
         await rename(temp, join(this.dir, "state.json"));
+    }
+
+    /**
+     * 存一份坏回复，返回它相对书库的路径。先写临时文件再改名，强杀时留下的要么是旧的完整文件、要么是新的完整文件；
+     * 写完后把最旧的多余文件删到只剩 `BAD_REPLY_KEEP` 个。它只是诊断：调用方拿到异常时不让抽取失败（job.ts）。
+     */
+    async writeBadReply(record: BadReplyRecord): Promise<string> {
+        const dir = join(this.dir, "bad-replies");
+        await mkdir(dir, {recursive: true});
+        const name = `${record.chapter}-${record.step}.json`;
+        const temp = join(dir, `${name}.${randomUUID()}.tmp`);
+        await writeFile(temp, JSON.stringify(record, null, 2));
+        await rename(temp, join(dir, name));
+        const kept = await Promise.all((await readdir(dir)).filter(file => file.endsWith(".json")).map(async file => ({file, at: (await stat(join(dir, file))).mtimeMs})));
+        kept.sort((a, b) => b.at - a.at || (a.file < b.file ? -1 : 1));
+        for (const old of kept.slice(BAD_REPLY_KEEP)) await rm(join(dir, old.file), {force: true});
+        return join(".ingest", this.id, "bad-replies", name);
     }
 
     async readState(): Promise<IngestState | null> {
