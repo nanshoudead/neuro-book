@@ -27,6 +27,7 @@ autonomous-delivery 推进时照推荐做了、本该由开发者决定的点，
 - 2026-10-24 开发者试用 t15 后提出输入框单行与控件、模型目录与自定义服务商、Markdown 作答，建 [t16](tasks/t16-qa-composer-models-markdown/README.md)，按 autonomous-delivery 推进。
 - 2026-10-24 t16 合入（`b265707b2`），真实模型冒烟开发者定不做、待确认 7 条全部追认。开发者定把 nb-story 连同 8 个依赖包发布到 npm（只用 Bun、许可证 AGPL-3.0-only、加 `nbstory skill install`、更新文档与 README），建 [t17](tasks/t17-npm-release/README.md)，按 autonomous-delivery 推进；`publish` 由开发者执行。
 - 2026-10-24 t17 合入（`fec3782ca`）；开发者发布了 9 个包（nb-ui `0.2.0`，其余 `0.1.0`），从 registry 安装的冒烟通过。
+- 2026-10-24 t18 合入（nb-story 支持 Windows，去掉 `os` 字段，ADR 0031）；t19 用真实模型抽完《西游记》100 回并作为示例入库（约 ¥21.9）。2026-10-25 开发者确认 t19 暴露的七个管线问题全部修，建 [t20](tasks/t20-ingest-pipeline-fixes/README.md)，按 autonomous-delivery 推进（不跳章、密钥只读进程环境变量）。
 - 值得收进 nb-ui、这次不做的候选（2026-10-21 调研，开发者定记入后续，按 w00029、w00030 的顺序另做）：外观主题的安装函数（nb-story 与 dev-panel 的 `host/theme.ts` 重复）、单个切换按钮 `Toggle`（nb-story 的 `story-chip` 与新应用工作台里手写的 `aria-pressed`）、dev-panel 的 `TruncatedText` 与 `LoadState`（剥掉路由与文案后叫 `AsyncState`）、`Toolbar` 放不下时收进“更多”（新应用 `plugins/workbench/web/items/item-strip.ts` 的 `layoutStrip`）、`CodeBlock` 与 dev-panel `DiffView` 合并、无限滚动的哨兵（nb-story `parts/PagedList.vue`）、dev-panel 的 `HighlightText`（先与 nb-ui 的 `option-highlight.ts` 对照）。2026-10-22 w00019 t10 计划补两项：原图预览对话框（t10 先放在 nb-agent-ui，等 w00030 拆完 Dialog 再进 nb-ui）、`CodeBlock` 的语法高亮。
 - 搁置：t10 的两项可选真实模型评测（审查修正之后的回归重跑、挑选开着的长书对照），以及 decision 模型（Jev 等）召回的评测。
 
