@@ -15,7 +15,11 @@ export const startupEnv: Readonly<Record<string, string | undefined>> = Object.f
 export type KeyEnv = Readonly<Record<string, string | undefined>>;
 
 /** 这份环境里这个变量有非空白的值：显示“已设置”、问答的门与取值都用它，不要各写一份判断。 */
-export const envHas = (env: KeyEnv, name: string): boolean => (env[name] ?? "").trim() !== "";
+export const envHas = (env: KeyEnv, name: string): boolean => {
+    // 变量名可以是 `__proto__` 这类原型上有的名字：只认对象自己的属性。
+    const value = Object.hasOwn(env, name) ? env[name] : undefined;
+    return typeof value === "string" && value.trim() !== "";
+};
 
 /** 启动环境里这个变量有非空的值。 */
 export const startupHas = (name: string): boolean => envHas(startupEnv, name);
