@@ -92,6 +92,7 @@ type QaConfig = {
 - 字段类型不对、`maxChapters` 不是 1 到 20 的整数、`fullReadMaxChars` 不是正整数，都按缺少必填字段处理（`qa_unconfigured`）。
 - 字段之间的约束同样按 `qa_unconfigured` 处理：候选至少一个、不重复；默认模型在候选里；每个候选指向的服务商与模型都存在（自定义服务商里有，或 OMP 目录里有）；自定义服务商的 id 写法合法、不与目录重名。
 - 目录里的模型密钥按 OMP 的取法从环境变量取（见 [`agent.harness`](../agent/harness.md#模型目录)）；单价按目录，目录单价全为 0 时当未知。
+- **密钥只认启动环境**（[ADR 0032](../../adr/0032-nb-story-keys-from-startup-env.md)）：自定义服务商的 `apiKeyEnv`、目录服务商登记的变量，“有没有值”与取值都以进程启动时的环境为准（shell 导出的，加上 Bun 在启动时加载的当前目录 `.env`）；OMP 导入时额外读进来的家目录等 `.env` 不算。同一个变量在 `config show`、`config test`、`ask`、`ingest`、`serve` 与网页配置页里结论一致。已知限制：目录模型的取值仍由 OMP 决定，启动环境有一个登记的变量、别处 `.env` 里有优先级更高的另一个时，OMP 会选后者。
 - 推理档不在模型支持的档里时往下夹到支持的档；模型不支持推理时不发。`config show` 写出实际发的档。
 - **第 1 版。** 早先的配置（`model` 是 `{baseUrl, id, apiKeyEnv, api?, contextWindow?, maxTokens?, thinking?, price?}`）读的时候升级成第 2 版：建自定义服务商 `custom`（`api` 不写或 `chat` 是 `openai-completions`，`responses` 是 `openai-responses`；写了推理档的模型标成支持推理），候选与默认都是 `custom/<id>`，其余字段跟过去。命令行与网页写回的一律是第 2 版。
 
