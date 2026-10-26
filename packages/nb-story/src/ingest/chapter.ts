@@ -51,6 +51,8 @@ export interface ChapterRun {
     signal?: AbortSignal;
     sleep?: CallOptions["sleep"];
     fetch?: CallOptions["fetch"];
+    /** 替换渠道失败与限流的延迟表（测试用，见 `CallOptions.delaysMs`）。 */
+    delaysMs?: CallOptions["delaysMs"];
     /** 每一步开始时调用。 */
     onStep?: (step: Step) => void;
     /** 每次 HTTP 尝试发出之前调用（用来记“发出过”）。 */
@@ -122,7 +124,7 @@ function asker(run: ChapterRun, chapter: number): Ask {
         const replies: BadReplyRecord["replies"] = [];
         for (let round = 1; ; round++) {
             const reply = await callModel(endpoint, {
-                system: systemPrompt, user, effort, signal: run.signal, sleep: run.sleep, fetch: run.fetch,
+                system: systemPrompt, user, effort, signal: run.signal, sleep: run.sleep, fetch: run.fetch, delaysMs: run.delaysMs,
                 // 请求头里的身份：章、步骤、这一步的第几次（不成形时重发算下一次；渠道重发不变）。
                 tag: `${chapter}/${step}/${round}`,
                 onAttemptStart: attempt => run.onAttemptStart?.(step, attempt),

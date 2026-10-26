@@ -129,7 +129,8 @@ const REDACTED_KEY = "[REDACTED]";
 const REJECTED_UNPROCESSED = new Set([401, 403, 429]);
 const NETWORK_STATUSES = new Set([408, 502, 503, 504, 520, 521, 522, 523, 524]);
 
-function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
+/** 等 `ms` 毫秒；被中止时 reject `ModelAborted`。 */
+export function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
         if (signal?.aborted) {
             reject(new ModelAborted());

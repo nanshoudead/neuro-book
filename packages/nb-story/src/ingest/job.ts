@@ -18,7 +18,8 @@ import type {Library} from "../core/library";
 import {consolidate, extractChapter, IngestBadReply, STEP_NAMES, type ChapterRun, type RecallSource, type Step} from "./chapter";
 import {compile} from "./compile";
 import type {RawDraft} from "./draft-tools";
-import {ModelAborted, ModelError, type Attempt, type ModelEndpoint} from "./model";
+import {chapterWaits} from "./retry-policy";
+import {defaultSleep, ModelAborted, ModelError, type Attempt, type ModelEndpoint} from "./model";
 import type {ActivityLine, IngestStore, Price, UsageLine} from "./store";
 
 /** 书目录里每次提交的抽取数据（core/library.ts 的 `extraction-<版本>.json`）。 */
@@ -42,7 +43,8 @@ export interface CommittedChapter {
 export type IngestEvent =
     | {type: "chapter"; chapter: number; total: number}
     | {type: "step"; chapter: number; step: Step}
-    | {type: "retry"; chapter: number; step: Step; attempt: number; waitMs: number; message: string}
+    /** `redo` 为真是整章失败后等一会儿、从头重做这一章（`attempt` 是第几次重做）；否则是一次请求的重发。 */
+    | {type: "retry"; chapter: number; step: Step; attempt: number; waitMs: number; message: string; redo?: boolean}
     | {type: "usage"; line: UsageLine}
     | {type: "committed"; chapter: number; total: number; dropped: number; generation: string; revision: number};
 
@@ -62,7 +64,14 @@ export interface JobOptions {
     onEvent: (event: IngestEvent) => void;
     sleep?: ChapterRun["sleep"];
     fetch?: ChapterRun["fetch"];
+    /** 同一章失败后重做前的等待（毫秒），长度就是最多重做几次；不给时 `chapterWaits(3)`。 */
+    chapterWaitsMs?: readonly number[];
+    /** 替换渠道失败与限流的延迟表（测试用）。 */
+    delaysMs?: ChapterRun["delaysMs"];
 }
+
+/** 这一章值得整章重做的失败：回复不成形，或渠道失败重试用完（网络类）。认证、额度、限流（已退避过）、本机错误重做也没用。 */
+const redoable = (error: unknown) => error instanceof IngestBadReply || (error instanceof ModelError && error.kind === "network");
 
 const CONSOLIDATE_EVERY = 5;
 
@@ -138,28 +147,32 @@ async function extractAll(options: JobOptions, ledger: Ledger, markChapter: (cha
         checkStop();
         markChapter(chapter);
         options.onEvent({type: "chapter", chapter, total});
-        const run = chapterRun(options, chapter, checkStop, ledger);
         const sources = sourcesThrough(chapter);
-        const result = await extractChapter({source: source.chapters[chapter - 1]!, prior, features: book.features, compileWith: candidate => compile(book, sources, [...data.drafts, candidate], data.consolidations)}, run);
-        const drafts = [...data.drafts, result.draft];
-        let consolidations = data.consolidations;
-        let dataset = result.dataset;
-        let issues = result.issues;
-        const problems = [...result.notes, ...result.remaining.map(issue => issue.message)];
-        if (chapter % CONSOLIDATE_EVERY === 0 || chapter === total) {
-            // 增量整理接着上一次被接受的整理（输出 7：跳过的那几章由这一次补上）。
-            const since = (consolidations.at(-1) as {through: number} | undefined)?.through ?? 0;
-            const outcome = await consolidate(chapter, dataset, since, candidate => compile(book, sources, drafts, [...consolidations, candidate]), run);
-            problems.push(...outcome.problems);
-            if (outcome.consolidation !== null) {
-                consolidations = [...consolidations, outcome.consolidation];
-                dataset = outcome.dataset;
-                issues = outcome.issues;
+        // 一章失败（回复不成形、渠道失败重试用完）时在这里等一会儿、从头重做这一章：记忆图顺序累积，不跳章；
+        // 这一章没提交，书的数据不变，重做在同一把锁、同一个任务里，用量与用时自然累计。
+        const {result, drafts, consolidations, dataset, problems} = await redoing(options, chapter, checkStop, ledger, async run => {
+            const result = await extractChapter({source: source.chapters[chapter - 1]!, prior, features: book.features, compileWith: candidate => compile(book, sources, [...data.drafts, candidate], data.consolidations)}, run);
+            const drafts = [...data.drafts, result.draft];
+            let consolidations = data.consolidations;
+            let dataset = result.dataset;
+            let issues = result.issues;
+            const problems = [...result.notes, ...result.remaining.map(issue => issue.message)];
+            if (chapter % CONSOLIDATE_EVERY === 0 || chapter === total) {
+                // 增量整理接着上一次被接受的整理（输出 7：跳过的那几章由这一次补上）。
+                const since = (consolidations.at(-1) as {through: number} | undefined)?.through ?? 0;
+                const outcome = await consolidate(chapter, dataset, since, candidate => compile(book, sources, drafts, [...consolidations, candidate]), run);
+                problems.push(...outcome.problems);
+                if (outcome.consolidation !== null) {
+                    consolidations = [...consolidations, outcome.consolidation];
+                    dataset = outcome.dataset;
+                    issues = outcome.issues;
+                }
             }
-        }
-        // 提交前的最后一道关：要提交的这份数据（本章加上整理）编译出的全部问题里没有错误，不只看本章（实现审查第 11 条）。
-        const errors = issues.filter(issue => issue.level === "error");
-        if (errors.length) throw new IngestBadReply("repair", `第 ${chapter} 章提交前书的数据仍有错误：${errors.map(issue => issue.message).join("；")}`);
+            // 提交前的最后一道关：要提交的这份数据（本章加上整理）编译出的全部问题里没有错误，不只看本章（实现审查第 11 条）。
+            const errors = issues.filter(issue => issue.level === "error");
+            if (errors.length) throw new IngestBadReply("repair", `第 ${chapter} 章提交前书的数据仍有错误：${errors.map(issue => issue.message).join("；")}`);
+            return {result, drafts, consolidations, dataset, problems};
+        });
         await ledger.settle();
         checkStop();
         const next: ExtractionData = {through: chapter, drafts, consolidations, chapters: [...data.chapters, {chapter, dropped: result.dropped, problems, recall: result.recall}]};
@@ -169,6 +182,30 @@ async function extractAll(options: JobOptions, ledger: Ledger, markChapter: (cha
         data = next;
         prior = dataset;
         options.onEvent({type: "committed", chapter, total, dropped: result.dropped, generation: commit.generation, revision: commit.revision});
+    }
+}
+
+/** 做一遍这一章；`redoable` 的失败按 `chapterWaitsMs` 等一会儿重做，次数用完才把失败抛出去（输出 10）。 */
+async function redoing<T>(options: JobOptions, chapter: number, checkStop: () => void, ledger: Ledger, build: (run: ChapterRun) => Promise<T>): Promise<T> {
+    const waits = options.chapterWaitsMs ?? chapterWaits(3);
+    for (let redo = 0; ; redo++) {
+        let step: Step = "beats";
+        const run = chapterRun(options, chapter, checkStop, ledger);
+        const onStep = run.onStep;
+        run.onStep = next => {
+            step = next;
+            onStep?.(next);
+        };
+        try {
+            return await build(run);
+        } catch (error) {
+            const waitMs = waits[redo];
+            if (!redoable(error) || waitMs === undefined) throw error;
+            const failure = error as IngestBadReply | ModelError;
+            options.onEvent({type: "retry", chapter, step: failure instanceof IngestBadReply ? failure.step : step, attempt: redo + 1, waitMs, message: failure.message, redo: true});
+            await (options.sleep ?? defaultSleep)(waitMs, options.signal);
+            checkStop();
+        }
     }
 }
 
@@ -182,6 +219,7 @@ function chapterRun(options: JobOptions, chapter: number, checkStop: () => void,
         signal: options.signal,
         ...(options.sleep ? {sleep: options.sleep} : {}),
         ...(options.fetch ? {fetch: options.fetch} : {}),
+        ...(options.delaysMs ? {delaysMs: options.delaysMs} : {}),
         onStep: step => {
             checkStop();
             options.onEvent({type: "step", chapter, step});

@@ -419,3 +419,53 @@ describe("config test --ingest（qa 输出 23）", () => {
         expect((await run(["config", "show", "--ingest", "--config", env.config])).code).toBe(2);
     }, 30_000);
 });
+
+describe("失败后重做与价格提示（输出 10、14）", () => {
+    test("--auto-resume 要写 0 或正整数，只在抽取时用", async () => {
+        const env = await setup();
+        const negative = await run(["ingest", "--book", "sample", "--auto-resume", "-1", ...env.common, "--json"]);
+        expect(negative.code).toBe(2);
+        expect(json(negative.stdout).error?.code).toBe("invalid_params");
+        const withStatus = await run(["ingest", "--status", "--auto-resume", "1", ...env.common, "--json"]);
+        expect(withStatus.code).toBe(2);
+        expect(json(withStatus.stdout).error?.message).toContain("--auto-resume");
+    });
+
+    test("--auto-resume 0：第 1 章两次不成形就停（退出码 4），不等待重做；原文留在 bad-replies/，错误信息写路径", async () => {
+        const env = await setup(key => (key.chapter === 1 && key.step === "beats" ? {kind: "text", text: "不是 JSON：星月狐"} : undefined));
+        const file = join(env.dir, "sample.txt");
+        await writeFile(file, await sampleSourceText(3));
+        const result = await run(["ingest", file, "--auto-resume", "0", ...env.common, "--json"]);
+        expect(result.code).toBe(4);
+        const error = json(result.stdout).error!;
+        expect(error.code).toBe("ingest_bad_reply");
+        expect(error.message).toContain(".ingest/sample/bad-replies/1-beats.json");
+        expect(result.stderr).not.toContain("从头重做");
+        expect(env.played.seen.filter(key => key.step === "beats")).toHaveLength(2);
+        const saved = JSON.parse(await readFile(join(env.library, ".ingest", "sample", "bad-replies", "1-beats.json"), "utf8"));
+        expect(saved.replies).toHaveLength(2);
+        // 原文只在 bad-replies/ 里，不进标准输出、进度与状态。
+        expect(`${result.stdout}${result.stderr}`).not.toContain("星月狐");
+    }, 120_000);
+
+    test("抽取模型没有配价格时开始就提示怎么补；配了价格就不提示", async () => {
+        const unpriced = await setup(key => (key.chapter === 1 && key.step === "beats" ? hang : undefined));
+        await writeFile(unpriced.config, JSON.stringify({model: {baseUrl: unpriced.endpoint.url, id: "qa-model", apiKeyEnv: KEY_ENV}}));
+        const file = join(unpriced.dir, "sample.txt");
+        await writeFile(file, await sampleSourceText(3));
+        const first = spawnCli(["ingest", file, ...unpriced.common]);
+        await waitUntil("第 1 章请求", () => unpriced.played.seen.length > 0, {timeoutMs: 60_000});
+        first.kill("SIGINT");
+        await first.exited;
+        expect((await first.output).stderr).toContain("没有配置价格");
+
+        const priced = await setup(key => (key.chapter === 1 && key.step === "beats" ? hang : undefined));
+        const pricedFile = join(priced.dir, "sample.txt");
+        await writeFile(pricedFile, await sampleSourceText(3));
+        const second = spawnCli(["ingest", pricedFile, ...priced.common]);
+        await waitUntil("第 1 章请求", () => priced.played.seen.length > 0, {timeoutMs: 60_000});
+        second.kill("SIGINT");
+        await second.exited;
+        expect((await second.output).stderr).not.toContain("没有配置价格");
+    }, 120_000);
+});
