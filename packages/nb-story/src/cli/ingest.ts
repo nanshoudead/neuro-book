@@ -43,6 +43,8 @@ const ACTION_TEXT: Record<IngestPlan["action"], string> = {new: "新建", resume
 /** 用法检查：四种用法（抽取、预览、接着抽、看进度）各自接受的参数。不合法时返回说明。 */
 function usageProblem(params: Record<string, unknown>): string | null {
     const file = params.file !== undefined;
+    if (typeof params.autoResume === "number" && params.autoResume < 0) return "--auto-resume 要写 0 或正整数";
+    if (params.autoResume !== undefined && (params.status === true || params.preview === true)) return "--auto-resume 只在抽取时用，不能与 --status、--preview 一起给";
     if (params.status === true) {
         if (file || params.title !== undefined || params.id !== undefined || params.preview === true || params.noLedger === true || params.noSecrets === true) return "--status 只能与 --book 一起用";
         return null;
@@ -87,7 +89,7 @@ export async function ingestCommand(options: IngestOptions, io: CliIo): Promise<
             const plan = await planFromText(library, {text: text!, title: title!, ...(params.id === undefined ? {} : {id: params.id as string}), ...(features ? {features} : {})});
             return done(planData(plan), previewText(plan));
         }
-        return await run(library, runners, {text, title, id: (params.id ?? params.book) as string | undefined, features, config: params.config as string | undefined}, io, json, done, fail);
+        return await run(library, runners, {text, title, id: (params.id ?? params.book) as string | undefined, features, config: params.config as string | undefined, autoResume: params.autoResume as number | undefined}, io, json, done, fail);
     } catch (error) {
         // 开关与这本书新建时定的不同：是用法错误（输出 15），其余书库类失败照旧退出码 1。
         if (error instanceof IngestUsageError) return fail(error.code, error.message, EXIT_USAGE);
@@ -209,6 +211,7 @@ function progressLine(event: IngestEvent, chapterStart: number, costs: ChapterCo
         case "step":
             return `· 第 ${event.chapter} 章：${STEP_NAMES[event.step]}`;
         case "retry":
+            if (event.redo) return `· 第 ${event.chapter} 章${STEP_NAMES[event.step]}失败（${event.message}），等 ${seconds(event.waitMs)}后从头重做这一章（第 ${event.attempt} 次重做）`;
             return `· 第 ${event.chapter} 章${STEP_NAMES[event.step]}第 ${event.attempt} 次失败（${event.message}），等 ${seconds(event.waitMs)}后重发`;
         case "usage":
             return null;
@@ -220,7 +223,7 @@ function progressLine(event: IngestEvent, chapterStart: number, costs: ChapterCo
 async function run(
     library: Library,
     runners: Map<string, Runner>,
-    input: {text: string | undefined; title: string | undefined; id: string | undefined; features: Partial<BookFeatures> | undefined; config: string | undefined},
+    input: {text: string | undefined; title: string | undefined; id: string | undefined; features: Partial<BookFeatures> | undefined; config: string | undefined; autoResume: number | undefined},
     io: CliIo,
     json: boolean,
     done: Done,
@@ -240,6 +243,7 @@ async function run(
         ...modelChoice(model),
         recall: recall === null ? null : modelChoice(recall),
         runner: "cli",
+        ...(input.autoResume === undefined ? {} : {autoResume: input.autoResume}),
         onEvent: event => {
             if (event.type === "chapter") {
                 chapterStart = Date.now();
@@ -257,6 +261,9 @@ async function run(
     runners.set(runner.id, runner);
     const setting = featuresText(plan.features);
     io.stderr(`书 ${plan.id}（${plan.title}）：${ACTION_TEXT[plan.action]}，共 ${plan.chapters.length} 章，已提交 ${plan.committed} 章；抽取模型 ${model.id}${setting === null ? "" : `；${setting}`}`);
+    // 没有单价时费用算不出来，只报 token 数（输出 14）；不内置价目表，价目会过期。
+    if (model.price === null) io.stderr("· 抽取模型没有配置价格，只报 token 数；要看费用用 nbstory config set ingest.model.price '{\"input\": 1, \"output\": 4, \"currency\": \"CNY\"}'（每百万 token）补上");
+    if (recall !== null && recall.price === null) io.stderr("· 挑相关说法的模型没有配置价格，这一步的费用也只报 token 数");
 
     const onInterrupt = () => {
         io.stderr("· 收到中断信号，正在停下（没提交的那一章作废）");

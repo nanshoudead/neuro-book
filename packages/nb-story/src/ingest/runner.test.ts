@@ -6,8 +6,8 @@
  */
 
 import {afterEach, describe, expect, test} from "bun:test";
-import {mkdirSync, watch} from "node:fs";
-import {mkdir, readdir, readFile, rm, rmdir, writeFile} from "node:fs/promises";
+import {mkdirSync, watch, writeFileSync} from "node:fs";
+import {mkdir, readdir, readFile, rm, rmdir, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -19,9 +19,10 @@ import {sampleDataset, sampleSourceText} from "../../testing/sample";
 import {createStoryApi} from "../core/api";
 import {StoryError} from "../core/errors";
 import {Library} from "../core/library";
-import {readCommitted} from "./job";
+import {readCommitted, type IngestEvent} from "./job";
 import {ingestCoordinator, runnerTable} from "./coordinator";
-import {startIngest, type Runner} from "./runner";
+import {startIngest, type Runner, type StartInput} from "./runner";
+import {BAD_REPLY_KEEP, IngestStore} from "./store";
 import {ingestStatus, ingestStatuses} from "./status";
 
 const KEY_ENV = "NBSTORY_INGEST_TEST_KEY";
@@ -48,7 +49,7 @@ async function setup(name: string, override?: (key: ReplayKey, nth: number) => E
     cleanups.push(() => endpoint.stop());
     const api = createStoryApi({library});
     /** `recall` 给了就开挑相关说法：用同一个端点、另一个模型名与币种，记账看得出是哪一步。 */
-    const start = async (input: {text?: string; title?: string; id?: string; currency?: string; recall?: boolean}) => {
+    const start = async (input: {text?: string; title?: string; id?: string; currency?: string; recall?: boolean; autoResume?: number; timing?: StartInput["timing"]; onEvent?: StartInput["onEvent"]}) => {
         const {currency, recall, ...rest} = input;
         const result = await startIngest({
             library, ...rest, title: input.title ?? "转生反派萝莉，找茬魔法少女",
@@ -485,6 +486,139 @@ describe("提交的先后（输出 6）", () => {
 });
 
 const TEN_MINUTES = 600_000;
+
+describe("坏回复留存（输出 10）", () => {
+    const BAD = "不是 JSON 的回复，里面有小说片段：星月狐";
+    const badDir = (env: Awaited<ReturnType<typeof setup>>, id: string) => join(env.root, "library", ".ingest", id, "bad-replies");
+
+    test("写其余记录两次不成形：任务以 ingest_bad_reply 停下，两次回复的原文留在书库里，错误信息写路径，状态与输出里没有原文", async () => {
+        const env = await setup("bad-draft", key => (key.chapter === 2 && key.step === "draft" ? {kind: "text", text: BAD} : undefined));
+        const run = await env.start({text: await sampleSourceText(3), id: "bad-draft", autoResume: 0});
+        const outcome = await run.runner!.done;
+        expect(outcome.kind === "failed" && outcome.code).toBe("ingest_bad_reply");
+        expect(outcome.kind === "failed" && outcome.message).toContain(".ingest/bad-draft/bad-replies/2-draft.json");
+
+        const saved = JSON.parse(await readFile(join(badDir(env, "bad-draft"), "2-draft.json"), "utf8"));
+        expect(saved).toMatchObject({chapter: 2, step: "draft", why: "回复不是 JSON"});
+        expect(saved.replies.map((reply: {round: number; text: string}) => [reply.round, reply.text])).toEqual([[1, BAD], [2, BAD]]);
+        expect(JSON.stringify(await ingestStatus(env.library, "bad-draft"))).not.toContain("星月狐");
+    }, 120_000);
+
+    test("整理两次不成形（容错：这一章照常提交）：原文照样留下，提交之后也还在", async () => {
+        const env = await setup("bad-consolidation", key => (key.chapter === 5 && key.step === "consolidation" ? {kind: "text", text: BAD} : undefined));
+        const run = await env.start({text: await sampleSourceText(5), id: "bad-consolidation"});
+        expect(await run.runner!.done).toEqual({kind: "done"});
+        const saved = JSON.parse(await readFile(join(badDir(env, "bad-consolidation"), "5-consolidation.json"), "utf8"));
+        expect(saved.replies).toHaveLength(2);
+        const {data} = await readCommitted(env.library, "bad-consolidation");
+        expect(data.chapters.find(item => item.chapter === 5)!.problems.join("")).toContain("bad-replies/5-consolidation.json");
+    }, 120_000);
+
+    test("留不下来（目录被同名文件占着）：抽取照样以 ingest_bad_reply 停下，错误信息里没有路径", async () => {
+        // 第一次请求到达时抽取记录目录已经建好：在里面放一个同名文件，`bad-replies/` 就建不出来。
+        let blocked = false;
+        const env = await setup("bad-unwritable", key => {
+            if (key.chapter !== 1 || key.step !== "beats") return undefined;
+            if (!blocked) {
+                blocked = true;
+                writeFileSync(join(badDir(env, "bad-unwritable")), "占位");
+            }
+            return {kind: "text", text: BAD};
+        });
+        const run = await env.start({text: await sampleSourceText(3), id: "bad-unwritable", autoResume: 0});
+        const outcome = await run.runner!.done;
+        expect(outcome.kind === "failed" && outcome.code).toBe("ingest_bad_reply");
+        expect(outcome.kind === "failed" && outcome.message).not.toContain("bad-replies");
+    }, 120_000);
+
+    test(`只留最近 ${BAD_REPLY_KEEP} 个，同章同步骤再失败覆盖旧的`, async () => {
+        const env = await setup("bad-keep");
+        const store = new IngestStore(env.library, "keep");
+        const dir = badDir(env, "keep");
+        for (let chapter = 1; chapter <= BAD_REPLY_KEEP + 2; chapter++) {
+            await store.writeBadReply({chapter, step: "draft", why: "回复不是 JSON", replies: [{round: 1, finishReason: "stop", text: `第 ${chapter} 章`}]});
+            // 文件系统的时间戳精度不够分出先后，按章号手工排好。
+            await utimes(join(dir, `${chapter}-draft.json`), chapter, chapter);
+        }
+        const names = (await readdir(dir)).sort();
+        expect(names).toHaveLength(BAD_REPLY_KEEP);
+        expect(names).not.toContain("1-draft.json");
+        expect(names).not.toContain("2-draft.json");
+        await store.writeBadReply({chapter: 22, step: "draft", why: "回复被截断", replies: [{round: 1, finishReason: "length", text: "新的"}]});
+        expect(JSON.parse(await readFile(join(dir, "22-draft.json"), "utf8")).why).toBe("回复被截断");
+        expect(await readdir(dir)).toHaveLength(BAD_REPLY_KEEP);
+    });
+});
+
+describe("章内重做（输出 10）", () => {
+    const BAD: EndpointReply = {kind: "text", text: "不是 JSON"};
+    const seenCount = (env: Awaited<ReturnType<typeof setup>>, chapter: number, step: string) => env.played.seen.filter(key => key.chapter === chapter && key.step === step).length;
+    const redoEvents = (events: IngestEvent[]) => events.filter(event => event.type === "retry" && event.redo === true);
+
+    test("同一章第一轮两次不成形、重做成功：同一个任务抽完，只有一份小结，失败的请求算进这次的用量", async () => {
+        const events: IngestEvent[] = [];
+        const env = await setup("redo-ok", (key, nth) => (key.chapter === 2 && key.step === "draft" && nth <= 2 ? BAD : undefined));
+        const run = await env.start({text: await sampleSourceText(5), id: "redo-ok", timing: {chapterWaitsMs: [10, 10, 10]}, onEvent: event => events.push(event)});
+        expect(await run.runner!.done).toEqual({kind: "done"});
+        expect(seenCount(env, 2, "draft")).toBe(3);
+        expect(redoEvents(events).map(event => event.type === "retry" && [event.chapter, event.step, event.attempt, event.waitMs])).toEqual([[2, "draft", 1, 10]]);
+        const status = await ingestStatus(env.library, "redo-ok");
+        expect(status).toMatchObject({state: "done", committed: 5});
+        // 失败的两次请求与成功的一次都在这次任务的账上，第 2 章只有一个起止。
+        const activity = await new IngestStore(env.library, "redo-ok").readActivity();
+        expect(activity.filter(line => line.kind === "run-start")).toHaveLength(1);
+        expect(activity.filter(line => line.kind === "chapter-start" && line.chapter === 2)).toHaveLength(1);
+    }, 120_000);
+
+    test("同一章一直不成形：重做次数用完（共 1 + 次数 轮）后以 ingest_bad_reply 停下；下一章不开始", async () => {
+        const events: IngestEvent[] = [];
+        const env = await setup("redo-exhausted", key => (key.chapter === 2 && key.step === "draft" ? BAD : undefined));
+        const run = await env.start({text: await sampleSourceText(3), id: "redo-exhausted", timing: {chapterWaitsMs: [5, 5]}, onEvent: event => events.push(event)});
+        const outcome = await run.runner!.done;
+        expect(outcome.kind === "failed" && outcome.code).toBe("ingest_bad_reply");
+        expect(seenCount(env, 2, "draft")).toBe(6);
+        expect(redoEvents(events)).toHaveLength(2);
+        expect(seenCount(env, 3, "beats")).toBe(0);
+        expect((await ingestStatus(env.library, "redo-exhausted"))?.committed).toBe(1);
+    }, 120_000);
+
+    test("autoResume 为 0 不重做；认证失败不重做", async () => {
+        const events: IngestEvent[] = [];
+        const off = await setup("redo-off", key => (key.chapter === 1 && key.step === "beats" ? BAD : undefined));
+        const offRun = await off.start({text: await sampleSourceText(3), id: "redo-off", autoResume: 0, onEvent: event => events.push(event)});
+        expect((await offRun.runner!.done).kind).toBe("failed");
+        expect(seenCount(off, 1, "beats")).toBe(2);
+        expect(redoEvents(events)).toHaveLength(0);
+
+        const auth = await setup("redo-auth", key => (key.chapter === 1 && key.step === "beats" ? {kind: "status", status: 401} : undefined));
+        const authRun = await auth.start({text: await sampleSourceText(3), id: "redo-auth", timing: {chapterWaitsMs: [5, 5]}, onEvent: event => events.push(event)});
+        const outcome = await authRun.runner!.done;
+        expect(outcome.kind === "failed" && [outcome.code, outcome.errorKind]).toEqual(["model_failed", "auth"]);
+        expect(seenCount(auth, 1, "beats")).toBe(1);
+        expect(redoEvents(events)).toHaveLength(0);
+    }, 120_000);
+
+    test("等待重做期间停止：马上停下；等待期间删书：任务停下，书与记录都不在，旧任务不再写回", async () => {
+        const waiting = async (name: string, id: string) => {
+            const events: IngestEvent[] = [];
+            const env = await setup(name, key => (key.chapter === 1 && key.step === "beats" ? BAD : undefined));
+            const run = await env.start({text: await sampleSourceText(3), id, timing: {chapterWaitsMs: [600_000]}, onEvent: event => events.push(event)});
+            await waitUntil("进入重做等待", () => redoEvents(events).length > 0, {timeoutMs: 30_000});
+            return {env, run};
+        };
+        const stopping = await waiting("redo-stop", "redo-stop");
+        expect((await ingestStatus(stopping.env.library, "redo-stop"))?.state).toBe("running");
+        stopping.run.runner!.stop();
+        expect(await stopping.run.runner!.done).toEqual({kind: "stopped"});
+
+        const deleting = await waiting("redo-delete", "redo-delete");
+        await deleting.env.library.removeBook("redo-delete");
+        expect(await deleting.run.runner!.done).toEqual({kind: "stopped"});
+        expect(await ingestStatuses(deleting.env.library)).toEqual([]);
+        const again = await deleting.env.start({text: await sampleSourceText(3), id: "redo-delete"});
+        expect(again.plan.action).toBe("new");
+    }, 120_000);
+});
 
 describe("用量与用时（输出 13）", () => {
     test("停下后换了币种接着抽：费用按币种分开；用时含作废的尝试，历次用时不少于各章之和", async () => {

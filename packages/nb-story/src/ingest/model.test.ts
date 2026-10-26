@@ -9,7 +9,7 @@ import {createServer, type Server, type Socket} from "node:net";
 import {join} from "node:path";
 
 import {startEndpoint, type Endpoint, type EndpointReply} from "../../testing/openai-endpoint";
-import {callModel, ModelAborted, ModelError, type Attempt} from "./model";
+import {callModel, MAX_RETRY_AFTER_MS, ModelAborted, ModelError, RATE_LIMIT_DELAYS_MS, type Attempt} from "./model";
 
 const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
@@ -79,6 +79,64 @@ describe("渠道失败按表重发（输出 9）", () => {
         expect((await run.promise).json).toEqual({ok: true});
         expect(run.waits).toEqual([30_000]);
         expect(run.attempts.map(attempt => [attempt.error?.kind ?? "ok", attempt.usage.complete])).toEqual([["network", false], ["ok", true]]);
+    });
+});
+
+describe("限流退避与用量（输出 9、13）", () => {
+    test("429 按限流表退避：1、2、5 分钟之后成功；用量完整地记 0", async () => {
+        const endpoint = endpointOf([{kind: "status", status: 429}, {kind: "status", status: 429}, {kind: "status", status: 429}, ok]);
+        const run = call(endpoint.url);
+        expect((await run.promise).json).toEqual({ok: true});
+        expect(run.waits).toEqual([60_000, 120_000, 300_000]);
+        expect(run.attempts.map(attempt => [attempt.error?.kind ?? "ok", attempt.usage.complete])).toEqual([["rate_limit", true], ["rate_limit", true], ["rate_limit", true], ["ok", true]]);
+        expect(run.attempts[0]!.usage).toMatchObject({input: 0, output: 0});
+    });
+
+    test("一直 429：共 12 次尝试、等待合计 203 分钟之后以 rate_limit 失败", async () => {
+        const endpoint = endpointOf(Array.from({length: 20}, () => ({kind: "status", status: 429}) as EndpointReply));
+        const run = call(endpoint.url);
+        await expect(run.promise).rejects.toMatchObject({kind: "rate_limit", status: 429});
+        expect(endpoint.bodies).toHaveLength(12);
+        expect(run.waits).toEqual(RATE_LIMIT_DELAYS_MS);
+        expect(run.waits.reduce((sum, ms) => sum + ms, 0)).toBe(203 * 60_000);
+    });
+
+    test("Retry-After 给秒数就按它等，上限 30 分钟；空串、负数、日期、非数字走表", async () => {
+        const cases: [string, number][] = [["7", 7_000], ["2.5", 2_500], ["99999", MAX_RETRY_AFTER_MS], ["", 60_000], ["-5", 60_000], ["abc", 60_000], ["Wed, 21 Oct 2026 07:28:00 GMT", 60_000]];
+        for (const [header, expected] of cases) {
+            const endpoint = endpointOf([{kind: "status", status: 429, headers: {"retry-after": header}}, ok]);
+            const run = call(endpoint.url);
+            await run.promise;
+            expect(run.waits, `Retry-After: ${JSON.stringify(header)}`).toEqual([expected]);
+        }
+    });
+
+    test("两张表各自计数：先断线重发一次、再被限流，限流的等待从 1 分钟开始", async () => {
+        const endpoint = endpointOf([{kind: "status", status: 503}, {kind: "status", status: 429}, ok]);
+        const run = call(endpoint.url);
+        await run.promise;
+        expect(run.waits).toEqual([30_000, 60_000]);
+    });
+
+    test("maxAttempts 压住限流表：只试一次时 429 直接失败；delaysMs 可替换表", async () => {
+        const once = endpointOf([{kind: "status", status: 429}, ok]);
+        await expect(call(once.url, {maxAttempts: 1}).promise).rejects.toMatchObject({kind: "rate_limit"});
+        expect(once.bodies).toHaveLength(1);
+        const custom = endpointOf([{kind: "status", status: 429}, {kind: "status", status: 503}, ok]);
+        const run = call(custom.url, {delaysMs: {rateLimit: [5], network: [9]}});
+        await run.promise;
+        expect(run.waits).toEqual([5, 9]);
+    });
+
+    test("只有明确拒绝才算用量完整的 0：401 完整；503 与流中途的错误事件不完整", async () => {
+        const auth = endpointOf([{kind: "status", status: 401}]);
+        const authRun = call(auth.url);
+        await expect(authRun.promise).rejects.toMatchObject({kind: "auth"});
+        expect(authRun.attempts.map(attempt => attempt.usage.complete)).toEqual([true]);
+        const flaky = endpointOf([{kind: "status", status: 503}, {kind: "stream-error", message: "upstream"}, ok]);
+        const flakyRun = call(flaky.url);
+        await flakyRun.promise;
+        expect(flakyRun.attempts.map(attempt => [attempt.error?.kind ?? "ok", attempt.usage.complete])).toEqual([["network", false], ["network", false], ["ok", true]]);
     });
 });
 

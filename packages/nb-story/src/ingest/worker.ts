@@ -12,7 +12,7 @@ import {IngestStore, type Price} from "./store";
 
 type Endpoint = {baseUrl: string; model: string; apiKeyEnv: string; maxTokens: number};
 
-const withKey = (endpoint: Endpoint) => ({baseUrl: endpoint.baseUrl, model: endpoint.model, apiKey: process.env[endpoint.apiKeyEnv] ?? "", maxTokens: endpoint.maxTokens});
+const withKey = (endpoint: Endpoint) => ({baseUrl: endpoint.baseUrl, model: endpoint.model, apiKey: process.env[endpoint.apiKeyEnv] ?? "", maxTokens: endpoint.maxTokens, apiKeyEnv: endpoint.apiKeyEnv});
 
 export interface WorkerStart {
     type: "start";
@@ -24,6 +24,9 @@ export interface WorkerStart {
     run: string;
     /** 一个 Int32：非 0 表示要停。 */
     stop: SharedArrayBuffer;
+    /** 同一章重做前的等待，长度就是最多重做几次。 */
+    chapterWaitsMs: number[];
+    delaysMs?: {network?: number[]; rateLimit?: number[]};
 }
 
 export type WorkerInbound = WorkerStart | {type: "stop"};
@@ -48,6 +51,8 @@ self.onmessage = (message: MessageEvent<WorkerInbound>) => {
         price: data.price,
         recall: data.recall ? {endpoint: withKey(data.recall.endpoint), price: data.recall.price} : null,
         run: data.run,
+        chapterWaitsMs: data.chapterWaitsMs,
+        ...(data.delaysMs ? {delaysMs: data.delaysMs} : {}),
         signal: controller.signal,
         stopRequested: () => Atomics.load(flag, 0) !== 0,
         onEvent: event => self.postMessage({type: "event", event} satisfies WorkerOutbound),

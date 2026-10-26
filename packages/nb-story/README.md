@@ -52,6 +52,7 @@ nbstory skill install
 
 - 书库默认在 `$XDG_DATA_HOME/nbstory`（没设时 `~/.local/share/nbstory`），换位置加 `--library <目录>`。
 - 配置里只写存密钥的环境变量名，密钥本身不进配置、书库、日志与网页；模型可以选 OMP 目录里的服务商，也可以写自己的 OpenAI 兼容地址。
+- 密钥只认启动 nbstory 时的环境变量（`export`，或当前目录的 `.env`，后者是 Bun 启动时加载的）；放在家目录 `.env` 里的不算，`config show`、`ask`、`ingest` 对此的结论一致。
 - 要结构化结果时所有命令都加 `--json`，标准输出只有一份 `{"ok": …}`。
 - 全部命令与选项见 `nbstory --help` 与 `nbstory <命令> --help`。
 

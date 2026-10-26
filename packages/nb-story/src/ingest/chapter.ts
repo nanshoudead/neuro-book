@@ -28,12 +28,23 @@ export type Step = "recall" | "beats" | "draft" | "review" | "repair" | "consoli
 /** 模型的回复重发一次后仍不成形，或兜底之后书的数据仍有错误（F5）。 */
 export class IngestBadReply extends Error {
     readonly step: Step;
+    /** 整章重做有没有可能消除它：错误只来自这一章新写的记录时为真；提交前整本检查报出的错误可能来自已提交的旧章，重做不会变。 */
+    readonly redoable: boolean;
 
-    constructor(step: Step, message: string) {
+    constructor(step: Step, message: string, redoable = true) {
         super(message);
         this.name = "IngestBadReply";
         this.step = step;
+        this.redoable = redoable;
     }
+}
+
+/** 一步两次不成形的回复，留作事后看模型错在哪（输出 10）。 */
+export interface BadReplyRecord {
+    chapter: number;
+    step: Step;
+    why: string;
+    replies: {round: number; finishReason: string | null; text: string}[];
 }
 
 export interface ChapterRun {
@@ -43,6 +54,8 @@ export interface ChapterRun {
     signal?: AbortSignal;
     sleep?: CallOptions["sleep"];
     fetch?: CallOptions["fetch"];
+    /** 替换渠道失败与限流的延迟表（测试用，见 `CallOptions.delaysMs`）。 */
+    delaysMs?: CallOptions["delaysMs"];
     /** 每一步开始时调用。 */
     onStep?: (step: Step) => void;
     /** 每次 HTTP 尝试发出之前调用（用来记“发出过”）。 */
@@ -50,6 +63,11 @@ export interface ChapterRun {
     /** 每次 HTTP 尝试结束时调用（成功或失败），用来记用量。 */
     onAttempt?: (step: Step, attempt: Attempt) => void;
     onRetry?: (step: Step, info: {attempt: number; waitMs: number; error: ModelError}) => void;
+    /**
+     * 一步两次回复都不成形、要抛 `IngestBadReply` 之前调用：把两次回复交给调用方留存，返回留存的路径；
+     * 留不下来（调用方出错）时返回 null，错误信息里就不写路径。
+     */
+    onBadReply?: (record: BadReplyRecord) => Promise<string | null>;
 }
 
 export interface ChapterInput {
@@ -106,9 +124,10 @@ type Ask = (step: Step, systemPrompt: string, user: string, effort: IngestEffort
 function asker(run: ChapterRun, chapter: number): Ask {
     return async (step, systemPrompt, user, effort, valid, endpoint = run.endpoint) => {
         run.onStep?.(step);
+        const replies: BadReplyRecord["replies"] = [];
         for (let round = 1; ; round++) {
             const reply = await callModel(endpoint, {
-                system: systemPrompt, user, effort, signal: run.signal, sleep: run.sleep, fetch: run.fetch,
+                system: systemPrompt, user, effort, signal: run.signal, sleep: run.sleep, fetch: run.fetch, delaysMs: run.delaysMs,
                 // 请求头里的身份：章、步骤、这一步的第几次（不成形时重发算下一次；渠道重发不变）。
                 tag: `${chapter}/${step}/${round}`,
                 onAttemptStart: attempt => run.onAttemptStart?.(step, attempt),
@@ -116,9 +135,12 @@ function asker(run: ChapterRun, chapter: number): Ask {
                 onRetry: info => run.onRetry?.(step, info),
             });
             if (reply.finishReason !== "length" && reply.json !== null && valid(reply)) return reply.json;
+            replies.push({round, finishReason: reply.finishReason, text: reply.text});
             if (round === 2) {
                 const why = reply.finishReason === "length" ? "回复被截断" : reply.json === null ? "回复不是 JSON" : "回复缺本章的内容";
-                throw new IngestBadReply(step, `第 ${chapter} 章${STEP_NAMES[step]}：${why}，重发一次后仍是这样`);
+                // 容错的步骤（挑相关说法、整理）接住这个异常后这一章照常提交，所以不论后面怎样，原文先留下。
+                const saved = await run.onBadReply?.({chapter, step, why, replies});
+                throw new IngestBadReply(step, `第 ${chapter} 章${STEP_NAMES[step]}：${why}，重发一次后仍是这样${saved ? `（两次回复的原文留在书库的 ${saved}）` : ""}`);
             }
         }
     };

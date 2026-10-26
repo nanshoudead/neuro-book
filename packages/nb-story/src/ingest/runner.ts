@@ -17,6 +17,7 @@ import {StoryError} from "../core/errors";
 import {bookIdFromTitle, isValidBookId, type Library} from "../core/library";
 import type {FileLock} from "../platform/flock";
 import type {IngestEvent, JobOutcome} from "./job";
+import {chapterWaits} from "./retry-policy";
 import {applyPlan, planFromSaved, planFromText, type IngestPlan} from "./start";
 import {IngestStore, type IngestState, type Price, type RunnerKind} from "./store";
 import type {WorkerOutbound, WorkerStart} from "./worker";
@@ -58,6 +59,10 @@ export interface StartInput {
     /** 挑相关说法用的模型；null 时不挑（默认）。 */
     recall: {endpoint: EndpointConfig; price: Price | null} | null;
     runner: RunnerKind;
+    /** 同一章失败（回复不成形、渠道失败重试用完）后最多重做几次，缺省 3；0 不重做。 */
+    autoResume?: number;
+    /** 替换等待时间（测试把分钟缩成毫秒；产品里不传）：章级重做的等待，以及渠道失败与限流的延迟表。 */
+    timing?: {chapterWaitsMs?: number[]; delaysMs?: {network?: number[]; rateLimit?: number[]}};
     onEvent?: (event: IngestEvent) => void;
 }
 
@@ -148,7 +153,10 @@ function launch(input: StartInput, plan: IngestPlan, store: IngestStore, lock: F
     };
     worker.addEventListener("close", () => finish(stopRequested ? {kind: "stopped"} : {kind: "failed", code: "model_failed", errorKind: "local", message: "抽取线程意外退出"}));
 
-    const start: WorkerStart = {type: "start", libraryRoot: input.library.root, id: plan.id, endpoint: input.endpoint, price: input.price, recall: input.recall, run, stop: stopBuffer};
+    const start: WorkerStart = {type: "start", libraryRoot: input.library.root, id: plan.id, endpoint: input.endpoint, price: input.price, recall: input.recall, run, stop: stopBuffer,
+        chapterWaitsMs: input.timing?.chapterWaitsMs ?? chapterWaits(input.autoResume ?? 3),
+        ...(input.timing?.delaysMs ? {delaysMs: input.timing.delaysMs} : {}),
+    };
     worker.postMessage(start);
 
     return {

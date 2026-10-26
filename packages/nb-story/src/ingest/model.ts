@@ -26,6 +26,8 @@ export interface ModelEndpoint {
     apiKey: string;
     /** 一次回复的输出上限（token）。 */
     maxTokens: number;
+    /** 存密钥的环境变量名，只用来在缺密钥时写进错误信息。 */
+    apiKeyEnv?: string;
 }
 
 /** 一次 HTTP 尝试的用量。拿不到（中止、流中断、跑飞）时 `complete` 为 false，数值是已知的下界。 */
@@ -48,12 +50,15 @@ export interface Attempt {
 export class ModelError extends Error {
     readonly kind: ErrorKind;
     readonly status: number | null;
+    /** 服务用 `Retry-After` 要求的等待（毫秒，已限在 `MAX_RETRY_AFTER_MS` 内）；没给或格式不认识为 null。 */
+    readonly retryAfterMs: number | null;
 
-    constructor(kind: ErrorKind, status: number | null, message: string) {
+    constructor(kind: ErrorKind, status: number | null, message: string, retryAfterMs: number | null = null) {
         super(message);
         this.name = "ModelError";
         this.kind = kind;
         this.status = status;
+        this.retryAfterMs = retryAfterMs;
     }
 }
 
@@ -85,8 +90,10 @@ export interface CallOptions {
     onAttemptStart?: (attempt: number) => void | Promise<void>;
     /** 每次 HTTP 尝试结束时调用（成功或失败），用来记账。 */
     onAttempt?: (attempt: Attempt) => void;
-    /** 至多几次 HTTP 尝试，默认按重发的延迟表（6 次）。`config test --ingest` 只试一次。 */
+    /** 至多几次 HTTP 尝试，默认按重发的延迟表（网络类 6 次、限流 12 次）。`config test --ingest` 只试一次。 */
     maxAttempts?: number;
+    /** 替换延迟表；测试把分钟级的等待缩成毫秒，产品里不传。 */
+    delaysMs?: {network?: readonly number[]; rateLimit?: readonly number[]};
     /** 这次调用的身份（写进请求头 `X-Nbstory-Step`），渠道重发时不变。 */
     tag?: string;
     /** 一次 HTTP 尝试的时限；默认 10 分钟。 */
@@ -102,6 +109,15 @@ export interface CallOptions {
 /** 渠道失败后的等待（毫秒）：第 n 次重发前等第 n 项。表的长度就是重发次数，连同第一次合计至多 6 次。 */
 export const RETRY_DELAYS_MS = [30_000, 60_000, 120_000, 180_000, 300_000];
 
+/**
+ * 限流（429）后的等待：1、2、5、10、15、20 分钟，之后每次 30 分钟，连同第一次合计至多 12 次，等待合计 203 分钟。
+ * 限流一般是渠道的额度窗口，几分钟的间隔不够（2026-10-24 西游记抽取里 429 持续了二十多分钟）。
+ */
+export const RATE_LIMIT_DELAYS_MS = [60_000, 120_000, 300_000, 600_000, 900_000, 1_200_000, 1_800_000, 1_800_000, 1_800_000, 1_800_000, 1_800_000];
+
+/** `Retry-After` 采用的上限：服务要求更久时也只等这么久，之后再试一次看看。 */
+export const MAX_RETRY_AFTER_MS = 1_800_000;
+
 /** 连续这么多个空白字符，判定为“跑飞”：模型写坏一段 JSON 后只输出空白，直到输出上限。 */
 export const RUNAWAY_WHITESPACE = 2000;
 
@@ -111,9 +127,12 @@ const ATTEMPT_TIMEOUT_MS = 600_000;
 export const STEP_HEADER = "X-Nbstory-Step";
 /** 错误文字里回显的密钥换成它（与 nb-harness 的 `REDACTED_KEY` 相同）。 */
 const REDACTED_KEY = "[REDACTED]";
+/** 服务明确拒绝、没有受理请求的状态码（用量确定为 0）。 */
+const REJECTED_UNPROCESSED = new Set([401, 403, 429]);
 const NETWORK_STATUSES = new Set([408, 502, 503, 504, 520, 521, 522, 523, 524]);
 
-function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
+/** 等 `ms` 毫秒；被中止时 reject `ModelAborted`。 */
+export function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
         if (signal?.aborted) {
             reject(new ModelAborted());
@@ -159,7 +178,7 @@ function classify(error: unknown, apiKey: string): ModelError {
         const message = redact(error.message);
         if (status === 401 || status === 403) return new ModelError("auth", status, message);
         if (status === 402 || code === "insufficient_quota") return new ModelError("quota", status, message);
-        if (status === 429) return new ModelError("rate_limit", status, message);
+        if (status === 429) return new ModelError("rate_limit", status, message, retryAfterOf(error.headers));
         if (code === "context_length_exceeded") return new ModelError("context_overflow", status, message);
         if (status !== null && (NETWORK_STATUSES.has(status) || status >= 500)) return new ModelError("network", status, message);
         return new ModelError("provider", status, message);
@@ -167,8 +186,18 @@ function classify(error: unknown, apiKey: string): ModelError {
     return new ModelError("local", null, redact(error instanceof Error ? error.message : String(error)));
 }
 
-/** 渠道这边的失败（超时、断线、5xx、跑飞、流没有结束原因）重发；认证、额度、限流、模型拒绝请求（含推理档）不重发。 */
-const retryable = (error: ModelError) => error.kind === "network";
+/**
+ * `Retry-After` 取秒数（HTTP 日期、空串、负数、非数字都不认，走延迟表），换成毫秒并限在 `MAX_RETRY_AFTER_MS` 内。
+ * SDK 的 `APIError.headers` 是标准 `Headers`，不能按下标读。
+ */
+function retryAfterOf(headers: Headers | undefined): number | null {
+    const value = headers?.get("retry-after")?.trim();
+    if (value === undefined || !/^\d+(\.\d+)?$/u.test(value)) return null;
+    return Math.min(Math.round(Number(value) * 1000), MAX_RETRY_AFTER_MS);
+}
+
+/** 渠道这边的失败（超时、断线、5xx、跑飞、流没有结束原因）与限流重发；认证、额度、模型拒绝请求（含推理档）不重发。 */
+const retryable = (error: ModelError) => error.kind === "network" || error.kind === "rate_limit";
 
 /** 取出回复里的 JSON 对象。模型偶尔在 JSON 前后多写几个字，取第一个“{”到最后一个“}”。 */
 function parseJsonObject(text: string): unknown {
@@ -184,7 +213,7 @@ function parseJsonObject(text: string): unknown {
 
 /** 一次逻辑请求：按延迟表重发渠道失败，返回最终的回复；不可重试或重试用完时抛 `ModelError`，被中止时抛 `ModelAborted`。 */
 export async function callModel(endpoint: ModelEndpoint, options: CallOptions): Promise<ModelReply> {
-    if (endpoint.apiKey === "") throw new ModelError("auth", null, "模型的密钥环境变量没有设置");
+    if (endpoint.apiKey === "") throw new ModelError("auth", null, `模型的密钥环境变量${endpoint.apiKeyEnv === undefined ? "" : ` ${endpoint.apiKeyEnv} `}没有设置（nbstory 只认启动时的环境变量，不读家目录的 .env）`);
     const client = new OpenAI({
         apiKey: endpoint.apiKey,
         baseURL: endpoint.baseUrl,
@@ -194,13 +223,20 @@ export async function callModel(endpoint: ModelEndpoint, options: CallOptions): 
         ...(options.fetch ? {fetch: options.fetch} : {}),
     });
     const sleep = options.sleep ?? defaultSleep;
+    // 两类失败各按自己的表计数：先断了几次线、后来被限流，限流的等待从表头开始。
+    const failures = {network: 0, rate_limit: 0};
     for (let attempt = 1; ; attempt++) {
         if (options.signal?.aborted) throw new ModelAborted();
         const outcome = await attemptOnce(client, endpoint, options, attempt);
         if (outcome.ok) return outcome.reply;
         if (options.signal?.aborted) throw new ModelAborted();
-        const waitMs = attempt < (options.maxAttempts ?? Infinity) ? RETRY_DELAYS_MS[attempt - 1] : undefined;
-        if (!retryable(outcome.error) || waitMs === undefined) throw outcome.error;
+        const {error} = outcome;
+        if (!retryable(error) || attempt >= (options.maxAttempts ?? Infinity)) throw error;
+        const kind = error.kind as "network" | "rate_limit";
+        const table = kind === "rate_limit" ? (options.delaysMs?.rateLimit ?? RATE_LIMIT_DELAYS_MS) : (options.delaysMs?.network ?? RETRY_DELAYS_MS);
+        const scheduled = table[failures[kind]++];
+        if (scheduled === undefined) throw error;
+        const waitMs = error.retryAfterMs ?? scheduled;
         options.onRetry?.({attempt, waitMs, error: outcome.error});
         await sleep(waitMs, options.signal);
     }
@@ -292,7 +328,15 @@ async function attemptOnce(client: OpenAI, endpoint: ModelEndpoint, options: Cal
     if (failure !== null) {
         // 读流时连接断了（Bun 直接从响应体抛出，SDK 不包装）：按网络失败重发，不看错误文字。
         if (streaming && !(failure instanceof OpenAI.APIError)) return fail(new ModelError("network", null, redactKey(`读回复的流时连接断了：${failure instanceof Error ? failure.message : String(failure)}`, endpoint.apiKey)));
-        return fail(classify(failure, endpoint.apiKey));
+        const error = classify(failure, endpoint.apiKey);
+        // 服务在读请求之前就明确拒绝（401、403 认证失败，429 限流）：请求没有被受理，用量确定是 0，不让汇总标成不完整。
+        // 5xx、408、网关故障不算：网关报错时上游可能已经生成并计费，状态码证明不了没花钱。
+        if (!streaming && error.status !== null && REJECTED_UNPROCESSED.has(error.status)) {
+            usage.complete = true;
+            record(error);
+            return {ok: false, error};
+        }
+        return fail(error);
     }
     if (finishReason === null) return fail(new ModelError("network", null, "回复的流没有结束原因就断了"));
     record(null);

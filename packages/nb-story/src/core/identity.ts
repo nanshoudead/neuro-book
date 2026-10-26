@@ -86,8 +86,14 @@ export function awarenessOfLink(view: BookView, who: Iterable<string>, link: Ide
     return best ? {state: best.state, at: best.at} : null;
 }
 
-function representative(members: readonly VisibleEntity[]): VisibleEntity {
-    return members.find(entity => entity.kind === "person") ?? members[0]!;
+/**
+ * 点的代表对象：成员里出场最多的 person，没有 person 时取第一个成员。不按对象编号先后取：编号只说明谁先被建出来，
+ * 一旦有一条身份说法误连了别人（t19 西游记里法明和尚与玄奘），编号靠前的次要人物会把整个点的名字占去。
+ */
+function representative(members: readonly VisibleEntity[], mentionTotal: (entity: VisibleEntity) => number): VisibleEntity {
+    let best: VisibleEntity | undefined;
+    for (const entity of members) if (entity.kind === "person" && (best === undefined || mentionTotal(entity) > mentionTotal(best))) best = entity;
+    return best ?? members[0]!;
 }
 
 /** 点的显示名（还没区分重名）：代表对象最新的可见主名 → 其它成员的主名 → P 之前出现最多的称呼 → “未具名身份”。 */
@@ -144,20 +150,23 @@ function buildGrouping(view: BookView, perspective: string, merge: Merge, self: 
         byText.set(mention.text, (byText.get(mention.text) ?? 0) + 1);
     }
 
+    const mentionTotal = (entity: VisibleEntity) => {
+        let total = 0;
+        for (const value of mentionCounts.get(entity.id)?.values() ?? []) total += value;
+        return total;
+    };
     const nodeOf = new Map<string, string>();
     const members = new Map<string, string[]>();
     const rawLabels = new Map<string, string>();
     const mentions = new Map<string, number>();
     const reps = new Map<string, VisibleEntity>();
     for (const list of groups.values()) {
-        const rep = representative(list);
+        const rep = representative(list, mentionTotal);
         reps.set(rep.id, rep);
         members.set(rep.id, list.map(entity => entity.id));
         for (const entity of list) nodeOf.set(entity.id, rep.id);
         rawLabels.set(rep.id, baseLabel(list, rep, mentionCounts));
-        let count = 0;
-        for (const entity of list) for (const value of mentionCounts.get(entity.id)?.values() ?? []) count += value;
-        mentions.set(rep.id, count);
+        mentions.set(rep.id, list.reduce((sum, entity) => sum + mentionTotal(entity), 0));
     }
 
     // 重名：出场最多的那个保留原名，其余的加简短说明。

@@ -8,8 +8,9 @@
 import {createHarness, createToolRegistry, type HarnessOptions, type RunError, type TurnResult} from "@notnotype/nb-harness";
 import {createMemorySessionLog} from "@notnotype/nb-session";
 
+import type {KeyEnv} from "../platform/startup-env";
 import type {QaConfig} from "./config";
-import {resolveQaModel, thinkingOption} from "./harness-model";
+import {keyVariables, onlyKeysIn, resolveQaModel, thinkingOption} from "./harness-model";
 import probeProfile from "./probe.profile";
 
 export type ProbeResult =
@@ -18,9 +19,11 @@ export type ProbeResult =
     | {ok: false; reason: "aborted"; ms: number}
     | {ok: false; reason: "not_finished"; stopReason: TurnResult["stopReason"]; ms: number};
 
-export async function probeModel(config: QaConfig, options: {signal?: AbortSignal; streamFn?: HarnessOptions["streamFn"]} = {}): Promise<ProbeResult> {
+/** `keyEnv` 给了就只认这份环境里的密钥（与问答同口径，docs/adr/0032）。 */
+export async function probeModel(config: QaConfig, options: {signal?: AbortSignal; streamFn?: HarnessOptions["streamFn"]; keyEnv?: KeyEnv} = {}): Promise<ProbeResult> {
     const started = Date.now();
-    const model = resolveQaModel(config);
+    const chosen = resolveQaModel(config);
+    const model = options.keyEnv === undefined ? chosen : {...chosen, resolved: onlyKeysIn(chosen.resolved, keyVariables(config, chosen.ref), options.keyEnv)};
     const harness = await createHarness({
         profile: probeProfile,
         initial: {},

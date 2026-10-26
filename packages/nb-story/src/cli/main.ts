@@ -7,6 +7,8 @@
  * `serve` 与 `ask` 用到的代码（服务端、OMP）只在这两条命令里动态导入，其余命令不加载它们。
  */
 
+// 必须是第一条导入：启动环境的快照要先于任何 OMP 模块取（platform/startup-env.ts）。
+import "../platform/startup-env";
 import type {StoryMethod} from "../contract/contract";
 import {createStoryApi} from "../core/api";
 import {coordinatedLibrary} from "../ingest/coordinator";

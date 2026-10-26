@@ -282,6 +282,9 @@ export function compile(book: Dataset["book"], sources: SourceChapter[], rawDraf
             const what = `说法 ${item.id}`;
             const subject = {records: [item.id]};
             for (const id of item.about) has(entities, id, chapter, what, subject);
+            // 任务不是一个个体，不可能“就是”某个人或物：模型常把“某人是取经人的人选”这类说法误标成身份同一，连成同一个点
+            // 以后人物卡会混进任务（t19 西游记 `s9-38`、`s70-2`）。作为错误交给兜底丢弃这条说法。
+            if (item.family === "identity" && item.about.some(id => entities.get(id)?.kind === "task")) issue("error", chapter, "identity", `说法 ${item.id}：身份同一类的说法不能连接任务类的对象（任务不是一个个体）`, subject);
             if (item.source.by) has(entities, item.source.by, chapter, what, subject);
             for (const id of item.source.to) has(entities, id, chapter, what, subject);
             for (const id of item.premises) has(statements, id, chapter, what, subject);
