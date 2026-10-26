@@ -1,0 +1,36 @@
+# 草稿：新应用的发行形式与第二期范围（待审查）
+
+## 背景
+
+- 新应用 `packages/neuro-book`（v2）现在 `private: true`，没有 bin、exports、files；靠 `bun run build`（`build:server`：`bun build src/server/main.ts --target bun --outdir dist/server` 与 `bun build src/project/main.ts --target bun --outfile dist/server/project.js`；`build:web`：`vite build` 到 `dist/web`；`check:dist`）后 `NBOOK_WEB_ROOT=dist/web bun dist/server/main.js` 启动。
+- 服务端配置全靠环境变量（`src/server/config.ts`）：`NBOOK_STATE_ROOT` 必填、`NBOOK_HOST`（只许回环）、`NBOOK_PORT` 4217、`NBOOK_RPC_PORT` 4218、`NBOOK_WEB_ROOT` 等；命令行参数只认 `--stop-stdin`。
+- 状态根下：`logs/`、`settings.json`、`storage/user.sqlite`、`projects.json`、`plugins/`（第三方插件安装目录）。作品目录缺省 `<文档目录>/NeuroBook`。
+- 插件 SDK 是另一个包 `@notnotype/nb-plugin-sdk`（tarball，版本等于产品版本 `PRODUCT_VERSION`，带作者命令 `nbooke`）。
+- ADR 0029：9 个工作区包发源码到 npm（只承诺 Bun），决定 6 明确不含新应用的交付链。ADR 0030：SDK 版本等于产品版本、随应用发布。
+- 旧应用（master 上的旧版本）的发行：Windows zip、NeuroBook Manager（多实例、Docker、源码构建），v2 分支已删除交付链。
+- 开发者已定（2026-10-24/25）：应用与 SDK 一起发 npm（`@notnotype/neuro-book`、`@notnotype/nb-plugin-sdk`，同一个版本号，接在旧应用 0.10.x 之后）；命令行分两个：`nbook` 给用户与 Agent（随应用），`nbooke` 给作者（在 SDK 包里）；`nbook` 的状态根缺省按平台的数据目录（Linux `$XDG_DATA_HOME/neuro-book`，缺省 `~/.local/share/neuro-book`；macOS `~/Library/Application Support/NeuroBook`；Windows `%LOCALAPPDATA%\NeuroBook`），`NBOOK_STATE_ROOT` 可覆盖；`nbook` 第一版是启动加插件管理（`start`；`plugin list/install/enable/disable/uninstall`，写登记表，下一次启动生效）。
+
+## 提议
+
+同一份核心（Bun 服务端 + Web 构建产物），三层发行，每层只多加一样东西：
+
+| 层 | 用户拿到什么 | 怎么装 | 给谁 |
+|---|---|---|---|
+| 1. npm 包 `@notnotype/neuro-book` | `nbook` 命令：启动本地服务、打开浏览器；管插件 | `bun add -g` 或 `bunx` | 开发者、插件作者、Agent；要装 Bun |
+| 2. 单文件可执行 | 每个平台一个二进制，`bun build --compile` 内置 Bun 运行时与 Web 资源，行为同第 1 层 | GitHub Releases | 不想装 Bun 的用户 |
+| 3. 桌面应用 | 原生窗口、托盘、文件关联、自动更新；窗口加载本地服务的页面 | 安装包 | 大多数用户 |
+
+要点：
+
+1. npm 包发构建产物（`dist/server`、`dist/web`），不发源码：用户机器上不跑 Vite。作为 ADR 0029“发源码”的例外，写进新 ADR。
+2. 桌面端不用 Electron（自带 Node，服务端只认 Bun）；候选 Electrobun（为 Bun 做的桌面框架，系统 webview，2026 年 2 月前后 v1.0，npm 上 1.18.1；官方支持 macOS 14+、Windows 11+、Ubuntu 22.04+）与 Tauri（把第 2 层的可执行程序当子进程）。实测后再选。
+3. 各层共用同一个状态根（平台数据目录），插件流程处处一样：作者 `nbooke build`，用户 `nbook plugin install` 或设置页安装。
+4. 不恢复旧应用的 Manager：多实例靠各自的 `NBOOK_STATE_ROOT`；Docker 以后另出镜像。
+5. 第二期只做第 1 层（npm 包 + `nbook start` + 插件管理）；第 2、3 层另写提案，主要工作是实测 Electrobun 与 Tauri、核实单文件可执行能拉起项目子进程并加载已安装的插件。
+
+## 作者自己没核实的假设
+
+- 构建后的服务端运行时不需要 Vite 或其它构建期依赖（第三方插件的装载、安装、开发路径）；`dist/server` 是否已把依赖打包进去、npm 包运行时还要哪些 `dependencies`。
+- `bun build --compile` 能做出可用的单文件：内嵌 `dist/web`、拉起项目子进程（现在是另一个文件 `dist/server/project.js`）、从状态根 `import()` 已安装插件的代码、`bun:sqlite`。
+- 新应用在 Windows 上能不能跑（`owned-process` 有 POSIX 监督进程；ADR 0031 是 nb-story 支持 Windows）。
+- 服务端运行时 `nbook plugin install` 写同一个登记表：与运行中服务端并发写是否安全（plugin-install 验收 15 是两个服务端进程同时安装）。
