@@ -29,6 +29,7 @@ import {ABSENT_CONFIG, currentConfigDigest, defaultConfigPath, readQaConfigFile,
 import {continuationProblem, prepareQuestion, withoutFullText, type AskInput, type PreparedQuestion, type QaOutcome} from "../qa/engine";
 import {QaError, type QaErrorCode} from "../qa/errors";
 import {catalogModel, discoverModels, listCatalog, providerKeyReady} from "@notnotype/nb-harness";
+import {startupEnv, startupKeyReady} from "../platform/startup-env";
 
 import {configCatalog, modelOf, resolveQaModel} from "../qa/harness-model";
 import {probeModel} from "../qa/probe";
@@ -101,12 +102,13 @@ function projection(mode: string, turn: number, question: string): (entry: Sessi
 export function createQaService(options: QaServiceOptions): QaService {
     const {api} = options;
     const configPath = options.configPath ?? defaultConfigPath();
-    const env = options.env ?? process.env;
+    const env = options.env ?? startupEnv;
     const updateInterval = options.updateIntervalMs ?? 100;
     const probeTimeout = options.probeTimeoutMs ?? 60_000;
     const streamFn = options.streamFn === undefined ? {} : {streamFn: options.streamFn};
     // 目录服务商的密钥有没有值：服务启动时取一次（OMP 的取法读进程环境与 .env，不收注入的 env；qa.md 的 models.catalog）。
-    const catalogKeys = new Map(listCatalog().map(provider => [provider.id, providerKeyReady(provider.id)]));
+    // 启动环境里一个相关变量都没有时按没有算：OMP 导入时读进来的 .env 不算（adr 0032）。
+    const catalogKeys = new Map(listCatalog().map(provider => [provider.id, providerKeyReady(provider.id) && startupKeyReady(provider.keyEnvs)]));
 
     const runs = new Map<string, Run>();
     /** 已经接纳、还在准备的轮次，按“书/对话”；settle 时这一轮要么已登记进 `runs`，要么已放弃。 */
@@ -230,6 +232,7 @@ export function createQaService(options: QaServiceOptions): QaService {
                 book: params.book,
                 question: params.question,
                 config,
+                keyEnv: env,
                 ...(choice === null ? {} : {model: choice}),
                 ...(params.conversation === undefined ? {conversationId: id, mode: params.mode ?? "graph", ...(params.at === undefined ? {} : {at: params.at}), ...(params.answer === undefined ? {} : {answer: params.answer})} : {continueFrom: id}),
                 signal: controller.signal,

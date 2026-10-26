@@ -29,7 +29,7 @@ import type {PositionInput} from "../core/position";
 import type {QaAnswerMode} from "../contract/qa-record";
 import {answerModeOf, newQaRecordId, QaRecords, type QaConversation, type QaMode, type QaReply, type QaTurn, type QaUsage} from "../core/qa-records";
 import {qaLimits, type QaConfig} from "./config";
-import {resolveQaModel, thinkingOption, type QaModelChoice} from "./harness-model";
+import {keyVariables, onlyKeysIn, resolveQaModel, thinkingOption, type QaModelChoice} from "./harness-model";
 import {QaError} from "./errors";
 import {ReadLedger} from "./read-ledger";
 import {recheckMessage} from "./rules";
@@ -69,6 +69,8 @@ export interface AskInput {
     onLogEntries?: (entries: readonly SessionEntry[]) => void;
     /** 透传给 nb-harness 的 `createHarness`（它的公开选项）；测试用脚本化模型。 */
     streamFn?: HarnessOptions["streamFn"];
+    /** 给了就只认这份环境里的密钥（命令行与服务给启动环境的快照，docs/adr/0032）；不给时照 OMP 的取法读实时的环境。 */
+    keyEnv?: Readonly<Record<string, string | undefined>>;
 }
 
 /** 记录没保存的原因：书删了或换了代、格式不认识只读、对话被同时追问了，或写盘失败（附说明）。 */
@@ -299,7 +301,8 @@ export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion
     const start = input.continueFrom === undefined ? await startNew(input, started) : await startContinued(input, input.continueFrom);
     const {book, at, mode, ledger, previous, id} = start;
     // 没选模型（包括只给了推理档）时续问接着用上一轮的模型（qa.md 输出 40）。
-    const qaModel = resolveQaModel(input.config, {...(previous === null ? {} : continuedChoice(input.config, previous)), ...input.model});
+    const chosen = resolveQaModel(input.config, {...(previous === null ? {} : continuedChoice(input.config, previous)), ...input.model});
+    const qaModel = input.keyEnv === undefined ? chosen : {...chosen, resolved: onlyKeysIn(chosen.resolved, keyVariables(input.config, chosen.ref), input.keyEnv)};
 
     const state: QaToolState = {book, at, ledger, answer: null};
     // 作答被退回的次数：不只是我们的校验，OMP 的参数校验与“收尾要单独调用”的退回也算，所以按工具结束事件数。

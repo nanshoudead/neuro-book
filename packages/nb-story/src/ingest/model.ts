@@ -26,6 +26,8 @@ export interface ModelEndpoint {
     apiKey: string;
     /** 一次回复的输出上限（token）。 */
     maxTokens: number;
+    /** 存密钥的环境变量名，只用来在缺密钥时写进错误信息。 */
+    apiKeyEnv?: string;
 }
 
 /** 一次 HTTP 尝试的用量。拿不到（中止、流中断、跑飞）时 `complete` 为 false，数值是已知的下界。 */
@@ -211,7 +213,7 @@ function parseJsonObject(text: string): unknown {
 
 /** 一次逻辑请求：按延迟表重发渠道失败，返回最终的回复；不可重试或重试用完时抛 `ModelError`，被中止时抛 `ModelAborted`。 */
 export async function callModel(endpoint: ModelEndpoint, options: CallOptions): Promise<ModelReply> {
-    if (endpoint.apiKey === "") throw new ModelError("auth", null, "模型的密钥环境变量没有设置");
+    if (endpoint.apiKey === "") throw new ModelError("auth", null, `模型的密钥环境变量${endpoint.apiKeyEnv === undefined ? "" : ` ${endpoint.apiKeyEnv} `}没有设置（nbstory 只认启动时的环境变量，不读家目录的 .env）`);
     const client = new OpenAI({
         apiKey: endpoint.apiKey,
         baseURL: endpoint.baseUrl,

@@ -12,7 +12,7 @@ import {IngestStore, type Price} from "./store";
 
 type Endpoint = {baseUrl: string; model: string; apiKeyEnv: string; maxTokens: number};
 
-const withKey = (endpoint: Endpoint) => ({baseUrl: endpoint.baseUrl, model: endpoint.model, apiKey: process.env[endpoint.apiKeyEnv] ?? "", maxTokens: endpoint.maxTokens});
+const withKey = (endpoint: Endpoint) => ({baseUrl: endpoint.baseUrl, model: endpoint.model, apiKey: process.env[endpoint.apiKeyEnv] ?? "", maxTokens: endpoint.maxTokens, apiKeyEnv: endpoint.apiKeyEnv});
 
 export interface WorkerStart {
     type: "start";

@@ -12,6 +12,7 @@ import {defaultConfigPath, defaultIngestFallback, LEGACY_PROVIDER_ID, digestBefo
 import {EFFORTS} from "../contract/config-schema";
 import {applyInitAnswers, ConfigEditError, echoable, envNameProblem, setConfigField, unsetConfigField, type InitAnswers} from "../qa/config-edit";
 import {QaError} from "../qa/errors";
+import {startupEnv, startupHas, startupKeyReady} from "../platform/startup-env";
 import {EXIT_INTERRUPTED, EXIT_QA_FAILED, runInterruptible} from "./ask";
 import type {CliIo} from "./main";
 
@@ -28,7 +29,8 @@ const THINKING_NOTE = "不写：请求不带推理档，由服务端的默认档
 async function catalogTools(): Promise<{catalog: ConfigCatalog; keyReady: (provider: string) => boolean; keyEnvs: (provider: string) => readonly string[]; resolve: typeof import("../qa/harness-model").resolveQaModel}> {
     const [{configCatalog, resolveQaModel}, {listCatalog, providerKeyReady}] = await Promise.all([import("../qa/harness-model"), import("@notnotype/nb-harness")]);
     const envs = new Map(listCatalog().map(provider => [provider.id, provider.keyEnvs]));
-    return {catalog: configCatalog(), keyReady: providerKeyReady, keyEnvs: provider => envs.get(provider) ?? [], resolve: resolveQaModel};
+    // OMP 说有密钥，启动环境里也得有一个相关变量：OMP 导入时读进来的 .env 不算（adr 0032）。
+    return {catalog: configCatalog(), keyReady: provider => providerKeyReady(provider) && startupKeyReady(envs.get(provider) ?? []), keyEnvs: provider => envs.get(provider) ?? [], resolve: resolveQaModel};
 }
 type CatalogTools = Awaited<ReturnType<typeof catalogTools>>;
 
@@ -135,17 +137,17 @@ export async function configCommand(options: ConfigOptions, io: CliIo): Promise<
             case "show": {
                 const tools = await catalogTools();
                 const config = await loadQaConfig(path, tools.catalog);
-                const ingest = ingestData(config, process.env);
+                const ingest = ingestData(config, startupEnv);
                 const recall = config.ingest?.recall?.enabled === true && !("unavailable" in ingest) ? recallModel(config) : null;
                 return done(
                     {
                         path, config,
                         model: {use: config.model.use, thinking: tools.resolve(config).thinking ?? null},
-                        providers: providersOf(config, tools, process.env),
+                        providers: providersOf(config, tools, startupEnv),
                         ingest,
-                        recall: recall === null ? null : {source: recall.source, id: recall.id, apiKeySet: Boolean(process.env[recall.apiKeyEnv])},
+                        recall: recall === null ? null : {source: recall.source, id: recall.id, apiKeySet: startupHas(recall.apiKeyEnv)},
                     },
-                    describe(path, config, tools, process.env),
+                    describe(path, config, tools, startupEnv),
                 );
             }
             case "set":
@@ -247,7 +249,7 @@ async function init(params: Record<string, unknown>, path: string, io: CliIo, js
         }
     }
     await saveQaConfig(path, config, {expect, catalog: tools.catalog});
-    const missingKey = providersOf(config, tools, process.env).find(item => item.id === parseModelRef(config.model.use).provider && item.keyEnvs.length > 0 && !item.keySet);
+    const missingKey = providersOf(config, tools, startupEnv).find(item => item.id === parseModelRef(config.model.use).provider && item.keyEnvs.length > 0 && !item.keySet);
     const warning = missingKey === undefined ? "" : `\n· 环境变量 ${missingKey.keyEnvs.join(" 或 ")} 现在没有设置，问答前要先设置它`;
     return done({path, config}, `已写 ${path}${warning}\n下一步：nbstory config test 检查能不能用`);
 }
@@ -288,7 +290,7 @@ async function testIngest(path: string, signal: AbortSignal, io: CliIo, json: bo
     const model = ingestModel(config);
     const recall = recallModel(config);
     const {callModel, ModelAborted, ModelError} = await import("../ingest/model");
-    const endpointOf = (choice: {baseUrl: string; id: string; apiKeyEnv: string; maxTokens: number}) => ({baseUrl: choice.baseUrl, model: choice.id, apiKey: process.env[choice.apiKeyEnv] ?? "", maxTokens: choice.maxTokens});
+    const endpointOf = (choice: {baseUrl: string; id: string; apiKeyEnv: string; maxTokens: number}) => ({baseUrl: choice.baseUrl, model: choice.id, apiKey: startupEnv[choice.apiKeyEnv] ?? "", maxTokens: choice.maxTokens, apiKeyEnv: choice.apiKeyEnv});
     type Trial = {effort: "minimal" | "medium"; for: "ingest" | "recall"};
     type Result = Trial & ({ok: true; ms: number; usage: {input: number; output: number}} | {ok: false; kind: string; message: string});
     const trials: Trial[] = [{effort: "minimal", for: "ingest"}, {effort: "medium", for: "ingest"}, ...(recall === null ? [] : [{effort: "minimal", for: "recall"} as const])];

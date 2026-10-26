@@ -3,7 +3,7 @@
  * 接管中断信号），只有问答的路径（engine.ts、probe.ts、服务端）才该加载它，读配置的地方（例如 `nbstory ingest`）不该。
  */
 
-import {clampEffort, defineModel, listCatalog, resolveModel, suggestFromCatalog, supportedEfforts, type HarnessOptions, type ResolvedModel} from "@notnotype/nb-harness";
+import {clampEffort, defineModel, listCatalog, MissingModelKeyError, resolveModel, suggestFromCatalog, supportedEfforts, type HarnessOptions, type ResolvedModel} from "@notnotype/nb-harness";
 
 import {parseModelRef, type ConfigCatalog, type Effort, type QaConfig} from "./config";
 import {QaError} from "./errors";
@@ -83,6 +83,27 @@ export function modelOf(config: QaConfig, ref: string): ResolvedModel {
         maxTokens,
         ...(model.price === undefined ? {} : {price: model.price}),
     });
+}
+
+/** 这个模型认的密钥变量：自定义服务商是它的 `apiKeyEnv`，目录服务商是目录登记的（不要密钥的服务商为空）。 */
+export function keyVariables(config: QaConfig, ref: string): readonly string[] {
+    const {provider: providerId} = parseModelRef(ref);
+    const custom = config.providers?.[providerId];
+    if (custom !== undefined) return [custom.apiKeyEnv];
+    return listCatalog().find(item => item.id === providerId)?.keyEnvs ?? [];
+}
+
+/**
+ * 只认 `env` 里的密钥（docs/adr/0032）：`env` 里这个模型认的变量一个都没有值时，取密钥按缺失处理（harness 在发请求前
+ * 归为 `auth`）；有值时取值仍交给原来的函数。OMP 导入时读进 `process.env` 的 `.env` 因此不算。
+ */
+export function onlyKeysIn(resolved: ResolvedModel, variables: readonly string[], env: Readonly<Record<string, string | undefined>>): ResolvedModel {
+    if (variables.length === 0) return resolved;
+    const inner = resolved.apiKey;
+    return {...resolved, apiKey: () => {
+        if (!variables.some(name => (env[name] ?? "").trim() !== "")) throw new MissingModelKeyError(variables);
+        return inner();
+    }};
 }
 
 /** 实际发出的推理档 → `createHarness` 的选项；不发就不传，请求里没有推理参数。 */

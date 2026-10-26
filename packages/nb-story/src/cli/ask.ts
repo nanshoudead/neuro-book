@@ -17,6 +17,7 @@ import {EFFORTS} from "../contract/config-schema";
 import {defaultConfigPath, loadQaConfig, type Effort} from "../qa/config";
 import {askQuestion, type QaOutcome, type QaProgress} from "../qa/engine";
 import {QaError} from "../qa/errors";
+import {startupEnv} from "../platform/startup-env";
 import {turnText} from "../qa/format";
 import {NEXT_STEP, type CliIo} from "./main";
 
@@ -96,6 +97,7 @@ async function ask(options: AskOptions, io: CliIo, signal: AbortSignal): Promise
             ...(continueFrom === undefined ? {} : {continueFrom}),
             question: params.question as string,
             config,
+            keyEnv: startupEnv,
             ...(params.model === undefined && params.thinking === undefined ? {} : {model: {...(typeof params.model === "string" ? {model: params.model} : {}), ...(typeof params.thinking === "string" ? {thinking: params.thinking as Effort} : {})}}),
             ...(params.structured === true ? {answer: "structured" as const} : {}),
             signal,
