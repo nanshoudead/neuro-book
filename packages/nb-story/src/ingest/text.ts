@@ -53,8 +53,12 @@ function isChapterHeading(line: string): boolean {
     if (!titleCandidate(line)) return false;
     if (SPECIAL_HEADING.test(line)) return true;
     const match = CHAPTER_HEADING.exec(line);
+    if (match === null) return false;
     // “第三回合”不是章标题：“回”后面紧跟“合”时是回合的回。
-    return match !== null && !(match[1] === "回" && match[2] === "合");
+    if (match[1] === "回" && match[2] === "合") return false;
+    // “第一节课…”不是章标题：节的标题要么为空，要么从空白或分隔符开始。
+    // 章与回不受这个限制，仍可紧接着写标题（“第一章绯红”）。
+    return match[1] !== "节" || match[2] === "" || /[\s：:、·—-]/u.test(match[2]);
 }
 
 function isVolumeHeading(line: string): boolean {
