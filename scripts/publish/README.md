@@ -30,6 +30,8 @@ bun scripts/publish/workspaces.ts --dry-run
 | `--repo <url>` | 环境变量 `NB_PUBLISH_REPO` | 目标仓库地址 |
 | `--branch <name>` | `main`（或 `NB_PUBLISH_BRANCH`） | 目标分支 |
 | `--workspaces <dir>` | `packages/neuro-book-legacy/data/workspace` | 工作空间根目录 |
+| `--workspace <name>` | 全部 | 只发布这一个工作空间 |
+| `--layout <mode>` | `nested` | `nested` 按工作空间分组；`root` 正文直接放仓库根 |
 | `--cache <dir>` | `.local/publish/workspaces` | 受管理的本地 clone |
 | `--dry-run` | 关 | 只按真实路径解析并输出清单，跳过全部 Git 副作用 |
 | `--help` | 关 | 打印用法 |
@@ -44,15 +46,33 @@ bun scripts/publish/workspaces.ts --dry-run
 
 ## 目标仓库布局
 
+`--layout nested`（默认）：一个仓库放多部作品。
+
 ```text
 <工作空间名>/
   manuscript/
     001-volume/001-chapter/index.md
 ```
 
+`--layout root`：一个仓库只放一部作品，正文直接在仓库根，适合每部作品一个仓库。
+
+```text
+001-volume/001-chapter/index.md
+```
+
+`root` 必须配合 `--workspace`；同时选中多个作品时脚本在写文件前就拒绝，避免同名章节互相覆盖。
+
 工作空间名就是 `data/workspace/` 下的目录名；`reference/`、`lorebook/`、`upload/`、
 `agents/`、`world-engine/`、`.nbook/`、`.agent/` 都不会进目标仓库。`manuscript/` 里只收
 `.md`，`manuscript/_backup/` 作为编辑备份跳过。
+
+## 每部作品一个仓库
+
+```bash
+NB_PUBLISH_TOKEN=<pat> bun run publish:workspaces \
+  --repo https://github.com/<you>/<workspace>-manuscript.git \
+  --workspace <workspace> --layout root
+```
 
 ## 同步语义
 
@@ -60,13 +80,14 @@ bun scripts/publish/workspaces.ts --dry-run
   因此源里删掉的章节也会在目标仓库删掉，目标仓库是正文的镜像，不是增量追加。
 - 没有变化时不产生提交，也不推送。
 - 提交身份固定为 `NeuroBook <neurobook@users.noreply.github.com>`。
-- 发布前后都能从输出的 JSON 报告判断边界：`files` 是这次写进去的正文数，`commit` 是新提交
-  哈希，`changed` 为 `false` 表示无变化。
+- 发布前后都能从输出的 JSON 报告判断边界：`files` 是这次写进去的正文数，`added` / `removed`
+  是相对目标分支原有内容的新增与删除数，`commit` 是新提交哈希，`changed` 为 `false` 表示无变化。
 
 ## 安全边界
 
 - `--cache` 不能是仓库根目录或它的祖先，否则拒绝执行，避免清空工作区时删到源码。
-- 目标仓库里的其它内容会被清掉：它是正文镜像仓库，不要往里放别的东西。
+- 目标仓库里的其它内容会被清掉：它是正文镜像仓库，不要往里放别的东西。第一次指向已有内容的
+  仓库前，先看报告里的 `removed`；例如目标仓库里已有的 `manuscript/_backup/` 会被当作非正文删掉。
 
 ## 退出码
 

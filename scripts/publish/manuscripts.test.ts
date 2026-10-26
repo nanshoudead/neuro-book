@@ -8,10 +8,14 @@ import {discoverWorkspaces, planManuscripts} from "#scripts/publish/manuscripts"
 
 let root: string;
 
-async function write(relativePath: string, text: string): Promise<void> {
-    const target = resolve(root, relativePath);
+async function writeUnder(base: string, relativePath: string, text: string): Promise<void> {
+    const target = resolve(base, relativePath);
     await mkdir(resolve(target, ".."), {recursive: true});
     await writeFile(target, text, "utf8");
+}
+
+async function write(relativePath: string, text: string): Promise<void> {
+    await writeUnder(root, relativePath, text);
 }
 
 beforeAll(async () => {
@@ -34,12 +38,14 @@ afterAll(async () => {
 });
 
 describe("工作空间与正文收集", () => {
+    const nested = {layout: "nested", workspace: null} as const;
+
     it("只把带 project.yaml 的目录当工作空间，跳过点目录", async () => {
         expect(await discoverWorkspaces(root)).toEqual(["alpha", "beta"]);
     });
 
     it("只发布 manuscript 下的 .md，排除参考资料、设定、运行时数据、备份与非正文", async () => {
-        const plan = await planManuscripts(root);
+        const plan = await planManuscripts(root, nested);
         const alpha = plan.workspaces.find((workspace) => workspace.name === "alpha");
 
         expect(alpha?.files.map((file) => file.targetPath)).toEqual([
@@ -49,18 +55,57 @@ describe("工作空间与正文收集", () => {
     });
 
     it("目标路径以工作空间名分段，并使用 / 分隔", async () => {
-        const plan = await planManuscripts(root);
+        const plan = await planManuscripts(root, nested);
         for (const file of plan.files) expect(file.targetPath).not.toContain("\\");
     });
 
     it("没有 manuscript 的工作空间保留在清单里，但不产出文件", async () => {
-        const plan = await planManuscripts(root);
+        const plan = await planManuscripts(root, nested);
 
         expect(plan.workspaces.map((workspace) => workspace.name)).toEqual(["alpha", "beta"]);
         expect(plan.workspaces.find((workspace) => workspace.name === "beta")?.files).toEqual([]);
     });
 
+    it("root 布局把正文直接放在仓库根，适合每部作品一个仓库", async () => {
+        const plan = await planManuscripts(root, {layout: "root", workspace: "alpha"});
+
+        expect(plan.files.map((file) => file.targetPath)).toEqual([
+            "001-volume/001-chapter/index.md",
+            "001-volume/002-chapter/index.md",
+        ]);
+    });
+
+    it("root 布局有多个作品时拒绝发布，避免同名章节互相覆盖", async () => {
+        const multi = await createTestTmpRoot("publish-root-multi", "root 布局拒绝多作品");
+        try {
+            await writeUnder(multi, "one/project.yaml", "kind: novel\n");
+            await writeUnder(multi, "one/manuscript/index.md", "# 一\n");
+            await writeUnder(multi, "two/project.yaml", "kind: novel\n");
+            await writeUnder(multi, "two/manuscript/index.md", "# 二\n");
+
+            await expect(planManuscripts(multi, {layout: "root", workspace: null})).rejects.toThrow("只能发布一个工作空间");
+        } finally {
+            await rm(multi, {recursive: true, force: true});
+        }
+    });
+
+    it("root 布局只把有正文的作品算进来，没正文的作品不挡发布", async () => {
+        const plan = await planManuscripts(root, {layout: "root", workspace: null});
+
+        expect(plan.files.map((file) => file.targetPath)).toEqual([
+            "001-volume/001-chapter/index.md",
+            "001-volume/002-chapter/index.md",
+        ]);
+    });
+
+    it("--workspace 只收集指定工作空间，名字不存在时报参数错误", async () => {
+        const plan = await planManuscripts(root, {layout: "nested", workspace: "beta"});
+
+        expect(plan.workspaces.map((workspace) => workspace.name)).toEqual(["beta"]);
+        await expect(planManuscripts(root, {layout: "nested", workspace: "missing"})).rejects.toThrow("没有这个工作空间");
+    });
+
     it("工作空间目录不存在时报 ENOENT，由命令入口转成退出码 4", async () => {
-        await expect(planManuscripts(resolve(root, "missing"))).rejects.toMatchObject({code: "ENOENT"});
+        await expect(planManuscripts(resolve(root, "missing"), nested)).rejects.toMatchObject({code: "ENOENT"});
     });
 });

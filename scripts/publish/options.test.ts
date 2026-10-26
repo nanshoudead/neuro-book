@@ -17,6 +17,8 @@ describe("发布参数", () => {
         expect(options.branch).toBe("main");
         expect(options.repoUrl).toBeNull();
         expect(options.token).toBeNull();
+        expect(options.workspace).toBeNull();
+        expect(options.layout).toBe("nested");
         expect(options.dryRun).toBe(false);
     });
 
@@ -50,6 +52,18 @@ describe("发布参数", () => {
         expect(() => parsePublishArguments(["--reop", "x"], {}, import.meta.url)).toThrow(UsageError);
         expect(() => parsePublishArguments(["--repo"], {}, import.meta.url)).toThrow("参数缺少值：--repo");
         expect(() => parsePublishArguments(["--branch", "  "], {}, import.meta.url)).toThrow("分支名不能为空");
+        expect(() => parsePublishArguments(["--layout", "flat"], {}, import.meta.url)).toThrow("--layout 只能是 nested 或 root");
+    });
+
+    it("--workspace 与 --layout 组合支持每部作品一个仓库", () => {
+        const options = parsePublishArguments(
+            ["--workspace", "chi-nv-ai-li-nuo", "--layout", "root"],
+            {},
+            import.meta.url,
+        );
+
+        expect(options.workspace).toBe("chi-nv-ai-li-nuo");
+        expect(options.layout).toBe("root");
     });
 
     it("--help 只置位，不要求其它参数", () => {

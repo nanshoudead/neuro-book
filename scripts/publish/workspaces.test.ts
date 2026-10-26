@@ -44,6 +44,23 @@ describe("发布命令", () => {
         expect(report.workspaces).toEqual([{name: "alpha", files: 1}]);
     });
 
+    it("--layout root --workspace 只发布一个作品，路径不带工作空间前缀", () => {
+        const result = run(["--dry-run", "--workspaces", workspaceRoot, "--workspace", "alpha", "--layout", "root"]);
+
+        expect(result.status).toBe(0);
+        const report = JSON.parse(result.stdout) as {layout: string; workspace: string; workspaces: {name: string; files: number}[]};
+        expect(report.layout).toBe("root");
+        expect(report.workspace).toBe("alpha");
+        expect(report.workspaces).toEqual([{name: "alpha", files: 1}]);
+    });
+
+    it("--workspace 名字不存在时退出码 2", () => {
+        const result = run(["--dry-run", "--workspaces", workspaceRoot, "--workspace", "nope"]);
+
+        expect(result.status).toBe(2);
+        expect(result.stderr).toContain("没有这个工作空间");
+    });
+
     it("真实发布缺目标仓库时在写任何东西之前退出，退出码 2", () => {
         const result = run(["--workspaces", workspaceRoot]);
 

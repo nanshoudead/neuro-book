@@ -1,6 +1,7 @@
 import {resolve} from "node:path";
 
 import {defaultRepoRoot} from "#scripts/ci/agent-governance-contract";
+import type {PublishLayout} from "#scripts/publish/manuscripts";
 
 /** 默认读取旧应用的工作空间；新应用接入自己的 data 目录时用 `--workspaces` 覆盖。 */
 const DEFAULT_WORKSPACE_ROOT = "packages/neuro-book-legacy/data/workspace";
@@ -13,7 +14,14 @@ const REPOSITORY_ENV = "NB_PUBLISH_REPO";
 const TOKEN_ENV = "NB_PUBLISH_TOKEN";
 const BRANCH_ENV = "NB_PUBLISH_BRANCH";
 
-const VALUE_FLAGS: ReadonlySet<string> = new Set(["--workspaces", "--cache", "--repo", "--branch"]);
+const VALUE_FLAGS: ReadonlySet<string> = new Set([
+    "--workspaces",
+    "--workspace",
+    "--cache",
+    "--repo",
+    "--branch",
+    "--layout",
+]);
 const BOOLEAN_FLAGS: ReadonlySet<string> = new Set(["--dry-run", "--help"]);
 
 /** 参数错误；调用方打印 message 与用法并以 2 退出。 */
@@ -35,6 +43,9 @@ export type PublishOptions = {
     readonly repoUrl: string | null;
     readonly branch: string;
     readonly token: string | null;
+    /** 只发布这个工作空间；null 表示全部。 */
+    readonly workspace: string | null;
+    readonly layout: PublishLayout;
     readonly dryRun: boolean;
     readonly help: boolean;
 };
@@ -53,6 +64,8 @@ export function parsePublishArguments(
     let cacheDir = resolve(repoRoot, DEFAULT_CACHE_DIR);
     let repoUrl = env[REPOSITORY_ENV]?.trim() || null;
     let branch = env[BRANCH_ENV]?.trim() || "main";
+    let workspace: string | null = null;
+    let layout: PublishLayout = "nested";
     let dryRun = false;
     let help = false;
     for (let index = 0; index < args.length; index += 1) {
@@ -67,13 +80,20 @@ export function parsePublishArguments(
         const value = args[index + 1];
         if (value === undefined || value.startsWith("--")) throw new UsageError(`参数缺少值：${argument}`);
         if (argument === "--workspaces") workspaceRoot = resolve(repoRoot, value);
+        else if (argument === "--workspace") workspace = value.trim() === "" ? null : value;
         else if (argument === "--cache") cacheDir = resolve(repoRoot, value);
         else if (argument === "--repo") repoUrl = value;
+        else if (argument === "--layout") layout = parseLayout(value);
         else {
             if (value.trim() === "") throw new UsageError("分支名不能为空：--branch");
             branch = value;
         }
         index += 1;
     }
-    return {repoRoot, workspaceRoot, cacheDir, repoUrl, branch, token: env[TOKEN_ENV]?.trim() || null, dryRun, help};
+    return {repoRoot, workspaceRoot, cacheDir, repoUrl, branch, token: env[TOKEN_ENV]?.trim() || null, workspace, layout, dryRun, help};
+}
+
+function parseLayout(value: string): PublishLayout {
+    if (value !== "nested" && value !== "root") throw new UsageError(`--layout 只能是 nested 或 root：${value}`);
+    return value;
 }
