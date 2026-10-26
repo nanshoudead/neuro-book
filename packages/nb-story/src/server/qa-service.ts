@@ -29,7 +29,7 @@ import {ABSENT_CONFIG, currentConfigDigest, defaultConfigPath, readQaConfigFile,
 import {continuationProblem, prepareQuestion, withoutFullText, type AskInput, type PreparedQuestion, type QaOutcome} from "../qa/engine";
 import {QaError, type QaErrorCode} from "../qa/errors";
 import {catalogModel, discoverModels, listCatalog, providerKeyReady} from "@notnotype/nb-harness";
-import {startupEnv, startupKeyReady} from "../platform/startup-env";
+import {envHas, startupEnv, startupKeyReady} from "../platform/startup-env";
 
 import {configCatalog, modelOf, resolveQaModel} from "../qa/harness-model";
 import {probeModel} from "../qa/probe";
@@ -108,7 +108,7 @@ export function createQaService(options: QaServiceOptions): QaService {
     const streamFn = options.streamFn === undefined ? {} : {streamFn: options.streamFn};
     // 目录服务商的密钥有没有值：服务启动时取一次（OMP 的取法读进程环境与 .env，不收注入的 env；qa.md 的 models.catalog）。
     // 启动环境里一个相关变量都没有时按没有算：OMP 导入时读进来的 .env 不算（adr 0032）。
-    const catalogKeys = new Map(listCatalog().map(provider => [provider.id, providerKeyReady(provider.id) && startupKeyReady(provider.keyEnvs)]));
+    const catalogKeys = new Map(listCatalog().map(provider => [provider.id, providerKeyReady(provider.id) && startupKeyReady(provider.keyEnvs, env)]));
 
     const runs = new Map<string, Run>();
     /** 已经接纳、还在准备的轮次，按“书/对话”；settle 时这一轮要么已登记进 `runs`，要么已放弃。 */
@@ -446,7 +446,7 @@ export function createQaService(options: QaServiceOptions): QaService {
         const value = config as {providers?: Record<string, {apiKeyEnv?: unknown}>; ingest?: {model?: {apiKeyEnv?: unknown}; recall?: {model?: {apiKeyEnv?: unknown}}}};
         const names = [...Object.values(value.providers ?? {}).map(provider => provider.apiKeyEnv), value.ingest?.model?.apiKeyEnv, value.ingest?.recall?.model?.apiKeyEnv];
         // 用 fromEntries 建字典：变量名可以是 `__proto__`，按下标赋值会落到原型的 setter 上。
-        return Object.fromEntries(names.filter((name): name is string => typeof name === "string" && name !== "").map(name => [name, (env[name] ?? "") !== ""]));
+        return Object.fromEntries(names.filter((name): name is string => typeof name === "string" && name !== "").map(name => [name, envHas(env, name)]));
     }
 
     async function configGet(): Promise<ViewerResult<"config.get">> {
@@ -499,7 +499,7 @@ export function createQaService(options: QaServiceOptions): QaService {
             source: "custom" as const,
             access: "key" as const,
             keyEnvs: [provider.apiKeyEnv],
-            keySet: (env[provider.apiKeyEnv] ?? "") !== "",
+            keySet: envHas(env, provider.apiKeyEnv),
             models: provider.models.map(model => catalogModel(modelOf(config!, `${id}/${model.id}`).model)),
         }));
         const catalog = listCatalog().map(provider => ({...provider, source: "catalog" as const, keySet: catalogKeys.get(provider.id) ?? false}));
@@ -507,7 +507,7 @@ export function createQaService(options: QaServiceOptions): QaService {
     }
 
     async function modelsDiscover(params: ViewerParams<"models.discover">): Promise<ViewerResult<"models.discover">> {
-        const key = env[params.apiKeyEnv] ?? "";
+        const key = envHas(env, params.apiKeyEnv) ? env[params.apiKeyEnv]! : "";
         const result = await discoverModels({api: params.api, baseUrl: params.baseUrl, ...(key === "" ? {} : {apiKey: key})});
         return {
             state: result.state,
@@ -525,7 +525,7 @@ export function createQaService(options: QaServiceOptions): QaService {
         const started = Date.now();
         let result: Awaited<ReturnType<typeof probeModel>>;
         try {
-            result = await probeModel(config, {signal: AbortSignal.timeout(probeTimeout), ...streamFn});
+            result = await probeModel(config, {signal: AbortSignal.timeout(probeTimeout), keyEnv: env, ...streamFn});
         } catch (error) {
             return {...fixed, ok: false, ms: Date.now() - started, error: {kind: "local", message: `本机错误：${error instanceof Error ? error.message : String(error)}`}};
         }

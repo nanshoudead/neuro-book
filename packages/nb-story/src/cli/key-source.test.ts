@@ -69,6 +69,10 @@ describe("密钥只认启动环境", () => {
         expect(asked.code).not.toBe(0);
         expect(asked.stderr).toContain(KEY_ENV);
 
+        // config test 也不能借 OMP 读进来的 .env 发请求。
+        const tested = await run(["config", "test", "--config", env.config], undefined);
+        expect(tested.code).not.toBe(0);
+
         const file = join(root, "source.txt");
         await writeFile(file, await sampleSourceText(3));
         const ingested = await run(["ingest", file, "--id", "keysrc", "--config", env.config, "--json"], undefined);
@@ -87,5 +91,15 @@ describe("密钥只认启动环境", () => {
         expect(asked.code).toBe(0);
         expect(env.endpoint.authorizations.length).toBeGreaterThan(0);
         expect(new Set(env.endpoint.authorizations)).toEqual(new Set([`Bearer ${EXPORTED_KEY}`]));
+    }, 120_000);
+
+    test("变量的值全是空白：config show 报没有设置，ask 不发请求（与有值的判断同一个）", async () => {
+        const env = await setup([...ANSWER]);
+        const shown = await run(["config", "show", "--config", env.config, "--json"], "   ");
+        const data = JSON.parse(shown.stdout).data as {providers: {keySet: boolean}[]; ingest: {apiKeySet: boolean}};
+        expect({providers: data.providers.map(item => item.keySet), ingest: data.ingest.apiKeySet}).toEqual({providers: [false], ingest: false});
+        const asked = await run(["ask", "地狱猫是谁？", "--at", "38", "--config", env.config], "   ");
+        expect(asked.code).not.toBe(0);
+        expect(env.endpoint.authorizations).toEqual([]);
     }, 120_000);
 });

@@ -29,6 +29,7 @@ import type {PositionInput} from "../core/position";
 import type {QaAnswerMode} from "../contract/qa-record";
 import {answerModeOf, newQaRecordId, QaRecords, type QaConversation, type QaMode, type QaReply, type QaTurn, type QaUsage} from "../core/qa-records";
 import {qaLimits, type QaConfig} from "./config";
+import type {KeyEnv} from "../platform/startup-env";
 import {keyVariables, onlyKeysIn, resolveQaModel, thinkingOption, type QaModelChoice} from "./harness-model";
 import {QaError} from "./errors";
 import {ReadLedger} from "./read-ledger";
@@ -70,7 +71,7 @@ export interface AskInput {
     /** 透传给 nb-harness 的 `createHarness`（它的公开选项）；测试用脚本化模型。 */
     streamFn?: HarnessOptions["streamFn"];
     /** 给了就只认这份环境里的密钥（命令行与服务给启动环境的快照，docs/adr/0032）；不给时照 OMP 的取法读实时的环境。 */
-    keyEnv?: Readonly<Record<string, string | undefined>>;
+    keyEnv?: KeyEnv;
 }
 
 /** 记录没保存的原因：书删了或换了代、格式不认识只读、对话被同时追问了，或写盘失败（附说明）。 */

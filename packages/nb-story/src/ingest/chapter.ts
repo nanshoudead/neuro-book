@@ -28,11 +28,14 @@ export type Step = "recall" | "beats" | "draft" | "review" | "repair" | "consoli
 /** 模型的回复重发一次后仍不成形，或兜底之后书的数据仍有错误（F5）。 */
 export class IngestBadReply extends Error {
     readonly step: Step;
+    /** 整章重做有没有可能消除它：错误只来自这一章新写的记录时为真；提交前整本检查报出的错误可能来自已提交的旧章，重做不会变。 */
+    readonly redoable: boolean;
 
-    constructor(step: Step, message: string) {
+    constructor(step: Step, message: string, redoable = true) {
         super(message);
         this.name = "IngestBadReply";
         this.step = step;
+        this.redoable = redoable;
     }
 }
 

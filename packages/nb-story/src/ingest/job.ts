@@ -71,7 +71,7 @@ export interface JobOptions {
 }
 
 /** 这一章值得整章重做的失败：回复不成形，或渠道失败重试用完（网络类）。认证、额度、限流（已退避过）、本机错误重做也没用。 */
-const redoable = (error: unknown) => error instanceof IngestBadReply || (error instanceof ModelError && error.kind === "network");
+const redoable = (error: unknown) => (error instanceof IngestBadReply && error.redoable) || (error instanceof ModelError && error.kind === "network");
 
 const CONSOLIDATE_EVERY = 5;
 
@@ -170,7 +170,7 @@ async function extractAll(options: JobOptions, ledger: Ledger, markChapter: (cha
             }
             // 提交前的最后一道关：要提交的这份数据（本章加上整理）编译出的全部问题里没有错误，不只看本章（实现审查第 11 条）。
             const errors = issues.filter(issue => issue.level === "error");
-            if (errors.length) throw new IngestBadReply("repair", `第 ${chapter} 章提交前书的数据仍有错误：${errors.map(issue => issue.message).join("；")}`);
+            if (errors.length) throw new IngestBadReply("repair", `第 ${chapter} 章提交前书的数据仍有错误：${errors.map(issue => issue.message).join("；")}`, false);
             return {result, drafts, consolidations, dataset, problems};
         });
         await ledger.settle();

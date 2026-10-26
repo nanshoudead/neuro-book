@@ -12,8 +12,13 @@
 
 export const startupEnv: Readonly<Record<string, string | undefined>> = Object.freeze({...process.env});
 
-/** 启动环境里这个变量有非空的值。 */
-export const startupHas = (name: string): boolean => (startupEnv[name] ?? "").trim() !== "";
+export type KeyEnv = Readonly<Record<string, string | undefined>>;
 
-/** 一组可选的密钥变量里，启动环境至少有一个有值；一个都不需要（空表，例如本机服务）也算好了。 */
-export const startupKeyReady = (names: readonly string[]): boolean => names.length === 0 || names.some(startupHas);
+/** 这份环境里这个变量有非空白的值：显示“已设置”、问答的门与取值都用它，不要各写一份判断。 */
+export const envHas = (env: KeyEnv, name: string): boolean => (env[name] ?? "").trim() !== "";
+
+/** 启动环境里这个变量有非空的值。 */
+export const startupHas = (name: string): boolean => envHas(startupEnv, name);
+
+/** 一组可选的密钥变量里，`env`（缺省是启动环境）至少有一个有值；一个都不需要（空表，例如本机服务）也算好了。 */
+export const startupKeyReady = (names: readonly string[], env: KeyEnv = startupEnv): boolean => names.length === 0 || names.some(name => envHas(env, name));

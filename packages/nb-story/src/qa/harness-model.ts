@@ -5,6 +5,7 @@
 
 import {clampEffort, defineModel, listCatalog, MissingModelKeyError, resolveModel, suggestFromCatalog, supportedEfforts, type HarnessOptions, type ResolvedModel} from "@notnotype/nb-harness";
 
+import {envHas, type KeyEnv} from "../platform/startup-env";
 import {parseModelRef, type ConfigCatalog, type Effort, type QaConfig} from "./config";
 import {QaError} from "./errors";
 
@@ -97,11 +98,11 @@ export function keyVariables(config: QaConfig, ref: string): readonly string[] {
  * 只认 `env` 里的密钥（docs/adr/0032）：`env` 里这个模型认的变量一个都没有值时，取密钥按缺失处理（harness 在发请求前
  * 归为 `auth`）；有值时取值仍交给原来的函数。OMP 导入时读进 `process.env` 的 `.env` 因此不算。
  */
-export function onlyKeysIn(resolved: ResolvedModel, variables: readonly string[], env: Readonly<Record<string, string | undefined>>): ResolvedModel {
+export function onlyKeysIn(resolved: ResolvedModel, variables: readonly string[], env: KeyEnv): ResolvedModel {
     if (variables.length === 0) return resolved;
     const inner = resolved.apiKey;
     return {...resolved, apiKey: () => {
-        if (!variables.some(name => (env[name] ?? "").trim() !== "")) throw new MissingModelKeyError(variables);
+        if (!variables.some(name => envHas(env, name))) throw new MissingModelKeyError(variables);
         return inner();
     }};
 }

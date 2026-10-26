@@ -189,9 +189,15 @@ export class IngestStore {
         const temp = join(dir, `${name}.${randomUUID()}.tmp`);
         await writeFile(temp, JSON.stringify(record, null, 2));
         await rename(temp, join(dir, name));
-        const kept = await Promise.all((await readdir(dir)).filter(file => file.endsWith(".json")).map(async file => ({file, at: (await stat(join(dir, file))).mtimeMs})));
-        kept.sort((a, b) => b.at - a.at || (a.file < b.file ? -1 : 1));
-        for (const old of kept.slice(BAD_REPLY_KEEP)) await rm(join(dir, old.file), {force: true});
+        // 文件已经发布：清理多余的旧文件出了岔子（并发删除、磁盘错误）不能让调用方以为这一份没留下。同一本书的任务由 id 锁
+        // 保证只有一个，所以不会有两个清理者；按 mtime 排序只是“最近写下”的近似，不求精确。
+        try {
+            const kept = await Promise.all((await readdir(dir)).filter(file => file.endsWith(".json")).map(async file => ({file, at: (await stat(join(dir, file))).mtimeMs})));
+            kept.sort((a, b) => b.at - a.at || (a.file < b.file ? -1 : 1));
+            for (const old of kept.slice(BAD_REPLY_KEEP)) await rm(join(dir, old.file), {force: true});
+        } catch (error) {
+            console.error(`清理 ${this.id} 的旧坏回复失败：${error instanceof Error ? error.message : String(error)}`);
+        }
         return join(".ingest", this.id, "bad-replies", name);
     }
 

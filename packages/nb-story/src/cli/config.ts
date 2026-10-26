@@ -12,7 +12,7 @@ import {defaultConfigPath, defaultIngestFallback, LEGACY_PROVIDER_ID, digestBefo
 import {EFFORTS} from "../contract/config-schema";
 import {applyInitAnswers, ConfigEditError, echoable, envNameProblem, setConfigField, unsetConfigField, type InitAnswers} from "../qa/config-edit";
 import {QaError} from "../qa/errors";
-import {startupEnv, startupHas, startupKeyReady} from "../platform/startup-env";
+import {envHas, startupEnv, startupHas, startupKeyReady} from "../platform/startup-env";
 import {EXIT_INTERRUPTED, EXIT_QA_FAILED, runInterruptible} from "./ask";
 import type {CliIo} from "./main";
 
@@ -39,7 +39,7 @@ function providersOf(config: QaConfig, tools: CatalogTools, env: NodeJS.ProcessE
     const ids = [...new Set([...Object.keys(config.providers ?? {}), ...config.models.map(ref => parseModelRef(ref).provider)])];
     return ids.map(id => {
         const custom = config.providers?.[id];
-        if (custom !== undefined) return {id, source: "custom", keyEnvs: [custom.apiKeyEnv], keySet: Boolean(env[custom.apiKeyEnv]), api: custom.api, baseUrl: custom.baseUrl};
+        if (custom !== undefined) return {id, source: "custom", keyEnvs: [custom.apiKeyEnv], keySet: envHas(env, custom.apiKeyEnv), api: custom.api, baseUrl: custom.baseUrl};
         return {id, source: "catalog", keyEnvs: tools.keyEnvs(id), keySet: tools.keyReady(id)};
     });
 }
@@ -104,7 +104,7 @@ function ingestLine(config: QaConfig, env: NodeJS.ProcessEnv): string {
 function ingestData(config: QaConfig, env: NodeJS.ProcessEnv): {source: string; id: string; apiKeySet: boolean} | {unavailable: string} {
     if (!config.ingest?.model && typeof defaultIngestFallback(config) === "string") return {unavailable: defaultIngestFallback(config) as string};
     const model = ingestModel(config);
-    return {source: model.source, id: model.id, apiKeySet: Boolean(env[model.apiKeyEnv])};
+    return {source: model.source, id: model.id, apiKeySet: envHas(env, model.apiKeyEnv)};
 }
 
 export async function configCommand(options: ConfigOptions, io: CliIo): Promise<number> {
@@ -262,7 +262,7 @@ async function test(path: string, signal: AbortSignal, io: CliIo, json: boolean,
     const {probeModel} = await import("../qa/probe");
     let result: Awaited<ReturnType<typeof probeModel>>;
     try {
-        result = await probeModel(config, {signal});
+        result = await probeModel(config, {signal, keyEnv: startupEnv});
     } catch (error) {
         return fail("model_failed", `本机错误：${error instanceof Error ? error.message : String(error)}`, EXIT_QA_FAILED, "local");
     }
