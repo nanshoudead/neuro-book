@@ -22,6 +22,7 @@ const USAGE = `把每个工作空间的正文按工作空间名推送到目标�
   --workspaces <dir> 工作空间根目录，默认 packages/neuro-book-legacy/data/workspace
   --workspace <name> 只发布这一个工作空间
   --layout <mode>    nested（默认）按 <工作空间>/manuscript/ 分组；root 只放一个作品的正文
+  --include-backup   连 manuscript/_backup/ 里的备份副本一起发布
   --cache <dir>      受管理的本地 clone，默认 .local/publish/workspaces
   --dry-run          只列出要发布的文件，不访问 Git 仓库
   --help             显示本说明
@@ -51,12 +52,15 @@ type PublishReport = {
     readonly branch: string;
     readonly layout: string;
     readonly workspace: string | null;
+    readonly includeBackup: boolean;
     readonly workspaces: readonly {readonly name: string; readonly files: number}[];
     readonly files: number;
     readonly changed: boolean | null;
     readonly commit: string | null;
     readonly added: number | null;
     readonly removed: number | null;
+    /** 只在 dry-run 输出：这次会写进目标仓库的全部路径。 */
+    readonly paths?: readonly string[];
 };
 
 async function main(): Promise<number> {
@@ -80,7 +84,11 @@ async function main(): Promise<number> {
 
     let plan: ManuscriptPlan;
     try {
-        plan = await planManuscripts(options.workspaceRoot, {layout: options.layout, workspace: options.workspace});
+        plan = await planManuscripts(options.workspaceRoot, {
+            layout: options.layout,
+            workspace: options.workspace,
+            includeBackup: options.includeBackup,
+        });
     } catch (error) {
         if (error instanceof UsageError) {
             console.error(error.message);
@@ -105,11 +113,19 @@ async function main(): Promise<number> {
         branch: options.branch,
         layout: options.layout,
         workspace: options.workspace,
+        includeBackup: options.includeBackup,
         workspaces: plan.workspaces.map((workspace) => ({name: workspace.name, files: workspace.files.length})),
         files: plan.files.length,
     } as const;
     if (options.dryRun) {
-        printReport({...base, changed: null, commit: null, added: null, removed: null});
+        printReport({
+            ...base,
+            changed: null,
+            commit: null,
+            added: null,
+            removed: null,
+            paths: plan.files.map((file) => file.targetPath),
+        });
         return EXIT_OK;
     }
 

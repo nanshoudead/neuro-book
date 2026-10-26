@@ -22,7 +22,7 @@ const VALUE_FLAGS: ReadonlySet<string> = new Set([
     "--branch",
     "--layout",
 ]);
-const BOOLEAN_FLAGS: ReadonlySet<string> = new Set(["--dry-run", "--help"]);
+const BOOLEAN_FLAGS: ReadonlySet<string> = new Set(["--dry-run", "--help", "--include-backup"]);
 
 /** 参数错误；调用方打印 message 与用法并以 2 退出。 */
 export class UsageError extends Error {
@@ -46,6 +46,8 @@ export type PublishOptions = {
     /** 只发布这个工作空间；null 表示全部。 */
     readonly workspace: string | null;
     readonly layout: PublishLayout;
+    /** 是否把 `manuscript/_backup/` 一起发布。 */
+    readonly includeBackup: boolean;
     readonly dryRun: boolean;
     readonly help: boolean;
 };
@@ -66,6 +68,7 @@ export function parsePublishArguments(
     let branch = env[BRANCH_ENV]?.trim() || "main";
     let workspace: string | null = null;
     let layout: PublishLayout = "nested";
+    let includeBackup = false;
     let dryRun = false;
     let help = false;
     for (let index = 0; index < args.length; index += 1) {
@@ -73,6 +76,7 @@ export function parsePublishArguments(
         if (argument === "--") continue;
         if (BOOLEAN_FLAGS.has(argument)) {
             if (argument === "--dry-run") dryRun = true;
+            else if (argument === "--include-backup") includeBackup = true;
             else help = true;
             continue;
         }
@@ -90,7 +94,7 @@ export function parsePublishArguments(
         }
         index += 1;
     }
-    return {repoRoot, workspaceRoot, cacheDir, repoUrl, branch, token: env[TOKEN_ENV]?.trim() || null, workspace, layout, dryRun, help};
+    return {repoRoot, workspaceRoot, cacheDir, repoUrl, branch, token: env[TOKEN_ENV]?.trim() || null, workspace, layout, includeBackup, dryRun, help};
 }
 
 function parseLayout(value: string): PublishLayout {

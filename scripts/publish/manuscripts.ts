@@ -25,6 +25,8 @@ export type PlanOptions = {
     readonly layout: PublishLayout;
     /** 只发布这个工作空间；null 表示全部。 */
     readonly workspace: string | null;
+    /** 是否把 `_backup/` 里的备份副本也发布出去。 */
+    readonly includeBackup: boolean;
 };
 
 /** 一个待发布文件：源文件，以及它在目标仓库里的路径。 */
@@ -71,11 +73,11 @@ export async function discoverWorkspaces(workspaceRoot: string): Promise<string[
 export async function collectWorkspaceManuscript(
     workspaceRoot: string,
     name: string,
-    layout: PublishLayout = "nested",
+    options: Pick<PlanOptions, "layout" | "includeBackup">,
 ): Promise<WorkspaceManuscript> {
     const manuscriptRoot = resolve(workspaceRoot, name, MANUSCRIPT_DIRECTORY);
     const files: PublishFile[] = [];
-    await walkManuscript(manuscriptRoot, manuscriptRoot, name, layout, files);
+    await walkManuscript(manuscriptRoot, manuscriptRoot, name, options, files);
     files.sort((left, right) => left.targetPath.localeCompare(right.targetPath, "en"));
     return {name, files};
 }
@@ -84,7 +86,7 @@ export async function collectWorkspaceManuscript(
 export async function planManuscripts(workspaceRoot: string, options: PlanOptions): Promise<ManuscriptPlan> {
     const names = await selectWorkspaces(workspaceRoot, options.workspace);
     const workspaces: WorkspaceManuscript[] = [];
-    for (const name of names) workspaces.push(await collectWorkspaceManuscript(workspaceRoot, name, options.layout));
+    for (const name of names) workspaces.push(await collectWorkspaceManuscript(workspaceRoot, name, options));
     const files = workspaces.flatMap((workspace) => workspace.files);
     if (options.layout === "root") assertSingleWorkspace(workspaces);
     return {workspaceRoot, workspaces, files};
@@ -112,7 +114,7 @@ async function walkManuscript(
     manuscriptRoot: string,
     directory: string,
     name: string,
-    layout: PublishLayout,
+    options: Pick<PlanOptions, "layout" | "includeBackup">,
     files: PublishFile[],
 ): Promise<void> {
     const entries = await readdir(directory, {withFileTypes: true}).catch((error: NodeJS.ErrnoException) => {
@@ -125,13 +127,13 @@ async function walkManuscript(
         if (entry.name.startsWith(".")) continue;
         const absolute = resolve(directory, entry.name);
         if (entry.isDirectory()) {
-            if (SKIPPED_DIRECTORIES.has(entry.name)) continue;
-            await walkManuscript(manuscriptRoot, absolute, name, layout, files);
+            if (!options.includeBackup && SKIPPED_DIRECTORIES.has(entry.name)) continue;
+            await walkManuscript(manuscriptRoot, absolute, name, options, files);
             continue;
         }
         if (!entry.isFile() || !entry.name.toLowerCase().endsWith(MANUSCRIPT_EXTENSION)) continue;
         const relativePath = relative(manuscriptRoot, absolute).split(sep).join("/");
-        const targetPath = layout === "nested" ? `${name}/${MANUSCRIPT_DIRECTORY}/${relativePath}` : relativePath;
+        const targetPath = options.layout === "nested" ? `${name}/${MANUSCRIPT_DIRECTORY}/${relativePath}` : relativePath;
         files.push({targetPath, sourcePath: absolute});
     }
 }

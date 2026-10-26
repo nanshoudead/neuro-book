@@ -19,6 +19,7 @@ describe("发布参数", () => {
         expect(options.token).toBeNull();
         expect(options.workspace).toBeNull();
         expect(options.layout).toBe("nested");
+        expect(options.includeBackup).toBe(false);
         expect(options.dryRun).toBe(false);
     });
 
@@ -55,15 +56,16 @@ describe("发布参数", () => {
         expect(() => parsePublishArguments(["--layout", "flat"], {}, import.meta.url)).toThrow("--layout 只能是 nested 或 root");
     });
 
-    it("--workspace 与 --layout 组合支持每部作品一个仓库", () => {
+    it("--workspace 与 --layout、--include-backup 组合支持每部作品一个仓库", () => {
         const options = parsePublishArguments(
-            ["--workspace", "chi-nv-ai-li-nuo", "--layout", "root"],
+            ["--workspace", "chi-nv-ai-li-nuo", "--layout", "root", "--include-backup"],
             {},
             import.meta.url,
         );
 
         expect(options.workspace).toBe("chi-nv-ai-li-nuo");
         expect(options.layout).toBe("root");
+        expect(options.includeBackup).toBe(true);
     });
 
     it("--help 只置位，不要求其它参数", () => {

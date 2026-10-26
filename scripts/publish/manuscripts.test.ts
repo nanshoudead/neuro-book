@@ -38,7 +38,7 @@ afterAll(async () => {
 });
 
 describe("工作空间与正文收集", () => {
-    const nested = {layout: "nested", workspace: null} as const;
+    const nested = {layout: "nested", workspace: null, includeBackup: false} as const;
 
     it("只把带 project.yaml 的目录当工作空间，跳过点目录", async () => {
         expect(await discoverWorkspaces(root)).toEqual(["alpha", "beta"]);
@@ -54,6 +54,12 @@ describe("工作空间与正文收集", () => {
         ]);
     });
 
+    it("--include-backup 把备份副本一起发布", async () => {
+        const plan = await planManuscripts(root, {layout: "nested", workspace: "alpha", includeBackup: true});
+
+        expect(plan.files.map((file) => file.targetPath)).toContain("alpha/manuscript/001-volume/_backup/index.md");
+    });
+
     it("目标路径以工作空间名分段，并使用 / 分隔", async () => {
         const plan = await planManuscripts(root, nested);
         for (const file of plan.files) expect(file.targetPath).not.toContain("\\");
@@ -67,7 +73,7 @@ describe("工作空间与正文收集", () => {
     });
 
     it("root 布局把正文直接放在仓库根，适合每部作品一个仓库", async () => {
-        const plan = await planManuscripts(root, {layout: "root", workspace: "alpha"});
+        const plan = await planManuscripts(root, {layout: "root", workspace: "alpha", includeBackup: false});
 
         expect(plan.files.map((file) => file.targetPath)).toEqual([
             "001-volume/001-chapter/index.md",
@@ -83,14 +89,14 @@ describe("工作空间与正文收集", () => {
             await writeUnder(multi, "two/project.yaml", "kind: novel\n");
             await writeUnder(multi, "two/manuscript/index.md", "# 二\n");
 
-            await expect(planManuscripts(multi, {layout: "root", workspace: null})).rejects.toThrow("只能发布一个工作空间");
+            await expect(planManuscripts(multi, {layout: "root", workspace: null, includeBackup: false})).rejects.toThrow("只能发布一个工作空间");
         } finally {
             await rm(multi, {recursive: true, force: true});
         }
     });
 
     it("root 布局只把有正文的作品算进来，没正文的作品不挡发布", async () => {
-        const plan = await planManuscripts(root, {layout: "root", workspace: null});
+        const plan = await planManuscripts(root, {layout: "root", workspace: null, includeBackup: false});
 
         expect(plan.files.map((file) => file.targetPath)).toEqual([
             "001-volume/001-chapter/index.md",
@@ -99,10 +105,10 @@ describe("工作空间与正文收集", () => {
     });
 
     it("--workspace 只收集指定工作空间，名字不存在时报参数错误", async () => {
-        const plan = await planManuscripts(root, {layout: "nested", workspace: "beta"});
+        const plan = await planManuscripts(root, {layout: "nested", workspace: "beta", includeBackup: false});
 
         expect(plan.workspaces.map((workspace) => workspace.name)).toEqual(["beta"]);
-        await expect(planManuscripts(root, {layout: "nested", workspace: "missing"})).rejects.toThrow("没有这个工作空间");
+        await expect(planManuscripts(root, {layout: "nested", workspace: "missing", includeBackup: false})).rejects.toThrow("没有这个工作空间");
     });
 
     it("工作空间目录不存在时报 ENOENT，由命令入口转成退出码 4", async () => {

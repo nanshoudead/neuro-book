@@ -32,6 +32,7 @@ bun scripts/publish/workspaces.ts --dry-run
 | `--workspaces <dir>` | `packages/neuro-book-legacy/data/workspace` | 工作空间根目录 |
 | `--workspace <name>` | 全部 | 只发布这一个工作空间 |
 | `--layout <mode>` | `nested` | `nested` 按工作空间分组；`root` 正文直接放仓库根 |
+| `--include-backup` | 关 | 连 `manuscript/_backup/` 里的备份副本一起发布 |
 | `--cache <dir>` | `.local/publish/workspaces` | 受管理的本地 clone |
 | `--dry-run` | 关 | 只按真实路径解析并输出清单，跳过全部 Git 副作用 |
 | `--help` | 关 | 打印用法 |
@@ -64,7 +65,7 @@ bun scripts/publish/workspaces.ts --dry-run
 
 工作空间名就是 `data/workspace/` 下的目录名；`reference/`、`lorebook/`、`upload/`、
 `agents/`、`world-engine/`、`.nbook/`、`.agent/` 都不会进目标仓库。`manuscript/` 里只收
-`.md`，`manuscript/_backup/` 作为编辑备份跳过。
+`.md`，`manuscript/_backup/` 作为编辑备份默认跳过；要连备份一起发布就加 `--include-backup`。
 
 ## 每部作品一个仓库
 
