@@ -8,11 +8,12 @@ import {
 import {isSupportedPiApi} from "@notnotype/neuro-book-contracts/provider-config";
 
 const PROVIDER_SOURCE_PRIORITY = [
-    "anthropic", "openai", "google", "deepseek", "xai", "xiaomi", "mistral", "minimax", "minimax-cn",
-    "moonshotai", "moonshotai-cn", "zai", "zai-coding-cn", "kimi-coding", "cerebras", "groq", "nvidia",
-    "amazon-bedrock", "google-vertex", "azure-openai-responses", "fireworks", "together", "huggingface",
+    "anthropic", "openai", "openai-codex", "google", "deepseek", "xai", "xiaomi", "mistral", "minimax", "minimax-cn",
+    "moonshotai", "moonshotai-cn", "zai", "zai-coding-cn", "kimi-coding", "cerebras", "groq", "nvidia", "meta",
+    "amazon-bedrock", "google-vertex", "azure", "fireworks", "together", "huggingface", "baseten", "radius", "typesafe",
     "openrouter", "vercel-ai-gateway", "cloudflare-ai-gateway", "cloudflare-workers-ai", "github-copilot",
     "opencode", "opencode-go", "ant-ling", "xiaomi-token-plan-cn", "xiaomi-token-plan-ams", "xiaomi-token-plan-sgp",
+    "qwen-token-plan", "qwen-token-plan-cn", "qwen-token-plan-individual",
 ] as const;
 
 let cachedLibrary: ModelLibraryDto | null = null;

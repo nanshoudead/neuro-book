@@ -11,16 +11,31 @@ import type {
 import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 
 const ATTACHMENT_ID_PATTERN = /^sha256:[0-9a-f]{64}$/;
-const ASSISTANT_STOP_REASONS = new Set(["stop", "length", "toolUse", "error", "aborted"]);
+/** 与 Pi `StopReason` 对齐；含 1.3 新增的 pending / deferred。 */
+const ASSISTANT_STOP_REASONS = new Set(["pending", "stop", "length", "toolUse", "error", "aborted", "deferred"]);
+const MODEL_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 const FOLLOW_UP_PAUSE_REASONS = new Set(["error", "aborted", "interrupted", "admission_error"]);
 const USER_MESSAGE_KEYS = new Set(["role", "content", "timestamp"]);
-const TOOL_RESULT_MESSAGE_KEYS = new Set(["role", "toolCallId", "toolName", "content", "details", "isError", "timestamp"]);
-const ASSISTANT_MESSAGE_KEYS = new Set(["role", "content", "api", "provider", "model", "responseModel", "responseId", "diagnostics", "usage", "stopReason", "errorMessage", "timestamp"]);
+/** Pi 1.3 toolResult 可带 usage / nestedCalls / durationMs。 */
+const TOOL_RESULT_MESSAGE_KEYS = new Set(["role", "toolCallId", "toolName", "content", "details", "usage", "nestedCalls", "isError", "timestamp", "durationMs"]);
+/**
+ * Pi 1.3 AssistantMessage 新增字段：Google 会写 rawStopReason，EventStream 写 durationMs，
+ * Agent loop 写 thinkingLevel；其余为 Provider 可选元数据。
+ */
+const ASSISTANT_MESSAGE_KEYS = new Set([
+    "role", "content", "api", "provider", "model", "responseModel", "responseId",
+    "providerThinkingLevel", "thinkingLevel", "diagnostics", "usage", "stopReason",
+    "deferred", "errorMessage", "rawStopReason", "endTurn", "timestamp", "durationMs",
+]);
 const TEXT_CONTENT_KEYS = new Set(["type", "text", "textSignature"]);
 const THINKING_CONTENT_KEYS = new Set(["type", "thinking", "thinkingSignature", "redacted"]);
-const TOOL_CALL_KEYS = new Set(["type", "id", "name", "arguments", "thoughtSignature"]);
+const TOOL_CALL_KEYS = new Set(["type", "id", "name", "arguments", "thoughtSignature", "namespace", "argumentsError"]);
 const USAGE_KEYS = new Set(["input", "output", "cacheRead", "cacheWrite", "cacheWrite1h", "reasoning", "totalTokens", "cost"]);
 const COST_KEYS = new Set(["input", "output", "cacheRead", "cacheWrite", "total"]);
+const DEFERRED_HANDLE_KEYS = new Set(["provider", "modelId", "api", "id", "expiresAt", "pollAfterMs", "data"]);
+const NESTED_TOOL_CALLS_KEYS = new Set(["calls", "complete"]);
+const NESTED_TOOL_CALL_RECORD_KEYS = new Set(["id", "name", "arguments", "argumentsBytes", "status", "durationMs", "error"]);
+const NESTED_TOOL_CALL_STATUSES = new Set(["ok", "error", "unfinished"]);
 
 export type StoredMessageInvariantCode = "migration_required" | "corrupt";
 
@@ -58,6 +73,15 @@ export function parseStoredMessage(value: unknown): StoredAgentMessage {
         requireFiniteNumber(message.timestamp, "Stored toolResult 缺少合法 timestamp。");
         if (message.details !== undefined && !isJsonValue(message.details)) {
             corrupt("Stored toolResult details 不是 JSON value。");
+        }
+        if (message.usage !== undefined) {
+            parseUsage(message.usage, "Stored toolResult");
+        }
+        if (message.nestedCalls !== undefined) {
+            parseNestedToolCalls(message.nestedCalls);
+        }
+        if (message.durationMs !== undefined) {
+            requireFiniteNumber(message.durationMs, "Stored toolResult durationMs 非法。");
         }
         return value as StoredAgentMessage;
     }
@@ -232,6 +256,12 @@ function parseAssistantMessage(message: Record<string, unknown>): void {
             if (block.thoughtSignature !== undefined && typeof block.thoughtSignature !== "string") {
                 corrupt("Stored assistant thoughtSignature 非法。");
             }
+            if (block.namespace !== undefined && typeof block.namespace !== "string") {
+                corrupt("Stored assistant toolCall namespace 非法。");
+            }
+            if (block.argumentsError !== undefined && typeof block.argumentsError !== "string") {
+                corrupt("Stored assistant toolCall argumentsError 非法。");
+            }
             continue;
         }
         corrupt("Stored assistant content block type 非法。");
@@ -243,26 +273,23 @@ function parseAssistantMessage(message: Record<string, unknown>): void {
         corrupt("Stored assistant stopReason 非法。");
     }
     requireFiniteNumber(message.timestamp, "Stored assistant 缺少合法 timestamp。");
-    const usage = objectValue(message.usage, "Stored assistant 缺少 usage。");
-    requireExactKeys(usage, USAGE_KEYS, "Stored assistant usage 包含未声明字段。");
-    for (const key of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const) {
-        requireFiniteNumber(usage[key], `Stored assistant usage.${key} 非法。`);
-    }
-    if (usage.cacheWrite1h !== undefined) {
-        requireFiniteNumber(usage.cacheWrite1h, "Stored assistant usage.cacheWrite1h 非法。");
-    }
-    if (usage.reasoning !== undefined) {
-        requireFiniteNumber(usage.reasoning, "Stored assistant usage.reasoning 非法。");
-    }
-    const cost = objectValue(usage.cost, "Stored assistant usage.cost 非法。");
-    requireExactKeys(cost, COST_KEYS, "Stored assistant usage.cost 包含未声明字段。");
-    for (const key of ["input", "output", "cacheRead", "cacheWrite", "total"] as const) {
-        requireFiniteNumber(cost[key], `Stored assistant usage.cost.${key} 非法。`);
-    }
-    for (const key of ["responseModel", "responseId", "errorMessage"] as const) {
+    parseUsage(message.usage, "Stored assistant");
+    for (const key of ["responseModel", "responseId", "errorMessage", "rawStopReason", "providerThinkingLevel"] as const) {
         if (message[key] !== undefined && typeof message[key] !== "string") {
             corrupt(`Stored assistant ${key} 非法。`);
         }
+    }
+    if (message.thinkingLevel !== undefined && (typeof message.thinkingLevel !== "string" || !MODEL_THINKING_LEVELS.has(message.thinkingLevel))) {
+        corrupt("Stored assistant thinkingLevel 非法。");
+    }
+    if (message.endTurn !== undefined && typeof message.endTurn !== "boolean") {
+        corrupt("Stored assistant endTurn 非法。");
+    }
+    if (message.durationMs !== undefined) {
+        requireFiniteNumber(message.durationMs, "Stored assistant durationMs 非法。");
+    }
+    if (message.deferred !== undefined) {
+        parseDeferredHandle(message.deferred);
     }
     if (message.diagnostics !== undefined && !isJsonValue(message.diagnostics)) {
         corrupt("Stored assistant diagnostics 不是 JSON value。");
@@ -406,8 +433,80 @@ function requireFiniteNumber(value: unknown, message: string): asserts value is 
 }
 
 function requireExactKeys(value: Record<string, unknown>, allowed: Set<string>, message: string): void {
-    if (Object.keys(value).some((key) => !allowed.has(key))) {
-        corrupt(message);
+    const undeclared = Object.keys(value).filter((key) => !allowed.has(key)).sort();
+    if (undeclared.length > 0) {
+        corrupt(`${message}（${undeclared.join(", ")}）`);
+    }
+}
+
+/** 校验 Pi Usage；assistant 必填，toolResult 可选。 */
+function parseUsage(value: unknown, owner: string): void {
+    const usage = objectValue(value, `${owner} 缺少 usage。`);
+    requireExactKeys(usage, USAGE_KEYS, `${owner} usage 包含未声明字段。`);
+    for (const key of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const) {
+        requireFiniteNumber(usage[key], `${owner} usage.${key} 非法。`);
+    }
+    if (usage.cacheWrite1h !== undefined) {
+        requireFiniteNumber(usage.cacheWrite1h, `${owner} usage.cacheWrite1h 非法。`);
+    }
+    if (usage.reasoning !== undefined) {
+        requireFiniteNumber(usage.reasoning, `${owner} usage.reasoning 非法。`);
+    }
+    const cost = objectValue(usage.cost, `${owner} usage.cost 非法。`);
+    requireExactKeys(cost, COST_KEYS, `${owner} usage.cost 包含未声明字段。`);
+    for (const key of ["input", "output", "cacheRead", "cacheWrite", "total"] as const) {
+        requireFiniteNumber(cost[key], `${owner} usage.cost.${key} 非法。`);
+    }
+}
+
+/** 校验 Pi DeferredHandle。 */
+function parseDeferredHandle(value: unknown): void {
+    const deferred = objectValue(value, "Stored assistant deferred 非法。");
+    requireExactKeys(deferred, DEFERRED_HANDLE_KEYS, "Stored assistant deferred 包含未声明字段。");
+    for (const key of ["provider", "modelId", "api", "id"] as const) {
+        requireString(deferred[key], `Stored assistant deferred.${key} 非法。`);
+    }
+    if (deferred.expiresAt !== undefined) {
+        requireFiniteNumber(deferred.expiresAt, "Stored assistant deferred.expiresAt 非法。");
+    }
+    if (deferred.pollAfterMs !== undefined) {
+        requireFiniteNumber(deferred.pollAfterMs, "Stored assistant deferred.pollAfterMs 非法。");
+    }
+    if (deferred.data !== undefined && !isJsonValue(deferred.data)) {
+        corrupt("Stored assistant deferred.data 不是 JSON value。");
+    }
+}
+
+/** 校验 Pi NestedToolCalls。 */
+function parseNestedToolCalls(value: unknown): void {
+    const nested = objectValue(value, "Stored toolResult nestedCalls 非法。");
+    requireExactKeys(nested, NESTED_TOOL_CALLS_KEYS, "Stored toolResult nestedCalls 包含未声明字段。");
+    if (!Array.isArray(nested.calls)) {
+        corrupt("Stored toolResult nestedCalls.calls 必须是数组。");
+    }
+    if (typeof nested.complete !== "boolean") {
+        corrupt("Stored toolResult nestedCalls.complete 非法。");
+    }
+    for (const entry of nested.calls) {
+        const call = objectValue(entry, "Stored toolResult nestedCalls.calls 项必须是对象。");
+        requireExactKeys(call, NESTED_TOOL_CALL_RECORD_KEYS, "Stored toolResult nestedCalls.calls 项包含未声明字段。");
+        requireString(call.id, "Stored toolResult nestedCalls.calls.id 非法。");
+        requireString(call.name, "Stored toolResult nestedCalls.calls.name 非法。");
+        if (typeof call.status !== "string" || !NESTED_TOOL_CALL_STATUSES.has(call.status)) {
+            corrupt("Stored toolResult nestedCalls.calls.status 非法。");
+        }
+        if (call.arguments !== undefined && !isJsonObject(call.arguments)) {
+            corrupt("Stored toolResult nestedCalls.calls.arguments 非法。");
+        }
+        if (call.argumentsBytes !== undefined) {
+            requireFiniteNumber(call.argumentsBytes, "Stored toolResult nestedCalls.calls.argumentsBytes 非法。");
+        }
+        if (call.durationMs !== undefined) {
+            requireFiniteNumber(call.durationMs, "Stored toolResult nestedCalls.calls.durationMs 非法。");
+        }
+        if (call.error !== undefined && typeof call.error !== "string") {
+            corrupt("Stored toolResult nestedCalls.calls.error 非法。");
+        }
     }
 }
 

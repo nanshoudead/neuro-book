@@ -2152,6 +2152,8 @@ const enUS = {
             linkedUnavailableTitle: "Linked conversations unavailable",
             linkedUnavailableMessage: "{count} linked conversation(s) are unavailable. You can keep using the current conversation.",
             runFailed: "Agent run failed",
+            systemNotifyRunIdleTitle: "NeuroBook",
+            systemNotifyRunIdleBody: "Agent task completed",
             reconnectFailed: "Failed to reconnect Agent event stream",
             userTerminated: "User chose to stop this run.",
             stopped: "Stop requested",

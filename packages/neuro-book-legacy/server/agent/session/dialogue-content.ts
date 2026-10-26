@@ -51,10 +51,10 @@ export function buildAgentDialogueContent(input: {
 }
 
 /**
- * 粗略 token 估算，和 harness 现有 estimateTextTokens 保持同一量级。
+ * 粗略 token 估算，和 Pi 1.3 / harness 的约 3.5 字每 token 保持同一量级。
  */
 export function estimateDialogueContentTokens(text: string): number {
-    return Math.ceil(text.length / 4);
+    return Math.ceil(text.length / 3.5);
 }
 
 function renderDialogueEntry(entry: SessionEntry): string | null {

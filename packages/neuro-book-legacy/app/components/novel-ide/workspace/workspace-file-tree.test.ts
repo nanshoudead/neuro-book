@@ -2,6 +2,7 @@ import {describe, expect, it} from "vitest";
 import type {WorkspaceFileNode} from "nbook/app/stores/novel-ide";
 import {
     buildWorkspaceFileTree,
+    getWorkspaceFileIcon,
     outermostWorkspacePaths,
     projectWorkspaceFileNodes,
     resolveWorkspaceNodeRepresentedPath,
@@ -79,7 +80,7 @@ describe("workspace file modes", () => {
         const nodes = [
             file("index.md", "Project"),
             directory("notes/", "Stale directory title", {contentNode: false, hasIndex: false}),
-            file("notes/index.md", "Field Notes"),
+            file("notes/index.md", "Field Notes", {icon: "feather", entryType: "character", status: "draft", summary: "A field notebook", contentNode: true}),
             directory("notes/deep/", "Stale title", {contentNode: true, hasIndex: true}),
             file("notes/deep/index.md", "Nested Notes"),
             directory("empty/", "Old title", {contentNode: true, hasIndex: true}),
@@ -93,7 +94,8 @@ describe("workspace file modes", () => {
         const empty = tree.find(node => node.path === "empty/");
 
         expect(projected.map(node => node.path)).toEqual(["notes/", "notes/deep/", "empty/", "notes/deep/sketch.png"]);
-        expect(notes).toMatchObject({path: "notes/", title: "Field Notes", hasIndex: true, contentNode: true});
+        expect(notes).toMatchObject({path: "notes/", title: "Field Notes", hasIndex: true, contentNode: true, icon: "feather", entryType: "character", status: "draft", summary: "A field notebook"});
+        expect(getWorkspaceFileIcon(notes!, false)).toBe("i-lucide-feather");
         expect(deep).toMatchObject({path: "notes/deep/", title: "Nested Notes", hasIndex: true, contentNode: true});
         expect(resolveWorkspaceNodeRepresentedPath(notes!)).toBe("notes/index.md");
         expect(resolveWorkspaceNodeRepresentedPath(deep!)).toBe("notes/deep/index.md");
@@ -124,5 +126,12 @@ describe("workspace file modes", () => {
             ["drafts/b/broken.md", "broken.md"],
         ]);
         expect(nodes.map(node => node.title)).toEqual(["Stale", "Wrong title", "Stale", "   ", "New Chapter", "   ", "Wrong"]);
+    });
+
+    it("uses the frontmatter icon, then the entry type, before the generic file icon", () => {
+        expect(getWorkspaceFileIcon(file("lorebook/hero/index.md", "Hero", {icon: "feather", entryType: "character", contentNode: true}), false)).toBe("i-lucide-feather");
+        expect(getWorkspaceFileIcon(directory("lorebook/hero/", "Hero", {icon: "feather", entryType: "character", contentNode: true}), true)).toBe("i-lucide-feather");
+        expect(getWorkspaceFileIcon(file("lorebook/town/index.md", "Town", {entryType: "location", contentNode: true}), false)).toBe("i-lucide-map-pinned");
+        expect(getWorkspaceFileIcon(file("notes/plain.md", "Plain"), false)).toBe("i-lucide-file-text");
     });
 });

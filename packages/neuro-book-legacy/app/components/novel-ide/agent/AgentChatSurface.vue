@@ -12,6 +12,7 @@ import {
 import {useStructuredReferenceMenu} from "nbook/app/composables/useStructuredReferenceMenu";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
+import {ensureSystemNotificationPermission} from "nbook/app/utils/system-notification";
 import {useAgentSession} from "nbook/app/components/novel-ide/agent/useAgentSession";
 import {useAgentSessionStream, type AgentSessionStreamRecoveryReason} from "nbook/app/components/novel-ide/agent/useAgentSessionStream";
 import {applyAgentCommandResult} from "nbook/app/components/novel-ide/agent/agent-command-result";
@@ -2285,6 +2286,8 @@ const send = async (): Promise<void> => {
     if (!activeInteraction.value.canInvoke) {
         return;
     }
+    // 必须在发送点击的用户手势里要权限；挂在 SSE agent_start 上浏览器会静默压掉。
+    ensureSystemNotificationPermission();
     const sessionId = activeSessionId.value;
 
     if (message.startsWith("/")) {

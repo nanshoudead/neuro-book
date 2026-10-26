@@ -97,6 +97,24 @@ describe("Automatic Model Discovery frontend session", () => {
         });
     });
 
+    it("打开发现对话框只打开窗口，不发起查询", async () => {
+        const provider = createProvider({models: []});
+        const fetchMock = vi.fn(async () => ({
+            models: [remoteModel({id: "remote-model", name: "Remote"})],
+            message: "ok",
+            diagnostics: completeDiagnostics(),
+        }));
+        vi.stubGlobal("$fetch", fetchMock);
+        const session = createSession(provider);
+
+        expect(session.discoveryDialogOpen.value).toBe(false);
+        session.openDiscovery();
+
+        expect(session.discoveryDialogOpen.value).toBe(true);
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(session.discoveryGroups.value).toEqual([]);
+    });
+
     it("发现请求显式声明凭据来源", async () => {
         const provider = reactive(createProvider({models: []}));
         const fetchMock = vi.fn(async () => ({models: [], message: "ok", diagnostics: completeDiagnostics()}));

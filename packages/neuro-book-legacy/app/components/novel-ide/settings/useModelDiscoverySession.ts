@@ -286,6 +286,15 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
         }
     }
 
+    /**
+     * 打开 Automatic Model Discovery Dialog。
+     * 只打开窗口，不发起查询——查询留给对话框内的刷新，或顶栏「查询可用模型」。
+     * Vertex 改动曾把这个入口误绑成 discover；这里恢复成打开列表的原行为。
+     */
+    function openDiscovery(): void {
+        discoveryDialogOpen.value = true;
+    }
+
     /** 打开独立 Model Library Dialog。 */
     async function openModelLibrary(): Promise<void> {
         try {
@@ -383,6 +392,7 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
         addManualModel,
         toggleDiscoveredModel,
         toggleLibraryModel,
+        openDiscovery,
         openModelLibrary,
         renameProvider,
         removeProvider,

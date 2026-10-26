@@ -14,9 +14,9 @@ import {
     TEST_RUN_ID_ENV,
 } from "@notnotype/neuro-book-test-support/tmp";
 
-/** 仓库根：`packages/neuro-book/server/agent/test/global-setup.ts` 向上五级。 */
+/** 仓库根：`packages/neuro-book-legacy/server/agent/test/global-setup.ts` 向上五级。 */
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "..");
-const APPLICATION_ROOT = resolve(REPO_ROOT, "packages", "neuro-book");
+const APPLICATION_ROOT = resolve(REPO_ROOT, "packages", "neuro-book-legacy");
 
 /** 本次 run 建立的共享 snapshot；teardown 时删除。 */
 let snapshotRoot: string | null = null;

@@ -1,12 +1,12 @@
-import {estimateContextTokens as estimatePiContextTokens, estimateTokens as estimatePiTokens} from "@earendil-works/pi-agent-core";
+import {estimateContextTokens as estimatePiContextTokens, estimateMessageTokens as estimatePiTokens} from "@earendil-works/pi-ai/utils/estimate";
 import {storedMessageForEstimate, type StoredMessageLike} from "nbook/server/agent/messages/stored-message-presentation";
 
 /**
  * stored message 的 token 估算入口。
  *
  * 单独成模块的原因：估算器是 `stored-message-presentation` 中唯一的
- * pi-agent-core 值导入，而 presentation 会进 profile artifact 依赖图；
- * 拆开后 artifact 不再拖入 pi-ai 与全部 Provider SDK。
+ * Pi 值导入，而 presentation 会进 profile artifact 依赖图；
+ * 拆开后 artifact 不再拖入全部 Provider SDK。Pi 1.3 起估算器在 pi-ai/utils/estimate。
  */
 
 /** 不读取 blob 的单消息 token 估算。 */

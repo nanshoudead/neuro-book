@@ -24,6 +24,28 @@ import {
     type AgentPendingUserInputSession,
 } from "nbook/app/components/novel-ide/agent/agent-message";
 import {optimisticUserMessage} from "nbook/app/components/novel-ide/agent/agent-user-message-markdown";
+import {notifyAgentRunIdleIfBackground} from "nbook/app/utils/system-notification";
+
+type RuntimeI18n = {t: (key: string) => string};
+
+/**
+ * useAgentSession 会被普通 Vitest 直接实例化；这里不能依赖 setup-only 的 useI18n。
+ */
+function translate(key: string, fallback: string): string {
+    try {
+        const nuxtApp = useNuxtApp() as {$i18n?: RuntimeI18n};
+        return nuxtApp.$i18n?.t(key) ?? fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function notifyAgentIdleBackground(): void {
+    notifyAgentRunIdleIfBackground({
+        title: translate("agent.chatSurface.systemNotifyRunIdleTitle", "NeuroBook"),
+        body: translate("agent.chatSurface.systemNotifyRunIdleBody", "Agent 任务已完成"),
+    });
+}
 
 export type AgentConnectionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "recovering" | "disconnected";
 
@@ -199,6 +221,8 @@ export function useAgentSession() {
             } else {
                 liveRunStatus.value = "idle";
                 runPhase.value = "idle";
+                // 回合结束且回到空闲：仅窗口不在前台时发浏览器系统通知。
+                notifyAgentIdleBackground();
             }
         }
         if (event.type === "message_start" || event.type === "message_update") {
@@ -670,8 +694,13 @@ export function useAgentSession() {
         } else {
             // 服务端报「没有活动 invocation」就是权威终态，aborting 也不例外：
             // 取消侧补发的 agent_end 万一丢包，这里是唯一的兜底出口，加守卫会让界面永久停在「正在停止」。
+            const wasBusy = liveRunStatus.value !== "idle";
             liveRunStatus.value = "idle";
             runPhase.value = "idle";
+            // agent_end 丢包时的兜底：从忙碌回到空闲才通知，避免 recovery 重复刷。
+            if (wasBusy) {
+                notifyAgentIdleBackground();
+            }
         }
     }
 

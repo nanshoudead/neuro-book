@@ -115,6 +115,39 @@ describe("ModelPickerContent", () => {
         });
     });
 
+    it("没有角色配置时直接展示模型库，不出现角色切换", () => {
+        const wrapper = mount(ModelPickerContent, {
+            props: {
+                modelValue: "anthropic/claude-3-7-sonnet",
+                roles: [],
+                models: mockModels,
+            },
+        });
+
+        expect(wrapper.text()).not.toContain("模型角色梯度轴");
+        expect(wrapper.text()).not.toContain("角色");
+        expect(wrapper.text()).toContain("Claude 3.7 Sonnet");
+        expect(wrapper.text()).not.toContain("免费 / 本地");
+    });
+
+    it("当前值是模型键时，绑了同一模型的角色不会一起点亮", () => {
+        const wrapper = mount(ModelPickerContent, {
+            props: {
+                modelValue: "anthropic/claude-3-7-sonnet",
+                roles: mockRoles,
+                models: mockModels,
+                showSpecialistInPicker: true,
+            },
+        });
+
+        const mainRoleButton = wrapper.findAll("button").find((btn) => btn.text().includes("主力"));
+        const writerRoleButton = wrapper.findAll("button").find((btn) => btn.text().includes("创作"));
+        expect(mainRoleButton).toBeDefined();
+        expect(writerRoleButton).toBeDefined();
+        expect(mainRoleButton!.classes()).not.toContain("border-[color:var(--focus-outline)]");
+        expect(writerRoleButton!.classes()).not.toContain("border-[color:var(--focus-outline)]");
+    });
+
     it("默认展示 4 档梯度角色，在未开启时隐藏专精轴", () => {
         const wrapper = mount(ModelPickerContent, {
             props: {

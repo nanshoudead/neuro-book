@@ -5,6 +5,9 @@ import {storeToRefs} from "pinia";
 import ContextMenu, {type ContextMenuItem} from "nbook/app/components/common/ContextMenu.vue";
 import WorkspaceCreateFileDialog, {type WorkspaceCreateKind, type WorkspaceCreatePayload} from "nbook/app/components/novel-ide/workspace/WorkspaceCreateFileDialog.vue";
 import FilesExplorerView from "nbook/app/components/novel-ide/workspace/FilesExplorerView.vue";
+import WorkspaceCharacterDetailPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterDetailPanel.vue";
+import WorkspaceFileDetailPanel from "nbook/app/components/novel-ide/workspace/WorkspaceFileDetailPanel.vue";
+import WorkspaceLorebookDetailPanel from "nbook/app/components/novel-ide/workspace/WorkspaceLorebookDetailPanel.vue";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useWorkbenchFileTreeExpandedPaths, useWorkbenchFilesViewMode} from "nbook/app/utils/workbench/files-view-session";
@@ -14,16 +17,20 @@ import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {buildDefaultWorkspaceCreatePath} from "nbook/app/utils/workspace-create-path";
 import {useNovelIdeStore, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
 import type {WorkspaceFilesViewMode} from "nbook/shared/storage/workbench-files";
-import {normalizeWorkspacePath, outermostWorkspacePaths, resolveMovedPath, type WorkspaceFileClipboardIntent, type WorkspaceFileMovePayload} from "nbook/app/components/novel-ide/workspace/workspace-file-tree";
+import {isWorkspaceLorebookEntry, normalizeWorkspacePath, outermostWorkspacePaths, resolveMovedPath, resolveWorkspaceNodeRepresentedPath, type WorkspaceFileClipboardIntent, type WorkspaceFileMovePayload} from "nbook/app/components/novel-ide/workspace/workspace-file-tree";
 
 const store = useNovelIdeStore();
 const {confirm, prompt, choose} = useDialog();
 const {error: notifyError, success: notifySuccess} = useNotification();
 const {t} = useI18n();
-const {canAccessWorkspace, loadingWorkspaceTree, selectedFilePath, workspaceTree} = storeToRefs(store);
+const {canAccessWorkspace, loadingWorkspaceTree, selectedFileNode, selectedFilePath, workspaceIssues, workspaceTree} = storeToRefs(store);
+const detailHeight = ref(260);
 const treeError = ref<string | null>(null);
 
 const modeRecord = useWorkbenchFilesViewMode();
+const showContentDetail = computed(() => modeRecord.mode.value === "content" && Boolean(selectedFileNode.value));
+const showCharacterDetail = computed(() => showContentDetail.value && isWorkspaceLorebookEntry(selectedFileNode.value) && selectedFileNode.value?.entryType === "character");
+const showLorebookDetail = computed(() => showContentDetail.value && isWorkspaceLorebookEntry(selectedFileNode.value) && selectedFileNode.value?.entryType !== "character");
 /**
  * 展开项归 `workbench.files`/`expanded-paths` 的 user/local 记录（`persistence.md:98`）：
  * 本组件不再直接读写 `localStorage`（`boundaries.md:103`），旧裸键由会话一次性迁入。
@@ -343,7 +350,9 @@ function openContextMenu(event: MouseEvent, items: ContextMenuItem[]): void {
 /** 树选择只负责打开，失败不把旧正文冒充新文档。 */
 async function activateNode(node: WorkspaceFileNode, mode: "preview" | "permanent"): Promise<void> {
     try {
-        const opened = await store.openWorkspaceNode(node, mode);
+        const representedPath = modeRecord.mode.value === "content" ? resolveWorkspaceNodeRepresentedPath(node) : node.path;
+        const target = workspaceTree.value.find((item) => normalizeWorkspacePath(item.path) === normalizeWorkspacePath(representedPath)) ?? node;
+        const opened = await store.openWorkspaceNode(target, mode);
         if (!opened) notifyError("当前编辑内容尚未结算，请先处理冲突", {title: "未打开文件"});
     } catch (error) {
         notifyError(resolveApiErrorMessage(error, "打开文件失败"), {title: "打开文件失败"});
@@ -459,14 +468,27 @@ async function submitCreateDialog(payload: WorkspaceCreatePayload): Promise<void
     }
 }
 
-async function createDirectoryIndex(node: WorkspaceFileNode): Promise<void> {
+async function createDirectoryIndex(node: WorkspaceFileNode | null): Promise<void> {
     const generation = store.workspaceGeneration;
-    if (!node.isDirectory || workspaceTree.value.some(item => normalizeWorkspacePath(item.path) === `${normalizeWorkspacePath(node.path)}/index.md`)) return;
+    if (!node?.isDirectory || workspaceTree.value.some(item => normalizeWorkspacePath(item.path) === `${normalizeWorkspacePath(node.path)}/index.md`)) return;
     try {
         const indexNode = await store.createWorkspaceFile(`${normalizeWorkspacePath(node.path)}/index.md`, "");
         if (activeGeneration(generation)) await store.openWorkspaceNode(indexNode, "permanent");
     } catch (error) {
         if (activeGeneration(generation)) notifyError(resolveApiErrorMessage(error, "创建内容失败"), {title: "创建内容失败"});
+    }
+}
+
+async function convertFileToDirectory(node: WorkspaceFileNode | null): Promise<void> {
+    if (!node || node.isDirectory) return;
+    const generation = store.workspaceGeneration;
+    try {
+        const converted = await store.convertWorkspaceFileToDirectory(node.path);
+        if (!activeGeneration(generation)) return;
+        expandedPaths.value = [...new Set([...expandedPaths.value, converted.path])].filter(Boolean);
+        await store.selectWorkspacePath(converted.path);
+    } catch (error) {
+        if (activeGeneration(generation)) notifyError(resolveApiErrorMessage(error, "转化为目录失败"), {title: "转化失败"});
     }
 }
 
@@ -785,8 +807,8 @@ watch(canAccessWorkspace, canAccess => {
 
 <template>
     <div class="flex h-full min-h-0 flex-col">
+        <div v-if="canAccessWorkspace && !expandedPathsLoading && !modeLoading" class="flex min-h-0 flex-1 flex-col overflow-hidden">
         <FilesExplorerView
-            v-if="canAccessWorkspace && !expandedPathsLoading && !modeLoading"
             :nodes="workspaceTree"
             :mode="modeRecord.mode.value"
             :selected-path="selectedFilePath"
@@ -806,9 +828,39 @@ watch(canAccessWorkspace, canAccess => {
             @create-root-content="void createRootContent()"
             @retry="void refreshTree().catch(() => undefined)"
         />
+        </div>
         <div v-else class="flex min-h-0 flex-1 items-center justify-center px-3 text-xs text-[var(--text-muted)]">
             {{ canAccessWorkspace ? t("ide.workspace.filePanel.loadingTree") : "尚未打开工作区" }}
         </div>
+
+        <WorkspaceCharacterDetailPanel
+            v-if="showCharacterDetail"
+            :node="selectedFileNode"
+            :issues="workspaceIssues"
+            :height="detailHeight"
+            @update:height="detailHeight = $event"
+            @close="store.clearActiveFile()"
+            @refresh="void refreshTree()"
+        />
+        <WorkspaceLorebookDetailPanel
+            v-else-if="showLorebookDetail"
+            :node="selectedFileNode"
+            :issues="workspaceIssues"
+            :height="detailHeight"
+            @update:height="detailHeight = $event"
+            @close="store.clearActiveFile()"
+            @refresh="void refreshTree()"
+        />
+        <WorkspaceFileDetailPanel
+            v-else-if="showContentDetail"
+            :node="selectedFileNode"
+            :issues="workspaceIssues"
+            :height="detailHeight"
+            @update:height="detailHeight = $event"
+            @close="store.clearActiveFile()"
+            @create-index="void createDirectoryIndex(selectedFileNode)"
+            @convert-file-to-directory="void convertFileToDirectory(selectedFileNode)"
+        />
 
         <div v-if="batchBusy || clipboardUnknown" class="shrink-0 border-t border-[var(--border-color)] px-3 py-1 text-xs" role="status">
             <div class="flex items-center gap-2">

@@ -86,13 +86,13 @@ describe("buildTraceSegments", () => {
         expect(segments.map((segment) => segment.kind)).toEqual(["appending", "conversation", "appending"]);
     });
 
-    it("估算 token 按 chars/4，与 compaction 口径一致", () => {
+    it("估算 token 按约 3.5 字/token，与 compaction 口径一致", () => {
         const segments = buildTraceSegments({
             systemPrompt: "",
             tools: [],
             messages: [userMessage("a".repeat(40))],
         });
-        expect(segments[0]?.estimatedTokens).toBe(10);
+        expect(segments[0]?.estimatedTokens).toBe(12);
     });
 });
 

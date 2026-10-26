@@ -6,7 +6,7 @@ import {parsePiSimpleRequestOptions, piRequestAuthOptions} from "nbook/server/ag
 import {VERTEX_ADC_API_KEY} from "nbook/server/models/vertex-credentials";
 
 describe("Pi simple request options", () => {
-    it("保留 Pi 0.80.6 streamSimple 已确认支持的 JSON 参数", () => {
+    it("保留 Pi streamSimple 已确认支持的 JSON 参数", () => {
         const options = parsePiSimpleRequestOptions({
             temperature: 0.3,
             headers: {"x-test": "ok", "x-remove": null},

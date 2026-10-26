@@ -96,15 +96,6 @@ const manuscriptBasePath = computed(() => {
 });
 const currentIconName = computed(() => normalizeLucideIconName(parseFrontmatterText(frontmatterText.value).frontmatter.icon));
 const currentIconClass = computed(() => readLucideIconClass(currentIconName.value) ?? "i-lucide-notebook-tabs");
-const readonlyFrontmatterText = computed(() => {
-    if (!props.node) {
-        return "";
-    }
-    if (Object.keys(props.node.frontmatter).length === 0) {
-        return "{}";
-    }
-    return YAML.stringify(props.node.frontmatter).trimEnd();
-});
 const relatedIssues = computed(() => {
     if (!props.node) {
         return [];
@@ -132,7 +123,7 @@ async function saveFrontmatter(): Promise<void> {
  * 保存 manuscript 节点表单，保留未展示的 frontmatter 字段。
  */
 async function saveManuscriptForm(): Promise<void> {
-    if (!isManuscriptIndexFile.value || localFrontmatterError.value || props.node?.frontmatterError || savingFile.value) {
+    if (!isContentIndexFile.value || localFrontmatterError.value || props.node?.frontmatterError || savingFile.value) {
         return;
     }
 
@@ -340,7 +331,7 @@ function basename(filePath: string): string {
         <template #actions>
             <button v-if="canCreateIndex" class="rounded-md px-2 py-1 text-[10px] text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" type="button" @click="emit('create-index')">{{ t("ide.workspace.fileDetail.convert") }}</button>
             <button v-if="canConvertFileToDirectory" class="rounded-md px-2 py-1 text-[10px] text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" type="button" @click="emit('convert-file-to-directory')">{{ t("ide.workspace.fileDetail.convertToDirectory") }}</button>
-            <button v-if="isContentIndexFile" class="rounded-md px-2 py-1 text-[10px] text-[var(--accent-text)] hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-45" type="button" :disabled="isManuscriptIndexFile ? savingFile : (!isFrontmatterDirty || savingFile)" @click="isManuscriptIndexFile ? void saveManuscriptForm() : void saveFrontmatter()">{{ t("ide.workspace.common.save") }}</button>
+            <button v-if="isContentIndexFile" class="rounded-md px-2 py-1 text-[10px] text-[var(--accent-text)] hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-45" type="button" :disabled="savingFile" @click="void saveManuscriptForm()">{{ t("ide.workspace.common.save") }}</button>
         </template>
 
         <div v-if="props.node" class="grid min-w-0 gap-2 text-xs text-[var(--text-secondary)]">
@@ -364,17 +355,24 @@ function basename(filePath: string): string {
                 {{ localFrontmatterError || props.node.frontmatterError }}
             </div>
 
-            <!-- frontmatter 详情 -->
-            <div v-if="isManuscriptIndexFile" class="min-w-0 space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2">
+            <!-- frontmatter 按字段展示；原稿额外带字数统计。原始 YAML 不在这里铺开。 -->
+            <div v-if="isContentIndexFile" class="min-w-0 space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2">
                 <div class="flex items-center justify-between gap-2">
-                    <div class="text-[10px] uppercase tracking-[0.16em] text-[var(--text-muted)]">Manuscript</div>
+                    <div class="text-[10px] uppercase tracking-[0.16em] text-[var(--text-muted)]">{{ isManuscriptIndexFile ? "Manuscript" : (props.node.entryType || "Frontmatter") }}</div>
                     <div class="flex shrink-0 items-center gap-2">
-                        <span v-if="manuscriptStats.updatedAt" class="text-[10px] text-[var(--text-muted)]">{{ manuscriptStats.updatedAt }}</span>
+                        <span v-if="isManuscriptIndexFile && manuscriptStats.updatedAt" class="text-[10px] text-[var(--text-muted)]">{{ manuscriptStats.updatedAt }}</span>
                         <span v-if="isFrontmatterDirty" class="text-[10px] text-[var(--status-warning)]">{{ t("ide.workspace.common.unsaved") }}</span>
-                        <button type="button" class="rounded-md border border-[var(--border-color)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="refreshManuscriptStats">{{ t("ide.workspace.fileDetail.updateStats") }}</button>
+                        <button v-if="isManuscriptIndexFile" type="button" class="rounded-md border border-[var(--border-color)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="refreshManuscriptStats">{{ t("ide.workspace.fileDetail.updateStats") }}</button>
                     </div>
                 </div>
-                <div class="grid grid-cols-5 gap-1.5">
+                <div class="flex items-center justify-between gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5">
+                    <div class="flex min-w-0 items-center gap-2">
+                        <span :class="currentIconClass" class="h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
+                        <span class="truncate text-[11px] text-[var(--text-secondary)]">{{ currentIconName || t("ide.workspace.fileDetail.noIcon") }}</span>
+                    </div>
+                    <button type="button" class="rounded-md border border-[var(--border-color)] px-2 py-1 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="iconPickerVisible = true">{{ t("ide.workspace.fileDetail.chooseIcon") }}</button>
+                </div>
+                <div v-if="isManuscriptIndexFile" class="grid grid-cols-5 gap-1.5">
                     <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5">
                         <div class="text-[8px] uppercase tracking-[0.12em] text-[var(--text-muted)]">{{ t("ide.workspace.fileDetail.current") }}</div>
                         <div class="mt-0.5 text-[var(--text-main)]">{{ manuscriptStats.currentWords }}</div>
@@ -416,31 +414,16 @@ function basename(filePath: string): string {
                 </div>
             </div>
 
-            <div v-else-if="isContentIndexFile || props.node.contentNode" class="space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2">
-                <div class="flex items-center justify-between gap-2">
-                    <div class="text-[10px] uppercase tracking-[0.18em] text-[var(--text-muted)]">Frontmatter</div>
-                    <span v-if="isContentIndexFile && isFrontmatterDirty" class="text-[10px] text-[var(--status-warning)]">{{ t("ide.workspace.common.unsaved") }}</span>
+            <div v-else-if="props.node.contentNode" class="space-y-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2">
+                <div class="flex items-center gap-2">
+                    <span :class="readLucideIconClass(props.node.icon) ?? 'i-lucide-file-text'" class="h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
+                    <span class="truncate text-[11px] text-[var(--text-main)]">{{ props.node.title || basename(props.node.path) }}</span>
                 </div>
-                <div v-if="isContentIndexFile" class="flex items-center justify-between gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5">
-                    <div class="flex min-w-0 items-center gap-2">
-                        <span :class="currentIconClass" class="h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
-                        <span class="truncate text-[11px] text-[var(--text-secondary)]">{{ currentIconName || t("ide.workspace.fileDetail.noIcon") }}</span>
-                    </div>
-                    <button type="button" class="rounded-md border border-[var(--border-color)] px-2 py-1 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="iconPickerVisible = true">{{ t("ide.workspace.fileDetail.chooseIcon") }}</button>
+                <div v-if="props.node.entryType || props.node.status" class="flex flex-wrap gap-1 text-[10px] text-[var(--text-muted)]">
+                    <span v-if="props.node.entryType">{{ props.node.entryType }}</span>
+                    <span v-if="props.node.status">{{ props.node.status }}</span>
                 </div>
-                <textarea
-                    v-if="isContentIndexFile"
-                    v-model="frontmatterText"
-                    rows="10"
-                    class="w-full resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5 font-mono text-[11px] leading-5 text-[var(--text-main)] outline-none focus:border-[var(--accent-main)]"
-                    :placeholder="t('ide.workspace.fileDetail.frontmatterPlaceholder')"
-                    :disabled="savingFile"
-                ></textarea>
-                <pre v-else class="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 font-mono text-[11px] leading-5 text-[var(--text-main)] custom-scrollbar">{{ readonlyFrontmatterText }}</pre>
-            </div>
-
-            <div v-if="props.node.summary" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 leading-5">
-                {{ props.node.summary }}
+                <p v-if="props.node.summary" class="leading-5 text-[var(--text-secondary)]">{{ props.node.summary }}</p>
             </div>
 
             <div v-if="hasRelatedIssues" class="space-y-2">

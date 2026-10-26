@@ -53,8 +53,9 @@ describe("stored message presentation", () => {
             timestamp: 2,
         };
 
-        expect(estimateStoredMessageTokens(imageOnly)).toBe(1_200);
-        expect(estimateStoredMessageTokens(withText)).toBe(1_201);
+        // Pi 1.3：图片仍按 4800 字符，但折算改为约 3.5 字/token（ceil(4800/3.5)=1372）。
+        expect(estimateStoredMessageTokens(imageOnly)).toBe(1_372);
+        expect(estimateStoredMessageTokens(withText)).toBe(1_373);
     });
 
     it("上下文估算保留最近 assistant usage，并只估算其后的 attachment", () => {
@@ -82,7 +83,7 @@ describe("stored message presentation", () => {
 
         const usage = estimateStoredContextTokens(messages);
         expect(usage.usageTokens).toBe(120);
-        expect(usage.trailingTokens).toBe(1_200);
-        expect(usage.tokens).toBe(1_320);
+        expect(usage.trailingTokens).toBe(1_372);
+        expect(usage.tokens).toBe(1_492);
     });
 });

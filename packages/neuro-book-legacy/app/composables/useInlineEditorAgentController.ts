@@ -19,6 +19,7 @@ import {useAgentSessionStream} from "nbook/app/components/novel-ide/agent/useAge
 import {useAgentSessionApi} from "nbook/app/composables/useAgentSessionApi";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useNotification} from "nbook/app/composables/useNotification";
+import {ensureSystemNotificationPermission} from "nbook/app/utils/system-notification";
 import {useThemeSettings} from "nbook/app/composables/useThemeSettings";
 import {useProductTheme} from "nbook/app/utils/theme/theme-session";
 import type {ProductThemeId} from "nbook/shared/theme/theme-axes";
@@ -416,10 +417,11 @@ export function useInlineEditorAgentController(
         payload: InlineEditPayload,
         visibleMessage: string,
     ): Promise<AgentSurfaceOperationResult<void>> {
+        // 与主对话一致：在用户发起 Inline 的手势里请求系统通知权限。
+        ensureSystemNotificationPermission();
         const owner = captureOperation();
         if (!owner) return {status: "superseded"};
-        const targetResult = await ensureSession(owner);
-        if (targetResult.status === "superseded") return targetResult;
+        const targetResult = await ensureSession(owner);        if (targetResult.status === "superseded") return targetResult;
         const targetSession = targetResult.value;
         if (targetSession.status === "running" || targetSession.status === "waiting") {
             throw new Error(services.translate("agent.chatSurface.inlineRunningError"));

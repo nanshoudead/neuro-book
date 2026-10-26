@@ -449,8 +449,9 @@ describe("compaction", () => {
             .filter((entry) => entry.type === "compaction")
             .at(-1);
         expect(summaryPromptText(summaryPrompt)).toContain(attachmentMarker(block));
-        expect(latest?.type === "compaction" ? latest.details?.summarizedTokens : undefined).toBe(1_200);
-        expect(latest?.type === "compaction" ? latest.tokensBefore : undefined).toBeGreaterThanOrEqual(1_200);
+        // Pi 1.3：图片按 4800 字符 / 约 3.5 字每 token 估算（ceil = 1372）。
+        expect(latest?.type === "compaction" ? latest.details?.summarizedTokens : undefined).toBe(1_372);
+        expect(latest?.type === "compaction" ? latest.tokensBefore : undefined).toBeGreaterThanOrEqual(1_372);
     });
 });
 

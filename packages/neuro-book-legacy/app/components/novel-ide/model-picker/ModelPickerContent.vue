@@ -54,7 +54,18 @@ const emit = defineEmits<{
 const {t} = useI18n();
 const searchInputRef = ref<HTMLInputElement | null>(null);
 const searchQuery = ref("");
-const activeFilter = ref<"roles" | "models">("roles");
+
+function hasConfiguredRoles(roles: ModelPickerRoleItem[]): boolean {
+    return roles.some((role) => role.enabled !== false);
+}
+
+const activeFilter = ref<"roles" | "models">(hasConfiguredRoles(props.roles) ? "roles" : "models");
+
+watch(() => props.roles, (roles) => {
+    if (!hasConfiguredRoles(roles) && activeFilter.value === "roles") {
+        activeFilter.value = "models";
+    }
+});
 const hoveredKey = ref<string | null>(null);
 const expandedProviders = ref<Record<string, boolean>>({});
 
@@ -137,11 +148,11 @@ function formatContextWindow(tokens?: number | null): string {
 }
 
 // 格式化计费信息
-function formatCost(model: ModelPickerModelItem): string {
+function formatCost(model: ModelPickerModelItem): string | null {
     if (model.pricing) return model.pricing;
     const cost = model.cost;
     if (!cost || (cost.input === undefined && cost.output === undefined)) {
-        return "免费 / 本地";
+        return null;
     }
     const input = cost.input !== undefined ? `$${cost.input}` : "$0";
     const output = cost.output !== undefined ? `$${cost.output}` : "$0";
@@ -188,9 +199,7 @@ const providerGroups = computed<ModelPickerProviderGroup[]>(() => {
 
 // 判断某个项是否当前激活
 function isRoleActive(role: ModelPickerRoleItem): boolean {
-    if (props.modelValue === `role:${role.id}`) return true;
-    if (role.modelKey && props.modelValue === role.modelKey) return true;
-    return false;
+    return props.modelValue === `role:${role.id}`;
 }
 
 function isModelActive(model: ModelPickerModelItem): boolean {
@@ -380,7 +389,8 @@ const activeSelectionDetails = computed(() => {
         if (model.reasoning) capabilities.push("Reasoning");
         if (model.input.includes("image")) capabilities.push("Vision");
         capabilities.push(formatContextWindow(model.contextWindowTokens));
-        capabilities.push(formatCost(model));
+        const costLabel = formatCost(model);
+        if (costLabel) capabilities.push(costLabel);
 
         return {
             type: "model" as const,
@@ -449,6 +459,7 @@ function handleFilterChange(val: string | number | boolean | null): void {
                 </div>
                 <!-- 切换选项卡：角色 vs 模型库 (复用 nb-ui 官方 SegmentedControl，内置平滑滑动指示块动效) -->
                 <SegmentedControl
+                    v-if="hasConfiguredRoles(props.roles)"
                     :model-value="activeFilter"
                     :options="filterTabOptions"
                     size="xs"

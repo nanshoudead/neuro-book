@@ -8414,7 +8414,7 @@ function createInvocationAbortGate(): InvocationAbortGate {
 }
 
 function estimateTextTokens(text: string): number {
-    return Math.ceil(text.length / 4);
+    return Math.ceil(text.length / 3.5);
 }
 
 /** 只保留文件名语义，并把登记名称限制在公开 DTO 的稳定上限内。 */

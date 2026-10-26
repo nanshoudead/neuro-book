@@ -140,6 +140,31 @@ describe("stored message codec", () => {
             diagnostics: [{type: "provider", timestamp: 1, details: {custom: "value"}}],
         }))).not.toThrow();
     });
+
+    it("接受 Pi 1.3 Google/Agent loop 写入的 assistant 元数据字段", () => {
+        expect(() => parseStoredMessage(assistantMessage({
+            rawStopReason: "STOP",
+            durationMs: 16248,
+            thinkingLevel: "high",
+            providerThinkingLevel: "high",
+            endTurn: true,
+            responseId: "resp-1",
+            responseModel: "gemini-4-argon",
+        }))).not.toThrow();
+    });
+
+    it("接受带 durationMs 与 usage 的 toolResult", () => {
+        expect(() => parseStoredMessage({
+            role: "toolResult",
+            toolCallId: "call-1",
+            toolName: "read",
+            content: [{type: "text", text: "ok"}],
+            usage: assistantUsage(),
+            durationMs: 12,
+            isError: false,
+            timestamp: 1,
+        })).not.toThrow();
+    });
 });
 
 function assistantUsage() {

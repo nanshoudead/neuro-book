@@ -302,6 +302,7 @@ export function useProviderSettingsBinding(options: ProviderSettingsBindingOptio
         addManualModel,
         toggleDiscoveredModel,
         toggleLibraryModel,
+        openDiscovery,
         openModelLibrary,
         reset: resetDiscoverySession,
         renameProvider: renameDiscoveryProvider,
@@ -564,7 +565,7 @@ export function useProviderSettingsBinding(options: ProviderSettingsBindingOptio
             deleteModel(model);
             scheduleSave();
         },
-        "onOpen-discovery": () => void discoverAndPersist(),
+        "onOpen-discovery": () => openDiscovery(),
         "onOpen-library": () => openModelLibrary(),
         "onRepair": () => {
             void repairModelSettings();

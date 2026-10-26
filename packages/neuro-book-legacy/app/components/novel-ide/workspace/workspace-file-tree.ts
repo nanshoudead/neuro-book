@@ -1,6 +1,8 @@
 import type {ComputedRef, InjectionKey, Ref} from "vue";
 import type {WorkspaceFileNode} from "nbook/app/stores/novel-ide";
 import type {WorkspaceFilesViewMode} from "nbook/shared/storage/workbench-files";
+import {getWorkspaceLorebookTypeMeta, isWorkspaceLorebookType} from "nbook/app/components/novel-ide/workspace/workspace-entry-meta";
+import {readLucideIconClass} from "nbook/app/utils/lucide-icons";
 
 export type WorkspaceTreeNode = WorkspaceFileNode & {
     children: WorkspaceTreeNode[];
@@ -105,13 +107,25 @@ export function projectWorkspaceFileNodes(nodes: readonly WorkspaceFileNode[], m
 
             const name = basename(node.path);
             const index = node.isDirectory ? indexByPath.get(`${normalizeWorkspacePath(node.path)}/index.md`) : undefined;
+            // 内容模式隐藏 index.md，目录行要带上它的图标、类型和摘要，否则列表只能显示目录自己的空字段。
             const source = index ?? node;
             const title = (index || (!node.isDirectory && /\.md$/i.test(name))) && !source.frontmatterError
                 ? source.title.trim()
                 : "";
             projected.push({
                 ...node,
-                ...(node.isDirectory ? {contentNode: Boolean(index), hasIndex: Boolean(index)} : {}),
+                ...(index
+                    ? {
+                        contentNode: true,
+                        hasIndex: true,
+                        icon: index.icon,
+                        entryType: index.entryType,
+                        status: index.status,
+                        summary: index.summary,
+                    }
+                    : node.isDirectory
+                        ? {contentNode: false, hasIndex: false}
+                        : {}),
                 title: title || name,
             });
         }
@@ -524,6 +538,13 @@ export function resolveWorkspaceTailDrop(
  * 返回文件或目录图标。
  */
 export function getWorkspaceFileIcon(node: WorkspaceFileNode, expanded: boolean): string {
+    const customIcon = readLucideIconClass(node.icon);
+    if (customIcon) {
+        return customIcon;
+    }
+    if (node.entryType && isWorkspaceLorebookType(node.entryType)) {
+        return getWorkspaceLorebookTypeMeta(node.entryType).icon;
+    }
     if (node.isDirectory) {
         return expanded ? "i-lucide-folder-open" : "i-lucide-folder";
     }

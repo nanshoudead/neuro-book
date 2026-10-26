@@ -18,7 +18,7 @@ const OPENAI_NO_AUTH_KEY = "neurobook-no-auth";
 /**
  * 校验并复制 Provider requestOptions。
  *
- * 返回值只包含 Pi 0.80.6 `streamSimple` 已确认会生效的 JSON-safe 字段；runtime
+ * 返回值只包含 Pi `streamSimple` 已确认会生效的 JSON-safe 字段；runtime
  * 自己负责附加 API key、signal、reasoning、timeout、session 和观测回调。
  */
 export function parsePiSimpleRequestOptions(
