@@ -1,0 +1,107 @@
+# w00024 t20 抽取管线七点修复：只读实现审查
+
+代码根：`/tmp/t20-review-wt/packages/nb-story`。代码位置以下均相对此 worktree；规范依据使用指定主工作区。完整读取 `git diff master..HEAD`（34 文件、682 行新增、314 行删除），先测试后实现。不修改仓库，不开子审查；实验仅写 `/tmp/review-t20-impl/`。
+
+## 发现（重要项在前，建议项在后）
+
+### 重要｜范围与合同｜差异删除任务外已确认决策，并撤回本任务的规范与 ADR
+
+- **位置**：`/tmp/t20-review-wt/.agents/works/w00027-plugin-platform/tasks/t15-author-api-round2/README.md:60`；同目录 `evidences/p2-direction-draft.txt`、`evidences/p2-direction-review-omp.txt`（整文件删除）；`/tmp/t20-review-wt/docs/adr/0032-nb-story-keys-from-startup-env.md`（整文件删除）；`docs/adr/README.md:31`；`docs/specs/story/ingest.md:116-150`、`qa.md:92`、`queries.md:116`。
+- **现象**：相对指定 master，删除另一任务的 9 行已确认发行决定、36 行草稿和 154 行审查证据；同时删除 34 行 ADR 0032 及登记，撤回限流退避、章内重做、坏回复留存、用量、价格提示、密钥和代表对象的合同文字。代码与测试仍引用被删除的 ADR，并实现那些已被撤回的行为。
+- **为什么是问题**：任务外资料丢失；本任务永久行为没有随提交交付其已修订合同。按该差异合入后，Spec 甚至重新承诺“原始请求与回复不保存”，与新增 `bad-replies/` 落盘直接相反。不是上一轮设计的遗留争议，而是当前提交的实际删除。
+- **如何核实**：完整 diff 的删除段与指定主工作区计划第 63–67 行、ADR 0032、Spec 输出 9/10/13/14/5 对照。未推测删除者或分支原因。
+- **建议改法**：重整相对 master 的交付差异，保留另一任务全部材料，并把本次已修订 Spec、ADR 0032 及索引一起交付；不要以旧文档覆盖新合同。
+
+
+### 阻断｜正确性与状态不变量｜章内重做的“提交前整本仍有错误”会无限重复不可能改变的旧数据
+
+- **位置**：`packages/nb-story/src/ingest/job.ts:153-174,188-209`；对应 `docs/specs/story/ingest.md:120,134`。
+- **现象**：`redoing` 把所有 `IngestBadReply`，包括 `step === "repair"` 的提交前整本编译错误，统一作为可重做失败；重做回调每次都用闭包外同一份已提交 `data.drafts`、`data.consolidations` 和同一 `prior` 构造本章，且 `compileWith` 只在这份内存候选上校验。若错误来自已提交旧章（例如旧 identity 记录连接 task，或整理修改了旧引用），任何重做请求都不改变该旧输入，重做次数只重复请求并延迟，不能消除错误，最后仍以 `ingest_bad_reply` 停下。
+- **为什么是问题**：Spec 将“提交前整本仍有错误”归入章内重做，但这类错误可能是先前已提交数据的永久错误；继续抽无法修复旧章，造成无意义的分钟级等待并重复付费。更严重的是若重做成功产出本章，检查仍会在同一旧错误上失败。该错误应区分“本章新记录可修复”和“已提交数据错误需停止/诊断”，不能假定模型重做能解决。
+- **如何核实**：逐行核对 `data`、`prior` 在 `extractAll` 章循环中的闭包捕获，以及 `redoing` 每轮仅新建 `ChapterRun`、不刷新 `data`。可构造固定旧 `data` 含 error 的 `compileWith`，观察所有重做轮次输入相同；未把此推断写成真实模型实验。
+- **建议改法**：把提交前检查错误区分来源：若错误不依赖本章候选，直接以不可重做的 `ingest_bad_reply` 停止并列出修复建议；若允许重做，至少只对本章新增错误触发，或提供明确的旧数据迁移/重编译路径。`repair` 事件目前还会把问题归因给模型回复，需修正错误类别与次数。
+
+### 重要｜正确性｜删除书的测试没有覆盖同 id 重建后的 ABA 写回
+
+- **位置**：`packages/nb-story/src/ingest/job.ts:154-179`、`runner.ts:124-135`；新增测试 `src/ingest/runner.test.ts:454-473`。
+- **现象**：实现确实把工作放在同一 id 锁中，删除调用会因锁占用返回 `ingest_running`，所以新增用例只验证“删除期间任务结束、记录消失、随后可 new”。它没有按规范输出 16 的跨进程边界：先停止/释放旧任务的锁，再删除并以同 id 新建，确保旧任务的待处理异步写入不能落到新一代。当前 `finish` 在 `worker.terminate()` 后用未等待的 `Promise.allSettled(...).then(...)` 写 `state`、activity，再释放锁；`writeState` 自己是异步队列。若旧 run 已进入 finish 收口，删除/重建与这些写入的时序需要真实跨进程检验，测试没有覆盖。
+- **为什么是问题**：Spec 明确删除成功后旧任务不得再写入，同 id 新建是 ABA 场景。测试名称声称“旧任务不再写”，但只检查已持锁的删除阻塞路径，不能证明 release 后旧写入不会污染新书。现有实现的锁归属和 `finish` 收口需要证明：所有 activity/state 写入在释放锁前完成，且 worker 结束与 ledger 写入都已收口；否则旧路径可能对新目录写入或错误失败。
+- **如何核实**：读取 `runner.finish` 与 `Library.removeBook` 的锁/改名路径，确认新测试未创建第二进程，也未先让旧 runner 释放锁再删除重建；检查 `runner.test.ts` 清理是同进程 `removeBook`。这是测试覆盖缺口，不把未复现的竞态写成已发生损坏。
+- **建议改法**：补真实子进程：在重做等待/收口临界点让旧任务完成或停止，确认旧 PID 的 `run-end`、状态和 usage 全部写完后才允许删除；删除后立即同 id 新建并注入新任务，断言旧 run 的 `run`、generation、请求和提交不会出现在新记录中。若产品依赖锁寿命，明确旧 runner 的所有异步写入必须在释放锁前 await。
+
+### 重要｜正确性｜`writeBadReply` 的清理不是原子/并发安全的，且 `mtime` 可能删除刚覆盖的新证据
+
+- **位置**：`packages/nb-story/src/ingest/store.ts:185-195`；计划/Spec 要求最近 20 个文件。
+- **现象**：写入改名后，代码无锁执行 `readdir`、逐文件 `stat`、排序并逐个 `rm`。覆盖已有 `${chapter}-${step}.json` 时，写文件/改名与另一异步写（例如同一进程坏回复回调或未来维护任务）交错，两个清理者可按各自的 mtime 快照互删；更直接地，mtime 只有毫秒/文件系统粒度，排序相同用文件名字典序，不能可靠表示“最近写下”。写新文件后若 `stat` 某个并发删除的文件失败，整个写入 Promise reject，调用方 catch 后把已成功发布的文件误报成“没留下”。
+- **为什么是问题**：合同要求保留最近写下的 20 个诊断，且同章同步骤覆盖后错误路径必须仍可用。mtime 是文件系统元数据，不是应用写入序号；并发清理或时间粒度相同会保留错误的一批、甚至删除刚发布的目标。保存失败虽不应让抽取失败，但不能把已发布证据状态与错误信息语义搞反。
+- **如何核实**：直接读取方法实现：没有 lock/cleanup 序列化，没有 `stat` 的独立错误处理，也没有写入序号；测试在每次写入后手工 `utimes`，只验证理想单写者路径，未覆盖并发、相同 mtime、unlink/改名竞态。
+- **建议改法**：在书锁合同内串行化坏回复写与清理，或给 `bad-replies` 建独立进程锁；使用应用维护的写入时间/序号（文件名仍固定）并对清理中的 ENOENT 做幂等处理。发布成功后清理失败只写诊断，不把已发布文件说成保存失败；保留目标文件与返回路径必须是同一成功状态。
+
+
+### 阻断｜安全与合同｜`config test` 没有经过启动环境密钥门，仍可能用 OMP 注入的密钥发请求
+
+- **位置**：`packages/nb-story/src/cli/config.ts:258-280`；`packages/nb-story/src/qa/probe.ts:21-42`；`packages/nb-story/src/server/qa-service.ts:521-535`。
+- **现象**：本次只给 `config show`、`config.get`、问答和抽取接入 `startupEnv`/`keyEnv`。CLI `config test` 调 `probeModel(config)`，网页 `config.test` 也调同一个 `probeModel(config)`，但 `probeModel` 内部直接 `resolveQaModel(config)`，没有传快照或包装 `apiKey`。因此 OMP 已从家目录 `.env` 注入变量时，即使配置页显示 `keySet: false`，配置测试仍可能带着该变量向服务发出认证请求。
+- **为什么是问题**：ADR 0032 与 qa Spec 要求 `config show`、`config test`、`ask`、`ingest`、`serve` 和网页配置页同口径；这里会出现“显示未设置但测试成功/实际发请求”的直接不一致，也让 `config test` 成为绕过密钥来源限制的入口。
+- **如何核实**：读取两条 `config.test` 调用链；`probeModel` 的唯一模型解析在第 23 行，创建 harness 前没有 `keyEnv` 参数。新增 `key-source.test.ts` 只覆盖 `config show`、`ask`、`ingest`，没有覆盖 CLI/网页 `config test`。
+- **建议改法**：给 `probeModel` 增加与问答相同的受限模型解析参数，或在两条 `config.test` 调用前用同一 `keyVariables`/`onlyKeysIn` 包装；用家目录 `.env` 只有密钥、启动环境无该密钥的真实子进程断言不会发请求，并覆盖自定义与目录模型。
+
+### 重要｜密钥口径｜服务的 `env` 注入选项与目录模型状态判定使用了两份环境
+
+- **位置**：`packages/nb-story/src/server/qa-service.ts:102-106,123-124,445-450,488-518`。
+- **现象**：`const env = options.env ?? startupEnv`，所以自定义模型、`config.get`、`models.catalog`、`models.discover` 使用传入的 `env`；但 `catalogKeys` 在创建服务时固定用 `startupKeyReady(provider.keyEnvs)` 和实时 `providerKeyReady(provider.id)`，完全不读 `options.env`。同一 `QaServiceOptions` 下，目录 provider 的 `models.catalog.keySet`/目录相关状态可与 `config.get` 或实际问答不同。
+- **为什么是问题**：`env` 是公开的环境注入合同，不是死代码；服务的设置页与问答必须从同一快照判断。嵌入服务或测试传入自定义环境时会显示目录密钥未设置/已设置错误，且服务创建时缓存后不会反映传入环境。
+- **如何核实**：对照 `env` 赋值、`catalogKeys` 建表和 `modelsCatalog`/`keysOf` 的读法即可；代码路径没有把传入 `env` 传给 `startupKeyReady`。现有新增密钥测试启动真实 CLI，没有构造 `createQaService({env})`。
+- **建议改法**：统一把 `Readonly<Record<string,string|undefined>>` 的有效环境传入目录判定；`providerKeyReady` 若仍需确认 OMP 选择，至少不能覆盖 `env` 的“启动环境是否有值”结论。把 `config.get`、`models.catalog`、`models.discover`、问答和 probe 共用同一解析对象。
+
+### 重要｜密钥口径｜网页 `models.catalog`、CLI `config show` 对空白密钥的判定与问答门不一致
+
+- **位置**：`packages/nb-story/src/cli/config.ts:38-43,104-107`；`packages/nb-story/src/server/qa-service.ts:445-450,496-505`；`packages/nb-story/src/platform/startup-env.ts:8-12`。
+- **现象**：`startupHas` 明确用 `trim() !== ""`，`onlyKeysIn` 也按 trim 判断；但 CLI 自定义 provider/ingest 用 `Boolean(env[name])`，网页 `keysOf`、`modelsCatalog` 和 `modelsDiscover` 用 `(env[name] ?? "") !== ""`。值为全空格时，显示为已设置，而问答门按缺失拒绝。
+- **为什么是问题**：同一个启动环境、同一个变量在配置展示与实际问答之间给出相反结论，且合同要求各入口一致。空白值也会被传给 HTTP 客户端，错误从“未配置”退化成渠道认证失败。
+- **如何核实**：直接对照上述条件；新增 `key-source.test.ts` 只用有值和未定义两种输入，没有空白边界。
+- **建议改法**：抽出唯一 `hasKey` 判定，所有 CLI、服务和模型门都调用它；增加 `"   "` 的配置显示、discover、ask/probe 行为断言。
+
+### 重要｜测试覆盖｜真实 CLI/Worker 的章内重做没有快速验收，新增 CLI 测试只覆盖关闭重做和固定等待
+
+- **位置**：`packages/nb-story/src/cli/ingest.test.ts:10-57`；`src/ingest/runner.test.ts:406-473`；`src/ingest/runner.ts:153-160`。
+- **现象**：真正的 `nbstory ingest` 测试只验证 `--auto-resume 0`、价格提示和坏回复；没有 CLI 级“失败后重做成功/次数用完/等待期间 Ctrl-C/一次 stdout JSON/累计前轮用量”。章内重做的快速 `timing` 只通过 `startIngest` 传给 Worker 的同进程测试。CLI 没有测试注入 `timing` 的入口，因此默认 5、10、15 分钟无法在真实 CLI 中验收。
+- **为什么是问题**：计划与 Spec 的关键合同包括跨 Worker、退出码、状态 retry、累计用量和单次输出；Runner 单元路径不能证明 CLI 编排、信号收口和 stdout 合同。尤其本次从外层重跑改为 Worker 内重做，正是跨线程边界，不能只测内部事件。
+- **如何核实**：完整新增测试差异中 `cli/ingest.test.ts` 没有 `auto-resume` 非零重做；`runner.test.ts` 的重做用例都是 `startIngest({timing})`；`runner.ts` 只有 `StartInput.timing`，CLI `ingest.ts` 未传入。
+- **建议改法**：增加不改变产品参数语义的测试启动器/依赖注入，在真实 CLI 子进程经过 Worker 验证重做成功、耗尽、Ctrl-C、retry 状态和累计账；或者将这些列为内部 Runner 合同而不要宣称 CLI 验收。任何子进程失败路径必须在测试 finally 等待收口。
+
+
+## 未发现问题的方面
+
+- 章内重做等待使用同一 `AbortSignal`，`defaultSleep` 会清理 timer；`runner` 的 retry 事件会更新 `state.retry`，重做不另起 run，失败尝试也进入同一账本。这些路径从实现结构看与本次合同一致，未另列缺陷。
+- 限流表的数字与计数：`RATE_LIMIT_DELAYS_MS` 为 11 个等待项，总和 203 分钟；`maxAttempts` 在选等待前限制总 HTTP 次数；`Retry-After` 使用标准 `Headers.get`，非数字/日期/负数回退表；401、403、429 在非流阶段标记完整 0，5xx 与流中断保持不完整。未发现与计划语义不一致的实现错误。
+- 坏回复原文没有进入新增状态字段、JSON 小结或网页 RPC 响应；文件位于 `.ingest/<id>` 下且静态 HTTP 只服务 Web 根，删除书会移除该目录。未发现已实现接口直接泄露原文的路径。
+- `compile.ts` 的 task 类 identity 校验只增加 error issue，不按错误文案分支；`identity.ts` 代表选择按可见出场次数，平局按成员遍历顺序，未发现会破坏 `resolveEntity`、`perspective` 或 `joinedBy` 的直接断链。点 id 随阅读位置变化是该规范“P 时代表”的允许结果，网页地址和 API 会通过成员映射解析旧 id。
+- `git diff --check master..HEAD` 通过；审查 worktree `git status --short` 无输出。
+
+## 验证记录
+
+- `bun test src/ingest/model.test.ts src/ingest/runner.test.ts src/ingest/compile.test.ts src/core/identity.test.ts src/cli/key-source.test.ts src/cli/ingest.test.ts src/server/qa.test.ts`：未能执行到测试，7 个文件均在加载阶段失败，原因是审查 worktree 未安装工作区依赖（例如 `@notnotype/neuro-book-test-support/tmp`、`typebox/compile`、`openai`）。结果不是通过。
+- `bunx tsc --noEmit -p tsconfig.json`：未能完成，`tsconfig` 要求的 `bun` 与 `node` 类型定义在审查 worktree 缺失。结果不是通过。
+- 未运行 e2e、开发服务；未修改仓库文件。报告实验文件只位于 `/tmp/review-t20-impl/`。
+
+## 数量
+
+| 严重程度 | 数量 |
+|---|---:|
+| 阻断 | 2 |
+| 重要 | 6 |
+| 建议 | 0 |
+| 合计 | 8 |
+
+
+## 影响排序索引
+
+1. 阻断：章内重做无法改变已提交旧错误，仍重复等待与付费。
+2. 阻断：CLI 与网页 `config test` 绕过启动环境密钥门。
+3. 重要：任务外资料与本任务 ADR/Spec 被差异删除。
+4. 重要：删除/同 id 重建的 ABA 场景没有真实跨进程验收。
+5. 重要：坏回复清理依赖 mtime，发布与清理竞态不具备可靠边界。
+6. 重要：服务 `env` 选项与目录密钥状态使用两份环境。
+7. 重要：空白密钥在展示与实际问答门之间结论不一致。
+8. 重要：CLI/Worker 章内重做缺少快速真实进程验收。
