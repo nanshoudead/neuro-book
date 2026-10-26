@@ -12,7 +12,7 @@ import {composeMessages, createMessageCache, questionId, replyCheckOf, UNVERIFIE
 const user = (seq: number, text: string): MessageView => ({kind: "user", id: `h${seq}`, timestamp: seq, intent: "normal", blocks: [{kind: "text", text}], contentOmitted: false});
 const reply = (seq: number, text: string): AssistantMessageView => ({kind: "assistant", id: `h${seq}`, timestamp: seq, status: "done", text, thinking: "", model: "m", toolCalls: [], contentOmitted: false});
 const failure = (seq: number): MessageView => ({kind: "error", id: `h${seq}`, timestamp: seq, message: "没有密钥", retryable: false});
-const turn = (question: string, logFrom: number, unverifiedRefs: string[] = []) => ({question, logFrom, unverifiedRefs, startedAt: "2026-10-23T00:00:00.000Z"});
+const turn = (question: string, logFrom: number, unverifiedRefs: string[] = [], ungrounded = false) => ({question, logFrom, unverifiedRefs, ...(ungrounded ? {ungrounded: true} : {}), startedAt: "2026-10-23T00:00:00.000Z"});
 
 describe("按记录分轮", () => {
     test("首轮在写提问前就失败：补一条提问，错误留在这一轮，不挂到别的轮；每轮提问的 id 固定", () => {
@@ -42,6 +42,12 @@ describe("按记录分轮", () => {
         expect((first[1] as AssistantMessageView).annotations).toBeUndefined();
         const again = composeMessages(messages, input, cache);
         expect(again.every((message, index) => message === first[index])).toBe(true);
+    });
+
+    test("没有出处、这一轮也没读原文：挂未查原文的提醒", () => {
+        const messages = [user(3, "问"), reply(4, "南小风")];
+        const composed = composeMessages(messages, {conversationId: "c", turns: [turn("问", 1, [], true)], running: null}, createMessageCache());
+        expect((composed[1] as AssistantMessageView).annotations).toEqual([{customType: UNVERIFIED_REFS, text: "这一轮没有查原文", details: {refs: []}}]);
     });
 
     test("旧记录没有 logFrom：原样交出", () => {

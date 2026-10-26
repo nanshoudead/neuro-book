@@ -261,7 +261,9 @@ function replyOf(result: TurnResult, ledger: ReadLedger): QaReply | null {
     const text = result.text.trim();
     if (text === "") return null;
     const unverifiedRefs = [...new Set(refsInText(text))].filter(ref => ledger.checkRef(ref) !== null);
-    return {text, truncated: result.stopReason === "length", unverifiedRefs};
+    // 没有出处，这一轮也没读过原文：回答没有可核对的依据，单独标出来（输出 24）。
+    const ungrounded = unverifiedRefs.length === 0 && ledger.chapters().length === 0;
+    return {text, truncated: result.stopReason === "length", unverifiedRefs, ...(ungrounded ? {ungrounded: true} : {})};
 }
 
 /** 问一轮：先准备（会抛出开始前的错误），再运行。`nbstory ask` 用它；网页问答分两步调（见 `prepareQuestion`）。 */
