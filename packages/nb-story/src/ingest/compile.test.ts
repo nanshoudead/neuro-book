@@ -21,6 +21,24 @@ const FINAL = join(import.meta.dir, "..", "..", "tests", "fixtures", "ingest", "
 
 const atText = (at: Position) => `${at.chapter}.${at.paragraph}`;
 
+describe("身份同一的说法（输出 5）", () => {
+    test("连到任务类对象的 identity 说法是错误（记在这条说法上）；连到人的同一说法照常", async () => {
+        const sample = await sampleDataset();
+        const final = JSON.parse(gunzipSync(await readFile(FINAL)).toString("utf8")) as {drafts: {statements: {id: string; family: string; about: string[]}[]}[]; consolidations: unknown[]};
+        const drafts = structuredClone(final.drafts);
+        const statement = drafts.flatMap(draft => draft.statements).find(item => item.id === "s1-4")!;
+        // e1-1 是人，e1-6 是任务（样例书里的 kind）。
+        statement.family = "identity";
+        statement.about = ["e1-1", "e1-6"];
+        const wrong = compile(sample.book, sample.sources, drafts, final.consolidations).issues.filter(issue => issue.level === "error" && issue.code === "identity");
+        expect(wrong.map(issue => issue.records)).toEqual([["s1-4"]]);
+
+        statement.about = ["e1-1", "e1-2"];
+        const fine = compile(sample.book, sample.sources, drafts, final.consolidations).issues.filter(issue => issue.level === "error" && issue.code === "identity");
+        expect(fine).toEqual([]);
+    });
+});
+
 describe("迁移对照：100 章最终草稿重新编译", () => {
     test("只在称呼位置、称呼出现、回补的秘密位置上不同，而且都只会更晚", async () => {
         const sample = await sampleDataset();

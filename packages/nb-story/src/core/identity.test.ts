@@ -53,6 +53,34 @@ describe("读者视角的合并（输出 3、验收 2）", () => {
         expect(fox.kind).toBe("person");
     });
 
+    test("点的代表是出场最多的人物，不是编号靠前的：排在前面、出场少的人物被连上以后，点 id 与显示名是出场多的那个", async () => {
+        const dataset = await smallDataset(20, "rep");
+        const mentionsOf = (id: string) => dataset.mentions.filter(item => item.entity === id).length;
+        const before = await openTestBook("identity-rep-before", dataset);
+        let pair: readonly [string, string] | undefined;
+        try {
+            // 先看没连之前各个点：找两个不同的人物点，排在前面的出场反而少。
+            const rows = (await before.ok("entities.list", {at: {chapter: 20}, limit: 500})).items.filter(item => item.kind === "person");
+            const order = (id: string) => dataset.entities.findIndex(entity => entity.id === id);
+            for (const first of rows) for (const second of rows) if (!pair && first.id !== second.id && order(first.id) < order(second.id) && mentionsOf(first.id) > 0 && mentionsOf(first.id) < mentionsOf(second.id)) pair = [first.id, second.id];
+        } finally {
+            await before.close();
+        }
+        expect(pair).toBeDefined();
+        const [few, many] = pair!;
+        const template = dataset.statements.find(item => item.id === "s6-25")!;
+        dataset.statements.push({...template, id: "s7-900", about: [few, many], secret: undefined, premises: [], at: {chapter: 7, paragraph: 1}});
+        const linked = await openTestBook("identity-rep", dataset);
+        try {
+            const roster = await linked.ok("entities.list", {at: {chapter: 20}, limit: 500});
+            const row = roster.items.find(item => item.entities.includes(few))!;
+            expect(row.entities).toEqual(expect.arrayContaining([few, many]));
+            expect(row.id).toBe(many);
+        } finally {
+            await linked.close();
+        }
+    });
+
     test("否定的身份说法不合并", async () => {
         const dataset = await smallDataset(7, "neg");
         for (const statement of dataset.statements) if (statement.id === "s6-25") statement.neg = true;
