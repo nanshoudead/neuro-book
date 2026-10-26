@@ -23,6 +23,7 @@ export default defineConfig({
             "scripts/cli/**/*.test.ts",
             "scripts/utils/**/*.test.ts",
             "scripts/release/**/*.test.ts",
+            "scripts/publish/**/*.test.ts",
         ],
     },
 });

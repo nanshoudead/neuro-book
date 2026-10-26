@@ -28,6 +28,10 @@
         "release/packages.ts",
         "release/pack-smoke.ts",
         "release/publish.ts",
+        "publish/git.ts",
+        "publish/manuscripts.ts",
+        "publish/options.ts",
+        "publish/workspaces.ts",
         "ci/validate-proper-lockfile-patch.ts",
         "types/proper-lockfile.d.ts"
     ]

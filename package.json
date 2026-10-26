@@ -40,6 +40,7 @@
     "governance:context": "bun scripts/cli/agent-context.ts",
     "governance:worktree": "bun scripts/cli/create-agent-worktree.ts",
     "docs:check": "bun scripts/ci/check-documentation.ts",
+    "publish:workspaces": "bun scripts/publish/workspaces.ts",
     "test:affected": "bun scripts/cli/test-affected.ts",
     "release:check": "bun scripts/release/packages.ts",
     "release:smoke": "bun scripts/release/pack-smoke.ts",
