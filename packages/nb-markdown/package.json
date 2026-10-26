@@ -1,0 +1,79 @@
+{
+    "name": "@notnotype/nb-markdown",
+    "version": "0.1.0",
+    "description": "Markdown 的语言、编解码器与组件：只读显示、行内小块、提示词编辑器与编辑器扩展；建在 nb-ui 之上，宿主经 provideMarkdownHost 给语言与链接目标的分类。",
+    "license": "AGPL-3.0-only",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/notnotype/neuro-book.git",
+        "directory": "packages/nb-markdown"
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./language": "./src/language/index.ts",
+        "./language/types": "./src/language/syntax/types.ts",
+        "./host": "./src/host/index.ts",
+        "./chip": "./src/chip/index.ts",
+        "./display": "./src/display/index.ts",
+        "./prompt": "./src/prompt/index.ts",
+        "./editor": "./src/editor/index.ts",
+        "./markdown.css": "./src/display/markdown.css",
+        "./lab-sources": "./src/lab/index.ts",
+        "./tailwind.css": "./src/tailwind.css"
+    },
+    "scripts": {
+        "test": "bun test && vitest run",
+        "typecheck": "tsc --noEmit && vue-tsc --noEmit -p tsconfig.vue.json"
+    },
+    "dependencies": {
+        "@notnotype/nb-ui": "workspace:^",
+        "@tiptap/core": "3.27.3",
+        "@tiptap/extension-code": "3.27.3",
+        "@tiptap/extension-image": "3.27.3",
+        "@tiptap/extension-link": "3.27.3",
+        "@tiptap/extension-list": "3.27.3",
+        "@tiptap/extension-paragraph": "3.27.3",
+        "@tiptap/extension-placeholder": "3.27.3",
+        "@tiptap/extension-table": "3.27.3",
+        "@tiptap/pm": "3.27.3",
+        "@tiptap/starter-kit": "3.27.3",
+        "@tiptap/vue-3": "3.27.3",
+        "entities": "8.0.0",
+        "marked": "17.0.6",
+        "marked-cjk-friendly": "0.1.2"
+    },
+    "devDependencies": {
+        "@iconify-json/lucide": "^1.2.95",
+        "@notnotype/nb-agent-ui": "workspace:^",
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "@vitejs/plugin-vue": "^6.0.7",
+        "@vue/test-utils": "^2.4.11",
+        "fast-check": "4.10.2",
+        "happy-dom": "^20.11.2",
+        "typescript": "^6.0.3",
+        "vitest": "^4.1.10",
+        "vue": "^3.5.24",
+        "vue-tsc": "^3.3.7"
+    },
+    "peerDependencies": {
+        "typescript": "^5.4.0 || ^6.0.0",
+        "vue": "^3.5.24"
+    },
+    "engines": {
+        "bun": ">=1.3.14"
+    },
+    "files": [
+        "src",
+        "!src/**/*.test.ts",
+        "!src/**/*.test.tsx",
+        "!src/**/*.typecheck.ts",
+        "!src/language/codec/corpus",
+        "README.md",
+        "LICENSE"
+    ]
+}

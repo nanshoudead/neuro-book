@@ -97,8 +97,6 @@ t16-editor-heat.png
 /packages/nb-ui/.output/
 /packages/nb-ui/.data/
 /packages/nb-ui/dist/*
-!/packages/nb-ui/dist/
-!/packages/nb-ui/dist/nb-ui.css
 /packages/nb-ui/coverage/
 /packages/nb-ui/*.log
 /packages/nb-ui/.agent/
@@ -107,6 +105,7 @@ t16-editor-heat.png
 /packages/nb-ui/playground/.output/
 /packages/nb-ui/playground/.nuxt/
 /packages/neuro-book/.dev-state/
+/packages/neuro-book/.dev-sample/
 /packages/neuro-agent-harness/dist/
 /packages/neuro-agent-harness/.agent/
 /packages/neuro-agent-harness/*.tgz

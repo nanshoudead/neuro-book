@@ -16,6 +16,7 @@ const MESSAGES = {
     editorGone: {"zh-CN": "原编辑器已关闭或切换", "en-US": "The original editor was closed or switched"},
     lineUnsupported: {"zh-CN": "当前编辑器不支持行号跳转", "en-US": "The active editor does not support line navigation"},
     editorNotReady: {"zh-CN": "编辑器尚未就绪", "en-US": "The editor is not ready yet"},
+    commandFailed: {"zh-CN": "{title}没有完成", "en-US": "{title} did not complete"},
 } satisfies Record<string, LocalizedText>;
 
 export type PaletteMessage = keyof typeof MESSAGES;

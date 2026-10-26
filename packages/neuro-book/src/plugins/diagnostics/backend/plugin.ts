@@ -1,5 +1,5 @@
 /**
- * `nbook.diagnostics` 后端入口：把 nb-runtime 的诊断存储接到 JSONL 文件出口，
+ * `runtime.diagnostics` 后端入口：把 nb-runtime 的诊断存储接到 JSONL 文件出口，
  * 并在激活期间把 `console.warn`、`console.error` 记入诊断（原输出照常保留）。
  *
  * 存储由宿主在建立运行实例前创建，启动初期的事件因此不会丢；本入口只负责出口与桥接的寿命。

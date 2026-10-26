@@ -1,0 +1,15 @@
+原文 "- [ ] 未完成\n- [x] 完成"
+载入后 getMarkdown: "- 未完成\n- 完成"
+HTML: <ul><li>未完成</li><li>完成</li></ul>
+
+schema 检查失败：RangeError: Invalid content for node listItem: <"未完成">
+
+打字或回车时出错：Error: Called contentMatchAt on a node with invalid content
+
+原文 "| a \\| b | c |\n|---|---|\n| 1 | 2 |"
+载入后 getMarkdown: "\n| a | b | c   |\n| ----- | --- |\n| 1     | 2   |\n"
+HTML: <table style="min-width: 50px;"><colgroup><col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody><tr><th colspan="1" rowspan="1"><p>a | b</p></th><th colspan="1" rowspan="1"><p>c</p></th></tr><tr><td colspan="1" rowspan="1"><p>1</p></td><td colspan="1" rowspan="1"><p>2</p></td></tr></tbody></table>
+
+schema 检查通过
+
+打字与回车后: "\n| 改\u001fa | b | c   |\n| ------- | --- |\n| 1       | 2   |\n"

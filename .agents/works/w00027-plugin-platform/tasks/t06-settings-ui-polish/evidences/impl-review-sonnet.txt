@@ -1,0 +1,104 @@
+# w00027 t06 界面部分实现审查（Sonnet，只读）
+
+范围：`e59a4112c..20010fe6d` 的界面改动。按发现顺序追加，最后按影响整理汇总。
+
+## F1 [重要][交互/状态] 模型服务样板：切走服务商后，“解析不了的输入”记号留在旧下标上，页面永远显示有改动
+- 位置：`packages/neuro-book/src/plugins/lab/web/fixtures/settings-scene/SampleModelsPage.vue`，模板里 `@draft-state="(state: DraftState) => onDraft(selectedIndex, state)"`（221 行）与 `onDraft`（110 行）。
+- 现象：在 DeepSeek 的“超时”里输入 `abc`（解析不了），点列表里的另一项再点回来：超时框显示已保存的 60，`unsaved` 仍为 true，“保存”可点，点了报“还没保存：有解析不了的输入”。用户看不到任何不对的输入，只有“放弃改动”能脱身；离开分区还会弹“放弃改动？”确认。
+- 原因：`:key="selected"` 让旧 SchemaField 在 `selected` 变化后的那次渲染里卸载，卸载时 nb-form 的 `clearDraft` 补发一条 `state: "clean"` 的 `draft-state`。内联箭头函数里的 `selectedIndex` 在调用时才读，此刻已经是新选中项的下标，于是 `onDraft` 删的是 `新下标/timeout`，旧下标上的 `0/timeout` 留了下来。`removeProvider` 里“记号整体前移一位”的写法正是假定了记号会在非选中项上留存，但没有任何路径会在切走时清掉它。
+- 核实：在 scratch 下写了 dom 测试（`reports/sonnet-impl/scratch/unparse.dom.test.ts`，配置 `vitest.scratch.config.ts`，`bunx vitest run --config <它> --silent=false`），输出：`after typing abc: unsaved = true` / `after switching to provider-1: unsaved = true` / `back on provider-0: timeout input = 60 unsaved = true` / `save disabled: false` / `failure: 还没保存：有解析不了的输入`。
+- 建议：事件处理在渲染时把下标绑死（`:draft-state` 用 `v-for` 单元素或把下标放进 `const index = selectedIndex.value` 再创建处理函数），或者干脆让记号只记当前选中项（切走时 `unparseable.clear()` 并在 `watch(selected)` 里清）。样板是“第三方照着写”的，这个坑会被抄走。该用例没有对应测试：`SettingsWindow.dom.test.ts` 的“模型服务”四条都没覆盖“解析不了后切换”。
+
+## F2 [重要][外观/一致性] 分段控件整组停用：选中项的字几乎看不见，选中块在截图里并没有变淡
+- 位置：`packages/nb-ui/src/components/controls/SegmentedControl.vue`，指示块的 `:class="props.disabled ? 'opacity-45' : ''"`（约 172 行）与按钮的 `disabled:opacity-35`（约 190 行）；截图 `shots/s5/SettingsWindow__user-invalid__1200x800__light.png` 与 `__dark.png`（“主题”“明暗”“界面语言”三行）。
+- 现象（把截图裁出来放大对比，裁图在 `scratch/cmp-light.png`、`scratch/cmp-dark.png`）：
+  1. 停用的选中块与可用时是同一个饱和蓝：浅色 `#007AFF`，深色 `#0A84FF`，外发光也没变。提交说明写的“停用时选中块也变淡”在截图里看不到。
+  2. 选中项的字被按钮自己的 35% 透明度压住：浅色里是白字 35% 叠在蓝块上（取样最亮点 `#3D99FD` 叠在 `#007AFF`，对比度约 1.4），深色里是深色字 35% 叠在蓝块上。读不出选了哪一项，而这正是“先看每项标题与当前值”的第一层信息。
+- 我没能确定第 1 条的原因：dom 里挂载（`scratch/seg.dom.test.ts`，用工作树里的 nb-ui 源码）确认指示块确实带 `opacity-45`，根有 `aria-disabled="true"`；截图里却没生效，可能是截图时构建的样式、也可能是别的规则盖住了。请在浏览器里对停用的指示块取 `getComputedStyle(...).opacity`。
+- 无论第 1 条原因如何，第 2 条是组合造成的：整组停用时每个按钮各自 35%，再叠指示块 45%，两层各自的透明度互相不管。另外对照其它控件，停用透明度现在是 Input、Select、NumberInput 60%，Switch 40%，RadioGroup 45%，分段控件 35%/45%，没有统一值。
+- 建议：整组停用时只在根上做一次透明度（取 45% 或与 Switch 的 40% 对齐），指示块与按钮都不再自己降；只有“单个选项停用”才给那个按钮 `opacity-35`。改后用 Lab 的 `controls` 场景（已加了停用样例）看浅与深两套，并把对比结果写进 `SegmentedControl.md` 的“状态”一节。
+
+## F3 [建议][状态] 模型服务样板：选中项按下标认，别处改动让下标对上了另一个服务商，详情被悄悄换掉
+- 位置：`SampleModelsPage.vue` 的 `providerId`（61 行）、`selectedIndex`（101 行）、`watch(saved…)`（86 行）。
+- 现象：停在“本地 Ollama”（`provider-1`）、没有改动时，另一个窗口在最前面插入一家服务商；样板的草稿跟上已保存值，`provider-1` 现在是“DeepSeek”，右边的详情直接换成 DeepSeek，`:key="selected"` 没变所以字段也不重建。只有选中的下标超出长度时才回“常规”（`watch(current)`）。
+- 核实：`scratch/swap.dom.test.ts`，输出 `before: 本地 Ollama` / `after another window inserted a provider at the top: DeepSeek`。
+- 为什么是问题：窗口只在“有改动”时保护用户；没改动时用户正读着的那一项变了对象，用户未必察觉。F1 的记号错位也是同一个根：下标不是身份。样板是第三方照着写的，注释里“草稿里的标识可能还没填或重复”说明了为什么不用 `id`，但没有给出替代。
+- 建议：给草稿里每一项配一个只在样板里用的稳定键（例如 `crypto.randomUUID()`，并行数组或 `WeakMap<对象, 键>`），`selected`、`:key`、`unparseable` 都用这个键；草稿跟上已保存值时按位置重新分配键即可。代价是多十来行；不改的话，至少在注释里写明“选中项与记号按下标，别处增删会错位”。
+
+## F4 [建议][外观/与定稿对照] 服务商详情的表单不走设置窗口的控件宽度，也与标题、“常规”页错开一格
+- 位置：`shots/s4/provider.png`、`provider-dirty.png`（对照 `s4/general.png`）；`SampleModelsPage.vue` 的 `.sample-models__fields`。
+- 现象（放大 `scratch/prov-zoom.png` 可见）：
+  1. 单行输入“标识”“名称”“接口地址”各撑满详情宽（582 到 1043，约 460px），“超时”的数字框也撑到 440px、步进箭头在最右边，单位“秒”孤零零在框外。设置窗口通用列表的约定是数字框 120px、下拉 220px、单行输入 200 到 320px（Spec 输出 9）；同一个窗口里同一种控件两个尺寸。
+  2. 表单整体比标题“DeepSeek”缩进 17px（标题在 x=565，标签与输入框在 x=582），左边还有一条灰色竖线从“标识”画到底。这是 nb-form 对象字段的嵌套画法（`bare` 也保留）；“常规”页的行标签与标题都在 x=565，两种页面的左边缘对不上。竖线与已修改的蓝色竖线（在 x=553，“常规”页里）读起来像同一类记号。
+- 为什么是问题：t06 的目标是“收回 t80 定稿的语言”，定稿的特征是控件按类型给定宽、左边缘一条线。详情是整个样板里面积最大的部分，却保留了旧表单的画法。
+- 建议：最小做法是详情不用一个整体 `SchemaField`，而是对 `ProviderSchema` 的每个属性各用一个 `SettingsRow` 风格的行（标签列 200px + 控件按宽度类给宽）；做不到时在 nb-form 里让 `bare` 的对象字段去掉嵌套线与缩进，并对数字、单行输入给 `layout.ts` 里已有的 `width` 类。这条影响 nb-form，属于需要开发者判断是否值得的范围。
+
+## F5 [建议][交互] 草稿操作行一直在“常规”页里，和即时写入的两项混在一起；有改动的服务商在列表里没有记号
+- 位置：`SampleModelsPage.vue` 模板里 `.sample-models__actions`（227 行）在 `current === null` 时也渲染；对照被删掉的注释“默认模型与推理强度每项即时写入，放在服务商上面：草稿的操作行与它们不混在一起”。
+- 现象：`shots/s4/general.png`：“常规”页的两行改了立刻生效，同一页下面却摆着“放弃改动”“保存”，且在有服务商草稿时是亮的、旁边写“有没保存的改动”。用户会以为“放弃改动”管上面的推理强度。
+- 另外：多家服务商时，哪一家被改过在列表里看不出来（`provider-dirty.png`：被改的“深度求索”与“本地 Ollama”的列表项没有任何区别，只有条目标题随草稿变了）。注意力排序里“改过”排在第二位。
+- 建议：(a) 操作行只在选中服务商时显示，选“常规”时不渲染，或有草稿时在列表“添加服务商”上方放一行“有 N 家服务商没保存”；(b) 给被改过的条目加一个小圆点（`SettingsPageListItem` 若没有槽位，至少在 `description` 前加“已改”字样）。
+
+## F6 [建议][交互] 别处改过时的提示行：“重新读取”与“放弃改动”是同一个函数，并排两个
+- 位置：`SampleModelsPage.vue` 第 227 行以下，`@click="discard"` 同时挂在“重新读取”与“放弃改动”上。
+- 现象：别处改过且有草稿时，操作行同时有“重新读取”“仍然保存”“放弃改动”“保存（停用）”四个按钮，前三个里两个效果一样；提示文字有 40 多个字，在约 510px 宽的操作行里要折成多行。没有这个状态的截图，是从代码推断。
+- 建议：在这个状态下把“放弃改动”并入“重新读取”（不显示），或让“重新读取”只在这个状态出现、“放弃改动”照旧但文案改为“放弃我的改动”。
+
+## F7 [建议][窄窗口] 600px 以下两栏改上下：操作行不再粘住，且窗口最小宽度就是 600
+- 位置：`SampleModelsPage.vue` 的 `@container (max-width: 600px)`（336 行以下）；`settings-window.ts` 的 `MIN_SETTINGS_WINDOW_SIZE = {width: 600, height: 400}`（50 行）。
+- 现象：
+  1. 窗口窄档的阈值 600px 取的是 `.settings-window` 内容宽度，窗口最小就是 600（内容宽更小），窗口宽度到约 632px 以下就进入窄档，所以用户把窗口拖到最小时就是窄档，并非只有“手机宽度的画布”才会碰到；窄档里页面是 列表、详情、操作行 竖着排、整体由外层滚动，操作行排在最下面。旧版的 `position: sticky; top: 0` 被去掉了，长详情里改了一项，要滚到最底才看得到“保存”。
+  2. 601 到约 700px 的窗口不在窄档，但两栏加左栏后，详情的字段只剩约 190 到 220px 宽。
+  3. 窄档没有截图（`shots` 只有 1200×800）；`.settings-window__fill` 在窄档下 `flex:1; min-height:0` 可能被压成 0 高、靠内容溢出撑开外层滚动，旧版也是这样，从代码推断可用但脆弱。
+- 建议：窄档里操作行加 `position: sticky; bottom: 0` 并给底色；阈值对样板另取（例如 760px，用 `.settings-window__fill-body` 自己做容器）；补一张 600×400 的截图再定。
+
+## F8 [建议][一致性] 保存栏的位置：设置文件视图在文本框上方，样板在详情下方——不改，但要写清缘由
+- 位置：`SettingsFileView.vue` 约 281 行与 Spec 输出 23（“操作行在文本框上面”）；`SampleModelsPage.vue` 227 行。
+- 判断：两处不一致是真的（保存与放弃改动一个在上右、一个在下右，状态文字一个紧挨标签、一个在最左）。但两处的内容形态不同：设置文件是一个固定铺满的文本框，上方有文件名这个标题行；样板的详情会滚动，操作行固定在下方才不被滚走。我认为不值得为统一改位置；值得改的是缘由没有写出来：`SettingsFileView.vue` 新加的注释只说“主按钮在最右，与 page 页面同一顺序”，没提位置不同，会被后来的人当成漏改。
+- 建议：在 `SampleModelsPage.vue` 的文件头注释里加一句“详情会滚动，所以操作行固定在下方；设置文件视图是固定铺满的文本框，操作行与文件名同一行（输出 23）”。
+
+## F9 [建议][CSS] 单行输入宽度的预留只算了“恢复默认”图标按钮，本作品标签下的“移除本作品的设置”是文字按钮
+- 位置：`SettingsListSection.vue` 207 行 `clamp(200px, calc(100cqi - 200px - var(--space-7) - var(--space-4) - var(--control-h-sm)), 320px)`；`SettingsRow.vue` 里 project 层已修改时是 `<Button variant="secondary">移除本作品的设置</Button>`（约 118px，见 `shots/s5/SettingsWindow__project__1200x800__light.png`）。
+- 核实：按 `--space-7`=24、`--space-4`=8、`--control-h-sm`=26（nbook 主题）算：标签 200 + 间距 24 + 控件宽 W + 间距 8 + 按钮。用户层图标按钮 26px，预留正好；项目层按钮 118px，预留差 92px。所以小组宽度在 `458` 到约 `670`px 时，项目层里“已修改”的单行输入行里，按钮会换到输入框下面（`.settings-row__control` 自己 `flex-wrap`），而数字框、下拉这些不会。小组宽度 ≥ 670 或在用户层都没事。1200 宽窗口小组宽约 730，所以截图里看不出来。
+- 另外 `IconButton size="sm"` 写死 26px，`--control-h-sm` 在 editorial 主题是 28px：预留多出 2px，无害，但两者是两个来源。
+- 建议：预留量改成变量，用户层 `--settings-row-action: 26px`，项目层 `118px`（或按 `calc`，随语言文字不同可超出，英文更长）；更稳的做法是让项目层的“移除本作品的设置”也用图标按钮加 Tooltip，与用户层同一个宽度。没有浏览器核实，未验证。
+
+## F10 [建议][CSS 写法] 层标签的宽度把左栏的 180px 与内边距又抄了一遍
+- 位置：`SettingsWindow.vue` `.settings-window__tabs { width: calc(180px - var(--space-2) - var(--space-5)); margin-left: var(--space-2) }`，对应 `.settings-window__side { width: 180px }` 与 `.settings-window__nav { padding: … var(--space-5) … var(--space-2) }`。
+- 现象：三处各写一遍 180、`--space-2`、`--space-5`，改左栏宽度或内边距时标签会悄悄与条目错开；注释只说“同宽、同一左边缘”，没写依赖哪几处。当前截图里对得上（标签 142 到 303，条目 140 到 304）。
+- 建议：在 `.settings-window` 上定两个局部变量（`--settings-side-width`、`--settings-side-inset`），三处引用。
+
+## F11 [建议][边界] 自动选分段控件只看“三项以内、没有说明”，不看选项名的长度（未验证）
+- 位置：`packages/nb-form/src/model.ts` 221 行 `defaultWidget`（`choices.some(description…) ? "radio-row" : "segmented"`）；`SegmentedControl.vue` 里“段宽取最长一项”（Lab `uneven` 样例）。
+- 现象（从代码推断，没有渲染）：段宽是最长一项的宽度乘项数。三项各 12 个汉字或一句英文（例如 `en-US` 的“Ask every time”“Always use the book setting”）时，控件宽可超过控件列（728 宽小组减去标签列 224，约 500px）；分段控件 `wrap` 缺省为 false、根是 `max-w-full`、按钮 `min-w-0`，到头是文字被挤裁还是整行换到标题下面，我没法在没有浏览器时判断；Spec 输出 9 写的是“各项完整显示”。
+- 建议：在 `defaultWidget` 里加一个长度条件（例如选项名总字符数超过 24 就退回 `radio-row`），或补一个 Lab 样例（三项长英文）并在浏览器里看一次再定。nb-form 属另一位审查者，这里只记界面后果。
+
+## 汇总
+
+### 按影响排序
+1. F1 [重要] 模型服务样板：解析不了的输入记号在切换服务商后留在旧下标上，页面永远显示有改动，保存被拒，用户看不到原因（已用 dom 测试复现）。
+2. F2 [重要] 分段控件整组停用：选中项的字几乎看不见（对比度约 1.4），选中块在截图里没有变淡，与提交说明不符（原因未定，需在浏览器取计算样式）。
+3. F3 [建议] 样板按下标选中，别处增删后详情静默换成另一家（已复现）。
+4. F4 [建议] 服务商详情的控件不走通用列表的宽度约定，表单比标题缩进一格并带灰色嵌套线。
+5. F5 [建议] 草稿操作行在即时写入的“常规”页里也显示；有改动的服务商在列表里没有记号。
+6. F6 [建议] 别处改过时“重新读取”与“放弃改动”是同一个函数。
+7. F7 [建议] 窄档：操作行不再粘住；窗口最小宽度 600px 就是窄档；601 到 700px 详情过窄；窄档没有截图。
+8. F9 [建议] 单行输入宽度的预留只算了图标按钮，项目层的“移除本作品的设置”在小组宽 458 到 670px 间换行。
+9. F8 [建议] 保存栏位置两处不同：不改，但要把缘由写下来。
+10. F10 [建议] 层标签宽度抄了左栏的三个数。
+11. F11 [建议] 自动选分段控件不看选项名长度（未验证）。
+
+### 数量
+- 阻断 0；重要 2（F1、F2）；建议 9（F3 到 F11）。
+
+### 未发现问题的方面
+- `SettingsSectionHeading` 抽出后 column 与 fill 的行为：逐项对照原模板，标题、说明、层提示、路径、“打开设置文件”的出现条件与被删掉的两份一致（fill 对 `invalid` 一律给按钮；column 在设置文件视图里不给，由 `openFileLabel: null` 保持）；wrapper 的外边距收拢与原来的直接子元素排法等价；`.settings-window__description` 仍被搜索结果用到，没留下死样式。
+- 小组设 `container-type: inline-size`：小组里只有 `data-settings-width="wide"` 的行用 `100cqi`；宽排法的行不带这个属性；搜索结果（`.settings-window__hits`）不在小组里；Reka 的浮层是传送到 body 的，不受“布局包含”影响（从代码推断，未在浏览器核实）。1200 宽下取到上限 320px，与截图量出的 565 到 885px 一致。
+- 与 t80 图对照：标题、说明、小组标题与分隔线、行高、竖线位置（行左 12px）、“恢复默认”间距、层标签宽度与左栏对齐，量出来与 r4 三张图一致；浅与深的 `user`、`project`、`file`、`page-fill` 截图没有溢出（`report.json` 的 `offenders`、`clippedRings` 为空）。
+- SettingsFileView 的按钮顺序：`SettingsFileView.md` 与按钮顺序一致，e2e 与 dom 测试用名字取按钮，顺序变了不受影响。
+- 分段控件只读、出错：与 RadioGroup、Switch 的写法一致（`aria-readonly`、`aria-invalid`、悬停与按下无反馈、外框描红）；`readonly-matrix.test.ts` 新用例覆盖点击与方向键。
+
+### 我跑过的检查
+- `bunx vue-tsc --noEmit -p tsconfig.web.json`（packages/neuro-book）：通过。
+- `bunx vitest run src/plugins/settings`（neuro-book）29 条通过；`bunx vitest run src/components/form src/components/controls`（nb-ui）60 条通过。
+- 实验文件：`scratch/unparse.dom.test.ts`（F1）、`scratch/swap.dom.test.ts`（F3）、`scratch/seg.dom.test.ts`（F2 属性核实）、`scratch/vitest.scratch.config.ts`；放大对比图 `scratch/cmp-light.png`、`cmp-dark.png`、`prov-zoom.png`。未跑 e2e 与开发服务，F2 的原因、F6、F7、F9、F11 都没有在真实浏览器里看过。

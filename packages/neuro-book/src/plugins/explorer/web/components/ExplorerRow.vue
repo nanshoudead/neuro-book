@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 资源管理器的一行：根或资源，以及新建与改名的内联输入（同名 .md）。 */
-import {FormInput, Tooltip} from "@notnotype/nb-ui/components";
+import {Input, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onMounted, ref, watch} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
@@ -9,7 +9,7 @@ import {fileIconOf} from "../icons/file-icons";
 import {explorerText} from "../messages";
 import {displayLabel} from "../tree/rows";
 import type {Problem, Row} from "../tree/rows";
-import FileIcon from "./FileIcon.vue";
+import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 
 const props = defineProps<{
     row: Row;
@@ -169,7 +169,7 @@ const inputLabel = computed(() => {
         <span class="h-4 w-4 shrink-0" aria-hidden="true"></span>
         <FileIcon v-if="icon" :icon="icon" />
         <div ref="inputBox" class="explorer-edit__box relative min-w-0 flex-1" @keydown="onEditKeydown" @focusout="emit('edit-commit')" @click.stop @dblclick.stop>
-            <FormInput
+            <Input
                 size="sm"
                 :model-value="edit?.name ?? ''"
                 :readonly="edit?.busy === true"
@@ -290,7 +290,7 @@ const inputLabel = computed(() => {
     padding-inline: 6px;
     border-radius: 6px;
     border-color: var(--focus-outline);
-    font-size: 13px;
+    font-size: var(--text-sm);
     box-shadow: none;
 }
 
@@ -316,7 +316,7 @@ const inputLabel = computed(() => {
 /* 根是分节标题：小一号、加粗，没有图标。 */
 .explorer-row--root {
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--text-xs);
     font-weight: 600;
     letter-spacing: 0.02em;
 }

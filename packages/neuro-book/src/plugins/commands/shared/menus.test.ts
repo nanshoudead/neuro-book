@@ -139,10 +139,10 @@ describe("登记校验（规则表）", () => {
     const editor = menuLocation("test.editor", {...MENU_BUTTON, ...MENU_EXTENSIONS}, {contexts: ["resource"], buttons: true});
     const descriptor = (id: string, plugin: string, declaration: unknown): ContributionDescriptor => ({capability: "test", id, declaration, plugin, entry: null, location: "browser"});
 
-    it("合格的声明通过；id 前缀与格式按插件检查", () => {
+    // id 的前缀由内核按贡献点的 idPrefix 核对（runtime/plugins.md），校验器只看形状与声明。
+    it("合格的声明通过；id 格式不对的拒绝", () => {
         expect(menuItemValidator(titlebar)(descriptor("nbook.editor.save-in-file", "nbook.editor", {command: "nbook.editor.save", section: "2_save", group: "file"}))).toBeNull();
         expect(menuItemValidator(titlebar)(descriptor("acme.export.menu", "acme.export", {command: "acme.export.run", section: "9", group: "file"}))).toBeNull();
-        expect(menuItemValidator(titlebar)(descriptor("other.menu", "acme.export", {command: "acme.export.run", section: "9", group: "file"}))).toContain("必须以 acme.export. 开头");
         expect(menuItemValidator(titlebar)(descriptor("Nbook.Bad", "nbook.editor", {command: "x", section: "1", group: "file"}))).toContain("点分的小写段");
     });
 

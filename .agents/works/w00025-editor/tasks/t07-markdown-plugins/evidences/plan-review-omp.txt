@@ -1,0 +1,143 @@
+# w00025 t07 实施计划只读审查
+
+审查基线：`b63914f61`；审查对象为 `.worktree/w00025-t07-review/.agents/works/w00025-editor/tasks/t07-markdown-plugins/plan.md`。代码路径均相对此 worktree；未修改被审查文件。按核实顺序追加，正确性与不变量优先。
+
+### 1. 跨贡献点配对与标签排重不能放进现有的单条声明校验
+
+- **严重程度**：阻断；**类别**：正确性。
+- **位置**：`plan.md:28-35`（“方言贡献点”）；`docs/specs/runtime/plugins.md:70-79`；`packages/nb-runtime/src/plugins/contracts.ts:35-53`；`packages/nb-runtime/src/plugins/host.ts:828-860`。
+- **现象**：计划要求“没有对应声明的实现”“声明的标签名与已有方言重名”均按单条校验拒绝，但现有 `validate(descriptor)` 只收到当前一条声明，不能访问其它声明；内核只在**同一个贡献点**按相同贡献 id 排重，不会把两个点的同 id 自动配对。计划也没有要求实现与声明必须来自同一个插件，因此仅比 id 会允许另一个内置插件认领别人的声明。
+- **为什么是问题**：这是显式合同冲突，不是补一个 validator 就能完成。用闭包维护其它声明表会让校验依赖登记顺序和查询时机，违反 `runtime.plugins` 输出 15、23 的无缓存、登记顺序无关与单条独立性。按原计划写 S2 会返工，且“同上”的真实宿主测试无法得到所承诺的 `invalid-declaration`。
+- **如何核实**：读取上述位置与 `packages/nb-runtime/src/plugins/declarations.test.ts:101-122`：后者专门验证其它点登记和撤销不改变已有声明的校验结果。`ContributionDeclarations.get/list` 只在激活上下文提供，不在 `ContributionPointDefinition.validate` 提供。当前为合同与代码核实，未把该计划当成已实现行为。
+- **建议改法**：保留内核单条结构校验；在 Markdown owner 的目录/接收层以 `(plugin, id)` 配对、做全集合的确定性标签冲突判定并提供领域诊断，明确声明存在而实现缺席时的状态。若一定要让内核目录直接显示 `rejected/invalid-declaration`，先单独设计并修改内核合同及其登记顺序测试，不能隐含在 S2 中。为标签同名、声明/实现先后登记、撤销再登记、不同插件相同 id 的配对分别补验收。
+
+### 2. 在 owner 激活期间等齐语法实现，会等待自己的激活产出
+
+- **严重程度**：阻断；**类别**：不变量。
+- **位置**：`plan.md:34,44-47`（“内置方言”“语言随贡献变化”）；`packages/nb-runtime/src/plugins/host.ts:1063-1200`；`packages/neuro-book/src/plugins/editor/web/code/languages.ts:68-83,129-150`。
+- **现象**：`nbook.markdown` 的浏览器入口既接收语法，又贡献内置语法；它必须先从 `activate` 返回 `receivers/contributions`，内核才接接收者、交付并调用 `published`。计划反过来要求在激活里等全部实现交付，然后组成首份语言，形成“activate 等 published，published 等 activate 返回”的环。
+- **为什么是问题**：第一份语言与依赖它的编辑器服务都不会就绪。复用 `LanguageRegistry` 也不能解决：它只等 `published/revoke`，贡献方尚未交出产出就失败时没有任何回调；声明了语法但没有激活事件的懒入口也不会仅因声明被查询而激活。这个等待还没有超时、取消与缺席实现的结算合同。现有内置编辑器不是计划所称的完全同路：`editor-registry.ts:2-4,61-64` 和 `web/plugin.ts:48-58` 明确直接持有内置组件以绕开自身交付晚于会话恢复的问题。
+- **如何核实**：运行 `cd packages/neuro-book && bun zz-review-lab/omp/runtime-probe.ts`，用本 worktree 的真实 `createPluginHost` 注册“同入口贡献并等待自己的 published”的插件。输出 `self-wait` 为 `status:"activating"`、`callbacks:0`；停止作用域才以 `activation-threw` 结束。内核代码证明这不是把等待时间调长就会成功。实验显式响应停止信号，随后根作用域正常 `closed`。
+- **建议改法**：激活先返回目录服务与 receiver，首份可用语言的完成不阻塞 owner 激活；服务显式给 `loading/ready/failed` 或一个可取消的 ready Promise，`.md` 控件在 ready 后创建。语法加载由 published 后的编排启动，不能在 receiver 回调里等待后续同 receiver 的交付。明确如何触发贡献方、如何得知激活前失败，以及声明无实现的结算规则；为 owner 自贡献、懒贡献方、贡献方在交付前失败、依赖 Markdown 服务的贡献方和首个 `.md` 打开分别加真实宿主测试。
+
+### 3. 用 `nbook.` 前缀当来源限制会拒绝计划自己的测试插件，且不等于内置身份
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：`plan.md:35-36,110-111`；`packages/neuro-book/src/manifest.ts:31-37`；`docs/specs/runtime/plugin-manifest.md:116,129`。
+- **现象**：计划限定 `validate` 按插件 id 前缀只收内置插件，却用 `test.markdown-dialect` 验收成功贡献、停用和再启用。这条测试贡献首先就会被拒。另一方面，当前代码定义宿主没有“外部插件不得自称 nbook”的来源校验；该限制所属的安装/JSON manifest 机制还未实现。
+- **为什么是问题**：S2 的正向验收按字面无法运行；改为在测试里绕过 validator 只会掩盖缺陷。前缀在目前固定产品清单下可作命名约定，不能冒充已经核实的内置来源。仓库真正有内置专属权限的 `delegatingPlugins` 是由装配者显式给出的允许清单，不是内核猜 id。
+- **如何核实**：同一真实宿主实验 `bun zz-review-lab/omp/runtime-probe.ts` 输出 `prefix-check`：`test.markdown-dialect` 为 `rejected/invalid-declaration`，未列入产品清单的 `nbook.unlisted-spoof` 为 `accepted`。后者只证明现有内核不核验来源，不声称目前存在可安装攻击入口。`commands/shared/registry.ts:125` 的前缀判断只是命令命名规则，不是来源授权。
+- **建议改法**：明确“内置”来自装配清单/可信来源，沿用显式允许清单模式，测试宿主把测试插件作为可信内置项注入；或承认第一版仅检查保留命名空间，并把正向测试插件改成受控的 `nbook.*` 测试身份。不要在产品 validator 中为 `test.*` 加特判。正向贡献与第三方拒绝必须走同一个真实 validator。
+
+### 4. 换语言缺少逐视图的版本固定与迁移合同，“源码偏移恢复”也没有现成映射
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`plan.md:19-20,44-47,112,131`；`MarkdownControl.vue:29-39,54-57,94-139,161-187,291-300,323-341`；`codec/read.ts:24-79`。
+- **现象**：计划只说当前视图没有未交出的输入才重建，却没有规定编辑器实例、编解码器与保留在各文档槽里的 `EditorState/SourceMap` 使用哪一代语言。当前 `codec(current)` 每次从全局 `markdownLanguage()` 取语言；若照此改成读全局 ref，延后重建的旧 schema 会先被配上新读写表。实例按“组 × 编辑器”保留，状态则按“文档 × 组”保留，不能只迁移眼前这一份正文。未裁决输入、写不出、IME 组字也不是同一个状态。
+- **为什么是问题**：`editor.md` 输出 61 要求写不出的视图保留自己的内容，别组更新不能替换它；schema 不匹配时现有 `enter()` 却会 `load(binding.text)` 重建。若没有逐实例固定语言和缓存状态失效规则，A→B→A、另组仍停在旧语言、用户在撤回期间纠正写不出等路径会配错读写规则，或以已接受正文覆盖局部内容。[从代码推断，计划尚未实现。] 光标合同也不能直接复用：现在保存的 `offset` 实际是 ProseMirror 文档位置，不是源码偏移；`SourceMap` 只有顶层块来源，没有字符级双向映射。
+- **如何核实**：运行 `bun zz-review-lab/omp/positions-probe.ts`。同一源码 `<comment body="意见">甲乙丙丁</comment>尾巴` 中“尾”的源码偏移为 **33**；方言启用时 PM 位置为 **5**，移除批注方言后为 **2**。两次读写均字节不变，直接恢复旧 PM offset 仍然会错位，源码偏移 33 则超出新文档大小 5。读取 `rememberCursor`（187 行）、`SourceMap` 与 `enter` 可确认没有所需换算。
+- **建议改法**：先定义语言版本快照与迁移事务：每个保留实例固定它的 language/schema/codec；仅在非组字且输入回执已接受、无未裁决/写不出时切换，迁移前再核对绑定 token 和修订；缓存的其它文档按版本重读，禁止用失配 schema 的状态直接恢复。对源码位置新增双向映射，并规定节点变成原样 atom 后的选区落点；或把验收改成明确且可执行的近似恢复规则。测试至少覆盖两个组、A→B→A、IME、conflict、写不出解除与语言连续变更，而不只覆盖一次停手。
+
+### 5. 核心 schema 仍硬依赖注音方言，缺席一条方言就无法创建编辑器
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`plan.md:17,33-34,44-45,95-97,110`；`packages/neuro-book/src/plugins/editor/web/markdown/syntax/core/index.ts:53`。
+- **现象**：核心行内代码扩展写死 `excludes: "code markdownRuby"`。计划把注音变成可缺席的贡献，并规定加载失败“当作不存在”，但 ProseMirror 建 schema 时会立即解析 excludes 中的每个类型；没有 `markdownRuby` 不是退成原样，而是抛错。
+- **为什么是问题**：S1 的原样搬动会把现有隐含耦合一起搬过去，S2/S3 的可组合语言在注音缺席或加载失败时整个失效。只加一个完全独立的 `<kbd>` 测试证明不了内置方言可组合。当前固定八模块没有触发此错误，不能算“原样测试通过”已保护插件化合同。
+- **如何核实**：`bun zz-review-lab/omp/positions-probe.ts` 用现有八个语法逐个移除非核心模块、再用生产代码同样的 `getSchema(language.extensions)` 建 schema。7 个移除场景中，移除 6 个成功，移除 `ruby` 得到 **`SyntaxError: Unknown mark type: 'markdownRuby'`**。这是实际 schema 构造，不是模拟内核回调。
+- **建议改法**：把排斥约束表达为由语言组合层依据已存在类型生成的规则，或使用对可选 mark 安全的 schema group，消除核心对可选方言类型名的硬依赖。将内置方言逐个缺席、加载失败与重新加入纳入组合测试，并为多个模块贡献同名节点/mark/writer 给出失败隔离合同；不能让 `createMarkdownLanguage` 的重复 writer 异常直接推倒整份语言。
+
+### 6. 字数规则变化不会使书架或状态栏缓存失效，今日基线还会混用两种口径
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`plan.md:22,38-40,95-97,110`；`projects/project/stats-tracker.ts:83-105,125-150,209-216,327-404,454-494`；`editor/web/status-items.ts:64-106`；`docs/specs/runtime/projects.md:99-116`。
+- **现象**：计划把纯函数改为读取可变方言服务，却只要求替换调用和测试 `<kbd>` 的一次计数，没有规则变更通知、计数版本或重扫。书架保存每文件数字而不保存全文，只在 Files 事件/重扫时重算；状态栏缓存键只有文档对象与修订号，正文不变时永远命中旧值。
+- **为什么是问题**：启用/禁用方言不改变文件、不增加正文 revision，原来已统计的全部文件都会保留旧口径；之后只改一个文件，会把新旧规则的数字混加。即使补一次重扫，持久快照 `today.baseline` 仍属于旧规则，重新打开同日作品还会沿用它；规则引起的总字数差会被算成“今日写作”，并非作者输入。
+- **如何核实**：代码核实：`words: Map<string, number>` 在 87 行，单文件重算在 215 行，扫描重算在 338 行；`fullScan` 只有 `today === null` 才初始化 baseline（392-394 行）。状态栏 94、96 行在 revision 相同直接返回缓存。现有 tracker 没有接受“字数规则变了”的输入，单纯替换 `countWords` 无法触发这些路径；此项是计划缺口，未声称新实现已复现。
+- **建议改法**：字数服务保留**同步** `countWords(text): number`，入口在开始 tracker/状态栏求值前完成依赖激活；另提供只读规则版本与可释放的变更订阅。规则换代使状态栏缓存失效，使项目统计取消旧扫描并以一份不可变规则快照重扫；结果发布时核对版本，避免一轮扫描混口径。明确持久快照的规则版本与今日基线迁移策略，不把规则变化算成新增写作；把“不改文件切换方言、扫描中切换、同日重开”的书架与状态栏行为加入验收。
+
+### 7. 运行期声明补交与两端“生效方言相同”不是现有机制保证
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`plan.md:28-32,40,44-45,110`；`packages/nb-runtime/src/plugins/host.ts:408-430,1248-1293`；`docs/specs/runtime/plugin-hot-plug.md:34-47,143`。
+- **现象**：顶层声明在 owner 激活时能补交，但 owner 已运行后再登记的顶层贡献不会主动交给现存 receiver。计划却以 receiver 的加入/撤回驱动运行期启用和重新启用，没有把这段内核工作列为前置。另外，“浏览器与项目进程声明表相同”只在同一清单、同一声明校验规则下成立；浏览器语法加载失败/入口停止不撤销顶层声明，项目进程根本不知道该实现的生死。
+- **为什么是问题**：项目端字数表按声明维护，浏览器语言按已交付且加载成功的实现维护，两者会分叉：例如 `<comment>甲乙</comment>` 在语法失效后是原样片段、不应计其中 2 字，声明仍在的字数表却会计 2。反向重新启用时，项目 receiver 也收不到新声明以更新表。全局启停、两端插件集合推送还是 `planned`，不能把测试里关闭/新建作用域等同于已经存在的产品热插拔。
+- **如何核实**：真实宿主实验 `bun zz-review-lab/omp/runtime-probe.ts`：先激活项目 owner，再 `register` 只有顶层贡献的 `nbook.late`，再次激活 owner 复用同一 generation 1；新贡献状态是 **`accepted` + `waiting-receiver`**，`published` 未收到新条目。`host.ts:319-430` 的登记只入表，补交在 owner 激活阶段执行。声明与入口实现独立寿命见 `runtime.plugins` 输出 8、9、16、23；字数原样不计的依据是 `markdown-dialect.md:170-173`。
+- **建议改法**：把必要的内核运行期声明通知/补交与测试列为 S2 前置，明确只验受控宿主重新登记还是交付产品级启停，不暗含后者。再定义唯一的**声明字数口径**与浏览器实现失败之间的政策：若字数始终按已启用声明计算，就把实现失效后仍计数列成显式偏差，不再声称与当前读入一致；若必须随有效语法变化，就需要 owner 协调并向项目端传播有版本的有效集合，不能让两个进程各自猜。覆盖 owner 先启动、声明后加入/再加入，以及单窗口语法失败而项目仍运行的场景。
+
+### 8. `staticView(node) → HTMLElement` 不足以复用现有视图，也没有清理资源的出口
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`plan.md:32,54,59-61,113,132`；`syntax/callout/index.ts:61-68,93-131,137-192`；`syntax/html-embed/index.ts:94-131,183-222,228-259`；`MarkdownControl.vue:475-708`。
+- **现象**：提示块的现有外观函数返回 `{dom, contentDOM, update, stopEvent, ignoreMutation}`，折叠状态来自 PM 插件的 decorations，操作要派发 transaction；HTML 节点视图有切源码/渲染状态和 `destroy`，渲染 iframe 时注册 `window.message` 监听；批注主要是 **mark** 与 CSS，不是 node view。计划把所有这些归成只有 node 入参、只交出根元素的静态函数。
+- **为什么是问题**：接口表达不了容器子块应插在哪里、嵌套节点/mark 应如何递归渲染、事件与图片 resolver 从哪里来，也不能在流式替换、语言切换和组件卸载时释放监听/异步图片结果。直接复用 HTML 外观函数而没有 teardown，会把已移除 frame 留在全局监听闭包里。两边即使结构/类名完全相同也不等于同外观：现有方言 CSS 全在 `.markdown-control :deep(...)` 作用域，展示器不会自动命中。
+- **如何核实**：上述真实节点视图的返回类型与 `window.addEventListener/removeEventListener` 配对可直接核实；`calloutView` 的 contentDOM 由 PM 填子块，纯 `DOMSerializer` 不执行 node/mark view。`Comment.renderHTML` 与 `CommentBlock.renderHTML` 在 `comment/index.ts:124-125,170-171`，没有可直接套用的统一节点外观函数。性能证据 `display-perf.md:43` 也明确没测节点视图挂载开销。
+- **建议改法**：先定义静态渲染适配器的真实合同：外观与事件输入通过 context 给出，容器返回 contentDOM/子内容插槽，node 与 mark 都可参与，交出幂等 dispose；异步图片要有取消/迟到屏蔽和 URL 释放责任。共用的是纯外观构建器与可跨宿主使用的 CSS，编辑器折叠状态由 PM adapter 管、展示器由本地 adapter 管，不强行共用编辑器状态。测试嵌套提示块里的图片/HTML/批注、重复流式替换后监听不再响应、卸载清理；外观用实际 Lab 视觉判据验证，不以逐节点 DOM/类名相等代替。
+
+### 9. 流式前缀块不能直接按 PM 节点相等比较，批注每次读入都会换身份
+
+- **严重程度**：重要；**类别**：安全与性能。
+- **位置**：`plan.md:59-61,114,123`；`syntax/comment/index.ts:52-54`；`codec/codec.ts:72-115`。
+- **现象**：计划要求每次全文 `codec.read` 后找到第一个不同的顶层块，前面的元素不动，却没有定义“不同”的比较规则。批注 `key` 是每次读入新生成的页面内身份，会进入 mark 属性与序列化 DOM 的 `data-comment-key`。
+- **为什么是问题**：直接用节点 `eq`、JSON 或完整 DOM 比较都会把未变的批注块判成改变；前面只要有一条批注，每帧就从它开始重建后续内容，违反“只替换变了的块”的验收，并重置后续折叠/HTML 渲染状态。编辑器现有 `codec.reload` 专门做过身份对齐，展示器走 `read` 没有继承它。反过来，简单只比原文前缀也不够：后续引用定义或批注意见变化可改变前面的读入含义。
+- **如何核实**：`bun zz-review-lab/omp/stream-probe.ts` 对 `<comment body="意见">完整的第一段</comment>\\n\\n末段` 只在末尾追加“新字”；输出 **`unchangedFirstBlockEqual:false`**，第一段的唯一差异为 `key:"k1"` → `"k2"`。它调用实际编解码器与 PM `Node.eq`，没有模拟文档。
+- **建议改法**：把身份对齐/显示等价比较提为编解码器或静态渲染层的正式接口，忽略仅内存身份而保留语义属性；为保留块维持稳定渲染实例。增补“已完成的批注/折叠提示块/已渲染 HTML 在前，尾部持续追加”的元素身份与交互状态测试，以及后置引用定义改变前块含义的反例。无需改成只读编辑器。
+
+### 10. 旧 Composer 的引用识别不是当前文件地址规则，原样移植不能实现“三边共用识别”
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`plan.md:53-55,67-68,117,133`；`docs/specs/workspace/markdown-dialect.md:137-143`；`865c9f593:packages/neuro-book/app/utils/plain-reference-text.ts:56-68,382-465`；同提交的 `shared/reference-core.ts:97-114`。
+- **现象**：旧 `prompt-text.ts` 调用 `tokenizePlainReferenceText`；后者只把旧 `chapter://` 等领域 URI 或以 `agents/`、`manuscript/`、`workspace/` 等白名单开头的旧根路径当作引用，直接拒绝含 `..` 或以 `/` 开头的目标。当前方言输出 18 却允许相对当前文件的 `../设定/林雪.md`、作品根 `/设定/林雪.md`，新文件服务另有 `project://`、`user://`。旧扫描器还用第一个 `)` 截目标，不认识合法的括号/空格/尖括号 Markdown 目标。
+- **为什么是问题**：把几个旧函数搬进 `prompt/` 并保留原测试，只能证明旧协议继续工作：同一个合法项目链接在编辑器/展示器是引用小块，在 Composer 却仍是普通文字。用原 scanner 给三边共用则反过来破坏当前 Markdown 合同。保留 Composer 的 `$`、`/`、粘贴与附件文字写法是已定决定，但不要求把旧应用的路径白名单当作新应用合同。
+- **如何核实**：按任务要求用 `git show 865c9f593:packages/neuro-book/app/utils/plain-reference-text.ts`、`git show 865c9f593:packages/neuro-book/shared/reference-core.ts`，对照 `prompt-text.ts:1-8,155-168` 的原文保留方式及方言输出 18。`isSafeRelativeWorkspaceTarget` 的拒绝条件、`WORKSPACE_REFERENCE_PREFIXES`、只认 5 个旧 URI kind 的 `parseReferenceUri` 均可直接核实；这是源码核对，未运行旧应用 UI。
+- **建议改法**：单独定义共用的“目标分类/解析”合同（相对路径的 base、作品根、user 根、外部链接、旧领域 URI、附件 `local://`），保留 Composer 独立文字语法并让节点继续存 raw 原文；Markdown 链接词法不要换成旧正则扫描。由两种 parser 输出目标后复用同一个分类器与小块外观。为上述新地址、带括号/空格、外部链接、旧写法与无 base 场景建立跨三界面的用例，要求文字往返不改变而显示分类一致。
+
+### 11. Composer 的“只换依赖、原测试先通过”漏了运行器、全局样式与节点视图文字通道
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`plan.md:53,66-67,100,117,133`；`865c9f593:packages/neuro-book/app/components/common/form/prompt-editor/PromptEditor.test.ts:1-8,243-255`；当前 `packages/neuro-book/vitest.config.ts:19-24`、`bunfig.toml:1-3`、`vite.config.ts:23-49`。
+- **现象**：旧组件测试叫 `PromptEditor.test.ts`、`PromptTextView.test.ts`，指定 jsdom、注入旧应用 i18n，并用假 Date 分隔撤销组；新应用只把 `*.dom.test.ts` 交 Vitest，其余由不能导入 `.vue` 的 Bun 执行，治理又禁止 fake timer。旧引用色调也不在 `reference-chip.ts`：它只返回 `nb-reference-chip is-*` 类，真正颜色在旧全局 `app/styles/reference-chips.css:54-106`。新应用没有这组引用 CSS，另有全局 `.nb-skill-chip`，原样保留类名还会和它耦合。
+- **为什么是问题**：原名移入的两个 Vue 测试不会走预期运行器；改完 import 也不等于能合规运行。只搬 Vue scoped CSS 会丢引用分色，照抄旧全局颜色又违反主题 token 规则。6 个组件使用 `useI18n`，其中 Vue node view 经 `VueNodeViewRenderer` 独立挂载；`localize` 是要求显式 locale 的纯函数，不能只替换函数名就继续得到当前语言和热切换。
+- **如何核实**：历史文件用 `git show 865c9f593:<路径>` 读取；`git grep -n -E '^import|vi\\.' 865c9f593 -- packages/neuro-book/app/components/common/form/prompt-editor` 可看到旧 runner/i18n/假时钟依赖；`git show 865c9f593:packages/neuro-book/app/styles/reference-chips.css` 可看到色调来源。当前 `package.json:43-77` 也没有声明新增需要的 `@tiptap/vue-3` 与 `mdast-util-from-markdown` / `mdast-util-to-markdown`；现有 symlink 能解析不代表产品依赖已经登记。
+- **建议改法**：S6 明列最小迁移表：Vue 测试改 `.dom.test.ts` 并适配 happy-dom/当前文字输入；撤销组用真实 PM 历史边界而非假 Date；locale 从 props/节点视图 context 显式传下去并测切换；引用样式移到唯一共享零件且换主题 token、避免旧类名全局叠加；新增直接依赖同步 package 与 Vite 预构建清单。先让行为测试覆盖迁移后的合同，不要求旧测试代码原封不动；这些不要求重调外观或接入真实 Agent。
+
+## 未发现问题的方面
+
+- **顶层 `implementation: "none"` 声明初次进入项目进程的路径确实存在**：`src/manifest.ts:43-56` 的 `pluginsAt/definitionAt` 会把只有浏览器入口但有顶层贡献的插件登记进项目实例。真实宿主实验已从项目入口的 `context.declarations.list` 查到声明，也收到了 `kind:"plugin"` 的 published 句柄；不需要给声明伪造实现。第 7 条针对的是 owner 启动后的新登记与生效口径，不否认这条初始装配路径。
+- **本地共享服务可以交出 Vue 组件定义、ref、类与函数**：`services.md` 输出 12 明确响应式活值用普通共享服务，不用按调用方门面，更不是远程服务。`service-probe.ts` 经真实插件服务依赖交付，5 项身份比较（服务、ref、组件定义、类、函数）全部为 true，并成功用收到的 codec 读出“正文”。这里共享组件定义，不等于共享每次挂载的组件状态；不能据未实现的开发模式结构化克隆检查否定当前服务机制。
+- **模块边界可以遵守，不要求把控件一并挪走**：`MarkdownControl` 从将搬走的目录直接导入 3 个值（`codecFor`、`createMarkdownEditorExtensions`、`markdownLanguage`）和 2 个类型（`MarkdownCodec`、`SourceMap`）。类型可 `import type`，运行时值须改为服务；语言与 codec 已列在计划，扩展组工厂须在 S1 明确经服务交出还是由控件组合 `language.extensions`。Lab fixtures 跨插件引用有明确例外（包规则第 15 行、`architecture.test.ts:80,96`）。
+- **Composer 不必带回旧 Agent 业务服务**：旧组件已经把候选、附件上传状态、缩略图、草稿版本与历史放在 props/emits；本轮可以按决定用假宿主验收。缺口是第 10、11 条的文本目标协议与移植适配，不是要求新增 Composer 外壳或接真实 Agent。
+- **没有重议已确认的决定 1–5**：静态展示、不建编辑器，Composer 保留独立文字写法，三种界面同轮、Lab 假数据验收、首版不开放第三方方言均可继续作为前提。展示器静态方案的历史性能测量支持该技术选择；本次未重新测量 Chrome 性能，也未把历史数值当成本次验证。
+
+## 验收映射核对
+
+- 现有往返与字数行为有真实测试可复用；本次仅核对当前基线，不代表 S1 搬动后或新功能已经通过。
+- 贡献测试必须先解决第 1、2、3、7 条，否则不是走不通，就是只能在绕过真实 validator/激活顺序的假模型里通过。
+- 编辑器迁移缺少第 4、5 条的状态与组合边界；展示器缺少第 8、9 条的清理、嵌套与稳定身份场景；Composer 缺少第 10、11 条的新旧协议交叉用例与运行器迁移。各条已经给出对应补测场景。
+- Lab 截图、390px 与明暗主题、长对话实际性能复测是实施验收动作；本次按只读审查限制未启动服务、未跑 e2e 或截图。
+
+## 两项待确认取舍
+
+1. **换语言丢撤销历史**：可以作为低频方言集合变更的显式取舍接受，但只能在第 4 条迁移不变量成立后实施，不能因逐条异步交付、普通重挂或清空缓存而反复丢历史，更不能丢写不出或未裁决输入。
+2. **本轮不把 `MarkdownControl` 挪进新插件**：可以接受，文档绑定、输入回执与写不出结算属于编辑器职责，保留在 `nbook.editor` 不妨碍语言/codec/外观解耦，S1 只需完整定义上述 3 个运行时值的服务替代路径。
+
+## 实际验证与边界
+
+全部命令在 `.worktree/w00025-t07-review/packages/neuro-book` 执行；实验源码只放在获准的 `zz-review-lab/omp/` 下，按“禁止删除”要求保留。
+
+| 命令 | 结果 |
+|---|---|
+| `bun zz-review-lab/omp/runtime-probe.ts` | 退出 0；初次项目声明交付成功；运行期新顶层声明 accepted 但 waiting-receiver；前缀正反例；自身贡献等待保持 activating；停止后 closed |
+| `bun zz-review-lab/omp/positions-probe.ts` | 退出 0；源码偏移 33 对应 PM 位置 5 → 2；7 个逐方言缺席场景中移除 ruby 抛预期的 schema 错误，其余 6 个成功 |
+| `bun zz-review-lab/omp/stream-probe.ts` | 退出 0；仅尾段追加时，前面未变批注块 `eq` 为 false，内存 key 为 k1 → k2 |
+| `bun zz-review-lab/omp/service-probe.ts` | 退出 0；5 项活对象身份保持，读取正文成功，根作用域 closed |
+| `bun test ../nb-runtime/src/plugins/declarations.test.ts ../nb-runtime/src/plugins/owner-contribution-points.test.ts` | **25 pass，0 fail，188 expect() calls** |
+| `bun test src/shared/word-count.test.ts src/plugins/editor/web/markdown/codec/word-count.test.ts` | **11 pass，0 fail，51 expect() calls** |
+
+实验修正说明：最初运行时脚本漏传宿主 options，得到 `TypeError: undefined is not an object (evaluating 'options.observer')`，错误堆栈还暴露 workspace 依赖链接指向另一 worktree；已改为显式 options、直接使用当前审查副本的内核公开入口源码，之后才取得报告引用的有效结果。位置实验最初仅保留 core 时遇到 ruby 排斥错误，随后以完整八模块逐个移除复核，确认第 5 条。上述初次失败不作为通过证据。
+
+未运行：新计划尚不存在的合同测试、全包 typecheck、开发服务、e2e、浏览器性能/视觉测试与旧应用 UI。未修改源码、Spec、计划或 Task 记录；未执行 commit、push、stash、切分支或删除文件。没有调用子代理。
+
+## 数量
+
+**共 11 条：阻断 2 条（1、2），重要 8 条（3–10），建议 1 条（11）。**

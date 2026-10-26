@@ -1,7 +1,7 @@
 import {describe, expect, it} from "bun:test";
 
 import type {ContributionHandle, ContributionPointDefinition, PluginDefinition} from "../plugins/plugins";
-import {provide} from "../plugins/plugins";
+import {provideService} from "../plugins/plugins";
 import {defineServiceKey} from "../services/services";
 
 import {createApplication} from "./application";
@@ -35,7 +35,7 @@ function dependencyChain() {
             location: "server",
             receives: ["commands"],
             provides: [receiverKey],
-            activate: () => ({services: [provide(receiverKey, true)], receivers: {commands: {
+            activate: () => ({services: [provideService(receiverKey, true)], receivers: {commands: {
                 prepare: (handle) => {
                     handles.push(handle);
                     return handle;
@@ -52,7 +52,7 @@ function dependencyChain() {
                 trace.push("activate:A");
                 context.scope.register({kind: "owned", label: "A:first", value: "first", release: () => void trace.push("resource:A:first")});
                 context.scope.register({kind: "owned", label: "A:second", value: "second", release: () => void trace.push("resource:A:second")});
-                return {contributions: {commands: {"A.run": () => "A"}}, services: [provide(aOutput, "A", () => void trace.push("output:A"))]};
+                return {contributions: {commands: {"A.run": () => "A"}}, services: [provideService(aOutput, "A", () => void trace.push("output:A"))]};
             }}]},
         {
             id: "B",
@@ -62,8 +62,8 @@ function dependencyChain() {
                 context.scope.register({kind: "owned", label: "B:first", value: "first", release: () => void trace.push("resource:B:first")});
                 context.scope.register({kind: "owned", label: "B:second", value: "second", release: () => void trace.push("resource:B:second")});
                 return {contributions: {commands: {"B.run": () => c.value}}, services: [
-                    provide(bKey, {value: `B:${c.value}`}, () => void trace.push("service:B")),
-                    provide(bOutput, "B", () => void trace.push("output:B")),
+                    provideService(bKey, {value: `B:${c.value}`}, () => void trace.push("service:B")),
+                    provideService(bOutput, "B", () => void trace.push("output:B")),
                 ]};
             }}]},
         {
@@ -73,8 +73,8 @@ function dependencyChain() {
                 context.scope.register({kind: "owned", label: "C:first", value: "first", release: () => void trace.push("resource:C:first")});
                 context.scope.register({kind: "owned", label: "C:second", value: "second", release: () => void trace.push("resource:C:second")});
                 return {contributions: {commands: {"C.run": () => "C"}}, services: [
-                    provide(cKey, {value: "C"}, () => void trace.push("service:C")),
-                    provide(cOutput, "C", () => void trace.push("output:C")),
+                    provideService(cKey, {value: "C"}, () => void trace.push("service:C")),
+                    provideService(cOutput, "C", () => void trace.push("output:C")),
                 ]};
             }}]},
         {id: "independent", entries: [{id: "main", location: "server", activationEvents: ["onStartup"], activate: (context) => {
@@ -137,6 +137,33 @@ describe("启动入口选择与失败", () => {
         }}]}]}));
         expect(await application.startup).toMatchObject({status: "available", failures: [{category: "activation", required: false, source: "optional/main", reason: "blocked:missing-service"}]});
         expect(called).toBe(false);
+        expect(await application.stop()).toEqual({status: "closed"});
+    });
+
+    it("启动不等的插件：onStartup 入口照常开始激活，但它迟迟不结算时启动照常完成；停止时中止它", async () => {
+        let started = false;
+        let signal: AbortSignal | null = null;
+        // 只在中止时结算：停止要等在途的激活收口，这里模拟一个守规矩、但启动阶段一直没完成的插件。
+        const application = createApplication(host().context, manifest({backgroundStartupPlugins: ["hangs"], plugins: [{id: "hangs", entries: [{id: "main", location: "server", activationEvents: ["onStartup"], activate: (context) => {
+            started = true;
+            signal = context.signal;
+            return new Promise<never>((_, reject) => context.signal.addEventListener("abort", () => reject(new Error("stopped")), {once: true}));
+        }}]}]}));
+        expect(await application.startup).toMatchObject({status: "available", failures: []});
+        expect(started).toBe(true);
+        expect(application.plugins.entryState({plugin: "hangs", entry: "main"})).toMatchObject({status: "activating"});
+        expect((await application.admit({label: "accepted", run: () => "ok"})).status).toBe("accepted");
+        expect(await application.stop()).toMatchObject({status: "closed"});
+        expect(signal!.aborted).toBe(true);
+    });
+
+    it("启动不等的插件激活失败不进启动报告，只留在插件诊断里", async () => {
+        const application = createApplication(host().context, manifest({backgroundStartupPlugins: ["fails"], plugins: [{id: "fails", entries: [{id: "main", location: "server", activationEvents: ["onStartup"], activate: () => {
+            throw new Error("background failed");
+        }}]}]}));
+        expect(await application.startup).toMatchObject({status: "available", failures: []});
+        await application.plugins.activate({plugin: "fails", entry: "main"});
+        expect(application.plugins.diagnostics()).toEqual(expect.arrayContaining([expect.objectContaining({plugin: "fails", entry: "main", reason: "activation-threw"})]));
         expect(await application.stop()).toEqual({status: "closed"});
     });
 
@@ -216,7 +243,7 @@ describe("启动入口选择与失败", () => {
         let called = false;
         const application = createApplication(host().context, manifest({requiredPlugins: ["required"], plugins: [{id: "required", entries: [{id: "main", location: "server", provides: [invalid], activate: () => {
             called = true;
-            return {services: [provide(invalid, "invalid")]};
+            return {services: [provideService(invalid, "invalid")]};
         }}]}]}));
         const startup = await application.startup;
         expect(startup).toMatchObject({status: "failed", stop: {status: "closed"}});
@@ -233,7 +260,7 @@ describe("启动入口选择与失败", () => {
         let called = false;
         const application = createApplication(host().context, manifest({plugins: [{id: "required", entries: [{id: "main", location: "server", activationEvents: ["onStartup"], provides: [foreign], activate: () => {
             called = true;
-            return {services: [provide(foreign, "invalid")]};
+            return {services: [provideService(foreign, "invalid")]};
         }}]}], gates: [{id: "required-entry", kind: "activate", entry: {plugin: "required", entry: "main"}}]}));
         const startup = await application.startup;
         expect(startup).toMatchObject({status: "failed", stop: {status: "closed"}});
@@ -251,7 +278,7 @@ describe("启动入口选择与失败", () => {
         let called = false;
         const application = createApplication(host().context, manifest({requiredPlugins: ["required"], plugins: [{id: "required", entries: [{id: "foreign", location: "browser", activationEvents: ["onStartup"], provides: [invalid], activate: () => {
             called = true;
-            return {services: [provide(invalid, "invalid")]};
+            return {services: [provideService(invalid, "invalid")]};
         }}]}]}));
         const startup = await application.startup;
         expect(startup).toMatchObject({status: "failed", stop: {status: "closed"}});
@@ -276,7 +303,7 @@ describe("启动入口选择与失败", () => {
         let called = false;
         const application = createApplication(host().context, manifest({plugins: [{id: "optional", entries: [{id: "main", location: "server", activationEvents: ["onStartup"], provides: [foreign], activate: () => {
             called = true;
-            return {services: [provide(foreign, "invalid")]};
+            return {services: [provideService(foreign, "invalid")]};
         }}]}]}));
         const startup = await application.startup;
         expect(startup.status).toBe("available");
@@ -307,7 +334,7 @@ describe("启动入口选择与失败", () => {
                 context.scope.register({kind: "owned", label: "required", value: "resource", release: (value) => void released.push(value)});
                 started.resolve();
                 await finish.promise;
-                return {services: [provide(output, "output", (value) => void released.push(value))]};
+                return {services: [provideService(output, "output", (value) => void released.push(value))]};
             }}]},
             {id: "lazy", entries: [{id: "main", location: "server", activate: () => {
                 throw new Error("unselected entry must stay lazy");
@@ -449,7 +476,7 @@ describe("启动入口选择与失败", () => {
             }}]},
             {id: "healthy", entries: [{id: "main", location: "server", activationEvents: ["onStartup"], provides: [output], activate: () => {
                 called.push("healthy");
-                return {services: [provide(output, "healthy-output", (value) => void released.push(value))]};
+                return {services: [provideService(output, "healthy-output", (value) => void released.push(value))]};
             }}]},
             {id: "lazy", entries: [{id: "main", location: "server", activate: () => {
                 called.push("lazy");

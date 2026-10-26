@@ -10,12 +10,12 @@ import {EventEmitter} from "node:events";
 import {readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
+import {createApplication} from "nbook/application";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {PROJECT_LIMIT_DEFAULTS} from "nbook/server/config";
 import {manifestServerPlugins} from "nbook/server/plugins";
@@ -87,7 +87,6 @@ async function windowOf(id: string): Promise<Window> {
             ],
             gates: [],
             remote: node,
-            delegation: (plugin) => plugin === "nbook.files",
         },
     );
     expect(await app.startup).toMatchObject({status: "available", failures: []});

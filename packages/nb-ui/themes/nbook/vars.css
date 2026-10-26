@@ -51,33 +51,28 @@
     --font-emphasis: KaiTi, STKaiti, "楷体", "Kaiti SC", "Noto Serif SC", serif;
 
     /*
-     * 与 macOS 同档（界面正文 13px）。
+     * 比 macOS 整体大一档（界面正文 14px）：同一 px 下汉字的字面几乎占满 em 框，拉丁小写只占 x-height，
+     * 所以 13px 的 SF 换成汉字会显得又小又挤。2026-09-01 曾收回 macOS 档，开发者 2026-10-22 看实际界面后定恢复这一档。
      *
-     * 这里原来比 macOS 整体加一档，理由是字面高度：同一 px 下汉字的字面几乎占满 em 框，
-     * 拉丁小写只占 x-height，所以 13px 的 SF 换成汉字会更挤。但那一档是**目测定的，
-     * 没有可引的规范**（Apple HIG 的中文排版页需要 JS 才能读，Ant Design / Arco / TDesign
-     * 三家的排版规范页当时都没取到正文），而目测的事以维护者的眼睛为准——实际比对下来
-     * macOS 那档更好看，于是收回加档。
-     *
-     * 行高与字距不跟着回退：汉字没有升降部来制造行间空隙，1.35 在中文里贴得明显；
-     * 字距收紧同理，那两条不是密度偏好而是中文的硬约束，见下面两行。
+     * 行高与字距同样按汉字定：汉字没有升降部来制造行间空隙，1.35 在中文里贴得明显；字距收紧同理，见下面两行。
      */
-    --text-2xs: 10px;
-    --text-xs: 11px;
-    --text-sm: 13px;
-    --text-md: 13px;
-    --text-lg: 15px;
-    --text-xl: 19px;
+    --text-2xs: 11px;
+    --text-xs: 12px;
+    --text-sm: 14px;
+    --text-md: 14px;
+    --text-lg: 16px;
+    --text-xl: 20px;
     --leading-tight: 1.3;
     /* 汉字没有升降部来制造行间空隙，同样的 1.35 在中文里会贴得多 */
     --leading-ui: 1.5;
     --tracking-ui: 0;
 
     /* ---- 几何 ------------------------------------------------------------ */
-    /* 与字号同档回到 macOS 的控件高度；行高仍是 1.5，所以 13px 的汉字在 32px 控件里不顶边 */
-    --control-h-sm: 26px;
-    --control-h-md: 32px;
-    --control-h-lg: 40px;
+    /* 字号大一档，控件跟着长高，否则 14px、行高 1.5 的汉字会顶到控件的上下边 */
+    --control-h-sm: 28px;
+    --control-h-md: 34px;
+    --control-h-lg: 42px;
+    --menu-item-h: 30px;
     --control-px: 14px;
     --panel-p: 16px;
     --stack-gap: 16px;
@@ -94,8 +89,9 @@
     --radius-control: 10px;
     --radius-control-lg: var(--radius-pill);
     --radius-panel: 20px;
-    /* 菜单与触发它的按钮（控件圆角的 0.75，约 7.5px）是一对：12px 时浮层比按钮圆一大圈，看着不是一家（t79 第五轮稿选了 8px） */
-    --radius-menu: 8px;
+    /* 外框 10px、内边距 4px，推出列表项 10 − 1 − 4 = 5px（w00029 t04 决定 3）。 */
+    --radius-menu: 10px;
+    --menu-pad: 4px;
     --radius-pill: 999px;
     /*
      * 对话框比菜单大一个数量级，圆角单列一档。26px 是 Apple 官方 macOS 27 UI Kit 里
@@ -103,6 +99,16 @@
      * 不并进 --radius-panel：26px 画在 170px 宽的下拉上会把首尾两项吃掉。
      */
     --radius-dialog: 26px;
+    /*
+     * 小确认框（AlertDialog）与浮动窗口同一档：它叠在窗口上（例如设置窗口里的“放弃改动”），圆角不该大于底下的窗口；
+     * 26px 画在 360–420px 宽的小框上也像胶囊，不像对话框。
+     */
+    --radius-dialog-compact: var(--radius-window);
+    /*
+     * 浮动窗口（例如设置窗口）取工作台卡片的圆角（12px）：它常开、占大半个屏幕，和外壳的部件卡片是同一类面，圆角
+     * 统一成一档。26px、14px 画在上面都太圆（开发者 2026-10-23 定，w00027 t10）。
+     */
+    --radius-window: var(--shell-card-radius);
     /*
      * 这里曾经有 `--corner-shape: squircle`（Apple 的角是超椭圆，同一份官方文件把它记作
      * 「Smooth / Apple (60%)」）。撤掉了：Chromium 的 backdrop-filter 不跟随 corner-shape
@@ -204,7 +210,7 @@
      */
     --sidebar-surface: color-mix(in srgb, var(--bg-sidebar) 26%, transparent);
     --toolbar-surface: color-mix(in srgb, var(--bg-sidebar) 30%, transparent);
-    /* 浮层 Surface 黄金标准（FormSelect 调优规范）：
+    /* 浮层 Surface 黄金标准（Select 调优规范）：
        必须提供一层半透明温润白底（65% --bg-panel）压住对比并保证文字可读性，
        搭配 8px 高斯模糊 + 130% 饱和度滤波与 4 阶立体柔影，杜绝过薄透明导致的透光干扰与眩光。 */
     --overlay-surface: color-mix(in srgb, var(--bg-panel) 65%, transparent);
@@ -311,6 +317,8 @@
     /* 卡片里容器分栏之间的线：两端各缩进 10px 的开放式分割线，与活动栏、侧栏之间那条短线同一种。 */
     --shell-pane-divider: var(--divider);
     --shell-pane-divider-inset: 10px;
+    /* 编辑器标签条：比正文面低一档（往正文字色混 7%，t03 第三轮稿取中档）。 */
+    --editor-tabs-surface: color-mix(in srgb, var(--panel-surface) 93%, var(--text-main));
     /*
      * 拖动边界的悬停线（t83 第三轮稿 R3-1）：沿用缺省的 3px 强调色实线、不发光，自由端缩进 16px（缝加卡片圆角），
      * 正好不碰卡片的圆角，碰到另一条亮着的线的一端照旧连着。落点高亮比缺省深：卡片底色偏暖，12% 看不清。

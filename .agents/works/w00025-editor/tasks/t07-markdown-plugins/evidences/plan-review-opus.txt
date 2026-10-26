@@ -1,0 +1,202 @@
+# w00025 t07 实施计划审查（Opus）
+
+审查对象：`.agents/works/w00025-editor/tasks/t07-markdown-plugins/plan.md`（提交 `b63914f61`）。实验脚本在审查 worktree 的 `packages/neuro-book/zz-review-lab/opus/`。
+
+### 1. 激活时等“全部已接受声明的实现交付”会让 `nbook.markdown` 的浏览器入口永远激活不完：内置方言是它投给自己的贡献
+
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：plan.md 第 4 节“语言随贡献变化”第一条；第 2 节“内置方言……与第三方同一条路（同 `editor.editors` 的内置编辑器）”
+- **现象**：计划要求激活时先等全部已接受的 `markdown.syntaxes` 实现交付或失败，再组成第一份语言；内置的七种方言又由 `nbook.markdown` 自己的浏览器入口贡献。接收者只能从激活产出里交出（`ActivationOutput.receivers`，`runtime/plugins.md` 输出 16：产出核对通过后才接上接收者、再补交），所以入口自己的贡献要等它的 `activate()` 返回之后才交付；在 `activate()` 里等它们就是自己等自己。
+- **为什么是问题**：`nbook.markdown` 激活不完，依赖 `markdownKey` 的编辑器入口（`onStartup`）跟着卡在依赖解析上，整个编辑器区与工作台起不来；内核看不到这条等待边，不报 `dependency-cycle`，只是挂住。
+- **如何核实**：`zz-review-lab/opus/self-wait.ts`，用真实 `createPluginHost`：入口接收自己的点并投一条贡献，`activate()` 里等 `published` 回调。`bun zz-review-lab/opus/self-wait.ts nowait` 得到 `activated` 与 `[prepare:callout, published:callout]`；`bun zz-review-lab/opus/self-wait.ts wait` 2 秒超时，`prepare` 都没调用。
+- **参照**：计划自己引的 `editor.editors` 正是反例：`editor-registry.ts` 文件头写明“内置的 Markdown 与源码编辑器也声明在这个贡献点上，但组件由编辑器区直接持有（`builtins`）：编辑器区在激活时就建好……早于它自己的交付”，`EditorRegistry.state()` 对内置 id 直接返回组件，不看交付。
+- **建议改法**：内置方言的语法模块由 `nbook.markdown` 直接持有（同 `BUILTIN_COMPONENTS`），只把声明投到点上供目录、字数与诊断使用；第一份语言在 `activate()` 里同步用内置模块组成，服务交出时 `language` 已经可用。外来方言交付后再换语言（第 4 节第二条的路径）。计划第 2 节“与第三方同一条路”的说法要改成“声明同路、实现直接持有”。
+
+### 2. 等别的插件交付实现没有终点：懒激活、受阻的贡献方会让第一份语言永远组不成
+
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：plan.md 第 4 节第一条“激活时等全部已接受声明的实现交付或失败（复用 `LanguageRegistry` 的等待与撤回写法）”
+- **现象**：`context.declarations.list()` 列出的是“插件已登记、校验通过”的声明，入口贡献在贡献方还没激活时就在列表里（`host.ts:278-294`，只看 `#isLive` 与 `#validation`，不看入口状态）。`LanguageRegistry.#load` 的等待只在 `published` 或 `revoke` 时 settle（`editor/web/code/languages.ts:129-136`），没有超时，也不看贡献方是否受阻。贡献方的入口不是 `onStartup`、受阻（缺依赖）、或依赖了 `nbook.editor` 提供的服务（编辑器又依赖 `markdownKey`）时，交付永远不来。
+- **为什么是问题**：照字面实现，任何一个方言插件的激活事件或依赖写法都能让所有 Markdown 界面起不来；第三种情况还是内核看不见的等待环（贡献不构成依赖，`runtime/plugins.md` 输出 18），不会报 `dependency-cycle`。`LanguageRegistry` 能这样等，是因为它按需等一门语言、等不到只影响那一个模型的着色；把同样的写法搬到“组成整份语言”的关口，影响面从一门语言变成全部 Markdown。
+- **如何核实**：读 `host.ts:278-294` 与 `languages.ts:129-136`；第 1 条的实验把贡献方换成另一个不激活的插件即可复现同样的挂起（激活事件不触发时 `published` 不会调用）。
+- **建议改法**：不在激活里等外来方言。第一份语言只用内置方言（第 1 条），外来方言每交付一个就换一次语言（第 4 节已有的路径）；语言对象带一个代次或“缺哪些已声明的方言”，使用方据此决定要不要提示。若确实要“先等一会儿再显示”，写成使用方的有限等待（例如编辑器打开 `.md` 时最多等某个可注入时长），并在 Spec 写明超时后的行为。计划要补“编辑器打开 `.md` 时某种方言还没交付，它的内容先按原样块显示，交付后重建”这一条行为与测试。
+
+### 3. “没有对应声明的实现、标签名重名，都按单条校验拒绝”做不到：校验函数看不到别的贡献，接收者否决又会拖垮整个贡献方
+
+- **严重程度**：重要；**类别**：不变量
+- **位置**：plan.md 第 2 节 `markdown.syntaxes` 一条最后一句；验收映射“第三方插件的方言贡献被拒、原因可查；没有声明的实现被拒；标签重名被拒”
+- **现象**：`ContributionPointDefinition.validate(descriptor)` 只收到这一条声明（`nb-runtime/src/plugins/contracts.ts:50-54`），`runtime/plugins.md` 输出 23 明文规定“查不到别的贡献：一条声明是否被接受……不随别的贡献点上的登记与撤销变化”，`host.ts` 的 `#validation` 也只判同点同 id 重复。所以“`markdown.syntaxes` 的 id 在 `markdown.dialects` 上有没有声明”“两条方言的 `blockTags` 是否重名”都不能在单条校验里判。剩下的通道是接收者 `prepare` 抛错，但它的语义是事务失败：贡献方后激活时整个贡献方入口激活失败（输出 24），补交时这一批（贡献方这一代的全部项）交付失败，都不是“只拒这一条”，状态里也不是 `invalid-declaration`。
+- **为什么是问题**：计划的拒绝原因与可查询方式（`invalid-declaration`、原因写明）照字面无法实现；改用 `prepare` 否决会让一个同时贡献命令、视图的插件因为方言标签撞名整个起不来，违背输出 15 “只有被拒绝的那一条不生效”。另外重名在哪一条上算“后来的”取决于登记与激活顺序，和输出 15、17 要求的“与登记顺序无关”冲突。
+- **如何核实**：读 `contracts.ts:44-55`、`host.ts:838-862`、`docs/specs/runtime/plugins.md` 输出 23、24。
+- **建议改法**：分成三类写清楚。（1）能单条判的放 `validate`：内置前缀、声明形状、`markdown.syntaxes` 的 id 必须以贡献方插件 id 开头（仓库里 `editor/shared/contracts.ts:106`、`workbench/shared/views.ts:83` 的同一写法），这样同 id 配对天然限定在同一插件内。（2）配对缺失与撞名不算“拒绝”，由 `nbook.markdown` 在组成语言时按确定的规则（例如按方言 id 的码元顺序，两条都撞名时两条都不进语言，同 `duplicate-contribution` 的“全部重复者都拒绝”）排除并记诊断，Spec 里叫“不生效”而不是 `invalid-declaration`。（3）验收映射里这几条改成“不进语言、诊断可查、其它方言与贡献方其它贡献照常”。
+
+### 4. 换语言时只看挂着的那个编辑器：别的标签、别的组存着的写不出或未裁决输入会在重新进入时被静默丢掉
+
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：plan.md 第 4 节“使用方怎么换”`MarkdownControl` 一条；验收映射“编辑器有未交出的输入时语言变了不重建……”
+- **现象**：编辑状态按“文档 × 组”存在绑定的槽里（`MarkdownControl.vue:29-40` 的 `MarkdownViewState`，含撤销历史与 `held`），编辑器实例存在组的实例槽里（`KeptEditor`，`MarkdownControl.vue:128-141`），控件组件只为每组的活动标签挂着。切走一个写不出的标签时 `leave` → `commitNow` 失败 → `view.held = true`，状态留在槽里（输出 61：视图保留自己的内容）。换语言后新编辑器的 schema 不同，`enter` 判 `view.state.schema !== editor.schema` 为 `fresh`，走 `load(binding)` 按文档正文重建，`held` 置回 `false`（`MarkdownControl.vue:160-176`）。
+- **为什么是问题**：计划的“有写不出的输入时先不换”只能由挂着的那个控件判断，看不到同组的非活动标签、别的组、隐藏的组。照字面实现：用户在 A 标签写不出、切到 B 标签，此时方言交付 → B 的编辑器重建 → 回到 A，A 的输入没了，文档上的“写不出”标记还在（`binding.block` 记在文档上，`load` 不解除），与输出 61 “只有这个视图自己的一次输入写得出并交了出去才解除它”冲突，也违背方言 Spec “停用不会损坏文件”背后的“不丢输入”。另外隐藏组的 `KeptEditor` 仍是旧 schema，组重新显示时组件直接复用（`kept !== null` 分支），计划没写这里要核对语言。
+- **如何核实**：读 `MarkdownControl.vue:29-40`、`128-141`、`160-176`、`196-210`；`docs/specs/workbench/editor.md` 输出 61。实验可以在 `MarkdownControl.dom.test.ts` 的现有搭法里：两份文档同组，A 写一段写不出的内容后切到 B，换 `codecFor` 用的语言对象，再切回 A，看正文与 `held`。
+- **建议改法**：换语言的决定放在编辑器区（它拥有全部槽），不放在控件里：语言变了先把“这个语言下有 `held` 或未裁决输入的视图”列出来，这些视图保留旧语言（旧 schema 的 `EditorState` 与旧编解码器可以继续写出，`codecFor` 按 schema 缓存，本来就支持并存），直到它们自己的输入交出或用户“采用当前正文”后再按新语言重建；其余视图在下次 `enter` 时重建。组的 `KeptEditor` 记下建它时的语言对象，挂载时不同就重建。验收补两例：非活动标签写不出时换语言、隐藏组在换语言后重新显示。
+
+### 5. “光标按源码偏移恢复”没有现成的换算，现有记法是文档位置
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan.md 第 4 节 `MarkdownControl` 一条“光标按源码偏移恢复”
+- **现象**：编解码器的 `SourceMap` 只记“顶层节点 → 所属原文块”与块间间隔（`codec/read.ts:24-70`），没有字符级的源码偏移；`codec.ts` 的 `MarkdownCodec` 只有 `read`、`write`、`reload`。控件现在记光标用的是 ProseMirror 文档位置（`rememberCursor` 记 `{offset: editor.state.selection.head}`，`MarkdownControl.vue:180-186`；`editor.md` 输出 30 “Markdown 富文本记文档里的位置”），`load` 也按文档位置放回。
+- **为什么是问题**：换语言后同一段原文读出的节点结构变了（例如 `<kbd>` 从原样片段变成一个方言节点，或反过来），旧文档位置在新文档里指向别处；而计划说的“源码偏移”需要一个“文档位置 → 源码偏移 → 新文档位置”的换算，这份换算在行内要穿过标记、方言标签与转义，现在完全没有，计划也没列成工作项，S3 的估量会偏小。
+- **如何核实**：`grep -n 'offset' packages/neuro-book/src/plugins/editor/web/markdown/codec/*.ts` 只有分词用的偏移，没有位置换算；读 `read.ts:24-70`。
+- **建议改法**：不做字符级源码偏移。换语言前后原文不变、顶层块的切分大多不变：记“第几个顶层块 + 块内 `textBetween` 的字符数”，重建后按同一顶层块序号与字符数放回，块数变了夹到最近的块。Spec 里写成“光标尽量留在原来的那一块里”，而不是承诺源码偏移；验收里加一例：光标在 `<kbd>` 之后，停用测试方言后仍在同一段。
+
+### 6. 测试方言插件 `test.markdown-dialect` 会被“只接受内置插件”的前缀判断拒掉，三条热插拔验收无法通过
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：plan.md 第 2 节“开放范围”与“测试插件”两条；验收映射第 2 行 `markdown/syntaxes.test.ts`
+- **现象**：计划在 `validate` 里按插件 id 前缀判断内置（仓库里内置的判据是 `descriptor.plugin.startsWith("nbook.")`，见 `editor/shared/contracts.ts:106`、`workbench/shared/views.ts:83`；`runtime/plugin-manifest.md` 术语一节“内置插件的 id 以 `nbook.` 开头”），第三方的贡献为 `invalid-declaration`。测试插件的 id 是 `test.markdown-dialect`，不以 `nbook.` 开头，它的两条贡献都会被拒，“加入、停用、重新启用”三件事都证明不了。
+- **为什么是问题**：要让测试过，只能把测试插件起名成 `nbook.*`（测试代码占用内置命名空间，与 `commands/shared/registry.ts:117-131` 的命名规则冲突），或在校验里给测试开口子（禁止清单里的“产品代码里加测试专用分支”）。两条都是照字面实现后才会发现的返工。
+- **如何核实**：读计划第 2 节两条并对照 `editor/shared/contracts.ts:106` 的前缀写法。
+- **建议改法**：照仓库已有的“第一版只给内置插件”的写法：`src/manifest.ts:33-37` 的 `delegatingPlugins` 是宿主给内核的允许清单，不是前缀判断。方言贡献点的允许范围也做成 `nbook.markdown` 的装配参数（产品清单给内置插件 id 集合或“`nbook.` 前缀”规则，测试宿主另给一份含测试插件的），`validate` 由这个参数生成。前缀判断本身在第一版可靠的前提是没有第三方插件能装进来（`plugin-manifest.md` 与 `plugin-install.md` 都还是 planned，“第三方 id 不得以 `nbook.` 开头”目前没有任何代码强制），Spec 里写明这条前提。
+
+（第 6 条更正：其中“与 `commands/shared/registry.ts:117-131` 的命名规则冲突”说得不准，那是命令 id 的规则，不约束插件 id；起名 `nbook.*` 的问题只在“测试代码占用内置命名空间、生产与测试共用同一判据就分不出测试插件”。结论与改法不变。）
+
+### 7. `words: {tag, content}` 表达不了字数扫描里现有的方言规则，“方言相关的判断改为查声明表”做不完整
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan.md 第 2 节 `words` 字段；第 3 节“现在的两遍扫描不变，方言相关的判断改为查声明表”
+- **现象**：`src/shared/word-count.ts` 里与方言有关的判断不全是“某标签中间的字计不计”：提示块的 `[!NOTE]` 类型标记按行首正则 `CALLOUT` 去掉（第 59 行、第 196-205 行），它不是标签；可渲染 HTML 只认不带属性的 `<html>` 开闭行，还有宽容写法 `正文<html>`（`EMBED_OPEN`、`EMBED_GLUED`、`EMBED_CLOSE`，第 51-54 行、第 144-155 行），是按行配对、跨空行的整块，而不是 `tagAt` 那种行内配对；块级方言标签还决定 `htmlBlockEnd` 里一行标签算不算原样 HTML 块（第 281 行）。按计划的声明形状，`callout` 与 `html` 两种方言的字数规则写不进声明，只能继续写死在扫描里。
+- **为什么是问题**：停用提示块方言后，编辑器把 `> [!NOTE]` 读成普通引用，`[!NOTE]` 是正文，字数扫描却仍按写死的规则去掉它，两边不一致；计划第 3 节“没有声明的标签按普通 HTML 处理”的承诺对这两种方言不成立。以后的方言若有非标签写法（例如 `==高亮==`），声明表根本放不下。验收只测了 `<kbd>` 这种最简单的标签方言，测不出来。
+- **如何核实**：`grep -n 'CALLOUT\|EMBED_' packages/neuro-book/src/shared/word-count.ts`。
+- **建议改法**：二选一并写进 Spec。（1）承认字数只按标签类方言可插拔：声明里的 `words` 只覆盖“标签名 + 内容计不计”，提示块与可渲染 HTML 的字数规则是核心扫描的一部分，不随方言停用变化，Spec 的“已知偏差”加一句。（2）字数规则也由实现给（例如方言实现交一个 `strip(line)` 之类的扫描钩子），那项目进程就得能加载实现，`markdown.dialects` 顶层声明的分法要重新考虑。第一版建议（1），并把 `words` 改名为更窄的 `tagWords` 之类，免得读者以为它能描述任意方言。
+
+### 8. 字数“按生效的方言声明”与语言“实现加载失败当作不存在”是两套口径；方言集合变了书架统计不重算
+
+- **严重程度**：重要；**类别**：不变量
+- **位置**：plan.md 第 3 节“声明表由服务按生效的 `markdown.dialects` 组成，浏览器与项目进程各一份，内容相同”；第 4 节“实现加载失败的方言当作不存在”；验收映射“停用后……字数按原样不计”
+- **现象**：（1）浏览器里一种方言的实现加载失败时，语言把它的内容读成原样块，字数却仍按声明把它当方言计；项目进程没有实现可加载，只能按声明。编辑器状态栏与编辑器读出的正文不一致，方言 Spec 的“字数与编辑器读出的正文逐块对照”的一致性在这种情况下不成立，计划没说按哪边。（2）“两边内容相同”只在插件集合固定时成立：顶层声明由 `src/manifest.ts:51-56` 在各实例登记时注入，之后不变；运行期停用、启用（`runtime/plugin-hot-plug.md`，status planned）没有实现，所以验收里的“停用、重新启用”只能在单个内核宿主里做，跨进程的那一半测不到。（3）书架统计按文件缓存字数（`stats-tracker.ts:88` 的 `words` Map），只在文件变更时重读；“今天的基线”从记录里接着算（`openingToday(initial, …)`）。方言集合一变（以后的热插拔，或升级后多了一种内置方言），已缓存的字数不重算，今天写了多少会凭空跳一下。
+- **为什么是问题**：计划把“字数随方言集合变化”写成了一条行为，却没有给出变化时两边怎么同步、缓存怎么作废，Spec 照这样写会承诺一件第一版做不到的事。
+- **如何核实**：读 `stats-tracker.ts:83-130`、`manifest.ts:43-57`；`plugin-hot-plug.md` 头部 `status: planned`。
+- **建议改法**：Spec 写明第一版的口径：字数只按已接受的声明，与实现能否加载无关（加载失败另记诊断，不改字数）；方言集合在一个进程的寿命内固定，运行期变化归 `runtime.plugin-hot-plug`，并在那份 Spec 的待办里登记“方言集合变化时书架统计整轮重扫、今天的基线按新口径重定”。验收的“停用后字数”一条限定为单实例内核测试。
+
+### 9. 服务同步交出 `language` 与组件，会把 Tiptap、`marked` 与 Composer 拉进首屏
+
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：plan.md 第 1 节“服务 `markdownKey`（浏览器）”三项；第 4 节“激活时……再组成第一份语言”
+- **现象**：浏览器插件定义在 `src/web/plugins.ts` 里静态 import（`editorBrowserPlugin` 等）。编辑器现在刻意让首屏不含 Tiptap：`editor/web/plugin.ts:49-56` 的注释与 `defineAsyncComponent(() => import("./components/MarkdownControl.vue"))`，`editor/web/*.ts` 里没有一处静态引 `@tiptap` 或 `marked`。语法模块（13 个文件）都直接引 `@tiptap/*` 与 `marked`。计划让 `nbook.markdown` 在激活时组成第一份语言、服务里同步交出 `language: ShallowRef<MarkdownLanguage>` 与 `MarkdownDisplay`、`PromptEditor` 等组件，`nbook.markdown/web/plugin.ts` 就要静态引语法模块与组件，它们随插件定义进首屏包。
+- **为什么是问题**：首屏多出 Tiptap、ProseMirror、`marked` 与约 5500 行的 Composer，违背编辑器现有的“第一次挂上控件时才加载”的取舍；计划的验证里没有一项会发现这件事（单测与 Lab 截图都看不出包体）。
+- **如何核实**：`grep -rln '@tiptap\|from "marked"' packages/neuro-book/src/plugins/editor/web/markdown/syntax | wc -l` 得 13；`grep -rn '@tiptap\|"marked"' packages/neuro-book/src/plugins/editor/web/*.ts` 为空；读 `src/web/plugins.ts` 的静态 import。
+- **建议改法**：服务交出异步入口：`language(): Promise<MarkdownLanguage>` 加一个“语言换了”的订阅（或 `ShallowRef<MarkdownLanguage | null>`，`null` 表示还没加载），内置语法模块在第一次被要时动态 import；组件一律 `defineAsyncComponent` 包一层再交出。S1 的“行为不变”里加一条可检查的判据：构建产物里首屏 chunk 不含 `@tiptap/core`（例如对 `vite build` 的 manifest 做一次断言，或沿用仓库已有的首屏检查方式）。
+
+### 10. 挪动清单与服务面不配套：`inline-code-shortcut` 挪走后编辑器拿不到，`markdown-editor-extensions.ts` 没有归属
+
+- **严重程度**：重要；**类别**：代码质量
+- **位置**：plan.md 第 1 节“挪动”与“服务 `markdownKey`”
+- **现象**：`MarkdownControl.vue` 现在的运行时导入有三个（第 13、16、17 行）：`codecFor`、`createMarkdownEditorExtensions`、`markdownLanguage`；类型导入两个（`MarkdownCodec`、`SourceMap`）。`createMarkdownEditorExtensions`（`web/markdown/markdown-editor-extensions.ts`）= 语言的全部扩展 + `Placeholder` + `MarkdownInlineCodeShortcut`。计划把 `inline-code-shortcut.ts` 挪进 `nbook.markdown`，却没提 `markdown-editor-extensions.ts`；服务只给 `language` 与 `codecFor`，没有行内代码快捷输入。
+- **为什么是问题**：`markdown-editor-extensions.ts` 若留在编辑器，它对 `./syntax`、`./inline-code-shortcut` 的引用变成跨插件运行时导入，`src/architecture.test.ts` 的“跨插件的运行时导入只能指向对方的 shared/contracts.ts”失败；若跟着挪走，编辑器又没有服务能拿到它。S1 “只挪不改、测试原样通过”在这一步就过不去，要临时改服务形状。类型导入（`MarkdownCodec`、`SourceMap`、`MarkdownLanguage`）按 `architecture.test.ts` 允许 `import type`，没有问题。
+- **如何核实**：`grep -n 'import' packages/neuro-book/src/plugins/editor/web/components/MarkdownControl.vue | sed -n 1,20p`；读 `markdown-editor-extensions.ts` 全文 15 行；`architecture.test.ts` 第 77-97 行的规则。
+- **建议改法**：在计划里列出服务的完整形状，并按“编辑器界面层的东西归编辑器、方言的东西归 Markdown”划线：`inline-code-shortcut.ts` 与 `Placeholder` 是编辑器界面层（`markdown-editor-extensions.ts` 的文件头就是这么写的），留在编辑器插件，`markdown-editor-extensions.ts` 改为接收 `language.extensions` 参数；`nbook.markdown` 只交语言与编解码器。
+
+### 11. `staticView(node) → HTMLElement` 的形状不够：提示块要 `contentDOM`，`<html>` 块要释放，两者都要宿主给的参数
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan.md 第 6 节“渲染”与“交互”；第 2 节“`MarkdownSyntax` 即现在 `syntax/types.ts` 的形状，另加第 6 节的静态视图”；风险“两者由同一个函数生成”
+- **现象**：（1）提示块的节点视图有可编辑的子块，返回 `{dom, contentDOM}`（`syntax/callout/index.ts:137-197`），子块由 ProseMirror 填进 `contentDOM`；只交出一个 `HTMLElement` 时，`DOMSerializer` 不知道子块往哪里放。（2）`<html>` 块的节点视图点“渲染”后挂 iframe 并在 `window` 上登记 `message` 监听，靠节点视图的 `destroy` 解除（`syntax/html-embed/index.ts:94-133`、`226-260`）；静态视图没有释放钩子，展示器流式替换块、长对话卸载消息时监听与它闭包里的 iframe 都留着。（3）`<html>` 块的按钮文字与数据接口来自扩展的 `options`（`resolveLabels`、`resolveDataApi`，第 15-29 行），提示块的折叠来自编辑器的插件状态与一次 `dispatch`（`foldPlugin`、`toggleFold`）；静态视图只收 `node`，拿不到这些。（4）批注没有节点视图，只有 `renderHTML`（`comment/index.ts:124`、`170`），计划把它列进“有节点视图的节点”不准确，它本来就走 `DOMSerializer`。
+- **为什么是问题**：照计划的签名实现，提示块的内容在展示器里丢失或位置不对，`<html>` 块在长对话里漏监听；为了补参数又会在 S5 回头改 S2 定下的 `MarkdownSyntax` 合同。
+- **如何核实**：读上面三处代码；`prosemirror-model` 的 `DOMSerializer` 节点函数本身就允许返回 `{dom, contentDOM}`（`DOMOutputSpec`）。
+- **建议改法**：静态视图定为 `staticView(node, host) → {dom, contentDOM?, destroy?}`，`host` 给文字表、`activate` 出口、`resolveAsset` 与折叠状态的读写；节点视图与静态视图共用的是“按节点与折叠状态画 DOM”的那一层，事件接线各自写。`MarkdownDisplay` 替换或卸载块时逐个调用 `destroy`，验收加一例“流式替换掉渲染中的 `<html>` 块后 `window` 上不再有它的监听”（可用 `addEventListener` 计数的替身窗口，或在 happy-dom 里数监听）。
+
+### 12. Composer 的引用写法用的是旧应用的地址方案，与新应用“作品里文件”的地址规则不是同一种，“共用引用的识别”没有落点
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan.md 第 7 节“与方言的关系”（“与编辑器共用的是 `InlineChip` 与引用 `[名称](目标)` 的识别”“服务端认的也是这套写法”）；第 5 节 `InlineChip`“引用按目标类型取图标与色调”
+- **现象**：旧 `prompt-text.ts` 认引用靠 `plain-reference-text.ts` 的 `tokenizePlainReferenceText`，后者用 `nbook/shared/reference-core.ts` 的 `parseReferenceUri`：`/^([a-z]+):\/\/(.+)$/i`，种类限定为 `chapter`、`volume`、`lorebook`、`thread`、`scene`；旧 `reference-chip.ts` 的图标与色调也按这五种取（`getReferenceChipMeta`）。旧测试里的目标是 `chapter://c1`、`local://草图.png` 这一类（`prompt-text.test.ts` 里 `](chapter://c1)` 出现 6 次）。新应用的方言 Spec 输出 18 规定作品里的文件写相对当前文件的地址或以 `/` 开头的作品根地址，“`@` 引用插入的也是这种普通链接”。Composer 没有“当前文件”，相对地址无从解析；新应用也没有 `chapter://` 这种按 id 寻址的方案，也没有能认这套写法的“服务端”（Agent 插件还不存在）。
+- **为什么是问题**：“保留旧写法”与“与编辑器共用引用的识别”在目标地址这一层互相矛盾：要么 Composer 的引用继续写 `chapter://`（新应用里没有东西能解析它，小块的图标与色调也只能落到兜底），要么改成作品根地址（文字写法变了，旧测试的期望值要改，不是“只换依赖”）。这是改变产品结果的决定，计划没有列出来交开发者。
+- **如何核实**：`git show 865c9f593:packages/neuro-book/shared/reference-core.ts | sed -n 76,110p`；`git show 865c9f593:packages/neuro-book/app/components/common/form/prompt-editor/prompt-text.test.ts | grep -o '](\([^)]*\))' | sort | uniq -c`；`docs/specs/workspace/markdown-dialect.md` 输出 18。
+- **建议改法**：S0 之前请开发者定 Composer 里引用目标的写法。推荐：Composer 的 `@` 插入以 `/` 开头的作品根地址（输出 18 已经定义了它的解析，不依赖当前文件），`InlineChip` 的类型判断改为“按地址的扩展名与是否在作品里”取 `src/ui/file-icons` 的图标；旧的五种种类与 `local://` 不迁。计划第 7 节随之改写“替换旧依赖”为“改写引用识别”，并把 `prompt-text.test.ts` 里的目标改成新写法（这是有意改变的期望，不算放宽断言）。
+
+### 13. Composer 移植的依赖清单漏了几项，“原有测试先通过”照字面做不到
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：plan.md 第 7 节“移植”“替换旧依赖”；风险“移植后先让原有测试通过”；验收映射最后一行
+- **现象**：
+  - `@tiptap/vue-3`：旧 `PromptEditor.vue` 用它的 `Editor`、`EditorContent`，`PromptPasteBlockView.vue`、`PromptTokenView.vue` 用 `NodeViewWrapper`、`nodeViewProps`，`prompt-editor-extensions.ts` 用 `VueNodeViewRenderer`。新应用 `packages/neuro-book/package.json` 没有声明它（只有 `@tiptap/core`、`pm`、`starter-kit` 等），现在能 import 只是因为旧包把它装进了根 `node_modules`。
+  - `agent-image-markdown.ts`（`prompt-text.ts` 用它的 `serializeAgentImageMarkdown`）依赖 `mdast-util-from-markdown`、`mdast-util-to-markdown` 与 `nbook/shared/dto/agent-attachment.dto`；`plain-reference-text.ts`（470 行）依赖 `reference-core.ts`（`zod`）。新应用的 `package.json` 里没有 `mdast`。计划写的是“挪进 `prompt/` 几个函数”，这条传递依赖链没算进去（另见第 12 条）。
+  - 旧测试：`PromptEditor.test.ts`、`PromptTextView.test.ts` 挂 `.vue`，并用 `createI18n` 装旧应用的 `nbook/app/i18n/locales/*`；新应用里 `bun test` 不能加载 `.vue`（`bunfig.toml` 只排除 `*.dom.test.ts`），组件测试必须命名为 `*.dom.test.ts` 才会由 Vitest 跑（`vitest.config.ts` 的 `include`）。`prompt-editor-extensions.test.ts` 直接 `new Editor` 也要 DOM。
+- **为什么是问题**：按计划的文件名放过去，`bun test` 先失败；改名、换掉 i18n 装配、改引用目标（第 12 条）之后，“原有测试原样通过”已经不是“原样”，需要在计划里写明哪些改动是允许的，否则实施者要么卡住，要么自行放宽。漏声明的依赖在旧包退役、根 `node_modules` 不再带它时才炸。
+- **如何核实**：`git show 865c9f593:packages/neuro-book/app/components/common/form/prompt-editor/prompt-editor-extensions.ts | grep vue-3`；`grep -n 'tiptap\|mdast' packages/neuro-book/package.json`；读 `packages/neuro-book/bunfig.toml`、`vitest.config.ts`。
+- **建议改法**：S6 的任务说明里列出：给 `packages/neuro-book` 声明 `@tiptap/vue-3`（版本与其它 `@tiptap/*` 一致的 3.27.3）；图片写法用本应用已有的 `marked` 或手写的小解析代替 `mdast`，不引新依赖；测试改名为 `*.dom.test.ts`，i18n 改为传 `locale` 与本应用的文字表；“原样通过”改成“断言的期望值不变，只改装配与第 12 条定下的目标写法”。
+
+### 14. 链接的标记视图会被批注拆成几段：一个链接显示成几个引用小块
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：plan.md 第 5 节“编辑器里：指向作品里文件的链接用标记视图（`addMarkView`）套上引用小块的外框与图标”
+- **现象**：schema 里标记的先后是 `comment,link,markdownTextColor,…,bold,…`（批注 `priority: 1100`，有意放在最外层，`comment/index.ts:104`）。批注只盖住链接文字的一部分时，ProseMirror 按标记顺序把外层的批注先分组，链接被切成两个 DOM 元素。标记视图按 DOM 元素建，就是两个小块、两个图标。
+- **为什么是问题**：批注跨在链接上是写作里的常见操作（选一句话加意见，句中正好有一个人物链接）；小块外框与图标重复出现，看起来像两条引用，点击目标也被拆开。计划的验收没有这种组合。
+- **如何核实**：`bun zz-review-lab/opus/link-split2.ts`（真实的 `markdownLanguage()` schema 与 `DOMSerializer`）：链接全长、批注只盖第一个字，输出 `<a> 个数 2`，结构是 `<comment><a>林</a></comment><a>雪的设定</a>`。编辑器视图的标记分组规则与 `DOMSerializer` 相同。
+- **建议改法**：小块的外框不放在标记视图上，改用装饰：一个插件按“同一个链接标记的连续范围”算出起止，起点放一个图标小部件（`Decoration.widget`），整段加 `Decoration.inline` 的类名画外框；被批注拆开时用 `box-decoration-break: clone` 或首尾类名只在两端画圆角。展示器侧同样按连续范围处理。验收加“批注盖住链接一半时仍是一个小块”。
+
+### 15. 验收映射里“换语言”的两条测试在真实运行时里没有触发手段
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：plan.md 验收映射第 2、4 行（`markdown/syntaxes.test.ts`“真实插件宿主，热插拔”；`editor-area.e2e.ts` 一例）；切片 S3 “编辑器 e2e”
+- **现象**：（1）运行期停用、启用插件（`runtime/plugin-hot-plug.md`）是 planned，应用里没有入口；内核层面能做的是关掉测试插件的登记作用域、再在新作用域里登记，这只在单个内核宿主里成立，项目进程那一份声明表不跟着变（第 8 条）。（2）e2e 外壳能多装测试插件（`src/web/testing/e2e-main.ts`，按 `NBOOK_TEST_PLUGINS` 决定），但都是启动时装好的，“编辑器里有未交出的输入、此时语言变了”需要方言在输入之后才交付；计划没写用什么让它晚到（例如测试插件的方言入口用自己的激活前缀，经测试命令触发）。（3）仓库里的测试插件一律叫 `test.*`（`test.remote-probe`、`test.sample-views`、`test.menus`），按第 6 条会被“只接受内置”拒掉。（4）“展示器与编辑器逐节点比对结构与类名”：编辑器的 DOM 带 `contenteditable`、ProseMirror 自己的类名与占位元素（如 `ProseMirror-trailingBreak`），节点视图的标题行是 `contentEditable=false` 的界面元素，直接比对必然不等，要先定比对的归一化规则。
+- **为什么是问题**：照字面实现，S3 的 e2e 写不出来，或者只能绕过真实运行时（直接调内部函数换语言对象），与 `docs/testing/README.md` “依赖能用真的就用真的”冲突；第 4 条的数据丢失路径也就测不到。
+- **如何核实**：读 `src/web/testing/e2e-main.ts` 文件头、`plugin-hot-plug.md` 头部的 `status: planned`。
+- **建议改法**：验收里写明换语言的触发方式：测试方言插件的浏览器入口用自己拥有的激活前缀（`runtime/plugins.md` 输出 21），由同插件另一入口贡献的测试命令触发，这样“晚到的方言”在单测与 e2e 里都是真实交付；“停用”只在内核单测里做，Spec 写明第一版运行期不会停用。逐节点比对改为比对“去掉 `contenteditable`、`ProseMirror-*` 类名与占位元素后”的结构，或只比对方言节点的根元素类名与关键子元素。
+
+### 16. 第一版里“运行中换语言并重建编辑器”只服务测试插件，可以不做
+
+- **严重程度**：重要；**类别**：代码质量
+- **位置**：plan.md 第 4 节整节与切片 S3；风险“换语言要重建编辑器：撤销历史会丢”
+- **现象**：第一版只接受内置插件的方言（决定 5），而七种内置方言全由 `nbook.markdown` 自己贡献（第 2 节）。按第 1 条改成“内置方言直接持有”之后，第一版里会在运行中改变语言的只有两种情况：测试插件，以及以后的运行期停用、启用（planned）。也就是说 S3 的重建机制、第 4、5、15 条的数据丢失与光标换算风险，都是为一个第一版产品里不会发生的事件付出的。
+- **为什么是问题**：这是计划里风险最集中的一片（撤销历史丢失、写不出状态与重建交错、多组同步），却没有产品场景要它；照字面实现会引入一条第一版只有测试走得到的路径，且以后真正做热插拔时，停用流程本来就要按依赖逆序停止并卸载视图（`plugin-hot-plug.md` 输出 6），很可能要换一种做法。
+- **如何核实**：对照 Task README 决定 5 与计划第 2 节“内置方言”一条；`plugin-hot-plug.md` 的 `status: planned`。
+- **建议改法**：第一版的合同写成“语言在每个视图建立时取定”：已打开的编辑器、展示器继续用建立时的语言，之后新建的视图用新语言；方言晚到时编辑器顶部给一条“有新的方言，重新打开以生效”的提示（可选）。S3 缩成“新视图取最新语言”与它的测试，重建与光标换算留给热插拔的 Task。若开发者坚持要运行中重建，再按第 4、5 条的改法做。
+
+### 17. 字数服务与项目进程入口可以省掉：声明表在进程寿命内固定，纯函数加声明查询就够
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：plan.md 第 1 节“目录”的 `backend/`（“项目进程的入口，只提供字数服务”）与“服务 `markdownWordsKey`”；第 3 节
+- **现象**：顶层声明在每个实例登记时注入、之后不变（`manifest.ts:51-56`），任何入口都能经 `context.declarations.list(capability)` 查到已接受的声明（`host.ts:278-294` 不限查询方）。字数的输入只有“正文 + 声明表”。计划却为此给 `nbook.markdown` 加一个项目进程入口、一个跨插件服务，`nbook.projects` 的 `stats` 入口（`projects/project/plugin.ts:35`）与编辑器各多一条必需依赖。
+- **为什么是问题**：多一个入口就多一种失败方式：`nbook.markdown` 的项目入口受阻或激活失败时，书架统计整个入口受阻（`runtime/plugins.md` 输出 11），而它本来只是要一个纯函数。`countWords` 现在是同步纯函数，`stats-tracker.ts:215`、`338` 在读完文件后直接调用，经服务之后要在 `createStatsTracker` 的选项里注入，测试也要搭服务。
+- **如何核实**：读上述几处。
+- **建议改法**：`markdown/shared/contracts.ts` 导出 `MARKDOWN_DIALECTS_POINT`、声明类型、`dialectTable(declarations)` 与 `countWords(text, table)`（`architecture.test.ts` 允许跨插件运行时引用对方的 `shared/contracts.ts`，`commands/shared/contracts` 已经这样导出 `MenuItemRegistry` 这类值）；编辑器与书架统计在自己激活时算一次表、传给 `countWords`。`nbook.markdown` 只需要浏览器入口，`locations` 也不必含 `project`（顶层声明照样进项目实例，`manifest.ts:43-45`）。
+
+（第 17 条更正：最后一句“`locations` 也不必含 `project`”不对。`manifest.ts:51-53` 给没有该位置的插件生成的定义只带 `contributions`、不带 `contributionPoints`，项目实例里就没有人定义 `markdown.dialects`，声明是 `pending`/`unknown-point`，`declarations.list` 查不到。正确做法同 `nbook.settings`（`settings/shared/point.ts` 文件头）：`nbook.markdown` 的 `locations` 含 `project`，项目定义只写 `contributionPoints: [方言点]`、`entries: []`（`registration.ts:46-49` 允许只含贡献点的定义）。不需要项目入口与服务的结论不变。这一点也说明计划第 2 节要写明“方言点在浏览器与项目两个位置的定义里都要有”。）
+
+### 18. 标签名有两个真相源，`order` 相同时的先后没有定义
+
+- **严重程度**：建议；**类别**：不变量
+- **位置**：plan.md 第 2 节 `order`、`blockTags`、`inlineTags` 三项
+- **现象**：浏览器里方言标签名现在从语法模块收集：`createMarkdownLanguage` 用各模块的 `blockOpens` 键与 `inlineTags` 生成 `blockTags`、`inlineTags`，原样语法据此不抢方言标签（`editor/web/markdown/language.ts:64-69`）。计划又让声明各写一份 `blockTags`、`inlineTags` 给字数用。两份不一致时，编辑器按模块认、字数按声明认，现在由 `word-count.test.ts` 对照 `shared/markdown-dialect.ts` 与模块兜住，改成贡献之后，第三方（以后）与内置方言都没有地方核对。`order` 是数字，两条相同时 `marked` 的登记顺序取决于组成时的遍历顺序，计划没说按什么定。
+- **为什么是问题**：两份名单漂移是 `shared/markdown-dialect.ts` 文件头专门防的事（“编解码器从各语法模块收集的名单与这里不同时，字数的一致性测试失败”）；挪成贡献后这条保护消失。`order` 相同的先后不定，同一份文件在两个窗口里可能读得不一样。
+- **如何核实**：读 `language.ts:64-69`、`shared/markdown-dialect.ts:1-7`。
+- **建议改法**：组成语言时核对“模块交出的标签名 == 声明里的标签名”，不等就把这种方言当作加载失败（记诊断，按原样读），这样声明是唯一的真相源；`order` 相同按方言 id 的码元顺序。`word-count.test.ts` 的一致性对照改为对照声明表与组成后的语言。
+
+### 19. `resolveAsset(address) → Promise<string | null>` 没有释放：编辑器“按文件服务读字节”只能做成 blob URL，谁来 revoke 没有定
+
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：plan.md 第 5 节 `MarkdownImage` 一条（“编辑器用文件服务按地址读字节（与图片查看器同一条路）”）
+- **现象**：图片查看器的同一条路是读字节 → `URL.createObjectURL(blob)` → 换图或卸载时 `URL.revokeObjectURL`（`image-viewer/web/components/ImageViewer.vue:51`、`94-108`），寿命由组件自己管。计划的宿主接口只返回一个字符串，没有释放钩子，也没说同一地址在几处出现时是否共用、文件在磁盘上改了以后怎么失效。
+- **为什么是问题**：编辑器里节点视图会因撤销、重载、组切换反复建与销毁，长文档里同一张图出现多次；没有释放就是 blob 持续累积（每张图一份完整字节），有共享缓存而没有引用计数则会被一处 revoke 弄坏另一处。展示器的 100 条长对话同理。图片在磁盘上被替换后，旧 URL 继续显示旧图，计划也没覆盖。
+- **如何核实**：读 `ImageViewer.vue:40-110`。
+- **建议改法**：接口改成 `resolveAsset(address, signal) → Promise<{url, release()} | null>`，或由 `nbook.markdown` 提供一个按地址引用计数的缓存（最后一个使用者 `release` 时 revoke），订阅文件变更作废对应条目；`MarkdownImage` 在卸载与地址变化时释放。`MarkdownImage.md` 的外观合同里写上“读取中被卸载不留 URL”，验收加一条“同一图片两处显示、删掉一处，另一处仍可见；全部卸载后没有未释放的 URL”。
+
+## 未发现问题的方面
+
+- 顶层贡献投给 `implementation: "none"` 的点：机制存在。`src/manifest.ts:43-57` 把描述里的 `contributions` 注入每个位置的定义，内核按 `kind: "plugin"` 逐条补交给接收者（`runtime/plugins.md` 输出 16，`owner-contribution-points.test.ts` 场景 8），也能经 `context.declarations` 查询；`nbook.settings` 的 `settings.properties` 是同样的用法。前提是方言点在项目位置的定义里也要有（见第 17 条的更正）。
+- 浏览器入口的实现与顶层声明按同一 id 配对：两个点的 `duplicate-contribution` 只在同一点内判，不同点同 id 不冲突；配对本身要由接收者做（第 3 条）。
+- 按 `nbook.` 前缀判断内置与仓库现有做法一致（`editor/shared/contracts.ts:106` 等多处）；前提与测试问题见第 6 条。
+- `MarkdownControl` 的类型导入（`MarkdownCodec`、`SourceMap`）挪走后仍可 `import type`，`architecture.test.ts` 不拦；Lab 场景按 `labSceneMayImport` 可以运行时引用别的插件的 `web/`、`shared/`。
+- Tiptap 3.27.3 有 `addMarkView`（`@tiptap/core/dist/index.d.ts`），第 5 节依赖的 API 存在（问题在拆段，见第 14 条）。
+- 旧 Composer 用到的 nb-ui 组件（`IconButton`、`Kbd`、`Spinner`）与主题变量（`--text-main`、`--accent-main`、`--bg-panel` 等）在新应用的 `nb-ui` 与色彩合同里都有；外观移植这一层没发现缺口。
+- 测试栈兼容：新应用同样用 Vitest + `@vue/test-utils` + happy-dom（命名约束见第 13 条）。
+- 展示器选静态渲染、`content-visibility` 放在每条消息上，与性能证据的结论一致。
+
+## 数量
+
+共 19 条：阻断 3（第 1、2、4 条），重要 13（第 3、5、6、7、8、9、10、11、12、13、15、16、19 条），建议 3（第 14、17、18 条）。另有对第 6、17 条的两处更正。
+
+## 两项待确认取舍
+
+- **换语言时撤销历史丢失**：单看撤销历史可以接受，但它不是这项取舍里最大的代价，更大的是第 4 条的“非活动视图的写不出输入被静默丢弃”。第一版没有产品场景会在运行中换语言（第 16 条），建议不重建：已打开的视图沿用建立时的语言，撤销历史的问题随之消失；真要重建，必须先解决第 4 条。
+- **`MarkdownControl` 本轮不挪进 `nbook.markdown`**：同意。它依赖编辑器的控件合同（`TextEditorBinding`、组与文档的槽、写不出通道），挪过去会让 `nbook.markdown` 反过来依赖编辑器的合同；留在编辑器、经服务取语言是对的。附带条件是第 10 条：编辑器界面层的扩展（行内代码快捷输入、占位）也留在编辑器，不随编解码器挪走。

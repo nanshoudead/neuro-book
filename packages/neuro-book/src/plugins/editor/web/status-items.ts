@@ -1,5 +1,6 @@
 /**
- * 编辑器贡献给状态栏的三个条目（docs/specs/workbench/editor.md 输出 26–28）：未保存数、活动文档的字数、光标位置。
+ * 编辑器贡献给状态栏的条目（docs/specs/workbench/editor.md 输出 26–28、42、45）：未保存数、活动文档的字数、活动控件的状态、
+ * 语言、光标位置。
  * 显示与否由声明的 `when`（本插件的公开键）决定；文字由本插件从自己的编辑器区算出，外壳只渲染。
  */
 
@@ -12,20 +13,27 @@ import type {ItemDeclaration} from "nbook/plugins/workbench/shared/contracts";
 import type {ItemImplementation} from "nbook/plugins/workbench/web/contracts";
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
-import {countWords} from "nbook/shared/word-count";
+import {countWords} from "nbook/plugins/markdown/shared/contracts";
+import type {DialectTable} from "nbook/plugins/markdown/shared/contracts";
 
 import type {EditorArea} from "./area";
-import {SAVE_ALL_COMMAND} from "./commands";
+import type {LanguageRegistry} from "./code/languages";
+import {CHANGE_LANGUAGE_COMMAND, SAVE_ALL_COMMAND} from "./commands";
 import type {TextDocument} from "./documents/store";
 import {editorState, needsSaving} from "./state";
 
 export const UNSAVED_ITEM = "nbook.editor.unsaved";
 export const WORD_COUNT_ITEM = "nbook.editor.word-count";
 export const CURSOR_ITEM = "nbook.editor.cursor";
+export const EDITOR_STATUS_ITEM = "nbook.editor.editor-status";
+export const LANGUAGE_ITEM = "nbook.editor.language";
 
 export const EDITOR_STATUS_ITEMS: Readonly<Record<string, ItemDeclaration>> = {
     [UNSAVED_ITEM]: {title: {"zh-CN": "未保存的文档", "en-US": "Unsaved documents"}, alignment: "right", order: 10, priority: 30, command: {id: SAVE_ALL_COMMAND}, when: {requires: [editorState.key("hasUnsavedDocuments")]}},
-    [WORD_COUNT_ITEM]: {title: {"zh-CN": "字数", "en-US": "Word count"}, alignment: "right", order: 20, priority: 20, when: {requires: [editorState.key("active")]}},
+    [WORD_COUNT_ITEM]: {title: {"zh-CN": "字数", "en-US": "Word count"}, alignment: "right", order: 20, priority: 20, when: {requires: [editorState.key("active"), editorState.key("hasDocument")]}},
+    // 活动控件交出的一行状态（输出 42），例如图片的尺寸；控件没给时不显示文字。
+    [EDITOR_STATUS_ITEM]: {title: {"zh-CN": "编辑器状态", "en-US": "Editor status"}, alignment: "right", order: 25, priority: 15, when: {requires: [editorState.key("hasEditorStatus")]}},
+    [LANGUAGE_ITEM]: {title: {"zh-CN": "语言模式", "en-US": "Language mode"}, alignment: "right", order: 28, priority: 12, command: {id: CHANGE_LANGUAGE_COMMAND}, when: {requires: [editorState.key("hasLanguage")]}},
     [CURSOR_ITEM]: {title: {"zh-CN": "光标位置", "en-US": "Cursor position"}, alignment: "right", order: 30, priority: 10, when: {requires: [editorState.key("hasCursorPosition")]}},
 };
 
@@ -54,7 +62,7 @@ export const WORD_COUNT_DELAY_MS = 300;
  *
  * 由条目文字的求值驱动，不另开监听：状态栏每次求值都会调到这里（移动光标也会），所以计时只在待算的修订号变了时重排。
  */
-function activeWordCount(area: Readonly<ShallowRef<EditorArea | null>>, clock: RuntimeClock): () => number {
+function activeWordCount(area: Readonly<ShallowRef<EditorArea | null>>, clock: RuntimeClock, dialects: DialectTable): () => number {
     /**
      * 文档对象在打开期间不变。只缓存正文就是文件内容时算出的值：就绪，或外部删除后保留着正文；加载中与加载失败时不缓存。
      * 删除后也要缓存：否则到点算完、缓存的修订号仍旧，又排一次计时，字数停在旧值并反复重算。
@@ -70,7 +78,7 @@ function activeWordCount(area: Readonly<ShallowRef<EditorArea | null>>, clock: R
         pending = null;
     };
     const countNow = (document: TextDocument, revision: number): number => {
-        const count = countWords(document.text.value);
+        const count = countWords(document.text.value, dialects);
         if (document.status.value === "ready" || document.status.value === "deleted") counts.set(document, {revision, count});
         return count;
     };
@@ -100,9 +108,11 @@ function activeWordCount(area: Readonly<ShallowRef<EditorArea | null>>, clock: R
     };
 }
 
-export function editorStatusItems(area: Readonly<ShallowRef<EditorArea | null>>, locale: Readonly<ComputedRef<DisplayLocale>>, clock: RuntimeClock): Readonly<Record<string, ItemImplementation>> {
+/** `dialects`：方言声明表（docs/specs/workspace/markdown-syntaxes.md 输出 9、10），在一个窗口的寿命内不变。 */
+export function editorStatusItems(area: Readonly<ShallowRef<EditorArea | null>>, locale: Readonly<ComputedRef<DisplayLocale>>, clock: RuntimeClock, languages: Pick<LanguageRegistry, "name">, dialects: DialectTable): Readonly<Record<string, ItemImplementation>> {
     const text = (value: LocalizedText): string => localize(value, locale.value);
-    const wordCount = activeWordCount(area, clock);
+    const display = (value: LocalizedText | string): string => (typeof value === "string" ? value : text(value));
+    const wordCount = activeWordCount(area, clock, dialects);
     const unsaved = () => area.value?.openDocuments.value.filter(needsSaving) ?? [];
     const failures = () => unsaved().filter((document) => document.saveProblem.value !== null);
     const number = (count: number): string => new Intl.NumberFormat(locale.value).format(count);
@@ -123,6 +133,18 @@ export function editorStatusItems(area: Readonly<ShallowRef<EditorArea | null>>,
         },
         [WORD_COUNT_ITEM]: {
             text: () => text(formatText(TEXT.words, {count: number(wordCount())})),
+        },
+        [EDITOR_STATUS_ITEM]: {
+            text: () => {
+                const status = area.value?.activeHandle.value?.status?.value ?? null;
+                return status === null ? "" : display(status);
+            },
+        },
+        [LANGUAGE_ITEM]: {
+            text: () => {
+                const language = area.value?.activeHandle.value?.language?.value ?? null;
+                return language === null ? "" : display(languages.name(language));
+            },
         },
         [CURSOR_ITEM]: {
             text: () => {

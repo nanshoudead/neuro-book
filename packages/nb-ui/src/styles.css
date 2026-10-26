@@ -1,12 +1,8 @@
 /*
- * 全局滚动条槽位（scrollbar-gutter 规范）。
- * 预留滚动条空间，防止内容溢出时造成视口与卡片宽度跳变。
- * 针对需要内容居中的容器，可使用 .nb-ui-scrollbar-center (scrollbar-gutter: stable both-edges)。
+ * 滚动条槽位（scrollbar-gutter 规范）：预留滚动条空间，内容溢出时视口与卡片宽度不跳。
+ * 库不给 `html` 写全局规则：整页不滚的宿主（外壳铺满视口）会因此在右缘留一条空带。整页会滚的宿主自己在根上挂
+ * `.nb-ui-scrollbar-stable` 或写同一条声明；需要内容居中的容器用 `.nb-ui-scrollbar-center`（两侧对称预留）。
  */
-html {
-    scrollbar-gutter: stable;
-}
-
 .nb-ui-scrollbar-stable {
     scrollbar-gutter: stable;
 }
@@ -25,17 +21,44 @@ html {
     display: none;
 }
 
+/*
+ * 原生细滚动条：宿主在根元素上挂这个类，整个应用的原生滚动条按 `--scrollbar-thumb-mix` 混出滑块色（指针在容器上时用
+ * `--scrollbar-thumb-hover-mix`，标准属性没有“悬停在滑块上”；比例 token 的理由见 tokens.css），不必各抄一段 `* { scrollbar-width… }`。
+ * `scrollbar-width` 不继承，所以后代要一起写；`scrollbar-color` 虽然继承，也写在后代上，中间某层祖先自己设了别的颜色时
+ * 不会漏到下面的滚动元素。
+ * 选择器全部包在 `:where()` 里，特异性为 0（`:hover` 也算一个类，所以悬停那条整条包进去）：元素自己的
+ * `.nb-ui-scrollbar-none`、原子类与组件的 scoped 样式都盖得过它，要在某处隐藏或换颜色不必提高特异性。
+ * 只写标准属性，不写 `::-webkit-scrollbar`：Chrome 121 以后设了标准属性，它就被忽略。
+ */
+:where(.nb-ui-scrollbar-thin),
+:where(.nb-ui-scrollbar-thin) * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--text-main) var(--scrollbar-thumb-mix), transparent) transparent;
+}
+
+:where(.nb-ui-scrollbar-thin *:hover) {
+    scrollbar-color: color-mix(in srgb, var(--text-main) var(--scrollbar-thumb-hover-mix), transparent) transparent;
+}
+
 .nb-ui-colorway {
     color-scheme: var(--color-scheme, light dark);
 }
 
-/* 焦点环走主题装饰 token（--focus-ring/--focus-outline），与对照页 sc-* 同一配方 */
+/*
+ * 焦点环走主题装饰 token（--focus-ring/--focus-outline），与对照页 sc-* 同一配方。
+ *
+ * box-shadow 与 transition 带 !important：本文件在 components 层，控件模板上的原子类（utilities 层）本来压过它，
+ * 而聚焦时的光晕必须显示、并且渐入——Slider 滑块自己的 `shadow-*` 会把光晕整个盖掉，Breadcrumb、Menubar 等的
+ * `transition-colors` 不含 box-shadow，光晕就不再渐入。层内的 !important 压过 utilities 层的普通声明，
+ * 与分层之前这条 :focus-visible 规则靠特异性压过原子类的结果一致。
+ * border-color 不带 !important：Switch、RadioGroup 的出错边框是 `!border-*`，聚焦时要保持出错色。
+ */
 .nb-ui-focus-ring:focus-visible {
     outline: none;
     border-color: var(--focus-outline);
-    box-shadow: var(--focus-ring);
+    box-shadow: var(--focus-ring) !important;
     transition: border-color var(--motion-base) var(--ease-standard),
-                box-shadow var(--motion-base) var(--ease-standard);
+                box-shadow var(--motion-base) var(--ease-standard) !important;
 }
 
 /*
@@ -44,15 +67,15 @@ html {
  */
 .nb-ui-focus-ring-inset:focus-visible {
     outline: none;
-    box-shadow: inset 0 0 0 1.5px var(--focus-outline);
-    transition: box-shadow var(--motion-base) var(--ease-standard);
+    box-shadow: inset 0 0 0 1.5px var(--focus-outline) !important;
+    transition: box-shadow var(--motion-base) var(--ease-standard) !important;
 }
 
 /*
  * 表单控件状态基座（单一来源）。
- * 所有字段类控件（FormInput/FormNumberInput/FormSelect/FormTextarea/Combobox/TagInput）
- * 的边框与聚焦辉光都从这里出，invalid 由组件根据 FormField context 追加 .nb-ui-control-invalid。
- * 同一条规则用 :focus 覆盖原生控件、:focus-within 覆盖包装容器（Combobox/TagInput）。
+ * 所有字段类控件（Input/NumberInput/Select/Textarea）
+ * 的边框与聚焦辉光都从这里出，invalid 由组件根据 Field context 追加 .nb-ui-control-invalid。
+ * 同一条规则用 :focus 覆盖原生控件、:focus-within 覆盖包装容器。
  *
  * 尺寸类也在这里登记，而不是依赖 Tailwind 的 arbitrary value：Tailwind v4 不会为运行时
  * `h-[var(--control-h-*)]` 生成稳定 utility，主题密度必须有静态消费点。
@@ -63,10 +86,6 @@ html {
 
 .nb-ui-control-h-md {
     height: var(--control-h-md);
-}
-
-.nb-ui-control-h-lg {
-    height: var(--control-h-lg);
 }
 
 .nb-ui-control-px {
@@ -137,7 +156,10 @@ input.nb-ui-native-input[type="number"] {
     appearance: textfield;
 }
 
-/* 双类选择器抬高特异性，保证 invalid 边框压过组件上的 hover:border-* 原子类 */
+/*
+ * 出错边框。双类选择器是为了在本层内压过上面的 `.nb-ui-control:focus`、`[data-state="open"]` 和只读、禁用的重置规则
+ * （同在 components 层，层内才比特异性）；与控件模板上的原子类无关，那些类在 utilities 层，不设 border-color。
+ */
 .nb-ui-control.nb-ui-control-invalid,
 .nb-ui-control.nb-ui-control-invalid:hover,
 .nb-ui-control.nb-ui-control-invalid:focus,
@@ -145,16 +167,20 @@ input.nb-ui-native-input[type="number"] {
     border-color: var(--status-danger);
 }
 
+/*
+ * 包装容器只看里面的输入框是不是只读：`:has(:read-only)` 会命中图标、步进按钮这类普通子元素（不可编辑的元素都匹配
+ * `:read-only`），带图标的输入框、数字框出错聚焦时就没有红色辉光，同上面只读重置规则一样只认输入框。
+ */
 .nb-ui-control.nb-ui-control-invalid:focus:not(:read-only):not([readonly]),
-.nb-ui-control.nb-ui-control-invalid:focus-within:not(:has(:read-only)):not(:has([readonly])) {
+.nb-ui-control.nb-ui-control-invalid:focus-within:not(:has(input:read-only, textarea:read-only)):not(:has([readonly])) {
     box-shadow: var(--inset-shadow), 0 0 0 3px color-mix(in srgb, var(--status-danger) 18%, transparent);
 }
 
 /*
  * 浮层面板外观基座（与 theme/z-index.ts 的 NB_Z_INDEX 对称的登记处）。
- * Dropdown / Combobox / ContextMenu / Tooltip / Dialog / TimePicker 的浮层面板统一从这里取
+ * DropdownMenu / Select / ContextMenu / Tooltip / Dialog 的浮层面板统一从这里取
  * 边框、圆角、底色、阴影与磨砂；新增浮层组件请消费此类，不要再复制这一组属性。
- * 例外：Panel 的页面表面投影刻意不同，自己维护；对话框的两种用法都在这一层之上只加 `.nb-ui-dialog-surface` 换圆角与投影。
+ * 对话框的两种用法都在这一层之上只加 `.nb-ui-dialog-surface` 换圆角与投影。
  *
  * 五个取值全部走主题变量，且默认值逐项对齐改动前的写死值——
  * --panel-outline → --border-color、--overlay-surface → --bg-panel、--overlay-blur → none、
@@ -167,7 +193,8 @@ input.nb-ui-native-input[type="number"] {
  * `.nb-ui-surface-rim` 才消费 --overlay-sheen；小浮层默认没有面渐变，避免被读成一层塑料膜。
  * 两条都别写回 background 简写：简写会把没写出来的那条重置掉。
  *
- * 这一层排在 utilities 之后且同为单类选择器，所以它会压过组件模板上的 rounded-* 之类原子类。
+ * 这一层在 components 层，调用方传进来的 rounded-* 之类原子类（utilities 层）会压过它，所以组件模板上不要再写
+ * 与它重复的属性：写了就等于让它们压过主题变量（--nb-popover-radius、--radius-dialog 等）。
  * Tooltip 的紧凑纸面与箭头统一走 `.nb-ui-tooltip-surface` modifier，不要在组件模板复制 surface 属性。
  */
 .nb-ui-popover-surface {
@@ -222,9 +249,14 @@ input.nb-ui-native-input[type="number"] {
     -webkit-user-select: none;
 }
 
-/* 菜单 / 下拉的半径与投影 modifier：两者各有一档主题变量；贴边菜单项的内圈半径照上面的公式由外圈推出。 */
+/*
+ * 弹出列表（菜单、下拉、选择器、候选）的外框 modifier：半径、投影与内边距各取一档主题变量。
+ * 内边距在这里真正写出来，不交给模板上的 p-* 原子类：同心公式按 --nb-popover-pad 算，盒子的留白必须是同一个数。
+ */
 .nb-ui-menu-surface {
     --nb-popover-radius: var(--radius-menu, var(--radius-panel));
+    --nb-popover-pad: var(--menu-pad);
+    padding: var(--menu-pad);
     box-shadow: var(--elevation-menu, var(--elevation-popover));
 }
 
@@ -245,24 +277,132 @@ input.nb-ui-native-input[type="number"] {
  * 判据：把浮层的一角放大到 4 倍截图，看项的弧线与框的弧线是否平行、之间的留白是否等宽。
  * 只看 1 倍的整体图是分辨不出来的——本轮就是放大之后才确认根因的。
  *
- * 兜底 6px 是给「不在 .nb-ui-popover-surface 里面用」这种误用留的，正常路径上永远取不到。
+ * 下面 .nb-ui-menu-item 的圆角取的就是这个推出来的值；兜底 6px 是给「不在 .nb-ui-popover-surface 里面用」
+ * 这种误用留的，正常路径上永远取不到。
+ *
+ * 弹出列表的一行（w00029 t04）。六个列表的项结构不同（reka 的菜单项与选择项、普通按钮、受控的 option），共用的是行的
+ * 外观：一档行高与字号、同心圆角、中性叠色的高亮、勾与图标共用的左侧一列。
+ *
+ * 高亮只认 [data-highlighted]，不写 :hover：鼠标与键盘指向同一项，不会一个停在悬停处、一个停在键盘当前项。
+ * reka 的项自己挂这个属性；普通按钮项与受控列表由组件挂（MenuNodes、QuickPick、SuggestionMenu）。
+ * 展开了子菜单的父项（aria-expanded）同样画高亮：指针移进子菜单后它失去焦点，仍要看得出是从哪一项展开的。
  */
-.nb-ui-popover-item {
+.nb-ui-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    height: var(--menu-item-h);
+    padding: 0 10px;
     border-radius: var(--nb-popover-inner-radius, 6px);
+    font-size: var(--menu-item-font);
+    font-weight: var(--weight-normal);
+    line-height: var(--leading-tight);
+    color: var(--text-main);
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    outline: none;
+}
+
+.nb-ui-menu-item[data-highlighted],
+.nb-ui-menu-item[aria-expanded="true"] {
+    background-color: var(--overlay-item-active);
+}
+
+.nb-ui-menu-item:disabled,
+.nb-ui-menu-item[data-disabled] {
+    cursor: not-allowed;
+    opacity: 0.4;
+}
+
+/* 调用方明确允许换行的项（DropdownMenu 的 `wrap`）：最矮一档行高，由内容撑高；上下留白让单行时仍是一档行高。 */
+.nb-ui-menu-item--multiline {
+    align-items: flex-start;
+    height: auto;
+    min-height: var(--menu-item-h);
+    padding-block: calc((var(--menu-item-h) - 16px) / 2);
+    white-space: normal;
+}
+
+/* 危险项只换文字与图标的颜色；高亮底色与其它项一样是中性叠色。 */
+.nb-ui-menu-item-danger {
+    color: var(--status-danger);
+}
+
+/*
+ * 左侧一列，勾与图标共用：勾选的项画勾，其它项画图标，没有的留空占位，名称才对得齐。图标的遮罩垫片
+ * （`i-lucide-*`，nb-ui 入口里 base 层）写 `width: 1em`，本规则在 components 层，所以 16px 赢。
+ */
+.nb-ui-menu-item > .nb-ui-menu-item__icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+}
+
+/*
+ * 名称取内容宽度，只在一行里只剩它也放不下时才截；它右边的自动外边距把后面的快捷键、箭头推到右端。
+ * 不用“名称与说明都可收缩、说明的系数大”的写法：按比例摊下来名称也会缩零点几像素，浏览器照样画省略号。
+ */
+.nb-ui-menu-item__label {
+    flex: 0 1 auto;
+    min-width: 0;
+    margin-right: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.nb-ui-menu-item--multiline .nb-ui-menu-item__label {
+    overflow-wrap: anywhere;
+}
+
+/* 快捷键、路径或说明：右对齐、次要色；从 0 宽起占名称剩下的空间，放不下时先截它。 */
+.nb-ui-menu-item__hint {
+    flex: 1 1 0%;
+    min-width: 0;
+    padding-left: 6px;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+}
+
+.nb-ui-menu-item__chevron {
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    margin-left: auto;
+}
+
+.nb-ui-menu-label {
+    padding: 6px 10px 4px;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-strong);
+    line-height: var(--leading-tight);
+    color: var(--text-muted);
+    user-select: none;
+}
+
+.nb-ui-menu-separator {
+    height: var(--border-w);
+    margin: 4px;
+    background-color: var(--divider);
 }
 
 /*
  * 浮层入退场 modifier（合同见 design-language.md 动效节）：
  * 菜单入场 = opacity + scale(0.96 → 1)，--motion-fast；退场同配方。
  *
- * 两条挂载通道共用这个登记处：
- * 1. Reka 原语（FormSelect 等）——内容树由原语的 Presence 持有，挂 [data-state]，
- *    Presence 等到 animationend 才卸载；缩放原点消费原语算好的
- *    --reka-*-content-transform-origin（它已经处理了碰撞翻转，不要自己推方向）。
- * 2. 手写 v-if 浮层（Dropdown）——配 Vue <Transition name="nb-popover"> 使用，
- *    enter/leave-active 期间直接播同两条 keyframes，原点给 top center 兜底。
+ * 挂在 Reka 原语（Select、DropdownMenu、Popover 等）的内容上：内容树由原语的 Presence 持有，挂 [data-state]，
+ * Presence 等到 animationend 才卸载；缩放原点消费原语算好的 --reka-*-content-transform-origin（它已经处理了
+ * 碰撞翻转，不要自己推方向），都没有时给 top center 兜底。
  *
- * 已有自己过渡的浮层（Combobox / ContextMenu / Tooltip / Dialog / TimePicker）
+ * 已有自己过渡的浮层（ContextMenu / Tooltip / Dialog）
  * 不挂这个 modifier，避免两层动画叠加。
  */
 @keyframes nb-popover-in {
@@ -283,13 +423,11 @@ input.nb-ui-native-input[type="number"] {
     transform-origin: var(--reka-popover-content-transform-origin, var(--reka-hover-card-content-transform-origin, var(--reka-menubar-content-transform-origin, var(--reka-select-content-transform-origin, var(--reka-dropdown-menu-content-transform-origin, top center)))));
 }
 
-.nb-ui-popover-motion[data-state="open"],
-.nb-ui-popover-motion.nb-popover-enter-active {
+.nb-ui-popover-motion[data-state="open"] {
     animation: nb-popover-in var(--motion-fast) var(--ease-standard);
 }
 
-.nb-ui-popover-motion[data-state="closed"],
-.nb-ui-popover-motion.nb-popover-leave-active {
+.nb-ui-popover-motion[data-state="closed"] {
     animation: nb-popover-out var(--motion-fast) var(--ease-standard);
 }
 
@@ -352,6 +490,16 @@ input.nb-ui-native-input[type="number"] {
     box-shadow: var(--elevation-dialog);
 }
 
+/* 小确认框（AlertDialog）：外框圆角改取更小的一档，其余与 .nb-ui-dialog-surface 相同，必须写在它后面。 */
+.nb-ui-dialog-surface--compact {
+    border-radius: var(--radius-dialog-compact);
+}
+
+/* 浮动窗口（Dialog 的 modal=false）：外框圆角改取窗口那一档，同样写在 .nb-ui-dialog-surface 后面。 */
+.nb-ui-dialog-surface--window {
+    border-radius: var(--radius-window);
+}
+
 /*
  * 对话框的标题与页脚（Dialog 的两种用法与 AlertDialog 共用）：标题与正文同字号，只差字重——这是 Apple 官方
  * UI Kit 的实测值（Alert 的 Title 是 Bold 13px，Description 是 Regular 13px）；页脚是一行按钮，间距一处给。
@@ -380,14 +528,21 @@ input.nb-ui-native-input[type="number"] {
  * 所以浮层本体只管外观并 overflow: hidden，滚动交给内部这一层，并让它比外框缩进一圈：
  * 切口因此落在描边内侧，是一条正常的滚动截断，而不是压在圆角上的破口。
  *
- * 滚动条本身用标准属性染色（Chromium 121+ 与 Firefox 都认），取值从 --text-main 派生，
- * 所以任何配色下都不会剩一条系统默认的亮色滚动条压在暗色玻璃上。
+ * 原生滚动条藏起来，滑块由 PopupScrollbar 画（usePopupScroll 给几何）：原生滚动条在视口盒子里面，
+ * 会被顶底渐隐的 mask 一起吞掉。视口是外框纵向 flex 里唯一能收缩的一块（min-height: 0），
+ * 外框按可用空间夹紧时由它让出高度；圆角取同心公式推出的内圈半径。
  */
 .nb-ui-popover-scroll {
+    min-height: 0;
+    overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
-    scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--text-main) 24%, transparent) transparent;
+    border-radius: var(--nb-popover-inner-radius, 6px);
+    scrollbar-width: none;
+}
+
+.nb-ui-popover-scroll::-webkit-scrollbar {
+    display: none;
 }
 
 /*
@@ -471,76 +626,52 @@ input.nb-ui-native-input[type="number"] {
     }
 }
 
-/*
- * 危险菜单项（Dropdown / ContextMenu 共用）：常驻红字，悬停/子菜单展开态用 danger 12% 底色。
- */
-.nb-ui-menu-item-danger {
-    color: var(--status-danger);
-}
-
-.nb-ui-menu-item-danger:hover:not(:disabled),
-.nb-ui-menu-item-danger.is-active {
-    background: color-mix(in srgb, var(--status-danger) 12%, transparent);
-}
 
 /* ==========================================================================
    全库组件微物理动效与关键帧动画（Micro-physics & Keyframe Animations）
    ========================================================================== */
 
-/* 手风琴与折叠容器展开/收起动画 */
-@keyframes nb-accordion-down {
+/* 折叠容器展开、收起 */
+@keyframes nb-collapsible-down {
     from {
         height: 0;
         opacity: 0;
     }
     to {
-        height: var(--reka-accordion-content-height, var(--reka-collapsible-content-height, auto));
+        height: var(--reka-collapsible-content-height, auto);
         opacity: 1;
     }
 }
 
-@keyframes nb-accordion-up {
+@keyframes nb-collapsible-up {
     from {
-        height: var(--reka-accordion-content-height, var(--reka-collapsible-content-height, auto));
+        height: var(--reka-collapsible-content-height, auto);
         opacity: 1;
     }
     to {
         height: 0;
         opacity: 0;
     }
-}
-
-.animate-accordion-down,
-.animate-collapsible-down {
-    animation: nb-accordion-down var(--motion-base) var(--ease-standard);
-}
-
-.animate-accordion-up,
-.animate-collapsible-up {
-    animation: nb-accordion-up var(--motion-base) var(--ease-standard);
 }
 
 /*
  * 折叠内容的编排由状态属性驱动，不用 `data-[state=open]:animate-*` 变体：
- * `animate-*` 的主题键不在 presetUno 里，变体类不会生成，组件会静默失去动画。
+ * `animate-*` 的主题键里没有折叠动画（Tailwind 默认主题只有 spin、ping、pulse、bounce），变体类不会生成，组件会静默失去动画。
  *
  * 只在高度动画进行中裁切（组件在 animationstart 时打 `data-animating`、结束或取消时去掉）：展开完成后不裁，
  * 里面控件的焦点光环有完整的空间。不用“内边距加等量负外边距”把裁切盒往外放：那样外框比父容器宽，
  * 放进可横向滚动的容器时多出一截滚动距离。
  */
-.nb-collapsible-content[data-animating],
-.nb-accordion-content[data-animating] {
+.nb-collapsible-content[data-animating] {
     overflow: hidden;
 }
 
-.nb-collapsible-content[data-state="open"],
-.nb-accordion-content[data-state="open"] {
-    animation: nb-accordion-down var(--motion-base) var(--ease-standard);
+.nb-collapsible-content[data-state="open"] {
+    animation: nb-collapsible-down var(--motion-base) var(--ease-standard);
 }
 
-.nb-collapsible-content[data-state="closed"],
-.nb-accordion-content[data-state="closed"] {
-    animation: nb-accordion-up var(--motion-base) var(--ease-standard);
+.nb-collapsible-content[data-state="closed"] {
+    animation: nb-collapsible-up var(--motion-base) var(--ease-standard);
 }
 
 /* 骨架屏与占位高光流动 Shimmer 动画 */
@@ -597,55 +728,6 @@ input.nb-ui-native-input[type="number"] {
     }
 }
 
-/* 悬浮微晶发光弥散 Pulse 动画 */
-@keyframes nb-crystal-glow {
-    0%, 100% {
-        box-shadow: 0 0 8px 1px color-mix(in srgb, var(--accent-main) 25%, transparent),
-                    0 2px 12px color-mix(in srgb, var(--shadow-color) 12%, transparent);
-    }
-    50% {
-        box-shadow: 0 0 18px 4px color-mix(in srgb, var(--accent-main) 45%, transparent),
-                    0 4px 20px color-mix(in srgb, var(--shadow-color) 20%, transparent);
-    }
-}
-
-.nb-crystal-glow {
-    animation: nb-crystal-glow 2.8s var(--ease-standard) infinite;
-}
-
-/* 弹入微动效 */
-@keyframes nb-pop-in {
-    0% {
-        transform: scale(0.92);
-        opacity: 0;
-    }
-    100% {
-        transform: scale(1);
-        opacity: 1;
-    }
-}
-
-.nb-pop-in {
-    animation: nb-pop-in var(--motion-enter) var(--ease-standard);
-}
-
-/* 方案与内容平滑交替过渡 */
-.scheme-fade-enter-active,
-.scheme-fade-leave-active {
-    transition: opacity var(--motion-base) var(--ease-standard),
-                transform var(--motion-base) var(--ease-standard);
-}
-
-.scheme-fade-enter-from {
-    opacity: 0;
-    transform: translateY(6px) scale(0.985);
-}
-
-.scheme-fade-leave-to {
-    opacity: 0;
-    transform: translateY(-6px) scale(0.985);
-}
-
 /*
  * 装饰性关键帧动画同样服从降级偏好：`tokens.css` 只把三个时长 token 归零，
  * 覆盖不到 `animation`。骨架脉冲与微光是纯粹的氛围，降级时直接停掉。
@@ -661,7 +743,7 @@ input.nb-ui-native-input[type="number"] {
 /*
  * 内容切换：一次只动一块内容（配合 <Transition mode="out-in">），两段各取 --motion-fast，
  * 合计正好是浮层入场档 --motion-enter 的量级——「眼睛追踪一层新内容出现」的上限。
- * 用同一个类名的地方必须同一配方：设置外壳的区段、Provider 导轨→详情、Agent Profile 的 Profile 切换。
+ * 用同一个类名的地方必须同一配方（例如设置页切换区段、列表切到详情）。
  */
 .nb-ui-switch-enter-active,
 .nb-ui-switch-leave-active {

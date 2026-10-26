@@ -18,6 +18,8 @@ const records = shallowRef<SearchRecordMatch[]>([]);
 const hits = shallowRef<SearchHit[]>([]);
 const done = shallowRef<SearchCheckoutDone[]>([]);
 const finished = ref(false);
+/** 当前这批结果是哪个搜索词的：开始搜时（清结果的同一处）才换，高亮与结果对得上；也当结果零件的 key，换词时历史收起。 */
+const searchedQ = ref("");
 const error = ref<{message: string} | null>(null);
 let controller: AbortController | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -29,6 +31,7 @@ async function run(q: string): Promise<void> {
     done.value = [];
     finished.value = false;
     error.value = null;
+    searchedQ.value = q;
     if (q.trim().length < 2) {
         finished.value = true;
         return;
@@ -77,6 +80,6 @@ onBeforeUnmount(() => {
     <PageShell :crumbs="[{label: '首页', href: '/'}, {label: '搜索'}]" :title="`搜索“${route.query.q ?? ''}”`" @navigate="(href) => void router.push(href)">
         <template v-if="!finished && !error" #status><Spinner size="sm" label="搜索中" /></template>
         <LoadState v-if="error" :loading="false" :error="error" @retry="run(String(route.query.q ?? ''))" />
-        <SearchResults :records="records" :hits="hits" :done="done" :finished="finished" @navigate="(href) => router.push(href)" />
+        <SearchResults :key="searchedQ" :records="records" :hits="hits" :done="done" :finished="finished" :q="searchedQ" @navigate="(href) => router.push(href)" />
     </PageShell>
 </template>

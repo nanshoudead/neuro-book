@@ -2,7 +2,7 @@ import {afterAll, beforeAll, describe, expect, test} from "bun:test";
 import {appendFile, readFile, rm} from "node:fs/promises";
 import {join} from "node:path";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-import {createJsonlSessionLog, createMemorySessionLog, type SessionLog} from "../src";
+import {createJsonlSessionLog, createMemorySessionLog, parseEntryLine, type JsonValue, type SessionEntry, type SessionEntryInput, type SessionLog} from "../src";
 
 let tmpRoot = "";
 
@@ -80,6 +80,58 @@ describe.each(factories)("%s session log", (_name, createLog) => {
         expect(entries[0]).toEqual({kind: "meta", seq: 1, at: expect.any(String), key: "title", value: "第一次会话"});
         expect(entries[1]).toMatchObject({kind: "compaction", seq: 2, summary: "早期对话摘要", replacedThroughSeq: 1});
     });
+
+    test("快照、原样消息、用量与运行结束条目可往返", async () => {
+        const log = await createLog(`agent-${_name}`);
+        const message: JsonValue = {
+            role: "assistant",
+            content: [
+                {type: "thinking", thinking: "先查", thinkingSignature: "sig-1"},
+                {type: "toolCall", id: "c1", name: "story_search", arguments: {query: "狐狸"}},
+            ],
+            stopReason: "toolUse",
+        };
+        const inputs: SessionEntryInput[] = [
+            {kind: "session_snapshot", profile: {key: "story-qa", version: "1"}, initial: {book: "b1", at: {chapter: 38}}, tools: [{id: "story.search", name: "story_search"}]},
+            {kind: "agent_message", message},
+            {kind: "usage", input: 120, output: 30, cacheRead: 100, cacheWrite: 0, cost: null},
+            {kind: "run_end", stopReason: "aborted", error: null},
+        ];
+        await log.append(inputs);
+
+        const entries = await log.read();
+        expect(entries.map(({seq: _seq, at: _at, ...rest}) => rest)).toEqual(inputs);
+    });
+});
+
+describe("memory session log 从存下的条目开始", () => {
+    test("JSONL 逐行读回的条目原样放入，之后追加的接着编号", async () => {
+        const first = createMemorySessionLog({sessionId: "s1"});
+        await first.append([
+            {kind: "message", role: "user", text: "第一问"},
+            {kind: "message", role: "assistant", text: "第一答"},
+        ]);
+        const jsonl = (await first.read()).map((entry) => JSON.stringify(entry)).join("\n");
+        const restored = jsonl.split("\n").map(parseEntryLine);
+        expect(restored.every((entry) => entry !== null)).toBe(true);
+
+        const log = createMemorySessionLog({sessionId: "s1", entries: restored as SessionEntry[]});
+        await log.append([{kind: "message", role: "user", text: "追问"}]);
+        const entries = await log.read();
+        expect(entries.slice(0, 2)).toEqual([...(await first.read())]);
+        expect(entries.map((entry) => entry.seq)).toEqual([1, 2, 3]);
+        expect(await log.tail()).toMatchObject({seq: 3, text: "追问"});
+    });
+
+    test("seq 不从 1 起连续时拒绝", async () => {
+        const source = createMemorySessionLog({sessionId: "s2"});
+        await source.append([
+            {kind: "message", role: "user", text: "a"},
+            {kind: "message", role: "user", text: "b"},
+        ]);
+        const [, second] = await source.read();
+        expect(() => createMemorySessionLog({sessionId: "s2", entries: [second!]})).toThrow("seq 不连续");
+    });
 });
 
 describe("jsonl session log", () => {
@@ -106,6 +158,17 @@ describe("jsonl session log", () => {
 
         expect(appended.map((entry) => entry.seq)).toEqual([2]);
         expect((await second.read()).map((entry) => (entry.kind === "message" ? entry.text : entry.kind))).toEqual(["before", "after"]);
+    });
+
+    test("重开实例后新条目照原样读回", async () => {
+        const first = await createJsonlSessionLog({root: tmpRoot, sessionId: "restart-agent"});
+        await first.append([
+            {kind: "session_snapshot", profile: {key: "p", version: "2"}, initial: {}, tools: []},
+            {kind: "agent_message", message: {role: "user", content: "你好"}},
+        ]);
+        const reopened = await createJsonlSessionLog({root: tmpRoot, sessionId: "restart-agent"});
+
+        expect((await reopened.read()).map((entry) => entry.kind)).toEqual(["session_snapshot", "agent_message"]);
     });
 
     test("中断尾：read 只返回完好前缀，repair 截掉损坏字节且幂等，修复前 append 拒绝", async () => {

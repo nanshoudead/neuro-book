@@ -1,0 +1,107 @@
+# w00022/t16 只读实现审查
+
+审查范围：`61e1c5dd4..4a7eab593`。源码位置均相对 `.worktree/w00022-review-t16-impl/`。先读取完整 diff，再读取测试与实现；基线运行使用 `git archive 61e1c5dd4` 导出的 CLI 源码，实验均在 `/dev/shm/review-t16-impl-lab/` 的真实 Git 仓库，经真实 CLI 子进程发布。报告仅追加。
+
+### 1. 脚本 import 正则会自动提交注释和字符串里的文件，也会漏交合法的带注释 import
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/dev-panel/src/core/references.ts:77-94`；`packages/dev-panel/src/core/artifacts.ts:710-719`。
+- **现象**：入口引用 `app.js`，脚本中只有 `// import "./shot.png";` 与 ``const sample = `import "./notes.txt"`;``，真实发布退出 0、无警告，`shot.png` 与 `notes.txt` 都进入提交与版本 `files`。相反，合法的 `import /* webpackChunkName: "real" */ "./lib.js";` 不匹配，`lib.js` 留在工作区，被列为 `unreferenced_files_not_committed`，发布仍退出 0。
+- **为什么是问题**：交付报告“注释里的 import 至多多一条 missing_reference”不成立：目标存在时会实际提交文件，且一旦进入 `files`，以后都作为种子保留。它重新把检查截图、本地草稿自动入库，违反此次只提交真实引用的目标；反向漏报又让干净 checkout 缺模块。基线没有脚本引用扫描，全部候选直接提交，因此漏模块是本次回归；基线提交截图是本 Task 本来要修的旧行为，本报告不把相同截图症状冒充新回归，而指出新白名单实现没有修掉这类输入。
+- **如何核实**：`TMPDIR=/dev/shm/review-t16-impl-lab/tmp bun /dev/shm/review-t16-impl-lab/probes.ts` 的 `false-import`、`comment-import` 两组，各运行 HEAD 与 base。HEAD 第一组提交 5 个产物文件（含版本、2 个伪依赖），第二组只提交版本、入口、app.js 共 3 个，排除 lib.js；base 第二组提交 4 个（含 lib.js）。脚本内容与 Git 索引、提交文件列表均已核对，不用内部函数替代 CLI。
+- **建议改法**：用轻量 JavaScript 词法扫描或已有解析器识别真正的 import/export；跳过注释、普通字符串和模板正文，接受 token 之间的注释。补真实 CLI 的正反例，同时断言误依赖不提交、合法模块提交；不能只测不存在的注释路径。
+
+### 2. CSS 注释清理会删除字符串之间的真实规则，转义 URL 也会漏交资源
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/dev-panel/src/core/references.ts:55-73`。
+- **现象**：有效样式 `.a::before {content:"/*";}
+.a {background:url(real.png)}
+.b::before {content:"*/";}` 被 `blankComments` 从第一个字符串中的 `/*` 一直删到第二个字符串中的 `*/`，真实的 `url(real.png)` 消失。另一组有效的 `url(pic\ name.png)` 也完全匹配不到；加引号的 CSS 转义路径同样没有解码逻辑。
+- **为什么是问题**：文件确实存在、被样式引用，但 HEAD 发布只提交入口、style.css 与版本共 3 个文件，图像作为“未引用文件”排除；base 两组都提交 4 个（含图）。发布退出 0，没有 missing_reference，干净 checkout 才缺图。这里不是脚本里动态拼地址的既定不支持项，而是普通 CSS 字符串与 URL 词法。
+- **如何核实**：同一真实 CLI 实验的 `css-comment-in-string` 和 `css-escape` 组。HEAD 各给 1 个 `unreferenced_files_not_committed`，分别为 real.png、pic name.png，Git 索引不含它们；base 索引包含它们。全部样式和资源均由实验在独立仓库写入，没有替换依赖。
+- **建议改法**：CSS 注释与字符串应在同一次词法扫描中识别，不能先全局正则删除；URL token 按 CSS 转义解码。补“字符串里含注释界符”和带空格转义路径的真实发布用例，断言引用资源进入提交。若决定不支持 CSS 转义，应明确错误或限制，不能把标准静态引用宣称为未引用。
+
+### 3. 把模板的资源遍历与题目遍历一起跳过，会漏交明确写在 HTML 中的图片
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/dev-panel/src/core/questions.ts:254-259`；`packages/dev-panel/docs/file-formats.md:219-227`。
+- **现象**：页面含 `<template id="card"><img src="card.png"></template>`，普通脚本把 `template.content.cloneNode(true)` 加入 body。HEAD 发布退出 0，只提交入口与版本 2 个文件，card.png 被当作未引用排除；base 提交 3 个（含 card.png）。不含题目属性时也没有 questions_in_script 警告。
+- **为什么是问题**：跳过模板里的提问标记是既有合同，但不等于资源不存在；静态写出的 src 无需分析脚本就能找到。原来全目录提交掩盖的解析缺口，在本次切换到引用白名单后变成了实际漏交。交付报告和新文档已经声明这项限制，因此不是“实现没照计划”；它是已接受偏离中实际破坏干净 checkout 的产品行为，unreferenced 提醒不能替代正确闭包。
+- **如何核实**：真实 CLI 实验 `template` 的 HEAD/base 对照；核对入库文件列表与本地仍存在的 card.png。未启动浏览器，未声称观察到浏览器破图；cloneNode 的执行代码与遗漏的 Git 文件集都是真实输入与已观察结果。noscript 子节点同样被跳过，属于相同资源遍历设计，但本条运行证据仅覆盖 template。
+- **建议改法**：把资源遍历和题目遍历分开。对 template.content 内节点只收集资源、禁止登记题目；对 noscript 内容根据 HTML 解析模式单独收资源。保留 questions_in_script 的题目提示，不能因为不登记题目而跳过资源。补模板依赖的 CLI 发布验收。
+
+### 4. CSS 引用扫描有两处平方级路径，128 KB 异常输入就占住发布锁近 7 秒
+
+- **严重程度**：重要；**类别**：安全与性能／不变量。
+- **位置**：`packages/dev-panel/src/core/references.ts:13-16,60,73`；调用处 `packages/dev-panel/src/core/artifacts.ts:709`；锁范围 `packages/dev-panel/src/core/transaction.ts:375-376,464,515-519`。
+- **现象**：每个引用的行号都从全文开头重新数换行。真实 CLI 发布含 5,000／10,000／20,000／40,000 行 `url(data:,x)` 的 CSS，HEAD 分别耗时 360／910／2,847／11,477 毫秒，base 为 154／138／142／163 毫秒。40,000 行仅 1,160,000 字节，data URL 最后虽不进图，前面仍全部计算行号。另一条独立慢路径是 CSS_URL 的相邻 `\s*` 在缺失右括号时回溯：`url(` 后只有 32,000／64,000／128,000 个空格，文件仅 32,019／64,019／128,019 字节，HEAD 耗时 514／1,630／6,795 毫秒，base 为 148／143／198 毫秒。
+- **为什么是问题**：这不是循环引用不收敛，而是有限输入的平方级计算。发布在全仓记录锁内同步解析，其他 Work/Task/答复写入都被阻塞；面板每次重算 currentContentHash 也走相同解析，同步 CPU 工作还会阻塞服务事件循环。没有文件尺寸或引用数上限。基线只读取并摘要 CSS，没有这两条扫描，因此是本次新增的退化。
+- **如何核实**：`TMPDIR=/dev/shm/review-t16-impl-lab/tmp bun /dev/shm/review-t16-impl-lab/performance.ts`；14 次真实 CLI 子进程、14 个独立 Git 仓库，全部退出 0，逐组对照 HEAD/base。没有直接调用内部解析器作为严重程度依据，没有 fake timer。以上数字是一轮实际测量，不声称精确基准或并发锁超时已经运行。
+- **建议改法**：线性词法扫描同时维护行号与 URL token，或预建换行索引再单调推进；删掉可回溯的 URL 正则路径。用无右括号、长空白与大量 data 引用作为解析边界；可加有明确信息的资源上限，但不靠提高超时解决算法退化。
+
+### 5. 新明细测试把诊断措辞锁死，改同义文字也会失败
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/dev-panel/tests/artifacts-cli.test.ts:320-322`。
+- **现象**：新用例把 `invalid_question_id` 和 `options_missing` 的完整中文解释放进 toEqual。临时副本仅把“single 题至少要两个选项”换成“single 题需要至少两个选项”，题号、错误码、退出码、明细结构和判定逻辑都不变，测试在第 322 行失败（0 pass、1 fail）。另一次删除页面定位字段的真正行为变异也能被它抓到（在第 320 行失败），说明该用例可以保留行为部分，不需要锁死解释措辞。
+- **为什么是问题**：合同要求提供题号、原因、错误码与定位，不要求这两句的逐字文本；测试规范明确不测措辞和变更探测。当前断言会把无行为变化的诊断改写误报为回归，给主会话“改代码就要改期望”的反复造成压力。这两个逐字断言由本次新增，base 没有。
+- **如何核实**：仅在 `/dev/shm/review-t16-impl-lab/head/` 的导出副本做变异，执行 `TMPDIR=/dev/shm/review-t16-impl-lab/tmp bun test --isolate tests/artifacts-cli.test.ts -t '不带 --json'`，cwd 为该副本的 packages/dev-panel；两次预期失败均由真实 CLI 子进程输出触发。每次变异后恢复原文，审查 worktree 未修改。
+- **建议改法**：删除这两个完整措辞断言，保留退出码、题号、page:line:column、括号里的错误码与明细条数；原因检查语义所需信息，不逐字绑定当前解释。20 条上限与超额计数是明确合同，继续按该合同验证。
+
+### 6. 旧失败发布记录的题目页面种子没有回归测试，删掉保护后 45 条产物测试仍全部通过
+
+- **严重程度**：建议；**类别**：测试／不变量。
+- **位置**：`packages/dev-panel/src/core/artifacts.ts:733-736`；`packages/dev-panel/tests/artifacts-write.test.ts:333-350`；`packages/dev-panel/tests/artifacts-cli.test.ts:234-270`。
+- **现象**：在实验副本仅把 `versionSeeds` 改成 `return [...(version.files ?? [])]`，删掉上一版题表中 `page` 的种子。`TMPDIR=/dev/shm/review-t16-impl-lab/tmp bun test --isolate src/core/artifacts.test.ts tests/artifacts-cli.test.ts tests/artifacts-write.test.ts` 仍是 **45 pass、0 fail、228 次断言**。现有失败恢复用例发布的是带 `files` 的新记录；旧页闭包用例又已经提交了旧页，二者都由其它种子保住页面，没有测到这条兼容保护。
+- **为什么是问题**：这是计划审查第 3 条要求保住的真实数据边界，不是不可构造的内部状态。base CLI 的发布记录没有 `files`；真实 git add 失败时，未链接但含题的页面还未跟踪，只能由旧题表的 `page` 找回来。当前正式实现正确，本条不是代码回归；缺口是有破坏性后果的分支可被删掉而测试仍绿。
+- **如何核实**：`TMPDIR=/dev/shm/review-t16-impl-lab/tmp bun /dev/shm/review-t16-impl-lab/legacy-seeds.ts` 在两份真实 Git 仓库持有 `.git/index.lock`，各经 base CLI 发布入口及未链接的 side.html，第一次均退出 1、git_lock_timeout。放锁后，正式 HEAD CLI 只补交 v1、入口、side.html，`unchanged: true`、题 pending-side 的 outcome 为 null；删保护的实验副本 CLI 则生成 v2，`dropped: ["pending-side"]`、outcome 为 `{kind: "superseded", in: 2, by: null}`，side.html 没有提交。不是手造题表或直接调用内部函数。实验副本现已恢复。
+- **建议改法**：在现有“发布提交失败后的补救”行为用例里补旧格式失败记录的迁移场景：文件没有被跟踪、上一版没有 `files`、页面不从入口可达。断言只补交、题未被取代、旧题页面及依赖都进入提交；去掉题目页面种子时该用例必须失败。
+
+## 未发现问题的方面
+
+以下结论不覆盖第 1—4 条的引用提取缺陷；对下面列出的边界，仔细检查后没有发现新增实现问题。
+
+- **发布与面板的集合来源一致（已验证与代码核对）**：publish 的种子为入口、Git 已跟踪文件、versionSeeds 和本次 include；currentContentHash 使用同一个 artifactFileSet 与 versionSeeds，本次 include 已存在版本 files 中。真实 CLI 的 add 失败实验中，版本已落盘、Git 还未跟踪 3 个页面／数据文件，面板所用 currentContentHash 仍等于发布摘要；不再给 include 的重跑只补交 4 个路径、版本列表仍为 `[1]`，两道未答题 outcome 均为 null。新加入 data.json 后摘要改变、出 v2、files 更新；重复发布 unchanged，ask 派生 v3 沿用清单与摘要，未引用的截图不改变面板摘要。
+- **不比较 files 的去重（已验证与代码核对）**：摘要逐项包含文件路径与内容摘要，正常生产记录中真正的文件集变化会改变 contentHash，不会因忽略 files 而漏出新版。base 成功版本没有 files，HEAD 在集合与内容未变时返回 unchanged；当前 Git 的已跟踪集合能重建它。旧失败版本由题表页面找回的路径已通过真实 CLI 核实，正式实现正确，测试缺口见第 6 条。没有发现可通过正常命令产生“集合改变、摘要不变”的反例，不把手工改坏清单或哈希碰撞当成回归。
+- **include 的拒绝边界（已验证）**：不存在、被忽略、目录、versions/、answers/、`../` 与绝对路径均被拒绝；符号链接报 unsafe_path。补充实验明确比较前后版本列表：目录与保留目录失败不追加版本，符号链接也不追加。普通目录被归入“忽略或保留目录”的 usage 文案虽不准确，但不是绕过校验或漏提交。
+- **撞号分区与调用方（已验证与代码核对）**：两组既有冲突使 work new 领到 w00004、task new 领到 t03；conflicts 为空、otherConflicts 为 2、没有 number_conflicts，status／registry import 仍列出完整两组。纯函数正例以 `kind + 完整 workId/Task 号` 匹配，未把不同 Work 的 t01 混为一组。面板新建响应确实沿用同一核心形状，但 NewPage 只取 workId、taskId 与提交结果，successNotice 只读 warnings；不依赖创建响应的 conflicts。现有面板新建与产物 API 测试通过，首页全量冲突仍来自 status 读路径。
+- **no-lease（已验证）**：补充了 Work／Task 两种命令、已知／未知调用者、成功／pre-commit 拒绝 8 个组合。成功退出 0、拒绝退出 1，全部 lease 为 null，没有 caller_unknown；已知调用者登记 by 为 external:review，未知调用者 by 为 null。现有 herdr 用例也核对不写 pane 标签。选项只跳过事后租约，不跳过领号归属；失败提交后仍保留已领编号与已写路径。
+- **SIGHUP 与监听收口（已验证）**：真实 CLI 子进程分别收到 SIGTERM、SIGINT、SIGHUP，均返回退出码 4 与 wait_interrupted JSON 外壳；没有只看到信号退出却漏 JSON。另在同一进程连续运行公开 runCli、由 OS 派发三种信号，监听数量每次都从 `[0,0,0]` 回到 `[0,0,0]`。注册／移除位于同一个 try/finally，和 panel serve、dev start 的三个信号集合一致。删除 SIGHUP 注册的变异使现有用例以 JSON Unexpected EOF 失败。SIGKILL 不可能输出外壳，不当作本次缺陷。
+- **lab-shot 的等待逻辑（从代码推断，未做浏览器运行）**：Lab 挂载时组件索引与场景登记已同步完成，懒加载的是 fixture 的组件，不是清单；新的不在清单分支不依赖 ready，合法组件／场景仍按 component、scene、ready 或 loadError 等待。安装的 Playwright waitForFunction 文档明确只在真值时返回 JSHandle，所以 `if (outcome === false) throw` 实际不可达，仅用于类型收窄，没有发现它改变正常执行。未知目标抛错仍由原有 page.close 与 browser.close 的 finally 收口。当前 lab-shot.e2e.ts 只覆盖正常截图与溢出退出，没有未知组件／未知场景的验收；按本审查禁令未运行或伪造浏览器验证，应由主 Agent 补真实服务 smoke。
+- **普通输出与其它消费者（已验证与代码核对）**：20 条上限、超额计数、位置／引用明细与 stderr 分流由真实 CLI 测到。对四种明细码分别给缺 details、空 details、坏数组条目的临时纯函数检查没有抛错。ask 的前缀变化只作用于该操作的 invalid_questions problem.message；面板答复走 submitAnswer 的 invalid_answer／reason，不消费这一新文案，未发现重复题号或按文案分支。措辞过度断言仍见第 5 条。
+- **测试与失败收口（已核对）**：新 CLI 场景用真实 Git、文件与子进程，等待信号先等“等待中”，不是固定睡眠。startWaiter 与租约测试资源都登记到 afterEach；变异失败时清理也运行。真实 index.lock 与 pre-commit 是真实失败边界，缩短核心层锁预算不改变机制。没有新加 mock、spy、假计时器或固定等待；对现有测试依赖继承的 fake，不扩大声称为真实 herdr／Claude 验收。
+
+## 验证记录与边界
+
+源码位置与提交范围仍是本报告开头的固定 worktree；前 5 条保持原样，没有重写。以下均为本会话实际运行，不采用交付报告的测试自述。
+
+**中断前已运行（同一固定提交，本次未重复冒充新验证）**：
+
+- cwd 为审查 worktree 的 packages/dev-panel：`TMPDIR=/dev/shm/review-t16-impl-lab/tmp bun test --isolate src/core/artifacts.test.ts src/core/references.test.ts src/core/questions.test.ts src/core/scan.test.ts tests/artifacts-cli.test.ts tests/artifacts-write.test.ts tests/cli.test.ts tests/leases-cli.test.ts tests/panel-writes-core.test.ts`：97 pass、0 fail、505 次断言。
+- 同 cwd：`TMPDIR=/dev/shm/review-t16-impl-lab/tmp bun test --isolate tests/panel-server.test.ts tests/panel-writes.test.ts tests/panel-writes-core.test.ts -t '场景 2|新建|开发者身份|创建|领号'`：9 pass、0 fail、36 filtered out。这是临时测试服务器，不是开发服务；未开浏览器。
+- 审查 worktree 根：`TMPDIR=/dev/shm/review-t16-impl-lab/tmp bun run --cwd packages/dev-panel typecheck` 与 `TMPDIR=/dev/shm/review-t16-impl-lab/tmp bun run --cwd packages/neuro-book typecheck`：均退出 0。后者包含 tsconfig.browser-test.json 的 lab-shot.ts。
+- `probes.ts`、`performance.ts`、`recovery.ts` 的真实 CLI 实验：证据见各发现及上面的发布恢复、旧成功版本、srcset／明细说明。150,000 个 data URL 候选的 srcset 发布在 HEAD 313 毫秒完成，未发现 srcset 的循环／超长输入卡死；不据此否认 CSS 的平方级路径。
+
+**继续后新增的验证**：
+
+- `TMPDIR=/dev/shm/review-t16-impl-lab/tmp bun /dev/shm/review-t16-impl-lab/supplement.ts`：退出 0；文件集变化／派生版本、5 个 include 拒绝边界与 8 个 no-lease 组合均满足上述判据。
+- `TMPDIR=/dev/shm/review-t16-impl-lab/tmp bun /dev/shm/review-t16-impl-lab/signals.ts`：退出 0；3 个真实 CLI 信号外壳、3 次同进程监听收口均正确。
+- `TMPDIR=/dev/shm/review-t16-impl-lab/tmp bun /dev/shm/review-t16-impl-lab/legacy-seeds.ts`：修正实验脚本误以为正式路径一定生成 v2 的读文件步骤后，完整实验退出 0。正式 CLI unchanged 只补交；去掉题目页面种子后，真实 CLI 永久取代仍在磁盘的 pending-side。第一次脚本 ENOENT 是实验误读路径，不是产品失败。
+- 在导出的实验副本分别删 no-lease 判定、删 files 种子：对应测试各 0 pass、1 fail，证明能抓到；删旧题表页面种子则 45 pass、0 fail，缺口见第 6 条。所有变异均只在 `/dev/shm/review-t16-impl-lab/head/`，已恢复；对 5 个改过的副本文件逐一 cmp 与正式源码相同，退出 0。
+- 恢复后 cwd 为审查 worktree 的 packages/dev-panel：`TMPDIR=/dev/shm/review-t16-impl-lab/tmp bun test --isolate tests/artifacts-write.test.ts tests/leases-cli.test.ts tests/cli.test.ts src/core/scan.test.ts -t '带 --include 的发布 git add 失败|--no-lease：|场景 6：已有|领号时的撞号'`：4 pass、0 fail、39 filtered out、23 次断言。
+
+**未运行与后续核实边界**：没有跑全量测试、build、e2e、开发服务、浏览器、真实模型或真实 herdr。主 Agent 需要在真实 Lab 服务上跑未知组件、合法组件的未知场景、合法组件／合法场景三条 smoke；本报告没有用假的 Page 对象代替这些验收。没有修改仓库源码、测试、配置或前 5 条报告，没有 commit、push、stash、切换分支。实验脚本和临时仓库按要求清理，命令记录描述本会话当时的运行，不声称它们是仓库中的永久测试入口。
+
+## 基线事项与回写边界
+
+base 已有的全目录提交截图行为在第 1 条已明确区分；旧 HTML 资源解析缺口在 base 被全目录提交掩盖，本次实际漏交才列入发现。其它包内旧测试的固定等待、lab-shot 点击后的 waitForTimeout、旧 e2e 子进程超时清理缺口未由本次引入，不另算本次回归。没有发现必须追加到全局规则的新约定：测行为、失败收口、按验收判据做变异检查已有测试规范，建议按第 5、6 条在原有测试中修正，不另加一套治理规则。
+
+## 数量
+
+- 阻断：0 条。
+- 重要：4 条（第 1—4 条）。
+- 建议：2 条（第 5、6 条）。
+- 合计：6 条。
+
+收尾实测：在审查 worktree 执行 `git status --short`，输出为空；`grep -c '^### ' <本报告路径>` 输出 6；`test ! -e /dev/shm/review-t16-impl-lab` 退出 0。工作区干净，实验目录已删除。

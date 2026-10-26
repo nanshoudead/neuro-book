@@ -1,0 +1,140 @@
+# w00030 t03 弹出列表零件：实现审查报告（Sonnet）
+
+范围：`bc42db285` 起到 `fac385d59` 的 S1 到 S5（主分支 master 之后又有新提交，比较基点取 merge-base）。已跑 nb-ui typecheck 通过、单测 37 文件 541 条通过。实验文件在 `/tmp/t03/review-impl/scratch/`。
+
+---
+
+## 1. 级联键盘的“预约焦点”不会在子菜单已展开时消费，也不会被 reset / truncate 清掉，之后任意一次点开子菜单会把焦点抢进去
+
+- **严重程度**：重要；**类别**：正确性 / 不变量
+- **位置**：`packages/nb-ui/src/composables/useMenuCascade.ts:114-126`（`focusNewLevel` 与 watch）、`:143-147`（`expectOpen`）、`:199-202`（`reset`）、`:107-112`（`truncate`）
+- **现象**：`expectOpen` 在父项上按右方向键、Enter、空格时把 `focusNewLevel` 置 true，只有 `watch(() => levels.value.length)` 在层数变多时才消费它。父项的子菜单已经展开（鼠标悬停 300ms 后展开、或点击展开）时再按这几个键，`open()` 用同样层数的新数组替换第 depth 级，层数不变，watch 不触发：焦点既没进子菜单，预约还留着。`reset()`、`truncate()` 也不清它。之后任何一次层数变多（例如用鼠标点孙级父项）就被这条过期的预约把焦点移进新开的那一级。
+- **为什么是问题**：(1) 本来的右方向键对已展开父项无反应属原有缺陷；本次把右键菜单的 Enter、空格也并进同一个预约（计划第 2 节“有意统一”），把这个洞扩到了右键菜单。(2) 过期预约让“点击展开”这种本不该移动焦点的路径偷偷移动焦点，难以复现。(3) 计划与 README 没把“预约在什么时候作废”写成合同，只有卸载时清。
+- **如何核实**：已在 happy-dom 里复现，脚本 `/tmp/t03/review-impl/scratch/stale.test.ts` 与对照 `control.test.ts`（两者只差中间多按一次 ArrowRight）。步骤：打开右键菜单，ArrowRight 展开“更多”，ArrowLeft 收起，对“更多”`click()` 展开；焦点仍在“更多”上时再按 ArrowRight，焦点仍是“更多”（没进子菜单）；然后 `click()` 子菜单里的“孙父”。有这次 ArrowRight 时焦点跳到“孙一”，没有（对照）时焦点留在“更多”。
+- **建议改法**：把预约绑在一次具体的展开上，而不是全局布尔。例如 `expectOpen` 记下 `depth`（目标层 = 当前层 + 1），`open()` 完成该层的测量后（不管层数是否变多）直接判断“这一层是不是预约的那一层”并聚焦，然后清预约；`reset`、`truncate`、ArrowLeft 都清预约。这样已展开时按右方向键也会把焦点送进子菜单（与 reka 菜单原语的键盘一致）。补一例：子菜单已展开时按右方向键，焦点进第一项；预约不影响之后的点击展开。
+
+---
+
+## 2. `Tabs.md` 仍写着“当前值不对应任何启用项时右方向键落到第二个”，与本次改后的行为和新测试相反
+
+- **严重程度**：重要；**类别**：文档
+- **位置**：`packages/nb-ui/src/components/controls/Tabs.md:28`；对照 `packages/nb-ui/src/components/controls/Tabs.vue:69-78`、`packages/nb-ui/src/components/components.test.ts` 新增的“当前值不对应任何标签时”一例
+- **现象**：S3 把 Tabs 的起点改成与 SegmentedControl 一致（右方向键从第一个开始），这个改动的 diff 里没有 `Tabs.md`。该句原文是有意写成的合同：“移动起点按第一个启用项算：`ArrowRight` 会落到**第二个**启用项，`ArrowLeft` 落到最后一个。”现在 `ArrowRight` 落到第一个。
+- **为什么是问题**：组件同名 `.md` 是行为合同；文档与实现、与新增测试相反。开发者虽已确认这一处行为变化，但没人改合同，后续会有人按文档把行为“修回去”。`SegmentedControl.md:29` 已经是“向后从第一项”，两份文档现在互相矛盾。
+- **如何核实**：`git diff --stat bc42db285..HEAD -- packages/nb-ui/src/components/controls/Tabs.md` 为空；读第 28 行。
+- **建议改法**：把第 28 行改成“……起点按“没有当前项”算：`ArrowRight` 落到第一个启用项，`ArrowLeft` 落到最后一个”，并注明与 SegmentedControl 一致。
+
+---
+
+## 3. `ui-development-spec.md` 的 QuickPick 一节仍写“走 `moveHighlight`”
+
+- **严重程度**：建议；**类别**：文档
+- **位置**：`packages/nb-ui/docs/ui-development-spec.md:281`
+- **现象**：“ArrowUp/Down 走 `moveHighlight`（跳过禁用、首尾回绕）”。`moveHighlight` 与 `option-highlight.ts` 已删，现在是 `utils/roving.ts` 的 `moveRoving`。
+- **为什么是问题**：计划第 `Spec 与文档改动` 表要求讲弹出列表的句子随之更新；全仓 `git grep moveHighlight` 只剩这一处（另有 `docs/proposals/workbench-commands.md` 的调研表，按规则不改）。读者按名字找不到函数。
+- **如何核实**：`git grep -n moveHighlight -- ':!docs/proposals'`。
+- **建议改法**：改成 `moveRoving`（`utils/roving.ts`）。
+
+---
+
+## 4. `measureCascadePanel` 的缩放比例取自 `offsetHeight`（整数），面板高度不是整数时无 zoom 也会让位置偏几个像素，与“没有 zoom 时结果与改前逐项相同”不符
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`packages/nb-ui/src/utils/popup-geometry.ts:16-21`（`rectScale`）、`:142-173`（对 `left`、`right`、`top`、窗口宽高都除以 `scale`）
+- **现象**：`rectScale` 用 `getBoundingClientRect().height / offsetHeight`，而 `offsetHeight` 是四舍五入的整数。本次把它从“只在视口内部做相对换算”扩成“对绝对坐标（`anchor.left`、`parentRect.right`、`window.innerWidth`）整体除以比例”，比例的误差被坐标放大。我在真实 Chrome 里用独立页面量过：定位元素 `height: 90.4px`，`offsetHeight` 为 90，矩形高 90.390625，比例 1.00434，`left: 800px` 的元素被换算成 796.54（偏 3.5px）。
+- **为什么是问题**：面板高度不是整数的时机真实存在：`.nb-menu-level` 对 `top/left/width/height` 做过渡，同级父项之间快速切换（`switching`）时面板仍在上一次高度过渡中，量到的是中间的小数高度；`wrap` 的换行项、非整数字号缩放也会给出小数。无 zoom 时 `scale` 不再恒为 1，横向间隙（6px）可被吃掉一半。注释写“这个比例只来自 zoom”，对小数高度不成立。静态整数高度（常见路径）不受影响，e2e 与 happy-dom（`offsetHeight` 为 0 时回退 1）都测不到。
+- **如何核实**：脚本 `/tmp/t03/review-impl/scratch/frac.mjs`（用 playwright-core 加系统 Chrome 开独立页面，不起开发服务）。真实菜单里的复现由主会话在 `popup-scroll` 的 fixture 上做：同级父项快速来回悬停（间隔小于 `--motion-fast`），读 `.nb-menu-level` 与父级的水平间隙。
+- **建议改法**：比例别用取整的 `offsetHeight`。zoom 引起的比例可以用 `parseFloat(getComputedStyle(panel).height)`（CSS 像素，不取整）对 `getBoundingClientRect().height`；或在 `rectScale` 里对接近 1 的比例（例如 `|scale - 1| < 0.02`）直接返回 1，因为真实的 zoom（0.8、1.25 等）不会落在这一区间。无论哪种，在 `popup-geometry` 加一例单测：高度为小数的面板不改变位置。
+
+---
+
+## 5. 新增的 Menubar 级联键盘测试只有一组菜单，没有覆盖 reka 的“右方向键切换到下一组”，真实多组菜单栏里右方向键展开子菜单会被同时切到下一组
+
+- **严重程度**：重要（原有缺陷，本次新增的测试替它背书）；**类别**：测试 / 正确性
+- **位置**：`packages/nb-ui/src/components/popup/Menubar.test.ts:11-17`（只有 `file` 一组）、`:34-41`；reka 的 `node_modules/reka-ui/src/Menubar/MenubarContent.vue:34-62,103`；`packages/nb-ui/src/components/popup/MenuNodes.vue:52-58`（`onKeydown` 只 `preventDefault`）
+- **现象**：reka 的 `MenubarContent` 在根上挂 `@keydown.arrow-right.arrow-left`，对不是 `data-reka-menubar-subtrigger` 的目标（nb-ui 的级联父项是普通 `MenubarItem`）会调用 `rootContext.onMenuOpen(下一组)`，不看 `defaultPrevented`。我在 happy-dom 里加一组“编辑”重放 Menubar 测试的步骤：对“导出”按 ArrowRight，子菜单展开且焦点进 `Markdown`，同时 `update:modelValue` 发出 `"edit"`（脚本 `/tmp/t03/review-impl/scratch/menubar2.test.ts`，输出 `updates ["edit"] focused Markdown levels 1`）。宿主绑了 v-model 时顶层菜单就切到“编辑”，而“导出”的级联面板还开着。
+- **为什么是问题**：`rootKeydown` 的 `.capture` 只赶在 reka 前面预约焦点，不拦 reka 的切换。真实菜单栏几乎总是多组；单组的测试里 `wrapArray` 回到自己，切换成空操作，所以绿了。这项是原有行为（old `onContentKeydown` 同样），但本次把 Menubar 的级联键盘写成合同并新增测试，测试夹具与真实形态不一致，合同没被验证。
+- **如何核实**：真实 Chrome 里用 Lab 的 Menubar（两组以上）：打开第一组，ArrowDown 到带子菜单的项，按 ArrowRight，看顶层是否换了组、子菜单是否孤立。happy-dom 的重放已显示 reka 发出了切换。
+- **建议改法**：先在真实 Chrome 确认。若属实，把测试改成两组，并让父项上的右方向键不被 reka 当作换组：`rootKeydown` 里对 `aria-haspopup="menu"` 的目标且键为 ArrowRight 时 `event.stopPropagation()`（它在 capture 阶段，需要同时阻止 reka 自己的根监听；或把 `MenubarItem` 换成带 `data-reka-menubar-subtrigger` 的写法）。这条要改 `rootKeydown` 的“不调 stopPropagation”约定，需写进 `useMenuCascade` 的注释。
+
+> 第 5 条更正（建议改法）：上面写的“在 `rootKeydown` 里 `stopPropagation`”不对。`rootKeydown` 挂在 capture 阶段的菜单内容上，在那里阻止传播会让事件到不了项本身，`MenuNodes.onKeydown` 也收不到。正确位置是 `MenuNodes.vue:52-58` 的 `onKeydown`（项上的监听，目标阶段）：处理完右方向键后补 `event.stopPropagation()`，让事件不冒泡到 reka 的 `MenubarContent` 根监听。该监听在项的祖先上，所以能被拦住。
+
+---
+
+## 6. 右键菜单父项上的 Enter、空格展开，与鼠标/键盘 click 的先后依赖“浏览器先 keydown 后 click”，且 Space 的 click 在 keyup 才来，预约期间焦点可被别的键改变
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`packages/nb-ui/src/composables/useMenuCascade.ts:143-147`（`expectOpen`）、`packages/nb-ui/src/components/popup/MenuNodes.vue:79-82`（`onButtonClick`）
+- **现象**：右键菜单的父项是原生按钮，Enter 在 keydown 阶段触发 click，空格在 keyup 才触发。预约（`focusNewLevel = true`）在 keydown 设置，真正展开在 click，二者之间的窗口对 Enter 是同一个事件，对空格是按住到松开。按住空格期间如果按了别的键、或指针移到别项触发 hover 展开（`hasOpenSibling`），层数在 click 之前就变多，预约被那次展开消费，焦点被抢进别的子菜单。第 1 条是同类，这里单列是因为空格路径是计划“有意统一”新增的。
+- **为什么是问题**：窗口很短，影响小；但合同写成“预约焦点”而不是“这一次展开完成后聚焦”，是第 1 条的同一根因，修第 1 条时一并处理即可。
+- **如何核实**：真实 Chrome，右键菜单，焦点在父项上按住空格不松，同时把鼠标移到同级另一个父项上（300ms 后展开），松开空格，看焦点落在哪一级。
+- **建议改法**：并入第 1 条的改法（预约绑定到具体父项元素：click 时检查 `trigger === 预约的元素`才聚焦）。
+
+> 第 6 条注：未在浏览器验证，从代码推断；与第 1 条同根，修第 1 条时顺带覆盖，单独不值得改。
+
+---
+
+## 7. S3 重写了五处方向键逻辑，各自的“门槛”没有任何测试守着
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：`packages/nb-ui/src/components/popup/QuickPick.vue:173-181`（合并后的 Arrow/Home/End 分支，Ctrl/Cmd 只对 Home、End 让给输入框）、`packages/nb-ui/src/components/form/SearchSelect.vue:157-163`（只认上下键）、`packages/nb-ui/src/components/controls/SegmentedControl.vue:98-112`、`packages/nb-ui/src/components/controls/Tabs.vue:69-86`
+- **现象**：计划与设计审查第 3 条把“每个组件认哪些键、有什么门槛留在原处”写成验收（QuickPick 的 Ctrl/Cmd+Home/End 留给输入框；SearchSelect 的 Home/End 留给输入框移光标；SegmentedControl 只有一项不处理）。实际 `git grep` 这些测试：`QuickPick.test.ts` 与 `SearchSelect.test.ts` 里没有 Home、End 的用例（QuickPick 只有 ArrowDown，SearchSelect 只有 ArrowDown/ArrowUp）；`SegmentedControl` 只有“没有选中值”一例（两个方向键）；Tabs 只有 ArrowRight 与新增一例，没有 ArrowLeft 回绕、Home、End。计划验收表写的是“现有单测原样通过”，但现有单测并不覆盖被改写的分支。
+- **为什么是问题**：QuickPick 原来 `Home/End` 的修饰键判断是单独一个 case，现在合并进 `ArrowDown/ArrowUp/Home/End` 同一分支，里面再按键名判断——这是最容易写反的一处（把 `||` 写成 `&&`，或把判断扩到 Arrow 键）。测试全绿也不能证明 Ctrl+Home 仍留给输入框，也不能证明 SearchSelect 不消费 Home/End；后人把它们“统一成 `rovingMove(key, "vertical")`”不会有任何测试失败，输入框里的 Home/End 光标移动就坏了。
+- **如何核实**：`git grep -n "Home\|\"End\"" -- packages/nb-ui/src/components/popup/QuickPick.test.ts packages/nb-ui/src/components/form/SearchSelect.test.ts packages/nb-ui/src/components/components.test.ts` 无相关用例。变异检查：把 QuickPick 的 `(event.ctrlKey || event.metaKey)` 判断删掉，现有 541 条应仍全绿（可在副本里验证，我没有改仓库）。
+- **建议改法**：补三例真实键盘测试：QuickPick（Home、End 移动高亮；带 Ctrl 或 Meta 时不移动、不 `preventDefault`）；SearchSelect（打开后 Home、End 不改 `aria-activedescendant`、不 `preventDefault`）；SegmentedControl（Up/Down/Home/End，跳过禁用项，只剩一个启用项时不 `preventDefault`）。Tabs 补 ArrowLeft 回绕与 Home/End。
+
+---
+
+## 8. 小的代码质量与一致性问题
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置与说明**：
+  1. `packages/nb-ui/src/composables/useMenuCascade.ts:6,9`：`MENU_SUBMENU_HOVER_DELAY_MS` 与 `createSubmenuScheduler` 仍 `export`，全仓没有别的使用方（计划写“只给 `useMenuCascade` 用”）。多出的公开面没人维护，去掉 `export`。
+  2. `packages/nb-ui/src/components/popup/QuickPick.vue:181`：`moveActive(rovingMove(event.key, "vertical")!)` 靠非空断言，外层 `switch` 已限定四个键，断言成立但读者要推演。可以在 case 里直接按键名映射，或让 `rovingMove` 在这里的调用不需要 `!`（例如先 `const move = rovingMove(...); if (move === null) return;`，统一风格，与 `Tabs.vue`、`SegmentedControl.vue` 一致）。
+  3. `packages/nb-ui/src/components/form/SearchSelect.vue:139`：`move(action: RovingMove)` 的参数类型包含 `first`、`last`，而调用方只传 `next`、`prev`，且计划特意说明“Home/End 留给输入框”。把类型收成 `"next" | "prev"`，让“只认上下键”由类型体现。
+  4. `packages/nb-ui/src/components/controls/Tabs.vue:56-58`、`packages/nb-ui/src/components/popup/DropdownMenu.vue:97-100`：删掉代码后留下连续两个空行，与周围风格不一致。
+  5. `packages/nb-ui/src/composables/useMenuCascade.ts:128-141`：`levelContent`、`parentLevel`、`itemsIn` 三个内部函数各自带 `querySelector`，选择器字符串 `.nb-menu-level-content`、`:scope > [aria-expanded='true']`、`:scope > [role^='menuitem']:not([disabled])` 散落在三处，且与 `MenuNodes`、`MenuLevelPanel` 的类名耦合。可以把这三个选择器收成文件顶部的具名常量，改 DOM 结构时只改一处。
+- **如何核实**：`git grep -n "createSubmenuScheduler\|MENU_SUBMENU_HOVER_DELAY_MS"`，读各行。
+- **建议改法**：见各条。
+
+---
+
+## 未发现问题的方面（逐项仔细检查后）
+
+- `useMenuCascade` 的 `rootLevel` 三个入口：DropdownMenu 取 `scroll.viewport`、Menubar 取打开着的那组的 `[data-menubar-level]` 视口、右键菜单取根里第一个 `.nb-menu-level-content`；三处条目都是该容器的直接子元素（`MenuNodes` 是 Fragment，分隔线与项直接落在容器里）。`:scope >` 在嵌套菜单里与原来的后代选择器等价，原因是每一级的面板都是 DOM 上的兄弟而不是嵌套，不存在更深层的 `[aria-expanded='true']` 可被后代选择器误命中。
+- 右键菜单 `rootKeydown` 挂在外观层 `div[role=menu]`、`levelKeydown` 挂各级面板，二者是兄弟，事件不会处理两次；Tab、Escape 仍由 document 监听处理，`useMenuCascade` 不调 `stopPropagation`，`ContextMenu.test.ts` 新增“焦点在子菜单项上时 Tab、Escape”一例有效。
+- `rootKeydown` 的 `.capture` 与 reka 的先后：预约只置位标志，不依赖 reka 先后；Enter、空格在 reka 的 `handleSelect` 里经 `click()` 触发，之后才展开，预约总在展开之前。除第 1 条所列的“已展开时不消费”外没有顺序问题。
+- 卸载：`onBeforeUnmount` 取消悬停定时器并清预约；`open()` 在 `await nextTick()` 之后读 `openedPanels[depth]`，此时面板 ref 已置空，`measureCascadePanel` 不会被调用，没有别的待执行回调。
+- `MenuNodes` 的 `rekaItems`：`v-for` 用下标当 key，同一下标始终对应同一位置的元素，增删项、分隔线切换时 ref 回调以 `null` 清理，不会对错；reka 的 `select` 事件确是只交给监听者、元素上没有派发（`node_modules/reka-ui/src/Menu/MenuItem.vue` 的 `handleSelect` 里 `emits('select', ...)`），所以必须自己取元素。
+- `MenuRow` 插槽转发：`DropdownMenu → MenuNodes → MenuRow` 每一层在宿主没给插槽时都得到空 Fragment，Vue 的 `ensureValidVNode` 判为无效，落回默认格；宿主返回注释节点或 `null` 时同理，结果与改前 `MenuNodes` 里 `<slot>` 的后备内容一致。`Select` 把 `SelectItemText` 放进 `label` 插槽，注入链经 `MenuRow` 的组件实例仍到达 `SelectItem`（新增 typeahead 单测通过）。多根 `MenuRow` 放进 reka 的项里没有属性透传问题（`inheritAttrs: false`，也没有传属性）。
+- 五个方向键使用方的键与起点：Tabs（除已确认的边界）、SegmentedControl、QuickPick、SearchSelect、级联菜单在代码层面与改前一致；问题只在没有测试守着（第 7 条）。
+- 依赖方向：`utils/` 不导入 `composables/`、`components/`；`composables/` 里被本次触及的文件不再导入 `components/`（`useGridLayout` 等是本 Task 范围外）。
+- 搬迁（S1）只改导入路径，其余改动（`ContextMenuPanel.vue` 的导入拆分、`useMenuCascade.ts` 并入调度器）与提交说明一致。
+- 旧路径引用：除 `docs/proposals/workbench-commands.md`（已接受提案的调研表，按规则不改）、`ui-development-spec.md:281`（第 3 条）、`Tabs.md:28`（第 2 条）外，没有指向旧目录、`menu-cascade`、`option-highlight`、`popoverInlineSurfaceStyle`、`data-menu-shortcut` 的文字。`neuro-book` 包里 `inspect.dom.test.ts`、`component-index-model.test.ts` 的旧路径是字符串样例，不读文件。
+- F43：Select、ColorSwatches 只绑层级与宽度，材质来自两个类；e2e 的 `material` 场景用 `getAnimations` 等动画结束后再比计算样式，不依赖固定等待；`token-consumption.test.ts` 的规则没有放宽（只改了名称与理由）。
+- 测试写法：新增单测没有 mock、spy、假计时器、固定等待；Menubar 的 `flush` 是 `nextTick` 循环而不是时长。
+
+## 数量
+
+- 阻断：0
+- 重要：4（第 1、2、5、7 条）
+- 建议：4（第 3、4、6、8 条）
+
+> 说明：第 5 条是原有缺陷（改前同样），第 1 条的右方向键部分也是原有缺陷，右键菜单的 Enter、空格部分是本次新增的统一。第 4、6 条未在真实浏览器完整验证：第 4 条的偏差公式已在真实 Chrome 独立页面验证，菜单里的实际偏差量需主会话用 popup-scroll fixture 复核；第 6 条从代码推断。
+
+---
+
+# 处理结果（主会话，2026-10-21）
+
+审查者：Claude Sonnet（reviewer 子代理），只读，一轮。8 条：重要 4、建议 4；成立 7 条（含第 6 条与第 1 条同根），1 小项不改。修正提交 f68cb0bc9。
+
+1. 成立，修：焦点预约改记“要进的是第几级”，按 `levels` 的每次写入判断；子菜单已开着时右方向键照样进去，没展开出来、收起、重置、卸载时作废。补 `ContextMenu.test.ts`“子菜单已经开着时在父项上按右方向键”（改前失败）。
+2. 成立，改：`Tabs.md` 的起点说明与改后行为一致。
+3. 成立，修：真实 Chrome 复现（e2e 先失败）——Menubar 一级里在父项上按右方向键，reka 切到下一组、焦点没进子菜单。MenuNodes 在 reka 分支处理右方向键后阻止冒泡（宿主的 `rootKeydown` 在 capture 上，先已处理；按钮分支照旧冒泡给级联键盘）。验收夹具的 Menubar 加第二组，补 e2e 一条、单测断言不发 `update:modelValue`。这是原有缺陷。
+4. 成立，补测试：QuickPick 的 Home、End 与 Ctrl/Cmd 让给输入框；SearchSelect 的 Home、End 不消费；SegmentedControl 的上下、Home、End、跳过停用与回绕；Tabs 的左方向键回绕与 Home、End。
+5. 成立，修：级联面板的比例改用 `currentCSSZoom`（含祖先 zoom，浏览器不提供时退回 `rectScale`）。`usePopupScroll` 里的 `rectScale` 还要算入场的 `transform: scale`，不换。
+6. 与第 1 条同根，随第 1 条修正。
+7. 成立，改：`ui-development-spec.md` QuickPick 一节改写为 `moveRoving`。
+8. 小项：悬停调度与延迟常量不再导出；QuickPick 去掉非空断言；`Tabs.vue` 的连续空行去掉。不改：SearchSelect 的 `move` 参数用 `RovingMove`（只传 next、prev，类型宽一点不影响正确性）；选择器字符串散落三处（各自所在的组件里读得懂，抽常量收益小）。
+
+修正后：nb-ui typecheck、单测 546、整套 e2e 59 条通过。

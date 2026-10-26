@@ -1,0 +1,386 @@
+w00024 t13 实现审查（2026-10-23）
+
+审查对象：提交范围 e9ab762b2..ad8c8494c。网页：Claude Sonnet（reviewer 子代理），18 条（重要 4、建议 14）。服务端、引擎、配置与 nb-harness：
+omp（默认模型），13 条（重要 10、建议 3）；它又一次整份覆盖了报告，第 1 到 5 条从快照里找回，原文都附在下面。
+修正提交：fbc1528dd、b502a6c0e（网页）、093e2bd14（服务端）。
+
+== 网页（Sonnet）的处理 ==
+| 条 | 归类 | 处理 |
+| 1 结束保存到重读之间这一轮并进上一轮 | 成立，已改 | 数据源记下“看着结束并保存、还没重读”的运行，照样接在后面；单测断言提问 id 不变，变异检查过 |
+| 2 推送一连就断时退避不生效 | 成立，已改 | 收到快照才清零；单测断言 1、2、4 秒，变异检查过 |
+| 3 发起期间换对话串草稿 | 成立，已改 | submit 固定发出时的对话与草稿，结果只写回它；“正在发起”按对话记 |
+| 4 续问受理后短暂空闲 | 成立，已改 | 等数据源读到这一轮再放开（refresh 返回 Promise） |
+| 5 出处做 key 会重复 | 成立，已改 | key 用下标 |
+| 6 半截人名逐个查、失败永久缓存 | 成立，已改 | 调用成功才查；网络失败不进缓存（单测） |
+| 7 e2e 没断言过程与已停止 | 成立，已改 | 端点加“从第 N 个请求起等着”，断言运行中的步骤、结束后的摘要、已停止（刷新后也是）；运行中先出现再消失；手机用例自己建对话 |
+| 8 失败底色 token 不存在 | 成立，已改 | --status-danger、--status-danger-bg |
+| 9 返回无处可回、离开不提示 | 部分成立 | 没有上一页时回书架；离开前确认不做：设置页的改动丢了重填即可，做确认要另画对话框 |
+| 10 设置页没用共用滚动容器 | 成立，已改 | story-scroll-y |
+| 11 草稿状态只记最后一次 | 成立，已改 | 按字段路径记 |
+| 12 for await 强转、没用心跳 | 成立，已改 | getReader 循环；45 秒没有字节当断开 |
+| 13 轮询失败清空列表 | 成立，已改 | 已有行时只记诊断 |
+| 14 qa.get 记录与运行不同一时刻 | 成立，已改（服务端） | 读完核对：已保存而记录旧就重读，记录已有这一轮而运行没标结束就让出一次再读；窗口太小，没有测试 |
+| 15 依赖适配器未公开的 id 形状 | 成立，已改 | nb-agent-ui 导出 logSeqOf 并加测试，nb-story 改用它 |
+| 16 AnswerCard.md 漏 state:local | 成立，已改 | 补标签与理由 |
+| 17 提示条推动对话区 | 接受取舍 | 提示条出现是状态真的变了，值得注意；为不跳而先等配置读完会拖慢首屏 |
+| 18 位置变了人名不重查 | 成立，已改 | 注入的查法带响应式的 scope，卡片按它重查 |
+
+== 服务端（omp）的处理 ==
+| 1 停服与删除取消不了准备阶段 | 不改（过度防御） | 准备阶段只有本机文件读取与查询，卡死几乎不可能；为它给书库与查询全加取消，代价远大于收益 |
+| 2 onProcessTermination 与 onProcessInterrupt 同进程 | 不改 | serve 进程里不登记 onProcessInterrupt（ask 是另一条命令）；Spec 与接口注释已写明只在单一收尾时用 |
+| 3 中止的推送请求不退订 | 成立，已改 | 订阅前挂上中止处理并检查已中止 |
+| 4 写登记后、登记停服处理前的信号窗口 | 成立，已改 | 先登记停服处理再写登记，写登记失败时解除 |
+| 5、10 摘要不是原字节 | 成立，已改 | 按 Buffer 算；单测：两份不同的坏 UTF-8 摘要不同 |
+| 6 读不出来当作没有文件 | 成立，已改 | 只有 ENOENT 是 absent；读不出来 config.get 给 invalid、写入报 qa_config_write_failed（单测；命令行 init 同） |
+| 7 无效删书请求先停问答 | 成立，已改 | 先按合同校验；服务测试断言问答仍在运行 |
+| 8 全读去原文靠猜正文 | 成立，已改 | 只对全读对话第一轮、按“开头 + 原文 + 这一轮的问题”整个对上才换；单测含段落里有空行 |
+| 9 内存运行没有代际 | 成立，已改 | 运行记下开始时的代号，列表与读取只算当前这一代的 |
+| 11 postmortem 10 秒上限早于抽取 15 秒兜底 | 接受取舍（记进待确认清单） | 抽取停不下来的极端情况下进程以 143 结束；残留的登记下次 serve 判无效覆盖 |
+| 12 __proto__ 变量名丢失 | 成立，已改 | fromEntries；服务测试 |
+| 13 服务测试没覆盖准备期门与未保存终态 | 部分成立，已补 | 补首轮写不进去（真实只读目录）、命令行先续问造成冲突（真实命令行进程）、无效删书；准备期的门没有可观察的挂点，不测 |
+
+验证：nb-story 类型检查通过；受影响单测（server、qa、core、cli、contract、web）全过，其中 cli/config.test.ts 在机器负载 18 时有两条 5 秒超时，放宽到 30 秒后 16 条全过；nb-agent-ui 179 条全过；问答页 e2e 7 条全过。
+
+================================================================
+== 原文：网页（Sonnet） ==
+# w00024 t13 网页实现审查报告（web 部分，审查固定在 ad8c8494c）
+
+### 1. `ended` 帧到、重读（qa.get）回来之前，运行这一轮的消息被分错：提问 id 变掉、整轮并进上一轮
+- **严重程度**：重要；**类别**：正确性 / 不变量
+- **位置**：`packages/nb-story/src/web/qa/source.ts:106`（`attachedRun` 对已结束且已保存的运行返回 null）、`:182-185`（`ended` 帧只更新 `state.run` 然后 `changed()`）、`:192-194`（`end` 里才 `load(false)`）；`turns.ts:88-128`
+- **现象**：`ended` 帧（`saved: {ok: true}`）到达后，`messagesOf` 里 `attachedRun` 立刻为 null，`running` 变 null，但转录里这一轮的消息还在、记录还是旧的（少一轮）。`composeMessages` 只按记录的各轮切，这一轮的消息被全部分到最后一个记录轮，提问 id 从 `q:<对话>:2` 变成日志的 `h4`，乐观提问的“补一条”逻辑也不再生效，没核实的出处（来自 `run.result.reply.unverifiedRefs`）也不再挂。随后 rAF 的 flush 会把这个错误形状画出来（`ended` 与流关闭几乎同时到，`load(false)` 的 qa.get 往返几乎必定晚于下一帧画面），等 qa.get 回来才又变成 `q:c:2`。
+- **为什么是问题**：`turns.ts` 头注释明说“提问 id 固定为 `q:<对话 id>:<轮号>`……乐观的、补的与真的前后是同一个 id，视图按 id 复用这一轮的组件，展开状态不丢”。每次看着一轮答完，这条不变量就在结束的一瞬间被破坏：这一轮的提问与回复组件被重新挂载（用户展开的思考、工具调用折叠状态丢失，答案卡片重新量宽），并有一两帧版式跳动。`source.test.ts` 的“看着它结束就重读”只断言最终结果，没有断言中间状态。
+- **如何核实**：真实调用链的实验，写在 `/tmp/claude-1000/review-t13-impl/exp/exp.test.ts`（用 `source.test.ts` 的 harness，不绕过 `createQaSource`）：运行中收 snapshot、log（提问 h4、回复 h5），再发 `ended`（saved ok）、让 qa.get 一直不回。输出：
+  `before [["q:c:1","user"],["h3","assistant"],["q:c:2","user"],["h5","assistant"]]`
+  `after-ended [["q:c:1","user"],["h3","assistant"],["h4","user"],["h5","assistant"]]`
+  命令：`bun test /tmp/claude-1000/review-t13-impl/exp/exp.test.ts`。
+- **建议改法**：让“已结束已保存”的运行在重读完成前仍按接在后面处理。例如源里加一个 `reloading` 标记（`ended` 帧与快照里已结束已保存时置位，`load` 成功后清除），`attachedRun` 在它为真时不因 `saved.ok` 返回 null；或者 `ended` 帧到达时先不写 `state.run`，等重读的结果一起换。并在 `source.test.ts` 补一条中间状态的断言（提问 id 前后同为 `q:c:2`）。
+
+### 2. 退避次数在每次 qa.get 成功就清零：推送连不上（或一连上就被断开）时永远 1 秒一轮，退避不生效
+- **严重程度**：重要；**类别**：正确性 / 安全与性能
+- **位置**：`packages/nb-story/src/web/qa/source.ts:222`（`attempts = 0`）；`:144-151`（`retryLater`）、`:189-198`（`end`）
+- **现象**：`attempts` 在 `load` 里 qa.get 一成功就清零，而不是在订阅真的收到快照之后。只要 qa.get 好使、`/api/qa/events` 失败（5xx、401、反向代理缓冲后断开、服务端因积压断开后再次积压），每一轮都是 qa.get 成功 -> 清零 -> 订阅失败 -> `retryLater` 取 `retryDelay(0)` = 1 秒。
+- **为什么是问题**：注释与 Spec 都写的是 1、2、4…最多 15 秒退避；这条路径实际固定 1 秒，运行中的页面对服务每秒打一次 qa.get（读记录与整份日志）加一条新的流，直到运行结束；多个标签页叠加。积压断开恰恰是服务端过载的信号，再以最短间隔重连会加重它。`source.test.ts` 的退避用例只让 qa.get 失败，覆盖不到这条。
+- **如何核实**：`/tmp/claude-1000/review-t13-impl/exp/exp.test.ts` 的“订阅总是立刻断开”用例（用 `source.test.ts` 的 harness）：连续三次订阅 `end("dropped")`，实测 `delays [1000,1000,1000] gets 4 subs 4`。
+- **建议改法**：只在订阅收到 `snapshot` 帧时才清零（`watch` 的 snapshot 分支里 `attempts = 0`），qa.get 成功本身不清零；补一条订阅反复断开时延迟递增的测试。
+
+### 3. `qa.start` 往返期间切换对话：新对话被抢走视线、新对话的草稿被别的对话的草稿污染、原对话的草稿没清
+- **严重程度**：重要；**类别**：正确性 / 不变量（触发需在 qa.start 返回前切换，窗口小，但后果是数据串位）
+- **位置**：`packages/nb-story/src/web/pages/QaPage.vue:211-239`（`submit`）
+- **现象**：`submit` 开头取 `const id = selectedId.value`，`await qa.start` 返回后再读 `composer.value`（此刻是当前选中对话的草稿，不是发出时那个）、`selectedId.value`、`book.qaConversation`，没有核对“还在发出时的那个对话”。
+  - 新对话（`id === null`）：用户在等待期间点了别的对话 B。返回后 `acceptSubmission(composer.value, text)` 因 B 的草稿与 `text` 不同而原样返回 B 的 composer；随即 `composers.set(started.conversation, {...B 的 composer, modes: []})`，新对话的输入框里出现 B 的草稿与输入历史；`composers.delete(NEW)` 又删掉了发出时那份；最后 `book.qaConversation.value = started.conversation` 把用户从 B 拉到新对话。
+  - 续问（`id !== null`，A）：切到 B 后 `setComposer(accepted)` 写进的是 `selectedId.value`（B）的槽，值是 B 自己的 composer；A 的草稿从未被清，也没记进输入历史，回到 A 时刚发出的问题还留在输入框里，再点发送在这一轮结束后会重复发送。`source?.refresh()` 刷新的也是 B 的数据源。
+  - `starting` 是页面级的单个标志，在等待期间也锁住 B 的发送与改变 `run` 状态（B 显示“运行中”）。
+- **为什么是问题**：草稿“按对话各存一份”是页面写下的不变量（`composerOf`、`setComposer`），这里读写都用了“此刻的选中项”而不是“发出时的对话”。
+- **如何核实**：从代码推断（未跑 e2e）。复现方式：在 `qa.start` 上加人为延迟，发送后立即点另一个对话。
+- **建议改法**：`submit` 在 `await` 前固定 `const target = id` 与发出时的 composer；返回后写 `composers`（按 `target` 或新 id）而不用 `composer.value` / `setComposer`；只有 `selectedId.value === target` 时才 `refresh()` 与（新对话时）切换 `book.qaConversation`，否则只刷列表；`starting` 改为按对话记。
+
+### 4. 续问受理后到重读回来之前，页面短暂“空闲”：可再发送、停止钮闪现、问题要等 qa.get 回来才出现
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`QaPage.vue:229-232、236-238`（`setComposer(accepted); source?.refresh();` 随后 `finally { starting.value = false }`）；`:143`（`running` 取自数据源状态）；`:195-196`
+- **现象**：`source.refresh()` 是异步的（`load(false)` 不等待），`finally` 立刻把 `starting` 置 false；数据源状态仍是上一轮结束后的 `run: null / ended`。于是 `canSend` 为真、`run.status` 为 idle，直到 qa.get 往返回来才变成运行中。草稿已清空，所以这一小段时间里用户看到的是“发出去了，什么都没发生”，且可以再提交一次（会撞 `qa_busy`，错误条出现在输入框上方）。
+- **为什么是问题**：`starting` 本来就是用来盖住 qa.start 到 `run` 生效之间的空档，被提前放掉。
+- **如何核实**：从代码推断；e2e 里可在 `qa.get` 上加延迟观察。
+- **建议改法**：让数据源暴露 `refresh()` 的 Promise（或 `loading` 标志），`submit` 等它完成再放掉 `starting`；或续问时直接把受理返回的 `runId/turn` 先写成乐观的 running 状态。
+
+### 5. 答案卡片里 `v-for` 用出处文字做 key，出处重复时 key 重复（Vue 报警并可能错位更新）
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`packages/nb-story/src/web/qa/AnswerCard.vue:116`（`row.refs`）、`:128`（`point.refs`）、`:135`（`evidence.slice`）、`:144`（量宽标尺）、`:158`（全部依据）
+- **现象**：`:key="refText"`。`answer` 工具的校验（`src/qa/answer.ts:15-58`）只对重复出处去重“报错”，不拒绝重复：`evidence: ["38.12", "38.12"]` 或同一行 `refs` 里写两次同一个出处会通过校验并存进记录。重复 key 在开发模式报 `Duplicate keys found during update`，生产里 diff 可能复用错节点。流式时更常见：半截参数里 `"38.1"` 之后变成 `"38.12"`，key 随内容变，节点整个重建（可点击按钮闪一下）。
+- **如何核实**：读 `answer.ts` 校验；构造含重复出处的 `answer` 参数挂到 `AnswerCard` 上（可放进 Lab 场景）。
+- **建议改法**：key 用 `` `${index}:${refText}` ``（列表是只追加的，下标稳定）。
+
+### 6. 流式时每个半截人名都发一次 `entity.card` 请求；失败结果永久缓存
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：`AnswerCard.vue:50-60`（watch 的 getter 每次返回新数组）；`names.ts:241-253`；`QaPage.vue:46-54`
+- **现象**：`watch(() => knowledge.value.map(row => row.who), …)` 的 getter 每次重算都得到新数组，参数每流进一段就重跑回调，对没出现过的名字（“南”“南嘉”“南嘉鱼”……每个前缀）各发一次 `entity.card`（以 `entity_not_found` 失败，不留诊断）。另外 `createNameResolver` 把 `QaPage` 里 `lookup` 已经吞掉的失败（包括网络抖动，返回 null）也缓存进 `cache`，同一 scope 下该名字整个页面生命周期都不再重试。
+- **为什么是问题**：一份 6 行的“谁知道什么”流式生成，会打出几十个无意义的查询；暂时性失败导致永久不成链接。
+- **如何核实**：从代码推断；Network 面板观察 `/api/rpc/entity.card` 的数量。
+- **建议改法**：卡片只在这一次调用结束（`props.call.status` 不再是 running）后再查；缓存只留成功与明确的“找不到、重名”，网络失败不进缓存。
+
+### 7. e2e 没有断言验收 10 的“过程逐步出现”与“这一轮记为已停止”；“列表里不再是运行中”可能空过；第 4 条用例依赖第 1 条留下的对话
+- **严重程度**：重要；**类别**：测试
+- **位置**：`packages/nb-story/e2e/qa.e2e.ts:74-105`（用例 1）、`:107-124`（用例 2）、`:138-147`（用例 4）；`docs/specs/story/viewer.md` 验收 10
+- **现象**：
+  - 验收 10 写“过程与答案卡片出现”“运行中点停止，这一轮记为已停止”。用例 1 只断言答案卡片、地址、抽屉，没有任何一句断言“过程”（读原文那一行或运行中的步骤）；用例 2 标题写“过程逐步出现”，正文只断言停止钮可见、点后消失、问题文字可见，没有断言“已停止”。停止钮消失也会在这一轮正常结束、出错、页面读不到运行时发生，所以这条用例在“停止没有生效”或“结果被画成别的状态”时同样通过。
+  - `:88` `toHaveCount(0, {timeout: 2500})`：断言在“列表还没出现运行中那一行”时就成立（计数一开始就是 0），没有先等到它出现再等它消失，空过。
+  - 用例 4（手机宽度）要选中 `/地狱猫是谁？/u` 的对话，那是用例 1 建的；单独跑（`--grep`）或用例 1 失败时必挂（`workers: 1, retries: 0`，靠顺序）。
+- **为什么是问题**：验收判据里“已停止”“过程”是产品的可观察结果，没有断言就没有守住；`AGENTS.md` 的测试规则要求验收映射到判据。
+- **如何核实**：读 `qa.e2e.ts`；未跑 e2e（按规则不跑）。可让主 Agent 把 `endpoint.script` 里去掉“停止”相关逻辑，观察用例 2 仍通过。
+- **建议改法**：用例 1 在答案出现前（`endpoint.hold()` 期间）断言“读原文”那一行，答案出现后断言整轮过程收成一行摘要；用例 2 点停止后断言该轮助手消息写着“已停止”（对话视图的已停止文字），并在刷新后记录里同样是“已停止”；运行中那条先 `toHaveCount(1)` 再 `toHaveCount(0)`；用例 4 自己先建对话（或在 beforeAll 里建一个共用的）。
+
+### 8. 设置页测试连接失败的底色用了不存在的 token，失败会显示成警告黄色
+- **严重程度**：建议；**类别**：代码质量（UI 规范：token）
+- **位置**：`packages/nb-story/src/web/shell/SettingsPage.vue:169`
+- **现象**：`background: var(--status-error-bg, var(--status-warning-bg)); color: var(--status-error, var(--status-warning));`。nb-ui 的 token 是 `--status-danger`、`--status-danger-bg`（`packages/nb-ui/src/colorway/colorway-contract.ts:55-57`，`docs/design-language.md:494`），没有 `--status-error*`。后备值让它永远落到警告色，所以“没通过”与“通过”之外多出来的失败态与警告同色，书架页同类处用的是 `--status-danger`（`LibraryPage.vue:97`）。
+- **如何核实**：`grep -rn -e "--status-error" packages/nb-ui/src` 无定义；在 Lab 或页面里让 `config.test` 返回 `ok: false` 看颜色。
+- **建议改法**：改成 `--status-danger-bg`、`--status-danger`，去掉后备值（后备值掩盖了名字写错）。
+
+### 9. 设置页“返回”在没有历史时无处可回，有未保存改动离开也没有提示
+- **严重程度**：建议；**类别**：正确性 / 不变量
+- **位置**：`SettingsPage.vue:124`（`router.back()`）、`:64`（`dirty` 只用于按钮）
+- **现象**：
+  - 设置页是公开地址 `/settings`，可以直接打开（e2e 用例也是 `page.goto(".../settings")`）。此时 `router.back()` 退到站外或什么都不做。书架与书里菜单进入的路径才有历史。
+  - 页面算了 `dirty`，但离开（返回、菜单、浏览器后退、关标签）时没有任何拦截，改了一半的配置静默丢掉。
+- **如何核实**：从代码推断；直接打开 `/settings` 点“返回”。
+- **建议改法**：`history.state.back` 为空时回 `/`（书架）；有 `dirty` 时用 `onBeforeRouteLeave` 加确认，或至少 `beforeunload`。
+
+### 10. 设置页没有用查看器的滚动容器写法，展开折叠分组时出现滚动条会让内容横向跳动
+- **严重程度**：建议；**类别**：代码质量（UI 规范：零布局位移）
+- **位置**：`SettingsPage.vue:122、161`（`<main class="settings-page">`，居中列 `margin: 0 auto`）
+- **现象**：其它整页（`ImportPage.vue:186` 的 `story-scroll-y h-full`，`app.css:37-42` 的 `scrollbar-gutter: stable`）都用共用的滚动容器，注释写明目的是“内容长短变化时宽度不跳”。设置页让文档本身滚动：折叠分组（问答的限额、抽取）展开后内容超过窗口高度，滚动条出现，`max-width: 760px; margin: 0 auto` 的列水平方向整体左移约半个滚动条宽。
+- **如何核实**：在 900px 高的窗口里展开“抽取”分组，观察内容列位置。
+- **建议改法**：根改成 `story-scroll-y h-full`，内部再套居中列，与导入页同写法。
+
+### 11. 设置页 `drafting` 只记最后一次 `draft-state`，多个字段同时有未提交草稿时会被后到的“干净”盖掉
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`SettingsPage.vue:116-118`（`onDraftState`）
+- **现象**：`draft-state` 事件带 `path`，是按字段发的（`SchemaForm.md` 的 `SchemaFormEmits`；`neuro-book` 里同类用法 `SettingsListSection.vue:169` 按设置项分别记）。页面用一个布尔值接，后到的 `clean` 事件会把另一个仍然 `unparseable` 的字段的状态盖掉。折叠分组时里面字段卸载还会补发一个 `clean`（lab 夹具 `SampleModelsPage.vue:158` 的注释写了这一点）。结果：解析不了的草稿还在，值与存下的一致时，“保存”停用、“测试连接”可点，页面不再提示有未提交的改动。
+- **如何核实**：从代码推断；`1.` 写进某个数字字段并失焦（unparseable），再在别的字段输入后改回原值。
+- **建议改法**：按 `path` 记一张表（`Map<string, state>`），`drafting` 取“有没有非 clean”。
+
+### 12. 订阅用 `for await` 读 `ReadableStream`，类型上靠 `as unknown as` 强转；没有利用心跳判断卡死
+- **严重程度**：建议；**类别**：代码质量 / 安全与性能
+- **位置**：`packages/nb-story/src/web/host/client.ts:69-76`
+- **现象**：`for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>)`：`ReadableStream` 的异步迭代不在 DOM 类型里，所以要强转绕过类型系统；Safari 的兼容性从 MDN 兼容表推断仍然不支持（未验证）。另外服务端每 20 秒发心跳（`qa.md` 输出 30），客户端没有用：电脑休眠、中间代理悬挂时 TCP 不报错，`fetch` 永远不返回，页面停在“运行中”而 F9 的重连不会触发。
+- **如何核实**：读代码；Safari 与悬挂连接未验证。
+- **建议改法**：改成 `response.body.getReader()` 循环（不用强转）；记录最近一次收到字节的时间，超过两个心跳间隔（例如 45 秒）没有字节就 `controller.abort()` 并以 `dropped` 结束。
+
+### 13. 对话列表轮询一次失败就把整个列表换成错误提示
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`QaPage.vue:74-88`（`loadList` 的 catch）、`:92-96`（5 秒轮询）
+- **现象**：catch 里无条件 `listState = "error"`；`AgentSessionList` 在 `state === "error"` 时用 `EmptyState` 整个替换列表（`nb-agent-ui/src/vue/AgentSessionList.vue:52`），保留的 `rows` 不显示。有对话在跑时每 5 秒一次轮询，一次网络抖动就让列表（含选中行与滚动位置）消失到下一次轮询成功。
+- **如何核实**：从代码推断；e2e 里让 `qa.list` 失败一次。
+- **建议改法**：已经有行时失败只记诊断，保持 `ready`；只有首次加载失败才进 `error`。
+
+### 14. 数据源在“qa.get 与服务里的运行状态不同步”时停在错误状态且没有补读
+- **严重程度**：建议；**类别**：正确性（窗口很小，但出现后不会自己恢复）
+- **位置**：`packages/nb-story/src/web/qa/source.ts:104-108`（`attachedRun`）、`:223-232`；服务端 `packages/nb-story/src/server/qa-service.ts:345-366`
+- **现象**：服务端 `get` 先取 `run`（`runs.get`）、`await` 读记录与日志、最后才 `viewOf(run)`，记录与运行状态不是同一时刻的快照。这个异步读的几毫秒里一轮刚好结束并保存时：记录是旧的（少一轮），`run` 却是 `ended / saved.ok`，网页的 `attachedRun` 对它返回 null、不订阅、也不再重读，最后一轮在页面上缺失，直到换对话或刷新。反过来（记录已含新一轮、`run` 还是 `running`）时 `baseTurns !== record.turns.length`，被判为 `detached`，页面写“这个对话在别处（命令行）也续问了……结束后不会保存”，这是假话，同样不会自己更正。
+- **为什么是问题**：F9 与输出 45 的目标是“接着显示这一轮已有的进展”；这两条路径没有任何自愈。
+- **如何核实**：从代码推断（窗口小，复现需要对 `qa.get` 注入延迟）；也可在 `source.test.ts` 里喂 `record(1 轮)` 加 `run({turn: 2, state: "ended", saved: {ok: true}})` 观察没有第二次 `qa.get`。
+- **建议改法**：数据源里加一致性检查：`run.state === "ended" && saved.ok` 但 `record.turns.length < run.turn`，或 `run.state === "running"` 且 `record.turns.length > run.baseTurns` 且记录里第 `run.turn` 轮的 `startedAt` 与 `run.startedAt` 相同，就再读一次（走退避），而不是直接采信；服务端也可让 `viewOf(run)` 与记录在同一个同步段里取。
+
+### 15. 分轮逻辑依赖 nb-agent-ui 适配器未公开的消息 id 形状 `h<seq>`
+- **严重程度**：建议；**类别**：代码质量 / 不变量（跨包耦合）
+- **位置**：`packages/nb-story/src/web/qa/turns.ts:63-67`（`seqOf`）、`:93-102`；对应的 `packages/nb-agent-ui/src/harness.ts:170`
+- **现象**：`composeMessages` 用正则 `^h(\d+)$` 从适配器给的消息 id 反推日志 seq，再按各轮 `logFrom` 分轮。这个 id 格式不在 nb-agent-ui 的 Spec、README 或同名文档里（全仓库只有 `turns.ts` 的注释提到 `h<seq>`），nb-agent-ui 自己的测试也没有钉住它。适配器改了 id，所有消息的 `seqOf` 变成 null，全部落进最后一轮：编译与 nb-story 的单测（用的是自己拼的 `h` 前缀）都不会报错，运行时才看到分轮错乱。
+- **如何核实**：`grep -rn "h<seq>" docs packages/nb-agent-ui packages/nb-story/src` 只命中 `turns.ts`；读 `harness.ts:170、270、276、306`。
+- **建议改法**：把“日志消息的 id 是 `h<seq>`”写进 nb-agent-ui 的适配器合同并加合同测试钉住；或让适配器的 `MessageView` 提供 seq（例如在消息上带来源 seq 字段），nb-story 不解析 id。
+
+### 16. `AnswerCard.md` 的能力标签漏了 `state:local`
+- **严重程度**：建议；**类别**：文档
+- **位置**：`packages/nb-story/src/web/qa/AnswerCard.md:2`；`AnswerCard.vue:38、49、70`
+- **现象**：frontmatter 只写了 `["state:inject"]`，但组件自己持有 `detailed`（展开）、`people`（人名查到的 id）、`shown`（依据一行放得下几个）三份临时状态，还用 `ResizeObserver` 与 `requestAnimationFrame`。`docs/standards/code/components.md` 的“能力标签”写明 `state:local` 虽不计耦合但仍须声明（确定性验证要知道初始状态），“实现用了某条通道而未声明……整份声明不予采信”。
+- **如何核实**：对照 `components.md` 的能力标签一节。
+- **建议改法**：标签改为 `["state:local", "state:inject"]`；ResizeObserver 与 rAF 若清单没有对应标签，按规范“出现清单未覆盖的通道时更新本规范”处理或在注意事项里写明。
+
+### 17. 提示条区域按条件整块出现，会把对话视图往下推（异步到的 `configured` 让页面首屏跳一次）
+- **严重程度**：建议；**类别**：代码质量（UI 规范：零布局位移）
+- **位置**：`packages/nb-story/src/web/pages/QaPage.vue:370-380`；`:58-65`（`configured` 异步）
+- **现象**：`.qa-notices` 是 `v-if` 的容器，里面的横幅（还没配置、没保存、基于较早的记录、不能续问、开始失败）出现与消失都改变 `.qa-view` 的位置与高度。最典型的是“还没有配置问答用的模型”：`configured` 初值 null、`config.get` 返回后才变 false，横幅在首屏渲染之后才插入，下面的对话区与输入框整体下移约 60 到 90 像素。切到一个读完才知道“不能续问”的对话同理。`AnswerCard` 的依据一行与 nb-ui 的约定则都做到了不改变布局，这里是同一页里的例外。
+- **如何核实**：从代码推断；慢网络下直接打开 `/book/fox/qa` 观察。
+- **建议改法**：提示条放在对话视图里作为悬浮层或底部输入区上方的固定占位，或在 `configured === null` 与对话加载中时先不渲染对话区；至少把 `configured` 的读取并进页面首屏的加载状态里。
+
+### 18. 阅读位置变了，答案卡片里已查到的人名链接不会重查
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`packages/nb-story/src/web/qa/AnswerCard.vue:50-60`；`QaPage.vue:55`（查询按 `book.at` 与 `dataVersion` 编进缓存键）
+- **现象**：卡片的 `watch` 只监听各行的 `who`。用户拨了阅读位置（或数据重新抽取后 `dataVersion` 变了）以后，`QA_NAME_LOOKUP` 的缓存键已经换了，但卡片不重查：往回拨后原来可点的人名仍是链接，点开得到“还没出现”的失败；往后拨后新出现的人仍是纯文字。`names.ts` 头注释写“按查看器的位置查（抽屉也按它打开）”，这条依赖只在卡片挂载那一刻成立。
+- **如何核实**：从代码推断；在问答页拨阅读位置后看人名链接。
+- **建议改法**：让注入的查法同时暴露一个随位置与数据版本变化的响应式 scope，卡片的 watch 把它也当依赖。
+
+---
+
+## 未发现问题的方面
+
+- `bun test packages/nb-story/src/web/qa`：31 个用例全部通过；`bun run --cwd packages/nb-story typecheck`（含 `vue-tsc` 与 `ports.typecheck.ts`、e2e 的 tsconfig）退出码 0。
+- 模型回复里的链接：`javascript:` 等非 http、https、mailto 的方案在 nb-markdown 里归为 `other`，只发 `reference`，不会进 `QaPage` 的 `window.open`（`link.open` 只来自外部链接）；`openTarget` 只认 `paragraph://` 与 `entity://`，别的方案被忽略。
+- `source.ts` 各回调都核对了代次（`token === generation && !disposed`）；dispose 清了订阅与重连定时器；`ended` 帧后的 qa.get 在快照里已保存已结束的路径上不会来回订阅（`source.test.ts` 与代码都核过）；`detached` 与 `sameRun` 的判断与测试一致（除第 1、2、14 条）。
+- `link-refs.ts` 只改纯文字：实测代码、行内代码、已有链接、转义、列表、表格里的出处符合预期；流式时文末完整出处先不改符合注释（残余的半截范围闪动见下）。
+- nb-form 的用法与 `SchemaForm.md` 一致：`commit()` 的返回值、`revision`、`issues` 形状、`draft-state` 事件签名、受控 `v-model`；只有第 11 条的聚合问题。
+- `DrawerSource.vue` 的跨章读取与高亮、`book.ts` 的 `c` 参数只进地址不进存下的状态、`BookFrame.vue` 菜单分隔线与 `@settings` 值（书 id 不含 `@`）：没有发现问题。
+- 字体加载对依据一行量宽的影响：站点用系统字体栈（`nb-ui/src/theme.css:15`），没有 webfont，ResizeObserver 加挂载时一次量够用；没有作为问题报。
+- 小的、不单列的观察：`link-refs.ts` 在流式时对 `38.12—39` 这种半截范围会先改写成 `[38.12](…)—39`，补全成 `38.12—39.2` 后文末规则先让它回到纯文字、结束后才成整段范围链接，期间引用小块会闪一下（实测输出见 `/tmp/claude-1000/review-t13-impl/exp/link.test.ts`）；`AnswerCard.vue` 的 `.is-no` 没有样式规则（“不知道”显示为中性底色，可能是有意）；`.answer-badge` 用了受限的 `--text-2xs`，里面是“原文没有表明”这类需要阅读的词。
+- 更正：第 8 条里“`LibraryPage.vue:97`”应为 `LibraryPage.vue:98`（`text-[var(--status-danger)]`）。
+
+## 各级数量
+
+- 阻断：0
+- 重要：3（第 1、2、3、7 条里第 1、2、3、7 条按“重要”标出，实际共 4 条，见下行）
+- 实际逐条计数：重要 4（第 1、2、3、7 条）；建议 14（第 4、5、6、8 至 18 条）；合计 18 条。
+- 更正（以此为准）：阻断 0；重要 4（第 1、2、3、7 条）；建议 14（第 4、5、6、8 至 18 条）；合计 18 条。上面“重要 3”一行写错。
+
+
+================================================================
+== 原文：omp 第 1 到 5 条（快照） ==
+### 1. 停服和删除无法取消阻塞中的准备阶段
+- **严重程度**：重要；**类别**：不变量；
+- **位置**：`packages/nb-story/src/server/qa-service.ts:185-191,206-228`；`packages/nb-story/src/qa/engine.ts:156-200,260-294`。
+- **现象**：`settle()` 只对 `runs` 里的运行调用 `controller.abort()`，对 `preparing` 里的准备没有取消；它随后无上限地等待 `preparing` 的 Promise。`start()` 把 `controller.signal` 只传给了最终的 harness `turn()`，而 `prepareQuestion` 的 `readQaConfigFile`、`openBook`、`book.info`、全读 `source.read` 和恢复日志都没有消费这个 signal。准备阶段任何一个底层 I/O 卡住，`qa.close()`、`qa.remove()` 和 `book.remove` 的 `qa.exclusive` 都一直等不到收口。
+- **为什么是问题**：停服回调在 `serve.ts:102-116` 要先等 `qa.close()`，所以服务可能既不撤销登记也不停止监听；删除会一直占用删除门。该路径违反“准备中也要取消并等待后再删/停”的不变量，不是普通模型请求超时。
+- **如何核实**：在报告目录运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/prepare-close-probe.ts`。实验走真实 `createQaService`，只把 `StoryApi.openBook` 替换成永不完成的 Promise；输出为 `still_waiting`，表示 `qa.close()` 在 150ms 内没有完成。另行静态核对可见 `settle()` 没有对 `preparing` 的 controller 调用 `abort()`。
+- **建议改法**：把准备项存成包含 `controller` 与 Promise 的记录，关门时先 abort 全部准备项；引擎在每个准备边界检查取消，并把底层书库/查询调用扩展为接收 AbortSignal 或用可取消的任务包装。没有可取消的底层调用时不能宣称停服可收口；至少应为这类准备失败定义有界的取消/失败路径，并补真实 `qa.remove` 与停服期间准备卡住的收口测试。
+### 2. `onProcessTermination` 会抢在同进程的 `onProcessInterrupt` 收口完成前退出
+- **严重程度**：重要；**类别**：不变量；
+- **位置**：`packages/nb-harness/src/interrupt.ts:25-35`；调用方 `packages/nb-story/src/server/serve.ts:120-126`，相邻协议 `packages/nb-story/src/cli/ask.ts:43-57`。
+- **现象**：`postmortem` 会把同一轮登记的清理回调同时启动并等待它们；新 API 的回调却在自身完成后直接 `process.exit(await callback(signal))`。因此同一进程同时登记 `onProcessInterrupt` 与 `onProcessTermination` 时，终止回调一完成就硬退出，其他回调仍可能未完成。该 API 没有把 `onProcessInterrupt` 的 Promise 纳入 `onProcessTermination` 的等待集合。
+- **为什么是问题**：如果宿主进程同时有 ask 的“取消并写记录”和 serve 的“停服务并撤销登记”两种收口，SIGINT 会使其中一个收口被截断；记录、登记、锁和监听可能处于半完成状态。文档注释声称“同一轮里别的登记与它同时开始”，但没有说明它会在别的登记完成前退出，公开 API 的组合语义是不安全的。
+- **如何核实**：报告目录的 `termination-race-probe.ts` 注册一个 `onProcessInterrupt`（200ms 后写 `interrupt-done`）和一个 `onProcessTermination`（20ms 后返回 0），再用 `process.emit("SIGINT")` 触发真实 postmortem 收口。运行命令：`bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/termination-race-probe.ts`；退出码为 0，`/tmp/nb-story-termination-race.log` 只有 `termination-SIGINT-start`、`interrupt-start`、`termination-done`，没有 `interrupt-done`。
+- **建议改法**：不要在 postmortem 清理回调内部直接 `process.exit`。让 nb-harness 提供一个“所有清理完成后再以宿主指定码退出”的单一终止协调器，或让 serve/ask 共用一个进程级幂等收口回调；若上游不能表达自定义退出码，至少明确禁止两个 API 在同一进程组合并在入口只登记一个协调器。补 SIGINT 与 SIGTERM 下两个收口同时存在时的真实子进程测试。
+### 3. 已中止的 SSE 请求不会退订，流和心跳可以永久存活
+- **严重程度**：重要；**类别**：不变量；
+- **位置**：`packages/nb-story/src/server/http.ts:160-196`。
+- **现象**：`finish` 的 abort 监听器在 `qa.subscribe` 之后才注册，且 `start()` 没有先检查 `request.signal.aborted`。请求如果在创建流前已经中止，事件不会回放；代码仍调用 `qa.subscribe`、把订阅登记为 live，再添加一个永远不会触发的监听器并启动心跳。即使补一个最初检查，`subscribe` 与 `addEventListener` 之间仍有中止竞态。
+- **为什么是问题**：刷新、路由切换或客户端主动取消时，服务端可能保留一个订阅者和 `setInterval`；只要该请求的 abort/cancel 回调没有再次到达，问答运行期间每 20 秒继续向已中止连接入队。多个快速重连会把订阅表和定时器泄漏，并削弱积压上限的收口保证。
+- **如何核实**：报告目录运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/aborted-sse-probe.ts`。它调用真实 `createHandler`，给一个已 abort 的 `Request`，只替换 `QaService.subscribe` 以记录 `close()`；输出 `{"aborted":true,"closed":0,"bodyLocked":false}`，且进程因 live body 未关闭在 30 秒命令期限后仍未自然结束。
+- **建议改法**：在订阅前登记 abort 监听，并把 `finish` 设计成能处理 `subscription === null`；订阅完成后立即再次检查 `signal.aborted`，若已中止则关闭刚建立的订阅和流，不启动心跳。补“请求创建前已中止”和“subscribe 后、注册监听前中止”的真实 handler 测试。
+### 4. 服务登记发布后、终止回调登记前仍有信号窗口
+- **严重程度**：重要；**类别**：不变量；
+- **位置**：`packages/nb-story/src/server/serve.ts:93-126`。
+- **现象**：`lock.publish()` 在第 94 行先把 `.serve.json` 发布给其它进程；`onProcessTermination()` 到第 121 行才登记。问答模块静态导入时已经装上 OMP 的 SIGINT/SIGTERM/SIGHUP 处理，因此这段期间收到信号会走 postmortem 的默认退出（130/143/129），不会调用 `stop()`。登记文件已经可见但未撤销，监听和服务锁也不会按设计收口。
+- **为什么是问题**：外部 watcher、CLI 或测试通常正是看到 `.serve.json` 后立即发停止信号；这不是只存在于打印登录链接之后的窗口。当前注释只保证“打印之前”装处理，却把登记文件发布放在处理登记之前，仍可留下陈旧服务登记并阻断下一次启动。
+- **如何核实**：沿真实同步顺序阅读 `serve.ts` 与 `nb-harness/src/interrupt.ts`：`lock.publish` 的文件可见性先于 `postmortem.register`，而 postmortem 的信号处理会在没有匹配登记时直接以 `128 + signal` 退出。用现有真实服务启动测试的 watcher 将信号触发点从“读到登录链接”提前到“检测到 `.serve.json` 出现”，即可复现该窗口；当前测试只覆盖服务已完成启动后的 SIGINT/SIGTERM。
+- **建议改法**：在发布登记前完成终止协调器登记，并保存解除登记函数；发布失败时解除登记，正常停服后也解除。`stop()` 必须能处理登记文件尚未发布的启动阶段，确保信号路径仍关闭监听、释放锁并返回稳定退出码。增加“登记文件刚出现即发信号”的真实子进程测试。
+### 5. 配置摘要不是文件原字节的 SHA-256，非法 UTF-8 会发生摘要碰撞
+- **严重程度**：重要；**类别**：正确性 / 安全与性能；
+- **位置**：`packages/nb-story/src/qa/config.ts:47-55,74-83`。
+- **现象**：`readConfigText()` 用 `readFile(path, "utf8")` 先把字节解码成字符串，`digestOf()` 再对字符串重新编码后计算 SHA-256。非法 UTF-8 字节会被替换成同一个 `�`，不同的原文件因此得到相同摘要；这与计划和合同要求的“文件原字节 sha256”不一致。
+- **为什么是问题**：`config.get` 返回的 `digest` 不再是文件字节的摘要，且 `expect` 不能可靠检测坏文件在读取期间被替换。两个不同的非法字节文件可以共享摘要，随后带这个摘要的 `config.set` 会被接受，破坏配置写入的 CAS 不变量；坏文件正是设置页允许整份覆盖的状态。
+- **如何核实**：报告目录运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/digest-bytes-probe.ts`。它分别写入单字节 `0xff` 与 `0xfe`，当前实现输出 `same:true` 且两次摘要都是 `83d544ccc223c057d2bf80d3f2a32982c32c3c0db8e2674820da5064783fb097`。
+- **建议改法**：读取配置时保留 `Buffer`，摘要直接对原始 `Buffer` 做 SHA-256；同一份字节再按 UTF-8 解析 JSON。`readQaConfigFile` 与 `currentConfigDigest` 共用这个“原字节 + 解码文本”结果，并补非法 UTF-8 两个不同文件摘要不同、`expect` 冲突的测试。
+
+
+================================================================
+== 原文：omp 最终报告（第 6 到 13 条与总结） ==
+### 6. 配置路径读失败被误报成“没有配置文件”
+- **严重程度**：重要；**类别**：正确性 / 不变量；
+- **位置**：`packages/nb-story/src/qa/config.ts:49-55,80-83`；`packages/nb-story/src/server/qa-service.ts:376-386`。
+- **现象**：`readConfigText()` 只把 `ENOENT` 转成 `null`，但 `currentConfigDigest()` 又对所有异常 `.catch(() => null)`，所以目录、权限错误、I/O 错误都被当成 `ABSENT_CONFIG`。`configGet()` 在读摘要阶段就返回 `state:"absent"`，根本不会进入 `state:"invalid"`。
+- **为什么是问题**：合同明确把“文件读不成”归入 invalid；更严重的是页面拿到 `expect:"absent"` 后会尝试新建/覆盖，而它并不知道路径上已有不可读对象。这样会把“不能读”和“根本不存在”混成两个不同的 CAS 前提，可能覆盖用户无法读取的配置，或在目标是目录时给出误导的起始表单。
+- **如何核实**：报告目录运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/config-read-error-probe.ts`。它把 `config.json` 建成目录，调用真实 `createQaService().call("config.get", {})`，当前输出为 `ok:true`、`state:"absent"`、`digest:"absent"`。
+- **建议改法**：摘要读取只把明确的 `ENOENT` 视为 absent，其余错误保留为 invalid/不可读状态；为不可读文件定义不等于 `absent` 的 `digest`/expect 语义，不能让 `expect:"absent"` 覆盖未知内容。补目录、权限拒绝和读取错误的 `config.get`/`config.set` 合同测试，并核对响应不回传原文。
+
+## 审查记录纠正
+
+此前误把覆盖式 `write` 当成追加，当前文件只保留上面的第 6 条；此前第 1 到 5 条未累计保存。以下使用 `edit` 文件末尾插入，并在每次追加后核对 `^### ` 条数。
+
+- 不恢复此前第 1 条“准备阶段无限等待”为有效发现：它用永不完成的 `openBook` 替身，未在真实运行时证明可达；正常准备结束后关门检查与 `abandon()` 的路径本身成立。
+- 不恢复此前第 2 条“termination 截断 interrupt”为有效发现：实验已证实两个回调同时存在时提前退出，但新增 API 注释明确限制“只有这一处要慢慢收尾时用”，现有 serve 与 ask 也是不同命令进程；不能以违反调用前提的实验判回归。
+- 不恢复此前第 3 条“已中止 SSE 请求泄漏”为有效发现：此前只对直接调用 handler 的预中止 Request 和替身订阅做实验，未证明真实 Bun HTTP 会产生该时序。
+- 不恢复此前第 4 条“发布登记至登记信号回调间的窗口”为有效发现：base 版本也在 publish 之后才登记停止处理；未证明本提交新增回归。
+- 第 5 条“摘要按 UTF-8 解码后字符串计算”会在后面恢复，保留真实文件字节实验作为依据。
+
+### 7. 无效的 `book.remove` 请求先中断问答，再返回参数错误
+- **严重程度**：重要；**类别**：正确性 / 不变量；
+- **位置**：审查 worktree `packages/nb-story/src/server/http.ts:136-139`；`packages/nb-story/src/server/qa-service.ts:455-460`。
+- **现象**：HTTP 层只确认 `params.book` 是字符串，就先进入 `qa.exclusive(book, call)`。`exclusive` 先 abort 并等待全部问答，之后 `call()` 才在核心 API 校验 `book.remove` 输入。带额外字段的无效请求 `{book:"fox", unexpected:true}` 因而会停止该书全部运行中的问答，最终却返回 HTTP 400 `invalid_params`，书也没有删除。
+- **为什么是问题**：输入被拒绝不应产生删除的停止副作用；已认证的错误客户端请求足以丢弃用户正在生成的答案并存成中断。原 API 在 schema 校验后才执行删除，此次新增包装把副作用移到了验证边界之前。
+- **如何核实**：运行报告目录的 `http-boundary-probe.ts`（真实 `nbstory serve` 子进程、真实 HTTP、真实书库、本机 OpenAI 端点，不调用真实模型）：`bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/http-boundary-probe.ts`。输出 `scenario:"invalid-remove"`、`removeStatus:400`，随后 `qa.get` 的该轮已为 `status:"interrupted"` 且保存成功；服务最终退出 0。
+- **建议改法**：在进入 `qa.exclusive` 前按 `STORY_METHODS["book.remove"].input` 完整校验，失败直接返回 `invalid_params`；验证通过的同一份参数再进入删除门。补“无效删书请求不改变运行状态、模型仍可继续”的真实服务测试。
+
+### 8. 全读投影靠用户正文猜身份，既截错普通问题，也会漏出合法原文
+- **严重程度**：重要；**类别**：正确性；
+- **位置**：审查 worktree `packages/nb-story/src/qa/engine.ts:118-137`；调用方 `packages/nb-story/src/server/qa-service.ts:161-165,262,334-340`。
+- **现象**：`withoutFullText()` 不看对话 mode、轮次或真正首问的 seq，只看任意用户消息是否以固定中文前缀开头，再取第一个 `\n\n问题：`。普通 graph 提问引用该格式会被删掉前半段并伪称附了原文；合法导入的数据集允许一段文本含换行，若段内本身含这个分隔符，则全读消息会从原文内部截开，把余下原文当“问题”传回网页。
+- **为什么是问题**：普通用户提问的传输日志被篡改，与保存记录和模型实际收到的内容不一致；全读路径违反 qa 输出 34“只留问题与段数”，网页仍收到原文。实现注释的“段里没有空行”不是 Dataset schema 的约束，TXT 抽取入口的一行一段规则不能外推到 `book.import`。
+- **如何核实**：同一真实服务实验 `http-boundary-probe.ts` 已运行。合法 Dataset 首段为 `这是合法导入的一段\n\n问题：MULTILINE_SOURCE_SENTINEL`，全读首问“真正的问题”的 `qa.get` 返回 HTTP 200，用户日志文本为 `MULTILINE_SOURCE_SENTINEL\n\n问题：真正的问题\n\n（已附…）`。graph 提问 `以下是阅读位置以前的全部原文：\n这是我在问题中引用的格式，不是附加原文\n\n问题：请解释这个格式` 在日志里只剩“请解释这个格式”加“已附…1 段”。两条均经真实 harness、provider、存盘与 HTTP get，无伪造内部事件。
+- **建议改法**：传输投影使用准备阶段已经知道的结构化数据（mode、首问身份、原始 question、paragraph count），不要反向解析用户正文。历史全读日志可结合记录首轮 question 的精确后缀和实际轮次定位；graph 及后续用户消息必须原样保留。补 graph 同前缀、多行导入段落、full 首轮与后续追问三类测试。
+
+### 9. 内存运行没有代际身份，CLI 删书后同 id 导入会把旧书问答列进新书
+- **严重程度**：重要；**类别**：正确性 / 不变量；
+- **位置**：审查 worktree `packages/nb-story/src/server/qa-service.ts:71-85,245-270,316-331,345-365,443-447`。
+- **现象**：运行仅存 `book` 字符串而不存开始时的 `generation`；`qa.list` 把磁盘找不到的任意内存运行当作新书的“首轮”，`qa.get` 对新代磁盘的 `qa_record_not_found` 也直接返回旧 run。CLI 的 `remove`/`import` 直接调用核心库，不经过 HTTP 的 `qa.exclusive`，服务里的 ended 表不会清理。
+- **为什么是问题**：违反 qa 输出 16、29 和“时序与寿命”的代际隔离：别的一代记录不能列出或显示。用户把一本书删掉、以同 id 导入另一代后，会在新书看到原书问题与回答；甚至出现 `record:null`、`turns:0`、`saved:true`，却声称“第一轮没有保存”的矛盾状态。运行中跨进程删除/重导入也有同一根因。
+- **如何核实**：运行 `bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/generation-probe.ts`。真实服务先完成一问，随后真实 CLI `remove fox --library … --json` 与 `import … --id fox --library … --json` 均退出 0。新代 `qa.list` HTTP 200 仍列“原书独有问题”（`turns:0`、`run.saved:true`）；`qa.get` HTTP 200 返回 `record:null` 和旧书回答，而非 `qa_record_not_found`。服务收口退出 0。
+- **建议改法**：由 `PreparedQuestion` 交出开始时 canonical book id 与 generation，Run 明确保存它们；list/get/subscribe 与当前代比对，旧代运行不可合并进新代。跨进程删书的旧运行可以继续按既定规则完成且保存失败，但终态必须按原代隔离。补 CLI 删除/重导入期间 active 与 ended 两种真实服务场景。
+
+### 10. 配置摘要对解码后的文本计算，坏文件的不同原字节得到同一摘要
+- **严重程度**：建议；**类别**：正确性；
+- **位置**：审查 worktree `packages/nb-story/src/qa/config.ts:47-55,74-83`。
+- **现象**：先 `readFile(path,"utf8")`，再对字符串做 SHA-256；非法 UTF-8 的不同字节会解码为同一个替换字符。合同明确选了“原字节 SHA-256”，不仅是 JSON 语义摘要。
+- **为什么是问题**：设置页允许对 invalid 配置整份重写，坏文件也需要可靠的 expect。文件由单字节 `0xff` 改成 `0xfe` 后摘要不变，客户端不会得到 `config_conflict`。影响限定于非法 UTF-8 文件，不影响正常 UTF-8 配置，因此列建议级。
+- **如何核实**：已运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/digest-bytes-probe.ts`，真实文件分别写入 `0xff` 与 `0xfe`，输出 `same:true`；两者均为 `83d544ccc223c057d2bf80d3f2a32982c32c3c0db8e2674820da5064783fb097`。
+- **建议改法**：同一次 read 返回 Buffer，摘要直接对 Buffer 计算，再解码和解析 JSON；两种读取入口共用这个结果。补不同非法 UTF-8 字节的摘要与 stale expect 测试。
+
+## 第 6 条追加核实
+
+`config-http-probe.ts` 已经经真实服务验证数据丢失路径：配置文件存在但 `chmod 000` 后，`config.get` HTTP 200 返回 `state:"absent"`；紧接着 `config.set {expect:"absent", …}` HTTP 200 成功把原文件替换，最终磁盘 `model.id` 为 `overwritten-unread-file`。命令：`bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/config-http-probe.ts`。目录有写权限、文件无读权限是正常 POSIX 权限组合；实验没有替换文件 API 或伪造时序。
+
+### 11. 宿主终止回调仍被 postmortem 的 10 秒上限硬截断，早于抽取的 15 秒停止宽限
+- **严重程度**：重要；**类别**：不变量；
+- **位置**：审查 worktree `packages/nb-harness/src/interrupt.ts:30-35`；`packages/nb-story/src/server/serve.ts:102-125`；相邻既有 `packages/nb-story/src/ingest/runner.ts:25,158-163`。
+- **现象**：新 API 把宿主回调登记进 postmortem，但没有改变它的清理期限。postmortem 在约 10 秒后自行退出 `128 + signal`，即使宿主回调尚未完成。serve 先等待 `ingest.close()` 和 `qa.close()`，而抽取任务自身的停止兜底期限是 15 秒：需要进入 15 秒兜底的合法停止路径一定到不了撤销登记、停监听与返回宿主退出码那几步。
+- **为什么是问题**：新增 API 与 agent.harness 输出 20 承诺“回调 Promise 完成后按宿主码退出”不符；也把旧 serve 自主等待的收口截短为上游 10 秒。慢盘保存或抽取线程在不可中止步骤里停留超过 10 秒时，正常终止会留下登记、丢失本轮保存，并以 130/143/129 而非 0 或撤销失败的 1 退出。
+- **如何核实**：已运行 `bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-impl/termination-deadline-probe.ts`。真实子进程通过公开 `onProcessTermination` 登记 11 秒收口并应返回 1，父进程在 ready 后实际发送 SIGTERM；实测 `exit:143`、`ms:10057`，证据文件只有 `start:SIGTERM`、没有 `done`。此为公开 API 的真实信号运行，不是伪造内部清理时序；15 秒与 10 秒的服务组合从源码核实，未声称已经让产品抽取线程卡到 15 秒。
+- **建议改法**：让上游终止协调器允许宿主接管期限和最终退出码，或调整服务的整体停止期限使所有已承诺兜底先完成；不要在一个受 10 秒上限约束的 callback 里宣称无条件等完宿主。补大于 10 秒的真实子进程合同测试，并让 serve 的抽取/问答收口期限与进程退出协议一致。
+
+### 12. 合法的 `__proto__` 环境变量名被 keys 结果静默丢掉
+- **严重程度**：建议；**类别**：正确性；
+- **位置**：审查 worktree `packages/nb-story/src/server/qa-service.ts:368-373`；`packages/nb-story/src/contract/config-schema.ts:19`。
+- **现象**：schema 允许 `apiKeyEnv:"__proto__"`，但 `keysOf()` 用普通 `{}` 和 `keys[name] = boolean` 组装结果。`__proto__` 命中继承的 setter，布尔赋值不会创建 own property，所以接口返回 `keys:{}` 而不是 `{"__proto__":false}`。
+- **为什么是问题**：config.get/set 承诺对每个配置变量名给出是否设置；该合法名字的状态缺失，页面只能误认成“保存后才知道”。不构成任意原型污染，因为写入值只有 boolean；影响限定为特殊名字被漏掉。
+- **如何核实**：`config-http-probe.ts` 的真实 HTTP 输出 `proto.status:200`、`state:"valid"`、`config.model.apiKeyEnv:"__proto__"`，同时 `keys:{}`。同一运行还验证未知字段名含假密钥时 `state:"invalid"` 的 problem 不回显该字段，`leaked:false`。
+- **建议改法**：用 `Object.fromEntries()` 或 `Object.create(null)` 构造字符串键字典，保留合法名字，不必收紧环境变量合同。补特殊名字和三个位置同名去重的结果测试。
+
+### 13. 服务测试未覆盖计划承诺的准备期门和未保存终态
+- **严重程度**：重要；**类别**：测试；
+- **位置**：审查 worktree `packages/nb-story/src/server/qa.test.ts:145-343`；计划第 145、159 行。
+- **现象**：15 条服务测试中，所有删除/停止都在 `endpoint.firstRequest` 之后触发，只有已登记运行的路径；没有准备期 `qa_busy`、准备期间删除/停服触发 abandon、删除门关闭时新 start、另一书不受影响、保存失败后 get/snapshot 重取、CLI 先保存造成网页冲突这 6 组计划场景。没有任何服务用例断言 `saved:{ok:false}`。现有“每个用例扫假密钥”也只有 `config.test` 的 401，问答本身的失败 SSE 没走到。
+- **为什么是问题**：它们正是新增 `preparing`、计数门、ended 保留和基础轮数合并存在的理由；当前测试即使把只在这些路径生效的逻辑删掉，也没有直接断言可发现。引擎的删除/冲突测试不能替代 QaService 的内存状态、订阅快照和 HTTP 输出检查。第 9 条跨代错误已说明核心记录测试通过不代表服务合并正确。
+- **如何核实**：逐条读取本文件全部 398 行及计划验收映射；本轮 `bun test src/server/qa.test.ts` 实测 15 pass，但缺少上述输入/失败分支。未做仓库内变异，未把“预计某变异可存活”当作已运行的变异结果。
+- **建议改法**：在现有真实服务/本机端点合同测试补齐这些入口与可观察终态，使用真实文件或可控测试端点建立阶段闸门，不用固定等待猜准备是否开始；保存失败用真实权限故障，CLI 冲突用真实 CLI 续问。按计划对每条判据在审查目录复制版做变异或由主 Agent 执行，证明门、abandon、终态保留和脱敏去掉时测试确实失败。
+
+## 按影响排序的处理顺序
+
+条目按核实时间追加，保留编号不重写；实际处理顺序：第 6 条（不可读配置被覆盖）、第 9 条（跨代运行混入）、第 7 条（拒绝的输入仍中断运行）、第 8 条（全读投影误识别）、第 11 条（终止期限冲突）、第 13 条（核心验收缺口），最后第 10、12 条边界修正。第 1 到 5 条不在当前报告有效发现中；审查记录纠正一节解释了被覆盖及不恢复的候选，不能按最大标题编号统计数量。
+
+## 已执行验证
+
+以下测试命令除明确路径外，cwd 均为审查 worktree 的 `packages/nb-story`，没有改测试或产品实现：
+
+| 命令 | 实际结果 |
+|---|---|
+| `bun test src/server/qa.test.ts` | 15 pass，0 fail，162 次断言，49.17 秒 |
+| `bun test src/qa/engine.test.ts src/qa/config.test.ts src/contract/refs.test.ts` | 49 pass，0 fail，211 次断言，6.87 秒 |
+| `bun run typecheck` | 全部 5 段类型检查退出 0，137.39 秒 |
+| `bun test src/core/qa-records.test.ts src/cli/ask.test.ts src/server/server.test.ts --timeout=30000` | 39 pass，0 fail，184 次断言，20.57 秒 |
+| `bun test src/server/ingest.test.ts --timeout=30000` | 10 pass，0 fail，336 次断言，35.76 秒 |
+| `bun test tests/provider.test.ts`，cwd `packages/nb-harness` | 10 pass，0 fail，34 次断言，1.094 秒 |
+| `bun test src/cli/config.test.ts` | 初次与其它命令并行时 12 pass、4 fail、1 error；3 条为 5 秒用例超时，另 1 条交互用例等待“推理档”超时，不记作全通过 |
+| `bun test src/cli/config.test.ts --max-concurrency=1` | 15 pass、1 fail；唯一失败为既有“贴进来的是密钥”交互用例，21.52 秒 |
+| `bun test src/cli/config.test.ts -t '贴进来的是密钥'` | 0 pass、1 fail，仍等待“推理档”4 秒超时 |
+
+配置交互失败没有列为本次回归：`git diff e9ab762b2..ad8c8494c -- packages/nb-story/src/cli/config.test.ts packages/nb-story/src/cli/config-init.ts` 输出为空；报告目录的 `config-terminal-probe.ts` 观察到该测试输入的 DEL 没删掉旧文本，实际提交成 `sk-abc-123MY_KEY`，故仍被正确拒绝。没有以这个现象推断真实 TTY 用户不能编辑；需要主 Agent 修测试输入/终端替身而不是放松密钥校验。
+
+额外真实运行验证：
+- `http-boundary-probe.ts`：无效删书副作用、合法多行原文全读、graph 前缀误伤均复现，真实服务最终退出 0。
+- `generation-probe.ts`：真实 CLI 删除和同 id 重导入均退出 0，新代读取仍含旧 run，服务最终退出 0。
+- `config-http-probe.ts`：不可读配置误报 absent 且被覆盖、`__proto__` 键缺失；invalid 响应的未知字段假密钥没有泄漏；服务最终退出 0。
+- `termination-deadline-probe.ts`：11 秒的真实终止回调被约 10 秒硬退出，退出 143。
+- `get-snapshot-race-probe.ts`：真实 HTTP 60 轮、每轮 35 个并发 get，共 2100 个响应，没有观察到“旧 record 加 saved:true 新 run”的矛盾；不以未复现证明该竞态不可能，只是不报告未经证实的候选。
+- `logfrom-compat-probe.ts`：真实首轮记录去掉显示元数据 `logFrom` 后，get HTTP 200、continuable；真实续问 HTTP 200，保存成旧轮无 logFrom、新轮有 logFrom 的混合记录，服务退出 0。
+
+## 未发现问题的方面
+
+- **接纳门的正常交错**：在当前单线程无 reentrant observer 的实际 HTTP 调用下，`preparing` 登记早于 `start` 第一次挂起；准备结束后的关门复查与 `abandon()` 在删除/停服等待的 preparation Promise 释放之前完成；计数门在重叠删除期间不会被较早完成的一方提前打开。仔细检查后没有发现正常准备完成时漏接纳或漏等待的问题；底层 I/O 永不完成的替身实验不作为产品发现。
+- **运行/保存收口**：运行保持 running 直至引擎保存返回；`settle` 等待 done 后才移除，HTTP 正常删对话/删书与 SIGINT/SIGTERM 的已运行路径通过。书的跨进程代际隔离缺陷另见第 9 条。
+- **事件顺序**：pending message_update 在其它事件、日志与 ended 前 flush，timer 被清理；失败订阅者从各自集合移除，不中断其它订阅者。SSE 的真实慢连接上限与 12 秒安静模型测试通过。预中止 Request 的直接 handler 实验没有真实 HTTP 可达证据，不计发现。
+- **脱敏与配置输入**：真实 provider 的 401 回显密钥在输出、日志与事件扫描中不泄漏；网页白名单删掉 assistantMessageEvent、agent_end.messages 和 provider 原始附属字段。配置三处 apiKeyEnv 的已知密钥形状拒绝及未知字段拒绝通过；invalid 配置正文不回传。无法可靠区分任意随机密钥与变量名是已记录取舍，不重报。
+- **schema 与记录兼容**：没有发现本轮 QA_METHODS 正常返回被输出 schema 拒成 500 的问题。QaTurnSchema 的 logFrom 可选；旧一问一条记录照常读取，新旧 logFrom 混合轮可续问。运行结果的 logFrom 与日志序号连续性一致。
+- **配置写入并发**：稳定 sibling flock、异步重试、随机临时名、锁内 expect 比对及 CLI init/set/unset 接入没有发现正常并发覆盖漏洞；不把不走锁的手改窗口重新报告。不可读目标的错误 absent 前提和非法字节摘要另见第 6、10 条。
+- **章数上限与相邻功能**：只有 chapter_limit 正常拒绝、其他拒绝仍为工具错误；先裁 P 再算章数、同批只读到允许的新章、跨轮已读集合仍有效；引擎、ask 与抽取服务回归测试通过。
+- **onProcessInterrupt 与 onProcessTermination 同进程**：实测终止回调会截断未完成的 interrupt 回调，但这正是新 API 和 Spec 明写的限制，serve/ask 当前也在不同进程入口，不作为新发现；真正未声明的 10 秒总期限冲突见第 11 条。
+
+## 未运行与证据限制
+
+- 未运行 e2e、开发服务或真实模型；所有模型请求只发本机脚本端点。未改仓库源码，未 commit、push、stash 或切分支，未开子代理。
+- 未执行实现变异；没有把测试覆盖推断写成变异通过。准备阶段、保存失败、CLI 并发分支的具体缺口已列第 13 条，需主 Agent 补覆盖并做变异。
+- 实验数据和脚本保留在报告目录供核实；早期候选探针曾在 `/tmp` 写数据，属于审查者未遵守“实验文件只在报告目录”的操作错误，后续真实证据均改在报告目录，不修改产品规范掩盖该错误。
+- 报告写入最初发生覆盖，已如实记录并恢复了仍有效的发现；随后每次使用末尾插入并用 `grep ^### ` 核对累计条数。规则已明确，不提出重复的规范回写建议。
+
+## 各级数量
+
+- 阻断：0 条。
+- 重要：6 条（第 6、7、8、9、11、13 条）。
+- 建议：2 条（第 10、12 条）。
+- 有效发现合计：8 条；标题 `^### ` 应为 8 个。

@@ -1,0 +1,111 @@
+### 阻断｜接口与合同｜计划 3.2 第 32–47 行
+
+- **现象**：子路径表把根入口收敛为插件框架、服务、远程、诊断、宿主能力和文字工具，并按内置插件列出 `/storage`、`/settings`、`/commands`、`/workbench`，但没有 `nbook.state` 的子路径。当前根入口仍导出 `defineStore`、`definePublicState`，示例 `counter` 也从根入口导入这两个 API；应用架构测试还把所有示例根入口导入作为第三方公开面检查。
+- **为什么是问题**：P7 已确定“根入口只留插件框架”、按内置插件分子路径；把现有状态 API 留在根入口违反已定分层，删掉又会让内置插件、示例、模板和作者合同全部失去入口。计划没有迁移路径，也没有说明是否新增 `/state`；照 S2 实施后至少会在现有示例和 `architecture.test.ts` 处返工，且发布的 SDK 无法同时满足“根入口只留框架”和现有状态 API 可用。
+- **如何核实**：`packages/neuro-book/src/sdk/index.ts:64-66` 仍导出 `defineStore`、`definePublicState`；`packages/neuro-book/plugin-sdk/examples/plugins/counter/backend/plugin.ts:20` 从 `@notnotype/nb-plugin-sdk` 导入 `defineStore`；`packages/neuro-book/src/architecture.test.ts:84` 以 `SDK_ENTRIES` 生成示例允许的公开包集合。计划 3.2 的完整表没有状态子路径。
+- **建议改法**：在 3.2 子路径表明确登记 `nbook.state` 的归属（通常新增 `/state`，并列出 `defineStore`、`definePublicState` 及其公开类型），同步 `entries.ts`、宿主模块表、打包 exports、tsconfig、示例、模板、文档和架构/闭包测试；或者明确记录开发者批准的“状态 API 仍属根框架”的例外，不再声称根入口只留插件框架。
+
+### 阻断｜公开面闭包｜计划 3.2 第 32–47 行
+
+- **现象**：子路径表的内容没有覆盖当前 `/browser` 导出的非作者入口：`settingsPageContribution`、`SettingsPageContribution`、`SettingsPageContext`、`SettingsChoicesImplementation`、`OptionSource`、`viewContribution`、`ViewContribution`、`ItemImplementation`、`ViewContext`、`ViewImplementation`，以及 `SettingsPageActions`、`SettingsPageList`、`SettingsRow`、`SettingsSaveBar`。计划只写 `/settings/browser` 的 `settingsPage`、`choices` 和 `/workbench` 的 `view`、`statusItem`、`openView`。
+- **为什么是问题**：这些不是可删除的内部实现：它们出现在 SDK 包、作者示例、模板测试和类型闭包里；作者要用 `settingsPageContribution`/`viewContribution` 才能把实现交给内核，组件与上下文类型也是浏览器作者 API 的一部分。删除 `/browser` 而未为它们指定新归属，要么导致当前作者源无法编译，要么把它们偷偷留在根/旧入口，违反“根入口只留插件框架”和“按内置插件分子路径”。
+- **如何核实**：`packages/neuro-book/src/sdk/browser.ts:7-23` 列出完整的当前浏览器公开面；`packages/neuro-book/plugin-sdk/pack.test.ts:56-57,74-77` 以及 `packages/neuro-book/plugin-sdk/examples/plugins/snippets/web/SnippetsPage.vue:32-35` 实际导入这些名字。`surface.test.ts` 还把其应用源码闭包固定为设置页、视图贡献与组件文件。
+- **建议改法**：扩充 3.2 表：`/settings/browser` 负责设置页组合助手、设置页上下文/选项来源和设置页专用组件，`/workbench` 负责视图实现组合助手、视图/条目实现类型与上下文、`openView`；同步 `browser.ts` 的拆分、子路径表、宿主表、闭包快照、示例和打包声明。若计划有意移除其中任何 API，必须列出替代 API 与所有迁移调用方，不能隐含删除。
+
+### 阻断｜接口与合同｜计划 3.5 第 67–72 行
+
+- **现象**：B2 规定 `provideRemote` 的方法实现第二个参数改为 `{ok, fail}`，但现有远程实现合同第二个参数是 `RemoteCallContext`，其中唯一的成员 `signal` 是调用方中止、入口停止或提供方停止时的终止信号。计划没有说明 `signal` 放到哪里，也没有给出三参数或组合上下文的形状。
+- **为什么是问题**：按字面实现会删除作者获取终止信号的能力，违反 `plugin-api` 数据面“每个处理函数都收到终止信号”以及 `plugin-channel` 的提供方实现合同；按实现者自行加第三个参数则会产生未记录的新 API，所有现有示例的 `(input, {signal})` 写法、远程服务类型、调用方取消/停止语义和作者文档都要同步迁移。远程写请求、长读请求和停止收口都可能因此变成无法中止的工作。
+- **如何核实**：`packages/nb-runtime/src/remote/contract.ts:182-197` 当前把第二参数定义为 `RemoteCallContext`；`docs/specs/runtime/plugin-api.md:76-82` 要求每个处理函数收到 `signal`；`docs/specs/runtime/plugin-channel.md:33,59,92` 规定提供方门面与调用方/提供方停止信号的关联；示例 `packages/neuro-book/plugin-sdk/examples/plugins/focus/backend/plugin.ts:165-177` 和 `notes/backend/plugin.ts:150-168` 依赖该时序。
+- **建议改法**：把 B2 的目标形状写成保留终止信号的明确合同，例如第二参数 `{readonly signal: AbortSignal; readonly ok; readonly fail}`，或第二参数保留 `RemoteCallContext`、新增第三个结果构造器参数；说明同步/异步实现、事件订阅是否也可用该助手，并更新内核类型、SDK、示例与“停止时中止”的真实测试。
+
+### 阻断｜接口与生命周期｜计划 3.9 第 89–92 行
+
+- **现象**：`eventSource<Payload, Filter>({match?})` 只定义了过滤与 `emit`，却要求 `source.subscribe` 直接放进远程合同。现有远程事件的 `subscribe(filter, sink, {signal})` 是每个订阅一次的提供方回调；`notes` 在这里还要按调用方打开自己的 Storage 记录、异步建立记录订阅并在 `signal` 触发时释放句柄，首次订阅先推当前列表。`counter` 也在订阅建立时推当前计数。
+- **为什么是问题**：仅有 `match`/`emit` 的全局集合不能替代这些行为：它没有创建每个调用方的底层资源的钩子，也没有“先登记再读”的初始快照时序，更没有说明 source 是在 `activate`、`provideRemote` 工厂还是模块顶层创建。若按字面把同一个 source 放进多个调用方门面，调用方之间会共享订阅集合或把一个调用方的事件推给另一个；若在模块顶层创建，入口停止/重激活后还会保留跨代次对象。若保留现有自定义 `subscribe` 来做 Storage 接线，则 `notes`、`counter` 并没有“改用它”。
+- **如何核实**：`packages/nb-runtime/src/remote/contract.ts:191-204` 规定 `subscribe` 收到 filter、sink、signal；`packages/neuro-book/plugin-sdk/examples/plugins/notes/backend/plugin.ts:145-168` 按调用方建立 Storage 订阅并在 signal 时释放；`counter/backend/plugin.ts:68-77,137` 在注册后维护集合；`notes/backend/plugin.ts:150-163` 还要处理异步建立期间首事件和结束时序。计划 3.9 的 API 没有 `onSubscribe`、初始值、source 作用域或 `onStop` 设计。
+- **建议改法**：明确 source 的所有权必须在每个 `provideRemote` 门面/入口代次内，或者让 `eventSource` 接受每订阅初始化与清理回调；保留 `signal` 的释放合同。另加可选的初始快照/订阅回调（能覆盖“先登记再读”），并规定 `emit` 在订阅建立前、建立中、结束后的行为；为同一 source 的多调用方、入口停止、首事件先于 `subscribe` 返回和存储订阅失败各写真实测试。
+
+### 阻断｜命令语义与副作用｜计划 3.4 第 61–65 行
+
+- **现象**：计划把 `nbook.view.open` 标成“只读”，同时要求它选中容器、显示区域、在需要时清除隐藏/拖到零/面板收起，并复用 `applyView`。这些动作会通过布局 store 改写 `views-customizations`、`shownParts`、选中容器和面板状态；现有 `applyView` 在 `layout-store.ts:220-242` 明确提交持久化补丁。
+- **为什么是问题**：命令系统的 `effect` 是 Agent 只读模式阻断写入的唯一依据。把会持久化改变用户布局的命令声明为 read，会让 discuss/plan 模式允许 Agent 修改布局，也会让审计、确认与作者命令文档把一个写操作描述成无副作用。`expose.agent: "auto"` 不会消除这个副作用，最多只决定是否需要确认。
+- **如何核实**：`docs/specs/workbench/commands.md:43-45,66-75` 把 `effect` 定义为只读模式的阻断依据；`packages/neuro-book/src/plugins/workbench/web/state/layout-store.ts:217-242` 的 `applyView` 在选择/显示区域时提交 `customizations`; `setPartHidden` 也在 `:172-189` 写入同一记录。当前 `nbook.view.set-part-hidden` 已声明 `effect: "write"`（`part-commands.ts:21-33`）。
+- **建议改法**：把“打开视图”拆成明确的写操作合同：至少声明 `effect: "write"`，并定义 Agent `auto` 在普通模式可执行、在 discuss/plan 返回 `read-only` 的行为；或者新增只改变内存可见性的命令，但那就不能承诺显示区域、选中容器和持久化布局。验收要断言布局记录确实变化及只读模式确实拒绝。
+
+### 重要｜机制与合同｜计划 3.4 第 61–65 行
+
+- **现象**：计划把“聚焦视图”列为 `nbook.view.open` 的动作，但现有布局机制只有 `applyView({kind: "select-container"})`、区域显隐和 `focusPart`；命令服务与 `LayoutStore` 都没有把目标视图的 DOM 焦点请求交给 `WorkbenchShell` 的接口。外壳当前只在 `focusin` 时反向更新 `focusedPart`，没有由命令定位并聚焦某个视图的通道。
+- **为什么是问题**：只实现计划列出的选容器和显示区域，命令最多改变选中容器，不能满足“聚焦视图”：多视图容器中不会把焦点放到目标视图，单视图容器中也没有可观察的焦点结果。直接在命令里访问 `document` 会把浏览器 DOM 耦合进工作台命令/布局层，并破坏无 DOM 的命令合同；用布局状态硬塞一次性标记又没有现成的消费与清理时序。
+- **如何核实**：`packages/neuro-book/src/plugins/workbench/web/state/layout-store.ts:217-247` 的公开动作只有 `applyView` 与 `focusPart` 等布局动作；`packages/neuro-book/src/plugins/workbench/web/plugin.ts:131-167` 创建布局和外壳时没有聚焦服务；`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:286-289` 的焦点逻辑仅由 DOM `focusin` 更新 Part，`contracts.ts:31-44` 也没有 focus API。
+- **建议改法**：先在计划中定义“聚焦视图”的可观察合同（至少是目标视图可见后把焦点交给视图的 focus target、加载中/未交付/非可聚焦时的结果），再新增由工作台入口拥有的窄接口，例如 shell/chrome 的一次性 `focusView(viewId)` 请求或带目标视图的 focus action；命令只调用该接口，组件在 next render 后消费并清理。把撤回、重载、无项目页和重复调用的行为加入测试。
+
+### 重要｜接口与合同｜计划 3.4 第 61–65 行
+
+- **现象**：`nbook.view.open {viewId}` 把“视图不在布局里、没有已接受声明”统一写成 `unavailable`，但命令合同已经区分了当前工作台不可用与参数/目标不存在：`unavailable` 用于没有布局等运行状态，未知视图或无效目标应是 `invalid-args`。现有 `nbook.view.move-view` 也把布局意图中的未知视图、容器和不可移动目标映射为 `invalid-args`，只把没有布局映射为 `unavailable`。
+- **为什么是问题**：Agent 和命令面板根据失败码决定是否重试、提示参数错误或隐藏入口。把拼错/已撤回的 `viewId` 报成 `unavailable` 会诱导无意义重试，并与 `workbench.commands.md` 的失败合同冲突；后续实现者还无法判断“没有声明”是输入错误、声明撤回还是工作台尚未建立。
+- **如何核实**：`docs/specs/workbench/commands.md:67,100-103` 定义 `invalid-args` 与 `unavailable` 的语义；`packages/neuro-book/src/plugins/workbench/web/commands/view-commands.ts:85-90,137-146` 已按该区分实现；`nbook.view.open` 在计划 3.4 只有一个笼统的 `unavailable` 约定。
+- **建议改法**：按状态拆分合同：布局/工作台未建立返回 `unavailable`；`viewId` 没有已接受声明返回 `invalid-args`；声明存在但当前布局目录没有可定位的容器、或视图句柄/入口正在停止，分别定义 `invalid-args`、`unavailable` 或新的 `stale-target` 语义。把每种状态写进命令 Spec 与真实命令测试，不能用一个码覆盖所有失败。
+
+### 重要｜失败路径与边界｜计划 3.3 第 49–59 行
+
+- **现象**：`update` 只明确了 `missing`、正常值、`corrupt` 与 `unsupported-version`：前两者如何传给 `change`，后两者不调用并返回失败。但 `RecordSnapshot<T>` 还有 `status: "error"` 分支；计划没有说明它是否调用 `change`、如何把 `code/detail` 变成 `StorageFailed`。同样没有规定 `change` 抛异常/返回 rejected Promise 时的结果，也没有定义 `attempts` 是总保存次数还是冲突后的重试次数，以及 `0`、负数、非整数如何处理。
+- **为什么是问题**：不同实现会产生不同且危险的行为：把 `error` 当缺失会在读取失败时写默认值，违反 Storage “读取失败不应写入默认值”的合同；把 `unknown-outcome` 或 `unavailable` 当普通 conflict 重试可能重复未知结果的写入；对异常不设语义会让 `update` 成为唯一可能拒绝的 Storage 方法，作者无法判断是否需要捕获。尝试次数边界也会改变是否发生写入，不能留给循环实现自行决定。
+- **如何核实**：`packages/neuro-book/src/shared/storage.ts:160-168` 定义了 `error` 快照与 `StorageFailed`；`docs/specs/storage/persistence.md:103,128,156` 明确读取错误不当作缺失、经代理的未知写入不得自动重放；`packages/neuro-book/src/plugins/storage/shared/facade.ts:73-77` 当前只把 `read` 和 `write` 的已有结果原样转发，没有可借用的更新语义。
+- **建议改法**：把 `update` 写成完整状态表：`missing` 传 `null`，`ok` 传值，`corrupt`/`unsupported-version` 返回对应错误，`error` 直接返回同码同详情且不调用回调；只对 `save` 返回的 `conflict` 重读并重算，`unknown-outcome`、`unavailable` 等立即返回。定义 `attempts` 的总次数/缺省/最小值与超限处理，并明确 `change` 抛异常是传播为代码异常还是转换成哪种结构化失败；为每个状态和重试边界补真实 Storage 测试。
+
+### 重要｜类型合同｜计划 3.6 第 74–76 行
+
+- **现象**：计划把调用方类型命名为 `RemoteResult<T, BusinessCode>`，同时要求失败分支按 `C` 取 `Static<errors[C]>`；但 `BusinessCode` 只携带字符串联合，没有合同的 `errors` 映射，无法从 `C` 反推出详情 schema。当前 `RemoteClient` 正是把 `BusinessCodes<Method>` 作为第二泛型参数传给 `RemoteResult`，所以按字面替换仍只能得到 `unknown`，或者会把所有业务码错误地赋成同一种详情类型。
+- **为什么是问题**：B3 的验收目标是 `r.code === "too-many"` 后 `r.detail.max` 能直接通过类型检查。要做到这一点必须让结果类型携带“码到 schema”的映射或整个方法类型，并把运行时错误分支与业务分支做成可区分联合；仅改 `RemoteFailure` 的 `code` 展开不够。若实现者按计划只改 `RemoteResult<T, BusinessCode>`，会在 `RemoteClient`、`orThrow`、`RemoteCallError.failure` 和所有消费方之间反复返工。
+- **如何核实**：`packages/nb-runtime/src/remote/protocol.ts:45-53` 的 `RemoteFailure` 只有 `detail?: unknown`；`packages/nb-runtime/src/remote/contract.ts:157-168` 的 `BusinessFailure` 才拥有 `Method["errors"][Code]` 映射；`contract.ts:241-246` 目前把 `BusinessCodes<Method>` 丢给 `RemoteResult`，没有传 `errors` 或 `Method`。仓库外写一个 `RemoteResult<{x: string}, "too-many" | "storage-failed">` 无法从第二个参数构造 `too-many` 的具体 detail。
+- **建议改法**：把公共结果类型定义为按方法或错误映射参数化的类型，例如 `RemoteResultFor<Method>`，内部为运行时失败联合加 `BusinessFailure<Method>`；同步改 `RemoteClient`、`orThrow`、`RemoteCallError.failure` 的泛型与声明。补充含两个不同详情 schema、运行时失败码和业务码收窄的编译期反例，验收目标不能只测服务端返回值。
+
+### 重要｜迁移完整性｜计划 3.2 第 44–47 行、切片 S2 第 117 行
+
+- **现象**：计划只列出“示例、模板、作者文档、`build-plugin` 的共享模块表”随子路径变更，但仓库还有把旧入口写死的宿主与验收材料：`src/web/host/plugin-modules.ts` 的模块表、`plugin-modules.dom.test.ts` 的身份断言、`plugin-sdk/testing/browser-artifact.ts` 的模拟宿主、`plugin-sdk/pack.test.ts` 的作者源字符串与依赖清单、`src/architecture.test.ts` 的违规样例，以及 SDK `tsconfig`/打包 exports 的快照。切掉 `/browser` 后这些不是示例源码的调用方仍会按旧入口解析。
+- **为什么是问题**：S2 的“类型检查、`bun test src/sdk plugin-sdk/`、插件 e2e”不能只验证作者源码；遗漏任一宿主表或测试 fixture 会得到 `satisfies Record<BrowserSharedModule, object>`、模块身份断言或仓库架构测试失败，甚至让测试使用旧的模拟模块表而不是新宿主模块表。更严重的是，把旧 `/browser` 继续留在某张表里会绕过“子路径表与宿主模块表一一对应”的未共享检查，发布产物与真实装载路径不一致。
+- **如何核实**：`grep` 全包命中旧入口：`packages/neuro-book/src/web/host/plugin-modules.ts:27-29`、`plugin-modules.dom.test.ts:14,31-33`、`plugin-sdk/testing/browser-artifact.ts:24-26`、`plugin-sdk/pack.test.ts:56-57,219-221,287`、`src/architecture.test.ts:256-257`；`src/sdk/sdk.test.ts` 还从 `SDK_ENTRIES` 生成路径别名与导出快照。计划的改动清单没有逐项提到这些文件。
+- **建议改法**：在 3.2/S2 直接列出“所有 `SDK_ENTRIES` 消费者与所有旧 specifier 引用”作为迁移清单，至少包括宿主模块表、浏览器 artifact、架构测试、pack/template 测试、tsconfig/export 快照和 e2e/测试插件 fixture；把“未共享”检查增加一条断言：新表中不存在旧 `/browser`，且每个新子路径同时有 SDK export、作者构建别名、宿主模块表和测试身份覆盖。
+
+### 重要｜规范一致性｜计划 3.2 第 30–47 行、4 第 101–110 行
+
+- **现象**：3.2 改 SDK 子路径与宿主模块表，4 的 Spec 清单却只把 `runtime/plugin-api.md` 列为子路径表的更新文件；`runtime/plugin-code-loading.md` 的宿主模块表仍明确列出旧的 `@notnotype/nb-plugin-sdk/browser`、`/components`，并要求 SDK 子路径名单与表一致。计划在 4 中只给该 Spec 安排“构建报错格式与 `--verbose`”。
+- **为什么是问题**：这是作者装载合同，不是实现注释。只改 `entries.ts`、平台档案和宿主模块表而不改 `plugin-code-loading`，文档会同时承诺旧 `/browser` 和新的 `/settings/browser`、`/workbench`；作者据此判断服务端哪些入口可用、构建预设何时应留外部引用，会得到错误结论。也会漏掉该 Spec 的“共享入口即兼容承诺”与子路径表一致性验收。
+- **如何核实**：`docs/specs/runtime/plugin-code-loading.md:23-30` 定义宿主模块表并在 `:27` 写死旧 SDK 子路径；`docs/specs/runtime/plugin-api.md:173-174` 也把宿主模块表与 SDK 子路径的关系作为兼容合同；计划 4 的表格第 105 行只列 `plugin-api.md` 子路径更新，第 109 行给 `plugin-code-loading.md` 的内容不是子路径。
+- **建议改法**：把 `plugin-code-loading.md` 加入 3.2/Spec 改动清单，更新两端宿主模块表、每个子路径的服务端可用性和“名单与 SDK 子路径表一致”的验收；B5 的构建错误段另列，不要让同一文件的另一个改动遮住这项合同迁移。
+
+### 重要｜工具机制｜计划 2 第 15–18 行、3.1 第 22–28 行
+
+- **现象**：当前 `pack.ts` 的 `npmPack` 依赖 `npm pack --pack-destination <目录>`，取 stdout 最后一行作为 tarball 文件名；计划只写“换成 `bun pm pack`”，没有说明参数与输出解析。Bun 1.4.2 的默认输出把 tarball 路径放在中间，后面还有 `Total files`、校验和与大小；直接替换命令会把最后一行解析成统计文本而失败。Bun 也不接受 npm 的 `--pack-destination`，应使用 `--destination`，或 `--filename` 写绝对路径。
+- **为什么是问题**：S1 的 SDK 打包会在发布前直接失败，且“产出同样的 tarball”并非字节等价：本实验同一包的 Bun tarball 把 `package.json` 重格式化为 114 字节，npm tarball 保留 88 字节的原始文本，压缩包哈希也不同。语义上的文件集合可以相同，但任何现有按包大小、校验值或打包输出解析的验收都不能沿用；计划没有把这个工具合同写清楚。
+- **如何核实**：仓库外 `/tmp/review-t15-design-omp/pkg` 执行 `bun pm pack --filename /tmp/review-t15-design-omp/bun.tgz` 与 `npm pack --pack-destination /tmp/review-t15-design-omp`：Bun 默认输出最后一行是 `Total files: 2`，`bun pm pack --quiet --filename ...` 才只输出路径；两包解开后文件集合相同但 `package/package.json` 字节不同。当前实现位置为 `packages/neuro-book/plugin-sdk/pack.ts:364-372`。
+- **建议改法**：在计划中规定 Bun 命令的精确参数（推荐 `bun pm pack --quiet --filename <绝对 tarball 路径>`）、输出/失败处理与 tarball 命名，再重写 `npmPack` 并用真实安装验证；把验收从“同样 tarball”改成“相同文件集合、权限、`package.json` 的 exports/bin/依赖语义与可安装性”，除非明确要保留原始 JSON 字节。
+
+### 重要｜工具与失败路径｜计划 3.8 第 85–87 行、3.11 第 97–100 行
+
+- **现象**：计划要求只有 `nbooke build --verbose` 才打印 Vite 的日志与堆栈，但 3.8 没有把 `--verbose` 加入作者命令的参数合同、`BuildPluginOptions` 或 CLI 传递链；3.11 只写了改名，没有列出新的开关。当前 `cli.ts` 的 `parseArgs` 只接受 `out`、`clean`、`dev`，未知 `--verbose` 会直接走退出码 2。
+- **为什么是问题**：后续切片照计划实现“默认隐藏堆栈”时，作者没有任何可用的开关打开诊断；若只在构建预设内部加布尔字段，命令层仍会拒绝；若只放宽 CLI 又无法把选项传到 `loadModules`。这使 B5 的成功路径与失败路径合同不完整，作者遇到无法定位的顶层求值错误时不能获得计划承诺的详细信息。
+- **如何核实**：`packages/neuro-book/plugin-sdk/cli.ts:48-56` 的 `parseArgs` 没有 `verbose`；`packages/neuro-book/src/plugin-platform/build/build-plugin.ts:80-96` 的 `BuildPluginOptions` 当前也没有该字段；`loadModules` 在 `:205-228` 无日志级别或 verbose 参数。仓库外执行当前命令 `bun .../plugin-sdk/cli.ts build --verbose`，实际输出 `Unknown option '--verbose'` 并退出码 2。
+- **建议改法**：在计划 3.8 明确 `nbooke build --verbose` 的 CLI、`BuildPluginOptions.verbose` 与 `loadModules` 的传递和默认值；定义非作者错误的 Vite/打包异常在 verbose 下如何保留原始堆栈，默认模式只输出规范化的“作者文件:行:列 + 消息”；同时把该开关加入 Spec、usage、模板脚本（如需）和测试验收。
+
+### 建议｜参照与 API 完整性｜计划 3.2 第 36–41 行、3.4 第 61–65 行
+
+- **现象**：VS Code 扩展可经 `vscode.commands.executeCommand` 调用任意已登记命令，视图还有 `workbench.view.extension.*` 这类稳定的揭示命令；VS Code 的 `EventEmitter` 则把只读事件面、`fire` 和 `dispose` 分开。计划的 `/commands` 只列 `command`、`COMMANDS_POINT` 与命令类型，B1 只为状态栏提供 `openView(viewHelper)`，没有作者可调用的通用命令服务出口，也没有说明是否有意不支持其它命令的调用。
+- **为什么是问题**：现有命令合同明确“任何插件都可以依赖” `nbook.commands` 的 `commandServiceKey`，但当前 SDK 根入口没有导出该键；作者只能手拼 raw service key 或无法调用内置/其它插件命令。这样状态栏、视图动作和 Agent 只能靠计划新增的特例助手，无法表达“执行已有命令并传参数”的普通扩展场景。若 `eventSource` 也要作为普遍事件助手使用，计划同样没有 EventEmitter 式的只读事件面、显式释放/销毁和 provider-side disposer 合同。
+- **如何核实**：`docs/specs/workbench/commands.md:35-38,111-114` 定义命令服务的通用查询/执行能力；`packages/neuro-book/src/plugins/commands/shared/contracts.ts:126-139` 有 `CommandService` 与 `commandServiceKey`，而 `packages/neuro-book/src/sdk/index.ts:53-55` 未导出它；计划 3.2 的 `/commands` 内容也未列出。`eventSource` 计划 3.9 只有 `match`、`subscribe`、`emit`。
+- **建议改法**：明确“只允许作者贡献命令、不允许作者执行命令”是本期非目标；若不是，按 `/commands` 公开 `commandServiceKey` 与其 `execute/get/isEnabled` 类型，给出调用失败和停止语义，并把 `openView` 定义为这个通用能力之上的便捷封装。对事件助手增加只读事件面、`dispose`/入口代次所有权和 provider-side 资源释放合同，或在 Spec 中明确它只覆盖最小远程推送集合而不是 EventEmitter 等价物。
+
+## 待确认项判断
+
+- `locations` 不从入口推出：无问题。README 已记录开发者明确接受的取舍，且 t14 S5 已核对描述与入口一致；本期只需保留构建期一致性校验。
+- B2、B4 的 TypeScript 报错文字随版本变化：风险判断成立，但不能把完整第一行文字当成跨版本合同；验收应固定实际 TypeScript/vue-tsc 版本，并断言错误落点、问题名和可读的语义片段，完整文字只留证据。
+- “S2 内一次改完所有导入、合入前跑插件 e2e”：计划目标合理，但当前计划没有列全宿主、fixture、pack 测试和架构测试调用方，不能把这条当作已经覆盖的验收映射，见迁移完整性发现。
+
+## 未发现问题的方面
+
+- 只用 Bun 的具体安装与执行路径：`bun add -d file:...` 在空目录生成 `package.json` 与 `bun.lock`；安装本地 tarball 后 `bunx <bin>` 能执行带 Bun shebang 的 bin。当前实验结果支持该机制，未据此提出缺口。
+- 当前基线合同测试：`bun test packages/neuro-book/src/sdk/surface.test.ts packages/neuro-book/src/sdk/sdk.test.ts packages/neuro-book/src/plugins/workbench/web/commands/view-commands.test.ts packages/neuro-book/src/shared/storage.test.ts packages/nb-runtime/src/remote/outcome.test.ts` 结果为 `19 pass, 0 fail`；应用类型检查 `bun run typecheck` 结果为通过。以上是现状基线，不代表计划改动已验证。
+- 未运行 e2e 与开发服务，符合本次只读设计审查规则。
+
+阻断：5；重要：8；建议：1。

@@ -1,0 +1,23 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t01-ui-design",
+    "artifactId": "review",
+    "answerId": "20261015T005444663Z-972d7f82",
+    "artifactVersion": 5,
+    "contentHash": "f1b215f36ed6c446abd18f38bb0063f14b0c949c2434b96441a613dbb923b45a",
+    "submittedAt": "2026-10-15T00:54:44.262Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "qa-answer-format": "table",
+        "data-graph-layout": "both-storyline",
+        "card-tabs": "tabs",
+        "phone-scope": "desktop-tablet-first",
+        "ledger-mismatch": "show-gap"
+    },
+    "comments": {},
+    "note": null
+}

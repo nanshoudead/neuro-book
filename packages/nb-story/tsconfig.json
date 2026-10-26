@@ -1,0 +1,28 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "lib": [
+            "ES2024"
+        ],
+        "types": [
+            "bun",
+            "node"
+        ],
+        "strict": true,
+        "jsx": "react-jsx",
+        "jsxImportSource": "@notnotype/nb-profile",
+        "noEmit": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true
+    },
+    "include": [
+        "src",
+        "testing"
+    ],
+    "exclude": [
+        "src/web",
+        "e2e"
+    ]
+}

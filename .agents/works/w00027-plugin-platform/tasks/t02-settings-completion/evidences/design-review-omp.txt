@@ -1,0 +1,216 @@
+# w00027 t02 设置补齐实施计划：只读设计审查
+
+审查日期：2026-10-20。对象：主工作区 `.agents/works/w00027-plugin-platform/tasks/t02-settings-completion/plan.md`；实现依据为 `.worktree/w00027-plugin-platform/`。未修改产品、规范、Task 或计划。以下是计划缺陷，不声称尚未实现的代码已发生这些故障。
+
+## 问题（按影响排序）
+
+### 1. 主密钥丢失后的“重新输入覆盖”没有可执行的恢复路径
+
+- **严重程度**：阻断；**类别**：正确性、不变量。
+- **位置**：计划“密钥”第 57–63、73 行；`docs/specs/runtime/plugin-api.md:145`。
+- **现象**：只在首次写入时生成主密钥；一旦 `keyStore` 记下就只用原位置、不得另生成主密钥。但计划又承诺 keyring 状态根搬到另一机器后，用户重新输入就能覆盖。新机器没有原条目、用户删除条目、`secrets.key` 遗失或 `keyId` 不匹配时，都没有可用于加密替换值的可信主密钥。
+- **为什么是问题**：暂时锁住与永久丢失被合成同一种 `secret-unreadable`，前者不能轮换，后者不轮换就永远不能保存新值。若直接生成主密钥并改全局 `keyId`，其它旧条目立即全部失效；不能以恢复一个键为由静默毁掉其它密文的恢复机会。已有合同明确要求原密文保留、重新输入后能读到新值。
+- **如何核实**：逐步执行计划规则：已有 `keyStore=keyring`、文件含 2 个条目，删除系统条目后只重新输入其中 1 个；按第 60 行无法生成新主密钥，按第 63 行却必须保存成功。代码尚无该实现，本条为合同与状态转换审查。
+- **建议改法**：区分暂时不可访问、条目不存在、密钥不匹配；明确用户重新输入时如何进入新密钥代次，同时保留旧代次密文与位置元数据，或定义显式整库重置及丢失确认。不能把临时失败当自动降级；补上述 3 种失败及单键恢复不破坏其它条目的验收。
+
+### 2. 首次主密钥初始化没有纳入同一把跨进程锁和崩溃协议
+
+- **严重程度**：阻断；**类别**：不变量。
+- **位置**：计划“密钥”第 56–61 行；`packages/neuro-book/src/backend/locked-replace.ts:53-76,143-164`；`src/plugins/settings/backend/layer-file.ts:59-62`。
+- **现象**：只规定密文文件写入“同设置文件”的锁；没有规定检查 `secrets.json`、读/创建主密钥、选定 `keyStore`、提交 `keyId` 和首条密文必须在同一初始化临界区，也没定义两份文件/外部密钥库之间的崩溃恢复。
+- **为什么是问题**：两个服务端同时见到未初始化，可各生一把 K1、K2 并写同一个 keyring 账号；即便之后密文写入串行，后写的主密钥也能使前一个进程已返回成功的密文失效。文件模式同样存在 `secrets.key` 覆盖竞态。现有 `replaceLocked.decide` 是同步纯函数，`writeLayerFile.transform` 在锁外及重试时都可能调用，不适合在里面附带异步密钥库初始化。只复用写文件帮助函数不会自动获得这个保证。
+- **如何核实**：读取上述函数；对照 A、B 同时检查不存在，各生成、设置同一账号、再串行写密文的时序。计划验收仅写“真实进程”，未规定同时首次写不同键这一判据；不是已运行的故障复现。
+- **建议改法**：以规范化状态根为唯一初始化锁键，持锁后重读已提交元数据再决定是否生成，持锁覆盖首次初始化和密文提交；外部密钥条目先写成功后发布引用，定义中途退出后孤儿条目的识别/复用规则。补 2 个真实进程同时首次写不同键、初始化各阶段崩溃后重启的验证。
+
+### 3. `readSecret` 的方法级 `callers` 机制不存在，按计划收窄合同会封死浏览器设置
+
+- **严重程度**：阻断；**类别**：接口、安全。
+- **位置**：计划第 70–72 行；`packages/nb-runtime/src/remote/contract.ts:44-52,60-74,86-93`；`packages/neuro-book/src/plugins/settings/shared/contracts.ts:91-93`。
+- **现象**：计划在 `nbook.settings/user` 中给 `readSecret` 单独规定 `callers` 只有 project 与服务端本地。但运行时 `callers` 只在整份合同上，方法只有 input/output/effect/errors；没有每方法的调用方列表。现有 user 合同还承担 browser/tui 的 layer 订阅与 set/edit/unset。
+- **为什么是问题**：把整份合同的 callers 改成 project，会同时拒绝浏览器订阅和写入；保留原 callers 却假定方法层会拦截，则 browser/tui 可以直调新方法。只检查 settings 门面所在的 project/server 也不够：经 `remote.on(consumer)` 的代理必须看原始调用方 `location`，否则 browser 经项目代理可能读回密钥。计划返回类型还漏掉了自己规定的 `denied`，也没定义未知键、非密钥键的失败。
+- **如何核实**：读取 `RemoteMethodSpec` 与 `RemoteContract`；现有浏览器 `web/plugin.ts:193-197,215-217` 经 user 合同订阅与编辑，项目入口 `backend/plugin.ts:40` 已声明 user 委托。此处为已有类型/调用链证据，未发起真实密钥请求。
+- **建议改法**：不扩内核：保留 user 合同现有 callers，在 readSecret 实现按内核 `ConsumerIdentity.location` 核对原调用方为 server/project，明确代理允许且沿用原身份，不套用户编辑的“无 via”规则；或拆独立受限读取合同。补直接 browser、tui、browser 经 project 代理、project 经 settings 代理、server 本地、释放后访问与未声明键的验收；完整列出失败结果。
+
+### 4. 依赖默认会退到不跨重启持久化的 keyutils，与方案 A 的落点不符
+
+- **严重程度**：阻断；**类别**：正确性、数据持久化。
+- **位置**：计划第 58–62 行；`@napi-rs/keyring` 当前发布版 `2.1.2`。
+- **现象**：计划把“Linux 走 Secret Service”当作包的默认保证。官方 README 明确：默认先试 Secret Service，再静默退到 kernel keyutils；后者完全在内存中，不跨系统重启持久化。
+- **为什么是问题**：无 Secret Service 时默认构造仍可能成功，计划会记录 `keyStore: "keyring"` 而不是落 `0600` 文件，重启机器后主密钥消失。即使已有 keyring 元数据，后续默认选择也可能在两个后端之间变化，“记下后不切换”在库内部被破坏。
+- **如何核实**：本地未找到此依赖，未安装、未触碰真实密钥库。读取 [npm 发布元数据](https://registry.npmjs.org/@napi-rs/keyring/latest)（`2.1.2`，gitHead `52184fbebffeef8a061234f60f313c479b954f9f`）、[官方 README](https://github.com/Brooooooklyn/keyring-node#linux-backend-selection) 与 [该提交 entry_builder.rs](https://github.com/Brooooooklyn/keyring-node/blob/52184fbebffeef8a061234f60f313c479b954f9f/src/entry_builder.rs)。依据为官方代码/文档，不是 Bun 可用性实测。
+- **建议改法**：锁定经过验收的版本，Linux 显式传 `{linux: {store: "secret-service"}}`，不可用才按方案 A 退文件；已有 keyStore=keyring 仍固定 Secret Service，不让库自动换后端。验收加入无 Secret Service、keyutils 可用、系统重启后可读。
+
+### 5. 设置入口没有调用内核激活事件的通道，S1 漏掉必需的宿主接线
+
+- **严重程度**：阻断；**类别**：接口、遗漏。
+- **位置**：计划“按需激活”第 49–51 行与 S1；`packages/nb-runtime/src/plugins/host.ts:498-534`；`packages/neuro-book/src/shared/host.ts:80-87`；`src/web/host/window-plugins.ts:30-39`。
+- **现象**：计划直接写“浏览器入口登记前缀并触发”，但前缀是 `PluginDefinition.activationEventPrefixes`，不是入口字段；触发 API 仅在 `PluginHost` 上。当前 `ActivationContext` 不提供它，`WindowPlugins` 仅有查状态、监听、失败重试三项，没有激活事件出口。
+- **为什么是问题**：只改 `src/plugins/settings/web/` 无法在插件内取得真实 host，现有 retry 只接受 failed 入口，也不能替代首次激活。把前缀写到入口上则不会登记。S1 的正向验收若直接由测试拿 host 触发，会绕过实际窗口，不能证明产品路径可用。
+- **如何核实**：查阅插件上下文/定义类型与 windowPlugins 实现，搜索 `triggerActivationEvent` 在应用源码没有调用点；内核触发方法确实存在，但尚未暴露给入口。
+- **建议改法**：在 S1 明列插件定义上的前缀登记、宿主适配出口与设置入口的调用链；优先经现有按调用方宿主能力提供受限触发，requester 必须由宿主绑定，不能相信调用方传任意插件 id。验收从 `nbook.settings.open`/切分区驱动窗口，不能在测试中代它触发 host。
+
+### 6. “约 3 秒”不能限制同步原生调用，异步超时也未处理迟到写入
+
+- **严重程度**：重要；**类别**：安全与性能、资源寿命。
+- **位置**：计划第 58–62、142–144、151 行；`configuration.md:132,174-182`。
+- **现象**：计划只写超时与诊断，没有选择可中止的执行边界、精确截止、迟到 set 的处理及关闭收口。官方推荐示例使用同步 `Entry`；`AsyncEntry` 的构造也同步创建 DBus store，真正的 get/set 在 N-API 任务里调用阻塞库。
+- **为什么是问题**：主线程同步阻塞时，JS 的 3 秒 timer 根本不能执行，会拖住配置核心与依赖它的应用；换 AsyncEntry 或 Promise.race 只能结束等待，不证明正在执行的原生 set 停止。超时后退文件、释放初始化锁，再让旧 set 迟到完成，会留下另一份主密钥或覆盖并发进程的条目。多次超时还会留下活跃任务，关闭时是否等待也不明确。
+- **如何核实**：[发布版类型声明](https://github.com/Brooooooklyn/keyring-node/blob/52184fbebffeef8a061234f60f313c479b954f9f/index.d.ts)、[async_entry.rs](https://github.com/Brooooooklyn/keyring-node/blob/52184fbebffeef8a061234f60f313c479b954f9f/src/async_entry.rs)、[entry_builder.rs](https://github.com/Brooooooklyn/keyring-node/blob/52184fbebffeef8a061234f60f313c479b954f9f/src/entry_builder.rs)。本机 Bun `1.4.2` 解析依赖返回 `ERR_MODULE_NOT_FOUND`，按只读约束没有安装，因此 Bun 加载、KWallet 解锁耗时与取消是否有效均未实测。
+- **建议改法**：明确用独立受管进程覆盖加载、构造、读写，截止后能杀进程、收回资源；不把 Promise 超时视为原生取消。固定操作截止和总截止，区分首次探测与已有 keyStore 的读取；初始化锁内确认操作停止后才决定文件降级。补锁住 KWallet、永不响应、超时后迟到成功、停止服务端 4 条时序判据。secret-tool 只替代 Linux 后端，不能替代跨平台交付决策。
+
+### 7. 分区改为顶层后仍沿用浏览器入口校验，三位置登记与交付模型没有写进 S1
+
+- **严重程度**：重要；**类别**：接口、不变量。
+- **位置**：计划第 34–41 行与 S1；`src/plugins/settings/shared/sections.ts:42-61`、`shared/point.ts:17-31`、`backend/plugin.ts:72-78`、`web/plugin.ts:180-225`。
+- **现象**：计划只写改 `implementation: "none"` 和搬描述；现有分区校验第一步强制 `descriptor.location === "browser"`，后端定义也没有 sectionsPoint。顶层声明没有所属入口，服务端、项目、浏览器会各自登记；“入口没激活”不再是 list 的状态。
+- **为什么是问题**：只搬声明与改 point 模式时，服务端和项目不是“知道全部 list”，而是 pending 或被拒。若原接收者同时接两类句柄，顶层 `implementation()` 会抛错；`SettingsSectionRegistry` 当前目录、entry 映射、handle 表和重试都以同一个贡献点为输入，必须显式分开 list 静态目录与 page 实现。另有原合同明确 `layout/layers` 只给 page，计划第 40 行“等字段不变”不能理解成 list 也接收这些字段。
+- **如何核实**：现有 settingsPoint 已示范三个位置登记 implementation=none；`manifest.ts:39-52` 会把描述贡献送进三个实例；`runtime/plugins.md:70-71` 规定顶层与入口的接受规则及顶层句柄不可取实现。`sections.ts:69-71,101-118` 是当前目录/接收者的真实边界。
+- **建议改法**：S1 列出 shared 的 list/page 两份校验、三位置都定义 list point、浏览器独有 page point、list 只查声明不接实现、page 才接收句柄与入口状态。保留现有 id 前缀规则（nbook.* 用 nbook.，第三方用插件 id 加 .）及字段约束；验收同一顶层 list 在 server/project/browser 都 accepted、无入口也出现、page 非 browser 被拒、撤回与重交仍正确。
+
+### 8. 两个贡献点之间允许同名，合并左栏后分区身份不再唯一
+
+- **严重程度**：重要；**类别**：不变量、接口。
+- **位置**：计划第 38–40 行；`runtime/plugins.md:70,78`；`src/plugins/settings/web/sections.ts:69-71,103-104`；`web/settings-window.ts:202-203,269-273`。
+- **现象**：拆分后 `settings.sections` 与 `settings.pages` 各有自己的贡献 id 去重，计划没有规定同一个分区 id 同时出现在两点上的处理。现有窗口与 `open({section})` 却只用不带贡献点的字符串寻址。
+- **为什么是问题**：同一插件即可声明同名 list/page；nbook.* 的宽前缀还允许两个内置插件分别撞名。内核不会替它跨贡献点去重，现有 Map 会后者覆盖前者，左栏还可能出现两行同 id，配置项落位、命令跳转、page 加载和 retry 指向不一致。校验函数也不能查询另一个点，不能声称靠单条登记校验就能拒绝。
+- **如何核实**：真实内核实验 `bun /tmp/neuro-book/review-w00027-t02-design/lab/kernel-smoke.ts`：同一 `x.sample.same` 在两个点上的 validation 都是 `accepted`。该实验用拟定的两贡献点定义证明内核边界，不声称未实现的新窗口已经出现重复行。
+- **建议改法**：保留现有分区字符串 API，在设置拥有者合并目录时统一查重，冲突分区全部不展示并明确诊断，配置项依“分区不存在”合同落到其它；或另定稳定、无顺序依赖的冲突合同。补跨点同 id、内置宽前缀撞名、登记顺序反转 3 类验收。
+
+### 9. 按需激活只覆盖成功路径，空匹配/前缀拒绝与“首次”状态没有闭合
+
+- **严重程度**：重要；**类别**：正确性、验收遗漏。
+- **位置**：计划第 51、134 行；`host.ts:502-534`；`web/settings-window.ts:390-411`；`web/sections.ts:83-98,136-143`。
+- **现象**：计划把触发结果概括成成功、失败、受阻，却未处理外层 rejected、results 为空、多个监听入口中非本页入口失败；“第一次显示”也未定义是窗口模型一生、每次打开、每次进入，还是每个入口代次一次。
+- **为什么是问题**：事件按字符串精确匹配，page 作者漏写/写错事件时内核返回 `triggered {results: []}`，不是失败，窗口会永久停在 declared 加载占位。前缀冲突也不自动变成所属入口 failed。若用一次性标记阻止重触发，首次取消等待或入口曾受阻后恢复会卡住；若每次响应式重算都发，则会重复触发并反复诊断。事件可以匹配多个入口，不能把第一个失败直接算作本页失败。
+- **如何核实**：上述真实内核实验观察到：无监听者为 `results: []`；受阻是外层 triggered 下的单项 rejected/blocked；稳定失败再次触发仍是第 1 代失败；成功重复触发仍是第 1 代且 activate 只执行 1 次。现有窗口只在 available 后加载，不含激活状态机。
+- **建议改法**：按分区所属 plugin/entry 关联结果；定义一项进行中的激活等待、关闭/离开后的迟到处理、受阻解除后重试，以及无匹配和前缀拒绝的终态诊断。保留内核共享激活，不因关窗口停止入口；重新打开可重新等待但不能复活 closed 代次；failed 用现有 recover/retry。验收补重复进入、关闭后重开、关闭期间激活完成、与 onStartup 并发、受阻恢复、无匹配与前缀冲突，不只测首次成功。
+
+### 10. “密钥不进快照”没有覆盖普通 JSONC 入口与原始异常通道
+
+- **严重程度**：重要；**类别**：安全、遗漏。
+- **位置**：计划第 67–72、89、131 行；`src/plugins/settings/backend/layer-text.ts:30-55`、`layer-owner.ts:69-77,98-103,126`、`backend/owner-link.ts:28-54`。
+- **现象**：计划写了安全目标，但未规定原有 set/edit/remove/unset、手工 settings.json、project settings.json、以后 readText/writeText 碰到 secret 键时怎样拒绝/过滤；也没有把异常脱敏列为独立实现点。普通解析路径当前只看声明、schema 与层，普通拥有者直接把 error 送诊断。
+- **为什么是问题**：只新增 secrets 存储与 editSecret 接口，不会阻止用户把一个合法字符串 secret 键手工写进 user settings.json，随后进入 `values`、inspect 与 layer 推送。仅隐藏控件不构成边界；只测“正常密钥写入后的快照”抓不到这条旁路。JSON/native/命令行异常可能含输入片段，不能把原始 error/detail 原样穿透后仍声称任何错误详情都不含值。
+- **如何核实**：读取当前 parseLayerText、远程出口 `wire`（只复制 problems，不做脱敏）和拥有者错误处理；现有 secret 声明仍被拒，因此此处是开通 secret 后必须补的边界，不是现网已泄漏。
+- **建议改法**：明确普通层中 secret 键不进入 values，普通/原文写接口禁止把它作为普通配置值写入；对人工已有明文定保留/提示/迁移策略，readText 的规则也要一致。密钥边界只输出结构化安全错误码及固定摘要，不转发原始解析/native/stdout/stderr；验收对全部普通写入口、人工 user/project 文件、坏密文与异常消息放入唯一测试标记，核对响应、所有快照与诊断都不含标记或密文。
+
+### 11. 密钥没有值，但仍沿用“必有默认值”的定义与读取类型，离线状态也无法表达
+
+- **严重程度**：重要；**类别**：接口、状态模型。
+- **位置**：计划第 66–71 行；`src/shared/settings.ts:44-46,74-89,290-299`；`src/plugins/settings/shared/instance.ts:94-105,152-175,224-235`；`shared/point.ts:37-42`。
+- **现象**：计划把 secret 项定义为无 default、get/inspect 不给值，但没有给出 `SettingOptions`、`SettingDefinition<T>`、get/inspect 的新类型合同，也没有定义 user 层 pending/unavailable 时 `secretStatus` 返回什么。现有公开面强制 `default: Static<Schema>`，`get<string>` 必返回 string。
+- **为什么是问题**：如果仅放宽 default，secret 的 `get` 就会在类型承诺 string 的地方返回 undefined；如果返回空字符串，又把不可读伪装成普通空值。只有 set/unset/unreadable 三态时，尚未收到快照和断线不可达不能诚实表示，不能把“不知道有没有”报成 unset。值始终不变也意味着现有 `onDidChange` 的有效值比较不会通知密钥替换，S2 要明确是否依赖者能得知替换，而非自动假定它会发生。
+- **如何核实**：读取上述公开类型、effectiveTexts 比较与 unavailable 路径；configuration 输出 7、8、16、17 和“时序与寿命”仍是当前调用方可以依赖的合同。这里尚无密钥实现可跑。
+- **建议改法**：明确普通项/密钥项的判别类型，保持 defineSetting 与批量版一致；secret 从普通 get/inspect 返回面排除或精确定义无值返回类型，不用类型断言掩盖。为状态加 unavailable/pending 或独立可用性；定义密钥替换与状态变化的响应式/通知语义、启动不阻塞普通配置、断线后恢复、门面释放及已接纳写入的寿命，并映射验收。
+
+### 12. showManifests 从客户端记录并入全局配置，“迁一次”缺少跨客户端仲裁
+
+- **严重程度**：重要；**类别**：数据迁移、并发。
+- **位置**：计划第 95–97 行、S6 与验收映射；`src/plugins/explorer/web/preferences.ts:28-31,52-57`；`docs/specs/storage/persistence.md:28-35`。
+- **现象**：旧数据是 user/local，每个客户端一份，同客户端的多窗口共用；新配置是所有客户端共用的 user 层。计划只写“第一次读到时迁过去一次”，未定义谁第一次、哪个旧值获胜、配置已有值时怎么办、迁移成功/结果未知时何时记标记。
+- **为什么是问题**：客户端 A 旧值 true、B 旧值 false，分别首次打开都会写同一个新键，晚打开的 B 会覆盖 A 或用户已经在设置里改过的新值；即使“仅新键不存在才迁移”，读取与 update 之间也没有条件写入，2 个窗口可同时判空再覆盖。只按旧记录有无判定，还会把 persist 的初始 false 当成真实旧值写入。计划验收表完全没有这次迁移。
+- **如何核实**：旧记录 locality 与持久化初值如上述代码，Storage 的客户端身份合同明确同浏览器配置标签页共享、不同客户端不同；configuration 当前写入接口没有 expect/compare-and-set 参数。这是迁移协议缺口，不是已经跑出的迁移故障。
+- **建议改法**：明确一次性迁移的作用域、旧记录 absent/corrupt 的处理和已有新键优先；由服务端在同一写锁内判断迁移标记与新键，完成迁移后持久化标记，浏览器仅提交候选旧值；明确多个客户端候选的确定性规则。对 unknown-outcome 先读状态再处理，不无条件重发。验收至少列无旧记录、已有配置、2 窗口同客户端、2 客户端不同值、迁移失败后重开。
+
+### 13. code.tabSize 默认会被 Monaco 自动探测覆盖，只断言 updateOptions 不足以验收
+
+- **严重程度**：重要；**类别**：正确性、验收。
+- **位置**：计划第 93、136 行；`src/plugins/editor/web/components/MonacoControl.vue:94-110,239-248`；`node_modules/monaco-editor/monaco.d.ts:1282-1298`。
+- **现象**：计划一概使用 editor.updateOptions，却没有定缩进自动探测与显式 tabSize 的优先级。Monaco 默认 `detectIndentation: true`，官方类型说明 tabSize 会被文件内容覆盖；当前每“文档×组”另建模型并留在槽中。
+- **为什么是问题**：给一个明显 2 空格缩进的模型写 code.tabSize=8，更新配置后实际模型仍可探测为 2。Monaco standalone 的 updateOptions 会更新全局 configuration service，modelService 在 detectIndentation 为真时再次探测，而非无条件 model.updateOptions(tabSize)。只验证函数被调用、或只测空白新文档，不能证明用户改 Tab 宽度生效；切走再回来也必须一致。
+- **如何核实**：读取 `standaloneCodeEditor.js:218-226`、`standaloneServices.js:517-535` 与 `modelService.js:180-209`，确认这不是“Monaco 不支持 updateOptions”的误判：其它视图选项支持原位更新，问题只在缩进优先级。未运行真实浏览器 Monaco。
+- **建议改法**：若设置代表强制宽度，显式关闭 detectIndentation 并给已有/新建/停放再进入的模型应用；若保留探测，写清它是缺省宽度而不是强制宽度。用已含 2/4 空格与制表符的 A/B 文档，核对实际 model.getOptions().tabSize、Tab 输入效果、A→B→A、光标/撤销栈仍保留；不要把“调用 updateOptions”当最终判据。
+
+### 14. t07 适配器字段名不一致，照计划转换后选项标题与多行提示无效
+
+- **严重程度**：重要；**类别**：接口、合同一致性。
+- **位置**：计划第 18–19、31、73、77 行；`docs/specs/ui/forms.md:45-56,98,112-117,175`；t07 计划第 195、200 行。
+- **现象**：t02 写 `choices → x-form.choices`，原配置选项和提供者用 `{value, title}`，ui.forms 要 `{value, label}`；t02 的 ui 例子是 `{multiline: true}`，ui.forms 没有这个键，只认 `{widget: "multiline"}`。另说密钥控件由 t02“登记进低代码”，但 t07 已内建 writeOnly/SecretInput，登记同名内建控件会报重名。
+- **为什么是问题**：机械搬 choices 会丢显示标题，多行字段会被画成单行，形成新一套提示方言；“ui 是 JSON 对象，低代码校验”也没规定坏 hints 使单条被拒还是整个窗口不能画。动态源当前仅有 Ref<Array>，缺 loading/unavailable/reason，需要由设置适配为表单合同的三态，不能把 Ref 直接当源传入。
+- **如何核实**：对照 ui.forms 的键表、动态源和控件重名合同；t07 已明确提供者 title→label、状态经 meta、存储归 t02。t02 风险表还说低代码接口没定，但两份可读取合同已经给出这些名字。
+- **建议改法**：在现在 S1 引入 ui 字段前统一成 ui.forms 的 FormHints（multiline 改 widget），明确适配 `title→label`，由设置层按源可用性生成 OptionSource 三态；secret 只适配 writeOnly/meta/写入和 clear，不再登记内建控件。对无效 hints 的局部失败定规则；补适配器验收，S3 不再临时猜接口。
+
+### 15. defineSettings 返回对象给合法配置名 contributions 制造了保留字，并缺逐项类型合同
+
+- **严重程度**：重要；**类别**：公开 API、类型安全。
+- **位置**：计划第 25–27、130 行；`src/shared/settings.ts:67-89,91-94,122-145`。
+- **现象**：返回 `{<name>: SettingDefinition, contributions}`，而 `contributions` 本身符合当前配置名规则。输入若包含此项，结果的同一个属性既要是 SettingDefinition 又要是贡献数组。计划也没有明确批量版逐项绑定各自的 `Static<schema>`，验收只列运行期表驱动，缺编译期判据。
+- **为什么是问题**：同一属性不能同时满足两种 API；最后赋值的一方必然覆盖另一方。若实现用一份宽泛 `Record<string, SettingOptions<TSchema>>` 或所有 schema 的联合推导，string、number、对象配置会互相混用，`settings.update` 的静态保障退化，而运行期值校验测试照样能过。
+- **如何核实**：配置名正则接受 contributions；单项版当前精确返回 `SettingDefinition<Static<Schema>>`。新批量 API 尚不存在，类型退化是设计未约束的失败方式，不是假称已经测出类型错误。
+- **建议改法**：优先返回 `{settings: {[K]: SettingDefinition<Static<Items[K]["schema"]>>}, contributions}`，或明确保留字段并在类型和运行时同步拒绝；后者需承认缩小当前合法名称集合。保持 defineSetting 行为与批量版一致；加 compile-time 样例，覆盖 string/number/嵌套对象/字面量联合与错误 default/update，防止 any/联合类型掩盖失败。
+
+### 16. S1 的贡献点切换会立即影响 Lab，但局部宿主迁移与真实激活验证被拖到 S7
+
+- **严重程度**：重要；**类别**：实施依赖、验收。
+- **位置**：计划第 41、51、99–101、116、122 行；`src/plugins/lab/web/fixtures/settings-scene/settings-host.ts:81-116,177-189`、`scene-data.ts:35-39,73-78,100-118`。
+- **现象**：生产与示例至少 6 处分区贡献要迁移：3 个 list（外观、编辑器、资源管理器），3 个 page（作品、插件、snippets）。Lab 还有 3 个目录项（外观 list、模型服务 page、片段 page）、2 个 page 交付，局部宿主把全部 descriptor/handle 硬编码成 settings.sections/browser/entry。S1 宣称 Lab 改按需激活，但场景重做又排在 t07 后的 S7。
+- **为什么是问题**：切换 point 后不迁局部宿主，会让设置窗口的 15 个现有 Lab 场景和复用该宿主的 DOM 测试用错协议，不能留到 S7。现有 Lab 没有真实 PluginHost：手工改 EntryState、调用 receiver.published，不能仅把事件名字写进去就证明 onSettingsPage 已接上。外观声明还在 web/plugin.ts，搬到跨三位置的 descriptor 时不能反向 import 浏览器实现。
+- **如何核实**：搜索 `SETTINGS_SECTIONS_POINT|settings.sections|SettingsSectionImplementation` 的调用点；读取上述 Lab 代码与 `scene-settings.ts:70-85` 的 15 个场景。`plugins/settings/plugin.ts` 当前只依赖 shared/contracts，而外观常量定义于 web/plugin.ts。
+- **建议改法**：S1 立即完成协议所需的全部 fixture/DOM 测试/示例迁移，把外观纯声明移到 shared；S7 只延后复杂表单内容，不延后贡献点协议兼容。保留纯 UI 的内存 Lab，另用真实内核场景从窗口触发验证激活，或给“模型服务”接真实局部内核；两种证据分开，不把手工发布当激活验证。
+
+### 17. secrets/v1 尚不足以成为可校验的持久化格式
+
+- **严重程度**：建议；**类别**：数据格式、恢复。
+- **位置**：计划第 56–63 行与第 131 行。
+- **现象**：给出了字段名，但未规定 iv/data/tag 的编码与长度、未知 schema 版本、截断/重复 entries、整文件损坏与单条认证失败的隔离；`keyStore=keyring` 只记 keyId 摘要，没有记录服务名/账号定位信息，账号又由当前状态根 realpath 推导。
+- **为什么是问题**：读取坏文件时若当空库，会让下一次写入覆盖仍可恢复的密文；只坏一个条目不应把全部 secret 当 unset。路径改名或同机移动状态根后，用新路径摘要查不到旧账号，keyId 又无法反推出原账号。GCM 只认证密文本身，若不把配置键纳入 AAD，把一整份合法 iv/data/tag 移到另一个键仍会认证通过。
+- **如何核实**：计划唯一的格式定义就是第 56 行，现有 configuration 输出 5、plugin-api 失败恢复要求不能静默丢失。此条是格式与错误策略建议，没有把本地受信文件的篡改夸大为新的权限边界。
+- **建议改法**：S2 写定 schema 与逐字段检查（例如固定编码、12 字节随机 IV、16 字节 tag、32 字节主密钥），AAD 至少绑定格式版本与全配置键；记录可复用的 keyring 定位信息或明确同机移根也视为不可读。区分整库无效与单项 unreadable，保留原文件/密文，补坏格式、认证失败、未知版本及单项恢复验收。
+
+## 未发现问题的方面
+
+- **已定范围**：方案 A、本轮实现密钥、排版只接 Monaco、外观交 t06、控件交 t07，以及先 S1/S2/S6 后 S3–S5/S7，本次没有重新争议这些决定。
+- **命名**：计划的 `code.fontFamily`、`code.fontSize`、`code.lineHeight`、`code.tabSize`、`code.lineNumbers`、`code.minimap`、`code.wordWrap` 这 7 个名均符合 configuration 的点分小驼峰规则；`showManifests` 也符合，未发现命名违规。
+- **分区 id 前缀**：应延续 nbook.* 插件可用 nbook.、第三方必须插件 id 加 . 的现有规则，不能因为顶层登记就改成每个内置插件都强制自身 id 前缀，否则 nbook.settings 贡献的 nbook.appearance 会被误拒。现有合法 id 本身没有问题。
+- **原位更新**：MonacoControl 已经对 readonly/ariaLabel 使用 updateOptions，对主题更新也不重建 editor；除了第 13 条的缩进优先级，没有发现字体、字号、行高、行号、小地图、换行必须重建编辑器的依据。
+- **页面服务助手**：`settingsPage(settings, () => import(...))` 可直接用现有 withSettings 的闭包包装模式实现，load 内解包模块 default、返回包装组件即可；保留只收 context 的现有 SettingsPageImplementation，不需要内核新机制。它只替代注入 settings 的包装，作品页的目录选择/通知、插件页的 registry/locale 包装不能无条件删掉。
+- **激活去重**：内核已有并发/成功同代次合并，不需要设置窗口另写一套入口激活缓存；与 onStartup 同时声明时是“任一事件都能激活”，不应承诺仍等打开分区才激活。真实 smoke 证实重复成功触发只调用一次 activate；失败恢复仍必须显式 recover。
+- **合同版本**：user 合同改变快照必填形状并新增方法，升到整数版本 2 符合精确匹配规则，不必因此提升 wire 协议版本；调用方全量切换、project 合同共享 schema 的处理仍需列入 S2。密钥不应进入 project 层的普通 values。
+- **现有写入不变量**：JSONC 拥有者、跨进程文件锁、用户编辑的无代理核对与代理保留原插件身份是真实存在的机制；问题在新路径如何完整接入，而不是要求重新发明这些机制。
+- **旧应用参照**：已只读核对 `server/config/config-service.ts` 的 maskSecret/resolveSecretWrite、`server/models/provider-credential.ts` 和 provider-settings-draft.ts。旧应用区分“保留现有密钥、提供新值、清除”，并按 provider 来源防串密钥，客户端只看到脱敏状态；新方案“不返回部分明文”的边界更严格，不应复制旧的前后缀 maskedValue。真正 provider 插件不在 t02，不能把旧页的连接检测、模型发现与业务校验强塞进本轮；Lab 若宣称支持多个服务商，仍应在 S7 明确每个服务商与静态 secret 配置键的对应及保留/替换/清除验证，当前静态 string secret 并不自动提供任意动态 provider id 的密钥集合。
+
+## 对计划末尾风险项的判断
+
+| 风险项 | 判断 |
+|---|---|
+| 低代码接口还没定，S3 后随它调整 | **表述已过时**：ui.forms 与 t07 已给出 SchemaField、FormHints、OptionSource、meta 等合同；第 14 条是现有不一致，应现在对齐，不应以待定推迟。
+| KWallet 后台弹解锁框/挂起，靠超时诊断，keyStore 不切换 | **风险真实，缓解不足**：同步构造/原生任务不是一个 JS timer 就能停止，且依赖默认会退 keyutils；需第 4、6 条的固定后端与可终止边界。
+| user 升版本，浏览器与服务端同一构建，影响只在开发中途刷新 | **升版本正确，影响范围断言不成立**：匹配是逐请求的整数精确匹配，不是协商；项目进程也是调用者，TUI/其它旧编译客户端不因浏览器同构建自动兼容，旧端得到 version-changed；当前 user/project 共用 LayerSnapshotSchema，若改必填字段须拆用户快照或相应升 project 版本，不能只改 user.version。
+| settings.sections 拆分只需内置三处与示例同改，第三方尚无使用者 | **不能据此缩小迁移量**：除了 3 个 list，还有 3 个生产/示例 page 与 Lab 手工宿主、场景和复用测试；第三方无使用者不免除现有 id/交付/失败/生命周期合同，第 7、8、16 条须在 S1 收口。
+
+## 实际验证与边界
+
+所有 Bun 命令工作目录均为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/neuro-book`。
+
+1. 依赖只读探测：
+
+   ```sh
+   bun -e 'try { console.log(import.meta.resolve("@napi-rs/keyring")); } catch (e) { console.log(e.code + ": " + e.message); } console.log("bun=" + Bun.version);'
+   ```
+
+   结果：`ERR_MODULE_NOT_FOUND`，`bun=1.4.2`。未安装依赖；外部事实改查 npm 元数据与官方仓库固定提交。
+
+2. 真实内核 smoke：
+
+   ```sh
+   bun /tmp/neuro-book/review-w00027-t02-design/lab/kernel-smoke.ts
+   ```
+
+   首次实验遗漏 createPluginHost 的 options 参数，以 `TypeError: undefined is not an object (evaluating 'options.observer')` 退出，属于审查脚本错误，不是产品发现；仅修正 `/tmp` 实验后重跑成功。观测：跨点同 id 双 accepted；首次/重复触发均第 1 代、activate=1；无监听者 triggered/results=[]；blocked 返回 missing-service；失败重复仍第 1 代；最后 root.close 返回 closed。该 smoke 覆盖内核真实 API，不等于新设置窗口已完成验证。
+
+3. 每次追加报告后均执行 `grep -c '^### ' <报告绝对路径>`，条数从 3、5、7、10、14 到 17 单调增长；结尾追加不改问题数量。没有整文件重写。
+
+**未运行**：现有测试套件、typecheck、e2e、开发服务、真实 KWallet 读写与解锁、原生依赖 Bun 加载、跨进程密钥存储并发、真实浏览器 Monaco、macOS/Windows 密钥库。未把代码推断或上游文档当作这些环境的实测通过。
+
+**只读边界**：仅追加指定报告、创建/修正指定 `/tmp/neuro-book/review-w00027-t02-design/lab/` 实验；无仓库产品/规范/计划/Task 修改，无 Git 写操作，无依赖安装，无子审查。
+
+## 数量
+
+共 **17 条**：**阻断 5 条**（1–5），**重要 11 条**（6–16），**建议 1 条**（17）。没有总体评价；优先处理问题中的具体合同缺口。
+
+## 回写建议（未执行）
+
+| 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|
+| 规范缺陷 | 新密钥合同必须区分临时不可访问与永久丢失，否则“固定 keyStore”与“重新输入可恢复”不能同时成立 | 在 S2 修订时写入：“已有主密钥暂不可访问时不得轮换；永久丢失后的显式恢复须保留旧密文与其密钥代次，单键恢复不得使其它键静默丢失。” | `docs/specs/settings/configuration.md` 的“密钥”“失败与恢复”；具体恢复协议需先由计划补定 |
+

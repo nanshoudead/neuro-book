@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>弹出列表收成一套：改前改后</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef;
+    --warn: #b45309; --warn-soft: #fdf1df; --ok: #15803d; --ok-soft: #e4f4e8;
+    --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123b37;
+        --warn: #fbbf24; --warn-soft: #3a2e12; --ok: #86efac; --ok-soft: #173322; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+p, li { max-width: 900px; }
+.lead p { color: var(--muted); margin: 6px 0; }
+.round { margin-top: 40px; font-size: 19px; font-weight: 700; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+section.q { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.badge.todo { background: var(--warn-soft); color: var(--warn); }
+.badge.done { background: var(--ok-soft); color: var(--ok); }
+.opts { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 10px 0; }
+.opt { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.opt.rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.opt p { margin: 4px 0 0; color: var(--muted); }
+.rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.rec-note b { color: var(--accent); }
+figure { margin: 12px 0; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; border-top: 0; }
+</style>
+<style>
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.pair.narrow { grid-template-columns: repeat(2, 240px); }
+@media (max-width: 760px) { .pair, .pair.narrow { grid-template-columns: 1fr; } }
+figure img.bar { width: auto; max-width: 100%; }
+</style>
+<body>
+<main>
+<h1>弹出列表收成一套：改前改后</h1>
+<div class="lead">
+<p>w00029 t04。六个弹出列表（DropdownMenu、Select、Menubar、右键菜单、QuickPick、Composer 的候选菜单）改用同一行外观、同一套截断与滚动；新增不抢焦点的候选菜单 <code>SuggestionMenu</code>，Composer 改用它。都是 Lab 里的真实组件，nbook 主题、浅色、900px 画布；左边改前（改动前的 master），右边改后。</p>
+<p>按评审板的决定：高亮中性叠色（决定 1）、选中只画左侧的勾（决定 2）、外框 10px 内边距 4px 项 5px（决定 3）、28px 行高 13px 字（决定 4）、最多 8 项半（决定 5）、候选菜单不要按键提示（决定 6）、同一级有一项带图标就每项留出图标列（决定 7）；人工审查后改为勾与图标共用左侧一列（决定 8）、说明放进同一行、所有项一样高（决定 9）。</p>
+</div>
+
+<section class="q">
+<h2>1. 下拉菜单</h2>
+<p>行高从 32px 收到 28px，字从 12px 到 13px，项与项之间不再留 2px 缝；外框圆角 8px 改 10px、内边距 6px 改 4px。危险项只有文字与图标是红色，高亮时底色与其它项一样。</p>
+<div class="pair">
+<figure><img src="img/dropdown-before.webp" alt="1. 下拉菜单 改前"><figcaption>改前：32px 行、12px 字</figcaption></figure>
+<figure><img src="img/dropdown-after.webp" alt="1. 下拉菜单 改后"><figcaption>改后：28px 行、13px 字；勾与图标共用左侧一列，“显示隐藏文件”没勾上时这一列留空，名称与其它项对齐</figcaption></figure>
+</div>
+</section>
+<section class="q">
+<h2>2. 勾选项</h2>
+<p>新加的 Lab 场景“勾选项与快捷键”：勾在左侧一列，右侧照常显示快捷键（原来勾选项会把快捷键挤掉）。</p>
+<div class="pair narrow"><figure><img src="img/dropdown-checked-after.webp" alt="勾选项"><figcaption>改后：勾与快捷键同时显示</figcaption></figure></div>
+</section>
+<section class="q">
+<h2>3. 长列表</h2>
+<p>原来按 26px 或 32px 乘出约 6 项半；现在按真实盒子量，截在第 9 项中间，露出半项提示还能往下滚，所有弹出列表都一样。</p>
+<div class="pair">
+<figure><img src="img/dropdown-long-before.webp" alt="3. 长列表 改前"><figcaption>改前：约 6 项半</figcaption></figure>
+<figure><img src="img/dropdown-long-after.webp" alt="3. 长列表 改后"><figcaption>改后：8 项半，截在第 9 项中间</figcaption></figure>
+</div>
+</section>
+<section class="q">
+<h2>4. 选择器（Select）</h2>
+<p>选中项原来是右侧蓝勾、强调色淡底与加粗；现在选中项在左侧一列画勾（替代它的图标），底色不变，高亮跟着指针或键盘走。说明放在同一行右侧的灰色小字，放不下时先截说明，所有项一样高。打开时停在选中项上。</p>
+<div class="pair">
+<figure><img src="img/select-before.webp" alt="4. 选择器（Select） 改前"><figcaption>改前：右侧蓝勾、淡底、加粗；5 项半</figcaption></figure>
+<figure><img src="img/select-after.webp" alt="4. 选择器（Select） 改后"><figcaption>改后：勾替代图标；说明在右侧；8 项半，每项 28px</figcaption></figure>
+</div>
+</section>
+<section class="q">
+<h2>5. 菜单栏</h2>
+<p>一级菜单与子菜单的项用同一行外观；子菜单里的项原来悬停没有高亮，现在有。子菜单原来跟着菜单栏定位，偏了一百多像素（菜单栏的模糊效果成了它的定位基准），现在按窗口定位。</p>
+<div class="pair">
+<figure><img src="img/menubar-before.webp" alt="5. 菜单栏 改前"><figcaption>改前：32px 行，子菜单项悬停无高亮</figcaption></figure>
+<figure><img src="img/menubar-after.webp" alt="5. 菜单栏 改后"><figcaption>改后：28px 行</figcaption></figure>
+</div>
+</section>
+<section class="q">
+<h2>6. 右键菜单</h2>
+<p>原来项悬停与方向键都没有高亮；子菜单也是偏开的（同第 5 节的原因），这里改前的子菜单落在了右下角。现在悬停、方向键都只亮一项，展开了子菜单的父项保持高亮，子菜单第一项与父项同一行。</p>
+<div class="pair">
+<figure><img src="img/context-before.webp" alt="6. 右键菜单 改前"><figcaption>改前：没有高亮；子菜单偏到右下角</figcaption></figure>
+<figure><img src="img/context-after.webp" alt="6. 右键菜单 改后"><figcaption>改后：高亮一项；子菜单贴着父项</figcaption></figure>
+</div>
+</section>
+<section class="q">
+<h2>7. 命令面板（QuickPick）</h2>
+<p>外框取菜单的圆角与内边距（原来自己写 14px）；项同样 28px 一行，分类与说明放在同一行右侧；列表最多 8 项半，滑块与顶底渐隐和其它列表一样。</p>
+<div class="pair">
+<figure><img src="img/quickpick-before.webp" alt="7. 命令面板（QuickPick） 改前"><figcaption>改前：14px 外框、原生细滚动条、不截断</figcaption></figure>
+<figure><img src="img/quickpick-after.webp" alt="7. 命令面板（QuickPick） 改后"><figcaption>改后：菜单外框；8 项半与悬浮滑块</figcaption></figure>
+</div>
+</section>
+<section class="q">
+<h2>8. Composer 的候选菜单 → SuggestionMenu</h2>
+<p>原来的 <code>PromptMenuPanel</code> 自画外框、用强调色淡底高亮、底部一行按键提示；现在是 nb-ui 的 <code>SuggestionMenu</code>：菜单外框、中性高亮、没有按键提示。它可以贴着输入框（Composer 的用法：与外框同宽、固定在上方或下方），也可以贴着光标（编辑器的斜杠菜单将要用）：光标移动时逐帧跟上，下方不足 96px 且上方更宽时翻到上方，左右夹进窗口。焦点始终留在输入处。</p>
+<div class="pair">
+<figure><img src="img/composer-before.webp" alt="Composer 候选菜单 改前"><figcaption>改前：PromptMenuPanel，底部按键提示</figcaption></figure>
+<figure><img src="img/suggestion-caret-after.webp" alt="SuggestionMenu 贴光标"><figcaption>改后：SuggestionMenu 贴着光标，分组、右侧路径、中性高亮</figcaption></figure>
+</div>
+<div class="pair narrow"><figure><img src="img/suggestion-loading-after.webp" alt="加载中"><figcaption>加载中：已有项照常显示，底部一行转圈</figcaption></figure></div>
+</section>
+
+<section class="q">
+<h2>9. 其它主题与窄屏（改后）</h2>
+<p>macOS 主题外框 12px、内边距 6px，项的圆角同样推出 5px；深色与 390px 窄屏下结构不变。全套截图（两个主题 × 浅色、深色 × 900px、390px，改前改后各一份）在本地 <code>.local/agent/works/w00029-nb-ui-cleanup/tasks/t04-popup-lists/shots/</code>。</p>
+<div class="pair">
+<figure><img src="img/matrix-macos-dark-dropdown.webp" alt="macOS 深色 长下拉"><figcaption>macOS · 深色 · 长下拉</figcaption></figure>
+<figure><img src="img/matrix-macos-light-suggestion.webp" alt="macOS 浅色 候选菜单"><figcaption>macOS · 浅色 · 候选菜单</figcaption></figure>
+<figure><img src="img/matrix-nbook-dark-select-390.webp" alt="nbook 深色 390 Select"><figcaption>nbook · 深色 · 390px · 选择器</figcaption></figure>
+<figure><img src="img/matrix-nbook-dark-context-390.webp" alt="nbook 深色 390 右键菜单"><figcaption>nbook · 深色 · 390px · 右键菜单与子菜单</figcaption></figure>
+</div>
+</section>
+
+<section class="q">
+<h2>10. 留意的地方</h2>
+<ul>
+<li>原来设了 <code>compact</code> 的 9 处菜单（nb-story 顶栏、编辑器面包屑、活动栏“更多”、移动视图、标题栏动作、标签页“更多”等）项变高 2px，最小宽度统一为 160px（原来普通档 200px）。编辑器面包屑的两个下拉原来最高 320px（约 11 项），现在最多 8 项半。</li>
+<li>左侧一列（决定 7、8）：勾与图标共用这一列，同一级里有的项带图标、有的不带时，不带的留空，名称对齐（第 1 节的“显示隐藏文件”、第 5 节的“打开项目…”）。行高（决定 9）：说明不再占第二行，六个列表所有项都是 28px。顺带修掉一处：应用里图标类的 <code>width: 1em</code> 盖掉了菜单项图标的 16px，图标实际只有 13px；现在都是 16px。</li>
+</ul>
+</section>
+</main>
+</body>
+</html>

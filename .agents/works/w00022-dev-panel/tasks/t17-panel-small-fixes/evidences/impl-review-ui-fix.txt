@@ -1,0 +1,90 @@
+w00022 t17 前端实现审查修正：交付报告
+========================================
+
+位置：worktree .worktree/w00022-dev-panel（feat/w00022-dev-panel）
+起点 02f7303e8；新增两个提交：
+- c203248fe fix(dev-panel): 会话名抽成 SessionLabel、零件改收 sessionTitles、会话页输入区原因可见（t17 前端实现审查）
+- 87dbfd657 docs(nb-ui): 真实浏览器验收列上 form-checkbox.spec.ts（t17 前端实现审查）
+提交后 git status 干净。没有动 src/server/**。没有 push、切分支、stash、rebase、amend；没有 Co-Authored-By。
+
+逐条处理（审查文件 .agents/works/w00022-dev-panel/tasks/t17-panel-small-fixes/evidences/impl-review-ui.txt）
+-----------------------------------------------------------------------
+
+1  已修。LeaseChip 加 `compact`：Task 表“谁在动”一列只写短键，完整标题与来源在提示里（提示内容没变）。
+   展开区和 Work 页“现在谁在动”仍写标题加短键。TaskTable 的注释改成按列宽算出的 67rem。
+   偏差：`.nbdev-task-grid` 的 min-width 也从 60rem 改成 67rem，与列宽之和一致，行分隔线才能贯穿整行
+   （实测 1440x900 下表格 1081px，行 scrollWidth 也是 1081px，页面没有横向滚动）。
+2、3  已修。工作中、其它非空闲、等确认、整块不可用的原因都写成看得见的文字（说明文字的颜色，不在 60% 透明度下）。
+   输入框用 aria-describedby 指向一句读屏专用的用途说明，不能发时再加上原因；去掉了 aria-description。
+   同一句原因不再写进 placeholder，placeholder 固定为“发给这个会话的文字（Ctrl+Enter 发送）”。
+   等确认和整块不可用仍在输入框上方单独占一行。“工作中：空闲后再发，不排队”这类只要等一会儿的原因写短，并且不另起一行：
+   输入区宽于 34rem 时放在发送按钮左边，窄于 34rem（手机）时放在按键行的末尾，落在按键折行后最后一行的空位上。
+   两个位置由容器查询切换，同一时刻只显示一份，aria-describedby 指向宽档那一份（被引用的元素隐藏了，读屏照样能读到）。
+   偏差：最初放在按键行末尾，但 1280 宽时按键行放不下按键加原因，多出一行（终端 322px）；改成按宽度分两处之后，1280 下终端 345px。
+4  已修。改用 CSS `field-sizing: content`，min-height 和 max-height 都按 lh 单位换算成 1 到 4 行；去掉按换行符数行数的代码和 rows 计算。
+   原来的内联 `style="resize: none"` 改成 scoped 类 `.nbdev-prompt-input`（同时修了第 13 条）。软换行也会撑高输入框（实测见下）。
+5  已修。删除 src/web/host/session-titles.ts（provide/inject）。WorkCard、InboxList、TaskTable、ProcList 改为必填 prop `sessionTitles`，
+   由 HomePage、WorkPage、RunsPage 传入；同名 .md 的标签恢复为 []，删去“隐藏通道理由”一节，在数据一节加上这个 prop。
+6  已修。输入框和发送按钮放在同一行的网格里，按键单独一行。手机档 390x640 的输入区高度：空闲 124px，工作中 124px
+   （上限 142；t17 之前是 142，S3 是 156）。
+9  已修。app.css、QuestionControl.md、tests/web-scroll-containers.test.ts 文件头、docs/panel.md 的“滚动”一条，理由都改成：
+   nb-ui 已在 label 上修好（见 FormCheckbox.md），这条留作面板的防御性约定。
+10 已修。LeaseChip.md 的源类型改成 `SessionName`（含 source）；panel.md 的“Task 页会话变化说明”改成会话页；
+   PageShell.md 的 compact 写明 meta 紧跟 h1、左对齐，操作插槽在这一行的最右端。
+11 已修。新增零件 src/web/parts/SessionLabel.vue 和同名 .md：标题加短键，标题截断时用 TruncatedText 给出全文（可聚焦，也可悬停看）。
+   LeaseChip 传 `fullText=false`（它的提示里已经有全文，避免提示套提示）；RunsPage 的会话小标题和 ProcList 的“谁起的”也都用它。
+   实测：在跑页小标题可以聚焦，提示里是完整标题。
+13 已修（同第 4 条）。
+14 已修。nb-ui ui-development-spec.md 的真实浏览器验收列表加上 `e2e/form-checkbox.spec.ts`。
+   nb-ui playground 代码注释里的“手势验收”不在授权范围内，没有改。
+7、8、12、15 按决定不修。第 8 条顺带改善了：发送按钮在 DOM 里紧跟输入框，排在按键之前。
+   第 15 条：dev-panel 没有组件渲染测试的基础设施（bun 测试不加载 .vue），这次没有新增单元测试；
+   新零件和输入区的行为用下面的浏览器脚本实测。
+
+验证
+----
+- bun run --cwd packages/dev-panel typecheck：通过（在最后一次改动之后跑的）。
+- bun run --cwd packages/dev-panel build:web：通过（在最后一次改动之后跑的）。
+- TMPDIR=/dev/shm/t17fix-tmp bun run --cwd packages/dev-panel test：450 pass，0 fail，64 个文件，用时 418.6 秒。
+  tests/web-session-console.test.ts 打出一条“读不了面板偏好 notify-dismissed … window is not defined”的诊断，
+  来自 prefs.ts 的已有降级路径，测试仍然通过。
+- bun run docs:check：failures 0，本次改动范围内没有警告。
+- bun run governance:check：failures 0，本次改动范围内没有警告。
+- /dev/shm/t17fix-tmp 已删除。脚本起的假 herdr、假终端、假 Claude 和面板进程都在脚本的 finally 里收掉了；
+  ps 里看不到残留（4400、4401 和别的会话的进程没有动）。
+
+截图与实测（脚本 /dev/shm/t17fix-shots/shots.ts，假 herdr 加进程内的临时面板，服务 dist/web，没有碰 4400、4401 和 systemd 单元）
+目录：.local/agent/works/w00022-dev-panel/tasks/t17-panel-small-fixes/shots/
+实测数据：fix-measure.json
+- fix-sessions-1440x650-idle.png：终端 345px（要求 ≥320），输入区 92px。
+- fix-sessions-1440x650-working.png：终端 345px，输入区 92px。原因在发送按钮左边，describedBy 里有原因，草稿还在。
+- fix-sessions-390x640-idle.png：输入区 124px，发送按钮在输入框旁边。
+- fix-sessions-390x640-working.png：输入区 124px，原因在按键行末尾。
+- fix-sessions-1280x650-working.png：终端 345px，输入区 92px。
+- fix-sessions-1100x700-working.png：终端 352px，输入区 92px。
+- fix-sessions-1440x650-draft4.png：输入框 92px（到 4 行上限，再多在框里滚动），终端 289px。低于 320，审查预计到了这一点，由开发者判断。
+- fix-sessions-1440x650-longline.png：一整段没有换行的长文字软换行后输入框 74px，终端 308px。
+- fix-sessions-1440x900-idle.png：终端 595px。
+- fix-work-1440x900-light.png、fix-work-1440x900-chip-focus.png：表格一列的胶囊是“claude aaaaaaaa”，112px，放在 112px 的格子里，没有被截；
+  键盘聚焦后提示里有完整标题和“标题取自 Claude Code（/rename）”；上方“现在谁在动”写标题加短键。
+- fix-runs-1440x900-light.png：会话小标题用 SessionLabel，标题可以聚焦，提示里是全文。
+- 所有页面的控制台都没有报错，没有页面横向滚动。按键组（display: contents 加 role=group）在辅助功能树里，getByRole 找到 1 个。
+
+禁止清单自查
+------------
+- 不按错误文案分支：是，没有新增按文案分支的代码。
+- 不用静默 catch：是，没有新增 catch。
+- 不为了过测试放宽断言、加测试专用分支：是，测试只改了 web-scroll-containers.test.ts 文件头的理由注释，断言没动。
+- 不改任务之外的代码与注释：是，只改了 src/web/**、同名 .md、docs/panel.md 和 nb-ui 的开发规范文档。
+- 不跨包深导入：是，nb-ui 只经 @notnotype/nb-ui/components 导入。
+- 测试不用 mock、spy、假计时器和固定等待：是，没有新增测试。截图脚本在仓库外，里面有几处 waitForTimeout 用来等提示和截图稳定，它不是测试。
+- 不用 rm -rf 清理仓库内的目录：是。session-titles.ts 用 rm 删除单个文件，它是已跟踪文件，删除已经提交；
+  /dev/shm/t17fix-tmp 用 rm -r 删除，它在仓库外。
+- 不碰 worktree 之外的文件：是，只写了截图目录、/dev/shm 下自己建的目录和这份报告。
+- 不用 pkill -f、pgrep -f：是。
+
+未解决、留给开发者
+------------------
+- 4 行草稿时，1440x650 下终端 289px（低于 320）。
+- 第 7、8、12、15 条按决定不修。
+- 截图脚本 /dev/shm/t17fix-shots/ 还留着，需要复测可以直接用；/dev/shm/t17fix-build.log 也是本次留下的。

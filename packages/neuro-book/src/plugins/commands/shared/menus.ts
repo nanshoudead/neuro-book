@@ -83,8 +83,6 @@ export function menuItemValidator(location: MenuLocation): (descriptor: Contribu
         if (descriptor.location !== "browser") return `${location.point} 只接受浏览器入口的贡献`;
         const id = descriptor.id;
         if (id.length > 128 || !ITEM_ID.test(id)) return `菜单项 id 必须是点分的小写段、至多 128 个字符：${id}`;
-        const prefix = descriptor.plugin.startsWith("nbook.") ? "nbook." : `${descriptor.plugin}.`;
-        if (!id.startsWith(prefix)) return `插件 ${descriptor.plugin} 的菜单项 id 必须以 ${prefix} 开头：${id}`;
         const declaration = descriptor.declaration as MenuItemDeclaration;
         if (!Value.Check(location.schema, declaration)) {
             const first = [...Value.Errors(location.schema, declaration)][0];

@@ -1,6 +1,6 @@
-/** nb-ui 展示类（`display/`）与导航类（`navigation/`）的场景。`Avatar` 会加载图片地址（`io:read`），按标签不可挂载。 */
+/** nb-ui 展示类（`display/`）与导航类（`navigation/`）的场景。 */
 
-import type {Badge, Breadcrumb, EmptyState, FileBrowser, FileTree, Kbd, NavigationMenu, Progress, Rating, Skeleton, Spinner, Table, Tree} from "@notnotype/nb-ui/components";
+import type {Badge, Breadcrumb, CodeBlock, EmptyState, Kbd, Progress, Skeleton, Spinner, Table, Tree} from "@notnotype/nb-ui/components";
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
@@ -28,21 +28,6 @@ const CHAPTER_COLUMNS = [
     {key: "updated" as const, label: "修改", width: "64px", align: "center" as const},
 ];
 
-const FILE_NODES = [
-    {id: "manuscript", label: "manuscript", kind: "directory" as const, children: [
-        {id: "volume-1", label: "第一卷", kind: "directory" as const, children: [
-            {id: "ch-1", label: "第一章 灯塔.md", kind: "file" as const},
-            {id: "ch-2", label: "第二章 雾中城.md", kind: "file" as const},
-        ]},
-        {id: "volume-2", label: "第二卷", kind: "directory" as const, children: []},
-    ]},
-    {id: "lorebook", label: "lorebook", kind: "directory" as const, children: [
-        {id: "shen-yu", label: "沈屿.md", kind: "file" as const},
-        {id: "locked", label: "只读素材.md", kind: "file" as const, disabled: true},
-    ]},
-    {id: "readme", label: "README.md", kind: "file" as const},
-];
-
 const TREE_ITEMS = [
     {id: "outline", title: "大纲", iconClass: "i-lucide-list-tree", children: [
         {id: "act-1", title: "第一幕：雾港", children: [{id: "scene-1", title: "灯塔熄灭"}, {id: "scene-2", title: "巡夜人"}]},
@@ -51,19 +36,18 @@ const TREE_ITEMS = [
     {id: "characters", title: "人物", iconClass: "i-lucide-users", children: [{id: "shen-yu", title: "沈屿"}, {id: "lin-wan", title: "林晚"}]},
 ];
 
-const NAV_ITEMS = [
-    {id: "write", label: "写作", links: [
-        {title: "继续写作", description: "回到上次停下的章节", iconClass: "i-lucide-pen-line"},
-        {title: "新建章节", description: "在当前卷末尾", iconClass: "i-lucide-file-plus"},
-    ]},
-    {id: "world", label: "世界", links: [
-        {title: "人物", description: "角色卡与关系", iconClass: "i-lucide-users"},
-        {title: "地点", description: "地图与场景", iconClass: "i-lucide-map"},
-    ]},
-    {id: "docs", label: "文档", href: "#docs"},
-];
-
 export const displayFixtures: LabFixture[] = [
+    defineSubjectFixture<typeof CodeBlock>({
+        component: "CodeBlock",
+        class: "w-full",
+        scenes: [
+            {id: "content", label: "带行号的文件内容", input: {props: {label: "正文/第三章 雨夜.md", startLine: 12, lines: [{text: "钟声敲到第十二下，"}, {text: "雨还没有停。"}, {text: "她把信折好，塞回了外套内侧的口袋。"}]}}},
+            {id: "diff", label: "diff", input: {props: {label: "正文/第三章 雨夜.md", lines: [{text: "@@ -12,2 +12,2 @@", tone: "muted"}, {text: "钟声敲到第十一下，", tone: "removed"}, {text: "钟声敲到第十二下，", tone: "added"}, {text: "雨还没有停。"}]}}},
+            {id: "long", label: "长行与截断", input: {props: {lines: Array.from({length: 30}, (_, index) => ({text: `${String(index + 1).padStart(2, "0")} ${"港口的雾从傍晚开始漫上来，先是码头，再是灯塔的基座。".repeat(3)}`})), truncated: true}}},
+            {id: "empty", label: "空", input: {props: {lines: []}}},
+        ],
+        subject: nbUiSubject("CodeBlock"),
+    }),
     defineSubjectFixture<typeof Badge>({
         component: "Badge",
         slotPresets: {default: () => "草稿"},
@@ -106,15 +90,6 @@ export const displayFixtures: LabFixture[] = [
         ],
         subject: nbUiSubject("Progress"),
     }),
-    defineSubjectFixture<typeof Rating>({
-        component: "Rating",
-        scenes: [
-            {id: "default", label: "可评分", input: {props: {max: 5, size: "md"}, model: {modelValue: 3}}},
-            {id: "half", label: "半星", input: {props: {max: 5, size: "lg", allowHalf: true}, model: {modelValue: 3.5}}},
-            {id: "readonly", label: "只读", input: {props: {max: 5, size: "sm", readonly: true}, model: {modelValue: 4}}},
-        ],
-        subject: nbUiSubject("Rating"),
-    }),
     defineSubjectFixture<typeof Skeleton>({
         component: "Skeleton",
         class: "w-full max-w-[360px]",
@@ -154,49 +129,6 @@ export const displayFixtures: LabFixture[] = [
             {id: "long", label: "很多级", input: {props: {items: ["manuscript", "第二卷", "上部", "雪线", "草稿", "第十七章 雪线（修订三）"].map((label, index, all) => ({label, current: index === all.length - 1}))}}},
         ],
         subject: nbUiSubject("Breadcrumb"),
-    }),
-    defineSubjectFixture<typeof FileBrowser>({
-        component: "FileBrowser",
-        events: ["navigate", "up", "activate"],
-        class: "w-full max-w-[560px]",
-        scenes: [
-            {id: "default", label: "作品目录", input: {props: {
-                segments: [{label: "/", path: "/"}, {label: "home", path: "/home"}, {label: "writer", path: "/home/writer"}, {label: "Documents", path: "/home/writer/Documents"}, {label: "NeuroBook", path: "/home/writer/Documents/NeuroBook"}],
-                entries: [
-                    {id: "/home/writer/Documents/NeuroBook/changyexing", name: "changyexing", kind: "directory", badge: "已在书架上", disabled: true, swatch: "#2f5fa0"},
-                    {id: "/home/writer/Documents/NeuroBook/beifang", name: "beifang", kind: "directory", badge: "作品 · 北方以北", badgeTone: "accent", swatch: "#8f3f2e"},
-                    {id: "/home/writer/Documents/NeuroBook/drafts", name: "drafts", kind: "directory"},
-                    {id: "/home/writer/Documents/NeuroBook/old-notes", name: "old-notes", kind: "directory"},
-                    {id: "/home/writer/Documents/NeuroBook/notes.md", name: "notes.md", kind: "file"},
-                ],
-                label: "作品目录",
-            }, model: {selectedId: "/home/writer/Documents/NeuroBook/beifang"}}},
-            {id: "empty", label: "空目录", input: {props: {segments: [{label: "/", path: "/"}, {label: "tmp", path: "/tmp"}], entries: [], emptyText: "这里没有子目录"}, model: {selectedId: null}}},
-            {id: "loading", label: "加载中", input: {props: {segments: [{label: "/", path: "/"}], entries: [], loading: true}, model: {selectedId: null}}},
-            {id: "error", label: "读不出", input: {props: {segments: [{label: "/", path: "/"}, {label: "root", path: "/root"}], entries: [], error: "目录不可读：/root"}, model: {selectedId: null}}},
-        ],
-        subject: nbUiSubject("FileBrowser"),
-    }),
-    defineSubjectFixture<typeof FileTree>({
-        component: "FileTree",
-        events: ["select", "activate", "move", "contextmenu"],
-        writeBack: {select: {layer: "props", key: "selectedId"}},
-        class: "h-full w-full",
-        scenes: [
-            {id: "default", label: "目录与文件", input: {props: {nodes: FILE_NODES, selectedId: "ch-2", ariaLabel: "项目文件", draggable: true, indent: 12}, model: {expandedIds: ["manuscript", "volume-1"]}}},
-            {id: "collapsed", label: "全部收起", input: {props: {nodes: FILE_NODES, selectedId: null, ariaLabel: "项目文件"}, model: {expandedIds: []}}},
-            {id: "empty", label: "空", input: {props: {nodes: [], ariaLabel: "项目文件"}, model: {expandedIds: []}}},
-        ],
-        subject: nbUiSubject("FileTree"),
-    }),
-    defineSubjectFixture<typeof NavigationMenu>({
-        component: "NavigationMenu",
-        events: ["select"],
-        scenes: [
-            {id: "horizontal", label: "横向", input: {props: {items: NAV_ITEMS, orientation: "horizontal"}, model: {modelValue: ""}}},
-            {id: "vertical", label: "纵向", input: {props: {items: NAV_ITEMS, orientation: "vertical"}, model: {modelValue: "write"}}},
-        ],
-        subject: nbUiSubject("NavigationMenu"),
     }),
     defineSubjectFixture<typeof Tree>({
         component: "Tree",

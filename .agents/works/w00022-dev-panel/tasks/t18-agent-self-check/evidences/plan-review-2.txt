@@ -1,0 +1,221 @@
+## 第一轮各条的处理
+
+审查基线：detached worktree `.worktree/w00022-review-t18-plan`，固定提交 `5fba44740`；仅审 t18 重写设计与 t17 服务端标题一节。以下“已解决”指首轮所指出的旧机制已移除或合同缺口已补，不代表未来实现已通过；重写机制的新问题另列。
+
+1. **已解决**：t18 `plan.md:26,37,45` 改为复用后端自己的登记表实例，旧样例脚本这个第二写者不再存在；同实例 `register` 的串行写入可沿用。
+2. **已解决**：t18 `plan.md:26,49` 不再用复用调用者的环境离线准备样例，由目标后端使用自身状态根；`--sample` 不一致只警告、不另起服务。
+3. **已解决**：t18 `plan.md:38-41` 已规定目录校验、坏身份与 id 冲突不覆盖、登记表损坏不改、丢目录按原 id 恢复；公开 `mkdir` 加 `writeProjectIdentity(path, oldId)` 加 `registry.register(path)` 能保留身份，无需手写登记表；新的首次父目录校验顺序问题另列。
+4. **已解决**：t18 `plan.md:26,56` 删除前置 `dev:sample` 子进程，因此首轮指出的未登记子进程截止、stdin 与后代收口问题不再存在；后端启动新增 I/O 的等待边界另审。
+5. **已解决**：t18 `plan.md:70-79` 不再把 load/字体当成应用就绪，先等 PageOutlet 的 ready/online 标记，并为打开章节要求点击后的标签、正文等待；书架和工作台均有标记，失败页的有限失败处理另列。
+6. **已解决**：t18 `plan.md:28-32,43,51-55` 由应用报告 open-path，nbdev 只解析同源路径，SAMPLE 含 runId，正常、复用、迟到 READY 的事件顺序均已写出；旧脚本 stdout JSON 协议随脚本移除，新日志的跨进程顺序另列。
+7. **已解决**：t18 `plan.md:63,72,83` 明确保留参数顺序，click 后可等新窗口，且 nbdev 的 passthrough 本来就按 argv 顺序转交；应用侧顺序扫描 argv 或 parseArgs tokens 即可，不需要把两类参数分组。
+8. **已解决**：t17 `plan.md:49-57,99` 已列 live-views.ts 的 runsView 与 startedBy.key，仅登记属主也纳入收集；快照读取让同步入口继续同步，旧的 Promise 未 await 风险被移除。
+9. **已解决**：t17 `plan.md:55-57,100` 将显示用 text/source、无到有与有到无纳入 activity 快照/指纹，并用既有 changed/revision 更新页面；不再依赖下一次无关 GET 才检查标题。
+10. **已解决**：t17 `plan.md:54-57` 改为后台批量定位，Claude 每轮只列一次根目录、同键单飞、冷查找限并发，GET 不再逐个 stat；批量等待是否拖住整个 activity 是新增耦合问题，另列。
+11. **已解决**：t17 `plan.md:53,98-100` 明确按首个冒号保留完整 value、Agent 白名单、external 回落、原始键索引，验收加入 Claude/Codex/omp 路径含冒号、omp id、缺文件、历史提问者及仅登记属主。
+
+## 重写设计的新发现
+
+### 1. 首次启动会先拒绝尚不存在的样例父目录，根本到不了 create
+
+- **严重程度**：阻断；**类别**：正确性、边界。
+- **位置**：t18 `plan.md:37-40,106,116`；`packages/neuro-book/src/server/projects/identity.ts:71-79,97-109,328-329`。
+- **现象**：全新 worktree 没有 `<包目录>/.dev-sample/`。计划先调 `checkProjectDirectory`，失败就 `sample-failed` 且“不写任何东西”；该函数第一步 realpath，ENOENT 直接返回 `invalid-path`。后面的 `registry.create` 永远不会执行，因此主场景“新 worktree 一条命令放样例”必定失败。
+- **为什么是问题**：这不是首轮的路径约束遗漏，而是重写后选错了现有函数与调用顺序。`checkProjectDirectory` 校验“已经存在的目录”；`ensureParentDirectory` 才承诺新建父目录、先排除状态根、再校验真实路径，`registry.create` 内部正是走它。
+- **如何核实**：已逐行核对以上公开函数；没有运行尚未实现的 seedDevSample。主 Agent 验收须从 `.dev-sample/` 完全不存在开始，不先在夹具里 mkdir 它；同时覆盖 `NBOOK_STATE_ROOT=.` 与 `.dev-sample` 时不在状态目录内建样例。公开函数的真实文件 smoke 结果在报告末尾追加。
+- **建议改法**：先读登记表，确认不是 registry-invalid；无 sample 时直接让 `registry.create({parent, title: "sample", ...})` 执行父目录规则，或显式用 `ensureParentDirectory`，不能先用要求存在的检查器拦住新建。把“不写”限定为被状态根/路径/身份规则拒绝的分支，区分“尚不存在，需要创建”与“不能登记”。
+
+### 2. 后端复用 projectUrl 的指定路径违反现有前后端导入边界
+
+- **严重程度**：重要；**类别**：不变量、代码质量。
+- **位置**：t18 `plan.md:34,43`；`packages/neuro-book/src/plugins/projects/web/open-project.ts:10-16,29-32`；`packages/neuro-book/src/architecture.test.ts:67,88-93`；`packages/neuro-book/AGENTS.md:13-15`。
+- **现象**：新 `src/server/dev/sample.ts` 若按计划从 `src/plugins/projects/web/open-project.ts` 引 `projectUrl`，架构检查会报告“后端引用了前端”。这是运行时导入，不会因为函数本身只有 encodeURIComponent 而被允许；模块还带入浏览器命令声明、消息与远程合同的依赖。
+- **为什么是问题**：首轮要求地址由应用拥有，重写已做到；但现在后端选择了浏览器一侧的实现作为共享模块。当前架构测试明确把 `server/` 算为后端，把含 `web` 路径的目标拒绝，没有 `server/dev/` 例外。编译能解析不等于依赖合同允许。
+- **如何核实**：已核对架构测试的实际判据和 projectUrl 的全部导入；未改源码、未运行假装已经存在 sample.ts 的架构测试。
+- **建议改法**：把唯一的 `projectUrl` 干净迁到位置无关的 shared 模块（插件自己的 shared，或宿主共享路由模块），迁移浏览器调用者与后端调用者；不保留旧 web 重导出，也不放宽架构检查。应用继续在日志里报告完整 open-path，nbdev 不接管路由知识。
+
+### 3. 样例 I/O 被移进 health 就绪门之前，但没有失败隔离的等待截止
+
+- **严重程度**：重要；**类别**：失败语义、安全与性能。
+- **位置**：t18 `plan.md:31,37-44,56,116-118`；`packages/neuro-book/src/server/start.ts:267-317`；`src/server/dev/backend-process.ts:79-88`；`docs/specs/runtime/server-host.md:49-50,78,93`。
+- **现象**：现在正常 HTTP/RPC 准入依靠 startup 完成后 `admission.ready()` 才放行，监督进程等 health 200。若按计划在此之前 await 样例目录/身份/内容读写，慢盘或不返回的文件系统操作会把所有等待中的请求与 backend-ready 一起拖住；“失败时只打 sample-failed、服务照常运行”只处理 reject，没有处理永远不 settle。nbdev 的 180 秒 ready-timeout 只是打 NOT_READY，之后继续监管，不会让后端跳过样例，也不是这一步的截止。
+- **为什么是问题**：首轮第 4 条的未登记前置子进程已消失；新增的是可选样例工作变成应用可用性的硬依赖。样例几 KB 限制数据大小，不限制 realpath/stat/read/write 的等待。若直接做成会 reject 的启动门禁，又会按宿主合同关闭整个实例并以 1 退出，与非致命样例失败相冲突。
+- **如何核实**：已沿 startServer → admission.ready → health 探测 → backend-ready 的实际链路核对；尚无样例实现，未模拟私有时序或启动服务，慢盘卡住为代码推断。实施验收需用可控真实 I/O/子进程验证有限时间降级、服务仍可访问，并验证准备期间请求停止不会留下继续写样例的任务。
+- **建议改法**：写明唯一插入点（运行时正常 startup 可用后、HTTP 准入 ready 之前）及样例准备的总截止和取消/收口所有权；已知样例失败与超时都转成一次 sample-failed 后继续正常准入，不吞掉真实运行时 startup 失败。不能只 Promise.race 超时后丢弃仍会写盘的任务；超时后的写入与后端重启须有明确收口规则。
+
+### 4. 后端打印 open-path 不等于 nbdev 在 READY 前已经读到了它
+
+- **严重程度**：重要；**类别**：跨进程时序、日志协议。
+- **位置**：t18 `plan.md:31,37,43,50-55`；`packages/neuro-book/src/server/dev/backend-process.ts:50-55,79-88,91-103`；`src/server/dev/supervisor.ts:75-80`；`packages/dev-panel/src/dev/dev-ops.ts:165-179,275-282`。
+- **现象**：open-path/sample-failed 由后端打印，先经 stdout/stderr 管道异步转发；backend-ready 由监督进程在另一条 health HTTP Promise 完成后直接打印。后端“打印后才让 health 200”只约束后端发出顺序，不约束监督进程已经消费那一行，特别是 sample-failed 若走 stderr 时还有两条独立管道。因此监督日志可先出现 backend-ready，再出现样例结果；nbdev 一次读到 EOF 后做 HTTP 探测，探测期间新增的样例行也不会再读就返回 ready。计划此时警告 sample_not_reported 且没有后续 SAMPLE 通道，能够把支持且已准备好的应用误判为未报告。
+- **为什么是问题**：计划同时要求 READY 后“紧接”SAMPLE，又允许 READY 时没有报告就结束判定；现有机制没有提供样例结果到达的因果屏障。新起服务一次 READY 后结束 waitReady，复用已就绪服务现在甚至直接走 probe → emit READY 的快路径，必须另补日志消费，而不能只给 matcher 多两个正则。
+- **如何核实**：已核对 forwardLines 与 probeReady 独立运行、supervisor 的事件打印位置及 waitReady 在 probe 后不再读日志的返回点；这是时序保证缺失的代码推断，未声称已观测到真实服务乱序。主 Agent 应在允许启动服务后取证：新起、迟到 READY、已就绪复用、后端重启都用真实进程验证样例结果与 READY 的关系，不能仅靠同一个夹具脚本连续同步打印三行。
+- **建议改法**：让应用的监督层在确认收到本代后端的样例结果后，先把结果输出到同一日志流，再输出 backend-ready；或给 nbdev 定义有限的样例结果等待握手，明确最终 ready/not-reported 的时刻，不能发出 READY 后就立刻永久放弃结果。复用重放须选当前后端代的最新成功/失败，重启时清除前代结果，不能把旧 open-path 当成本代成功；历史日志扫描取固定 EOF 并有字节/时间边界，截断后无法恢复的结果明确警告，不无限追逐增长日志。路径校验应先排除绝对 URL、协议相对路径/反斜杠等，再用 URL.origin 核对同源。
+
+### 5. 新起服务的样例警告若走现有 warnings 返回路径，要等服务停止才看得见
+
+- **严重程度**：重要；**类别**：可观察性、接口与合同。
+- **位置**：t18 `plan.md:54-55,89-92,118`；`packages/dev-panel/src/dev/dev-ops.ts:386-397`；`src/cli/dev-commands.ts:154-155`；`src/cli/main.ts:300`；`src/cli/output.ts:39-42`。
+- **现象**：现有 Warning 先累积在 `devStart` 的结果里，CLI 只有 `await spec.run(...)` 返回后才 emit 警告。新起服务在 READY 后继续 await 子进程退出；把 sample_failed/sample_not_reported 加进这份 warnings，不会在准备失败时告诉调用者。开发服务运行 1 小时，警告就至少延后 1 小时；复用分支立即返回，反而会正常看到它。
+- **为什么是问题**：样例失败被设计成退出码不变的非致命结果，警告因此是调用者得知“没有可用 SAMPLE 地址”的唯一明确通道。计划没有指定运行中警告如何输出，现有一次性返回通道不满足这种使用方式；只看到 READY、没有 SAMPLE 无法区分仍在等待与已经失败。
+- **如何核实**：已核对 runCli 的 await 与 emit 位置，以及新起 supervise 只在进程结束后返回；未起开发服务。原有 emit 的公开输出边界可在临时脚本用真实 Writable 接收器观察，结果在末尾追加。
+- **建议改法**：在识别样例失败或确定未报告时立即通过运行中的诊断回调输出警告，或明确新增事件类型；保持既有 stderr 人类警告与 JSON warning 形状，不污染 stdout 的 READY/SAMPLE 事件流。不要等 DevStartResult 返回，也不要同一警告在停止时再输出一遍；验收断言在服务仍存活时已收到警告。
+
+### 6. t17：把整批标题 await 接进 activity，仍缺整轮耗时截止与降级规则
+
+- **严重程度**：重要；**类别**：安全与性能、可用性。
+- **位置**：t17 `plan.md:54-57,100,108`；`packages/dev-panel/src/server/state.ts:47-98,192-211,310`；`src/server/session-titles.ts:93-119,122-142,217-240`；`packages/dev-panel/docs/panel.md:304-310`。
+- **现象**：新设计在算完活动之后 await 全部 titlesOf 才发布活动。限并发与同键单飞只限制数量，没有限制一轮耗时；已有 stat/open/read/readFile 没有截止，Codex index 变化时还会整文件读。一个标题读得慢，这一轮新租约、会话退出、进程结束都不能发布；后续 5 秒定时与 records/sessions 触发只合并排队，不能绕过在途的一轮。warm 也 await activity，所以标题首次冷读会影响 API 预热。
+- **为什么是问题**：首轮的重复 GET 查盘成本已处理，这里是重写新增的“显示装饰阻塞整个活动状态”的耦合。5 秒是触发间隔，不是刷新完成上限。现有 Claude 最坏一次读 256 KiB + 1 MiB + 4 MiB = 5.25 MiB；100 个变化且末尾无标题的文件一轮最多读 525 MiB，慢盘等待还没有有限上界。正常文件系统失败原 resolver 会记录原因并回 null，不拖住；真正缺口是慢操作与批处理未完成时如何发布新 activity。
+- **如何核实**：已核对 Refresher 的 compute 完成后才更新 part、单飞排队与 warm 的实际 await 链，及 resolver 的读取上限；525 MiB 是读取循环的代码上界，不是本轮实测吞吐。未伪造 titlesOf 或私有调度，未来实现需真实慢/大文件与活动变化的运行验证，不能只测标题改名最终收到 changed。
+- **建议改法**：规定冷查找并发数、标题整轮总预算、超预算和局部读盘失败的降级；预算耗尽仍及时发布这轮真实 activity，标题沿用已知值或省略并诊断，后续有限任务补齐。标题任务不得无限积压，也不能让过期后台结果覆盖更新的键集合/快照。指纹只用最终 text/source 与稳定排序的完整键，不把时间戳、完成顺序或诊断状态放进去。
+
+### 7. t17：会话页改读活动标题表，会丢失不在 activity.sessions 里的 pane 标题
+
+- **严重程度**：重要；**类别**：正确性、范围回归。
+- **位置**：t17 `plan.md:56-57`；`packages/dev-panel/src/server/views.ts:332-348`；`src/core/activity.ts:144-173`。
+- **现象**：原 sessionsView 分别给 `herdr.panes[]` 与 `activity.sessions[]` 查标题；重写让会话页也只读活动快照，但列出的键仅有效租约、activity 的 sessions/运行属主、登记 startedBy 与收件箱 askedBy，没有 herdr pane 的 session。activity.sessions 不是 pane 集合：只从有效租约与 discoverRuns 的属主创建；discoverRuns 又限制 checkoutRoots 并排除登记的进程。因此 herdr 里仍显示的外仓库会话、没有有效租约且运行无法识别/被排除的 pane，可以在所有这些键集合之外。
+- **为什么是问题**：旧视图对全部 pane 查标题，并独立标记 inRepository；没有活跃租约不等于没有会话文件或不需要标题。新计划主动迁移原本已经工作的会话页，却没有保留它的输入集合；这不是首轮第 8 条的 runsView 漏入口（已补），而是新切换快照引入的已有标题丢失。
+- **如何核实**：已读 sessionsView 的两个 Promise.all 与 readActivity 的全部 sessionView 入口，确认没有“遍历所有 pane 加入 sessions”的步骤；未启动 herdr/面板，也未伪造活动快照作为实测。实施验收须放一格有真实标题、无租约、未形成仓库运行属主的 pane，核对 /api/sessions 的 panes[].title 仍正确，并在改名后刷新。
+- **建议改法**：从本轮采用的 herdr 快照额外收集所有会显示标题的 pane.session（按真实 agent/value 形成完整键），与现有集合去重；不要只收仓库租约会话，也不要以有没有普通 run 判断。视图读同一代标题表，保留原来 null 回落和输入安全规则。
+
+### 8. sample 的旧登记缺省与环境优先级还没有写成可执行的复用规则
+
+- **严重程度**：建议；**类别**：接口与合同、兼容。
+- **位置**：t18 `plan.md:30,36,49,94,118`；`packages/dev-panel/src/core/procs.ts:26-58,94-131`；`src/dev/dev-ops.ts:240,267-270`；`packages/neuro-book/src/server/dev/run.ts:58-67`；`packages/dev-panel/docs/file-formats.md:100-128`。
+- **现象**：现存 nbdev.proc/v1 没有 sample，计划只示例 `sample: true`，没定义旧登记与未传 --sample 是否统一视作 false、是否保持 schema v1、错类型如何处理。新服务又继承调用者 env：`NBDEV_SAMPLE=1 nbdev dev start` 即使没有 --sample，应用也会准备样例；如果登记只按 CLI flag 记 false，复用比较记录的就不是真实有效选项。
+- **为什么是问题**：旧登记记录的是真实仍在运行的进程，不可因升级多一个字段被解析器跳过，否则会失去复用与停法的入口。CLI flag、登记值、应用收到的环境必须一致；相比首轮状态根错位，这里是新 NBDEV_SAMPLE 协议的优先级未定义。当前 differences 已是字符串数组，计划的“带 sample”应明确为增加字符串元素，不另改对象形状。
+- **如何核实**：已核对旧格式、parseProcRecord 的宽容可选字段规则、spawn 原样传 env 与 backendEnv 的 process.env 继承；新字段尚未实现，未声称已经拒绝旧登记。环境继承使变量可达后端是已核实事实，不等于 supervisor DevConfig 对象能跨进程自动传入 ServerConfig。
+- **建议改法**：在登记合同明确 `sample` 为 boolean、旧记录缺字段按 false 归一化且仍能复用/停止；新记录总是写有效值。明确 nbdev 是否由 --sample 独占控制变量（未传时清除/设 0），还是接受环境默认并把有效值写入登记；后端只在 development-main 的配置装配读取，生产入口不读。`details.differences` 保持 `string[]`，不一致时包含 `"sample"`，不改同键与所有权规则。补旧 v1 登记、环境中已有 NBDEV_SAMPLE=1、true/false 两向复用场景。
+
+## 未发现问题的方面与仍需实施验收的边界
+
+- **后端身份恢复**：真实文件实验已验证 `mkdir(oldPath)`、`writeProjectIdentity(oldPath, oldId)`、`registry.register(oldPath)` 可保留 id 与短名；已有目录缺身份时单用 register 就能按登记 id 恢复。无需新增登记表写者，也无需更改 projects.md 的单写者合同。坏身份、冲突身份和部分写入失败仍须在 seedDevSample 实现后验收。
+- **环境可达性**：`backendEnv` 展开 process.env，NBDEV_SAMPLE 可经 nbdev → bun dev → 后端子进程传下去。生产入口不读此变量可以通过开发入口的独立装配实现，仔细检查后没有发现必须把它加进生产参数解析器的理由；DevConfig 对象本身不会跨子进程自动成为 ServerConfig，需按第 8 条明确装配。
+- **点击与等待顺序**：对原样 argv 使用 parseArgs 的 tokens 能保留重复 click/wait-for 的交错顺序，也支持 `--wait-for=<selector>`，本轮真实运行了 4 步顺序断言。nbdev 已有 passthrough 保序，仔细检查后没有发现新步骤设计本身不可实现的问题。
+- **就绪标记**：书架与工作台的路由根均由 PageOutlet 在 ready/online 时附标记，现有 e2e 确实等工作台 online。FailurePage 不带此标记，而带 `data-browser-host-status`；所以失败页不能被报成成功截图，按计划应在默认 120 秒的就绪步骤上限内失败。未来脚本需把错误阶段、最终 URL、宿主失败原因写入失败报告，并把每步截止覆盖导航、字体 Promise、动作及截图；这些运行行为未验证，不将当前 DOM 源码当作截图通过证据。
+- **同源路径**：URL 实验已核实 `/?project=sample` 正常解析，`//evil.test/book`、`/\evil.test/book` 会变成异源，javascript: 的 origin 为 null。第 4 条的建议须同时检查“相对路径”和规范化后的 origin，不能只做字符串前缀判断；绝对的同源 URL 虽同源，仍不符合“相对路径”合同。
+- **differences 形状**：当前就是 `string[]`（ready-pattern、work/task），把字符串 `sample` 加进去不需改原有形状。旧登记缺省与有效环境规则的缺口见第 8 条，未声称已经出现格式回归。
+- **记录快照先后**：records.part 在 Refresher 发布完成后才发 records changed；changed 回调又触发 activity.run，进行中时会排一次在后面，因此只读取“已发布的记录快照”不会形成互等，也不会永久漏掉新 askedBy。记录先发布、标题后发布期间可短暂回落短键；标题表变化再推 activity 可补齐。仔细检查后没有发现需要把两个快照强行合成单一事务的问题；第 6 条的等待预算必须先明确，不能据此承诺 5 秒内补齐。
+- **标题指纹**：只把最终 `{text, source}` 与完整键集合纳入指纹，符合“显示用到的字段才增加 revision”；append 会话正文但标题未变不应单独推送。并发批量结果要用稳定键序形成指纹（第 6 条）；不要用 I/O 完成序、mtime 或缓存检查时间，真实推送仍未运行。
+- **已定取舍**：不重议 autonomous-delivery、薄包装、样例内容与 1440×900 默认窗口；没有新增必须交开发者重新选择产品范围的事项。t17 前端未审，Task README 的旧说明也不在本轮两处设计范围内。
+
+## 实际验证与复现材料
+
+本轮源码来自固定审查 worktree `5fba44740`；只借已安装 worktree 的第三方依赖。没有修改两个 worktree 的源码、记录或配置，没有 Git 写操作、bun install、e2e、开发服务、herdr 服务或浏览器。报告为用户指定的 `.local` 输出文件；其余写入仅在 `/dev/shm/review-t18-plan-2-lab/`。
+
+###公开实验（不计为发现标题）
+
+1. 实际 cwd：`.worktree/w00022-dev-panel`。
+   实际命令：`bun --tsconfig-override /dev/shm/review-t18-plan-2-lab/tsconfig.json /dev/shm/review-t18-plan-2-lab/contract-smoke.ts`。
+   观察：脚本输出 `passed:true`，所有断言执行到结束；缺父目录的 check 返回 `invalid-path`，同一 registry 的 create 则成功；删目录重建和删身份重登记两次都保留 id `94f52c53-f9a2-42e5-ad0e-51b6fc9e3e7c` 与短名 sample；状态根内 create 返回 `invalid-parent` / `inside-state-root`；4 个步骤严格按 click/wait-for/click/wait-for 排列。该次 bash 输出未显示退出码，不能补写未观察到的数字。
+   额外诊断原文：`Internal error: directory mismatch for directory "/dev/shm/review-t18-plan-2-lab/tsconfig.json", fd 3. You don't need to do anything, but this indicates a bug.` 这是 Bun 在断言全部结束后额外报告的内部诊断，根因未调查，不把此次运行宣称成“无诊断通过”，也不把它算成计划/产品问题。
+2. 同一 cwd，实际命令：`bun /dev/shm/review-t18-plan-2-lab/warning-smoke.ts`。
+   退出码 **0**，进程 stderr 为空，`passed:true`。公开 emit 的接收器 stdout 为空，stderr JSON 为 `{warning:{code:"sample_failed", message:"样例准备失败", details:{runId:"dev-20261014T000000Z-12345678"}}}`，返回 0；它只验证原有警告输出形状，不模拟真实长命令的运行时，不证明未来警告能即时发送。
+
+复现时先创建实验目录，再按下面原样写回 3 个文件，按上面两条命令运行。实验的 package 数据目录需从不存在开始；脚本会创建它。未将这两条公开函数/输出接口实验当成未来 seedDevSample、SAMPLE 流或标题快照 HTTP/WS 的通过证据。
+
+`/dev/shm/review-t18-plan-2-lab/tsconfig.json`：
+
+```json
+{"compilerOptions":{"paths":{"nbook/*":[".worktree/w00022-review-t18-plan/packages/neuro-book/src/*"],"@notnotype/nb-runtime/remote":[".worktree/w00022-review-t18-plan/packages/nb-runtime/src/remote/remote.ts"],"@notnotype/nb-runtime/services":[".worktree/w00022-review-t18-plan/packages/nb-runtime/src/services/services.ts"],"@notnotype/nb-runtime/plugins":[".worktree/w00022-review-t18-plan/packages/nb-runtime/src/plugins/plugins.ts"],"typebox":[".worktree/w00022-dev-panel/node_modules/typebox"],"typebox/*":[".worktree/w00022-dev-panel/node_modules/typebox/*"],"proper-lockfile":[".worktree/w00022-dev-panel/node_modules/proper-lockfile"]}}}
+```
+
+`/dev/shm/review-t18-plan-2-lab/contract-smoke.ts`：
+
+```typescript
+import assert from "node:assert/strict";
+import {mkdir, rm, readFile} from "node:fs/promises";
+import {join} from "node:path";
+import {parseArgs} from "node:util";
+import {checkProjectDirectory, writeProjectIdentity, readProjectIdentity} from "nbook/server/projects/identity";
+import {createProjectRegistry} from "nbook/server/projects/registry";
+import {readDevConfig} from "nbook/server/dev/config";
+
+const root = "/dev/shm/review-t18-plan-2-lab";
+const packageRoot = join(root, "package");
+const stateRoot = join(packageRoot, ".dev-state");
+const parent = join(packageRoot, ".dev-sample");
+await mkdir(packageRoot);
+const options = {cwd: packageRoot, stateRoot};
+const precheck = await checkProjectDirectory(parent, options);
+assert.equal(precheck.ok, false);
+if (precheck.ok) throw new Error("前提错误");
+assert.equal(precheck.reason, "invalid-path");
+const registry = createProjectRegistry(options);
+const created = await registry.create({title: "sample", parent});
+assert.equal(created.ok, true);
+if (!created.ok) throw new Error(created.detail);
+assert.equal(created.project.name, "sample");
+const oldId = created.project.id;
+await rm(created.project.path, {recursive: true});
+await mkdir(created.project.path);
+assert.equal((await writeProjectIdentity(created.project.path, oldId)).status, "found");
+const restored = await registry.register(created.project.path);
+assert.equal(restored.ok, true);
+if (!restored.ok) throw new Error(restored.detail);
+assert.equal(restored.project.id, oldId);
+assert.equal(restored.project.name, "sample");
+await rm(join(created.project.path, ".nbook", "project.json"));
+const identityRestored = await registry.register(created.project.path);
+assert.equal(identityRestored.ok, true);
+assert.equal((await readProjectIdentity(created.project.path)).status, "found");
+const rejected = await createProjectRegistry({cwd: packageRoot, stateRoot: packageRoot}).create({title: "sample", parent: join(packageRoot, "forbidden")});
+assert.equal(rejected.ok, false);
+if (rejected.ok) throw new Error("状态根内部不应允许新建");
+assert.equal(rejected.reason, "invalid-parent");
+assert.equal(await Bun.file(join(packageRoot, "forbidden")).exists(), false);
+const devConfig = readDevConfig({NBDEV_SAMPLE: "1", NBOOK_STATE_ROOT: "relative-state"}, packageRoot);
+assert.equal(devConfig.stateRoot, join(packageRoot, "relative-state"));
+const args = ["--click", "[data-shelf-settings]", "--wait-for=[data-settings-window]", "--click", "[data-confirm]", "--wait-for", "[data-result]"];
+const parsed = parseArgs({args, options: {click: {type: "string", multiple: true}, "wait-for": {type: "string", multiple: true}}, tokens: true});
+const steps = parsed.tokens.filter((token) => token.kind === "option").map((token) => [token.name, token.value]);
+assert.deepEqual(steps, [["click", "[data-shelf-settings]"], ["wait-for", "[data-settings-window]"], ["click", "[data-confirm]"], ["wait-for", "[data-result]"]]);
+const readyUrl = "http://127.0.0.1:4217/";
+const origins = ["/?project=sample", "//evil.test/book", "https://evil.test/book", "/\\evil.test/book", "javascript:alert(1)", "http://127.0.0.1:4217/?project=sample"].map((path) => ({path, url: new URL(path, readyUrl).href, origin: new URL(path, readyUrl).origin}));
+assert.equal(origins[0].origin, new URL(readyUrl).origin);
+assert.notEqual(origins[1].origin, new URL(readyUrl).origin);
+assert.notEqual(origins[3].origin, new URL(readyUrl).origin);
+console.log(JSON.stringify({passed: true, precheck, created: created.project, restored: restored.project, identityRestored, rejected, steps, origins, registry: JSON.parse(await readFile(registry.file, "utf8"))}));
+```
+
+`/dev/shm/review-t18-plan-2-lab/warning-smoke.ts`：
+
+```typescript
+import assert from "node:assert/strict";
+import {emit} from ".worktree/w00022-review-t18-plan/packages/dev-panel/src/cli/output.ts";
+const stdout: string[] = [];
+const stderr: string[] = [];
+const io = {cwd: "/dev/shm/review-t18-plan-2-lab", env: {}, stdout: {write: (chunk: string) => stdout.push(chunk)}, stderr: {write: (chunk: string) => stderr.push(chunk)}};
+const warning = {code: "sample_failed", message: "样例准备失败", details: {runId: "dev-20261014T000000Z-12345678"}};
+const exitCode = emit({schema: "nbdev.dev-start/v1", data: null, warnings: [warning], error: null, human: [], streamed: {exitCode: 0}}, true, io);
+assert.equal(exitCode, 0);
+assert.deepEqual(stdout, []);
+assert.deepEqual(stderr.map((line) => JSON.parse(line)), [{warning}]);
+console.log(JSON.stringify({passed: true, exitCode, stdout, stderr: stderr.map((line) => JSON.parse(line)), scope: "仅验证 emit 的公开 stderr 形状，不模拟长命令运行时或新样例事件"}));
+```
+
+## 验证限制
+
+- 未运行现有测试套件、typecheck、构建、e2e、开发服务与浏览器；用户禁止项没有执行。运行验证集中于公开目录/登记函数、真实文件、标准参数解析和现有警告输出接口。
+- 第 1 条有公开函数实测支撑；第 2 条有现有架构检查的明确判据；第 3—7 条的应用时序、慢 I/O、持续服务与 pane 场景依据完整代码链推断，未声称真实应用复现。第 8 条是实现前应写清的兼容建议。
+- 没有为证明新设计正确而复跑第一轮已经记录的 titleOf 成本/完整键实验；本轮未使用首轮旧证据冒充最新验证。
+- Bun 额外诊断的根因未查明，没有可复用且已核实的新环境规则；不建议据此回写全局规范，也未修改任何真相源。
+
+## 第一轮第 3 条的追加核实（覆盖首节该条结论）
+
+3. **未解决，原因**：目录与身份的多数边界已经补上，但“已有登记、目录仍在、仅 `.nbook/project.json` 缺失”仍未写明按原 id 修复。t18 `plan.md:39` 的已有目录分支只说走打开作品的同一套校验；真实打开路径 `packages/neuro-book/src/server/projects/manager.ts:416-419` 要求 identity.status 为 found，missing 会直接拒绝，不会修复。`registry.register(path)` 在 `registry.ts:107-111` 才有按已有登记 id 修复的行为；本轮真实文件实验也已验证这条公开路径，但计划没有在这个分支规定调用它。首节第 3 条把“公开函数能够修复”误当成“计划已经规定修复”，这里更正为 **未解决**，其余 10 条结论不变。建议在已有目录分支明确 missing 时经同一 registry.register 恢复，再核对 id；invalid/conflict 仍失败且不覆盖。此为首轮的重要问题残留，不重复编成新发现。
+
+实验目录 `/dev/shm/review-t18-plan-2-lab/` 已清空并删除：只删除本轮创建的 5 个文件，再逐个 rmdir 6 个目录；命令成功。报告写入均为 `cat >>`，每次之后 `grep -c '^### '` 未减少，新增发现最终为 **8** 条。
+
+## 各级数量
+
+| 范围 | 阻断 | 重要 | 建议 | 合计 |
+|---|---:|---:|---:|---:|
+| 首轮残留：第 3 条缺身份恢复分支 | 0 | 1 | 0 | 1 |
+| 本轮 t18 新发现：第 1—5、8 条 | 1 | 4 | 1 | 6 |
+| 本轮 t17 新发现：第 6—7 条 | 0 | 2 | 0 | 2 |
+| 本轮新发现小计 | 1 | 6 | 1 | 8 |
+| 仍需处理总计（首轮残留 + 本轮新发现） | 1 | 7 | 1 | 9 |
+
+首轮处理最终结论：**10 条已解决，1 条未解决（第 3 条部分残留）**；本轮新发现 **8 条**。严重程度按设计合同与实际代码链判断；未观测的应用行为已经逐条标为代码推断，未用两条公开边界 smoke 代替真实服务与浏览器验收。

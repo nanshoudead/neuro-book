@@ -1,0 +1,91 @@
+# w00027 t10 实现审查（ca7684bbb..4ff7d4e3c）
+
+审查方式：读完整 diff 与相关文件；跑了 nb-ui 的 components.test.ts、tokens.test.ts（115 通过），neuro-book 的 SettingsRow、SettingsWindow、SnippetsPage 三个 dom 测试（65 通过）与 `bun test examples/scenarios/06-settings-page.test.ts`（4 通过）；`governance:check` 无失败无新增警告；`vue-tsc -p tsconfig.web.json` 无错误。未跑 e2e 与开发服务。下面的浏览器实验在 /tmp/claude-1000/review-t10-impl/exp/ 里用裸 HTML 加 headless Chrome 复刻 Dialog 的指针处理，不是产品运行时，已在各条里标明。
+
+没有发现阻断或重要级问题。以下均为建议级，按影响排序。
+
+---
+
+## 1. 建议 | 正确性（交互）| 面板上的 pointerdown 一律 preventDefault，按在留白或标题区上不再让输入框失焦
+位置：packages/nb-ui/src/composables/useFloatingWindow.ts `startDrag`（约 152-160 行的 `event.preventDefault()`）；packages/nb-ui/src/components/feedback/Dialog.vue 面板 `@pointerdown="floating.startDrag"`。
+现象：焦点在输入框里时，按在窗口留白（面板内边距、正文自己的一圈）或任何 `data-dialog-drag` 区域（设置窗口的标题区、左栏顶上），焦点留在输入框里，不发 blur / focusout。
+为什么是问题：改动前只有标题文字那一块能触发，现在是整个窗口的留白和设置页的标题区。nb-form 的文字、数字、JSON 控件靠 focusout 提交草稿（NumberControl.onFocusOut），用户在设置窗口里敲完数字去点标题区或空白处，草稿不提交，光标还在框里，之后按键仍进输入框。
+如何核实：复刻实验 /tmp/claude-1000/review-t10-impl/exp/t.html（带 preventDefault，`document.activeElement` 在按下后仍是 input）对照 t2.html（去掉 preventDefault，activeElement 变 BODY），脚本 t.mjs、t2.mjs。同一个实验里两种写法在“从留白拖过正文文字”时选区都是空的（指针捕获在面板上），所以这个 preventDefault 对防选字没有额外作用，选字已由区域上的 `user-select: none` 和捕获挡住。
+建议改法：去掉 `event.preventDefault()`，或只在真正拖动（位移超过几个像素）时才调用；如果要保留，按下时手动把焦点移到面板（面板本来就是 DialogContent，可聚焦）。改完在 e2e 的拖动用例里补一句：输入框有焦点时按标题区，输入框失焦。
+
+## 2. 建议 | 正确性（交互）| 拖动区域里非 button/input/a/select 的可点元素，点击被指针捕获改投给面板，点不动
+位置：useFloatingWindow.ts `inDragRegion` 的排除选择器 `"button, input, textarea, a, select, [data-interactive]"`；`startDrag` 把捕获设在面板上。
+现象：区域内按下的是 `<span role="button" tabindex="0">`、`[role=tab]`、`summary` 这类没在选择器里的元素时，按下和松开不移动也会 setPointerCapture + preventDefault，随后的 click 被 Chrome 投给捕获元素（面板），元素自己的 click 处理器不触发。
+如何核实：/tmp/claude-1000/review-t10-impl/exp/t3.html + t3.mjs，headless Chrome：`role="button"` 的 span 点击后 handler 未触发（log 为空）；`<label>` 包 checkbox 的点击仍然有效。
+为什么是问题：区域从“标题文字那一块”扩到了整条标题栏（含 `header-extra` 插槽）、设置窗口标题区（含页面通过 `SettingsPageActions` Teleport 进来的任意操作）。文档说操作“要自己是按钮”，但 Dialog 的 `header-extra` 与 `data-dialog-drag` 是通用能力，没有这个约束。
+建议改法：排除选择器补 `[role=button], [role=tab], [role=switch], [role=checkbox], [role=radio], [role=menuitem], [role=link], label, summary, [contenteditable], [tabindex]:not([tabindex="-1"])`，并把“排除哪些”写进 Dialog.md 的拖动区域一条；或者改成“先判断不拖，满足位移阈值后才捕获”，这样点击不受影响，同时也解决第 1 条。
+
+## 3. 建议 | 测试缺口 | 正文滚动条排除（`onScrollbar`）没有任何测试，且对叠加式滚动条不成立
+位置：useFloatingWindow.ts `onScrollbar`（用 `offsetX >= clientWidth`、`offsetY >= clientHeight`）；packages/nb-ui/src/components/components.test.ts 新增的拖动用例；e2e/settings.e2e.ts 新增拖动用例。
+现象：jsdom 里 PointerEvent 没有 offsetX（undefined），`undefined >= x` 恒为 false，单元测试走不到这一支；e2e 的设置窗口里滚动发生在内层 ScrollArea，不是 `data-dialog-body`，也没碰。把 `onScrollbar` 整个改成返回 false，现有测试全部仍通过（从代码推断，未实际改文件做变异）。
+另一点：叠加式滚动条（macOS 触控板默认、Windows 的 Fluent 叠加式）不占布局，`clientWidth` 等于整宽，按在滚动条滑块上会被判成留白，开始拖窗口而不是滚动（未在 Mac 上验证，从 CSSOM 语义推断）。本机 Arch 的经典滚动条不会触发。
+建议改法：e2e 里做一个正文自己会滚动的浮动窗口（Lab 的 Dialog 场景加一个溢出正文），按在滚动条上拖动，断言窗口不动、`scrollTop` 变；叠加式滚动条的情况在 Dialog.md 的边界里写明“只保证占布局的滚动条”，或者改判 `target.scrollHeight > target.clientHeight` 且点在右缘若干像素内。
+
+## 4. 建议 | 界面（从布局推断，未截图）| 角上关闭按钮盖住内层 ScrollArea 滚动条顶端 14px
+位置：packages/nb-ui/src/components/feedback/Dialog.vue `.nb-dialog__corner-close`（top/right: `--space-4`，26px，z-index: 1）；SettingsWindow.vue 的 `<ScrollArea type="auto">`；packages/nb-ui/src/components/layout/ScrollArea.vue 滚动条宽 `w-2.5`。
+现象：ScrollArea 贴着面板右内边距（离面板右缘 16px）、顶在面板上内边距之下（离面板上沿 20px）。滚动条在离右缘 16 到 26px、从 y=20 起；关闭按钮占离右缘 8 到 34px、y=8 到 34。两者重叠 10×14px，且按钮 z-index 更高。内容超出窗口高度、滚动在顶端时，滑块最上面 14px 在按钮下面，按那里是关窗口，不是拖滑块。
+如何核实：e2e 里内容溢出的分区（例如缩小窗口高度到 400）取滚动条滑块与关闭按钮的 boundingBox 看是否相交，或用 `elementFromPoint` 取滑块上沿 +5px 处。
+建议改法：内容列的滚动条让开按钮（ScrollArea 的 viewport 顶部加 `margin-top: var(--nb-dialog-close-room)` 或滚动条轨道上沿下移）；或者接受并在 SettingsWindow.md 写明。优先级低，因为 `type=auto` 的滚动条只在溢出时出现。
+
+## 5. 建议 | 测试缺口 | “关闭按钮只在会压到时才让位”“左栏顶边与标题区齐平”的几何一点测试都没有
+位置：SettingsWindow.vue 样式 `.settings-window__column > [data-settings-heading]`、`.settings-window__fill > [data-settings-heading]`、窄窗口 `.settings-window__side-tools` 的 `padding`；e2e/settings.e2e.ts 新增用例只测拖动与点关闭。
+现象：这次提交的主要工作（`100cqw` 公式、600px 容器查询下的改写、左栏顶边 `space-2`）靠 jsdom 测不了，e2e 里也没有断言：标题区右端内容（页面操作、层警告、“设置文件”视图的“未保存：…”提示）与关闭按钮的 boundingBox 不相交；宽窗口里标题区右侧确实没让位（`padding-right` 为 0）；层标签顶边与标题 h2 顶边相等；窄窗口顶行右端与按钮不相交。我手算了默认 960 宽（滚动区 715 < 720，标题区 padding-right = 42-16-16 = 10px，右端离按钮左缘 8px）、1200 宽（多出 235px，padding 0）、600 宽（走窄窗口分支）三种，公式本身是对的，前提是 `.settings-window` 内容宽 = 窗口宽 - 32（面板内边距）、ScrollArea 不占布局的滚动条宽——这两个前提也没有测试守着。
+建议改法：在“窗口没有标题栏”那个 e2e 用例（或另开一条）里按 1200、960、620、560 四个视口宽度，对“用户设置”“设置文件”（fill）两个分区断言：标题区内最右一个可见元素的右缘 <= 关闭按钮左缘；`[data-settings-tabs]` 与 `[data-settings-heading] h2` 所在行顶边对齐（容差 1px）。
+
+## 6. 建议 | 测试缺口 | `inheritsUser` 的“只允许本作品层的项不标”没有测试
+位置：packages/neuro-book/src/ui/settings/SettingsRow.vue `inheritsUser`（`declaration.value.layers.includes("user")`）；SettingsRow.dom.test.ts。
+现象：SettingsRow.md 与注释都写了“只能写在本作品层的项没写时显示的是默认值，不标”，但测试里没有任何 `layers: ["project"]` 的设置（`grep 'layers: \["project"\]'` 在 src 与 examples 下无命中），把条件改成只看 `state.kind === "inherit"` 现有测试仍全部通过（从代码推断，未改文件做变异）。另外“沿用 + 本作品层 invalid/unavailable 时控件停用而标签仍在”也没有用例（无效层的用例只在用户标签）。
+建议改法：在 SettingsRow.dom.test.ts 的 `host()` 里加一个只允许本作品层的设置，断言 inherit 状态下没有 `[data-settings-row-inherited]`、控件值为默认值；再加一条本作品层无效时 `data-disabled === "true"` 且标签在。
+
+## 7. 建议 | 文档一致性 | SettingsRow.md 与 Spec 里还有旧说法
+位置：
+- packages/neuro-book/src/ui/settings/SettingsRow.md 第 31 行：“插槽拿到 `disabled: true`，三种动作按钮停用”。现在只剩“恢复默认”“移除本作品的设置”两种。
+- docs/specs/settings/settings-window.md 第 161 行（宽排法“沿用用户设置：X”与“单独设置”……控件停用）、第 173 行（输出 18 里“在本作品里单独设置”）仍是旧画法，只有输出 12 标了 planned 并写了新画法，同一份 Spec 内自相矛盾。Spec 不在本次提交范围（计划里可能留到验收后统一改），但 planned 的部分没有一句说明 161、173 也会随之改。
+建议改法：改 SettingsRow.md 第 31 行；Spec 的 161、173 在晋升时一并改，或现在在两处各加“（planned：见输出 12）”。
+
+## 8. 建议 | 教学材料 | 场景 6 的注释说“沿用时第一次改也一样，交来的是改好的整份列表”，但 `own` 并不是从沿用的用户列表改出来的
+位置：packages/neuro-book/examples/scenarios/06-settings-page.test.ts 约 157-159 行。
+现象：`own` 是另写的两条列表（旁白、落款）再 `moveSnippet`，没有从用户层的四条（开场白…落款）出发。注释想讲的是“沿用时第一次改，交来的是在用户列表上改好的整份”，示例代码演示的却是“本作品层存一份独立列表”。读者会以为 `own` 是从沿用值改来的。
+对照：同一提交里 SnippetsPage.dom.test.ts 已经演示了真实路径（删第一条，整份写进本作品层）。
+建议改法：`own` 改成 `removeSnippet(settings.get(itemsSetting), 0)` 之类，从沿用的有效值出发；后面对 `inspected.project` 的断言相应调整。
+
+## 9. 建议 | 界面（从代码推断，未截图）| 沿用标签随状态出现与消失，可能让标题行换行、行高跳变
+位置：SettingsRow.vue `.settings-row__title`（`flex-wrap: wrap`）与 `.settings-row__inherited`（无 `white-space: nowrap`）。
+现象：标签在 11px 字号下约 80px 宽（en-US “From your settings” 约 115px）。标题列最小宽 200px，标题加上这枚标签、`applies` 标签和圆点放不下时，标签折到第二行。在本作品标签下一改控件，标签消失、换成 14px 的圆点，行高会少一行（约 18px），页面上下的行整体跳动。SettingsRow.md 只保证“圆点与图标出现与消失不改变行高”，这里没有同样的保证，也没有 e2e/Lab 场景（`narrow`）去量。
+建议改法：标签加 `white-space: nowrap; flex: none`；是否换行要有意为之的话，在 .md 的布局一节写明；在 SettingsRowFixture 的 narrow 场景加一个长标题的沿用样例，用 Lab 截图或 e2e 量行高前后相等。
+
+## 10. 建议 | 规范（组件 Lab）| nb-ui Dialog 的新状态没有 Lab 场景
+位置：packages/neuro-book/src/plugins/lab/web/fixtures/nb-ui/feedback.ts 的 Dialog 场景（只有 `window`、`window-resizable`）。
+现象：`showHeader=false` 加 `closable` 的角上关闭按钮、`--nb-dialog-close-room`、`data-dialog-drag` 区域、`--radius-window` 圆角都是 nb-ui 的新公开行为（Dialog.md 已写），Lab 里没有对应场景，开发者和后续审查看不到、截图回归也没有。设置窗口自己的场景只覆盖应用层。
+建议改法：feedback.ts 加一个 `window-no-header` 场景（`modal: false, showHeader: false, closable: true, resizable: true`，默认插槽里放一块带 `data-dialog-drag` 的标题区和一个溢出正文）。
+
+## 11. 建议 | 健壮性（未复现）| `inDragRegion` 的“互动元素”判定没有被面板边界限住
+位置：useFloatingWindow.ts `inDragRegion` 里 `target.closest("button, input, textarea, a, select, [data-interactive]") !== null`。
+现象：先用 `closest("[data-dialog-surface]")` 把嵌套窗口挡掉了，但互动元素的 `closest` 会一路爬出面板：面板被传送到（或渲染在）某个带 `[data-interactive]`、`a`、`button` 的祖先里时（例如 `teleportTarget` 指向的容器本身是这类元素），区域里所有按下都被当成互动、整个窗口拖不动。旧实现的这一句同样不限界，不是回归，只是新增的“整窗口留白也能拖”扩大了暴露面。
+建议改法：对 `closest` 的结果加 `element.contains(found)` 判断，与 `region` 的写法一致。
+
+---
+
+## 逐项核对（brief 重点）的结论
+
+1. 拖动判定：面板自己、`data-dialog-body` 自己、`[data-dialog-drag]`；嵌套窗口靠 `closest("[data-dialog-surface]") !== element` 冒泡给内层，我读过逻辑没发现问题；缩放手柄的 pointerdown 冒泡到面板时 `inDragRegion` 返回 false（手柄不在区域内、`target.closest("[data-dialog-drag]")` 为 null），不会同时起拖和缩放；`touch-action: none` 放在面板上不继承，内层滚动容器（正文是 `overflow-y: auto`，touch-action 的求交只算到最近的滚动容器为止）里仍可触摸滚动，我没发现副作用。问题集中在第 1、2、3 条。
+2. 角上关闭按钮：位置 8px/8px、26px 与 `--nb-dialog-close-room = 8*2+26 = 42` 对得上（IconButton `sm` 确为 26px，硬编码耦合，Dialog.md 已说明）；busy 时停用、可访问名称与标题栏版本一致；DOM 在正文之前，Tab 顺序里它排第一，Shift+Tab 从首个控件回到它，与原来标题栏里的关闭按钮排在正文之前一致；`closable` 缺省 false，目前只有设置窗口用 `showHeader=false`，没有别的调用方被意外加上按钮。圆角 14px 下按钮没被裁。
+3. 让位：宽窗口 `100cqw`、多出的一截、600px 容器查询、fill 页面的公式我手算与布局相符（见第 5 条的算例）；容器是 `.settings-window`（`container-type: inline-size`），标题区在它里面，`cqw` 取的就是它；窄窗口由后写的同优先级规则把 `padding-right` 重置为 0。没有找到算错的情形，问题是没有测试守着。
+4. SettingsRow：沿用时插槽拿 `shown`、`disabled` 只看 `blocked`，我读过没发现问题；`describedby` 把沿用标签放在最前，id 与 `v-if` 条件一致；`write-failed` 的 action 收窄后，调用方 `SettingsListSection`（忽略 action）、`SnippetsPage`（只取 code、detail）、`WorksSettingsPage`（同）都不受影响。
+   误写本作品层的检查：沿用的行改控件即写本作品层，我追了 `SettingsListSection.write` -> `SchemaField` -> `scope.update`：`scope.update` 在 `Object.is(before, next)` 时直接返回，不发 `update:modelValue`，而 `before` 是 `shown(...)`（沿用值）。所以下拉选同一项（ChoiceControl 每次选择都 emit，但被去重）、开关以外的数字框敲回同一个数字、文字框改了又改回去，都不会写本作品层。仍会写的情形：列表、对象、JSON 控件产生了结构上相等但不是同一个引用的新对象时（例如在 JSON 框里敲一个空格再删掉）会写入内容相同的值，这是用户明确改过，可以接受。没有找到“值没变也发改值”的复现方式。
+5. 示例：SnippetsPage.vue 的讲解注释与 .dom.test.ts 与新画法一致（除第 8 条里场景 6 的注释）；`SnippetsEditor` 在沿用时 `disabled=false`，各处理函数都是用户动作触发，不会在挂载或沿用值变化时自己写。
+6. 测试：新增的 SettingsWindow.dom.test 用真实控件点击已选项和另一项，断言本作品层是否被写、用户层不变，测到了行为；components.test.ts 的拖动用例用真实冒泡事件，覆盖留白、正文、标题栏空白、区域内文字、区域内按钮和输入框；没有测到滚动条（第 3 条）、嵌套窗口、`touch-action`。e2e 新增拖动用例点位合理（标题区右端点离按钮左缘 2px，纵向也错开，不会误点到按钮）；plugins.e2e 的改动与新画法一致。无 mock、spy、假计时器、固定等待。
+
+## 未发现问题的方面
+- 设计决定 1–6 的落实（去标题栏、关闭在右上角、14px 窗口圆角、标签文案、20px 加粗标题）与 Spec 输出 3、12、16 的 planned 内容一致。
+- `--radius-window` 的 token 登记、tokens.css 缺省值、nbook 主题 14px、tokens.test、三份 nb-ui 文档同步。
+- `useFloatingWindow` 的清理：`finish` 同时移除三类监听并释放捕获，卸载时 `dragCleanup` 仍会调用，再次按下先清理上一次；`dragHandleRef` 的移除没有遗留引用。
+- 静默 catch、按错误文案分支、跨包深导入、放宽断言：本次 diff 里没有新增。
+
+## 数量
+阻断 0 / 重要 0 / 建议 11（正确性或交互 2：第 1、2；界面 2：第 4、9；测试缺口 4：第 3、5、6、10；文档与教学 2：第 7、8；健壮性 1：第 11）。

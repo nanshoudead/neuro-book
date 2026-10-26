@@ -75,6 +75,13 @@ export function isControlName(name: string): boolean {
     return name.toLowerCase() === CONTROL;
 }
 
+/** Windows 上不接受的名字：含 `:`（备用数据流），或以点、空格结尾（打开时会被去掉，指向另一个名字）。 */
+function windowsNameProblem(name: string): string | null {
+    if (name.includes(":")) return "Windows 上的名字不能含 :";
+    if (/[. ]$/u.test(name)) return "Windows 上的名字不能以点或空格结尾";
+    return null;
+}
+
 /** 操作锁在锁目录里的名字。 */
 export const OPERATIONS_LOCK = "operations.lock";
 
@@ -131,10 +138,13 @@ class Root implements RootedRoot {
         if (gone !== null) return gone;
         const segments = path === "" ? [] : path.split("/");
         if (this.#options.controlDirectory && segments.length > 0 && isControlName(segments[0] as string)) return fail("protected-path", `${path} 在项目控制目录里`);
-        if (process.platform === "win32" && segments.some((segment) => segment.includes(":"))) return fail("invalid-address", `${path}：Windows 上的名字不能含 :`);
+        if (process.platform === "win32") {
+            const bad = segments.find((segment) => windowsNameProblem(segment) !== null);
+            if (bad !== undefined) return fail("invalid-address", `${path}：${windowsNameProblem(bad) ?? ""}`);
+        }
         let current = this.real;
         let viaLink = false;
-        for (const segment of segments) {
+        for (const [index, segment] of segments.entries()) {
             const next = join(current, segment);
             let info: Stats;
             try {
@@ -142,6 +152,7 @@ class Root implements RootedRoot {
             } catch (error) {
                 return missing(error, path);
             }
+            if (index === 0 && (await this.#isControlEntry(info))) return fail("protected-path", `${path} 在项目控制目录里`);
             viaLink = info.isSymbolicLink();
             if (!viaLink) {
                 current = next;
@@ -172,7 +183,7 @@ class Root implements RootedRoot {
         if (path === "") return fail("invalid-address", "根目录本身不能作为新建、改名、移动、复制、删除或转换的对象");
         const at = path.lastIndexOf("/");
         const name = path.slice(at + 1);
-        if (process.platform === "win32" && name.includes(":")) return fail("invalid-address", `${path}：Windows 上的名字不能含 :`);
+        if (process.platform === "win32" && windowsNameProblem(name) !== null) return fail("invalid-address", `${path}：${windowsNameProblem(name) ?? ""}`);
         const parent = await this.resolve(at < 0 ? "" : path.slice(0, at));
         if ("ok" in parent) return parent;
         if (!parent.stats.isDirectory()) return fail("not-a-directory", `${path} 的父路径不是目录`);
@@ -192,6 +203,7 @@ class Root implements RootedRoot {
             return missing(error, path);
         }
         if (stats.isSymbolicLink() && this.#options.controlDirectory && (await this.#pointsIntoControl(slot.absolute))) return fail("protected-path", `${path} 指向项目控制目录`);
+        if (slot.parent.realPath === "" && (await this.#isControlEntry(stats))) return fail("protected-path", `${path} 是项目控制目录`);
         return {...slot, stats};
     }
 
@@ -284,6 +296,17 @@ class Root implements RootedRoot {
             if (entry.isSymbolicLink() && (await this.#pointsIntoControl(join(real, entry.name)))) hidden.add(entry.name);
         }
         return hidden;
+    }
+
+    /**
+     * 根下的这个目录项就是控制目录，不论用什么名字找到它。按名字比只认得 `.nbook` 的大小写变体；Windows 上段尾的点与
+     * 空格会被去掉、8.3 短名（`NBOOK~1`）也指向它，所以按设备号与 inode 比。拿不到 inode（为 0）的文件系统上不比，
+     * 否则根下每个目录都会被当成控制目录。
+     */
+    async #isControlEntry(info: Stats): Promise<boolean> {
+        if (!this.#options.controlDirectory || !info.isDirectory()) return false;
+        const control = await lstat(join(this.real, CONTROL)).catch(() => null);
+        return control !== null && control.ino !== 0 && control.dev === info.dev && control.ino === info.ino;
     }
 
     /** 链接解析后落在控制目录里；解析不了的链接不算。 */

@@ -1,0 +1,131 @@
+# w00019 t13 实现审查报告（a1a862d4e..f64b73712）
+
+说明：发现按核实顺序追加；末尾“汇总”一节按影响排序并给数量。包内 `typecheck` 与 `test`（bun 126 条、vitest 25 条）均通过。实验文件在 `/tmp/claude-1000/review-w00019-t13-impl/exp/`，未改仓库。
+
+## F1 结果节点后面还有最终回复，或一次交了两个结果节点时，结果区里的节点仍被计入过程操作次数
+- 严重程度：重要；类别：正确性、合同
+- 位置：`packages/nb-agent-ui/src/conversation-turns.ts:241-246`（`outcomeCallId` 只取最后一个答案；`collectTools(body).filter(id !== outcomeCallId)`）
+- 现象：`outcomeCallId` 只在“最后一个答案是节点”时非 null。节点之后跟最终回复时它为 null，结果区里的节点（q2）照样算进 `metrics.steps`；同一条消息交两个成功的结果节点时，`outcomeStart` 把两个都划进结果区，只排除后一个。
+- 为什么是问题：Spec（`agent-conversation-view.md` 第 201 行）写“结果节点不计入整轮摘要的操作次数”；结果区里显示的节点是结果，却被算成“过程 · N 次操作”。
+- 如何核实：`exp/outcome.test.ts`（bun test）：消息序列 user、read、answer(成功)、最终回复文字 -> `steps 2 outcomeCallId null outcomeStart 1 blocks [chain,node,content]`（应为 1）；一条消息里两个成功 answer -> `steps 2 outcomeCallId q2 blocks [chain,node,node]`（应为 1）。现有测试 `src/conversation-turns.test.ts:355` 的“结果节点之后还有最终回复”用例只断言 `outcomeMessage` 与 `outcomeCallId`，没有断言 `metrics.steps`，所以没发现。
+- 建议改法：排除集合改为“结果区（`outcomeStart` 之后）里所有 `isAnswer` 的节点的 call id”，与 `outcomeCallId`（给复制用的那个）分开；补断言 `steps`。
+
+## F2 被排除出过程的结果节点连带从 `changedFiles` 与 `filesRead/filesChanged` 里消失
+- 严重程度：建议（目前内置与 Lab 的结果节点都没有 `effects`，是潜在问题）；类别：正确性、合同
+- 位置：`conversation-turns.ts:246`（同一个 `tools` 同时喂给 `computeMetrics` 与 `collectChangedFiles`）
+- 现象：结果节点带 `effects`（例如写报告并作为结果的领域工具）时，它改的文件不进轮末的“改动文件”列表，`metrics.filesChanged` 也变 0。
+- 为什么是问题：计划与 Spec 只要求“操作次数”不含结果调用，没有说文件改动也不算；轮末汇总靠 `changedFiles` 让用户看到这一轮改了什么，结果节点改了文件反而看不到，`file.openDiff` 也无入口。
+- 如何核实：`exp/outcome.test.ts` 最后一例：`write_report` 渲染器 `presentation: "node"`、`outcome: true`、`effects.changed=[r.md]`，成功 -> `changedFiles []`、`filesChanged 0`、`outcomeCallId w1`。
+- 建议改法：只让 `steps`（以及 `failed`，成功的结果节点不会失败，可不管）排除结果调用；`filesRead/filesChanged/changedFiles` 仍用全部调用。
+
+## F3 步骤行各自持有展开状态：工具组成形、出错项露出位置变化时，用户已点开的步骤被重置
+- 严重程度：重要；类别：不变量、与 Spec 的一致性
+- 位置：`src/vue/stream/AgentToolStepRow.vue:30`、`AgentTextStepRow.vue:24`（`const open = ref(false)`）；`AgentChainBlock.vue:81-110`（同一步骤可由三处不同位置的实例渲染）
+- 现象：展开状态由行组件实例自己持有，实例会因思维链的重新分组而卸载重建，状态随之丢失。已用真实视图复现：运行中，思考行（夹在两次探查之间、此时还是组外的独立行）被用户点开；下一次 `read` 到达后思考行并入工具组，组内是新实例，展开状态丢失。`processDisclosure: "live"`（nb-story 用的模式）下组本身是展开的，用户刚点开的思考在眼前收回去。另外出错的工具项在组收起时露出的实例与组内实例是两个，展开其一后再展开/收起组，状态互不相通。
+- 为什么是问题：Spec“展开与折叠”写“用户点过的以用户为准”；旧实现展开状态按步骤 id 存在 `useOpenSet` 里，与重新分组无关。作者自述的偏离（步骤行自持状态）正是破坏点：计划 `use-open-set.ts` 的目的就是“按 id 记录”。`AgentChainBlock` 已经有按 id 的 `openSet`，步骤行改成受控（`expanded` + `update:expanded`）即可。
+- 如何核实：`exp/state.dom.test.ts` 的 “live regroup” 例：live 模式，点开“思考”行后文字可见（`LIVE before true`）；追加 `read` 后 `has 第二行 false`，按钮列表里思考行仍在但已折叠。非 live 的同样操作：重新分组后组默认折叠，展开组后思考行也是折叠的。
+- 建议改法：步骤行改为受控组件，由 `AgentChainBlock`（与 `AgentToolStepRow` 的使用者）用 `openSet.isOpen(step.id)` 传入；判断“偏离是否成立”：不成立，因为它削弱了 `useOpenSet` 想保证的“按 id、跨重建保持”，且没有省代码（每个步骤行都多一个 ref）。
+
+## F4 README 的最小宿主类型过不了：`ref(createAgentContext(...))` 后赋值触发 TS2589
+- 严重程度：重要；类别：公开面、文档与合同
+- 位置：`packages/nb-agent-ui/README.md` 的“挂载”示例（`const ctx = ref(createAgentContext(...))`，`ctx.value = {...ctx.value, composer}`、`{...ctx.value, now: Date.now()}`）
+- 现象：按 README 原样写，`ctx.value = {...ctx.value, ...}` 报 `TS2589 Type instantiation is excessively deep and possibly infinite`。改成 `ref<AgentConversationContext>(createAgentContext())` 或 `shallowRef(...)` 就没有。示例里的 `locale` 没有声明，`send` 与 `宿主的登记` 是占位。
+- 为什么是问题：计划把“README 最小宿主”当作这个 Task 的主要交付，`entry.test.ts` 与 `vue/entry.dom.test.ts` 的 smoke 没有照 README 的写法写（没有 `ref`、没有对 ctx 赋值），所以 `typecheck` 绿但宿主照抄就红。宿主（nb-story 问答页是第一个）几乎一定会 `ref(...)`。
+- 如何核实：`exp/ts/host2.ts`，用 `tsc -p exp/ts/tsconfig.json`（paths 指向包源码）只有第 5 行报 TS2589；`ref<AgentConversationContext>`（第 8 行）与 `shallowRef`（第 11 行）不报。
+- 建议改法：README 写成 `shallowRef(createAgentContext(...))`（视图只按整体替换更新 ctx，shallowRef 恰好合适且省掉深层代理），并把示例原样放进一个会被 `typecheck` 编译的文件（例如 `src/vue/readme-host.typecheck.ts` 或 smoke 测试里），让 README 与类型检查绑在一起；补上 `locale` 声明。
+
+## F5 `createAgentContext` 把补丁里显式的 `undefined` 当成值覆盖默认值
+- 严重程度：建议；类别：边界
+- 位置：`packages/nb-agent-ui/src/context.ts:23-46`（`...rest`、`...availability` 等对象展开）
+- 现象：补丁类型是 `Partial<...>`，允许 `{messages: undefined}`、`{interaction: {canSend: undefined}}`。展开后默认值被 `undefined` 盖掉：`createAgentContext({messages: undefined}).messages === undefined`，视图里 `ctx.messages.length` 直接抛 TypeError；`canSend: undefined` 变成假值，输入框静默只读。
+- 为什么是问题：宿主常写 `createAgentContext({messages: props.messages, session: current.value})`，上游可选值为 `undefined` 时炸在渲染里而不是起步套件里；这是起步套件要替宿主兜住的那类错误（“缺省值是什么都没有”）。
+- 如何核实：`exp/ctx.test.ts`：输出 `messages undefined canSend undefined`；`exp/ts/host.ts` 里 `createAgentContext({messages: undefined, session: undefined})` 类型检查通过。
+- 建议改法：展开前过滤掉值为 `undefined` 的键（写一个小的 `defined()`），或类型上用 `exactOptionalPropertyTypes` 风格排除 `undefined`；并在 `context.test.ts` 补一例。
+
+## F6 “已结束的轮次不再随 now 重算”在 README 推荐的写法下不生效
+- 严重程度：建议（长对话加每秒打节拍时的重复计算；功能不受影响）；类别：不变量、性能、与提交说明不符
+- 位置：`src/vue/stream/AgentConversationTurn.vue:40-46`（`now` 只给最新运行轮）与 `src/vue/AgentConversationView.vue` 的 `turnGroups`（`computed(() => splitIntoTurnGroups(props.ctx.messages))`）
+- 现象：`turnGroups` 读的是 `props.ctx.messages`，宿主整体替换 `ctx`（README 的最小宿主就是 `ctx.value = {...ctx.value, now}`）时它每次重算，给每个 Turn 的 `messages` 属性是新数组，已结束轮次的 `turn` 计算属性因此照样重建。实测（`exp/now.dom.test.ts`）：一条已结束轮次里放一个计数的 `effects` 回调，整体替换 ctx 打 3 次节拍，回调被调 9 次（每次节拍每轮 3 次：metrics、changedFiles、makeChain）；只有对响应式 ctx 原地改 `now` 才是 0 次。
+- 为什么是问题：设计审查第 6 条与切片 4 的提交说明都写“已结束的轮次不再随宿主每秒换 now 重算”，而文档给宿主的写法恰好用不上；长会话每秒重建每一轮（含全部 `effects`/`summary` 回调）。
+- 如何核实：`bunx vitest run --config exp/vitest.config.ts now.dom`（见 `exp/out3.log`）。
+- 建议改法：让 `turnGroups` 在消息元素没变时复用上一次的分组数组（按首条消息 id 与逐元素同一性比较，和现有 `assignTurnKeys` 放一起），或让 Turn 的计算属性按消息同一性缓存；否则把 README 的写法与这条优化对齐（说明要原地改 `now`），并在 Spec/计划里改掉“不再重算”的说法。
+
+## F7 `acceptSubmission` 用草稿原文，发送来自宿主组件（非输入框）时清掉用户正在写的草稿并把它记成“已发送”
+- 严重程度：建议；类别：合同、边界
+- 位置：`src/composer-actions.ts` 的 `acceptSubmission`；`AgentConversationView.vue:143-153` 的注释明确说 `composer.submit`/`command.run` 也可能来自“宿主组件里的追问”；README 最小宿主的 `if (action.type === "composer.submit") {send(action.text); ctx.composer = acceptSubmission(...)}`；Lab `composer-host.ts` 的 `submit`/`runCommand`
+- 现象：宿主组件（例如答案卡片上的“追问”按钮）发出 `composer.submit {text: "再问一次"}`，宿主按 README 处理：`send(action.text)` 后 `acceptSubmission(ctx.composer)`。后者取的是输入框里的草稿 `draft.text`（用户可能正写了一半的别的话），把它放进输入历史最前，并清空草稿、换版本，用户写到一半的字没了，历史里出现一条从没发送过的文字，而真正发送的 `action.text` 不在历史里。改动前 Lab 宿主的 `recall` 用的是 action 里的 `text`。
+- 为什么是问题：计划选“草稿原文”是为了命令空白不走样，却假设了发送一定来自输入框；而视图已经把宿主组件的发送当成正常来源（含滚动到最新）。文档对 `acceptSubmission` 也没写这个前提。
+- 如何核实：从代码推断，无实验（逻辑直接）：草稿 `{text: "半句话", version: 3}`，对 `{type: "composer.submit", text: "再问一次"}` 调 `acceptSubmission` 得 `recall[0] === "半句话"`、`draft` 为空版本 4。
+- 建议改法：`acceptSubmission(composer, sent?: string)` 让宿主传“实际发送的文字”，缺省才取草稿；或在 JSDoc 与 README 写明“只用于输入框来的发送；其他来源只发送，不动草稿”，并在最小宿主里按 `action.text === ctx.composer.draft.text.trim()` 判断。
+
+## F8 `transcript.run()` 每次返回新对象
+- 严重程度：建议；类别：一致性
+- 位置：`src/harness.ts:395-397`
+- 现象：`messages()` 在没有变化时返回同一个数组（有测试，见 `harness.test.ts` 的 `currentAgain`），`run()` 每次 `return {status, phase: ""}` 新对象。
+- 为什么是问题：宿主写 `ctx.run = transcript.run()` 时，每次调用身份都变，所有轮次的计算属性都依赖 `ctx.run`，与 `messages()` 刻意稳定的做法不一致。
+- 如何核实：读代码。
+- 建议改法：缓存两个常量对象（运行中、空闲），按状态返回同一个。
+
+## F9 输入框提示与实际规则的两处偏差
+- 严重程度：建议；类别：正确性（提示）、与 Spec 的缝隙
+- 位置：`AgentConversationComposer.vue:118-135`（`sendTitle`、`placeholder`）；`:288` 的 `enter-submits="!expanded"`
+- 现象一：运行中两种投递都不允许时，输入框里写的是已登记的 `/命令`，发送键是可点的（按 `resolve(false)` 判断，验收 23 要求命令照常），但按钮标题与占位文字仍是“运行结束后发送/运行结束后才能发送”，与点了就会执行相矛盾。
+- 现象二：展开模式下回车是换行，键盘发送只有 Ctrl/⌘+回车（Spec“输入框与待处理区”第二条）。只允许补充说明（`canSteer` 真、`canQueue` 假）的宿主运行中，Ctrl/⌘+回车 返回 null：展开模式下没有任何键盘路径能发送，只能点按钮。Spec 两条各自成立、组合起来没覆盖。回车在 `submit` 里 `resolve` 为 null 时被编辑器吞掉（不换行也不发送）且没有任何反馈。
+- 为什么是问题：现象一误导；现象二是 `canSteer`/`canQueue` 拆开后冒出来的边角，主应用（t11 之后很可能是 steer 为真）会遇到。
+- 如何核实：从代码推断（`resolveSubmission` 表测试第 21 行 `steer-only + mod = null` 已确认），未跑 e2e。
+- 建议改法：现象一：标题与占位按“是否有命令正文”分支，或占位改成中性的“运行结束后发送普通消息”；现象二：展开模式下 Ctrl/⌘+回车 在 `canQueue` 假时退到 steer（只在展开模式，因为那时回车被占用），并写进 Spec；两处都补 dom 测试（目前 `sendDisabled`、占位文字、标题都只有 e2e 覆盖，包内没有测试）。
+
+## F10 没有 `resolveTriggerMenu` 时，正文中间输入 `/` 仍会打开空菜单
+- 严重程度：建议（从代码推断，未在真实编辑器里复现）；类别：边界
+- 位置：`AgentConversationComposer.vue:46-69`
+- 现象：`triggers` 过滤只去掉了 `/` 之外的字符；`/` 保留。`resolveMenu` 里 `trigger === "/" && atStart` 才走命令菜单，`/` 不在开头时走 `resolve?.(context) ?? {items: []}`。`nbook.markdown` 的 `PromptEditor.vue:348-358` 在触发激活时就渲染菜单，`items` 为空显示 `menuEmpty` 文字。所以句子中间、空格之后敲 `/`（例如“a /b”）会弹出一个只写“无匹配”的菜单。验收 24 的 dom 用例只断言 `triggers` 属性为 `["/"]`。
+- 为什么是问题：与“没有菜单就不打开空菜单”的设计初衷相反，且正是只剩 `/` 的宿主（nb-story）会碰到。
+- 如何核实：读 `PromptEditor.vue` 的 `menuOpen`/`menu`；需要在 Lab 的 `embedded` 场景（或把 `resolveTriggerMenu` 设空）里手动输入 “a /” 确认。
+- 建议改法：`resolveMenu` 在 `!(trigger === "/" && atStart)` 且没有 `resolve` 时返回一个“关闭”信号（若端口没有，则让 `PromptMenu` 空 items 时编辑器不开），或在端口文档里规定 `items: []` 加 `emptyText: ""` 表示不显示；并补编辑器侧或 Lab e2e 用例。
+
+## F11 `./lab` 入口：作者的说法不准确，`index.ts` 头注释随之失真（但不是包体积回退）
+- 严重程度：建议；类别：结构、文档
+- 位置：`packages/neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui/parts.scenes.ts:15`；`.../nb-agent-ui/index.ts:3-4`；`packages/nb-agent-ui/src/vue/lab.ts`
+- 现象：自述说 `./lab` 只被动态加载的 `host.ts` 与 type-only 导入引用。实际 `parts.scenes.ts:15` 以值导入 `buildTurns`，并在模块顶层（97、104 行）调用；`parts.scenes.ts` 由 `index.ts`、`LabShell.vue` 静态导入。所以 `lab.ts` 及其静态重导出的 23 个 `.vue` 随 Lab 外壳一起加载，`host.ts` 的“只在选中场景时动态加载”的头注释对“零件”不再成立。改动前 `parts.scenes.ts:13` 已经从 `/vue`（当时导出全部 23 个组件）静态取值，所以体积没有变坏，只是计划写的“`./lab` 只在选中场景时动态加载”（按名的 `nbAgentUiLabParts` 懒加载）没有达成。
+- 判断（回答“这处偏离是否成立”）：静态导出本身可以接受（与改动前的 `import * as nbAgentUi from "/vue"` 等价，Lab 里这些零件本来就一起加载）；不成立的是描述。要么把 `index.ts` 与 `lab.ts` 头注释改成“Lab 加载时一起加载”，要么按计划把 `buildTurns` 的使用挪进按需加载的位置。
+- 如何核实：读 `parts.scenes.ts:13-15, 97, 104`；`LabShell.vue:20` 静态导入 `labFixtures`。未跑构建，体积是从代码推断。
+
+## F12 测试缺口：几条判据靠 e2e 或测不到变异
+- 严重程度：建议；类别：测试
+- 位置：`src/vue/AgentConversationView.dom.test.ts:194-224`（验收 22）；输入框的 `sendDisabled`、`sendTitle`、`placeholder`（验收 23 的界面部分）
+- 现象：
+  1. “运行结束后回到折叠”一例：结束后轮次本身被整轮收起（`foldable`），`.acv-steps` 无论 `live` 默认值是否回落都不存在。变异检查：把 `AgentConversationTurn.vue` 的 `live` 改成只看 `processDisclosure`（结束后不回落）该例仍通过。要测回落，需要一个结束后仍展开过程的轮次（最新一轮出错或被停止时整轮展开），断言思维链回到折叠。
+  2. 验收 22 的“卡片与思考仍折叠”没有断言；验收 21 只测了 `node` 组件通道，`detail` 组件通道（`AgentToolDetail` 的 `@action`、`services`、`locale`）没有测试。
+  3. 验收 23 的界面部分（发送键禁用、占位与标题、输入框可写、命令照常、`waiting`/`stopping` 同运行中）包内没有 dom 测试，只有 `resolveSubmission` 表测试和 e2e `running-no-steer`（本次没有运行）。`waiting`、`stopping` 两种状态没有任何一层的用例。
+- 为什么是问题：计划的验收映射写了“`vue/AgentConversationView.dom.test.ts`（或 TurnBlock 挂载测试）”，实际没做到；e2e 慢、本机内存紧时首屏常超时，包内测试应能独立拦住回归。
+- 已做的变异检查（全部被现有测试拦住，说明这些判据测到了）：`splitTrailing` 锚点改回只认最终回复；去掉结果调用的次数排除；前缀排序改成升序；`isAnswer` 不看成功状态；`outcomeMessage` 恒取最终回复；还原后 `diff` 与备份一致。
+- 建议改法：补 dom 测试：出错最新轮 + `live` 回落；输入框 `waiting`/`stopping` 与两个投递开关的发送键、占位、命令；`detail` 组件通道。
+
+## F13 小项
+- 严重程度：建议；类别：代码质量
+- `ToolRendererEntry.diff` 的文档与 `guardTool` 都为“返回 null 表示这次给不出 diff”留了语义，但内置三个 `diff` 都不会返回 null（半截参数得到空数组，显示“内容为空”），目前没有任何实现用到 null，该语义只有测试在走（`src/registry.test.ts:113`）。要么让 `writeDiff` 等在参数还是半截（`argString` 为空且调用在流式中）时返回 null，要么把 null 语义留到有第一个使用者再加。
+- `src/composer-actions.ts` 文件末尾多一个空行；`AgentConversationComposer.vue:34-35` 有连续两个空行（改动遗留）。
+- `AgentTurnBlock.vue` 里 `props.live ?? false`：Vue 对布尔属性缺省就是 `false`，`?? false` 多余；`AgentChainBlock` 的 `live` 是必填。
+- 空消息流的“加载中”：`<p role="status">` 里既有带 `label` 的 `Spinner` 又有同样文字，读屏可能读两遍（`AgentConversationView.vue:241-243`）；历史加载行用的是同一写法，一致，所以不是新引入的模式，仅提示。
+
+---
+
+## 对作者自述两处偏离的判断
+1. 两种步骤行各自持有展开状态：不成立（见 F3）。破坏了“用户点过的以用户为准”在思维链重新分组时的保持，已用真实视图复现；`useOpenSet` 没有因此变简单。改成受控即可。
+2. `./lab` 静态导出而非按名动态加载：可接受，但描述不准（见 F11）。
+
+## 未发现问题的方面
+- 结果节点的主路径：`isAnswer`/`findOutcomeStart`/`splitTrailing` 在“被退回再成功”“其后跟压缩分隔线”“其后跟最终回复”“其后跟错误”“节点后又有读文件”几种排列下，`outcomeStart`、`outcomeMessage`、`trailing` 都符合 Spec（`exp/outcome.test.ts` 逐种核对）；错误结尾时 `outcomeMessage` 仍是结果节点所在消息，与注释一致。仅有 F1、F2 两处统计口径问题。
+- 运行中与等待中轮次：`foldable` 为假，`outcomeStart` 仍按成功的结果节点划分，不影响显示，只影响过程容器边界；`defaultTurnExpanded` 不变。
+- `ViewAction` 的出口：`AgentConversationView` 的 `emit("action")` 只有 `onAction` 与 `history.loadPrevious` 两处，`image.preview` 在 `onAction` 里被截下；现有 dom 用例断言连点图片后 `view.emitted("action")` 为空。`RenderGuard` 仍包住宿主的 `node` 与 `detail` 组件。宿主组件 `defineProps<ToolComponentProps>()` 经包入口类型解析正常（`exp/node.dom.test.ts` 里 `LabAnswerNode` 的 props 为 `ctx/services/locale/call`，emits 为 `action`）。
+- scoped 样式：六个重排的组件逐个核对类名，定义了未使用与使用了未定义的都没有（仅 `acv-divider-block` 一个历史上就没有样式的钩子类名）；传入子组件根元素的 `class`（`acv-steps__nested`、`acv-narration`、`acv-thinking`）都在传入方自己的 scoped 样式里，且根节点接收父级 scope 属性，没有失效；`--nb-agent-block-indent` 在 Turn 根声明 24px，过程容器里 `[data-foldable]` 改 10px，单挂时各块回退 24px，取值一致。
+- 注册表：工具名冲突与最长前缀有测试且变异可拦；`guardTool` 对 `diff`、`effects`、`groupPhrase` 的保护与类别联合类型过得了 `typecheck`。
+- 公开面：`src/index.ts`、`vue/index.ts`、`vue/lab.ts` 与 `package.json` 的 exports 一致；没有发现公开类型引用了不再公开的类型；`neuro-book` 的 `typecheck`、包的 `typecheck` 与全部测试、`docs:check` 均通过（`exp` 之外未改任何文件）。
+- 服务可选后的调用点：`resolveAttachmentUrl` 与 `resolveTriggerMenu` 的所有读取都已带 `?.`，没有漏网（grep 全仓）。
+- 起步套件：`createAgentContext` 的合并规则与计划一致（`composer.draft` 整体替换，两次调用互不影响）；`applyComposerAction` 附件 action 返回 null；Lab `composer-host.ts` 改用后附件、命令、菜单的原行为保留，除 F7 所述的 recall 来源。
+
+## 汇总（按影响排序）
+- 阻断：0
+- 重要：3 —— F1（结果节点计入操作次数）、F3（步骤行自持展开状态，重新分组即丢）、F4（README 最小宿主类型过不了）
+- 建议：10 —— F2、F5、F6、F7、F8、F9、F10、F11、F12、F13
+- 共 13 条。未运行 e2e 与开发服务；e2e 的验收 20 到 24 用例（`lab-agent-ui.e2e.ts`）需要在本机内存允许时由主 Agent 再跑一遍，尤其是 F9 现象二与 F10 需要真实编辑器确认。

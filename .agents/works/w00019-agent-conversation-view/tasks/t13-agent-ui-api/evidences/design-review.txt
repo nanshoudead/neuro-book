@@ -1,0 +1,95 @@
+# w00019 t13 计划设计审查报告
+
+审查对象：主工作区 `.agents/works/w00019-agent-conversation-view/tasks/t13-agent-ui-api/plan.md`（299 行）。代码读 worktree `a1a862d4e`，Spec 与 Task 记录读主工作区。实验文件在 `/tmp/claude-1000/review-w00019-t13-design/exp/`。按影响排序，已核实一条追加一条。
+
+## 重要
+
+### 1. 重要 / 正确性：节点结果后面跟分隔线时，`findOutcomeStart` 认不出结果，答案连同过程一起折进摘要
+- 位置：计划第 3 项；`src/conversation-turns.ts:154-163`（`findOutcomeStart`）、`:347-357`（`splitTrailing`）。
+- 现象：计划只改 `isOutcome`，倒扫规则“不变”。但倒扫只越过结果与 `notice`。`splitTrailing` 只在存在 `content` 且 `final` 的块时才把末尾的 `divider`（压缩、分支摘要）移进 `trailing`；没有最终回复文字、只有结果节点时返回空数组，分隔线留在 `blocks` 末尾，倒扫第一步就停在它上面，`outcomeStart === blocks.length`，于是 `foldable` 为真、答案节点被收进摘要。这正是计划要修的 complete 1 的症状，换了触发条件。
+- 为什么是问题：`splitIntoTurnGroups` 只在普通用户消息处切组，写在上一轮答案之后、下一条用户消息之前的压缩或分支摘要条目属于上一轮，所以这个场景真实存在（`splitTrailing` 本来就是为最终回复写的同一类情形）。
+- 如何核实：我用现有代码跑了 `/tmp/claude-1000/review-w00019-t13-design/exp/divider.test.ts`（节点型 `answer` 的 `presentation: "node"`，消息为 用户、答案被退回、答案成功、compaction）：`blocks = [node, node, divider]`，`trailing = []`，`outcomeStart = 3`。不带 compaction 时 `outcomeStart = 2`。给 `isOutcome` 加上节点条件后，前一种情形仍会得到 3。
+- 建议改法：`splitTrailing` 的锚点改为“最后一个结果块”（最终回复，或成功的结果节点），不再只认 `content.final`；在第 3 项写明，并在 `src/conversation-turns.test.ts` 与 `harness.contract.test.ts` 各补一个“结果之后跟 compaction”的用例（验收 20 的判据里也写上）。
+
+### 2. 重要 / 正确性：`outcomeMessage` 让结构化答案的“复制”复制出空文字或旁白
+- 位置：计划第 3 项（助手一侧操作条改用 `outcomeMessage`）；`src/vue/builtin-message-actions.ts` 的 `copy`（`toAction: message.copy {messageId}`，无 `appliesTo`）。
+- 现象：答案在工具参数里，发出答案调用的那条 assistant 消息 `text` 通常为空，完成后若有旁白文字也会被并入思维链而不显示。操作条上的“复制”发出 `message.copy {messageId}`，宿主按消息复制，结果是空串或看不见的旁白。Spec 现有的 `tool.copy {toolCallId}` 恰好是为此准备的，计划没用。重试、从此处分支作用于这条消息尚可成立，复制不成立。
+- 建议改法：`outcome` 登记项旁给出复制的口径，或让操作条对结果节点发 `tool.copy`；至少让 `copy` 的 `appliesTo` 在消息没有可显示正文时不出现。Spec 的“Agent 一侧的操作作用于结果所在的消息”要写明复制对结果节点的含义。
+
+### 3. 重要 / 合同：`applyComposerAction` “返回 null 才由宿主处理”，附件登记与重试既要记状态又要宿主动手，约定表达不了
+- 位置：计划第 6 项（输入框动作）；`composer-host.ts` 的 `composer.attachmentAdded`、`composer.attachmentRetry`、`composer.attachmentRemoved` 分支。
+- 现象：现在 Lab 宿主在这三个 action 上做的是“改状态”加“副作用”：登记时记下 `File` 并启动上传，重试时重新启动上传，移除时删文件并释放。计划让 `applyComposerAction` 把这三个 action 的“记为上传中、回到上传中、移除”做掉并返回新 composer，其余返回 null。宿主按文档写成 `const next = applyComposerAction(...); if (next) {write(next); return}` 就永远不会去上传：附件停在 `uploading`，`sendBlockedReason` 又以“uploading”拦住发送。注释里写了“上传本身仍是宿主的事”，但返回值没有把“还要宿主接着处理”传出来。
+- 建议改法：二选一。（甲）这三个 action 不进 `applyComposerAction`，只留纯状态转换的 `draftChanged`、`mode.set`、`model.set`、`thinking.set`，附件三个交给宿主自己写；（乙）返回 `{composer, handled}` 或让函数只做状态、宿主始终再看一遍 action。另外 `acceptSubmission` 与现在的 `runCommand` 不逐条一致：`runCommand` 的输入历史不去重、直接前插，`submit` 才去重；命令的“原文”也要宿主自己用 `name`、`argsText` 拼回去，空白会走样。计划说“逐条一致”，应改成“命令的历史也去重”并写进测试。
+
+### 4. 重要 / 类型：按类别的联合照字面实施，`guardTool` 过不了 typecheck；`diff` 抛错“当作没有 diff”表达不出来
+- 位置：计划第 4 项；`src/registry.ts:218-251`（`guardTool`）。
+- 现象 A：`guardTool` 现在先解构 `{groupPhrase, effects} = entry`，再用 `...(groupPhrase === undefined ? {} : {groupPhrase: ...})` 补回。联合下解构丢掉了 `category` 与 `groupPhrase` 的对应关系，返回值被推成“类别任意且 `groupPhrase` 可选”，对 `explore` 分支缺必填、对其余分支又违反 `groupPhrase?: never`。我用与现有写法同形的片段在 `/tmp/claude-1000/review-w00019-t13-design/exp/union.ts` 跑了包内的 `tsc`：`error TS2322 … Type '… groupPhrase?: ((count: number) => string) | undefined …' is not assignable to type 'Entry'`。而 `withComponents` 那种 `{...entry, 字段}` 展开是过得去的。所以 `guardTool` 必须重写（分类别分支，或把受保护的回调替换成单个 `{...entry, summary, effects, diff}` 再单独处理 explore），计划只写了“也包 diff”。
+- 现象 B：计划说 `diff` 抛错时“当作没有 diff（显示原始参数与结果）”，但签名是 `(call) => CodeLine[]`，包装层只能返回 `[]`，而 `AgentToolDetail` 对空数组显示的是“内容为空”，不是原始参数。需要签名 `CodeLine[] | null`，或在 `AgentToolDetail` 里用 `try/catch` 加 `RenderGuard` 的同类降级。
+- 附带：`conversation-turns.dom.test.ts:215` 的“插件登记的探查工具并入同一组”用例登记了没有 `groupPhrase` 的 `explore`，类型收紧后这条要补上短语；`makeToolGroup` 里 `groupPhrase?.(…) ?? toolGroup.generic` 的回退对有类型的宿主成了不可达分支，仍要为 JS 宿主与 `guardTool` 保留，写一句注释免得被当成死代码删掉。
+
+### 5. 重要 / 规范冲突：新拆出的内部组件“不写 `.md`”与组件规范“新建组件必须有同名文档”冲突
+- 位置：计划第 5 项（内部零件的文档）、第 8 项（`AgentChainBlock`、`AgentToolStepRow`、`AgentTextStepRow`、`AgentCodeBlock` 不写 `.md`）；`docs/standards/code/components.md` 的“组件文档”：“新建组件必须有一份同名 Markdown 文档与它并列……已登记的受管组件按机器门禁执行，其他既有组件在下次修改时补齐”。
+- 现象：规范对“新建”的要求不依赖是否受管；计划又把 `AGENTS.md` 里的“内部组件写模块头注释”当成依据，而 `AGENTS.md` 是包内入口，不能覆盖组件规范。反过来若给这四个写 `.md`，Lab 的索引会把它们当可挂载组件，`fixtures/index.dom.test.ts` 的“可挂载组件至少一个场景”会要求为它们登记场景，除非写 `验证入口`。计划两边都没处理。
+- 同时：收窄公开面后 `COMPONENT_BARRELS` 只剩 `AgentConversationView`，其余 19 份保留的 `.md` 不再受 `docs:check` 的“标签必须在封闭清单内”机检，第 5 项说“保留 `.md`”，价值就只靠人审维持。
+- 建议改法：把“内部组件不写 `.md`”作为一条要开发者认可的规范例外，写进 `components.md`（新建的内部组件、没有独立使用方的，可以只写模块头注释），或者给四个新组件写带 `验证入口: AgentConversationView` 的短 `.md`。别只在包内 `AGENTS.md` 里改。
+
+## 建议（按影响排序，前几条会返工或留坑）
+
+### 6. 建议 / 遗漏：给没有 `answer` 以外结果来源的 README 最小宿主定 1 秒定时器，会让每一轮每秒都重算一次 `buildTurn`
+- 位置：计划第 6 项 README“一个 1 秒的定时器更新 `now`”；`src/vue/stream/AgentConversationTurn.vue:36-41`。
+- 现象：`AgentConversationTurn` 的 `computed(() => buildTurn(..., {now: props.ctx.now}, ...))` 无条件读 `ctx.now`，所以每个轮次（含已结束的历史轮次）都依赖它。`now` 只在 `computeMetrics` 里对运行中轮次有用（`live ? now : last.timestamp`）。宿主按 README 的写法一直 1Hz 换 `now`，100 轮的对话每秒重算 100 次分轮、摘要与文件合并。
+- 建议改法：视图侧只给最新且运行中的轮次传 `now`（其余传 0 或固定值），或 README 写“只在 `run.status !== "idle"` 时打节拍”。后者零成本，至少要写。Spec“视图不自行计时”不受影响。
+
+### 7. 建议 / 验收映射：“服务可选”（`resolveAttachmentUrl`、`resolveTriggerMenu`）没有对应的验收或测试，且代码里直接调用的地方不止计划写的两处
+- 位置：计划第 6 项（服务可选）、验收映射。
+- 现象：计划写了 Spec 改动与缺省行为（附件显示“不可用”、没有菜单时不把 `/` 以外的触发字符交给编辑器），但验收映射与“起步套件单测”清单里没有这两条的用例，实施者可以全过测试而没做。要改的调用点：`AgentConversationView.vue:174`（`openPreview` 直接调 `services.resolveAttachmentUrl`）、`AgentConversationComposer.vue:71,227`、`AgentConversationTurn.vue:152`、`AgentTurnBlock.vue:306`、`AgentRawView.vue:132`；`AgentUserContent` 的属性 `resolveAttachmentUrl` 是必填函数。
+- 建议改法：在验收里补一条“不提供两个服务时：附件消息显示占位、点击不报错、输入 `@` 不打开空菜单”，用 `vue/AgentConversationView.dom.test.ts` 覆盖；实施说明里列全调用点。
+
+### 8. 建议 / 别扭之处：第 7 项的 `processDisclosure` 走注入，与第 1 项“inject 是隐藏通道所以走 props”的理由不一致
+- 位置：计划第 1 项与第 7 项（运行中逐步展开）、风险段“`processDisclosure` 走注入”；`src/vue/host.ts`。
+- 现象：第 1 项为宿主组件传 `locale` 用的理由是“组件规范把 inject 算隐藏通道”，第 7 项给内部组件传一个同类的视图级设置却用 `provideAgentView`。两者可以用“宿主写的组件走 props、包内组件可用注入”来区分，但计划没写这条规则。更实际的一点：`turnStatus` 本来就沿 View 到 Turn 再到 TurnBlock 以属性传下去，现在 Turn 里就能算出“这一轮运行中且 `live`”，作为一个 `openByDefault` 布尔再往 TurnBlock 与 `AgentChainBlock` 传一层，比扩 `AgentViewHost` 少一个隐藏通道。注入的另一个后果是 Lab 单挂的 `AgentTurnBlock` 场景（`parts.scenes.ts:121` 的 `liveProps`）没有提供方，演示不了 `live`，`provideLabAgentHost` 的参数也要加。
+- 建议改法：走 props（View 到 Turn 到 TurnBlock 到 ChainBlock，各加一个 `defaultOpen` 或 `live`），不碰 `host.ts`；`state:inject` 标签与各 `.md` 的“隐藏通道理由”都不用动。若仍走注入，计划里写明“包内可用注入、宿主写的组件必须走 props”这一条规则，并给 Lab 的 `provideLabAgentHost` 加参数。
+
+### 9. 建议 / 别扭之处：空消息流显示 `availability.message` 与 t11 的横幅重复；`header: false` 同时去掉了切到原始视图的唯一入口
+- 位置：计划第 7 项。
+- 现象 A：Spec 第 258 行规定 `availability` 非 `ready` 时输入框上方显示横幅和恢复动作，横幅是 t11 的事。现在在空消息流里先显示 `message`，t11 一上线同一句话就出现两次；且这里只显示 `message`，不显示 `actions`，在横幅出现之前 `load-error` 这类状态在这里是死路。Composer 目前对非 `ready`（含 `empty`）一律只读（`AgentConversationComposer.vue:56`），所以 `empty` 状态下的会话不能输入，这与“`ready`、`empty` 都显示‘还没有消息’”并存时，宿主该怎么理解 `empty` 没写。
+- 现象 B：原始视图只能经顶栏溢出菜单进入（`AgentConversationView.vue:60-70`，Spec 验收 9）。`header: false` 之后只剩受控属性 `viewMode` 一条路，nb-story 想让开发者看原始日志时没有入口。属性写进 Spec 时要说一句“关顶栏即关掉切换入口，宿主用 `viewMode` 控制”。
+- 建议改法：空消息流只处理 `loading` 与 `ready/empty`（显示“还没有消息”），其余状态留给 t11 的横幅一起做；或者在 Spec 里写明两处文案不叠加的规则。`header` 的 Spec 条目补 B 的一句话。
+
+### 10. 建议 / 遗漏：`transcript.run()` 恰好在 nb-story 最常见的场景里给出错的值，而 README 的最小宿主示范直接把它写回 ctx
+- 位置：计划第 6 项（运行状态）与 README 的最小宿主；`src/harness.ts` 头部注释。
+- 现象：nb-story 问答一轮要一到六分钟（t13 决定 7），中途刷新页面或 SSE 断线重连是真实操作。此时宿主先重放日志、之后只收新事件，`agent_start` 已经过去，`run()` 是 idle，而运行仍在进行：最新轮次按 `ending.status` 判成已完成并整轮收起，输入框允许发新问题。计划在模块头写了“只按事件推出”，但“未验证边界”和 README 示例没有把这点当成风险，示例让读者把 `run()` 当作可用的缺省值。
+- 建议改法：把 `run()` 的缺省说成“只对本页收到过 `agent_start` 的运行有效”，README 的最小宿主改成“运行状态以宿主自己的服务端状态为准，`run()` 只是没有服务端状态时的退路”；或干脆不加 `run()`，因为宿主必须自己覆盖 `stopping`、`waiting` 与断线后的情形，剩下的两行逻辑不值得进公开面。
+
+### 11. 建议 / 合同缺口：`resolveSubmission` 两个投递开关的组合边界没定
+- 位置：计划第 7 项（运行中能否投递）。
+- 现象：写了“回车在 `canSteer` 时发 steer，否则 `canQueue` 时 followup，否则不发；Ctrl/⌘+回车只在 `canQueue` 时发 followup”。未定：（1）`canSteer` 为真、`canQueue` 为假，用户按 Ctrl/⌘+回车：是什么都不做，还是退回 steer（现在是 followup）；（2）运行中输入 `/名称` 命令，两个开关都为假时命令是否照常执行（现在的判定顺序是先认命令再看投递，`/clear`、`/model` 这类命令运行中能不能发要有答案）；（3）`running` 包含 `waiting` 与 `stopping`（`AgentConversationComposer.vue:55`），`waiting` 时输入框是否也走“不能投递”。
+- 建议改法：把这三条写进验收 23 的判据与 `composer-actions.test.ts` 的用例表，各给一个明确结果。
+
+### 12. 建议 / 别扭之处：工具名冲突只比较“同一个字符串”，两个互相包含的前缀仍按登记先后取第一个；错误对象的 `id` 语义被借用
+- 位置：计划第 4 项（工具名重叠报冲突）；`src/registry.ts:293-297`（`resolveTool`）。
+- 现象：精确名与前缀互相覆盖是 `resolveTool` 现有、有测试的约定（`registry.dom.test.ts` 的 `list_special` 对 `list_`），计划没有改它，这是对的。但前缀与前缀之间，`list_` 与 `list_x_` 同时登记时 `tools.find(...)` 取登记先后里第一个，结果仍取决于加载顺序，这正是计划要消除的问题。另外 `AgentViewRegistryConflictError(point, id, sources)` 的消息是“id「toolName:read」重复登记”，把名字塞进 `id` 字段，诊断读起来别扭。第三，“替换内置渲染器先从内置登记里过滤掉”要求宿主在 `builtinContributions` 这个四合一数组里按 `source === "builtin:tools"` 找到那一份再过滤，计划没给一个现成写法。
+- 建议改法：前缀改“取最长匹配”（与精确优先一致，且与顺序无关），冲突只判相同字符串；错误加一个单独的字段（例如 `key`）与消息；README 里给一行过滤内置工具的示例，或导出 `builtinToolRenderers` 供 `/vue` 使用。
+
+### 13. 建议 / 默认值：`createAgentContext` 的 `interaction` 全为 false 会得到只读输入框，且共享缺省数组的别名没说
+- 位置：计划第 6 项（最小 ctx）。
+- 现象：`AgentConversationComposer.vue:56` 的 `readonly = availability !== "ready" || !interaction.canSend`，所以 `createAgentContext()` 的结果直接挂上视图得到一个不能输入、不能停止、编辑重试分支全不显示的视图，README 的“约 30 行最小宿主”必须记得写 `interaction: {canSend: true, ...}`，计划没有把它列进示例。再者，缺省里的数组与对象（`composer.recall`、`queued`、`branches` 等）若是模块级常量，宿主 `push` 会污染下一次调用；要在计划里写明每次返回新对象。`composer`、`history` 等区域的合并是逐字段，但 `draft` 是整体替换（`Partial<ComposerView>` 的 `draft` 仍要求带 `version`），写进注释。
+- 建议改法：最小宿主示例里给出 `interaction` 的写法，缺省改为“能发送、其余按宿主声明”也可，由开发者选；`createAgentContext` 每次构造新值，并给一条“两次调用互不影响”的单测。
+
+### 14. 建议 / 小问题
+- **用户的展开选择在整轮折叠后丢失**（第 7 项）：`live` 下用户点开的思维链或工具组，状态存在 `AgentChainBlock` 与 `useOpenSet` 的组件实例里；运行结束整轮收起，过程被 `v-if` 卸载，之后再展开整轮，状态回到默认值，与“用户点过的以用户为准”不符。若要保留，状态提到 `AgentConversationTurn`，否则在 Spec 里写明“整轮收起后展开状态重置”。
+- **验证步骤的 `rg` 命令会命中无关处**（验证段）：`rg '@notnotype/nb-agent-ui' packages --glob '!packages/nb-agent-ui/**'` 目前就会命中 `tailwind.css`、`prompt-ports.typecheck.ts`、`component-index.ts`、测试支持包的注释。要核对“只有 Lab 用 `./lab`”，pattern 写成 `nb-agent-ui/lab["']`。
+- **`@action` 与多出的属性落到根元素**（第 1 项）：内置三个组件按计划改成 `defineProps<ToolComponentProps>()`，但它们没有 `defineEmits<{action}>`，`@action` 会作为原生事件监听落在根元素（根是 nb-ui 组件时落到它的 attrs）；无害，但应在内置组件里声明 `action` 事件，免得下一个看代码的人怀疑漏发。
+- **`composer.submit` 从任意来源都会触发回到最新**（第 2 项）：统一 `onAction` 后，宿主登记的结果节点组件发出的 `composer.submit`（例如“追问”按钮）也会 `scrollToLatest()`；这合理，但 Spec“历史与滚动”里要写成“任何来源的 `composer.submit`、`command.run`”，现在写的是“从输入框发出”。
+- **`outcomeMessage` 的优先级**（第 3 项）：计划写“最终回复，或发出结果调用的那条 assistant 消息”，没定两者并存时用哪个（成功的结果节点之后又有最终回复文字）；用“最后一个结果块所属的消息”一句话定下来，并让 `conversation-turns.test.ts` 有一例。
+
+## 核实后未发现问题的方面
+- 第 5 项对 Lab 组件索引与覆盖门禁的判断成立：`component-index.ts` 经 `lab-sources` 用 `import.meta.glob('./**/*.md')` 与 `./**/*.vue` 建索引，与 `src/vue/index.ts` 导出了什么无关；`fixtures/index.dom.test.ts` 的“可挂载组件至少一个场景”按索引而不是按导出判断，保留的 `.md` 仍受它约束；`check-documentation.ts` 的 `COMPONENT_BARRELS` 只读 `index.ts` 的 `export {default as X} from "./….vue"` 行，收窄后只剩 `AgentConversationView`，不用改脚本。
+- `./lab` 入口的类型写法可行：`NbAgentUiLabPart<K>` 取动态导入的 `default`，与现在的 `typeof X` 是同一个组件类型，`defineSubjectFixture<C>`、`defineLabFixture<C>` 的约束只看 `C` 的 props 与事件。`lab-layout-baseline.ts` 现在是空表，新场景必须自己干净，计划没有遗漏它。
+- 第 3 项对 nb-harness 的收尾工具假设成立：收尾工具必须单独调用（`harness.ts:223-228`，同一批里还有别的调用时被 `beforeToolCall` 以工具错误挡回），所以“成功的结果调用之后同一条消息里还有别的工具调用”在 harness 宿主上不会出现；被退回的是 `status: "error"` 的节点，倒扫规则能把它们留在过程里（已用实验验证两次被退回、一次成功的顺序得到 `outcomeStart = 2`）。结果调用成功后 harness 随即中止运行，现有契约测试 `harness.contract.test.ts:119` 里最后一条消息就是那条调用，没有尾随的空助手消息，所以轮次状态是 done，不会误判“已停止”。
+- 第 2 项把 `image.preview` 并进内部 action 联合：类型上 `PluginAgentViewAction` 的 `type` 是 `${string}:${string}`，`"image.preview"` 不含冒号，与它不重叠；`image.preview` 不进公开的 `AgentViewAction` 成立。e2e 里 `actions(page)` 取 `type` 的断言计划已经点到要改。
+- 切片顺序：1 到 7 每一片在设想的依赖上自洽。2 先让宿主组件拿到 `services`、`locale`，3 再加结果标记；4 的 `useOpenSet` 先于 5 的 `live`；`createAgentContext` 在 6，Lab 的 `data.ts` 在 5 与 6 各改一次，没有后一片要推翻前一片的地方。第 1 片删 `AgentFileDiffDetail`、改类别联合与搬测试同在一片，需要同片更新 `domain-tools.ts` 与几处 `explore` 登记（见第 4 条），不额外拆。
+
+## 数量
+阻断 0；重要 5（第 1 到 5 条）；建议 9（第 6 到 14 条，其中第 14 条含 5 个小点）；合计 14 条。
+最需要先处理的三条：第 1 条（节点结果后跟分隔线时答案被折叠，已实验复现）、第 3 条（`applyComposerAction` 的返回约定让附件上传卡死）、第 4 条（类别联合下 `guardTool` 过不了类型检查，`diff` 抛错的降级也表达不出来）；第 2 条（结构化答案的“复制”）与第 5 条（内部组件不写 `.md` 的规范冲突）紧随其后。

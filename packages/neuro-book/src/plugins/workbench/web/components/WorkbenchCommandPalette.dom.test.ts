@@ -1,6 +1,6 @@
 /**
- * 命令面板（workbench.quick-open 场景 1–6）：真实的 nb-ui QuickInput、真实的命令表与面板宿主。
- * QuickInput 的关闭交接跨一个宏任务，测试等可观察的结果（焦点归还、执行记录），不推进假时钟。
+ * 命令面板（workbench.quick-open 场景 1–6）：真实的 nb-ui QuickPick、真实的命令表与面板宿主。
+ * QuickPick 的关闭交接跨一个宏任务，测试等可观察的结果（焦点归还、执行记录），不推进假时钟。
  */
 
 import {mount} from "@vue/test-utils";
@@ -39,7 +39,8 @@ function harness() {
     const executed: CommandExecutionEvent[] = [];
     registry.onDidExecute((event) => executed.push(event));
     const locale = ref<DisplayLocale>("zh-CN");
-    const host = createPaletteHost({commands: registry, locale});
+    const failures: string[] = [];
+    const host = createPaletteHost({commands: registry, locale, onFailure: (id, failure) => failures.push(`${id}:${failure.code}`)});
     const opener = document.createElement("button");
     opener.textContent = "打开前的焦点";
     document.body.append(opener);
@@ -52,7 +53,7 @@ function harness() {
         const result = registry.register({id, source: "nbook.test", declaration: {title: {"zh-CN": id, "en-US": id}, description: id, args: NO_ARGS, effect: "read", ...declaration}, run});
         if (!result.ok) throw new Error(result.reason);
     };
-    return {host, context, executed, opener, register, locale};
+    return {host, context, executed, failures, opener, register, locale};
 }
 
 async function open(host: PaletteHost, mode: "commands" | "line" = "commands"): Promise<void> {
@@ -86,10 +87,14 @@ async function press(key: string, init: KeyboardEventInit = {}): Promise<void> {
 }
 
 describe("WorkbenchCommandPalette", () => {
-    it("候选只含人类可见且当前可用的命令，可用性随上下文变化重算", async () => {
+    it("候选只含人类可见、当前可用、不要参数的命令，可用性随上下文变化重算", async () => {
         const app = harness();
         app.register("nbook.edit.undo", {effect: "write", when: {requires: ["editor-active"]}});
         app.register("nbook.quick-open.open-commands", {expose: {human: false}});
+        // 有必填参数：面板不收集参数，执行必然失败，不列。
+        app.register("nbook.app.needs-words", {args: Type.Object({words: Type.Integer()}, {additionalProperties: false})});
+        // 没有 required，但同样收不下空对象。
+        app.register("nbook.app.needs-some", {args: Type.Object({words: Type.Optional(Type.Integer())}, {additionalProperties: false, minProperties: 1})});
 
         await open(app.host);
         expect(options()).toEqual([]);
@@ -208,13 +213,14 @@ describe("WorkbenchCommandPalette", () => {
         expect(app.host.recent.value).toEqual(["nbook.quick-open.open-line"]);
     });
 
-    it("执行失败的选中项不记入 MRU", async () => {
+    it("执行失败的选中项不记入 MRU，失败交给宿主", async () => {
         const app = harness();
         app.register("nbook.edit.undo", {}, () => ({ok: false, code: "unavailable", reason: "不行"}));
         await open(app.host);
         await press("Enter");
         await vi.waitFor(() => expect(app.executed).toHaveLength(1));
         expect(app.host.recent.value).toEqual([]);
+        await vi.waitFor(() => expect(app.failures).toEqual(["nbook.edit.undo:unavailable"]));
     });
     it("选择模式：同一浮层列出请求的候选，标签与说明都参与匹配；Enter 关面板、焦点归还后才给出选中项", async () => {
         const app = harness();

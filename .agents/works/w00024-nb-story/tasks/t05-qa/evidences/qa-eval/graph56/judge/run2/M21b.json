@@ -1,0 +1,73 @@
+{
+ "id": "M21b",
+ "grade": {
+  "points": [
+   {
+    "status": "对",
+    "stance": "确定",
+    "note": "结论1200正确；由购买前5200扣除4000可推得。"
+   },
+   {
+    "status": "部分",
+    "stance": "确定",
+    "note": "说明了5200扣除4000，但没有交代5200由十种找茬任务的2000及这几天的每日奖励构成。"
+   },
+   {
+    "status": "漏",
+    "stance": "无",
+    "note": "没有说明当天找茬任务奖励尚未计入，也没有指出正派扩张计划未完成。"
+   }
+  ],
+  "core": "对",
+  "errors": [
+   {
+    "text": "第63章结束前没有写到之后还有其他神典石收支。",
+    "type": "无法核实",
+    "forbidden": null,
+    "note": "提供的摘录未覆盖购买之后至章末的全部内容，无法核实这一断言。"
+   }
+  ],
+  "extras": [],
+  "honesty": "恰当",
+  "goldIssue": "",
+  "note": "核心余额推算正确，且将结论标为推断恰当；对5200的来源和两项未计入的奖励说明不完整。"
+ },
+ "goldRefs": [
+  "55.83",
+  "56.26",
+  "56.27",
+  "56.28",
+  "56.29",
+  "63.43",
+  "63.44",
+  "63.45",
+  "63.50",
+  "63.51",
+  "63.52",
+  "63.53",
+  "63.54",
+  "63.65",
+  "63.66"
+ ],
+ "answerRefs": [
+  "63.55"
+ ],
+ "call": {
+  "status": 200,
+  "ms": 33151,
+  "usage": {
+   "prompt_tokens": 7220,
+   "completion_tokens": 1790,
+   "total_tokens": 9010,
+   "prompt_tokens_details": {
+    "cached_tokens": 5120
+   },
+   "completion_tokens_details": {
+    "reasoning_tokens": 1552
+   }
+  },
+  "error": null,
+  "parseError": null,
+  "resends": 0
+ }
+}

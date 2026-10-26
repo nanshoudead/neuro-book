@@ -1,0 +1,210 @@
+# 可维护性与耦合审查：nb-agent-ui（w00019 t10）
+
+范围：`packages/nb-agent-ui` 核心 `src/`、渲染层 `src/vue/`，以及 Lab 夹具 `packages/neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui/`。只读；没有改仓库文件。
+
+## 先给规模
+
+`src/` 共 9744 行（含测试与文档）。最大的非测试文件：`conversation-turns.ts` 582、`AgentTurnBlock.vue` 543（脚本 117 / 模板 201 / 样式 225）、`AgentConversationComposer.vue` 539（脚本 256 / 模板 122 / 样式 161）、`AgentConversationTurn.vue` 496（脚本 174 / 模板 127 / 样式 195）、`AgentConversationView.vue` 496（脚本 201 / 模板 105 / 样式 190）、`types.ts` 423、`harness.ts` 387、`messages.ts` 322（有一版正在改，不看）。
+
+逐个判断：
+- `conversation-turns.ts`（582）：类型 30 到 145 行、分组与 key 146 到 245、块与思维链 247 到 470、状态与用量 471 到 575。职责是“消息到轮次”一件事，内部分段清楚，每段有注释，不必拆。真正的问题是它的行为要靠 `vue/builtin-tools.ts` 才能测，见第 1 条。
+- `AgentTurnBlock.vue`：一个文件里有 7 种块和一整条思维链展开树，模板里同类行重复多份，见第 3 条。
+- `AgentConversationTurn.vue`：脚本里混了用量格式化，见第 6 条。
+- `AgentConversationComposer.vue`：脚本 256 行，职责是“草稿、发送门禁、附件、编辑器句柄”，t11 还要往里放就地编辑与提问向导，见第 12 条。
+- `AgentConversationView.vue`：顶栏、历史分页、预览请求状态机、滚动，4 件事，各自不长；预览请求的 40 行状态机（`openPreview` 等）是最该独立的一块，但 t11 的弹窗与面板会和它并列，现在不动，留给第 4 条一并处理。
+
+---
+### 1. 内置工具登记放在渲染层，核心的分轮行为因此离不开 Vue，42 条纯逻辑测试被迫放进 Vitest
+- 严重程度：重要
+- 类别：核心与渲染层的分界、测试可维护性
+- 位置：`src/vue/builtin-tools.ts:1-133`；`src/vue/conversation-turns.dom.test.ts:1-8`（29 条）；`src/vue/registry.dom.test.ts:3`（6 条中 3 条）；`src/index.ts:3-10`；`AGENTS.md` “边界”一节
+- 现象：`buildTurns` 的行为（探查工具合并成工具组、改动文件统计、读写文件数）完全由登记项的 `category`、`groupPhrase`、`effects` 决定，而这些登记项在 `vue/builtin-tools.ts`。这个文件里真正需要 Vue 的只有 `detail`、`node` 两个字段（`AgentCommandDetail`、`AgentFileContentDetail`、`AgentFileDiffDetail`、`AgentTaskListNode` 四个 import），其余 100 多行是纯数据与纯函数。结果：测分轮必须 `import {builtinToolsContribution} from "./builtin-tools"`，Bun 加载不了 `.vue`，29 条分轮测试和 3 条注册表测试只能写成 `vue/*.dom.test.ts` 交给 Vitest。文件名带 `.dom` 却一个 DOM 都不碰，是被依赖拖过去的。
+- 为什么是问题：包的卖点是“核心纯 TS，服务端、nb-story、以后的终端都能用分轮与适配器”（`src/index.ts` 模块头、`AGENTS.md`）。但没有内置登记，`buildTurns` 对 `read`、`edit` 一类工具只会得到通用渲染器，分轮结果与界面上看到的不同；而内置登记在渲染层，非 Vue 宿主要么拿不到，要么得引入整个 `./vue`。这条承诺现在只有 `entry.test.ts` 用空登记表验证，验证的是最弱的情形。对维护者：改分轮规则时要在两个测试运行器之间切换，核心测试与渲染测试的界线对不上目录。
+- 建议改法：拆成两层，不新增概念。核心新增 `src/builtin-tools.ts`，导出不带组件的内置工具登记（`id`、`toolNames`、`category`、`icon`、`label`、`summary`、`groupPhrase`、`effects`、`presentation`），入口导出 `builtinToolsContribution`。渲染层 `vue/builtin-tools.ts` 缩成一张映射：
+  ```ts
+  const DETAIL = {read: AgentFileContentDetail, write: AgentFileDiffDetail, edit: AgentFileDiffDetail,
+                  apply_patch: AgentFileDiffDetail, bash: AgentCommandDetail, execute_sql: AgentCommandDetail};
+  const NODE = {task: AgentTaskListNode};
+  export const builtinToolsContribution = withComponents(coreBuiltinTools, {detail: DETAIL, node: NODE});
+  ```
+  然后 `conversation-turns.dom.test.ts` 改名挪到 `src/conversation-turns.test.ts` 用 Bun 跑，`registry.dom.test.ts` 同理。`.dom.test.ts` 里只剩真要挂载的用例。这样 `vue/` 目录下的测试都真的需要 DOM，边界一眼可见。
+
+### 2. 同一种工具的知识散在四个文件里，`fileDiffLines` 还按工具名绕过了注册表
+- 严重程度：重要
+- 类别：重复、耦合
+- 位置：`src/vue/builtin-tools.ts:21-60,86-100`（summary 与 effects）；`src/tool-detail-lines.ts:30-56`（`call.name === "write"`、`"apply_patch"` 分支）；`src/tool-args.ts:61-101`（补丁与 hashline 解析）；`src/vue/tools/AgentFileDiffDetail.vue:13-16`（标题再算一遍）
+- 现象：工具名（`write`、`edit`、`apply_patch`）与参数格式（nb-harness 的 `input` 补丁或 hashline、旧的 `{path, edits}`、Codex 的 `patch`）被四处各自判断。`AgentFileDiffDetail` 是三个工具共用的详情组件，它自己的 `label` 计算（`apply_patch` 取补丁里的路径，其余取 `path` 或 `editInputChanges`）与 `builtin-tools.ts` 里 `edit`、`apply_patch` 两项的 `summary` 一字不差；`tool-detail-lines.fileDiffLines` 再按 `call.name` 分派一次，同一件事第三次判断。`{path, edits}` 的旧写法在 `editEffects` 与 `fileDiffLines` 各处理一份。
+- 为什么是问题：注册表的初衷是“新增一种工具只需登记一项”（`registry.ts` 模块头、`AgentConversationView.md` 开头）。现在新增一种改文件的工具（nb-story 或以后的 Agent 插件一定会有）要同时改四处，漏一处表现为摘要对、diff 空白、标题缺失这类不报错的错位。`tool-args.ts` 也名不副实：前 40 行是通用的参数读取，后 60 行是特定工具格式的解析，放在“小工具”文件里没人会想到去那里找。
+- 建议改法：让登记项自己交出展示数据，组件不再认工具名。`ToolRendererEntry` 已经有 `effects(call)`（对文件的影响），再加一个可选 `diff?: (call) => CodeLine[]`，内置的 write、edit、apply_patch 各给自己的实现；`AgentFileDiffDetail` 改为 `entry.diff(call)`，标题用 `entry.summary(call)`，`tool-detail-lines.ts` 里的工具名分支随之搬进对应登记项。补丁与 hashline 解析从 `tool-args.ts` 挪到新的核心 `builtin-tools.ts` 旁边（与第 1 条同一次改动），`tool-args.ts` 只留 `argString`、`argArray`、`argNumber`、`countLines`。
+
+### 3. `AgentTurnBlock.vue` 一个文件装了 7 种块，思维链模板里同类行重复多份
+- 严重程度：重要
+- 类别：模块大小与职责、重复
+- 位置：`src/vue/stream/AgentTurnBlock.vue:117-319`（模板）
+- 现象：模板是一条 `v-if` 链：`chain`（约 120 行）、`content`、`node`、`notice`、`divider`、`steer`、`error`。其中最大的 `chain` 分支里：
+  - 工具行 `CollapsibleRow` 写了 3 份（工具组内的项、出错单独露出的项、顶层工具），属性几乎相同，只差 `stat`、`class`；
+  - 思考行写了 2 份（工具组内、顶层），外加系统提示词行第 3 份（结构相同，只是 label 与展开条件不同）；
+  - `:running-label="t('turn.running')"` 在 9 处重复（`grep -c running-label` = 9）；
+  - `<AgentMarkdown … :services="props.services" @action="emit('action', $event)" @preview-image="emit('preview-image', $event)">` 在同一文件里出现 8 次；
+  - `openItems[x]` / `setOpen(x, …)` 配对出现 20 多次。
+  样式 225 行里，只属于思维链的约 90 行与只属于其他块的约 130 行混在同一个 scoped 块里。
+- 为什么是问题：t11 要在这里补提问留痕、模式切换、Workflow 等“专用渲染器”（`AgentConversationView.md` 已知偏差），都会往这条 `v-if` 链里加分支。现在改一处“工具行长什么样”要改 3 处，漏一处时只有展开某种组合才看得到。`AgentRawView.vue` 里又有第 4、5 份类似的行（`:112-155`）。
+- 建议改法：
+  1. 拆出 `stream/AgentChainBlock.vue`（只管 `chain` 分支：摘要行加展开后的步骤列表），`AgentTurnBlock` 只做块种类分派，缩到约 250 行；
+  2. 在 `stream/` 里加一个内部小组件 `AgentStepRow`（包住 `CollapsibleRow`，内置 `running-label`，接收一个步骤对象：`{kind: "tool" | "thinking" | "prompt", …}`），三种行各一份模板变一份；
+  3. `openItems` 提成 `useOpenSet()` 小函数（返回 `isOpen(id)`、`set(id, open)`），`AgentRawView` 也用；
+  4. Markdown 的转发见第 4 条。
+  按 `src/vue/README.md` 的规则，`AgentChainBlock`、`AgentStepRow` 属于 `stream/`，依赖方向不变。
+
+### 4. 同一对事件在 View、Turn、TurnBlock 三层里逐层手工转发，还把整袋 `services` 传给只需要一个函数的 Markdown
+- 严重程度：重要
+- 类别：耦合、概念数
+- 位置：`AgentConversationView.vue:252-269`；`AgentConversationTurn.vue`（`emit('preview-image', $event)` 4 处、`emit('action', $event)` 4 处）；`AgentTurnBlock.vue`（各 8 处）；`AgentRawView.vue`、`AgentConversationComposer.vue`；`parts/AgentMarkdown.vue:6-15`
+- 现象：从 `AgentConversationView` 到 `AgentConversationTurn` 到 `AgentTurnBlock` 到 `AgentMarkdown`/`AgentUserContent`，每层都要写 `@action="emit('action', $event)" @preview-image="emit('preview-image', $event)"`。`grep -F "emit('preview-image', \$event)"` 在渲染层命中 13 处，`emit('action', \$event)` 16 处。`preview-image` 这条事件只有顶层 `AgentConversationView` 一个消费者（`openPreview`），中间层纯转发。`AgentMarkdown` 的属性是整个 `services: AgentConversationServices`，实际只读了 `services.resolveMarkdownAsset`。`ctx`、`services`、`registry` 这“三件套”在 5 个组件（View、Turn、TurnBlock、RawView、Composer）的签名里全套出现，`AgentToolDetail` 带 ctx 与 registry，`AgentTaskListNode` 带 ctx，`AgentMarkdown` 带 services；`ToolDetailProps` 里的 ctx 只有任务清单要用，3 个详情组件的文档写着“ctx 必填；本组件不使用”。
+- 为什么是问题：t11 要加的状态栏、待处理区、提问向导、面板都会再造新的层，每多一层这对转发就多一份；漏转发时表现为“点了没反应”，不报错。`preview-image` 的类型在各文档里还写得不一样（第 9 条）。`AgentMarkdown` 的签名让读者以为它会用 `services` 的别的东西，单独挂载时被迫构造整个 `services`。
+- 建议改法（选概念更少的一条）：把“预览图片”收进 `action` 体系的内部成员，`AgentConversationView` 在 `@action` 里拦截它，不再转给宿主：`AgentViewAction` 增加内部类型 `{type: "image.preview"; request: PreviewImageRequest}`（或在渲染层定义一个只在视图内流通的扩展），于是 `preview-image` 事件、`PreviewImageRequest` 在各组件 emits 里的声明、各文档里的那一行全部消失，剩下 `action` 一条通道。再让 `AgentMarkdown` 只收 `resolveAsset?: MarkdownAssetResolver`，不收 `services`。若不想让内部动作混进公开类型，退一步用 `provide/inject` 注入一个 `previewImage(request)` 函数（与 `provideAgentView` 同层），也能去掉一整条转发。
+
+---
+### 5. 一批小函数与模板片段各写了 2 到 4 份
+- 严重程度：建议
+- 类别：重复
+- 位置与份数（均已逐处核对）：
+  - 工具调用状态到“运行中、出错、完成”的映射：`AgentTurnBlock.vue:79-86` 的 `stepStatus`、`AgentRawView.vue:82-90` 的 `stepStatus`（两份一字不差）、`tools/AgentTaskListNode.vue:21-29` 的 `fallbackStatus`（第三份，只是把 `done` 写成 `success`）、核心 `conversation-turns.ts:389-395` 的 `isActive`、`isFailed`（第四、五份，同一张状态表的另一种切法）。`ToolCallStatus` 加一个取值（例如“等待批准”）要改 4 个文件，TypeScript 只能在有 `switch` 无 `default` 的 3 处提醒。
+  - `formatTime`：`AgentConversationTurn.vue:89` 与 `AgentRawView.vue:44`，同一个 `Intl.DateTimeFormat` 配置。
+  - `firstLine`：`AgentTurnBlock.vue:113`、`AgentRawView.vue:79`、`composer/AgentQueuedMessages.vue:15`。
+  - 货币符号 `ctx.usage.currency === "CNY" ? "¥" : "$"`：`AgentConversationTurn.vue:115`、`AgentRawView.vue:93`。
+  - 点击提示词标签后的处理（`promptTokenOutcome` 加“图片 #n”标签函数加 emit 两分支）：`AgentConversationComposer.vue:226-234` 与 `AgentUserContent.vue:44-52` 完全相同。
+  - 给 nb-ui `CodeBlock` 传 `:empty-text="t('toolDetail.empty')" :truncated-text="t('toolDetail.truncated')"`：9 处（`AgentToolDetail` 4、`AgentCommandDetail` 2、`AgentFileContentDetail`、`AgentFileDiffDetail`、`AgentRawView` 各 1）。
+  - 给 nb-ui `CollapsibleRow`、`CollapsibleCard` 传 `:running-label="t('turn.running')"`：13 处（`AgentTurnBlock` 9、`AgentRawView` 2、`AgentTaskList`、`AgentTaskListNode` 各 1）。
+  - 文件改动类型：`stream/AgentFileChanges.vue:5` 自己定义 `FileChange = {path; added; removed}`，与注册表的 `FileChangeView` 相同。
+- 为什么是问题：每一份单独看都小，合起来是“改一个口径要找 3 到 13 个地方”。nb-ui 的行、卡片、代码块为了不带语言把文字做成必传属性，这笔账全落在本包的每个调用点上。
+- 建议改法：状态映射放核心一个 `toolCallPhase(call): "running" | "error" | "done"`，`isActive`、`isFailed` 与三个组件都用它；`formatTime`、`firstLine`、货币符号放核心的小格式化模块（与第 6 条的用量格式化同处，可在 Bun 测）；标签点击处理做成 `usePromptTokenActivation(emit)` 一个小组合函数，放在 `vue/` 根目录；渲染层内部加两个很薄的封装：`AgentCodeBlock`（绑定两条文字）与第 3 条的 `AgentStepRow`（绑定 `running-label`），任何一处直接用 nb-ui 的 `CodeBlock` 属于例外。`AgentFileChanges` 的类型直接引用 `FileChangeView`。
+
+### 6. 用量与时长的格式化写在 `AgentConversationTurn.vue` 里，核心里已有的摘要测试覆盖不到
+- 严重程度：建议
+- 类别：核心与渲染层的分界、测试可维护性
+- 位置：`src/vue/stream/AgentConversationTurn.vue:101-150`（`formatDuration`、`formatTokens`、`formatCost`、`usageParts`、`usageTitle`）；对照 `src/process-summary.ts` 与 `src/process-summary.test.ts`
+- 现象：整轮过程的文案（“过程 · 14 次操作…”）由核心的 `describeTurn` 生成并有 8 条测试；同一块界面右边的用量行（用时、tokens、输入输出、缓存读取、费用）却由组件脚本里 50 行自己拼，规则有“≥1000 显示 k”“费用小于 0.01 取 4 位”“缓存读取为 0 省略”“开头不完整的轮次不显示用时”，没有任何单元测试，只能靠 e2e 与 Lab 肉眼看。
+- 为什么是问题：这些是会被改的规则（t11 的状态栏也要显示用量，会再抄一份）；`ctx.usage.currency` 的换算口径与 `RawView` 里那份不一致（`RawView` 显示原始数字，Turn 显示 k，符号规则相同），已经是第 5 条那种分叉的开头。
+- 建议改法：在 `process-summary.ts` 旁加 `describeUsage(metrics, currency, {showDuration})` 返回 `Array<{icon: string; text: ViewText}>`，组件只负责画；补 4 到 5 条 Bun 测试（千位、费用位数、缺项省略）。
+
+### 7. `AgentChainSummary` 的展开事件叫 `toggle`，与同包其余折叠零件的 `update:expanded` 不一致
+- 严重程度：建议
+- 类别：API 一致性、概念数
+- 位置：`src/vue/stream/AgentChainSummary.vue:15-17`；`AgentChainSummary.md` “数据”；`AgentTurnBlock.vue:122`（`@toggle="setOpen(…, $event)"`）；Lab 夹具 `index.ts` 里 `events: ["toggle"], writeBack: {toggle: {layer: "props", key: "expanded"}}`
+- 现象：已定的折叠约定是 `expanded` 加 `update:expanded`（nb-ui 的 `Collapsible`、`CollapsibleRow`、`CollapsibleCard`，本轮刚统一过）。`AgentChainSummary` 仍是 `expanded` 属性加 `toggle(expanded)` 事件，同一个 `TurnBlock` 里的两种折叠零件要用两种写法绑定（`@toggle` 与 `@update:expanded`）。`.md` 的开头还特意写了“受控展开状态”，说明它本就是 v-model 形状。
+- 为什么是问题：读者要多记一条例外；t11 加顶栏下拉、待处理区的折叠项时容易照着最近的零件抄成 `toggle`，Lab 的 `writeBack` 也要为它单独写一份映射。
+- 建议改法：事件改名 `update:expanded`，同时改 `.md`、`AgentTurnBlock`、`AgentConversationTurn` 里的两处绑定与 Lab 夹具的 `events`/`writeBack`（`writeBack` 可省，同一个约定 Lab 已有通用处理时直接删）。
+
+### 8. `state:inject` 出现在 20 个组件上，而它们要的只是“当前语言”；缺提供方时静默退回中文
+- 严重程度：建议
+- 类别：耦合、可用性
+- 位置：`src/vue/host.ts:30-86`；23 个组件的同名 `.md` 标签；`src/vue/AgentConversationView.md` “隐藏通道理由”
+- 现象：逐个核对标签与实现，23 个组件里 20 个带 `state:inject`（唯独三个 `fallback/` 组件是空标签或 `state:local`）。其中 `AgentMarkdown`、`AgentUserContent`、`AgentConversationComposer` 三个还取渲染组件，其余 17 个只为取一个 `t()`。取不到提供方时 `FALLBACK_HOST` 默认给 `zh-CN`、不给任何提示。Lab 为了单独挂零件，要 `host.ts` 里 `provideLabMarkdown`、`provideLabAgentHost`、`withAgentHost`、`agentSubject` 四个辅助函数，Lab 的每个零件场景都经这一层。
+- 为什么是问题：耦合度按隐藏通道数量计，这些是同一个 key 的 20 个读取点，实际风险集中在一件事：零件被挂在没有 `provideAgentView` 的地方时，英文界面悄悄变成中文（宿主单独挂 `AgentTurnBlock`，或 nb-story 只挂输入框，都会遇到）。`.md` 只写了“语言与渲染组件经 `provideAgentView` 交给子组件（`state:inject`）”，没有写“漏了会怎样”。
+- 建议改法：先不改架构（用环境注入承载界面语言是通行做法，`nb-form` 的 scope 也是这样）；做两处小改：开发模式下 `useAgentText` 在没有提供方时 `console.warn` 一次（写明组件名与“请先 `provideAgentView`”），生产不影响；各 各 `.md` 的 `state:inject` 一行统一补一句“未提供时按中文显示”。如果以后想进一步降耦合，对 `AgentDeliveryNotice`、`AgentChainSummary`、`AgentMessageActions` 这类只有两三个固定文案的叶子，可以改成属性传入文案。
+
+### 9. `OriginalImagePreviewDialog` 是通用零件却放在本包，标签与实现对不上，文档还留着旧应用的描述
+- 严重程度：建议
+- 类别：模块职责、文档
+- 位置：`src/vue/parts/OriginalImagePreviewDialog.vue:1-124`、`.md:1-72`
+- 现象：
+  1. 文档第一句自称“共享原图预览对话框”，对本包的依赖只有 `useAgentText` 取 5 个文案（关闭、下载、加载失败、重试、加载中）。已定的方针是“通用零件进 nb-ui”，nb-story 的网页问答页也会用到图片预览。
+  2. 标签 `[state:local, state:inject, env:portal, env:global, io:read]`：实现里没有任何全局监听（只有对 `host` 元素的 `ResizeObserver`，且在卸载与关闭时断开），`env:global` 与实现不符；`io:read` 指图片地址由浏览器加载，地址是属性，没有请求入口可替换这个问题。按 `docs/standards/code/components.md`，任何 `io:` 与 `env:portal` 都要在正文写理由，文档里没有“隐藏通道理由”一节。“整份声明不予采信”的条款会让这份标签整体失效。
+  3. `.md:72` 仍写“`验证入口` 指向 AgentSidebarView 的附件预览集成链……宿主 fixture 仍需增加明确的预览场景”，这是旧应用的现状，对本包不成立（`AgentConversationView` 夹具的预览场景已经有）；组件脚本注释 `:12` 写“默认落在 IDE 主题宿主上”，本包里没有 IDE 的概念。
+  4. `measure()` 用 `stage.closest("[role='dialog']")` 再取 `parentElement` 去量浮层宿主，依赖 nb-ui `Dialog` 的内部 DOM 结构，nb-ui 改了 Dialog 面板的角色或层级，这里无声失效（图片不缩放，超出画布）。
+- 建议改法：迁到 nb-ui，改名 `ImagePreviewDialog`，文案走属性（与 `CodeBlock`、`CollapsibleRow` 的做法一致），本包的 `AgentConversationView` 传入 `t(...)`；`measure()` 那一段由 nb-ui 的 `Dialog` 暴露一个“宿主尺寸”的明面通道，或把它放进 `Dialog` 的 `width="auto"` 能力。迁移前至少先改标签（去掉 `env:global`），补“隐藏通道理由”，删掉 `.md:72` 与 `.vue:12` 的旧应用描述。
+
+### 10. 渲染层入口导出了 23 个组件，没有“内部组件”这一层；t11 还要加十来个
+- 严重程度：建议
+- 类别：公开面、文档与 Lab 负担
+- 位置：`src/vue/index.ts:7-28`；`packages/neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui/host.ts:50-52`（`agentSubject(name: keyof typeof nbAgentUi)`）；`src/vue/lab-sources.ts`；`AGENTS.md` “入口导出的组件是受管组件，同名 `.md` 必有；内部组件写模块头注释”
+- 现象：`AgentChainSummary`、`AgentDeliveryNotice`、`AgentFileChanges`、`AgentMessageActions`、`AgentTaskListNode`、`AgentToolDetail`、三个 `Plain*` 等叶子组件都从 `./vue` 公开导出。导出它们的直接原因是 Lab 的 `agentSubject` 用 `nbAgentUi[name]` 取组件；而 `lab-sources.ts` 已经提供按路径的模块加载器（`nbAgentUiComponentModules`），同一件事可以不经公开入口。`AGENTS.md` 里写的“内部组件”分类在实际中是空的。
+- 为什么是问题：公开面等于组件数。每一个导出的组件都要同名 `.md`、`docs:check` 约束、能力标签核对，并被宿主依赖其属性形状；叶子组件的属性改动（例如第 7 条的事件改名）会变成“对外破坏性变更”的讨论。宿主真正需要的只有：`AgentConversationView`、`AgentConversationComposer`（单独挂输入框）、`provideAgentView`/`useAgentText`、三个 `Plain*`（宿主有时要把缺省实现当兜底）、内置登记。
+- 建议改法：公开入口只留上面这一批，其余叶子组件仍然保有 `.md`（Lab 照常索引，因为 `lab-sources` 是 glob），Lab 的 `agentSubject` 改成按 `lab-sources` 的路径取模块（夹具 `index.ts` 里 `defineSubjectFixture<typeof X>` 的类型导入也要改成 `typeof import(…)` 或各自的 `.vue` 路径，这是改动成本所在）；`AGENTS.md` 里“内部组件”这句话就有了对应的实体。这与仓库“受管组件=对外导出组件”的定义一致，不需要改 `docs:check`。
+
+---
+### 11. 同一个形状在 `types.ts`、`ports.ts` 与组件里各写一份，读者要记两套名字
+- 严重程度：建议
+- 类别：重复、概念数
+- 位置（逐对核对字段完全相同）：
+  - `types.ts:302-334` 的 `TriggerMenuItem`、`TriggerMenu`、`TriggerMenuContext`，与 `ports.ts:21-39` 的 `PromptMenuItem`、`PromptMenu`、`PromptMenuContext`（字段、可选性、含义都一样）；`AgentConversationComposer.vue:70-80` 把后者的参数直接交给前者的函数，靠结构兼容通过类型检查；
+  - `types.ts:215-218` 的 `ComposerAttachmentView` 与 `ports.ts:57-60` 的 `PromptAttachment`；
+  - `types.ts:13` 的 `AgentLocale` 与 `ports.ts:10` 的 `PromptLocale`（`"zh-CN" | "en-US"`）；
+  - `ComposerView.models` 的内联元素类型与 `AgentModelPicker.vue` 的 `models` 属性；`AgentFileChanges.vue:5` 的 `FileChange` 与 `FileChangeView`；核心 `tool-detail-lines.ts` 的 `CodeLine` 与 nb-ui 的 `CodeBlockLine`（后者因边界规则无法引用，是不可避免的一份）；
+  - 预览请求：`vue/preview.ts` 的 `PreviewImageRequest`，与 `AgentMarkdown.vue:15`、`AgentUserContent.vue:17` 里各自内联的 `{markdownSrc; name}`、`{locator; name}`。
+- 为什么是问题：`ports.ts` 的设计意图是“宿主组件的形状与视图的数据形状分开声明，用类型断言各自对照”，这个意图成立；但把两边写成毫无关联的两份，之后只改一边（比如给菜单项加 `shortcut` 字段）编译器不会报，宿主的编辑器会悄悄收不到。读者也要在两套名字之间来回确认“是不是同一个东西”。
+- 建议改法：`types.ts` 里直接别名，不重复字段：`export type TriggerMenu = PromptMenu`、`TriggerMenuItem = PromptMenuItem`、`TriggerMenuContext = PromptMenuContext`、`ComposerAttachmentView = PromptAttachment`、`AgentLocale = PromptLocale`（或反过来，让 `ports.ts` 引用 `types.ts` 的 `AgentLocale`）；两个组件的内联预览类型改用 `PreviewImageRequest` 的对应分支（`Extract<…>`）；`AgentModelPicker.models` 用 `ComposerView["models"]`。保留 `ports.ts` 作为宿主组件形状的唯一来源。
+
+### 12. `AgentConversationComposer.vue`：编辑器句柄暂存与附件门禁是两块独立逻辑，t11 要往里再放就地编辑与提问向导
+- 严重程度：建议
+- 类别：模块大小与职责
+- 位置：`src/vue/composer/AgentConversationComposer.vue:35-55`（`pendingEditorCalls`、`withEditor`）、`:99-131`（`liveAttachments`、`blockedReason`）
+- 现象：脚本 256 行，混着 5 类事情：编辑器句柄的“就绪前暂存调用”（20 行）、登记项与菜单、发送与停止、附件状态门禁（`liveAttachments` 的增删与就绪判定，“编辑器发出过还没移除的附件”这条规则靠两段注释才解释清）、运行设置。门禁的判定（哪些附件阻止发送、阻止原因是上传中还是失败）是纯逻辑，却只能靠 Lab 的 e2e（`附件：…上传中与失败时不能发送…`）验证，不能单测。
+- 为什么是问题：t11 的就地编辑（`EditingView`）、提问向导（`PendingQuestionView`）、横幅都需要同样的“编辑器句柄”与“能否发送”，到时候要么复制这两块，要么在 539 行的文件上再加 200 行。
+- 建议改法：两处小抽取，不改外部行为。(1) `useEditorHandle()` 组合函数返回 `{editorRef, withEditor}`（暂存与补做放里面），放 `composer/` 目录下的 `useEditorHandle.ts`，就地编辑的编辑器也用；(2) 核心的 `composer-actions.ts` 加 `sendBlockedReason(live: ReadonlySet<string>, states: ReadonlyMap<string, AttachmentState>): "uploading" | "failed" | null`，组件只管维护 `liveAttachments` 并翻译原因，补 3 条 Bun 测试（全部就绪、有一个上传中、有一个失败优先于上传中）。
+
+### 13. CSS：跨组件的 `--nb-agent-block-indent` 没有文档，默认值写了 6 遍，类名前缀不统一
+- 严重程度：建议
+- 类别：重复、文档
+- 位置：`AgentConversationTurn.vue:442` 设置、`AgentTurnBlock.vue:326,359,407,412,500` 读取（每处都带 `, 24px` 回退）；`AgentConversationTurn.vue:304,311,408,420,456,471` 另有 5 处写死 `24px`；`parts/AgentMarkdown.vue:24,60-61`
+- 现象：
+  1. `--nb-agent-block-indent` 是 Turn 与 TurnBlock 之间的样式通道（Turn 在“过程区”里把它改成 10px，TurnBlock 读），只在 TurnBlock 的一条脚本注释里提到，两个组件的 `.md` 与 `token-consumption` 一类的登记都没有它（对照 `--nb-collapsible-row-px` 在 nb-ui 的 `.md` 与测试里都有登记）。回退值 `24px` 在读取处重复 6 次，在 Turn 里作为字面量又出现 5 次，改缩进要同步改十几处。
+  2. `AgentMarkdown.vue` 把同一对回退表达式写两遍：`TONE` 常量里（内联样式，因为注入组件的根自己声明了颜色）与 `.agent-markdown` 的样式里。`AgentTurnBlock.vue:399-402` 与 `:452-455` 又有两处同样的 `--nb-agent-markdown-color: var(--text-muted); --nb-agent-markdown-size: var(--text-xs)`，其中后一处与 `.acv-notice__body, .acv-divider__body` 合在同一选择器，前一处是 `.acv-thinking` 单独写。
+  3. 类名前缀：`acv-`（View、Turn、TurnBlock、RawView、UserContent、Composer 等 9 个文件）与 `agent-`（`AgentChainSummary`、`AgentFileChanges`、`AgentMessageActions`、`AgentTaskList`、`AgentToolDetail`、`AgentMarkdown`）混用，没有规则可循；三处 `:global`（`.acv-header__more`、`.acv-model-picker`、`.image-preview__header`）是给 nb-ui 浮层打样式用的，没有集中说明。
+- 为什么是问题：缩进与淡色小字是版式层面最常被调的值（e2e 里专门有“步骤行 6px 内边距”“淡色小字”两条用例守着它们）。设计调整时不容易看出“这个值从哪里来”。
+- 建议改法：在 Turn 的根样式里声明 `--nb-agent-block-indent: 24px`（默认值只写一处），读取处去掉回退值，Turn 里 5 处字面量改读变量；把这个变量写进 `AgentConversationTurn.md` 的“数据”下一节“样式变量”，与 `--nb-agent-markdown-color`、`--nb-agent-markdown-size`（现在只写在 `AgentMarkdown.md`）并列；淡色小字用一个类 `.acv-muted-markdown` 或在 TurnBlock 里同一个选择器列表里设置；类前缀统一为 `acv-`（零件单独挂载也用 `acv-`，用组件名后缀区分）。
+
+### 14. 测试：行为层面基本到位，但有两份从 nb-ui 抄来的扫描测试，纯逻辑与组件的覆盖线划得不齐
+- 严重程度：建议
+- 类别：测试可维护性
+- 位置：`src/icon-registration.test.ts`（“规则同 nb-ui 的 `src/icon-registration.test.ts`”）；`src/vue/style-tokens.dom.test.ts:2-4`（“规则取自 nb-ui 的 `token-consumption.test.ts`”）；`src/boundary.test.ts`（已改为共用检查，不看）
+- 现象：
+  1. 图标名与字面颜色、字号、时长、变量是否声明这两类“源码扫描”测试，在 nb-ui 里有原版，本包复制了一份规则（共 115 行）；`neuro-book-test-support/import-boundary` 已经有了“抽成共享检查”的先例（本轮的边界测试刚改成调用它）。复制的版本会和 nb-ui 的规则各自演化，例如 nb-ui 以后新增一类被禁写法，本包不会同步。
+  2. 覆盖线：分轮、过程摘要、任务清单、输入框动作、harness 适配器等纯逻辑有 Bun 测试（共约 50 条）；渲染组件只有 `AgentConversationView.dom.test.ts` 3 条、`AgentMarkdown` 2 条、`AgentUserContent` 3 条、`PlainPromptEditor` 3 条、入口 smoke 1 条，另外靠 Lab e2e（`e2e/lab-agent-ui.e2e.ts`，19 条，按验收编号命名）。`AgentConversationTurn` 的用量格式化（第 6 条）、`AgentConversationComposer` 的附件门禁（第 12 条）这类纯逻辑夹在组件里，只能靠 e2e。
+  3. 测试写法本身：`conversation-turns.dom.test.ts` 用 `shape(turn)` 把块序列压成字符串数组再断言，是行为断言，随重构不易碎；`AgentConversationView.dom.test.ts` 通过注入桩渲染组件验证“预览取消、归还”，也是从外部可观察行为入手。没发现“测实现细节”的用例。
+- 建议改法：把两份扫描规则放到 `neuro-book-test-support`（例如 `source-scan`），nb-ui 与本包都调用，本包只传自己的目录与 `allow` 清单（`PlainMarkdown.vue` 的 1s 光标闪烁例外保留）；纯逻辑按第 6、12 条挪出组件后补 Bun 测试，使“渲染层测试只测挂载与交互”成为目录里一眼可见的规则（配合第 1 条改名）。
+
+### 15. Lab 夹具：每个组件在 `index.ts` 里要写三遍，宿主逻辑与 `later()` 重复，宿主合同要由每个使用方重写
+- 严重程度：建议
+- 类别：夹具可维护性
+- 位置：`packages/neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui/index.ts:13-141`；`AgentConversationViewFixture.vue:48-64` 与 `composer-host.ts:44-58` 的 `later`；`composer-host.ts`（202 行）
+- 现象：夹具合计 1801 行，规模与它覆盖的 23 个组件相称，数据（`data.ts` 380 行）按场景组织得清楚，场景 id 与验收编号对得上。问题在三处：
+  1. `index.ts` 为每个组件写 3 次名字：type import（22 行）、scenes import（17 行）、`defineSubjectFixture<typeof X>` 调用；新增一个组件要改 3 处，t11 加的约十个组件会让这个文件逼近 250 行。
+  2. `later(ms, run)` 带定时器集合、卸载时取消，在 `AgentConversationViewFixture.vue` 与 `composer-host.ts` 各写了一份，一字不差。
+  3. `composer-host.ts` 本质上是“一个能让输入框跑起来的宿主”：版本号草稿、排队、附件上传状态、模式与模型、命令。nb-story 的问答页（t13）与以后的 Agent 插件都要写同一件事，Lab 版本只能当参考，不能复用。
+- 建议改法：(1) 夹具按 `lab-sources` 的路径自动注册（场景文件里导出 `{component: "AgentTurnBlock", scenes, …}`，`index.ts` 用 `import.meta.glob("./*.scenes.ts")` 收集），或至少用一张表 `SUBJECTS = [["AgentChainSummary", scenes, opts], …]` 循环生成，去掉 type import 一份；(2) `later` 提到 `fixtures/` 公共的 `useLabTimers()`；(3) 在 t11 之前先判断：宿主合同里“草稿版本号 + 排队 + 附件状态机”这套，是否值得做成核心的一个纯 TS 控制器（`createComposerHost`），Lab 与 nb-story 都用；如果 t13 已经单独写了一份，也要在两边加一行互相指向，免得漂移。
+
+### 16. 文档过时：4 份 `.md` 的 import 来自旧应用，`preview-image` 的类型在 5 份里写得与代码不符
+- 严重程度：建议
+- 类别：注释与文档
+- 位置：
+  - `stream/AgentRawView.md:30-31`、`stream/AgentUserContent.md:36`、`tools/AgentTaskListNode.md:15`、`composer/AgentConversationComposer.md:46-47`：`from "../agent-view.types"`、`from "../agent-view-registry"`，是旧应用的路径（本包里是 `@notnotype/nb-agent-ui`）；`stream/AgentTurnBlock.md:21` 写 `from "./conversation-turns"`，`tools/AgentTaskList.md:20` 写 `from "./task-list"`，都不是本包的路径。`AgentConversationView.md:6-7` 是对的，说明改过一份没改全。
+  - `preview-image` 事件类型：`AgentTurnBlock.md:42`、`AgentConversationTurn.md:53`、`AgentRawView.md:48`、`AgentUserContent.md:48`、`AgentConversationComposer.md:61` 都写 `{locator: string; name: string}`，而代码里这几个组件的事件是 `PreviewImageRequest`（还包括 `{markdownSrc, name}`）；`AgentTurnBlock`、`AgentConversationTurn`、`AgentRawView` 里的 Markdown 图片点击实际会发出后一种。文档的描述是“用户消息里的图片被点击”，漏了回复里的图片。
+  - `AgentConversationTurn.md:8`“版式沿用旧侧栏 `AgentSidebarView`”、`AgentConversationView.md:16`“沿用旧侧栏的对话气泡版式”、`OriginalImagePreviewDialog.md:72`：引用本仓库已不在主线上的旧应用组件，新读者无从对照。
+- 为什么是问题：`docs/standards/code/components.md` 明确文档是需求书、“实现与之不符即为缺陷”；这几份会让照着文档做替换实现的人（例如 nb-story 自己写一个 `AgentTurnBlock`）把预览事件接错。
+- 建议改法：统一把 `import type` 行改成包入口路径，事件类型改成 `PreviewImageRequest`（第 4 条若把预览收进 `action`，这几行直接删）；“沿用旧侧栏”一类删去，改写成对本包行为的描述；`docs:check` 可加一条机检：受管组件 `.md` 里的 `import … from "."` 相对路径必须能解析到存在的文件。
+
+---
+
+## 没有发现问题的方面
+
+- **渲染层子目录的依赖方向**：按 `src/vue/README.md` 的规则逐目录 grep 了跨目录导入。`parts/`、`fallback/`、`tools/` 没有引用其他子目录；`stream/` 只引用 `parts/AgentMarkdown`、`tools/AgentToolDetail`（`AgentTurnBlock`、`AgentRawView`），符合“stream 可以用 parts 与 tools”；`composer/` 只引用根目录的 `host.ts` 与 `preview.ts` 和自己的零件。没有环，没有反向引用。核心一侧由 `boundary.test.ts` 机检（不是我的审查对象，已知被修改）。
+- **能力标签与实现的一致性**：23 份 `.md` 的标签逐个与脚本核对（本地 `ref`、`Dropdown` 或 `Dialog` 浮层、`provide` 与 `inject`、全局监听、存储、剪贴板、请求）。除第 9 条的 `OriginalImagePreviewDialog` 外一致；没有发现在渲染层使用 `Teleport`、`addEventListener`、`localStorage`、剪贴板、请求的地方，`document.activeElement` 只在 `AgentConversationTurn` 做一次只读（运行结束自动收起时把焦点移回摘要行），不计入标签但值得知道。`state:local` 都带“隐藏通道理由”。
+- **`host.ts` 的 provide/inject 形状本身**：用 getter 保证宿主切换语言与组件后零件跟着变，`provideAgentView` 同时返回 `t` 以解决“提供方自己拿不到注入值”这个 Vue 的限制，注释写清了原因。实现没有问题，问题只在第 8 条的静默回退。
+- **核心的模块职责**：`conversation-turns.ts`、`process-summary.ts`、`task-list.ts`、`composer-actions.ts`、`harness.ts` 各自单一，模块头注释写了“为什么”与取舍（`harness.ts` 的“日志是权威、事件只画正在生成的那条”尤其清楚）；没有发现在核心里只服务渲染层的大块逻辑（除第 1 条的内置登记放错层）。
+- **注册表本身**：11 个扩展点里 5 个（`entries`、`headerActions`、`panels`、`trayItems`、`statusItems`）目前视图没有消费者，是 t11 的预留；因为紧接着 t11 要用，不算多余。`mergePoint`、冲突诊断与 `resolveTool` 优先级都有测试。
+- **注释的质量**：模块头与关键处的注释基本都写“为什么”（例如 `OriginalImagePreviewDialog` 的 `requestUrl` 为什么不给 `blob:` 加查询参数、`AgentConversationView` 的预览请求归还时机、`harness.ts` 的输入不可信约定），没有发现大面积复述代码的注释。除第 16 条列出的旧应用残留外，没有过时注释。
+- **Lab 夹具的数据与场景**：场景按验收编号命名，数据集中在 `data.ts`，harness 回放日志注明了重录方法（`harness-replay.ts` 模块头），没有发现需要改的维护性问题（第 15 条是规模增长后的建议）。
+
+## 各级数量
+
+- 重要：4（第 1、2、3、4 条）
+- 建议：12（第 5 到 16 条）
+- 没有“严重”级别发现
+
+## 最值得先做的三件事
+
+1. **把内置工具登记拆成“核心纯数据”加“渲染层只挂组件”（第 1、2 条一起做）**：一次改动同时让核心名副其实、让分轮测试回到 Bun、让“新增一种工具只改一处”真正成立；t11 与 nb-story 的领域工具都会受益，越晚改越贵。
+2. **去掉 `preview-image` 的逐层转发，并让 `AgentMarkdown` 只收 `resolveAsset`（第 4 条），顺带拆 `AgentTurnBlock`（第 3 条）**：t11 之前先把消息流的这一层理顺，否则状态栏、待处理区、向导都会在这套转发上再叠一层。
+3. **一次性修文档与小重复（第 16、5、7 条）**：全是机械改动，风险低；第 16 条是“需求书与实现不符”，会误导第二个使用方（nb-story t13）；第 5、7 条收掉 4 份状态映射与一个事件名例外。

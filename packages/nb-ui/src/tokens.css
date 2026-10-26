@@ -24,21 +24,9 @@
 
 :root {
     /* ---- 4.1 排版 ---------------------------------------------------------- */
-    /* 界面字体。--font-reading 由编辑器 preferences 承载，不在主题层重复定义。 */
-    --font-ui: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-
-    /* --text-2xs 受限：只承载角标、序号、计数、时间戳，不得承载需要阅读的句子 */
-    --text-2xs: 11px;
-    --text-xs: 12px;
-    --text-sm: 13px;
-    --text-md: 14px;
-    --text-lg: 16px;
-    --text-xl: 20px;
-
-    --leading-tight: 1.3;
-    --leading-ui: 1.45;
-    --leading-reading: 1.85;
+    /* 字体族（--font-ui、--font-mono、--font-display）、字号六档（--text-*）与行高（--leading-*）
+       与 Tailwind 的主题键同名，声明在 theme.css 的 @theme static 里，值的事实源在那边。
+       --font-reading 由编辑器 preferences 承载，不在主题层重复定义。 */
 
     /* 字重只留三级；700 仅允许用于 ≥20px 的标题 */
     --weight-normal: 400;
@@ -93,6 +81,24 @@
     --motion-reveal-out: 800ms;
     --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 
+    /*
+     * 滚动条：自绘滑块（OverlayScrollbar、ScrollArea、PopupScrollbar）与原生细滚动条（.nb-ui-scrollbar-thin）共用
+     * 一组比例：滑块色是 --text-main 混这么多、其余透明，常态、悬停、拖动三档。改这里就能统一调整应用里所有滚动条的
+     * 观感；取值是应用主滚动条（OverlayScrollbar）原来的，它占的面积最大，别处向它看齐。原生滚动条只用常态与悬停两档。
+     *
+     * 这里只存比例，颜色在用到的元素上现场混（`color-mix(in srgb, var(--text-main) var(--scrollbar-thumb-mix), transparent)`）：
+     * 自定义属性里的 var() 在声明它的元素上就代入了，把混好的颜色存在 :root，套了另一套配色的子树（例如 dev-panel
+     * 固定成暗色的终端块）会继承根上的颜色；也不能为此在 .nb-ui-colorway 上再声明一遍（见下面主题层基线的说明）。
+     */
+    --scrollbar-thumb-mix: 32%;
+    --scrollbar-thumb-hover-mix: 45%;
+    --scrollbar-thumb-active-mix: 55%;
+    /*
+     * OverlayScrollbar 滑块的粗细（轨道宽是它加 4px，滑块靠右留 2px）。ScrollArea 的轨道尺寸写死；
+     * 弹出列表里的 PopupScrollbar 有意只有 4px，免得压住菜单项，两者不取它。
+     */
+    --scrollbar-w: 6px;
+
     /* ==== 主题层基线 ========================================================
      * 以下是**主题**（见 src/theme/）负责填的那批变量的默认取值。
      * 默认口径 = 当前 nb-ui 的做法，所以「一个主题都没装」时界面照样成立——
@@ -101,8 +107,7 @@
      * 主题在 :root[data-nb-theme="<id>"]（0,2,0）里给自己的取值，稳压这里的 :root（0,1,0），
      * 与两者的引入顺序无关。 */
 
-    /* 展示字体与字距。多数主题与 --font-ui 同源，编辑室这类主题才换成衬线。 */
-    --font-display: var(--font-ui);
+    /* 展示字体 --font-display 声明在 theme.css（多数主题与 --font-ui 同源，编辑室这类主题才换成衬线）。字距： */
     --tracking-ui: 0;
 
     /* 控件与容器的尺寸刻度。密度是主题最明显的一个维度。 */
@@ -110,6 +115,11 @@
     --control-h-md: 32px;
     --control-h-lg: 38px;
     --control-px: 10px;
+    /* 弹出列表（菜单、下拉、选择器、候选）的行高、字号与外框内边距。六个列表共用一档（w00029 t04 决定 4）；
+       项的圆角由外框圆角减内边距推出，主题改 --menu-pad 时同心照样成立。 */
+    --menu-item-h: 28px;
+    --menu-item-font: var(--text-sm);
+    --menu-pad: var(--space-3);
     --panel-p: 16px;
     --stack-gap: 16px;
 
@@ -127,6 +137,18 @@
      * 26px 画在一个 170px 宽的下拉上会把首尾两项吃掉。
      */
     --radius-dialog: var(--radius-panel);
+
+    /*
+     * 小确认框（AlertDialog）的圆角，缺省等于对话框。单列一档是因为它常叠在另一个窗口上：
+     * 圆角比底下的窗口还大，两条弧线就不同心了。主题需要时单独收小（nbook 就是）。
+     */
+    --radius-dialog-compact: var(--radius-dialog);
+
+    /*
+     * 浮动窗口（Dialog 的 modal=false）的圆角，缺省等于对话框。单列一档是因为窗口常开着、占的面积大，和应用窗口
+     * 是同一类东西：模态对话框那一档的大圆角画在它上面像一张卡片。主题需要时单独收小（nbook 就是）。
+     */
+    --radius-window: var(--radius-dialog);
 
     /*
      * 这里曾经有 --corner-shape（超椭圆圆角）。已删：Chromium 的 backdrop-filter

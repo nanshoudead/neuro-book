@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 书卡（同名 .md）：封面、书名、简介、统计与最近编辑；只发事件，键盘与选中归 ShelfCards。 */
-import {Dropdown, IconButton} from "@notnotype/nb-ui/components";
-import type {DropdownItem} from "@notnotype/nb-ui/components";
+import {DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
+import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
@@ -67,7 +67,7 @@ function when(): string | null {
     return parts.length === 0 ? null : parts.join(" · ");
 }
 
-function menu(): DropdownItem[] {
+function menu(): DropdownMenuItemData[] {
     return [
         {value: "open-new-window", label: text(TEXT.openNewWindow)},
         {value: "edit", label: text(TEXT.edit)},
@@ -103,9 +103,9 @@ function onMenu(value: string): void {
             </div>
         </div>
         <!-- 更多菜单是卡片的兄弟交互：点它不触发打开（.stop），也不嵌在按钮里。 -->
-        <Dropdown :items="menu()" align="end" root-class="book-card__more" @select="onMenu" @click.stop>
+        <DropdownMenu :items="menu()" align="end" root-class="book-card__more" @select="onMenu" @click.stop>
             <IconButton size="sm" icon-class="i-lucide-ellipsis" :aria-label="text(TEXT.more)" @click.stop />
-        </Dropdown>
+        </DropdownMenu>
     </article>
 </template>
 
@@ -155,7 +155,7 @@ function onMenu(value: string): void {
     margin: var(--space-2) 0 0;
     color: var(--text-secondary);
     font-family: var(--font-display);
-    font-size: 13px;
+    font-size: var(--text-sm);
     line-height: 1.65;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;

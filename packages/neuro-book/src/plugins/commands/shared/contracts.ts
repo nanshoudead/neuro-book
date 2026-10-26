@@ -8,6 +8,7 @@
 
 import {Type} from "typebox";
 import type {Static, TSchema} from "typebox";
+import {Value} from "typebox/value";
 
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
@@ -34,6 +35,20 @@ export type CommandFailureCode =
     | "stale-target";
 
 export type CommandResult<T> = {ok: true; value: T} | {ok: false; code: CommandFailureCode; reason: string};
+
+/** 失败的结果里调用方要读的两项。 */
+export interface CommandFailure {
+    readonly code: CommandFailureCode;
+    readonly reason: string;
+}
+
+/**
+ * 不带参数执行时参数能通过校验：命令面板、快捷键与状态栏条目都以 `{}` 执行（执行入口把省略的参数归一成 `{}`）。
+ * 按校验结果判断而不是只看 `required`：`Union`、`Intersect`、`minProperties` 这类写法没有 `required` 也收不下 `{}`。
+ */
+export function runsWithoutArgs(args: TSchema): boolean {
+    return Value.Check(args, {});
+}
 
 export type CommandInvocation = {source: "user"} | {source: "agent"; callerId: string};
 
@@ -105,8 +120,8 @@ export interface CommandExecutionEvent {
  * 命令服务：一个运行实例的命令表。`nbook.commands` 的入口提供它，Lab 场景的本地命令表也满足它，
  * 所以命令面板与键位分发只依赖这个接口。
  *
- * `get`、`list`、`isEnabled` 是同步的，按选用规则这是内置插件之间的内部服务，只给内置插件依赖；第三方插件
- * 贡献命令不受影响，查询与执行命令的写法随第三方插件 API 设计（docs/specs/workbench/commands.md）。
+ * `get`、`list`、`isEnabled` 是同步的：这是同一实例内的内部服务，任何插件都可以依赖（ADR 0027，
+ * docs/specs/workbench/commands.md）。
  */
 export interface CommandService {
     get(id: string): CommandResult<CommandMetadata>;

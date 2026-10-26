@@ -1,0 +1,13 @@
+t16 S4 真实开发服务验证（2026-10-14，主会话）
+
+服务：nbdev dev start --work w00022 --task t16，集成分支 worktree 的 packages/neuro-book，READY http://127.0.0.1:4317/
+命令都在 packages/neuro-book 下运行：TMPDIR=/dev/shm/s4v bun run lab:shot -- <参数> --url http://127.0.0.1:4317/ --out /dev/shm/s4v/out
+
+1. -c NoSuchThing：退出码 1，用时 8 秒（含启动 Chrome 与首次编译）
+   输出：组件 NoSuchThing 不在 Lab 的组件清单里（不存在、不可挂载或没有登记场景）。清单里有：EditorArea、EditorTabBar、…、Button 等 126 个。开发服务运行中新建的组件文件或场景，要重启开发服务才进清单
+2. -c SkillChip -s no-such-scene：退出码 1，用时 3 秒
+   输出：组件 SkillChip 没有场景 no-such-scene；它的场景：skill、long-name。开发服务运行中新建的组件文件或场景，要重启开发服务才进清单
+3. -c SkillChip --vp phone（对照，合法组件）：退出码 0，用时 9 秒，截出 skill、long-name 两张图与 report.json
+
+改动前，情形 1 要等满 openLab 的 120 秒超时才失败。
+验证后 nbdev dev stop 停掉服务，/dev/shm/s4v 已删。

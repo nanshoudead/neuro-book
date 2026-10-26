@@ -56,8 +56,9 @@ const TEST_FILE_PATTERN = /\.(?:test|spec)\.[cm]?[jt]sx?$/u;
 const EXECUTABLE_FILE_PATTERN = /\.(?:[cm]?[jt]sx?|sh|ps1|py)$/u;
 const SMOKE_NOT_APPLICABLE_PATTERN = /^不适用[—–-]{1,2}\s*\S/u;
 const WORK_TASK_README_PATTERN = /^\.agents\/works\/[^/]+\/tasks\/[^/]+\/README\.md$/u;
-const NB_UI_COMPONENT_BARREL = "packages/nb-ui/src/components/index.ts";
-const NB_UI_COMPONENT_EXPORT_PATTERN = /export \{default as \w+\} from "\.\/([\w/.-]+)\.vue";/gu;
+/** 导出受管组件的入口：入口导出的 `.vue` 都要有同名契约文档。 */
+const COMPONENT_BARRELS = ["packages/nb-ui/src/components/index.ts", "packages/nb-form/src/vue/index.ts", "packages/nb-agent-ui/src/vue/index.ts", "packages/nb-markdown/src/chip/index.ts", "packages/nb-markdown/src/display/index.ts", "packages/nb-markdown/src/prompt/index.ts"];
+const COMPONENT_EXPORT_PATTERN = /export \{default as \w+\} from "\.\/([\w/.-]+)\.vue";/gu;
 const PROPOSAL_STATUSES = new Set(["draft", "reviewing", "accepted", "rejected", "superseded"]);
 /** 这些状态的提案仍在活跃目录，必须登记在索引里；其余状态的应移入归档。 */
 const ACTIVE_PROPOSAL_STATUSES = new Set(["draft", "reviewing", "accepted"]);
@@ -582,7 +583,7 @@ function checkImplementedEvidence(
 }
 
 /**
- * 受管组件目前只有 nb-ui barrel 导出的组件；缺少同名契约文档时阻断 docs:check。
+ * 受管组件目前是 nb-ui、nb-form 与 nb-agent-ui 渲染层入口导出的组件；缺少同名契约文档时阻断 docs:check。
  * 新应用的通用组件目录随 workbench 底座确定后加入。
  */
 function checkComponentDocuments(
@@ -590,10 +591,12 @@ function checkComponentDocuments(
     fileSet: ReadonlySet<string>,
     failures: string[],
 ): void {
-    const barrel = resolve(repoRoot, NB_UI_COMPONENT_BARREL);
-    const exported = existsSync(barrel)
-        ? [...readFileSync(barrel, "utf8").matchAll(NB_UI_COMPONENT_EXPORT_PATTERN)].map((match) => `packages/nb-ui/src/components/${match[1]}.vue`)
-        : [];
+    const exported = COMPONENT_BARRELS.flatMap((barrelPath) => {
+        const barrel = resolve(repoRoot, barrelPath);
+        if (!existsSync(barrel)) return [];
+        const directory = barrelPath.slice(0, barrelPath.lastIndexOf("/") + 1);
+        return [...readFileSync(barrel, "utf8").matchAll(COMPONENT_EXPORT_PATTERN)].map((match) => `${directory}${match[1]}.vue`);
+    });
     const managed = new Set(exported.filter((path) => fileSet.has(path)));
     for (const path of [...managed].sort()) {
         const documentPath = `${path.slice(0, -".vue".length)}.md`;

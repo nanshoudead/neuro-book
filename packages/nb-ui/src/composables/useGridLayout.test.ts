@@ -1,7 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
 import {defineComponent, effectScope, h, nextTick, ref, shallowRef, type Ref, type ShallowRef} from "vue";
-import GridRenderer from "../components/layout/GridRenderer.vue";
+import NestedGrid from "../components/layout/NestedGrid.vue";
 import {createGrid, type Grid, type GridLayoutResult} from "../components/layout/grid";
 import type {GridGestureCommit} from "../components/layout/grid-gesture";
 import type {GridExtent} from "../components/layout/grid-types";
@@ -129,7 +129,7 @@ function mountHost(): Harness {
     const HarnessComponent = defineComponent({
         name: "GridLayoutHostHarness",
         setup() {
-            return () => h(GridRenderer, {
+            return () => h(NestedGrid, {
                 node: host.node.value,
                 layout: host.layout.value,
                 contextKey: context.value,

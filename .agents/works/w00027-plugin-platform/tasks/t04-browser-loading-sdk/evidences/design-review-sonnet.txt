@@ -1,0 +1,251 @@
+# t04 计划设计审查（Sonnet：浏览器一侧与 SDK 接口形状）
+
+审查对象：`.agents/works/w00027-plugin-platform/tasks/t04-browser-loading-sdk/plan.md`（354ec2e06）。每条发现追加写入。
+
+### 1. 第三方插件的原子类（含分区图标）在生产构建里不存在，而 e2e 外壳恰好有，验收会假通过
+
+- 严重程度：阻断；类别：正确性
+- 位置：计划“浏览器装载”“构建预设”（CSS 汇总成 `style.css`）、“示例迁移”（snippets）、验收映射 S2e e2e
+- 现象：宿主用 Tailwind v4 + `@iconify/tailwind4` 预生成模式，类名只在编译时由 `@source` 扫描源码生成（`src/web/tailwind.css` 的 `@source "../"`，nb-ui、nb-agent-ui 各自的 `@source`）。插件产物是安装目录里的 JS，宿主扫不到，所以：
+  1. 插件清单里写的 `icon: "i-lucide-text-quote"`（snippets 的分区图标，设置窗口 `SettingsWindow.vue:323` 以 `:class="item.icon"` 直接渲染）在宿主 CSS 里没有规则，左栏图标渲染为空白，且不报错（`nb-ui/src/icon-registration.test.ts` 头注释自己写明：写错或没生成的图标类“不会报错，只会静默渲染成空白”）。
+  2. 插件 `.vue` 模板里写的 `class="flex gap-2"` 这类工具类，只有恰好被宿主别处用过才有规则，靠巧合成立。
+  3. 插件向 nb-ui 组件传的 `icon-class="i-lucide-*"`（snippets 的上移、下移、删除、添加）同理，现在能显示只是因为 `arrow-up`、`arrow-down`、`trash-2`、`plus` 在 `src/` 或 nb-ui 里另有出处。
+- 如何核实（真实构建产物）：
+  - `grep -rl 'i-lucide-text-quote' packages/neuro-book/src packages/nb-ui/src packages/neuro-book/examples` 只命中 `src/plugins/lab/web/fixtures/settings-scene/scene-data.ts` 与示例自身。`tailwind.product.css` 有 `@source not "../plugins/lab"`，生产入口把 Lab 排除了。
+  - 在 `.worktree/w00027-plugin-platform/packages/neuro-book` 已有的构建产物里：`dist/web/assets/*.css` 与 `*.js` 中搜 `text-quote` 无命中；`dist/e2e/web/assets/index-CcJxGh5w.css` 里有 `.i-lucide-text-quote{`。也就是说 e2e 外壳（`vite.e2e.config.ts` 换回 `FULL_STYLE_ENTRY`）多出了 Lab 夹具里的规则，而产品构建没有。
+- 为什么是问题：计划把“S2e e2e：安装 snippets 构建产物 → 重启 → 设置页出现并可用”当作 S2 验收，这条 e2e 跑在 e2e 外壳上，图标会显示；真正的产品构建里同一个插件分区没有图标。验收看不出来，作者也不知道自己的图标类为什么没效果。
+- 建议：
+  1. 计划里写明样式合同：插件界面只用 (a) nb-ui 组件及其属性，(b) 自己的 CSS（`<style scoped>` 或普通 CSS，进 `style.css`），(c) 宿主公开的 token（见下一条）。不承诺宿主的原子类对插件可用。
+  2. 图标由构建预设处理：预设扫描入口定义、`.vue` 与 `.ts` 里的 `i-lucide-*` 字面量，用 `@iconify/utils` 的 `getIconCSS`（或同一 `@iconify/tailwind4` 的输出）把用到的图标规则写进 `style.css`。清单里的 `icon` 字段要在 `style.css` 之外生效（见下一条），所以更干净的做法是让清单 `icon` 写图标名（`lucide:text-quote`）而不是 CSS 类，由宿主用已有的 iconify 数据渲染；这条是接口形状改动，需要在 `settings.pages` 的声明里决定。
+  3. 在 S2e 的 e2e 里用 `dist/web`（生产入口）而不是只用 e2e 外壳核对图标可见，或在构建测试里断言 `style.css` 含 `.i-lucide-text-quote`。
+
+### 2. 样式装载的时机、存在判定和失败都没定：分区图标在入口激活前就要用，`style.css` 却要等第一个入口装载才加
+
+- 严重程度：重要；类别：正确性 / 接口形状
+- 位置：计划“浏览器装载”（“插件的第一个入口装载时加 `<link rel="stylesheet">`（有 `style.css` 时）”）、“构建预设”（CSS 汇总成 `style.css`）
+- 现象：
+  1. 时机晚于使用：`settings.pages` 的分区声明（标题、图标、分类）在入口激活前就由设置窗口渲染（`SettingsWindow.vue` 左栏），而入口按计划是“第一次显示分区时 `onSettingsPage` 触发激活”才 fetch 代码并加样式。凡是依赖插件 CSS 的清单声明字段（图标类、将来的徽标之类），在激活前一定没有样式。与上一条合起来：图标既不在宿主 CSS 里，也不在尚未加载的插件 CSS 里。
+  2. 判定缺字段：清单 schema（`packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts:EntrySchema/ManifestSchema`）没有样式字段，`additionalProperties` 在入口上是 false。“有 `style.css` 时”浏览器怎么知道？只能无条件 `<link>`（没有则一次 404，记入控制台）或先 `HEAD`。引导协议 v4 传“只含浏览器位置需要的部分”的清单，也没写这一项。
+  3. 加载完成不等待：`<link>` 异步，计划在 `fetch` 代码、执行之后就返回激活结果，组件可能先渲染再套样式，出现一帧无样式内容；设置页面（snippets 的宽排法）是首次打开就渲染的，闪烁和布局跳变可见。`load`、`error` 事件都没处理，样式 404 或被拦截时入口照常显示成功。
+  4. 与“同一窗口里同一插件同一版本只执行一次”的缓存没有对应：多个浏览器入口的插件，`<link>` 由“第一个入口装载”加，若第一个入口激活失败（取回失败、执行抛错），已经加入的样式是否移除、第二个入口是否重加，计划没写。
+- 如何核实：读 `SettingsWindow.vue:323`、`sections.ts`（目录在入口激活前就有）、`plugin-manifest.ts:EntrySchema`。
+- 建议：
+  - 在清单里给插件级字段（例如顶层 `style: "style.css"`，相对路径，规则同 `main`；构建预设有 CSS 产物时写），浏览器据此判定，也能在 `readPluginManifest` 里校验位置。
+  - 样式在窗口登记该插件时就开始加载（插件在本窗口有任何浏览器入口或浏览器声明时），与代码取回解耦，激活时只需等它完成；`load`/`error` 都要处理：`error` 记一条诊断，不使入口失败，但要让作者看得到（诊断里带插件 id、URL）。
+  - 把第 1 点列为已知限制写进 Spec：声明字段不能依赖插件 CSS，图标走上一条建议的图标名方案。
+
+### 3. 窗口改用 `definitionOf` 后顶层声明式贡献丢失：计划没有写 `definitionAt` 这一步
+
+- 严重程度：重要；类别：正确性
+- 位置：计划“浏览器装载”（“`selectPlugins` 对第三方插件改用 `definitionOf(manifest, "browser", {activateFor})`”）、“启动数据”（“旧的 `thirdPartyDefinition`（只有声明）删除，三处宿主都改走下面的装载”）、“服务端与项目实例的装载”（“定义：`definitionOf(...)`”）
+- 现象：`definitionOf`（`packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts:297-332`）只产出入口、`activationEventPrefixes`、`contributionPoints`，不含顶层 `contributes`；它自己的注释写明“顶层声明式贡献由插件描述携带，宿主经 `definitionAt` 并进定义，这里不重复”。现在第三方插件的顶层声明由 `thirdPartyDefinition(descriptor)` 带进来（`src/manifest.ts:59`，`window.ts:319`、`project/plugins.ts`、`server/testing/fixture-entry.ts:71` 对应位置）。计划删掉 `thirdPartyDefinition` 又不提 `definitionAt(location, descriptorOf(manifest), definitionOf(...))`，照字面实现就会让三处宿主都丢掉顶层贡献。
+- 影响：snippets 的配置项 `example.snippets/items` 是顶层 `contributes`（`examples/plugins/snippets/plugin.ts` 的 `descriptor.contributions`）。丢了之后服务端和项目实例不认识这一项（设置文件里的值被当未声明键丢掉、写入 `undeclared`，示例头注释自己讲了这个后果），浏览器的 `SettingsRow` 找不到定义。S2e 的第一个验收对象就会坏，而且是静默的（分区还在，页面里读不到设置）。
+- 如何核实：读 `definitionOf` 全函数（无 `contributions` 顶层字段）；`grep -rn "thirdPartyDefinition\|definitionAt" packages/neuro-book/src` 看现有三处接入点；内核 `plugin-manifest.test.ts` 与 `builtin-manifest.test.ts` 的对齐比较里，顶层贡献是由 `descriptorOf` 单独带的。
+- 建议：计划把“装载后的定义 = `definitionAt(location, descriptorOf(manifest), definitionOf(manifest, location, options))`”写成一个共用函数（放进 `src/backend/plugins/loader.ts` 或 `nbook/manifest`），三处宿主都调它；验收里加一条“只有顶层贡献、没有该位置入口的第三方插件，在三个位置仍然登记其声明”（对应 plugin-manifest 输出 11），用 snippets 的配置项做真实用例，不用替身。
+
+### 4. 宿主模块表漏了 `@vue/reactivity`（示例 counter 就在用），纯度检查对 `@vue/*` 没有定义，打包第二份会静默失效
+
+- 严重程度：重要；类别：正确性
+- 位置：计划“SDK”（“在构建时保持外部：`@notnotype/nb-plugin-sdk`、`vue`、`@notnotype/nb-ui/components`”）、“构建预设”（服务端外部只有 SDK、Vue 与内置模块；纯度检查“打进了 Vue、nb-ui 或 SDK 的实现”）、“服务端与项目实例的装载”（`Bun.plugin` 只登记 SDK 与 `vue`）、“示例迁移”（counter）
+- 现象：
+  - `examples/plugins/counter/backend/plugin.ts:17` 是 `import {computed, watch} from "@vue/reactivity"`，与 `defineStore`（宿主的 `nbook/shared/store/store`）配合使用；宿主自己也把 `@vue/reactivity` 单独列为依赖（`packages/neuro-book/package.json`），`vite.config.ts` 的 `optimizeDeps.include` 里还特意注明“必须与 vue 用同一份预构建，否则组件里读 store 的 computed 不刷新”。
+  - 计划的外部列表只有 `vue`，没有 `@vue/reactivity`、`@vue/runtime-core`、`@vue/shared`。示例迁移后 counter 的构建会把 `@vue/reactivity` 打进服务端产物（或者纯度检查误报，或者放过——计划没定义“Vue 的实现”包括哪些包名）。
+- 实验（真实运行时）：在 Bun 1.4.2 里同一份 `@vue/reactivity` 加载两次（宿主一份、插件产物一份），宿主 `ref` 配插件的 `computed`：`host.value = 2` 后 computed 仍是旧值 10；插件的 `watch(host, …)` 一次也不触发；同一份内的 computed 正常。即静默失效，没有报错（实验目录 `/tmp/review-t04-design-sonnet/two.mjs`，结束时删除）。浏览器侧同理：插件里任何直接 `import "@vue/reactivity"`、`vue-demi`，或依赖里间接引入 `@vue/*` 的第三方库，都会得到第二份。
+- 建议：
+  1. 计划明确“共享的 Vue”是 `vue` 加整个 `@vue/*` 家族：构建预设把 `@vue/reactivity`、`@vue/runtime-core`、`@vue/runtime-dom`、`@vue/shared` 全部 alias 到 `vue`（它们都从 `vue` 再导出，`@vue/shared` 例外要单独列），或者都按外部处理并登记进两张模块表（浏览器表与服务端 `Bun.plugin`），登记的对象必须是宿主自己 `import` 的那一份。
+  2. 纯度检查按“产物依赖图里出现这些包名”判定，用 Rolldown/Rollup 的 `generateBundle` 里 `chunk.moduleIds` 或 `modules`（见下一条），不要扫描产物文本。
+  3. 验收加一条：counter 迁移后的服务端产物里，经 `defineStore` 的 computed 随 action 更新（用真实进程，不是同进程测试，同进程测试里 `@vue/reactivity` 本来就是同一份，测不出来）。
+
+### 5. `buildPlugin` 的作者合同没有定义：怎么找到各位置的入口定义、单入口单文件与 `inlineDynamicImports` 的限制、`engines` 从哪来
+
+- 严重程度：重要；类别：接口形状
+- 位置：计划“构建预设”（`buildPlugin({root, outDir})`“读作者的 `plugin.ts`（描述加各位置的入口定义，与内置插件同一写法）”）、“示例迁移”
+- 现象：
+  1. 入口定义怎么被找到没写。内置插件的写法是三层：`plugin.ts` 只导出 `descriptor`；`web/plugin.ts` 导出 `PluginDefinition` 常量并 `import {descriptor} from "../plugin"`（snippets 即如此）。若预设读 `plugin.ts` 里的“描述加各位置的入口定义”，`plugin.ts` 就要反向导入 `web/plugin.ts`，形成环；若不是，预设需要作者另给一份“位置 → 定义文件”的配置，计划里没有。`builtin-manifest.test.ts` 现在是靠 `serverPluginDefinitions`、`browserPluginDefinitions` 三张表（位置 → 插件 id → 定义）找定义的，第三方没有对应物。
+  2. 单入口单文件的实现受限：计划要求“动态导入一律内联进入口文件”。我在 Vite 8.1.4（Rolldown）里实测，多输入加 `output.codeSplitting: false`（旧名 `inlineDynamicImports`，已标为废弃）直接报 `INVALID_OPTION … multiple inputs are not supported when "output.codeSplitting" is false`。所以预设必须每个入口各跑一次构建；各次构建各出一份 CSS，计划的“CSS 汇总成 `style.css`”要自己合并并去重（同一个共享组件被两个入口用到时会重复）。库模式还要求显式 `build.lib.cssFileName`，否则报错 `Name in package.json is required…`（同一实验）。这些不影响可行性，但是计划里“Vite 为每个入口产出单文件”是照字面做不出来的写法。
+  3. `package.json` 里不由入口定义决定的字段没出处：`engines.neurobook`（内置插件对齐测试里是 `PRODUCT_VERSION`；第三方构建时用 SDK 自己的版本推出范围，还是作者必填？0.x 下 `^0.1.0` 只收 0.1.x）、`description`、`license`、`pluginVersions`、`activationEventPrefixes`、`contributionPoints`（后两者在 `PluginDefinition` 上，不在入口上）。
+  4. 清单入口 id 在各位置之间必须唯一（`builtin-manifest.test.ts` 的 `manifestJson` 会在重复时抛错“清单表达不了”），作者合同要写进去，否则 `browser` 与 `server` 都叫 `main` 的两个入口在构建的最后一步才失败。
+  5. 纯度检查的实现细节：Rolldown 的输出块有 `moduleIds` 与 `imports`（我在同一实验里打印确认过），用它们判定“打进了 `vue`、`@vue/*`、nb-ui、SDK”与“外部引用不在宿主模块表里”，两件事都可以在构建期做完，不必等到运行期才得到 `module-not-shared`；计划说“构建后扫描浏览器产物”，容易被理解成文本扫描。
+- 如何核实：见上述实验（`/tmp/review-t04-design-sonnet/exp1/build.mjs`，构建失败信息原文如上）；读 `builtin-manifest.test.ts:39-48,95-115`。
+- 建议：计划里补一小节“作者合同”：固定的入口文件（例如作者根目录 `nbook.plugin.ts` 默认导出 `definePlugin({descriptor, server, project, browser})`，每个位置给一个 `PluginDefinition` 或加载它的路径），预设据此逐入口构建；`engines.neurobook` 缺省取 SDK 版本，作者可覆盖；入口 id 唯一性与 `contracts` 的生成放在预设里一起校验。把 `builtin-manifest.test.ts` 的转换挪进预设时，三张定义表这一层输入也要抽成同一个函数的参数。
+
+### 6. 浏览器装载从 G1 验证过的 `<script src>` 改成 `fetch` + `new Function`，计划没有声明这是改动，Spec 的“不放宽 CSP”也不再成立
+
+- 严重程度：重要；类别：不变量 / 文档
+- 位置：计划“浏览器装载”（“`fetch` 文件端点 → `new Function("module", "exports", "require", code)` 执行一次”）、开头“开工前已实测”第三条（“主页面没有设 CSP……原计划的 CSP 预检片取消”）、`docs/specs/runtime/plugin-code-loading.md` 输出 2（“不改写 `index.html`、不使用 import map、不放宽 CSP”）
+- 现象：G1 报告（`.agents/works/w00017-…/t27-platform-risk-gates/evidences/g1/REPORT.md` 与 `changes.diff`）验证的做法 2 是：宿主 `document.createElement("script")`、`script.src = url`，产物自带“登记工厂”包装，宿主模块表提供 `register / materialize / unregister / require`；验证项 ①到⑤（含 Chromium 与 Electron 上的代码回收、WebKitGTK 的载入）都基于这条路径。计划改成 `fetch` 取文本再 `new Function`，并且去掉“只登记工厂”。这几处替换在计划里只被当作“省去两步”的小改，实际换掉了被验证的载入机制：
+  1. `new Function` 属于 `unsafe-eval`。现在主页面确实没有 CSP（`grep -rn "Content-Security-Policy" packages/neuro-book/src` 只命中文件原始路由与 HTML 预览），但 G1 报告第 139 行记着 Tauri 配置里 CSP 含 `'unsafe-inline'`，桌面端将来会收紧。`<script src>` 同源加载只需要 `script-src 'self'`。计划的结论“不需要放宽什么”只对今天的网页成立。
+  2. 调试体验：`<script src>` 在开发者工具里有真实文件名与行号，source map 正常；`new Function` 的栈帧是 `<anonymous>:1:…`（从代码推断，浏览器内未实测），见下一条。
+  3. 回收证据：G1 的堆快照回收结论（Chromium、Electron）是在脚本标签加载加登记工厂的路径上取得的；`new Function` 创建的函数对象与源字符串的保留关系没有验证。计划自己把“代码回收”推到 S5 且不验证，但等 S5 才发现 `new Function` 路径回收不了会返工装载器。
+- 如何核实：读 G1 `REPORT.md` 第 44–50、154–165 行与 `evidences/g1/changes.diff` 中 `script.src = url` 一段（第 264–275 行）。
+- 建议：二选一，并在 Spec 的“浏览器装载”里写明：(a) 保持 G1 验证的路径：加载器用一次性 `<script src>`，产物外壳调用宿主给的一次性登记函数（不必是全局长驻名字，可用带随机后缀的临时全局，加载完即删），`Function` 构造体完全不用；或 (b) 保留 `new Function`，但把“CSP 需要 `unsafe-eval`”与“回收路径未验证”写进 Spec 的限制和 S5 的前置验证，并在执行体末尾加 `//# sourceURL=` 与 `//# sourceMappingURL=`。无论哪种，都要改 Spec 输出 2 的措辞，因为它现在写的是“执行后只登记工厂”，计划里的“Spec 改动”只讲了这一条，没有讲载入方式。
+
+### 7. 浏览器装载失败的类别、错误信息、缓存与重试语义没有定，作者看到的会是 `Unexpected token '<'`
+
+- 严重程度：重要；类别：正确性 / 文档
+- 位置：计划“浏览器装载”（`loadEntry`：“同一窗口里同一插件同一版本的同一文件只执行一次”；“装载失败只让这个入口激活失败，原位显示”）
+- 现象与推断（读 `src/plugins/settings/web/sections.ts`、`window-plugins.ts`）：
+  1. 失败信息：设置窗口对入口失败只显示 `entryReason(state)` = `failure.error.message`，重试按钮走 `window.plugins.retry` = `recover` 加再次 `activate`。计划只给出 `module-not-shared` 一个浏览器侧的错误码；服务端那一节写了“原因带插件 id、入口 id 与错误码”，浏览器一节没有。没有对 `fetch` 结果做 `res.ok`／内容类型检查的描述：端点 404 时如果回的是 JSON 或 SPA 回退页，`new Function(html)` 抛出的是 `SyntaxError: Unexpected token '<'`，设置页原位显示的就是这句，作者无从判断是路径、版本还是构建错。
+  2. 栈与源：`new Function` 里抛的错，浏览器栈帧是 `eval at …` 加 `<anonymous>`，没有 `sourceURL` 就看不到文件，同一页里多个插件的栈互相区分不了（从代码推断，未在浏览器实测）。
+  3. 缓存与重试：计划说“同一文件只执行一次”，没说失败是否进缓存。若缓存的是 Promise，取回失败或顶层抛错就永久失败，重试按钮（`retry` 只重新调 `activate`）无效，用户只能刷新；若只缓存成功，要写明“语法错误、顶层抛错”这类确定性失败每次重试都会重新取回并重新执行（顶层抛错的代码可能已有半截副作用，如 `require` 已经成功的模块表项或已加入的样式）。
+  4. 导出不对（没有 `entry`、`entry.id`/`location` 与清单不符、缺 `activate` 又声明了提供项）的错误形态，计划只在服务端一节提到，浏览器一节没有。
+- 建议：浏览器装载定义一组结构化原因（例如 `code-fetch-failed`〔含 HTTP 状态〕、`code-syntax`、`code-threw`、`code-shape`、`module-not-shared`），每个都带插件 id、入口 id、文件 URL；`fetch` 先检查 `res.ok` 与 `content-type`；只缓存成功的求值结果，失败的每次重试重新来过；执行体末尾追加 `//# sourceURL=nbook-plugin://<插件 id>/<版本>/<main>`，构建预设顺带产出 `.map` 并放进文件端点（Vite 的 `build.sourcemap: true`）；验收映射里“表外模块”那一行扩成这张表，用真实服务端与一个故意写坏的构建产物逐类验证。
+
+### 8. SDK 包的形状：与应用互相依赖成环，源码再导出让仓库外的作者拿不到类型
+
+- 严重程度：重要；类别：接口形状
+- 位置：计划“SDK”（`src/sdk/index.ts`、`src/sdk/web.ts` 加新包 `@notnotype/nb-plugin-sdk`“根入口与 `/web` 再导出 `@notnotype/neuro-book/sdk`、`/sdk/web`”）、“示例迁移”（示例“只从 `@notnotype/nb-plugin-sdk` 导入”）
+- 现象：
+  1. 依赖成环：`nb-plugin-sdk` 依赖 `@notnotype/neuro-book`（再导出），示例在 `packages/neuro-book/examples/` 里又导入 `@notnotype/nb-plugin-sdk`（neuro-book 要在 `devDependencies` 里依赖它），构建预设里的“定义 → 清单”转换还要被 neuro-book 的 `builtin-manifest.test.ts` 调用。`docs/modules/monorepo-boundaries.md` 的依赖方向图是“内核 ← 内置插件 ← 宿主”，并明说“共享……只有在不会形成反向环时才下沉”。而且 `plugin-api.md` 术语写的是“SDK：一个只含类型与少量纯函数的包，不依赖宿主内部模块”，“内置插件的合同模块由 SDK 提供”：方向是 SDK 在下、宿主在上，计划的方向反了。
+  2. 仓库外拿不到类型：SDK 包的出口指向应用的 TS 源码，源码里全是 `nbook/*` 路径别名（`tsconfig` 的 `paths`）、`.vue` 文件与 `workspace:*` 依赖。我做了最小实验（`/tmp/review-t04-design-sonnet/ts1`）：消费方项目从 `node_modules/@notnotype/sdk/index.ts` 导入，后者再导出 `nbook/settings`，`tsc --noEmit` 报 `TS2307: Cannot find module 'nbook/settings'`（`paths` 取消费方的，不取包自己的）。所以“作者在仓库外”靠这个包写不了带类型的插件；计划里没有任何生成声明文件的步骤，t05 的“作者文档”也无法补救。开发者确认的是“SDK 暂不发布到 npm”，没有确认“只能在 monorepo 里写插件”。
+  3. 出口数量多：app 的 `./sdk`、`./sdk/web`，SDK 包的根、`/web`、`/build`，宿主模块表里的 `@notnotype/nb-plugin-sdk`（对应 `nbook/sdk`）、`@notnotype/nb-plugin-sdk/web`，五个具名出口说同一件事，兼容承诺面是它们的并集。
+- 建议：
+  - 把边界画干净：SDK 包是叶子（不依赖应用）。应用的 `src/sdk` 不再各自再导出一次，而是示例与测试在仓库内通过 `paths`／Vite alias 把 `@notnotype/nb-plugin-sdk` 解析到 `packages/neuro-book/src/sdk/index.ts`（与现在 `nbook/*` 的做法同一机制），包本身只留 `/build` 与对外发布时由声明文件打包出的类型。这样没有环，也不必让 neuro-book 依赖自己的 SDK。
+  - 现在就决定类型怎么出：用 `tsdown`／`vite-plugin-dts` 之类把 `src/sdk` 的声明打平成一份自包含的 `.d.ts`（`nbook/*` 在打包时展开，`.vue` 的类型用 `DefineComponent` 描述），哪怕包仍是 `private`、先在仓库内当 `file:` 依赖用。验收映射加一行：一个仓库外目录里 `tsc --noEmit` 通过 snippets 的类型检查。
+  - 配套登记（计划没提）：`src/architecture.test.ts` 对示例的导入规则要放行 `@notnotype/nb-plugin-sdk`；`tsconfig.json`、`tsconfig.web.json` 的 `include` 要加 `src/sdk`；`package.json` 现在没有 `exports` 字段，加上之后包内深路径导入的约束就变了，先确认没有人用 `@notnotype/neuro-book/…`（我 grep 过，非旧包里只有 `neuro-book-contracts` 与治理脚本里的包名字符串）。
+
+### 9. clock 依赖的 `hostClockKey`（`example/clock`）只有示例场地提供，外置安装后在真实服务端里入口直接受阻；SDK 导出清单里也没有产品的宿主能力键
+
+- 严重程度：重要；类别：正确性 / 接口形状
+- 位置：计划“示例迁移”（S3b：clock、notes、counter 外置，“e2e：浏览器经远程服务调用服务端入口、命令可执行”）、“SDK”（第一版导出清单）
+- 现象：`examples/plugins/clock/backend/plugin.ts:19,57` 的 `dependencies: [{key: hostClockKey}]`，键来自 `examples/shared/host.ts`，id 是 `example/clock`，实现只由 `examples/testing/stage.ts:119` 的 `capabilities.push({id: "host.clock", key: hostClockKey, …})` 给出。产品服务端 `src/server/start.ts:306-308` 给的是 `nbook/state-root`、`nbook/clock`（`clockKey`，`RuntimeClock`）等，没有 `example/clock`。示例 README 与场景 01 把这当成教学点（“宿主不给某项能力时依赖它的入口受阻”）。迁移成外置、真实安装之后，clock 的服务端入口会以 `missing-service: example/clock` 受阻，S3b 的 e2e（浏览器调用远程服务、命令可执行）在 notes 可选依赖 clock 的路径上走不通；这是静默的，因为 notes 对 clock 是可选依赖，缺了只是少了时间戳。
+- 同时：计划的 SDK 导出清单没有任何宿主能力键（`clockKey`、`stateRootKey`、`windowNavigationKey`、`projectsKey`、`currentProjectKey` 都在 `src/shared/host.ts`／`projects.ts`）。外置插件要用时钟、状态根、当前项目，就只能导入宿主内部路径（`plugin-api.md` 明说这样写的插件不受兼容承诺保护）。`RuntimeClock` 与示例的 `HostClock`（`now`、`schedule`）形状也不同，clock 的实现要改。
+- 如何核实：`grep -rn "hostClockKey" packages/neuro-book`；读 `src/server/start.ts:300-312` 与 `examples/testing/stage.ts:110-125`。
+- 建议：计划里明确 clock 迁移的做法——改为依赖产品的 `clockKey` 并导出进 SDK（同时把 `RuntimeClock` 类型导出），或把 clock 从“验收载体”换成不依赖宿主能力的例子；场景 01 的“宿主不给能力则受阻”改用测试内一次性的能力键演示。SDK 清单加一栏“宿主能力”，逐项审查哪些能对外承诺（时钟、状态根可以；窗口导航、救援之类偏内部）。S3b 的 e2e 要断言 clock 入口状态为已激活，而不只是 notes 能用。
+
+### 10. 升级确认框的“受阻依赖插件”：算法只扫 `pluginVersions`，与内核真正的受阻推导不一致；确认框怎么列也没定
+
+- 严重程度：重要；类别：正确性 / 接口形状
+- 位置：计划“升级确认框列出受阻的依赖插件”（“`inspect` 的预览加 `blocked`：已安装、启用的第三方插件里，`pluginVersions` 不接受新版本的那些插件 id；确认框列出它们并说明重启后受阻”）；对照 `docs/specs/runtime/plugin-install.md` 输出 8.1 与 `plugin-manifest.md` 输出 3
+- 现象：
+  1. 判定口径：`pluginVersions` “只约束版本，是否必需由各入口的 `requires` 决定”（plugin-manifest 输入表）。受阻是按入口算的：C 的 `pluginVersions` 里有 B，但 C 对 B 只有 `optional` 依赖，或根本没有入口依赖 B 提供的服务，升级 B 后 C 并不受阻。只扫 `pluginVersions` 会误报；反过来 D 必需依赖 C（`provider-blocked`）时，传递受阻的 D 不会出现在列表里。部分入口受阻（plugin-manifest 输出 4）的插件也被写成“重启后受阻”，用词过重。
+  2. 判定所用的集合：说明里写“已安装、启用的”，但要的是重启后实际生效的集合：待禁用、待卸载的 C 不会再运行，不该列出；C 自己有待切换版本（`pendingVersion`，`record.ts:33`）时应取待切换版本的清单里的 `pluginVersions`。
+  3. 数据来源：`inventory.ts` 的 `prepare`/`inspect` 现在只读登记表和待安装目录的清单（`inventory.ts:190-196`），不读其它已安装插件的清单；要判定就要读每个已安装插件版本目录的 `package.json`，这是新增的 I/O 与失败路径（某个已安装插件清单读不出来时 inspect 怎么办），计划没提。
+  4. 合同形状：`InstallPreviewSchema` 是 `additionalProperties: false`，`blocked` 的元素是否只有 id？确认框要说“为什么”（哪个依赖、要求什么范围、新版本是多少）才有用，建议元素带 `{plugin, range}`，只给 id 的话用户看不出该怎么办。
+  5. 界面：t03 的确认框现在是“标题、主体行、降级警告、信任提示、路径”（`PluginsPage.vue:375-392`），降级警告用 `plugins-page__dialog-warning`。受阻列表放在哪个位置、用不用同一个警告样式、列表很长时是否折叠、是否保持“确认”可点（Spec 是“确认后继续，只是说明”，不是阻止）、英文文案，计划都没写；`data-*` 钩子（e2e 要断言）也没定。
+  6. 一致性：卸载与禁用的后果相同（依赖者以 `missing-service` 受阻，plugin-install 输出 3、4），但现在卸载确认只讲数据，禁用是开关直接生效，没有列依赖者。若升级框列了而卸载框不列，用户会得到互相矛盾的预期。
+- 建议：
+  - 用内核的推导，而不是自己扫字段：把“重启后的有效集合”（登记表加待生效变更，用待切换版本的清单）喂给 `nb-runtime` 已有的目录推导（或抽出同一个纯函数），拿“新版本替换后新增的受阻入口”与插件级汇总，传递受阻一并给出。这样口径与重启后的实际一致，也顺带实现了 `version-mismatch` 的验收（plugin-install 验收 6）。
+  - `blocked` 元素定为 `{plugin, entries: [...], reason: "version-mismatch" | "provider-blocked", range?}`，界面用“这些插件的这些入口重启后将不可用”。
+  - 同一个函数给卸载、禁用的确认复用（至少给卸载确认，禁用若不加确认则在列表里加一行提示），否则在 Spec 里写明这两处不列。
+
+### 11. 装载实现后“部分功能暂不可用”徽标与 `entries-not-loaded` 码成了过期信息，计划没有收尾；插件页也没有地方看到入口激活失败
+
+- 严重程度：建议；类别：正确性 / 文档
+- 位置：计划“升级确认框……插件页”“Spec 与文档改动”；`src/backend/plugins/startup.ts:244`（`entries-not-loaded`，细节“入口代码的装载尚未实现”）、`src/plugins/plugins/shared/contracts.ts:26-31`（`NotLoadedSchema`）、`PluginsPage.vue:67,347`（徽标）、`src/plugins/lab/web/fixtures/PluginsPageFixture.vue`、`src/backend/plugins/plugins.test.ts`
+- 现象：t03 为“有入口、代码还没装载”的插件加了这个码和徽标。t04 之后所有入口都会被装载，徽标在每个带入口的第三方插件上都变成错误信息；`startup.ts:111` 还会对每个这样的插件记一条 `plugins.startup.not-loaded` 警告。计划的 Spec 与文档改动、切片里都没有清理这些，Lab 夹具、后端测试也在引用该码。
+- 另外：plugin-manifest 输出 6 要求“插件管理界面列出每个受阻入口缺少的服务，以及各窗口中浏览器入口的失败（按窗口分开显示）”。t04 让入口激活可能真的失败（取回失败、`remote-contract-mismatch`、执行抛错），但失败只在设置窗口、工作台视图处各自显示；插件页没有任何入口状态。作者在插件页看到“已启用、无异常”而功能缺失。这一项可以明确推迟，但要在计划“不做”里写出来并指向后续 Task，否则 Spec 输出 6 在 t04 结束后仍是缺口。
+- 建议：S3b 加一步：删除 `entries-not-loaded`（契约、启动、徽标、夹具、测试一并），或把它改成真实的“入口状态”字段；在“不做与风险”里写明插件页入口状态的去向。
+
+### 12. 取回代码的 `fetch` 没有超时与中止：内核激活本身没有期限，卡住的取回让设置分区永远停在“正在等待启动”
+
+- 严重程度：建议；类别：正确性
+- 位置：计划“浏览器装载”（`loadEntry`：`fetch` 文件端点）
+- 现象：`nb-runtime/src/plugins/host.ts` 的激活只有 `acquire: () => record.definition.activate(context)`（约 1057 行），没有期限；`context.signal`（入口停止信号，约 563、1024 行）只在停止时触发。`SettingsSectionRegistry.delivery` 对“已触发激活、尚未成功也未失败”的入口只给 `declared`，设置窗口显示等待态，不提供重试（重试只在 `entry-failed` 状态）。回环上的服务端被挂起、或插件文件很大又被限速时，用户看到的是无限等待，作者无从区分。取回用的 `fetch` 若不接 `context.signal`，窗口关闭或入口停止后请求和后续 `new Function` 仍会继续。
+- 建议：`fetch` 接 `AbortSignal.any([context.signal, AbortSignal.timeout(N)])`，N 取一个明确的上限（回环服务，例如 30 秒），超时记为 `code-fetch-failed`（见第 7 条）进入失败态，设置窗口原位显示并可重试；`new Function` 之前再检查一次 `signal.aborted`，已停止就不执行。
+
+### 13. 带版本号的 URL 长期缓存与“卸载、重启后同版本重装”的既定流程冲突，开发迭代会拿到旧代码
+
+- 严重程度：重要；类别：正确性
+- 位置：计划“插件文件端点”（“带版本号的 URL 可以长期缓存”）、“浏览器装载”；`docs/specs/runtime/plugin-install.md` 第 40 行与错误码 `already-installed`
+- 现象：同一 id 同一版本重装被拒绝（“开发者需要提高版本号，或先卸载、重启后再安装”）。作者改了代码、不改版本、卸载加重启加重装之后，URL 与上一次完全相同，端点又带长期缓存头，浏览器直接用缓存里的旧 `main.js` 与 `style.css`（`fetch` 默认走 HTTP 缓存）。表现是“重装没有效果”，且没有任何报错。服务端侧用 `?generation=` 避开了模块缓存，浏览器侧没有对应物。
+- 建议：端点对 JS、CSS 不发长期缓存，回环上每次带 `ETag`（内容哈希）校验即可，成本可以忽略；或在 URL 里加一个随安装变化的片段（登记表里的安装时间戳或版本目录内容哈希），而不是只靠版本号。无论哪种，把“同版本重装拿到新代码”写成端点测试的一条（真实请求，两次安装之间改文件内容）。
+
+### 14. 宿主模块表只含 `@notnotype/nb-ui/components`：真实插件最先要的通知、布局等入口没有出路，不在表里的 nb-ui 入口要么构建失败、要么静默打进第二份
+
+- 严重程度：重要；类别：接口形状 / 正确性
+- 位置：计划“浏览器装载”（模块表四项）、“构建预设”（纯度检查）、`plugin-code-loading.md` 边界与兼容（“第一版只共享 `@notnotype/nb-ui/components`”）
+- 现象：应用自己对 nb-ui 的使用分布（`grep` 统计）：`components` 111 次、`layout` 22 次、`theme` 9、`colorway` 7、`composables` 6、`notifications` 3。nb-ui 有模块级单例状态：`useNotification.ts:159` 的 `const defaultQueue = createNotificationQueue()`，`useModalLayer.ts:12` 的 `openLayers`，`useTeleportTarget.ts` 的 `Symbol("nb-teleport-target")` 注入键。插件若 `import {useNotification} from "@notnotype/nb-ui/notifications"` 而该入口不在外部列表里：
+  - 构建预设按计划应当由纯度检查拦下并报“打进了 nb-ui”，但作者只会看到一个没有出路的失败（Spec 只说“其余入口按需增加”，没有告诉作者现在该怎么办）；
+  - 如果纯度检查只识别 `@notnotype/nb-ui/components`，则 `composables`／`notifications` 会被打包成第二份：通知发进插件自带的队列，宿主的通知栈永远看不到，没有报错；注入键 Symbol 不同则 `provideTeleportTarget` 对插件自带的浮层无效。
+- 另外 `@notnotype/nb-ui/layout`（Splitter、ScrollArea 等布局组件是 `components` 之外的路径）与 `SettingsPageContext.options` 对应的 `@notnotype/nb-form/vue`（`SchemaForm`、`SchemaField`），这两个是写非平凡页面的作者几乎必用的。nb-form 若由插件自己打包，它的 CSS 与 `provide/inject` 键各自一份，页面内部自洽，可以工作；但 nb-form 的 Vue 层依赖 `@notnotype/nb-ui/components`，打包时这个导入必须保持外部，计划的外部列表里写了，要确认构建预设是按“导入说明符”而不是按“包”判断外部。
+- 实现上的细节：计划说模块表“建立并冻结”。对 ESM 命名空间对象直接 `Object.freeze` 会抛错（Bun 1.4.2 与 Node 都实测：`Cannot change module namespace object's binding to non-writable attribute`），要先 `{...ns}` 复制再冻结；`default` 导出与 CommonJS 互操作（Rolldown 产出的 `__toESM`）也要在表里按真实产物测一次，别只测命名导入。
+- 建议：
+  1. 第一版模块表里把 nb-ui 的 `composables`、`notifications`、`layout` 和 `@vue/reactivity`（见第 4 条）一并列入并逐项审查承诺面；或者在 Spec 与作者文档里明确“当前不支持，等 t05”，并让纯度检查的错误信息直接给出“该入口未共享，请参见 …”而不是只说“打进了 nb-ui”。
+  2. 模块表单元测试里加“身份探针”（G1 的做法）：`require("vue") === 宿主的 vue`、`require("@notnotype/nb-ui/components").Button === 宿主的 Button`，不要只测行为；行为测试对第二份 Vue 有时能碰巧通过。
+  3. 在 S2c 的构建测试里写三个反例（打包 Vue、`@vue/reactivity`、nb-ui 的任一未共享入口）和一个正例（打包 typebox 正常；TypeBox 1.3.6 的模式对象是纯 JSON，没有 Symbol，宿主 `Value.Check` 可校验插件那份的产物，我用同一包加载两次实测过）。
+
+### 15. 插件样式面（CSS 变量、层级、作用域）没有合同：示例已经在用内部 token，且插件的无层样式压过宿主所有分层规则
+
+- 严重程度：建议；类别：接口形状 / 文档
+- 位置：计划“浏览器装载”（样式装载）、“构建预设”（CSS 汇总）、“示例迁移”（snippets 的 `<style scoped>`）；`docs/specs/runtime/plugin-code-loading.md`（只写“插件的样式由装载器加入页面”）
+- 现象：
+  1. `SnippetsPage.vue` 的样式用了 `var(--space-4)`、`var(--text-xs)`、`var(--leading-ui)`、`var(--status-danger)`，来自 nb-ui 的 `tokens.css`／`theme.css`。nb-ui 文档里的“配色契约”（`design-language.md` 约 485、494 行）是宿主内部设计语言，没有说哪些变量对第三方插件承诺稳定；`--space-4: 8px` 这类名字与取值的对应也不直观，改名就是破坏兼容。一旦示例在教学代码里用了，就等于承诺了，计划没有把它列进 `engines.neurobook` 的兼容范围。
+  2. 层级：宿主所有规则都在 `@layer theme, base, components, utilities` 里（`src/web/tailwind.css`、`nb-ui/src/tailwind.css` 头注释说明了原因：无层规则压过所有分层声明）。插件的 `style.css` 由 `<link>` 加入，无层，所以插件的任意全局规则（没有 `scoped` 的 `.row { display: flex }`、`button { … }`）都会压过宿主的 nb-ui 原子类与组件样式，波及宿主界面；`<style scoped>` 才是安全的。这条约束作者拿不到，构建预设也不检查。
+  3. 作用域 id：`@vitejs/plugin-vue` 的 `data-v-xxxx` 在生产构建里由路径与内容生成（我构建的样例里是 `5e76a6fb`）；两个插件若有相同相对路径、相同内容的 SFC 会得到同一个 id，样式互相命中。概率很低，不要求处理，写进文档即可。
+- 建议：Spec 与作者文档写一段“插件样式面”：(a) 只承诺列出的一组 token（从 nb-ui 现有 token 里挑最小集合，示例只用这些）；(b) 插件 CSS 必须是 scoped 或以插件专属类名前缀开头，构建预设对无作用域的元素选择器（`button {}`、`:root {}`、`body {}`）告警；(c) 可选：预设把插件 CSS 包进 `@layer components`，使其与宿主语义类同层，原子类仍能压过它，这样“传一个原子类覆盖插件组件的样式”这个宿主已有的惯例对插件也成立。(c) 是接口形状的取舍，建议交开发者定。
+
+### 16. SDK 导出清单：平铺命名空间抹掉了所有者信息，Spec 承诺的页面组件只给了四分之一，名字与分界还没到可以对外承诺的程度
+
+- 严重程度：重要；类别：接口形状
+- 位置：计划“SDK”（导出清单与 `sdk` / `sdk/web` 的划分）；`docs/specs/settings/settings-window.md` “给页面用的组件”；`docs/adr/0026` 第 2 条
+- 现象与问题：
+  1. 平铺丢信息：现在示例的导入路径本身在教学（`nbook/plugins/settings/shared/contracts` = `nbook.settings` 拥有的合同模块，ADR 0026 的“只引用对方公开的 `shared/contracts`”）。改成 `from "@notnotype/nb-plugin-sdk"` 后，内核 API（`defineEntry`）、五个内置插件的合同（设置、存储、命令、状态、本地化）和工具函数混在一个命名空间里，作者看不出哪些名字属于哪个插件、跟哪个插件的版本走。清单预计十几个名字，到 t05 加 menu、file-menu 与 Agent 之类只会更多。
+  2. Spec 承诺的页面组件：`settings-window.md` 列了四个“宿主与插件共用”的页面组件（`SettingsRow`、`SettingsPageList`、`SettingsPageActions`、`SettingsSaveBar`，各带同名文档）。计划的 `sdk/web` 只有 `SettingsRow`。需要“保存栏加页面级操作”的表单式设置页（`SettingsPageContext.dirty` 就是为它设计的）写不了，只能复制这些组件，复制出来的 `SettingsPageActions` 依赖窗口注入的传送目标，不会工作。要么全进，要么在计划里列“推迟的三个及其理由”。
+  3. 命名：`sdk/web` 与运行位置名 `browser`（入口里写 `location: "browser"`）不一致，`web` 是宿主源码的目录名；对外的子路径应跟作者要写的词一致，建议 `/browser`（这个名字一旦发布就改不了）。`settingsPage()` 是“把页面组件包成实现”的函数，与 `SettingsPageDeclaration`、`SettingsPageContext`、`settings.pages` 贡献点并列，很容易与类型混淆；`SETTINGS_PAGES_POINT`、`settingsPageEvent(id)` 要求作者在三处写同一个分区 id（贡献声明、激活事件、实现的键）并拼出 `{capability, id, declaration}`，其中 `declaration` 的类型是 `unknown`（`nb-runtime/src/plugins/contracts.ts:25`），snippets 靠手写的 `const SECTION: SettingsPageDeclaration` 才有类型检查，字段写错（如 `layout: "colum"`）只在运行时被内核按单条拒绝，分区静默不出现。
+  4. 没有钉住导出面的测试：计划自己写“每导出一项都进入兼容范围”“只导出示例真正用到的，迁移示例时逐项加”，但没有一条验收把导出清单固定下来（名字、类型是否成对），增删都不会让任何测试失败。
+  5. 类型与值成对：示例用到而计划清单没写的类型至少有 `PluginDefinition`、`PluginDescriptor`、`ServiceKey`、`RemoteResult`、`RemoteSink`、`RecordHandle`、`DisplayLocale`（`grep` 示例导入得到）；作者写 `plugin.ts` 必须用 `PluginDescriptor`。
+- 如何核实：`grep -rhn 'from "@notnotype/nb-runtime\|from "nbook/' packages/neuro-book/examples/plugins` 对照计划清单；读 `settings-window.md` 第 128–135 行；读 `snippets/web/plugin.ts` 的导入与 `SECTION`。
+- 建议：
+  - 导出按所有者分子路径，与插件 id 对应：`@notnotype/nb-plugin-sdk`（内核与通用）、`/settings`、`/storage`、`/commands`、`/state`（以及 `/browser` 放需要 Vue／DOM 的）。模块表用前缀规则解析这些说明符；每个子路径各自是一份兼容承诺，t05 加内置插件时只增子路径。
+  - 提供一个 `settingsPageEntry`／`settingsPageContribution({id, declaration, settings, load})` 之类的助手，一次产出 `contributions` 项、激活事件与实现，声明用 `SettingsPageDeclaration` 类型化；比起暴露常量加函数三件套，教学代码更短，也更不易写错。
+  - 加一条 API 面测试：用 TypeScript compiler API 或 `bun build --target` 列出 SDK 入口的导出名，与仓库内的快照比较；快照变化要在提交里显式更新。
+  - 页面组件四个一起进，或明确推迟清单。
+
+### 17. 浏览器侧“同一文件只执行一次”与服务端的“新代次新实例”规则不一致，窗口内重试或依赖恢复后会复用上一代的模块顶层状态
+
+- 严重程度：建议；类别：不变量
+- 位置：计划“浏览器装载”（`loadEntry`：“同一窗口里同一插件同一版本的同一文件只执行一次”）对照“服务端与项目实例的装载”（`?generation=<n>` 每次激活递增）；Spec `plugin-code-loading.md` 输出 1 与状态表（“同一入口停止后再次激活：执行一份新的模块实例，不复用旧实例”）
+- 现象：本 Task 不做热插拔，但内核在不重启的情况下仍会让同一入口激活多次：激活失败后用户点“重试”（`window-plugins.ts:retry` = `recover` + `activate`），或依赖的提供入口先失败后恢复，使受阻的入口回到已登记、代次加一（plugin-manifest 状态表“受阻 → 已登记，代次加一”）。服务端每次激活执行新的模块实例；浏览器计划是缓存已执行的模块，再次激活复用它：模块顶层的 `let`、`Map`、事件监听（上一代停止时作用域登记的会撤回，顶层直接挂的不会）、半截初始化都会带进新一代。Spec 用“新代次新实例”是为了让入口的停止与重启可以互相隔离；两侧规则不同，作者在服务端测得对的代码，到浏览器里换了行为。
+- 建议：缓存取回的源码文本（按 URL），不缓存执行结果；每次激活都 `new Function` 一次，成本是一次解析，且与服务端规则一致。“只执行一次”留给 S5 引入模块表注销时再按 Spec 的回收语义设计。同时 Spec 状态表的“浏览器：工厂已登记”一行随之改写。
+
+### 18. 验收映射的缺口：按需激活的“不取代码”、错误边界的样例、浏览器装载的反例与开发模式都没有对应的测试
+
+- 严重程度：重要；类别：测试
+- 位置：计划“验收映射”“切片”“验证”；`docs/specs/runtime/plugin-code-loading.md` 验收 1、3、9；`docs/specs/settings/settings-window.md` 输出 4、5
+- 现象与缺口：
+  1. 按需激活是本次更新计划的核心（“第一次显示分区时 `onSettingsPage` 触发激活，此时才取回并执行代码”），验收只写“设置页出现并可用”。要证明“不执行插件代码就能列出分区”，e2e 必须断言：窗口启动后、打开该分区之前，没有对 `/api/plugins/<id>/files/…` 的请求（Playwright 的 `page.on("request")` 计数为 0）；打开后恰好一次；关闭再打开不再取。没有这条，装载器即使在窗口启动时就预取也能通过。
+  2. 失败路径没有验收：计划强调“取回失败、执行抛错、导出不对”各自的显示（设置窗口原位显示、可重试），验收映射里只有“`require('lodash')` 的样例入口”一项。应补：端点返回 404（版本目录被删）、产物语法错误、顶层抛错、`entry` 导出缺失，各一个故意写坏的构建产物，在真实服务端上断言设置窗口的失败文字与“重试”之后的恢复（第 7、17 条）。
+  3. 样例没有出处：“`require('lodash')` 的样例入口”“样例视图渲染时抛错”（输出 9）不属于 snippets、clock、notes、counter 中任何一个，四个示例也没有一个工作台视图贡献（menu、file-menu 留给 t05）。这些样例由谁写、放在哪（`examples/` 会被当作教学示例，`e2e/fixtures` 下需要构建步骤）、怎么在 e2e 前构建，计划没有写；“样例视图”若指设置页，则要明说用 `SettingsPageFrame` 的渲染错误路径（`retryPageRender`）验证，否则 Spec 输出 9 的“视图”没有载体。
+  4. 开发模式与生产构建：Spec 验收 1 要求“在开发与生产构建中装载”。现有 `plugins.e2e.ts` 用 `startProductServer`（`dist/server` 加 `dist/web`），没有开发会话版本；开发会话里 Vite 的 `optimizeDeps` 是写死清单（`vite.config.ts`），`vue` 与 `@vue/reactivity` 靠同一份预构建，模块表在这里最容易出同一性问题。至少加一条开发会话下的身份探针冒烟。
+  5. 构建预设的反例：S2c 的“纯度检查能拦下打包 Vue”只有一个反例；见第 4、14 条：`@vue/reactivity`、未共享的 nb-ui 入口、SDK 自己被打包，各一个反例，加“外部引用都在模块表里”的检查。
+  6. 与 Spec 的差异未更新：Task README 的“范围”仍写着“浏览器登记工厂式 CJS”“浏览器装载与注销”“示例外部插件：视图 + 命令 + 服务端远程服务”（README 第 14–21 行），计划已经取消了注销、工厂登记，示例也不含工作台视图；README 与计划互相矛盾，开工前应同步。
+- 建议：验收映射表按上面每项补一行，并为故意写坏的产物准备一个共用的“坏插件”构建夹具（放进 e2e 夹具目录，脚本生成，不进示例）。
+
+### 19. 产物导出整份入口定义 `entry`，装载器却只用它的 `activate`：同一批事实在清单与产物里各有一份，要再写一套一致性核对
+
+- 严重程度：建议；类别：代码质量 / 接口形状
+- 位置：计划“构建预设”（“入口模块导出 `entry`：这个入口的定义（`defineEntry` 的结果）”）、“服务端与项目实例的装载”（“取模块导出的 `entry`，核对它的 id 与位置和清单一致，调用它的 `activate`”）、“SDK”（`entry` 导出约定写进 `plugin-api.md`）
+- 现象：登记阶段的事实（依赖、提供项、贡献声明、激活事件、远程合同）以清单为准，`definitionOf` 只从清单读，唯一从产物取的是 `activate`。产物却导出整份定义，装载器只核对了 id 与位置，`dependencies`、`provides`、`contributions`、`activationEvents` 清单与产物不一致（手写 `package.json`，或只更新了其中一份）时没有人发现：内核按清单的声明核对激活产出，不一致只会变成一个含义不清的激活失败。
+- 对照：VS Code 扩展的 `main` 模块导出 `activate(context)` 函数，清单是声明的唯一来源；Obsidian 的 `main.js` 导出插件类。两者都不让模块重复声明清单里已有的事实。
+- 建议：产物只导出 `activate`（预设生成的外壳 `export const activate = entry.activate`，作者仍然写 `defineEntry` 以获得编译期核对）。装载器的“导出不对”只剩一个判断：`typeof module.exports.activate === "function"`（只含组件、没有初始化逻辑的浏览器入口省略 `activate` 时，预设导出一个空函数，或清单标记无需 `activate`）。同时去掉“核对 id 与位置”这一步，少一条失败路径、少一处要写测试的分支。若坚持导出整份定义，则要补一条“产物声明与清单一致”的检查，放在构建预设里（构建时产物与清单同源，必然一致）而不是装载时。
+
+### 20. 作者的迭代路径：同版本重装要“卸载、重启、安装、再重启”两次重启，没有给开发用的就地加载
+
+- 严重程度：建议；类别：接口形状
+- 位置：计划“验证”（“构建四个示例 → 经插件页安装 → 重启开发服务 → …”）、“不做与风险”；对照 `plugin-install.md` 第 40 行
+- 现象：同版本重装被拒绝，每次改代码要么提高版本号（旧版本目录在重启时删除），要么卸载、重启、安装、再重启。开发者已确认“重启后生效”，这条不再议；但作者每改一行就两次重启加走一遍插件页，计划的验收脚本自己也是这条路。对照：VS Code 的 Extension Development Host（`--extensionDevelopmentPath=<目录>`）就地加载未安装的扩展，Obsidian 把构建产物放进插件目录后只需重载插件。t05 的“脚手架与作者文档”会遇到这个问题，但它依赖本 Task 的端点与装载器形状：端点只服务“登记在案的插件的当前版本目录”，装载器按版本缓存，都没有给“开发就地加载”留位置。
+- 建议：不做热插拔也能给一条开发路径，只需在启动时增加一个环境变量或命令行参数（例如 `NBOOK_DEV_PLUGINS=<目录列表>`），启动集合直接登记这些目录（不复制、不写登记表、不查同版本），文件端点对它们不加缓存头；本 Task 不必实现，但在计划“不做”里写明这是 t05 要做的，并保证第 13 条的缓存修正不挡路。
+
+## 更正（本报告自查，按追加规则放在这里）
+
+- 第 1 条：现有 `e2e/plugins.e2e.ts` 用 `startProductServer`（`dist/server` 加 `NBOOK_WEB_ROOT=dist/web`，即产品构建），不是 e2e 外壳。所以若 S2e 照它的做法写，跑的是缺图标规则的产品构建，用例会通过，是因为它不断言图标渲染，不是因为外壳多了规则。真正“看起来正常”的地方是开发服务（`vite.config.ts` 的 `developmentStyles` 在 serve 时换完整入口）与 `fixture-entry.ts` 加 `dist/e2e/web` 的用例，也就是开发者日常看的地方。第 1 条的结论（产品构建里没有 `.i-lucide-text-quote`、开发与外壳里有）和验证方式不变。严重程度改为“重要”（阻断过重：其余切片可以先走，但分区声明里图标字段的形状要在 S2a、S2c 之前定）。
+- 第 14 条：`@notnotype/nb-ui/layout` 只是工作台布局用的 grid／Splitter 原语（`layout/index.ts` 头注释），不是写一般页面必用的入口，“几乎必用”只对 `@notnotype/nb-form/vue` 成立。
+- 第 16 条第 2 点：复制出来的 `SettingsPageActions` 在没有窗口的 `page-chrome` 注入时是退化为原位渲染（`usePageChrome()` 返回 null 时 `Teleport` 被 `disabled`），不是“不会工作”；而且作者拿不到这些组件的源码，复制本来就不可行。
+- 我曾推测“SDK 的 `web` 再导出含 `.vue` 会让 Bun 场景测试无法导入”，实测 Bun 把 `.vue` 当文件资源（导入得到路径字符串），不报错，已不作为问题。
+
+## 未发现问题的方面
+
+- 按需激活链成立：窗口不执行插件代码就能列出 `settings.pages` 分区（目录来自内核已接受的声明，`sections.ts` 注释与构造函数）；第一次显示分区时 `source.activate(id)` 经 `activationEvents` 核对后触发 `onSettingsPage:<id>`；入口激活失败时 `delivery` 给出 `entry-failed`，设置窗口与工作台 `WorkbenchViewFrame` 都有“失败原因加重试”。依赖的机制存在，只是失败类别与重试语义要补（第 7、12、17 条）。
+- `nbook.http` 的开发代理：`/api` 整体由监督进程代理到后端（`dev/frontend.ts:33`），文件端点在开发与生产路径一致。
+- TypeBox 1.3.6 的模式对象是纯 JSON（实测无 Symbol，两份拷贝互相 `Value.Check` 通过），插件自带 typebox 是安全的，不必进模块表。
+- Vite 8（Rolldown）库模式下 CJS 产物经 `new Function("module","exports","require",code)` 可执行，`.vue` 单文件组件（含 scoped 样式）编译为 `style.css` 加 JS，资产在库模式下被内联，没有相对 URL 问题。
+- nb-ui 的单例与注入键（通知队列、模态层、传送目标）确实需要共享同一份（第 14 条的前提成立），计划把 `@notnotype/nb-ui/components` 放进模块表的方向正确。
+- 示例对 `SettingsRow`、`settingsPage` 的用法与 `SettingsRow.md`／Spec 描述一致，迁移前后的行为合同不变。
+
+## 汇总
+
+- 发现共 20 条（按更正后的严重程度）：阻断 0，重要 14，建议 6。
+- 重要：第 1、2、3、4、5、6、7、8、9、10、13、14、16、18 条。
+- 建议：第 11、12、15、17、19、20 条。
+- 最严重的几条：第 1 条（插件的原子类与图标在产品构建里不存在，开发与外壳里却有，会掩盖问题）；第 3 条（删掉 `thirdPartyDefinition` 又不接 `definitionAt`，三处宿主丢顶层贡献，snippets 的配置项首先坏）；第 4 条（`@vue/reactivity` 不在外部列表，counter 迁移后 computed／watch 静默失效，已实验确认）；第 9 条（clock 的 `hostClockKey` 只有示例场地提供，外置后真实服务端里入口受阻）；第 8 条（SDK 包与应用成环，仓库外拿不到类型，已实验确认）；第 6 条（载入机制从 G1 验证过的 `<script src>` 换成未验证的 `fetch` + `new Function`，计划没有声明）。

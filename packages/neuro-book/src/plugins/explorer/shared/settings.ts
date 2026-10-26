@@ -16,7 +16,6 @@ export const EXPLORER_SECTION_DECLARATION: SettingsSectionDeclaration = {
     icon: "i-lucide-files",
     category: "app",
     order: 20,
-    kind: "list",
     groups: [{id: "tree", title: {"zh-CN": "文件树", "en-US": "File Tree"}}],
 };
 

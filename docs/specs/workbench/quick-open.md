@@ -23,7 +23,7 @@ owners:
 
 ## 术语与参与者
 
-- **快速输入（QuickInput）**：nb-ui 的纯受控浮层原语；只呈现宿主给出的候选项与查询，不持有命令注册表、不做匹配与执行决策。
+- **快速输入浮层（nb-ui `QuickPick`）**：nb-ui 的纯受控浮层原语；只呈现宿主给出的候选项与查询，不持有命令注册表、不做匹配与执行决策。
 - **命令模式**：候选来自当前页面的命令表（[`workbench.commands`](commands.md)：产品页是本窗口 `nbook.commands` 的命令表，Lab 命令场景是场景自己的本地命令表）；`>` 前缀在查询中可省略，删除 `>` 不切换模式。
 - **行号模式**：`:` 前缀输入；候选固定为一条「跳转到第 N 行」动作，执行 `nbook.editor.go-to-line`。
 - **选择模式**：由命令发起，没有前缀；候选、标题、占位与空态文案都来自请求；可以允许提交输入的文字本身。结果交回发起它的命令，不经命令表执行。
@@ -41,7 +41,7 @@ owners:
 
 - **打开**：浮层出现在视口顶部居中并自动聚焦输入框；命令模式预填 `>`；行号模式预填 `:`。已打开时重复触发为幂等：不再叠加第二层，只把焦点交回输入框（不重置当前输入）。
 - **过滤**：随输入实时过滤候选，命中片段高亮；无匹配或注册表为空时显示空态说明，不显示占位候选。
-- **排序**：匹配度为主、MRU 为次、同分按命令 id 稳定次序；空查询只按 MRU/id 排序。候选只包含人类可见（`expose.human !== false`）且当前 `when` 满足的 canonical 命令。
+- **排序**：匹配度为主、MRU 为次、同分按命令 id 稳定次序；空查询只按 MRU/id 排序。候选只包含人类可见（`expose.human !== false`）、当前 `when` 满足、不带参数能通过参数校验的 canonical 命令（面板不收集参数，以 `{}` 执行；收不下 `{}` 的命令从面板执行必然失败）。
 - **选择与执行**：方向键移动选中项（跳过禁用项、首尾回绕）；回车执行。命令执行发生在浮层**关闭完成后**（见「关闭与焦点交接」），执行失败由宿主在单一 `role="alert"` 区域呈现一次。
 - **行号模式**：只接受 1 起正整数；当前文档行数在渲染与提交时读取。合法范围显示一条「跳转到第 N 行」，回车执行 `nbook.editor.go-to-line` 并真实移动编辑器光标；非法输入（0、小数、负数、列号、越界、空数字）不产生可提交候选，也不移动光标。活动编辑器在面板打开后被关闭/切换时，行号候选显示失效原因且不可提交，不自动改指向新文档。
 - **选择模式**：工作台向本窗口的插件提供选择服务 `quickPickKey`（`pick(request) → 结果`）。请求给出标题、占位、候选（标签与可选的说明）、空态文案，以及是否允许提交输入的文字。浮层以请求的标题与占位打开（已打开则原位切换并交回焦点），候选按标签与说明子序列匹配、标签命中才高亮，同分保持请求里的次序；允许提交文字且输入非空时，候选末尾多一项提交这段文字。回车得到 `{kind: "item", id}` 或 `{kind: "text", text}`，Escape 或外点得到 `{kind: "cancelled"}`；结果在浮层关闭完成后才交回命令（与执行命令同一交接规则）。选择模式里不做前缀路由；切到命令或行号模式、或又发起一次选择，进行中的那次以 `cancelled` 结算；已经回车选中、只等关闭完成的那次不取消，立即按选中项交回（回车后马上再开面板时选中的一项不会丢）。当前页面没有命令面板时立即得到 `{kind: "unavailable", reason}`。选择模式不记 MRU。
@@ -79,7 +79,7 @@ owners:
 ## 边界与兼容
 
 - **与命令系统**：命令模式的候选、可用性过滤与执行完全来自 `workbench.commands` 的命令服务；本能力不复制命令元数据、不独立维护可用性判定。命令标题按显示语言取声明里的中英文本。行号模式通过 `nbook.editor.go-to-line` 执行，不直接调用编辑器句柄。
-- **与 nb-ui**：浮层由 nb-ui 纯受控 `QuickInput` 原语承载（portal、modal 键盘与焦点合同、`closed` 交接事件）；匹配高亮与键盘导航复用共享设施，不引入第二套选择控件。
+- **与 nb-ui**：浮层由 nb-ui 纯受控 `QuickPick` 原语承载（portal、modal 键盘与焦点合同、`closed` 交接事件）；匹配高亮与键盘导航复用共享设施，不引入第二套选择控件。
 - **与组件 Lab 与产品页**：面板在 Component Lab 的命令场景完成四主题、双配色、390px 与叠层键盘验收；产品 `/` 页由工作台的命令宿主挂着面板（命令模式），行号模式随编辑器插件接入。
 - **键位**：属于命令系统「默认键位」表，本能力不自行注册全局键盘监听。
 
@@ -98,7 +98,7 @@ owners:
 
 已实现（合同测试、组件测试与真实浏览器验收闭合）：
 
-- 原语：`packages/nb-ui/src/components/feedback/QuickInput.vue`（受控 props/emits、S4 层级 `NB_Z_INDEX.commandPalette`、modal 键盘、`closed` 交接）。
+- 原语：`packages/nb-ui/src/components/popup/QuickPick.vue`（受控 props/emits、S4 层级 `NB_Z_INDEX.commandPalette`、modal 键盘、`closed` 交接）。
 - 面板：`packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.vue`（同名 `.md`；查询与匹配、行号模式、等 `closed` 后执行、MRU 回写），只依赖面板宿主与命令服务接口，不知道命令表是哪一份。
 - 面板宿主：`src/plugins/workbench/web/commands/palette-host.ts`（开合、查询、捕获的行号目标、会话 MRU、活动编辑器的接入口；选择模式的 `openPick`、`choosePick` 与关闭完成时结算的 `closed`）；文案中英表 `commands/palette-messages.ts`。
 - 选择服务：合同与服务键 `quickPickKey` 在 `src/plugins/workbench/shared/contracts.ts`，由工作台浏览器入口经页面槽位（`commands/open-commands.ts` 的 `PaletteSlot.quickPick`）提供；候选匹配 `command-query.ts` 的 `searchPickItems`。
@@ -107,7 +107,7 @@ owners:
 
 ## 证据
 
-- 实现入口：[`WorkbenchCommandPalette.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.vue)、[`QuickInput.vue`](../../../packages/nb-ui/src/components/feedback/QuickInput.vue)
-- 合同测试：[`command-query.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/command-query.test.ts)；组件测试 [`WorkbenchCommandPalette.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.dom.test.ts)（场景 2–7，真实 QuickInput；场景 7 随 t54）；原语 [`QuickInput.test.ts`](../../../packages/nb-ui/src/components/feedback/QuickInput.test.ts)
+- 实现入口：[`WorkbenchCommandPalette.vue`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.vue)、[`QuickPick.vue`](../../../packages/nb-ui/src/components/popup/QuickPick.vue)
+- 合同测试：[`command-query.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/commands/command-query.test.ts)；组件测试 [`WorkbenchCommandPalette.dom.test.ts`](../../../packages/neuro-book/src/plugins/workbench/web/components/WorkbenchCommandPalette.dom.test.ts)（场景 2–7，真实 QuickPick；场景 7 随 t54）；原语 [`QuickPick.test.ts`](../../../packages/nb-ui/src/components/popup/QuickPick.test.ts)
 - Smoke：[`e2e/lab-commands.e2e.ts`](../../../packages/neuro-book/e2e/lab-commands.e2e.ts)（场景 1、7，开发会话中的 Lab 命令场景，真实 Chrome）、[`e2e/commands.e2e.ts`](../../../packages/neuro-book/e2e/commands.e2e.ts)（产品 `/` 页）；运行记录见 [w00017 t49](../../../.agents/works/w00017-application-runtime-architecture/tasks/t49-commands-quick-open/README.md)。
 - 批准依据：[`../../proposals/workbench-commands.md`](../../proposals/workbench-commands.md)（2026-09-14 起草，2026-09-18 需求讨论修订）。

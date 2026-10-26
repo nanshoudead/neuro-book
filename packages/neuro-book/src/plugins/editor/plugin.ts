@@ -1,7 +1,23 @@
 import type {PluginDescriptor} from "nbook/manifest";
+import {PRODUCT_VERSION} from "nbook/shared/product";
+
+import {SETTINGS_SECTIONS_POINT} from "nbook/plugins/settings/shared/contracts";
+
+import {breadcrumbsSetting, codeSettingContributions, EDITOR_SECTION, EDITOR_SECTION_DECLARATION, enablePreviewSetting, wrapTabsSetting} from "./shared/settings";
 
 /**
  * 编辑器区（docs/specs/workbench/editor.md）：编辑组与标签、文档模型与两种编辑器。只有浏览器入口，是 `nbook.files` 的
  * 消费者，贡献给工作台的编辑器槽；资源管理器经它的文档协调服务结算未保存的修改。
  */
-export const descriptor: PluginDescriptor = {id: "nbook.editor", version: "0.1.0", locations: ["browser"]};
+export const descriptor: PluginDescriptor = {
+    id: "nbook.editor",
+    version: PRODUCT_VERSION,
+    locations: ["browser"],
+    contributions: [
+        enablePreviewSetting.contribution,
+        wrapTabsSetting.contribution,
+        breadcrumbsSetting.contribution,
+        ...codeSettingContributions,
+        {capability: SETTINGS_SECTIONS_POINT, id: EDITOR_SECTION, declaration: EDITOR_SECTION_DECLARATION},
+    ],
+};

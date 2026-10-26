@@ -1,12 +1,12 @@
 /**
- * 配置项在界面上的文字（docs/specs/settings/settings-window.md 输出 9–12）：选项名、值的一行摘要与生效时机的标注。
- * `SettingsRow` 与设置窗口的通用控件共用，两处写出的同一个值才一致。
+ * 配置项在界面上的文字（docs/specs/settings/settings-window.md 输出 9–12、14）：选项名、值的一行摘要、生效时机的标注与
+ * 写入失败的原因。`SettingsRow`、设置窗口与插件的设置页面共用，几处写出的同一个值、同一种失败才一致。
  */
 
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 import {literalUnionValues} from "nbook/shared/settings";
-import type {SettingApplies, SettingDeclaration, SettingLiteral} from "nbook/shared/settings";
+import type {SettingApplies, SettingDeclaration, SettingLiteral, SettingsFailure} from "nbook/shared/settings";
 
 const TEXT = {
     on: {"zh-CN": "开", "en-US": "On"},
@@ -21,6 +21,30 @@ const APPLIES: Readonly<Record<Exclude<SettingApplies, "now">, LocalizedText>> =
     "restart": {"zh-CN": "重启后生效", "en-US": "Applies after restart"},
 };
 
+const FAILURES = {
+    layerInvalid: {"zh-CN": "设置文件有错误，修好之后才能保存", "en-US": "the settings file has errors; fix it first"},
+    writeFailed: {"zh-CN": "写不进设置文件（{detail}）", "en-US": "could not write the settings file ({detail})"},
+    unavailable: {"zh-CN": "暂时连不上，没有保存", "en-US": "temporarily unreachable; nothing was saved"},
+    invalidValue: {"zh-CN": "这个值不能用（{detail}）", "en-US": "this value cannot be used ({detail})"},
+    unknownOutcome: {"zh-CN": "可能没有保存，以设置文件为准", "en-US": "it may not have been saved; the settings file is authoritative"},
+    conflict: {"zh-CN": "设置文件在别处改过了", "en-US": "the settings file was changed elsewhere"},
+    other: {"zh-CN": "{code}：{detail}", "en-US": "{code}: {detail}"},
+} satisfies Record<string, LocalizedText>;
+
+/** 写入失败的原因，给用户看（输出 14）：常见的几种换成说人话的句子，其余写失败码与详情。 */
+export function settingsFailureText(code: SettingsFailure, detail: string, locale: DisplayLocale): string {
+    const text = (template: LocalizedText): string => localize(formatText(template, {code, detail}), locale);
+    switch (code) {
+        case "layer-invalid": return text(FAILURES.layerInvalid);
+        case "write-failed": return text(FAILURES.writeFailed);
+        case "unavailable": return text(FAILURES.unavailable);
+        case "invalid-value": return text(FAILURES.invalidValue);
+        case "unknown-outcome": return text(FAILURES.unknownOutcome);
+        case "conflict": return text(FAILURES.conflict);
+        default: return text(FAILURES.other);
+    }
+}
+
 /** 摘要的长度上限：一行放得下，超出的部分以省略号结尾。 */
 const SUMMARY_LIMIT = 80;
 
@@ -28,8 +52,10 @@ const SUMMARY_LIMIT = 80;
 export function settingChoices(declaration: SettingDeclaration, locale: DisplayLocale): ReadonlyArray<{readonly value: SettingLiteral; readonly label: string}> | null {
     const literals = literalUnionValues(declaration.schema);
     if (literals === null) return null;
+    // 动态选项（`{from}`）不在这里：它的 schema 是字符串，上面已经返回 null。
+    const named = Array.isArray(declaration.choices) ? declaration.choices : [];
     return literals.map((value) => {
-        const choice = declaration.choices?.find((candidate) => candidate.value === value);
+        const choice = named.find((candidate) => candidate.value === value);
         return {value, label: choice === undefined ? String(value) : localize(choice.title, locale)};
     });
 }

@@ -7,7 +7,7 @@
 import {defineComponent, h} from "vue";
 import type {Component, PropType, Ref} from "vue";
 
-import type {SettingsSectionDeclaration} from "nbook/plugins/settings/shared/contracts";
+import type {SettingsPageDeclaration} from "nbook/plugins/settings/shared/contracts";
 import type {SettingsPageContext} from "nbook/plugins/settings/web/contracts";
 import type {Notifications} from "nbook/plugins/workbench/shared/contracts";
 import {localize} from "nbook/shared/localized-text";
@@ -20,12 +20,11 @@ import type {LibraryInfo} from "./shelf-page";
 
 export const WORKS_SECTION = "nbook.works";
 
-export const WORKS_SECTION_DECLARATION: SettingsSectionDeclaration = {
+export const WORKS_SECTION_DECLARATION: SettingsPageDeclaration = {
     title: {"zh-CN": "作品", "en-US": "Books"},
     icon: "i-lucide-library",
     category: "app",
     order: 30,
-    kind: "page",
     layout: "column",
     // 作品目录只允许用户层：“本作品”标签下这个分区停用。
     layers: ["user"],

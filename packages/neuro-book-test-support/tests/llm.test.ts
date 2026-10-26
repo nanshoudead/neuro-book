@@ -29,7 +29,7 @@ describe("llmTestConfig", () => {
     it("开关打开时从 .env 只取白名单内的键写入环境，环境里已有的值优先", async () => {
         const env: NodeJS.ProcessEnv = {NBOOK_LLM_TESTS: "1", REAL_MODEL_SMOKE_MODEL: "deepseek/other"};
         const path = await dotenv('DEEPSEEK_API_KEY="from-dotenv"\nREAL_MODEL_SMOKE_MODEL=ignored\nUNRELATED_SECRET=x\n');
-        expect(llmTestConfig({env, dotenvPath: path})).toEqual({apiKey: "from-dotenv", model: "deepseek/other"});
+        expect(llmTestConfig({env, dotenvPath: path})).toEqual({apiKey: "from-dotenv", model: "deepseek/other", baseUrl: null, apiKeyEnv: "DEEPSEEK_API_KEY"});
         expect(env.DEEPSEEK_API_KEY).toBe("from-dotenv");
         expect(env.UNRELATED_SECRET).toBeUndefined();
     });
@@ -37,5 +37,11 @@ describe("llmTestConfig", () => {
     it("开关打开但缺凭据时跳过；模型缺省为 deepseek-flash", async () => {
         expect(llmTestConfig({env: {NBOOK_LLM_TESTS: "1"}, dotenvPath: await dotenv("")})).toBeNull();
         expect(llmTestConfig({env: {NBOOK_LLM_TESTS: "1", DEEPSEEK_API_KEY: "k"}, dotenvPath: await dotenv("")})?.model).toBe(DEFAULT_LLM_TEST_MODEL);
+    });
+
+    it("DEEPSEEK_API_BASE 作为 baseUrl 交给调用方，空白当作没给", async () => {
+        const path = await dotenv("DEEPSEEK_API_KEY=k\nDEEPSEEK_API_BASE=https://proxy.example/v1\n");
+        expect(llmTestConfig({env: {NBOOK_LLM_TESTS: "1"}, dotenvPath: path})?.baseUrl).toBe("https://proxy.example/v1");
+        expect(llmTestConfig({env: {NBOOK_LLM_TESTS: "1", DEEPSEEK_API_KEY: "k", DEEPSEEK_API_BASE: "  "}, dotenvPath: await dotenv("")})?.baseUrl).toBeNull();
     });
 });

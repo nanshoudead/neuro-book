@@ -3,7 +3,7 @@ import {Badge} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {useRoute, useRouter} from "vue-router";
 import {groupQuestions} from "../host/answers.js";
-import {relativeDay, shortSession, taskLabel, workLabel} from "../host/format.js";
+import {relativeDay, sessionName, taskLabel, workLabel} from "../host/format.js";
 import {renderMarkdown} from "../host/markdown.js";
 import {loadStateOf, useResource} from "../host/panel-data.js";
 import {parsePeek, peekValue, type Peek} from "../host/peek.js";
@@ -248,7 +248,7 @@ const peekEvidence = computed(() => {
                         <EphemeralFrame title="谁在动">
                             <p v-if="page.data.value.task.leases.length === 0" class="nbdev-empty">没有</p>
                             <div v-else class="flex flex-wrap gap-1.5">
-                                <LeaseChip v-for="lease in page.data.value.task.leases" :key="lease.sessionKey" :session="shortSession(lease.sessionKey, lease.label)" :stale="lease.stale" />
+                                <LeaseChip v-for="lease in page.data.value.task.leases" :key="lease.sessionKey" :session="sessionName(lease.sessionKey, lease.label, page.data.value.sessionTitles)" :stale="lease.stale" />
                             </div>
                         </EphemeralFrame>
                     </template>

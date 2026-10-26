@@ -1,0 +1,29 @@
+/*
+ * 应用的 Tailwind v4 完整入口：开发服务与 e2e 外壳直接用它，生产构建用在它外面加了排除的 `tailwind.product.css`
+ * （`boot.ts` 导入别名 `nbook-tailwind.css`，由 vite.config.ts 选文件）。nb-ui 不发预编译产物，它的原子类在这里一起编译
+ * （写法见 `@notnotype/nb-ui/tailwind.css` 的头注释）。
+ *
+ * 第一行的层序声明必须在所有 `@import` 之前：层的先后由第一次出现定，不先声明的话 nb-ui 入口里那句来得太晚。
+ *
+ * 为什么不 `@import "tailwindcss"`：它自带 preflight，而应用用 the-new-css-reset。两份 reset 并存会互相抵消，
+ * 所以只取 theme 与 utilities。
+ *
+ * 为什么 reset 要进 base 层：它的 `all: unset` 不分层，会压过所有分层后的原子类。
+ *
+ * 为什么 @source 显式写：Vite 的 root 是 `src/web`，自动探测只覆盖这一棵子树，类名还写在 `src` 下的插件与 ui 里。
+ * 测试里的类名不是应用的样式面，排掉（`*.test.ts` 也包含 `*.dom.test.ts`）。
+ */
+
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "the-new-css-reset/css/reset.css" layer(base);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "@notnotype/nb-ui/tailwind.css";
+@import "@notnotype/nb-agent-ui/tailwind.css";
+@import "@notnotype/nb-markdown/tailwind.css";
+
+@source "../";
+@source not "../**/*.test.ts";
+/* 构建预设（作者工具，不进产品页面）里有大量像类名的字符串（图标规则、产物外壳），不扫。 */
+@source not "../plugin-platform/build";

@@ -52,10 +52,19 @@ export function windowEntries(entries: readonly SessionEntry[], options?: Sessio
     return Number.isFinite(limit) ? filtered.slice(0, limit) : filtered;
 }
 
-export function createMemorySessionLog(options: {readonly sessionId: string; readonly now?: () => Date}): SessionLog {
+/**
+ * 内存里的会话日志。`entries` 让它从一份已经存下的日志开始（例如宿主把上次的 JSONL 逐行 `parseEntryLine` 读回来）：
+ * 条目原样放入，`seq` 必须从 1 起连续，之后追加的条目接着编号。宿主借此在内存里续跑一个会话、结束时整份写回，
+ * 运行期间不碰磁盘上的那一份。
+ */
+export function createMemorySessionLog(options: {readonly sessionId: string; readonly now?: () => Date; readonly entries?: readonly SessionEntry[]}): SessionLog {
     const clock = makeClock(options.now);
     const run = makeQueue();
     const entries: SessionEntry[] = [];
+    for (const entry of options.entries ?? []) {
+        if (entry.seq !== entries.length + 1) throw new Error(`会话日志的 seq 不连续：第 ${entries.length + 1} 条是 ${entry.seq}`);
+        entries.push(entry);
+    }
 
     return {
         sessionId: options.sessionId,

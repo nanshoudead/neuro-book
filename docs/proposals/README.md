@@ -21,6 +21,9 @@
 - [规格驱动开发：文档分工与 Spec 写法](spec-and-docs-governance.md)：各类文档的分工与寿命、Spec 写什么不写什么、提案与 ADR 的 frontmatter 与机检、规格驱动与验收先行的开发方式。
 - [Storage 跨设备同步](storage-service-and-sync.md)：跨独立 data 在线同步的身份对齐、复制确认、冲突与删除收敛。
 - [书架页](bookshelf.md)：没打开项目时的首页，继续写作与书脊书架，作品信息与统计的来源。
+- [V9 小说记忆图](novel-memory-v9.md)：读者视角的小说记忆图，模型只写章草稿，其余记录由程序生成；评测在 w00005 分支上，2026-10-15 搬到 master。
+- [剧情图谱（nb-story）第一版](novel-story-app.md)：用 V9 记忆图做查看器、问答、命令行与 Skill，先独立服务、后接插件；界面设计定在 w00024 t01。
+- [nb-harness：Profile 定义、工具三层与一次运行的结果](nb-harness-profile-and-tools.md)：Profile 声明工具与上下文、登记表加声明加禁用算出生效工具集、停止原因与用量、收尾工具、单次请求、按配置给模型。
 
 ### 旧应用的提案（只作参照）
 
@@ -33,7 +36,7 @@
 - [应用运行时产品装配](../../packages/neuro-book-legacy/docs/proposals/application-runtime-product-integration.md)：从启动到 Project、工作台及领域接入的细化方案；后端启动与 HTTP 入口部分已由可扩展应用平台替代。
 - [Files 与资源管理器第一版](../../packages/neuro-book-legacy/docs/proposals/files-explorer.md)：范围及 F1–F9，行为已沉淀为 [`workspace/files.md`](../specs/workspace/files.md) 与 [`workbench/files-explorer.md`](../specs/workbench/files-explorer.md)。
 - [Files 与资源管理器第二版](../../packages/neuro-book-legacy/docs/proposals/files-explorer-v2.md)：快速打开与删除恢复为核心方向，全文搜索、内容整理、导入导出为候选。
-- [Agent 对话视图重做](../../packages/neuro-book-legacy/docs/proposals/agent-conversation-view.md)：纯视图的 `AgentConversationView`，已批准行为见 [归档的 Spec](../archived/specs/ui/agent-conversation-view.md) 与 [`ui/component-lab-timeline.md`](../specs/ui/component-lab-timeline.md)。
+- [Agent 对话视图重做](../../packages/neuro-book-legacy/docs/proposals/agent-conversation-view.md)：纯视图的 `AgentConversationView`，已批准行为见 [`ui/agent-conversation-view.md`](../specs/ui/agent-conversation-view.md) 与 [`ui/component-lab-timeline.md`](../specs/ui/component-lab-timeline.md)。
 - [Agent 会话数据层后续](../../packages/neuro-book-legacy/docs/proposals/agent-session-data-layer.md)：阻塞 invoke 与 SSE 双通道、live state 无版本、重复入口等问题，留到插件体系就绪后处理。
 
 已完成沉淀的 [信息架构提案](../../packages/neuro-book-legacy/docs/archived/proposals/documentation-information-architecture.md) 与已否决的 [nb-ui 浮层 portal 宿主提案](../../packages/neuro-book-legacy/docs/archived/proposals/nb-ui-overlay-portal-host.md) 在旧包的归档目录，仅供参照。

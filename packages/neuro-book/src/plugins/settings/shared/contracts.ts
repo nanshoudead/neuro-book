@@ -1,6 +1,6 @@
 /**
- * `nbook.settings` 的服务键与远程服务合同（docs/specs/settings/configuration.md），以及设置分区贡献点
- * `settings.sections` 的声明（docs/specs/settings/settings-window.md）。
+ * `nbook.settings` 的服务键与远程服务合同（docs/specs/settings/configuration.md），以及设置分区的两个贡献点
+ * `settings.sections`、`settings.pages` 的声明（docs/specs/settings/settings-window.md）。
  *
  * 两份远程合同的方法与事件相同，只是层不同：`nbook.settings/user` 由服务端实例提供，`nbook.settings/project` 由项目
  * 实例提供。写入的调用方身份由内核填写，输入里没有插件字段。拥有者一侧的失败统一以业务失败码 `settings-failed`
@@ -20,9 +20,11 @@ import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/local
 import {defineSetting, SETTINGS_FAILURES, SETTINGS_POINT} from "nbook/shared/settings";
 import type {SettingDefinition, SettingsFailure, SettingsService} from "nbook/shared/settings";
 
+import type {SettingsSectionDeclaration} from "./sections";
+
 export {SETTINGS_POINT};
-export {SETTINGS_SECTION_CATEGORIES, SETTINGS_SECTIONS_POINT} from "./sections";
-export type {SettingsSectionCategory, SettingsSectionDeclaration} from "./sections";
+export {SETTINGS_CHOICES_ACTIVATION_PREFIX, SETTINGS_CHOICES_POINT, SETTINGS_PAGE_ACTIVATION_PREFIX, SETTINGS_PAGES_POINT, SETTINGS_SECTION_CATEGORIES, SETTINGS_SECTIONS_POINT, settingsChoicesEvent, settingsPageEvent} from "./sections";
+export type {SettingsChoicesDeclaration, SettingsPageDeclaration, SettingsSectionCategory, SettingsSectionDeclaration} from "./sections";
 
 /** 插件依赖它取得按调用方生成的配置服务。 */
 export const settingsKey: ServiceKey<SettingsService> = defineServiceKey<SettingsService>("nbook.settings/settings");
@@ -33,6 +35,21 @@ export const OPEN_SETTINGS_COMMAND = "nbook.settings.open";
 /** 公开状态：本页的设置窗口开着时为真；齿轮据此画成按下。 */
 export const SETTINGS_WINDOW_OPEN_KEY = "nbook.settings/windowOpen";
 
+export const APPEARANCE_SECTION = "nbook.appearance";
+
+/** 外观分区：工作台的主题、明暗（小组 ui）与本插件的界面语言（小组 language）按 `section` 指向它。 */
+export const APPEARANCE_SECTION_DECLARATION: SettingsSectionDeclaration = {
+    title: {"zh-CN": "外观", "en-US": "Appearance"},
+    description: {"zh-CN": "界面的主题、明暗与语言", "en-US": "Theme, appearance and language of the interface"},
+    icon: "i-lucide-palette",
+    category: "app",
+    order: 10,
+    groups: [
+        {id: "ui", title: {"zh-CN": "界面", "en-US": "Interface"}},
+        {id: "language", title: {"zh-CN": "语言", "en-US": "Language"}},
+    ],
+};
+
 /** 界面语言：平台级设置，只允许用户层（项目文件可能来自别人的仓库，不该替用户换语言）。 */
 export const localeSetting = defineSetting({
     plugin: "nbook.settings",
@@ -41,7 +58,7 @@ export const localeSetting = defineSetting({
     default: "zh-CN",
     title: {"zh-CN": "界面语言", "en-US": "Display Language"},
     layers: ["user"],
-    section: "nbook.appearance",
+    section: APPEARANCE_SECTION,
     group: "language",
     order: 10,
     // 语言名用它自己的语言写，换到看不懂的语言后也找得回来。
@@ -59,15 +76,24 @@ export function displayLocale(settings: SettingsService): DisplayLocale {
 const RevisionSchema = Type.Object({boot: Type.String(), seq: Type.Integer({minimum: 0})}, {additionalProperties: false});
 const ProblemSchema = Type.Object({key: Type.String(), reason: Type.Union([Type.Literal("invalid-value"), Type.Literal("layer-not-allowed")])}, {additionalProperties: false});
 const ValuesSchema = Type.Record(Type.String(), Type.Unknown());
+const PositionSchema = Type.Object({line: Type.Integer({minimum: 1}), column: Type.Integer({minimum: 1})}, {additionalProperties: false});
 
-/** `path`：这一层文件的绝对路径，拥有者不发时缺省（configuration.md 输出 23）；只加可选字段，合同版本不变。 */
+/**
+ * `path`：这一层文件的绝对路径，拥有者不发时缺省（configuration.md 输出 23）；`reason`、`position`：无效时不含位置的原因与
+ * 出错处，没有语法位置的无效（读不出文件）缺省（输出 5）。都只加可选字段，合同版本不变。
+ */
 export const LayerSnapshotSchema = Type.Union([
     Type.Object({status: Type.Literal("ok"), revision: RevisionSchema, values: ValuesSchema, problems: Type.Array(ProblemSchema), path: Type.Optional(Type.String())}, {additionalProperties: false}),
-    Type.Object({status: Type.Literal("invalid"), revision: RevisionSchema, values: ValuesSchema, problems: Type.Array(ProblemSchema), detail: Type.String(), path: Type.Optional(Type.String())}, {additionalProperties: false}),
+    Type.Object({status: Type.Literal("invalid"), revision: RevisionSchema, values: ValuesSchema, problems: Type.Array(ProblemSchema), detail: Type.String(), reason: Type.Optional(Type.String()), position: Type.Optional(PositionSchema), path: Type.Optional(Type.String())}, {additionalProperties: false}),
 ]);
 
-const SettingsFailedDetail = Type.Object({code: Type.Enum(SETTINGS_FAILURES), detail: Type.String()}, {additionalProperties: false});
+/** `position`：`invalid-text` 时文本里出错的地方。 */
+const SettingsFailedDetail = Type.Object({code: Type.Enum(SETTINGS_FAILURES), detail: Type.String(), position: Type.Optional(PositionSchema)}, {additionalProperties: false});
 const Written = Type.Object({snapshot: LayerSnapshotSchema}, {additionalProperties: false});
+/** 设置文件的全文；`revision` 是原始文本的摘要，文件不存在时 `exists` 为假、`text` 为空串。 */
+const TextRead = Type.Object({text: Type.String(), revision: Type.String(), exists: Type.Boolean()}, {additionalProperties: false});
+const TextInput = Type.Object({text: Type.String(), revision: Type.String()}, {additionalProperties: false});
+const TextWritten = Type.Object({revision: Type.String(), snapshot: LayerSnapshotSchema}, {additionalProperties: false});
 const failures = {"settings-failed": SettingsFailedDetail};
 
 const SetInput = Type.Object({key: Type.String(), value: Type.Unknown()}, {additionalProperties: false});
@@ -76,21 +102,33 @@ const KeyInput = Type.Object({key: Type.String()}, {additionalProperties: false}
 /**
  * `set`、`remove` 只写调用方插件自己声明的项；`edit`、`unset` 是用户编辑（configuration.md 输出 19），写任何已声明项，
  * 只接受内核填写的调用方是 `nbook.settings` 且没有经过代理的请求。成功时都带回写后的层快照，调用方据此先更新本实例
- * 再结算。删除是单独的方法，不靠 JSON 保留 undefined。
+ * 再结算。删除是单独的方法，不靠 JSON 保留 undefined。`readText`、`writeText` 整份读写这一层的设置文件（输出 24），
+ * 同样只接受用户编辑的调用方。
  */
 const methods = {
     set: {input: SetInput, output: Written, effect: "write", errors: failures},
     remove: {input: KeyInput, output: Written, effect: "write", errors: failures},
     edit: {input: SetInput, output: Written, effect: "write", errors: failures},
     unset: {input: KeyInput, output: Written, effect: "write", errors: failures},
+    readText: {input: Type.Object({}, {additionalProperties: false}), output: TextRead, effect: "read", errors: failures},
+    writeText: {input: TextInput, output: TextWritten, effect: "write", errors: failures},
 } as const;
 
-/** 订阅先推一次当前快照，之后层的状态、键值、被丢弃的键或无效原因变化时推送。 */
-const events = {layer: {filter: Type.Object({}, {additionalProperties: false}), payload: LayerSnapshotSchema}} as const;
+const NoFilter = Type.Object({}, {additionalProperties: false});
 
-export const userSettingsContract = defineRemoteService({id: "nbook.settings/user", version: 1, provider: "server", callers: ["browser", "tui", "project"], methods, events});
+/**
+ * `layer`：订阅先推一次当前快照，之后层的状态、键值、被丢弃的键或无效原因变化时推送。`text`：订阅先推一次当前文本的
+ * 修订号，之后文件的原始文本变了就推（只改注释、格式也推），设置文件视图据此知道别处改过。
+ */
+const events = {
+    layer: {filter: NoFilter, payload: LayerSnapshotSchema},
+    text: {filter: NoFilter, payload: Type.Object({revision: Type.String()}, {additionalProperties: false})},
+} as const;
 
-export const projectSettingsContract = defineRemoteService({id: "nbook.settings/project", version: 1, provider: "project", callers: ["browser", "tui"], methods, events});
+/** 版本 2 加了 `readText`、`writeText` 与 `text` 事件（两份合同一起升）。 */
+export const userSettingsContract = defineRemoteService({id: "nbook.settings/user", version: 2, provider: "server", callers: ["browser", "tui", "project"], methods, events});
+
+export const projectSettingsContract = defineRemoteService({id: "nbook.settings/project", version: 2, provider: "project", callers: ["browser", "tui"], methods, events});
 
 export type SettingsContract = typeof userSettingsContract | typeof projectSettingsContract;
 
@@ -149,4 +187,7 @@ const COMMAND_FAILURES: Record<SettingsFailure, CommandFailureCode> = {
     "layer-invalid": "execution-error",
     "write-failed": "execution-error",
     "unknown-outcome": "execution-error",
+    "read-failed": "execution-error",
+    "conflict": "execution-error",
+    "invalid-text": "execution-error",
 };

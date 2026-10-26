@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import {computed, nextTick, ref} from "vue";
+import {moveRoving, rovingMove} from "../../utils/roving";
+
+import {useFieldContext} from "../form/field-context";
 
 /**
  * 分段选择器（SegmentedControl · 经典 macOS 系统蓝平滑滑动体系）。
@@ -9,6 +12,8 @@ import {computed, nextTick, ref} from "vue";
  * 2. 指示块：纯正 Apple 蓝（var(--accent-main)）+ 纯白反色文字 + 舒缓物理滑动动画（消费 var(--motion-base) 与 var(--ease-standard)）；
  * 3. 分隔线：未选中项之间配备 1px 细微竖向分隔线，在选中项相邻两侧智能平滑消隐；
  * 4. 无障碍与键盘：支持标准 WAI-ARIA RadioGroup 模式与 ArrowLeft/ArrowRight/Home/End 键盘巡检。
+ * 5. 在表单里（三项以内、没有说明的单选）照表单控件的统一合同：名字来自 `Field` 的组形态，停用、只读、出错同其它控件
+ *    （docs/specs/ui/forms.md 输出 26–28）。
  */
 
 export type SegmentedControlValue = string | number | boolean | null;
@@ -19,7 +24,7 @@ export type SegmentedControlOption = {
     count?: number | string;
     disabled?: boolean;
     iconClass?: string;
-    label: string;
+    label?: string;
     testId?: string;
     title?: string;
     tone?: SegmentedControlTone;
@@ -34,12 +39,24 @@ const props = withDefaults(defineProps<{
     tone?: SegmentedControlTone;
     wrap?: boolean;
     fullWidth?: boolean;
+    /** 整组停用。 */
+    disabled?: boolean;
+    /** 只读：可以聚焦、写 `aria-readonly`，方向键只移动焦点，点击与方向键都不改值（docs/specs/ui/forms.md 输出 28）。 */
+    readonly?: boolean;
+    /** 出错外观与 `aria-invalid`；与 `Field` 上下文的出错取或。 */
+    invalid?: boolean;
+    /** 必填：写 `aria-required`；与 `Field` 上下文的必填取或。 */
+    required?: boolean;
 }>(), {
     ariaLabel: "",
     size: "sm",
     tone: "default",
     wrap: false,
     fullWidth: false,
+    disabled: false,
+    readonly: false,
+    invalid: false,
+    required: false,
 });
 
 const emit = defineEmits<{
@@ -47,6 +64,14 @@ const emit = defineEmits<{
 }>();
 
 const rootRef = ref<HTMLDivElement | null>(null);
+
+/** 组的名字来自字段的标签（`Field` 的组形态，docs/specs/ui/forms.md 输出 27）。 */
+const field = useFieldContext();
+const isInvalid = computed(() => props.invalid || field?.invalid.value === true);
+
+function optionDisabled(option: SegmentedControlOption): boolean {
+    return props.disabled || option.disabled === true;
+}
 
 function optionKey(option: SegmentedControlOption): string {
     return `${typeof option.value}:${String(option.value)}`;
@@ -58,7 +83,17 @@ function isSelected(option: SegmentedControlOption): boolean {
 
 const selectedIndex = computed(() => props.options.findIndex((opt) => opt.value === props.modelValue));
 
-const enabledOptions = computed(() => props.options.filter((opt) => !opt.disabled));
+const enabledOptions = computed(() => props.options.filter((opt) => !optionDisabled(opt)));
+
+/**
+ * 键盘进入组时停在哪一项：启用的选中项；当前值不对应任何一项（例如 Lab 手动拖出的画布尺寸），或对应的是停用项（表单里
+ * “已不存在”的当前值）时停在第一个启用项，否则整组没有 Tab 停靠点，键盘进不来。整组停用时没有停靠点。
+ */
+const tabStopKey = computed(() => {
+    const selected = props.options[selectedIndex.value];
+    const option = selected !== undefined && !optionDisabled(selected) ? selected : enabledOptions.value[0];
+    return option === undefined ? null : optionKey(option);
+});
 
 /**
  * 段宽规则：各段等宽，宽度随内容时取最宽一段的自然宽度。指示块按「内容宽 ÷ 段数」定宽、按整段平移，
@@ -78,7 +113,7 @@ const segmentLayoutClass = computed(() => {
 });
 
 function selectOption(option: SegmentedControlOption): void {
-    if (option.disabled) {
+    if (optionDisabled(option) || props.readonly) {
         return;
     }
     emit("update:modelValue", option.value);
@@ -88,26 +123,18 @@ function selectOption(option: SegmentedControlOption): void {
 function handleKeydown(event: KeyboardEvent): void {
     const enabled = enabledOptions.value;
     if (enabled.length <= 1) return;
-
-    const currentIdx = enabled.findIndex((opt) => opt.value === props.modelValue);
-    let nextIdx: number | null = null;
-
-    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-        nextIdx = (currentIdx + 1) % enabled.length;
-    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-        nextIdx = (currentIdx - 1 + enabled.length) % enabled.length;
-    } else if (event.key === "Home") {
-        nextIdx = 0;
-    } else if (event.key === "End") {
-        nextIdx = enabled.length - 1;
-    }
-
-    if (nextIdx === null) return;
+    const move = rovingMove(event.key, "both");
+    if (move === null) return;
     event.preventDefault();
 
-    const targetOpt = enabled[nextIdx];
+    // 只读时选中不动，方向键从焦点所在的项走；没有起点时，向后从第一项开始、向前从最后一项开始（moveRoving 的起点规则）。
+    const focusedValue = (document.activeElement as HTMLElement | null)?.dataset?.value;
+    const from = props.readonly
+        ? enabled.findIndex((opt) => String(opt.value) === focusedValue)
+        : enabled.findIndex((opt) => opt.value === props.modelValue);
+    const targetOpt = enabled[moveRoving(enabled, from, move)];
     if (targetOpt) {
-        selectOption(targetOpt);
+        if (!props.readonly) selectOption(targetOpt);
         void nextTick(() => {
             const buttons = Array.from(rootRef.value?.querySelectorAll<HTMLButtonElement>("button[role='radio']") ?? []);
             const targetBtn = buttons.find((btn) => btn.dataset.value === String(targetOpt.value));
@@ -120,10 +147,17 @@ function handleKeydown(event: KeyboardEvent): void {
 <template>
     <div
         ref="rootRef"
-        role="group"
+        role="radiogroup"
+        :id="field?.inputId.value"
         :aria-label="props.ariaLabel || undefined"
+        :aria-labelledby="field?.labelId.value"
+        :aria-describedby="field?.ariaDescribedby.value"
+        :aria-invalid="isInvalid ? 'true' : undefined"
+        :aria-readonly="props.readonly || undefined"
+        :aria-required="props.required || field?.required.value === true || undefined"
+        :aria-disabled="props.disabled || undefined"
         class="relative max-w-full items-stretch rounded-[var(--radius-control)] border-[length:var(--border-w)] border-[color-mix(in_srgb,var(--border-color)_50%,transparent)] bg-[color-mix(in_srgb,var(--text-main)_10%,transparent)] p-[2px] select-none box-border outline-none"
-        :class="segmentLayoutClass"
+        :class="[segmentLayoutClass, isInvalid ? '!border-[color:var(--status-danger)]' : '', props.disabled ? 'opacity-45' : '']"
         @keydown="handleKeydown"
     >
         <!-- 舒缓平滑滑动背景指示块（单选且选项固定等分时连续 GPU 硬件滑动） -->
@@ -143,22 +177,25 @@ function handleKeydown(event: KeyboardEvent): void {
             type="button"
             role="radio"
             :data-value="String(option.value)"
-            :aria-pressed="isSelected(option) ? 'true' : 'false'"
             :aria-checked="isSelected(option)"
-            :tabindex="isSelected(option) ? 0 : -1"
-            :disabled="option.disabled"
+            :tabindex="optionKey(option) === tabStopKey ? 0 : -1"
+            :disabled="optionDisabled(option)"
             :aria-label="option.title || option.label || undefined"
             :title="option.title || option.label"
             :data-testid="option.testId"
-            class="nb-ui-focus-ring relative z-10 inline-flex min-w-0 items-center justify-center gap-1.5 rounded-[max(2px,calc(var(--radius-control)-2px))] [font-weight:var(--weight-medium)] transition-[color,transform,opacity] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] not-disabled:active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent cursor-pointer"
+            class="nb-ui-focus-ring relative z-10 inline-flex min-w-0 items-center justify-center gap-1.5 rounded-[max(2px,calc(var(--radius-control)-2px))] [font-weight:var(--weight-medium)] transition-[color,transform,opacity] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] disabled:cursor-not-allowed disabled:hover:bg-transparent"
             :class="[
                 props.wrap ? 'flex-1' : '',
                 props.size === 'xs'
-                    ? (option.label ? 'h-[calc(var(--control-h-sm)-var(--space-1)*2)] px-2 text-[11px]' : 'h-[calc(var(--control-h-sm)-var(--space-1)*2)] px-1.5 text-[11px]')
+                    ? (option.label ? 'h-[calc(var(--control-h-sm)-var(--space-1)*2)] px-2 text-[length:var(--text-xs)]' : 'h-[calc(var(--control-h-sm)-var(--space-1)*2)] px-1.5 text-[length:var(--text-xs)]')
                     : (option.label ? 'h-[calc(var(--control-h-sm)-var(--space-1))] px-3 text-xs' : 'h-[calc(var(--control-h-sm)-var(--space-1))] px-2 text-xs'),
                 isSelected(option)
                     ? 'text-[var(--text-inverse)] font-semibold'
-                    : 'text-[var(--text-muted)] hover:text-[var(--text-main)]',
+                    : props.readonly ? 'text-[var(--text-muted)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]',
+                // 整组停用时只在根上降一次透明度（同单选组的 45%），各项不再各自变淡：两层叠起来选中块上的字读不出来。
+                option.disabled === true && !props.disabled ? 'opacity-35' : '',
+                // 只读不画成可点：悬停不变色、按下不缩。
+                props.readonly ? 'cursor-default' : 'cursor-pointer not-disabled:active:scale-[0.96]',
             ]"
             @click="selectOption(option)"
         >
@@ -171,7 +208,7 @@ function handleKeydown(event: KeyboardEvent): void {
             <span v-if="option.label" class="truncate">{{ option.label }}</span>
             <span
                 v-if="option.count !== undefined"
-                class="ml-0.5 rounded-full px-1.5 py-0.2 text-[10px] font-mono leading-none transition-colors"
+                class="ml-0.5 rounded-full px-1.5 py-[0.05rem] text-[length:var(--text-2xs)] font-mono leading-none transition-colors"
                 :class="isSelected(option) ? 'bg-[color-mix(in_srgb,var(--text-inverse)_22%,transparent)] text-[var(--text-inverse)]' : 'bg-[color-mix(in_srgb,var(--text-main)_12%,transparent)] text-[var(--text-muted)]'"
             >
                 {{ option.count }}

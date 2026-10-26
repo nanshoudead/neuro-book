@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useAttrs, watch} from "vue";
-import Dropdown from "./Dropdown.vue";
-import type {DropdownItem} from "./dropdown.types";
+import DropdownMenu from "../popup/DropdownMenu.vue";
+import type {DropdownMenuItemData} from "../popup/dropdown-menu.types";
+import {moveRoving, rovingMove} from "../../utils/roving";
 import {adaptTabs} from "./tabs-adapt";
 import type {TabsAdaptState} from "./tabs-adapt";
 
@@ -53,8 +54,6 @@ const emit = defineEmits<{
 const attrs = useAttrs();
 const tablistRef = ref<HTMLDivElement | null>(null);
 
-const enabledItems = computed(() => props.items.filter((item) => !item.disabled));
-
 function isSelected(item: TabsItem): boolean {
     return item.value === props.modelValue;
 }
@@ -66,31 +65,14 @@ function select(item: TabsItem): void {
     emit("update:modelValue", item.value);
 }
 
-/** 方向键/Home/End 在启用的标签间移动选中项，并把焦点跟到新标签上 */
+/** 左右键、Home、End 在启用的标签间移动选中项，并把焦点跟到新标签上 */
 function handleKeydown(event: KeyboardEvent): void {
-    const enabled = enabledItems.value;
-    if (enabled.length === 0) {
-        return;
-    }
-    const currentIndex = Math.max(0, enabled.findIndex((item) => item.value === props.modelValue));
-    let nextIndex: number | null = null;
-    if (event.key === "ArrowRight") {
-        nextIndex = (currentIndex + 1) % enabled.length;
-    } else if (event.key === "ArrowLeft") {
-        nextIndex = (currentIndex - 1 + enabled.length) % enabled.length;
-    } else if (event.key === "Home") {
-        nextIndex = 0;
-    } else if (event.key === "End") {
-        nextIndex = enabled.length - 1;
-    }
-    if (nextIndex === null) {
-        return;
-    }
+    const move = rovingMove(event.key, "horizontal");
+    if (move === null) return;
+    const next = moveRoving(props.items, props.items.findIndex((item) => item.value === props.modelValue), move, (item) => item.disabled === true);
+    const nextItem = props.items[next];
+    if (nextItem === undefined) return;
     event.preventDefault();
-    const nextItem = enabled[nextIndex];
-    if (!nextItem) {
-        return;
-    }
     emit("update:modelValue", nextItem.value);
     void nextTick(() => {
         const tabs = Array.from(tablistRef.value?.querySelectorAll<HTMLButtonElement>("[role='tab']") ?? []);
@@ -128,7 +110,7 @@ function iconOnly(item: TabsItem): boolean {
     return adaptive.value && adapt.value.level >= 2 && !isSelected(item) && item.iconClass !== undefined;
 }
 const visibleItems = computed(() => (adaptive.value ? props.items.filter((item) => !adapt.value.hidden.has(item.value)) : props.items));
-const moreItems = computed<DropdownItem[]>(() => props.items.filter((item) => adapt.value.hidden.has(item.value)).map((item) => ({label: item.label, value: item.value, ...(item.iconClass === undefined ? {} : {iconClass: item.iconClass}), ...(item.disabled === true ? {disabled: true} : {})})));
+const moreItems = computed<DropdownMenuItemData[]>(() => props.items.filter((item) => adapt.value.hidden.has(item.value)).map((item) => ({label: item.label, value: item.value, ...(item.iconClass === undefined ? {} : {iconClass: item.iconClass}), ...(item.disabled === true ? {disabled: true} : {})})));
 
 /** 按测量层的实测宽度与标签带的可用宽度求这一档；量不到（还没挂上、不可见）时保持原状。 */
 function measure(): void {
@@ -231,11 +213,11 @@ function selectHidden(value: string): void {
                 <span v-if="item.count !== undefined && !iconOnly(item)" class="rounded-[var(--radius-pill)] bg-[var(--bg-subtle)] px-[var(--space-1)] font-mono text-[length:var(--text-2xs)] text-[var(--text-muted)]">{{ item.count }}</span>
             </button>
         </div>
-        <Dropdown v-if="moreItems.length > 0" :items="moreItems" compact align="end" @select="selectHidden">
+        <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" align="end" @select="selectHidden">
             <button type="button" class="nb-ui-focus-ring-inset text-[var(--text-secondary)] hover:text-[var(--text-main)]" :class="tabBoxClass" data-tabs-more>
                 {{ props.moreLabel }} {{ moreItems.length }}<span class="i-lucide-chevron-down h-[1em] w-[1em]" aria-hidden="true"></span>
             </button>
-        </Dropdown>
+        </DropdownMenu>
         <!-- 测量层：完整标题的每个标签、只留图标的标签与“更多”，不可见、不占位、不进无障碍树。 -->
         <div ref="measureRef" class="nb-ui-tabs-adapt__measure" aria-hidden="true" inert>
             <span v-for="item in props.items" :key="item.value" :class="tabBoxClass" data-measure-tab>

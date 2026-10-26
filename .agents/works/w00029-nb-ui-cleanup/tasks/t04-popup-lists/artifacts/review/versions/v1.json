@@ -1,0 +1,88 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00029-nb-ui-cleanup",
+    "taskId": "t04-popup-lists",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "弹出列表收成一套：评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "039c510f092639e44e1a6675d3d1fcc0df7353a6d58a774ee7531e1a6818e654",
+    "files": [
+        "index.html",
+        "r1/highlight-dark.webp",
+        "r1/highlight-light.webp",
+        "r1/narrow-highlight-accent-solid.webp",
+        "r1/narrow-highlight-accent-tint.webp",
+        "r1/narrow-highlight-neutral.webp",
+        "r1/narrow-selection-accent.webp",
+        "r1/narrow-selection-check-left.webp",
+        "r1/narrow-selection-check-right.webp",
+        "r1/now-dark.webp",
+        "r1/now-light.webp",
+        "r1/selection-dark.webp",
+        "r1/selection-light.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-highlight",
+            "type": "single",
+            "label": "高亮用哪一种",
+            "options": [
+                {
+                    "value": "neutral",
+                    "label": "A 中性叠色"
+                },
+                {
+                    "value": "accent-tint",
+                    "label": "B 强调色淡底"
+                },
+                {
+                    "value": "accent-solid",
+                    "label": "C 强调色实底"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "neutral"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-selection",
+            "type": "single",
+            "label": "选中用哪一种",
+            "options": [
+                {
+                    "value": "check-left",
+                    "label": "A 左侧勾选列"
+                },
+                {
+                    "value": "check-right",
+                    "label": "B 右侧勾"
+                },
+                {
+                    "value": "accent",
+                    "label": "C 强调色淡底加勾"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "check-right"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-20T05:04:39.141Z"
+}

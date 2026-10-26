@@ -7,7 +7,6 @@
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {rm} from "node:fs/promises";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
@@ -19,7 +18,8 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {ref} from "vue";
 
-import {definitionAt, delegatingPlugins} from "nbook/manifest";
+import {createApplication} from "nbook/application";
+import {definitionAt} from "nbook/manifest";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {standaloneSettings} from "nbook/plugins/settings/testing/standalone";
@@ -207,7 +207,7 @@ async function world(initial: ShelfItem[], options: {readonly failShelf?: Script
         {
             capabilities: [...standalone.capabilities],
             // 读出配置服务与远程上下文的入口顶着 `nbook.projects` 的身份：配置只让声明它的插件写。
-            plugins: [browserHostPlugins["nbook.diagnostics"]!({store, console: silentConsole}), statePlugin, ...standalone.plugins, definitionAt("browser", projectsDescriptor, {
+            plugins: [browserHostPlugins["runtime.diagnostics"]!({store, console: silentConsole}), statePlugin, ...standalone.plugins, definitionAt("browser", projectsDescriptor, {
                 id: projectsDescriptor.id,
                 entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], dependencies: [{key: settingsKey}], activate: (context) => {
                     captured = {remote: context.remote, settings: context.services.require(settingsKey)};
@@ -216,8 +216,6 @@ async function world(initial: ShelfItem[], options: {readonly failShelf?: Script
             })],
             gates: [],
             remote: node,
-            // 配置的写入经代理（浏览器核心替调用方写用户层），与产品窗口相同的允许清单。
-            delegation: (plugin) => delegatingPlugins.includes(plugin),
         },
     );
     const pair = createLinkPair();

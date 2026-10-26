@@ -1,0 +1,220 @@
+# w00025 t02 计划设计审查（Opus）
+
+审查对象：`.agents/works/w00025-editor/tasks/t02-editor-types/plan.md`（worktree `.worktree/w00025-t02-review`，f631ca1c7）。实验文件在 `scratchpad/review-t02-design/lab-opus/`（`exp.mjs`：Bun 服务 + 本机 Chrome headless，复现计划第 6 节的 `sandbox="allow-scripts"` + `srcdoc` + `<base>` 组合）。
+
+### 1. 不透明源的 HTML 预览读不到 CORS 模式的相对资源；要让它读到，就得把整棵文件树对任何来源开放
+- **严重程度**：阻断；**类别**：正确性 / 安全与性能
+- **位置**：plan.md 第 2 节“响应”（34–41 行）、第 6 节“HTML 预览”（72–76 行）；t01 决定 3
+- **现象**：预览 iframe 的源是 `null`，它对字节路由的每个请求都是跨源请求。实测（`lab-opus/exp.mjs`，本机 Chrome）：`<img>`、经典 `<script src>`、`<link rel=stylesheet>` 是 no-cors 请求，能加载；`<script type="module" src="m.js">` 报 onerror，`fetch("d.json")` 报 `TypeError: Failed to fetch`。服务端日志里这两类请求是 `mode=cors`、带 `Origin: "null"`。同类的还有 `@font-face` 字体、`XMLHttpRequest`、`new Worker()`、`<img crossorigin>`、`modulepreload`：按 Fetch 规范它们都走 CORS 模式，或者要求同源。
+- **为什么是问题**：t01 决定 3 写的是“只能读到页面按相对路径引用的文件”。“能读到”是这条决定的一半，计划只做到了 no-cors 的那几种。现代 HTML 的常见写法（Vite 或 esbuild 产出的 `<script type="module" crossorigin>`、页面脚本 `fetch('data.json')`、自带字体）在预览里都会失败。验收表第 124 行只验了“相对引用的图片显示出来”，测试会通过，功能却是坏的。反过来，如果实现时为了让它们工作给字节路由加 `Access-Control-Allow-Origin: *` 或 `null`，那么任何网页（含别的站点里的沙箱 iframe、`data:` 页）都能用 `fetch` 读取 `user://` 下的任意文件，以及已知 id 的项目里的任意文件，“拿不到应用的数据”这一半就破了。所以在“同一应用端口 + 不透明源”这个模型里，决定 3 的两半没法同时满足，这不是实现细节的问题。
+- **如何核实**：`cd lab-opus && bun exp.mjs`（直接用主仓库 `node_modules/playwright-core` 与本机 Chrome；结果里有 `module fail`、`fetch fail`，服务端日志里是 `mode=cors origin="null"`）。
+- **建议改法**：S1 之前先定预览的源模型，写进 `html-preview.md`。可选做法：(a) 预览内容由一个单独的源提供（另开一个回环端口，或 `127.0.0.2` 这类别名），URL 里带一次性的预览令牌，路由只服务这个令牌对应目录下的文件，并对这个源返回 `Access-Control-Allow-Origin`；iframe 仍不给 `allow-same-origin`，或者给了也无妨，因为它与应用不同源。这也是 VS Code webview 的做法。(b) 接受只支持 no-cors 资源：Spec 写明模块脚本、fetch、字体不可用，并改写 t01 决定 3 的措辞，这一条要开发者确认。无论选哪种，字节路由都不能加通配的 CORS 头。
+
+### 2. `<base>` 指向目录后，页内锚点链接会把预览导航到目录地址，显示 JSON 404
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan.md 第 6 节“渲染”“链接”（74、76 行）；风险第 2 条（145 行）
+- **现象**：实测 `srcdoc` 里 `<base href="/raw/dir/">` 加 `<a href="#sec">`：点击后 iframe 的地址变成 `http://…/raw/dir/#sec`，服务端收到 `GET /raw/dir/`（`dest=iframe`, `mode=navigate`）。按计划的路由，这一请求会得到“不是普通文件”的 JSON 错误，预览变成一页 JSON。`document.baseURI` 实测为 `http://127.0.0.1:<端口>/raw/dir/`，`location.href` 为 `about:srcdoc`：锚点按 base 解析后与文档地址不同，所以是导航，不是页内滚动。
+- **为什么是问题**：目录、长文档里的 `#章节` 锚点是 HTML 最常见的写法之一。风险一节只考虑了“页面自带 `<base>`”，没考虑计划自己插的 `<base>` 对锚点的副作用。另外，链接跳到另一个 `.html` 后，iframe 显示的是磁盘版本；之后正文一变，300ms 的整页重载又会把它拉回 `srcdoc`。这个行为计划里没有写。
+- **如何核实**：`lab-opus/exp.mjs` 的输出 `frame urls: [..., "http://127.0.0.1:…/raw/dir/#sec"]` 与日志末行 `GET /raw/dir/ … mode=navigate dest=iframe`。
+- **建议改法**：在注入的脚本里拦截 `href` 以 `#` 开头的点击，改成 `scrollIntoView`；或者不用 `<base>`，改为第 1 条的独立源，让文档本身就在文件目录的 URL 上（`src` 而不是 `srcdoc`），未保存的正文另行注入。还要在 `html-preview.md` 里写明：跳到别的页面后显示的是磁盘内容，正文变化时回到当前文件。
+
+### 3. 字节路由新增了“不需要 id 就能读的用户文件”接口，而 HTTP 端口不校验 `Host`，DNS 重绑定可以同源读取
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：plan.md 第 2 节“路由”（34 行）、第 3 节（46–48 行）；`packages/neuro-book/src/plugins/http/backend/dispatch.ts:66-125`（不看 `Host`）；`docs/specs/runtime/server-host.md:38`（只限制监听地址）
+- **现象**：`GET /api/nbook.files/raw/user/<路径…>` 不需要任何 id，就能读 `<状态根>/user/` 下的文件。项目文件需要 UUID 形式的项目 id（`server/projects/registry.ts` 用 `randomUUID`），外站猜不到。计划第 3 节只核对非 GET 请求的 `Origin`。实测 GET 的 no-cors 请求不带 `Origin`（日志里 `<img>`、`<script>`、`<link>` 都是 `origin=null`，即没有这个头）。所以对 GET 来说，Origin 规则既防不住，也分不出请求是不是来自预览。DNS 重绑定时，攻击页与 `127.0.0.1:<端口>` 同源，GET 不带 `Origin`，`Host` 是攻击者的域名，现有分发器照常响应。
+- **为什么是问题**：在这之前，HTTP 端口上能读到的只有引导信息和封面（封面要 id），RPC 端口有 `Origin` 核对。字节路由是第一个按路径直接吐出用户文件内容的 GET 接口。Chrome 的 Local Network Access 能挡住一部分重绑定，Firefox 与 Safari 没有对应的保护。
+- **如何核实**：读 `dispatch.ts` 与 `start.ts:165-173`，`Host` 头没有被核对；`lab-opus/exp.mjs` 的日志里 GET 子资源请求没有 `Origin`。
+- **建议改法**：第 3 节同时加 `Host` 核对：未加载鉴权时，`Host` 必须是回环名（`127.0.0.1`、`localhost`、`[::1]`，加上 `NBOOK_ALLOWED_ORIGINS` 里的主机），否则返回 421 或 403，放在分发最前面，所有路由都适用。`server-host.md` 的场景 12 补上这一条。字节路由还可以另看 `Sec-Fetch-Site`：实测预览里的请求都是 `cross-site`，应用自己的请求是 `same-origin`。第 1 条若选独立源，就按令牌放行。
+
+### 4. 字节路由按登记表路径读项目目录，绕开了 Files 的“有效绑定”和“根身份”两条合同，也没有做封面路由做过的身份核对
+- **严重程度**：重要；**类别**：不变量
+- **位置**：plan.md 第 2 节“找文件”（35 行）、风险第 3 条（146 行）；`docs/specs/workspace/files.md:34,38,59`；`plugins/files/backend/plugin.ts:166-168`；`plugins/projects/backend/cover-routes.ts:32-40`；`server/projects/manager.ts:411-419`
+- **现象**：
+  - Files 的项目根取自 `currentProjectKey.root`，即本代次启动时校验过的目录（`manager.ts` 的 `#create`：`checkProjectDirectory` 加上 `readProjectIdentity` 的 id 必须等于登记 id）。`openRoot` 在激活时 `realpath` 一次，记下 dev/inode，之后每个请求都核对（`rooted.ts:296-305`）。
+  - 计划的路由“按 id 找登记的目录”。不论是每个请求现开 `openRoot`，还是按 id 缓存，都和上面不一致。现开时，根身份核对没有意义：目录被移走、原路径上换成另一个目录或链接，路由照样服务新目录，而项目子进程这时报 `root-gone`，违反 files.md 59 行“不重新解析到新目录”。缓存时，项目移动后重新登记，路由会一直报 `root-gone`。
+  - 计划说路由与封面路由“同一个来源”，但封面路由的 `locate` 先 `readMetadata(id)`，核对身份文件里的 id 与登记一致，`identity-conflict` 时返回 409。计划没有写这一步：登记路径上换成另一部作品时，路由会把那部作品的文件当成这个 id 交出去。
+  - files.md 34、38 行要求文件访问携带有效工作区绑定、只用有效 ready 绑定。路由对没有运行、没有任何窗口绑定的项目也能读，计划没有说明这算例外，也没有改 Spec。
+- **为什么是问题**：风险一节把“同一套规则”归结为“复用 `rooted.ts`”。`rooted.ts` 只管根内的包含与链接；根是哪一个、根还是不是那一个，在 `rooted.ts` 外面决定，这正是计划没写的部分。“窗口里的预览”和“子进程里的文件服务”会对同一个地址给出不同的文件，或一个成功、一个 `root-gone`。
+- **如何核实**：读上面列出的四处代码。`rooted.ts` 的 `#checkRoot` 只比较激活时记下的 identity，现开时 identity 就是这一刻的目录。
+- **建议改法**：在 `files.md` 的“按地址读取字节”里写死根的取法。可选：(a) 路由只服务正在运行的代次，在服务端经 `projectsKey.list()` 取 `generation`，URL 里带代次（`/raw/project/<id>/<代次>/…`），代次不符返回 410；根身份由服务端在该代次第一次请求时 `openRoot` 并缓存到代次结束（`ProjectLease.revoked`），每次请求另做一次身份文件 id 核对。(b) 把字节读取放到项目子进程里，经 IPC 转发，这样只有一份根。无论选哪个，Spec 都要写明“没有运行的项目”算 404 还是允许读取，以及与 files.md 34、38 行的关系。
+
+### 5. 字节路由的失败码、HTTP 状态、大小上限与读法都没有定，`rooted.read` 会把整个文件读进内存
+- **严重程度**：重要；**类别**：安全与性能 / 文档
+- **位置**：plan.md 第 2 节“响应”（41 行）；`plugins/files/backend/rooted.ts:95-96,227-249`
+- **现象**：
+  - `RootedRoot.read(path, maxBytes)` 是 `handle.readFile()` 一次读完，必须给 `maxBytes`。计划没有给字节路由定上限，也没说用流。几十 MB 的图片或误点的大文件会整段进服务端内存；同一页预览引用多张大图时并发叠加。这条路由不经 RPC，`workspace/files.md` 的 1 MiB 正文上限管不到它。
+  - `rooted` 的失败码有 `invalid-address`、`outside-root`、`protected-path`、`root-gone`、`not-a-file`（目录也是这一码，见第 2 条的锚点导航）、`too-large`、`io-failed`、`not-found`、`permission-denied`。计划只写了后两个，没有映射到 HTTP 状态。分发器自己的错误体是 `{error: {code, message}}`（`dispatch.ts:199-201`），封面路由是 `{code, detail}`，计划选了后者，同一端口上有两种错误体。
+  - ETag 写了，没写 `If-None-Match` 时回 304。封面路由回 304（`cover-routes.ts:65`）。
+- **为什么是问题**：照字面实现会得到一个没有上限的读接口，验收表 121 行也测不出来。`outside-root`、`protected-path` 映射成 403 还是 404，决定了探测者能不能分辨“存在但受保护”。
+- **如何核实**：读 `rooted.ts:227-249`；计划全文搜不到“上限”“304”“outside-root”。
+- **建议改法**：写进 `files.md`：上限，例如与封面上限同量级，或图片 32 MiB、其它 8 MiB，超过返回 413 `too-large`；状态映射：`not-found`、`not-a-file`、`invalid-address`、`outside-root`、`protected-path` 一律 404（不区分受保护与不存在），`permission-denied` 403，`root-gone` 410，`io-failed` 500；支持 304。如果改用流式（`Bun.file`），要保留 `read` 现在“打开句柄后核对 dev/inode”的那一步，否则解析与打开之间的替换会被跳过。验收表补“超过上限得到 413”“`.nbook/x` 得到 404”两例。
+
+### 6. 字节标签没有文本文档，而编辑器区的每条路径都默认“非页面标签必有文档”：命令全部不可用，资源管理器删除不关标签，改名可能产生重复标签
+- **严重程度**：阻断；**类别**：正确性 / 不变量
+- **位置**：plan.md 第 2 节“字节绑定”（43 行）、第 5 节（58–62 行）；`editor/web/state.ts:40-45`；`editor/web/commands.ts:70-75`；`editor/web/area.ts:178-186,264-270,312-316,353-365,370-379`；`editor/web/documents/store.ts:395-431,531-591`
+- **现象**：
+  - `area.ts` 里只有 `editor === "page"` 一个分支不取文档。`referenceOf`、`binding`、`documentOf`、`releaseTab`、`activeDocument` 对其它标签一律 `documents.acquire(tab.address)`。计划没有改这一点：照字面实现，图片标签仍会经 RPC 读 png，得到 `not-text`，`binding()` 因为 status 不是 ready 返回 null。
+  - 就算绕开 `acquire`，公开状态 `nbook.editor/active` 的定义是 `handle !== null && document !== null`（`state.ts:42`），而 `close`、`close-others`、`split-right`、`split-down`、`reopen-with`、`focus` 的 `when` 都是 `active`（`commands.ts:70-75`）。图片标签上 Ctrl+W 关不掉；SVG 图片标签上“用其它编辑器重新打开”是灰的，而 t01 决定 4 要求 SVG 能用源码编辑器重新打开；拆分也不可用。
+  - 删除与改名不是“沿用标签已有的处理”就能得到的。现有的改名、关闭全由文档仓库产生（`store.ts` 的 `rebind` 发 `rebound`，`coordinator.close` 与 `displaced` 发 `closed`，`area.ts:349-365` 只监听这两种事件），只覆盖仓库里有条目的地址。所以：
+    1. 资源管理器删除一张图片（输出 25：删除成功的项关闭标签）时，`coordinator.close` 找不到条目，不发 `closed`，图片标签留着。随后 watch 的 `deleted` 事件按计划把它标成“已删除”，与输出 25 相反。
+    2. 资源管理器移动目录时，租约结束的 `moved` 只 rebind 仓库条目（`store.ts:558`），字节标签要等 watch 的 `renamed`。
+    3. 计划让编辑器区另外订阅变更事件来处理字节标签。如果这个处理调的是 `groups.rebind(from, to)`，它会按地址移动组里所有标签，包括文本标签（`groups.ts:268-273`），绕过仓库的 `kept` 判定（目标地址上有一份要保留的文档时，文本标签必须留在原地，见 `store.ts:390-415`），标签地址会和它的文档地址分开。
+    4. 同组有 `a.png` 与 `b.png` 两个图片标签，`b.png` 被外部删除后又把 `a.png` 改名为 `b.png`：没有仓库的 `displaced` 去重，组里会出现两个“`b.png` + 图片查看器”的标签，正是计划第 4 节要避免的状态。
+- **为什么是问题**：第 2 节末尾一句话把字节标签和整个文档管线脱钩，但没有列出要改的七八处，也没有定义 `active`、`writable`、`dirty` 对字节标签的取值。S3 照字面做，图片查看器在 S4 才第一次接上真实界面，那时才会发现这些命令不可用、删除不关标签。
+- **如何核实**：读上面列出的行。`state.ts:42` 的 `active` 依赖 `document.value !== null`；`store.ts:590` 的 `close` 只对 `within(addresses)` 里的条目发事件。
+- **建议改法**：计划里补一张“字节标签”表，逐条写出它在下面各处的行为：`referenceOf`、`binding`、`documentOf`、`releaseTab`、`activeDocument`、`openDocuments`、状态 `active`/`writable`/`dirty`/`hasCursorPosition`、命令 `when`、`coordinator.affected`/`close`/租约 `moved`、watch 的 `renamed`/`deleted`/`resync`/`ended`、终态抢救。推荐做法：给字节标签一个“字节资源”条目，放进同一个仓库或与仓库并列的小仓库，由它产生同样的 `rebound`/`closed` 事件，`coordinator.close` 与租约 `moved` 也作用于它，去重规则与文本条目一致；`active` 改为“有活动的文件标签且控件交出了句柄”，不再要求文本文档。`area.test.ts` 补三例：资源管理器删除图片后标签关闭；改名后图片标签跟过去；Ctrl+W 关闭图片标签。
+
+### 7. “预览”一词同时指 preview 标签（单击打开、斜体、会被替换）和 HTML 预览编辑器，第 4 节的规则因此有两种读法
+- **严重程度**：重要；**类别**：文档 / 正确性
+- **位置**：plan.md 第 4 节（53 行“本组有这个地址的非预览标签就激活它”）、第 5 节（61–62 行“预览标签上不出现这两项”“预览标签照常进会话记录”）、第 1 节声明字段 `preview?: boolean`（20 行）；`editor/web/groups/groups.ts:30-36`（`EditorTab.preview` 是 preview 模式）；`editor.md` 输出 1
+- **现象**：代码与 Spec 里的 preview 早已表示“单击打开、会被下一次单击替换的标签”（`EditorTab.preview`、`open({mode: "preview"})`、会话记录的 `preview` 字段）。计划又把“预览”用于 HTML 预览编辑器，声明里的字段也叫 `preview`。53 行的“非预览标签”按代码含义读，就是“非 preview 模式的标签”：单击打开 `a.md` 后再单击一次，preview 模式的标签不算，于是新开一个，这直接违反输出 1。按计划本意读，是“不是预览编辑器的标签”。62 行“预览标签照常进会话记录”也有两种读法。
+- **为什么是问题**：计划要直接改成 Spec（S0），实现者照字面写。两种含义的混用会进入 `editor.md`、`groups.ts` 的注释和测试名。
+- **如何核实**：在 `groups.ts`、`area.ts`、`editor.md` 里搜 `preview`，全部是标签模式的含义。
+- **建议改法**：编辑器声明字段改名，例如 `role: "preview"` 或 `kind: "preview"`，正文统一叫“预览编辑器”“预览视图”。第 4 节改写为“本组有这个地址、编辑器不是预览编辑器的标签（不论是不是 preview 模式）就激活它，`permanent` 时转正”。还要写明：预览编辑器的贡献方停止后，它留下的标签算不算预览编辑器（这时查不到声明），建议在标签上记下打开时的 `role`。
+
+### 8. `FileEditorKind` 放宽为 `string` 后，`EditorKind = string | "page"` 退化成 `string`，`"page"` 与编辑器 id 撞名，`cursorFits` 把所有非 markdown 编辑器当成“行与列”
+- **严重程度**：重要；**类别**：不变量 / 代码质量
+- **位置**：plan.md 第 1 节“类型放宽”（30 行）；`editor/web/groups/groups.ts:16-41,345`；`editor/web/session-record.ts`
+- **现象**：
+  - `EditorKind = FileEditorKind | "page"`。`FileEditorKind` 变成 `string` 后，整个联合就是 `string`，`tab.editor === "page"` 的十几处判别（`groups.ts:216,250,334`，`area.ts:266,315,591,605`，`state.ts:53`，`title-actions.ts:59`）失去类型保护。贡献 id 就是编辑器 id，计划没有保留 `page`：哪个插件贡献一个 id 为 `page` 的编辑器，它的标签就被当成页面，不进会话记录，不能拆分。
+  - `cursorFits(editor, cursor)` 是 `editor === "markdown" ? "offset" in cursor : "line" in cursor`。图片查看器、HTML 预览和任何第三方编辑器都会被认为接受 `{line, column}`；会话记录里给图片标签写一个 `cursor`，恢复时照收。光标写法属于编辑器自己，计划没有把它放进贡献声明。
+  - 计划说“每组每种编辑器一个控件、视图状态每组每种最多 3 份”不变。`slotKey` 是 `${groupId}|${kind}|${documentId}`，字节标签没有 `TextDocument`，`documentId` 从哪来没写（`area.ts:176`）。`retire` 淘汰时看 `references` 里的 dirty（`area.ts:229-236`），字节标签不在 `references` 里。
+  - 会话记录（`session-record.ts`）放宽校验后，旧版本代码读到新记录里的 `image-viewer` 编辑器会怎样，计划没说；新增可选的 `language` 字段也一样。记录是 project/local 的，旧版本按现在的 TypeBox 校验会整份拒收，还是只丢这一项，要看校验写法；计划应当写明要不要升版本号。
+- **为什么是问题**：类型系统原本挡住的错误（把页面当文件、把行列光标给 Markdown 以外的编辑器）在放宽后只能靠运行时发现。AGENTS.md 要求“不用 hack 绕过类型系统”。
+- **如何核实**：读 `groups.ts:16-41`；`grep -n '"page"' packages/neuro-book/src/plugins/editor/web/*.ts`。
+- **建议改法**：把标签改成判别联合：`{kind: "page", page: string} | {kind: "file", editor: EditorId}`，`EditorId` 用品牌字符串。贡献点校验拒绝 id `page`（以及以后保留的 id）。声明里加 `cursor?: "offset" | "line"`（没有就不记光标），`cursorFits` 按声明判断。字节标签的 `slotKey` 用地址，或者用第 6 条那个字节条目的 id。session-record 写明版本策略：放宽后旧代码会不会整份丢弃记录，要不要升 `editor.session` 的版本号。
+
+### 9. 源码标签 dirty 时关掉它，不问；未保存的正文只剩只读的预览标签持有
+- **严重程度**：建议；**类别**：正确性
+- **位置**：plan.md 第 4、5 节（52、62 行）；`editor/web/area.ts:477-506`（`closeTab` 的 `shared`）；`editor.md` 输出 4
+- **现象**：`closeTab` 判断 `shared` 时只看“别的标签有没有同一地址”（486 行）。`a.html` 的源码与预览在同一组、源码 dirty 时，关闭源码标签：`shared` 为真，不问，直接关。dirty 的文档只剩只读的预览标签持有。用户看不到改了什么、不能再编辑，只有切到预览标签按 Ctrl+S 才能保存（`save` 取 `activeDocument`）。计划没说预览标签显示不显示 dirty 圆点，也没说预览标签上 `save` 命令能不能用。
+- **为什么是问题**：输出 4 的“文档仍在别的组打开时不问”假设的是另一个可编辑的视图还在。只读的预览视图持有 dirty 正文是新出现的情形，Spec 要明确。
+- **如何核实**：读 `area.ts:486`。
+- **建议改法**：`shared` 改为“还有别的可编辑标签”（不计预览编辑器与只读编辑器），否则照常询问。Spec 输出 4 同步改写，并写明预览标签上显示 dirty 圆点、可以保存。
+
+### 10. 选编辑器按“已声明”还是“已交付”没有定；会话恢复时把“还没交付”当成“已经不在了”，结果随插件激活的先后变化
+- **严重程度**：重要；**类别**：正确性 / 接口与合同
+- **位置**：plan.md 第 1 节“选择顺序”“标签找不到编辑器”（23–29 行）、第 6 节（66 行“各自只有浏览器入口”）；`editor/web/pages.ts:69-76`；`docs/specs/runtime/plugins.md` 第 17、23 条；`editor.md` 输出 33
+- **现象**：
+  - 贡献分两层：声明（静态，进清单，`context.declarations` 随时可查，见 plugins.md 第 23 条）与实现（贡献方激活并发布后才交付，见第 17 条）。`resolveEditor` 是纯函数，计划没说它的输入是哪一层。如果用“已交付”：页面加载时 `nbook.editor` 恢复会话、处理继续写作的 `open`，这时 `nbook.image-viewer` 可能还没发布，打开 `a.png` 会落到 `code`，读成 `not-text`，显示“二进制文件”。同一操作晚一秒做结果就不同。如果用“已声明”：选择是稳定的，但标签要能显示“编辑器加载中”。
+  - 计划把“贡献方停止”和“会话记录里的编辑器没装”放进同一句，统一显示“这个编辑器已经不在了”。还缺第三种情形：已声明、还没交付。页面标签对这种情形有现成的区分（`EditorPageRegistry.declaration` 与 `available` 分开，输出 33 写了“还没交付实现时为 `unavailable`”）。计划说“做法同页面标签”，却没有把这种区分搬过来。刷新后，恢复出来的图片标签会先闪一下“已经不在了”和“用默认编辑器打开”；用户这时点了那个按钮，标签就被永久换成 `code`。
+  - 两个新插件的激活事件没写。如果是 `onStartup`，上面的竞争每次刷新都会出现；如果按需激活，就要由 `nbook.editor` 触发，那需要声明 `activationEventPrefixes`（plugins.md 40 行），计划里没有。
+  - `markdown`、`code` 作为 `nbook.editor` 投给自己的贡献可行，有先例：`workbench/web/plugin.ts:89,97,108` 定义、接收并自投 `WORKBENCH_TITLEBAR_MENU_POINT`。但自投的实现同样要等本入口发布后才交付，而编辑器区在 `activate` 里就已建好、开始恢复会话（`editor/web/plugin.ts` 的 `createEditorSession`）。也就是说，`markdown`、`code` 两个内置编辑器同样有“已声明、未交付”的窗口期。
+- **为什么是问题**：现有 e2e（`editor-area.e2e.ts`）会在 S2 的“行为不变”关口上随机失败，或者把闪现的“已经不在了”截进截图；第三方编辑器以后遇到的是同一个问题。
+- **如何核实**：读 `pages.ts:69-76` 与 `editor/web/plugin.ts:86-197`，内置编辑器的实现是在 `activate` 返回之后经 `contributions` 交付的。
+- **建议改法**：Spec 写明：`resolveEditor` 只看已接受的声明，不看交付状态；标签渲染分三种状态：声明不在（贡献方停止或没装）显示“已经不在了”并给出“用默认编辑器打开”；已声明、未交付显示进度，沿用输出 6 的 800ms 规则；已交付则渲染。`markdown`、`code` 的组件可以直接由编辑器区引用，不经交付，交付只给第三方用。两个新插件写明 `activationEvents: ["onStartup"]`，或者写明按需激活的前缀。
+
+### 11. “`not-text` 就是二进制文件”会把 GBK 等非 UTF-8 文本判成“不能在这里打开”，而且没有重试与其它出路
+- **严重程度**：建议；**类别**：正确性
+- **位置**：plan.md 第 1 节选择顺序第 4 步（27 行）；`docs/specs/workspace/files.md:52`（含 NUL 或非法 UTF-8 为 `not-text`）
+- **现象**：`not-text` 的判据是“含 NUL 或非法 UTF-8”。中文用户常见的 GBK、GB18030 编码的 `.txt` 小说都会读成 `not-text`。计划给它的文案是“这是二进制文件，不能在这里打开”，并去掉重试。用户得到的说法不对（文件是文本，只是编码不是 UTF-8），也没有下一步可做。
+- **为什么是问题**：这是本产品的主要场景（长篇写作，导入旧稿）。t01 决定 5 的“二进制”是按文件性质说的，不是按 UTF-8 校验结果说的。
+- **如何核实**：读 `files.md:52`；拿一个 GBK 文件，按计划的流程走一遍就能看到。
+- **建议改法**：文案改成“这个文件不是 UTF-8 文本（可能是二进制文件或其它编码），不能在这里打开”。或者让 `not-text` 的 detail 区分“含 NUL”和“非法 UTF-8”，后者提示编码问题。编码转换不在本期做，“不做”一节写明。
+
+### 12. “建模型时只加载本模型的语言”会让 HTML 里的 `<script>`、`<style>` 和 Markdown 代码块失去高亮，比现在退步；声明字段缺 `mimetypes`，freemarker2 的导出也不是 `{conf, language}`
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan.md 第 7 节“声明”“实现”“选语言”（80–86 行）；`node_modules/monaco-editor/esm/vs/basic-languages/_.contribution.js:103-117`；`html/html.js:194-367`；`markdown/markdown.js:74,194-222`；`freemarker2/freemarker2.contribution.js`；`editor/standalone/common/monarch/monarchLexer.js:633-634,730`；`packages/neuro-book/src/plugins/editor/web/code/load-monaco.ts:12-24`
+- **现象**：
+  - Monaco 0.55.1 的嵌入语言是 Monarch 在分词时按名字找的：`nextEmbedded: "text/javascript"`、`"text/css"`（html 6 处，markdown 2 处），markdown 代码块是 `nextEmbedded: "$1"`（围栏后的语言名），mdx 用 `"yaml"`、`"js"`。分词器先 `getLanguageIdByLanguageName(name)`，再 `getLanguageIdByMimeType(name)`（monarchLexer.js 633-634 行），找到后 `requestBasicLanguageFeatures` 触发那门语言的加载（730 行）。所以嵌入语言要满足两点：一是事先 `languages.register` 过、带着 `aliases` 与 `mimetypes`；二是注册了能按需建分词器的工厂。Monaco 自己的 `registerLanguage` 正是这样做的：`registerTokensProviderFactory` 加上 `onLanguageEncountered`（`_.contribution.js:103-117`）。
+  - 计划的做法是：`MonacoControl` 建模型时只给本模型的语言 `load()`，再 `register` 和 `setMonarchTokensProvider`；声明字段只有 `aliases`、`extensions`、`filenames`、`firstLine`，没有 `mimetypes`。打开 `a.html` 时，`javascript` 与 `css` 都还没注册，`text/javascript` 也找不到对应的语言，`<script>`、`<style>` 里会是纯文本。现在 `load-monaco.ts` 直接引入了 html、css、javascript 的 contribution，这些是能高亮的。这是退步，而 HTML 正是这期的主角。Markdown 的 ```` ```python ```` 代码块同理。
+  - 声明字段说“与 Monaco 的 `registerLanguage` 同一套字段”，但列出的子集漏了 `mimetypes`（23 个 contribution 带它）。
+  - `freemarker2.contribution.js` 一个文件登记 6 门语言，`loader` 是 `import('./freemarker2.js').then((m) => m.TagAutoInterpolationDollar)`，不是统一的 `{conf, language}` 模块。生成脚本如果按“一个目录一项、取模块的 conf 与 language”来写，就会漏掉这 6 门或者生成错误的表。
+- **为什么是问题**：验收表第 125 行只测 `.py`、`.go`、`.rs` 这类单一语言文件，测不到嵌入的情形，回归不会被发现。
+- **如何核实**：`grep -n nextEmbedded node_modules/monaco-editor/esm/vs/basic-languages/{html,markdown,mdx}/*.js`；读 `_.contribution.js:103-117` 与 `monarchLexer.js:625-735`。
+- **建议改法**：Monaco 加载时一次性 `languages.register` 全部已接受的语言声明（声明是静态的，开销很小），声明里加 `mimetypes`。每门语言注册 `registerTokensProviderFactory({create: async () => (await load()).language})`，再用 `onLanguageEncountered` 设置 `configuration`，与 Monaco 自己的做法一致。这样建模型时也不用自己实现“文件名、扩展名、首行”的选择：`createModel(text, undefined, uri)` 会交给 Monaco 的 `getLanguageIdByFilepathOrFirstLine`。生成脚本按 `registerLanguage({...})` 调用逐个解析，`loader` 保留原表达式，而不是假定 `{conf, language}`。验收补两例：`a.html` 的 `<script>` 内有 JS token，`.md` 用源码编辑器打开时 ```` ```ts ```` 代码块有 TS token。
+
+### 13. 两个“用来证明第三方也能走这条路”的插件缺少它们需要的公开合同：控件类型在 `editor/web/area.ts`，状态栏拿不到“活动的是哪种编辑器”，也拿不到查看器的尺寸
+- **严重程度**：重要；**类别**：接口与合同
+- **位置**：plan.md 第 1 节“实现”（21 行）、第 6 节（66、71 行“状态栏：显示像素尺寸与文件大小”）；`editor/web/control.ts:13`（类型取自 `./area`）；`editor/web/area.ts:35-70`；`editor/web/state.ts:18-31`；`editor/web/status-items.ts:26-30`；`packages/neuro-book/AGENTS.md:15`；`src/architecture.test.ts:96-97`
+- **现象**：
+  - 控件合同的类型 `ViewBinding`、`EditorControlHandle`、`ViewStateSlot` 定义在 `editor/web/area.ts`。`ViewBinding.document` 是编辑器内部的 `TextDocument`（`documents/store.ts`）。`import type` 跨插件可以用，但运行时只能引 `shared/contracts.ts`（architecture.test 会检查）。计划只说声明进 `editor/shared/contracts.ts`，没说绑定与句柄的类型挪不挪。如果不挪，“第三方插件”就要依赖编辑器 web 层的内部类型，而 `TextDocument` 上还有 `commit`、`saving`、`conflict` 等第三方不该碰的东西。
+  - 状态栏条目按公开状态的 `when` 显示（`status-items.ts:26-30`）。`nbook.image-viewer` 要在“活动标签是图片查看器”时显示尺寸，可编辑器的公开状态里只有 `active`、`writable`、`activeDocument`（地址）等，没有“活动标签的编辑器 id”。尺寸和字节数是查看器组件实例里的数据，计划没说经什么通道交给它自己插件的状态栏条目：每组一个控件，只有活动组的那一个才算数。
+  - 第 7 节的语言条目 `nbook.editor.language` 也需要一个“活动的是源码编辑器”的公开键，`hasCursorPosition` 只能近似。
+- **为什么是问题**：计划第 6 节把这两个插件定位为第三方路径的证明。照现状实现，要么跨插件引运行时内部模块，被 architecture.test 拒；要么临时加一个只为它们存在的通道。两种结果都证明不了第三方路径，下一个 Work 要返工。
+- **如何核实**：读 `control.ts:13` 与 `architecture.test.ts:96-97`；`state.ts` 的公开键表。
+- **建议改法**：在 `editor/shared/contracts.ts` 定义第三方可见的控件合同：`TextEditorBinding`，它是 `TextDocument` 的只读视图，加上 `commit`、`attach`、`cursor`、`remember`；`BytesEditorBinding` 为 `{address, url, version}`；句柄另加 `status?: Readonly<Ref<LocalizedText | null>>`，或通用的 `statusText`。公开状态加 `nbook.editor/activeEditor: string`，即活动标签的编辑器 id，页面或空组时为空串。查看器的尺寸经句柄交给编辑器区，由一个通用的状态栏条目 `nbook.editor.editor-status` 显示；或者图片插件自己的条目以 `activeEditor === "nbook.image-viewer"` 为 `when`，经句柄取值。这些写进 `editor.md` 的“编辑器贡献”一节。
+
+### 14. 预览控件按“每组每种一个、换走时停放不卸载”的规则存在，被换下的预览 iframe 会继续跑脚本
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：plan.md 第 1 节“类型放宽”（30 行“每组每种编辑器一个控件……规则不变”）、第 6 节 HTML 预览；`editor/web/components/EditorGroup.vue:107-111,191-203`（`v-show` 停放）
+- **现象**：同组里另一种编辑器活动时，控件只是 `v-show` 隐藏，不卸载。组里只要还有一个 HTML 预览标签，预览控件就一直挂着。计划没说 `binding` 变为 null 时 iframe 要不要清掉。照字面实现，切到源码标签后，被隐藏的预览页里的定时器、动画、`fetch` 轮询都还在跑；源码那边每次停手 300ms 又会整页重载这份不可见的预览。
+- **为什么是问题**：用户写的 HTML 脚本可能很重（canvas 动画、轮询）。停放控件是为了保留编辑器的撤销历史，而预览没有要保留的东西。
+- **如何核实**：读 `EditorGroup.vue:191-203`，`:visible` 与 `:binding` 在不活动时为 false 与 null，控件仍挂着。
+- **建议改法**：`html-preview.md` 写明：绑定为 null 或不可见时把 `srcdoc` 换成空文档，或移除 iframe；可见时重建。更新计时只在可见时运行，计时用注入的时钟（测试规范要求不用固定等待）。
+
+### 15. S2 的验证口径“`editor-area.e2e.ts` 全部通过（行为不变）”与 S2 自己改的行为冲突
+- **严重程度**：重要；**类别**：测试
+- **位置**：plan.md 切片表 S2 行（107 行）、第 1 节“用其它编辑器重新打开”（28 行）；`e2e/editor-area.e2e.ts:521-543`；`editor/web/commands.ts:51,74,130-134`
+- **现象**：现在不带参数的 `reopen-with` 在 Markdown 与源码之间来回切（`commands.ts:134`），命令描述里写着 “without an editor, switch to the other one”。`editor-area.e2e.ts:521` 的用例从命令面板执行两次，断言先换成源码、再换回富文本。S2 把不带参数的行为改成弹出选择，这条用例必然失败，而 S2 的验证要求它“全部通过（行为不变）”。`title-actions.test.ts`、`area.test.ts:299` 也要跟着看。
+- **为什么是问题**：照字面执行 S2，要么卡在自己的验证上，要么为了“行为不变”保留来回切换，与第 1 节矛盾。
+- **如何核实**：读 `editor-area.e2e.ts:521-543` 与 `commands.ts:130-134`。
+- **建议改法**：S2 的验证改为“除‘用其它编辑器重新打开’一例外全部通过；这一例改为：执行后弹出选择，列出 Markdown 与源码，选中后换”。`editor.md` 输出 20 与命令描述在 S0 一并改掉。或者保留“只有两个候选时直接切换”，并在 Spec 里写明。
+
+### 16. 超过约 960 KiB 的 PDF、音视频、字体读出来是 `too-large`，不是 `not-text`，显示不出决定 4 要求的“不能在这里打开”
+- **严重程度**：重要；**类别**：正确性
+- **位置**：plan.md 第 1 节选择顺序第 4 步（27 行）；`plugins/files/backend/files-service.ts:149-158`；`plugins/files/shared/contracts.ts:31`；t01 决定 4、5
+- **现象**：`files.read` 先按 `TEXT_BUDGET_BYTES`（1 MiB 减 64 KiB）调 `root.read`，文件超过上限时直接返回 `too-large`，根本不看内容（files-service.ts 153 行；`rooted.read` 在 241 行先比较大小）。只有不到 960 KiB 的文件才会进 UTF-8 校验，得到 `not-text`。常见的 PDF、MP4、MP3、TTF 大多超过这个大小。按计划的第 4 步，它们显示的是现有的“太大”失败，带“重试”，而不是“这是二进制文件，不能在这里打开”。
+- **为什么是问题**：决定 4 明确写了“PDF、音视频、字体等显示‘不能在这里打开’”，决定 5 的判据是“文件不是文本（二进制）又没有编辑器认领”。小于 960 KiB 的二进制文件还会整段经 RPC 传到浏览器，只为了得出 `not-text`。
+- **如何核实**：读 files-service.ts 149-158 行。拿一个 2 MB 的 PDF 走计划的流程：`code` 读到 `too-large`。
+- **建议改法**：选择顺序之前先按扩展名过滤一张已知二进制扩展名表（pdf、mp3、mp4、mov、ttf、otf、woff、woff2、zip 等），直接显示“不能在这里打开”，不发读取。或者让 `files.read` 在超限时先读前 8 KiB 判断是否二进制，返回 `not-text`。验收表第 118 行补“2 MB 的 pdf 显示不能在这里打开”一例。
+
+### 17. 第 3 节的来源核对在 `dispatch.ts` 里拿不到 `allowOrigin`；403 的错误体格式与字节路由也不一致
+- **严重程度**：建议；**类别**：接口与合同
+- **位置**：plan.md 第 3 节（48 行）；`server/start.ts:165-173`；`server/plugins.ts:26-37`；`plugins/http/backend/plugin.ts:36-77`；`plugins/http/backend/dispatch.ts:53-62,199-201`
+- **现象**：`allowOrigin` 是 `start.ts` 里的闭包，依赖 `onListening` 回调设置的 `url`。`ServerPluginContext` 和 `createHttpPlugin` 的选项里都没有它，`DispatchOptions` 里也没有。计划只写了 `dispatch.ts`，S1 实际要改 `plugins.ts`（上下文）、`http/backend/plugin.ts`（选项）、`dispatch.ts`，以及 `dispatch.test.ts` 与 `server/testing` 里直接建分发器的地方。分发器的错误体是 `{error: {code, message}}`，字节路由按封面路由用 `{code, detail}`，同一端口上两种格式。已核实不会误伤的现有调用方：开发模式 Vite 代理不改 `Origin`（`server/dev/frontend.ts:33` 没设 `changeOrigin`），页面来源在 `NBOOK_ALLOWED_ORIGINS` 里；e2e 与测试里的 Node 和 Bun `fetch` 不带 `Origin`；产品里现有的写路由只有封面的 PUT 和 DELETE，浏览器跨源发不出这两种（实测 no-cors 的 PUT 报 TypeError），所以这条规则眼下只防 POST。
+- **为什么是问题**：计划的文件清单不全，照字面做会在 S1 中途发现要改插件装配的上下文；`server-host.md` 的实现合同那一节也要随之改。
+- **如何核实**：读上面列出的行。
+- **建议改法**：第 3 节写明经 `ServerPluginContext.allowOrigin` 传给 `createHttpPlugin`，再交给 `createDispatcher`；403 用分发器自己的 `errorResponse(403, "origin-not-allowed", …)`。同时决定字节路由用哪种错误体，最好与分发器一致。
+
+### 18. 语言选择、选择器匹配的若干规则没有写：大小写、多段扩展名、拆分与换编辑器时语言跟不跟、记下的语言不在了怎么办
+- **严重程度**：建议；**类别**：文档
+- **位置**：plan.md 第 1 节“选择顺序”（23–27 行）、第 7 节“状态栏”（87 行）；`editor/web/groups/groups.ts:216-229,252-256`（`split` 显式复制 `cursor`，`setEditor` 重建标签对象）
+- **现象**：
+  - 选择器的扩展名、文件名是否不区分大小写（`A.PNG`、`README`），`a.d.ts`、`a.tar.gz` 这类多段扩展名按最后一段还是最长匹配，计划没写。现在的 `defaultEditor` 是 `toLowerCase()` 后判断。
+  - 语言记在标签上。`groups.split` 逐字段复制标签（只复制了 `cursor`），`setEditor` 新建标签对象时丢掉了除地址、编辑器、preview 之外的字段。计划没说拆分后的标签带不带 `language`，换成 Markdown 再换回来还在不在。
+  - 会话记录里的 `language` 指向的语言在恢复时已不在登记表里（以后来自第三方插件），计划没说是回退到自动识别还是保留原值。
+  - `change-language` 在 Markdown 富文本标签、图片标签上可不可用（`when`），计划没写。
+- **为什么是问题**：这些都是实现时必然要拍板的分支，计划不写，测试也不会覆盖。
+- **如何核实**：读 `groups.ts` 上面列出的两处。
+- **建议改法**：在 `editor.md` 的“编辑器贡献”“语言”两节各补一句：匹配不区分大小写，扩展名取最长的已登记后缀；`language` 随拆分复制，换编辑器时丢弃（与光标同一规则，输出 30）；未登记的语言回退到自动识别，不改写记录；`change-language` 的 `when` 为“活动编辑器是源码编辑器”，依赖第 13 条的 `activeEditor`。
+
+### 19. Chrome 对 `srcdoc` 的预解析会先按应用根目录取一遍相对资源，再按 `<base>` 取一遍
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：plan.md 第 6 节“渲染”（74 行）
+- **现象**：实测（`lab-opus/exp.mjs`）里，`<base href="/raw/dir/">` 已是 `<head>` 的第一个元素，服务端仍先收到 `GET /s.css`、`/m.js`、`/a.png`、`/c.js`（按父页面的根解析），之后才是 `/raw/dir/…`。生产环境里这些请求会落到应用的静态资源或 SPA 外壳上：每个相对引用多一次请求；`api/…` 这类相对路径会请求到 `/api/…`。
+- **为什么是问题**：多出来的请求是 GET、没有副作用，但页面上的每个资源都翻倍，日志也会多出一批 404；如果第 3 条的 `Host` 核对、第 1 条的独立源都不做，这些请求还会让排查变难。
+- **如何核实**：运行 `lab-opus/exp.mjs`，看日志前几行的 `GET /s.css`、`GET /a.png`。
+- **建议改法**：采用第 1 条的独立源，用 `src` 而不用 `srcdoc`，这个问题随之消失。继续用 `srcdoc` 的话，在 Spec 的“已知限制”里记一笔。
+
+### 20. `open` 与 `reopen-with` 的 `editor` 放宽成任意字符串后，没有写“未知 id”和“与文件不匹配的编辑器”怎么失败
+- **严重程度**：建议；**类别**：接口与合同
+- **位置**：plan.md 第 1 节选择顺序第 1 步（24 行）、“类型放宽”（30 行）；`editor/web/commands.ts:41,51,64,74`（`expose: {agent: "auto"}`）
+- **现象**：`nbook.editor.open` 与 `reopen-with` 对 Agent 公开（`agent: "auto"`），参数 schema 现在是两个字面量的联合，传错会被校验拒绝。放宽成 `string` 后，`open {editor: "typo"}` 会开出一个“这个编辑器已经不在了”的标签，`open {address: "a.md", editor: "nbook.image-viewer"}` 会用图片查看器打开文本。第 1 步“调用方给的 `editor`”没有任何前置条件。
+- **为什么是问题**：Agent 是这两个命令的直接调用方，失败应当在调用时就返回，而不是留下一个坏标签。
+- **如何核实**：读 `commands.ts:41,51`。
+- **建议改法**：Spec 写明：`editor` 必须是已接受声明的 id，否则返回 `unavailable` 并说明原因；`input: "bytes"` 的编辑器只接受选择器命中的文件，`input: "text"` 的编辑器可以打开任意文本，与 VS Code 的 “Reopen With” 一致。命令描述随之更新。
+
+## 未发现问题的方面
+
+- 第 3 节对现有调用方的影响：开发模式 Vite 代理保留页面 `Origin`，而页面来源在 `NBOOK_ALLOWED_ORIGINS` 里；e2e 与 Bun 测试里的请求不带 `Origin`；Lab 不经 HTTP 写接口。按 `allowOrigin` 做 403 不会误伤它们。实测沙箱 iframe 的 POST 带的是字面量 `Origin: null`，`allowOrigin("null")` 因 `new URL("null")` 抛错而返回 false，规则能拦住它。
+- RPC 端口对预览脚本是关着的：`Origin: null` 被拒（server-host.md 场景 12），`allowOrigin` 对 `null` 返回 false。
+- 沙箱本身：实测 `parent.document` 读取被拒，`location.origin` 是 `null`；PUT 与 DELETE 在 no-cors 下发不出；不给 `allow-popups`、`allow-top-navigation` 时打不开新窗口，也导航不了顶层。现有 `HtmlEmbed.ts` 的 `message` 监听核对了 `event.source`，预览页的 `postMessage` 冒充不了它。
+- `markdown`、`code` 作为 `nbook.editor` 投给自己的贡献在机制上可行，有先例：`workbench/web/plugin.ts` 自投 `WORKBENCH_TITLEBAR_MENU_POINT`。时序问题见第 10 条。
+- `quickPickKey` 存在，选择模式的语义够用（quick-open.md 第 47 行）；`nbook.editor` 依赖它不会成环（workbench 的依赖里没有编辑器的服务）。
+- `rooted.ts` 的包含、链接与控制目录规则只依赖构造参数，不依赖锁和项目子进程的状态。`read` 不用锁，服务端可以直接用；问题只在根从哪里来、上限是多少（第 4、5 条）。
+- t01 决定 1、2、5、6 都覆盖了；决定 3 见第 1 条，决定 4 见第 6、16 条。
+
+## 各级数量
+
+- 阻断 2：第 1、6 条
+- 重要 10：第 2、3、4、5、7、8、10、12、13、15、16 条中除建议外的项，即第 2、3、4、5、7、8、10、12、13、15、16 条（共 11 条，见下行更正）
+- 建议 7：第 9、11、14、17、18、19、20 条
+
+更正：重要实为 11 条（第 2、3、4、5、7、8、10、12、13、15、16 条）。合计 20 条，即阻断 2、重要 11、建议 7。
+
+## 对计划“风险”一节的判断
+
+1. **标签身份改成“地址 + 编辑器”**：这条风险判断对，但只靠“先让现有 `groups.test.ts` 与 `editor-area.e2e.ts` 通过”控制不住。现有测试里没有字节标签，也没有两种编辑器共存的情形；真正的风险在没有文档的标签（第 6 条）、“预览”一词的歧义（第 7 条）和 `shared` 的判定（第 9 条）。S2 的“行为不变”口径本身也过不去（第 15 条）。
+2. **页面自带 `<base>` 时以页面的为准**：作为已知限制可以接受。更大的问题是计划自己插的 `<base>` 会让页内锚点跳成 404（第 2 条），以及不透明源下 CORS 模式的资源全部加载不了（第 1 条），这两点风险一节都没列。
+3. **字节路由只复用 `rooted.ts`**：不够。`rooted.ts` 保证的是根内的规则，根本身从哪里来、是不是还是那个根、要不要核对身份文件，都在它外面（第 4 条）。另外还缺上限（第 5 条）和 `Host` 核对（第 3 条）。

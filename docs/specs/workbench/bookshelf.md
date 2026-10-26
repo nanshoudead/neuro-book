@@ -35,7 +35,7 @@ owners:
 
 ## 输入与前置条件
 
-- 页面：`nbook.projects` 的浏览器入口向工作台的 `workbench.home`（[`ui.workbench-shell`](../ui/workbench-shell.md) 外壳四之后的“无项目首页”）贡献书架页；只在没有绑定项目的窗口出现。同一个入口向设置窗口的 `settings.sections`（[`settings.window`](../settings/settings-window.md)）贡献“作品”分区。
+- 页面：`nbook.projects` 的浏览器入口向工作台的 `workbench.home`（[`ui.workbench-shell`](../ui/workbench-shell.md) 外壳四之后的“无项目首页”）贡献书架页；只在没有绑定项目的窗口出现。同一个入口向设置窗口的 `settings.pages`（[`settings.window`](../settings/settings-window.md)）贡献“作品”分区。
 - 数据：远程服务 `nbook.projects/projects` 的 `shelf()`，返回每部作品的登记项、作品信息、封面与统计摘要（形状见 [`runtime.projects`](../runtime/projects.md)）；`library()` 给出作品目录；`browse()` 列目录。
 - 设置：作品目录 `nbook.projects/library`（user 层字符串，缺省空）；书架的视图与排序记在 user 分区的 `nbook.projects` / `shelf-preferences`（`locality: local`）。
 - 通知经工作台的通知服务；命令经命令服务。
@@ -79,7 +79,7 @@ owners:
 
 **取数与刷新**
 
-15. 第一次取数期间显示骨架；第一次取数失败显示原因与“重试”。
+15. 第一次取数期间显示骨架，骨架所在的区域带 `aria-busy="true"`；第一次取数失败显示原因与“重试”。
 16. 页面可见时每 30 秒刷新一次，窗口重新获得焦点时也刷新，两者合并；同一时间至多一个请求在途，迟到的旧响应丢弃；页面隐藏或离开时停止。
 17. 刷新失败保留上次的数据，发一条常驻通知“书架没有更新”（带原因与“重试”），再失败只换内容不堆第二条，刷新成功后收回；某部作品的统计取不到时只影响那一部，按 `stale` 或 `none` 显示。
 
@@ -87,7 +87,7 @@ owners:
 
 18. 内容：书名（显示名）、简介（没有时写“还没有简介”）与统计（字数 · 篇数，过时的带“统计于…”，还没统计写“尚未统计”，与书卡同一写法）；“开始”里是主按钮“新建章节”、快捷入口与“回到书架”；“最近打开”是编辑器的最近打开（[workbench.editor](editor.md) 输出 31）的前 5 个，写出所在目录，没有时一句“还没有打开过文件”；“入门”是三条固定提示，第二条带命令面板的快捷键。没有绑定项目的窗口只显示“没有打开作品”与“回到书架”。
 19. 动作：“新建章节”在项目根建一个空的 Markdown 文件（`新章节.md`，同名已在时依次加 2、3）并以正式标签打开，失败时按钮下写出原因（文件建好了但打不开时写“建好了 X，但打不开”与原因）；快捷入口是项目根下名字以“大纲”“设定”开头的文件与文件夹（大纲在前，同类按名字），文件点了打开，文件夹点了在资源管理器里展开并选中（`nbook.files.reveal`）；最近打开点了打开；“回到书架”整页导航到 `/`。
-20. 打开：作品第一次在本窗口打开时自动打开（声明 `openOnFirstVisit`）；之后经“帮助 > 欢迎”（命令 `nbook.help.welcome`，命令面板里同名）打开，窗口里只有一个欢迎页；刷新后不恢复。每次成为活动标签时重新取一次作品信息与项目根的列出。
+20. 打开：作品第一次在本窗口打开时自动打开（声明 `openOnFirstVisit`）；之后经“帮助 > 欢迎”（命令 `nbook.help.welcome`，命令面板里同名）打开，窗口里只有一个欢迎页；刷新后不恢复。每次成为活动标签时重新取一次作品信息与项目根的列出；取完之前（成功或失败）欢迎页根上带 `aria-busy="true"`，这时的“还没有简介”只是缺省，不是结果。
 
 **设置窗口的“作品”分区**
 
@@ -160,8 +160,8 @@ Smoke：`e2e/bookshelf.e2e.ts`（生产构建、真实服务端与项目子进�
 
 ## 实现合同
 
-- **公开入口**：`nbook/plugins/projects/shared/contracts`（远程合同与 `ShelfItemSchema`、`librarySetting`）、`nbook/plugins/projects/shared/cover`（封面规则与地址）、`nbook/plugins/projects/shared/shelf`（界面类型与 `projectDisplayName`）；页面模型 `createShelfPage`（`web/shelf-page.ts`）与组件是 `nbook.projects` 的内部实现。
-- **owner 与依赖方向**：书架页只经 `nbook.projects/projects` 的远程服务与封面路由取数与写入（[`runtime.projects`](../runtime/projects.md) 输出 17 到 21），用工作台的通知服务、首页贡献点 `workbench.home`、命令服务、公开状态（齿轮的按下态）与宿主的整页导航、新标签页、设置与 Storage（偏好记录）；“作品”分区经设置的贡献点 `settings.sections` 交给设置窗口，写作品目录用本插件自己的配置服务；书架页不引用编辑器，继续写作只经地址参数（[`workbench.editor`](editor.md) 输出 29）；欢迎页贡献到编辑器的页面贡献点 `editor.pages`，经命令打开文件（`nbook.editor.open`）、揭示文件夹（`nbook.files.reveal`）与打开页面（`nbook.editor.open-page`），只引用编辑器的共享合同。目录选择器用 nb-ui 的 `FileBrowser`，数据来源只有 `browse`（书架与“作品”分区共用 `web/browse.ts`）。
+- **公开入口**：`nbook/plugins/projects/shared/contracts`（远程合同与 `ShelfItemSchema`、`librarySetting`）、`nbook/plugins/projects/shared/cover`（封面规则与地址）、`nbook/plugins/projects/shared/shelf`（界面类型与 `projectDisplayName`）、`nbook/plugins/projects/shared/project-url`（打开某个项目的地址 `projectUrl`，开发模式的样例作品也用它）；页面模型 `createShelfPage`（`web/shelf-page.ts`）与组件是 `nbook.projects` 的内部实现。
+- **owner 与依赖方向**：书架页只经 `nbook.projects/projects` 的远程服务与封面路由取数与写入（[`runtime.projects`](../runtime/projects.md) 输出 17 到 21），用工作台的通知服务、首页贡献点 `workbench.home`、命令服务、公开状态（齿轮的按下态）与宿主的整页导航、新标签页、设置与 Storage（偏好记录）；“作品”分区经设置的贡献点 `settings.pages` 交给设置窗口，写作品目录用本插件自己的配置服务；书架页不引用编辑器，继续写作只经地址参数（[`workbench.editor`](editor.md) 输出 29）；欢迎页贡献到编辑器的页面贡献点 `editor.pages`，经命令打开文件（`nbook.editor.open`）、揭示文件夹（`nbook.files.reveal`）与打开页面（`nbook.editor.open-page`），只引用编辑器的共享合同。目录选择器用本插件的 `FileBrowser`（`web/components/FileBrowser.vue`），数据来源只有 `browse`（书架与“作品”分区共用 `web/browse.ts`）。
 - **关键不变量**：
   - 同一时间至多一个书架请求在途，页面隐藏时不刷新，卸载后迟到的响应不改状态（验收 6 与状态表）。
   - 新建、修改信息、移出成功后以服务端的结果刷新，界面不先行改数据；移出后选中相邻的一部、焦点回到书架（验收 4）。

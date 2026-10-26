@@ -2,7 +2,7 @@
 /**
  * 容器的内部排列（同名 .md）：单轴网格，每个可见视图一个分节；视图内容由宿主搬进分节里的落点，落点经 `target` 报出。
  */
-import {GridRenderer} from "@notnotype/nb-ui/layout";
+import {NestedGrid} from "@notnotype/nb-ui/layout";
 import {useGridLayout, useLayoutExtent} from "@notnotype/nb-ui/composables";
 import {computed, defineComponent, h, onBeforeUnmount, onMounted, ref} from "vue";
 
@@ -107,7 +107,7 @@ const ViewTarget = defineComponent({
         :data-container-mode="container.mode"
         :data-container-axis="container.axis"
     >
-        <GridRenderer
+        <NestedGrid
             v-if="host.node.value !== null"
             :node="host.node.value"
             :layout="host.layout.value"
@@ -136,7 +136,7 @@ const ViewTarget = defineComponent({
                     <ViewTarget v-if="hasSpace(node.id)" :view-id="node.id" />
                 </WorkbenchViewSection>
             </template>
-        </GridRenderer>
+        </NestedGrid>
         <slot v-else name="empty"></slot>
     </div>
 </template>

@@ -1,6 +1,6 @@
 /**
- * BookshelfPage（同名 .md）：`focusShelf()` 把焦点交回书架（docs/specs/workbench/bookshelf.md 输出 14）；右上角的齿轮打开设置、
- * 设置窗口开着时按下（输出 1）。
+ * BookshelfPage（同名 .md）：第一次取数期间带 aria-busy（docs/specs/workbench/bookshelf.md 输出 15）；`focusShelf()` 把焦点
+ * 交回书架（输出 14）；右上角的齿轮打开设置、设置窗口开着时按下（输出 1）。
  */
 
 import {mount} from "@vue/test-utils";
@@ -18,14 +18,24 @@ function item(id: string, title: string): ShelfItem {
     };
 }
 
-function mountPage(items: ShelfItem[], view: "cards" | "list", settingsOpen = false) {
+function mountPage(items: ShelfItem[], view: "cards" | "list", settingsOpen = false, status: "loading" | "ready" = "ready") {
     return mount(BookshelfPage, {
-        props: {locale: "zh-CN" as const, status: "ready" as const, items, now: NOW, view, sort: "recent" as const, activeId: null, library: "/home/writer/Documents/NeuroBook", coverSrc: () => null, settingsOpen},
+        props: {locale: "zh-CN" as const, status, items, now: NOW, view, sort: "recent" as const, activeId: null, library: "/home/writer/Documents/NeuroBook", coverSrc: () => null, settingsOpen},
         attachTo: document.body,
     });
 }
 
 describe("BookshelfPage", () => {
+    it("第一次取数期间：骨架所在的区域带 aria-busy 与一句“正在读取书架”；取到之后撤掉", async () => {
+        const page = mountPage([], "cards", false, "loading");
+        const loading = page.get("[aria-busy=\"true\"]");
+        expect(loading.attributes("role")).toBe("status");
+        expect(loading.text()).toBe("正在读取书架…");
+        await page.setProps({status: "ready", items: [item("a", "甲")]});
+        expect(page.find("[aria-busy]").exists()).toBe(false);
+        page.unmount();
+    });
+
     it("focusShelf：卡片视图给列表框，列表视图给第一行，空书架给“新建作品”；工具栏在前也不抢", async () => {
         const cards = mountPage([item("a", "甲"), item("b", "乙")], "cards");
         cards.vm.focusShelf();

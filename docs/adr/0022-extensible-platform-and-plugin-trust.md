@@ -12,6 +12,7 @@ superseded-by: null
 - 关联工作：[w00017 t26](../../.agents/works/w00017-application-runtime-architecture/tasks/t26-platform-architecture-redesign/README.md)
 - 相关文档：[可扩展应用平台设计](../proposals/extensible-application-platform.md)（`accepted`，本 ADR 的机制展开）、[应用运行时总提案](../../packages/neuro-book-legacy/docs/proposals/application-runtime-and-plugins.md)（其“第三方代码加载”非目标由本 ADR 取代）
 - 补充：[ADR 0024](0024-multi-instance-runtime-topology.md)（2026-10-07）补充决策 2 的插件协作方式：插件经服务访问 Storage、配置与密钥，跨实例通信由内核路由的远程服务承担
+- 补充：[ADR 0027](0027-builtin-and-third-party-plugins-are-equal.md)（2026-10-17）部分取代“后果”中内部服务只给内置插件的含义：内置与第三方能力相同，信任所有插件
 - 调研证据：[Cordis 插件框架调研](../research/cordis-plugin-kernel.md)、[运行时模块卸载能力](../research/runtime-module-unloading.md)（均为非规范资料，仅作证据来源）
 
 ## 背景

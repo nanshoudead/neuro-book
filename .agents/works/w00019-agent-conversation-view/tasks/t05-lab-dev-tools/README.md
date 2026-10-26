@@ -1,6 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t05-lab-dev-tools
+status: done
+updated: 2026-10-22
 ---
 
 # Lab 截图调试工具与夹具样板精简

@@ -21,13 +21,19 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote";
 
-import {delegatingPlugins, productPlugins} from "nbook/manifest";
+import {createPluginInventory, pluginInventoryKey} from "nbook/plugin-platform/backend/inventory";
+import {installedPlugins, NO_PREPARED_PLUGINS} from "nbook/plugin-platform/backend/startup";
+import {pluginProblems} from "nbook/plugin-platform/shared/problems";
+import type {PluginsPreparation} from "nbook/plugin-platform/backend/startup";
+import {productPlugins} from "nbook/manifest";
+import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import type {PluginDescriptor} from "nbook/manifest";
 import {HTTP_DRAIN_LIMIT_MS, HttpAdmission, HttpAdmissionRejected} from "nbook/plugins/http/backend/admission";
 import type {DrainClock} from "nbook/plugins/http/backend/admission";
 import {clockKey, stateRootKey, userDirectoriesKey} from "nbook/shared/host";
 import {projectsKey} from "nbook/shared/projects";
 import {RPC_PATH} from "nbook/shared/rpc-socket";
+import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 
 import {loopbackOrigins} from "./config";
 import type {ServerConfig} from "./config";
@@ -40,6 +46,7 @@ import type {ServerPluginContext} from "./plugins";
 import {createProjectManager} from "./projects/manager";
 import type {ProjectManager} from "./projects/manager";
 import {createProjectRegistry} from "./projects/registry";
+import type {ProjectRegistry} from "./projects/registry";
 import {startRpcListener} from "./rpc/listener";
 import type {RpcGateResult, RpcListener} from "./rpc/listener";
 
@@ -51,6 +58,11 @@ export interface StartServerOptions {
     readonly manifest?: ReadonlyArray<PluginDescriptor>;
     /** 装配插件；缺省按清单。测试经这里加入自己的插件，产品代码不含测试分支。 */
     readonly plugins?: (context: ServerPluginContext) => ReadonlyArray<PluginDefinition>;
+    /**
+     * 本次启动的第三方插件，由进程入口在启动之前用 `prepareInstalledPlugins` 得出（它要取跨进程的锁，是异步的）。
+     * 缺省没有第三方插件。
+     */
+    readonly prepared?: PluginsPreparation;
     readonly process?: ProcessEvents;
     readonly signals?: ReadonlyArray<NodeJS.Signals>;
     readonly stopInput?: NodeJS.ReadableStream | null;
@@ -69,6 +81,16 @@ export interface StartServerOptions {
     readonly onRpcListening?: (url: string) => void;
     /** 致命通道，必须同步写完；缺省写进程的标准错误描述符。 */
     readonly writeFatal?: (line: string) => void;
+    /**
+     * 运行实例可用之后在后台做的开发任务，只由开发入口给出（样例作品，见 `dev/sample.ts`）。它拿到的是项目管理器用的同一个
+     * 登记表实例，登记表仍只有一个写者。启动失败、或在可用之前已开始停止时不启动；停止序列开头 abort 它，与排空并行等它结束。
+     */
+    readonly devTask?: (context: {readonly registry: ProjectRegistry; readonly stateRoot: string}) => DevTask;
+}
+
+/** 后台开发任务的停止：abort 并等它结束（截止由任务自己定），完成后不再写任何东西。 */
+export interface DevTask {
+    stop(): Promise<void>;
 }
 
 export interface ServerStopOutcome {
@@ -208,9 +230,20 @@ export function startServer(options: StartServerOptions): RunningServer {
     }
     options.onRpcListening?.(rpc.url);
 
+    const builtinManifest = options.manifest ?? productPlugins;
+    // 第三方插件集合在启动前已确定，进程生命期内不变（docs/specs/runtime/plugin-install.md）。
+    const prepared = options.prepared ?? NO_PREPARED_PLUGINS;
+    // 租约在宿主停止之后才放下，其间（以及锁在运行中失效时）的记录存储已不再收：写到 stderr，不丢掉“在用的版本可能被回收”这条线索。
+    prepared.connectDiagnostics((record) => {
+        if (store.record(record).status !== "rejected") return;
+        writeFatal(`${JSON.stringify({level: record.level, event: record.event, message: record.message, ...(record.error === undefined ? {} : {error: serializeDiagnosticError(record.error)})})}\n`);
+    });
+    const installed = installedPlugins(prepared.startup);
+    const thirdPartyIds = new Set(installed.map((plugin) => plugin.id));
     const context: ServerPluginContext = {
         config,
-        manifest: options.manifest ?? productPlugins,
+        manifest: builtinManifest,
+        installed,
         store,
         admission,
         onListening: (address) => {
@@ -218,6 +251,7 @@ export function startServer(options: StartServerOptions): RunningServer {
             options.onListening?.(address);
         },
         rpc: {port: rpc.port, path: RPC_PATH},
+        allowOrigin,
         projectTitle: (reference) => (projects === null ? Promise.resolve(null) : projects.displayTitle(reference)),
     };
     let plugins: ReadonlyArray<PluginDefinition>;
@@ -242,6 +276,13 @@ export function startServer(options: StartServerOptions): RunningServer {
         } finally {
             cancel();
         }
+    };
+    let devTask: DevTask | null = null;
+    // 停止一开始就置位：运行实例在停止请求之后才报告可用时（启动中请求停止），不再启动开发任务。
+    let devTaskClosed = false;
+    const stopDevTask = (): Promise<void> => {
+        devTaskClosed = true;
+        return devTask?.stop() ?? Promise.resolve();
     };
     const drainBoth = async (): Promise<void> => {
         // 与下面两处排空开头的停止接纳在同一个同步段里：排空期间不会再有项目被打开。
@@ -272,34 +313,59 @@ export function startServer(options: StartServerOptions): RunningServer {
                 {id: "host.user-directories", key: userDirectoriesKey, create: () => userDirectories},
                 {id: "host.clock", key: clockKey, create: () => systemClock},
                 {
+                    id: "host.plugin-inventory",
+                    key: pluginInventoryKey,
+                    create: () => createPluginInventory({
+                        root: join(options.config.stateRoot, "plugins"),
+                        profile: NEUROBOOK_PROFILE,
+                        builtin: builtinManifest.map(({id, version}) => ({id, version})),
+                        startup: prepared.startup,
+                        record: (record) => void store.record(record),
+                        // 插件页列表时才调用，那时 `host` 已经建好：本实例（服务端）此刻的入口失败、受阻与被拒的贡献。
+                        problems: () => pluginProblems(host.application.plugins.catalog(), "server"),
+                    }),
+                },
+                {
                     id: "host.projects",
                     key: projectsKey,
                     create: async () => (await projectsReady.promise).provision(),
                 },
             ],
             plugins,
-            requiredPlugins: plugins.map((plugin) => plugin.id),
+            // 第三方插件不是启动必需：它们失败只影响自己（docs/specs/runtime/plugin-manifest.md 的“失败与恢复”）；启动也不等
+            // 它们的 onStartup 入口，插件代码挂住时服务端照常就绪（runtime/application.md）。
+            requiredPlugins: plugins.filter((plugin) => !thirdPartyIds.has(plugin.id)).map((plugin) => plugin.id),
+            backgroundStartupPlugins: [...thirdPartyIds],
+            satisfies: pluginVersionSatisfies,
             gates: [],
             observers: mechanismObservers(store),
             remote: node,
-            delegation: (plugin) => delegatingPlugins.includes(plugin),
         },
         emergency,
         process: options.process,
         signals: options.signals,
         stopInput: options.stopInput,
-        beforeStop: drainBoth,
+        beforeStop: async () => {
+            // 先 abort 开发任务（同步），再在同一个同步段里开始排空，两者并行。
+            const devTaskStopped = stopDevTask();
+            try {
+                await drainBoth();
+            } finally {
+                await devTaskStopped;
+            }
+        },
         onFatal: (error: unknown, kind: FatalKind) => {
             fatalSeen = true;
             reportFatal(`process.${kind}`, kind === "uncaught-exception" ? "未捕获的异常，后端将有序关闭" : "未处理的 Promise 拒绝，后端将有序关闭", error);
         },
     });
 
+    const registry = createProjectRegistry({stateRoot: options.config.stateRoot, cwd: process.cwd(), home});
     const projectManager = createProjectManager({
         application: host.application,
         serverInstanceId: INSTANCE_ID,
         router,
-        registry: createProjectRegistry({stateRoot: options.config.stateRoot, cwd: process.cwd(), home}),
+        registry,
         stateRoot: options.config.stateRoot,
         cwd: process.cwd(),
         entry: options.projectEntry ?? productProjectEntry(),
@@ -308,6 +374,7 @@ export function startServer(options: StartServerOptions): RunningServer {
         env: options.projectEnv,
         output: options.projectOutput,
         record: (record) => void store.record(record),
+        installed,
     });
     projects = projectManager;
     projectsReady.resolve(projectManager);
@@ -315,6 +382,7 @@ export function startServer(options: StartServerOptions): RunningServer {
     const ready = host.application.startup.then((startup) => {
         if (startup.status === "available") {
             admission.ready();
+            if (options.devTask !== undefined && !devTaskClosed) devTask = options.devTask({registry, stateRoot: options.config.stateRoot});
             return;
         }
         // 启动没有成功时内核已自行关闭（"stopped" 表示宿主在启动中请求了停止）。

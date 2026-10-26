@@ -23,13 +23,16 @@ Issue 承载重大或长期交付的公开目标、总体范围与验收；Propo
 
 ## Worktree 与分支
 
-Work 与 Task 的记录只放主工作区 `master` 的 `.agents/works/`，在主工作区路径限定提交，实现分支不改它（见 [记录只放主工作区](../../.agents/works/README.md#记录只放主工作区)）。独立 worktree 承载代码，获授权后以 PR 合入 master，不因本地交付强制建报告或 PR。
+Work 与 Task 的记录只放主工作区 `master` 的 `.agents/works/`，在主工作区路径限定提交，实现分支不改它（见 [记录只放主工作区](../../.agents/works/README.md#记录只放主工作区)）。代码在 Work 的分支上完成，获授权后合入 master，不因本地交付强制建报告或 PR。
 
-- 需要隔离代码改动时，一个 Task 一个 worktree：`.worktree/<Work 编号>-<Task 编号>-<短名>`；分支使用 `{type}/{refs}-{slug}`，refs 写 Work 与 Task 编号。几个 Task 共用一条集成分支时在 Work README 写明。开发者明确指定既有 worktree/branch 时沿用该身份并在报告中记录。
-- 默认路径已属于其它仓库、Task 或不匹配 branch 时报告冲突并停止，不覆盖或自动改名；保持主工作区在master，不覆盖用户改动。
+- 通常一个 Work 一条分支、一个 worktree：从本地 `master` 创建 `.worktree/<Work 编号>-<短名>`，分支使用 `{type}/{Work 编号}-{slug}`，例如 `.worktree/w00027-plugin-platform` 与 `feat/w00027-plugin-platform`。Work 的各个 Task 依次在这条分支上提交。开发者明确指定既有 worktree/branch 时沿用该身份并在报告中记录。
+- 验证在 Work 分支上进行：构建、测试、e2e 与开发者试用都对着 Work 分支，不为验证先合入 master。合入 master 的时机由开发者决定。
+- 不同 Work 的分支各自并行推进。
+- 同一个 Work 里多个 Agent 并行做几个 Task 时，按是否冲突选位置：改动的文件与合同不重叠（例如一个写前端组件、一个写后端接口）时都在 Work 分支上做，各自路径限定提交；会改同一批文件或同一份合同时，基于 Work 分支另开 worktree `.worktree/<Work 编号>-<Task 编号>-<短名>`（`nbdev worktree new … --from <Work 分支>`），分支 `{type}/{Work 编号}-{Task 编号}-{slug}`，做完合回 Work 分支。Task 有依赖时顺序推进，不为并行而拆 Task。
+- 默认路径已属于其它仓库、Work 或不匹配 branch 时报告冲突并停止，不覆盖或自动改名；保持主工作区在master，不覆盖用户改动。
 - 直接改主工作区前先看 `git status`：目标文件已有他人未提交改动时改到 worktree，不覆盖、不 stash、不改他人改动；主工作区定位与保护要求见根 [AGENTS.md](../../AGENTS.md#git-注意事项)。
-- Task 有依赖时顺序推进；已知独立任务在 owner、文件和合同不冲突时并行，不为并行而拆 Task。
 - 只提交Task范围文件，使用可审查的Conventional Commit，不force push共享分支。
+- 验证和提交分成两步：看过验证结果再提交，不把测试与 `git commit` 串在一条命令里。
 - 用 `git rm`、`git mv` 改过暂存区后，提交别的片之前先用 `git diff --cached --stat` 核对暂存区只有本片的文件。
 - 删除合进非 master 分支的本地分支时，先用 `git merge-base --is-ancestor <分支> <目标分支>` 确认已包含，再用 `git branch -D`：`-d` 只和该分支的上游比较，没有上游时和执行命令处检出的分支比较，在主工作区执行就是拿 master 比。
 - push和PR属于远端写入，分别获授权后执行。
@@ -74,4 +77,14 @@ llmlint 从 `packages/llmlint/skill` 单一源生成产品投影，不手工编�
 
 ## 发布授权
 
-当前分支没有发布链（v2 重建期间已删除，交付方式另行设计）；master 上的发布流程不在本分支执行。未经明确授权，不修改版本、创建 release commit、push 资产、创建 GitHub Release、部署或删除历史发布数据。
+当前分支没有新应用的发布链（v2 重建期间已删除，交付方式另行设计）；master 上的发布流程不在本分支执行。未经明确授权，不修改版本、创建 release commit、push 资产、创建 GitHub Release、部署或删除历史发布数据。
+
+### npm 包
+
+nb-story 与它依赖的 8 个工作区包按 [ADR 0029](../adr/0029-workspace-packages-publish-source-to-npm.md) 发布到 npm。改版本与发布都要开发者授权，`bun publish` 由开发者执行：
+
+1. 改要发的包的 `version`（依赖它、又要用到新接口的包一起改），合入 master。内部依赖写 `workspace:^`，发布时改写成 `^<版本>`。
+2. `bun run release:check`：发布清单（license、`files`、`LICENSE`、README、内部依赖写法、源码导入的包都写进依赖）。
+3. `bun run release:smoke`：打包装进仓库外的空项目，跑命令行、`serve` 加真实浏览器与 Vite 宿主构建。直连 registry 慢时整条命令前加 `prox`。
+4. `npm login`，再 `bun run release:publish`：过门禁（会发布的目录没有未提交的改动、在 master 上、上面两步与 9 个包的 typecheck），列出要发的包；确认后带 `--yes` 重跑。开了两步验证时加 `--auth-type web`（一个 OTP 只有 30 秒，发不完 9 个包）。中途失败就停，重跑会跳过已发布的版本。
+5. 发布后在发布用的那个提交上跑 `bun run release:smoke --from registry`（按当前 checkout 的版本号从 registry 装，装到的版本对不上就失败），结果记进对应 Task 的证据。

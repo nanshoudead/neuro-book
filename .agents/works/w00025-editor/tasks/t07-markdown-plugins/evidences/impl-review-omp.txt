@@ -1,0 +1,95 @@
+# w00025 t07 后端与领域实现审查
+
+审查范围：`ee9cee973..5fbf30ca4`。代码路径相对于 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t07-review`；实验命令均在该 worktree 的 `packages/neuro-book` 下执行。按核实顺序追加；未修改产品源码、Spec 或 Task 记录。
+
+### 1. 撞名检查遗漏原样语法与组合扩展，外来方言能让整份语言创建失败
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/markdown/web/language-registry.ts:24-31`、`web/syntax-catalog.ts:39-44`、`web/language.ts:68-84`（后两处同属 `src/plugins/markdown/`）。
+- **现象**：`taken` 只包含七种内置方言与 `coreSyntax`，不包含 `createMarkdownLanguage` 随后自动追加的 `raw`；`namesOf` 又只查看顶层扩展名，不展开 `StarterKit`、`TableKit` 的子扩展。真实插件宿主交付一个带 `writeInline.rawInline` 的方言后，目录仍将其列为 active、没有诊断，`languageFor` 抛出 `Error: rawInline 的写法登记了两次（raw）`；交付名为 `bold` 的扩展也被接受，建 schema 时出现 `[tiptap warn]: Duplicate extension names found: ['bold']`。
+- **为什么是问题**：违反 `workspace.markdown-syntaxes` 输出 3、4 的失败隔离：与核心撞名应只让外来方言不生效，不能使新建的 Markdown 视图创建失败。原样保留属于核心语法，恰好是不可被方言替换的兜底。当前测试只覆盖标签撞名，没有覆盖原样 writer 或核心组合扩展。
+- **如何核实**：`bun zz-review-lab/omp/catalog-probe.ts`，真实 `createApplication`、产品贡献点与 receiver 交付；输出 `raw-writer` 的 active 为 `["test.kbd.kbd"]`、inactive 为 `[]`，随后抛上述异常；`nested-bold` 同样 active 且无诊断，并输出重复扩展警告。S1 前不存在外来方言组成路径，这是本次新增缺口。
+- **建议改法**：在一处收集完整的保留语法集合（包括 raw），用 Tiptap 的实际扩展展开机制取最终节点与标记名，再统一完成冲突筛选后组成语言；不要让目录与语言层各判一半。补核心子扩展、raw 节点及 writer 撞名的真实交付用例，要求外来方言被隔离、核心读写仍可用。
+
+### 2. 新链接词法与 marked 不一致，并把反斜杠后的换行读进了行内小块
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/markdown/shared/link-syntax.ts:43-51,61-83,100-116`；`src/plugins/markdown/web/components/prompt/prompt-text.ts:449-454`（同包）。
+- **现象**：三个已运行的反例：① ``[`a]b`](x)`` 被 `marked` 读成链接，新词法不认；② `[x](a\ b)` 在 `marked` 中是普通文字，新词法却生成目标为 `a\ b` 的引用；③ 尖括号目标中出现“反斜杠 + 实际换行”时，扫描器跳过换行并生成一个跨两行的引用小块，`findCompletedWriting` 也将它报告为已完成。
+- **为什么是问题**：合同明确要求引用按 Markdown 行内链接识别，Composer 又明确不允许跨行。`closeBracket` 不跳过代码片段；三个扫描器都无条件把 `\` 后的字符跳过，但 CommonMark 的反斜杠转义只适用于 ASCII 标点，不能把空白与换行变成合法目标。新 `tokenizeInline` 还删掉了旧版对 `token.raw.includes("\n")` 的兜底过滤，因此第三例实际显示时会把两个段落合成一枚不可拆的小块。这里不是要求 Composer 解释普通 Markdown 排版。
+- **如何核实**：`bun zz-review-lab/omp/links-probe.ts` 同时输出实际 `Marked.lexer`、`findInlineLinks`、`parsePromptText` 与 `findCompletedWriting` 的结果，上述三例均能直接核对；原文写回仍相同，问题是识别与文档结构错误。旧 `prompt-text.ts` 已用 `git show 865c9f593:packages/neuro-book/app/components/common/form/prompt-editor/prompt-text.ts` 核对，旧版明确过滤跨行 token；本次新增了这套手写词法。
+- **建议改法**：把行内链接的识别复用实际 Markdown tokenizer 的链接规则，仅提取链接，不让 Composer 解释其它排版；若保留独立扫描器，先限制为同一行，按 ASCII 标点处理转义，并正确跳过标签文字中的代码片段。补三例对照与真实编辑组件的手打完成用例。
+
+### 3. 移植时重写选区引用，丢掉旧版短写法并改变了已有行号与路径的含义
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/markdown/web/components/prompt/prompt-text.ts:86-87,441-446,492-499`。
+- **现象**：旧版能识别的 `manuscript/ch1.md#L3-L9` 在新版完全不是选区小块；`[[manuscript/ch1.md#l3-l9]]` 原先指向 `manuscript/ch1.md` 的第 3–9 行，现在把 `#l3-l9` 当成文件名的一部分、没有行号；`[[./manuscript/ch1.md#L3]]` 也不再去掉 `./`。另一个边界是 `#L0`：旧版不产生范围，新版发出第 0–0 行。
+- **为什么是问题**：开发者只批准改写 Markdown 引用目标的识别，选区不属于旧领域地址迁移。计划第 7 节要求其它文字写法不变，`ui.prompt-editor` 也要求旧文字照常读入。被删掉的是旧 `readSelectionRefChipAt` 的现有能力，计划、新 Spec 与移植测试都没有登记这项收缩。原文虽仍能写回，但点击后交给宿主的文件地址和范围已经不同，短写法更失去点击入口。
+- **如何核实**：`bun zz-review-lab/omp/legacy-probe.ts` 从 `865c9f593` 读取并运行未改写的 `inline-editor-selection.ts`，将其结果与当前 `parsePromptText` 对照：第一例旧版返回范围 `{startLine:3,endLine:9}`、新版 token 数为 0；其余三例输出上述地址或范围差异。旧 Composer 确实经 `tokenizePlainReferenceText → collectSelectionMatches → readSelectionRefChipAt` 使用这些能力，已核对历史源码调用链。
+- **建议改法**：保留旧选区识别器的短写法、大小写与规范化规则，只移除旧应用业务类型依赖；不要为链接改造另写一个不完整的选区子集。将上述旧写法加入文字往返与 `token-activate` 的范围断言。
+
+### 4. 未闭合方括号让新链接扫描退化为平方级，32 KB 草稿每敲一个字阻塞约 1.47 秒
+
+- **严重程度**：重要；**类别**：安全与性能。
+- **位置**：`packages/neuro-book/src/plugins/markdown/shared/link-syntax.ts:43-51,123-135`；`src/plugins/markdown/web/components/prompt/prompt-editor-extensions.ts:361-379`（同包）。
+- **现象**：`findInlineLinks` 遇到每个 `[` 都从该位置扫描到行尾找闭括号，失败后只前进一个字符。用不含 `[[` 的 `'[a'.repeat(n)` 排除选区正则干扰，单独扫描 8000、16000、32000、64000 个 ASCII 字符分别耗时约 62、200、1058、4510 毫秒。在实际挂载的 `PromptEditor` 内派发一次正常的单步 `insertText`，8000、16000、32000 字符的单字符输入分别耗时 **92.25、383.32、1468.67 毫秒**。
+- **为什么是问题**：手打完成插件对每次单字符输入都扫描整行，不只是初次导入；因此一个约 32 KB 的正常草稿可以让每次输入阻塞主线程超过一秒。中、大粘贴的分档不能保护重新打开的草稿，也不能保护纯文字粘贴。旧引用扫描在找不到任何 `](` 时直接结束，没有这条逐个开括号重扫到末尾的新路径。
+- **如何核实**：`bun zz-review-lab/omp/legacy-probe.ts` 给出独立扫描数字；`bunx vitest run --config zz-review-lab/omp/vitest.config.ts zz-review-lab/omp/display.dom.test.ts zz-review-lab/omp/schema.dom.test.ts --reporter verbose` 给出真实 Tiptap transaction、实际 completion 插件下的输入耗时。实验没有替换计时器或伪造插件回调。
+- **建议改法**：把括号配对改成单次扫描／栈配对，或让失败位置共享“不存在闭合”的结果，避免对每个开括号重扫余下全文；完成判断优先局限在这次输入可能结束的候选范围。补不成对括号的数量级用例，不能只测合法短链接。
+
+### 5. 展示器的 schema 缓存建在每个组件实例里，两条同语言消息仍各构造一份
+
+- **严重程度**：建议；**类别**：安全与性能。
+- **位置**：`packages/neuro-book/src/plugins/markdown/web/components/MarkdownDisplay.vue:24-32`。
+- **现象**：`schemas` 在 `<script setup>` 内创建，Vue 每挂一条消息就执行一次 setup，因此这张 WeakMap 从未跨消息共享。通过真实插件宿主交付一个可计数的方言扩展，再挂两条使用同一 `SyntaxCatalog`、同一语言的消息，schema 构造累计数为 **[1,2]**，不是共用一次。
+- **为什么是问题**：代码注释承诺“同一时刻挂上的消息共用”，实际缓存仅活在一个固定语言的实例内，该实例本来只调用一次 `schemaOf`。100 条消息就会有 100 次 schema 构建，以及 100 份按 schema 缓存的编解码器；这部分没有承担任何隔离职责，是展示器首次显示路径上可直接省掉的工作。未在本次浏览器中测量这部分的毫秒数，不把组件实验的数量当作浏览器性能结果。
+- **如何核实**：上述 Vitest 实验命令中 `schema.dom.test.ts` 输出 `schema-builds [1,2]`；方言经真实 `createApplication` 与产品 receiver 交付，没有直接改写 active ref。`DisplayRenderer` 自己的 schema 输入没有实例相关属性。
+- **建议改法**：把 WeakMap 与 `schemaOf` 移到渲染器／语言模块的模块级作用域，或者由语言对象持有 schema；删除组件内这张没有命中机会的缓存，不新增服务或实例状态。
+
+## 补充核实
+
+- 第 2 条另经 `bun zz-review-lab/omp/codec-links-probe.ts` 对照**实际产品编解码器**，不仅是裸 `marked`：第一例读成带 `link` 与 `code` 的文字，新 Composer 是普通文字；第二例在编辑器中是普通文字，新 Composer 是引用小块；第三例在编辑器中含 `hardBreak`，新 Composer 是一个带换行原文的 `promptToken`。
+- 第 2 条第三例已实际挂载 `PromptEditor`，输出文档为一个 paragraph、一个 promptToken，见组件实验。它证明的是**草稿读入**错误；直接把跨行字符串交给 `findCompletedWriting` 只是函数边界对照，不据此声称真实按键调用方会传跨行的 `line`。
+- `promptReferenceText` 对尾部反斜杠的目标不能原样读回，但编解码器的旧 `destination` 已有相同写法限制，且该目标不合当前资源地址约束；没有另算成新回归。
+
+## 未发现问题的方面
+
+以下范围仔细检查后没有发现新的问题；不覆盖上面列出的缺口，也不把未执行项写成通过：
+
+- **常规方言交付与实例固定语言**：无声明、标签名不同、加载失败、标签撞名、贡献方停止，以及已建立的视图继续使用旧语言，既有真实宿主／组件测试通过。内置方言逐个缺席时的 schema 组成测试通过。没有把 planned 的跨进程热插拔当作已实现能力。
+- **字数与口径指纹**：浏览器状态栏与项目入口均查询已接受的 `markdown.dialects`，使用同一纯函数；现有清单装配会把顶层声明登记进两端，项目位置有贡献点拥有者。口径改变与旧记录没有 `wordRules` 时，首扫后重定基线并把新指纹写入快照；同日重开、跨日、扫描期间文件修改、resync 的既有统计测试通过。本次没有发现口径迁移引起的重复计数回归。
+- **图片地址**：真实三实例文件场地的磁盘修改通知与 URL 换代测试通过；根外地址与不可解析地址返回 null。代码核对了改名源／目标及其已订阅后代的失效、resync 的 epoch、监听释放与入口 abort 时 dispose。图片组件的换地址、刷新、卸载、迟到结果释放测试通过。未额外伪造文件服务事件来声称覆盖了真实时序。
+- **展示器更新与释放**：除了既有测试，额外运行了重复块、块整体前移、头尾插删、中间替换与空文档；保留的图片元素没有重建，被替换图片的 release 恰好一次，随后 destroy 不重复释放。帧内多次更新采用最后一份文字、streaming 关闭、排帧后卸载的实验通过。
+- **不可信内容**：实际展示器实验确认普通 `<img … onerror=…>` 不变成原始元素，`javascript:` 链接不以危险 href 插入页面。静态视图的普通内容经 DOMSerializer／textContent；可渲染 HTML 复用的 iframe 仍是 `sandbox="allow-scripts"`，没有 `allow-same-origin`。沙箱真实浏览器隔离与联网规则未在本次重新验证。
+- **编解码器写回**：旧 `destination` 与新 `writeDestination` 的函数体一致，调用点仅改名和导入；既有 codec、editing、write、字数一致性测试通过。原样保留与写不出校验没有因搬动而绕过。
+- **边界**：完整 `typecheck` 的后端 tsc、前端 vue-tsc、浏览器测试 vue-tsc 均通过；架构依赖测试通过。服务定义的运行时链没有直接加载语法模块，DOM 代码仍经 `.vue` 延后进入。首屏检查的合成产物测试通过；未构建真实 dist，因而没有把这项写成真实产物的首屏验收。
+
+## 实际命令与结果
+
+所有命令的工作目录为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t07-review/packages/neuro-book`：
+
+| 命令 | 结果 |
+|---|---|
+| `bun run typecheck` | 退出 0；三段检查全部执行，98.90 秒 |
+| `bun test src/plugins/markdown/web/syntaxes.test.ts src/plugins/markdown/shared/word-count.test.ts src/plugins/markdown/asset-urls.test.ts src/plugins/projects/stats-tracker.test.ts src/plugins/markdown/web/components/prompt/prompt-text.test.ts scripts/check-dist.test.ts` | 112 pass，0 fail，339 次断言 |
+| `bun test src/architecture.test.ts src/plugins/markdown/web/codec/codec.test.ts src/plugins/markdown/web/codec/editing.test.ts src/plugins/markdown/web/codec/write.test.ts src/plugins/markdown/web/codec/word-count.test.ts src/plugins/editor/status-items.test.ts` | 105 pass，0 fail，2906 次断言 |
+| `bun zz-review-lab/omp/catalog-probe.ts` | 退出 0；真实宿主复现 raw writer 未被隔离、核心组合扩展名漏检；另确认 block／inline 标签分组交换仍被接受，但未把它扩成单独发现 |
+| `bun zz-review-lab/omp/links-probe.ts` | 退出 0；链接词法对照、读写原文与不闭合输入测量 |
+| `bun zz-review-lab/omp/legacy-probe.ts` | 退出 0；旧选区识别器实际运行结果与新版对照；链接扫描数量级测量 |
+| `bun zz-review-lab/omp/codec-links-probe.ts` | 退出 0；三例链接认定差异在实际产品 codec 中确认 |
+| `bunx vitest run --config zz-review-lab/omp/vitest.config.ts` | 7 个文件、82 条通过：6 份既有组件测试共 79 条，加当时的 3 条审查实验 |
+| `bunx vitest run --config zz-review-lab/omp/vitest.config.ts zz-review-lab/omp/display.dom.test.ts zz-review-lab/omp/schema.dom.test.ts --reporter verbose` | 2 个文件、5 条实验通过；含新增输入延迟与跨消息 schema 构建计数 |
+
+### 验证环境说明
+
+本小节不是发现，不计入数量：
+
+- 原命令 `bunx vitest run src/plugins/markdown/web/components/MarkdownDisplay.dom.test.ts src/plugins/markdown/web/components/MarkdownImage.dom.test.ts src/plugins/markdown/web/components/late-dialect.dom.test.ts src/plugins/markdown/web/components/prompt/PromptEditor.dom.test.ts src/plugins/markdown/web/components/prompt/PromptTextView.dom.test.ts src/plugins/markdown/web/components/prompt/prompt-editor-extensions.dom.test.ts` 在 setup 阶段失败，**0 条测试执行**。错误原文为 `Cannot find module '/@fs/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t07-markdown-plugins/packages/neuro-book-test-support/src/vitest.ts'`。
+- 最初的实验配置使用 mergeConfig 合并 include，数组被拼接，意外选中了 60 份测试；它们全部在同一 setup 错误处失败，**也没有执行测试**。没有把这些失败当作产品回归。
+- 后续仅修改获准实验目录中的配置：显式指定当前审查副本的测试支持文件、允许现有 workspace 链接的路径，并直接赋值 include 防止拼接。没有改动产品的 Vite／Vitest 配置、依赖链接或安装包；随后取得上表的有效组件结果。
+- 未运行开发服务、e2e、真实 Chrome 性能／视觉检查、真实模型、真实 dist 构建；未做永久源码变异。没有调用子代理，没有 commit、push、stash、切分支或删除仓库文件。实验保留在指定目录，供实现者重跑。
+
+## 数量
+
+**发现共 5 条：阻断 0 条，重要 4 条（1–4），建议 1 条（5）。**

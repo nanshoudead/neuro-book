@@ -170,7 +170,7 @@ describe("shipped theme packages", () => {
             /*
              * 上一轮实测查出的洞：macos-dark 的 --bg-input（#161618）比窗体底（#1c1c1e）还暗，
              * 输入框成了挖在面板上的黑洞，用户的原话是「浏览器原生的那一条黑线好像没有删掉」。
-             * 主题层的 --control-surface 已经改成从面上抬起，但 FormSelect / Dialog 取消按钮
+             * 主题层的 --control-surface 已经改成从面上抬起，但 Select / Dialog 取消按钮
              * 这类组件今天仍直接引用 --bg-input（阶段 2 的债），所以配色表这一层也得守住。
              */
             expect(luminance(vars["--bg-input"] as string)).toBeGreaterThanOrEqual(

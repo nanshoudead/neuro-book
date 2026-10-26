@@ -4,9 +4,13 @@
  * 只有类型和唯一会抛出的错误类；行为合同见 docs/specs/runtime/plugins.md。
  */
 
+import type {TSchema} from "typebox";
+
 import type {FailureError, RuntimeLocation, Scope, ScopeId} from "../lifecycle/lifecycle";
 import type {RemoteAccess, RemoteContract, RemoteHostBinding, RemoteProvision, RemoteUse} from "../remote/remote";
 import type {ConsumerIdentity, EntryId, ResolveOptions, ResolveResult, ServiceDependency, ServiceKey} from "../services/services";
+
+import type {PluginPlatform} from "./platform";
 
 export type {FailureError} from "../lifecycle/lifecycle";
 
@@ -47,6 +51,16 @@ export interface ContributionPointDefinition<Declaration = unknown> {
     /** required：贡献写在入口下并给出实现；none：只有顶层声明。 */
     readonly implementation: "required" | "none";
     /**
+     * 声明的结构：贡献的 `declaration` 先按它核对，再交 `validate`。只能用纯 JSON Schema（不能有 `Refine`、`Codec`
+     * 与自定义 format）：第三方插件的贡献点经清单登记，清单里只能放序列化得了的部分（plugin-manifest.md 的贡献点条目）。
+     */
+    readonly schema?: TSchema;
+    /**
+     * `"plugin"`：贡献 id 必须以贡献方插件 id 加 `.` 开头，否则这一条被拒（在 `schema` 之前核对）。它能写进清单，第三方
+     * 贡献点不能带 `validate`，要这条规则只能靠它。
+     */
+    readonly idPrefix?: "plugin";
+    /**
      * 纯函数，只看这一条声明本身，返回拒绝原因或 null；查不到别的贡献，所以一条声明的接受与否不随别处的登记变化
      * （runtime.plugins 输出第 23 条）。
      */
@@ -66,12 +80,26 @@ export interface ActivationContext {
     /** 激活作用域的停止信号；入口 owner 停止时触发，迟到的成功不会发布。 */
     readonly signal: AbortSignal;
     /**
+     * 登记一件这一代入口停止时做的事（释放计时器、句柄）：登记到 `scope`，随它收口，激活失败时同样执行；与 `scope` 上
+     * 别的无依赖资源并行释放，不保证先后（runtime/lifecycle.md 的释放顺序）。停止过程中登记的照样执行；这一代已经收口之后
+     * 调用抛 LifecycleStateError。
+     */
+    onStop(release: () => void | Promise<void>): void;
+    /**
      * 跨实例调用与订阅远程服务（docs/specs/runtime/plugin-channel.md）。宿主没有配置远程节点时，
      * 调用一律得到 `unavailable`。
      */
     readonly remote: PluginRemoteAccess;
     /** 此刻已接受的贡献声明（runtime.plugins 输出第 23 条），与贡献点校验函数拿到的是同一个查询。 */
     readonly declarations: ContributionDeclarations;
+    readonly activation: {
+        /**
+         * 以本入口所属插件的身份触发 `<前缀>:<参数>`（runtime.plugins 输出第 21 条）。触发口跟着这一次激活：本代次
+         * 停止后（包括同一插件 id 之后重新登记）调用得到 `rejected {reason: "requester-stopped"}`，不激活任何入口；
+         * `signal` 与本代次的停止信号任一触发都只结束等待，不取消已开始的激活。
+         */
+        trigger(event: ActivationEvent, options?: {readonly signal?: AbortSignal}): Promise<TriggerActivationResult>;
+    };
     readonly services: {
         /** 必需依赖已在激活前解析完成；未声明或可选的键抛 TypeError。 */
         require<T>(key: ServiceKey<T>): T;
@@ -83,7 +111,7 @@ export interface ActivationContext {
 declare const providedType: unique symbol;
 
 /**
- * 激活产出的一项对外提供服务；用 `provide(key, instance, release?)` 构造。类型参数只在编译期，供 `defineEntry`
+ * 激活产出的一项对外提供服务；用 `provideService(key, instance, release?)` 构造。类型参数只在编译期，供 `defineEntry`
  * 核对服务类型。
  */
 export interface ProvidedService<T = unknown> {
@@ -123,8 +151,8 @@ export interface PluginEntryDefinition {
     /** 本入口提供的远程服务合同；首次远程调用时按需激活本入口（onRemote）。 */
     readonly remoteProvides?: ReadonlyArray<RemoteContract>;
     /**
-     * 本入口可代表调用方调用的远程服务合同（经 `context.remote.on`，runtime.plugins 输出第 20 条）；
-     * 只对代理允许清单里的插件生效。
+     * 本入口可代表调用方调用的远程服务合同（经 `context.remote.on`，runtime.plugins 输出第 20 条）。
+     * 任何插件都可以声明（ADR 0027）。
      */
     readonly remoteDelegates?: ReadonlyArray<RemoteContract>;
     /** 入口激活后向贡献点提交的声明。 */
@@ -137,9 +165,8 @@ export interface PluginEntryDefinition {
 export interface PluginRemoteAccess extends RemoteAccess {
     /**
      * 跨实例委托（runtime/plugin-channel.md 输出第 10 条）：在本入口交出的按调用方门面里，以收到的调用方身份
-     * 发出远程调用与订阅，提供方看到原调用方、`via` 为本入口。合同必须在 `remoteDelegates` 里，插件必须在
-     * 宿主的代理允许清单内，`consumer` 必须是装配签发给本入口门面、且签发它的门面还没释放的身份；不满足时
-     * 调用与订阅得到 `denied`。经它建立的远程门面与订阅在签发它的门面释放（释放函数结束之后）时结束。
+     * 发出远程调用与订阅，提供方看到原调用方、`via` 为本入口。合同必须在 `remoteDelegates` 里，`consumer` 必须是
+     * 装配签发给本入口门面、且签发它的门面还没释放的身份；不满足时调用与订阅得到 `denied`。经它建立的远程门面与订阅在签发它的门面释放（释放函数结束之后）时结束。
      */
     on(consumer: ConsumerIdentity): DelegatedRemoteAccess;
 }
@@ -168,6 +195,14 @@ export interface PluginDescriptor {
 /** 随产品发布的静态描述；不是已激活实例。 */
 export interface PluginDefinition {
     readonly id: string;
+    /** 插件版本（semver）；只用于核对别的插件写的 `pluginVersions`，宿主从插件描述并入。 */
+    readonly version?: string;
+    /**
+     * 本插件对其它插件版本的要求：插件 id → 版本范围。入口的依赖由这些插件提供、而提供方的版本不在范围内时，
+     * 必需依赖让入口以 `version-mismatch` 受阻，可选依赖不注入（plugin-manifest.md 输出 8）。范围由宿主注入的
+     * `satisfies` 判断。
+     */
+    readonly pluginVersions?: Readonly<Record<string, string>>;
     /** 本插件拥有的激活事件前缀，例如 `onCommand`；只有拥有者能触发 `<前缀>:<参数>`。 */
     readonly activationEventPrefixes?: ReadonlyArray<string>;
     readonly contributionPoints?: ReadonlyArray<ContributionPointDefinition>;
@@ -230,7 +265,9 @@ export type RegistrationRejectionReason =
     | "foreign-scope"
     | "scope-not-alive"
     | "invalid-activation-prefix"
-    | "reserved-activation-prefix";
+    | "reserved-activation-prefix"
+    /** 定义写了 `pluginVersions`，宿主没有注入 `satisfies`。 */
+    | "version-check-unavailable";
 
 export interface RegistrationRejection {
     readonly reason: RegistrationRejectionReason;
@@ -289,13 +326,16 @@ export type ActivationResult =
     | {readonly status: "rejected"; readonly plugin: string; readonly entry: string; readonly reason: Exclude<ActivationRejection, "blocked">}
     | {readonly status: "rejected"; readonly plugin: string; readonly entry: string; readonly reason: "blocked"; readonly blocked: EntryBlocked};
 
-export type EntryBlockedReason = "missing-service" | "location-mismatch" | "provider-blocked" | "provider-failed" | "dependency-cycle";
+export type EntryBlockedReason = "missing-service" | "location-mismatch" | "provider-blocked" | "provider-failed" | "dependency-cycle" | "version-mismatch";
 
 export interface EntryBlocked {
     readonly reason: EntryBlockedReason;
     readonly key: string;
     /** 插件/入口身份；环路径包含首尾相同的入口。 */
     readonly path: ReadonlyArray<string>;
+    /** `version-mismatch`：提供方插件的版本与本插件要求的范围。 */
+    readonly version?: string;
+    readonly range?: string;
 }
 
 export type EntryStatus = "foreign-location" | "registered" | "blocked" | "activating" | "available" | "failed" | "stopping" | "closed";
@@ -359,6 +399,8 @@ export interface EntryDescription {
     /** 对外提供的服务键名。 */
     readonly provides: ReadonlyArray<string>;
     readonly receives: ReadonlyArray<string>;
+    /** 入口声明的激活事件（`onStartup` 或 `<前缀>:<参数>`），原样列出，含格式不对或无人拥有的。 */
+    readonly activationEvents: ReadonlyArray<ActivationEvent>;
     readonly contributions: ReadonlyArray<ContributionState>;
     readonly state: EntryState;
 }
@@ -388,9 +430,10 @@ export type TriggerActivationResult =
     | {readonly status: "triggered"; readonly event: ActivationEvent; readonly results: ReadonlyArray<ActivationResult>}
     /**
      * invalid-event：不是 `<前缀>:<参数>`；reserved-prefix：内核保留的前缀；not-prefix-owner：发起者不是
-     * 前缀的存活拥有者；prefix-conflict：两个以上存活插件声明了同一前缀，两者都不生效。
+     * 前缀的存活拥有者；prefix-conflict：两个以上存活插件声明了同一前缀，两者都不生效；requester-stopped：经
+     * `context.activation.trigger` 触发时发起的那一代次已经停止。
      */
-    | {readonly status: "rejected"; readonly event: ActivationEvent; readonly reason: "invalid-event" | "reserved-prefix" | "not-prefix-owner" | "prefix-conflict"};
+    | {readonly status: "rejected"; readonly event: ActivationEvent; readonly reason: "invalid-event" | "reserved-prefix" | "not-prefix-owner" | "prefix-conflict" | "requester-stopped"};
 
 export type PluginDiagnosticStage = "register" | "activate" | "publish" | "revoke" | "recover" | "close";
 
@@ -440,10 +483,18 @@ export interface PluginHost {
 
 export interface PluginHostOptions {
     readonly observer?: PluginObserver;
-    /** 代理允许清单：返回 true 的插件才能委托解析；不给时一律不允许。第一版只给内置插件。 */
-    readonly delegation?: (pluginId: string) => boolean;
     /** 本实例的远程节点；宿主据此提供 `context.remote`，并作为远程提供项的来源接入节点。 */
     readonly remote?: RemoteHostBinding;
+    /**
+     * 判断版本是否在范围内（npm semver 写法）。内核不依赖 semver，由宿主注入；登记写了 `pluginVersions` 的定义时必须有。
+     * 同一个宿主的升级预览也要用同一个函数，结论才与重启后一致。
+     */
+    readonly satisfies?: (version: string, range: string) => boolean;
+    /**
+     * 平台档案（`./platform`）：发布者在保留名单里的插件，贡献 id 也可以只以发布者加 `.` 开头（`idPrefix: "plugin"`）。不给时只
+     * 保留内核的 `runtime`，前缀按严格的“插件 id 加点”核对。
+     */
+    readonly platform?: Pick<PluginPlatform, "reservedPublishers">;
 }
 
 /** 贡献未发布或已撤回时取实现、以及向 runtime.services 交付未激活成功的实例时抛出。 */

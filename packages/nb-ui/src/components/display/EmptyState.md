@@ -25,6 +25,8 @@ type EmptyStateProps = {
 type EmptyStateEmits = Record<never, never>;
 
 type EmptyStateSlots = {
+    /** 圆形浅底里的图标；提供时替代 iconClass 画的图标。加载中、出错这类与空态同一版式的占位用它放 Spinner 或带颜色的图标。可省略。 */
+    icon?(): unknown;
     /** 说明内容；提供时替代 description prop 的文本。可省略。 */
     default?(): unknown;
     /** 主操作区；只有提供时才渲染。可省略。 */
@@ -36,7 +38,7 @@ type EmptyStateSlots = {
 
 ## 状态与边界
 
-默认显示收件箱图标和“暂无数据”，不显示说明或操作。空标题仍保留标题段落；空说明不渲染说明行。组件没有禁用、只读、加载或错误状态，错误和加载应由调用方选择其它内容呈现。
+默认显示收件箱图标和“暂无数据”，不显示说明或操作。空标题仍保留标题段落；空说明不渲染说明行。组件没有禁用、只读、加载或错误状态。同一块区域的加载中与出错要和空态同一版式时（居中、圆底图标、标题，出错时带重试），调用方仍用本组件：`icon` 插槽放 Spinner 或带颜色的图标，`action` 插槽放重试按钮，根上加 `role="status"` 或 `role="alert"`。
 
 ## 不支持
 

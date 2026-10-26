@@ -1,0 +1,557 @@
+# t13 设计审查第 1 轮（2026-10-23）
+
+对象：plan.md 第 1 版（提交 ed349f819）。两位审查者分工：omp（默认模型）审引擎、服务端与配置；Claude Sonnet 审网页。处理后的计划是第 2 版。
+
+## omp：有效 12 条（重要 10、建议 2）
+
+报告里第 1、3、4 条由审查者自己撤回，第 2 条并入第 5 条。
+
+| 条 | 级别 | 处理 |
+|---|---|---|
+| 5 | 重要 | 成立。运行结束后留在表里（含保存失败的结果）；订阅先给 `snapshot`；收到 `ended`、断开或没有运行时页面重取 `qa.get` 并新建转录 |
+| 6 | 重要 | 成立。运行带 `runId` 与 `baseTurns`；基础不同（命令行先保存）时不按 seq 合并，单独显示并写明不保存 |
+| 7 | 重要 | 成立。记录每轮加 `logFrom`，附注按它挂轮；旧记录退回数用户提问 |
+| 8 | 重要 | 成立。命令行与网页的程序写入共用跨进程锁，锁内重读比对，临时文件带随机后缀 |
+| 9 | 重要 | 成立。不原样转发事件：`QaAgentEvent` 只留适配器用的几种、经遮盖、不带 provider 原始错误；逐帧扫描假密钥 |
+| 10 | 重要 | 成立。误贴密钥的拒绝下沉到整份校验，三处 `apiKeyEnv` 共用，不认识的字段拒绝 |
+| 11 | 重要 | 成立。`qa.list` 合并只在内存里的首轮运行；`qa.get` 的 `record` 可以为空、带 `run` |
+| 12 | 重要 | 成立。`ReadPlan` 的拒绝加 `code`，只有 `chapter_limit` 返回正常结果；改 qa 场景 2、14 与测试；删掉“模型行为不变” |
+| 13 | 重要 | 成立。按书、按对话的接纳门，覆盖准备期与保存期 |
+| 15 | 重要 | 成立。观察者回调抛错只记诊断，不让 `append` 失败；每个订阅者独立发送队列 |
+| 14 | 建议 | 成立。正常停服记为中断；异常退出丢失本轮，写进 Spec，不承诺补记 |
+| 16 | 建议 | 成立。只有一种无名事件，`data` 是 `QaFrame`；`log` 帧逐条喂适配器；心跳是注释帧 |
+
+## Sonnet（网页）：27 条（重要 14、建议 13）
+
+| 条 | 级别 | 处理 |
+|---|---|---|
+| 1 | 重要 | 成立，同 omp 第 11 条 |
+| 2 | 重要 | 成立。开始前的检查在 `qa.start` 返回前做完、失败作方法错误；`ended` 后重取重建；`recordSaved: false` 在对话顶上写明；“重启按中断记录”改为只对正常停服 |
+| 3 | 重要 | 成立。`logFrom` 对轮；运行中先放乐观的用户消息，没有用户消息就结束时错误挂在它后面 |
+| 4 | 重要 | 成立。`qa.get` 不带全读原文，第一条用户消息显示成问题加原文字数 |
+| 5 | 重要 | 成立。页面列出处理的 action；输入框用自己的登记（不带 `/` 命令）；复制实现 |
+| 6 | 重要 | 成立，转到 t14（决定 17） |
+| 7 | 重要 | 成立，转到 t14（决定 17） |
+| 8 | 重要 | 成立。schema 拆到 `config-schema.ts`；`keys` 表与 `issues`；分组用 `layout`；`configured: false` 与起始配置 |
+| 9 | 重要 | 成立。两个方向都写；抽屉按查看器位置打开写进 viewer.md 并测 |
+| 10 | 重要 | 成立。`StoryClient.subscribe`，改 viewer.md 的边界条款 |
+| 11 | 重要 | 成立。服务端合并 `message_update`（不小于 100 毫秒），页面按帧合并 |
+| 12 | 重要 | 成立。页面量自己的宽度切换左栏与下拉 |
+| 13 | 重要 | 成立。另写 e2e 用的问答端点子进程与控制通道 |
+| 14 | 重要 | 成立。纯函数单测与 e2e 场景补齐 |
+| 15 | 建议 | 成立。取一次花名册本地精确匹配，按书、位置与数据版本缓存 |
+| 16 | 建议 | 成立。出处规则抽到 `src/qa/refs.ts` 共用；点击先解码；卡片文字同样改写 |
+| 17 | 建议 | 成立。出处一行三格的规则写进计划，个数计算做纯函数 |
+| 18 | 建议 | 成立。附注缓存键用底层消息对象；运行中每秒更新 `now` |
+| 19 | 建议 | 成立。`broken`、`log` 不全、`continuable`、`qa.start` 失败的位置写进计划 |
+| 20 | 建议 | 交开发者：删除对话的入口（计划“待确认”） |
+| 21 | 建议 | 成立。一个对话一个数据源，带 `dispose`；草稿按对话 |
+| 22 | 建议 | 成立。只在有运行时订阅，结束后服务端关流、不自动重连 |
+| 23 | 建议 | 成立。顶栏放独立的停止按钮 |
+| 24 | 建议 | 成立。下拉给高度与可滚动容器，真实页面看材质 |
+| 25 | 建议 | 成立。依赖、样式导入、按需加载与首屏检查 |
+| 26 | 建议 | 成立。`StoryMarkdown` 加类型断言、改写的排除项与流式 |
+| 27 | 建议 | 成立。`subscribe` 出错时探测 401，连接状态交 `ctx.connection` |
+
+---- omp 报告原文 ----
+### 1. 调用方对话 ID 必须满足记录层格式
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“引擎”第 35–36 行、“合同与路由”第 79 行；`packages/nb-story/src/core/qa-records.ts:138-143,178-180`
+- **现象**：计划允许调用方为新对话提供任意 `conversationId`，但 `QaRecords.save()` 只接受 `/^\d{17}-[0-9a-z]{6}$/`。新对话开始时该值直接替代生成 ID 并用于 `createMemorySessionLog`；结束保存时不符合格式会抛错，最终 `recordSaved: false`，网页却仍持有该 ID，无法列出或续问。还未规定 ID 在同一本书内唯一；复用一个已有 ID 时 `expectTurns: 0` 保存只会冲突，调用方看不到唯一性规则。
+- **为什么是问题**：调用方生成 ID 的契约与持久层公开约束不相容，后续实现按计划传入 UUID 或普通随机 ID 都会静默变成不可持久对话。仅把 ID 换成记录格式也不能解决跨页面重复 ID 的行为与碰撞报告。
+- **如何核实**：代码核对：`RECORD_ID` 与 `save()` 的入口校验；`startNew()` 当前使用 `newQaRecordId()`。再按计划传入 UUID 与已存在 ID 跑 `QaRecords.save()`，前者抛 ID 不合法、后者返回冲突。
+- **建议改法**：优先由引擎继续生成符合 `QaRecords` 的 ID，并在 `qa.start` 响应中于模型启动前返回；若必须由调用方指定，则将 ID 格式与唯一性明确纳入合同并校验冲突为稳定的客户端错误，且保证该形状符合 `QaRecords` 与文件名约束。
+### 2. 未保存的一轮刷新后没有可读结果
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“服务端运行”第 65 行、“合同与路由”第 77–84 行；`packages/nb-story/src/qa/engine.ts:263-270`、`packages/nb-story/src/core/qa-records.ts:271-289`
+- **现象**：保存失败时引擎返回本轮 `QaTurnResult` 和 `recordSaved: false`，但 `QaFrame.turn_end` 只计划推该结果；运行中内存条目未说明在运行结束后保留。新对话保存失败时 `qa.get` 必然没有记录，续问保存失败时 `qa.get` 仍只读上一轮记录及旧日志。刷新、订阅断开后，完整答案与本轮会话日志均无法取回。
+- **为什么是问题**：Spec 明确结果不因保存失败而变；网页在收到一次性 `turn_end` 后刷新即丢失用户可见的回答，且新对话没有列表入口可重新打开。`recordSaved: false` 不是恢复通道。
+- **如何核实**：构造 `QaRecords.save()` 返回 `conflict` 或写失败的运行，观察 `qa.get` 只返回旧记录/未找到；计划中的 `QaFrame` 没有 `conversation` 或会话日志字段，且活动运行结束后未定义保留期限。
+- **建议改法**：明确运行结束但未保存时的读取合同：例如服务在本进程内保留不可变的终态结果与日志，并让 `qa.get/list` 可返回“未保存”状态直到服务重启；或在 `turn_end` 内提供完整可显示且可恢复的转录并让页面缓存。不得把虚构的 `conversation.log: null` 当作可持久记录。
+### 3. 订阅补发与实时通知必须有原子交接
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“服务端运行”第 53、65 行、“切片 1”第 117 行；`packages/nb-session/src/memory-log.ts:34-44,69-88`、`packages/nb-harness/src/harness.ts:141-160,244-280`
+- **现象**：计划要求订阅“先补发已有日志，再推后面的条目”，但没有规定捕获补发截止 `seq`、队列化通知或订阅注册时序。若先 `read()`、之后注册 listener，append 可发生在两步之间而永远漏掉；若先注册 listener、再 `read()`，append 通知与补发会重复，且跨异步写队列的通知可能在后续 seq 前到达。`createHarnessTranscript.applyLogEntry()` 是单条接口并按 `seq <= lastSeq` 直接忽略，不会缓存乱序空洞，先收到 seq 12 会使随后 seq 11 被丢弃。
+- **为什么是问题**：订阅重连后的 transcript 可能永久缺用户消息、工具结果或 `run_end`；事件只补运行态文本，README 明确日志才是错误与用量权威，缺日志不能靠事件修复。
+- **如何核实**：按共享对象时序：补发读完 seq 10，append seq 11，注册 listener；或 listener 收到 seq 12 后补发 seq 11。检查 transcript 的 `lastSeq` 单调去重实现，第二种会丢 seq 11。
+- **建议改法**：在持有运行记录的串行队列/锁中原子确定 replay watermark 并登记订阅，再将 `(watermark, entries > watermark)` 依序送入每个订阅者；给每订阅者串行发送队列，处理断开与慢消费者；单进程内的 append 通知应在 `append()` 返回已编号条目后发布。替代方案是提供 cursor-based 追读并由客户端检测 seq 缺口后补读，不能只依赖“按到达顺序”的未定义假设。
+### 4. 服务停止可能漏掉尚未登记的启动请求
+- **严重程度**：重要；**类别**：不变量
+- **位置**：计划“服务端运行”第 48、68 行；`packages/nb-story/src/server/ingest-service.ts:53-59,86-114,160-177`、`packages/nb-story/src/server/serve.ts:97-114`
+- **现象**：`ingest-service` 不仅关闭后拒绝新任务，还登记已接纳但仍在异步启动中的请求；`close()` 等它们完成登记，再停止新拿到的任务并等待收尾。QaService 计划只描述“取消全部运行中的轮次、等它们保存完”，没有说明已通过 `start` 门、尚未进入运行表的配置读取、打开书、创建 harness 期间如何与 `close()` 竞争。
+- **为什么是问题**：若 `close()` 先快照运行表并返回，刚好完成配置/书解析的 start 仍可能启动模型请求；`serve` 随后撤销登记并强制停 HTTP，停止服务的合同无法保证该轮被取消并保存为中断。只测已进入模型请求的任务测不到该窗口。
+- **如何核实**：按 `ingest-service.ts` 的真实异步窗口复现：让 QA start 在读配置或 `openBook` 时暂停，随后调用 `QaService.close()`，再放行 start；观察模型是否仍启动、close 是否在该轮保存前返回。
+- **建议改法**：沿用抽取服务的 `closing` 门与 `starting` 跟踪；在首个 `await` 前原子接纳并登记 start promise/取消控制器，close 关门后等待所有已接纳的准备阶段，再取消已生成的轮次并等待 `askQuestion` 保存与流完成后才返回。
+
+## 先前条目的核实修正（只追加）
+
+- **撤回第 1 条，不计发现**：计划的“调用方”是服务端，不是网页；服务端可以直接复用已导出的 `newQaRecordId()`，因此任意 UUID 不是计划要求的行为。建议给输入补格式说明属于实现注意事项，不能把未写出的非法调用当成既定缺陷。
+- **撤回第 3 条，不计发现**：`QaService.subscribe` 是同步接口，计划要求先补内存数组再登记通知；这可以在无 `await` 的同一调用栈完成，不存在必然的交接空隙。原条目的 read/register 异步时序并非计划所依赖的机制。真正已核实的丢失边界是：`qa.get` 和订阅之间一轮已经结束时只收到 `idle`，另列于后。
+- **撤回第 4 条，不计发现**：计划第 48 行明确要求照 `ingest-service.ts` 的启动与收口顺序实现，现有 `starting` 跟踪和关门机制确实存在。t06 审查报告第 5、7 条已经记录启动期间删除与停服测试的教训；没有依据声称作者将遗漏这段现成机制。实现时应覆盖同样的可观察时序，但这不是独立设计缺陷。
+- **收窄第 2 条的严重程度依据**：没有新增“失败结果必须跨刷新持久化”的合同。保留该条仅针对断线时漏掉一次性 `turn_end`、当前页面连未保存答案和原因也拿不到的情况；不要求无限期保留未保存轮次。下一条给出已保存轮次也会触发的确定性交接缺口。
+
+### 5. qa.get 与订阅之间结束的轮次会永久漏掉
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划第 53、65、78、98 行；`packages/nb-story/src/core/qa-records.ts:297-304`、`packages/nb-agent-ui/src/harness.ts:291-303`
+- **现象**：页面先取 `qa.get` 再连 SSE。续问第二轮时，GET 读到只含第一轮的记录；连接 SSE 前第二轮完成并退出运行表。按订阅合同，没有运行中的轮次只推 `idle`，既不补第二轮日志，也不补 `turn_end`。客户端显示第一轮并进入空闲，第二轮的答案、失败和没核实出处都不出现。保存失败时更没有可重取的磁盘记录，属于第 2 条同根因的更强版本。
+- **为什么是问题**：`seq` 去重只消除重复，不会请求没有收到的条目；EventSource 自动重连也仍得到 `idle`。这一空隙存在于两个真实 HTTP 请求之间，不取决于同步 subscribe 的内部写法；页面刷新“接着看”与多个标签页接入都受影响。
+- **如何核实**：按现有记录成对发布机制，令 `qa.get` 在第二轮保存前读到第一轮；在 SSE 请求前释放脚本端点使第二轮结束。期望当前页无需再次刷新就见第二轮；照计划只收到 `idle` 无法达成。当前尚无 QaService 实现，未声称已跑不存在的服务测试。
+- **建议改法**：订阅握手必须包含与记录版本/日志游标一致的终态或完整快照；最小方案是收到 `idle` 或重连握手后重新取 `qa.get`，并在读到新版本时重建转录。未保存结果需有有界的终态重放期限或明确的一次性结果丢失提示；补“GET 旧快照→轮次完成→订阅 idle”与“断线期间完成”的合同测试。
+
+### 6. 允许命令行并行续问，却把 seq 当成整个对话的唯一游标
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划第 44、65–66、78、98 行；`packages/nb-session/src/memory-log.ts:55-77`、`packages/nb-agent-ui/src/harness.ts:114-130,279-303`
+- **现象**：同一份第一轮日志末尾为 seq 4 时，网页与 CLI 各自恢复内存日志，两个第二轮都会写 seq 5、6、7，但内容不同。CLI 先保存、网页后保存得到 `conflict` 是允许的。此时页面若 `qa.get` 先取到 CLI 的日志，再补发网页运行中的条目，网页第二问/答全被当作重复 seq 丢掉；反向先看网页分支，再把磁盘权威日志增量喂入，则 CLI 的第二问/答全被丢掉。
+- **为什么是问题**：输出 25 的保存冲突只防覆盖，不提供分支共享序列。`createHarnessTranscript` 去重的前提是同一条 append-only 日志，而不是“同一对话 id 下的任意版本”。最终结果、没核实出处的附注和下一轮历史会分别来自不同分支；仅在 `turn_end` 写“没保存”并不能恢复一致性。
+- **如何核实**：已运行 `bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/sequence-probe.ts`，cwd 为主工作区 `packages/nb-story`。真实 `createHarness` 分别从同一份日志恢复，两个后缀均为 seq 5–7；真实适配器的“GET 后补发”仅显示 CLI 第二答，“直播后重读磁盘”仅显示网页第二答。另一个 `runtime-probe.ts` 经真实 `askQuestion` 同时续问，先完成者 `recordSaved: true`、后完成者 `recordSaved: false/conflict`。未伪造模型调度或条目顺序。
+- **建议改法**：保留已定的 CLI 并行保存冲突取舍；为每次运行增加不可复用的 `runId` 和基础日志摘要/末尾 seq，`qa.get` 与 SSE 握手返回相同身份。客户端发现基础版本或已保存分支改变时整体重建 transcript，不把另一分支按 seq 增量合并；未保存的本地结果作为独立临时轮展示并说明下一次续问基于哪份已保存历史。测试覆盖 CLI 先保存与网页先保存，以及 GET 在并行保存之前/之后两种顺序。
+
+### 7. 第 N 轮不等于日志里第 N 个用户提问
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划第 98、135 行；Task README 决定后的接入说明第 64 行；`packages/nb-harness/src/harness.ts:311-324`、`packages/nb-story/src/qa/engine.ts:249-270`
+- **现象**：缺密钥与已取消信号会在 harness 写用户消息之前结束，但引擎照常保存失败/中断的一轮。计划按“第 N 个用户提问”把记录的第 N 轮对应到日志，假定“失败、中断的轮次也有日志，不能漏”，实际只有 `run_end`，没有该轮用户消息。第一轮缺密钥、第二轮正常后，日志第一个用户提问已是第二轮；第二轮的 `unverifiedRefs` 找不到第二个用户提问，后续附注继续错位。
+- **为什么是问题**：决定 8 要求文字回复的没核实出处在对应回复后显示；这里会漏显示或挂到别轮。仅按用户消息计数还无法在历史中还原失败轮的问题；这不是 UI 渲染取舍，而是服务端交出的轮次/日志缺少关联键。
+- **如何核实**：已运行同目录 `runtime-probe.ts`，真实 `askQuestion`、harness 和磁盘记录：记录有 2 轮（`failed, answered`），问题分别为“缺密钥的第一问”“第二问”；日志为 `session_snapshot, run_end, agent_message, agent_message, usage`，仅 1 条用户消息（seq 3，第二问），第二轮 `unverifiedRefs` 为 `["4.999"]`。没有模型网络请求，缺密钥路径在任何请求前结束。
+- **建议改法**：由引擎记录并返回每轮的日志起止 seq/用户消息 seq（允许没有用户消息），通过明确范围关联结果和最终助手消息；不要改 harness 既有密钥校验时序来迎合计数。对缺密钥、传入已中止 signal、createHarness 恢复失败分别定义网页表现，至少补“失败第一轮→成功第二轮带未核实出处”的真实运行合同测试。
+
+### 8. 内容摘要不是原子比较并写入，复用当前配置写入还会撞临时文件
+- **严重程度**：重要；**类别**：不变量
+- **位置**：计划第 82–83、110、117、134 行；`packages/nb-story/src/qa/config.ts:102-126`、`packages/nb-story/src/cli/config.ts:109-115,188`
+- **现象**：计划只在网页 `config.set` 增加 expect 摘要，现有 CLI 没有参与比较/锁定；“读摘要相同→CLI 改名发布→网页改名发布”仍会覆盖 CLI 更新。两个网页请求也可以同时读到相同摘要。此外现有 `saveQaConfig` 的临时名固定为 `${path}.${process.pid}.tmp`，同服务两个请求会写同一个文件，一个请求可能发布另一个请求的内容、另一个得到 `qa_config_write_failed`。
+- **为什么是问题**：原子 rename 只保证不读到半份配置，不保证 `expect` 的条件与发布原子关联。配置是多个书、标签页共享的一份文件；当前方法从一命令一进程改为常驻多请求调用后，临时文件唯一性的前提也不成立。服务端成功返回摘要可能不对应实际发布的配置。
+- **如何核实**：已运行 `sequence-probe.ts`，真实文件系统与 `saveQaConfig()` 并发 10 组、每组 A/B 两份配置；9 次写入拒绝，10 组均至少一次成功返回的值与最终磁盘相反。典型：A 成功返回、B 报写失败，磁盘却是 B。此实验直接跑共享写入入口，不声称尚不存在的 HTTP config.set 已复现；跨进程 expect 的窗口从现有 CLI 无锁的控制流确定。
+- **建议改法**：为所有程序写入路径共用一个按配置路径的跨进程写入门禁，在锁内完成“重读→比较 expect/变更字段→校验→唯一临时文件→rename”；CLI init/set/unset 与网页必须一起接入。临时文件每次带随机后缀。手编文件若不参与锁则明确只做尽力冲突检测，不能承诺严格 CAS；补双标签页同 expect、CLI 在网页比较之后提交、失败不改变文件与返回摘要一致性测试。
+
+### 9. 原样转发 harness 事件会把 provider 回显的密钥推到 SSE
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：计划第 37–38、60、86–87、117 行；`packages/nb-harness/src/harness.ts:244-248`、`packages/nb-harness/src/redact.ts:19-21`、`packages/nb-harness/src/sse.ts:56-59`
+- **现象**：harness 只在 `message_end` 遮盖当前助手消息的 `errorMessage`；订阅者仍可收到未遮盖的其他消息快照。真实 OpenAI 兼容端点 401 回显认证头时，原样 `serializeAgentEvent()` 的第二个 `message_start`、`turn_end`、`agent_end` 都包含假密钥。结果与日志不包含密钥，不意味着事件安全。
+- **为什么是问题**：计划把所有 `Harness.subscribe` 事件原样推给网页，同时承诺任何响应不含密钥，两者不相容。浏览器是否渲染该字段无关：完整密钥已进入 SSE 网络响应，且多标签页订阅都会收到。现有只扫描落盘/CLI 输出的 qa 输出 17 测试挡不住这条新增泄漏路径。
+- **如何核实**：已运行 `bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/event-probe.ts`（cwd 主工作区 `packages/nb-story`）。真实 harness、真实 OMP provider 与 `testing/openai-endpoint.ts` 的本机 401 协议端点，1 次请求；8 个事件全部能序列化，其中 3 个 `leaked: true`，`resultLeaked: false`、`logLeaked: false`。只使用脚本内假密钥，不读取真实凭据；端点已停止。
+- **建议改法**：不要把“原样 AgentEvent”当成已脱敏的传输合同。优先在 nb-harness 的公开事件出口统一处理所有错误快照及嵌套消息，保证事件、结果与日志相同的脱敏不变量；或定义网页所需最小事件 DTO，在服务端丢弃原始 provider 错误字段。测试必须扫描每一条真实序列化 SSE 数据，不只扫描 DOM、最终结果和文件；覆盖 HTTP 错误及流中途错误。
+
+### 10. 整份 config.set 绕开了 CLI 的密钥变量名拒绝规则
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：计划第 82–87、103、117 行；`packages/nb-story/src/qa/config.ts:25-61,77-82,106-118`、`packages/nb-story/src/qa/config-edit.ts:62-69,84-114`
+- **现象**：计划让网页提交整份配置并使用配置 TypeBox schema；该 schema 的三个 `apiKeyEnv` 都只要求非空字符串。现有 CLI 的“贴了密钥就拒绝且不回显”检查在字段编辑层 `envNameProblem()`，不在整份 `parseQaConfig/saveQaConfig` 中。网页直接整份写入会绕过检查，把 `sk-...` 写入文件，再由 `config.get` 原样返回；schema 的 model/root 还未禁止未声明字段，密钥形状的额外字段也可被保留。
+- **为什么是问题**：决定 10 只允许填写变量名、密钥本身不能填；qa 输出 19–20 的防误贴不变量不能仅靠输入控件或 CLI 分支保障。新增公开写入口必须共用相同校验，否则“响应里不含密钥”的承诺在设置页本身就不成立。
+- **如何核实**：已运行 `runtime-probe.ts`：`parseQaConfig({model: {..., apiKeyEnv: "sk-review-fake-pasted-value-0042"}}, ...)` 与真实 `saveQaConfig` 均成功，输出 `acceptedInvalidEnv: true, persistedInvalidEnv: true`。没有读取真实密钥；只在审查目录的隔离 config.json 写入假值。CLI 现有测试 `src/cli/config.test.ts:123-135` 要求同样的输入被拒绝且不回显。
+- **建议改法**：将三个环境变量名的规则下沉至配置 schema/统一整份校验，让文件读取、CLI 与 HTTP 共用；在配置边界拒绝不支持的密钥字段，返回字段路径但不回显输入值。补 model、ingest.model、ingest.recall.model 三处的有效变量名/误贴密钥测试，并扫描 config.get/set 的成功与失败 JSON。
+
+### 11. 首轮运行尚无记录，qa.get 的输出不能支持刷新后重接
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划第 48、53、65、77–79、98 行；`docs/specs/story/qa.md:169-180`；`packages/nb-story/src/qa/engine.ts:249-270`、`packages/nb-story/src/core/qa-records.ts:249-275`
+- **现象**：新对话第一轮结束前磁盘没有任何记录；`qa.get` 却只定义返回“记录与全部日志”，页面又规定先 `qa.get` 再订阅。第一轮运行中刷新，get 将面临 `qa_record_not_found`，没有可用于页面的对话 P、做法、首问、开始时间和轮数；`qa.list` 若只是给磁盘记录加运行标记，也找不到这条新对话。SSE 的 `turn_start` 只有 turn/question，不能补齐对话元数据。
+- **为什么是问题**：首轮通常运行 1–6 分钟，刷新和另一个标签页进入不是边缘输入；决定要求离开不中断、回来接着看。不能为补洞提前写一个零轮记录，否则会违反“一轮结束才成对保存”的既有合同以及当前记录 schema 的 `turns.minItems: 1`。
+- **如何核实**：静态核对：当前引擎只在 `harness.close()` 后构造和保存记录；`QaRecords.get()` 缺文件报未找到；计划没有运行中无记录的输出分支。QaService 尚未实现，因此这里报告接口缺项，不冒充真实 HTTP 失败。
+- **建议改法**：为 qa.get 明确 `record: QaConversation | null` 与 `currentRun`（runId、基础版本、P、做法、问题、轮数、时间、当前日志快照）的联合输出，或提供等价的独立运行快照接口；qa.list 合并磁盘对话与仅存在内存的首轮运行，按书与 generation 隔离。SSE 重接先交运行快照再实时推送。补“首轮未保存时刷新/另一标签页打开”“两本书分别首轮运行”“结束保存失败”三个合同场景。
+
+### 12. 章数上限改成正常结果，但拒绝类型与验收仍未切开
+- **严重程度**：重要；**类别**：测试
+- **位置**：计划第 109、117、158 行；`packages/nb-story/src/qa/read-ledger.ts:18,78-101`、`packages/nb-story/src/qa/tools.ts:103-106`、`packages/nb-story/src/qa/engine.test.ts:135,146,154,375`；qa 输出 5、场景 2 与 14
+- **现象**：已定项只把“章数上限”拒绝改为正常结果；当前 `ReadPlan` 的失败只有 `{ok:false, reason:string}`，同一路径同时承载不存在章、段越界、反向范围、P 之后、章数上限 5 类拒绝。照字面把 `text(plan.reason, true)` 改成普通结果会把其余 4 类错误也变成功，破坏 qa 输出 4。计划只提改输出 5，场景 2 与 14 及 4 处现有断言仍明确要求 `isError: true`；“恰有一次成功”也不能再按工具状态判断。
+- **为什么是问题**：实现必须凭可判别类型选择这一种正常拒绝，不能按中文错误文案分支；验收需区分“工具调用成功但没读任何段”和“实际读到原文”。仅跑旧全量测试会得到冲突判据，改成全 false 又会放掉防剧透边界。正常拒绝还会改变送给模型的工具结果 `isError`，计划的“模型行为不变”没有证据。
+- **如何核实**：读 `ReadLedger.plan()` 的 5 个失败返回与 `queryTool()` 唯一错误分支；现有测试的 4 处断言逐项列在位置中。现有 provider 路径把工具结果进入历史，`isError` 是模型可见语义，不是仅供 UI 计数。未调用真实模型，不能断言改后模型一定重试或一定不重试。
+- **建议改法**：给 ReadPlan 加稳定的拒绝 code，仅 `chapter_limit` 返回正常且明确 `read:false` 的结果；保留其他拒绝为工具错误。同步改 qa 场景 2、14 与对应测试：断言无段落、已读集合不变、同批仅一次实际读到、旧章仍可读、范围先裁 P 再算上限、被拒章引用仍退回。补脚本多次重试超限不绕过限额的场景；“图当目录”评测继续按实际读章和答案正确性计数，记录此次工具语义版本，删除无依据的“模型行为不变”，不擅自扩大已批准的真实评测范围。
+
+### 13. 先停后删没有覆盖删除期间新接纳的轮次
+- **严重程度**：重要；**类别**：不变量
+- **位置**：计划第 54–55、65–69、81、117、132 行；`packages/nb-story/src/core/library.ts:394-421`、`packages/nb-story/src/ingest/coordinator.ts:28-38`、`packages/nb-story/src/server/ingest-service.ts:160-168`
+- **现象**：QaService 只有按对话的运行表和服务级 closing 门，没有“正在删除这本书/这个对话”的接纳状态。删除先 abort 已有运行并等待保存；等待期间另一个标签页可以给同一本书的新对话发 start，或在旧运行完成、运行表释放后再次续问待删的对话。新轮次不在停止快照里，随后书/对话删除完成，它仍继续调用模型，最后才保存冲突。
+- **为什么是问题**：照搬 ingest.stopLocal 不足以提供这里的排斥性：抽取任务还持有与删除相同的书 id 锁，QA 的 ask 不持那把锁，且同一本书可有多个运行。保存层能防止复活旧记录，却不能兑现网页“删除时先停”的运行寿命，也不能避免用户删除后仍消耗模型请求。此条不否定计划已明确的停服 starting 处理，针对的是单书/单对话删除这一段没有关门。
+- **如何核实**：从真实调用链核对，Library.removeBook 在 stopLocal 返回后才争抽取锁并执行目录删除；QaRecords.remove 也不承担任务接纳。验收时让旧运行中止后的保存处于在途，另一个已登录客户端在删除未返回时发 qa.start；断言删除返回后没有该书/对话的新模型请求。当前 QaService 未实现，该交错从计划的门禁范围推导，未冒充已运行的 HTTP 结果。
+- **建议改法**：由 QaService 提供覆盖完整删除操作的按书/对话接纳门禁，在删除开始时同步关闭该作用域，取消并等待包括准备期、保存期的所有匹配轮次，实际删除结束后再释放；book.remove 要组合抽取与 QA 的本地收口。别用全局 busy 阻塞其他书，也别改 CLI 原有“删书后答完但不保存”的合同。补同书两个对话、另一本书不中断、删除与新 start/续问竞争、qa.remove 与保存竞争的合同测试。
+
+### 14. 纯内存运行无法在异常重启后补记中断轮次
+- **严重程度**：重要；**类别**：文档
+- **位置**：计划第 12、65、109、151 行；`docs/specs/story/qa.md:171-180`；`packages/nb-story/src/qa/engine.ts:189,249-270`
+- **现象**：计划风险写“一轮期间服务重启丢掉这一轮，按中断记录”，但运行状态、问题和本轮日志都仅存于内存，书库直到结束才写文件。SIGKILL、崩溃或掉电后，新的服务不知道存在过该轮；首轮整个对话消失，续问仍停在上一轮，不可能创建中断记录。正常 SIGTERM 等保存与异常重启被混为一种保证。
+- **为什么是问题**：后续实现无法同时遵守“不在运行中写书库”和“异常重启留下中断轮次”。既有 Spec 已明确强行结束什么都不留下，计划的 Spec 改动却未区分这个兼容边界；测试只覆盖正常停服也证明不了重启恢复。
+- **如何核实**：从现有引擎唯一的保存位置、QaService 内存表及 qa Spec 的强行结束规则可直接确定；没有额外状态可供重启恢复。未起 serve 或强杀生产数据进程。
+- **建议改法**：保留现有不落盘取舍时，明确只有正常停服会取消并保存为中断；异常退出丢失本轮，重启后显示上一份记录且旧登录态失效，不能承诺中断记录。若确实要异常恢复，则必须另定运行清单落点和恢复合同，属于需批准的数据寿命变更；不要在实施时悄悄加入。验收分正常 SIGTERM 与强行退出两个场景。
+
+### 15. 日志通知异常会被当作写日志失败，破坏记录与转录的一致性
+- **严重程度**：重要；**类别**：不变量
+- **位置**：计划第 37–43、48、53–54、86 行；`packages/nb-harness/src/harness.ts:141-160,244-248,294-305`
+- **现象**：计划把 `onLogEntries` 放进 SessionLog.append 的包装中，append 返回编号条目后通知；没有定义通知回调的异常隔离。若 SSE listener 对已取消/关闭的流 enqueue 抛错，包装 append 在内存日志已经写入后 reject；harness 将其判为真实日志写失败，置会话 broken。`onAgentEvent` 同样在 harness 写 `message_end` 之前执行，某个 listener 抛错会阻断后面的写日志分支，并使其他订阅者漏通知。
+- **为什么是问题**：页面断开本应只退订、不影响后台问答。观察者异常不应改变模型结果或持久化语义；仅保证连接断开时调用 off，仍需处理已排队通知与取消的竞争。多标签页时，一个慢/已关的消费者也不能影响其他消费者。
+- **如何核实**：已运行 `bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/log-observer-probe.ts`（cwd 主工作区 `packages/nb-story`）。使用真实 createHarness、真实内存日志、正常脚本模型回答；仅在包装 append 已成功写入助手消息之后让通知抛错。观察到运行由正常回答变为 `stopReason:error/local`；结果 entries 只有 seq 2，而底层日志已含 seq 1–4（含助手消息与 usage），且 run_end 无法追加。这是所依赖机制的真实运行证据，不把假设的 SSE 断开时序冒充已实现 HTTP 缺陷。
+- **建议改法**：将通知作为与日志写入结果隔离的旁路；逐订阅者捕获传输失败并退订/清理心跳，不使 append reject，也不阻断其他 listener 或 harness 的持久化路径。通知队列必须保序，回调仅接收只读条目。合同测试覆盖已连接的两个标签页中一个先关闭、另一个仍完整收到结果，以及 listener 抛错但结果与保存不变。
+
+## 第 12 条的证据修正
+
+OpenAI completions 的真实线格式（当前 qa 固定走此 provider）在 `node_modules/@oh-my-pi/pi-ai/src/providers/openai-completions.ts:2392-2429` 只发送工具正文与 tool_call_id，没有序列化 `isError`。因此撤销第 12 条“isError 本身是当前模型可见字段”的说法；相同正文且只改 isError 时，不能据此声称模型行为改变。第 12 条保留的发现是拒绝原因无法按类型区分，以及场景 2、14 和 4 处测试断言需要同步改；模型反复重试未经真实模型验证，不列为已发现故障。
+
+### 16. 两种 SSE 序列化方式尚未选定唯一线格式
+- **严重程度**：建议；**类别**：文档
+- **位置**：计划第 23、57–62、86、98、123 行；`packages/nb-harness/src/sse.ts:41-59`、`packages/nb-agent-ui/src/harness.ts:31-35,279-303,320-341`
+- **现象**：计划同时说复用 `serializeAgentEvent` 与“所有帧是 QaFrame JSON”。前者输出固定 `event: agent`，data 是裸 AgentEvent；后者的事件 data 应是 `{type:"event", event:...}`。两者不是同一条浏览器分派合同。日志帧还是数组，而适配器 `applyLogEntry()` 一次只收一个条目；计划未给精确解包示例。
+- **为什么是问题**：切片 1 与 2 分别照不同说法实现会在集成时返工；EventSource 的 onmessage 不接收命名为 agent 的事件，直接把 QaFrame/entries 数组交适配器也会被当作坏输入。这里没有断言作者必然这样写，只指出公共边界尚未冻结。
+- **如何核实**：读取 serializer 的输出与适配器的参数检查即可，`serializeAgentEvent` 没有包装为 QaFrame，也不做事件类型变换。现有适配器 README 的示例是逐条 entry 和裸 AgentEvent。
+- **建议改法**：选一种并写出服务端与浏览器最小配对示例。最简单是全部用 `serializeSseJsonEvent({data: frame})` 发送同一种无名事件；客户端对 event 取 `frame.event`，对 log 按数组顺序逐条 applyLogEntry，turn_start/turn_end/idle 只更新服务状态，不误喂 harness。心跳用 serializeSseComment，不进入 JSON 解码。用同一份 frame 类型做跨层合同测试。
+
+## 发现去重与严重程度最终修正
+
+- 第 1、3、4 条已撤回；第 2 条并入第 5 条，不单独计数。保留原文是为了遵守只追加、条数不减少的要求，不代表仍然成立。
+- 第 14 条属于“正常重启/异常退出的保证范围没有写清”，最终降为**建议／文档**：正常信号停服路径本身可实现，不能把“重启”一词直接等同 SIGKILL 后认定实现必然失败。
+- 第 12 条有 5 类拒绝原因、共 6 个失败 return（章不存在分别检查起点和终点）；只统计类别，不把两处章不存在重复计数。当前 provider 不序列化 isError 的修正见上一节。
+- 早先进度中提到的“批量日志与适配器不匹配”没有作为确定性故障计数；逐条解包即可正确接入，只作为第 16 条的接口文档建议。
+
+## 按影响排序的有效发现
+
+| 顺序 | 条目 | 严重程度 | 处理重点 |
+|---|---|---|---|
+| 1 | 9 | 重要 | 原始错误事件泄漏 provider 回显密钥 |
+| 2 | 8 | 重要 | 配置 CAS 和同进程临时文件竞争 |
+| 3 | 10 | 重要 | 整份配置写入绕过密钥变量名检查 |
+| 4 | 6 | 重要 | CLI 与网页分支 seq 重用、转录合并错误 |
+| 5 | 7 | 重要 | 失败轮没有用户日志、结果附注映射错位 |
+| 6 | 5 | 重要 | GET 与订阅之间终结、答案与终态漏发 |
+| 7 | 11 | 重要 | 首轮运行没有磁盘记录，缺少重接快照合同 |
+| 8 | 15 | 重要 | 消费者通知异常改变运行与日志结果 |
+| 9 | 13 | 重要 | 删除期间未关局部门禁，漏停新接纳运行 |
+| 10 | 12 | 重要 | 限额正常拒绝与真实错误未分类、验收未同步 |
+| 11 | 14 | 建议 | 区分正常停服与异常退出的数据保证 |
+| 12 | 16 | 建议 | 冻结 SSE 事件名、包裹层与逐条解包合同 |
+
+## 已执行验证与限制
+
+代码定位均相对 detached 审查 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/review-t13-design`。计划、Task 决定与 Spec 读主工作区；前段误读主工作区代码后，已用审查 worktree 的同文件内容重新核对关键依据。实验按授权在主工作区 `packages/nb-story` 运行，脚本、隔离书库与配置均写在本报告目录下；没有改产品代码、测试、Spec、计划或 Task。
+
+| 实际命令（cwd 均为 `/home/notnotype/CodeRepository/neuro-book/packages/nb-story`） | 结果 |
+|---|---|
+| `bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/runtime-probe.ts` | 退出 0，1.34 秒；真实引擎缺密钥首轮与成功续问仅 1 条用户日志；并行续问先保存成功、后保存 conflict；整份配置接受并落盘假密钥形状变量名。 |
+| `bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/sequence-probe.ts` | 退出 0，1.05 秒；真实 harness 两分支均用 seq 5–7，适配器无法按 seq 合并；10 组真实配置并发写有 9 次拒绝、10 组成功返回/磁盘不一致。 |
+| `bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/event-probe.ts` | 退出 0；真实 provider 与本机协议端点 1 次 HTTP 401；8 个事件全部可序列化、3 个含假密钥；结果和日志不含，端点已关闭。 |
+| `bun --no-env-file /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t13-qa-web/reports/omp-design/log-observer-probe.ts` | 退出 0；真实 harness 在日志已 append 后通知异常，运行改为 local error，返回条目与已存内存条目不同。 |
+
+实验是对计划依赖的实际机制进行验证，不是不存在的 QaService/网页实现测试。没有调用真实模型，没有使用真实凭据；没有 bun install、e2e、开发服务、全包测试、类型检查、Git 写操作或子代理。实验中的脚本模型只替换模型输出，Agent 调度、harness 与会话日志均真实；事件脱敏探针还经过真实 provider/本机 HTTP。早期 runtime-probe 中的合成分支演示在运行前已移除；seq 分支结论来自之后实际运行的两个 harness。日志通知抛错是对拟议扩展点的故障注入，不声称已观察到尚未实现的 SSE 路由断开竞态。
+
+## 未发现问题的方面
+
+- **单分支 seq 衔接与 append 顺序**：`createMemorySessionLog({entries})` 要求从 1 连续并从末尾接着编号，实例内 queue 串行；续问不重新广播旧条目合理。第 6 条仅针对明确允许的并行分支，不否定单分支机制。
+- **正常关闭与成对保存的已有基础**：引擎先 await harness.close，再读日志并经 QaRecords 发布新的一对；harness 关闭等待写队列、释放工具后退订。append 通知只要不改写/提前持久化且隔离错误，不需要另改成对保存机制。已有 expectTurns、冲突丢弃新日志、删除后的防复活检查仍应复用。
+- **服务内 busy 与 CLI 冲突的区分**：计划明确 qa_busy 只管本服务的同对话运行，CLI 并行继续走输出 25；不要求新增跨进程运行锁。问题是两分支的转录身份，不是允许 CLI 并行本身。服务内 busy 登记需在首个异步边界前，运行占用保持到保存结束，照 ingest 的 starting/closing 模式可实现。
+- **登录与 SSE 心跳基础**：同源 EventSource 可复用 HttpOnly、SameSite=Strict 的服务 cookie；现有 auth 无闲置过期且进程退出即失效。SSE 路由应放在现有 `/api/` 登录校验之后；serializeSseComment 是合法注释行，注释不进入 JSON。未发现必须换 WebSocket 或新建认证机制的理由。
+- **事件/日志与适配器职责**：applyEvent 收裸 AgentEvent，applyLogEntry 收单条 SessionEntry，日志才提供费用与运行错误；事件丢失后等待下一条日志是已定的合理退路。当前 QA 工具只返回文字和普通参数，未发现需要传递函数/循环引用等事件；已测 401 的全部事件可序列化，但脱敏不合格另见第 9 条。不能据此宣称任意外部工具的 unknown details 均可序列化。
+- **probe 的问答连通性复用**：probeModel 与 QA 同用 configuredModel/thinkingOption，finally 关闭 harness，不返回模型正文，可复用。它只测试问答模型，结果不带 model/thinking；服务输出需补此次配置身份，避免与刚修改的设置混淆。它不等于 CLI 的抽取两档/recall 测试；本计划没有明确承诺逐组测试，未将额外能力列为缺陷。若界面文案声称测试整份配置，应增加目标与逐项结果合同。
+- **已确认决定与评测口径**：决定 1–16 不重议；章数正常拒绝不改变实际读段、按轮新章上限、出处校验与“图当目录”判分口径。当前固定 provider 不发送 isError，不能凭状态位变化声称模型必然反复重试；没有擅自要求重跑已搁置的真实评测。未审网页外观、设置布局或换控件，只有接口耦合进入发现。
+
+## 各级数量
+
+- **阻断：0 条。**
+- **重要：10 条**（5、6、7、8、9、10、11、12、13、15）。
+- **建议：2 条**（14、16）。
+- **有效发现合计：12 条。**
+- 文件保留 **16 个发现标题**；其中 1、3、4 撤回，2 合并到 5，不计入有效发现。每次追加后均用 `grep -c '^### ' 报告路径` 核对标题数，未减少。
+
+---- Sonnet 报告原文 ----
+# t13 网页部分设计审查（Sonnet）
+
+审查对象：`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t13-qa-web/plan.md` 的“网页”一节、切片 2 到 4、已定的取舍 2、3，与 viewer.md 改动。代码依据：审查 worktree（提交 ed349f819）。凡标“从代码推断”的没有在浏览器里复现。
+
+### 1. 新对话的第一轮在落盘前根本不存在：列表、刷新、页头元数据都没有来源
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“关键设计/合同与路由”的 `qa.list`、`qa.get`；“网页/QaPage”的“主区顶上写 P 与做法”；切片 2 e2e“刷新后接着看”
+- **现象**：引擎一轮结束才把记录与会话日志一起写盘（`src/qa/engine.ts` 末尾的 `QaRecords.save`，运行期间日志在内存里）。新对话的第一轮因此没有记录文件。计划的 `qa.list` 只写“对话一行一个……是否运行中”，`qa.get` 写“记录与会话日志的全部条目”，没有说它们要不要并入 `QaService` 里登记的运行中轮次；`QaService` 登记项里记的只有“这一轮已写的日志条目”，没有首问、P、做法、开始时间。
+- **为什么是问题**：新对话在 1 到 6 分钟的第一轮里不出现在左栏；此时刷新页面（`?c=<id>`），`qa.get` 得到 `qa_record_not_found`，页头的 P 与做法、列表里的标题与说明都没有数据，而 SSE 补发还能给出日志条目，页面会处在“对话不存在但有流”的状态。切片 2 的 e2e“刷新后接着看”若按新对话写，会直接撞上这一条。续问轮没有这个问题（旧记录在盘上），所以单测很容易漏掉。
+- **如何核实**：读 `engine.ts` 末尾 `askQuestion` 的保存段，确认运行期间没有任何写盘；读计划两个方法的描述。
+- **建议改法**：在计划里写明：`qa.list` 把服务内存里“还没有记录的运行中对话”并进去（带首问、P、做法、开始时间、运行中），`qa.get` 对这类对话返回“没有记录、只有运行中的元数据”的形状（或让 `QaService` 在 `start` 时就登记这些元数据，`subscribe` 的第一帧给出）。页面按“记录缺失但在运行”的形状渲染，并在 e2e 里分别覆盖“新对话第一轮刷新”和“续问轮刷新”。
+
+### 2. 一轮结束、服务重启、启动失败时页面怎么收口，计划没写；“重启后按中断记录”做不到
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“网页/qa/conversation.ts”；“服务端运行”的 `QaFrame`；“不做与风险”第 2 条
+- **现象**：
+  1. `conversation.ts` 只写了“`qa.get` 的条目先喂适配器，再连 SSE，`log` 帧喂 `applyLogEntry`、`event` 帧喂 `applyEvent`”。`turn_end`、`idle` 帧到了以后页面做什么没有写：要不要重新 `qa.get`、要不要重建转录对象、列表那一行什么时候刷新。
+  2. 适配器只进不退（`harness.ts` 的 `applyLogEntry` 在 `seq <= lastSeq` 时直接忽略，没有重置接口）。服务进程重启时这一轮的日志只在内存里，根本没写盘；重连后 SSE 给 `idle`，但页面转录里还留着半截回合，“运行中”的工具永远不收口（`applyRunEnd` 没有机会被调用）。“不做与风险”写的“服务重启丢掉这一轮，按中断记录”做不到：进程已经死了，没有人来写记录。
+  3. 引擎在 `startNew`/`startContinued` 里会在运行前抛错（`full_read_unavailable`、`qa_not_continuable`、书被删、位置不合法，见 `engine.ts` 的 `askQuestion` 开头），这时没有日志也没有 `QaTurnResult`。`QaFrame` 里的 `turn_end` 带 `result: QaTurnResult`，没有“没能开始”的帧，`qa.start` 又“立即返回 `{conversation, turn}`”，页面没有通道知道这一轮没跑起来。“全读超过上限”是用户很容易碰到的失败。
+  4. `turn_end` 带 `recordSaved: false`（书被删、同一对话被命令行同时追问、写盘失败）时，这一轮只存在于页面内存里，刷新就没有了；计划没有写页面要不要提示。
+- **为什么是问题**：用户看到的是一个永远转圈的对话，或一个提问发出去什么都不发生的页面；刷新之后又变成另一个样子。
+- **如何核实**：读 `harness.ts` 的 `applyLogEntry`/`applyRunEnd`；读 `engine.ts` `askQuestion` 对 `startNew` 的调用位置（在 try 之外，会向外抛）；读计划 `QaFrame`。
+- **建议改法**：写明三条规则：(a) 收到 `turn_end` 或 `idle` 一律丢弃当前转录对象，重新 `qa.get` 后重建（顺手拿到记录里的 `unverifiedRefs`、刷新列表一行）；(b) `QaFrame` 加一种“没能开始”的帧（带失败码与文字），或让 `qa.start` 等到引擎过了启动阶段再返回，把启动失败放进方法的错误里；(c) `recordSaved: false` 时在对话顶上写“这一轮没有保存（原因）”，原因用 `notSaved.reason`。同时改掉“按中断记录”的说法（改成“重启后这一轮丢失，对话回到上一轮结束时的样子”）。
+
+### 3. 用户的提问在日志里出现得很晚，有的失败轮根本没有用户消息：空白对话、错挂的错误、上一轮被当成运行中、附注挂错轮
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“网页/conversation.ts”最后一句（“第 N 轮对应日志里第 N 个用户提问开始的那一轮……失败、中断的轮次也有日志，不能漏”）；README 的“接入 nb-agent-ui 的说明”同一条
+- **现象**：`packages/nb-harness/src/harness.ts` 的 `execute()` 里，缺密钥（`model.apiKey()` 抛 `MissingModelKeyError`）、会话已坏、`current.cancelled`（刚点了停止）这几条路径在写用户消息之前就 `finishRun`，日志里这一轮只有一条 `run_end`，没有 `agent_message` 的用户消息。用户消息本身也要等 `createHarness`、（全读时）读原文之后才写。结果：
+  1. 对应第 N 轮的“第 N 个用户提问”不存在，后面轮的提问会被数成第 N 轮，`unverifiedRefs` 附注挂到错的轮上。计划说失败、中断的轮次“不能漏”，但漏的恰恰是这种没有用户消息的轮。
+  2. 视图分轮（`conversation-turns.ts` 的 `splitIntoTurnGroups`）只在普通用户消息处开新组：没有用户消息的失败轮，错误消息会并进上一轮的组里，显示成上一轮答案后面多了一个错误。`resolveStatus` 又只对“最后一组”看 `ctx.run`：提交后、用户消息到达前，最后一组还是上一轮，会被当成“运行中”重新展开。
+  3. `harness.ts` 的 `applyRunEnd` 对 `aborted` 且最后一条是助手消息时，把那条助手消息改成 `stopped`：续问轮在写用户消息前被停止，会把上一轮最终答案标成“已停止”。
+  4. 新对话提交后到第一条日志到达之间（`createHarness`、全读拼接期间）页面是空白。`turn_start` 帧带了 `question`，计划没有说页面要用它。
+- **为什么是问题**：缺密钥是第一次使用时最可能碰到的失败，恰好落在这条路径上；而 e2e 列表里没有任何失败轮的场景。
+- **如何核实**：读 `harness.ts` 的 `execute()`（`model.apiKey()` 在 `userMessage` 之前）；读 `conversation-turns.ts` `splitIntoTurnGroups`、`resolveStatus`；读 `harness.ts` `applyRunEnd`。从代码推断，没有跑真实失败轮。
+- **建议改法**：不要靠“数用户提问”对轮次。(a) 让引擎在每轮开始写一条 `meta` 条目（`key: "qa.turn"`, `value: n`；适配器已经忽略 `meta`），日志自己带轮号；或退一步按记录里 `turns[i].startedAt` 与条目的 `at` 划分。(b) 页面在 `turn_start` 到日志用户消息到达之间，往 `ctx.messages` 末尾放一条 `delivery: "pending"` 的乐观用户消息，用户消息日志到达后去掉它；没有用户消息就收到 `run_end` 时也保留这条，让错误挂在它后面。(c) 把“失败轮没有用户消息”“停止发生在用户消息之前”加进 `conversation.test.ts` 与 e2e。
+
+### 4. 全读做法的第一条用户消息是 P 以前的全部原文，会整段显示成用户气泡
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“网页/QaPage”“AgentConversationView”；`src/qa/engine.ts` 的 `fullReadMessage`；Spec `story/qa.md` 输出 6
+- **现象**：全读的新对话，第一条用户消息是“以下是阅读位置以前的全部原文：……（每行 `章.段 正文`）\n\n问题：…”，上限 `fullReadMaxChars` 缺省 300,000 字（`config.ts` 的 `DEFAULT_FULL_READ_MAX_CHARS`）。`qa.get` 把它连同日志全部返回，适配器 `userBlocks` 原样变成文本块，`AgentUserContent.vue` 用 `PromptTextView` 整段画出（没有折叠）。
+- **为什么是问题**：对话视图里第一轮的“你”是几十万字的小说原文，滚动、渲染、复制都变形；`PromptTextView` 还会把原文里碰巧像引用、命令、粘贴块写法的内容解析成标签。计划完全没有提到全读做法的显示，而“图当目录/全读”正是输入框模式的两个取值。
+- **如何核实**：读 `engine.ts` `fullReadMessage` 与 `startNew`；读 `AgentUserContent.vue` 的 `segments`（没有长度限制）。
+- **建议改法**：`conversation.ts` 在喂完适配器后，对全读对话的第一条用户消息，把 `blocks` 换成“记录里第 1 轮的 `question` 加一行说明（已附 P 以前的全部原文 N 字）”（换成新消息对象，按底层对象缓存）。`qa.get` 也可以只在这个对话的第一条条目里省略正文，省掉几百 KB 的传输。要有一条单测：全读对话的第一条用户消息不含原文。
+
+### 5. 内置登记里的 `/` 命令与“复制”按钮在 nb-story 里没有任何处理
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“网页/tools.ts”（“注册表只用 `builtinRolesContribution`、`builtinComposerContribution`、`builtinMessageActionsContribution`”）；“QaPage”里 `canMutateHistory: false`
+- **现象**：`builtinComposerContribution`（`packages/nb-agent-ui/src/vue/builtin-composer.ts`）登记了 `/new`、`/plan`、`/mode`、`/model`、`/compact`、`/rename`、`/summarize`、`/fork`、`/clear` 九条命令，没有 `when`。没有 `resolveTriggerMenu` 时 `/` 仍然开命令菜单（`AgentConversationComposer.vue` 的 `triggers` 只留 `/`），用户输入 `/clear` 之类，视图发 `command.run`，计划里没有人处理。更糟的是：以已登记命令名开头的问题（例如一句以 `/plan` 开头的话）会被当命令吞掉，不当问题发送（`resolveSubmission`，Spec 输出 270）。`builtinMessageActionsContribution` 里 `copy` 没有 `when`，每条用户与助手消息都有“复制”，发 `message.copy` 或 `tool.copy`（结果节点），计划的 action 处理里也没有。`canMutateHistory: false` 只隐藏编辑、重试、分支。
+- **为什么是问题**：九个看得见却什么都不做的命令、一个点了没反应的复制按钮，是确定会发生的用户可见缺陷；README 建议“不认识的忽略”，但菜单里列出来就不该是“不认识”。
+- **如何核实**：读 `builtin-composer.ts`、`builtin-message-actions.ts`、`AgentConversationComposer.vue` 的命令菜单与 `submit`。
+- **建议改法**：计划里列出 QaPage 实现的 action 清单（`composer.submit`、`composer.stop`、`composer.draftChanged`、`mode.set`、`session.select`、`session.create`、`sessions.refresh`、`reference.open`、`link.open`、`message.copy`、`tool.copy`），其余明确忽略；登记不用 `builtinComposerContribution` 的命令：自己登记一份只有触发字符、没有命令的 composer 登记（或把命令过滤掉）；`/new` 值得保留并映射成 `session.create`；`copy` 要么实现（答案卡片复制成文字），要么过滤掉。
+
+### 6. 把 `SearchBox` 的结果面板换成 nb-ui `Popover`，会在输入过程中抢走输入框焦点
+
+- **严重程度**：重要；**类别**：正确性（从代码推断，未在浏览器里复现）
+- **位置**：计划“换手写控件”：“`SearchBox.vue` 的浮层换 `Popover`”；切片 4
+- **现象**：`SearchBox.vue` 现在的面板是 `v-if="open"` 的绝对定位块，输入框停止输入 250 毫秒后 `open = true`，焦点始终在输入框里。nb-ui `Popover.vue` 是 Reka 的 `PopoverRoot`：必须有 `trigger` 插槽（`PopoverTrigger as-child`，点击切换开关）；内容用 `FocusScope`，挂载时按 Reka 的默认把焦点移进内容（`PopoverContentNonModal.js` 里 `trap-focus: false`，`onMountAutoFocus` 只转发，没有阻止）。nb-ui 的包装只在 `@close-auto-focus` 里 `preventDefault`，没有处理 `open-auto-focus`。
+- **为什么是问题**：用户打字，250 毫秒后结果面板弹出，焦点跳进面板，后面的字敲不进输入框；点输入框又等于点触发器、切换开关。viewer 的 e2e 里“搜索停止输入后 1 秒内出结果”一类场景会因此变形。
+- **如何核实**：读 `Popover.vue` 与 `node_modules/reka-ui/dist/Popover/PopoverContentNonModal.js`、`PopoverContentImpl.js`；在主工作区的 Lab 或 playground 里放一个 `Input` 作 trigger、受控 `open` 在延时后打开，观察焦点。
+- **建议改法**：这一处先别换，或者先给 nb-ui `Popover` 加“打开时不抢焦点”的开关与“不用 trigger 的锚点”（`PopoverAnchor`）再换；在计划里把它从“逐处替换”挪到“依赖 nb-ui 补能力”。切片 4 的验收写明搜索输入不丢字。
+
+### 7. “`story-table` 换 `Table`”大部分做不到，计划只预见了吸顶分组一处
+
+- **严重程度**：重要；**类别**：代码质量
+- **位置**：计划“换手写控件”；切片 4；决定 5
+- **现象**：`story-table` 现在用在 `SecretsPage`（秘密矩阵）、`OverviewPage`（精简矩阵）、`LedgerPage`、`StatsPage`（三张）。nb-ui `Table`（`packages/nb-ui/src/components/display/Table.vue`）的合同是：列配置 `{key: keyof Row, label: string}` 加行数据，单元格只能用 `cell-<key>` 插槽。矩阵页做不到：
+  - 列是运行时的人物 id，表头要放 `NameLink` 与第二行化名（`SecretsPage.vue` 的 `th`），`label` 只能是字符串，没有表头插槽；
+  - 行要带 `data-secret`、`is-highlight` 类；`e2e/viewer.e2e.ts:380` 的断言就是 `tr.is-highlight[data-secret]`，`Table` 不给行加属性与类；
+  - 单元格里有 `StateBadge` 加 `RefLink` 的嵌套结构，点击事件与 `Table` 的整行 `row-click` 叠加。
+- **为什么是问题**：切片 4 的验收是“跑查看器全量 e2e，截图对照”，做到一半才发现矩阵换不了，要么改 e2e 选择器，要么回头改 nb-ui；计划只在风险里写“`Table` 可能改变现有页面外观”。
+- **如何核实**：读 `SecretsPage.vue`、`OverviewPage.vue` 的表格段，对照 `Table.vue` 的 `TableColumn` 与插槽；`grep -n 'is-highlight' packages/nb-story/e2e/viewer.e2e.ts`。
+- **建议改法**：切片 4 先逐页列清单：能换的（`LedgerPage` 的流水、`StatsPage` 里列固定的小表）与不能换的（两个矩阵、`RecordsTable`），不能换的写原因并保留；或者先在 nb-ui 提“表头插槽、行属性/类”的需求（上游选择），否则这一项的收益只有两三张表。
+
+### 8. 设置页：schema 拿不到、“密钥已设置”没有承载位置、`x-form` 没有“分组”、首次未配置的状态没定义
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“网页/shell/SettingsPage.vue”；技术选型“设置表单”
+- **现象**：
+  1. 计划写“`SchemaForm` 画 `src/qa/config.ts` 的 schema（补 `x-form`……）”。该 schema 是模块内未导出的 `ConfigSchema`，所在文件 import 了 `node:fs/promises`、`node:os`、`node:path`；viewer Spec 实现合同写明“网页只依赖本包的合同类型与查询客户端，不导入核心库”。页面拿不到它，也不能直接 import 这个文件（vite 浏览器构建会外置 node 内置模块）。`config.get` 的输出里没有 schema。
+  2. “密钥一项只写变量名，旁边标已设置或没有值”：配置里有三个 `apiKeyEnv`（`model`、`ingest.model`、`ingest.recall.model`），都是普通字符串，不是 `writeOnly`。nb-form 的 `meta.secret: "set"|"unset"` 只对 `writeOnly` 字段起作用（`NodeField.vue:142`），而 `writeOnly` 在 Spec 里会改控件选择（密钥输入，目前按单行文字画）。`config.get` 计划返回的“密钥环境变量在服务启动时有没有值”又是单个值。用户改了变量名之后，新名字有没有值页面也不知道。
+  3. 计划说 `x-form` 补“字段名、说明、分组”。`x-form` 的键只有 `label`、`help`、`placeholder`、`unit`、`widget`、`options`、`itemLabel`、`searchable`、`rows`、`choices`、`recommend`、`visibleWhen`（`packages/nb-form/src/hints.ts`），没有分组；`checkDescription` 会把 `group` 报成 `unknown-hint`。分组走 `SchemaForm` 的 `layout` 属性。
+  4. 文件不存在（第一次使用）时 `loadQaConfig` 抛 `qa_unconfigured`。这是整个功能的首次状态，`config.get` 在这种情况下返回什么、问答页的输入框是否禁用并指向设置页、`config.set` 怎样给出一份起始模板，计划都没说。
+- **为什么是问题**：第 1、2 条会在切片 3 开工时才暴露，并且影响 `config.get` 的合同（切片 1，已经在写）；第 4 条是第一次打开问答页就会看到的画面。
+- **如何核实**：读 `config.ts` 顶部 import 与 `ConfigSchema`；读 `nb-form/src/hints.ts`、`validate.ts:36` 的 `FormMeta`、`vue/NodeField.vue:142`；读 `docs/specs/ui/forms.md` 输出 31。
+- **建议改法**：(a) 把 schema 拆到不碰 node 的纯模块（`config-schema.ts`，导出 `ConfigSchema` 与 `x-form` 提示），`config.ts` 与网页都引它；或由 `config.get` 把 JSON Schema 带回来；(b) 密钥状态走 `SchemaForm` 的 `issues`（调用方给的警告：“环境变量 X 当前没有值”）或字段 `help`，`config.get` 返回按变量名索引的 `{name: boolean}` 表，改名后的新名字显示“保存后才知道”；(c) 分组用 `layout`，不写进 `x-form`；(d) 在 `qa.md`/`viewer.md` 写清未配置状态：`config.get` 返回 `configured: false` 加一份起始配置，问答页输入框停用并给“去设置”入口。
+
+### 9. “阅读位置不同的对话”：计划提醒的方向与决定 9 相反，出处与人名在抽屉里按查看器位置打开，没说怎么对
+
+- **严重程度**：重要；**类别**：不变量
+- **位置**：计划“网页/QaPage”第 2 条（“P 早于查看器当前位置时用提醒色写明”）、验收映射与 e2e（“阅读位置早于当前的对话照常显示”）；README 决定 9
+- **现象**：决定 9 的原文是“查看器的阅读位置拨到某个对话的位置之前，这个对话也不拦、不藏”，即查看器位置早于对话的 P。查看器的核心承诺是防剧透（viewer 输出 6），对话 P 晚于查看器位置时，答案里有查看器当前位置还不该知道的内容，这才是需要在顶上写明的方向。计划写的是反方向（对话的 P 早于查看器位置，答案只是“旧”）。w00019 t14 的静态稿和 `AgentSessionListItem.note` 的例子（“读到 38.12，早于你现在的位置”）也是这个反方向。e2e 列表里只有这个反方向的场景。
+  另外，答案里的出处与人名经现有抽屉打开：`DrawerSource`、`DrawerCard` 用 `useStoryQuery`，默认补 `at: book.at.value`（查看器的位置），不是对话的 P。对话 P 晚于查看器位置时，出处抽屉得到 `beyond_position`（现有的“第 N 章还没读到，把阅读位置拨到第 N 章”按钮），人物卡得到 `entity_not_found`；这些行为本身是合理的，但计划和 e2e 都没写，也没有决定“拨过去”会不会同时改变 QA 页的提示与新对话的默认位置。
+- **为什么是问题**：两个方向各需要一句提示；只实现一个，另一个方向的用户在最容易被剧透的地方没有任何提示。
+- **如何核实**：对照 README 决定 9 与计划第 94 行；读 `DrawerSource.vue` 的 `beyond_position` 分支与 `host/query.ts` 里 `at: book.at.value`。
+- **建议改法**：两个方向都写：P 晚于查看器位置时提醒色写“这个对话读到 X，晚于你现在的位置，答案可能含后文”；P 早于时用中性色写读到哪里。e2e 增一条“对话 P 晚于查看器位置”：点出处得到“还没读到”按钮、点人名得到不存在的提示、点“拨到”后抽屉展开。同时在 Spec 里写明抽屉用查看器的位置而不是对话的 P（或相反），这是用户可见的行为。
+
+### 10. 流式通道绕过了 `StoryClient`，违背 viewer Spec 的边界条款，也让“以后嵌进插件”这条路走不通
+
+- **严重程度**：重要；**类别**：不变量
+- **位置**：计划“技术选型/流式通道”“网页/conversation.ts”；`docs/specs/story/viewer.md` “边界与兼容”第 2 条与“实现合同”
+- **现象**：Spec 写“页面组件只经注入的查询客户端取数，不直接访问书库或网络”；`host/client.ts` 里 `StoryClient` 只有 `call()`，注释还写“以后嵌进 NeuroBook 插件时换成插件通道的实现，页面不改”。计划让 `qa/conversation.ts` 直接用浏览器的 `EventSource` 连 `/api/qa/events`。Spec 改动一节只提 `viewer.md` 的“删掉不做问答”，没有改这条边界。
+- **为什么是问题**：问答页是“主应用接入 Agent 对话的预演”（决定 1），恰恰最不应该把传输写死；而且 `conversation.ts` 里直接依赖 `EventSource` 也让它没法在 `bun test` 里测（`nb-story` 只有 `bun test`，没有 DOM 环境，见 `package.json`）。
+- **如何核实**：读 `host/client.ts` 的接口与注释；读 viewer.md 的“边界与兼容”和“实现合同”。
+- **建议改法**：给 `StoryClient` 加一个订阅方法（例如 `subscribe(topic, params, listener): () => void`，HTTP 实现用 `EventSource`），`conversation.ts` 只依赖它；单测用内存实现。同步改 viewer.md 的这两条和 `monorepo-boundaries.md`（网页现在还依赖 nb-agent-ui、nb-markdown、nb-form，计划的 Spec 改动列了前者，没列“实现合同/依赖方向”里“网页只依赖合同类型与查询客户端”那一句）。
+
+### 11. `message_update` 事件每条带两份完整的半截消息，直接转发会二次方增长，计划没有节流
+
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：计划“关键设计/引擎”`onAgentEvent`（“原样转发”）、“服务端运行”（`event` 帧）、“网页/conversation.ts”
+- **现象**：OMP 的 `message_update` 事件是 `{message, assistantMessageEvent}`，`assistantMessageEvent` 的各个 delta 变体都带 `partial: AssistantMessage`（`node_modules/@oh-my-pi/pi-ai/src/types.ts:1391` 起）。一条几千 token 的思考流会发几千个事件，每个事件含两份到当前为止的全部文字，字节数与长度的平方成正比。页面这边，README 的示例是每个事件之后 `ctx.messages = transcript.messages()`，`applyEvent` 每次对半截消息 `assistantFrom` 重建，Vue 对该轮重新整理。运行一到六分钟、思考模型的话，一轮会流过几十 MB。
+- **为什么是问题**：本机回环上字节不算大问题，主线程才是：每个事件一次 JSON 解析加一次整轮重算，思考流稍长就掉帧，“过程逐步展开”这个核心体验最先坏。
+- **如何核实**：读 `types.ts` 里 `AssistantMessageEvent`；用脚本端点发一条长文字回复，量 SSE 字节数。
+- **建议改法**：(a) 服务端对 `message_update` 合并后再推（同一条消息只保留最新一次，间隔不小于约 100 毫秒；`message_update` 本来是整条快照，丢中间帧不影响结果）；(b) 页面用 `requestAnimationFrame` 合并：同一帧里的事件都喂适配器，只在帧末取一次 `messages()`；(c) 只转发适配器用到的事件类型（`message_start`、`message_update`、`tool_execution_*`、`agent_start`、`agent_end`），丢掉 `assistantMessageEvent`。把节拍与合并写进 `conversation.ts` 的说明，并在 `now` 的节拍（运行中每秒）里一并说明。
+
+### 12. 左栏与下拉按外壳宽度档切换，但问答页真正拿到的是扣掉导航与抽屉之后的主区
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：计划“网页/QaPage”“宽屏左栏 `AgentSessionList`，平板与手机收进顶栏的‘对话’下拉”；README 决定 6；`shell/BookFrame.vue`
+- **现象**：`tier` 按外壳宽度算（≥1100 为 wide），而 `BookFrame.vue` 的 Splitter 里，主区只有 `minSizePx: 360`，导航缺省 188，抽屉缺省 400（`prefs.ts` 的 `readDrawerWidth`，范围 280 到 640）。问答页的价值就是“点出处开抽屉”，打开抽屉时主区会被挤窄：外壳 1100 宽、抽屉开着时，主区约 510；外壳 1440 时约 850。草稿里左栏是 260px，主区 510 时对话视图只剩 250px，主区被挤到下限 360 时只剩 100px，输入框与答案卡片都放不下。
+- **为什么是问题**：判据用错了变量：切换条件应该是页面自己的可用宽度，而不是外壳的档位；而且这个宽度会在用户点出处时突然变化。
+- **如何核实**：读 `BookFrame.vue` 的 `panels`（nav 188/main 最小 360/drawer 默认 400）与 `tier`；`prefs.ts`。
+- **建议改法**：`QaPage` 自己用 `ResizeObserver`（或容器查询）量根元素宽度，宽度够（例如 ≥ 760）才放左栏，否则用下拉；而不是读 `book.tier`。在 e2e 里加“宽屏、抽屉打开后左栏收成下拉”的断言。
+
+### 13. 切片 2 的 e2e 照字面写不出来：脚本端点只能在 Bun 里起，也没有“逐步放行”的控制通道
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：计划切片 2（“e2e 新加 `qa.e2e.ts`（脚本端点，子进程起服务）：问一题看过程逐步展开……停止、刷新后接着看”）；验收映射
+- **现象**：`testing/openai-endpoint.ts` 用 `Bun.serve`；Playwright 由 Node 运行（`e2e/playwright.config.ts` 的注释，`fixtures.ts` 里 `startReplay` 的注释“e2e 由 Node 运行，用不了 `Bun.serve`”）。它的 `after: {ready: Promise}` 闸门是进程内的 Promise，跨进程用不了。抽取的 e2e 因此另有 `testing/replay-server.ts` 加一个控制 HTTP 通道（`close/open/seen`），键是“章/步骤”，不能直接用于问答。另外这个端点每种回复都是一次性整段输出（文字或工具调用各一个 chunk），所以“过程逐步展开”只能靠请求之间的闸门观察：每一步工具调用之间要停住，让浏览器断言“前一步已显示、后一步还没有”。
+- **为什么是问题**：计划把 e2e 的写法一笔带过，实际要新写一个问答用的子进程端点（脚本回复序列加按请求序号的闸门、`hang` 以便测停止、断言收到几次请求），否则“逐步展开”“停止”“刷新接上”“服务停止时中断”四条都无法稳定地写出来（固定时长等待违背仓库测试规则）。
+- **如何核实**：读 `e2e/fixtures.ts` 的 `startReplay` 与 `testing/replay-server.ts`；读 `openai-endpoint.ts` 的 `after`、`hang`、`stall`。
+- **建议改法**：切片 2 加一项：照 `replay-server.ts` 写 `testing/qa-endpoint-server.ts`（Bun 子进程，stdout 打印 `ready <url> <control>`，控制通道按请求序号放行/挂起/读已收请求）；`fixtures.ts` 加对应的 `startQaEndpoint`。再把“服务进程停止时中断并保存”“刷新后接上”的断言写成基于控制通道的状态等待，不用定时器。
+
+### 14. 验收映射漏掉了已定取舍与失败态；网页里没有 DOM 单测环境，纯函数没列单测
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：计划“验收映射”、切片 2 的单测与 e2e 列表；已定的取舍 2、3
+- **现象**：
+  - e2e 列表只有主路径：问、过程、收成摘要、点出处、追问、停止、刷新、较早位置对话、手机下拉。没有对应：取舍 2（出处超一行写“等 N 处”、点“详细”展开且不抖）、取舍 3（人名找到/找不到/重名三种）、没核实的出处附注、交卷被退回的一行、失败轮与中断轮的显示、`qa_busy`、未配置、旧记录（只显示不能续问）、`recordSaved: false`、服务停止时中断。
+  - `nb-story` 的 `package.json` 里只有 `bun test`，没有 vitest 与 DOM 环境。“出处改写成链接”“人名解析”“出处缩略成‘等 N 处’的计算”“按依据缓存附注”这些纯函数计划没有列单测；组件级行为只能靠 e2e，而 e2e 又没列。
+- **为什么是问题**：计划自己的规则是“先列验收场景与失败方式”，这几条恰好是评审里已经点名的风险（改写误伤、重名、截断），实施时会靠截图人工看。
+- **如何核实**：对照计划切片 2 与 `packages/nb-story/package.json` 的 scripts。
+- **建议改法**：把改写、人名解析、出处缩略、附注缓存、转录合成（含第 3 条的几种失败轮）做成 `src/web/qa/*.ts` 里的纯函数，`bun test` 覆盖；e2e 增加上面缺的场景，其中脚本端点能直接造出的（退回、文字回复带没核实出处、停止、`qa_busy`、未配置、服务停止）都要有；旧记录用预先写进书库的 fixture 记录（照 t14 回放过的两份）。
+
+### 15. 人名按 `entities.list` 的 `query` 查：匹配是子串，重名判定、位置语境和请求量都没定
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：已定的取舍 3；计划“AnswerCard.vue”
+- **现象**：`entitiesList`（`core/queries/entities.ts`）用 `matches(label)` 或任一称呼匹配，是子串匹配，结果里 `names.top` 只带前几个称呼。`answer.knowledge[].who` 是自由文字（`AnswerSchema`），真实记录里有“南嘉鱼（地狱猫）”这种带括号的写法，也会有“读者”“她们俩”。计划只写“找不到或重名时不做成链接”：
+  1. 查“花铃”会同时返回“花铃”“花铃的母亲”，“重名”要定义成“标签或称呼精确相等的有几个”，而精确相等只能看 `label` 与 `names.top`，称呼被截断时判不了。
+  2. 用哪个位置查：`useStoryQuery` 默认补查看器位置，计划写的是“P 以内”（对话的 P）。人物卡抽屉用的是查看器位置，二者不同时（第 9 条），查到了也可能打不开。
+  3. 请求量：每张答案卡片按每个不同的 `who` 一次请求，一个对话 10 个答案、每个 6 个名字就是约 60 个并发请求；对话视图里折叠的轮次仍然显示结果节点，打开对话时全部挂载。
+- **为什么是问题**：交互上是“链接时有时无”，且打开长对话时请求集中。
+- **如何核实**：读 `entities.ts` 的 `entitiesList`、`AnswerSchema`、`host/query.ts`。
+- **建议改法**：每个（书、位置）取一次花名册（`limit` 到几百，核心测试里就是 `limit: 500`），在页面里用精确匹配（去掉括号里的称呼、按 `label` 与 `names.top` 精确相等）本地解析，结果按（书、位置、数据版本）缓存；位置取查看器位置，保证点得开；写明“读者”之类固定词不查。重名与找不到的判定写进纯函数并做单测。
+
+### 16. “章.段”改写应与引擎共用一条规则，并处理 `DrawerSource` 只认“—”、卡片文字里的出处没人改写
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：计划“StoryMarkdown.vue”；“AnswerCard.vue”
+- **现象**：
+  1. 引擎判断“正文里哪些是出处”用 `read-ledger.ts` 的 `REF_IN_TEXT`（先 `normalize("NFKC")`，接受“—”“–”“-”，前后不挨数字与小数点，三段数字不算）。没核实的出处列表就是按它算的，所以“3.5 倍”会被列为没核实出处。计划另写一份“把‘章.段’改成链接”，没有说是否共用。若页面的改写规则比引擎窄（不做 NFKC、只认“—”），附注里列出的“３９．１”“39.1-40.3”在正文里就不是链接；若比引擎宽，误伤更多。
+  2. 现有 `DrawerSource.vue` 只认 `^(\d+)\.(\d+)(?:—(\d+)\.(\d+))?$`，用连字符或 en dash 的范围会得到 `range = null`，抽屉空白。
+  3. 链接目标含“—”（`paragraph://38.12—40.3`）：渲染器可能把 `href` 百分号编码，`MarkdownDisplay` 的 `onClick` 发出 `anchor.getAttribute("href")`，宿主的 `reference.open` 处理要先 `decodeTarget`（`nb-markdown/src/targets.ts`）再解析；计划没写（未验证，需要在真实渲染器里看一眼）。
+  4. 答案卡片里的 `conclusion`、`how`、`explanation`、`coverage`、`points[].text` 里也有写成“章.段”的出处（t14 草稿的真实数据里 `explanation` 含 `(35.35—35.45)`），草稿用 `{{ }}` 直接插值，不可点；viewer 输出 19 写的是“任何‘章.段’都可以点”。
+  5. 代码块与行内代码、已有链接里不改，这条计划写了；误伤的下一类是列表序号、日期、版本号（`2026.10`、`v1.2`），与引擎同规则就只剩引擎也认为是出处的这些。
+- **为什么是问题**：同一份文字被两套规则认，附注和链接对不上。
+- **如何核实**：读 `read-ledger.ts:20-30`，`DrawerSource.vue` 的 `range`，`nb-markdown/src/targets.ts`。
+- **建议改法**：把 `REF_IN_TEXT` 抽到一个不依赖 node 的纯模块，引擎与页面共用，并加一个“归一成标准写法”的函数（NFKC 加统一用“—”），改写与抽屉打开前都过它；卡片里的文字都走同一个改写（`StoryMarkdown` 或同一函数）；单测覆盖：代码、已有链接、“3.5 倍”、全角、连字符范围、句末“39.1。”、三段数字。
+
+### 17. “依据出处常显一行、放不下写‘等 N 处’”的做法没有写成可实现的规则，容易产生布局位移
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：已定的取舍 2；计划“AnswerCard.vue”；`packages/nb-ui/docs/ui-development-spec.md` 第 55、439 行（零布局位移，同行两段文字一段先收）
+- **现象**：纯 CSS 的单行截断只能出省略号，不能把“等 N 处”这个与可见个数相关的文字算出来；要显示“等 N 处”就得知道放得下几个出处，必须测量。测量在以下时机会让一行的内容变化：卡片挂上、窗口或主区宽度变化（用户点出处开抽屉会让主区宽度突然少 400px，第 12 条）、字体加载、切换亮暗。同一行里还有“依据”标签与右端的“详细”按钮，按 nb-ui 规范要明确哪段先收（出处区应 `flex: 1 1 0`，标签与按钮不收）。
+- **为什么是问题**：测量重算时可见出处个数变化，“等 N 处”的宽度也变，整行轨道伸缩；点“详细”展开再收起时也可能变。
+- **如何核实**：读 ui-development-spec 第 55、439 行；对照草稿 `DraftAnswerCard.vue` 的 `.answer-foot`（`flex-wrap`，没有截断）。
+- **建议改法**：写成固定规则：一行分三格——标签（不收）、出处区（`flex:1 1 0; min-width:0; overflow:hidden`，按 `ResizeObserver` 量出放得下的个数，其余用一个固定宽度的“等 N 处”药丸代替，药丸宽度按位数预留）、“详细”按钮（不收）；出处个数只由宽度决定，不随点击变化。测量逻辑写成纯函数（输入各出处宽度、可用宽度，输出个数）加单测；e2e 在两个宽度各断言一次出处个数与整行高度不变。
+
+### 18. 附注与消息对象的复用：按 id 缓存会拿到过期对象；对话的 `now` 节拍计划只写了列表
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：计划“网页/conversation.ts”（“换成新消息对象并按依据缓存”）与“QaPage”（“每分钟更新 `now`”）
+- **现象**：
+  1. README 建议“按消息 id 加出处列表”缓存带附注的对象。但 `harness.ts` 在助手消息之后马上到的 `usage` 条目、以及工具结果，都会把 `logged[i]` 换成新对象（`applyUsage`、`applyAgentMessage` 的 `toolResult` 分支）。按 id 缓存会让带附注的对象停在换新之前，缺少用量或工具结果，被视图当成“没变”。
+  2. “每分钟更新 `now`”是会话列表的节拍。对话视图的 `ctx.now` 另需要运行中每秒更新（README 的示例），计划没有写；`createAgentContext` 的缺省 `now: 0`，运行中用时会按 0 算。节拍时要把 `messages` 原对象交回去，否则每秒整轮重算。
+- **为什么是问题**：1 是静默的错误显示（用量、状态不更新），2 会让用时显示成负数或一直不动。
+- **如何核实**：读 `harness.ts` 的 `applyUsage`、`applyAgentMessage`；README 的“宿主接入”示例。
+- **建议改法**：附注缓存键用底层消息对象本身（`WeakMap<MessageView, MessageView>`）加出处列表；对话 `ctx` 的 `now` 节拍写进 `conversation.ts` 的职责，仅运行中每秒、空闲停止；单测断言“节拍之后 `messages` 里的对象引用不变”。
+
+### 19. 打不开、不能续问、读不全的对话没有页面状态：旧记录、损坏记录、会话日志缺失、`qa.start` 的各种失败
+
+- **严重程度**：建议；**类别**：遗漏
+- **位置**：计划“合同与路由”`qa.list`/`qa.get`/`qa.start`；README“w00019 t14 搭稿时发现的问题”第 2 条（“旧记录……问答页照常显示即可”）
+- **现象**：
+  - `QaRecords.list()` 返回 `{records, broken}`，损坏的记录要列出并只能删除（qa.md 输出 16）；`qa.list` 的输出没写。
+  - `getWithLog` 可能 `log.ok === false`（日志不在、摘要对不上）；`qa.get` 只写了“记录与会话日志的全部条目”。记录本身是完整的（每轮的问题、答案、文字回复都在），页面可以退而求其次只画记录，但计划没有这条路。
+  - 对话之前的一问一条的旧记录 `log` 为 null、不能续问（`qa_not_continuable`，F8）。这是已知的，却只有在用户发问后才收到错误；页面应在 `qa.get` 时就知道，把 `interaction.canSend` 设为 false 并写原因。
+  - `qa.start` 的失败码（`qa_busy`、`qa_unconfigured`、`qa_not_continuable`、`full_read_unavailable`、`book_not_found`、`config` 类）怎么显示没有说：是 toast、是输入框上方一行、还是留在对话里；草稿是否保留（`acceptSubmission` 只在受理后才清空，所以应保留）。
+- **为什么是问题**：每一种都是实际会遇到的状态，计划只写了成功路径。
+- **如何核实**：读 `core/qa-records.ts` 的 `list`、`getWithLog`、`conversationOf`；qa.md 输出 16、F5、F6、F8。
+- **建议改法**：`qa.list` 增加 `broken` 项（只有 id、问题、删除入口）；`qa.get` 返回 `{record, log: {ok: true, entries} | {ok: false, problem}}`，页面据此降级；`qa.get` 对旧记录返回 `continuable: false`。失败码到界面位置的表放进 viewer.md 的“失败与恢复”。
+
+### 20. `qa.remove` 在网页里没有入口
+
+- **严重程度**：建议；**类别**：遗漏
+- **位置**：计划“合同与路由”表中的 `qa.remove`；“不做”一节
+- **现象**：`AgentSessionList` 没有行内删除（那是 nb-agent-ui t11 的“重命名与删除”，计划“不做”里明写不做），计划里的页面也没有放删除按钮的位置；`qa.remove`、“删除对话时先停”、对应的测试都写进了切片 1。
+- **为什么是问题**：服务端写了、测了，但没有调用者；或者实施时临时在页面上补一个入口，没有设计过。
+- **如何核实**：对照 `AgentSessionList.vue` 的 action（只有 select、create、refresh）和计划页面段。
+- **建议改法**：二选一：切片 1 先不做 `qa.remove`，等 t11；或者在 QaPage 主区顶部那一行（P 与做法旁）放“删除这个对话”，带确认框（nb-ui `Dialog`），运行中的对话先停。把选择写进计划。
+
+### 21. 切换对话时旧请求与旧订阅的收口、以及草稿归属，计划没有写
+
+- **严重程度**：建议；**类别**：遗漏
+- **位置**：计划“网页/conversation.ts”“QaPage”
+- **现象**：`conversation.ts` 被描述成“一个对话的数据源”，没有写生命周期：用户在 A 的 `qa.get` 还在途时切到 B，晚到的 A 的条目会不会写进 B 的转录；A 的 EventSource 何时关；转录对象（只进不退，没有重置）是否每次切换新建；`ctx.run`、`ctx.session`、`availability`（加载中、加载失败）怎么给。viewer Spec 的“阅读位置变化时旧请求的结果一律丢弃”是已有的习惯，对话切换没有对应条文。另外 `ctx.composer.draft` 是页面级的一份，切换对话时草稿跟着走，可能被发到另一个对话。
+- **为什么是问题**：晚到的结果写错对话是典型的竞态，e2e 里不容易稳定复现。
+- **如何核实**：读计划该段；读 `harness.ts`（转录对象无重置接口）。
+- **建议改法**：一个对话一个源对象，带 `dispose()`（中止 `qa.get`、关订阅）；所有回调先比对源对象是否仍是当前的；切换时新建转录；加载中/失败用 `availability`；草稿按对话 id 各存一份。写进计划并给 `conversation.test.ts` 加“切换后旧源的晚到结果被丢弃”。
+
+### 22. 订阅一直开着：每个看着的对话占一个连接，服务端关流还会让 EventSource 自动重连
+
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：计划“技术选型/流式通道”“合同与路由”（`GET /api/qa/events`，每 20 秒一条注释帧）
+- **现象**：计划没有说什么时候连、什么时候关。`subscribe` 在没有运行轮次时“立即推 idle”，如果服务端随后关流，浏览器的 `EventSource` 会按默认间隔（约 3 秒）无限重连；如果不关，则每个打开的问答页标签一直占一个连接。`Bun.serve` 本机明文走 HTTP/1.1，浏览器对同一来源最多并发 6 个连接，开到 6 个标签后，同一来源的 `fetch`（查询、保存阅读位置）会排队。计划把多标签页只留给合同测试。
+- **为什么是问题**：卡死的症状是整个查看器没响应而不是问答页出错。
+- **如何核实**：浏览器规范；读计划。
+- **建议改法**：页面只在“已知有运行中的轮次”时订阅（`qa.start` 刚返回，或 `qa.get`/`qa.list` 的“运行中”为真），收到 `turn_end` 或 `idle` 就 `close()`；服务端在 `idle` 与 `turn_end` 之后结束响应并给 `retry:` 很大的值，或页面主动关。这条规则同时解决第 2 条里“收口”的问题。
+
+### 23. 运行中的“停止”被输入框草稿挡住，按计划写的页面就没有别的停止入口
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：计划“AgentConversationView……运行中能停”
+- **现象**：`AgentConversationComposer.vue` 里 `showStop = running && currentText.trim() === "" && canStop`。运行中一旦输入框里有字，主按钮变成发送（且 `canSteer`/`canQueue` 都是 false 时是禁用的），停止按钮消失（Spec 输出 268 的行为）。一轮要跑一到六分钟，用户很可能一边等一边写下一个问题。
+- **为什么是问题**：用户这时想停，需要先清空输入框；“停止”的 e2e 若只测空草稿，测不出来。
+- **如何核实**：读 `AgentConversationComposer.vue` 的 `showStop`。
+- **建议改法**：在页面主区顶部那一行（P 与做法旁）放一个独立的“停止”按钮（运行中才有，发 `qa.stop`），不依赖输入框状态；e2e 增“输入框有字时点页头的停止”。
+
+### 24. 会话列表放进下拉：高度与材质两个待办没有进计划
+
+- **严重程度**：建议；**类别**：文档
+- **位置**：计划“网页/QaPage”第 1 条；`.agents/works/w00019-agent-conversation-view/pending-confirmations.md`（2026-10-22 t14 一条）
+- **现象**：`AgentSessionList` 根样式是 `height: 100%`、`ScrollArea` 是 `flex: 1; min-height: 0`。nb-ui `Popover` 的内容高度是自然高度，百分比高度没有参考，列表会撑到全部行的高度，对话多时超出视口，而不是内部滚动。w00019 的待确认记了“放进下拉时的悬停与选中材质没有单独处理，w00024 t13 接入时在真实页面看，需要时加 `surface` 属性”，开发者已追认，计划里没有对应步骤。另外 `Popover` 的内容是 `select-none`，列表里的标题不能选中复制（可接受，但要知道）。
+- **为什么是问题**：待确认被追认的前提是 t13 会看，现在没有任何一片写了“看”。
+- **如何核实**：读 `AgentSessionList.vue` 的样式与 `Popover.vue` 的内容类。
+- **建议改法**：切片 2 加一项：下拉的内容给定 `max-height`（例如 `min(60vh, 480px)`）和 `display:flex` 容器；真实页面里在亮暗两套主题下看悬停与选中材质，必要时加 `surface` 属性（改 nb-agent-ui，一处）。验收写进“手机宽度的下拉”场景（截图）。
+
+### 25. 接入依赖与样式的几处没列：`package.json`、`app.css` 的两条导入、大包按需加载
+
+- **严重程度**：建议；**类别**：文档
+- **位置**：计划“Spec 与文档改动”（只列了 `monorepo-boundaries.md`、`packages/AGENTS.md`）
+- **现象**：nb-agent-ui 与 nb-markdown 的 README 要求宿主自己编译 Tailwind，并在 nb-ui 之后导入 `@notnotype/nb-agent-ui/tailwind.css`、`@notnotype/nb-markdown/tailwind.css`，否则图标类名不生成。`packages/nb-story/src/web/app.css` 现在只导入 `@notnotype/nb-ui/tailwind.css`。`package.json` 里也没有这三个包（nb-agent-ui README 建议只进前端构建的放 `devDependencies`，nb-story 现在把 `@notnotype/nb-ui` 放在 `dependencies`）。nb-markdown 带 TipTap 与解析器，README 要求按组件 `import()` 入口；`BookFrame.vue` 的 `PAGES` 已经是 `defineAsyncComponent`，所以 `QaPage` 里把 `PromptEditor` 与 `MarkdownDisplay` 也各自 `import()`，别在 `tools.ts`、`StoryMarkdown.vue` 静态引入。
+- **为什么是问题**：漏导入的症状是图标缺失，到手工看页面才发现；静态引入会把 TipTap 拉进书的其他页面的首屏。
+- **如何核实**：读 `app.css` 顶部、`package.json`、两个包的 README“宿主接入”。
+- **建议改法**：切片 2 的任务清单里加：`package.json` 依赖、`app.css` 两条导入、`QaPage` 里的异步引入；验收加“其他页面首屏不加载编辑器代码”（看构建产物分块即可）。
+
+### 26. `StoryMarkdown.vue` 是包装层，不在 nb-markdown 的端口类型检查之内；改写的范围和流式半截文字都没定
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：计划“网页/StoryMarkdown.vue”；`packages/nb-markdown/src/prompt/agent-ports.typecheck.ts` 头部注释；nb-markdown README“接到 nb-agent-ui”
+- **现象**：
+  1. 类型检查文件明说它对的是 `.vue` 源组件，“包装那一层只转发属性与插槽，不在这里核对”。`MarkdownDisplay` 满足 `MarkdownDisplayPortProps`，但 `StoryMarkdown` 满足不满足没人查：`onActivate` 要被原样转发（`MarkdownDisplay` 发的是 `activate` 事件）、`streaming`、`resolveAsset` 要透传、根元素要接收 `style`（对话视图靠它写 `color` 与 `--markdown-font-size`）。包装层多出一个根元素，思考、提醒的淡色小字就失效。
+  2. 改写范围：计划写“代码与已有链接里不改”。围栏代码块（流式过程中未闭合的围栏要算到文末）、缩进代码、行内代码、已有链接与图片、自动链接与裸网址（`http://x/1.2`）、HTML，都要排除。`nb-markdown` 纯入口已导出 `findInlineLinks`、`writeInlineLink`，可复用，围栏代码需要自己加。
+  3. 流式：文末半截的“38.1”会先被改写成指向 38.1 的链接，下一批字到了变成 38.12，目标与小块宽度都在变；`MarkdownDisplay` 流式时每帧整篇重读。
+- **为什么是问题**：1 是静默的样式失效；2、3 是在真实模型输出上才会出的错。
+- **如何核实**：读类型检查文件头部注释、`MarkdownDisplay.vue`（只有一个根，发 `activate`）、`nb-agent-ui` 的 `AgentMarkdown.vue`；对 `nb-markdown/src/index.ts` 看导出。
+- **建议改法**：给 `StoryMarkdown` 加一条同样的类型断言（`Accepts<PropsOf<typeof StoryMarkdown>, MarkdownDisplayPortProps>`），保持单根并用 `v-bind="$attrs"` 之外的属性不拆；改写做成纯函数，围栏、行内、链接、HTML 的排除各一条单测；流式（`streaming` 为真）时对文末不完整的出处（后面没有终结符）暂不改写。
+
+### 27. `EventSource` 看不到状态码：登录失效与服务停止无法区分，`ctx.connection` 计划也没用
+
+- **严重程度**：建议；**类别**：遗漏
+- **位置**：计划“技术选型/流式通道”“网页/conversation.ts”；viewer.md 失败表 F1
+- **现象**：F1 要求登录失效时“显示登录已失效，不显示任何书的内容”，`createHttpClient` 靠 `fetch` 的 401 触发。`EventSource` 的 `onerror` 不带状态码，401 与服务停止都表现为断开并自动重连，页面会停在“连接中”而不是“登录已失效”。nb-agent-ui 的 `ctx.connection`（`connected`/`connecting`/`disconnected`，`actionRequired`）本来就是给这个用的，计划没有映射。
+- **为什么是问题**：登录失效是 viewer 已有的合同，新增的一条通道不能绕过它。
+- **如何核实**：读 `host/client.ts` 的 `createHttpClient`；读 `types.ts` 的 `ConnectionView`。
+- **建议改法**：`onerror` 时把 `ctx.connection` 设为 `connecting`/`disconnected`，并发一次廉价的 RPC（如 `qa.list`）探测：返回 401 就走 `onUnauthorized`；与第 10 条的 `StoryClient.subscribe` 放在一起实现，这样 401 处理只写一份。
+
+## 更正（对前面两条的措辞）
+
+- 第 16 条第 4 点里写的“t14 草稿的真实数据”不准确：草稿里含 `(35.35—35.45)` 的 `explanation` 是照真实格式合成的数据（`qa-draft-data.ts` 头注释），不是真实记录。依据改为 qa.md 输出 4 到 5 对答案各段文字里可含出处形状内容的规定（引擎 `validateAnswer` 对 `explanation`、`coverage`、`how`、`text` 都按出处校验，说明这些字段里确实会写出处）。
+- 第 18 条第 2 点“用时显示成负数”不准确：`conversation-turns.ts` 的 `computeMetrics` 对 `end - start` 取了 `Math.max(0, …)`，实际表现是运行中用时一直显示 0。
+
+## 未发现问题的方面
+
+- `AgentSessionList` 的属性（`items`、`selectedId`、`state`、`now`、`locale`、`header`、`labels`）、`session.select`/`session.create`/`sessions.refresh` 与计划描述的用法一致；`labels` 的键含 `title`、`create`、`empty` 等，足够把“会话”改称“对话”。
+- `processDisclosure: "live"`、`header: false`、`canMutateHistory: false`、结果节点 `outcome` 加退回时 `summary`、附注 `annotations` 加 `entries` 的 `customType` 登记，API 与 README、Spec 一致；`groupPhrase(calls)` 收到整组调用并可按 `call.status` 过滤。
+- 注册表只用三份内置登记不会与 nb-story 的 `read` 冲突（`builtinToolsContribution` 不在其中），`createAgentViewRegistry` 对 `customType` 重名的检查对计划里的单个条目渲染器没有影响。
+- 抽屉、会话下拉所用的 nb-ui `Drawer`、`Popover` 传送到 `body`，主题写在 `<html>` 上（`host/theme.ts`），传送后的样式不会丢；`provideMarkdownHost` 写在 `QaPage` 的 setup 里能覆盖对话视图里的 Markdown 与 `PromptEditor`（inject 沿组件树，跨传送也有效）。
+- SSE 与 cookie：`SameSite=Strict`，EventSource 同源带 cookie，没有跨站请求问题（`auth.ts`）。
+
+## 未验证的点
+
+- 第 6 条（`Popover` 抢焦点）、第 16 条第 3 点（链接目标里的“—”是否被渲染器编码）、第 3 条各失败路径在真实运行时的表现，都是从代码读出来的，没有在浏览器或真实引擎里复现。
+- `SchemaForm` 对“可选对象里有必填字段”（`ingest.model`、`ingest.recall.model`）的编辑行为（用户只填一个字段时的校验与清除）没有读到明确的合同，设置页实施时需要在 Lab 里先试一次。
+
+## 各级数量
+
+- 阻断：0
+- 重要：14（第 1 到 14 条）
+- 建议：13（第 15 到 27 条）
+
+最需要先处理的几条：第 1 条（新对话第一轮在落盘前不存在）、第 2 条（收口与启动失败没有通道，“重启按中断记录”做不到）、第 3 条（失败轮没有用户消息，轮次对不上）、第 9 条（阅读位置方向与抽屉位置语境）、第 13 条（e2e 端点与闸门）、第 7 条与第 6 条（换控件的两处做不到）。
+
+（再更正：上面“更正”第一条里的“qa.md 输出 4 到 5”应为“qa.md 输出 8”，即 `answer` 的校验条款；`answer.ts` 头注释同样指向输出 8。）

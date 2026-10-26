@@ -302,9 +302,10 @@ test("用户标签改主题，两个页面即时变化；本作品标签单独�
     await a.locator("[data-settings-tabs]").getByRole("radio", {name: "本作品"}).click();
     const appearance = row(a, "nbook.workbench/appearance");
     await expect(appearance).toHaveAttribute("data-settings-row-state", "inherit");
-    await appearance.locator("[data-settings-row-override]").click();
-    await expect(appearance).toHaveAttribute("data-settings-row-state", "edit");
+    await expect(appearance.locator("[data-settings-row-inherited]")).toHaveText("来自用户设置");
+    // 沿用的行照常可改，改了就写进本作品层
     await appearance.getByRole("radio", {name: "深色"}).click();
+    await expect(appearance).toHaveAttribute("data-settings-row-state", "edit");
     await expect.poll(() => readSettings(projectFile())).toEqual({"nbook.workbench/appearance": "dark"});
     await expect.poll(() => html(b, "data-nb-appearance")).toBe("dark");
 
@@ -338,16 +339,30 @@ test("改过的项有已修改标记；恢复默认后键从 settings.json 删�
     expect(written).toContain("// 主题");
 });
 
-test("用户层文件改坏：分区顶部出现说明、控件停用；修好后说明消失、控件恢复", async ({page}) => {
+test("用户层文件改坏：标题区出现警告、控件停用；点警告打开设置文件并把光标放在出错处；修好后警告消失、控件恢复", async ({page}) => {
     await open(page, "/?project=book");
     await workbenchGear(page).click();
     const macos = row(page, "nbook.workbench/theme").getByRole("radio", {name: "macOS"});
     await expect(macos).toBeEnabled();
     await writeFile(userFile(), "{\"nbook.workbench/theme\": \"nbook\",,}");
-    await expect(page.locator("[data-settings-layer-notice='invalid']")).toBeVisible();
+    const warning = page.locator("[data-settings-heading] [data-settings-layer-notice='invalid']");
+    await expect(warning).toBeVisible();
+    await expect(warning).toContainText("设置文件格式有误");
     await expect(macos).toBeDisabled();
+    await warning.click();
+    await expect(page.locator("[data-settings-section='file']")).toBeVisible();
+    const text = page.locator("[data-settings-file-text]");
+    await expect(text).toBeFocused();
+    // 标题区写出错位置；光标就在那一列。
+    const fixing = page.locator("[data-settings-heading] [data-settings-layer-notice='fixing']");
+    await expect(fixing).toContainText(/^第 1 行第 \d+ 列：.+，改好后保存$/u);
+    const column = Number(/第 1 行第 (\d+) 列/u.exec((await fixing.textContent()) ?? "")?.[1]);
+    expect(await text.evaluate((element: HTMLTextAreaElement) => element.selectionStart)).toBe(column - 1);
+    // 出错的那一行（第 1 行）在行号列上标出。
+    await expect(page.locator("[data-settings-file-line][data-error]")).toHaveText("1");
     await writeFile(userFile(), USER_FILE);
     await expect(page.locator("[data-settings-layer-notice]")).toHaveCount(0);
+    await page.locator("[data-settings-nav='nbook.appearance']").click();
     await expect(macos).toBeEnabled();
 });
 
@@ -388,4 +403,282 @@ test("调整窗口大小后关掉再开、刷新页面仍是这个尺寸，每�
     await expect(dialog).toBeVisible();
     await settled();
     expect(await width()).toBe(resized);
+});
+
+test("窗口没有标题栏：按住顶上的空白、左栏顶上的空白、标题区的空白与标题文字都能拖动；按在搜索框上不拖；关闭按钮在右上角", async ({page}) => {
+    await open(page, "/?project=book");
+    await workbenchGear(page).click();
+    const dialog = page.getByRole("dialog", {name: "设置"});
+    await expect(dialog).toBeVisible();
+    await dialog.evaluate((element) => Promise.all(element.getAnimations({subtree: true}).map((animation) => animation.finished)));
+    await expect(dialog.locator("header.nb-dialog__header")).toHaveCount(0);
+    const at = async (): Promise<{x: number; y: number}> => {
+        const box = await dialog.boundingBox();
+        if (box === null) throw new Error("量不到窗口");
+        return {x: Math.round(box.x), y: Math.round(box.y)};
+    };
+    /** 从 (x, y) 按下、移动 (dx, dy) 后松开，返回窗口的位移。 */
+    const drag = async (x: number, y: number, dx: number, dy: number): Promise<{dx: number; dy: number}> => {
+        const before = await at();
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x + dx / 2, y + dy / 2);
+        await page.mouse.move(x + dx, y + dy);
+        await page.mouse.up();
+        const after = await at();
+        return {dx: after.x - before.x, dy: after.y - before.y};
+    };
+    const center = async (selector: string): Promise<{x: number; y: number}> => {
+        const box = await dialog.locator(selector).first().boundingBox();
+        if (box === null) throw new Error(`量不到 ${selector}`);
+        return {x: box.x + box.width / 2, y: box.y + box.height / 2};
+    };
+
+    // 窗口顶边往下 10px、水平居中：正文上方的留白
+    const top = await at();
+    const box = (await dialog.boundingBox())!;
+    expect(await drag(top.x + box.width / 2, top.y + 10, 40, 30)).toEqual({dx: 40, dy: 30});
+    // 左栏顶上：层标签与搜索框之间的空隙
+    const tabs = await dialog.locator("[data-settings-tabs]").boundingBox();
+    const search = await dialog.locator("[data-settings-search]").boundingBox();
+    if (tabs === null || search === null) throw new Error("量不到层标签或搜索框");
+    expect(await drag(tabs.x + tabs.width / 2, (tabs.y + tabs.height + search.y) / 2, -20, 10)).toEqual({dx: -20, dy: 10});
+    // 标题文字
+    const title = await center("[data-settings-heading] h2");
+    expect(await drag(title.x, title.y, 15, -15)).toEqual({dx: 15, dy: -15});
+    // 按在搜索框上是输入，不拖
+    const input = await center("[data-settings-search] input");
+    expect(await drag(input.x, input.y, 30, 30)).toEqual({dx: 0, dy: 0});
+    // 焦点在输入框里时点一下标题区：输入框照常失焦（拖动区域不拦按下的默认动作）
+    await expect(dialog.locator("[data-settings-search] input")).toBeFocused();
+    await page.mouse.click(title.x, title.y);
+    await expect(dialog.locator("[data-settings-search] input")).not.toBeFocused();
+    const heading = await dialog.locator("[data-settings-heading]").boundingBox();
+    if (heading === null) throw new Error("量不到标题区");
+    // 标题区右端、说明之外的空白
+    expect(await drag(heading.x + heading.width - 4, heading.y + heading.height / 2, 10, 10)).toEqual({dx: 10, dy: 10});
+
+    // 关闭按钮照常关窗口
+    await dialog.getByRole("button", {name: "关闭"}).click();
+    await expect(dialog).toHaveCount(0);
+});
+
+test("关闭按钮浮在右上角：宽窗口、内容列贴近右缘的窗口、fill 视图与窄窗口里都不压内容；左栏顶边与标题区齐平", async ({page}) => {
+    await open(page, "/?project=book");
+    const dialog = page.getByRole("dialog", {name: "设置"});
+    const box = async (selector: string) => {
+        const found = await dialog.locator(selector).first().boundingBox();
+        if (found === null) throw new Error(`量不到 ${selector}`);
+        return found;
+    };
+    /** 标题区内容的右缘（去掉给关闭按钮让的右内边距）。 */
+    const headingContentRight = (): Promise<number> => dialog.locator("[data-settings-heading]").first().evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.right - Number.parseFloat(getComputedStyle(element).paddingRight);
+    });
+    const openAt = async (width: number): Promise<void> => {
+        await page.setViewportSize({width, height: 760});
+        await workbenchGear(page).click();
+        await expect(dialog).toBeVisible();
+        await dialog.evaluate((element) => Promise.all(element.getAnimations({subtree: true}).map((animation) => animation.finished)));
+    };
+    const close = async () => box("button[aria-label='关闭']");
+
+    // 窗口 960（内容列比 720 窄）与 868：标题区右缘离关闭按钮至少一档
+    for (const width of [1300, 900]) {
+        await openAt(width);
+        expect(await headingContentRight()).toBeLessThanOrEqual((await close()).x - 8);
+        expect(Math.abs((await box("[data-settings-tabs]")).y - (await box("[data-settings-heading]")).y)).toBeLessThanOrEqual(1);
+        // fill 视图（设置文件）同样
+        await dialog.locator("[data-settings-nav='file']").click();
+        await expect(dialog.locator("[data-settings-file]")).toBeVisible();
+        expect(await headingContentRight()).toBeLessThanOrEqual((await close()).x - 8);
+        await dialog.getByRole("button", {name: "关闭"}).click();
+        await expect(dialog).toHaveCount(0);
+    }
+
+    // 窄窗口：顶上那一行（层标签与搜索框）右端让位，标题区在它下面
+    await openAt(600);
+    const search = await box("[data-settings-search]");
+    expect(search.x + search.width).toBeLessThanOrEqual((await close()).x - 8);
+    expect((await box("[data-settings-heading]")).y).toBeGreaterThan((await close()).y + (await close()).height);
+});
+
+// ── 左栏与窄窗口（settings-window.md 输出 1、16）：要真实布局，DOM 测试量不到 ──
+
+test("左栏：层标签在搜索框上方、每个有分区的组上方有组标题、分区一行一项；悬停与按下不缩放不位移", async ({page}) => {
+    await open(page, "/?project=book");
+    await workbenchGear(page).click();
+    await expect(settingsWindow(page)).toBeVisible();
+    const box = async (selector: string) => (await page.locator(selector).first().boundingBox())!;
+    const tabs = await box("[data-settings-tabs]");
+    const search = await box("[data-settings-search]");
+    expect(tabs.y + tabs.height).toBeLessThanOrEqual(search.y);
+    const labels = page.locator("[data-settings-nav-label]");
+    // 产品里现在没有“写作助手”组的分区，没有项的组不出现。
+    await expect(labels).toHaveText(["通用", "扩展"]);
+    for (const label of await labels.all()) await expect(label).toBeVisible();
+    const items = await page.locator("[data-settings-nav]").evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().top));
+    expect(items.every((top, index) => index === 0 || top > items[index - 1]!)).toBe(true);
+    const side = await box(".settings-window__side");
+    expect(Math.round(side.width)).toBe(212);
+
+    // 悬停、按下（没松开）：变换仍是 none，外框不动。
+    const target = page.locator("[data-settings-nav='nbook.works']");
+    // 打开时窗口从略小处放大（nb-ui Dialog 的进场动画）：播完再量，否则前后两次量的是缩放中的外框。
+    await page.getByRole("dialog").evaluate((element) => Promise.all(element.getAnimations({subtree: true}).map((animation) => animation.finished)));
+    const before = await target.boundingBox();
+    await target.hover();
+    await page.mouse.down();
+    expect(await target.evaluate((element) => getComputedStyle(element).transform)).toBe("none");
+    expect(await target.boundingBox()).toEqual(before);
+    await page.mouse.up();
+});
+
+test("窄窗口：左栏变成顶上两行，层标签与搜索框并排、分区横排一行不显示组标题与图标；宽了再回到竖排", async ({page}) => {
+    await page.setViewportSize({width: 560, height: 700});
+    await open(page, "/?project=book");
+    await workbenchGear(page).click();
+    await expect(settingsWindow(page)).toBeVisible();
+    const dialog = page.getByRole("dialog");
+    expect((await dialog.boundingBox())!.width).toBeLessThan(600);
+    const box = async (selector: string) => (await page.locator(selector).first().boundingBox())!;
+    const tabs = await box("[data-settings-tabs]");
+    const search = await box("[data-settings-search]");
+    // 并排：同一行（纵向有重叠），标签在搜索框左边。
+    expect(Math.abs(tabs.y + tabs.height / 2 - (search.y + search.height / 2))).toBeLessThanOrEqual(2);
+    expect(tabs.x + tabs.width).toBeLessThanOrEqual(search.x);
+    // 分区在这两行下面、同一行，横向放不下时自己滚（不换行）。
+    const nav = await page.locator(".settings-window__nav").evaluate((element) => ({overflowX: getComputedStyle(element).overflowX, top: element.getBoundingClientRect().top}));
+    expect(nav.overflowX).toBe("auto");
+    expect(nav.top).toBeGreaterThanOrEqual(search.y + search.height);
+    const tops = await page.locator("[data-settings-nav]").evaluateAll((elements) => elements.map((element) => Math.round(element.getBoundingClientRect().top)));
+    expect(new Set(tops).size).toBe(1);
+    for (const label of await page.locator("[data-settings-nav-label]").all()) await expect(label).toBeHidden();
+    for (const icon of await page.locator(".settings-window__nav-icon").all()) await expect(icon).toBeHidden();
+
+    // 页面宽了窗口跟着宽：回到宽窗口的竖排。
+    await page.setViewportSize({width: 1280, height: 700});
+    await expect.poll(async () => (await dialog.boundingBox())!.width).toBeGreaterThanOrEqual(600);
+    await expect(page.locator("[data-settings-nav-label]").first()).toBeVisible();
+    const wideTabs = await box("[data-settings-tabs]");
+    const wideSearch = await box("[data-settings-search]");
+    expect(wideTabs.y + wideTabs.height).toBeLessThanOrEqual(wideSearch.y);
+});
+
+// ── 搜索、设置文件视图（settings-window.md 输出 21、23）与 Lab“模型服务”（输出 20、22） ──
+
+test("Ctrl+F 聚焦设置里的搜索框；搜到“明暗”直接改掉；Esc 先清空搜索、窗口不关", async ({page}) => {
+    await open(page, "/?project=book");
+    await workbenchGear(page).click();
+    await page.keyboard.press("Control+f");
+    const search = page.locator("[data-settings-search] input");
+    await expect(search).toBeFocused();
+    await search.fill("明暗");
+    const appearance = row(page, "nbook.workbench/appearance");
+    await expect(page.locator("[data-settings-row]")).toHaveCount(1);
+    await appearance.getByRole("radio", {name: "深色"}).click();
+    await expect.poll(() => readSettings(userFile())).toEqual({"nbook.workbench/theme": "nbook", "nbook.workbench/appearance": "dark"});
+    await search.focus();
+    await page.keyboard.press("Escape");
+    await expect(search).toHaveValue("");
+    await expect(settingsWindow(page)).toBeVisible();
+    await expect(page.locator("[data-settings-section='nbook.appearance']")).toBeVisible();
+});
+
+test("设置文件视图：看到带注释的全文，改主题后 Ctrl+S 保存，文件原样落盘、页面跟着变；别处把文件改坏后经它修好", async ({page}) => {
+    const problems: string[] = [];
+    watchConsole(page, problems);
+    await open(page, "/?project=book");
+    await workbenchGear(page).click();
+    await page.locator("[data-settings-nav='file']").click();
+    const text = page.locator("[data-settings-file-text]");
+    await expect(text).toHaveValue(USER_FILE);
+    const next = USER_FILE.replace("\"nbook\"", "\"macos\"");
+    await text.fill(next);
+    await text.press("Control+s");
+    await expect.poll(() => readFile(userFile(), "utf8")).toBe(next);
+    await expect.poll(() => html(page, "data-nb-theme")).toBe("macos");
+    await expect(page.locator("[data-settings-file-actions]").getByRole("button", {name: "保存"})).toBeDisabled();
+
+    await writeFile(userFile(), "{\"nbook.workbench/theme\": \"nbook\",,}");
+    await expect(text).toHaveValue("{\"nbook.workbench/theme\": \"nbook\",,}");
+    // 已在设置文件视图里：标题区不再给“打开”的按钮，写出错的位置。
+    await expect(page.locator("[data-settings-layer-notice='fixing']")).toBeVisible();
+    await text.fill("{\n    \"nbook.workbench/theme\": \"nbook\"\n    \"x\": 1\n}");
+    await page.locator("[data-settings-file-actions]").getByRole("button", {name: "保存"}).click();
+    await expect(page.locator("[data-settings-heading] [data-settings-layer-notice]")).toContainText(/^未保存：第 3 行第 5 列：/u);
+    await expect(page.locator("[data-settings-file-line][data-error]")).toHaveText("3");
+    await expect(page.locator("[data-settings-file-error]")).toContainText("第 3 行第 5 列");
+    await text.fill(USER_FILE);
+    await page.locator("[data-settings-file-actions]").getByRole("button", {name: "保存"}).click();
+    await expect(page.locator("[data-settings-layer-notice]")).toHaveCount(0);
+    expect(await readFile(userFile(), "utf8")).toBe(USER_FILE);
+    expect(problems).toEqual([]);
+});
+
+test("Lab“模型服务”：打开时才激活；首屏是服务商列表，添加服务商在标题区；加一家没填好时保存被拒，填好后保存；有改动时切分区先确认", async ({page}) => {
+    const devRoot = join(tmp, "dev-models");
+    await mkdir(devRoot, {recursive: true});
+    const dev = await startDevSession(devRoot);
+    try {
+        await page.goto(`${dev.pageUrl}lab?c=SettingsWindow&s=page-fill`);
+        const models = page.locator("[data-sample-models]");
+        await expect(models).toBeVisible();
+        const heading = page.locator("[data-settings-heading]");
+        const rows = models.locator("[data-settings-page-list-item]");
+        await expect(rows).toHaveCount(2);
+        await expect(rows.nth(0)).toContainText("DeepSeek");
+        await expect(models.getByRole("list", {name: "模型服务"})).toBeVisible();
+        // 首屏是列表：标题区没有返回，“添加服务商”在标题区右侧、不在页面正文里。
+        await expect(heading.locator("[data-settings-heading-back]")).toHaveCount(0);
+        await expect(models.locator("[data-sample-models-add]")).toHaveCount(0);
+        const add = heading.locator("[data-sample-models-add]");
+        await expect(add).toBeEnabled();
+        // 新加的一家随即打开：标题区换成“‹ 模型服务”与它的标题，保存栏出现。
+        await add.click();
+        await expect(heading.locator("h2")).toHaveText("未命名的服务商");
+        await expect(heading.locator("[data-settings-heading-back]")).toContainText("模型服务");
+        await expect(heading.locator("[data-sample-models-add]")).toHaveCount(0);
+        const bar = page.locator("[data-sample-models-bar]");
+        await expect(bar.getByRole("button", {name: "保存"})).toBeEnabled();
+        await bar.getByRole("button", {name: "保存"}).click();
+        await expect(bar.locator("[data-settings-save-bar-note]")).toContainText("还没保存");
+        const detail = models.locator("[data-sample-models-detail]");
+        await detail.getByLabel("标识").fill("openai");
+        await detail.getByLabel("名称").fill("OpenAI");
+        await detail.getByLabel("接口地址").fill("https://api.openai.com/v1");
+        await detail.getByLabel("超时").fill("30");
+        await detail.getByLabel("超时").blur();
+        await expect(heading.locator("h2")).toHaveText("OpenAI");
+        await bar.getByRole("button", {name: "保存"}).click();
+        await expect(bar.getByRole("button", {name: "保存"})).toBeDisabled();
+        // 保存按钮停用后留不住焦点，页面把它放回详情里的第一个输入框。
+        await expect(detail.getByLabel("标识")).toBeFocused();
+        await heading.locator("[data-settings-heading-back]").click();
+        await expect(rows).toHaveCount(3);
+        await expect(rows.nth(2)).toContainText("OpenAI");
+        await expect(rows.nth(2)).toBeFocused();
+        await expect(bar).toHaveCount(0);
+
+        // 再打开这一家改名字，不保存就离开：先确认。
+        await rows.nth(2).click();
+        await detail.getByLabel("名称").fill("OpenAI 官方");
+        await detail.getByLabel("名称").blur();
+        await page.locator("[data-settings-nav='nbook.appearance']").click();
+        const dialog = page.getByRole("alertdialog");
+        await expect(dialog).toContainText("放弃未保存的更改？");
+        await expect(dialog.getByRole("button", {name: "继续编辑"})).toBeFocused();
+        await dialog.getByRole("button", {name: "继续编辑"}).click();
+        await expect(dialog).toHaveCount(0);
+        await expect(models).toBeVisible();
+        await page.locator("[data-settings-nav='nbook.appearance']").click();
+        await page.getByRole("alertdialog").getByRole("button", {name: "放弃"}).click();
+        await expect(page.locator("[data-settings-section='nbook.appearance']")).toBeVisible();
+        // 离开页面后标题区不再带着“‹ 模型服务”。
+        await expect(heading.locator("[data-settings-heading-back]")).toHaveCount(0);
+    } finally {
+        dev.child.kill("SIGTERM");
+        expect(await dev.exit).toBe(0);
+    }
 });

@@ -8,7 +8,7 @@
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsService} from "@notnotype/nb-runtime/diagnostics";
 import type {RuntimeLocation} from "@notnotype/nb-runtime/lifecycle";
-import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 import type {RemoteProvision} from "@notnotype/nb-runtime/remote";
 import type {ContributionDescriptor, ContributionHandle, ContributionReceiver, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
@@ -163,7 +163,7 @@ function commandsEntry(location: RuntimeLocation): PluginEntryDefinition {
                 },
             });
             return {
-                services: [provide(commandServiceKey, serviceOf(registry))],
+                services: [provideService(commandServiceKey, serviceOf(registry))],
                 receivers: {[COMMANDS_POINT]: receiverOf(registry, diagnostics)},
                 // 只有窗口把命令表交给服务端；按位置整段加上 remote，类型才能与按位置的 remoteProvides 对上。
                 ...(browser ? {remote: [remoteCommands(registry)]} : {}),

@@ -15,6 +15,19 @@ import type {ProjectPathOptions} from "./identity";
 
 export const PROJECT_REGISTRY_FILE = "projects.json";
 
+/**
+ * 登记与新建的可选取消（开发入口的样例任务用，`../dev/sample.ts`）。abort 之后不再开始新的写入：排队轮到时、每次异步等待之后、
+ * 每次写入之前核对，已开始的那一步照常完成；以 `signal.reason` reject，不改登记表的单写者与串行规则。
+ */
+export interface ProjectWriteOptions {
+    readonly signal?: AbortSignal;
+}
+
+/** abort 引起的 reject（`signal.reason` 原样抛出）：调用方要把它与读写失败分开时用这个判断。 */
+export function isAbortedBy(signal: AbortSignal | undefined, error: unknown): boolean {
+    return signal?.aborted === true && error === signal.reason;
+}
+
 export interface ProjectRegistry {
     /** 登记文件的位置；只写进服务端日志，不发给浏览器。 */
     readonly file: string;
@@ -22,9 +35,9 @@ export interface ProjectRegistry {
     list(): Promise<ProjectRegistryRead<ReadonlyArray<ProjectRecord>>>;
     /** 按引用解析：先比 id、再比短名；没有为 null。 */
     resolve(reference: string): Promise<ProjectRegistryRead<ProjectRecord | null>>;
-    register(path: string): Promise<ProjectRegisterResult>;
+    register(path: string, options?: ProjectWriteOptions): Promise<ProjectRegisterResult>;
     /** 新建作品：建目录、写身份文件，再按 `register` 登记（输出第 14 条）。 */
-    create(input: ProjectCreateInput): Promise<ProjectCreateResult>;
+    create(input: ProjectCreateInput, options?: ProjectWriteOptions): Promise<ProjectCreateResult>;
     /**
      * 从登记表去掉这个 id，不动目录与身份文件。不看项目是否在运行：那是项目管理器的事，它把检查与这次写表按 id 串行
      * （输出第 15 条）。
@@ -78,27 +91,35 @@ export function createProjectRegistry(options: ProjectPathOptions): ProjectRegis
         return {ok: true, value: registry.projects.map(({id, name, path}) => ({id, name, path}))};
     }
 
-    async function write(projects: ReadonlyArray<ProjectRecord>): Promise<void> {
+    async function write(projects: ReadonlyArray<ProjectRecord>, signal: AbortSignal | undefined): Promise<void> {
+        signal?.throwIfAborted();
         await mkdir(options.stateRoot, {recursive: true});
+        signal?.throwIfAborted();
         const temporary = `${file}.${randomUUID()}.tmp`;
         try {
             await writeFile(temporary, `${JSON.stringify({schema: 1, projects}, null, 2)}\n`);
+            // 改名之前取消：临时文件在 finally 里删掉，登记表不变。
+            signal?.throwIfAborted();
             await rename(temporary, file);
         } finally {
             await rm(temporary, {force: true});
         }
     }
 
-    async function register(input: string): Promise<ProjectRegisterResult> {
+    async function register(input: string, signal: AbortSignal | undefined): Promise<ProjectRegisterResult> {
+        signal?.throwIfAborted();
         // 先读登记表：它坏了就不碰项目目录，不留下身份文件之类的副作用。
         const current = await read();
+        signal?.throwIfAborted();
         if (!current.ok) return current;
         const projects = current.value;
         const checked = await checkProjectDirectory(input, options);
+        signal?.throwIfAborted();
         if (!checked.ok) return checked;
         const path = checked.path;
         const atPath = projects.find((project) => project.path === path);
         const identity = await readProjectIdentity(path);
+        signal?.throwIfAborted();
         if (identity.status === "invalid") return {ok: false, reason: "identity-invalid", detail: identity.detail};
 
         let id: string;
@@ -106,11 +127,11 @@ export function createProjectRegistry(options: ProjectPathOptions): ProjectRegis
             id = identity.id;
         } else if (atPath !== undefined) {
             // 已登记的目录丢了身份文件：按登记表里的 id 重建，仍是同一个项目。
-            const restored = await writeIdentity(path, atPath.id);
+            const restored = await writeIdentity(path, atPath.id, signal);
             if (!restored.ok) return restored;
             id = restored.id;
         } else {
-            const created = await writeIdentity(path, randomUUID());
+            const created = await writeIdentity(path, randomUUID(), signal);
             if (!created.ok) return created;
             id = created.id;
         }
@@ -123,20 +144,26 @@ export function createProjectRegistry(options: ProjectPathOptions): ProjectRegis
         if (byId !== undefined) {
             // 原路径下仍是同一个 id：这是一份副本，不是移动。
             const original = await readProjectIdentity(byId.path);
+            signal?.throwIfAborted();
             if (original.status === "found" && original.id === id) {
                 return {ok: false, reason: "identity-conflict", detail: `这个目录是已登记项目 ${byId.name}（${byId.path}）的副本；删除副本里的 .nbook/project.json 后可作为新项目登记`};
             }
             const moved = {...byId, path};
-            return save(projects.map((project) => (project.id === id ? moved : project)), moved);
+            return save(projects.map((project) => (project.id === id ? moved : project)), moved, signal);
         }
         const added = {id, name: uniqueName(shortNameBase(path), new Set(projects.map((project) => project.name))), path};
-        return save([...projects, added], added);
+        return save([...projects, added], added, signal);
     }
 
-    async function save(projects: ReadonlyArray<ProjectRecord>, project: ProjectRecord): Promise<{readonly ok: true; readonly project: ProjectRecord} | {readonly ok: false; readonly reason: "write-failed"; readonly detail: string}> {
+    async function save(
+        projects: ReadonlyArray<ProjectRecord>,
+        project: ProjectRecord,
+        signal?: AbortSignal,
+    ): Promise<{readonly ok: true; readonly project: ProjectRecord} | {readonly ok: false; readonly reason: "write-failed"; readonly detail: string}> {
         try {
-            await write(projects);
+            await write(projects, signal);
         } catch (error) {
+            if (isAbortedBy(signal, error)) throw error;
             return {ok: false, reason: "write-failed", detail: `写入项目登记表失败：${error instanceof Error ? error.message : String(error)}`};
         }
         return {ok: true, project};
@@ -165,14 +192,15 @@ export function createProjectRegistry(options: ProjectPathOptions): ProjectRegis
             if (!current.ok) return current;
             return {ok: true, value: current.value.find((project) => project.id === reference) ?? current.value.find((project) => project.name === reference) ?? null};
         },
-        register(path) {
-            return serialized(() => register(path));
+        register(path, writeOptions) {
+            return serialized(() => register(path, writeOptions?.signal));
         },
-        async create(input) {
+        async create(input, writeOptions) {
+            const signal = writeOptions?.signal;
             // 建目录与写身份文件不碰登记表，不占写入队列；只有第三个阶段（登记）排队。
-            const created = await createProjectDirectory(input, options);
+            const created = await createProjectDirectory(input, options, signal);
             if (!created.ok) return created;
-            const registered = await serialized(() => register(created.path));
+            const registered = await serialized(() => register(created.path, signal));
             if (registered.ok) return registered;
             return {ok: false, reason: "register-failed", cause: registered.reason, path: created.path, detail: registered.detail};
         },
@@ -182,11 +210,16 @@ export function createProjectRegistry(options: ProjectPathOptions): ProjectRegis
     };
 }
 
-async function writeIdentity(path: string, id: string): Promise<{readonly ok: true; readonly id: string} | {readonly ok: false; readonly reason: "identity-invalid" | "write-failed"; readonly detail: string}> {
+async function writeIdentity(
+    path: string,
+    id: string,
+    signal: AbortSignal | undefined,
+): Promise<{readonly ok: true; readonly id: string} | {readonly ok: false; readonly reason: "identity-invalid" | "write-failed"; readonly detail: string}> {
     let written;
     try {
-        written = await writeProjectIdentity(path, id);
+        written = await writeProjectIdentity(path, id, signal);
     } catch (error) {
+        if (isAbortedBy(signal, error)) throw error;
         return {ok: false, reason: "write-failed", detail: `写入项目身份文件失败：${error instanceof Error ? error.message : String(error)}`};
     }
     if (written.status === "found") return {ok: true, id: written.id};

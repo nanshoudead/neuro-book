@@ -42,17 +42,17 @@ export function providerAccepts(provider: RemoteProviderLocation, target: Remote
 }
 
 export interface RemoteMethodSpec {
-    /** 必须是 `additionalProperties: false` 的对象 schema：多余字段被拒绝。 */
+    /** 对象 schema，多余字段被拒绝：没写 `additionalProperties` 时 `defineRemoteService` 补成 `false`，写了别的值报错。 */
     readonly input: TSchema;
     readonly output: TSchema;
     /** 写方法的请求帧发出后被中断时结果为 `unknown-outcome`，不自动重试。 */
     readonly effect: "read" | "write";
-    /** 业务失败码 → 详情 schema；码不得与路由层失败码重名。 */
+    /** 业务失败码 → 详情 schema；码不得与路由层失败码重名。提供方交出的详情按它核对，不符为 `provider-error`；没有详情的码写 `Type.Undefined()`。 */
     readonly errors?: Readonly<Record<string, TSchema>>;
 }
 
 export interface RemoteEventSpec {
-    /** 订阅过滤参数；同样必须是 `additionalProperties: false` 的对象 schema。 */
+    /** 订阅过滤参数；同样是对象 schema，`additionalProperties` 的规则同方法的 `input`。 */
     readonly filter: TSchema;
     readonly payload: TSchema;
 }
@@ -62,7 +62,7 @@ export interface RemoteContract<
     Events extends Readonly<Record<string, RemoteEventSpec>> = Readonly<Record<string, RemoteEventSpec>>,
     Provider extends RemoteProviderLocation = RemoteProviderLocation,
 > {
-    /** 以提供它的插件 id 加 `/` 开头，例如 `nbook.files/files`。 */
+    /** 以提供它的插件 id 加 `/` 开头，例如 `acme.files/files`。 */
     readonly id: string;
     /** 第一版按整数精确匹配。 */
     readonly version: number;
@@ -73,9 +73,16 @@ export interface RemoteContract<
     readonly events: Events;
 }
 
-function isStrictObjectSchema(schema: TSchema): boolean {
+/**
+ * 作者写的对象 schema 收紧成不许多余字段的一份：没写 `additionalProperties` 的补成 `false`（返回新对象，不改传进来的
+ * schema；TypeBox 放在不可枚举键上的元数据一并带上），已经是 `false` 的原样返回；不是对象 schema、或写了别的值时返回 null。
+ */
+function strictObjectSchema(schema: TSchema): TSchema | null {
     const record = schema as unknown as {readonly type?: unknown; readonly additionalProperties?: unknown};
-    return record.type === "object" && record.additionalProperties === false;
+    if (record.type !== "object") return null;
+    if (record.additionalProperties === false) return schema;
+    if (record.additionalProperties !== undefined) return null;
+    return Object.defineProperties({}, {...Object.getOwnPropertyDescriptors(schema), additionalProperties: {value: false, enumerable: true, writable: false, configurable: true}}) as TSchema;
 }
 
 /** 定义合同；结构不合法时抛 TypeError。 */
@@ -108,7 +115,8 @@ export function defineRemoteService<
     if (spec.callers.length === 0 || spec.callers.some((caller) => caller.trim() === "") || new Set(spec.callers).size !== spec.callers.length) {
         problems.push("callers 必须是不重复的非空运行位置列表");
     }
-    const events = spec.events ?? ({} as Events);
+    const methods: Record<string, RemoteMethodSpec> = {};
+    const events: Record<string, RemoteEventSpec> = {};
     const names = new Set<string>();
     for (const [name, method] of Object.entries(spec.methods)) {
         // `events` 与 `at` 是客户端对象上的固定成员，方法不能与它们重名。
@@ -116,9 +124,11 @@ export function defineRemoteService<
             problems.push(`方法名不合法：${name}`);
         }
         names.add(name);
-        if (!isStrictObjectSchema(method.input)) {
-            problems.push(`方法 ${name} 的 input 必须是 additionalProperties: false 的对象 schema`);
+        const input = strictObjectSchema(method.input);
+        if (input === null) {
+            problems.push(`方法 ${name} 的 input 必须是对象 schema，additionalProperties 不写或写 false`);
         }
+        methods[name] = input === null || input === method.input ? method : {...method, input};
         if (method.effect !== "read" && method.effect !== "write") {
             problems.push(`方法 ${name} 的 effect 必须是 read 或 write`);
         }
@@ -128,26 +138,46 @@ export function defineRemoteService<
             }
         }
     }
-    for (const [name, event] of Object.entries(events)) {
+    for (const [name, event] of Object.entries(spec.events ?? {})) {
         if (name.trim() === "" || name.startsWith(RESERVED_KEY_PREFIX) || names.has(name)) {
             problems.push(`事件名不合法或与方法重名：${name}`);
         }
-        if (!isStrictObjectSchema(event.filter)) {
-            problems.push(`事件 ${name} 的 filter 必须是 additionalProperties: false 的对象 schema`);
+        const filter = strictObjectSchema(event.filter);
+        if (filter === null) {
+            problems.push(`事件 ${name} 的 filter 必须是对象 schema，additionalProperties 不写或写 false`);
         }
+        events[name] = filter === null || filter === event.filter ? event : {...event, filter};
     }
     if (problems.length > 0) {
         throw new TypeError(`远程服务合同 ${spec.id} 不合法：${problems.join("；")}`);
     }
-    return Object.freeze({id: spec.id, version: spec.version, provider: spec.provider, callers: Object.freeze([...spec.callers]), methods: spec.methods, events});
+    return Object.freeze({id: spec.id, version: spec.version, provider: spec.provider, callers: Object.freeze([...spec.callers]), methods: methods as Methods, events: events as Events});
 }
 
-type BusinessCodes<Method extends RemoteMethodSpec> = Method["errors"] extends Readonly<Record<string, TSchema>> ? keyof Method["errors"] & string : never;
+/** 方法声明过的业务失败码。`errors` 是可选字段：宽类型的方法（`RemoteMethodSpec`）也得到 `string`，不是 never。 */
+type BusinessCodes<Method extends RemoteMethodSpec> = NonNullable<Method["errors"]> extends Readonly<Record<string, TSchema>> ? keyof NonNullable<Method["errors"]> & string : never;
 
-/** 提供方方法的返回：成功值，或合同声明过的业务失败。 */
+/** 一种业务失败：码与按该码 schema 的详情。按码分布，`detail` 的类型随 `code` 收窄。 */
+type BusinessFailure<Method extends RemoteMethodSpec> = {
+    readonly [Code in BusinessCodes<Method>]: {readonly ok: false; readonly code: Code; readonly detail: Static<NonNullable<Method["errors"]>[Code]>};
+}[BusinessCodes<Method>];
+
+/** 提供方方法的返回：成功值，或合同声明过的业务失败。用 `ok(value)`、`fail(code, detail)` 构造，不用写 `as const`。 */
 export type RemoteOutcome<Method extends RemoteMethodSpec> =
     | {readonly ok: true; readonly value: Static<Method["output"]>}
-    | {readonly ok: false; readonly code: BusinessCodes<Method>; readonly detail?: unknown};
+    | BusinessFailure<Method>;
+
+/** 成功的结果。 */
+export function ok<const T>(value: T): {readonly ok: true; readonly value: T} {
+    return {ok: true, value};
+}
+
+/** 业务失败的结果；`detail` 按合同里这个码的 schema（没有详情的码不写）。 */
+export function fail<const Code extends string>(code: Code): {readonly ok: false; readonly code: Code; readonly detail: undefined};
+export function fail<const Code extends string, const Detail>(code: Code, detail: Detail): {readonly ok: false; readonly code: Code; readonly detail: Detail};
+export function fail(code: string, detail?: unknown): {readonly ok: false; readonly code: string; readonly detail: unknown} {
+    return {ok: false, code, detail};
+}
 
 export interface RemoteCallContext {
     /** 调用方中止、调用方入口停止、提供方入口停止任一触发即触发。 */

@@ -10,3 +10,5 @@ packages/neuro-book-legacy/.env.product text eol=lf
 **/.agents/tasks/**/*.png -text
 **/.agents/tasks/**/*.wsb -text
 **/.agents/tasks/**/*.ps1 -text
+# Markdown 往返语料要逐字节比较（CRLF、单独的 CR、文末无换行都是样例本身），检出时不改写换行。
+packages/neuro-book/src/plugins/editor/web/markdown/codec/corpus/** -text

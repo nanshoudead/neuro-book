@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {useRouter} from "vue-router";
-import {HERDR_STATUS_LABEL, relativeDay, relativeTime, shortSession, taskLabel, workLabel} from "../host/format.js";
+import {HERDR_STATUS_LABEL, relativeDay, relativeTime, sessionName, taskLabel, workLabel} from "../host/format.js";
 import {computed, ref} from "vue";
 import {readSection} from "../../core/sections.js";
 import {renderInlineMarkdown, renderMarkdown} from "../host/markdown.js";
@@ -115,7 +115,7 @@ const currentHtml = computed<Record<string, string>>(() => Object.fromEntries((w
             </section>
             <section class="nbdev-stack" aria-labelledby="tasks-title">
                 <h2 id="tasks-title" class="nbdev-heading">Task</h2>
-                <TaskTable :work-id="props.workId" :tasks="work.data.value.tasks" :expanded="expansion.order" :details="details" :current-html="currentHtml" @navigate="navigate" @toggle="(taskId) => (expansion = toggleExpansion(expansion, taskId))" @retry="retryDetail" />
+                <TaskTable :work-id="props.workId" :tasks="work.data.value.tasks" :expanded="expansion.order" :details="details" :current-html="currentHtml" :session-titles="work.data.value.sessionTitles" @navigate="navigate" @toggle="(taskId) => (expansion = toggleExpansion(expansion, taskId))" @retry="retryDetail" />
             </section>
             <UncommittedDialog :open="status.pending.value !== null" :path="status.pending.value?.path ?? ''" :changes="status.pending.value?.changes ?? null" :pending="status.write.pending.value" @confirm="status.confirmUncommitted" @cancel="status.pending.value = null" />
             <!-- 持久页里混着的临时片段，仍用虚线框标出（t15 阶段 3g）。 -->
@@ -123,7 +123,7 @@ const currentHtml = computed<Record<string, string>>(() => Object.fromEntries((w
                 <p v-if="work.data.value.sessions.length === 0" class="nbdev-empty">没有会话持有这个 Work 的租约</p>
                 <ul v-else class="nbdev-stack-tight">
                     <li v-for="session in work.data.value.sessions" :key="session.key" class="flex flex-wrap items-center gap-2">
-                        <LeaseChip :session="shortSession(session.key, session.label)" :ended="session.alive === false" />
+                        <LeaseChip :session="sessionName(session.key, session.label, work.data.value.sessionTitles)" :ended="session.alive === false" />
                         <span class="nbdev-note">
                             {{ session.herdr ? HERDR_STATUS_LABEL[session.herdr.status] ?? session.herdr.status : "不在 herdr 里" }}
                             · 在动 {{ session.leases.map((lease) => taskLabel(lease.taskId)).join("、") }}

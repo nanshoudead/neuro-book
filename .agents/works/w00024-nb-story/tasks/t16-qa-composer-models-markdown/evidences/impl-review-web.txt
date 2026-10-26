@@ -1,0 +1,110 @@
+# w00024 t16 前端实现审查（9a9d26046..8f9027193）
+
+审查方式：读完整 diff；在实现 worktree 只读运行了 nb-story `bun test src/web`（47 通过）、nb-agent-ui 的 composer 与 catalog 的 vitest（7 通过）、nb-markdown 的 PromptEditor.dom.test（30 通过）、nb-story 的 `vue-tsc -p tsconfig.web.json`（无报错）。未跑 e2e 与开发服务；下面凡写“从代码推断”的都没有在浏览器里复现。
+
+### 1. 模型目录每次按键都整表重排，约 100 到 270 毫秒，与 .md 写的“不到几毫秒”不符
+
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：`packages/nb-agent-ui/src/model-catalog.ts:78-93`（`searchCatalog` 里的 `[...provider.models].sort(compareModels)`）、`:61-65`（`compareModels` 用 `localeCompare(..., undefined, {numeric: true})`）、`packages/nb-agent-ui/src/vue/catalog/AgentModelCatalog.vue` 的 `hits = computed(() => searchCatalog(props.providers, query.value))`、`AgentModelCatalog.md` 交互一节“五千多项一次不到几毫秒”
+- **现象**：默认顺序与查询无关，却在每次输入时对每家服务商的全部模型重新排序；比较函数每次调用两次带选项的 `localeCompare`。搜索框不防抖。
+- **为什么是问题**：OMP 目录有五千多个模型，输入每个字都卡一下。实测（合成数据，60 家共约 6500 个模型，id 形如 `vendor-3/model-17-v4.2`）：Bun 下 `searchCatalog` 每次 97 到 113 毫秒；其中纯排序 5000 个模型 Bun 87 毫秒、Node 26（V8）271 毫秒，子序列匹配只要 1.7 毫秒。真实 id 的比较成本可能小一些，但数量级不是“几毫秒”。
+- **如何核实**：`/tmp/claude-1000/review-w00024-t16-impl/exp/bench.ts`、`bench2.ts`、`bench3.mjs`（直接 import 审查 worktree 的源文件）。
+- **建议改法**：排序只依赖 `providers`，不依赖查询：把“每家排好序的模型表”放进一个只随 `providers` 变化的 computed（或 `searchCatalog` 之外先排一次），查询时只做匹配与按层稳定排序；比较函数里用一个模块级 `Intl.Collator(undefined, {numeric: true})` 的 `compare`，不要每次调 `localeCompare` 带选项。.md 里的数字改成实测值。
+
+### 2. 存档里的模型已不在候选里时，输入框显示“未选择模型”，发问带着已删的模型
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-story/src/web/pages/QaPage.vue` 的 `choice`（`const model = stored.modelKey ?? fallback.model;`）与 `submit` 里的 `model: picked.model`
+- **现象**：`choice` 对存档里的 `modelKey` 不做“是否还在 `config.models` 里”的检查。存档按书与对话留在模块里，跨“管理模型…”往返（这正是本任务要的行为）。流程：在输入框里选候选 B；点“管理模型…”；设置页把 B 从候选里去掉并保存；回到问答页：`stored.modelKey` 还是 B。`viewComposer.models` 不含 B，所以 `AgentConversationComposer` 的 `currentModel` 为 null，模型按钮显示“未选择模型”；此时直接发问，`qa.start` 带 `model: B`，服务端按验收 28 以 `invalid_params`（不在候选里）拒绝，原因写在输入框上方。
+- **为什么是问题**：Spec 输出 40 与 viewer 输出 50 只说“缺省”，没说“选过的失效了怎么办”，但 `defaultChoice` 对 `lastTurnModel` 已经做了“还在候选里才用”的检查（`qa/models.ts`），同一类失效在 `stored.modelKey` 上漏了。用户的操作路径没有任何错误，却发不出去，而且下拉里看不到当前选的是什么。
+- **如何核实**：从代码推断，未在浏览器里复现。读 `choice` 即可：`stored.modelKey ?? fallback.model` 之后直接进 `candidates.get(model)` 与 `qa.start`。
+- **建议改法**：`choice` 里先判断 `stored.modelKey !== null && config.models.includes(stored.modelKey)`，否则当作没选过（走 `fallback`，推理档也走 `fallback.thinking`）。补一条 `qa/models.test.ts`（或把这段抽成纯函数 `resolveChoice(config, stored, lastTurn)` 一并测）：存档的模型被去掉后回落到缺省。
+
+### 3. 保存成功后刷新目录失败，页面却报“没有保存”
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`packages/nb-story/src/web/shell/SettingsPage.vue` 的 `save()`：`config.set` 之后的 `catalog.value = (await client.call("models.catalog", {})).providers;` 在同一个 `try` 里，`catch` 写 `没有保存：${message}`
+- **现象**：`config.set` 已经成功，`loaded`、`savedText` 都已更新，随后 `models.catalog` 抛错就进 `catch`，提示“没有保存：…”，成功提示被盖掉。
+- **为什么是问题**：用户会以为配置没写进去而重复保存或去命令行查；实际文件已写。概率低（目录是本机读取），但错误提示与事实相反。
+- **如何核实**：从代码推断。
+- **建议改法**：目录刷新单独 `try`，失败只 `console.warn` 并保留“已保存”的提示（或在提示后追加“目录没刷新，请重新载入”）。
+
+### 4. 设置页在服务商表单改过的模型参数保存前不生效，新增的推理模型设为默认时推理档被丢掉
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`SettingsPage.vue` 的 `providers` computed（`saved.get(id)?.models.find(item => item.id === model.id) ?? {…, efforts: []}`）与 `setDefault`（`clampThinking(infos.value.get(ref)?.efforts ?? [], …)`）
+- **现象**：（a）编辑中的自定义服务商里，已保存过的模型一律优先取服务端补过参数的旧值，用户刚在表单里改的上下文、推理、图片在设置页的候选行（“上下文 xx · 推理”）与模型目录里不变，直到保存并刷新目录；（b）还没保存的新模型 `efforts` 固定为 `[]`，把它设为默认时 `clampThinking` 返回 null，已选的推理档被去掉，且默认模型行也不出推理档下拉；保存后档不会回来。
+- **为什么是问题**：用户把一个模型的“推理”从自动改成“是”后，设置页没有任何反应，要先保存再看；(b) 在“先加服务商与模型、设默认、保存”这条主路径上会悄悄丢掉推理档设置。
+- **如何核实**：从代码推断；e2e 的“添加自定义服务商”用例没改推理档，所以没碰到。
+- **建议改法**：保存前的模型以编辑值为准（只对表单没写的字段才用服务端补的值），或者在界面上明说“保存后才知道上下文与推理档”；`setDefault` 遇到 `efforts` 未知（本地新模型）时保留原档，不夹成 null。
+
+### 5. e2e 没有覆盖验收 11 的“改推理档保存”，也没有覆盖服务端拒绝保存的显示
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：`packages/nb-story/e2e/qa.e2e.ts` 设置页各用例；viewer.md 验收 11 与重点 5
+- **现象**：（a）验收 11 开头写“改推理档保存后写进同一份文件且是第 2 版”。`baseConfig()` 的模型没有推理能力，推理档下拉不出现，用例里没有任何一步改推理档，`written` 的断言也不含 `model.thinking`；（b）旧用例里“误贴的密钥经服务端 `invalid_params` 回来、提示不含密钥”那一段改成了在服务商表单里被客户端拦下（`[data-provider-error]`），页面上 `没有保存：${message}` 的服务端路径不再有任何测试；（c）问答页的续问缺省（接着用上一轮的模型）、模型被去掉后的回落（见第 2 条）没有测试。
+- **为什么是问题**：判据文字与用例不一致，推理档保存这条链（`setDefault` 夹档、`thinking` 的 `Select`、写成第 2 版）完全没被测到；服务端拒绝的显示是用户最可能看到的失败。
+- **如何核实**：对照验收 11 的文字与用例体。
+- **建议改法**：给设置页用例换一个目录里带推理档的默认模型（例如本机端点上的 `custom/gpt-5.6-sol`，输入框用例已经在用），改档、保存、读文件断言 `model.thinking`；补一条服务端拒绝：用 `writeFile` 把配置改成会让 `config.set` 报 `invalid_params` 的状态不容易构造的话，至少在单元层测 `save()` 的错误分支（可以把保存逻辑抽成可测的函数）。
+
+### 6. 出处复查行靠解析引擎提示词的文案取出处；“第一问之后一律当复查”在一个次要路径上会误伤
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`packages/nb-story/src/web/qa/turns.ts` 的 `recheckRefs`（正则 `读过的段落：([^。]+)。`）与 `composeMessages` 里 `for (let index = 1; …)` 一段；引擎侧 `src/qa/rules.ts:69` 的 `recheckMessage`
+- **现象**：（a）网页从给模型的提示词文字里反解出处，引擎改一个标点这里就退成“有没读过的出处，已让模型重写”（有兜底，不会崩，测试只测了当前文案）。数据其实有结构化来源：记录里 `turn.recheck.unverified`（qa.md 输出 15），会话日志里的 `nb-story.reply-check` 元数据（输出 39）也带这些出处；`TurnInfo` 没有接 `recheck`；（b）`firstQuestion > 0`（该轮第一条用户消息之前有别的消息，例如分轮的 `logFrom` 偏了一条）时，循环先 `unshift` 补了一条合成提问，再把日志里真正的提问当成复查行，显示成“有没读过的出处，已让模型重写”，凭空编出一次复查。目前日志里不会出现这种分组，但这一步的前提（“一轮第一条用户消息就是提问”）只在 `firstQuestion === 0` 时成立。
+- **为什么是问题**：跨包靠提示词措辞耦合；误判时的后果是把用户的真实提问显示成系统说的话。
+- **如何核实**：读 `rules.ts:69` 与 `turns.ts` 的正则；（b）从代码推断，构造 `firstQuestion > 0` 的输入即可复现（`turns.test.ts` 没有这种用例）。
+- **建议改法**：（a）`TurnInfo` 加 `recheck?: {unverified: readonly string[]}`，已保存的轮取记录里的，运行中的轮取不到时退回现在的兜底文案；（b）只在 `firstQuestion === 0` 时处理其后的用户消息，其余情况保持原样。
+
+### 7. 控件垫高 6px 是固定值，实际应约 4.6px；窄屏折行后工具栏下多出 6px
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`packages/nb-agent-ui/src/vue/composer/AgentConversationComposer.vue` 样式 `.acv-composer__leading, .acv-composer__frame.is-inline .acv-composer__toolbar { margin-bottom: 6px; }`
+- **现象**：注释写“控件底下垫上半个差值”，值却是写死的 6px。按现有样式算：编辑器一行 = 13px（`--text-sm`）× 1.6 + 2×0.45rem（7.2px）= 35.2px，`IconButton size="sm"` 是 26px，差值 9.2px，半个差值 4.6px，写死的 6px 让控件中线比文字中线低 1.4px（算术推得，未截图量）。编辑器内边距、字号或按钮尺寸任何一个变，这个数就不对，注释已提醒“要重看这里”，但没有机检。容器窄于 520px 时工具栏折到正文下面，`margin-bottom: 6px` 仍在，工具栏下方多出 6px 空白（和 `padding: 4px 6px` 叠加）。
+- **为什么是问题**：靠人记得“改了编辑器内边距要回来看”的隐性耦合；折行态多出的空白不是设计意图。
+- **如何核实**：算术如上；`PromptEditor.vue` 的 `.prompt-editor__prosemirror`（`padding: 0.45rem 0.6rem; font-size: var(--text-sm); line-height: 1.6`）、`IconButton.vue` 的 `sm` 尺寸。
+- **建议改法**：改用 `calc((1.6 * var(--text-sm) + 0.9rem - 26px) / 2)` 一类的计算，或者让编辑器的最小行高与按钮同高（控件用 `align-items: flex-end` 对齐编辑器最后一行的盒子，不用垫高）；`@container (max-width: 520px)` 里把这两处 `margin-bottom` 归零。
+
+### 8. “密钥状态”文案与数字格式化在四处各写一份，措辞已经不一致
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`packages/nb-agent-ui/src/vue/catalog/AgentModelCatalog.vue` 的 `keyText`/`tokens`；`packages/nb-story/src/web/qa/models.ts` 的 `unavailableReason`；`SettingsPage.vue` 的 `keyText`/`contextText`；`ProviderDialog.vue` 的 `tokens`
+- **现象**：同一个“这家服务商为什么用不了”：目录对话框写“要登录才能用；也可以设 X / 这里只认环境变量，用不了”，输入框下拉写“要登录才能用”，设置页写“要登录，这里用不了”；`unsupported` 在设置页（`keyEnvs` 为空）显示成“要登录，这里用不了”，在目录里却是“用云厂商凭据链……”，同一家两处说法不同。上下文大小有三个格式化函数：目录 `131.1K`，设置页 `131K`，表单 `131.1K`。
+- **为什么是问题**：改一处忘另两处；用户在三个界面看到同一家的三种说法。`providerSelectable`（nb-agent-ui）与 `unavailableReason`（nb-story）也是同一规则的两份实现（`unsupported` 且 `keySet` 为真时前者不可选、后者说可用）。
+- **如何核实**：对照上述各函数。
+- **建议改法**：在 `model-catalog.ts` 里导出 `providerNote(provider)`（返回原因文字或 null）与 `formatTokens(n)`，nb-story 的三处用它们；`unavailableReason` 直接复用 `providerSelectable`。
+
+### 9. 几处小问题
+
+- **严重程度**：建议；**类别**：正确性 / 代码质量
+- **位置与现象**：
+  1. `SettingsPage.vue` 的 `saveProvider`：先 `removeCandidates(gone)`（去掉默认候选时写了“默认改成了 X”的提示），紧接着又给 `notice` 赋“已改服务商…”，前一条被盖掉，默认模型变了用户不知道。
+  2. `QaPage.vue` 的 `composerStore` 只增不减：`removeConversation` 删除对话时不清掉它的存档（每条含草稿与输入历史，页面标签页存活期间一直占着）。量小，但与“按书与对话存”的所有权不匹配，应在 `qa.remove` 成功后删对应的 key。
+  3. `qa/models.ts` 的 `contextTokensOf` 取“最近一条带用量的助手消息”，不看 `status`；OMP 的 `getAssistantUsage`（`@oh-my-pi/pi-agent-core` 的 compaction.ts）会跳过 aborted 与 error 的消息。被停止或失败的一轮若日志里留下零用量的 `usage`，上下文大小会变成 0 而隐藏（从代码推断，未验证日志里是否会写零用量）。另外只数 `input + cacheRead + cacheWrite`，不含这条回复自己的 `output`；注释写“同 OMP 的口径”，OMP 的 `calculatePromptTokens` 确实是这个口径，但下一次请求里这条回复也在上下文里，比例会略低估，最好注释里说清这是“上一次请求的提示词”而不是“现在上下文的大小”。
+  4. `AgentModelCatalog.vue` 在 `providers` 变化后（例如从目录里点“添加自定义服务商”再回来）`active` 仍指向可能已不存在的 id，`activeProvider` 变 null，下拉框却显示旧 id；窄屏的服务商 `Select` 与实际列表不一致。
+- **建议改法**：分别：（1）合并提示或只在没有默认变化时覆盖；（2）删除后清存档；（3）跳过 `status !== "done"` 的消息并改注释；（4）`watch(() => props.providers)` 时若 `active` 不在其中就回到 `ALL`。
+
+### 10. e2e 依赖真实 OMP 目录里恰好有某些模型名
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：`qa.e2e.ts` 的 `gpt-5.6-sol`（输入框用例，靠目录补上下文与推理档）、`deepseek/deepseek-flash`（设置页两个用例）
+- **现象**：用例成功与否取决于 `@oh-my-pi` 随依赖带来的目录里还有这些模型、推理档恰好含 `high`。目录升级删掉或改名任何一个，用例会以难懂的“找不到 `[data-catalog-model=…]`”失败。
+- **为什么是问题**：失败时看不出是产品坏了还是上游目录变了。非随机、不抖动，只是维护成本。
+- **如何核实**：读用例。
+- **建议改法**：先在用例开头从 `models.catalog` 取一次目录并断言需要的模型存在（失败信息写明“OMP 目录里没有 X”），或用自定义服务商 + 端点已有的模型表代替目录模型。
+
+## 未发现问题的方面
+
+- 单行版式的结构：`is-inline` 在 `acceptFiles` 为真时退回两层、前置按钮在两种版式里各只渲染一份、展开时 `align-self: stretch` 与 `align-content: stretch` 的配合、`@container (max-width: 520px)` 的折行点按容器宽度而非内容挤压，读下来成立。`AgentContextMeter` 的 `<1%`、超窗满格与危险色、70%/90% 阈值与 dom 测试一致。
+- `ToolbarButtonEntry` 的联合类型（`action` 与 `trigger` 互斥）、`withEditor(editor => editor.openTrigger(...))` 的先后（先聚焦到末尾再取 `state` 插入，触发前补空格的判断用 `triggerNeedsSpace`，原子节点按 `PROMPT_ATOM_CHAR` 计）、只读时两个编辑器都不动、`PlainPromptEditor` 的退路，没发现问题；dom 测试在真实 PromptEditor 里验证了补空格与菜单打开。
+- `canChangeRuntime` 修好后：续问时 `modes: []` 使模式按钮不渲染，运行中模型与模式一起禁用，行为正确。
+- `QaPage` 的存档：key 带书 id，新对话受理后迁到新对话 id 下并删除新对话槽，换对话时 `shownVersion` 单调递增，没有串对话；“管理模型…”往返的草稿保留由 e2e 用例真实覆盖。`model.set`、`thinking.set` 前把“没选过”落成当前选择的处理成立（`applyComposerAction` 只改对应字段）。`qa.start` 总是显式带 `model` 与按所选模型夹过的 `thinking`，与 Spec 输出 40、验收 28 一致。
+- Lab：`AgentModelCatalog` 按名字列进撑满画布的名单，与同一函数里已有的十来项写法一致（`kind` 只能由名字推出，没有别的挂点），可接受。
+- 模型目录的 200 行上限、已添加不可勾、用不了的服务商说明页、Teleport 关闭后清空勾选与查询的实现，与 .md 一致，dom 测试覆盖了前三者；上限与窄屏三档（720、640、560）没有自动化测试，只在 .md 与 CSS 里，属于视觉项，未在浏览器里量。
+
+## 数量
+
+- 阻断：0
+- 重要：2（第 1、2 条）
+- 建议：8（第 3 到 10 条；第 9 条含四小点）
+- 已运行：nb-story web 单测 47 通过、nb-agent-ui composer 与 catalog 的 vitest 7 通过、PromptEditor.dom.test 30 通过、nb-story `vue-tsc` 通过。

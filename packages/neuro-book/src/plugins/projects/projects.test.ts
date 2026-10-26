@@ -9,7 +9,6 @@ import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {mkdir, readdir, rm, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {Application} from "@notnotype/nb-runtime/application";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
@@ -21,6 +20,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {ref} from "vue";
 
+import {createApplication} from "nbook/application";
 import {definitionAt} from "nbook/manifest";
 import {commandServiceKey} from "nbook/plugins/commands/shared/contracts";
 import type {CommandService} from "nbook/plugins/commands/shared/contracts";
@@ -135,7 +135,7 @@ async function commandWindow(h: ProjectHarness, host: PaletteHost, navigations: 
                 {id: "test.notifications", key: notificationsKey, create: () => createNotifications((message) => store.record({level: "warn", event: "workbench.notifications", message}))},
                 ...settings.capabilities,
             ],
-            plugins: [browserHostPlugins["nbook.diagnostics"]!({store, console: silentConsole}), statePlugin, storageBrowserPlugin, ...settings.plugins, commandsPlugin, projectsBrowserPlugin, commandReader((service) => {
+            plugins: [browserHostPlugins["runtime.diagnostics"]!({store, console: silentConsole}), statePlugin, storageBrowserPlugin, ...settings.plugins, commandsPlugin, projectsBrowserPlugin, commandReader((service) => {
                 commands = service;
             })],
             gates: [],
@@ -295,7 +295,7 @@ describe("Spec projects 输出 10：命令登记", () => {
         const store = createDiagnosticsStore({identity: {location: "browser", instanceId: "window-1"}});
         let commands: CommandService | null = null;
         const plugins = [
-            browserHostPlugins["nbook.diagnostics"]!({store, console: silentConsole}),
+            browserHostPlugins["runtime.diagnostics"]!({store, console: silentConsole}),
             ...["nbook.state", "nbook.settings", "nbook.commands", "nbook.storage", "nbook.workbench", "nbook.projects"].map((id) => browserPluginDefinitions[id]!),
             commandReader((service) => {
                 commands = service;
@@ -310,7 +310,7 @@ describe("Spec projects 输出 10：命令登记", () => {
                     ...standaloneSettings("browser", tmp, {windowProject: false}).capabilities,
                 ],
                 plugins,
-                requiredPlugins: ["nbook.diagnostics", "nbook.commands", "nbook.workbench"],
+                requiredPlugins: ["runtime.diagnostics", "nbook.commands", "nbook.workbench"],
                 gates: [],
             },
         );

@@ -199,12 +199,13 @@ export const manifest: NbThemeManifest = {
             fallback: "0px",
             description: "分栏之间那条线沿长轴两端的缩进；0 是贯穿的接缝，大于 0 是两端不碰到头的开放式分割线。",
         },
+        {
+            name: "--editor-tabs-surface",
+            /* 比正文面低一档：往正文字色混 7%。亮色里是更深一点，暗色里是更亮一点，与 VS Code 的标签条一致。 */
+            fallback: "color-mix(in srgb, var(--panel-surface) 93%, var(--text-main))",
+            description: "编辑器标签条的底色。活动标签与正文同色（--panel-surface），标签条比它低一档，活动标签才像从正文里长出来。",
+        },
     ],
     providesColorways: ["nbook-light", "nbook-dark"],
     defaultColorway: {light: "nbook-light", dark: "nbook-dark"},
-    /*
-     * 第一档（声明式）：变量声明 + 取值 + 自带配色 + SVG 资源，没有组件覆盖。
-     * 产品默认主题不需要第二档能力——换控件实现是主题市场的扩展点，不是默认体验的一部分。
-     * 对照页里「切到 macOS 时间选择器变成滚轮、切到 nbook 变回下拉」正是这条边界的现场。
-     */
 };

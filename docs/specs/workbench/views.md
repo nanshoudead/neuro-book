@@ -38,7 +38,7 @@ interface ViewDeclaration {
     readonly title: LocalizedText;                       // 与命令标题同一方案
     readonly icon: string;                               // 图标类名，例如 i-lucide-files
     readonly location: "sidebar" | "auxiliarybar" | "panel"; // 默认位置
-    readonly order?: number;                             // 同一位置内的顺序，同值按 id
+    readonly order?: number;                             // 同一位置内的顺序，同值按 id；不写时见输出 13
     readonly layout: "scroll" | "fill";                  // scroll：外壳给内边距并负责滚动；fill：视图占满、自己滚动，内边距用外壳给的 --view-inset-inline、--view-inset-block
     readonly minimumSize?: {readonly width?: number; readonly height?: number};
     readonly maximumSize?: {readonly width?: number; readonly height?: number};
@@ -98,11 +98,12 @@ interface ViewContext {
    一个视图的失败不影响同容器的其它视图与外壳；组件自己发起、没有交给 Vue 的异步错误由所属插件处理。
 6. **撤回只卸载**：交付句柄被撤回时卸载该视图的组件、丢弃已加载的组件定义，当前代际作废，布局项保留；`receiver-closed`（工作台自己的接收者关闭）同样只释放运行资源，不当作用户删除定制。之后同一视图再次交付时，用新的句柄与新代际重新创建。
 7. **声明消失**（planned，随 [`runtime.plugin-hot-plug`](../runtime/plugin-hot-plug.md)）：视图的声明不再被接受时（插件禁用或卸载，随插件管理），该视图从呈现中移除，工作台清除这个视图的布局项，不动同插件其它仍有效的视图；它的隐式容器若仍有别的成员则保留（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 26）。
-8. **`window.plugins`**：浏览器宿主向工作台提供本地能力：查询入口状态、订阅入口状态变化、对激活失败的入口执行“恢复并重新激活”（不是激活失败的入口返回 `not-failed`）。工作台只经视图 id 重试，拿不到别的入口。
+8. **`window.plugins`**：浏览器宿主向工作台提供本地能力：查询入口状态与入口声明的激活事件、订阅入口状态变化、对激活失败的入口执行“恢复并重新激活”（不是激活失败的入口返回 `not-failed`）；另有 `problems()` 列出本窗口的问题，供插件页显示（[`runtime.browser-host`](../runtime/browser-host.md)）。工作台只经视图 id 重试，拿不到别的入口。
 9. **`ViewContext.visible`** 随有效可见变化；加载中、停放、收起时为 `false`。`location` 随视图所在 ToolPart 变化。
 10. **标题动作**：外壳把声明的 `actions` 里 `placement` 为 `inline`（或省略）的画成 24px 的图标按钮，`menu` 的收进按钮之后的“⋯”下拉（没有 `menu` 项时不画“⋯”，[`workbench.menus`](menus.md) 输出 7）；按钮与“⋯”的位置：multiple 时在视图标题行，single 时上提到容器标题行（侧栏、右栏）或面板标签带旁，排在“移动到”之前（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 17 的动作顺序）。按钮的可访问名称是动作标题；可用与否与不可用的原因看命令自己的 `when`（与应用菜单同一规则），不可用时禁用、悬停提示是原因；声明了 `toggled` 的是开关，`aria-pressed` 跟着那个公开键。点了经命令服务执行命令：`args: "instance"` 时参数是被点的那个视图实例的 `{viewId, generation}`（[workbench.commands](commands.md) 的 `refresh-files`），否则是 `{}`；视图第一次显示或重新交付、实例还没建立时，要实例的动作禁用、原因是“视图还没加载好”，不要实例的照常可点。视图自己不再画工具栏。按钮、“⋯”与“移动到”只在鼠标位于所在范围上、焦点在范围里或其中的菜单打开时显示，其余时候透明（仍占位、仍能 Tab 到）：multiple 时范围是这个视图的窗格，single 时是整个侧栏或右栏，面板标签带旁的是整个面板；显隐淡入淡出 100ms；不能悬停的设备一直显示。面板与侧栏自己的框架按钮不在此列。
 11. **别的插件贡献的标题动作**：贡献点 `workbench.view-title`（菜单项的共同规则见 [`workbench.menus`](menus.md)）给某个视图加按钮或“⋯”里的项，声明里的 `view` 是视图 id。贡献来的项排在视图自己的动作之后：按钮排在视图自己的按钮之后，“⋯”里的项排在视图自己的 `menu` 动作之后、中间画一条分隔线。位置、可用与原因、按下态与“实例还没建立”的规则同输出 10；要实例的贡献项写 `context: "instance"`，收到的参数与输出 10 的 `args: "instance"` 相同。一个视图的按钮（自己的加贡献来的）至多 8 个，放不下的按钮回到它所在的节收进“⋯”（视图自己的在自己那一节，贡献的在它原来的节）。视图没有已接受的声明时它的贡献项不画。“⋯”打开时记下视图、所在容器与模式、交付状态与实例代际（同“移动到”的菜单身份，[`ui.workbench-shell`](../ui/workbench-shell.md) 外壳二），其中任一变化时菜单关闭，之前的选择不执行。
 12. **滚动条**：视图里的竖向滚动条（`scroll` 由外框负责，`fill` 由视图自己的滚动元素负责）叠在内容上、不占宽度：6px 宽的半透明滑块、没有轨道底色，内容不溢出时不画；鼠标位于视图上、正在滚动（最后一次滚动后 500ms 内）或拖着滑块时显示，进入时淡入 100ms，离开后等 500ms 再用 800ms 淡出，系统减少动画时不过渡。拖滑块按比例滚动，点滑块以外的轨道按一页滚动。实现是 nb-ui 的 `OverlayScrollbar`。
+13. **不写 `order` 的缺省**：内置插件（发布者是保留的发布者）的视图按 0 排；第三方插件的视图按 1000 排，排在内置视图之后，装上插件后侧栏仍先显示内置视图。内置视图的 `order` 都小于 1000。写了 `order` 的照写的排。这个缺省算进视图的默认位置（[`ui.workbench-shell`](../ui/workbench-shell.md) 外壳二的默认指纹），与写明同一个 `order` 等价。
 
 ## 状态与转换
 

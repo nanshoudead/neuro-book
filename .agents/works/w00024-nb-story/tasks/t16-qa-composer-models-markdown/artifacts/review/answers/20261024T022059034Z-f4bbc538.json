@@ -1,0 +1,23 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t16-qa-composer-models-markdown",
+    "artifactId": "review",
+    "answerId": "20261024T022059034Z-f4bbc538",
+    "artifactVersion": 1,
+    "contentHash": "85ee0d5503e2409c469a720278b11fa257a5c34da21278453163e936c76e46ef",
+    "submittedAt": "2026-10-24T02:20:57.787Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "composer-layout": "row",
+        "catalog-layout": "two-pane",
+        "settings-structure": true,
+        "catalog-scope": "all-but-login",
+        "markdown-recheck": "once"
+    },
+    "comments": {},
+    "note": null
+}

@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t02-specs",
+    "artifactId": "review",
+    "answerId": "20261015T025951971Z-73d6a6cb",
+    "artifactVersion": 2,
+    "contentHash": "5d112fe392eefbbcb8ab0ab8314b1c535d2a80c9b442957677b75016b3e01439",
+    "submittedAt": "2026-10-15T02:59:51.449Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "qa-scope": "keep-cli-ask"
+    },
+    "comments": {
+        "qa-scope": "nbstory.ask 也不用做。做成 skill + cli，外部 agent 来做 agent"
+    },
+    "note": null
+}

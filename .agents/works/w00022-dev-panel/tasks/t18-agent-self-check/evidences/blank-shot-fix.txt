@@ -1,0 +1,113 @@
+w00022/t18 修正 page:shot：不带步骤时截到空白页 —— 交付报告
+
+worktree：.worktree/w00022-t18-agent-self-check（feat/w00022-t18-agent-self-check）
+提交：
+  cc36f626c fix(neuro-book): page:shot 改等应用的渲染完成信号，不再按 DOM 静默判断（w00022 t18）
+  b4772ba3a docs(specs): server-host 的 startServer 选项补 devTask（w00022 t18）
+工作区干净，未 push。
+
+一、空白的根因
+原来的 page:shot 认为两件事成立就算就绪：一是 `[data-window-state="ready"]` 出现，二是之后 DOM 连续 N ms 没有变化。
+但窗口根是 PageOutlet 渲染的页面根，页面根挂上时，工作台页面的两块首屏内容还没出来：文档根的设置
+（WorkbenchDocument）和外壳（WorkbenchShell）都是 defineAsyncComponent，开着之前只留一个注释占位。
+Vite 开发模式逐个模块走 HTTP，冷启动时还要转译，所以动态 import 链里两次请求之间常常隔得比静默阈值还久。
+DOM 在这段时间里一动不动，page:shot 就把空白的页面根截了下来。
+复现：fix-before-1 是重启后的第一次截图，全白；fix-before-2 和 fix-before-3 是热的，有内容。
+即使外壳出来了，编辑区、编辑器页面和欢迎页还有第二层按需加载（编辑区组件、页面实现模块、欢迎页的数据请求）。
+只等外壳会截到半成品，第一轮修正时实测确实如此。
+
+二、改法（改成用应用自己可观察的信号）
+1. 页面标记 data-page-rendered（合同写在 src/web/PageOutlet.md 的“页面合同”一节，并登记到 browser-host Spec 的标记列表）
+   - 工作台的 `/` 和 `/workbench` 页面（plugins/workbench/web/home-page.ts）由页面自己加载两块首屏
+     （WorkbenchPagePart：load 与 props），不再交给 defineAsyncComponent。
+     两块各自的 vnode 都挂上之后才在根上标 data-page-rendered。主体在首页与外壳之间切换时，等新主体挂上再标。
+     不用 defineAsyncComponent 的原因：它会把包装组件的 vnode props 复制给内层组件，
+     onVnodeMounted 会触发两次，判断不了内层什么时候挂上。
+   - 加载状态由两页共用。页面再次挂载时同步渲染，不会空一帧。
+     加载失败时用 reportPart 记一条 workbench.page error 诊断，页面根不标记，下次挂载时重试。
+   - NotFoundPage 的主体是同步渲染的，根上直接写 data-page-rendered。
+2. 加载中的区域标 aria-busy="true"
+   - WorkbenchShell 的编辑区：defineAsyncComponent 设 loadingComponent，delay 为 0。
+     占位带 aria-busy 与 data-workbench-editor-loading。已写进 WorkbenchShell.md 和 Spec ui/workbench-shell。
+   - 编辑器页面（plugins/editor/web/pages.ts）：页面实现加载时占位带 aria-busy 与 data-editor-page-loading。
+     已写进 Spec workbench/editor 输出 33。
+   - 欢迎页（plugins/projects/web/welcome.ts）：有项目时，在数据请求完成之前根上带 aria-busy。
+     已写进 Spec workbench/bookshelf 输出 20。
+3. scripts/page-shot.ts
+   - 去掉 DOM 静默启发式（READY_SELECTOR、QUIET_MS、SETTLE_LIMIT_MS、MutationObserver）。
+   - waitRendered：等待 `[data-window-state="ready"][data-rpc-state="online"][data-page-rendered]`，
+     或者宿主页的状态离开 loading、idle、starting（失败页本身也是要截的内容，报告里写 hostStatus）。
+     超时（按 Playwright errors.TimeoutError 判断）时按缺的是哪个信号报出具体原因：
+     a. RPC 不在线；
+     b. 根已就绪但缺 data-page-rendered（提示看 PageOutlet.md，Lab 改用 lab:shot）；
+     c. 宿主页仍在加载；
+     d. 根和宿主页都没有。
+     原因写进报告的 error，并以非零退出。
+   - settle：用 rAF 逐帧检查，没有以下活动的帧连续数满 IDLE_FRAMES=2 才算稳定：
+     a. 进行中或待开始的动画（document.getAnimations，覆盖骨架屏、spinner、进度条）；
+     b. 可见的 [aria-busy="true"]；
+     c. 视口内未加载完的图片。
+     之后再等 document.fonts.ready。
+     超过 --timeout 就报“画面 N 秒内没有稳定下来”，列出最多 8 项活动，并以非零退出。
+   - 截图流程：goto → waitRendered → settle → steps →（有步骤时再 settle 一次）→ screenshot。
+     CLI 在停在宿主页时打印“窗口没有就绪，页面停在宿主页：<status>”。
+4. 文档
+   - docs/specs/runtime/server-host.md：startServer 的选项列表补 devTask?。说明它是运行实例可用后在后台做的
+     开发任务（开发服务的样例作品，src/server/dev/sample.ts），只由开发入口传，生产入口不传。
+     已对照 start.ts、process.ts、development-main.ts 核实。
+   - packages/neuro-book/AGENTS.md：page:shot 的说明改成“等页面画出（data-page-rendered）、画面稳定（没有动画与 aria-busy）再截”。
+
+三、真实开发服务上的截图（dev start --sample，端口 4417；每张都用 Read 看过）
+目录前缀：.local/agent/works/w00022-dev-panel/tasks/t18-agent-self-check/shots/
+每个目录下有 page.png 和 report.json。
+
+修正前（对照）：
+  fix-before-1：冷启动，工作台 /?project=sample，不带步骤 —— 全白（复现了问题）
+  fix-before-2、fix-before-3：热启动 —— 有内容，md5 06e8edaf…（作为“完整”的基准）
+
+修正后：
+  fix-try2-1..5：热启动，工作台，不带步骤，连续 5 次。全部有内容，md5 都等于基准 06e8edaf。
+  fix-cold-workbench-1..6：重启开发服务后立刻截，第 1 次约 5.6 s。全部有内容，md5 都等于 06e8edaf。
+  fix-nbdev-1..5：用 nbdev 命令复现（bun packages/dev-panel/src/cli.ts shot --page '/?project=sample' --work w00022 --task t18），
+    当时机器正在跑测试、负载较高。全部有内容，md5 都等于 06e8edaf。
+    这几张原本落在以时间戳命名的目录里，我把目录改成了 fix-nbdev-N，并同步改了 report.json 里的路径。
+  fix-shelf-1..3（热）与 fix-cold-shelf-1..3（冷）：书架 /。全部是完整的书架，
+    彼此只差少量抗锯齿像素（用 magick compare 核对过）。
+  fix-missing（热）与 fix-cold-missing（冷）：缺失项目。截到失败页“无法打开项目”，
+    report.hostStatus 为 project-unavailable，退出码 0。
+  fix-notfound（热）与 fix-cold-notfound（冷）：截到“页面不存在”页，退出码 0。
+  fix-lab（--timeout 8）：退出码 1，原因是根已就绪但缺 data-page-rendered，并提示改用 lab:shot（符合预期）。
+  fix-chapter（热）与 fix-cold-chapter-1、fix-cold-chapter-2（冷）：带“打开第 1 章”的步骤，第 1 章正文都显示出来了。
+    几张之间唯一的差别是“正文”一行的 hover 高亮，那是指针停留的位置，与就绪判断无关。
+冷启动时不带步骤的连续不空白次数：冷 6 次、热 5 次、nbdev 5 次，全部不空白。
+
+四、测试（TMPDIR=/dev/shm/t18fix-tmp，用完已删）
+  - bun run --cwd packages/neuro-book typecheck：通过
+  - bunx vitest run src/plugins/workbench/web/home-page.dom.test.ts src/web：34 passed。
+    新增“页面画出的标记 data-page-rendered”三条：
+    a. 文档根设置和外壳都挂上后才标；
+    b. 首页贡献在场时标，撤回后要等外壳挂上才标；
+    c. 外壳加载失败时记诊断、不标，重新挂载后重试成功。
+  - bun test scripts/page-shot.test.ts src/architecture.test.ts：10 pass
+  - bun run test:affected：bun 1164 pass、0 fail；vitest 47 个文件、212 个测试全部通过；exit=0。
+    日志在 /dev/shm/t18fix-affected.log
+  - governance:check 与 docs:check：没有失败，也没有新增警告
+
+五、偏离与理由
+  1. 不只在工作台页面根上加标记，还在编辑器插件（pages.ts）和 projects 插件（welcome.ts）加了 aria-busy。
+     理由：只等页面根时仍会截到编辑区或欢迎页的半成品，实测出现过。要用应用自己的信号，就要由加载中的区域自己声明。
+     这几处都已写进对应的 Spec 和组件 .md。
+  2. 失败页（缺失项目、页面不存在）照常截图，以 0 退出，报告带 hostStatus。
+     理由：失败页本身就是 Agent 要自检的画面，“截不了”只指画面没有就绪。
+  3. /lab 不支持 page:shot（没有 data-page-rendered），会以非零退出，并提示改用 lab:shot。
+  4. WorkbenchPageParts 的合同变了：renderDocument 和 renderShell 换成 document、shell（WorkbenchPagePart），另加 reportPart。
+     调用方只有 plugins/workbench/web/plugin.ts 和 DOM 测试，两处都已改。
+  5. 文档根设置和外壳加载失败时，现在记一条 workbench.page error 诊断。原来由 defineAsyncComponent 吞在 Vue 的错误处理里。
+  6. 没有跑 e2e。
+  7. settle 超时那条路径（动画一直不停）没有在真实运行时触发过，因为目前没有页面带常驻动画。只从代码推断它会生效。
+
+六、收尾
+  - dev stop 停掉了 dev-20261014T183950Z-e86dbc3b。dev status 里本 worktree 的各次运行都是 ended（stopped），
+    4417 没有监听，也没有含本 worktree 路径的残留进程。全程没有用 pkill 或 pgrep。
+  - 没有碰 4400、4401 端口和 nbdev-panel-neuro-book.service。
+  - /dev/shm/t18fix-tmp 和我的诊断图、对比图、启动日志都已删除，只留下本报告和 t18fix-affected.log。

@@ -501,6 +501,8 @@ test("拖动：移入目录显示“移入”反馈并移动；内容文件夹�
 });
 
 test("拖动（验收 25、26）：拖到别的文件夹里的文件上移入它的文件夹，拖影写着名字、源行淡化；停在收起的目录上展开；拖到空白移入根；拖到编辑组在那一组打开；靠下边缘自动滚动", async ({page}) => {
+    // 后面要拖到最后一行之下的空白：窗口要高到展开的几层放下之后还有空白，不随字号刻度变动就失效。
+    await page.setViewportSize({width: 1280, height: 900});
     await open(page);
     await item(page, "project://drags").click();
     await item(page, "project://plain").click();

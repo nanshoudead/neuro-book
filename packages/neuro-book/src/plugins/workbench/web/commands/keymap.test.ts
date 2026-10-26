@@ -44,11 +44,12 @@ function harness(platform: KeyPlatform) {
     const reported: string[] = [];
     const waiters: Array<() => void> = [];
     const runs: string[] = [];
+    const failures: string[] = [];
     const registry = createCommandRegistry({contextKeys: contextTable({"editor-active": "需要活动编辑器"}, () => context), report: () => undefined});
     const dispatcher = createKeymapDispatcher(registry, platform, (error) => {
         reported.push(error.message);
         for (const wake of waiters.splice(0)) wake();
-    });
+    }, (id, failure) => failures.push(`${id}:${failure.code}`));
     const bind = (id: string, options: {keybinding?: string; when?: WhenPredicate; result?: CommandResult<unknown>} = {}): Release => {
         const registered = registry.register({
             id,
@@ -73,6 +74,7 @@ function harness(platform: KeyPlatform) {
         registry,
         dispatcher,
         reported,
+        failures,
         runs,
         bind,
         /** 下一次报告到达时完成。 */
@@ -201,13 +203,14 @@ describe("createKeymapDispatcher", () => {
         expect(await app.registry.execute("nbook.quick-open.open-commands")).toEqual({ok: true, value: null});
     });
 
-    it("执行失败交给报告；dispose 幂等，之后不再分发", async () => {
+    it("执行失败交给报告，也交给失败回调（告诉用户）；dispose 幂等，之后不再分发", async () => {
         const app = harness("other");
         app.bind("nbook.quick-open.open-commands", {keybinding: "Mod+Shift+P", result: {ok: false, code: "unavailable", reason: "没有地方放面板"}});
         const reported = app.nextReport();
         app.dispatcher.handle(press({key: "P", ctrlKey: true, shiftKey: true}));
         await reported;
         expect(app.reported).toEqual(["命令 nbook.quick-open.open-commands 执行失败：没有地方放面板"]);
+        expect(app.failures).toEqual(["nbook.quick-open.open-commands:unavailable"]);
 
         app.dispatcher.dispose();
         app.dispatcher.dispose();

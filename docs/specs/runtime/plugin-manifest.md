@@ -18,12 +18,13 @@ owners:
 - 不定义外部插件从哪里发现、如何安装与升级（[`runtime.plugin-install`](plugin-install.md)）；不定义运行期启用、禁用与引用撤回（[`runtime.plugin-hot-plug`](plugin-hot-plug.md)）；不定义代码如何装载与回收（[`runtime.plugin-code-loading`](plugin-code-loading.md)）。
 - 不定义单次激活的事务、贡献接收者五态与普通关闭，它们沿用 [`runtime.plugins`](plugins.md)；服务解析与初始化沿用 [`runtime.services`](services.md)。
 - 不定义各贡献点的声明字段与校验规则，它们归定义贡献点的拥有者插件的能力 Spec。
-- 不提供可选依赖，不提供同一服务的多个提供者（多个提供者用贡献点）。
+- 不提供同一服务的多个提供者（多个提供者用贡献点）。
 - 运行位置是开放集合，由宿主声明，内核不列举（2026-10-07，[ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)）；各位置的宿主（服务端、项目、浏览器、TUI）由各自的宿主 Spec 定义，本能力只规定入口按位置装配。
 
 ## 术语与参与者
 
-- **插件**：以 `publisher.name` 标识，是安装、启用、禁用、升级、卸载的单位。内置插件的 id 以 `nbook.` 开头，第三方插件的 id 不得以 `nbook.` 开头。
+- **平台档案**：宿主交给内核的“这是哪个应用”的事实：清单 `engines` 里的引擎键，与保留给内置插件的发布者。内核不写任何应用的名字，清单的读、生成与内置判断都按宿主给的档案进行。NeuroBook 的档案是引擎键 `neurobook`、保留发布者 `nbook`，本 Spec 里的 `engines.neurobook` 与 `nbook.` 都是这份档案的取值。内核自己的命名空间 `runtime`（内核自带的诊断插件 `runtime.diagnostics`）在任何平台上都保留，与保留发布者同样对待。
+- **插件**：以 `publisher.name` 标识，是安装、启用、禁用、升级、卸载的单位。内置插件的 id 以保留发布者（NeuroBook 是 `nbook`，另有内核的 `runtime`）开头，第三方插件的 id 不得以它们开头。内置插件与第三方插件能力相同，区别只有：id 前缀；内置插件随产品打包、默认启用、不经安装；内置插件的版本等于产品版本（[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）。
 - **入口**：插件在一个运行位置上的运行单位，有插件内唯一的入口 id。与 `runtime.plugins` 中的入口是同一概念：各自激活、各自失败、各自有代次。
 - **运行位置**：入口运行的宿主。`server` 是服务端运行实例，每个服务端进程一个；`project` 是项目实例，每个打开的项目一个（在子进程中）；`browser` 是浏览器运行实例，每个窗口一个；`tui` 是终端界面实例，每个会话一个。
 - **服务**：以 `<插件 id>/<名称>` 标识的导出 API。服务属于运行实例：在每个运行位置上由该插件至多一个入口提供，不同位置的入口可以提供同一个 id，各自在本位置的实例里提供。
@@ -35,25 +36,37 @@ owners:
 
 ## 输入与前置条件
 
-清单载体是插件目录中的 `package.json`。与本能力有关的字段：
+清单有两种载体，字段与规则相同：
+
+- 第三方插件安装时，清单是插件目录中的 `package.json`；
+- 内置插件的清单是代码中的插件描述与各运行位置的入口定义，不另存 `package.json`。代码定义里 `requires`、`remoteProvides`、`remoteDelegates` 写服务键与合同对象，`package.json` 写 id；两者按 id 对应。代码定义里的函数（入口的激活函数、贡献点的校验函数）是运行期钩子，不属于清单；除此之外，每个内置插件的代码定义都必须能表达为 `package.json` 形式，并通过同一套校验，转回代码定义后相同。第三方插件的清单由 SDK 构建预设从代码定义生成，与内置插件用同一个转换；生成之后立刻按读清单的规则读一遍，结果要么是读得回来的清单，要么是问题列表，`description` 与 `license` 取自作者的 `package.json`，随生成写入；第三方插件的贡献点只能用 `schema` 与 `idPrefix` 表达声明的规则，不能写校验函数：登记时没有插件代码可调，写了也不会在宿主里运行。同一个贡献点在几个运行位置的定义里出现时，各份的 `implementation`、`schema` 与 `idPrefix` 必须一致。贡献点与激活事件前缀属于插件：清单把它们写在插件一级，第三方插件在它有入口的每个运行位置都定义它们；内置插件的代码定义可以只在部分运行位置定义（例如只在项目实例里需要方言贡献点、没有入口），比较时按插件汇总。
+
+下表按 `package.json` 的字段写。与本能力有关的字段：
 
 | 字段 | 含义与约束 |
 |---|---|
-| `name`、`publisher`、`version` | 组成插件 id `publisher.name`；`version` 为 semver |
+| `name`、`publisher`、`version` | 组成插件 id `publisher.name`。`publisher` 与 `name` 各为一段：以小写字母开头，只含小写字母、数字与连字符（视图、状态栏条目、菜单这些带插件 id 前缀的 id 每段都要字母开头）（不接受 npm 的 `@scope/` 写法）；内置插件的 `publisher` 为 `nbook`。`version` 为 semver，内置插件的 `version` 等于产品版本 |
+| `displayName`、`description` | 可选，给人看的名字与一句话说明，插件页显示（[`runtime.plugin-install`](plugin-install.md) 输出 10）；不参与校验与登记；读取时去掉首尾空白，只有空白的按没写处理；构建预设从作者的 `package.json` 取 |
 | `engines.neurobook` | 兼容的 NeuroBook 版本范围，由 [`runtime.plugin-install`](plugin-install.md) 检查 |
-| `entries` | 入口 id 到入口声明的映射；可以为空（只含声明式贡献的插件） |
+| `entries` | 入口 id 到入口声明的映射；可以为空（只含声明式贡献的插件）。入口 id 只含字母、数字、连字符与下划线，以字母或数字开头：它也是默认的代码文件名 |
 | `entries.<id>.location` | 运行位置 |
 | `entries.<id>.main` | 入口代码文件，相对插件目录，必须位于插件目录内 |
-| `entries.<id>.remoteProvides` | 可选，本入口提供的远程服务合同 id 列表；合同 id 以本插件 id 加 `/` 开头 |
-| `entries.<id>.remoteDelegates` | 可选，本入口可代表调用方调用的远程服务合同 id 列表；只有装配方允许清单内的插件可以声明，第一版只限内置插件 |
+| `entries.<id>.remoteProvides` | 可选，本入口提供的远程服务合同 id 列表；合同 id 以本插件 id 加 `/` 开头。不以 `nbook.` 开头的合同必须在 `contracts` 里 |
+| `entries.<id>.remoteDelegates` | 可选，本入口可代表调用方调用的远程服务合同 id 列表；任何插件都可以声明。不以 `nbook.` 开头的合同必须在 `contracts` 里 |
 | `entries.<id>.requires` | 必需依赖的服务 id 列表 |
+| `entries.<id>.optional` | 可选依赖的服务 id 列表：缺了不使入口受阻，只有用到它的那一处不可用（[`runtime.plugins`](plugins.md)） |
+| `entries.<id>.receives` | 本入口接收贡献的贡献点 id 列表；只能是本插件在 `contributionPoints` 中定义的贡献点 |
 | `entries.<id>.provides` | 本入口提供的服务 id 列表 |
 | `entries.<id>.activationEvents` | 激活事件列表 |
 | `entries.<id>.contributes` | 需要本入口提供实现的贡献，例如命令、视图、Agent 工具、路由、公开状态的键（`state.public`，实现是激活时绑定的读取函数，[`state.public`](../state/public-state.md)） |
 | `contributes` | 只有声明、不需要实现的贡献，例如菜单项、设置项、菜单位置 |
-| `contributionPoints` | 本插件拥有的贡献点：声明 schema，以及该贡献点的贡献是否需要实现（决定贡献写在入口下还是顶层） |
+| `contributionPoints` | 本插件拥有的贡献点：`id`、该贡献点的贡献是否需要实现（`implementation`，决定贡献写在入口下还是顶层），以及可选的声明结构 `schema` 与贡献 id 前缀 `idPrefix`（只有一个取值 `"plugin"`：贡献 id 必须以贡献方插件 id 加 `.` 开头；发布者是保留发布者的插件也可以只以发布者加 `.` 开头，[`runtime.plugins`](plugins.md) 输出 15） |
 | `activationEventPrefixes` | 本插件拥有的激活事件前缀，例如 `nbook.commands` 的 `onCommand`；只有拥有者能触发以它开头的事件 |
-| `pluginVersions` | 所依赖第三方插件的版本范围；只约束版本，是否必需由各入口的 `requires` 决定 |
+| `pluginVersions` | 所依赖第三方插件的版本范围；只约束版本，是否必需由各入口的 `requires` 决定（输出 3 的 `version-mismatch` 与其后的可选依赖规则） |
+| `style` | 可选，浏览器要加载的样式表，相对插件目录，规则同入口的 `main`；窗口登记插件时就加载（[`runtime.plugin-code-loading`](plugin-code-loading.md) 的插件样式） |
+| `contracts` | 入口引用的远程服务合同：合同 id 到合同的 JSON 形式（`id`、`version`、`provider`、`callers`、`methods`、`events`，与代码里的合同同一结构）。本插件提供的合同与它代理的别的第三方插件的合同都写在这里；`nbook.` 开头的内置合同由宿主提供，不写 |
+
+`contracts` 与 `contributionPoints[].schema` 里的 schema 只能是纯 JSON Schema：`type` 是 JSON Schema 的类型、`format` 是标准 format、正则合法，`$ref` 只指向同一份 schema 里的位置或 `$id`（宿主不装载外部引用），不能用 TypeBox 的 `Refine`、`Codec` 或插件自己注册的 format。按关键字的语义检查：`properties` 这类映射的值才是 schema，`const`、`enum`、`default`、`examples` 里的是数据，属性名叫 `type`、`format` 不受限制。这些写法进不了 JSON：宿主按清单校验时会悄悄变宽，同一个插件内置与外置时结果不同。构建预设遇到它们构建失败；清单里出现不合法的 schema 时清单无效。
 
 激活事件由插件定义，内核不规定事件种类（2026-10-06 开发者修订）。内核只认识 `onStartup`；其它事件写作 `<前缀>:<参数>`，前缀由拥有者插件在 `activationEventPrefixes` 中声明，例如 `nbook.commands` 的 `onCommand:<命令 id>`、`nbook.workbench` 的 `onView:<视图 id>`、`nbook.agent` 的 `onAgentTool:<工具名>`。内核保留前缀 `onRemote`：`onRemote:<合同 id>` 在该远程服务首次被调用时激活提供它的入口，插件不能声明这个前缀。拥有者在需要时请内核触发自己前缀下的事件，内核激活本运行位置上声明了该事件的入口并逐个返回结果；新增激活方式只需新的拥有者声明前缀，不改内核。与本入口贡献对应的激活事件可以由 SDK 构建预设生成；手写清单与生成的清单同等有效，合同以清单为准。
 
@@ -73,6 +86,8 @@ owners:
    - `version-mismatch`：提供方插件的版本不满足本插件 `pluginVersions` 中的范围；
    - `provider-blocked`、`provider-failed`：提供该服务的入口受阻，或激活失败且未恢复；
    - `dependency-cycle`：入口处于依赖环中。
+
+   可选依赖的提供方版本不在 `pluginVersions` 的范围内时不注入（入口取它得到不可用，原因 `version-mismatch`，记入诊断），入口不受阻。只有第三方插件写 `pluginVersions`；内置插件的版本等于产品版本，由 `engines.neurobook` 约束。
 4. **同一插件的其它入口不受牵连。** 一个入口受阻或失败，不影响同一插件中不依赖它的入口。例如编辑器插件未启用时，文生图插件依赖 `nbook.editor/document` 的浏览器入口受阻，服务端入口照常可用，Agent 工具可以调用。
 5. **远程服务不构成依赖。** 调用方入口不因远程服务的提供方受阻、失败、未激活或所在实例不存在而受阻；调用时才得到结果，提供入口未激活时按 `onRemote:<合同 id>` 激活，提供方不可用时调用得到 `unavailable` 等结构化失败（[远程服务与 RPC 协议](plugin-channel.md)）。
 6. **插件汇总状态。** 全部入口都没有受阻或失败为“可用”；部分入口受阻或失败为“部分可用”；全部入口受阻或失败为“受阻”。没有入口的插件在登记成功后为“可用”。插件管理界面列出每个受阻入口缺少的服务，以及各窗口中浏览器入口的失败（按窗口分开显示）。
@@ -80,7 +95,7 @@ owners:
 8. **关闭顺序严格为依赖逆序。** 依赖者先关闭，提供者后关闭。
 9. **登记顺序没有语义。** 全部清单登记后再计算依赖图；诊断按插件 id 排序输出，同一输入得到同一结果。
 10. **贡献校验按单条贡献进行。** 贡献点由拥有者在 `contributionPoints` 中定义，校验所需的 schema 与“是否需要实现”都来自拥有者，所以校验只在拥有者已登记时进行：
-    - 拥有者已登记：按其 schema 校验；不合格的贡献（包括需要实现却写在顶层 `contributes`、不需要实现却写在入口下）只这一条被拒绝，原因可查询，插件的其它部分照常；
+    - 拥有者已登记：先核对 `idPrefix`、再按其 `schema` 校验，再交拥有者的校验函数（内置插件才有）；不合格的贡献（包括需要实现却写在顶层 `contributes`、不需要实现却写在入口下）只这一条被拒绝，原因可查询，插件的其它部分照常；
     - 拥有者未安装或已禁用：贡献处于“待校验”，不显示、不报错；拥有者登记后再校验，合格的生效，不合格的被拒绝。拥有者已登记但其接收贡献的入口受阻时，贡献照常校验，是否显示由拥有者决定；
     - 没有任何已登记插件定义该贡献点：贡献处于“待校验”，并在插件详情中标注“未知贡献点”，便于发现拼写错误。
 
@@ -113,7 +128,7 @@ owners:
 
 ## 失败与恢复
 
-- **清单无效时整个插件不登记。** 包括：缺少必需字段或类型错误；id 格式错误；第三方 id 以 `nbook.` 开头；`main` 不存在、是绝对路径或越出插件目录；入口 id 重复；`provides` 中的服务 id 不以本插件 id 为前缀、重复，或占用保留名 `channel`；`remoteProvides` 中的合同 id 不以本插件 id 为前缀或重复；第三方插件声明 `remoteDelegates`；插件在 `activationEventPrefixes` 中声明 `onRemote`；`pluginVersions` 列出内置插件。原因可在插件管理中查询，其它插件不受影响。单条贡献不合格只拒绝该条（见上文第 10 条）。
+- **清单无效时整个插件不登记。** 包括：缺少必需字段或类型错误；id 格式错误；第三方 id 以 `nbook.` 开头；`main` 不存在、是绝对路径或越出插件目录；入口 id 重复或不是合法的文件名段；`provides` 中的服务 id 不以本插件 id 为前缀、重复，或占用保留名 `channel`；`remoteProvides` 中的合同 id 不以本插件 id 为前缀或重复；插件在 `activationEventPrefixes` 中声明 `onRemote`；`pluginVersions` 列出内置插件；`engines.neurobook` 或 `pluginVersions` 的值不是 npm 的版本范围写法；入口的 `receives` 列出本插件没有定义的贡献点；入口引用的非内置合同不在 `contracts` 里，`contracts` 的键与合同 `id` 不一致或写了 `nbook.` 开头的合同，合同结构不合法（缺字段、方法入参不是 `additionalProperties: false` 的对象、业务失败码与路由层失败码重名）；`contracts` 或 `contributionPoints[].schema` 里的 schema 不是纯 JSON Schema。原因可在插件管理中查询，其它插件不受影响。单条贡献不合格只拒绝该条（见上文第 10 条）。
 - **两个插件声明同一服务 id** 不可能发生（服务 id 带插件前缀）；同一插件 id 出现多份清单时全部不登记，并报告每份的来源，与输入顺序无关。
 - **启动必需按运行位置判定。** 启动必需内置插件的服务端入口受阻、失败或其清单无效时，服务端启动失败，由 [`runtime.server-host`](server-host.md) 有序退出；它的浏览器入口（例如 `nbook.workbench`）在某个窗口中失败时，只有该窗口显示启动失败页（[`runtime.browser-host`](browser-host.md)），不影响服务端与其它窗口。
 - 前缀没有任何已登记插件声明的激活事件被忽略并在插件详情中标注“未知激活事件”，与未知贡献点相同，便于发现拼写错误；声明前缀的插件之后登记时，事件照常生效。两个插件声明同一前缀时两者的声明都不生效并记入诊断，与输入顺序无关；其它运行位置的入口在本实例为 `foreign-location`；本实例中依赖它所提供服务的入口按第 3 条以 `location-mismatch` 受阻。
@@ -122,11 +137,11 @@ owners:
 ## 边界与兼容
 
 - **owner**：runtime。清单登记、依赖图与受阻推导是内核机制，不依赖任何产品领域实现；贡献点的领域语义归拥有者插件。
-- **与 `runtime.plugins` 的分工**：本能力把清单映射为 `runtime.plugins` 的插件定义：入口的 `requires` 即必需的服务依赖，`provides` 即登记阶段声明的提供项；单次激活的事务、接收者五态与普通关闭不变。现有内置插件定义迁移到本清单格式；现有 Files 的两个插件身份合并为 `nbook.files` 的两个入口。
+- **与 `runtime.plugins` 的分工**：本能力把清单映射为 `runtime.plugins` 的插件定义：入口的 `requires` 即必需的服务依赖，`provides` 即登记阶段声明的提供项；单次激活的事务、接收者五态与普通关闭不变。内置插件以代码定义作为清单（见“输入与前置条件”），不迁移成 `package.json` 文件。
 - **SDK**：作者在代码中声明入口，SDK 构建预设生成清单中的 `entries`，依赖只写一次。SDK 按运行位置提供类型：一个入口只能取得它 `requires` 中服务的类型。
-- **版本**：依赖内置插件的服务不写版本，内置插件的公开 API 跟随 SDK，由 `engines.neurobook` 统一约束。
-- **安全**：清单是完全信任模型下的声明，不构成权限；校验只保证结构与引用正确。
-- **现状**：清单文件、声明 schema 与版本范围（含 `version-mismatch`）尚未实现。代码定义的插件（`PluginDefinition`）已按本合同的入口、按入口的服务依赖与提供项、受阻推导、启停顺序、按单条贡献校验、开放的运行位置、激活事件前缀与内核保留的 `onRemote`、`remoteProvides` 与 `remoteDelegates` 工作，行为见 [`runtime.plugins`](plugins.md) 输出第 11–22 条与 [`runtime.application`](application.md)；代码定义里 `remoteProvides`、`remoteDelegates` 写合同对象，清单 JSON 写合同 id；内置插件的描述（`plugins/<插件>/plugin.ts`）是它的清单，顶层声明式贡献写在描述的 `contributions` 里，宿主据此在每个运行实例登记（输出 11）；服务 id 与清单一样按字符串识别，不同位置的入口可以提供同一 id（[ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)）。
+- **版本**：内置插件的版本等于产品版本。依赖内置插件的服务不写版本，内置插件的公开 API 跟随 SDK，由 `engines.neurobook` 统一约束。
+- **安全**：信任所有插件，不设权限系统（[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）。清单只是声明，不构成权限；校验只保证结构与引用正确。
+- **现状**：清单的读取、校验与安装已实现；`contracts`、贡献点的 `schema` 与版本范围（含 `version-mismatch`、可选依赖不注入）在内核里已实现，第三方入口的代码装载未实现（[`runtime.plugin-code-loading`](plugin-code-loading.md)）。代码定义的插件（`PluginDefinition`）已按本合同的入口、按入口的服务依赖与提供项、受阻推导、启停顺序、按单条贡献校验、开放的运行位置、激活事件前缀与内核保留的 `onRemote`、`remoteProvides` 与 `remoteDelegates` 工作，行为见 [`runtime.plugins`](plugins.md) 输出第 11–22 条与 [`runtime.application`](application.md)；代码定义里 `remoteProvides`、`remoteDelegates` 写合同对象，清单 JSON 写合同 id；内置插件的描述（`plugins/<插件>/plugin.ts`）是它的清单，顶层声明式贡献写在描述的 `contributions` 里，宿主据此在每个运行实例登记（输出 11）；服务 id 与清单一样按字符串识别，不同位置的入口可以提供同一 id（[ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)）。
 - **兼容**：清单格式属于公开接口。新增运行位置或激活事件不改变已有字段的含义；没有对应宿主的运行位置，其入口在所有实例都是 `foreign-location`，插件的其它入口照常工作。
 
 ## 验收与 Smoke
@@ -139,7 +154,7 @@ owners:
 6. **位置不匹配。** 浏览器入口依赖另一插件的服务端服务时，该入口以 `location-mismatch` 受阻，插件其它入口不受影响。
 7. **依赖环。** 两个入口互相依赖时二者以 `dependency-cycle` 受阻，诊断给出环路径；其它入口不受影响。
 8. **版本范围。** `pluginVersions` 不接受已安装的提供方版本时，依赖它的入口以 `version-mismatch` 受阻。
-9. **清单无效。** 第三方 id 以 `nbook.` 开头、第三方插件声明 `remoteDelegates`、插件声明 `onRemote` 前缀、`pluginVersions` 列出内置插件，各自使整个插件不登记，原因可查询，其它插件照常。
+9. **清单无效。** 第三方 id 以 `nbook.` 开头、插件声明 `onRemote` 前缀、`pluginVersions` 列出内置插件，各自使整个插件不登记，原因可查询，其它插件照常。
 10. **贡献待校验。** 向未启用的拥有者提交的贡献不显示、不报错；拥有者启用后，合格的贡献出现，不合格的一条被拒绝且原因可查，插件其它部分照常。向不存在的贡献点提交的贡献标注“未知贡献点”。
 11. **顺序。** 启动时依赖先于依赖者激活；关闭时依赖者先于提供者关闭；打乱清单登记顺序，推导结果与诊断顺序不变。
 12. **启动必需插件受阻** 时服务端启动失败并以启动失败退出码退出；`nbook.workbench` 的浏览器入口在一个窗口中失败时，只有该窗口显示启动失败页。
@@ -153,4 +168,4 @@ Smoke：以合同测试覆盖场景 1–17 的推导结果；在真实服务端�
 
 ## 证据
 
-- 批准依据：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P1、P2、P3、P11（2026-09-30 `accepted`；“插件、入口、服务”三层同日由开发者确认）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 2 条；开放的运行位置与远程提供项依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md)（2026-10-07 `accepted`）；服务 id 按字符串识别依据 [ADR 0025](../../adr/0025-service-keys-by-id.md)，不同位置的入口可以提供同一 id 依据取代它的 [ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)；公开状态的键作为入口下的 `state.public` 贡献由开发者 2026-10-08 在 [t56 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md) 中确认；删去清单字段 `delegates`（本地委托）由开发者 2026-10-08 在 [t60 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md) 中确认；调研见 [VS Code 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-vscode/REPORT.md)、[DeepSeek Harness 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-dsh/REPORT.md)。
+- 批准依据：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P1、P2、P3、P11（2026-09-30 `accepted`；“插件、入口、服务”三层同日由开发者确认）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 2 条；开放的运行位置与远程提供项依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md)（2026-10-07 `accepted`）；服务 id 按字符串识别依据 [ADR 0025](../../adr/0025-service-keys-by-id.md)，不同位置的入口可以提供同一 id 依据取代它的 [ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)；公开状态的键作为入口下的 `state.public` 贡献由开发者 2026-10-08 在 [t56 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t56-plugin-state/plan.md) 中确认；删去清单字段 `delegates`（本地委托）由开发者 2026-10-08 在 [t60 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t60-plugin-api-ergonomics/plan.md) 中确认；清单的两种载体、id 段规则、内置插件版本等于产品版本、任何插件都可以声明 `remoteDelegates`，由开发者 2026-10-17 在 [w00027 t01 实施计划](../../../.agents/works/w00027-plugin-platform/tasks/t01-requirements/plan.md) 中确认（后者见 [ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）；调研见 [VS Code 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-vscode/REPORT.md)、[DeepSeek Harness 依赖调研](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-dsh/REPORT.md)。

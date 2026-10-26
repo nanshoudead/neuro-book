@@ -9,7 +9,7 @@
 import {ref, shallowRef} from "vue";
 import type {Ref, ShallowRef} from "vue";
 
-import type {CommandService} from "nbook/plugins/commands/shared/contracts";
+import type {CommandFailure, CommandService} from "nbook/plugins/commands/shared/contracts";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {QuickPickRequest, QuickPickResult} from "../../shared/contracts";
@@ -60,10 +60,12 @@ export interface PaletteHost {
     openPick(request: QuickPickRequest): Promise<QuickPickResult>;
     /** 选择模式里提交：记下结果并关闭面板，等关闭完成再结算。 */
     choosePick(result: Extract<QuickPickResult, {kind: "item" | "text"}>): void;
-    /** 浮层关闭完成（QuickInput 的 `closed`，焦点已归还）：结算选择模式。没有选择时什么也不做。 */
+    /** 浮层关闭完成（QuickPick 的 `closed`，焦点已归还）：结算选择模式。没有选择时什么也不做。 */
     closed(): void;
     closePalette(): void;
     remember(id: string): void;
+    /** 从面板执行的命令失败了：交给宿主决定怎样告诉用户（产品页弹通知）。 */
+    failed(id: string, failure: CommandFailure): void;
     /** 停止跟踪命令表并关闭面板。 */
     dispose(): void;
 }
@@ -73,6 +75,8 @@ export interface PaletteHostOptions {
     readonly locale: Readonly<Ref<DisplayLocale>>;
     /** 面板开合时通知；Lab 用它填上下文键 `quick-open-visible`。 */
     readonly onVisibleChange?: (visible: boolean) => void;
+    /** 面板执行的命令失败时调用；不给时（Lab 的命令场景）失败只留在命令服务的结果里。 */
+    readonly onFailure?: (id: string, failure: CommandFailure) => void;
 }
 
 const RECENT_LIMIT = 30;
@@ -166,6 +170,9 @@ export function createPaletteHost(options: PaletteHostOptions): PaletteHost {
         closePalette,
         remember(id) {
             recent.value = [id, ...recent.value.filter((entry) => entry !== id)].slice(0, RECENT_LIMIT);
+        },
+        failed(id, failure) {
+            options.onFailure?.(id, failure);
         },
         dispose() {
             unsubscribe();

@@ -4,7 +4,7 @@
 
 # ProcList
 
-“在跑”页的第一块（t14）：经 `nbdev dev start` 起的服务。每行写状态（启动中、在跑、没人监管、已结束）、checkout（链到 checkout 页的那一行）、package、script、地址（http 与 https 才给链接，新标签页打开）、谁起的、起了多久、是哪个 Task 的、原因与日志路径。已结束的淡化显示。只读：停服务用命令行 `nbdev dev stop`，这里没有按钮。
+“在跑”页的第一块（t14）：经 `nbdev dev start` 起的服务。每行写状态（启动中、在跑、没人监管、已结束）、checkout（链到 checkout 页的那一行）、package、script、地址（http 与 https 才给链接，新标签页打开）、谁起的（会话写“标题 + 短键”，`SessionLabel`：标题可截断、截断时可聚焦看全文，短键次要色、不截断，t17）、起了多久、是哪个 Task 的、原因与日志路径。已结束的淡化显示。只读：停服务用命令行 `nbdev dev stop`，这里没有按钮。
 
 ## 数据
 
@@ -12,6 +12,8 @@
 interface ProcListProps {
     /** `/api/runs` 的 `procs`；必填 */
     runs: ProcRunView[];
+    /** 会话标题（`/api/runs` 的 `sessionTitles`，键是会话键）；必填，没有标题的属主缺项、只写短键 */
+    sessionTitles: Readonly<Record<string, SessionTitle>>;
 }
 ```
 

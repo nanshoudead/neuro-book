@@ -22,9 +22,16 @@ import type {RemoteResult, RemoteSubscribeOptions, RemoteSubscription} from "@no
 
 import {encodedTextBytes, parseResource, TEXT_BUDGET_BYTES} from "nbook/plugins/files/shared/contracts";
 import type {ChangesMessage, FileChange} from "nbook/plugins/files/shared/contracts";
-import {countWords} from "nbook/shared/word-count";
+import {BUILTIN_DIALECT_TABLE, countWords} from "nbook/plugins/markdown/shared/contracts";
+import type {DialectTable} from "nbook/plugins/markdown/shared/contracts";
 
 import {localDate} from "../backend/shelf";
+
+/**
+ * 记录里没有口径指纹（这个字段之前写的记录）时它是按哪份声明表计的：那时字数只认内置方言的标签，与只有内置方言的声明表相同。
+ * 按它比较，升级后第一次打开不会把今天已写的字当作口径差额清掉。
+ */
+const UNRECORDED_WORD_RULES = BUILTIN_DIALECT_TABLE.fingerprint;
 import {SHELF_EXCERPT_MAX_LENGTH} from "../shared/contracts";
 import type {ProjectStatsSnapshot, ShelfLastEdit} from "../shared/contracts";
 
@@ -52,6 +59,8 @@ export interface StatsTrackerOptions {
     readonly clock: RuntimeClock;
     /** 记录里的快照：首扫完成前对外给它，今天的基线与最近编辑从它接着算。 */
     readonly initial: ProjectStatsSnapshot | null;
+    /** 方言声明表（docs/specs/workspace/markdown-syntaxes.md 输出 9、10）：按它计字数，它的指纹写进快照。 */
+    readonly dialects: DialectTable;
     /** 订阅 `nbook.files/project` 的变更（项目实例里的本地调用）。 */
     readonly subscribe: (listener: (message: ChangesMessage) => void, options: RemoteSubscribeOptions) => Promise<RemoteResult<RemoteSubscription>>;
     readonly record: (input: Omit<DiagnosticInput, "source">) => void;
@@ -81,7 +90,7 @@ type ReadOutcome =
 type Pending = FileChange | {readonly type: "resync"};
 
 export function createStatsTracker(options: StatsTrackerOptions): StatsTracker {
-    const {root, clock, initial, record} = options;
+    const {root, clock, initial, record, dialects} = options;
 
     /** 计入的可读文件 → 字数。 */
     let words = new Map<string, number>();
@@ -92,7 +101,9 @@ export function createStatsTracker(options: StatsTrackerOptions): StatsTracker {
     let ancestors = new Map<string, number>();
     /** 首扫完成过：之后的数字都是完整的。 */
     let complete = false;
-    let today = openingToday(initial, clock.now());
+    // 记录是按别的口径算的（指纹不同，或旧记录没有指纹）：今天的基线不接着用，首扫完成时按新口径的总字数重定，口径带来的
+    // 差额不算今天写的字（runtime.projects 输出 16）。
+    let today = openingToday((initial?.wordRules ?? UNRECORDED_WORD_RULES) === dialects.fingerprint ? initial : null, clock.now());
     let last: ShelfLastEdit | null = initial?.last ?? null;
     let computedAt = clock.now();
 
@@ -130,6 +141,7 @@ export function createStatsTracker(options: StatsTrackerOptions): StatsTracker {
         // 首扫完成时一定定下了今天（没有记录时取首扫的总数）。
         today: today as NonNullable<typeof today>,
         last,
+        wordRules: dialects.fingerprint,
     });
 
     const touch = (): void => {
@@ -212,7 +224,7 @@ export function createStatsTracker(options: StatsTrackerOptions): StatsTracker {
         if (frozen) return;
         switch (outcome.kind) {
             case "text":
-                setFile(path, {words: countWords(outcome.text)});
+                setFile(path, {words: countWords(outcome.text, dialects)});
                 if (edit) editedAt(path, lastParagraphExcerpt(outcome.text));
                 break;
             case "unreadable":
@@ -335,7 +347,7 @@ export function createStatsTracker(options: StatsTrackerOptions): StatsTracker {
             batch.forEach((path, index) => {
                 const outcome = outcomes[index] as ReadOutcome;
                 if (outcome.kind === "text") {
-                    const count = countWords(outcome.text);
+                    const count = countWords(outcome.text, dialects);
                     found.words.set(path, count);
                     found.total += count;
                 } else if (outcome.kind === "unreadable") {

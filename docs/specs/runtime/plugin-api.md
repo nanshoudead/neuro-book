@@ -11,22 +11,23 @@ owners:
 
 ## 目标与非目标
 
-给插件作者一套稳定的公开 API：插件只经宿主注入的上下文访问宿主与其它插件，所有跨边界的接口都按远程调用的形态设计，使第一版同进程直接调用与以后的跨进程调用共用同一份接口定义，也使内核能完整记账并撤回引用。CPU 密集的工作有 worker 池可用，不必在主线程上长时间计算。
+给插件作者一套稳定的公开 API：插件只经宿主注入的上下文访问宿主与其它插件，远程服务合同与数据面接口按远程调用的形态设计，使第一版同进程直接调用与以后的跨进程调用共用同一份接口定义，也使内核能完整记账并撤回引用；同一实例里的内部服务可以同步、传对象引用（见选用规则）。CPU 密集的工作有 worker 池可用，不必在主线程上长时间计算。
 
 明确不承诺：
 
 - 不承诺插件可以 import 宿主内部模块或其它插件的模块；这样写的插件不受兼容承诺保护，热插拔的撤回也不覆盖它们。
-- 不提供权限模型与沙箱；第一版完全信任。
-- 不定义各内置插件导出服务的具体方法；它们由各自的能力 Spec 定义，并同样遵守本文的形态约束。
+- 不提供权限模型与沙箱；信任所有插件（[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）。
+- 不定义各内置插件导出服务的具体方法；它们由各自的能力 Spec 定义，远程合同与数据面接口遵守本文的形态约束，内部服务不受此限。
 - 不打断 worker 中的 WebAssembly 与原生阻塞调用（见“边界与兼容”）。
 
 ## 术语与参与者
 
-- **SDK**：一个只含类型与少量纯函数的包，不依赖宿主内部模块。
+- **SDK**：作者依赖的包 `@notnotype/nb-plugin-sdk`，只含类型与少量纯函数，不依赖宿主内部模块；内置插件的合同、宿主能力的键与设置窗口给页面用的组件由它提供。根入口是插件框架（`definePlugin`、内核的入口、服务、远程服务与诊断、宿主能力、多语言文字），其余按内置插件各占子路径：`/state`、`/storage`、`/settings`、`/commands` 各运行位置可用；`/settings/browser`（设置页、选项来源与设置页组件）与 `/workbench`（视图、状态栏条目）要 Vue，只给浏览器入口；`/components` 是 nb-ui 的组件，只给浏览器入口。要 Vue 的部分：整个内置插件只在浏览器里有意义的占一个只给浏览器的子路径，两端都要的把浏览器部分放在 `/<插件>/browser`。插件运行时，这些入口由宿主模块表给出宿主自己的那一份（[`runtime.plugin-code-loading`](plugin-code-loading.md) 输出 2）；作者安装的包里是类型与构建期执行入口定义用的实现。
 - **激活上下文 `ctx`**：宿主在激活入口时注入的对象，按运行位置提供不同成员。
 - **远程形态**：满足下文五条约束的接口形态。
 - **结构化结果**：`{ok: true, value}` 或 `{ok: false, code, cause?, detail?}`，调用不以抛出异常表达失败；只想要值的调用方可以用 `orThrow` 把失败转成异常（[远程服务与 RPC 协议](plugin-channel.md) 输出第 1 条）。
-- **作用域登记**：经 `ctx` 建立的订阅、定时器、句柄都登记在入口的激活作用域上，入口停止时自动撤回。
+- **作用域登记**：经 `ctx` 建立的订阅、定时器、句柄都登记在入口的激活作用域上，入口停止时自动撤回；作者自己要在停止时做的事用 `ctx.onStop` 登记。
+- **作者 API**：SDK 在 `defineEntry` 之上给作者的一层：`definePlugin` 绑定插件 id，贡献助手只收短名（见下文“作者 API”）。内置插件不用它。
 
 ## 输入与前置条件
 
@@ -43,8 +44,8 @@ owners:
 | 接口的性质 | 用什么 | 说明 |
 |---|---|---|
 | 只传数据，调用方可能在别的运行实例 | 远程服务合同（[远程服务与 RPC 协议](plugin-channel.md)） | 所有调用方都直接 `ctx.remote.use(合同)`，同一实例里的调用方也一样（走本地路径，不序列化，身份与代次照样核对）；不写只原样转发的本地服务包装。本地与远程共用一个提供者登记，只在本实例用、含不可序列化内容的接口才另登记为本地服务（[多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 4 节，[ADR 0024](../../adr/0024-multi-instance-runtime-topology.md) 第 4 条）。合同因此是插件对外的公开接口，改动按合同版本处理 |
-| 只在同一实例里用，给第三方插件 | 本地服务（`provide`、`providePerConsumer`），按下节的数据面约束写 | 以后把插件移出宿主进程时只换传输（[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条） |
-| 要同步调用，或要传响应式值、对象引用 | 只限内置插件之间的内部服务，或下节的宿主适配对象 | 例如命令面板求 `when` 时同步读公开状态 |
+| 只在同一实例里用、只传数据 | 本地服务（`provideService`、`provideServicePerConsumer`），按下节的数据面约束写 | 以后把插件移出宿主进程时只换传输（[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条）；需要同步或传引用时写成内部服务 |
+| 要同步调用，或要传响应式值、对象引用 | 内部服务，或下节的宿主适配对象 | 例如命令面板求 `when` 时同步读公开状态；任何插件都可以依赖内部服务（[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)），代价见“边界与兼容” |
 | 许多插件各交“声明 + 实现”，由一个拥有者统一管理 | 贡献点 | 命令、页面、公开状态键；贡献方与拥有者之间没有依赖 |
 | 在远程服务之上加东西 | 本地服务包装远程服务 | 同步的响应式视图、缓存、按分区选路、代调用方身份访问（例如 `nbook.storage`）；包装处写明加了什么 |
 
@@ -70,7 +71,7 @@ owners:
 |---|---|---|
 | 数据面 | 导出服务的方法、命令、贡献实现被调用时的参数与结果、远程服务方法、宿主 API 的参数与结果 | 满足下面五条；远程服务合同的输入输出由内核按 schema 强制 |
 | 宿主适配的对象 | 事件回调与订阅返回的可释放句柄、终止信号 `signal`、浏览器入口交给贡献点拥有者的视图组件 | 不受数据约束，由宿主专门传递与撤回；以后跨进程时由宿主换成等价的远程形式 |
-| 内置插件之间的内部服务 | 内置插件之间同步调用、传对象引用的服务，例如 `nbook.state` 的公开状态读取 | 不对第三方开放，不受约束 |
+| 内部服务 | 同一实例里同步调用、传对象引用的服务，例如 `nbook.state` 的公开状态读取、命令服务、配置的 `get` | 任何插件都可以依赖，不受数据面约束 |
 
 数据面的五条约束：
 
@@ -88,9 +89,11 @@ owners:
 |---|---|---|
 | `ctx.plugin` | 两端 | 插件 id、当前版本、上一次成功激活的版本（首次为空，用于数据迁移） |
 | `ctx.signal` | 两端 | 入口停止时触发 |
+| `ctx.onStop(release)` | 两端 | 登记一件这一代入口停止时做的事（释放计时器、句柄），激活失败时同样执行，与别的资源并行释放；这一代已收口后调用抛错。作者不必接触作用域（`ctx.scope`）与资源规格 |
 | `ctx.services.require(键)` | 两端 | 取得 `dependencies` 中声明的必需依赖，返回服务本身；键是提供方 `shared/contracts.ts` 里定义的服务键对象（[ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)）。未声明或只声明为可选的键抛错：这是写错了入口定义，不是运行期的失败 |
 | `ctx.services.resolve(键)` | 两端 | 解析声明过的依赖（含可选依赖），返回结构化结果，用法见上文“可选功能” |
 | `ctx.remote` | 各位置 | `use(合同).at(目标)` 调用与订阅任意实例的远程服务；`lookup(合同, 目标?)` 不激活提供方地查询目标实例是否提供这份合同；本入口的远程提供项经激活产出的 `remote` 交出（[远程服务与 RPC 协议](plugin-channel.md)） |
+| `ctx.activation.trigger(事件, {signal?})` | 两端 | 以本入口所属插件的身份触发自己前缀下的激活事件（[`runtime.plugins`](plugins.md) 输出 21），返回同 `triggerActivationEvent`；本代次停止后（包括同一插件 id 之后重新登记）调用得到 `rejected {reason: "requester-stopped"}`，不激活任何入口；`signal` 与本代次的停止信号任一触发都只结束等待 |
 | `ctx.workers.run(module, input, options)` | 两端 | 见下文 worker 池 |
 | `ctx.setTimeout`、`ctx.setInterval`、`ctx.run(promise)` | 两端 | 作用域登记的定时器与异步包装：其中抛出的错误记入本插件诊断，入口停止时自动清理 |
 | `ctx.diagnostics` | 两端 | 写本插件的诊断记录，按插件 id 归类并脱敏 |
@@ -101,7 +104,7 @@ owners:
 
 持久化记录不在 `ctx` 上：插件在依赖中声明内置插件 `nbook.storage` 的服务，按记录读写（[`storage.persistence`](../storage/persistence.md)）；插件私有目录随资源寻址与文件服务另定。
 
-命令不在 `ctx` 上：命令由内置插件 `nbook.commands` 提供，插件向它的贡献点登记命令；内置插件在 `dependencies` 中声明它的命令服务后按 id 执行（命令服务含同步读取，只限内置插件；第三方执行命令的写法随第三方插件 API 设计，见 [`workbench.commands`](../workbench/commands.md)）。
+命令不在 `ctx` 上：命令由内置插件 `nbook.commands` 提供，插件向它的贡献点登记命令；插件在 `dependencies` 中声明它的命令服务后按 id 执行（[`workbench.commands`](../workbench/commands.md)）。
 
 插件状态不在 `ctx` 上：插件用 `defineStore` 在一处声明一个入口的内存、持久化、派生与公开状态，在 `activate` 里以 `ctx` 创建，随入口代次释放（[`state.store`](../state/store.md)）；公开键是向贡献点 `state.public` 的声明（[`state.public`](../state/public-state.md)）。
 
@@ -123,6 +126,24 @@ owners:
 - 按（插件，模块）复用空闲 worker；全局上限为逻辑 CPU 数减 1（至少 1），每个插件上限 2；满员时排队，排队中的调用同样响应中止。
 - 入口停止时只拒绝该入口的新调用、结算该入口排队与在途的调用，并终止正在执行这些调用的 worker；同一插件其它入口的调用与 worker 不受影响。
 - worker 被终止到真正停止之间仍占用名额：Bun 中执行 JS 的 worker 在 1 秒内停止；Chrome 中约 2 秒；执行 WebAssembly 或原生阻塞调用时要等其返回（见“边界与兼容”）。
+
+### 作者 API
+
+`definePlugin({id, version, locations})`（根入口）返回绑定插件 id 的对象；作者在插件描述的模块里调用一次，别的模块都从那里取。
+
+- **助手与短名**：贡献助手是所属内置插件子路径里的函数，第一个参数是 `plugin`：`/settings` 的 `section(plugin, …)`（list 分区，`category` 缺省 `plugins`）与 `setting(plugin, …)`，`/commands` 的 `command(plugin, …)`，`/workbench` 的 `view(plugin, …)` 与 `statusItem(plugin, …)`，`/settings/browser` 的 `settingsPage(plugin, …)` 与 `choices(plugin, …)`。`plugin` 对象只有 `id`、`version`、`locations`、`descriptor`、`entry`、`definition`。助手只收短名 `name`，贡献 id 是 `<插件 id>.<name>`（设置项的键是 `<插件 id>/<name>`），类型上是字面量；短名不合这个贡献点的 id 规则时加载即抛错，写明是哪一个。
+- **文字与缺省值**：界面文字可以只写一个字符串，两种界面语言显示同一句；视图 `location` 缺省 `sidebar`、`layout` 缺省 `scroll`；状态栏条目 `alignment` 缺省 `right`、`order` 与 `priority` 缺省 0，`command` 可以直接给命令助手；命令 `args` 缺省空对象，没写 `additionalProperties` 的补成 `false`，`effect` 必填。命令的参数不带值就过不了校验（有必填项，或 `minProperties` 这类写法）而没写 `expose: {human: false}` 时加载即抛错：命令面板不收集参数，以空对象执行（[`workbench.commands`](../workbench/commands.md)）。设置项的 `section` 收分区助手，`group` 只能是那个分区的组 id。
+- **插件描述与定义**：`plugin.descriptor(声明式贡献)` 给出插件描述；`plugin.definition(入口)` 或 `plugin.definition({entries, contributionPoints?, activationEventPrefixes?})` 给出插件定义，入口 id 重复时抛错（入口 id 在一个插件里唯一，不按运行位置分）。
+- **入口**：`plugin.entry({id?, location, contributions?, rawContributions?, receives?, provides?, remoteProvides?, …, activate})`。`id` 缺省取运行位置名。`contributions` 是 `{键: 助手}`，激活产出的 `contributions` 用同样的键交 `助手.implement(…)`：漏写、多写、在某个键上交了别的助手的实现都编译不过，诊断里写明是哪一项；只在浏览器有意义的助手写进别的位置的入口编译不过。助手带的激活事件（设置页的 `onSettingsPage:`、选项来源的 `onSettingsChoices:`）并进 `activationEvents`。不经助手的贡献（向别的插件定义的贡献点提交、插件状态的公开键）写在 `rawContributions`，实现写在产出的 `rawContributions: {贡献点: {id: 实现}}`；插件自己定义的贡献点写在插件定义的 `contributionPoints`，接收者照 `receives` 与产出的 `receivers` 写。服务、远程服务、接收者与 `rawContributions` 的核对同 `defineEntry`。
+- **激活上下文**：作者拿到的上下文类型上没有 `scope`，入口停止时做的事用 `ctx.onStop`；运行时是同一个上下文。
+- **视图与设置页的属性**：`implement(props?)` 的属性类型从 `load` 推出：用 vue-tsc 检查时，必填属性漏写、名字写错或类型不对编译不过，可选属性的笔误查不出；只用 tsc 时不检查。
+
+### 作者工具
+
+SDK 包带命令 `nbooke`，只用 Bun 运行（SDK 包的 `engines.bun`）。类型检查是例外：`vue-tsc` 在 Bun 的运行时里认不出 `.vue` 文件，模板的 `typecheck` 脚本按它自己的抬头行用 Node 运行：
+
+- `nbooke create <目录> [--publisher <段>] [--name <段>] [--sdk <依赖写法>]`：在目录里写出一个能直接构建、类型检查并安装的插件（一个浏览器入口、一个侧栏视图、一条命令、一个设置项）。目录不存在、为空，或只有 `package.json`、`bun.lock`、`node_modules`、`.git` 与 `.npmrc` 时才写，否则拒绝、不写任何文件。已有 `package.json` 时合并：`publisher`、`name`、`version` 与 `type` 用生成的（它们要与生成的插件描述一致），其余字段与依赖保留，脚本与开发依赖按键补缺的。publisher 缺省 `my`；name 缺省取已有 `package.json` 的 `name`，没有时取目录名（转小写，其它字符换成连字符）；不符合清单的 id 段规则、或 publisher 是内置插件用的 `nbook` 时拒绝，写明规则与对应的开关。写到一半失败（权限、磁盘满）时删掉这次写下的文件与目录、`package.json` 写回原样，退出码 1，标准错误一行写明原因。SDK 依赖的写法：给了 `--sdk` 用它，否则保留已有的，都没有时写 `^<SDK 版本>`；最后这种在 SDK 没有发布时装不上，命令在标准错误提示先装 SDK 的 tarball。
+- `nbooke build [作者目录] [--out <目录>] [--clean] [--dev]`：按构建预设构建（[`runtime.plugin-code-loading`](plugin-code-loading.md)）。作者目录缺省当前目录，输出目录缺省 `<作者目录>/dist`，`--out` 的相对路径按当前目录解析。构建失败退出码 1，逐行列出每个问题；只有警告时打印到标准错误、退出码 0；用法不对（不认识的子命令或开关、少了参数）退出码 2。输出目录不为空时拒绝；`--clean` 先清空输出目录里上次构建的同一插件的产物，输出目录是别的内容时拒绝、不删。`--dev` 时产物的版本是 `<version>+dev.<UTC 时间到秒>.<毫秒>`：构建元数据不改变 semver 的优先级，依赖它的插件写的范围照样接受；插件管理按构建元数据排出先后，每次构建都比上一次新，在插件页安装按升级处理，重启后生效，作者不用改版本号或先卸载。开发版本也比同号的正式版本新：之后再装同号的正式构建按降级处理，所以发布前先提高版本号。
 
 ## 状态与转换
 
@@ -149,7 +170,8 @@ owners:
 - **owner**：runtime（SDK 与宿主注入）；配置与密钥归 `nbook.settings`。
 - **不在运行时 import 宿主或其它插件。** 状态只在 `activate` 内建立并登记到激活作用域，不在模块顶层保存；这是热插拔撤回与代码回收的前提。
 - **worker 的限制。** 调用方在中止后立即得到 `interrupted`，但 worker 中的 WebAssembly 与原生阻塞调用要等其返回 JS 才停止（Bun），死循环只能随进程重启回收；Chrome 中 worker 终止后约 2 秒才停。未停止的 worker 继续占用名额，并在诊断中按插件显示。开发者已确认不强制插件把 WebAssembly 计算切成小段，只在插件作者文档中写明。
-- **兼容**：SDK 的公开面属于 `engines.neurobook` 的兼容范围；形态约束让以后把第三方插件移到共享插件宿主 worker 时公开 API 不变。
+- **SDK 的组成**：公开面写在应用里（`src/sdk/` 的各子路径入口），只再导出已有实现，子路径只写在一张子路径表里；`/components` 逐个列出 nb-ui 的组件与它们的属性类型，不整体再导出 nb-ui 的入口；仓库里的示例经别名直接用它的源码。可以安装的包由应用生成（`build:sdk`，用 `bun pm pack` 打出作者 `bun add -d` 的 tarball 并打印路径）：打包的构建期实现、打平的类型声明（只引用 `vue`、`@vue/reactivity` 与 `typebox`，作者项目用普通 tsconfig 即可类型检查）与 `package.json`（版本等于产品版本，`vue`、`@vue/reactivity`、`typebox` 是 peer 依赖），`/build` 子路径是构建预设，带类型声明；包里另有作者命令与模板、作者文档、导出、组件与主题变量三份附表（导出清单列出每个子路径的值与类型、服务端能不能用；组件清单就是 `/components` 导出的组件）、作者文档引用的 Spec 副本，以及示例插件的源码（`examples/`，不带场景测试）。作者材料的源在应用包的 `plugin-sdk/`，产品代码不引用它（[ADR 0030](../../adr/0030-plugin-platform-layering.md)）。宿主能力的键带 `host` 前缀（`hostClockKey`、`hostStateRootKey`），免得与插件自己的服务键重名。工作台的视图（`workbench.views`）与状态栏条目（`workbench.statusbar-items`）的贡献点 id 与类型在 `/workbench`；视图助手的 `implement(props?)` 把入口激活时拿到的服务经 `props` 交给视图组件，组件另收 `context`。`/commands` 另有命令服务的键 `commandServiceKey`：入口在 `dependencies` 里声明它，就能从代码查询、执行命令（[`workbench.commands`](../workbench/commands.md)）。
+- **兼容**：SDK 的公开面、内置插件导出的服务与合同，以及宿主共享给插件的 Vue 与 TypeBox（[`runtime.plugin-code-loading`](plugin-code-loading.md) 的宿主模块表）属于 `engines.neurobook` 的兼容范围，按产品版本的 semver 判断；产品版本为 0.x 时，minor 号变化表示可能有不兼容的改动。形态约束让以后把插件移到共享插件宿主 worker 时远程合同不变；依赖了内部服务的插件不在此列，移出宿主进程需要改写。
 - **构建预设提示**：可以提示从未使用 `signal` 的异步处理函数，不作为构建失败条件。
 
 ## 验收与 Smoke
@@ -165,8 +187,9 @@ owners:
 9. **开发模式克隆检查。** 跨插件调用传函数时，开发模式报告违规。
 10. **入口粒度。** 同一插件 `main` 与 `tts` 入口各有一个运行中的 worker 调用；`tts` 停止时只有它的调用被结算，`main` 的调用正常完成。
 11. **密钥不可解密。** 用无法解密的密文替换插件密钥后读取，得到 `secret-unreadable`，密文仍在；重新写入后读取成功。
+12. **仓库外写插件。** 在仓库外的空目录装上生成的 SDK 包，`create`、类型检查、`build`，在插件页安装产物并重启：模板的视图显示设置项的值，命令可执行，改设置项后视图跟着变；禁用、卸载各在重启后生效。
 
-Smoke：示例外部插件在服务端与 Chromium 中各执行一次 worker 调用与中止，核对场景 1、4、6、7。
+Smoke：示例外部插件在服务端与 Chromium 中各执行一次 worker 调用与中止，核对场景 1、4、6、7；场景 12 由 `e2e/plugin-authoring.e2e.ts` 与照作者文档的一次手动安装覆盖。
 
 ## 证据
 

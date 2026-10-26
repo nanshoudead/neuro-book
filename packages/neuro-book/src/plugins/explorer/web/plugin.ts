@@ -13,7 +13,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {COMMANDS_POINT, commandServiceKey, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import {documentCoordinatorKey} from "nbook/plugins/editor/shared/contracts";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
-import {displayLocale, SETTINGS_SECTIONS_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import type {PublicStateRead} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
@@ -87,7 +87,7 @@ function systemClipboard(): {writeText(text: string): Promise<void>} | undefined
 export const explorerBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
     // 右键菜单的贡献点：菜单项只有声明，同工作台的菜单位置交空实现（docs/specs/workbench/menus.md）。
-    contributionPoints: [{id: EXPLORER_CONTEXT_POINT, implementation: "required", validate: validateExplorerContextItem}],
+    contributionPoints: [{id: EXPLORER_CONTEXT_POINT, implementation: "required", validate: validateExplorerContextItem, idPrefix: "plugin"}],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
@@ -97,7 +97,6 @@ export const explorerBrowserPlugin: PluginDefinition = {
         receives: [EXPLORER_CONTEXT_POINT],
         contributions: [
             {capability: WORKBENCH_VIEWS_POINT, id: EXPLORER_VIEW_ID, declaration: VIEW},
-            {capability: SETTINGS_SECTIONS_POINT, id: EXPLORER_SECTION, declaration: EXPLORER_SECTION_DECLARATION},
             ...Object.entries(EXPLORER_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...explorerState.contributions,
         ],
@@ -152,8 +151,6 @@ export const explorerBrowserPlugin: PluginDefinition = {
                 receivers: {[EXPLORER_CONTEXT_POINT]: contextMenu.receiver()},
                 contributions: {
                     [WORKBENCH_VIEWS_POINT]: {[EXPLORER_VIEW_ID]: view},
-                    // list 分区没有要实现的东西，设置窗口照声明画配置项（docs/specs/settings/settings-window.md）。
-                    [SETTINGS_SECTIONS_POINT]: {[EXPLORER_SECTION]: Object.freeze({})},
                     [COMMANDS_POINT]: explorerCommands(session, () => locale.value),
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
                 },

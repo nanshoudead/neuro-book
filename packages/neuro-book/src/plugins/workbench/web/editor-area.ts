@@ -3,10 +3,13 @@
  * 最小的一个。同时有几个提供者时只挂一个、其余记诊断；挂着的那个撤回时换到下一个，都没有时外壳回到欢迎文字。
  */
 
-import {shallowRef} from "vue";
+import {defineAsyncComponent, defineComponent, h, markRaw, shallowRef} from "vue";
 import type {Component, ShallowRef} from "vue";
 
 import type {ContributionDescriptor, ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
+
+import {formatText, localize} from "nbook/shared/localized-text";
+import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {WORKBENCH_EDITOR_AREA_POINT} from "../shared/contracts";
 import type {EditorAreaDeclaration} from "../shared/contracts";
@@ -20,6 +23,32 @@ export interface EditorAreaProvider {
 export interface EditorAreaSource {
     /** 此刻挂在编辑器槽里的提供者；没有为 null。 */
     readonly current: Readonly<ShallowRef<EditorAreaProvider | null>>;
+}
+
+const TEXT = {
+    loading: {"zh-CN": "正在加载编辑器…", "en-US": "Loading the editor…"},
+    failed: {"zh-CN": "编辑器加载失败：{reason}", "en-US": "The editor failed to load: {reason}"},
+} as const;
+
+/**
+ * 编辑器槽里挂的组件：提供者的组件，加载期间与失败时由这里给内容（WorkbenchShell.md 的“编辑器”）。加载期间是一句给读屏的
+ * “正在加载编辑器”（`role="status"`），容器标 `aria-busy`，截图工具（page:shot）据此等编辑器内容出来；失败时写出原因，
+ * aria-busy 随占位一起撤掉。外壳给槽的属性（`context` 与标记）只给提供者的组件，`inheritAttrs: false` 不让它们落到这两个
+ * 组件的 DOM 上。占位立即显示，不等缺省的 200 毫秒。
+ */
+export function editorAreaComponent(provider: EditorAreaProvider, locale: () => DisplayLocale): Component {
+    const Loading = defineComponent({
+        name: "EditorAreaLoading",
+        inheritAttrs: false,
+        setup: () => () => h("div", {"role": "status", "aria-busy": "true", "data-workbench-editor-loading": ""}, h("span", {class: "sr-only"}, localize(TEXT.loading, locale()))),
+    });
+    const Failed = defineComponent({
+        name: "EditorAreaFailed",
+        inheritAttrs: false,
+        props: {error: {type: Error, required: true}},
+        setup: (props) => () => h("p", {"class": "p-[var(--space-4)] text-[var(--status-danger)]", "role": "alert", "data-workbench-editor-failed": ""}, localize(formatText(TEXT.failed, {reason: props.error.message}), locale())),
+    });
+    return markRaw(defineAsyncComponent({loader: () => provider.load(), loadingComponent: Loading, errorComponent: Failed, delay: 0}));
 }
 
 export function validateEditorAreaContribution(descriptor: ContributionDescriptor): string | null {

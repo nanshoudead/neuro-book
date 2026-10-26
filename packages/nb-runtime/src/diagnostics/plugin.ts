@@ -1,5 +1,5 @@
 /**
- * nbook.diagnostics 插件定义：激活时打开环境出口并把它接到既有记录缓冲之后，向消费者提供
+ * runtime.diagnostics 插件定义：激活时打开环境出口并把它接到既有记录缓冲之后，向消费者提供
  * 诊断服务；释放时进入停止中、补写并关闭出口。
  *
  * 本文件平台中立：出口由宿主注入（后端文件出口、浏览器 console 出口），缺少文件能力不影响启动。
@@ -8,7 +8,7 @@
 
 import type {RuntimeLocation} from "../lifecycle/lifecycle";
 import type {ActivationContext, PluginDefinition} from "../plugins/plugins";
-import {defineEntry, provide} from "../plugins/plugins";
+import {defineEntry, provideService} from "../plugins/plugins";
 import {defineServiceKey} from "../services/services";
 import type {ServiceKey} from "../services/services";
 
@@ -27,7 +27,7 @@ import type {
 import {describeDiagnosticError} from "./redaction";
 
 /** 诊断服务键：同一运行实例内最多一个提供者。 */
-export const diagnosticsKey: ServiceKey<DiagnosticsService> = defineServiceKey<DiagnosticsService>("nbook.diagnostics/diagnostics");
+export const diagnosticsKey: ServiceKey<DiagnosticsService> = defineServiceKey<DiagnosticsService>("runtime.diagnostics/diagnostics");
 
 export interface DiagnosticsPluginOptions {
     /** 本插件的运行位置；与宿主实例身份一致。 */
@@ -44,7 +44,7 @@ export interface DiagnosticsPluginOptions {
  */
 export function createDiagnosticsPlugin(options: DiagnosticsPluginOptions): PluginDefinition {
     return {
-        id: "nbook.diagnostics",
+        id: "runtime.diagnostics",
         entries: [
             defineEntry({
                 id: "main",
@@ -65,7 +65,7 @@ export function createDiagnosticsPlugin(options: DiagnosticsPluginOptions): Plug
                         await closeUnpublishedExporter(outcome);
                         throw error;
                     }
-                    return {services: [provide(diagnosticsKey, createService(options.store), () => options.store.shutdown())]};
+                    return {services: [provideService(diagnosticsKey, createService(options.store), () => options.store.shutdown())]};
                 },
             }),
         ],

@@ -9,7 +9,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {defineComponent, h, nextTick, ref} from "vue";
 
 import Dialog from "./Dialog.vue";
-import FormSelect from "../form/FormSelect.vue";
+import Select from "../popup/Select.vue";
 
 const mounted: Array<{unmount(): void}> = [];
 afterEach(() => {
@@ -100,7 +100,7 @@ describe("Dialog（模态）", () => {
     it("对话框里开着下拉时，点遮罩只关下拉，不关对话框；下拉压在对话框之上", async () => {
         const wrapper = track(mount(Dialog, {
             props: {"modelValue": true, "title": "体裁", "onRequest-close": () => undefined},
-            slots: {default: () => h(FormSelect, {modelValue: "novel", options: [{label: "长篇", value: "novel"}, {label: "短篇", value: "stories"}]})},
+            slots: {default: () => h(Select, {modelValue: "novel", options: [{label: "长篇", value: "novel"}, {label: "短篇", value: "stories"}]})},
             attachTo: document.body,
         }));
         await flushPromises();

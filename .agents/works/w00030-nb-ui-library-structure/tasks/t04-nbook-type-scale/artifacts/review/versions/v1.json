@@ -1,0 +1,51 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00030-nb-ui-library-structure",
+    "taskId": "t04-nbook-type-scale",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "t04 NeuroBook 主题字号恢复大一档 · 改前改后对照",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "8898b17d569e137a6df7e1fce2784b7afc905e1efdd7cc592b75b86120811567",
+    "files": [
+        "index.html",
+        "r1/02-chapter-after.webp",
+        "r1/02-chapter-before.webp",
+        "r1/04-menu-after.webp",
+        "r1/04-menu-before.webp",
+        "r1/05-palette-after.webp",
+        "r1/05-palette-before.webp",
+        "r1/06-settings-after.webp",
+        "r1/06-settings-before.webp",
+        "r1/07-settings-editor-after.webp",
+        "r1/07-settings-editor-before.webp",
+        "r1/08-bookshelf-after.webp",
+        "r1/08-bookshelf-before.webp",
+        "r1/devpanel-after.webp",
+        "r1/devpanel-before.webp",
+        "r1/lab-macos.webp",
+        "r1/lab-nbook.webp",
+        "r1/story-after.webp",
+        "r1/story-before.webp"
+    ],
+    "questions": [
+        {
+            "id": "t04-accept",
+            "type": "confirm",
+            "label": "改后的字号可以合入了吗",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-22T07:25:14.700Z"
+}

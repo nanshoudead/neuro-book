@@ -1,0 +1,164 @@
+### 1. 设置文件的远程 text 订阅结束后不会重建
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`packages/neuro-book/src/plugins/settings/shared/remote-link.ts:81-95`
+- **现象**：`remoteLayerFile.watch` 调用 `events.text.subscribe` 时没有传 `onEnd`，订阅失败只直接返回，成功后的句柄也只在本地保存一个 `release`。与同文件的 `remoteLayerLink`（24-32 行）不同，它没有把临时断线标为可重订阅，也没有在连接恢复后重新建立订阅。
+- **为什么是问题**：设置文件视图打开后依赖 `text` 事件发现外部修改。远程连接或拥有者重启会结束这条事件订阅；窗口仍保留旧文本和旧修订号，之后文件再变化不会提示或自动重读，保存只能迟到地收到 conflict。若建立订阅时已经失败，视图也没有任何状态变化或后续重试。该行为破坏配置层已有的“订阅结束后按连接恢复重订”的合同，并使 `read` 的一次成功不能保证视图持续同步。
+- **如何核实**：对照 `remoteLayerLink` 的 `events.layer.subscribe(..., {onEnd})` 与 `remoteLayerFile` 的无选项调用；在真实远程场景中打开“设置文件”，断开浏览器到服务端的连接，恢复后由另一实例改写文件，观察 `SettingsFileView` 不触发 `changedElsewhere`，直到再次手动读取或保存冲突。
+- **建议改法**：为全文订阅增加与层订阅相同的生命周期封装：传入 `onEnd`，区分终态与可重试终态，重连后先释放旧句柄再重新订阅并推送当前修订号；手动取消、调用方释放和拥有者终止时只释放一次。建立失败也要记录当前订阅不可用并按连接恢复策略重试，不能静默丢掉。
+### 2. readFile 的 UTF-8 替换字符使 revision 不是原始字节摘要
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/settings/backend/layer-owner.ts:47-49,147-149,216-219,229-231`；`packages/neuro-book/src/plugins/settings/backend/layer-file.ts:45-50,87-91`
+- **现象**：`textRevision` 对字符串重新以 UTF-8 编码后取 SHA-256；而文件先由 `readFile(path, "utf8")` 解码。`writeLayerFile` 持锁阶段又把原始字节 `Buffer` 解码成字符串后交给 transform。非法 UTF-8 字节会被 Node 替换成 `U+FFFD`，摘要因此是“替换后的文本”而不是文件原始字节。
+- **为什么是问题**：配置合同明确要求 `revision` 是原始 UTF-8 字节的 SHA-256。当前返回的 revision 与合同不符，外部或 TUI 以原始字节计算的摘要无法写入；更严重的是不同的非法字节序列可能在解码后归一成同一文本，冲突检测失去文件身份区分。写入路径还可能把原始非法字节当成替换字符文本重新落盘，破坏用户文件。
+- **如何核实**：在 `/tmp/review-t02-impl/bad-utf8-settings.json` 写入字节 `c3 28`，用当前算法得到 `2d4bf56bf338c578dae8b2b20d4d8b28801557d4c38e1d7c6699abddf69fee8d`，直接对文件字节取 SHA-256 得到 `eddf68639913a3cb8331cdfe7f87559e0beccf2c289c0d90ac4d89b3204004f8`，两者不同（命令：`node -e '...'`，输出 `equal:false`）。
+- **建议改法**：文件层同时保留原始 `Uint8Array` 与严格 UTF-8 解码结果；revision 直接对原始字节摘要。整份读写遇到不能严格解码的内容应按 `read-failed` 或明确的文本读取失败处理，不能用替换字符继续做冲突检查与写回。
+### 3. 只有空白的搜索词会绕过未保存保护并丢页面草稿
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/settings/web/settings-window.ts:393-395,706-710`
+- **现象**：`words` 会过滤空白并因此把查询视为“没有搜索”，但 `search()` 用原始 `query.value` 判断是否已经从空查询进入搜索。用户在脏 page 页面先输入一个空格时，`next.trim() === ""`，代码不走 `requestLeave`，却把 `query` 设为非空空白；随后再输入任意字母时，`query.value !== ""`，直接改查询，不再走 `requestLeave`。此时 `words` 从空变为非空，当前页面卸载，未保存改动无确认即丢失。
+- **为什么是问题**：Spec 要求“在搜索框输入第一个字”触发未保存保护。空格是输入事件的一部分，不能成为绕过保护的中间状态；当前实现只要用户先按空格，就能在第二个字符时无确认地离开脏页面。与此同时查询显示仍保留空格，`Esc` 还会因 `query !== ""` 只清空而不关闭窗口，说明 `words` 与 `query` 的状态语义已经分裂。
+- **如何核实**：在真实设置窗口的 page 页面令 `context.dirty(true)`，依次调用搜索输入事件 `" "`、`" x"`：第一次后 `window.leaving` 仍为 `null`，第二次后 `window.current.kind` 变为 `search` 且 `window.leaving` 仍为 `null`；页面已卸载。现有搜索测试只覆盖非空首词，没有覆盖首个字符为空白。
+- **建议改法**：把“有搜索词”的判定统一为 `words.length > 0`。从无词到有词（包括由空白前缀组成的查询）一律调用 `requestLeave`；只有空白的输入规范化成空串，或至少按空查询处理清空、Esc 与页面生命周期，避免 `query` 原文状态参与离开保护判定。
+### 4. 加载中的 page 关闭后会保留旧 context，下一次显示复用它
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`packages/neuro-book/src/plugins/settings/web/settings-window.ts:484-497,556-565,617-630`；`packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue:56-57,214-216`
+- **现象**：`SettingsWindow.vue` 在 page 还处于 `waiting/loading`、组件尚未交付时就调用 `model.page(id)`，`contextOf` 因而把 context 放入 `visits`。但 `visits` 的结束 watch 只观察“窗口开着、当前 page 可用且 instance.status === ready”；关闭窗口或取消加载时 `performClose` 把 instance 从 `loading` 设为 `waiting`，这次显示从未有 `previous === ready`，所以 `endVisit` 不会执行。再次打开并加载同一 page 时会从 `visits` 取回同一个 context。
+- **为什么是问题**：合同要求每次页面挂载/显示给新的上下文，旧上下文在关闭、重新加载时作废。当前旧 context 可跨关闭窗口和一次新的加载继续存在；以后页面在加载前后调用 `dirty`、或依赖 context 身份区分草稿代次时，会把两次显示混成一代。现有测试只覆盖已 ready 页面离开，没有覆盖加载中关闭。
+- **如何核实**：让 page 的 `load()` 挂起，打开该分区直到 `page().status === "loading"`，读取 `window.page(id).context`，立即关闭再打开并允许 `load()` 完成；按当前代码两次 `window.page(id).context` 相同，且第一次显示没有经过 `endVisit`。这条路径只使用真实的页面加载与窗口关闭时序，不调用内部私有函数。
+- **建议改法**：只在 page 已 ready、确实要挂载组件时创建 visit/context；或者关闭、撤回、重新加载时显式结束该 id 的所有 visit（包括尚未 ready 的预创建项），并为每次新的加载代次重新建 context。`page()` 不应为了渲染状态占位而提前创建一次显示的上下文。
+### 5. 设置文件视图在初次读取期间会丢弃 text 事件
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/settings/web/components/SettingsFileView.vue:252-257`
+- **现象**：`follow()` 先建立 `watch`，随后 `load()` 把状态置为 `loading` 并等待 `file.read()`。订阅回调看到 `state.value.kind === "loading"` 时直接 `return`，不记录事件。若文件在这次异步读取期间变化，事件先到、读取又返回旧文本，加载结束后组件会把旧文本与旧 revision 设为新的基线，之后不会再有事件触发重读。
+- **为什么是问题**：设置文件视图打开后可能长期显示已经过时的全文，用户随后编辑并保存时才被动得到 conflict；在事件与读取结果跨远程帧乱序时，这不是理论上的固定顺序问题。Spec 要求没有草稿时收到 `text` 事件自动重读，`loading` 不是可以丢弃通知的终态。
+- **如何核实**：用真实的远程文件视图打开时让 `readText` 挂起；在它完成前由另一实例写入只改注释的文本，确认 `text` 事件已到达；再让 `readText` 返回旧文本。当前回调因 loading 直接返回，加载完成后的 textarea 仍是旧文本，且没有后续 `changedElsewhere` 或自动重读。
+- **建议改法**：加载期间不要丢事件：记录待核对的最新 revision，读取完成后若 revision 与返回值不同立即再读；或让事件回调排一个带 token 的重读，确保最后一次 read 与订阅看到的 revision 一致。换层、卸载时仍用现有 token 丢弃过期结果。
+### 6. 动态选项的 notActivatable 诊断会污染入口换代
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/settings/web/choices.ts:87-92,145-149,178-199`
+- **现象**：第一次读取已登记、未激活的提供者且入口没有 `onSettingsChoices:<id>` 时，`#activate` 把原因永久写入 `#notActivatable`。这个 Map 只增不删；`receiver().published`、`revoke`、插件状态变化和新入口代次都没有清理或换代标识。后续即使入口因别的途径交付后又撤回、同插件重新登记并声明了事件，`#state` 仍在 registered 状态命中旧原因，`#activate` 直接返回，不再触发新代次。
+- **为什么是问题**：提供者目录与句柄是按入口代次变化的；一次“当前代次没有这个事件”的结论不能跨停止、撤回和重新登记复用。用户会看到永久 unavailable，必须刷新整个浏览器页面才能恢复，违反计划中“换代时丢掉旧缓存、按当前入口状态重新判断”的不变量。
+- **如何核实**：真实运行时先登记没有按需事件的提供者并读取一次使其进入 `#notActivatable`，随后停止/撤回该入口，以新代次登记同一提供者并声明 `onSettingsChoices:<id>`，触发入口恢复；当前 `#notActivatable.has(id)` 仍为真，选项源不会发起激活。现有测试只验证“之后直接 activate 后句柄可用”，没有覆盖撤回/重新登记后的读取。
+- **建议改法**：把不可激活状态绑定到入口代次或当前入口引用，而不是只按 provider id 记忆；入口代次改变、句柄发布/撤回或状态恢复时清除旧结论并重新核对事件。诊断去重键也应包含代次，避免新代次沿用旧代次的失败。
+
+## 核实更正与运行证据（覆盖上文同编号的早期描述）
+
+- **第 1 条更正**：已建立的远程订阅在普通断线后由内核 `node.ts:1026-1034,1105-1122` 自动重建，不需要 `remoteLayerFile` 自己重建；服务端换进程是浏览器整体失效的终态，也不应在原窗口重试。原文关于“普通断线导致永久失去通知”的判断撤回。**有效问题收窄为首次建立失败后的恢复缺失**：离线时执行 `file.watch()`，让订阅以 unavailable 结束，再重连；同一 `file` 随后 `read`、`write` 都成功，但 watch 收到的事件数为 **0**。内核只登记建立成功的订阅（`node.ts:659-672`），无法替首次失败的订阅恢复。建议复用配置实例连接恢复时的重订策略，并在 `watch` 中提供可观测的失败/结束状态；保留内核已实现的成功订阅重连机制。
+- **第 2 条补充真实证据**：已通过设置窗口数据来源、v2 远程合同和真实层拥有者复现。注释内的单字节从 `80` 改为 `81` 后，两份文件原始摘要不同，但 `readText` 都返回 `06e7f21a99dd93bf0f9c1e2dab6bb3165a97e40620862e654f86b22e4045b061`；第一份文件原始摘要为 `4c4363bbf9546652dce7c5b42027a2faa8c46440395ce924b60498fe34249590`。以改前的 revision 整份写返回 **ok:true**，磁盘被覆盖成 `// local edit\n{}`。这证明冲突检测确实漏掉字节变化，不只是不符合摘要格式。此前 `node -e '...'` 仅是辅助实验，完整可重跑命令见本节末尾。
+- **第 3 条补充真实证据**：真实内核注册并交付 page 后，窗口模型依次收到 `search(" ")`、`search(" x")`；输出 `{"query":" x","current":"search","leaving":null,"unsaved":false}`，未保存标记已随离开被清掉。当前调用与组件 `@update:model-value` 到模型的入口相同，未绕过私有实现。
+- **第 6 条补充真实证据**：使用真实插件宿主关闭第一次登记作用域，再在新作用域登记同 id 且带 `onSettingsChoices` 的入口；输出 `state:"registered"`、源 `status:"unavailable"`、激活次数 **0**。显式激活新入口后源恢复 ready，排除了新登记失败或新实现错误。该问题限于入口在注册表存活期间换代的路径；普通首次激活和显式交付没有故障。
+
+复现文件全部在 `/tmp/review-t02-impl/`。从 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/neuro-book` 运行：
+
+```sh
+NODE_PATH=/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules bun /tmp/review-t02-impl/build-probes.ts
+bun /tmp/review-t02-impl/bundle/probes.js all
+bun /tmp/review-t02-impl/bundle/probes.js choices
+```
+
+打包器只将 `nbook/*` 指向固定提交的审查 worktree，依赖复用执行 worktree；未改任何产品文件。输出还确认：成功订阅重连前收到 **1** 个事件，重连后收到 **2** 个；首次离线订阅重连后的事件为 **0**。
+
+#### 第 4 条最终结论：关闭后重新打开同一 ready 页面，当前页面的 dirty 永久失效
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/settings/web/settings-window.ts:484-505,556-565,617-625,758-760`；调用链 `web/components/SettingsWindow.vue:56-57`。
+- **现象**：真正影响用户的是 **已 ready 页面的关闭再开**。第一次页面卸载时 `endVisit` 删除旧 context；但 `SettingsWindow.vue` 的 `page` computed 不依赖窗口 `open`，只依赖未变化的 `current` 与 PageInstance 字段。关闭 ready 页面不改 PageInstance，重开同一分区时这个 computed 保留原先的 `SettingsPageView.context`，新挂载的页面仍收到已作废的旧 context。新页面调用 `dirty(true)` 被 `visits.get(id)?.token !== token` 拒绝，之后切分区、切标签、关闭都丢草稿而不确认。
+- **为什么是问题**：这是 Spec 输出 6、22 的直接破坏。上文“加载中预建 context 复用”的内部观察虽然存在，但第一次 load 未完成时 context 尚未交给页面，**单独不作为问题计数**；以本段真实挂载的故障替代原第 4 条的现象与影响。
+- **如何核实**：`/tmp/review-t02-impl/review.dom.test.ts` 第一例挂载固定提交的真实 `SettingsWindow`，发布一个按钮调用 `context.dirty(true)` 的 page；关闭、等页面 DOM 卸载、重开、等第二次挂载，再点按钮。断言 `contexts[0] === contexts[1]` 且 `host.window.unsaved.value === false` 均成立。另一份真实内核模型实验 `bun /tmp/review-t02-impl/bundle/probes.js reopen` 输出 `{"same":true,"unsaved":false}`。
+- **建议改法**：把 visit/context 身份作为模型的响应式状态，在显示结束后让所有缓存的 page view 失效；视图的 `page` computed 至少要依赖 `open` 或独立的 visit 版本，重开时重新取得 context。不能只在非响应式 Map 里删 context，指望 Vue computed 自行重算。
+
+#### 第 5 条补充：实际组件与真实远程链路已复现
+
+- 固定提交的准确位置为 `web/components/SettingsFileView.vue:69-95`，上文第 5 条位置 `252-257` 是错误行号，以本段为准。
+- `/tmp/review-t02-impl/review.dom.test.ts` 第二例使用真实 `settingsWorld` 与真实文件拥有者，只延迟链路上的第一份 `readText` result 的交付；原始响应已由真实拥有者生成，不伪造返回值。在响应在途期间经 v2 `writeText` 写入 `// changed while response was pending\n{}`，随后放行旧响应。实际组件最终 textarea 为 **空串**，`data-settings-file-changed` 不存在，两条缺陷断言均成立。
+- 这条竞态也可发生在 WebSocket 上：只需第一次读取返回后、响应被浏览器处理之前另一个调用写入；响应与事件不能被视为同一次原子读取。当前实验只调度真实帧，没有调用解析或回调的私有实现。
+
+组件验证命令（从执行 worktree 的 `packages/neuro-book` 运行；配置与缓存都落 `/tmp/review-t02-impl/`）：
+
+```sh
+node /home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules/vitest/vitest.mjs run --config /tmp/review-t02-impl/vitest.config.ts
+```
+
+结果：**1 个文件、2 例通过**，耗时 **7.97s**；两例断言的是缺陷行为存在，不是修复后通过。没有跑 e2e 或开发服务。
+
+#### 第 5 条撤回：此前实验重排了同一链路上的帧
+
+- 上一节“实际组件与真实远程链路已复现”的结论撤回。该实验截留第一份 `readText` 响应，却放行了后续 `text` 事件，改变了同一条 WebSocket 的有序交付；它证明的是任意重排时组件会丢通知，不能作为当前生产链路存在该故障的证据。
+- 已改成保留帧顺序：截留响应及其后所有帧，放行时依次交付。相同写入后，组件自动读到了 `// changed while response was pending\n{}`，没有停在旧文本。最新组件验证为 **1 个文件、2 例通过，6.13s**；第一例仍断言第 4 条故障存在，第二例断言有序交付后读取正确。
+- 静态证据：拥有者同一队列串行执行读写；`nb-runtime/src/remote/node.ts:840-855` 在方法结算后同步发送响应，`peer.ts:275-283,315-320` 同步发送响应和事件；项目路由的转发仍保留链路上的顺序（`router.ts:459,487-506`）。未找到无需重排帧即可产生“更新事件先到、旧读取响应后到”的实际路径。
+- **有效问题数不包含第 5 条**。原编号与标题按只追加要求保留，以本节撤回结论为准。
+
+### 7. Lab 内存层的全文状态与真实拥有者不一致，会掩盖合同缺口
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/neuro-book/src/plugins/lab/web/fixtures/settings-scene/memory-layers.ts:85-90,99-112,117-129,152-159,177-188`；入口为 `settings-host.ts:98-108`。
+- **现象**：新 `text` 选项只初始化文本，快照仍只从 `values` 初始化；因此单独给出合法的初始文本时，文件视图和配置列表读到两套值。`reread` 与整份 `write` 丢掉 `parsed.problems`，快照始终给 `problems: []`。`exists` 用 `text !== ""` 推断，真实存在的空文件无法表示；revision 用 FNV-1a 加长度，和 v2 的 SHA-256 合同不同。整份写与 `setText` 无条件 `publish`，只改注释也递增层快照 seq。
+- **为什么是问题**：组件测试与 Lab 共用此层，计划要求测试替身补齐全文合同。当前它可以让“修好文件后列表同步”“schema 错误的键被丢弃并报告”“只改格式只发 text 不发 layer”等测试在不同于产品的状态下通过。场景目前手工同时填写 `values`、`text`，只是避开了初始解析问题；不能据此证明真实路径。此问题影响验证可信度，不作为生产文件数据损坏计数。
+- **如何核实**：运行下列命令，把相同输入交给固定提交的内存层与真实内核/v2 远程合同/真实拥有者。实际输出：初始文本 `{"nbook.settings/locale":"en-US"}` 的内存值为 `{}`，真实值为 `en-US`；真实存在空文件的内存 `exists:false`、真实 `exists:true`；空文本 revision 为 `811c9dc5-0` 对 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`；写入 `{"nbook.settings/locale":17}` 后，内存 `problems:[]`，真实为 `[{key:"nbook.settings/locale",reason:"invalid-value"}]`；随后只加注释，内存 seq 从 **1 → 2**，真实保持 **2 → 2**。
+
+  ```sh
+  NODE_PATH=/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules bun /tmp/review-t02-impl/build-probes.ts
+  bun /tmp/review-t02-impl/bundle/memory-probes.js
+  ```
+
+- **建议改法**：文件文本作为唯一的当前文件来源，初始化及外部改动都用同一解析流程生成 values、problems、invalid；单独保存 exists；层快照按 `sameContent` 决定是否发布，text 按字节摘要决定是否通知。摘要使用浏览器可用的 SHA-256 实现。补一份同时跑真实层和内存层的合同对照，覆盖上述输入；不要只在内存层自身测回显。
+- **基线归因**：全文接口、`text` 选项和 `reread` 都是本次 S5 新增。基线已经有无条件 `publish`，但没有“只改文件格式”的入口；本条只计新增文件入口复用了该行为造成的合同偏差，原单键写的重复发布不另计回归。
+
+## 最终有效结论与基线归因
+
+审查范围为 `582f543f6..e4d6061a4` 的 `packages/` 差异，加 `6e7616438` 的解析错误修正；`e06a63bb0` 的合并内容不计。以下结论针对固定审查 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/review-t02-impl`。按只追加要求保留原编号、标题与早期判断，**本节及上述复核更正优先于早期描述**。
+
+按实际影响排序：
+
+| 原编号 | 严重程度 | 类别 | 最终有效问题 | 本次引入与证据 |
+| --- | --- | --- | --- | --- |
+| 2 | 重要 | 正确性 | 非法 UTF-8 经替换解码后摘要，不同文件字节可得到同一 revision；旧 revision 的整份写实际覆盖了外部变化 | S5 新增的 `textRevision`、`readText`、`writeText` 将基线的宽松解码用于新的字节身份合同；原单键路径的宽松解码是基线行为，不另计。真实拥有者、v2 远程调用与磁盘结果已核实 |
+| 3 | 重要 | 正确性 | 脏页面依次输入空格、字母，进入搜索时跳过确认并清掉未保存状态 | S4 新增 `search` 分支；真实内核窗口模型已复现 |
+| 4 | 重要 | 不变量 | ready 页面关闭后再打开，组件复用已作废 context，当前页面 `dirty(true)` 无效 | S4 新增 visit 作废机制与既有 computed 缓存耦合；真实组件重新挂载与真实内核模型均已复现。原“加载中预建 context”观察不单独计数 |
+| 1 | 重要 | 不变量 | `text` 首次订阅在离线时失败后，连接恢复及手动读写成功也不恢复通知 | S5 新增 `remoteLayerFile.watch`；真实内核远程场景已复现。成功建立的订阅普通重连正常，不属于此问题 |
+| 6 | 重要 | 正确性 | 旧入口的不可按需激活结论残留，新作用域重新登记同 id 且声明事件后仍不激活 | S3 新增注册表中的 `#notActivatable` 按 id 永久缓存；真实插件宿主关闭登记作用域、重新登记并显式激活对照已核实 |
+| 7 | 建议 | 测试 | Lab 内存全文状态、exists、问题列表、摘要与发布条件偏离真实层 | S5 新增全文入口；同输入交给内存层和真实远程层的对照已核实 |
+
+第 1 条的最终建议：将首次建立失败显式交给连接恢复逻辑重新订阅，同时保留内核对成功订阅的自动重建；不能仅补一个 `onEnd` 就认为首次失败会恢复，因为失败的订阅没有进入内核活动表。取消早于异步建立完成时，当前实现会释放迟到的成功句柄，未发现这条路径的遗漏。
+
+第 5 条**撤回，不计数**：此前复现人为改变了链路帧顺序；保留顺序的对照未复现故障。原位置 `SettingsFileView.vue:252-257` 无效，实际待核查回调在 `69-95` 行。若后续要按更强的“任何读取中事件都必须记录”合同强化实现，应单独给出真实可达时序，不能复用已撤回的实验。
+
+## 验证命令、结果与限制
+
+以下命令均从 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/neuro-book` 执行。没有改该 worktree 的文件，没有安装依赖。
+
+```sh
+bun test src/plugins/settings/web/choices.test.ts src/plugins/settings/window.test.ts src/plugins/settings/backend/layer-owner.test.ts src/plugins/settings/shared/layer-text.test.ts src/plugins/settings/web/sections.test.ts
+```
+
+结果：**95 pass，0 fail，514 expect() calls，5 个文件，5.76s**。执行 worktree 比固定审查提交新，且有其它会话的未提交修改；这组通过结果只作辅助证据，不能表示固定提交已通过同一套测试。
+
+```sh
+NODE_PATH=/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules bun /tmp/review-t02-impl/build-probes.ts
+bun /tmp/review-t02-impl/bundle/probes.js all
+bun /tmp/review-t02-impl/bundle/probes.js choices
+bun /tmp/review-t02-impl/bundle/probes.js reopen
+bun /tmp/review-t02-impl/bundle/memory-probes.js
+node /home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/node_modules/vitest/vitest.mjs run --config /tmp/review-t02-impl/vitest.config.ts
+```
+
+探针通过别名将 `nbook/*` 固定到审查源码，依赖复用执行 worktree；Vue 与 `@vue/*` 解析到同一份实例。它们验证了上表的具体缺陷与内存层差异，正常关闭了创建的运行时。最新组件运行 **2 例通过，6.13s**：一例证明第 4 条缺陷存在，一例证明有序帧场景能自动跟进文本。此前 **7.97s** 的旧组件运行包含无效重排实验，不作为第 5 条问题证据。
+
+额外真实文件探针确认 BOM、CRLF、未声明键的全文原样保存；`watch` 建立后立即取消，后续写入回调数为 **0**。这只能证明观察到的取消行为，没有据此声称测量了内部资源或堆内存泄漏。
+
+未运行：e2e、开发服务、`smoke:server`、打包、typecheck、全量测试、浏览器视觉与无障碍检查。`smoke:server` 只静态核对了 v2 帧与 S9 判据；未拿 Task 中作者的旧运行记录充当本轮结果。LSP 尝试不可用（`No language server found for this action`），位置依据固定源码行号。
+
+## 未发现问题的方面
+
+- **队列与锁（代码核对）**：全文读写、单键写入与监视重读进入同一拥有者队列；无锁预读在不变时返回，其余进入 `replaceLocked`，持锁及改名前重做会再次执行 revision 比对与解析。没有发现本次新增路径绕过已存在的锁、权限核对、符号链接落点与停止收口；未重新运行跨进程压力场景。`readText` 会等前面的写入结束，这是计划中同队列的取舍，不另报性能缺陷。
+- **远程合同迁移（代码核对）**：用户层与项目层同升 v2；浏览器、项目实例复用合同对象，字面量调用只找到已改为 v2 的 smoke 帧。当前设置插件的 locations 为 server、project、browser，未找到独立 TUI 设置实现，因此没有据此声称 TUI 已运行验证。`settings-failed` 的可选 `position` 在拥有者出口、远程 schema 与 `textFailure` 之间保留，旧单键折算不受影响。
+- **订阅生命周期（运行与代码）**：成功建立的远程订阅普通重连后恢复并先推当前 revision；取消早于建立完成时释放迟到句柄。第 1 条只剩首次失败恢复缺失，不扩展到服务端重启或项目代次结束的终态。
+- **解析与文件保留（运行与代码）**：任意深度重复键、非对象根、语法错误会拒绝全文写入；位置使用结构化 line、column。`6e7616438` 将中文原因与位置分开，未发现该修正新增调用方不兼容。BOM、CRLF 与未声明键的真实全文往返已核实；原单键文本编辑主体未因迁到 shared 改写。
+- **选项源的正常路径（代码与辅助测试）**：稳定映射、按句柄 WeakMap 缓存、每次求值的异常与形状边界、缺失提供者的 unavailable 路径存在；交付句柄优先，显式激活后的新句柄可用。第 6 条限于尚未交付的新登记入口沿用了旧的不可激活结论。
+- **离开入口（代码与辅助测试）**：切分区、切标签、关闭、命令换分区或标签均进入 `requestLeave`，确认框目标后到覆盖先到；查到的缺口是第 3 条空白搜索过渡与第 4 条上下文缓存。没有把只读审查扩成外观或无障碍结论。
+- **参照范围**：对照了 [VS Code 设置说明](https://code.visualstudio.com/docs/configure/settings) 的用户/工作区层、设置文件与搜索，以及旧应用的 `useModelSettingsDraftSession.ts`（独立草稿与保存快照）。VS Code 的专用搜索过滤、JSON IntelliSense，旧应用的模型发现与健康检查超出已批准范围，不列为本轮缺陷；凭据和高亮沿用开发者已定的不做决定。
+
+## 数量
+
+**有效问题 6 条：阻断 0、重要 5（1、2、3、4、6）、建议 1（7）。** 保留的 `### N.` 标题共 **7** 条，其中第 **5** 条已撤回。报告只追加，未删除、重写或重排原条目；最终计数以有效结论为准。
+

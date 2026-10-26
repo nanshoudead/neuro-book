@@ -1,0 +1,153 @@
+# w00024 t16 后端与设计审查
+
+审查范围：技术选型、关键设计切片 1 到 4，以及 qa.md、harness.md 的对应改动。
+
+### 1. 一个 Profile 无法同时满足 Markdown 不声明 answer 与结构化保留 answer
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：`plan.md:79-84`、`packages/nb-story/src/qa/story-qa.profile.tsx:14-26`、`packages/nb-story/src/qa/tools.ts:148-155`
+- **现象**：计划要求作答方式在开对话时固定，Markdown 对话不声明 `answer`，结构化对话照旧；但 Profile 的 `tools` 是静态定义，当前 `answer` 是必需的 `toolRef(ANSWER_TOOL_ID)`，而 `storyQaPlugin` 无条件登记 `answer`。`initial` 只能在 Profile `context` 中使用，不能改变 `resolveEffectiveTools` 已算出的工具集。
+- **为什么是问题**：只把 `answer` 改成 optional 会让两种模式都看到它；保留必需声明又会让 Markdown 创建失败，或违反“Markdown 不声明 answer”。计划没有提供按作答方式选择 Profile/工具集的接口，后续照字面实现必然返工，且 Profile v4 的会话快照还会把错误的工具集合固定下来。
+- **如何核实**：静态核对 `story-qa.profile.tsx` 的 `tools` 在传入 `initial` 前定义，`tools.ts` 的 `storyQaPlugin` 每次都返回 `answerTool(state)`；`nb-harness/src/harness.ts:100-116` 只从 Profile 与登记表计算并恢复工具集，不按 `initial` 重算。
+- **建议改法**：为 Markdown 与结构化分别定义稳定的 Profile manifest/version（或增加一个在创建前选择 Profile 的工厂），并让 Markdown 的插件不登记 `answer`、结构化的插件登记收尾工具；把选择结果写进快照并在恢复时校验。不要用运行时 prompt 文字代替工具集合差异。
+### 2. Profile v4 后网页仍把旧对话报告为可续问
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`plan.md:81-84`、`packages/nb-story/src/server/qa-service.ts:379-399`、`packages/nb-story/src/qa/story-qa.profile.tsx:14-15`
+- **现象**：计划和已确认决定要求 Profile 升到 v4，t16 之前的对话不能续问；但 `qa.get` 的 `continuable` 只判断 `conversation.log !== null` 且日志能逐行解析，没有检查第一条 `session_snapshot.profile.version`，也没有检查快照中的工具声明是否是 v4。当前 Profile 还是 v3，切到 v4 后这个路径仍会返回 `{ok:true}`。
+- **为什么是问题**：网页会对旧对话显示可继续并允许提交；真正 `qa.start` 到 `createHarness` 才因 `session_incompatible` 失败，用户得到延迟且不一致的 `qa_not_continuable`。这违反“不能续问”的可观察合同，也使“qa_not_continuable 的提示”无法在进入模型前稳定呈现。
+- **如何核实**：静态读 `qa-service.ts:393-397`，其唯一条件是日志存在且 `parseLog` 成功；`nb-harness/src/harness.ts:105-112` 明确按快照 Profile key/version 拒绝恢复。用现有日志构造 `profile.version: "3"`、可解析 `agent_message` 的 `qa.get` 即可复现两处判断不一致，无需模型请求。
+- **建议改法**：`qa.get` 与 CLI 续问共用一个读取快照/验证可续问函数，至少检查 `story-qa@4`、初始输入中的作答方式和工具声明；不满足时直接返回 `continuable.ok=false`，原因使用 `qa_not_continuable` 的同一分类。旧记录仍可查看，不能仅按 JSON 可解析判定可续问。
+### 3. 出处复查写入的 meta 不会显示成网页过程行
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`plan.md:83-84`、`packages/nb-harness/src/context.ts:17-34`、`packages/nb-profile/src/render.ts:71-76`、`packages/nb-agent-ui/src/harness.ts:304-323`、`packages/nb-story/src/web/qa/turn-transcripts.ts:26-39`
+- **现象**：计划要求在同一 harness 第二次 `turn` 前写 `nb-story.reply-check` meta，并让网页显示“出处检查：N 处没读过，已让模型重写”。Profile 渲染只把 `agent_message` 放进历史，`meta` 不会进模型上下文；这本身符合会话日志的 meta 语义，但 nb-agent-ui 的真实转录适配器也明确把 `meta` 与快照、旧条目一起忽略。`turn-transcripts` 只是把条目转交给该适配器，没有转换层。
+- **为什么是问题**：只实现引擎的 meta 写入和网页按轮分组，页面看不到计划承诺的复查过程行；若把复查消息本身当作展示文案又会把它渲染成新用户问题，正是本次 `logFrom` 分轮设计要避免的错误。另一个隐含假设是 meta 会进入模型上下文，实际不会，不能依赖它传递复查清单。
+- **如何核实**：读 `renderProfile` 的 `HistorySet` 分支和 `createHarnessTranscript` 的 `case "meta": return`；用一条 `meta`、随后一条 `agent_message` 喂给真实适配器，只有消息条目会产生视图消息，meta 不产生任何消息。
+- **建议改法**：在 nb-agent-ui 的公开转录合同中增加可渲染的 meta/过程事件，或在 nb-story 的 `turn-transcripts` 适配层把 `nb-story.reply-check` 映射为独立的过程视图；同时明确复查清单只放在第二次用户 `turn` 的文本中，不能靠 meta 给模型传递。为这条映射补跨轮日志测试。
+### 4. 四分类规则对 69 家目录既有重叠，也漏掉 muse-code 与免鉴权路径
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`plan.md:36-46`、`/home/notnotype/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-catalog/compat/{auth,providers}.ts`
+- **现象**：按计划字面跑完仓库 OMP 18.2.5 的全部 69 个 `getBundledProviders()` 后：`anthropic` 同时满足 refresh login、env hook chain、envVars key；`bedrock-mantle` 同时满足 env hook/native chain 与 envVars key；`cursor`、`github-copilot`、`gitlab-duo`、`gitlab-duo-agent`、`openai-codex`、`xai-oauth` 同时满足会过期 login 与 envVars key。`muse-code` 有 `login.kind=device-code`、`refresh.kind=none`，但没有 envVars、`result:"api-key"` 或计划定义的 chain 信号，因此四类没有落点。另有 `commandcode`、`google-vertex`、`zenmux` 的目录元数据允许缺少 key，计划的“有 envVars 才 key / chain、none 灰掉”却没有表达这种可用性。
+- **为什么是问题**：没有优先级和“可登录但也可用环境令牌”“可免 key”的正交字段，同一个服务商会依实现顺序被不同页面标成不同类；`muse-code` 会落入未定义分支；Google Vertex 的 `GOOGLE_CLOUD_API_KEY` 路径与 3 家免鉴权服务会被错误置灰，直接违反“没验证过的接口照常可选”之外的实际 OMP 可用性。计划第 39-43 行把认证类型、密钥来源和是否能选混成一个枚举，无法覆盖这组数据。
+- **如何核实**：在主工作区执行 `bun -e 'import {getBundledProviders} from "@oh-my-pi/pi-catalog"; import {authPolicyFor} from "@oh-my-pi/pi-catalog/compat/auth"; import {providerEntry} from "@oh-my-pi/pi-catalog/compat/providers"; ...'`，输出 `count:69`、上述重叠项和 `muse-code`；同一实验显示 `allowUnauthenticated` 为 `commandcode`、`google-vertex`、`zenmux`。`getEnvApiKey("google-vertex")` 在设置 `GOOGLE_CLOUD_API_KEY=x` 时返回非空。
+- **建议改法**：把“登录/环境 key/凭据链/无需认证”拆成认证能力与可用性字段，先定义唯一判定优先级，再为四分类之外的 `keyAlso`、`keyOptional`、`loginAvailable` 等状态写明合同。对 69 家目录做表驱动断言，至少锁定所有重叠项、`muse-code`、`google-vertex` 与免鉴权项；不要用未覆盖条件默认归 `none`。
+### 5. 按 keyEnvs 取 key 会偏离 OMP 的 hook 解析，误报缺钥或错用来源
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`plan.md:24-25、43-45`、`packages/nb-harness/src/model.ts:102-112`、OMP `pi-ai/src/stream.ts:834-880`
+- **现象**：计划把 `providerEntry(id).envVars` 作为 `keyEnvs`，并要求 `resolveModel` 按变量列表取第一个非空值；但 OMP 的 `getEnvApiKey` 不是这个算法：catalog envVars 先合成，registry 的 hook 再覆盖。`anthropic` 的 `envVars` 只有 `ANTHROPIC_API_KEY`，hook 实际还会取 `ANTHROPIC_OAUTH_TOKEN`；`google-vertex` 的 `envVars` 为空，hook 却能从 `GOOGLE_CLOUD_API_KEY` 返回具体 key，或在 ADC 与项目/区域齐备时返回 `<authenticated>` 哨兵。
+- **为什么是问题**：按计划实现后，设置了 `ANTHROPIC_OAUTH_TOKEN` 的用户会被误报没有密钥；Vertex 的合法 API key 会因空变量列表失败，ADC 链也会被当成“没有 key”。反过来，若只把 `getEnvApiKeyName` 改成列出 envVars，错误消息与真实取值来源不一致。当前 OMP 还明确规定 `getEnvApiKeyName` 对 hook/multi-var 返回 undefined，不能拿它当解析器。
+- **如何核实**：在主工作区执行 `bun -e` 设置临时值并只打印类别：`getEnvApiKey("anthropic")` 在分别设置 `ANTHROPIC_API_KEY=x` 与 `ANTHROPIC_OAUTH_TOKEN=x` 时都返回非空；设置 `GOOGLE_CLOUD_API_KEY=x` 时 `getEnvApiKey("google-vertex")` 返回非空；当前 `getEnvApiKeyName` 对这些 hook 解析器没有单一变量名。OMP 源码 `stream.ts:840-869` 与 `:872-880` 给出合成和取值顺序。
+- **建议改法**：运行时密钥始终调用 OMP 的 `getEnvApiKey`，并只把 `providerEntry.envVars` 与 auth hook 元数据用于提示、诊断和“可尝试的环境变量”列表；对 sentinel 单独建 `keyless/credentialChain` 语义。若要完全不依赖 OMP hook，必须明确承认不支持 anthropic/vertex 的这些合法凭据路径，而不能声称仿照 OMP。
+### 6. 配置 schema 没有承载 models 与 model.use 的语义一致性
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`plan.md:49-70`、`packages/nb-story/src/qa/config.ts:34-41、142-165`、`packages/nb-story/src/server/qa-service.ts:429-438`
+- **现象**：计划声明 `models` 至少一个、`model.use` 必须在候选里，并要求解析时引用不在候选时报 `qa_unconfigured`；但 schema 能表达的只是字符串数组和对象形状，计划没有定义 `parseQaConfig`/`saveQaConfig` 是否做跨字段校验，也没有把目录 provider/model 是否存在、自定义 provider 是否存在纳入保存校验。现有 `saveQaConfig` 只调用 `parseQaConfig`，`config.set` 只调用 `saveQaConfig`。
+- **为什么是问题**：网页可以成功保存 `model.use` 不在 `models`、候选指向不存在的自定义模型或目录模型的配置；`config.get` 会把它报告为 valid，直到下一次 `qa.start` 才失败。更糟的是候选数组可能有一个可用默认项但 `model.use` 非法，设置页保存后的“默认模型”与运行时含义不一致。把检查只放进 `resolveQaModel` 也无法保护 `models.catalog`、`config.test`、抽取回退和整份配置写入合同。
+- **如何核实**：当前实现中 `parseQaConfig` 只调用 TypeBox `Check`，`saveQaConfig` 在锁内再次只做同一 schema 检查；没有任何 `models`/`model.use`/目录索引的交叉检查。按计划新增字段后构造 `{models:["openai/a"],model:{use:"openai/b"}}` 会通过结构 schema（若只照计划扩字段），但 `resolveQaModel` 才发现错误。
+- **建议改法**：把“结构 schema 校验”和“语义配置校验”合并为所有入口共用的 `validateQaConfig`：升级后、`config.set` 锁内、CLI `set` 写回、`config.get` 判 valid、`config.test` 和 `qa.start` 都调用；验证候选非空、引用唯一且存在、默认在候选、候选可解析，以及自定义 provider id 不撞目录。对单次 `qa` 请求的临时引用再单独按 `invalid_params` 校验，不能把请求错误伪装成配置损坏。
+### 7. 抽取回退到问答默认目录模型会把非 OpenAI 接口发错协议
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：`plan.md:58-70`、`packages/nb-story/src/qa/config.ts:187-201`、`packages/nb-story/src/ingest/runner.ts:27-37`、`packages/nb-story/src/ingest/model.ts:15-29`
+- **现象**：计划允许问答默认模型是目录引用或四种自定义 API，并要求没有 `ingest.model` 时用“经解析后的服务地址、密钥变量”。现有抽取模型合同只有 `{baseUrl, model, apiKey, maxTokens}`，`modelChoice` 原样把它交给使用 `openai` SDK 的 Chat Completions 流；没有 `api`、Responses、Anthropic Messages 或 Gemini 的传输选择。当前 `ingestModel` 也直接读取 `config.model.baseUrl/id/apiKeyEnv`，v2 的 `model` 已不再有这些字段。
+- **为什么是问题**：用户把 Anthropic、Gemini、OpenAI Responses、Bedrock 等目录模型选为问答默认、未另配抽取模型时，抽取不是类型错误就是向对应地址发送 OpenAI Chat 请求；密钥、URL 和模型名即使解析成功也不能证明抽取可用。另一方面，若为了保留旧抽取管线只取地址和 key，就静默丢掉 `api`，违背“默认模型是所选模型”的合同。
+- **如何核实**：静态跟踪 `ingestModel` → `modelChoice` → `EndpointConfig` → `callModel`：`EndpointConfig` 没有 API 字段，`callModel` 只创建 OpenAI client；与计划新增的四种 provider API 对照即可复现协议分叉，不需要真实模型。
+- **建议改法**：二选一并写入配置合同：限制“问答默认模型可回退给抽取”的候选只能是抽取支持的 OpenAI Chat 接口，保存/启用时明确报错；或把抽取改为复用 `ResolvedModel`/harness 的多 API 传输（同时保留抽取的 minimal/medium、不降档和单层重试语义）。不能只把目录模型的 `baseUrl` 与环境变量名复制进旧 `ModelEndpoint`。
+### 8. v1 配置升级后旧的 config set 路径没有兼容语义
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`plan.md:67-75`、`docs/specs/story/qa.md:153`（旧路径合同）、`packages/nb-story/src/qa/config-edit.ts:39-65`
+- **现象**：计划规定读到 v1 后内存升级、写回 v2，并把 CLI 路径换成 `model.use`、`models`、`providers.*`；但没有说明 `config set model.baseUrl`、`model.id`、`model.apiKeyEnv` 在“已升级但用户仍执行旧命令”时是迁移、明确废弃还是用法错误。按当前字段表的自然实现，命令先读并升级 v1，再由 `fieldOf` 因 `model.baseUrl` 不在 v2 字段表中报用法错误。
+- **为什么是问题**：一次 `config set` 读写会把配置格式升级成功，却不能完成用户请求；旧命令的失败还没有指向新的等价路径，脚本和已有操作手册会在升级后突然失效。若这是有意的不兼容，也必须在 Spec 和验收中固定，否则实现者会在 CLI、网页和迁移函数各自做不同兼容。
+- **如何核实**：现有 `config-edit.ts` 的 `CONFIG_FIELDS` 是唯一字段白名单，`configCommand` 先 `readQaConfigFile` 再 `setConfigField`；迁移后对象已不再有旧字段，旧路径必然走 `ConfigEditError`。现有测试只覆盖旧格式字段表，未覆盖“升级后旧命令”。
+- **建议改法**：在公共合同中明确选择：要保持 CLI 兼容，就在升级后的命令入口把旧路径映射到唯一的新字段/服务商模型（并测试写回 v2）；若不保持，就把旧路径列为明确的退出码 2，并在错误中给出新路径和一次性迁移说明。不要让它只因字段表变化而偶然失败。
+### 9. 目录推理档与配置/命令行的 Thinking 合同没有闭合
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`plan.md:38、61、70、109`、`packages/nb-story/src/qa/config-edit.ts:29-30、45-46`、OMP `pi-catalog/src/effort.ts:1-17`
+- **现象**：计划的 `CatalogModel.efforts` 来自 `getSupportedEfforts`，但配置只写了未定义的 `Thinking`，没有说明是否包含 OMP 的 `minimal`、`max`（以及不选择时的 `off/auto` 语义）。现有 CLI 字段白名单只有 `low|medium|high|xhigh`，而 OMP 18.2.5 的规范努力档至少有 `minimal|low|medium|high|xhigh|max`。
+- **为什么是问题**：目录可能告诉 UI 某模型支持 `minimal` 或 `max`，选择后却无法保存、`qa.ask` 无法校验或 `HarnessOptions.thinkingLevel` 被强转后发送不一致；迁移 v1 的 thinking 也没有定义旧档与新档的兼容。反过来把所有档都塞进配置而不定义 `off/auto`，又会把“不写推理档”与显式关闭混为一谈。
+- **如何核实**：读取 `getSupportedEfforts` 的返回类型与 OMP `effort.ts` 的六值列表，再对照当前 `CONFIG_FIELDS` 和 `thinkingOption` 的字符串直传；计划没有新的 canonical union、归一化或不支持档的错误规则。
+- **建议改法**：在 Spec 先定义单一努力档枚举、缺省/关闭/自动的表示及每个 API 的映射；配置 schema、CLI、服务端 `thinking` 校验、网页选择和 harness 传参共用它。迁移时保留旧值但对目录不支持的档明确报配置错误，不要靠 TypeScript cast 或字符串原样透传。
+### 10. 作答方式只放 Profile initial 不足以支撑记录、降级显示与旧记录兼容
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`plan.md:81-84`、`packages/nb-story/src/core/qa-records.ts:89-104、337-348`、`packages/nb-story/src/contract/qa-record.ts:45-58`、`packages/nb-story/src/web/qa/record-messages.ts:11-35`
+- **现象**：计划要求作答方式“记进记录与 Profile 的初始输入”，但现有 `QaConversation`/`ConversationSchema` 没有 conversation-level `answer` 字段，`QaTurnSchema` 也没有；只有会话日志快照会保存 `initial`。网页的记录降级渲染只拿每轮的 `answer`/`reply`，失败或中断轮没有办法知道它属于 Markdown 还是结构化；记录损坏或日志缺失时也无法恢复该模式。
+- **为什么是问题**：Profile v4 让旧对话不能续问后，模式字段仍只在日志里，记录 API 无法稳定解释新旧对话；保存成功但日志损坏时，网页只能猜，`qa.get` 也无法把“模式固定”作为可观察记录返回。旧的一问一条记录还会被转换成新 conversation，却没有明确的默认模式和不可续问原因。
+- **如何核实**：静态核对 `QaConversation` 的全部字段与 `ConversationSchema`，均无作答方式；`record-messages.ts` 的输入接口也没有模式，只根据 `answer !== null` 选择答案卡片。
+- **建议改法**：在 conversation 记录和 `qa.get` 视图中保存/返回固定的 `answer: "markdown" | "structured"`（或等价字段），旧记录迁移时给出明确的 legacy 值并强制不可续问；快照仍保存同一值供 harness 恢复。失败、取消、日志损坏和记录降级显示都使用这个字段，不从“这一轮有没有答案”反推模式。
+### 11. 把记录 model 改成 provider/model 引用不会自动改变网页显示或旧记录含义
+- **严重程度**：重要；**类别**：接口
+- **位置**：`plan.md:70、81`、`packages/nb-story/src/qa/engine.ts:327-329`、`packages/nb-story/src/web/qa/record-messages.ts:11-34`、`packages/nb-story/src/contract/qa-record.ts:45-58`
+- **现象**：计划要把每轮 `model` 从裸模型名改成引用；引擎可以把记录字段改成 `config.model.use`，但会话日志里的 OMP `AgentMessage.model` 仍是 `model.id`，没有 provider/ref。日志损坏或缺失时 `record-messages.ts` 更直接把 assistant `model` 固定成空字符串；记录 schema 对旧值只是 `string`，没有版本/解析策略。
+- **为什么是问题**：正常过程显示的模型与记录/CLI 显示的引用不一致，两个 provider 下同名模型无法区分；日志不可读时的降级视图又丢掉模型信息。旧记录的裸 id 既可能是目录模型 id，也可能是旧自定义模型 id，升级后不能可靠映射到 `provider/model`，网页和恢复诊断会产生歧义。
+- **如何核实**：静态跟踪 `configuredModel`/`AgentMessage` 的模型字段和 `record-messages` 的 `base`；`QaTurnSchema.model` 只有 `Type.String()`，没有引用格式、旧版本标记或迁移代码。
+- **建议改法**：把“选择器引用”和“展示用模型标识”分开建字段，记录每轮保存 `modelRef` 与必要的旧 `modelId`/display 值；harness 日志若要在网页显示引用，需由网页轮次映射注入，而不是假设 OMP 原样消息会带它。对旧记录明确显示“旧配置模型/不可解析”，不要静默当成新引用。
+### 12. fetchOpenAICompatibleModels 无法直接实现计划要求的五类发现结果
+- **严重程度**：重要；**类别**：接口
+- **位置**：`plan.md:86-90`、OMP `pi-catalog/src/discovery/openai-compatible.ts:135-189`、`packages/nb-story/src/contract/contract.ts:608-702`
+- **现象**：计划要求 `models.discover` 区分读到 N 个、空、404、401/403 和连不上；但 OMP 的 `fetchOpenAICompatibleModels` 对非 2xx、网络异常、JSON 解析失败统一返回 `null`，只有成功且没有可用条目才返回 `[]`，不返回 HTTP 状态或失败原因。现有 QA RPC 合同也没有发现结果类型。
+- **为什么是问题**：直接把该函数结果映射到界面只能把 404、密钥错误、DNS/连接失败和坏响应合并成同一种“连不上/服务不支持”；界面按计划显示的提示无法由这个依赖产生，后续只能重新实现请求或猜错误文案，违背“仿照 OMP”的选型并使验收无法覆盖五类。
+- **如何核实**：读 OMP 函数 `fetchPayload`：`catch`、`!response.ok` 和 `response.json()` 异常都走 `return null`，调用方只看到 `ModelSpec[] | null`。即使传入 `fetch` 接缝，也需要额外捕获状态，函数本身不会把它交回。
+- **建议改法**：扩展一个由 nb-story 拥有的 discovery 结果合同和 fetch 适配器：包装 `fetch` 记录响应状态/网络异常，再把 OMP 的成功解析结果与记录的失败原因组合；或不要承诺五类，只承诺 OMP 函数能证明的 `models | empty | unavailable` 三类。不要按 `null` 的来源猜 401/404。
+### 13. models.catalog 的 keyReady 若直接调用 OMP getter，会与服务的 keys 语义和启动环境不一致
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`plan.md:86-90`、`packages/nb-story/src/server/qa-service.ts:52-63、402-426`、`packages/nb-harness/src/model.ts:102-112`
+- **现象**：现有 `QaServiceOptions.env` 明确规定密钥状态按注入的服务环境看，`config.get` 的 `keysOf` 也捕获这个 `env`；计划却让 `models.catalog` 的目录项带“服务启动时有没有值”，而 `listCatalog`/`resolveModel` 的自然实现会直接调用 OMP `getEnvApiKey`。该 getter 读取 Bun/process 环境并按 OMP 规则补 `.env`，不能读取 `QaServiceOptions.env`，也不是启动快照。
+- **为什么是问题**：测试/嵌入宿主可以用 `env` 注入一套凭据，`config.get.keys` 显示已设置而 catalog 显示未设置，或反之；服务运行期间环境变化、cwd/.env 变化还会让 catalog 的状态漂移，违反“服务启动时”与现有 `keys` 做法的一致性。自定义 provider 的 keyEnv 也必须用同一快照，不能混用两个来源。
+- **如何核实**：当前 `qa-service.ts` 的 `env` 只进入 `keysOf`，`nb-harness/model.ts:85-89` 的自定义 key 读 `process.env/Bun.env`，目录模型走 OMP `getEnvApiKey`；两者没有共享环境快照或读取器。
+- **建议改法**：服务创建时生成只含布尔值的 provider/env readiness snapshot，目录和 `config.get.keys` 共用它；真正发请求仍由模型实例按合同读取指定变量。若要支持 OMP 的 `.env` hook，先在服务启动阶段明确加载并纳入快照，不能让接口每次隐式重读宿主文件。
+### 14. qa.ask/qa.start 的临时模型参数缺少请求级语义校验与错误边界
+- **严重程度**：重要；**类别**：接口
+- **位置**：`plan.md:70、86-90`、`packages/nb-story/src/contract/contract.ts:646-662`、`packages/nb-story/src/server/qa-service.ts:207-290`
+- **现象**：当前公开方法是 `qa.start` 而不是计划文字里的 `qa.ask`，输入 schema 只有 `book/question/conversation/mode/at`，并通过 `additionalProperties:false` 拒绝新字段。计划只说新增 `model`、`thinking`、新对话的 `answer`，没有定义：引用不在 `models` 候选时的错误码、推理档不在解析模型 `efforts` 时的错误码，以及续问携带 `answer`/是否允许携带 model/thinking 的组合规则。
+- **为什么是问题**：若仅把字段加成字符串，服务会在准备/运行阶段才发现非法选择，可能留下准备中的状态或把一次请求错误报成 `qa_unconfigured`；若允许续问带 `answer`，会改变 Profile/工具集合或被静默忽略，破坏“作答方式按对话固定”。前端列表过滤不能代替 RPC 边界校验，恶意或过期客户端仍可直接调用接口。
+- **如何核实**：当前 `QaService.call` 先按 `QA_METHODS[method].input` 做严格 schema 校验，再直接调用 `start`；`start` 读取配置后调用 `prepareQuestion`，没有请求参数解析或候选/努力档检查。现有 `qa.start` 错误表虽含 `invalid_params`，却没有新字段的语义验证位置。
+- **建议改法**：先确定名称（保留 `qa.start` 或正式改名并迁移所有调用方），在合同和服务端增加统一的 request resolver：解析当前配置与候选、验证引用属于候选、验证 `thinking` 属于该模型支持集；新建才接受 `answer`，续问拒绝 `mode/at/answer`，model/thinking 只能按合同决定是否允许单轮覆盖。所有失败在登记运行前返回 `invalid_params`/明确的配置错误，且断言没有模型请求、日志或内存运行项。
+### 15. 同一 harness 做出处复查时会重复订阅，第二次事件与 rejections 被重复处理
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`plan.md:83`、`packages/nb-story/src/qa/engine.ts:299-309`
+- **现象**：计划明确复查用“同一个 harness”再跑一次 `turn`；现有 `runTurn` 每调用一次都执行 `harness.subscribe(...)`，但从不保存或调用返回的取消函数。第一次结束后监听器仍挂在 harness 上，第二次及之后的每条 Agent 事件会被旧监听器和新监听器各处理一次。
+- **为什么是问题**：网页事件、工具进度和被拒绝提示会重复；`event.tool_execution_end` 的 `answer` 错误会让 `rejections` 多加一次，之后记录的退回次数和 UI 进度不再等于实际运行。即使 Markdown 正常不声明 answer，第二次异常调用 answer 或工具错误仍会触发计数；这是同一会话复查特有的回归。
+- **如何核实**：静态读 `runTurn`：`harness.subscribe` 的返回值未接收；按计划连续调用两次 `runTurn`，第二次 `harness.turn` 产生的事件必然经过两份闭包。用脚本模型连续生成两个 `tool_execution_end` 事件即可观察第二次回调次数为 2。
+- **建议改法**：一次 harness 生命周期只安装一个订阅器，把订阅放到外层并让它覆盖两次运行；或每次 `runTurn` 保存 `const unsubscribe`，在 `finally` 中调用。`rejections` 与网页事件都必须只由唯一订阅路径更新，并补“第一次文字回复触发复查、第二次发生工具错误/取消”的真实 harness 测试。
+### 16. 目录模型的未知价格会因 resolveModel 固定 priceKnown=true 被记成零费用
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`plan.md:38、45`、`packages/nb-harness/src/model.ts:98-108`、`packages/nb-harness/src/harness.ts:267-270`
+- **现象**：计划要求未知价格保留 `priceKnown`，目录列表也要求未知不显示成免费；但现有 `resolveModel` 对所有目录模型固定返回 `priceKnown: true`，没有检查目录价格/`pricingStatus`。在仓库 OMP 18.2.5 的 5111 个目录模型中，至少 1714 个呈现全零 cost 的未知/未定价形状；harness 会把这些模型的用量费用按 0 计算，而不是 `null`。
+- **为什么是问题**：网页可能正确显示“未知”，但问答记录和 CLI 用量却声称费用为 0，形成同一模型两种账；真实收费的未知价格被当成免费，违反 harness Usage 的 `cost: null` 合同和计划“仍按 priceKnown”的意图。
+- **如何核实**：主工作区执行 `bun -e` 遍历 69 家 `getBundledProviders()` 的 `getBundledModels()`，统计 `total:5111`、全零/未知形状 `1714`；再读 `resolveModel` 返回值和 `usageEntry(message, model.priceKnown)` 的调用链即可确认没有价格状态分支。
+- **建议改法**：按 OMP 的定价状态与 cost 字段建立 `priceKnown` 判定；只有明确有价或明确免费才传已知单价，订阅/未知/全零占位传 `null`。目录列表、`ResolvedModel`、harness Usage、记录和网页共用这一个判定，不要用“有 cost 对象”或全零代替未知语义。
+> **核正**：同一实验还显示仓库版 18.2.5 的模型对象没有 `pricingStatus` 字段，5111 个条目中该字段均 absent；因此不能仅凭全零 cost 断言哪些是免费、哪些是未知。问题的核心更严重：计划没有定义 OMP 18.2.5 下“未知价格”和“明确免费”的可观察判定，现有 `priceKnown: true` 会把两者都当作已知零价。
+### 17. config.get 的 absent 起始配置仍是 v1 形状，v2 设置页无法直接消费
+- **严重程度**：重要；**类别**：接口
+- **位置**：`plan.md:49-75、107-110`、`packages/nb-story/src/server/qa-service.ts:66-67、418-426`、`packages/nb-story/src/contract/contract.ts:670-678`
+- **现象**：现有 `STARTER_CONFIG` 是 `{model:{baseUrl:"", id:"", apiKeyEnv:"OPENAI_API_KEY"}}`；计划把配置改成 `{providers, models, model:{use, thinking}}`，设置页又改为从 `models.catalog` 选候选并整份保存。`config.get` 在没有文件时仍会把旧形状作为 `state:"absent"` 的 `config` 返回。
+- **为什么是问题**：没有配置文件的首次打开路径拿到的对象不符合 v2 表单/保存合同；前端必须额外识别并转换一个未登记的 v1 特例，且提交前可能把空地址/旧字段原样交回 v2 `config.set`，得到结构错误。迁移函数只描述“读到第 1 版”时的已有文件，未覆盖 absent starter。
+- **如何核实**：静态对照 `STARTER_CONFIG` 与计划的 v2 类型；`configGet` 在 `ABSENT_CONFIG` 分支直接返回该对象，未经过迁移或 v2 schema。
+- **建议改法**：把 absent 起点定义为合法的 v2 草稿（例如空的候选/默认选择状态，并明确表单必填提示），或让合同把 absent 的 starter 单独建成版本化输入；补首次无配置文件的 `config.get → 设置页保存 → config.set` 场景，不能复用 v1 对象。
+### 18. 出处复查的失败、截断和非法 answer 结局没有定义，也没有验收映射
+- **严重程度**：重要；**类别**：测试
+- **位置**：`plan.md:81-85、130-143`、`docs/specs/story/qa.md:130-140、161-165`、`packages/nb-story/src/qa/engine.ts:299-350`
+- **现象**：计划的引擎测试只列“第一次就对、复查后对、复查后仍不对”三种结局，但用户可观察的路径还包括：第一次文字回复被截断且有未核实出处、复查请求被取消或 provider 出错、复查第二次又产生 `answer` 工具调用、复查第二次输出到上限。计划没有说明这些情况下最终 `reply`、`truncated`、`status/error`、`rejections`、两次 usage 和网页过程如何落盘。
+- **为什么是问题**：现有 `engine.ts` 的 `outcome` 是单个可覆盖变量；如果第二次 `turn` 出错/中断，第一次文字回复会只留在日志而记录变成失败/中断；如果第二次 `length`，要决定最终截断标记和未核实出处来自哪一版；若非法调用 `answer`，要决定是工具错误继续、`no_answer`，还是把它当协议错误。没有合同时不同实现会产生不同记录，且 `rejections`/用量合计容易和网页显示不一致。
+- **如何核实**：当前 `runTurn` 只按一次 `TurnResult` 覆盖 `outcome`，`finish` 只保存最终 `outcome`；计划验收映射第 141 行没有上述场景。用脚本 provider 顺序返回“文字→error/aborted/length”即可触发未定义的保存形状。
+- **建议改法**：在 qa.md 先规定复查是同一轮的子运行：取消/错误是否让整轮失败、第一次文字是否保留为结果、第二次 `length` 是否按最终文本记 `truncated`、非法 answer 的错误分类与 `rejections`、两次 usage 的 `complete` 合并规则。随后为每条规则补真实 harness 脚本测试，并明确 `logFrom` 与网页分轮期望。
+### 19. OMP 有跨 provider 转换，但它不满足当前 harness 的“历史逐字段保真”字面合同
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`plan.md:79-83`、`docs/specs/agent/harness.md:103-107`、OMP `pi-ai/src/providers/transform-messages.ts:661-858`、`openai-shared.ts:2063-2130`
+- **现象**：OMP 确实存在 `transformMessages`，会按目标模型把工具调用 id 和 thinking 做转换；但跨 API/provider 时，Anthropic thinking signature 会被去掉并降成目标方文本/丢弃，不能把签名原样交给另一家；Responses 的原生 history payload 只有源消息与目标 provider/api/model 匹配时才按 native history 回放。`nb-harness` 的 `renderContext` 只保证把日志中的原始 `AgentMessage` 交给 OMP，并没有提供跨 provider 的“原样”保证或转换结果合同。
+- **为什么是问题**：计划允许每轮换服务商，却仍引用“内容块顺序、thinking 与签名、provider 回放字段逐字段相同”的 harness 合同。若按合同验收，会把 OMP 为避免 400 而做的降级判成失败；若按 OMP 行为验收，又会让上一轮签名/原生思考不再保真，且工具/Responses 原生 payload 的语义可能改变。没有明确边界，后续会在 provider 400、思考丢失和测试期望之间返工。
+- **如何核实**：读取 OMP `transform-messages.ts` 的 `isSameModel`/cross-API 分支：非同模型时对 thinking 进入 `targetReadsForeignThinking` 或文本降级；读取 `buildResponsesInput` 的 provider/api/model 条件。用不发真实模型的 provider fetch 接缝即可观察目标 Context 与源日志字段不同。
+- **建议改法**：把“日志原样持久化”与“目标 provider 可发送的历史”拆成两个合同：日志永不改写；跨 provider 时允许按 OMP 规则丢弃/文本化签名和原生 payload，并记录转换边界。或者禁止同一对话切换 provider/API，只允许同 provider/model 兼容切换。至少补 Responses↔Anthropic、同 provider 换模型、工具调用和签名思考的确定性测试。
+
+## 未发现问题的方面
+
+- OMP 18.2.5 确实提供 `authPolicyFor`、`providerEntry`、`getEnvApiKey`、`getSupportedEfforts` 与 `fetchOpenAICompatibleModels`；问题在于计划对它们的语义组合和错误信息承诺不完整，不是依赖不存在。
+- 配置 v1 的 `api`、`thinking`、`contextWindow`、`maxTokens`、`price` 在计划文字上都有目标字段；未发现某一个字段完全没有去处，但推理档取值闭合、旧 CLI 路径和 absent 起点仍有上述问题。
+- 现有 `saveQaConfig` 的锁内摘要比对、临时文件改名和 `config.set` 冲突通道本身未发现被新字段必然破坏的问题；前提是 v2 的语义校验放在同一锁内，而不是只在请求外检查。
+- `meta` 不进入 Profile 模型上下文这一点与当前 `renderProfile`/harness 机制一致；问题是计划又要求网页把它显示成过程行，却没有 UI 适配通道。
+- OMP 存在跨 provider 的消息转换；未发现“完全没有转换机制”的问题，真正的问题是它会降级签名/原生 payload，而计划没有修订 harness 的历史保真合同。
+- 发现接口把密钥发往用户配置的 baseUrl 与 `qa.md` 已确认的本机服务信任边界一致；未据此另报越权。实现仍必须只从已保存的自定义 provider 取地址和对应 `apiKeyEnv`，不能接受请求体自带的任意地址或目录 provider。
+
+## 分级数量
+
+- **阻断**：2
+- **重要**：17
+- **建议**：0

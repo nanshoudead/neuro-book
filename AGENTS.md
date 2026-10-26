@@ -8,7 +8,7 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 
 - 默认使用简体中文与用户交互
 - 修复和重构应解决合同或设计问题，不用 hack 绕过类型系统或制造技术债；不能兼容时说明取舍
-- 单点修改使用文件编辑工具。批量替换必须先 dry run；命中不确定或出现意外结果时改为逐处编辑，并报告实际修改的文件
+- 单点修改使用文件编辑工具。批量替换必须先 dry run；一个脚本改多个文件时，先对全部文件做完匹配检查再统一写入；往列表里插项前先看清列表是一行一项还是一行多项。命中不确定或出现意外结果时改为逐处编辑，并报告实际修改的文件
 - 对 AGENTS.md 也就本文件的约束保持怀疑，随着项目的演变，这个文件可能变得不是很权威，有错误。这个文件是 AGENTS.md 人类共建的，需要不断优化，工作过程中如果遇到某些地方不好的可以随时询问开发者要求优化
 - 写下来的代码是给其他人类和 Agents 阅读的，所以注释、可维护性和可理解性非常重要
 - 文档与注释不用罕见符号代替中文词：引用章节写小节名或锚点链接，不写 `§`、`¶`；代码、JSON、命令和记法定义本身的符号不受此限。`governance:check` 对活跃 Markdown 里的 `§`、`¶` 给出警告
@@ -29,7 +29,7 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 - 最难懂的地方先写：读者要推演几个回调的先后才能看懂的代码，先试着改结构消除它，改不掉就写清楚先后
 - 行为规则链接 Spec，不在注释里复述
 - 用平常的中文和代码里的英文标识符；Promise 的状态写 resolve、reject、settle 或“完成”“失败”，不另造译名；一句只说一件事
-- 例外：`packages/neuro-book/examples/` 的注释是教学材料，可以逐步讲这一步做什么、为什么、不这样会怎样，并链接 Spec；讲解随场景测试一起改。产品代码的注释规则不变
+- 例外：`packages/neuro-book/plugin-sdk/examples/` 的注释是教学材料，可以逐步讲这一步做什么、为什么、不这样会怎样，并链接 Spec；讲解随场景测试一起改。产品代码的注释规则不变
 
 ## 测试
 
@@ -64,10 +64,14 @@ neuro-book/
 │   ├── nb-history/                 # 操作日志、事件溯源与内容寻址快照
 │   ├── nb-workflow/                # 可重放的脚本化 Workflow Kernel
 │   ├── nb-ui/                      # 共享 Vue UI 基础组件
+│   ├── nb-form/                    # 按数据 schema 画表单：核心只依赖 TypeBox，Vue 层用 nb-ui（w00027）
+│   ├── nb-agent-ui/                # Agent 对话视图：核心纯 TS（含 harness 适配器），Vue 层用 nb-ui，Markdown 与编辑器由宿主注入（w00019）
+│   ├── nb-markdown/                # Markdown 的语言、编解码器与组件：只读显示、行内小块、提示词编辑器、编辑器扩展；建在 nb-ui 之上，宿主给目标分类（w00025）
 │   ├── llmlint/skill/              # llmlint Skill 单一源
 │   ├── owned-process/              # 受管子进程托管
 │   ├── file-snapshot-cache/        # 文件快照缓存
 │   ├── dev-panel/                  # 开发工具：nbdev 命令行与开发者面板（w00022）
+│   ├── nb-story/                   # 剧情图谱：小说记忆图的书库、查询、nbstory 命令行、查看器、内置问答与 Skill（w00024）
 │   └── neuro-book-test-support/    # 系统临时根与 fixture 支持
 ├── scripts/                        # 仓库治理与自动化
 ├── docs/                           # monorepo 级文档治理
@@ -101,6 +105,7 @@ neuro-book/
 | 新应用、脚本、包 | [`packages/neuro-book/AGENTS.md`](packages/neuro-book/AGENTS.md)、[`scripts/AGENTS.md`](scripts/AGENTS.md)、[`packages/AGENTS.md`](packages/AGENTS.md) 中匹配的最近入口 |
 | 查旧应用的实现或行为 | [`packages/neuro-book-legacy/AGENTS.md`](packages/neuro-book-legacy/AGENTS.md)；只读，不在旧包里修改 |
 | 新增或修改开发 Agent Skill | [`.agents/skills/README.md`](.agents/skills/README.md) |
+| 开发服务、截图、给开发者看图或报告、查已有产物 | [`packages/dev-panel/docs/cli.md`](packages/dev-panel/docs/cli.md)：用 `nbdev dev start`、`nbdev shot`、`nbdev find`、`nbdev artifact publish`，不直接 `bun run dev`，不在回复里列本地路径 |
 
 ## Git 注意事项
 
@@ -113,6 +118,8 @@ neuro-book/
 ## 文档真相源
 
 行为、状态、数据、接口、失败语义和验收依据以 [`docs/specs/`](docs/specs/) 为准；架构取舍以 [`docs/adr/`](docs/adr/README.md) 为准；测试、临时根和证据以 [`docs/testing/`](docs/testing/) 为准；一次实现的 current 范围、授权与快照以 [`.agents/works/`](.agents/works/) 为准，历史 provenance 以 [`.agents/tasks/`](.agents/tasks/) 为准。入口文件只写职责、触发条件和链接，不复制下级正文
+
+Spec、提案与 Task 记录在主工作区的 `master` 上更新；在 worktree 里写代码时，读这些文档也读主工作区的那份，worktree 里的是开分支时的副本，可能已经过时
 
 当前仓库状态以 [`PROJECT-STATUS.md`](PROJECT-STATUS.md) 为准。`WATCHDOG.md` 是审查入口，不属于普通产品规范
 

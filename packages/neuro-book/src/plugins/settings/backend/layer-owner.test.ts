@@ -6,6 +6,7 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
+import {createHash} from "node:crypto";
 import {existsSync, mkdirSync, renameSync, rmSync, writeFileSync} from "node:fs";
 import {chmod, lstat, mkdir, readdir, readFile, readlink, rename, rm, stat, symlink, unlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
@@ -24,7 +25,7 @@ import type {SettingLayer} from "nbook/shared/settings";
 
 import type {DeclaredSetting, LayerSnapshot} from "../shared/layers";
 import {writeLayerFile} from "./layer-file";
-import {createLayerOwner, RELOAD_DELAY_MS} from "./layer-owner";
+import {createLayerOwner, RELOAD_DELAY_MS, textRevision} from "./layer-owner";
 import type {LayerOwner} from "./layer-owner";
 
 const title = {"zh-CN": "项", "en-US": "Item"};
@@ -167,7 +168,11 @@ describe("读取与外部修改", () => {
         await writeFile(path, "{\"x.ui/size\": 1}");
         await waitUntil("第一次写入的事件排上重读", () => clock.pending > 0);
         const scheduled = clock.scheduled;
-        await writeFile(path, "{\"x.ui/size\": 2}");
+        // 第二次写成“写临时文件再改名替换”：前一个事件刚送到就原地再写同一个文件时，Bun 的 `fs.watch` 有时不给这次写入
+        // 任何事件（Linux btrfs 上实测，间隔 0 毫秒时十次丢四到六次，间隔 2 毫秒起不丢）。产品不受影响：重读在静止 50 毫秒
+        // 之后，读到的已是这次写入的内容；这里要的是“第二个事件让计时重新开始”，所以换成一定有事件的写法。
+        await writeFile(`${path}.tmp`, "{\"x.ui/size\": 2}");
+        await rename(`${path}.tmp`, path);
         await waitUntil("第二次写入的事件重新计时", () => clock.scheduled > scheduled);
         // 期望值按 Spec 输出 9 的 50 毫秒写死，不取实现的常量。
         clock.advance(49);
@@ -205,6 +210,10 @@ describe("读取与外部修改", () => {
         // 不对拥有者持有的快照用带非对称匹配器的 toMatchObject：Bun 1.4.2 会把匹配器写回被比较的对象（冻结的也会）。
         expect(invalid.values).toEqual({"x.ui/theme": "macos"});
         expect(invalid.detail).toContain("第 1 行");
+        // 无效的层快照带出错的位置与不含位置的原因（输出 5）；修好后的快照没有。
+        expect(invalid.position).toEqual({line: 1, column: 16});
+        expect(invalid.reason).toEqual(expect.any(String));
+        expect(invalid.detail).toBe(`第 1 行：${invalid.reason!}`);
         expect(await owner.write(ui, theme.key, {kind: "set", value: "nbook"})).toMatchObject({ok: false, code: "layer-invalid"});
         expect(await readFile(path, "utf8")).toBe("{\"x.ui/theme\": ");
 
@@ -212,6 +221,8 @@ describe("读取与外部修改", () => {
         await settle("恢复有效", (snapshot) => snapshot.status === "ok");
         expect(published.slice(before).map((snapshot) => snapshot.status)).toEqual(["invalid", "ok"]);
         expect(published.at(-1)?.values).toEqual({"x.ui/theme": "macos"});
+        expect(published.at(-1)).not.toHaveProperty("position");
+        expect(published.at(-1)).not.toHaveProperty("reason");
     });
 
     it("目录一开始不存在、之后被创建；目录被删除后重建再修改：都生效", async () => {
@@ -509,5 +520,132 @@ describe("写入", () => {
         clock.advance(RELOAD_DELAY_MS);
         expect(published.length).toBe(count);
         expect(await readdir(root)).toEqual(["settings.json"]);
+    });
+});
+
+describe("整份读写（输出 24）", () => {
+    const self = consumer("nbook.settings");
+
+    it("读出全文与修订号；文件不存在时是空文本、exists 为假；只接受 nbook.settings 自己、没有经过代理的调用方", async () => {
+        const root = await directory();
+        const path = join(root, "settings.json");
+        const {owner} = await start(path);
+        const missing = await owner.readText(self);
+        expect(missing).toEqual({ok: true, text: "", revision: textRevision(""), exists: false});
+        const original = "// 注释\n{\"x.ui/theme\": \"nbook\", \"other.plugin/kept\": 1}\n";
+        await writeFile(path, original);
+        expect(await owner.readText(self)).toEqual({ok: true, text: original, revision: textRevision(original), exists: true});
+        expect(await owner.readText(ui)).toMatchObject({ok: false, code: "denied"});
+        expect(await owner.readText(consumer("nbook.settings", "x.ui"))).toMatchObject({ok: false, code: "denied"});
+        expect(await owner.writeText(ui, "{}", textRevision(original))).toMatchObject({ok: false, code: "denied"});
+        expect(await readFile(path, "utf8")).toBe(original);
+    });
+
+    it("整份写：原样落盘（注释与未声明的键都在），带回新修订号与写后的快照；不合 schema 的键照写、按问题报", async () => {
+        const root = await directory();
+        const path = join(root, "settings.json");
+        await writeFile(path, "{}\n");
+        const {owner} = await start(path);
+        const read = await owner.readText(self);
+        if (!read.ok) throw new Error("应能读出");
+        const next = "// 手写\n{\n    \"x.ui/theme\": \"macos\",\n    \"x.ui/size\": \"大\",\n    \"other.plugin/kept\": 1,\n}\n";
+        const written = await owner.writeText(self, next, read.revision);
+        expect(written).toMatchObject({ok: true, revision: textRevision(next), snapshot: {status: "ok", values: {"x.ui/theme": "macos"}, problems: [{key: "x.ui/size", reason: "invalid-value"}]}});
+        expect(await readFile(path, "utf8")).toBe(next);
+        expect(owner.snapshot().values).toEqual({"x.ui/theme": "macos"});
+    });
+
+    it("修订号对不上为 conflict、文件不变；语法错误、根不是对象、重复键为 invalid-text 带行列，文件与快照不变", async () => {
+        const root = await directory();
+        const path = join(root, "settings.json");
+        const original = "{\"x.ui/theme\": \"nbook\"}\n";
+        await writeFile(path, original);
+        const {owner} = await start(path);
+        const read = await owner.readText(self);
+        if (!read.ok) throw new Error("应能读出");
+        await writeFile(path, "{\"x.ui/theme\": \"macos\"}\n");
+        expect(await owner.writeText(self, "{}", read.revision)).toMatchObject({ok: false, code: "conflict"});
+        expect(await readFile(path, "utf8")).toBe("{\"x.ui/theme\": \"macos\"}\n");
+        const fresh = await owner.readText(self);
+        if (!fresh.ok) throw new Error("应能读出");
+        const cases: ReadonlyArray<[string, {readonly line: number; readonly column: number}]> = [
+            ["{\n  \"x.ui/theme\": \"nbook\"\n  \"x.ui/size\": 1\n}", {line: 3, column: 3}],
+            ["[]", {line: 1, column: 1}],
+            ["{\"x.ui/size\": 1,\n \"x.ui/size\": 2}", {line: 2, column: 2}],
+        ];
+        for (const [text, position] of cases) {
+            expect(await owner.writeText(self, text, fresh.revision), text).toMatchObject({ok: false, code: "invalid-text", position});
+        }
+        expect(await readFile(path, "utf8")).toBe("{\"x.ui/theme\": \"macos\"}\n");
+    });
+
+    it("层 invalid 时照样可以整份写，修好后层恢复；写入与单键写在同一个队列里，后到的单键写以整份写的结果为准", async () => {
+        const root = await directory();
+        const path = join(root, "settings.json");
+        await writeFile(path, "{\"x.ui/theme\": ");
+        const {owner} = await start(path);
+        expect(owner.snapshot().status).toBe("invalid");
+        const read = await owner.readText(self);
+        if (!read.ok) throw new Error("应能读出");
+        const [whole, single] = await Promise.all([
+            owner.writeText(self, "{\"x.ui/theme\": \"macos\"}", read.revision),
+            owner.write(ui, size.key, {kind: "set", value: 9}),
+        ]);
+        expect(whole).toMatchObject({ok: true, snapshot: {status: "ok"}});
+        expect(single).toMatchObject({ok: true});
+        expect(owner.snapshot().values).toEqual({"x.ui/theme": "macos", "x.ui/size": 9});
+        expect(JSON.parse(await readFile(path, "utf8"))).toEqual({"x.ui/theme": "macos", "x.ui/size": 9});
+    });
+
+    it("文本变了就通知修订号（只改注释也通知，层快照不发布）；单键写入与整份写入同样通知；停止后不再通知", async () => {
+        const root = await directory();
+        const path = join(root, "settings.json");
+        await writeFile(path, "{\"x.ui/theme\": \"nbook\"}");
+        const {owner, clock, published} = await start(path);
+        const revisions: string[] = [];
+        owner.subscribeText((revision) => revisions.push(revision));
+        expect(owner.textRevision()).toBe(textRevision("{\"x.ui/theme\": \"nbook\"}"));
+        const before = published.length;
+        const commented = "// 只加注释\n{\"x.ui/theme\": \"nbook\"}";
+        await writeFile(path, commented);
+        await waitUntil("外部修改的事件排上重读", () => clock.pending > 0);
+        clock.advance(RELOAD_DELAY_MS);
+        await waitUntil("文本的修订号变了", () => revisions.length === 1);
+        expect(revisions).toEqual([textRevision(commented)]);
+        expect(published.length).toBe(before);
+        await owner.write(ui, theme.key, {kind: "set", value: "macos"});
+        expect(revisions.at(-1)).toBe(textRevision(await readFile(path, "utf8")));
+        const count = revisions.length;
+        await owner.close();
+        await writeFile(path, "{}");
+        expect(revisions.length).toBe(count);
+    });
+
+    it("修订号是文件原始字节的摘要；不是合法 UTF-8 的文件整份读为 read-failed，整份写拿替换字符算的修订号为 conflict、文件字节不变", async () => {
+        const root = await directory();
+        const path = join(root, "settings.json");
+        const bom = Buffer.from("\uFEFF{\"x.ui/theme\": \"nbook\"}\r\n", "utf8");
+        await writeFile(path, bom);
+        const {owner} = await start(path);
+        const read = await owner.readText(self);
+        expect(read).toMatchObject({ok: true, revision: createHash("sha256").update(bom).digest("hex")});
+        const broken = Buffer.from([0x7b, 0x22, 0x61, 0x22, 0x3a, 0x22, 0xc3, 0x28, 0x22, 0x7d]);
+        await writeFile(path, broken);
+        expect(await owner.readText(self)).toMatchObject({ok: false, code: "read-failed", detail: "设置文件不是合法的 UTF-8 文本"});
+        expect(await owner.writeText(self, "{}", textRevision(broken.toString("utf8")))).toMatchObject({ok: false, code: "conflict"});
+        expect(Buffer.compare(await readFile(path), broken)).toBe(0);
+    });
+
+    it("读不了的文件为 read-failed；停止后为 unavailable", async () => {
+        const root = await directory();
+        const path = join(root, "settings.json");
+        await writeFile(path, "{}");
+        await chmod(path, 0o000);
+        const {owner} = await start(path);
+        expect(await owner.readText(self)).toMatchObject({ok: false, code: "read-failed"});
+        await chmod(path, 0o644);
+        await owner.close();
+        expect(await owner.readText(self)).toMatchObject({ok: false, code: "unavailable"});
+        expect(await owner.writeText(self, "{}", textRevision("{}"))).toMatchObject({ok: false, code: "unavailable"});
     });
 });

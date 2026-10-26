@@ -28,6 +28,8 @@ export type Overview = {
     sessions: {total: number; byStatus: Record<string, number>; unownedRuns: number; herdr: {available: boolean; mode: string}};
     /** 经 nbdev 起、还没结束的服务加无主的运行（左栏“在跑”的数，t14）。 */
     runs: number;
+    /** Work 卡片“谁在动”与收件箱提问者的会话标题（t17），键是完整会话键，读不到标题的键不在里面。 */
+    sessionTitles: Record<string, SessionTitle>;
 };
 
 export type AuditState = {enabled: true; initAt: string; path: string} | {enabled: false; reason: string; detail: string; path: string};
@@ -53,7 +55,7 @@ export type TaskView = Omit<OverviewTask, "artifactCount" | "leaseCount"> & {
     workId: string; readmePath: string; branch: string | null; checkout: string; checkoutKey: string | null; leases: ActiveLease[]; artifacts: ArtifactSummary[]; documents: DocumentEntry[];
 };
 export type WorkSession = {key: string; agent: string; label: string | null; alive: boolean | null; herdr: {paneId: string; status: string} | null; leases: Array<{taskId: string; lastActivityAt: string; stale: boolean}>; runs: number};
-export type WorkView = Omit<OverviewWork, "tasks"> & {readmePath: string; readmeHash: string | null; artifacts: ArtifactSummary[]; documents: DocumentEntry[]; otherCopies: Array<{branch: string | null; checkout: string}>; tasks: TaskView[]; sessions: WorkSession[]};
+export type WorkView = Omit<OverviewWork, "tasks"> & {readmePath: string; readmeHash: string | null; artifacts: ArtifactSummary[]; documents: DocumentEntry[]; otherCopies: Array<{branch: string | null; checkout: string}>; tasks: TaskView[]; sessions: WorkSession[]; sessionTitles: Record<string, SessionTitle>};
 
 export type ExecutionCandidate = {key: string; root: string; branch: string | null; rule: "readme" | "name" | "home" | "work" | "master"};
 export type CommitEntry = {sha: string; date: string; author: string; subject: string};
@@ -64,7 +66,7 @@ export type TaskDetail = {
     execution: {chosen: ExecutionCandidate; candidates: ExecutionCandidate[]};
     commits: {checkout: string; range: "branch" | "task"; entries: CommitEntry[]};
 };
-export type TaskPageData = {task: TaskView & {readmeHash: string | null}; work: {workId: string; title: string | null; source: string; branch: string | null}; detail: TaskDetail};
+export type TaskPageData = {task: TaskView & {readmeHash: string | null}; work: {workId: string; title: string | null; source: string; branch: string | null}; detail: TaskDetail; sessionTitles: Record<string, SessionTitle>};
 
 export type ArtifactListItem = ArtifactSummary & {workId: string; taskId: string | null; taskTitle: string | null; workTitle: string | null; category: "design" | "report" | "review" | "questions" | "unpublished" | "other"};
 export type DocumentListItem = DocumentEntry & {workId: string; taskId: string | null; checkoutKey: string | null};
@@ -93,7 +95,7 @@ export type DocFileData = {checkout: CheckoutRef; path: string; text: string; ti
 
 export type RunView = {pid: number; startedAt: string; command: string; cwd: string; checkout: string; ownerVia: string | null; paneId: string | null; unit: string | null; sessionHint: string | null; sessionAlive: boolean | null; descendants: Array<{pid: number; command: string}>};
 export type SessionLease = {workId: string; taskId: string; acquiredAt: string; lastActivityAt: string; lastAction: string; stale: boolean};
-/** 会话标题（t15 阶段 4 第 3 批）：从本机 Agent 的会话文件里读，读不出为 null。 */
+/** 会话标题（t15 阶段 4 第 3 批）：从本机 Agent 的会话文件里读，读不出为 null。t17 起首页、Work 页、Task 页、运行页也各带一份 `sessionTitles`。 */
 export type SessionTitle = {text: string; source: "claude-custom" | "claude-agent-name" | "claude-ai-title" | "codex" | "omp"};
 export type SessionView = {key: string; agent: string; sessionId: string | null; label: string | null; alive: boolean | null; managed: boolean; herdr: {paneId: string; status: string} | null; leases: SessionLease[]; runs: RunView[]; title: SessionTitle | null};
 /** `scrollback`：能往回翻多少行（前台是全屏程序或备用屏时是 0，读不到为 null）；`history`：能读更早的输出时走哪个接口，读不到为 null（服务端 `historySource`）。 */
@@ -155,7 +157,7 @@ export type ProcRunView = {
     url: string | null; readyAt: string | null; lastProbeStatus: number | null; endedAt: string | null; exitCode: number | null; signal: string | null;
     state: "starting" | "running" | "orphaned" | "ended"; reason: string | null; supervisorAlive: boolean;
 };
-export type RunsData = {procs: ProcRunView[]; sessions: Array<{key: string; agent: string; label: string | null; alive: boolean | null; runs: RunView[]}>; unownedRuns: RunView[]};
+export type RunsData = {procs: ProcRunView[]; sessions: Array<{key: string; agent: string; label: string | null; alive: boolean | null; runs: RunView[]}>; unownedRuns: RunView[]; sessionTitles: Record<string, SessionTitle>};
 /** `tracked` 已跟踪的改动、`untracked` 未跟踪的条数；`timedOut` 时计数都是 null（t15 阶段 4 第 4 批）。`tasks` 是它是哪些 Task 的（`home` 加目录名认出的）。 */
 export type CheckoutRow = {
     key: string; root: string; branch: string | null; head: string; isMain: boolean; executionOf: string[]; homeOf: Array<{workId: string; taskId: string}>; tasks: Array<{workId: string; taskId: string}>;

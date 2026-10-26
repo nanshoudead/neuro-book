@@ -1,0 +1,150 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00029-nb-ui-cleanup",
+    "taskId": "t04-popup-lists",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "弹出列表收成一套：评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "907e4fca35073a73224e156613c259eee811045841598ae7b9cd8da30335b582",
+    "files": [
+        "index.html",
+        "r1/highlight-dark.webp",
+        "r1/highlight-light.webp",
+        "r1/narrow-highlight-accent-solid.webp",
+        "r1/narrow-highlight-accent-tint.webp",
+        "r1/narrow-highlight-neutral.webp",
+        "r1/narrow-selection-accent.webp",
+        "r1/narrow-selection-check-left.webp",
+        "r1/narrow-selection-check-right.webp",
+        "r1/now-dark.webp",
+        "r1/now-light.webp",
+        "r1/selection-dark.webp",
+        "r1/selection-light.webp",
+        "r2/density-dark.webp",
+        "r2/density-light.webp",
+        "r2/narrow-density-two.webp",
+        "r2/narrow-radius-r5.webp",
+        "r2/radius-dark.webp",
+        "r2/radius-light.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-highlight",
+            "type": "single",
+            "label": "高亮用哪一种",
+            "options": [
+                {
+                    "value": "neutral",
+                    "label": "A 中性叠色"
+                },
+                {
+                    "value": "accent-tint",
+                    "label": "B 强调色淡底"
+                },
+                {
+                    "value": "accent-solid",
+                    "label": "C 强调色实底"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "neutral"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-selection",
+            "type": "single",
+            "label": "选中用哪一种",
+            "options": [
+                {
+                    "value": "check-left",
+                    "label": "A 左侧勾选列"
+                },
+                {
+                    "value": "check-right",
+                    "label": "B 右侧勾"
+                },
+                {
+                    "value": "accent",
+                    "label": "C 强调色淡底加勾"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "check-right"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r2-radius",
+            "type": "single",
+            "label": "列表项的圆角",
+            "options": [
+                {
+                    "value": "r2",
+                    "label": "A 外框 8、内边距 6：项 2px"
+                },
+                {
+                    "value": "r5",
+                    "label": "B 外框 10、内边距 4：项 5px"
+                },
+                {
+                    "value": "r7",
+                    "label": "C 外框 14、内边距 6：项 7px"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "r5"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-density",
+            "type": "single",
+            "label": "列表项的行高与字号",
+            "options": [
+                {
+                    "value": "one-28",
+                    "label": "A 一档：28px、13px 字"
+                },
+                {
+                    "value": "two",
+                    "label": "B 两档"
+                },
+                {
+                    "value": "one-32",
+                    "label": "C 一档：32px、13px 字"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "one-28"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-20T05:21:20.181Z"
+}

@@ -1,0 +1,144 @@
+# t06 界面实现审查（Claude Sonnet）：被审提交 abba99363..c3c93e34d
+
+# t06 界面实现审查（Sonnet）报告
+
+范围：`abba99363..c3c93e34d` 的界面改动。只追加。按核实顺序记录，末尾按影响整理汇总。
+
+## F1 [重要] nb-ui Tooltip：悬停或聚焦时按 Esc 会吃掉下一次 forceOpen 强制显示
+- 位置：`packages/nb-ui/src/components/feedback/Tooltip.vue:53-62`
+- 现象：`onEscapeKeyDown` 无条件把 `escDismissed` 置真，而清除它的 `watch(forceOpen)` 只在 `forceOpen` 变为假时清。`forceOpen` 本来就是假时按 Esc（提示是悬停或聚焦开的），`escDismissed` 变真后没有任何“假”的变化来清它；之后 `forceOpen` 变真，`shown` 仍为假，提示不显示。
+- 为什么是问题：`SettingsRow` 的原因图标用 `:force-open="controlFocused"`。用户悬停图标看提示、按 Esc 收起，之后 Tab 进控件，本该强制显示的出错原因不出现，键盘用户读不到原因（只有读屏文字）。与 `Tooltip.md` 写的“Esc 关掉之后要等 forceOpen 先变假再变真才再次强制显示”不是同一件事：这里 forceOpen 根本没开过。
+- 核实：在 `reports/impl-review-sonnet/scratch/tooltip-esc.test.ts` 写了最小复现（`forceOpen:false`，focus 触发器显示，Esc 关，blur，`setProps({forceOpen:true})`，断言显示），跑出失败：`Expected "tip" Received "x"`。新增的 4 条 forceOpen 测试只覆盖 forceOpen 为真时按 Esc，没有这一条。
+- 建议：`onEscapeKeyDown` 里只在 `props.forceOpen` 为真时置 `escDismissed`；并补这条测试。
+
+## F2 [重要] 层警告在有未保存改动时“放弃”之后，焦点被左栏抢走，光标没有落在出错处
+- 位置：`packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue:196-211`（`onLeaveClosed`）与 `SettingsFileView.vue:225-245`（`locate`）
+- 现象：点层警告、确认框里点“放弃”之后，`SettingsFileView.locate()` 读完文件会把焦点给文本框；但确认框 `closed` 事件（关闭动画与焦点栈释放之后才发）触发 `onLeaveClosed`，对 `kind: "file"` 走末尾的 `else focusCurrent()`，把焦点移到左栏“设置文件”这一项。
+- 为什么是问题：Spec 输出 13 要求“光标放在出错处”；窗口里 DOM 测试只断言了 `selectionStart`（`SettingsWindow.dom.test.ts:1106-1109`），没有断言 `document.activeElement`；无确认的那条路径（1020 行）断言了 activeElement，所以只有确认路径漏了。用户点“放弃”后看到的是光标不在文本框里，键入的字不会进文本框。
+- 核实：在 `reports/impl-review-sonnet/scratch/focus.dom.test.ts` 复现（页面报未保存、层文件有语法错误、点警告、点“放弃”、等文件读完与确认框消失），`document.activeElement` 是 `data-settings-nav="file"` 的左栏按钮，不是 `[data-settings-file-text]`，断言失败。
+- 建议：`onLeaveClosed` 里 `kind === "file"` 且有待定位位置（或视图已经把焦点放进文本框）时不再 `focusCurrent()`；并在确认路径的测试里补 activeElement 断言。
+
+## F3 [重要] 设置文件视图：切标签后文本框是新建的（滚动归零），行号列和出错行底仍停在旧的平移量上
+- 位置：`packages/neuro-book/src/plugins/settings/web/components/SettingsFileView.vue:182-186`（`watch(() => props.layer)`）、`:292-294`（`onScroll`）；`scrollTop` ref 只在 `onScroll` 里写。
+- 现象：`watch(layer)` 把 `state` 置为 `loading`，文本框随 `v-else` 卸载，读完后新建一个文本框（`scrollTop` 为 0），但 `scrollTop` ref 保留旧值，行号列继续 `translateY(-旧值px)`，行号与文本错位一整段，直到用户滚一下文本框才重新同步。出错行底（跟同一次平移）同样错位。
+- 为什么是问题：设计里的“行号一行对一行”被破坏；窗口里用户和作品两层各有一份设置文件，在文件里滚动后切标签是常规操作。
+- 核实：`reports/impl-review-sonnet/scratch/scroll.dom.test.ts`：Lab 场景 `file`，文本框 `scrollTop=42` 并派发 `scroll`，转换成 `translateY(-42px)`；`setLayer("project")` 读完后，新文本框 `scrollTop` 为 0（`same textarea: false`），行号列的 transform 仍是 `translateY(-42px)`。现有测试（`SettingsWindow.dom.test.ts:504`）只覆盖同一层内滚动。
+- 建议：文本框重新挂载时（`state` 回到 `ready`，或 `load` 里在换文本前）把 `scrollTop.value` 复位为文本框的实际 `scrollTop`；补一条“切标签后行号列平移归零”的测试。
+## F4 [重要] SettingsPageList 打开一项后焦点掉到 body；标题区的返回按钮读屏只念分区名，没有“返回”
+- 位置：`packages/neuro-book/src/ui/settings/SettingsPageList.vue:93-119`（打开时不管焦点）；`packages/neuro-book/src/plugins/settings/web/components/SettingsSectionHeading.vue:59-62`（返回按钮的内容）
+- 现象：
+  1. 点（或 Enter）列表里的一行，这一行随列表一起卸载，`document.activeElement` 变成 `body`，没有任何地方把焦点放进详情或标题区的返回按钮。只有“返回”这一方向做了焦点处理（返回后回到那一行）。
+  2. 窗口里（有通道时）返回按钮的文字是“‹ {分区标题}”，例如“模型服务”，没有 `aria-label`，也没有“返回”二字；而 `SettingsPageList` 自己的 `TEXT.back`（“返回”）只在没有通道时用。读屏用户听到的是一个名叫“模型服务”的按钮，与左栏同名的“模型服务”分区项重名，不知道是返回。标题 `h2` 随之变成详情名，没有 live region，也没有读出变化。
+- 为什么是问题：Spec 输出 19 写了“返回回到列表、焦点回到这一项”，对称的“进去”没有写，键盘与读屏用户进去之后是失焦状态，第一次 Tab 的位置取决于浏览器的“顺序焦点起点”，不可预期；且任务重点第 2 条（返回、保存后的焦点去向）要求这些路径明确。
+- 核实：`reports/impl-review-sonnet/scratch/open.dom.test.ts`（Lab `page-fill` 场景）：先 `row.focus()`，`row.click()` 后 `document.activeElement` 为 `BODY`；返回按钮 `textContent` 为“模型服务”、`aria-label` 为 null；标题区没有 `aria-live` 或 `role=status`。`SettingsWindow.dom.test.ts:664-683` 与 `SettingsPageList.dom.test.ts` 只断言了返回后的焦点。
+- 建议：打开后把焦点放到详情的第一个可聚焦处或返回按钮（`SettingsPageList` 在 `opened` 变化后 `nextTick` 处理，同返回的写法）；返回按钮加 `aria-label`“返回 {分区标题}”（用与 `SettingsPageList` 一致的 `TEXT.back`）；补两条测试。
+
+## F5 [建议] 出错原因在控件的 aria-describedby 里念两遍（字段自己的错误加行的“未保存：…”）
+- 位置：`packages/neuro-book/src/plugins/settings/web/components/SettingsListSection.vue:116-124`（`reasonsOf`）；`packages/neuro-book/src/ui/settings/SettingsRow.vue:85-87`；`packages/nb-form/src/vue/FieldShell.vue`（`errorId` 读屏文字）
+- 现象：`7c1fd56d6` 对警告与状态加了 `announced: true`，避免字段与行各念一遍；出错这一类没做。数字框输入 `abc` 时，控件的 `aria-describedby` 解出来是 `["无法解析","下次会话生效","未保存：无法解析"]`：字段外壳的读屏错误文字与行里的“未保存：无法解析”同时在列，读屏念两遍相同的原因（结构字段留在行里的值、JSON 编辑同理）。
+- 为什么是问题：任务重点第 2 条要求排查 `aria-describedby` 重复；同一个提交已经为另外两类原因处理了这件事，出错这一类不一致。
+- 核实：`reports/impl-review-sonnet/scratch/describe.dom.test.ts`（场景 `other`，在 `example.notes/interval` 里输入 `abc` 并失焦）打印出上面的数组；现有测试（`SettingsWindow.dom.test.ts:191-193`）只断言“其中有一条以‘未保存：’开头”，没有断言没有重复。
+- 建议：让行只念字段没有念过的部分（把“未保存：”前缀作为对字段错误的补充，或者字段有 `errorText` 时标 `announced`），并在该测试里断言 describedby 中同一原因只出现一次。
+
+## F6 [重要] 标题区没有给长标题留余地：下一级页面的标题很长时压在页面级操作上、冲出窗口
+- 位置：`packages/neuro-book/src/plugins/settings/web/components/SettingsSectionHeading.vue:119-137`（`__line`、`__title` 的 `flex-shrink: 0; white-space: nowrap`）与 `:171-176`（`__side` 的 `flex-shrink: 0`）
+- 现象：说明可以截断，标题自己不缩也不截断；标题被 `SettingsPageList` 替换为用户给的名字（服务商名等自由文字）后，名字够长就越过 `__side`，盖在“测试连接”、删除按钮上，右端被窗口裁掉。
+- 为什么是问题：被替换的标题是用户输入，不是分区名；Spec 输出 3 只要求“说明放不下时截断”，没规定标题，但它与页面级操作同一行，互相覆盖就是不可用（删除按钮被盖住点不到）。窄窗口（输出 16）更容易触发。
+- 核实：真实浏览器（Chrome，Lab `SettingsWindow` 场景 `page-fill`，1600×1000 窗口）：打开一家服务商，把名称改成 40 多个字再 Tab 出来，测得标题 `h2` 的右缘 1577，标题区右缘 1203，操作区 1083–1203，即标题越出标题区 374px、压在操作区上；截图 `reports/impl-review-sonnet/shots/long-title.png`，脚本 `reports/impl-review-sonnet/pw/longtitle.mjs`。
+- 建议：标题加 `min-width: 0; overflow: hidden; text-overflow: ellipsis` 并允许收缩（说明先收、标题后收，`Tooltip` 或 `title` 显示全文）；补一条用很长的标题打开详情的 e2e 或截图断言。
+
+## F7 [重要] 设置文件视图的保存栏在内容列底部，随内容列滚动；窗口矮时“保存”与“有未保存的更改”在折叠线下面
+- 位置：`packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue:333-336`（`file` 分区放进 `ScrollArea` 的内容列）；`SettingsFileView.vue`（文本框固定 `rows=18`）与 `SettingsSaveBar.vue`
+- 现象：设置文件视图在 `column` 画法里：标题区 + 路径 + 18 行文本框 + 键提示 + 保存栏是同一个滚动内容，窗口低于约 580px（下限是 600×400）时保存栏在折叠线下面，有改动时的“有未保存的更改”也看不见。草稿里（`SettingsR7Draft.vue` 的 `.sfd__fill` 与 `.sfd__scroll--in-fill`）设置文件是占满的 fill 画法，保存栏钉在窗口底部。
+- 为什么是问题：设计决定第 1 条“保存”“放弃改动”平时不显眼、有改动时才突出，前提是用户看得见它；Spec 输出 23 写“底部是保存栏”。保存栏本来就为解决“按钮随内容滚走”而做（`SampleModelsPage` 的注释也这样写），设置文件视图自己却没用同样的画法。
+- 核实：真实浏览器，`lab:shot` 的 `SettingsWindow` 场景 `file`，画布 800×520：文本框底部被截，没有保存栏，右边出现纵向滚动条（`shots2/SettingsWindow__file__800x520__light.png`）；560×600 同样（`shots2/…560x600…`）。默认 960×640 刚好露出，滚动条仍在（`shots/…file-invalid…`）。
+- 建议：设置文件分区按 `fill` 画（标题区固定、文本框随窗口高度伸缩、保存栏钉底），或至少把保存栏做成粘在滚动区底部（`position: sticky; bottom: 0`）。
+
+## F8 [建议] Lab 样板 `SampleModelsPage` 内容区的左右留白是旧画法遗留，与标题区对不齐
+- 位置：`packages/neuro-book/src/plugins/lab/web/fixtures/settings-scene/SampleModelsPage.vue:339-344`（`.sample-models__body` 的 `padding: space-1 space-6 space-5 space-7` 与注释）
+- 现象：注释写“左边留出已修改竖线的位置（SettingsRow 把它画在行左边 --space-5 处）”，已修改改成标题后小圆点之后这条竖线不存在了，留白还在。`page-fill` 场景里标题左缘 x=366，分组标题与行左缘 x=389（右缘 1030 对标题区右缘 1046）；Spec 输出 3 要求 fill 页面“外边距同内容列”，column 页面里标题与行是同一个左边（x=365）。
+- 为什么是问题：这个页面是第三方页面的样板，错位的留白会被照抄；Lab 截图上最显眼的一页就是它。
+- 核实：`shots/SettingsWindow__page-fill__1200x800__light.png` 与 `…__user__…light.png` 对比。
+- 建议：去掉左右多余的内边距（保留列表行探出 `--space-4` 所需的最小余量，或让列表行在 fill 页面里不探出），改写注释。
+
+## F9 [建议] “整数行高、同奇偶”只在 nbook 主题下成立；macOS、editorial 主题下列表里的控件仍落在半像素上
+- 位置：`packages/neuro-book/src/plugins/settings/web/components/SettingsListSection.vue:197-205`（`__group-title` 的 `line-height: var(--leading-ui)`）、`SettingsRow.vue:409-418`（`__override` 同）、`SettingsSectionHeading.vue`；规则写在 `packages/nb-ui/docs/design-language.md` 新增一节
+- 现象：行内的文字块是 20+2+18 的整数高，但行与行、行与标题区之间的高度由 `font-size × --leading-ui` 决定。nbook 下 `--leading-ui` 为 1.5、`--text-xs` 12px，分组标题正好 25px，整页落在整数上；macOS 下 1.35 与 11px，分组标题 21.84px，之后每一行都偏 0.84px，后面再接 15px 高的覆盖提示又变成 .69。
+- 为什么是问题：设计决定第 10 条要消除的就是“控件落在半像素、边框被抗锯齿糊开”；新增的 design-language 规则写成通用规则（“行内并排的文字块与控件同奇偶、行高取整数”），实现只在默认主题成立。用户设置里“主题”本身就在切 NeuroBook 与 macOS。
+- 核实：真实浏览器里对 `SettingsWindow` 的 `user`、`other`、`project` 三个场景在 nbook、macOS、editorial、aurora 下，取每行第一个控件相对窗口根的 top 与 bottom（`reports/impl-review-sonnet/pw/halfpx.mjs`、`pw/heights.mjs`）：nbook 的分段控件、下拉、数字框、单行输入、列表全部为整数；macOS 的 `user` 3/3、`other` 7/7、`project` 1/1 行落在 .84 或 .69 上，editorial 同样（.39、.17、.78）。另外 nbook 与 aurora 的开关（nb-ui `Switch` 的 `h-5`）高 24.75px、24.13px，在 40px 的文字块里居中，top 为 .63 与 .94，也不是整数（开关无描边，只影响轨道边缘的清晰度）。
+- 建议：分组标题、覆盖提示这类间隔用整数的 `line-height`（如 `calc(round(...))` 或固定像素）；或在 design-language 里写明“只对 nbook 主题成立”，并在自检清单里加上“其它主题下逐行核对”。
+
+## F10 [建议] 标题区右侧没有页面级操作时，层警告离内容列右缘多出一个间距
+- 位置：`packages/neuro-book/src/plugins/settings/web/components/SettingsSectionHeading.vue:171-181`（`__side` 的 `gap: var(--space-3)` 与总是渲染的空 `__actions`）
+- 现象：list 分区、设置文件与没有操作的 page 页面里，`__actions` 是空元素，但它还占一个 flex 间距，警告标签的右缘比下面的分隔线与控件右缘靠左约一个 `--space-3`（截图：警告右缘 1040，分隔线右缘 1046）。
+- 核实：`shots/SettingsWindow__project-invalid__1200x800__light.png`、`…file-invalid…`。
+- 建议：`.settings-section-heading__actions:empty { display: none }`（Teleport 进来的内容算子节点，不会误伤），或把间距放在操作的 `margin-left` 上。
+
+## F11 [建议] 内容列封顶宽度写的是 768px，Spec 与设计决定写的是约 720px
+- 位置：`packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue:595-598`（`.settings-window__column { max-width: 768px }`）与 `SettingsWindow.md`；Spec `docs/specs/settings/settings-window.md` 输出 3（“封顶宽度约 720px”）；README 设计决定第 9 条（“内容区限宽约 720px”）。
+- 现象：实现保留了旧值 768px，没有按定稿改；窗口在 ≥ 约 1000px 宽时才会显出差别（默认 960×640 内容列实际宽度小于 720px，所以截图里看不出）。
+- 建议：按 Spec 改成 720px（或在 Spec 里把约 720px 改成约 768px，说明沿用了 nb-ui 内容列上限）。
+
+## F12 [建议] 左栏停用分区的原因仍用原生 title；开发者定的是 Tooltip，键盘与触屏也读不到
+- 位置：`packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue:297`（左栏按钮的 `:title="item.unavailable ?? undefined"` 与 `:disabled="navDisabled(item)"`）
+- 现象：README 设计决定第 9 条“Tooltip 的分工”明确写了“左栏停用分区的原因用 Tooltip”；实现保持旧的原生 `title`，而且按钮是 `disabled`（不可聚焦、Firefox 里 `title` 也常不出）。键盘用户在左栏上看不到“这个分区还没有设置项”或“只能在用户设置里改”的原因。Plan C2 没有列这一项，所以没做。
+- 建议：用 `Tooltip` 包一层 `span`（禁用的按钮不触发指针事件）；或者停用项用 `aria-disabled` 保持可聚焦，再配 `Tooltip` 与 `forceOpen`。
+
+## F13 [建议] 窄窗口里左栏横排，方向键仍只认上下
+- 位置：`packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue:137-151`（`onNavKeydown`）
+- 现象：窄窗口（<600px）里分区是一行横排，`ArrowLeft`、`ArrowRight` 不起作用，`ArrowDown`、`ArrowUp` 却在横排上前后走，与视觉方向不一致。
+- 为什么是问题：这是本次新增的版式（输出 16），方向键没跟着改；该键盘处理在改动前是竖排所以没问题。
+- 建议：同时处理左右键（两种版式下都接受），不必按版式分支。
+
+## F14 [建议] Lab 的“光晕被裁”检查放宽了判据，没有对应的测试
+- 位置：`packages/neuro-book/src/plugins/lab/web/lab-debug.ts:219-245`（`clippedBy` 新增的 `scrolledX`、`scrolledY`）；`c3c93e34d`
+- 现象：里层已在某个方向滚动时，外层容器在这个方向的边不再计入。这改的是验收工具本身，`clippedFocusRings` 没有任何测试（包里没有 `lab-debug` 的测试文件）。
+- 为什么是问题：判据放宽后可能放过真问题，只有测试能证明放过的是“被里层滚动区先裁掉的、滚过去就可见”的那一类。从代码推断这条规则是对的（里层滚动区先裁，外层的边更远），未发现反例，所以只列建议。
+- 建议：补一条构造“里层滚动、外层不滚、元素贴外层边”和“里层滚动、元素贴里层边”两种情形的单元测试。
+
+---
+
+# 汇总（按影响排序）
+
+阻断：0
+
+重要：6
+1. F2 层警告在有未保存改动时点“放弃”后，焦点被左栏抢走，光标不在出错处（真实复现，DOM 测试）。
+2. F4 `SettingsPageList` 打开一项后焦点落到 body；返回按钮读屏只念分区名，没有“返回”。
+3. F7 设置文件的保存栏随内容列滚动，窗口矮时保存与“有未保存的更改”在折叠线下面（草稿是钉底的 fill 版式）。
+4. F6 标题区长标题（用户输入的服务商名）压住页面级操作并冲出窗口（真实浏览器测得越出 374px）。
+5. F3 设置文件切标签后行号列和出错行底停在旧的滚动平移量上（DOM 测试复现）。
+6. F1 nb-ui `Tooltip`：悬停或聚焦时按 Esc 会吃掉下一次 `forceOpen`（最小复现失败）。
+
+建议：8
+F5 出错原因 describedby 念两遍；F9 整数行高只在 nbook 主题成立（macOS、editorial 下全部落在半像素，开关在 nbook 下也是 .63）；F8 Lab 样板内容区与标题区左右对不齐；F10 无页面操作时层警告右缘多出一个间距；F11 内容列封顶 768 与 Spec 的 720 不一致；F12 左栏停用原因仍是原生 title；F13 窄窗口横排时左右方向键无效；F14 Lab 光晕检查放宽后没有测试。
+
+## 未发现问题的方面
+- `page-chrome.ts` 的登记与撤销按对象身份认，旧登记晚撤不会误清新登记；`SettingsPageList` 随页面卸载撤销，离开分区、开始搜索、关窗口、渲染出错的各条路都有测试，没有找到残留路径（从代码与测试推断，未逐条在浏览器验证）。
+- `SettingsPageActions` 的 Teleport：目标为 null 时 `disabled`，Vue 不报无效目标；目标到达与标题区重建两种时序下内容不重建；`fieldset disabled` 随 `writable` 停用与恢复有测试。
+- nb-ui 出错辉光规则改为 `:has(input:read-only, textarea:read-only)`：对其它使用者的影响只有 Select 触发器（按钮，没有输入框子元素）只读且出错时聚焦现在也有红色辉光，之前没有；与它本来就有的聚焦环一致，不构成问题（没有测试覆盖，建议不改）。
+- `--radius-dialog-compact`：已登记、有缺省回退，nbook 14px，其它主题沿用 `--radius-dialog`；AlertDialog 确认框打开、关闭没有发现闪烁（浏览器里放弃后确认框随即消失）。
+- 样式 token：新增的硬编码值（26px 标题、212px 左栏、24px 一格、6px 圆点、14px 图标、140px 窄窗口标签宽）都在组件里以局部变量说明了原因，没有硬编码颜色；深色主题、nbook 的 1200×800 与 560×600 截图没有溢出、被裁的光晕与环（`lab:shot` 报 0）。
+- 测试：新增与改写的测试断言的是可观察行为，没有跳过、固定等待或放宽断言（改写的断言是文案与结构随设计变化）；已在本 worktree 跑 `vitest run src/ui/settings src/plugins/settings`，6 个文件 88 例通过。缺口见 F2、F3、F4、F5、F1。
+- 层快照与 nb-form 后端合同：只看了对界面的影响（位置字段、`field-state`），未发现界面侧问题。
+
+## 处理结果（主会话）
+
+全部在 Work 分支单独提交，每条补的测试先在改动前跑过、确认失败。
+
+- F1 成立，要改：Tooltip 只在正被强制显示时记下 Esc；components.test.ts 补用例。ee7c315c5。
+- F2 成立，要改：确认“放弃”后打开设置文件，焦点进文本框（视图已按位置放好光标时不动）；确认路径的测试补 activeElement 断言；Spec 输出 22 与 SettingsWindow.md 补“打开设置文件的进文本框”。d5399d859。
+- F3 成立，要改：读完换文本后行号列的平移量取新文本框实际的 scrollTop；补“换标签后行号列回到顶上”。57d45866b。
+- F4 成立，要改：打开一项后焦点放到详情容器（role=region，名字是这一项的标题），焦点没丢时不动；标题区返回按钮的可访问名称“返回 分区标题”；Spec 输出 19 补上。ab809a51b。
+- F5 成立，要改：字段已念过同一个原因时，行上的“未保存：…”标 announced；测试断言 describedby 里同一原因只出现一次。ee075dde4。
+- F6 成立，要改：说明基准宽度 0、只吃剩下的宽度，标题只在自己放不下时以省略号截断（第一版用 flex-shrink 1000，真实浏览器里标题也被分到一两个像素、平白出省略号，改成 flex 1 1 0）；真实浏览器量得长服务商名标题右缘 810、操作区左缘 826。c759e4aeb、24f4a3c41。
+- F7 成立，要改：设置文件按 fill 画，文本框随窗口高度伸缩（至少 6 行），保存栏钉底；800×520、560×600 截图里保存栏在底部、检查 0 条；Spec 输出 23 补上。24f4a3c41。
+- F8 成立，要改：样板内容区用负外边距加等量内边距，分组与标题区左右边对齐（715 到 1396），保存栏同。f608e6897。
+- F9 成立，要改：SettingsRow 与 SettingsListSection 的小字行高在 @supports 里用 round() 取整；四个主题三个场景重量，除开关外 0 个半像素；design-language 的规则补多主题的写法。开关自身高度是小数（nb-ui Switch 的尺寸，无描边）不在本 Task 改，记待确认清单。3117b73d3。
+- F10 成立，要改：空的操作挂载点 :empty 不占位。c759e4aeb。
+- F11 成立，要改：内容列封顶改为 720px（开发者决定第 9 条）；nb-ui design-language 原写 ≈768px，一并同步为 720。c759e4aeb、3117b73d3。
+- F12 成立，要改：停用分区改 aria-disabled（原生停用的按钮收不到悬停），Tooltip 显示原因，原因另经 aria-describedby 给读屏，点了不动。c759e4aeb。
+- F13 成立，要改：左右键与上下键同义。c759e4aeb。
+- F14 成立，但不改：clippedBy 依赖真实布局（getBoundingClientRect），单元测试环境没有布局，写测试要另起浏览器；lab-scenes.e2e.ts 每次在真实浏览器里对全部登记场景跑这套检查，放宽的那一类（里层已滚动）有 SettingsFileView 的实例。收益小于成本。
+
+验证：test:affected --since c3c93e34d --typecheck --with-consumers 全部通过（bun 1610 例、vitest 454 例）；settings.e2e.ts、lab-scenes.e2e.ts、bookshelf.e2e.ts 24 例通过；SettingsWindow 9 个场景在 NeuroBook 浅色、深色、macOS、窄窗口下 36 张截图检查 0 条。

@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设置分区的两种画法，与旧应用的 provider 设置</title>
+<style>
+:root {
+  --bg: #f7f6f2; --panel: #ffffff; --text: #1f2328; --muted: #6b6f76; --line: #e3e1da;
+  --accent: #0a66d8; --warn: #b45309; --warn-bg: #fff4e0; --ok: #1a7f37; --ok-bg: #e8f5ec; --bad: #b42318; --bad-bg: #fdecea;
+  --code-bg: #f2f1ec;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1b1c1f; --panel: #24262a; --text: #e6e6e6; --muted: #9a9ca1; --line: #34363b;
+    --accent: #5aa2ff; --warn: #f0b35a; --warn-bg: #3a2c16; --ok: #5fd07e; --ok-bg: #183222; --bad: #ff8a80; --bad-bg: #3a1c1a; --code-bg: #2c2e33; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 32px 16px 80px; }
+h1 { font-size: 26px; margin: 0 0 4px; }
+h2 { font-size: 20px; margin: 48px 0 12px; padding-top: 16px; border-top: 1px solid var(--line); }
+h3 { font-size: 16px; margin: 24px 0 8px; }
+p, li { max-width: 880px; }
+.sub { color: var(--muted); margin: 0 0 24px; }
+.toc { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 20px; }
+.toc a { color: var(--accent); text-decoration: none; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; margin: 12px 0; }
+.rec { border-left: 3px solid var(--accent); padding: 4px 0 4px 12px; margin: 12px 0; }
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); margin: 12px 0; }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+figure a { display: block; }
+figure img { display: block; width: 100%; height: auto; }
+figcaption { padding: 8px 12px; font-size: 13px; color: var(--muted); }
+figcaption b { color: var(--text); }
+table { border-collapse: collapse; width: 100%; background: var(--panel); border: 1px solid var(--line); font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+th { background: var(--code-bg); font-weight: 600; }
+code { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 13px; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { background: var(--code-bg); border-radius: 8px; padding: 12px 14px; overflow-x: auto; font-size: 13px; line-height: 1.55; }
+pre code { background: none; padding: 0; }
+.tag { display: inline-block; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 0 9px; white-space: nowrap; }
+.ok { color: var(--ok); background: var(--ok-bg); }
+.warn { color: var(--warn); background: var(--warn-bg); }
+.bad { color: var(--bad); background: var(--bad-bg); }
+</style>
+</head>
+<body>
+<main>
+<h1>设置分区的两种画法，与旧应用的 provider 设置</h1>
+<p class="sub">w00027 t02（设置补齐）的说明页，2026-10-20。截图来自 Work 分支 <code>feat/w00027-plugin-platform</code> 的 Component Lab，设置窗口是缺省大小 960×640。点图看原图。</p>
+
+<div class="card rec">
+<b>结论</b>：旧应用“左边列服务商、右边详情”的 provider 设置，在新设置窗口里用 <b>page 分区的 fill 版式</b>就能做，左栏、详情表单、模型列表、对话框都有现成组件。真正挡路的是四件事：<b>API Key 没有密钥存储</b>、<b>一组字段一起保存的草稿没有窗口级的“未保存”保护</b>、<b>下拉选项不能来自运行时数据</b>（例如“默认模型”从已配置的服务商里选）、<b>第三方插件还拿不到这些页面组件</b>。前三件放进 t02，第四件随 t04 的 SDK。
+</div>
+
+<nav class="toc">
+<b>目录</b>
+<ol>
+<li><a href="#two">两种画法：list 与 page</a></li>
+<li><a href="#list">list 分区：只写声明，窗口来画</a></li>
+<li><a href="#page">page 分区：插件自己画（column 与 fill）</a></li>
+<li><a href="#provider">旧应用的 provider 设置放进 fill 页</a></li>
+<li><a href="#gaps">逐块对照：能做好的与缺的</a></li>
+<li><a href="#next">放进 t02 的事</a></li>
+</ol>
+</nav>
+
+<h2 id="two">1. 两种画法：list 与 page</h2>
+<p>设置窗口左栏的每一项是一个<b>分区</b>，由插件经贡献点 <code>settings.sections</code> 贡献。分区有两种：</p>
+<table>
+<tr><th style="width:12%"></th><th style="width:44%">list 分区</th><th>page 分区</th></tr>
+<tr><td>谁画</td><td>设置窗口按配置项的声明画控件，插件不写界面</td><td>插件交一个 Vue 组件，窗口只画分区标题与说明</td></tr>
+<tr><td>适合</td><td>开关、选项、数字、单行文字这类单个值</td><td>对象数组、一组互相关联的字段、要先选再编辑的东西、要调服务端的动作（检测连接）</td></tr>
+<tr><td>插件要写</td><td>分区声明（标题、图标、小组）＋ 配置项写 <code>section</code>、<code>group</code></td><td>分区声明 ＋ <code>load()</code> 交出组件；组件里用 <code>SettingsRow</code> 包每一行</td></tr>
+<tr><td>“已修改”、恢复默认、用户层与本作品层</td><td>窗口自动处理</td><td>用 <code>SettingsRow</code> 包一行就有，和 list 一样</td></tr>
+<tr><td>版式</td><td>标签列加控件列；宽控件（多行、JSON、列表）另起一行，<b>现在只读</b></td><td><code>column</code>：放进和 list 一样的内容列；<code>fill</code>：拿到标题下整块区域，自己分栏、自己滚动</td></tr>
+<tr><td>现有例子</td><td>外观、资源管理器、编辑器、“其它”</td><td>作品（column）、插件（column）、示例插件 snippets（column）、Lab 的“模型服务”（fill）</td></tr>
+</table>
+
+<h2 id="list">2. list 分区：只写声明，窗口来画</h2>
+<pre><code>// 分区：浏览器入口贡献一条声明
+export const EXPLORER_SECTION_DECLARATION = {
+    title: {"zh-CN": "资源管理器", "en-US": "Explorer"},
+    icon: "i-lucide-files", category: "app", order: 20,
+    kind: "list",
+    groups: [{id: "tree", title: {"zh-CN": "文件树", "en-US": "File Tree"}}],
+};
+// 配置项：写明落到哪个分区、哪个小组
+export const indentGuidesSetting = defineSetting({
+    plugin: "nbook.explorer", name: "indentGuides",
+    schema: Type.Union([Type.Literal("none"), Type.Literal("hover"), Type.Literal("always")]),
+    default: "hover",
+    title: {...}, section: "nbook.explorer", group: "tree",
+    choices: [{value: "none", title: {...}}, ...],   // 选项多于 3 个时画下拉
+});</code></pre>
+<div class="grid">
+<figure><a href="list-appearance.webp"><img src="list-appearance.webp" alt="外观分区"></a><figcaption><b>外观（list）</b>：分段控件；“明暗”左边的竖线表示用户层改过，后面是恢复默认；下面一行提示本作品单独设了别的值。</figcaption></figure>
+<figure><a href="list-other.webp"><img src="list-other.webp" alt="其它分区的各种控件"></a><figcaption><b>“其它”（list）</b>：开关、数字、单行输入、下拉都由声明画出；最后的“常用标签”是字符串数组，<b>现在只能只读显示</b>，t02 要补上通用编辑。</figcaption></figure>
+</div>
+
+<h2 id="page">3. page 分区：插件自己画（column 与 fill）</h2>
+<pre><code>const SECTION = {title: {...}, icon: "i-lucide-server", category: "ai",
+                 kind: "page", layout: "fill", layers: ["user"]};   // 只在“用户”标签下可用
+activate: (context) =&gt; {
+    const settings = context.services.require(settingsKey);
+    return {contributions: {[SETTINGS_SECTIONS_POINT]: {
+        "example.models": {load: async () =&gt; withSettings((await import("./ModelsPage.vue")).default, settings)},
+    }}};
+}
+// ModelsPage.vue 里：左栏 &lt;SettingsPageList&gt;，右边每一项用 &lt;SettingsRow&gt; 包住自己的控件</code></pre>
+<div class="grid">
+<figure><a href="page-column.webp"><img src="page-column.webp" alt="column 页面"></a><figcaption><b>column</b>：示例插件 snippets 自己画片段列表（可增删），宽度、内边距与 list 分区一样。</figcaption></figure>
+<figure><a href="page-fill-sample.webp"><img src="page-fill-sample.webp" alt="fill 页面"></a><figcaption><b>fill</b>：Lab 里的“模型服务”示例，左边服务商列表、右边详情，两栏各自滚动。现在右边只放了一项设置。</figcaption></figure>
+</div>
+
+<h2 id="provider">4. 旧应用的 provider 设置放进 fill 页</h2>
+<p>旧应用跑不起来了（它依赖的仓库脚本已删），左图取自归档的用户文档截图，是较早的版本；后来的版本把“全局默认模型”“Agent 可见模型”拆成了独立区段，“新增 Provider”移到了左边列表顶部。右边两张是把旧页的内容<b>临时摆进</b> Lab 的 fill 示例里截的静态稿（只为截图，没有提交，按钮都不工作），用来看缺省窗口大小下放不放得下。</p>
+<div class="grid">
+<figure><a href="legacy-provider.webp"><img src="legacy-provider.webp" alt="旧应用 provider 设置"></a><figcaption><b>旧应用</b>：配置中心是一个约 1400 宽的大窗口；左边“模型设置”等区段，中间服务商列表，右边连接表单与已启用模型；顶部有“保存设定”与“恢复”。</figcaption></figure>
+<figure><a href="provider-top.webp"><img src="provider-top.webp" alt="新窗口里的 provider 页上半"></a><figcaption><b>新窗口 960×640，上半</b>：左栏分区、服务商列表（顶部“添加服务商”）、详情表单。详情栏约 470 宽，两个短字段仍能并排。</figcaption></figure>
+<figure><a href="provider-bottom.webp"><img src="provider-bottom.webp" alt="新窗口里的 provider 页下半"></a><figcaption><b>详情栏滚到底</b>：超时与重试、扩展参数、已启用模型（检测、编辑、停用）、发现与模型库入口；最后一行是用 <code>SettingsRow</code> 包的普通配置项。</figcaption></figure>
+</div>
+<p>窗口可以拖大，大小按客户端记住；切换分区时不变大小。缺省 960 宽时三栏（分区、服务商、详情）比旧应用挤，但放得下；用户常用这一页时会把窗口拉大。</p>
+
+<h2 id="gaps">5. 逐块对照：能做好的与缺的</h2>
+<table>
+<tr><th style="width:22%">旧页的这一块</th><th style="width:40%">新设置里怎么做</th><th>现状</th></tr>
+<tr><td>服务商列表、选中、启用状态</td><td><code>SettingsPageList</code>，尾部插槽放徽标；“添加服务商”与模板选择放在列表顶部</td><td><span class="tag ok">能做好</span></td></tr>
+<tr><td>连接表单（ID、名称、API Base、接口格式、代理、超时、重试、扩展参数）</td><td>nb-ui 的表单组件；多个短字段两列排</td><td><span class="tag ok">能做好</span> 缺省宽度下详情约 470px</td></tr>
+<tr><td>API Key（已配置时打码、清空密钥）</td><td>声明 <code>secret: true</code> 的配置项：只存在服务端，浏览器只看到已设置／未设置，只能填写或清除</td><td><span class="tag bad">缺</span> 现在声明 <code>secret</code> 会被拒；只能明文写进 <code>settings.json</code></td></tr>
+<tr><td>“保存设定”与“恢复”（一组字段改完一起存）、校验问题横幅</td><td>页面自己持有草稿，点保存时一次写入整个服务商对象；校验结果页面自己显示</td><td><span class="tag warn">能做，但窗口不帮忙</span> 关窗口、切分区时草稿直接丢，没有“有未保存的改动”的提示；需要窗口给页面一个“我有未保存改动”的接口</td></tr>
+<tr><td>服务商数据放哪</td><td>服务商列表是对象数组：作为一个配置项（<code>Type.Array(对象)</code>，可进 <code>settings.json</code>），API Key 单独走密钥</td><td><span class="tag ok">能做</span> 写入是整键替换，两个窗口同时改不同服务商时后写的覆盖前者</td></tr>
+<tr><td>全局默认模型、Agent 可见模型</td><td>理想是 list 分区里一个下拉；但选项来自已配置的服务商与模型，是运行时数据</td><td><span class="tag warn">缺</span> list 分区的 <code>choices</code> 只能写死在声明里；现在只能做成 page。可以加“动态选项”（由声明者插件提供选项）</td></tr>
+<tr><td>已启用模型的分组列表、检测、发现模型、模型库</td><td>页面内组件；检测与发现调插件自己在服务端的远程服务；对话框用 nb-ui <code>Dialog</code></td><td><span class="tag ok">能做</span> 设置窗口里再弹模态对话框的层级与焦点没有实测</td></tr>
+<tr><td>项目作用域只显示“继承全局”的说明</td><td>分区声明 <code>layers: ["user"]</code>：“本作品”标签下分区停用并说明原因</td><td><span class="tag ok">已有</span></td></tr>
+<tr><td>窄屏（旧应用有手机排法）</td><td>fill 页可以在窄宽度改成上下排（示例已这样写）</td><td><span class="tag warn">不承诺</span> 设置窗口规范只做桌面宽度</td></tr>
+<tr><td>由第三方插件来做这一页</td><td>需要从 SDK 拿到 <code>SettingsPageList</code>、<code>SettingsRow</code>、设置分区的贡献点</td><td><span class="tag warn">等 t04</span> 现在这些都在应用内部路径</td></tr>
+<tr><td>插件什么时候启动</td><td>最好“打开这个分区时才启动”</td><td><span class="tag warn">缺</span> 现在 page 分区的入口只能启动即激活，否则分区一直显示“正在等待启动”</td></tr>
+<tr><td>多个 provider 插件往同一页里加服务商</td><td>拥有这一页的插件（以后的模型或 Agent 插件）定义自己的贡献点，例如 <code>models.providers</code></td><td><span class="tag ok">机制已有</span> 还没有例子</td></tr>
+</table>
+
+<h2 id="next">6. 放进 t02 的事</h2>
+<p>和这一页相关、准备写进 t02 计划的：</p>
+<ol>
+<li><b>密钥</b>：<code>secret: true</code> 的配置项在服务端加密保存，浏览器只见已设置／未设置；设置窗口与 <code>SettingsRow</code> 给出密钥项的控件。</li>
+<li><b>页面的未保存保护</b>：page 页面可以告诉窗口“有未保存的改动”，关窗口、切分区、切标签时先确认。</li>
+<li><b>动态选项</b>：配置项的选项可以由声明者插件在运行时给出，list 分区照样画下拉。</li>
+<li><b>“分区被显示时激活”的激活事件</b>：page 分区的入口不必启动即激活。</li>
+<li>原定范围：数组、对象、多行文本的通用编辑；搜索；打开设置文件；编辑器字体、字号等配置项接入；声明 API 的易用性（按插件批量声明、list 分区不交空实现、页面直接拿到配置服务）。</li>
+</ol>
+<p>做完这些，provider 设置页本身仍然要等 Agent 和模型插件重建时再写；t02 只把它需要的设置能力备好，并把 Lab 里的“模型服务”示例补成能验证这些能力的样子。</p>
+</main>
+</body>
+</html>

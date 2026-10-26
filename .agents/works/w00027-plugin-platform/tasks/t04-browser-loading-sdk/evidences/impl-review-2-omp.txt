@@ -1,0 +1,87 @@
+# t04 第二轮实现审查：内核与后端
+
+审查范围：`c9ca9f6d2..HEAD`。以下只记录本轮核实成立的问题。
+
+## 1. 重要｜正确性：升级预览把缺失服务伪装成宿主服务，和重启后的内核判定不一致
+
+- **位置**：`packages/neuro-book/src/backend/plugins/inventory.ts:216-233`；`packages/nb-runtime/src/plugins/blocked.ts:196-209`
+- **现象**：`previewBlocked` 的 `elsewhere` 集合把“当前运行位置没有插件提供的所有依赖键”全部当作 `localServices`。这不只覆盖宿主能力，也覆盖真正缺失的服务，以及升级后被新版本移除的服务；`deriveBlocked` 看到这些键后直接跳过，不产生 `missing-service` 或 `location-mismatch`。`blockedAfter` 又只把第三方清单传给它，内置能力并不在 definitions 中，因此这个集合是预览判断的实际兜底。
+- **为什么是问题**：例如提供方 `acme.provider@1` 提供 `acme.provider/service`，消费者必需依赖该服务；待升级的 `acme.provider@2` 不再提供它。重启后的真实内核状态是消费者 `blocked: missing-service`，但 `inspect` 返回 `blocked: []`，确认框不会告知用户。跨位置提供时同样不会得到 `location-mismatch`。这违反计划要求的“与重启后实际判定一致”。
+- **如何核实**：运行仓库外真实内核实验：`bun --bun /tmp/review-t04-impl2-preview.mjs`。输出中 `preview` 对 `acme.consumer/main` 为 `null`，而用 `createApplication` 装配替换后的清单后同一入口为 `blocked: {reason:"missing-service", key:"acme.provider/service"}`。
+- **建议改法**：预览必须只把明确属于宿主的能力键作为 `localServices`，不能把所有未在本位置出现的依赖键加入；或者让预览接收与实际宿主相同的本地能力集合，并把内置定义/位置信息纳入同一推导。对升级移除提供项、位置不匹配、缺失服务补合同测试。
+
+## 2. 重要｜正确性：schema 可移植性检查漏掉 `dependencies`，嵌套的坏 schema 会进入清单
+
+- **位置**：`packages/nb-runtime/src/plugins/schema.ts:39-47,119-130`
+- **现象**：关键字分类没有 `dependencies`。遍历到它时落入 `visitData`，只查函数，不按“属性名到 schema/字符串数组”的语义递归。因此 `dependencies: {a: {type: "not-a-type"}}` 不产生任何 portability problem；构建预设和 `readPluginManifest` 都会接受这份不是有效 JSON Schema 的合同或贡献点 schema。
+- **为什么是问题**：运行时 TypeBox 会把该节点当 schema 解释，宿主从 JSON 还原后的校验语义可能与作者侧不同；清单合同本应在登记前拒绝不可移植 schema。用户重点列出的 TypeBox/JSON Schema 关键字边界正好漏在这里，现有测试只覆盖 `$defs` 与 `items`，没有覆盖 `dependencies` 的 schema 分支。
+- **如何核实**：运行 `bun -e 'import {portabilityProblems} from "./packages/nb-runtime/src/plugins/schema.ts"; console.log(JSON.stringify(portabilityProblems({type:"object",dependencies:{a:{type:"not-a-type"}}})))'`，实际输出 `[]`。
+- **建议改法**：把 `dependencies` 纳入映射关键字：值为 schema 时递归 `visitSchema`，字符串数组按数据关键字校验；同时补充坏 `type`、坏 `format`、坏 `$ref` 的嵌套清单测试。
+
+## 3. 重要｜正确性：坏的 `$ref` 编码会让清单读取直接抛异常，且标准锚点形式被一律判为不可解析
+
+- **位置**：`packages/nb-runtime/src/plugins/schema.ts:49-59,133-135`；调用方 `packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts` 的合同 schema 校验路径
+- **现象**：`resolvePointer` 对每段直接调用 `decodeURIComponent`，`$ref: "#/%ZZ"` 会抛 `URIError`；`portabilityProblems` 没有捕获它，所以 `readPluginManifest` 不能返回 `status: "invalid"`，安装/启动边界会得到未分类异常。另一个边界是只支持 `#/...` 和精确匹配 `$id`，不识别 JSON Schema 的 `$anchor`/`#anchor` 解析范围。
+- **为什么是问题**：清单来自第三方安装目录，任何不合格 schema 都应归类为清单问题，不应把解析异常冒泡成登记表或插件装配异常。对标准的 fragment anchor 只要进入 TypeBox/JSON Schema 产物，当前会被错误拒绝或在不同载体间产生不一致。
+- **如何核实**：真实 `readPluginManifest` 输入包含合法合同但 `output: {$ref: "#/%ZZ"}`，运行 `bun -e 'import {readPluginManifest} from "./packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts"; import {npmVersions} from "./packages/neuro-book/src/shared/versions.ts"; /* 合同对象同测试基础输入 */'` 的完整实验输出为 `THREW URI error`；直接调用 `portabilityProblems({type:"object",$anchor:"node",$ref:"#node"})` 输出未解析问题。
+- **建议改法**：把 URI/JSON Pointer 解码包在校验分支内，解码失败转成带 schema 路径的 portability problem；明确实现并测试允许的本地引用集合，若合同只允许 `$id` 则明确拒绝 `$anchor` 并保证结构化失败，若遵循 JSON Schema 则建立 anchor 与嵌套 `$id` 的解析作用域，而不是只用全局字符串集合。
+
+## 4. 重要｜不变量：租约 `renew` 与 `release` 没有串行化，重写失败或重复失效会泄漏/丢失保护
+
+- **位置**：`packages/neuro-book/src/backend/plugins/pins.ts:61-105`
+- **现象**：`onCompromised` 每次都直接 `void renew()`，没有 in-flight 标记或代次。两个失效回调并发时都会拿同一个 `lost = current`，各自创建并写入新锁，最后一个覆盖 `current`；另一个新租约的 `.json` 与 `.lock` 成为孤儿，进程退出前持续阻止回收。`release()` 也可能在 `renew()` 等待写文件时先把 `current` 置空；renew 完成后把新租约写入 `current`，但释放流程已经结束，新锁永远不释放。
+- **为什么是问题**：租约是跨进程回收版本目录的唯一保护。重复失效会留下无法收口的租约，之后永久阻止清理；释放竞态则可能在宿主已停止后继续持有锁。重写失败时更直接：`renew` 将 `current` 设为 `null`，删除旧列表，却不释放旧的 `HeldLock`；`livePins` 看到“锁活着、列表不存在”会把整个租约标成 `unreadable`，其它服务端长期不回收任何版本。
+- **如何核实**：逐行时序核对 `renew` 的 `current = await write()`、`release` 的 `current = null` 与 `rm(held.file)`；不需要伪造运行时：两个 `lock.compromised` 回调可在同一事件循环中排队，`write()` 的两个异步文件操作会在各自 await 处交错。现有租约测试只覆盖正常跨进程切换与初始写失败，没有覆盖重复失效、重写失败或停止竞态。
+- **建议改法**：为租约维护单个串行重写链和明确的 generation/released 状态；`release` 先阻止新的重写、等待当前重写结算，再释放当前及曾创建的锁。重写失败时保留并继续使用旧租约（若旧锁仍有效），或明确释放旧锁并重新进入“不受保护”状态，不能删除列表后丢掉 `HeldLock`。补充真实进程的重复失效、重写失败、release 与 renew 并发测试。
+
+## 5. 重要｜正确性：每个入口激活都清空整棵插件模块缓存，同一插件的两个入口不会共享相对导入的子模块
+
+- **位置**：`packages/neuro-book/src/backend/plugins/loader.ts:61-67`
+- **现象**：装载前按版本目录前缀删除 `require.cache` 的所有条目，然后按入口主文件 `import`。当同一插件的 `a.mjs` 与 `b.mjs` 都导入 `./shared.mjs` 时，先激活 `a` 后激活 `b` 会得到两份 `shared.mjs` 实例；`a` 仍持有第一份，`b` 使用第二份。再次激活任一入口又会再创建一份。
+- **为什么是问题**：相对导入的模块是插件代码的一部分，通常承担多个入口共享的状态、注册表或资源协调。当前实现把“每次入口代次重新加载”错误地扩大成“每个入口各自一棵模块图”，同一插件同时运行的入口无法共享它们声明的模块单例；反复激活还会重复执行共享模块顶层副作用。计划只要求入口停止后的新代次隔离，没有声明同一插件不同入口之间应被拆成独立模块图。
+- **如何核实**：运行真实 `serverEntryLoader` 的仓库外实验 `bun --bun /tmp/review-t04-impl2-loader.mjs`。输出 `{"before":{"value":1},"after":{"value":2},"bvalue":{"value":1},"a2value":{"value":1}}`：`a` 的共享模块在 `b` 装载后仍是自己的计数器，`b` 从新计数器开始。
+- **建议改法**：把模块缓存代次放在插件版本/运行实例层：同一代次的多个入口复用一份插件模块图，入口全部停止后丢弃该代次；重新激活时创建新的代次。若 Bun 无法按图精确失效，应明确把插件代码聚合成单个运行时模块或维护显式的代次装载器，而不是对每个入口删除整棵 `require.cache`。补测试“两个入口共享子模块、停止后再激活得到新实例”。
+
+## 6. 重要｜正确性：服务端入口依赖的缺失模块被错误归类为 `code-threw`
+
+- **位置**：`packages/neuro-book/src/backend/plugins/loader.ts:54-70`
+- **现象**：只预检入口的 `main` 文件；`import(file)` 抛出的所有异常都统一包装成 `PluginCodeError("code-threw")`。入口存在但它的相对子模块缺失、或模块图中的文件读取失败时，实际错误是装载失败，却被报告为代码执行/顶层抛错。
+- **为什么是问题**：`plugin-code-loading` 的失败合同区分 `code-load-failed`（取不到代码）与 `code-threw`（语法/顶层执行抛错）。调用方按结构化 code 展示、诊断和重试；把缺失依赖报成执行错误会让用户得到错误原因，也让服务端与浏览器的同一失败语义不一致。当前实现通过错误文案前缀统一分支，完全没有按底层错误类型区分。
+- **如何核实**：真实 `serverEntryLoader` 实验 `bun --bun /tmp/review-t04-impl2-loader-error.mjs` 创建 `main.mjs` 导入不存在的 `missing.mjs`，输出 `{"code":"code-threw","message":"...Cannot find module ..."}`。
+- **建议改法**：按底层错误的结构化类型/错误码识别模块图读取失败（如 Bun 的模块未找到错误），映射为 `code-load-failed` 并保留 `cause`；语法解析和顶层求值异常才映射为 `code-threw`。补充入口存在但相对依赖缺失、相对依赖语法错误两条真实装载测试，禁止按错误文案分支。
+
+## 7. 重要｜正确性：升级预览读取已安装版本时没有核对目录清单的 id/version
+
+- **位置**：`packages/neuro-book/src/backend/plugins/inventory.ts:221-226`；对照启动真实校验 `packages/neuro-book/src/backend/plugins/startup.ts:305-310`
+- **现象**：`blockedAfter` 对 `installedManifest(join(root, id, version))` 只判断 `read.ok`，直接把 `read.manifest` 加进当前集合；它没有像启动路径那样核对 `manifest.id === id` 与 `manifest.version === version`。安装目录里的 `package.json` 被改成另一份合法清单时，预览会把错误的插件/版本参与依赖推导，而重启时该版本会以 `manifest-invalid` 不登记。
+- **为什么是问题**：确认框展示的是“重启后”的受阻推导，但它使用了重启后一定会被丢弃的清单。结果可以漏报或虚报依赖者，甚至把被篡改清单的服务当作有效提供方；这与项目子进程的 `manifestOfInstalled` 复核和服务端启动路径不一致。该输入虽不是正常安装流程产生的，但合同明确要求损坏的已安装插件不影响其它插件且预览给出 `unchecked`。
+- **如何核实**：代码路径对照：`installedManifest` 只校验清单自身结构，`startupPlugin` 明确追加 id/version 检查，而 `blockedAfter` 没有该分支；把某个已安装版本的 `package.json` 改成另一份合法清单后调用 `inspect` 即会进入 `current`，不会进入 `unchecked`。
+- **建议改法**：预览读取后复用 `manifestOfInstalled({id, version, root, digest, manifest: read.raw})` 的 id/version 复核，或在 `blockedAfter` 直接比较记录键与选定版本；不匹配按 `unchecked` 处理，并补“结构合法但 id/version 不同”的预览测试。
+
+## 8. 重要｜跨进程不变量：拿不到登记表锁的只读启动在锁外创建租约，无法保护它刚读到的版本
+
+- **位置**：`packages/neuro-book/src/backend/plugins/startup.ts:125-144`
+- **现象**：`withRecordLock` 失败后，启动路径读取一次登记表并调用 `pinFor`；这次 `pinVersions` 不在登记表锁内。另一个服务端可以在两次读取之间完成待切换/卸载、回收刚读到的版本目录；`livePins` 也可能已经在对方持登记表锁时读过租约快照，随后才看到这个新租约。
+- **为什么是问题**：新服务端的启动集合和租约不是一个原子观察点。它可能以旧记录继续启动，但版本目录已被删，表现为清单/入口代码缺失；即使租约最终写出来，也已经晚于回收，不能恢复这个不变量。此前“拿不到登记表锁就只读启动”只适用于不执行代码的路径，接入第三方入口后不能直接沿用。
+- **如何核实**：按代码时序即可构造真实两进程竞态：进程 A 在 `withRecordLock` 持锁并提交升级/卸载，进程 B 在失败分支读到旧记录后暂停在 `pinFor`；A 完成 `applyPending`/`reclaim` 后，B 再写租约并进入 `startupPlugin`。B 的 pin 写入不可能阻止 A 已完成的删除。现有测试只断言只读根能启动，没有覆盖锁竞争期间的版本保护。
+- **建议改法**：无法取得登记表锁时不要对第三方代码宣称受保护的启动集合：要么等待/重试锁并在同一锁内定集合与写租约，要么明确降级为不登记第三方入口（只保留可安全的诊断/状态），不能在锁外读旧集合再持租约。
+
+## 9. 重要｜正确性：同一插件不同入口的受阻原因被错误合并
+
+- **位置**：`packages/neuro-book/src/backend/plugins/inventory.ts:229-240`；合同 `packages/neuro-book/src/plugins/plugins/shared/contracts.ts:64-81`
+- **现象**：`blockedAfter` 以插件 id 为 key 合并所有入口，但 `BlockedPlugin` 只有一个 `reason` 和一个可选 `range`。同一插件有一个入口因版本范围不符、另一个入口因其提供方受阻时，后来的结果只会覆盖插件级 reason；若最终是 `version-mismatch`，UI 会把同一 `range` 写到实际为 `provider-blocked` 的入口上；若最终是 `provider-blocked`，版本不符入口的范围则丢失。
+- **为什么是问题**：确认框承诺列出“这些插件的这些入口”及要求范围，当前文本会把错误原因/范围绑定到错误入口，用户无法据此判断升级影响。现有测试每个插件只有单一原因，未覆盖一个插件多入口混合受阻。
+- **如何核实**：构造 `previewBlocked` 返回同一插件一个 `version-mismatch`、一个 `provider-blocked` 的两个入口，按现有 `byPlugin` 分支合并即可观察其中一类被错误套用到另一类；无需修改运行时。
+- **建议改法**：按 `(plugin, reason, range)` 分组，或扩展合同让每个入口携带自己的原因/范围；排序和 UI 钩子按分组后的稳定 key 处理，并补混合原因的后端合同测试与界面断言。
+
+## 未发现问题的方面
+
+- 服务端与项目子进程都从服务端启动快照接收 `InstalledPlugin`，子进程未另持版本租约；按运行位置筛选并在接收侧复核清单的路径已核对。
+- `Bun.plugin` 宿主模块表只在进程内首次第三方入口装载时注册，服务端与项目入口使用 SDK 和 `@vue/reactivity` 的宿主实例；正常装载失败只影响对应入口的内核激活结果。
+- 登记表锁内的普通 `livePins` 回收、同版本已被租用时的 `version-in-use`、待切换目录的延迟回收、诊断 sink 在宿主建立后接收运行期记录，相关实现与现有测试一致；本轮另外发现的租约重写竞态见第 4 条。
+- `fieldPath` 对含 `/` 的合同 id 的认回、入口 id 的文件名段规则、`items: false` 与 `$defs`/`properties` 等已覆盖的 schema 语义边界未再发现额外问题；未覆盖的 `dependencies` 与坏 URI 见第 2、3 条。
+- 示例 clock、notes、counter 的外置入口和 `examples/testing/stage.ts` 的版本判断接线已核对；未把浏览器、构建预设、SDK 与插件页实现作为本轮审查对象。
+
+本轮实际验证：`bun test packages/nb-runtime/src/plugin-manifest/plugin-manifest.test.ts packages/nb-runtime/src/plugins/blocked.test.ts`（67 pass / 0 fail）；`bun test packages/neuro-book/src/backend/plugins/loader.test.ts packages/neuro-book/src/backend/plugins/plugins.test.ts packages/neuro-book/src/manifest.test.ts packages/neuro-book/src/server/plugin-files.test.ts`（36 pass / 0 fail）；`bun run --cwd packages/nb-runtime typecheck` 通过；`bun run --cwd packages/neuro-book typecheck` 通过。按任务规则未运行 e2e 与开发服务。
+
+各级数量：阻断 0；重要 9；建议 0。

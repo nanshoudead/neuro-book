@@ -96,15 +96,24 @@ export function reservedKeys(value: unknown): string[] {
     return Object.keys(value).filter((key) => key.startsWith(RESERVED_KEY_PREFIX));
 }
 
-/** 按 schema 校验；通过返回 null，否则返回脱敏的错误摘要（路径与说明，不含值）。 */
+/**
+ * 按 schema 校验；通过返回 null，否则返回脱敏的错误摘要（路径与说明，不含值）。
+ *
+ * schema 本身写坏时（例如 `pattern` 不是合法正则）TypeBox 会抛出；这里也当作不通过返回摘要，调用方照常回结构化失败。
+ * 不这样做，提供方处理请求的异步链会以未处理的 rejection 结束：调用方等到超时，服务端宿主还会因此有序停止整个进程。
+ */
 export function validationProblems(schema: TSchema, value: unknown): string | null {
-    if (Value.Check(schema, value)) {
-        return null;
+    try {
+        if (Value.Check(schema, value)) {
+            return null;
+        }
+        return [...Value.Errors(schema, value)]
+            .slice(0, 5)
+            .map((error) => `${error.instancePath === "" ? "/" : error.instancePath}：${error.message}`)
+            .join("；");
+    } catch (error) {
+        return `schema 无法用于校验：${error instanceof Error ? error.message : String(error)}`;
     }
-    return [...Value.Errors(schema, value)]
-        .slice(0, 5)
-        .map((error) => `${error.instancePath === "" ? "/" : error.instancePath}：${error.message}`)
-        .join("；");
 }
 
 const NullableString = Type.Union([Type.String(), Type.Null()]);

@@ -1,6 +1,6 @@
 /**
  * 宿主能力 `windowPluginsKey` 的实现（docs/specs/workbench/views.md 输出 8，runtime/browser-host.md“失败呈现”）：把本窗口
- * 运行实例的插件宿主收窄成“查入口状态、听变化、重试激活失败的入口”三件事交给插件。
+ * 运行实例的插件宿主收窄成“查入口状态与声明的激活事件、列出本窗口的插件问题、听变化、重试激活失败的入口”几件事交给插件。
  *
  * 能力在建立运行实例的 manifest 里就要给出，那时插件宿主还没创建，所以经 `host()` 晚取：运行实例建立之前查询得到
  * null。变化通知不精确：插件机制每记一条诊断（激活开始、失败、停止、恢复都会记）就通知一次，读方重新查询。
@@ -8,6 +8,7 @@
 
 import type {PluginDiagnostic, PluginHost} from "@notnotype/nb-runtime/plugins";
 
+import {pluginProblems} from "nbook/plugin-platform/shared/problems";
 import type {WindowPluginRetry, WindowPlugins} from "nbook/shared/host";
 
 export interface WindowPluginsFeed {
@@ -29,6 +30,14 @@ export function createWindowPlugins(host: () => PluginHost | null, report: (erro
     };
     const capability: WindowPlugins = {
         entryState: (ref) => host()?.entryState(ref) ?? null,
+        activationEvents: (ref) => {
+            const plugin = host()?.catalog().plugins.find((candidate) => candidate.id === ref.plugin);
+            return plugin?.entries.find((entry) => entry.entry === ref.entry)?.activationEvents ?? null;
+        },
+        problems: () => {
+            const plugins = host();
+            return plugins === null ? [] : pluginProblems(plugins.catalog(), plugins.location);
+        },
         onChange: (listener) => {
             listeners.add(listener);
             return () => listeners.delete(listener);

@@ -22,7 +22,12 @@ import {PluginHostImpl} from "./host";
 export type * from "./contracts";
 export {PluginStateError} from "./contracts";
 export {defineEntry} from "./define";
+export type {ExpectedOutput as EntryOutputFor, ExtraKeys as ExtraOutputKeys} from "./define";
 export {KERNEL_ACTIVATION_PREFIXES} from "./registration";
+export {portabilityProblems, schemaProblem} from "./schema";
+export {previewBlocked} from "./blocked";
+export {isBuiltinId, isReservedPublisher, RUNTIME_PUBLISHER} from "./platform";
+export type {PluginPlatform} from "./platform";
 
 /** 创建一个插件宿主：绑定到一个运行实例（即一个运行位置）与其服务装配。两个宿主互不共享状态。 */
 export function createPluginHost(instance: RuntimeInstance, assembly: ServiceAssembly, options: PluginHostOptions): PluginHost {
@@ -35,9 +40,9 @@ export function createPluginHost(instance: RuntimeInstance, assembly: ServiceAss
 /**
  * 构造激活产出中按调用方提供的一项服务：每个调用方（插件入口的每次激活）解析时得到
  * `facade(调用方)` 生成的门面，`release` 在该调用方的这次激活结束时调用。门面应是由函数组成的
- * 普通对象；需要交出响应式对象等运行期值时用 `provide`。
+ * 普通对象；需要交出响应式对象等运行期值时用 `provideService`。
  */
-export function providePerConsumer<T extends object>(
+export function provideServicePerConsumer<T extends object>(
     key: ServiceKey<T>,
     facade: (consumer: ConsumerIdentity) => T,
     options: {readonly release?: (facade: T, consumer: ConsumerIdentity) => void | Promise<void>} = {},
@@ -50,7 +55,7 @@ export function providePerConsumer<T extends object>(
  * 构造激活产出中的一项提供服务；`release` 在服务代次关闭或激活产出被收口时调用一次。服务类型只取自键，
  * 实例按它核对。
  */
-export function provide<T>(key: ServiceKey<T>, instance: NoInfer<T>, release?: (instance: T) => void | Promise<void>): ProvidedService<T> {
+export function provideService<T>(key: ServiceKey<T>, instance: NoInfer<T>, release?: (instance: T) => void | Promise<void>): ProvidedService<T> {
     return {
         key,
         instance,

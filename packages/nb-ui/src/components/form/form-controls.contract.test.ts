@@ -3,15 +3,14 @@ import {resolve} from "node:path";
 import {mount} from "@vue/test-utils";
 import {nextTick} from "vue";
 import {describe, expect, it} from "vitest";
-import FormCheckbox from "./FormCheckbox.vue";
-import FormInput from "./FormInput.vue";
-import FormNumberInput from "./FormNumberInput.vue";
-import FormSelect from "./FormSelect.vue";
-import PinInput from "./PinInput.vue";
+import Checkbox from "./Checkbox.vue";
+import Input from "./Input.vue";
+import NumberInput from "./NumberInput.vue";
+import Select from "../popup/Select.vue";
 
 describe("phase 2 form control contracts", () => {
-    it("keeps FormInput numeric attributes, prefix slot and focus event", async () => {
-        const wrapper = mount(FormInput, {
+    it("keeps Input numeric attributes, prefix slot and focus event", async () => {
+        const wrapper = mount(Input, {
             props: {
                 modelValue: "12",
                 type: "number",
@@ -30,9 +29,9 @@ describe("phase 2 form control contracts", () => {
         expect(wrapper.emitted("focus")).toHaveLength(1);
     });
 
-    it("marks every FormInput native branch without changing its model contract", async () => {
-        const bare = mount(FormInput, {props: {modelValue: "bare"}});
-        const wrapped = mount(FormInput, {
+    it("marks every Input native branch without changing its model contract", async () => {
+        const bare = mount(Input, {props: {modelValue: "bare"}});
+        const wrapped = mount(Input, {
             props: {modelValue: "wrapped"},
             slots: {prefix: "<span>@</span>"},
         });
@@ -41,18 +40,6 @@ describe("phase 2 form control contracts", () => {
         expect(wrapped.get("input").classes()).toContain("nb-ui-native-input");
         await bare.get("input").setValue("updated");
         expect(bare.emitted("update:modelValue")?.at(-1)).toEqual(["updated"]);
-    });
-
-    it("marks numeric PinInput cells while preserving numeric keyboard semantics", () => {
-        const wrapper = mount(PinInput, {props: {length: 2, type: "number"}});
-        const inputs = wrapper.findAll("input[inputmode='numeric']");
-
-        expect(inputs).toHaveLength(2);
-        for (const input of inputs) {
-            expect(input.classes()).toContain("nb-ui-native-input");
-            expect(input.attributes("type")).toBe("text");
-            expect(input.attributes("pattern")).toBe("[0-9]*");
-        }
     });
 
     it("scopes every native search and number pseudo-element selector to the marker", () => {
@@ -70,8 +57,8 @@ describe("phase 2 form control contracts", () => {
         expect(nativeDecorationSelectors.every((selector) => selector.includes("input.nb-ui-native-input"))).toBe(true);
     });
 
-    it("preserves FormNumberInput editing states and applies bounded stepping", async () => {
-        const wrapper = mount(FormNumberInput, {
+    it("preserves NumberInput editing states and applies bounded stepping", async () => {
+        const wrapper = mount(NumberInput, {
             props: {modelValue: "-", min: "0", max: "2", step: "0.5"},
         });
         const input = wrapper.get("input");
@@ -90,8 +77,8 @@ describe("phase 2 form control contracts", () => {
         expect(wrapper.emitted("submit")).toHaveLength(1);
     });
 
-    it("renders FormSelect placeholder, rich options and compact direction contract", async () => {
-        const wrapper = mount(FormSelect, {
+    it("renders Select placeholder, rich options and compact direction contract", async () => {
+        const wrapper = mount(Select, {
             props: {
                 modelValue: "",
                 placeholder: "选择格式",
@@ -119,9 +106,9 @@ describe("phase 2 form control contracts", () => {
         wrapper.unmount();
     });
 
-    it("forwards class and attributes to the FormSelect trigger and drops the conflicting default width", () => {
+    it("forwards class and attributes to the Select trigger and drops the conflicting default width", () => {
         // SelectRoot 是多根组件，Vue 不自动继承；不显式转发的话宽度与 aria-label 会被静默丢弃
-        const wrapper = mount(FormSelect, {
+        const wrapper = mount(Select, {
             props: {modelValue: "md", options: [{label: "Markdown", value: "md"}]},
             attrs: {"class": "w-[170px]", "aria-label": "导出格式", "data-testid": "format"},
         });
@@ -134,16 +121,16 @@ describe("phase 2 form control contracts", () => {
         wrapper.unmount();
     });
 
-    it("keeps the FormSelect default full width when no width class is passed", () => {
-        const wrapper = mount(FormSelect, {
+    it("keeps the Select default full width when no width class is passed", () => {
+        const wrapper = mount(Select, {
             props: {modelValue: "md", options: [{label: "Markdown", value: "md"}]},
         });
         expect(wrapper.get("[role='combobox']").classes()).toContain("w-full");
         wrapper.unmount();
     });
 
-    it("gives FormCheckbox an optional label fallback and forwards focus", async () => {
-        const wrapper = mount(FormCheckbox, {props: {modelValue: false}});
+    it("gives Checkbox an optional label fallback and forwards focus", async () => {
+        const wrapper = mount(Checkbox, {props: {modelValue: false}});
         const input = wrapper.get("input");
 
         expect(wrapper.text()).toContain("false");
@@ -154,7 +141,7 @@ describe("phase 2 form control contracts", () => {
     });
 
     it("uses a literal black endpoint and restores the keyboard focus ring on the visual checkbox", () => {
-        const wrapper = mount(FormCheckbox, {props: {modelValue: true}});
+        const wrapper = mount(Checkbox, {props: {modelValue: true}});
         const visual = wrapper.get("input + span");
 
         expect(visual.classes().some((className) => className.includes("#000000"))).toBe(true);

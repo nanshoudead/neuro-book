@@ -1,0 +1,41 @@
+# w00025 t03 标签栏与拆分 — 前端实现审查（sonnet）
+
+### 1. 同名提示 hint 文本没有宽度上限或截断，可能把标签撑宽或溢出
+
+- **严重程度**：建议；**类别**：UI
+- **位置**：`packages/neuro-book/src/plugins/editor/web/components/EditorTabBar.vue:325-330`（`.editor-tab__hint` 样式）与模板 187 行
+- **现象**：`.editor-tab__hint` 是 `flex: none; white-space: nowrap`，没有 `max-width`/`text-overflow: ellipsis`。`.editor-tab-frame` 固定 `max-width: 240px` 但没有 `overflow: hidden`。`.editor-tab__label` 可以靠 `min-width: 0` 收缩到几乎 0 来让出空间，但 hint 本身不参与截断。
+- **为什么是问题**：Spec 输出 56 的同名提示在“只取了末几段时前面加 `…/`”，暗示算法本身会尽量短，但没有硬性长度上限；遇到层级很深、又需要展示多段才能区分的目录时，hint 文字可能比预留空间长，这时标签视觉宽度会超出 240px（因为 frame 没裁剪），要么压断相邻标签的分隔线/布局，要么让关闭按钮被挤出可点击区域。
+- **如何核实**：在 Lab 或真实场景里构造两个同名文件、路径差异只在很深的一层（例如 `a/b/c/d/e/同名.md` 与 `x/y/z/w/v/同名.md`），观察标签条在窄宽度下是否挤出或遮挡下一个标签。
+- **建议改法**：给 `.editor-tab__hint` 加 `overflow: hidden; text-overflow: ellipsis; max-width: <值>`，或者让 `.editor-tab-frame` 设置 `overflow: hidden` 兜底。
+
+### 2. 固定标签的“固定”状态对屏幕阅读器不可感知
+
+- **严重程度**：建议；**类别**：UI（可访问名称）
+- **位置**：`packages/neuro-book/src/plugins/editor/web/components/EditorTabBar.vue:167-189`（标签按钮本身）与 191-203（图钉按钮）
+- **现象**：固定标签在视觉上用图钉图标与排到最前来表达“已固定”，但：图钉按钮本身 `tabindex="-1"`、不进 Tab 顺序（键盘用不到它，这是设计决定，没问题）；而标签主按钮（`role="tab"`）既没有 `aria-pressed`/`aria-describedby`，也没有任何 `sr-only` 文字说明“已固定”。未保存状态有专门的 `<span class="sr-only">（未保存）</span>`（188 行），但固定状态没有对应的屏幕阅读器文字。
+- **为什么是问题**：固定标签在很多行为上与普通标签不同（“关闭其他”“关闭右侧”不关它、Alt+←/→ 只在同类标签间移动、换组时表现不同），这些差异完全依赖视觉上的图钉与分组位置来传达。纯键盘或屏幕阅读器用户 Tab 到这个标签（唯一进 Tab 顺序的是活动标签）时，没有任何途径得知它是固定的。
+- **如何核实**：开屏幕阅读器（或读 accessibility tree）聚焦一个固定的活动标签，确认播报内容里没有“固定”相关信息。
+- **建议改法**：给固定标签的 `sr-only` 补一句类似未保存的提示（例如“已固定”），或在标签按钮上加 `aria-describedby` 指向一个描述固定状态的隐藏文字。
+
+### 3. 面包屑卸载时若编辑器控件未就绪，焦点交还会静默丢失
+
+- **严重程度**：建议；**类别**：不变量 / UI（焦点管理）
+- **位置**：`packages/neuro-book/src/plugins/editor/web/components/EditorGroup.vue:286`（`@escape="area.handleOf(groupId)?.focus()"`）
+- **现象**：`EditorBreadcrumbs.vue:193-196` 在卸载时，若焦点还在面包屑里就 `emit("escape")`；`EditorGroup.vue` 把这个事件转交给 `area.handleOf(groupId)?.focus()`。如果这一刻编辑器控件还没挂上（`handleOf` 返回 `null`，例如编辑器还在“正在加载编辑器”的 800ms 等待期，或切到了没有控件的页面标签场景），`?.focus()` 直接短路，什么都不做。
+- **为什么是问题**：面包屑组件自己的 `.md` 写明“卸下时焦点在面包屑里，交出 escape 让宿主把焦点还给编辑器”，隐含假设宿主总能把焦点接住；但在编辑器控件未就绪这个真实存在的状态窗口（输出 40）里，这个假设不成立，焦点会掉回 `document.body`，用户当前的键盘上下文丢失（下一次 Tab 或快捷键的起点变得不可预期）。
+- **如何核实**：构造一个编辑器实现延迟交付的场景（例如 Lab 或模拟 `control` 返回 `pending` 一段时间），聚焦面包屑后触发会让面包屑卸载的动作（关掉面包屑设置、或切到页面标签），在控件仍 `pending` 时观察 `document.activeElement`。
+- **建议改法**：`handleOf(groupId)?.focus()` 为空时退回聚焦编辑组根元素（`section[data-editor-group]`）或其标签条，保证焦点至少还在这个组里，不落到页面根。
+
+## 未发现问题的方面
+
+- `EditorTabBar.vue` 的 VS Code 式标签块配色、开放式分隔线、关闭按钮按标签显隐、多行与固定行分组、↑/↓ 几何算法、零布局位移：对照 `.md`、Spec 输出 53/54/56/58/59 与 e2e「标签栏的样子」「多行标签」两例逐条核对，均一致；e2e 用真实计算样式断言了分隔线的宽度/位置/透明度与关闭按钮可见性，不是靠猜测。
+- `EditorGroup.vue` 的标题动作悬停显示、组矮时标签区让高、banner 优先级顺序、`unavailable`/`failure`/`pageId`/`controls` 几条渲染分支之间没有互相覆盖或双重可见的情况。
+- `EditorBreadcrumbs.vue` 的 `keepOpen` 钻入下一层机制：核对了 nb-ui `Dropdown.vue` 的受控 `open` 语义（`isOpen = props.open ?? ownOpen.value`）与 `select`/`update:open(false)` 的实际发出顺序（`Dropdown.test.ts` 已有用例覆盖），证实即使事件顺序反直觉，受控组件也不会被 Reka 自己的关闭信号打断；在途读取的中止/作废（`seq`/`AbortController`）、大纲版本变化关闭标题下拉、卸载时的焦点交还，均有对应的 `.dom.test.ts` 用例用真实 DOM 事件验证。
+- `FileIcon.vue`/`file-icons.ts`：全局色板变量的写法与 `.md` 一致，属于 `theme/system.md` 允许的分类色板例外；扩展名到图标的映射没有发现遗漏或冲突。
+- `messages.ts` 新增的拖动/面包屑文案均成对、术语与 Spec 一致。
+- `editor-area.e2e.ts` 新增用例全部用 `expect.poll` 或等待可观察的 DOM/geometry 状态，没有发现固定时长等待（`waitForTimeout`）。
+
+## 统计
+
+共 3 条：阻断 0、重要 0、建议 3（1 条 UI/布局健壮性，1 条 UI 可访问名称，1 条不变量/焦点管理）。

@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00025-editor",
+    "taskId": "t03-tabs-and-split",
+    "artifactId": "review",
+    "answerId": "20261015T060038338Z-2101fea4",
+    "artifactVersion": 3,
+    "contentHash": "5cb3969028eca12add2c4d14a7517d5c1913b8ab42f93b1ce4b09a4b27ed955a",
+    "submittedAt": "2026-10-15T06:00:37.908Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r3-tone": "t93",
+        "r3-separators": true,
+        "r3-plan": true
+    },
+    "comments": {},
+    "note": null
+}

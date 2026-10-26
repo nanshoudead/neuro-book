@@ -1,0 +1,197 @@
+# w00022/t18 计划与 t17 服务端标题数据审查
+
+审查基线：detached worktree `.worktree/w00022-review-t18-plan`，提交 `3a4929d5c`。只审 t18 全文及 t17“带出会话标题”与“显示标题”的数据合同。以下逐条追加，不改写先前内容；代码证据与未执行的运行验证分开记录。
+
+### 1. 样例脚本成为第二个登记表写者，原子改名仍会丢失其他作品登记
+
+- **严重程度**：阻断；**类别**：不变量、正确性。
+- **位置**：t18 计划“`dev:sample`：放一份样例作品”第 28、35 行及“不做与风险”第 115 行；`packages/neuro-book/src/server/projects/registry.ts:54-86,92-133,145-157`；`docs/specs/runtime/projects.md:153`。
+- **现象**：服务端与样例脚本各自读整份 `projects.json`，各自改完后整表替换。若两者都读到旧表 R，服务端写 R 加用户作品 A，脚本随后写 R 加 sample，A 就从书架消失；顺序相反则 sample 消失。临时文件与改名只保证读者不会看到半个 JSON，不保证读改写不互相覆盖。“仅没有 sample 才写”只减少写入次数，不能排除首次运行的竞态；两个 `dev start --sample` 同时执行还会彼此覆盖样例身份与登记。
+- **为什么是问题**：作品合同明确规定登记表由服务端进程独占写入。计划一面说 `projects.md` 不改、样例是普通作品，一面破坏其写入所有权；“窗口很小”不是一致性机制，也不是开发者已接受丢登记的授权。真实使用中，`--sample` 明确支持复用正在运行的服务，此时网页新建、登记、移出与脚本会同时写同一文件。
+- **如何核实**：已逐行核对实现：`queue` 是 `createProjectRegistry` 闭包里的 Promise，只约束该实例；`register` 和 `unregister` 都先读取旧表，`write` 最后 `rename` 整表覆盖。以上竞态为代码与合同推导，未伪造内部时序实验，也未启动开发服务；建议主 Agent 在真实服务上并发执行样例登记与真实 `register`，核对两项均保留。
+- **建议改法**：保留单一写者：运行中的服务通过现有项目登记能力登记样例；离线准备须确认没有该状态根的服务写入。若一定要跨进程离线写，先设计并迁移所有登记表写者到同一把跨进程锁，而不是只给脚本加锁或复用进程内队列；相应更新作品合同并覆盖真实子进程并发。nbdev 仍只调用应用脚本，不接管作品知识。
+
+### 2. 复用服务时沿用当前调用者的环境，样例会登记到错误的状态根
+
+- **严重程度**：重要；**类别**：正确性、接口与合同。
+- **位置**：t18 计划“`dev start --sample`”第 58、62 行；`packages/dev-panel/src/dev/dev-ops.ts:105-107,226-258`、`src/core/procs.ts:26-58`；`packages/neuro-book/src/server/dev/config.ts:29-39`、`src/server/dev/run.ts:58-67`。
+- **现象**：先用 `NBOOK_STATE_ROOT=A nbdev dev start` 起服务，再在同一 checkout 用 `NBOOK_STATE_ROOT=B nbdev dev start --sample`（或第二次没有该变量）。现有复用键只有 checkout、package、script，第二次仍复用 A 的服务；计划先用第二次调用的环境跑 `dev:sample`，却写入 B（或 `.dev-state`）。之后打印的 `SAMPLE` 地址属于 A，其工作台找不到 sample。别人起的服务与 `supervisor_gone` 分支也一样。
+- **为什么是问题**：“环境与起服务时相同”只在新起一份服务时能成立。`ProcRecord` 不保存环境或有效状态根，`reuse` 不比较 `NBOOK_STATE_ROOT`，因此当前机制无法兑现这句话。另一个已核实事实：默认端口 4217/4218/4219 顺延 100 时，`stateRoot` 不变；同一 worktree 单独再起一份服务会共用登记表与用户状态，不能把端口不同当作隔离。
+- **如何核实**：已核对 `readDevConfig`、端口顺延及后端环境传递代码，确认新启动的样例脚本与服务只要拿到同一个 env 和 packageRoot 就一致；复用分支只读取旧运行登记，没有取其环境的通道。未启动真实服务；主 Agent 应用两个不同的真实临时状态根重复上述调用，断言复用服务的书架确实有 sample，而不是只看脚本输出。
+- **建议改法**：先选定新起或复用的运行，再在应用侧取得该运行的有效配置，通过它的登记能力处理样例；不能可靠取得时明确拒绝配置不一致的复用，不打印可用样例地址。应用脚本应接收确定的目标服务地址或有效状态根，而不是重新猜环境；不要把整个进程环境（含凭据）存入登记。明确端口顺延与状态根共用关系。
+
+### 3. 固定样例路径绕过目录与身份校验，会把打不开的作品报成样例已就绪
+
+- **严重程度**：重要；**类别**：正确性、边界与恢复。
+- **位置**：t18 计划“`dev:sample`：放一份样例作品”第 28-34 行；`packages/neuro-book/src/server/dev/config.ts:30-38`、`src/server/projects/identity.ts:59-90`、`src/server/projects/registry.ts:93-127`、`src/server/projects/manager.ts:411-419`。
+- **现象**：缺省 `.dev-state` 与 `.dev-sample` 是兄弟目录，样例可登记；但合法环境值 `NBOOK_STATE_ROOT=.`、`.dev-sample` 或 `.dev-sample/sample` 会使样例位于状态根内部，打开项目必被 `checkProjectDirectory` 拒绝。计划直接写表，不经过该校验。重复运行只检查“sample 登记存在、目录还在”，身份文件缺失、损坏、id 已换过也全被当作成功；作品目录被删后重建时也没有规定沿用原登记 id。
+- **为什么是问题**：当前项目启动在生成子进程前必校验真实目录位置和身份 id，脚本的成功不能跳过这些前置条件。路径存在不等于可打开。合同还要求登记表损坏时不覆盖、不先改作品目录；已登记目录缺身份时按原 id 修复。计划没有给这些分支；新建/重建若重新生成 UUID，会悄悄换作品身份和其持久数据归属。
+- **如何核实**：已核对 `readDevConfig` 的相对路径解析、`checkProjectDirectory` 的真实路径判断、`manager.#create` 的身份核对和登记的恢复分支。未启动项目进程。主 Agent 应以真实临时状态根覆盖“状态根包含样例”“缺/坏/冲突身份”“坏登记表”“目录丢失后保留 id”，通过正常登记与打开路径验证，而不只断言 JSON 输出。
+- **建议改法**：应用脚本复用现有登记与身份规则；先校验有效状态根与样例真实路径、登记表，再写内容。冲突时明确报错且不写表；缺身份按已有登记 id 修复，坏身份不覆盖；目录重建保留项目 id。固定路径可以保留，但必须显式处理自定义状态根与符号链接，不把“存在”作为幂等成功条件。
+
+### 4. 新增样例子进程没有截止与信号收口，dev start 可永久卡在监管建立之前
+
+- **严重程度**：重要；**类别**：资源释放、失败路径。
+- **位置**：t18 计划“`dev start --sample`”第 58-61 行及“验收映射”第 98-100 行；`packages/dev-panel/src/dev/dev-ops.ts:226-258,321-356,371-395`。
+- **现象**：目标包的 `dev:sample` 挂起、等待 stdin、卡在 I/O 或起孙进程后退出时，计划只定义“脚本失败”，没有超时、stdin 策略、取消及后代清理。现有 `--ready-timeout` 从服务的 `waitReady` 开始计算，现有 SIGTERM/SIGINT/SIGHUP 处理器也只在 `supervise` 里装上；前置脚本不受其中任何一个保护。此时没有服务登记，`dev stop` 找不到该样例进程。
+- **为什么是问题**：nbdev 是任意目标 checkout 的通用包装，不是只执行永不出错的内置脚本。一次 `--sample` 可以无限等待、吃掉整个验收入口；Agent 中止 nbdev 时也没有约定由谁收孙进程。复用情况下脚本失败时原服务仍在，不能用“不起服务”一句解释其状态，更不能误停别人或没人监管的服务。
+- **如何核实**：已核对就绪截止和信号处理器的安装位置，确认当前机制只覆盖选中并登记后的服务，不会自动覆盖新增前置任务。新脚本尚未实现，未用内部函数伪造故障。主 Agent 可在临时夹具包用真实子进程、stdin/文件屏障控制样例任务：分别挂起、非零退出、派出子进程，并向真实 nbdev 发三种信号，核对有限时间结束、无残留、既有复用服务未被停。
+- **建议改法**：为前置任务写明有限截止、关闭 stdin、stdout/stderr 捕获上限、信号转交与进程树收口；超时与非零输出 `sample_failed` 并给原因。先完成 checkout、脚本、工具等无副作用校验再准备样例。事件和错误里明确新起/复用时哪些登记已经存在、哪些服务仍在，不能为样例失败清理别人起的服务。
+
+### 5. load 与字体就绪不代表项目工作台就绪，两条默认命令会截到加载页或空编辑器
+
+- **严重程度**：重要；**类别**：正确性、验收映射。
+- **位置**：t18 计划“`page:shot`：截产品页面”第 50 行、“S2”第 89 行及“真实工作台截得出来”第 103 行；`packages/neuro-book/src/web/boot.ts:33-79`、`e2e/editor-area.e2e.ts:118-123,135-141`、`e2e/bookshelf.e2e.ts:59-65`；`docs/specs/runtime/projects.md:54,65-78`。
+- **现象**：`/?project=sample` 载入 HTML 后，窗口还要异步引导、握手、启动项目子进程、激活工作台，再挂载 Vue；启动期间只显示静态加载页。`load` 和当时的 `document.fonts.ready` 不等待这些步骤。不给 `--wait-for` 的默认 `shot --page` 因而能成功保存尚未打开项目的画面。即使采用计划验收的 `[data-editor-area]`，也只证明编辑器框架出现，没有证明文件树已列出或样例正文已打开。
+- **为什么是问题**：这正是“新 worktree 改了工作台，想自己截图验收”的主要路径，不能要求 Agent 每次另找应用专属就绪选择器才避免半成品。真实 e2e 先等 `[data-workbench-root]` 的 `data-rpc-state="online"`，再等区域和文件行；打开章节后还等标签与正文。项目 `starting` 期间不会呈现半个工作台（boot 先等 start），但加载页仍会被计划的默认判据当成可截图页面。
+- **如何核实**：已对照 boot 的 `await browserWindow.start()` 与 e2e 的实际等待条件；没有启动浏览器，不把代码推导写成实测截图。主 Agent 应在新依赖缓存、新状态根下用不带 `--wait-for` 的两条命令取证，再确认图片包含正确项目和样例内容，而不只看 `page.png` 存在。
+- **建议改法**：在 neuro-book 的 `page:shot` 里定义默认应用就绪判据，至少等待工作台 online；有 project 查询时核对绑定的短名，书架/项目/失败页按应用状态区分。`--wait-for` 只补充具体界面要求，不取代宿主就绪。给常见的“打开样例章节”提供稳定参数或示例操作，等待对应文件行、活动标签与内容就绪；不把所有工作台截图都强制成编辑器路径。
+
+### 6. SAMPLE 地址由 nbdev 拼 neuro-book 专属路由，违背已定的薄包装边界
+
+- **严重程度**：重要；**类别**：接口与合同、代码质量。
+- **位置**：t18 计划“关键设计”第 20-23 行、“`dev:sample`”第 36 行与“`dev start --sample`”第 61 行；`packages/neuro-book/src/plugins/projects/web/open-project.ts:29-32`；Proposal `docs/proposals/dev-panel.md:510`。
+- **现象**：包脚本只返回 `{name,path,created}`，nbdev 却承诺输出 `<地址>/?project=<短名>`。`/?project=` 是 neuro-book 的打开协议，不是任意包的协议；支持 `dev:sample` 的另一个包无法返回 `/workspace/<id>` 之类的目标。当前 neuro-book 的就绪地址本身以 `/` 结尾，照字面再拼 `/?project=sample` 会生成 `//?project=sample`；短名也需要按 `projectUrl` 的规则编码。
+- **为什么是问题**：开发者已定“应用相关逻辑留在目标包脚本”，此处却把最关键的“打开样例的地址”写死在通用 nbdev 中。不是要重议薄包装，而是计划本身与它相反。样例脚本 stdout 的 JSON 还未规定非法、缺字段、夹日志的处理；若直接转发到 nbdev stdout，会破坏长命令的事件流。
+- **如何核实**：已核对 `projectUrl` 的 `encodeURIComponent`、开发前端 URL 的尾部斜线（`src/server/dev/frontend.ts:59-60`）和 CLI 的逐行 `DevEvent` 输出（`packages/dev-panel/src/cli/dev-commands.ts:34-39,145-155`）。未执行新增命令。
+- **建议改法**：包脚本返回应用拥有的打开路径（例如 `openPath`），nbdev 只用 `new URL(openPath, readyUrl)` 解析；通用合同校验输出结构与同源路径并捕获脚本 stdout，不让其日志混入事件。`sample` 事件带上 `runId`，约定正常、延迟 READY 和复用 READY 均紧接一条 SAMPLE；没有 READY 时不发 SAMPLE，EXITED 后也不补发。复用超时后命令退出为 0 的现有规则不要悄悄改掉。
+
+### 7. 同一组 wait-for 放在点击前后，无法表达点击产生的新界面与异步终态
+
+- **严重程度**：重要；**类别**：正确性、接口与合同。
+- **位置**：t18 计划“`page:shot`：截产品页面”第 43-50 行及“不做”第 114 行；`packages/neuro-book/e2e/bookshelf.e2e.ts:157-170,258-291`、`e2e/editor-area.e2e.ts:135-145,184-201`。
+- **现象**：计划说先用 `--wait-for` 判就绪，“点击之后再等一次 `--wait-for`”。例如 `--click '[data-shelf-settings]' --wait-for '[data-settings-window]'`，目标窗口初始不存在，第一次等待永远无法完成，点击根本不发生。若改成只等初始已可见的 `[data-editor-area]`，点章节后第二次检查立即通过，内容加载还没完成。重复点击也没有逐步完成条件。
+- **为什么是问题**：Locator 自动等待只保证按钮可点击，不保证其 RPC、文件读取、路由或编辑器加载完成；同一个一直可见的容器不能证明点击后的状态。e2e 的实际做法是点击后等新窗口、标签、正文或属性变化，不是重复等父容器。无需增加完整 e2e 编排器，也必须让这次明确提供的点击参数可用。
+- **如何核实**：已对照书架设置窗口、新建窗口及章节切换的真实 e2e，确认其等待目标只在动作之后成立。未起浏览器；建议主 Agent 至少验收“打开设置对话框”和“点击样例章节”两条真实流程，既不能在点击前超时，也不能在内容出来之前截完。
+- **建议改法**：默认宿主就绪先完成，再执行 clicks；将 `--wait-for` 明确为点击后的最终条件。若需要步骤间等待，保留参数顺序形成最小的 `click / wait-visible` 动作序列，不引入应用外的流程知识。必要时提供可观察的文本/属性条件以区分原本已可见的容器；动画按几何或应用终态等待，不补固定 sleep。
+
+### 8. t17：运行页的数据不经过 views.ts，计划遗漏了实际入口及异步调用链
+
+- **严重程度**：重要；**类别**：接口与合同、验收映射。
+- **位置**：t17 计划“`packages/dev-panel/src/server/views.ts`：带出会话标题”第 51-52 行、“显示标题”第 58、61 行及“验收映射”第 93 行；`packages/dev-panel/src/server/live-views.ts:24-35`、`src/server/serve.ts:132,189-199,232-239`、`src/server/views.ts:46-93`。
+- **现象**：计划把首页、Work、Task、运行页都列为 `views.ts` 增加标题的对象，但真实 `/api/runs` 调的是 `live-views.ts` 的 `runsView`。其数据分成 `procs`、`sessions`、`unownedRuns`：`ProcList` 的“某会话起”对应 `procs[].startedBy.key`，不是 `sessions[].key`；登记进程已经从普通会话运行里排除了，只收集普通会话属主会漏掉整块标题。现有 `overviewView` 和 `runsView` 都同步返回，路由也没有 await；新增 `titleOf` 是异步操作，调用方必须一起迁移。
+- **为什么是问题**：按计划的目标文件与收集规则直接实现，运行页和登记服务属主仍显示短键，首页还有未 await 的返回值风险。网页端“没有提供时按空表处理”会使缺数据静默退回旧样式，不能靠前端正常渲染证明服务端合同已覆盖。
+- **如何核实**：已沿真实 GET 路由读到 `runsView` 的定义及三块返回形状；核对 `titleOf` 的 Promise 返回类型与 `serve.ts` 同步解构的位置。未实现计划、未启动面板；这是已核实的入口遗漏，不是假定私有函数有额外调用者。
+- **建议改法**：把 `live-views.ts`、`serve.ts` 明列入切片，迁移所有受影响的异步调用方。运行页收集普通会话键及全部 `procs[].startedBy?.key`，包括只剩登记服务、没有有效租约的属主；同一个完整键只查一次。四个 API 的验收逐一核对 `sessionTitles`，运行页至少有一条仅登记进程属主的用例，不只在 Work 租约夹具里放一个 Claude 文件。
+
+### 9. t17：标题不进入 revision 与推送，改名和缓存未命中恢复不会刷新已打开的页面
+
+- **严重程度**：重要；**类别**：正确性、缓存与订阅。
+- **位置**：t17 计划“带出会话标题”第 51-53 行、“数据传递”第 61 行及“验收映射”第 93 行；`packages/dev-panel/src/server/state.ts:82-91,103-110,132-157,192-203`、`src/server/serve.ts:132,459-461`、`src/server/session-titles.ts:93-119,145-175`；合同 `packages/dev-panel/docs/panel.md:302-310`。
+- **现象**：标题在 GET 的 `views` 中按需读取，`PanelState` 的记录、活动、herdr 三块缓存都不含标题；`activityFingerprint` 也没有标题的 text/source。会话只改标题、尚未找到的会话文件后来出现、60 秒未命中缓存到期时，都不会触发标题读取、revision 增加或 `/ws changed`。首页、Work、Task 只订阅 records/activity，运行页只订阅 activity；单独推 sessions 也不够。
+- **为什么是问题**：缓存会在“下一次 titleOf”校验文件，不等于有变化时页面会取数。现有 5 秒活动轮询、30 秒记录兜底在指纹不变时不推送，因此不能保证标题在 5 秒、30 秒或 60 秒内更新；页面会一直保留旧标题或空表，直到另一个无关状态变了或手动重载。计划仅测一次 GET 含标题，无法发现这一点。
+- **如何核实**：已追踪真实 state 刷新、指纹、serve 推送及资源订阅链（`src/web/host/panel-data.ts:41-63,179-185,261-266`，只审数据路径）。没有启动面板或浏览器，不把页面停留现象写成实测。现有 resolver 的缓存是无推送回调的按需缓存；现有测试“文件变了重读”也靠主动再次调用，不验证已打开页面。
+- **建议改法**：在现有活动刷新里按完整键去重收集标题并缓存，将显示用的 text/source（含从无到有、删除后的 null）纳入指纹；视图从同一快照读取，不在 GET 时才重算。收件箱已结束提问者、登记服务属主也须进入标题集合，不只取活跃 sessions。用已有 activity 推送可避免另造一套订阅协议；若选择独立 titles 数据块，则同步迁移四个资源及展开 Task 的订阅。补真实文件改名、缺失后出现、从有到无的状态刷新用例，等可观察 changed/revision，不用固定等待或 spy。
+
+### 10. t17：titleOf 的缓存不消除冷查找与重复 stat，把它逐个放进首页 GET 会放大文件系统开销
+
+- **严重程度**：重要；**类别**：安全与性能、隐含耦合。
+- **位置**：t17 计划“带出会话标题”第 51、53 行；`packages/dev-panel/src/server/session-titles.ts:93-119,149-175,179-213,216-250`；`src/server/views.ts:46-93`。
+- **现象**：Claude 每个未定位的 id 都重新列一次 `projects/`，再依次 stat 每个项目目录里的 `<id>.jsonl`；miss 缓存只在这一轮找完之后写入，没有在途去重。已定位且文件没变的标题也先 stat 再命中内容缓存。首页的历史提问者可已不在 activity.sessions 中，第一次访问或每 60 秒 miss 到期后仍会走全目录查找。“文件没变不重读”是内容缓存事实，不能据此推断一份大视图的多次查询没有 I/O 成本。
+- **为什么是问题**：D 个 Claude 项目目录、N 个未找到的会话键，会产生 N 次目录扫描和 N×D 次候选文件 stat；多个页面或客户端并发请求还会重复同一轮。Codex 也每个 key 先 stat 同一个 index 文件，index 变化时并发调用没有单飞保护。现有只在会话页按需查的成本被扩展到首页、Work、Task、运行页，但计划没有批量定位、限并发或从后台快照读取的约定。
+- **如何核实**：已用固定基线的真实 `createSessionTitles`、真实文件系统和 Bun 运行验证，不用 mock、spy、假计时器。命令（cwd 为装好依赖的集成 worktree）：`strace -f -qq -e trace=%file,getdents64,write -o /dev/shm/review-t18-plan-lab/title.trace bun /dev/shm/review-t18-plan-lab/title-smoke.ts`，退出码 0。100 个临时 Claude 项目目录、100 个不存在的有效 UUID：冷查找记录 100 次 projects 目录 open、10000 次候选文件 statx；紧接着重查相同 miss 为 0 次这两类 I/O；同一已命中会话重查 100 次仍有 100 次 statx；10 个并发的相同未命中 id 有 10 次目录 open、1000 次 statx。结果证明缓存边界，不把 strace 下耗时当产品性能。实验文件按要求在收尾删除，以上输入规模和统计保存在报告。
+- **建议改法**：完整键在一份视图内先用 Set 去重；复用同一个 resolver，不每个请求重建缓存。将标题读取合入后台活动快照，避免每个 GET 重复查盘；为相同 key 的在途定位/读取做单飞，对冷的一批查找限制并发，并共享一次目录列表或批量定位结果。验收同时覆盖冷缓存、已命中、miss 及并发请求，不只断言一个标题文本。
+
+### 11. t17：旧标题测试不经过会话键反解析，只测一个 Claude 视图不能保护新数据合同
+
+- **严重程度**：建议；**类别**：测试、接口与合同。
+- **位置**：t17 计划“带出会话标题”第 51 行、“验收映射”第 93 行及“未验证的边界”第 101 行；`packages/dev-panel/src/core/identity.ts:9,87-89,105-108,134-140`、`src/core/status.ts:31,47,128-129,173-177`、`tests/session-titles.test.ts:25-54,93-109`。
+- **现象**：新增辅助函数的输入是完整会话键，现有标题测试的输入却是已经拆好的 `(agent, sessionValue)`。计划说 Codex、omp 只靠旧单元测试，这些测试不能发现新增解析器把 omp 的绝对路径当 UUID 排除、遇到路径里的第二个冒号截断、把 `external:<标签>` 当真实会话 id 的错误。租约和历史收件箱数据也不都带 sessionId：后者 `askedBy` 只有完整键，不能只通过当前活跃会话列表补标题。
+- **为什么是问题**：这里有一个新的输入边界，旧 resolver 测试通过不代表边界正确。会话键的实际规则是 Agent 加一个冒号，再加完整的会话值；`claude:<uuid>`、`codex:<value>`、`omp:<绝对路径或 id>` 都要保留原值，external 的 sessionId 则是 null。标题表必须用原始完整键索引，不能用短键、label 或标题去重。
+- **如何核实**：已核对身份生成与状态投影代码；真实文件 smoke 同时读取 Claude、Codex、omp 路径（目录名含冒号）的标题，用 `key.indexOf(":")` 只切首个分隔符后，三种标题正确，external 和未知 Agent 返回 null；没有 mock 或伪造私有时序。它证明现有 resolver 能处理这些合法值，但新收集器尚未实现，未声称它已经出错。
+- **建议改法**：把首个冒号分隔、已知 Agent 白名单、非空完整 value、external/未知回落及原始键索引写入服务端小合同。用真实临时会话文件覆盖完整键到 `sessionTitles` 的端到端映射：至少含 Claude、Codex、omp 绝对路径含冒号、omp id、external、缺文件；再覆盖无活跃租约的历史提问者和仅登记服务属主。新测试测最终视图数据，不测 titleOf 被调用几次，也不改旧解析安全边界。
+
+## 实际验证与复现材料
+
+- 本轮运行的是固定审查 worktree `3a4929d5c` 中的 `createSessionTitles` 和 `resolveCaller`，不是集成 worktree 未提交的新实现；命令 cwd 为 `.worktree/w00022-dev-panel`。所有临时文件在 `/dev/shm/review-t18-plan-lab/`，没有修改两个 worktree 中的文件。
+- 实际命令：`strace -f -qq -e trace=%file,getdents64,write -o /dev/shm/review-t18-plan-lab/title.trace bun /dev/shm/review-t18-plan-lab/title-smoke.ts`。退出码 0，断言全部通过；文件系统诊断日志 0 条。冷 miss、热 miss、热命中和并发 miss 的调用数见第 10 条。
+- Claude、Codex、omp 绝对路径含冒号、omp id 的真实标题读取已执行；external、未知 Agent、越界路径的 null 回落已执行。不把此实验当作未来 `sessionTitles` 收集器或 HTTP 推送的通过证据。
+- 未运行：e2e、开发服务、浏览器、现有测试套件、typecheck、bun install。四个新增视图的实际响应、标题变化触发推送、样例打开与截图仍由实施主 Agent 在实现后验证。标题推送缺口依据完整状态链代码，未声称有浏览器实测。
+- 临时脚本及 trace 在报告追加完成后删除。下面保留实际运行脚本，主 Agent 需要复现时写回同一个 `/dev/shm` 目录即可；trace 统计只计算各 `TRACE_PHASE` 之间指向 `.claude/projects/project-*` 的 `statx` 和指向 `.claude/projects` 根的 `openat`，不计 resumed 行和其他系统调用。
+
+```typescript
+import assert from "node:assert/strict";
+import {mkdir, writeFile} from "node:fs/promises";
+import {join} from "node:path";
+import {createSessionTitles} from ".worktree/w00022-review-t18-plan/packages/dev-panel/src/server/session-titles.ts";
+import type {SessionTitle} from ".worktree/w00022-review-t18-plan/packages/dev-panel/src/server/session-titles.ts";
+import {resolveCaller} from ".worktree/w00022-review-t18-plan/packages/dev-panel/src/core/identity.ts";
+
+const base = "/dev/shm/review-t18-plan-lab";
+const home = join(base, "home");
+const projects = join(home, ".claude", "projects");
+const line = (value: unknown) => JSON.stringify(value) + "\n";
+for (let i = 0; i < 100; i++) await mkdir(join(projects, `project-${String(i).padStart(3, "0")}`), {recursive: true});
+const claudeId = "c38df555-3a36-49c9-bf4f-4027b5da6d32";
+const codexId = "01988bb0-6d57-4b26-a248-b9ea74de39ef";
+const ompId = "01a12dd3-661a-706f-93f5-1e6f5ac5d513";
+await writeFile(join(projects, "project-099", `${claudeId}.jsonl`), line({type: "custom-title", customTitle: "Claude 标题"}));
+await mkdir(join(home, ".codex"), {recursive: true});
+await writeFile(join(home, ".codex", "session_index.jsonl"), line({id: codexId, thread_name: "Codex 标题"}));
+const ompDir = join(home, ".omp", "agent", "sessions", "project:with-colon");
+await mkdir(ompDir, {recursive: true});
+const ompPath = join(ompDir, `2026-10-14T01-00-00-000Z_${ompId}.jsonl`);
+await writeFile(ompPath, line({type: "title", title: "omp 标题"}));
+const logs: string[] = [];
+const titles = createSessionTitles({HOME: home}, (message) => logs.push(message));
+const external = await resolveCaller({env: {}, as: "Agent.Check", herdr: null});
+assert.equal(external.caller.kind, "session");
+if (external.caller.kind !== "session") throw new Error("外部会话未解析");
+assert.equal(external.caller.ref.sessionId, null);
+const keys = [`claude:${claudeId}`, `codex:${codexId}`, `omp:${ompPath}`, external.caller.ref.key];
+const shapes: Array<{key: string; agent: string; value: string; title: SessionTitle | null}> = [];
+for (const key of keys) {
+    const at = key.indexOf(":");
+    const agent = key.slice(0, at);
+    const value = key.slice(at + 1);
+    const title = await titles.titleOf(agent, value);
+    shapes.push({key, agent, value, title});
+}
+assert.deepEqual(shapes.map((entry) => entry.title), [
+    {text: "Claude 标题", source: "claude-custom"},
+    {text: "Codex 标题", source: "codex"},
+    {text: "omp 标题", source: "omp"},
+    null,
+]);
+assert.deepEqual(await titles.titleOf("omp", ompId), {text: "omp 标题", source: "omp"});
+assert.equal(await titles.titleOf("unknown", "x"), null);
+assert.equal(await titles.titleOf("claude", "../../etc/passwd"), null);
+assert.equal(await titles.titleOf("omp", join(base, "outside.jsonl")), null);
+assert.deepEqual(logs, []);
+const missing = Array.from({length: 100}, (_, index) => `${String(index).padStart(8, "0")}-0000-4000-8000-000000000001`);
+const timings: Record<string, number> = {};
+for (const phase of ["cold", "warm"]) {
+    process.stdout.write(`TRACE_PHASE ${phase}\n`);
+    const started = performance.now();
+    for (const id of missing) assert.equal(await titles.titleOf("claude", id), null);
+    timings[phase] = performance.now() - started;
+}
+process.stdout.write("TRACE_PHASE existing-warm\n");
+const started = performance.now();
+for (let index = 0; index < 100; index++) assert.deepEqual(await titles.titleOf("claude", claudeId), {text: "Claude 标题", source: "claude-custom"});
+timings["existing-warm"] = performance.now() - started;
+process.stdout.write("TRACE_PHASE concurrent-miss\n");
+assert.deepEqual(await Promise.all(Array.from({length: 10}, () => titles.titleOf("claude", "bbbbbbbb-0000-4000-8000-000000000001"))), Array.from({length: 10}, () => null));
+process.stdout.write("TRACE_PHASE done\n");
+console.log(JSON.stringify({passed: true, shapes, projectDirectories: 100, queriedMissingSessions: 100, timings, logs}));
+```
+
+## 未发现问题的方面
+
+- **t18 基础事实**：已核对 `.nbook/project.json`、`projects.json` 的 schema 1 形状、每次读取重新读登记表、`/?project=<短名>` 入口、缺省包内 `.dev-state`。这些现状描述与固定基线相符；默认 `.dev-sample` 与 `.dev-state` 为兄弟目录，不会单因隐藏目录名被拒。自定义状态根、跨进程写入和身份恢复的例外见第 1-3 条。
+- **薄包装分工**：由目标 checkout 的包脚本持有样例内容、浏览器操作与页面就绪知识，与已定 t14 分工一致；Node 启 Playwright、缺省 Chrome channel、允许显式 browser executable 也与现有 Lab 脚本一致。SAMPLE 路由拼接的例外见第 6 条。
+- **缺脚本错误码**：`shot_unavailable` 继续用退出码 3，配合计划明确增加的 `details.script`，可以让调用者区分 `lab:shot` 与 `page:shot`；仔细检查后没有发现必须为这两种缺脚本各设一个错误码的问题。新增参数转交和截图实际失败路径未运行，不列为通过。
+- **t17 现有标题读取能力**：真实文件 smoke 验证 Claude、Codex、omp 的读取与 external/未知 Agent 回落可直接复用；按首个冒号保留完整 value 后，合法的 omp 路径含冒号可以工作。现有标题源枚举与 `{text, source}` 数据形状足够表达新增标题表，不必新增另一套标题格式。
+- **t17 身份与范围**：按完整会话键索引、缺标题时省略映射并保留短键，不改变租约或通知的身份判断；产物页只用保留短键的通知状态时无须带表。此次没有重审已由他人审过的 t17 前端外观与交互。
+- **t17 可测性**：标题文件、解析、安全回落及完整键映射可用真实临时文件测试；现有面板服务测试有真实 HTTP/WS、临时 Git 仓库与 afterEach 收口入口，登记运行也已有真实子进程夹具，不需要 mock、spy、假计时器或固定等待。缺口是验收边界和状态转换未列全，不是缺少可用运行机制。
+- **已定决策与待确认项**：不重议自主推进、做这几件或薄包装分工；样例正文、1440×900 默认窗口、标题加短键均属于既定流程里的产品取舍，没有新增必须改变这些取舍的结论。固定样例目录需处理第 3 条的配置边界，不能仅因它在待确认清单里就跳过校验。
+
+## 各级数量
+
+| 范围 | 阻断 | 重要 | 建议 | 合计 |
+|---|---:|---:|---:|---:|
+| t18 原有第 1-7 条（保留原文） | 1 | 6 | 0 | 7 |
+| t17 本轮新增第 8-11 条 | 0 | 3 | 1 | 4 |
+| 全报告 | 1 | 9 | 1 | 11 |
+
+恢复时 `grep -c '^### '` 为 7；每次 cat 追加后核对依次为 8、9、10、11；追加验证与收尾部分不改变发现条数。实验目录 `/dev/shm/review-t18-plan-lab/` 已删除，未改仓库文件，未进行 Git 写操作。

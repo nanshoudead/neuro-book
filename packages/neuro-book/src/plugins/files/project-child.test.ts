@@ -12,7 +12,6 @@ import {createHash} from "node:crypto";
 import {lstat, mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
@@ -20,6 +19,7 @@ import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import {createApplication} from "nbook/application";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {holdLock} from "nbook/backend/locked-replace";
 import {alive, killSpawnedProjects, leaseOf, projectHarness, revoked} from "nbook/server/testing/projects";
@@ -84,7 +84,6 @@ async function windowOf(h: ProjectHarness, id: string): Promise<Window> {
             plugins,
             gates: [],
             remote: node,
-            delegation: (plugin) => plugin === "nbook.files",
         },
     );
     expect(await app.startup).toMatchObject({status: "available", failures: []});

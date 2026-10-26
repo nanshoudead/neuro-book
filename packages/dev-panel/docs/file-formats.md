@@ -105,7 +105,7 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
 {
     "schema": "nbdev.proc/v1", "runId": "dev-20261013T131502Z-a3f9c2d1", "kind": "dev",
     "checkout": "/…/.worktree/w00017-t83-dnd-titlebar", "checkoutKey": "w00017-t83-dnd-titlebar", "package": "packages/neuro-book", "script": "dev",
-    "argv": ["bun", "run", "dev"], "readyPattern": null, "workId": null, "taskId": null,
+    "argv": ["bun", "run", "dev"], "readyPattern": null, "sample": false, "workId": null, "taskId": null,
     "logPath": "/…/.local/agent/logs/dev/w00017-t83-dnd-titlebar-dev-20261013T131502Z-a3f9c2d1.log", "bootId": "…",
     "startedAt": "…", "startedBy": {"key": "claude:…", "agent": "claude", "label": null, "process": {"pid": 123, "startTicks": "…"}},
     "supervisor": {"pid": 456, "startTicks": "…"}, "pid": 789, "pgid": 789, "startTicks": "…",
@@ -118,6 +118,7 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
 - `runId` 是 `dev-<YYYYMMDDTHHMMSSZ>-<8 位十六进制>`，日志名带它。
 - 登记在锁里先写好 `pid`、`startTicks` 再放锁（锁内起服务）；读到没有 `pid` 的登记时，监管进程活着算 `starting`，不活算 `ended`（`never_started`）。
 - `descendants`：监管进程每 2 秒重收一次，新出现的并进来，上限 256 个。后代被收养到 PID 1 之后 ppid 链就断了，所以要在还连着的时候记下。组长还在时，它进程组里的进程也一并记下；组长退出、监管进程给它收尸时再收一次组里剩下的（这时组里还有进程的话组号不会被复用）。读者只凭这里的组员认进程组（见“状态”）。
+- `sample`：起时带了 `--sample`，开发脚本的环境里有 `NBDEV_SAMPLE=1`（t18）；不带时 nbdev 从环境里去掉这个变量。t18 之前的登记没有这个字段，按 `false` 读，schema 不变。
 - `startedBy`：认不出的调用者为 null。`stoppedBy`：`dev stop` 的调用者会话键（`--force` 时后缀“（--force）”），或 `signal:<名>`。
 - 监管进程与 `dev stop` 都在 `run/procs.lock/` 里读改写，各改各的字段。
 - **状态**（读取时现算）：下面任一条成立就算还活着：监管进程 pid 在且启动时刻相同；组长 pid 在且启动时刻相同；进程组仍是我们那一组（组长不在、`/proc/<pgid>` 也不在，`kill(-pgid, 0)` 成功，且快照里至少有一个进程 pid 与启动时刻都对得上、并在这个组里。我们的组还有成员时 Linux 不把这个号分给新进程，组空了以后号可以再分给别的组长：`/proc/<pgid>` 在而启动时刻与登记的组长不同，就是号已被复用；EPERM 是别的用户的组。这两种都不算我们的组）；快照里有进程 pid 在且启动时刻相同。
@@ -189,6 +190,7 @@ artifacts/<artifactId>/
     "version": 2, "supersedes": 1, "action": "publish",
     "kind": "design", "title": "开发面板评审板", "state": "open",
     "entry": "index.html", "contentHash": "<sha256>",
+    "files": ["assets/home.png", "index.html", "r1/index.html", "style.css"],
     "questions": [
         {"id": "home-layout", "type": "single", "label": "首页的 Work 区用卡片还是表",
          "options": [{"value": "cards", "label": "A 每个 Work 一张卡片"}, {"value": "table", "label": "B 一张表"}],
@@ -199,12 +201,24 @@ artifacts/<artifactId>/
 }
 ```
 
-- `action`：这一版由哪个动作产生，`publish`、`close`、`ask`、`withdraw`、`supersede`。非发布动作沿用上一版的 `kind`、`title`、`entry`、`contentHash`，页面不重新解析。
+- `action`：这一版由哪个动作产生，`publish`、`close`、`ask`、`withdraw`、`supersede`。非发布动作沿用上一版的 `kind`、`title`、`entry`、`contentHash`、`files`，页面不重新解析。
 - `kind`：`design`、`report`、`review`；Task 提问集为 `questions`（`entry`、`contentHash` 为 `null`）。`state`：`open` 或 `closed`。
 - 每道题：`origin` 是 `markup`（来自页面标记）或 `ask`（来自 `nbdev ask`）；`page` 是题所在的页面（`ask` 登记的、或已答后从页面删掉的为 `null`）；`about` 是 `--about` 记的仓库根相对路径；`since` 是题号第一次出现的版本。
 - `outcome`：`null`（活的）；`{kind: "withdrawn", in: N, reason: "explicit" | "closed"}`；`{kind: "superseded", in: N, by: null | {workId, taskId, artifactId, questionId}}`（`by` 是完整 id；`null` 表示被这一版的页面取代）。
 - **最新一版带全部题**，被取代、撤回的也在；状态只看最新一版与答复。最新一版读不出时不退回旧版，读取给警告、写入报 `invalid_record`。
-- `contentHash`：产物目录里 Git 会跟踪的文件（`git ls-files -z --cached --others --exclude-standard`，去掉 `versions/`、`answers/`，只算磁盘上还在的），路径相对产物目录、按 UTF-8 字节序排序，对“路径、NUL、文件内容的 sha256、换行”逐行求 sha256。遇到符号链接拒绝发布。
+- `files`：这一版的**文件集**（见下），路径相对产物目录、按 UTF-8 字节序排序。只有 `publish` 写新的清单；Task 的提问集为 `null`；没有这个字段的旧记录读成空清单。发布记录先落盘、`git add` 后执行，所以提交失败时面板与下一次发布仍能按这份清单找回完整的集合。
+- `contentHash`：文件集的摘要。路径相对产物目录、按 UTF-8 字节序排序，对“路径、NUL、文件内容的 sha256、换行”逐行求 sha256。遇到符号链接拒绝发布。
+
+**文件集**是发布时提交、求摘要、找提问标记的范围，其余文件不提交（列在 `unreferenced_files_not_committed` 里）：
+
+- 候选：产物目录里 Git 不忽略的文件（`git ls-files -z --cached --others --exclude-standard`），去掉 `versions/`、`answers/`，只算磁盘上还在的。文件集只从候选里取。
+- 种子：入口；已跟踪的文件（`git ls-files --cached`）；上一版的 `files`；上一版题表里 `page` 不为 `null` 的页面；本次的 `--include`。已经发布或提交过的文件因此不会因为页面不再链接它而掉出去。
+- 闭包：从全部种子出发，对纳入的每个文件收集引用，直到集合不再增长。
+  - `.html`、`.htm`：元素的 `src`、`href`、`poster`、`srcset`（`script`、`style`、`template`、`noscript` 自己的属性也收；`<template>` 的内容与 `<noscript>` 里的元素同样收，只是不在里面登记题）；内联 `<style>` 与 `style` 属性里的 `url(...)`、`@import`；内联的 `<script type="module">`（没有 `src`）里的 import。
+  - `.css`：`url(...)` 与 `@import "…"`，按 CSS 的分词规则识别：注释与其它字符串里写的不算；地址按 CSS 的转义解码（`url(pic\ name.png)` 指向 `pic name.png`）；坏的 `url(...)`（不带引号的地址中间有空白、引号或左括号）不算。
+  - `.js`、`.mjs`：字面量的 `import … from "…"`、`import "…"`、`export … from "…"`、`import("…")`，按记号识别：注释、字符串、模板字符串与正则里写的不算，记号之间可以夹注释（`import /* x */ "./lib.js"`）；只认 `./`、`../`、`/` 开头的与带协议的地址，裸模块名与拼出来的地址追踪不到，要用 `--include` 列出。
+  - `srcset` 按 HTML 的候选语法解析：地址是一段不含空白的字符，后面是描述符，候选之间用逗号分隔；地址里的逗号（`assets/a,b.png 1x`）与 `data:` 地址不会被切开。
+  - 引用的归一化：跳过带协议的、`//` 开头的与只有 `#` 的；去掉 `?`、`#` 之后的部分，按引用所在文件的目录解析，百分号解码（解码失败按字面）；`/` 开头的与解析后指向产物目录之外的不进文件集。引用检查（`missing_reference`、`reference_outside_artifact`）用的是同一份引用。
 
 ### 新版本的题表
 
@@ -232,7 +246,7 @@ artifacts/<artifactId>/
 
 ## 提问标记
 
-写在产物目录里任意一个 `.html` 页上，题号在整个产物内唯一。例子见 [`examples/questions.html`](examples/questions.html)（包的测试会解析它）。
+写在产物文件集（见“发布记录”）里任意一个 `.html` 页上，题号在整个产物内唯一；没被链接、也没被跟踪的页面要用 `--include` 列出。例子见 [`examples/questions.html`](examples/questions.html)（包的测试会解析它）。
 
 | 属性 | 含义 |
 |---|---|
@@ -250,7 +264,7 @@ artifacts/<artifactId>/
 - 题不能嵌套。题外的选项报 `option_outside_question`：多半是 HTML 自动闭合把它挤了出去（例如 `<p>` 里放了块级元素）。范围元素没有显式结束标签报 `question_not_closed`。
 - 不合规就整体不发布（`invalid_questions`），`details.problems[]` 是 `{page, line, column, questionId, code, message}`。
 - 取题目与选项名的文字时，行内元素直接拼接，块级元素与 `br` 处补一个空格，连续空白折叠成一个空格。
-- 写在内联 `<script>`、`<template>`、`<noscript>` 或产物目录的 `.js`、`.mjs` 文件里的标记解析不到，给 `questions_in_script` 警告。这里只认属性写法（`data-nbdev-question=`）：脚本里按属性查询、`<style>` 里的属性选择器不算。
+- 写在内联 `<script>`、`<template>`、`<noscript>` 或产物目录的 `.js`、`.mjs` 文件里的标记解析不到，给 `questions_in_script` 警告；`<template>`、`<noscript>` 里的资源照样进文件集。这里只认属性写法（`data-nbdev-question=`）：脚本里按属性查询、`<style>` 里的属性选择器不算。
 - 扁平的板（标题后跟兄弟元素）要先给每道题包一层元素（通常是 `section`）。
 
 ## 答复与确认

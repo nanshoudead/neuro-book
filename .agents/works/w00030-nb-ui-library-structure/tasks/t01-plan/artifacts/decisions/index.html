@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>w00030 nb-ui 库结构整理：计划要定的事</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef;
+    --warn: #b45309; --warn-soft: #fdf1df; --ok: #15803d; --ok-soft: #e4f4e8;
+    --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123b37;
+        --warn: #fbbf24; --warn-soft: #3a2e12; --ok: #86efac; --ok-soft: #173322; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+p, li { max-width: 900px; }
+.lead p { color: var(--muted); margin: 6px 0; }
+.round { margin-top: 40px; font-size: 19px; font-weight: 700; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+section.q { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.badge.todo { background: var(--warn-soft); color: var(--warn); }
+.badge.done { background: var(--ok-soft); color: var(--ok); }
+.opts { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 10px 0; }
+.opt { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.opt.rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.opt p { margin: 4px 0 0; color: var(--muted); }
+.rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.rec-note b { color: var(--accent); }
+figure { margin: 12px 0; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; border-top: 0; }
+
+
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.pair.narrow { grid-template-columns: repeat(2, 240px); }
+@media (max-width: 760px) { .pair, .pair.narrow { grid-template-columns: 1fr; } }
+figure img.bar { width: auto; max-width: 100%; }
+</style>
+</head>
+<body>
+<main>
+<h1>w00030 nb-ui 库结构整理：计划要定的事</h1>
+<div class="lead">
+<p>计划全文在 <code>.agents/works/w00030-nb-ui-library-structure/tasks/t01-plan/plan.md</code>。依据是 nb-ui 的库审查报告（w00029 t05 的 <code>evidences/lib-review.txt</code>，条目 L01 到 L24），第 1 步已在 w00029 t07 做完，本 Work 做第 2 到 4 步。</p>
+</div>
+
+<section class="q">
+<h2>计划要点</h2>
+<table>
+<tr><th>Task</th><th>做什么</th><th>报告条目</th></tr>
+<tr><td>t02</td><td>nb-ui 样式产物里的原子类加 <code>nb:</code> 前缀，不再与宿主（UnoCSS、Tailwind）的同名类竞争；宿主删掉为 nb-ui 写的补丁；滚动条 token</td><td>L01、L06、L18</td></tr>
+<tr><td>t03</td><td>弹出列表的 17 个文件收进 <code>components/popup/</code>；级联菜单键盘、方向键漫游、列表行各留一份；浮层外观只走 CSS 类（F43）</td><td>L24、L03、L21、L22、L04</td></tr>
+<tr><td>t04</td><td>公开 API 一次对齐：浮层的打开态与关闭原因、尺寸与语调词表、文案属性命名、列表数据字段；<code>Dialog</code> 拆分；附迁移表</td><td>L05、L10、L08、L12、L16、L04</td></tr>
+</table>
+<p>不在本 Work：主题应用流程（L11）、数值输入与选项泛型（L13、L23）、Tabs 拆分（L15）、布局引擎拆包（L20）、调用方的列表导航零件。旧应用（205 个文件引用 nb-ui）不改不检查。</p>
+</section>
+
+<section class="q" data-nbdev-question="css-strategy" data-nbdev-type="single" data-nbdev-recommend="prefix">
+<h2>1. 原子类怎么和宿主隔开 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>现在 nb-ui 的产物带着约 450 条无层的原子类（<code>.flex</code>、<code>.text-sm</code>……），宿主的 UnoCSS 也产出同名类：IconButton 等组件的字号在 neuro-book 里是 14px、在 nb-story 里是 13px；neuro-book 为位移类写了封禁名单，nb-story、dev-panel 为此放弃了 Tailwind 的标准分层，坑 58 的图标尺寸也是这个机制。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="prefix" data-nbdev-label="原子类加 nb: 前缀">
+<h3>原子类加 <code>nb:</code> 前缀（推荐）</h3>
+<p>组件里写 <code>nb:flex</code>，产物只有 <code>.nb\:flex</code> 这类类名，宿主的引擎不认，不会撞名；Tailwind 的主题变量也随之变成 <code>--nb-*</code>，不再和 nb-ui 自己的 <code>--text-sm</code> 等 token 同名。本机试编译过，行得通。用脚本一次改完全部模板，再比较改前改后的产物逐条规则，差异逐条列出（<code>text-sm</code> 这类原来靠 token 碰巧取到 13px 的要改成显式写 token）。</p>
+</div>
+<div class="opt" data-nbdev-option="layer" data-nbdev-label="整个产物包进 @layer nb-ui">
+<h3>整个产物包进 <code>@layer nb-ui</code></h3>
+<p>改动只有一行，但解决不了撞名：同名类时宿主无层的 <code>.text-sm</code> 总是赢过有层的规则，字号照样随宿主变；坑 58 的图标尺寸问题会回来（宿主的 <code>width: 1em</code> 无层，赢过 nb-ui 的尺寸）。</p>
+</div>
+</div>
+</section>
+
+<section class="q" data-nbdev-question="order-w00027" data-nbdev-type="single" data-nbdev-recommend="after">
+<h2>2. 和 w00027 t07（低代码表单）谁先 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>w00027 t07 在自己的 Work 分支上改了 nb-ui 的 29 个文件（<code>Field</code>、只读、<code>invalid</code>、<code>SearchSelect</code>），还没进 master；它后面的 S3 到 S5 在 nb-form 与设置页里大量调用 nb-ui。合入 master 的时机由你定。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="after" data-nbdev-label="等 w00027：t02、t03 等它的 nb-ui 改动进 master，t04 等它做完">
+<h3>等 w00027（推荐）</h3>
+<p>t02、t03 等 w00027 t07 的 S2a、S2b 进 master 后开工（它们改的是同一批模板，先做几乎每行都冲突），这两个 Task 不改公开 API；t04 等 w00027 t07 做完（S5 设置改用表单）再开工，nb-form 与设置页一起进迁移表。</p>
+</div>
+<div class="opt" data-nbdev-option="first" data-nbdev-label="w00030 先做，w00027 之后按新名字和新写法改">
+<h3>w00030 先做</h3>
+<p>w00027 合入前要处理 t02 的全模板改写带来的冲突，S3 起写的表单要按 t04 的新名字再改一遍。</p>
+</div>
+</div>
+</section>
+
+<section class="q" data-nbdev-question="old-names" data-nbdev-type="single" data-nbdev-recommend="none">
+<h2>3. t04 改名后旧名留不留 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>例如 <code>ContextMenu</code> 的 <code>visible</code> 改 <code>open</code>、<code>AlertDialog</code> 的 <code>confirmText</code> 改 <code>confirmLabel</code>、菜单项 <code>shortcut</code> 改 <code>hint</code>。现在各宿主的类型检查没开“未知属性”检查，改了名的属性会静默落成普通属性，查不出来；计划先单独一个提交把这项检查打开。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="none" data-nbdev-label="不留别名，调用方同一个提交改完">
+<h3>不留别名，调用方同一个提交改完（推荐）</h3>
+<p>调用方都在这个仓库里；打开未知属性检查后漏改的会报错。别名只会变成第二套写法。</p>
+</div>
+<div class="opt" data-nbdev-option="alias" data-nbdev-label="保留一个版本的旧名别名">
+<h3>保留一个版本的旧名别名</h3>
+<p>旧名照常工作并在开发模式下警告，下一轮再删；每个组件多一套映射代码。</p>
+</div>
+</div>
+</section>
+
+<section class="q" data-nbdev-question="floating-window" data-nbdev-type="single" data-nbdev-recommend="split">
+<h2>4. Dialog 的浮动窗口用法要不要拆出来 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p><code>Dialog</code> 一个组件承担模态对话框与可拖动、可缩放的浮动窗口两种用法（<code>modal=false</code>，设置窗口在用），约 30 个属性里一半只对其中一种生效；它还按“宿主有没有挂 <code>request-close</code> 监听”改变关闭行为，加一个日志监听就关不掉了。</p>
+<div class="opts">
+<div class="opt rec" data-nbdev-option="split" data-nbdev-label="拆出 FloatingWindow，Dialog 只做模态">
+<h3>拆出 <code>FloatingWindow</code>，<code>Dialog</code> 只做模态（推荐）</h3>
+<p>两者共用内部外框；窗口独有的缩放、最小尺寸属性只在 <code>FloatingWindow</code> 上。关闭行为改成显式属性，不再看监听器。</p>
+</div>
+<div class="opt" data-nbdev-option="keep" data-nbdev-label="保留一个组件，只修关闭行为">
+<h3>保留一个组件，只修关闭行为</h3>
+<p>改动小；属性表仍是两种用法混在一起。</p>
+</div>
+</div>
+</section>
+
+<section class="q">
+<h2>5. 浮层外观以哪里为准</h2>
+<p>和 w00029 t05 的 F43 是同一件事，已放在那边的评审板（w00029 t05 的 decisions，第三题），带截图；这里不重复提问，那边的答复两处都用。</p>
+</section>
+
+<section class="q" data-nbdev-question="plan-rest" data-nbdev-type="confirm" data-nbdev-optional>
+<h2>计划的其余部分是否同意 <span class="badge todo" data-nbdev-skip>选答</span></h2>
+<p>上面没单列的内容（每个 Task 的切片、验收映射、不做的范围）按计划执行。有意见的话在这一题写备注。</p>
+</section>
+</main>
+</body>
+</html>

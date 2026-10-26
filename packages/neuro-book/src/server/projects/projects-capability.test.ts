@@ -8,13 +8,13 @@ import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode, leaseHolderOf} from "@notnotype/nb-runtime/remote";
 import type {CallerFrame} from "@notnotype/nb-runtime/remote";
 import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
+import {createApplication} from "nbook/application";
 import {projectsKey} from "nbook/shared/projects";
 import type {ProjectLease, ProjectsService} from "nbook/shared/projects";
 import {projectProbeContract, remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";

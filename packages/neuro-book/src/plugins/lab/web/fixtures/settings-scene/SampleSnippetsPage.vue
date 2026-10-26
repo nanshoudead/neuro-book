@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 设置场景里的 column 页面（示例插件“常用片段”）：用 SettingsRow 画自己声明的两项，按 `context.layer` 只写这一层。列表
- * 编辑只给一个“添加一条”，足够看出按层写入。完整的同类页面在示例插件 `examples/plugins/snippets/` 里；Lab 属于产品代码
+ * 编辑只给一个“添加一条”，足够看出按层写入。完整的同类页面在示例插件 `plugin-sdk/examples/plugins/snippets/` 里；Lab 属于产品代码
  * （只在开发模式加载），按 `src/architecture.test.ts` 不能引用 `examples/`，所以这里另写一份最小的。
  */
 import {Button, Switch} from "@notnotype/nb-ui/components";

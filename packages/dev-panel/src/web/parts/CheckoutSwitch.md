@@ -23,4 +23,4 @@ interface CheckoutSwitchEmits {
 }
 ```
 
-没有插槽与 expose。底层是 nb-ui 的 `FormSelect`。
+没有插槽与 expose。底层是 nb-ui 的 `Select`。

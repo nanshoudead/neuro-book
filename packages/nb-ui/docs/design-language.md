@@ -264,11 +264,11 @@ Save Dialog `0 36px 100px`（后者是上一轮从同一份文件的 Dialogs 页
 `--glass-rim`，但只有整块的 Dialog（模态与浮动窗口两种用法）显式挂 `.nb-ui-surface-rim`。nbook 保持
 `--overlay-sheen: none`，小浮层继续 8px 纯 blur、无面渐变。
 
-菜单、ContextMenu、Combobox、FormSelect、默认 TimePicker 与 macOS 滚轮 TimePicker 都必须挂
+菜单、ContextMenu、Select 都必须挂
 `.nb-ui-menu-surface`；Dialog 叠挂 `.nb-ui-dialog-surface`。Tooltip 独立消费
 `.nb-ui-tooltip-surface`，由该 modifier 负责实心面板底（`--bg-panel`）、正文色（`--text-main`）、
 控件圆角、舒适内边距与无尖角平滑微投影卡片，不吃大浮层的半透明玻璃配方，彻底规避三角箭头的几何与阴影瑕疵。
-组件不要复制 surface 属性，也不要往模板里加 `rounded-*`：基座排在 utilities 之后，原子类不会改变实际外圈。
+组件不要复制 surface 属性，也不要往模板里加 `rounded-*`：基座在 components 层，调用方传进来的原子类在 utilities 层，会压过它而改掉实际外圈。
 
 对话框在这个登记处上再叠一条 `.nb-ui-dialog-surface`，只覆盖**两项**：
 
@@ -288,22 +288,29 @@ Save Dialog `0 36px 100px`（后者是上一轮从同一份文件的 Dialogs 页
 
 ### 控件高度与圆角
 
-中文比拉丁文占满 em 框，同样的 px 下汉字更挤。这里原来据此整体比 macOS 加一档，
-后来实际比对下来 macOS 那档更好看，字号与控件高度收回同档；**行高与字距不跟着回退**——
+中文比拉丁文占满 em 框，同样的 px 下汉字更挤，所以 nbook 的字号与控件高度整体比 macOS 加一档
+（2026-09-01 曾收回 macOS 档，开发者 2026-10-22 看实际界面嫌字小，恢复加档）。行高与字距也按汉字定，
 那两条不是密度偏好，是汉字没有升降部造成的硬约束：
+
+| 字号档 | 2xs | xs | sm | md | lg | xl |
+| --- | --- | --- | --- | --- | --- | --- |
+| macOS | 10 | 11 | 13 | 13 | 15 | 19px |
+| nbook | 11 | 12 | 14 | 14 | 16 | 20px |
+
 
 | | macOS | nbook |
 | --- | --- | --- |
-| 控件高（sm / md / lg） | 26 / 32 / 40px | 26 / 32 / 40px |
-| 界面正文 | 13px | 13px |
+| 控件高（sm / md / lg） | 26 / 32 / 40px | 28 / 34 / 42px |
+| 弹出列表行高（`--menu-item-h`） | 28px | 30px |
+| 界面正文 | 13px | 14px |
 | 行高 | 1.35 | **1.5** |
 | 字距 | −0.006em | **0** |
 | 面板圆角 | 18px | 20px |
 | 菜单外圈圆角 | 12px | 12px |
 
-`FormInput`、`FormNumberInput`、`FormSelect` 的默认单行高度分别消费 `.nb-ui-control-h-md`，
-水平内边距消费 `.nb-ui-control-px`，因此实际命中两套主题同为 32px 与同为 14px 的
-`--control-px`。这几个静态类在 `src/styles.css` 登记，
+`Input`、`NumberInput`、`Select` 的默认单行高度分别消费 `.nb-ui-control-h-md`，
+水平内边距消费 `.nb-ui-control-px`，因此高度随主题（macOS 32px、nbook 34px）。`Button` 的 `sm`、`md`、`lg` 同样取 `--control-h-*`，与输入框并排时等高；
+`IconButton` 是定值（26 / 32 / 38px），它多放在定宽的竖条与定高的工具条里。这几个静态类在 `src/styles.css` 登记，
 不依赖 Tailwind 对 arbitrary value 的扫描。
 
 控件圆角两套都是 10px——那一档本来就够小，加不加高度都不影响手感。
@@ -336,10 +343,10 @@ Apple 的官方落点是 UIKit 的 `containerConcentricRadius` 与 SwiftUI 的 `
 );
 ```
 
-默认浮层沿用 `--radius-panel`；菜单 modifier 提供 `--radius-menu: 12px`，所以默认 1px 描边与
-6px 内边距推出约 5px 的内圈。浮层里贴着边的盒子（列表项、菜单项、滚动区）一律挂
-`.nb-ui-popover-item` 或直接取这个变量，**不要写 `rounded-*`**。改了浮层的内边距就得同时改
-`--nb-popover-pad`，否则半径和留白对不上——这正是它是变量而不是一个写死的数的理由。
+默认浮层沿用 `--radius-panel`；菜单 modifier（`.nb-ui-menu-surface`）改取 `--radius-menu`，内边距取 `--menu-pad`，
+同心公式也按 `--menu-pad` 算（nbook：10 − 1 − 4 = 5px；macOS：12 − 1 − 6 = 5px）。浮层里贴着边的盒子一律取这个推出来的
+变量：弹出列表的项挂 `.nb-ui-menu-item`，滚动区挂 `.nb-ui-popover-scroll`，**不要写 `rounded-*`**。内边距由
+`.nb-ui-menu-surface` 按 `--menu-pad` 真正写出来，不交给模板上的 `p-*`，所以半径和留白总是同一个数。
 走偏了的现象见坑 #42。
 浮层之外也有同心的地方，最典型的是分段控件：段是**贴着**外框四角的（内边距只有 `p-0.5` = 2px），
 所以段的圆角要按同一条式子从外框推出来，而不是取一个「小一点的档」：
@@ -353,8 +360,8 @@ rounded-[max(2px,calc(var(--radius-control)_-_var(--border-w)_-_2px))]   <!-- �
 `calc()` 会算出负值，而**负的 `border-radius` 是非法值，整条声明被丢弃**——
 表现是圆角控件突然变成方角，且没有任何报错。
 
-内层形状不贴角就不必同心。`FileTree` 的展开箭头离行首至少 8px，`Badge`、`TagInput` 的芯片、
-`FormCheckbox` 都是这种情况，它们保持自己的圆角是对的，别为了「统一」去套这条式子。
+内层形状不贴角就不必同心。`Tree` 的展开箭头离行首至少 8px，`Badge`、
+`Checkbox` 都是这种情况，它们保持自己的圆角是对的，别为了「统一」去套这条式子。
 
 ### 控件圆角只有 `--radius-control` 一个来源
 
@@ -368,10 +375,20 @@ rounded-[max(2px,calc(var(--radius-control)_-_var(--border-w)_-_2px))]   <!-- �
 比没有这个 token 更糟：它让人以为这一档是可调的。
 
 
+### 行内的文字块与控件同奇偶，行高取整数
+
+一行里文字块（标题加说明）和控件并排、纵向居中时，两者的高度要同奇偶，文字块的行高用整数 px
+（不要 `1.5` 乘出 `21.0000x` 或奇数）。奇偶不同，居中后控件的上下沿落在半个像素上，
+1px 的描边被抗锯齿糊成两行淡灰，看上去边框发虚。设置窗口的一行是例子：标题 20px、说明 18px、
+中间隔 2px，文字块 40px，与偶数高的控件对齐。行与行之间的小字（组标题、提示）同样要整数行高：
+`--leading-ui` 是倍数，在 NeuroBook 主题下乘出整数，在 macOS 等主题下乘出小数，往下每一行都错开；
+要各主题都成立时用 `round(nearest, calc(1em * var(--leading-ui)), 1px)` 取整（放在 `@supports` 里，
+不支持时退回倍数），改完在每个主题下核对一遍。
+
 ### 内容列有上限宽度
 
 窗口一宽，表单列如果跟着长，控件就会变成整行宽——一个 1000px 宽的下拉框不是「更宽敞」，
-是「控件失去了自己的尺度」。所以**内容列封顶**（当前取 ≈768px）：
+是「控件失去了自己的尺度」。所以**内容列封顶**（当前取 ≈720px）：
 
 - 控件与文字都在上限内，分隔线也只跨内容列，不跨整个窗口；底部动作栏同样在内容列内（横线、徽标、按钮与字段左右对齐）；
 - 导航轨、窗口标题栏仍贴窗口边缘，它们是窗体 chrome，不跟着封顶；导航轨的竖线连续走到窗口下沿，动作栏的上边线从它右侧开始。
@@ -505,8 +522,9 @@ Noto Sans CJK SC 覆盖 Linux 与装了 Noto 的环境。
 两个无障碍档要退回不透明：`prefers-reduced-transparency` 和 `prefers-contrast` 下玻璃已经
 退成实心面，这时半透明高亮反而对比不足，两个 block 里都写回 `var(--bg-hover)`。
 
-`.nb-ui-popover-item` 只管圆角，不管底色——底色由各组件按自己的状态语义
-（`data-[highlighted]` / `aria-selected` / `:hover`）挂上去，但取的值必须是这个角色。
+弹出列表的项（`.nb-ui-menu-item`）只认一个状态属性：`[data-highlighted]` 时取这个角色作底色，不写 `:hover`
+底色——鼠标与键盘指向同一项，不会一个停在悬停处、一个停在键盘当前项（w00029 t04）。reka 的项自己挂这个属性，
+普通按钮项与受控列表由组件挂。弹出列表之外的可点击行（标签、树行）仍按自己的状态语义挂，但取的值必须是这个角色。
 
 ### 配色表的三条不变量
 
@@ -642,10 +660,10 @@ editorial 同裸基线。这些数值是**目测决定，没有可引的规范**
    若原语行为变了（不再等待），退回 Vue `<Transition>` 包装，并在坑节记录。
 5. 共享实现只有一个登记处：`src/styles.css` 的 `.nb-ui-popover-motion` modifier，
    挂在浮层基座（`.nb-ui-popover-surface`）之上。已有自己过渡的浮层
-   （Combobox / ContextMenu / Tooltip / TimePicker / Dialog）不挂它，
+   （ContextMenu / Tooltip / Dialog）不挂它，
    避免两层动画叠加；它们的配方同样服从本节第 1–3 条。
 6. **模态命令浮层（S4）关闭不带走动画。** 退场动画会把「下一层什么时候拿到焦点/按键」
-   押在 `animationend` 上，交接时刻由动画时长决定而不是状态本身。`QuickInput` 与
+   押在 `animationend` 上，交接时刻由动画时长决定而不是状态本身。`QuickPick` 与
    `AlertDialog` 关闭时立即卸载，把「关闭完成」交给原语的真实卸载事件（`closed`）表达；
    宿主在收到该事件后才执行命令或激活下一个交互层。入场仍走第 1 条配方。
 
@@ -865,12 +883,12 @@ Apple 的做法里**面上没有渐变**：Materials 那页从头到尾没提过
 判据：**把一角放大到 4 倍再截图**，看两条弧线平不平行、之间的留白等不等宽。
 1 倍的整体图分辨不出来——本轮就是放大之后才敢说根因的。放大的做法：
 给 `[data-reka-popper-content-wrapper]` 临时 `zoom: 4` 再截，不要靠截完再放大（那只会放大马赛克）。
-修法：项挂 `.nb-ui-popover-item`，半径由 `--nb-popover-inner-radius` 从外框推出来
+修法：项挂同心圆角的类（现在是 `.nb-ui-menu-item`），半径由 `--nb-popover-inner-radius` 从外框推出来
 （20 − 1 − 6 = 13px），见第三节。**别去调 6px 这个数**——它每次都得跟着外框和内边距变，
 写死一个数就是把同一个约束抄进 N 个模板。
-连带的一处：`.nb-ui-popover-scroll` 挂在浮层自己身上的组件（Dropdown / Combobox）
+连带的一处：`.nb-ui-popover-scroll` 挂在浮层自己身上的组件（DropdownMenu / Combobox）
 本来就是坑 #24 那一条，滚动条会画进圆角里；本轮只统一了内边距，那条债还在。
-**这条债已在下一轮还掉**：两个组件都把滚动下沉到内层（Dropdown 用 `role="none"` 的包装，
+**这条债已在下一轮还掉**：两个组件都把滚动下沉到内层（DropdownMenu 用 `role="none"` 的包装，
 Combobox 用原本就在的 `<ul role="listbox">`），外框只剩 `overflow: hidden`。
 
 **43. 玻璃上的选中态用了实心 hover 色，成了挖进材料里的补丁**
@@ -909,14 +927,40 @@ Combobox 用原本就在的 `<ul role="listbox">`），外框只剩 `overflow: h
 根因：浏览器不认一条声明里的值语法时，丢掉的是整条声明，不是只丢不认的那一段。
 判据：用比浏览器基线（`docs/specs/runtime/browser-host.md` 的输入与前置条件）新的写法（例如带替代文本的 `content`）时，先写一条基线浏览器能认的声明兜底，再写新写法覆盖。伪元素副本已经 `visibility: hidden` 时不进可访问名称，不需要替代文本。
 
+**58. 图标类的 `width: 1em` 在应用里盖掉组件写的图标尺寸**
+现象：菜单项的图标列（同一级有一项带图标就每项留出这一列）在 nb-ui 演练场里对齐，在新应用的 Lab 里没有图标的项多缩进 3px：图标只有 13px，空占位是 16px。
+根因（分层之前）：nb-ui 的样式不在 CSS layer 里，同一优先级按出现顺序取后者。图标类（当时 UnoCSS 的 `i-lucide-*`）写 `width: 1em; height: 1em`，在应用里排在 nb-ui 样式之后，把 `.nb-ui-menu-item__icon` 的 16px 改成了字号大小；演练场里两者的先后相反，所以没暴露。
+现在的机制：图标遮罩垫片 `[class*="i-lucide-"]`（`width: 1em`）在 `base` 层，`.nb-ui-menu-item__icon` 的 16px 在 `components` 层，调用方的 `size-4` 之类在 `utilities` 层。层序是 `theme, base, components, utilities`，后面的层赢，所以 16px 赢，与书写和加载顺序无关。
+判据：图标的尺寸写在 components 层的语义类或调用方的原子类上，垫片的 `1em` 只是缺省值，必须留在 `base` 层；有人把垫片挪出层，同样的现象会回来。尺寸与对齐仍要在新应用（neuro-book Lab）里量，别只看演练场。
+
+**59. 名称和旁注同行时，名称哪怕只被压窄零点几像素也会出省略号**
+现象：Select 选项把说明放在名称右侧之后，“Word 文档（.docx）”末尾被截成“…”，而说明的 `flex-shrink` 已经是名称的 1000 倍。
+根因：两者都可收缩时，浏览器按收缩系数乘基础宽度分摊不足的宽度，名称仍分到一个很小的非零份额；`text-overflow: ellipsis` 只要内容比盒子宽一点就画省略号。
+判据：一行里的名称与旁注（说明、分类、快捷键提示）不要靠不同的收缩系数分先后。名称取内容宽度（`flex: 0 1 auto`）并用 `margin-right: auto` 把旁注推到右侧，旁注从零宽开始占剩余空间（`flex: 1 1 0%`）；放不下时先截旁注，旁注截完才截名称。
+
+**60. 分层以后，宿主不分层、特异性低的规则会压过所有原子类**
+现象：元素上写了 `p-4`、`size-4`、`flex` 这类原子类，计算样式却还是宿主 reset 或全局规则给的值，改类名没有任何效果；构建不报错，原子类的规则也确实生成了。
+根因：层之间的裁决先于特异性：不在任何 `@layer` 里的样式，永远压过 `@layer` 里的样式，不论选择器多弱。原子类在 `utilities` 层，所以宿主里不分层的 reset（`all: unset`、`*`/`html`/`body` 上的声明）一旦匹配到元素就赢，`:where()` 或单个标签的零特异性也一样。
+判据：宿主里特异性低于一个类的全局规则放进 `@layer base`（reset 整份 `@import ... layer(base)`）；宿主自己的语义类（一个类以上）可以不分层，它本来就该压过 nb-ui 的 components 层。验证：在 Lab 或页面里给一个元素写原子类，读它的计算样式，必须是原子类的值；新增全局规则后再读一次。写法见 `src/tailwind.css` 的头注释。
+
+**61. 只在开发构建里加载的代码，它的原子类也进了生产 CSS**
+现象：Lab 只在开发构建里加载，生产 JS 里没有它，生产 CSS 里却有只在 Lab 组件上用到的类（连同 `--lab-*` 这类名字）；`check:dist` 原来只查 JS 里的标记，没报。
+根因：Tailwind 的 `@source` 按目录扫描源码，不看构建图：目录在扫描范围里，文件有没有被打进包都会生成它的类。UnoCSS 只抽构建图里的模块，换成 Tailwind 后才暴露。另外，写了 `@source not` 的目录，之后再写正向的 `@source` 也加不回来。
+判据：只在开发或测试构建里加载的目录，生产入口用 `@source not` 排除；开发服务与测试外壳要用不排除的另一份入口，由构建配置按开发或生产选（neuro-book 的做法见 `packages/neuro-book/src/web/tailwind.product.css` 与 `vite.config.ts`）。验证：生产构建后在产物 CSS 里查这些目录独有的类名或变量名。
+
+**63. 用盒子尺寸除以 `offsetHeight` 推 CSS `zoom`，没有 zoom 时也偏几像素**
+现象：页面有 CSS `zoom: 0.8` 时，级联子菜单离父项偏了 23px；改成“盒子高度 ÷ `offsetHeight`”推缩放后，没有 zoom 的页面也偏出几像素。
+根因：`getBoundingClientRect()` 与 `window.innerWidth` 不在同一个坐标系里，zoom 不为 1 时要换算；而 `offset*` 是取整的，用它做除数算出的比例带着取整误差。
+判据：换算 CSS `zoom` 用元素的 `currentCSSZoom`；盒子尺寸与 `offset*` 之比只在还要算 `transform` 缩放时用，并接受它的取整误差。验证：在 Lab 里给舞台加 `zoom`，量子菜单与父项的相对位置，与不加 zoom 时一致。
+
 ### B. DOM / 组件
 
 **47. `data-[state=…]:animate-*` 变体不会生成，折叠动画静默失效**
 现象：`Collapsible` / `Accordion` 展开时内容直接出现，写了动画却没有动画；控制台、构建、单测都不报错。
-根因：`animate-*` 的可选键来自 UnoCSS 主题的 `theme.animation`，本项目用的是 `presetUno()`，
-里面只有 `spin` / `ping` / `pulse` / `bounce`。`animate-collapsible-down` 这个键不存在，
+根因：`animate-*` 的可选键来自主题的 `--animate-*`（Tailwind v4 的默认主题里只有 `spin` / `ping` / `pulse` / `bounce`），
+nb-ui 没有声明 `--animate-collapsible-down`。`animate-collapsible-down` 这个键不存在，
 于是 `data-[state=open]:animate-collapsible-down` 一条 CSS 都不生成。`src/styles.css` 里
-手写的 `.animate-collapsible-*` 因此从来没有被用上，是死代码。
+手写的 `.animate-collapsible-*` 因此从来没有被用上，是死代码（w00029 t07 已删）。
 判据：展开后读内容元素，`getAnimations()` 必须非空且 `animationName` 是登记的 keyframes 名。
 修法：动画写在样式表里用状态属性驱动（`.nb-collapsible-content[data-state="open"] { animation: … }`），
 不依赖消费方主题里恰好存在同名 key。**凡是"写了却可能不生成"的类，都要用计算样式或 `getAnimations()` 证伪一次。**
@@ -1060,6 +1104,17 @@ Sketch Cloud 上那份官方分享件带 Inspect，能逐层读出 CSS——这�
 根因：reka 的 Teleport 自己挂载后才渲染内容；应用初次挂载不在渲染批次里，setup 里排的那一次 `nextTick` 先于面板挂上就跑完了。
 判据：reka 的 Teleport 自己挂载后才渲染内容；要量传送出去的元素时，监听元素引用本身（渲染之后再量），不要在 setup 里排一次 `nextTick`，应用初次挂载时那一次会扑空。
 
+**62. 组件库交给监听者、但没在元素上派发的事件，`currentTarget` 是 null**
+现象：在 DropdownMenu、Menubar 的第一级里点击子菜单的父项，或按 Enter、空格，子菜单不出现，控制台报错。
+根因：reka 菜单项的 `select` 事件是自己 `new` 出来直接交给监听者的，从没在元素上派发过，`target` 与 `currentTarget` 都是 null；代码拿 `currentTarget` 当父项元素去定位子菜单。
+判据：组件库的自定义事件先确认它是不是真的在元素上派发；要元素时从模板 ref 取（按项登记到一张表里），不从事件对象上取。
+
+**64. 提供方读不到自己 `provide` 的值**
+现象：对话视图 `provide` 了界面语言，子组件都换成了英文，视图自己的顶栏、菜单仍是缺省的中文（w00019 t10）。
+根因：`inject` 只查祖先组件提供的值，看不到同一组件自己 `provide` 的。
+判据：提供方自己显示的文字或状态，也要在测试里换一次提供的值来验证，不能只看子组件。
+修法：`provide` 的函数直接返回提供方要用的那份（例如文字函数），提供方用返回值，不再 `inject`。
+
 ### C. 探针 / 验收方法
 
 **16. 量「模糊真的渲染了吗」，浮层自己的内容会把结论稀释成 0**
@@ -1099,15 +1154,11 @@ Bun 下 CDP 握手超时。探针脚本一律 `node xxx.mjs`。
 补测试时先把修复退回去跑一遍——**在 bug 上不失败的回归测试不算测试**
 （本轮那条退回后读到 `['', '', '']`，正是线上的症状）。
 
-**27. 改了 `src/styles.css` 而页面没变，先看是不是在吃编译产物**
-现象：类明明在元素上、规则明明在文件里，计算样式就是不认。
-根因：playground 经 Nuxt module 注入的是 `dist/nb-ui.css`，不是源码 CSS。
-新应用也用这份产物，它的 UnoCSS 会替 nb-ui 组件补出大部分工具类，产物过期只表现为 `bg-[var(--…)]` 这类和
-`src/styles.css` 里的类缺失，看截图难以发现。
-判据：改完跑 `bun run build:css`；dev server 会缓存旧产物，**还要重启它**。nb-ui 的 `bun run test` 会把源码现编的产物
-与入库的逐字节比较，忘了重建的提交在这里失败。
-重启后确认端口——`bun run dev` 会挑第一个空闲端口，主仓的 dev server 停了它就跑去 3000，
-而不是你以为的 3003。查一句：页面里有没有哪个 `<style>` 含新规则。
+**27. 已不适用：改了 `src/styles.css` 而页面没变，不再是产物过期**
+原来的坑：playground 与新应用吃的是预编译产物 `dist/nb-ui.css`，产物过期时类明明在元素上、规则明明在文件里，计算样式就是不认；判据是改完跑 `build:css` 并重启 dev server。
+2026-10-21（w00030 t02）起 nb-ui 不再有预编译产物，`build:css` 与产物已删除：宿主的 Tailwind 直接编译 `src/tailwind.css` 和它导入的源码，改完即时生效，不必重建。
+现在遇到「类在元素上却不认」，先在浏览器的样式面板里看是哪一层、哪条规则赢（面板会标出 `@layer`），多半是坑 #60 那类不分层的宿主规则。
+仍要确认端口——`bun run dev` 会挑第一个空闲端口，主仓的 dev server 停了它就跑去 3000，而不是你以为的 3003。
 
 **39. 扫「不许出现字面色」的断言会被自己的注释绊倒**
 现象：`themes/*/vars.css` 的字面色检查突然红了，报的是 `#DBDBDB` / `#A6A6A6` / `#676767`——
@@ -1191,12 +1242,14 @@ Bun 下 CDP 握手超时。探针脚本一律 `node xxx.mjs`。
       不写死白或黑
 
 **几何**
-- [ ] 控件外框圆角一律 `rounded-[var(--radius-control)]`；不贴外框角的内部形状和 Skeleton / Notification / Panel 的独立圆角不纳入此项——
+- [ ] 控件外框圆角一律 `rounded-[var(--radius-control)]`；不贴外框角的内部形状和 Skeleton / Notification 的独立圆角不纳入此项——
       写死的 Tailwind 常量不能让 `--radius-control` 负责控件外框（坑 #44）
 - [ ] 贴着外框四角的内层形状（浮层里的项、分段控件的段）按
       `外框 − 描边 − 内边距` 推半径，且用 `max()` 兜底（负半径会让整条声明作废，变方角）
 - [ ] 不贴角的内层形状（文件树的箭头、芯片、复选框）保持自己的圆角，不必套这条式子
-- [ ] 宽窗口（≥1400px）下**内容列封顶**（≈768px），控件不随窗口拉成整行宽；
+- [ ] 叠在另一个窗口上的浮层，圆角不大于底下窗口的圆角（小确认框取 `--radius-dialog-compact`，浮动窗口取 `--radius-window`）
+- [ ] 行内并排的文字块与控件同奇偶、行高取整数，控件的边框不落在半像素上
+- [ ] 宽窗口（≥1400px）下**内容列封顶**（≈720px），控件不随窗口拉成整行宽；
       导航轨、标题栏、底部动作栏仍贴窗口边缘（第三节）
 
 **排版**
@@ -1222,8 +1275,8 @@ Bun 下 CDP 握手超时。探针脚本一律 `node xxx.mjs`。
 - [ ] 打开时 `window.scrollY` 不变
 - [ ] 关闭后焦点回到触发器（点外面关闭除外——那时不要抢焦点）
 - [ ] `overflow` 在内部滚动层，不在浮层本体上；滚动区比外框缩进一圈
-- [ ] 列表项 / 菜单项挂 `.nb-ui-popover-item`，没有自己写 `rounded-*`——
-      圆角要与外框同心，写死的小半径在角上会被挤没（坑 #42）
+- [ ] 弹出列表的项挂 `.nb-ui-menu-item`，没有自己写 `rounded-*` 与 `:hover` 底色——
+      圆角要与外框同心，写死的小半径在角上会被挤没（坑 #42）；高亮只认 `data-highlighted`
 - [ ] 有一条用例把它**打开**并断言里面的内容，不是只测关闭态
 - [ ] 非模态的浮层（下拉 / 菜单）关掉了原语的 `body-lock` 与 `disable-outside-pointer-events`——
       默认值都是 true，开着的时候整页既不能滚也不能点（坑 #33）
@@ -1265,6 +1318,5 @@ Bun 下 CDP 握手超时。探针脚本一律 `node xxx.mjs`。
       「DOM 说浮层在、图上没有」多半是这个而不是样式（坑 #41）
 - [ ] 涉及裁剪的判据用命中测试，不是 `getBoundingClientRect()`
 - [ ] 切主题 / 开浮层后等了 ≥500ms
-- [ ] 改过 `src/*.css` 的话跑了 `build:css` 并重启了 dev server
 - [ ] 主题 × 配色两轴都跑过，包括「一个主题都没装」这一档
 - [ ] 无障碍那三档在**暗色**下也实测过，不是只看亮色（坑 #31）

@@ -1,0 +1,348 @@
+# nb-ui 规范文档审查报告（w00029 t05 输入）
+
+审查对象与范围见 /tmp/w29t05-review/brief.md。只读，数据来自 master 工作区 `/home/notnotype/CodeRepository/neuro-book`。
+引用格式：`文件:行`。文件缩写：SPEC = `packages/nb-ui/docs/ui-development-spec.md`，DL = `packages/nb-ui/docs/design-language.md`，AT = `packages/nb-ui/docs/authoring-themes.md`，DR = `packages/nb-ui/docs/README.md`，PR = `packages/nb-ui/README.md`，CS = `docs/standards/code/components.md`，SK = `.agents/skills/ui-development/SKILL.md`。
+
+## 总体情况
+
+（占位，终稿见文末“总体情况（终稿）”；先逐条追加发现。）
+
+## 发现
+
+### F01 [重要][1 与代码不符] SegmentedControl 条目写的是旧版本
+- 位置：SPEC:101-105。
+- 现象：SPEC:104 写“`--motion-base`（300ms 舒缓物理阻尼曲线 `cubic-bezier(0.22, 1, 0.36, 1)`）”；SPEC:105 写“支持富文本样式（B/I/U/S）等独立多选组合，各激活项独立高亮”。
+- 代码：`SegmentedControl.vue:142` 滑块用 `[transition-duration:var(--motion-base)]` 加 `--ease-standard`，裸基线 180ms（`src/tokens.css:88`）、nbook 140ms（`themes/nbook/vars.css:342`），缓动是 `cubic-bezier(0.25,0.1,0.25,1)`（`vars.css:344`），文中的 300ms 与曲线哪里都找不到。SegmentedControl 没有多选；多选在 t03 里已归 ToggleGroup（commit 2753d9a14，SPEC:346 自己也这么写）。同一份 SPEC 里 105 行与 346 行互相矛盾。代码按下缩放是 `0.96`（`SegmentedControl.vue:163`），而 SPEC:393 写“0.93~0.975”。尺寸档 `xs | sm`（`SegmentedControl.vue:23`）在 SPEC 里没出现。
+- 为什么是问题：读者按文档做出来的东西与组件对不上，且文档内自相矛盾。
+- 建议：整条删掉，改指 `SegmentedControl.md`（已有，102 行）；“换模式 vs 换去处”的分工留在选型表里。
+
+### F02 [重要][1 与代码不符] Checkbox 条目的尺寸、圆角、材质全部对不上，并含已删的 Radio
+- 位置：SPEC:107-113。
+- 现象：SPEC 写 `20px × 20px`、`rounded-[8px]`“无杂乱外边框”、未选中“18% 半透深灰实心底座”、树状子项“32px 绝对缩进”、“单选按钮（Radio）”。
+- 代码：`Checkbox.vue:74` 是 `h-[18px] w-[18px] rounded-[5px] border`，未选中是 20% 文字色描边加 90% `--bg-panel` 底（`Checkbox.vue:78`）；文件头注释 `Checkbox.vue:9` 也写 18px。Checkbox 里没有 Radio（单选在 `RadioGroup`）。缩进在 `Tree.vue:92` 是 `calc(var(--space-5) * level + var(--space-2))`，不是 32px。选中态“Apple 蓝/SF Pro 矢量对勾 [✓]”是实现注释的口气，不是可验的规定。
+- 建议：删，参数留在 `Checkbox.md`；Radio 的外观放 `RadioGroup.md`。
+
+### F03 [重要][1 与代码不符] Badge 警示色写了字面值 `#B45309`，代码早已是 token 混色
+- 位置：SPEC:139。
+- 代码：`Badge.vue:83-85` 用 `color-mix(in srgb, var(--status-warning) 80%, black)`，没有任何 `#B45309`。
+- 另有矛盾：SPEC:33 的规则 2 写“组件不得写字面颜色”，SPEC:139 自己把字面色当规范；SPEC:34 又给 Checkbox 的 `#000000` 开了专门豁免（而 `Checkbox.vue:77` 现状是否仍是唯一例外，t05 需要用 `token-consumption.test.ts` 再核一次，本次未核）。
+- 建议：删字面色；若要保留“警示色比状态色深一档”的意图，写成“`--status-warning` 与黑 80:20 混合”这一可验的规则，放 `Badge.md`。
+
+### F04 [重要][1 与代码不符][3 矛盾] 浮层投影：三处文档给出三种说法，都与代码不一致
+- 位置：SPEC:268-274（“4 阶”，白昼/暗夜各一组 rgb 值）、SPEC:416-418（4 层，另一组 color-mix 值）；DL:217（“环境投影只有一条”）、DL:833-837（坑 38：外阴影应当只有两条，出现第三条 blur 4–20px 的就是这个坑）、DL:851-852（“高光由 `--elevation-popover` 里的 `inset 0 2px 0.25px -1.5px` 顶内线承担”）。
+- 代码：`themes/nbook/vars.css:284-288`（亮）与 `:428-432`（暗）是一圈 1px 外环加三层外阴影（blur 16/48/80px），没有任何 `inset`；裸基线 `src/tokens.css:81` 同形。
+- 对照：SPEC:416 的 color-mix 值与代码一致（亮色）；SPEC:269-270 的 rgb 值（`0 8px 24px -4px rgb(0 0 0 / 0.12)` 等）在代码里不存在；SPEC:271 写“彻底废除 `inset 0 2px` 反光条”，与 DL:851 的“靠这条顶内线”正好相反；DL 坑 38 的判据当前代码也不满足。
+- 为什么是问题：谁也无法判断“做到了没有”；后人会按 DL 坑 38 把投影改回两条，或按 SPEC 改回 inset。
+- 建议：投影的值只留在 `src/tokens.css` / 主题 `vars.css`，文档只写角色分工与判据；坑 38 与 SPEC:268-274 二选一，按现状（外环加多层）重写，或开发者决定回到 Apple 式两条并改代码。
+
+### F05 [重要][1 与代码不符][3 矛盾] `brightness` 的判据与代码相反
+- 位置：DL:725-727（坑 7：“暗色档的 `brightness` < 1”，“暗色 Liquid Glass 是压暗（`brightness(0.76)`）”）、DL:774-779；SPEC:273-274（“统一为 `blur(8px) saturate(130%) brightness(1.0)`”，“彻底纠正 `brightness(0.72)`”）、SPEC:415。
+- 代码：`themes/nbook/vars.css:215` 与 `:398`（暗色）都是 `blur(8px) saturate(130%) brightness(1.0)`。
+- 为什么是问题：DL 的判据写成“玻璃配方暗色档 brightness < 1”，代码按 SPEC 走，结果 DL 的判据对 nbook 是假的。DL:778-779 还说“压暗/提亮改由 brightness 承担”，也与 `brightness(1.0)` 对不上。
+- 建议：统一成一种说法；倾向于保留现状（1.0），把坑 7 的暗色判据改写为“暗色档要有自己的配方，不照抄亮色”。
+
+### F06 [重要][1 与代码不符] 菜单圆角：DL 里 nbook 记成 12px，实为 8px
+- 位置：DL:302（表：菜单外圈圆角 macOS 12px / nbook 12px）、DL:315、DL:339（“菜单 modifier 提供 `--radius-menu: 12px`，所以约 5px 内圈”）。
+- 代码：`themes/nbook/vars.css:98` `--radius-menu: 8px`；`themes/macos/vars.css:52` 才是 12px；裸基线 `src/tokens.css:61` 是 `var(--radius-panel)`=10px。
+- 对照：SPEC:418 写的 8px 是对的；SPEC:247-248（已知的 12px/5px）的写法与 DL:339 同源。内圈在 nbook 菜单上是 `max(2px, 8-1-6)=2px`，不是 5px。
+- 建议：数值一律不进规范正文，指向 `--radius-menu` 的角色；DL 的比较表标明“登记值，以 vars.css 为准”或删表。
+
+### F07 [重要][1 与代码不符][3 矛盾] DropdownMenu 的 radio 分组：SPEC 写“合成 RadioGroup”，组件文档与代码都说不做
+- 位置：SPEC:132 末段“radio 的同组互斥用 `group` 声明，同组连排合成一个 RadioGroup，缺 group 的贡献按单项独立成组并给开发诊断”。
+- 对照：`DropdownMenu.md:105-114`“`group`……仅供缺失值诊断，不执行分组”“当前菜单节点不执行分组或互斥，勾选仍完全由 `checked` 控制”；代码 `MenuNodes.vue:32,60` 只设 `role=menuitemradio` 与 `aria-checked`，`DropdownMenu.vue:225-231` 只有 `console.warn`（警告文案却说“已按单项独立成组渲染”，也与实际不符）。
+- 建议：以组件 `.md` 为准；SPEC 此段连同整个 DropdownMenu 条目（SPEC:125-134，约 10 行长段）删去，只留跨组件的分工。
+
+### F08 [重要][1 与代码不符][3 重复] QuickPick：SPEC 的 vw/vh 与代码的 cqw/cqh；同一内容在 SPEC 与 QuickPick.md 各写一遍
+- 位置：SPEC:259-261（Tier 3）、SPEC:276-283（条目 17）。
+- 现象：SPEC:279 写“宽 `min(640px, calc(100vw - 24px))`，`top: clamp(16px, 8vh, 72px)`，`max-height: min(560px, calc(100dvh - 48px))`”。
+- 代码：`QuickPick.vue:89-91` 是 `100cqw`、`8cqh`、`100cqh`（容器单位，Lab 画布里按画布算）。`QuickPick.md:9` 已把这一点写对（并解释了没有容器时回退到 `svw/svh`）。
+- 另：SPEC:278 的“`NB_Z_INDEX.commandPalette`（9200）”与 `src/theme/z-index.ts:26` 一致；“S4”代号只在 SPEC:276-278、DL:647 出现，读者不知道指什么（SPEC 里没有定义“S4”）。
+- 建议：QuickPick 的几何、键盘、关闭交接全部以 `QuickPick.md` 为唯一处，SPEC 只留“模态命令浮层的关闭不带退场动画”这类跨组件规则（DL:647-650 已有同内容，见 F25）。
+
+### F09 [重要][1 与代码不符][3 矛盾] Popover 材质写了第三套数值
+- 位置：SPEC:151“75% 半透底色 + 12px~14px 模糊 + 130% 饱和度 + 1px 环境边框”。
+- 代码：`Popover.vue:64` 直接挂 `.nb-ui-popover-surface`，面色取 `--overlay-surface`（nbook 亮 65%、暗 75%：`vars.css:210,412`），模糊取 `--overlay-blur`（nbook 8px，`vars.css:215`）。
+- 对照：SPEC:410-415（§9）给的是 65%/75%、8px，与 SPEC:151 自相矛盾；DL:265 又说“nbook 小浮层 8px 纯 blur”。
+- 建议：删 SPEC:151，Popover 只写“消费 `.nb-ui-popover-surface`”。
+
+### F10 [重要][1 与代码不符] “所有下拉/浮层统一接入 `useDropdownFloating`”与实际接入面不符
+- 位置：SPEC:245（“所有下拉与弹出菜单统一接入 `useDropdownFloating`”，Tier 2 列了 DropdownMenu/Select/Menubar）、SPEC:408、SPEC:420（“任何涉及下拉与浮层的组件……统一调用 `useDropdownFloating` 或 `useDropdownSurfaceStyle`”）。
+- 代码：只有 `DropdownMenu.vue`、`Select.vue` 用 `useDropdownFloating`，另有 `ColorSwatches.vue` 用 `useDropdownSurfaceStyle`；`Menubar.vue`、`Popover.vue`、`ContextMenuPanel.vue`、`QuickPick.vue`、`Tooltip.vue` 一个都没用，直接挂 `.nb-ui-popover-surface`（`rg "useDropdown" src/components`）。
+- 为什么是问题：文档规定的“严禁”对 5 个现有组件已经不成立；而且 SPEC:420 的“严禁在模板中重复书写内联样式”与 DL:232-271 的“浮层外观只有一个登记处是 CSS 类”是两套并列的“单一来源”。
+- 建议：规范只保留一条：外观由 `.nb-ui-popover-surface`（CSS 类）统一；组合函数只写进各自的源码注释与 Select/DropdownMenu 的 `.md`。
+
+### F11 [重要][2 过时] 条目 8、13、14 引用了旧应用的组件与机制
+- 位置：SPEC:211（`AgentChatFlow`）、SPEC:222（`AgentChatEmptyState`）、SPEC:287-314（4.3 整节，`NovelIdeSettingsView` / `NovelIdeSettingsDialog` / `useSectionDraft` / `useSettingsSnapshot` / `SettingsLoadState` / `activeSectionReady`）、SPEC:316-337（4.4 整节，`sections/**`、`sections-single-root.contract.test.ts`、i18n 键 `settings.section.*`）、SPEC:432（`server/agent/tools/`）、SPEC:178-180（`EditorDragProvider.vue` / `useEditorTabDrag.ts`）。
+- 证据：这些文件都只在 `packages/neuro-book-legacy/` 下（例如 `neuro-book-legacy/app/components/novel-ide/settings/sections/sections-single-root.contract.test.ts`、`neuro-book-legacy/app/components/editor-workbench/EditorDragProvider.vue`），新应用 `packages/neuro-book/src` 里没有同名实现。
+- 为什么是问题：新应用不会按这几节去做；nb-ui 是组件库，“受控视图的数据层契约”（防抖写回、源回声守卫、惰性加载）是应用层的设计，不是 UI 库规范。
+- 建议：4.3 与 4.4 整体移出 nb-ui 文档：有生效价值的部分（防抖写回、失败走通知、延时加载）放 `docs/standards/code/` 的前端规范或新应用设置插件的 Spec；其余作废。约 55 行（SPEC:285-337）。
+
+### F12 [重要][2 过时] “主题替换组件实现”机制已拆（commit cfccc8b83，今天），四处文档仍在讲
+- 位置：AT:89-94（“索引服务要知道……动了哪些组件”“装载器会校验两者一致：manifest 声明覆盖了某个组件却没给实现，或给了实现却没声明，都直接拒绝装载”）；SPEC:20（事实源表“主题可覆盖组件 | `src/theme/contracts.ts`”）；`README.md:251`（“optionally replacement implementations for whitelisted components”）、`README.md:255` 与 `:263`（示例 `import {provideThemeComponents} from "@notnotype/nb-ui/theme"` 与 `provideThemeComponents(store.components)`）、`README.md:140`（“and (later) component implementations”）、`README.md:292`（“…and override mechanisms”）。
+- 证据：`src/theme/contracts.ts`、`component-registry.ts` 已删（cfccc8b83 删 248 行）；`src/theme/index.ts` 不再导出 `provideThemeComponents`（全仓 `rg provideThemeComponents` 只剩 README 的两处）；`theme-manifest.ts` 的 `NbThemeManifest` 没有组件字段；`theme-loader.ts` 的 7 个 `reason` 里也没有对应项（AT:261-269 的表与之相符，说明该提交只改了一半文档）。
+- 为什么是问题：README 示例照抄会直接编译失败；AT:93 描述了一条不存在的校验。
+- 建议：AT:89-94 缩成“manifest 为什么必须是纯数据”两三句（市场索引不执行第三方代码）；删 SPEC:20 一行；README 的“Themes”一节只保留实际 API（`installTheme`、`createThemeStore`）。
+
+### F13 [重要][1 与代码不符][4 放错地方] AT 里的“浮层 Surface 透明度规范”写进了主题作者指南，且与 macOS 主题冲突
+- 位置：AT:126-132。
+- 现象：“浮层（`DropdownMenu` / `Popover` / `CommandPalette`）……亮色基准 65%、暗色 75%……严禁降低到 14%……全库由 `token-consumption.test.ts` 静态扫描守门”。
+- 与代码：① 65%/75% 是 nbook 主题自己的取值（`themes/nbook/vars.css:210`、`:412`）；`themes/macos/vars.css:105` 是 46%、`:248` 是 68%，裸基线 `src/tokens.css:160` 是不透明 `--bg-panel`。“基准”对一方主题就不成立；“主题决定形状与角色映射”（AT:3）与“基准”相矛盾。② `CommandPalette` 不是 nb-ui 组件（现名 `QuickPick`）。③ `token-consumption.test.ts:110-111` 实际只拦 `backdropFilter` 与 `backgroundColor: 'color-mix(in srgb, var(--bg-panel)` 两种写法，不是“任何内联 color-mix”。
+- 同类实例（浮层底色 65% 的位置，供 t05 一并处理）：AT:129-131；SPEC:116、126、245、410-413；nbook `vars.css:207-210` 注释。DL:756、DL:760 的坑 22 另外把历史数字（66%、52%、24%）写在“当前判据”旁边，与现行 65/75 不一致（见 F26）。
+- 建议：AT 删这一节（AT 只管格式）；浮层面色是 nbook 主题的设计取值，写进 DL 的“浮层外观”一节一处，并标明“nbook 的取值”。
+
+### F14 [重要][2 过时] playground 的 `/components` 画廊、`/workbench`、“对照页”都已不存在，端口也三个说法
+- 位置：SPEC:372（“在 `/components` 组合画廊检查受影响组合”）；`README.md:134`（“与 playground 的全量 `/components` 画廊、设计语言 `/workbench` 分工不同”）；`packages/nb-ui/AGENTS.md`“完成门禁”（“在 `/components` 检查相应组合”）；DL:10（“对照页：`bun run dev` → <http://localhost:3003>，主题 × 配色两轴都能切”）；DL:1109-1110（“而不是你以为的 3003”）；`README.md:9`（“playground on :3004”）。
+- 证据：`playground/app/pages/` 下只有 `acceptance/[name].vue`（共 1 个页面文件），`playground/app/acceptance/` 是 3 个验收夹具（Splitter、NestedGrid、CheckboxFocus）。`nuxt dev playground` 没配端口（`playground/nuxt.config.ts`、`package.json:dev`），e2e 用 3100（`playwright.config.ts:11`）。SPEC:380 自己已承认“playground 的 `/lab` 已删除”，却保留 372 行。
+- 为什么是问题：门禁清单里有一步无处可做；三个不同端口。
+- 建议：SPEC 第 6 节第 3 条改成“在 Component Lab 登记并检查”；README、AGENTS、DL:10 一并改；端口号不写。
+
+### F15 [重要][1 与代码不符] README 的 Tooltip 说明与“无尖角原则”相反
+- 位置：`README.md:125`（“`.nb-ui-tooltip-surface` ……compact paper Tooltip modifier: control-radius surface, short attached arrow, and theme-aware text/padding”）。
+- 对照：SPEC:241“无尖角原则：不使用 SVG/伪元素三角形尖角”；`styles.css:208-222` 的 `.nb-ui-tooltip-surface` 没有任何箭头；`rg arrow src/styles.css src/components/feedback/Tooltip.vue` 无结果。
+- 建议：README 的类名登记表（`README.md:121-127`）改成指向 `src/styles.css` 的一句话，不再抄一遍属性。
+
+### F16 [建议][1 与代码不符] README 组件清单漏了两个已导出的组件，且混着旧名与细节
+- 位置：`README.md:64-108`（“Components”）。
+- 现象：`src/components/index.ts` 导出 47 个组件（`rg -c "^export \{default"` = 47）；README 没有 `Toolbar` 与 `OverlayScrollbar`（逐个比对，仅此两个）。SK:`.agents/skills/ui-development/SKILL.md` 表里写“50+ 通用无业务倾向基础控件”，实为 47；SPEC:390 写“全库 48 个组件已完成逐一深度优化”，也是 48。三处数字不一致，且都不该写死。
+- 另：`README.md:99`（QuickPick）、`:104`（Badge“温润深琥珀 Warning 调色”）、`:84`（DropFeedbackOverlay 一整段 ≈ 10 行实现细节）是在重复各自的 `.md`。
+- 建议：README 的组件清单改成“分组 + 一句话 + 链接到同名 `.md`”，由 `docs:check` 或脚本从 `index.ts` 生成/校验；或干脆删清单，只写“清单以 `src/components/index.ts` 为准”。
+
+### F17 [建议][2 过时][4 放错地方] README 里的迁移公告与更名说明
+- 位置：`README.md:117-123`（`/uno` 导出与 `NB_UI_ICON_SAFELIST` 删除）、`:136-148`（theme→colorway 更名对照表）、`:204-211`（配色名单替换，列了 9 个已退役的配色 id）。
+- 为什么是问题：包是 `private: true`、版本 `0.2.0-alpha.0`，调用方都在本仓；这些是变更记录，不是使用说明，每条都带“Breaking change in 0.2.0-alpha”。
+- 建议：删，必要时留一行指向 git 历史；一般性的变更记录进 CHANGELOG 或 PR。
+
+### F18 [重要][1 与代码不符] 控件高度：SPEC 要求消费 `.nb-ui-control-h-*`，自己的 Button/IconButton 条目又写死 26/32/38
+- 位置：SPEC:51（“组件模板不得重新写固定高度模拟同一档”）对 SPEC:86-88、96（Button `h-[26px]`/`h-[32px]`/`h-[38px]`，IconButton 26/32/38）。
+- 代码：`Button.vue:36-41`、`IconButton.vue:30-45` 都是写死的像素；`IconButton` 还有 `2xs`（14px）、`xs`（24px）两档，SPEC 没提。nbook 的 `--control-h-lg` 是 40px（`themes/nbook/vars.css:80`，DL:297 也是 40px），裸基线 38px（`tokens.css:111`）：所以在默认主题下 `Button lg` 是 38px，`Input lg` 是 40px，并排会不齐。
+- 建议：先决定规则是“Button 跟 `--control-h-*`”还是“Button 是例外”，二者只留一个；决定后 SPEC:51 与按钮条目一起改。尺寸数字不进规范，进 `Button.md`。
+
+### F19 [重要][3 重复] Select/下拉浮层的同一套配方在 SPEC 里被抄了 4 至 7 遍
+- 位置（`rg` 计数）：
+  - “blur(8px) + saturate(130%)”：SPEC:116、128、151、273、280、414、415（7 行）；
+  - “四周 6px 内边距 / `pr-1.5` 避让”：SPEC:119、130、232、253（4 处）；
+  - “`:side-offset="7"`”：SPEC:116、128、420（3 处；SPEC:240 的 6 是 Tooltip）；
+  - “22px 渐隐遮罩、中点 8px 处 35%”：SPEC:118、230、252（3 处）；
+  - “macOS 4px 悬浮滑块”：SPEC:119、130、231、253（4 处）；
+  - “228px/194px/160px 截断高度”：SPEC:117、129、250（3 处，已知问题的同类实例）；
+  - “`--nb-popover-inner-radius` 同心”：SPEC:116、128、248，另见 DL:329-343。
+- 涉及节：4.2 的第 5、7 项，4.2 的第 15 项末段，4.2 的第 16 项，第 9 节，共五处各写一遍，写法还不一致（如 F10）。
+- 建议：只留一处。倾向：外观（材质、圆角、投影、滤镜）归 DL 的“浮层外观只有一个登记处”；行为（截断露半项、浮动滚动条）归 `Select.md` / `DropdownMenu.md`；SPEC 只写“浮层必须挂 `.nb-ui-popover-surface`，组件不得自带外观”。
+
+### F20 [重要][3 重复][5 不可执行] 同一份 SPEC 里的两套“档”：阴影三档、表面四档（Tier 1~4 加 2.5）、材质轴/层级轴
+- 位置：SPEC:35（“只有 raised、popover、dialog 三档层级”）与 SPEC:234-236（“4 档标准分层模型（Tier 1 ~ Tier 4）”，又夹一个 Tier 2.5，SPEC:255）；SPEC:27-32（材质轴/层级轴）；DL:179-189（阴影三档）；SK 表里把 SPEC 概括成“Surface Tier 1~4 分级”。
+- 现象：三套分类并存，且互相不能映射：Tier 1 (Tooltip) 用实心 `--bg-panel` 不属于材质轴任何一层；Tier 2 的材质是玻璃；Tier 4 对话框的“半透明遮罩”又是别的东西。读者问“这个新浮层该属哪一档”，答案要查三张表。“Tier 2.5：宽 ≥ 480px，阴影黑度收敛到 18% 以内、与宿主 ≥ 12px 间隙”没有任何组件消费，也没有可验的类名。
+- 为什么是问题：SPEC:32 自己说“新写组件时按两条轴选角色”，而 SPEC:234 开头说“统一划分为 4 档”，两条是互斥的新写组件指引。
+- 建议：保留“材质轴/层级轴”（有提案和测试），把 Tier 1~4 降为“浮层种类→用哪个 class”的一张表（Tooltip→`.nb-ui-tooltip-surface`；菜单→`.nb-ui-menu-surface`；气泡、QuickPick→`.nb-ui-popover-surface`；对话框→`.nb-ui-dialog-surface`），删 Tier 2.5。
+
+### F21 [建议][5 不可执行] 评审代号与形容词词条（已知项的同类扩展）
+- 已知：方案 2-A（SPEC:101）、BH1-C（SPEC:84）、黄金标准。同类还有：方案 2（SPEC:95）、方案 2-B（SPEC:136）、S4（SPEC:276、278；README:99；DL:647）、“Tier 1~4”（见 F20）、“黄金截断高度”（SPEC:117）、“黄金基座规范”（SPEC:234 标题）、“实心超椭圆规范”（SPEC:107）、“现代触觉规范”（SPEC:142）、“工业级微物理”（SPEC:388 标题）、“Frontend UI Engineering 落地标准”（SPEC:388，“依据 `frontend-ui-engineering` 标准”，SPEC 全文没有此标准的出处）。
+- 形容词示例：SPEC:89 “告别过度拉伸的胖胶囊”；SPEC:97 “优雅次要文字色”“饱满实底”“坚实沉淀底色”；SPEC:110 “纯正 Apple 蓝 + 加粗纯白 Apple SF Pro 矢量对勾”；SPEC:139 “高级温润深琥珀暖金”；SPEC:261 “消除日光灯管反光”；SPEC:274 “通透晶莹的现代玻璃质感”。这些没法判断“是否做到”，且 SF Pro 在 Windows/Linux 上不存在。
+- 另有“100% 严谨对齐”“100% 绝对可见”等绝对化措辞：SPEC:7、SPEC:231，没有对应检查手段。
+- 建议：判据改写成数值或可读的计算样式（例如“静止态按钮背景 alpha 0.08”），代号全部去掉；不能改写成判据的删。
+
+> 更正（对 F18、F20 的两处措辞）：F18 中“`Input lg` 是 40px，并排会不齐”不成立——全仓 `src/components` 里没有任何组件消费 `.nb-ui-control-h-lg`（`rg control-h-lg src/components` 无结果）。准确说法是：`--control-h-lg` 在主题里登记（nbook 40px），`.nb-ui-control-h-lg` 类也在 `styles.css:68` 有定义，但 Button 的 `lg` 自己写死 38px，两者不相关；SPEC:51“紧凑档消费 sm，大档消费 lg”无组件可对照。F20 中“Tier 2.5 没有任何组件消费”也只能说成“全仓 `src/components` 找不到宽度 480 的浮层实现（`rg 480` 无结果），规则没有对应的类名或 token，无法判断是否做到”。
+
+> 更正（核对行号与数量）：F08 与 F22 引用的 `QuickPick.md` 布局段实为 `QuickPick.md:11`（不是 :9）；F22 里“同名 `.md` 共 53 份”应为 49 份（`ls src/components/*/*.md | wc -l`）。
+
+### F22 [重要][3 重复/矛盾][4 放错地方] 组件同名 `.md` 与 SPEC 第 4.2 节：各写两遍，已有 4 处直接冲突
+- 范围：SPEC:82-283（4.2 节）共 202 行，占全文 436 行的 46%，逐个讲 17 项（Button、IconButton、SegmentedControl、Checkbox、Select、Input/NumberInput、DropdownMenu、Badge、Slider、Collapsible、Popover、Splitter（连同拖放反馈）、Drawer/Dialog/AlertDialog、Progress/Kbd、ScrollArea、浮层分级、QuickPick）。这些组件都有同名 `.md`（`src/components/*/*.md` 共 49 份）。
+- 已发现的直接冲突（SPEC vs 同名 `.md` 与代码）：
+  1. Checkbox：SPEC:108 写 20px、`rounded-[8px]`；`Checkbox.md:7,11` 写 18×18px，`Checkbox.vue:74` 也是 18px、`rounded-[5px]`（F02）。
+  2. QuickPick：SPEC:279 写 `vw/vh`；`QuickPick.md:11` 与 `QuickPick.vue:89-91` 是 `cqw/cqh`（F08）。
+  3. DropdownMenu radio 分组：SPEC:132 vs `DropdownMenu.md:107,114`（F07）。
+  4. OverlayScrollbar 滑块宽：SPEC:218“8px 半透明滑块”；`OverlayScrollbar.md:8`（照 VS Code 的 6px）与 `OverlayScrollbar.vue:186` 是 6px（轨道 10px，滑块靠右留 2px）。
+- 还有一类“与 CSS 同值、一改就漂”的复述：SPEC:172-173 的拖放反馈数值（`--drop-area-border` 70%、药丸 `gap: 6px`、`padding: 4px 12px`、40% 描边、90% 面色）逐条与 `styles.css` 的 `.nb-ui-drop-indicator*` 一致，说明它是照抄 CSS，而不是规定。
+- 为什么是问题：SPEC:60 节开头定义“每个公共组件必须有一份可从类型和测试读出的合同”，CS:14-60 又规定“组件合同写在同名 `.md`”，两处在做同一件事；`docs:check` 只守同名 `.md`，没人守 SPEC 的 4.2。结果 SPEC 这一半最先过期。
+- 建议：4.2 整节只留两类内容：① 跨组件的外观规则（引用 DL 或 CSS 类）；② 组件之间的选型（现 4.5 节“同类零件的分工”，这条很好，保留）。其余每项逐条核对后并入对应 `.md`（Dialog、Splitter、DropFeedbackOverlay 的 `.md` 已有对应内容，只需删 SPEC 一侧）。这一步体量最大（约 200 行），建议单独作为 t05 的一个子任务。
+
+### F23 [重要][3 矛盾] “加载不画骨架”与 nb-ui 导出并在产品里使用的 `Skeleton` 冲突，且同一规则在 SPEC 里写了 4 遍
+- 位置：SPEC:74（“加载不画骨架——占位形状会暗示一个还不知道的结构”）、SPEC:303（第 7 条）、SPEC:304（第 8 条“不做骨架”）、SPEC:312（第 13 条“不要每个视图各写一遍骨架或色块”）。
+- 对照：`src/components/index.ts:16` 导出 `Skeleton`；`Skeleton.md` 把它定义为“数据尚未就绪时使用的装饰性骨架占位”；`README.md:107` 写“数据表格与异步骨架/空状态指示”；新应用 `packages/neuro-book/src/plugins/projects/web/components/BookshelfPage.vue:144-145` 在用 `<Skeleton shape="block" …>`。
+- 为什么是问题：规则限定词是“页面级”（SPEC:72），但第 304 条没有限定；读者无从判断书架页是违规还是例外。
+- 建议：规则合并成一条并写清范围（例如“占满一个区域的整块加载态不用骨架；列表/卡片格子的占位可以用 `Skeleton`”），或者把 `Skeleton` 从清单里拿掉；整节 4.3 本就应移出（F11）。
+
+### F24 [建议][1 与代码不符][5 不可执行] 滚动条一节：自身前提与实现相反，三套方案没说各自何时用
+- 位置：SPEC:200-232。
+- 现象：SPEC:203-204“弃用沉重的 JavaScript 虚拟滑块与绝对定位 DOM 模拟，优先采用纯 CSS 声明式滚动”，随后 SPEC:224-232 整段讲 `Select`/`DropdownMenu` 用 JS 计算的悬浮滑块（`useFloatingScrollbar`），SPEC:217-220 又讲 `OverlayScrollbar`（JS，按指针/滚动状态显隐）。三套滚动条实现并存，没有一句话说各自何时用。
+- 另：SPEC:201“必要性与设计定位”整段是动机陈述（“Windows 默认的 17px 灰白方块”），不是规则；“单层滚动权”在 SPEC:221-223、SPEC:428、SPEC:431 重复三次。标题写 `ScrollArea`，其实 `ScrollArea.md`（Reka 三个 prop 的转发）只占其中一句。
+- 建议：改写成一张三行表：弹出列表用 `.nb-ui-popover-scroll`（加可选的 `useFloatingScrollbar`）；工作台视图用 `OverlayScrollbar`；其它容器用 `scrollbar-gutter`（`.nb-ui-scrollbar-stable/center`）。动机与背景挪进 DL 的一节。
+
+### F25 [建议][3 重复] 浮层入退场与“关闭交接”规则：DL、SPEC、QuickPick.md、AlertDialog.md 各写一份
+- 位置：DL:625-650（编排第 1~6 条，其中第 6 条讲 `closed`）；SPEC:282（“关闭不加退场动画；`closed` 在内容真实卸载……后按打开周期发一次”）、SPEC:283（引用 DL）、SPEC:429（自检清单“浮层关闭时序”）；`QuickPick.md:21,111`；`AlertDialog.md:62,72`。
+- 建议：规则放 DL 动效节一处，QuickPick/AlertDialog 的 `.md` 写各自的事件契约，SPEC 与自检清单只留链接。
+
+### F26 [建议][2 过时][4 放错地方] DL 的“踩过的坑”：487 行里有历史叙述、已删组件、对不上现状的数字
+- 位置：DL:671-1157，共约 487 行，占全文 1270 行的 38%。
+- 过时引用：已删组件 `TimePicker`（DL:365、DL:888；以及中文称呼“时间选择器”的坑 10、24、34，DL:940、980、1020）、`Combobox`（DL:871、DL:874 坑 42）、`Panel`（DL:891 坑 44）、`Accordion`（DL:915 坑 47）；`ColorSwatchPicker`/Listbox（坑 52，DL:1055-1056，`ColorSwatches` 仍在，需核）；UnoCSS 的 `presetUno()`（DL:917 坑 47、DL:1105 坑 27）——`nb-ui` 与 playground 现用 Tailwind v4（`playground/nuxt.config.ts` 注释、`package.json` 依赖），坑 47 的“根因”不再适用。
+- 数字与现状不符：DL:756-760（坑 22：`--overlay-surface`“66% ……52% ……最终落在 24%”）与现行 nbook 65%/75% 并列，读者无从知道哪个是现行值；DL:725（坑 7：`brightness(0.76)`）见 F05；DL:836-837（坑 38）见 F04；DL:982（“菜单在 macOS / nbook 下现在独立取 12px”）见 F06。
+- 编号：DL:676 声明“编号只增不改”，所以分组内次序是历史顺序：A 组 1–8、21、22、23、28–31、37、38、40、42–45、51、56；B 组 47、48、9–15、24、25、32–36、49、52、54；C 组 16–20、26、27、39、41、46、50、53、55、57。读者找一条只能全文搜索。
+- 体裁：“现象/根因/判据”三段式很好，判据可执行；但不少条目是一次具体调试过程的复述（用户原话、“抹掉 77–86%”、“本轮”“上一轮”），和第九节检查表又重复一遍（F27）。
+- 建议：保留判据仍成立的条目，按主题（玻璃/模糊、圆角、浮层行为、探针方法）重排并重新编号一次；调试过程挪到 `docs/research/`；已删组件的条目删掉或改成不依赖具体组件的写法。
+
+### F27 [重要][3 重复][6 结构] DL 第九节“检查表”（约 110 行）把前面各节、坑、SPEC 第 10 节重复了一遍，且有两条与现状不符
+- 位置：DL:1159-1270；SPEC:422-435（第 10 节检查表，10 项）；SK 第三节第 2 条再指向 SPEC 第 10 节。
+- 现象：同一条规则在 DL 正文、DL 坑、DL 检查表、SPEC 检查表中至多出现 4 次。例如“浮层高亮消费 `--overlay-item-active`”：DL:483-509、DL:876-884（坑 43）、DL:1188-1189、SPEC:131、SPEC:426；“同心圆角 `max()` 兜底”：DL:352-354、DL:1196-1197、SPEC:427。
+- 与现状不符的两条：DL:1173（“外阴影只有两条”，F04）；DL:1250（“按钮是胶囊、高度落在 Apple 的刻度上（Mini 16 / Sm 20 / Rg 24 / Lg 28 / XL 36）”）——`Button.vue:36-41` 是 26/32/38 与 6/8/10px 圆角（非胶囊）。DL:430 还写“库里原先那句‘Apple 只在 Large / X-Large 才走 capsule’是错的，已经改掉”，代码并没有跟着改。
+- 建议：保留一份检查表（放 SK 或 SPEC 尾部），每条一行、指向规则出处，不复述；DL 的检查表删。
+
+### F28 [建议][1 与代码不符][5 不可执行] DL 的比较表抄了主题数值，表头没说“登记值以 vars.css 为准”
+- 位置：DL:295-302（控件高度、面板圆角、菜单圆角两主题对比表）、DL:583-585（时长登记值）、DL:617-618（缓动）。
+- 现象：这些数值与 `themes/*/vars.css` 重复；其中菜单圆角已错（F06）；动效时长 DL:584-585 与代码一致（nbook/macos 90/140/180：`themes/nbook/vars.css:341-343`），但 SPEC:397 又写“120/180/220ms”（那是裸基线），同一份规范里对“当前值”给了两个答案。
+- 建议：表格改成“角色→含义→在哪登记”，不抄数；比较信息放主题 `vars.css` 的注释里（已有大量注释）。
+
+### F29 [重要][3 矛盾] “超椭圆（Squircle）”：SPEC 把它写成裁决，DL 与代码都说已撤销
+- 位置：SPEC:107-108（Checkbox“饱满超椭圆（Squircle）实心质感”）、SPEC:137（Badge“统一采用现代超椭圆……用户明确裁决后续所有相关组件统一继承这种饱满超椭圆形态”）。
+- 对照：DL:382-395“带 `backdrop-filter` 的面一律用正圆弧。不带模糊的面可以开这一档，但目前库内没有这样的消费方，所以 `--corner-shape` 这个变量也一并删了”；`src/tokens.css:132-133` 与 `src/styles.css:318` 的注释同样说明 `corner-shape` 已删。组件实际用的就是普通 `border-radius`（`Checkbox.vue:74`、`Badge.vue`），不是超椭圆。
+- 为什么是问题：SPEC 的“后续所有组件统一继承超椭圆”会让新写组件的人去找一个不存在的 token；“用户明确裁决”是来源叙述，不是规则。
+- 建议：SPEC 里统一说“圆角取 `--radius-control` 等角色”；“超椭圆”只留在 DL 一处，并保持“目前未使用”的状态说明。
+
+### F30 [重要][4 放错地方][6 结构] 五份文档的分工自述与实际内容错位
+- 自述：SPEC:9“本文只规定工程合同”；DL:3“写给要动这套界面的人和 agent。不是审美说明书，是判据清单”；AT:19“本文讲的是格式”；SK:7“本技能只定义路由、复用与 UI 专属检查”；CS:5“本规范约束组件与外部世界的连接方式”。
+- 实际：
+  1. SPEC 约一半是每个组件的视觉参数（F22）、一部分是应用层数据流（4.3，F11），真正的“工程合同”（第 1、2.1、3、5、6、7 节）只有约 100 行。
+  2. DL 含大量工程规则：`.nb-ui-switch-*` 配方的用法（DL:608-612）、`body-class="!p-0"`（DL:1238-1240）、`bun run build:css` 与重启 dev server（DL:1102-1110、DL:1268）、对话框头尾线的实现（DL:996-1005）、测试断言写法（DL:1004-1005、1016-1017、1096-1100）。
+  3. AT 夹带设计取值（F13）和 macOS 暗色玻璃的故事（AT:188-189 与 DL 坑 7 同源）。
+  4. SK 在“只定义路由”的前提下，在表里概括了 SPEC 的内容（“Surface Tier 1~4 分级、核心控件参数、零布局位移、滚动条与遮罩规范、自检清单”），并在 `SKILL.md:21` 列了一行“样式参数”（`--border-w`、`--divider`、`--control-outline`、材质轴/层级轴），内容与 SPEC:27-32、DL:37-54 重复。表里的“50+ 基础控件”也是写死的数（F16）。
+  5. CS:167-175“Fixture 居中与材质规范”是 Component Lab 的约束，不是组件连接方式；同样的内容已在 `packages/neuro-book/src/plugins/lab/web/fixtures/README.md` 与 `docs/specs/ui/component-lab.md:80` 里。CS:3 的适用范围写“`app/**` 下的 Vue 单文件组件”（旧应用路径），而 CS:18 又把 `packages/nb-ui` 列为受管组件。CS:103 的范例 `CodeEditorView.md` 在 `neuro-book-legacy`。
+- 建议的分工见文末“建议的文档结构”。
+
+### F31 [建议][3 重复] “Component Lab 登记”规则分散在 6 处
+- 位置：`packages/nb-ui/AGENTS.md`“实施”第 4 条；SPEC:337（4.4 清单第 5 条）、SPEC:378-386（第 7 节，5 条）；`README.md:132-134`；CS:163、CS:167-175；另有 fixtures README 和 `docs/specs/ui/component-lab.md` 两处真相源。SPEC:386 的 `bun run lab:shot` 命令在 `packages/neuro-book/package.json:25` 存在。
+- 建议：SPEC 第 7 节缩成一条“组件须在 Component Lab 登记场景，规则见 `ui/component-lab` 与 fixtures README”，其余各处只留链接。
+
+### F32 [建议][1 与代码不符] SPEC:22 与 CS:16 对“组件交互合同的唯一事实源”说法不同
+- 位置：SPEC:22“组件交互合同 | 组件导出的 props/emits/types 与对应行为测试”，SPEC:23“README 只描述公开用法”；CS:16“查组件必先读同名 `.md`，改组件必同步同名 `.md`”，且 `docs:check` 阻断缺失。
+- 现象：SPEC 的事实源表里没有同名 `.md`。实际上读者查合同的入口就是 `.md`（49 份，3450 行），SPEC 的 4.2 又给出第三份。
+- 建议：事实源表加一行“组件行为与能力标签 | 同名 `.md`”，并在 SPEC 的第 4 节开头直接指向 CS。
+
+### F33 [重要][2 过时] `docs/README.md` 的“受管组件”范围写了旧应用路径，与门禁实现和 CS 不一致
+- 位置：DR:11（“通过 `src/components/index.ts` 对外导出的组件，以及 `packages/neuro-book/app/components/common/**` 下的 `.vue`。这批组件必须有同名 `.md`……缺失会使 `bun run docs:check` 失败”）。
+- 证据：`packages/neuro-book/app/components/common` 不存在（该包现在是 `src/plugins/**`）；`scripts/ci/check-documentation.ts:585-587` 的注释和实现只检查 nb-ui 的 barrel（`NB_UI_COMPONENT_BARREL`）；CS:18 明确写“新应用的通用组件目录随 workbench 底座确定后加入”。
+- 另：DR 开头说它“只约束 `packages/nb-ui`”，却把应用路径放进去；它没有链到 `README.md`，也没有链到 `docs/proposals/nb-ui-surface-model.md`（SPEC:32、DL:147 的依据）。
+- 建议：DR 缩成一页目录：每份文档一句话职责 + 链接；受管组件范围只在 CS:18 写一处。
+
+### F34 [建议][2 过时] 阶段 2/3 的措辞与旧主仓路径
+- 位置：SPEC:376（“明确阶段 2 尚未经 NeuroBook 主仓接入验证”）、`packages/nb-ui/AGENTS.md:11`（“阶段 2 以 NeuroBook 主仓 `app/components/common/` 的同名组件为功能基准……阶段 3 前不修改主仓业务代码”）、`AGENTS.md:31`（“阶段 2 结论必须标注……”）、`packages/nb-ui/PROJECT-STATUS.md`（T149 resync 快照，来自 `feat/component-lab`）。
+- 现象：nb-ui 现在已经被新应用 `packages/neuro-book` 消费（`BookshelfPage.vue` 等），“阶段 2/3”和“主仓 `app/components/common/`”都已不是现状；SPEC 第 6 节第 7 条要求每批交付都写这句，等于要求写一句假话。
+- 建议：删这三处；`PROJECT-STATUS.md` 另议（不在本次审查范围）。
+
+### F35 [建议][6 结构] SPEC 目录：编号与层级混乱，找一条规则要翻很远
+- 现状（`rg -n "^#"`）：1 事实源；2 材料、颜色与层级（含 2.1 叠放层级）；3 几何、排版与动效；4 组件合同与核心控件设计规范（4.1 状态下限；4.2 “核心控件清单”，下分 `####` 1–17，17 项里 16 是“浮层体系分级架构”，12 里再挂一个 `#####` 拖放反馈；4.3 受控视图数据层；4.4 组合与布局归属；4.5 同类零件分工）；5 表单与无障碍；6 测试与交付；7 Component Lab；8 “全库组件工业级微物理与动效”；9 “DropdownMenu 与 Popover 浮层 Surface 黄金标准”；10 检查清单。
+- 问题：
+  1. 浮层外观规则分布在第 2 节第 5 条、4.2 第 5/7/11/16/17 项、第 9 节，共 8 处（F19）。
+  2. 第 8 节的 4 条（按压回弹、GPU 位移、禁 `transition-all`、键盘导航）与第 3 节第 4 与第 6 条、4.1 状态下限、第 5 节重复；`Tree` 的两条（SPEC:403-404）是单组件规则，埋在“工业级微物理”里。
+  3. 4.5“同类零件的分工”是读者选组件的第一步，却排在 4 节最末、淹没在 200 行参数之后。
+  4. 引用“4.2 节第 15 条”（SPEC:428）靠数第几项，改了顺序就断。
+  5. 无引言级的导览：35 个 `###` 以下标题中，只有第 1 节有表格式索引。
+- 建议：见文末“建议的文档结构”。
+
+### F36 [建议][7 写作规范] 符号与自造译名
+- 没有 `§`、`¶`。其它违反（不逐字挑，列位置）：
+  - 用 `≠`、`⇒` 代替中文词：AT:78（“装载 ≠ 激活”）、DL:160（“Liquid Glass ≠ 磨砂玻璃”）、DL:700（“读变量 ≠ 元素吃到”）、DL:934（“能查到 ⇒ 不是原生”）。
+  - 公式用 LaTeX：SPEC:248（`$R_{inner} = R_{outer} - Padding$`），仓库 Markdown 不渲染它。
+  - 自造或硬翻的英文称号当小标题或规则名：SPEC 中 Zero Layout Shift（54）、Squircle（108、137）、Single Scroll Responsibility（221）、Surface Tier Architecture（234）、No-Arrow Principle（241）、Concentric Geometry（246）、N.5 Truncated Viewport（249）、Elevation & Blur Upgrade（267）、Active Spring（392）、Hardware Accelerated Transforms（395），共 10 处；以及“黄金/黄金标准/黄金基座/黄金截断”等（F21）。
+  - 句内连用箭头代替“然后/变成”：DL:63（“→ 不给面”）、DL:154 起的流程图式写法。这类算记法，不挑。
+  - README 全文是中英混写，Components 部分中文、Colourway/Themes 部分英文，且英文段落里夹着“温润深琥珀”之类的中文。
+
+> 更正（F30、F35、F36 的行号与措辞）：F30 第 4 点里 SK 的位置是 `SKILL.md:15`（表里概括 SPEC 内容）、`:18`（“50+”）、`:20`（“样式参数”一行），不是 :21。F35 第 5 点改为：SPEC 全文共 35 个标题（`rg -c "^#"`），没有目录；读者靠第 1 节的表和全文搜索定位。F36 末条“DL:154 起的流程图式写法”不成立，删去。
+
+### F37 [建议][2 过时] DL 的“当前实例”指向只存在于旧应用的组件
+- 位置：DL:65（“当前实例：`AgentProfileNavList` 的 `surface="panel" | "plain"`”）、DL:70（`AgentProfileSettingsView`）、DL:610（“设置外壳的区段、Provider 导轨→详情、Agent Profile 的 Profile 切换”）。
+- 证据：`AgentProfileNavList`、`AgentProfileSettingsView` 只在 `packages/neuro-book-legacy/app/components/novel-ide/settings/sections/agent-profile/` 下有（`find packages -name "AgentProfile*"`）；新应用 `packages/neuro-book/src` 无同名文件。
+- 注：DL:371-380（“内容列有上限宽度”，设置窗口的导航轨与底部动作栏）、DL:1234-1244（检查表里的竖线/横线/动作栏）描述的也是旧设置窗口形态，新应用的设置插件（`packages/neuro-book/src/plugins/settings`）是否仍是这种形态本次未核，标记为“需核”。
+- 建议：把“当前实例”换成新应用里的真实实例，或去掉实例，只留判据。
+
+### F38 [建议][5 不可执行][6 结构] SPEC 里有 10 行超过 300 个字符，最长 549 字，一行塞多条规则
+- 位置（`python3` 按字符数）：SPEC:32（308）、54（549）、132（477）、159（348）、167（363）、170（381）、171（322）、380（351）、417（340）、433（475）。
+- 示例：SPEC:54 一行里有 7 条互不相同的规则（固定控件外框尺寸、零布局位移、按压缩放只用 transform、边框用预留位或 outline、动态读数声明固定宽度、多 Tab 共享 Header 内不条件挂载……），其中“`w-16 shrink-0 justify-center`”是具体类名，“多 Tab 共享 Header”是应用页面规则，二者不应出现在 UI 库的几何一般规则里。SPEC:433 同样是“自检清单的一项”塞了 6 个判据。
+- 为什么是问题：读者无法逐条判断“是否做到”，也无法在评审意见里引用其中一条。
+- 建议：拆成一条一行；每行一个可检查的结论；应用级的并到应用文档。
+
+### F39 [建议][1 与代码不符] AT 里的数字和实物描述对不上
+- 位置：AT:81（“`themes/editorial/` ……一个 12 行的 manifest”）、AT:278（“`themes/nbook/` ……17 个新变量”）。
+- 代码：`themes/editorial/manifest.ts` 共 19 行；`themes/nbook/manifest.ts` 的 `declares` 有 28 项（`rg -c "fallback:"` = 28）。macOS 10 项、aurora 1 项的说法是对的。顺带：`themes/editorial/manifest.ts` 自己的注释还写“默认主题是 `macos`”“12 行”“不覆盖组件”，与现状（默认主题 nbook、组件覆盖已拆）不符，属代码注释，t05 顺手改即可。
+- 建议：“实物参照”表不要写数量，只写“演示了什么”。
+
+### F40 [建议][3 重复] 动效数值在 SPEC 与 DL 给出两套“当前值”
+- 位置：SPEC:56（引用 token 名，正确）、SPEC:397（“`--motion-fast` (120ms) / `--motion-base` (180ms) / `--motion-enter` (220ms)”）；DL:583-585（“裸基线 120 / 180 / 220ms；nbook 与 macos 90 / 140 / 180ms；aurora 100 / 160 / 240ms；editorial 同裸基线”）。
+- 代码核对：`src/tokens.css:87-89` 是 120/180/220；`themes/nbook/vars.css:341-343` 与 `themes/macos/vars.css:148-150` 是 90/140/180；`themes/aurora/vars.css:59-61` 是 100/160/240。DL 正确，SPEC:397 只对没装主题的消费方成立，而产品默认主题是 nbook。
+- 建议：SPEC:397 删数值，留“顺序 fast < base < enter 是合同，数值归主题”（DL:583 已写）。
+
+### F41 [建议][4 放错地方] 实现细节与来源叙述混在规则里
+- 位置示例：SPEC:128-130（三个 composable 各自输出什么，是 `useDropdownFloating.ts` 头注释已有的内容）；SPEC:116“`@close-auto-focus` 消除二次弹回闪烁”“`setViewportRef`”；SPEC:34（Checkbox 的 `#000000` 例外）；DL:196-228（Apple UI Kit 的图层逐条读数，“Sketch Cloud Inspect 模式逐图层导出的 CSS”）、DL:399-431（macOS 27 UI Kit 对话框实测表）、DL:126-137（四个来源的明文引用）、DL:311（Chromium 提交记录里的 9pt/20pt）。
+- 为什么是问题：这些是调研证据，信息有价值，但它们让规则读起来像考据；同一份证据在 DL 里又被“坑”和“检查表”各引一遍。
+- 建议：证据迁到 `docs/research/`（例如“Apple macOS 27 UI Kit 实测”“多层材质禁令的出处”），DL 保留结论与一行出处链接。
+
+> 更正（对 F11 的建议，核对入链后）：SPEC 4.3、4.4 不能直接作废。已 `accepted` 的提案 `docs/proposals/workbench-view-host.md:282` 写明“通用 View 的数据层与组合合同继承 nb-ui `ui-development-spec` §4.3 与 §4.4……本提案不另立一套；`layout: scroll|fill` 即 §4.4 的组合方式在 Workbench 层的延续”。所以这两节在新应用里仍是上游依据。F11 的正确处理是：搬出 nb-ui 文档并去掉旧应用实例名，落到新应用的 Workbench 视图 Spec（`docs/specs/ui/workbench-shell.md` 或新开 View 宿主 Spec）或 `docs/standards/code/frontend.md`，同步改该提案的引用；不是删除。
+
+### F42 [重要][6 结构] 重排文档前必须处理的入链：至少 21 处按章节号、锚点或标题名引用 SPEC 与 DL
+- 按章节号或编号引用（重排会直接指错或断链）：
+  - 代码与测试：`src/components/token-consumption.test.ts:14,101`（“ui-development-spec §2.2”）、`:112`（“§9”）；`src/components/feedback/close-handoff.ts:12`（“docs/design-language.md §七.6 与 docs/ui-development-spec.md §4.2.18”——路径多了 `docs/` 前缀，`§4.2.18` 在 SPEC 里不存在，4.2 只有 17 项；同时用了 `§`）；`packages/neuro-book/src/plugins/lab/web/components/MarkdownView.vue:40` 与 `lab-shell.css:331`（“第 2 节第 1 条”）。
+  - 文档：`docs/proposals/workbench-view-host.md:282`（§4.3、§4.4）；`docs/proposals/nb-ui-surface-model.md:336-340`（第 2 节第 1、2、6 条，并点名 `token-consumption.test.ts` 第 12、88 行）；`docs/standards/code/frontend.md:16`（第 2 节）；DL:29（第 2 节第 1 条）、DL:622（第 2.6 节）、DL:658（第 5 节）；SPEC:428 自引“4.2 节第 15 条”；SK `SKILL.md:35` 锚点 `#10-开发后自检与易错清单checklist`、`:41` 锚点 `#八踩过的坑`。
+  - 同名 `.md` 的锚点：`Tabs.md:10`、`ToggleGroup.md:9`、`RadioGroup.md:9`、`SegmentedControl.md:9` 都链到 `ui-development-spec.md#45-同类零件的分工`；`Dialog.md:55`、`z-index.ts:2`、`z-index.test.ts:2` 按标题名“叠放层级”引用。
+  - 坑号：`playwright.config.ts:3`（坑 #20）、`dist-css.test.ts:3`（坑 #27）、`themes/nbook/vars.css:142`（坑 #2）、DL 内部大量“见坑 #N”。
+- 另外代码注释里还带着本次要清掉的代号：`Button.vue:29`（BH1-C）、`IconButton.vue:27`（方案 2）、`Badge.vue:5,96`（方案 2-B）、`DropdownMenu.vue:15,18,173`与`Select.vue:26,123`（黄金/N.5）、`QuickPick.vue:19,282` 与 `close-handoff.ts:4`（S4）。
+- 建议：t05 动手前先列这张入链清单；章节引用统一改“标题名”或稳定锚点；`token-consumption.test.ts` 的 reason 文案和 `close-handoff.ts` 一并改。若 SPEC 4.5 要换位置，4 份 `.md` 的锚点同时改。
+
+### F43 [重要][1 与代码不符][3 矛盾] “单一样式源”在代码里是一份写死在 JS 里的第二登记处，绕开了主题的投影与模糊角色（从代码推断，未在浏览器验证）
+- 位置：SPEC:126、245、420（“严禁在组件内写死 `backdropFilter`、`boxShadow`……统一调用 `useDropdownFloating` / `useDropdownSurfaceStyle`”）对 DL:232-271（“浮层外观只有一个登记处：`.nb-ui-popover-surface`……组件不要复制 surface 属性”）。
+- 代码：`src/composables/useDropdownSurfaceStyle.ts:57-67` 写死 `DROPDOWN_SURFACE_BOX_SHADOW`（4 层，是 nbook 亮色 `--elevation-popover` 的字面拷贝）与 `DROPDOWN_SURFACE_BACKDROP_FILTER = "blur(8px) saturate(130%) brightness(1.0)"`，`:75-82` 把它们和 `backgroundColor: var(--overlay-surface)` 作为内联样式输出；`Select.vue:187` 把这份 `popoverStyle` 绑到内容上。内联样式压过 `.nb-ui-menu-surface` 的 `box-shadow: var(--elevation-menu, var(--elevation-popover))`（`styles.css:226-229`）。
+- 后果（推断）：Select 的投影与模糊不跟主题走，暗色下用的仍是亮色的投影值（nbook 暗色 `--elevation-popover` 更重，`themes/nbook/vars.css:428-432`）；同样是“下拉”，`DropdownMenu.vue:260` 只绑 class，不绑 `popoverStyle`，走的是 `--elevation-menu`，两者在 nbook 里外观不一样。SPEC:418 说“主题可以给菜单单独收小投影”，在 Select 上做不到。
+- 另外 `token-consumption.test.ts:110-111` 禁止组件里出现 `backdropFilter:` 与内联 `backgroundColor: color-mix(var(--bg-panel)`，composable 里的写法躲在它的扫描范围（组件目录）之外。
+- 为什么是问题：规范让后人把外观写进 composable，而 DL 说外观只在 CSS 类；两条“单一来源”互斥，选哪条决定了主题能不能改下拉的外观。
+- 建议：先由开发者定一条：外观只在 CSS（推荐，与 DL 一致，也能让主题生效），然后 composable 只管行为（截断高度、滚动条、popper 参数）；SPEC 9.4、4.2.7、16 的“composable 输出材质”整段随之改写。此项涉及代码改动，t05 若只整理文档，则先在文档中写成“现状与目标不一致”并登记 followup。
+
+> 更正（F43）：两个常量的位置是 `useDropdownSurfaceStyle.ts:61`（投影）与 `:68`（滤镜）。`token-consumption.test.ts:110-113` 的规则名与理由把“消费 `--overlay-*` 角色”和“用 `useDropdownSurfaceStyle`”并列为合法做法，也就是说测试把 composable 里的写死值当作例外放行；上面“躲在扫描范围之外”的说法改为“被测试默认放行”。同一测试文件 `:117` 的理由文案还在说 “UnoCSS 里编译成 font-family”，与 DL 坑 47 一样沿用了 UnoCSS 时期的前提（nb-ui 现为 Tailwind v4）。
+
+## 需要开发者先拍板的取舍（t05 动手前）
+
+这几条不是文档问题，是“文档和代码谁对”的问题，不定下来整理时会反复返工：
+1. 浮层投影到底几条：Apple 式“一条发丝轮廓 + 一条环境投影”（DL 坑 38、DL:1173），还是现状的 1px 外环加三层（`tokens.css:81`、nbook `vars.css:284-288`）。（F04）
+2. 暗色玻璃是否压暗：DL 坑 7 要求 `brightness < 1`，代码与 SPEC 是 `1.0`。（F05）
+3. 浮层外观的唯一来源是 CSS 类还是 `useDropdownSurfaceStyle` 里的 JS 常量。（F10、F43）
+4. 按钮高度是跟 `--control-h-*` 还是写死像素；是否改成 DL 所说的“整颗胶囊”。（F18、F27）
+5. 页面级加载不画骨架，与产品里在用的 `Skeleton` 的关系。（F23）
+6. 4.3、4.4 两节（受控视图数据层、组合与布局归属）的新家，因为已 `accepted` 的 `workbench-view-host` 提案在引用。（F11 更正）
+
+## 建议的文档结构
+
+原则：一条规则只在一处写；数值只在 token、CSS、主题 `vars.css`、同名 `.md` 里；规范文档写角色、判据和选型。每份留下的内容如下（行数为估算，指整理后的目标量级）。
+
+1. `packages/nb-ui/docs/ui-development-spec.md`（工程合同，目标约 150 行，现 436 行）
+   - 一、事实源（加入“组件行为与能力标签：同名 `.md`”，删 `contracts.ts` 一行）
+   - 二、材质与取值消费：颜色与 token 消费规则；材质轴与层级轴（保留现 2 节第 1 条）；阴影三档；浮层 CSS 类登记表（`.nb-ui-popover-surface`、`-menu-surface`、`-dialog-surface`、`-tooltip-surface`、`-surface-rim`、`-popover-item`、`-popover-motion`、`-popover-scroll*` 各一行：何时用）；叠放层级（现 2.1 节，质量好，原样保留）
+   - 三、几何、排版、动效消费：控件高度与圆角角色、字体、动效 token、零布局位移（拆成一条一行）、390px
+   - 四、组件合同：每个组件的合同写在同名 `.md`（指向 CS）；状态下限（现 4.1）；同类零件的分工（现 4.5，提前到这里，因为读者先选组件）
+   - 五、表单与无障碍（现 5 节，基本原样）
+   - 六、测试与交付；七、Component Lab（一条链接）
+   - 八、开发后自检清单（全仓唯一一份，每条一行并指向规则出处；吸收 DL 第九节与现 SPEC 第 10 节）
+   - 移出：4.2 的 17 项逐条并入各 `.md`（F22）；浮层分级、第 8 节、第 9 节并入第二节与 DL（F19、F20）；4.3、4.4 迁到视图宿主 Spec 或 `frontend.md`（F11 更正）；`QuickPick` 条目并入 `QuickPick.md`（F08）。
+2. `packages/nb-ui/docs/design-language.md`（视觉判据与设计取舍，目标约 600 行，现 1270 行）
+   - 保留：一 论点、二 材料与层级、三 几何、四 排版、五 颜色角色、六 无障碍、七 动效；每节只写“为什么”和“可证伪的判据”，表格里的主题数值改成“以 `vars.css` 为准”。
+   - 八 判据与踩坑：只留判据仍成立的条目，按主题重排并重编号（玻璃与模糊；圆角；浮层行为；探针与验收方法），删已删组件的条目（F26）；不再单列检查表（F27）。
+   - 迁出：Apple UI Kit 逐层读数、对话框实测表、四家平台明文引用 → `docs/research/`（F41）。
+3. `packages/nb-ui/docs/authoring-themes.md`（主题作者指南，约 250 行，现 278 行）
+   - 保留全文骨架；删“浮层 Surface 透明度规范”一节（F13）；删组件替换残留（F12）；“实物参照”不写数量（F39）；macOS 暗色玻璃的故事改为链到 DL。
+4. `packages/nb-ui/docs/README.md`（目录，约 15 行）：每份文档一句话职责 + 链接；受管组件范围只链到 CS:18（F33）。
+5. `packages/nb-ui/README.md`（使用说明，约 150 行，现 292 行）：安装与使用、Nuxt 模块、公开入口与注册表（`NB_Z_INDEX` 与各 CSS 类的一行用途）、配色与主题的 API；组件清单改为“分组加同名 `.md` 链接”或只指向 `index.ts`（F16）；删迁移公告（F17）；统一一种语言。
+6. `docs/standards/code/components.md`：改适用范围（`app/**` → nb-ui 的受管组件与新应用的组件目录）；删“Fixture 居中与材质规范”一节，并入 `packages/neuro-book/src/plugins/lab/web/fixtures/README.md`（F30）。
+7. `.agents/skills/ui-development/SKILL.md`：只留路由；删“样式参数”一行与表里对 SPEC 内容的概括、删“50+”（F30、F16）。
+8. 入链同步：见 F42 的清单；动手前先全仓 `rg` 一遍章节号与锚点。
+
+## 各级数量
+
+- 发现总数：43 条（F01 到 F43）。
+- 严重程度：重要 26 条，建议 17 条。
+- 按类别（每条按其第一类别计；括号内为涉及该类的总条数）：1 与代码不符 19（含交叉 31）；2 过时 8；3 重复与矛盾 15（含交叉 22）；4 放错地方 6（含交叉 12）；5 不可执行 5；6 结构 5（含交叉 8）；7 写作规范 1。
+- 另有三处“更正”记录（F18/F20、F22/F08 的行号、F30/F35/F36、F11、F43），已就地追加在对应条目之后，以更正为准。
+
+## 总体情况（终稿）
+
+1. 四份主文档里，`authoring-themes.md` 状态最好：格式清晰、判据可验，只有组件替换残留（F12）、一节放错地方的透明度规范（F13）和几处数字（F39）要改。`design-language.md` 第一到七节质量高，是判据清单的样子；但第八、九节（约 600 行）是历史坑与重复检查表，和正文、SPEC 重复，已有多处与现状相反（F04、F05、F06、F26、F27）。
+2. 问题最集中的是 `ui-development-spec.md`：约一半篇幅（4.2 节 202 行）逐个复述组件参数，与 49 份同名 `.md` 重复，已发现 4 处直接冲突（Checkbox 20px 对 18px、QuickPick 视口单位、DropdownMenu radio 分组、OverlayScrollbar 滑块宽，F22），另有 Badge 字面色、SegmentedControl 旧动效、Popover 另一套材质等对不上代码；浮层外观的同一套配方被抄 4 至 7 遍（F19）；4.3、4.4 两节是旧应用的设置界面经验，却被已接受的新应用提案引用（F11 更正、F42）。
+3. 过时内容集中在三类：今天刚拆掉的“主题替换组件实现”机制（F12，README 示例已不能编译）、已删组件与旧应用路径（F11、F14、F26、F33、F34、F37）、已不存在的 playground 页面（F14）。评审代号与形容词词条比“已知”的几条更多（F21）。
+4. 有三处是代码与文档“谁对”的问题，需要开发者拍板而不是单纯改文档：浮层投影结构（F04）、暗色玻璃是否压暗（F05）、浮层外观的唯一来源是 CSS 还是 composable（F43）。
+5. 重排前要先清点入链（F42）：至少 21 处按章节号、锚点或标题名引用 SPEC 与 DL，其中有代码注释、测试、已接受的提案和 4 份组件 `.md`。
+
+> 更正（“各级数量”里的类别计数）：上面括号里的“含交叉”数字不准确。按每条标题里出现的类别标签计（一条可带多个类别，共 59 个标签）：1 与代码不符 19 条；2 过时 8 条；3 重复与矛盾 15 条；4 放错地方 6 条；5 不可执行 5 条；6 结构 5 条；7 写作规范 1 条。严重程度的数字（重要 26、建议 17、共 43）核对无误。

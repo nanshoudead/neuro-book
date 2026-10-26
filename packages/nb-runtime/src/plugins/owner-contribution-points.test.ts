@@ -4,7 +4,7 @@ import {createRuntimeInstance} from "../lifecycle/lifecycle";
 import type {Scope} from "../lifecycle/lifecycle";
 import {createServiceAssembly, defineServiceKey} from "../services/services";
 
-import {createPluginHost, PluginStateError, provide} from "./plugins";
+import {createPluginHost, PluginStateError, provideService} from "./plugins";
 import type {
     ActivationContext,
     ContributionDeclaration,
@@ -27,13 +27,14 @@ afterEach(async () => {
     await Promise.all(roots.splice(0).map((scope) => scope.close()));
 });
 
-function fixture() {
+function fixture(options: {readonly reservedPublishers?: ReadonlyArray<string>} = {}) {
     const runtime = createRuntimeInstance({location: "server", instanceId: "contribution-contract"});
     runtime.root.open();
     roots.push(runtime.root);
     const assembly = createServiceAssembly(runtime);
     const diagnostics: PluginDiagnostic[] = [];
-    const host = createPluginHost(runtime, assembly, {observer: {diagnosticRecorded: (diagnostic) => diagnostics.push(diagnostic)}});
+    const platform = options.reservedPublishers === undefined ? {} : {platform: {reservedPublishers: options.reservedPublishers}};
+    const host = createPluginHost(runtime, assembly, {observer: {diagnosticRecorded: (diagnostic) => diagnostics.push(diagnostic)}, ...platform});
     return {host, root: runtime.root, assembly, diagnostics};
 }
 
@@ -118,6 +119,31 @@ describe("拥有者贡献点合同", () => {
         expect(state(host, "ok")).toMatchObject({status: "available", delivery: {status: "delivered"}});
         expect(state(host, "bad")).toMatchObject({status: "declared", validation: {status: "rejected"}, delivery: {status: "waiting-receiver"}});
         expect("implementation" in state(host, "bad")).toBe(false);
+    });
+
+    it("idPrefix 为 plugin 时，贡献 id 不以贡献方插件 id 加“.”开头的那一条被拒，原因写明前缀；先于 schema 与 validate 核对", async () => {
+        const {host, root} = fixture();
+        register(host, owner([{...point(), idPrefix: "plugin"}], {commands: recordingReceiver([])}), root);
+        register(host, source("source", [declaration("source.ok"), declaration("other.run"), declaration("sourcex", "commands", " ")]), root);
+        expect(state(host, "source.ok").validation).toEqual({status: "accepted"});
+        expect(state(host, "other.run").validation).toEqual({status: "rejected", reason: "invalid-declaration", detail: "贡献 id 要以插件 id source 加“.”开头：other.run"});
+        expect(state(host, "sourcex").validation).toMatchObject({status: "rejected", detail: "贡献 id 要以插件 id source 加“.”开头：sourcex"});
+    });
+
+    it("idPrefix 为 plugin 时，平台保留发布者的插件也可以只以发布者加“.”开头；内核的 runtime 总是保留；不给平台档案时按严格前缀", async () => {
+        const reserved = fixture({reservedPublishers: ["acme"]});
+        register(reserved.host, owner([{...point(), idPrefix: "plugin"}], {commands: recordingReceiver([])}), reserved.root);
+        register(reserved.host, source("acme.files", [declaration("acme.files"), declaration("acme.view.open"), declaration("other.run")]), reserved.root);
+        register(reserved.host, source("runtime.tools", [declaration("runtime.reload")]), reserved.root);
+        expect(state(reserved.host, "acme.files").validation).toEqual({status: "accepted"});
+        expect(state(reserved.host, "acme.view.open").validation).toEqual({status: "accepted"});
+        expect(state(reserved.host, "other.run").validation).toEqual({status: "rejected", reason: "invalid-declaration", detail: "贡献 id 要以 acme. 开头：other.run"});
+        expect(state(reserved.host, "runtime.reload").validation).toEqual({status: "accepted"});
+
+        const strict = fixture();
+        register(strict.host, owner([{...point(), idPrefix: "plugin"}], {commands: recordingReceiver([])}), strict.root);
+        register(strict.host, source("acme.files", [declaration("acme.view.open")]), strict.root);
+        expect(state(strict.host, "acme.view.open").validation).toEqual({status: "rejected", reason: "invalid-declaration", detail: "贡献 id 要以插件 id acme.files 加“.”开头：acme.view.open"});
     });
 
     it("场景 2：required 拒绝顶层声明，none 拒绝入口实现，只拒绝单条贡献", async () => {
@@ -295,7 +321,7 @@ describe("拥有者贡献点合同", () => {
         };
         const definition = owner([point()], {commands: receiver});
         const firstDefinition: PluginDefinition = {...definition, entries: [{...definition.entries[0]!, provides: [ownerOutputKey], activate: () => ({
-            receivers: {commands: receiver}, services: [provide(ownerOutputKey, output, (value) => {value.alive = false; events.push("release:output");})],
+            receivers: {commands: receiver}, services: [provideService(ownerOutputKey, output, (value) => {value.alive = false; events.push("release:output");})],
         })}]};
         register(host, source("source", [declaration("one")]), root);
         register(host, firstDefinition, ownerScope);
@@ -519,7 +545,7 @@ describe("拥有者贡献点合同", () => {
         };
         const definition = owner([point()], {commands: receiver});
         register(host, {...definition, entries: [{...definition.entries[0]!, provides: [ownerOutputKey], activate: () => ({
-            receivers: {commands: receiver}, services: [provide(ownerOutputKey, output, (value) => {value.alive = false; events.push("release");})],
+            receivers: {commands: receiver}, services: [provideService(ownerOutputKey, output, (value) => {value.alive = false; events.push("release");})],
         })}]}, ownerScope);
         await host.activate({plugin: "owner", entry: "main"});
         register(host, source("source", [declaration("one")]), root);
@@ -577,7 +603,7 @@ describe("拥有者贡献点合同", () => {
         };
         const definition = owner([point()], {commands: receiver});
         register(host, {...definition, entries: [{...definition.entries[0]!, provides: [ownerOutputKey], activate: () => ({
-            receivers: {commands: receiver}, services: [provide(ownerOutputKey, output, (value) => {value.alive = false; events.push("release");})],
+            receivers: {commands: receiver}, services: [provideService(ownerOutputKey, output, (value) => {value.alive = false; events.push("release");})],
         })}]}, ownerScope);
         const consumerScope = child(ownerScope, "consumer");
         assembly.declare({id: "consumer", location: "server", scope: consumerScope, dependencies: [{key: ownerOutputKey}]});

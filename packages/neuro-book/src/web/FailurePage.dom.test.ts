@@ -57,13 +57,14 @@ describe("宿主页", () => {
         expect(page.emitted()).toHaveProperty("reload");
     });
 
-    it("终态带未保存的正文：逐项列出地址与只读正文，可复制；没有时不出现这一节", async () => {
-        const rescued = [{path: "project://a.md", text: "第一章\n未保存"}, {path: "user://u.md", text: "U"}];
+    it("终态带未保存的正文：逐项列出地址与只读正文，可复制，提供者有说明时显示说明；没有时不出现这一节", async () => {
+        const rescued = [{path: "project://a.md", text: "第一章\n未保存"}, {path: "user://u.md", text: "U", note: "有一块只留下了文字"}];
         const page = mount(FailurePage, {props: {state: {status: "server-restarted", reason: "boot changed", rescued}}});
         const items = page.findAll("[data-host-rescued-item]");
         expect(items.map((item) => item.get("code").text())).toEqual(["project://a.md", "user://u.md"]);
         expect(items.map((item) => (item.get("textarea").element as HTMLTextAreaElement).value)).toEqual(["第一章\n未保存", "U"]);
         expect(items[0]?.get("textarea").attributes("readonly")).toBeDefined();
+        expect(items.map((item) => item.find("[data-host-rescued-note]").exists() ? item.get("[data-host-rescued-note]").text() : null)).toEqual([null, "有一块只留下了文字"]);
         expect(page.findAll("button").map((button) => button.text())).toEqual(["刷新页面", "复制正文", "复制正文"]);
         const plain = mount(FailurePage, {props: {state: {status: "server-restarted", reason: "boot changed"}}});
         expect(plain.find("[data-host-rescued]").exists()).toBe(false);

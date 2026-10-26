@@ -3,6 +3,7 @@
  */
 
 import {afterEach, describe, expect, it} from "bun:test";
+import {Type} from "typebox";
 
 import {createRuntimeInstance} from "../lifecycle/lifecycle";
 import type {Scope} from "../lifecycle/lifecycle";
@@ -122,3 +123,38 @@ describe("Spec runtime.plugins 输出 23、验收 26：查询已接受的声明"
         expect(statusOf(host, "p1", "x.a")).toBe("accepted");
     });
 });
+
+describe("贡献点的声明结构 schema（plugin-manifest.md 的贡献点条目）", () => {
+    it("拥有者没有激活也按 schema 拒绝不合格的声明；schema 通过后再交 validate", () => {
+        const {host, register} = fixture();
+        const calls = {count: 0};
+        register({id: "owner", entries: [], contributionPoints: [{
+            id: "labels",
+            implementation: "none",
+            schema: Type.Object({label: Type.String(), ok: Type.Optional(Type.Boolean())}),
+            validate: ({declaration}) => {
+                calls.count += 1;
+                return (declaration as Ref).ok === false ? "声明标了不合格" : null;
+            },
+        }]});
+        register({id: "x", entries: [], contributions: [
+            {capability: "labels", id: "x.good", declaration: {label: "好"}},
+            {capability: "labels", id: "x.wrong-type", declaration: {label: 42}},
+            {capability: "labels", id: "x.refused", declaration: {label: "坏", ok: false}},
+        ]});
+        expect(statusOf(host, "labels", "x.good")).toBe("accepted");
+        expect(statusOf(host, "labels", "x.wrong-type")).toMatch(/^rejected:\/label：/u);
+        calls.count = 0;
+        statusOf(host, "labels", "x.wrong-type");
+        expect(calls.count).toBe(0);
+        expect(statusOf(host, "labels", "x.refused")).toBe("rejected:声明标了不合格");
+    });
+
+    it("schema 自己写坏时（例如坏的正则），声明按不合格拒绝，不把异常抛给查询方", () => {
+        const {host, register} = fixture();
+        register({id: "owner", entries: [], contributionPoints: [{id: "broken", implementation: "none", schema: Type.String({pattern: "("})}]});
+        register({id: "x", entries: [], contributions: [{capability: "broken", id: "x.any", declaration: "a"}]});
+        expect(statusOf(host, "broken", "x.any")).toMatch(/^rejected:声明的结构无法使用/u);
+    });
+});
+

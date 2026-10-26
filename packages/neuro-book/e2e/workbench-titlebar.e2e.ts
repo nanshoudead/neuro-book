@@ -38,7 +38,7 @@ test.afterAll(async () => {
 });
 
 const titlebar = (page: Page) => page.locator("[data-workbench-titlebar]");
-const prose = (page: Page) => page.locator("[data-editor-group-active] [data-editor-kind=\"markdown\"]:visible [data-editor-prose]");
+const prose = (page: Page) => page.locator("[data-editor-group-active] [data-editor-kind=\"nbook.editor.markdown\"]:visible [data-editor-prose]");
 const openMenu = (page: Page) => page.locator('[role="menu"][data-state="open"]');
 
 async function open(page: Page, project = true): Promise<void> {
@@ -74,8 +74,8 @@ test("标题栏 36px、状态栏 22px；四个菜单的条目由各插件贡献�
         // 玻璃浮层要真的有模糊：构建的 CSS 压缩曾把标准写法删掉、只留 -webkit-，Chrome 里菜单是透明的
         expect(await openMenu(page).evaluate((menu) => getComputedStyle(menu).backdropFilter)).not.toBe("none");
         labels.push(...(await openMenu(page).locator('[role^="menuitem"]').allTextContents()).map((text) => text.trim()));
-        // 只取条目的标题（菜单项第一格）与它是不是勾选项：快捷键的写法与此刻勾没勾上不属于这张表。
-        structure[group] = await openMenu(page).evaluate((menu) => [...menu.querySelectorAll('[role^="menuitem"], [role="separator"]')].map((node) => (node.getAttribute("role") === "separator" ? "---" : `${(node.firstElementChild?.textContent ?? "").trim()}${node.getAttribute("role") === "menuitemcheckbox" ? "（勾选项）" : ""}`)));
+        // 只取条目的标题与它是不是勾选项：快捷键的写法与此刻勾没勾上不属于这张表。标题是列表项的名称一格（勾选列、图标、快捷键之外）。
+        structure[group] = await openMenu(page).evaluate((menu) => [...menu.querySelectorAll('[role^="menuitem"], [role="separator"]')].map((node) => (node.getAttribute("role") === "separator" ? "---" : `${(node.querySelector(".nb-ui-menu-item__label")?.textContent ?? "").trim()}${node.getAttribute("role") === "menuitemcheckbox" ? "（勾选项）" : ""}`)));
         await page.keyboard.press("Escape");
         await expect(openMenu(page)).toHaveCount(0);
     }

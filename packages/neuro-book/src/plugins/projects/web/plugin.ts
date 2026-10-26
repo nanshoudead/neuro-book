@@ -17,7 +17,7 @@ import type {EditorPageDeclaration} from "nbook/plugins/editor/shared/contracts"
 import type {EditorPageImplementation} from "nbook/plugins/editor/web/pages";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
 import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
-import {displayLocale, SETTINGS_SECTIONS_POINT, SETTINGS_WINDOW_OPEN_KEY, settingsKey} from "nbook/plugins/settings/shared/contracts";
+import {displayLocale, SETTINGS_PAGES_POINT, SETTINGS_WINDOW_OPEN_KEY, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import type {SettingsPageImplementation} from "nbook/plugins/settings/web/contracts";
 import {publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
@@ -82,7 +82,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
             {capability: COMMANDS_POINT, id: WELCOME_COMMAND, declaration: WELCOME_DECLARATION},
             ...TITLEBAR_MENU_ITEMS.map(({id, declaration}) => ({capability: WORKBENCH_TITLEBAR_MENU_POINT, id, declaration})),
             {capability: WORKBENCH_HOME_POINT, id: BOOKSHELF_HOME_ID, declaration: HOME_DECLARATION},
-            {capability: SETTINGS_SECTIONS_POINT, id: WORKS_SECTION, declaration: WORKS_SECTION_DECLARATION},
+            {capability: SETTINGS_PAGES_POINT, id: WORKS_SECTION, declaration: WORKS_SECTION_DECLARATION},
             {capability: EDITOR_PAGES_POINT, id: WELCOME_PAGE_ID, declaration: WELCOME_PAGE},
         ],
         activate: async (context) => {
@@ -184,7 +184,7 @@ export const projectsBrowserPlugin: PluginDefinition = {
                 },
                 [WORKBENCH_HOME_POINT]: {[BOOKSHELF_HOME_ID]: home},
                 [EDITOR_PAGES_POINT]: {[WELCOME_PAGE_ID]: welcome},
-                [SETTINGS_SECTIONS_POINT]: {[WORKS_SECTION]: works},
+                [SETTINGS_PAGES_POINT]: {[WORKS_SECTION]: works},
                 [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(TITLEBAR_MENU_ITEMS),
             }};
         },

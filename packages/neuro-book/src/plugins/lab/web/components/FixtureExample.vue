@@ -69,7 +69,7 @@ function handleAction(id: string): void {
             <div class="flex shrink-0 items-center gap-2">
                 <span
                     v-if="props.count > 0"
-                    class="rounded-full bg-[var(--bg-subtle)] px-2 py-0.5 font-mono text-[11px] text-[var(--text-secondary)]"
+                    class="rounded-full bg-[var(--bg-subtle)] px-2 py-0.5 font-mono text-[length:var(--text-xs)] text-[var(--text-secondary)]"
                 >
                     {{ props.count }}
                 </span>
@@ -91,7 +91,7 @@ function handleAction(id: string): void {
                 type="button"
                 role="switch"
                 :aria-checked="props.active"
-                class="inline-flex h-7 items-center gap-1.5 rounded-[var(--radius-control)] border border-[var(--border-color)] px-2.5 text-xs font-medium transition-colors hover:bg-[var(--bg-hover)] cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-main)]"
+                class="inline-flex h-7 items-center gap-1.5 rounded-[var(--radius-control)] border border-[var(--border-color)] px-2.5 text-xs font-medium transition-colors hover:bg-[var(--bg-hover)] cursor-pointer outline-hidden focus-visible:ring-1 focus-visible:ring-[var(--accent-main)]"
                 :class="props.active ? 'bg-[var(--accent-main)] text-[var(--text-inverse)] border-transparent' : 'bg-[var(--panel-surface)] text-[var(--text-main)]'"
                 @click="handleToggle"
             >
@@ -106,14 +106,14 @@ function handleAction(id: string): void {
             <div class="flex items-center gap-1.5">
                 <button
                     type="button"
-                    class="inline-flex h-7 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2.5 text-xs text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)] cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-main)]"
+                    class="inline-flex h-7 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2.5 text-xs text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)] cursor-pointer outline-hidden focus-visible:ring-1 focus-visible:ring-[var(--accent-main)]"
                     @click="handleAction('inspect')"
                 >
                     检视
                 </button>
                 <button
                     type="button"
-                    class="inline-flex h-7 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2.5 text-xs text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)] cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-main)]"
+                    class="inline-flex h-7 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2.5 text-xs text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)] cursor-pointer outline-hidden focus-visible:ring-1 focus-visible:ring-[var(--accent-main)]"
                     @click="handleAction('refresh')"
                 >
                     刷新

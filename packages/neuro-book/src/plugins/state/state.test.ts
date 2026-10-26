@@ -8,12 +8,12 @@ import {afterEach, describe, expect, it} from "bun:test";
 import {computed, ref} from "@vue/reactivity";
 import type {Ref} from "@vue/reactivity";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {ActivationContext, ContributionDeclaration, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 
+import {createApplication} from "nbook/application";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 
 import {PUBLIC_STATE_POINT, publicStateKey} from "./shared/contracts";

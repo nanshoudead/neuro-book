@@ -10,12 +10,12 @@ import {computed, ref} from "@vue/reactivity";
 import type {Ref} from "@vue/reactivity";
 import {Type} from "typebox";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {RuntimeLocation} from "@notnotype/nb-runtime/lifecycle";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
+import {createApplication} from "nbook/application";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {standaloneSettings} from "nbook/plugins/settings/testing/standalone";
 import {PUBLIC_STATE_POINT} from "nbook/plugins/state/shared/contracts";

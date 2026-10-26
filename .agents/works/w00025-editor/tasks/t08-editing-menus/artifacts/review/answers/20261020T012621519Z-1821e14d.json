@@ -1,0 +1,23 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00025-editor",
+    "taskId": "t08-editing-menus",
+    "artifactId": "review",
+    "answerId": "20261020T012621519Z-1821e14d",
+    "artifactVersion": 1,
+    "contentHash": "0882015a11efcbb081e1746355545ff20787b278d17ef1deb9d44ac9978257a4",
+    "submittedAt": "2026-10-20T01:26:21.113Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r1-set": "full",
+        "r1-surface": "flat",
+        "r1-gutter": false
+    },
+    "comments": {
+        "r1-gutter": "需要再往左边移动一点，现在离文字太近。而且圆角太圆"
+    },
+    "note": null
+}

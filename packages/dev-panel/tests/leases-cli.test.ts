@@ -1,6 +1,6 @@
 import {afterEach, describe, expect, test} from "bun:test";
 import {randomUUID} from "node:crypto";
-import {readdir, readFile, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {HERDR_READ_METHODS} from "../src/herdr/client.js";
 import {claudePane, shellPane, startFakeHerdr, type FakeHerdr} from "./fake-herdr.js";
@@ -66,6 +66,28 @@ describe("租约命令（场景）", () => {
         ]);
         const registry = JSON.parse(await readFile(join(fixture.main, ".local/agent/registry.json"), "utf8"));
         expect(registry.works[0].tasks.find((task: {taskId: string}) => task.taskId === "t02-lease").by).toMatchObject({key: `claude:${sessionId}`});
+    });
+
+    test("--no-lease：work new、task new 不取得租约、不写 pane 标签，登记表的 by 仍记调用者；提交被钩子拒绝时同样不取", async () => {
+        const fixture = await createFixture("lease-no-lease");
+        const claude = await claudeSession();
+        const fake = await herdrFor(fixture, [claudePane("w9:p1", claude.sessionId, {foreground_pids: [claude.pid]})]);
+        const env = {HERDR_PANE_ID: "w9:p1", HERDR_SOCKET_PATH: fake.socketPath};
+        const task = await claude.cli(["task", "new", "w00001", "quiet", "--title", "不取租约", "--no-lease", "--json"], fixture.main, env);
+        const work = await claude.cli(["work", "new", "quiet", "--title", "不取租约", "--goal", "目标。", "--task", "first", "--no-lease", "--json"], fixture.main, env);
+        expect([task.exitCode, data<{lease: unknown}>(task.json).lease, work.exitCode, data<{lease: unknown}>(work.json).lease]).toEqual([0, null, 0, null]);
+
+        // 提交失败但号已领时，不带 --no-lease 会照样取得租约；带了就不取。
+        await mkdir(join(fixture.main, ".git/hooks"), {recursive: true});
+        await writeFile(join(fixture.main, ".git/hooks/pre-commit"), "#!/bin/sh\nexit 1\n", {mode: 0o755});
+        const refused = await claude.cli(["task", "new", "w00001", "refused", "--title", "被钩子拒绝", "--no-lease", "--json"], fixture.main, env);
+        expect([refused.exitCode, data<{commit: {reason?: string}; lease: unknown}>(refused.json).commit.reason, data<{lease: unknown}>(refused.json).lease]).toEqual([1, "git_failed", null]);
+
+        expect(await leaseList(fixture, ["--all"])).toEqual([]);
+        expect(fake.requests.filter((request) => request.method === "pane.report_metadata")).toEqual([]);
+        const registry = JSON.parse(await readFile(join(fixture.main, ".local/agent/registry.json"), "utf8")) as {works: Array<{workId: string; by: {key?: string} | null; tasks: Array<{taskId: string; by: {key?: string} | null}>}>};
+        const by = (workId: string, taskId: string) => registry.works.find((entry) => entry.workId === workId)?.tasks.find((entry) => entry.taskId === taskId)?.by?.key;
+        expect([by("w00001-seed", "t02-quiet"), by("w00002-quiet", "t01-first"), by("w00001-seed", "t03-refused")]).toEqual([`claude:${claude.sessionId}`, `claude:${claude.sessionId}`, `claude:${claude.sessionId}`]);
     });
 
     test("场景 2：子代理里、会话派出的 omp -p 里运行，租约都记在父会话名下，只有一份", async () => {

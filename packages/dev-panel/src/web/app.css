@@ -1,44 +1,58 @@
 /*
- * 面板自己的原子类与 nb-ui 一样不分层：nb-ui.css 的原子类故意不进 @layer（为了 UnoCSS 消费方），
- * 无层声明总是赢过分层声明；面板若用 @import "tailwindcss"，自己的原子类落在 @layer utilities 里，
- * `hidden md:flex` 这类响应式写法会输给 nb-ui.css 里同名的 `.flex`。preflight 单独放进 @layer base。
+ * Tailwind 的标准分层写法：先 `@import "tailwindcss"`（preflight、theme、utilities 各在自己的层），再导入 nb-ui 的入口
+ * （token 进 base 层、语义类进 components 层、图标插件与遮罩垫片已带）。面板自己的原子类在 utilities 层，
+ * 压过 nb-ui 的语义类，响应式写法（`hidden md:flex`）按 Tailwind 的预期工作。
+ *
+ * 面板不分层的全局规则里，特异性低于一个类的（`html, body`、`body`、`*`）会压过所有分层的声明，包括原子类与
+ * nb-ui 的语义类，所以放进下面的 base 层；焦点环那两条规则也一样，放进 base 才让 nb-ui 控件的 `.nb-ui-focus-ring`
+ * 压过它。自己的语义类（`.nbdev-*`）不分层，照旧压过原子类。
  */
-@import "tailwindcss/preflight.css" layer(base);
-@import "tailwindcss/theme.css";
-@import "tailwindcss/utilities.css";
-@plugin "@iconify/tailwind4" {
-    prefixes: lucide;
-    iconSelector: ".i-{prefix}-{name}";
-    prefix: false;
-}
+@import "tailwindcss";
+@import "@notnotype/nb-ui/tailwind.css";
 @source "./**/*.vue";
 @source "./**/*.ts";
 
-html, body, #app {
+#app {
     height: 100%;
 }
 
-/*
- * 滚动条（t15，D3：先放在面板自己这里）。整页不滚：外壳铺满视口，滚的是左栏、`main` 或铺满型页面里的分栏，
- * 所以 html 不预留槽位（nb-ui 的全局 `html { scrollbar-gutter: stable }` 在这里只会留下右缘一条空带）。
- * 只用标准属性：Chrome 121 以后设了它们，`::-webkit-scrollbar` 就被忽略；thin 实际约 10 到 11px。
- * 滑块颜色从 --text-muted 派生、随明暗换；指针在容器上时加深（标准属性没有“悬停在滑块上”）。
- */
-html {
-    scrollbar-gutter: auto;
+@layer base {
+    html, body {
+        height: 100%;
+    }
+
+    /*
+     * 滚动条：整页不滚，外壳铺满视口，滚的是左栏、`main` 或铺满型页面里的分栏，所以 html 不预留槽位。
+     * 细滚动条由 index.html 的根元素挂 nb-ui-scrollbar-thin 统一给出。
+     */
+
+    body {
+        margin: 0;
+        background: var(--bg-main);
+        color: var(--text-main);
+        font-family: var(--font-ui);
+        font-size: var(--text-sm);
+    }
+
+    /*
+     * 可访问性（t15 阶段 2e）。焦点环：面板自己的可交互元素用 nb-ui 的焦点令牌 --focus-outline；`:where` 不加优先级，
+     * nb-ui 控件自己的焦点样式（.nb-ui-focus-ring）照旧生效。程序挪过去的落点（页标题、main）不画焦点环。
+     */
+    :where(a, button, summary, [tabindex]):focus-visible {
+        outline: 2px solid var(--focus-outline);
+        outline-offset: 2px;
+    }
+    :where(h1, main)[tabindex="-1"]:focus {
+        outline: none;
+    }
 }
-* {
-    scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--text-muted) 55%, transparent) transparent;
-}
-*:hover {
-    scrollbar-color: var(--text-muted) transparent;
-}
+
 /*
  * 竖向滚动者：内容长短变化时宽度不跳（会动态溢出的容器，nb-ui 界面开发规范第 15 条的场景 B）。滚动与槽位一起声明，
  * 不用 nb-ui 的 nb-ui-scrollbar-stable（它只管槽位）；要带断点前缀的地方（文档页）用 Tailwind 的 [scrollbar-gutter:stable]。
- * 滚动容器都带 relative，做绝对定位后代的包含块：nb-ui 的 CheckboxGroup 把 sr-only（absolute）的 input 放在 label 里，
- * 包含块落到外面 overflow: hidden 的 Splitter 格子时，点选项聚焦它会把那一格滚走，整页变空（t15 阶段 4 第 1 批）。
+ * 滚动容器都带 relative，做绝对定位后代的包含块。起因是 t15 阶段 4 第 1 批：nb-ui 复选框里 sr-only（absolute）的 input
+ * 包含块落到外面 overflow: hidden 的 Splitter 格子，点选项聚焦它会把那一格滚走、整页变空。nb-ui 已在 label 上修好
+ * （t17，见 Checkbox.md），这条留作面板的防御性约定：别的绝对定位后代聚焦时也不会去滚外面的格子。
  * 页面里自己开的滚动容器同样加 relative，tests/web-scroll-containers.test.ts 钉住。
  */
 .nbdev-scroll-y {
@@ -55,25 +69,6 @@ html {
     scrollbar-width: none;
 }
 
-body {
-    margin: 0;
-    background: var(--bg-main);
-    color: var(--text-main);
-    font-family: var(--font-ui);
-    font-size: var(--text-sm);
-}
-
-/*
- * 可访问性（t15 阶段 2e）。焦点环：面板自己的可交互元素用 nb-ui 的焦点令牌 --focus-outline；`:where` 不加优先级，
- * nb-ui 控件自己的焦点样式（.nb-ui-focus-ring）照旧生效。程序挪过去的落点（页标题、main）不画焦点环。
- */
-:where(a, button, summary, [tabindex]):focus-visible {
-    outline: 2px solid var(--focus-outline);
-    outline-offset: 2px;
-}
-:where(h1, main)[tabindex="-1"]:focus {
-    outline: none;
-}
 /* 跳到主内容：平时移出视口，键盘聚焦时出现在左上角。 */
 .nbdev-skip {
     position: fixed;
@@ -186,7 +181,12 @@ body {
 .nbdev-hint.nbdev-hint-warn {
     background: var(--status-warning-bg, var(--bg-subtle));
 }
-/* 屏幕末尾、更早的输出这类等宽的预览块（有上限高度，可以自己滚，见 docs/panel.md 的“滚动”）。 */
+/* 搜索结果里的关键词（parts/HighlightText）：强调色的浅底，文字颜色不变。 */
+.nbdev-mark {
+    background: color-mix(in srgb, var(--accent-main) 24%, transparent);
+    color: inherit;
+    border-radius: 2px;
+}
 /* Markdown 里的外站图片换成的链接或文字（host/markdown.ts 的 replaceExternalImages）：虚线框，看得出是占位。 */
 .nbdev-external-image {
     display: inline-block;
@@ -196,6 +196,7 @@ body {
     font-size: var(--text-xs);
     color: var(--text-secondary);
 }
+/* 屏幕末尾、更早的输出这类等宽的预览块（有上限高度，可以自己滚，见 docs/panel.md 的“滚动”）。 */
 .nbdev-pre {
     border-radius: var(--radius-control);
     padding: 0.5rem;

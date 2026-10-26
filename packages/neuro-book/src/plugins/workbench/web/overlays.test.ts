@@ -8,14 +8,15 @@ import {afterEach, describe, expect, it} from "bun:test";
 
 import {defineComponent} from "vue";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {validateOverlayContribution, WORKBENCH_OVERLAYS_POINT} from "../shared/overlays";
+import {overlaysPoint, WORKBENCH_OVERLAYS_POINT} from "../shared/overlays";
 import type {OverlayDeclaration} from "../shared/overlays";
 import type {WorkbenchOverlayImplementation} from "./contracts";
 import {OverlaySlot} from "./overlays";
+
+import {createApplication} from "nbook/application";
 
 const started: Application[] = [];
 
@@ -46,7 +47,7 @@ async function start(plugins: ReadonlyArray<PluginDefinition>): Promise<{applica
     const holder: {slot: OverlaySlot | null; context: ActivationContext | null} = {slot: null, context: null};
     const owner: PluginDefinition = {
         id: "test.owner",
-        contributionPoints: [{id: WORKBENCH_OVERLAYS_POINT, implementation: "required", validate: validateOverlayContribution}],
+        contributionPoints: [overlaysPoint],
         entries: [{
             id: "browser",
             location: "browser",
@@ -101,7 +102,7 @@ describe("页面浮层贡献点", () => {
         expect(ids(slot)).toEqual([]);
         const validation = (id: string) => application.plugins.contribution(WORKBENCH_OVERLAYS_POINT, id).map((entry) => entry.validation);
         expect(validation("test.a.same").map((entry) => entry.status)).toEqual(["rejected", "rejected"]);
-        expect(validation("other.window")[0]).toMatchObject({status: "rejected", detail: "插件 test.b 的浮层 id 必须以 test.b. 开头：other.window"});
+        expect(validation("other.window")[0]).toMatchObject({status: "rejected", detail: "贡献 id 要以插件 id test.b 加“.”开头：other.window"});
         expect(validation("test.c.extra")[0]).toMatchObject({status: "rejected"});
         expect(validation("test.d.server")[0]).toMatchObject({status: "rejected", detail: `${WORKBENCH_OVERLAYS_POINT} 只接受浏览器入口的贡献`});
     });

@@ -1,0 +1,84 @@
+---
+schema: nbook.task/v2
+taskId: t06-settings-ui-polish
+status: done
+updated: 2026-10-22
+---
+
+# 设置界面的样式收口
+
+## 目标与范围
+
+设置窗口与设置组件（左栏、分区标题、行、控件、page 页面的组件）按设计稿重新收口外观；先找回或重出设计稿，经 design-review 由开发者拍板，再实施
+
+合同：[`settings/settings-window.md`](../../../../../docs/specs/settings/settings-window.md)（只改外观时行为合同不变）。
+
+来源：开发者 2026-10-20 认为设置界面的组件样式还不好看，之前产出过设计稿但没有很好地执行。已知的设计稿是 w00017 t80 的评审板（[r1–r4](../../../w00017-application-runtime-architecture/tasks/t80-settings-ui/artifacts/review/index.html)），对照时发现现在的实现与 r4 稿的结构基本一致，开发者记得的可能是另一份稿，开工时先找回。
+
+## 设计决定
+
+开发者在评审中确认（编号沿用讨论顺序）：
+
+1. 注意力排序（2026-10-21，会话中确认）：首先看当前分区每一项的标题与当前值；其次是改过的标记、恢复默认、本作品单独设值的提示；每项说明与生效时机用灰色小字放轻，左栏与搜索框是导航、比内容轻；插件设置页与设置文件的“保存”“放弃改动”平时不显眼、有改动时才突出；窗口窄到 600px 以下时左栏改成一行横排（现状）。
+
+2. 外观以 w00017 t80 的定稿为准（2026-10-21，会话中）：t06 把实现收回定稿，t80 之后新增的界面沿用定稿的语言，不另起画法。
+3. 三项以内、没有说明的单选改回分段控件（2026-10-21，会话中，选 A）：改 nb-ui 的“同类零件的分工”与 `ui.forms` 的控件选择规则，nb-form 照新规则选；带说明或超过三项的仍用单选组、下拉。另一个候选是规则不动、只在设置窗口里破例，没有采用：同一种选项在设置里和别处会长得不一样。
+4. 还原到 t80 后的外观不通过（2026-10-22，会话中，评审板 `r2-accept` 代录为 no）：整体不够紧凑，字显得小、粗体用得少。实测 t80 至今设置界面的字号、字重与字体文件都没变，t80 本身也是小字号；字小来自 2026-09-01 NeuroBook 主题收回 macOS 档。开发者定先把主题字号恢复大一档（w00030 t04），t06 在新字号上重出设计稿，紧凑度与字重层级一起出候选，每个候选配 t80 定稿对照。
+5. 推翻 t80 以来的画法，重新设计设置窗口（2026-10-22，会话中）：第三轮（新字号上的紧凑度与字重）开发者觉得更丑，两道题撤回。方向在 Notion / Linear 式与 macOS 系统设置式之间选；最难看的是控件位置乱、整体太素没质感，以及小交互与卡片样式不像 NeuroBook（左栏条目点下去会缩小、选中项是带描边的卡片）。决定 2（以 t80 定稿为准）随之作废。
+6. 重新设计选 A Notion / Linear 式（2026-10-22，评审板 `r4-direction`，没有采用推荐的 B macOS 式，没有附评论）：分组不画卡片，分组标题下一条线，行与行只靠间距分开；左栏图标不加彩色底块。第四轮两套共同的改法一并采用：控件靠右、右缘对齐；左栏是列表行，悬停与选中用淡底色、点下去不缩放，分区按“通用、写作助手、扩展”分组；页面标题用品牌衬线字；改过的项名字后加蓝色小圆点，“恢复默认”跟在控件后面；模型服务改成服务商列表加下一级详情页，保存栏只在详情页出现。
+7. 只读的项只写值（2026-10-22，评审板 `r5-readonly` 选 `plain`）：不画框，锁形图标加值；开发者评论“目前这种样式还可以优化一下”，下一轮再细化。
+8. 第五轮的其余状态按这一轮的画法定稿（2026-10-22，评审板 `r5-states` 选是），开发者另附六个问题，答复与处理见“当前状态”：表单出错的提示会不会挤占垂直空间、要不要预留；离开时的确认框是什么组件、不好看、圆角太圆（要不要改规范）；层出错的警告会不会挤占垂直空间；文案要更专业；内容区标题右侧空着很多；为什么不用 Tooltip。
+9. 第五轮六个问题的处理（2026-10-22，会话中）：
+   - 表单出错的提示：开发者要求和文件资源管理器一样试“收进 Tooltip、悬停才显示”，与常显的一行并排比较，第六轮出候选。
+   - 离开时的确认用真实的 `AlertDialog`；小确认框的圆角从 26px 改为 14px（同命令面板的先例），并在 nb-ui 规范里加“叠在另一个窗口上的浮层，圆角不大于底下窗口的圆角”。
+   - 层出错的警告：开发者问还有什么别的做法，第六轮出候选。
+   - 文案改成常见软件的用词，第六轮给完整对照表，定了连同 Spec 一起改。
+   - 内容区限宽约 720px；标题右侧放页面级操作（例如“添加服务商”“测试连接”“删除”），没有操作的页面空着；第六轮出候选。
+   - Tooltip 的分工：只有图标的按钮、改过的圆点、锁形图标、左栏停用分区的原因用 Tooltip；说明与出错提示的取舍按上面第一项的结果。
+10. 第六轮的答复（2026-10-22，会话中，代录到评审板）：
+   - 表单出错收进图标、悬停显示（`r6-field-error` 选 `tooltip`）；开发者要图标与提示放到这一行的名字旁边。开发者看到的红框“被裁掉一点像素”实测是半像素定位：页面标题行高 31.2px，34px 的控件与 41px 的文字块居中对齐差 3.5px，输入框落在 424.69 上，边框被抗锯齿糊开；实现时标题与行内文字用整数行高，并让文字块与控件高度同奇偶。
+   - 层出错的警告放标题右侧（`r6-layer-error` 选 `header`）；警告标签要优化，并说明点“打开设置文件”之后怎样。
+   - 标题区右侧放什么还没定（`r6-header`），和页面说明的位置一起考虑：说明能否与标题并列一行，或收进提示。
+   - 文案、只读与 14px 圆角的确认框照第六轮改（`r6-rest` 选是）。
+11. 第七轮全部通过（2026-10-22，评审板 v13）：出错与“选项拿不到”的原因收进名字旁边的图标，提示在图标右边弹出（`r7-field`）；页面说明与标题并列一行，放不下时截断、悬停看全文（`r7-desc` 选 `inline`）；标题区右侧从右往左是页面级操作与层出错警告，层坏了时页面操作停用，“用户 | 本作品”留在左栏（`r7-header`）；层出错警告整块是按钮，点了切到“设置文件”、打开出错那一层的文件、光标放在出错处并给那一行标红底，标题右侧改写为出错位置与“改好后保存”，保存后不自动跳回（`r7-layer`）。设计到此定稿，下一步写 Spec 改动与计划。
+12. 出错收进名字旁图标、悬停显示用在所有表单（2026-10-22，会话中）：改 `ui.forms` 本身，nb-form 的字段与设置窗口都照新规则；小确认框 14px 与叠放浮层圆角的规则同样对全库生效。开发者要求先圈定范围、评估大小与难度，改动大或简单的部分可以派 Sonnet 子代理实施。
+13. 实施方式与四处合同（2026-10-22，会话中）：按 autonomous-delivery 推进，切片派 Sonnet 子代理；左栏三组用分区声明已有的 `category`（应用、AI、插件），显示组标题“通用”“写作助手”“扩展”；页面级操作经新组件 `SettingsPageActions` 放进标题区；插件显示名拆到 t09，t06 的小组标题仍是插件 id；`SettingsPageList` 改为列表加下一级页面。计划见 [plan.md](plan.md)。
+
+## 当前状态
+
+2026-10-20 经 nbdev 新建。2026-10-21 t02 合入后开工，按 design-review 走：现状与参照放在评审板 [artifacts/review](artifacts/review/index.html)。nbdev 与仓库里没有 t80 之外的设置外观稿。注意力排序开发者 2026-10-21 已同意（“设计决定”第 1 条）。当天先发过一轮新画法（分组底板、层标签位置），开发者指出 t80 已经定过外观、t06 应当把实现收回定稿，两道题已撤回；与 t80 定稿的逐项对照见评审板 v5，计划见 [plan.md](plan.md)。
+
+实施（Work 分支 `feat/w00027-plugin-platform`，`e59a4112c..c92f53320`，没有合入 master，等开发者看过还原后的外观）：
+
+- S1 `e5a0e5f04`：nb-ui `SegmentedControl` 照表单控件的统一合同（停用、只读、出错，名字与说明来自 `Field` 的组形态）。
+- S2 `e87f0195c`：nb-form 三项以内、都没有说明的单选用分段控件；`ui.forms`、`settings.window` 两份 Spec 与 nb-ui 的“同类零件的分工”随之改（master `b1885f270`）。
+- S3 `ed9ff0bea`：层标签与左栏同宽；分区标题与层提示合成 `SettingsSectionHeading`；单行输入在 200 到 320px 之间随行宽收窄（Spec `94d5d637b`）。
+- S4 `0b48d79e0`：Lab“模型服务”收回 t80 的 fill 页面写法（`SettingsPageList` 加详情，两栏各自滚动）；待确认清单里“改用 nb-form 左列表右详情”一条改判、“不能各自滚动”一条已做。页内列表不支持排序，服务商的上移下移随之去掉。
+- S5 `40755ebde`、`20010fe6d`：`bare` 字段的“已不存在”只在警告行写一次；设置文件视图的主按钮在最右。
+- 实现审查：Sonnet 界面审查 11 条（重要 2、建议 9），全部成立并修正（`1e2ea621a`、`d94655b13`）：模型服务样板改按稳定的键认服务商（原来按下标，解析不了的输入切换后错记、别处增删后详情换人），详情改成标签列加控件列，改过的服务商有圆点，“常规”没改动时不显示操作行；分段控件整组停用只降一次透明度；名字超过 16 个字符的单选不用分段控件（这是开发者选 A 时说的“选项名短”，第一版漏了，Spec `71fe2bb60`）；单行输入按层预留后面按钮的宽度；左栏尺寸收成变量。omp 审查 S1–S2 合同 3 条（都是重要），全部成立并修正（`03e1ca809`）：当前值是停用项时键盘进不了分段控件；分段控件没有 `aria-required`；显式 `widget: "segmented"` 不生效（Spec `widget` 一栏加 `segmented`）。报告见 [evidences/impl-review-sonnet.txt](evidences/impl-review-sonnet.txt)、[evidences/impl-review-omp.txt](evidences/impl-review-omp.txt)。关键修正做过变异检查（撤掉改动测试失败）。
+- 验证（`c92f53320`）：`test:affected --since e59a4112c --typecheck --with-consumers` 全过（dev-panel 461、nb-form 100 加 81、nb-story 320、nb-ui 531、应用 Bun 1598 与 Vitest 405，各包类型检查）；`docs:check`、`governance:check` 没有失败；全量 e2e 255 例通过；设置窗口全部场景在浅、深与 1200×800、600×500 下截图 76 张，没有溢出与被裁的焦点环。
+- 看图时发现：4417 那个手动起的开发服务在启动时预构建了 nb-ui，之后 nb-ui 源码的改动它看不到，截图一度是旧样子；改用 `nbdev dev start` 起在 http://127.0.0.1:4317/。
+
+- 2026-10-22 w00030 t04（NeuroBook 主题字号恢复大一档，正文 14px、控件 28/34/42px）合入 master 后，把 master 合进 Work 分支（`41f3db21f`，同时带进 Tailwind 重构 w00030 t02 与弹出列表 t03）。冲突两处：`nb-ui/dist/nb-ui.css` 照 master 删除；`SegmentedControl.vue` 的方向键改用 master 的 `rovingMove`、`moveRoving`，保留 t06 的只读起点（从焦点所在项走）。合并后 `test:affected --since master --typecheck --with-consumers` 全过，`settings`、`lab-scenes`、`lab-nb-ui` 三个 e2e 文件 26 例通过。
+
+- 2026-10-22 第三轮静态稿（新字号上）发到评审板 v7：`r3-density` 紧凑度三档（现状、紧凑、更紧凑），`r3-weight` 字重三种（现状、加强标题、全面加粗），推荐紧凑加加强标题。草稿在 `.worktree/w00027-t06-drafts`（分支 `t06/drafts`，已对齐 Work 分支 `41f3db21f`）的 `plugins/drafts/web/components/settings-density/`，只用样式套在真实窗口外面。
+- 2026-10-22 第四轮静态稿（重新设计）发到评审板 v9，题 `r4-direction`：A Notion / Linear 式、B macOS 式，四页（外观、编辑器、模型服务、服务商详情），推荐 B。草稿 `plugins/drafts/web/components/settings-redesign/`（草稿 worktree），共同改法：控件靠右、左栏改列表行（半透明高亮、不缩放）、标题用品牌衬线字、改过的项用小圆点、模型服务改成列表加下一级页面。
+- 2026-10-22 第五轮静态稿（按 A 补齐其余状态）发到评审板 v10：题 `r5-readonly`（只读只写值或虚线框，推荐只写值）、`r5-states`（本作品标签、搜索结果、层出错、插件设置、设置文件、离开时的确认、窄窗口，含深色，确认后定稿）。比第四轮多一处：“恢复默认”占控件右边固定的一格，控件右缘因此都对齐。草稿 `plugins/drafts/web/components/settings-redesign/SettingsFlatDraft.vue`（草稿 worktree）。评审板列了定稿后要改的 Spec 条目。
+- 2026-10-22 第六轮静态稿发到评审板 v11：`r6-field-error`（常显一行、收进图标悬停显示、贴在输入框下沿，推荐收进图标）、`r6-layer-error`（页面顶部、标题右侧、左栏标签下面、内容底部，推荐左栏）、`r6-header`（页面级操作或“用户 | 本作品”，推荐页面级操作）、`r6-rest`（新文案对照表、只读新画法、14px 圆角的真实 `AlertDialog`）。草稿 `plugins/drafts/web/components/settings-redesign/SettingsR6Draft.vue`（草稿 worktree）。
+- 2026-10-22 第七轮静态稿发到评审板 v13（`r6-header` 被 `r7-header` 取代）：`r7-field`（出错图标在名字旁，提示在图标右边弹出；“选项拿不到”同样收进名字旁的图标）、`r7-desc`（页面说明在标题下一行、与标题并列、收进提示，推荐并列）、`r7-header`（右侧从右往左是页面级操作与层出错警告，层坏了时操作停用）、`r7-layer`（警告整块是按钮；点了切到设置文件，光标放在出错处）。半像素已修，实测出错输入框落在整数 397 上。草稿 `SettingsR7Draft.vue`（草稿 worktree）。
+- 2026-10-22 定稿写进 Spec（`settings-window.md`、`forms.md`、`configuration.md` 输出 5，标 planned），重写 [plan.md](plan.md)。计划审查（omp）11 条（阻断 1、重要 7、建议 3）全部成立，已改进计划：层快照补出错位置、`Tooltip` 受控打开改为 A 的确定交付且 B 等 A、多原因只画一个图标、页面上下文加 `writable` 让标题区操作在层坏了时停用（计划原先误列“不做”）、`SettingsPageList` 发 `null` 返回、标题替换按登记撤销、补 Lab 场景与高亮测试、主题 token 登记。报告见 [evidences/plan-review-omp.txt](evidences/plan-review-omp.txt)。Work 分支已合入 master（`abba99363`）。
+- 实施进展（Work 分支）：A（nb-ui 圆角 token `--radius-dialog-compact`、`AlertDialog`、`Tooltip` 的 `forceOpen`、规范）`cc6bbc1ab`，Sonnet 子代理实现、主会话审 diff 并重跑 `test:affected` 后合入；并行跑全部测试时 `SnippetsPage.dom.test.ts` 超时一次，单独重跑 405 例全过。B（nb-form：字段标题后一个状态图标加 `Tooltip`，聚焦控件时也显示；`bare` 改为发 `field-state`）`db829db07`，同样审 diff、重跑 `test:affected` 全过后合入。C1（设置的行：控件靠右与固定一格、圆点、只读加锁、原因图标、整数行高、文案）`5bc8592df`，主会话补一处 `7c1fd56d6`：字段自己已经念过的警告与状态，行里不再写一份读屏文字（子代理报告里指出会念两遍）；合入后 `test:affected` 里 `workspace.resources`“经目录链接保存”失败一次，整套 Bun 测试连跑三遍 1599 例全过，与本改动无关。C2 拆成两片按顺序做（都改窗口主组件）：C2a 标题区、层警告与定位、`SettingsPageActions`、`writable`、确认框文案，已派出；C2b 左栏、搜索结果、窄窗口。C2a `d80d60c96` 已合入（层快照带出错位置、`openFile` 走同一个离开确认、标题区通道按登记撤销、`SettingsPageActions` 用 fieldset 随 `writable` 停用；`test:affected` 全过，截图对照草稿一致）；C2b `6d307e6d7` 已合入（左栏组标题与列表行、“插件设置”、搜索结果“分区 › 小组”与命中高亮、窄窗口两行左栏；产品里暂时没有 AI 组的分区，左栏只显示“通用”“扩展”两组；`test:affected` 全过）。截图里左栏当前项那圈蓝线是打开窗口时焦点落在当前项的键盘焦点环（输出 17），鼠标打开时不显示，不改。C3 `de1141b6d` 已合入（`SettingsSaveBar`、设置文件的行号与出错行底色、保存失败写在标题区右侧）。主会话审查时补了 `0a856aacc`：子代理在视图里复制了一份出错辉光，原因是 nb-ui 的出错辉光规则写成 `:not(:has(:read-only))`，图标、步进按钮这类普通子元素都匹配 `:read-only`，带图标的输入框、数字框出错聚焦时一直没有红色辉光——改在 nb-ui 里只看输入框是否只读，删掉复制的那份，真实浏览器里实测数字框出错聚焦是红色 3px 辉光；另外连不上时只停用“保存”（`SettingsSaveBar` 加 `canSave`），“放弃更改”照常可用，Spec 补了 `locale`、`canSave`。`test:affected` 全过。C4 `fd221a45f` 已合入（`SettingsPageList` 改为列表加下一级页面、`update:modelValue` 发 `string | null`、经通道替换标题；Lab“模型服务”样板首屏是列表，“添加服务商”“测试连接”与删除在标题区，保存栏只在有改动或下一级页面时出现；新增可选 `locale`，去掉旧的 `disabledReason` 与 `#end` 插槽，旧接口只有 Lab 在用）。
+- 收口（Work 分支 `c3c93e34d`）：lab-scenes e2e 报设置文件编辑框“光晕被裁”，查明是 Lab 检查的误报——里层滚动容器已经在纵向滚动，外层不滚动的对话框正文的上下边仍被当成裁切边；改检查（`c3c93e34d`）。全量 e2e 258 例通过；`test:affected --since abba99363 --typecheck --with-consumers` 除 dev-panel herdr 实机测试偶发失败（单独重跑 11 例全过）外全过；`governance:check` 无失败与警告。Lab 设置窗口九个场景在 nbook 浅深、macOS 浅色、1200×800 与 560×600 下截图，溢出与焦点环检查全 0。实现审查已启动（界面 Sonnet、合同与后端 omp），待处理。
+- 实现审查处理（2026-10-22）：omp（合同与后端）2 条重要，1 条成立已改（读取中文件变了时出错位置用在过时文本上，`b8409b691`），1 条不成立（确认框开着时后来的动作不重记焦点：确认框是模态的，窗口里点不到别的东西）；Sonnet（界面）14 条（重要 6、建议 8），13 条成立已改（`ee7c315c5` 到 `3117b73d3`，每条一个提交、补的测试先在改动前确认失败）：Tooltip 的 Esc 吞掉之后的强制显示、确认后焦点被左栏抢走、切标签后行号错位、列表打开后焦点掉到 body 与返回按钮读屏名、长标题压住操作、设置文件保存栏随内容滚走（改为占满区域、保存栏钉底）、出错原因念两遍、样板留白、其它主题下的半像素（行里小字用 `round()` 取整）、空操作区占位、内容列 768 改 720（nb-ui 设计语言同步）、停用分区改用 Tooltip、横排左栏认左右键；1 条不改（Lab 裁切检查的单元测试：要真实布局，`lab-scenes` e2e 已覆盖）。报告与逐条处理见 [evidences/impl-review-redesign-omp.txt](evidences/impl-review-redesign-omp.txt)、[evidences/impl-review-redesign-sonnet.txt](evidences/impl-review-redesign-sonnet.txt)。Spec 三份去掉 t06 的 planned 标记，补实现合同与证据，输出 19、22、23 随修正补了焦点与保存栏。
+- 合入（2026-10-22）：把 master 合进 Work 分支（`a71bb70c0`，无冲突），合并后 `test:affected --since master --typecheck --with-consumers` 全过，`settings`、`lab-scenes`、`bookshelf` 三个 e2e 文件 24 例通过；master 快进到 `a71bb70c0`。设置窗口九个场景在 NeuroBook 浅深、macOS、窄窗口下重拍 36 张，检查全 0。拍服务商详情时发现窄窗口里打开一项后标题区（返回在那里）被滚走：F4 加的聚焦会把详情滚到顶上，改为聚焦不滚动（`8da553559`，合入 master `66ea8e927`）。给开发者的实施结果报告：[artifacts/impl-report/](artifacts/impl-report/index.html)。
+Work 分支没有 push：远端没有这个分支，推送会连带公开 master 上 844 个没推过的提交，等开发者决定。
+
+## 下一步
+
+已完成，余下的待开发者决定：push Work 分支（会连带公开 master 上没推过的提交）；nb-form `SchemaForm` 的排法是否跟设置行一致（另建 Task）；待确认清单里 t06 的各条追认。草稿 worktree `.worktree/w00027-t06-drafts`（分支 `t06/drafts`，草稿代码没有提交）留着，开发者不再需要时删掉。
+
+以下是之前的计划：
+
+1. （已写，2026-10-22）定稿（设计决定 5–11）写进 Spec：`settings/settings-window.md`（输出 9、10、12、13、20、22、23 与“其它”分区改名、页面级操作、标题区）、`ui.forms` 的出错提示（输出 15）、nb-ui 规范（小确认框 14px、叠放浮层的圆角、整数行高）；文案按评审板第六轮的对照表改。
+2. 写 `plan.md`（重写，旧计划是还原 t80 的），交开发者确认后在 Work 分支已实施的 S1–S5 之上重做外观，再合入 master。
+3. 收尾时删掉草稿 worktree `.worktree/w00027-t06-drafts`（分支 `t06/drafts`）。

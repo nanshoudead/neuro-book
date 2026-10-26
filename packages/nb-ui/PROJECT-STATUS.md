@@ -8,7 +8,7 @@
 - 包保留源 package name、版本、scripts、exports、依赖语义，并设置 `private: true`。
 - 许可证为 `AGPL-3.0-only`，与仓库根和 `packages/neuro-book` 一致。收编时保留的 `PolyForm-Noncommercial-1.0.0` 与 AGPL 产品的分发条件冲突，已在主应用开始消费本包时切换。
 - 组件、主题、配色、token、playground、README 和项目文档均按 S0 import manifest 迁入。
-- `dist/nb-ui.css` 是项目约定的提交型构建产物；本轮由 `packages/nb-ui` 源码执行 `bun run build:css` 重建，产物 SHA-256 为 `176968c47a8b9c19c2e884348af52c0b7b221d02b5c0c488af258ac16a99f8c6`。
+- 样式：不再有预编译产物。2026-10-21（w00030 t02）起 `dist/nb-ui.css` 与 `build:css` 已删除，宿主的 Tailwind v4 编译 `src/tailwind.css`（导出为 `@notnotype/nb-ui/tailwind.css`），层序按 Tailwind 标准 `theme, base, components, utilities`；宿主写法见 [`README.md`](README.md#styles-in-the-host-app)。
 
 ## 治理入口
 
@@ -19,7 +19,7 @@
 
 ## 验证边界
 
-本轮 T149 resync 已运行 `bun run build:css` 并成功；未运行本包测试、typecheck、playground 浏览器验收或完整 build。原 checkout 保持只读；导入范围与来源 hash 由 T149 resync manifest 复核。
+T149 resync 当时（2026-08）运行了 `bun run build:css`（该命令与产物已在 2026-10-21 删除，见上）并成功；未运行本包测试、typecheck、playground 浏览器验收或完整 build。原 checkout 保持只读；导入范围与来源 hash 由 T149 resync manifest 复核。
 
 ## 来源与范围
 

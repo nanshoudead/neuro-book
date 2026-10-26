@@ -1,6 +1,6 @@
-/** nb-ui 布局类（`layout/`）的场景。`GridRenderer` 的布局由宿主算出，在 `WorkbenchShellLayout` 的集成场景里观察。 */
+/** nb-ui 布局类（`layout/`）的场景。`NestedGrid` 的布局由宿主算出，在 `WorkbenchShellLayout` 的集成场景里观察。 */
 
-import type {Accordion, AspectRatio, Collapsible, CollapsibleSection, DropFeedbackOverlay, DropIndicator, DropIndicatorLabel, OverlayScrollbar, Panel, ScrollArea, Separator, Splitter} from "@notnotype/nb-ui/components";
+import type {Collapsible, CollapsibleCard, CollapsibleRow, DropFeedbackOverlay, DropIndicatorLabel, OverlayScrollbar, ScrollArea, Separator, Splitter} from "@notnotype/nb-ui/components";
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
@@ -14,32 +14,36 @@ const prose = (text: string) => () => h("p", {class: "text-sm leading-relaxed te
 const block = (label: string) => () => h("div", {class: "flex h-full w-full items-center justify-center text-sm text-[var(--text-secondary)]"}, label);
 const LONG_TEXT = Array.from({length: 24}, (_, index) => `第 ${String(index + 1)} 段：港口的雾从傍晚开始漫上来，先是码头，再是灯塔的基座。`).join("\n");
 
-const ACCORDION_ITEMS = [
-    {value: "volume-1", title: "第一卷 雾港", subtitle: "12 章 · 41,230 字", content: "沈屿在灯塔熄灭的那一夜捡到一封信。", iconClass: "i-lucide-book"},
-    {value: "volume-2", title: "第二卷 雪线", subtitle: "8 章 · 27,904 字", content: "北上的渡口，林晚第一次出现。", iconClass: "i-lucide-book"},
-    {value: "volume-3", title: "第三卷（未开始）", disabled: true, iconClass: "i-lucide-book-dashed"},
-];
-
 export const layoutFixtures: LabFixture[] = [
-    defineSubjectFixture<typeof Accordion>({
-        component: "Accordion",
+    defineSubjectFixture<typeof CollapsibleCard>({
+        component: "CollapsibleCard",
         class: "w-full max-w-[480px]",
+        events: ["update:expanded"],
+        writeBack: {"update:expanded": {layer: "model", key: "expanded"}},
+        slotPresets: {default: prose("total 12\ndrwxr-xr-x  正文\ndrwxr-xr-x  设定"), actions: () => h(NbButton, {variant: "ghost", size: "sm", iconClass: "i-lucide-copy"}, () => "复制")},
         scenes: [
-            {id: "single", label: "单开", input: {props: {items: ACCORDION_ITEMS, type: "single", collapsible: true}, model: {modelValue: "volume-1"}}},
-            {id: "multiple", label: "多开", input: {props: {items: ACCORDION_ITEMS, type: "multiple"}, model: {modelValue: ["volume-1", "volume-2"]}}},
-            {id: "disabled", label: "禁用", input: {props: {items: ACCORDION_ITEMS, type: "single", disabled: true}, model: {modelValue: "volume-2"}}},
+            {id: "collapsed", label: "可折叠，收起", input: {props: {icon: "i-lucide-terminal", title: "运行命令", subtitle: "ls -la 正文", status: "success"}, model: {expanded: false}, slots: {default: true}}},
+            {id: "expanded", label: "展开，带操作", input: {props: {icon: "i-lucide-terminal", title: "运行命令", subtitle: "ls -la 正文", status: "success"}, model: {expanded: true}, slots: {default: true, actions: true}}},
+            {id: "running", label: "运行中", input: {props: {icon: "i-lucide-workflow", title: "运行 Workflow", subtitle: "chapter-review", status: "running"}, model: {}, slots: {default: true}}},
+            {id: "error", label: "出错", input: {props: {icon: "i-lucide-database", title: "执行 SQL", subtitle: "select * from subjects where name = '一个很长很长的名字，用来看摘要放不下时怎样省略'", status: "error"}, model: {expanded: true}, slots: {default: true}}},
+            {id: "waiting", label: "等待", input: {props: {icon: "i-lucide-message-circle-question", title: "提问", subtitle: "第三章要不要保留雨夜那段？", status: "waiting"}, model: {}}},
         ],
-        subject: nbUiSubject("Accordion"),
+        subject: nbUiSubject("CollapsibleCard"),
     }),
-    defineSubjectFixture<typeof AspectRatio>({
-        component: "AspectRatio",
-        class: "w-full max-w-[360px]",
-        slotPresets: {default: () => h("div", {class: "flex h-full w-full items-center justify-center rounded-[var(--radius-control)] bg-[var(--bg-panel)] text-sm text-[var(--text-secondary)]"}, "2 : 3 书封")},
+    defineSubjectFixture<typeof CollapsibleRow>({
+        component: "CollapsibleRow",
+        class: "w-full max-w-[480px]",
+        events: ["update:expanded"],
+        writeBack: {"update:expanded": {layer: "model", key: "expanded"}},
+        slotPresets: {default: prose("钟声敲到第十二下，雨还没有停。")},
         scenes: [
-            {id: "book", label: "2:3 书封", input: {props: {ratio: 2 / 3}, slots: {default: true}}},
-            {id: "wide", label: "16:9", input: {props: {ratio: 16 / 9}, slots: {default: true}}},
+            {id: "plain", label: "不可展开", input: {props: {icon: "i-lucide-file-text", label: "读取", detail: "正文/第三章 雨夜.md"}, model: {}}},
+            {id: "stat", label: "增删行统计，可展开", input: {props: {icon: "i-lucide-file-pen", label: "编辑", detail: "正文/第三章 雨夜.md", stat: {added: 12, removed: 3}}, model: {expanded: false}, slots: {default: true}}},
+            {id: "expanded", label: "展开", input: {props: {icon: "i-lucide-file-pen", label: "编辑", detail: "正文/第三章 雨夜.md", stat: {added: 12, removed: 0}}, model: {expanded: true}, slots: {default: true}}},
+            {id: "running", label: "运行中", input: {props: {icon: "i-lucide-search", label: "搜索", detail: "雨夜 钟声", status: "running"}, model: {}}},
+            {id: "error", label: "出错，名称过长", input: {props: {icon: "i-lucide-file-text", label: "读取", detail: "设定/人物/一个名字特别长的人物设定文件，用来看操作对象放不下时怎样截断.md", status: "error"}, model: {}}},
         ],
-        subject: nbUiSubject("AspectRatio"),
+        subject: nbUiSubject("CollapsibleRow"),
     }),
     defineSubjectFixture<typeof Collapsible>({
         component: "Collapsible",
@@ -52,17 +56,6 @@ export const layoutFixtures: LabFixture[] = [
         ],
         subject: nbUiSubject("Collapsible"),
     }),
-    defineSubjectFixture<typeof CollapsibleSection>({
-        component: "CollapsibleSection",
-        class: "w-full max-w-[420px]",
-        slotPresets: {default: prose("这一节里是设置项或列表。"), meta: () => h("span", {class: "text-xs text-[var(--text-muted)]"}, "3 项")},
-        scenes: [
-            {id: "open", label: "展开、带附注", input: {props: {label: "外观", iconClass: "i-lucide-palette"}, model: {open: true}, slots: {default: true, meta: true}}},
-            {id: "closed", label: "收起", input: {props: {label: "编辑器"}, model: {open: false}, slots: {default: true, meta: false}}},
-            {id: "disabled", label: "禁用", input: {props: {label: "实验功能", disabled: true}, model: {open: false}, slots: {default: true}}},
-        ],
-        subject: nbUiSubject("CollapsibleSection"),
-    }),
     defineSubjectFixture<typeof DropFeedbackOverlay>({
         component: "DropFeedbackOverlay",
         class: "h-full w-full",
@@ -73,17 +66,6 @@ export const layoutFixtures: LabFixture[] = [
         ],
         subject: nbUiSubject("DropFeedbackOverlay"),
     }),
-    defineSubjectFixture<typeof DropIndicator>({
-        component: "DropIndicator",
-        class: "h-[160px] w-full max-w-[360px]",
-        slotPresets: {default: () => "放到这里"},
-        scenes: [
-            {id: "area", label: "区域", input: {props: {variant: "area"}, slots: {default: true}}},
-            {id: "entry", label: "条目", input: {props: {variant: "entry"}, slots: {default: true}}},
-            {id: "line", label: "线", input: {props: {variant: "line"}, slots: {default: false}}},
-        ],
-        subject: nbUiSubject("DropIndicator"),
-    }),
     defineSubjectFixture<typeof DropIndicatorLabel>({
         component: "DropIndicatorLabel",
         scenes: [
@@ -91,17 +73,6 @@ export const layoutFixtures: LabFixture[] = [
             {id: "long", label: "长文字", input: {props: {label: "移到「资源管理器」容器的末尾，并与大纲视图合并显示"}}},
         ],
         subject: nbUiSubject("DropIndicatorLabel"),
-    }),
-    defineSubjectFixture<typeof Panel>({
-        component: "Panel",
-        class: "w-full max-w-[420px]",
-        slotPresets: {default: prose("面板里的内容：一组设置、一段说明或一张表。")},
-        scenes: [
-            {id: "default", label: "默认", input: {props: {tone: "default", padding: "md"}, slots: {default: true}}},
-            {id: "subtle", label: "柔和、小内边距", input: {props: {tone: "subtle", padding: "sm"}, slots: {default: true}}},
-            {id: "flush", label: "无内边距", input: {props: {tone: "default", padding: "none"}, slots: {default: true}}},
-        ],
-        subject: nbUiSubject("Panel"),
     }),
     defineLabFixture<typeof OverlayScrollbar>({
         component: "OverlayScrollbar",

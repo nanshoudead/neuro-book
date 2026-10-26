@@ -1,0 +1,288 @@
+# w00024 t03 网页查看器审查（S6 到 S9）
+
+审查对象：`packages/nb-story/src/web/**`、`packages/nb-story/e2e/**`，HEAD `b31f9531b`。已跑：`typecheck` 通过、`build:web` 通过、`test:e2e` 12 条全过（51 秒）。截图都在 `shots/` 下，下文只写文件名。以下每条都是只读核实后追加的。
+
+### 1. 全局搜索结果面板把顶栏撑到 587 像素，整页被挤下去
+- 严重程度：阻断
+- 位置：`packages/nb-story/src/web/shell/SearchBox.vue:61`，`packages/nb-story/src/web/app.css:34-38`
+- 现象：输入搜索词、结果出现后，顶栏高度从 49 像素变成 587 像素（1440 宽），手机宽度从 106 变成 590；导航与主区整体下移，主区只剩下半屏。
+- 为什么是问题：结果面板写的是 `story-scroll-y absolute right-0 top-full`，但 `app.css` 里无层的 `.story-scroll-y { position: relative }` 写在 Tailwind 原子类之后，同等优先级后写的赢，面板实际是 `position: relative`，进入文档流撑开 flex 顶栏。搜索是输出 1、18 与验收 1 的入口，每次用都会触发。
+- 如何核实：Playwright 量到 `header` 高度前后为 49 和 587，面板 `getComputedStyle(...).position` 为 `relative`；截图 `shots/search-panel-pushes-header-1440.png`、`shots/search-panel-pushes-header-390.png`、`shots/search-open-900.png`。e2e 只断言面板文字（`viewer.e2e.ts` 防剧透用例），所以全绿。
+- 建议改法：面板去掉 `story-scroll-y`，改用 `overflow-y-auto`（本组件不需要 `.story-scroll-y` 的 `relative`）；或把 `.story-scroll-y` 的 `position: relative` 拿掉，需要包含块的地方单独写 `relative`。补一条 e2e：搜索结果出现前后顶栏高度不变。
+
+### 2. 关系图“环形”排版的名字没有朝圈外写
+- 严重程度：重要
+- 位置：`packages/nb-story/src/web/graph/StoryNetwork.vue:238`（`applyLayout` 设 `labelSide`），`:262-275`（`relayout` 只把 x、y 动画回原图）
+- 现象：从力导向切到“环形”后，左半圈的点（我妈、老爸、白灵、猫娘魔法少女）名字仍写在点右边，也就是写进圈里，压在连线上。
+- 为什么是问题：输出 25 要求环形“名字朝外”。`layoutCircle` 本来给左半边写了 `labelSide: "left"`，但 `relayout` 在 `graph.copy()` 上排版，只取回 `x`、`y` 交给 `animateNodes`，`labelSide` 留在拷贝上丢了，真图里仍是力导向时的 `"right"`。同心排版同理（没有影响，因为同心不依赖它）。
+- 如何核实：`shots/relations-circle-1440.png`（读者视角、认知层开、环形）：左侧各点标签朝右。
+- 建议改法：`relayout` 里把拷贝上的非坐标属性（至少 `labelSide`）合并回 `graph`，再动画 x、y；或让 `animateNodes` 之前先 `graph.updateEachNodeAttributes` 同步 `labelSide`。补一条组件级验证（画布读不到字，可用 `graph` 属性或截图对比）。
+
+### 3. 身份连线上的“其实是同一人（不知道）”在默认缩放下不显示
+- 严重程度：重要
+- 位置：`packages/nb-story/src/web/graph/sigma-kit.ts:105`（`if (length < width + 8) return;`），`StoryNetwork.vue` 身份线 `alwaysLabel`
+- 现象：苏天晴视角、第 38 章，地狱猫与南嘉鱼两点靠得近，它们之间的身份线（棕色）没有字；悬停地狱猫也不出现。只有放大到线比字长才可能出现。
+- 为什么是问题：验收 5 的判据就是这条线“写‘其实是同一人（不知道）’”，输出 28 要求身份线单独样式并写明状态。线上字对所有线统一做“线比字短就丢”，身份线与关系词线没有区别，状态说明被静默吞掉；e2e 只断言上方一行横幅含“地狱猫与南嘉鱼”，所以看不出。
+- 如何核实：`shots/identity-label-hover-1440.png`（悬停地狱猫，棕线无字）、`shots/relations-char-persp-1440.png`；RPC 返回 `identity` 边：`e33-1—e8-2 unaware`、`e10-1—e8-2 no-record`。
+- 建议改法：身份线的字不受“线比字短”限制（放在线中点上方，或优先于普通线上字绘制，空间不够时仍画）；或在聚焦时用悬浮说明写出。并让 e2e 能验到（例如把该线的状态同时写进横幅或可读的 DOM）。
+
+### 4. 阅读位置变化后，页面继续显示旧位置的数据直到新数据回来
+- 严重程度：重要
+- 位置：`packages/nb-story/src/web/host/query.ts`（`useStoryQuery.run` 不清 `data`；各页 `PageState :loading="... && !data"`）
+- 现象：把阅读位置从第 38 章拨回第 7 章时，页面顶部的位置标签和“截至第 7 章”已经变了，但数据仍是第 38 章的，直到新请求返回（也不显示“正在取”，因为 `loading && !data` 为假）。
+- 为什么是问题：输出 5、6 要求位置一变“所有页面同时换成新位置的内容”，防剧透是这个产品的核心承诺。往回拨时，这段时间里显示的是之后章节的内容，并且标签写的是新位置，读者看不出不对。`usePagedQuery` 在变化时清空了列表，两个 composable 不一致。
+- 如何核实：给 `secrets.matrix` 加 2 秒延迟，在秘密页从第 38 章切到第 7 章，600 毫秒后页面文字仍含“心月狐就是苏天晴”（第 8 章才出现的秘密），标签已是“第 7 章”：截图 `shots/stale-data-during-load-1440.png`。真实本机延迟只有几十毫秒，但大列表或慢网络下会变长（从代码推断后用注入延迟复现）。
+- 建议改法：`run` 开始时先把 `data.value = null`（或在参数里的 `at` 变化时清），页面按 `loading && !data` 显示“正在取”；e2e 的“旧位置请求”用例补一个“往回拨”方向，断言旧位置内容在新数据回来前不可见。
+
+### 5. 所有分页列表的错误“重试”按钮都没有接线
+- 严重程度：重要
+- 位置：`packages/nb-story/src/web/parts/PagedList.vue:34` 发出 `retry`；`DrawerCard.vue`（三处）、`RosterPage.vue`、`QuestionsPage.vue`、`EpisodesPage.vue` 共 6 处 `<PagedList>` 都没有 `@retry`；`host/query.ts` 的 `usePagedQuery` 也没有重试方法
+- 现象：分页列表请求失败时显示错误和“重试”，点“重试”什么也不发生。
+- 为什么是问题：F4 要求“只这一页显示错误与‘重试’”。首页失败时 `hasMore` 为假，列表也没有别的办法重新触发；PageState 那种整页重试是通的，只有分页列表是死按钮。
+- 如何核实：拦截 `entities.list`（limit 200）返回 500，页面出现 1 个“重试”，改回正常后点它，该请求次数仍为 1。截图 `shots/retry-dead-roster-1440.png`。
+- 建议改法：`usePagedQuery` 增加 `reload()`（从第一页重来，失败的续页则重发当前游标），六处接 `@retry`；补一条 e2e 覆盖 F4 的分页列表。
+
+### 6. 人物卡记录页签的“章标题吸顶”实际不成立，顶部还会漏出被裁一半的记录
+- 严重程度：重要
+- 位置：`packages/nb-story/src/web/shell/DrawerCard.vue:91`（工具条 `sticky top-0`），`:129-135`（`.chapter-head { position: sticky; top: 30px }`），`:73` 滚动容器 `py-2`
+- 现象：宽屏抽屉 400 像素宽时，记录页签的工具条（种类、状态筛、搜索框）折成 3 行，高 106 像素，章标题却固定在 `top: 30px`：吸在工具条背后，滚动时看不到“第 N 章”。同时滚动容器的 8 像素上内边距让记录文字从工具条上方的缝里漏出一截。
+- 为什么是问题：输出 10 要求“按章分组、章标题吸顶”。30 像素是假设工具条只有一行的魔数；抽屉宽度可拖到 280，更窄时更糟。
+- 如何核实：滚动 600 像素后量得工具条 209 到 315，章标题 239 到 262 与 285 到 307，全部落在工具条背后；截图 `shots/card-records-sticky-1440.png`（可见上沿漏出的半行记录、没有章标题）。
+- 建议改法：把工具条与章标题放进同一个 sticky 容器（章标题吸在工具条下沿，用测量高度或把章标题放进工具条同一层），去掉上内边距漏缝；窄宽度时工具条改为不折行的横向滚动或两行以内。
+
+### 7. 人物卡记录页签缺“在主区打开”成宽表格与“怎么知道的”一列
+- 严重程度：重要
+- 位置：`packages/nb-story/src/web/shell/DrawerCard.vue`（整个文件没有该入口），合同 `story.queries` 的 `entity.knowledge` 已返回“怎么知道的”
+- 现象：记录页签只有抽屉里的窄列表，没有“在主区打开”，也没有任何页面显示“怎么知道的”列。
+- 为什么是问题：输出 10 最后一句：“记录可以‘在主区打开’成宽表格，筛选相同，多出‘怎么知道的’一列。”漏做；`grep -rn "主区打开\|怎么知道" src/web` 无结果。
+- 如何核实：从代码推断，上述 grep 为空；DrawerCard 的记录页签截图 `shots/card-records-sticky-1440.png` 没有该按钮。
+- 建议改法：补一个只显示该人记录的主区页面或抽屉“宽表”模式，复用同一组筛选状态；或者向开发者确认该条是否降级并改 Spec。
+
+### 8. 原文页换章后滚动位置不回到顶
+- 严重程度：重要
+- 位置：`packages/nb-story/src/web/pages/SourcePage.vue:41`（滚动容器 `story-scroll-y` 没有随章重置），章切换在 `chapter` ref
+- 现象：在原文页滚到中部后点目录或“下一章”，新章在原来的滚动位置出现，落在这一章中间。
+- 为什么是问题：原文是阅读用的页面，换章应从章首开始；输出 16 的“读到这里”线也不会滚入视野。
+- 如何核实：第 38 章滚到 3402 像素，点目录第 37 章后 `scrollTop` 为 3163（`probe` 输出）；截图 `shots/source-scroll-kept-1440.png`。
+- 建议改法：`chapter` 变化时把滚动容器 `scrollTo(0, 0)`（或在有读到线的章滚到读到线）；换章时同时清掉旧章正文，避免旧文先显示。
+
+### 9. 情节页“与前情”连接在选了主线时跳不到目标
+- 严重程度：重要
+- 位置：`packages/nb-story/src/web/pages/EpisodesPage.vue:28-33`（`jump`）
+- 现象：先点一条主线（只看它的情节），展开一个带连接的情节，点“接着 · …”：主线筛选被清掉、该情节展开，但页面没有滚到它。实测目标元素顶边在 3311 像素，视口 900。
+- 为什么是问题：输出 15 要求“点连接跳到那一段情节”。`jump` 把 `arc` 置空后只 `await nextTick()` 就查 DOM，而分页列表是在 watch 里清空、再异步重新取数，`nextTick` 时目标还没渲染，`scrollIntoView` 静默什么也没做。
+- 如何核实：`shots/episodes-jump-1440.png`；主线内 21 条，最后一条的连接目标标题“风信子脱困解救鸢尾花，深蓝猫娘带走心月狐”，点后 `top=3311, vh=900`。
+- 建议改法：`jump` 等到列表取回、目标出现后再滚（例如在列表 `items` 变化的 watch 里补一次滚动，或由 `usePagedQuery` 暴露取完的 Promise）；目标不在已取到的页里时继续取到出现为止。
+
+### 10. 打开一本书时遇到网络错误会永远停在“正在打开……”
+- 严重程度：建议
+- 位置：`packages/nb-story/src/web/shell/BookShell.vue:36`（`throw caught`）、`host/client.ts`（网络失败抛 `TypeError`）
+- 现象：`book.info`、`reading.get` 因网络断开失败时，`openBookSession` 抛的不是 `StoryCallError`，`BookShell` 的 watch 回调把它重新抛出变成未捕获 Promise 拒绝，`session`、`error` 都是空，页面一直显示“正在打开……”，没有提示也没有重试。
+- 为什么是问题：服务被关掉、网络闪断时用户只看到永远的“正在打开”；页面内的单页请求有“请求没有完成”处理，外壳反而没有。
+- 如何核实：拦截 `reading.get` 并 abort，3 秒后 `body` 文本仍是“正在打开……”。
+- 建议改法：非 `StoryCallError` 也记诊断并转成 `error` 文案，加“重试”；`createHttpClient` 把网络错误统一包成 `StoryCallError("network", …)`。
+
+### 11. 悬念页没有写总条数
+- 严重程度：建议
+- 位置：`packages/nb-story/src/web/pages/QuestionsPage.vue:129-130`
+- 现象：标题只写“悬念 截至第 N 章”；列表里也没有总数。名册、情节、搜索、人物卡页签都写了。
+- 为什么是问题：输出 18 要求“总条数写在标题或页签上”。而且“没解开的”是页面里把 `answered` 过滤掉，`total` 来自接口（含已解），即使加上也要自己算。
+- 如何核实：`shots/questions-1440-light.png`（从代码推断为主，标题里无数字）。
+- 建议改法：标题写“共 N 条”；“没解开的”档要么让接口一次接受两种状态，要么用 `open.total + partial.total`（总览页已经在这样取）。
+
+### 12. e2e“宽度（验收 7）”的溢出断言永远为真
+- 严重程度：重要
+- 位置：`packages/nb-story/e2e/viewer.e2e.ts:179`（`document.documentElement.scrollWidth - clientWidth <= 0`）
+- 现象：断言页面级文档的横向滚动量。外壳是 `html, body, #app { height: 100% }` 加根元素 `overflow-hidden`，内容再宽也不会让文档出现横向滚动条。
+- 为什么是问题：验收 7 的判据是“各页无横向溢出、无元素越界”，这个断言检测不出任何一种溢出。
+- 如何核实：在总览页的主区里插入一个 3000 像素宽的元素，同一表达式的值是 -10，断言仍通过；另外用“元素超出最近的 `overflow: hidden` 祖先”的检查，情节页主线栏的篇数小字在宽屏、平板都被裁（见第 24 条），e2e 全绿没有发现。
+- 建议改法：改成“逐元素量边界”：每页检查 `[data-testid=main]` 与抽屉内的子元素 `getBoundingClientRect()` 不超出各自容器（排除有意的 `overflow-x-auto` 容器），或检查主区与抽屉容器 `scrollWidth <= clientWidth`；并补手机 390 宽的同类检查（至少外壳与总览、关系图）。
+
+### 13. e2e 对验收 1、3、5 的关键子句没有真实验证
+- 严重程度：重要
+- 位置：`packages/nb-story/e2e/viewer.e2e.ts:38-55`（验收 1）、`:102-118`（验收 3）、`:132-141`（验收 5）
+- 现象与问题：
+  1. 验收 1 只覆盖总览、人物、秘密、原文目录与搜索，没有关系图、全书图（Spec 验收 1 明写）；也没检查“第 8 章之后的章标题”在各页（情节、时间线、悬念）里不出现，只查了“心月狐”；拨到第 8 章只验证秘密页。图在画布里读不出字，但可以拦截 `graph.relations`、`graph.book` 的响应检查标签。
+  2. 验收 3 三个子句只验了“拖动后不打开人物卡”。“悬停时其余点仍可见且名字保留”“打开认知层后点平滑移到新位置”都没验；测试标题“打开认知层后图照常”只断言了没有错误条。
+  3. 验收 5 用的是“猫娘魔法少女”与南嘉鱼，不是 Spec 写的“倩影与地狱猫”；“线上写‘其实是同一人（不知道）’”没验证，用上方横幅替代，第 3 条的缺陷因此漏过；读者视角那一半查的是人物卡列表而不是图上的线。
+  4. 验收 4 只比较画布宽度与图容器宽度，没验“点与线完整”（重画后有内容）。
+- 为什么是问题：这些条目通过只说明外壳能打开。
+- 建议改法：上述几处用截图对比（认知层前后点位置不同）或读 `graph` 响应加画布像素差；验收 5 对着 Spec 的两个点对写；防剧透对各页统一拦响应。
+
+### 14. e2e 里两处 `test-lint-allow fixed-wait` 的理由不完全成立，并有残留注释
+- 严重程度：建议
+- 位置：`packages/nb-story/e2e/viewer.e2e.ts:215`（`waitForTimeout(2000)`）、`:79-82`
+- 现象：`page.waitForTimeout(2000)` 的理由是“等压住的旧请求返回”。但改章时客户端已 `AbortController.abort()` 了旧请求，浏览器那边请求被取消，不会“返回”到页面；这 2 秒等的是不会发生的事。`:205` 的路由处理里 `setTimeout(1500)` 是人为延后，理由成立。另外 `settle` 上面重复有一行写着“用‘在图里找’把镜头移到一个点上”的注释（`centerOn` 的注释被复制到 `settle` 前）。
+- 为什么是问题：固定等待掩盖了“旧请求是被取消还是被丢弃”这条真正要验的行为。
+- 建议改法：监听 `requestfailed` 断言旧请求被取消，再断言页面文本，不需要等 2 秒；删掉重复注释。
+
+### 15. 平板与手机的浮层抽屉没有对话框语义、不响应 Escape；搜索结果面板点外面不关
+- 严重程度：建议
+- 位置：`packages/nb-story/src/web/shell/BookFrame.vue:342-356`、`shell/SearchBox.vue`
+- 现象：浮层抽屉是手写的 `absolute` 容器，没有 `role="dialog"`/`aria-modal`、没有焦点管理，按 Escape 不关闭；搜索结果面板只有 Escape 与“关闭”按钮，点外面不关，会一直盖在页面上。nb-ui 已有 `Drawer`、`Popover`。
+- 为什么是问题：`docs/standards/code/components.md`、nb-ui 规范对浮层要求 open、close、outside interaction、Escape 与焦点归还；键盘与读屏用户无法正常使用平板、手机下的人物卡。
+- 如何核实：900 宽打开人物卡，`[data-testid=drawer]` 的 `role`、`aria-modal`、`aria-label` 均为空，按 Escape 后抽屉仍在；搜索输入后点页面空白，结果仍在：`shots/search-open-900.png`。
+- 建议改法：浮层抽屉与搜索面板改用 nb-ui 的浮层组件，或补 `role`、Escape、点外关闭、焦点进入与归还。
+
+### 16. 人物页“主要人物”卡片是不可聚焦的 `li`，键盘无法打开人物卡
+- 严重程度：建议
+- 位置：`packages/nb-story/src/web/pages/RosterPage.vue:39`（`<li ... @click="book.openCard(person.id)">`）
+- 现象：主要人物是点击 `li`，没有 `tabindex`、`role`，Tab 到不了；同页“其他”里的行是 `<button>`，唯独最重要的这一组不行。
+- 如何核实：DOM 中 `[data-testid=roster-main]` 的 `tabindex`、`role` 均为 null。
+- 建议改法：卡片内放一个撑满的 `<button>`（或把 `li` 改成 `button`）。图本身（Sigma 画布）没有键盘通道，名册页是它的替代入口，所以这条更不能漏。
+
+### 17. 手写了 nb-ui 已有的复选框和开关按钮
+- 严重程度：建议
+- 位置：`packages/nb-story/src/web/pages/RelationsPage.vue:82`（原生 `<input type="checkbox">`）；`RelationsPage.vue:66,69`、`BookGraphPage.vue:137`、`SourcePage.vue:46`、`QuestionsPage.vue`（`story-chip` 按钮）
+- 现象：“只看选中的周边”是原生 checkbox，类别与连线层的开关是自写的 `story-chip` 按钮（RelationsPage 带 `aria-pressed`，BookGraphPage 没有）。nb-ui 有 `FormCheckbox`、`SwitchField`、`ToggleGroup`（`type="multiple"`）。
+- 为什么是问题：规则要求“能用 nb-ui 现成组件的不另写”，自写的缺 focus-visible 与统一外观；同一类开关在两个页面行为不一致（一处有 `aria-pressed` 一处没有）。
+- 建议改法：checkbox 换 `FormCheckbox`；类别与层的开关换 `ToggleGroup type="multiple"`。
+
+### 18. 关系图里用了字面颜色，暗色下“主线”点和第 7 条故事线几乎看不见
+- 严重程度：建议
+- 位置：`packages/nb-story/src/web/graph/StoryNetwork.vue:78`（`KNOW_COLOR`）、`:85-86`（`#0d9488`、`#8b5cf6`、`#94a3b8`、`#475569`、`#64748b`）、`.legend .line.know { border-color: #b35375 }`；`graph/StoryLine.vue:24`（`LANE_COLORS`，含 `#92400e`）
+- 现象：这些颜色不随明暗变。暗色下全书图“按关联”的“主线”点（`#475569`）与图例点淡得几乎融进背景，故事线第 7 行（`#92400e` 棕色）也偏暗；亮色下没有问题。
+- 为什么是问题：规则是组件不写字面颜色，颜色来自配色变量（Sigma 读不到 CSS 变量，所以 `readTheme` 已经在做转换，这些色没有走它）；明暗两态对比没有核对。
+- 如何核实：`shots/bookgraph-force-1440-dark.png`（图例“主线”、深灰圈）、`shots/bookgraph-1440-dark.png`（猫娘魔法少女那一行）。
+- 建议改法：类别色与泳道色用主题里的若干 `--chart-*`/状态色派生，暗色下提亮；或给这批固定色各写一份暗色版本并按 `data-nb-appearance` 选。
+
+### 19. 全书图“按关联”点其他对象没有反应，也没有“只看选中的周边”；点的名字有重叠
+- 严重程度：建议
+- 位置：`packages/nb-story/src/web/pages/BookGraphPage.vue:30-33`（`onSelect` 只处理 `entity`）、`:50`（没有传 `selected`、`neighborhood`）
+- 现象：点主线、情节、秘密点什么也不发生；没有“只看选中的周边”开关，选中状态也不回到页面（`StoryNetwork` 内部选中，页面不知道）。全书图“按关联”里“风信子就是南小风”与“视频中的魔法少女狐狐就是…”两个秘密名字重叠、“心月魔杖”被“苏天晴与秘典的反派任务”盖住。
+- 为什么是问题：输出 31 “聚焦、搜索与操作同关系图”，输出 27 要求点“其他对象打开它的连线说明”，输出 26 的“只看选中的周边”也属于聚焦。名字重叠与输出 25 “点、名字互不重叠”的精神相悖（格子去重只在同一格里挑一个，邻格仍可重叠）。
+- 如何核实：`shots/bookgraph-force-1440.png`，从代码推断为主。
+- 建议改法：点非人物对象打开 `DrawerNode`（连线说明）或至少高亮邻居；加“只看选中的周边”；标签重叠用与线上字相同的占位避让。若该条在 t01 评审里被明确裁掉，请在 Spec 输出 31 里写明。
+
+### 20. 全书图“按章节”没有“铺满高度”，行距上限 40 且没算左右留白
+- 严重程度：建议
+- 位置：`packages/nb-story/src/web/graph/StoryLine.vue:35`（`Y = max(14, min(40, ...))`）
+- 现象：1440×900、第 38 章时，12 行泳道只占画布高度的约六成（轴标 213、行从 255 到 719，画布 49 到 835），上下各有一大块空白。
+- 为什么是问题：输出 30 要求“行距铺满高度”。公式按宽高比估算，没计入 `stagePadding`、左侧 `pad-left` 和轴标那一行，Sigma 取景保持横纵比后高度用不满。
+- 如何核实：`shots/bookgraph-1440-dark.png`、`shots/bookgraph-1440-light.png`；手机宽度（390）下基本铺满，宽屏最明显。
+- 建议改法：先按画布实际宽高取景，再用取景后的纵向余量反算 `Y`（或把 `Y` 的上限放宽），并补一个“行数、宽高不同”的截图核对。
+
+### 21. 情节页主线栏的位置跟主区宽度走，而不是跟“宽屏/平板”走；篇数小字被裁
+- 严重程度：建议
+- 位置：`packages/nb-story/src/web/pages/EpisodesPage.vue:38`（容器查询 `@min-[900px]`）、`.arc`（`overflow: hidden; text-overflow: ellipsis`）
+- 现象：1440 宽屏下，一旦抽屉打开（主区只剩约 840 像素），主线栏就从左侧翻到顶部横排，而且每个按钮等宽（约 134 像素）把主线标题截成“苏天晴与秘典的反派…”，末尾的情节篇数被一起裁掉。关掉抽屉主线栏又回到左边。
+- 为什么是问题：输出 15 按“宽屏”“平板”区分；宽屏下打开人物卡会让版式翻转，读者的位置感被打断。篇数是 `span` 在 `overflow: hidden` 里被裁（5 处），也是被 e2e 漏掉的“元素越界”。
+- 如何核实：`shots/episodes-1440-light.png`（抽屉开，主线在上）、`shots/episodes-wide-nodrawer-1440.png`（抽屉关，主线在左）；越界量测：`SPAN ... in BUTTON.arc 467-479 vs 335-469`。
+- 建议改法：断点按外壳档（`data-tier`）而不是主区容器宽度；顶部横排时按钮宽度随内容，滚动而不是截断，篇数不被裁。
+
+### 22. 人物卡的筛选、搜索词、滚动位置会带到下一个人
+- 严重程度：建议
+- 位置：`packages/nb-story/src/web/shell/DrawerCard.vue:26-29`（`allNames`、`recordKind`、`stateFilter`、`recordQuery` 是组件局部状态）、`shell/BookFrame.vue:144,164`（`DrawerCard` 没有按实体 `:key`）
+- 现象：在苏天晴的记录页签里选“认为”并搜“南嘉鱼”，再点别的人（南嘉鱼）打开他的卡，搜索词仍是“南嘉鱼”、状态仍是“认为”，记录被按上一个人的条件过滤。
+- 为什么是问题：换人不该继承上一个人的筛选；这也让“一个人的卡”不等于“打开这个人时的画面”（输出 21 的“同一画面”）。
+- 如何核实：`shots/card-state-leak-1440.png`，探针输出 `search value: 南嘉鱼 | checked radio: 他知道的 71, 认为`。
+- 建议改法：`DrawerCard` 加 `:key="entity"`（顺带重置滚动），或在 `entity` 变化时重置这些局部状态。
+
+### 23. 浮层抽屉与宽屏抽屉在跨档时会重建，滤镜、滚动位置丢失
+- 严重程度：建议
+- 位置：`packages/nb-story/src/web/shell/BookFrame.vue:144-148`（宽屏抽屉里的 `DrawerCard`）与 `:164-168`（浮层里的 `DrawerCard`）是模板里两处不同的位置
+- 现象：窗口宽度跨过 1100 像素时，`v-if` 切换让两处 `DrawerCard` 先后销毁、重建，卡里的页签内容重新取数，筛选词、滚动位置都归零。
+- 为什么是问题：“状态与转换”最后一条写“宽度跨档时，打开着的抽屉内容不变、只换呈现方式”。内容（哪个人哪个页签）保持，但内部状态不保持；e2e 只断言了名字不变。
+- 如何核实：从代码推断（两个独立的 `DrawerCard` 实例）；e2e 的跨档用例只看 `card-name`。
+- 建议改法：把抽屉内容提到一个组件里，只切换外层容器；或用 `Teleport` 把同一实例搬到不同容器。
+
+### 24. 记录编号没有地方可以打开
+- 严重程度：建议
+- 位置：`packages/nb-story/src/web/**`（`grep -rn "编号" src/web` 为空；人物卡、说法、悬念、数值列表都不显示记录 id）
+- 现象：输出 7 写“记录编号、原文里的段落概要默认收起，可以打开”。段落概要有开关，记录编号没有：默认收起后没有任何入口能打开。
+- 为什么是问题：命令行与外部 Agent 引用记录要用编号，读者想把页面上某条对到命令行结果时没有办法；少了“可以打开”的那一半。
+- 如何核实：从代码推断（grep 为空）。
+- 建议改法：在人物卡记录、悬念、数值等列表的行里加一个默认收起的编号小字，由页面顶部或列表工具条的一个开关统一展开；或向开发者确认降级并改 Spec。
+
+### 25. “任何地方出现的人名都可以点”有遗漏
+- 严重程度：建议
+- 位置：`packages/nb-story/src/web/pages/SecretsPage.vue:26`、`pages/OverviewPage.vue:76`（矩阵列头是纯文字人名）；`shell/DrawerCard.vue:69`（“同一身份：”的各名字是纯文字）；时间线、情节概要、数值页的所属人名也是纯文字
+- 现象：这些位置的人名点不开。
+- 为什么是问题：输出 20 写“任何地方出现的人名都可以点开人物卡，不离开当前页”；秘密矩阵的列头与人物卡里的同一身份是最该点的两处。
+- 如何核实：从代码推断，截图 `shots/overview-1440-light.png`（矩阵列头无底色）。
+- 建议改法：列头与同一身份用 `NameLink`；概要类自由文本里的名字若查询没有给位置，可在 Spec 里把范围限定为结构化字段。
+
+### 26. 抽屉里的原文、段落记录、连线说明不进地址与保存的状态；原文页的章也不在地址里；F3 没有可达入口
+- 严重程度：建议
+- 位置：`packages/nb-story/src/web/host/book.ts:149-152`（`viewState` 只存 `card`）、`routeTarget`；`pages/SourcePage.vue:16,23,52`（章是页面内部状态）
+- 现象：点出处打开原文抽屉、点段号打开引用记录、在图上点非主要人物打开连线说明，地址都不变，刷新后消失；原文页看第 20 章时地址仍是当前阅读位置所在章。F3（地址指向阅读位置之后的章）的“把阅读位置拨到这一章”按钮只出现在 `SourcePage` 的 `beyond` 分支，而该页的章按钮到不了阅读位置之后（目录项禁用、“下一章”禁用），地址也没有章参数，所以这个分支实际不可达；`DrawerSource` 的越界提示又没有按钮。
+- 为什么是问题：输出 21 “每个画面都有地址”，F3 要求有“只显示‘这一章还没读到’与拨位置的按钮”。目前 F3 无法由地址或操作触发，e2e 也没有。
+- 如何核实：从代码推断，另用 `?at=` 做了 F1、F2、F4、F5 的运行验证（均正常），F3 无法构造。
+- 建议改法：先与开发者确认 F3 的触发方式（例如原文页接受 `chapter` 参数）；`source` 的章与抽屉对象进地址，或在 Spec 里写明这些只是临时视图。
+
+### 27. 宽屏下抽屉收起后，拖分隔条无效，也没有按钮把它展开
+- 严重程度：建议
+- 位置：`packages/nb-story/src/web/shell/BookFrame.vue:78`（`collapsed: book.drawer.value === null`）、`:81-92`（`onGestureEnd` 只处理收起）
+- 现象：关掉人物卡后，右侧只剩一条 1 像素的分隔条，向左拖它什么也不展开（抽屉里已没有内容），也没有“展开抽屉”的按钮；导航有收起与展开按钮，抽屉只有人物卡内的“关闭”。
+- 为什么是问题：输出 1 写“导航与抽屉拖过阈值收起、反向拖回展开，也可以用按钮收起与展开”。关闭后丢掉了内容，所以“展开”没有对象。
+- 如何核实：1440 宽、无人物卡时拖动 `[aria-label="调整 main 与 drawer 的宽度"]` 向左 300 像素，分隔条位置不变（1429），`card` 数为 0：`shots/drawer-drag-open-empty-1440.png`。
+- 建议改法：“收起”只折起、保留最近一次的内容，“展开”恢复；或者向开发者确认抽屉的收起就等于关闭，并在 Spec 输出 1 改写。
+
+### 28. 手机宽度下原文页的目录占掉大半屏，名字按钮会把行撑得不齐
+- 严重程度：建议
+- 位置：`packages/nb-story/src/web/pages/SourcePage.vue:17`（`tocOpen` 默认真，200 像素宽）、`parts/NameLink.vue`（`<button>` 作行内名字）
+- 现象：390 宽时目录 200 像素加正文，正文只剩约 170 像素；较长的名字（“任务：猫咪营养高吗”）是行内块按钮，不能随文字换行，在窄列里居中折成两行把段落排版撑乱。
+- 为什么是问题：Spec 只保证手机宽度“能显示”，不影响验收；但原文是阅读页，这是最糟的一页。
+- 如何核实：`shots/source-390-light.png`。
+- 建议改法：手机档目录默认收起；`NameLink` 用 `display: inline`（或把 `<button>` 样式成行内文本）让名字随文字换行。
+
+### 29. 用“进行中”这个显示文字判断任务状态；道具只列第一条轨
+- 严重程度：建议
+- 位置：`packages/nb-story/src/web/pages/OverviewPage.vue:31`、`pages/LedgerPage.vue:31`（`String(track.current).startsWith("进行中")`）；`pages/LedgerPage.vue:19,32`（只取 `items[0]`）
+- 现象：任务是“进行中”还是“已完成”靠 `current` 里的中文文字前缀判断，其他状态（失败、放弃之类若出现）会被全算成“已完成”；道具只展示第一条道具轨，有多个持有人或多种道具时后面的看不到。
+- 为什么是问题：显示文案变化就会让总览的“进行中的任务数”和数值页的筛选悄悄出错；输出 12 写“道具列出得到与用掉”。样例书里只有一条道具轨（“道具”），所以现在没暴露。
+- 如何核实：RPC `ledger.tracks` 在第 38 章返回的任务 `current` 是 “进行中 0/1”“已完成”“进行中”等字符串。
+- 建议改法：合同里给任务一个枚举状态字段，页面按它筛；道具页遍历全部 item 轨。
+
+### 30. 零件文档与实现的标签、可访问性不完全一致
+- 严重程度：建议
+- 位置：`packages/nb-story/src/web/graph/StoryNetwork.md:2`、`parts/SourceText.md:2`、`parts/PageState.vue`
+- 现象与问题：
+  1. `StoryNetwork.md` 声明了 `env:global`，实现里没有注册任何全局监听（只有观察自己画布的 `ResizeObserver` 与全屏接口调用）；规范写“声明了实现中不存在的标签，整份声明不予采信”。要么去掉该标签，要么按规范在标签清单里补一个对应的，并把全屏的写入理由写进文档。
+  2. `SourceText.md` 标 `[]`，但它渲染 `NameLink`，运行时依赖注入的书会话（文档“注意事项”里写了，标签没写）。
+  3. `PageState` 的加载、失败是普通 `div`，没有 `role="status"`/`aria-busy`、`role="alert"`，失败也是行内一条而不是占满该区的一屏；规范 `docs/standards/code/frontend` 与 nb-ui 4.1 对页面级加载、失败有明确要求。
+- 如何核实：读 `.md` 与源码对照，零件目录的 `.md` 其余都齐（`parts/` 9 个、`graph/` 3 个）。
+- 建议改法：按上面三点改标签与 `PageState`。
+
+### 31. 页面字体没走 nb-ui 的 `--font-ui`
+- 严重程度：建议
+- 位置：`packages/nb-story/src/web/app.css:25`（`font-family: var(--font-sans, ...)`）
+- 现象：`--font-sans` 来自 Tailwind 的 `theme.css`，nb-ui 的控件与 Sigma 标签读 `--font-ui`。网页正文与 nb-ui 控件、图上文字是两套字体栈。
+- 为什么是问题：主题换字体（nbook 以外的主题）时正文不跟。
+- 如何核实：`grep -rn "--font-sans" packages/nb-ui/src` 为空，`--font-ui` 在 `nb-ui/src/tokens.css:28`。
+- 建议改法：`body` 写 `font-family: var(--font-ui)`。
+
+## 行号与引用更正
+
+前面几条写入时有几处行号引的是合并读取的编号，以下以此为准（只追加，不改上文）：
+
+- 第 15 条：浮层抽屉在 `packages/nb-story/src/web/shell/BookFrame.vue:156-170`。
+- 第 11 条：`packages/nb-story/src/web/pages/QuestionsPage.vue:42`（标题）、`:27`（`rows` 的客户端过滤）。
+- 第 17 条：`BookGraphPage.vue` 的开关按钮在 `:43`；`QuestionsPage.vue` 没有 `story-chip`，该处引用作废（悬念页用的是 `SegmentedControl`）。
+- 第 14 条：固定等待在 `packages/nb-story/e2e/viewer.e2e.ts:216`，路由里的 `setTimeout` 在 `:207`，重复的注释在 `:77` 与 `:90`。
+- 第 19 条：`BookGraphPage.vue:30-33`（`onSelect`）、`:50`（`StoryNetwork` 用法）。
+- 第 20 条：`StoryLine.vue:35`。
+- 第 21 条：`EpisodesPage.vue:38`（容器查询）。
+- 第 23 条的标题里“滤镜”应读作“筛选”。
+- 第 25 条：`SecretsPage.vue:26`、`OverviewPage.vue:76`、`DrawerCard.vue:69` 已核对。
+
+## 未发现问题的方面
+
+- 保存时序（输出 4 与“状态与转换”第 1 条）：用路由延迟 2.5 秒拦截 `reading.set`，连续改章，同时在途最多 1 个，最后一次存的是最新位置；页面隐藏时 `keepalive` 保存、失败后角落提示“阅读位置没存上”并在下次变化时清除（F5），都按合同。仅有的小毛病：在途期间触发的防抖计时器会在完成后各再存一次相同内容（测到“23”存了两次），无害，不另列。
+- 地址与存下状态的合并（输出 4、验收 2）：地址写明的部分优先，不存在的对象或视角去掉并提示；F1（会话中途清 Cookie，整页换提示）、F2（书不在回书库并提示）、F4（单页失败、重试成功、外壳照常）已运行验证。
+- 旧位置请求丢弃：`AbortController` 随参数变化中止；问题只在“新数据回来前旧数据仍显示”（第 4 条）。
+- 防剧透内容本身：第 7 章各页无第 8 章之后内容；38.57 时“读到这里”线之后的段号旁没有记录数；原文目录之后章只写“未读”且点不开。
+- 外网请求与存储：页面加载与各页操作过程中没有任何对站外的请求；`localStorage` 只在 `host/prefs.ts`，读写都包 `try/catch`；零件与页面没有裸写浏览器存储。
+- 三档宽度：1440、900 两档各页无文档级溢出，手机 390 各页能显示（除第 12、21、28 条所述）；明暗两态下外壳、列表、表格对比正常（图的固定色见第 18 条）。
+- 零件文档：`parts/` 9 个、`graph/` 3 个零件都有同名 `.md`，frontmatter 齐全；`NameLink`、`RefLink` 的 `state:inject` 与理由写得清楚；没有 `Component Lab` 登记（t03 决定 2）。
+- 图的其余部分：悬停聚焦（其余点保留名字、线上字去掉）、认知层箭头、力导向、同心排版、故事线悬停高亮（章号与标题）、小图 12 点环绕、视角横幅都与 Spec 相符。
+- 工具：`typecheck`、`build:web` 通过，`test:e2e` 12 条全过（51 秒）。
+
+## 数量
+
+- 阻断：1（第 1 条）
+- 重要：10（第 2、3、4、5、6、7、8、9、12、13 条）
+- 建议：20（第 10、11、14 至 31 条）
+- 共 31 条
+
+最严重的几条：第 1 条（全局搜索面板撑开顶栏）、第 3 条（身份线文字默认不显示，验收 5 的核心）、第 4 条（往回拨位置时旧位置内容仍显示，防剧透）、第 2 条（环形排版名字没朝外）、第 12、13 条（e2e 的溢出断言空转、验收 3 与 5 的关键子句没验证）。

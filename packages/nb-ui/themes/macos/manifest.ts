@@ -81,9 +81,4 @@ export const manifest: NbThemeManifest = {
     ],
     providesColorways: ["macos-light", "macos-dark"],
     defaultColorway: {light: "macos-light", dark: "macos-dark"},
-    /*
-     * 第二档能力：换掉一个组件的实现。只写契约 id，实现在 index.ts——manifest 保持纯数据，
-     * 市场才能在不执行代码的前提下知道这套主题动了哪些组件。
-     */
-    overrides: {"time-picker": "time-picker@1"},
 };

@@ -223,7 +223,7 @@ describe("经 createApplication 装配", () => {
         return {
             plugins: [createDiagnosticsPlugin({location: "server", store, exporter: async () => ({status: "open", exporter}), fallback})],
             gates: [
-                {id: "diagnostics", kind: "activate", entry: {plugin: "nbook.diagnostics", entry: "main"}},
+                {id: "diagnostics", kind: "activate", entry: {plugin: "runtime.diagnostics", entry: "main"}},
                 ...(failRequired ? [{id: "needs-blocker", kind: "resolve" as const, key: blockerKey}] : []),
             ],
             observers: mechanismObservers(store),
@@ -259,7 +259,7 @@ describe("经 createApplication 装配", () => {
         expect((await application.startup).status).toBe("available");
         expect(receipts).toEqual(["query:1"]);
         expect(store.query({event: "lifecycle.phase-changed"}).records.length).toBeGreaterThan(0);
-        expect(store.query({event: "plugins.diagnostic", plugin: "nbook.diagnostics"}).records.length).toBeGreaterThan(0);
+        expect(store.query({event: "plugins.diagnostic", plugin: "runtime.diagnostics"}).records.length).toBeGreaterThan(0);
         expect(await application.stop()).toEqual({status: "closed"});
         expect(receipts).toEqual(["query:1", "cleanup:accepted"]);
         expect(store.status().phase).toBe("closed");

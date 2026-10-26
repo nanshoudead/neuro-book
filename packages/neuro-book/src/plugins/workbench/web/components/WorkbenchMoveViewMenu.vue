@@ -2,8 +2,8 @@
 /** “移动到”菜单（同名 .md）：打开时记下视图与来源，`identity` 一变就关闭；选择只发事件，命令由宿主执行。 */
 import {computed, ref, watch} from "vue";
 
-import {Dropdown, IconButton} from "@notnotype/nb-ui/components";
-import type {DropdownItem} from "@notnotype/nb-ui/components";
+import {DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
+import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 
 export interface MoveTarget {
     readonly id: string;
@@ -55,8 +55,8 @@ const origin = ref<{readonly viewId: string; readonly sourceContainerId: string}
  * 一层平铺：按 Part 分段、段间分隔线，每项右侧注明所在 Part，段末是“新建容器（在 X）”。不用级联子菜单：子菜单浮层在菜单原语看来是“外部”，
  * 真实浏览器里指针点进去会先触发外部点击关闭整个菜单，选择到不了。
  */
-const items = computed<DropdownItem[]>(() => {
-    const result: DropdownItem[] = [];
+const items = computed<DropdownMenuItemData[]>(() => {
+    const result: DropdownMenuItemData[] = [];
     props.groups.forEach((group, index) => {
         if (index > 0) result.push({label: "", value: `separator:${String(index)}`, separator: true});
         for (const target of group.targets) result.push({label: target.label, value: `${MOVE_PREFIX}${target.id}`, iconClass: target.icon, shortcut: group.label});
@@ -93,7 +93,7 @@ function select(value: string): void {
 </script>
 
 <template>
-    <Dropdown :items="items" :open="open" align="end" compact :disabled="disabled" @update:open="setOpen" @select="select">
+    <DropdownMenu :items="items" :open="open" align="end" :disabled="disabled" @update:open="setOpen" @select="select">
         <IconButton size="xs" icon-class="i-lucide-arrow-right-left" :aria-label="label" :title="label" :disabled="disabled" :data-move-view="viewId" />
-    </Dropdown>
+    </DropdownMenu>
 </template>

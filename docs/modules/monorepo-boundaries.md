@@ -10,13 +10,17 @@ NeuroBook 以一个 monorepo 维护应用、共享合同与可独立维护的包
 
 | 边界 | 当前真相源 | 当前入口或消费方 | 当前状态 |
 | --- | --- | --- | --- |
-| 新应用 | `packages/neuro-book` | 后端进程入口 `src/server/main.ts`，前端入口 `src/web/main.ts`，开发命令 `bun run dev`；验证命令见包内 [`AGENTS.md`](../../packages/neuro-book/AGENTS.md) | 已有应用骨架：后端宿主、开发监督进程、浏览器宿主与空工作台；前端基础（vue-router、UnoCSS、nb-ui、Vitest 组件测试）与只在开发模式加载的 Component Lab（`/lab`）已加入；工作台外壳、命令与布局随后续步骤加入 |
-| 内核 | `packages/nb-runtime` | 新应用的后端与浏览器宿主（第 3 步起） | 运行时依赖只有 TypeBox，每个机制一个子路径入口；行为合同见 `docs/specs/runtime/` 的 lifecycle、services、plugins、application、diagnostics；典型用法见应用包的示例插件 [`packages/neuro-book/examples/`](../../packages/neuro-book/examples/README.md) |
+| 新应用 | `packages/neuro-book` | 后端进程入口 `src/server/main.ts`，前端入口 `src/web/main.ts`，开发命令 `bun run dev`；验证命令见包内 [`AGENTS.md`](../../packages/neuro-book/AGENTS.md) | 已有应用骨架：后端宿主、开发监督进程、浏览器宿主与空工作台；前端基础（vue-router、Tailwind v4、nb-ui、Vitest 组件测试）与只在开发模式加载的 Component Lab（`/lab`）已加入；工作台外壳、命令与布局随后续步骤加入。第三方插件的通用管理（安装、登记、装载、构建预设）在 `src/plugin-platform/`，只依赖内核与列名的通用件、由应用的平台档案配置，不引用内置插件与 NeuroBook 的合同，将来出现第二个使用插件模式的应用时搬成包；插件作者的公开 API 只经 `src/sdk/`；作者材料（作者命令、模板、作者文档、示例插件、打包出 SDK tarball）在 `plugin-sdk/`，产品代码不引用它。这几条由架构测试守住（[ADR 0030](../adr/0030-plugin-platform-layering.md)） |
+| 内核 | `packages/nb-runtime` | 新应用的后端与浏览器宿主（第 3 步起） | 运行时依赖只有 TypeBox，每个机制一个子路径入口；与应用无关，应用的名字（清单的引擎键、保留的发布者）由宿主以平台档案传入（[ADR 0030](../adr/0030-plugin-platform-layering.md)）；行为合同见 `docs/specs/runtime/` 的 lifecycle、services、plugins、application、diagnostics；典型用法见应用包的示例插件 [`packages/neuro-book/plugin-sdk/examples/`](../../packages/neuro-book/plugin-sdk/examples/README.md) |
 | 旧应用 | `packages/neuro-book-legacy` | 只读参照 | 依赖照装，不参加类型检查、测试与治理检查；包内含 w00017 阶段 1 的内核与宿主实现、ADR 0001–0021、legacy `.agents/tasks/` |
 | Workspace 自治包 | `packages/nb-history/`、`nb-workflow/`、`nb-memory/`、`nb-ui/`、`neuro-agent-harness/`、`llmlint/` | 各包公开 exports、包内测试和应用消费者 | 各包独立 owner；`neuro-agent-harness` 已冻结，只服务 `llmlint`，待由 `nb-harness` 取代后退役 |
+| Schema 表单 | `packages/nb-form/` | 核心（`.`，只依赖 TypeBox）与 Vue 渲染层（`./vue`，依赖 nb-ui）；验证命令见包内 [`AGENTS.md`](../../packages/nb-form/AGENTS.md) | w00027 t07 新建；应用与 dev-panel 都可以用；不依赖应用包；行为合同见 [`ui/forms.md`](../specs/ui/forms.md) |
+| Agent 对话视图 | `packages/nb-agent-ui/` | 核心（`.`，不依赖任何包，含 harness 适配器）与 Vue 渲染层（`./vue`，依赖 nb-ui）；验证命令见包内 [`AGENTS.md`](../../packages/nb-agent-ui/AGENTS.md) | w00019 t10 新建；Markdown 显示与提示词编辑器由宿主注入（真实组件在 `nb-markdown`）；不依赖应用包；行为合同见 [`ui/agent-conversation-view.md`](../specs/ui/agent-conversation-view.md) |
+| Markdown | `packages/nb-markdown/` | 纯 TS 入口（`.`，只依赖 `entities`，后端的字数也用）、语言与编解码器（`./language`）、宿主接口与组件（`./host`、`./display`、`./chip`、`./prompt`、`./editor`，依赖 nb-ui 与 TipTap）；验证命令见包内 [`AGENTS.md`](../../packages/nb-markdown/AGENTS.md) | w00025 t16 从 `nbook.markdown` 抽出；不依赖应用包与插件内核，链接目标的分类、语言与诊断由宿主经 `provideMarkdownHost` 给；`nbook.markdown` 是它的宿主之一（方言的贡献、作品文件的分类、字数、编辑器控件留在插件）；行为合同见 [`ui/markdown-display.md`](../specs/ui/markdown-display.md)、[`ui/prompt-editor.md`](../specs/ui/prompt-editor.md)、[`workspace/markdown-dialect.md`](../specs/workspace/markdown-dialect.md) |
 | Agent harness 重构 | `packages/nb-harness/`、`nb-profile/`、`nb-session/` | 包内测试 | w00002 新建；`nb-harness` 将作为 Agent 内置插件的基础 |
 | 通用基础包 | `packages/owned-process/`、`file-snapshot-cache/`、`neuro-book-test-support/`、`neuro-book-contracts/` | 各包公开 exports | `neuro-book-contracts` 的交付链出口不再维护，旧应用退出时一并清理 |
 | 开发工具 | `packages/dev-panel/` | `nbdev` 命令行（用户级 shim 指向主工作区）、开发者面板、根 `scripts/ci/dev-panel-records.test.ts` | 开发工具，不是产品功能：不进产品与发布产物；不依赖应用包、不导入根 `scripts/`；读写主工作区的 `.agents/works/` 与 `.local/agent/` |
+| 剧情图谱 | `packages/nb-story/` | `nbstory` 命令行、`nbstory serve` 的独立服务与网页查看器、给外部 Agent 的 Skill；验证命令见包内 [`AGENTS.md`](../../packages/nb-story/AGENTS.md) | w00024 新建，单独使用；作为 npm 包发布，连同依赖的 8 个工作区包（nb-ui、nb-agent-ui、nb-form、nb-markdown、nb-harness、nb-profile、nb-session、nb-runtime，[ADR 0029](../adr/0029-workspace-packages-publish-source-to-npm.md)）；依赖 `nb-runtime` 的 `./remote`、`nb-ui`，内置问答另依赖 `nb-harness`、`nb-profile`、`nb-session`，网页的问答页与设置页另依赖 `nb-agent-ui`、`nb-markdown`、`nb-form`（只进前端构建）；网页只引本包不碰 node 的 `src/contract/`，不引核心库与问答引擎；不依赖应用包与 `nb-memory`；行为合同见 `docs/specs/story/` |
 
 所有 `packages/*` 默认继承根 Rule/Skill、临时根、安全和 Git 规则。包可以保留自己的 `AGENTS.md`、`docs/`、legacy `.agents/tasks/` 和 `PROJECT-STATUS.md`，但 current Work/Task 只在根 `.agents/works/` 创建；`AGENTS.md` 必须引用 `../../AGENTS.md`。`.agent/.local` 必须被忽略且不得跟踪，`.worktree` 只允许迁移期间短暂存在并在 checkpoint 前清理。linked worktree 统一位于主 checkout 的 `/.worktree/` 下，主 checkout 是唯一目录外例外。
 
@@ -66,7 +70,7 @@ NeuroBook 以一个 monorepo 维护应用、共享合同与可独立维护的包
 ## 本轮不做的事情
 
 - 不修改旧应用 `packages/neuro-book-legacy` 的代码；需要旧行为时读它，在新应用按 Spec 重写。
-- 不在新应用交付链设计前恢复打包、发布、安装、Manager 或桌面版。
+- 不在新应用交付链设计前恢复新应用的打包、发布、安装、Manager 或桌面版。工作区包发布到 npm 按 [ADR 0029](../adr/0029-workspace-packages-publish-source-to-npm.md)，不属于这条。
 - 不新建 runtime contract 平行包、跨存储事务框架或跨语言生成层。
 - 不以浏览器、真实 Provider 或数据迁移结果替代 Module focused verification。
 

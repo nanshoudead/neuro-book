@@ -27,7 +27,22 @@ export const WORKSPACE_PACKAGE_CHECKS: readonly WorkspacePackageCheck[] = [
     {
         name: "nb-ui",
         directory: "packages/nb-ui",
-        commands: "bun run test\nbun run typecheck\nbun run build:css\nbun run build",
+        commands: "bun run test\nbun run typecheck\nbun run build",
+    },
+    {
+        name: "nb-form",
+        directory: "packages/nb-form",
+        commands: "bun run typecheck\nbun run test",
+    },
+    {
+        name: "nb-agent-ui",
+        directory: "packages/nb-agent-ui",
+        commands: "bun run typecheck\nbun run test",
+    },
+    {
+        name: "nb-markdown",
+        directory: "packages/nb-markdown",
+        commands: "bun run typecheck\nbun run test",
     },
     {
         name: "neuro-agent-harness",

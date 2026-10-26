@@ -5,7 +5,7 @@
  */
 
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
-import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 
 import {currentProjectKey} from "nbook/shared/projects";
@@ -45,7 +45,7 @@ export function createProjectFaultPlugin(fault: ProjectFault): PluginDefinition 
                         throw new Error("测试插件按要求收口失败");
                     }
                     : fault === "stop-hangs" ? never : undefined;
-                return {services: [provide(hookKey, {}, release)]};
+                return {services: [provideService(hookKey, {}, release)]};
             },
         })],
     };

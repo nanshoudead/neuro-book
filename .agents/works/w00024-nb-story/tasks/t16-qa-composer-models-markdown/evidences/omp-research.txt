@@ -1,0 +1,183 @@
+# t16 OMP 调研报告（追加式）
+版本说明：仓库 node_modules 里 @oh-my-pi/pi-ai、pi-catalog 为 18.2.5；本机全局 omp（含 pi-coding-agent 源码）为 18.12.3。
+仓库里没有 pi-coding-agent，它的源码只能参照（路径 /home/notnotype/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/src）。
+下文路径简写：REPO-AI=仓库 node_modules/@oh-my-pi/pi-ai/src，REPO-CAT=仓库 .../pi-catalog/src，GAI=全局 pi-ai/src，CA=全局 pi-coding-agent/src。
+
+## 1. 认证方式（API key / OAuth / 其它）与环境变量
+事实来源是 pi-catalog 里编译好的两份规则表（数据，随包发布，可直接 import）：
+- 认证策略表 rules.json 的 auth.providers，按服务商一条 CompiledAuthProvider
+  （REPO-CAT/compat/types.ts:537-555；访问器 REPO-CAT/compat/auth.ts 的 authPolicyFor(id) / authProviders()）。
+  字段：name（展示名）、env（{vars:[...]} 固定变量表 或 {hook:"..."} 计算型）、login（登录方式 kind）、
+  allowsMissingApiKey、nativeAuthApis、result:"api-key"、apiKeyFormat。
+  login.kind 取值：api-key（粘贴 key）、oauth-code（浏览器授权码/回调）、device-code（设备码）、custom（自写流程，如 github-copilot、cursor、kilo、alibaba-*、xiaomi、cloudflare-ai-gateway）、缺省（无登录流程：纯环境变量/凭据链）。
+- 目录条目表 rules.json 的 providers，按服务商一条 CompiledProvider
+  （REPO-CAT/compat/types.ts:623-639；访问器 REPO-CAT/compat/providers.ts 的 providerEntry(id)/providerEntries()）。
+  字段 envVars（按顺序取第一个非空）、allowUnauthenticated、defaultModel 等。
+- 运行时合成：REPO-AI/stream.ts:807-885（全局版 GAI/env-api-key.ts:14-78）把 catalog 的 envVars、
+  registry 的 envKeys（auth 的 env.hook 计算型）、LEGACY_ENV_KEYS 合成 serviceProviderMap；
+  getEnvApiKey(id) 取值，getEnvApiKeyName(id) 只在“解析器是单个字符串”时返回变量名，多变量（用 $pickenv 选）或 hook 一律返回 undefined
+  （注释明说 REPO-AI/stream.ts:872-877）。
+  合成顺序（后者覆盖前者）：catalog envVars -> registry env hook -> LEGACY。
+
+### getEnvApiKeyName 返回空的原因（逐个核实）
+- anthropic：auth/anthropic.kdl 声明 `env hook="anthropic-foundry"`，registry 覆盖 catalog 的单变量 ANTHROPIC_API_KEY；
+  hook（REPO-AI/registry/hooks/env.ts:20-24）：Foundry 开启时 pickenv(ANTHROPIC_FOUNDRY_API_KEY, ANTHROPIC_OAUTH_TOKEN, ANTHROPIC_API_KEY)，否则 pickenv(ANTHROPIC_OAUTH_TOKEN, ANTHROPIC_API_KEY)。
+  即实际从 ANTHROPIC_OAUTH_TOKEN 或 ANTHROPIC_API_KEY 取；providerEntry("anthropic").envVars 仍是 ["ANTHROPIC_API_KEY"]。
+  登录方式是 oauth-code（Claude Pro/Max），所以 anthropic 同时支持“登录”和“API key（环境变量）”。
+- amazon-bedrock：hook aws-bedrock -> resolveAwsRegistryApiKey（REPO-AI/registry/hooks/env.ts:25；registry/aws.ts），
+  AWS bearer token / IAM 密钥 / profile / ECS/IRSA 凭据链，nativeAuthApis=["bedrock-converse-stream"]（传输层自己解析凭据，不需要 key 字符串）。
+- google-vertex：hook google-vertex-adc（hooks/env.ts:27-33）：有 GOOGLE_CLOUD_API_KEY 就用；否则要求 ADC 文件存在
+  （GOOGLE_APPLICATION_CREDENTIALS 或 ~/.config/gcloud/application_default_credentials.json）且有 project 变量（GOOGLE_CLOUD_PROJECT/GCP_PROJECT/GCLOUD_PROJECT）与 location 变量（GOOGLE_VERTEX_LOCATION/GOOGLE_CLOUD_LOCATION/VERTEX_LOCATION），此时返回占位 AUTHENTICATED_SENTINEL="<authenticated>"（registry/types.ts:23），表示“凭据由传输层解析，没有 key 字符串”。
+- moonshot：catalog `env "MOONSHOT_API_KEY" "KIMI_API_KEY"` 两个变量，多变量 -> 名字为空。（其它多变量的：abliteration、alibaba-token-plan、commandcode、coreweave、huggingface、meta、qwen-portal、sakana、xai-oauth 等。）
+- openai-codex：catalog `env "OPENAI_CODEX_OAUTH_TOKEN"` 单变量，所以有名字；但 login.kind=oauth-code（ChatGPT 订阅登录），该变量是“已有 OAuth 令牌的注入口”，不是 API key。
+  所以“有变量名”≠“用 API key”；github-copilot(COPILOT_GITHUB_TOKEN)、cursor(CURSOR_ACCESS_TOKEN)、xai-oauth 同理。
+- 无 env 也无 login 的目录服务商：minimax-cn（目录里有 8 个模型，auth 和 catalog 都没有 env/login，只能走 models.yml 的 apiKey 或 OAuth/存储凭据）。
+
+### 判断认证类别的可行规则（基于上述数据，不是 OMP 的现成函数）
+OMP 没有“authType”字段；它按 login.kind + env 组合隐含：
+- login.kind=api-key，或 login 缺省但 envVars 非空（openai、google、groq、mistral、azure、minimax…）：API key。
+- login.kind in (oauth-code, device-code, custom) 且 result!="api-key"：订阅/OAuth 登录（openai-codex、github-copilot、cursor、google-gemini-cli、google-antigravity、kimi-code、muse-code、xai-oauth、devin、gitlab-duo、anthropic）。anthropic 与 xai-oauth 另有 API key 路径；openrouter 的 oauth-code 流程 result="api-key"，登录结果被存成普通 API key（所以 openrouter 实际是 API key）。
+- env.hook / nativeAuthApis / allowsMissingApiKey：凭据链/本地服务（amazon-bedrock、bedrock-mantle、google-vertex、ollama、lm-studio、llama.cpp、vllm 等不要 key）。
+- 逐服务商表（由 rules.json 和 models.json 直接导出，18.2.5）见本文末“附表”。
+
+## 2. 密钥是否已就绪（“可用”判断）
+全部在 AuthStorage（pi-ai/auth-storage.ts，公开导出于 pi-ai 根入口 index.ts:7；数据存 agent.db，我们不读）：
+- hasAuth(provider)（REPO-AI/auth-storage.ts:2961-2967，GAI 同名）：运行时覆盖 -> models.yml 配置覆盖 -> 存储的凭据（OAuth 或登录时存的 api_key）-> 专属环境变量（#hasDedicatedEnvAuth，约 3038-3042，xai-oauth 特判，其余 getEnvApiKey 非空）-> 回退解析器（models.yml 自定义服务商）。任一满足即“可用”。
+- hasConcreteAuth（:2988-3000）：同上，但排除 AUTHENTICATED_SENTINEL（“凭据源存在但没解析出 key”，如 ~/.aws 或 ADC），默认模型自动选择用它，避免 Bedrock 因无关的 AWS profile 抢默认。选择器可见性仍用 hasAuth。
+- getApiKey(provider) 取值优先级（auth-storage.ts:6020-6068 注释+实现）：1 命令行 --api-key；2 models.yml providers.<name>.apiKey（configOverrides）；3 OAuth 令牌（自动刷新）；4 /login 保存的 api_key；5 环境变量 getEnvApiKey；6 存储的 api_key；7 回退解析器（models.yml 自定义）。
+- getCredentialOrigin（:3058-3066）返回 {kind: runtime|config|oauth|api_key|env(envVar)|fallback}，就是“凭据来自哪”的公开 API。
+- “不需要 key”的服务商：catalog allowUnauthenticated / auth allowsMissingApiKey（google-vertex、ollama、zenmux、commandcode、bedrock-mantle）；本地端点用 NO_AUTH_SENTINEL（我们 model.ts 已 import）。
+选择界面怎么标：
+- 模型总表来自 ModelRegistry：getAll("all")=目录全部，getAvailable("all")=有认证的（过滤逻辑见 CA/config/model-registry.ts，下面 Q5 再给行号）。
+- /models 枢纽（pi-tui/src/overlays/model-hub.ts:#buildSidebar 约 654-780）：左侧边栏“Recent、Roles、All models，再列各服务商”；有可用模型的服务商是“解锁”区（右侧标注可用模型数），没有任何可用模型的目录服务商进入“锁定”区（分隔线之后、变暗），除非被 disabledProviders 关掉。
+  锁定服务商右侧的说明页（#renderLockedView，model-hub.ts:2721-2763）：写“<id> has no credentials configured”，提示 “Set <providerEntry(id).envVars 用 or 连接> in your environment, or add a key in config.”（无 envVars 则 “Add an API key for this provider in config.”），若是 OAuth 服务商（getOAuthProviders() 含此 id）再给“Log in with OAuth (enter)”，下面列目录里的模型数和 id 预览。
+  注意：OMP 自己提示环境变量用的是 catalog 的 providerEntry(id).envVars（含多个、含 anthropic 的 ANTHROPIC_API_KEY），不是 getEnvApiKeyName。
+  免鉴权/自定义服务商（ollama、vllm 等，discovery 可用）不进锁定区；可选的隐式本地端点在 discovery 状态为 idle/unavailable 时干脆隐藏（model-hub.ts:682-707）。
+- 发现状态文案（model-hub.ts:1170-1210）：cached、unavailable（含 HTTP 404 提示“把 baseUrl 指到提供 /models 的主机（通常 .../v1）”）、unauthenticated、idle、empty（“检查 /models 返回 { data: [{ id }] }”）。
+
+## 3. 模型选择界面（全局 18.12.3 的 pi-tui，不在仓库 18.2.5 里；coding-agent 只负责提供数据源）
+组件：pi-tui/src/overlays/model-hub.ts（/models 全屏枢纽）、model-browser.ts（可复用的“搜索框+模型列表+详情”）、model-picker.ts（alt+p / /switch 紧凑选择器，仅本会话切换）、thinking-selector.ts（思考档）。数据源适配在 coding-agent/src/modes/model-browser-source.ts。
+- 分组：枢纽左边栏 = Recent（最近用过，上限 RECENT_LIMIT，按 MRU）/ Roles（角色分配：default、smol、slow、vision、plan、commit… 见 model-browser.ts:55-87）/ All models / 每个服务商（字母序，解锁在前、锁定在后并变暗）。搜索时有匹配的服务商浮到前面（#composeEntries）。
+- 排序（model-browser.ts:333-415 sortModelItems）：先按角色（持有 default 的模型靠前）-> MRU（最近使用）-> 服务商名 -> model.priority -> 版本号降序（从 id 抽 4.6、2.5 等，extractVersionNumber）-> 带 -latest/日期后缀的在前（-latest 最前，日期新的先）-> 字母序。
+- 搜索：模糊匹配（pi-tui FuzzyCorpus/fuzzyRank），匹配文本 = "provider/id"（零价模型再加 "free"，model-browser.ts:854-858）。结果排序分层（ModelItemRanker.rank，:667-690）：精确 id/selector -> 连续子串 -> 仅模糊；同层内按用户亲和度（配置的角色模型 -> 最近使用，服务商同理，buildSearchAffinity）-> 模糊得分 -> 默认顺序。搜索时不做角色优先（skipRoleRank）。
+- 每行信息（model-browser.ts:799-806 列定义 + 1990-2050 行内容）：列 Int（智力分）、t/s（实测速度）、Ctx（上下文窗口，格式 400k）、$/M（输入·输出单价，零价=free，订阅/未知价有专门文案 PRICING_STATUS_LABELS）；窄屏按优先级丢列（先丢 Int，最后丢 Ctx 之后的价格，见 priority 字段）。徽标 new / beta / free / “ctx>N”（当前会话超出该模型上下文，选它会先压缩）。角色芯片（持有的角色，实心=手动，空心=自动，带思考档圆点）。提供方标记 providerMark：首字母缩写+渐变。
+- 详情块（:1590-1612）：名称、new/beta/recommended、上下文、最大输出、价格（$x in · $y out · $z cache）、reasoning、vision（input 含 image）、智力、速度/首字时间、服务商简介。
+- 思考档：选完模型后的内联条（model-hub 的 strip，“<- -> thinking level · enter apply”），可选档来自该模型的 getSupportedEfforts(model)（pi-catalog/model-thinking.ts:23，非推理模型为空）；ThinkingSelectorComponent 列出 off/minimal/low/medium/high/xhigh 加 auto，右侧有“深度条”（THINKING_EFFORTS 序号占比）。auto 是 AUTO_THINKING="auto"（pi-tui/thinking.ts:149）。
+- 最近/收藏：有“最近”（mruOrder，存在 settings storage），无“收藏”；有“角色”（用户为用途指定模型）和 model presets（命名的角色组合，config/model-presets.ts）、cycleOrder（ctrl+p 循环顺序）、disabledProviders（隐藏某服务商）。
+- 搜索输入以 @ 开头时列出快速角色（ctrl+p 角色）。
+
+### 补充：OMP 里没有直接的“认证类型”字段，但可靠信号有这些（以仓库 18.2.5 的 rules.json 实测，69 个目录服务商）
+- authPolicyFor(id).refresh（REPO-CAT/compat/types.ts:552-554）：有 refresh 且 kind 为 request/hook = 真正会过期、要刷新的 OAuth 令牌：anthropic、openai-codex、github-copilot、cursor、google-gemini-cli、google-antigravity、kimi-code、xai-oauth、gitlab-duo、gitlab-duo-agent。
+- refresh.kind="none"：登录得到的是长期令牌：openrouter（且 result="api-key"，登录结果存为普通 key）、devin、muse-code。
+- login.kind="custom" 不代表 OAuth：alibaba-coding-plan、alibaba-token-plan、kilo、xiaomi、cloudflare-ai-gateway 的 custom 只是“多一步提示”的 API key 登录（auth/*.kdl 里无 refresh）。
+- 凭据链类（无 key 字符串）：amazon-bedrock、bedrock-mantle、google-vertex（env.hook）。
+- 无任何认证元数据的目录服务商：minimax-cn（目录有模型，rules 里无 env/login）。
+- getOAuthProviders()（pi-ai/oauth，REPO-AI/registry/oauth/index.ts:21-28,160-168）是“有 login 的服务商”（含 api-key 登录），名字叫 OAuth 其实是 /login 列表；/models 枢纽的 `oauth` 标记即来源于此（model-hub.ts:712），所以它不能用来判断“是不是 OAuth”。
+
+### 对 nb-harness 的实际影响
+resolveModel（packages/nb-harness/src/model.ts:96-108）对 openai-codex 这类“登录”服务商只能走 getEnvApiKey -> OPENAI_CODEX_OAUTH_TOKEN 环境变量；OMP 的真登录态在 AuthStorage（agent.db，OMP 自己的会话库），nb-harness 没有接。所以对我们，“login”类服务商在界面上只能标“需在 OMP 里登录/暂不支持”或接受“自己提供令牌环境变量”，除非引入 AuthStorage（不建议，见建议一节）。
+
+## 4. 自定义服务商：models.yml 的 schema 与合并规则（只看 OMP 源码，没有读用户文件）
+文件位置/加载：CA/config/models-config.ts:204-224 的 ModelsConfigFile（ConfigFile "models"，yml/jsonc 均可）；schema 在 CA/config/models-config-schema-bundle.ts；加载入口 ModelRegistry.#loadCustomModels（CA/config/model-registry.ts:1704-1866）。
+顶层：`providers: { <name>: ProviderConfig }`（models-config-schema-bundle.ts:400-402）。
+ProviderConfig（bundle:332-398，全部可选）：
+- baseUrl（非空）、apiKey（非空字符串）、api（取值见下）、headers（字符串映射）、authHeader（boolean：把 apiKey 作为 `Authorization: Bearer` 发）、
+  auth（"apiKey" | "none" | "oauth"，默认 apiKey；none=无需 key 的端点，oauth=让请求形态按 OAuth 代理处理）、
+  compat（OpenAI/Anthropic/Bedrock 兼容开关，一长串，见 bundle:49-122）、discovery、models（数组）、modelOverrides（按模型 id 的覆盖）、
+  disableStrictTools、remoteCompaction、transport（"pi-native"）、guardrailIdentifier 等 Bedrock 专用。
+api 取值（ApiSchema，bundle:128-130）：openai-completions、openai-responses、openai-codex-responses、azure-openai-responses、anthropic-messages、bedrock-converse-stream、google-generative-ai、google-gemini-cli、google-vertex、openrouter-decisions、openai-decisions、workers-ai-systemone、typesafe。模型级 api 还可写“runner api”（图像、语音等，bundle:136-139）。
+ModelDefinition（bundle:229-285）：必填 id；可选 name、api、kind（chat 等）、baseUrl、reasoning、thinking（{mode, efforts[], defaultLevel…}，mode 取 effort/budget/google-level/anthropic-adaptive/anthropic-budget-effort，bundle:157-198）、input（["text","image"]）、supportsTools、cost {input,output,cacheRead,cacheWrite}（四项都必填）、contextWindow、maxContextWindow、maxTokens、omitMaxOutputTokens、headers、compat、tokenizer、contextPromotionTarget、compactionModel、remoteCompaction、promptCache、premiumMultiplier。
+校验（models-config.ts:45-141 validateProviderConfiguration）：
+- 定义了 models 就必须有 baseUrl；还要有 apiKey，除非 auth 是 "none" 或 "oauth"（:60-75）。
+- 每个模型必须在服务商级或模型级有 api（:92-100）；contextWindow、maxTokens 写了必须 >0；kind 必须与 api 匹配。
+- models 为空时，服务商块至少要有 baseUrl/headers/apiKey/auth:none/compat/…/modelOverrides/discovery 之一（:46-62），即“只覆盖内置服务商”的写法。
+- discovery 在服务商级必须同时有 api（proxy 类型除外，:78-80）。
+key 怎么写（resolveConfigValue，CA/config/resolve-config-value.ts:97-101）：apiKey 字符串三种解释：
+  1) 以 `!` 开头 = 执行 shell 命令取 stdout（缓存，失败 30s 退避，10s 超时，:7,52-91）；
+  2) 否则先当“环境变量名”查（$envExact(value)），有值（非空）就用该变量的值；
+  3) 都不是就当字面 key 原样用。
+  即支持写环境变量名，但没有显式“这是变量”的语法：变量名拼错会被当成字面密钥发出去，这是 OMP 的行为，不要照抄；我们应分开字段。
+自定义服务商与内置服务商同名时（model-registry.ts:1198-1225 #projectBaseModels、1291-1325 #mergeCustomModels、2566+ #applyModelOverrides）：
+- 服务商级字段（baseUrl、apiKey、headers、compat…）作为 provider override 套到该服务商**所有**内置模型上（loadCustomModels:1780-1812）。
+- models 里 id 相同的 = 用 applyModelPatch 替换内置行（保留未写的字段，transport 策略 "replace"）；id 不同的 = 追加新模型（finalizeCustomModel，useDefaults: true）。合并键是 provider+id（mergeByModelKey）。
+- modelOverrides.<id> 对内置/发现的模型打补丁（只改写出的字段）。
+- apiKey 一旦写在 models.yml 会注册为 configOverride，优先级高于 OAuth/登录/环境变量（auth-storage.ts:6028+ 注释 2）。
+自定义模型没写上下文等参数时：**会**按模型名从内置目录补齐（finalizeCustomModel，CA/config/custom-models.ts:~99-150）：
+  reference = resolveModelReference(模型 id, getBundledModelReferenceIndex())，按 id 在全目录匹配（跨服务商，会剥离 `@ns/`、`ns/`、`:cloud`、`-cloud`、大小写、冒号变横线、尾部标记等，见 pi-catalog identity/reference.ts:120-199；以 `@` 开头的网关 id 不匹配）。
+  取值顺序：显式值 -> reference 的值 -> 兜底默认。字段：cost（兜底全 0）、input（兜底 ["text"]）、reasoning（兜底 false）、contextWindow（兜底 128000）、maxTokens（兜底 16384）、supportsTools、compat、thinking（只在 reference 与自定义同 provider 时继承，inheritReferenceThinking，reference.ts:177-186）。
+  显式的 cost/contextWindow/maxTokens 最后再覆盖一次（目录修正不得盖过用户值，custom-models.ts:~152-164）。
+从服务拉取模型列表（有）：服务商级 `discovery: {type, timeoutMs?, injectV1?}`，type = ollama | llama.cpp | lm-studio | openai-models-list | proxy | litellm | apple-foundation-models（bundle:304-326）。
+  openai-models-list 请求 `GET {baseUrl}/models`（默认在 baseUrl 后补 /v1；injectV1:false 则不补），解析 data/models/result/items 任一包络或直接数组；每个 id 同样用 reference 补齐上下文/输入/推理（CA/config/model-discovery.ts:~935-1000，resolveModelReference 在 :~950）；上下文先取响应里的 max_model_len/context_length。
+  proxy 类型（new-api/one-api）读 supported_endpoint_types 决定每个模型的 api（model-discovery.ts:1116-1170）。
+  UI 里的发现状态：idle/ok/empty/cached/unavailable/unauthenticated（model-hub.ts:122-130,1170-1210），404 提示要把 baseUrl 指向提供 /models 的路径（通常 .../v1）。
+  可直接 import 的底层函数：pi-catalog 的 fetchOpenAICompatibleModels(options)（REPO-CAT/discovery/openai-compatible.ts:141+；仓库 18.2.5 也有）：参数 {api, provider, baseUrl, apiKey?, headers?, timeoutMs?, signal?, fetch?, filterModel?, mapModel?}，失败返回 null、成功但空返回 []，默认模型占位 contextWindow/maxTokens 为 null、cost 0、input ["text"]，调用方再自己补参数（可用 resolveModelReference）。
+
+## 5. 目录与运行时的衔接（从选中项到发请求）
+OMP 本体（coding-agent ModelRegistry）：
+- 选中的服务商/模型 -> Model 对象：内置目录 getBundledModel/getBundledModels；自定义/发现的走 buildModel（pi-catalog/build.ts:281）；ModelRegistry 组合（models.yml + 目录 + 发现 + overrides）后给出 Model[]，再由 authStorage 过滤可用项。
+- 取 key：registry.getApiKeyForProvider / getApiKeyAndHeaders(model)（model-registry.ts:3267-3340）-> AuthStorage 的 getApiKey 级联；请求时用 ApiKeyResolver（api-key-resolver.ts，401 时强刷新、额度用尽时轮换同服务商的其它账号）。
+- 发请求：pi-ai 的 stream/streamSimple/complete（stream.ts）按 model.api 分派到各 provider 实现，key 通过 options.apiKey 传入，自定义 header 通过 model.resolveHeaders/headers。
+我们 nb-harness 已复用的最小面：getBundledModel/getBundledModels/getBundledProviders、buildModel、getEnvApiKey/Name、NO_AUTH_SENTINEL。可以再复用而不用手写的公开函数（均来自 pi-catalog / pi-ai，仓库 18.2.5 版本里存在，已核对 exports 的通配项）：
+- authPolicyFor / authProviders（@oh-my-pi/pi-catalog/compat/auth）：名称、登录方式、刷新方式、env 种类、是否可无 key。
+- providerEntry / providerEntries（@oh-my-pi/pi-catalog/compat/providers）：envVars 完整列表（按顺序）、defaultModel、allowUnauthenticated。
+- getSupportedEfforts(model)（@oh-my-pi/pi-catalog 根入口，model-thinking.ts:23）：思考档列表（我们 plan 的 efforts 字段）。
+- getEffectiveTokenCost（pi-catalog/models）：单价，含分时价。
+- getBundledModelReferenceIndex + resolveModelReference + inheritReferenceThinking（pi-catalog 根入口，identity/*）：自定义模型按名补齐参数。
+- fetchOpenAICompatibleModels（pi-catalog 根入口）：拉 /models。
+- getOAuthProviders（pi-ai/oauth）：/login 列表（见上，含 api-key 登录，不能当 OAuth 判断）。
+- 密钥的环境变量取值：getEnvApiKey(provider)（会读 Bun.env、cwd/.env、~/.env，注意 model.ts 头注释已提到的 .env 问题）。多变量按顺序 $pickenv。
+注意：18.2.5 与 18.12.3 的 AuthStorage API 不同（旧：hasAuth/getApiKey/getCredentialOrigin；新：authStorage.keys.source/get/peek/keyless，KeysApi 在 pi-ai/auth/types.ts:919+）。如果升级版本，要重核对，只用 authPolicyFor/providerEntry 这类数据表受影响较小。
+
+## 6. 公开导出 vs 只能参照
+- pi-ai、pi-catalog 的 package.json exports 都带通配 `"./*"`（以及 ./compat/*、./identity、./discovery、./registry、./oauth 等），src 即导出面；所以 compat/auth、compat/providers、build、model-thinking、models、identity 等**都能 import**（仓库里 18.2.5 已核对，exports 见两包 package.json）。注意“能 import”不等于“稳定 API”：compat/rules.json 的结构由 KDL 编译而来；18.2.5 与 18.12.3 之间 AuthStorage 的 API 已变（hasAuth -> keys.source），服务商清单也会随版本变，升级时要重跑对照测试。
+- 稳定性较高、文档化的：getBundledProviders/Models/Model、buildModel、getEnvApiKey、getEnvApiKeyName、listProvidersWithEnvKey（pi-ai 根入口）、getSupportedEfforts、fetchOpenAICompatibleModels、AuthStorage（根入口）。
+- 只在 coding-agent（仓库未装，全局 omp 18.12.3 里）：ModelRegistry、models.yml 的 schema（models-config-schema-bundle.ts，用 omptype 写，不是 TypeBox）、validateProviderConfiguration、finalizeCustomModel/buildCustomModelOverlay、resolveConfigValue（!命令/环境变量名/字面）、api-key-resolver、模型选择界面的数据适配。pi-coding-agent 的 exports 也是通配（"./*"、"./config/*"），理论可 import，但它拖进整个编码 agent、读 ~/.omp 配置与 agent.db，不适合 nb-harness，只能参照。
+- 只在 pi-tui（终端 UI，全局 18.12.3；仓库未装）：model-hub / model-browser / model-picker / thinking-selector，是终端组件，只能借鉴做法；其中纯函数（sortModelItems、ModelItemRanker、buildSearchAffinity、extractVersionNumber）逻辑可参照改写成 TS 纯函数，不建议依赖 pi-tui。
+
+## 对我们的建议
+
+### A. listCatalog 怎么判断 auth 与 key 变量（nb-harness）
+不要依赖 getEnvApiKeyName 判断认证方式；它只是“解析器是不是单个字符串”的副产物。改用 pi-catalog 的两张数据表（仓库版本可用）：
+1. 取显示名：authPolicyFor(id)?.name ?? id。
+2. 取变量名列表（可多个）：providerEntry(id)?.envVars（OMP 自己的 /models 提示用的就是它）。auth.env.vars（authPolicyFor(id).env 是 {vars} 时）与之同源，只有 {hook} 才是计算型。
+   anthropic 的实际取值顺序是 ANTHROPIC_OAUTH_TOKEN、ANTHROPIC_API_KEY；我们只列 envVars（ANTHROPIC_API_KEY）即可，且应在执行时按这个列表顺序取第一个非空值（不是只取一个）；若想与 OMP 完全一致，用 getEnvApiKey(id) 做“是否已设置”的判断，用 envVars 做“提示用户设哪个变量”，两者分开。
+   注意 model.ts 里现有 resolveModel 只取 getEnvApiKeyName 的一个变量名，对 moonshot（两个变量）、huggingface、coreweave 等多变量服务商，错误提示会写成 null；应改成 envVars 列表。
+3. 认证类别（建议 `auth: "key" | "login" | "chain" | "none"`，plan 里的 key/login 二分不够）：
+   - refresh 的 kind 为 request 或 hook -> "login"（anthropic 例外见下）。
+   - env.hook 存在或 nativeAuthApis 非空（amazon-bedrock、bedrock-mantle、google-vertex）-> "chain"（AWS/gcloud 凭据链，不是 key；google-vertex 另可用 GOOGLE_CLOUD_API_KEY）。
+   - 其余有 envVars 或 login.kind 为 api-key/custom，或 result="api-key"（openrouter）-> "key"。
+   - allowUnauthenticated/allowsMissingApiKey 为真（zenmux、commandcode、google-vertex、bedrock-mantle）-> 标记 keyOptional。
+   - 目录里无 env 也无 login 的（minimax-cn）-> "none"/“不可直接用，需自定义配置”。
+   anthropic、xai-oauth、devin、gitlab-duo 这种“既能登录也能直接给环境变量”的：归 "login" 但同时保留 keyEnv（并标记 `keyAlso: true`），界面显示“可用环境变量 ANTHROPIC_API_KEY，或在 OMP 里登录”。
+4. 登录类在我们这里的可用性：resolveModel 只能走环境变量；OMP 的登录态在 agent.db（AuthStorage），我们不接。建议界面对 "login" 服务商置灰并提示“需要 OMP 登录/令牌环境变量 X”，除非 keyEnv 对应变量已设置（例如 OPENAI_CODEX_OAUTH_TOKEN、COPILOT_GITHUB_TOKEN 已设则可用）。
+5. “已就绪”判断：key 类 = envVars 里任一变量非空（getEnvApiKey(id) 非空且不等于 AUTHENTICATED_SENTINEL）；chain 类 = 只能给“可能可用”（getEnvApiKey 返回 sentinel 时）；与 OMP 的 hasConcreteAuth 语义一致（排除 sentinel）。
+6. 对照测试：把上面的分类规则对所有 getBundledProviders() 的结果落成快照测试（至少锁住 anthropic、openai-codex、github-copilot、cursor、amazon-bedrock、google-vertex、moonshot、openrouter、ollama/zenmux 的分类），升级 OMP 时测试会提示变更。
+7. 模型字段：reasoning 用 model.reasoning；efforts 用 getSupportedEfforts(model)；images 用 model.input.includes("image")；价格用 getEffectiveTokenCost(model.cost)（含分时价；订阅价/未知价有 model.pricingStatus，OMP 会显示“subscription/unknown”而非 free，见 model-browser.ts:735-790，可以只借鉴“未知价不显示 free”）；上下文用 model.contextWindow（可能为 null，显示空）。
+
+### B. nb-story 自定义服务商配置借鉴 models.yml 的哪些字段与规则
+借鉴（字段名与语义尽量对齐，方便用户从 OMP 的经验迁移）：
+- 服务商块：`baseUrl`、`api`（先支持 openai-completions、openai-responses、anthropic-messages、google-generative-ai 四种，名称与 OMP 的 api 取值完全一致，这样 defineModel/buildModel 可直接用）、`headers`、`models[]`。
+- 模型：`id`（必填）、`name`、`api`（可覆盖服务商级）、`reasoning`、`input`（["text","image"]）、`contextWindow`、`maxTokens`、`cost`（四项）。校验规则照搬：有 models 就必须有 baseUrl；每个模型服务商级或模型级必有 api；contextWindow、maxTokens 必须为正。
+- “缺参数时按模型名从目录补齐”：照 OMP 的顺序“显式值 -> resolveModelReference(id, getBundledModelReferenceIndex()) -> 兜底（contextWindow 128000、maxTokens 16384、input [text]、reasoning false、cost 0）”，显式值最后覆盖；thinking 只在同服务商时继承。注意 nb-harness 现有 defineModel 用 buildModel 后再用宿主值“整个盖回去”，会把这里补出的值冲掉，要先补齐再传入；并把“价格是否已知”继续用 priceKnown 表示（OMP 兜底成 0 会显示 free，我们已有 priceKnown，更好）。
+- 同名覆盖：建议至少支持 OMP 的“服务商级 baseUrl/headers/key 套到该服务商全部内置模型（相当于代理/中转）”和“同 id 模型替换内置行、不同 id 追加”这两条；modelOverrides 可以先不做。
+- discovery：先只做 openai-models-list（GET {baseUrl}/models，默认补 /v1 可选，injectV1:false 对应不补），底层直接用 fetchOpenAICompatibleModels + resolveModelReference 补齐；展示状态 idle/ok/empty/unavailable/unauthenticated 和 404 提示。
+不要照搬：
+- apiKey 字段的三合一语义（`!命令` / 环境变量名 / 字面量）。变量名拼错会静默当成字面密钥发出去，且 model.ts 头注释已记过类似的“退回别的密钥”问题。我们已有 `apiKeyEnv` 与 `apiKey: "none"`，保持分开；不要把密钥明文写进配置文件。如要“命令取 key”，另开显式字段并由开发者决定是否做（有任意命令执行风险，OMP 有超时与缓存）。
+- auth: "oauth" 与 transport、guardrail、compat 那一长串；先按需加（compat 只在遇到具体网关不兼容时再引入）。
+- models.yml 对 key 的 configOverride 最高优先级：我们没有 OAuth/存储凭据，不存在优先级问题，保持“绑定在模型实例上的 key”最简单。
+
+### C. 模型目录界面可借鉴的做法
+- 两栏结构：左侧范围栏（最近、全部、各服务商），右侧列表+详情；有可用模型的服务商在前并标可用数，没有凭据的服务商排到分隔线之后变暗，选中后右侧不是空白而是说明页：“<id> 没有配置凭据；请设置环境变量 A 或 B；（若有）登录方式；目录里有 N 个模型：…预览”。环境变量文案来自 providerEntry(id).envVars（多个用“或”连接）。这是 OMP 对“空 getEnvApiKeyName”问题的现成答案。
+- 列表行：`provider/id` 作主文本，右侧对齐的事实列：上下文（400k）、价格（$输入·输出 每百万；零价=free；未知价用文案而不是 free）、窄屏按优先级丢列；徽标 new/beta/free；推理与图片放详情或小图标，不占列。
+- 搜索：模糊匹配 `provider/id`，排序分层“精确 -> 连续子串 -> 仅模糊”，同层内“用户亲和（已选过、最近用过）优先，再模糊得分，再默认顺序”；搜索时先搜全部，范围栏上显示每个服务商的命中数，并把有命中的服务商提前。
+- 默认顺序：已选/最近用过 -> 服务商 -> 版本号降序（从 id 抽出 4.6、2.5 这类数字）-> -latest 与日期新的在前 -> 字母序。extractVersionNumber 与 modelItemComparator 是纯函数，约 80 行，可以直接改写成 TS 工具（不依赖 pi-tui）。
+- 思考档：选完模型再选，档位只列该模型 getSupportedEfforts 支持的；非推理模型不出现；带“深度条”和 auto（默认）。
+- 最近用过：保存 MRU（provider/id 列表，上限约几十），“最近”放在范围栏第一项；没有收藏功能，不必做。
+- 自定义服务商的发现状态要显式画出来（cached、unavailable、empty、unauthenticated 各一句话的提示），不要只显示“无模型”。
+- 把“能不能用”和“为什么不能用”放在同一屏：OMP 的 locked 视图就是这个做法。
+
+## 附：证据位置速查
+- 仓库版本（18.2.5）：/home/notnotype/CodeRepository/neuro-book/node_modules/@oh-my-pi/pi-ai/src/stream.ts:807-893（env 合成）、registry/hooks/env.ts、auth-storage.ts:2961-3066,6020-6068；pi-catalog/src/compat/{auth,providers,types}.ts、compat/rules/auth/*.kdl、compat/rules/providers/*.kdl、discovery/openai-compatible.ts、identity/reference.ts。
+- 全局版本（18.12.3）：/home/notnotype/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/src/config/{models-config.ts,models-config-schema-bundle.ts,custom-models.ts,model-registry.ts,model-discovery.ts,resolve-config-value.ts,api-key-resolver.ts}；pi-tui/src/overlays/{model-hub.ts,model-browser.ts,model-picker.ts,thinking-selector.ts}；pi-ai/src/env-api-key.ts。
+- 说明：行号为核对时读到的位置，带“~”的是区间估计；全局版与仓库版的 pi-ai/pi-catalog 内部文件布置略有不同（例如 env 合成在仓库版是 stream.ts，全局版挪到 env-api-key.ts）。
+- 未运行 omp，未读取 ~/.omp 下任何文件；探测脚本只读取 node_modules 内的规则表，未调用会读环境变量取值的函数。

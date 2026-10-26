@@ -1,0 +1,154 @@
+# t04 实施计划设计审查（Claude Opus，后端、内核与安全）
+
+审查对象：`.agents/works/w00027-plugin-platform/tasks/t04-browser-loading-sdk/plan.md`，worktree `.worktree/review-t04-design`（`354ec2e06`）。实验目录 `/tmp/review-t04-design-opus/`（结束时删除），用 w00027 worktree 的 node_modules（只读），Bun 1.4.2，typebox 1.3.6。
+
+### 1. 服务端外部表漏了 `@vue/reactivity`：counter 的公开状态与就绪等待在外置后静默失效
+
+- 严重程度：阻断；类别：正确性
+- 位置：计划“构建预设”第一条（服务端与项目入口外部只有 SDK、Vue 与 Node／Bun 内置模块）、“服务端与项目实例的装载”第一条（`Bun.plugin` 只登记 `@notnotype/nb-plugin-sdk`、`vue`）；`packages/neuro-book/examples/plugins/counter/backend/plugin.ts:17`
+- 现象：counter 的服务端入口 `import {computed, watch} from "@vue/reactivity"`，用 `computed` 从 store 字段 `count.display` 派生公开键 `nonzero`，用 `watch` 等字段就绪（`untilReady`）后才完成激活。宿主的 `defineStore`（`src/shared/store/store.ts:10`）也从 `@vue/reactivity` 取 `computed`、`effectScope`，字段是宿主那份 reactivity 的 ref。按计划的外部表，`@vue/reactivity` 不是外部，会被打进插件产物，成为第二份 reactivity。Vue 的依赖收集靠模块级的 `activeSub`，两份实例互不可见。
+- 实验（真实 Bun）：用 `bun build` 把一个只 `import {computed, watch} from "@vue/reactivity"` 的文件打成单文件，宿主用自己的 `ref` 交给它：`ref` 从 0 改到 3 后，插件那份 `computed` 仍读到 `false`，`watch` 回调 0 次。对照：在 Bun 里宿主直接 `import "vue"` 与 `import "@vue/reactivity"` 的 `ref` 是同一函数（`vue` 的 reactivity 就是 `@vue/reactivity` 那份），所以只把 `vue` 设为外部而插件写 `@vue/reactivity` 时问题不出现在仓库内的场景测试里，只在外置产物里出现。
+- 影响：S3b 的载体 counter 外置后，`untilReady` 在字段尚未就绪时永远不 resolve，入口激活挂到内核激活超时；即使字段已就绪，`nonzero` 不随计数变化，命令 `example.counter.reset` 的 `when` 永远是初值。不会报错，纯度检查（只查浏览器产物）也不拦。
+- 建议：服务端与浏览器两张宿主模块表都把 `@vue/reactivity` 列进去（与 `vue` 是同一实例，登记它的 exports 即可），或者在 SDK 里再导出示例要用的 `computed`、`watch` 并要求插件只经 SDK 或 `vue` 取 reactivity；纯度检查扩展到服务端与项目产物，扫描产物里出现的 Vue reactivity 实现（例如 `@vue/reactivity` 的模块标记）就失败。Spec `plugin-code-loading` 的宿主模块表同步加这一项。
+
+### 2. 合同经 JSON 进清单后，`Type.Refine` 与自定义 format 在提供方一侧静默丢失，输入校验变宽
+
+- 严重程度：重要；类别：正确性
+- 位置：计划“合同进清单”第二、三条（宿主用 `defineRemoteService(json)` 还原、激活后按 id 换成登记的那份）；`packages/nb-runtime/src/remote/node.ts:807-815`（提供方用 `found.provision.contract` 的 `method.input` 做 `validationProblems`）、`node.ts:690-693`（调用方用自己那份合同的 `output` 核对返回）
+- 现象：换合同对象之后，提供方的入参校验用的是 JSON 还原的 schema，调用方的返回值校验仍用调用方代码里的原对象。typebox 1.3.6 里大部分 schema 往返后 `Value.Check` 一致（实测 `Unsafe`、`Cyclic`/`$ref`、`BigInt`、`Undefined`、`Optional`、`default`、`patternProperties`、`pattern` 都一致；1.x 的 Kind 是字符串键 `~kind`，不是 Symbol，不影响 Check），但有两类不一致：
+  - `Type.Refine(Type.String(), v => v.length > 2)`：原对象对 `"a"` 返回 false，`JSON.parse(JSON.stringify(...))` 之后返回 true，序列化结果只剩 `{"type":"string"}`；
+  - 自定义 format：插件在自己打包的那份 typebox 上 `Format.Set` 的 format，内核那份不认识，实测 `Value.Check({type:"string",format:"my-fmt"}, "a")` 返回 true。
+  `Type.Codec` 的编解码同样丢失（远程层不用 Decode，暂无影响）。
+- 为什么是问题：计划“开工前已实测”只验证了普通 schema。提供方实现按合同假设入参已校验，换对象后同一个插件在内置（进程内同一对象）与外置（清单还原对象）两种装载下行为不同，违反 ADR 0027“内置与第三方能力相同”；也没有任何诊断。
+- 核实：在 `/tmp` 用 typebox 1.3.6 对上述 schema 做 `Value.Check(原, v)` 与 `Value.Check(JSON 往返, v)` 对比（本次实验即此）。
+- 建议：构建预设生成 `contracts` 时检测不可序列化的 schema（`IsRefine`、`IsCodec`、`format` 不在 typebox 内置 format 表里、函数类型），检测到就构建失败并指出合同与方法；Spec `plugin-manifest` 的 `contracts` 条目写明“合同 schema 必须是纯 JSON Schema，Refine、Codec、自定义 format 不可用于远程合同”。另一条路是只核对版本、不换对象，让内核的同一对象检查改为“id 与版本相同”（见第 3 条），提供方就继续用自己的原对象校验。
+
+### 3. 服务端用查询串造新模块实例：旧实例永不回收，与 Spec 输出 6 和仓库自己的调研结论相反，后续做回收要返工
+
+- 严重程度：重要；类别：安全与性能 / 不变量
+- 位置：计划“服务端与项目实例的装载”第二条（`import(<版本目录>/<main>?generation=<n>)`，`n` 每次激活递增）；`docs/specs/runtime/plugin-code-loading.md` 输出 6 第二点（“一个插件在服务端的全部入口都停止后，服务端不再持有该插件的任何模块”）与“边界与兼容”的“运行时依赖”；`docs/research/runtime-module-unloading.md:39`、`:188`、`:244-251`
+- 现象：仓库的调研已经记下“追加 query 可绕过缓存得到新实例，但旧实例不被回收”，可回收的做法是固定路径 + `delete require.cache[path]` 再 `import`（40 次留存 7.7MB，旧模块无人引用后回收）。计划选了调研判为不回收的那条。
+- 复核（Bun 1.4.2，真实运行时）：`Bun.plugin` + `build.module` 登记 `@notnotype/nb-plugin-sdk`、`vue` 后，安装目录外的 ESM 文件能 import 到宿主那份（同一对象）；`?generation=1`、`?generation=2` 得到两份实例，顶层状态独立；同一查询串再 import 回到第一份。模块顶层放一个约 2MB 的字符串，连续 400 个代次、`Bun.gc(true)` 之后 RSS 增长 835MB、heapUsed 808MB，即每份实例原样留存。`bun test` 里同样生效；再次 `Bun.plugin` 登记同名模块会静默换成新的 exports（后登记的生效）。没找到 Bun 文档对“查询串产生新模块实例”的承诺，计划的“未文档化”属实。
+- 影响：本 Task 不做热插拔，同一进程里的再激活只有显式 `recover` 与失败后重试，所以本 Task 内的泄漏有上限、可接受；问题在于这是 t05 之后做 S5 时的地基：Spec 输出 6、7（40 次启停堆不增长）在这条路上做不到，届时要把装载改成 `require.cache` 删除式，S3a 的“新代次新实例”测试也要跟着换。顶层抛错或求值失败的模块记录同样留在注册表里，每次重试多一份。
+- 建议：本 Task 就用调研验证过的写法：每次激活前按版本目录前缀删除 `require.cache` 里该插件的条目（单文件产物只有一条），再用不带查询串的固定路径 `import`；S3a 的测试照样能断言“顶层计数从初始值开始”。若坚持查询串，至少在计划“不做与风险”里写明它与 Spec 输出 6 冲突、S5 时要换装载方式，并把 Spec 的“服务端回收依赖……Bun 1.4.2 实测可行”改成指向具体做法，免得读者以为当前实现可回收。
+- 补充复核（同一环境，带 `Bun.plugin` 宿主模块）：固定路径 `import` → `delete require.cache[path]` → 再 `import` 得到新实例，`require.cache` 的键就是安装文件的绝对路径；同一个约 2MB 顶层字符串的模块连续重载 400 次，`Bun.gc(true)` 后 RSS 增长 0.2MB、heapUsed 6.1MB。建议的做法与宿主运行期模块兼容。
+
+### 4. 文件端点的 URL 落不到“宿主路由”上：宿主路由只挂在 `/api/runtime/`，`/api/plugins/...` 会被当成插件 id `plugins` 分发
+
+- 严重程度：重要；类别：接口形状 / 正确性
+- 位置：计划“插件文件端点”第一句（`GET /api/plugins/:id/files/:version/*`，“作为 `server/plugins.ts` 交给 `nbook.http` 的宿主路由（同引导路由）”）；`packages/neuro-book/src/plugins/http/backend/dispatch.ts:18`（`HOST_ROUTE_SEGMENT = "runtime"`）、`:85-133`（`/api/<段>/` 的段不是 `runtime` 就按插件 id 查 `routes.lookup`，查不到 404）；`src/plugins/http/backend/plugin.ts:71-72`（`hostRoutes` 全部注册在 `/api/runtime/` 的 Hono 应用里）；`docs/specs/runtime/server-host.md:53`（`/api/runtime/` 留给宿主）
+- 现象：照计划把端点加进 `server/plugins.ts` 的 `hostRoutes` 数组，实际路径是 `/api/runtime/plugins/:id/files/...`；Spec 与计划写的 `/api/plugins/...` 会进入插件分发，段 `plugins` 不是任何插件 id（第三方 id 必含点，内置是 `nbook.plugins`），返回 404。e2e 会在 S2e 才暴露。另外 `docs/specs/runtime/api-docs.md:36` 已把 `/api/plugins/<插件 id>/raw/` 定为第三方插件 HTTP 路由的位置，与 `server-host.md` 的“挂到 `/api/<插件 id>/`”本来就不一致，新端点再占 `/api/plugins/` 前缀会把这处分歧固化。
+- 建议：二选一并写进计划与 Spec：①端点改为 `/api/runtime/plugins/<id>/files/<版本>/<路径>`，不改分发器；②分发器加第二个宿主段 `plugins`（列为 `dispatch.ts` 的改动，测试覆盖“段 `plugins` 不再查插件路由”），同时裁定 api-docs 的 `/api/plugins/<id>/raw/` 与它怎样共存。倾向①，改动最小、与引导路由同处。
+
+### 5. 路径穿越：明文 `..`、`%2e%2e`、反斜杠在到达处理器前已被 URL 规范化，验收 8 的“`..` 返回 400”照字面写不出来；真正要拦的是编码斜杠
+
+- 严重程度：建议；类别：测试 / 安全与性能
+- 位置：计划“插件文件端点”（路径解析后必须仍在版本目录内，否则 400）；验收映射“plugin-code-loading 输出 8，验收 8（400、404）”；`dispatch.ts:90`（`new URL(request.url)`）
+- 现象（真实 Bun 1.4.2，`curl --path-as-is` 发原始路径，处理器看 `new URL(request.url).pathname`）：
+  - `/api/plugins/a.b/files/1.0.0/../../../x` → `/api/plugins/x`
+  - `/api/plugins/a.b/files/1.0.0/%2e%2e/%2e%2e/x` → `/api/plugins/a.b/x`
+  - `/api/plugins/a.b/files/1.0.0/..\..\x` → `/api/plugins/a.b/x`
+  - `/api/plugins/a.b/files/1.0.0/..%2f..%2fx` → 原样保留为 `..%2F..%2Fx`
+  - `%2E%2E%5c..%5cx` → 原样保留
+  前三种根本到不了文件端点，结果是别的路由的 404（或落到别的插件的路由上）；只有 `%2F`、`%5C` 编码的分隔符能把 `..` 带进处理器。所以“`..` 越出版本目录返回 400”的测试若用明文 `..` 会得到 404 而失败，或被改成断言 404 而失去意义；实现若对整段尾路径 `decodeURIComponent` 后再 `join`，`%2F` 会变成真分隔符，安全性完全依赖之后的包含检查。
+- 建议：计划写明处理器的解析规则：按原始 `pathname` 的 `/` 切段，逐段解码，解码后的段含 `/`、`\`、`\0` 或等于 `.`、`..`、空串时 400，再逐段 `lstat`；端点测试用 `..%2F..%2F`、`%5C`、`%00` 三种编码输入断言 400，用明文 `..` 断言“不会得到版本目录外的文件”（任何非 200 都可）。Spec 验收 8 的措辞同步改为编码形式。
+
+### 6. “带版本号的 URL 长期缓存”与“卸载、重启后可以重装相同版本”冲突：同版本不同内容时浏览器继续执行旧代码
+
+- 严重程度：重要；类别：正确性
+- 位置：计划“插件文件端点”末句（带版本号的 URL 可以长期缓存）；`docs/specs/runtime/plugin-install.md:40`（同版本重装被拒绝，但“先卸载、重启后再安装”可以）；`src/server/browser-bootstrap.ts:28`（引导的 `revision` 只按 `id@version` 计算）
+- 现象：版本号不是内容身份。按 plugin-install，作者改了代码不升版本时的正规路径是“卸载 → 重启 → 安装同版本 → 重启”，URL `/…/files/1.0.0/web.js` 不变；端点若给 `Cache-Control: max-age=…, immutable`，浏览器在缓存有效期内直接用旧的 `web.js`、`style.css`，服务端与项目实例却已执行新代码，前后端合同不一致而且没有任何提示。引导的 `revision` 也只看 `id@version`，同版本换内容时窗口不会察觉集合变了。t05 的“仓库外按文档新建插件并构建”正是作者反复改代码、通常不升版本的场景，第一个碰到的就是它。
+- 建议：URL 里带内容身份而不是只带版本，例如安装时算出的清单与产物摘要，或登记表里每次安装生成的安装号（`plugins.json` 已逐插件记录，可以加一个字段），版本段改为 `<版本>-<安装号>`，端点按“当前安装号”核对，旧的返回 404；引导的 `revision` 同样并入这个身份。做不到时退一步：响应用 `Cache-Control: no-cache` + `ETag`（按文件 mtime 与大小），每次协商、命中时 304，代价很小。计划与 Spec 输出 8 的“副作用”里“URL 含版本号，升级后自然失效”一并改写。
+
+### 7. SDK 包再导出应用源码：仓库外的 tsc 解析不了应用内部的 `nbook/*` 别名，作者也装不上私有的应用包；t05 的“仓库外新建插件并构建”按这个设计走不通
+
+- 严重程度：重要；类别：接口形状
+- 位置：计划“SDK”第一、二条（公开面放在应用 `src/sdk/`，`@notnotype/nb-plugin-sdk` 根入口与 `/web` 再导出 `@notnotype/neuro-book/sdk`）；`packages/neuro-book/package.json`（`private: true`，现在没有 `exports` 字段，`dependencies` 含 hono、tiptap 等整套应用依赖）；`packages/neuro-book/tsconfig.json:12-14`（`paths: {"nbook/*": ["./src/*"]}`，只对本包生效）
+- 现象：SDK 的每个再导出最终落到应用源码，而应用源码彼此用 `nbook/...` 别名导入。
+  - tsc：在 `/tmp` 建一个普通 tsconfig 的“作者项目”，导入应用的 `src/shared/store/store.ts`（SDK 要再导出的 `defineStore` 所在），`tsc -p .` 报 7 处 `TS2307 Cannot find module 'nbook/...'`（`nbook/plugins/state/shared/contracts`、`nbook/shared/settings`、`nbook/shared/storage`）。别名只在应用自己的 tsconfig 里，消费方编译依赖的 `.ts` 源码时用的是消费方的配置，`skipLibCheck` 也只跳过 `.d.ts`。新包 `nb-plugin-sdk` 自己的 typecheck 会撞上同一问题，除非它也抄一份 `paths`（这正是“调用方为它写补丁”的信号）。
+  - Bun：按导入方文件最近的 tsconfig 解析别名，实测能跑通，所以仓库内的场景测试不会暴露问题。
+  - Node：构建预设在 Vite（默认 Node）里要执行作者的 `plugin.ts` 才能生成清单，Node 的类型剥离不处理 `paths`，也拒绝剥离 `node_modules` 下的 `.ts`。
+  - 分发：`@notnotype/nb-plugin-sdk` 依赖 `@notnotype/neuro-book`（私有、只在 workspace 里），仓库外 `bun add` 装不到；装到了也会拉进整套应用依赖。
+- 为什么现在要定：计划把“SDK 暂不发布到 npm”理解成“产物形状可以以后再说”，但 t05 的验收要求仓库外按文档新建并构建插件；产物形状（类型从哪来、构建期执行哪份 JS）决定 S2b、S2c 的写法，到 t05 再改就是返工 S2b 的再导出方式与 S2c 的构建预设入口。
+- 建议：t04 就定 SDK 的产物：`nb-plugin-sdk` 在构建时打出自包含的 `dist/`（`index.js`、`web.js`、`build.js` 与经 `tsc --emitDeclarationOnly` 或 `dts` 打包工具生成并内联了 `nbook/*` 类型的 `.d.ts`），`dependencies` 只留 `vue`、`typebox` 这类对外承诺的包；仓库内仍可经 workspace 源码跑场景测试。仓库外作者用 `bun add <本地路径或 tarball>` 安装 `dist`。S2b 的验证加一条“在仓库外临时目录用普通 tsconfig 对一个只导入 SDK 的文件跑 tsc 通过”。
+
+### 8. 版本范围：内核拿不到提供方的版本；可选依赖与升级预览的口径没定，预览与重启后的判定不是同一个函数
+
+- 严重程度：重要；类别：接口形状 / 正确性
+- 位置：计划“版本范围”（`PluginDefinition` 加 `pluginVersions`、`PluginHostOptions` 加范围判断函数）、“升级确认框列出受阻的依赖插件”；`packages/nb-runtime/src/plugins/contracts.ts:158-184`（版本只在 `PluginDescriptor` 上，注释写明“内核登记的是各运行位置的插件定义，不读它”；`PluginDefinition` 没有 `version`）；`plugin-manifest.ts:297-331`（`definitionOf` 不带版本，也不带 `pluginVersions`）；`blocked.ts:23-27`（`deriveBlocked` 是纯推导，签名里没有版本信息）；`docs/specs/runtime/plugin-manifest.md:63`、`:80`、`:148`
+- 现象与问题：
+  1. 判定需要“提供方插件的版本”，而内核里没有这个数据。照计划字面只加 `pluginVersions`，S2a 实现时要么再给 `PluginDefinition` 加 `version`（内置插件的代码定义全部要补，或由 `definitionAt` 从描述并入），要么在 `register` 的选项里传，计划都没写；`definitionOf` 也要把两项带进定义。这决定了 S2a 动多少文件。
+  2. Spec 说 `pluginVersions`“只约束版本，是否必需由各入口的 `requires` 决定”。计划只写了必需依赖受阻；可选依赖的提供方版本不在范围内时怎样没写。照字面实现会把不兼容版本的服务照常注入给可选依赖，正是范围要防的情况。建议：可选依赖按“不可用”处理（不注入，记诊断 `version-mismatch`），入口不受阻。
+  3. 升级预览的口径是“`pluginVersions` 里写了这个插件、且范围不接受新版本的已启用插件”，内核的口径是“入口的必需依赖由它提供且版本不符”。两者在“只写了范围、但入口不依赖它的服务（只走远程合同或只用可选依赖）”时不一致：预览说会受阻，重启后照常可用。而且预览在应用里用 `semver`，内核用注入的函数，若一边 `includePrerelease`、另一边没有，`2.0.0-beta.1` 对 `^1.0.0`、`>=1.0.0` 的结论不同。
+  4. “必填的范围判断函数”让所有构造 `PluginHost` 的地方（三处宿主、内核与应用的大量测试夹具）都要改；计划的 S2a 提交边界只写了“内核 `bun test`、typecheck”，没列应用侧调用方。
+- 建议：计划写明：`version` 进入定义（`definitionAt` 从描述并入，内置不写），`pluginVersions` 只看第三方提供方；可选依赖版本不符按不可用处理；应用提供唯一一个 `satisfies(version, range)` 函数（固定 semver 选项），内核注入与升级预览都调它，预览按“新版本代入后用同一个 `deriveBlocked` 推导”算，而不是只看清单字段；范围判断函数给缺省值“没有 `pluginVersions` 的定义无需判断”，只在出现 `pluginVersions` 而宿主没注入时登记失败，减少夹具改动。
+
+### 9. 清单里的合同只按版本与代码核对、schema 本身不校验：坏 schema 静默放行或在调用时抛出，提供方请求挂起甚至进程退出
+
+- 严重程度：建议；类别：正确性 / 安全与性能
+- 位置：计划“合同进清单”第一条（合同结构合法“复用 `defineRemoteService` 的检查”）、第三条（换对象前“先核对版本相同”）；`remote/contract.ts:84-136`（只查顶层 `type: object` 与 `additionalProperties: false`）；`remote/protocol.ts:100-108`（`validationProblems` 直接调 `Value.Check`，没有 try）；`remote/node.ts:352`、`:770`（`void this.handleRequest(...)`，无 rejection 处理）；`src/server/host.ts:85`（`unhandledRejection` 走 `#fatal` → `requestStop`）
+- 现象：
+  - typebox 1.3.6 对不合法的 schema 不报错：实测 `{"type":"nonsense"}`、`{"anyOf":5}` 对任何值都返回 true（等于不校验），`{"type":"string","pattern":"("}` 在 `Value.Check` 时抛 `SyntaxError`。
+  - 提供方入参校验抛错时 `handleRequest` reject：经路由器转来的请求（`router.ts:455` 的 `#track` 给原 promise 挂了处理）不会崩，但调用方得不到回复，只能等超时；同实例调用（`node.ts:770`）与项目子进程收到的请求（`node.ts:352`）是裸 `void`，成为未处理的 rejection，服务端宿主据此有序停止整个进程（这条链路从代码推断，未在真实运行时触发）。
+  - `defineRemoteService` 用在任意 JSON 上时，缺 `methods` 或 `callers` 不是数组会抛普通 `TypeError`（`Object.entries(undefined)`、`.some` 不存在），不是它自己的“不合法”汇总。
+  - 换对象前只比版本：清单与代码同版本但 `callers`、`provider`、方法集合不同时，内核按清单那份放行与核对，与插件作者在代码里写的不一致，不报错。
+- 建议：`readPluginManifest` 先用一份 TypeBox schema 校验合同 JSON 的形状（`methods`、`events`、`callers` 的类型），再调用 `defineRemoteService`；每个 schema 做一次“预检”（`try { Value.Check(schema, undefined) }`，并拒绝 `type` 取值不在 JSON Schema 类型表里的节点），失败记为 `contracts.<id>.methods.<名>.input` 这样的清单问题。装载适配器换对象前比较规范化 JSON（键排序后的 `JSON.stringify`）而不是只比版本，不同即 `remote-contract-mismatch`。内核的 `validationProblems` 调用处另包 try，抛错时回 `invalid-input` 或 `provider-error` 并记诊断：这是现有缺口，与第三方无关，内置插件的代码 schema 同样会触发。
+
+### 10. 包依赖成环：`nb-plugin-sdk` 依赖应用，应用的示例与对齐测试又依赖 `nb-plugin-sdk`
+
+- 严重程度：重要；类别：不变量 / 代码质量
+- 位置：计划“SDK”第二条（`@notnotype/nb-plugin-sdk` 再导出 `@notnotype/neuro-book/sdk`）、“构建预设”最后一条（`src/builtin-manifest.test.ts` 的“定义 → 清单”转换挪进 SDK 构建预设，测试改为调用它）、“示例迁移”第一条（`packages/neuro-book/examples/` 改为只从 `@notnotype/nb-plugin-sdk` 导入）；`docs/modules/monorepo-boundaries.md:78`（“根 workspace、新应用和所有现存包的依赖图无反向环”）
+- 现象：`nb-plugin-sdk → @notnotype/neuro-book`（再导出），同时 `@notnotype/neuro-book` 的 `examples/`（在应用包的 tsconfig 与 `bun test` 范围内）和 `src/builtin-manifest.test.ts` 依赖 `nb-plugin-sdk`（运行时与构建预设）。应用的 `package.json` 要把 `nb-plugin-sdk` 列进 devDependencies，workspace 依赖图出现 app ↔ sdk 环，违反仓库的结构不变量；构建预设还会把 Vite、`@vitejs/plugin-vue` 带进应用测试的依赖面。Bun 解析符号链接到真实路径，环在运行时不报错，所以不会被测试拦下。
+- 建议（任选一，写进计划）：
+  - 示例搬出应用包，放 `packages/nb-plugin-sdk/examples/` 或独立 workspace 包 `packages/nb-plugin-examples/`，由它依赖 SDK 与应用；应用的 e2e 只消费示例的构建产物目录。这也更像“外置插件”。
+  - “定义 → 清单”的转换放进内核 `@notnotype/nb-runtime/plugin-manifest`（它已经有反方向的 `definitionOf`），SDK 构建预设与应用对齐测试都调内核，不经 SDK。
+  若认为 devDependency 环可接受，需要在 `monorepo-boundaries.md` 明确写例外，不能默默破例。
+
+### 11. 代次计数的作用域没写：按每次装配或每个定义计数时，同一进程里第二次起宿主会拿回上一次的模块实例
+
+- 严重程度：建议；类别：正确性 / 测试
+- 位置：计划“服务端与项目实例的装载”第二条（`?generation=<n>`，`n` 每次激活递增）、第一条（宿主模块“只登记一次；测试里多次起服务端共用”）
+- 现象：Bun 按完整 URL（含查询串）缓存模块，同一查询串再 import 回到旧实例（第 3 条实验）。`n` 若放在 `activateFor` 的闭包或每次 `startServer` 新建的装载器里，同一 `bun test` 进程里第二次起服务端、同一插件同一版本的第一次激活又是 `?generation=1`，拿到的是上一个服务端实例求值过的模块，顶层状态带过来；S3a“新代次顶层计数从初始值开始”的测试若每个用例新起宿主，会出现与执行顺序有关的失败。项目子进程每个项目一个进程，不受影响。
+- 建议：若保留查询串，计数器做成进程级（模块顶层的单调计数，或用 `crypto.randomUUID()`），并在注释里写明理由；采纳第 3 条的 `require.cache` 删除式时这条自然消失，但要同样写明“每次激活前删除”，不要依赖“首次激活”判断。
+
+### 12. 文件端点可被任意网页用 `<script>`、`<link>` 跨源探测：没有认证时“只监听回环地址”挡不住已安装插件列表外泄
+
+- 严重程度：建议；类别：安全与性能
+- 位置：计划“插件文件端点”（没有认证，服务端只监听回环地址）；`docs/specs/runtime/plugin-code-loading.md`“边界与兼容”的“安全”（插件代码与已安装插件列表不对未登录用户公开）；`src/server/config.ts:52-64`（非回环地址启动即失败，属实）；`src/plugins/http/backend/dispatch.ts:66-80`（`Host` 必须是回环名，挡住 DNS 重绑定；GET 放行任何 `Origin`，“拿不到响应由浏览器的 CORS 保证”）
+- 现象：监听地址与 `Host` 检查都成立，跨源 `fetch` 也读不到正文；但 `<script src>`、`<link rel=stylesheet>` 属于 no-cors 加载，不受 CORS 约束。用户本机浏览器打开的任意网页都能对 `http://127.0.0.1:4217/api/.../files/<版本>/web.js` 发 `<script>` 请求，用 `onload`/`onerror`（200 与 404）枚举装了哪些插件与版本，并让插件的 CJS 代码在攻击页里执行一次（`module` 未定义，通常在第一行就抛错，但这仍是在别人的源里执行用户的插件代码）。
+- 建议：端点响应统一加 `Cross-Origin-Resource-Policy: same-origin` 与 `X-Content-Type-Options: nosniff`；装载器用 `fetch` + `new Function` 取代码，`.js` 可以按 `text/plain` 返回，`<script>` 跨源加载在 nosniff 下直接被拒。端点测试断言这两个头。认证实现后仍保留，成本只有两个响应头。
+
+### 13. `typebox` 不在 SDK 导出里也不是外部：能工作，但版本与 format 注册没有约束，应由 SDK 定下来
+
+- 严重程度：建议；类别：接口形状
+- 位置：计划“SDK”导出清单（没有 `Type`）、“构建预设”外部表；示例 7 处直接 `import {Type} from "typebox"`（例如 `examples/plugins/counter/shared/contracts.ts:9`）
+- 现象：作者只能自己依赖 `typebox`，构建时打进产物。实测（Bun 1.4.2）把 `typebox` 1.3.6 打进插件单文件后，宿主那份 `Value.Check` 对插件构造的 schema（含 `Optional`、`Refine`）结论正确，因为 1.x 的 Kind 是字符串键 `~kind`、Refine 存成属性，跨实例可用；单份打包约 12KB，不需要进宿主模块表。问题在约束缺失：作者装的若是 `@sinclair/typebox` 0.34（Kind 是 Symbol，生态里仍常见）或未来不兼容的 2.x，`defineSetting`、`defineRecord`、合同的类型推导与运行期结构都可能对不上，而纯度检查与清单校验都不管它；插件在自己那份 typebox 上注册的自定义 format 对内核无效（第 2 条）。
+- 建议：SDK 再导出 `Type` 与 `Static`（作者从 SDK 取，和宿主同一大版本），或在 `nb-plugin-sdk` 的 `peerDependencies` 写死 `typebox` 的范围；作者文档写明 schema 只用 JSON Schema 能表达的部分。是否把 `typebox` 放进浏览器宿主模块表可以不做（体积小、跨实例可用），在计划里写下这个判断与依据即可。
+
+### 14. 清单生成要在构建期执行作者的 `plugin.ts` 与各入口定义，执行环境没写
+
+- 严重程度：建议；类别：接口形状 / 遗漏
+- 位置：计划“构建预设”第一条（`buildPlugin` 读作者的 `plugin.ts`：描述加各位置的入口定义）与最后一条（“定义 → 清单”转换）
+- 现象：清单里的入口声明、贡献、`contracts` 都来自运行入口定义对象，所以构建预设必须在构建进程里 import 作者的源码（含浏览器入口定义，它会连带 import `vue`、SDK 的 `/web`，以及作者在模块顶层静态 import 的 `.vue` 文件）。计划没写由谁执行：Bun 直接 import（`.vue` 静态导入会失败，仓库外又有第 7 条的别名问题）、Node（不能剥离 `node_modules` 下的 `.ts`）、还是 Vite 的 `ssrLoadModule`（能处理 `.vue` 与别名，但要再起一份 Vite 实例）。作者模块顶层的副作用也会在构建期执行一次。示例里 snippets 的页面组件写在 `load()` 里动态导入，碰巧避开了，t05 的仓库外作者未必如此。
+- 建议：计划写明执行方式（倾向用 Vite 的 SSR 模块加载，与产物构建共享插件配置），并把“入口定义模块顶层不得有副作用、不得静态导入 `.vue`”或“允许静态导入”二选一写进作者约定；S2c 的样例目录里放一个顶层静态导入 `.vue` 的浏览器入口，验证清单生成照常。
+
+### 15. 第三方 `onStartup` 入口的激活永不结算时，服务端（与项目实例）的启动一直等它：“失败只影响这个入口”对挂起不成立
+
+- 严重程度：重要；类别：不变量 / 正确性
+- 位置：计划“服务端与项目实例的装载”第三条（文件缺失、语法错误、顶层抛错、导出不对只影响这个入口）；`packages/nb-runtime/src/application/bootstrap.ts:226-251`（启动时对全部 `onStartup` 入口，不论是否启动必需，`await Promise.all(... this.plugins.activate(...))`，`signal` 只在停止时触发，没有超时）；`plugins/host.ts`（激活没有超时，全文无 timeout）；`src/server/start.ts:232`、`:327`（第三方插件不是启动必需）
+- 现象：t04 之前第三方入口不执行代码，这条路径走不到；t04 之后插件代码的 `activate` 或模块顶层（ESM 允许顶层 `await`）只要有一个 Promise 不结算，`application.startup` 就不结算，服务端健康检查一直不返回 200，开发服务的监督进程与 e2e 都会等到超时。第 1 条里的 counter 就是现成的例子：外置后 `untilReady` 永不 resolve，而 counter 的服务端入口是 `onStartup`，结果不是“counter 不可用”，而是整个服务端起不来。项目实例同理（项目入口若写 `onStartup`）。
+- 核实：读 `bootstrap.ts:237-251`，启动门禁之前的 `Promise.all` 对 `required: false` 的入口同样等待；从代码推断，未在真实运行时触发。
+- 建议：计划补一条：非启动必需的入口（第三方插件全部属于此类）在启动时激活但不阻塞启动结算，或给它们的启动激活加上限（例如 30 秒，可注入时钟），到时记 `activation-timeout` 失败、入口按失败处理、启动照常完成；装载适配器里 `import()` 本身也计入这个上限。S3a 加一个“顶层 `await new Promise(() => {})` 的样例入口，服务端仍能就绪、其它插件可用”的真实进程测试。
+
+## 未发现问题的方面
+
+- 模块身份：服务键按 `key.name` 比较（`host.ts:1009-1083`、`services.ts:23-28`），贡献点与贡献按字符串 id，远程合同的查找、代理准入、`version-changed` 都按 id 与版本（`host.ts:607-712`、`node.ts:799`），除激活产出的同一对象检查（`host.ts:1099`，计划已用换对象处理）外没有按对象身份的查找；`context.remote.use(合同)` 用调用方自己那份对象也没问题。设置、存储、store 里的 `WeakMap` 都是内部缓存，不跨插件边界。
+- TypeBox 往返：除第 2 条列出的 Refine、自定义 format、Codec 外，`Unsafe`、`Cyclic`/`$ref`、`BigInt`、`Undefined`、`Optional`、`default`、`patternProperties`、`pattern`、`Function` 往返后 `Value.Check` 一致；1.x 的 Kind 是字符串键，没有 Symbol 丢失问题。插件打包自己的 typebox 时宿主的 `Value.Check` 照常工作。
+- Bun 运行期模块：`Bun.plugin` + `build.module(..., loader: "object")` 在普通进程与 `bun test` 里都生效，安装目录外的 ESM 拿到的是宿主同一份对象；Bun 按导入方最近的 tsconfig 解析 `nbook/*`，仓库内运行不受第 7 条影响。
+- 启动数据跨进程一致：项目子进程的 `plugins` 消息来自服务端内存里的启动快照（`project/start.ts:93-120`），不是重读 `plugins.json`；运行中安装、升级、卸载只改登记表与新版本目录，当前版本目录要到下次启动才回收（`inventory.ts:236-285`、`startup.ts:166-195`），所以运行期内服务端、新开的项目子进程、新开的窗口拿到同一份集合与同一个版本目录。
+- 监听与主机名：非回环地址启动即失败（`config.ts:52-64`），HTTP 分发拒绝非回环 `Host`（挡 DNS 重绑定）、写请求核对 `Origin`，开发模式页面经 Vite 代理 `/api` 同源访问；跨源 `fetch` 读不到端点正文（只剩第 12 条的 no-cors 探测）。
+- 远程合同不构成依赖、`pluginVersions` 不约束远程调用（版本由合同版本表达），计划与 Spec 一致。
+
+## 各级数量
+
+共 15 条：阻断 1（第 1 条）；重要 8（第 2、3、4、6、7、8、10、15 条）；建议 6（第 5、9、11、12、13、14 条）。

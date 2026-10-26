@@ -1,0 +1,91 @@
+# w00024/t11 实现审查
+
+审查范围：`eaac04d88..810331321` 的 `packages/nb-story/`，排除 `src/web/` 与 `e2e/`。依据为主工作区的 Task 决定、计划、设计审查及指定 Spec。仓库只读；实验仅写入 `/tmp/review-w00024-t11-impl/scratch/`。
+
+### 1. 默认请求基线漏掉显式全开与 repair，两个请求文字变异仍全部通过
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：`packages/nb-story/src/ingest/chapter.test.ts:39-40,77-78,100,133,139-143,189-196,225`；`packages/nb-story/tests/fixtures/ingest/requests-t10.json:2-39`
+- **现象**：新增基线只被“不传 features”的前 10 章与 recall 第 10 章回放调用。fixture 的 34 个请求键中没有 repair；新增三个关闭组合也没有显式 `{ledger:true,secrets:true}`。隔离副本里仅在显式全开时向真实请求前缀增加一行，`chapter.test.ts` 仍是 21 pass / 0 fail；仅在 repair 用户消息尾增加一行，同样 21 pass / 0 fail。
+- **为什么是问题**：Spec ingest 输出 18 与计划验收明确保护“两项都开时每个请求逐字相同”，计划还要求缺省与显式全开分别对照，且基线包括修复请求。现在 HTTP 回放只按请求头选回复，正文变化不影响回复；repair 测试只看结果与步骤，不比较正文。以后这两条实际路径改变提示词，现有基线不会报警。这是已证实的测试缺口，不是声称当前默认提示词已经改变。
+- **如何核实**：原始六文件定向测试为 77 pass / 0 fail。运行 scratch 下三个隔离副本各自的 `bun --no-env-file --no-install test src/ingest/chapter.test.ts`：`mutations/explicit` 与 `mutations/repair` 各 21 pass / 0 fail / 168 expect；对照 `mutations/context` 只改变普通章已有记录、保持全量 context 不变，新基线在第 133、225 行失败（19 pass / 2 fail）。完整输出在 `scratch/mutation-explicit.log`、`mutation-repair.log`、`mutation-context.log`。均经真实 extractChapter → OpenAI SDK → 本机 HTTP，不改仓库源码。
+- **建议改法**：同一套基线回放参数化覆盖不传 features 与显式全开；另注入确定的结构错误，使 review 后进入 repair，将实际 repair 请求纳入不可替换的基线，并验证这两种变异都会失败。保留现有已能抓住 narrowed context 差异的直接断言。
+
+### 2. 关闭秘密时把一般知情复核指令也删掉，没有按计划保留 statement 知情的更新要求
+
+- **严重程度**：重要；**类别**：正确性（提示词合同）。
+- **位置**：`packages/nb-story/src/ingest/prompts.ts:171-177`，特别是第 173 行的 `[features.secrets, ...]`。
+- **现象**：原条目包含两件事：“秘密清单里的每个秘密……”以及一般的“知情表里标了推断的判断，本章有没有新的依据（支持或反驳）；有就补一条知情记录”。实现用同一个 secrets 条件把整条删掉，没有为关闭分支保留后一件事。真实第 4 章 SDK/HTTP 请求的【任务】里不再有知情判断随新依据更新的要求。
+- **为什么是问题**：开发者决定 2、Spec ingest 输出 18 明确保留指向说法的知情；计划第 45 行要求把此项改为只讲知情，而不是删除。关闭 secrets 不代表不需要在后章修正先前对说法的推断。当前改动裁掉了另一项仍启用行为的抽取指令。这里证明的是发出的任务缺失，不声称已通过真实模型测出丢失率。
+- **如何核实**：`cd /tmp/review-w00024-t11-impl/scratch/experiments && bun --no-env-file --no-install check-pipeline.ts`，经原实现 `extractChapter → OpenAI SDK → 本机 HTTP`；`scratch/pipeline-results.json` 的 `secretsOff.hasReevaluateInstruction=false`，任务全文在同项 `task`。该章确实保留了 4 条显式 statement 知情（`k4-4,k4-5,k4-6,k4-9`）与 1 条本人 identity 派生知情，说明一般知情仍是开启功能，不应连同秘密自查一起关掉。代码对照可直接看到仅有的该条指令被 secrets 条件包住。
+- **建议改法**：默认全开分支逐字不动；secrets=false 时使用计划要求的一般知情复核条目，只去掉关于秘密清单的前半句。验收关闭分支实际请求仍要求在新依据支持或反驳旧推断时补知情，而不是只验“不要写 secrets”与数据数组为空。
+
+### 3. 关闭组合测试没有覆盖补丁重入，删除每次 applyPatch 后的 strip 仍全部通过
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：`packages/nb-story/src/ingest/chapter.test.ts:137-178`；受保护的实现是 `packages/nb-story/src/ingest/chapter.ts:194-200`。
+- **现象**：三个关闭组合都只抽录下的第 4 章；该章 review 的 replace 不写 ledger、secrets、statement.secret 或指向秘密的 knowledge，也不会进入 repair。把第 199 行 `draft = strip(fixPositions(applyPatch(...)))` 改为不调用 strip 的版本，整份 `chapter.test.ts` 仍为 21 pass / 0 fail / 168 expect。
+- **为什么是问题**：初稿剥离不能保证补丁不会再加入禁用记录。计划与 Spec 的编译前去掉必须覆盖每次补丁，而这是新增代码中独立的第二个调用点。当前回放只证明初稿路径，未保护补丁重入与 repair 后兜底的提交不变量；不是当前实现少了调用，而是调用被删掉时所列验收仍会通过。
+- **如何核实**：在 `scratch/mutations/patch-strip` 的隔离副本运行 `bun --no-env-file --no-install test src/ingest/chapter.test.ts`，输出在 `scratch/mutation-patch-strip.log`。另经原实现的 `check-pipeline.ts` 与本机 HTTP，分别在初稿、review、repair 三次回复写同一组禁用记录并让 repair 留一条坏说法：真实执行两轮补丁和兜底，最终 ledger=0、secrets=0、statement.secret=0，保留 1 条显式 statement 知情与 1 条本人派生知情；说明累计去掉每类各 3 条，dropped=1（只算坏说法）。当前实现正确，但仓库测试没有这条能杀死变异的场景。
+- **建议改法**：在现有“按书关闭”行为测试里，给 review/repair 的真实 HTTP 回放注入重新写入禁用记录的回复，明确使结构问题延续到兜底；按具体记录核对禁用类缺失、启用类和 statement 知情保留、去掉的计数与 dropped 分开。删除第 199 行 strip 的变异必须令该测试失败。
+
+### 4. “指向说法的知情保留”只断言至少一条，漏掉部分显式知情仍通过
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/nb-story/src/ingest/chapter.test.ts:157-170`，特别是第 163 行。
+- **现象**：第 4 章有 4 条显式 statement 知情，测试只要求 `knowledge.some(item => item.about.startsWith("s"))` 为 true。隔离副本仅在关秘密时额外删除 `k4-4`（仍保留其余 3 条），整份 `chapter.test.ts` 仍 21 pass / 0 fail / 168 expect。额外变异把关闭分支的 about 写法重新改成“写秘密编号”，测试也全部通过。
+- **为什么是问题**：决定 2 保护的是已有的显式 statement 知情照常保留，不是最后还有任意一条就算成立；而计划要求对 about=s 的请求写法有实际验收。这两种会让关闭功能误伤保留功能的错误，当前断言都无法识别。原实现运行中确实保留了这 4 条，故这是覆盖缺口，不是数据已经丢失的指控。
+- **如何核实**：在 `scratch/mutations/explicit-knowledge` 与 `scratch/mutations/knowledge-instruction` 各运行 `bun --no-env-file --no-install test src/ingest/chapter.test.ts`。完整日志为 `scratch/mutation-explicit-knowledge.log`、`scratch/mutation-knowledge-instruction.log`；原实现保存的具体 4 条见 `scratch/pipeline-results.json → secretsOff.explicitKnowledge`。所有变异都只改 scratch 副本。
+- **建议改法**：按已录下的行为断言这 4 个 id、about 与 derived=false 都保留，另独立断言本人 identity 的派生 statement 知情；不要把 expected 从 stripDisabled 的结果生成。请求任务段核对关闭分支仍明确要求 about 指向 statement，而非只匹配“这本书不记秘密”。
+
+
+## 最终按影响排序
+
+正文编号保留逐条核实、即时追加的顺序；交付按下表的影响顺序读取，不把实验变异算成当前产品缺陷。
+
+| 影响顺序 | 正文编号 | 严重程度 | 类别 | 结论 |
+|---|---|---|---|---|
+| 1 | 2 | 重要 | 正确性 | 关闭秘密时漏了计划明确要求保留的一般知情复核任务；真实发出的请求已证实缺失 |
+| 2 | 1 | 重要 | 测试 | 显式全开和 repair 的逐字约束没有基线覆盖，2 个请求文字变异存活 |
+| 3 | 3 | 重要 | 测试 | 每次补丁之后的剥离没有被验收保护，删除该调用的变异存活 |
+| 4 | 4 | 建议 | 测试 | 显式 statement 知情只要求“有一条”，部分删除和错误 about 指令的变异存活 |
+
+第 2 条是实现与已确认计划不一致，不重复上一轮设计已处理的问题；第 1、3、4 条是所列验收并未完整落到测试。当前默认文字与当前补丁剥离均实测正确，不能把测试缺口说成当前已经回归。
+
+## 未发现问题的方面
+
+下面限于本次实际运行与读取的路径，不代表未运行场景的证明。
+
+- **默认请求的当前实现**：原仓库“不传开关”的 30 个前十章请求与 4 个 recall 第十章请求通过 t10 基线；另外显式 `{ledger:true,secrets:true}` 经真实 SDK/本机 HTTP 跑完前十章，30 个实际请求全部与同一基线一致（0 个差异、0 个未知请求）。普通章 narrowed context 专用变异被新基线抓住，旧设计审查第 12 条的核心盲区确实已修复；剩余缺口见正文第 1 条。
+- **剥离、兜底与整理的当前实现**：初稿、review、repair 三次各写入同一组禁用记录后，最终 ledger、secrets、statement.secret 均为 0，指向秘密的知情被去掉；1 条显式 statement 知情、1 条本人派生知情保留。问题说明累计各 3 条，dropped 只计 1 条仍坏的普通说法。整理把混合 deps 裁为仅 `s1-1`。第 4 章录下的 4 条显式 statement 知情与 identity 说法也保留，没有 secret-missing；没有把禁用记录算成质量丢弃。此项通过实际 extractChapter/consolidate 与 HTTP，未只调内部过滤函数推断。
+- **独立开关**：chapter 的 3 个关闭组合测试通过；两个开关各自裁任务字段与核对要求，only-ledger-off 未禁止秘密，only-secrets-off 未禁止数值。系统规则全文与示例未改（提交差异核对）；一般知情复核遗漏单列正文第 2 条。
+- **生命周期与命令行**：真实 CLI 测试覆盖新建、已提交后续抽、done、append、committed=0 的设置冲突；不匹配得到 invalid_params 与退出码 2，普通读文件 invalid_params 仍为 1；否定选项只把来源为 cli 的项视为显式请求。代码中的保存值比较在原文逐章比较、append 与 done 之前，worker 从 source.json 取设置，未发现新增共享可变开关。
+- **旧数据和三处来源**：真实 worker 先抽 5 章，在 scratch 的 source.json、book.json、graph 的 book 中去掉 features，再追加到第 10 章，结果 done；plan、books.list、book.info、ingest.status 均为全开。新抽取首提交与后续提交的状态通过既有 CLI/服务测试；合法新建/旧数据路径未核实到元数据与 Dataset 的开关不一致。后续 commit 沿用已有元数据而非每次重抄 features，但由于已确认开关不可变，这本身不是缺陷。
+- **导入**：通过真实 core API 导入 4 种组合，缺项补开，books.list 一致。关闭 ledger 却带 186 条数值、关闭 secrets 却带 11 个秘密的两份输入分别得到 unsupported_format，未发布为书。没有要求查询层另建一套过滤，符合 F4 的既定边界。
+- **问答隔离和恢复**：四本书同时经 askQuestion/真实 createHarness 运行，全部 answered，模型工具数分别为全开 21、关数值 19、关秘密 20、全关 18；ledger/track/knows 按各自书独立存在或缺席。模块级 Profile 未按书变更；optional 引用与每问独立 registry 配合成立。没有 initial.ledger 的旧形状快照不给 initial 恢复成功，21 个工具、turn 的 stopReason=finished；仍按全开渲染系统提示。CLI/QA 人物卡没有秘密行时不出空标题的既有测试通过。
+- **测试等待与异常约定**：本次六个测试文件未出现 mock、spy、假计时器、非零固定等待、only 或 skip；读取的新增实现没有按错误文案分支、没有新增静默 catch 或跨包源码深导入。变异与实验仅位于 scratch，不构成仓库改动。
+
+## 本次实际验证
+
+以下命令的包工作目录为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-nb-story/packages/nb-story`；报告正文中的 `packages/nb-story/...` 路径基准为其 worktree 根目录。
+
+1. `env NBOOK_HOST_SYSTEM_TEMP_ROOT=/tmp/review-w00024-t11-impl/scratch NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00024-t11-impl/scratch/agent-temp bun --no-env-file --no-install test src/ingest/chapter.test.ts src/ingest/context.test.ts src/cli/ingest.test.ts src/server/ingest.test.ts src/core/api.test.ts src/qa/engine.test.ts`：**77 pass、0 fail、831 expect，6 个文件，38.01s**。
+2. `./node_modules/.bin/tsc --noEmit && ./node_modules/.bin/tsc --noEmit -p tsconfig.core.json`：退出 **0**，无诊断，14.14s。未运行包含前端/e2e 的包级全链 typecheck。
+3. `cd /tmp/review-w00024-t11-impl/scratch/experiments && bun --no-env-file --no-install check-pipeline.ts`：退出 **0**，2.38s；显式全开、剥离与补丁/兜底/整理，以及缺失知情指令的真实请求证据保存在 `/tmp/review-w00024-t11-impl/scratch/pipeline-results.json`。
+4. `cd /tmp/review-w00024-t11-impl/scratch/experiments && bun --no-env-file --no-install check-core-qa.ts`：退出 **0**，2.74s；导入、四问并发、旧快照恢复、旧数据追加结果保存在 `/tmp/review-w00024-t11-impl/scratch/core-qa-results.json`。此脚本保留隔离数据供本次审查检查，不操作真实书库。
+5. 6 个隔离副本各自运行 `bun --no-env-file --no-install test src/ingest/chapter.test.ts`（工作目录依次为 `/tmp/review-w00024-t11-impl/scratch/mutations/context`、`repair`、`explicit`、`patch-strip`、`knowledge-instruction`、`explicit-knowledge`）：context 为 **19 pass / 2 fail**，其余 5 组均 **21 pass / 0 fail**；每组 168 expect。预期失败是变异检查证据，不是原实现测试失败。初次隔离副本运行因 openai 位于根 node_modules 而非包的 node_modules，均在模块加载时报错，不能作判据；补上指向 worktree 根 node_modules 的临时目录链接后得到本段的有效结果，未安装依赖。
+
+未运行：全量单元测试、前端/e2e、开发服务、真实模型、真实评分器。未读取真实密钥，未触碰另一个评测 worktree 或指定的 .local 目录，未开子代理，未执行任何 Git 写操作，未修改仓库文件。
+
+## 各级数量
+
+**有效问题 4 条：阻断 0、重要 3、建议 1。** 其中实现问题 1 条、测试覆盖问题 3 条。报告发现标题 4 个，按每次追加后的统计为 1 → 2 → 3 → 4，没有覆盖或删除既有发现。
+
+## 处理（主 Agent）
+
+- 第 1 条：成立，部分改。显式两项都开的前 10 章回放加进请求基线对照（`chapter.test.ts`“显式给两项都开”）。repair 请求没有单独进基线：它与 review 用同一个 `reviewTask` 模板，review 已在基线里；为它构造确定的修复场景代价高于收益。
+- 第 2 条：不成立。“知情表里标了推断的判断……”指的是已有记录里的知情表，它只在“秘密与知情”一节出现、只列与秘密有关的知情；关掉秘密后这一节不出，模型没有可对照的推断记录，留着这句没有对象。规则全文第 8 节对知情的一般要求仍在系统提示词里。计划里“改成只讲知情”这一句本身想错了，Task README 写明。
+- 第 3 条：成立，已改。新测试让第 4 章录下的核对修正再加回数值、秘密与指向秘密的知情，核对提交前去掉、说明计数、dropped 为 0；去掉 `patchWith` 里那次 strip 的变异会让它失败（已验证）。
+- 第 4 条：成立，已改。逐条核对 k4-4、k4-5、k4-6、k4-9 都在且不是程序生成的；关秘密时请求里有“about 是他知道或不知道的那条说法的编号”。
+
+提交：1ef66b31f。

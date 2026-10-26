@@ -1,0 +1,653 @@
+# w00022/t17 服务端实现审查
+
+审查对象：`8276c0bb2..066fceb6a` 的服务端、core、相关测试与数据合同；执行 checkout 为 `.worktree/w00022-review-t17-impl`（`d5535e531`）。依据主工作区最新计划第 49–57、93–110 行及两轮计划审查的指定条目。仓库保持只读；临时实验在 `/dev/shm/review-t17-srv-lab/`，服务均为测试实例、端口 0、`herdr: null`，没有开发服务或真实 herdr。
+
+### 1. 超预算的查找仍占着资源，新键下一轮再开 4 个，冷查找并发上限实际失效
+
+- **严重程度**：重要；**类别**：不变量、安全与性能、合同一致。
+- **位置**：`packages/dev-panel/src/server/session-titles.ts:267-275,320-357`；`src/server/state.ts:259-273,280-296`；`docs/panel.md:308`。
+- **现象**：`BATCH_PARALLEL=4` 只限制一轮的 worker。2 秒 `Promise.race` 返回后，旧的 `lookupOnce` 仍在 `inflight` 中做 I/O；`titleTask` 却已经释放，新一轮遇到不同的键就再开 4 个。实际面板实例中观察到 **8 个不同文件的 pread64 同时在途**，不是全局最多 4 个。相同键单飞不能限制不同键的跨轮叠加。
+- **为什么是问题**：计划和合同要求冷查找最多 4 个同时进行、后台标题任务不无限积压。慢盘时每次替换键集合都可以再增加一批，超预算没有释放并发配额，也没有跨轮共享配额；标题任务虽然不 await 到底，底层任务并不单飞。源码给出的上界是每轮 4 个，不是整个 resolver 4 个。
+- **如何核实**：真实文件、真实 `startPanelServer`、HTTP `/api/runs` 与 `/ws`。先登记 4 个旧属主，再在它们读盘期间改登记为 4 个新属主，改 Work README 经真实 `fs.watch` → records → activity 触发刷新；没有调用私有调度、没有替换 `SessionTitles`。`strace` 仅对 8 个标题文件的真实 `pread64` 注入 `delay_enter=12s`，不改文件内容或 syscall 返回值。旧 4 个读请求从 Unix 时刻 `1792002337.520816–1792002337.520931` 在途到 `1792002349.521099–1792002349.521206`；新 4 个从 `1792002341.522853–1792002341.523045` 在途到 `1792002353.523027–1792002353.523198`：重叠约 **8 秒**。`overlap.trace` 第 44–47、66–69、80–83、95–98 行核实了 8 个不同 FD 与文件。新的活动仍在 **392.76 ms** 后经 HTTP 发布，WS 收到 activity changed。
+  - 实际命令形状：`TMPDIR=/dev/shm/review-t17-srv-lab/tmp strace -f -qq -ttt -T -y -e trace=pread64,openat,close -e inject=pread64:delay_enter=12s -o /dev/shm/review-t17-srv-lab/overlap.trace -P <8 个普通标题文件，逐个 -P> bun /dev/shm/review-t17-srv-lab/runtime-probe.ts overlap`；完整命令与脚本在报告末附录。
+  - 初版实验的异步 `/proc/self/fd` 观察器与读盘共用 FS 线程池，未及时取到 8-FD 快照，实验退出码 1；**并发结论来自真实 syscall trace**，不把这次观察器超时当产品错误。观察器改同步读 `/proc` 后的结果另在附录记录。
+- **与 base 对照**：base 没有 `titlesOf`、预算后留存的后台批次或活动标题任务；这里是 t17 新增的跨轮生命周期/并发机制，非旧缓存问题。
+- **建议改法**：在 resolver 中持有跨轮共享的 4 个冷查找配额，配额随实际 lookup settle 才释放；排队键按最新需求修剪，预算到点后不再给过期轮次启动新 lookup。不能只给每轮 `Promise.all` 开 4 个 worker，也不能为取消而把活动刷新重新 await 到慢 I/O。补真实慢读下键集合更换的 HTTP/WS 用例，核对并发上限与活动仍及时发布。
+
+### 2. stop 返回后标题任务仍读盘并修改已停止实例的快照与 revision
+
+- **严重程度**：重要；**类别**：不变量、资源释放。
+- **位置**：`packages/dev-panel/src/server/state.ts:259-296,346-352`；`src/server/serve.ts:489-500`；`src/server/session-titles.ts:338-354`。
+- **现象**：`PanelState.stop()` 只停 watcher、周期定时器与 herdr，不取消、不等待 `titleTask` 或实际 lookup，也不撤掉该轮预算定时器。`readTitles()` 在 await 后不检查 `stopped`，继续写 `knownTitles` 和 `activity.patch`。`scheduleTitles()` 自身也没有停止检查，已在途的 computeActivity 可以在 stop 后新起一轮；只有 finally 的“再来一轮”分支检查停止状态。
+- **为什么是问题**：`await PanelServer.stop()` 不是标题后台工作的收口点。调用方收到停止完成后仍有普通文件 FD、预算计时器和读盘工作；慢 I/O 没有结束上界。止住后续刷新并不等于收掉当前资源。程序内反复启停实例、预热中收到退出信号时，旧实例仍占资源、发布内部变化。交付报告第 103 行所说“到点后仍等已开始的查找结束”不是 stop 的实际保证。
+- **如何核实**：真实 `startPanelServer`、普通 Claude 标题文件、进程登记、真实 HTTP `/api/runs`。`strace` 只对目标文件的真实 `pread64` 延迟 **1500 ms**。预热后 HTTP 为 200、revision 1；在读取仍在途时 `await server.stop()` 用 **1.08 ms** 返回，目标 FD 仍打开。停止返回约 **1452 ms** 后，`state.stopped === true` 的实例再次发布 activity，revision 从 **1 增到 2**，快照加入“普通文件 1”的标题；随后 FD 才关闭。未调用私有 `readTitles`，未伪造结果或事件顺序。
+  - 命令：`TMPDIR=/dev/shm/review-t17-srv-lab/tmp strace -f -qq -ttt -T -y -e trace=pread64,openat,close -P /dev/shm/review-t17-srv-lab/stop-home/.claude/projects/-repo/bbbbbbbb-0000-4000-8000-000000000001.jsonl -e inject=pread64:delay_enter=1500ms -o /dev/shm/review-t17-srv-lab/stop.trace bun /dev/shm/review-t17-srv-lab/runtime-probe.ts stop`，退出码 **0**。
+- **与 base 对照**：base 的 Refresher/stop 对在途活动计算缺少全面停止防护，但没有独立标题后台任务。本条只归因新任务未加入生命周期，不把 base 的通用 Refresher 停止问题算本次回归。
+- **建议改法**：为标题调度设置停止门；停止后不得启动、重新排队或 patch。让 resolver 拥有在途任务与计时器的停止/结束合同，`PanelServer.stop()` 显式等待该合同完成；无法取消的底层调用也需有有限收口方案，不能用忽略其 Promise 代替资源结束。补“正常运行中停止”和“预热中停止”两种真实时序，断言 stop 返回后无标题读取与状态变化。
+
+### 3. 标题任务仍在主事件循环整份解析 Codex 索引，后台化没有隔离活动与 HTTP 的阻塞
+
+- **严重程度**：重要；**类别**：正确性、安全与性能、预算合同。
+- **位置**：`packages/dev-panel/src/server/session-titles.ts:280-293,338-354`；`src/server/state.ts:243-246,280-282`；`docs/panel.md:308`。
+- **现象**：`readFile` 是异步的，但其后的整文件 `split("\n")`、逐行 `JSON.parse`、清洗标题与填 Map 都同步跑在面板主事件循环。`setTimeout` 的 2 秒 deadline 不能打断这段 CPU 工作；这段期间其它活动计算、HTTP/WS 回调都不能推进。
+- **为什么是问题**：“computeActivity 没有 await 标题”只消除了等待 Promise 的依赖，没有消除执行线程耦合。合同没有给 Codex 索引规定尺寸上限，却允许每次索引变更重读整份；后台标题解析可以暂停所有页面和活动更新。预算也不是覆盖这段解析的有效截止，不能以一条 setTimeout 宣称整轮最多 2 秒。
+- **如何核实**：不注入延迟、不替换函数。真实 Codex `session_index.jsonl` 含 **6,000,000** 条合法的改名索引记录，大小 **288,000,000 字节**；唯一属主只存在于进程登记 `startedBy`，无 herdr、无租约，不请求会话页或按需标题接口。保持真实 `/ws` 连接，更新文件，再修改 Work README 经真实 watcher 触发活动刷新；另起独立 Bun 进程每 10 ms 测 HTTP `/api/runs`，不把同进程计时当网络延迟。
+  - 新实现：从触发刷新到新标题和客户端结束 **2970.62 ms**，独立客户端 **91** 次请求中单次最长 **2078.20 ms**；没有超预算诊断。命令：`TMPDIR=/dev/shm/review-t17-srv-lab/tmp bun /dev/shm/review-t17-srv-lab/large-index-probe.ts`，退出码 **0**。
+  - `8276c0bb2` 基线：同样的索引、登记、watcher、HTTP/WS 和独立客户端，记录刷新完成 **345.40 ms**，独立客户端 **37** 次请求中最长 **4.79 ms**。命令：`TMPDIR=/dev/shm/review-t17-srv-lab/tmp bun /dev/shm/review-t17-srv-lab/large-index-base-probe.ts`，退出码 **0**。基线副本仅将已审的 5 个服务端模块的相对 import 改到对应源码位置；无改动的 core/herdr/其它服务端依赖沿用本 checkout。
+  - 首次 3,000,000 条、144,000,000 字节实验只用同进程客户端，漏掉了事件循环暂停期，故没有把其 2.59 ms 作为“无阻塞”的证据；独立客户端才是本条的运行依据。
+- **与 base 对照**：Codex 整份同步解析器本身是旧代码，不将它单独算回归。**新增回归是调用范围与时机**：base 的活动和运行页不读标题，只有 `/api/sessions` 需要时才读；本场景的登记属主不在活动会话里，base 不读取该索引。t17 将该无界解析接到周期/记录驱动的标题任务，使原本不读标题的活动、运行页也被同步 CPU 工作阻塞。
+- **建议改法**：按有界块读/解析索引，块间让出事件循环并检查单调时钟的整轮截止；保留未完成进度以供下一轮，而非超时后重新整份扫描。或者把解析移到受管理的 worker，仍由统一并发配额与停止合同拥有。补真实大索引加独立 HTTP/WS 客户端的可用性测试，不能只断言标题最终出现。
+
+### 4. 现有标题推送测试漏掉“只改来源、不改文字”，移除 source 指纹后 10 个相关测试仍全过
+
+- **严重程度**：建议；**类别**：测试、验收映射。
+- **位置**：`packages/dev-panel/tests/panel-server.test.ts:371-408`；`tests/session-titles.test.ts:155-172`；计划 `plan.md:55,100`；`docs/panel.md:308`。
+- **现象**：现有改名用例将“第一版 / claude-ai-title”同时改成“改过的名 / claude-custom”，只靠 text 的指纹就能过。没有保持 text 相同、只变 source 的场景，也没有相同最终 `{text, source}` 再读一次不推送的断言。
+- **为什么是问题**：来源也是页面展示数据与合同规定的指纹字段。仅测试文字与来源一起变化，无法保护来源单独变化的 revision/changed；已打开页面可能长期显示旧来源。当前实现包含 source，问题是验收不能拦截这项核心字段被移除。
+- **如何核实**：仓库未改；在 `/dev/shm/review-t17-srv-lab/mutant-server/` 生成同提交服务端副本，只将 `state.ts:131` 的 `[key, title.text, title.source]` 改成 `[key, title.text]`，测试只重定向 import、断言和用例正文保持不变。以下命令仍为 **10 pass、0 fail、54 expect**：
+  `TMPDIR=/dev/shm/review-t17-srv-lab/tmp bun test --isolate /dev/shm/review-t17-srv-lab/mutation-tests/session-titles.test.ts /dev/shm/review-t17-srv-lab/mutation-tests/panel-server.test.ts -t 'Claude Code 的标题|按 Agent 找会话文件|第 3 批实现审查的建议|一批完整会话键|会话标题（t17）|场景 1：'`。
+  - 再用真实文件、进程登记、HTTP `/api/runs`、WS、真实 watcher 复现：给同一“普通文件 1”从 ai-title 追加为 custom-title。原实现 revision **2 → 3**，activity 推送 **1** 次；再次追加相同标题、经过记录触发与下一次周期活动重算后，revision 仍为 **3**、无额外 activity 推送。`TMPDIR=/dev/shm/review-t17-srv-lab/tmp bun /dev/shm/review-t17-srv-lab/runtime-probe.ts source` 退出码 **0**。
+  - 同场景使用变异副本时，HTTP 最终取到新 source，但 revision 仍为 **2**，新实验以 **`2 !== 3`** 失败（预期变异失败，退出码 **1**），证明不是源文件字符串或内部调用次数的测试。命令：`TMPDIR=/dev/shm/review-t17-srv-lab/tmp bun /dev/shm/review-t17-srv-lab/runtime-mutant-probe.ts source`。
+  - 首次变异运行因临时根没有 workspace 依赖链接而报 `Cannot find module '@notnotype/neuro-book-test-support/wait'`；仅补临时根 `node_modules` symlink 后重跑，以上 10-pass 结果才是有效证据。
+- **与 base 对照**：base 没有活动标题指纹；缺口对应本次新增的 source / revision / changed 合同。原有固定等待与日志文案断言不是本条归因。
+- **建议改法**：在现有改名行为测试中加 source-only 变化，并核对 activity revision 与 WS changed；追加相同最终标题后等待可观察的下一轮活动完成，断言不增加 revision、不多推。保留源码中当前正确的 source 指纹，不给测试另造计数钩子。
+
+## 实际验证、验收映射与边界
+
+代码位置中的 `src/`、`tests/`、`docs/` 简写均以本 checkout 的 `packages/dev-panel/` 为根。
+
+| 行为或门禁 | 本轮证据 | 覆盖边界 |
+|---|---|---|
+| 完整服务端 diff、两轮计划审查、base 调用链 | `git diff 8276c0bb2..066fceb6a -- packages/dev-panel/src/server packages/dev-panel/src/core packages/dev-panel/tests packages/dev-panel/docs`；读取完整原始 diff 及 base 的 state/session-titles；基线 HTTP 运行采用 base 的 5 个服务端模块 | 没有审 `src/web/**`，core 在该范围没有改动 |
+| 原实现相关测试 | `TMPDIR=/dev/shm/review-t17-srv-lab/tmp bun run --cwd packages/dev-panel test tests/session-titles.test.ts tests/panel-server.test.ts -t 'Claude Code 的标题|按 Agent 找会话文件|第 3 批实现审查的建议|一批完整会话键|会话标题（t17）|场景 1：'` | **10 pass、0 fail、54 expect，21.33 s**；不是全量 445 个 |
+| 原有预热停止用例 | `TMPDIR=/dev/shm/review-t17-srv-lab/tmp bun run --cwd packages/dev-panel test tests/panel-server.test.ts -t '预热进行中收到 SIGTERM'` | **1 pass、0 fail、2 expect，3.30 s**；该夹具无待读的标题键，不能保护第 2 条 |
+| 服务端与 core 类型 | `TMPDIR=/dev/shm/review-t17-srv-lab/tmp bun x tsc --noEmit -p packages/dev-panel/tsconfig.json && TMPDIR=/dev/shm/review-t17-srv-lab/tmp bun x tsc --noEmit -p packages/dev-panel/tsconfig.core.json` | 退出码 **0**；没有跑前端 typecheck/build |
+| 键拆分、白名单、omp 含冒号路径、完整键索引 | 上述 session-titles tests 的批量真实文件场景 | 通过；external/未知 Agent/空值/缺文件被省略 |
+| 首页、Work、Task、运行页、会话页的标题投影 | panel-server 的四视图场景与无租约 pane 场景 | 通过；历史提问者、仅登记属主、每视图只挑自己键。普通运行属主单独的无租约分支本轮仅核查调用链，不声称独立运行覆盖 |
+| 从无到有、从有到无、改名、changed | 原有真实文件 HTTP/WS 场景 | 通过；服务级后来出现用 omp 绝对路径；Claude 60 秒负缓存到期是注入时钟的真实文件 resolver 用例，不声称实际等待了 60 秒 |
+| I/O 慢时活动发布 | 修正观察器后的 overlap probe | **392.71 ms** 后发布新 4 个属主并收到 WS changed；旧 4 个慢读尚未完成。约 **4.19 s** 时同步 `/proc` 观察器看到 **8** 个目标 FD；最终 HTTP 标题仅含新 4 个键、revision **3**，旧键未回写，退出码 **0** |
+| 单轮目录共享、同键单飞、负缓存、FS 诊断恢复 | `strace -f -qq -y -e trace=%file,getdents64,write -o /dev/shm/review-t17-srv-lab/batch.trace bun /dev/shm/review-t17-srv-lab/batch-probe.ts` | 20 个项目目录、10 个冷 miss：projects **1** 次 open、候选 **200** 次 statx；紧接着热 miss 两者 **0**。10 个并发批次问同一冷键：projects **1** 次 open、候选 **20** 次 statx。chmod 0 的普通文件：**1** 条 EACCES 日志、缺标题；恢复 0600 后下一批读到正确标题。退出码 **0** |
+| 预算到点而 I/O 未完成 | latency probe（真实 pread64 延迟 4 s） | 批次在 **2003.33 ms** 回 `pending=[目标键]`；底层在 **4004.48 ms** 完成，下批同键复用在途结果。该现象本身符合“已在途继续做完”，跨轮配额问题见第 1 条 |
+| 来源单独变化、不变不推送 | source probe | 原实现 revision **2→3**、推送 **1** 次；同标题/来源再读后 revision **3** 不变，无额外 activity changed；变异场景失败，现有 10 个测试仍全过，见第 4 条 |
+
+未运行：e2e、开发服务、浏览器、真实 herdr、真实模型、前端审查、全包测试、docs/governance 检查。全部自建面板实例使用端口 0，没有碰 4400/4401。测试已有的 fake-herdr 仅在隔离测试夹具中使用；本轮专门实验全部 `herdr: null`。
+
+## 基线已有问题，不计本次发现
+
+- **缓存内存没有硬上限**（从代码确认，未做 RSS/heap 测量）：base 的 `createSessionTitles` 已持有 `cache`、`located`、`missed`、`reported`，均没有容量/代际淘汰；`missed` 的 60 秒是查询失效期限，不会删除 Map 条目。Codex 索引也缓存所有 id。t17 的 `knownTitles` 会按最新键集修剪，但没有给旧 resolver 缓存补内存上限。本条不是新增回归，不能声称全部缓存有界。
+- **原有测试的固定等待/实现文案断言**：场景 1 的 `Bun.sleep(10/20)` 轮询、herdr 监视器的固定时长等待、FIFO 用例精确断言日志文案在 base 已存在。新增标题等待使用 waitUntil，不能把旧测试规范问题算 t17 新引入。
+- **通用在途 Refresher 停止防护不足**：base stop 已不等待所有在途记录/活动计算。本次第 2 条仅统计新增标题任务没有 owner 收口的部分。
+- **同步 Codex 全索引解析**：解析算法在 base 已有；第 3 条只统计后台接入让此前不查标题的活动/运行页也发生阻塞，不重复报告旧按需解析器。
+
+## 测量规范回写建议（未实施，不计发现）
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| 1 | 踩坑 | 异步 `/proc` 观察器与慢读共享 FS 线程池而漏掉 8-FD 重叠；同进程 HTTP 采样与被测解析共享事件循环而漏掉暂停期，独立客户端才测得 2078.20 ms | 在现有“测量不改变被测结果”条目补一句：“测阻塞或资源饱和时，观察器不要与被测工作共享被阻塞的事件循环或执行池；用独立进程或不依赖该执行池的采样方式，否则观察器排队会漏掉阻塞。” | `docs/testing/README.md` 的“测试写法” |
+
+## 复现附录
+
+临时实验脚本与 trace 按要求在收尾删除。下列源码和完整命令保留在报告中；重跑时先重建 `/dev/shm/review-t17-srv-lab/` 与 `tmp/`，将每个代码块保存为标出的文件。所有命令的 cwd 都是报告开头的固定审查 checkout。时间值会因机器负载变化；断言和输入规模不变。
+
+**`/dev/shm/review-t17-srv-lab/runtime-probe.ts`**
+
+```typescript
+import assert from "node:assert/strict";
+import {mkdir, readFile, readlink, readdir, writeFile, appendFile} from "node:fs/promises";
+import {readdirSync, readlinkSync} from "node:fs";
+import {join} from "node:path";
+import {performance} from "node:perf_hooks";
+import {createFixture, cleanupFixtures, panelEnv} from ".worktree/w00022-review-t17-impl/packages/dev-panel/tests/git-fixture.ts";
+import {locateRepository} from ".worktree/w00022-review-t17-impl/packages/dev-panel/src/core/repo.ts";
+import {startPanelServer, type PanelServer} from ".worktree/w00022-review-t17-impl/packages/dev-panel/src/server/serve.ts";
+import {createLoginTicket} from ".worktree/w00022-review-t17-impl/packages/dev-panel/src/server/auth.ts";
+const mode = process.argv[2]!;
+const root = "/dev/shm/review-t17-srv-lab";
+const home = join(root, `${mode}-home`);
+const project = join(home, ".claude/projects/-repo");
+const ids = Array.from({length: 8}, (_, n) => `bbbbbbbb-0000-4000-8000-${String(n + 1).padStart(12, "0")}`);
+const paths = ids.map((id) => join(project, `${id}.jsonl`));
+const start = performance.now();
+const out = (phase: string, data: object = {}) => console.log(JSON.stringify({phase, elapsedMs: +(performance.now() - start).toFixed(2), ...data}));
+async function until<T>(name: string, check: () => Promise<T> | T, timeoutMs = 25_000): Promise<NonNullable<T>> {
+    const deadline = performance.now() + timeoutMs;
+    while (performance.now() < deadline) {
+        const value = await check();
+        if (value) return value as NonNullable<T>;
+        const {promise, resolve} = Promise.withResolvers<void>();
+        setTimeout(resolve, 20);
+        await promise;
+    }
+    throw new Error(`未观察到：${name}`);
+}
+async function titleFds(): Promise<string[]> {
+    const links = readdirSync("/proc/self/fd").map((name) => {
+        try { return readlinkSync(`/proc/self/fd/${name}`); }
+        catch (error: unknown) { if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return ""; throw error; }
+    });
+    return links.filter((path) => paths.includes(path));
+}
+const fixture = await createFixture(`runtime-${mode}`);
+let server: PanelServer | null = null;
+let socket: WebSocket | null = null;
+try {
+    await mkdir(project, {recursive: true});
+    for (const [n, path] of paths.entries()) await writeFile(path, JSON.stringify({type: "ai-title", aiTitle: `普通文件 ${n + 1}`}) + "\n");
+    const procs = join(fixture.main, ".local/agent/run/procs");
+    await mkdir(procs, {recursive: true});
+    const bootId = (await readFile("/proc/sys/kernel/random/boot_id", "utf8")).trim();
+    const now = new Date().toISOString();
+    async function registrations(active: readonly number[]): Promise<void> {
+        for (let n = 0; n < 8; n++) {
+            const isActive = active.includes(n);
+            const time = isActive ? now : new Date(Date.now() - 48 * 3_600_000).toISOString();
+            const runId = `dev-20261014T010000Z-${String(n + 1).padStart(8, "0")}`;
+            await writeFile(join(procs, `${runId}.json`), JSON.stringify({schema: "nbdev.proc/v1", runId, kind: "dev", checkout: fixture.main, checkoutKey: "main", package: "apps/web", script: "dev", argv: [], logPath: join(fixture.root, "dev.log"), bootId, startedAt: time, startedBy: {key: `claude:${ids[n]}`, agent: "claude", label: null, process: null}, supervisor: {pid: 1, startTicks: "0"}, endedAt: time, endedReason: "exited", exitCode: 0}));
+        }
+    }
+    await registrations(mode === "overlap" ? [0, 1, 2, 3] : [0]);
+    const logs: string[] = [];
+    server = await startPanelServer({context: await locateRepository(fixture.main), host: "127.0.0.1", port: 0, artifactPort: 0, herdr: null, token: "review-local", log: (line) => {logs.push(line); out("日志", {line});}, env: {...panelEnv(fixture), HOME: home}});
+    const changes: Array<{stopped: boolean; revision: number}> = [];
+    server.state.onChange((part) => {if (part === "activity") {const entry = {stopped: server!.state.stopped, revision: server!.state.revisions().activity}; changes.push(entry); out("活动发布", entry);}});
+    await server.warm();
+    const cookie = `nbdev_panel_${server.port}=${server.auth.redeem(createLoginTicket("review-local"))}`;
+    const get = async () => {
+        const response = await fetch(`${server!.url}/api/runs`, {headers: {Cookie: cookie}});
+        assert.equal(response.status, 200);
+        return response.json() as Promise<{data: {procs: Array<{startedBy: {key: string}}> ; sessionTitles: Record<string, unknown>}; revisions: {activity: number}}>;
+    };
+    const before = await get();
+    out("预热后 HTTP", {port: server.port, owners: before.data.procs.map((run) => run.startedBy.key), titles: before.data.sessionTitles, fds: await titleFds()});
+    if (mode === "stop") {
+        const revision = server.state.revisions().activity;
+        const stopAt = performance.now();
+        await server.stop();
+        out("停止已返回", {stopDurationMs: performance.now() - stopAt, fds: await titleFds(), revision});
+        await until("停止后标题仍发布", () => changes.some((entry) => entry.stopped && entry.revision > revision));
+        out("停止后标题结果", {revision: server.state.revisions().activity, titles: server.state.activity.part.value?.sessionTitles, fds: await titleFds()});
+    } else if (mode === "source") {
+        // Bun 的 headers 选项未列在 DOM 构造类型中。
+        const socketOptions = {headers: {Cookie: cookie, Origin: server.url}} as unknown as string[];
+        socket = new WebSocket(`${server.url.replace("http", "ws")}/ws`, socketOptions);
+        let hello = false;
+        let pushes = 0;
+        socket.addEventListener("message", (event) => {
+            const message: unknown = JSON.parse(String(event.data));
+            assert.ok(message && typeof message === "object" && "type" in message);
+            if (message.type === "hello") hello = true;
+            if (message.type === "changed" && "parts" in message && Array.isArray(message.parts) && message.parts.includes("activity")) pushes += 1;
+        });
+        await until("WebSocket hello", () => hello);
+        const key = `claude:${ids[0]}`;
+        const first = await until("自动标题就绪", async () => {
+            const value = await get();
+            const title = value.data.sessionTitles[key];
+            return title && typeof title === "object" && "source" in title && title.source === "claude-ai-title" ? value : null;
+        });
+        const beforePushes = pushes;
+        await appendFile(paths[0]!, JSON.stringify({type: "custom-title", customTitle: "普通文件 1"}) + "\n");
+        await appendFile(join(fixture.main, ".agents/works/w00001-seed/README.md"), "\n标题来源变化。\n");
+        const second = await until("同文案的来源变化", async () => {
+            const value = await get();
+            const title = value.data.sessionTitles[key];
+            return title && typeof title === "object" && "source" in title && title.source === "claude-custom" ? value : null;
+        }, 10_000);
+        assert.equal(second.revisions.activity, first.revisions.activity + 1);
+        await until("来源变更的 activity 推送", () => pushes > beforePushes);
+        const stableAt = server.state.activity.part.at;
+        const stableRevision = second.revisions.activity;
+        const stablePushes = pushes;
+        await appendFile(paths[0]!, JSON.stringify({type: "custom-title", customTitle: "普通文件 1"}) + "\n");
+        await appendFile(join(fixture.main, ".agents/works/w00001-seed/README.md"), "\n同一标题再刷。\n");
+        await until("首轮活动计算完成", () => server!.state.activity.part.at !== stableAt);
+        const nextAt = server.state.activity.part.at;
+        await until("下一次周期活动计算完成", () => server!.state.activity.part.at !== nextAt, 10_000);
+        const stable = await get();
+        assert.equal(stable.revisions.activity, stableRevision);
+        assert.equal(pushes, stablePushes);
+        out("来源单独变化与重复标题", {firstRevision: first.revisions.activity, secondRevision: second.revisions.activity, stableRevision: stable.revisions.activity, titles: stable.data.sessionTitles, sourceChangePushes: pushes - beforePushes});
+    } else {
+        // Bun 支持带 headers 的 WebSocket 选项；DOM 的构造类型没有列出它。
+        const socketOptions = {headers: {Cookie: cookie, Origin: server.url}} as unknown as string[];
+        socket = new WebSocket(`${server.url.replace("http", "ws")}/ws`, socketOptions);
+        const messages: Array<{type: string; parts?: string[]; revisions: {activity: number}}> = [];
+        socket.addEventListener("message", (event) => {
+            const message: unknown = JSON.parse(String(event.data));
+            assert.ok(message && typeof message === "object" && "type" in message && typeof message.type === "string" && "revisions" in message && message.revisions && typeof message.revisions === "object" && "activity" in message.revisions && typeof message.revisions.activity === "number");
+            const parts = "parts" in message && Array.isArray(message.parts) && message.parts.every((part) => typeof part === "string") ? message.parts as string[] : undefined;
+            messages.push({type: message.type, parts, revisions: {activity: message.revisions.activity}});
+        });
+        await until("WebSocket hello", () => messages.some((message) => message.type === "hello"));
+        await until("第一轮预算到点", () => logs.some((line) => line.includes("还有 4 个会话没查完")));
+        const mark = performance.now();
+        await registrations([4, 5, 6, 7]);
+        await appendFile(join(fixture.main, ".agents/works/w00001-seed/README.md"), "\n触发真实记录监视刷新。\n");
+        const after = await until("HTTP 活动属主替换", async () => {const value = await get(); return value.data.procs.every((run) => run.startedBy.key.endsWith("000000000005") || run.startedBy.key.endsWith("000000000006") || run.startedBy.key.endsWith("000000000007") || run.startedBy.key.endsWith("000000000008")) && value.data.procs.length === 4 ? value : null;});
+        out("新的活动已发布", {publishDurationMs: performance.now() - mark, owners: after.data.procs.map((run) => run.startedBy.key), revision: after.revisions.activity, titles: after.data.sessionTitles});
+        await until("WS 收到 activity changed", () => messages.some((message) => message.type === "changed" && message.parts?.includes("activity") && message.revisions.activity >= after.revisions.activity));
+        const fds = await until("跨轮八个标题 FD 同时打开", async () => {const fds = await titleFds(); return fds.length >= 8 ? fds : null;});
+        out("跨轮并发", {openTitleFiles: fds.length, fds});
+        const latest = await until("最新四个标题", async () => {const value = await get(); return Object.keys(value.data.sessionTitles).length === 4 ? value : null;});
+        assert.deepEqual(Object.keys(latest.data.sessionTitles).sort(), ids.slice(4).map((id) => `claude:${id}`).sort());
+        out("过期键未回写", {titles: latest.data.sessionTitles, revision: latest.revisions.activity});
+        await until("真实读盘最终关闭", async () => (await titleFds()).length === 0);
+        await server.stop();
+        out("真实读盘已关闭", {stopped: server.state.stopped});
+    }
+} finally {
+    socket?.close();
+    await server?.stop();
+    await cleanupFixtures();
+}
+```
+
+**`/dev/shm/review-t17-srv-lab/large-index-probe.ts`**
+
+```typescript
+import assert from "node:assert/strict";
+import {mkdir, writeFile, appendFile, readFile, stat} from "node:fs/promises";
+import {join} from "node:path";
+import {performance} from "node:perf_hooks";
+import {spawn, type ChildProcessWithoutNullStreams} from "node:child_process";
+import {once} from "node:events";
+import {createFixture, cleanupFixtures, panelEnv} from ".worktree/w00022-review-t17-impl/packages/dev-panel/tests/git-fixture.ts";
+import {locateRepository} from ".worktree/w00022-review-t17-impl/packages/dev-panel/src/core/repo.ts";
+import {startPanelServer, type PanelServer} from ".worktree/w00022-review-t17-impl/packages/dev-panel/src/server/serve.ts";
+import {createLoginTicket} from ".worktree/w00022-review-t17-impl/packages/dev-panel/src/server/auth.ts";
+const fixture = await createFixture("large-index");
+let server: PanelServer | null = null;
+let socket: WebSocket | null = null;
+let poll: NodeJS.Timeout | undefined;
+let client: ChildProcessWithoutNullStreams | null = null;
+let clientText = "";
+let clientError = "";
+const home = join(fixture.root, "home");
+const index = join(home, ".codex/session_index.jsonl");
+const lags: number[] = [];
+const logs: string[] = [];
+async function until(name: string, check: () => Promise<boolean>, timeoutMs = 25_000): Promise<void> {
+    const deadline = performance.now() + timeoutMs;
+    while (performance.now() < deadline) {
+        if (await check()) return;
+        const {promise, resolve} = Promise.withResolvers<void>();
+        setTimeout(resolve, 20);
+        await promise;
+    }
+    throw new Error(`未观察到：${name}`);
+}
+try {
+    await mkdir(join(home, ".codex"), {recursive: true});
+    await writeFile(index, JSON.stringify({id: "index-target", thread_name: "第一版"}) + "\n");
+    const procs = join(fixture.main, ".local/agent/run/procs");
+    await mkdir(procs, {recursive: true});
+    const bootId = (await readFile("/proc/sys/kernel/random/boot_id", "utf8")).trim();
+    const now = new Date().toISOString();
+    const record = {schema: "nbdev.proc/v1", runId: "dev-20261014T010000Z-00000001", kind: "dev", checkout: fixture.main, checkoutKey: "main", package: "apps/web", script: "dev", argv: [], logPath: join(fixture.root, "dev.log"), bootId, startedAt: now, startedBy: {key: "codex:index-target", agent: "codex", label: null, process: null}, supervisor: {pid: 1, startTicks: "0"}, endedAt: now, endedReason: "exited", exitCode: 0};
+    await writeFile(join(procs, `${record.runId}.json`), JSON.stringify(record));
+    server = await startPanelServer({context: await locateRepository(fixture.main), host: "127.0.0.1", port: 0, artifactPort: 0, herdr: null, token: "large-local", log: (line) => logs.push(line), env: panelEnv(fixture)});
+    await server.warm();
+    const cookie = `nbdev_panel_${server.port}=${server.auth.redeem(createLoginTicket("large-local"))}`;
+    const get = async () => {
+        const started = performance.now();
+        const response = await fetch(`${server!.url}/api/runs`, {headers: {Cookie: cookie}});
+        const value: unknown = await response.json();
+        lags.push(performance.now() - started);
+        assert.equal(response.status, 200);
+        assert.ok(value && typeof value === "object" && "data" in value && value.data && typeof value.data === "object" && "sessionTitles" in value.data && value.data.sessionTitles && typeof value.data.sessionTitles === "object");
+        const titles = value.data.sessionTitles;
+        const title = "codex:index-target" in titles ? titles["codex:index-target"] : null;
+        return title && typeof title === "object" && "text" in title ? title.text : null;
+    };
+    await until("初始标题", async () => await get() === "第一版");
+    // 每行都是可解析的真实 Codex 索引记录；同一会话可以重复改名，末条覆盖前条。
+    const chunk = (JSON.stringify({id: "index-target", thread_name: "第二版"}) + "\n").repeat(10_000);
+    await writeFile(index, "");
+    for (let n = 0; n < 600; n++) await appendFile(index, chunk);
+    const bytes = (await stat(index)).size;
+    const socketOptions = {headers: {Cookie: cookie, Origin: server.url}} as unknown as string[];
+    socket = new WebSocket(`${server.url.replace("http", "ws")}/ws`, socketOptions);
+    await until("WS 打开", async () => socket!.readyState === WebSocket.OPEN);
+    client = spawn(process.execPath, ["/dev/shm/review-t17-srv-lab/http-latency-client.ts", server.url, cookie], {stdio: ["pipe", "pipe", "pipe"]});
+    client.stdout.on("data", (chunk: Buffer) => {clientText += chunk.toString();});
+    client.stderr.on("data", (chunk: Buffer) => {clientError += chunk.toString();});
+    await until("外部 HTTP 客户端 READY", async () => clientText.includes("READY"));
+    lags.length = 0;
+    let running = false;
+    let pollError: unknown = null;
+    poll = setInterval(() => {
+        if (running) return;
+        running = true;
+        void get().catch((error: unknown) => {pollError = error;}).finally(() => {running = false;});
+    }, 10);
+    const started = performance.now();
+    await appendFile(join(fixture.main, ".agents/works/w00001-seed/README.md"), "\n触发真实活动刷新。\n");
+    await until("第二版标题", async () => await get() === "第二版");
+    if (pollError) throw pollError;
+    const closed = once(client, "close");
+    client.stdin.end();
+    await closed;
+    assert.equal(client.exitCode, 0, clientError);
+    console.log(JSON.stringify({records: 6_000_000, indexBytes: bytes, totalMs: performance.now() - started, maxSameProcessHttpMs: Math.max(...lags), requests: lags.length, independentClient: clientText.trim(), logs}));
+} finally {
+    clearInterval(poll);
+    socket?.close();
+    await server?.stop();
+    if (client?.exitCode === null) {
+        const closed = once(client, "close");
+        client.kill("SIGTERM");
+        await closed;
+    }
+    await cleanupFixtures();
+}
+```
+
+**`/dev/shm/review-t17-srv-lab/large-index-base-probe.ts`**
+
+```typescript
+import assert from "node:assert/strict";
+import {mkdir, writeFile, appendFile, readFile, stat} from "node:fs/promises";
+import {join} from "node:path";
+import {performance} from "node:perf_hooks";
+import {spawn, type ChildProcessWithoutNullStreams} from "node:child_process";
+import {once} from "node:events";
+import {createFixture, cleanupFixtures, panelEnv} from ".worktree/w00022-review-t17-impl/packages/dev-panel/tests/git-fixture.ts";
+import {locateRepository} from ".worktree/w00022-review-t17-impl/packages/dev-panel/src/core/repo.ts";
+import {startPanelServer, type PanelServer} from "/dev/shm/review-t17-srv-lab/base-server/serve.ts";
+import {createLoginTicket} from ".worktree/w00022-review-t17-impl/packages/dev-panel/src/server/auth.ts";
+const fixture = await createFixture("large-index");
+let server: PanelServer | null = null;
+let socket: WebSocket | null = null;
+let poll: NodeJS.Timeout | undefined;
+let client: ChildProcessWithoutNullStreams | null = null;
+let clientText = "";
+let clientError = "";
+const home = join(fixture.root, "home");
+const index = join(home, ".codex/session_index.jsonl");
+const lags: number[] = [];
+const logs: string[] = [];
+async function until(name: string, check: () => Promise<boolean>, timeoutMs = 25_000): Promise<void> {
+    const deadline = performance.now() + timeoutMs;
+    while (performance.now() < deadline) {
+        if (await check()) return;
+        const {promise, resolve} = Promise.withResolvers<void>();
+        setTimeout(resolve, 20);
+        await promise;
+    }
+    throw new Error(`未观察到：${name}`);
+}
+try {
+    await mkdir(join(home, ".codex"), {recursive: true});
+    await writeFile(index, JSON.stringify({id: "index-target", thread_name: "第一版"}) + "\n");
+    const procs = join(fixture.main, ".local/agent/run/procs");
+    await mkdir(procs, {recursive: true});
+    const bootId = (await readFile("/proc/sys/kernel/random/boot_id", "utf8")).trim();
+    const now = new Date().toISOString();
+    const record = {schema: "nbdev.proc/v1", runId: "dev-20261014T010000Z-00000001", kind: "dev", checkout: fixture.main, checkoutKey: "main", package: "apps/web", script: "dev", argv: [], logPath: join(fixture.root, "dev.log"), bootId, startedAt: now, startedBy: {key: "codex:index-target", agent: "codex", label: null, process: null}, supervisor: {pid: 1, startTicks: "0"}, endedAt: now, endedReason: "exited", exitCode: 0};
+    await writeFile(join(procs, `${record.runId}.json`), JSON.stringify(record));
+    server = await startPanelServer({context: await locateRepository(fixture.main), host: "127.0.0.1", port: 0, artifactPort: 0, herdr: null, token: "large-local", log: (line) => logs.push(line), env: panelEnv(fixture)});
+    await server.warm();
+    const cookie = `nbdev_panel_${server.port}=${server.auth.redeem(createLoginTicket("large-local"))}`;
+    const get = async () => {
+        const started = performance.now();
+        const response = await fetch(`${server!.url}/api/runs`, {headers: {Cookie: cookie}});
+        const value: unknown = await response.json();
+        lags.push(performance.now() - started);
+        assert.equal(response.status, 200);
+        assert.ok(value && typeof value === "object" && "data" in value && value.data && typeof value.data === "object");
+        const titles = "sessionTitles" in value.data && value.data.sessionTitles && typeof value.data.sessionTitles === "object" ? value.data.sessionTitles : {};
+        const title = "codex:index-target" in titles ? titles["codex:index-target"] : null;
+        return title && typeof title === "object" && "text" in title ? title.text : null;
+    };
+    await get();
+    // 每行都是可解析的真实 Codex 索引记录；同一会话可以重复改名，末条覆盖前条。
+    const chunk = (JSON.stringify({id: "index-target", thread_name: "第二版"}) + "\n").repeat(10_000);
+    await writeFile(index, "");
+    for (let n = 0; n < 600; n++) await appendFile(index, chunk);
+    const bytes = (await stat(index)).size;
+    const socketOptions = {headers: {Cookie: cookie, Origin: server.url}} as unknown as string[];
+    socket = new WebSocket(`${server.url.replace("http", "ws")}/ws`, socketOptions);
+    await until("WS 打开", async () => socket!.readyState === WebSocket.OPEN);
+    client = spawn(process.execPath, ["/dev/shm/review-t17-srv-lab/http-latency-client.ts", server.url, cookie], {stdio: ["pipe", "pipe", "pipe"]});
+    client.stdout.on("data", (chunk: Buffer) => {clientText += chunk.toString();});
+    client.stderr.on("data", (chunk: Buffer) => {clientError += chunk.toString();});
+    await until("外部 HTTP 客户端 READY", async () => clientText.includes("READY"));
+    lags.length = 0;
+    let running = false;
+    let pollError: unknown = null;
+    poll = setInterval(() => {
+        if (running) return;
+        running = true;
+        void get().catch((error: unknown) => {pollError = error;}).finally(() => {running = false;});
+    }, 10);
+    const started = performance.now();
+    const beforeRecords = server.state.revisions().records;
+    await appendFile(join(fixture.main, ".agents/works/w00001-seed/README.md"), "\n触发真实活动刷新。\n");
+    await until("基线记录刷新与 HTTP 连续响应", async () => server!.state.revisions().records > beforeRecords && lags.length >= 20);
+    if (pollError) throw pollError;
+    const closed = once(client, "close");
+    client.stdin.end();
+    await closed;
+    assert.equal(client.exitCode, 0, clientError);
+    console.log(JSON.stringify({records: 6_000_000, indexBytes: bytes, totalMs: performance.now() - started, maxSameProcessHttpMs: Math.max(...lags), requests: lags.length, independentClient: clientText.trim(), logs}));
+} finally {
+    clearInterval(poll);
+    socket?.close();
+    await server?.stop();
+    if (client?.exitCode === null) {
+        const closed = once(client, "close");
+        client.kill("SIGTERM");
+        await closed;
+    }
+    await cleanupFixtures();
+}
+```
+
+**`/dev/shm/review-t17-srv-lab/http-latency-client.ts`**
+
+```typescript
+import assert from "node:assert/strict";
+import {performance} from "node:perf_hooks";
+const [url, cookie] = process.argv.slice(2);
+assert.ok(url && cookie);
+const durations: number[] = [];
+let running: Promise<void> | null = null;
+let failure: unknown = null;
+let ready = false;
+async function sample(): Promise<void> {
+    const start = performance.now();
+    const response = await fetch(`${url}/api/runs`, {headers: {Cookie: cookie}});
+    await response.arrayBuffer();
+    assert.equal(response.status, 200);
+    durations.push(performance.now() - start);
+    if (!ready) {ready = true; console.log("READY");}
+}
+const timer = setInterval(() => {
+    if (running) return;
+    running = sample().catch((error: unknown) => {failure = error;}).finally(() => {running = null;});
+}, 10);
+for await (const chunk of Bun.stdin.stream()) {assert.equal(chunk.byteLength, 0);}
+clearInterval(timer);
+await running;
+if (failure) throw failure;
+console.log(JSON.stringify({requests: durations.length, maxHttpMs: Math.max(...durations)}));
+```
+
+**`/dev/shm/review-t17-srv-lab/batch-probe.ts`**
+
+```typescript
+import assert from "node:assert/strict";
+import {mkdir, writeFile, chmod, stat} from "node:fs/promises";
+import {join} from "node:path";
+import {createSessionTitles} from ".worktree/w00022-review-t17-impl/packages/dev-panel/src/server/session-titles.ts";
+const home = "/dev/shm/review-t17-srv-lab/batch-home";
+const projects = join(home, ".claude/projects");
+for (let n = 0; n < 20; n++) await mkdir(join(projects, `project-${n}`), {recursive: true});
+const ids = Array.from({length: 10}, (_, n) => `cccccccc-0000-4000-8000-${String(n + 1).padStart(12, "0")}`);
+const logs: string[] = [];
+const titles = createSessionTitles({HOME: home}, (line) => logs.push(line));
+console.log("PHASE_COLD_START");
+assert.deepEqual(await titles.titlesOf(ids.map((id) => `claude:${id}`)), {titles: {}, pending: []});
+console.log("PHASE_COLD_END");
+console.log("PHASE_MISS_START");
+assert.deepEqual(await titles.titlesOf(ids.map((id) => `claude:${id}`)), {titles: {}, pending: []});
+console.log("PHASE_MISS_END");
+console.log("PHASE_SINGLE_START");
+const single = "dddddddd-0000-4000-8000-000000000001";
+assert.deepEqual(await Promise.all(Array.from({length: 10}, () => titles.titlesOf([`claude:${single}`]))), Array.from({length: 10}, () => ({titles: {}, pending: []})));
+console.log("PHASE_SINGLE_END");
+const id = "eeeeeeee-0000-4000-8000-000000000001";
+const file = join(projects, "project-0", `${id}.jsonl`);
+await writeFile(file, JSON.stringify({type: "ai-title", aiTitle: "失败恢复"}) + "\n");
+await chmod(file, 0);
+assert.deepEqual(await titles.titlesOf([`claude:${id}`]), {titles: {}, pending: []});
+await chmod(file, 0o600);
+assert.deepEqual(await titles.titlesOf([`claude:${id}`]), {titles: {[`claude:${id}`]: {text: "失败恢复", source: "claude-ai-title"}}, pending: []});
+assert.equal(logs.length, 1);
+assert.ok(logs[0]!.includes("EACCES"));
+console.log(JSON.stringify({phase: "普通文件权限错误恢复", logs, size: (await stat(file)).size}));
+```
+
+**`/dev/shm/review-t17-srv-lab/latency-probe.ts`**
+
+```typescript
+import {mkdir, writeFile} from "node:fs/promises";
+import {join} from "node:path";
+import {performance} from "node:perf_hooks";
+import {createSessionTitles} from ".worktree/w00022-review-t17-impl/packages/dev-panel/src/server/session-titles.ts";
+const home = "/dev/shm/review-t17-srv-lab/probe-home";
+const project = join(home, ".claude/projects/-repo");
+await mkdir(project, {recursive: true});
+const id = "aaaaaaaa-0000-4000-8000-000000000001";
+const path = join(project, `${id}.jsonl`);
+await writeFile(path, JSON.stringify({type: "ai-title", aiTitle: "真实普通文件"}) + "\n");
+const titles = createSessionTitles({HOME: home}, console.log);
+const start = performance.now();
+const batch = await titles.titlesOf([`claude:${id}`], {budgetMs: 2000});
+console.log(JSON.stringify({phase: "预算返回", elapsedMs: performance.now() - start, batch}));
+const finished = await titles.titlesOf([`claude:${id}`]);
+console.log(JSON.stringify({phase: "在途完成", elapsedMs: performance.now() - start, finished}));
+```
+
+**生成基线、变异服务与测试的 Python 脚本**（保存为临时根 `prepare-copies.py`，在其余脚本落盘后运行）：
+
+```python
+import pathlib, posixpath, re, subprocess
+repo = pathlib.Path(".worktree/w00022-review-t17-impl")
+lab = pathlib.Path("/dev/shm/review-t17-srv-lab")
+(lab / "tmp").mkdir(parents=True, exist_ok=True)
+package_root = str(repo / "packages/dev-panel")
+selected = ["serve.ts", "state.ts", "session-titles.ts", "views.ts", "live-views.ts"]
+def clone(version, folder, mutate=False):
+    folder.mkdir(parents=True, exist_ok=True)
+    aliases = {f"{package_root}/src/server/{name[:-3]}.js": str(folder/name) for name in selected}
+    for name in selected:
+        text = subprocess.check_output(["git", "show", f"{version}:packages/dev-panel/src/server/{name}"], cwd=repo, text=True)
+        def imp(match):
+            spec = match.group(2)
+            if not spec.startswith("."): return match.group(0)
+            actual = posixpath.normpath(f"{package_root}/src/server/{spec}")
+            return match.group(1) + aliases.get(actual, actual) + match.group(3)
+        text = re.sub(r"((?:from|import)\s+[\"'])([^\"']+)([\"'])", imp, text)
+        if mutate and name == "state.ts":
+            assert text.count("[key, title.text, title.source]") == 1
+            text = text.replace("[key, title.text, title.source]", "[key, title.text]")
+        (folder/name).write_text(text)
+    return aliases
+clone("8276c0bb2", lab/"base-server")
+aliases = clone("066fceb6a", lab/"mutant-server", True)
+(lab/"mutation-tests").mkdir(exist_ok=True)
+for name in ["session-titles.test.ts", "panel-server.test.ts"]:
+    text = subprocess.check_output(["git", "show", f"066fceb6a:packages/dev-panel/tests/{name}"], cwd=repo, text=True)
+    def imp(match):
+        spec = match.group(2)
+        if not spec.startswith("."): return match.group(0)
+        actual = posixpath.normpath(f"{package_root}/tests/{spec}")
+        return match.group(1) + aliases.get(actual, actual) + match.group(3)
+    text = re.sub(r"((?:from|import)\s+[\"'])([^\"']+)([\"'])", imp, text)
+    (lab/"mutation-tests"/name).write_text(text)
+link = lab/"node_modules"
+if not link.is_symlink(): link.symlink_to(repo/"node_modules")
+text = (lab/"runtime-probe.ts").read_text()
+text = text.replace(package_root+"/src/server/serve.ts", str(lab/"mutant-server/serve.ts"))
+text = text.replace("`${mode}-home`", "`${mode}-mutant-home`")
+(lab/"runtime-mutant-probe.ts").write_text(text)
+```
+
+**完整运行命令**
+
+```sh
+python3 /dev/shm/review-t17-srv-lab/prepare-copies.py
+TMPDIR=/dev/shm/review-t17-srv-lab/tmp strace -f -qq -ttt -T -y -e trace=pread64,openat,close -e inject=pread64:delay_enter=12s -o /dev/shm/review-t17-srv-lab/overlap-fixed.trace -P /dev/shm/review-t17-srv-lab/overlap-home/.claude/projects/-repo/bbbbbbbb-0000-4000-8000-000000000001.jsonl -P /dev/shm/review-t17-srv-lab/overlap-home/.claude/projects/-repo/bbbbbbbb-0000-4000-8000-000000000002.jsonl -P /dev/shm/review-t17-srv-lab/overlap-home/.claude/projects/-repo/bbbbbbbb-0000-4000-8000-000000000003.jsonl -P /dev/shm/review-t17-srv-lab/overlap-home/.claude/projects/-repo/bbbbbbbb-0000-4000-8000-000000000004.jsonl -P /dev/shm/review-t17-srv-lab/overlap-home/.claude/projects/-repo/bbbbbbbb-0000-4000-8000-000000000005.jsonl -P /dev/shm/review-t17-srv-lab/overlap-home/.claude/projects/-repo/bbbbbbbb-0000-4000-8000-000000000006.jsonl -P /dev/shm/review-t17-srv-lab/overlap-home/.claude/projects/-repo/bbbbbbbb-0000-4000-8000-000000000007.jsonl -P /dev/shm/review-t17-srv-lab/overlap-home/.claude/projects/-repo/bbbbbbbb-0000-4000-8000-000000000008.jsonl bun /dev/shm/review-t17-srv-lab/runtime-probe.ts overlap
+TMPDIR=/dev/shm/review-t17-srv-lab/tmp strace -f -qq -ttt -T -y -e trace=pread64,openat,close -P /dev/shm/review-t17-srv-lab/stop-home/.claude/projects/-repo/bbbbbbbb-0000-4000-8000-000000000001.jsonl -e inject=pread64:delay_enter=1500ms -o /dev/shm/review-t17-srv-lab/stop.trace bun /dev/shm/review-t17-srv-lab/runtime-probe.ts stop
+strace -f -qq -ttt -T -y -e trace=pread64,openat,close -P /dev/shm/review-t17-srv-lab/probe-home/.claude/projects/-repo/aaaaaaaa-0000-4000-8000-000000000001.jsonl -e inject=pread64:delay_enter=4s -o /dev/shm/review-t17-srv-lab/latency-probe.trace bun /dev/shm/review-t17-srv-lab/latency-probe.ts
+strace -f -qq -y -e trace=%file,getdents64,write -o /dev/shm/review-t17-srv-lab/batch.trace bun /dev/shm/review-t17-srv-lab/batch-probe.ts
+TMPDIR=/dev/shm/review-t17-srv-lab/tmp bun /dev/shm/review-t17-srv-lab/large-index-probe.ts 
+TMPDIR=/dev/shm/review-t17-srv-lab/tmp bun /dev/shm/review-t17-srv-lab/large-index-base-probe.ts 
+TMPDIR=/dev/shm/review-t17-srv-lab/tmp bun /dev/shm/review-t17-srv-lab/runtime-probe.ts source
+TMPDIR=/dev/shm/review-t17-srv-lab/tmp bun /dev/shm/review-t17-srv-lab/runtime-mutant-probe.ts source
+TMPDIR=/dev/shm/review-t17-srv-lab/tmp bun test --isolate /dev/shm/review-t17-srv-lab/mutation-tests/session-titles.test.ts /dev/shm/review-t17-srv-lab/mutation-tests/panel-server.test.ts -t 'Claude Code 的标题|按 Agent 找会话文件|第 3 批实现审查的建议|一批完整会话键|会话标题（t17）|场景 1：'
+```
+
+计数用 grep 工具的 `^### `、`matchCount` 核对，每次追加后的发现数依次为 1、2、3、4，均未减少。统计 batch trace 的模式为 `openat.*"/dev/shm/review-t17-srv-lab/batch-home/\.claude/projects".*O_RDONLY`、`statx.*cccccccc-0000-4000-8000-0000000000(0[1-9]|10)\.jsonl`、`statx.*dddddddd-0000-4000-8000-000000000001\.jsonl`；热 miss 的起止之间没有目录扫描或 statx。
+
+## 第 1 条的追加核实：定位本身也出现 8 个不同冷键并发
+
+为排除“只是读已定位文件叠加，冷定位仍可能只有 4 个”的解释，另对同一个真实面板/登记更换/HTTP/WS 场景，只延迟 8 个目标候选文件的 **statx 6 秒**，不延迟 pread。
+
+- 旧 4 个键的首次候选 statx 于 Unix 时刻 **1792003784.811248–1792003784.811483** 开始，至 **1792003790.811303–1792003790.811552** 返回；这些是 claudeFile 定位阶段，不是内容缓存的重复 stat。
+- 新 4 个键的首次候选 statx 于 **1792003788.813229–1792003788.813363** 开始，至 **1792003794.813677–1792003794.813792** 返回。
+- 因而有约 **2 秒**，**8 个不同冷键的首次定位**同时在途；`overlap-cold.trace:22-25,36-39,45-48,53-56` 给出 8 个路径和返回时间。单飞与每轮 4-worker 无法保护全局冷定位上限，第一条结论成立。
+- 新属主仍在 **393.16 ms** 后通过 HTTP/WS 发布；最终最新键集正确，revision **4**，实验退出码 **0**。
+- 本轮额外观察到：stop 已在进程内 **18.21 s** 时返回，但一个缓存 statx（trace 第 76、80 行）仍继续到约 **22.21 s**，Bun 子进程总墙钟 **22.29 s**。无打开标题 FD 也不代表任务已收口，进一步支持第 2 条。
+
+重建该附加脚本（原 runtime-probe.ts 保存好后运行）：
+
+```python
+from pathlib import Path
+lab = Path("/dev/shm/review-t17-srv-lab")
+text = (lab/"runtime-probe.ts").read_text()
+block = '''        const fds = await until("跨轮八个标题 FD 同时打开", async () => {const fds = await titleFds(); return fds.length >= 8 ? fds : null;});
+        out("跨轮并发", {openTitleFiles: fds.length, fds});'''
+assert text.count(block) == 1
+text = text.replace(block, '        out("冷定位并发由 statx trace 取证");')
+text = text.replace("`${mode}-home`", "`${mode}-cold-home`")
+(lab/"runtime-cold-probe.ts").write_text(text)
+```
+
+完整运行命令：
+
+```sh
+TMPDIR=/dev/shm/review-t17-srv-lab/tmp strace -f -qq -ttt -T -y -e trace=statx -e inject=statx:delay_enter=6s -o /dev/shm/review-t17-srv-lab/overlap-cold.trace -P /dev/shm/review-t17-srv-lab/overlap-cold-home/.claude/projects/-repo/bbbbbbbb-0000-4000-8000-000000000001.jsonl -P /dev/shm/review-t17-srv-lab/overlap-cold-home/.claude/projects/-repo/bbbbbbbb-0000-4000-8000-000000000002.jsonl -P /dev/shm/review-t17-srv-lab/overlap-cold-home/.claude/projects/-repo/bbbbbbbb-0000-4000-8000-000000000003.jsonl -P /dev/shm/review-t17-srv-lab/overlap-cold-home/.claude/projects/-repo/bbbbbbbb-0000-4000-8000-000000000004.jsonl -P /dev/shm/review-t17-srv-lab/overlap-cold-home/.claude/projects/-repo/bbbbbbbb-0000-4000-8000-000000000005.jsonl -P /dev/shm/review-t17-srv-lab/overlap-cold-home/.claude/projects/-repo/bbbbbbbb-0000-4000-8000-000000000006.jsonl -P /dev/shm/review-t17-srv-lab/overlap-cold-home/.claude/projects/-repo/bbbbbbbb-0000-4000-8000-000000000007.jsonl -P /dev/shm/review-t17-srv-lab/overlap-cold-home/.claude/projects/-repo/bbbbbbbb-0000-4000-8000-000000000008.jsonl bun /dev/shm/review-t17-srv-lab/runtime-cold-probe.ts overlap
+```
+
+附录重建脚本已实际执行验证：`python3 /dev/shm/review-t17-srv-lab/prepare-copies.py && TMPDIR=/dev/shm/review-t17-srv-lab/tmp bun /dev/shm/review-t17-srv-lab/large-index-base-probe.ts`，退出码 **0**。这次基线 smoke 的独立客户端最长请求 **5.81 ms**（33 次请求），不覆盖前面首次对照的 **4.79 ms** 结果。
+
+## 只读与清理确认
+
+- 最后实际命令：`git status --short && test ! -e /dev/shm/review-t17-srv-lab`，退出码 **0**、输出为空；审查 worktree 干净，实验根已删除。
+- 没有修改、删除或暂存审查仓库文件；没有 commit/push/stash/切换分支。所有变异都在临时副本中完成，原实现始终未改，副本已经删除。
+- 报告始终通过 `cat >>` 追加，没有整文件重写；源码附录保留了复现实验材料。所有有限实验/测试进程都已返回退出结果，未留下自建面板实例或独立 HTTP 客户端。
+
+## 未发现问题的方面
+
+以下区分实际运行与代码核查，不将“检查了”写成未做的运行验收：
+
+- **已验证**：首冒号拆分、Agent 白名单、omp 绝对路径含冒号及 id、原始完整键索引；Claude/Codex/omp 的标题读取。四视图投影、历史 askedBy、只剩 startedBy 的属主、无租约 pane、页面只带自己的键，都通过所选真实文件/HTTP 测试。没有发现这部分的新回归。
+- **已验证**：同一批 Claude 项目目录只列一次、相同键单飞、热 miss 不扫盘；不是把每批并发上限当作跨批上限，后者见第 1 条。权限错误有路径与 EACCES 诊断，权限恢复后能重读。
+- **已验证**：异步盘等待不会直接卡住活动发布，新属主在旧标题读未完成时已通过 HTTP/WS 发布；标题结果最终仅投影到最新键集合，没有把旧键重新带回来。同步 CPU 解析的执行线程耦合单列第 3 条。
+- **已验证**：原实现的 text/source 单独变化会改 revision 并推 activity changed，读到的最终标题不变时不多推；标题从有到无与从无到有的所选场景通过。现有测试对 source-only 的覆盖不足见第 4 条。
+- **从代码核查**：有效租约、activity.sessions、普通运行属主、进程登记 startedBy、收件箱 askedBy、所有 herdr pane 的收集链完整；普通运行属主经 readActivity 的 sessionView 纳入 sessions，runsView 再筛有 runs 的会话。快照标题指纹只取完整键、text、source，不含读取耗时、mtime、pending 或日志计数；通常的不同完整键按排序后指纹稳定。异步 GET 中既有的状态代际一致性不作为本次新增指纹问题。
+- **从代码核查**：后台任务的 Error 失败有日志，finally 释放 titleTask，下次活动刷新可以重试。编程异常、非 Error reject 与日志函数自身失败没有人为注入成“真实运行复现”；没有据此另报一条未经运行证明的缺陷。
+- **代码质量/边界**：这段差异没有改 core、写会话文件、改变标题选择优先级、放宽 omp 目录/普通文件边界、在 GET 内增加标题查盘、跨包深导入产品实现，或按错误文案分支。查到的结构性问题已落在任务/并发所有权，而非样式意见。
+
+## 各级数量
+
+| 严重程度 | 数量 |
+|---|---:|
+| 阻断 | 0 |
+| 重要 | 3 |
+| 建议 | 1 |
+| 合计 | 4 |
+
+基线已有问题与测量规范建议不计发现。共 4 个 `### ` 发现标题。

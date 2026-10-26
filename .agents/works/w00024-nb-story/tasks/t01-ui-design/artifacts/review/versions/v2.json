@@ -1,0 +1,213 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t01-ui-design",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "nb-story 界面评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "e730db5e82d31c736ba9e5510d43606b3662670158e894b5516c73bd716d415d",
+    "questions": [
+        {
+            "id": "home",
+            "type": "single",
+            "label": "1. 打开一本书，首先看到什么？",
+            "options": [
+                {
+                    "value": "chapter",
+                    "label": "本章：这一章发生了什么、变了什么"
+                },
+                {
+                    "value": "reader",
+                    "label": "原文阅读器，旁边跟着显示相关的人和记录"
+                },
+                {
+                    "value": "overview",
+                    "label": "全书总览"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "chapter"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "default-collapsed",
+            "type": "multi",
+            "label": "2. 哪些东西默认收起或不显示？（可多选）",
+            "options": [
+                {
+                    "value": "minor-entities",
+                    "label": "次要人物（舍友、导购员这类路人）"
+                },
+                {
+                    "value": "record-ids",
+                    "label": "记录编号（s3-19、q1-1）"
+                },
+                {
+                    "value": "block-summaries",
+                    "label": "原文里夹着的段落块概括"
+                },
+                {
+                    "value": "trivial-questions",
+                    "label": "琐碎的悬念（只在一章里出现、没有后续的）"
+                },
+                {
+                    "value": "long-alias-list",
+                    "label": "人物卡里的长称呼表（只先显示主要的几个）"
+                },
+                {
+                    "value": "inferred-records",
+                    "label": "标了“推断”的记录"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "minor-entities",
+                "record-ids",
+                "block-summaries",
+                "trivial-questions",
+                "long-alias-list"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "qa-place",
+            "type": "single",
+            "label": "3. 问答放在哪里？",
+            "options": [
+                {
+                    "value": "topbar-to-page",
+                    "label": "顶栏常驻一个提问框，回车后进问答页"
+                },
+                {
+                    "value": "drawer",
+                    "label": "右侧抽屉里问"
+                },
+                {
+                    "value": "page",
+                    "label": "只在左侧导航的“问答”页里问"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "topbar-to-page"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "embed-size",
+            "type": "single",
+            "label": "4. 以后嵌进 NeuroBook，主要以什么尺寸出现？",
+            "options": [
+                {
+                    "value": "editor-area",
+                    "label": "编辑区里的整页视图（和单独使用时差不多宽）"
+                },
+                {
+                    "value": "sidebar",
+                    "label": "侧栏里的窄条，写作时放在稿子旁边"
+                },
+                {
+                    "value": "both",
+                    "label": "两种都要"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "editor-area"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "keep-mechanisms",
+            "type": "multi",
+            "label": "5. 旧查看器（t28）的机制沿用哪些？（可多选）",
+            "options": [
+                {
+                    "value": "reading-position",
+                    "label": "读到哪里（选章加拖动条）"
+                },
+                {
+                    "value": "paragraph-records",
+                    "label": "原文段落上的记录条数，点段落看记录"
+                },
+                {
+                    "value": "name-highlight",
+                    "label": "原文里名字带底色、可点开"
+                },
+                {
+                    "value": "assertion-tags",
+                    "label": "“明说、推断、角色的说法”标签"
+                },
+                {
+                    "value": "no-record-legend",
+                    "label": "“没有记录不等于不知道”的说明（改成秘密矩阵的图例）"
+                },
+                {
+                    "value": "stats-page",
+                    "label": "“说明与统计”页（草稿写了多少条、程序生成了多少项）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "reading-position",
+                "paragraph-records",
+                "name-highlight",
+                "assertion-tags",
+                "no-record-legend"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "host",
+            "type": "single",
+            "label": "6. nb-story 的网页跑在哪里？",
+            "options": [
+                {
+                    "value": "standalone",
+                    "label": "独立服务（提案原定）"
+                },
+                {
+                    "value": "nbook-plugin",
+                    "label": "做成 NeuroBook 的插件"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "nbook-plugin"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-14T15:27:02.425Z"
+}

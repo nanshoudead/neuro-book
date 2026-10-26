@@ -686,7 +686,7 @@ export class RemoteNodeImpl implements RemoteNode {
         return client as RemoteClient<Contract>;
     }
 
-    /** 调用方一侧再核对一次结果：成功值按合同的输出 schema，失败码必须是路由层的或合同声明过的。 */
+    /** 调用方一侧再核对一次结果：成功值按合同的输出 schema，失败码必须是路由层的或合同声明过的，业务失败的详情按该码的 schema。 */
     #checkOutcome(contractId: string, spec: RemoteContract["methods"][string], outcome: Outcome): Outcome {
         if (outcome.ok) {
             const problems = validationProblems(spec.output, outcome.value);
@@ -696,9 +696,16 @@ export class RemoteNodeImpl implements RemoteNode {
             }
             return outcome;
         }
-        if (!(REMOTE_FAILURE_CODES as ReadonlyArray<string>).includes(outcome.code) && !Object.keys(spec.errors ?? {}).includes(outcome.code)) {
+        if ((REMOTE_FAILURE_CODES as ReadonlyArray<string>).includes(outcome.code)) return outcome;
+        const detailSchema = spec.errors !== undefined && Object.hasOwn(spec.errors, outcome.code) ? spec.errors[outcome.code] : undefined;
+        if (detailSchema === undefined) {
             this.#record("undeclared-error", contractId, outcome.code);
             return {ok: false, code: "provider-error", detail: `收到合同未声明的失败码 ${outcome.code}`};
+        }
+        const problems = validationProblems(detailSchema, outcome.detail);
+        if (problems !== null) {
+            this.#record("error-detail-invalid", contractId, `${outcome.code}：${problems}`);
+            return {ok: false, code: "provider-error", detail: `失败 ${outcome.code} 的详情不符合合同：${problems}`};
         }
         return outcome;
     }
@@ -855,10 +862,16 @@ export class RemoteNodeImpl implements RemoteNode {
             reply.result({ok: true, value: outcome.value});
             return;
         }
-        const declared = Object.keys(method.errors ?? {});
-        if (!declared.includes(outcome.code)) {
+        const detailSchema = method.errors !== undefined && Object.hasOwn(method.errors, outcome.code) ? method.errors[outcome.code] : undefined;
+        if (detailSchema === undefined) {
             this.#record("undeclared-error", contract.id, outcome.code);
             fail("provider-error", `提供方返回了合同未声明的失败码 ${outcome.code}`);
+            return;
+        }
+        const problems = validationProblems(detailSchema, outcome.detail);
+        if (problems !== null) {
+            this.#record("error-detail-invalid", contract.id, `${outcome.code}：${problems}`);
+            fail("provider-error", `失败 ${outcome.code} 的详情不符合合同：${problems}`);
             return;
         }
         reply.result({ok: false, code: outcome.code, ...(outcome.detail === undefined ? {} : {detail: outcome.detail})});

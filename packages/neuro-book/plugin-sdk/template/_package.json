@@ -1,0 +1,17 @@
+{
+    "publisher": "__PUBLISHER__",
+    "name": "__NAME__",
+    "version": "0.1.0",
+    "displayName": "__DISPLAY_NAME__",
+    "description": "",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "build": "nbooke build --clean",
+        "dev": "nbooke build --clean --dev",
+        "typecheck": "vue-tsc --noEmit"
+    },
+    "devDependencies": {
+        "@notnotype/nb-plugin-sdk": "^__SDK_VERSION__"
+    }
+}

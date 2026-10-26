@@ -1,7 +1,7 @@
 /**
  * 工作台的两个内置页面（docs/specs/ui/workbench-shell.md 输出 36–37、41）：`/` 在没有项目且有首页贡献时渲染贡献的组件，
  * 其余情形渲染外壳；加载失败退回外壳并记诊断；提供者换了之后迟到的结果不用；`/workbench` 从不用首页贡献。页面浮层在首页
- * 与工作台页都挂着。
+ * 与工作台页都挂着。文档根的设置与主体都挂上之后页面根才带 `data-page-rendered`（src/web/PageOutlet.md）。
  */
 
 import {flushPromises, mount} from "@vue/test-utils";
@@ -16,28 +16,40 @@ const Shell = defineComponent({name: "ShellMarker", render: () => h("div", {"dat
 const Home = defineComponent({name: "HomeMarker", render: () => h("div", {"data-test-home": ""})});
 const OtherHome = defineComponent({name: "OtherHomeMarker", render: () => h("div", {"data-test-other-home": ""})});
 
-function world(projectName: string | null = null) {
+const Document = defineComponent({name: "DocumentMarker", render: () => h("span", {"data-test-document": ""})});
+
+/** 由测试决定何时完成的加载：看加载完成之前与之后的页面。 */
+function deferred(): {readonly load: () => Promise<Component>; resolve(component: Component): void; reject(error: Error): void} {
+    const settle: {resolve: (component: Component) => void; reject: (error: Error) => void} = {resolve: () => undefined, reject: () => undefined};
+    const promise = new Promise<Component>((resolve, reject) => Object.assign(settle, {resolve, reject}));
+    return {load: () => promise, resolve: (component) => settle.resolve(component), reject: (error) => settle.reject(error)};
+}
+
+function world(projectName: string | null = null, loaders: {document?: () => Promise<Component>; shell?: () => Promise<Component>} = {}) {
     const current = shallowRef<HomeProvider | null>(null);
     const reports: string[] = [];
+    const partReports: string[] = [];
     const pages = createWorkbenchPages({
-        renderDocument: () => h("span", {"data-test-document": ""}),
-        renderShell: () => h(Shell),
+        document: {load: loaders.document ?? (async () => Document), props: () => ({})},
+        shell: {load: loaders.shell ?? (async () => Shell), props: () => ({})},
         renderCommandHost: () => h("span", {"data-test-commands": ""}),
         renderNotifications: () => h("span", {"data-test-notifications": ""}),
         renderOverlays: () => h("span", {"data-test-overlays": ""}),
         projectName,
         home: {current},
         reportHome: (message) => reports.push(message),
+        reportPart: (message) => partReports.push(message),
     });
-    return {current, reports, pages};
+    return {current, reports, partReports, pages};
 }
 
 const immediate = (id: string, component: Component): HomeProvider => ({id, load: async () => component});
 
 describe("工作台页面与首页贡献", () => {
-    it("没有首页贡献时渲染外壳；文档根、命令宿主与通知视口都在", () => {
+    it("没有首页贡献时渲染外壳；文档根、命令宿主与通知视口都在", async () => {
         const {pages} = world();
         const wrapper = mount(pages.home);
+        await flushPromises();
         expect(wrapper.find("[data-test-shell]").exists()).toBe(true);
         expect(wrapper.find("[data-test-document]").exists()).toBe(true);
         expect(wrapper.find("[data-test-commands]").exists()).toBe(true);
@@ -113,5 +125,60 @@ describe("工作台页面与首页贡献", () => {
         await flushPromises();
         expect(page.find("[data-test-shell]").exists()).toBe(true);
         expect(page.attributes("data-workbench-project")).toBe("novel");
+    });
+});
+
+describe("页面画出的标记 data-page-rendered", () => {
+    it("文档根的设置与外壳都挂上之后才带标记；只挂上一块时不带", async () => {
+        const document = deferred();
+        const shell = deferred();
+        const {pages} = world("novel", {document: document.load, shell: shell.load});
+        const wrapper = mount(pages.workbench);
+        await flushPromises();
+        expect(wrapper.attributes("data-page-rendered")).toBeUndefined();
+        shell.resolve(Shell);
+        await flushPromises();
+        expect(wrapper.find("[data-test-shell]").exists()).toBe(true);
+        expect(wrapper.attributes("data-page-rendered")).toBeUndefined();
+        document.resolve(Document);
+        await flushPromises();
+        expect(wrapper.attributes("data-page-rendered")).toBe("");
+    });
+
+    it("首页贡献挂上后带标记；撤回后等外壳挂上再带，中间不带", async () => {
+        const shell = deferred();
+        const {current, pages} = world(null, {shell: shell.load});
+        current.value = immediate("test.shelf.home", Home);
+        const wrapper = mount(pages.home);
+        await flushPromises();
+        expect(wrapper.find("[data-test-home]").exists()).toBe(true);
+        expect(wrapper.attributes("data-page-rendered")).toBe("");
+        current.value = null;
+        await flushPromises();
+        expect(wrapper.find("[data-test-home]").exists()).toBe(false);
+        expect(wrapper.attributes("data-page-rendered")).toBeUndefined();
+        shell.resolve(Shell);
+        await flushPromises();
+        expect(wrapper.find("[data-test-shell]").exists()).toBe(true);
+        expect(wrapper.attributes("data-page-rendered")).toBe("");
+    });
+
+    it("外壳加载失败时记诊断、不带标记；再挂载页面时重新加载", async () => {
+        let attempts = 0;
+        const {pages, partReports} = world("novel", {shell: async () => {
+            attempts += 1;
+            if (attempts === 1) throw new Error("模块取不到");
+            return Shell;
+        }});
+        const first = mount(pages.workbench);
+        await flushPromises();
+        expect(first.find("[data-test-shell]").exists()).toBe(false);
+        expect(first.attributes("data-page-rendered")).toBeUndefined();
+        expect(partReports).toEqual(["工作台外壳加载失败：模块取不到"]);
+        first.unmount();
+        const second = mount(pages.workbench);
+        await flushPromises();
+        expect(second.find("[data-test-shell]").exists()).toBe(true);
+        expect(second.attributes("data-page-rendered")).toBe("");
     });
 });

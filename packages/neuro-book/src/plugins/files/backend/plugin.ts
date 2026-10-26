@@ -17,10 +17,11 @@ import type {RemoteImplementation} from "@notnotype/nb-runtime/remote";
 import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 
 import {clockKey, stateRootKey} from "nbook/shared/host";
-import {currentProjectKey} from "nbook/shared/projects";
+import {HTTP_ROUTES_POINT} from "nbook/plugins/http/shared/contracts";
+import {currentProjectKey, projectsKey} from "nbook/shared/projects";
 
 import {descriptor} from "../plugin";
-import {projectFilesContract, userFilesContract} from "../shared/contracts";
+import {filesPreviewContract, projectFilesContract, userFilesContract} from "../shared/contracts";
 import type {ChangeSource, FilesContract} from "../shared/contracts";
 import {createChangeHub} from "./changes";
 import type {ChangeHub} from "./changes";
@@ -30,6 +31,7 @@ import {createBatch} from "./batch";
 import type {Batch, BatchControl} from "./batch";
 import {createOperations} from "./operations";
 import type {Operations} from "./operations";
+import {createPreviewTokens, createRawRoutes, PREVIEW_PREFIX} from "./raw-route";
 import {openRoot} from "./rooted";
 import type {RootOptions} from "./rooted";
 
@@ -116,37 +118,98 @@ function implementation(backend: Backend, consumer: ConsumerIdentity): RemoteImp
     };
 }
 
-/** `locate` 在激活时从宿主能力算出根目录与它的选项。 */
-function rootEntry(location: "server" | "project", contract: FilesContract, locate: (context: ActivationContext) => Promise<{readonly path: string; readonly options: Omit<RootOptions, "report">}>): PluginEntryDefinition {
-    return defineEntry({
-        id: location,
-        location,
-        // 启动即激活：根不可用（项目目录被删）在启动时就有诊断。
-        activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: clockKey}, {key: location === "server" ? stateRootKey : currentProjectKey}],
-        remoteProvides: [contract],
-        activate: async (context) => {
-            const diagnostics = context.services.require(diagnosticsKey);
-            const record = recordTo(diagnostics);
-            const placed = await locate(context);
-            const root = await openRoot(placed.path, {...placed.options, report: (event, error) => record("warn", `files.${event}`, "文件保存的收尾出错", {}, error)});
-            if ("ok" in root) throw new Error(`${location === "server" ? "user://" : "project://"} 的根不可用：${root.detail}`);
-            const service = createFilesService({root, diagnose: (event, detail, cause) => record("warn", event, detail, {cause})});
-            const changes = createChangeHub({root, controlDirectory: placed.options.controlDirectory, clock: context.services.require(clockKey), record});
-            context.scope.register({kind: "files-changes", label: `${descriptor.id} ${location}`, value: changes, release: (value) => value.close()});
-            const diagnose = (event: string, detail: string, cause: string): void => record("warn", event, detail, {cause});
-            const operations = createOperations({root, changes, diagnose});
-            const batch = createBatch({
-                root,
-                changes,
-                diagnose,
-                stopped: (operation, detail) => record("info", "files.batch.stopped", detail, {operation}),
-            });
-            const backend: Backend = {service, operations, batch, changes, scope: context.scope};
-            return {remote: [provideRemote(contract, (consumer) => implementation(backend, consumer))]};
-        },
+/** 一个根上的文件服务：打开根、建变更、操作与批量，登记在入口的作用域上。根不可用时激活失败。 */
+async function openBackend(context: ActivationContext, scheme: "user" | "project", placed: {readonly path: string; readonly options: Omit<RootOptions, "report">}) {
+    const record = recordTo(context.services.require(diagnosticsKey));
+    const root = await openRoot(placed.path, {...placed.options, report: (event, error) => record("warn", `files.${event}`, "文件保存的收尾出错", {}, error)});
+    if ("ok" in root) throw new Error(`${scheme}:// 的根不可用：${root.detail}`);
+    const service = createFilesService({root, diagnose: (event, detail, cause) => record("warn", event, detail, {cause})});
+    const changes = createChangeHub({root, controlDirectory: placed.options.controlDirectory, clock: context.services.require(clockKey), record});
+    context.scope.register({kind: "files-changes", label: `${descriptor.id} ${scheme}`, value: changes, release: (value) => value.close()});
+    const diagnose = (event: string, detail: string, cause: string): void => record("warn", event, detail, {cause});
+    const operations = createOperations({root, changes, diagnose});
+    const batch = createBatch({
+        root,
+        changes,
+        diagnose,
+        stopped: (operation, detail) => record("info", "files.batch.stopped", detail, {operation}),
     });
+    const backend: Backend = {service, operations, batch, changes, scope: context.scope};
+    return {root, record, backend};
 }
+
+/**
+ * 服务端入口：`user://`（根是 `<状态根>/user/`），另在 HTTP 端口上按地址给出字节（`raw-route.ts`），它要找到项目目录，
+ * 所以多依赖项目登记（可选）。启动即激活：根不可用在启动时就有诊断。
+ */
+const serverEntry = defineEntry({
+    id: "server",
+    location: "server",
+    activationEvents: ["onStartup"],
+    // 项目登记只有服务端宿主提供；只装了文件服务的实例（测试场地）里没有它，项目的字节地址随之不可用。
+    dependencies: [{key: diagnosticsKey}, {key: clockKey}, {key: stateRootKey}, {key: projectsKey, required: false}],
+    contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}],
+    remoteProvides: [userFilesContract, filesPreviewContract],
+    activate: async (context) => {
+        const state = context.services.require(stateRootKey).path;
+        const path = join(state, "user");
+        await mkdir(path, {recursive: true});
+        const {root, record, backend} = await openBackend(context, "user", {path, options: {controlDirectory: false, lockDirectory: join(state, "locks", "user-files")}});
+        const projects = await context.services.resolve(projectsKey);
+        const registry = projects.status === "resolved" ? projects.instance : null;
+        const tokens = createPreviewTokens();
+        const routes = createRawRoutes({projects: registry, user: root, tokens, record: (event, detail, error) => record("warn", event, detail, {}, error)});
+        // 每个调用方（一个窗口里的一个入口）一份门面，记着它签发的令牌；门面释放时全部作废，并关上签发：运行时释放门面
+        // 不等在途的调用，`open` 等登记查询回来时门面可能已经释放，那时签的令牌没人能撤回。
+        const issued = new WeakMap<object, {readonly tokens: Set<string>; released: boolean}>();
+        const preview = provideRemote(filesPreviewContract, () => {
+            const state = {tokens: new Set<string>(), released: false};
+            const mine = state.tokens;
+            const facade = {methods: {
+                open: async ({project, generation, network}: {readonly project: string; readonly generation: number; readonly network: boolean}) => {
+                    if (registry === null) return {ok: false as const, code: "unavailable-project" as const, detail: {detail: "这个实例没有项目登记"}};
+                    const listed = await registry.list();
+                    const running = listed.ok ? listed.value.find((item) => item.id === project) : undefined;
+                    if (running === undefined || running.generation !== generation) return {ok: false as const, code: "generation-gone" as const, detail: {detail: `作品 ${project} 的第 ${String(generation)} 代不在运行`}};
+                    if (state.released) return {ok: false as const, code: "unavailable-project" as const, detail: {detail: "调用方已经断开"}};
+                    const token = tokens.issue(project, generation, network);
+                    mine.add(token);
+                    return {ok: true as const, value: {token, base: `${PREVIEW_PREFIX}${token}/`}};
+                },
+                close: async ({token}: {readonly token: string}) => {
+                    // 只作废自己签发的：别的窗口的令牌不归它。
+                    if (mine.delete(token)) tokens.revoke(token);
+                    return {ok: true as const, value: {}};
+                },
+            }};
+            issued.set(facade, state);
+            return facade;
+        }, {release: (facade) => {
+            const state = issued.get(facade);
+            if (state === undefined) return;
+            state.released = true;
+            for (const token of state.tokens) tokens.revoke(token);
+        }});
+        return {
+            remote: [provideRemote(userFilesContract, (consumer) => implementation(backend, consumer)), preview],
+            contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: routes}},
+        };
+    },
+});
+
+/** 项目入口：`project://`，根是本项目代次的项目目录，`.nbook/` 是控制目录。 */
+const projectEntry = defineEntry({
+    id: "project",
+    location: "project",
+    activationEvents: ["onStartup"],
+    dependencies: [{key: diagnosticsKey}, {key: clockKey}, {key: currentProjectKey}],
+    remoteProvides: [projectFilesContract],
+    activate: async (context) => {
+        const path = context.services.require(currentProjectKey).root;
+        const {backend} = await openBackend(context, "project", {path, options: {controlDirectory: true, lockDirectory: join(path, ".nbook", "locks", "files")}});
+        return {remote: [provideRemote(projectFilesContract, (consumer) => implementation(backend, consumer))]};
+    },
+});
 
 function recordTo(diagnostics: DiagnosticsService) {
     return (level: "info" | "warn", event: string, message: string, data: unknown, error?: unknown): void => {
@@ -156,16 +219,5 @@ function recordTo(diagnostics: DiagnosticsService) {
 
 export const filesBackendPlugin: PluginDefinition = {
     id: descriptor.id,
-    entries: [
-        rootEntry("server", userFilesContract, async (context) => {
-            const state = context.services.require(stateRootKey).path;
-            const path = join(state, "user");
-            await mkdir(path, {recursive: true});
-            return {path, options: {controlDirectory: false, lockDirectory: join(state, "locks", "user-files")}};
-        }),
-        rootEntry("project", projectFilesContract, async (context) => {
-            const path = context.services.require(currentProjectKey).root;
-            return {path, options: {controlDirectory: true, lockDirectory: join(path, ".nbook", "locks", "files")}};
-        }),
-    ],
+    entries: [serverEntry, projectEntry],
 };

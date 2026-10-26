@@ -1,7 +1,7 @@
 import {readdir, readFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import type {Activity} from "../core/activity.js";
-import {artifactContentHash, artifactDirPath, QUESTIONS_ARTIFACT, questionStates, readArtifact, type ArtifactRef} from "../core/artifacts.js";
+import {artifactDirPath, currentContentHash, QUESTIONS_ARTIFACT, questionStates, readArtifact, type ArtifactRef} from "../core/artifacts.js";
 import {branchChangedDocs, listDocPaths, readDocDiff, readDocFile, readDocTree} from "../core/docs.js";
 import {readEditableFile} from "../core/edit-ops.js";
 import {readGovernanceLineLimits} from "../core/governance-limits.js";
@@ -12,10 +12,9 @@ import {historySource} from "./delivery.js";
 import {taskReadmePath, workReadmePath} from "../core/records.js";
 import type {CheckoutInfo} from "../core/repo.js";
 import {withActivity, type ProjectStatus, type TaskView, type WorkView} from "../core/status.js";
-import {matchRecords} from "../core/search.js";
+import {matchRecords, topRecordMatches, type RankableRecord} from "../core/search.js";
 import {readTaskDetail} from "../core/task-detail.js";
 import type {PanelState} from "./state.js";
-import type {SessionTitles} from "./session-titles.js";
 
 /**
  * 各接口的数据：只读缓存（记录、活动、herdr），少数按需读文件（Task 详情、产物、文档）。
@@ -83,6 +82,8 @@ export function overviewView(state: PanelState): {data: unknown; warnings: Warni
                 })),
             })),
             inbox: status.inbox.map((item) => (item.kind === "question" ? {...item, askerActive: item.askedBy === null ? null : validKeys.has(item.askedBy)} : item)),
+            // Work 卡片“谁在动”与收件箱提问者的会话标题（t17）：从活动的快照里取，提问者不在活动里也有。
+            sessionTitles: state.titlesFor([...status.works.flatMap((work) => work.activeLeases.map((lease) => lease.sessionKey)), ...status.inbox.map((item) => (item.kind === "question" ? item.askedBy : null))]),
             nextWorkNumber: status.nextWorkNumber,
             sessions: {total: activity.sessions.length, byStatus: statusCounts, unownedRuns: activity.unownedRuns.length, herdr: {available: herdr.available, mode: herdr.mode}},
             // 左栏“在跑”的数：经 nbdev 起、还没结束的服务加无主的运行（t14）。
@@ -122,6 +123,7 @@ export async function workView(state: PanelState, workId: string): Promise<{data
             openRequired: openRequiredOf(work),
             tasks: work.tasks.map((task) => ({...task, checkoutKey: state.keyOf(task.checkout), openRequired: taskOpenRequired(task)})),
             sessions: sessions.map((session) => ({key: session.key, agent: session.agent, label: session.label, alive: session.alive, herdr: session.herdr, leases: session.leases.filter((lease) => lease.workId === workId), runs: session.runs.length})),
+            sessionTitles: state.titlesFor([...work.activeLeases.map((lease) => lease.sessionKey), ...sessions.map((session) => session.key)]),
         },
         warnings,
     };
@@ -139,6 +141,7 @@ export async function taskView(state: PanelState, workId: string, taskId: string
             task: {...found.task, checkoutKey: state.keyOf(found.task.checkout), readmeHash: await readmeHashOf(found.task.checkout, taskReadmePath(workId, taskId))},
             work: {workId: found.work.workId, title: found.work.title, source: found.work.source, branch: found.work.branch},
             detail,
+            sessionTitles: state.titlesFor(found.task.leases.map((lease) => lease.sessionKey)),
         },
         warnings: [...warnings, ...detailWarnings],
     };
@@ -176,7 +179,8 @@ export async function artifactsView(state: PanelState): Promise<{data: unknown; 
 
 /**
  * 一个产物：题与状态、答复与确认、版本列表。产物页不按版本切换页面（页面文件不按版本保存），只切换题表；
- * iframe 指向产物来源上磁盘里的当前页面，磁盘内容与最新一版的 contentHash 不同时标 `unpublishedChanges`。
+ * iframe 指向产物来源上磁盘里的当前页面，磁盘上文件集的内容与最新一版的 contentHash 不同时标 `unpublishedChanges`
+ * （没被引用的未跟踪文件不在文件集里，检查页面时留下的截图不算改动）。
  */
 export async function artifactView(state: PanelState, input: {workId: string; taskId: string | null; artifactId: string; version: string | null}, artifactBase: (checkoutKey: string, path: string) => string): Promise<{data: unknown; warnings: Warning[]} | null> {
     const {status, warnings} = currentStatus(state);
@@ -201,7 +205,7 @@ export async function artifactView(state: PanelState, input: {workId: string; ta
     let unpublishedChanges: boolean | null = false;
     if (latest?.contentHash) {
         try {
-            unpublishedChanges = (await artifactContentHash(root, ref)) !== latest.contentHash;
+            unpublishedChanges = (await currentContentHash(root, ref, latest)) !== latest.contentHash;
         } catch (error) {
             // 产物目录里有符号链接等：算不出哈希不影响看题与答复，只是不知道有没有未发布的改动。
             if (!isNbdevError(error)) throw error;
@@ -327,13 +331,14 @@ export async function fileView(state: PanelState, path: string): Promise<{data: 
 
 /**
  * 会话页：herdr 的 pane（会话 id、Agent、状态、是否开在本仓库里、能往回翻多少行）、会话持有的租约与它的运行、无主的运行、checkout 列表。
- * pane 与会话各带 `title`（t15 阶段 4 第 3 批）：从本机 Agent 的会话文件里读，读不出为 null。
+ * pane 与会话各带 `title`（t15 阶段 4 第 3 批）：从本机 Agent 的会话文件里读，读不出为 null。t17 起取自活动快照里的标题，不在请求时查盘。
  */
-export async function sessionsView(state: PanelState, titles: SessionTitles): Promise<{data: unknown; warnings: Warning[]}> {
+export function sessionsView(state: PanelState): {data: unknown; warnings: Warning[]} {
     const herdr = state.herdr.current();
     const activity = state.activity.part.value;
     const roots = state.checkouts.filter((checkout) => !checkout.prunable).map((checkout) => checkout.root);
     const inRepo = (dir: string | null) => dir !== null && roots.some((root) => dir === root || dir.startsWith(`${root}/`));
+    const titles = activity?.sessionTitles ?? {};
     const records = state.records.part.value;
     const executionOf = new Map<string, string[]>();
     for (const work of records?.records.works ?? []) {
@@ -344,8 +349,8 @@ export async function sessionsView(state: PanelState, titles: SessionTitles): Pr
     return {
         data: {
             herdr: {available: herdr.available, mode: herdr.mode, version: herdr.version, at: herdr.at, error: herdr.error, missedEvents: herdr.missedEvents, reconnects: herdr.reconnects, retries: herdr.retries},
-            panes: await Promise.all(herdr.panes.map(async (pane) => ({...pane, inRepository: inRepo(pane.cwd) || inRepo(pane.foregroundCwd), history: historySource(pane), title: pane.session ? await titles.titleOf(pane.session.agent, pane.session.value) : null}))),
-            sessions: await Promise.all((activity?.activity.sessions ?? []).map(async (session) => ({...session, title: session.sessionId ? await titles.titleOf(session.agent, session.sessionId) : null}))),
+            panes: herdr.panes.map((pane) => ({...pane, inRepository: inRepo(pane.cwd) || inRepo(pane.foregroundCwd), history: historySource(pane), title: pane.session ? titles[`${pane.session.agent}:${pane.session.value}`] ?? null : null})),
+            sessions: (activity?.activity.sessions ?? []).map((session) => ({...session, title: titles[session.key] ?? null})),
             unownedRuns: activity?.activity.unownedRuns ?? [],
             ignoredProcesses: activity?.activity.ignoredProcesses ?? 0,
             checkouts: checkoutList(state).map((checkout) => ({...checkout, executionOf: executionOf.get(checkout.key) ?? []})),
@@ -358,9 +363,9 @@ export async function sessionsView(state: PanelState, titles: SessionTitles): Pr
 export function recordMatches(state: PanelState, q: string): Array<Record<string, unknown>> {
     const lower = q.toLowerCase();
     const has = (text: string | null | undefined) => typeof text === "string" && text.toLowerCase().includes(lower);
-    const matches: Array<Record<string, unknown>> = [...matchRecords({works: state.records.part.value?.records.works ?? []}, q)];
+    const matches: RankableRecord[] = [...matchRecords({works: state.records.part.value?.records.works ?? []}, q)];
     for (const session of state.activity.part.value?.activity.sessions ?? []) {
         if (has(session.key) || has(session.label)) matches.push({kind: "session", key: session.key, label: session.label});
     }
-    return matches.slice(0, 50);
+    return topRecordMatches(matches, q);
 }

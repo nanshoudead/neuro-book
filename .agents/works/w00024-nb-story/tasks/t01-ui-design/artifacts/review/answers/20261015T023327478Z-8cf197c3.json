@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t01-ui-design",
+    "artifactId": "review",
+    "answerId": "20261015T023327478Z-8cf197c3",
+    "artifactVersion": 8,
+    "contentHash": "6456b21e5678f19afc6f97e0739bfeb6d203fc63482954adcbc432e08151ece8",
+    "submittedAt": "2026-10-15T02:33:27.083Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "edge-merge": "merge",
+        "default-layout": "force"
+    },
+    "comments": {},
+    "note": "hover、选中某个节点的时候其他线条和节点变得稍微透明即可，不要直接让他们消息"
+}

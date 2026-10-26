@@ -48,15 +48,18 @@ function mount(routes: RouteTable, handle: ContributionHandle<unknown, HttpRoute
     routes.receiver().published!(handle, undefined);
 }
 
+/** 允许的来源：与产品里一样，回环来源之一。 */
+const PAGE_ORIGIN = "http://127.0.0.1:3100";
+
 function setup(staticFiles: StaticFiles | null = null) {
     const admission = new HttpAdmission();
     admission.ready();
     const routes = new RouteTable();
     const errors: Array<{error: unknown; plugin: string | null}> = [];
     const hostRoutes = new Hono<{Bindings: HttpRouteEnv}>().get("/health", (c) => c.json({status: "ok"}));
-    const dispatch = createDispatcher({admission, routes, hostRoutes, staticFiles, reportError: (error, {plugin}) => errors.push({error, plugin})});
-    const request = (path: string, init?: RequestInit) => dispatch(new Request(`http://127.0.0.1${path}`, init));
-    return {admission, routes, errors, request};
+    const dispatch = createDispatcher({admission, routes, hostRoutes, staticFiles, reportError: (error, {plugin}) => errors.push({error, plugin}), allowOrigin: (origin) => origin === PAGE_ORIGIN});
+    const request = (path: string, init?: RequestInit, host = "127.0.0.1") => dispatch(new Request(`http://${host}${path}`, init));
+    return {admission, routes, errors, request, dispatch};
 }
 
 describe("http.routes 贡献校验", () => {
@@ -217,5 +220,33 @@ describe("请求分发", () => {
         const response = await request("/api/runtime/health");
         expect(response.status).toBe(503);
         expect(await response.json()).toMatchObject({error: {code: "stopping"}});
+    });
+
+    it("主机名不是回环名、或没有主机名的请求一律 421，三个回环名照常", async () => {
+        const {request, routes, admission, dispatch} = setup();
+        mount(routes, routeHandle("nbook.files", new Hono().all("*", (c) => c.text("ok"))));
+        for (const host of ["evil.example:3100", "192.168.1.5:3100", "localhost.evil.example"]) {
+            const response = await request("/api/nbook.files/raw", undefined, host);
+            expect(response.status).toBe(421);
+            expect(await response.json()).toMatchObject({error: {code: "misdirected-host"}});
+        }
+        for (const host of ["127.0.0.1:3100", "localhost:3100", "[::1]:3100"]) expect(await (await request("/api/runtime/health", undefined, host)).json()).toEqual({status: "ok"});
+        // 不带 Host 的 HTTP/1.0 请求：Bun 1.4 交来的 `request.url` 是相对地址（`new Request` 造不出这种请求，按 Bun 交来的形状写）。
+        const hostless = {url: "/api/runtime/health", method: "GET", headers: new Headers()} as unknown as Request;
+        expect((await dispatch(hostless)).status).toBe(421);
+        expect(admission.active).toBe(0);
+    });
+
+    it("写请求带了不允许的来源（含 null）是 403；允许的来源、不带来源的写请求与任何来源的读请求照常", async () => {
+        const {request, routes} = setup();
+        mount(routes, routeHandle("nbook.files", new Hono().all("*", (c) => c.text(c.req.method))));
+        for (const origin of ["null", "http://evil.example", "http://127.0.0.1:9999"]) {
+            const response = await request("/api/nbook.files/x", {method: "POST", body: "x", headers: {origin}});
+            expect(response.status).toBe(403);
+            expect(await response.json()).toMatchObject({error: {code: "origin-not-allowed"}});
+        }
+        expect(await (await request("/api/nbook.files/x", {method: "POST", body: "x", headers: {origin: PAGE_ORIGIN}})).text()).toBe("POST");
+        expect(await (await request("/api/nbook.files/x", {method: "PUT", body: "x"})).text()).toBe("PUT");
+        expect(await (await request("/api/nbook.files/x", {headers: {origin: "null"}})).text()).toBe("GET");
     });
 });

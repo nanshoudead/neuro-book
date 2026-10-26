@@ -46,13 +46,13 @@ const ATOMIC_EXACT_SET = new Set([
     "truncate", "break-all", "break-words", "whitespace-nowrap",
     "select-none", "select-text", "select-all", "pointer-events-none", "pointer-events-auto",
     "border", "border-t", "border-b", "border-l", "border-r",
-    "rounded", "rounded-sm", "rounded-md", "rounded-lg", "rounded-xl", "rounded-full",
+    "rounded", "rounded-xs", "rounded-sm", "rounded-md", "rounded-lg", "rounded-xl", "rounded-full",
     "shadow", "shadow-sm", "shadow-md", "shadow-lg", "shadow-xs",
     "transition", "transition-all", "transition-colors", "transition-opacity",
     "cursor-pointer", "cursor-not-allowed", "cursor-default",
     "overflow-hidden", "overflow-auto", "overflow-visible", "overflow-scroll",
     "overflow-x-auto", "overflow-y-auto",
-    "outline-none", "box-border",
+    "outline-none", "outline-hidden", "box-border",
 ]);
 
 /** 路径最多回溯几层。在局部容器或 [data-lab-subject] 范围内足够精准，避免长路径爆炸。 */
@@ -72,7 +72,7 @@ export type InspectedNode = {
     /** 该组件的源文件（仅开发构建有）；取不到时为空串。 */
     componentFile: string;
     /**
-     * 如果该组件是底层 UI 零件（如 Button、FormSelect），向上追溯到的业务宿主组件名。
+     * 如果该组件是底层 UI 零件（如 Button、Select），向上追溯到的业务宿主组件名。
      * 如：在 AgentComposerToolbar 中使用了 Button，则 hostComponentName 为 "AgentComposerToolbar"。
      */
     hostComponentName?: string;
@@ -167,7 +167,7 @@ function isSignificantNode(element: Element, isLeaf: boolean): boolean {
 /**
  * Reka UI 等无头组件库的内部包装原语。
  * 检查器在查找「拥有这个节点的 Vue 组件」时，应当穿透这些无头包装，
- * 向上定位到维护者真正关心的业务组件（如 FormSelect、Dropdown、Button 等）。
+ * 向上定位到维护者真正关心的业务组件（如 Select、DropdownMenu、Button 等）。
  */
 const TRANSPARENT_PRIMITIVE_NAMES = new Set([
     "Primitive",
@@ -214,7 +214,7 @@ const GENERIC_LEAF_COMPONENTS = new Set([
     "IconButton",
     "Switch",
     "SegmentedControl",
-    "FormSelect",
+    "Select",
     "Icon",
     "NbIcon",
     "HighlightBox",

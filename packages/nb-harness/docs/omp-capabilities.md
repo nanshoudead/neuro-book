@@ -134,19 +134,31 @@ read omp://sdk.md               # 读某一篇
 
 1. **裸 TS 入口**：Node 无法 import（`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`，且加 `--experimental-strip-types` 也一样）；只有 Bun（≥1.3.14）或自备 TS loader 的打包器可用。
 2. **import 期副作用**：`@oh-my-pi/pi-utils` 的 `env` 模块在**顶层**读取 `$HOME/.env` 与 CWD/configRoot/agentDir 的 `.env`、**删除** `Bun.env` 中不合规的键、注入解析值、重算 OMP 目录（`getAgentDir()` 等）。任何 import 到它的进程都会继承这套行为。
-3. **原生包体积**：见 §1；CI 安装成本主要是它（linux 346.5 MB）。
+3. **原生包体积**：见“1. 包清单与体量”；CI 安装成本主要是它（linux 346.5 MB）。
 4. **不要 import `@oh-my-pi/pi-coding-agent`**：47.3 MB 闭包，含 puppeteer-core 与 12 个 OTel 包；其工具层需要约 110 个成员的 `ToolSession` 宿主上下文。需要工具就自己写（本仓库的 `read`/`edit` 就是范例）。
 5. **版本错位**：`hashline@18.1.5` 与其余包 `18.2.5`，且它把 `pi-utils`/`pi-natives` 钉在 18.1.5；混装会出现两份原生包。
 6. **`pi-utils.format` 只有** `formatBytes`/`truncate`/`countNewlines` 等小工具，**没有**行/字节预算截断——需要 `read` 输出预算时得自己写（本仓库 `src/text-budget.ts`）。
 7. **错误文本即产品行为**：`crates/pi-edit` 的注释明确「error strings are byte-identical to the TypeScript implementation they replace; models are trained on them」，不要翻译或改写。
 8. `pi-ai` 的类型入口会把 `AssistantMessageEventStream` 作为**类型**再导出（`export type`），需要**值**（如测试替身）时从子路径取：`@oh-my-pi/pi-ai/utils/event-stream` 的 `createAssistantMessageEventStream()`。
+9. **钩子要按实际公开入口验证**（2026-10-15 w00002 t21 计划审查实测）：`syncContextBeforeModelCall` 只在底层 `AgentLoopConfig` 上，`Agent` 不转发同名选项；要在每次模型请求前改上下文，用 `agent.addBeforeModelCallHook`（OMP 随后把 `state.systemPrompt` 同步进请求）加 `transformContext`（替换送模型的消息，不改 Agent 内部历史）。
+10. **工具执行完成、结果事件、日志提交是三个边界**：顺序是 `execute` → `afterToolCall` → `tool_execution_end` → 工具结果的 `message_end`。在前面的钩子里等后面事件驱动的写入会环等。要在工具结果后结束循环且不再请求模型，用公开的 `TERMINAL_TOOL_RESULT_ABORT_REASON` 中止（普通 `abort()` 会多一次请求并留下一条 aborted 消息）；`beforeToolCall` 返回 `{block: true}` 的调用不执行，但照样有成对的错误结果。
+11. **provider 层重试的用量不交出**：空回复、503、响应前断连等由 provider 内部重试，被丢弃的那次请求的用量不进 Agent 的消息；`onResponse` 只在成功响应后触发，数不到传输层的重试。nb-harness 用流选项里的 `fetch` 计数实际请求来察觉；不支持 `fetch` 选项的 provider 察觉不到。
+12. **`getApiKey` 返回空会退回默认密钥**：自定义 `baseUrl` 下也会改用同一 provider 的环境变量（例如 `OPENAI_API_KEY`）。指定的密钥缺失时必须在发请求前失败；无认证的 OpenAI 兼容端点返回公开的 `NO_AUTH_SENTINEL`（`@oh-my-pi/pi-ai/providers/openai-shared`），不带认证头。
+13. **`buildModel` 会套目录修正**（2026-10-15 w00002 t21 实现审查实测）：`@oh-my-pi/pi-catalog/build` 按 provider 与 id 应用目录里的单价、分时价、上下文与输出上限、模态修正，宿主显式给的值会被覆盖（例如 `deepseek/deepseek-flash` 的 `maxTokens: 100` 变成 384000）。自定义端点要在构建后用宿主的值盖回去，`cost` 整个替换，并以实际请求参数与费用验证。
+14. **错误归类不按文字**：失败的助手消息带 `errorStatus` 与 `errorId`（`@oh-my-pi/pi-ai/error/flags` 的 `Flag` 位）；没有状态码不等于网络故障（SSE 里的内容拦截、模型终态错误也没有状态码，带 `ContentBlocked`、`ProviderFinishError`）； `getApiKey`、上下文变换、`streamFn` 抛出的错误经 Agent 外层捕获后只剩文字，要在调用 OMP 之前或钩子里自己捕获并保留类型。
+15. **import 期装上 SIGINT 处理**（2026-10-16 w00024 t05 实测）：`@oh-my-pi/pi-utils` 的 postmortem 在主线程顶层注册 SIGINT，跑完 `postmortem.register` 登记的清理（最多 10 秒）就以 130 退出。宿主自己的 `process.on("SIGINT")` 照样被调用，却拦不住退出，回调里异步的收尾会丢。要在中断时收尾，经 nb-harness 的 `onProcessInterrupt` 登记。
+16. **多余的工具参数被悄悄删掉**：工具参数 schema 写了 `additionalProperties: false` 时，OMP 在调用 `execute` 之前删掉模型多写的字段，不报错；要让模型知道哪个参数写错了，schema 不写这一项，由 `execute` 或下游的严格校验报错。
+17. **事件是异步投递的**（2026-10-16 w00024 t05 实测）：循环把事件推进流里就往下走，`Agent.subscribe` 的订阅者异步收到。同一批并行工具里最后完成的那条结果，它的 `message_end` 可能晚于下一次请求前的 `addBeforeModelCallHook`；按订阅到的消息渲染上下文时会漏掉它，真实服务会因为工具调用没有结果而拒绝请求。`transformContext` 拿到的是循环自己的完整上下文，在那里等落后的消息。
 
 ## 8. 本仓库的使用位置
 
 | 能力 | 使用点 |
 | --- | --- |
-| 模型解析 / 环境 key / baseUrl 覆盖 | `packages/nb-harness/src/model.ts` |
-| agent 装配、事件与会话落盘、插件宿主 | `packages/nb-harness/src/harness.ts`、`src/plugins.ts` |
+| 模型（目录与自定义端点 `buildModel`）、绑定在实例上的密钥 | `packages/nb-harness/src/model.ts` |
+| 会话：上下文替换、事件落盘、收尾工具、运行锁 | `packages/nb-harness/src/harness.ts`、`src/context.ts` |
+| 错误归类与用量 | `packages/nb-harness/src/run-result.ts` |
+| 工具登记表、生效工具集、交给 OMP 的桥 | `packages/nb-harness/src/tools/registry.ts`、`effective.ts`、`bridge.ts`、`builtin.ts` |
+| 单次请求 | `packages/nb-harness/src/complete.ts` |
 | read（含 `[path#tag]` 头与快照登记） | `packages/nb-harness/src/tools/read.ts` |
 | edit（`EditSession` 薄层 + 写回 + 写前确认） | `packages/nb-harness/src/tools/edit.ts` |
 | SSE 序列化 / 写入器 | `packages/nb-harness/src/sse.ts`、`src/sse-writer.ts` |

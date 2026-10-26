@@ -4,7 +4,8 @@
  *
  * - 缺省模态：遮罩、居中；焦点锁定、背景不可交互、关闭后焦点还给打开前的元素，都交给 reka 的模态 Dialog。同时打开的
  *   模态按打开顺序叠放（useModalLayer）。宿主声明 `contained`（组件 Lab 的画布）时只在目标里画遮罩，不锁整页。
- * - `modal=false` 是浮动窗口：没有遮罩，标题栏可拖动、可选缩放（useFloatingWindow），点外面不关；按嵌套深度叠放。
+ * - `modal=false` 是浮动窗口：没有遮罩，按住留白、标题栏或内容里标了 `data-dialog-drag` 的地方可拖动，可选缩放
+ *   （useFloatingWindow），点外面不关；按嵌套深度叠放。
  *
  * 关闭一律经 `request-close`：reka 自己的外部点击与 Escape 关闭都拦下，由这里判定后发出。
  */
@@ -127,7 +128,6 @@ const emit = defineEmits<{
 const instance = getCurrentInstance();
 const panelRef = ref<HTMLElement | null>(null);
 const bodyRef = ref<HTMLElement | null>(null);
-const dragHandleRef = ref<HTMLElement | null>(null);
 
 /*
  * 层级。模态按打开顺序叠放；浮动窗口按嵌套深度（从窗口里开出来的窗口压住外层，窗口自己的下拉压住自己）。
@@ -164,7 +164,6 @@ const floating = useFloatingWindow({
     minHeight: () => props.minHeight,
     declared: () => ({width: typeof props.width === "number" ? props.width : null, height: pxOf(props.height)}),
     windowRef: panelRef,
-    dragHandleRef,
     onResize: (dimension, value) => (dimension === "width" ? emit("update:width", value) : emit("update:height", value)),
 });
 
@@ -363,20 +362,22 @@ function onOverlayPointerUp(event: PointerEvent): void {
                     v-bind="$attrs"
                     ref="panelRef"
                     class="nb-dialog nb-ui-popover-surface nb-ui-dialog-surface nb-ui-surface-rim flex flex-col overflow-hidden text-[var(--text-main)] outline-none"
-                    :class="props.modal ? 'nb-dialog--modal' : 'nb-dialog--window'"
+                    :class="props.modal ? 'nb-dialog--modal' : 'nb-dialog--window nb-ui-dialog-surface--window'"
                     :style="panelStyle"
                     data-dialog-surface
                     :data-dialog-window="props.modal ? undefined : ''"
                     :aria-modal="pageModal ? 'true' : undefined"
+                    @pointerdown="floating.startDrag"
                 >
+                    <!-- 浮动窗口里整条标题栏都能拖（按钮除外）；标题文字那一块给出移动光标。 -->
                     <header
                         v-if="props.showHeader"
                         class="nb-dialog__header flex items-center justify-between gap-3"
                         :class="props.headerClass"
                         :style="{boxShadow: scrolledFromTop ? '0 1px 0 var(--divider)' : 'none'}"
+                        :data-dialog-drag="props.modal ? undefined : ''"
                     >
-                        <!-- 浮动窗口的标题区就是拖动把手。 -->
-                        <div ref="dragHandleRef" class="min-w-0 flex-1" :class="props.modal ? '' : 'cursor-move touch-none select-none'" @pointerdown="floating.startDrag">
+                        <div class="min-w-0 flex-1" :class="props.modal ? '' : 'cursor-move'">
                             <DialogTitle v-if="$slots.header" as="div" class="nb-ui-dialog-title truncate">
                                 <slot name="header" />
                             </DialogTitle>
@@ -387,12 +388,27 @@ function onOverlayPointerUp(event: PointerEvent): void {
                             <span class="i-lucide-x h-4 w-4"></span>
                         </IconButton>
                     </header>
-                    <DialogTitle v-else class="sr-only">{{ props.title || "对话框" }}</DialogTitle>
+                    <template v-else>
+                        <DialogTitle class="sr-only">{{ props.title || "对话框" }}</DialogTitle>
+                        <!-- 没有标题栏时关闭按钮贴在面板右上角，浮在正文之上；正文要给它让出位置（见同名 .md）。 -->
+                        <IconButton
+                            v-if="props.closable"
+                            class="nb-dialog__corner-close"
+                            size="sm"
+                            :title="props.closeLabel"
+                            :aria-label="props.closeLabel"
+                            :disabled="props.busy"
+                            @click="requestClose('close-button')"
+                        >
+                            <span class="i-lucide-x h-4 w-4"></span>
+                        </IconButton>
+                    </template>
                     <div
                         ref="bodyRef"
                         class="nb-dialog__body min-h-0 flex-1 overflow-y-auto leading-relaxed"
                         :class="props.bodyClass"
                         :style="bodyStyle"
+                        data-dialog-body
                         @scroll="syncBodyScroll"
                     >
                         <slot />
@@ -448,6 +464,34 @@ function onOverlayPointerUp(event: PointerEvent): void {
 </template>
 
 <style scoped>
+/*
+ * 拖动区域不让浏览器拿触摸手势去滚动、也不起选字：按住就是拖窗口。面板自己只关触摸手势（它不继承，正文是滚动容器，
+ * 里面照常滚）；选字是继承的，只关在区域上，正文里照常能选。
+ */
+.nb-dialog--window {
+    touch-action: none;
+}
+
+.nb-dialog--window :deep([data-dialog-drag]) {
+    touch-action: none;
+    user-select: none;
+}
+
+/*
+ * 有标题栏时关闭按钮在面板的内边距里；没有标题栏时退到角上，离两条边各一档，不贴圆角。它浮在正文之上，
+ * `--nb-dialog-close-room` 是它从面板右边、上边算起要占的见方（离边一档、按钮 26px、再隔一档），正文按它让位。
+ */
+.nb-dialog {
+    --nb-dialog-close-room: calc(var(--space-4) * 2 + 26px);
+}
+
+.nb-dialog__corner-close {
+    position: absolute;
+    top: var(--space-4);
+    right: var(--space-4);
+    z-index: 1;
+}
+
 .nb-dialog__header,
 .nb-ui-dialog-footer {
     transition: box-shadow var(--motion-fast) var(--ease-standard);

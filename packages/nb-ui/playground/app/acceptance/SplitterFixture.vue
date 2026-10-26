@@ -7,8 +7,7 @@ import type {
     SplitterGestureCancellation,
     SplitterGestureState,
 } from "../../../src/components/layout/splitter-gesture";
-import FileTree from "../../../src/components/navigation/FileTree.vue";
-import type {FileTreeNode} from "../../../src/components/navigation/file-tree.types";
+import Tree, {type GenericTreeNode} from "../../../src/components/navigation/Tree.vue";
 import FixtureShell from "./AcceptanceShell.vue";
 import {controlDefaultValue, type LabComponentDefinition} from "./definitions";
 
@@ -81,29 +80,27 @@ const panels = computed<SplitterPanelConfig[]>(() => PANEL_PRESETS.map((panel, i
 
 const sashSizes = computed(() => zeroSecondSash.value ? [7, 0] as const : [7, 1] as const);
 
-const treeData: FileTreeNode[] = [
+const treeData: GenericTreeNode[] = [
     {
         id: "v1",
-        label: "第一卷：深渊苏醒",
-        kind: "directory",
+        title: "第一卷：深渊苏醒",
         children: [
-            {id: "c1", label: "01. 神经连接.md", kind: "file"},
-            {id: "c2", label: "02. 赛博黑市.md", kind: "file"},
-            {id: "c3", label: "03. 幽灵协议.md", kind: "file"},
+            {id: "c1", title: "01. 神经连接"},
+            {id: "c2", title: "02. 赛博黑市"},
+            {id: "c3", title: "03. 幽灵协议"},
         ],
     },
     {
         id: "v2",
-        label: "设定集与人物资料",
-        kind: "directory",
+        title: "设定集与人物资料",
         children: [
-            {id: "w1", label: "世界观设定.md", kind: "file"},
-            {id: "w2", label: "林澈（主角档案）.md", kind: "file"},
+            {id: "w1", title: "世界观设定"},
+            {id: "w2", title: "林澈（主角档案）"},
         ],
     },
 ];
 
-const selectedTreeId = ref<string | null>("c1");
+const selectedTreeId = ref<string | string[] | undefined>("c1");
 const expandedTreeIds = ref<string[]>(["v1", "v2"]);
 
 // 手势提交是宿主要保存的那份意图：主动调整的面板与兄弟补偿分开，空操作不出现提交
@@ -225,13 +222,7 @@ onMounted(() => void nextTick(() => emit("rendered")));
                     <template #panel-outline>
                         <div class="p-3 h-full overflow-y-auto bg-[color-mix(in_srgb,var(--text-main)_2%,transparent)]">
                             <div class="text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">章节大纲</div>
-                            <FileTree
-                                :nodes="treeData"
-                                :selected-id="selectedTreeId"
-                                :expanded-ids="expandedTreeIds"
-                                @select="selectedTreeId = $event.id"
-                                @toggle-expand="expandedTreeIds = $event ? [...expandedTreeIds, $event.node.id] : expandedTreeIds"
-                            />
+                            <Tree v-model="selectedTreeId" v-model:expanded="expandedTreeIds" :items="treeData" surface="plain" />
                         </div>
                     </template>
 

@@ -1,0 +1,211 @@
+# w00024 t06 S5 网页前端审查（提交 c36600b51 相对 90eabcd6d）
+
+审查范围：`packages/nb-story/src/web/` 与 `packages/nb-story/e2e/` 的改动。方法：读 diff 与 Spec；`bun run typecheck` 通过（无输出错误）；`bun run build:web` 后用回放端点（`testing/replay-server.ts`）与真实 `nbstory serve` 起实例，Playwright（本机 Chrome）驱动页面。实验文件与截图在 `/tmp/review-w00024-t06-s45/web-scratch/`。以下每条标明“已在真实页面复现”或“从代码推断”。
+
+---
+
+## 1. 重要 / 功能：书里“读完（跳到最后）”在落后时跳到旧的末章
+
+- 位置：`src/web/parts/ReadingControl.vue:53`（`emit('update:at', {chapter: props.end})`）配合 `src/web/host/book.ts` 的 `setAt`（先 `freshen()` 再 `moveTo`）。
+- 现象（已在真实页面复现）：书抽到第 5 章、页面数据停在第 4 章（徽标写“第 5 章已抽完，点这里更新”）时点“读完（跳到最后）”：先 refresh 成 5 章，随后位置落在第 4 章，读数写“读到 第 4 章 / 5”，不是“全部读完”；地址 `at=4`。
+- 为什么是问题：`end` 是点击那一刻从旧的 `book.info.extractedThrough` 取的值，`setAt` 里 refresh 之后没有重新算。按钮的含义是“抽取到的最后位置”（Spec 输出 5），用户点完后既没有读到最后，徽标又恢复成“抽取中 5 / 10”，看上去像是已经跳到最后。输出 39 要求“先换成新数据再继续”，这里继续的目标没有跟着新数据变。
+- 如何核实：`/tmp/review-w00024-t06-s45/web-scratch/t12.mjs`（先关回放端点第 6 章闸门，开第 5 章闸门，等徽标出现后点 `reading-end`）。输出：`after 读完（跳到最后）: 读到 第 4 章 / 5 | pill: 抽取中 5 / 10 | url …at=4`。
+- 建议改法：`reading-end` 不带章号，发一个“到末尾”的意图（例如 `update:at` 的值为 `"end"`，由 `book.setAt` 在 refresh 之后按 `infoRef.value.extractedThrough` 算）；或 `setAt` 的目标用函数，refresh 之后再求值。
+
+## 2. 重要 / 异常输入：refresh 失败时没有任何反馈，还留下未处理的 Promise 拒绝，换位置的操作被悄悄丢掉
+
+- 位置：`src/web/host/book.ts` 的 `freshen()`、`refresh()`、`setAt`（`void freshen().then(...)`）、`goPage`/`openCard`/`openSource`/`openParagraph`/`openNode`/`jump`（`void freshen()`）；`src/web/shell/BookFrame.vue` 的 `@click="book.refresh()"`；`src/web/host/query.ts` 的 `void book.refresh()`（cursor_invalid 分支）。
+- 现象（已在真实页面复现，把 `book.info` 请求 abort 后）：
+  1. 点“读完（跳到最后）”：位置不变，没有提示，页面收到 `PAGEERROR 连不上查看器的服务，确认 nbstory serve 还在运行`（未处理的拒绝）。
+  2. 点“第 N 章已抽完，点这里更新”：什么也没发生，没有提示，同样的未处理拒绝。
+  3. 换页面：页面照样切走（`page-secrets` 出现），徽标仍写“点这里更新”，信息是旧的，同样的未处理拒绝。
+- 为什么是问题：`setAt` 原来是同步的，现在被 refresh 的失败整个吞掉（`.then` 不会执行），拖动章滑块或点上一章、下一章后滑块弹回而用户不知道原因；`goPage` 等其余入口 refresh 失败后还是继续，和注释“由这里保证先换 info”相反；`refresh()` 的 `try/finally` 没有 `catch`，没有失败提示（顶栏已有 `notice` 通道可用）。没有 `.catch` 的 `void` 在浏览器里是未处理的拒绝，会被错误监控当成页面报错。
+- 如何核实：`/tmp/review-w00024-t06-s45/web-scratch/t11.mjs`（落后后 `page.route("**/api/rpc/book.info", r => r.abort())`）。
+- 建议改法：`refresh()` 自己接住 `StoryCallError`，失败时写 `notice`（“没能换成新数据：……，已留在原来的数据上”）并返回布尔；`setAt`、`goPage` 等按返回值决定是否继续（失败时位置不动、页面不切，或明确说明用旧数据继续）；`void` 处统一经一个带 `.catch` 的包装。
+
+## 3. 重要 / 性能与大文件：导入页对同一个文件会发两次完整上传，选 32 MB 文件时主线程卡住约 7 秒与约 6 秒
+
+- 位置：`src/web/shell/ImportPage.vue:66-68`（`pick` 末尾 `title.value = …; void preview();`）与 `:94-98`（`watch(title, …)` 400 毫秒后再 `preview()`）；`src/web/host/ingest.ts:93-98` 的 `toBase64`。
+- 现象（已在真实页面复现）：选一个文件后，`title` 从空被设成文件名，`watch(title)` 也触发，于是 `ingest.preview` 发出两次。小文件（76 KB）：两次请求体各 101,891 字符。32,005,503 字节的文件：两次请求体各 42,674,030 字符（合计约 85 MB 上传），第一次请求在选文件后 11.6 秒才发出，第二次在 16.2 秒，计划出现在 16.3 秒（本机无头 Chrome）。页面主线程 50 毫秒心跳的最大间隔 7,025 毫秒与 5,944 毫秒（两次长卡顿），期间页面无法响应。`performance.memory.usedJSHeapSize` 293 MB。
+- 为什么是问题：第二次预览是纯浪费（相同内容、相同书名）；Spec“大文件（几十 MB）”场景下用户看不到任何进度，也不能取消。`toBase64` 用 `binary += String.fromCharCode(...chunk)` 拼 3,000 万字符的字符串，单独量（合成 32 MiB 数据）拼接 2.3 秒、`btoa` 0.13 秒、`JSON.stringify` 0.07 秒；另一部分卡顿来自两次请求的序列化与响应。
+- 如何核实：`t1.mjs`（请求计数）、`t2.mjs`（心跳间隔）、`t3.mjs`（分段计时）。
+- 建议改法：`pick` 里先设一个“程序设的书名”标记，让 `watch(title)` 跳过这次变化（或 `pick` 不再自己 `preview()`，只靠 watch）；预览之间复用同一份 base64。大文件的编码改用 `FileReader.readAsDataURL`（浏览器原生、异步，不占主线程）或 `Blob` 分块；选择后立即显示“正在读取与切章……”而不是空白。
+
+## 4. 重要 / 边界：书名改动后到下一次预览之间，旧计划仍显示且“开始”可点；书名清空时仍可点“开始”，得到原始 schema 报错
+
+- 位置：`src/web/shell/ImportPage.vue:72-90`（`preview` 在书名为空时直接 return，不清 `plan`）、`:94-98`（防抖期间 `plan` 与 `previewing` 都没变）、`:106-119`（`start` 没有检查书名）、`:179`（按钮只在 `previewing || starting` 时禁用）。
+- 现象（已在真实页面复现）：
+  1. 把书名改成“另一个名字”，立刻读页面：书 id 还是旧的 `book-d73c0b92`，“开始抽取”可点；1.2 秒后书 id 才变成 `book-2a27d228`。在这 400 毫秒内点开始，启动的是新书名（新 id），而页面上写的动作与章数是旧书名的预览（例如旧书名是“追加”、新书名其实是“新书”）。
+  2. 把书名清空：旧计划、旧书 id、“开始抽取”都保留；点开始，页面写 `参数不符合 ingest.start 的 schema：/title must not have fewer than 1 characters；/ must have required properties book；/ must not have additional properties`。
+- 为什么是问题：违反 F6“就地写明原因与下一步”；预览的结论与实际要执行的操作可以不一致（正是预览要防的事）。
+- 如何核实：`t4.mjs`。
+- 建议改法：书名一变就把 `plan` 置空（或标记“过期”，显示“正在重新切章……”）并禁用“开始”，直到对应这个书名的预览回来；`preview` 在书名为空时给出“请填书名”并清掉计划；`start` 里同样检查，并用预览得到的 `plan.id` 对应的书名。
+
+## 5. 重要 / 文案：文件超过 32 MiB 或服务端报 `ingest_bad_text` 时，下一步提示一律写“检查章标题”
+
+- 位置：`src/web/shell/ImportPage.vue:153`（`previewError.code === 'ingest_bad_text'` 一律给章标题提示）；浏览器端没有大小检查（`pick` 先整个 `arrayBuffer()`、编码、再发请求）。
+- 现象（已在真实页面复现）：35 MB 文件：先读入、严格解码、编 base64、上传 46.7 MB 之后服务端才回 `原文文件有 33.2 MiB，超过 32 MiB 的上限`，下面灰字写“检查章标题的写法：每章以‘第 N 章’或‘序章’‘番外’这类标题单独起一行。”。
+- 为什么是问题：`ingest_bad_text` 有三种原因（不是 UTF-8、超限、没有章标题，见 ingest.md F1），提示只对其中一种成立；用户会去检查章标题而不是拆文件。页面自己写了“不超过 32 MB”却不预检，白白上传一次。
+- 如何核实：`t5.mjs`（用 `/tmp/review-w00024-t06-s45/web-scratch/超大.txt`，34,849,695 字节）。
+- 建议改法：`pick` 里先看 `chosen.size > 32 * 1024 * 1024` 就地说明并不读文件；`ingest_bad_text` 的下一步按服务端消息分流，或服务端补 `reason` 字段；页面文案也改写成 32 MiB（Spec 与服务端用的是 MiB）。
+
+## 6. 重要 / 回归：书架上整行不再可点，只剩书名文字是链接，但悬停仍整行高亮
+
+- 位置：`src/web/shell/LibraryPage.vue:96-108`（原来是整行 `RouterLink`，现在只有 `<RouterLink … data-testid="shelf-open">{{ row.title }}</RouterLink>`）与 `:124-128`（`.shelf-item:hover` 整行变色）。
+- 现象（已在真实页面复现）：书架上“狐书”一行，点行右侧“100 章 · 抽取到 100.94”处与行中部空白处，地址都留在 `/`，没有打开书。第 1 章没提交的行同样悬停高亮，但本来就不可点。
+- 为什么是问题：Spec 输出 35“点一本打开”；改动前整行都是点击目标，这是被破坏的既有行为。悬停高亮暗示整行可点，手机上点中书名以外的任何位置都没有反应。第 1 章没提交的行高亮更是错误暗示。
+- 如何核实：`/tmp/review-w00024-t06-s45/web-scratch/t19.mjs`。
+- 建议改法：可打开的行用 stretched link（书名链接的 `::after` 铺满整行，“进度”链接用 `relative z-10`），或整行 `RouterLink` 内不放别的链接；不可打开的行去掉 `:hover` 背景（`:class` 区分）。
+
+## 7. 重要 / 资源泄漏：书架在首次加载完成前被离开，轮询计时器没人清，之后在别的页面上一直每 5 秒请求
+
+- 位置：`src/web/shell/LibraryPage.vue:59-82`（`onMounted(async …)` 里 `await load()` 之后才 `setInterval`）与 `:80-82`（`onBeforeUnmount` 只清当时已有的 `timer`）。
+- 现象（已在真实页面复现，`books.list` 人为拖 1.5 秒）：进书架后在加载完成前离开（点“导入原文”或后退）。页面已经是 `/import`，12 秒内仍有 `["books.list","ingest.status","books.list","ingest.status"]` 的请求；只要有没抽完的书，就一直发下去，每进一次书架就可能多一个。本机正常延迟下窗口只有几十毫秒，所以平时难撞上，但一撞上就是永久泄漏。
+- 为什么是问题：规则“轮询与计时器的清理”。`BookShell` 里的 `openBookSession` 也是同样的写法（见第 12 条）。
+- 如何核实：`t24.mjs`。
+- 建议改法：加一个 `let disposed = false`，`onBeforeUnmount` 里置真；`load()` 之后检查 `disposed` 再 `setInterval`；或者把 `setInterval` 放在 `await` 之前（`unfinished` 的判断本来就在回调里做）。
+
+## 8. 建议 / 文案与规范：用量不完整时“每章平均”没有写“至少”；没拿到用量时“已花”写成“没配价格”
+
+- 位置：`src/web/shell/IngestPage.vue:62-81`（`tiles`、`tokenText`）。
+- 现象（已在真实页面复现）：
+  1. 抽取中、第 2 章请求还在途时：“已花（合计）至少 ¥0.07”，旁边“每章平均 4 秒 · ¥0.07”没有“至少”。`average` 的费用由 `allRuns` 折算（`src/ingest/status.ts:165`），`allRuns.complete` 为假时它同样是下界。Spec 输出 38：“用量不完整时数字前写‘至少’”。
+  2. 命令行刚开始抽、还没有任何一次请求的用量记录时（配置里配了价格），页面写“已花（合计）没配价格”与“没配价格，只显示 token”（`prog-cli-dark-390.png`）：`costs` 为空数组被当成“没配价格”。价格是否配置，页面本来就不知道。
+- 为什么是问题：（1）违反输出 38；（2）告诉用户配置有问题，实际没有。
+- 如何核实：`t6.mjs`、`t15.mjs`（`prog-cli-dark-390.png`，用的配置带 `price`）。
+- 建议改法：`每章平均` 的数字前按 `allRuns.complete` 加“至少”；`costs` 为空且 `allRuns` 里有 token 记录以外的信息不足时写“暂无”，只有服务端明确给出“没配价格”（例如在 `IngestStatusView` 里加 `priced: boolean`）时才写“没配价格”。
+
+## 9. 建议 / 一致性：书里的抽取徽标在“已停下”时是强调色，与书架、进度页的中性徽标不一致；手机上“点这里更新”被去掉；“更新”徽标文字里有多余空隙
+
+- 位置：`src/web/shell/BookFrame.vue:217-226`、`:330-355`（`.ingest-pill` 只区分 danger，其余一律 `--accent-text`）；`src/web/parts/IngestBadge.md:22`（“同一种状态在各处写法与颜色相同”）。
+- 现象（已在真实页面复现）：
+  1. 已停下的书（5 / 10）：顶栏徽标颜色 `rgb(94, 176, 255)`（强调蓝，与运行中相同），进度页的“已停下”徽标 `rgb(195, 188, 176)`（中性灰）。`ingestBadge()` 已经给出 `tone: "neutral"`，BookFrame 没有用。
+  2. 更新徽标在平板与宽屏显示为“第 2 章已抽完 ， 点这里更新”（逗号两侧有空隙）：文字节点和 `<span v-if>` 都是 `inline-flex` 的子项，被 `gap: 0.375rem` 隔开；`innerText` 里还有一个换行。
+  3. 手机宽度（<720）只剩“第 2 章已抽完”和一个刷新图标，“点这里更新”（动作提示）被去掉；`title` 在触屏上看不到。
+- 为什么是问题：（1）同一种状态在两处颜色不同，“已停下”被当成运行中；（2）排版瑕疵；（3）Spec 输出 39 的文字是“第 N 章已抽完，点这里更新”，手机上看不出可点。
+- 如何核实：`t21.mjs`（颜色）、`book-update-tablet.png`、`book-update-phone.png`、`t9.mjs`。
+- 建议改法：BookFrame 的徽标改为 `Badge`（`soft`，`tone` 取 `ingestBadge()`）外加 `RouterLink`，或让 `.ingest-pill` 按 `tone` 取色；更新徽标文字放进同一个 `<span>`；手机上用 `第 N 章已抽完 · 更新` 这类短写法。
+
+## 10. 建议 / 边界：选同一个路径的文件再选一次不会触发 `change`，“另存为 UTF-8 再选”的提示走不通（从代码推断）
+
+- 位置：`src/web/shell/ImportPage.vue:51-69`（`pick` 读完文件后没有重置 `<input type="file">` 的 `value`）与 `:63`（“先用文本编辑器另存为 UTF-8 再选”）。
+- 现象：浏览器在选中的路径与上一次相同时不触发 `change`；用户按提示在原路径原地另存为 UTF-8 后再点“选择文件”，选同一个文件，页面没有任何反应，错误提示还在。e2e 用 `setInputFiles`（强制触发 `change`），看不出来。未在真实文件选择对话框里验证。
+- 如何核实：真实浏览器里选一个 GBK 文件，原地转成 UTF-8 保存，再选同一个文件。
+- 建议改法：`pick` 里在读取之后（成功与失败都）执行 `input.value = ""`。
+
+## 11. 建议 / 边界：窗口宽度在 641 到 719 像素时，进度页不按“手机”处理，与外壳的三档判定不一致；恰好 640 像素时两处判定互相矛盾
+
+- 位置：`src/web/shell/IngestPage.vue:29`（`matchMedia("(max-width: 640px)")`）与 `:193`（`sm:grid-cols-4`，Tailwind 的 `sm` 是 `min-width: 640px`）；Spec“输入与前置条件”的三档以 720 为手机界线，`BookFrame.vue:67` 用 `< 720`。
+- 现象（已在真实页面复现）：719 像素与 700 像素：四格排成四列、章明细 5 列；640 像素：四格仍是四列、章明细只剩 3 列。
+- 为什么是问题：Spec 输出 40“手机宽度时进度页的四格排成两列，章明细只留章、用时、费用”，手机宽度的定义是 720 以下；两个判定还各自把 640 划到不同一侧。这个 640 是静态稿里的取值，与 Spec 不一致。
+- 如何核实：`t18.mjs`（输出 `641 tile cols 4 table cols 章/标题/用时/费用/丢弃记录`、`640 tile cols 4 table cols 章/用时/费用`）。
+- 建议改法：统一用一个 `phone` 判断（与 BookFrame 同一个 720 阈值，最好抽成共用的 composable），四格的列数也由它决定，不用 `sm:`。
+
+## 12. 重要 / 清理：导入页的防抖计时器在离开页面时不清，预览请求在页面离开之后才发出；被取代的预览不中止
+
+- 位置：`src/web/shell/ImportPage.vue:92-98`（`titleTimer` 只在 watch 里重设，没有 `onBeforeUnmount`）；`:72-90`（`client.call("ingest.preview", …)` 没有传 `signal`，只靠 `previewToken` 丢弃结果）。
+- 现象（已在真实页面复现）：改书名后 400 毫秒内点“书架”离开：地址已经是 `/`，415 毫秒后仍发出一次 `ingest.preview`（请求体是整个文件的 base64）。32 MB 文件时这是一次 43 MB 的上传，页面都不在了。被后一次取代的预览（改书名、换文件）也是整份发完，结果才被 `previewToken` 丢弃。
+- 为什么是问题：frontend.md“`watch` 只承载副作用并负责停止订阅、计时器和请求”；查看器自己的 `useStoryQuery` 用 `AbortController` 做同样的事，导入页没有沿用。
+- 如何核实：`t26.mjs`。
+- 建议改法：`onBeforeUnmount` 里 `clearTimeout(titleTimer)` 并中止在途预览；`preview()` 每次建一个 `AbortController`（`client.call` 已支持 `{signal}`），新预览开始时中止旧的，用它代替 `previewToken`。
+
+## 13. 建议 / 边界：打开书的会话在 `BookShell` 里被换掉时不会被销毁，抽取轮询计时器随之泄漏（从代码推断，先天的竞态现在多了一个后果）
+
+- 位置：`src/web/shell/BookShell.vue:22-38`（`session.value = await openBookSession(...)`，等待期间 `session.value` 为 null，下一次切书不会 `dispose()` 前一个）；`src/web/host/book.ts:355-358`（新加的 `setInterval` 在 `openBookSession` 返回前就已启动）。
+- 现象：A 书的会话还在打开（`book.info` 或 `reading.get` 慢）时切到 B 书：A 的 `openBookSession` 之后返回，`session.value = A` 覆盖了已经打开的 B，B 的会话从没被 `dispose()`；A 与 B 各自的 5 秒轮询、`visibilitychange` 与 `pagehide` 监听、路由守卫都留着。实验里（用 `history.pushState` 构造，不是用户路径）后退回 B 之后页面停在 A，说明“慢的会话把当前书盖掉”这个竞态本来就有；本次的改动让泄漏多了一个永久轮询（对有抽取记录的书）。
+- 为什么是问题：轮询每 5 秒一次 `ingest.status`（响应里带每章明细，见第 15 条），泄漏的会话不会停；`BookFrame` 的 `:key="session.bookId"` 只看当前会话。
+- 如何核实：`t22.mjs`（结果是 A 盖掉 B；泄漏的轮询只在抽取中的书上才看得到）。
+- 建议改法：`watch` 回调里为每次打开记一个令牌，`await` 之后令牌不是最新的就 `dispose()` 这个新会话并 return；或把 `setInterval` 的启动放到 `BookFrame` 挂载之后。
+
+## 14. 建议 / 文案：预览里“每章约 4 到 5 分钟，抽完第 1 章就能打开”对追加与接着抽不成立；“来自配置文件”忽略了 `plan.model.source`
+
+- 位置：`src/web/shell/ImportPage.vue:164-168`（对 `action !== 'done'` 的所有情况都写）、`:165`。
+- 现象（已在真实页面复现，`imp-append-dark-phone.png`）：书已经抽完 5 章，导入多出 90 章的原文：预览写“已抽完 5 / 10 章；文件多出 90 章，接着抽第 6 到 100 章。”后面又写“每章约 4 到 5 分钟，抽完第 1 章就能打开”。另外 `IngestPlanView.model.source` 区分 `ingest.model` 与回退用的问答 `model`，页面一律写“来自配置文件”。
+- 为什么是问题：Spec 输出 37 只在“新书”里要求这句话；对已经能打开的书，“抽完第 1 章就能打开”是错的。抽取模型来自问答模型时没有提示，ingest.md 明说质量只在特定模型上验证过。
+- 如何核实：`t17.mjs`（`append` 场景）。
+- 建议改法：这句话只在 `plan.action === 'new'` 时写；`resume`/`append` 写“每章约 4 到 5 分钟，随时可以停下”。`source === 'model'` 时在模型名后加“（没有配置 ingest.model，用的是问答模型）”。
+
+## 15. 建议 / 性能：`ingest.status` 的响应包含每章明细，书里的轮询与书架的轮询每次都拿全部
+
+- 位置：`src/web/host/book.ts:355-358`（5 秒一次，只用 `committed` 与 `state`）、`src/web/shell/LibraryPage.vue:72-78`（5 秒一次，只用 `committed` 与 `state`）、`src/web/shell/IngestPage.vue:103-106`（2 秒一次，用全部）。
+- 现象：`ingest.status` 的响应里每章约 184 字节（实测：5 章的书，1,392 字节）。按 Spec 样例的 1,394 章估算，一次 256 KB；书架上的有抽取记录的书逐本全带。每个打开的书与书架标签、每 5 秒一次，后台标签页也不暂停。
+- 为什么是问题：书里的轮询只要进度数字；响应大小随章数线性增长，而 `ingest.md` 的目标是上千章的书。这是推断（没有造 1,394 章的书）。
+- 建议改法：给 `ingest.status` 加一个 `detail: false` 之类的参数，或把每章明细拆到进度页专用的方法；轮询在 `document.hidden` 时暂停。
+
+## 16. 建议 / 复用与规范：能用 nb-ui 的地方手写
+
+- 位置与现象：
+  - `ImportPage.vue:125-128`、`IngestPage.vue:144-148` 手写面包屑（`Breadcrumb` 渲染 `<a href>`，会整页刷新，所以走 `RouterLink` 是对的；但可以给 `Breadcrumb` 加 `RouterLink` 渲染槽，这里是一个缺口，不是错误）。
+  - `ImportPage.vue:150-154`、`:140`、`:177`，`IngestPage.vue:149`、`:161`、`:185-191`：错误与提示块手写 `border-[var(--status-danger)]` 的盒子与红字，nb-ui 有 `Banner`（`tone`、`title`、`message`）。静态稿也是手写的，所以不算偏离稿子。
+  - `ImportPage.vue:143-148` 的“书名”标签行用手写 grid，`Field`（`label`、`description`、`error`、`for`）可直接用。
+  - `ImportPage.vue:174`、`IngestPage.vue:204` 的“展开全部”“再显示 N 章”是手写的文字按钮，没有统一的 focus 环（`nb-ui-focus-ring`）；`Button variant="ghost"` 可用。
+  - `IngestBadge.md` 写“书架、进度页共用”，而 `BookFrame.vue` 自己再写了一份徽标样式（见第 9 条）。
+- 为什么是问题：规范 4 的“同类交互状态一致”：手写的文字按钮没有基座类，键盘焦点环与 nb-ui 按钮不同。
+- 建议改法：文字按钮用 `Button variant="ghost" size="sm"`；错误块用 `Banner`；书名行用 `Field`。
+
+### 第 16 条补充（已核实）
+
+键盘聚焦“展开全部 100 章”时是浏览器默认的 1 像素黑色 `auto` 轮廓（`outline: rgb(16,16,16) auto 1px`，`t27.mjs`），聚焦“开始抽取”（nb-ui `Button`）时是主题的 `--focus-ring` 多层光环。同一页上两种焦点样式并存，“展开全部”与“再显示 N 章”在亮色与暗色下的焦点都不如按钮醒目。
+
+## 17. 重要 / 交互：点“点这里更新”后所有查询先清空再重取，正在读的页面回到顶部
+
+- 位置：`src/web/host/query.ts:42-47`（`run` 开头 `data.value = null`）与 `:64-65`（版本变化也走同一条 `run`）、`:128-141`（分页的 watch 同样 `items.value = []`）；`src/web/host/book.ts` 的 `refresh()`（只加 `dataVersion`）。
+- 现象（已在真实页面复现）：在原文页（`/book/…/source?at=5&chapter=5`）向下滚 1500 像素，等第 6 章提交后点“第 6 章已抽完，点这里更新”：滚动容器 `story-scroll-y` 的 `scrollTop` 从 1500 变为 0，地址与阅读位置不变（`at=5&chapter=5`）。在人物页等长列表同理（列表被清空后从第一页重来）。
+- 为什么是问题：输出 39 与静态稿的原话是“点了才换成新数据，正在看的内容不会自己跳”。阅读中途的人点更新后被弹回章首、页面先空一下再出内容，等于把“不自己变”的承诺在点击之后又收回去。清空旧结果的理由（注释：“不让旧位置的内容留在新位置的页面上”）只对阅读位置、视角、筛选的变化成立；版本变了而位置没变时，旧内容留着直到新内容回来并无剧透风险（位置没变，可见范围没变）。
+- 如何核实：`/tmp/review-w00024-t06-s45/web-scratch/t28.mjs`（输出 `scrolled before: …=1500`、`after update: []`）。
+- 建议改法：`run` 区分“参数或位置变了”（清空）和“只有版本变了”（保留旧 `data`、后台重取、回来后替换）；分页列表在只有版本变时也先保留 `items`、取到第一页再替换，并保持滚动位置。
+
+## 18. 建议 / 边界：换页面等操作没有等 refresh 完成就切页，“先换成新数据再继续”只靠请求被后来的版本变化中止才成立；视角、筛选、原文章等没有覆盖在“先 refresh”的操作里（从代码推断）
+
+- 位置：`src/web/host/book.ts` 的 `goPage`、`openCard`、`openSource`、`openParagraph`、`openNode`、`jump`（`void freshen(); page.value = next;`，先发起 refresh，页面立刻切换）；`perspective`、`sourceChapter`、`drawer.value.tab`、`reopenDrawer` 由页面直接改 ref，不经过 `freshen`。
+- 现象：`goPage` 在落后时，新页面马上挂载并按旧 `dataVersion` 发第一批请求，`book.info` 返回后版本加一，这批请求被中止、整页再取一次。本机上 `book.info` 约 1 毫秒回来（`t10.mjs`：只看到一次 `secrets.matrix`），延迟大时每页多一轮请求；`jump` 的定位目标（`pendingJump`）可能被第一轮数据消费掉，第二轮重取后列表重来、定位丢失。另一方面，切视角、筛选、换原文章这类参数变化不在 Spec 输出 39 的操作清单里，也没有 `freshen`：落后时它们发出的请求直接读到书库里的新数据，而徽标仍写“点这里更新”、`info.chapters` 仍是旧的（`query.ts` 的文件头与 `book.ts` 的文件头都承认“查询本身不固定版本”）。
+- 为什么是问题：输出 39“之前要取新数据的操作先换成新数据再继续，并把徽标恢复成抽取进度”。页面里同时存在新旧两批数据，徽标与实际不符。
+- 如何核实：`t10.mjs`（请求顺序）；其余从代码推断，没有为 `jump` 造出延迟场景。
+- 建议改法：`goPage` 等“先 refresh”的操作改成 `async`：落后时先 `await refresh()` 再改状态（失败时见第 2 条）；或者让 `useStoryQuery` 在 `book.behind` 为真时不发请求，直到 refresh 完成。视角、筛选这类参数变化若要保持“显示的内容不变”，查询要带 `info` 的版本（服务端按版本固定读取），那是服务端合同的改动，至少在文档里写明这些操作会取到新数据。
+
+## 19. 建议 / 边界：书架在没有未抽完的书之后停止轮询；轮询间隔等于 Spec 的上限
+
+- 位置：`src/web/shell/LibraryPage.vue:72-78`（`if (!unfinished.value) return`）与 `:58`（`POLL_MS = 5000`）；Spec 输出 36“运行中的状态在 5 秒内跟上”。
+- 现象（从代码推断）：打开书架时所有书都已抽完，之后在别处（命令行追加新章、另一个标签页点继续）开始的抽取，这个标签页不会看到，直到刷新。轮询间隔 5000 毫秒再加请求时间，最坏情况下“5 秒内”刚好超一点点（书里的 5 秒轮询也一样，但 Spec 输出 39 没写时限）。
+- 建议改法：书架一直轮询（每次只取进度，成本见第 15 条），间隔取 3 到 4 秒，页面隐藏时暂停。
+
+## 20. 建议 / 文案：停下的状态仍显示“剩下的还要约”，没抽完 0 章写“都保留”，费用 `¥0.0000`
+
+- 位置：`src/web/shell/IngestPage.vue:57-61`（`remainingText` 只排除 `done`）、`:187`（“抽完的 {{ committed }} 章都保留”）；`src/web/host/ingest.ts:80-83`（`formatCosts` 对小于 0.01 的数写四位小数）。
+- 现象（已在真实页面复现）：失败停下（认证失败）的页面照样写“按每章平均估计，剩下的还要约 3 分 58 秒”（`prog-failed-390.png`）；一章也没抽完时写“已停下。抽完的 0 章都保留。”，同一行还重复徽标的“已停下”；已花写成“至少 ¥0.0000”。
+- 为什么是问题：停下的任务不会按平均速度往下走，估计成了误导；“0 章都保留”是句废话。
+- 建议改法：`remainingText` 只在 `running` 时给；“都保留”在 `committed > 0` 时才写；金额小于 0.0001 时写“不到 ¥0.0001”。
+
+## 21. 建议 / 对照静态稿的遗漏
+
+- 位置：`src/web/shell/IngestPage.vue:171-184`；静态稿 `IngestDraft.vue:197-205`。
+- 现象：稿子里进行中的四步，已完成的步骤带对勾、未开始的步骤变淡（`i-lucide-check`、`opacity-60`），当前一步高亮；实现里除当前一步外都是同样的空心圆（`prog-wide.png`），看不出哪几步已经做完。稿子里“正在抽 第 38 章 第三十七章 隐秘，已用 2 分 10 秒”，实现只有“正在抽 第 N 章”，没有章标题，也没有本章已用时间（`current` 里没有，服务端不给；属于合同里没有的字段，不算实现的错）。稿子里的追加预览多一行“前 100 章与已保存的原文逐章相同”，实现没有（Spec 没要求）。
+- 建议改法：按 `STEPS` 的顺序和 `currentStep` 给前面的步骤画对勾、后面的步骤变淡。
+
+## 22. 建议 / 测试：e2e 没覆盖的行为
+
+- 位置：`e2e/ingest.e2e.ts`。
+- 缺少的断言（上面每一条都是在这个空缺里漏掉的）：选文件后 `ingest.preview` 只发一次；改书名后离开页面不再发请求；refresh 失败时的提示；更新后滚动位置；书架整行可点；书架离开后不再轮询；已停下徽标的颜色；大文件的耗时上限。`"1/ 10 章"` 依赖 `<b>` 与 `<span>` 之间没有空白的偶然写法（`ingest-count` 的文字节点），改一下标签就会失败。
+- 建议改法：按各条的“如何核实”补上对应用例；`ingest-count` 里给数字加 `data-` 属性或用 `getByTestId("ingest-committed")`。
+
+---
+
+## 未发现问题的方面（已检查）
+
+- 轮询在会话销毁后停止：书里离开后只剩书架自己的 `ingest.status {}` 请求（`t8.mjs`）。导入数据文件得来的书只查一次就停（`book_not_found` 分支，12 秒内 1 次，无徽标）。
+- `info` 改成 getter 之后的读取点（`StatsPage`、`BookFrame`、`DrawerSource`、`ReadingControl` 的 props、`atEnd`）在模板与 computed 里读取，都能追踪到 `shallowRef`；`SourcePage` 用 `book.info` 查询，随版本重取。
+- 点“更新”后阅读位置、页面、视角不变（`at=1` 到 `at=4` 的变化只来自第 1 条的目标，不是 refresh 本身）；点之前已显示的内容不变（e2e 与 `t10.mjs`）。`refreshing` 去重、停止后“正在停止”到“已停下”的转换（约 2 秒，`t16.mjs`）、命令行运行时无停止按钮、“继续”后接着抽，都正常。
+- 严格 UTF-8 检查：把 UTF-8 文件从中间截断得到的非法字节序列，被识别为“不是 UTF-8”。
+- 导入页“只认最后一次预览”的令牌逻辑；展开 4,500 章的切章表耗时 941 毫秒，可接受。
+- 390 像素宽：书架、导入页、进度页、书里的顶栏都没有横向溢出（所有场景 `scrollWidth - clientWidth <= 0`）；2560 像素宽时进度页内容列封顶 860 像素。明暗两态截图都读得清。
+- `IngestBadge.md` 的结构（frontmatter 标签空数组、数据、扩展面）符合组件规范；nb-story 的零件没有 Component Lab 登记机制，所以没有漏登记。
+- `bun run typecheck` 通过。
+
+未能在运行时验证：`cursor_invalid` 触发 refresh 的分支（需要上百条记录又恰好在翻页时提交一章，没有造出来）；真实文件选择对话框的第 10 条。
+
+## 条数
+
+- 阻断：0
+- 重要：9（第 1、2、3、4、5、6、7、12、17 条）
+- 建议：13（第 8、9、10、11、13、14、15、16、18、19、20、21、22 条）
+- 合计 22 条

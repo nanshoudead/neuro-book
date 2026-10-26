@@ -6,8 +6,8 @@ import {describe, expect, it} from "bun:test";
 
 import {Type} from "typebox";
 
-import {defineSetting, SETTINGS_POINT, settingDeclarationProblem} from "./settings";
-import type {SettingDeclaration} from "./settings";
+import {defineSetting, defineSettings, SETTINGS_POINT, settingDeclarationProblem} from "./settings";
+import type {SettingDeclaration, SettingDefinition, SettingsService} from "./settings";
 
 const title = {"zh-CN": "主题", "en-US": "Theme"};
 const theme = Type.Union([Type.Literal("nbook"), Type.Literal("macos")]);
@@ -36,6 +36,46 @@ describe("defineSetting", () => {
     it("不合规则的定义在加载时抛 TypeError", () => {
         expect(() => defineSetting({plugin: "x.editor", name: "Font", schema: theme, default: "nbook", title})).toThrow(TypeError);
         expect(() => defineSetting({plugin: "x.editor", name: "theme", schema: theme, default: "solarized" as "nbook", title})).toThrow("不符合 schema");
+    });
+});
+
+describe("defineSettings：一个插件的多条配置项", () => {
+    const bundle = defineSettings("x.editor", {
+        "code.fontSize": {schema: Type.Integer({minimum: 8, maximum: 40}), default: 14, title},
+        "code.fontFamily": {schema: Type.String(), default: "", title},
+        "code.margins": {schema: Type.Object({top: Type.Number(), bottom: Type.Number()}), default: {top: 1, bottom: 2}, title},
+        contributions: {schema: theme, default: "nbook", title, choices: [{value: "nbook", title}, {value: "macos", title}]},
+    });
+
+    it("插件 id 只写一次；结果与逐条 defineSetting 相同，贡献按声明的顺序", () => {
+        const single = defineSetting({plugin: "x.editor", name: "code.fontSize", schema: Type.Integer({minimum: 8, maximum: 40}), default: 14, title});
+        expect(bundle.settings["code.fontSize"]).toEqual(single);
+        expect(bundle.contributions.map((contribution) => contribution.id)).toEqual(["x.editor/code.fontSize", "x.editor/code.fontFamily", "x.editor/code.margins", "x.editor/contributions"]);
+        // 名叫 contributions 的配置项不和结果撞。
+        expect(bundle.settings.contributions.key).toBe("x.editor/contributions");
+    });
+
+    it("每项的值类型由自己的 schema 推出：错的默认值与写入编译不过", () => {
+        const fontSize: SettingDefinition<number> = bundle.settings["code.fontSize"];
+        const margins: SettingDefinition<{top: number; bottom: number}> = bundle.settings["code.margins"];
+        const theme_: SettingDefinition<"nbook" | "macos"> = bundle.settings.contributions;
+        // 只做类型检查，不执行。
+        const typeOnly = (settings: SettingsService) => {
+            void settings.update(fontSize, 12);
+            // @ts-expect-error 字号是数
+            void settings.update(bundle.settings["code.fontSize"], "12");
+            // @ts-expect-error 字面量联合之外的值
+            void settings.update(bundle.settings.contributions, "solarized");
+            defineSettings("x.editor", {
+                // @ts-expect-error 默认值不符合这一项的 schema
+                size: {schema: Type.Integer(), default: "big", title},
+            });
+        };
+        expect([typeof typeOnly, margins.key, theme_.key]).toEqual(["function", "x.editor/code.margins", "x.editor/contributions"]);
+    });
+
+    it("有一项不合规则时整体抛 TypeError，写明是哪一项", () => {
+        expect(() => defineSettings("x.editor", {ok: {schema: Type.Boolean(), default: true, title}, Bad: {schema: Type.Boolean(), default: true, title}})).toThrow("Bad");
     });
 });
 
@@ -98,7 +138,7 @@ describe("界面字段（输出 21）", () => {
         const options = [{value: "nbook" as const, title}, {value: "macos" as const, title}];
         const setting = defineSetting({plugin: "x.editor", name: "theme", schema: theme, default: "nbook", title, section: "x.editor.main", group: "look", order: 2, choices: options, applies: "next-run"});
         expect(setting.declaration).toMatchObject({section: "x.editor.main", group: "look", order: 2, choices: options, applies: "next-run"});
-        expect(Object.isFrozen(setting.declaration.choices) && Object.isFrozen(setting.declaration.choices?.[0])).toBe(true);
+        expect(Object.isFrozen(setting.declaration.choices) && Object.isFrozen((setting.declaration.choices as ReadonlyArray<unknown>)[0])).toBe(true);
         expect(() => defineSetting({plugin: "x.editor", name: "theme", schema: theme, default: "nbook", title, choices: [options[0]!]})).toThrow("macos");
     });
 
@@ -131,5 +171,39 @@ describe("界面字段（输出 21）", () => {
         for (const applies of ["later", true, undefined]) expect(check({applies}), String(applies)).toContain("applies");
         expect(check({restart: true})).toContain("未知字段：restart");
         expect(check({restart: false})).toContain("未知字段：restart");
+    });
+});
+
+describe("动态选项与界面提示（输出 21）", () => {
+    const text = Type.String();
+
+    it("choices 写 {from} 只能用在字符串上，提供者 id 的写法同分区 id", () => {
+        expect(settingDeclarationProblem("x.ai", "x.ai/model", declaration({schema: text, default: "", choices: {from: "x.ai.models"}}))).toBeNull();
+        expect(settingDeclarationProblem("x.ai", "x.ai/model", declaration({choices: {from: "x.ai.models"}}))).toContain("字符串");
+        expect(settingDeclarationProblem("x.ai", "x.ai/model", declaration({schema: text, default: "", choices: {from: "Models"}}))).toContain("from");
+        expect(settingDeclarationProblem("x.ai", "x.ai/model", declaration({schema: text, default: "", choices: {from: "x.ai.models", extra: 1}}))).toContain("extra");
+    });
+
+    it("ui 只收单个字段的提示，文字要中英两份；控件要能用在这种值上", () => {
+        const note = declaration({schema: text, default: "", ui: {widget: "multiline", rows: 6, placeholder: {"zh-CN": "写点什么", "en-US": "Write something"}}});
+        expect(settingDeclarationProblem("x.ai", "x.ai/note", note)).toBeNull();
+        expect(settingDeclarationProblem("x.ai", "x.ai/note", declaration({schema: text, default: "", ui: {label: "x"}}))).toContain("形状");
+        expect(settingDeclarationProblem("x.ai", "x.ai/note", declaration({schema: text, default: "", ui: {placeholder: "只有一种语言"}}))).toContain("形状");
+        expect(settingDeclarationProblem("x.ai", "x.ai/size", declaration({schema: Type.Integer(), default: 1, ui: {widget: "multiline"}}))).toContain("multiline");
+        // 动态选项对应 x-form.options：有它时文字的下拉成立，写多行反而不生效。
+        const dynamic = (widget: string) => declaration({schema: text, default: "", choices: {from: "x.ai.models"}, ui: {widget}});
+        expect(settingDeclarationProblem("x.ai", "x.ai/model", dynamic("select"))).toBeNull();
+        expect(settingDeclarationProblem("x.ai", "x.ai/model", dynamic("search-select"))).toBeNull();
+        expect(settingDeclarationProblem("x.ai", "x.ai/model", dynamic("multiline"))).toContain("multiline");
+        expect(settingDeclarationProblem("x.ai", "x.ai/note", declaration({schema: text, default: "", ui: {widget: "select"}}))).toContain("select");
+        const rows = Type.Array(Type.Object({name: Type.String()}));
+        expect(settingDeclarationProblem("x.ai", "x.ai/rows", declaration({schema: rows, default: [], ui: {itemLabel: "name"}}))).toBeNull();
+        expect(settingDeclarationProblem("x.ai", "x.ai/rows", declaration({schema: rows, default: [], ui: {itemLabel: "title"}}))).toContain("itemLabel");
+    });
+
+    it("defineSetting 带上 ui 后复制并冻结", () => {
+        const setting = defineSetting({plugin: "x.ai", name: "note", schema: text, default: "", title, ui: {widget: "multiline"}});
+        expect(setting.declaration.ui).toEqual({widget: "multiline"});
+        expect(Object.isFrozen(setting.declaration.ui)).toBe(true);
     });
 });

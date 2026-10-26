@@ -2,14 +2,14 @@
 /**
  * 命令面板：`host` 状态的受控视图，行为合同见同名 `.md` 与 workbench.quick-open。
  *
- * 一次 accept 只执行一次：记下命令、参数与打开时捕获的目标，关闭面板，等 QuickInput 的 `closed`（焦点已归还）
+ * 一次 accept 只执行一次：记下命令、参数与打开时捕获的目标，关闭面板，等 QuickPick 的 `closed`（焦点已归还）
  * 再执行。先关后执行是为了让命令自己转移的焦点（聚焦编辑器、跳到某行）不被归还焦点夺回。选择模式同理：
  * 选中的结果由宿主在 `closed` 之后才交给发起选择的命令。
  */
-import {QuickInput} from "@notnotype/nb-ui/components";
+import {QuickPick} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, ref, watch} from "vue";
 
-import {currentKeyPlatform, formatKeybinding} from "nbook/plugins/commands/shared/contracts";
+import {currentKeyPlatform, formatKeybinding, runsWithoutArgs} from "nbook/plugins/commands/shared/contracts";
 import type {CommandMetadata} from "nbook/plugins/commands/shared/contracts";
 import {textOf} from "nbook/shared/localized-text";
 
@@ -53,10 +53,11 @@ let pending: PendingSelection | null = null;
 
 const parsedQuery = computed(() => parseCommandQuery(host.query.value));
 
-/** 候选：人类可见且当前可用的 canonical 命令。可用性读的上下文若是响应式的，变化时这里随之重算。 */
+
+/** 候选：人类可见、当前可用、不带参数能执行的 canonical 命令（面板不收集参数，docs/specs/workbench/quick-open.md 的“排序”）。可用性读的上下文若是响应式的，变化时这里随之重算。 */
 const visibleCommands = computed<readonly CommandMetadata[]>(() => {
     void host.revision.value;
-    return host.commands.list().filter((command) => command.expose?.human !== false && host.commands.isEnabled(command.id).ok);
+    return host.commands.list().filter((command) => command.expose?.human !== false && runsWithoutArgs(command.args) && host.commands.isEnabled(command.id).ok);
 });
 
 interface LineState {
@@ -122,10 +123,14 @@ function onUpdateOpen(open: boolean): void {
     if (!open) host.closePalette();
 }
 
-/** 成功执行的面板选中项进会话 MRU；行号动作与面板入口本身不是“用过的命令”。 */
+/** 成功执行的面板选中项进会话 MRU；行号动作与面板入口本身不是“用过的命令”。失败交给宿主告诉用户。 */
 async function run(id: string, args: unknown): Promise<void> {
     const result = await host.commands.execute(id, args, {source: "user"});
-    if (result.ok && id !== GO_TO_LINE_ID && id !== OPEN_COMMANDS_ID) host.remember(id);
+    if (!result.ok) {
+        host.failed(id, result);
+        return;
+    }
+    if (id !== GO_TO_LINE_ID && id !== OPEN_COMMANDS_ID) host.remember(id);
 }
 
 function onAccept(id: string): void {
@@ -166,7 +171,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <QuickInput
+    <QuickPick
         :open="host.open.value"
         :query="host.query.value"
         :items="items"

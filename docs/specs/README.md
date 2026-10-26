@@ -162,12 +162,12 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 插件描述与激活 | [`runtime/plugins.md`](runtime/plugins.md) | 描述目录、入口与代次、贡献事务、局部失败与普通关闭、按调用方提供项、委托与远程提供项，不含热卸载；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
 | 环境适配与应用门禁 | [`runtime/application.md`](runtime/application.md) | 浏览器与后端环境适配、启动门禁、接纳、有界停止、实例身份、子实例与租约；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
 | 运行时诊断 | [`runtime/diagnostics.md`](runtime/diagnostics.md) | 有界记录与查询、脱敏、早期缓冲补写、日志位置授予与冲突降级、关闭未完成与显式恢复；**组合 smoke 仍是旧应用的 `--services`** |
-| 服务端宿主 | [`runtime/server-host.md`](runtime/server-host.md) | 内核拥有进程、启动与停止序列、停止来源汇合、退出码、开发模式重启与停止、内核 RPC 端口与项目子进程；看门狗属 `runtime.stall-watchdog` |
+| 服务端宿主 | [`runtime/server-host.md`](runtime/server-host.md) | 内核拥有进程、启动与停止序列、停止来源汇合、退出码、开发模式重启与停止、内核 RPC 端口与项目子进程、HTTP 端口的 `Host` 与写请求来源核对；看门狗属 `runtime.stall-watchdog` |
 | 平台文件 | [`platform/files.md`](platform/files.md) | 受根约束的 I/O、授予隔离、watch 与锁、关闭门禁，不是业务文件树服务；**实现迁移中** |
 | SQLite 机制 | [`platform/sqlite.md`](platform/sqlite.md) | 具名资源 owner、连接借用、单库事务、代次与关闭，不自动迁移；**实现迁移中** |
 | Storage 插件记录 | [`storage/persistence.md`](storage/persistence.md) | `nbook.storage` 的记录定义、user 与 project 分区、读取分类、条件保存与订阅 |
 | 配置 | [`settings/configuration.md`](settings/configuration.md) | 配置项声明（含给设置窗口用的字段）、默认值与用户层、项目层的合成、外部改文件即时生效、只写自己声明的项、用户编辑的写入路径、跨实例分发与就绪；密钥与本机层只定合同 |
-| 设置窗口 | [`settings/settings-window.md`](settings/settings-window.md) | 分区贡献点 `settings.sections` 与 page 的交付状态、通用控件、“用户 \| 本作品”两个标签、已修改与覆盖提示、层状态与写入失败、打开命令与窗口尺寸、给页面用的 `SettingsRow` 与 `SettingsPageList` |
+| 设置窗口 | [`settings/settings-window.md`](settings/settings-window.md) | 分区贡献点 `settings.sections`（list）、`settings.pages`（page）与 page 的交付状态、通用控件、“用户 \| 本作品”两个标签、已修改与覆盖提示、层状态与写入失败、打开命令与窗口尺寸、给页面用的 `SettingsRow` 与 `SettingsPageList` |
 | 菜单项 | [`workbench/menus.md`](workbench/menus.md) | 插件把命令放进别的插件拥有的菜单位置：菜单项的形状、显示与可用、排序与分隔、勾选、按后缀过滤与参数；四处位置（标题栏菜单、视图标题、资源管理器右键、编辑区标题） |
 | 项目与项目实例 | [`runtime/projects.md`](runtime/projects.md) | 项目身份与登记表、项目子进程与进程间链路、宽限期与崩溃、客户端绑定、`projectsKey` 与租约、`{project}` 访问规则 |
 | 书架页 | [`workbench/bookshelf.md`](workbench/bookshelf.md) | 没有项目时的首页：案头（统计、最近写到、看板娘）、卡片与列表、封面、新建与打开已有作品、修改信息与移出书架、新鲜度与刷新 |
@@ -177,12 +177,23 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 工作台外壳 | [`ui/workbench-shell.md`](ui/workbench-shell.md) | 七个 Part 的几何与面板形态、紧凑呈现、布局记录与公开状态（外壳一）；容器与视图（外壳二）；拖放（外壳三）；标题栏、状态栏与条目贡献点（外壳四）；无项目首页、工作台打磨、活动栏底部条目与页面浮层 |
 | 工作台视图 | [`workbench/views.md`](workbench/views.md) | 视图贡献点、声明与实现、交付状态、加载门禁、三种失败与撤回、标题动作；输出 7（声明消失时清理布局项）随插件热插拔落地，标 `(planned)` |
 | 文件资源管理器 | [`workbench/files-explorer.md`](workbench/files-explorer.md) | 三类文件夹呈现、浏览与基础操作、拖放、命令化、持久化、与编辑器的 dirty 结算；跨机器基础操作为已知限制 |
-| 编辑器区 | [`workbench/editor.md`](workbench/editor.md) | 编辑组与标签、文档模型（保存、冲突、外部修改）、Markdown 与源码编辑器、资源管理器的 dirty 结算 |
-| 工作区文件访问与操作 | [`workspace/files.md`](workspace/files.md) | 文件读写、目录与批量操作、无覆盖冲突、逐项失败与取消；跨机器访问与非 Linux 平台的排他改名验证为已知限制 |
+| 编辑器区 | [`workbench/editor.md`](workbench/editor.md) | 编辑组与标签、文档模型（保存、冲突、外部修改）、Markdown 与源码编辑器、资源管理器的 dirty 结算、编辑器与语言贡献点、选择顺序、字节标签、预览的打开方式 |
+| 图片查看器 | [`workbench/image-viewer.md`](workbench/image-viewer.md) | 图片的字节编辑器：适应与缩放、棋盘格底、尺寸与大小、随文件更新 |
+| HTML 预览 | [`workbench/html-preview.md`](workbench/html-preview.md) | 沙箱里的预览编辑器：令牌限定的只读文件访问、相对引用、默认联网可关、随正文更新 |
+| 工作区文件访问与操作 | [`workspace/files.md`](workspace/files.md) | 文件读写、目录与批量操作、无覆盖冲突、逐项失败与取消；跨机器访问与非 Linux 平台的排他改名验证为已知限制；按地址读取字节与预览的受限读取 |
 | 资源寻址与文件服务 | [`workspace/resources.md`](workspace/resources.md) | `方案://路径` 寻址、`project://`/`user://` 两个真实目录型提供者的读写列出监视与订阅、写入来源与变更事件；glob、grep、bash 真实路径解析、`tmp://`/`local://`/`docs://`/`projects://` 与插件注册新方案的接口标 `(planned)` |
 | 文件夹类型与清单 | [`workspace/folder-kinds.md`](workspace/folder-kinds.md) | 普通、内容、活页夹三类文件夹，后缀识别、XML 清单、未列入与缺失处理、渲染贡献点 |
+| Markdown 方言 | [`workspace/markdown-dialect.md`](workspace/markdown-dialect.md) | 作品 Markdown 的读写规则：CommonMark 与 GFM 之上的中文规则、项目方言、认不出的语法原样保留、以块为单位写回与读回校验 |
+| Markdown 方言的贡献 | [`workspace/markdown-syntaxes.md`](workspace/markdown-syntaxes.md) | 方言的声明与实现两个贡献点、生效条件与冲突、视图在建立时取定语言、字数按声明 |
+| Markdown 展示器 | [`ui/markdown-display.md`](ui/markdown-display.md) | `nb-markdown` 包：只读显示、与编辑器一致的方言外观、交互出口、流式更新与释放、长对话性能、宿主接口 |
+| 写给 Agent 的编辑组件 | [`ui/prompt-editor.md`](ui/prompt-editor.md) | `nb-markdown` 包：Composer 的编辑组件与已发送消息的静态显示：文字写法、小块、触发菜单、粘贴分档、附件、输入历史 |
 | 浏览器宿主 | [`runtime/browser-host.md`](runtime/browser-host.md) | 挂载前建立窗口运行实例、引导接口、RPC 首连与断线重连、多窗口隔离、项目绑定与可分离边界；按需激活、插件集合订阅与热插拔联动、鉴权与第三方浏览器入口标 `(planned)` |
 | 远程服务与 RPC 协议 | [`runtime/plugin-channel.md`](runtime/plugin-channel.md) | 跨实例的远程服务合同、内核路由、请求阶段与失败码、两层版本、订阅、按需激活与等待环、进程间链路 |
+| 剧情图谱：内置问答 | [`story/qa.md`](story/qa.md) | 一问一个 Agent、查询工具、作答工具的校验与退回、`nbstory ask` 与问答记录、`nbstory config`、回归门槛 |
+| 剧情图谱：导入原文并抽取 | [`story/ingest.md`](story/ingest.md) | TXT 切章、逐章抽取、随抽随看、停止与接着抽、追加新章、进度 |
+| 剧情图谱：书库与查询 | [`story/queries.md`](story/queries.md) | 书库与导入、按阅读位置与视角的查询、接口合同与独立服务的 HTTP、数值对账、阅读状态 |
+| 剧情图谱：查看器 | [`story/viewer.md`](story/viewer.md) | 网页查看器的外壳、阅读位置、各页、关系图与全书图、出处与地址、宽度三档、书架上的导入与抽取进度；输出 25 的点与名字互不重叠标 `(planned)` |
+| 剧情图谱：命令行与 Skill | [`story/cli-skill.md`](story/cli-skill.md) | `nbstory` 命令与查询方法一一对应、`serve`、给外部 Agent 的 Skill |
 
 ## 待实现规范
 
@@ -195,11 +206,14 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 插件清单、入口与服务依赖 | [`runtime/plugin-manifest.md`](runtime/plugin-manifest.md) | 清单格式、按入口声明的服务依赖、同一运行位置解析、受阻推导与启停顺序 |
 | 端点收集与 API 文档 | [`runtime/api-docs.md`](runtime/api-docs.md) | 对外 HTTP 路由的收集、OpenAPI 生成与展示，不含远程服务合同 |
 | 插件运行期启用与禁用 | [`runtime/plugin-hot-plug.md`](runtime/plugin-hot-plug.md) | 热插拔三档、引用账本与转发器、三步停止、在途调用结算 |
-| 插件安装与热升级 | [`runtime/plugin-install.md`](runtime/plugin-install.md) | 本地文件夹安装、卸载、兼容、安全模式、热升级与回滚 |
+| 插件安装与升级 | [`runtime/plugin-install.md`](runtime/plugin-install.md) | 本地文件夹安装、卸载、重启生效的升级、兼容与安全模式；操作在下一次启动生效 |
 | 插件代码的装载与回收 | [`runtime/plugin-code-loading.md`](runtime/plugin-code-loading.md) | 服务端装载与缓存回收、浏览器宿主模块表、纯度检查、插件文件端点 |
 | 插件公开 API | [`runtime/plugin-api.md`](runtime/plugin-api.md) | 远程形态约束、激活上下文、错误码、worker 池、私有存储、配置与密钥 |
 | 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | 卡死检测、报告、退出码 76、Manager 自动重启与桌面呈现、提示禁用与自动安全模式 |
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
+| Agent 对话视图 | [`ui/agent-conversation-view.md`](ui/agent-conversation-view.md) | `nb-agent-ui` 包：分轮与过程时间线、工具渲染、输入框、注册表扩展点、宿主注入的 Markdown 与编辑器；2026-10-22 从归档搬回 |
+| Agent harness | [`agent/harness.md`](agent/harness.md) | 只经 Profile 运行：生效工具集与会话快照、渲染即上下文、一次运行的结果与错误归类、收尾工具、单次请求、按配置给模型 |
+| Schema 表单 | [`ui/forms.md`](ui/forms.md) | 按数据 schema 画表单：支持的写法与控件选择、受控值与缺失、校验与问题的显示、选项、条件显示、草稿与提交、展示态、列表编辑、自定义控件、Agent 策略、终端退回；nb-ui 表单控件的合同 |
 
 ## 旧应用的规范与 Reference（只作参照）
 

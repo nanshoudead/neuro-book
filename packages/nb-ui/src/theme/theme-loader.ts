@@ -1,10 +1,8 @@
-import type {Component} from "vue";
 import type {NbColorwayVars} from "../colorway/colorway-contract";
 import {nbColorwayVarKeys} from "../colorway/colorway-contract";
 import type {ColorwayMeta} from "../colorway/colorway-store";
 import {nbColorwayIds, nbColorwayMeta} from "../colorway/presets";
 import {NB_UI_VERSION} from "../version";
-import {NB_COMPONENT_CONTRACTS, isComponentKey, nbComponentKeys} from "./contracts";
 import {satisfiesRange} from "./semver-range";
 import {checkSvgDefs, collectSvgDefsIds, mountSvgDefs, unmountSvgDefs} from "./svg-defs";
 import type {NbThemeManifest, NbThemeModule} from "./theme-manifest";
@@ -17,7 +15,7 @@ import {nbReservedTokens} from "./tokens";
  * 写主题的人和改库的人不是同一个人，一个半装成功的主题在用户眼里就是产品的 bug，
  * 而且没有任何线索指回主题。宁可装不上并说清哪一条不满足。
  *
- * 装载 ≠ 激活。`installTheme` 只做登记（注入 fallback、收下配色与组件实现），
+ * 装载 ≠ 激活。`installTheme` 只做登记（注入 fallback、收下配色），
  * 哪一套当前生效由 `./theme-store.ts` 决定——市场形态下「装了 N 套、激活 1 套」是常态。
  */
 
@@ -28,12 +26,6 @@ export type NbThemeInstallReason =
     | "declaration-missing-fallback"
     /** declares 重复声明了配色契约或设计 token 已有的变量 */
     | "declaration-collides"
-    /** overrides 里有不在契约登记表中的组件 key */
-    | "unknown-component"
-    /** overrides 的契约 id 与登记表的版本不符 */
-    | "contract-mismatch"
-    /** manifest 与运行期入口对不上：声明了覆盖却没给实现，或给了实现却没声明 */
-    | "override-mismatch"
     /** 自带配色对不上：manifest 的 providesColorways 与入口给的表不符，或 defaultColorway 指向不存在的配色 */
     | "colorway-mismatch"
     /** svgDefs 含白名单以外的标签、事件属性或外部引用 */
@@ -57,7 +49,6 @@ export class NbThemeInstallError extends Error {
 
 export type InstalledTheme = {
     manifest: NbThemeManifest;
-    components: Record<string, Component>;
     colorways: Record<string, NbColorwayVars>;
     colorwayMeta: Record<string, ColorwayMeta>;
     svgDefs?: string;
@@ -116,52 +107,10 @@ function validate(module: NbThemeModule): void {
         }
     }
 
-    // ③④ 组件覆盖：key 必须在登记表里，契约版本必须一致
-    const overrides = manifest.overrides ?? {};
-    for (const [key, contractId] of Object.entries(overrides)) {
-        if (!isComponentKey(key)) {
-            throw new NbThemeInstallError(
-                id,
-                "unknown-component",
-                `组件 "${key}" 不在可覆盖登记表里。当前允许覆盖的是：${nbComponentKeys.join("、") || "（无）"}`,
-            );
-        }
-        const expected = NB_COMPONENT_CONTRACTS[key];
-        if (contractId !== expected) {
-            throw new NbThemeInstallError(
-                id,
-                "contract-mismatch",
-                `组件 "${key}" 声明的契约是 "${contractId}"，宿主当前是 "${expected}"。` +
-                    `契约版本变了意味着 props / emits / 键盘行为变了，主题需要跟着更新`,
-            );
-        }
-    }
-
-    // manifest 与运行期入口必须对得上，否则市场索引到的能力与实际装出来的不是一回事
-    const components = module.components ?? {};
-    for (const key of Object.keys(overrides)) {
-        if (!Object.hasOwn(components, key)) {
-            throw new NbThemeInstallError(
-                id,
-                "override-mismatch",
-                `manifest 声明覆盖了 "${key}"，但入口没有提供对应实现`,
-            );
-        }
-    }
-    for (const key of Object.keys(components)) {
-        if (!Object.hasOwn(overrides, key)) {
-            throw new NbThemeInstallError(
-                id,
-                "override-mismatch",
-                `入口提供了 "${key}" 的实现，但 manifest 没有声明。manifest 是市场唯一能读到的东西，漏声明等于隐藏能力`,
-            );
-        }
-    }
-
-    // ⑤ 自带配色：manifest 与入口必须一一对上，默认配色必须指向真实存在的一套
+    // ③ 自带配色：manifest 与入口必须一一对上，默认配色必须指向真实存在的一套
     validateColorways(module);
 
-    // ⑥ SVG 资源只能是静态图形定义
+    // ④ SVG 资源只能是静态图形定义
     if (module.svgDefs !== undefined) {
         const rejection = checkSvgDefs(module.svgDefs);
         if (rejection !== null) {
@@ -323,7 +272,6 @@ export function installTheme(module: NbThemeModule): InstalledTheme {
 
     const entry: InstalledTheme = {
         manifest: module.manifest,
-        components: {...(module.components ?? {})},
         colorways: {...(module.colorways ?? {})},
         colorwayMeta: {...(module.colorwayMeta ?? {})},
         svgDefs: module.svgDefs,

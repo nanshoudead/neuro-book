@@ -11,7 +11,7 @@
 import {computed, defineAsyncComponent, h, watch} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
-import {defineEntry, provide} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provideService} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, menuImplementations, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
@@ -31,13 +31,14 @@ import {PANEL_COMMAND_DECLARATIONS, panelCommands} from "./commands/panel-comman
 import {PART_COMMAND_DECLARATIONS, partCommands} from "./commands/part-commands";
 import {VIEW_COMMAND_DECLARATIONS, viewCommands} from "./commands/view-commands";
 import {appearanceSetting, notificationsKey, quickPickKey, themeSetting, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_PAGES_POINT} from "../shared/contracts";
+import type {NotificationInput} from "../shared/contracts";
 import {validateHomeContribution, WORKBENCH_HOME_POINT, WORKBENCH_PATH} from "../shared/home";
-import {itemValidator, validateActivityBarItemContribution, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../shared/items";
+import {activityBarItemsPoint, statusbarItemsPoint, titlebarItemsPoint, WORKBENCH_ACTIVITYBAR_ITEMS_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_ITEMS_POINT} from "../shared/items";
 import type {ActivityBarItemDeclaration, ItemDeclaration} from "../shared/items";
-import {validateTitlebarMenuItem, validateViewTitleItem, WORKBENCH_TITLEBAR_MENU_POINT, WORKBENCH_VIEW_TITLE_POINT} from "../shared/menus";
+import {titlebarMenuPoint, viewTitlePoint, WORKBENCH_TITLEBAR_MENU_POINT, WORKBENCH_VIEW_TITLE_POINT} from "../shared/menus";
 import type {TitlebarMenuItemDeclaration, ViewTitleItemDeclaration} from "../shared/menus";
-import {validateOverlayContribution, WORKBENCH_OVERLAYS_POINT} from "../shared/overlays";
-import {validateViewContribution, WORKBENCH_VIEWS_POINT} from "../shared/views";
+import {overlaysPoint, WORKBENCH_OVERLAYS_POINT} from "../shared/overlays";
+import {viewsPoint, WORKBENCH_VIEWS_POINT} from "../shared/views";
 import type {ViewDeclaration} from "../shared/views";
 import {workbenchRootKey} from "./contracts";
 import type {ActivityBarItemImplementation} from "./contracts";
@@ -57,8 +58,6 @@ import {workbenchState, workbenchStateBindings} from "./state/public-state";
 import {ViewRegistry} from "./views/registry";
 
 const CommandHost = defineAsyncComponent(() => import("./commands/WorkbenchCommandHost.vue"));
-const WorkbenchDocument = defineAsyncComponent(() => import("./document/WorkbenchDocument.vue"));
-const WorkbenchShell = defineAsyncComponent(() => import("./components/WorkbenchShell.vue"));
 const Notifications = defineAsyncComponent(() => import("./components/WorkbenchNotifications.vue"));
 
 /**
@@ -77,17 +76,15 @@ export const workbenchBrowserPlugin: PluginDefinition = {
     id: descriptor.id,
     contributionPoints: [
         {id: WORKBENCH_PAGES_POINT, implementation: "required", validate: validatePageContribution},
-        {id: WORKBENCH_VIEWS_POINT, implementation: "required", validate: validateViewContribution},
+        viewsPoint,
         {id: WORKBENCH_EDITOR_AREA_POINT, implementation: "required", validate: validateEditorAreaContribution},
-        {id: WORKBENCH_STATUSBAR_ITEMS_POINT, implementation: "required", validate: itemValidator(WORKBENCH_STATUSBAR_ITEMS_POINT)},
-        {id: WORKBENCH_TITLEBAR_ITEMS_POINT, implementation: "required", validate: itemValidator(WORKBENCH_TITLEBAR_ITEMS_POINT)},
-        // 条目只有声明，内核却只能对整个贡献点规定要不要实现：要实现，贡献方交空对象（同设置的 list 分区）。
-        {id: WORKBENCH_ACTIVITYBAR_ITEMS_POINT, implementation: "required", validate: validateActivityBarItemContribution},
-        {id: WORKBENCH_OVERLAYS_POINT, implementation: "required", validate: validateOverlayContribution},
+        statusbarItemsPoint,
+        titlebarItemsPoint,
+        activityBarItemsPoint,
+        overlaysPoint,
         {id: WORKBENCH_HOME_POINT, implementation: "required", validate: validateHomeContribution},
-        // 菜单项只有声明，同活动栏条目交空实现：这样它随贡献方入口出现与消失（docs/specs/workbench/menus.md）。
-        {id: WORKBENCH_TITLEBAR_MENU_POINT, implementation: "required", validate: validateTitlebarMenuItem},
-        {id: WORKBENCH_VIEW_TITLE_POINT, implementation: "required", validate: validateViewTitleItem},
+        titlebarMenuPoint,
+        viewTitlePoint,
     ],
     entries: [defineEntry({
         id: "browser",
@@ -159,22 +156,29 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const projectName = project?.name ?? null;
             const projectTitle = project?.title ?? null;
             const workbenchPages = createWorkbenchPages({
-                renderDocument: () => h(WorkbenchDocument, {locale, theme, appearance}),
-                // 布局 store 在外壳渲染时才取：首页贡献在场的 `/` 页与直接打开 Lab 的窗口都不读产品布局记录。
-                renderShell: () => h(WorkbenchShell, {layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, locale: locale.value}),
-                renderCommandHost: () => h(CommandHost, {commands, report, locale, attach: (host: PaletteHost) => palettes.attach(host)}),
+                // 文档根的设置与外壳由页面自己加载，挂上后页面根才标 `data-page-rendered`（home-page.ts）。
+                document: {load: async () => (await import("./document/WorkbenchDocument.vue")).default, props: () => ({locale, theme, appearance})},
+                // 布局 store 在要显示外壳时才创建：首页贡献在场的 `/` 页与直接打开 Lab 的窗口都不读产品布局记录。开始加载外壳时就
+                // 创建、开始读布局记录，与下载外壳代码并行：等外壳挂上才读的话，每次打开都先按缺省布局画出来（Spec 失败表的“记录
+                // 未读完”），记录到了再变过去，侧栏、面板从缺省尺寸动画收起，缺省可见的视图也被加载。
+                shell: {load: async () => {
+                    layout.acquire();
+                    return (await import("./components/WorkbenchShell.vue")).default;
+                }, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, locale: locale.value})},
+                renderCommandHost: () => h(CommandHost, {commands, report, locale, notify: (input: NotificationInput) => void notifications.notify(input), attach: (host: PaletteHost) => palettes.attach(host)}),
                 renderNotifications: () => h(Notifications, {queue: notifications.queue}),
                 renderOverlays: () => h(OverlayHost),
                 projectName,
                 home: homeSlot,
                 reportHome: (message) => diagnostics.record({level: "warn", event: "workbench.home", message, source: {plugin: descriptor.id}}),
+                reportPart: (message) => diagnostics.record({level: "error", event: "workbench.page", message, source: {plugin: descriptor.id}}),
             });
             const pages = new PageTable([
                 {path: "/", title: "NeuroBook", load: async () => workbenchPages.home},
                 {path: WORKBENCH_PATH, title: "NeuroBook", load: async () => workbenchPages.workbench},
             ]);
             return {
-                services: [provide(workbenchRootKey, {pages: () => pages.list()}), provide(quickPickKey, palettes.quickPick), provide(notificationsKey, {notify: (input) => notifications.notify(input)})],
+                services: [provideService(workbenchRootKey, {pages: () => pages.list()}), provideService(quickPickKey, palettes.quickPick), provideService(notificationsKey, {notify: (input) => notifications.notify(input)})],
                 receivers: {[WORKBENCH_PAGES_POINT]: pages.receiver(), [WORKBENCH_VIEWS_POINT]: views.receiver(), [WORKBENCH_EDITOR_AREA_POINT]: editorArea.receiver(), [WORKBENCH_STATUSBAR_ITEMS_POINT]: statusItems.receiver(), [WORKBENCH_TITLEBAR_ITEMS_POINT]: titleItems.receiver(), [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: activityItems.receiver(), [WORKBENCH_OVERLAYS_POINT]: overlays.receiver(), [WORKBENCH_HOME_POINT]: homeSlot.receiver(), [WORKBENCH_TITLEBAR_MENU_POINT]: titlebarMenu.receiver(), [WORKBENCH_VIEW_TITLE_POINT]: viewTitle.receiver()},
                 contributions: {
                     [WORKBENCH_ACTIVITYBAR_ITEMS_POINT]: {[PROFILE_ITEM]: NO_IMPLEMENTATION},

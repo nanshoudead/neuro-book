@@ -11,13 +11,13 @@ import {computed, ref} from "@vue/reactivity";
 import type {Ref} from "@vue/reactivity";
 import {Type} from "typebox";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import {createApplication} from "nbook/application";
 import {COMMANDS_POINT, commandServiceKey, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
@@ -27,7 +27,7 @@ import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/con
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
 import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 
-import {validateActivityBarItemContribution, WORKBENCH_ACTIVITYBAR_ITEMS_POINT} from "./shared/items";
+import {activityBarItemsPoint, WORKBENCH_ACTIVITYBAR_ITEMS_POINT} from "./shared/items";
 import type {ActivityBarItemDeclaration} from "./shared/items";
 import type {ActivityBarItemImplementation} from "./web/contracts";
 import {ActivityItemRegistry} from "./web/items/activity-items";
@@ -62,7 +62,7 @@ interface Owner {
 function ownerPlugin(owner: Owner): PluginDefinition {
     return {
         id: "test.owner",
-        contributionPoints: [{id: WORKBENCH_ACTIVITYBAR_ITEMS_POINT, implementation: "required", validate: validateActivityBarItemContribution}],
+        contributionPoints: [activityBarItemsPoint],
         entries: [{
             id: "browser",
             location: "browser",
@@ -198,7 +198,7 @@ describe("活动栏底部条目", () => {
         expect(chrome.activityEntries("zh-CN")).toEqual([]);
         const validation = (id: string) => application.plugins.contribution(WORKBENCH_ACTIVITYBAR_ITEMS_POINT, id).map((entry) => entry.validation);
         expect(validation("test.items.same").map((entry) => entry.status)).toEqual(["rejected", "rejected"]);
-        expect(validation("other.item")[0]).toMatchObject({status: "rejected", detail: "插件 test.two 的条目 id 必须以 test.two. 开头：other.item"});
+        expect(validation("other.item")[0]).toMatchObject({status: "rejected", detail: "贡献 id 要以插件 id test.two 加“.”开头：other.item"});
         expect(validation("test.three.extra")[0]).toMatchObject({status: "rejected"});
         expect(validation("test.four.server")[0]).toMatchObject({status: "rejected", detail: `${WORKBENCH_ACTIVITYBAR_ITEMS_POINT} 只接受浏览器入口的贡献`});
     });

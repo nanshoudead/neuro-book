@@ -8,8 +8,8 @@
  * <JsonViewer :value="someObject" />
  * <JsonViewer :value="someObject" mode="text" :max-height="200" />
  */
-import {IconButton as NbIconButton, ToggleGroup as NbToggleGroup} from "@notnotype/nb-ui/components";
-import type {ToggleGroupOption} from "@notnotype/nb-ui/components";
+import {IconButton as NbIconButton, SegmentedControl as NbSegmentedControl} from "@notnotype/nb-ui/components";
+import type {SegmentedControlOption, SegmentedControlValue} from "@notnotype/nb-ui/components";
 import {computed, ref, watch} from "vue";
 import JsonEditorVue from "json-editor-vue";
 import {Mode} from "vanilla-jsoneditor";
@@ -100,7 +100,7 @@ const canToggleExpand = computed(() => currentMode.value !== Mode.table);
 /**
  * 模式切换按钮定义。
  */
-const modeButtons: ToggleGroupOption[] = [
+const modeButtons: SegmentedControlOption[] = [
     { value: Mode.text, iconClass: "i-lucide-file-json-2", title: "切换到文本模式" },
     { value: Mode.tree, iconClass: "i-lucide-git-branch", title: "切换到树形模式" },
     { value: Mode.table, iconClass: "i-lucide-table-properties", title: "切换到表格模式" },
@@ -108,16 +108,9 @@ const modeButtons: ToggleGroupOption[] = [
 
 /**
  * 切换查看模式。
- * ToggleGroup 单选模式下再次点击当前项会发出空值取消选择，而查看器必须始终处于某个模式，
- * 因此空值保持原模式不变。
  */
-function switchMode(value: string | string[] | undefined) {
-    const next = Array.isArray(value) ? value[0] : value;
-    if (!next) {
-        return;
-    }
-
-    currentMode.value = next as JsonViewerMode;
+function switchMode(value: SegmentedControlValue) {
+    currentMode.value = value as JsonViewerMode;
 }
 
 /**
@@ -186,8 +179,9 @@ function handleEditorUpdate(value: unknown): void {
     <div class="json-viewer" :class="{'json-viewer--readonly': props.readOnly}" :style="containerStyle">
         <!-- 自定义工具栏 -->
         <div v-if="props.mainMenuBar" class="json-viewer__toolbar">
-            <NbToggleGroup
+            <NbSegmentedControl
                 size="sm"
+                aria-label="查看模式"
                 :options="modeButtons"
                 :model-value="currentMode"
                 @update:model-value="switchMode"
@@ -299,9 +293,9 @@ function handleEditorUpdate(value: unknown): void {
     --jse-theme-color-highlight: color-mix(in srgb, var(--bg-hover) 70%, var(--accent-main) 30%);
     --jse-font-family: var(--font-ui);
     --jse-font-family-mono: var(--font-mono);
-    --jse-font-size: 11px;
-    --jse-font-size-mono: 11px;
-    --jse-font-size-main-menu: 11px;
+    --jse-font-size: var(--text-xs);
+    --jse-font-size-mono: var(--text-xs);
+    --jse-font-size-main-menu: var(--text-xs);
     --jse-font-size-text-mode-search: 80%;
     --jse-line-height: calc(1em + 4px);
     --jse-indent-size: calc(1em + 4px);
@@ -400,7 +394,7 @@ function handleEditorUpdate(value: unknown): void {
     --jse-a-color-highlight: color-mix(in srgb, var(--accent-main) 75%, var(--text-main));
     --jse-color-picker-background: var(--bg-input);
     --jse-color-picker-border-box-shadow: var(--border-color) 0 0 0 1px;
-    font-size: 11px;
+    font-size: var(--text-xs);
 }
 
 /* 内部各模式内容区占满剩余空间 */

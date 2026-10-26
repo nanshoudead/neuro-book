@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>弹出列表收成一套：评审板</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef;
+    --warn: #b45309; --warn-soft: #fdf1df; --ok: #15803d; --ok-soft: #e4f4e8;
+    --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123b37;
+        --warn: #fbbf24; --warn-soft: #3a2e12; --ok: #86efac; --ok-soft: #173322; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+p, li { max-width: 900px; }
+.lead p { color: var(--muted); margin: 6px 0; }
+.round { margin-top: 40px; font-size: 19px; font-weight: 700; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+section.q { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.badge.todo { background: var(--warn-soft); color: var(--warn); }
+.badge.done { background: var(--ok-soft); color: var(--ok); }
+.opts { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 10px 0; }
+.opt { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.opt.rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.opt p { margin: 4px 0 0; color: var(--muted); }
+.rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.rec-note b { color: var(--accent); }
+figure { margin: 12px 0; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; border-top: 0; }
+</style>
+<style>
+.three { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 760px) { .three { grid-template-columns: 1fr; } }
+.cand { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.cand.rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.cand p { margin: 4px 0 0; color: var(--muted); }
+code { font-size: 12.5px; }
+</style>
+</head>
+<body>
+<main>
+<h1>弹出列表收成一套：评审板</h1>
+<div class="lead">
+<p>w00029 t04。nb-ui 里有五个弹出列表（<code>DropdownMenu</code>、<code>Select</code>、<code>Menubar</code>、<code>ContextMenu</code>、<code>QuickPick</code>），加上编辑器 Composer 的候选菜单 <code>PromptMenuPanel</code>，外框已经共用，列表项各画各的。这一套要把列表项、分组、分隔线、滚动条与截断高度收成共用件，高亮、选中、圆角各定一种，再做一个不抢焦点的候选菜单给 Composer 和编辑器的斜杠菜单用。</p>
+<p>本轮只问两件：<b>高亮</b>（鼠标悬停的项、键盘方向键停在的项）和<b>选中</b>（已选的值、勾上的项）各用哪一种。圆角、滚动条、截断高度和候选菜单留到后面几轮。图都是 Lab 里的真实组件或用主题变量画的草稿，<code>nbook</code> 主题。</p>
+</div>
+
+<div class="round">第 3 轮</div>
+
+<p>前两轮已定：高亮中性叠色、选中左侧勾选列、项的圆角 5px（外框 10、内边距 4）、一档 28px 行高与 13px 字，下面的图都按它画。这一轮问两件：长列表最多显示几项，以及 Composer 候选菜单底部的按键提示。</p>
+
+<section class="q" data-nbdev-question="r3-rows" data-nbdev-type="single" data-nbdev-recommend="8">
+<h2>长列表最多显示几项 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>项多时列表在第 N 项之后截断、可以滚动；截在下一项的中间，露出半项，一眼看出下面还有。右边是悬浮滑块（6px 宽）。现在各组件各算各的：Select 默认 6 项半、紧凑档 5 项，计算时按 32px 行高算，DropdownMenu 实际是 26px，算出来的高度对不上；Composer 候选菜单截在整 8 项（不露半项）；QuickPick 整个浮层最高 560px。定下来后所有弹出列表共用一份计算。</p>
+<figure><img src="r3/rows-light.webp" alt="三种截断高度，浅色"><figcaption>浅色，从左到右 A、B、C</figcaption></figure>
+<figure><img src="r3/rows-dark.webp" alt="三种截断高度，深色"><figcaption>深色</figcaption></figure>
+<div class="three">
+<div class="cand" data-nbdev-option="6"><h3>A 6 项半</h3><p>列表高约 190px。</p></div>
+<div class="cand rec" data-nbdev-option="8"><h3>B 8 项半</h3><p>列表高约 246px。</p></div>
+<div class="cand" data-nbdev-option="10"><h3>C 10 项半</h3><p>列表高约 302px。</p></div>
+</div>
+<div class="rec-note"><b>推荐 B。</b>行高从 32px 收到 28px 之后，6 项半只有 190px，章节、设定这类列表一屏看得太少；10 项半在笔记本屏幕上、贴着编辑区下半部弹出时容易放不下，要翻到上方。B 和 Composer 候选菜单现在的 8 项接近。放不下时仍按可用空间收矮。</div>
+</section>
+
+<section class="q" data-nbdev-question="r3-footer" data-nbdev-type="single" data-nbdev-recommend="drop">
+<h2>Composer 候选菜单要不要底部的按键提示 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>在 Composer 里打 <code>@</code> 弹出的候选菜单，现在底部有一行“↑↓ 选择、Enter 确认、Esc 关闭”。这个菜单不抢焦点：光标留在输入框里，菜单贴着光标弹出，编辑器的斜杠菜单之后也用它。编辑器的斜杠菜单（w00025 t08）已定不放按键提示。</p>
+<figure><img src="r3/footer-light.webp" alt="保留与去掉页脚，浅色"><figcaption>浅色，左 A 右 B</figcaption></figure>
+<figure><img src="r3/footer-dark.webp" alt="保留与去掉页脚，深色"><figcaption>深色</figcaption></figure>
+<div class="three">
+<div class="cand" data-nbdev-option="keep"><h3>A 保留</h3><p>现在的样子。</p></div>
+<div class="cand rec" data-nbdev-option="drop"><h3>B 去掉</h3><p>与斜杠菜单一致。</p></div>
+</div>
+<div class="rec-note"><b>推荐 B。</b>同一个候选菜单在 Composer 与编辑器里应该长得一样，斜杠菜单已定不放；方向键与 Enter 是这类菜单的通用操作，常用的人很快就不看这行了，它还占掉一行高度。</div>
+<p>窄屏（390px）：<a href="r3/narrow-footer-drop.webp" data-nbdev-skip>B</a></p>
+</section>
+
+<div class="round">第 2 轮</div>
+
+<p>第 1 轮已定：高亮用中性叠色，选中用左侧勾选列，下面的图都按它画。这一轮问列表项的圆角与行高。每个候选画两张列表：上面是动作菜单（DropdownMenu、右键菜单、Menubar 一类），下面是选值列表（Select 一类）。</p>
+
+<section class="q" data-nbdev-question="r2-radius" data-nbdev-type="single" data-nbdev-recommend="r5">
+<h2>列表项的圆角 <span class="badge done" data-nbdev-skip>已定：B 项 5px</span></h2>
+<p>设计语言要求同心圆角：项的圆角 = 外框圆角 − 描边 − 内边距，所以候选给的是“外框圆角、内边距”这一对。现在 nbook 主题是外框 8、内边距 6，推出来只剩 2px，高亮的底色几乎是直角；QuickPick 外框写死 14px，Composer 候选菜单自己写 10px，三处各不相同。</p>
+<figure><img src="r2/radius-light.webp" alt="三种圆角，浅色"><figcaption>浅色，从左到右 A、B、C</figcaption></figure>
+<figure><img src="r2/radius-dark.webp" alt="三种圆角，深色"><figcaption>深色</figcaption></figure>
+<div class="three">
+<div class="cand" data-nbdev-option="r2"><h3>A 外框 8、内边距 6：项 2px</h3><p>现在 nbook 的值。</p></div>
+<div class="cand rec" data-nbdev-option="r5"><h3>B 外框 10、内边距 4：项 5px</h3><p>外框略大，内边距收窄。</p></div>
+<div class="cand" data-nbdev-option="r7"><h3>C 外框 14、内边距 6：项 7px</h3><p>现在 QuickPick 的外框，圆润。</p></div>
+</div>
+<div class="rec-note"><b>推荐 B。</b>项的圆角看得出来，高亮不再是一块直角的灰条；外框 10px 和 Composer 候选菜单现在的外框一样。C 和对话框的大圆角接近，菜单小、项多时显得松。只改主题变量（<code>--radius-menu</code> 与浮层内边距），macOS 主题仍按自己的值推。</div>
+<p>窄屏（390px）：<a href="r2/narrow-radius-r5.webp" data-nbdev-skip>B</a></p>
+</section>
+
+<section class="q" data-nbdev-question="r2-density" data-nbdev-type="single" data-nbdev-recommend="one-28">
+<h2>列表项的行高与字号 <span class="badge done" data-nbdev-skip>已定：A 一档 28px、13px</span></h2>
+<p>现在五种：DropdownMenu 26px、12px 字；Menubar 28px、12px；Select 与右键菜单约 31.5px、13px；Composer 候选菜单 32px、13px；QuickPick 的两行项 48px（带说明的项另算，不在这题里）。圆角按上一题推荐的 B 画。</p>
+<figure><img src="r2/density-light.webp" alt="三种行高，浅色"><figcaption>浅色，从左到右 A、B、C</figcaption></figure>
+<figure><img src="r2/density-dark.webp" alt="三种行高，深色"><figcaption>深色</figcaption></figure>
+<div class="three">
+<div class="cand rec" data-nbdev-option="one-28"><h3>A 一档：28px、13px 字</h3><p>所有弹出列表一个行高。</p></div>
+<div class="cand" data-nbdev-option="two"><h3>B 两档</h3><p>动作菜单 26px、12px 字；选值与挑选列表 32px、13px 字。</p></div>
+<div class="cand" data-nbdev-option="one-32"><h3>C 一档：32px、13px 字</h3><p>所有弹出列表都宽松，好点中。</p></div>
+</div>
+<div class="rec-note"><b>推荐 A。</b>这一套的目的就是“一种”，一档最省心：组件不用再选档，字号和正文、侧栏一致都是 13px。B 的 12px 菜单字在高分屏上偏小，而且每个新列表都要先决定算哪一档。C 在同样高的地方放的项比 A 少约八分之一。</div>
+<p>窄屏（390px）：<a href="r2/narrow-density-two.webp" data-nbdev-skip>B</a></p>
+</section>
+
+<div class="round">第 1 轮</div>
+
+<section class="q">
+<h2>现状：同一件事各画各的 <span class="badge done">参考</span></h2>
+<p>六个列表各打开一份，每个里有一项高亮、一项选中（悬停态用键盘当前项代替）。</p>
+<figure><img src="r1/now-light.webp" alt="六个弹出列表的现状，浅色"><figcaption>浅色</figcaption></figure>
+<figure><img src="r1/now-dark.webp" alt="六个弹出列表的现状，深色"><figcaption>深色</figcaption></figure>
+<table>
+<tr><th>组件</th><th>高亮</th><th>选中</th><th>菜单项圆角</th><th>行高</th></tr>
+<tr><td>DropdownMenu</td><td>中性叠色</td><td>两种：<code>active</code> 强调色淡底、不画勾；勾选项右侧正文色勾，勾会顶掉快捷键</td><td>2px</td><td>26px</td></tr>
+<tr><td>Select</td><td>中性叠色，只跟焦点</td><td>强调色淡底、中等字重、右侧强调色勾；选中那行比别的高约 1px</td><td>2px</td><td>31.5px</td></tr>
+<tr><td>Menubar</td><td><b>没有</b></td><td>右侧正文色勾</td><td>2px</td><td>28px</td></tr>
+<tr><td>ContextMenu</td><td><b>没有</b>（只有危险项悬停时有红底）</td><td>右侧正文色勾</td><td>2px</td><td>31.5px</td></tr>
+<tr><td>QuickPick</td><td>中性叠色，其余项文字压暗</td><td>没有选中概念</td><td>7px</td><td>48px（两行）</td></tr>
+<tr><td>PromptMenuPanel</td><td>强调色淡底</td><td>没有选中概念</td><td>6.4px</td><td>32px</td></tr>
+</table>
+<p>要点：Menubar 与右键菜单里，鼠标停在项上、方向键移过去都没有任何底色，是现在就有的缺陷；同一个强调色淡底，在 Select 与 DropdownMenu 里表示“选中”，在 Composer 候选菜单里表示“高亮”。行高五种、圆角三种，后面几轮再定。</p>
+</section>
+
+<section class="q" data-nbdev-question="r1-highlight" data-nbdev-type="single" data-nbdev-recommend="neutral">
+<h2>高亮用哪一种 <span class="badge done" data-nbdev-skip>已定：A 中性叠色</span></h2>
+<p>同一张样例列表：分组标题、带图标与快捷键的项、一项禁用、一项危险项；“在新标签页打开”处于高亮。</p>
+<figure><img src="r1/highlight-light.webp" alt="三种高亮，浅色"><figcaption>浅色，从左到右 A、B、C</figcaption></figure>
+<figure><img src="r1/highlight-dark.webp" alt="三种高亮，深色"><figcaption>深色</figcaption></figure>
+<div class="three">
+<div class="cand rec" data-nbdev-option="neutral"><h3>A 中性叠色</h3><p>现在 DropdownMenu、Select、QuickPick 用的。底色是正文色的一层薄叠色，不带颜色。</p></div>
+<div class="cand" data-nbdev-option="accent-tint"><h3>B 强调色淡底</h3><p>现在 Composer 候选菜单用的，图标转强调色。</p></div>
+<div class="cand" data-nbdev-option="accent-solid"><h3>C 强调色实底</h3><p>macOS 菜单的做法，反色文字（新增）。</p></div>
+</div>
+<div class="rec-note"><b>推荐 A。</b>三个组件已经在用，设计语言也写明“浮层上的高亮用中性叠色”；把强调色留给“选中”，就不会再有“同一个淡底两种意思”。C 最醒目，但和强调色的选中叠在一起时分不清哪个是哪个，鼠标划过一串项时整行蓝块跟着跳，太抢眼。</div>
+<p>窄屏（390px）：<a href="r1/narrow-highlight-neutral.webp" data-nbdev-skip>A</a> · <a href="r1/narrow-highlight-accent-tint.webp" data-nbdev-skip>B</a> · <a href="r1/narrow-highlight-accent-solid.webp" data-nbdev-skip>C</a></p>
+</section>
+
+<section class="q" data-nbdev-question="r1-selection" data-nbdev-type="single" data-nbdev-recommend="check-right">
+<h2>选中用哪一种 <span class="badge done" data-nbdev-skip>已定：A 左侧勾选列</span></h2>
+<p>同一张样例列表，高亮按 A（中性叠色）；“按修改时间”选中，下一项“按文件大小”同时高亮，看两种状态挨在一起时分不分得清。</p>
+<figure><img src="r1/selection-light.webp" alt="三种选中，浅色"><figcaption>浅色，从左到右 A、B、C</figcaption></figure>
+<figure><img src="r1/selection-dark.webp" alt="三种选中，深色"><figcaption>深色</figcaption></figure>
+<div class="three">
+<div class="cand" data-nbdev-option="check-left"><h3>A 左侧勾选列</h3><p>每行在图标前留一列给勾，底色不变（新增）。勾和图标在同一侧，扫一眼最快；每行多占一列宽度。</p></div>
+<div class="cand rec" data-nbdev-option="check-right"><h3>B 右侧勾</h3><p>勾在快捷键右侧、正文色，底色不变。现在三个菜单的勾选项就是这样（快捷键会被勾顶掉，统一时一并修好，图里已是修好后的）。</p></div>
+<div class="cand" data-nbdev-option="accent"><h3>C 强调色淡底加勾</h3><p>现在 Select 的做法：淡底、中等字重、强调色勾。</p></div>
+</div>
+<div class="rec-note"><b>推荐 B。</b>和现在三个菜单一致，改动最小；选中只靠一个勾，和中性高亮叠在一起也分得清。C 的选中与高亮两行紧挨着一蓝一灰，分得清但很吵；Select 改成 B 后，选中值同时显示在下拉框里，不靠底色也找得到。想让勾更好扫到就选 A。</div>
+<p>窄屏（390px）：<a href="r1/narrow-selection-check-left.webp" data-nbdev-skip>A</a> · <a href="r1/narrow-selection-check-right.webp" data-nbdev-skip>B</a> · <a href="r1/narrow-selection-accent.webp" data-nbdev-skip>C</a></p>
+</section>
+</main>
+</body>
+</html>

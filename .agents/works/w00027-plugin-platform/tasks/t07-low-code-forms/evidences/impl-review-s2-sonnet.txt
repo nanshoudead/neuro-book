@@ -1,0 +1,173 @@
+# w00027 t07 S2a、S2b 实现审查（Sonnet）
+
+审查对象：`a578d7d9c`、`6b4dcb8ba`。只读；实验脚本在 `/tmp/neuro-book/review-w00027-s2/lab/`（probe1-3.mjs，用 Lab 开发服务上的真实 Chrome）。条目按发现顺序追加，文末“影响排序”给出按严重程度的次序。
+
+### 1. 已勾选的 Checkbox 在出错时完全看不出来（描红的类被同特指度的选中态边框色盖住）
+- 严重程度：重要
+- 类别：视觉
+- 位置：`packages/nb-ui/src/components/form/Checkbox.vue` 的方框 `:class`（选中分支 `border-[var(--accent-main)]` 与 `showsInvalid` 分支 `border-[color:var(--status-danger)]` 在同一个数组里）；`packages/nb-ui/dist/nb-ui.css` 第 825 行（danger）与第 828 行（accent）
+- 现象：Lab 里 `c=Checkbox&s=invalid`（`invalid: true`），点一下勾上后，方框 `getComputedStyle().borderColor` 是 `rgb(10, 132, 255)`（accent），不是 `rgb(255, 69, 58)`（danger）；`aria-invalid="true"` 仍在。截图 `/tmp/neuro-book/review-w00027-s2/lab/checkbox-checked-invalid.png`：蓝底白勾，没有任何红。对照：同一个操作下 Switch 保持红描边（`!border-`），单选圆钮 4 个都是红（`!border-`）。
+- 为什么是问题：输出 26 要求“invalid 时输出 aria-invalid 与出错外观”。两条 Tailwind 工具类同特指度，谁生效取决于生成的样式表顺序（danger 在前、accent 在后，accent 赢），不取决于类在数组里的先后。复选组“至多选 N 项”“选了不允许的组合”这类选中状态下的出错，每个框都是蓝的，用户看不到出错。另外实现者给 Radio、Switch 用了 `!border-`，给 Checkbox 没用，三处做法不一致，说明是漏的，不是有意。
+- 如何核实：`node /tmp/neuro-book/review-w00027-s2/lab/probe3.mjs`（输出 `checked border rgb(10, 132, 255)`）。
+- 建议改法：选中且出错时单独给一个更高特指度的类（与 Radio 一致用 `!border-[color:var(--status-danger)]`），或选中分支不写 `border-[var(--accent-main)]` 而由出错分支统一决定边框色；并在 Lab 的 Checkbox 与 CheckboxGroup 增加“已勾选出错”场景，单元测试断言算出来的颜色（见第 7 条）。
+
+### 2. SearchSelect 在有已选项时点进去直接打字，搜索词被接在已选项名字后面，永远筛不出东西
+- 严重程度：重要
+- 类别：正确性
+- 位置：`packages/nb-ui/src/components/form/SearchSelect.vue` 的 `display`（`query ?? selected.label`）与 `onInput`；没有在聚焦或打开时全选文字
+- 现象：Lab `c=SearchSelect&s=default`（已选 Claude Opus）：`input.click()` 后光标在末尾（`selectionStart=11`），`keyboard.type("deep")`，输入框变成 `Claude Opusdeep`，列表为空，只剩“没有匹配的选项”一行。要搜索必须先手动删光已选项的名字。
+- 为什么是问题：规范输出 30 的行为是“输入的文字只是搜索词”，真实用户的第一个动作就是“看到当前值，点一下，打字”。新增的单元测试与 e2e 都用 `fill()`（整体替换）打字，恰好绕开了这一步，所以两层测试都绿。
+- 如何核实：`node /tmp/neuro-book/review-w00027-s2/lab/probe5.mjs`（输出 `D value Claude Opusdeep options [] empty 1`）。
+- 建议改法：打开列表时（点击、方向键）把输入框全选（`select()`），这样第一个字符替换已选项名；或第一次 input 时去掉已选项名。测试改成 `keyboard.type`，在点击后逐字输入。
+
+### 3. SearchSelect 在输入法组字期间会响应 Enter、方向键并按拼音字母筛选，Enter 确认组字会误选高亮项
+- 严重程度：重要
+- 类别：正确性（中文输入）
+- 位置：`SearchSelect.vue` 的 `onKeydown`、`onInput`；没有 `compositionstart/end` 或 `event.isComposing`、`keyCode === 229` 的判断
+- 现象：模拟组字中（`compositionstart`，`input` 带 `isComposing: true`，值 `qwe`）：列表已按 `qwe` 筛成只剩 Qwen；随后发一个 `keydown {key: "Enter", isComposing: true, keyCode: 229}`，组件直接 `choose` 了高亮项，输入框变成 `Qwen 3 Max`、列表关闭（probe4 A1、A2）。组字期间的方向键同样被 `preventDefault` 并移动高亮，抢走输入法的候选词翻页。同一个包里 `QuickPick.vue:188`、`Dialog.vue:279` 已经有 `isComposing` 与 229 的判断，SearchSelect 漏了。
+- 为什么是问题：产品是中文写作工具，选项多半是中文名；在拼音输入时按 Enter 上屏拼音字母，现在会同时选中一个选项并关列表，改了表单的值。组字时按拼音字母筛选也会让列表在每个字母间闪成“没有匹配”。
+- 如何核实：`node /tmp/neuro-book/review-w00027-s2/lab/probe4.mjs`（合成事件，真实输入法的 keydown 也是 `isComposing=true` 且 `keyCode=229`，Chrome 在 Enter 上屏时发的就是这个）。
+- 建议改法：`onKeydown` 开头 `if (event.isComposing || event.keyCode === 229) return;`；组字期间不筛选（记 `composing` 标记，`compositionend` 后再取值），可参照 `QuickPick.vue`。补一条带 `isComposing` 的 Enter 不选中的单元测试（`QuickPick.test.ts:171` 有现成写法）。
+
+### 4. SearchSelect 的放大镜与下拉箭头点了没有反应，还会让已聚焦的输入框失焦关列表
+- 严重程度：重要
+- 类别：正确性 / 视觉一致
+- 位置：`SearchSelect.vue` 模板，外框 `div` 里的两个装饰 `span` 与左右内边距；只有 `<input>` 上有 `@click="openMenu"`
+- 现象：Lab `c=SearchSelect&s=default`，点箭头（右侧 14px）与放大镜（左侧 14px）：`menu 0`，`document.activeElement` 是 `BODY`（probe4 B1、B2）。输入框只占外框中间 292px（外框 360px），两侧 33px 都是“死区”。`Select` 的整个外框都是触发器，点哪里都开；箭头画在那里就是“点它展开”的暗示（旋转 180° 的动画也在暗示它能点）。
+- 为什么是问题：与 `Select` 并排出现在同一张表单里，点法一致才是同一个控件族；输入框已有焦点时点箭头反而把它失焦，列表关掉。触屏上 33px 死区也是点不中输入框的冗余。
+- 如何核实：probe4 B 段；`SearchSelect__default__free__light.png` 可见箭头与放大镜在输入框之外。
+- 建议改法：外框 `@mousedown.prevent` 后聚焦输入框并开列表（箭头再点一下关闭），或把箭头做成 `tabindex="-1"` 的按钮；放大镜点击聚焦输入框。补一条真实浏览器用例（点箭头打开）。
+
+### 5. SearchSelect 的列表没有可访问名称，文档“缺省时读屏用输入框的名字”与实现不符；调用方传的 aria-label 落在外框 div 上
+- 严重程度：重要
+- 类别：无障碍
+- 位置：`SearchSelect.vue` 的 `:label="props.listLabel"`（缺省 undefined）；单根 `div` 且没有 `defineOptions({inheritAttrs: false})`；文件头注释第 8 行与 `SearchSelect.md`“列表的可访问名称”
+- 现象：（a）打开列表后 `[role=listbox]` 的 `aria-label` 与 `aria-labelledby` 都是 null（probe4 C）。代码注释写“缺省时读屏用输入框的名字”，但没有任何代码把输入框的名字给列表。（b）调用方写 `<SearchSelect aria-label="模型">`：Vue 把 `aria-label` 落到根 `div`（一个没有角色的 div），`input[role=combobox]` 没有名字。`Select` 因此专门写了 `inheritAttrs:false` 并转发到触发器（见它的注释），SearchSelect 没有，也没有 `ariaLabel` 属性。不放在 `Field` 里（例如工具栏、表格行内）时只能靠 `<label>` 包裹。
+- 为什么是问题：combobox 没有名字，读屏读成“编辑，组合框”；aria-label 写了却落空，是静默失效。
+- 如何核实：probe4 C 的输出；`grep -n "inheritAttrs" packages/nb-ui/src/components/form/SearchSelect.vue` 无结果。
+- 建议改法：`inheritAttrs: false`，把 attrs 的 `aria-*` 转发给输入框、class 留给外框（照 `Select.vue` 的做法）；列表的名字缺省用 `aria-labelledby` 指向输入框的名字来源，或在文档里删掉那句话并让 `listLabel` 必填说明。
+
+### 6. SearchSelect 的 name 属性提交的是输入框里的文字，不是选中的值
+- 严重程度：建议
+- 类别：正确性
+- 位置：`SearchSelect.vue` 的 `:name="props.name || undefined"` 写在可见 `<input>` 上；`SearchSelect.md` 的 `name?: string`
+- 现象：原生表单提交时 `name` 对应的是 `display`：已选项的名字，或用户正在打的搜索词（“Claude Opusdeep”）。`Select` 经 Reka 的隐藏 `<select>` 提交的是 `value`。`required` 也加在这个可见输入框上，打了搜索词没选中也算“已填”。
+- 为什么是问题：同一组控件里 `name` 语义不一致，且文档没说；nb-form 不走原生提交，但 nb-ui 的合同写的是通用属性。
+- 如何核实：读代码；probe4 C 里 `name: null` 是因为 Lab 没传，传了会落在这个输入框上。
+- 建议改法：另放一个 `type="hidden"` 的输入框带 `name` 与 `value`，可见输入框不带 `name`；或在 `.md` 里写明“不提供原生表单提交，不要传 name”并删掉这个属性。
+
+### 7. SearchSelect 列表里看不出哪一项是当前值，与 Select 不一致
+- 严重程度：建议
+- 类别：视觉
+- 位置：`SearchSelect.vue` 的 `groups`（只传 label、hint、iconClass、disabled）；`SuggestionMenu.vue` 的行里没有勾选位；截图 `s2b-shots/nbook/SearchSelect-open/SearchSelect__default__phone__light.png`
+- 现象：`Select` 的列表每行有勾选位，当前值打勾；SearchSelect 的列表里当前值只在刚打开那一刻因为“高亮落在已选项上”而深色，鼠标一动（`pointermove` 改高亮）就与别的项无差别。`aria-selected` 也只跟高亮走（probe4 C：`Claude Opus` 与高亮同为 `true`），读屏用户看不到当前值在哪。
+- 为什么是问题：规格 30 说“列表项的样子……与 nb-ui 的其它弹出列表相同”，Select 的列表有勾选位；用户打开 14 项的长列表想找“现在选的是哪个”时没有标记。
+- 如何核实：看截图；打开后移动鼠标再看。
+- 建议改法：`SuggestionMenuItem` 增加可选的 `selected`，行尾或行首画勾选；若觉得改 SuggestionMenu 范围大，至少在 `.md` 里写明“不标当前值”并让开发者定。
+
+### 8. 不给 modelValue 的 CheckboxGroup（非受控）勾第二项时发出的数组丢了第一项
+- 严重程度：重要
+- 类别：正确性
+- 位置：`packages/nb-ui/src/components/form/CheckboxGroup.vue` 的 `isChecked`、`handleToggle`（都用 `props.modelValue ?? props.defaultValue`，组件自己不记选中状态）；`readonly-matrix.test.ts` “modelValue 不给时有安全的显示”只断言了初始显示
+- 现象：`mount(CheckboxGroup, {props: {options}})` 不给 `modelValue`，依次勾第一项、第二项：`update:modelValue` 依次发出 `["a"]`、`["b"]`（应是 `["a","b"]`），而两个原生框都被勾上。显示（原生状态）与发出的值不一致，调用方若按事件存值，会丢项。实验：`/tmp/neuro-book/review-w00027-s2/lab/vt/x.test.ts`（输出 `emitted [[["a"]],[["b"]]]`、`checked true,true,false`）。
+- 为什么是问题：规格输出 26 要求“`modelValue` 可选，`undefined` 有安全的显示”，brief 要求受控与非受控都成立。`Switch`、`RadioGroup` 由 Reka 持有非受控状态，所以没问题；`CheckboxGroup` 与 `Checkbox` 是自己写的，非受控下既不显示也不累计。这行为在 S2a 之前就有，但 S2b 把它写进了统一合同并配了“安全的显示”测试，没有发现。
+- 如何核实：见上面的实验文件（happy-dom，`bunx vitest run --config /tmp/neuro-book/review-w00027-s2/lab/vt/vitest.config.ts`）。
+- 建议改法：组件内维护一份 `internal`（`modelValue === undefined` 时用它），或者在合同与 `.md` 里写明“只支持受控，不给 modelValue 时只读展示”并让 `readonly-matrix` 的断言与它一致；`Checkbox` 单个同理（`:checked` 固定为 false，原生状态与 Vue 状态分叉）。
+
+### 9. CheckboxGroup 在 role="group" 上写 aria-readonly 与 aria-invalid，这两个属性不属于 group 角色
+- 严重程度：建议
+- 类别：无障碍
+- 位置：`CheckboxGroup.vue` 模板 `role="group"` 与 `:aria-readonly`、`:aria-invalid`；`field-names.test.ts`、`readonly-matrix.test.ts` 的断言
+- 现象：WAI-ARIA 1.2 里 `aria-readonly` 支持的角色是 checkbox、combobox、grid、gridcell、listbox、radiogroup、slider、spinbutton、switch、textbox 等，没有 group；`aria-invalid` 在 1.2 里已不再是全局属性，支持的角色同样不含 group。axe-core 的 `aria-allowed-attr` 对 `role="group"` 上的 `aria-readonly` 会报。对读屏：NVDA、VoiceOver 通常忽略 group 上的这两个属性，只读与出错信息读不出来。
+- 为什么是问题：规格 27、28 要求“字段出错只标在组上”“可聚焦、写 aria-readonly”，实现照字面写在了组上，但读屏用户并不会因此得到“只读”“出错”的提示；真正有效的是每个 `Checkbox` 自己的 `aria-readonly`（已经写了）和组的 `aria-describedby`（错误文字，已经写了）。`RadioGroup`（radiogroup）上这两个属性是合法的，不受影响。
+- 如何核实：从 ARIA 规范推断，未在读屏器里验证；可对 CheckboxGroup 渲染结果跑 axe。
+- 建议改法：组上只保留 `aria-describedby`，去掉 `aria-readonly`；`aria-invalid` 若要保留，把 `role` 改成合法承载它的角色，或在 Spec 输出 26、27 写明复选组的出错信号是“`aria-describedby` 指向的错误说明加每个框的红色外观”，并把测试断言改成对应的可观察结果。
+
+### 10. 只读的开关、单选组、下拉仍是可点击的样子；鼠标点击只读下拉不聚焦触发器
+- 严重程度：建议
+- 类别：视觉 / 正确性
+- 位置：`Switch.vue` 根节点的 `cursor-pointer`；`RadioGroup.vue` 的 `<label ... cursor-pointer>`、`hover:border-[var(--accent-main)]`、`group-not-disabled:active:scale-[0.92]`；`Select.vue` 触发器的 `cursor-pointer`
+- 现象：真实 Chrome（`/tmp/neuro-book/review-w00027-s2/lab/probe6.mjs`）：只读下 Switch、Select 的光标是 `pointer`，单选项的 label 光标是 `pointer`，悬停仍高亮描边，按下仍缩放；只有 Checkbox 改成了 `cursor-default`。`Select` 只读时鼠标点击触发器后 `document.activeElement` 是 `BODY`（Reka 在 pointerdown 里 `preventDefault`，见 probe6 的输出），而 SearchSelect、Switch、复选、单选的点击都会聚焦。
+- 为什么是问题：规格 28 要求“可以聚焦”，键盘与 `focus()` 成立，鼠标点击不成立：点了没有焦点环、没有任何反应，用户分不清是坏了还是只读。控件族里只有 Checkbox 在只读时有外观暗示，其余照旧画成可点击。
+- 如何核实：`node /tmp/neuro-book/review-w00027-s2/lab/probe6.mjs`。
+- 建议改法：只读时统一 `cursor-default`，去掉悬停描边与按下缩放（可用 `data-readonly` 或 `aria-readonly` 属性选择器）；`Select` 只读时在触发器上 `@pointerdown` 里手动 `focus()`。
+
+### 11. 新增的测试里有几处退化时不会失败（做了变异核实）
+- 严重程度：重要
+- 类别：测试
+- 位置：`packages/nb-ui/src/components/form/readonly-matrix.test.ts`、`SearchSelect.test.ts`、`field-names.test.ts`、`packages/neuro-book/e2e/lab-nb-ui.e2e.ts` 新增两条
+- 现象（每条都是改一处、跑相关测试、改回，`git status` 干净）：
+  - SearchSelect 的出错：去掉 `aria-invalid`、或去掉 `nb-ui-control-invalid` 类，`SearchSelect.test.ts` 与 `readonly-matrix.test.ts` 共 16 例全绿。“统一的属性”测试列了 8 个控件，漏掉了规格 26 点名的 SearchSelect。
+  - `RadioGroup` 非受控只读（只给 `defaultValue`）：把 `shownValue` 改成 `props.modelValue` 后 10 例全绿；Switch 有这条用例，单选组没有。
+  - Field 的必填传给单选组（`field?.required.value`）：去掉后 107 例（含 `components.test.ts`）全绿。
+  - Switch 的 `aria-describedby` 来自字段上下文：去掉后 14 例全绿。
+  - SearchSelect “选的就是当前值时不发出变化”（`.md` 的合同）：去掉判断后全绿。
+  - `CheckboxGroup.handleToggle` 里的 `if (props.readonly) return` 删掉后全绿：它被 `Checkbox` 的 `preventDefault` 先一步拦下，是到不了的第二条路径，这是代码质量问题而不只是测试问题。
+  - “出错有外观”只断言类字符串里含 `--status-danger`，没有断言算出来的边框色。第 1 条（已勾选的复选框出错不红）正是类在、颜色不对，这个测试看不见。
+  - SearchSelect 的单元测试与 e2e 都用 `fill()` 打字，漏掉第 2 条；没有 `isComposing` 用例，漏掉第 3 条；没有点箭头的用例，漏掉第 4 条。
+- 为什么是问题：README 称“只读的四处拦截各做变异都被拦下”，这是对的；但上面这些同类的合同没被覆盖，评审者读到“变异都被拦下”会过度放心。
+- 如何核实：`/tmp/neuro-book/review-w00027-s2/lab/mutate.sh <文件> <旧> <新> <测试>`，每条的旧、新串见上文位置；结尾 `git status --short` 为空。
+- 建议改法：补上述用例（在 `invalid 不经 Field` 里加 SearchSelect；加 RadioGroup 非受控只读；Field 必填、Switch 描述用 `mount(Field,…)` 断言属性；e2e 里用 `keyboard.type`）；`CheckboxGroup.handleToggle` 的重复守卫删掉。
+
+### 12. Field 的组形态与普通形态没有互相的保护：给单个控件误用 group 会静默丢掉它的名字
+- 严重程度：建议
+- 类别：代码质量 / 无障碍
+- 位置：`packages/nb-ui/src/components/form/Field.vue` 根 `:is="props.group ? 'div' : 'label'"` 与 `:for`；`Input.vue`、`Select.vue`、`SearchSelect.vue` 只读 `inputId`、不读 `labelId`
+- 现象：`<Field label="书名" group><Input/></Field>`：根是 `div`，没有 `label for`，`Input` 只拿到 `id`，没有 `aria-labelledby`，名字没了；反过来 `RadioGroup` 在普通 `Field` 里有名字（因为 `labelId` 对两种形态都有），但 `label` 包着一整组控件。两个方向都没有开发期提示，也没有测试。这是从代码推断，没有跑。
+- 为什么是问题：S3 起 nb-form 要按种类选 `Field` 的形态，选错一次，读屏读不出名字，没有机检可以发现。
+- 如何核实：读 `Input.vue` 的 `inputAttrs`（只有 `id`、`aria-describedby`、`aria-invalid`）。
+- 建议改法：单个控件在读到 `labelId` 且自己的 `id` 对不上 `label for` 时（即组形态）补 `aria-labelledby`；或者让组形态也在 `Field` 里把 `labelId` 交给所有消费者，并在测试里覆盖“组形态下 Input 的名字”。
+
+### 13. SearchSelect 的外观与 Select 并排时有差别，且 Lab 取证没有覆盖“展开的列表在自由画布与出错状态”
+- 严重程度：建议
+- 类别：视觉 / 测试
+- 位置：`SearchSelect.vue` 外框的 class（没有 `font-medium`、`shadow-sm`、`cursor-pointer`）；`s2b-shots/*/SearchSelect-open`、`s2b-shots/*/Checkbox-invalid`（无 CheckboxGroup 出错）
+- 现象：真实 Chrome 里量（`probe7.mjs`，nbook 深色）：`Select` 触发器 `font-weight: 500`，`SearchSelect` 外框与输入框 `400`；高度都是 32、字号 13、左右内边距 14、圆角 10，这几项一致。截图方面：`Checkbox-invalid`、`Switch-invalid` 只截了未勾选的出错；`CheckboxGroup` 没有出错场景，所以“复选组里的框只描红、`aria-invalid` 只在组上”这条没有任何截图证据；`SearchSelect-open` 的 `free` 视口截图只截到了输入框，没有展开的列表（只有 `phone` 的能看到）。
+- 为什么是问题：同一张表单里 `Select` 与 `SearchSelect` 相邻时字重不同，选中文字看着一个粗一个细；README 称“改动的六个控件……288 张”，但出错的复选组和展开的自由画布列表不在里面，最难看的组合（已勾选出错）恰好没拍。
+- 如何核实：`node /tmp/neuro-book/review-w00027-s2/lab/probe7.mjs`；浏览 `s2b-shots` 目录。
+- 建议改法：外框与输入框补 `font-medium`（与 `Select` 同），Lab 加 `CheckboxGroup` 的出错场景与“已勾选出错”场景，列表截图用 `--click` 展开后在 free 视口截完整页面。
+
+### 14. 以只读挂载、之后切成可编辑的 Select 再也打不开
+- 严重程度：重要
+- 类别：正确性
+- 位置：`packages/nb-ui/src/components/form/Select.vue` 的 `<SelectRoot :open="props.readonly ? false : undefined">`
+- 现象：`mount(Select, {props: {modelValue: "a", options, readonly: true}})`，再 `setProps({readonly: false})`，触发器上 Enter：`[role=listbox]` 数量为 0，`aria-expanded="false"`。对照：一开始可编辑、切成只读再切回可编辑，能打开（1 个）；一开始就可编辑的基线也能打开。实验：`/tmp/neuro-book/review-w00027-s2/lab/vt/z.test.ts`（输出 `after readonly=false listbox count 0`）。
+- 为什么是问题：Reka 的 `SelectRoot` 在 setup 时按 `open` 是否为 `undefined` 决定受控还是非受控，之后不再切换。挂载时只读，`open` 就是 `false`（受控）；改成可编辑后 `open` 变回 `undefined`，组件仍按受控处理，读到的是 `undefined`，用户的打开请求只发出 `update:open`、没有人接，于是永远打不开。nb-form 有“展示态与编辑态”“提交中暂时只读”的用法（`mode`、`readonly` 都是可变的布尔），“载入时只读、随后可改”是常见顺序。这在 e2e 与单元测试里都看不到，因为它们只测静态的只读。
+- 如何核实：见实验文件；数据流可读 `node_modules/reka-ui/dist/Select/SelectRoot.js` 的 `useVModel` 调用。
+- 建议改法：始终受控：自己持有 `open` 状态（`v-model:open`），`@update:open="(value) => (open = value && !props.readonly)"`；或只读时在触发器上拦 `pointerdown`、`keydown`（Enter、空格、方向键）并 `preventDefault`，不动 `open`。并补一条“只读切成可编辑后能打开”的用例。
+
+### 15. 以只读挂载、之后切成可编辑的非受控 Switch、RadioGroup 的选中不再变化
+- 严重程度：建议
+- 类别：正确性
+- 位置：`Switch.vue` 与 `RadioGroup.vue` 的 `shownValue`（只读时给 Reka 一个定值，也就把 Reka 变成了受控）
+- 现象：不给 `modelValue`、`defaultValue: false`、`readonly: true` 挂载 Switch，再切成可编辑后点击：事件发出了 `true`，`aria-checked` 仍是 `false`（基线非受控 Switch 点一下是 `true`）；RadioGroup（`defaultValue: "a"`）同样，点“乙”后选中仍是甲。实验：`/tmp/neuro-book/review-w00027-s2/lab/vt/y.test.ts`。反过来，可编辑时选了乙、再切只读，会回到 `defaultValue`。
+- 为什么是问题：与第 14 条同一机制（受控与非受控在组件生命周期里切换）。brief 重点 2 点名“受控与非受控两种用法下是否都成立”。nb-form 总是受控，所以影响面小，但这是公开属性组合。
+- 如何核实：见实验文件。
+- 建议改法：始终受控，非受控时自己记一份内部值；或在 `.md` 里写明“`readonly` 要在挂载时确定，不随后改变”，由开发者定。
+
+### 16. 五份同名 .md 在新增 readonly 的同时，仍写着“组件没有只读、出错状态”
+- 严重程度：重要
+- 类别：文档
+- 位置：`packages/nb-ui/src/components/controls/Switch.md:60`、`form/Checkbox.md:73`、`form/CheckboxGroup.md:65`、`form/RadioGroup.md:60`、`form/Select.md:99`
+- 现象：S2b 在这五份文档的“数据”一节加了 `invalid`、`readonly` 的属性说明，但“状态”或“不支持”一节没改，例如 `Switch.md`：“只读、加载、出错、空数据：组件没有统一的只读、加载、错误或空数据状态；需要只读时由父组件保持值并禁用交互”，`Select.md`：“宿主应通过 disabled、options 或外围状态表达”。同一份文档里前后矛盾。`Switch.md`、`Checkbox.md`、`Select.md` 的“交互”一节也没写只读的键盘、指针行为（只在属性注释里有一句）。
+- 为什么是问题：nb-ui 规范要求同名 `.md` 是组件的行为合同（AGENTS.md：查改组件必读并列同名 `.md`）；开发 Agent 读到“没有只读状态”，会自己再做一套只读（父组件禁用交互），与本次的合同冲突。
+- 如何核实：`grep -n "只读" <文件>`。
+- 建议改法：删掉这些“没有只读、出错状态”的句子，把“状态”一节改成 `invalid`、`readonly` 的实际表现，“交互”一节按 Spec 输出 28 的表写每种控件只读时的键盘与指针行为；SearchSelect.md 已经是对的，可对照。
+
+## 未发现问题的方面
+
+- `dist/nb-ui.css` 与源码同步：用 `bunx tailwindcss -i ./src/tailwind.css -o /tmp/…/nb-ui.fresh.css` 重新生成后与提交里的 `dist/nb-ui.css` 逐行相同。
+- 类型与单元测试：`bunx vue-tsc --noEmit -p .` 退出 0；`bunx vitest run src/components` 25 个文件 415 例全绿。
+- `Switch` 去掉缺省名称后的调用方：全仓使用 nb-ui `Switch` 的 4 处（dev-panel `DocsSidebar`、应用 `SettingsControl`、`PluginsPage`、Lab `SampleSnippetsPage`）都显式给了 `aria-label`，Lab 场景 `controls.ts` 的 Switch 也都有 `ariaLabel`；llmlint 用的是自己的 `SwitchField`，不受影响。
+- `SegmentedControl` 改为 `radiogroup`：nb-ui 的所有调用方（dev-panel、nb-story、应用）都传了 `aria-label`；llmlint 用自己的 `common/SegmentedControl.vue`，不受影响。键盘行为（单一 Tab 停靠、方向键移动并选中、Home/End）与 radiogroup 的惯例一致。
+- 只读主要路径在真实 Chrome 里成立：Switch 的点击、空格、Enter 不改值；RadioGroup 点击不改选中、方向键移动焦点但选中不变、Tab 进入落在选中项；Select 的 Enter、空格、字母逐字查找、方向键都不打开也不改值（probe1、probe2、probe6）。
+- SearchSelect 的 ARIA 主体：`role=combobox`、`aria-expanded`、打开时才有 `aria-controls` 与 `aria-activedescendant`、`aria-autocomplete="list"`、`spellcheck=false`；Tab 离开关闭列表；点选项不先失焦（滚轮与点击列表边缘后焦点仍在输入框）；390px 下列表宽度 356、夹在视口内；Escape 关列表时不冒泡（`DismissableLayer` 的 Escape 监听在 window 冒泡阶段，输入框上的 `stopPropagation` 能拦住）。
+- 变异核实中被拦下的：RadioGroup 的只读守卫、Checkbox 的 `preventDefault`、CheckboxGroup 的 `readonly` 传递、Switch 的两处守卫、Select 的 `:open` 与 `aria-readonly`、SearchSelect 的 Escape、失焦、`aria-activedescendant`、`aria-controls`、只读不开列表、CheckboxGroup 的 `provide(null)`、`role`、`aria-labelledby`、Radio 的 `aria-labelledby`、Field 的根标签、Switch 的 `id`、复选组的描红注入、各 `invalid` 类。
+
+## 影响排序
+
+重要（9）：14（Select 以只读挂载后打不开）、3（SearchSelect 输入法组字时 Enter 误选）、2（SearchSelect 打字接在已选项后）、1（已勾选的复选框出错不红）、8（非受控复选组发出的数组丢项）、5（SearchSelect 的列表与控件没有名字、aria-label 落空）、4（SearchSelect 箭头与放大镜是死区）、16（五份 .md 前后矛盾）、11（测试有退化时不会失败）。
+
+建议（7）：10（只读仍像可点击、点击只读下拉不聚焦）、15（非受控 Switch、RadioGroup 由只读切可编辑后不变）、7（SearchSelect 列表不标当前值）、9（group 角色上的 aria-readonly、aria-invalid）、6（SearchSelect 的 name 提交文字）、12（Field 组形态误用时静默丢名字）、13（字重差别与取证缺口）。
+
+阻断：0。共 16 条。

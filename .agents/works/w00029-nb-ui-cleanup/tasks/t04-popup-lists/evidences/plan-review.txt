@@ -1,0 +1,167 @@
+# w00029 t04 计划审查
+
+审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00029-t04-review/.agents/works/w00029-nb-ui-cleanup/tasks/t04-popup-lists/plan.md`。以下仓库相对路径均相对此 worktree。只读代码与依赖实现；运行证据另行标明，不把代码推断当浏览器验证。
+
+### 1. 普通 button 不会产生高亮属性，右键菜单与手工级联菜单仍无高亮
+
+- **严重程度：重要；类别：正确性。**
+- **位置：** `plan.md:22,29,32`；`packages/nb-ui/src/components/controls/MenuNodes.vue:57-66,92-108`；`feedback/ContextMenuPanel.vue:99-125`；`controls/Menubar.vue:128-138`。
+- **现象：** 计划只为 QuickPick 与候选菜单规定手动设置 `data-highlighted`，把其它菜单都当成 reka 项。实际上 ContextMenu 的根级、全部级联，以及 Menubar、DropdownMenu 的手工级联都没有传 `itemComponent`，落到普通 button 分支。该分支既不设置高亮属性，也不在悬停时聚焦。只替换类名并移除 `:hover`，这些菜单的鼠标和键盘高亮都不会出现。
+- **为什么是问题：** 违反决定 1；计划声称“由此有了高亮”，但缺的是状态生产者，不是底色。`active` 当前只表示展开子菜单的父项，普通叶子项悬停时发出的值是 null，不能用它代替当前高亮。
+- **如何核实：** 已逐行读取安装的 `node_modules/reka-ui/src/Menu/MenuItemImpl.vue:35-51,84-103`（pointermove 写 highlightedElement，focus/blur 驱动属性）、`Menubar/MenubarItem.vue:20-24`（转发 MenuItem）、`Select/SelectItem.vue:92-103,161-177`（悬停聚焦后才挂属性）。反查 MenuNodes 的原生分支没有这些机制。此项为代码已核实，未运行浏览器。
+- **建议改法：** 给原生菜单路径明确的单一高亮状态与 pointer/focus 更新规则，跳过禁用项；与级联展开状态分开。验收要分根级与子级，不只测 reka 一级项。
+
+### 2. 固定 28px 乘法无法兑现混合列表的“第 9 项半”，且没有区分表面高度与滚动视口高度
+
+- **严重程度：重要；类别：正确性。**
+- **位置：** `plan.md:14-16,24,33,37,81`；`packages/nb-ui/src/components/controls/MenuNodes.vue:72`；`feedback/QuickPick.vue:335-345`；`form/Select.vue:208-213`。
+- **现象：** 公式得到 nbook 总高 `8.5×28+2×4=246px`，但滚动区域应为 238px；若照第 4 节把 246px 作为 viewport 的 max-height，再加外层 padding，会显示 8.786 行而不是 8.5 行。即使正确扣除外层 padding，分组标题、分隔线与两行项仍使固定乘法失效：现有分隔线占 `4+1+4=9px`，一条分隔线放在前 8 项中，就只露出第 9 个可选项的 5px，而非 14px；两条分隔线后，238px 的截断线甚至落在第 8 个可选项内。全部为 48px 的 QuickPick 两行项时，238px 只够 4 项加第 5 项的 46px。
+- **为什么是问题：** 决定 4 已明确两行项另算，决定 5 又要求所有列表共用“最多 8 项半”的计算。方案没有定义混合高度的计数对象、装饰行处理、截断目标，也没有说明 size 收矮的是整个面板还是列表、header/loading 占高是否先扣除。照字面写会产生互不相容的实现与测试。
+- **如何核实：** 已对照上述实际结构与高度、`PromptMenuPanel.vue:91-115` 的组标题/加载行，以及 `useDropdownFloating.ts:75-78` 目前把高度直接绑定 viewport 的调用链；数字为几何推导，尚未做浏览器测量。
+- **建议改法：** 明确两层预算：整个浮层按可用空间夹紧，先扣 border/padding/header 等固定部分，再限制唯一滚动视口。按实际可选项的盒子求第 9 项中点（计入它前面的标题与分隔线），两行/换行项也复用该算法；空间更小则允许不截半，优先可见性。若只承诺 238px 像素上限，需明确这不能等价为已定的混合列表 8.5 项，并取得对应取舍。
+
+### 3. autoUpdate 不会自动追踪“返回矩形的函数”，虚拟光标锚点会停在旧位置
+
+- **严重程度：重要；类别：正确性 / 不变量。**
+- **位置：** `plan.md:44-45,47,84`；`node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:27-29,621-689`。
+- **现象：** 计划只给 `anchor` 一个矩形 getter，却把“锚点变化时重新定位”交给默认 autoUpdate。安装实现默认 `animationFrame=false`；它只从真实元素或虚拟元素的 `contextElement` 收集滚动祖先、ResizeObserver 与 IntersectionObserver。光标在同一编辑器内因打字/方向键移动时，不要求编辑器或菜单 resize，getter 返回值变化也不是 DOM 事件。getter 没有 `contextElement` 时，菜单若传送到 body，还收不到编辑器内部滚动祖先的事件。
+- **为什么是问题：** 这是新组件承诺的核心定位能力，不是 floating-ui 选型的问题。当前 anchor 类型没有表达虚拟锚点所属元素，计划也没有规定宿主主动请求更新或启用矩形轮询的机制。第 84 行只测窗口缩放，抓不到同一元素内的光标移动。
+- **如何核实：** 已读取实际依赖 autoUpdate：633 行只收集 referenceEl/floating 的祖先；638、656 行只观察 referenceEl；664-675 行只有显式 animationFrame 才重读虚拟矩形。677-688 行返回清理函数，必须由使用方调用。此项为依赖实现核实，未进行真实编辑器运行。
+- **建议改法：** 把虚拟 anchor 定为 `{getBoundingClientRect, contextElement}`，并明确光标矩形变化的更新通道（宿主更新版本/显式 update，或仅在打开期间启用 animationFrame）。挂载后建立订阅，anchor/菜单元素变化先清理旧订阅，关闭和卸载均清理；异步 computePosition 结果也需失效保护。验收覆盖编辑器内滚动、光标移动、换锚点与卸载后不再更新。
+
+### 4. 新浮层没有定义 Portal、定位坐标系与窗口层级合同，Lab 和 Dialog 无法按同一接口接入
+
+- **严重程度：重要；类别：不变量 / 接口。**
+- **位置：** `plan.md:37,41-47,51`；`packages/nb-ui/docs/ui-development-spec.md:39-47`；`docs/standards/code/components.md:92,136`。
+- **现象：** SuggestionMenu 的接口没有渲染目标，也没说明是否 Teleport、用 absolute 还是 fixed、碰撞边界是浏览器还是宿主容器、如何取窗口 z-index。内联渲染会被编辑器/Lab 的滚动祖先裁剪；无条件传送 body 又脱离 Lab 的主题与画布。把 useDropdownSurfaceStyle 的外观并回 CSS，也不能替代它在 71-76 行读取的动态 `NB_POPOVER_Z_INDEX`。
+- **为什么是问题：** 这不是任意实现细节：目标和边界直接决定 390px 画布验的是否真是 390px、菜单是否被 Dialog 遮住。当前 `ViewportCanvas.vue:30,52-55,252,298-307` 使用 `provideTeleportTarget`、**CSS zoom（不是 transform:scale）**、滚动内容层，以及 `container-type:size; contain:layout` 的浮层落点。仅指定 floating-ui 不会替组件选择目标、继承主题、给出层级或设置正确的坐标 CSS；不能直接把 viewport client 坐标写到容器局部坐标。
+- **如何核实：** 已读取 `ViewportCanvas.md:23-26` 与实现、`useTeleportTarget.ts:34-40` 的延迟查找/回退、`useDropdownSurfaceStyle.ts:70-82` 的层级注入。旧 `ReferenceSelectorPopover` 也有显式 teleportTarget 和坐标约束（其 `.md:26-37,74-80`）。未运行 Lab/产品页，不能声称现有运行截图已经验证这些组合。
+- **建议改法：** 在同名合同与计划先定渲染目标、目标不存在的表现、strategy、碰撞边界及 z-index 归属；沿用可配置目标与窗口层级机制，动态能力不并入静态 CSS。Lab 以实际 zoom/containment 结构验证，另在真实 Dialog 宿主验证层级；不要只用 Lab 截图证明窗口层级正确。
+
+### 5. shift 不能缩窄面板，96px 高度下限又可能压过真实可用空间
+
+- **严重程度：重要；类别：正确性 / 边界。**
+- **位置：** `plan.md:7,44-45,47,84`；`node_modules/@floating-ui/core/dist/floating-ui.core.mjs:817-879,964-1034`。
+- **现象：** 计划只让 shift“左右夹进窗口”，size 只处理高度，没有面板宽度上限。390px 视口留两侧 12px 后最多容纳 366px；若 `matchAnchorWidth` 的锚点宽 390px，或长内容的固有宽度超过 366px，平移不可能同时满足左右边界。高度同样未定冲突优先级：选定方向仅剩 60px 时，`max(96, availableHeight)` 仍会越界至少 36px。Composer 又要求固定方向，不允许借翻转消除此冲突。
+- **为什么是问题：** 直接违背“左右不出窗口”“空间不够时收矮”的验收；只调用 size 不会自动改样式，其默认 apply 是空函数。要求的 96px 应保留为正常情况下的下限，但必须定义容器/窗口连 96px 都容不下时怎么办，不能留下相互矛盾的承诺。
+- **如何核实：** 已读取依赖：shift 只算 x/y 位移；size 只向 apply 提供 availableWidth/availableHeight（979 行默认空操作），尺寸由使用方施加。旧参照有默认宽度、最小宽度与视口收敛规则，而新接口与布局没有对应规则。上述为算法和数值核实，未做浏览器几何实验。
+- **建议改法：** size 同时约束 border-box 最大宽度与高度，明确 matchAnchorWidth 遇到更窄边界时的优先级，长 label/hint 允许收缩截断。为不足 96px 的极端空间规定显式退让策略（例如允许跨轴移位并覆盖锚点，或把硬边界置于下限之前）；补固定方向、窄锚点、超宽锚点和小于 96px 可用高度的真实布局验收。
+
+### 6. Select 的 description 和 DropdownMenu 的 wrap 不能被一并锁死为 28px
+
+- **严重程度：重要；类别：接口 / 正确性。**
+- **位置：** `plan.md:22,30-33,58-59,78`；`packages/nb-ui/src/components/form/Select.md:11,33-45`；`controls/DropdownMenu.md:58-59`。
+- **现象：** 第 3 节对 Select 明说“不再由内容撑开”，只给 QuickPick 的两行项保留例外；但 Select 已公开第二行 description，DropdownMenu 已公开 wrap。Select 当前确实同时渲染 label 和 description（`.vue:208-213`）；DropdownMenu wrap 当前改用 min-height 并允许换行（`.vue:211-217`）。新应用 `WorkbenchItemStrip.vue:77-80,122` 正用 wrap 显示收进“更多”的完整状态文字，Lab 也有长文字换行场景（`fixtures/nb-ui/controls.ts:115`）。
+- **为什么是问题：** 决定 4 的“两行项另算”不是只给 QuickPick 的豁免。照计划给公共 item 类固定高度，却不在这两条路径设适当例外，会裁剪、重叠或掩掉现有文本；如果干脆移除 description/wrap，则是未批准的接口与行为删除。验收“六个列表的项全高 28px”本身也没有排除这些合法输入。
+- **如何核实：** 已核对两份公开类型、现有模板、wrap 的真实业务调用与 Lab 场景。此项未做浏览器视觉验证。
+- **建议改法：** 28px 仅约束单行项；把 Select description、DropdownMenu wrap 与 QuickPick 两行项一起列为明确的内容撑高路径，并纳入混合高度截断。保留现有公开能力与完整文本可读性，验收表同步写出例外。
+
+### 7. 用一个 header 插槽替换历史搜索框，漏掉焦点、组合输入与 ARIA 的迁移合同
+
+- **严重程度：重要；类别：接口 / 可访问性。**
+- **位置：** `plan.md:43-44,51,58,86`；`packages/neuro-book/src/plugins/markdown/web/components/prompt/PromptEditor.vue:548-556,595-616,960-979`；`PromptMenuPanel.vue:62-65,73-91`。
+- **现象：** 计划把“菜单不接焦点、按下鼠标 preventDefault”写成整体规则，但输入历史必须把焦点主动移到 header 内的搜索框。原有链条是 Ctrl+R → nextTick → focusSearch；搜索框自己声明 combobox、controls 与 active descendant，方向键/Enter/Escape 交给宿主。删掉面板后，header 插槽不会自动继承这些行为；若 preventDefault 放在外框而不是项列表，点击搜索框与移动插入点也会被阻止。若新菜单 Teleport，旧包裹 div 上 `focusout` 的 DOM contains 判断也不能直接照搬。
+- **为什么是问题：** Spec 输出 10 明确要求 Ctrl+R 后可直接输入过滤、确认回正文、Escape 不改正文；输出 13 要求焦点元素与当前 option 正确关联。计划和验收只引用输出 5、13 与场景 4，漏了正在迁移的输出 10。第 44 行还没有给加载文案入口/locale，header 标题迁移也未列明；不能把旧面板自带的这些公开显示与语义静默删掉。
+- **如何核实：** 已沿真实调用链读取 openHistory、onHistoryKeydown、onHistoryFocusOut 和原搜索 input。现有 `PromptEditor.dom.test.ts:289-376` 没有 Ctrl+R 搜索测试，只有直接翻历史与一次 Enter 确认候选；不能用该文件名作为历史行为已覆盖的证据。未运行浏览器，未声称焦点回归已经发生。
+- **建议改法：** 明确 header 可以正常接收焦点，preventDefault 只限候选项/非交互区；搜索 input 的 ref、进入/退出焦点、keydown 与 ARIA 由 Composer 持有。定义 header 如何取得统一的 option DOM id 映射、如何判定整个浮层的失焦；保留标题、description→hint 与可本地化 loading/empty 说明。验收补输出 10、12，覆盖 Ctrl+R 直接打字、过滤、方向键、确认/Escape、点击搜索框及外点关闭。
+
+### 8. 新增父级滚动后，已展开级联菜单的锚点与显式 height 没有更新协议
+
+- **严重程度：重要；类别：不变量 / 正确性。**
+- **位置：** `plan.md:32,35-38,69,81-82`；`packages/nb-ui/src/composables/useMenuCascade.ts:22-43`；`components/feedback/menu-cascade.ts:92-109`。
+- **现象：** 计划只要求 ContextMenuPanel/Menubar 接上滚动件；现有级联面板却只在 open/switch 时量父项一次，写入固定 top/left/width/height。父级变成可滚动后，滚轮或拖滑块会移动展开它的那一行，已打开的子面板不会跟随，也没有“父项离开视口时收起”的规则。现有测量直接取 `.nb-menu-level-content` 的 rect 加 padding；如果为截断而另外包 viewport，它就仍可能拿到未截断的内容高度，并把这个高度显式写回外框。
+- **为什么是问题：** 这是本次给 Menubar/ContextMenu 新增滚动带来的耦合，不是滚动条外观问题。它破坏“第一项与父项同一行”的既有级联合同。多级面板还必须各自拥有 viewport、滑块、遮罩与可用空间预算，不能把“六处接上”理解为每个菜单根只建一份滚动状态。
+- **如何核实：** 已读取 useMenuCascade 的唯一测量时点、measureCascadePanel 的选取对象，以及 Menubar/ContextMenuPanel 的 v-for 多级结构；未见滚动后重定位入口。此项为代码推断的新集成风险，未运行滚动中的级联菜单。
+- **建议改法：** 先定义父级滚动时子级是重定位还是关闭，并将该事件接入 cascade；测量与最终高度应使用受约束后的表面几何。用内部可滚动面板零件让每一级拥有独立 usePopupScroll 实例。验收覆盖两级以上长列表、父级滚轮与拖滑块、父项滚出可见区、同级替换短/长内容。
+
+### 9. 分组后的 option id 下标没有定义，Composer 现有 ARIA 与键盘顺序依赖全局扁平下标
+
+- **严重程度：重要；类别：接口 / 可访问性。**
+- **位置：** `plan.md:44,51,86`；`packages/neuro-book/src/plugins/markdown/web/components/prompt/PromptEditor.vue:366-380,876-881`；`PromptMenuPanel.vue:38-43,91-99`。
+- **现象：** 新组件接收 groups，却把每项 DOM id 定为 `${id}-${index}`，没有规定 index 是组内下标还是所有可选项的全局下标，也没规定标题/状态行是否计数、项 id 是否跨组唯一。两个组各有第 0 项时，按自然的内层 v-for 写法会产生两个相同 DOM id。Composer 当前按原始 menu.items 的扁平下标填写 aria-activedescendant，方向键也沿该顺序移动；旧面板只把相邻相同 group 合成标题，不会把不相邻同名组重新归并。
+- **为什么是问题：** 新数据模型没有给迁移者一条能保证“焦点元素指向实际高亮 option”的确定规则。若把 `A组a、B组b、A组c` 按组名聚合成 `a,c,b`，键盘仍在原顺序，读屏关联与视觉顺序就分离。单组正常输入的验收抓不到它。
+- **如何核实：** 已对照旧 rows 的全局 index、旧 header 的相邻判断与宿主 aria 的原始数组 findIndex；这是接口歧义与明确的错误实现路径，未把它描述成已运行的新组件故障。
+- **建议改法：** 保留已定组件名，补充全局 item id 唯一约束与规范化顺序：各组按输入顺序展开，DOM 下标仅计可选项、跨组累计；Composer 只切分连续组段，不重排。更简单的替代是提供由稳定 item id 生成 DOM id 的公共纯函数，宿主与组件共用。覆盖多组、重复组标题、禁用项、过滤后下标改变及 activeId 不存在时清除引用。
+
+### 10. 删除 compact 的调用清单漏掉新应用 5 处，320px 上限也会绕过已定的 8.5 行
+
+- **严重程度：重要；类别：接口 / 迁移。**
+- **位置：** `plan.md:30,37,68,98`；`packages/neuro-book/src/plugins/editor/web/components/EditorBreadcrumbs.vue:208,226`；`workbench/web/components/WorkbenchActivityBar.vue:101`、`WorkbenchMoveViewMenu.vue:96`；`packages/neuro-book/src/ui/menus/TitleActions.vue:70`。
+- **现象：** 计划只点名 nb-story BookFrame 的 3 处与 Lab，实际新应用另有上述 **5 处**传 compact。去掉 props 后，Vue 模板中的未知 compact 不必然导致 typecheck 报错，不能指望 S2 的检查自动完成迁移。另有 EditorBreadcrumbs 的 2 处及 Lab long 场景显式传 `menuMaxHeight="320px"`；旧函数会让显式上限完全绕过默认截断，新 usePopupScroll 却只有 maxRows，未决定这些公开覆盖值是保留、夹紧还是移除。
+- **为什么是问题：** 决定是所有弹出列表一档密度、最多 8.5 项，不能留下业务端失效属性或继续显示约 11 行的例外；如果删除 menuMaxHeight，则也需要明确它的接口与使用方切换，不是隐式不再读取。切片照列出的文件实施会漏改真实调用。
+- **如何核实：** 已用 `grep` 对 `packages/neuro-book/src`、`packages/nb-story` 与 nb-ui playground 检索 compact 和 menu-max-height，并定位上述 5 处及 BookFrame 3 处；已核实 `useDropdownTruncatedHeight.ts:82-89` 的显式值优先语义。
+- **建议改法：** S2 将新应用 5 处加入迁移清单，与 BookFrame 3 处一起移除；对 menuMaxHeight 写清“可设更小上限但不得超过统一行数上限”或删除并迁移全部调用。测试验证实际最大可见项数，不以属性是否从类型删除作为完成判据。
+
+### 11. 滚动合并没有覆盖动态内容、缩放拖动与 Select 的初始化时序，沿用旧逻辑会留下错误滑块
+
+- **严重程度：重要；类别：不变量 / 结构。**
+- **位置：** `plan.md:35-38,46,81-82`；`packages/nb-ui/src/composables/useFloatingScrollbar.ts:36-74,97-107`；`node_modules/reka-ui/src/Select/SelectContentImpl.vue:124-131`。
+- **现象：** 新接口只写 `usePopupScroll(viewport,{maxRows?})`，没有列出内容变化与缩放时的几何更新合同。旧逻辑只 ResizeObserver.observe(viewport)，并不观察内容；固定高度列表已经溢出后，异步追加/过滤候选或同级子菜单内容替换，viewport 的 clientHeight 可以完全不变，而 scrollHeight 已变，滑块长度与触底遮罩就不会立即同步。拖动则直接把 clientY 位移除以布局单位 clientHeight，两者在 Lab zoom 不为 1 或 transform 缩放期间不是同一单位。
+- **为什么是问题：** 新合并范围把异步 SuggestionMenu、搜索 QuickPick、多级复用面板都接进旧方案，动态内容不是异常用法。Select 还有独立的“定位完成后聚焦选中项”顺序：若共享逻辑挂载时重置/抢先 reveal，可能覆盖打开时的选中位置；若在新外层滚动而不是原 SelectViewport 滚动，又会与上游焦点滚动分成两个所有者。计划未选定所有权与同步时点，验收也没有这些输入。
+- **如何核实：** 已读取旧 ResizeObserver 只观察 domEl、thumb 的 clientY/clientHeight 运算，以及安装的 SelectViewport（`position:relative; flex:1; overflow:hidden auto`）、SelectContentImpl 的 isPositioned→focusSelectedItem。**没有证据证明目前 popper 模式会持续改写视口高度**：SelectViewport 的扩高逻辑只在 item-aligned 上下文存在时运行；不能把该分支误报成本次 Select 必然冲突。缩放拖动与新异步组件尚未跑真实布局，列为计划缺失的边界，不声称已复现回归。
+- **建议改法：** 共享件仅控制现有唯一 viewport，尤其保留 SelectViewport 的滚动所有权，不在初始化无条件重置 scrollTop。明确内容尺寸/列表数据变化后的同步、面板实例更换时重绑与拖动结束/卸载清理；轨道与指针使用一致坐标单位。验收覆盖 Select 打开到第 20 个选中项、方向键后滚动、已溢出列表追加/过滤且 activeId 不变、缩放画布内拖到两端，以及关闭重开。
+
+### 12. 切片不是独立可验证的边界，验收表还把真实布局交给 happy-dom、把 Composer 指向另一套编辑器
+
+- **严重程度：重要；类别：测试 / 实施结构。**
+- **位置：** `plan.md:25,65-72,78-86,90`；`packages/nb-ui/vitest.config.ts:7-14`；`src/dist-css.test.ts:24-38`；`packages/neuro-book/e2e/markdown-input.e2e.ts:1-5,40-53`。
+- **现象：**
+  1. S1 删除旧 `.nb-ui-popover-item`，S2 才迁移组件，S1 中间状态会失去旧项的圆角。S3 又要求“六处接上”，但第六个候选组件直到 S4 才建立；S3 使用 nb-ui Playwright 验收，验收页也到 S4 才写。
+  2. 只有 S1 明列重建 `dist/nb-ui.css`，S2/S3/S4 后续新增模板工具类与图标仍会改变 CSS 产物；dist-css.test 会现编并逐字节比较，不重建就不能独立通过各片的 test。
+  3. “组件测试读计算样式”与“各列表的组件测试证明键盘滚过去”落在 happy-dom，当前配置也没加载主题 CSS。没有真实布局的 DOM 环境不能证明 28px、5px、实际 scrollIntoView 或静止鼠标遇到键盘滚动时是否抢高亮；只断言派发/未派发某事件会绕过这些机制。
+  4. 第 86 行映射 `markdown-input.e2e.ts`，实际该文件测试作品文档 Markdown 富文本编辑器，不挂 PromptEditor；真实 Composer 在 `lab-markdown.e2e.ts:89-139`，当前也只有一次 @ Enter 确认等少数路径。验收未覆盖 Tab、全禁用/无结果时回车与 Tab 退还正文、加载且保留旧项、跨组 ARIA、Ctrl+R。
+- **为什么是问题：** 测试文件名与真实宿主不匹配、布局判据没有真实运行环境，容易得到“检查通过但合同没测”的结论。`docs/testing/README.md:12,18,122,172-174` 要求 Spec 场景落到可观察行为、布局用真实浏览器；共享 nb-ui 还需 nbook/macos × light/dark 与 390px 的证据，计划主要写 nbook 样式与笼统截图，没有列出该矩阵。
+- **如何核实：** 已读取实际 Vitest/Playwright 配置、CSS 产物测试、两份 e2e 源码与当前 DOM 菜单测试。未运行 e2e 或开发服务，遵守本次审查限制；这些是计划与已有验证入口的静态对照，不是测试失败报告。
+- **建议改法：** 把旧类删除与消费者迁移并成原子切片；S3 只接已有 5 类，第 6 类在 S4 接入，或先建能真实验证的内部面板；每个改模板/CSS 的片同步重建产物。纯状态/选择语义留 DOM 测试，尺寸/滚动/真实鼠标/碰撞全部映射到明确浏览器用例。Composer 映射到 lab-markdown 并逐项补输出 5、10、12、13 的判据；补四主题配色组合与窄屏，不拿旧用例通过冒充新行为覆盖。
+
+### 13. 新公共菜单 token 没列入 token 名称真相源，样式文档也漏了 design-language 的旧约定
+
+- **严重程度：建议；类别：文档 / 维护性。**
+- **位置：** `plan.md:12-16,54-61,67`；`packages/nb-ui/src/theme/tokens.ts:72-85,121-127`；`packages/nb-ui/docs/design-language.md:340-342,508-509,1225-1226`。
+- **现象：** 新增 3 个跨组件 token 只列 tokens.css 与主题 vars，没有列 `src/theme/tokens.ts`；该注册表才是主题可覆盖变量名/保留名的事实源。旧 `.nb-ui-popover-item` 删掉、hover 约定改掉后，design-language 仍要求挂旧类并允许各组件用 `:hover`，但文档改动表只有 ui-development-spec，没有 design-language。
+- **为什么是问题：** `theme-loader.ts:63-64,90-104` 依据注册表拒绝 declares 与库内公共 token 冲突；未登记的新名可以被第三方主题误当私有变量声明。文档则会继续指导后续实现使用已经删除的类，形成第二套约定。
+- **如何核实：** 已读取 token 注册与加载器校验、设计语言的同心圆角/高亮/检查清单；未运行主题安装实验。
+- **建议改法：** S1 同步登记新 token 到适当公开 token 组，S6 更新 design-language 的现行规则与检查清单；历史踩坑段保留历史背景，但当前用法链接新规则。同步清理已删除 composable 的公开导出与仅钉实现细节的旧测试，不重钉新类名。
+
+## 补充核实：第 1 条的真实组件状态合同
+
+命令（在审查 worktree 根执行）：`node node_modules/vitest/vitest.mjs run --config /tmp/w29t04-review/vitest.config.mts`。
+
+结果：**1 个测试文件、2 个用例通过**。实验经 Vue 挂载真实 ContextMenu/Menubar 与安装的 reka 组件，从打开菜单、派发输入事件走到 DOM 状态，没有替换组件、没有 mock、假计时器或固定等待：
+
+- ContextMenu：指针移入乙后 `data-highlighted=false`；ArrowDown 将焦点从甲移到乙后仍是 false。
+- Menubar：一级真实原语响应指针后 `data-highlighted=true`；ArrowRight 打开的手工级联项是 BUTTON，指针移入与聚焦后仍是 false。
+
+这是 happy-dom 上的属性/焦点合同实验，**不证明真实布局、指针命中、遮罩或滚动几何**；第 1 条的代码结论因此获得状态合同证据，涉及浏览器几何的其它条目仍为代码/算法推断。没有运行 e2e 或开发服务。
+
+实验首次启动因隔离配置把 Vitest 解析到 CommonJS 入口而在收集前失败（0 个测试）：`Vitest cannot be imported in a CommonJS module using require(). Please use "import" instead.`；仅调整 `/tmp/w29t04-review/vitest.config.mts` 的 ESM 解析后，上述正式结果为 2/2 通过。该失败不属于产品缺陷。
+
+## 补充核实与结论边界
+
+- **Select 的悬停机制实际成立。** 对真实安装的 reka-ui 2.10.3，使用 `/tmp/w29t04-review/select-contract.ts` 挂载公开 SelectRoot/Trigger/Content/Viewport/Item，真实 Chrome 点击打开后移入第二项，观察到 `{before:{focus:"a",highlighted:["a"]},afterHoverSecond:{focus:"b",highlighted:["b"]}}`。因此不能因为源码在 `await nextTick()` 后读取 currentTarget 就断言悬停失效；本报告第 1 条只指原生 button 路径。打包命令：`bun build /tmp/w29t04-review/select-contract.ts --target browser --format iife --define __VUE_OPTIONS_API__=true --define __VUE_PROD_DEVTOOLS__=false --define __VUE_PROD_HYDRATION_MISMATCH_DETAILS__=false --outfile /tmp/w29t04-review/select-contract.js`；浏览器通过内置工具在 about:blank 注入产物后以真实点击、hover 操作，等待 option 的 highlighted 状态与 Vue 更新完成。未启动服务，未运行 e2e；组件已卸载，浏览器页已关闭。
+- **第 2 条还缺实际 padding 的消费。** `--nb-popover-pad` 目前只参与圆角公式，不声明 padding。将它改为 `--menu-pad:4px` 不会自动覆盖 `useDropdownSurfaceStyle.ts:99-100`、Menubar/ContextMenuPanel 的 `p-1.5`（实际 6px）或 QuickPick 的 `p-[var(--space-3)]`。如果只按第 1 节列的变量修改，公式认为留白 4px、盒模型仍 6px；nbook 10px 外角实际对应内角应为 3px，而计算会给出 5px。实施必须显式迁移菜单外框/视口的真实 padding，并扣除 border；246px 是不含两侧 1px border 的近似表面高度。
+- **第 7 条的范围澄清：** “组合输入”在此不是已确认的新回归。既有历史搜索 onHistoryKeydown 本来就没有 isComposing 分支，不能把这条旧边界归因于本次替换。该条成立的核心是 focusSearch、header 可交互区域、DOM 失焦判断与 ARIA 接线缺少迁移合同；输入法不另计一个发现。
+- **危险项还需对齐第 1 条的高亮规则。** `src/styles.css:481-483` 的现有 `.nb-ui-menu-item-danger:hover:not(:disabled), .is-active` 仍画 12% 危险色底。第 2 节说“不写 :hover 底色”同时复用这个类，第 3 节只移除 DropdownMenu 的内联危险色，不能使这条全局旧规则自动消失。应明确危险项保留危险文字、底色同样只跟 data-highlighted 的中性叠色；否则静止鼠标与键盘仍会各亮一项。这是第 1 条状态/样式统一问题的补充，不增加发现编号。
+
+路径说明：发现中的 `plan.md` 指本次 Task 的完整计划路径；`controls/`、`form/`、`feedback/` 简写均在 `packages/nb-ui/src/components/` 下，`src/dist-css.test.ts` 指 `packages/nb-ui/src/dist-css.test.ts`。`PromptMenuPanel.vue`、`PromptEditor.vue` 简写均在 `packages/neuro-book/src/plugins/markdown/web/components/prompt/` 下。
+
+## 未发现问题的方面
+
+- **reka 一级原语的高亮通道确实存在。** MenuItem/MenubarItem 由 pointermove/focus 更新 data-highlighted；SelectItem 的 pointermove→focus 路径已由真实 Chrome 合同实验核实。第 1 条的范围仅为原生按钮，不要求回退成同时使用 :hover 的双高亮设计。
+- **Select 继续使用原 SelectViewport 时，没有发现必然的滚动所有权冲突。** 当前 Select 使用 position="popper"；上游视口扩高只属于 item-aligned。共享件只测量现有视口、订阅 scroll、在宿主需要时 reveal 是可成立的边界；缺的是第 11 条列的同步与初始化合同。
+- **已定尺寸的单行算术成立。** nbook 的 `10−1−4=5px`，macOS 的 `12−1−6=5px`；无装饰、全部 28px 单行项的内容截断高为 238px，外加两侧 4px padding 为约 246px。问题在真实 padding 消费、额外行与混合高度，不在开发者选的数字。
+- **删 PromptMenuPanel 没有查出另一个业务使用方。** 检索 `packages/neuro-book` 的命中为 PromptEditor 两处渲染、对应类型/ref、Lab fixture/scene 登记及组件文档；删除 Lab 场景已列在计划中。主应用不必保留旧名字别名。
+- **Composer 固定方向、同宽锚点与“不跟光标”一致。** 第 6 节明确 above→top、below→bottom 且不自动翻转，未发现擅自改变该取舍；仍需按第 5 条定义空间不足时的边界。
+- **只在真实 mousemove 改 SuggestionMenu 高亮的方向与现有候选面板一致。** PromptMenuPanel 已用 mousemove；没有证据要求改回 mouseenter。真实键盘滚动造成的布局边界事件仍应按第 12 条放到浏览器验收。
+- **已确认项未重新提请讨论。** 决定 1–6 的视觉与数量目标、SuggestionMenu 名字、删除 compact/active、采用 @floating-ui/dom 都作为前提接受。报告指出的是这些决定的落地缺口与既有能力遗漏；计划末尾已无待确认项。
+
+## 反思回写建议
+
+本次属于“规范缺陷”的可处理项已包含在第 13 条：把被本次改动淘汰的现行类名/状态约定同步改写，不新增平行规范。现有规范已要求 token 单一登记、真实布局验收与监听清理，无需再追加同义全局规则。仅报告建议，未写入规范。
+
+## 数量与验证范围
+
+- **发现共 13 条：阻断 0 条、重要 12 条、建议 1 条。** 同一问题的补充核实不重复计数。
+- 合同实验：上述 Vitest 命令最终 **2/2 通过**；真实 Chrome 的公开 Select 原语悬停合同 **1 个场景通过**。隔离配置首次收集失败已如实记录。
+- 未运行：仓库整套合同测试、typecheck、e2e、开发服务、Lab 实际页面、主题/390px 布局矩阵、真实 Composer 集成；报告没有把这些写成已验证。
+- 仓库文件未修改；未执行 commit、push、stash、切换分支、安装依赖或删除文件。报告只追加；实验文件仅位于 `/tmp/w29t04-review/`，使用当前 worktree 的 node_modules。隔离浏览器页已卸载并关闭。

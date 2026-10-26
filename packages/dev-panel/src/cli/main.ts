@@ -16,8 +16,8 @@ import {emit, toNbdevError, type CliIo, type CommandOutcome} from "./output.js";
 
 export const USAGE = `用法：nbdev <命令> [参数] [--json]
 
-  work new <slug> --title <标题> --goal <目标> --task <slug> [--task-title <标题>] [--issue <n>] [--status <状态>] [--as <标签>]
-  task new <workRef> <slug> --title <标题> [--goal <目标>] [--status <状态>] [--as <标签>]
+  work new <slug> --title <标题> --goal <目标> --task <slug> [--task-title <标题>] [--issue <n>] [--status <状态>] [--no-lease] [--as <标签>]
+  task new <workRef> <slug> --title <标题> [--goal <目标>] [--status <状态>] [--no-lease] [--as <标签>]
   work status <workRef> <active|done|shelved> [--include-uncommitted]
   task status <workRef> <taskRef> <planned|active|done|shelved> [--include-uncommitted] [--as <标签>]
   lease take <workRef> <taskRef> [--as <标签>]
@@ -65,6 +65,11 @@ function createdSummary(data: CreateResult, what: string): string {
     return `${what} ${data.workId}/${data.taskId}：${data.paths.join("、")}`;
 }
 
+/** 领号命令的附加行：与这次领号无关的撞号只给组数，不逐组列。 */
+function createdLines(data: CreateResult): string[] {
+    return [...leaseLines(data), ...(data.otherConflicts > 0 ? [`另有 ${data.otherConflicts} 组撞号与这次领号无关，见 nbdev status`] : [])];
+}
+
 function inboxLines(inbox: ProjectStatus["inbox"]): string[] {
     const questions = inbox.filter((item) => item.kind === "question");
     if (inbox.length === 0) return ["收件箱：空"];
@@ -99,7 +104,7 @@ const COMMANDS: Record<string, CommandSpec> = {
     "work new": {
         schema: "nbdev.work-new/v1",
         positionals: ["slug"],
-        options: {title: {type: "string"}, goal: {type: "string"}, task: {type: "string"}, "task-title": {type: "string"}, issue: {type: "string"}, status: {type: "string"}, ...AS_OPTION},
+        options: {title: {type: "string"}, goal: {type: "string"}, task: {type: "string"}, "task-title": {type: "string"}, issue: {type: "string"}, status: {type: "string"}, "no-lease": {type: "boolean"}, ...AS_OPTION},
         async run({io, positionals, values}) {
             const issue = stringValue(values, "issue");
             if (issue !== undefined && !/^[1-9][0-9]*$/u.test(issue)) throw new NbdevError("usage", `--issue 必须是正整数：${issue}`);
@@ -113,15 +118,15 @@ const COMMANDS: Record<string, CommandSpec> = {
                 taskTitle: stringValue(values, "task-title"),
                 issueNumber: issue === undefined ? undefined : Number(issue),
                 taskStatus: stringValue(values, "status"),
-            }, {caller, herdr});
+            }, {caller, herdr, skipLease: values["no-lease"] === true});
             outcome.warnings.unshift(...warnings);
-            return writeOutcome("nbdev.work-new/v1", outcome, createdSummary(outcome.data, "已建 Work 与首个 Task"), leaseLines(outcome.data));
+            return writeOutcome("nbdev.work-new/v1", outcome, createdSummary(outcome.data, "已建 Work 与首个 Task"), createdLines(outcome.data));
         },
     },
     "task new": {
         schema: "nbdev.task-new/v1",
         positionals: ["workRef", "slug"],
-        options: {title: {type: "string"}, goal: {type: "string"}, status: {type: "string"}, ...AS_OPTION},
+        options: {title: {type: "string"}, goal: {type: "string"}, status: {type: "string"}, "no-lease": {type: "boolean"}, ...AS_OPTION},
         async run({io, positionals, values}) {
             const context = await locateRepository(io.cwd);
             const {herdr, caller, warnings} = await writeCaller(io, values);
@@ -131,9 +136,9 @@ const COMMANDS: Record<string, CommandSpec> = {
                 title: requireValue(values, "title"),
                 goal: stringValue(values, "goal"),
                 status: stringValue(values, "status"),
-            }, {caller, herdr});
+            }, {caller, herdr, skipLease: values["no-lease"] === true});
             outcome.warnings.unshift(...warnings);
-            return writeOutcome("nbdev.task-new/v1", outcome, createdSummary(outcome.data, "已建 Task"), leaseLines(outcome.data));
+            return writeOutcome("nbdev.task-new/v1", outcome, createdSummary(outcome.data, "已建 Task"), createdLines(outcome.data));
         },
     },
     "work status": {

@@ -1,0 +1,58 @@
+### 1. 编辑器与展示器里"其它"分类的链接不显示为引用小块，与 Spec 输出 27、与 Composer 的实现不一致
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/markdown/web/editor/reference-links.ts:56`（`if (target.kind !== "work" && target.kind !== "user") continue;`）；`packages/neuro-book/src/plugins/markdown/web/display/renderer.ts:75`（同样的判断，`decorateLinks` 内）
+- **现象**：`docs/specs/workspace/markdown-dialect.md` 输出 27 规定链接按目标分为"作品里的文件""用户资产""附件""外部""其它"五类，且要求编辑器、展示器（`ui.markdown-display`）、Composer（`ui.prompt-editor`）三种界面"按同一分类显示"：外部链接显示为普通链接，**其它显示为不带文件图标的引用小块**。`parts/chip.ts` 的 `chipView` 与 `parts/chip.css` 都完整支持 `other` 分类（`REFERENCE_ICONS.other = "i-lucide-link"`、`.nb-chip--other` 色调类），`InlineChip.vue` 在 Composer 侧对 `chapter://` 这类旧地址也确实渲染成小块（`InlineChip.dom.test.ts:21` 断言 `chapter://c1` 产出 `nb-chip--other`；`PromptTextView.dom.test.ts:73` 同样验证）。但 Markdown 编辑器的链接装饰（`reference-links.ts` 的 `decorationsOf`）与展示器的 `decorateLinks` 都只在 `target.kind === "work" || target.kind === "user"` 时才建小块，`other`（含 `external` 之外的其它方案，例如旧应用的 `chapter://`）与 `attachment` 分类的链接被直接跳过，在编辑器与展示器里仍显示成普通的纯文字链接，没有外框、没有图标。
+- **为什么是问题**：违反输出 27 "三种界面按同一分类显示" 的明确行为合同；造成同一篇文章里指向旧地址（`chapter://`）的链接在 Markdown 编辑器/展示器里看起来和外部链接一样（无装饰），但粘贴进 Composer 后立刻变成小块，用户会观察到同一种写法在三处界面外观不一致，且编辑器与展示器完全没有测试覆盖这一路径（`MarkdownControl.dom.test.ts`、`MarkdownDisplay.dom.test.ts` 都只测了 `work` 分类的链接，搜索确认没有任何用例覆盖 `other`/`attachment` 分类）。
+- **如何核实**：在 `packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.dom.test.ts` 或 `MarkdownDisplay.dom.test.ts` 里新增一个用例，正文含 `[旧章](chapter://c1)`，断言是否出现 `.nb-chip-link`／`.nb-chip-link__icon`；按当前实现会得到否定结果（没有外框、没有图标），而对照 `InlineChip.dom.test.ts:21` 与 `PromptTextView.dom.test.ts:73` 可见 Composer 侧对同样的目标归类为 `other` 并正确渲染小块。
+- **建议改法**：`reference-links.ts:56` 与 `renderer.ts:75` 的过滤条件改为排除 `external`（而不是只放行 `work`/`user`），即 `other`、`attachment` 也建小块（不带文件图标，走 `chipView` 的 `other`/`attachment` 分支），与 Composer 的 `prompt-text.ts` 对"任何有文字与地址的链接都是引用小块"的处理保持一致；若这是有意的范围缩减（例如编辑器/展示器暂不支持历史遗留地址的小块化），应在 Spec 的"已知偏差"或 README 的开发者决定里明确记录，而不是让三份代码各自实现出不同行为。
+
+### 2. 可渲染 HTML 块的 iframe 加载完成后不再渐入，丢失旧应用的过渡效果
+
+- **严重程度**：建议；**类别**：外观
+- **位置**：`packages/neuro-book/src/plugins/markdown/web/parts/markdown.css:307-317`（`.nb-markdown .nb-html-embed__frame` 与 `.is-loaded` 两条规则）；对照代码注释 `packages/neuro-book/src/plugins/markdown/web/syntax/html-embed/index.ts:233`："srcdoc 加载完成前保持透明，加载后渐入，避免闪一帧空白"
+- **现象**：`markdown.css` 里 `.nb-html-embed__frame` 只写了 `opacity: 0`，`.is-loaded` 只写了 `opacity: 1`，两条规则之间**没有 `transition` 属性**，所以 iframe 加载完成后的状态切换是瞬间跳变，不是代码注释里说的"渐入"。对照旧应用 `packages/neuro-book-legacy/app/components/markdown-studio/TipTapMarkdownEditor.vue:1752`（同样的 `.nb-html-embed__frame` 选择器）能看到旧实现有 `transition: opacity 0.16s ease;`，这次移植把这一行丢了。
+- **为什么是问题**：这正是重点 3 要核查的"既有外观被破坏"：加载 `<html>` 块点"渲染"后，用户会看到画面突然跳出而不是平滑出现，与注释写明的产品意图（"避免闪一帧空白"）相反——没有过渡时反而更容易让人感觉"闪了一下"，因为内容是整帧一次性出现，和周围内容的首次绘制叠在一起更显眼。这是从旧应用迁移时遗漏的一行样式，不是设计变更。
+- **如何核实**：对比 `packages/neuro-book-legacy/app/components/markdown-studio/TipTapMarkdownEditor.vue:1752-1762` 与 `packages/neuro-book/src/plugins/markdown/web/parts/markdown.css:307-317`：旧版两条规则间有 `transition: opacity 0.16s ease;`，新版没有。真实浏览器里对一个 `<html>` 块点"渲染"，用放大到人眼可辨的速度（或 DevTools 的 Rendering 面板降速）观察 iframe 从占位到内容出现是否有渐变，预期会看到瞬间跳变而非渐入。
+- **建议改法**：在 `.nb-markdown .nb-html-embed__frame` 补回 `transition: opacity 0.16s ease`（或改用仓库的 `--motion-fast`/`--motion-base` 动效变量，并在 `@media (prefers-reduced-motion: reduce)` 里关闭，与文件里其它动效保持一致的写法，例如紧邻的 `.nb-chip__spinner` 的降级处理）。
+
+### 3. 宽表格在编辑器与展示器里都没有横向滚动容器，违反 MarkdownDisplay.md 自己的文档与 390px 无溢出要求
+
+- **严重程度**：重要；**类别**：外观
+- **位置**：`packages/neuro-book/src/plugins/markdown/web/syntax/core/index.ts:377`（`TableKit.configure({tableCell: false, tableHeader: false})`，未传 `renderWrapper: true`）；`packages/neuro-book/src/plugins/markdown/web/parts/markdown.css:67-75`（`.nb-markdown table`/`td`/`th` 规则里没有任何给 `.tableWrapper` 设 `overflow-x` 的规则）
+- **现象**：`@tiptap/extension-table` 的 `Table.renderHTML` 默认 `renderWrapper: false`（`node_modules/@tiptap/extension-table/dist/index.cjs:528`：`this.options.renderWrapper ? ["div", {class: "tableWrapper"}, table] : table`），这个插件配置没有打开它。展示器 `DisplayRenderer` 完全依赖 `DOMSerializer.fromSchema(schema)` 的 `renderHTML` 产出 DOM（不建 ProseMirror 的 `NodeView`），所以 `MarkdownDisplay` 里的表格是裸的 `<table>`，没有任何包裹容器。编辑器里虽然用的是交互式 `TableView` 节点视图（`this.dom.className = "tableWrapper"`，与 `renderWrapper` 选项无关），确实会包一层 `div.tableWrapper`，但 `markdown.css` 通篇没有给 `.tableWrapper` 写 `overflow-x: auto`（只给了 `pre` 这一条：`.nb-markdown pre { ...; overflow-x: auto; }`），所以这层包裹并不产生横向滚动。
+- **为什么是问题**：`MarkdownDisplay.md` 第 16 行明确写"390px 窄屏下只是行更短；表格与代码块在自己内部横向滚动"，这是组件自己的文档承诺的行为；`packages/nb-ui/docs/ui-development-spec.md` 第 3.5 条也要求"390px 宽度必须无页面级横向溢出"。当前实现下，一张列数多、放不进版心的表格在展示器（Agent 回复气泡）里会直接把容器撑宽（没有任何滚动边界），在编辑器里虽然有 `.tableWrapper` 包裹但没有滚动样式，宽表格会把整个编辑器横向撑开（`.markdown-control` 的滚动容器 `overflow-auto` 是双轴的，会连同前后文字一起横向滚动，而不是"表格自己内部滚动"）。这与紧邻的代码块（`pre`，已经有 `overflow-x: auto`）行为不一致，且是实现文档自己写明、却没有兑现的承诺。
+- **如何核实**：在 Lab 的 `MarkdownDisplay`／编辑器方言场景里放一张列很多的宽表格（例如 8 列，每列中文内容），在 390px 预设下用 `lab:shot` 或真实浏览器查看：预期会看到表格把舞台撑宽产生水平溢出，或者编辑器区在滚动到表格那一行时把标题、段落也一起横向带走；对照同一场景下的代码块（已经能在自己内部横向滚动，不影响前后文字）。也可以直接检查 DOM：`MarkdownDisplay` 渲染出的 `<table>` 的父元素没有 `overflow-x` 样式，`getComputedStyle` 得到的是 `visible`。
+- **建议改法**：给 `TableKit.configure` 补 `renderWrapper: true`，让展示器也产出 `.tableWrapper`；再在 `markdown.css` 补一条 `.nb-markdown .tableWrapper { overflow-x: auto; }`（可以参考代码块那条紧邻的注释风格）。两处都要改，只改一处无法让编辑器与展示器同时满足文档承诺的"自己内部横向滚动"。
+
+### 4. PromptEditor 正文区缺少 `role="textbox"`，不满足 Spec 输出 13
+
+- **严重程度**：重要；**类别**：可访问性
+- **位置**：`packages/neuro-book/src/plugins/markdown/web/components/prompt/PromptEditor.vue:212-217`（`editorProps.attributes` 只设了 `class`、`spellcheck`、`aria-multiline`，没有 `role`）
+- **现象**：`docs/specs/ui/prompt-editor.md` 输出 13 明确写"正文区是 `role="textbox"`、`aria-multiline="true"`，可访问名称取 `ariaLabel`……"。实现里 `aria-multiline="true"` 确实有（`PromptEditor.vue:216`），但正文区（ProseMirror 的 contenteditable 根元素）从未设置 `role="textbox"`：在 `PromptEditor.vue`、`prompt-editor-extensions.ts` 全文搜索 `role`/`textbox` 都没有命中。`PromptEditor.dom.test.ts` 也没有任何用例断言这个根元素的 `role`。对照分支 `archive/legacy-ui-tuning`（`865c9f593`）的旧 `PromptEditor.vue`，同样没有设置 `role="textbox"`——这是移植时"外观不变"带过来的既有缺口，但 `ui.prompt-editor.md` 的输出 13 是本次任务（S0 `fe32a7327`）新写的 Spec 条目，新写的合同与未改动的实现在这一点上不一致。
+- **为什么是问题**：浏览器不会为普通 contenteditable 的 `div`/`p` 自动赋予 `textbox` 角色（不同浏览器对无显式 `role` 的 contenteditable 元素的隐式角色映射不一致，通常是 `generic` 而非 `textbox`），屏幕阅读器用户在这个区域可能听不到"文本框"这个角色提示，只被当成一段普通内容；这与 Spec 输出 13、输出 12（界面语言）同一段里列出的无障碍合同直接矛盾，且是机检工具（没有专门的 role 快照测试）发现不了的那类问题。
+- **如何核实**：在真实浏览器或 `PromptEditor.dom.test.ts` 里挂载组件后，`wrapper.element.querySelector(".prompt-editor__prosemirror")?.getAttribute("role")` 得到 `null`；对照 `aria-multiline` 能取到 `"true"`。
+- **建议改法**：在 `PromptEditor.vue:212` 的 `editorProps.attributes` 里补一行 `role: "textbox"`，并在 `PromptEditor.dom.test.ts` 加一条断言防止回归；`PromptTextView`（静态显示，输出 14）不需要这个角色，不要误加。
+
+### 5. MarkdownControl.md 的 Props 类型漏写 `locale` 与 `host`，与实现不一致
+
+- **严重程度**：重要；**类别**：文档
+- **位置**：`packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.md:14-22`（"数据"一节的 `Props` 类型）对照 `packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.vue:25`（`defineProps<{binding: ...; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; placeholder?: string; locale?: DisplayLocale}>()`）
+- **现象**：`.md` 文档里的 `Props` 类型只列了 `binding`、`readonly`、`visible`、`label`、`placeholder?` 五项，组件实际的 `defineProps` 还有两项没有写进文档：必填的 `host: ViewStateSlot`（挂编辑器实例的实例槽），以及本次任务新加的可选 `locale?: DisplayLocale`（引用小块悬停提示与图片说明用的界面语言，`.vue` 第 24 行的注释专门说明了它的作用："控件合同的一员；引用小块的悬停提示与图片的说明按它显示"）。
+- **为什么是问题**：`docs/standards/code/components.md` 明确要求"查组件必先读同名 `.md`，改组件必同步同名 `.md`"，文档描述的应该是"当前应该成立的行为"；审查说明 重点 7 也直接点名要核对"`locale` 必填"这一类问题。这里恰好踩中：`locale` 不是必填（有 `?`），但完全没写进文档，读者看 `.md` 会以为这个控件不接受界面语言、不知道引用小块与图片的悬停提示、"不在作品里"说明文字用的是什么语言；`host` 更关键，是必填项却完全缺失，会让只读文档的人以为组件只有五个属性，调用时漏传 `host` 要等 TypeScript 报错才会发现。
+- **如何核实**：对比 `MarkdownControl.md:14-22` 的 `Props` 类型声明与 `MarkdownControl.vue:25` 的 `defineProps<{...}>()` 字面类型，`host`、`locale` 两项在 `.vue` 里存在、在 `.md` 里不存在。
+- **建议改法**：在 `MarkdownControl.md` 的 `Props` 类型里补上 `host: ViewStateSlot`（简述它是编辑器实例的实例槽）与 `locale?: DisplayLocale`（说明默认 `"zh-CN"`，决定引用小块与图片说明的语言），保持与 `.vue` 的 `defineProps` 逐项对应。
+
+## 未发现问题的方面
+
+- `PromptTokenView.vue` 从旧应用移植的关键 CSS（`display: inline-flex`、`max-width: min(100%, 16rem)`，解决 Chrome 行尾选区与标签占位问题）逐字保留，与 `InlineChip` 的截断宽度一致，没有发现回归。
+- `InlineChip.vue`、`chip.ts`、`chip.css` 三处共用的小块外观判断在编辑器装饰、展示器静态视图与 Composer 节点视图之间结构一致（class 名、图标、色调）；`MarkdownImage` 的读取中/不在作品里/读不出/没有说明四种状态与组件文档描述一致。
+- `callout`（提示块）标题行的折叠按钮键盘可达性正常：按钮始终在 Tab 顺序里（`foldable` 时 `hidden=false`），`aria-expanded`、`aria-label` 随状态更新，点击整行与点击按钮走同一个 `onToggle` 路径。
+- `<html>` 块的渲染 iframe 用 `sandbox="allow-scripts"`、固定字符串 bridge 脚本、`postMessage` 来源校验（`event.source !== frame.contentWindow` 即丢弃），没有发现沙箱边界问题。
+- `MarkdownDisplay` 的流式光标在每次 `update()` 之后都先移除旧节点再重新挂到新的 `lastTextblock()`，块替换、卸载时的检索与清理顺序没有发现悬挂引用或重复节点。
+- `PromptAttachmentStrip.vue` 的卡片主操作按钮与行内"重试/移除"图标按钮是兄弟节点而非嵌套 `<button>`，符合 `ui-development-spec.md` 第 10 节的检查清单。
+- 抽查的 Lab 夹具（`MarkdownDisplayFixture`、`InlineChipFixture`、`MarkdownImageFixture`、`PromptEditorFixture`）都遵守"舞台直连、`data-lab-subject`、控件进 `LabFixtureControls`"的规范；`PromptTextView.md`、`InlineChip.md` 的 Props 类型与实现的 `defineProps` 逐项对应，没有发现偏差（仅 `MarkdownControl.md` 一处有偏差，见发现 5）。
+
+## 统计
+
+共 5 条：重要 4 条（1、3、4、5），建议 1 条（2），阻断 0 条。按影响排序即发现编号顺序：发现 1（其它分类链接三界面不一致）、发现 3（表格无横向滚动容器）、发现 4（PromptEditor 缺 role="textbox"）、发现 5（MarkdownControl.md 文档漏项）同为重要；发现 2（HTML 块渐入过渡丢失）为建议。

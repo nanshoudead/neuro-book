@@ -3,7 +3,7 @@ import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {EditStore} from "@oh-my-pi/pi-natives";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-import {createReadTool, type PluginReadFormat} from "../src";
+import {createReadTool, type ReadFormat} from "../src";
 
 let root = "";
 const store = new EditStore();
@@ -99,12 +99,12 @@ describe("read 工具", () => {
     test("插件格式按注册顺序生效，先注册者优先", async () => {
         const file = join(root, "custom.bin");
         await writeFile(file, "原始内容", "utf-8");
-        const first: PluginReadFormat = {
+        const first: ReadFormat = {
             id: "first-format",
             canRead: () => true,
             read: async () => ({text: "第一个格式的输出"}),
         };
-        const second: PluginReadFormat = {
+        const second: ReadFormat = {
             id: "second-format",
             canRead: () => true,
             read: async () => ({text: "第二个格式的输出"}),

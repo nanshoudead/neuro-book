@@ -1,0 +1,28 @@
+{
+    "name": "hello",
+    "publisher": "example",
+    "version": "1.0.0",
+    "description": "只含声明式贡献的第三方插件：安装并重启后，设置窗口出现一项配置，用户层与本作品层都能改。",
+    "private": true,
+    "engines": {
+        "neurobook": ">=0.1.0"
+    },
+    "contributes": [
+        {
+            "capability": "settings.properties",
+            "id": "example.hello/greeting",
+            "declaration": {
+                "schema": {
+                    "type": "string"
+                },
+                "default": "Hello from a plugin",
+                "title": {
+                    "zh-CN": "第三方插件的问候语",
+                    "en-US": "Greeting from a third-party plugin"
+                },
+                "layers": ["user", "project"],
+                "applies": "now"
+            }
+        }
+    ]
+}

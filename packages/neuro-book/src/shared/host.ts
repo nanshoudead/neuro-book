@@ -9,6 +9,8 @@ import type {EntryRef, EntryState} from "@notnotype/nb-runtime/plugins";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
+import type {PluginProblem} from "nbook/plugin-platform/shared/types";
+
 /** 服务端的状态根。宿主拥有根的位置，根下的布局归各插件（例如 Storage 的 `storage/user.sqlite`）。 */
 export interface StateRoot {
     /** 宿主已解析的绝对路径（不保证是 realpath）；首次启动时目录可能还不存在，用到的插件自己建。 */
@@ -84,12 +86,18 @@ export interface WindowPlugins {
     onChange(listener: () => void): () => void;
     /** 只对激活失败的入口：恢复后重新激活。 */
     retry(ref: EntryRef): Promise<WindowPluginRetry>;
+    /** 入口声明的激活事件；未登记、或运行实例还没建立时为 null。按需激活前用它判断某个入口会不会被这个事件激活。 */
+    activationEvents(ref: EntryRef): ReadonlyArray<string> | null;
+    /** 本窗口此刻的插件问题（入口激活失败、受阻、被拒的贡献），插件页用；运行实例还没建立时为空。 */
+    problems(): ReadonlyArray<PluginProblem>;
 }
 
 /** 一份没保存的正文：文件地址与正文。 */
 export interface RescuedText {
     readonly path: string;
     readonly text: string;
+    /** 这份正文与用户看到的不完全一样时的说明（例如有一块只留下了文字）；没有为 undefined。 */
+    readonly note?: string;
 }
 
 /**

@@ -13,8 +13,12 @@ import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {createBrowserDiagnosticsPlugin} from "nbook/plugins/diagnostics/web/plugin";
 import {editorBrowserPlugin} from "nbook/plugins/editor/web/plugin";
+import {htmlPreviewBrowserPlugin} from "nbook/plugins/html-preview/web/plugin";
+import {imageViewerBrowserPlugin} from "nbook/plugins/image-viewer/web/plugin";
+import {markdownBrowserPlugin} from "nbook/plugins/markdown/web/plugin";
 import {explorerBrowserPlugin} from "nbook/plugins/explorer/web/plugin";
 import {filesBrowserPlugin} from "nbook/plugins/files/web/plugin";
+import {pluginsBrowserPlugin} from "nbook/plugins/plugins/web/plugin";
 import {projectsBrowserPlugin} from "nbook/plugins/projects/web/plugin";
 import {settingsBrowserPlugin} from "nbook/plugins/settings/web/plugin";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
@@ -30,10 +34,10 @@ export interface BrowserPluginContext {
 export type BrowserHostPluginFactory = (context: BrowserPluginContext) => PluginDefinition;
 
 /** 浏览器的宿主适配器只有诊断；表的键收窄到它，普通插件进不了这张表。 */
-export type BrowserHostPluginId = "nbook.diagnostics";
+export type BrowserHostPluginId = "runtime.diagnostics";
 
 export function isBrowserHostPlugin(id: string): id is BrowserHostPluginId {
-    return id === "nbook.diagnostics";
+    return id === "runtime.diagnostics";
 }
 
 /** 普通插件：只能放定义常量。 */
@@ -43,15 +47,19 @@ export const browserPluginDefinitions: Readonly<Record<string, PluginDefinition>
     "nbook.workbench": workbenchBrowserPlugin,
     "nbook.projects": projectsBrowserPlugin,
     "nbook.settings": settingsBrowserPlugin,
+    "nbook.plugins": pluginsBrowserPlugin,
     "nbook.storage": storageBrowserPlugin,
     "nbook.files": filesBrowserPlugin,
     "nbook.explorer": explorerBrowserPlugin,
+    "nbook.markdown": markdownBrowserPlugin,
     "nbook.editor": editorBrowserPlugin,
+    "nbook.image-viewer": imageViewerBrowserPlugin,
+    "nbook.html-preview": htmlPreviewBrowserPlugin,
 };
 
 /** 宿主适配器：诊断的存储在窗口运行实例建立之前就要能记录（ADR 0026 决策第 5 条）。 */
 export const browserHostPlugins: Readonly<Record<BrowserHostPluginId, BrowserHostPluginFactory>> = {
-    "nbook.diagnostics": (context) => createBrowserDiagnosticsPlugin({store: context.store, console: context.console}),
+    "runtime.diagnostics": (context) => createBrowserDiagnosticsPlugin({store: context.store, console: context.console}),
 };
 
 /** 本外壳构建进去的浏览器插件：清单中有浏览器运行位置的插件，加上只有顶层声明式贡献的插件（只登记它们的声明）。 */

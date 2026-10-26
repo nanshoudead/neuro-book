@@ -1,0 +1,114 @@
+# w00022/t17 服务端实现审查 4 条意见的修正：交付报告
+
+位置：worktree .worktree/w00022-dev-panel（分支 feat/w00022-dev-panel）
+基点 87dbfd657，提交 4d3c48e59（一个提交）：
+  fix(dev-panel): 会话标题的冷查找配额跨轮共享、停止时收口、Codex 索引只读末尾（t17 服务端实现审查）
+改动文件（都在 packages/dev-panel/ 下，没碰 src/web/**）：
+  src/server/session-titles.ts、src/server/state.ts、src/server/serve.ts、docs/panel.md、
+  tests/session-titles.test.ts、tests/panel-server.test.ts、新增 tests/file-lease.ts、tests/fixtures/file-lease.py
+
+## 每条怎么改
+
+### 1. 冷查找的并发上限跨轮生效（session-titles.ts）
+- BATCH_PARALLEL 改名 LOOKUP_PARALLEL（仍是 4），由 resolver 整体持有：slotsInUse 计数 + waiting 队列（先来后到）。
+- lookupShared：同一个键已在查就等那一次（不占配额）；否则先 acquireSlot，配额在查找 settle（finally）时才 releaseSlot，
+  有人在等就直接转给排在最前的。批次到点不还配额。
+- 每个 titlesOf 批次一个 AbortController：预算到点（或 resolver 停止）就 abort，该批排队等配额的调用随之 grant(false) 离队，
+  配额空出来后不会再替过期的批次开始查找（“按最新需求修剪”：队里只剩还活着的批次要的键）。拿到配额之后再查一次 closed、
+  signal.aborted 与 inflight，拿到配额与继续执行之间隔着微任务。
+- 活动刷新仍不等标题（state.ts 的调度没改这一点）。
+
+### 2. 停止收口（session-titles.ts、state.ts、serve.ts）
+- SessionTitles 加 close()：置 closed，放掉所有排队的、abort 所有批次（撤掉预算计时器：titlesOf 的 finally 里 clearTimeout），
+  返回的 Promise 等已经开始的查找都 settle（Promise.allSettled(inflight)）。之后 titleOf 回 null、titlesOf 立刻回、全部 pending。
+- PanelState：scheduleTitles 开头加停止门（预热途中停止时，预热后面还会算一次活动）；readTitles 在 await titlesOf 之后
+  若已停止就直接返回，不改 knownTitles、不 patch。
+- PanelState.stop() 改为 async：同步部分照旧（置 stopped、关监视与定时器、停 herdr），然后等 [titleTask, titles.close()]，
+  最多 TITLE_STOP_MS = 3000 毫秒；超时记一条日志后返回（之后它们结束也因停止门不改数据）。
+- serve.ts 的 PanelServer.stop()：state.stop() 的 Promise 与关连接、关两个端口一起 Promise.all 等，不串行多等。
+
+### 3. Codex 索引只读末尾（session-titles.ts、docs/panel.md）
+- 新常量 CODEX_INDEX_TAIL = 4 MiB，与 Claude 会话文件的 CLAUDE_TAIL_MAX 相同。用已有的 readTail 读末尾一段，文件比它大时丢掉
+  第一行（截断的半行），从后往前取各 id 第一次出现的非空名字（等价于原来“最后一条非空名字”）。
+- 缓存值变成 {names, complete, size}；读不到的 id 在 complete 为 false 时记一条诊断（按索引路径去重，同一份索引只记一次），
+  按没有标题处理。没做分块解析或 worker。readFile 的导入随之删掉。
+- docs/panel.md：/api/sessions 那一行注明 Codex 只读末尾 4 MiB；“缓存与刷新”的会话标题一条写明配额整个面板共用、到点轮次
+  的放弃、Codex 的 4 MiB 上限与诊断、stop 的停止门与 3 秒等待。
+
+### 4. 补测试（tests/panel-server.test.ts）
+- 在已有的“标题改名、文件删掉、文件后来出现”用例里加两步：
+  - 只改来源：在 ai-title “第一版”之后追加 custom-title “第一版”，等页面取到 {第一版, claude-custom}、等 activity changed，
+    并断言 revision 增加；
+  - 最终 {text, source} 不变时不推送：omp 文件按原样重写（修改时间变了会重读），同时 Claude 文件重新出现；读到 Claude 新标题
+    的那一轮一定也重读了 omp 文件，断言 revision 恰好加 1、omp 那格的标题不变。
+
+### 新增的其它测试
+- tests/file-lease.ts + tests/fixtures/file-lease.py：用 Linux 写租约（fcntl F_SETLEASE F_WRLCK）做文件屏障。别的进程 open 这个
+  文件时挂在内核里，直到测试放掉租约；stat 不受影响。F_GETLEASE 能看出“有人正卡在打开它上面”（breaking），重新挂租约成功说明
+  对方已经关了文件。不替换被测代码里的任何函数、没有 mock/spy/假计时器/固定等待。已先在本机实测：Bun 的 fs.promises.open 被挂住时
+  事件循环照常转（10 毫秒定时器 500 毫秒内走了 50 次）。内核最多挂 lease-break-time（本机 45 秒）。
+- session-titles.test.ts：
+  - “冷查找的配额”：8 个 Claude 文件挂租约。第一批 4 键带 200 ms 预算 → 全部 pending，4 个 open 卡住；第二批另 4 键带 300 ms
+    预算 → 全部 pending，且卡住的仍只有前 4 个（新键一个也没开始）；放掉前 4 个后再问前 4 键得到标题，后 4 个文件仍没人打开
+    （过期批次排队的键没有在配额空出来后开始）；新一批问后 4 键才开始读，放掉后拿到标题。
+  - “Codex 的索引”：索引 > 4 MiB，末尾里的会话取最后一个非空名字；只在前面出现的会话为 null，日志恰 1 条且含索引路径；再问一个
+    不存在的会话不再多记。
+- panel-server.test.ts（describe“会话标题（t17）”）：
+  - “运行中停止”：进程登记的属主是 Claude 会话，标题文件挂租约；面板起来后等读标题卡在 open 上，调 stop()；等两个端口都关了
+    （其余收口都已做完）才置 released = true 并放租约；断言 stop 的 Promise 完成时 released 已是 true（stop 等了读盘），
+    租约能重新挂上（面板已关文件），revision 与 sessionTitles 都没变。
+  - “预热中停止”：直接 startPanelServer，warm() 之后同步调 stop()（预热第一步要等 git，stop 一定落在预热中途），warm 回 false；
+    预热之后照常算出了活动（procs 里有这个属主），但租约状态仍是 held（没有任何人打开过标题文件），sessionTitles 为空。
+
+## 变异检查（都已恢复，恢复后 git diff 只剩本次改动）
+- 指纹去掉 source（state.ts 的 [key, title.text, title.source] → [key, title.text]）：跑标题相关 11 个用例，新加的来源步骤失败
+  （“等待超时：标题变了推 activity”），10 pass 1 fail。去掉 source 后页面最终也能取到新来源（下一次活动重算的 settle 带上），
+  但没有推送，用例正是卡在推送上。
+- 配额不设上限（acquireSlot 总是给）：“冷查找的配额”失败（30 秒超时）。原因值得记一笔：8 个 open 同时挂住时，本机 8 核的 Bun
+  文件线程池被占满，连往租约进程写命令的操作都排不上，测试挂死到超时；也就是说旧实现在慢盘上叠到 8 个时会让同一进程别的文件操作排队。
+- stop 不等读标题（state.stop 只 void close()，不 await）：“运行中停止”失败，expect(await stopping).toBe(true) 收到 false。
+- 去掉 scheduleTitles 的停止门且 stop 不调 titles.close()：“预热中停止”连跑 3 次都失败（租约状态是 breaking，停止后读了标题文件）。
+  只去掉其中一处时另一处仍挡得住，用例照样通过；这是两道门的冗余，不是测试漏洞。
+
+## 验证命令与结果（TMPDIR=/dev/shm/t17srv-tmp）
+- bun run --cwd packages/dev-panel typecheck（tsc 服务端、core、vue-tsc web、web-tests）：退出码 0。
+- bun test --isolate tests/session-titles.test.ts tests/panel-server.test.ts：32 pass、0 fail、255 expect，48.57 s。
+- 新用例（-t '会话标题（t17）|冷查找|Codex 的索引'）连跑 3 次：每次 6 pass、0 fail。
+- 全量 bun run --cwd packages/dev-panel test：454 pass、0 fail，64 个文件，425.23 s，退出码 0（herdr 真实用例这次没有抢跑失败）。
+- bun run governance:check：退出码 0；列出的 fixed-wait 警告都是 panel-server.test.ts 里原有的行（逐行核对过），新加的代码没有。
+
+## 复测数字（审查第 3 条的大索引办法）
+脚本照审查报告附录的 large-index-probe.ts、large-index-base-probe.ts、http-latency-client.ts，只把路径改到本 worktree 与
+/dev/shm/t17srv-lab；基线副本用附录 prepare-copies.py 的同一做法从 8276c0bb2 取 5 个服务端模块。索引 6,000,000 条、288,000,000 字节，
+真实 watcher 触发、真实 HTTP/WS，独立 Bun 进程每 10 ms 请求 /api/runs。
+- 改后（4d3c48e59 的源码）三次：独立客户端最长单次 20.79 ms（37 次请求）、25.99 ms（36 次）、14.00 ms（36 次）；
+  从触发到新标题与客户端结束 369.3 / 357.7 / 367.3 ms。没有“只读末尾”的诊断（目标会话就在末尾里），符合预期。
+- 基线 8276c0bb2 两次：最长 3.68 ms（33 次）、3.37 ms（36 次）；总时长 324.7 / 345.4 ms。
+- 审查时的改前数字：2078.20 ms（91 次）、总 2970.62 ms。改后与基线同一量级（几毫秒到几十毫秒）；剩下的十几毫秒是 4 MiB 里约 8.7 万行
+  的 split 与 JSON.parse（这份压测每行只有 48 字节，真实索引每行更长、行数更少）。
+
+未复测：审查第 1、2 条的 strace 探针（runtime-probe.ts 的 overlap/stop 模式）。它们按旧行为写断言（等 8 个 FD 同时打开、等停止后再次发布），
+改后会按设计等到超时，需要改写断言才能当复测用；本次以上面的租约用例代替，留给主会话按需用 strace 复测。
+
+## 偏离与理由
+- 用文件写租约做屏障，依赖 Linux 与 python3（dev-panel 的测试已在用 python3：fixtures/fake-claude-tui.py）。租约进程 helper 里有
+  10 毫秒的轮询间隔（重新挂租约时等内核状态），在 .py 里，不是测试里的固定等待。
+- PanelState.stop() 从同步改成返回 Promise；仓库内唯一调用方是 serve.ts，已改为一起等。
+- “预热中停止”断言的是标题相关：没读标题文件、sessionTitles 为空。预热在 stop 之后照常算出的记录与活动（revision 从 0 到 1）是审查报告
+  列为“基线已有问题”的通用 Refresher 停止防护不足，不在本次范围，没有改。
+- 停止等待上限取 3 秒（审查与决定只说“有限的截止”）；CLI 的预热中 SIGTERM 用例（8 秒内退出）照常通过。
+- Codex 诊断按索引路径只记一条（复用已有的 report 去重），文案里带第一个读不到的会话 id 作例子。
+- 第 1 条没有加审查建议的 HTTP/WS 级换键用例，用 resolver 级的租约用例覆盖配额；活动不等标题的既有保证没改。
+
+## 禁止清单自查
+- 不按错误文案分支：没有新增按文案的分支；Codex 诊断用 report(path, "index_tail", …) 的原因码去重。
+- 不用静默 catch：新增代码没有 catch；测试里 fetch(...).then(() => false, () => true) 是把“连不上”当成可观察结果（端口已关），不是吞错。
+- 不为过测试放宽断言、不加测试专用分支：没有改已有断言；产品代码没有测试分支。
+- 不改任务之外的代码与注释：只改了上面列出的位置；原有 Refresher、titleAgain 的 finally 判断等都保留。
+- 不跨包深导入：测试只经 @notnotype/neuro-book-test-support/wait（已有用法）。
+- 测试不用 mock、spy、假计时器与固定等待：都没有；等待都用 waitUntil 或租约进程的回应。
+- 不用 rm -rf 清理仓库内目录：没有。临时目录只在 /dev/shm/t17srv-tmp 与 /dev/shm/t17srv-lab（自己建的，结束删除）。
+- 不碰 worktree 之外的文件：除 /dev/shm 下自建目录与本报告外没有；审查报告只读。
+- 不碰端口 4400、4401 与 systemd 单元：测试与探针都是端口 0。
+- 不用 pkill -f、pgrep -f：没有；结束前用 ps 核对，没有残留的租约进程或探针进程。
+- 提交只用 git add -- <路径>，没有 Co-Authored-By，没有 push、切分支、stash、rebase、amend。

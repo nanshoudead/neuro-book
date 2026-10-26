@@ -6,7 +6,7 @@ import {fileURLToPath} from "node:url";
 
 import {LifecycleStateError} from "../lifecycle/lifecycle";
 import type {PluginDefinition} from "../plugins/plugins";
-import {provide} from "../plugins/plugins";
+import {provideService} from "../plugins/plugins";
 import {defineServiceKey} from "../services/services";
 
 import {createApplication, createInstanceTable, stopTimeout} from "./application";
@@ -42,7 +42,7 @@ function greeterPlugin(location: "server" | "browser" = "server", activate?: Plu
                     activate ??
                     ((context) => {
                         const clock = context.services.require(clockKey);
-                        return {services: [provide(greeterKey, {greet: (name) => `hi ${name} @${clock.now()}`})]};
+                        return {services: [provideService(greeterKey, {greet: (name) => `hi ${name} @${clock.now()}`})]};
                     }),
             },
         ],
@@ -175,7 +175,7 @@ describe("启动与接纳", () => {
     it("清单被拒绝的插件是结构化失败：被必需门禁引用时启动失败，门禁本身报 unknown-entry", async () => {
         // 服务 id 不以本插件 id 开头：清单结构不合格，整个插件不登记。
         const foreignKey = defineServiceKey<string>("elsewhere/value");
-        const rejected: PluginDefinition = {id: "greeter", entries: [{id: "main", location: "server", provides: [foreignKey], activate: () => ({services: [provide(foreignKey, "x")]})}]};
+        const rejected: PluginDefinition = {id: "greeter", entries: [{id: "main", location: "server", provides: [foreignKey], activate: () => ({services: [provideService(foreignKey, "x")]})}]};
         const {context} = host();
         const application = createApplication(context, manifest({plugins: [rejected]}));
         const startup = await application.startup;
@@ -197,7 +197,7 @@ describe("启动与关闭竞态", () => {
                 plugins: [greeterPlugin("server", async (activation) => {
                     activation.services.require(clockKey);
                     await gate.promise;
-                    return {services: [provide(greeterKey, {greet: (name) => name})]};
+                    return {services: [provideService(greeterKey, {greet: (name) => name})]};
                 })],
                 extraGates: [{id: "after", kind: "check", check: () => undefined}],
             }),

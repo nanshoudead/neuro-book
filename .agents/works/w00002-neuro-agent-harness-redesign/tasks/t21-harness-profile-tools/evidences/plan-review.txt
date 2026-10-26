@@ -1,0 +1,146 @@
+# w00002 t21 实施计划只读审查
+
+审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00002-t21-plan-review/.agents/works/w00002-neuro-agent-harness-redesign/tasks/t21-harness-profile-tools/plan.md`。下文计划及包内相对路径均相对该 worktree；`node_modules/` 相对主工作区 `/home/notnotype/CodeRepository/neuro-book`。只读审查，实验只写入指定的仓库外 lab；本报告按发现追加。
+
+### 1. `syncContextBeforeModelCall` 不是 `Agent` 的公开配置，按计划装配不会执行上下文覆盖
+
+- **严重程度**：阻断；**类别**：正确性。
+- **位置**：计划“harness.ts”（35 行）、“不做与风险”（106 行）；`node_modules/@oh-my-pi/pi-agent-core/src/agent.ts:104-120,1583-1590`；`src/types.ts:334-338`。
+- **现象**：计划要求配置 OMP `Agent` 的 `syncContextBeforeModelCall`，但它只属于底层 `AgentLoopConfig`；`AgentOptions` 没有这个字段，构造函数也不读取它。`Agent` 为自己的循环硬编码此钩子，仅运行注册的 before-model hooks，再同步内部的 systemPrompt 与 tools，不同步 messages。用户传入同名属性在运行时被忽略，直接传对象字面量还会触发 TypeScript excess-property 检查。
+- **为什么是问题**：实现无法通过该装配达到 Spec 输出 7、8；关闭重开后依然可能发 Agent 内存历史而不是日志渲染历史。计划引用的旧 `context-probe.ts:14-20` 实际测的是 `transformContext`，没有测 `syncContextBeforeModelCall`，不能作为这项机制的证据。直接改为裸 `agentLoop` 又会丢失计划所依赖的 Agent 生命周期接口，不是无成本换名字。
+- **如何核实**：运行 `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-plan/lab/runtime.ts`，真实 `Agent.prompt()` 收到同名配置后 `syncCalls: 0`，模型收到 `receivedSystem:["old-system"]`，而非钩子内的 `rendered`。源码同时确认低层钩子存在、上层入口不转发。未调用真实模型。
+- **建议改法**：保留 `Agent`，明确使用它确实提供的 `transformContext` / `transformProviderContext`；在实际 provider-context 变换中等待已排队的写入、渲染并替换本次请求，不替换工具调度历史。若用 `addBeforeModelCallHook`，说明它只给 signal，系统提示词要经 `setSystemPrompt` 同步、messages 仍须走变换接口；不要把它写成可直接修改 AgentContext 的同名钩子。新增测试断言模型收到的系统提示词和消息确实来自渲染，不能只断言日志已 flush。
+
+### 2. `afterToolCall` 早于结果事件，当前收尾步骤没有实现合同要求的落盘线性化
+
+- **严重程度**：阻断；**类别**：不变量。
+- **位置**：计划“finish.ts”（45 行）、“harness.ts”（36 行）；`node_modules/@oh-my-pi/pi-agent-core/src/agent-loop.ts:2986-3024,3194-3250`。
+- **现象**：计划在 `afterToolCall` 里记 finish 并 terminal abort，却又把成功时刻定义为工具结果 `agent_message` 写入完成。真实顺序是 `execute` 完成 → `afterToolCall` → `tool_execution_end` → 工具结果 `message_end` → harness 的异步写入。钩子执行时，当前工具结果还没有事件，更没有进入写队列；在这里 `await` 当前写队列只能等到此前的条目。
+- **为什么是问题**：立即认定 finish 会把“钩子之后、落盘之前”的外部取消误判成 `finished`；terminal abort 先占据 AbortSignal.reason，之后外部 abort 也不会改变它。反过来，在钩子里等待由后续 `message_end` 驱动的落盘完成会形成环等：OMP 等钩子返回才发送该事件。日志写失败则也不能靠钩子内等待已有队列发现。计划虽写出正确合同，却没有可实现的结算步骤；S5 按当前步骤编码会返工。
+- **如何核实**：同一 `runtime.ts` 真实 `Agent.prompt()` 探针输出顺序为 `message_end:user → persist:user → message_end:assistant → persist:assistant → afterToolCall:written-toolResults=0 → tool_execution_end → message_end:toolResult → persist:toolResult`；在钩子里等待现有 writes 后，结果仍然只在钩子返回后写入。事件先后另由上述源码确认。
+- **建议改法**：钩子只记录候选 finish 并禁止下一次模型调用，不在此确认 `finished`、不等未来结果事件。统一从工具结果的 `message_end` 入队，写入成功后原子结算候选；另存外部取消是否早于提交的标记，不从已被 terminal reason 占用的 signal 推断取消先后。明确写入失败优先归为 `local`。用真实写入屏障覆盖“候选已产生但写入未完成时取消”“写入完成后取消”“写入 reject”，并确认没有环等。
+
+### 3. `onResponse` 不覆盖传输重试，`complete` 会把已发生重试的运行标成完整
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划“usage.ts”（40 行）、“验收映射”（90 行）；`node_modules/@oh-my-pi/pi-ai/src/providers/openai-completions.ts:807-828`；`src/utils/openai-http.ts:92-118`。
+- **现象**：计数只在 `postOpenAIStream` 成功返回之后触发。该函数内部的 `fetchWithRetry` 已经重试过 408、429、5xx 与网络故障；非成功最终响应和 fetch 抛错也没有 `onResponse`。因此它不是“一次 provider 尝试一次回调”。计划只测空回复重试，恰好绕过这一层盲区。
+- **为什么是问题**：真实 `503 → 200`、`fetch failed → 200` 都发了 2 次请求，却只有 1 次回调、1 条助手消息；计划公式返回 `complete:true`。Spec 输出 11 的“发生过重试而计量不足时应视为下界”不能靠这个回调全面判断。这里不是上一轮“可见消息不等于账单”的产品口径争议，而是选定实现把实际存在的 retry 错当成没有 retry。
+- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-plan/lab/provider.ts`，真实 `Agent → streamOpenAICompletions → HTTP transport`，仅用公开 fetch 接缝返回协议响应。`transport-503` 与 `socket-before-response` 均为 `requests:2,responses:1,assistants:1,plannedComplete:true`；对照空回复为 `2,2,1,false`；401 为 `1,0,1`。没有调用内部 retry 函数或真实端点。
+- **建议改法**：把 `onResponse` 降为能够发现一部分重试的证据，不宣称逐 attempt 计数。对本次支持的 HTTP provider 在公开 fetch 接缝按运行观察实际传输尝试，或者对没有充分观测的路径保守返回不完整；不另造重试层。补传输 503、响应前网络断开，以及已提交部分输出后流断开的用例，区分“已知零”与“不可确认完整”。保持 Spec 已定的可见消息求和口径。
+
+### 4. 只从 `message_end` 落盘再渲染，首个请求会缺本轮用户输入
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划“harness.ts”（34-36 行）；`node_modules/@oh-my-pi/pi-agent-core/src/agent-loop.ts:1253-1287,1337-1340`；现有 `packages/nb-harness/src/harness.ts:174-185`。
+- **现象**：新计划只规定 `message_end` 驱动原样消息落盘，没有保留或替换当前“先写用户输入，再 prompt”的入口步骤。OMP 会先完成上下文准备，再发本轮输入的 `message_start/message_end`。即使修正发现 1，渲染钩子等待写队列时，本轮用户消息也尚未入队。
+- **为什么是问题**：新建会话第一次请求的日志渲染结果没有用户问题；恢复会话的新问题同样晚一轮。若在钩子里等用户的后续事件，会死锁；若照旧手工 append 并同时订阅所有 `message_end`，则会把同一输入写 2 次，破坏输出 7、8、9。旧探针之所以成功，是它在调用 Agent 前就手工写了 user，不是订阅屏障自动包含了新输入。
+- **如何核实**：`bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-plan/lab/lifecycle.ts`，真实 `Agent.prompt → transformProviderContext`，事件通过真实 nb-session JSONL 排队写入。渲染时 `providerRoles:[user], logEntries:0`；用日志替换后实际 streamFn 收到 `receivedRoles:[]`；运行结束日志才有 user 与 assistant 共 2 条。没有内部函数调用或假造事件时序。
+- **建议改法**：在 `turn` 获得运行所有权后显式构造并持久化本轮 UserMessage，再把同一个消息交给 `agent.prompt(message)`；规定如何跳过对应输入事件，确保恰写一次，并保留相同 timestamp 等字段。写入失败返回 `local` 且不发请求；预先取消的输入处理按既有状态合同收口。验收应断言第一次、第二次和恢复后的第一次请求都恰好含 1 条本轮输入，而不只是“写队列已完成”。
+
+### 5. `close()` 只等待 Agent idle，不能等待尚在准备或正在结算的 harness 运行
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：计划“harness.ts”（37-38 行）；`node_modules/@oh-my-pi/pi-agent-core/src/agent.ts:1238-1243`；Spec“状态与转换”158-161 行。
+- **现象**：运行锁在 `turn` 第一步占用，但真正 `agent.prompt` 之前仍有异步日志、密钥和上下文准备。计划的 close 只做 `agent.abort → waitForIdle → 写队列 → 解除订阅`，没有等待所属的完整 `turn` Promise。尚未 prompt 时 Agent 没有 abort controller，`abort()` 无效、`waitForIdle()` 立即完成；Agent idle 之后也仍可能有 harness 的结果、run_end 写入步骤。
+- **为什么是问题**：close 可以在 `running` 仍为 true 时返回，之后那次 turn 继续启动模型请求或产生未被订阅的事件；与“拒绝新调用、中止并等在途运行及全部条目结束”冲突。S4 只测“已经挂在模型请求里再 close”抓不到这个窗口。
+- **如何核实**：同一 `lifecycle.ts` 用真实 Agent 和真实 JSONL 搭建计划所写的锁/close 协议，用 Promise 屏障代表 prompt 前的异步准备；结果 `closeReturnedWhileRunning:true, requestsAfterClose:1`。这是对计划协议的运行时实验，不是声称尚未实现的新 harness 已有该实现；Agent 的两个方法确实只操作其当前 runningPrompt，源码如上。
+- **建议改法**：保存完整运行任务及其独立取消状态，close 首先关闭接纳、取消该任务，等待它（包含准备、Agent 循环和日志结算）完成，再释放订阅与会话资源；所有 await 后进入模型之前检查本次取消/关闭状态。重复 close 共用同一个关闭任务。覆盖准备阶段关闭、模型阶段关闭、最终日志写入阶段关闭及重复 close。
+
+### 6. 会话级 `EditStore` 的取得接口与关闭释放都没有落点
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：计划“tools/”（27-30 行）、“harness.ts”（37 行）；`packages/nb-harness/src/tools/read.ts:14-15`；`src/tools/edit.ts:22-23,54,117-139`；`node_modules/@oh-my-pi/pi-natives/native/index.d.ts:124-157`。
+- **现象**：计划说“句柄 resolve 时按会话取”共享 EditStore，但同一 registry 的 `resolve(): ToolImpl | null` 没有 sessionId 参数；执行上下文到之后的 execute 才提供。close 步骤也没有清空 Store 或移除其会话映射，验收只有通用 initial 隔离，没有 read/edit 的真实状态隔离与释放。
+- **为什么是问题**：若通过注册时闭包或某个“当前会话”变量让无参 resolve 找 Store，两个共享登记表的会话就会共用或串用已读行、快照和寄存器；若改用 `Map<sessionId, EditStore>` 却不回收，关闭 N 个会话仍保留 N 份 native Store 及读过的文件内容。这里的资源不是调用内 `EditSession`，它已有 finally.close；Store 的公开释放操作是 `clear()`，不是一个并不存在的 `close()`。
+- **如何核实**：对照计划中无参句柄与只在 execute 出现的会话上下文；当前 read 将展示行写入外部 Store，edit 用同一个 Store 维持跨调用状态，上述公开声明提供 clear。此项为接口与生命周期的静态缺口，不声称已有新实现发生泄漏。
+- **建议改法**：让无参 resolve 仅取得无会话状态的实现，在 execute 收到 sessionId 后从明确的会话资源所有者取 Store；或者把每会话绑定明确放在桥接阶段，不引入共享“当前会话”。指定 harness close 等运行与写入结束后 clear 并删除映射，创建失败也释放已建资源。增加两个会话对同一文件的 seen-lines/寄存器隔离，以及关闭后资源映射不再保留该会话的验收。
+
+### 7. 工具声明裁掉了编辑工具的调度与 wire 元数据，桥接没有保留路径
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：计划“tools/”（27-30 行）；`packages/nb-harness/src/tools/edit.ts:94-110`；`src/tools/read.ts:50-67`；`node_modules/@oh-my-pi/pi-agent-core/src/agent-loop.ts:3336-3361`。
+- **现象**：新 `ToolDeclaration` 只有 id/name/description/parameters/provider/version/finish。现有 edit 的 `concurrency:"exclusive"`、`strict:true` 和 hashline 的 `customFormat` 没有进入新声明，也没有安排其他桥接元数据来源；read 的 concurrency/strict 亦不同。等 execute 内才经句柄取得实现时，OMP 已经按桥接 AgentTool 的属性排完这批调用。
+- **为什么是问题**：OMP 缺省并发是 `shared`，不是 exclusive；丢掉字段后同一批的 2 个 edit 会并发操作同一个 Store 与文件，而现在它们必须串行。缺失 customFormat 还把已有 grammar 工具静默改成普通 JSON 工具；这不属于已批准的“工具只来自 Profile”改变。不能以“实现仍是 AgentTool”弥补，因为框架读取 concurrency 发生在 execute 之前。
+- **如何核实**：旧 edit 明确设置上述 3 项；循环 3351 行对未声明 concurrency 的工具取 shared，3353-3361 行在调用 execute 前建立依赖。新计划列出的完整声明形状没有对应字段。此结论是桥接合同的静态缺口，不声称新 bridge 已编码并造成文件损坏。
+- **建议改法**：在桥接可提前取得的不可变元数据中保留必要的调度与 wire 配置，或明确采用等价的安全调度；实现句柄仍只负责可撤回执行，不靠每次临时改 Agent.tools。快照比较纳入影响参数协议的字段。用真实 Agent 测同一批 2 个 edit 不重叠，并验证桥接后的请求仍使用选定的 hashline 参数协议。
+
+### 8. S2 的公开类型破坏已存在的 nb-harness 调用，切片自跑范围掩盖红提交
+
+- **严重程度**：重要；**类别**：代码质量。
+- **位置**：计划“nb-profile”（20-22 行）、“切片”（71-78 行）；`packages/nb-harness/src/harness.ts:4,73-83,174-176`；`packages/nb-harness/tsconfig.json:13`。
+- **现象**：S2 把 `ProfileRenderInput.messages` 改为 `history/tools`，把渲染输出改为 `AgentMessage[]`；nb-harness 仍在 175 行传 `{messages: history.map(toRenderMessage)}`。即便保留 ProfileRenderMessage 导出，调用的必需参数也已经不相容；若按清理原则删除旧消息类型，4 行 import 也会失败。S2 只跑 nb-profile 自己的检查，S3 才开始改旧装配测试，真正的 harness 上下文迁移又排在 S4。
+- **为什么是问题**：S2 单独提交后，消费者 typecheck 确定不能绿；S3 只加入工具模块仍不能修复旧的渲染调用。只验证提供方包不能证明这个切片可提交；推迟到 S7 三包一起查时已积累至少 S2、S3 两个不自洽边界。另有 S3 的接口迁移会影响包含在 typecheck 中的 `harness.llm.test.ts`，不能只在 S6 迁移模型测试才处理其旧 createHarness 参数。
+- **如何核实**：逐字段对照计划替换后的输入形状与上述现存调用；nb-harness 明确将 src、tests 都纳入类型检查。这是类型依赖的静态证明；未改仓库模拟 S2，也未把当前旧代码的 typecheck 通过/失败冒充未来切片实测。
+- **建议改法**：保留已批准的切片与提交方式，只把跨包调用的机械迁移放到破坏公开接口的同一切片，并从 S2 起检查消费者的 typecheck/受影响测试；不要引入长期双接口兼容层。明确 S3 后哪些装配用例已改、S4 接入什么行为，所有真实模型测试的类型装配随接口即时迁移，真实请求仍留到获授权的 smoke。
+
+### 9. 验收映射漏掉 F3、F4 和快照不变等明确黑盒判据
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：计划“验收映射”（84-94 行）；Spec“输入与前置条件”“输出与可观察行为”“失败与恢复”“状态与转换”；`docs/testing/README.md:12,46`。
+- **现象**：当前表覆盖输出编号，却没有逐项覆盖失败合同；F3、F4 没有测试位置，数项输出只覆盖一个正例或一种失败。现有 nb-profile 的 loader 测试仍只校验旧 ProfileNode，不能充当新定义合法性、initial 校验的证据。
+- **为什么是问题**：以下都是已定行为，不是新增范围，按现表实现并全部通过仍然可以违约：
+  - **F3**：新会话 initial 缺失/不合 schema；恢复时又给 initial，必须 `invalid_initial`，且不追加任何条目。
+  - **F4**：不合法 Profile、重复 tool id、`If` 的 when/tool 都给或都不给，必须通过定义/加载边界的明确错误通道拒绝；当前映射没有对应测试。
+  - **输出 1-4**：必需工具错误和撞名时日志仍为空；已有会话不受后来的登记表/policy 变化影响；恢复时 Profile key、provider 版本、必需工具缺失均明确拒绝，不能只测 schema 和 Profile version。
+  - **输出 7-9**：首轮输入恰出现一次；`<If tool>` 包住的 System 内文字也按生效集合裁掉；成组工具调用/结果不能由 `HistorySet kind="tool-results"` 或单独 ToolResult 节点拆散（现有 DSL 确实能只选结果）。
+  - **输出 12、F10**：Profile 渲染抛错归为 local，目前只列密钥与日志本地错误；flags 与状态码同时存在时按既定优先级归类，不能只给每类一个互斥样本。
+  - **输出 17、18**：complete 的 input 是唯一用户消息、不混入 Profile 的静态消息；`apiKey:"none"` 不发认证头；指定变量为空字符串也不退回凭据。
+  - **状态与转换**：关闭中与已关闭的 subscribe 都拒绝；重复 close 幂等；解除订阅后不再收到事件。当前“关闭后调用”及验收 3 只具体描述 turn。
+- **如何核实**：逐条对照计划表与 Spec F1-F10、输出 1-18、状态表；现有 `packages/nb-profile/src/render.ts:74-97` 和 `tests/render.test.ts:21-40,57-68` 允许只展开工具结果。以上为验收遗漏的静态核对，没有把未编写的测试说成已失败。
+- **建议改法**：在既定 S1-S7 内补全逐失败码与逐边界的映射，给新 Profile/initial/生命周期测试明确归属；迁移旧渲染用例时移除允许不成组历史的旧约定，不保留自相矛盾的断言。测试从公开 create/turn/complete/subscribe 与真实 Agent 请求上下文观察结果，不测私有实现和文案偶然值。
+
+## 未发现问题的方面
+
+- **混批预拦截可行，已实测。** `beforeToolCall` 按调用顺序准备整批，然后才进入调度执行；返回 block 的 finish 不执行，但仍有 tool_execution_end 与 toolResult 消息，普通兄弟工具正常执行。`runtime.ts` 的 finish+lookup 场景是 0 次 finish 执行、2 条配对结果（finish 为 error、lookup 成功）、2 次模型请求；不需要为了配对再手工伪造一条结果。
+- **撤回后由桥接 Promise 单独结算可行，已实测该机制。** OMP 等待的是 bridge.execute 返回的 Promise，不要求继续等待底层原 Promise。真实 Agent 接入 race 包装后，中断先赢、原 Promise 后来成功，合计仍只有 1 次 tool_execution_end、1 条中断结果；原 Promise 的完成由包装层已安装的处理器消费，不会自动产生第二个 OMP 事件。未来 bridge 必须保留迟到 reject 的消费与自身监听器释放；本实验不是对尚未实现的 registry.revoke 通知的完整验收。
+- **模型请求和调度历史可以分离，源码已确认。** `agent-loop.ts:1717-1745` 的 transformContext 只替换局部 messages，transformProviderContext 只替换 provider-bound Context；它们不会自动重写 Agent 内部 messages。按这两个真实入口实现时，可保留调度器、afterToolCall 和 terminal reason 所需的原始工具历史；发现 1 指出的是计划选错了入口，不是否定日志渲染方案。
+- **当前轮之前的已入队写入可以等；未来事件不可以等。** 原探针证明的是已排队写入的屏障；本次真实 JSONL 探针明确区分了尚未发出的本轮 user 事件，真实收尾探针明确区分了尚未发出的 toolResult 事件。没有发现“等待已有、独立可完成写入”本身必然死锁的问题；环等发生在把这些未来事件的写入也放进钩子等待时。
+- **无认证 OpenAI 端点已经有确定做法，已实测。** 公开子路径 `@oh-my-pi/pi-ai/providers/openai-shared` 提供 `NO_AUTH_SENTINEL = "N/A"`；返回此非空值不会触发 key 回退，也不会生成 Authorization。真实 openai-completions fetch 接缝收到 1 次请求、认证头缺席；普通任意占位字符串会生成 Bearer 头。因此“绝不返回 undefined”和 `apiKey:"none"` 能同时做到，无需绕过 provider 或自行删头。
+- **TypeBox 1.3.6 常见 schema 可直接用，已实测。** 通过真实 Agent 的 union/literal/array/integer/optional/object 校验，合法输入执行 1 次且成功；不合法输入执行 0 次、得到 1 条工具错误；没有发现必须先造 schema 转换层的证据，不声称已覆盖 TypeBox 的每一种扩展。
+- **错误标记的公开路径存在，已核实解析与导出值。** `@oh-my-pi/pi-ai/error`、`@oh-my-pi/pi-ai/error/flags` 及 `@oh-my-pi/pi-catalog/build` 都能从主工作区 package exports 解析；Flag.AuthFailed 值为 0x01000000。无需使用风险段设想的降级路径，也无需深导入私有文件。
+- **正常的多响应并非已发现的误报。** OpenAI 空回复重试、输出前断流重试均为 2 次 onResponse 对 1 条助手消息，标不完整符合已定口径；普通成功是 1 对 1。已提交输出后断流是 1 次请求、1 次回调、1 条 error 助手消息；输出前取消为 1/0/1，输出后取消为 1/1/1，因此取消的独立 false 标记不可省。未把这些样本推广为所有 provider 的恰好一次保证；发现 3 是确定的漏报。
+- **旧装配测试和包入口门禁已经列入迁移。** 计划 64、78 行明确更新 AGENTS.md 并改写 harness.e2e.test.ts，没有漏掉这两个文件；发现 8 只指出迁移和消费者验证的切片边界不自洽，不要求保留旧装配路径。
+- **不重开已定产品取舍。** Profile 封闭工具集、快照恢复、收尾混批全部退回、可见用量下界、新旧日志边界、无工具 complete、删除 harness 的 DeepSeek 特例，以及已批准的切片/工作方式，均作为约束使用；没有重报上一轮 13 条设计问题。
+
+## 对“不做与风险”各项的判断
+
+1. **非目标（105 行）**：与 Spec 一致，不应借本次审查追加工具发现、公共工具、追加工具、审批、步数上限或上下文压缩。
+2. **上下文覆盖风险（106 行）**：不能只留到 S4 用测试兜底，须先把不存在的 Agent 配置入口改成真实 provider-context 变换，并写清发现 2、4 的事件边界。
+3. **无认证端点（107 行）**：OpenAI 已有公开 N/A 哨兵且本次实测无认证头，其他 provider 尚未验证不能作为统一返回 auth 的理由，实际认证失败仍按既定错误合同归类。
+4. **TypeBox 兼容（108 行）**：本次常见 schema 已经在真实 Agent 通过，应先直接使用 JSON Schema 形状，只为确证不兼容的 schema 做必要适配，不预建转换层或换版本。
+5. **错误标记导出（109 行）**：公开 error 和 error/flags 路径均已核实可用，直接使用 Flag/errorId，不需要设想的“导不出则降级”分支。
+
+## 实际验证与边界
+
+本次运行以下 5 个命令，均退出 0，共输出 19 条 JSON 观察记录；均使用真实 OMP Agent 循环或 provider 的公开 fetch 接缝，没有连接真实模型：
+
+```text
+bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-plan/lab/runtime.ts
+bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-plan/lab/provider.ts
+bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-plan/lab/lifecycle.ts
+bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-plan/lab/compatibility.ts
+bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-plan/lab/stream-edges.ts
+```
+
+- 未运行仓库 bun test、typecheck、e2e、开发服务或真实模型；未安装依赖；未修改仓库文件、提交或操作分支。只新增本报告及指定 lab 中的实验文件和实验 JSONL。
+- 发现 1-5 含真实运行时证据；发现 5 的 harness 外围步骤是按计划搭建的协议实验，已明确不是未来实现的回归测试。发现 6-9 是计划与现有接口/合同的静态核对。
+- 取消实验中的独立取消标记没有纳入输出字段 `plannedCompleteWithoutCancelFlag`，该字段只用于展示响应数公式不能自行发现取消，不代表对计划“取消时 false”的反例。
+- 每次追加后用专用 grep 工具匹配 `^### `，发现标题数从 1 逐次增到 9，没有减少；没有重写已有发现。
+
+## 数量
+
+- 阻断：**2** 条（1、2）。
+- 重要：**7** 条（3-9）。
+- 建议：**0** 条。
+- 合计：**9** 条。
+
+## 回写建议（只报告，不修改真相源）
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| 1 | 踩坑 | 上层 Agent 忽略底层循环同名钩子；afterToolCall 又早于持久化事件 | 在既定的能力文档更新中补充：“集成钩子须按实际公开入口验证；工具执行完成、结果事件和日志提交是三个边界，不能在前置钩子等待后续事件驱动的提交。” | `packages/nb-harness/docs/omp-capabilities.md` 的能力与陷阱小节 |
+
+## 用量发现的合同边界说明
+
+发现 3 不要求修改已经接受的计量口径：Spec 输出 11 的原文是“察觉到 provider 层重试”时 complete 为 false，不是承诺检测所有重试。实测证明的是 onResponse 只能观察部分路径；计划的测试与能力文档必须把这个盲区写清，不能把 `complete:true` 解释为“实际没有发生重试”。若保持当前计数方案，可以保留现有 false 判定，但应将 503/响应前断连样本列为已知未察觉边界，而不是声称已覆盖所有 provider 重试；不得为此重新要求计入所有 attempt 或改成账单口径。

@@ -1,5 +1,5 @@
 /**
- * 视图注册表（docs/specs/workbench/views.md 输出 1–6、8，验收 2、3、5、6）：真实内核的浏览器实例，拥有者插件用产品的
+ * 视图注册表（docs/specs/workbench/views.md 输出 1–6、8、13，验收 2、3、5、6）：真实内核的浏览器实例，拥有者插件用产品的
  * 贡献点校验与 `ViewRegistry`，宿主能力用产品的 `createWindowPlugins` 接在插件观察者上。贡献方插件按开关失败、
  * 自己关闭激活作用域、加载时等测试放行，这些都是插件自己的真实代码路径。
  */
@@ -10,17 +10,18 @@ import {computed} from "@vue/reactivity";
 import {defineComponent} from "vue";
 import type {Component} from "vue";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
 import type {ActivationContext, ContributionHandle, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
+import {createApplication} from "nbook/application";
 import {createWindowPlugins} from "nbook/web/host/window-plugins";
 
-import {validateViewContribution, WORKBENCH_VIEWS_POINT} from "../../shared/views";
+import {viewsPoint, WORKBENCH_VIEWS_POINT} from "../../shared/views";
 import type {ViewDeclaration} from "../../shared/views";
 import type {ViewImplementation} from "../contracts";
+import {computePlacement, implicitContainerId} from "./placement";
 import {ViewRegistry} from "./registry";
 
 const started: Application[] = [];
@@ -29,8 +30,8 @@ afterEach(async () => {
     for (const application of started.splice(0)) await application.stop();
 });
 
-function declaration(name: string): ViewDeclaration {
-    return {title: {"zh-CN": name, "en-US": name}, icon: "i-lucide-square", location: "sidebar", layout: "scroll"};
+function declaration(name: string, order?: number): ViewDeclaration {
+    return {title: {"zh-CN": name, "en-US": name}, icon: "i-lucide-square", location: "sidebar", layout: "scroll", ...(order === undefined ? {} : {order})};
 }
 
 interface Owner {
@@ -44,7 +45,7 @@ interface Owner {
 function ownerPlugin(owner: Owner, plugins: () => ReturnType<typeof createWindowPlugins>["capability"]): PluginDefinition {
     return {
         id: "test.owner",
-        contributionPoints: [{id: WORKBENCH_VIEWS_POINT, implementation: "required", validate: validateViewContribution}],
+        contributionPoints: [viewsPoint],
         entries: [{
             id: "browser",
             location: "browser",
@@ -68,14 +69,15 @@ interface ContributorControl {
 
 const Sample = defineComponent({name: "SampleView", render: () => null});
 
-function contributor(id: string, views: ReadonlyArray<string>, control: ContributorControl, extra: Partial<PluginDefinition["entries"][number]> = {}): PluginDefinition {
+/** `orders` 给部分视图写 `order`，其余不写。 */
+function contributor(id: string, views: ReadonlyArray<string>, control: ContributorControl, extra: Partial<PluginDefinition["entries"][number]> = {}, orders: Readonly<Record<string, number>> = {}): PluginDefinition {
     return {
         id,
         entries: [{
             id: "browser",
             location: "browser",
             activationEvents: ["onStartup"],
-            contributions: views.map((view) => ({capability: WORKBENCH_VIEWS_POINT, id: view, declaration: declaration(view)})),
+            contributions: views.map((view) => ({capability: WORKBENCH_VIEWS_POINT, id: view, declaration: declaration(view, orders[view])})),
             activate: (context) => {
                 if (control.fail) throw new Error("样例入口按开关激活失败");
                 control.context = context;
@@ -122,8 +124,17 @@ describe("视图注册表", () => {
         const {application, registry} = await start([lazy, wrong]);
         expect([...registry.catalog.keys()]).toEqual(["test.lazy.one"]);
         expect(registry.delivery("test.lazy.one")).toEqual({kind: "declared"});
-        expect(application.plugins.contribution(WORKBENCH_VIEWS_POINT, "other.view")[0]?.validation).toEqual({status: "rejected", reason: "invalid-declaration", detail: "插件 test.wrong 的视图 id 必须以 test.wrong. 开头：other.view"});
+        expect(application.plugins.contribution(WORKBENCH_VIEWS_POINT, "other.view")[0]?.validation).toEqual({status: "rejected", reason: "invalid-declaration", detail: "贡献 id 要以插件 id test.wrong 加“.”开头：other.view"});
         expect(await registry.load("test.lazy.one")).toEqual({status: "stale"});
+    });
+
+    it("没写 order 的第三方视图排在内置视图之后，写了的照写的排（输出 13）", async () => {
+        // acme 按 id 排在 nbook 前面：没有这条缺省时，第三方视图会排在内置视图前面。
+        const builtin = contributor("nbook.sample", ["nbook.sample.view"], control());
+        const third = contributor("acme.sample", ["acme.sample.later", "acme.sample.first"], control(), {}, {"acme.sample.first": 0});
+        const {registry} = await start([builtin, third]);
+        const sidebar = computePlacement(registry.catalog, {}).parts.sidebar;
+        expect(sidebar).toEqual(["acme.sample.first", "nbook.sample.view", "acme.sample.later"].map(implicitContainerId));
     });
 
     it("交付后可用，每次加载经句柄取实现", async () => {

@@ -3,73 +3,45 @@ import {describe, expect, it, vi} from "vitest";
 import {defineComponent, h, nextTick, ref} from "vue";
 import Button from "./controls/Button.vue";
 import IconButton from "./controls/IconButton.vue";
-import Pagination from "./controls/Pagination.vue";
 import SegmentedControl from "./controls/SegmentedControl.vue";
 import Switch from "./controls/Switch.vue";
-import SwitchField from "./controls/SwitchField.vue";
 import Tabs from "./controls/Tabs.vue";
 import ToggleGroup from "./controls/ToggleGroup.vue";
 import Toolbar from "./controls/Toolbar.vue";
-import {paginationRange} from "./controls/pagination-range";
-import Avatar from "./display/Avatar.vue";
 import Badge from "./display/Badge.vue";
+import CodeBlock from "./display/CodeBlock.vue";
 import Kbd from "./display/Kbd.vue";
 import Progress from "./display/Progress.vue";
 import Table from "./display/Table.vue";
 import AlertDialog from "./feedback/AlertDialog.vue";
+import Banner from "./feedback/Banner.vue";
 import Dialog from "./feedback/Dialog.vue";
 import Drawer from "./feedback/Drawer.vue";
-import HoverCard from "./feedback/HoverCard.vue";
 import Notification from "./feedback/Notification.vue";
-import NotificationViewport from "./feedback/NotificationViewport.vue";
+import NotificationStack from "./feedback/NotificationStack.vue";
 import Popover from "./feedback/Popover.vue";
 import Tooltip from "./feedback/Tooltip.vue";
-import ContextMenu from "./feedback/ContextMenu.vue";
-import {clampMenuPosition, computeCascadePosition} from "./feedback/menu-cascade";
-import Combobox from "./form/Combobox.vue";
-import {moveHighlight} from "./form/option-highlight";
-import FormCheckbox from "./form/FormCheckbox.vue";
-import FormField from "./form/FormField.vue";
-import FormInput from "./form/FormInput.vue";
-import FormNumberInput from "./form/FormNumberInput.vue";
-import FormSelect from "./form/FormSelect.vue";
-import PinInput from "./form/PinInput.vue";
+import ContextMenu from "./popup/ContextMenu.vue";
+import {clampMenuPosition, computeCascadePosition} from "../utils/popup-geometry";
+import Checkbox from "./form/Checkbox.vue";
+import Field from "./form/Field.vue";
+import Input from "./form/Input.vue";
+import NumberInput from "./form/NumberInput.vue";
+import Select from "./popup/Select.vue";
 import RadioGroup from "./form/RadioGroup.vue";
 import Slider from "./form/Slider.vue";
-import TagInput from "./form/TagInput.vue";
-import Accordion from "./layout/Accordion.vue";
-import AspectRatio from "./layout/AspectRatio.vue";
 import Collapsible from "./layout/Collapsible.vue";
-import Panel from "./layout/Panel.vue";
+import CollapsibleCard from "./layout/CollapsibleCard.vue";
+import CollapsibleRow from "./layout/CollapsibleRow.vue";
 import ScrollArea from "./layout/ScrollArea.vue";
 import Separator from "./layout/Separator.vue";
 import Splitter from "./layout/Splitter.vue";
 import type {SplitterGestureState} from "./layout/splitter-gesture";
 import Breadcrumb from "./navigation/Breadcrumb.vue";
-import NavigationMenu from "./navigation/NavigationMenu.vue";
-import Tree from "./navigation/Tree.vue";
-import Editable from "./controls/Editable.vue";
-import Menubar from "./controls/Menubar.vue";
-import Stepper from "./controls/Stepper.vue";
-import Rating from "./display/Rating.vue";
-import Autocomplete from "./form/Autocomplete.vue";
+import Menubar from "./popup/Menubar.vue";
 import CheckboxGroup from "./form/CheckboxGroup.vue";
-import ColorPicker from "./form/ColorPicker.vue";
-import DateField from "./form/DateField.vue";
-import DatePicker from "./form/DatePicker.vue";
-import DateRangeField from "./form/DateRangeField.vue";
-import DateRangePicker from "./form/DateRangePicker.vue";
-import Listbox from "./form/Listbox.vue";
-import MonthPicker from "./form/MonthPicker.vue";
-import MonthRangePicker from "./form/MonthRangePicker.vue";
-import Calendar from "./form/Calendar.vue";
-import RangeCalendar from "./form/RangeCalendar.vue";
-import TimeField from "./form/TimeField.vue";
-import TimeRangeField from "./form/TimeRangeField.vue";
-import YearPicker from "./form/YearPicker.vue";
-import YearRangePicker from "./form/YearRangePicker.vue";
+import Tree from "./navigation/Tree.vue";
 import {useNotification} from "../composables/useNotification";
-import {getFocusable, trapTabKey} from "../utils/focus-trap";
 
 describe("nb-ui components", () => {
     it("renders button loading and disabled state", () => {
@@ -84,19 +56,8 @@ describe("nb-ui components", () => {
         expect(wrapper.classes()).toContain("bg-[var(--status-danger)]");
     });
 
-    it("renders panel slot content", () => {
-        const wrapper = mount(Panel, {
-            props: {tone: "subtle", padding: "sm"},
-            slots: {default: "<p>内容</p>"},
-        });
-
-        expect(wrapper.text()).toContain("内容");
-        expect(wrapper.classes()).toContain("bg-[var(--bg-subtle)]");
-        expect(wrapper.classes()).toContain("p-3");
-    });
-
     it("passes common input attributes to the native input", () => {
-        const wrapper = mount(FormInput, {
+        const wrapper = mount(Input, {
             props: {
                 modelValue: "abc",
                 id: "username",
@@ -114,9 +75,9 @@ describe("nb-ui components", () => {
     });
     it("uses the theme-controlled md height and padding classes for single-line controls", () => {
         const wrappers = [
-            mount(FormInput, {props: {modelValue: "abc"}}),
-            mount(FormNumberInput, {props: {modelValue: "3"}}),
-            mount(FormSelect, {props: {modelValue: "md", options: [{label: "Markdown", value: "md"}]}}),
+            mount(Input, {props: {modelValue: "abc"}}),
+            mount(NumberInput, {props: {modelValue: "3"}}),
+            mount(Select, {props: {modelValue: "md", options: [{label: "Markdown", value: "md"}]}}),
         ];
 
         for (const wrapper of wrappers) {
@@ -129,12 +90,12 @@ describe("nb-ui components", () => {
 
     it("renders the required mark; an error keeps the layout: the description stays and the reason is only for assistive tech", () => {
         const wrapper = mount({
-            components: {FormField, FormInput},
+            components: {Field, Input},
             data: () => ({value: ""}),
             template: `
-                <FormField label="用户名" description="公开显示" required error="已被占用">
-                    <FormInput v-model="value" name="username" />
-                </FormField>
+                <Field label="用户名" description="公开显示" required error="已被占用">
+                    <Input v-model="value" name="username" />
+                </Field>
             `,
         });
 
@@ -150,12 +111,12 @@ describe("nb-ui components", () => {
 
     it("connects form field semantics to nested inputs", () => {
         const wrapper = mount({
-            components: {FormField, FormInput},
+            components: {Field, Input},
             data: () => ({value: ""}),
             template: `
-                <FormField label="用户名" description="公开显示" required>
-                    <FormInput v-model="value" name="username" />
-                </FormField>
+                <Field label="用户名" description="公开显示" required>
+                    <Input v-model="value" name="username" />
+                </Field>
             `,
         });
         const input = wrapper.get("input");
@@ -190,15 +151,12 @@ describe("nb-ui components", () => {
         expect(button.classes()).not.toContain("nb-ui-focus-ring");
     });
 
-    it("tabs and accordion headers fill their strip, so their focus is an inset line", async () => {
+    it("tabs fill their strip, so their focus is an inset line", async () => {
         const tabs = mount(Tabs, {props: {modelValue: "a", items: [{label: "文档", value: "a"}, {label: "大纲", value: "b"}]}});
-        const accordion = mount(Accordion, {props: {type: "single", collapsible: true, items: [{value: "v1", title: "第一卷", content: "雾港"}]}});
         await nextTick();
 
         for (const tab of tabs.findAll("[role='tab']")) expect(tab.classes()).toContain("nb-ui-focus-ring-inset");
-        expect(accordion.get("button[aria-expanded]").classes()).toContain("nb-ui-focus-ring-inset");
         tabs.unmount();
-        accordion.unmount();
     });
 
     it("clips collapsible content only while its height animation runs", async () => {
@@ -221,7 +179,61 @@ describe("nb-ui components", () => {
         wrapper.unmount();
     });
 
-    it("renders segmented control as a labelled group", () => {
+    it("collapsible row: only expandable rows are buttons; toggle asks for the opposite state; content shows only when expanded", async () => {
+        const fixed = mount(CollapsibleRow, {props: {icon: "i-lucide-file", label: "读取", detail: "第三章.md"}, slots: {default: "<p class='inner'>内容</p>"}});
+        expect(fixed.find("button").exists()).toBe(false);
+        expect(fixed.find(".inner").exists()).toBe(false);
+
+        const row = mount(CollapsibleRow, {props: {icon: "i-lucide-file", label: "读取", expanded: false}, slots: {default: "<p class='inner'>内容</p>"}});
+        expect(row.get("button").attributes("aria-expanded")).toBe("false");
+        // 行常常填满所在的列表，焦点画成内嵌线。
+        expect(row.get("button").classes()).toContain("nb-ui-focus-ring-inset");
+        await row.get("button").trigger("click");
+        expect(row.emitted("update:expanded")).toEqual([[true]]);
+        expect(row.find(".inner").exists()).toBe(false);
+        await row.setProps({expanded: true});
+        expect(row.get(".inner").text()).toBe("内容");
+    });
+
+    it("collapsible row: a zero side is hidden when the other side changed; the spinner takes the given label", () => {
+        const stat = (added: number | null, removed: number | null) => mount(CollapsibleRow, {props: {icon: "i-lucide-file-pen", label: "改", stat: {added, removed}}}).text();
+        expect(stat(3, 0)).toContain("+3");
+        expect(stat(3, 0)).not.toContain("-0");
+        expect(stat(0, 0)).toContain("+0");
+        expect(stat(0, 0)).toContain("-0");
+        expect(stat(null, 2)).toBe("改-2");
+        const running = mount(CollapsibleRow, {props: {icon: "i-lucide-file", label: "读取", status: "running", runningLabel: "Running"}});
+        expect(running.get("[role=status]").attributes("aria-label")).toBe("Running");
+        const fallback = mount(CollapsibleRow, {props: {icon: "i-lucide-file", label: "读取", status: "running"}});
+        expect(fallback.get("[role=status]").attributes("aria-label")).toBe("加载中");
+    });
+
+    it("collapsible card: the head toggles, actions do not; the body is always shown when not collapsible", async () => {
+        const card = mount(CollapsibleCard, {
+            props: {icon: "i-lucide-terminal", title: "运行命令", subtitle: "ls", expanded: false},
+            slots: {default: "<p class='body'>输出</p>", actions: "<button class='copy'>复制</button>"},
+        });
+        await card.get(".copy").trigger("click");
+        expect(card.emitted("update:expanded")).toBeUndefined();
+        expect(card.get("button[aria-expanded]").classes()).toContain("nb-ui-focus-ring-inset");
+        await card.get("button[aria-expanded]").trigger("click");
+        expect(card.emitted("update:expanded")).toEqual([[true]]);
+        expect(card.find(".body").exists()).toBe(false);
+
+        const open = mount(CollapsibleCard, {props: {icon: "i-lucide-terminal", title: "运行命令"}, slots: {default: "<p class='body'>输出</p>"}});
+        expect(open.find("button").exists()).toBe(false);
+        expect(open.get(".body").text()).toBe("输出");
+    });
+
+    it("code block: marks added and removed lines, numbers from startLine, and shows the given empty and truncated texts", () => {
+        const block = mount(CodeBlock, {props: {lines: [{text: "a"}, {text: "b", tone: "added"}, {text: "c", tone: "removed"}], startLine: 10, truncated: true, truncatedText: "Partial"}});
+        const lines = block.findAll(".nb-code-block__line").map((line) => line.text());
+        expect(lines).toEqual(["10a", "11+b", "12-c"]);
+        expect(block.get(".nb-code-block__note").text()).toBe("Partial");
+        expect(mount(CodeBlock, {props: {lines: [], emptyText: "Empty"}}).text()).toBe("Empty");
+    });
+
+    it("renders segmented control as a labelled radio group: one item checked, no toggle-button state", () => {
         const wrapper = mount(SegmentedControl, {
             props: {
                 modelValue: "list",
@@ -232,29 +244,93 @@ describe("nb-ui components", () => {
                 ],
             },
         });
-        const group = wrapper.get("[role='group']");
+        const group = wrapper.get("[role='radiogroup']");
 
-        expect(group.attributes("role")).toBe("group");
         expect(group.attributes("aria-label")).toBe("视图");
-        expect(wrapper.findAll("button")[0]?.attributes("aria-pressed")).toBe("true");
+        const items = wrapper.findAll("button");
+        expect(items.map((item) => [item.attributes("role"), item.attributes("aria-checked")])).toEqual([["radio", "true"], ["radio", "false"]]);
+        expect(items.some((item) => item.attributes("aria-pressed") !== undefined)).toBe(false);
     });
 
-    it("renders switch field with switch semantics", async () => {
-        const wrapper = mount(SwitchField, {
-            props: {modelValue: false, label: "启用"},
-        });
-        const button = wrapper.get("button");
+    it("segmented control without a matching value still has one tab stop and arrows start from the ends", async () => {
+        const options = [
+            {label: "随窗口", value: "free"},
+            {label: "平板", value: "tablet"},
+            {label: "手机", value: "phone"},
+        ];
+        const wrapper = mount(SegmentedControl, {props: {modelValue: null, options}});
+        const buttons = wrapper.findAll("button");
 
-        expect(button.attributes("role")).toBe("switch");
-        expect(button.attributes("aria-checked")).toBe("false");
-        await button.trigger("click");
-        expect(wrapper.emitted("update:modelValue")?.[0]).toEqual([true]);
+        expect(buttons.map((button) => button.attributes("aria-checked"))).toEqual(["false", "false", "false"]);
+        expect(buttons.map((button) => button.attributes("tabindex"))).toEqual(["0", "-1", "-1"]);
+
+        await buttons[0]!.trigger("keydown", {key: "ArrowLeft"});
+        await buttons[0]!.trigger("keydown", {key: "ArrowRight"});
+        expect(wrapper.emitted("update:modelValue")).toEqual([["phone"], ["free"]]);
+        wrapper.unmount();
+    });
+
+    it("segmented control: 上下键与左右键一样移动，Home、End 到首末项，跳过停用项并循环", async () => {
+        const options = [
+            {label: "随窗口", value: "free"},
+            {label: "平板", value: "tablet", disabled: true},
+            {label: "手机", value: "phone"},
+            {label: "桌面", value: "desktop"},
+        ];
+        const wrapper = mount(SegmentedControl, {props: {modelValue: "free", options}});
+        const root = wrapper.get("[role='radiogroup']");
+        for (const key of ["ArrowDown", "ArrowRight", "ArrowUp", "End", "Home", "ArrowLeft"]) {
+            await root.trigger("keydown", {key});
+            await wrapper.setProps({modelValue: wrapper.emitted<[string]>("update:modelValue")!.at(-1)![0]});
+        }
+        expect(wrapper.emitted("update:modelValue")).toEqual([["phone"], ["desktop"], ["phone"], ["desktop"], ["free"], ["desktop"]]);
+        wrapper.unmount();
+    });
+
+    it("segmented control takes icon-only options named by title", () => {
+        const wrapper = mount(SegmentedControl, {
+            props: {modelValue: "tree", options: [{value: "text", iconClass: "i-lucide-file-json-2", title: "文本"}, {value: "tree", iconClass: "i-lucide-git-branch", title: "树形"}]},
+        });
+        const buttons = wrapper.findAll("button");
+
+        expect(buttons.map((button) => button.attributes("aria-label"))).toEqual(["文本", "树形"]);
+        expect(buttons.map((button) => button.text())).toEqual(["", ""]);
+        expect(buttons[1]!.attributes("aria-checked")).toBe("true");
+        wrapper.unmount();
+    });
+
+    it("banner: actions slot holds several buttons, error is announced as alert, icon can be replaced, dismiss only emits", async () => {
+        const wrapper = mount(Banner, {
+            props: {tone: "error", message: "磁盘上的文件已被修改。", iconClass: "i-lucide-refresh-cw", dismissible: true, closeLabel: "知道了"},
+            slots: {actions: "<button data-a>重新载入</button><button data-b>覆盖</button>"},
+        });
+
+        expect(wrapper.attributes("role")).toBe("alert");
+        expect(wrapper.find("[data-a]").exists()).toBe(true);
+        expect(wrapper.find("[data-b]").exists()).toBe(true);
+        expect(wrapper.find(".i-lucide-refresh-cw").exists()).toBe(true);
+        expect(wrapper.find(".i-lucide-circle-x").exists()).toBe(false);
+
+        await wrapper.get("[aria-label='知道了']").trigger("click");
+        expect(wrapper.emitted("dismiss")).toHaveLength(1);
+        expect(wrapper.exists()).toBe(true);
+        wrapper.unmount();
+    });
+
+    it("banner without actions or close button renders only the message as status", () => {
+        const wrapper = mount(Banner, {props: {tone: "warning", message: "已与服务端断开。"}});
+
+        expect(wrapper.attributes("role")).toBe("status");
+        expect(wrapper.text()).toBe("已与服务端断开。");
+        expect(wrapper.findAll("button")).toHaveLength(0);
+        expect(wrapper.find(".i-lucide-alert-triangle").exists()).toBe(true);
+        wrapper.unmount();
     });
 
     it("renders notifications with theme tone classes", () => {
         const notification = useNotification();
         const id = notification.success("保存成功");
-        const wrapper = mount(NotificationViewport, {
+        const wrapper = mount(NotificationStack, {
             global: {
                 stubs: {
                     ClientOnly: {template: "<slot />"},
@@ -287,7 +363,7 @@ describe("nb-ui components", () => {
     });
 
     it("renders themed checkbox and emits updates", async () => {
-        const wrapper = mount(FormCheckbox, {
+        const wrapper = mount(Checkbox, {
             props: {modelValue: false, label: "接收通知"},
         });
         const input = wrapper.get("input");
@@ -299,12 +375,12 @@ describe("nb-ui components", () => {
 
     it("passes form field semantics to checkboxes", () => {
         const wrapper = mount({
-            components: {FormCheckbox, FormField},
+            components: {Checkbox, Field},
             data: () => ({value: false}),
             template: `
-                <FormField label="许可" description="用于测试" required>
-                    <FormCheckbox v-model="value" label="同意" name="agree" />
-                </FormField>
+                <Field label="许可" description="用于测试" required>
+                    <Checkbox v-model="value" label="同意" name="agree" />
+                </Field>
             `,
         });
         const input = wrapper.get("input");
@@ -316,12 +392,12 @@ describe("nb-ui components", () => {
 
     it("shows danger border on inputs inside an errored form field", () => {
         const wrapper = mount({
-            components: {FormField, FormInput},
+            components: {Field, Input},
             data: () => ({value: ""}),
             template: `
-                <FormField label="用户名" error="必填">
-                    <FormInput v-model="value" name="username" />
-                </FormField>
+                <Field label="用户名" error="必填">
+                    <Input v-model="value" name="username" />
+                </Field>
             `,
         });
         const input = wrapper.get("input");
@@ -331,16 +407,16 @@ describe("nb-ui components", () => {
     });
 
     /*
-     * FormSelect 从原生 <select> 换成 Reka Select 原语（Task 146 批 4）。
+     * Select 从原生 <select> 换成 Reka Select 原语（Task 146 批 4）。
      * 原生 select 的弹出列表由操作系统绘制，任何 CSS 都够不着，主题只能做到控件本身为止。
      *
      * 换实现最容易悄悄丢掉的是**契约**，所以这几条盯的都是契约不是外观：
-     * 触发器仍然接 FormField 的 id / describedby / invalid，仍然吐 update:modelValue，
+     * 触发器仍然接 Field 的 id / describedby / invalid，仍然吐 update:modelValue，
      * 且弹出层必须是页面内的 DOM——那正是原生实现做不到的那件事。
      */
     describe("form select", () => {
         it("no longer renders a native select the theme cannot reach into", () => {
-            const wrapper = mount(FormSelect, {
+            const wrapper = mount(Select, {
                 props: {modelValue: "md", options: [{label: "Markdown", value: "md"}]},
             });
 
@@ -350,7 +426,7 @@ describe("nb-ui components", () => {
         });
 
         it("shows the label of the current value rather than the raw value", () => {
-            const wrapper = mount(FormSelect, {
+            const wrapper = mount(Select, {
                 props: {
                     modelValue: "docx",
                     options: [
@@ -373,7 +449,7 @@ describe("nb-ui components", () => {
              * 教训是断言面：**只测关着的状态测不出弹出层**。弹出层被 portal 到 body，
              * 所以要 attachTo 并从 document 查，从 wrapper 查是查不到的。
              */
-            const wrapper = mount(FormSelect, {
+            const wrapper = mount(Select, {
                 props: {
                     modelValue: "md",
                     options: [
@@ -399,6 +475,27 @@ describe("nb-ui components", () => {
             wrapper.unmount();
             });
 
+        it("打开后键入首字母，焦点跳到以它开头的选项（reka 靠名称格的 SelectItemText 登记文字）", async () => {
+            const wrapper = mount(Select, {
+                props: {
+                    modelValue: "md",
+                    options: [
+                        {label: "Markdown", value: "md"},
+                        {label: "Text", value: "txt"},
+                        {label: "PDF", value: "pdf"},
+                    ],
+                },
+                attachTo: document.body,
+            });
+            await wrapper.get("[role='combobox']").trigger("keydown", {key: "Enter"});
+            await flushPromises();
+            const focusedBefore = document.activeElement?.getAttribute("role");
+            document.querySelector("[role='listbox']")?.dispatchEvent(new KeyboardEvent("keydown", {key: "p", bubbles: true, cancelable: true}));
+            await flushPromises();
+            expect([focusedBefore, document.activeElement?.textContent?.trim()]).toEqual(["option", "PDF"]);
+            wrapper.unmount();
+        });
+
         it("takes every item's corner radius from the popover registry, not from an atom class", async () => {
             /*
              * 用户的原话是「他的宽度和圆角没有对齐」。根因是**同心不成立**：
@@ -406,13 +503,13 @@ describe("nb-ui components", () => {
              * 直边上项与框之间有 6px 留白，绕到角上只剩不到 1px，两条弧线根本不平行。
              *
              * 所以这条盯的不是「圆角等于几」（那是主题的事），而是**取值从哪来**：
-             * 项必须挂 .nb-ui-popover-item，由它从 --nb-popover-inner-radius 推出来。
+             * 项必须挂 .nb-ui-menu-item，由它从 --nb-popover-inner-radius 推出来。
              * 谁把 rounded-* 加回模板，这条就红——那类原子类还会被排在 utilities 之后的
-             * .nb-ui-popover-item 压掉，写了也不生效，是一处「看代码以为改了其实没改」。
+             * .nb-ui-menu-item 压掉，写了也不生效，是一处「看代码以为改了其实没改」。
              *
              * 禁用项一起验：用户正是指着「PDF（暂不可用）」这一行说的，它和普通项走同一套几何。
              */
-            const wrapper = mount(FormSelect, {
+            const wrapper = mount(Select, {
                 props: {
                     modelValue: "md",
                     options: [
@@ -431,7 +528,7 @@ describe("nb-ui components", () => {
             const options = [...document.querySelectorAll("[role='option']")];
             expect(options).toHaveLength(3);
             for (const option of options) {
-                expect([...option.classList], option.textContent ?? "").toContain("nb-ui-popover-item");
+                expect([...option.classList], option.textContent ?? "").toContain("nb-ui-menu-item");
                 expect(
                     [...option.classList].filter((name) => name.startsWith("rounded-")),
                     `${option.textContent} 自己写了圆角`,
@@ -450,7 +547,7 @@ describe("nb-ui components", () => {
              * 这条盯的是真回归——把模板里那两个 :body-lock="false" / :disable-outside-pointer-events="false"
              * 任意删掉一个，它就红。
              */
-            const wrapper = mount(FormSelect, {
+            const wrapper = mount(Select, {
                 props: {
                     modelValue: "md",
                     options: [
@@ -474,12 +571,12 @@ describe("nb-ui components", () => {
 
         it("keeps wiring itself to the surrounding form field", () => {
             const wrapper = mount({
-                components: {FormField, FormSelect},
+                components: {Field, Select},
                 data: () => ({value: "md"}),
                 template: `
-                    <FormField label="导出格式" error="必填">
-                        <FormSelect v-model="value" name="format" :options="[{label: 'Markdown', value: 'md'}]" />
-                    </FormField>
+                    <Field label="导出格式" error="必填">
+                        <Select v-model="value" name="format" :options="[{label: 'Markdown', value: 'md'}]" />
+                    </Field>
                 `,
             });
             const trigger = wrapper.get("[role='combobox']");
@@ -490,7 +587,7 @@ describe("nb-ui components", () => {
         });
 
         it("emits a string when the value changes, never undefined", async () => {
-            const wrapper = mount(FormSelect, {
+            const wrapper = mount(Select, {
                 props: {modelValue: "md", options: [{label: "Markdown", value: "md"}]},
             });
 
@@ -504,49 +601,7 @@ describe("nb-ui components", () => {
     });
 });
 
-describe("nb-ui pagination range", () => {
-    it("returns all pages when page count fits without folding", () => {
-        expect(paginationRange(1, 7, 1)).toEqual([1, 2, 3, 4, 5, 6, 7]);
-        expect(paginationRange(4, 7, 1)).toEqual([1, 2, 3, 4, 5, 6, 7]);
-    });
-
-    it("folds the right side when current page is near the start", () => {
-        expect(paginationRange(2, 12, 1)).toEqual([1, 2, 3, 4, 5, "ellipsis-end", 12]);
-    });
-
-    it("folds the left side when current page is near the end", () => {
-        expect(paginationRange(11, 12, 1)).toEqual([1, "ellipsis-start", 8, 9, 10, 11, 12]);
-    });
-
-    it("folds both sides when current page is in the middle", () => {
-        expect(paginationRange(6, 12, 1)).toEqual([1, "ellipsis-start", 5, 6, 7, "ellipsis-end", 12]);
-    });
-
-    it("clamps out-of-range pages and handles empty page count", () => {
-        expect(paginationRange(99, 12, 1)).toEqual([1, "ellipsis-start", 8, 9, 10, 11, 12]);
-        expect(paginationRange(-3, 12, 1)).toEqual([1, 2, 3, 4, 5, "ellipsis-end", 12]);
-        expect(paginationRange(1, 0, 1)).toEqual([]);
-    });
-
-    it("respects a wider sibling window", () => {
-        expect(paginationRange(10, 20, 2)).toEqual([1, "ellipsis-start", 8, 9, 10, 11, 12, "ellipsis-end", 20]);
-    });
-});
-
 describe("nb-ui new primitives", () => {
-    it("renders pagination pages with current marker and emits page updates", async () => {
-        const wrapper = mount(Pagination, {
-            props: {page: 6, pageCount: 12},
-        });
-        const current = wrapper.get("[aria-current='page']");
-
-        expect(current.text()).toBe("6");
-        expect(wrapper.text()).toContain("…");
-        const buttons = wrapper.findAll("button");
-        await buttons[buttons.length - 1]?.trigger("click");
-        expect(wrapper.emitted("update:page")?.[0]).toEqual([7]);
-    });
-
     it("renders tabs with tab semantics and arrow key navigation", async () => {
         const wrapper = mount(Tabs, {
             props: {
@@ -571,6 +626,31 @@ describe("nb-ui new primitives", () => {
         await wrapper.setProps({modelValue: "b"});
         await tablist.trigger("keydown", {key: "ArrowRight"});
         expect(wrapper.emitted("update:modelValue")?.[1]).toEqual(["a"]);
+        wrapper.unmount();
+    });
+
+    it("tabs: 左方向键在首个标签上回绕到最后一个可用标签，Home、End 到首末可用标签", async () => {
+        const wrapper = mount(Tabs, {
+            props: {modelValue: "a", items: [{value: "a", label: "A"}, {value: "b", label: "B"}, {value: "c", label: "C", disabled: true}]},
+            attachTo: document.body,
+        });
+        const tablist = wrapper.get("[role='tablist']");
+        await tablist.trigger("keydown", {key: "ArrowLeft"});
+        await tablist.trigger("keydown", {key: "End"});
+        await tablist.trigger("keydown", {key: "Home"});
+        expect(wrapper.emitted("update:modelValue")).toEqual([["b"], ["b"], ["a"]]);
+        wrapper.unmount();
+    });
+
+    it("当前值不对应任何标签时，右方向键选第一个可用标签、左方向键选最后一个", async () => {
+        const wrapper = mount(Tabs, {
+            props: {modelValue: "", items: [{value: "a", label: "A"}, {value: "b", label: "B"}, {value: "c", label: "C", disabled: true}]},
+            attachTo: document.body,
+        });
+        const tablist = wrapper.get("[role='tablist']");
+        await tablist.trigger("keydown", {key: "ArrowRight"});
+        await tablist.trigger("keydown", {key: "ArrowLeft"});
+        expect(wrapper.emitted("update:modelValue")).toEqual([["a"], ["b"]]);
         wrapper.unmount();
     });
 
@@ -629,7 +709,7 @@ describe("nb-ui new primitives", () => {
     });
 
     it("renders table rows, custom cell slots and empty state", () => {
-        // mount 无法从 props 推断泛型 Row，用宿主模板组件挂载（与本文件 FormField 测试同风格）
+        // mount 无法从 props 推断泛型 Row，用宿主模板组件挂载（与本文件 Field 测试同风格）
         const wrapper = mount({
             components: {Table},
             data: () => ({
@@ -722,39 +802,6 @@ describe("nb-ui context menu position", () => {
 });
 
 describe("nb-ui a11y round", () => {
-    it("navigates combobox options with keyboard", async () => {
-        const wrapper = mount(Combobox, {
-            props: {modelValue: null, options: ["alpha", "beta", "gamma"]},
-            attachTo: document.body,
-        });
-        const input = wrapper.get("input");
-
-        await input.trigger("keydown", {key: "ArrowDown"});
-        expect(wrapper.find("[role='listbox']").exists()).toBe(true);
-        expect(input.attributes("aria-activedescendant")).toContain("-opt-0");
-
-        await input.trigger("keydown", {key: "ArrowDown"});
-        expect(input.attributes("aria-activedescendant")).toContain("-opt-1");
-
-        await input.trigger("keydown", {key: "Enter"});
-        expect(wrapper.emitted("update:modelValue")?.[0]).toEqual(["beta"]);
-        wrapper.unmount();
-    });
-
-    it("closes the combobox listbox with escape", async () => {
-        const wrapper = mount(Combobox, {
-            props: {modelValue: null, options: ["alpha", "beta"]},
-            attachTo: document.body,
-        });
-        const input = wrapper.get("input");
-
-        await input.trigger("keydown", {key: "ArrowDown"});
-        expect(wrapper.find("[role='listbox']").exists()).toBe(true);
-        await input.trigger("keydown", {key: "Escape"});
-        expect(wrapper.find("[role='listbox']").exists()).toBe(false);
-        wrapper.unmount();
-    });
-
     it("pauses and resumes notification auto dismiss", () => {
         vi.useFakeTimers();
         const notification = useNotification();
@@ -771,67 +818,6 @@ describe("nb-ui a11y round", () => {
         vi.useRealTimers();
     });
 
-    it("collects focusable elements and cycles tab focus", () => {
-        const root = document.createElement("div");
-        root.innerHTML = "<button id='first'>A</button><input id='mid'><button id='last' disabled>B</button><a id='link' href='#'>L</a>";
-        document.body.appendChild(root);
-
-        const focusable = getFocusable(root);
-        expect(focusable.map((el) => el.id)).toEqual(["first", "mid", "link"]);
-
-        (root.querySelector("#link") as HTMLElement).focus();
-        const forward = new KeyboardEvent("keydown", {key: "Tab", cancelable: true});
-        trapTabKey(forward, root);
-        expect(document.activeElement?.id).toBe("first");
-        expect(forward.defaultPrevented).toBe(true);
-
-        const backward = new KeyboardEvent("keydown", {key: "Tab", shiftKey: true, cancelable: true});
-        trapTabKey(backward, root);
-        expect(document.activeElement?.id).toBe("link");
-        root.remove();
-    });
-
-    it("adds and removes tags via keyboard", async () => {
-        const wrapper = mount(TagInput, {
-            props: {modelValue: ["vue"]},
-        });
-        const input = wrapper.get("input");
-
-        await input.setValue("nuxt");
-        await input.trigger("keydown", {key: "Enter"});
-        expect(wrapper.emitted("update:modelValue")?.[0]).toEqual([["vue", "nuxt"]]);
-
-        await input.setValue("");
-        await input.trigger("keydown", {key: "Backspace"});
-        expect(wrapper.emitted("update:modelValue")?.[1]).toEqual([[]]);
-    });
-});
-
-describe("nb-ui option highlight", () => {
-    const options = [{disabled: false}, {disabled: true}, {}, {disabled: true}, {}];
-
-    it("cycles forward and backward skipping disabled options", () => {
-        expect(moveHighlight(options, 0, "next")).toBe(2);
-        expect(moveHighlight(options, 2, "next")).toBe(4);
-        expect(moveHighlight(options, 4, "next")).toBe(0);
-        expect(moveHighlight(options, 0, "prev")).toBe(4);
-    });
-
-    it("starts from the edges when current is not enabled", () => {
-        expect(moveHighlight(options, -1, "next")).toBe(0);
-        expect(moveHighlight(options, -1, "prev")).toBe(4);
-        expect(moveHighlight(options, 1, "next")).toBe(0);
-    });
-
-    it("jumps to first and last enabled options", () => {
-        expect(moveHighlight(options, 2, "first")).toBe(0);
-        expect(moveHighlight(options, 2, "last")).toBe(4);
-    });
-
-    it("returns -1 when nothing is enabled", () => {
-        expect(moveHighlight([{disabled: true}, {disabled: true}], 0, "next")).toBe(-1);
-        expect(moveHighlight([], -1, "first")).toBe(-1);
-    });
 });
 
 describe("nb-ui notification clearAll", () => {
@@ -1052,6 +1038,74 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
         }
     });
 
+    /** 在 `target` 上按下、移动 (dx, dy)、松开，返回窗口的位移；按下与移动都是冒泡的真实 pointer 事件。 */
+    async function dragFrom(wrapper: ReturnType<typeof mountWindow>, target: Element, dx: number, dy: number): Promise<{dx: number; dy: number}> {
+        const windowElement = wrapper.get("[data-dialog-window]").element as HTMLElement;
+        const before = {left: Number.parseFloat(windowElement.style.left), top: Number.parseFloat(windowElement.style.top)};
+        target.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, button: 0, clientX: 200, clientY: 200, pointerId: 1}));
+        windowElement.dispatchEvent(new PointerEvent("pointermove", {bubbles: true, clientX: 200 + dx, clientY: 200 + dy, pointerId: 1}));
+        windowElement.dispatchEvent(new PointerEvent("pointerup", {bubbles: true, clientX: 200 + dx, clientY: 200 + dy, pointerId: 1}));
+        await nextTick();
+        return {dx: Number.parseFloat(windowElement.style.left) - before.left, dy: Number.parseFloat(windowElement.style.top) - before.top};
+    }
+
+    it("drags from the panel's blank space, the whole title bar and marked content regions", async () => {
+        const wrapper = mount(Dialog, {
+            props: {modelValue: true, modal: false, closable: true, showFooter: false, title: "浮动窗口", teleportTarget: false},
+            slots: {
+                "header-extra": "<span data-test-header-blank>头部空白</span>",
+                default: "<div data-dialog-drag><span data-test-region-text>可拖的标题</span></div><p data-test-plain>正文</p>",
+            },
+            attachTo: document.body,
+        });
+        try {
+            await nextTick();
+            const panel = wrapper.get("[data-dialog-window]").element;
+            expect(await dragFrom(wrapper, panel, 30, 20)).toEqual({dx: 30, dy: 20});
+            expect(await dragFrom(wrapper, wrapper.get("[data-dialog-body]").element, 5, 5)).toEqual({dx: 5, dy: 5});
+            expect(await dragFrom(wrapper, wrapper.get("[data-test-header-blank]").element, 10, 10)).toEqual({dx: 10, dy: 10});
+            expect(await dragFrom(wrapper, wrapper.get("[data-test-region-text]").element, -15, 5)).toEqual({dx: -15, dy: 5});
+            // 正文里没标的地方照常选字、点击，不拖
+            expect(await dragFrom(wrapper, wrapper.get("[data-test-plain]").element, 40, 40)).toEqual({dx: 0, dy: 0});
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("does not drag from buttons, inputs and role=button inside a drag region, nor below the 3px threshold", async () => {
+        const wrapper = mount(Dialog, {
+            props: {modelValue: true, modal: false, closable: true, showFooter: false, title: "浮动窗口", teleportTarget: false},
+            slots: {default: "<div data-dialog-drag><span data-test-blank>空白</span><button data-test-button>操作</button><input data-test-input /><span role=\"button\" data-test-role-button>自画的按钮</span></div>"},
+            attachTo: document.body,
+        });
+        try {
+            await nextTick();
+            expect(await dragFrom(wrapper, wrapper.get("[data-test-button]").element, 30, 30)).toEqual({dx: 0, dy: 0});
+            expect(await dragFrom(wrapper, wrapper.get("[data-test-input]").element, 30, 30)).toEqual({dx: 0, dy: 0});
+            expect(await dragFrom(wrapper, wrapper.get("[aria-label='关闭']").element, 30, 30)).toEqual({dx: 0, dy: 0});
+            expect(await dragFrom(wrapper, wrapper.get("[data-test-role-button]").element, 30, 30)).toEqual({dx: 0, dy: 0});
+            // 没超过 3px 的移动是一次点击，窗口不动
+            expect(await dragFrom(wrapper, wrapper.get("[data-test-blank]").element, 2, 0)).toEqual({dx: 0, dy: 0});
+            expect(await dragFrom(wrapper, wrapper.get("[data-test-blank]").element, 4, 0)).toEqual({dx: 4, dy: 0});
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("puts the close button in the corner when there is no title bar and keeps the title as the accessible name", async () => {
+        const wrapper = mountWindow({showHeader: false});
+        try {
+            await nextTick();
+            const dialog = wrapper.get("[role='dialog']");
+            expect(wrapper.find("header").exists()).toBe(false);
+            expect(document.getElementById(dialog.attributes("aria-labelledby") ?? "")?.textContent).toBe("浮动窗口");
+            await wrapper.get("[aria-label='关闭']").trigger("click");
+            expect(wrapper.emitted("request-close")).toEqual([["close-button"]]);
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
     it("does not resize or close while busy", async () => {
         const wrapper = mountWindow({busy: true, resizable: true});
         try {
@@ -1066,11 +1120,11 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
             wrapper.unmount();
         }
     });
-    it("raises FormSelect popovers above the window surface", async () => {
+    it("raises Select popovers above the window surface", async () => {
         const wrapper = mount(Dialog, {
             props: {modelValue: true, modal: false, showFooter: false, title: "设置", teleportTarget: false},
             slots: {
-                default: () => h(FormSelect, {
+                default: () => h(Select, {
                     modelValue: "one",
                     options: [{label: "第一项", value: "one"}, {label: "第二项", value: "two"}],
                 }),
@@ -1101,7 +1155,7 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
                     teleportTarget: false,
                     width: 600,
                 }, {
-                    default: () => h(FormSelect, {
+                    default: () => h(Select, {
                         modelValue: "one",
                         options: [{label: "第一项", value: "one"}, {label: "第二项", value: "two"}],
                     }),
@@ -1265,24 +1319,6 @@ describe("nb-ui dialog anatomy", () => {
         wrapper.unmount();
     });
 
-    it("renders accordion items and handles expansion", async () => {
-        const wrapper = mount(Accordion, {
-            props: {
-                type: "single",
-                collapsible: true,
-                items: [
-                    {value: "ch1", title: "第一章", content: "第一章正文内容"},
-                    {value: "ch2", title: "第二章", content: "第二章正文内容"},
-                ],
-            },
-        });
-
-        expect(wrapper.text()).toContain("第一章");
-        expect(wrapper.text()).toContain("第二章");
-        expect(wrapper.findAll("button[data-radix-collection-item], button[data-reka-collection-item]").length).toBe(2);
-        wrapper.unmount();
-    });
-
     it("renders radio group and supports options", async () => {
         const wrapper = mount(RadioGroup, {
             props: {
@@ -1315,7 +1351,110 @@ describe("nb-ui dialog anatomy", () => {
         wrapper.unmount();
     });
 
-    it("renders popover and hover card triggers cleanly", () => {
+    it("renders tree with nodes and indentation", () => {
+        const wrapper = mount(Tree, {
+            props: {
+                items: [
+                    {id: "v1", title: "第一卷", children: [{id: "c1", title: "第01章"}]},
+                ],
+            },
+        });
+
+        expect(wrapper.text()).toContain("第一卷");
+        wrapper.unmount();
+    });
+
+    it("uses the row surface instead of a left border for tree selection", async () => {
+        const wrapper = mount(Tree, {
+            props: {
+                items: [
+                    {id: "chapter-1", title: "第01章"},
+                    {id: "chapter-2", title: "第02章"},
+                ],
+                modelValue: "chapter-1",
+            },
+        });
+
+        const rows = wrapper.findAll("[role='treeitem']");
+        expect(rows[0]?.attributes("data-selected")).toBe("");
+        expect(rows[0]?.attributes("aria-selected")).toBe("true");
+        expect(rows[0]?.classes()).toContain("data-[selected]:bg-[color-mix(in_srgb,var(--accent-main)_12%,transparent)]");
+        expect(rows[0]?.classes()).toContain("data-[selected]:[font-weight:var(--weight-medium)]");
+        expect(rows[0]?.classes().some((name) => name.startsWith("border-l") || name.includes(":border-l"))).toBe(false);
+
+        await rows[1]?.trigger("click");
+        expect(wrapper.emitted("update:modelValue")?.at(-1)).toEqual(["chapter-2"]);
+        wrapper.unmount();
+    });
+
+    it("keeps multiple tree selection values as node ids", async () => {
+        const wrapper = mount(Tree, {
+            props: {
+                items: [
+                    {id: "chapter-1", title: "第01章"},
+                    {id: "chapter-2", title: "第02章"},
+                ],
+                multiple: true,
+                modelValue: ["chapter-1"],
+            },
+        });
+
+        const rows = wrapper.findAll("[role='treeitem']");
+        expect(rows[0]?.attributes("aria-selected")).toBe("true");
+        expect(rows[1]?.attributes("aria-selected")).toBe("false");
+        await rows[1]?.trigger("click");
+        expect(wrapper.emitted("update:modelValue")?.at(-1)).toEqual([["chapter-1", "chapter-2"]]);
+        wrapper.unmount();
+    });
+
+    it("drops the tree card surface when the caller puts it inside a panel", () => {
+        const items = [{id: "v1", title: "第一卷"}];
+        // 默认仍是卡片：已有调用方靠这层面色与描边把树从空白里收住
+        const card = mount(Tree, {props: {items}});
+        const plain = mount(Tree, {props: {items, surface: "plain"}});
+
+        const cardRoot = card.get("ul, [role='tree']");
+        const plainRoot = plain.get("ul, [role='tree']");
+        expect(cardRoot.classes()).toContain("shadow-sm");
+        expect(cardRoot.classes()).toContain("bg-[var(--panel-surface)]");
+        expect(plainRoot.classes()).not.toContain("shadow-sm");
+        expect(plainRoot.classes().some((name) => name.startsWith("bg-"))).toBe(false);
+        expect(plainRoot.classes().some((name) => name.startsWith("border"))).toBe(false);
+        // 内边距两档都留：去掉的是「卡片」，不是行与容器边缘之间的呼吸
+        expect(plainRoot.classes()).toContain("p-2");
+
+        card.unmount();
+        plain.unmount();
+    });
+
+    it("leaves node semantics to the caller instead of drawing folder icons", async () => {
+        // 泛型树不认文件系统：有子节点不等于文件夹，叶子不等于文件。
+        const wrapper = mount(Tree, {
+            props: {
+                items: [
+                    {id: "v1", title: "第一卷", children: [{id: "c1", title: "第01章"}]},
+                    {id: "solo", title: "带图标的叶子", iconClass: "i-lucide-box"},
+                ],
+                expanded: ["v1"],
+            },
+        });
+        // 用选择器查而不是搜 wrapper.html()：模板注释会原样渲染进 DOM，
+        // 而这个组件的注释里恰好写着这两个图标名，搜字符串会被自己的注释绊倒。
+        expect(wrapper.find(".i-lucide-folder").exists()).toBe(false);
+        expect(wrapper.find(".i-lucide-file-text").exists()).toBe(false);
+        // 调用方自己给的图标照旧渲染
+        expect(wrapper.find(".i-lucide-box").exists()).toBe(true);
+        // 有子节点的行才有箭头；展开与收起是两个图标，不是把同一个转 90°
+        expect(wrapper.findAll(".i-lucide-chevron-down")).toHaveLength(1);
+        expect(wrapper.findAll(".i-lucide-chevron-right")).toHaveLength(0);
+
+        await wrapper.setProps({expanded: []});
+        expect(wrapper.findAll(".i-lucide-chevron-right")).toHaveLength(1);
+        expect(wrapper.findAll(".i-lucide-chevron-down")).toHaveLength(0);
+        wrapper.unmount();
+    });
+
+    it("renders popover triggers cleanly", () => {
         const popoverWrapper = mount(Popover, {
             slots: {
                 trigger: "<button>打开气泡</button>",
@@ -1324,15 +1463,6 @@ describe("nb-ui dialog anatomy", () => {
         });
         expect(popoverWrapper.text()).toContain("打开气泡");
         popoverWrapper.unmount();
-
-        const hoverCardWrapper = mount(HoverCard, {
-            slots: {
-                trigger: "<span>悬浮词条</span>",
-                default: "<div>词条设定详情</div>",
-            },
-        });
-        expect(hoverCardWrapper.text()).toContain("悬浮词条");
-        hoverCardWrapper.unmount();
     });
 
     it("renders tooltip trigger and shows content on hover after delay", async () => {
@@ -1405,6 +1535,105 @@ describe("nb-ui dialog anatomy", () => {
         wrapper.unmount();
     });
 
+    describe("Tooltip forceOpen", () => {
+        const TEXT = "强制显示的提示";
+        const mountTooltip = (forceOpen: boolean) => mount(Tooltip, {
+            props: {text: TEXT, forceOpen, delay: 0},
+            slots: {default: "<button type='button'>触发器</button>"},
+            attachTo: document.body,
+        });
+        const settle = async (): Promise<void> => {
+            await nextTick();
+            await nextTick();
+        };
+        const pressEscape = (): void => {
+            document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+        };
+
+        it("shows without hover or focus, and keeps showing after the pointer leaves", async () => {
+            const wrapper = mountTooltip(true);
+            await settle();
+            expect(document.body.textContent).toContain(TEXT);
+
+            await wrapper.get("button").trigger("pointermove");
+            await wrapper.get("button").trigger("pointerleave");
+            await wrapper.get("button").trigger("focus");
+            await wrapper.get("button").trigger("blur");
+            await settle();
+            expect(document.body.textContent).toContain(TEXT);
+            wrapper.unmount();
+        });
+
+        it("closes on Escape and stays closed until forceOpen turns false and true again", async () => {
+            const wrapper = mountTooltip(true);
+            await settle();
+            expect(document.body.textContent).toContain(TEXT);
+
+            pressEscape();
+            await settle();
+            expect(document.body.textContent).not.toContain(TEXT);
+
+            // 条件一直成立时不会自己再冒出来，指针离开也不会把它带回
+            await wrapper.get("button").trigger("pointerleave");
+            await settle();
+            expect(document.body.textContent).not.toContain(TEXT);
+
+            await wrapper.setProps({forceOpen: false});
+            await settle();
+            expect(document.body.textContent).not.toContain(TEXT);
+
+            await wrapper.setProps({forceOpen: true});
+            await settle();
+            expect(document.body.textContent).toContain(TEXT);
+            wrapper.unmount();
+        });
+
+        it("Escape on a hover or focus opened tooltip does not swallow a later forced show", async () => {
+            const wrapper = mountTooltip(false);
+            await wrapper.get("button").trigger("focus");
+            await settle();
+            expect(document.body.textContent).toContain(TEXT);
+
+            pressEscape();
+            await settle();
+            expect(document.body.textContent).not.toContain(TEXT);
+
+            await wrapper.get("button").trigger("blur");
+            await wrapper.setProps({forceOpen: true});
+            await settle();
+            expect(document.body.textContent).toContain(TEXT);
+            wrapper.unmount();
+        });
+
+        it("keeps hover and focus behaviour when not forced", async () => {
+            const wrapper = mountTooltip(false);
+            await settle();
+            expect(document.body.textContent).not.toContain(TEXT);
+
+            await wrapper.get("button").trigger("focus");
+            await settle();
+            expect(document.body.textContent).toContain(TEXT);
+            await wrapper.get("button").trigger("blur");
+            await settle();
+            expect(document.body.textContent).not.toContain(TEXT);
+
+            await wrapper.get("button").trigger("pointermove");
+            await vi.waitFor(() => expect(document.body.textContent).toContain(TEXT));
+            wrapper.unmount();
+        });
+
+        it("does not show while disabled even if forced", async () => {
+            const wrapper = mount(Tooltip, {
+                props: {text: TEXT, forceOpen: true, disabled: true},
+                slots: {default: "<button type='button'>触发器</button>"},
+                attachTo: document.body,
+            });
+            await settle();
+            expect(document.body.textContent).not.toContain(TEXT);
+            wrapper.unmount();
+        });
+    });
+
     it("renders switch and handles state", async () => {
         const wrapper = mount(Switch, {
             props: {
@@ -1422,7 +1651,6 @@ describe("nb-ui dialog anatomy", () => {
     it("renders toggle group with multiple selection options", () => {
         const wrapper = mount(ToggleGroup, {
             props: {
-                type: "multiple",
                 modelValue: ["bold", "italic"],
                 options: [
                     {value: "bold", label: "B", title: "加粗"},
@@ -1440,6 +1668,24 @@ describe("nb-ui dialog anatomy", () => {
         expect(items[0]!.attributes("data-state")).toBe("on");
         expect(items[1]!.attributes("data-state")).toBe("on");
         expect(items[2]!.attributes("data-state")).toBe("off");
+        wrapper.unmount();
+    });
+
+    it("toggle group toggles one item at a time and always emits the pressed values as an array", async () => {
+        const options = [
+            {value: "bold", label: "B", title: "加粗"},
+            {value: "italic", label: "I", title: "斜体"},
+        ];
+        const wrapper = mount(ToggleGroup, {props: {modelValue: ["bold"], options}});
+        const items = wrapper.findAll("button");
+
+        await items[1]!.trigger("click");
+        await wrapper.setProps({modelValue: ["bold", "italic"]});
+        await items[0]!.trigger("click");
+        await wrapper.setProps({modelValue: ["italic"]});
+        await items[1]!.trigger("click");
+
+        expect(wrapper.emitted("update:modelValue")).toEqual([[["bold", "italic"]], [["italic"]], [[]]]);
         wrapper.unmount();
     });
 
@@ -1540,6 +1786,40 @@ describe("nb-ui dialog anatomy", () => {
         wrapper.unmount();
     });
 
+    it("keeps drawer popovers above the drawer and stacks a later modal above it", async () => {
+        const drawer = mount(Drawer, {
+            props: {open: true, title: "设定详情"},
+            slots: {
+                default: () => h(Select, {
+                    modelValue: "one",
+                    options: [{label: "第一项", value: "one"}, {label: "第二项", value: "two"}],
+                }),
+            },
+            attachTo: document.body,
+        });
+        const alert = mount(AlertDialog, {props: {open: false, title: "删除设定？"}, attachTo: document.body});
+        try {
+            await nextTick();
+            const zIndexOf = (element: Element | null) => Number((element as HTMLElement | null)?.style.zIndex);
+            const drawerZ = zIndexOf(document.querySelector(".nb-ui-dialog-surface"));
+            expect(drawerZ).toBeGreaterThanOrEqual(9000);
+
+            // 抽屉里的下拉传送到 body，与抽屉在同一层比较；它要压过抽屉，否则打开后看不见
+            document.querySelector<HTMLElement>("[role='combobox']")!.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+            await nextTick();
+            await nextTick();
+            expect(zIndexOf(document.querySelector(".nb-ui-menu-surface"))).toBeGreaterThan(drawerZ);
+
+            // 从抽屉里打开的确认框压在抽屉上面，靠打开顺序而不是 DOM 顺序
+            await alert.setProps({open: true});
+            await nextTick();
+            expect(zIndexOf(document.querySelector("[role='alertdialog']"))).toBeGreaterThan(drawerZ);
+        } finally {
+            alert.unmount();
+            drawer.unmount();
+        }
+    });
+
     it("renders progress bar with tone and aria value", () => {
         const wrapper = mount(Progress, {
             props: {
@@ -1551,21 +1831,6 @@ describe("nb-ui dialog anatomy", () => {
 
         expect(wrapper.find("[role='progressbar']").exists()).toBe(true);
         expect(wrapper.find("[role='progressbar']").attributes("aria-valuenow")).toBe("60");
-        wrapper.unmount();
-    });
-
-    it("renders avatar fallback and squircle shape", () => {
-        const wrapper = mount(Avatar, {
-            props: {
-                fallback: "NB",
-                size: "md",
-                shape: "squircle",
-            },
-        });
-
-        expect(wrapper.text()).toContain("NB");
-        expect(wrapper.classes()).toContain("h-8");
-        expect(wrapper.classes()).toContain("rounded-[var(--radius-control)]");
         wrapper.unmount();
     });
 
@@ -1583,30 +1848,6 @@ describe("nb-ui dialog anatomy", () => {
         expect(vSep.attributes("role")).toBe("separator");
         expect(vSep.attributes("aria-orientation")).toBe("vertical");
         vSep.unmount();
-    });
-
-    it("renders aspect ratio container", () => {
-        const wrapper = mount(AspectRatio, {
-            props: {ratio: 16 / 9},
-            slots: {
-                default: "<img src='/cover.jpg' alt='封面' />",
-            },
-        });
-
-        expect(wrapper.find("img").exists()).toBe(true);
-        wrapper.unmount();
-    });
-
-    it("renders calendar heading and weekday grid", () => {
-        const wrapper = mount(Calendar, {
-            props: {
-                locale: "zh-CN",
-            },
-        });
-
-        expect(wrapper.find("table").exists()).toBe(true);
-        expect(wrapper.findAll("[role='gridcell']").length).toBeGreaterThan(0);
-        wrapper.unmount();
     });
 
     it("renders collapsible trigger and content", () => {
@@ -1750,18 +1991,6 @@ describe("nb-ui dialog anatomy", () => {
         }
     });
 
-    it("renders pin input with specified number of cells", () => {
-        const wrapper = mount(PinInput, {
-            props: {
-                length: 4,
-            },
-        });
-
-        const inputs = wrapper.findAll("input:not([aria-hidden='true'])");
-        expect(inputs.length).toBe(4);
-        wrapper.unmount();
-    });
-
     it("renders menubar menus and triggers", () => {
         const wrapper = mount(Menubar, {
             props: {
@@ -1774,364 +2003,6 @@ describe("nb-ui dialog anatomy", () => {
 
         expect(wrapper.text()).toContain("文件");
         expect(wrapper.text()).toContain("编辑");
-        wrapper.unmount();
-    });
-
-    it("renders editable with preview and edit trigger", () => {
-        const wrapper = mount(Editable, {
-            props: {
-                modelValue: "第一卷：启程",
-                placeholder: "点击编辑",
-            },
-        });
-
-        expect(wrapper.text()).toContain("第一卷：启程");
-        expect(wrapper.find("button[aria-label='编辑']").exists()).toBe(true);
-        wrapper.unmount();
-    });
-
-    it("renders stepper with steps and current indicator", () => {
-        const wrapper = mount(Stepper, {
-            props: {
-                modelValue: 2,
-                steps: [
-                    {step: 1, title: "创建档案"},
-                    {step: 2, title: "世界观设定"},
-                    {step: 3, title: "导出发布"},
-                ],
-            },
-        });
-
-        expect(wrapper.text()).toContain("创建档案");
-        expect(wrapper.text()).toContain("世界观设定");
-        expect(wrapper.text()).toContain("导出发布");
-        wrapper.unmount();
-    });
-
-    it("renders date picker trigger and placeholder", () => {
-        const wrapper = mount(DatePicker, {
-            props: {
-                placeholder: "选择定档发布日期",
-            },
-        });
-
-        expect(wrapper.text()).toContain("选择定档发布日期");
-        wrapper.unmount();
-    });
-
-    it("renders range calendar with weekday headers", () => {
-        const wrapper = mount(RangeCalendar, {
-            props: {
-                locale: "zh-CN",
-            },
-        });
-
-        expect(wrapper.find("table").exists()).toBe(true);
-        expect(wrapper.findAll("[role='gridcell']").length).toBeGreaterThan(0);
-        wrapper.unmount();
-    });
-
-    it("renders listbox with options and filtering", () => {
-        const wrapper = mount(Listbox, {
-            props: {
-                options: [
-                    {value: "c1", label: "赛博朋克"},
-                    {value: "c2", label: "硬核科幻"},
-                ],
-                showFilter: true,
-            },
-        });
-
-        expect(wrapper.text()).toContain("赛博朋克");
-        expect(wrapper.text()).toContain("硬核科幻");
-        expect(wrapper.find("input").exists()).toBe(true);
-        wrapper.unmount();
-    });
-
-    it("renders listbox card variant and action bar", () => {
-        const wrapper = mount(Listbox, {
-            props: {
-                options: [
-                    {value: "char1", label: "林澈", description: "代号渡鸦", badge: "主角"},
-                    {value: "char2", label: "苏浅", description: "科学家", badge: "盟友"},
-                ],
-                variant: "card",
-                multiple: true,
-                modelValue: ["char1"],
-                showActionBar: true,
-            },
-        });
-
-        expect(wrapper.text()).toContain("林澈");
-        expect(wrapper.text()).toContain("代号渡鸦");
-        expect(wrapper.text()).toContain("主角");
-        expect(wrapper.text()).toContain("项已选");
-        expect(wrapper.text()).toContain("全选");
-        wrapper.unmount();
-    });
-
-    it("renders listbox grouped sections", () => {
-        const wrapper = mount(Listbox, {
-            props: {
-                groups: [
-                    {
-                        id: "v1",
-                        label: "第一卷",
-                        options: [{value: "ch1", label: "第01章"}],
-                    },
-                ],
-            },
-        });
-
-        expect(wrapper.text()).toContain("第一卷");
-        expect(wrapper.text()).toContain("第01章");
-        wrapper.unmount();
-    });
-
-    it("renders listbox compact variant", () => {
-        const wrapper = mount(Listbox, {
-            props: {
-                options: [{value: "opt1", label: "测试"}],
-                variant: "compact",
-            },
-        });
-        expect(wrapper.text()).toContain("测试");
-        wrapper.unmount();
-    });
-
-    it("renders rating stars and reflects max count", () => {
-        const wrapper = mount(Rating, {
-            props: {
-                modelValue: 3,
-                max: 5,
-            },
-        });
-
-        expect(wrapper.findAll(".group").length).toBe(5);
-        wrapper.unmount();
-    });
-
-    it("renders color picker with color text and swatch", () => {
-        const wrapper = mount(ColorPicker, {
-            props: {
-                modelValue: "#6366F1",
-            },
-        });
-
-        expect(wrapper.text().toUpperCase()).toContain("#6366F1");
-        wrapper.unmount();
-    });
-
-    it("renders navigation menu items", () => {
-        const wrapper = mount(NavigationMenu, {
-            props: {
-                items: [
-                    {id: "m1", label: "工作区", href: "#"},
-                    {id: "m2", label: "大纲", links: [{title: "主线大纲", description: "规划剧情"}]},
-                ],
-            },
-        });
-
-        expect(wrapper.text()).toContain("工作区");
-        expect(wrapper.text()).toContain("大纲");
-        wrapper.unmount();
-    });
-
-    it("renders tree with nodes and indentation", () => {
-        const wrapper = mount(Tree, {
-            props: {
-                items: [
-                    {id: "v1", title: "第一卷", children: [{id: "c1", title: "第01章"}]},
-                ],
-            },
-        });
-
-        expect(wrapper.text()).toContain("第一卷");
-        wrapper.unmount();
-    });
-
-    it("uses the row surface instead of a left border for tree selection", async () => {
-        const wrapper = mount(Tree, {
-            props: {
-                items: [
-                    {id: "chapter-1", title: "第01章"},
-                    {id: "chapter-2", title: "第02章"},
-                ],
-                modelValue: "chapter-1",
-            },
-        });
-
-        const rows = wrapper.findAll("[role='treeitem']");
-        expect(rows[0]?.attributes("data-selected")).toBe("");
-        expect(rows[0]?.attributes("aria-selected")).toBe("true");
-        expect(rows[0]?.classes()).toContain("data-[selected]:bg-[color-mix(in_srgb,var(--accent-main)_12%,transparent)]");
-        expect(rows[0]?.classes()).toContain("data-[selected]:[font-weight:var(--weight-medium)]");
-        expect(rows[0]?.classes().some((name) => name.startsWith("border-l") || name.includes(":border-l"))).toBe(false);
-
-        await rows[1]?.trigger("click");
-        expect(wrapper.emitted("update:modelValue")?.at(-1)).toEqual(["chapter-2"]);
-        wrapper.unmount();
-    });
-
-    it("keeps multiple tree selection values as node ids", async () => {
-        const wrapper = mount(Tree, {
-            props: {
-                items: [
-                    {id: "chapter-1", title: "第01章"},
-                    {id: "chapter-2", title: "第02章"},
-                ],
-                multiple: true,
-                modelValue: ["chapter-1"],
-            },
-        });
-
-        const rows = wrapper.findAll("[role='treeitem']");
-        expect(rows[0]?.attributes("aria-selected")).toBe("true");
-        expect(rows[1]?.attributes("aria-selected")).toBe("false");
-        await rows[1]?.trigger("click");
-        expect(wrapper.emitted("update:modelValue")?.at(-1)).toEqual([["chapter-1", "chapter-2"]]);
-        wrapper.unmount();
-    });
-
-    it("drops the tree card surface when the caller puts it inside a panel", () => {
-        const items = [{id: "v1", title: "第一卷"}];
-        // 默认仍是卡片：已有调用方靠这层面色与描边把树从空白里收住
-        const card = mount(Tree, {props: {items}});
-        const plain = mount(Tree, {props: {items, surface: "plain"}});
-
-        const cardRoot = card.get("ul, [role='tree']");
-        const plainRoot = plain.get("ul, [role='tree']");
-        expect(cardRoot.classes()).toContain("shadow-sm");
-        expect(cardRoot.classes()).toContain("bg-[var(--panel-surface)]");
-        expect(plainRoot.classes()).not.toContain("shadow-sm");
-        expect(plainRoot.classes().some((name) => name.startsWith("bg-"))).toBe(false);
-        expect(plainRoot.classes().some((name) => name.startsWith("border"))).toBe(false);
-        // 内边距两档都留：去掉的是「卡片」，不是行与容器边缘之间的呼吸
-        expect(plainRoot.classes()).toContain("p-2");
-
-        card.unmount();
-        plain.unmount();
-    });
-
-    it("leaves node semantics to the caller instead of drawing folder icons", async () => {
-        // 泛型树不认文件系统：有子节点不等于文件夹，叶子不等于文件。
-        // 要文件语义的调用方用 FileTree。
-        const wrapper = mount(Tree, {
-            props: {
-                items: [
-                    {id: "v1", title: "第一卷", children: [{id: "c1", title: "第01章"}]},
-                    {id: "solo", title: "带图标的叶子", iconClass: "i-lucide-box"},
-                ],
-                expanded: ["v1"],
-            },
-        });
-        // 用选择器查而不是搜 wrapper.html()：模板注释会原样渲染进 DOM，
-        // 而这个组件的注释里恰好写着这两个图标名，搜字符串会被自己的注释绊倒。
-        expect(wrapper.find(".i-lucide-folder").exists()).toBe(false);
-        expect(wrapper.find(".i-lucide-file-text").exists()).toBe(false);
-        // 调用方自己给的图标照旧渲染
-        expect(wrapper.find(".i-lucide-box").exists()).toBe(true);
-        // 有子节点的行才有箭头；展开与收起是两个图标，不是把同一个转 90°
-        expect(wrapper.findAll(".i-lucide-chevron-down")).toHaveLength(1);
-        expect(wrapper.findAll(".i-lucide-chevron-right")).toHaveLength(0);
-
-        await wrapper.setProps({expanded: []});
-        expect(wrapper.findAll(".i-lucide-chevron-right")).toHaveLength(1);
-        expect(wrapper.findAll(".i-lucide-chevron-down")).toHaveLength(0);
-        wrapper.unmount();
-    });
-
-    it("renders date range picker placeholder", () => {
-        const wrapper = mount(DateRangePicker, {
-            props: {
-                placeholder: "选择起止日期",
-            },
-        });
-
-        expect(wrapper.text()).toContain("选择起止日期");
-        wrapper.unmount();
-    });
-
-    it("renders date field with segments", () => {
-        const wrapper = mount(DateField);
-        expect(wrapper.find("div").exists()).toBe(true);
-        wrapper.unmount();
-    });
-
-    it("renders date range field with start and end segments", () => {
-        const wrapper = mount(DateRangeField);
-        expect(wrapper.text()).toContain("~");
-        wrapper.unmount();
-    });
-
-    it("renders time field with segments", () => {
-        const wrapper = mount(TimeField);
-        expect(wrapper.find("div").exists()).toBe(true);
-        wrapper.unmount();
-    });
-
-    it("renders time range field with start and end", () => {
-        const wrapper = mount(TimeRangeField);
-        expect(wrapper.text()).toContain("~");
-        wrapper.unmount();
-    });
-
-    it("renders month picker grid", () => {
-        const wrapper = mount(MonthPicker, {
-            props: {
-                locale: "zh-CN",
-            },
-        });
-
-        expect(wrapper.find("table").exists()).toBe(true);
-        expect(wrapper.findAll("[role='gridcell']").length).toBeGreaterThan(0);
-        wrapper.unmount();
-    });
-
-    it("renders month range picker grid", () => {
-        const wrapper = mount(MonthRangePicker, {
-            props: {
-                locale: "zh-CN",
-            },
-        });
-
-        expect(wrapper.find("table").exists()).toBe(true);
-        expect(wrapper.findAll("[role='gridcell']").length).toBeGreaterThan(0);
-        wrapper.unmount();
-    });
-
-    it("renders year picker grid", () => {
-        const wrapper = mount(YearPicker, {
-            props: {
-                locale: "zh-CN",
-            },
-        });
-
-        expect(wrapper.find("table").exists()).toBe(true);
-        expect(wrapper.findAll("[role='gridcell']").length).toBeGreaterThan(0);
-        wrapper.unmount();
-    });
-
-    it("renders year range picker grid", () => {
-        const wrapper = mount(YearRangePicker, {
-            props: {
-                locale: "zh-CN",
-            },
-        });
-
-        expect(wrapper.find("table").exists()).toBe(true);
-        expect(wrapper.findAll("[role='gridcell']").length).toBeGreaterThan(0);
-        wrapper.unmount();
-    });
-
-    it("renders autocomplete input", () => {
-        const wrapper = mount(Autocomplete, {
-            props: {
-                placeholder: "搜索设定集...",
-            },
-        });
-
-        expect(wrapper.find("input").attributes("placeholder")).toBe("搜索设定集...");
         wrapper.unmount();
     });
 

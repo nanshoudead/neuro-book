@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 标题行的动作（同名 .md）：一排 24px 图标按钮加“⋯”下拉，点了交给宿主执行。视图标题与编辑区标题共用。 */
-import {Dropdown, IconButton} from "@notnotype/nb-ui/components";
-import type {DropdownItem} from "@notnotype/nb-ui/components";
+import {DropdownMenu, IconButton} from "@notnotype/nb-ui/components";
+import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import {computed, ref, watch} from "vue";
 
 import type {TitleActionsModel} from "./title-actions";
@@ -21,9 +21,9 @@ const open = ref(false);
 /** 打开时记下的身份；选择只在它与此刻相同时生效（菜单原语先报关闭、再报选择，所以关闭时不清）。 */
 const origin = ref<string | null>(null);
 
-const items = computed<DropdownItem[]>(() => props.model.menu.flatMap((section, index) => [
+const items = computed<DropdownMenuItemData[]>(() => props.model.menu.flatMap((section, index) => [
     ...(index > 0 ? [{label: "", value: `separator:${String(index)}`, separator: true}] : []),
-    ...section.map((entry): DropdownItem => ({
+    ...section.map((entry): DropdownMenuItemData => ({
         label: entry.title,
         value: entry.key,
         ...(entry.icon === null ? {} : {iconClass: entry.icon}),
@@ -67,9 +67,9 @@ function select(key: string): void {
             :data-title-action-key="entry.key"
             @click="emit('run', entry.key)"
         />
-        <Dropdown v-if="model.menu.length > 0" :items="items" :open="open" align="end" compact @update:open="setOpen" @select="select">
+        <DropdownMenu v-if="model.menu.length > 0" :items="items" :open="open" align="end" @update:open="setOpen" @select="select">
             <IconButton size="xs" icon-class="i-lucide-ellipsis" :aria-label="moreLabel" :title="moreLabel" data-title-actions-more />
-        </Dropdown>
+        </DropdownMenu>
     </span>
 </template>
 

@@ -1,0 +1,182 @@
+/**
+ * 页面取数的两个 composable。参数里带着阅读位置与视角，参数一变就重新取：上一次还在途的请求被中止，它的结果
+ * 一律丢弃，不会显示到新位置的页面上（docs/specs/story/viewer.md“状态与转换”第 3 条）。
+ */
+
+import {onScopeDispose, ref, shallowRef, watch, type Ref, type ShallowRef} from "vue";
+
+import type {StoryMethod, StoryParams, StoryResult} from "../../contract/contract";
+import {useBook} from "./book";
+import {StoryCallError, useStoryClient} from "./client";
+
+type Params<M extends StoryMethod> = Omit<StoryParams<M>, "book">;
+
+export interface QueryState<M extends StoryMethod> {
+    data: ShallowRef<StoryResult<M> | null>;
+    error: Ref<StoryCallError | null>;
+    loading: Ref<boolean>;
+    reload(): void;
+}
+
+/**
+ * 取一个方法的结果。`params` 返回 null 时不取（例如还没选中对象）。`book` 由当前书补上；`at` 默认补当前阅读位置，
+ * 参数里写了 `at` 时用参数的。
+ */
+export function useStoryQuery<M extends StoryMethod>(method: M, params: () => NoInfer<Params<M>> | null): QueryState<M> {
+    const client = useStoryClient();
+    const book = useBook();
+    const data = shallowRef(null) as ShallowRef<StoryResult<M> | null>;
+    const error = ref<StoryCallError | null>(null);
+    const loading = ref(false);
+    let controller: AbortController | null = null;
+
+    /** `keep`：只是书换了新数据（版本变了），位置与参数没变，旧结果留着直到新的回来。 */
+    async function run(next: Params<M> | null, keep = false): Promise<void> {
+        controller?.abort();
+        if (next === null) {
+            data.value = null;
+            loading.value = false;
+            return;
+        }
+        const current = new AbortController();
+        controller = current;
+        loading.value = true;
+        error.value = null;
+        // 参数（阅读位置、视角、筛选）一变先清掉旧结果：新数据回来之前显示“正在取”，不让旧位置的内容留在新位置的页面上。
+        // 只是版本变了时位置没变、可见范围也没变，留着旧的，免得正在读的页面先空一下、滚回顶部（viewer 输出 39）。
+        if (!keep) data.value = null;
+        try {
+            const result = await client.call(method, {at: book.at.value, ...next, book: book.bookId} as StoryParams<M>, {signal: current.signal});
+            if (current.signal.aborted) return;
+            data.value = result as StoryResult<M>;
+        } catch (caught) {
+            if (current.signal.aborted) return;
+            if (!(caught instanceof StoryCallError)) {
+                console.error({method, error: caught}, "查询出错");
+                error.value = new StoryCallError("internal", "请求没有完成");
+            } else {
+                error.value = caught;
+            }
+            data.value = null;
+        } finally {
+            if (controller === current) loading.value = false;
+        }
+    }
+
+    // 数据版本也是参数：书换成新数据（抽取又提交了一章、用户点了更新）时重取。
+    const stop = watch(
+        () => ({params: params(), at: book.at.value, version: book.dataVersion.value}),
+        (value, old) => void run(value.params, old !== undefined && value.version !== old.version && JSON.stringify([value.params, value.at]) === JSON.stringify([old.params, old.at])),
+        {immediate: true, deep: true},
+    );
+    onScopeDispose(() => {
+        stop();
+        controller?.abort();
+    });
+    return {data, error, loading, reload: () => void run(params())};
+}
+
+export interface PagedState<T> {
+    items: ShallowRef<T[]>;
+    total: Ref<number | null>;
+    error: Ref<StoryCallError | null>;
+    loading: Ref<boolean>;
+    hasMore: Ref<boolean>;
+    /** 再取一页；已在取或没有更多时什么也不做。 */
+    more(): void;
+    /** 出错后重试：已经取到的保留，从出错的那一页接着取；第一页就出错时从头取。 */
+    reload(): void;
+}
+
+type PagedMethod = "entities.list" | "entity.knowledge" | "entity.statements" | "entity.episodes" | "questions.list" | "episodes.list" | "search";
+type PageItem<M extends PagedMethod> = StoryResult<M>["items"][number];
+
+/** 分页的列表：参数一变从第一页重来；滚到底由调用方调 more() 取下一页。 */
+export function usePagedQuery<M extends PagedMethod>(method: M, params: () => NoInfer<Params<M>> | null, pageSize = 100): PagedState<PageItem<M>> {
+    const client = useStoryClient();
+    const book = useBook();
+    const items = shallowRef<PageItem<M>[]>([]);
+    const total = ref<number | null>(null);
+    const error = ref<StoryCallError | null>(null);
+    const loading = ref(false);
+    const hasMore = ref(false);
+    let cursor: string | null = null;
+    let current: Params<M> | null = null;
+    let controller: AbortController | null = null;
+
+    /** `limit`：只是版本变了时，一次取回与已显示的一样多的条目（至多 500），列表长度不缩、滚动位置不跳。 */
+    async function fetchPage(reset: boolean, limit = pageSize): Promise<void> {
+        if (current === null) return;
+        const signalOwner = new AbortController();
+        if (reset) controller?.abort();
+        controller = signalOwner;
+        loading.value = true;
+        try {
+            const result = await client.call(method, {at: book.at.value, ...current, book: book.bookId, limit, ...(reset || cursor === null ? {} : {cursor})} as StoryParams<M>, {signal: signalOwner.signal});
+            if (signalOwner.signal.aborted) return;
+            const page = result as unknown as {items: PageItem<M>[]; total: number; next: string | null};
+            items.value = reset ? page.items : [...items.value, ...page.items];
+            total.value = page.total;
+            cursor = page.next;
+            hasMore.value = page.next !== null;
+            error.value = null;
+        } catch (caught) {
+            if (signalOwner.signal.aborted) return;
+            // 书换了新数据、游标作废（抽取又提交了一章）：换成新数据，列表从第一页重来（book.refresh 让版本变）。
+            if (caught instanceof StoryCallError && caught.code === "cursor_invalid") {
+                void book.refresh();
+                return;
+            }
+            error.value = caught instanceof StoryCallError ? caught : new StoryCallError("internal", "请求没有完成");
+            if (!(caught instanceof StoryCallError)) console.error({method, error: caught}, "查询出错");
+        } finally {
+            if (controller === signalOwner) loading.value = false;
+        }
+    }
+
+    const stop = watch(
+        () => ({params: params(), at: book.at.value, version: book.dataVersion.value}),
+        (value, old) => {
+            current = value.params;
+            cursor = null;
+            // 只是版本变了：旧列表留着，按已显示的条数重取第一页，回来后整体替换（见 useStoryQuery）。
+            const keep = old !== undefined && value.version !== old.version && JSON.stringify([value.params, value.at]) === JSON.stringify([old.params, old.at]);
+            if (current === null) {
+                controller?.abort();
+                items.value = [];
+                total.value = null;
+                hasMore.value = false;
+                return;
+            }
+            if (keep) {
+                void fetchPage(true, Math.min(500, Math.max(pageSize, items.value.length)));
+                return;
+            }
+            items.value = [];
+            total.value = null;
+            hasMore.value = false;
+            void fetchPage(true);
+        },
+        {immediate: true, deep: true},
+    );
+    onScopeDispose(() => {
+        stop();
+        controller?.abort();
+    });
+    return {
+        items,
+        total,
+        error,
+        loading,
+        hasMore,
+        more() {
+            if (loading.value || !hasMore.value) return;
+            // 落后了：游标属于旧数据，先换成新数据（列表随版本从第一页重来），不接着翻旧的。
+            if (book.behind.value) void book.refresh();
+            else void fetchPage(false);
+        },
+        reload() {
+            if (!loading.value) void fetchPage(items.value.length === 0);
+        },
+    };
+}

@@ -1,0 +1,15 @@
+# t06 S5 界面审查（Sonnet 子代理，2026-10-16）
+
+子代理的写文件被它那一侧的防护拦住，报告由主 Agent 按它交回的原文存入。范围：提交 a20f53a9f 与当时未提交的 Lab 场景。共 2 条：阻断 0、重要 2、建议 0。
+
+### 1. 提示块标题只有小箭头可点，标题文字本身点不动折叠（重要）
+- 位置：`syntax/callout/index.ts` 的 `calloutView`（只有按钮挂了 click）；`MarkdownControl.vue` 的 `.nb-callout__title` 没有可点样式。
+- 现象：方言 Spec 输出 23 写“可以点标题展开或折叠”，实现只有约 1.3em 的箭头按钮响应；手机宽下更难点中。
+- 建议：整个标题行在可折叠时响应点击并给 `cursor: pointer`，或者回 Spec 改措辞。
+
+### 2. `<mark>` 高亮在浅色主题下背景色几乎不可见（重要）
+- 位置：`MarkdownControl.vue` 的 `:deep(mark)` 用 `--status-warning-bg`（`rgba(245, 158, 11, 0.15)`）。
+- 现象：浅色纸面上取色几乎与纸面融为一体；暗色主题正常。
+- 建议：高亮单独定饱和度或不透明度更高的底色，不原样复用状态底色。
+
+另确认符合 Spec 与界面规范：批注、注音、双语、对齐、上下标、原样内容、任务复选框的 token 与明暗对比；`calloutView` 的 `stopEvent`、`ignoreMutation` 与 ARIA；写不出的提示、关闭询问与终态页说明；两个 Lab 场景。

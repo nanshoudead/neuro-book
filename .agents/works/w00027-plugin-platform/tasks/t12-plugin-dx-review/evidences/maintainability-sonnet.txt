@@ -1,0 +1,325 @@
+w00027 插件平台（t03-t05）设计与可维护性审查（Sonnet）
+范围：nb-runtime plugin-manifest / plugins，neuro-book 的 backend/plugins、server、web/host、plugins/plugins、sdk、scripts/plugin-sdk、examples。
+说明：下面按核实顺序追加；末尾有按影响排序的汇总。路径均相对 worktree 的 packages/neuro-book，除非写明包名。
+
+------------------------------------------------------------------------
+F1  [重要 / 设计 / 中]  SDK 子路径的清单散在 10 处，其中 6 处之间没有任何一致性核对
+位置：
+  tsconfig.json:14-16、tsconfig.web.json:14-16、vite.config.ts:42-44、scripts/plugin-sdk/build-examples.ts:23-26、
+  scripts/plugin-sdk/build-sdk.ts:36（ENTRIES）与 :311-316（package.json exports）、
+  src/shared/plugin-modules.ts:15（BROWSER_SHARED_MODULES）、src/web/host/plugin-modules.ts:19-25（宿主模块表）、
+  src/backend/plugins/loader.ts:44-47（serverHostModules）、src/architecture.test.ts:86（EXAMPLE_PACKAGES）。
+现象：SDK 现在有 index、browser、components 三个入口，每多一个子路径（计划里已有“按所有者分子路径”的讨论），要同步改上面 10 处。
+  其中 BROWSER_SHARED_MODULES、hostModules()、serverHostModules() 之间有类型或测试核对（Record<(typeof …)[number], …> 与 plugin-modules.dom.test.ts）；
+  tsconfig 两份、vite 别名、build-examples 别名、build-sdk 的 ENTRIES 与 exports 这 6 处之间没有任何核对，漏改一处的表现是
+  “仓库里能构建，发布包里缺文件”或“示例能跑、作者类型报错”。
+为什么是问题：t05 为 components 子路径已经改过一遍这 10 处，可见这是实际的改动面；子路径发布后又是兼容承诺，漏一处就是发布事故。
+建议改法：在 src/sdk/ 下放一张表 SDK_ENTRIES = {".": "index.ts", "./browser": "browser.ts", "./components": "components.ts"}（纯数据，无导入），
+  build-sdk 的 ENTRIES 与 exports、build-examples 的别名、vite.config.ts 的别名、BROWSER_SHARED_MODULES 的 sdk 项都从它生成；
+  tsconfig 的 paths 不能计算，加一条测试读两份 tsconfig 与这张表对照。这样新增子路径是改一张表加两份 tsconfig。
+改动规模：中
+
+------------------------------------------------------------------------
+F2  [重要 / 设计 / 小]  同一个 id 规则在四处各写一份，其中一份已经和内核分叉
+位置：
+  src/backend/plugins/record.ts:51（THIRD_PARTY_ID = /^[a-z0-9][a-z0-9-]*\.[a-z0-9][a-z0-9-]*$/u）与 :58；
+  packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts:43（ID_SEGMENT = /^[a-z][a-z0-9-]*$/u）与 :293-301（pluginVersions 键）；
+  src/backend/plugins/inventory.ts:119（isBuiltin：startsWith("nbook.")）与 :202（publisherOf(raw) === "nbook"）；
+  scripts/plugin-sdk/create-plugin.ts:23（ID_SEGMENT_RULE 文案另写一份）。
+现象：t05 把清单的 publisher、name 改成字母开头（pending-confirmations 已追认），内核导出了 isIdSegment、BUILTIN_PUBLISHER，
+  create-plugin 用上了；但登记表的 THIRD_PARTY_ID 仍允许数字开头，inventory 里仍写字面量 "nbook"。
+  另有 16 处 startsWith("nbook.") / "nbook." 字面量散在 nb-runtime、backend、window.ts、各内置插件的校验器里，而 BUILTIN_PUBLISHER 已经存在。
+为什么是问题：登记表这一份是“路径安全检查”，放宽不会出安全问题，但读者会以为它就是 id 规则；下一次再改 id 规则（比如允许大写、加长度上限）要靠 grep 找，
+  漏掉的那份不会报错，只会让某个状态下的插件能进登记表却读不出清单。
+建议改法：内核 plugin-manifest 导出 isPluginId(id)（两段 isIdSegment，不含 nbook. 前缀的判断由调用方给 builtin 开关）与 isBuiltinPluginId(id)；
+  record.ts 的 entryProblem、inventory.ts 的 isBuiltin 与 publisherOf 比较都改用它们；ID_SEGMENT_RULE 文案由内核导出一个常量供 create-plugin 与清单报错共用
+  （清单里现在 :245-246 两处各写一次同样的中文）。
+改动规模：小
+
+------------------------------------------------------------------------
+F3  [重要 / 可维护性 / 中]  “installed”“thirdParty”“manifestOf”在相邻文件里指不同的东西
+位置：
+  src/server/start.ts:64、:234（installed: PreparedPlugins）与 :246（installed: InstalledPlugin[]），同一函数里同名两义；
+  src/server/start.ts:240-245（thirdParty = 描述数组）与 :375（thirdParty: installedPlugins(...) = InstalledPlugin[]，传给项目管理器）；
+  src/project/start.ts:97（const thirdParty = Promise.withResolvers<InstalledPlugin[]>）与 :135（thirdParty: 描述数组）；
+  src/server/projects/manager.ts:73、:172（thirdParty?: InstalledPlugin[]）；
+  nb-runtime plugin-manifest.ts:538 的 manifestOf（代码定义写成清单）、src/backend/plugins/installed.ts:27 的 manifestOfInstalled（读已装插件的清单）、
+  src/plugins/files/backend/manifests.ts:44 的 manifestOf（文件清单路径）——同名不同义，grep manifestOf 出三类结果。
+现象：server/start.ts 第 234 行 `const installed = ... PreparedPlugins`，第 246 行 `installed: installedPlugins(installed.startup)`，
+  读者要靠上下文才知道哪个 installed 是哪个；ServerPluginContext 与 ProjectPluginContext 同时携带 thirdParty（描述）与 installed（安装信息），
+  而描述本来就是 installed 里清单的 descriptorOf，project/plugins.ts:36 的注释自己写了“描述已由它得出”。两条并行数组要靠调用方保证成员一致。
+为什么是问题：这是整个插件装载链路的主线数据，新维护者第一件事就是弄清它。同词两义在 code review 里最容易漏看。
+建议改法：(1) 命名：PreparedPlugins 改叫 PluginsPreparation，变量 prepared；InstalledPlugin[] 在所有上下文里叫 installed；描述数组叫 descriptors；
+  thirdParty 这个词只留给“来源是第三方”的布尔语义。(2) 上下文里只带 installed，descriptors 在接收方用一个 descriptorsOf(installed) 现算
+  （server/start.ts 已经有 loadedDescriptors，project/start.ts 已经在循环里算）；浏览器引导 browserBootstrap(builtin, thirdParty, installed, ...) 同理少一个参数。
+  (3) 内核的 manifestOf 改名 manifestFromDefinitions，files 插件那个本来就是文件名查找，保持。
+改动规模：中（纯改名加删一条并行参数，无行为变化）
+
+------------------------------------------------------------------------
+F4  [重要 / 设计 / 中]  build-sdk.ts 一半是文档生成，且靠正则读 nb-ui 的源码文本，而 nb-ui 已经导出了同样的名单
+位置：scripts/plugin-sdk/build-sdk.ts（331 行）：第 82-252 行（约 170 行，占 51%）是 writeAuthorDocs / packageLink / specCopy / componentsDoc /
+  tokensDoc；真正“组装 SDK 包”的 buildSdk 只有 :254-329。
+现象：
+  - componentsDoc（:141-172）用两条正则读 nb-ui/src/components/index.ts 的 `export {default as X} from "./目录/X.vue"`，再用一条宽松正则复核数量，
+    对不上就报错——这些守卫本身就是在承认读法脆弱；
+  - tokensDoc（:222-252）用正则读 colorway-contract.ts 里的 nbColorwayVarKeys 数组，再写一段“把引号字面量去掉后剩下的是不是空”的残留检查（:228-229）；
+  - 设计变量按 DESIGN_GROUPS 的 9 条正则分组（:187-197），而 nb-ui 的 src/theme/tokens.ts 已经按组导出了名单（nbTypographyTokens、nbSpacingTokens、
+    nbRadiusTokens、nbElevationTokens、nbMotionTokens、nbScrollbarTokens……），colorway-contract.ts 的 nbColorwayVarKeys 也是现成的导出；
+  - 作者文档与 Spec 副本的链接改写（packageLink、specCopy，:106-139）用正则改 Markdown，约束写在注释里（“不写引用式链接”）。
+  这些文件是 nb-ui 的内部源码，脚本按相对路径 `../nb-ui/src` 读（:85），不经包的公开入口，规范上是跨包深读；注释给的理由是“nb-ui 的模块要 DOM，
+  类型检查没有 DOM”，但 tokens.ts 与 colorway-contract.ts 两个文件本身没有任何 import，是纯数据。
+为什么是问题：nb-ui 一调整导出写法（比如组件入口换成多行或加类型导出、配色合同加一个展开），SDK 构建就在发布时才失败；
+  同一份名单在 nb-ui 里维护一次、在这里用正则再“推导”一次，分组还可能和 nb-ui 的分组不一致。
+建议改法：(1) 让 nb-ui 增加两个纯数据子路径导出（例如 `@notnotype/nb-ui/tokens` 指 theme/tokens.ts，`@notnotype/nb-ui/colorway-contract` 指
+  colorway/colorway-contract.ts），tokensDoc 用名单与分组生成，只对“缺省值”继续读 tokens.css；组件清单让 nb-ui 导出一个按目录分组的常量（或测试保证
+  components/index.ts 的写法），文档生成不再解析 TS 源码。(2) 把文档生成整体移到 scripts/plugin-sdk/sdk-docs.ts（buildSdk 只调一个 writeAuthorDocs），
+  build-sdk.ts 回到 150 行上下。上游选择（nb-ui 不发布、没有导出名单的子路径）当初的理由是“包不外露”，现在 SDK 构建要读它的名单，这个理由已不成立。
+改动规模：中
+
+------------------------------------------------------------------------
+F5  [重要 / 设计 / 小]  清单的“生成加校验”要调用方记得做两步，build-plugin 里写了两遍，描述字段还在内核之外拼
+位置：scripts/plugin-sdk/build-plugin.ts:471-477（early）与 :520-528（final）；
+  packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts:531-538（manifestOf 的注释）。
+现象：manifestOf 的注释写“结果还要经 readPluginManifest 校验”，这是靠约定；build-plugin 因此写成 manifestOf → readPluginManifest → 构建 →
+  manifestOf（加 style）→ 拼 description、license → readPluginManifest，共 4 次调用 2 套错误包装（“代码定义写不成清单”“生成的清单不合格”）。
+  description、license 在内核之外 spread 进 json（:522-526），内核的 ManifestSource 却没有这两个字段。
+  内置插件的对齐测试同样要自己再调一次 readPluginManifest。
+为什么是问题：下一个消费 manifestOf 的人（比如以后的“导出现有插件”命令）漏掉校验那一步，不会有任何报错，只是写出一份读不回来的清单；
+  “哪些字段由谁生成”分散在内核和构建预设两处。
+建议改法：manifestOf 增加选项 versions（VersionSyntax），内部生成后立刻 readPluginManifest，返回 `{status: "valid", json, manifest}` 或 invalid；
+  ManifestSource 增加 description、license。build-plugin 的两处各变成一次调用、一种错误包装。
+改动规模：小
+
+------------------------------------------------------------------------
+F6  [建议 / 设计 / 小]  入口外壳在生成的代码字符串里把“找到定义”再做了一遍
+位置：scripts/plugin-sdk/build-plugin.ts:266-276（shellSource）与 :451-467（发现定义的循环）、:136-138（isPluginDefinition）。
+现象：发现阶段用 isPluginDefinition 遍历 Object.values(模块导出) 找出 PluginDefinition，但丢掉了导出名；外壳模块再在字符串里写一遍同样的判断
+  （`value.id === 插件 id && Array.isArray(value.entries) && value.entries.some(...)`）去重新找。两处判断形状要保持一致，
+  同一个模块里有两个同 id 的导出时，外壳取第一个、发现阶段两个都登记，行为不一致。
+建议改法：发现循环用 Object.entries 记下导出名，LocatedEntry 带 exportName，外壳变成
+  `import {exportName as definition} from "模块"; const entry = definition.entries.find(...)`，不再有运行时的查找与重复判断；
+  同一模块内重复的同 id 定义在发现阶段直接作为问题报出。
+改动规模：小
+
+------------------------------------------------------------------------
+F7  [建议 / 编码规范 / 小]  build-plugin.ts 末尾有一个只被一条测试使用的命令行入口，还会被打进发布包的 build.js
+位置：scripts/plugin-sdk/build-plugin.ts:584-598；唯一调用方 build-plugin.test.ts:379（跨文件系统的用例）。
+现象：现在有三个入口能构建插件：nbook-plugin build（cli.ts）、build-examples.ts 的 main、build-plugin.ts 自己的 import.meta.main；三者的用法文案、
+  警告输出（console.warn / console.error "警告："）、退出码约定都不同。第三个没有文档、没有 --clean、不处理 PluginBuildError 的逐条问题。
+  build.js 是 SDK 公开子路径 ./build 的产物，把一个无人使用的 main 带了进去。
+建议改法：删掉这段 main；跨文件系统的用例改成运行 cli.ts（或生成包里的 cli.js）。
+改动规模：小
+
+------------------------------------------------------------------------
+F8  [建议 / 可维护性 / 小]  输出目录的“只清理自己上次的产物”规则和读 package.json 的做法各写了多遍
+位置：
+  - 清理规则：cli.ts:55-59、build-examples.ts:41-44、build-sdk.ts:67-80（clearPreviousSdk，判断方式不同）、build-plugin.ts:436；
+    中间目录前缀 `.nbook-plugin-build-` 字面量在 build-plugin.ts:490 与 :568 各写一次，靠注释保持一致。
+  - 读 package.json：build-plugin.ts 的 readAuthor（:140-156）、readJsonObject（:575-582）、cli.ts 的 authorVersion（:67-75）、
+    create-plugin.ts 的 existingPackage / parsePackage（:147-168）；四处都是 try/JSON.parse/catch + 各自措辞的报错。
+现象：cli.ts 的 `--dev` 为了拿版本号，把作者的 package.json 读第二遍，且缺 version 时的报错（“package.json 没有 version”）与 readAuthor
+  的（“package.json 不完整”）措辞不同；buildPlugin 内部本来就有 author.version。
+建议改法：BuildPluginOptions 增加 `dev?: {now: Date}`（或 `clean?: boolean`），devVersion 在 buildPlugin 里用 author.version 算，删掉 authorVersion；
+  清理规则收成 build-plugin.ts 里一个 prepareOutDir(root, outDir)，cli 与 build-examples 共用；前缀提成常量。
+  build-sdk 的 clearPreviousSdk 判断对象不同（SDK 包名），保留，但与它共用“非空且不是自己的就拒绝”的报错措辞可以不求。
+改动规模：小
+
+------------------------------------------------------------------------
+F9  [建议 / 设计 / 中]  第三方插件定义的登记在服务端、项目实例和窗口里是三份几乎相同的流程
+位置：src/backend/plugins/loader.ts:164-199（thirdPartyDefinitionsAt）、src/web/host/window.ts:451-471（thirdPartyDefinitionIn）、
+  src/project/start.ts:124-135；共同的内核在 src/manifest.ts:73-95（thirdPartyDefinitionAt）。
+现象：两处各自：遍历内置定义收集 `contracts: Map<id, RemoteContract>`（loader.ts:171-176 与 window.ts:452-457 的循环逐行相同），
+  传入 contractOf（抛错文案分别是“本位置没有的合同”“本窗口没有的合同”），try/catch 失败时记诊断并退回 thirdPartyDefinition(descriptor)
+  （事件名分别是 plugins.startup.unregistrable 与 browser-host.plugin.unregistrable）。项目实例还多一步：project/start.ts 先对每个插件做一遍
+  manifestOfInstalled（事件 project.plugins.invalid），loader 里再做一遍（事件 plugins.startup.manifest-unreadable），第二遍的失败分支不可达。
+为什么是问题：内置合同如何映射、登记失败如何降级是同一条规则，改一处会漏另两处；诊断事件名本应能按事件前缀查到同一类问题。
+建议改法：在 manifest.ts 的 thirdPartyDefinitionAt 旁边增加 `registerThirdParty(location, manifest, {builtin, load, record, eventPrefix})`，
+  内含合同表收集、contractOf、降级与诊断；三处只传 load 与 record。项目实例只在 start.ts 校验一遍，把解析结果（manifest）传给 loader，
+  或者干脆去掉 start.ts 那一遍（IPC 来的 InstalledPlugin 经 loader 统一校验）。
+改动规模：中
+
+------------------------------------------------------------------------
+F10 [建议 / 设计 / 小到中]  合同对象“同一性”的补丁（canonical / sameContract / settleContracts）是为内核的一条约束写的
+位置：src/manifest.ts:102-130（约 45 行）；内核约束在 packages/nb-runtime/src/plugins/host.ts:1124-1129（remote-contract-mismatch）。
+现象：内核要求入口产出的合同与静态声明是同一个对象；第三方入口里的合同是插件自己打包的那一份，永远不是同一个对象，所以应用层先把两份合同
+  序列化成键排序的 JSON 比较，相同就换成登记的那份（canonical 还要处理 undefined 键、JSON 表达不了的值）。
+为什么是问题：这套机制只在第三方外置时用，却放在 manifest.ts 的公开装配路径上，内核测试与应用测试对它的覆盖是两处；读者要同时懂“静态声明与调用按同一对象
+  核对”的内核理由和这里的规范化比较。
+建议改法（上游，交开发者定）：内核对来自清单的合同不比较对象身份，改用“id 与版本相同，且声明方已核对内容”并以登记的那份为准；
+  内置插件仍可保留身份核对。这样 settleContracts 整段删除，代价是内核要区分“静态声明来自清单”与“来自代码”两种来源。
+  若不改上游，至少把这三个函数搬到 src/manifest.ts 之外的小模块（contract-identity.ts），单独测试。
+改动规模：中（上游）/ 小（搬家）
+
+------------------------------------------------------------------------
+F11 [建议 / 设计 / 中]  plugin-manifest.ts 一个文件做三件事，两个函数各 125-150 行，合同 schema 的遍历写了两遍
+位置：packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts（663 行）：readManifest :231-380（150 行，一个函数）、definitionOf :427-474、
+  manifestOf :538-663（126 行）；合同 schema 遍历：readManifest :266-278 与 contractSchemas :515-534。
+现象：同一个文件里有“清单 → 校验”“清单 → 定义”“定义 → 清单”三个方向，加上 TypeBox 模式和类型（:53-195）。readManifest 里依次是 id 段、版本、
+  贡献点、合同、激活前缀、pluginVersions、入口、style 八块，共用同一个 problems 数组和 add 闭包，要读懂任何一块都得滚过整个函数。
+  合同里“input / output / errors.* / filter / payload 各自的路径”这套遍历，readManifest 用 ManifestContract 手写了一次，manifestOf 用 RemoteContract
+  在 contractSchemas 里又写了一次，路径格式（`contracts.<id>.methods.<name>.input`）靠两处一致。
+为什么是问题：清单字段每加一个（t05 就加了 idPrefix、style 之外的校验），都在这个大函数里追加；两份遍历一旦路径格式不同，同一个问题在构建时和读清单时
+  报出的字段路径就不一致，作者按路径找不到字段。
+建议改法：(1) contractSchemas 的参数改成结构类型（`{id, methods: Record<string, {input; output; errors?}>, events: Record<string, {filter; payload}>}`），
+  readManifest 与 manifestOf 共用，删掉 :266-278 的手写版本。(2) 按文件拆：manifest-read.ts（readManifest 与它的八个 checkXxx 小函数，每块接收 problems 收集器）、
+  manifest-build.ts（manifestOf）、definition.ts（descriptorOf、definitionOf）；plugin-manifest.ts 只留类型与 TypeBox 模式并再导出，包的公开入口不变。
+改动规模：中（(1) 小）
+
+------------------------------------------------------------------------
+F12 [建议 / 设计 / 中]  “贡献 id 必须以插件 id 开头”现在有两套写法：内核的 idPrefix 和 8 个内置校验器各自的 prefix 计算
+位置：packages/nb-runtime/src/plugins/host.ts:858 与 contracts.ts:60（idPrefix?: "plugin"，t05 新增）；
+  src/plugins/workbench/shared/{items.ts:66,85, views.ts:83, overlays.ts:29}、settings/shared/sections.ts:86、commands/shared/menus.ts:86、
+  editor/shared/contracts.ts:106,148 里逐字相同的
+  `const prefix = descriptor.plugin.startsWith("nbook.") ? "nbook." : `${descriptor.plugin}.`;`（8 处），旁边还各有一条 `/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/u`（5 处）。
+现象：t05 为了让第三方贡献点能“登记时拒绝、原因可查”加了 idPrefix: "plugin"，pending-confirmations 已追认“内置校验带 nbook. 例外，不改用它”。
+  结果是同一条规则两种实现：声明式的（只给第三方用，值域只有一个字面量 "plugin"）和函数式的（内置用，8 份拷贝）。idPrefix 的类型是单值字面量联合，
+  说明它本来就想有第二个值。
+为什么是问题：读者看到 idPrefix 会以为内置贡献点也该用它，去 grep 才发现 8 处手写；改规则（比如 nbook 内置的前缀从 "nbook." 变成按插件分）要改 8 处加内核。
+建议改法（交开发者定，已追认的取舍是“不改用它”，这里只提出当初的理由是否仍然成立）：给 idPrefix 加第二个取值 "plugin-or-builtin"（内置插件 id 以 nbook. 开头时前缀
+  取 "nbook."），8 个校验器删掉 prefix 计算与对应测试里的重复分支；至少先把 8 份拷贝收成 contribution-id.ts 里一个 contributionIdPrefix(descriptor)。
+改动规模：中（只收拷贝：小）
+
+------------------------------------------------------------------------
+F13 [建议 / 设计 / 小]  失败码多了几个“只为给一句更具体的话”的码，同一事实在安装与启动两条路径用不同的码
+位置：src/plugins/plugins/shared/contracts.ts:92-105（12 个失败码，全部挂在 inspect/install/enable/disable/uninstall 五个方法上）；
+  src/backend/plugins/inventory.ts:200-203（reserved-id）、:414-416（publisherOf）；src/backend/plugins/startup.ts:304-326（启动时的 NotLoaded）。
+现象：
+  - reserved-id：内核 readPluginManifest 在 publisher 上已经给出“第三方插件的 id 不能以 nbook. 开头”（plugin-manifest.ts:250），
+    inventory 为了换一个码，先用 publisherOf(raw) 再读一遍原始 JSON 里的 publisher，预先于清单的其他问题返回；界面再配一句专用文字。
+  - 入口文件缺失：安装路径报 entry-missing（inventory.ts:289），启动路径同一件事报 NotLoaded 的 manifest-invalid（startup.ts:318 的 manifest-invalid）；
+    启动里“读不了安装目录”（directoryDigest 失败）也报 manifest-invalid，码的含义被拉宽。
+  - errors 常量（:92-105）对五个方法一视同仁：enable/disable/uninstall 实际只会返回 registry-failed、builtin-fixed、not-installed、uninstall-pending
+    （inventory.ts:374-410），但合同声称它们也可能返回 path-rejected、entry-missing、copy-failed 等；调用方（插件页）拿到的联合类型里有不可能的分支，
+    TypeScript 也无法检查漏掉了真正的分支。
+为什么是问题：读者要记 12+3+4 个码并分清哪条路径用哪个；不可能出现的码让界面文字表和测试都要多写。
+建议改法：去掉 reserved-id（并入 manifest-invalid，问题列表里已经有 publisher 一条；界面可在 problems 里按路径 "publisher" 高亮）；
+  把 errors 拆成 installErrors（inspect、install）与 manageErrors（enable、disable、uninstall：builtin-fixed、not-installed、uninstall-pending、registry-failed）；
+  启动路径的 NotLoaded 增加 "entry-missing" 与 "unreadable"（或在 detail 里区分），与安装路径对齐。
+改动规模：小（改 Spec 的失败码表）
+
+------------------------------------------------------------------------
+F14 [建议 / 测试 / 中]  测试场地重复：作者目录、假页面、SDK 构建各有两到三份
+位置：
+  - 作者目录里链接仓库 node_modules：scripts/plugin-sdk/testing/author.ts:8-23（LINKED 10 项 + VUE_PACKAGES 9 项）、build-sdk.test.ts:128-136（同样两张表再抄一遍）、
+    build-plugin.test.ts:35-45（子集：vue、typebox、extra + 4 个 @vue 包）；三处的包清单不同，哪些是“作者机器上必须有的包”要对照三处才知道。
+  - 假的 PluginDocument：src/web/host/plugin-code.test.ts:60-110（fakePage）、src/web/host/window.test.ts:126-165（只放样式表的假页面）、
+    scripts/plugin-sdk/build-plugin.test.ts:75-115（registeredFactory 里的页面）；各自带一个 pageSequence 计数器。
+  - buildSdk 在 build-sdk.test.ts 与 template.test.ts 的 beforeAll 各完整执行一次（我在本机跑 build-sdk.test.ts：8 个用例 118 秒，几乎全是这一次构建，
+    含 vue-tsc 生成声明）；e2e/plugin-authoring.e2e.ts 又一次。
+现象与问题：改“作者机器上要装的包”（例如 BUILD_DEPENDENCIES 加一项，build-sdk.ts:52）要同时改 author.ts、build-sdk.test.ts、template 的依赖；
+  假页面的契约（脚本在下一轮事件循环执行、先登记后 load、语法错误走全局 error 事件）在三处各实现一次，真实浏览器路径只有 e2e 对过一遍，
+  三个替身之间没有对齐的保证。
+建议改法：testing/author.ts 导出 linkAuthorModules(directory) 与 builtSdk()（进程内缓存的 buildSdk 结果，两个测试文件共用 bun test 同一进程）；
+  LINKED 的内容由 build-sdk.ts 导出的 BUILD_DEPENDENCIES 与 PEERS 推出，不再手抄。假页面抽成 src/web/host/testing/fake-page.ts（带 served 表、
+  脚本执行时机、错误派发），三个测试文件共用；契约以 e2e 的 plugin-code.e2e.ts 为准并在该文件头注明。
+改动规模：中
+
+------------------------------------------------------------------------
+F15 [建议 / 测试 / 小]  build-sdk.test.ts 用正则读压缩后的产物，替换成已有的“执行工厂记录 require”做法
+位置：scripts/plugin-sdk/build-sdk.test.ts:210-221（regex 找 `register(…, function (a, b, c)` 取 require 的形参名，再按名字找调用）；
+  对照 build-plugin.test.ts:184-206（同一个性质，用 registeredFactory 执行工厂、记录 require 的 id）。
+现象：前者的断言（产物只引用宿主共享的模块）依赖压缩器输出的形状（形参名、引号种类、函数写法），升级 Vite 或改压缩选项就可能断；后者已经按行为做了同一件事。
+  注释自己写了“这里不执行产物，执行要写宿主的全局登记对象”，但 registeredFactory 正是不写全局对象、经装载器的做法。
+建议改法：把 registeredFactory 提到共享测试工具（见 F14），build-sdk.test.ts 里直接用；删掉两行正则。
+改动规模：小
+
+------------------------------------------------------------------------
+F16 [建议 / 注释 / 小]  过时或错位的注释与文档
+位置与现象：
+  1. examples/README.md “还没演示的”一节写“拥有者定义的激活事件……现在只有宿主能触发，插件写不出‘菜单打开时才激活贡献方’，file-menu 因此启动即激活”，
+     但 ctx.activation.trigger 已经存在（nb-runtime contracts.ts:93，plugin-api.md:94），examples/plugins/file-menu/backend/plugin.ts:31-34 的注释
+     自己就写“更好的写法是菜单打开时 menu 用 context.activation.trigger 触发”。README 与同一示例的注释矛盾；
+     真实情况是：能写，示例为简化场景 3 没写。
+  2. scripts/plugin-sdk/build-sdk.ts:318-320 两段连续注释都在解释 `engines: {node: ">=22.12.0"}`，第一段“Vite 8 要求的 Node 版本”与第二段“只要 Vite 要求的版本，
+     但包里的实现用了 Promise.withResolvers（Node 22）”合起来才对，现在读起来像改了一半。合成一段。
+  3. src/plugins/plugins/web/components/PluginsPage.vue:106-107：`/** 升级确认框里一条受阻的插件…… */` 紧挨着 `/** 列表按界面语言连接…… */`，
+     第一段说的是下面 blockedLine（:115），放在了 list 的前面，是改动时被挤走的。
+  4. src/plugins/plugins/shared/contracts.ts:120 “版本 2：安装预览带重启后受阻的插件”是版本变更记录，规范要求“改动经过属于提交信息”；
+     合同版本号旁只需要写“版本 N 的字段是什么”之类读者需要的信息，或者直接去掉。
+改动规模：小
+
+------------------------------------------------------------------------
+F17 [建议 / 注释 / 小]  examples/README.md 抄了 Spec 的两张表
+位置：examples/README.md 的“选哪种方式”表（:71-83）与 docs/specs/runtime/plugin-api.md:39-60 的“选用规则”“可选功能”；
+  “一个入口能做的事”表与 plugin-api.md 的上下文方法表。
+现象：README 开头声明“只做目录、概念与阅读顺序，不贴代码”，common.md 规定“不复述 Spec，链接 Spec”；README 实际 166 行，其中“选哪种方式”是 Spec 同名表的缩写版，
+  只多了一列“示例”。Spec 的表改了（例如 provide 改名、新增选项），README 的那张不会被任何检查发现。
+建议改法：README 保留“概念 → 示例在哪”的映射列（这是 Spec 没有的），把说明列删掉并链接 Spec 的小节。
+改动规模：小
+
+------------------------------------------------------------------------
+F18 [重要 / 设计 / 小]  SDK 的 components 子路径是 `export *`，把 nb-ui 组件入口的全部导出都变成了兼容承诺，且没有导出面快照
+位置：src/sdk/components.ts:7（`export * from "@notnotype/nb-ui/components"`）；对照 src/sdk/index.ts、browser.ts（逐项具名再导出）与 src/sdk/sdk.test.ts
+  （钉住两者的运行时导出）、build-sdk.test.ts:195-202（钉住两者的类型导出）。
+现象：nb-ui 的 components/index.ts（116 行）除了约 52 个组件，还导出布局内部的 `layout/grid`、`layout/grid-splitter`（工作台与编辑器工作区共用的可序列化拆分树）、
+  `suggestionMenuOptions`、`NB_FIELD_CONTEXT_KEY`、`useFieldContext` 和几十个类型。components 子路径没有具名清单，也没有快照：nb-ui 以后给入口加任何导出，
+  SDK 就多一项公开 API；作者代码依赖了其中的内部工具（拆分树）也不会有任何提示。build-sdk.ts:141 的 componentsDoc 注释自己写了“入口里还有首字母大写的常量
+  与布局工具函数，它们不是组件”，说明作者文档只列 .vue，可模块实际导出的更多。
+  shared/plugin-modules.ts 头部说“每加一项都是 engines.neurobook 兼容范围内的承诺”，index 与 browser 都照这条做了，components 例外。
+为什么是问题：这是三个子路径里唯一一个公开面不由 SDK 自己控制的；nb-ui 是私有包、可以随时重构入口，SDK 的兼容承诺却会随之漂移。
+建议改法：src/sdk/components.ts 改成具名清单（组件加它们的 Props/事件类型），与文档里列出的组件一致；build-sdk.test.ts 对 components.d.ts 也用 declaredExports
+  钉住全名单（现在只 toContain("Button")）。这同时让 F4 的组件清单可以由这份具名清单生成，不必再用正则读 nb-ui。
+改动规模：小
+
+------------------------------------------------------------------------
+F19 [建议 / 可维护性 / 中]  backend/plugins 的分层倒挂：安装模块从“启动”模块里借文件读取工具，inventory.ts 里一个 300 行闭包
+位置：src/backend/plugins/inventory.ts:31（import {installedManifest, missingEntries} from "./startup"）、:116-412（createPluginInventory，一个函数 296 行，
+  内含 serial 队列、itemOf、list、prepare、inspect、blockedAfter、install、commit、setEnabled、uninstall）；
+  src/backend/plugins/startup.ts:333-398（directoryDigest、installedManifest、missingEntries、MANIFEST_LIMIT 都从启动模块导出）。
+现象：“读一个版本目录里的 package.json、核对入口文件、算摘要”是安装与启动共用的，却住在 startup.ts（398 行）里，inventory.ts 反过来依赖 startup.ts；
+  inventory.ts 里的升级预览（previewReason、REASON_RANK、previewDefinition、splitEntry、blockedAfter，约 85 行）是只读的纯推导加一次目录扫描，
+  与安装提交（持锁、改名、写登记表）没有共享状态，却在同一个闭包里，改预览要在安装的临界区代码之间翻找。
+  目录里一共 7 种东西：plugins.json、.plugins.json.lock、.plugins.json.<uuid>.tmp、.staging/<uuid> 与 <uuid>.lock、.pins/<uuid>.json 与 <uuid>.lock、<id>/<版本>/；
+  两种“随机名条目加同名 .lock”的机制（准备目录用 LOCK_STALE_MS 10 秒，租约用 PIN_STALE_MS 5 分钟）各自实现存活判断（startup.ts:274-286 与 pins.ts 的 livePins）。
+为什么是问题：新维护者要改“安装”时，会先在 startup.ts 里找读清单的函数；预览逻辑与提交逻辑的耦合只是物理上的，不是必要的。
+建议改法：(1) 新建 version-dir.ts，装 installedManifest、missingEntries、directoryDigest、MANIFEST_LIMIT，startup 与 inventory 都从它导入。
+  (2) 新建 preview.ts，装 blockedAfter 与它的辅助函数（输入 root 与 next 清单，输出 {blocked, unchecked}），inventory 的 inspect 只调用它。
+  (3) 可选：准备目录和租约共用一个“带锁的随机名条目”小模块（创建、存活判断、回收），只在两者的过期时间上参数化。
+改动规模：中（(1)(2) 是搬家，无行为变化）
+
+------------------------------------------------------------------------
+F20 [建议 / 编码规范 / 小]  一组小的重复与不一致（各自值得一行，合起来说明相邻实现没有对照过）
+1. within / 目录包含判断四份：inventory.ts:75-78、build-plugin.ts:213-216、build-examples.ts:40、build-sdk.ts:112，全部是
+   `relative(...)` 之后 `startsWith("..")`；这个判断会把名为 `..foo` 的子目录当作“在外面”。收成一个 isInside(file, directory)，用 `path === ".." || path.startsWith(".." + sep)`。
+2. 同一句话三份：“引用了宿主没有共享的模块 X”写在 loader.ts:65-70（ModuleNotShared）、plugin-code.ts:25-30（另一个同名 ModuleNotShared 类，字段不同）、build-plugin.ts:378。
+   在 shared/plugin-modules.ts 放 notSharedMessage(id)，两个同名类合并成 shared/plugin-code-error.ts 里一个（带可选 importer）。
+3. PluginCodeError 的 detail 是拼在“（url）”后面的句子片段，约 12 处调用点必须各自凑成通顺的句子：有的以“的”开头（plugin-code.ts:205、214、215、256），
+   有的以“在”开头（:207），有的不带（loader.ts:126、154“不是普通文件”“没有导出 activate”），读出来分别是“……（url）的脚本加载失败”“……（url）没有导出 activate”。
+   构造函数输出 `…（url）：${detail}`，detail 写成独立的一句。
+4. 插件文件的 URL 语法分在三处：shared/plugin-files.ts 的路由模式字符串 `"/plugins/:plugin/files/:digest/*"`、同文件里 pluginFilesPrefix 的拼接、
+   server/plugin-files.ts:24、:84 对 pathname 按位置解构（`[pluginPart, filesPart, digestPart, ...rest]`，再自己写一份 `PREFIX = "/plugins/"`）。
+   在 shared/plugin-files.ts 里放 parsePluginFilePath(pathname)，拼与解放在一起，改段顺序不会只改一边。
+5. 模板 `_package.json` 的占位符分两阶段填：build-sdk.ts:298-301 用四次 `.replace("__TYPEBOX_RANGE__"…)` 填版本范围，create-plugin.ts:78-85 的 fill 用另一组占位符
+   （`__SDK_VERSION__` 等，名字在 replacements 和正则里各列一遍）。build-sdk 改成解析 JSON 后设字段（它本来就解析 package.json），或者不把 typebox、vue 写进模板
+   （它们是 SDK 的 peer 依赖，npm 7 起自动安装），只留 typescript 与 vue-tsc 两个。
+6. src/server/start.ts:234 内联了 `{startup: NO_INSTALLED_PLUGINS, connectDiagnostics: () => undefined, release: async () => undefined}`，与 startup.ts:175 failed() 返回的是同一形状；
+   startup.ts 导出一个 NO_PREPARED_PLUGINS 常量。
+改动规模：每条小
+
+========================================================================
+汇总（按影响排序）
+========================================================================
+重要（6）：
+  1. F18  SDK components 子路径 `export *`，公开面由私有包 nb-ui 决定，无快照（改动小，风险是静默扩大兼容承诺）
+  2. F3   installed / thirdParty / manifestOf 同词多义，贯穿服务端、项目实例、浏览器引导的主线数据（中，纯改名加删一条并行参数）
+  3. F1   SDK 子路径清单散在 10 处，6 处之间无核对（中）
+  4. F4   build-sdk.ts 一半是文档生成，靠正则读 nb-ui 源码，而 nb-ui 已导出名单与分组（中；含“改上游”候选）
+  5. F2   id 规则与 "nbook" 前缀多处各写，登记表那份已与内核分叉（小）
+  6. F5   manifestOf 与校验靠约定配对，build-plugin 写了两遍（小）
+建议（14）：F9 第三方定义登记三份流程；F11 plugin-manifest.ts 三个职责与合同遍历重复；F12 idPrefix 与 8 份内置前缀校验两套写法（需开发者定）；
+  F14 测试场地重复（作者目录、假页面、SDK 构建每次约 2 分钟）；F19 backend/plugins 分层倒挂与 300 行闭包；F10 合同同一性补丁（需开发者定上游）；
+  F13 失败码合并与按方法收窄；F6 入口外壳重复查找；F7 build-plugin 里只为测试的命令行入口；F8 输出目录规则与 package.json 读取多份；
+  F15 测试里用正则读压缩产物；F16 过时与错位的注释；F17 examples/README 抄 Spec；F20 一组小重复（含 within 的 `..foo` 边界）。
+共 20 条：重要 6，建议 14。
+
+未发现问题的方面：
+  - src/sdk/index.ts 与 browser.ts 只做具名再导出，没有藏逻辑；导出面有快照（sdk.test.ts 与 build-sdk.test.ts）。components.ts 是例外，见 F18。
+  - 版本比较与范围判断集中在 src/shared/versions.ts（semver 包），内核通过注入的 VersionCheck/VersionSyntax 使用，没有第二份实现。
+  - 内核 plugin-manifest 不碰文件系统、readPluginManifest 永不抛错；失败路径用结构化的 problems，与相邻实现风格一致。
+  - 构建预设的“纯度检查”基于打包器的模块图而不是正则扫源码（build-plugin.ts:227-251、:362-390），比同类做法稳。
+  - backend/plugins 的测试在真实临时目录与真实子进程上跑，按 Spec 输出编号组织，没有 mock；不变量（锁、租约、符号链接）都有用例。
+  - 示例插件的教学注释与代码一致（抽查 focus、file-menu、clock 的头部与关键分支），README 之外未见过时讲解；dist 目录被 git 忽略。
+  - 诊断事件名统一在 plugins.* 与 browser-host.plugin.*，错误类型（PluginBuildError、PluginCreateError、PluginCodeError）带结构化字段；errno 辅助函数复用现有的 nbook/backend/locked-replace。
+  - 类型检查：`bun run typecheck`（tsc、vue-tsc 两份配置）在 worktree 上通过，无输出。scripts/plugin-sdk/build-sdk.test.ts 8 个用例全部通过（118 秒）。
+
+未做：没有跑 e2e 与开发服务；template.test.ts、build-plugin.test.ts、backend/plugins 的测试没有重跑（只读了代码与用例名）；nb-runtime 的 host.ts 本次只看了与清单、idPrefix、合同核对相关的部分，未通读 1927 行。

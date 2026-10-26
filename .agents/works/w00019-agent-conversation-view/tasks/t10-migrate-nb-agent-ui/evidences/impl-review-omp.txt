@@ -1,0 +1,124 @@
+# w00019 t10 实现审查
+
+审查对象：`git diff master...HEAD` 中 `packages/nb-agent-ui/src/` 核心层与 harness 适配器，及指定包外登记；排除 `src/vue/` 渲染层、样式与 Lab 场景。
+
+### 1. 取消发生在首条助手消息前时完全没有“已停止”结果
+
+- **严重程度**：重要；**类别**：正确性 / 不变量
+- **位置**：`packages/nb-agent-ui/src/harness.ts:213-230`
+- **现象**：`applyRunEnd()` 只在 `entry.stopReason === "aborted"` 时把 `logged.at(-1)` 这条助手消息改成 `stopped`。真实 harness 在用户消息落盘后、模型请求前被 `AbortSignal` 取消时，日志只有 `session_snapshot`、用户 `agent_message`、`run_end(aborted)`，没有助手消息；适配器因此返回的消息只有用户消息，没有 stopped 状态或任何终止说明。
+- **为什么是问题**：Spec 验收 6 要求被停止时末尾显示“已停止”。当前结果交给 `buildTurns()` 后，只有用户消息的轮次会按普通完成处理，用户看不到运行曾被停止，也没有可恢复的终止结果。这个路径是真实 harness 的合法取消路径，不是伪造 OMP 事件。
+- **如何核实**：用真实 `createHarness`、`createMemorySessionLog` 和脚本化模型，在写入用户 `agent_message` 后立即 `controller.abort()`；实际结果为 `stopReason: "aborted"`、`eventTypes: []`、日志含 `run_end`，`createHarnessTranscript` 的 `messages()` 只含 `kind: "user"`。
+- **建议改法**：为没有助手消息的 aborted run 定义并输出一个稳定的终止视图（例如合成 `status: "stopped"` 的助手结果或独立终止条目），让分轮层能显示“已停止”；不要把取消当作普通完成，也不要把 OMP 的英文取消文本透传。
+
+### 2. 不完整的日志消息被静默补成有效消息
+
+- **严重程度**：重要；**类别**：正确性 / 安全与输入边界
+- **位置**：`packages/nb-agent-ui/src/harness.ts:112-129,140-188`
+- **现象**：`assistantFrom()` 对缺少 `content` 的 assistant 消息用空数组，仍追加一条空 assistant；toolResult 分支只检查 `toolCallId` 和已有调用，缺少 `content` 时把正文当空串，缺少或非布尔 `isError` 时按成功处理。均没有写入 `problems()`。
+- **为什么是问题**：适配器合同明确把磁盘/SSE 输入当作不可信，缺字段应跳过并记录原因。现在损坏日志会制造一个看似完成的空助手消息，或者把运行中的工具调用错误地结算为成功并清掉 `openCalls`；这会改变轮次边界、结果状态和费用/工具详情，而宿主没有诊断信号。`nb-session` 只校验条目外壳，不校验 OMP 消息子形状，不能替适配器兜底。
+- **如何核实**：`createHarnessTranscript().applyLogEntry({kind: "agent_message", seq: 1, at: "2026-10-22T08:00:00.000Z", message: {role: "assistant"}})` 实际得到一条空 assistant 且 `problems()` 为空；对已有 `toolCall` 再喂缺 `content`/`isError` 的 toolResult 会得到成功结果，而不是问题记录。
+- **建议改法**：在按 role 分派前验证本适配器读取的必需字段和类型：assistant 的 `content`、`stopReason` 等，toolResult 的 `toolCallId`、`toolName`、`content`、`isError`；失败只记录 `TranscriptProblem`，不改 `logged`、`openCalls` 或临时覆盖状态。测试补齐每个缺字段的可观察结果。
+
+### 3. 未知事件没有进入 `problems()`
+
+- **严重程度**：重要；**类别**：正确性 / 测试
+- **位置**：`packages/nb-agent-ui/src/harness.ts:274-317`
+- **现象**：`applyEvent()` 的 `default` 分支把所有未知字符串事件当作“无关事件”直接返回。合同与 README 要求“认不出的条目或事件”跳过并记录一条问题；当前只有已知但暂时不影响视图的 `turn_start`、`tool_execution_update` 等才应静默忽略。
+- **为什么是问题**：SSE 协议新增或拼写错误的事件会被当成正常输入，宿主的诊断无法发现适配器已经失去一类运行状态；这也让 `problems()` 不能兑现其公开合同。现有测试只覆盖 `{type: "turn_start"}` 和缺字段事件，没有覆盖未知字符串事件。
+- **如何核实**：调用真实导出的 `createHarnessTranscript` 后执行 `applyEvent({type: "future_agent_event"})`；实际 `messages()` 为空且 `problems()` 仍为空。
+- **建议改法**：用显式的已知“忽略事件”集合处理无视图变化的事件；`default` 记录 `不认识的事件：${event.type}`，并补一条未知事件测试。
+
+### 4. 晚到的工具结束事件会抹掉日志中的结构化结果
+
+- **严重程度**：重要；**类别**：正确性 / 状态一致性
+- **位置**：`packages/nb-agent-ui/src/harness.ts:294-309,321-327`
+- **现象**：日志先写入工具结果时，`applyLogEntry()` 将 `details` 放入 `ToolCallView.result`；之后 `tool_execution_end` 将 `liveTools` 中的结果设置为仅有 `text` 和 `truncated`。`messages()` 用 `{...call, ...overlay}` 覆盖整个 `result`，把日志权威的 `details` 删除。
+- **为什么是问题**：`nb-harness` 的真实事件携带 `result.details`，事件 JSON 与工具结果日志都包含它；但适配器事件分支不读取该字段。任务清单渲染器从 `result.details` 解析完整清单，因此事件/日志交错时工具显示“成功”却没有清单内容；其它依赖结构化结果的宿主工具也会丢数据，违反“同一条工具结果的日志到了，临时结果换掉”及日志权威合同。
+- **如何核实**：用真实 `createHarness` 和脚本化 `task_create` 工具返回 `{content:[{type:"text",text:"created"}], details:{title:"审查任务",steps:[...]}}`；先把真实日志交给适配器，再把真实 `tool_execution_end` 事件交给适配器。日志版本的 `result.details` 含完整清单，事件重放后的 `result` 只有 `{text:"created",truncated:false}`。
+- **建议改法**：事件 overlay 只更新日志尚未提供的字段；日志结果一旦存在就以日志对象为准，或事件映射完整保留 `result.details`。增加这个真实运行时的顺序用例，断言日志详情在晚到事件后仍存在。
+
+### 5. 核心编辑详情解析仍按旧 `edit.edits` 参数，真实 harness 的 `edit.input` 会显示为空
+
+- **严重程度**：重要；**类别**：正确性 / 测试
+- **位置**：`packages/nb-agent-ui/src/tool-detail-lines.ts:31-45`、`packages/nb-agent-ui/src/tool-args.ts:7-23`；覆盖缺口：`packages/nb-agent-ui/src/harness.contract.test.ts:21-36,88-120`
+- **现象**：迁移的 `fileDiffLines()` 对 `edit` 只解析 `args.edits[{oldText,newText}]`，并对 `write` 只读 `args.content`。`nb-harness` 真实内置 `edit` 名为 `edit`，必需参数却是 `{input: string}`，默认使用 hashline 协议，也可使用 apply_patch 协议；真实结果另有 `details.files`。核心映射因此找不到编辑行，返回空行。契约测试仅用 Profile 自带的 `lookup`、`answer` 工具，从未登记或调用 `nb-harness` 的 builtin `read` / `edit`，所以没有覆盖计划列出的参数差异风险。
+- **为什么是问题**：实际 NeuroBook 宿主可以经 `registerBuiltinTools()` 声明 `builtin.edit`，其日志 `ToolCallView.args` 是完整 `input` 文本。交互仍显示一次成功的编辑调用，但其专用详情为空，失去对 patch、文件路径和改动内容的可见性；编辑摘要也无法从旧 `path` / `edits` 形状读取目标。Task 要求迁移后对 harness 的真实形状核对，计划明确把不一致列为 S6 必须暴露的风险。
+- **如何核实**：真实 `createHarness` 登记 `registerBuiltinTools(registry,{read:{cwd},edit:{cwd,mode:"apply_patch"}})`，脚本模型调用 `edit({input:"*** Begin Patch…"})` 并成功改写临时文件；落盘日志中的调用参数为 `{input: ...}`。将该真实调用传给 `fileDiffLines()` 得到 `[]`，尽管磁盘文件已改变且结果文本含成功 diff。
+- **建议改法**：以 `nb-harness` 对外声明为准支持 `edit.input` 的 hashline / apply_patch 载荷解析，或把结构化 `result.details.files` 转成差异详情；保留旧工具形状只为确实消费它们的宿主路径。契约测试应登记并调用真实 builtin 工具，断言 `ToolView` 可观察到目标路径与非空差异。
+
+### 6. 用户消息合并文字并把 base64 长度当成图片字节数
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-agent-ui/src/harness.ts:65-80,149-152`
+- **现象**：`contentText()` 把所有文本块拼成一个字符串；`imageBlocks()` 再把所有图片追加到文本后，改变 OMP `content` 数组里的图文顺序。另外 `bytes` 用 `floor(data.length * 3 / 4)` 估算，没有扣除 base64 尾部 `=` padding。1 字节图片的 `AQ==` 长度为 4，适配器报告 3 字节。
+- **为什么是问题**：用户消息里的图片位置是模型输入的一部分，Spec 要求图片保留在文字中的位置；合并后视图变成“文字前后都在图片之前”。图片文件大小也显示错，旧内容和真实 harness 产生的图片消息都会如此；实际 base64 长度不能直接代表解码后字节数。
+- **如何核实**：通过真实 `createHarness` 恢复包含 `[{type:"text",text:"前"},{type:"image",data:"AQ==",mimeType:"image/png"},{type:"text",text:"后"}]` 的 `SessionLog` 条目。实际视图 `blocks` 为文字“前后”后接图片，且报告 `bytes:3`；`Buffer.from("AQ==","base64").byteLength` 为 1。
+- **建议改法**：按内容块顺序逐项映射为文本/附件块，不要分两次聚合；用 base64 长度扣除合法 padding 计算原始字节数（不做上限截断，符合本 Task 已定文本/内容长度策略）。补一个混合图文和 `=` / `==` padding 的日志回放用例。
+
+### 7. 前一条助手日志迟到会清除下一条正在生成的消息
+
+- **严重程度**：重要；**类别**：正确性 / 事件与日志竞态
+- **位置**：`packages/nb-agent-ui/src/harness.ts:155-169`
+- **现象**：每条 assistant 日志写入后都无条件执行 `live = null`。`live` 实际可能已经被后续 assistant 的 `message_start` / `message_update` 更新，不再代表这条日志对应的消息；此时前一条日志到达会把新消息一并清掉。
+- **为什么是问题**：真实 harness 一轮里可以先发出带工具调用的 assistant 消息，再在工具结果写入后开始下一条 assistant 消息。事件与日志由不同传输/读取路径提供，消费端可以先收到第二条消息事件，再读到第一条消息日志。此时当前运行内容会从 `messages()` 中消失，违反“事件只画正在生成的那条助手消息”，直到第二条日志到达才恢复；UI 流式视图会短暂变成旧过程或空白。
+- **如何核实**：真实 `createHarness` + `scriptedModel([[toolCall(...)], "第二条回复"])` 的事件顺序确实包含第一条 assistant `message_start/message_end`、工具结果、第二条 assistant `message_start/message_end`。将这些真实事件送入适配器直到第二条 assistant `message_start`，此时显示 `live0` 的“第二条回复”；再送第一条 assistant 日志，实际 `messages()` 只剩第一条日志消息，第二条临时消息消失。
+- **建议改法**：给临时消息记录可与日志对应的 OMP 消息身份/序列，只有确认落盘的是当前 `live` 消息时才清除它；前一条日志到达时应只替换对应临时消息，不动后续仍在生成的那条。增加真实 harness 的两条 assistant 交错测试，断言第二条 live 在第一条日志到达后仍可见。
+
+### 8. `harness.test.ts` 的停止输入不是真实 harness 会写出的消息序列
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：`packages/nb-agent-ui/src/harness.test.ts:8-12,45-53`
+- **现象**：停止用例手写一条带 `toolCall c9` 的 assistant `stopReason: "toolUse"`，紧接着喂 `run_end(aborted)`，并断言这条调用被标为 `error`。真实 `nb-harness` 在工具执行/取消时会把工具结果作为 `toolResult` 写入日志；若取消导致下一次 assistant 中止，还会再写一条 `stopReason: "aborted"` 的 assistant 消息，`run_end` 在日志末尾。真实 harness 的关闭合同也要求日志没有未配对的工具调用。
+- **为什么是问题**：这个用例验证的是一个正常 harness 不产生的“run_end 早于工具结果、原 assistant 没有结果”的拼接。它没有覆盖真实停止路径里的 `toolResult`、中止 assistant、结果写入顺序，反而会让“未等到结果标 error”的逻辑看起来已被真实运行时验证。真实工具取消实验的日志顺序是 `assistant(toolUse)`、`usage`、`toolResult`、`assistant(aborted)`、`usage`、`run_end`，适配器结果为工具成功、后一条助手 stopped。
+- **如何核实**：用真实 `createHarness`、注册工具和 `AbortController` 在工具执行期间取消；实际事件与日志如上。对照 `harness.test.ts:45-53`，手写输入缺少 `toolResult` 和 aborted assistant，且把停止状态放在错误的 assistant 上。
+- **建议改法**：把该用例改为真实 `createHarness` 的停止场景，或明确标成“截断/损坏日志回放”并只测试该降级合同；至少另加真实工具执行后取消、真实 `run_end` 末尾的断言，不用手写 OMP 消息替代进程级时序。
+
+
+### 9. boundary.test.ts 的正则可被合法的注释间隔导入绕过
+
+- **严重程度**：重要；**类别**：安全与边界测试
+- **位置**：packages/nb-agent-ui/src/boundary.test.ts:31-33,76-100
+- **现象**：SPECIFIER 只接受 import 后直接接空白和字符串、import() 内直接接空白和字符串，以及紧邻引号的 from。ECMAScript/TypeScript 允许注释作为空白，例如 import/* comment */ "node:fs" 和 import/* comment */("nbook/secret")；当前正则对两者都没有命中。
+- **为什么是问题**：这个测试负责阻止核心层导入宿主源码、Node 模块或其它包。合法的注释间隔可以让越界导入通过测试，实际边界因此依赖作者不使用合法语法变体，而不是测试真正保证。
+- **如何核实**：用 Bun 运行 import/* legal comment trivia */("node:fs") 可正常执行；把同一字符串交给 boundary.test.ts 的 SPECIFIER，匹配结果为空。对 import/* legal comment trivia */ "node:fs"; 也得到空结果。
+- **建议改法**：不要用只识别固定空白的正则实现导入扫描；改用 TypeScript/ES module lexer，或先按 ECMAScript 空白规则消除注释再扫描。至少为静态导入、动态导入和 from 前后的注释各加反例，且继续保留 branch-from 的非导入回归用例。
+
+### 10. 包测试没有从公开入口做 smoke，`index.ts` 的运行时出口未被验证
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：`packages/nb-agent-ui/src/index.ts:9-19`；所有核心测试文件均直接导入 `./harness`、`./types` 等内部路径
+- **现象**：`bun run test` 的 46 条 Bun 测试没有一条从 `@notnotype/nb-agent-ui` 包入口导入并执行最小真实路径；`harness.contract.test.ts` 也直接导入 `./harness`。当前 `index.ts` 的值导出（`createAgentViewRegistry`、`textOf`、`buildTurns`、`createHarnessTranscript` 等）和 package exports 的运行时解析因此没有包内 smoke 覆盖。
+- **为什么是问题**：通用包测试合同要求“包入口可导入 + 一条最小真实路径”。内部模块全部通过不代表公开入口没有漏导出、错误的值导出或 workspace export 解析错误；应用的 `prompt-ports.typecheck.ts` 只做类型导入，不能替代运行时 smoke。
+- **如何核实**：检查 `packages/nb-agent-ui/src/*.test.ts` 的导入，只有相对内部模块和 `@not.../nb-harness` 等开发依赖；执行的 `bun run test` 输出为 Bun 46 条、Vitest 53 条，但没有入口 smoke 文件或入口导入。
+- **建议改法**：新增一个 Bun smoke 用例从 `@notnotype/nb-agent-ui` 导入公开值，创建最小 registry/transcript 并断言一条可观察结果；保留纯逻辑测试的内部导入，不要把 smoke 变成源码字符串或转发断言。
+
+### 11. 过程摘要测试把翻译措辞与错误单复数锁成合同
+
+- **严重程度**：建议；**类别**：测试 / 代码质量
+- **位置**：packages/nb-agent-ui/src/process-summary.test.ts:14-23,30-40
+- **现象**：迁移后用例不再断言稳定的 ViewText 键和参数，而是对中英文完整句子作精确断言；例如固定期望“1 other actions”和“Changed 1 files”。
+- **为什么是问题**：仓库测试规范要求测行为、不测措辞。改进翻译、处理单复数或调整风格会无故破坏纯逻辑测试；测试还把不自然的英文复数形式提升为必需行为。归档实现使用 i18n 键与参数断言，没有锁定这些字面文案。
+- **如何核实**：对照 docs/testing/README.md:7-12 的措辞测试规则、归档 stream/process-summary.test.ts 的键值断言，以及当前 process-summary.test.ts:14-23 中上述英文字符串断言。
+- **建议改法**：describeChain / describeTurn 测试恢复为稳定的 {key, params} 行为断言；formatText 独立测试只覆盖占位符替换机制，使用合成模板，不把界面翻译文案当成代码合同。
+
+## 未发现问题的方面
+
+- 对照归档 `865c9f593`，`conversation-turns.ts`、发送规则、任务清单、标签行为、工具详情通用分支与注册表排序/匹配逻辑没有发现迁移本身的额外语义差异；已定的 `ViewText` 参数化、费用可空与本包粘贴策略均有对应实现。工具详情与 harness 的真实参数差异已单列第 5 条。
+- `THINKING_LEVEL_KEYS` 的七个档位完整保留；内置命令登记 `new/plan/mode/model/compact/rename/summarize/fork/clear` 均对应中英文字表键；核心引用的旧 `agentView.*` 键无残留。
+- `prompt-ports.typecheck.ts` 的 `Camelize` 能匹配当前 Vue 声明的 kebab-case 事件监听键；`Accepts` 正例覆盖 PromptEditor、PromptTextView、MarkdownDisplay，负例覆盖缺必填 locale、未知事件、不兼容 payload 与缺 expose。应用类型检查通过。
+- workspace CI 的 paths、`WORKSPACE_PACKAGE_CHECKS` 行和消费者闭包登记一致；对 `packages/nb-agent-ui/src/types.ts` 运行矩阵选择器，结果选中 `nb-agent-ui` 与 `neuro-book`，检查命令为两包各自的 `typecheck` / `test` 及应用既有检查。
+
+## 验证记录
+
+- `bun run --cwd packages/nb-agent-ui test`（在包目录执行）：Bun 46 条通过，Vitest 53 条通过，0 失败。
+- `bun run --cwd packages/nb-agent-ui typecheck`：核心 `tsc` 与 Vue `vue-tsc` 均退出成功。
+- `bun run --cwd packages/neuro-book typecheck`：应用 `tsc`、网页与 browser-test 的 `vue-tsc` 均退出成功。
+- 真实 harness 时序实验使用 `createHarness`、脚本化模型与真实内存 session log；记录见各发现的核实步骤。没有运行 e2e 或开发服务。
+
+## 数量统计
+
+- 阻断：0 条。
+- 重要：10 条。
+- 建议：1 条。
+- 合计：11 条。

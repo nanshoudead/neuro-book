@@ -1,7 +1,7 @@
 /**
  * 手势验收页的组件定义：场景、场景属性控件与事件日志收录的事件。原来在 playground 的组件 Lab 注册表里；组件实验
- * 改到新应用的 Component Lab 登记之后，只有这两个需要真实指针与布局引擎的手势验收留在 playground（见
- * e2e/nested-grid.spec.ts、e2e/splitter.spec.ts）。
+ * 改到新应用的 Component Lab 登记之后，只有需要真实指针与布局引擎的验收留在 playground：两个手势验收、一个
+ * 勾选框聚焦滚动验收与弹出列表的尺寸与高亮验收（见 e2e/ 下同名的 spec）。
  */
 
 export type LabControlType = "boolean" | "text" | "select";
@@ -56,6 +56,34 @@ export const ACCEPTANCE_DEFINITIONS: Record<string, LabComponentDefinition> = {
             {id: "zeroInnerSash", label: "内层分隔条零高", type: "boolean"},
         ],
         events: ["layout", "gesture-start", "gesture-update", "gesture-end", "gesture-cancel", "restore"],
+    },
+    "popup-lists": {
+        id: "popup-lists",
+        label: "弹出列表",
+        scenes: [{id: "menus", label: "菜单一族"}, {id: "select", label: "Select"}, {id: "quick-pick", label: "QuickPick"}, {id: "long", label: "长列表与级联"}, {id: "quick-pick-long", label: "QuickPick 长列表"}, {id: "material", label: "浮层材质"}],
+        controls: [],
+        events: [],
+    },
+    "suggestion-menu": {
+        id: "suggestion-menu",
+        label: "SuggestionMenu",
+        scenes: [{id: "caret", label: "贴光标"}, {id: "header", label: "与输入框同宽、顶部搜索框"}, {id: "wide", label: "锚点比窗口宽"}],
+        controls: [],
+        events: [],
+    },
+    "checkbox-focus": {
+        id: "checkbox-focus",
+        label: "Checkbox",
+        scenes: [{id: "default", label: "滚动列表底部聚焦"}],
+        controls: [],
+        events: [],
+    },
+    "control-invalid": {
+        id: "control-invalid",
+        label: "输入框出错外观",
+        scenes: [{id: "default", label: "出错与正常对照"}],
+        controls: [],
+        events: [],
     },
 };
 

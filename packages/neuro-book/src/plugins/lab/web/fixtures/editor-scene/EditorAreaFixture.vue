@@ -7,13 +7,16 @@
  */
 import {SegmentedControl} from "@notnotype/nb-ui/components";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
-import {computed, defineAsyncComponent, onBeforeUnmount} from "vue";
+import {computed, defineAsyncComponent, onBeforeUnmount, provide, watch} from "vue";
 import type {Component} from "vue";
 
 import {createEditorArea} from "nbook/plugins/editor/web/area";
 import EditorArea from "nbook/plugins/editor/web/components/EditorArea.vue";
 import type {EmptyTip} from "nbook/plugins/editor/web/empty-tips";
-import type {EditorKind} from "nbook/plugins/editor/web/groups/groups";
+import type {EditorState} from "nbook/plugins/editor/web/editor-registry";
+import {createAssetUrls, markdownAssetsKey} from "nbook/plugins/markdown/web/parts/asset-urls";
+import {SyntaxCatalog, syntaxCatalogKey} from "nbook/plugins/markdown/web/syntax-catalog";
+import {CODE_EDITOR, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {useLabEventSink} from "../../lab-event-sink";
@@ -26,11 +29,66 @@ const props = defineProps<LabFixtureProps>();
 const locale = computed((): DisplayLocale => (props.input?.props?.locale === "en-US" ? "en-US" : "zh-CN"));
 const record = useLabEventSink();
 
+/** 方言场景的正文：各种方言、提示块、任务列表与原样内容在编辑器里的样子（docs/specs/workspace/markdown-dialect.md）。 */
+const DIALECT = [
+    "# 方言一览",
+    "",
+    "她抬头<comment body=\"这里节奏太快\">看了他一眼</comment>，远处站着<ruby text=\"hàn zì\">汉字</ruby>先生，<mark>高亮</mark>、<span style=\"color: #ef4444\">红字</span>与 x<sup>2</sup>。",
+    "",
+    "<comment body=\"整段视角混乱\">",
+    "老人走向祭坛。",
+    "",
+    "风里带着灰烬的味道。",
+    "</comment>",
+    "",
+    "<bilingual text=\"老人缓缓走向祭坛。\">",
+    "The old man walked toward the altar.",
+    "</bilingual>",
+    "",
+    "<align value=\"center\">*— 在记忆断裂的地方，世界重新开始。—*</align>",
+    "",
+    "> [!NOTE]",
+    "> 普通的提示。",
+    "",
+    "> [!TIP] 小技巧",
+    "> 写短句。",
+    "",
+    "> [!IMPORTANT]",
+    "> 重要的事。",
+    "",
+    "> [!WARNING]- 伏笔（默认折叠）",
+    "> 她其实早就知道。",
+    "",
+    "> [!CAUTION]+ 注意",
+    "> 不要改这一章的时间线。",
+    "",
+    "- [ ] 待办",
+    "- [x] 完成",
+    "",
+    "按 <kbd>Ctrl</kbd>+<kbd>S</kbd> 保存，公式 $x^2$，脚注[^1]。",
+    "",
+    "<div class=\"note\">",
+    "未知的 HTML 块原样保留。",
+    "</div>",
+    "",
+    "<html>",
+    "<div style=\"padding: 8px\">状态面板</div>",
+    "</html>",
+    "",
+    "[^1]: 脚注内容。",
+    "",
+    "她翻开[<comment body=\"出场\">林雪</comment>的设定](../设定/林雪.md)，又看了[外部的资料](https://example.com)。",
+    "",
+    "![封面](images/封面.png) ![外面的图](../../外面.png)",
+    "",
+].join("\n");
+
 const memory = createMemoryFiles({
     project: [
         ["chapters/第一章.md", "# 第一章\n\n天色将晚，她推开了门。\n"],
         ["chapters/第二章.md", "# 第二章\n\n雨下了一整夜。\n"],
         ["notes/设定.json", "{\n  \"城市\": \"临川\"\n}\n"],
+        ["chapters/方言.md", DIALECT],
     ],
     user: [],
 });
@@ -43,7 +101,9 @@ const area = createEditorArea({
     initial: null,
     report: (error) => record("error", error instanceof Error ? error.message : String(error)),
 });
-if (props.scene !== "empty") {
+if (props.scene === "dialect") {
+    area.open("project://chapters/方言.md", {mode: "permanent"});
+} else if (props.scene !== "empty") {
     area.open("project://chapters/第一章.md", {mode: "permanent"});
     area.open("project://chapters/第二章.md", {mode: "preview"});
 }
@@ -51,10 +111,33 @@ if (props.scene === "split") {
     area.split("right");
     area.open("project://notes/设定.json", {mode: "permanent"});
 }
+if (props.scene === "unrepresentable") {
+    // 写不出（docs/specs/workbench/editor.md 输出 61）：第二章读到后让这个视图写不出，看组顶部的提示、“定位”与“采用当前正文”，
+    // 关闭标签时的询问没有“保存”。真实输入很难构造出写不出，这里直接经绑定登记。
+    const stop = watch(() => {
+        const group = area.groups.activeGroup.value;
+        const binding = area.binding(group);
+        return binding?.kind === "text" && area.documentOf(group)?.status.value === "ready" ? binding : null;
+    }, (binding) => {
+        if (binding === null) return;
+        binding.block({reason: "段首的 HTML 会被读成 HTML 块", from: 0, to: 6, index: 1, excerpt: "第二章", fallback: "# 第二章\n\n雨下了一整夜。\n"});
+        queueMicrotask(() => stop());
+    }, {immediate: true});
+}
 
 const MonacoControl = defineAsyncComponent(() => import("nbook/plugins/editor/web/components/MonacoControl.vue"));
-const MarkdownControl = defineAsyncComponent(() => import("nbook/plugins/editor/web/components/MarkdownControl.vue"));
-const control = (kind: EditorKind): Component => (kind === "code" ? MonacoControl : MarkdownControl);
+// Markdown 控件要 nbook.markdown 交组件时给的方言目录：场景里没有外来方言，目录是空的，语言只有内置方言。
+provide(syntaxCatalogKey, new SyntaxCatalog({get: () => null, list: () => []}, () => undefined));
+// 图片地址：内存适配器没有字节路由，作品里的 png 一律给一张画出来的图。
+const PICTURE = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270"><rect width="480" height="270" fill="#7287fd"/><text x="240" y="145" font-size="30" text-anchor="middle" fill="white">封面</text></svg>')}`;
+provide(markdownAssetsKey, createAssetUrls({rawUrl: (address) => (address.endsWith(".png") ? PICTURE : null), watch: () => () => undefined}));
+const MarkdownControl = defineAsyncComponent(() => import("nbook/plugins/markdown/web/components/MarkdownControl.vue"));
+/** 只有内置的两个编辑器，组件直接给出（产品里由编辑器的登记表给出，`editor-registry.ts`）。 */
+const controls: Readonly<Record<string, Component>> = {[CODE_EDITOR]: MonacoControl, [MARKDOWN_EDITOR]: MarkdownControl};
+const control = (editor: string): EditorState => {
+    const component = controls[editor];
+    return component === undefined ? {kind: "gone"} : {kind: "ready", component};
+};
 
 const active = computed(() => area.activeDocument.value?.target.value.path ?? null);
 const externalWrite = (): void => {

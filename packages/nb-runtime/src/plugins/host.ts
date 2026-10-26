@@ -57,7 +57,12 @@ import type {
     RevokeReason,
 } from "./contracts";
 import {KERNEL_ACTIVATION_PREFIXES, parseActivationEvent, validateDefinition} from "./registration";
-import {deriveBlocked, entryIdentity} from "./blocked";
+import {schemaProblem} from "./schema";
+import {deriveBlocked, entryIdentity, versionMismatch} from "./blocked";
+import {sameContractContent} from "./contract-content";
+import {isReservedPublisher} from "./platform";
+import type {PluginPlatform} from "./platform";
+import type {EntrySnapshot, VersionCheck} from "./blocked";
 
 const CANCELLED: unique symbol = Symbol("cancelled");
 
@@ -212,6 +217,8 @@ interface EntryRecord {
 interface PluginRecord {
     readonly id: string;
     readonly scope: Scope;
+    readonly version: string | null;
+    readonly pluginVersions: Readonly<Record<string, string>>;
     /** 本插件拥有的激活事件前缀。 */
     readonly prefixes: ReadonlyArray<string>;
     readonly points: ReadonlyMap<string, ContributionPointDefinition>;
@@ -269,8 +276,9 @@ export class PluginHostImpl implements PluginHost {
     readonly #client: string | null;
     readonly #assembly: ServiceAssembly;
     readonly #observer: PluginObserver | undefined;
-    readonly #delegation: ((pluginId: string) => boolean) | null;
     readonly #remote: RemoteHostBinding | null;
+    readonly #satisfies: VersionCheck | undefined;
+    readonly #platform: Pick<PluginPlatform, "reservedPublishers">;
     readonly #plugins = new Map<string, PluginRecord>();
     /** 贡献目录：贡献点 id + 贡献 id → 全部当前登记，重复判定不区分运行位置。 */
     readonly #contributions = new Map<string, ContributionRecord[]>();
@@ -308,8 +316,9 @@ export class PluginHostImpl implements PluginHost {
         this.#client = instance.identity.client ?? null;
         this.#assembly = assembly;
         this.#observer = options.observer;
-        this.#delegation = options.delegation ?? null;
         this.#remote = options.remote ?? null;
+        this.#satisfies = options.satisfies;
+        this.#platform = options.platform ?? {reservedPublishers: []};
         this.#remote?.attach({
             lookup: (contractId, chain, signal) => this.#lookupRemote(contractId, chain, signal),
             describe: (contractId) => this.#describeRemote(contractId),
@@ -326,6 +335,9 @@ export class PluginHostImpl implements PluginHost {
                 return false;
             },
         });
+        if (Object.keys(definition.pluginVersions ?? {}).length > 0 && this.#satisfies === undefined) {
+            rejections.push({reason: "version-check-unavailable", entry: null, capability: null, contribution: null, detail: null});
+        }
         const existing = this.#plugins.get(definition.id);
         if (existing !== undefined && existing.scope.phase !== "closed") {
             rejections.push({reason: "duplicate-plugin", entry: null, capability: null, contribution: null, detail: null});
@@ -352,6 +364,8 @@ export class PluginHostImpl implements PluginHost {
         const pluginRecord: PluginRecord = {
             id: definition.id,
             scope: options.scope,
+            version: definition.version ?? null,
+            pluginVersions: definition.pluginVersions ?? {},
             prefixes: definition.activationEventPrefixes ?? [],
             points,
             entries,
@@ -573,9 +587,6 @@ export class PluginHostImpl implements PluginHost {
             return message;
         };
         const on = (issued: ConsumerIdentity): DelegatedRemoteAccess => {
-            if (this.#delegation?.(plugin) !== true) {
-                return refusedRemote("denied", denial(`插件 ${plugin} 不在代理允许清单内`));
-            }
             const issue = this.#assembly.issuedTo(record.consumerId, issued);
             if (issue.status === "denied") {
                 return refusedRemote("denied", denial(issue.message));
@@ -660,7 +671,8 @@ export class PluginHostImpl implements PluginHost {
         }
         const result = await this.#activate({plugin: record.plugin, entry: record.definition.id}, {signal, chain});
         if (result.status !== "activated") {
-            const reason = result.status === "failed" ? `${result.stage}/${result.reason}` : result.status === "rejected" ? `rejected:${result.reason}` : result.status;
+            // 激活抛错时带上错误消息：调用方（多是别的实例里的作者）只看得到这一句（runtime/plugin-channel.md 的 unavailable）。
+            const reason = result.status === "failed" ? `${result.stage}/${result.reason}${result.error === null ? "" : `：${result.error.message}`}` : result.status === "rejected" ? `rejected:${result.reason}` : result.status;
             return {status: "unavailable", reason: `提供入口 ${record.plugin}/${record.definition.id} 不可用：${reason}`};
         }
         const attempt = record.current;
@@ -813,6 +825,19 @@ export class PluginHostImpl implements PluginHost {
         return null;
     }
 
+    /**
+     * `idPrefix: "plugin"` 的核对：贡献 id 以贡献方插件 id 加 `.` 开头；发布者在平台的保留名单里时，也可以只以发布者加 `.`
+     * 开头（内置插件的贡献常在别的内置插件名下，例如工作台的命令）。
+     */
+    #idPrefixProblem(pluginId: string, contributionId: string): string | null {
+        if (contributionId.startsWith(`${pluginId}.`)) return null;
+        const publisher = pluginId.slice(0, pluginId.indexOf("."));
+        if (isReservedPublisher(this.#platform, publisher)) {
+            return contributionId.startsWith(`${publisher}.`) ? null : `贡献 id 要以 ${publisher}. 开头：${contributionId}`;
+        }
+        return `贡献 id 要以插件 id ${pluginId} 加“.”开头：${contributionId}`;
+    }
+
     #pointFor(contribution: ContributionRecord): ContributionPointDefinition | null {
         return this.#pointOwner(contribution.definition.capability)?.points.get(contribution.definition.capability) ?? null;
     }
@@ -848,6 +873,16 @@ export class PluginHostImpl implements PluginHost {
         }
         if (point.implementation === "none" && contribution.kind === "entry") {
             return {status: "rejected", reason: "implementation-not-accepted", detail: null};
+        }
+        if (point.idPrefix === "plugin") {
+            const detail = this.#idPrefixProblem(contribution.plugin.id, contribution.definition.id);
+            if (detail !== null) return {status: "rejected", reason: "invalid-declaration", detail};
+        }
+        if (point.schema !== undefined) {
+            const detail = schemaProblem(point.schema, contribution.definition.declaration);
+            if (detail !== null) {
+                return {status: "rejected", reason: "invalid-declaration", detail};
+            }
         }
         if (point.validate !== undefined) {
             try {
@@ -1027,8 +1062,26 @@ export class PluginHostImpl implements PluginHost {
             generation,
             scope: attempt.work,
             signal: scope.stopSignal,
+            onStop: (release) => {
+                attempt.work.register({kind: "plugin-on-stop", label: `${plugin}/${entry} 停止时`, value: release, release: (run) => run()});
+            },
             remote: this.#remoteAccess(attempt, record, plugin, entry),
             declarations: this.#declarations,
+            activation: {
+                // 绑的是这一代次的作用域而不只是插件 id：旧上下文在同 id 重新登记之后不能借新登记触发。存活核对与
+                // 派发之间没有 await，核对通过时激活已经开始。
+                trigger: (event, options = {}) => {
+                    if (!isAlive(scope)) {
+                        return Promise.resolve({status: "rejected", event, reason: "requester-stopped"});
+                    }
+                    if (options.signal === undefined) {
+                        return this.triggerActivationEvent(event, {requester: plugin, signal: scope.stopSignal});
+                    }
+                    // 入口的停止信号与本代次同寿命，每次触发挂上去的监听要随这次触发结算解除，否则反复触发会一直累积。
+                    const linked = linkedSignal([options.signal, scope.stopSignal]);
+                    return this.triggerActivationEvent(event, {requester: plugin, signal: linked.signal}).finally(linked.dispose);
+                },
+            },
             services: {
                 require: <T>(key: ServiceKey<T>): T => {
                     if (!required.has(key.name)) {
@@ -1036,7 +1089,15 @@ export class PluginHostImpl implements PluginHost {
                     }
                     return required.get(key.name) as T;
                 },
-                resolve: (key, options) => this.#assembly.access(record.consumerId, attempt.work, {generation}).resolve(key, options),
+                resolve: (key, options) => {
+                    // 可选依赖遇到版本不符不注入，入口照常（必需依赖在受阻推导里已拦下，到不了这里）。
+                    const mismatch = this.#versionMismatchFor(record, key.name);
+                    if (mismatch !== null) {
+                        this.#record("activate", "version-mismatch", {plugin, entry, capability: null, contribution: key.name});
+                        return Promise.resolve({status: "unavailable", key: key.name, reason: "version-mismatch", providerId: null, error: null, path: []});
+                    }
+                    return this.#assembly.access(record.consumerId, attempt.work, {generation}).resolve(key, options);
+                },
             },
         };
         let acquired;
@@ -1044,7 +1105,12 @@ export class PluginHostImpl implements PluginHost {
             acquired = await attempt.work.acquire<ActivationOutput>({
                 kind: "plugin-activation",
                 label: `${plugin}/${entry}`,
-                acquire: () => record.definition.activate(context),
+                acquire: async () => {
+                    const output: unknown = await record.definition.activate(context);
+                    // 在取得之内核对：不是对象的产出不进作用域，也就不会在释放时被当作产出读字段（runtime/plugins.md）。
+                    if (typeof output !== "object" || output === null) throw new TypeError(`入口的 activate 没有返回激活产出（对象），得到的是 ${output === null ? "null" : typeof output}`);
+                    return output as ActivationOutput;
+                },
                 release: (output) => this.#releaseOutput(attempt, output),
             });
         } catch (error) {
@@ -1084,15 +1150,18 @@ export class PluginHostImpl implements PluginHost {
             if (!remoteDeclared.includes(item.contract.id) || remote.has(item.contract.id)) {
                 return fail("output", "undeclared-remote", {key: item.contract.id});
             }
-            // 提供方查询按静态声明回答版本与调用方种类，调用按产出的合同核对：两者必须是同一个合同对象，
-            // 否则同 id 不同版本时查询说“在”、调用却一直 version-changed（runtime/plugins.md 输出第 22 条）。
-            if (!(record.definition.remoteProvides ?? []).includes(item.contract)) {
+            // 提供方查询按静态声明回答版本与调用方种类，调用按产出的合同核对：两者必须是同一个合同，否则同 id 不同版本时
+            // 查询说“在”、调用却一直 version-changed（runtime/plugins.md 输出第 22 条）。按内容核对：第三方入口产出的是插件
+            // 自己打包的那一份，与按清单还原的声明不是同一个对象；内容相同时换成声明的那份，查询与调用用的就是同一个对象。
+            const declared = (record.definition.remoteProvides ?? []).find((contract) => contract.id === item.contract.id)!;
+            if (declared !== item.contract && !sameContractContent(declared, item.contract)) {
                 return fail("output", "remote-contract-mismatch", {key: item.contract.id});
             }
-            if (this.#misplacedRemote(item)) {
+            const provision = declared === item.contract ? item : {...item, contract: declared};
+            if (this.#misplacedRemote(provision)) {
                 return fail("output", "remote-location-mismatch", {key: item.contract.id});
             }
-            remote.set(item.contract.id, item);
+            remote.set(item.contract.id, provision);
         }
         for (const id of remoteDeclared) {
             if (!remote.has(id)) {
@@ -1744,14 +1813,7 @@ export class PluginHostImpl implements PluginHost {
                 for (const id of record.providerIds.values()) {
                     pluginProviders.add(id);
                 }
-                entries.push({
-                    plugin: record.plugin,
-                    entry: record.definition.id,
-                    location: record.definition.location,
-                    provides: record.definition.provides ?? [],
-                    dependencies: record.definition.dependencies ?? [],
-                    status: this.#stateOf(record, null).status,
-                });
+                entries.push({...this.#snapshotOf(plugin, record), status: this.#stateOf(record, null).status});
             }
         }
         const localServices = new Set<string>();
@@ -1760,7 +1822,35 @@ export class PluginHostImpl implements PluginHost {
                 localServices.add(entry.key);
             }
         }
-        return deriveBlocked(entries, this.location, localServices);
+        return deriveBlocked(entries, this.location, localServices, this.#satisfies);
+    }
+
+    /** 受阻推导与版本核对用的入口快照；状态由调用方按需补上。 */
+    #snapshotOf(plugin: PluginRecord, record: EntryRecord): Omit<EntrySnapshot, "status"> {
+        return {
+            plugin: record.plugin,
+            entry: record.definition.id,
+            location: record.definition.location,
+            pluginVersion: plugin.version,
+            pluginVersions: plugin.pluginVersions,
+            provides: record.definition.provides ?? [],
+            dependencies: record.definition.dependencies ?? [],
+        };
+    }
+
+    /** 本位置提供 `key` 的插件入口的版本不满足 `record` 所属插件的要求时，给出版本与范围。 */
+    #versionMismatchFor(record: EntryRecord, key: string): {readonly version: string; readonly range: string} | null {
+        const consumerPlugin = this.#plugins.get(record.plugin);
+        if (consumerPlugin === undefined || Object.keys(consumerPlugin.pluginVersions).length === 0) return null;
+        for (const plugin of this.#plugins.values()) {
+            if (!isAlive(plugin.scope)) continue;
+            for (const candidate of plugin.entries.values()) {
+                if (candidate.definition.location !== this.location || !(candidate.definition.provides ?? []).some((provided) => provided.name === key)) continue;
+                const status = "registered" as const;
+                return versionMismatch({...this.#snapshotOf(consumerPlugin, record), status}, {...this.#snapshotOf(plugin, candidate), status}, this.#satisfies);
+            }
+        }
+        return null;
     }
 
     #describe(record: EntryRecord, blocked: ReadonlyMap<string, EntryBlocked | null>): EntryDescription {
@@ -1771,6 +1861,7 @@ export class PluginHostImpl implements PluginHost {
             dependencies: (record.definition.dependencies ?? []).map((dependency) => ({key: dependency.key.name, required: dependency.required ?? true})),
             provides: (record.definition.provides ?? []).map((key) => key.name),
             receives: [...(record.definition.receives ?? [])],
+            activationEvents: [...(record.definition.activationEvents ?? [])],
             contributions: record.contributions.map((contribution) => this.#contributionState(contribution)),
             state: this.#stateOf(record, blocked.get(`${record.plugin}/${record.definition.id}`) ?? null),
         };
@@ -1825,6 +1916,32 @@ function refusedRemote(code: "unavailable" | "denied", detail: string): RemoteAc
         {get: (_target, property) => (property === "then" ? undefined : property === "events" ? events : property === "at" ? () => client : failure)},
     );
     return {use: () => client as never, lookup: failure, instances: failure};
+}
+
+/**
+ * 任一信号触发即触发，`dispose` 解除挂在上游信号上的监听。上游比派生信号活得久时调用方要在用完后 dispose（原生的
+ * `AbortSignal.any` 同样可能被上游的监听保持，docs/standards/code/languages/typescript.md）。
+ */
+function linkedSignal(signals: ReadonlyArray<AbortSignal>): {readonly signal: AbortSignal; dispose(): void} {
+    const controller = new AbortController();
+    const detach: Array<() => void> = [];
+    const dispose = (): void => {
+        for (const remove of detach.splice(0)) remove();
+    };
+    for (const signal of signals) {
+        if (signal.aborted) {
+            controller.abort(signal.reason);
+            dispose();
+            break;
+        }
+        const onAbort = (): void => {
+            controller.abort(signal.reason);
+            dispose();
+        };
+        signal.addEventListener("abort", onAbort, {once: true});
+        detach.push(() => signal.removeEventListener("abort", onAbort));
+    }
+    return {signal: controller.signal, dispose};
 }
 
 /** 任一信号触发即触发。 */

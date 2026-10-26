@@ -1,0 +1,26 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00027-plugin-platform",
+    "taskId": "t02-settings-completion",
+    "artifactId": "settings-sections",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "report",
+    "title": "设置分区的两种画法，与旧应用的 provider 设置",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "b15383f4b8875a7e3127f08e66a0029b5815f9c2bc25a2b632a9b1bfb5d4ec5a",
+    "files": [
+        "index.html",
+        "legacy-provider.webp",
+        "list-appearance.webp",
+        "list-other.webp",
+        "page-column.webp",
+        "page-fill-sample.webp",
+        "provider-bottom.webp",
+        "provider-top.webp"
+    ],
+    "questions": [],
+    "publishedAt": "2026-10-20T03:31:36.869Z"
+}

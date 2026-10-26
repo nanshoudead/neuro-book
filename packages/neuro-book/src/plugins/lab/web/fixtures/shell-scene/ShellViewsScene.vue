@@ -208,7 +208,7 @@ const position = computed({get: () => panel.value.position, set: (value: string 
 </script>
 
 <template>
-    <div ref="hostEl" class="h-full w-full bg-[var(--shell-ground,var(--panel-surface))] outline-none" tabindex="-1" data-lab-subject data-views-scene>
+    <div ref="hostEl" class="h-full w-full bg-[var(--shell-ground,var(--panel-surface))] outline-hidden" tabindex="-1" data-lab-subject data-views-scene>
         <WorkbenchShellLayout
             class="h-full w-full"
             :sizes="sizes"

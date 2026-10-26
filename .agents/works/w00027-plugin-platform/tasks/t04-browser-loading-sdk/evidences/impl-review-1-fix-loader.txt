@@ -1,0 +1,105 @@
+w00027 t04 第一轮实现审查的修正：浏览器入口代码装载器 —— 交付报告
+
+worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-t04-fix-loader（分支 w00027/t04-fix-loader，基于 0475d0370）
+提交：
+  eef633400 fix(w00027): t04 实现审查 浏览器装载器：等待表放进全局登记对象、宿主模块表失败不缓存、停止信号立刻结算；补装载器与窗口样式的测试
+  1ed026ab2 fix(w00027): t04 实现审查 registeredFactory 的假脚本执行改为单行 setTimeout(execute, 0)，过 fixed-wait 机检
+
+改动文件：
+  packages/neuro-book/src/web/host/plugin-code.ts
+  packages/neuro-book/src/web/host/plugin-code.test.ts（新增）
+  packages/neuro-book/src/web/host/window.test.ts
+  packages/neuro-book/src/shared/plugin-code-error.ts
+  packages/neuro-book/scripts/plugin-sdk/build-plugin.test.ts
+  window.ts 没有改：stop() 本来就移除样式，装载器的停止经入口的 signal 生效，不需要新接线。
+
+一、逐条处理
+
+1. Sonnet 3、14（等待表与全局登记对象）：成立，已改。
+   - 核实：旧代码模块级 waiting 是 Map<URL, 单个等待者>，两个装载器同 URL 时后者覆盖前者；registry 绑在首个模块实例的闭包上。
+   - 改法：全局登记对象（单例，冻结，全局属性仍不可写不可删）自己持有 Map<URL, Set<等待者>>，对象上有 register(url, factory) 与
+     wait(url, waiter) => 撤回函数。register 把工厂交给该 URL 的每个等待者。装载器只经 registry() 取它；Vite 重新求值本模块后拿到的
+     仍是同一个对象、同一张表。
+   - 第 14 条的“共存”：保留不可写不可删（防插件代码换掉它），改为谁都不再直接写这个全局：registeredFactory 不写了，新测试只读。
+     实测三个测试文件放在同一进程里跑（plugin-code.test.ts、build-plugin.test.ts、window.test.ts）46 通过。
+     代价写在注释里：对象形状在页面一生里固定，开发时改了 PluginRegistry 的方法要刷新页面。
+   - registeredFactory：改为 async，经 createPluginCodeHost 与按 PluginDocument 写的假页面取工厂。假页面的 append 在下一轮事件循环里
+     执行产物文本（new Function("document", code)，document.currentScript 就是那个脚本元素），出错派发带文件名的全局 error 事件，
+     然后 onload。装载器用宿主模块表执行一次工厂、核对导出了 activate；工厂本身经登记对象的 wait 取得（与装载器一样是同一 URL 的一个
+     等待者，正是多等待者的设计），不写全局。每次调用用一个新的页面基址，避免全局登记表在同一进程里交错。
+
+2. Sonnet 9（宿主模块表失败）：成立，已改。
+   - 失败不缓存（取失败时清掉缓存的 Promise 再把失败交出去），下次激活重新调用 modules()。
+   - 失败包成 PluginCodeError("code-load-failed")，detail “装载不了：宿主模块表没有取到（原始消息）”，带各自激活的插件、入口与 URL。
+   - 没有新增失败码：对用户与内核来说是“取不到代码”一类，现有 code-load-failed 足够。
+   - 为保留底层错误（TypeScript 规范“保留底层错误的 cause”），给 PluginCodeError 的构造参数加了可选 cause，传给 Error 的 options。
+     这是 plugin-code-error.ts 的改动，不是新码，超出 brief 写的“需要新失败码时”，请主会话确认；不要可以改回只在 detail 里带消息。
+
+3. Sonnet 15、omp 3（停止信号）：成立，已改。
+   - activateOf 的模块表与工厂两路都与 signal 竞争（untilAborted），abort 时立刻以 signal.reason 失败，结算后撤掉挂在 signal 上的监听。
+   - 每个装载器里同一文件的取回是一个 Loading，带还在等的激活数；激活离开（成功、失败或中止）时减一，最后一个离开且取回未结算时撤下：
+     移除 <script>、全局 error 监听、计时器、登记对象上的等待者，onload/onerror 置空。之后迟到的登记没有等待者，不理会；下一次激活重新插脚本。
+   - omp 3 建议的“结构化停止错误”没有采用：brief 定的是以 signal.reason 失败，内核按停止处理。
+
+4. Sonnet 7（测试）：成立，已补。
+   plugin-code.test.ts（11 个用例，结构化假文档，没有 mock、spy、假计时器，超时用注入的 timeoutMs，等待用 waitUntil）：
+   - 两次激活得到不同的模块实例，模块顶层计数器从初始值开始，require 取到宿主表里那一份，脚本只插一次；
+   - 并发激活同一文件只插一个脚本，两次都成功、各得一份实例；
+   - 期限内没登记报 code-load-failed，脚本与全局 error 监听撤下；重试重新插脚本并成功；
+   - 文件取不到报 code-load-failed，之后重试成功；
+   - 全局 error 事件按文件名归属：本文件报 code-threw，另一个文件同时装载不受影响；
+   - 脚本 load 了但没登记、工厂没导出 activate：code-shape；
+   - require 表外 id：module-not-shared（原因写出 id）；模块顶层抛出：code-threw；
+   - abort 先于期限（timeoutMs 60 秒）立刻以 reason 失败，脚本与监听撤下，迟到的登记被忽略，再激活重新插脚本；
+   - 同一文件两次激活中止一个：脚本留着，另一个照常拿到工厂；
+   - 宿主模块表第一次失败：code-load-failed、带插件与入口、cause 是原始错误；第二次重新取并成功，modules 调用两次；
+   - 同一页面两个装载器同时装同一 URL：都成功。
+   window.test.ts 补 1 个用例：第三方插件清单带 style 时，窗口 ready 后 head 里有它的 <link>（rel、href、data-nbook-plugin-style）；
+   让样式表派发 error 后经窗口的 console 出口收到一条 browser-host.plugin.style-failed 诊断（data 带插件与 URL）；stop() 后 <link> 被移除。
+   两项都做到了，没有做不到的。
+   变异检查（脚本 /tmp/w00027-t04-fix/loader-mutate.py，逐项改坏、跑对应测试、还原）：模块实例缓存、去掉并发去重、不响应停止信号、
+   最后一个离开不撤下、模块表失败被缓存、同一 URL 只留一个等待者、error 事件不按文件名、停止后不移除样式，8 项全部被测试抓到。
+
+二、跑过的命令与结果（都在 packages/neuro-book 下，除 governance）
+  bun run typecheck                                                          通过（tsc + 两个 vue-tsc，EXIT 0）
+  bun test src/web/host/plugin-code.test.ts                                  11 pass / 0 fail
+  bun test scripts/plugin-sdk/build-plugin.test.ts                           7 pass / 0 fail
+  bun test src/web/host/plugin-code.test.ts scripts/plugin-sdk/build-plugin.test.ts src/web/host/window.test.ts
+                                                                             46 pass / 0 fail（同一进程，验证第 14 条的共存）
+  python3 /tmp/w00027-t04-fix/loader-mutate.py <包目录>                      8/8 变异被抓到
+  bun run governance:check（仓库根）                                          failures 为空（第一次报 build-plugin.test.ts 多行 setTimeout(..., 0)
+                                                                             被 fixed-wait 误判，改成单行 setTimeout(execute, 0) 后通过，见第二个提交）
+  没有跑 e2e、没有起开发服务。
+
+三、与并行任务（w00027-t04-fix-build）合并时要注意
+  - registeredFactory 现在是 async（返回 Promise<工厂>），签名的其余部分不变。我这边唯一的调用处加了 await。
+    并行分支里 activateBrowser 已经写的是 await registeredFactory(...)，能直接用；但它的 “浏览器产物登记工厂” 用例（那边约 142 行）
+    仍是 const factory = registeredFactory(code); 没有 await，合并时要加上，否则 factory 是 Promise，调用时抛 TypeError。
+  - 为此 build-plugin.test.ts 的 import 区加了两行（createPluginCodeHost 与 PluginDocument、PluginScript 类型），这是 registeredFactory
+    之外仅有的改动（另加一个模块级 pageSequence 计数）。
+  - registeredFactory 里内联了一份宿主模块表（vue、@vue/reactivity、SDK 两个入口、nb-ui 空对象）；并行分支新增了同内容的 hostModules()，
+    合并后可以让 registeredFactory 直接用 hostModules()，去掉重复。
+  - 如果并行分支改了浏览器产物的登记外壳（例如第 16 条 import.meta.url 让外壳读 document.currentScript 之外的东西），假页面只提供
+    document.currentScript；需要别的全局时在假页面的 new Function 参数里补。
+
+四、与 Spec 不一致处（Spec 由主会话改）
+  - plugin-code-loading.md 术语“宿主模块表：浏览器在根组件挂载前建立并冻结”：实现仍是第一次第三方浏览器入口激活时才取（窗口的
+    pluginModules 是动态导入）。本次按 brief 保留懒加载、只修失败缓存。Spec 与实现二选一要改一边（Sonnet 9 已指出）。
+  - “失败与恢复”只列了四个失败码；入口停止时激活以停止原因（signal.reason）失败，不是 PluginCodeError，Spec 没写这条，可以补一句。
+  - 宿主模块表取不到归入 code-load-failed：Spec 里 code-load-failed 的括注是“脚本加载出错，或 30 秒内没有登记”，没覆盖模块表，可补。
+
+五、发现的新问题与旁注
+  - build-plugin.test.ts 运行时输出一行 “WebSocket server error: Port undefined is already in use”（来自构建时的 Vite），测试照常通过；
+    没有核实是否在改动前就有，从代码推断与本次改动无关（本次没碰构建预设）。
+  - 移除 <script> 元素不撤回浏览器已开始的取回与执行（HTML 规范按准备时的文档执行）：所以停止后脚本仍可能执行、调用 register，本次的
+    做法是让它找不到等待者而被忽略；插件代码本身的顶层副作用不会发生，因为工厂没被调用。
+  - 旧代码 window.ts 里 `const code = (): (() => PluginCodeHost) => () => {…}` 的双层箭头写法读起来绕（调用处是 code()() 的意思经
+    thirdPartyDefinitionIn(…, code()) 传入），不在本次范围，没改。
+
+六、禁止清单自查
+  - 不按错误文案分支：装载器用 instanceof ModuleNotShared、错误码；测试按 code 与 cause 身份断言。没有静默 catch：模块表失败的
+    then(undefined, …) 清缓存后原样 rethrow；测试里中止的用例用 rejects 断言而不是吞掉。
+  - 没有跳过测试、放宽断言或改报失败类型；产品代码没有测试分支。
+  - 没有删除任务外的代码与注释；旧的收口（clearTimeout、移除监听、script.remove、失败不缓存）都保留在唯一的 finish 里，没有第二条路径。
+  - 没有跨包深导入（测试用 nbook/* 与包内相对路径，test-support 经包名）。
+  - 没有用 rm -rf；变异脚本用 .bak 备份逐个还原，git status 干净。

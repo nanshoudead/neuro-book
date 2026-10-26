@@ -1,9 +1,9 @@
-/** nb-ui 反馈与浮层类（`feedback/`）的场景。`NotificationViewport` 由夹具自建一份队列传给它，不碰模块级的缺省队列。 */
+/** nb-ui 反馈与浮层类（`feedback/`）的场景。`NotificationStack` 由夹具自建一份队列传给它，不碰模块级的缺省队列。 */
 
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
-import type {AlertDialog, Banner, ContextMenu, Dialog, Drawer, HoverCard, InfoTip, Notification, NotificationViewport, Popover, QuickInput, Tooltip} from "@notnotype/nb-ui/components";
+import type {AlertDialog, Banner, ContextMenu, Dialog, Drawer, InfoTip, Notification, NotificationStack, Popover, QuickPick, SuggestionMenu, SuggestionMenuGroup, Tooltip} from "@notnotype/nb-ui/components";
 
 import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
@@ -22,6 +22,21 @@ const CONTEXT_ITEMS = [
     {separator: true},
     {label: "删除", iconClass: "i-lucide-trash-2", tone: "danger" as const, shortcut: "Del"},
 ];
+
+const SUGGESTION_GROUPS: SuggestionMenuGroup[] = [
+    {id: "chapters", label: "正文", items: [
+        {id: "c1", label: "第一章 渡口", iconClass: "i-lucide-file-text", hint: "正文/第一章.md"},
+        {id: "c2", label: "第二章 旧钟", iconClass: "i-lucide-file-text", hint: "正文/第二章.md"},
+        {id: "c20", label: "第二十章 回信", iconClass: "i-lucide-file-text", hint: "正文/第二十章.md"},
+    ]},
+    {id: "settings", label: "设定", items: [
+        {id: "s1", label: "钟表铺", iconClass: "i-lucide-map-pin", hint: "设定/地点/钟表铺.md"},
+        {id: "s2", label: "林雪", iconClass: "i-lucide-user", hint: "设定/人物/林雪.md"},
+        {id: "s3", label: "旧档案（只读）", iconClass: "i-lucide-lock", disabled: true},
+    ]},
+];
+const SUGGESTION_LONG: SuggestionMenuGroup[] = [{id: "chapters", items: Array.from({length: 30}, (_, index) => ({id: `ch-${String(index + 1)}`, label: `第 ${String(index + 1)} 章`, iconClass: "i-lucide-file-text", hint: `正文/第${String(index + 1)}章.md`}))}];
+const SUGGESTION_BASE = {label: "引用候选", loadingText: "正在查找…", emptyText: "没有匹配的文件"};
 
 const QUICK_ITEMS = [
     {id: "open-project", label: "打开项目", category: "项目", iconClass: "i-lucide-folder-open", shortcut: "Ctrl+O", labelMatches: [[0, 2]] as const},
@@ -48,6 +63,7 @@ export const feedbackFixtures: LabFixture[] = [
             {id: "with-select", label: "里面放下拉（下拉要在对话框之上）", input: {props: {title: "新建作品", size: "md", showFooter: true, showCancel: true}, model: {modelValue: true}, slots: {default: true}}},
             {id: "stacked", label: "叠一层（后开的在上面）", input: {props: {title: "新建作品", size: "md", showFooter: true, showCancel: true}, model: {modelValue: true}, slots: {default: true}}},
             {id: "window", label: "浮动窗口：可拖动，点外面不关", input: {props: {title: "新建作品", modal: false, closable: true}, model: {modelValue: true, width: 560}, slots: {default: true, footer: true}}},
+            {id: "window-headerless", label: "浮动窗口：没有标题栏，关闭按钮在右上角，留白可拖", input: {props: {title: "素材", modal: false, closable: true, showHeader: false, showFooter: false}, model: {modelValue: true, width: 480}, slots: {default: true}}},
             {id: "window-resizable", label: "浮动窗口：可缩放", input: {props: {title: "素材预览", modal: false, closable: true, showFooter: false, resizable: true, minWidth: 360, minHeight: 240}, model: {modelValue: true, width: 640, height: 420}, slots: {default: true}}},
             {id: "closed", label: "关闭（用控制区打开）", input: {props: {title: "从书架移除", size: "sm", showFooter: true}, model: {modelValue: false}, slots: {default: true}}},
         ],
@@ -81,15 +97,6 @@ export const feedbackFixtures: LabFixture[] = [
             {id: "left", label: "左侧、非模态", input: {props: {direction: "left", title: "素材", modal: false}, model: {open: false}, slots: {trigger: true, default: true}}},
         ],
         subject: nbUiSubject("Drawer"),
-    }),
-    defineSubjectFixture<typeof HoverCard>({
-        component: "HoverCard",
-        slotPresets: {trigger: trigger("沈屿"), default: paragraph("沈屿：港口巡夜人，第三章登场。性格沉默，怕水。")},
-        scenes: [
-            {id: "default", label: "悬停打开", input: {props: {side: "bottom", align: "start", openDelay: 300, closeDelay: 150, arrow: true}, model: {open: false}, slots: {trigger: true, default: true}}},
-            {id: "open", label: "已打开（右侧）", input: {props: {side: "right", align: "center", arrow: false}, model: {open: true}, slots: {trigger: true, default: true}}},
-        ],
-        subject: nbUiSubject("HoverCard"),
     }),
     defineSubjectFixture<typeof Popover>({
         component: "Popover",
@@ -132,35 +139,49 @@ export const feedbackFixtures: LabFixture[] = [
         ],
         subject: nbUiSubject("Notification"),
     }),
-    defineLabFixture<typeof NotificationViewport>({
-        component: "NotificationViewport",
+    defineLabFixture<typeof NotificationStack>({
+        component: "NotificationStack",
         scenes: [
             {id: "bottom-right", label: "右下", input: {props: {position: "bottom-right"}}},
             {id: "bottom-center", label: "底部居中", input: {props: {position: "bottom-center"}}},
             {id: "top-right", label: "右上", input: {props: {position: "top-right"}}},
         ],
-        load: async () => (await import("./NotificationViewportFixture.vue")).default,
+        load: async () => (await import("./NotificationStackFixture.vue")).default,
     }),
     defineSubjectFixture<typeof Banner>({
         component: "Banner",
-        events: ["action", "dismiss"],
+        events: ["dismiss"],
         class: "w-full max-w-[640px]",
+        slotPresets: {actions: () => [h(NbButton, {variant: "secondary", size: "sm"}, () => "重新载入"), h(NbButton, {variant: "secondary", size: "sm"}, () => "用我的覆盖")]},
         scenes: [
-            {id: "warning", label: "已断开", input: {props: {tone: "warning", title: "已与服务端断开", message: "正在重新连接，未保存的修改留在这个窗口里。", dismissible: false}}},
-            {id: "info", label: "有新版本", input: {props: {tone: "info", title: "NeuroBook 已更新", message: "刷新页面后使用新版本。", actionLabel: "刷新", dismissible: true}}},
-            {id: "error", label: "错误", input: {props: {tone: "error", title: "布局没有保存", message: "存储暂时不可用（EACCES）。", actionLabel: "重试", dismissible: true}}},
+            {id: "warning", label: "已断开", input: {props: {tone: "warning", title: "已与服务端断开", message: "正在重新连接，未保存的修改留在这个窗口里。"}}},
+            {id: "actions", label: "带两个动作", input: {props: {tone: "error", message: "磁盘上的文件已被修改，和你没保存的修改冲突。"}, slots: {actions: true}}},
+            {id: "info", label: "可关闭", input: {props: {tone: "info", title: "NeuroBook 已更新", message: "刷新页面后使用新版本。", dismissible: true}}},
+            {id: "icon", label: "自定图标", input: {props: {tone: "info", iconClass: "i-lucide-refresh-cw", message: "后端代码已改动，重启服务后生效。"}}},
             {id: "success", label: "成功", input: {props: {tone: "success", message: "已重新连接。", dismissible: true}}},
         ],
         subject: nbUiSubject("Banner"),
     }),
-    defineLabFixture<typeof QuickInput>({
-        component: "QuickInput",
+    defineLabFixture<typeof SuggestionMenu>({
+        component: "SuggestionMenu",
+        scenes: [
+            {id: "caret", label: "贴光标（下方放得下）", input: {props: {...SUGGESTION_BASE, groups: SUGGESTION_GROUPS, activeId: "c2"}}},
+            {id: "caret-bottom", label: "贴光标（下方不够时往上翻）", input: {props: {...SUGGESTION_BASE, groups: SUGGESTION_GROUPS, activeId: "c2"}}},
+            {id: "match-width", label: "与输入框同宽", input: {props: {...SUGGESTION_BASE, groups: SUGGESTION_GROUPS, activeId: "s1"}}},
+            {id: "loading", label: "加载中（已有项照常显示）", input: {props: {...SUGGESTION_BASE, groups: SUGGESTION_GROUPS.slice(0, 1), activeId: "c1", loading: true}}},
+            {id: "empty", label: "没有结果", input: {props: {...SUGGESTION_BASE, groups: [], activeId: null}}},
+            {id: "long", label: "长列表", input: {props: {...SUGGESTION_BASE, groups: SUGGESTION_LONG, activeId: "ch-1"}}},
+        ],
+        load: async () => (await import("./SuggestionMenuFixture.vue")).default,
+    }),
+    defineLabFixture<typeof QuickPick>({
+        component: "QuickPick",
         scenes: [
             {id: "default", label: "命令列表", input: {props: {items: QUICK_ITEMS, title: "命令", placeholder: "输入命令名称", emptyText: "没有匹配的命令"}, model: {open: true, query: "", activeId: "open-project"}}},
             {id: "empty", label: "没有匹配", input: {props: {items: [], title: "命令", placeholder: "输入命令名称", emptyText: "没有匹配的命令"}, model: {open: true, query: "导出 PDF", activeId: null}}},
             {id: "loading", label: "加载中", input: {props: {items: [], title: "打开项目", placeholder: "输入项目名称或路径", emptyText: "没有项目", loading: true, message: "正在列出已登记的项目…"}, model: {open: true, query: "", activeId: null}}},
             {id: "long-list", label: "长列表", input: {props: {items: CHAPTER_ITEMS, title: "跳到章节", placeholder: "输入章节名", emptyText: "没有匹配的章节"}, model: {open: true, query: "", activeId: "chapter-1"}}},
         ],
-        load: async () => (await import("./QuickInputFixture.vue")).default,
+        load: async () => (await import("./QuickPickFixture.vue")).default,
     }),
 ];

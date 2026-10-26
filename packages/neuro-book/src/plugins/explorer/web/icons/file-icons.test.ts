@@ -4,7 +4,7 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {CATPPUCCIN_ICONS} from "./catppuccin";
+import {CATPPUCCIN_ICONS} from "nbook/ui/file-icons/catppuccin";
 import {fileIconOf} from "./file-icons";
 import type {IconSubject} from "./file-icons";
 

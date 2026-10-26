@@ -13,7 +13,7 @@ import {defineRemoteService, provideRemote} from "../remote/remote";
 import type {RemoteProvision} from "../remote/remote";
 import {createServiceAssembly, defineServiceKey} from "../services/services";
 
-import {createPluginHost, defineEntry, provide, providePerConsumer} from "./plugins";
+import {createPluginHost, defineEntry, provideService, provideServicePerConsumer} from "./plugins";
 import type {ContributionDeclaration, ContributionReceiver} from "./plugins";
 
 interface Counter {
@@ -47,7 +47,7 @@ describe("Spec runtime.plugins 验收 28：defineEntry 编译期核对", () => {
             provides: [counterKey, labelKey], remoteProvides: [readContract], receives: [POINT],
             contributions: [{capability: POINT, id: "sample.one", declaration: {}}],
             activate: () => ({
-                services: [provide(counterKey, counter), provide(labelKey, {text: () => "label"})],
+                services: [provideService(counterKey, counter), provideService(labelKey, {text: () => "label"})],
                 remote: [readProvision()],
                 receivers: {[POINT]: receiver},
                 contributions: {[POINT]: {"sample.one": {run: () => 1}}},
@@ -55,13 +55,13 @@ describe("Spec runtime.plugins 验收 28：defineEntry 编译期核对", () => {
         });
         const asynchronous = defineEntry({id: "async", location: "server", provides: [counterKey], activate: async () => {
             const value: Counter = {read: () => 2};
-            return {services: [providePerConsumer(counterKey, () => value)]};
+            return {services: [provideServicePerConsumer(counterKey, () => value)]};
         }});
         const byLocation = (location: string) => {
             const browser = location === "browser";
             const helper = (): RemoteProvision<typeof readContract> => readProvision();
             return defineEntry({id: location, location, provides: [counterKey], remoteProvides: browser ? [readContract] : [], activate: () => {
-                const base = {services: [provide(counterKey, counter)]} as const;
+                const base = {services: [provideService(counterKey, counter)]} as const;
                 return browser ? {...base, remote: [helper()]} : base;
             }});
         };
@@ -76,13 +76,13 @@ describe("Spec runtime.plugins 验收 28：defineEntry 编译期核对", () => {
     it("不一致的写法各自是类型错误", () => {
         const entries = [
             // @ts-expect-error 漏写服务
-            defineEntry({id: "x", location: "server", provides: [counterKey, labelKey], activate: () => ({services: [provide(counterKey, counter)]})}),
+            defineEntry({id: "x", location: "server", provides: [counterKey, labelKey], activate: () => ({services: [provideService(counterKey, counter)]})}),
             // @ts-expect-error 多写服务
-            defineEntry({id: "x", location: "server", provides: [counterKey], activate: () => ({services: [provide(counterKey, counter), provide(labelKey, {text: () => ""})]})}),
+            defineEntry({id: "x", location: "server", provides: [counterKey], activate: () => ({services: [provideService(counterKey, counter), provideService(labelKey, {text: () => ""})]})}),
             // @ts-expect-error 没声明却产出服务
-            defineEntry({id: "x", location: "server", activate: () => ({services: [provide(counterKey, counter)]})}),
+            defineEntry({id: "x", location: "server", activate: () => ({services: [provideService(counterKey, counter)]})}),
             // @ts-expect-error 服务类型不符
-            defineEntry({id: "x", location: "server", provides: [counterKey], activate: () => ({services: [provide(labelKey, {text: () => ""})]})}),
+            defineEntry({id: "x", location: "server", provides: [counterKey], activate: () => ({services: [provideService(labelKey, {text: () => ""})]})}),
             // @ts-expect-error 漏写远程提供项
             defineEntry({id: "x", location: "browser", remoteProvides: [readContract, writeContract], activate: () => ({remote: [readProvision()]})}),
             // @ts-expect-error 合同形状不符
@@ -129,7 +129,7 @@ describe("defineEntry 的运行期", () => {
     }
 
     it("原样返回入口，照常登记与激活", async () => {
-        const entry = {id: "main", location: "server", provides: [counterKey], activate: () => ({services: [provide(counterKey, counter)]})};
+        const entry = {id: "main", location: "server", provides: [counterKey], activate: () => ({services: [provideService(counterKey, counter)]})};
         expect(defineEntry(entry)).toBe(entry);
         const {root, plugins} = host();
         expect(plugins.register({id: "sample", entries: [defineEntry(entry)]}, {scope: root})).toMatchObject({status: "accepted"});
@@ -137,7 +137,7 @@ describe("defineEntry 的运行期", () => {
     });
 
     it("服务类型相同、id 不同：编译期分不出，激活时的产出核对报出", async () => {
-        const entry = defineEntry({id: "main", location: "server", provides: [counterKey], activate: () => ({services: [provide(otherCounterKey, counter)]})});
+        const entry = defineEntry({id: "main", location: "server", provides: [counterKey], activate: () => ({services: [provideService(otherCounterKey, counter)]})});
         const {root, plugins} = host();
         expect(plugins.register({id: "sample", entries: [entry]}, {scope: root})).toMatchObject({status: "accepted"});
         expect(await plugins.activate({plugin: "sample", entry: "main"})).toMatchObject({status: "failed", stage: "output", reason: "undeclared-service"});

@@ -3,7 +3,7 @@ import {randomBytes} from "node:crypto";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {ackAnswers, askQuestions, closeArtifact, publishArtifact, readAnswers, submitAnswer, supersedeQuestion, withdrawQuestion, type ArtifactOpOptions} from "../src/core/artifact-ops.js";
-import {answerPath, readArtifact, unackedAnswers, versionPath, type ArtifactRef} from "../src/core/artifacts.js";
+import {answerPath, currentContentHash, readArtifact, unackedAnswers, versionPath, type ArtifactRef} from "../src/core/artifacts.js";
 import type {SessionCaller} from "../src/core/identity.js";
 import {askerOf} from "../src/core/provenance.js";
 import {locateRepository, type RepoContext} from "../src/core/repo.js";
@@ -328,6 +328,47 @@ describe("提交失败之后的补救", () => {
         if (!again.commit.committed) throw new Error("应已提交");
         expect(await changedPaths(fixture, again.commit.sha)).toEqual(expected);
         expect(await git(fixture.main, "status", "--porcelain", "--untracked-files=all", "--", DIR)).toBe("");
+    });
+
+    test("带 --include 的发布 git add 失败：面板按发布记录的 files 重算出同一个哈希；重跑原命令（不再列 --include）只补交、不出新版本，没被链接的有题页面上的题不被取代", async () => {
+        const {fixture, context} = await setup("residue-include");
+        await fixture.write(`${DIR}/index.html`, page());
+        await fixture.write(`${DIR}/side.html`, '<!doctype html><title>旁页</title><section data-nbdev-question="side-q" data-nbdev-type="confirm"><h2>旁页的题</h2></section>');
+        await fixture.write(`${DIR}/data.json`, "{}\n");
+        const release = await holdIndexLock(fixture);
+        const failed = await publishArtifact(context, {...TARGET, kind: "design", include: ["side.html", "data.json"]}, blocked);
+        expect(failed.commit).toMatchObject({committed: false, reason: "git_lock_timeout"});
+        await release();
+        const latest = (await readArtifact(fixture.main, REF)).latest!;
+        expect([latest.files, await currentContentHash(fixture.main, REF, latest)]).toEqual([["data.json", "index.html", "side.html"], latest.contentHash]);
+
+        const again = await publishArtifact(context, TARGET, asBob);
+        const expected = [`${DIR}/data.json`, `${DIR}/index.html`, `${DIR}/side.html`, versionPath(REF, 1)].sort();
+        expect([again.data.unchanged, [...again.data.committedFiles].sort(), again.warnings.map((warning) => warning.code)]).toEqual([true, expected, ["residual_records_committed"]]);
+        expect(again.data.questions.map((question) => [question.id, question.outcome])).toEqual([["layout", null], ["approve", null], ["side-q", null]]);
+        if (!again.commit.committed) throw new Error("应已提交");
+        expect(await changedPaths(fixture, again.commit.sha)).toEqual(expected);
+    });
+
+    test("旧格式（没有 files）的发布记录提交失败后重跑：没被跟踪、入口也没链接的有题页面靠题表找回，只补交、不出新版本，题不被取代", async () => {
+        const {fixture, context} = await setup("residue-legacy-record");
+        await fixture.write(`${DIR}/index.html`, page());
+        await fixture.write(`${DIR}/side.html`, '<!doctype html><title>旁页</title><section data-nbdev-question="side-q" data-nbdev-type="confirm"><h2>旁页的题</h2></section>');
+        const release = await holdIndexLock(fixture);
+        const failed = await publishArtifact(context, {...TARGET, kind: "design", include: ["side.html"]}, blocked);
+        expect(failed.commit).toMatchObject({committed: false, reason: "git_lock_timeout"});
+        await release();
+        // 加 files 之前的版本写的记录没有这个字段；那时整个目录都在文件集里，题表照样记着 side.html。
+        const recordPath = join(fixture.main, versionPath(REF, 1));
+        const {files: _files, ...legacy} = JSON.parse(await readFile(recordPath, "utf8")) as Record<string, unknown>;
+        await writeFile(recordPath, `${JSON.stringify(legacy, null, 2)}\n`);
+
+        const again = await publishArtifact(context, TARGET, asBob);
+        const expected = [`${DIR}/index.html`, `${DIR}/side.html`, versionPath(REF, 1)].sort();
+        expect([again.data.unchanged, [...again.data.committedFiles].sort(), again.data.questions.map((question) => [question.id, question.outcome])])
+            .toEqual([true, expected, [["layout", null], ["approve", null], ["side-q", null]]]);
+        if (!again.commit.committed) throw new Error("应已提交");
+        expect(await changedPaths(fixture, again.commit.sha)).toEqual(expected);
     });
 
     test("代录提交失败：下一次确认把那份答复与确认、README 一起提交；确认提交失败：重跑同一条确认补交确认与 README", async () => {

@@ -8,6 +8,7 @@ import {
     answerPath,
     answersAfter,
     artifactContentHash,
+    artifactFileSet,
     awaitsAnswer,
     closeQuestions,
     listArtifactFiles,
@@ -50,7 +51,7 @@ function markup(id: string, overrides: Partial<MarkupQuestion> = {}): MarkupQues
 function version(number: number, questions: VersionQuestion[], overrides: Partial<ArtifactVersion> = {}): ArtifactVersion {
     return {
         schema: "nbdev.artifact-version/v1", ...REF, version: number, supersedes: number > 1 ? number - 1 : null, action: "publish",
-        kind: "design", title: "评审板", state: "open", entry: "index.html", contentHash: "h", questions, publishedAt: T0, ...overrides,
+        kind: "design", title: "评审板", state: "open", entry: "index.html", contentHash: "h", files: ["index.html"], questions, publishedAt: T0, ...overrides,
     };
 }
 
@@ -211,23 +212,28 @@ describe("产物文件的读取", () => {
         expect([broken.latest, broken.warnings[0]?.code]).toEqual([null, "unreadable_artifact_record"]);
     });
 
-    test("页面文件与 contentHash：Git 会跟踪的文件，去掉 versions/、answers/ 与被忽略的；与写入顺序无关；遇到符号链接就拒绝", async () => {
+    test("候选是 Git 会跟踪的文件（去掉 versions/、answers/ 与被忽略的）；contentHash 只算文件集：没被引用的未跟踪文件不改变它，与写入顺序无关；遇到符号链接就拒绝", async () => {
         const fixture = await createFixture("artifact-files");
-        const dir = join(fixture.main, ".agents/works/w00001-seed/tasks/t01-seed/artifacts/review");
-        await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/artifacts/review/r1/图.html", "<p>一</p>");
-        await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/artifacts/review/index.html", "<p>入口</p>");
-        await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/artifacts/review/versions/v1.json", "{}");
-        await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/artifacts/review/answers/x.json", "{}");
-        await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/artifacts/review/debug.log", "忽略");
-        await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/artifacts/review/.gitignore", "*.log\n");
-        const files = await listArtifactFiles(fixture.main, REF);
-        expect(files.map((file) => file.path)).toEqual([".gitignore", "index.html", "r1/图.html"]);
-        const first = await artifactContentHash(fixture.main, REF);
+        const base = ".agents/works/w00001-seed/tasks/t01-seed/artifacts/review";
+        const dir = join(fixture.main, base);
+        await fixture.write(`${base}/r1/图.html`, "<p>一</p>");
+        await fixture.write(`${base}/index.html`, '<p>入口</p><img src="pic.png">');
+        await fixture.write(`${base}/pic.png`, "图");
+        await fixture.write(`${base}/versions/v1.json`, "{}");
+        await fixture.write(`${base}/answers/x.json`, "{}");
+        await fixture.write(`${base}/debug.log`, "忽略");
+        await fixture.write(`${base}/.gitignore`, "*.log\n");
+        expect((await listArtifactFiles(fixture.main, REF)).map((file) => file.path)).toEqual([".gitignore", "index.html", "pic.png", "r1/图.html"]);
+        const hashOf = async () => artifactContentHash(fixture.main, REF, (await artifactFileSet(fixture.main, REF, {entry: "index.html", seeds: []})).files);
+        const set = await artifactFileSet(fixture.main, REF, {entry: "index.html", seeds: []});
+        expect([set.files.map((file) => file.path), set.unreferenced]).toEqual([["index.html", "pic.png"], [`${base}/.gitignore`, `${base}/r1/图.html`]]);
+        const first = await hashOf();
         await rm(join(dir, "index.html"));
-        await writeFile(join(dir, "index.html"), "<p>入口</p>");
-        expect(await artifactContentHash(fixture.main, REF)).toBe(first);
-        await writeFile(join(dir, "index.html"), "<p>改了</p>");
-        expect(await artifactContentHash(fixture.main, REF)).not.toBe(first);
+        await writeFile(join(dir, "index.html"), '<p>入口</p><img src="pic.png">');
+        await fixture.write(`${base}/shot.png`, "检查页面时的截图");
+        expect(await hashOf()).toBe(first);
+        await writeFile(join(dir, "pic.png"), "换了图");
+        expect(await hashOf()).not.toBe(first);
         await symlink("/etc/hostname", join(dir, "link.html"));
         await expect(listArtifactFiles(fixture.main, REF)).rejects.toMatchObject({code: "unsafe_path"});
     });

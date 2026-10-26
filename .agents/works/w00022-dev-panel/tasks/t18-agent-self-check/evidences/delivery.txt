@@ -1,0 +1,76 @@
+w00022 t18 Agent 自助验收 —— 交付报告
+worktree：.worktree/w00022-t18-agent-self-check（分支 feat/w00022-t18-agent-self-check，从 8276c0bb2 分出）
+工作区干净，三片各一个提交，没有 push。
+
+一、提交
+1. fb69f6d7b feat(neuro-book): NBDEV_SAMPLE=1 时开发后端在就绪后放样例作品并报告 open-path（w00022 t18 S1）
+   - src/plugins/projects/shared/project-url.ts（projectUrl 挪到 shared；web/open-project.ts 删原定义改导入，web/shelf-page.ts 改导入，旧位置不留转发）
+   - src/server/dev/sample.ts：devSampleEnabled（只认 "1"）、seedDevSample、startDevSample（30 秒总截止打 sample-failed；stop 后不再报告；停止时等任务至多 5 秒，超时 stderr 打 sample-abandoned）
+   - 样例内容 src/server/dev/sample/（原创短篇：正文三章、设定/人物.md、大纲.md；雾港、林汐、周砚）
+   - start.ts：StartServerOptions.devTask，startup available 后启动，beforeStop 先停任务再排空；process.ts、development-main.ts 装配；fixture-entry.ts 测试入口支持
+   - dev/backend-process.ts：就绪结算前到达的 open-path、sample-failed 行延后到 backend-ready 之后转发
+   - 根 .gitignore 加 /packages/neuro-book/.dev-sample/；包 AGENTS.md 命令块加 NBDEV_SAMPLE=1 bun run dev
+   - 测试：sample.test.ts（12 个单元 + 2 个真实子进程）、supervisor.test.ts 加“样例结果行的先后”（夹具 dev/testing/sample-race-backend.ts）、run.test.ts 加两代顺序用例
+2. 4941f0c89 feat(neuro-book): page:shot 截产品页面，等就绪与 DOM 静止后按序执行点击与等待（w00022 t18 S2）
+   - scripts/page-shot.ts（package.json 加 "page:shot": "node scripts/page-shot.ts"）：--url 必填，--path（缺省 /，同源校验），--click/--wait-for 按出现顺序，--window（缺省 1440x900），--full-page，--scale，--theme light|dark，--timeout 秒（缺省 120），--out，--browser-executable；输出 page.png 与 report.json，失败存 failure.png、退出 1
+   - scripts/page-shot.test.ts（参数合同 7 个用例）
+   - tsconfig.json 排除、tsconfig.browser-test.json 收入 page-shot.ts 与其测试（同 lab-shot.ts 的现有做法：脚本里的 page.evaluate 用 DOM 类型）
+   - 包 AGENTS.md 命令块加 page:shot 两条常用写法（截书架；打开样例并点开第一章）
+3. 3d2f808e4 feat(dev-panel): dev start --sample 设 NBDEV_SAMPLE 并按代打 SAMPLE、SAMPLE_FAILED，shot --page 交给 page:shot（t18 S3）
+   - src/core/procs.ts：登记加 sample: boolean，旧登记缺字段按 false，schema 仍 nbdev.proc/v1
+   - src/dev/ready.ts：createSampleTracker（每行 backend-ready 开新一代，本代只认第一行结果；没有 backend-ready 时从读起处算第 0 代）、sampleUrl（排除绝对 URL、// 开头、含反斜杠，再核同源）
+   - src/dev/sample.ts（新）：followSample 读日志按代报结果；SAMPLE_ENV、DEFAULT_SAMPLE_TIMEOUT_MS=60000、SAMPLE_TAIL_BYTES=4 MiB
+   - src/dev/dev-ops.ts：--sample 时子进程环境设 NBDEV_SAMPLE=1，否则删除；新起服务 READY 后 follow 到组长退出或开始停（先等这段结束再打 EXITED）；复用时 READY 后读日志末尾 4 MiB，有本代结果立即打，没有接着读到时限，打过一行以 0 退出，等待期间服务结束则打 EXITED 以 1 退出；--sample 不同时 differences 加 "sample"
+   - src/cli/dev-commands.ts：--sample、--sample-timeout、SAMPLE/SAMPLE_FAILED 事件行、shot --page、用法文字
+   - src/dev/shot.ts：--page 时运行 page:shot，传 --url --path --out，再接 -- 之后的参数；shot_unavailable 的 details.script 写缺的脚本名；shot_failed 文案用实际脚本名
+   - docs/cli.md（命令表、“样例”约定与何时出现、复用比较、shot 参数与 details.script、警告表）、docs/file-formats.md（进程登记 sample）
+   - 测试：src/dev/ready.test.ts 加 2 个；tests/dev-live.test.ts 加 3 个（fake-dev.ts 加 FAKE_DEV_FEED 测试控制的输出文件、FAKE_DEV_ENV_OUT 记录收到的 NBDEV_SAMPLE）；tests/find-shot.test.ts 加 1 个
+
+二、测试命令与结果（TMPDIR=/dev/shm/t18-tmp）
+- bun run --cwd packages/dev-panel test：444 pass，0 fail（63 个文件，约 400 秒）
+- bun run --cwd packages/dev-panel typecheck：通过
+- bun run --cwd packages/neuro-book typecheck：通过（S2 之后）
+- neuro-book：bun test scripts/page-shot.test.ts src/architecture.test.ts src/server/dev/sample.test.ts src/server/dev/run.test.ts src/server/dev/supervisor.test.ts：35 pass，0 fail；S1 时另跑过 bun test src/server src/plugins/projects src/architecture.test.ts 202 pass、vitest src/plugins/projects 24 pass
+- bun run governance:check、bun run docs:check：无失败、无新警告
+- 变异检查：S1 去掉转发延后、wx 改 w、重建用随机 id、按短名找样例，各有用例失败；S3 去掉“不带 --sample 时删 NBDEV_SAMPLE”、把按代报告改成只报一次，各有 dev-live 用例失败（改回后通过）
+- 本 worktree 的 CLI 冒烟：bun packages/dev-panel/src/cli.ts shot --package packages/neuro-book-legacy --url http://127.0.0.1:1/ --page / --json 得 shot_unavailable（3），details.script "page:shot"；dev start --sample-timeout 5（不带 --sample）得 usage（2）；--help 里两条用法已更新
+
+三、真实开发服务验证
+- S1：NBDEV_SAMPLE=1 bun run dev（状态根 /dev/shm/t18-tmp/state-s1；4217、4317 两组端口被他人占用，自动顺延到 4417/4418/4419）。首代打 [dev] open-path /?project=sample，登记表 sample 指向 .dev-sample/sample；touch start.ts 触发后端重启，第二代再打 open-path，projects.json 与身份文件 mtime 不变（不重复写）。SIGTERM 后有序停止，无残留进程与端口。
+- S2：同样起服务（状态根 state-s2，PID 1739650/1739654/1739745，日志 dev2.log），首代 open-path 后运行 page:shot：
+  - 不加步骤：截到工作台（资源管理器加欢迎页）—— s2-sample-workbench.png
+  - 加打开第一章的四步：截到《第一章 雾港》正文，report problems 为空 —— s2-sample-first-chapter.png、s2-sample-first-chapter.report.json；收尾时用最终代码重跑一次 —— s2-final-first-chapter.png
+  - 书架 --theme dark —— s2-bookshelf-theme-dark.png（书架仍是浅色，见第五节观察）
+  - --wait-for 不存在的元素：以 1 退出，存 failure.png —— s2-failure-wait-for-timeout.png；非同源 --path 以 1 退出
+  - 只等就绪标记时截到的空白页 —— s2-before-settle-blank.png（第四节偏离 1 的依据）
+  - 结束：SIGTERM 监督进程 1739654，日志 stopping → backend-exited exit=0 → backend-stopped → page-closed，三个 PID 都不在，4417–4419 空闲。
+- 截图目录：.local/agent/works/w00022-dev-panel/tasks/t18-agent-self-check/shots/
+- S3 的真实端到端（nbdev dev start --sample 加 nbdev shot --page）按派发说明留给主会话。
+
+四、偏离计划与理由
+1. page:shot 的就绪：计划只等就绪标记与字体。实测标记出现时工作台还是空白（s2-before-settle-blank.png），所以另加“DOM 静下来”的等待：MutationObserver 连续 500 毫秒没有变化，上限 10 秒（超限照常截图并在 report.problems 记一条）。这是事件驱动、有上限的等待，不是固定时长。
+2. page-shot.ts 与其测试从 tsconfig.json 移到 tsconfig.browser-test.json（同 lab-shot.ts）：脚本里的 page.evaluate 用 MutationObserver、document，主配置不带 DOM 类型。
+3. nbdev 新增 --sample-timeout <秒>（缺省 60，只与 --sample 一起给）：计划写死 60 秒。没有这个选项，“60 秒无结果”的用例就只能慢测，或者在产品代码里加测试专用的分支；做成用户选项，测试用 1 秒。
+4. 复用没带 --sample 起的服务时，带 --sample 立即打 SAMPLE_FAILED（原因“复用的服务起时没有带 --sample，应用没有准备样例”），不等满 60 秒：这时应用一定不会报结果。计划没写这一情形。
+5. 新起服务时，超时只对 READY 时的那一代计时，这一代超时后再到的结果不补打；以后各代只在报了结果时打，不另计时。计划没说重启后的各代要不要计时。
+6. 日志里没有 [dev] backend-ready 的应用（listhen 式等），“本代”从读起处算；复用时末尾 4 MiB 里没有 backend-ready 也这样算（这时末尾的行都在最后一行 backend-ready 之后）。
+7. open-path 不合格时，原因写“open-path 不是同源路径：<路径>”，在计划的原文后附上路径。
+8. 新增警告码 sample_watch_failed（新起服务时读日志等样例出错），沿用 ready_watch_failed 的做法，已写进 cli.md 的警告表。
+9. S1 中计划没列的几处（交接前已说明）：样例按路径认出而不是按短名（防止往用户同名作品里补文件）；书名用 "sample"（短名由目录名生成，中文书名会得到 project），中文说明放 description；backend-process 的转发顺序保护与 sample-race-backend.ts 测试（否则 open-path 可能先于 backend-ready，nbdev 会漏读）；docs/specs 里 server-host 实现合同的 startServer 选项列表没有加 devTask（计划没列 Spec 改动），合入前请主会话决定是否补。
+10. 收口时 dev-panel 测试的流式输出（dev start --json 一行一个事件）没有走 git-fixture 的 fixture.cli（它把整个 stdout 当一个 JSON 外壳解析），改在 dev-live.test.ts 里用 git-fixture 导出的 run 直接调 CLI，没有改 git-fixture。
+
+五、未验证的边界与观察
+- 旧应用（neuro-book-legacy）不认 NBDEV_SAMPLE：预期 --sample 时 60 秒后打 SAMPLE_FAILED，没有真跑；shot --page 报 shot_unavailable（details.script page:shot）已经用 CLI 冒烟确认。
+- nbdev dev start --sample 加 shot --page 的真实端到端由主会话做（上面只有包内测试与 fake-dev 夹具）。
+- 观察：--theme dark 下书架仍是浅色，应用没有跟随系统配色（不在本 Task 范围）。
+- worktree 里留着 packages/neuro-book/.dev-sample/sample/（被 Git 忽略，由真实验证生成）；需要时可手动删。
+- /dev/shm/t18-tmp 已删除（状态根、日志、备份）；没有残留进程，4417–4419 空闲。
+
+六、禁止清单自查
+- 按错误码分支：新代码按 code、errno（ENOENT、EEXIST 等）、NbdevError 分支，不看错误文案。新加的 catch：sample.ts 的 copyMissing 只吞 EEXIST，其他重抛；followSample 的错误记成 sample_watch_failed 警告；page-shot 的 failure.png 截图失败记进 problems。没有静默吞错误。
+- 没有跳过测试、放宽已有断言、改报失败类型，产品代码里没有测试专用分支（样例时限经 --sample-timeout 这个正式选项给；neuro-book 的测试时限只在测试入口 fixture-entry.ts 里读）。
+- 没有删改任务之外的代码、配置和注释。tsconfig 只追加两个路径；reuse() 把原来内联的结束检查提成 checkEnded，并与样例等待共用，行为不变；原有的收口语句（stdin destroy、计时器清理、handle.close）都保留。
+- 没有跨包深导入；projectUrl 挪到 shared，旧位置不留转发，architecture.test 通过。
+- 测试用真的依赖：真实临时状态根、真实后端与 nbdev 子进程、真实 bun run；没有 mock、spy、假计时器和固定等待（都等可观察的状态）。fake-dev 的 feed 轮询是夹具进程转发文件内容，不是测试在等时间。
+- 没有在仓库里用 rm -rf；只删了自建的 /dev/shm/t18-tmp。没有碰主工作区、其它 worktree、端口 4400/4401、nbdev-panel-neuro-book.service 和 herdr。
+- 样例是原创短文，不含第三方素材和个人信息。

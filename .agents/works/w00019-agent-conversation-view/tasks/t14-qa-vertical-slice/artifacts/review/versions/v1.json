@@ -1,0 +1,88 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00019-agent-conversation-view",
+    "taskId": "t14-qa-vertical-slice",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "nb-story 问答页接入 nb-agent-ui 的静态稿",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "81fcc3328087140ef79eb5ccde3ddcf8444c8329181a906593a80094eb3997fa",
+    "files": [
+        "index.html",
+        "r1/01-answered.webp",
+        "r1/02-answered-top.webp",
+        "r1/03-answer-detail-drawer.webp",
+        "r1/04-process-expanded.webp",
+        "r1/05-running.webp",
+        "r1/06-behind.webp",
+        "r1/07-interrupted.webp",
+        "r1/08-new.webp",
+        "r1/09-list-empty.webp",
+        "r1/10-list-loading.webp",
+        "r1/11-list-error.webp",
+        "r1/12-answered-dark.webp",
+        "r1/13-tablet.webp",
+        "r1/14-tablet-dropdown.webp",
+        "r1/15-phone.webp",
+        "r1/16-phone-dropdown.webp"
+    ],
+    "questions": [
+        {
+            "id": "slice-scope",
+            "type": "multi",
+            "label": "这一片在 nb-agent-ui 里做哪几项",
+            "options": [
+                {
+                    "value": "session-list",
+                    "label": "会话列表组件 AgentSessionList"
+                },
+                {
+                    "value": "entries",
+                    "label": "条目渲染器 entries：nb-story 在文字回复下面画“没核实的出处”"
+                },
+                {
+                    "value": "failed-outcome",
+                    "label": "被退回的作答在过程里只占一行"
+                },
+                {
+                    "value": "thinking-plain",
+                    "label": "思考摘要去掉 Markdown 标记"
+                },
+                {
+                    "value": "group-calls",
+                    "label": "工具组的短语能看到这一组的调用"
+                },
+                {
+                    "value": "empty-slot",
+                    "label": "空对话的占位可由宿主换"
+                },
+                {
+                    "value": "hide-usage",
+                    "label": "可以不显示模型名与用量行"
+                },
+                {
+                    "value": "session-manage",
+                    "label": "对话重命名与删除"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "session-list",
+                "entries",
+                "failed-outcome",
+                "thinking-plain",
+                "group-calls"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-22T15:15:24.209Z"
+}

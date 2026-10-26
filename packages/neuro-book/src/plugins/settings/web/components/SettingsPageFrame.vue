@@ -36,6 +36,7 @@ const TEXT = {
     blocked: {"zh-CN": "这个分区所属的插件无法启动：{reason}", "en-US": "This section's plugin cannot start: {reason}"},
     failed: {"zh-CN": "这个分区所属的插件启动失败：{reason}", "en-US": "This section's plugin failed to start: {reason}"},
     stopped: {"zh-CN": "这个分区所属的插件已停止（{reason}）", "en-US": "This section's plugin stopped ({reason})"},
+    notActivatable: {"zh-CN": "插件没有声明打开分区时激活：{reason}", "en-US": "The plugin does not activate when this section opens: {reason}"},
     loading: {"zh-CN": "正在加载这个分区", "en-US": "Loading this section"},
     loadFailed: {"zh-CN": "这个分区加载失败：{reason}", "en-US": "This section failed to load: {reason}"},
     renderFailed: {"zh-CN": "这个分区出错：{reason}", "en-US": "This section crashed: {reason}"},
@@ -47,7 +48,7 @@ const text = (template: LocalizedText, reason = ""): string => localize(formatTe
 
 const state = computed(() => (props.delivery.kind === "available" ? props.status : props.delivery.kind));
 const loading = computed(() => props.delivery.kind === "declared" || (props.delivery.kind === "available" && (props.status === "waiting" || props.status === "loading")));
-const failed = computed(() => ["entry-blocked", "entry-failed", "entry-stopped"].includes(props.delivery.kind) || (props.delivery.kind === "available" && (props.status === "load-failed" || props.status === "render-failed")));
+const failed = computed(() => ["entry-blocked", "entry-failed", "entry-stopped", "entry-not-activatable"].includes(props.delivery.kind) || (props.delivery.kind === "available" && (props.status === "load-failed" || props.status === "render-failed")));
 
 /** 错误边界：接住子树在 Vue 调用路径上的错误并报给模型，不再往上冒。外框以代际作 key 重建它，新实例从头开始。 */
 const ErrorBoundary = defineComponent({
@@ -83,6 +84,7 @@ function reportRenderError(generation: number, message: string): void {
                 <Button size="sm" variant="secondary" :disabled="busy" data-settings-page-retry-entry @click="emit('retry-entry')">{{ text(TEXT.retry) }}</Button>
             </template>
             <template v-else-if="delivery.kind === 'entry-stopped'">{{ text(TEXT.stopped, delivery.reason) }}</template>
+            <template v-else-if="delivery.kind === 'entry-not-activatable'">{{ text(TEXT.notActivatable, delivery.reason) }}</template>
             <template v-else-if="status === 'load-failed'">
                 <span>{{ text(TEXT.loadFailed, error ?? "") }}</span>
                 <Button size="sm" variant="secondary" :disabled="busy" data-settings-page-reload @click="emit('reload')">{{ text(TEXT.reload) }}</Button>

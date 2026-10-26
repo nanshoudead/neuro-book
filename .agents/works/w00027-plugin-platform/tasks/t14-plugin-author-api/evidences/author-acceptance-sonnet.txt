@@ -1,0 +1,135 @@
+# 插件作者验收报告（Sonnet，只追加；摘要与统计补在最后）
+
+被测：worktree w00027-t14-impl-review 的 SDK tarball（notnotype-nb-plugin-sdk-0.1.0.tgz，build:sdk 现在最后一行直接打印 tgz 路径）。
+插件：/tmp/t14-author/word-goal（acme.word-goal）。写插件时只读了 SDK 包里的 README、docs、specs、examples、d.ts；没有读 src/。
+
+## 过程记录（先写事实，发现编号见下）
+- build:sdk -> 路径明确，一步到 tarball；npm install -D tgz、create、npm install 都顺利（npm install 因本机网络慢约 1 分 50 秒，非 SDK 问题）。
+- create 生成的模板：plugin.ts、shared/contracts.ts、web/plugin.ts、web/HelloView.vue，不带 backend。我要加服务端，自己建 backend/plugin.ts，并把 definePlugin 的 locations 改为 ["server","browser"]。
+- 第一次写完就 vue-tsc 通过、build 通过（先后各只有一轮，类型错误只出在我删模板 greeting 之后的残留引用上）。
+- 最终体量见末尾文件清单。
+
+## 发现（按确认顺序追加）
+
+[F01] 重要 / API形状+文档 / 状态栏条目“点击打开视图”
+现象：任务要“点击状态栏执行命令打开视图”。SDK 的根入口、/browser 和 README 里没有任何“显示或聚焦某个视图”的办法，也没有“从代码里执行另一条命令”的服务（ActivationContext 只有 services/remote/activation/onStop/declarations）。我在 specs/ui/workbench-shell.md 外壳一第 32 条里翻到内置命令 `nbook.view.set-part-hidden {part, hidden}`，用 `statusItem({command: {id: "nbook.view.set-part-hidden", args: {part: "sidebar", hidden: false}}})` 绕过去：只能把侧栏显示出来，不保证切到我的视图（侧栏里可能是别的容器），id 和 args 都是无类型字符串。这条绕法在运行中的 NeuroBook 里是否生效未验证。
+为什么：“点状态栏项打开自己的视图”是最常见的状态栏用法，作者却要去读外壳的 Spec 才找到内置命令；README 完全没提内置命令。拼错命令 id 时 typecheck 与 build 都通过（见 F08）。
+建议：statusItem 的 `command` 接受视图助手（点了即显示该视图）或提供 `view.reveal` 命令助手；README 列出作者可用的内置命令及参数类型。
+
+[F02] 重要 / 错误信息 / 远程方法实现里失败码或详情写错（E3、E4，实测）
+现象：`fail("too-manny", {max: 50000})` 和 `fail("too-many", {maximum: 50000})`、`fail("too-many", "50000")` 现在都在编译期被拦住（比上一轮好），但报错位置是 `add:` 这个方法名（backend/plugin.ts(46,17)），不是 fail 那一行；错误嵌套 6 到 9 层、第一行近 700 字符，真正的原因（`Type '"too-manny"' is not assignable to type '"storage-failed"'`、`Property 'max' is missing in type '{ maximum: 50000 }'`）在最后一两行。注意最后一行给的是“不是 storage-failed”，不是“不是 too-many”（联合里的最后一项），会把人带偏。
+为什么：每个有业务错误码的方法都会踩一次；读者得拉到最后一行再自己推断。
+建议：让 `fail` 的重载按合同方法收窄（例如 provideRemote 的 methods 里给 `fail` 作第二个参数，类型由方法的 errors 推出），错误就落在 fail 那一行、第一行就是“'too-manny' 不是 'too-many' | 'storage-failed'”。
+
+[F03] 建议 / 类型 / 调用方拿到的失败详情是 unknown（E13，实测）
+现象：浏览器里 `const r = await words.add(...)`；`if (!r.ok && r.code === "too-many") r.detail.max` 报 “'result.detail' is of type 'unknown'”。码本身有联合并带补全，拼错码也报（E13：`"too-manny"` 与联合“have no overlap”，好）；但详情不随码收窄。服务端一侧的 detail 已有类型（F02），调用方这一侧没有。
+为什么：合同里写了详情 schema，却要在调用方手写类型断言或再校验一次。README 自己也写了“详情在调用方是 unknown”。
+建议：RemoteResult 的失败分支做成 `{code: "too-many"; detail: Static<errors["too-many"]>} | …` 的可区分联合。
+
+[F04] 建议 / 错误信息 / 贡献实现漏写或键拼错的编译错误仍然很深（E1、E12，实测）
+现象：删掉状态栏条目的实现（E1），或把键写成 `addComand`（E12）：错误落在 `activate:` 那一行，共 6 行、约 3000 字符，嵌套 5 层，需要读到最后一层的 `Property 'status' is missing` / `Property 'addCommand' is missing` 才知道是哪一项。README 说“报错里写着是哪一项”，成立，但在最后一行。键拼错时只提示“缺 addCommand”，没有提示“多了 addComand”（SDK 里有 `多写的贡献实现：…` 这一类问题命名，但这次没有出现）。把别的助手的实现写在这个键上（E12b）则报得清楚：`'workbench.statusbar-items' is not assignable to 'commands.definitions'`。
+建议：同 F02，把“缺少/多写”做成以问题命名的属性放到第一行。
+
+[F05] 重要 / 错误信息 / 忘记声明 remoteProvides（E1c，实测）
+现象：服务端入口的 activate 返回了 `remote: [provideRemote(...)]` 但入口没写 `remoteProvides: [合同]`：错误 7 层，最后一行是 `Type 'readonly [RemoteProvision<...>]' is not assignable to type 'undefined'`，完全没有出现 remoteProvides 这个词。
+为什么：作者最可能的疏漏之一（声明与产出要写两遍），报错却没指向“去声明”。
+建议：入口产出里的 `remote` 在没声明时给以问题命名的属性（“入口没声明 remoteProvides: 合同 id”）；或者干脆由 `provideRemote` 产出反推声明，去掉 `remoteProvides` 这一遍。
+
+[F06] 重要 / 错误信息 / locations 核对的报错文案里位置名是空的（E11、E11b，实测）
+现象：`locations` 少写 server：`plugin.ts：插件描述的 locations 没有写 server，但有这些位置的入口：在 definePlugin 的 locations 里加上`——“有这些位置的入口：”后面是空的，也没有说“server”应出现在哪个括号里。多写 project 时：`写了 project，但没有这些位置的入口：去掉它们，……`，同样一句里“这些位置”没有指代。第一条因为前半句还写了 server 勉强能懂，但冒号后留空显然是模板里漏插值。
+建议：把位置列表填进去（“有 server 位置的入口（backend/plugin.ts）”）。另外 locations 本来可以从入口模块推出（见 F13）。
+
+[F07] 建议 / 错误信息+工具 / 构建期执行模块顶层出错时先打印 vite 堆栈，且摘要里的文件是“引入者”（E5、E6、R1，实测）
+现象：命令必填参数、记录缺 locality、记录 additionalProperties:true、设置项名烤串等，都在 `nbook-plugin build` 里先输出一行 `[vite] (ssr) Error when evaluating SSR module …`、再 8 到 10 行 node_modules 堆栈，最后才有 2 行摘要（“执行入口定义失败 / plugin.ts：命令 acme.word-goal.add-n 的参数有必填项…”）。E5 的命令其实写在 shared/contracts.ts 里，摘要写的是 plugin.ts（它是引入者）；定位到真正的行号只能看堆栈里 `shared/contracts.ts:99:30`。对比 E10、R3、E11、E14 等走“入口定义不合格 / 代码定义写不成清单”的报错，只有 2 行且干净。退出码都是 1，正确。
+为什么：同一个构建器有两种风格，第一种把作者的错误和 vite 内部噪声混在一起。
+建议：把 SSR 求值抛出的作者错误按第二种风格输出（只留消息 + 作者文件的 文件:行），内部堆栈放 --verbose。
+
+[F08] 建议 / 类型 / 类型层能表达、却拖到构建期才报的规则（实测，各自报错文案都很好）
+- 命令 `args` 有必填项而没写 `expose: {human: false}`：typecheck 通过，build 抛“命令 … 的参数有必填项（words），命令面板不收集参数：参数改成可选，或者写 expose: {human: false}”（E5）。
+- 记录 schema 顶层 `additionalProperties: true`：typecheck 通过，build 报“记录定义 days 不合规则：schema 须为顶层 type: object 且 additionalProperties: false”（R1）；远程方法 input 同（R2）。
+- 设置项名 `daily-goal`：typecheck 通过，build 报“配置项名 … 以点分段的小驼峰”（S4）。
+- 远程合同 id 的前缀写错（`acme.wordgoal/words`）：typecheck 通过，build 报“合同 id 必须以 acme.word-goal/ 开头”（R）。
+- 另：用 `context.services.require(storageKey)` 却没在 dependencies 里声明（E1d）：typecheck 与 build 都通过；README 与 d.ts 说“未声明的键抛 TypeError”，只能运行期发现（未验证激活失败时插件页怎么显示）。
+为什么：每一条都是“一看就知道错”的规则，且 README 都写了；但作者的编辑器里没有红线，要 `npm run build` 才知道。
+建议：`require` 的参数类型限制为 dependencies 里声明的键（入口 id 已经是 const 泛型，能推）；命令的 args/expose 做成条件类型；其余保持构建期即可（消息够好）。
+
+[F09] 建议 / 类型 / storage 的类型没有从根入口导出（实测）
+现象：`RecordSnapshot`、`WriteResult`、`Revision`、`StorageFailure`、`OpenResult` 在 index.d.ts 里声明但不导出（只导出了 RecordHandle、RecordDefinition、StorageService）。我想写 `const read = async (): Promise<{days: Days; revision: Revision | null} | string>`，没有 Revision 可用，只能让 TS 推断返回类型（去掉标注）。
+为什么：把 revision 传给一个自己的函数是条件保存最自然的写法；写不出签名。
+建议：导出这几个类型。
+
+[F10] 建议 / API形状 / 往浏览器推事件要手写“订阅集合 + abort 清理”（实测）
+现象：我的服务端入口里为了 `changed` 事件写了 `const sinks = new Set<RemoteSink<Today>>()`、`subscribe: (_f, sink, {signal}) => { sinks.add(sink); signal.addEventListener("abort", () => sinks.delete(sink), {once: true}); }`、每次变更 `for (const sink of sinks) sink.next(today)`、还要再 `context.onStop(() => sinks.clear())`。README 的示例也是这一套，focus 示例里还有“先登记再读、避免错过推送”的 20 行注释。
+为什么：这是每个有事件的插件都要抄的样板，还藏着时序陷阱（focus 注释里专门解释）。
+建议：provideRemote 给一个 `emit(事件名, payload)` 之类的句柄，由 SDK 管订阅集合与清理；需要“订阅时先推一次当前值”的另给选项。
+
+[F11] 建议 / API形状 / 插件 id 仍要在合同 id 里手写一遍，且 locations/version 是冗余的
+现象：命令、视图、状态栏、设置项都只写短名（好，plugin.command({name:"add-500"}) 等；我的 contracts.ts 里没有一处手写 `acme.word-goal.` 前缀）；唯独远程服务 `defineRemoteService({id: "acme.word-goal/words"})` 要自己拼 `<插件 id>/<名称>`，写错只有构建期才报（F08）。插件 id 总共出现：package.json 的 publisher+name、definePlugin 的 id、合同 id，共 3 处；version 2 处（package.json、definePlugin）；`locations` 一处但可由入口模块推出（E11 的报错就是它与入口对不上）。这些都由构建核对，错了有明确文案，但仍是“同一件事写几遍”。
+建议：`plugin.remoteService({name: "words", ...})` 拼 id；`definePlugin` 的 id/version 由构建从 package.json 注入或至少 `definePlugin()` 不要求写 locations。
+
+[F12] 建议 / 文档 / 设置项 layers/applies 的含义与缺省，以及“服务端只读得到用户层”
+现象：README 的设置项一条列了 `layers, applies` 但没解释；缺省（layers 缺省 user+project 两层，applies 缺省 now）只在 specs/settings/configuration.md 的表里。我是照模板写的 `layers: ["user"]`，删掉 layers/applies 后 typecheck 和 build 都过（缺省两层）。服务端入口读设置时看不到项目层的值，这条陷阱只写在 focus 示例的注释里（“作品层属于项目，项目实例才读得到”），README 没提。
+为什么：如果作者让设置项可在作品层设置、而服务端入口读它，用户在作品层改了，服务端完全不生效，没有任何提示。
+建议：README 设置项一条加一句“服务端入口读得到的只有缺省值和用户层；这类设置项写 layers: ["user"]”；构建期若服务端入口依赖的设置项允许 project 层则给警告。
+
+[F13] 建议 / 文档 / 命令的 expose 缺省没写
+现象：`expose.agent` 的缺省（Agent 能不能默认调用我的“记一笔”命令）在 README、plugin-api、d.ts 里都找不到；focus 示例把它显式写成 "never"。我的命令是 effect: "write"，不知道默认是 never / confirm / auto 中的哪一个。
+建议：README 命令一条写出 expose 的三个字段和缺省。
+
+[F14] 建议 / 文档 / README 的“完整的远程服务”示例不能照抄，且没有存储读写片段
+现象：contracts 片段缺 `defineRemoteService` 的 import；backend 片段缺 `plugin` 的来源（只给了 `import {fail, ok, provideRemote}`）；“私有存储”一节只有文字，没有 `storage.open` / `handle.read` / `save({expect: revision})` 的任何代码，指向“示例 notes 的 backend/plugin.ts”和 focus（后者约 200 行，混着结算、坏记录重置等业务）。我写条件保存时靠的是 d.ts 里 RecordHandle 的 JSDoc。比上一轮好（现在 README 里有一段 30 行的 provideRemote 示例，examples 随包），但存储这一半仍缺。
+建议：在“私有存储”里补一个 15 行的最小例子（open、read 的 status 分支、save 的 expect、conflict 重试）。
+
+[F15] 建议 / 工具+文档 / 在 create 的模板上加服务端要手工多步
+现象：模板只有浏览器入口、hello 视图与 greeting 设置。要加服务端：新建 backend/plugin.ts（README 只一句“模板没有，要时自己加”）、把 `definePlugin` 的 locations 改成 ["server","browser"]（忘了会报 F06 那句文案）、删掉模板里的 HelloView.vue、greeting 与 `i-lucide-hand` 图标引用。我删 HelloView 后第一次 typecheck 报 `web/plugin.ts: Module '../shared/contracts' has no exported member 'greeting'`。另外 create 的 publisher 报错文案还写着“视图与命令的 id 以它开头”，现在作者已不再手写前缀，措辞过时。
+建议：`create --server` 加一个带远程服务的模板；README 目录结构一节给出“加服务端的三步”；过时措辞改掉。
+
+[F16] 建议 / 类型（nb-ui）/ NumberInput 的 v-model 仍是字符串（实测，components.d.ts）
+现象：`modelValue?: string`，与上一轮 F18 相同。本次插件没用到（用了 Progress），仅核对 d.ts。
+建议：同上轮。
+
+======================================================================
+## 对照上一轮作者体验报告（dx-sonnet.txt，API 改版之前）逐条
+
+[旧F01] 已解决：`bun run build:sdk` 现在最后一行打印 tgz 路径，README 也写了“最后一行打印 tarball 的路径”；我照着一步装上。
+[旧F02] 部分解决：记录 schema 与远程方法 input 没写 additionalProperties 时自动补 false，README 写明；写成 true 仍是 typecheck 通过、build 才报（R1、R2，文案清楚）。类型层没有收窄，见 F08。
+[旧F03] 部分解决：`ok()`/`fail()` 不再需要 `as const`，提供方一侧失败码和详情都按合同检查（E3、E4）；但错误落在方法名且嵌套深（F02），调用方 `result.detail` 仍是 unknown（F03）。
+[旧F04] 已解决：README 远程服务一节明说“订阅随入口停止自动结束”；作者上下文 `AuthorActivationContext` 去掉了 scope，改为 `context.onStop`。
+[旧F05] 已解决：`plugin.command`、`statusItem`、`view`、`plugin.section/setting` 全部对称，且只写短名，id 由助手拼；我的 contracts.ts 与入口里没有手写过贡献 id。
+[旧F06] 已解决：`defineRecord` 的 `locality` 现在必填，漏写在编译期（E6）和构建期（“locality 必填：服务端入口的记录写 shared，……”）都报；README 与 d.ts 的 JSDoc 写了“服务端入口用 shared”；“远程调用 unavailable 时 detail 带激活失败原因”和插件页列问题，按 README 描述已做，我没有运行 NeuroBook，该运行时行为未验证。
+[旧F07] 不再适用：是 `nbdev dev start` 的预热，属仓库开发工具，这次不涉及，也没有运行。
+[旧F08] 已解决：README 新增“前置条件”一节：从仓库运行（bun install、bun run build、NBOOK_STATE_ROOT=… bun run start）、重启办法、视图只在作品工作台里出现、设置齿轮在哪。内容我只能按文字核对。
+[旧F09] 已解决：命令/视图的 id 不再手写，实现键由 `contributions` 的键约束（E12 键拼错、E12b 换错助手都编译期报）；视图属性名与 `defineProps` 对不上（E8、E8b）现在编译期报错，README 只保留“可选属性的笔误查不出来”。
+[旧F10] 仍然存在：缺实现的编译错误位置仍在 `activate:`，仍是 5 层嵌套、约 3000 字符，原因在最后一行（E1、E12，见 F04）。
+[旧F11] 已解决：作者不再写 id 前缀，助手拼；自己写的合同 id 前缀写错有构建期报错（“合同 id 必须以 acme.word-goal/ 开头”）。
+[旧F12] 已解决：带必填参数的命令在加载时直接抛错（除非 `expose: {human: false}`），README 命令一条与“调试”一节都写了；面板里执行失败弹警告按 README 已做，未运行验证。
+[旧F13] 已解决：入口模块没导出定义时 build 报“backend/plugin.ts：没有导出插件定义：是否忘了 export？”（E10）；locations 与入口对不上也报（E11、E11b），但文案里位置名是空的（F06）。
+[旧F14] 已解决：tarball 里带 examples/（7 个插件含 focus），README 有一段 30 行的完整 provideRemote 示例；剩下的是存储片段和示例的 import 缺漏（F14）。
+[旧F15] 部分解决：`plugin.descriptor()` 和 `plugin.definition()` 由 definePlugin 生成，作者不再手写两份带 id 的对象，也不用核对三份 id；但仍有 descriptor/definition/entry 三个概念，id 仍在 package.json、definePlugin、合同 id 三处（F11）。
+[旧F16] 已解决：`title` 接受单个字符串；视图 location/layout、状态栏 alignment/order/priority 有缺省；`setting` 不再要 `plugin`；命令 `args` 缺省为空对象。我的整个插件声明部分比上一轮短很多（见文件清单）。仍必填的有命令 `effect`，合理。
+[旧F17] 已解决：作者上下文去掉了 scope；`/components` 不再导出 Grid 内部件（只剩文档里有的 NestedGrid）；根入口仍导出 defineStore、definePublicState、hostClockKey 等，但 README“插件状态与公开状态”“常用名字”两节都写到了。
+[旧F18] 仍然存在：NumberInput 的 modelValue 仍是 string（F16，nb-ui）。
+[旧F19] 已解决：在 `npm init -y` 之后 `create` 的结果里没有 main、test、keywords 三项（我在 c2 实测，grep 为 0）。
+[旧F20] 部分解决：按 README“调试”一节，插件页现在列“此刻的问题”（入口激活失败、受阻、贡献被拒）；显示名与描述、升级/降级措辞是否改了，未运行 NeuroBook，未验证。
+
+统计：已解决 14（F01 F04 F05 F06 F08 F09 F11 F12 F13 F14 F16 F17 F19，加 F10 以外……见下方核对）。
+（更正：上一行“统计”写得不清，以此行为准。）
+对照统计（20 条）：已解决 13（旧F01 F04 F05 F06 F08 F09 F11 F12 F13 F14 F16 F17 F19）；部分解决 4（旧F02 F03 F15 F20）；仍然存在 2（旧F10 F18）；不再适用 1（旧F07）。其中旧F06 F08 F12 F20 的运行时部分只按 README 判断，未运行 NeuroBook。
+
+======================================================================
+## 摘要（补在最后，因为文件只追加）
+
+用 SDK 包里的材料从零写出了 acme.word-goal：设置分区与整数设置项（缺省 2000）、服务端入口（私有记录按日累计、远程服务 add/today、changed 事件、业务失败 too-many 带上限）、浏览器入口（侧栏视图含进度条、状态栏百分比、命令“记一笔 500 字”），vue-tsc 与 build 一次通过，产物含 browser.js 和 server.js，清单的 requires/remoteProvides 正确。没有一处阻断；声明与样板比上一轮少了很多，id 全是短名。故意写错的 20 多处里，大多数现在编译期或构建期就有明确提示。主要遗留：状态栏“打开视图”没有正式办法（F01，只能借内置命令）、编译错误仍嵌套很深且常把原因放在最后一行（F02 F04 F05）、locations 校验文案里位置名是空的（F06）。
+
+## 数量
+阻断 0；重要 4（F01 F02 F05 F06）；建议 12（F03 F04 F07 F08 F09 F10 F11 F12 F13 F14 F15 F16）；共 16。
+故意写错实验（结果）：漏实现一项（编译期报，F04）、视图写进服务端入口（编译期报“只能写进浏览器入口：v”，构建也拦）、失败码拼错/详情形状错（编译期报，F02）、有必填参数的命令（构建期抛，F08）、记录不写 locality（编译期与构建期都报）、记录 additionalProperties:true（构建期报）、忘 export（构建期报）、locations 少/多（构建期报，文案有缺，F06）、版本不一致（构建期报）、视图属性名/类型错（编译期报）、实现键拼错（编译期报，F04）、忘 remoteProvides（编译期报但看不出原因，F05）、未声明依赖却 require（都不报，F08）。
+
+## 未验证
+没有运行 NeuroBook：状态栏借内置命令显示侧栏是否生效（F01）、激活失败时插件页与 unavailable 详情的实际显示、命令面板失败提示、changed 事件实时更新、too-many 分支与 words 非正整数时的实际返回，均只按代码与 README 推断。
+
+## 总用时
+约 22 分钟（时间戳 1792840859 到 1792842053 约 20 分钟，加写收尾）。其中 npm install 因本机网络约 1 分 50 秒。
+
+## 插件最终文件清单与行数（/tmp/t14-author/word-goal）
+package.json 21；plugin.ts 4；shared/contracts.ts 61；backend/plugin.ts 70；web/plugin.ts 65；web/WordGoalView.vue 39；env.d.ts 6；tsconfig.json 13；README.md 26（模板生成）；.gitignore 2。手写部分（plugin.ts、contracts、backend、web/plugin、vue）共 239 行。实验副本 /tmp/t14-author/exp、c2、c3 只用于故意写错与 create 对照。

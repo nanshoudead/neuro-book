@@ -1,0 +1,148 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t16-qa-composer-models-markdown",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "问答输入框单行、模型目录与自定义服务商、Markdown 作答",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "85ee0d5503e2409c469a720278b11fa257a5c34da21278453163e936c76e46ef",
+    "files": [
+        "index.html",
+        "r1/02-now-continue.webp",
+        "r1/11-B-new.webp",
+        "r1/12-B-continue.webp",
+        "r1/12-B-full.webp",
+        "r1/13-B-typing-long.webp",
+        "r1/14-B-model-menu.webp",
+        "r1/15-B-context-tip.webp",
+        "r1/16-B-context-high.webp",
+        "r1/17-B-plus.webp",
+        "r1/22-A-typing-long.webp",
+        "r1/30-phones.webp",
+        "r1/41-B-dark.webp",
+        "r1/50-settings-now.webp",
+        "r1/51-settings-draft.webp",
+        "r1/52-catalog-A.webp",
+        "r1/53-catalog-B.webp",
+        "r1/54-provider.webp",
+        "r1/55-catalog-B-phone.webp",
+        "r1/56-settings-draft-dark.webp"
+    ],
+    "questions": [
+        {
+            "id": "composer-layout",
+            "type": "single",
+            "label": "1. 输入框：始终一行，还是一行起步、长了分两层？",
+            "options": [
+                {
+                    "value": "row",
+                    "label": "A 始终一行"
+                },
+                {
+                    "value": "stack",
+                    "label": "B 一行起步，长了分两层（推荐）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "stack"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "catalog-layout",
+            "type": "single",
+            "label": "2. 模型目录：左右两栏，还是一个搜索框加分组列表？",
+            "options": [
+                {
+                    "value": "two-pane",
+                    "label": "A 左边服务商、右边模型表"
+                },
+                {
+                    "value": "list",
+                    "label": "B 搜索框加分组列表（推荐）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "list"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "settings-structure",
+            "type": "confirm",
+            "label": "设置页“模型”一节按这个结构做",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "catalog-scope",
+            "type": "single",
+            "label": "4. 目录里列哪些服务商？",
+            "options": [
+                {
+                    "value": "all-but-login",
+                    "label": "全部列出，要登录的除外（推荐）"
+                },
+                {
+                    "value": "openai-only",
+                    "label": "先只列 OpenAI 兼容的"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "all-but-login"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "markdown-recheck",
+            "type": "single",
+            "label": "5. Markdown 回复里出处不对时，要不要自动让模型改一次？",
+            "options": [
+                {
+                    "value": "once",
+                    "label": "改一次（推荐）"
+                },
+                {
+                    "value": "mark-only",
+                    "label": "不改，只标出来"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "once"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-24T02:13:06.025Z"
+}

@@ -178,3 +178,4 @@ packages/
 | 2026-10-03 | 开发者 | 旧包留在 workspaces 中（依赖照装、不检查）；壳子阶段布局持久化存浏览器本地，等 Storage 重新设计后再改；`vitepress/` 用户文档站归档；新应用直接用 `neuro-book` 这个名字。设计稿 `accepted` |
 | 2026-10-07 | 开发者 | 推进顺序修订：Files 竖切推迟到第 6 步；第 5 步先做运行时拓扑与平台服务（K1–K6，见[多实例运行时拓扑](multi-instance-runtime-topology.md)与 [ADR 0024](../adr/0024-multi-instance-runtime-topology.md)）；外壳实现排在 K5 之后，布局直接用 `nbook.storage`，取代 2026-10-03“壳子阶段布局持久化存浏览器本地”的安排 |
 | 2026-10-08 | 开发者 | 第 6 步 Files 资源层的 Opus 与 omp 对照实验暂缓，仍由 Opus 编码、omp 审查；外壳实现参照旧应用 `packages/neuro-book-legacy/app/components/workbench/` 的外壳与拖放（开发者已人工验证） |
+| 2026-10-20 | 开发者 | 前端栈里的 UnoCSS 改为 Tailwind v4：全仓只用一套原子 CSS 引擎，nb-ui 不发预编译产物、由宿主编译源码并按 Tailwind 标准分层；旧包失去 nb-ui 样式、不再管它（[ADR 0028](../adr/0028-tailwind-only-host-compiles-nb-ui.md)，w00030 t02 于 2026-10-21 合入） |

@@ -23,13 +23,14 @@ import {SAMPLE_EDITOR_AREA_ID, SAMPLE_VIEW_IDS, SAMPLE_VIEWS_MARK_COMMAND, SAMPL
 
 const view = (name: string, location: ViewDeclaration["location"], icon: string, extra: Partial<ViewDeclaration> = {}): ViewDeclaration => ({title: {"zh-CN": name, "en-US": name}, icon, location, layout: "scroll", ...extra});
 
+// 测试插件是第三方插件，没写 `order` 的视图会排到内置视图之后（views.md 输出 13）：e2e 依赖的位置都写明 `order`。
 const VIEWS: Readonly<Record<string, ViewDeclaration>> = {
-    [SAMPLE_VIEW_IDS.alpha]: view("样例甲", "sidebar", "i-lucide-files", {layout: "fill"}),
+    [SAMPLE_VIEW_IDS.alpha]: view("样例甲", "sidebar", "i-lucide-files", {layout: "fill", order: 0}),
     [SAMPLE_VIEW_IDS.beta]: view("样例乙", "sidebar", "i-lucide-list-tree", {order: 1}),
     // 丙自己声明一个收进“⋯”的动作；`test.menus` 另给它贡献按钮与“⋯”里的项（views.md 验收 8）。
     [SAMPLE_VIEW_IDS.gamma]: view("样例丙", "sidebar", "i-lucide-clock", {order: 2, actions: [{command: SAMPLE_VIEWS_MARK_COMMAND, icon: "i-lucide-bookmark", title: {"zh-CN": "样例的菜单动作", "en-US": "Sample Menu Action"}, placement: "menu"}]}),
-    [SAMPLE_VIEW_IDS.delta]: view("样例丁", "auxiliarybar", "i-lucide-notebook-pen"),
-    [SAMPLE_VIEW_IDS.omega]: view("样例戊", "panel", "i-lucide-terminal"),
+    [SAMPLE_VIEW_IDS.delta]: view("样例丁", "auxiliarybar", "i-lucide-notebook-pen", {order: 0}),
+    [SAMPLE_VIEW_IDS.omega]: view("样例戊", "panel", "i-lucide-terminal", {order: 0}),
     // 长标题：看面板标签带放不下时的溢出与键盘切换。
     [SAMPLE_VIEW_IDS.zeta]: view("样例己：一个很长的面板视图标题", "panel", "i-lucide-scroll-text", {order: 1}),
 };

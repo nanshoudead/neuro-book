@@ -2,7 +2,7 @@ import {describe, expect, it, vi} from "bun:test";
 
 import {createRuntimeInstance} from "../lifecycle/lifecycle";
 import {createServiceAssembly, defineServiceKey} from "../services/services";
-import {createPluginHost, provide} from "./plugins";
+import {createPluginHost, provideService} from "./plugins";
 import type {ActivationResult, PluginDefinition, PluginEntryDefinition} from "./plugins";
 
 const aKey = defineServiceKey("a/service");
@@ -19,7 +19,7 @@ function setup() {
 }
 
 function definition(id: string, dependencies: PluginEntryDefinition["dependencies"] = [], provides: PluginEntryDefinition["provides"] = []): PluginDefinition {
-    return {id, entries: [{id: "main", location: "server", dependencies, provides, activate: () => ({services: provides.map((key) => provide(key, id))})}]};
+    return {id, entries: [{id: "main", location: "server", dependencies, provides, activate: () => ({services: provides.map((key) => provideService(key, id))})}]};
 }
 
 describe("入口与服务级依赖合同", () => {
@@ -81,7 +81,7 @@ describe("入口与服务级依赖合同", () => {
     it("验收 6：提供方失败使依赖方受阻，显式恢复后依赖方可激活", async () => {
         const {runtime, host} = setup();
         let failed = true;
-        host.register({id: "b", entries: [{id: "main", location: "server", provides: [bKey], activate: () => {if (failed) {throw new Error("provider failed");} return {services: [provide(bKey, "B")]};}}]}, {scope: runtime.root});
+        host.register({id: "b", entries: [{id: "main", location: "server", provides: [bKey], activate: () => {if (failed) {throw new Error("provider failed");} return {services: [provideService(bKey, "B")]};}}]}, {scope: runtime.root});
         host.register(definition("a", [{key: bKey}]), {scope: runtime.root});
         await host.activate({plugin: "b", entry: "main"});
         expect(host.entryState({plugin: "a", entry: "main"})!.blocked).toEqual({reason: "provider-failed", key: bKey.name, path: ["a/main", "b/main"]});
@@ -148,7 +148,7 @@ describe("入口与服务级依赖合同", () => {
 
     it("验收 10：受阻激活不调用入口、不消耗代次，服务解析也不触发受阻提供方", async () => {
         const {runtime, assembly, host} = setup();
-        const activate = vi.fn(() => ({services: [provide(aKey, "A")]}));
+        const activate = vi.fn(() => ({services: [provideService(aKey, "A")]}));
         host.register({id: "a", entries: [{...definition("a", [{key: missing}], [aKey]).entries[0]!, activate}]}, {scope: runtime.root});
         const state = host.entryState({plugin: "a", entry: "main"});
         const result: ActivationResult = {status: "rejected", plugin: "a", entry: "main", reason: "blocked", blocked: {reason: "missing-service", key: missing.name, path: ["a/main"]}};
@@ -175,4 +175,57 @@ describe("入口与服务级依赖合同", () => {
         expect((await runtime.root.close()).status).toBe("closed");
         expect(host.diagnostics().filter((diagnostic) => diagnostic.stage === "close").map((diagnostic) => diagnostic.reason)).toEqual(["close-started", "closed"]);
     });
+
+    describe("插件版本要求（plugin-manifest.md 输出 8）", () => {
+        /** 只认主版本相同的 `^x.y.z`：够测宿主的接线，不引入 semver。 */
+        const caret = (version: string, range: string): boolean => range.startsWith("^") && version.split(".")[0] === range.slice(1).split(".")[0];
+
+        function versioned(satisfies?: (version: string, range: string) => boolean) {
+            const runtime = createRuntimeInstance({instanceId: "versions", location: "server"});
+            const host = createPluginHost(runtime, createServiceAssembly(runtime), satisfies === undefined ? {} : {satisfies});
+            return {runtime, host};
+        }
+
+        it("宿主没有注入范围判断时，写了 pluginVersions 的定义整体被拒", async () => {
+            const {runtime, host} = versioned();
+            const result = host.register({...definition("a", [{key: bKey}]), pluginVersions: {b: "^1.0.0"}}, {scope: runtime.root});
+            expect(result).toMatchObject({status: "rejected", rejections: [{reason: "version-check-unavailable"}]});
+            await runtime.root.close();
+        });
+
+        it("必需依赖的提供方版本不符时入口受阻，换成符合的版本后可以激活", async () => {
+            const {runtime, host} = versioned(caret);
+            host.register({...definition("b", [], [bKey]), version: "1.2.0"}, {scope: runtime.root});
+            host.register({...definition("a", [{key: bKey}]), version: "1.0.0", pluginVersions: {b: "^2.0.0"}}, {scope: runtime.root});
+            expect(host.entryState({plugin: "a", entry: "main"})).toMatchObject({status: "blocked", blocked: {reason: "version-mismatch", key: bKey.name, version: "1.2.0", range: "^2.0.0"}});
+            expect(await host.activate({plugin: "a", entry: "main"})).toMatchObject({status: "rejected", reason: "blocked"});
+            await runtime.root.close();
+
+            const again = versioned(caret);
+            again.host.register({...definition("b", [], [bKey]), version: "2.3.0"}, {scope: again.runtime.root});
+            again.host.register({...definition("a", [{key: bKey}]), pluginVersions: {b: "^2.0.0"}}, {scope: again.runtime.root});
+            expect(await again.host.activate({plugin: "a", entry: "main"})).toMatchObject({status: "activated"});
+            await again.runtime.root.close();
+        });
+
+        it("可选依赖的提供方版本不符时不注入，入口照常激活并记一条诊断", async () => {
+            const {runtime, host} = versioned(caret);
+            host.register({...definition("b", [], [bKey]), version: "1.2.0"}, {scope: runtime.root});
+            let seen: unknown = "not-called";
+            host.register({id: "a", pluginVersions: {b: "^2.0.0"}, entries: [{
+                id: "main",
+                location: "server",
+                dependencies: [{key: bKey, required: false}],
+                activate: async (context) => {
+                    seen = await context.services.resolve(bKey);
+                    return {};
+                },
+            }]}, {scope: runtime.root});
+            expect(await host.activate({plugin: "a", entry: "main"})).toMatchObject({status: "activated"});
+            expect(seen).toMatchObject({status: "unavailable", reason: "version-mismatch", key: bKey.name});
+            expect(host.diagnostics()).toEqual(expect.arrayContaining([expect.objectContaining({plugin: "a", reason: "version-mismatch", contribution: bKey.name})]));
+            await runtime.root.close();
+        });
+    });
 });
+

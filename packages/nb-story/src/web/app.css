@@ -1,0 +1,96 @@
+/*
+ * Tailwind 的标准分层写法：先 `@import "tailwindcss"`（preflight、theme、utilities 各在自己的层），再导入 nb-ui 的入口
+ * （token 进 base 层、语义类进 components 层、图标插件与遮罩垫片已带）。查看器自己的原子类在 utilities 层，
+ * 压过 nb-ui 的语义类，响应式写法（`hidden md:flex`）按 Tailwind 的预期工作。
+ *
+ * 查看器不分层的全局规则里，特异性低于一个类的（`html, body`、`body`、`*`）会压过所有分层的声明，包括原子类，
+ * 所以放进 base 层；自己的语义类（`.story-*`）不分层，照旧压过原子类。
+ */
+@import "tailwindcss";
+@import "@notnotype/nb-ui/tailwind.css";
+@import "@notnotype/nb-agent-ui/tailwind.css";
+@import "@notnotype/nb-markdown/tailwind.css";
+@source "./**/*.vue";
+@source "./**/*.ts";
+
+@layer base {
+    html, body {
+        height: 100%;
+    }
+
+    body {
+        margin: 0;
+        background: var(--bg-panel);
+        color: var(--text-main);
+        font-family: var(--font-ui, system-ui, sans-serif);
+    }
+}
+
+#app {
+    height: 100%;
+}
+
+/* 竖向滚动的容器：内容长短变化时宽度不跳；带 relative 做绝对定位后代的包含块（照 dev-panel 的 .nbdev-scroll-y）。 */
+.story-scroll-y {
+    position: relative;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+}
+
+/* 页面的共用排版：内容列封顶，宽屏下不拉满整行。 */
+.story-page {
+    height: 100%;
+}
+.story-page-body {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 12px 16px 24px;
+}
+.story-page-title {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-strong);
+    margin-bottom: 8px;
+}
+.story-page-title .sub,
+.story-block h2 .sub {
+    margin-left: 6px;
+    font-size: var(--text-xs);
+    font-weight: normal;
+    color: var(--text-muted);
+}
+.story-block {
+    margin-top: 16px;
+}
+.story-block h2 {
+    font-size: var(--text-md);
+    font-weight: var(--weight-strong);
+    margin-bottom: 6px;
+}
+.story-chip {
+    font-size: var(--text-xs);
+    border-radius: 999px;
+    padding: 1px 8px;
+    border: var(--border-w, 1px) solid var(--border-color);
+    color: var(--text-secondary);
+}
+.story-chip.is-on {
+    color: var(--accent-text);
+    border-color: var(--border-accent);
+    background: var(--accent-bg);
+}
+.story-table {
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+}
+.story-table th,
+.story-table td {
+    border-bottom: var(--border-w, 1px) solid var(--divider);
+    padding: 4px 8px;
+    text-align: left;
+    vertical-align: top;
+}
+.story-table th {
+    font-weight: var(--weight-strong);
+    color: var(--text-secondary);
+    white-space: nowrap;
+}

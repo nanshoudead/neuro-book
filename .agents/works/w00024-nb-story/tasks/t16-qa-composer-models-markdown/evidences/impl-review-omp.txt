@@ -1,0 +1,40 @@
+### 3. 配置初始化的目录选择与密钥校验交互测试实际超时
+
+- **严重程度**：重要；**类别**：测试
+- **位置**：`packages/nb-story/src/cli/config-init.ts:73-120`；验收测试 `packages/nb-story/src/cli/config.test.ts:290-312`
+- **现象**：本次提交声称覆盖目录模型输入校验和密钥变量名校验，但受影响测试命令实际有 2 条失败：目录模型用例在等待“推理档”时超时，误贴密钥用例同样在等待“推理档”时超时；该命令最终为 `97 pass, 2 fail`，错误原文为 `等待超时（4000ms）：屏幕上出现“推理档”`。失败用例分别是 `init 的交互 > 目录里的模型：问 服务商/模型名，目录里没有的不收` 与 `init 的交互 > 贴进来的是密钥而不是变量名：拒绝并说明，改填变量名后通过`。
+- **为什么是问题**：这两条是配置第 2 版的关键黑盒验收：目录模型不存在时应回到同一输入继续，密钥形状被拒绝后应能继续完成；当前测试无法到达返回配置的断言，不能证明这两个交互路径收口，也使受影响范围的测试门禁不通过。
+- **如何核实**：在实现 worktree 执行 `bun test src/qa/config.test.ts src/qa/engine.test.ts src/cli/config.test.ts src/cli/ask.test.ts`（工作目录 `packages/nb-story`），观察上述 2 个超时与 `97 pass, 2 fail`。失败点均是 `config.test.ts:264` 的 `waitUntil`，输入序列在 `config-init.ts` 的目录模型/密钥校验后没有到达推理档提示。
+- **建议改法**：先用真实终端输出逐步核对 `select` 与 `text` 校验失败后的状态和输入消费，修复实现中的焦点/提示重绘或同步测试输入；若是测试夹具在校验错误后依赖了不稳定的屏幕字符串，改为等待可观察的下一次提示状态而不是固定文案。修复后必须重新跑这 4 个文件，且目录模型与密钥拒绝两条都完成配置返回。
+
+### 4. CLI `ask --thinking` 没有强制同时给 `--model`
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-story/src/cli/ask.ts:95-98`；对照 `packages/nb-story/src/server/qa-service.ts:309-318`
+- **现象**：`ask` 只校验 `--thinking` 是否属于六档，然后在没有 `--model` 时仍构造 `{model: {thinking}}` 传给 `askQuestion`。`resolveQaModel` 会把这个档直接应用到配置默认模型。服务端 `qa.start` 的同一合同却明确要求“给 thinking 时要同时给 model”，并返回 `invalid_params`。
+- **为什么是问题**：命令行与 RPC 对同一轮选择的语义不一致；用户执行 `nbstory ask ... --thinking high` 时，表面上是在给默认模型临时改档，实际绕过了“模型与推理档成对校验”的边界。若默认模型不支持该档，CLI 还会静默向下夹，不会报与网页一致的用法错误；脚本无法依赖同一规则判断请求是否有效。
+- **如何核实**：静态跟踪 `ask.ts:95-98` 的条件：`params.model` 未定义、`params.thinking` 已定义时仍进入 `model` 选项；再跟踪 `engine.ts:301` 与 `harness-model.ts:44-50`，可见该选项会作用于 `config.model.use`。同样输入经 `qa-service.ts:modelChoice` 在 `qa.start` 明确走 `invalid_params`。
+- **建议改法**：CLI 在构造 `AskInput` 前复用同一请求规则：`--thinking` 存在而 `--model` 不存在时退出 2，并说明必须同时给 `--model`；补 CLI 行为测试，断言不发请求。或者把“默认模型临时改推理档”正式纳入两处合同，但不能一处拒绝、一处接受。
+
+### 5. `/models` 响应体超时被错分为 `failed`，不是合同要求的 `unreachable`
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-harness/src/catalog.ts:200-229`
+- **现象**：实现只在包住 `fetch` 的调用抛异常时记录 `networkError`。如果服务已经返回 `200`，但响应体读取在 OMP 的内部超时/取消中止，`fetchOpenAICompatibleModels` 会把 `response.json()` 的异常吞掉并返回 `null`；此时 `status` 已是 `200`，实现落到 `failed`，消息为“回应不是模型列表”。
+- **为什么是问题**：`models.discover` 合同明确把“网络错误或超时”归为 `unreachable`。慢响应体、代理只发响应头后卡住的服务会给用户显示错误类别和修复建议（服务失败）而不是连不上/超时；设置页的六态验收也漏掉了这条真实超时路径。
+- **如何核实**：在实现 worktree 用本地真实 HTTP 服务返回 `200`，先发送 `{\"data\":[`，再延迟响应体；运行 `/tmp/claude-1000/review-w00024-t16-impl/discovery-timeout.ts`，`discoverModels({timeoutMs: 20})` 实际输出 `{ state: \"failed\", status: 200, message: \"回应不是模型列表\" }`，不是 `unreachable`。OMP `fetchOpenAICompatibleModels` 在 `openai-compatible.ts:174-178` 会吞掉 `response.json()` 异常，解释了该结果。
+- **建议改法**：不要只记录 `fetch` 的失败；在自有 fetch/响应读取层保留超时原因，或绕过只能返回 `null` 的 OMP helper，自己完成带 `AbortSignal` 的 `/models` 读取。只有明确收到非 2xx/坏 JSON 才报 `failed`；请求或响应体因超时/取消中止时报 `unreachable`，并补真实慢响应体测试。
+
+## 未发现问题的方面
+
+- 配置第 1 版升级逐字段保留了 `api`、推理档、上下文、最大输出与单价；写了旧推理档时补 `reasoning: true`。`validateQaConfig`、`config.set` 写回、`config.get`、`qa.start`、`config.test` 均走语义校验；`config.set` 读入阶段使用 `readQaConfigShape` 是为了修复跨字段坏配置，写回仍走完整校验。`ConfigCatalog` 由调用方传入，`nbstory ingest` 的 `loadQaConfig` 不导入 OMP。
+- 引擎的出处复查实现了同一 harness 单订阅、`finally` 取消、两次用量合并、第二次失败或取消保留第一次回复、`recheck` 记录，以及 Markdown 快照不登记 `answer` 并在恢复时按同一作答方式登记。相关引擎与服务端测试通过。
+- `providerAccess` 对 OMP 18.2.5 的 69 家服务商有快照落点；`providerKeyReady` 排除了 `<authenticated>`；未知全零单价在目录与 `resolveModel.priceKnown` 均按未知处理；keyless 无值返回 OMP 的 `N/A` 哨兵，Vertex 传输层会过滤该哨兵。`nb-harness` 目录测试为 `12 pass, 0 fail`。
+- `qa.start` 的模型/推理档校验在准备阶段、登记运行前执行；失败不发请求、不留运行项。`models.catalog` 建服务时缓存目录密钥状态；`models.discover` 使用请求地址与服务环境变量，响应只返回 `keySet` 和模型元数据，不返回密钥值。
+- 报告及新增输出中未发现明文密钥值。类型检查通过：`bun run typecheck`（工作目录 `packages/nb-harness`）；服务端问答与抽取测试为 `34 pass, 0 fail`。
+
+## 分级数量
+
+- **阻断**：0
+- **重要**：3
+- **建议**：0

@@ -21,6 +21,8 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import type {PluginDescriptor} from "nbook/manifest";
+import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
+import {fakePage} from "nbook/plugin-platform/testing/fake-page";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {errorResponse} from "nbook/plugins/http/backend/dispatch";
 import {manifestServerPlugins} from "nbook/server/plugins";
@@ -206,7 +208,7 @@ describe("窗口运行实例", () => {
     it("结构不合法或缺少必需插件：启动失败", async () => {
         for (const body of [
             {protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", plugins: "nbook.workbench"},
-            {protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", plugins: [{id: "nbook.diagnostics", version: "0.1.0"}]},
+            {protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", plugins: [{id: "runtime.diagnostics", version: "0.1.0"}]},
         ]) {
             const stub = serveBootstrap(() => Response.json(body));
             const {browserWindow} = openWindow({url: stub.url});
@@ -237,7 +239,7 @@ describe("窗口运行实例", () => {
     });
 
     it("宿主适配器的工厂抛错：同样是启动失败，不停在 starting", async () => {
-        const {browserWindow} = openWindow({hostPlugins: {"nbook.diagnostics": () => {
+        const {browserWindow} = openWindow({hostPlugins: {"runtime.diagnostics": () => {
             throw new Error("诊断装配失败（测试注入）");
         }}});
         await browserWindow.start();
@@ -301,10 +303,73 @@ describe("窗口运行实例", () => {
         stub.stop();
     });
 
+    it("第三方插件不在构建里：按引导带来的清单登记顶层声明；清单读不了、构建里没有的 nbook.* 插件都提示刷新（browser-host 输出 2、4）", async () => {
+        const seen: {listed: string[]} = {listed: []};
+        const owner = {
+            descriptor: {id: "test.notes-owner", version: "0.1.0", locations: ["browser"] as const},
+            definition: {
+                id: "test.notes-owner",
+                contributionPoints: [{id: "test.notes", implementation: "none" as const, validate: () => null}],
+                entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], activate: (context: ActivationContext) => {
+                    seen.listed = context.declarations.list("test.notes").map((declaration) => `${declaration.plugin}:${declaration.id}`);
+                    return {};
+                }}],
+            } satisfies PluginDefinition,
+        };
+        const builtin = [...builtinBrowserPlugins, owner.descriptor];
+        const manifest = {publisher: "example", name: "notes", version: "2.0.0", engines: {neurobook: ">=0.1.0"}, contributes: [{capability: "test.notes", id: "example.notes/first", declaration: {}}]};
+        const thirdParty = {id: "example.notes", version: "2.0.0", manifest, files: "/api/runtime/plugins/example.notes/files/0123456789abcdef/"};
+        const plugins = [...builtin.map(({id, version}) => ({id, version})), thirdParty];
+        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins}));
+        const definitions = {...browserPluginDefinitions, [owner.descriptor.id]: owner.definition};
+        const {browserWindow} = openWindow({url: stub.url, builtin, definitions});
+        await browserWindow.start();
+        expect(browserWindow.state.status).toBe("ready");
+        expect(seen.listed).toEqual(["example.notes:example.notes/first"]);
+        await browserWindow.stop();
+        stub.stop();
+
+        const future = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins: [...plugins, {id: "nbook.future", version: "0.1.0"}]}));
+        const {browserWindow: stale} = openWindow({url: future.url, builtin, definitions});
+        await stale.start();
+        expect(failureOf(stale.state)).toMatchObject({status: "incompatible", reason: expect.stringContaining("nbook.future")});
+        future.stop();
+
+        const broken = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins: [...builtin.map(({id, version}) => ({id, version})), {...thirdParty, manifest: {...manifest, version: "x"}}]}));
+        const {browserWindow: unreadable} = openWindow({url: broken.url, builtin, definitions});
+        await unreadable.start();
+        expect(failureOf(unreadable.state)).toMatchObject({status: "incompatible", reason: expect.stringContaining("example.notes@2.0.0")});
+        broken.stop();
+    });
+
+    it("第三方插件的样式表：窗口登记插件时就加入，加载失败记一条诊断，窗口停止后移除（plugin-code-loading 输出 2）", async () => {
+        const page = fakePage(NEUROBOOK_PROFILE.registryGlobal);
+        const attached = () => page.styles().map((link) => ({rel: link.rel, href: link.href, plugin: link.dataset[NEUROBOOK_PROFILE.styleDataset]}));
+        const warnings: unknown[] = [];
+        const capture: DiagnosticsConsole = {error: () => undefined, warn: (_text, record) => warnings.push(record)};
+        const manifest = {publisher: "example", name: "styled", version: "1.0.0", engines: {neurobook: ">=0.1.0"}, style: "style.css"};
+        const files = "/api/runtime/plugins/example.styled/files/0123456789abcdef/";
+        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins: [...builtinBrowserPlugins.map(({id, version}) => ({id, version})), {id: "example.styled", version: "1.0.0", manifest, files}]}));
+        const {browserWindow} = openWindow({url: stub.url, document: page.document, console: capture});
+        await browserWindow.start();
+        expect(browserWindow.state.status).toBe("ready");
+        expect(attached()).toEqual([{rel: "stylesheet", href: `${files}style.css`, plugin: "example.styled"}]);
+
+        page.failStyles();
+        await waitUntil("样式表失败的诊断", () => warnings.find((record) => (record as {event?: string}).event === "browser-host.plugin.style-failed"));
+        expect(warnings).toContainEqual(expect.objectContaining({event: "browser-host.plugin.style-failed", data: {plugin: "example.styled", url: `${files}style.css`}}));
+
+        // 窗口登记插件只加样式表；入口的代码在激活时才装载，这个插件没有入口。
+        expect(page.scripts()).toEqual([]);
+        await browserWindow.stop();
+        expect(attached()).toEqual([]);
+        stub.stop();
+    });
+
     it("宿主适配器的表只收适配器：普通插件放进去编译不过", () => {
         const options: Partial<BrowserWindowOptions> = {
             // @ts-expect-error 普通插件的定义是常量，不能经宿主适配器的工厂取宿主上下文
-            hostPlugins: {"nbook.diagnostics": browserHostPlugins["nbook.diagnostics"], "nbook.commands": () => browserPluginDefinitions["nbook.commands"]!},
+            hostPlugins: {"runtime.diagnostics": browserHostPlugins["runtime.diagnostics"], "nbook.commands": () => browserPluginDefinitions["nbook.commands"]!},
         };
         expect(options.hostPlugins).toBeDefined();
     });

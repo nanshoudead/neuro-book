@@ -1,0 +1,82 @@
+/**
+ * 秘密矩阵（docs/specs/story/queries.md 输出 9、验收 4）。
+ */
+
+import {afterAll, beforeAll, describe, expect, test} from "bun:test";
+
+import {openTestBook, type TestBook} from "../../../testing/api";
+import {smallDataset} from "../../../testing/sample";
+
+let book: TestBook;
+
+beforeAll(async () => {
+    book = await openTestBook("secrets");
+});
+
+afterAll(async () => {
+    await book.close();
+});
+
+describe("读者格取最新的知情（输出 9）", () => {
+    test("没有确定身份连接的秘密，读者先知道、后来被写成不知道，就是不知道", async () => {
+        const dataset = await smallDataset(3, "latest");
+        const base = {basis: "explicit" as const, derived: false};
+        dataset.secrets = [{id: "x-test", title: "秘密", about: [], statements: [], at: {chapter: 1, paragraph: 2}}];
+        dataset.knowledge = [
+            {...base, id: "k-a", who: "reader", about: "x-test", state: "knows", evidence: [{chapter: 1, from: 2, to: 2}], at: {chapter: 1, paragraph: 2}},
+            {...base, id: "k-b", who: "reader", about: "x-test", state: "unaware", evidence: [{chapter: 2, from: 2, to: 2}], at: {chapter: 2, paragraph: 2}},
+        ];
+        const small = await openTestBook("secrets-latest", dataset);
+        try {
+            const atOne = await small.ok("secrets.matrix", {at: {chapter: 1}});
+            expect(atOne.rows[0]!.cells[0]).toEqual({column: "reader", state: "knows", how: null, ref: "1.2"});
+            const atThree = await small.ok("secrets.matrix", {at: {chapter: 3}});
+            expect(atThree.rows[0]!.cells[0]).toEqual({column: "reader", state: "unaware", how: null, ref: "2.2"});
+            expect(atThree.rows[0]!.revealedAt).toBeNull();
+        } finally {
+            await small.close();
+        }
+    });
+});
+
+describe("秘密矩阵（输出 9、验收 4）", () => {
+    test("第 38 章“深蓝猫娘是南嘉鱼的反派身份”一行的读者格是知道，出处是 37.8，不是第 30 章的怀疑", async () => {
+        const matrix = await book.ok("secrets.matrix", {at: {chapter: 38}});
+        const row = matrix.rows.find(item => item.id === "x30-1")!;
+        const reader = row.cells.find(cell => cell.column === "reader")!;
+        expect(reader).toEqual({column: "reader", state: "knows", how: "旁白", ref: "37.8"});
+        expect(row.revealedAt).toBe("37.8");
+    });
+
+    test("37.7 时读者还只是怀疑", async () => {
+        const matrix = await book.ok("secrets.matrix", {at: {chapter: 37, paragraph: 7}});
+        const reader = matrix.rows.find(item => item.id === "x30-1")!.cells.find(cell => cell.column === "reader")!;
+        expect(reader.state).toBe("suspects");
+        expect(reader.ref).toMatch(/^30\./u);
+    });
+
+    test("人物各行取这个人最新的状态；没有记录的格给“没有记录”", async () => {
+        const matrix = await book.ok("secrets.matrix", {at: {chapter: 38}});
+        const cells = matrix.rows.flatMap(row => row.cells.filter(cell => cell.column !== "reader"));
+        expect(cells.some(cell => cell.state === "no-record" && cell.ref === null)).toBe(true);
+        const tq = matrix.rows.find(row => row.id === "x30-1")!.cells.find(cell => cell.column === "e1-1")!;
+        expect(tq.state).toBe("unaware");
+        // 有记录的格带上记录里写的“怎么知道的”。
+        expect(tq.how).toEqual(expect.any(String));
+    });
+
+    test("人物列带读者此时知道的化名：苏天晴 6.96 起带“狐狐”，6.95 还没有；没有名字的身份不列", async () => {
+        const after = await book.ok("secrets.matrix", {at: {chapter: 6, paragraph: 96}});
+        expect(after.columns.find(column => column.id === "e1-1")!.aliases).toContain("狐狐");
+        expect(after.columns[0]).toEqual({id: "reader", label: "读者", aliases: []});
+        const before = await book.ok("secrets.matrix", {at: {chapter: 6, paragraph: 95}});
+        expect(before.columns.find(column => column.id === "e1-1")!.aliases).not.toContain("狐狐");
+        const at38 = await book.ok("secrets.matrix", {at: {chapter: 38}});
+        expect(at38.columns.find(column => column.label === "南嘉鱼")!.aliases).toEqual(["地狱猫"]);
+    });
+
+    test("第 7 章时没有第 8 章及以后才有的秘密", async () => {
+        const matrix = await book.ok("secrets.matrix", {at: {chapter: 7}});
+        expect(matrix.rows.map(row => row.id).sort()).toEqual(["x21-1", "x4-1", "x6-1"]);
+    });
+});

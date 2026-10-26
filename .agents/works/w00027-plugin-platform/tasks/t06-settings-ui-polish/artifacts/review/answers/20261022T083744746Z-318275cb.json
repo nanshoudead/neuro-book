@@ -1,0 +1,19 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00027-plugin-platform",
+    "taskId": "t06-settings-ui-polish",
+    "artifactId": "review",
+    "answerId": "20261022T083744746Z-318275cb",
+    "artifactVersion": 9,
+    "contentHash": "6a02a8ebe4a70dcd5669e0a3850a647bde41665737c93b43bee8791784186c14",
+    "submittedAt": "2026-10-22T08:37:44.297Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r4-direction": "flat"
+    },
+    "comments": {},
+    "note": null
+}

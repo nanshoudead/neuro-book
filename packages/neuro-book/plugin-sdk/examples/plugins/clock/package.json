@@ -1,0 +1,8 @@
+{
+    "name": "clock",
+    "publisher": "example",
+    "version": "0.1.0",
+    "description": "报时：服务端入口用宿主时钟提供一个共享服务，演示依赖宿主能力与提供服务",
+    "private": true,
+    "type": "module"
+}

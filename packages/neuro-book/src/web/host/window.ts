@@ -11,14 +11,23 @@
 
 import type {StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsStore, mechanismObservers, recordingEmergency} from "@notnotype/nb-runtime/diagnostics";
+import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
+import type {PluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import {Value} from "typebox/value";
 
-import {definitionAt, delegatingPlugins} from "nbook/manifest";
+import {definitionAt} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
+import {manifestFormat, NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
+import {thirdPartyDefinitionsFor} from "nbook/plugin-platform/shared/definitions";
+import {pluginFileUrl} from "nbook/plugin-platform/shared/plugin-files";
+import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
+import {createPluginCodeHost, pageDocument} from "nbook/plugin-platform/web/plugin-code";
+import type {PluginCodeHost, PluginDocument, PluginLink} from "nbook/plugin-platform/web/plugin-code";
+import {attachPluginStyles} from "nbook/plugin-platform/web/styles";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {workbenchRootKey} from "nbook/plugins/workbench/web/contracts";
 import type {WorkbenchRoot} from "nbook/plugins/workbench/web/contracts";
@@ -74,6 +83,16 @@ export interface BrowserWindowOptions {
     readonly clientIdentity?: string;
     /** 重连退避与远程调用超时的时钟；缺省系统时钟。 */
     readonly clock?: RuntimeClock;
+    /**
+     * 第三方插件浏览器入口代码的装载与样式表所在的文档；缺省用页面的 `document`（`plugin-code.ts`）。没有第三方浏览器入口
+     * 时用不到。
+     */
+    readonly document?: PluginDocument;
+    /**
+     * 宿主模块表（`plugin-modules.ts` 的 `hostModules`）。由页面入口给出：它导入 nb-ui 与 SDK 的浏览器部分，窗口宿主的
+     * 代码不直接引用它，在 Bun 里测试与类型检查时不必加载这些组件。没有给出时第三方浏览器入口激活失败。
+     */
+    readonly pluginModules?: () => Promise<Readonly<Record<string, unknown>>>;
 }
 
 export interface BrowserWindow {
@@ -89,7 +108,7 @@ export interface BrowserWindow {
  * 缺少或入口激活失败就不能挂载界面：工作台交出根界面，诊断要先于其它插件可用，工作台的命令面板与键位依赖命令系统，
  * 命令系统的 `when` 读公开状态。其余插件的入口失败只影响该入口，窗口照常就绪。
  */
-const REQUIRED_PLUGINS = ["nbook.diagnostics", "nbook.state", "nbook.commands", "nbook.workbench"];
+const REQUIRED_PLUGINS = ["runtime.diagnostics", "nbook.state", "nbook.commands", "nbook.workbench"];
 
 /** 引导集合不能用于本外壳；`kind` 决定界面给“刷新”还是只显示原因。 */
 class BootstrapRejected extends Error {
@@ -122,6 +141,18 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
     let session: RemoteSession | null = null;
     let starting: Promise<void> | null = null;
     let closed = false;
+    /** 第三方插件的样式表：窗口登记插件时加入，窗口结束时移除。 */
+    let styles: ReadonlyArray<PluginLink> = [];
+    let codeHost: PluginCodeHost | null = null;
+    /** 装载器在第一个第三方入口激活时才建：用不到它的窗口（测试里没有 DOM）不碰 `document`。 */
+    const code = (): (() => PluginCodeHost) => () => {
+        const document = options.document ?? pageDocument();
+        if (document === undefined) throw new Error("没有页面文档，装载不了第三方插件的代码");
+        const modules = options.pluginModules;
+        if (modules === undefined) throw new Error("这个窗口没有宿主模块表，装载不了第三方插件的代码");
+        codeHost ??= createPluginCodeHost({document, modules, registryGlobal: NEUROBOOK_PROFILE.registryGlobal});
+        return codeHost;
+    };
 
     const setState = (next: WindowState): void => {
         state = next;
@@ -200,11 +231,21 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
             const observers = mechanismObservers(store);
             const windowPlugins = createWindowPlugins(() => host?.application.plugins ?? null, (error) => store.record({level: "warn", event: "browser-host.plugins-listener.failed", message: "入口状态的监听抛错", error}));
             // 登记看的是定义里的 id，引导集合与必需插件看的是表项的 id：两者不一致时不装，否则会装进集合之外的插件。
-            const plugins = selected.map((plugin) => {
+            const builtinDefinitions = selected.flatMap((plugin) => (plugin.kind === "definition" ? [plugin.definition] : []));
+            const thirdPartyPlugins = selected.flatMap((plugin) => (plugin.kind === "third-party" ? [plugin] : []));
+            const loadCode = code();
+            const thirdParty = new Map(thirdPartyDefinitionsFor("browser", thirdPartyPlugins.map((plugin) => ({
+                manifest: plugin.manifest,
+                load: (entry, activation) => loadCode().activateOf({plugin: plugin.id, entry: entry.id, url: pluginFileUrl(plugin.files, entry.main), signal: activation.signal}),
+            })), {builtin: builtinDefinitions, record: (input) => void store.record(input), unregistrableEvent: "browser-host.plugin.unregistrable"}).map((definition) => [definition.id, definition]));
+            const plugins = selected.flatMap((plugin) => {
+                // 引导集合里的第三方插件都在浏览器有入口或顶层声明（服务端按 `pluginsAt("browser")` 选），这里总能取到。
+                if (plugin.kind === "third-party") return thirdParty.get(plugin.id) ?? [];
                 const definition = plugin.kind === "host" ? plugin.factory(context) : plugin.definition;
                 if (definition.id !== plugin.id) throw new Error(`浏览器插件 ${plugin.id} 的装配定义是插件 ${definition.id}`);
-                return definition;
+                return [definition];
             });
+            styles = attachPluginStyles(thirdPartyPlugins, options.document ?? pageDocument(), {dataset: NEUROBOOK_PROFILE.styleDataset, record: (input) => void store.record(input), failedEvent: "browser-host.plugin.style-failed"});
             host = adapter.start({
                 instanceId,
                 client: clientIdentity,
@@ -223,6 +264,9 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                     ],
                     plugins,
                     requiredPlugins: REQUIRED_PLUGINS,
+                    // 窗口启动不等第三方插件的 onStartup 入口（runtime/application.md）。
+                    backgroundStartupPlugins: selected.filter((plugin) => plugin.kind === "third-party").map((plugin) => plugin.id),
+                    satisfies: pluginVersionSatisfies,
                     gates: [{
                         id: "workbench-root",
                         kind: "check",
@@ -238,7 +282,6 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                         windowPlugins.diagnosticRecorded(diagnostic);
                     }}},
                     remote: node,
-                    delegation: (plugin) => delegatingPlugins.includes(plugin),
                 },
             });
             const application = host.application;
@@ -283,6 +326,8 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
             setState({status: "closed"});
             const result: StopResult = host === null ? {status: "closed"} : await host.destroy();
             session?.close();
+            for (const link of styles) link.remove();
+            styles = [];
             return result;
         },
     };
@@ -290,10 +335,13 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
 
 /**
  * 按引导响应选出要登记的插件。协议版本先于结构校验：新版本的服务端可能改了结构，此时应提示刷新而不是报格式错误。
- * 服务端启用了本外壳没有的插件或版本不同，说明外壳与服务端不是同一次构建，刷新即可对齐。
+ * 服务端启用了本外壳没有的内置插件（发布者是保留的发布者），或构建里有的插件版本不同，说明外壳与服务端不是同一次构建，刷新即可
+ * 对齐。构建里没有的其它插件是第三方插件，按引导带来的描述登记（docs/specs/runtime/browser-host.md 输出 2、4）。
  */
 type SelectedPlugin =
     | {readonly id: string; readonly kind: "definition"; readonly definition: PluginDefinition}
+    /** 构建里没有、按引导带来的清单登记的插件；`files` 是插件文件 URL 的前缀。窗口启动不等它们的 onStartup 入口。 */
+    | {readonly id: string; readonly kind: "third-party"; readonly manifest: PluginManifest; readonly files: string}
     | {readonly id: string; readonly kind: "host"; readonly factory: BrowserHostPluginFactory};
 
 function selectPlugins(
@@ -311,8 +359,21 @@ function selectPlugins(
     for (const plugin of raw.plugins) {
         if (selected.some((item) => item.id === plugin.id)) throw new BootstrapRejected("startup-failed", `引导集合中插件重复：${plugin.id}`);
         const local = builtin.find((item) => item.id === plugin.id);
-        if (local === undefined || local.version !== plugin.version) {
-            throw new BootstrapRejected("incompatible", `本页面没有服务端启用的浏览器插件 ${plugin.id}@${plugin.version}`);
+        if (local === undefined) {
+            // 内置插件（发布者是保留的发布者）本页面没有：外壳与服务端不是同一次构建，刷新即可对齐。
+            if (manifestFormat.isBuiltinId(plugin.id)) throw new BootstrapRejected("incompatible", `本页面没有服务端启用的浏览器插件 ${plugin.id}@${plugin.version}`);
+            // 第三方插件不在构建里：按引导带来的清单登记（入口的代码在激活时经插件文件端点取回）。清单服务端已校验过，这里用
+            // 同一个清单格式再读一遍，读不过说明外壳与服务端不是同一次构建。
+            const read = manifestFormat.read(plugin.manifest);
+            if (read.status !== "valid" || read.manifest.id !== plugin.id || read.manifest.version !== plugin.version) {
+                throw new BootstrapRejected("incompatible", `服务端给的第三方插件 ${plugin.id}@${plugin.version} 的清单本页面读不了`);
+            }
+            if (plugin.files === undefined) throw new BootstrapRejected("incompatible", `服务端给的第三方插件 ${plugin.id}@${plugin.version} 没有文件地址`);
+            selected.push({id: plugin.id, kind: "third-party", manifest: read.manifest, files: plugin.files});
+            continue;
+        }
+        if (local.version !== plugin.version) {
+            throw new BootstrapRejected("incompatible", `本页面构建的插件 ${plugin.id} 是 ${local.version}，服务端启用的是 ${plugin.version}`);
         }
         if (isBrowserHostPlugin(plugin.id)) {
             selected.push({id: plugin.id, kind: "host", factory: hostPlugins[plugin.id]});

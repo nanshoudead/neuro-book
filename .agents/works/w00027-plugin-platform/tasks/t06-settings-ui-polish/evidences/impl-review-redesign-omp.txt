@@ -1,0 +1,54 @@
+# t06 实现审查（omp，默认模型）：被审提交 abba99363..c3c93e34d
+
+
+## 2. 重要 · 正确性 / 无障碍
+
+**位置：** `packages/neuro-book/src/plugins/settings/web/components/SettingsWindow.vue:197-204`
+
+**现象：** `beforeLeave` 只在 `model.leaving` 从 `null` 变为第一个目标时记录焦点（`if (previous === null)`）。确认框打开后，模型允许后来的离开动作替换 `leaving.value`，但第二个动作触发时不会更新 `beforeLeave`。
+
+**为什么是问题：** 输出 22 要求确认框开着时后来的动作替换等待动作，取消/按 Esc 后仍留在原处且焦点回到触发位置。当前用户先从分区导航触发确认，再在确认框开着时按标签或关闭按钮，取消后焦点会回到第一个动作的元素，而不是后来动作的触发点；用户已操作的目标与焦点位置不一致。后续动作若来自已卸载的页面或已消失的搜索控件，记录旧元素也会落到错误位置并触发 `focusCurrent()` 的兜底。
+
+**如何核实：** 在真实 `SettingsWindow` DOM 场景中使 page `dirty(true)`，点击分区导航触发确认，随后点击另一标签（或关闭按钮）让 `model.leaving` 被替换，点击“继续编辑”/按 Esc；读取 `document.activeElement`。它仍是第一次导航按钮，而不是第二次标签/关闭触发源。模型侧现有 `window.test.ts:570-577` 只核对等待目标被替换，没有覆盖焦点证据。
+
+**建议改法：** 让模型暴露一次“离开目标变更”或直接在 `watch` 中每次 `leaving` 的身份/目标变化都重记当前焦点；同时只在确认框真正打开的初次变化时保留弹层生命周期状态。确认取消时使用最后一次动作的触发元素，元素已卸载时再回退到当前可用焦点目标。
+
+## 1. 重要 · 正确性
+
+**位置：** `packages/neuro-book/src/plugins/settings/web/components/SettingsFileView.vue:140-142,198-205`
+
+**现象：** `load()` 在第一次 `read()` 返回后先调用 `locate()`，而后才检查读取期间收到的 `pendingRevision` 并再次 `load()`。`locate()` 会立即通过 `takeFileLocation()` 清掉窗口模型里的定位。
+
+**为什么是问题：** 从层警告点击“打开”后，如果文件在读取期间发生修改，第一次返回的文本被判定过时，代码随后会重读最新文本，但定位已经在旧文本上消费掉了。最终界面显示最新文件，却不再把光标放到层快照给出的错误位置，违反“位置在文件读完后用一次”的输出 13/23 合同；错误行底色也只会短暂出现在旧文本上，随后被重读清掉。
+
+**如何核实：** 在现有 `SettingsWindow.dom.test.ts` 的“读取进行中文件又变了”场景中同时调用 `host.window.openFile("user", {line: 3, column: 3})`，让 `holdReads()` 保持第一次 `read()` 未完成，再修改文件并释放读取；观察最终 `data-settings-file-text` 的 `selectionStart` 不等于最新文本对应的偏移，且 `data-settings-file-line[data-error]` 不存在。根因可由执行顺序直接确认：`load()` 第 140 行先 `await locate()`，第 142 行才递归重读。
+
+**建议改法：** 先处理 `pendingRevision`：若读期间收到的修订号与本次结果不同，直接发起下一次 `load()`，不要在过时文本上调用 `locate()`；只有确认结果是最新文本后再消费 `takeFileLocation()`。同时保留 token 检查，避免换层/卸载后的旧读结果消费新视图的定位。
+
+## 未发现问题的方面
+
+- `nb-form` 的 `field-state` 挂载与内容变化、`draft-state`/问题汇总分工、`aria-describedby` 顺序、嵌套成员焦点归属和 `focusIssue`：仔细检查后没有发现实现问题。
+- `reason`/`position` 在层拥有者、实例状态、远程合同、订阅推送与写后快照中的字段链路，以及无位置时只打开文件、修好后清除：仔细检查后没有发现实现问题；现有跨实例合同测试覆盖用户层与项目层。
+- `openFile` 的取消、确认后一次消费、切标签/关闭后的作废、页面 `writable` 与 `SettingsPageActions` 的停用恢复：除上述读取竞态与确认焦点问题外，仔细检查后没有发现实现问题。
+- `page-chrome` 的 `claim`/`attachActions`/`claimNote` 身份撤销与页面卸载清理、`Tooltip.forceOpen` 的 disabled/Escape 语义、出错辉光对只读/禁用输入框的选择器：仔细检查后没有发现其它问题。
+- 改动测试未发现跳过断言、固定时长等待或为通过测试而掩盖产品失败的新增问题；覆盖仍缺少上面两条并发交互的回归场景。
+
+## 验证记录
+
+- `bun run --cwd packages/nb-form test`：100 个 Bun 测试通过，Vitest 5 个文件、88 个测试通过。
+- `bun run --cwd packages/nb-ui test -- src/components/components.test.ts`：97 个测试通过。
+- `bun test packages/neuro-book/src/plugins/settings/backend/layer-owner.test.ts packages/neuro-book/src/plugins/settings/shared/layers.test.ts packages/neuro-book/src/plugins/settings/shared/instance.test.ts packages/neuro-book/src/plugins/settings/window.test.ts`：82 个测试通过。
+- `bun run --cwd packages/neuro-book test:vitest -- src/plugins/settings/web/components/SettingsWindow.dom.test.ts src/ui/settings/SettingsPageActions.dom.test.ts src/ui/settings/SettingsPageList.dom.test.ts src/ui/settings/SettingsRow.dom.test.ts`：4 个文件、80 个测试通过。
+- `bun run --cwd packages/nb-form typecheck`、`bun run --cwd packages/nb-ui typecheck`、`bun run --cwd packages/neuro-book typecheck`：均通过。
+- 未运行 e2e 与开发服务，符合本次只读审查规则。
+
+## 数量
+
+- 阻断：0
+- 重要：2
+- 建议：0
+
+## 处理结果（主会话）
+
+- 第 1 条（SettingsFileView 读取中文件变了，定位用在过时文本上）：成立，要改。改为读完先判断是否过时，过时就重读并把位置留给最新文本；在 SettingsWindow.dom.test.ts“位置留到重读的最新文本上再用”补用例（改前失败、改后通过）。提交 b8409b691。
+- 第 2 条（确认框开着时后来的动作不重记焦点）：不成立。nb-ui 的 AlertDialog 用 reka 的 AlertDialogRoot，一律模态：确认框开着时窗口里的标签、左栏、关闭按钮都点不到，后来的动作只能来自命令（nbook.settings.open）或快捷键，那时焦点在确认框里，确认框关掉后那个元素已卸载，重记只会落到兜底。回到打开确认框之前的位置是对话框的通行做法，输出 22 的“触发的位置”指打开确认框的那个动作。补上“确认框是模态的”这条依据即可避免误判。

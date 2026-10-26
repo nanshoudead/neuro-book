@@ -9,7 +9,7 @@ const counters = {next: 1, created: 0, unmounted: 0};
  * 最大化、紧凑往返都不卸载编辑器内容（docs/specs/ui/workbench-shell.md 外壳一输出 10），在同一场景里连续操作时实例
  * 编号与创建次数不变就说明没有重挂（换场景会重挂整个 fixture，编号随之变大，可以用来确认这个探针有判别力）。
  */
-import {FormInput} from "@notnotype/nb-ui/components";
+import {Input} from "@notnotype/nb-ui/components";
 import {onBeforeUnmount, ref} from "vue";
 
 const instance = counters.next;
@@ -29,7 +29,7 @@ onBeforeUnmount(() => {
 <template>
     <div class="flex h-full min-h-0 flex-col gap-2 bg-[var(--panel-surface)] p-3 text-sm" :data-shell-sample="instance" :data-created="created" :data-unmounted="unmounted">
         <div class="text-xs text-[var(--text-muted)]">样例编辑器 · 实例 #{{ instance }} · 创建 {{ created }} · 卸载 {{ unmounted }}</div>
-        <div data-shell-sample-input><FormInput v-model="draft" size="sm" placeholder="输入几个字，再搬动面板" /></div>
+        <div data-shell-sample-input><Input v-model="draft" size="sm" placeholder="输入几个字，再搬动面板" /></div>
         <div class="min-h-0 flex-1 overflow-auto" data-shell-sample-scroll>
             <p v-for="line in lines" :key="line" class="py-0.5 text-[var(--text-secondary)]">{{ line }}</p>
         </div>

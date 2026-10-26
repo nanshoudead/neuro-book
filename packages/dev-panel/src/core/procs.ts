@@ -33,6 +33,8 @@ export type ProcRecord = {
     script: string;
     argv: string[];
     readyPattern: string | null;
+    /** 起时带了 `--sample`（应用收到 `NBDEV_SAMPLE=1`）；t18 之前的登记没有这个字段，按 false 读。 */
+    sample: boolean;
     workId: string | null;
     taskId: string | null;
     logPath: string;
@@ -106,6 +108,7 @@ export function parseProcRecord(value: unknown): ProcRecord | null {
         script: value.script,
         argv: Array.isArray(value.argv) ? value.argv.filter((entry): entry is string => typeof entry === "string") : [],
         readyPattern: isNullableString(value.readyPattern) ? value.readyPattern : null,
+        sample: value.sample === true,
         workId: isNullableString(value.workId) ? value.workId : null,
         taskId: isNullableString(value.taskId) ? value.taskId : null,
         logPath: value.logPath,

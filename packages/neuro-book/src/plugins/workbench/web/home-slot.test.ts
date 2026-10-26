@@ -7,13 +7,14 @@ import {afterEach, describe, expect, it} from "bun:test";
 
 import {defineComponent} from "vue";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
 import type {ActivationContext, PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {validateHomeContribution, WORKBENCH_HOME_POINT} from "../shared/home";
 import type {WorkbenchHomeImplementation} from "./contracts";
 import {HomeSlot} from "./home-slot";
+
+import {createApplication} from "nbook/application";
 
 const started: Application[] = [];
 

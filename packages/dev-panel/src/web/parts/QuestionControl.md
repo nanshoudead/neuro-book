@@ -25,4 +25,4 @@ interface QuestionControlEmits {
 
 ## 注意事项
 
-复选组的选项里有一个 `sr-only`（绝对定位）的 input，点选项时焦点给它。放它的滚动容器要带 `relative`，否则会把外面 `overflow: hidden` 的格子滚走、整页变空（见 `tests/web-scroll-containers.test.ts`）。
+复选组的选项里有一个 `sr-only`（绝对定位）的 input，点选项时焦点给它。它曾经把外面 `overflow: hidden` 的格子滚走、整页变空；nb-ui 已在 label 上修好（t17，见 nb-ui 的 `Checkbox.md`），面板仍让放它的滚动容器带 `relative`，作为防御性约定（见 `tests/web-scroll-containers.test.ts`）。

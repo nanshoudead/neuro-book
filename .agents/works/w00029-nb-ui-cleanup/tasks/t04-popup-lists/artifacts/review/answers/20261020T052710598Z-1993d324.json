@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00029-nb-ui-cleanup",
+    "taskId": "t04-popup-lists",
+    "artifactId": "review",
+    "answerId": "20261020T052710598Z-1993d324",
+    "artifactVersion": 3,
+    "contentHash": "ab83d467e22569e4808ce3f4f73787ef2b7ffd88ca1d1c7b48912b101730e56d",
+    "submittedAt": "2026-10-20T05:27:10.119Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r2-radius": "r5",
+        "r2-density": "one-28"
+    },
+    "comments": {},
+    "note": null
+}

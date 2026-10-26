@@ -85,12 +85,12 @@ function onCloseAutoFocus(event: Event): void {
         <AlertDialogPortal :to="teleportTo()">
             <AlertDialogOverlay
                 :style="{zIndex}"
-                class="fixed inset-0 bg-[color-mix(in_srgb,var(--overlay-scrim)_80%,transparent)] backdrop-blur-[4px] transition-opacity [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+                class="fixed inset-0 bg-[var(--overlay-bg)] backdrop-blur-[4px] transition-opacity [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
             />
             <AlertDialogContent
                 @close-auto-focus="onCloseAutoFocus"
                 :style="{zIndex}"
-                class="nb-ui-popover-surface nb-ui-dialog-surface fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[420px] p-6 text-[var(--text-main)] outline-none select-none transition-[transform,opacity] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)]"
+                class="nb-ui-popover-surface nb-ui-dialog-surface nb-ui-dialog-surface--compact fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[420px] p-6 text-[var(--text-main)] outline-none select-none transition-[transform,opacity] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)]"
             >
                 <div class="flex flex-col gap-2">
                     <AlertDialogTitle class="nb-ui-dialog-title">

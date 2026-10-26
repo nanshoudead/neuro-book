@@ -1,0 +1,99 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00029-nb-ui-cleanup",
+    "taskId": "t05-docs-and-specs",
+    "artifactId": "decisions",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "nb-ui 规范：三处文档与代码的分歧",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "e0ec4fb0da46607f88277d49984e27ff80335c0848aa43b6ae6cb00b8f1f1fa9",
+    "files": [
+        "img/f04-current.webp",
+        "img/f04-two.webp",
+        "img/f05-current.webp",
+        "img/f05-dim.webp",
+        "img/f43-css.webp",
+        "img/f43-current.webp",
+        "img/f43-menu.webp",
+        "index.html"
+    ],
+    "questions": [
+        {
+            "id": "f04-shadow",
+            "type": "single",
+            "label": "F04：浮层投影有几层",
+            "options": [
+                {
+                    "value": "keep",
+                    "label": "保留现在的多层投影，文档照实改"
+                },
+                {
+                    "value": "two",
+                    "label": "改成 Apple 式两条，改代码"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "keep"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "f05-dark-glass",
+            "type": "single",
+            "label": "F05：暗色的玻璃要不要压暗",
+            "options": [
+                {
+                    "value": "keep",
+                    "label": "保持 1.0，不压暗"
+                },
+                {
+                    "value": "dim",
+                    "label": "压暗到 0.76"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "keep"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "f43-surface-source",
+            "type": "single",
+            "label": "F10/F43：浮层外观以哪里为准",
+            "options": [
+                {
+                    "value": "css",
+                    "label": "只认 CSS 类，删掉 JS 常量"
+                },
+                {
+                    "value": "js",
+                    "label": "以组合函数里的常量为准"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "css"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-20T13:42:10.412Z"
+}

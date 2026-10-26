@@ -29,6 +29,8 @@ export function runsView(state: PanelState): {data: unknown; warnings: Warning[]
             procs: (activity?.procs ?? []).map((run) => ({...run, checkoutKey: state.keyOf(run.checkout) ?? run.checkoutKey})),
             sessions: (activity?.activity.sessions ?? []).filter((session) => session.runs.length > 0).map((session) => ({key: session.key, agent: session.agent, label: session.label, alive: session.alive, runs: session.runs})),
             unownedRuns: activity?.activity.unownedRuns ?? [],
+            // “经 nbdev 起的服务”的属主与会话运行的属主的标题（t17）；属主可能只剩进程登记、已不在活动里。
+            sessionTitles: state.titlesFor([...(activity?.procs ?? []).map((run) => run.startedBy?.key), ...(activity?.activity.sessions ?? []).filter((session) => session.runs.length > 0).map((session) => session.key)]),
         },
         warnings: activity?.warnings ?? [],
     };

@@ -1,0 +1,118 @@
+# t04 第二轮实现审查：浏览器装载器、构建预设与 SDK、插件页（Sonnet）
+
+范围：`c9ca9f6d2..a41cdb0ad`，浏览器与作者工具一半。按影响排序。没有阻断与重要级发现；以下都是建议级，其中 1、2、3 是已用实验确认的真实缺陷。
+
+## 1. 建议 / 不变量：已中止的信号进入 `activateOf` 时，宿主模块表失败会变成未处理的 reject，还会白插一次脚本
+
+- 位置：`packages/neuro-book/src/web/host/plugin-code.ts:230-236`、`255-258`（`activateOf`、`untilAborted`）。
+- 现象：`signal` 在进入 `activateOf` 时已经中止，`untilAborted` 走 `if (signal.aborted) return Promise.reject(...)` 的快速路径，没有给 `modules` 这个 promise 挂任何 handler。`modules` 之后若 reject（升级后动态 chunk 404，正是代码里注释写的典型原因），没人接，成为未处理的 reject。同一路径里 `factoryFor` 照样 `startLoading`：插入 `<script>` 触发一次请求，随后因 `users` 归零立刻 `remove()`；浏览器不会因元素被移除而撤回已经开始的取回。
+- 为什么是问题：装载器的合同是“停止信号中止时不留残余”，这条路径留下一个浏览器级的 unhandledrejection 和一次没人要的请求。内核在入口刚被停止、`load` 刚被调用的竞态里完全可能传进已中止的信号。
+- 如何核实（已在真实模块上复现）：
+  - 用 `/tmp/review-t04-impl2/x/e1.test.ts`（已不保留）：`modules` 20 毫秒后 reject、`signal` 预先 `abort(new Error("stopped"))`，`bun test` 报 `error: chunk 404` 且用例失败（Bun 把未处理的 reject 记为错误）。
+  - 另一个用例：`modules` 正常、信号预先中止，`document.head.append` 被调用 1 次、`script.remove()` 被调用 1 次（“inserted 1 removed 1”）。
+- 建议改法：`activateOf` 开头先 `if (signal.aborted) throw signal.reason`，在 `hostModules()` 与 `factoryFor` 之前；并在 `plugin-code.test.ts` 补“预先中止：不插脚本、模块表晚到的失败不产生未处理的 reject”一例。另外 `untilAborted` 的快速路径也应当给 `promise` 挂一个空 catch，避免别的调用点再踩。
+
+## 2. 建议 / 正确性与文档：浏览器入口里写顶层 await，构建以一条裸 Rolldown 错误失败，文档没有说
+
+- 位置：`scripts/plugin-sdk/build-plugin.ts:301-319`（浏览器产物固定 `formats: ["cjs"]`）；`docs/specs/runtime/plugin-code-loading.md` 与 `examples/README.md` 都没有提到。
+- 现象：浏览器入口（或它依赖的库）有顶层 await 时，构建失败，错误是 Rolldown 原样的 `[UNSUPPORTED_FEATURE] Top-level await is currently not supported with the 'cjs' output format`，带 ANSI 颜色码，不是 `PluginBuildError`，也不说是“浏览器入口的登记工厂是同步函数”。同一份源码放在服务端入口（ESM 产物）里却能构建。阶段 1 的 `loadModules`（Vite SSR 加载）对顶层 await 也放行，所以问题要到逐入口构建时才冒出来。
+- 为什么是问题：作者从没选过 “cjs”，看不出该怎么改；两端行为不对称，应当在作者合同里写明。
+- 如何核实：在 `/tmp/review-t04-impl2/x/a3` 写一个浏览器入口 `const data = await fetch("/x")...`，用 `buildPlugin({root, outDir, ...IN_REPO_BUILD})` 构建，得到上述错误（已复现，实验目录结束时删除）。
+- 建议改法：把逐入口构建里 Rolldown 的错误包成 `PluginBuildError`（路径写入口 id，去掉 ANSI），对 `UNSUPPORTED_FEATURE` 加一句“浏览器入口的代码要同步求值，顶层 await 放进 activate”；作者合同（构建预设文件头注释与 Spec 的“SDK”一节）写一条。
+
+## 3. 建议 / 文档：`PluginsPage.md` 的“不支持”一节与这次改动相反
+
+- 位置：`packages/neuro-book/src/plugins/plugins/web/components/PluginsPage.md:74`。
+- 现象：该文件写着“确认界面不列出升级后会受阻的依赖插件（第三方插件之间的依赖随入口代码的装载实现）；不显示插件入口的运行状态与受阻原因”。这次提交让确认框列出 `blocked` 与 `unchecked`，同名 `.md` 没改（`git diff c9ca9f6d2..HEAD --stat` 里没有它）。`.md` 的“注意事项”也没有写新失败码 `version-in-use` 的补充信息规则。
+- 为什么是问题：仓库规则是查改组件必读并列同名 `.md`，它是组件合同的真相源，读它的人（和后续 Agent）会得出相反的结论。
+- 如何核实：`grep -n "受阻" packages/neuro-book/src/plugins/plugins/web/components/PluginsPage.md`。
+- 建议改法：改写“不支持”那句，只保留仍不支持的部分（不显示入口运行状态）；在“注意事项”补一条：升级确认框按 `preview.blocked` 列出重启后受阻的插件与原因，`unchecked` 单独一行写“没有核对”，两者都不挡确认。
+
+## 4. 建议 / 界面：升级确认框的列表在英文界面用中文顿号，长 id 没有换行保护
+
+- 位置：`packages/neuro-book/src/plugins/plugins/web/components/PluginsPage.vue` 中 `blockedLine`（`item.entries.join("、")`）、`unchecked` 那一行（`preview.unchecked.join("、")`）、样式 `.plugins-page__dialog-warning`、`.plugins-page__dialog-list`。
+- 现象：
+  - en-US 下显示 `example.reader (main、ui): requires version ^1.0.0` 与 `These installed plugins could not be checked: a、b`，英文文案里夹着中文顿号。仓库里别处（`nb-agent-ui` 的 `domain-tools.ts`）有按语言分别写分隔符的做法。
+  - 同对话框的 `dialog-subject`、`path` 都写了 `overflow-wrap: anywhere`，新加的列表项与 `unchecked` 行没有。插件 id 可以很长（Lab 的 `long` 场景正是为这个设的），连字符处能断，点分且无连字符的长段不能，390px 窄屏的对话框里可能横向溢出。
+- 如何核实：en-US 打开 Lab `blocked` 场景（当前只有 zh-CN）；窄屏给 `blocked` 项换成长 id。以上两点从代码推断，未跑浏览器。
+- 建议改法：分隔符放进 `TEXT`（中文“、”，英文“, ”）或用 `Intl.ListFormat(locale)`；列表项与 `unchecked` 行加 `overflow-wrap: anywhere`。
+
+## 5. 建议 / 注释残留：几处注释已与代码不符
+
+- `PluginsPage.vue` 的 `NOT_LOADED` 表末尾留着 `// 入口代码的装载还没有实现：只有声明（例如设置项）生效。`，对应的 `entries-not-loaded` 项已删，这行成了悬空注释，且内容已不成立。
+- `packages/neuro-book/src/plugins/plugins/shared/contracts.ts:55-64`：原来 `InstallPreviewSchema` 的 JSDoc（“安装前的预览……”）现在叠在 `BlockedPluginSchema` 的 JSDoc 前面，两段注释连着贴在 `BlockedPluginSchema` 上，`InstallPreviewSchema` 自己没有注释了。
+- `lab/web/fixtures/PluginsPageFixture.vue` 文件头注释说“安装总是预览为首次安装……（pending 场景预览为升级、downgrade 场景为降级）”，没提新的 `blocked` 场景。
+- `PluginsPage.vue` 中 `const text` 与 `const format` 之间多了一个空行（与周围相邻声明的写法不一致，次要）。
+- 建议改法：删悬空注释；把预览的 JSDoc 挪回 `InstallPreviewSchema`；补 fixture 头注释一句。
+
+## 6. 建议 / 测试：Lab 与 DOM 测试没有覆盖 `version-in-use` 与英文版的受阻列表
+
+- 位置：`PluginsPageFixture.vue`（`THIRD_PARTY`、`PREVIEW`、`failing()`）、`PluginsPage.dom.test.ts`。
+- 现象：
+  - `blocked` 场景只有 zh-CN，一个场景同时放了 `provider-blocked`、`version-mismatch`、`unchecked` 三种；没有“只有 unchecked”“blocked 为空而 unchecked 非空”“列表很长”的场景。
+  - `version-in-use` 的文案在 Lab 里没有场景（`write-failed` 场景固定返回 `manifest-invalid`），`PluginsPage.dom.test.ts` 里 `grep version-in-use` 无命中；`FAILURE_TEXT` 靠 `Record<PluginFailureCode, ...>` 的类型保证有字，但文字是否合适没有机检。
+- 建议改法：Lab 加 `blocked-english` 与 `version-in-use` 两个场景（后者让 `install` 返回 `version-in-use`，也能看“确认框里出现失败说明”的版式）；DOM 测试补 `version-in-use` 的一例。
+
+## 7. 建议 / 测试：新 e2e 的判据不能证明“入口装载了”，也没看项目子进程
+
+- 位置：`packages/neuro-book/e2e/plugin-code.e2e.ts:229-247`（“clock、notes、counter 外置”）。
+- 现象：用例标题说“产品服务端与项目子进程装载它们的入口，没有激活失败”，实际只有：四个插件行可见；`[data-plugin-not-loaded]` 数量为 0（只能抓清单无效、不兼容、安全模式，`entries-not-loaded` 码已经没了）；`server-current.jsonl` 含 `http.listening` 且不匹配 `/activation-threw|code-load-failed|code-threw|code-shape/`。这些判据都是“没有看到失败”：服务端若根本没去装第三方入口（或装了没激活），插件行照样可见、日志照样干净，用例照样绿。项目子进程里 counter 的项目入口（以及 notes 的浏览器入口）既没有被调用，也不在被读的日志里。注释自己也写了“手动核对过会出现”，没有自动化的反向证据。
+- 为什么是问题：判据真失败的路径没有被走到（缺少变异检查）。装载的行为在 `external-examples.test.ts` 里用 Bun 做了，但 e2e 是唯一用真实服务端与真实项目子进程的一层。
+- 如何核实：从代码推断（没有跑 e2e）。把 `src/backend/plugins/loader.ts` 里装载入口的那一步改成直接返回空 `activate`，该用例仍满足以上全部判据。
+- 建议改法：加一条正向证据，例如在页面里调用 counter 的服务端远程服务、读到计数变化，并对项目入口调一次远程服务（外置的 counter 项目入口第一次调用才激活）；日志判据改为读到“counter 服务端入口已激活”的诊断。
+
+## 8. 建议 / 不变量：中间产物目录改放输出目录旁边，带来两个新边界
+
+- 位置：`scripts/plugin-sdk/build-plugin.ts:454-457`（`mkdtemp(join(dirname(outDir), ".nbook-plugin-build-"))`）、`498-503`（`rename`）。
+- 现象：
+  1. 构建被中断（Ctrl-C、被杀）时 `finally` 不会跑，`.nbook-plugin-build-XXXX` 留在 `dirname(outDir)`；常见写法 `outDir: "dist"` 时它落在作者项目根目录里，不在 `.gitignore` 里。原来在系统临时目录，由系统回收。
+  2. `outDir` 本身是挂载点（容器里 `-v $PWD/out:/out`，`buildPlugin({outDir: "/out"})`）时，`dirname(outDir)` 是 `/`：要在根目录建目录（常常没有权限），就算能建，`rename` 到挂载点也是 EXDEV，这正是原来改位置想避免的错误，只是换了一种触发条件。同理输出目录的父目录不可写、而输出目录本身可写时也失败。
+- 如何核实：从代码推断；第 1 点按 SIGINT 模拟，第 2 点需要真实挂载点，未验证。
+- 建议改法：`rename` 失败为 EXDEV 时退回 `copyFile` 再删；或者把中间产物放进 `outDir` 内部的点目录，最后移动文件、删掉点目录（同一文件系统必然成立，也不依赖父目录可写）；`.gitignore` 里补 `.nbook-plugin-build-*` 的提示写进作者文档。
+
+## 9. 建议 / 不变量：`buildExample` 的“上次产物”判据在 `outDir` 等于示例源码目录时会删掉源码
+
+- 位置：`scripts/plugin-sdk/build-examples.ts:34-48`（`buildExample`、`isPreviousBuild`）。
+- 现象：`isPreviousBuild(root, outDir)` 只比较 `outDir/package.json` 与作者 `package.json` 的 `publisher`、`name`。作者源码目录的 `package.json` 本身就有这两个字段，所以 `buildExample("clock", join(EXAMPLES_ROOT, "clock"))`（`outDir` 等于源码目录）会判为“上次的产物”，随后 `rm(outDir, {recursive: true})` 递归删掉示例源码。函数文档特意写了 `outDir` 可以由命令行之外的调用方传入，这个守卫正是为这种调用准备的。
+- 如何核实：从代码推断，没有实际执行（会删仓库里的示例）。
+- 建议改法：守卫加两条：`outDir` 不能等于 `root` 或它的祖先；并要求上次的产物 `package.json` 里有 `entries`（作者源码没有、构建出的清单有）。对应补一例“输出目录就是源码目录：拒绝，文件还在”。
+
+## 10. 建议 / 合同：SDK 的 `./build` 声明用了 `ErrorOptions`，并带着无用的 `typebox` 导入；测试只用 `lib: ESNext` 所以没发现
+
+- 位置：生成的 `build.d.ts`（源 `scripts/plugin-sdk/build-plugin.ts:94` 的 `ErrorOptions`，`build-sdk.ts:105-114` 的声明生成）；`scripts/plugin-sdk/build-sdk.test.ts` 的 tsconfig。
+- 现象：`build.d.ts` 第 1 行是 `import { Type } from "typebox";`，整份声明里没有用到；`PluginBuildError` 的构造函数签名用了全局类型 `ErrorOptions`（TS 的 `lib.es2022.error.d.ts`）。作者 tsconfig 的 `lib` 低于 ES2022 且 `skipLibCheck: false` 时，类型检查报 `TS2304: Cannot find name 'ErrorOptions'`。
+- 如何核实：用 `build-sdk.ts` 生成 SDK，建一个 `lib: ["ES2020"]`、`skipLibCheck: false` 的项目，导入 `@notnotype/nb-plugin-sdk/build`，`tsc -p .` 报上面的错（已复现；`typebox` 找不到那条是我的软链布局造成的，不算）。`lib: ["ES2022"]` 时无此错。Vite 官方 Vue 模板的 `lib` 是 ES2020 但 `skipLibCheck: true`，所以多数作者碰不到，要看 SDK 对作者 tsconfig 做了什么承诺。
+- 建议改法：构造函数签名不引用 `ErrorOptions`（写 `{cause?: unknown}`）；去掉声明里的无用导入（给 dts 配置或让 `ManifestProblem` 不经 typebox 类型引入）；`build-sdk.test.ts` 的作者项目加一例 `lib: ["ES2020"]`。
+
+## 11. 建议 / SDK 公开面：list 分区与选项来源能写，但没有测，也没有帮助函数；发布的声明里仍引用被删掉的 `settingsPage`
+
+- 位置：`src/sdk/index.ts:36-39`、`src/sdk/browser.ts`；生成的 `browser.d.ts:35`、`:80`；`build-sdk.test.ts` 的 `AUTHOR_SOURCES`。
+- 现象：
+  1. 去掉 `settingsPage`、`settingsPageEvent` 后，仓库内没有残留引用（已 grep：示例、Lab、Spec 里剩下的都是内部路径 `nbook/...` 或 `settingsPageContribution`）。但 `browser.d.ts` 打进了 `src/plugins/settings/web/contracts.ts` 与 `page-contribution.ts` 的 JSDoc：“包页面用的 `settingsPage` 在 `nbook/ui/settings/settings-page`”“`props` 同 `settingsPage`”。作者的包里既没有这个导出也没有这个路径，注释把读者引向不存在的东西。
+  2. 新增的 `SETTINGS_SECTIONS_POINT`、`SETTINGS_CHOICES_POINT`、`settingsChoicesEvent`、类型 `SettingsSectionDeclaration`、`SettingsChoicesDeclaration`、`SettingsChoicesImplementation` 都导出了，类型上够写出合法的两种贡献（`ContributionDeclaration<T>` 在 SDK 里也有）。但 `build-sdk.test.ts` 的作者项目只写了 page 分区，没有写 list 分区和选项提供者，“补了贡献点与类型”这条没有被测到。`settingsPageContribution` 有帮助函数把 id 与声明、事件、实现一次给出，list 分区与选项来源没有，作者要手写 `{capability: SETTINGS_SECTIONS_POINT, id, declaration}`，`declaration` 对 `descriptor.contributions` 来说是 `unknown`，写错字段要到运行时才被设置窗口拒掉（正是 `settingsPageContribution` 的注释里说的那种静默不出现）。
+  3. `SettingsChoicesImplementation.source()` 返回 `MaybeRefOrGetter<OptionSource<string>>`，`OptionSource` 在 `browser.d.ts` 里是未导出的本地类型，作者不能给自己的辅助函数写这个返回类型。
+- 如何核实：`grep -n "settingsPage\b" /tmp/.../browser.d.ts`（用 `bun scripts/plugin-sdk/build-sdk.ts <目录>` 生成）；读 `build-sdk.test.ts` 的 `AUTHOR_SOURCES`。
+- 建议改法：改写这两句 JSDoc（去掉 `settingsPage` 的指向）；`AUTHOR_SOURCES` 加一个 list 分区与一个选项提供者，用 SDK 类型写、`tsc` 通过，并加一条错写字段被拦下的反例；评估给两者各加一个与 `settingsPageContribution` 同形的帮助函数，并导出 `OptionSource`（`provide` 是否改名已交开发者，不在此列）。
+
+## 12. 建议 / 注释与归属：装载器超时的注释与实现不一致；共享取回的失败只带第一个激活的插件与入口
+
+- 位置：`src/web/host/plugin-code.ts:21`、`167-168`、`201`。
+- 现象：
+  1. 注释写“脚本执行后多久还没登记算失败”，计时器实际从插入脚本（开始下载）起算，覆盖下载时间。产物压缩后仍是几十 KB 到几百 KB（内联资源时更大），在回环上无关紧要，页面经局域网或慢链路访问时 30 秒是整段下载加执行。
+  2. `startLoading` 的 `fail` 闭包捕获发起这次取回的激活的 `plugin`、`entry`、`url`。同一个文件的几个激活共用这次取回时（清单不禁止两个入口的 `main` 相同），失败原因对所有等待者都写第一个入口的 id，别的入口的诊断里看到的是错的入口名。
+- 建议改法：注释改成“从插入脚本起算”；失败对象在每个等待者处按自己的 `plugin`、`entry` 重新生成（共享的只是 `code`、`detail`）。
+
+## 仔细检查后没有发现问题的方面
+
+- 装载器的等待表寿命：`finish` 是唯一的收口，结算、超时、停止、脚本出错都经它撤回登记对象上的等待者、全局 error 监听、计时器与脚本元素；`waiting` 里空集合会删键。一个停止、一个成功、一个超时的组合：`users` 计数与 `cancel()` 的幂等（已结算后什么也不做）正确，成功时 `factories` 缓存先于 `resolveFactory`。宿主模块表失败不缓存、并发共享同一次失败、下次重取，已核对。
+- 构建产物：对一个手写的作者项目构建，核对压缩后的浏览器产物：共享模块的动态导入成了 `Promise.resolve().then(()=>p(r("vue"),1))`（同步 `require` 经宿主表）；插件自己的动态导入内联成惰性初始化，每次工厂调用重新求值；`import.meta.url` 全部换成块作用域里的脚本地址，压缩后变量改名一致；`"use strict"` 位于工厂函数体首；资源（图片、`new URL(..., import.meta.url)` 的文件）在库模式下全部内联，没有被静默丢弃。
+- source map：用 `@jridgewell/trace-mapping` 对产物里的 `` `lazy:` ``、`activate:async` 等位置回查，行列正确（`web/lazy.ts` 1:25、`web/plugin.ts` 3:89），banner 的偏移已被换算；`sources` 是相对作者目录的路径，依赖是 `node_modules/...`。
+- 纯度检查：动态导入 `vue/server-renderer` 与 CJS 依赖里 `require("vue/server-renderer")` 都被报“未共享”并写出引入者（只报每个说明符的第一个引入者，可接受）；查询串（`?vue&type=style`）经 `split("?")` 处理。图标扫描扩到依赖源码后，对 vue-router、pinia、lodash-es、zod、marked、dayjs 的源码做了同一条正则扫描，没有产生非 Lucide 的误报。
+- SDK 包：`index.js`、`browser.js`、`build.js` 的外部引用只有 `vue`、`@vue/reactivity`、`typebox`、`semver`、`vite`、`@vitejs/plugin-vue`、`@iconify/utils`、`vue/compiler-sfc` 与 Node 内置，都在 peer 或 dependencies 里；`@vue/reactivity` 的 peer 范围与 `vue` 相同（`^3.5.24`）合理；声明文件只引用 `vue`、`@vue/reactivity`、`typebox`；输出目录清理只认空目录或 `name` 为 SDK 包名的 `package.json`（仓库里没有同名的源码包，见 `grep`）。`build-sdk.test.ts` 7 例在本 worktree 通过。
+- `version-in-use` 文案与 `plugin-install.md` 的失败码表、`inventory.ts` 的触发条件一致。
+- e2e 的图标遮罩判据（`maskImage` 或 `-webkit-mask-image` 以 `url(` 开头，且元素有尺寸）在插件的 `--svg` 缺失或层序错时会失败；取码次数在 `page.on("request")` 于 `goto` 之前注册，计数判据有效；没有固定时长等待（用 `expect.poll` 与可见性断言）。
+
+## 数量
+
+- 阻断 0；重要 0；建议 12（编号 1 至 12）。
+- 已用实验确认的真实缺陷：1（未处理的 reject 与白插脚本）、2（顶层 await 的裸错误）、10（`ErrorOptions`）；3、4、5、6、11 是读代码与读生成物核实的；7、8、9 是从代码推断，未执行（已在各条注明）。

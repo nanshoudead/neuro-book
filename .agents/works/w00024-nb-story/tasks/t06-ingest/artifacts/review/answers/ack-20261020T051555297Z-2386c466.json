@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t06-ingest",
+    "artifactId": "review",
+    "ackId": "20261020T051555297Z-2386c466",
+    "answers": [
+        "20261020T051518472Z-1b3264af"
+    ],
+    "through": "20261020T051518472Z-1b3264af",
+    "included": [
+        ".agents/works/w00024-nb-story/tasks/t06-ingest/README.md"
+    ],
+    "ackedAt": "2026-10-20T05:15:55.297Z"
+}

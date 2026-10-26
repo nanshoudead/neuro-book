@@ -4,15 +4,22 @@
  * 入口的 `test.sample-views`）同时加进本进程清单，引导接口才会把它列给测试外壳。项目子进程用项目宿主的测试入口，同样按环境变量加入测试插件。
  * `NBOOK_EXCLUDE_PLUGINS`（逗号分隔的产品插件 id）从本进程清单去掉只有浏览器入口的产品插件：验证视图机制的用例只要
  * 测试插件的视图，产品视图（资源管理器）会占住它们假定的位置。
+ * `NBDEV_SAMPLE=1` 时与开发入口一样放样例作品，样例的包目录由 `NBOOK_TEST_SAMPLE_ROOT` 给出（不写进真实的包目录），
+ * 截止可用 `NBOOK_TEST_SAMPLE_TIMEOUT_MS`、`NBOOK_TEST_SAMPLE_STOP_MS` 缩短。
  * 只由测试启动。
  */
 
 import {join} from "node:path";
 
-import {definitionAt, pluginsAt, productPlugins} from "nbook/manifest";
+import {descriptorsOf} from "nbook/plugin-platform/backend/installed";
+import {prepareInstalledPlugins, safeModeOf} from "nbook/plugin-platform/backend/startup";
+import {definitionAt, pluginsAt, productPlugins, thirdPartyDefinition} from "nbook/manifest";
 import {readServerConfig} from "nbook/server/config";
+import {devSampleEnabled, startDevSample} from "nbook/server/dev/sample";
 import {serverPlugin} from "nbook/server/plugins";
 import {startServer} from "nbook/server/start";
+import {manifestFormat, NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
+import type {DevTask, StartServerOptions} from "nbook/server/start";
 import {remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
 import {testMenusDescriptor} from "nbook/shared/testing/menus-contract";
 import {sampleViewsDescriptor} from "nbook/shared/testing/sample-views-contract";
@@ -34,15 +41,35 @@ if (notExcludable.length > 0) throw new Error(`只能去掉只有浏览器入口
 const manifest = productPlugins.filter((plugin) => !excluded.includes(plugin.id));
 
 const config = readServerConfig(process.argv.slice(2), process.env, process.cwd());
+
+function sampleTask(): StartServerOptions["devTask"] {
+    if (!devSampleEnabled(process.env)) return undefined;
+    const packageRoot = process.env.NBOOK_TEST_SAMPLE_ROOT;
+    if (!packageRoot) throw new Error("NBDEV_SAMPLE=1 时要给 NBOOK_TEST_SAMPLE_ROOT");
+    const milliseconds = (name: string): number | undefined => (process.env[name] ? Number(process.env[name]) : undefined);
+    return ({registry, stateRoot}): DevTask => startDevSample({
+        registry,
+        stateRoot,
+        packageRoot,
+        report: (line) => console.log(line),
+        timeoutMs: milliseconds("NBOOK_TEST_SAMPLE_TIMEOUT_MS"),
+        stopMs: milliseconds("NBOOK_TEST_SAMPLE_STOP_MS"),
+    });
+}
+
 const server = startServer({
     config,
     manifest: [...manifest, ...BROWSER_TEST_PLUGINS.filter((descriptor) => requested.includes(descriptor.id))],
     stopInput: config.stopStdin ? process.stdin : null,
+    devTask: sampleTask(),
     projectEntry: join(import.meta.dir, "..", "..", "project", "testing", "fixture-entry.ts"),
+    // 与产品入口相同：安装过的第三方插件照常登记（插件管理的 e2e 用它）。
+    prepared: await prepareInstalledPlugins({root: join(config.stateRoot, "plugins"), profile: NEUROBOOK_PROFILE, safeMode: safeModeOf(process.env, NEUROBOOK_PROFILE)}),
     // 产品插件按产品清单取定义（测试插件不在产品的表里），宿主适配器拿到的上下文仍是含测试插件的清单。
     plugins: (context) => [
         ...pluginsAt("server", manifest).map((plugin) => definitionAt("server", plugin, plugin.locations.includes("server") ? serverPlugin(plugin.id, context) : undefined)),
         ...requested.filter((id) => !BROWSER_ONLY_IDS.includes(id)).map((id) => createTestPlugin(id as TestPluginId)),
+        ...pluginsAt("server", descriptorsOf(context.installed, manifestFormat)).map(thirdPartyDefinition),
     ],
     onListening: (url) => {
         console.log(`Listening on ${url}`);

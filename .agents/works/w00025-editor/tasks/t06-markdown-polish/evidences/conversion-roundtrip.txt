@@ -1,0 +1,253 @@
+## 中文段内单换行
+原样=true 幂等=true 语义稳定=true
+原文: "林屿睁开眼睛。\n空气里有股味道。\n他坐了起来。"
+写出: "林屿睁开眼睛。\n空气里有股味道。\n他坐了起来。"
+
+## 多个空行
+原样=true 幂等=true 语义稳定=true
+原文: "第一段。\n\n\n\n第二段。"
+写出: "第一段。\n\n\n\n第二段。"
+
+## 列表星号
+原样=false 幂等=true 语义稳定=true
+原文: "* 甲\n* 乙\n  * 乙一\n* 丙"
+写出: "- 甲\n- 乙\n  - 乙一\n- 丙"
+
+## 列表加号与有序括号
+原样=false 幂等=true 语义稳定=true
+原文: "+ 甲\n+ 乙\n\n1) 一\n2) 二"
+写出: "- 甲\n- 乙\n\n1. 一\n2. 二"
+
+## 松散列表
+原样=false 幂等=true 语义稳定=true
+原文: "- 甲\n\n- 乙"
+写出: "- 甲\n- 乙"
+
+## 强调写法
+原样=false 幂等=true 语义稳定=true
+原文: "*斜* _斜_ **粗** __粗__ ***粗斜***"
+写出: "*斜* *斜* **粗** **粗** ***粗斜***"
+
+## Setext 标题
+原样=false 幂等=true 语义稳定=true
+原文: "第一章\n===\n\n小节\n---"
+写出: "# 第一章\n\n## 小节"
+
+## 转义与实体
+原样=false 幂等=true 语义稳定=true
+原文: "\\*不是斜体\\* &amp; &nbsp; &lt;b&gt;"
+写出: "\\*不是斜体\\* &amp; &amp;nbsp; &lt;b&gt;"
+
+## 裸的小于号与和号
+原样=false 幂等=true 语义稳定=true
+原文: "a < b && c > d，价格 5<10。"
+写出: "a &lt; b &amp;&amp; c &gt; d，价格 5&lt;10。"
+
+## 行尾两空格硬换行
+原样=false 幂等=true 语义稳定=false
+原文: "第一行  \n第二行"
+写出: "第一行\n第二行"
+
+## 反斜杠硬换行
+原样=false 幂等=true 语义稳定=false
+原文: "第一行\\\n第二行"
+写出: "第一行\n第二行"
+
+## 波浪线与下划线
+原样=false 幂等=true 语义稳定=true
+原文: "第1~2章，变量 a_b_c，[注] 方括号。"
+写出: "第1\\~2章，变量 a\\_b\\_c，\\[注\\] 方括号。"
+
+## 删除线
+原样=true 幂等=true 语义稳定=true
+原文: "~~删掉~~"
+写出: "~~删掉~~"
+
+## 代码围栏波浪
+原样=false 幂等=true 语义稳定=true
+原文: "~~~js\nlet a = 1;\n~~~"
+写出: "```js\nlet a = 1;\n```"
+
+## 缩进代码
+原样=false 幂等=true 语义稳定=true
+原文: "    code line\n    two"
+写出: "```\ncode line\ntwo\n```"
+
+## 表格对齐
+原样=false 幂等=false 语义稳定=false
+原文: "| 名 | 值 |\n|:--|--:|\n| a | 1 |\n| b \\| c | 2 |"
+写出: "\n| 名     | 值   |\n| :----- | ---: |\n| a     | 1   |\n| b | c | 2   |\n"
+再写: "\n| 名   | 值   |\n| :--- | ---: |\n| a   | 1   |\n| b   | c   |\n"
+
+## 引用懒续行
+原样=false 幂等=true 语义稳定=true
+原文: "> 第一行\n第二行续\n\n> 另一段"
+写出: "> 第一行\n> 第二行续\n\n> 另一段"
+
+## 引用式链接
+原样=false 幂等=true 语义稳定=true
+原文: "看[这里][1]。\n\n[1]: https://example.com \"标题\""
+写出: "看[这里](https://example.com \"标题\")。"
+
+## 自动链接
+原样=false 幂等=true 语义稳定=true
+原文: "<https://example.com> 与 https://bare.example.com"
+写出: "<https://example.com> 与 [https://bare.example.com](https://bare.example.com)"
+
+## 图片带标题
+原样=true 幂等=true 语义稳定=true
+原文: "![图](a.png \"说明\")"
+写出: "![图](a.png \"说明\")"
+
+## HTML 注释
+原样=true 幂等=true 语义稳定=true
+原文: "<!-- 作者备注 -->\n\n正文。"
+写出: "<!-- 作者备注 -->\n\n正文。"
+
+## 分割线
+原样=false 幂等=true 语义稳定=true
+原文: "***\n\n___"
+写出: "---\n\n---"
+
+## 任务列表
+原样=false 幂等=true 语义稳定=false
+原文: "- [ ] 未完成\n- [x] 完成"
+写出: "- 未完成\n- 完成"
+
+## 脚注
+原样=false 幂等=true 语义稳定=true
+原文: "正文[^1]。\n\n[^1]: 脚注内容。"
+写出: "正文[^1](脚注内容。)。"
+
+## 数学
+原样=true 幂等=true 语义稳定=true
+原文: "公式 $x^2$ 与\n\n$$\na+b\n$$"
+写出: "公式 $x^2$ 与\n\n$$\na+b\n$$"
+
+## 标准 ruby
+原样=false 幂等=true 语义稳定=true
+原文: "<ruby>汉字<rt>hàn zì</rt></ruby>"
+写出: "<ruby text=\"hàn zì\">汉字</ruby>"
+
+## 属性 ruby 带格式
+原样=true 幂等=true 语义稳定=true
+原文: "<ruby text=\"zhù\">**注**音</ruby>"
+写出: "<ruby text=\"zhù\">**注**音</ruby>"
+
+## 行内批注
+原样=true 幂等=true 语义稳定=true
+原文: "她<comment body=\"太快\">看了他</comment>一眼。"
+写出: "她<comment body=\"太快\">看了他</comment>一眼。"
+
+## 块批注
+原样=true 幂等=true 语义稳定=true
+原文: "<comment body=\"整段\">\n第一段。\n\n第二段。\n</comment>"
+写出: "<comment body=\"整段\">\n第一段。\n\n第二段。\n</comment>"
+
+## 双语
+原样=true 幂等=true 语义稳定=true
+原文: "<bilingual text=\"老人走向祭坛。\">\nThe old man walked.\n</bilingual>"
+写出: "<bilingual text=\"老人走向祭坛。\">\nThe old man walked.\n</bilingual>"
+
+## 颜色与高亮
+原样=true 幂等=true 语义稳定=true
+原文: "<span style=\"color: #60a5fa\">蓝</span> <mark>亮</mark> x<sup>2</sup>"
+写出: "<span style=\"color: #60a5fa\">蓝</span> <mark>亮</mark> x<sup>2</sup>"
+
+## 未知标签
+原样=true 幂等=true 语义稳定=true
+原文: "<details><summary>展开</summary>\n内容\n</details>"
+写出: "<details><summary>展开</summary>\n内容\n</details>"
+
+## 行内未知标签
+原样=true 幂等=true 语义稳定=true
+原文: "按 <kbd>Ctrl</kbd> 键。"
+写出: "按 <kbd>Ctrl</kbd> 键。"
+
+## html 块
+原样=true 幂等=true 语义稳定=true
+原文: "<html>\n<div>信</div>\n</html>"
+写出: "<html>\n<div>信</div>\n</html>"
+
+## 嵌套强调与链接
+原样=true 幂等=true 语义稳定=true
+原文: "**粗[链接](https://a.b)粗**"
+写出: "**粗[链接](https://a.b)粗**"
+
+## 中文标点贴着强调
+原样=false 幂等=true 语义稳定=true
+原文: "他说：**“走吧。”**然后离开。"
+写出: "他说：\\*\\*“走吧。”\\*\\*然后离开。"
+
+## 行首数字点
+原样=true 幂等=true 语义稳定=true
+原文: "2024. 那一年。"
+写出: "2024. 那一年。"
+
+## 行首井号无空格
+原样=true 幂等=true 语义稳定=true
+原文: "#不是标题"
+写出: "#不是标题"
+
+## 全角空格缩进
+原样=true 幂等=true 语义稳定=true
+原文: "　　第一段首行缩进。\n\n　　第二段。"
+写出: "　　第一段首行缩进。\n\n　　第二段。"
+
+## 尾随空格
+原样=true 幂等=true 语义稳定=true
+原文: "行尾有空格   \n\n下一段"
+写出: "行尾有空格   \n\n下一段"
+
+## CRLF
+原样=false 幂等=true 语义稳定=true
+原文: "第一段。\r\n\r\n第二段。\r\n"
+写出: "第一段。\n\n第二段。"
+
+## 打字："a < b & c > d"
+写出: "a &lt; b &amp; c &gt; d"
+读回: paragraph:a < b & c > d
+
+## 打字："第1~2章"
+写出: "第1\\~2章"
+读回: paragraph:第1~2章
+
+## 打字："a_b_c"
+写出: "a\\_b\\_c"
+读回: paragraph:a_b_c
+
+## 打字："[注]"
+写出: "\\[注\\]"
+读回: paragraph:[注]
+
+## 打字："5*3=15"
+写出: "5\\*3=15"
+读回: paragraph:5*3=15
+
+## 打字："C:\\path\\to"
+写出: "C:\\\\path\\\\to"
+读回: paragraph:C:\path\to
+
+## 打字："`反引号`"
+写出: "\\`反引号\\`"
+读回: paragraph:`反引号`
+
+## 打字："<comment body=\"x\">字</comment>"
+写出: "&lt;comment body=\"x\"&gt;字&lt;/comment&gt;"
+读回: paragraph:<comment body="x">字</comment>
+
+## 打字："# 不是标题"
+写出: "# 不是标题"
+读回: heading:不是标题
+
+## 打字："1. 不是列表"
+写出: "1. 不是列表"
+读回: orderedList:?
+
+## 打字："- 不是列表"
+写出: "- 不是列表"
+读回: bulletList:?
+
+## 打字："&amp;"
+写出: "&amp;amp;"
+读回: paragraph:&amp;

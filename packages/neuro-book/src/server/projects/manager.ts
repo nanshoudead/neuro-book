@@ -22,6 +22,7 @@ import type {BindRequest, CallerFrame, InstanceDescriptor, ProjectBindResult, Re
 import {perConsumer} from "@notnotype/nb-runtime/services";
 import type {ConsumerIdentity, PerConsumerProvision} from "@notnotype/nb-runtime/services";
 
+import type {InstalledPlugin} from "nbook/plugin-platform/backend/installed";
 import {PROJECT_ENV} from "nbook/project/config";
 import {projectInstance} from "nbook/project/start";
 import type {
@@ -68,6 +69,8 @@ export interface ProjectManagerOptions {
     readonly record: (record: DiagnosticInput) => void;
     /** 子进程输出的去处（每行已加前缀与换行）；缺省本进程的标准输出与标准错误。 */
     readonly output?: {readonly stdout: (text: string) => void; readonly stderr: (text: string) => void};
+    /** 服务端本次启动登记的第三方插件；每个子进程都收到这份，自己挑出在项目实例登记的。 */
+    readonly installed?: ReadonlyArray<InstalledPlugin>;
 }
 
 export interface ProjectManager {
@@ -165,12 +168,15 @@ class ProjectManagerImpl implements ProjectManager {
      * 不会出现写表中被打开、或打开中被移出的半状态（输出第 15 条）。只覆盖到进入 starting 为止，等子进程启动不在里面。
      */
     readonly #serial = new Map<string, Promise<void>>();
+    /** 交给每个子进程的第三方插件，服务端启动时就定了。 */
+    readonly #installed: ReadonlyArray<InstalledPlugin>;
     #admission = true;
 
     constructor(options: ProjectManagerOptions) {
         this.registry = options.registry;
         this.#options = options;
         this.#clock = options.clock ?? systemClock;
+        this.#installed = options.installed ?? [];
         this.#children = createChildInstances<ProjectChild>(options.application, {
             create: (id, generation) => this.#create(id, generation),
             stop: (child, {signal}) => this.#stop(child, signal),
@@ -487,6 +493,8 @@ class ProjectManagerImpl implements ProjectManager {
         }
         child.proc = proc;
         this.#processes.set(record.id, child);
+        // 第一条消息：子进程等到它才装配插件（ipc.ts 的 `plugins`）。
+        this.#send(child, {t: "plugins", installed: this.#installed});
         const output = this.#options.output ?? {stdout: (text: string) => void process.stdout.write(text), stderr: (text: string) => void process.stderr.write(text)};
         for (const [stream, write] of [[proc.stdout, output.stdout], [proc.stderr, output.stderr]] as const) {
             forwardLines(stream, label, write).catch((error: unknown) => this.#options.record({level: "warn", event: "project.output.failed", message: `${label}转发子进程输出失败`, error}));
@@ -504,7 +512,7 @@ class ProjectManagerImpl implements ProjectManager {
 
     #receive(child: ProjectChild, message: unknown): void {
         const envelope = parseEnvelope(message);
-        if (envelope === null || envelope.t === "stop") {
+        if (envelope === null || envelope.t === "stop" || envelope.t === "plugins") {
             this.#options.record({level: "warn", event: "project.ipc.invalid", message: `项目 ${child.record.name}#${String(child.generation)} 发来无法识别的 IPC 消息`});
             return;
         }

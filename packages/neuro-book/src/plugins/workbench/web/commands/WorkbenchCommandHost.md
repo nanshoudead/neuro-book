@@ -19,6 +19,8 @@ type Props = {
     report: (error: Error) => void;
     /** 当前显示语言（产品页从配置读），响应式；面板文字随它即时换。 */
     locale: Readonly<Ref<DisplayLocale>>;
+    /** 面板或快捷键执行的命令失败时弹通知（产品页接工作台的通知服务）；不给时失败只进 `report`。 */
+    notify?: (input: NotificationInput) => void;
 };
 ```
 
@@ -31,4 +33,4 @@ type Props = {
 
 ## 失败
 
-键位登记与执行的失败都交给 `report`，不抛出；`attach` 的断开函数在卸载时一定调用。
+键位登记与执行的失败都交给 `report`，不抛出。面板与快捷键执行失败时另经 `notify` 弹一条警告级通知，标题是命令名、正文是原因，`stale-target` 不弹（用户入口里它只由命令自己返回，意思是用户自己换了目标，再弹是噪声）；快捷键的失败由分发器记进 `report`，面板的由本组件补记，两个入口都留诊断；`attach` 的断开函数在卸载时一定调用。

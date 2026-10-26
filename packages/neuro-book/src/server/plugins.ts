@@ -7,6 +7,10 @@
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
+import type {InstalledPlugin} from "nbook/plugin-platform/backend/installed";
+import {serverHostModules} from "nbook/backend/plugin-host-modules";
+import {thirdPartyDefinitionsAt} from "nbook/plugin-platform/backend/loader";
+import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 import {definitionAt, pluginsAt} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
@@ -14,6 +18,7 @@ import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/backend/p
 import {filesBackendPlugin} from "nbook/plugins/files/backend/plugin";
 import type {HttpAdmission} from "nbook/plugins/http/backend/admission";
 import {createHttpPlugin} from "nbook/plugins/http/backend/plugin";
+import {pluginsBackendPlugin} from "nbook/plugins/plugins/backend/plugin";
 import {projectsBackendPlugin} from "nbook/plugins/projects/backend/plugin";
 import {settingsBackendPlugin} from "nbook/plugins/settings/backend/plugin";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
@@ -22,16 +27,24 @@ import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
 
 import {createBrowserBootstrapRoute} from "./browser-bootstrap";
 import type {ServerConfig} from "./config";
+import {createPluginFilesRoute} from "./plugin-files";
 
 export interface ServerPluginContext {
     readonly config: ServerConfig;
-    /** 本进程加载的插件：产品清单，开发入口另加开发清单。引导接口按它列出浏览器插件。 */
+    /** 本进程加载的内置插件：产品清单，开发入口另加开发清单。 */
     readonly manifest: ReadonlyArray<PluginDescriptor>;
+    /**
+     * 本次启动登记的第三方插件的安装信息（清单、安装目录、内容摘要；docs/specs/runtime/plugin-install.md）：插件装配、浏览器
+     * 引导与插件文件端点用。安全模式下为空。
+     */
+    readonly installed: ReadonlyArray<InstalledPlugin>;
     readonly store: DiagnosticsStore;
     readonly admission: HttpAdmission;
     readonly onListening: (url: string) => void;
     /** 内核 RPC 端口（已在监听）；引导接口据此告知浏览器。 */
     readonly rpc: BrowserBootstrap["rpc"];
+    /** 来源是否允许：RPC 升级与 HTTP 写请求共用（docs/specs/runtime/server-host.md）。 */
+    readonly allowOrigin: (origin: string) => boolean;
     /** 按项目引用取显示名，引导接口附给窗口；项目管理器还没建好、没有登记时为 null。 */
     readonly projectTitle: (reference: string) => Promise<string | null>;
 }
@@ -39,7 +52,7 @@ export interface ServerPluginContext {
 export type ServerHostPluginFactory = (context: ServerPluginContext) => PluginDefinition;
 
 /** 服务端的宿主适配器只有这两个；表的键收窄到它们，普通插件进不了这张表。 */
-export type ServerHostPluginId = "nbook.diagnostics" | "nbook.http";
+export type ServerHostPluginId = "runtime.diagnostics" | "nbook.http";
 
 /** 普通插件：只能放定义常量。 */
 export const serverPluginDefinitions: Readonly<Record<string, PluginDefinition>> = {
@@ -47,6 +60,7 @@ export const serverPluginDefinitions: Readonly<Record<string, PluginDefinition>>
     "nbook.commands": commandsPlugin,
     "nbook.projects": projectsBackendPlugin,
     "nbook.settings": settingsBackendPlugin,
+    "nbook.plugins": pluginsBackendPlugin,
     "nbook.storage": storageBackendPlugin,
     "nbook.files": filesBackendPlugin,
 };
@@ -56,13 +70,14 @@ export const serverPluginDefinitions: Readonly<Record<string, PluginDefinition>>
  * 配置随工厂传入（ADR 0026 决策第 5 条）。新增一项要说明同样的启动或停机依赖。
  */
 export const serverHostPlugins: Readonly<Record<ServerHostPluginId, ServerHostPluginFactory>> = {
-    "nbook.diagnostics": (context) => createServerDiagnosticsPlugin({store: context.store, exporter: {directory: context.config.logDirectory}}),
+    "runtime.diagnostics": (context) => createServerDiagnosticsPlugin({store: context.store, exporter: {directory: context.config.logDirectory}}),
     "nbook.http": (context) => createHttpPlugin({
         admission: context.admission,
         host: context.config.host,
         port: context.config.port,
         onListening: context.onListening,
-        hostRoutes: [createBrowserBootstrapRoute(context.manifest, context.rpc, context.projectTitle)],
+        allowOrigin: context.allowOrigin,
+        hostRoutes: [createBrowserBootstrapRoute(context.manifest, context.installed, context.rpc, context.projectTitle), createPluginFilesRoute(context.installed, (input) => context.store.record(input))],
         staticRoot: context.config.webRoot,
     }),
 };
@@ -76,7 +91,11 @@ function isServerHostPlugin(id: string): id is ServerHostPluginId {
     return Object.hasOwn(serverHostPlugins, id);
 }
 
-/** 按清单装配服务端实例的插件：有后端入口的，加上只有顶层声明式贡献的；有后端入口而两张表都没有时直接失败。 */
+/**
+ * 按清单装配服务端实例的插件：内置插件有后端入口的，加上只有顶层声明式贡献的；有后端入口而两张表都没有时直接失败。
+ * 第三方插件按清单登记，入口激活时装载代码（`thirdPartyDefinitionsAt`）。
+ */
 export function manifestServerPlugins(context: ServerPluginContext): PluginDefinition[] {
-    return pluginsAt("server", context.manifest).map((plugin) => definitionAt("server", plugin, plugin.locations.includes("server") ? serverPlugin(plugin.id, context) : undefined));
+    const builtin = pluginsAt("server", context.manifest).map((plugin) => definitionAt("server", plugin, plugin.locations.includes("server") ? serverPlugin(plugin.id, context) : undefined));
+    return [...builtin, ...thirdPartyDefinitionsAt("server", context.installed, builtin, (input) => void context.store.record(input), {profile: NEUROBOOK_PROFILE, hostModules: serverHostModules})];
 }

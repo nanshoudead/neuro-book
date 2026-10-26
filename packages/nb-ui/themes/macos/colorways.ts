@@ -82,7 +82,7 @@ export const macosColorways: Record<string, NbColorwayVars> = {
          * 原值 #161618 比窗体底 #1c1c1e 还暗，输入框在面板 #2c2c2e 上成了一个黑洞，
          * 观感就是「没上样式的原生控件」——2026-08-12 放大截图实测确认。
          * 主题层的 --control-surface 也做了半透明抬起，两处都改是因为
-         * FormSelect / Dialog 取消按钮这类组件今天仍直接引用 --bg-input（阶段 2 的债）。
+         * Select / Dialog 取消按钮这类组件今天仍直接引用 --bg-input（阶段 2 的债）。
          */
         "--bg-input": "#323234",
         "--bg-hover": "#3a3a3c",

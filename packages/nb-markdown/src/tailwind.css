@@ -1,0 +1,13 @@
+/*
+ * nb-markdown 的样式入口，导出为 `@notnotype/nb-markdown/tailwind.css`。
+ *
+ * 组件样式写在本包的 CSS 里、用 nb-ui 的 token；图标是 `i-lucide-*` 类名，由宿主的 Tailwind 与 nb-ui 配好的
+ * @iconify/tailwind4 生成。宿主在 nb-ui 之后导入本文件，让 Tailwind 扫到本包源码里的图标类名：
+ *
+ *     @import "@notnotype/nb-ui/tailwind.css";
+ *     @import "@notnotype/nb-markdown/tailwind.css";
+ */
+
+@source "./**/*.vue";
+@source "./**/*.ts";
+@source not "./**/*.test.ts";

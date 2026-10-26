@@ -4,7 +4,7 @@ import {join} from "node:path";
 import {cleanupFixtures, createFixture, git} from "../../tests/git-fixture.js";
 import {claimTask, claimWork, emptyRegistry} from "./registry.js";
 import {listCheckouts} from "./repo.js";
-import {findConflicts, nextTaskNumber, nextWorkNumber, scanNumbers} from "./scan.js";
+import {findConflicts, nextTaskNumber, nextWorkNumber, partitionConflicts, scanNumbers, type NumberConflict} from "./scan.js";
 
 afterEach(cleanupFixtures);
 
@@ -58,5 +58,15 @@ describe("编号扫描", () => {
             "w00007": [true, [["w00007-desktop-fix", true], ["w00007-message-invoke", true]]],
             "w00003-ui/t05": [false, [["t05-component-lab", true], ["t05-preview-retirement", false]]],
         });
+    });
+
+    test("领号时的撞号只留涉及这次领的号：Work 按 wNNNNN，Task 按完整 workId 加 tNN，不拿裸的 t01 与别的 Work 比", () => {
+        const group = (kind: "work" | "task", label: string, workId?: string): NumberConflict => ({kind, label, ...(workId === undefined ? {} : {workId}), ids: [], live: true});
+        const conflicts = [group("work", "w00003"), group("work", "w00004"), group("task", "w00004-next/t01", "w00004-next"), group("task", "w00004-old/t01", "w00004-old"), group("task", "w00001-seed/t02", "w00001-seed")];
+        const workNew = partitionConflicts(conflicts, [{kind: "work", number: "w00004"}, {kind: "task", workId: "w00004-next", number: "t01"}]);
+        expect([workNew.related.map((conflict) => conflict.label), workNew.others]).toEqual([["w00004", "w00004-next/t01"], 3]);
+        const taskNew = partitionConflicts(conflicts, [{kind: "task", workId: "w00001-seed", number: "t02"}]);
+        expect([taskNew.related.map((conflict) => conflict.label), taskNew.others]).toEqual([["w00001-seed/t02"], 4]);
+        expect(partitionConflicts(conflicts, [{kind: "task", workId: "w00009-none", number: "t01"}])).toEqual({related: [], others: 5});
     });
 });

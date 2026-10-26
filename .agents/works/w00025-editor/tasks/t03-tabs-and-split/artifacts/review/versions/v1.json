@@ -1,0 +1,65 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00025-editor",
+    "taskId": "t03-tabs-and-split",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "编辑器标签栏评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "dea5c5a38ba90e0c6494fba504990a8983c148cf6a52fe6f0043fe556353c16a",
+    "files": [
+        "index.html",
+        "r1/bold-dark.webp",
+        "r1/bold-light.webp",
+        "r1/bold-many-light.webp",
+        "r1/hover-pinned-light.webp",
+        "r1/scroll-many-light.webp",
+        "r1/underline-dark.webp",
+        "r1/underline-light.webp",
+        "r1/underline-many-dark.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-emphasis",
+            "type": "single",
+            "label": "活动标签怎么突出",
+            "options": [
+                {
+                    "value": "bold",
+                    "label": "A 加粗（现在的做法）"
+                },
+                {
+                    "value": "underline",
+                    "label": "B 底部强调短线"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "underline"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-notes",
+            "type": "text",
+            "label": "其它状态有没有要改的",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-15T04:54:56.935Z"
+}

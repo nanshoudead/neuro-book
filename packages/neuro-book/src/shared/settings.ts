@@ -7,8 +7,11 @@
  */
 
 import type {DeepReadonly} from "@vue/reactivity";
+import {Type} from "typebox";
 import type {Static, TSchema} from "typebox";
 import {Value} from "typebox/value";
+
+import {checkDescription} from "@notnotype/nb-form";
 
 import type {ContributionDeclaration} from "@notnotype/nb-runtime/plugins";
 import {encodeJsonValue} from "@notnotype/nb-runtime/remote";
@@ -40,6 +43,38 @@ export interface SettingChoiceDeclaration<T = SettingLiteral> {
     readonly description?: LocalizedText;
 }
 
+/**
+ * 动态选项：选项由浏览器入口贡献的选项提供者（贡献点 `settings.choices`）在运行时给出，值是字符串。提供者 id 的写法
+ * 同分区 id；存不存在不在登记时核对。
+ */
+export interface SettingChoiceSource {
+    readonly from: string;
+}
+
+/**
+ * 设置窗口画这一项时的界面提示：`ui.forms` 的 `x-form` 里只与单个字段有关的几项（docs/specs/ui/forms.md“输入与
+ * 前置条件”）。标题、说明与选项由声明的 `title`、`description`、`choices` 给，不在这里重复。
+ */
+export interface SettingUiHints {
+    /** 例如 `multiline`、`radio`、`json`；要与 schema 的种类相配（同 `ui.forms` 输出 2）。 */
+    readonly widget?: string;
+    readonly placeholder?: LocalizedText;
+    readonly unit?: LocalizedText;
+    readonly rows?: number;
+    readonly searchable?: boolean;
+    /** 对象列表里当作每项标题的字段名。 */
+    readonly itemLabel?: string;
+}
+
+const SettingUiHintsSchema = Type.Object({
+    widget: Type.Optional(Type.String({minLength: 1})),
+    placeholder: Type.Optional(LocalizedTextSchema),
+    unit: Type.Optional(LocalizedTextSchema),
+    rows: Type.Optional(Type.Integer({minimum: 1, maximum: 50})),
+    searchable: Type.Optional(Type.Boolean()),
+    itemLabel: Type.Optional(Type.String({minLength: 1})),
+}, {additionalProperties: false});
+
 /** 贡献点上的一条声明。 */
 export interface SettingDeclaration {
     readonly schema: TSchema;
@@ -54,8 +89,9 @@ export interface SettingDeclaration {
     readonly group?: string;
     /** 小组内的顺序，同值按键。 */
     readonly order?: number;
-    /** schema 是字面量联合时，每个字面量恰好一个选项。 */
-    readonly choices?: ReadonlyArray<SettingChoiceDeclaration>;
+    /** schema 是字面量联合时，每个字面量恰好一个选项；schema 是字符串时可以改为动态选项。 */
+    readonly choices?: ReadonlyArray<SettingChoiceDeclaration> | SettingChoiceSource;
+    readonly ui?: SettingUiHints;
     readonly applies: SettingApplies;
     /** 密钥存储尚未实现，声明 `true` 被拒。 */
     readonly secret?: boolean;
@@ -83,15 +119,26 @@ export interface SettingOptions<Schema extends TSchema> {
     readonly section?: string;
     readonly group?: string;
     readonly order?: number;
-    readonly choices?: ReadonlyArray<SettingChoiceDeclaration<Static<Schema>>>;
+    readonly choices?: ReadonlyArray<SettingChoiceDeclaration<Static<Schema>>> | SettingChoiceSource;
+    readonly ui?: SettingUiHints;
     /** 缺省 `now`。 */
     readonly applies?: SettingApplies;
+}
+
+/** `defineSettings` 里一项的写法：同 `defineSetting`，插件 id 写在外面，名是这一项的键。 */
+export type SettingItemOptions<Schema extends TSchema> = Omit<SettingOptions<Schema>, "plugin" | "name">;
+
+/** `defineSettings` 的结果。定义放在 `settings` 下，不与名叫 `contributions` 的配置项撞。 */
+export interface SettingsBundle<Schemas extends Readonly<Record<string, TSchema>>> {
+    readonly settings: {readonly [Name in keyof Schemas]: SettingDefinition<Static<Schemas[Name]>>};
+    /** 交给插件描述的 `contributions`，按声明的顺序。 */
+    readonly contributions: ReadonlyArray<ContributionDeclaration<SettingDeclaration>>;
 }
 
 /** 以点分段的小驼峰：`appearance`、`editor.fontSize`。 */
 const NAME = /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)*$/u;
 const MAX_NAME = 128;
-const FIELDS = new Set(["schema", "default", "title", "description", "layers", "section", "group", "order", "choices", "applies", "secret"]);
+const FIELDS = new Set(["schema", "default", "title", "description", "layers", "section", "group", "order", "choices", "ui", "applies", "secret"]);
 const CHOICE_FIELDS = new Set(["value", "title", "description"]);
 
 /**
@@ -131,6 +178,7 @@ export function defineSetting<Schema extends TSchema>(options: SettingOptions<Sc
         ...(options.group === undefined ? {} : {group: options.group}),
         ...(options.order === undefined ? {} : {order: options.order}),
         ...(options.choices === undefined ? {} : {choices: options.choices}),
+        ...(options.ui === undefined ? {} : {ui: options.ui}),
         applies: options.applies ?? "now",
     };
     // 先校验再冻结：默认值不是 JSON 时复制它本身就会抛出别的错误。
@@ -141,8 +189,27 @@ export function defineSetting<Schema extends TSchema>(options: SettingOptions<Sc
         default: freezeJson(raw.default),
         layers: Object.freeze(raw.layers),
         ...(raw.choices === undefined ? {} : {choices: freezeJson(raw.choices)}),
+        ...(raw.ui === undefined ? {} : {ui: freezeJson(raw.ui)}),
     });
     return Object.freeze({key, declaration, contribution: Object.freeze({capability: SETTINGS_POINT, id: key, declaration})});
+}
+
+/**
+ * 一次声明一个插件的多条配置项，插件 id 只写一次；每项的值类型由它自己的 schema 推出，`default` 与 `update` 按它核对。
+ * 每项照 `defineSetting` 校验，结果与逐条 `defineSetting` 相同。
+ */
+export function defineSettings<Schemas extends Readonly<Record<string, TSchema>>>(
+    plugin: string,
+    items: {readonly [Name in keyof Schemas]: SettingItemOptions<Schemas[Name]>},
+): SettingsBundle<Schemas> {
+    const settings: Record<string, SettingDefinition<unknown>> = {};
+    for (const [name, options] of Object.entries(items) as Array<[string, SettingItemOptions<TSchema>]>) {
+        settings[name] = defineSetting({...options, plugin, name});
+    }
+    return Object.freeze({
+        settings: Object.freeze(settings) as SettingsBundle<Schemas>["settings"],
+        contributions: Object.freeze(Object.values(settings).map((definition) => definition.contribution)),
+    });
 }
 
 /**
@@ -177,6 +244,10 @@ export function settingDeclarationProblem(plugin: string, key: string, declarati
         const problem = choicesProblem(fields.schema as TSchema, fields.choices);
         if (problem !== null) return `配置项 ${key} 的 choices ${problem}`;
     }
+    if (fields.ui !== undefined) {
+        const problem = uiProblem(fields.schema as TSchema, fields.ui, fields.choices);
+        if (problem !== null) return `配置项 ${key} 的 ui ${problem}`;
+    }
     if (!(SETTING_APPLIES as ReadonlyArray<unknown>).includes(fields.applies)) return `配置项 ${key} 的 applies 必须是 ${SETTING_APPLIES.join("、")} 之一`;
     return null;
 }
@@ -199,8 +270,19 @@ export function literalUnionValues(schema: unknown): ReadonlyArray<SettingLitera
     return values;
 }
 
-/** `choices` 与 schema 的字面量一一对应：每个字面量恰好一个选项，没有多出的值。 */
+/**
+ * `choices` 与 schema 的字面量一一对应：每个字面量恰好一个选项，没有多出的值。动态选项 `{from}` 只用在字符串 schema
+ * 上（选项的值是字符串，`ui.forms` 输出 11）。
+ */
 function choicesProblem(schema: TSchema, choices: unknown): string | null {
+    if (typeof choices === "object" && choices !== null && !Array.isArray(choices)) {
+        const fields = choices as Record<string, unknown>;
+        const extra = Object.keys(fields).filter((field) => field !== "from");
+        if (extra.length > 0) return `有未知字段：${extra.join("、")}`;
+        if (!isSettingsSectionId(fields.from)) return `的 from 必须是选项提供者 id：点分的小写段，至多 ${String(SETTINGS_SECTION_ID_MAX_LENGTH)} 个字符`;
+        if ((schema as {readonly type?: unknown}).type !== "string") return "的动态选项只能用在字符串的 schema 上";
+        return null;
+    }
     const literals = literalUnionValues(schema);
     if (literals === null) return "只能用在字面量联合的 schema 上";
     if (!Array.isArray(choices)) return "必须是数组";
@@ -218,6 +300,19 @@ function choicesProblem(schema: TSchema, choices: unknown): string | null {
     }
     const missing = literals.filter((literal) => !seen.includes(literal));
     if (missing.length > 0) return `缺少字面量 ${missing.map((literal) => JSON.stringify(literal)).join("、")} 的选项`;
+    return null;
+}
+
+/**
+ * `ui` 的形状，以及写的控件能不能用在这个 schema 上：后者交给 `ui.forms` 的描述检查（它的 `widget-mismatch`），设置不另
+ * 记一份“哪种值能用哪个控件”。动态选项 `{from}` 对应 `x-form.options`：有它时文字的下拉才成立，写多行反而不生效。
+ */
+function uiProblem(schema: TSchema, ui: unknown, choices: unknown): string | null {
+    if (!Value.Check(SettingUiHintsSchema, ui)) return "的形状不对：只能有 widget、placeholder、unit、rows、searchable、itemLabel，文字要中英两份";
+    const from = typeof choices === "object" && choices !== null && !Array.isArray(choices) ? (choices as Partial<SettingChoiceSource>).from : undefined;
+    const check = checkDescription({...schema, "x-form": {...(ui as SettingUiHints), ...(from === undefined ? {} : {options: from})}});
+    const mismatch = check.problems.find((problem) => problem.code === "widget-mismatch" || problem.code === "item-label-unknown");
+    if (mismatch !== undefined) return mismatch.code === "widget-mismatch" ? `的控件 ${String((ui as SettingUiHints).widget)} 用不到这种值上` : `的 itemLabel 不是列表项的字段`;
     return null;
 }
 
@@ -257,6 +352,12 @@ export const SETTINGS_FAILURES = [
     "write-failed",
     "unavailable",
     "unknown-outcome",
+    /** 整份读写设置文件（设置窗口的“设置文件”视图）：文件存在但读不了。 */
+    "read-failed",
+    /** 整份写入：文件在读出之后被别处改过（修订号对不上）。 */
+    "conflict",
+    /** 整份写入：文本不是合格的设置文件（语法、根不是对象、重复键）。 */
+    "invalid-text",
 ] as const;
 
 export type SettingsFailure = (typeof SETTINGS_FAILURES)[number];
@@ -295,6 +396,9 @@ export interface SettingsService {
     inspect<T>(setting: SettingDefinition<T>): SettingInspection<T>;
     /** 本实例里有效值变化的键；同一次层更新只调用一次。返回取消函数。 */
     onDidChange(listener: (keys: ReadonlySet<string>) => void): () => void;
-    /** `value` 为 undefined 表示删除这一层里的这个键。 */
-    update<T>(setting: SettingDefinition<T>, value: T | undefined, options?: SettingUpdateOptions): Promise<SettingWriteResult>;
+    /**
+     * `value` 为 undefined 表示删除这一层里的这个键。`T` 只从定义推出（`NoInfer`）：否则字面量联合之外的值会把 `T`
+     * 放宽成 `string`，写错的值也能编译。
+     */
+    update<T>(setting: SettingDefinition<T>, value: NoInfer<T> | undefined, options?: SettingUpdateOptions): Promise<SettingWriteResult>;
 }

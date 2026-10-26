@@ -1,0 +1,128 @@
+# t04 第二轮实现审查（S3a、S3b 与第一轮修正）：内核与后端（Claude Opus）
+
+审查对象 `c9ca9f6d2..a41cdb0ad`，worktree `.worktree/review-t04-impl2`。实验脚本在 `/tmp/review-t04-impl2-opus/`（结束时删除）。发现按核实顺序追加，严重程度见每条。
+
+### 1. 状态根经符号链接（或路径未规范化）时，删模块缓存一条也删不到：再激活复用旧模块实例，顶层状态跨代次，且没有任何诊断
+
+- 严重程度：重要；类别：正确性 / Spec 合同（plugin-code-loading 输出 1、验收 6）
+- 位置：`packages/neuro-book/src/backend/plugins/loader.ts:61-64`（`const prefix = plugin.root + sep; for (const key of Object.keys(require.cache)) if (key.startsWith(prefix)) delete ...`）；`root` 的来源 `src/backend/plugins/startup.ts:316`（`join(options.root, id, entry.version)`）与 `src/server/config.ts:73`（`resolve(cwd, NBOOK_STATE_ROOT)`，不取 realpath）
+- 现象：Bun 的 `require.cache` 键是模块文件的真实路径（解析符号链接后）。`plugin.root` 只经 `resolve`/`join`，没有 `realpath`。状态根只要经过符号链接（`NBOOK_STATE_ROOT` 指向软链目录、家目录或数据盘是软链、macOS 的 `/tmp`→`/private/tmp`、`/var/folders`→`/private/var/folders`），前缀就匹配不上任何键，循环什么也不删；随后 `import(file)` 命中旧的模块记录，返回同一个实例。
+- 为什么是问题：输出 1 的核心承诺“入口停止后再次激活总是执行一份新的模块实例，模块顶层状态不跨代次”静默失效（失败后重试、依赖恢复后的再激活都会带着上一代的顶层状态），而且没有诊断能看出来。测试 `loader.test.ts` 用的临时根在 Linux 上恰好是真实路径，所以通过；在 macOS（`os.tmpdir()` 在 `/var/folders` 下）上这条用例本身就会失败。
+- 如何核实：`/tmp/review-t04-impl2-opus/real/exp.ts`（真实 `createApplication` + 真实 `thirdPartyDefinitionsAt`，入口顶层计数，激活、停止、再建应用再激活）：状态根传真实路径时 `counts [1, 1]`；传指向同一目录的软链 `statelink` 时 `counts [1, 2]`。纯 Bun 复现：`/tmp/review-t04-impl2-opus/a/run.ts` 传软链路径或含 `..` 的路径时 `deleted: []`、计数 1、2、3。
+- 建议改法：在定下 `root` 的地方（`prepareInstalledPlugins` 产出 `StartupPlugin` 时，或 `serverEntryLoader` 里第一次装载前）对版本目录取一次 `realpath`，前缀与 `import` 用同一个真实路径；再加一条断言式诊断：删完后若 `file` 的真实路径仍在 `require.cache` 里（或删除计数为 0 而上一代确曾装载过），记 warn。测试补在“每次激活都是新的模块实例”那条里：同一插件再用经软链的根跑一遍。
+
+### 2. 服务端没有实现 `module-not-shared`：表外的裸模块名照 Node 规则沿状态根向上找 `node_modules`，找到就静默用上（开发状态根在包目录里，几乎都找得到），找不到时报成 `code-threw`
+
+- 严重程度：重要；类别：Spec 合同（plugin-code-loading 输出 4、验收 3、“不在 State Root 中解析 `node_modules`”）/ 开发与生产行为不一致
+- 位置：`packages/neuro-book/src/backend/plugins/loader.ts:38-47`（`Bun.plugin` 只用 `build.module` 登记两个虚拟模块，没有 `onResolve` 拦表外的裸说明符）；`loader.ts:66-70`（`import` 的一切失败都包成 `code-threw`）；开发状态根 `src/server/dev/config.ts:38`（`join(packageRoot, ".dev-state")`）
+- 现象：插件版本目录是 `<State Root>/plugins/<id>/<版本>/`，Bun 按普通规则从这里逐级向上解析裸说明符。实验：状态根的上级目录里放一个 `node_modules/fakepkg`，入口 `import {v} from "fakepkg"` 照常激活，拿到的是上级目录里那份；上级没有时入口失败，原因是 `code-threw：……装载时出错：Cannot find package 'lodash-not-here' ...`，不是 `module-not-shared`。插件相对导入的子文件不存在时同样报 `code-threw`，而错误码的定义里“文件不存在”属于 `code-load-failed`（`src/shared/plugin-code-error.ts` 的注释）。
+- 为什么是问题：输出 4 要求表外模块在求值时得到结构化错误 `module-not-shared`，验收 3 就是 `require('lodash')` 的例子；服务端一侧整条合同没有落地，计划“装载”一节和 `loader.ts` 头注释也没交代。更麻烦的是开发与生产不一致：`nbdev dev start` 的状态根在 `packages/neuro-book/.dev-state`，向上能找到包与仓库根的 `node_modules`（`typebox`、`vue`、`lodash-es` 等都在），作者手写或绕过构建预设的服务端入口在开发会话里能跑，装到用户机器上才失败。构建预设的纯度检查能挡住用预设构建的插件，但装载端本应“在构建与装载时都拦截”（输出 5 末句）。
+- 如何核实：`/tmp/review-t04-impl2-opus/real/exp.ts`，状态根分别传 `state2`（上级有 `node_modules/fakepkg`）与 `state3`（无）：前者两次 `activated`、`counts ["from-ancestor-node_modules", ...]`；后者 `failed code-threw：...Cannot find package 'lodash-not-here'`。
+- 建议改法：在同一个 `Bun.plugin` 里加 `onResolve`：导入方在 `<State Root>/plugins/` 之下、说明符是裸名、不在 `SERVER_SHARED_MODULES` 也不是 `node:`/`bun:`/内置模块时，解析到一个专用命名空间，其 `onLoad` 抛带标记的错误；装载器按这个标记（或 `error.code === "ERR_MODULE_NOT_FOUND"` 这类错误码，不按文案）分出 `module-not-shared` 与相对路径缺文件的 `code-load-failed`。测试补在 `loader.test.ts` 的“各自激活失败并带上原因”里，加一个 `import "lodash"` 的入口。
+
+### 3. 模块顶层抛错（或顶层 `await` reject）之后重试永远失败：Bun 把求值失败缓存在模块记录里，而失败的模块不在 `require.cache`，删缓存删不到它
+
+- 严重程度：重要；类别：正确性 / 错误路径（plugin-code-loading 输出 1“失败后重试……总是执行一份新的模块实例”、“失败与恢复”）
+- 位置：`packages/neuro-book/src/backend/plugins/loader.ts:61-71`
+- 现象：入口模块（或它相对导入的子模块）顶层抛错后，这个文件不会出现在 `require.cache` 里，下一次激活的删除循环删不到它；`import(file)` 直接返回同一个缓存的失败，不再执行模块。顶层依赖一时不满足的条件（读一个稍后才有的文件、等宿主某个状态、网络、`await` 一个 reject 的 Promise）时，入口重试、依赖恢复后的再激活全都原样失败，直到重启进程。语法错误与文件不存在两种情况不受影响（Bun 不缓存解析失败），所以现有测试看不出来。
+- 为什么是问题：内核与设置窗口给失败入口的恢复手段就是重试；这里重试永远拿到旧错误、模块一次也没重新执行，用户看到的原因还是第一次的（可能已经过时），也没有诊断说明“需要重启”。
+- 如何核实：`/tmp/review-t04-impl2-opus/real/retry.ts`（真实内核 + 真实装载器）：入口顶层 `if (!globalThis.__ready) throw ...`，第一次激活 `failed code-threw ... transient`，把 `__ready` 置真后再激活，仍是 `failed ... transient`，顶层求值计数 `evals 1`。纯 Bun：`/tmp/review-t04-impl2-opus/c/run.ts` 的 `threw`/`libthrew` 两组，修好文件、删缓存后仍报原错，`deleted: []`。`globalThis.Loader` 在 Bun 1.4.2 不存在，没有别的公开入口能清掉这条记录。
+- 建议改法：装载器为每个版本目录记住“上一次装载以求值失败结束”，下一次装载改用带查询串的路径（例如 `?attempt=<n>`）：失败的实例本来就没有交出任何对象，查询串造成的不回收只发生在失败路径上，代价有界；或者至少在这种情况下给出结构化原因（例如 `code-threw` 的 detail 写明“需重启后重试”）并记诊断。测试补在“各自激活失败并带上原因”旁边：顶层按全局开关抛错，翻转开关后重试应激活成功、顶层求值计数为 2。Spec 的“运行时依赖”一节同时补上这条 Bun 行为。
+
+### 4. 升级预览与重启后内核的判定不一致：升级一个已禁用的插件时把它当作重启后启用，列出假的受阻；新版本去掉或挪走提供项时漏报
+
+- 严重程度：重要（第一种）；类别：正确性 / 与内核判定一致（plugin-install 输出 8.1，计划“预览用内核的受阻推导……取重启后生效的集合”）
+- 位置：`packages/neuro-book/src/backend/plugins/inventory.ts:223-230`（`blockedAfter`：`current` 只收 `state === "enabled"`，但 `after = [...current.filter(...), next]` 无条件放进 `next`）；`packages/nb-runtime/src/plugins/blocked.ts:207-209`（`previewBlocked` 把“这些定义在本位置不提供”的服务一律当作在场）
+- 现象：
+  1. 被升级的插件已禁用（`conflict` 不拦禁用的插件升级）：重启后它仍禁用、不登记，内核里依赖它的入口在升级前后都是 `missing-service`，什么都不变；预览却把它放进 `after`，于是它自己的版本不符、以及依赖它的入口的 `provider-blocked` 都被当作“新增受阻”列出来。
+  2. 新版本不再提供某个服务，或把提供它的入口挪到别的位置：重启后消费方以 `missing-service` / `location-mismatch` 受阻，预览因为“定义之外的服务都当作在场”而列不出来。
+  3. 所有非 `version-mismatch` 的原因（含新版本引入的 `dependency-cycle`）都被映射成 `provider-blocked`（`inventory.ts:236`），确认框写出的原因与重启后插件页显示的不同。
+- 为什么是问题：预览的价值就是“与重启后内核的实际判定一致”（计划的原话是“同一份推导与同一个 `satisfies`，按重启后的集合”）。第 1 种给出确定错误的警告；第 2 种恰好漏掉升级最常见的破坏方式之一（Spec 8.1 字面只要求版本范围，所以这一种可以作为已知范围写明，但现在代码和测试都没有交代）。
+- 如何核实：`/tmp/review-t04-impl2-opus/preview/exp.ts`（真实 `prepareInstalledPlugins` + `createPluginInventory`）：y@2.0.0 启用；x@1.0.0 要求 `example.y ^1.0.0`、提供 `example.x/s` 并已禁用；c 依赖 `example.x/s`。`inspect(x@1.1.0)` 返回 `blocked: [{example.c, provider-blocked}, {example.x, version-mismatch, ^1.0.0}]`（重启后两者状态与升级前完全相同）。`inspect(y@2.1.0 不再提供 example.y/s)` 与 `inspect(y@2.2.0 入口挪到 project)` 都返回 `blocked: []`。
+- 建议改法：`next` 只在它的登记项是 `enabled`（或尚未安装）时进入 `after`，禁用的直接返回空的受阻列表；`previewBlocked` 的“定义之外当作在场”改成只把宿主与内置插件提供的服务当作在场（由调用方传入内置插件的提供项集合），这样去掉、挪走提供项能推出 `missing-service`、`location-mismatch`；`BlockedPlugin.reason` 要么扩成内核的原因全集，要么在 Spec 8.1 写明只列这两类。测试补在“升级预览列出重启后会受阻的插件”那条里。
+
+### 5. 租约换名重写与 `release` 并发时，重写出来的新租约没人放下；宿主停止之后的租约诊断被存储静默丢弃
+
+- 严重程度：建议（窗口窄，生产里进程随后退出，锁随之放下）；类别：资源收口 / 竞态
+- 位置：`packages/neuro-book/src/backend/plugins/pins.ts:84-95`（`renew` 只在开头看一次 `released`，`current = await write()` 之后不再看）与 `pins.ts:100-107`（`release` 取走的是旧的 `current`）；`src/server/start.ts:235` 与 `src/server/process.ts:66-69`（`connectDiagnostics` 接到 `store.record`，`release` 在 `server.stopped` 之后）
+- 现象（从代码推断，未在真实运行时复现：触发失效要等 `PIN_STALE_MS / 2` 的刷新周期，常量不可注入）：
+  1. 锁 L1 失效 → `void renew()` 进入 `await write()`；此时宿主停止、`release()` 把 `released` 置真，取走的 `current` 仍是 L1，删 L1 的列表、放 L1（已失效，直接返回）；随后 `write()` 完成，`current` 被赋成新的 L2，L2 的锁与列表一直留着，刷新计时器继续跑，进程内没有任何路径再放下它。同一进程里先后起宿主（`plugins.test.ts` 的 `world.restart`、开发入口若有进程内重启）时，L2 会一直把那批版本标成在用、挡住回收。
+  2. `release` 在 `server.stopped` 之后才调用，这段时间以及上面的竞态里产生的 `pins.*` 记录经 `connectDiagnostics` 进 `store.record`，存储已是 `stopping`/`closed`，返回 `rejected` 后被丢掉，不会到 stderr 或日志；而这类记录恰好是“别的服务端可能回收了本次在用的版本”的唯一线索。
+  3. `livePins` 的 `unreadable` 在 `commit` 里一律按“在用”处理，错误文案却写成“另一个运行中的服务端还在用”；`unreadable` 的实际来源是某个活锁旁边暂时没有列表（另一个服务端正在 `renew`，它不在登记表锁里）或 `.pins` 读不了，文案会把人引到错误的方向。被本进程自己租着的目录（别的服务端卸载后本进程重装同一版本）也报“另一个服务端”。
+- 为什么是问题：第 1 条违反“`release` 让同一进程里先后起的宿主各自收口”的注释承诺；第 2 条让失效报告在最需要时无处可去。
+- 如何核实：读 `renew` 与 `release` 的交错；第 2 条可看 `packages/nb-runtime/src/diagnostics/store.ts:107-112`（`closed`/`stopping` 时直接返回 `rejected`）。
+- 建议改法：`renew` 在 `write()` 返回后再看一次 `released`，已放下就立刻放掉新锁、删新列表；`release` 等正在进行的 `renew` 结束再收口（保存它的 Promise）。`connectDiagnostics` 的接收方在存储拒收时退回 stderr（或宿主停止时把 sink 换回缓冲并在 `release` 后写到 stderr）。`version-in-use` 的文案按来源区分：被租着、租约读不了、被本进程租着。
+
+### 6. `$ref` 解析用 `decodeURIComponent`，坏的百分号编码让 `portabilityProblems` 抛 `URIError`：清单校验器本身抛出，安装、预览失败成未结构化的异常，装在磁盘上时整个服务端起不来
+
+- 严重程度：重要；类别：异常输入下的失败 / 不变量（“一个插件出错不挡实例启动”，清单无效应为 `manifest-invalid` 并给出原因）
+- 位置：`packages/nb-runtime/src/plugins/schema.ts:55`（`decodeURIComponent(raw)` 没有保护）；调用方 `packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts:233,245,250`（`readPluginManifest` 里直接展开，不 catch）；`packages/neuro-book/src/server/process.ts:66`（`prepareInstalledPlugins` 不 catch）
+- 现象：贡献点或合同里有 `{"$ref": "#/$defs/a%"}` 这样的引用（`%` 后面不是两位十六进制）时，`portabilityProblems` 抛 `URIError: URI error`，`readPluginManifest` 随之抛出，而不是返回 `invalid`。
+  - `inventory.inspect`、`inventory.install` 直接 reject `URIError`，插件页拿不到 `manifest-invalid` 与问题路径；
+  - 这样的清单已在安装目录里时（手工改动、旧版本的校验放进来的、文件损坏），`prepareInstalledPlugins` reject，`runServerProcess` 没有兜底，服务端整个起不来；安全模式也救不了（读清单在租约之前）。项目子进程与窗口里的 `manifestOfInstalled`/`readPluginManifest` 同样会抛。
+- 为什么是问题：`readPluginManifest` 是给不可信输入用的校验器，合同是“返回问题列表”；第一轮修正新加的 `$ref` 解析把一个能抛的调用带进了所有读清单的路径。
+- 如何核实：`/tmp/review-t04-impl2-opus/schema.ts` 的 `pct` 一行输出 `THREW URIError`；`/tmp/review-t04-impl2-opus/preview/uri.ts`：`inspect THREW URIError`、`install THREW URIError`；`uri2.ts`：先装一个 `$ref: "#/$defs/a"` 的合法插件，再把磁盘上的清单改成 `#/$defs/a%`，`prepareInstalledPlugins` → `prepare THREW URIError`。
+- 建议改法：`resolvePointer` 里 `decodeURIComponent` 失败按“解析不到”处理（返回 `undefined`，报成那条 `$ref` 的问题）；`readPluginManifest` 外层再包一层 try/catch，把意外异常转成一条根路径的问题，校验器永不抛。顺带：`#foo` 这类 `$anchor` 引用被报成解析不到，而 TypeBox 能校验它（同一脚本 `anchor` 行 `check: true`），要么把 `$anchor` 收进 `ids`（以 `#` 加锚点名匹配），要么在 Spec 的“纯 JSON Schema”里写明不支持锚点；draft-07 的 `dependencies`（值可为 schema）落进“数据”分支，里面的 `type: "nope"` 不报，与 `dependentSchemas` 不一致。测试补在 `plugin-manifest.test.ts` 的 `$ref` 用例里。
+
+### 7. 纯度检查的“数据”分支只查函数：`undefined`、BigInt、`Date` 这类进不了 JSON 的值放行，经清单往返后语义悄悄改变或让 `manifestOf` 抛 TypeError
+
+- 严重程度：建议；类别：边界 / Spec 合同（plugin-manifest 输入表“这些写法进不了 JSON：宿主按清单校验时会悄悄变宽……构建预设遇到它们构建失败”）
+- 位置：`packages/nb-runtime/src/plugins/schema.ts:75-82`（`visitData` 只认 `typeof node === "function"`）；`packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts:581`（`JSON.parse(JSON.stringify(point.schema))`）
+- 现象：`portabilityProblems({enum: ["a", undefined]})` 返回 `[]`，往返成 `{"enum":["a",null]}`：代码里接受 `undefined` 的声明，清单里改成接受 `null`；`{default: new Date(0)}` 往返成字符串；`{type: "integer", default: 10n}` 返回 `[]`，随后 `manifestOf` 的 `JSON.stringify` 抛 `TypeError: JSON.stringify cannot serialize BigInt`，构建失败成一条没有路径的异常，而不是清单问题。
+- 为什么是问题：第一轮把检查改成“按关键字语义”之后，数据位置只剩函数这一条规则，而 Spec 的判据是“进不了 JSON”，函数只是其中一种。
+- 如何核实：`/tmp/review-t04-impl2-opus/schema.ts` 末尾几行：`bigint-default ... => []`、`undefined-enum {"enum":["a",null]} => []`、`date-default ... => []`。
+- 建议改法：`visitData` 改为“JSON 值”检查：只接受 `null`、布尔、有限数字、字符串、数组、原型为 `Object.prototype` 或 `null` 的对象；其余（`undefined`、BigInt、Symbol、非有限数、`Date`/`Map`/`RegExp` 等实例）报“不是 JSON 值”。schema 位置的数字关键字（`maximum` 等）同样查有限性。
+
+### 8. 服务端装载器的两处错误路径与浏览器端不一致：宿主模块表的导入失败被永久缓存且不是 `PluginCodeError`；`activate` 返回非对象时原因是一条引擎内部的 TypeError
+
+- 严重程度：建议；类别：错误路径 / 与周围代码一致
+- 位置：`packages/neuro-book/src/backend/plugins/loader.ts:38-48`（`hostModules ??= serverHostModules().then(...)`，reject 后一直留着；`await registerHostModules()` 在 try 之外）；`packages/neuro-book/src/manifest.ts:87-90`（`settleContracts(await activate(context), ...)` 直接读 `output.remote`）
+- 现象：
+  1. `import("@vue/reactivity")` 或 `import("nbook/sdk/index")` 失败一次后，此后本进程每个第三方入口的每次激活都得到同一个原始异常，不带 `code`、插件 id、入口 id。浏览器端第一轮已按 Sonnet 9 改成“失败不缓存、包成 `code-load-failed`”（Spec“宿主模块表……取不到时下一次激活重新取”），服务端没有跟着改。
+  2. 第三方入口的 `activate` 忘了 `return`（返回 `undefined`）：激活失败，原因是 `undefined is not an object (evaluating 'output.remote')`，既不是 `code-shape` 也指不到插件代码。
+- 为什么是问题：两端失败分类本应一致（`PluginCodeError` 的注释写的是“浏览器与服务端的装载器共用”）；作者看到的原因要能指出是自己哪里写错了。
+- 如何核实：第 2 条用 `/tmp/review-t04-impl2-opus/real/exp.ts` 传 `state5`（入口 `export function activate() {}`）：两次都是 `failed undefined is not an object (evaluating 'output.remote')`。第 1 条读代码可见（失败的 Promise 赋给模块级变量后不再清空）。
+- 建议改法：`registerHostModules` 失败时把 `hostModules` 置回 `null`，并在 `serverEntryLoader` 里包成 `PluginCodeError("code-load-failed", {..., cause})`；`thirdPartyDefinitionAt` 的 `activate` 在 `settleContracts` 前核对产出是对象，否则抛 `code-shape`（“activate 没有返回激活产出”）。
+
+### 9. 第一轮“锁失效换名重写”与“被取代的待切换版本推迟回收”两条修正没有任何测试；`PIN_STALE_MS` 是常量，失效路径在测试里无法触发
+
+- 严重程度：建议；类别：测试（每条判据是否真被测到）
+- 位置：`packages/neuro-book/src/backend/plugins/pins.ts:37,63-66,84-95`；`packages/neuro-book/src/backend/plugins/inventory.ts:322-324`（`plugins.cleanup.deferred` 分支）；测试 `src/backend/plugins/plugins.test.ts`
+- 现象：`grep -rn "renew\|compromised\|pins.renewed\|cleanup.deferred" packages/neuro-book/src --include='*.test.ts'` 没有命中。Task 记录里“omp 1、Opus 7、12（锁失效）成立，已改：……失效时换名重写并记诊断；准备期之后的诊断接到宿主存储”与“被取代的待切换版本被租着时推迟回收”两项，删掉 `if (event === "lock.compromised") void renew();` 或把 `inUse(replaced)` 改成 `false`，现有用例都不会失败（从代码推断：没有用例走到这两条分支；按只读规则没有改文件做变异）。`connectDiagnostics` 只在测试里以“准备期的缓冲照常交出”被间接用到，运行中转交的那半没有断言。第 5 条的竞态也因此没有被发现。
+- 为什么是问题：这些正是第一轮被判为“重要”的跨进程失效场景的修复，没有测试就无法回归；`PIN_STALE_MS` 5 分钟、刷新间隔 150 秒，不可注入就只能靠等。
+- 如何核实：上面的 grep；读 `plugins.test.ts` 第 478-492 行，两个进程的用例只覆盖 `version-in-use` 与“退出后才回收”。
+- 建议改法：`pinVersions` 接受可选的 `stale`（默认 `PIN_STALE_MS`），测试用 2 秒；加一条用例：持租约后由“另一个服务端”的 `livePins` 在锁过期后删掉它，等到 `pins.renewed` 诊断，核对 `.pins` 里出现新名字、且回收方随后看到这些版本仍在用；再加一条：待切换版本被另一进程租着时再装新版本，旧的待切换目录保留并有 `plugins.cleanup.deferred`。
+
+### 10. 两处新代码插进了已有声明与它的文档注释之间，注释挂到了错误的声明上
+
+- 严重程度：建议；类别：代码质量（注释）
+- 位置：`packages/neuro-book/src/backend/plugins/inventory.ts:80-89`（`/** 已安装的记录不接受这次安装的原因；没有为 null。 */` 现在紧挨着新加的 `exists`，`conflict` 没有注释了）；`packages/neuro-book/src/plugins/plugins/shared/contracts.ts:56-64`（“安装前的预览……”的注释后面紧跟另一段注释和 `BlockedPluginSchema`，`InstallPreviewSchema` 失去了它的注释，编辑器悬停 `BlockedPluginSchema` 看到的是 `InstallPreview` 的说明）
+- 为什么是问题：注释是给后来的人与 Agent 读的，挂错对象比没有更误导。
+- 如何核实：`git diff c9ca9f6d2..HEAD -- packages/neuro-book/src/backend/plugins/inventory.ts packages/neuro-book/src/plugins/plugins/shared/contracts.ts` 看插入位置。
+- 建议改法：把 `exists` 移到 `conflict` 的注释之前（并给它一句自己的说明：只把 ENOENT 当作不存在）；把 `BlockedPluginSchema` 连同它的注释移到“安装前的预览”注释之前。
+
+### 11. 服务端装载失败没有带上原始错误（`cause`）：插件顶层抛错的堆栈、文件读不了的 errno 都丢了
+
+- 严重程度：建议；类别：错误路径 / 诊断
+- 位置：`packages/neuro-book/src/backend/plugins/loader.ts:57-59`（`lstat` 失败一律“不存在或读不了”，不带 `cause`）、`loader.ts:68-70`（`code-threw` 只取 `error.message`）
+- 现象：`PluginCodeError` 专门留了 `cause`（注释：“随错误保留，诊断能看到原始错误”），浏览器装载器在宿主模块表失败时用了它，服务端两处都没传。顶层抛错时作者只能看到一行消息，看不到是插件文件的哪一行；`lstat` 的 EACCES 与 ENOENT 被合成同一句“文件不存在或读不了”。
+- 为什么是问题：服务端入口的失败原因只进诊断（没有浏览器控制台可看），丢了堆栈就很难定位；与插件文件端点刚按 errno 区分 404 与 500 的做法也不一致。
+- 如何核实：读代码；`/tmp/review-t04-impl2-opus/real/retry.ts` 的失败原因只有 `code-threw：……装载时出错：transient: not ready yet`。
+- 建议改法：两处都传 `cause: error`；`lstat` 失败按 errno 分开写 detail（不存在 / 读不了：<code>）。
+
+## 未发现问题的方面
+
+- 删 `require.cache` 再固定路径 `import`：状态根是真实路径时，入口与它相对导入的子模块都得到新实例（`/tmp/review-t04-impl2-opus/a/run.ts`：每轮删掉 `main.js`、`lib.js` 两条，子模块顶层重新执行）；语法错误与文件缺失不被 Bun 缓存，修好后重试能成功。问题只在第 1、3 条的两种情况。
+- `Bun.plugin` 的 `build.module` 登记的 exports 就是宿主动态导入的那一份，宿主自己之后再导入 `@vue/reactivity` 得到同一个对象，不会出现第二份；只登记一次、并发激活共用同一个 Promise。
+- 装载失败的分类没有按错误文案分支（只是分得太粗，见第 2、8、11 条）。
+- 项目子进程：IPC 的 `plugins` 消息经 `InstalledPluginSchema` 校验后再用 `manifestOfInstalled` 重读，`requiredPlugins`/`backgroundStartupPlugins` 与 `thirdPartyDefinitionsAt` 用同一个 `pluginsAt("project")` 集合，第三方入口不挡项目实例启动；子进程不持租约，与服务端同生命周期（父进程断开即停止）。
+- `commit` 在登记表锁内读 `livePins`，与别的服务端在锁内写租约互斥；`version-in-use` 只在目标目录确实存在时触发，第一轮 Opus 1 的复现路径（卸载、另一轮启动、重装同一版本）现在被挡住，运行中的服务端照旧送出旧内容（`plugin-files.test.ts` 已覆盖）。
+- 租约写失败不挡启动、写列表失败先放锁、文件端点按 errno 区分 404 与 500 并记诊断：按第一轮的建议改对了。
+- `fieldPath` 按清单里实际的合同 id 认回（最长匹配），结构问题与语义问题路径一致；入口 id 规则对全部内置插件成立（`src/builtin-manifest.test.ts` 14 例通过）。`schema.ts` 的关键字分类覆盖了 TypeBox 实际产出的写法：`Type.Cyclic` 的 `$defs` + `$id` + `$ref`、`Record` 的 `patternProperties`、`Tuple` 的 `additionalItems: false` 与数组 `items`，`Value.Check` 与 `portabilityProblems` 结论一致（`/tmp/review-t04-impl2-opus/schema.ts`）。
+- 合同替换（`sameContract`）的 `undefined` 键略去与 BigInt/循环引用按“不同”处理，交给内核以 `remote-contract-mismatch` 拒绝，释放照常执行。
+- `examples/testing/stage.ts` 给场地注入与产品同一个 `pluginVersionSatisfies`；三个示例的作者合同 `package.json` 与 README 一致。
+- 运行过：`bun test src/backend/plugins/ src/server/plugin-files.test.ts`（30 例通过）、nb-runtime `blocked.test.ts` 与 `plugin-manifest/`（67 例通过）、`src/builtin-manifest.test.ts`（14 例通过）、`bun run --cwd packages/nb-runtime typecheck`（通过）。
+
+## 各级数量
+
+阻断 0；重要 5（第 1、2、3、4、6 条）；建议 6（第 5、7、8、9、10、11 条）。共 11 条。

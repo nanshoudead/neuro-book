@@ -1,0 +1,42 @@
+### 1. 租约锁失效后仍继续运行，下一次启动会删除当前进程正在使用的版本目录
+- 严重程度：重要；类别：不变量 / 并发。
+- 位置：`packages/neuro-book/src/backend/plugins/pins.ts:40-59,91-103`；`packages/neuro-book/src/backend/plugins/startup.ts:103-123`。
+- 现象：`holdLock` 的 `onCompromised` 只把事件记到 `compromised`，`pinVersions` 仍返回成功的租约；`VersionPin` 没有失效状态或停止回调。`livePins` 在另一进程看到锁过期后把对应 `.json` 和 `.lock` 删除，并把租约中的版本视为未占用。原进程不会因此停止，后续仍会按启动快照从该版本目录取插件代码和文件。
+- 为什么是问题：锁的唯一保护已经失效，但运行实例仍被认为在用；另一个服务端的 `reclaim` 会删除它正在使用的目录，下一次入口激活或浏览器取文件得到 `ERR_MODULE_NOT_FOUND`/404。这正是租约要避免的跨进程破坏，不能只记录告警后继续提供服务。
+- 如何核实：在真实 `pinVersions` 租约上让持有进程阻塞事件循环 12.5 秒，再调用真实 `livePins`；实验命令为 `bun --bun /tmp/review-t04-impl1-omp/pin-compromise.ts`，输出 `{"events":[],"pinned":[],"unreadable":false}`。随后 `livePins` 已把活进程的租约当残留处理；没有伪造锁目录或直接调用回收内部函数。
+- 建议改法：租约进入 compromised/stale 状态时必须使本次准备失败并触发宿主停止，或至少把版本租约标记为失效并禁止后续代码/文件装载；不能让 `VersionPin` 继续表示有效。回收方仍应保守处理无法确认的租约，测试覆盖“锁过期但持有进程尚未退出”这条真实进程时序。
+### 2. 构建预设把入口 id 直接当临时文件路径，合法的入口名会导致越界写入或构建崩溃
+- 严重程度：重要；类别：安全与性能 / 正确性。
+- 位置：`packages/neuro-book/scripts/plugin-sdk/build-plugin.ts:233-235,251-253,359,391-414`；`packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts:271-278`。
+- 现象：`readPluginManifest` 只拒绝空入口 id，没有限制入口 id 不能含 `/` 或 `..`；因此清单合同允许例如 `a/b` 这样的入口 id，`manifestOf` 也会生成 `main: "a/b.js"`。构建预设随后用 `${entry.id}.shell.ts` 和 `join(workDir, entry.id)` 写文件，并把构建结果按同一路径 rename 到输出目录，没有创建父目录或做路径边界检查。`../x` 还会把 shell 写到 `workDir` 外。
+- 为什么是问题：作者只要使用清单层当前接受的入口 id，就会得到未分类的 `ENOENT`/Vite 错误；带 `..` 的 id 会让构建阶段写出预设临时目录，后续若路径处理变化还可能写到作者指定输出目录之外。构建预设应把不可信作者输入限制在临时目录和输出目录内，而不是依赖最终清单偶然校验。
+- 如何核实：在真实构建预设上创建只有一个 `server` 入口、id 为 `a/b` 的作者项目，运行 `buildPlugin`；命令为在仓库根执行的 `bun -e '…buildPlugin({root:"/tmp/review-t04-impl1-omp/entry-id",outDir:"/tmp/review-t04-impl1-omp/entry-id/dist",...IN_REPO_BUILD})…'`，实际得到 `ENOENT: no such file or directory, open '/tmp/nbook-plugin-build-WfsJtK/a/b.shell.ts'`，而不是结构化的清单错误。
+- 建议改法：为入口 id 定义并在 `readPluginManifest`/`manifestOf`/`defineEntry` 共用的安全段规则，拒绝 `/`、反斜杠、`.`、`..` 与空段；或完整支持嵌套 id，但所有临时文件和输出文件都必须先做 `resolve` 后 `within` 检查并创建父目录。不要让构建预设以 `join` 直接接受作者定义的路径。
+### 3. 浏览器代码请求不监听入口停止信号，关闭窗口后仍可挂起 30 秒并继续持有脚本装载
+- 严重程度：重要；类别：不变量 / 资源释放。
+- 位置：`packages/neuro-book/src/web/host/plugin-code.ts:133-178,181-199`；调用处 `packages/neuro-book/src/web/host/window.ts:459-461`。
+- 现象：`activateOf` 接收 `AbortSignal`，但 `fetchFactory` 创建的 `<script>`、30 秒计时器和等待表完全不绑定该 signal；只有 `Promise.all` 完成后才检查 `signal.aborted`。文件端点无响应、加载挂起或脚本未登记时，入口停止不会清理 `<script>`、`waiting` 或定时器，必须等固定超时；若脚本在停止后才执行，仍可能调用全局登记器。
+- 为什么是问题：运行时激活合同要求停止时收口在途激活。窗口关闭或入口因依赖恢复而停止时，插件请求和脚本执行不应继续；现在每个挂起入口都会把窗口的关闭路径拖到 30 秒超时，并留下迟到的脚本副作用窗口。多个第三方入口同时取回时，延迟按入口累积，且重试会重新建立同样的悬挂。
+- 如何核实：使用真实 `createPluginCodeHost`，仅以最小文档实现模拟一个永不触发 `load`/`error` 的真实脚本元素；命令 `bun --bun /tmp/review-t04-impl1-omp/browser-abort.ts` 在 `controller.abort()` 后立即输出 `['append']`，20 ms 超时后才得到 `code-load-failed`，最终才出现 `remove`，中间已记录 `still-pending`。这条实验没有替换装载器或内核的停止逻辑，实际走的是 `activateOf` 的生产路径。
+- 建议改法：把停止信号接到装载器：abort 时立即从 `waiting`、`pending` 和 DOM 移除脚本并 reject 一个结构化停止错误；同时为加载计时器使用与入口信号组合的 `AbortSignal`。脚本执行前和登记回调中再次核对所属装载是否仍存活，避免停止后的迟到注册。
+### 4. 清单允许不可解析的外部 `$ref`，远程合同的返回值校验会被固定判为不通过
+- 严重程度：重要；类别：正确性 / 安全与性能。
+- 位置：`packages/nb-runtime/src/plugins/schema.ts:40-85`；`packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts:228-244`；`packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts:458-474`。
+- 现象：`portabilityProblems` 只遍历对象、`type`、`format` 和正则，不检查 `$ref` 是否为本清单内可解析的引用。于是合同 schema `{ "$ref": "https://evil.example/schema" }` 通过 `readPluginManifest`，也能进入 `manifestOf` 的 JSON 产物。运行时宿主没有为外部 URL 装载引用注册表；当前 TypeBox `Value.Check` 对这个未解析引用对 `1`、`"x"`、`null` 都返回 `false`，不会按作者期望校验。
+- 为什么是问题：所谓“纯 JSON Schema”并不等于“可在另一进程还原的 JSON”；外部引用把宿主的校验结果绑定到不存在的解析上下文，提供方的合法返回会变成 `provider-error`，或同一合同在内置与外置载体中语义不同。清单读取阶段本应拒绝不可闭合的引用，而不是让它进入安装和启动。
+- 如何核实：真实 `readPluginManifest` 输入带 `output: {$ref: "https://evil.example/schema"}` 的合同，命令为 `bun -e '…readPluginManifest(manifest,{versions:npmVersions})…'`，结果为 `{"status":"valid",...}`；随后真实 `typebox/value` 的 `Value.Check({$ref:...}, 1)`, `"x"`, `null` 均输出 `false`。没有修改 TypeBox 或绕过清单解析。
+- 建议改法：纯度检查递归限制为闭合的 JSON Schema 子集：拒绝外部 URI `$ref`，只允许能在同一份 schema 内解析的 `$defs`/本地引用，并在构建和 `readPluginManifest` 两端用同一解析检查验证每个 schema。补充本地引用通过、外部引用拒绝、引用缺失拒绝三条合同测试。
+### 5. 启动摘要只算一次，版本目录被改写后旧的 immutable URL 仍返回新字节
+- 严重程度：建议；类别：正确性 / 安全与性能。
+- 位置：`packages/neuro-book/src/backend/plugins/startup.ts:290-321`；`packages/neuro-book/src/server/plugin-files.ts:65-82`。
+- 现象：`directoryDigest` 在启动时把摘要写进 `InstalledPlugin`，文件端点之后只比较 URL 中的摘要与这份内存值，从不核对被请求文件的内容。安装目录中的 `browser.js`、CSS 或资源被启动后改写时，旧摘要 URL 仍返回新内容并带 `Cache-Control: immutable`；同一 URL 的服务端代码、浏览器缓存与实际文件因此不再代表同一内容地址。
+- 为什么是问题：内容摘要被当作缓存身份与引导修订号使用，却没有绑定响应字节。插件完全信任并不保证目录不会被插件自身、开发工具或异常恢复流程改写；一旦发生，窗口可能拿到摘要不匹配的代码，旧缓存还会继续被视为永久有效。
+- 如何核实：真实 `directoryDigest` 与 `createPluginFilesRoute` 的文件系统实验 `bun --bun /tmp/review-t04-impl1-omp/digest-mutation.ts` 输出 `{"digest":"4b3feb6b980fa548","status":200,"body":"new"}`：摘要在内容为 `old` 时计算，响应却是改写后的 `new`。
+- 建议改法：安装目录完成后视为不可变并在端点拒绝/诊断任何变更；若允许开发期改写，则请求时至少按文件做 `ETag`/摘要核对，或重新建立安装代次并让旧 URL 404，不能把启动时的目录摘要单独当成内容校验。
+## 未发现问题的方面
+- 已验证的正常路径：内核清单与代码定义往返、贡献点 schema 先于 `validate`、必需/可选依赖的版本范围、第三方后台启动不阻塞、远程校验异常转结构化失败。
+- 已验证的正常后端路径：普通版本租约在跨进程切换/卸载时保留目录，文件端点的编码穿越、符号链接、摘要不符、响应头、同版本重装后的旧地址 404。
+- 已验证的正常浏览器与 SDK 路径：宿主模块身份与冻结、登记工厂、共享模块纯度检查、静态 `.vue` 定义、样式与图标产物、仓库外 SDK 类型检查。
+- 本轮实际运行：内核受影响测试 `143 pass / 0 fail`；应用后端与 SDK/清单测试 `60 pass / 0 fail`；`bun run --cwd packages/nb-runtime typecheck` 与 `bun run --cwd packages/neuro-book typecheck` 均通过。按任务规则未运行 e2e 与开发服务。
+
+各级数量：阻断 0；重要 4；建议 1。

@@ -4,7 +4,7 @@
  * （`useLayoutExtent`、`useGridLayout`，docs/specs/ui/nested-grid.md），这里只加外壳自己的事：位置与对齐决定的树、
  * 落账前的整批核对与落账后的补丁、Part 内容的稳定寿命与焦点策略。
  */
-import {GridRenderer} from "@notnotype/nb-ui/layout";
+import {NestedGrid} from "@notnotype/nb-ui/layout";
 import type {GridGestureCommit, GridGesturePreview} from "@notnotype/nb-ui/layout";
 import {useGridLayout, useLayoutExtent} from "@notnotype/nb-ui/composables";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
@@ -333,7 +333,7 @@ defineExpose({revealZoneRects});
         :data-shell-layout="mode"
         :data-layout-diagnostics="diagnostics"
     >
-        <GridRenderer
+        <NestedGrid
             v-if="mode === 'split'"
             :node="host.node.value"
             :layout="host.layout.value"

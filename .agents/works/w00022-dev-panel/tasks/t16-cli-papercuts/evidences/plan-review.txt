@@ -1,0 +1,93 @@
+# w00022/t16 计划审查
+
+审查对象：`.worktree/w00022-review-t16-plan/.agents/works/w00022-dev-panel/tasks/t16-cli-papercuts/plan.md`，固定提交 `b41ba99c8`。下列源码位置均相对这个 worktree。实验只在 `/dev/shm/review-t16-plan-lab/` 建独立 Git 仓库，调用依赖已安装的 `.worktree/w00022-dev-panel/packages/dev-panel/src/cli.ts`，不修改两个 checkout，不启动开发服务。
+
+### 1. 现有 HTML 解析器跳过 script 元素，直接复用会漏交页面明确引用的脚本
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划“产物的文件集”第 25 行；`packages/dev-panel/src/core/questions.ts:126,226-238`；`packages/dev-panel/src/core/artifact-ops.ts:170-195`。
+- **现象**：计划把现有解析器描述成能返回 HTML 的 `src` 引用，但 `walk` 遇到 `script`、`style`、`template`、`noscript` 就在收集引用之前返回。普通的 `<script src="app.js">`、`<script type="module" src="main.mjs">` 不在 `references` 中。入口广度遍历因此连脚本第一跳都到不了，后面的 JS import 追踪也不会运行。计划只另加了内联 CSS，没有补外链脚本和内联模块的字面量 import。
+- **为什么是问题**：以前全目录提交掩盖了这个解析缺口；改成引用白名单后，新评审板的交互脚本会被当作未引用文件排除，干净 checkout 上按钮和模块失效。这不是计划风险节所说的“少见写法”，而是标准脚本引用。
+- **如何核实**：源码核对后执行 `bun /dev/shm/review-t16-plan-lab/probe.ts`（cwd 为 `.worktree/w00022-dev-panel`）。真实 `artifact publish ... --json` 入口含 `missing-script.js` 与 `missing-image.png`，退出码 0；`missing_reference` 只包含图片以及另一个 srcset 解析产生的伪路径，不含脚本。实验所用 `questions.ts` 与审查 checkout 的同名文件快照均为 `AE9A`。未运行尚不存在的新文件集实现，漏交后果由计划的集合定义直接推导。
+- **建议改法**：引用收集与“提问标记不进入脚本正文”的遍历分开；先收元素自己的资源属性，再决定是否解析子节点。明确内联模块是否追踪字面量 import，和外链脚本共用规则。验收增加真实 CLI 发布外链脚本及其第二跳模块、修改脚本后哈希变化，并核对提交文件列表。
+
+### 2. 已跟踪文件和 include 只做并集、不做引用闭包，会把已保留页面的新依赖漏掉
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划“产物的文件集”第 24-32 行、“发布”第 37-39 行；`packages/dev-panel/src/core/artifact-ops.ts:175-190,307-316`。
+- **现象**：广度遍历只从 `entry` 出发，之后才并入已跟踪文件和 `--include`。例如入口已改到 r2，仍被跟踪、仍会解析题目的 `r1/index.html` 新加 `<img src="new.webp">`，`new.webp` 没有任何从当前入口可达的路径；结果 HTML 在集合里，图片却不在。`--include extra.html`、`--include extra.css` 或 `--include extra.mjs` 的依赖同样没有被定义为遍历起点。
+- **为什么是问题**：计划明确要保留旧页，但集合没有对自己保留的页面闭合。`checkReferences` 只检查磁盘存在，不检查是否进入提交，因此本地发布成功且没有 `missing_reference`，其他 checkout 打开旧页时才缺图片、字体或模块。当前实现全目录发布不会遗漏这些新依赖，属于本次白名单切换引入的回归。
+- **如何核实**：对照计划的三项集合公式与 `checkReferences` 的 `lstat` 判据即可确定。前述真实 CLI 实验已确认子目录页会进入题表，普通 `<a href="r1/index.html">` 被解析，说明这不是只服务单入口文档的系统。新算法未实现，未声称已运行其失败结果；实施验收应在真实 CLI 中先发布 r1，再让入口仅链接 r2、修改仍跟踪的 r1 并新增图片，另测 `--include` 的页面/CSS/模块，最后检查提交列表与干净 checkout 的依赖。
+- **建议改法**：以入口、所有已跟踪文件和 `--include` 共同作为种子，对每个纳入集合的可解析文件继续收集引用，直到集合不再增长。引用诊断与集合构造共用归一化后的引用图；不要让“文件存在”冒充“依赖已发布”。补上述第二轮发布和 include 间接依赖的验收。
+
+### 3. 文件集未持久化，git add 失败后会丢失发布范围并把仍在磁盘上的题永久取代
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：计划“发布”第 37、42 行、“面板的‘发布后有改动’”第 46 行；`packages/dev-panel/src/core/artifact-ops.ts:247-254,348-352`；`packages/dev-panel/src/core/artifacts.ts:362-367,528-548`；`packages/dev-panel/docs/cli.md:138,155`。
+- **现象**：面板与下一次发布只能靠 Git 已跟踪集合找回上次的 `--include`。但发布记录先落盘、`git add` 后执行；add 因 `index.lock` 或权限失败时，最新版本已经包含 include 文件的哈希及题目，文件却仍未跟踪。此时面板省略 include 计算的不是发布时同一集合。升级前一次失败发布里未链接的子页也有同样问题：重跑原命令时它被排除，题被当成“页面里没有了”。
+- **为什么是问题**：这破坏现有“同一条发布重跑，只补交、不出新版本”的恢复合同。更严重的是题表将真实存在的未答题记为 `superseded`，之后加回链接或 include 也不会复活；已答题则被记 `page: null`，关闭后重开也会漏恢复被筛掉页面的题。计划所谓“只发生一次的新哈希，接受”不足以覆盖这些语义变化。
+- **如何核实**：执行 `bun /dev/shm/review-t16-plan-lab/failure.ts`（cwd 为 `.worktree/w00022-dev-panel`）。只在隔离 Git 仓库持有真实 `.git/index.lock`，经真实 CLI 发布含 `index.html`、未链接 `side.html` 和 `data.json` 的产物。10.35 秒后退出码 1，`reason: git_lock_timeout`；`versions/v1.json` 已存在，题 `pending-side` 的 `page` 是 `side.html`、`outcome` 是 null，但 `git ls-files --cached -- <产物目录>` 为空。实验没有直接调用内部函数，也没有伪造回调时序。新版本的错误题表是按已读 `nextQuestions` 分支与计划集合公式推导，未声称执行了尚未实现的算法。
+- **建议改法**：把影响发布范围的文件清单或显式 include 清单写入不可变发布记录；面板、派生版本与失败后补交都重用它，不依赖 add 是否成功。旧记录没有清单时，明确失败残留的恢复规则；不能把“未被遍历到”当作“用户删除了题”。增加真实 add 失败后重新发布、面板哈希、未答/已答子页题以及关闭重开的验收。
+
+### 4. no-lease 被扩大成不认调用者，会丢掉与租约无关的领号归属
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：计划“撞号只报相关的，`--no-lease`”第 72 行；`packages/dev-panel/src/core/operations.ts:137-138,167,278-281`；`packages/dev-panel/src/cli/common.ts:32-36`；`packages/dev-panel/src/core/lease-ops.ts:135-146`；`packages/dev-panel/docs/file-formats.md:50-52`。
+- **现象**：计划除跳过 `touchCallerLease` 外，还要求“不认调用者”。现有调用者同时用于 `claimWork`、`claimTask` 的 `by`，不是只供租约使用。照字面实现后，已知会话甚至显式给了 `--as bob` 的登记，也会变成 `by: null`，与未知调用者混在一起。
+- **为什么是问题**：开发者要的是“先登记但不开工”，不是“匿名领号”。`by` 是登记事实，合同明确它无法由扫描重建；把运行时租约开关和持久登记的归属绑在一起，额外损失现有数据语义。省去 `caller_unknown` 不需要放弃归属：该警告在 `touchCallerLease` 的 unknown 分支里产生，跳过租约调用已经能避免它。
+- **如何核实**：逐行追踪 `writeCaller → createWork/createTask → byOf → claimWork/claimTask` 与 `touchCallerLease` 的警告分支；现有 `tests/leases-cli.test.ts:52-68` 已把“新建后登记表 by 是调用会话”作为可观察行为。这里是计划的直接语义冲突，未声称新选项已经能运行。
+- **建议改法**：保留边界上的调用者解析和登记表 `by`，单独给核心创建操作传是否取得租约的选项，默认仍取租约；只跳过事后租约与 pane 标签更新。验收同时检查成功和“文件已写、号已领但提交失败”两条路径：有/无选项分别应有/无租约，登记归属均保留。合同“自动取得与续期”一节也要写明这个例外，而不只在参数表登记新开关。
+
+### 5. srcset 现有的按逗号切分不是 URL 解析，复用后会漏交合法图片路径
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：计划“产物的文件集”第 25 行、“验收映射”第 111 行；`packages/dev-panel/src/core/questions.ts:233-237`。
+- **现象**：现有解析器用 `value.split(",")` 处理 srcset。合法的 `srcset="assets/a,b.png 1x"` 被拆成 `assets/a` 与 `b.png`，真正的 `assets/a,b.png` 不在引用结果里；带逗号的 data URL 也会被拆出伪本地引用。计划把这份引用结果直接作为发布集合，没有识别这个既有解析缺口。
+- **为什么是问题**：旧实现虽然误报缺失引用，但全目录提交仍会提交真图片；改成白名单后，误解析直接决定哪些文件不提交。新图片会留在 Agent 本机，评审板到了干净 checkout 就缺图，不能把它当成新增功能之外的旧警告问题。百分号编码路径则不是同一个问题：按现有顺序先剥 query/fragment、再解码，可以正确命中普通编码文件名。
+- **如何核实**：执行 `bun /dev/shm/review-t16-plan-lab/srcset.ts`（cwd 为 `.worktree/w00022-dev-panel`）。真实 CLI 发布同时含上述 srcset、实际文件 `assets/a,b.png`、以及 `%E5%9B%BE.png?size=1#top`。退出码 0，`missing_reference` 恰好列出两个伪路径 `assets/a`、`b.png`，不报编码的图片；旧实现的提交列表含真实图片。新集合会遗漏真图片的结论来自计划，未运行新算法。
+- **建议改法**：使用符合 srcset 候选项语法的解析，不按所有逗号切 URL；引用检查和图遍历必须消费同一份解析结果。增加普通多候选、URL 内逗号、data URL 与百分号编码路径的真实发布验收，既检查纳入的文件，也检查没有伪引用警告。
+
+### 6. 撞号验收要求的“相关撞号”在正常领号流程中不可构造
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：计划“撞号只报相关的”第 67-71 行、“验收映射”第 117 行；`packages/dev-panel/src/core/operations.ts:130-138,161-167`；`packages/dev-panel/src/core/scan.ts:95-110,163-181`。
+- **现象**：验收要求夹具同时放一组无关撞号和一组与本次新号相关的撞号。但新 Work 号与新 Task 号都是同一次扫描的最大值加 1，`findConflicts` 又只读这份扫描。因此扫描里有 t05 撞号，就会发 t06；有 w00003 撞号，就会发 w00004。新 Work 的 t01 也属于新 Work，不会与别的 Work 的 t01 同组。扫描后的外部写入不会回填这份扫描，不能用竞态制造该正例。
+- **为什么是问题**：照这条验收实现，会被迫替换扫描、伪造编号或错误地把不同 Work 的同号 Task 算成相关，测试将不再覆盖真实命令。按当前“本次领到的精确号”定义，正常命令的相关组数就是 0；需要把这个事实写出来，避免设计出没有真实输入的分支。
+- **如何核实**：执行 `bun /dev/shm/review-t16-plan-lab/numbers.ts`（cwd 为 `.worktree/w00022-dev-panel`）。同一真实 Git 仓库放 w00003-a/b、w00001-seed 下 t05-a/b 两组冲突；真实 `work new` 发 `w00004-next/t01-first`，`task new w00001` 发 `t06-next`，旧接口各列 `w00003` 与 `w00001-seed/t05`，没有一组涉及领到的新号。实验还确认两次登记的 `by.key` 均为 `external:probe`。
+- **建议改法**：保留已定的过滤目标，但把 CLI 验收改为多组既有冲突全部计入 `otherConflicts`、`conflicts` 为空、不发 `number_conflicts`；随后 `status` 与 `registry import` 仍给完整组和位置。写清匹配键：Work 用 `kind + wNNNNN`，Task 用 `kind + 完整 workId + tNN`，不能拿裸 t01 与别的 Work 相比。若保留通用过滤函数的正例，用独立纯函数行为测试，不冒充真实领号场景。
+
+## 未发现问题的方面
+
+- **范围与来源**：Task 的六条与 followups“试用建议”对应，计划没有漏掉其中一条；按 autonomous-delivery 推进是已定事项，本报告不重议。
+- **正常成功发布后的 include 与哈希**：成功提交后，本次文件集里的新文件已成为已跟踪文件，面板即使不知道 include 也能重建同一集合。旧成功版本的文件亦已跟踪，不会仅因入口换页就从哈希或题表里消失。这里不能泛化为“所有 include 都必然让面板算错”；实际缺口是第 3 条的失败路径。
+- **旧答复不靠哈希判有效**：`submitAnswer` 只把所针对版本的 `contentHash` 复制进答复；面板的过期提交检查比较 `artifactVersion`；`readArtifact`、`questionStates` 用版本与题定义校验取值，没有比较答复哈希与最新哈希。因此不能声称这次换哈希口径会直接使旧答复作废（`artifact-ops.ts:599-604,631-638`，`artifacts.ts:389-398,423-449`）。
+- **多页与百分号路径的已有基础**：真实 CLI 已确认 `<a href="r1/index.html">` 对应子页进入题表；普通百分号文件名连同 query/fragment 能命中。`checkReferences` 对无效百分号编码用字面值兜底，对根相对与越界路径给诊断；新图遍历需保留这些规则，而不是另造一套。
+- **撞号的其他读取方**：`status` 自己调用全量 `findConflicts`，面板首页/收件箱来自该读路径；`registry import` 仍可保留原全量调用。未发现面板依赖创建命令返回的 `data.conflicts` 来维持全局撞号视图。已有 CLI 撞号测试要按新语义更新，不能改掉 status 的全量断言。
+- **普通输出**：`invalid_questions` 的页面错误确有 `page/line/column/questionId/code/message`；ask 的错误只有 `questionId/code/message`，与计划区分两种格式一致。`emit` 已将普通警告/错误放 stderr、JSON 外壳放 stdout，在该层加明细不必改变 JSON 外壳。
+- **SIGHUP 的动作范围**：`answers --wait` 目前只注册并移除 SIGINT、SIGTERM；panel serve 与 dev start 已监听并清理 SIGINT、SIGTERM、SIGHUP。追加 SIGHUP 走现有 AbortController、在 finally 同步移除，和既有机制一致。SIGKILL 无法被处理。未重复运行来源已经给出的超时/信号实验。
+- **Lab 清单时序**：`labComponents` 在 `component-index.ts:35-41` 同步构造；`labFixtures` 与 scenes 在 `fixtures/index.ts:103-120` 同步登记，`defineSubjectFixture` 只把组件和 runtimeProps 的加载放进 `load`，不异步补 scenes（`fixtures/subject-fixture.ts:84-94`）。因此 `__nbLab` 挂载时 `components()` 与显式 `scenes(组件)` 已完整，不会因 preferencesHydrating 或 fixtureLoading 而暂缺。仍须保留合法组件的 ready/loadError 等待。`listScenes` 的空场景检查属于另一层防御，不必为了新前置检查再复制一份。
+
+## 本次核实与边界
+
+四个一次性脚本均经真实 CLI 和独立 Git 仓库运行；没有用 mock、spy、假计时器或直接调用内部函数代替命令运行：
+
+| 实际命令（cwd 均为 `.worktree/w00022-dev-panel`） | 已观察结果 |
+|---|---|
+| `bun /dev/shm/review-t16-plan-lab/probe.ts` | 脚本退出 0；两次真实发布成功，核实 script 引用缺失、多页及任意 HTML 提问行为 |
+| `bun /dev/shm/review-t16-plan-lab/failure.ts` | 脚本退出 0；内部真实发布退出 1，10.35 秒后给 git_lock_timeout，版本和题已落盘，产物文件未跟踪 |
+| `bun /dev/shm/review-t16-plan-lab/numbers.ts` | 脚本退出 0；两组旧撞号使领号越过旧号，登记 by 保留 external:probe |
+| `bun /dev/shm/review-t16-plan-lab/srcset.ts` | 脚本退出 0；真实发布退出 0，恰好报两个由逗号切分产生的伪路径，普通百分号路径正常 |
+
+相关实验使用的 `questions.ts`、`artifacts.ts`、`artifact-ops.ts` 与审查 checkout 的快照分别一致：`AE9A`、`FB8E`、`191F`。没有把尚未实现的新集合算法的推导写成运行结果。
+
+未运行包测试、typecheck、build、e2e、开发服务或 Lab 浏览器截图；Lab 结论来自初始化实现的逐行核对，实施后的未知组件、未知场景和合法场景 smoke 留给主 Agent。没有安装依赖，没有更改两个 checkout、提交其改动、push、stash 或切换分支。隔离实验目录已按要求删除，报告之外不保留实验文件。
+
+计划没有列独立的“待确认项”；六条目标与执行方式已有决定，不增设开发者确认门禁。
+
+## 数量
+
+- 阻断：0 条。
+- 重要：5 条（第 1-5 条）。
+- 建议：1 条（第 6 条）。
+- 合计：6 条。
+

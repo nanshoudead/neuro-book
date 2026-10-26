@@ -1,5 +1,5 @@
-import {lstat, readFile} from "node:fs/promises";
-import {posix, resolve} from "node:path";
+import {lstat} from "node:fs/promises";
+import {resolve} from "node:path";
 import {setTimeout as sleep} from "node:timers/promises";
 import {
     ackPath,
@@ -7,10 +7,10 @@ import {
     answersAfter,
     artifactContentHash,
     artifactDirPath,
+    artifactFileSet,
     assertArtifactId,
     closeQuestions,
     listAnswerFileNames,
-    listArtifactFiles,
     listArtifactIds,
     nextQuestions,
     nextRecordId,
@@ -22,12 +22,14 @@ import {
     RECORD_ID_PATTERN,
     unackedAnswers,
     versionPath,
+    versionSeeds,
     adoptionOf,
     awaitsAnswer,
     type AckRecord,
     type Adoption,
     type AnswerRecord,
     type ArtifactKind,
+    type ArtifactReference,
     type ArtifactRef,
     type ArtifactSnapshot,
     type ArtifactVersion,
@@ -43,7 +45,7 @@ import {touchCallerLease, type LeaseOptions} from "./lease-ops.js";
 import type {LeaseRecord} from "./leases.js";
 import {resolveWritableTask} from "./operations.js";
 import {verifiedProvenance, writeProvenance, type ProvenanceAction} from "./provenance.js";
-import {isEarlierPageQuestion, parseQuestionMarkup, scriptWritesQuestionMarkup, validateAnswerValue, validateQuestionDefinition, type MarkupProblem, type MarkupQuestion, type QuestionOption, type QuestionType} from "./questions.js";
+import {isEarlierPageQuestion, validateAnswerValue, validateQuestionDefinition, type MarkupProblem, type MarkupQuestion, type QuestionOption, type QuestionType} from "./questions.js";
 import {listTaskIds, listWorkIds} from "./records.js";
 import {WORKS_ROOT, type RepoContext} from "./repo.js";
 import {chooseExecutionCheckout, taskSourceInBranchWork} from "./sources.js";
@@ -61,8 +63,6 @@ export type ArtifactOpOptions = TransactionOptions & Partial<LeaseOptions>;
 export type WriteOutcome<T> = {data: T & {lease: LeaseRecord | null}; commit: CommitOutcome; warnings: Warning[]};
 
 const IMAGE_PATTERN = /\.(?:png|jpe?g|gif|webp|avif|bmp|svg)$/iu;
-const PAGE_PATTERN = /\.html?$/iu;
-const SCRIPT_PATTERN = /\.m?js$/iu;
 export const IMAGE_LIMIT_BYTES = 300 * 1024;
 export const TASK_IMAGE_LIMIT_BYTES = 5 * 1024 * 1024;
 
@@ -117,7 +117,7 @@ async function afterWrite(context: RepoContext, target: {workId: string; taskId:
     return lease;
 }
 
-function versionRecord(ref: ArtifactRef & {taskId: string}, fields: {version: number; action: VersionAction; kind: ArtifactKind; title: string; state: "open" | "closed"; entry: string | null; contentHash: string | null; questions: VersionQuestion[]; now: Date}): ArtifactVersion {
+function versionRecord(ref: ArtifactRef & {taskId: string}, fields: {version: number; action: VersionAction; kind: ArtifactKind; title: string; state: "open" | "closed"; entry: string | null; contentHash: string | null; files: string[] | null; questions: VersionQuestion[]; now: Date}): ArtifactVersion {
     return {
         schema: "nbdev.artifact-version/v1",
         workId: ref.workId,
@@ -131,6 +131,7 @@ function versionRecord(ref: ArtifactRef & {taskId: string}, fields: {version: nu
         state: fields.state,
         entry: fields.entry,
         contentHash: fields.contentHash,
+        files: fields.files,
         questions: fields.questions,
         publishedAt: fields.now.toISOString(),
     };
@@ -139,13 +140,14 @@ function versionRecord(ref: ArtifactRef & {taskId: string}, fields: {version: nu
 /** 非发布动作（登记、撤回、取代、关闭）生成的新版本：页面不重新解析，沿用上一版的内容字段。 */
 function derivedVersion(previous: ArtifactVersion, action: VersionAction, questions: VersionQuestion[], now: Date, state: "open" | "closed" = previous.state): ArtifactVersion {
     return versionRecord({workId: previous.workId, taskId: previous.taskId!, artifactId: previous.artifactId}, {
-        version: previous.version + 1, action, kind: previous.kind, title: previous.title, state, entry: previous.entry, contentHash: previous.contentHash, questions, now,
+        version: previous.version + 1, action, kind: previous.kind, title: previous.title, state, entry: previous.entry, contentHash: previous.contentHash, files: previous.files, questions, now,
     });
 }
 
 // ---------- 发布 ----------
 
-export type PublishInput = {workRef: string; taskRef: string; artifactId: string; kind?: string; title?: string; entry?: string; keep?: readonly string[]; forceVersion?: boolean};
+/** `include`：页面没有引用、也要随发布提交的文件，相对产物目录；记进这一版的 `files`，以后的发布不用再列。 */
+export type PublishInput = {workRef: string; taskRef: string; artifactId: string; kind?: string; title?: string; entry?: string; include?: readonly string[]; keep?: readonly string[]; forceVersion?: boolean};
 export type PublishData = {
     workId: string;
     taskId: string;
@@ -161,47 +163,31 @@ export type PublishData = {
     previous: {version: number; publishedAt: string; publishedBy: string | null} | null;
 };
 
-function assertEntry(entry: string): void {
-    if (entry === "" || entry.startsWith("/") || entry.includes("\\") || entry.split("/").some((segment) => segment === ".." || segment === "." || segment === "")) {
-        throw new NbdevError("usage", `--entry 要写产物目录里的相对路径：${entry}`, {details: {entry}});
+function assertArtifactPath(option: "--entry" | "--include", path: string): void {
+    if (path === "" || path.startsWith("/") || path.includes("\\") || path.split("/").some((segment) => segment === ".." || segment === "." || segment === "")) {
+        throw new NbdevError("usage", `${option} 要写产物目录里的相对路径：${path}`, {details: {[option.slice(2)]: path}});
     }
 }
 
-/** 页面引用的本地文件：先去掉 `#…`、`?…`；指向产物目录之外的、不存在的各给警告。 */
-async function checkReferences(mainRoot: string, ref: ArtifactRef, parsed: ReadonlyArray<{page: string; references: ReadonlyArray<{target: string; line: number | null}>}>, warnings: Warning[]): Promise<void> {
-    const outside: Array<{page: string; target: string}> = [];
+/** 文件集写下的引用（归一化见 `resolveReference`）：指向产物目录之外的、不存在的各给警告。 */
+async function checkReferences(mainRoot: string, ref: ArtifactRef, references: readonly ArtifactReference[], warnings: Warning[]): Promise<void> {
+    const outside: Array<{page: string; target: string; line: number | null}> = [];
     const missing: Array<{page: string; target: string; line: number | null}> = [];
     const dir = artifactDirPath(ref);
-    for (const {page, references} of parsed) {
-        for (const {target, line} of references) {
-            if (/^[a-z][a-z0-9+.-]*:/iu.test(target) || target.startsWith("//") || target.startsWith("#")) continue;
-            const path = target.replace(/[?#].*$/u, "");
-            if (path === "") continue;
-            const resolved = path.startsWith("/") ? null : posix.normalize(posix.join(posix.dirname(page), decodeURIComponentSafe(path)));
-            if (resolved === null || resolved === ".." || resolved.startsWith("../")) {
-                outside.push({page, target});
-                continue;
-            }
-            try {
-                await lstat(resolve(mainRoot, dir, resolved));
-            } catch (error) {
-                if (systemErrorCode(error) !== "ENOENT" && systemErrorCode(error) !== "ENOTDIR") throw error;
-                missing.push({page, target, line});
-            }
+    for (const {page, target, line, path} of references) {
+        if (path === null) {
+            outside.push({page, target, line});
+            continue;
+        }
+        try {
+            await lstat(resolve(mainRoot, dir, path));
+        } catch (error) {
+            if (systemErrorCode(error) !== "ENOENT" && systemErrorCode(error) !== "ENOTDIR") throw error;
+            missing.push({page, target, line});
         }
     }
     if (outside.length > 0) warnings.push({code: "reference_outside_artifact", message: `有 ${outside.length} 处引用指向产物目录之外：不在 contentHash 的范围内，面板的产物来源也未必提供`, details: {references: outside}});
     if (missing.length > 0) warnings.push({code: "missing_reference", message: `有 ${missing.length} 处引用的本地文件不存在`, details: {references: missing}});
-}
-
-function decodeURIComponentSafe(path: string): string {
-    try {
-        return decodeURIComponent(path);
-    } catch (error) {
-        // 不是合法的百分号编码：按字面路径判断。
-        if (!(error instanceof URIError)) throw error;
-        return path;
-    }
 }
 
 /** 图片体积：单张超过 300 KiB；Task 里 `artifacts/` 与 `evidences/` 的图片（含本次要提交、还没跟踪的）合计超过 5 MiB。只警告。 */
@@ -268,20 +254,26 @@ function canonical(value: unknown): string {
     return JSON.stringify(value);
 }
 
+/**
+ * 不比 `files`：同一个 `contentHash` 已经确定了文件集（哈希里有每个路径）。旧记录没有 `files`、读成空清单，
+ * 比了它，升级后每个没改过的产物都会多出一版。
+ */
 function sameContent(left: ArtifactVersion, right: ArtifactVersion): boolean {
-    const strip = ({version: _version, supersedes: _supersedes, action: _action, publishedAt: _publishedAt, ...rest}: ArtifactVersion) => rest;
+    const strip = ({version: _version, supersedes: _supersedes, action: _action, publishedAt: _publishedAt, files: _files, ...rest}: ArtifactVersion) => rest;
     return canonical(strip(left)) === canonical(strip(right));
 }
 
 /**
  * `nbdev artifact publish`：页面文件由会话写在主工作区的产物目录里，这里解析提问、算哈希、生成题表，
- * 写一份发布记录并与有变化的页面文件一起提交。内容与题都没变时不出新版本（`--force-version` 除外）；
- * 这时若有上次提交失败的残留，补交残留与有变化的页面文件，所以发布提交失败后重跑同一条命令即可补救。
+ * 写一份发布记录并与文件集里有变化的文件一起提交。内容与题都没变时不出新版本（`--force-version` 除外）；
+ * 这时若有上次提交失败的残留，补交残留与文件集里有变化的文件，所以发布提交失败后重跑同一条命令即可补救
+ * （上一版的 `files` 是种子，add 失败时还没被跟踪的 `--include` 文件也找得回来）。
  */
 export async function publishArtifact(context: RepoContext, input: PublishInput, options: ArtifactOpOptions = {}): Promise<WriteOutcome<PublishData>> {
     assertArtifactId(input.artifactId);
     if (input.artifactId === QUESTIONS_ARTIFACT) throw new NbdevError("invalid_artifact_id", `${QUESTIONS_ARTIFACT} 是 Task 提问集的保留名，用 nbdev ask 登记`, {details: {artifactId: input.artifactId}});
-    if (input.entry !== undefined) assertEntry(input.entry);
+    if (input.entry !== undefined) assertArtifactPath("--entry", input.entry);
+    for (const path of input.include ?? []) assertArtifactPath("--include", path);
     let versionContent: string | null = null;
     const {result, commit, warnings} = await runWriteTransaction<PublishData>(context, options, async (tx) => {
         const {mainRoot} = context;
@@ -298,23 +290,22 @@ export async function publishArtifact(context: RepoContext, input: PublishInput,
             if (systemErrorCode(error) === "ENOENT" || systemErrorCode(error) === "ENOTDIR") throw new NbdevError("entry_missing", `找不到入口：${dir}/${entry}；先把页面写进产物目录`, {details: {path: `${dir}/${entry}`}});
             throw error;
         }
-        const files = await listArtifactFiles(mainRoot, ref);
-        const contentHash = await artifactContentHash(mainRoot, ref, files);
-        const pages: Array<{page: string; references: Array<{target: string; line: number | null}>; title: string | null}> = [];
-        const markup: MarkupQuestion[] = [];
-        const problems: MarkupProblem[] = [];
-        let scriptMarkers = false;
-        for (const file of files) {
-            if (PAGE_PATTERN.test(file.path)) {
-                const parsed = await parseQuestionMarkup(await readFile(resolve(mainRoot, dir, file.path), "utf8"), file.path);
-                pages.push({page: file.path, references: parsed.references, title: parsed.title});
-                markup.push(...parsed.questions);
-                problems.push(...parsed.problems);
-                scriptMarkers ||= parsed.scriptMarkers;
-            } else if (SCRIPT_PATTERN.test(file.path)) {
-                scriptMarkers ||= scriptWritesQuestionMarkup(await readFile(resolve(mainRoot, dir, file.path), "utf8"));
-            }
+        const include = input.include ?? [];
+        const fileSet = await artifactFileSet(mainRoot, ref, {entry, seeds: [...versionSeeds(previous), ...include]});
+        const inSet = new Set(fileSet.files.map((file) => file.path));
+        // 种子只要是候选就一定在文件集里：不在，说明这个文件不存在、被 Git 忽略或在 versions/、answers/ 里，提交不了。
+        for (const path of include) {
+            if (inSet.has(path)) continue;
+            const exists = await pathExists(resolve(mainRoot, dir, path));
+            throw new NbdevError("usage", exists ? `--include 的文件被 Git 忽略（或在 versions/、answers/ 里），提交不了：${dir}/${path}` : `--include 的文件不存在：${dir}/${path}`, {details: {include: path, exists}});
         }
+        const contentHash = await artifactContentHash(mainRoot, ref, fileSet.files);
+        const pages = fileSet.pages.map(({page, markup: parsed}) => ({page, title: parsed.title}));
+        const markup: MarkupQuestion[] = fileSet.pages.flatMap(({markup: parsed}) => parsed.questions);
+        const problems: MarkupProblem[] = fileSet.pages.flatMap(({markup: parsed}) => parsed.problems);
+        const scriptMarkers = fileSet.scriptMarkers;
+        /** 只提交文件集里有变化的文件；产物目录里别的未跟踪文件（检查页面时的截图）留在工作区。 */
+        const changedInSet = async () => (await changedArtifactFiles(mainRoot, ref)).changed.filter((path) => inSet.has(path.slice(dir.length + 1)));
         const seen = new Map<string, string>();
         for (const question of markup) {
             const other = seen.get(question.id);
@@ -335,7 +326,7 @@ export async function publishArtifact(context: RepoContext, input: PublishInput,
         if (duplicate) throw new NbdevError("duplicate_question", duplicate.message, {details: {problems: next.problems}});
         if (next.problems.length > 0) throw new NbdevError("usage", next.problems.map((problem) => problem.message).join("；"), {details: {problems: next.problems}});
 
-        const record = versionRecord(ref, {version, action: "publish", kind: kind as ArtifactKind, title, state: "open", entry, contentHash, questions: next.questions, now: tx.now});
+        const record = versionRecord(ref, {version, action: "publish", kind: kind as ArtifactKind, title, state: "open", entry, contentHash, files: fileSet.files.map((file) => file.path), questions: next.questions, now: tx.now});
         // 发布者按 provenance 找并核对 sha256：发布记录被删掉又由别的会话重建过时，provenance 记的还是原来那个会话。
         const provenanceWarnings: Warning[] = [];
         const previousInfo = previous ? {
@@ -345,21 +336,25 @@ export async function publishArtifact(context: RepoContext, input: PublishInput,
         } : null;
         for (const warning of provenanceWarnings) tx.warn(warning);
         const base = {workId, taskId, artifactId: input.artifactId, questions: next.questions, dropped: next.dropped, retiredInPage: next.retiredInPage, restored: next.restored, previous: previousInfo};
+        if (fileSet.unreferenced.length > 0) {
+            tx.warn({code: "unreferenced_files_not_committed", message: `产物目录里有 ${fileSet.unreferenced.length} 个文件页面没有引用，没有随发布提交；页面要用的话就在页面里引用它，或者用 --include 列出`, details: {paths: fileSet.unreferenced}});
+        }
         if (previous && !input.forceVersion && previous.state === "open" && sameContent(previous, record)) {
             if (residue.length === 0) return {message: null, result: {...base, unchanged: true, version: null, path: null, committedFiles: []}};
-            const {changed} = await changedArtifactFiles(mainRoot, ref);
+            const changed = await changedInSet();
             tx.includePaths(changed);
             return {message: residueMessage(workId, taskId, input.artifactId), result: {...base, unchanged: true, version: null, path: null, committedFiles: [...residue, ...changed]}};
         }
         const path = versionPath(ref, version);
         versionContent = serialize(record);
         tx.createFile(path, versionContent);
-        const {changed, deleted} = await changedArtifactFiles(mainRoot, ref);
+        const {deleted} = await changedArtifactFiles(mainRoot, ref);
+        const changed = await changedInSet();
         tx.includePaths(changed);
         if (deleted.length > 0) tx.warn({code: "artifact_deletions_not_committed", message: `产物目录里有 ${deleted.length} 个文件被删掉了，没有随发布提交；需要时手动 git rm 并提交`, details: {paths: deleted}});
         const checks: Warning[] = [];
-        await checkImages(mainRoot, workId, taskId, ref, files, checks);
-        await checkReferences(mainRoot, ref, pages, checks);
+        await checkImages(mainRoot, workId, taskId, ref, fileSet.files, checks);
+        await checkReferences(mainRoot, ref, fileSet.references, checks);
         for (const warning of checks) tx.warn(warning);
         if (next.dropped.length > 0) tx.warn({code: "questions_dropped", message: `页面里没有了、还没答的 ${next.dropped.length} 道题记为被 v${version} 取代；暂时删掉的题用 --keep 保留`, details: {questions: next.dropped}});
         if (next.retiredInPage.length > 0) tx.warn({code: "retired_question_in_page", message: `${next.retiredInPage.length} 道已撤回或已取代的题又出现在页面里，结局不变；题意变了就换题号`, details: {questions: next.retiredInPage}});
@@ -447,7 +442,8 @@ export async function askQuestions(context: RepoContext, input: {workRef: string
     const problems: Array<{questionId: string; code: string; message: string}> = [];
     for (const spec of input.questions) {
         for (const problem of validateQuestionDefinition({id: spec.id, type: spec.type, label: spec.label, options: spec.options ?? [], recommend: spec.recommend ?? []})) {
-            problems.push({questionId: spec.id, ...problem});
+            // 与页面标记的问题一样，消息自己写明是哪道题：普通输出逐条列出时不另拼题号。
+            problems.push({questionId: spec.id, code: problem.code, message: `题 ${spec.id}：${problem.message}`});
         }
         if (spec.about) assertAbout(spec.about);
     }
@@ -488,7 +484,7 @@ export async function askQuestions(context: RepoContext, input: {workRef: string
         }));
         const record = previous
             ? derivedVersion(previous, "ask", [...previous.questions, ...added], tx.now)
-            : versionRecord(ref, {version, action: "ask", kind: "questions", title: `${taskId} 的提问`, state: "open", entry: null, contentHash: null, questions: added, now: tx.now});
+            : versionRecord(ref, {version, action: "ask", kind: "questions", title: `${taskId} 的提问`, state: "open", entry: null, contentHash: null, files: null, questions: added, now: tx.now});
         const path = versionPath(ref, version);
         content = serialize(record);
         tx.createFile(path, content);

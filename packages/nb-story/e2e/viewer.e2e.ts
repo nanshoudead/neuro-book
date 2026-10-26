@@ -1,0 +1,407 @@
+/**
+ * 查看器的验收（docs/specs/story/viewer.md 验收 1 到 8 与“状态与转换”的时序）：生产构建的网页，真实的 `nbstory serve`，
+ * 100 章样例书，本机 Chrome。图画在 WebGL 画布上，读不到点和字：图的数据由核心库的测试覆盖，这里测画布与交互的外部效果。
+ */
+
+import {expect, test, type Page} from "@playwright/test";
+
+import {login, makeLibrary, readingState, runCli, startServe, type StoryServer} from "./fixtures";
+
+let server: StoryServer;
+let cleanup: () => Promise<void>;
+
+test.beforeAll(async () => {
+    const library = await makeLibrary("viewer");
+    cleanup = library.cleanup;
+    server = await startServe(library.library);
+});
+
+test.afterAll(async () => {
+    expect(await server.stop()).toBe(0);
+    await cleanup();
+});
+
+test.beforeEach(async ({context}) => {
+    await login(context, server);
+});
+
+async function open(page: Page, path: string): Promise<void> {
+    await page.goto(`${server.base}${path}`);
+    await expect(page.getByTestId("book-frame")).toBeVisible();
+}
+
+/** 页面主区与抽屉里的全部文字。 */
+async function visibleText(page: Page): Promise<string> {
+    return page.locator("body").innerText();
+}
+
+test("防剧透（验收 1）：第 7 章时各页没有心月狐与之后的章标题，拨到第 8 章后出现", async ({page}) => {
+    const info = await (await page.context().request.post(`${server.base}/api/rpc/book.info`, {data: {book: "fox"}})).json() as {toc: {chapter: number; title: string}[]};
+    const laterTitles = info.toc.filter(item => item.chapter > 7).map(item => item.title);
+    // 图画在画布上读不到字：核对页面拿到的图数据里没有心月狐。
+    const graphBodies: string[] = [];
+    page.on("response", async response => {
+        if (/\/api\/rpc\/graph\./u.test(response.url())) graphBodies.push(await response.text());
+    });
+    for (const path of ["relations", "book-graph"]) {
+        await open(page, `/book/fox/${path}?at=7&perspective=reader`);
+        await page.waitForLoadState("networkidle");
+    }
+    await page.getByRole("radio", {name: "按关联"}).click();
+    await page.waitForLoadState("networkidle");
+    await expect.poll(() => graphBodies.length).toBeGreaterThanOrEqual(3);
+    for (const body of graphBodies) expect(body).not.toContain("心月狐");
+    for (const path of ["overview", "roster", "secrets", "episodes", "timeline", "questions"]) {
+        await open(page, `/book/fox/${path}?at=7`);
+        await expect(page.getByTestId(`page-${path}`)).toBeVisible();
+        await page.waitForLoadState("networkidle");
+        const text = await visibleText(page);
+        expect(text).not.toContain("心月狐");
+        for (const title of laterTitles) expect(text, `${path} 里出现了第 8 章之后的标题“${title}”`).not.toContain(title);
+    }
+    await open(page, "/book/fox/source?at=7");
+    await expect(page.locator('[data-chapter="8"]')).toHaveText(/未读/u);
+    await expect(page.locator('[data-chapter="8"]')).toBeDisabled();
+    await page.getByTestId("search-input").locator("input").fill("心月狐");
+    await expect(page.getByTestId("search-results")).toContainText("共 0 条");
+
+    await open(page, "/book/fox/secrets?at=8");
+    await expect(page.getByTestId("secrets-matrix")).toContainText("心月狐就是苏天晴");
+    await open(page, "/book/fox/source?at=8");
+    await expect(page.locator('[data-chapter="8"]')).not.toHaveText(/未读/u);
+});
+
+test("回到上次（验收 2）：换一个浏览器配置打开回到同一画面；地址写明的部分优先", async ({page, browser}) => {
+    await open(page, "/book/fox/relations?at=38.57&perspective=e1-1&entity=e8-2");
+    await expect.poll(async () => (await readingState(page.context(), server)).view, {timeout: 10_000}).toEqual(expect.objectContaining({page: "relations", entity: "e8-2", perspective: "e1-1"}));
+    expect((await readingState(page.context(), server)).position).toEqual({chapter: 38, paragraph: 57});
+    await page.context().close();
+
+    const other = await browser.newContext();
+    await login(other, server);
+    const next = await other.newPage();
+    await next.goto(`${server.base}/book/fox`);
+    await expect(next.getByTestId("page-relations")).toBeVisible();
+    await expect(next).toHaveURL(/\/book\/fox\/relations\?at=38\.57&perspective=e1-1&entity=e8-2/u);
+    await expect(next.getByTestId("card-name")).toHaveText("南嘉鱼");
+
+    await next.goto(`${server.base}/book/fox/roster?at=7`);
+    await expect(next.getByTestId("page-roster")).toBeVisible();
+    await expect(next.getByTestId("reading-label")).toContainText("第 7 章");
+    await other.close();
+});
+
+/** 等画布稳定：相隔 300ms 的两次轮询截图相同（WebGL 动画中连着两帧也可能一样，间隔太短会误判）。 */
+async function settle(page: Page): Promise<void> {
+    const graph = page.getByTestId("relation-graph");
+    let previous: Buffer | null = null;
+    await expect.poll(async () => {
+        const current = await graph.screenshot();
+        const same = previous !== null && current.equals(previous);
+        previous = current;
+        return same;
+    }, {intervals: [300]}).toBe(true);
+}
+
+/** 用“在图里找”把镜头移到一个点上：命中的点被移到画布中央。 */
+async function centerOn(page: Page, name: string): Promise<{x: number; y: number}> {
+    const graph = page.getByTestId("relation-graph");
+    await settle(page);
+    const before = await graph.screenshot();
+    await page.getByPlaceholder("在图里找").fill(name);
+    await expect.poll(async () => !(await graph.screenshot()).equals(before)).toBe(true);
+    await settle(page);
+    const box = (await graph.boundingBox())!;
+    return {x: box.x + box.width / 2, y: box.y + box.height / 2};
+}
+
+test("关系图（验收 3、输出 27）：页面上已有文字选区时拖动一个点照样能拖、不打开人物卡；单击只选中，双击打开人物卡；右键菜单与快捷键；打开认知层后图照常", async ({page}) => {
+    await open(page, "/book/fox/relations?at=38&perspective=reader");
+    await expect(page.getByTestId("relation-graph").locator("canvas").first()).toBeVisible();
+    const center = await centerOn(page, "花铃");
+    // 开发者试用时先选中了页面上的一行字再拖点，点拖不动（t04 反馈 12）：先造一个文字选区。
+    await page.evaluate(() => {
+        const range = document.createRange();
+        range.selectNodeContents(document.querySelector(".story-page-title")!);
+        window.getSelection()!.removeAllRanges();
+        window.getSelection()!.addRange(range);
+    });
+    await page.mouse.move(center.x, center.y);
+    await page.mouse.down();
+    await page.mouse.move(center.x + 60, center.y + 40, {steps: 8});
+    await page.mouse.up();
+    await expect(page.getByTestId("entity-card")).toHaveCount(0);
+    // 松手后马上再点会被 Sigma 当成双击（放大镜头）：等画布稳定（超过双击间隔）再点。
+    await settle(page);
+    // 在拖到的新位置上单击只选中、不开抽屉；按 Enter 打开的是花铃：说明点确实被拖过去了、也选中了它。
+    await page.mouse.click(center.x + 60, center.y + 40);
+    await expect(page.getByTestId("entity-card")).toHaveCount(0);
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("card-name")).toHaveText("花铃");
+    // F 切换“只看周边”。
+    const neighborhood = page.getByRole("checkbox", {name: "只看选中的周边"});
+    await page.keyboard.press("f");
+    await expect(neighborhood).toBeChecked();
+    await page.keyboard.press("f");
+    await expect(neighborhood).not.toBeChecked();
+    // 抽屉开着时单击另一个点，抽屉跟着换人。
+    const other = await centerOn(page, "南小风");
+    await page.mouse.click(other.x, other.y);
+    await expect(page.getByTestId("card-name")).toHaveText("南小风");
+    await page.getByTestId("entity-card").getByRole("button", {name: "关闭"}).click();
+    await expect(page.getByTestId("entity-card")).toHaveCount(0);
+    // 右键菜单：打开人物卡。关掉抽屉后画布变宽、点的屏幕位置变了，换一个人重新定位。
+    const third = await centerOn(page, "白灵");
+    await page.mouse.click(third.x, third.y, {button: "right"});
+    await page.getByRole("menuitem", {name: /白灵的人物卡/u}).click();
+    await expect(page.getByTestId("card-name")).toHaveText("白灵");
+    await page.getByTestId("entity-card").getByRole("button", {name: "关闭"}).click();
+    await settle(page);
+    const beforeLayer = await page.getByTestId("relation-graph").screenshot();
+    await page.locator('[data-layer="know"]').click();
+    await expect(page.locator('[data-layer="know"]')).toHaveAttribute("aria-pressed", "true");
+    // 打开认知层后按新的线重新排版：画面要变，并在动画结束后稳定下来。
+    await expect.poll(async () => !(await page.getByTestId("relation-graph").screenshot()).equals(beforeLayer)).toBe(true);
+    await settle(page);
+    await expect(page.getByTestId("page-error")).toHaveCount(0);
+});
+
+test("收起抽屉后重画（验收 4）：画布铺满主区", async ({page}) => {
+    await open(page, "/book/fox/relations?at=38&entity=e1-1&tab=relations");
+    await expect(page.getByTestId("entity-card")).toBeVisible();
+    const graph = page.getByTestId("relation-graph");
+    const before = (await graph.boundingBox())!.width;
+    await page.getByTestId("entity-card").getByRole("button", {name: "关闭"}).click();
+    await expect(page.getByTestId("entity-card")).toHaveCount(0);
+    await expect.poll(async () => (await graph.boundingBox())!.width).toBeGreaterThan(before + 200);
+    const width = (await graph.boundingBox())!.width;
+    await expect.poll(async () => (await graph.locator("canvas").first().boundingBox())!.width).toBeCloseTo(width, 0);
+    // 重画过：画布上有点与线（截图不是一片底色）。
+    const shot = await graph.screenshot();
+    expect(new Set(Array.from({length: 400}, (_, index) => shot[Math.floor((shot.length * index) / 400)])).size).toBeGreaterThan(10);
+});
+
+test("视角（验收 5）：苏天晴视角下南嘉鱼与地狱猫不合并；读者视角下猫娘魔法少女与南嘉鱼可能是同一人", async ({page}) => {
+    // 线上的字画在画布上读不到：核对页面画图用的数据里这两对的身份状态，再看横幅与人物卡。
+    const graphs: {view: {perspective: string}; edges: {a: string; b: string; identity: string | null}[]}[] = [];
+    page.on("response", async response => {
+        if (response.url().endsWith("/api/rpc/graph.relations")) graphs.push(await response.json());
+    });
+    await open(page, "/book/fox/relations?at=38&perspective=e1-1");
+    await expect.poll(() => graphs.find(graph => graph.view.perspective === "e1-1")?.edges.find(edge => edge.a === "e33-1" && edge.b === "e8-2")?.identity).toBe("unaware");
+    // 视角说明平时只是一个小标记，点开看完整的不合并列表（输出 28）。
+    await expect(page.getByTestId("perspective-banner")).toContainText("处不合并");
+    await page.getByTestId("perspective-banner").click();
+    await expect(page.getByTestId("perspective-detail")).toContainText("地狱猫与南嘉鱼");
+    await page.keyboard.press("Escape");
+    await open(page, "/book/fox/relations?at=38&perspective=reader");
+    await expect(page.getByTestId("perspective-banner")).toHaveCount(0);
+    await expect.poll(() => graphs.find(graph => graph.view.perspective === "reader")?.edges.find(edge => edge.a === "e30-1" && edge.b === "e8-2")?.identity).toBe("uncertain");
+    // 双击猫娘魔法少女打开人物卡的关系页签，身份连接写在列表里。
+    const center = await centerOn(page, "猫娘魔法少女");
+    await page.mouse.dblclick(center.x, center.y);
+    await expect(page.getByTestId("card-relations").getByTestId("identity")).toContainText("可能是同一人");
+});
+
+test("长列表（验收 6）：第 100 章苏天晴的记录 1 秒内出首屏，筛选与搜索 1 秒内更新，滚到底取到全部", async ({page}) => {
+    await open(page, "/book/fox/overview?at=100");
+    const started = Date.now();
+    await page.goto(`${server.base}/book/fox/roster?at=100&entity=e1-1&tab=records`);
+    await expect(page.getByTestId("record").first()).toBeVisible();
+    // 计时含整页导航与外壳的取数，比 Spec 的“从打开记录页签起”更严。
+    expect(Date.now() - started).toBeLessThan(1000);
+
+    let t = Date.now();
+    await page.getByRole("radio", {name: "不知道"}).click();
+    await expect(page.getByTestId("record").first()).toContainText("不知道");
+    expect(Date.now() - t).toBeLessThan(1000);
+
+    t = Date.now();
+    await page.getByTestId("entity-card").getByPlaceholder("按字搜").fill("南嘉鱼");
+    await expect(page.getByTestId("record").first()).toContainText("南嘉鱼");
+    expect(Date.now() - t).toBeLessThan(1000);
+
+    await page.getByRole("radio", {name: "全部"}).click();
+    await page.getByTestId("entity-card").getByPlaceholder("按字搜").fill("");
+    const total = Number((await page.getByRole("radio", {name: /他知道的/u}).innerText()).match(/\d+/u)![0]);
+    const list = page.getByTestId("entity-card").locator(".story-scroll-y");
+    await expect.poll(async () => {
+        await list.evaluate(element => element.scrollTo(0, element.scrollHeight));
+        return page.getByTestId("record").count();
+    }, {timeout: 30_000}).toBe(total);
+});
+
+test("宽度（验收 7）：宽屏与平板下各页无横向溢出；手机宽度能显示", async ({page}) => {
+    const pages = ["overview", "relations", "book-graph", "roster", "secrets", "ledger", "questions", "timeline", "episodes", "source", "stats"];
+    for (const width of [1440, 900]) {
+        await page.setViewportSize({width, height: 900});
+        for (const name of pages) {
+            await open(page, `/book/fox/${name}?at=38&entity=e1-1`);
+            await expect(page.getByTestId(`page-${name}`)).toBeVisible();
+            await page.waitForLoadState("networkidle");
+            // 外壳是 overflow: hidden，量文档的横向滚动量没有意义：逐个量页面、内容列、抽屉与顶栏自己是否放不下。
+            const overflow = await page.evaluate(() =>
+                [...document.querySelectorAll<HTMLElement>('[data-testid^="page-"], .story-page-body, [data-testid="drawer"], header, footer')]
+                    .filter(element => element.scrollWidth > element.clientWidth + 1)
+                    .map(element => `${element.dataset.testid ?? element.className}: ${element.scrollWidth} > ${element.clientWidth}`),
+            );
+            expect(overflow, `${name} @${width}`).toEqual([]);
+        }
+    }
+    await page.setViewportSize({width: 390, height: 844});
+    for (const name of pages) {
+        await open(page, `/book/fox/${name}?at=38`);
+        await expect(page.getByTestId(`page-${name}`)).toBeVisible();
+    }
+});
+
+test("记录标记与段落概要（验收 8）", async ({page}) => {
+    await open(page, "/book/fox/roster?at=38&entity=e1-1&tab=records");
+    await page.getByRole("radio", {name: /关于他的/u}).click();
+    await expect(page.getByTestId("entity-card")).toContainText("角色的说法");
+    await open(page, "/book/fox/source?at=38.57");
+    await page.getByTestId("toggle-beats").click();
+    await expect(page.getByTestId("beat").first()).toBeVisible();
+    await expect(page.locator('[data-testid="beat"][data-from="48"]')).toHaveCount(0);
+    await expect(page.getByTestId("read-line")).toBeVisible();
+});
+
+test("时序：旧位置的请求晚到也不显示到新位置；地址里还不存在的对象被去掉并提示；抽屉跨宽度档内容不变", async ({page}) => {
+    await open(page, "/book/fox/stats?at=30");
+    await expect(page.getByTestId("visible-stats")).toBeVisible();
+    // 第 7 章的统计请求压住 1.5 秒，期间拨到第 8 章：最后显示的必须是第 8 章的数字。
+    await page.route("**/api/rpc/book.stats", async route => {
+        const body = route.request().postDataJSON() as {at?: {chapter: number}};
+        if (body.at?.chapter === 7) await new Promise(resolve => setTimeout(resolve, 1500)); // test-lint-allow fixed-wait: 人为延后一个真实请求的返回
+        await route.continue();
+    });
+    const expected8 = await (await page.context().request.post(`${server.base}/api/rpc/book.stats`, {data: {book: "fox", at: {chapter: 8}}})).json() as {visible: {statements: number}};
+    await page.goto(`${server.base}/book/fox/stats?at=7`);
+    await expect(page.getByTestId("reading-label")).toContainText("第 7 章");
+    const aborted = page.waitForEvent("requestfailed", request => request.url().endsWith("/api/rpc/book.stats"));
+    await page.getByRole("button", {name: "下一章"}).click();
+    await expect(page.getByTestId("reading-label")).toContainText("第 8 章");
+    // 旧位置的请求被中止，不会再落到页面上。
+    await aborted;
+    await expect(page.getByTestId("visible-stats")).toContainText(String(expected8.visible.statements));
+    // 往回拨：第 7 章的结果压着的时候，页面不留着第 8 章的数字，显示“正在取”。
+    await page.getByRole("button", {name: "上一章"}).click();
+    await expect(page.getByTestId("reading-label")).toContainText("第 7 章");
+    await expect(page.getByTestId("visible-stats")).toHaveCount(0);
+    await expect(page.getByText("正在取")).toBeVisible();
+    await expect(page.getByTestId("visible-stats")).toBeVisible();
+    await page.unroute("**/api/rpc/book.stats");
+
+    await open(page, "/book/fox/roster?at=7&entity=e33-1");
+    await expect(page.getByTestId("notice")).toContainText("还没出现");
+    await expect(page.getByTestId("entity-card")).toHaveCount(0);
+
+    await page.setViewportSize({width: 1440, height: 900});
+    await open(page, "/book/fox/roster?at=38&entity=e12-5");
+    await expect(page.getByTestId("card-name")).toHaveText("花铃");
+    await page.setViewportSize({width: 900, height: 900});
+    await expect(page.getByTestId("drawer-scrim")).toBeVisible();
+    await expect(page.getByTestId("card-name")).toHaveText("花铃");
+});
+
+test("页面隐藏时立即保存：变化后马上关掉页面，重新读到最新位置", async ({page}) => {
+    await open(page, "/book/fox/overview?at=20");
+    await expect.poll(async () => (await readingState(page.context(), server)).position).toEqual({chapter: 20});
+    await page.getByRole("button", {name: "下一章"}).click();
+    await expect(page.getByTestId("reading-label")).toContainText("第 21 章");
+    await page.close({runBeforeUnload: true});
+    await expect.poll(async () => (await readingState(page.context(), server)).position).toEqual({chapter: 21});
+});
+
+test("命令行给出的查看器地址打开到同一人物卡与阅读位置（cli-skill 验收 3）", async ({page}) => {
+    const run = await runCli(["card", "苏天晴", "--at", "38", "--library", server.library]);
+    const url = /查看器：(\S+)$/u.exec(run.stdout.trim())![1]!;
+    expect(url).not.toContain("token");
+    await page.goto(url);
+    await expect(page.getByTestId("card-name")).toHaveText("苏天晴");
+    await expect(page.getByTestId("reading-label")).toContainText("第 38 章");
+});
+
+test("全局搜索的结果浮在页面上，不撑高顶栏；点外面关掉", async ({page}) => {
+    await open(page, "/book/fox/overview?at=38");
+    const before = (await page.getByTestId("book-frame").locator("> header").boundingBox())!.height;
+    await page.getByTestId("search-input").locator("input").fill("南嘉鱼");
+    await expect(page.getByTestId("search-results")).toContainText("对象");
+    expect((await page.getByTestId("book-frame").locator("> header").boundingBox())!.height).toBe(before);
+    await page.getByTestId("page-overview").click({position: {x: 20, y: 400}});
+    await expect(page.getByTestId("search-results")).toHaveCount(0);
+});
+
+test("外壳（输出 1、3、4、5、34、35）：第一次打开是全部读完；明暗切换并保持；书架入口与换书；没有页脚，保存失败提示在顶栏", async ({page}) => {
+    // 另导入一本从没打开过的书：第一次打开读到抽取到的最后位置。
+    const file = `${server.library}/../sample.json`;
+    expect((await runCli(["import", file, "--title", "第二本", "--id", "fox2", "--library", server.library])).code).toBe(0);
+    await open(page, "/book/fox2");
+    await expect(page.getByTestId("reading-label")).toContainText("全部读完");
+    await expect(page).toHaveURL(/at=100/u);
+    await expect(page.getByTestId("reading-end")).toHaveCount(0);
+    await expect(page.getByTestId("footer")).toHaveCount(0);
+
+    await page.getByTestId("theme-menu").click();
+    await page.getByRole("menuitemradio", {name: "暗色"}).click();
+    await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
+    await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
+    await page.getByTestId("theme-menu").click();
+    await page.getByRole("menuitemradio", {name: "亮色"}).click();
+    await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "light");
+
+    // 书名下拉换到另一本；书架入口回到书架，书架列出两本。
+    await page.getByTestId("book-switcher").click();
+    await page.getByRole("menuitem", {name: "转生反派萝莉，找茬魔法少女"}).click();
+    await expect(page).toHaveURL(/\/book\/fox\//u);
+    await page.getByTestId("go-shelf").click();
+    await expect(page.getByTestId("library")).toContainText("第二本");
+    await expect(page.getByTestId("library")).toContainText("转生反派萝莉，找茬魔法少女");
+
+    // 保存失败：提示出现在顶栏。
+    await open(page, "/book/fox2/overview?at=30");
+    await page.route("**/api/rpc/reading.set", route => route.fulfill({status: 500, contentType: "application/json", body: JSON.stringify({code: "internal", message: "坏了"})}));
+    await page.getByRole("button", {name: "下一章"}).click();
+    await expect(page.locator("header").getByTestId("save-failed")).toBeVisible();
+    await page.unroute("**/api/rpc/reading.set");
+    expect((await runCli(["remove", "fox2", "--library", server.library])).code).toBe(0);
+});
+
+test("总览的入口（输出 8）：点主线到情节页只看这条主线；点秘密到秘密页并高亮那一行", async ({page}) => {
+    await open(page, "/book/fox/overview?at=38&perspective=reader");
+    const arc = page.getByTestId("overview-arc").first();
+    const title = (await arc.textContent())!.trim();
+    await arc.click();
+    await expect(page.getByTestId("page-episodes")).toBeVisible();
+    await expect(page.getByTestId("page-episodes").locator(".story-page-title")).toContainText(title);
+    await page.getByRole("button", {name: "全书总览"}).click();
+    await page.getByTestId("overview-secret").filter({hasText: "心月狐就是苏天晴"}).click();
+    await expect(page.locator('tr.is-highlight[data-secret]')).toContainText("心月狐就是苏天晴");
+});
+
+test("全书图按章节（输出 30）：Ctrl 加滚轮只在水平方向放大，章节条的范围变窄；滚轮平移", async ({page}) => {
+    await open(page, "/book/fox/book-graph?at=100&perspective=reader");
+    const label = page.getByTestId("chapter-range-label");
+    await expect(label).toHaveText("第 1 到 100 章");
+    const box = (await page.getByTestId("storyline").locator("canvas").first().boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.keyboard.down("Control");
+    for (let index = 0; index < 6; index += 1) await page.mouse.wheel(0, -100);
+    await page.keyboard.up("Control");
+    await expect(label).not.toHaveText("第 1 到 100 章");
+    const zoomed = await label.textContent();
+    await page.mouse.wheel(0, 300);
+    await expect(label).not.toHaveText(zoomed!);
+});
+
+test("往回拨到视角人物出场之前（输出 4）：换回读者视角并提示，页面不报错", async ({page}) => {
+    // e47-5（导购员）第 47 章才出场：以他的视角在第 47 章打开关系图，再拨到第 46 章。
+    await open(page, "/book/fox/relations?at=47&perspective=e47-5");
+    await expect(page.getByTestId("relation-graph").locator("canvas").first()).toBeVisible();
+    await page.getByRole("button", {name: "上一章"}).click();
+    await expect(page.getByTestId("notice")).toContainText("已换回读者视角");
+    await expect(page).toHaveURL(/perspective=reader/u);
+    await expect(page.getByTestId("reading-label")).toContainText("第 46 章");
+    await expect(page.getByTestId("page-error")).toHaveCount(0);
+});

@@ -102,6 +102,8 @@ export const ProjectStatsSnapshotSchema = Type.Object({
         baseline: Type.Integer({minimum: 0}),
     }, {additionalProperties: false}),
     last: Nullable(ShelfLastEditSchema),
+    /** 算字数用的方言声明表的指纹（docs/specs/runtime/projects.md 输出 16）；旧记录没有。 */
+    wordRules: Type.Optional(Type.String({minLength: 1})),
 }, {additionalProperties: false});
 
 export type ProjectStatsSnapshot = Static<typeof ProjectStatsSnapshotSchema>;

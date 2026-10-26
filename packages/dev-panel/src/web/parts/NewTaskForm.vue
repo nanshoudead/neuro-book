@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Button, FormField, FormInput, FormSelect, FormTextarea, RadioGroup} from "@notnotype/nb-ui/components";
+import {Button, Field, Input, Select, Textarea, RadioGroup} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 import {SLUG_PATTERN} from "../../core/ids.js";
 import {controlCharProblem, titleProblem} from "../../core/text-rules.js";
@@ -32,21 +32,21 @@ const complete = computed(() => props.modelValue.workId !== "" && props.modelVal
 <template>
     <form class="flex flex-col gap-3" @submit.prevent="complete && !pending && !disabledReason && emit('submit')">
         <fieldset class="grid grid-cols-1 gap-3 md:grid-cols-2" :disabled="pending || disabledReason !== null">
-            <FormField label="所属 Work" :error="errors.workId ?? ''" required class="md:col-span-2">
-                <FormSelect :model-value="modelValue.workId" :options="workOptions" placeholder="选一个 Work" @update:model-value="(value: string) => update('workId', value)" />
-            </FormField>
-            <FormField label="短名" description="kebab-case，进 Task id" :error="errors.slug ?? ''" required>
-                <FormInput :model-value="modelValue.slug" @update:model-value="(value: string) => update('slug', value)" />
-            </FormField>
-            <FormField label="标题" :error="errors.title ?? ''" required>
-                <FormInput :model-value="modelValue.title" @update:model-value="(value: string) => update('title', value)" />
-            </FormField>
-            <FormField label="目标与范围（可选）" :error="errors.goal ?? ''" class="md:col-span-2">
-                <FormTextarea :model-value="modelValue.goal" :rows="3" @update:model-value="(value: string) => update('goal', value)" />
-            </FormField>
-            <FormField label="状态">
+            <Field label="所属 Work" :error="errors.workId ?? ''" required class="md:col-span-2">
+                <Select :model-value="modelValue.workId" :options="workOptions" placeholder="选一个 Work" @update:model-value="(value: string) => update('workId', value)" />
+            </Field>
+            <Field label="短名" description="kebab-case，进 Task id" :error="errors.slug ?? ''" required>
+                <Input :model-value="modelValue.slug" @update:model-value="(value: string) => update('slug', value)" />
+            </Field>
+            <Field label="标题" :error="errors.title ?? ''" required>
+                <Input :model-value="modelValue.title" @update:model-value="(value: string) => update('title', value)" />
+            </Field>
+            <Field label="目标与范围（可选）" :error="errors.goal ?? ''" class="md:col-span-2">
+                <Textarea :model-value="modelValue.goal" :rows="3" @update:model-value="(value: string) => update('goal', value)" />
+            </Field>
+            <Field label="状态" group>
                 <RadioGroup :model-value="modelValue.status" :options="STATUS_OPTIONS" orientation="horizontal" size="sm" @update:model-value="(value: string) => update('status', value as TaskFormValue['status'])" />
-            </FormField>
+            </Field>
         </fieldset>
         <div class="flex flex-wrap items-center gap-2">
             <Button type="submit" :loading="pending" :disabled="!complete || disabledReason !== null">新建 Task</Button>

@@ -1,0 +1,148 @@
+# t14 设计审查
+
+## 1. 阻断：远程失败详情只在类型表面声明，运行时合同仍不成立
+
+- **严重程度**：阻断
+- **类别**：接口与合同
+- **位置**：计划 3.1 第 36 行、6“远程方法用 `fail`”第 164 行；`packages/nb-runtime/src/remote/contract.ts:145-150`、`packages/nb-runtime/src/remote/node.ts:689-704`
+- **现象**：计划把失败支写成按码分布的 `detail?: Static<Method["errors"][C]>`，但 `detail` 仍是可省略的，即使错误码的 schema 要求字段；更关键的是现有 `#checkOutcome` 只检查失败码是否声明，不检查失败 `detail` 是否符合该码的 schema。`RemoteOutcome` 的类型改完后，绕过类型的已安装插件仍能返回错误形状，调用方不会得到 `provider-error`。
+- **为什么是问题**：需求是“detail 按合同检查”，不是只让 TypeScript 作者写法变窄。当前远程协议在输出值上有运行时校验，业务失败详情却缺一个同等边界；且可选 `detail` 会让 `fail("code")` 通过一个要求 `{max: number}` 的错误合同。后续切片按计划只能补类型反例，无法证明真实运行时合同。
+- **如何核实**：读取 `contract.ts` 可见当前 `RemoteOutcome` 的失败详情是 `unknown`；读取 `node.ts` 的 `#checkOutcome` 可见失败分支在 699-703 行只查 `spec.errors` 的键。用 `bun test` 的真实进程内远程调用注入 `{ok:false, code:"too-many", detail:{max:"x"}}`，当前路径会把它原样交给调用方，而不是 `provider-error`。
+- **建议改法**：先定错误详情的必填语义：按 `errors[C]` 的 schema 生成 `{code:C; detail: Static<...>}`，没有声明详情的码才允许省略；在提供方输出与调用方 `#checkOutcome` 的真实边界都用对应 schema 校验，失败时按现有 `provider-error` 记诊断并脱敏返回。验收同时增加“详情缺失、详情形状错误、声明无详情却多给详情”的真实远程调用场景。
+
+> 更正：本条已核实到代码路径与类型合同；本轮未实际运行注入错误详情的远程场景，上一段“用 bun test 注入”是建议的核实命令，不是已运行证据。
+
+## 2. 阻断：`raw` 不能表达自定义贡献点与接收者，且没有定义与内核 `defineEntry` 的映射合同
+
+- **严重程度**：阻断
+- **类别**：接口与合同
+- **位置**：计划 3.3 第 86-91 行；`packages/nb-runtime/src/plugins/contracts.ts:135-155,190-205`、`packages/nb-runtime/src/plugins/define.ts:72-99`；`plugin-sdk/examples/plugins/menu/plugin.ts`、`file-menu/backend/plugin.ts`
+- **现象**：计划把“不经助手的贡献”统一放进 `raw`，声明形状是 `raw: [原始声明…]`，产出形状是 `raw: {[贡献点]: {[id]: 实现}}`，但 `contributionPoints`（拥有者定义的贡献点）和 `receives`（入口接收的点）不是贡献声明，也不能放进这个数组。当前内核把它们分别作为 `PluginDefinition.contributionPoints` 与 `PluginEntryDefinition.receives`；`defineEntry` 只理解 `contributions` 声明数组与 `contributions` 实现对象，没有 `raw`。
+- **为什么是问题**：`menu` 示例必须定义自己的 `menu.items` 贡献点、接收它并交出 receiver；`file-menu` 必须向别的插件的点提交声明与实现。照计划的 `raw` 字面实现，`menu` 没有入口可写贡献点/receives，或实现者会把两类不同的数据塞进一个字段再另写一套转换。S2 做完后 S4 才会发现示例无法迁移，必然返工入口类型与 `plugin.definition` 的组合逻辑。
+- **如何核实**：当前 `PluginDefinition` 的 `contributionPoints`、`contributions` 与 `entries` 是三个不同字段；`PluginEntryDefinition.receives` 和 `contributions` 也分别存在。`defineEntry` 的输入类型只覆盖这四类内核字段，没有 `raw`。`menu/plugin.ts` 的自定义点不在入口贡献数组里，`file-menu/backend/plugin.ts:36-45` 的实现则要求入口贡献声明与实现按贡献点/贡献 id 对上。
+- **建议改法**：把 API 分成明确的字段：`plugin.definition` 接收/生成 `contributionPoints`、顶层 `contributions`，`plugin.entry` 接收 `receives`、助手贡献与 `rawContributions`；`rawContributions` 只表示内核 `ContributionDeclaration[]` 与对应实现映射。为 `definePublicState`/`defineStore` 明确声明端和实现端分别落在哪一层，并让 S2 的 `menu`、`file-menu`、`counter` 三个真实形状都过类型与运行时核对。
+
+## 3. 重要：`scope` 收窄后仍把 `ResourceSpec` 内部合同暴露给作者
+
+- **严重程度**：重要
+- **类别**：作者 API / 可维护性
+- **位置**：计划 3.3 第 91 行、3.7 第 130 行；`packages/nb-runtime/src/lifecycle/contracts.ts:75-83,271-289`；作者体验 F04/F17
+- **现象**：计划明确保留 `scope.register` 的现有签名，但该签名要求作者构造 `{kind, label, value, release, dependsOn?}` 的 `ResourceSpec`，并把注册结果 `RegisterResult` 留在可见类型中。F04 的问题正是作者为了释放订阅而被迫学习 `Scope/ResourceSpec`；仅从 `Scope` 删除 `acquire`、`borrow` 等成员没有消除这层内部概念。
+- **为什么是问题**：计划同时宣称“作者上下文收窄”和文档只需说明订阅自动释放。照字面实现后，作者仍会从 IDE 看到生命周期内部字段，想登记自有 timer、worker 或第三方句柄时仍需知道 `kind`、`label`、资源值所有权与 `dependsOn`。这不能完成 A2/F04，且 `defineStore` 的最小上下文仍必须携带同一个内部结构。
+- **如何核实**：读取 `lifecycle/contracts.ts` 可见 `Scope.register` 直接收 `ResourceSpec<T>`，不是一个作者级释放函数；读取现有 `focus/backend/plugin.ts:112-115` 与 `counter` 示例可见产品代码依赖这些字段。
+- **建议改法**：二选一并写入合同：作者 API 的 `register(release: () => void | Promise<void>)`，由 SDK/内核内部包装成资源规格；或明确 A2 不隐藏 `ResourceSpec`，把它列入作者公开 API、文档和兼容承诺。若选前者，内置插件可保留内核 `Scope` 写法，作者上下文与 `defineStore.create` 使用独立的作者级类型，验收加入 d.ts 中不可见 `acquire/borrow/ResourceSpec` 的检查。
+
+## 4. 重要：计划把 `definePublicState` 和激活上下文混在同一个最小接口改动里
+
+- **严重程度**：重要
+- **类别**：接口与时序
+- **位置**：计划 3.3 第 91 行；`packages/neuro-book/src/shared/store/public.ts:12-40`；`packages/neuro-book/src/shared/store/store.ts:67-71`
+- **现象**：计划写“`defineStore(…).create` 与 `definePublicState` 改收它们实际用到的最小接口（`plugin`、`entry`、`signal`、`scope.register`）”，但当前 `definePublicState` 是模块顶层纯函数 `(plugin: string, declarations)`，不接激活上下文；它产生的 `contributions` 必须在入口激活前登记。只有 `StoreDefinition.create` 在激活期间使用 `plugin`、`entry`、`signal`、`scope`。
+- **为什么是问题**：若后续切片按字面给 `definePublicState` 增加作者上下文，它就不能再在 `plugin.ts` 顶层声明，破坏 Spec 要求的“描述先登记”和现有 `counterState` 写法；若不改它，计划的接口验收与变更范围就不准确，容易让实现者给错误的函数加 context。
+- **如何核实**：`public.ts:33-40` 的实现只拼 `<plugin>/<name>` 并生成声明，没有任何入口寿命需求；`store.ts:70` 的 `create(context, options)` 才是激活期 API。
+- **建议改法**：把两者拆开写死：`definePublicState` 保持纯的插件 id/声明输入，或改为 `plugin.publicState` 但仍不收激活 context；只给 `StoreDefinition.create` 定义 `AuthorActivationContext` 最小接口，并在 S2 类型测试中保证顶层公开状态仍可声明。
+
+## 5. 重要：插件页的显示名/描述没有贯通清单读取与 inventory，`description` 当前已经在读取时丢失
+
+- **严重程度**：重要
+- **类别**：正确性 / 数据合同
+- **位置**：计划 3.5 第 103-111、120 行与第 4 节第 141 行；`packages/nb-runtime/src/plugin-manifest/schema.ts:80-96,136-154`、`read.ts:177-193`、`build.ts:178-191`；`packages/neuro-book/src/plugin-platform/backend/inventory.ts:114-137,309-319`
+- **现象**：构建预设已经把 `description` 写进输出 `package.json`，但规范化的 `PluginManifest` 没有 `description` 字段，`read.ts` 返回 manifest 时也没有保留它；构建作者输入类型同样只有 `description`，没有 `displayName`。inventory 的 `PluginListItem` 只由 id/version/source/state/pending/notLoaded 组成。计划只写“清单加可选 `displayName`，与 `description` 同路”，没有列出这条现有丢字段的实际迁移链。
+- **为什么是问题**：S5 只改构建预设或 UI 会得到空的描述；即使把 `displayName` 写进 `package.json`，`readManifest` 仍可能丢掉它。现有安装目录不会保存单独的 metadata 文件，inventory 必须在列表时从当前运行版本或安装版本的清单读出两个字段，并区分 list 专有返回与写操作返回。否则 F20 的显示名/描述判据不可能通过。
+- **如何核实**：`build.ts:178-183` 写出 `description`，而 `read.ts:177-193` 构造的 `manifest` 没有 `description`；`PluginManifest` 接口也只到 `style`。`inventory.ts:129-136` 返回的对象没有任一显示字段，`list()` 直接复用它。
+- **建议改法**：先在 `runtime/plugin-manifest` 定义并实现 `displayName?: string`、`description?: string` 的 schema、`PluginManifest`、读写与 `definition`/安装读取路径；在构建预设的作者输入中明确两字段来源。再定义独立的 `PluginListEntry`（只给 `list`）和现有写操作返回的 `PluginListItem`，由 inventory 按实际运行版本与登记目标的既定快照规则填充；为第三方安装、待切换版本、清单不可读、内置插件分别写合同测试。
+
+## 6. 重要：`catalog()` 的来源包含 foreign-location 入口与实现对象，计划没有定义插件页的本位置读模型
+
+- **严重程度**：重要
+- **类别**：数据边界 / 接口
+- **位置**：计划 3.5 第 103-114 行与第 144 行；`packages/nb-runtime/src/plugins/host.ts:447-463`、`packages/nb-runtime/src/plugins/contracts.ts:388-414`、`packages/neuro-book/src/web/host/window-plugins.ts:19-53`
+- **现象**：内核 `PluginHost.catalog()` 返回每个插件的全部 `entries`，其中包括本实例的 `foreign-location` 入口；贡献状态还分散在 `PluginDescription.contributions`（顶层）和 `EntryDescription.contributions`（入口下）。`ContributionState` 的可用分支还带实现对象。计划要求服务端/浏览器分别显示本位置的失败、受阻与被拒贡献，却只说调用 `catalog()`，没有规定过滤、扁平化或去掉 implementation 的返回形状。
+- **为什么是问题**：直接把服务端 catalog 交给服务端插件页会把浏览器入口的状态混进服务端问题；直接把浏览器内核 catalog 交给 `window.plugins.catalog()` 会暴露 `foreign-location`、Vue/函数实现和内核 scope 字段，且页面无法区分“入口状态”和“贡献被拒”。这会产生错误行，也把内部实现引用跨过了现有 `WindowPlugins` 的窄宿主能力边界。
+- **如何核实**：`host.catalog()` 在 450 行把 `plugin.entries` 全部映射，没有按 `this.location` 过滤；`PluginDescription` 与 `EntryDescription` 的贡献字段确实是两层；`ContributionState` 的 `status: "available"` 分支带 `implementation`。当前 `window-plugins.ts` 只暴露 entryState、activationEvents、onChange、retry，设计注释明确它是收窄后的能力。
+- **建议改法**：新增内核或平台侧的纯问题查询 read model，只返回本位置的入口 `{plugin, entry, location, state/failure/blocked}` 与被拒贡献 `{capability,id,entry,reason,detail}`，不带 declaration/implementation/scope；服务端 inventory 使用 `catalog()` 后显式过滤 `entry.location === "server"` 并合并顶层与入口贡献，浏览器使用同形的 `window.plugins.catalog()` 过滤 `browser`。为 foreign-location、顶层声明、入口声明和实现对象不可泄漏各加合同测试。
+
+## 7. 重要：破坏性 API/运行时默认值没有与已安装插件的兼容门禁或迁移策略对齐
+
+- **严重程度**：重要
+- **类别**：兼容与迁移
+- **位置**：计划 3.2 第 39-42 行、3.4 第 95-100 行、8 第 186-189 行；`packages/neuro-book/src/plugin-platform/build/build-plugin.ts:493-500`、`packages/neuro-book/src/plugin-platform/backend/inventory.ts:177-194`；`docs/specs/runtime/plugin-api.md`“兼容”
+- **现象**：计划删除 SDK 宿主导出的 `provide`/`providePerConsumer`，并让运行时 `defineRecord` 对缺失 `locality` 直接抛错。已安装插件的产物仍可能在启动时从共享 SDK 导入旧名字，或在模块求值时调用 `defineRecord({…})` 而省略 `locality`；它们不会经过当前源码的重建。当前构建默认的 `engines.<平台>` 是 `^<产品版本>`，计划没有提高产品/引擎兼容边界，也没有启动时的旧 SDK/API 诊断或迁移。
+- **为什么是问题**：这不是“已存数据不受影响”能覆盖的迁移：旧插件代码会在装载或激活前就失败，插件页只能看到一个运行时失败；同一产品兼容范围内的已安装插件会静默变成不可用。`provide` 重命名和 locality 必填都属于作者公开合同，清单安装合同要求不兼容原因可见，计划却没有定义旧产物如何被拒绝或提示重建。
+- **如何核实**：当前构建预设把作者的 `engines` 缺省为 `^${profile.productVersion}`（`build-plugin.ts:493-497`）；插件运行时 SDK 由宿主模块表提供，旧产物会解析到新导出的模块。当前 `defineRecord` 对缺失 locality 使用 `options.locality ?? "local"`，计划改为必填后同一旧调用的运行时语义必然改变。
+- **建议改法**：在计划中选择并验收一种边界：提升产品/SDK minor 并让安装器按 engine 拒绝旧插件；或在一个明确的兼容窗口保留运行时旧导出与 locality 的运行时默认（类型层仍可要求新写法），并给出弃用诊断；或为现有安装包做一次可检测的重建/迁移。无论取哪种，增加“旧产物安装后重启”的真实场景，确认不是把激活失败误归为插件自身错误。
+
+## 8. 重要：S1 的提交边界会在 SDK 包测试仍期待旧导出时先变红
+
+- **严重程度**：重要
+- **类别**：切片顺序 / 验收
+- **位置**：计划第 5 节 S1 第 153 行、S4 第 156 行；`packages/neuro-book/src/sdk/index.ts:10-12`、`packages/neuro-book/src/sdk/sdk.test.ts:34-50`、`packages/neuro-book/plugin-sdk/pack.test.ts:229-235`
+- **现象**：S1 要删除 `provide` 并改名 `providePerConsumer`，但计划把模板、7 个示例与作者材料放到 S4。SDK 根入口的导出快照和打包测试在 S1 就会看到旧名字：`sdk.test.ts` 明列 `provide`，`pack.test.ts` 也把 `provide`/`providePerConsumer` 写入期望的 d.ts 导出名单。应用 `package.json` 的 `test` 又同时运行 Bun/Vitest 全部测试。
+- **为什么是问题**：按计划“每片验证绿”，S1 不能只改内核、应用内置插件与示例就结束；要么测试先失败，要么实现者为了保持 S1 绿暂时保留旧别名，违反 A6 的“旧名删除”，等 S4 再删又形成第二次波及。
+- **如何核实**：读取应用测试脚本可见 `test` 包含 `bun test`；读取两个测试文件可见旧导出名是精确快照，而不是只测转发行为。
+- **建议改法**：把 SDK 根入口、导出名单快照、`pack.test.ts` 和所有 `provide`/`providePerConsumer` 的作者导出/类型 fixture 归入 S1；S4 只改文档、模板和示例写法，不再承载公开导出迁移。S1 验证应显式包含 `bun run test` 与 SDK pack/type fixture。
+
+## 9. 重要：类型验收不能用 `@ts-expect-error` 证明“错误里写明哪一项”
+
+- **严重程度**：重要
+- **类别**：测试
+- **位置**：计划第 6 节第 168、171、174 行；S2 验证第 154 行；现有 `packages/nb-runtime/src/plugins/define.test.ts:76-115`
+- **现象**：计划要求漏实现、多实现、换错助手时，编译错误里写明具体贡献项，并计划用 `@ts-expect-error` 类型反例覆盖。`@ts-expect-error` 只能断言“该行有至少一个错误”，不能断言 TypeScript/v​ue-tsc 的诊断文本、错误位置或第一行是否包含 `缺少贡献实现：x`。现有 `define.test.ts` 也只是用该指令守住有无类型错误。
+- **为什么是问题**：键对象方案即使能产生有意义的属性名，类型重构后仍可能在外层 `Argument ... is not assignable` 或被其它错误遮住；验收表的文字判据会在测试绿时没有任何证据。
+- **如何核实**：读取现有类型反例和计划验收映射即可看到二者只要求错误存在，没有编译器输出断言。运行实际类型检查时，`@ts-expect-error` 指令不会把诊断消息交给测试断言。
+- **建议改法**：保留 `@ts-expect-error` 守住类型不允许，再增加仓库外作者 fixture 的独立 `tsc/vue-tsc --pretty false` 命令，捕获 stderr 并按稳定片段断言缺项/多项/位置名称；或者把验收判据降为“该调用不可编译”，不要继续承诺错误首行文字。远程详情错误也应有同样的正反例，而不是只测成功编译。
+
+## 10. 建议：入口 id 的唯一性范围与“定义时报错”不符合现有内核合同
+
+- **严重程度**：建议
+- **类别**：接口与合同
+- **位置**：计划 3.3 第 90 行；`packages/nb-runtime/src/plugins/registration.ts:75-86`、`packages/nb-runtime/src/plugin-manifest/build.ts:102-112`
+- **现象**：计划只说“同一插件同一位置有两个入口时要显式写 `id`（定义时报错）”。现有内核把 `entry.id` 放在插件定义全局 `Set` 中，同一插件不同位置重复 id 也以 `duplicate-entry` 拒绝；清单构建还以入口 id 作全局对象键。并且 `defineEntry` 一次只接收一个入口，无法在该调用点发现兄弟入口的重复。
+- **为什么是问题**：作者可能按计划理解为跨位置可以复用显式 id，直到登记/构建才失败；“定义时报错”也没有对应的 API 边界。入口 id 是清单文件名和入口引用的一部分，重复后不能靠位置区分。
+- **如何核实**：`registration.ts` 的 `entryIds` 不按 location 分组；`build.ts` 的 `seen` 和 `entries[entry.id]` 也按全局 id。
+- **建议改法**：明确 id 在一个 `PluginDefinition` 内全局唯一，默认值由 location 取名只是减少常见重复；把重复检查放在 `plugin.definition`/构建预设组装处并说明错误时机，另测 server/browser 显式同 id 的拒绝。
+
+## 11. 建议：`ok`/`fail` 的公开出口没有在计划中闭合
+
+- **严重程度**：建议
+- **类别**：接口完整性
+- **位置**：计划 3.1 第 30-35 行、3.7 第 130 行；`packages/neuro-book/src/sdk/index.ts:25-26`
+- **现象**：计划说助手从 `remote` 入口导出，文档又要求作者使用 `ok`、`fail`；作者公开根入口当前只转出 `defineRemoteService`、`orThrow`、`provideRemote`，没有 `ok`、`fail`。计划没有明确 S1 同步修改 SDK 根入口、浏览器/服务端导出快照和打包产物。
+- **为什么是问题**：作者按 README 从 `@notnotype/nb-plugin-sdk` 导入时会得到“没有导出成员”，只能深导入内核 remote，违反 ADR 0030 的公开入口合同；若只从内核 remote 导出，SDK tarball 与宿主共享模块的运行时出口还会不一致。
+- **如何核实**：读取 `src/sdk/index.ts` 的远程导出清单可见三项旧函数，没有结果助手；计划的示例和文档都使用根 SDK 语境，没有给出深路径。
+- **建议改法**：把 `ok`、`fail` 明列为 `src/sdk/index.ts` 的值导出、出口快照和 pack d.ts 的验收项，或把文档明确成 `@notnotype/nb-plugin-sdk/remote`（若新增子路径则同步入口表、宿主模块表、打包 exports 与架构测试）。默认选根入口，避免新增一套子路径名单。
+
+## 12. 重要：`list.problems` 没有黑盒数据合同，无法稳定表达入口失败与被拒贡献
+
+- **严重程度**：重要
+- **类别**：接口与合同
+- **位置**：计划 3.5 第 107-117 行、第 6 节第 175 行；`packages/neuro-book/src/plugin-platform/shared/types.ts:28-49`
+- **现象**：计划把 `list` 专有条目加 `problems`，但没有给 `problems` 的 TypeBox schema、元素类型、排序、入口/贡献身份和详情字段。现有内核目录里入口失败是 `EntryState.failure`，被拒贡献是 `ContributionState.validation`，两者的字段完全不同；计划 UI 又要按“1 个入口失败/2 条贡献被拒”计数并逐条显示。
+- **为什么是问题**：如果实现成 `string[]`，服务端就提前拼了中文/英文文字，客户端不能按语言重新渲染，也无法可靠区分同一入口的多个阶段或贡献的 `capability/id`；如果实现成 `unknown`，TypeBox 合同不保护跨进程数据。`catalog()` 的结构不能直接当远程合同，因为它还带 implementation 与内部状态。
+- **如何核实**：当前 `PluginListItemSchema` 没有问题字段；内核 `EntryState` 与 `ContributionValidation` 的结构分别在 `contracts.ts`，没有一个现成的统一问题类型。
+- **建议改法**：定义专有的纯 JSON `PluginProblemSchema`，至少区分 `entry-failed`（plugin、entry、location、stage、reason、message/detail）、`entry-blocked`（entry、blocked reason、key、path）和 `contribution-rejected`（entry、capability、id、reason、detail），规定按 entry/贡献 id 稳定排序与是否脱敏。UI 只按 kind 计数、按当前 locale 翻译固定 reason，原始错误消息按合同允许的字段显示。把 server 与 browser 的本位置过滤写进这个合同。
+
+## 待确认项判断
+
+- **插件页行版式（D11）**：取舍本身与现有 id/徽标/原因行合同一致；需要按第 6 条先定义本位置问题 read model，否则版式无法可靠取数。
+- **命令面板失败提示（D12）**：排除必填参数命令、经 `notificationsKey` 发 warning 且不提示 `stale-target` 与现有命令合同一致；计划仍需把快捷键路径的通知注入和重复提示约定写成可测接口。
+- **作者 API 缺省与 locality（D13）**：缺省值与现有声明的可选字段兼容；locality 必填是明确破坏性源码/API 变更，必须补旧安装包的 engine/迁移边界，不能只说已有数据不受影响。
+- **浏览器助手独立于根入口（D01）**：这是正确的分层决定，且计划已处理；实现仍需在入口类型上拒绝把浏览器助手交给 server 入口。
+
+## 未发现问题的方面
+
+- `plugin.entry` 使用键对象表达助手声明与实现：相比数组，漏项与换错助手可由 TypeScript 的对象键合同捕获，重复键也不会形成运行时覆盖；前提是 `raw` 与 location 过滤按上文重新定合同。
+- 远程提供方失败原因的来源机制：现有 `#lookupRemote` 能拿到失败的 stage/reason 与 `ActivationFailed.error`，依赖链/激活等待环也有结构化 reason；缺口是计划必须把 error.message 纳入并保持脱敏，不是没有来源。
+- `catalog()`、`contribution()`、`entryState()` 的查询寿命与顺序：内核已经承诺查询不激活、插件按 id 排序、入口保持定义顺序、贡献按稳定身份排序；计划不应再自行排序或跨多次查询拼接。
+- `defineRemoteService`/`defineRecord` 对缺失 `additionalProperties` 返回规范化对象的内容身份：内核现有 `sameContractContent` 按规范化 JSON 比较，清单还原合同按 id 复用对象；只要新助手保留 schema 内容，这一改动不会单独破坏按内容核对或按 id 识别。
+- `defineRecord` 将缺省 locality 改成显式 `local` 后，已有记录的 namespace 与 fingerprint 可以保持不变；风险在旧插件源码的运行时兼容，而不是已有 SQLite 数据本身。
+
+## 数量
+
+- 阻断：2
+- 重要：8
+- 建议：2
+- 共 12 条。
+
+> 文案更正：第 9 条中的编译器名称为 `vue-tsc`。
+

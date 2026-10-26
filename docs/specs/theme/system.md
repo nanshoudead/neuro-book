@@ -43,7 +43,7 @@ NeuroBook 的主题由 **nb-ui 的两条轴**承担：**主题包**（形状 / �
 
 1. **配色变量**（随配色变化）：33 个键，契约在 nb-ui `src/colorway/colorway-contract.ts`，由主题包自带的配色给出具体值。
 2. **角色变量**（主题决策）：`--panel-surface` / `--control-surface` / `--overlay-surface` / `--divider` / `--elevation-*` 等，映射写在 nb-ui `src/tokens.css`，主题可在自己的 `vars.css` 里改判。交互反馈也在这一层：拖动边界悬停线的 `--sash-line-color`、`--sash-line-size`、`--sash-line-inset`（只缩自由端）、`--sash-line-radius`、`--sash-line-glow`，拖放落点高亮的 `--drop-area-fill`、`--drop-area-border`。
-3. **主题新增角色**：`--page-surface`（稿面）等由主题包 `manifest.declares` 声明，fallback 兜底层保证「别的主题激活时也成立」。工作台外壳的分隔方式也在这一层：nbook 声明 `--shell-gap`、`--shell-ground`、`--shell-card-radius`、`--shell-card-shadow`、`--shell-chrome-surface`、`--shell-chrome-line`、`--shell-seam`、`--shell-join-divider`、`--shell-pane-divider`、`--shell-pane-divider-inset` 并给卡片的取值，fallback 是平铺；macos 不写，是平铺（[`ui/workbench-shell.md`](../ui/workbench-shell.md) 输出 38）。
+3. **主题新增角色**：`--page-surface`（稿面）等由主题包 `manifest.declares` 声明，fallback 兜底层保证「别的主题激活时也成立」。工作台外壳的分隔方式也在这一层：nbook 声明 `--shell-gap`、`--shell-ground`、`--shell-card-radius`、`--shell-card-shadow`、`--shell-chrome-surface`、`--shell-chrome-line`、`--shell-seam`、`--shell-join-divider`、`--shell-pane-divider`、`--shell-pane-divider-inset` 并给卡片的取值，fallback 是平铺；macos 不写，是平铺（[`ui/workbench-shell.md`](../ui/workbench-shell.md) 输出 38）。编辑器标签条的底色 `--editor-tabs-surface` 也在这一层：nbook 取正文面（`--panel-surface`）往正文字色（`--text-main`）混 7%，fallback 相同；主题可以改深浅（[`workbench/editor.md`](../workbench/editor.md) 输出 53）。
 
 老体系 6 个领域专用变量的映射（唯一映射表，不允许在组件里另起名字）：
 
@@ -94,7 +94,7 @@ Plot / Workspace / Reference chip 分类色板是类别识别色，不迁移为�
 
 Reference chip 的外观只由 `app/styles/reference-chips.css` 管理，组件只输出 `is-chapter`、`is-character` 等语义 class。Profile template 节点类型 accent、Markdown 正文颜色选择器、JsonViewer / Monaco 语法高亮和备用 Markdown 内容主题属于内容或第三方编辑器色板，不进入配色契约；只要求其周边普通 UI 使用主题状态色、文本色和阴影变量。
 
-NotificationViewport 挂在页面根节点之外，但配色变量写在 `<html>` 上，所以它直接消费 nb-ui 的配色变量（不再需要 JS 侧混色快照）。
+NotificationStack 挂在页面根节点之外，但配色变量写在 `<html>` 上，所以它直接消费 nb-ui 的配色变量（不再需要 JS 侧混色快照）。
 
 ## 验证
 

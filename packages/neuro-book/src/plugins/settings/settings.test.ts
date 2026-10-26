@@ -9,7 +9,7 @@ import {dirname, join} from "node:path";
 
 import {computed} from "@vue/reactivity";
 
-import {defineEntry, providePerConsumer} from "@notnotype/nb-runtime/plugins";
+import {defineEntry, provideServicePerConsumer} from "@notnotype/nb-runtime/plugins";
 import type {ActivationContext, PluginDefinition, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 import type {RemoteLink} from "@notnotype/nb-runtime/remote";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
@@ -21,7 +21,7 @@ import {defineSetting, SETTINGS_POINT} from "nbook/shared/settings";
 import type {SettingsService} from "nbook/shared/settings";
 
 import {RELOAD_DELAY_MS} from "./backend/layer-owner";
-import {projectSettingsContract, settingsKey, userSettingsContract} from "./shared/contracts";
+import {APPEARANCE_SECTION, projectSettingsContract, SETTINGS_SECTIONS_POINT, settingsKey, userSettingsContract} from "./shared/contracts";
 import type {SettingsContract} from "./shared/contracts";
 import {FIRST_SNAPSHOT_MS} from "./shared/instance";
 import {settingsWorld} from "./testing/world";
@@ -201,6 +201,23 @@ describe("合成与跨实例分发", () => {
         await writeFile(created.userFile, "{\"x.ui/theme\": \"nbook\"}");
         await settle(created, "窗口看到层恢复", () => status.value === "ok");
         expect(notified).toEqual([]);
+    });
+});
+
+describe("list 分区（settings-window.md“分区声明”）", () => {
+    it("写在描述顶层的 list 分区在服务端、项目实例与窗口都登记、都被接受", async () => {
+        const hub = probes();
+        const created = await world({}, hub);
+        const section = {capability: SETTINGS_SECTIONS_POINT, id: "x.ui.main", declaration: {title: {"zh-CN": "界面", "en-US": "UI"}, icon: "i-lucide-square", category: "plugins"}};
+        const withSection = (location: "project" | "browser", set: {ui: Probe; other: Probe}) => both(location, set).map((definition) => definition.id === "x.ui" ? {...definition, contributions: [...(definition.contributions ?? []), section]} : definition);
+        const project = await created.project(1, withSection("project", probes()));
+        const window = await created.window("w-sections", withSection("browser", probes()));
+        for (const [name, app] of [["server", created.hub], ["project", project], ["browser", window.app]] as const) {
+            expect(app.plugins.contribution(SETTINGS_SECTIONS_POINT, APPEARANCE_SECTION)[0]?.validation, name).toEqual({status: "accepted"});
+        }
+        for (const [name, app] of [["project", project], ["browser", window.app]] as const) {
+            expect(app.plugins.contribution(SETTINGS_SECTIONS_POINT, "x.ui.main")[0]?.validation, name).toEqual({status: "accepted"});
+        }
     });
 });
 
@@ -385,7 +402,7 @@ describe("用户编辑（输出 19）", () => {
                 provides: [relayKey],
                 remoteDelegates: [userSettingsContract, projectSettingsContract],
                 activate: (context) => ({
-                    services: [providePerConsumer(relayKey, (consumer) => ({
+                    services: [provideServicePerConsumer(relayKey, (consumer) => ({
                         edit: (contract: SettingsContract, key: string, value: unknown) => call(context.remote.on(consumer), contract, "edit", key, value),
                     }))],
                 }),
@@ -489,6 +506,28 @@ describe("用户编辑（输出 19）", () => {
 
         const audit = created.diagnostics("hub").query({}).records.filter((entry) => entry.event === "settings.write").map((entry) => entry.data);
         expect(audit).toContainEqual({key: theme.key, layer: "user", plugin: "nbook.settings", via: null, code: "ok", userEdit: true});
+    });
+
+    it("层文件坏了：窗口一侧的层状态带出错的原因与位置（用户层经服务端、项目层经项目子进程的链路），修好后没有", async () => {
+        const created = await world({user: "{}", project: "{}"});
+        await created.project(1, both("project", probes()));
+        const target = window();
+        await created.window("w", both("browser", probes()), {settingsEntries: settingsEntries(target)});
+        const source = windowSource(target);
+        await writeFile(created.userFile, "{\"x.ui/theme\": ");
+        await writeFile(created.projectFile, "{\n  \"x.ui/theme\": \"nbook\"\n  \"x.ui/size\": 1\n}");
+        await settle(created, "窗口看到两层都无效", () => source.layer("user").status === "invalid" && source.layer("project").status === "invalid");
+        for (const [layer, position] of [["user", {line: 1, column: 16}], ["project", {line: 3, column: 3}]] as const) {
+            const state = source.layer(layer);
+            if (state.status !== "invalid") throw new Error(`${layer} 层不是无效`);
+            expect(state.position, layer).toEqual(position);
+            expect(state.reason, layer).toEqual(expect.any(String));
+            expect(state.detail, layer).toBe(`第 ${String(position.line)} 行：${state.reason!}`);
+        }
+        await writeFile(created.userFile, "{\"x.ui/theme\": \"nbook\"}");
+        await settle(created, "用户层恢复", () => source.layer("user").status === "ok");
+        expect(source.layer("user")).not.toHaveProperty("position");
+        expect(source.layer("user")).not.toHaveProperty("reason");
     });
 
     it("不允许的层 layer-not-allowed、未声明 undeclared、值不合 schema invalid-value、未绑定作品的窗口写项目层 no-project、文件无效 layer-invalid", async () => {

@@ -3,12 +3,13 @@ import {spawn, type ChildProcess} from "node:child_process";
 import {randomUUID} from "node:crypto";
 import {once} from "node:events";
 import {existsSync, readFileSync} from "node:fs";
-import {readdir, readFile, writeFile} from "node:fs/promises";
+import {appendFile, readdir, readFile, stat, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {setTimeout as sleep} from "node:timers/promises";
 import {processAlive, processStartTicks, readProcStat} from "../src/core/procfs.js";
 import {collectDescendants, parseProcRecord, PROCS_DIR, type ProcRecord} from "../src/core/procs.js";
-import {cleanupFixtures, CLI_PATH, createFixture, type Fixture} from "./git-fixture.js";
+import {SAMPLE_SILENT_REASON} from "../src/dev/sample.js";
+import {cleanupFixtures, CLI_PATH, createFixture, run, type Fixture, type RunResult} from "./git-fixture.js";
 import {startFakeClaude, type FakeClaude} from "./processes.js";
 
 /**
@@ -533,5 +534,158 @@ describe("收口的几条路径（设计审查 B1、I1、I6）", () => {
         await until(() => alivePids(s.pidsFile), (alive) => alive.length === 0, 5_000, "全部退出");
         const status = JSON.parse((await cli(s, ["dev", "status", "--package", "apps/web", "--json"])).stdout) as {data: {runs: Array<{state: string}>}};
         expect(status.data.runs[0]!.state).toBe("ended");
+    }, 60_000);
+});
+
+/** `dev start --json` 的输出：stdout 每行一个事件，stderr 每行一条警告。 */
+function events(stdout: string): Array<Record<string, unknown>> {
+    return stdout.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+function warningCodes(stderr: string): Array<{code: string; details?: Record<string, unknown>}> {
+    return stderr.trim().split("\n").filter((line) => line.startsWith("{")).map((line) => (JSON.parse(line) as {warning: {code: string; details?: Record<string, unknown>}}).warning);
+}
+
+/** 流式命令（`dev start --json` 一行一个事件）不走 `fixture.cli`：它把整个 stdout 当一个 JSON 外壳解析。 */
+function streamCli(setupValue: Setup, args: string[]): Promise<RunResult> {
+    return run(process.execPath, [CLI_PATH, ...args], setupValue.fixture.main, undefined, 60_000, setupValue.env);
+}
+
+/** 每 50 毫秒往 `GROW_LOG` 追加约 32 KiB 的整行噪声，直到被结束；复用读的期间日志一直在增长。 */
+const GROW_LOG_SCRIPT = `const fs = require("node:fs");
+const fd = fs.openSync(process.env.GROW_LOG, "a");
+const chunk = "noise-line\\n".repeat(3000);
+setInterval(() => fs.writeSync(fd, chunk), 50);`;
+
+describe("dev start --sample（t18）", () => {
+    test("应用收到 NBDEV_SAMPLE=1；READY 之后才到的结果打 SAMPLE，后端每重启一代有结果再打（两代的结果一次写出也各打一行）；sample-failed 与非同源的 open-path 打 SAMPLE_FAILED，服务照常；复用取最后一代", async () => {
+        const s = await setup("dev-sample", {FAKE_DEV_STYLE: "nbook"});
+        const feed = join(s.fixture.root, "feed.txt");
+        const envOut = join(s.fixture.root, "env.json");
+        Object.assign(s.env, {FAKE_DEV_FEED: feed, FAKE_DEV_ENV_OUT: envOut});
+        await writeFile(feed, "");
+        const sup = await startDev(s, ["--sample", "--sample-timeout", "30"]);
+        const [, url, runId] = /^READY (\S+) run=(\S+)/u.exec(await readyLine(sup))!;
+        expect(JSON.parse(readFileSync(envOut, "utf8"))).toEqual({NBDEV_SAMPLE: "1"});
+        expect((await records(s.fixture))[0]!.sample).toBe(true);
+        const sampleLines = () => sup.lines().filter((line) => line.startsWith("SAMPLE"));
+        expect(sampleLines()).toEqual([]);
+
+        await appendFile(feed, "[dev] open-path /?project=sample\n");
+        await until(sampleLines, (all) => all.length === 1, 10_000, "第一代的 SAMPLE");
+        // 第二、三代的完整输出一次放行：监管进程多半一次读到两代，两代的结果都要打。
+        await appendFile(feed, "[dev] backend-ready pid=2 http://127.0.0.1:1/\n[dev] sample-failed 登记表无效\n[dev] backend-ready pid=3 http://127.0.0.1:1/\n[dev] open-path //evil.example/x\n");
+        await until(sampleLines, (all) => all.length === 3, 10_000, "第二、三代的两行 SAMPLE_FAILED");
+        expect(sampleLines()).toEqual([
+            `SAMPLE ${url}?project=sample run=${runId}`,
+            `SAMPLE_FAILED 登记表无效 run=${runId}`,
+            `SAMPLE_FAILED open-path 不是同源路径：//evil.example/x run=${runId}`,
+        ]);
+
+        // 复用：只报最后一行 backend-ready 之后的结果；参数相同不给 reused_with_different_options。
+        const reused = await streamCli(s, ["dev", "start", "--package", "apps/web", "--sample", "--json"]);
+        expect([reused.exitCode, events(reused.stdout)]).toEqual([0, [expect.objectContaining({event: "ready", runId, reused: true}), {event: "sample_failed", runId, reason: "open-path 不是同源路径：//evil.example/x"}]]);
+        expect(warningCodes(reused.stderr).map((warning) => warning.code)).not.toContain("reused_with_different_options");
+        // 复用时不带 --sample：只打 READY，--sample 与它起时不同。
+        const plain = await streamCli(s, ["dev", "start", "--package", "apps/web", "--json"]);
+        expect([plain.exitCode, events(plain.stdout).map((event) => event.event)]).toEqual([0, ["ready"]]);
+        expect(warningCodes(plain.stderr).find((warning) => warning.code === "reused_with_different_options")?.details).toMatchObject({differences: ["sample"]});
+
+        process.kill(sup.pid, "SIGTERM");
+        expect(await sup.exited).toBe(0);
+        expect(sup.lines().at(-1)).toMatch(/^EXITED /u);
+        await until(() => alivePids(s.pidsFile), (alive) => alive.length === 0, 10_000, "收干净");
+    }, 90_000);
+
+    test("READY 之后到 --sample-timeout 没有结果打 SAMPLE_FAILED，服务照留；不带 --sample 时去掉调用者环境里的 NBDEV_SAMPLE；复用这样起的服务时带 --sample 立即 SAMPLE_FAILED", async () => {
+        const s = await setup("dev-sample-silent", {FAKE_DEV_STYLE: "nbook"});
+        const envOut = join(s.fixture.root, "env.json");
+        s.env.FAKE_DEV_ENV_OUT = envOut;
+        const silent = await startDev(s, ["--sample", "--sample-timeout", "1"]);
+        const runId = /run=(\S+)/u.exec(await readyLine(silent))![1]!;
+        const lines = await until(() => silent.lines(), (all) => all.some((line) => line.startsWith("SAMPLE_FAILED ")), 10_000, "SAMPLE_FAILED");
+        expect(lines.filter((line) => line.startsWith("SAMPLE"))).toEqual([`SAMPLE_FAILED ${SAMPLE_SILENT_REASON} run=${runId}`]);
+        expect(alivePids(s.pidsFile).length).toBeGreaterThan(0);
+        process.kill(silent.pid, "SIGTERM");
+        expect(await silent.exited).toBe(0);
+        await until(() => alivePids(s.pidsFile), (alive) => alive.length === 0, 10_000, "收干净");
+
+        s.env.NBDEV_SAMPLE = "1";
+        const plain = await startDev(s, []);
+        const plainRun = /run=(\S+)/u.exec(await readyLine(plain))![1]!;
+        expect(JSON.parse(readFileSync(envOut, "utf8"))).toEqual({NBDEV_SAMPLE: null});
+        expect((await records(s.fixture)).find((record) => record.runId === plainRun)!.sample).toBe(false);
+        const reused = await streamCli(s, ["dev", "start", "--package", "apps/web", "--sample", "--json"]);
+        expect([reused.exitCode, events(reused.stdout)]).toEqual([0, [expect.objectContaining({event: "ready", runId: plainRun, reused: true}), {event: "sample_failed", runId: plainRun, reason: "复用的服务起时没有带 --sample，应用没有准备样例"}]]);
+        expect(warningCodes(reused.stderr).find((warning) => warning.code === "reused_with_different_options")?.details).toMatchObject({differences: ["sample"]});
+        expect((await streamCli(s, ["dev", "start", "--package", "apps/web", "--sample-timeout", "5", "--json"])).exitCode).toBe(2);
+        process.kill(plain.pid, "SIGTERM");
+        expect(await plain.exited).toBe(0);
+        await until(() => alivePids(s.pidsFile), (alive) => alive.length === 0, 10_000, "收干净");
+    }, 90_000);
+
+    test("首代还没报告就重启：首代的截止不落到新一代上，新一代过了原截止才到的结果照样打 SAMPLE", async () => {
+        const s = await setup("dev-sample-restart", {FAKE_DEV_STYLE: "nbook"});
+        const feed = join(s.fixture.root, "feed.txt");
+        s.env.FAKE_DEV_FEED = feed;
+        await writeFile(feed, "");
+        const sup = await startDev(s, ["--sample", "--sample-timeout", "2"]);
+        const [, url, runId] = /^READY (\S+) run=(\S+)/u.exec(await readyLine(sup))!;
+        await appendFile(feed, "[dev] backend-ready pid=2 http://127.0.0.1:1/\n");
+        // 拿复用方当时钟：它在 READY 之后才起，等满 3 秒打 SAMPLE_FAILED，回来时监管进程的 2 秒截止早就过了。
+        const reused = await streamCli(s, ["dev", "start", "--package", "apps/web", "--sample", "--sample-timeout", "3", "--json"]);
+        expect([reused.exitCode, events(reused.stdout)]).toEqual([0, [expect.objectContaining({event: "ready", runId, reused: true}), {event: "sample_failed", runId, reason: SAMPLE_SILENT_REASON}]]);
+        const sampleLines = () => sup.lines().filter((line) => line.startsWith("SAMPLE"));
+        expect(sampleLines()).toEqual([]);
+        await appendFile(feed, "[dev] open-path /?project=second\n");
+        await until(sampleLines, (all) => all.length > 0, 10_000, "第二代的 SAMPLE");
+        expect(sampleLines()).toEqual([`SAMPLE ${url}?project=second run=${runId}`]);
+        process.kill(sup.pid, "SIGTERM");
+        expect(await sup.exited).toBe(0);
+        await until(() => alivePids(s.pidsFile), (alive) => alive.length === 0, 10_000, "收干净");
+    }, 60_000);
+
+    test("复用：旧登记没有 sample 按 false；从日志末尾找最后一行 backend-ready 之后的结果，读的期间日志还在增长也立刻打；本代还没有就接着读", async () => {
+        const s = await setup("dev-sample-reuse");
+        const server = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok")});
+        cleanups.push(async () => {
+            await server.stop(true);
+        });
+        const url = `http://127.0.0.1:${server.port}/`;
+        const leader = await detachedSleep();
+        const logPath = join(s.fixture.root, "sample.log");
+        await writeFile(logPath, `[dev] page-ready ${url}\n[dev] backend-ready pid=1 x\n[dev] open-path /old\n[dev] backend-ready pid=2 x\n[dev] open-path /new\n`);
+        const runId = "dev-20261013T000000Z-00000010";
+        const fields = {logPath, supervisor: {pid: leader.pid, startTicks: `${leader.startTicks}0`}, pid: leader.pid, pgid: leader.pid, startTicks: leader.startTicks, url, readyAt: new Date().toISOString(), lastProbeStatus: 200};
+        await writeRecord(s, runId, fields);
+        expect((await records(s.fixture))[0]!.sample).toBe(false);
+        const old = await streamCli(s, ["dev", "start", "--package", "apps/web", "--json"]);
+        expect([old.exitCode, events(old.stdout).map((event) => event.event)]).toEqual([0, ["ready"]]);
+        expect(warningCodes(old.stderr).map((warning) => warning.code)).not.toContain("reused_with_different_options");
+
+        await writeRecord(s, runId, {...fields, sample: true});
+        const latest = await streamCli(s, ["dev", "start", "--package", "apps/web", "--sample", "--json"]);
+        expect([latest.exitCode, events(latest.stdout)]).toEqual([0, [expect.objectContaining({event: "ready", runId}), {event: "sample", runId, url: `${url}new`}]]);
+
+        // 另一个进程一直往日志里追加整行的噪声：复用按开始读时的长度结算，本代结果就在里面，不等日志停止增长就打、以 0 退出。
+        const grower = Bun.spawn([process.execPath, "-e", GROW_LOG_SCRIPT], {env: {...process.env, GROW_LOG: logPath}, stdout: "ignore", stderr: "inherit"});
+        cleanups.push(async () => {
+            grower.kill("SIGKILL");
+            await grower.exited;
+        });
+        const sizeBefore = (await stat(logPath)).size;
+        await until(async () => (await stat(logPath)).size, (size) => size > sizeBefore, 10_000, "日志开始增长");
+        const growing = await streamCli(s, ["dev", "start", "--package", "apps/web", "--sample", "--json"]);
+        expect([growing.exitCode, events(growing.stdout)]).toEqual([0, [expect.objectContaining({event: "ready", runId}), {event: "sample", runId, url: `${url}new`}]]);
+        expect(grower.exitCode).toBeNull();
+        grower.kill("SIGKILL");
+        await grower.exited;
+
+        await appendFile(logPath, "[dev] backend-ready pid=3 x\n");
+        const waiting = await startDev(s, ["--sample", "--sample-timeout", "20", "--json"]);
+        await until(() => waiting.lines(), (all) => all.length > 0, 10_000, "复用方的 ready 事件");
+        await appendFile(logPath, "[dev] open-path /third\n");
+        expect(await waiting.exited).toBe(0);
+        expect(waiting.lines().map((line) => JSON.parse(line) as Record<string, unknown>)).toEqual([expect.objectContaining({event: "ready", runId}), {event: "sample", runId, url: `${url}third`}]);
     }, 60_000);
 });

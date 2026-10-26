@@ -86,11 +86,11 @@ describe("浏览器引导接口", () => {
         const b: PluginDescriptor = {id: "b", version: "1.0.0", locations: ["server", "browser"]};
         const serverOnly: PluginDescriptor = {id: "s", version: "1.0.0", locations: ["server"]};
         const rpc = {port: 4100, path: "/"};
-        const revision = browserBootstrap([a, b, serverOnly], rpc).revision;
-        expect(browserBootstrap([serverOnly, b, a], rpc).revision).toBe(revision);
-        expect(browserBootstrap([a, b], {port: 4200, path: "/"}).revision).toBe(revision);
-        expect(browserBootstrap([{...a, version: "1.0.1"}, b], rpc).revision).not.toBe(revision);
-        expect(browserBootstrap([a], rpc).revision).not.toBe(revision);
+        const revision = browserBootstrap([a, b, serverOnly], [], rpc).revision;
+        expect(browserBootstrap([serverOnly, b, a], [], rpc).revision).toBe(revision);
+        expect(browserBootstrap([a, b], [], {port: 4200, path: "/"}).revision).toBe(revision);
+        expect(browserBootstrap([{...a, version: "1.0.1"}, b], [], rpc).revision).not.toBe(revision);
+        expect(browserBootstrap([a], [], rpc).revision).not.toBe(revision);
     });
 
     it("只有顶层声明式贡献的插件也列出（浏览器要登记它的声明），只有服务端入口、没有声明的不列；声明的插件版本变化改变修订号", () => {
@@ -98,8 +98,31 @@ describe("浏览器引导接口", () => {
         const declared: PluginDescriptor = {id: "d", version: "1.0.0", locations: ["server"], contributions: [{capability: "settings.properties", id: "d/x", declaration: {}}]};
         const serverOnly: PluginDescriptor = {id: "s", version: "1.0.0", locations: ["server"]};
         const rpc = {port: 4100, path: "/"};
-        const body = browserBootstrap([serverOnly, declared, browser], rpc);
+        const body = browserBootstrap([serverOnly, declared, browser], [], rpc);
         expect(body.plugins).toEqual([{id: "a", version: "1.0.0"}, {id: "d", version: "1.0.0"}]);
-        expect(browserBootstrap([serverOnly, {...declared, version: "1.0.1"}, browser], rpc).revision).not.toBe(body.revision);
+        expect(browserBootstrap([serverOnly, {...declared, version: "1.0.1"}, browser], [], rpc).revision).not.toBe(body.revision);
+    });
+
+    it("内置插件只给 id 与版本；第三方插件另带清单（入口只留浏览器的）与文件 URL 前缀，修订号随版本与内容摘要变化（browser-host 输出 2）", () => {
+        const builtin: PluginDescriptor = {id: "nbook.a", version: "0.1.0", locations: ["browser"]};
+        const raw = {
+            publisher: "example",
+            name: "d",
+            version: "1.0.0",
+            engines: {neurobook: ">=0.1.0"},
+            entries: {server: {location: "server", main: "server.js"}, browser: {location: "browser", main: "browser.js"}},
+            contributes: [{capability: "settings.properties", id: "example.d/x", declaration: {}}],
+            style: "style.css",
+        };
+        const installed = {id: "example.d", version: "1.0.0", root: "/state/plugins/example.d/1.0.0", digest: "0123456789abcdef", manifest: raw};
+        const rpc = {port: 4100, path: "/"};
+        const body = browserBootstrap([builtin], [installed], rpc);
+        expect(body.plugins).toEqual([
+            {id: "example.d", version: "1.0.0", manifest: {...raw, entries: {browser: {location: "browser", main: "browser.js"}}}, files: "/api/runtime/plugins/example.d/files/0123456789abcdef/"},
+            {id: "nbook.a", version: "0.1.0"},
+        ]);
+        expect(JSON.stringify(body)).not.toContain("/state/plugins");
+        expect(browserBootstrap([builtin], [{...installed, version: "1.0.1", manifest: {...raw, version: "1.0.1"}}], rpc).revision).not.toBe(body.revision);
+        expect(browserBootstrap([builtin], [{...installed, digest: "fedcba9876543210"}], rpc).revision).not.toBe(body.revision);
     });
 });

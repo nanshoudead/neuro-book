@@ -7,24 +7,40 @@ import {nbColorwayVarKeys} from "../colorway/colorway-contract";
 /**
  * 设计 token 层 + 主题层基线的兜底（编辑室草案 §4 / Task 146 D11）。
  *
- * 值的事实源是 src/tokens.css，名单在 theme/tokens.ts。两边任一侧漏改都会在这里失败。
+ * 值的事实源是 src/tokens.css 与 src/theme.css（后者是与 Tailwind 主题键同名的那批，声明在 @theme static 里），
+ * 名单在 theme/tokens.ts。两边任一侧漏改都会在这里失败。
  */
 
 function readTokensCss(): string {
     return readFileSync(join(import.meta.dirname, "..", "tokens.css"), "utf-8");
 }
 
+/** theme.css 与 tokens.css 的合并文本：名单里的 token 落在两个文件中的哪一个，由它是否属于 Tailwind 主题命名空间决定。 */
+function readDeclarationSources(): string {
+    return `${readFileSync(join(import.meta.dirname, "..", "theme.css"), "utf-8")}\n${readTokensCss()}`;
+}
+
 describe("nb-ui design tokens", () => {
-    it("declares every registered token in tokens.css", () => {
-        const css = readTokensCss();
+    it("declares every registered token in theme.css or tokens.css", () => {
+        const css = readDeclarationSources();
         const missing = nbReservedTokens.filter((token) => !css.includes(`${token}:`));
 
-        expect(missing, `tokens.css 里缺少这些 token 的声明: ${missing.join(", ")}`).toEqual([]);
+        expect(missing, `theme.css 与 tokens.css 里缺少这些 token 的声明: ${missing.join(", ")}`).toEqual([]);
     });
 
     it("registers the menu radius as a design token with a baseline fallback", () => {
         expect(nbRadiusTokens).toContain("--radius-menu");
         expect(readTokensCss()).toContain("--radius-menu: var(--radius-panel)");
+    });
+
+    it("registers the compact dialog radius as a theme token that falls back to the dialog radius", () => {
+        expect(nbThemeTokens).toContain("--radius-dialog-compact");
+        expect(readTokensCss()).toContain("--radius-dialog-compact: var(--radius-dialog)");
+    });
+
+    it("registers the floating window radius as a theme token that falls back to the dialog radius", () => {
+        expect(nbThemeTokens).toContain("--radius-window");
+        expect(readTokensCss()).toContain("--radius-window: var(--radius-dialog)");
     });
 
     /*
@@ -33,12 +49,12 @@ describe("nb-ui design tokens", () => {
      */
     it("declares the theme-layer baseline outside any [data-nb-theme] block", () => {
         // 注释里提到这个选择器是允许的（正是用来解释主题怎么压过基线），只看真实选择器
-        const withoutComments = readTokensCss().replaceAll(/\/\*[\s\S]*?\*\//g, "");
+        const withoutComments = readDeclarationSources().replaceAll(/\/\*[\s\S]*?\*\//g, "");
         const rootBlock = withoutComments.split("[data-nb-theme")[0] ?? "";
         const missing = nbThemeTokens.filter((token) => !rootBlock.includes(`${token}:`));
 
         expect(missing, `这些主题层变量没有裸 :root 默认值: ${missing.join(", ")}`).toEqual([]);
-        expect(withoutComments, "tokens.css 是库的基线，不该按具体主题分档——那是主题包自己 vars.css 的事").not.toContain(
+        expect(withoutComments, "theme.css 与 tokens.css 是库的基线，不该按具体主题分档——那是主题包自己 vars.css 的事").not.toContain(
             "[data-nb-theme",
         );
     });

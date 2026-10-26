@@ -219,6 +219,10 @@ export function clippedFocusRings(stage: HTMLElement, extent: number, selectors:
 function clippedBy(element: HTMLElement, root: HTMLElement, extent: number): LabClippedFocus | null {
     const box = element.getBoundingClientRect();
     if (box.width === 0 || box.height === 0) return null;
+    // 里层已经在某个方向上滚动时，外层容器在这个方向上的边不再是裁切边：滚动区之外的部分本来就看不见，要滚过去才露出来，
+    // 露出来时在滚动区里。不记住这一点，外层不滚动的容器（例如对话框正文）会把滚动区里贴近它边上的元素误报成光晕被裁。
+    let scrolledX = false;
+    let scrolledY = false;
     for (let node = element.parentElement; node !== null && node !== root; node = node.parentElement) {
         const style = getComputedStyle(node);
         if (style.overflowX === "visible" && style.overflowY === "visible") continue;
@@ -233,9 +237,11 @@ function clippedBy(element: HTMLElement, root: HTMLElement, extent: number): Lab
         const scrollsX = (style.overflowX === "auto" || style.overflowX === "scroll") && node.scrollWidth > node.clientWidth;
         const scrollsY = (style.overflowY === "auto" || style.overflowY === "scroll") && node.scrollHeight > node.clientHeight;
         const gaps = [
-            ...(style.overflowX === "visible" || scrollsX ? [] : [box.left - (inner.left + inset.left), inner.right - inset.right - box.right]),
-            ...(style.overflowY === "visible" || scrollsY ? [] : [box.top - (inner.top + inset.top), inner.bottom - inset.bottom - box.bottom]),
+            ...(style.overflowX === "visible" || scrollsX || scrolledX ? [] : [box.left - (inner.left + inset.left), inner.right - inset.right - box.right]),
+            ...(style.overflowY === "visible" || scrollsY || scrolledY ? [] : [box.top - (inner.top + inset.top), inner.bottom - inset.bottom - box.bottom]),
         ];
+        scrolledX ||= scrollsX;
+        scrolledY ||= scrollsY;
         const gap = Math.min(...gaps);
         if (gaps.length > 0 && gap >= -TOLERANCE && gap < extent) {
             const described = describeNode(element);

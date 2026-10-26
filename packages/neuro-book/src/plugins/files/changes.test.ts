@@ -75,16 +75,25 @@ function settle<T>(created: Scene, description: string, check: () => T) {
     });
 }
 
-/** 写好之后等本测试自己的监视器看到最后一个文件：它与文件服务的监视器由同一个 Bun 监视线程投递。 */
+let fences = 0;
+
+/**
+ * 写好之后等这些写入的原始事件全部投递完：再到场景之外写一个屏障文件，等本测试自己的监视器看到它。Bun 的全部 `fs.watch`
+ * 共用一个 inotify 实例，由同一个监视线程按发生顺序投递，屏障到了，文件服务的监视器也已收到前面每个文件的全部事件。
+ * 只等最后一个文件的第一个事件不够：一次写入在有的文件系统上（btrfs）是创建与修改两个事件，后一个会落进下一批。
+ */
 async function writeAndSee(directory: string, names: ReadonlyArray<string>): Promise<void> {
+    fences += 1;
+    const fence = join(tmp, `fence-${String(fences)}`);
+    await mkdir(fence);
     let seen = false;
-    const last = names.at(-1)!;
-    const probe = watch(directory, {recursive: true}, (_event, filename) => {
-        if (filename !== null && filename.endsWith(last)) seen = true;
+    const probe = watch(fence, (_event, filename) => {
+        if (filename === "fence") seen = true;
     });
     try {
         for (const name of names) await writeFile(join(directory, name), "");
-        await waitUntil(`${last} 的原始事件`, () => seen);
+        await writeFile(join(fence, "fence"), "");
+        await waitUntil("屏障文件的原始事件", () => seen);
     } finally {
         probe.close();
     }

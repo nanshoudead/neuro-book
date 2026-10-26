@@ -27,7 +27,7 @@ owners:
 
 - **记录定义**：插件共享模块里 `defineRecord({...})` 的结果，三端共用同一份。
 - **owner**：记录所属插件的 id。按插件划分命名空间，不按入口。
-- **scope**：`user`（随用户）或 `project`（随项目目录）。**locality**：`local`（每个客户端一份，缺省）或 `shared`（同一 owner、同一 scope 共用一份）。
+- **scope**：`user`（随用户）或 `project`（随项目目录）。**locality**：`local`（每个客户端一份）或 `shared`（同一 owner、同一 scope 共用一份），必填。
 - **客户端身份**：客户端实例跨重新加载稳定的标识，同一浏览器配置的标签页共用一个（[`runtime.browser-host`](../runtime/browser-host.md)）；服务端与项目实例没有。
 - **分区拥有者**：user 分区归服务端实例，project 分区归该项目当前的项目实例（[`runtime.projects`](../runtime/projects.md)）。
 - **revision**：每次写入或删除得到的新标识；对插件不透明，分区内单调递增、不复用、不保证连续。
@@ -49,9 +49,9 @@ export const sizesRecord = defineRecord({
 | 字段 | 规则 |
 |---|---|
 | `key` | 1–64 个字符，`[a-z0-9]` 开头，其余为 `[a-z0-9.-]` |
-| `scope`、`locality` | 见术语；`locality` 缺省 `local` |
+| `scope`、`locality` | 见术语；`locality` 必填，没有缺省（缺省成 `local` 时服务端入口的记录打不开：服务端没有客户端身份） |
 | `version` | 正整数 |
-| `schema` | 顶层为对象且 `additionalProperties: false` 的 TypeBox schema |
+| `schema` | 顶层为对象的 TypeBox schema，不许多余字段：没写 `additionalProperties` 时 `defineRecord` 补成 `false`（描述与指纹里是补过的一份），写了别的值报错 |
 | `keyed` | 缺省 `false`；`true` 时按资源 id 寻址，一个资源 id 一条记录 |
 | `maxBytes` | 值的 JSON 文本按 UTF-8 计的上限，1 到 1 MiB，缺省 64 KiB |
 
@@ -74,7 +74,12 @@ interface RecordHandle<T> {
     remove(options: {readonly expect: Revision | null}): Promise<WriteResult>;
     reset(value: T, options: {readonly expect: Revision | null}): Promise<WriteResult>;
     subscribe(listener: (snapshot: RecordSnapshot<T>) => void, options?: {onEnd?(reason: string): void}): Promise<SubscribeResult>;
+    update(change: (current: T | null) => T, options?: {readonly attempts?: number}): Promise<UpdateResult<T>>;
 }
+type UpdateResult<T> =
+    | {ok: true; value: T; revision: Revision}
+    | {ok: false; code: StorageFailure; detail: string}
+    | {ok: false; code: "corrupt" | "unsupported-version"; revision: Revision; detail: string};
 type RecordSnapshot<T> =
     | {status: "missing"; revision: Revision | null}
     | {status: "ok"; value: T; revision: Revision}
@@ -104,7 +109,8 @@ type SubscribeResult = {ok: true; handle: {release(): void}} | {ok: false; code:
 4. **条件保存**：`save` 只在当前 revision 等于 `expect` 时写入（从未写过为 `null`），成功返回新 revision。删除标记的 revision 不是 `null`，所以持有 `null` 或旧 revision 的保存不能复活已删除的值。
 5. **删除与重置**：`remove` 同样以 revision 为条件，留下删除标记。`reset` 以 revision 为条件写入新值；当前是 `corrupt` 或 `unsupported-version` 时先把原件保存进原件区（每个分区最多 64 份、合计 4 MiB，满了为 `originals-full`），对其它状态与 `save` 相同。对 `corrupt`、`unsupported-version` 做 `save`、`remove` 为 `protected`。
 6. **订阅**：先推一次当前快照，之后推送分区拥有者进程里对同一条记录（owner、键、资源 id、客户端分区）的每次写入，按写入顺序送达；只推当前状态，不重放每个中间值。
-7. **命名空间**：owner 取内核填写的调用方身份里的插件，经代理时也是原插件；`local` 记录另按调用方的客户端身份分开。插件之间的同名记录互不可见；同一客户端身份的两个窗口共用一份 `local` 记录。接口上没有 owner、客户端或项目参数，插件无法指定别人的命名空间。
+7. **命名空间**：owner 取内核填写的调用方身份里的插件，经代理时也是原插件；`local` 记录另按调用方的客户端身份分开。插件之间的同名记录互不可见；同一客户端身份的两个窗口共用一份 `local` 记录。接口上没有 owner、客户端或项目参数，插件无法指定别人的命名空间。命名空间是对守约插件的隔离，不是安全边界：代理入口可以用它收到的调用方身份访问该调用方的记录（[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）。
+8. **读改写**：`update(change)` 读出当前值，以它调用 `change`（`missing` 时为 `null`），再以读到的 revision 条件保存，成功返回新值与新 revision。保存得到 `conflict` 时重读、重算，最多保存 `attempts` 次（缺省 5，必须是不小于 1 的整数，否则抛 `TypeError`），用完仍冲突时返回 `conflict`。读到 `corrupt` 或 `unsupported-version` 时不调用 `change`，返回同名失败并带上当前 revision（作者迁移或以它 `reset`）；读取失败（`error`）返回同一个失败码与详情；别的保存失败（含 `unknown-outcome`、`unavailable`）立即返回，不重试。`change` 抛错时 `update` 以同一个错误失败，不写入。`update` 只组合 `read` 与 `save`，不是新的原子操作：两次之间别人的写入由条件保存发现。
 
 ## 状态与转换
 
@@ -178,7 +184,7 @@ Smoke：`smoke:server` 经打包产物保存、读回一条 user 记录，重启
 ## 实现合同
 
 - **公开入口**：`nbook/shared/storage`（`defineRecord`、`StorageService`、`RecordHandle`、`RecordSnapshot`、`WriteResult`、`STORAGE_FAILURES`）；`nbook/plugins/storage/shared/contracts` 的 `storageKey` 与远程合同 `userStorageContract`、`projectStorageContract`；插件定义 `storageBackendPlugin`（服务端与项目两个入口，代码相同；user 库在宿主能力 `stateRootKey` 给出的状态根下的 `storage/user.sqlite`，project 库在 `currentProjectKey.root` 下的 `.nbook/storage.sqlite`）与 `storageBrowserPlugin`。
-- **owner 与依赖方向**：`nbook.storage` 依赖内核的按调用方门面、远程服务与跨实例委托（`remoteDelegates`、`context.remote.on`），服务端与项目入口依赖 `nbook.diagnostics` 与给出库文件位置的宿主能力（宿主没有提供时入口按 `missing-service` 受阻），浏览器入口依赖窗口的项目绑定；分区库直接用 `bun:sqlite`。别的插件只依赖 `storageKey`，不依赖分区库与远程合同。
+- **owner 与依赖方向**：`nbook.storage` 依赖内核的按调用方门面、远程服务与跨实例委托（`remoteDelegates`、`context.remote.on`），服务端与项目入口依赖 `runtime.diagnostics` 与给出库文件位置的宿主能力（宿主没有提供时入口按 `missing-service` 受阻），浏览器入口依赖窗口的项目绑定；分区库直接用 `bun:sqlite`。别的插件只依赖 `storageKey`，不依赖分区库与远程合同。
 - **关键不变量**：
   - 分区库只在拥有它的实例里打开；别的实例经远程服务到达，拥有者按内核填写的调用方身份取 owner 与客户端身份，不信任输入里的身份（场景 1、2）。
   - 先认库再改库：只有一张表都没有的库才在写锁里再认一次并建表，其余文件为 `io-error` 且不改写（输出 1、场景 5）。

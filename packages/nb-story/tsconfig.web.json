@@ -1,0 +1,16 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "lib": ["ES2024", "DOM", "DOM.Iterable"],
+        "types": ["vite/client"],
+        "strict": true,
+        "noEmit": true,
+        "skipLibCheck": true,
+        "jsx": "preserve",
+        "forceConsistentCasingInFileNames": true
+    },
+    "include": ["src/web/**/*.ts", "src/web/**/*.vue"],
+    "exclude": ["src/web/**/*.test.ts"]
+}

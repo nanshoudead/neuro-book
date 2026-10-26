@@ -37,3 +37,7 @@ ADR 0025 让插件入口的工厂只收宿主给的配置。落地之后签名�
 - `nbook.commands` 一份定义含服务端与浏览器两个入口，`nbook.storage` 的后端定义含服务端与项目两个入口，宿主不再按运行位置挑工厂。
 - 同一 id 在两处定义成不同类型时编译器查不出来，仍由第 2 条的约定与边界测试约束（同 ADR 0025）。
 - 不改变的：唯一提供者、重复提供隔离、调用方身份与委托的签发记录（仍按身份对象登记）。
+
+## 后续修订
+
+- 2026-10-24（[w00027 t13](../../.agents/works/w00027-plugin-platform/tasks/t13-sdk-package-split/README.md)）：内核自带的诊断插件改名为 `runtime.diagnostics`，第 5 条说的宿主适配器 `nbook.diagnostics` 即它；内核的命名空间 `runtime` 与应用无关。
