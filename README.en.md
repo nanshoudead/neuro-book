@@ -47,7 +47,9 @@ nbook
 - **Settings**: a settings window organized by section, with separate user and book layers, or edit the settings file directly.
 - **Plugins**: views, commands, menus, status bar items and settings sections are all open to plugins — the built-in features are plugins too. Install from the plugins page or with `nbook plugin install`; changes apply after a restart.
 
-<!-- Screenshots: the bookshelf, and the workbench with a book open -->
+<img src="docs/images/readme/bookshelf.webp" width="100%" alt="The bookshelf: writing stats, where you left off, the mascot and book cards" />
+
+<img src="docs/images/readme/workbench.webp" width="100%" alt="The workbench: chapters in the explorer on the left, chapter one open in the Markdown editor on the right" />
 
 ## Write a plugin
 

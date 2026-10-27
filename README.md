@@ -49,7 +49,9 @@ nbook
 - **设置**：设置窗口按分区组织，用户层与作品层分开，也可以直接编辑设置文件。
 - **插件**：工作台的视图、命令、菜单、状态栏、设置分区都对插件开放，内置功能也是同一套插件写的。插件页或 `nbook plugin install` 安装，重启后生效。
 
-<!-- 截图：书架与打开作品的工作台 -->
+<img src="docs/images/readme/bookshelf.webp" width="100%" alt="书架：作品统计、最近写到、看板娘与作品卡片" />
+
+<img src="docs/images/readme/workbench.webp" width="100%" alt="工作台：左侧资源管理器里是作品的章节，右侧 Markdown 编辑器打开了第一章" />
 
 ## 写插件
 
