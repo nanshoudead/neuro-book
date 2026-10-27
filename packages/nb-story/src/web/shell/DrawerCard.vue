@@ -17,7 +17,7 @@ import RefLink from "../parts/RefLink.vue";
 import StateBadge from "../parts/StateBadge.vue";
 import TierBadge from "../parts/TierBadge.vue";
 import {FLAG_WORDS} from "../parts/tier-words";
-import {useShowMinorRecords} from "../host/show-minor";
+import {useMinorCount, useShowMinorRecords} from "../host/show-minor";
 import CardRelations from "./CardRelations.vue";
 
 const props = defineProps<{entity: string; tab: Tab}>();
@@ -67,7 +67,7 @@ const statements = usePagedQuery("entity.statements", () =>
         ? {entity: props.entity, ...(recordQuery.value.trim() ? {query: recordQuery.value.trim()} : {}), ...(showMinor.value ? {} : {maxTier: 2 as const})}
         : null,
 );
-const minorCount = computed(() => statements.extra.value?.tiers[2] ?? null);
+const minor = useMinorCount(statements.extra, () => JSON.stringify([props.entity, recordQuery.value.trim(), book.at.value]), showMinor);
 const episodes = usePagedQuery("entity.episodes", () => (props.tab === "episodes" ? {entity: props.entity} : null));
 
 function setTab(value: string): void {
@@ -146,7 +146,7 @@ const FAMILY_WORD: Record<string, string> = {
                         </template>
                     </PagedList>
                     <template v-else>
-                        <FoldedBar v-if="minorCount" v-model:open="showMinor" :count="minorCount" class="mb-1" data-testid="toggle-minor-records" />
+                        <FoldedBar v-if="minor.visible.value" v-model:open="showMinor" :count="minor.count.value" class="mb-1" data-testid="toggle-minor-records" />
                         <PagedList :items="statements.items.value" :total="statements.total.value" :loading="statements.loading.value" :has-more="statements.hasMore.value" :error="statements.error.value?.message ?? null" @more="statements.more()" @retry="statements.reload()">
                             <template #item="{item, index}">
                                 <h4 v-if="index === 0 || statements.items.value[index - 1]!.chapter !== item.chapter" class="chapter-head">第 {{ item.chapter }} 章</h4>

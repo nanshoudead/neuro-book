@@ -83,9 +83,13 @@ onMounted(() => {
     });
     if (root.value) observer.observe(root.value);
 });
-// 浮层抽屉按 Escape 关掉（输出 32、33）。
+// 浮层抽屉按 Escape 关掉（输出 32、33）。有 nb-ui 浮层开着时（例如抽屉里记录等级的依据，焦点可能还在抽屉里的色块上），
+// Escape 先归浮层：它们的 Escape 监听也挂在 window 上、注册得比这里晚，既不阻止事件也不标记，只能看还有没有开着的浮层
+// （reka-ui 给每个开着的浮层元素标 `data-dismissable-layer`）。抽屉改用 nb-ui 的浮层组件后，这一段可以去掉。
 function onKey(event: KeyboardEvent): void {
-    if (event.key === "Escape" && overlayDrawer.value && book.drawer.value) book.closeDrawer();
+    if (event.key !== "Escape" || !overlayDrawer.value || !book.drawer.value) return;
+    if (document.querySelector("[data-dismissable-layer]")) return;
+    book.closeDrawer();
 }
 window.addEventListener("keydown", onKey);
 onBeforeUnmount(() => {

@@ -12,7 +12,7 @@ import {citedWords, echoWords, FLAG_WORDS, TIER_WORDS, tierVerdict} from "./tier
 const props = defineProps<{
     tier: 1 | 2 | 3 | null;
     flag?: "unconfirmed" | "foreshadow" | null;
-    /** 说法或情节的 id；给了才能点开看依据。 */
+    /** 说法的 id；给了才能点开看依据。情节不给（输出 56：情节的色块不能点）。 */
     explain?: string;
     /** 说法的类别（没有先验时写进依据）。 */
     family?: string;
@@ -20,8 +20,7 @@ const props = defineProps<{
 const book = useBook();
 const open = ref(false);
 const explained = useStoryQuery("tier.explain", () => (open.value && props.explain ? {id: props.explain} : null));
-// 读完全书时阅读位置写作“全部读完”，放进“读到……”里不通，改说“最后”。
-const verdict = computed(() => (explained.data.value ? tierVerdict(explained.data.value, props.family ?? null, book.atLabel.value.startsWith("第") ? book.atLabel.value : "最后") : ""));
+const verdict = computed(() => (explained.data.value ? tierVerdict(explained.data.value, props.family ?? null, {atEnd: book.atEnd.value, label: book.atLabel.value}) : ""));
 const title = computed(() => (props.tier === null ? "" : `${props.tier} 级（${TIER_WORDS[props.tier]}）${props.explain ? "，点开看为什么" : ""}`));
 </script>
 
@@ -40,7 +39,7 @@ const title = computed(() => (props.tier === null ? "" : `${props.tier} 级（${
                 <p v-else-if="!explained.data.value" class="verdict text-[var(--text-secondary)]">正在取依据……</p>
                 <template v-else>
                     <p class="verdict">{{ verdict }}</p>
-                    <dl v-if="explained.data.value.kind === 'statement'">
+                    <dl>
                         <dt>后文引用</dt>
                         <dd>{{ citedWords(explained.data.value) }}</dd>
                         <dt>后文又提到</dt>
@@ -55,16 +54,17 @@ const title = computed(() => (props.tier === null ? "" : `${props.tier} 级（${
 </template>
 
 <style scoped>
+/* 方形、只放一个数字、还要当按钮用，nb-ui 的 Badge 是带内边距的标签，不合用；字号与圆角取 Badge sm 的那一档。 */
 .tier-badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex: none;
-    width: 16px;
-    height: 16px;
-    margin-right: 6px;
-    border-radius: 4px;
-    font-size: 10px;
+    width: 1.45em;
+    height: 1.45em;
+    margin-right: var(--space-3);
+    border-radius: max(2px, calc(var(--radius-control) - 2px));
+    font-size: var(--text-2xs);
     font-weight: 700;
     line-height: 1;
     vertical-align: 1px;
@@ -88,7 +88,9 @@ button.tier-badge:focus-visible {
     outline: 2px solid var(--accent-main);
     outline-offset: 1px;
 }
+/* Popover 的面板整体不可选；依据是要能复制的文字。 */
 .tier-explain {
+    user-select: text;
     font-size: var(--text-sm);
     line-height: 1.6;
 }

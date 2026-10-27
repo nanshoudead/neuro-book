@@ -3,7 +3,7 @@
  * 人物卡记录“在主区打开”的宽表格（docs/specs/story/viewer.md 输出 10）：筛选与人物卡相同，多出“怎么知道的”一列。
  */
 import {Badge, Input, IconButton, SegmentedControl} from "@notnotype/nb-ui/components";
-import {computed, ref} from "vue";
+import {ref} from "vue";
 
 import {useBook} from "../host/book";
 import {usePagedQuery, useStoryQuery} from "../host/query";
@@ -14,7 +14,7 @@ import StateBadge from "../parts/StateBadge.vue";
 import FoldedBar from "../parts/FoldedBar.vue";
 import TierBadge from "../parts/TierBadge.vue";
 import {FLAG_WORDS} from "../parts/tier-words";
-import {useShowMinorRecords} from "../host/show-minor";
+import {useMinorCount, useShowMinorRecords} from "../host/show-minor";
 
 const props = defineProps<{entity: string}>();
 const book = useBook();
@@ -27,7 +27,7 @@ const knowledge = usePagedQuery("entity.knowledge", () => (kind.value === "knowl
 /** 次要（3 级）说法与抽屉共用一个开关（viewer 输出 56）。 */
 const showMinor = useShowMinorRecords();
 const statements = usePagedQuery("entity.statements", () => (kind.value === "statements" ? {entity: props.entity, ...(text.value.trim() ? {query: text.value.trim()} : {}), ...(showMinor.value ? {} : {maxTier: 2 as const})} : null), 200);
-const minorCount = computed(() => statements.extra.value?.tiers[2] ?? null);
+const minor = useMinorCount(statements.extra, () => JSON.stringify([props.entity, text.value.trim(), book.at.value]), showMinor);
 </script>
 
 <template>
@@ -42,7 +42,7 @@ const minorCount = computed(() => statements.extra.value?.tiers[2] ?? null);
                 <SegmentedControl v-if="kind === 'knowledge'" v-model="state" size="xs" :options="STATES" aria-label="按状态筛" />
                 <div class="w-44"><Input v-model="text" size="sm" icon-class="i-lucide-search" placeholder="按字搜" /></div>
             </div>
-            <FoldedBar v-if="kind === 'statements' && minorCount" v-model:open="showMinor" :count="minorCount" class="mb-1" data-testid="toggle-minor-records" />
+            <FoldedBar v-if="kind === 'statements' && minor.visible.value" v-model:open="showMinor" :count="minor.count.value" class="mb-1" data-testid="toggle-minor-records" />
             <table class="story-table w-full">
                 <thead>
                     <tr v-if="kind === 'knowledge'"><th>章</th><th>状态</th><th>知道了什么</th><th>怎么知道的</th><th>标记</th><th>出处</th></tr>

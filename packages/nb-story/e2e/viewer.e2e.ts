@@ -320,34 +320,86 @@ test("记录标记与段落概要（验收 8）", async ({page}) => {
     await expect(page.getByTestId("read-line")).toBeVisible();
 });
 
-test("记录等级（输出 56、57）：关于他的默认收起 3 级，顶部写“展开次要（N）”；展开后 3 级照列、刷新后仍展开；点色块看依据；情节没有先验不画色块", async ({page}) => {
-    const all = await (await page.context().request.post(`${server.base}/api/rpc/entity.statements`, {data: {book: "fox", at: {chapter: 20}, entity: "e4-1", limit: 500}})).json() as {tiers: [number, number, number]};
-    expect(all.tiers[2]).toBeGreaterThan(0);
+test("记录等级（输出 56、57）：关于他的默认收起 3 级，顶部写“展开次要（N）”；展开后 3 级淡显照列、刷新后仍展开；抽屉与宽表格共用开关；点色块看依据；情节没有先验不画色块", async ({page}) => {
+    const rpc = async <T,>(method: string, data: object) => (await (await page.context().request.post(`${server.base}/api/rpc/${method}`, {data: {book: "fox", at: {chapter: 20}, ...data}})).json()) as T;
+    // e4-1 在第 20 章的说法一页取得完（每页 100 条），行数可以直接对。
+    const all = await rpc<{total: number; tiers: [number, number, number]; items: {id: string}[]}>("entity.statements", {entity: "e4-1", limit: 500});
+    const [, , minor] = all.tiers;
+    expect(minor).toBeGreaterThan(0);
+    expect(all.total).toBeLessThanOrEqual(100);
     await open(page, "/book/fox/roster?at=20&entity=e4-1&tab=records");
-    await page.getByRole("radio", {name: /关于他的/u}).click();
-    const bar = page.getByTestId("toggle-minor-records");
-    await expect(bar).toHaveText(`展开次要（${all.tiers[2]}）`);
-    await expect(page.locator('[data-testid="record"][data-tier]').first()).toBeVisible();
-    await expect(page.locator('[data-testid="record"][data-tier="3"]')).toHaveCount(0);
+    const card = page.getByTestId("entity-card");
+    await card.getByRole("radio", {name: /关于他的/u}).click();
+    const bar = card.getByTestId("toggle-minor-records");
+    const rows = card.locator('[data-testid="record"][data-tier]');
+    await expect(bar).toHaveText(`展开次要（${minor}）`);
+    await expect(rows).toHaveCount(all.total - minor);
+    await expect(card.locator('[data-testid="record"][data-tier="3"]')).toHaveCount(0);
     await bar.click();
-    await expect(bar).toHaveText(`收起次要（${all.tiers[2]}）`);
-    await expect(page.locator('[data-testid="record"][data-tier="3"]').first()).toBeVisible();
+    await expect(bar).toHaveText(`收起次要（${minor}）`);
+    await expect(rows).toHaveCount(all.total);
+    await expect(card.locator('[data-testid="record"][data-tier="3"]')).toHaveCount(minor);
+    // 展开后的 3 级淡一些。
+    const colorOf = (tier: string) => card.locator(`[data-testid="record"][data-tier="${tier}"]`).first().evaluate(element => getComputedStyle(element).color);
+    expect(await colorOf("3")).not.toBe(await colorOf("2"));
     // 展开与否记在浏览器偏好里。
     await page.reload();
-    await page.getByRole("radio", {name: /关于他的/u}).click();
-    await expect(page.getByTestId("toggle-minor-records")).toHaveText(`收起次要（${all.tiers[2]}）`);
-    await page.locator('[data-testid="record"]').first().getByTestId("tier-badge").click();
+    await card.getByRole("radio", {name: /关于他的/u}).click();
+    await expect(bar).toHaveText(`收起次要（${minor}）`);
+    // 依据：第一条说法的“后文又提到”与 tier.explain 的回响一致。
+    const first = await rpc<{signals: {echo: {count: number}}}>("tier.explain", {id: all.items[0]!.id});
+    await card.locator('[data-testid="record"]').first().getByTestId("tier-badge").click();
     const explain = page.getByTestId("tier-explain");
     await expect(explain).toContainText("后文引用");
+    await expect(explain).toContainText(first.signals.echo.count > 0 ? /后文又提到\s*有/u : /后文又提到\s*没有/u);
     await expect(explain).toContainText("只看你读到的位置之前的内容");
     await page.keyboard.press("Escape");
     await expect(explain).toHaveCount(0);
-    await page.getByTestId("toggle-minor-records").click();
-    await expect(page.getByTestId("toggle-minor-records")).toHaveText(`展开次要（${all.tiers[2]}）`);
+    await bar.click();
+    await expect(bar).toHaveText(`展开次要（${minor}）`);
+
+    // 宽表格与抽屉共用一个开关。
+    await card.getByTestId("open-wide").click();
+    const wide = page.getByTestId("records-table");
+    await wide.getByRole("radio", {name: /关于他的/u}).click();
+    const wideBar = wide.getByTestId("toggle-minor-records");
+    await expect(wideBar).toHaveText(`展开次要（${minor}）`);
+    await expect(wide.locator('[data-testid="wide-record"][data-tier]')).toHaveCount(all.total - minor);
+    await wideBar.click();
+    await expect(wideBar).toHaveText(`收起次要（${minor}）`);
+    await expect(wide.locator('[data-testid="wide-record"][data-tier="3"]')).toHaveCount(minor);
+    await expect(bar).toHaveText(`收起次要（${minor}）`);
+    await wideBar.click();
+    await expect(bar).toHaveText(`展开次要（${minor}）`);
+
+    // 人物页“其他”的折叠条照旧可切。
+    await page.getByRole("button", {name: "回到页面"}).click();
+    const others = page.getByTestId("toggle-minor");
+    await expect(others).toHaveAttribute("aria-expanded", "false");
+    await others.click();
+    await expect(others).toHaveAttribute("aria-expanded", "true");
+    await expect(others).toContainText("收起次要");
+
     // 样例书的情节没有先验：情节页不画色块。
     await open(page, "/book/fox/episodes?at=20");
     await expect(page.locator("article.episode").first()).toBeVisible();
     await expect(page.locator("article.episode [data-testid='tier-badge']")).toHaveCount(0);
+});
+
+test("记录等级的依据（输出 57）：平板宽度下抽屉是浮层，开着依据按 Escape 只关依据，再按一次才关抽屉", async ({page}) => {
+    await page.setViewportSize({width: 900, height: 900});
+    await open(page, "/book/fox/roster?at=20&entity=e4-1&tab=records");
+    const drawer = page.getByTestId("drawer");
+    await expect(drawer).toBeVisible();
+    await drawer.getByRole("radio", {name: /关于他的/u}).click();
+    await drawer.locator('[data-testid="record"]').first().getByTestId("tier-badge").click();
+    const explain = page.getByTestId("tier-explain");
+    await expect(explain).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(explain).toHaveCount(0);
+    await expect(drawer).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(drawer).toHaveCount(0);
 });
 
 test("时序：旧位置的请求晚到也不显示到新位置；地址里还不存在的对象被去掉并提示；抽屉跨宽度档内容不变", async ({page}) => {
