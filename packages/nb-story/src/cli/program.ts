@@ -10,9 +10,11 @@
  * 值有时记在根命令上、有时记在子命令上，取决于它与命令名、未知选项的先后。
  */
 
+import {readFileSync} from "node:fs";
+
 import {Command, CommanderError} from "commander";
 
-import {camelCase, COMMANDS, FLAGS, OPTION_HELP, usage, UsageError} from "./commands";
+import {camelCase, COMMANDS, CONFIG_ACTIONS, FLAGS, isConfigAction, OPTION_HELP, usage, UsageError} from "./commands";
 import type {CommandSpec} from "./commands";
 import type {CliIo} from "./main";
 
@@ -57,6 +59,19 @@ function subcommandHelp(command: Command, spec: CommandSpec): string {
         ...rows.map(row => `  ${pad(row.term)}  ${row.text}`),
         `  ${pad("--help")}  ${OPTION_HELP.help}`,
     ].join("\n");
+}
+
+/** 包的版本号，读自随包发布的 package.json。 */
+function packageVersion(): string {
+    return (JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as {version: string}).version;
+}
+
+/** `nbstory config <动作> --help`：该动作自己的用法和只对它有效的选项。 */
+function configActionHelp(action: keyof typeof CONFIG_ACTIONS): string {
+    const spec = CONFIG_ACTIONS[action];
+    const rows = [...spec.options.map(name => ({term: FLAGS.has(name) ? `--${name}` : `--${name} <值>`, text: OPTION_HELP[name] ?? ""})), {term: "--json", text: OPTION_HELP.json!}, {term: "--help", text: OPTION_HELP.help!}];
+    const width = Math.max(...rows.map(row => displayWidth(row.term)));
+    return [`用法：${spec.usage}`, "", spec.summary, "", "选项：", ...rows.map(row => `  ${row.term + " ".repeat(width - displayWidth(row.term))}  ${row.text}`)].join("\n");
 }
 
 function buildProgram(io: CliIo, picked: {value: ParsedCommandLine | null}, unknownCommand: {name: string | null}): Command {
@@ -135,6 +150,19 @@ function normalizeArgv(argv: readonly string[]): string[] {
  * 输出用法，返回 2。参数个数与取值的检查在 `decodeArguments`，由调用方继续。
  */
 export function parseCommandLine(argv: readonly string[], io: CliIo): ParsedCommandLine | ParseStopped {
+    // 版本和动作级帮助在交给 commander 之前处理：`--version` 不是命令，`config <动作> --help` 要认出动作。
+    if (argv[0] === "--version" || argv[0] === "-V") {
+        io.stdout(argv.includes("--json") ? JSON.stringify({version: packageVersion()}) : packageVersion());
+        return {exit: 0};
+    }
+    const tokens = normalizeArgv(argv);
+    if (tokens[0] === "config" && tokens.includes("--help")) {
+        const action = tokens.slice(1).find(isConfigAction);
+        if (action !== undefined) {
+            io.stdout(configActionHelp(action));
+            return {exit: 0};
+        }
+    }
     const picked: {value: ParsedCommandLine | null} = {value: null};
     const unknownCommand: {name: string | null} = {name: null};
     const program = buildProgram(io, picked, unknownCommand);
