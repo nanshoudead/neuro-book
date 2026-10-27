@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t32-record-tiers",
+    "artifactId": "review",
+    "ackId": "20261027T141316104Z-62c5aa99",
+    "answers": [
+        "20261027T141249300Z-5f79e187"
+    ],
+    "through": "20261027T141249300Z-5f79e187",
+    "included": [
+        ".agents/works/w00024-nb-story/tasks/t32-record-tiers/README.md"
+    ],
+    "ackedAt": "2026-10-27T14:13:16.104Z"
+}
