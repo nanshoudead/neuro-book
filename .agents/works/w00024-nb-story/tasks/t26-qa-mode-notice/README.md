@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t26-qa-mode-notice
-status: active
+status: done
 updated: 2026-10-27
 ---
 
@@ -17,4 +17,9 @@ updated: 2026-10-27
 
 ## 当前状态
 
-2026-10-27 开工，分支 `feat/w00024-t26-mode-notice`（worktree `.worktree/w00024-t26`）。设计已由开发者在评审板定，计划即上面三条，不另写 plan.md；设计审查并入实现审查。
+2026-10-27 完成并合入 master，分支 `feat/w00024-t26-mode-notice`。新组件 `parts/ModeNotice.vue`（带同名 .md）用 nb-ui 的 `Dialog`：标题“两种读书方式”，一句引导、三列对比表（做法、优点、弊端）、灰字“只在第一次切换时提示”；页脚自定义：“先不切换”随时能点，确认键“知道了，切换（3）”倒计时结束才可点（用 Dialog 的 `busy` 会连取消一起停用，所以没用它）。记住的偏好是 `host/prefs.ts` 的 `qa-mode-notice-seen`。
+
+- Spec：`story.viewer` 输出 51，验收 13 补一句。
+- 验证：nb-story 499 个测试、34 个 e2e（新增一个：倒计时期间确认键停用而取消可点，先不切换不记住，确认后切换且之后与刷新后都不再弹；既有的“一行的输入框”用例改成先过窗口）；`docs:check` 无失败。全量跑时有两个用例因机器负载超时（`ask.test.ts` 的 5 秒、e2e 的外壳用例），单独跑都通过。
+- 评审板示意稿里的窗口开发者嫌不好看；真实组件的截图我看过（对比表、倒计时按钮），与应用的其他对话框一致，等开发者看实际效果再说。
+- 实现审查待做（与 t23、t27、t24、t25 一起交 omp，一次看完）。
