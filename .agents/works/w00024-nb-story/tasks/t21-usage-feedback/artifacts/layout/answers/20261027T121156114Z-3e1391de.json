@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t21-usage-feedback",
+    "artifactId": "layout",
+    "answerId": "20261027T121156114Z-3e1391de",
+    "artifactVersion": 1,
+    "contentHash": "f3156ff442c7e23070ad36d18d0f36abd3866a96b9a6f21ff30947af83085de2",
+    "submittedAt": "2026-10-27T12:11:55.326Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "layout-pick": "stress-add",
+        "edge-thin": "toggle"
+    },
+    "comments": {},
+    "note": null
+}
