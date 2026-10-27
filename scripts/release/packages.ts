@@ -29,11 +29,20 @@ export const RELEASE_PACKAGES = [
  * `release:smoke` 运行生成命令并打 tarball，`release:publish` 发布那些 tarball。加包时同步根 README 两份的包表。
  */
 export const BUILT_PACKAGES = [
-    {name: "@notnotype/neuro-book", source: "neuro-book", script: "build:app-package", outDir: "dist/app-package", repositoryDirectory: "packages/neuro-book"},
+    // SDK 在应用之前：应用包的 README 让用户用 SDK 写插件，先发它，应用发出去时 SDK 已经装得到。
     {name: "@notnotype/nb-plugin-sdk", source: "neuro-book", script: "build:sdk", outDir: "dist/plugin-sdk", repositoryDirectory: "packages/neuro-book/plugin-sdk"},
+    {name: "@notnotype/neuro-book", source: "neuro-book", script: "build:app-package", outDir: "dist/app-package", repositoryDirectory: "packages/neuro-book"},
 ] as const;
 
 export type BuiltPackage = (typeof BUILT_PACKAGES)[number];
+
+export const APP_PACKAGE = "@notnotype/neuro-book";
+export const SDK_PACKAGE = "@notnotype/nb-plugin-sdk";
+
+/** 会进发布包的目录（相对仓库根）：根 LICENSE、源码包目录、生成包的源码目录。冒烟与发布都要求它们没有未提交的改动。 */
+export function releaseDirectories(dirs: readonly string[] = RELEASE_PACKAGES): string[] {
+    return ["LICENSE", ...new Set([...dirs, ...BUILT_PACKAGES.map((entry) => entry.source)].map((dir) => join("packages", dir)))];
+}
 
 export const RELEASE_LICENSE = "AGPL-3.0-only";
 const REPOSITORY_URL = "git+https://github.com/notnotype/neuro-book.git";

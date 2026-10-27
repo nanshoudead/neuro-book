@@ -11,9 +11,10 @@ on:
 permissions:
   contents: read
 
-# 只有 PR 的新一轮取消旧的。推 master 按 github.event.before 选包，取消一轮就等于那次推送的改动没人测。
+# 只有 PR 的新一轮取消旧的。推 master 按 github.event.before 选包，取消一轮（包括排队中的）就等于那次推送的改动
+# 没人测，所以每次推送各成一组，互不取消。
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

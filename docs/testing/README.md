@@ -58,9 +58,9 @@
 | 类别 | 内容 | 包脚本 | 什么时候跑 |
 | --- | --- | --- | --- |
 | 快速 | 同进程测试与几十毫秒级的子进程测试；可以用真文件、真端口 | `test` | 每次改动，按受影响范围 |
-| 浏览器 E2E | 真浏览器，从用户入口到可见结果 | `test:e2e` | Task 验收、CI |
-| 真实模型 | 调用真实模型，见下一节 | `test:llm` | 显式运行，按受影响范围增量；CI 定期 |
-| 全量 | 以上全部 | — | CI 定期 |
+| 浏览器 E2E | 真浏览器，从用户入口到可见结果 | `test:e2e` | Task 验收，本地跑（CI 不跑） |
+| 真实模型 | 调用真实模型，见下一节 | `test:llm` | 显式运行，按受影响范围增量 |
+| 全量 | 以上全部 | — | 手动；CI 手动触发时跑全部包的快速类 |
 
 浏览器 E2E 由 Playwright 在 Node 中运行（Bun 下启动浏览器时 CDP 握手会超时），用本机安装的 Chrome（`channel: "chrome"`），不下载 Playwright 自带的浏览器；文件命名 `*.e2e.ts`，与 `bun test` 的 `*.test.ts` 分开。被测服务由用例自己启动与停止，以便断言停止顺序与退出码。包脚本 `test:e2e` 自己构建；直接用 `npx playwright test` 跑单个文件时不构建，改过前端或插件源码后要先把 `build:server`、`build:web`、`build:e2e` 三份产物都重建（带探针的宿主服务的是 `dist/e2e/web`，只重建前两份时它仍是旧页面，几十个用例一起失败、看起来像产品缺陷）。
 
@@ -68,11 +68,12 @@
 
 `bun run test:affected` 的选择方式：
 
-- 缺省按改动：改动所在的包，加上直接或间接依赖它的包；根 `scripts/`、workflow 或根 `package.json` 有改动时加上根脚本测试；`bun.lock`、`bunfig.toml` 或 `patches/` 有改动时选中全部。`--since <rev>` 再算上与 `<rev>` 分叉以来的提交，`--all` 选中全部。
+- 缺省按改动：改动所在的包，加上直接或间接依赖它的包；根 `scripts/` 或根 `package.json` 有改动时加上根脚本测试（`.github/` 的 Issue 表单与标签由 `governance:check` 检查）；`bun.lock`、`bunfig.toml` 或 `patches/` 有改动时选中全部。`--since <rev>` 再算上与 `<rev>` 分叉以来的提交，`--all` 选中全部。
 - `--package <名>`（可重复）：不看改动，只测指定的包，`scripts` 指根脚本测试；加 `--with-consumers` 连同依赖它的包。
 - `--tier fast|e2e|llm`：运行哪一类，缺省 `fast`。
 - `--files`：改动所在的包只跑受影响的测试文件（测试脚本是单条 `bun test` 时追加 Bun 的 `--changed`；写成 `bun run a && bun run b` 时逐步运行，其中单条 `bun test` 或 `vitest run` 的一步各自追加 `--changed`）。Bun 按导入关系选文件，不跨包追踪，依赖方的包仍整包运行；只经路径启动的文件（例如子进程入口）改了也选不到，提交前去掉 `--files` 再跑一次。
 - `--typecheck` 同时跑类型检查，`--dry-run` 只列出选中项和原因。
+- 旧应用不参加；准备退役的 `llmlint` 选中了也不跑，在跳过里写明理由。
 
 包内再缩小到文件时，在包目录把测试文件路径传给 `bun run test <路径>`。
 
@@ -81,7 +82,7 @@
 - **命名与开关**：会调用真实模型的测试放在 `*.llm.test.ts`，用 `@notnotype/neuro-book-test-support/llm` 的 `llmTestConfig()` 取配置，并以 `describe.skipIf(config === null)` 包住。只有显式设置 `NBOOK_LLM_TESTS=1` 才运行，是否调用模型由运行者的意图决定，不由环境里碰巧有没有凭据决定。包脚本 `test:llm` 设置开关并只运行这些文件；默认的 `test` 里它们显示为跳过。
 - **凭据**：先看进程环境，没有时只从仓库根 `.env` 读 `DEEPSEEK_API_KEY`、`DEEPSEEK_API_BASE`、`REAL_MODEL_SMOKE_MODEL` 三个键；`REAL_MODEL_SMOKE_MODEL` 可覆盖模型（缺省 `deepseek/deepseek-flash`）。凭据不落盘、不打印、不进用例名。开关打开却缺凭据时用例跳过，证据记为“未验证”，不写成通过。
 - **断言**：断言结构化结果（状态、字段形状、工具调用、落盘内容），不断言措辞。
-- **何时运行**：真实模型调用会产生费用，运行前取得开发者授权（见 [`.omp/RULES.md`](../../.omp/RULES.md)）。改到模型相关代码的 Task 验收时，用 `bun run test:affected --tier llm`（加 `--files` 只跑受影响的文件）；CI 定期或手动运行，默认工作流不运行（没有外部凭据）。
+- **何时运行**：真实模型调用会产生费用，运行前取得开发者授权（见 [`.omp/RULES.md`](../../.omp/RULES.md)）。改到模型相关代码的 Task 验收时，用 `bun run test:affected --tier llm`（加 `--files` 只跑受影响的文件）；CI 不运行（没有外部凭据）。
 - **隔离**：测试使用独立的临时根；写入的配置只落在本次运行的隔离根内，结束时删除。
 
 ## 临时目录与环境键
@@ -141,8 +142,11 @@
   POSIX 独有的信号语义测试用 `it.skipIf(process.platform === "win32")`。
 - 测试不得依赖本机用户目录、`Program Files`、`C:\t145-*` 等机器特定路径；需要真实目录
   时全部使用 `mkdtemp(tmpdir()...)`（受控根）。
-- CI 与本地跑同一套配置：clean-runner 不生成 `.nuxt/tsconfig.json` 时，相关配置使用独立
-  esbuild transform（`oxc: false`），不依赖 Nuxt prepare 产物。
+- CI（`.github/workflows/ci.yml`）在推 master 与 PR 上把下一节的验证门禁在干净机器上再跑一遍：`governance:check`、`docs:check`、
+  `test:affected --typecheck`（基准是 PR 的 base 或推送前的 master，取不到共同祖先时跑全部），另一个 job 打应用包与 SDK
+  并跑 `smoke:server`。e2e 与真实模型测试不在 CI 里跑。
+- 干净机器上没有 `.nuxt/tsconfig.json` 这类生成物：相关测试配置使用独立的 esbuild transform（`oxc: false`），不依赖
+  Nuxt prepare 的产物。
 
 ## 验证门禁
 

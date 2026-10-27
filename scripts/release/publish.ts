@@ -17,8 +17,8 @@ import {readFile} from "node:fs/promises";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
-import {RELEASE_DIRECTORY, RELEASE_MANIFEST, sha256Of, type ReleaseManifest} from "#scripts/release/manifest";
-import {BUILT_PACKAGES, checkReleasePackages, loadReleasePackages} from "#scripts/release/packages";
+import {integrityOf, RELEASE_DIRECTORY, RELEASE_MANIFEST, sha256Of, type ReleaseManifest} from "#scripts/release/manifest";
+import {BUILT_PACKAGES, checkReleasePackages, loadReleasePackages, releaseDirectories} from "#scripts/release/packages";
 
 // 不用 import.meta.dir：测试在 Node 里导入本文件。
 const REPOSITORY = fileURLToPath(new URL("../../", import.meta.url));
@@ -90,8 +90,7 @@ export function releaseManifestProblems(manifest: ReleaseManifest, head: string,
 
 async function gates(): Promise<ReleaseManifest> {
     const sources = loadReleasePackages(REPOSITORY);
-    const published = ["LICENSE", ...new Set([...sources.map((entry) => join("packages", entry.dir)), ...BUILT_PACKAGES.map((entry) => join("packages", entry.source))])];
-    const status = await run(["git", "status", "--porcelain", "--untracked-files=all", "--", ...published], REPOSITORY);
+    const status = await run(["git", "status", "--porcelain", "--untracked-files=all", "--", ...releaseDirectories()], REPOSITORY);
     if (status.code !== 0 || status.stdout.trim() !== "") throw new GateFailure(`会发布的目录里有未提交的改动或未跟踪的文件，先提交或清掉：\n${status.stdout || status.stderr}`);
     const branch = (await run(["git", "rev-parse", "--abbrev-ref", "HEAD"], REPOSITORY)).stdout.trim();
     if (branch !== RELEASE_BRANCH) throw new GateFailure(`要在 ${RELEASE_BRANCH} 上发布，现在是 ${branch}`);
@@ -140,11 +139,21 @@ async function main(): Promise<number> {
     console.log(`✓ npm 已登录：${whoami.stdout.trim()}`);
 
     const pending: ReleaseManifest["packages"] = [];
+    const differing: string[] = [];
     for (const entry of manifest.packages) {
         const state = publishedState(await run(["npm", "view", `${entry.name}@${entry.version}`, "version", "--json"], REPOSITORY));
-        console.log(`  ${state === "published" ? "已发布，跳过" : "要发布"}  ${entry.name}@${entry.version}`);
-        if (state === "unpublished") pending.push(entry);
+        if (state === "unpublished") {
+            console.log(`  要发布  ${entry.name}@${entry.version}`);
+            pending.push(entry);
+            continue;
+        }
+        // 已发的版本跳过；但它要是与这次验过的 tarball 字节不同（上次发了一半、之后又改了代码重跑冒烟），跳过就等于发出去的不是验过的那份。
+        const published = (await run(["npm", "view", `${entry.name}@${entry.version}`, "dist.integrity"], REPOSITORY)).stdout.trim();
+        const same = published === await integrityOf(join(RELEASE_DIRECTORY, entry.tarball));
+        console.log(`  已发布，跳过  ${entry.name}@${entry.version}${same ? "" : "（registry 上的与这次验过的 tarball 不同）"}`);
+        if (!same) differing.push(`${entry.name}@${entry.version}`);
     }
+    if (differing.length > 0) throw new GateFailure(`这些版本已经发过，但与这次验过的 tarball 不同：${differing.join("、")}。版本号不能重发，改了代码就提高版本号再冒烟`);
     if (pending.length === 0) {
         console.log("全部版本都已在 registry 上，没有要发的");
         return 0;

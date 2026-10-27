@@ -1,7 +1,8 @@
 /**
- * 作者工具 `nbooke`（docs/specs/runtime/plugin-api.md 的“作者工具”）：用生成的 SDK 包，在仓库外按作者文档的步骤走一遍。
- * 作者先在新目录里装 SDK（这里写下 `bun add -d <SDK>` 会留下的 `package.json`，依赖从仓库的 `node_modules` 链接，不联网），
- * 再用 Bun 运行包里的 `cli.js`：`create .`、类型检查、`build`、`build --clean --dev`；以及几种拒绝。
+ * 作者工具 `nbooke`（docs/specs/runtime/plugin-api.md 的“作者工具”）：用生成的 SDK 包，在仓库外走一遍作者的流程。
+ * 为了不联网，这里走“先装 SDK、再 `create .`”那条路（写下 `bun add -d <SDK>` 会留下的 `package.json`，依赖从仓库的
+ * `node_modules` 链接），再用 Bun 运行包里的 `cli.js`：`create .`、类型检查、`build`、`build --clean --dev`；以及几种拒绝。
+ * 作者文档里的 `bunx -p` 那条路由 `release:smoke` 用真实的 tarball 与 registry 验收。
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";

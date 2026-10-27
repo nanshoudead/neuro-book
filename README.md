@@ -7,8 +7,6 @@
 
 **用工程的方法，写完你的长篇**
 
-设定不吃书 · 伏笔有账本 · 文字没 AI 味 · AI 听指挥
-
 [安装](#安装与启动) · [写插件](#写插件) · [路线图](#路线图) · [Discord](https://discord.gg/bSQB7mNpHB) · QQ 群 287447372
 
 [![npm](https://img.shields.io/npm/v/@notnotype/neuro-book?label=npm)](https://www.npmjs.com/package/@notnotype/neuro-book)

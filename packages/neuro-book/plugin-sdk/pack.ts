@@ -19,7 +19,8 @@
  *   配色合同、主题样式表生成的两份附表；`specs/`：作者文档链接到的 Spec 的副本。作者文档在仓库里用指向 `docs/specs/` 的相对
  *   链接写，复制时改写到包里的副本：副本与这个 SDK 版本一致，离线也能读，仓库里的 Spec 随后续版本变化。
  *
- * 生成的目录再用 `bun pm pack` 打成 tarball，放在目录旁边：发布用它，试未发布的改动时作者 `bun add -d <tarball>` 装它。
+ * 生成的目录再用 `bun pm pack` 打成 tarball，放在目录旁边，试未发布的改动时作者 `bun add -d <tarball>` 装它。发布用的是
+ * `release:smoke` 从生成的目录另打、验过的那份（`scripts/release/`）。
  *
  * 用法：`bun run build:sdk [输出目录]`，缺省输出到 `dist/plugin-sdk/`，最后一行打印 tarball 的路径。输出目录只在不存在、
  * 为空或者是上次生成的 SDK 包时清空重建，否则拒绝。

@@ -25,7 +25,7 @@ import {chromium} from "playwright-core";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {RELEASE_DIRECTORY, RELEASE_MANIFEST, sha256Of, type ReleaseManifest} from "#scripts/release/manifest";
-import {BUILT_PACKAGES, checkReleasePackages, loadBuiltPackages, loadReleasePackages, publishOrder, type ReleasePackage} from "#scripts/release/packages";
+import {APP_PACKAGE, BUILT_PACKAGES, checkReleasePackages, loadBuiltPackages, loadReleasePackages, publishOrder, releaseDirectories, SDK_PACKAGE, type ReleasePackage} from "#scripts/release/packages";
 
 const REPOSITORY = join(import.meta.dir, "..", "..");
 /** 包里不该有的文件。`testing/` 目录是 exports 里公开的测试替身入口，照发。 */
@@ -264,7 +264,9 @@ async function withNbook(nbook: string, stateRoot: string, env: Record<string, s
     const child = Bun.spawn([nbook, "start", "--state-root", stateRoot, "--port", "0", "--no-open", "--json"], {cwd: stateRoot, stdin: "ignore", stdout: "pipe", stderr: "pipe", env: {...process.env, ...env}});
     let failure: unknown = null;
     try {
-        const line = await firstLine(child);
+        // 启动卡住时不能一直等：60 秒没有结果对象就结束它（下面照常收口）。
+        const timer = setTimeout(() => child.kill("SIGKILL"), 60_000);
+        const line = await firstLine(child).finally(() => clearTimeout(timer));
         const started = JSON.parse(line || "{}") as {ok?: boolean; url?: string};
         if (!started.ok || typeof started.url !== "string") fail(`nbook start 没有启动：${line}\n${await new Response(child.stderr).text()}`);
         await use(started.url);
@@ -298,14 +300,17 @@ async function checkWorkbench(url: string): Promise<void> {
  * 全局包、缓存与数据。
  */
 async function smokeAppAndPlugin(root: string, from: ReturnType<typeof sources>, tarballs: ReadonlyMap<string, string>): Promise<void> {
-    const appName = BUILT_PACKAGES[0].name;
-    const sdkName = BUILT_PACKAGES[1].name;
+    const appName = APP_PACKAGE;
+    const sdkName = SDK_PACKAGE;
     const bunHome = join(root, "bun-home");
     const home = join(root, "user-home");
     const stateRoot = join(root, "state");
     const authors = join(root, "authors");
     for (const directory of [bunHome, home, stateRoot, authors]) await mkdir(directory, {recursive: true});
-    const env = {BUN_INSTALL: bunHome, HOME: home, XDG_DATA_HOME: join(home, ".local", "share"), XDG_CONFIG_HOME: join(home, ".config"), PATH: `${join(bunHome, "bin")}:${process.env.PATH ?? ""}`};
+    const temp = join(root, "user-tmp");
+    await mkdir(temp);
+    // TMPDIR 也换掉：`bunx -p` 把包缓存在 $TMPDIR/bunx-<uid>-…，不随 HOME 与 BUN_INSTALL 走；不换的话重跑冒烟用的是上次那份 SDK。
+    const env = {BUN_INSTALL: bunHome, HOME: home, TMPDIR: temp, XDG_DATA_HOME: join(home, ".local", "share"), XDG_CONFIG_HOME: join(home, ".config"), PATH: `${join(bunHome, "bin")}:${process.env.PATH ?? ""}`};
     const appSpec = tarballs.get(appName) ?? `${appName}@${from.expected.get(appName) as string}`;
     const sdkSpec = tarballs.get(sdkName) ?? `${sdkName}@${from.expected.get(sdkName) as string}`;
 
@@ -328,11 +333,20 @@ async function smokeAppAndPlugin(root: string, from: ReturnType<typeof sources>,
 
     await mustRun("nbook plugin install", [nbook, "plugin", "install", join(plugin, "dist"), "--state-root", stateRoot, "--json"], {cwd: home, env});
     await withNbook(nbook, stateRoot, env, async () => {
-        const listed = JSON.parse(await mustRun("nbook plugin list", [nbook, "plugin", "list", "--state-root", stateRoot, "--json"], {cwd: home, env})) as {plugins?: Array<{id: string; pending: unknown[]; notLoaded: unknown}>};
+        // 没有运行中的实例时 list 按下一次启动预演，结果也是“已加载”；先确认它读的是正在运行的那一个。
+        const listed = JSON.parse(await mustRun("nbook plugin list", [nbook, "plugin", "list", "--state-root", stateRoot, "--json"], {cwd: home, env})) as {running?: {pid?: unknown} | null; plugins?: Array<{id: string; pending: unknown[]; notLoaded: unknown}>};
+        if (typeof listed.running?.pid !== "number") fail(`nbook plugin list 没有读到运行中的实例：${JSON.stringify(listed.running ?? null)}`);
         const entry = listed.plugins?.find((item) => item.id === "smoke.hello");
         if (entry === undefined || entry.pending.length !== 0 || entry.notLoaded !== null) fail(`重启后插件不在运行中的实例里：${JSON.stringify(entry ?? listed)}`);
     });
     step("nbook plugin install 后重启：插件已加载，没有待生效的变化");
+}
+
+/** 会发布的目录没有未提交的改动或未跟踪的文件时返回 HEAD，否则失败。 */
+async function cleanCommit(): Promise<string> {
+    const status = await mustRun("检查会发布的目录", ["git", "status", "--porcelain", "--untracked-files=all", "--", ...releaseDirectories()], {cwd: REPOSITORY});
+    if (status.trim() !== "") fail(`会发布的目录里有未提交的改动或未跟踪的文件，打出来的包对不上任何提交；先提交或清掉：\n${status}`);
+    return (await mustRun("取当前提交", ["git", "rev-parse", "HEAD"], {cwd: REPOSITORY})).trim();
 }
 
 function parseArguments(argv: readonly string[]): {from: Source; keep: boolean} {
@@ -356,23 +370,25 @@ if (import.meta.main) {
         root = await createTestTmpRoot("release-smoke", "release-smoke");
         const tarballs = new Map<string, string>();
         let packages: ReleasePackage[];
+        let manifest: ReleaseManifest | null = null;
         if (options.from === "pack") {
+            // 清单是“这些 tarball 验过了”的凭据：先删掉上一次的，冒烟全部通过后最后才写。中途失败就没有清单，publish 不会发。
+            await rm(RELEASE_DIRECTORY, {recursive: true, force: true});
+            await mkdir(RELEASE_DIRECTORY, {recursive: true});
+            // 字节从工作区打出来，所以打之前就要求会发布的目录是干净的、记下是哪个提交；结束时再核对一次。
+            const commit = await cleanCommit();
             for (const entry of BUILT_PACKAGES) await mustRun(`生成 ${entry.name}`, ["bun", "run", entry.script], {cwd: join(REPOSITORY, "packages", entry.source)});
             const built = loadBuiltPackages(REPOSITORY);
             packages = publishOrder([...loadReleasePackages(REPOSITORY), ...built]);
             const findings = checkReleasePackages(REPOSITORY, packages);
             if (findings.length > 0) fail(`发布清单检查失败：\n${findings.map((finding) => `${finding.package} [${finding.code}] ${finding.message}`).join("\n")}`);
-            await rm(RELEASE_DIRECTORY, {recursive: true, force: true});
-            await mkdir(RELEASE_DIRECTORY, {recursive: true});
             const builtPaths = new Set(built.map((entry) => entry.path));
             for (const entry of packages) tarballs.set(entry.manifest.name, await packPackage(entry, RELEASE_DIRECTORY, builtPaths.has(entry.path)));
-            const commit = (await mustRun("取当前提交", ["git", "rev-parse", "HEAD"], {cwd: REPOSITORY})).trim();
-            const manifest: ReleaseManifest = {commit, packages: await Promise.all(packages.map(async (entry) => {
+            manifest = {commit, packages: await Promise.all(packages.map(async (entry) => {
                 const tarball = tarballs.get(entry.manifest.name) as string;
                 return {name: entry.manifest.name, version: entry.manifest.version, tarball: basename(tarball), sha256: await sha256Of(tarball)};
             }))};
-            await writeJson(RELEASE_MANIFEST, manifest);
-            step(`生成 ${built.length} 个包，${packages.length} 个包的发布清单检查、打包与入口检查通过；tarball 与清单在 dist/release/`);
+            step(`生成 ${built.length} 个包，${packages.length} 个包的发布清单检查、打包与入口检查通过；tarball 在 dist/release/`);
         } else {
             // registry 模式不生成：生成的包的版本就是产品版本，与源码包一起按 package.json 取。
             const product = loadReleasePackages(REPOSITORY, [BUILT_PACKAGES[0].source])[0] as ReleasePackage;
@@ -382,6 +398,11 @@ if (import.meta.main) {
         await smokeStory(root, from);
         await smokeVueHost(root, from);
         await smokeAppAndPlugin(root, from, tarballs);
+        if (manifest !== null) {
+            if ((await cleanCommit()) !== manifest.commit) fail(`冒烟期间 HEAD 变了（开始时 ${manifest.commit.slice(0, 12)}）：重跑 release:smoke`);
+            await writeJson(RELEASE_MANIFEST, manifest);
+            step("写下 dist/release/release-manifest.json：release:publish 只发这些 tarball");
+        }
         console.log(`发布冒烟通过（${options.from === "pack" ? "本地打包" : "registry"}）`);
     } catch (error) {
         console.error(error instanceof SmokeFailure ? `发布冒烟失败：${error.message}` : error);
