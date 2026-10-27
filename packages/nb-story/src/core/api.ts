@@ -36,6 +36,7 @@ import {questionsList} from "./queries/questions";
 import {search} from "./queries/search";
 import {secretsMatrix} from "./queries/secrets";
 import {sourceRead, sourceRecords} from "./queries/source";
+import {tierExplain} from "./queries/tiers";
 import {timeline} from "./queries/timeline";
 import {unextractedTail} from "./unextracted";
 
@@ -85,6 +86,7 @@ const BOOK_HANDLERS: Partial<Record<StoryMethod, BookHandler>> = {
     "arcs.list": arcsList,
     "source.read": sourceRead,
     "source.records": sourceRecords,
+    "tier.explain": tierExplain,
     search,
     "graph.relations": relationsGraph,
     "graph.book": bookGraph,

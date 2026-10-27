@@ -153,7 +153,7 @@ export async function main(argv: readonly string[], io: CliIo = processIo): Prom
         io.stderr(`错误（${outcome.error.code}）：${outcome.error.message}${next ? `\n下一步：${next}` : ""}`);
         return 1;
     }
-    const lines = [formatResult(method, outcome.value)];
+    const lines = [formatResult(method, outcome.value, "option", {tiers: parsed.options.has("tiers")})];
     const url = await viewerUrl(api, spec, params, outcome.value);
     if (url) lines.push("", `查看器：${url}`);
     io.stdout(lines.join("\n"));

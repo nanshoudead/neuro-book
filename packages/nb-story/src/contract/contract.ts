@@ -142,6 +142,31 @@ const KnowledgeItem = Type.Object({
     chapter: Type.Integer(),
 });
 
+// ---- 记录等级（docs/specs/story/queries.md 的“记录等级”） ----
+
+export const TierSchema = Type.Union([Type.Literal(1), Type.Literal(2), Type.Literal(3)]);
+const TierFlagSchema = oneOf(["unconfirmed", "foreshadow"] as const);
+const EvidenceSchema = oneOf(["unknown", "none", "some", "strong"] as const);
+
+const TierExplain = Type.Object({
+    id: Type.String(),
+    kind: oneOf(["statement", "episode"] as const),
+    /** 情节没有先验时为 null（不分级）。 */
+    tier: Type.Union([TierSchema, Type.Null()]),
+    prior: Type.Union([TierSchema, Type.Null()]),
+    flag: Type.Union([TierFlagSchema, Type.Null()]),
+    /** 以下只有说法有，情节为 null。 */
+    ev: Type.Union([EvidenceSchema, Type.Null()]),
+    window: Type.Union([Type.Integer(), Type.Null()]),
+    signals: Type.Union([
+        Type.Object({
+            refs: Type.Object({confirms: Type.Integer(), contradicts: Type.Integer(), revises: Type.Integer(), knowers: Type.Integer(), secrets: Type.Integer(), answers: Type.Integer()}),
+            echo: Type.Object({count: Type.Integer(), grams: Type.Array(Type.String())}),
+        }),
+        Type.Null(),
+    ]),
+});
+
 const StatementItem = Type.Object({
     id: Type.String(),
     text: Type.String(),
@@ -150,9 +175,12 @@ const StatementItem = Type.Object({
     holder: Type.Union([NodeRefSchema, Type.Null()]),
     refs: Type.Array(RefSchema),
     chapter: Type.Integer(),
+    tier: TierSchema,
+    tierFlag: Type.Union([TierFlagSchema, Type.Null()]),
 });
 
-const EpisodeBrief = Type.Object({id: Type.String(), title: Type.String(), chapter: Type.Integer(), refs: Type.Array(RefSchema)});
+/** `tier` 是情节的先验等级，没有为 null。 */
+const EpisodeBrief = Type.Object({id: Type.String(), title: Type.String(), chapter: Type.Integer(), refs: Type.Array(RefSchema), tier: Type.Union([TierSchema, Type.Null()])});
 
 // ---- 两个对象之间的关系（输出 20、21） ----
 
@@ -285,6 +313,7 @@ const EpisodeItem = Type.Object({
     /** 所属主线（当前这一批里的 id，可以有几条）；为空表示“未归入主线”。 */
     arcs: Type.Array(Type.String()),
     refs: Type.Array(RefSchema),
+    tier: Type.Union([TierSchema, Type.Null()]),
 });
 
 const ArcsList = Type.Object({
@@ -407,8 +436,9 @@ export const STORY_METHODS = {
         errors: {...EntityErrors, ...PageErrors},
     },
     "entity.statements": {
-        input: Type.Object({...BookParams, ...PageParams, entity: Type.String({minLength: 1}), query: Type.Optional(Type.String())}, strict),
-        output: page(StatementItem),
+        input: Type.Object({...BookParams, ...PageParams, entity: Type.String({minLength: 1}), query: Type.Optional(Type.String()), maxTier: Type.Optional(TierSchema)}, strict),
+        /** `tiers`：满足 `query` 的说法里 1、2、3 级各几条，不随 `maxTier` 与分页变；`total` 是按 `maxTier` 过滤后的。 */
+        output: Type.Object({...page(StatementItem).properties, tiers: Type.Tuple([Type.Integer(), Type.Integer(), Type.Integer()])}),
         effect: "read",
         errors: {...EntityErrors, ...PageErrors},
     },
@@ -457,6 +487,12 @@ export const STORY_METHODS = {
         output: Type.Object({paragraphs: Type.Array(SourceParagraph)}),
         effect: "read",
         errors: {...BookErrors, beyond_position: Type.Object({})},
+    },
+    "tier.explain": {
+        input: Type.Object({book: BookParams.book, at: BookParams.at, id: Type.String({minLength: 1})}, strict),
+        output: TierExplain,
+        effect: "read",
+        errors: {...BookErrors, record_not_found: Type.Object({})},
     },
     "source.records": {
         input: Type.Object({...BookParams, chapter: Type.Integer(), paragraph: Type.Integer()}, strict),

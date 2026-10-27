@@ -81,6 +81,22 @@ describe("查询工具（输出 2、3）", () => {
     });
 });
 
+describe("记录等级不进问答（输出 3）", () => {
+    test("statements 工具没有 maxTier 参数，写了是工具错误；结果不带等级", async () => {
+        const {model} = await askScripted(
+            book,
+            [[toolCall("c1", "statements", {entity: "苏天晴"}), toolCall("c2", "statements", {entity: "苏天晴", maxTier: 2})], [read("r1", {chapter: 38, paragraph: 55}, {chapter: 38, paragraph: 55})], answer()],
+            {at: P},
+        );
+        const tool = model.requests[0]!.tools!.find(item => item.name === "statements");
+        expect(JSON.stringify(tool)).not.toContain("maxTier");
+        const [plain, filtered] = toolResults(model, 1);
+        expect(plain!.isError).toBe(false);
+        expect(plain!.text).not.toMatch(/级/u);
+        expect(filtered!.isError).toBe(true);
+    });
+});
+
 describe("按书的开关提供查询（输出 2，ingest.md 输出 18）", () => {
     test("关掉数值与秘密的书：模型拿不到 ledger、track、knows，提示词不提数值，调用它们是工具错误；同时问全开的书照旧", async () => {
         const dataset = await smallDataset(40, "小书");

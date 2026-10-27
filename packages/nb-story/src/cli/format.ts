@@ -28,7 +28,46 @@ function pageFooter(result: {total: number; items: unknown[]; next: string | nul
     return [`共 ${result.total} 条，本页 ${result.items.length} 条${next}`];
 }
 
-type Formatter<M extends StoryMethod> = (result: StoryResult<M>, style: CursorStyle) => string[];
+/** 只影响排版的选项；问答工具不传，输出与不分级时相同（docs/specs/story/qa.md 输出 3）。 */
+export interface FormatOptions {
+    /** 说法与情节的行前写等级。 */
+    tiers?: boolean;
+}
+
+type Formatter<M extends StoryMethod> = (result: StoryResult<M>, style: CursorStyle, options: FormatOptions) => string[];
+
+const FLAG_WORDS = {unconfirmed: "待证实", foreshadow: "伏笔候选"} as const;
+const EVIDENCE_WORDS = {unknown: "未知（后文读得还不够）", none: "没有", some: "有一点", strong: "强"} as const;
+
+/** 行前的等级：`[2 级·待证实] `；不写等级或没有等级时为空。 */
+function tierText(options: FormatOptions, tier: 1 | 2 | 3 | null, flag: keyof typeof FLAG_WORDS | null = null): string {
+    if (!options.tiers || tier === null) return "";
+    return `[${tier} 级${flag ? `·${FLAG_WORDS[flag]}` : ""}] `;
+}
+
+/** `tier.explain` 的人话：等级怎么来的、后文有哪些证据。 */
+function explainLines(result: StoryResult<"tier.explain">): string[] {
+    if (result.kind === "episode") {
+        return [result.tier === null ? `情节 ${result.id}：没有分级（抽取时模型没有给重要程度）` : `情节 ${result.id}：${result.tier} 级（抽取时模型给的重要程度；情节不算后文证据）`];
+    }
+    const head = `说法 ${result.id}：${result.tier} 级${result.flag ? `（${FLAG_WORDS[result.flag]}）` : ""}`;
+    const prior = result.prior === null ? "模型没有给重要程度，按类别与后文证据定" : `抽取时模型给 ${result.prior} 级`;
+    const lines = [head, `  ${prior}；后文证据：${EVIDENCE_WORDS[result.ev!]}`];
+    const signals = result.signals!;
+    const refs = signals.refs;
+    const cited = [
+        refs.confirms ? `被后文确认 ${refs.confirms} 次` : "",
+        refs.contradicts ? `被后文反驳 ${refs.contradicts} 次` : "",
+        refs.revises ? `被后文修订 ${refs.revises} 次` : "",
+        refs.knowers ? `后来有 ${refs.knowers} 人得知` : "",
+        refs.secrets ? `被后文的 ${refs.secrets} 个秘密收录` : "",
+        refs.answers ? `是 ${refs.answers} 个悬念的解答` : "",
+    ].filter(Boolean);
+    lines.push(`  后文引用：${cited.length ? cited.join("，") : "没有"}`);
+    lines.push(`  后文再提起：${signals.echo.count ? `${signals.echo.count} 处词句（例如${signals.echo.grams.map(gram => `“${gram}”`).join("、")}）` : "没有"}`);
+    if (result.ev === "unknown") lines.push(`  这条之后只读了 ${result.window} 章，还看不出后文会不会再提`);
+    return lines;
+}
 
 const FORMATTERS: {[M in StoryMethod]?: Formatter<M>} = {
     "books.list": result => (result.books.length === 0 ? ["书库里还没有书"] : result.books.map(book => `${book.id}  ${book.title}  ${book.chapters} 章，抽取到 ${book.extractedThrough.chapter}.${book.extractedThrough.paragraph}`)),
@@ -72,8 +111,12 @@ const FORMATTERS: {[M in StoryMethod]?: Formatter<M>} = {
         `条数：关系 ${result.counts.relations}，知情 ${result.counts.knowledge}，说法 ${result.counts.statements}，情节 ${result.counts.episodes}`,
     ],
     "entity.knowledge": (result, style) => [...result.items.map(item => `${STATE_WORDS[item.state]}：${item.text}${item.how ? `（${item.how}）` : ""} [${tagText(item.tags)}${item.secret ? "、秘密" : ""}] ${at(item.refs)}`), ...pageFooter(result, style)],
-    "entity.statements": (result, style) => [...result.items.map(item => `${item.text} [${tagText(item.tags)}] ${at(item.refs)}`), ...pageFooter(result, style)],
-    "entity.episodes": (result, style) => [...result.items.map(item => `第 ${item.chapter} 章  ${item.title} ${at(item.refs)}`), ...pageFooter(result, style)],
+    "entity.statements": (result, style, options) => [
+        ...result.items.map(item => `${tierText(options, item.tier, item.tierFlag)}${item.text} [${tagText(item.tags)}] ${at(item.refs)}`),
+        ...pageFooter(result, style),
+        ...(options.tiers ? [`各级条数：1 级 ${result.tiers[0]}，2 级 ${result.tiers[1]}，3 级 ${result.tiers[2]}`] : []),
+    ],
+    "entity.episodes": (result, style, options) => [...result.items.map(item => `${tierText(options, item.tier)}第 ${item.chapter} 章  ${item.title} ${at(item.refs)}`), ...pageFooter(result, style)],
     "entity.relations": result =>
         result.items.map(item => {
             const head = [item.other.label, item.word ? `（${item.word}）` : "", item.identity ? ` ${IDENTITY_WORDS[item.identity]}` : ""].join("");
@@ -132,9 +175,9 @@ const FORMATTERS: {[M in StoryMethod]?: Formatter<M>} = {
             `${point.day === null ? "日子不明" : `第 ${point.day} 天`}${point.part ? ` ${point.part}` : ""}${point.clock ? ` ${point.clock}` : ""}  ${point.label}${point.relative ? `（${point.relative}）` : ""}${point.flashback ? `  第 ${point.flashback} 章补叙` : ""} ${at(point.refs)}`,
             ...point.episodes.map(episode => `  情节 ${episode.id} ${episode.title}（${episode.who.map(who => who.label).join("、")}${episode.place ? `；${episode.place.label}` : ""}）`),
         ]),
-    "episodes.list": (result, style) => [
+    "episodes.list": (result, style, options) => [
         ...result.items.flatMap(item => [
-            `第 ${item.chapter} 章  ${item.title}（${item.who.map(who => (who.as ? `${who.label}，以${who.as}` : who.label)).join("、")}）${item.arcs.length ? "" : "  未归入主线"} ${at(item.refs)}`,
+            `${tierText(options, item.tier)}第 ${item.chapter} 章  ${item.title}（${item.who.map(who => (who.as ? `${who.label}，以${who.as}` : who.label)).join("、")}）${item.arcs.length ? "" : "  未归入主线"} ${at(item.refs)}`,
             ...(item.time || item.place ? [`  ${[item.time ? `时间：${item.time.label}` : "", item.place ? `地点：${item.place.label}` : ""].filter(Boolean).join("；")}`] : []),
             `  ${item.summary}`,
             ...item.links.map(link => `  ${link.type} → ${link.to.title}${link.note ? `（${link.note}）` : ""}`),
@@ -144,6 +187,7 @@ const FORMATTERS: {[M in StoryMethod]?: Formatter<M>} = {
     "arcs.list": result => (result.through === null ? ["还没有主线"] : [`归纳到第 ${result.through} 章：`, ...result.arcs.map(arc => `${arc.title}（${arc.status === "closed" ? "已结束" : "进行中"}，${arc.episodes.length} 段情节）：${arc.summary}`)]),
     "source.read": result => result.paragraphs.map(paragraph => `${paragraph.chapter}.${paragraph.paragraph}  ${paragraph.text}${paragraph.recordCount ? `  〔${paragraph.recordCount} 条记录〕` : ""}`),
     "source.records": result => (result.records.length === 0 ? ["这一段没有可见的记录"] : result.records.map(record => `${record.type}  ${record.text}${record.tags ? ` [${tagText(record.tags)}]` : ""} ${at(record.refs)}`)),
+    "tier.explain": result => explainLines(result),
     search: (result, style) => [
         `对象 ${result.counts.entity}、说法 ${result.counts.statement}、原文 ${result.counts.source}`,
         ...result.items.map(item => `${item.kind === "entity" ? "对象" : item.kind === "statement" ? "说法" : "原文"}〔${item.ref}〕 ${item.text}`),
@@ -151,7 +195,7 @@ const FORMATTERS: {[M in StoryMethod]?: Formatter<M>} = {
     ],
 };
 
-export function formatResult<M extends StoryMethod>(method: M, result: StoryResult<M>, style: CursorStyle = "option"): string {
+export function formatResult<M extends StoryMethod>(method: M, result: StoryResult<M>, style: CursorStyle = "option", options: FormatOptions = {}): string {
     const formatter = FORMATTERS[method] as Formatter<M> | undefined;
-    return formatter ? formatter(result, style).join("\n") : JSON.stringify(result, null, 2);
+    return formatter ? formatter(result, style, options).join("\n") : JSON.stringify(result, null, 2);
 }

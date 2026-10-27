@@ -30,6 +30,8 @@ const CASES: {args: string[]; method: StoryMethod; params: Record<string, unknow
     {args: ["card", "e6-2", "--at", "38", "--perspective", "e8-2"], method: "entity.card", params: {entity: "e6-2", at: {chapter: 38}, perspective: "e8-2"}},
     {args: ["knowledge", "e1-1", "--state", "unaware", "--query", "南", "--at", "100"], method: "entity.knowledge", params: {entity: "e1-1", state: "unaware", query: "南", at: {chapter: 100}}},
     {args: ["statements", "e8-2", "--at", "38"], method: "entity.statements", params: {entity: "e8-2", at: {chapter: 38}}},
+    {args: ["statements", "e1-1", "--max-tier", "2", "--tiers", "--at", "38"], method: "entity.statements", params: {entity: "e1-1", maxTier: 2, at: {chapter: 38}}},
+    {args: ["why", "s4-1", "--at", "38"], method: "tier.explain", params: {id: "s4-1", at: {chapter: 38}}},
     {args: ["appearances", "苏天晴", "--query", "风信子", "--at", "38"], method: "entity.episodes", params: {entity: "苏天晴", query: "风信子", at: {chapter: 38}}},
     {args: ["ties", "苏天晴", "--at", "50"], method: "entity.relations", params: {entity: "苏天晴", at: {chapter: 50}}},
     {args: ["between", "苏天晴", "e47-5", "--at", "50"], method: "entity.relation", params: {entity: "苏天晴", other: "e47-5", at: {chapter: 50}}},
@@ -55,6 +57,19 @@ describe("命令与方法一致（输出 1、验收 1）", () => {
         const local = await book.api.call(method, params);
         expect(local.ok).toBe(true);
         expect(JSON.parse(run.stdout)).toEqual({ok: true, data: local.ok ? local.value : null});
+    });
+
+    test("等级默认不写；--tiers 时说法行前写等级与标记、末尾写各级条数；why 写人话", async () => {
+        const plain = await runCli(["statements", "e1-1", "--at", "38", "--limit", "500", "--library", book.library]);
+        expect(plain.stdout).not.toMatch(/\[\d 级/u);
+        const tiered = await runCli(["statements", "e1-1", "--at", "38", "--limit", "500", "--tiers", "--library", book.library]);
+        expect(tiered.code).toBe(0);
+        expect(tiered.stdout).toMatch(/^\[[123] 级(·待证实|·伏笔候选)?\] /mu);
+        expect(tiered.stdout).toMatch(/各级条数：1 级 \d+，2 级 \d+，3 级 \d+/u);
+        const why = await runCli(["why", "s4-1", "--at", "38", "--library", book.library]);
+        expect(why.stdout).toContain("说法 s4-1：");
+        expect(why.stdout).toContain("被后文确认");
+        expect(await runCli(["statements", "e1-1", "--max-tier", "4", "--library", book.library])).toMatchObject({code: 2});
     });
 
     test("给人读的输出出处写成“章.段”", async () => {

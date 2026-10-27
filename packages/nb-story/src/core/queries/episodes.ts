@@ -6,6 +6,7 @@ import type {StoryParams, StoryResult} from "../../contract/contract";
 import {StoryError} from "../errors";
 import {firstRef, matches, nodeRef, participants, refs, type QueryContext} from "./context";
 import {readerSecretState} from "./secrets";
+import {episodeTier} from "../tiers";
 
 /** 情节 → 它在当前这一批里所属的主线。 */
 function arcsByEpisode(ctx: QueryContext): Map<string, string[]> {
@@ -45,6 +46,7 @@ export function episodesList(ctx: QueryContext, params: StoryParams<"episodes.li
             links: episode.links.map(link => ({type: link.type, to: {id: link.to, title: view.episode(link.to)!.title}, note: link.note ?? null})),
             arcs: byEpisode.get(episode.id) ?? [],
             refs: refs(episode.evidence),
+            tier: episodeTier(episode),
         }));
     return ctx.page(items);
 }

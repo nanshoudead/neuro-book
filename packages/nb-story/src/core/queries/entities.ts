@@ -6,9 +6,10 @@ import type {StoryParams, StoryResult} from "../../contract/contract";
 import type {Facet} from "../dataset";
 import {formatPosition, formatSpan} from "../position";
 import type {VisibleEntity} from "../projection";
-import {compareText, matches, nodeRef, participantNodes, perspectiveStatements, refs, tags, type QueryContext} from "./context";
+import {compareText, episodeBrief, matches, nodeRef, participantNodes, perspectiveStatements, refs, tags, type QueryContext} from "./context";
 import {relationPairs} from "./relations";
 import {personSecretState} from "./secrets";
+import {tiersAt} from "../tiers";
 
 /** 名册里每个点列出的称呼个数。 */
 const TOP_NAMES = 6;
@@ -135,24 +136,34 @@ export function entityKnowledge(ctx: QueryContext, params: StoryParams<"entity.k
 
 export function entityStatements(ctx: QueryContext, params: StoryParams<"entity.statements">): StoryResult<"entity.statements"> {
     const ids = new Set(ctx.grouping.members.get(nodeFor(ctx, params.entity)) ?? []);
+    const table = tiersAt(ctx.index, ctx.view.at);
     const items = perspectiveStatements(ctx)
         .filter(statement => statement.about.some(id => ids.has(id)) && matches(statement.text, params.query))
-        .map(statement => ({
-            id: statement.id,
-            text: statement.text,
-            family: statement.family,
-            tags: tags(statement.kind, statement.basis),
-            holder: statement.holder === null ? null : nodeRef(ctx.grouping, statement.holder),
-            refs: refs(statement.source.evidence),
-            chapter: statement.at.chapter,
-        }));
-    return ctx.page(items);
+        .map(statement => {
+            const tier = table.statement(statement.id)!;
+            return {
+                id: statement.id,
+                text: statement.text,
+                family: statement.family,
+                tags: tags(statement.kind, statement.basis),
+                holder: statement.holder === null ? null : nodeRef(ctx.grouping, statement.holder),
+                refs: refs(statement.source.evidence),
+                chapter: statement.at.chapter,
+                tier: tier.tier,
+                tierFlag: tier.flag,
+            };
+        });
+    // 各级条数在按等级过滤之前数，折叠时也能写出“展开次要（N）”；过滤不改原有顺序。
+    const tiers: [number, number, number] = [0, 0, 0];
+    for (const item of items) tiers[item.tier - 1] += 1;
+    const shown = params.maxTier === undefined ? items : items.filter(item => item.tier <= params.maxTier!);
+    return {...ctx.page(shown), tiers};
 }
 
 export function entityEpisodes(ctx: QueryContext, params: StoryParams<"entity.episodes">): StoryResult<"entity.episodes"> {
     const node = nodeFor(ctx, params.entity);
     const items = ctx.view.episodes
         .filter(episode => participantNodes(ctx, episode).includes(node) && (matches(episode.title, params.query) || matches(episode.summary, params.query)))
-        .map(episode => ({id: episode.id, title: episode.title, chapter: episode.at.chapter, refs: refs(episode.evidence)}));
+        .map(episodeBrief);
     return ctx.page(items);
 }

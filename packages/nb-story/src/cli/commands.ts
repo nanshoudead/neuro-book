@@ -75,6 +75,8 @@ interface OptionSpec {
     /** 方法参数名；不给时用选项名的驼峰写法。 */
     param?: string;
     decode: Decoder;
+    /** 只影响给人读的输出，不进方法参数（例如 --tiers）。 */
+    display?: boolean;
 }
 
 export interface CommandSpec {
@@ -108,6 +110,12 @@ function command(spec: Omit<CommandSpec, "options" | "positionals"> & {positiona
 
 const entityArg: Positional = {name: "对象", decode: value => ({entity: value})};
 const query = {query: {decode: text}};
+/** 输出里带记录等级（docs/specs/story/cli-skill.md）；默认不带，问答与已有脚本看到的输出不变。 */
+const showTiers: Record<string, OptionSpec> = {tiers: {decode: () => true, display: true}};
+const tier: Decoder = (value, name) => {
+    if (value !== "1" && value !== "2" && value !== "3") throw new UsageError(`${name} 只能是 1、2、3：${value}`);
+    return Number(value);
+};
 
 export const COMMANDS: readonly CommandSpec[] = [
     command({name: "books", method: "books.list", summary: "列出书库里的书", book: false, paged: false}),
@@ -135,8 +143,8 @@ export const COMMANDS: readonly CommandSpec[] = [
     }),
     command({name: "card", method: "entity.card", summary: "人物卡", book: true, paged: false, positionals: [entityArg], options: {perspective: {decode: text}}}),
     command({name: "knowledge", method: "entity.knowledge", summary: "他知道的事", book: true, paged: true, positionals: [entityArg], options: {state: {decode: text}, ...query}}),
-    command({name: "statements", method: "entity.statements", summary: "关于他的说法", book: true, paged: true, positionals: [entityArg], options: query}),
-    command({name: "appearances", method: "entity.episodes", summary: "他参与的情节", book: true, paged: true, positionals: [entityArg], options: query}),
+    command({name: "statements", method: "entity.statements", summary: "关于他的说法", book: true, paged: true, positionals: [entityArg], options: {...query, "max-tier": {decode: tier}, ...showTiers}}),
+    command({name: "appearances", method: "entity.episodes", summary: "他参与的情节", book: true, paged: true, positionals: [entityArg], options: {...query, ...showTiers}}),
     command({name: "ties", method: "entity.relations", summary: "他和每个对象的关系：关系词、身份连接、一句说明", book: true, paged: false, positionals: [entityArg], options: {perspective: {decode: text}}}),
     command({
         name: "between",
@@ -160,7 +168,8 @@ export const COMMANDS: readonly CommandSpec[] = [
     command({name: "track", method: "ledger.track", summary: "某一项的流水与对账差额", book: true, paged: false, positionals: [{name: "数值", decode: value => ({track: value})}], options: {owner: {decode: text}}}),
     command({name: "questions", method: "questions.list", summary: "悬念与进展", book: true, paged: true, options: {state: {decode: text}, sort: {decode: text}, ...query}}),
     command({name: "timeline", method: "timeline", summary: "时间线", book: true, paged: false, options: {order: {decode: text}}}),
-    command({name: "episodes", method: "episodes.list", summary: "情节", book: true, paged: true, options: {arc: {decode: text}, ...query}}),
+    command({name: "episodes", method: "episodes.list", summary: "情节", book: true, paged: true, options: {arc: {decode: text}, ...query, ...showTiers}}),
+    command({name: "why", method: "tier.explain", summary: "一条说法或情节为什么是这个等级", book: true, paged: false, positionals: [{name: "说法或情节 id", decode: value => ({id: value})}]}),
     command({name: "arcs", method: "arcs.list", summary: "当前这一批主线", book: true, paged: false}),
     command({name: "search", method: "search", summary: "搜名字、说法、原文", book: true, paged: true, positionals: [{name: "文字", decode: value => ({query: value})}], options: {kinds: {decode: list}}}),
     command({name: "read", method: "source.read", summary: "读原文", book: true, paged: false, positionals: [{name: "章.段[-段]", decode: decodeRange}]}),
@@ -260,7 +269,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 /** 所有命令都接受的选项（不进方法参数）。 */
 export const GLOBAL_OPTIONS = new Set(["library", "json", "help"]);
 /** 不带值的开关。 */
-export const FLAGS = new Set(["json", "help", "open", "force", "preview", "status", "ingest", "no-ledger", "no-secrets", "structured"]);
+export const FLAGS = new Set(["json", "help", "open", "force", "preview", "status", "ingest", "no-ledger", "no-secrets", "structured", "tiers"]);
 
 /** 选项在 `--help` 里的说明；同名选项在各命令里含义相同，所以按名字写一份。 */
 export const OPTION_HELP: Record<string, string> = {
@@ -302,6 +311,8 @@ export const OPTION_HELP: Record<string, string> = {
     "no-secrets": "新建时不记秘密（身份秘密与谁知道）；之后不能改",
     "auto-resume": "同一章失败（回复不成形、渠道失败重试用完）后最多重做几次，缺省 3，0 不重做；每次等 5、10、15 分钟",
     ingest: "检查抽取用的模型（按 minimal、medium 两档各试一次）",
+    tiers: "每条带记录等级（1 主线、2 有用、3 次要）与“待证实”“伏笔候选”标记",
+    "max-tier": "只列等级不高于它的说法：2 表示藏起 3 级",
 };
 
 export function camelCase(name: string): string {
@@ -321,6 +332,7 @@ export function decodeArguments(spec: CommandSpec, positionals: readonly string[
         if (GLOBAL_OPTIONS.has(name)) continue;
         const option = spec.options[name];
         if (!option) throw new UsageError(`${spec.name} 没有选项 --${name}`);
+        if (option.display) continue;
         params[option.param ?? camelCase(name)] = option.decode(value, `--${name}`);
     }
     return params;
