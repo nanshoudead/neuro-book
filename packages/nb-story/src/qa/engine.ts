@@ -250,6 +250,20 @@ async function startContinued(input: AskInput, id: string): Promise<Start> {
     return {book, features: reach.features, reach, previous, id, at, mode: previous.mode, maxChapters: previous.maxChapters, answer: answerModeOf(previous), ledger, positionChanges: diskChanges, entries, firstMessage: input.question};
 }
 
+/**
+ * 会话里最近一条位置提醒（其后紧跟的 `qa.position` 元数据）写了“图只抽到第 N 章”，而图现在已抽到别处时，给出前后两个数。
+ * 提醒是历史记录，不改；每个图工具的结果末尾补一句现在的进度，模型以工具结果为准（t30 实现审查第 11 条）。
+ */
+export function staleGraphOf(entries: readonly SessionEntry[] | null, committed: number): {was: number; now: number} | null {
+    for (let index = (entries?.length ?? 0) - 1; index >= 0; index -= 1) {
+        const entry = entries![index]!;
+        if (entry.kind !== "meta" || entry.key !== POSITION_META_KEY) continue;
+        const was = (entry.value as {graphThrough?: unknown} | null)?.graphThrough;
+        return typeof was === "number" && was !== committed ? {was, now: committed} : null;
+    }
+    return null;
+}
+
 /** 位置在提醒里的写法：停在一章最后一段的写“第 N 章”，否则写“N.M”。 */
 function reminderPosition(position: Position, paragraphs: readonly number[]): string {
     return position.paragraph === paragraphs[position.chapter - 1] ? `第 ${position.chapter} 章` : `${position.chapter}.${position.paragraph}`;
@@ -304,12 +318,13 @@ async function planPositionChange(book: Awaited<ReturnType<StoryApi["openBook"]>
     if (previous.mode === "full") throw new QaError("qa_position_fixed", `对话 ${previous.id} 是全读对话，阅读位置不能改：开新对话`);
     const reach = await resolveReach(book, target);
     const to = reach.at;
+    const graphThrough = to.chapter > reach.committed ? book.meta.extractedThrough.chapter : null;
     const from = currentPosition(previous);
     if (to.chapter === from.chapter && to.paragraph === from.paragraph) return null;
     const seq = (entries.at(-1)?.seq ?? 0) + 1;
     const now = new Date();
-    const reminder: SessionEntry = {kind: "agent_message", seq, at: now.toISOString(), message: {role: "user", content: [{type: "text", text: positionReminder(from, to, reach.paragraphs, to.chapter > reach.committed ? book.meta.extractedThrough.chapter : null)}], timestamp: now.getTime()}};
-    const meta: SessionEntry = {kind: "meta", seq: seq + 1, at: now.toISOString(), key: POSITION_META_KEY, value: {chapter: to.chapter, paragraph: to.paragraph, from: {chapter: from.chapter, paragraph: from.paragraph}}};
+    const reminder: SessionEntry = {kind: "agent_message", seq, at: now.toISOString(), message: {role: "user", content: [{type: "text", text: positionReminder(from, to, reach.paragraphs, graphThrough)}], timestamp: now.getTime()}};
+    const meta: SessionEntry = {kind: "meta", seq: seq + 1, at: now.toISOString(), key: POSITION_META_KEY, value: {chapter: to.chapter, paragraph: to.paragraph, from: {chapter: from.chapter, paragraph: from.paragraph}, ...(graphThrough === null ? {} : {graphThrough})}};
     return {conversation: {...previous, currentAt: to, positionChanges: (previous.positionChanges ?? 0) + 1}, entries: [...entries, reminder, meta]};
 }
 
@@ -405,7 +420,7 @@ export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion
     const chosen = resolveQaModel(input.config, {...(previous === null ? {} : continuedChoice(input.config, previous)), ...input.model});
     const qaModel = input.keyEnv === undefined ? chosen : {...chosen, resolved: onlyKeysIn(chosen.resolved, keyVariables(input.config, chosen.ref), input.keyEnv)};
 
-    const state: QaToolState = {book, at, graphAt: start.reach.graphAt, reach: start.reach, ledger, answer: null};
+    const state: QaToolState = {book, at, graphAt: start.reach.graphAt, reach: start.reach, staleGraph: staleGraphOf(start.entries, start.reach.committed), ledger, answer: null};
     // 作答被退回的次数：不只是我们的校验，OMP 的参数校验与“收尾要单独调用”的退回也算，所以按工具结束事件数。
     let rejections = 0;
     const registry = createToolRegistry();

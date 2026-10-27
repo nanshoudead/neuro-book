@@ -12,6 +12,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {loginCookie, rpc, startServe, type ServeProcess} from "../../testing/processes";
 import {makeSampleRoot, smallDataset} from "../../testing/sample";
+import {base64Bytes} from "./ingest-service";
 
 let root = "";
 let serve: ServeProcess;
@@ -54,6 +55,12 @@ describe("导入记忆图文件（book.importGraph）", () => {
         const bad = await call("book.importGraph", {content: base64(JSON.stringify({not: "v9"})), id: "web-bad", title: "坏的"});
         expect(bad.status).toBe(415);
         expect(bad.body).toMatchObject({code: "unsupported_format"});
+        // 不给书名时：不是 V9 记忆图（不是 JSON、没有 schema 与 book）报 unsupported_format，补了书名也导不进去；是 V9 但没书名才要用户补。
+        for (const content of ["not json", "{}", "null"]) {
+            const noTitle = await call("book.importGraph", {content: base64(content)});
+            expect(noTitle.status).toBe(415);
+            expect(noTitle.body).toMatchObject({code: "unsupported_format"});
+        }
         const notBase64 = await call("book.importGraph", {content: "这不是 base64!", id: "web-x"});
         expect(notBase64.status).toBe(400);
         // 导入失败不留下半本书，也不留下临时文件。
@@ -84,5 +91,13 @@ describe("安装 Skill（skill.install）", () => {
         // 网页不能指定目录或别的 agent。
         expect((await call("skill.install", {agent: "claude", dir: "/tmp/evil"})).status).toBe(400);
         expect((await call("skill.install", {agent: "other"})).status).toBe(400);
+    });
+});
+
+describe("base64 的字节数", () => {
+    test("扣掉末尾的填充：恰好 3 的倍数、少 1 字节、少 2 字节的文件算出各自的实际大小", () => {
+        for (const size of [3, 4, 5, 6, 33554430, 33554431, 33554432]) {
+            expect(base64Bytes(Buffer.alloc(size).toString("base64"))).toBe(size);
+        }
     });
 });

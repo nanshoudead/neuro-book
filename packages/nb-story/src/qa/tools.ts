@@ -27,6 +27,8 @@ export interface QaToolState {
     /** 图工具用的位置：阅读位置在没抽取的尾部里时是抽取进度（qa/reach.ts）。 */
     readonly graphAt: Position;
     readonly reach: Reach;
+    /** 对话里最近一条位置提醒写的“图只抽到第 N 章”，而现在图已抽到别处（抽取在对话之后推进了）；没有这回事为 null。 */
+    readonly staleGraph: {was: number; now: number} | null;
     readonly ledger: ReadLedger;
     /** 通过校验的答案；`answer` 成功时写下。 */
     answer: Answer | null;
@@ -100,7 +102,8 @@ function queryTool(name: (typeof QUERY_COMMANDS)[number], state: QaToolState): {
     const description = [summary, TOOL_USAGE[name], PERSPECTIVE_METHODS.has(method) ? "可加 \"perspective\"：按某个角色知道的事回答（写角色 id 或名字）。" : "", paged ? PAGING_HINT : ""].filter(Boolean).join("\n");
     // 阅读位置在没抽取的尾部里时，每个图工具的结果（含出错）末尾提醒：图只到抽取进度（t30）。
     const through = state.reach.committed;
-    const graphNote = state.at.chapter > through ? `\n（图只抽到第 ${state.graphAt.chapter} 章；第 ${state.graphAt.chapter + 1} 章到第 ${state.at.chapter} 章的内容只能用 read 读原文）` : "";
+    const stale = state.staleGraph === null ? "" : `\n（之前位置提醒里写的“图只抽到第 ${state.staleGraph.was} 章”已过期，现在图已抽到第 ${state.staleGraph.now} 章）`;
+    const graphNote = state.at.chapter <= through ? stale : state.at.chapter > through ? `\n（图只抽到第 ${state.graphAt.chapter} 章；第 ${state.graphAt.chapter + 1} 章到第 ${state.at.chapter} 章的内容只能用 read 读原文）` : "";
     return {
         // read 改读原文账本：同一条模型消息里的几次 read 要依次执行，章数检查与登记之间才不会插进另一次（输出 5）。
         declaration: {id: `story.${name}`, name, description, parameters: toolParameters(method) as never, concurrency: name === "read" ? "exclusive" : "shared"},
@@ -122,7 +125,7 @@ function queryTool(name: (typeof QUERY_COMMANDS)[number], state: QaToolState): {
                     return text(formatResult(method, outcome, "param"));
                 }
                 // 阅读位置在没抽取的尾部里：图里没有尾部章的记录，章号落在尾部的 chapter、para 不去查（查询会报“超出全书”，和事实不符）。
-                if ((name === "chapter" || name === "para") && typeof args.chapter === "number" && args.chapter > state.reach.committed) {
+                if ((name === "chapter" || name === "para") && typeof args.chapter === "number" && state.reach.tail.some(chapter => chapter.chapter === args.chapter)) {
                     return text(`第 ${args.chapter} 章图里还没有记录：只能用 read 读原文。${graphNote}`);
                 }
                 const outcome = await state.book.call(method, {...params, at: state.graphAt});

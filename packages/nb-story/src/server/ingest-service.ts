@@ -41,11 +41,16 @@ export interface IngestService {
 /** base64 只用这些字符，长度是 4 的倍数。 */
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/u;
 
+/** base64 文本解码后的字节数（扣掉末尾填充）；调用方已确认长度是 4 的倍数。 */
+export function base64Bytes(content: string): number {
+    return (content.length / 4) * 3 - (content.endsWith("==") ? 2 : content.endsWith("=") ? 1 : 0);
+}
+
 /** 网页提交的原文：base64 解码，再按与命令行相同的规则检查大小与编码。 */
 function decodeContent(content: string): string {
     if (content.length % 4 !== 0 || !BASE64.test(content)) throw new StoryError("invalid_params", "content 不是 base64");
     // 解码前就能算出字节数：超过上限的不解码。
-    const bytes = (content.length / 4) * 3 - (content.endsWith("==") ? 2 : content.endsWith("=") ? 1 : 0);
+    const bytes = base64Bytes(content);
     if (bytes > MAX_SOURCE_BYTES) throw new StoryError("ingest_bad_text", `原文文件有 ${(bytes / 1024 / 1024).toFixed(1)} MiB，超过 32 MiB 的上限`);
     return decodeUtf8(Buffer.from(content, "base64"));
 }
@@ -150,7 +155,7 @@ export function createIngestService(options: {library: Library; configPath?: str
     /** V9 记忆图文件：base64 解码（gzip 压缩的先解开），写到临时目录里交给书库导入，导入完删掉临时文件。 */
     async function importGraph(params: ViewerParams<"book.importGraph">): Promise<ViewerResult<"book.importGraph">> {
         if (params.content.length % 4 !== 0 || !BASE64.test(params.content)) throw new StoryError("invalid_params", "content 不是 base64");
-        const bytes = (params.content.length / 4) * 3;
+        const bytes = base64Bytes(params.content);
         if (bytes > MAX_SOURCE_BYTES) throw new StoryError("ingest_bad_text", `文件超过 32 MiB 的上限`);
         let raw = Buffer.from(params.content, "base64");
         if (raw.length >= 2 && raw[0] === 0x1f && raw[1] === 0x8b) {
@@ -166,11 +171,21 @@ export function createIngestService(options: {library: Library; configPath?: str
                 const meta = (JSON.parse(raw.toString("utf8")) as {book?: {title?: unknown}}).book?.title;
                 if (typeof meta === "string" && meta !== "") title = meta;
             } catch {
-                throw new StoryError("invalid_params", "文件不是 JSON，不是 V9 记忆图");
+                throw new StoryError("unsupported_format", "文件不是 JSON，不是 V9 记忆图");
             }
         }
         title ??= params.id;
-        if (title === undefined) throw new StoryError("invalid_params", "文件里没有书名，请给书名（title）或书 id（id）");
+        // 没有书名又没给书名：文件要先是 V9（有 schema 与 book），才值得让用户补书名；否则补了名字也导不进去。
+        if (title === undefined) {
+            let looksV9 = false;
+            try {
+                const parsed = JSON.parse(raw.toString("utf8")) as {schema?: unknown; book?: unknown};
+                looksV9 = typeof parsed.schema === "string" && typeof parsed.book === "object" && parsed.book !== null;
+            } catch {
+                looksV9 = false;
+            }
+            throw new StoryError(looksV9 ? "invalid_params" : "unsupported_format", looksV9 ? "文件里没有书名，请给书名（title）或书 id（id）" : "文件不是 V9 记忆图");
+        }
         const dir = await mkdtemp(join(tmpdir(), "nbstory-import-"));
         try {
             const file = join(dir, "graph.json");

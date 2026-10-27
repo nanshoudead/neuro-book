@@ -23,6 +23,7 @@ import {IconButton} from "@notnotype/nb-ui/components";
 
 import {edgeLabelDrawer, estimateLabelWidth, fixedColors, Focus, hoverDrawer, labelDrawer, layoutCircle, layoutConcentric, layoutForce, layoutStress, mix, readTheme, seedSpiral, zoom} from "./sigma-kit";
 import type {Theme} from "./sigma-kit";
+import {edgeParts, hasParts} from "./edge-parts";
 
 import type {IdentityState} from "../../contract/contract";
 import {useLayoutMotion} from "../host/motion";
@@ -134,7 +135,6 @@ const IDENTITY_LABEL: Record<IdentityState, string> = {
  */
 function fillRelationEdges(target: Graph): void {
     const t = theme!;
-    const layers = new Set(props.layers);
     target.clearEdges();
     const nameOf = (node: string) => String(target.getNodeAttribute(node, "label"));
     for (const edge of props.edges) {
@@ -150,15 +150,13 @@ function fillRelationEdges(target: Graph): void {
             });
             continue;
         }
-        const relation = layers.has("relation") && edge.statements > 0;
-        const co = layers.has("co") && edge.together >= props.minCo;
-        const ab = layers.has("know") && props.ego === null ? edge.ab : 0;
-        const ba = layers.has("know") && props.ego === null ? edge.ba : 0;
-        if (!relation && !co && ab === 0 && ba === 0) continue;
+        const parts = edgeParts(edge, props.layers, props.minCo, props.ego === null);
+        const {relation, co, ab, ba} = parts;
+        if (!hasParts(parts)) continue;
         const knows = ab > 0 || ba > 0;
         const color = relation ? t.accent : knows ? fixedColors(t).know : t.muted;
         const word = relation ? (edge.word ?? "") : "";
-        const parts = [
+        const labelParts = [
             relation ? (word ? `${word}（说法 ${edge.statements}）` : `说法 ${edge.statements}`) : "",
             co ? `同场 ${edge.together}` : "",
             ab > 0 ? `${nameOf(edge.a)}知道关于${nameOf(edge.b)}的 ${ab} 条` : "",
@@ -169,7 +167,7 @@ function fillRelationEdges(target: Graph): void {
             color: aside ? mix(t.muted, t.bg, 0.7) : mix(color, t.bg, 0.3),
             focusColor: color,
             // 人物卡小图地方小，线上只写关系词
-            label: aside ? "" : props.compact ? word : parts.join(" · "),
+            label: aside ? "" : props.compact ? word : labelParts.join(" · "),
             shortLabel: word,
             alwaysLabel: !aside && Boolean(word),
             weight: Math.max(1, (relation ? edge.statements * 3 : 0) + (co ? edge.together : 0) + (knows ? Math.log2(1 + ab + ba) : 0)),
