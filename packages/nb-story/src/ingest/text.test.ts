@@ -72,6 +72,24 @@ describe("切章（验收 6）", () => {
         expect(result.chapters[0]!.sha256).toMatch(/^[0-9a-f]{64}$/u);
     });
 
+    test("正文里的“第一节课…”不算节标题，带分隔符的节标题照常切", () => {
+        const result = splitChapters(
+            [
+                "第一章 开学",
+                "第一节课就被新生在赛道上拉爆的老师？",
+                "第一节 魔文课",
+                "第1节魔文课",
+                "第一节：魔文课",
+                "正文。",
+            ].join("\n"),
+        );
+        expect(result.chapters.map(chapter => [chapter.chapter, chapter.title, chapter.paragraphs])).toEqual([
+            [1, "第一章 开学", ["第一章 开学", "第一节课就被新生在赛道上拉爆的老师？"]],
+            [2, "第一节 魔文课", ["第一节 魔文课", "第1节魔文课"]],
+            [3, "第一节：魔文课", ["第一节：魔文课", "正文。"]],
+        ]);
+    });
+
     test("样例书 100 章拼回的原文切回 100 章，每章的段落与数据集里的原文相同", async () => {
         const sample = await sampleDataset();
         const result = splitChapters(await sampleSourceText(100));
