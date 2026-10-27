@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t02-error-audit
-status: planned
+status: active
 updated: 2026-10-27
 ---
 
