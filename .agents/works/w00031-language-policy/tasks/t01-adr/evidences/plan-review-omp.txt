@@ -1,0 +1,195 @@
+### 1. 阻断：ADR 计划漏写必需 frontmatter
+严重程度：阻断；类别：文档；位置：`.agents/works/w00031-language-policy/tasks/t01-adr/plan.md:17-19`
+
+现象：计划只要求新 ADR 的 `status: accepted` 与 `decided: 2026-10-27`，没有要求 `schema: nbook.adr/v1` 与 `superseded-by: null`。
+
+为什么是问题：`docs/adr/README.md:7-18` 把这四个字段定为 ADR 合同；`check-documentation.ts:227-237` 会校验 schema，且 accepted ADR 仍应有合法日期。照计划落盘会直接触发 `docs:check` 的 schema 缺失错误，验收目标不可能成立。部分取代也不改变新 ADR 需要完整 frontmatter 的要求。
+
+如何核实：对照 `docs/adr/0028-tailwind-only-host-compiles-nb-ui.md:1-6`、`docs/adr/0031-nb-story-supports-windows.md:1-6` 的实际 frontmatter；落盘一个只含计划所列两字段的临时 ADR 后运行 `bun run docs:check`，检查其 `ADR 的 schema 必须是 nbook.adr/v1` 报告。
+
+建议改法：在计划中明确四个字段及其值：`schema: nbook.adr/v1`、`status: accepted`、`decided: 2026-10-27`、`superseded-by: null`；同时把这组 frontmatter 写进 ADR 草案验收项。
+### 2. 阻断：六条确认项没有一一落成 ADR 决策
+严重程度：阻断；类别：正确性；位置：`.agents/works/w00031-language-policy/tasks/t01-adr/plan.md:23-31,58-60`
+
+现象：计划的 ADR“决策”只有 5 条。Work README 的第 5 条确认项“先做错误处理的只读审查，开发诊断改英文排在失败投影设计之后”只在计划的 Context 摘述里出现，未进入决策、后果、切片依赖或验收映射；反而把 Work 第 1 条中已经包含的英文标识符拆成了第 5 条。计划却在完成判据中声称“六条决策都能找到来源”。
+
+为什么是问题：Context 的叙述不能约束后续 ADR 读者或 t02、t03 的执行顺序。没有正式决策，实施者可以先改英文诊断，违背已确认的先审查后迁移顺序；也无法从 ADR 判断 t02 是 t04 的前置，而当前切片只写了两个文档提交，没有该依赖。
+
+如何核实：逐项对照 `.agents/works/w00031-language-policy/README.md:19-24` 的 6 条确认项与计划 `###` 下的 5 个编号；第 5 条确认项没有对应的 ADR 编号，计划第 5 条“标识符”则可在 Work 第 1 条中找到。
+
+建议改法：把“先审查再迁移”列为独立决策或至少列入 ADR 的明确执行边界与后果，写明 t02 → t03 → t04 的顺序；把验收映射改成逐条列出 6 条确认项与 ADR 段落，不把重复拆分项计为第 6 条。
+### 3. 重要：影响清单没有兑现 Task 合同，也没有指派后续真相源
+严重程度：重要；类别：遗漏；位置：`.agents/works/w00031-language-policy/tasks/t01-adr/plan.md:33-51`
+
+现象：计划把“后果”写成待补的抽象问题（“要随之改的真相源与归属的 Task”），随后又声明“只有上一节列出的文件；Spec 正文不改”。它没有列出路径、变更责任人或依赖。Task README 已明确要求影响清单至少覆盖相关 Spec、`docs/specs/agent/harness.md`、`packages/nb-harness/AGENTS.md`、OMP 能力文档，以及 nb-story、dev-panel 的包级文档；计划只列了后两份 harness 入口文档。
+
+为什么是问题：这会把 ADR 的政策与现行合同脱节。已能直接核实的遗漏包括：`docs/specs/workbench/commands.md` 的标题/description 合同，`docs/specs/runtime/plugin-api.md` 的多语言文字与插件 API，`docs/specs/runtime/plugin-manifest.md` 的 `displayName`/`description`，`docs/specs/runtime/plugin-channel.md` 的 `code`/`cause`/`detail` 与跨进程消息，`docs/specs/runtime/diagnostics.md` 的诊断 message/error 合同，以及 `docs/specs/agent/harness.md` 的 Profile、工具失败和 `TurnResult.error.message`。w00028 只负责目录机制，不能替代错误审查、提示词/CLI 合同和包级文档的归属。没有这些路径和 Task，后续实现会按自己的理解改同一份合同或漏改。
+
+如何核实：对照 `.agents/works/w00031-language-policy/tasks/t01-adr/README.md:14-18`；再核对上述 Spec 的现行条款：`commands.md:14,60,103`、`plugin-api.md:25,28,135`、`plugin-manifest.md:48-49`、`plugin-channel.md:61,94-95`、`diagnostics.md:36,47,53-54`、`agent/harness.md:108-112,123-142`。这些文件都不在计划的 Spec 与文档改动表中。
+
+建议改法：在 ADR 后果下给出完整矩阵：真相源、与政策冲突的条款、更新动作、负责 Task、前置 Task、是否本 Task 只登记不改。至少把 `docs/specs/agent/harness.md`、nb-story 的 `AGENTS.md`/Skill/`story/*.md`、dev-panel 的包文档和错误/命令相关 Spec 明确分派；“Spec 正文不改”不能作为未分析的替代品。
+### 4. 重要：新政策与共享包级 AGENTS 直接矛盾，计划未登记迁移
+严重程度：重要；类别：接口与合同；位置：`.agents/works/w00031-language-policy/tasks/t01-adr/plan.md:27,40-47`
+
+现象：ADR 提议每个共享包自带 JSON 消息目录、共享包不依赖 i18n 库并接收宿主 `t`；仓库现行 `packages/nb-agent-ui/AGENTS.md:12` 和 `packages/nb-markdown/AGENTS.md:12` 仍明确要求“包内的中英两张表、组件收 `locale`、宿主与插件给文字写中英两份”。计划没有把这两份包级规则列为影响清单，也没有指派 w00028 t03 或其它 Task 更新它们。
+
+为什么是问题：包级 AGENTS 是实施者会优先读取的入口。照新 ADR 做会违反包规则；照包规则做又会继续产生 ADR 明令停止的内联双语与 `locale` 传递。w00028 README 已把这四个共享包的目录、端口和迁移列为方向与 t03 范围，但 t01 计划没有形成可追踪的冲突登记。
+
+如何核实：核对 `packages/nb-agent-ui/AGENTS.md:9-14`、`packages/nb-markdown/AGENTS.md:9-13` 与 `.agents/works/w00028-i18n/README.md:27-39`；现行实现也确实仍有 `nb-agent-ui/src/messages.ts:400-437`、`nb-markdown/src/locale.ts:6-12` 的闭合语言类型和本地表。
+
+建议改法：把这两份 AGENTS（以及 nb-ui、nb-form 中任何同形约束）加入影响矩阵，明确由 w00028 t03 在迁移同一提交中更新，或在本 ADR 的后果中声明何时被新政策取代；在更新前禁止把 ADR 当作已可执行的共享包接口合同。
+### 5. 重要：`common.md` 拟定规则会直接否定现行命令与 CLI 合同
+严重程度：重要；类别：接口与合同；位置：`.agents/works/w00031-language-policy/tasks/t01-adr/plan.md:40-42`
+
+现象：计划拟在 common.md 写“界面不把 `message`、`reason` 当主文案”，同时要求 Spec 正文不改。现行 `docs/specs/workbench/commands.md:103` 明确规定产品命令执行失败通知的正文就是原因；`docs/specs/runtime/cli.md:58-60` 明确规定文本模式把说明写 stderr、JSON 失败对象含 `message`；`docs/specs/story/cli-skill.md:68-70` 也把 `--json` 的 `error.message` 作为公开输出合同。
+
+为什么是问题：这不是重复规则，而是同一字段在不同边界的读者语义不同：浏览器失败投影可以按码生成主文案，但 CLI 的 `message` 本来就是给用户读的错误说明，命令的 `reason` 也在通知里直接可见。照字面执行 common 规则会与至少 3 份当前合同冲突；若以“只适用于浏览器界面”解释，计划却没有写范围，也没有说明 CLI/命令如何过渡。
+
+如何核实：逐字对照 `docs/specs/workbench/commands.md:67,103`、`docs/specs/runtime/cli.md:58-60`、`docs/specs/story/cli-skill.md:68-70` 与计划的规则句；运行时字段形状还可在 `packages/neuro-book/src/plugins/commands/shared/contracts.ts:64-68` 与命令失败投影实现中核对。
+
+建议改法：把规则拆成按边界的合同：浏览器界面的用户主文案按“拥有者命名空间 + code”取目录；CLI 文本/JSON 的 `message` 是否仍为用户说明单独保留；`reason` 是用户可见说明还是仅诊断字段逐个由对应 Spec 定义。同步把受影响 Spec 与负责 Task 写入后果矩阵，不能在“Spec 正文不改”下新增一个全局否定规则。
+### 6. 重要：ADR 背景把迁移规模与 vue-i18n 现状写成了不准确事实
+严重程度：重要；类别：文档；位置：`.agents/works/w00031-language-policy/tasks/t01-adr/plan.md:21,27`
+
+现象：计划把现状写成“各包四份内联双语副本”，并把 `vue-i18n` 写成“从没装过”。当前可核实的仓库事实不是这两个表述：w00028 README 记录的是新应用现状 `863` 处、`54` 个文件；源码中可定位到的包级语言实现是 `nb-agent-ui/src/messages.ts` 与 `nb-markdown/src/locale.ts`，没有对应的 `nb-form`/`nb-ui` 四份同形 helper。另一方面，`bun.lock` 已包含 `vue-i18n@11.4.6`，并包含由 Nuxt i18n 相关依赖带入的解析项；最多只能说新 v2 应用的 package.json 没有直接声明它，不能写成全仓“从没装过”。
+
+为什么是问题：ADR 的背景数字和历史事实会成为后续迁移估算与取舍理由。错误的“四份”会夸大或误导重复来源；“从没装过”会把旧应用/锁文件事实抹掉，也无法解释为什么 lock 中存在包。若要论证“新应用尚未落地 vue-i18n”，应限定边界，不能把“未在新应用直接依赖”写成“从没装过”。
+
+如何核实：对照 `.agents/works/w00028-i18n/README.md:15-20`；读取 `packages/nb-agent-ui/src/messages.ts:400-437`、`packages/nb-markdown/src/locale.ts:5-12`；读取 `bun.lock:3959` 及 `bun.lock:1069-1073`。再分别检查 `packages/neuro-book/package.json:33-80`（无 vue-i18n 直接依赖）与仓库锁文件，结果会显示这是“新应用未直接依赖”而不是“仓库从未安装”。
+
+建议改法：ADR 背景改为可复核的范围化事实，例如“新应用未直接声明 vue-i18n；仓库锁文件与旧应用历史仍有相关解析项”，并引用 w00028 的当前数字。副本数量先按文件清单统计后再写，或者删除“各包四份”这一未经核实的数字；迁移量与现状数字统一由 w00028 t01 的证据作为唯一来源。
+### 7. 阻断：第三方错误“原样放进 cause”与现有 cause 合同冲突
+严重程度：阻断；类别：接口与合同；位置：`.agents/works/w00031-language-policy/tasks/t01-adr/plan.md:25-27`
+
+现象：计划在三类文字决策中新增“第三方库的错原样，原错放 `cause`”，但没有限定这是本地 JS `Error.cause`、诊断事件，还是远程失败结果。现有远程合同中的 `cause` 不是任意原始错误：`docs/specs/runtime/plugin-channel.md:94` 把它定义为 `target-gone`、`timeout`、`cancelled`、`disconnected` 等阶段原因，`packages/nb-runtime/src/remote/result.test.ts:27-30` 也用字符串 cause 验证该形状；跨进程业务失败则由 `code` 与合同声明的 `detail` 校验（`docs/specs/runtime/plugin-channel.md:49-50`）。
+
+为什么是问题：把第三方 Error 对象或其原文塞进远程 `cause` 会破坏现有 JSON/合同形状，无法跨进程传输，且可能绕过“只传结构化参数与安全 detail”的已确认边界；即使只在本地，`cause` 的语义也与远程阶段原因混在一起。该句也不是 Work README 已确认的内容，不能在 ADR 中悄悄扩大错误合同。
+
+如何核实：对照 `docs/specs/runtime/plugin-channel.md:49-50,61,94`、`docs/specs/runtime/plugin-api.md:28` 与 `packages/nb-runtime/src/remote/result.test.ts:27-30`；检查 `packages/nb-runtime/src/diagnostics/contracts.ts:184-189` 可见只有本地 `DiagnosticsError` 构造器才接受任意 `cause`。
+
+建议改法：把“第三方错误原样保留”拆成边界规则：本地诊断/日志在脱敏后保留原错误摘要与 cause；远程/命令/工具失败仍只按各自合同传 `code`、结构化 detail 和合同允许的 cause，原始异常只进诊断，不进入用户失败投影。若确实要改变远程 cause，先由 t02/t03 更新合同与验收，不把它藏在语言 ADR 的一句理由里。
+### 8. 重要：待确认项把已存在的命令合同与“现有英文先不动”混成一个可选解读
+严重程度：重要；类别：待确认项；位置：`.agents/works/w00031-language-policy/pending-confirmations.md:5-7`；计划引用：`.agents/works/w00031-language-policy/tasks/t01-adr/plan.md:28,69`
+
+现象：待确认项把“契约已规定为英文的字段（命令 `description`）连新写的也保持英文，等 t05”作为一个待追认产品取舍，并把理由写成“同一字段里中英混写对模型与读者都更乱”。但当前 `docs/specs/workbench/commands.md:60` 已是明确合同：`description` 是稳定英文语义说明，不随界面语言变化；“现有的英文说明先不动”只明确了现有资产暂不迁移，没有确认“新写的所有 command description 等 t05”这个更宽的政策。与此同时 t05 在 Work README:34 标为“已搁置”，没有实际决策出口。
+
+为什么是问题：这一行既把当前合同误报成待确认，又把“是否改现有英文工具说明/命令说明”的真正问题和“新写字段怎么遵守现行合同”混在一起。t05 搁置后，实施者不知道是按现有 Spec 继续写英文，还是等一个不会开工的评测；ADR 还会把未追认的“其它新基础设施提示词用中文”作为既定规则写入。
+
+如何核实：对照 `docs/specs/workbench/commands.md:14,60`、`.agents/works/w00031-language-policy/README.md:21`、`.agents/works/w00031-language-policy/README.md:34` 与 `pending-confirmations.md:7`。当前 Spec 已足以判定新 command description 必须英文，不需要把它作为待确认；未决定的是是否修改已有英文说明，以及 t05 搁置后的替代评测/追认安排。
+
+建议改法：拆成两条：1）“新 command `description` 继续英文”标为现行合同约束，不进入待确认；2）“是否把现有英文 command/tool 说明改为中文、评测由谁何时完成”保留待确认，并明确 t05 搁置时不自动推进。对“其它新基础设施提示词用中文”若确实是开发者已确认的 C3，应从待确认解读中移出并在 ADR 中写清范围；否则单独列为待确认，不能借用“现有英文先不动”推出。
+### 9. 重要：common.md 的英文诊断规则没有处理“现存中文、迁移后置”的过渡
+严重程度：重要；类别：不变量；位置：`.agents/works/w00031-language-policy/tasks/t01-adr/plan.md:40-42,66-69`
+
+现象：计划拟把“异常与日志消息用英文并带码”写成通用基线，但同一计划又明确“不迁移任何代码”、把现有中文诊断迁移放到 t04，并确认开发诊断改英文排在失败投影设计之后。现行代码和合同仍有中文诊断，例如 `packages/nb-runtime/src/diagnostics/store.ts:177-183,235-239`、`packages/nb-runtime/src/lifecycle/scope.ts:68-72`；`docs/specs/runtime/diagnostics.md:47,53-54` 只规定消息字段与脱敏，并没有英文要求。
+
+为什么是问题：common.md 是所有源码改动都要遵守的活跃基线，不是仅供 t04 未来参考。照字面，t01 落地后存量代码立即违反规范；若把规则只用于新写代码，计划没有写出范围，t04 迁移前后也没有“新增英文、存量暂缓”的例外，审查与治理无法判断哪些违规是预期债务、哪些是新回归。
+
+如何核实：对照根 `AGENTS.md:34-42` 对 common.md 的适用范围、`docs/standards/code/common.md:3-11` 的基线定位、计划的 t04/不做条款，以及上述 nb-runtime 源码的中文 message。用 `grep` 查 `packages/nb-runtime/src` 的 `message:` 和模板字符串即可复现现存中文诊断。
+
+建议改法：common.md 规则写清迁移边界，例如“新写或修改的开发诊断用英文并带码；现存中文诊断由 t04 按 t03 切片迁移，在迁移完成前不扩大改动范围”，并链接 t02/t03/t04。若要求立即全量一致，就必须把 t04 纳入本次范围，不能同时保留“不迁移代码”。
+### 10. 重要：领域提示词政策没有处理 nb-story 的逐字回归合同
+严重程度：重要；类别：接口与合同；位置：`.agents/works/w00031-language-policy/tasks/t01-adr/plan.md:28,44-47,49-51`
+
+现象：计划把“领域提示词中文并随作品语言”写成通用决策，却没有把 nb-story 的提示词资产、Skill 或 Spec列入影响清单。`packages/nb-story/AGENTS.md:18` 要求抽取提示词、规则和“已有记录”逐字不变，修改必须另做质量对照；`docs/specs/story/ingest.md:240` 把发给模型的文字与封存基线逐字相同列为关键不变量；`docs/specs/story/qa.md:147,216-222` 还把 Profile 版本与会话续问兼容绑定在提示词资产上。
+
+为什么是问题：新政策的“随作品语言”并不是对现有中文资产的纯描述，而是潜在的版本化/替换策略；它与逐字回归、旧会话 Profile 版本和“评测后再改”有真实冲突。计划只写“t05 等评测”且 t05 已搁置，没说明 nb-story 现有提示词是例外、何时版本化、哪个 Task 负责，也没说明抽取路径不受这条策略影响。后续 Agent 按 ADR 会直接改 prompt，正好破坏已有回放合同。
+
+如何核实：对照 `packages/nb-story/AGENTS.md:11-19`、`docs/specs/story/ingest.md:240`、`docs/specs/story/qa.md:147,216`；再核对计划只列 `packages/nb-harness` 两份入口文档而没有 `packages/nb-story` 或 `packages/nb-story/skill/`。
+
+建议改法：ADR 明确区分领域 Profile 资产、抽取提示词与基础设施提示词；现有 nb-story 提示词在评测/版本升级前保持不变，提示词语言变化必须走 t05 或新的评测 Task，并由 story Spec/包级 AGENTS/Skill 同步更新。若“随作品语言”只是未来目标，改成有前置条件的后果，不要写成当前可执行的全局规则。
+
+## 中途复核更正（本节优先于前面的初稿）
+
+追加规则要求保留初稿；以下撤回和收窄不增加发现条数，最终以末尾“最终有效发现”一节为准。
+
+- **第 1 条撤回为阻断发现。** 计划是提纲，不是完整 ADR 文本，并已要求按 0028、0031 的既有写法落盘。省略模板中的 `schema` 不能证明作者会生成非法文件；只能建议写全。尚未运行临时非法 ADR 实验，初稿“照计划落盘必然失败”的说法过强，不作为有效发现。
+- **第 3 条收窄。** 实际读取 t03/t04 后，命令失败、harness 工具结果、story CLI JSON、诊断与治理入口已经由 `.agents/works/w00031-language-policy/tasks/t03-failure-projection/README.md:12-24`、`t04-migration/README.md:12-18` 指派，不能说它们在整个 Work 无人负责。仍需核实的是 t01 影响清单的具体缺项，以及 t01 自己新增规则与现行规则的边界，不重复把正确的后续安排报为问题。
+- **第 5 条撤回。** `common.md` 的“界面”不等于 CLI 的所有 JSON 字段；现有命令通知以 reason 为正文正是 t03 已明确要迁移的消费路径，不能仅因新政策与旧实现不同就判定 t01 必须立即改 Spec/CLI。初稿把这两点误当成直接冲突。
+- **第 6 条撤回。** 补查到 `nb-form/src/text.ts:10-20` 的 `FormText/resolveText` 与 `src/vue/messages.ts` 后，不能说只有 2 个包有文字实现；“四份”可以包括应用、nb-agent-ui、nb-form、nb-markdown。w00028 的 863/54 是 2026-10-17 的旧统计，不能用来否定 2026-10-27 的约 1100。锁文件确有 vue-i18n，但新应用没有直接依赖；应分别说明范围，不据此断言“新 v2 从没装过”已被证伪。
+- **第 7 条撤回。** 决策 1 的本地原错放 `Error.cause` 与决策 2 的“各错误域保留自己的合同”可以同时成立，不能在没有实际合并方案时臆定作者会把任意 Error 塞进远程有限 `cause`。远程 `cause` 的 5 个现有枚举包括 `activation-cycle`；初稿漏列这一个。这里最多补边界说明，不是新阻断。
+- **第 8 条撤回。** 保持新 command `description` 英文是维护当前 Spec 的保守解释，且待确认清单明确标了“待追认”，没有伪称开发者已确认。“其它新基础设施提示词中文”已经由 Work README 第 3 条确认，初稿质疑其授权不成立。t05 已搁置意味着保持现状，不是无故阻塞本次 ADR；最终判断另列。
+- **第 9 条收窄。** 有计划的分阶段迁移本身不违反不变量；需要检查的是 `common.md` 的立即适用范围、尚未存在的目录机制、第三方原文例外与全量“带码”要求，不能把存量中文的存在本身算成回归。
+- **第 10 条撤回。** 领域提示词中文并随作品语言已确认，当前中文领域资产与逐字质量回归并不冲突；不能把未来非中文作品的版本化问题硬塞给只评测基础设施提示词的 t05。现有质量门禁应继续保留，但这一点不构成本计划的新独立缺陷。
+
+本次已实际运行 `bun run docs:check` 与 `bun run governance:check`，两者均退出码 0、`failures: []`、`warnings: []`；分别有 163 条和 296 条范围外存量警告。检查通过仅证明当前 checkout 的治理结构，不证明尚未生成的 ADR 正文或政策内容正确。
+
+
+## 最终有效发现（以本节取代第 1 到第 10 条初稿，按影响排序）
+
+前面第 1 到第 10 条是追加写入过程中保留的历史记录，不是最终发现清单；撤回或收窄以本节和末尾统计为准。尤其撤回“省略 frontmatter 必然使计划无法验收”“本地 Error.cause 必然破坏远程 cause”“当前合同必须在 t01 立即全部迁移”等推论。第 2 条不再判为阻断，第 3、4 条合并核实影响清单，第 9 条只保留新增基线的具体边界问题。以下编号继续递增，避免覆盖历史记录。
+
+路径基准：源码、Spec、ADR 与规范的相对路径均相对于只读 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/review-w00031`；current Work/Task 记录使用 `/home/notnotype/CodeRepository/neuro-book/.agents/works/` 的最新文件。两处 t01 计划本次读取的内容相同。
+
+### 11. 影响清单没有列出最低真相源与包级规则的迁移归属
+
+- **严重程度**：重要；**类别**：文档。
+- **位置**：`.agents/works/w00031-language-policy/tasks/t01-adr/plan.md:23-33,44-60`；对应 Task 合同：`tasks/t01-adr/README.md:14-18`。
+- **现象**：计划的“后果”只描述将来要写一份真相源与 Task 清单，没有列最小条目；具体入口改动仅列两份 harness 文档。Task 已明确要求至少登记 `docs/specs/agent/harness.md` 及 nb-story、dev-panel 的包级文档。另有两份直接约束目录迁移的活跃入口未被点名：`packages/nb-agent-ui/AGENTS.md:12` 要求“包内的中英两张表、组件收 locale、宿主文字中英两份”，`packages/nb-markdown/AGENTS.md:12` 同样要求中英两份与 locale。这与拟写入 ADR 的目录和宿主 t 端口不是同一目标接口。验收仅说“六条决策有来源”，实际列出的 ADR 决策为 5 条，未将 Work 第 5 条“诊断迁移排在失败投影设计之后”映射到 ADR 的执行边界。
+- **为什么是问题**：t01 的明确交付物包含影响清单，但目前验收无法区分“已登记矛盾和归属”与“写一句后续再补”。实现者进入包后会读到继续新增内联双语的指令，ADR 又要求目录；需要在迁移时同步更新这些入口，而不是让实施者自行猜优先级。这里不声称整个 Work 没有迁移负责人：w00031 t03/t04 已负责失败投影与错误迁移，w00028 t03 已负责共享包、发布窗口与目录迁移；缺的是 t01 把真相源与这些已有责任明确连起来，以及六项来源的完整映射。
+- **如何核实**：逐项对照 t01 README 第 14 到 18 行与计划第 33、46 到 51、60 行；读取两份包级 AGENTS 第 12 行，再对照 w00028 `tasks/t03-shared-packages-migration/README.md:14-18` 和 w00031 `tasks/t03-failure-projection/README.md:12-28`、`tasks/t04-migration/README.md:12-22`。这些是静态核实，不是运行时回归结论。
+- **建议改法**：计划先列最小“真相源—更新内容—负责 Task—生效前置”表：harness Spec 与命令/诊断/CLI 的失败合同交 w00031 t03/t04，目录相关 Spec 与两份共享包 AGENTS 交 w00028 t01/t03，nb-story 与 dev-panel 包文档按对应通道分派。t01 只登记、不要求立即修改 Spec。另把 Work 的 6 条确认项逐条映射到 ADR 段落；明确诊断迁移须先完成只读审查和失败投影设计，不靠 5 条与 6 条的编号数目充当覆盖证明。
+
+
+### 12. `common.md` 将“只按码分支”扩大成“全部异常和日志必须带码”
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`.agents/works/w00031-language-policy/tasks/t01-adr/plan.md:25-29,40-42,60`。
+- **现象**：确认项要求“程序只按错误码分支，错误码、事件名、字段名英文”，计划却在所有源码改动适用的 `common.md` 写“异常与日志消息用英文并带码”，未区分业务失败码、诊断事件名与普通 info/debug 日志。现行 `DiagnosticInput` 只有 `level/event/message/data/error/source`，没有通用 `code`；例如 `lifecycle.phase-changed` 是级别 info/debug 的状态事件，不是一次失败。计划还用无条件的“界面不把 message、reason 当主文案”概括错误投影，但现有 `FormIssue.message` 可以是调用方已经本地化的用户文字，不是 `Error.message` 诊断原文。
+- **为什么是问题**：语言规则因此附加了尚未设计的错误结构要求；实施者不知道结构化 `event` 是否已算“码”，还是必须给每条正常日志再造错误码。按字段名一刀切还会把合法的用户文案错分成诊断。确认的规则是按读者分层和保留各错误域合同，不是所有叫 message 的字段都是开发诊断，也不是每条普通日志都表示失败。这里不把既有中文诊断判成回归，不要求 t01 立即迁移代码；问题是新通用规则的适用对象写宽了。
+- **如何核实**：对照 Work README 第 19 到 24 行与计划第 42 行；读取 `docs/standards/code/common.md:3,8-11`、`docs/specs/runtime/diagnostics.md:36,47,53-54`、`packages/nb-runtime/src/diagnostics/contracts.ts:22-31`、`src/diagnostics/store.ts:343-350`。另已实际运行 `bun /tmp/w00031-review/t01-plan/lab/language-facts-smoke.ts`：现有 `issueText` 对调用方 `FormIssue.message` 分别输出“名称已被占用”和“The name is taken”，符合 `docs/specs/ui/forms.md:114` 与 `packages/nb-form/src/vue/messages.ts:227-234` 的当前合同。
+- **建议改法**：入口写成“开发诊断用英文；程序需要区分的失败使用所属错误域的稳定码；结构化诊断使用既有 event；不按原始诊断文案分支”。把禁用主文案明确限定为原始 `Error.message`、诊断性 reason/detail，不包括经界面投影生成的用户文字；保留第三方原文和 OMP 例外的 ADR 指针。码/事件的类型化构造要求与生效切片交 t03，不在 t01 的语言基线里顺带引入全局 code 形状。
+
+
+### 13. 否决理由把“框架依赖”和“两种语言的当前合同”误写成能力限制
+
+- **严重程度**：重要；**类别**：文档。
+- **位置**：`.agents/works/w00031-language-policy/tasks/t01-adr/plan.md:27,31`。
+- **现象**：计划两次使用“vue-i18n 只服务 Vue 层”作为否决理由，并说内联字面量“只适合两种语言”。实际 `vue-i18n` 提供 `createI18n(...).global.t`，不需要 Vue app、组件或 setup 就能调用；现有 `nb-form` 的 `FormText` 已是开放的 `Record<string,string>`，可以内联第三种语言。不能依赖 Vue 的共享核心确实不宜直接引入 vue-i18n，但计划自己已选择共享包只收宿主 t 端口，因此“纯 TS 调用做不到”不是这套端口设计下的限制。
+- **为什么是问题**：开发者已经确认不用 vue-i18n、改消息目录，这两条决定不重议；ADR 仍必须用真实理由解释选择，不能把某库的依赖代价写成 API 不支持，也不能把当前应用的闭合 schema 写成所有内联文字的技术限制。否则后续 Agent 会因错误前提继续造第二套工具，或者无法识别端口设计已使宿主库可替换。根因应是分散文案的提取、翻译协作和第三方目录所有权成本，而非“TS 不能调用”或“对象不能有第三种语言”。
+- **如何核实**：已运行 `bun /tmp/w00031-review/t01-plan/lab/language-facts-smoke.ts`，纯 TS 调用 `createI18n({legacy:false,...}).global.t` 输出“你好，作者”，`resolveText` 对三语内联对象的 `fr-FR` 输出“Nom”。使用的是本机既有依赖，未安装包；它只证明 API 能力，不证明 vue-i18n 适合本项目的所有运行环境。代码依据是 `packages/nb-form/src/text.ts:10-20` 与应用闭合 schema `packages/neuro-book/src/shared/localized-text.ts:9-16`；官方 API 也公开 [I18n.global](https://vue-i18n.intlify.dev/api/general.html#global)。独立设计自己在 `w00028-i18n/tasks/t01-requirements/evidences/independent-design.txt:154` 也承认可把 Translate 端口接到 global.t。
+- **建议改法**：不改变已定结果，改写理由为“vue-i18n 带 Vue 运行时依赖，不能让无框架共享核心直接依赖；当前选择统一宿主引擎与插件目录，并经端口隔离共享包”。内联方案写成“当前应用 schema 闭合为两种语言；扩成多语言可行，但各调用点随语言增加而修改、文案不集中，翻译平台需额外提取/回写”。若继续保留“接不上翻译平台”，应限定为当前没有提取管线，不写成平台或内联格式的绝对能力边界。
+
+
+## 未发现问题的方面
+
+- **ADR 部分取代与门禁相容。** 0028 和 0031 已采用“旧 ADR 保持 accepted，新 ADR 头部点名被取代项”的写法，计划补充索引说明不需要增加新状态。已实际运行 `bun /tmp/w00031-review/t01-plan/lab/docs-partial-smoke.ts`：调用现有 `checkDocumentation` 检查指定 lab 内 13 个 fixture 文件，部分取代场景 `failures: []`、`warnings: []`；只删除新 ADR 的 schema 的对照场景恰好得到 1 条 schema 错误。实验支持完整模板和部分取代方案，不支持初稿“计划省略字段便必然失败”的推论。
+- **六项确认的大部分内容有对应。** Work 第 1 条对应计划决策 1、5，第 2 条对应决策 2，第 3 条对应决策 4，第 4 条对应决策 3，第 6 条对应新 ADR 头部、ADR README 和 common 入口；第 5 条已在 Context 记下，但正式执行边界和验收映射仍应按最终第 11 条补齐。不因 ADR 编成 5 条就要求机械凑成 6 条。
+- **不同错误合同确实存在重码，不能裸码全局查文案。** `nb-runtime/src/remote/protocol.ts:27-38` 与 `neuro-book/src/plugins/commands/shared/contracts.ts:26-35` 共有 `unavailable`、`denied`；远程 `contract.ts:135-137` 只禁止业务码撞远程路由码。计划使用拥有者命名空间加码并设置未知码回退，已处理第三轮的裸码问题；具体投影形状由 t03 设计，不要求本 ADR 给 wire 加统一 error 对象。
+- **第三方原始错误与远程 cause 不应混同。** 计划同时要求各域保留合同；本地 `Error.cause` 可保留原始异常，远程 `RemoteCause` 仍是 5 个受限原因。没有证据说明计划要把任意 Error 对象塞进 wire，历史第 7 条撤回。安全 detail 与现有脱敏约束仍须保留。
+- **旧会话代价有代码依据，但范围限于改变了声明的工具。** `nb-harness/src/tools/registry.ts:11-31` 把 description、参数 schema、provider/version、customFormat 等冻结入快照，`effective.ts:107-141` 对完整声明做规范化比较并抛 `session_incompatible`。这是代码推断，未运行会话恢复实验；不把它表述成“所有旧会话必然失效”，也不要求在 t01 执行已搁置的 t05。
+- **四份实现和近似迁移量没有被本次证伪。** 四份文字实现可明确对应应用 `localized-text.ts`、nb-agent-ui `messages.ts/types.ts`、nb-form `text.ts/vue/messages.ts`、nb-markdown `locale.ts`，不要求每包各有四份。约 1100 条与 w00028 旧 863 条使用不同时间和范围，本次未重新统计全量字符串，不能互相否定。ADR 背景宜写“新应用没有落地 vue-i18n”：新应用无直接依赖，仓库根/旧包有 Nuxt i18n 依赖，且本机既有 vue-i18n 模块实际可解析；当前安装事实也不能证明所有历史时间点。
+- **`common.md` 节名与既有两项通用要求不冲突。** “文字用哪种语言”能区别于 TypeScript 等编程语言规范；英文仍是自然语言，不否定“日志使用结构化字段和自然语言消息”。按码投影也不否定边界失败尽早、明确且可诊断。真正需收窄的是最终第 12 条的“全部带码”和按字段名归类，不是这些原有条款。
+- **迁移不在 t01 立即执行有明确分工。** w00031 t02 只读审查、t03 设计投影、t04 同片更新消费者/持久化/测试；w00028 t01/t02 负责目录和原型，t03 负责共享包与发布窗口。现行命令通知直接用 reason、CLI JSON 有 message、story 提示词保留逐字回归，都不构成“t01 必须立刻改产品代码”的证据。没有重新启用已撤销的“保留内联”前提。
+- **几个理由仍是待验证假设，不增加为已证实缺陷。** “共享包最小实现只要几十行”没有本次原型证据；w00028 t02 已明确要验证与 i18next 一致，ADR 应写为预计成本，范围与原生格式子集交该 Task。官方 [i18next JSON v4](https://www.i18next.com/misc/json-format) 除插值与 one/other 还包含其它复数后缀、context、nesting 等，不能用行数承诺代替合同。VS Code 的 [l10n API](https://code.visualstudio.com/api/references/vscode-api#l10n) 与 Chrome 的 [扩展 i18n](https://developer.chrome.com/docs/extensions/reference/api/i18n) 支持插件自带消息资源这一方向，不证明本项目热卸载时序。OMP 能力记录第 111 行已有“错误文本与模型训练一致”的项目说法，本次没有外部训练数据证据，故把它视为仓库记录的保留理由，而非本次新测出的事实；OMP 错误原文例外本身是已确认决定，不重议。
+
+## 各级数量
+
+| 范围 | 阻断 | 重要 | 建议 | 合计 |
+|---|---:|---:|---:|---:|
+| 最终有效发现（第 11 到第 13 条） | 0 | 3 | 0 | 3 |
+
+`grep -c '^### '` 的最终值是 **13**，其中 **10** 个是保留的历史标题、**3** 个是最终有效发现；不能把 13 或初稿中的阻断标签当成有效数量。第 1 到第 10 条不再单独计数。
+
+## 对待确认清单的判断
+
+清单只有 **1** 项：**解读合理，可作为当前保守执行方式，但仍是待追认，不改写成开发者明确确认。** 命令 `description` 按 `docs/specs/workbench/commands.md:60` 继续英文（包括新声明），其它新增工具说明/提醒按已确认规则用中文；t05 已搁置即不主动迁移现有英文说明。理由里的“对模型更乱”没有对照证据，应表述为维护同一合同字段一致性的工程取舍。表中“只改 ADR 决策 4 的一句”的成本只在尚未修改实现时成立；若将来追认相反政策并实际翻译 command description，须另行更新命令/工具合同与快照兼容，不能把实施成本仍写成一句话。
+
+## 实际验证与只读边界
+
+| 实际命令或检查 | 结果与证明范围 |
+|---|---|
+| `bun run docs:check` | 退出码 0，`failures: []`、`warnings: []`，`checkedFiles: 11727`；另报 163 条范围外存量警告。只证明当前 checkout 的文档基线，不证明尚未落盘的 ADR。 |
+| `bun run governance:check` | 退出码 0，`schema: nbook.governance-report/v1`，`failures: []`、`warnings: []`；另报 296 条范围外存量警告。只证明当前 checkout 的治理基线。 |
+| `bun /tmp/w00031-review/t01-plan/lab/docs-partial-smoke.ts` | 退出码 0，2 个门禁场景断言通过；部分取代通过，缺 schema 的对照得到预期失败。没有将 fixture 写入仓库。 |
+| `bun /tmp/w00031-review/t01-plan/lab/language-facts-smoke.ts` | 退出码 0，3 个场景断言通过：内联三语取出 Nom；调用方本地化 message 的中英显示正确；无 Vue app 的纯 TS 翻译输出“你好，作者”。未安装依赖。 |
+| `/usr/bin/git status --short --untracked-files=all`（审查 worktree） | 无输出；检查时审查 worktree 无已跟踪或未跟踪改动。未将主工作区的并发变化据为本次修改。 |
+
+未运行：产品测试套件、typecheck、e2e、浏览器、开发服务、真实 Provider/Model、LLM 对照评测、发布或打包 smoke、旧会话恢复实验。没有本次产品代码或行为变更；事实实验直接调用已有实现，用于核实 API 能力和字段语义，不当作完整产品迁移验收。
+
+过程更正：一次 `bun -e` 入口解析命令多写右括号，语法错误退出；修正后解析成功。临时脚本改成静态导入后才运行；没有内联类型 import。未修改仓库文件，未 commit、push、stash、切分支、删除文件或运行 bun install；仅在指定 lab 创建实验文件、在指定 report 追加报告。每次追加后均执行要求的标题计数。
+
+复盘：初稿的 10 项曾把“计划尚未展开”和“已分派的未来迁移”误当立即回归，已按追加约束撤回或合并。现有审查技能本已要求核对完整上下文和先例，这次属于未落实已有规则，不建议再增加重复规范；本次没有规范回写。
+
+
+最终格式核对：3 个有效条目均含严重程度、类别、位置、现象、为什么是问题、如何核实、建议改法 7 项；历史与有效标题合计 13 个；未发现问题、数量、待确认判断和验证边界 4 个结尾部分齐全。审查 worktree 的 `git status` 无输出，`git branch --show-current` 无输出，与 detached 只读条件一致。
