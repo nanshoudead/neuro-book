@@ -41,6 +41,11 @@ const TIGHTENED_IDENTITY: [now: string, then: string][] = [
     ["`identity` 类必须正好两个，而且都是人物或身份，不能连到任务、物件之类。给人取名、拜师、同行、捆绑、替代、猜测“可能是”都不是同一个个体：前几种写 `event`、`social`、`kinship` 或 `attitude`；原文没有明确说就是同一个个体、只是猜测时，写 `identity` 并标 `certainty: \"candidate\"`。", "`identity` 类必须正好两个。"],
 ];
 const asBeforeT20 = (text: string) => TIGHTENED_IDENTITY.reduce((result, [now, then]) => result.replace(now, then), text);
+/**
+ * t32 在规则里加了“重要程度”一节、给示例草稿的说法与情节加了 `tier`。对照以前的请求（t34 的录音、t10 与 t12 的哈希
+ * 基线）时先去掉这两处，其余部分仍须逐字相同。录下的回复没有 `tier`，核对与修复请求里嵌的草稿因此不变。
+ */
+const asBeforeT32 = (text: string) => text.replace(/### 11\. 重要程度 `tier`[\s\S]*?\n(?=## 四、)/u, "").replace(/,"tier":[123]/gu, "");
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
 /**
@@ -54,7 +59,7 @@ const requestBaseline = async (name: "replay-ch001-010" | "recall-ch010", increm
     const t12 = (JSON.parse(await readFile(join(FIXTURES, "requests-t12.json"), "utf8")) as Record<string, Record<string, string>>)[name] ?? {};
     return {...Object.fromEntries(Object.entries(t10).filter(([key]) => !key.endsWith(":consolidation"))), ...t12};
 };
-const requestHashes = (requests: {key: string; system: string; user: string}[]) => Object.fromEntries(requests.map(request => [request.key, sha256(`${request.system}\n\u0000\n${request.user}`)]));
+const requestHashes = (requests: {key: string; system: string; user: string}[]) => Object.fromEntries(requests.map(request => [request.key, sha256(`${asBeforeT32(request.system)}\n\u0000\n${request.user}`)]));
 
 /**
  * 第 10 章整理的增量回复（手写，代替整批写法的录音）：a5-2 追加第 6 到 8 章的几段，新开一条南嘉鱼的主线；苏天晴的概览
@@ -161,7 +166,7 @@ describe("回放前 10 章（输出 4、7）", () => {
             }
             const text = `${request.system}\n\u0000\n${user}`;
             // 逐字相同；不同时只能是核对清单里的校验说明不同，而且只在核对类请求里。
-            const before = asBeforeT20(text);
+            const before = asBeforeT20(asBeforeT32(text));
             const same = sha256(before) === recorded.sha256 ? "same" : sha256(withoutSchemaDetails(before)) === recorded.normalized && step === "review-1" ? "schema details only" : "different";
             expect({key: request.key, same}).not.toEqual({key: request.key, same: "different"});
         }

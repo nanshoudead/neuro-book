@@ -74,6 +74,12 @@ function normalizeRecord(section: DraftSection, record: any): any {
         for (const key of ["from", "to"]) if (typeof result[key] === "string" && /^\d+$/u.test(result[key])) result[key] = Number(result[key]);
     }
     if (section === "ledger" && typeof result.amount === "number" && result.amount < 0) result.amount = -result.amount;
+    // 重要程度只是给人看的提示：写成数字串的转成数字，其余不合法的值只去掉这个字段，不让整条记录进核对与修复（ingest.md 输出 19）。
+    if ((section === "statements" || section === "episodes") && "tier" in result) {
+        const tier = typeof result.tier === "string" && /^[123]$/u.test(result.tier.trim()) ? Number(result.tier.trim()) : result.tier;
+        if (tier === 1 || tier === 2 || tier === 3) result.tier = tier;
+        else delete result.tier;
+    }
     if (section === "entities" && Array.isArray(result.names)) result.names = result.names.map((name: any) => (name && typeof name === "object" ? Object.fromEntries(Object.entries(name).filter(([, value]) => value !== null)) : name));
     if (section === "episodes") {
         // 地点写成了名字而不是对象编号：去掉这一项，情节本身留下。
@@ -214,7 +220,8 @@ export function applyPatch(draft: RawDraft, patch: any, chapter: number): RawDra
         const list = next[section] ?? (next[section] = []);
         for (const record of records) {
             const index = list.findIndex(item => item?.id === record.id);
-            if (index >= 0) list[index] = record;
+            // 核对与修复整条重写记录时常只顾被点到的字段，漏写的重要程度沿用原记录的（ingest.md 输出 19）。
+            if (index >= 0) list[index] = record.tier === undefined && list[index]?.tier !== undefined ? {...record, tier: list[index].tier} : record;
             else list.push(record);
         }
     }

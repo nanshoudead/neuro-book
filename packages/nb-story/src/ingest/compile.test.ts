@@ -16,6 +16,7 @@ import {sampleDataset} from "../../testing/sample";
 import type {Dataset, Position} from "../core/dataset";
 import {comparePosition} from "../core/position";
 import {compile, sourceChapter} from "./compile";
+import {applyPatch, normalizeDraft, type RawDraft} from "./draft-tools";
 
 const FINAL = join(import.meta.dir, "..", "..", "tests", "fixtures", "ingest", "run-med-100-final.json.gz");
 
@@ -288,5 +289,33 @@ describe("增量整理稿合成一批主线（输出 5，queries 输出 1、13�
         } finally {
             await merged.close();
         }
+    });
+});
+
+describe("重要程度（输出 19）", () => {
+    test("数字串转成数字，不合法的值只去掉这个字段、记录照常编进书；核对修复重写时漏写的沿用原记录的", async () => {
+        const sample = await sampleDataset();
+        const final = JSON.parse(gunzipSync(await readFile(FINAL)).toString("utf8")) as {drafts: RawDraft[]; consolidations: unknown[]};
+        const raw = structuredClone(final.drafts[0]!) as {statements: Record<string, unknown>[]; episodes: Record<string, unknown>[]};
+        const tiers: Record<string, unknown> = {"s1-1": "2", "s1-2": 0, "s1-3": 1, "s1-4": 1.5, "p1-1": "高", "p1-2": 3};
+        for (const record of [...raw.statements, ...raw.episodes]) if ((record.id as string) in tiers) record.tier = tiers[record.id as string];
+        const first = normalizeDraft(raw, 1);
+        const compiled = compile(sample.book, sample.sources.slice(0, 1), [first], []);
+        expect(compiled.issues.filter(issue => issue.level === "error")).toEqual([]);
+        const byId = new Map<string, {tier?: number}>([...compiled.dataset.statements, ...compiled.dataset.episodes].map(record => [record.id, record]));
+        expect(Object.keys(tiers).map(id => [id, byId.has(id), byId.get(id)?.tier])).toEqual([
+            ["s1-1", true, 2],
+            ["s1-2", true, undefined],
+            ["s1-3", true, 1],
+            ["s1-4", true, undefined],
+            ["p1-1", true, undefined],
+            ["p1-2", true, 3],
+        ]);
+
+        const rewritten = first.statements!.find(item => item.id === "s1-3")!;
+        const {tier: _dropped, ...withoutTier} = rewritten;
+        const patched = applyPatch(first, {replace: {statements: [{...withoutTier, text: "改写后的说法。"}, {...first.statements!.find(item => item.id === "s1-1")!, tier: 3}]}}, 1);
+        expect(patched.statements!.find(item => item.id === "s1-3")).toMatchObject({text: "改写后的说法。", tier: 1});
+        expect(patched.statements!.find(item => item.id === "s1-1")!.tier).toBe(3);
     });
 });
