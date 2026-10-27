@@ -12,6 +12,7 @@ import type {EntityKind} from "../../core/dataset";
 import {useBook} from "../host/book";
 import {useStoryQuery} from "../host/query";
 import PageState from "../parts/PageState.vue";
+import SelectionBar from "../graph/SelectionBar.vue";
 import StoryNetwork, {type GraphLayout} from "../graph/StoryNetwork.vue";
 
 const book = useBook();
@@ -45,6 +46,7 @@ const pinned = computed(() => (graph.data.value?.nodes ?? []).filter(node => nod
 // 选中的点：打开页面时沿用抽屉里正开着的对象。
 const selected = ref<string | null>(book.drawer.value?.kind === "card" ? book.drawer.value.entity : book.drawer.value?.kind === "node" ? book.drawer.value.id : null);
 const isPerson = (kind: string) => kind === "person" || kind === "persona";
+const selectedNode = computed(() => (selected.value === null ? undefined : graph.data.value?.nodes.find(node => node.id === selected.value)));
 
 /** 右键菜单（输出 27）：打开、只看周边或看全图、取消选中；快捷键写在条目右边。 */
 const menu = ref<{id: string; x: number; y: number} | null>(null);
@@ -53,7 +55,7 @@ const menuItems = computed<ContextMenuItem[]>(() => {
     const node = target === null ? undefined : graph.data.value?.nodes.find(item => item.id === target.id);
     if (target === null || node === undefined) return [];
     return [
-        {label: isPerson(node.kind) ? `打开${node.label}的人物卡` : `${node.label}的连线说明`, iconClass: isPerson(node.kind) ? "i-lucide-id-card" : "i-lucide-share-2", shortcut: "Enter", action: () => open(node.id)},
+        {label: isPerson(node.kind) ? `打开${node.label}的人物卡` : `${node.label}的连线说明`, iconClass: isPerson(node.kind) ? "i-lucide-id-card" : "i-lucide-share-2", shortcut: "双击 / Enter", action: () => open(node.id)},
         {label: neighborhood.value ? "看全图" : "只看它的周边", iconClass: neighborhood.value ? "i-lucide-maximize-2" : "i-lucide-focus", shortcut: "F", action: () => (neighborhood.value = !neighborhood.value)},
         {separator: true},
         {label: "取消选中", shortcut: "Esc", action: () => (selected.value = null)},
@@ -131,6 +133,7 @@ function onSelect(id: string): void {
                 :neighborhood="neighborhood" :query="search" :pinned="pinned" :selected="selected"
                 @select="onSelect" @open="open" @menu="(payload: {id: string; x: number; y: number}) => (menu = payload)" @neighborhood="(value: boolean) => (neighborhood = value)" @clear="selected = null"
             />
+            <SelectionBar v-if="selectedNode" :label="selectedNode.label" :open-label="isPerson(selectedNode.kind) ? '打开人物卡' : '看连线说明'" @open="open(selectedNode.id)" @clear="selected = null" />
             <ContextMenu :visible="menu !== null" :x="menu?.x ?? 0" :y="menu?.y ?? 0" :items="menuItems" @close="menu = null" />
         </div>
     </div>
