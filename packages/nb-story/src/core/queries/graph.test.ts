@@ -42,6 +42,21 @@ describe("关系图（输出 16、验收 3）", () => {
         expect(reader.edges.every(edge => edge.knows !== null)).toBe(true);
     });
 
+    test("点带它的其他称呼（搜索按别名查）：不含显示名；阅读位置之前还没出现的称呼不带出", async () => {
+        const late = await book.ok("graph.relations", {at: {chapter: 38}});
+        const owner = late.nodes.find(node => node.names.includes("心月狐"));
+        expect(owner).toBeDefined();
+        expect(owner!.names).not.toContain(owner!.label);
+        expect(new Set(owner!.names).size).toBe(owner!.names.length);
+        // “心月狐”第 8 章第 48 段才出现：读到第 7 章时哪个点都不带它。
+        const early = await book.ok("graph.relations", {at: {chapter: 7}});
+        expect(early.nodes.some(node => node.names.includes("心月狐"))).toBe(false);
+        // 全书图的对象点同样带称呼，别的类型的点没有。
+        const bookGraph = await book.ok("graph.book", {at: {chapter: 38}});
+        expect(bookGraph.nodes.find(node => node.id === owner!.id)?.names).toContain("心月狐");
+        expect(bookGraph.nodes.filter(node => node.type !== "entity").every(node => node.names === undefined)).toBe(true);
+    });
+
     test("同场门槛以下的同场数为 0", async () => {
         const graph = await book.ok("graph.relations", {at: {chapter: 38}, minTogether: 5});
         expect(graph.edges.every(edge => edge.together === 0 || edge.together >= 5)).toBe(true);

@@ -9,11 +9,11 @@
 
 ```bash
 gunzip -c xiyouji-graph.json.gz > xiyouji-graph.json
-nbstory import xiyouji-graph.json --title 西游记 --library ./xyj-library
-nbstory books --library ./xyj-library
+nbstory import xiyouji-graph.json --title 西游记
+nbstory books
 ```
 
-导入后书库里是 100 章、852 个对象、2,136 条说法、98 个秘密、387 个情节。后面的命令都加同一个 `--library ./xyj-library`（也可以不加 `--library`，导进默认书库）。
+导入后书库里是 100 章、852 个对象、2,136 条说法、98 个秘密、387 个情节。书进的是默认书库（`~/.local/share/nbstory`）；想和自己的书分开放，每条命令都加同一个 `--library <目录>`。
 
 ## 走读
 
@@ -31,7 +31,7 @@ nbstory between 孙悟空 唐僧 --at 14
 nbstory search 紧箍咒 --at 20
 
 # 网页查看器（秘密页、关系图、人物卡、时间线、原文、问答），打印登录链接
-nbstory serve --library ./xyj-library --open
+nbstory serve --open
 ```
 
 `--at` 限定阅读位置，之后的内容不出现。例如 `search 紧箍咒 --at 20` 只给第 14 回的两条说法和一段原文。

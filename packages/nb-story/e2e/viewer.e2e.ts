@@ -166,6 +166,29 @@ test("关系图（验收 3、输出 27）：页面上已有文字选区时拖动
     await expect(page.getByTestId("page-error")).toHaveCount(0);
 });
 
+test("关系图（输出 27，反馈 3）：在图里找可以按别名；右键点开菜单后移动鼠标，点不会跟着走", async ({page}) => {
+    await open(page, "/book/fox/relations?at=38&perspective=reader");
+    await expect(page.getByTestId("relation-graph").locator("canvas").first()).toBeVisible();
+    // “心月狐”是别名，不是任何点的显示名：搜它也要让镜头移到那个点上。
+    const center = await centerOn(page, "心月狐");
+    await page.mouse.move(center.x, center.y);
+    await page.mouse.down({button: "right"});
+    await page.mouse.up({button: "right"});
+    await expect(page.getByRole("menu")).toBeVisible();
+    // 菜单开着，按住右键再移动鼠标：点不能被拖走。
+    await page.mouse.move(center.x, center.y);
+    await page.mouse.down({button: "right"});
+    await page.mouse.move(center.x + 90, center.y + 60, {steps: 8});
+    await page.mouse.up({button: "right"});
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await settle(page);
+    // 点还在原处：在原处单击仍然选中它（落在空白处会取消选中），按 Enter 打开的是它的人物卡。
+    await page.mouse.click(center.x, center.y);
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("entity-card")).toBeVisible();
+});
+
 test("收起抽屉后重画（验收 4）：画布铺满主区", async ({page}) => {
     await open(page, "/book/fox/relations?at=38&entity=e1-1&tab=relations");
     await expect(page.getByTestId("entity-card")).toBeVisible();

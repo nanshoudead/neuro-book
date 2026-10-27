@@ -29,7 +29,8 @@ import {useLayoutMotion} from "../host/motion";
 import {appearance} from "../host/theme";
 
 /** 点：`kind` 是对象类别，或全书图里的 arc、episode、secret、question。 */
-export type NetworkNode = {id: string; label: string; kind: string; weight: number};
+/** `names`：这个点的其他称呼，搜索也按它们匹配。 */
+export type NetworkNode = {id: string; label: string; kind: string; weight: number; names?: readonly string[]};
 /** 关系图的线：一对点一条，几种联系合在一起（RelationEdge 的形状）。 */
 export type NetworkEdge = {a: string; b: string; word: string | null; statements: number; together: number; ab: number; ba: number; identity: IdentityState | null};
 /** 全书图的线。 */
@@ -185,7 +186,7 @@ function fillRelationEdges(target: Graph): void {
 
 function buildRelation(target: Graph): void {
     for (const node of relationNodes()) {
-        addNode(target, node.id, {label: node.label, color: kindColor(node.kind), forceLabel: true, weight: node.weight});
+        addNode(target, node.id, {label: node.label, color: kindColor(node.kind), forceLabel: true, weight: node.weight, names: node.names ?? []});
     }
     fillRelationEdges(target);
     // 没有任何线连着的点不画（人物卡小图里的中心点除外）。人物卡小图只画和中心直接相连的点：选邻居时按全部联系排，
@@ -211,7 +212,7 @@ function buildData(target: Graph): void {
             label: short, fullLabel: node.label, size: node.kind === "episode" ? 4 : 6,
             color: kindColor(node.kind),
             // 点一样大以后，标签格子按 weight 挑谁出名字：出场多的先出
-            forceLabel: props.pinned.includes(node.id), weight: node.weight,
+            forceLabel: props.pinned.includes(node.id), weight: node.weight, names: node.names ?? [],
         });
     }
     // 线用先和背景色混好的不透明色：半透明的线在 WebGL 里混色会发青，叠多了也会越叠越深
@@ -517,6 +518,8 @@ function bindEvents(instance: Sigma, target: Graph): void {
         instance.refresh({skipIndexation: true});
     });
     instance.on("downNode", ({node, event}) => {
+        // 只有左键拖点：右键按下是为了开上下文菜单，菜单开着时鼠标一动点就跟着走（反馈第 3 条）。
+        if ((event.original as MouseEvent).button > 0) return;
         // 页面上已有的文字选区会让浏览器把这次按下当成拖文字，点就拖不动了：先清掉选区、拦下默认行为。
         window.getSelection()?.removeAllRanges();
         event.original.preventDefault();
@@ -529,6 +532,12 @@ function bindEvents(instance: Sigma, target: Graph): void {
     const captor = instance.getMouseCaptor();
     captor.on("mousemovebody", (event) => {
         if (dragged === null || downAt === null) return;
+        // 松开发生在图外或被菜单吞掉时 mouseup 到不了这里：按键已不是左键就收住，不再拖。
+        if (event.original instanceof MouseEvent && (event.original.buttons & 1) === 0) {
+            dragged = null;
+            downAt = null;
+            return;
+        }
         if (!moved && Math.hypot(event.x - downAt.x, event.y - downAt.y) < 4) return;
         moved = true;
         host.value!.style.cursor = "grabbing";
@@ -606,11 +615,11 @@ function fitNeighborhood(): void {
     void fitViewportToNodes(sigma, [focus.selected, ...graph.neighbors(focus.selected)], {animate: true});
 }
 
-/** 搜索：按名字（情节按标题）包含匹配；命中的点高亮，镜头移到第一个命中的点。 */
+/** 搜索：按名字、其他称呼（情节按标题）包含匹配；命中的点高亮，镜头移到第一个命中的点。 */
 function applyQuery(): void {
     if (sigma === null || focus === null || graph === null) return;
     const query = props.query.trim();
-    focus.matches = query === "" ? null : new Set(graph.filterNodes((_, attributes) => String(attributes.fullLabel ?? attributes.label).includes(query)));
+    focus.matches = query === "" ? null : new Set(graph.filterNodes((_, attributes) => String(attributes.fullLabel ?? attributes.label).includes(query) || ((attributes.names as readonly string[] | undefined) ?? []).some((name) => name.includes(query))));
     sigma.refresh({skipIndexation: true});
     const first = focus.matches?.values().next().value;
     if (first !== undefined) {
