@@ -1,6 +1,6 @@
 {
     "name": "@notnotype/neuro-book",
-    "version": "0.1.0",
+    "version": "0.11.0",
     "description": "NeuroBook v2: a local-first long-form writing workbench rebuilt on the plugin runtime.",
     "license": "AGPL-3.0-only",
     "type": "module",

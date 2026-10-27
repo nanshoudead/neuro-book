@@ -39,6 +39,7 @@ import {BROWSER_BOOTSTRAP_PATH, BROWSER_PROTOCOL_VERSION} from "nbook/shared/bro
 import {clockKey, windowConnectionKey} from "nbook/shared/host";
 import type {WindowConnectionState} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
+import {PRODUCT_VERSION} from "nbook/shared/product";
 import type {WindowProject} from "nbook/shared/projects";
 import {projectProbeContract, remoteProbeContract, remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
 
@@ -208,7 +209,7 @@ describe("窗口运行实例", () => {
     it("结构不合法或缺少必需插件：启动失败", async () => {
         for (const body of [
             {protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", plugins: "nbook.workbench"},
-            {protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", plugins: [{id: "runtime.diagnostics", version: "0.1.0"}]},
+            {protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: STUB_RPC, revision: "r", plugins: [{id: "runtime.diagnostics", version: PRODUCT_VERSION}]},
         ]) {
             const stub = serveBootstrap(() => Response.json(body));
             const {browserWindow} = openWindow({url: stub.url});
