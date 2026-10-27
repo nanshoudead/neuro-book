@@ -21,6 +21,7 @@
         "build:e2e": "vite build -c vite.e2e.config.ts",
         "check:dist": "bun scripts/check-dist.ts",
         "build:sdk": "bun plugin-sdk/pack.ts",
+        "build:app-package": "bun run build && bun scripts/pack-app.ts",
         "build:examples": "bun plugin-sdk/build-examples.ts",
         "start": "NBOOK_WEB_ROOT=dist/web bun dist/server/main.js",
         "smoke:server": "bun scripts/smoke-server.ts",

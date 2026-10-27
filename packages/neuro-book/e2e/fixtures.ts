@@ -19,7 +19,7 @@ export interface ProcessHandle {
     waitFor(pattern: RegExp): Promise<RegExpExecArray>;
 }
 
-function track(child: ChildProcessWithoutNullStreams): ProcessHandle {
+export function track(child: ChildProcessWithoutNullStreams): ProcessHandle {
     let output = "";
     child.stdout.on("data", (chunk: Buffer) => {
         output += chunk.toString("utf8");

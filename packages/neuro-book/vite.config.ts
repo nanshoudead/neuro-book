@@ -73,5 +73,6 @@ export default defineConfig({
             "semver",
         ],
     },
-    build: {outDir: `${packageRoot}dist/web`, emptyOutDir: true, target: BROWSER_TARGETS},
+    // 第三方许可清单（JSON）：应用的 npm 包据此生成 THIRD-PARTY-NOTICES.md（scripts/pack-app.ts），它不随页面发出去。
+    build: {outDir: `${packageRoot}dist/web`, emptyOutDir: true, target: BROWSER_TARGETS, license: {fileName: ".vite/license.json"}},
 });
