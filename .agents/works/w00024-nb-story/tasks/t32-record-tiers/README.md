@@ -15,24 +15,45 @@ updated: 2026-10-27
 
 ## 当前状态
 
-2026-10-27 五片都已实现，在 worktree `.worktree/w00024-t32`、分支 `feat/w00024-t32-record-tiers`：
+2026-10-27 五片都已实现并合入 master（分支 `feat/w00024-t32-record-tiers`，变基后的提交号如下）：
 
 | 片 | 提交 | 内容 |
 |---|---|---|
-| 1 | `b0ea0bd56`、`7bd3f86c4` | `core/tiers.ts`：与位置无关的底稿加按位置的表；两张规则表、证据窗口；截断对照；说法里的称呼不算回响 |
-| 2 | `46f7c726d` | `entity.statements` 的 `tier`、`tierFlag`、`maxTier`、`tiers`；情节的 `tier`；`tier.explain` 与 `record_not_found`；命令行 `--tiers`、`--max-tier`、`why`；问答不变 |
-| 3 | `510cb6bb1`、`6f37d871f` | 草稿 `tier`、清洗与修复沿用、编译带入；`rules.md` 新节与示例；回放逐字对照加 `asBeforeT32` |
-| 4 | `31507d761` | `TierBadge`（依据弹出层写法 A）、`FoldedBar`、展开偏好、情节色块；e2e |
-| 收口 | `6d6cf8d43` | 全包 typecheck 通过（顺手修了 master 上两处原有错误） |
-| 收口 | `0f8cd1682` | 等级底表提速：样例书第 100 章冷启动首个 `entity.statements` 约 800 ms → 约 450 ms（不算等级约 400 ms）；两本书 4.6 万次逐条对照结果不变 |
+| 1 | `fc64a8cd8`、`8f94c7d3b` | `core/tiers.ts`：与位置无关的底稿加按位置的表；两张规则表、证据窗口；截断对照；说法里的称呼不算回响 |
+| 2 | `639ca4ff5` | `entity.statements` 的 `tier`、`tierFlag`、`maxTier`、`tiers`；情节的 `tier`；`tier.explain` 与 `record_not_found`；命令行 `--tiers`、`--max-tier`、`why`；问答不变 |
+| 3 | `60dd4c8c2`、`78ab083be` | 草稿 `tier`、清洗与修复沿用、编译带入；`rules.md` 新节与示例；回放逐字对照加 `asBeforeT32` |
+| 4 | `fb569cba5` | `TierBadge`（依据弹出层写法 A）、`FoldedBar`、展开偏好、情节色块；e2e |
+| 收口 | `d986b798b` | 全包 typecheck 通过（`GraphLayout` 那处 master 上已另修，变基时取 master 的） |
+| 收口 | `d8d323397` | 等级底表提速：样例书第 100 章冷启动首个 `entity.statements` 约 800 ms → 约 450 ms（不算等级约 400 ms）；两本书 4.6 万次逐条对照结果不变 |
 
 证据：[校准](evidences/calibration.txt)（两轮）、[真实小抽取](evidences/extract-5.txt)（gpt-6-luna，两次共 0.78 元；3 级先验约 9%，没到计划的 15%，记为已知限制）、评审板 `review` v1、v2。
 
 收口验证（`6d6cf8d43`）：全量单测 570 过；全量 e2e 43 过、1 败，败的是“长列表（验收 6）”的 1 秒首屏断言（1097 ms）。查下来等级底表让冷启动多了约 0.4 秒，`0f8cd1682` 已修。之后机器被别的会话占满（负载 13 到 21），这条在把等级计算整个拿掉的对照下同样 1.4 到 2.4 秒失败，所以目前测不出结论，等负载降下来再单跑一次。其余 e2e 与单测都通过。
 
+## 实现审查（2026-10-27）
+
+后端 omp（默认模型）：[报告](evidences/impl-review-backend.txt)，重要 2、建议 1。前端 Claude Sonnet：[报告](evidences/impl-review-frontend.txt)，重要 3、建议 6。修正在 `3caff4061`（前端）、`42f6bc75b`（后端），已合入 master。
+
+| 来源 | 条 | 处理 |
+|---|---|---|
+| 后端 1 | 单个位置的等级要 0.4 到 0.5 秒 | 不成立：实验每轮新建索引，量的是底表冷建加首表。同一索引上单个位置 5 到 17 毫秒，首次碰到新词组的位置一次性 38 到 59 毫秒（负载 11，`/tmp` 下的 perP 实验），合计划的预算 |
+| 后端 2 | `tier.explain` 交出缓存里的对象 | 改：交副本；`queries/tiers.test.ts` 补“改了结果再查不受影响”（变异核对过） |
+| 后端 3 | `record_not_found` 没有下一步 | 改：`NEXT_STEP` 补一条，`cli.test.ts` 补断言 |
+| 前端 1 | 切展开、收起时折叠条消失再出现 | 改：`useMinorCount` 在只切展开与收起时沿用上一次的 N |
+| 前端 2 | 窄档开着依据按 Escape 连抽屉一起关 | 改：有 reka 浮层开着时不关抽屉；新 e2e 在平板宽度验证（修之前失败）。没换抽屉组件，记入待确认 |
+| 前端 3 | 读完与否按文案判断 | 改：用 `book.atEnd` |
+| 前端 4 | 结论写死“2 级”、读完时措辞不通 | 改：照 `tier.explain` 的等级写，读完时换说法，补单测 |
+| 前端 5 | 情节分支没有调用方 | 改：删掉，`TierBadge.md` 改成“说法的 id” |
+| 前端 6 | 关掉依据后焦点不回；文字选不中 | 文字可选中已改；焦点是 nb-ui `Popover` 的既有行为，记入待确认 |
+| 前端 7 | 色块手写样式与字面量 | 字号与圆角改用主题变量；保留方块，不换 `Badge`，记入待确认 |
+| 前端 8 | e2e 判据没测到 | 补了行数、淡显、回响有没有、宽表格共用开关、人物页折叠条；情节的正向用例没补（样例书没有先验，情节的先验在 `queries/tiers.test.ts` 已测，网页只是透传字段） |
+| 前端 9 | 单测覆盖 | 补 `citedWords` 六项与读完全书的措辞 |
+
+修正后：nb-story 单测全过（config、server 两个文件在高负载下有 5 秒超时，放宽超时单跑 32 条全过）；“记录等级”两条 e2e 与相邻的抽屉、时序用例通过。
+
 ## 下一步
 
-实现审查待处理：后端由 omp 审（默认模型），前端由 Claude Sonnet 审，都不阻塞；审查 worktree 是 `.worktree/w00024-t32-review`（固定在 `0f8cd1682`），报告在仓库外。负载降下来后单跑一次“长列表”e2e。
+机器负载降下来后单跑一次“长列表（验收 6）”e2e（这次在把等级计算拿掉的对照下也因负载失败，测不出结论）。之后本 Task 可以收尾。
 
 ## 背景与已定方向
 
