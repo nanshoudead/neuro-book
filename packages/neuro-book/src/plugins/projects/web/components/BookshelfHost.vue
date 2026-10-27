@@ -120,6 +120,8 @@ async function submitInfo(values: ProjectInfoSubmit): Promise<void> {
             await props.page.rememberLibrary(values.parent);
             await loadLibrary();
         }
+        // 新建的作品直接打开（docs/specs/workbench/bookshelf.md 输出 11）：封面与作品目录写完再走，整页离开后它们就没人等了。
+        if (current.mode === "create") props.page.open(outcome.id);
     } finally {
         infoBusy.value = false;
     }

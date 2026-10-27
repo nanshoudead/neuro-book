@@ -192,8 +192,9 @@ describe("PluginsPage", () => {
         const lines = () => [...goal.querySelectorAll("[data-plugin-problem-line]")].map((line) => line.textContent);
         expect(lines()).toEqual(["入口 server（server）激活失败：local 记录需要客户端身份", "workbench.views 的 other.goal 被拒：声明不合规则（前缀不对）"]);
         expect(document.querySelector("[data-plugins-snapshot]")).not.toBeNull();
-        // 内置插件没有清单，不显示显示名与说明；没有问题的行不占位。
-        expect(row("nbook.settings").querySelector("[data-plugin-display-name]")).toBeNull();
+        // 内置插件没有清单：名称与说明取页面这侧的名称表，按界面语言；没有问题的行不占位。
+        expect(row("nbook.settings").querySelector("[data-plugin-display-name]")?.textContent).toBe("设置");
+        expect(row("nbook.settings").querySelector("[data-plugin-description]")?.textContent).toBe("设置窗口与设置项的读写。");
         expect(row("example.hello").querySelector("[data-plugin-problems]")).toBeNull();
         expect(row("example.hello").querySelector("[data-plugin-pending=upgrade]")?.textContent).toContain("重启后降级到 0.9.0");
 
