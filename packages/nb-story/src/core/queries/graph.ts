@@ -17,6 +17,17 @@ const SOCIAL_WORDS = ["朋友", "同桌", "同学", "室友", "舍友", "搭档"
 /** 故事线的行数。 */
 const STORYLINE_LANES = 12;
 
+/**
+ * 点的全部称呼（搜索按别名查用）：点里每个对象在阅读位置之前已出现的称呼，去重，不含显示名。`view` 已按阅读位置裁过，
+ * 所以不会带出之后才揭晓的称呼。
+ */
+function aliasesOf(ctx: QueryContext, node: string): string[] {
+    const label = ctx.grouping.labels.get(node);
+    const names = new Set<string>();
+    for (const id of ctx.grouping.members.get(node) ?? []) for (const name of ctx.view.entity(id)!.names) if (name.text !== label) names.add(name.text);
+    return [...names];
+}
+
 function pairKey(a: string, b: string): [string, string, string] {
     return a < b ? [a, b, `${a}|${b}`] : [b, a, `${b}|${a}`];
 }
@@ -113,7 +124,7 @@ export function relationsGraph(ctx: QueryContext, params: StoryParams<"graph.rel
     return {
         nodes: nodeIds
             .sort((a, b) => grouping.mentions.get(b)! - grouping.mentions.get(a)! || (a < b ? -1 : 1))
-            .map(node => ({id: node, label: grouping.labels.get(node)!, kind: view.entity(node)!.kind, mentions: grouping.mentions.get(node)!, entities: [...(grouping.members.get(node) ?? [])]})),
+            .map(node => ({id: node, label: grouping.labels.get(node)!, kind: view.entity(node)!.kind, mentions: grouping.mentions.get(node)!, entities: [...(grouping.members.get(node) ?? [])], names: aliasesOf(ctx, node)})),
         edges,
         view: {
             perspective: grouping.perspective,
@@ -192,7 +203,7 @@ export function bookGraph(ctx: QueryContext, params: StoryParams<"graph.book">):
             const [a, b] = key.split("|") as [string, string];
             edges.push({a, b, type: "relation", count});
         }
-        for (const node of [...entityNodes].sort()) nodes.unshift({id: node, type: "entity", label: grouping.labels.get(node)!, weight: grouping.mentions.get(node)!});
+        for (const node of [...entityNodes].sort()) nodes.unshift({id: node, type: "entity", label: grouping.labels.get(node)!, weight: grouping.mentions.get(node)!, names: aliasesOf(ctx, node)});
     }
     const present = new Set(nodes.map(node => node.id));
     return {nodes, edges: edges.filter(edge => present.has(edge.a) && present.has(edge.b))};

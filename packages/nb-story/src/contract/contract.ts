@@ -333,7 +333,7 @@ const SearchItem = Type.Object({
 
 // ---- 图 ----
 
-export const RelationNodeSchema = Type.Object({id: Type.String(), label: Type.String(), kind: EntityKindSchema, mentions: Type.Integer(), entities: Type.Array(Type.String())});
+export const RelationNodeSchema = Type.Object({id: Type.String(), label: Type.String(), kind: EntityKindSchema, mentions: Type.Integer(), entities: Type.Array(Type.String()), names: Type.Array(Type.String())});
 export const RelationEdgeSchema = Type.Object({
     a: Type.String(),
     b: Type.String(),
@@ -355,7 +355,7 @@ const RelationGraph = Type.Object({
 });
 
 const BookGraph = Type.Object({
-    nodes: Type.Array(Type.Object({id: Type.String(), type: oneOf(["entity", "arc", "episode", "secret", "question"] as const), label: Type.String(), weight: Type.Integer()})),
+    nodes: Type.Array(Type.Object({id: Type.String(), type: oneOf(["entity", "arc", "episode", "secret", "question"] as const), label: Type.String(), weight: Type.Integer(), names: Type.Optional(Type.Array(Type.String()))})),
     edges: Type.Array(Type.Object({a: Type.String(), b: Type.String(), type: oneOf(["participates", "about", "link", "relation"] as const), count: Type.Integer()})),
 });
 
