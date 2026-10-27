@@ -23,8 +23,14 @@ updated: 2026-10-27
 
 ## 当前状态
 
-提案已接受（2026-10-27）。计划：[plan.md](plan.md)（自主推进，2026-10-27 开工）。Haiku 与 Sonnet 的对照实验在跑，结论决定按插件迁移时的分派。
+提案已接受（2026-10-27）。计划：[plan.md](plan.md)（第二版，两轮计划审查已处理）。Haiku 与 Sonnet 的对照实验：`evidences/haiku-experiment.txt`。代码在 Work 分支 `feat/w00028-i18n`（worktree `.worktree/w00028-i18n`）。
+
+### 切片记录
+
+| 片 | 提交 | 验证（实际跑的命令与结果） |
+|---|---|---|
+| 1 纯数据层与端口 | `d8a2234af` | `packages/nb-ui`：`bunx vitest run src/text src/text-port` 15 过；`bun run typecheck` 退出 0。`packages/neuro-book`：`bun test src/shared/text.test.ts` 11 过；`bun run typecheck` 退出 0。`docs:check`、`governance:check` 无失败 |
 
 ## 下一步
 
-计划交审查（omp 与 Claude Sonnet 前端）；处理后从第 1 片开始。
+第 2 片：语言类型改字符串（锁步合同片）。
