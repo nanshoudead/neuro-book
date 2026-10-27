@@ -4,7 +4,10 @@
  */
 
 import {createApp} from "vue";
+import type {App} from "vue";
 import type {RouterHistory} from "vue-router";
+
+import {TEXT_PORT_KEY} from "@notnotype/nb-ui/text-port";
 
 import FailurePage from "./FailurePage.vue";
 import HostPage from "./HostPage.vue";
@@ -22,33 +25,38 @@ export interface WindowUiOptions {
     readonly reloadDocument: () => void;
 }
 
+/** 三个独立的 Vue 根（宿主页、页面、启动失败页）各自注入窗口的翻译端口（docs/specs/ui/i18n.md）。 */
+function withText<T>(app: App<T>, options: WindowUiOptions): App<T> {
+    return app.provide(TEXT_PORT_KEY, options.browserWindow.text.port);
+}
+
 export async function mountWindowUi(options: WindowUiOptions): Promise<void> {
     const current = options.browserWindow.state;
     if (current.status === "ready") {
         await mountPages(options, current);
         return;
     }
-    const host = createApp(HostPage, {
+    const host = withText(createApp(HostPage, {
         browserWindow: options.browserWindow,
         onReady: (ready: ReadyWindowState) => {
             host.unmount();
             void mountPages(options, ready);
         },
         onReload: options.reloadDocument,
-    });
+    }), options);
     host.mount(options.container);
 }
 
 async function mountPages(options: WindowUiOptions, ready: ReadyWindowState): Promise<void> {
     const router = createPageRouter({pages: ready.root.pages(), history: options.history, navigateDocument: options.navigateDocument});
-    const app = createApp(PageOutlet, {browserWindow: options.browserWindow, onReload: options.reloadDocument});
+    const app = withText(createApp(PageOutlet, {browserWindow: options.browserWindow, onReload: options.reloadDocument}), options);
     app.use(router);
     try {
         await router.isReady();
     } catch (error) {
         // 首次导航失败（页面模块加载失败）：不挂半个页面，显示只能刷新的启动失败页。
         const reason = error instanceof Error ? error.message : String(error);
-        createApp(FailurePage, {state: {status: "startup-failed", reason}, onReload: options.reloadDocument}).mount(options.container);
+        withText(createApp(FailurePage, {state: {status: "startup-failed", reason}, onReload: options.reloadDocument}), options).mount(options.container);
         return;
     }
     app.mount(options.container);

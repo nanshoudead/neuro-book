@@ -15,9 +15,13 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import type {PluginDescriptor} from "nbook/manifest";
 import type {WindowNavigation} from "nbook/shared/host";
 
+import {NB_UI_CATALOGS, NB_UI_NAMESPACE} from "@notnotype/nb-ui/locales";
+
 import {rememberDocumentAppearance} from "./host/appearance-hint";
 import {readClientIdentity} from "./host/client-identity";
 import {createConnection} from "./host/connection";
+import {readLocaleHint, writeLocaleHint} from "./host/locale-hint";
+import {createTextEngine} from "./host/text-engine";
 import {createBrowserWindow} from "./host/window";
 import {mountWindowUi} from "./mount";
 
@@ -34,6 +38,13 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
     if (clientIdentity.problem !== null) console.warn(`[nbook] ${clientIdentity.problem}；客户端身份只在本页有效`);
     // 页面存活期间一直记录，不停止：下一次打开时加载页的第一帧用这里记下的明暗与颜色。
     rememberDocumentAppearance({root: document.documentElement, storage: () => window.localStorage, warn: (message) => console.warn(`[nbook] ${message}`)});
+    // 设置插件激活前用上次记下的界面语言；激活后由它推当前值（docs/specs/runtime/browser-host.md）。
+    const text = createTextEngine({
+        locale: readLocaleHint(() => window.localStorage) ?? "zh-CN",
+        remember: (tag) => writeLocaleHint(() => window.localStorage, tag, (message) => console.warn(`[nbook] ${message}`)),
+        report: (problem) => console.warn(`[nbook] text ${problem.kind}: ${problem.ns ?? ""} ${problem.key}${problem.param === undefined ? "" : ` (${problem.param})`}`),
+    });
+    text.register(NB_UI_NAMESPACE, NB_UI_CATALOGS, "zh-CN");
     const navigation: WindowNavigation = {
         navigateDocument: (href) => location.assign(href),
         reloadDocument: () => location.reload(),
@@ -54,6 +65,7 @@ export async function bootWindowUi(options: WindowUiBoot): Promise<void> {
         navigation,
         project: new URLSearchParams(location.search).get("project"),
         clientIdentity: clientIdentity.id,
+        text,
         builtin: options.builtin,
         definitions: options.definitions,
         // 第三方插件浏览器入口的共享模块；第一个第三方入口激活时才加载。

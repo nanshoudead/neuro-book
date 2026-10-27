@@ -35,6 +35,8 @@ import {BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema, declaredProtocolVersio
 import {clockKey, windowConnectionKey, windowNavigationKey, windowPluginsKey, windowRescueKey} from "nbook/shared/host";
 import type {RescuedText, WindowRescue} from "nbook/shared/host";
 import type {WindowConnection, WindowConnectionState, WindowNavigation} from "nbook/shared/host";
+import {windowTextKey} from "nbook/shared/window-text";
+import type {WindowText} from "nbook/shared/window-text";
 import {windowProjectKey} from "nbook/shared/projects";
 import type {WindowProject} from "nbook/shared/projects";
 
@@ -44,6 +46,7 @@ import {BrowserRuntimeHost} from "./browser-host";
 import type {BrowserHost, PageLifecycleTarget} from "./browser-host";
 import type {Connection, RpcEndpoint} from "./connection";
 import {createRemoteSession} from "./remote-session";
+import {createTextEngine} from "./text-engine";
 import {createWindowPlugins} from "./window-plugins";
 import type {RemoteSession} from "./remote-session";
 
@@ -83,6 +86,8 @@ export interface BrowserWindowOptions {
     readonly clientIdentity?: string;
     /** 重连退避与远程调用超时的时钟；缺省系统时钟。 */
     readonly clock?: RuntimeClock;
+    /** 窗口的翻译引擎；缺省建一个从 zh-CN 起步的（测试与不关心语言的外壳用）。 */
+    readonly text?: WindowText;
     /**
      * 第三方插件浏览器入口代码的装载与样式表所在的文档；缺省用页面的 `document`（`plugin-code.ts`）。没有第三方浏览器入口
      * 时用不到。
@@ -102,6 +107,8 @@ export interface BrowserWindow {
     start(): Promise<void>;
     /** 结束窗口：之后不再启动；已建立的运行实例按依赖逆序停止。 */
     stop(): Promise<StopResult>;
+    /** 窗口的翻译引擎：作为窗口能力交给插件，挂载界面时注入每个 Vue 根（docs/specs/ui/i18n.md）。 */
+    readonly text: WindowText;
 }
 
 /**
@@ -133,6 +140,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
         replaceUrl: (href: string) => options.navigation.replaceUrl(href),
     });
     const clock = options.clock ?? systemClock;
+    const text = options.text ?? createTextEngine({locale: "zh-CN"});
     const clientIdentity = options.clientIdentity ?? crypto.randomUUID();
     const adapter = new BrowserRuntimeHost();
     const listeners = new Set<(state: WindowState) => void>();
@@ -259,6 +267,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                         {id: "window.navigation", key: windowNavigationKey, create: () => navigation},
                         {id: "window.connection", key: windowConnectionKey, create: () => link.connection},
                         {id: "clock", key: clockKey, create: () => clock},
+                        {id: "window.text", key: windowTextKey, create: () => text},
                         {id: "window.plugins", key: windowPluginsKey, create: () => windowPlugins.capability},
                         {id: "window.rescue", key: windowRescueKey, create: () => rescue.capability},
                     ],
@@ -306,6 +315,7 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
     };
 
     return {
+        text,
         get state() {
             return state;
         },

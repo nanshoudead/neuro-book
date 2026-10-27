@@ -23,6 +23,7 @@
         "./lab-sources": "./src/lab/sources.ts",
         "./colorway": "./src/colorway/index.ts",
         "./text": "./src/text/index.ts",
+        "./text/minimal": "./src/text/minimal.ts",
         "./text-port": "./src/text-port/index.ts",
         "./locales": "./src/locales/index.ts",
         "./colorway-contract": "./src/colorway/colorway-contract.ts",

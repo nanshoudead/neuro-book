@@ -13,7 +13,7 @@ import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {Type} from "typebox";
 
-import {computed} from "@vue/reactivity";
+import {computed, effect} from "@vue/reactivity";
 import {defineComponent, h} from "vue";
 
 import {COMMANDS_POINT, menuImplementations} from "nbook/plugins/commands/shared/contracts";
@@ -25,8 +25,9 @@ import type {ActivityBarItemDeclaration, OverlayDeclaration, TitlebarMenuItemDec
 import type {ActivityBarItemImplementation, WorkbenchOverlayImplementation} from "nbook/plugins/workbench/web/contracts";
 
 import {clockKey, windowConnectionKey, windowPluginsKey} from "nbook/shared/host";
-import {hostLocaleSchema} from "nbook/shared/host-locales";
+import {HOST_LOCALES, hostLocaleSchema} from "nbook/shared/host-locales";
 import {windowProjectKey} from "nbook/shared/projects";
+import {windowTextKey} from "nbook/shared/window-text";
 import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 import type {SettingLayer} from "nbook/shared/settings";
 
@@ -240,12 +241,31 @@ export const settingsBrowserPlugin: PluginDefinition = {
                 settings,
                 quickPick,
                 setting: localeSetting,
-                value: (args as {readonly locale?: "zh-CN" | "en-US"}).locale,
+                value: (args as {readonly locale?: string}).locale,
                 // 语言名用它自己的语言写，换到看不懂的语言后也找得回来。
-                choices: [{id: "zh-CN", label: "简体中文"}, {id: "en-US", label: "English"}],
+                choices: HOST_LOCALES.map((locale) => ({id: locale.tag, label: locale.name})),
                 title: SWITCH_LOCALE_DECLARATION.title,
             });
             return {contributions: {[COMMANDS_POINT]: {[SWITCH_LOCALE_COMMAND]: {run}}, [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(LOCALE_MENU_ITEMS)}};
+        },
+    }), defineEntry({
+        id: "locale",
+        location: "browser",
+        // 窗口的界面语言只有这一个来源：把设置里的值推给窗口的翻译引擎（docs/specs/ui/i18n.md“时序与寿命”）。启动即激活，
+        // 不依赖工作台，没有工作台的窗口也跟随设置。值来自用户层时让宿主记下，下次启动在设置快照到达前就用它；缺省值不记。
+        activationEvents: ["onStartup"],
+        // 翻译引擎是窗口能力；只装插件、不建窗口宿主的测试场地没有它，这时本入口什么都不做。
+        dependencies: [{key: settingsKey}, {key: windowTextKey, required: false}],
+        activate: async (context) => {
+            const settings = context.services.require(settingsKey);
+            const text = await context.services.resolve(windowTextKey);
+            if (text.status !== "resolved") return {};
+            const runner = effect(() => {
+                const inspected = settings.inspect(localeSetting);
+                text.instance.setLocale(inspected.value, {remember: inspected.source !== "default"});
+            });
+            context.scope.register({kind: "settings-locale", label: `${descriptor.id} locale`, value: runner, release: (value) => value.effect.stop()});
+            return {};
         },
     }), settingsWindowEntry],
 };
