@@ -15,6 +15,7 @@ import type {IngestStatusView, StoryResult} from "../../contract/contract";
 import {StoryCallError, useStoryClient} from "../host/client";
 import {STEP_LABELS, stopText} from "../host/ingest";
 import IngestBadge from "../parts/IngestBadge.vue";
+import ThemeMenu from "../parts/ThemeMenu.vue";
 
 type Book = StoryResult<"books.list">["books"][number];
 interface Row {
@@ -93,6 +94,7 @@ onBeforeUnmount(() => {
                 <h1 class="flex items-center gap-2 text-[length:var(--text-lg)] font-[var(--weight-strong)]"><span class="i-lucide-library text-[var(--accent-text)]" />书架</h1>
                 <Button class="ml-auto" size="sm" icon-class="i-lucide-file-plus" data-testid="go-import" @click="router.push('/import')">导入原文</Button>
                 <Button size="sm" variant="secondary" icon-class="i-lucide-settings" data-testid="go-settings" @click="router.push('/settings')">设置</Button>
+                <ThemeMenu />
             </div>
             <p v-if="missing" class="text-[var(--text-secondary)]" data-testid="book-missing">书“{{ missing }}”不在书库里了。</p>
             <p v-if="error" class="text-[var(--status-danger)]">{{ error }}</p>

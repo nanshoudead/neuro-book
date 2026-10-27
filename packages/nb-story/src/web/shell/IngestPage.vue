@@ -13,6 +13,7 @@ import type {IngestStatusView} from "../../contract/contract";
 import {StoryCallError, useStoryClient} from "../host/client";
 import {formatCosts, formatDuration, formatTokens, nextStepText, STEP_LABELS, STEPS, stopText} from "../host/ingest";
 import IngestBadge from "../parts/IngestBadge.vue";
+import ThemeMenu from "../parts/ThemeMenu.vue";
 
 const client = useStoryClient();
 const route = useRoute();
@@ -166,6 +167,7 @@ async function resume(): Promise<void> {
                 <RouterLink to="/" class="flex items-center gap-1 hover:text-[var(--text-secondary)]"><span class="i-lucide-library" />书架</RouterLink>
                 <span class="i-lucide-chevron-right shrink-0" /><span class="truncate">{{ status?.title ?? bookId }}</span>
                 <span class="i-lucide-chevron-right shrink-0" /><span class="shrink-0">抽取进度</span>
+                <ThemeMenu class="ml-auto shrink-0" />
             </nav>
             <p v-if="loadError" class="text-[var(--status-danger)]" role="alert">{{ loadError }}</p>
 

@@ -17,6 +17,7 @@ import type {ViewerResult} from "../../contract/contract";
 import {StoryCallError, useStoryClient} from "../host/client";
 import {candidateInfos, clampThinking, formatTokenCount, providerNote, type CatalogProvider} from "../qa/models";
 import ProviderDialog from "./ProviderDialog.vue";
+import ThemeMenu from "../parts/ThemeMenu.vue";
 
 const client = useStoryClient();
 const router = useRouter();
@@ -317,6 +318,7 @@ function contextText(window: number | null): string {
             <div class="settings-head">
                 <Button size="sm" variant="ghost" icon-class="i-lucide-arrow-left" @click="back()">返回</Button>
                 <h1 class="settings-title"><span class="i-lucide-settings" />设置</h1>
+                <ThemeMenu class="ml-auto" />
             </div>
             <p v-if="loaded" class="settings-path">配置文件 <code>{{ loaded.path }}</code>，与命令行 <code>nbstory config</code> 改的是同一份。</p>
 
