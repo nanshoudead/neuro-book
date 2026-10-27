@@ -35,6 +35,8 @@ import {CHAPTER_SCHEME, createMentionSearch, ENTITY_SCHEME, MENTION_LIMIT, menti
 import {createNameResolver, QA_NAME_LOOKUP} from "../qa/names";
 import {candidateInfos, clampThinking, contextTokensOf, resolveChoice, type CatalogProvider} from "../qa/models";
 import {createQaSource, type QaSource, type QaSourceState} from "../qa/source";
+import QaInspector from "../qa/QaInspector.vue";
+import QaStatusBar from "../qa/QaStatusBar.vue";
 import StoryMarkdown from "../qa/StoryMarkdown.vue";
 import {storyToolsContribution} from "../qa/tools";
 import {UNVERIFIED_REFS} from "../qa/turns";
@@ -367,6 +369,19 @@ function answerText(args: unknown): string {
     return lines.join("\n");
 }
 
+// ---- 会话状态（t24）：状态条与上下文检查器，数据取自对话里的助手消息用量 ----
+const inspectorOpen = ref(false);
+const statusMessages = computed(() => sourceState.value?.messages ?? []);
+const statusLimit = computed(() => (choice.value === null ? null : (candidates.value.get(choice.value.model)?.contextWindow ?? null)));
+/** 费用的币种：所选模型在设置里写的单价的币种；没写单价时费用本来就不显示，币种随便取。 */
+const statusCurrency = computed<"USD" | "CNY">(() => {
+    const ref = choice.value?.model;
+    if (ref === undefined || config.value === null) return "CNY";
+    const slash = ref.indexOf("/");
+    const model = config.value.providers?.[ref.slice(0, slash)]?.models.find(item => item.id === ref.slice(slash + 1));
+    return model?.price?.currency === "USD" ? "USD" : "CNY";
+});
+
 /** 第一次切换读书方式要先弹说明（t26）：等用户确认，这期间模式不变。 */
 const pendingMode = ref<"graph" | "full" | null>(null);
 function confirmMode(): void {
@@ -515,7 +530,9 @@ const unsaved = computed(() => {
             <div class="qa-view">
                 <AgentConversationView :ctx="ctx" :services="services" :registry="registry" :renderers="renderers" locale="zh-CN" :header="false" process-disclosure="live" composer-layout="inline" @action="handle" />
             </div>
+            <QaStatusBar :messages="statusMessages" :context-limit="statusLimit" :currency="statusCurrency" @open="inspectorOpen = true" />
         </section>
+        <QaInspector v-model:open="inspectorOpen" :messages="statusMessages" :context-limit="statusLimit" :currency="statusCurrency" />
         <ModeNotice :open="pendingMode !== null" :target="pendingMode ?? 'graph'" @confirm="confirmMode" @cancel="pendingMode = null" />
     </div>
 </template>
