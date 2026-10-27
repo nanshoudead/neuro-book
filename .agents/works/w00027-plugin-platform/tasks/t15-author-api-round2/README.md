@@ -89,6 +89,11 @@ updated: 2026-10-27
 - 收口（合入 master 后的 `29c69bdb6`）：全量 e2e 293 例，292 例通过；`editor-area` 的“重新打开回到上次的光标”在全量负载下等光标保存超时，单独重跑该文件 30 例全过，属既有的负载时序问题，本 Task 未改这一块。实现审查已启动：后端 omp、前端 Sonnet、空白上下文的 Sonnet 作者验收（对照 t14 的报告）。
 - 实现审查与作者验收（[evidences](evidences/)）：omp 重要 2、建议 1；Sonnet 前端重要 3、建议 4；作者验收重要 6、建议 17，对照 t14 的 16 条已解决 10、部分解决 3、仍然存在 3。逐条处理见 [plan.md 第 11 节](plan.md)，修正 `fc530652d`；留下的作者体验项记进 Work README 的“后续的插件功能”。验证：类型检查，plugin-sdk、SDK、命令、设置、架构测试 153 例，内核 remote 93 例，插件与工作台视图 e2e 35 例。
 
+进展（第二期，计划 [plan-phase2.md](plan-phase2.md)；代码在 Work 分支，Spec 在 master）：
+
+- S1 `4a7078310`：实例认领（状态根的本地套接字，`src/server/instance.ts`），`startServer` 必须收已认领的状态根，三个入口先认领；SIGHUP 有序停止（项目子进程忽略它）；`project.js` 被更换时不起项目子进程；Lab 场景 22 改成先停再起；`smoke:server` 加 S10。Spec `84c87cf59`（server-host、projects、stall-watchdog）。验证：类型检查，`src/server`、`src/project`、web host 189 例，`instance.test.ts` 9 例，Lab e2e 15 例，`smoke:server` 10 个场景。
+- S2 `da83a19fb`：删插件版本租约（`pins.ts`）与 `version-in-use`（单实例下运行中的服务端只用登记表的 `version`，安装碰不到在用的目录）；场景 15 改成服务端与命令行同时写；focus 示例改成单服务端（两个窗口同时开始、换版本先重启、断线期间的变化重连后补上），场地加 `disconnect`。Spec `a761d7783`（plugin-install、application）。验证：类型检查（含 vue-tsc），plugin-platform 与插件文件 47 例，插件页 DOM 16 例，plugin-sdk 72 例；focus 并发场景做了变异检查。
+
 2026-10-24 P2、P5、P7、P8 已定。第一期（发布前改完作者 API）的计划见 [plan.md](plan.md)，开发者 2026-10-24 确认（含助手都改成所属子路径的函数、子路径表、`nbook.view.open`、作者命令名 `nbooke`）。计划审查两份（omp 阻断 5、重要 8、建议 1；Sonnet 重要 6、建议 15）逐条处理见 plan.md 第 9 节，开始实施 S1。
 
 ## 下一步
