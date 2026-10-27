@@ -1,0 +1,104 @@
+# t30 设计审查：问答读未抽取章原文
+
+审查对象：/home/notnotype/CodeRepository/neuro-book/.agents/works/w00024-nb-story/tasks/t30-qa-unextracted-books/plan.md
+
+### 1. 尾部原文没有绑定书的一代
+
+- **严重程度**：阻断；**类别**：不变量 / 正确性
+- **位置**：`plan.md:15-17`；对照 `packages/nb-story/src/core/library.ts:197-226,394-418`、`packages/nb-story/src/ingest/start.ts:86-115`
+- **现象**：计划让 `Library.unextracted(id)` 只按书 id 读取并缓存 `.ingest/<id>/source.json`，明确“不核对书代”。但查询会话通过 `openBook` 只固定了书目录中的 `generation` 与图文件；删除旧书后，`removeBook` 会移走并删除旧 `.ingest/<id>`，同 id 可以马上新建或导入另一代。旧问答继续运行时，按 id 读取的尾部可能来自新书；按 `mtimeMs + size` 的进程缓存还可能把旧书尾部留给新书。
+- **为什么是问题**：违反查询与问答“固定一代”的不变量（`queries.md:159-162`、`qa.md:244`），会把另一本文本拼入旧书的 `read` 结果，造成跨书泄露、错误出处校验和错误答案；这不是普通的“尾部不存在”降级。
+- **如何核实**：用临时书库先提交 A 的第 1 章并在 `.ingest/same/source.json` 放 A 的后续章，打开并保留 A 的 `openBook`；调用 `removeBook("same")`，再以同 id 导入或抽取 B；在这个已打开的旧会话上调用计划中的尾部读取，观察是否读到 B 的章。另测两个 source.json 大小和 mtime 相同的同 id 换代，验证缓存是否命中旧值。
+- **建议改法**：把尾部源绑定到已固定的 generation／源指纹，并在 `openBook` 时一并固定可读的 source 快照或校验 `source.id`、原文首章哈希与 generation 的关联；书被删除或换代时沿用现有规则，让旧问答可以答完但不保存，绝不从新 `.ingest` 目录取数据。缓存键至少包含 generation 与 source 指纹；不能以 id 单独做缓存键。
+
+### 2. 位置提醒和章末判定仍只看已提交段数
+
+- **严重程度**：重要；**类别**：正确性 / 接口合同
+- **位置**：`plan.md:27-30,35-38`；现有 `packages/nb-story/src/qa/engine.ts:243-259,290-301`、`packages/nb-story/src/qa/read-ledger.ts:56-74`
+- **现象**：计划把 `ReadLedger` 的段数表扩成“已提交加尾部”，但没有把同一张段数表传给 `positionReminder`。当前 `planPositionChange` 仍按 `book.meta.paragraphs` 生成提醒；该数组只有已提交章。P 从第 E 章改到尾部第 E+1 章时，目标位置虽然已由新 reach 落到尾章末段，`reminderPosition` 却找不到 `paragraphs[E]`，把应写的“第 E+1 章”写成“E+1.M”。新建网页位置也在 `QaPage.vue:397-400` 用 `book.info.paragraphs[tail - 1] ?? 1`，会把尾章暂时显示成第 1 段；`QaPositionControl` 的“章末”判断同样依赖这张短表。
+- **为什么是问题**：`qa.md` 输出 41 与网页输出 53 明确要求停在章末写“第 N 章”，而提醒又是模型确定当前边界的唯一会话消息。尾章显示为 `N.1` 会让模型、日志、页面位置和账本对同一位置采用不同语义；之后从尾章再改位置时往回裁剪与提示也难以核对。
+- **如何核实**：构造 E=20、尾部第 21 章 3 段的 reach，执行新对话选第 21 章或 `qa.position` 改到第 21 章，检查日志提醒文本、`currentAt` 与页面标签；现有 `engine.test.ts:381-384` 的章末断言在把段数表缩短到 20 后即可复现错误形状。
+- **建议改法**：把 `Reach` 的完整段数表作为位置模型的唯一来源，传给 `positionReminder`、网页位置控件与新对话草稿位置；不要再让这些调用方直接读 `book.meta.paragraphs`。对尾部章在 API 层仍只保存落定后的 `{chapter, paragraph}`，但格式化时用完整表判断章末。
+
+### 3. 尾部位置的 @ 章节与段落候选仍被截在 E
+
+- **严重程度**：重要；**类别**：正确性 / 网页合同
+- **位置**：`plan.md:19-21,35-38`；现有 `packages/nb-story/src/web/pages/QaPage.vue:201-233`、`packages/nb-story/src/web/qa/mentions.ts:22-23,80-92`
+- **现象**：计划只说 `book.info` 增加 `unextracted`，并说 QaPage 的位置控件与 `@` 候选使用已提交加尾部，但现有 `MentionBook` 只有 `paragraphs` 与 `toc`，`placeItems` 以 `book.paragraphs.length` 定全书章数、以 `book.paragraphs[chapter - 1]` 校验段数。`QaPage` 传给 `mentionMenu` 的仍是 `book.info`，而计划又明确 `paragraphs` 继续只含已提交章。P 在尾部时输入 `@21` 或 `@21.3` 不会列候选；空查询也因 `at.chapter > paragraphs.length` 不列当前章。
+- **为什么是问题**：`viewer.md` 输出 49 要求按“这个对话的阅读位置”列章节与段落；尾部原文虽无图对象，仍是可读原文，用户应能把它作为问题引用。位置控件能选到尾部但引用菜单不能引用同一位置，形成两个不一致的位置模型。
+- **如何核实**：用 `MentionBook={paragraphs: [10], toc: [{chapter: 1,title: "一"}]}`、`at={chapter: 2,paragraph: 3}` 调 `mentionMenu("21.3", ...)` 与 `mentionMenu("", ...)`；现有函数分别返回空列表。把第二章长度放入独立的尾部数组后，才能写出应有的候选。
+- **建议改法**：不要把 `unextracted` 作为只供控件的旁路字段；在 QA 网页建立完整的 `paragraphs`/章标题视图（或让 `MentionBook` 显式接收 `tailParagraphs`），统一给位置控件、草稿位置、章节/段落候选和提交前显示使用。对象候选仍按 G 查询，章节/段落候选按 P 过滤。
+
+### 4. 计划没有覆盖所有会把尾部出处做成链接的渲染入口
+
+- **严重程度**：重要；**类别**：正确性 / 网页合同
+- **位置**：`plan.md:35-38`；现有 `packages/nb-story/src/web/qa/link-refs.ts:17-21,62-76`、`ref-line.ts:31-43`、`AnswerCard.vue:44-46,69`、`UnverifiedRefs.vue:20-27`、`StoryMarkdown.vue:17`
+- **现象**：计划接受“查看器不显示尾部原文”，但没有定义如何在渲染层识别尾部，也没有列出全部入口。现有 Markdown 回复的 `linkRefs` 会把所有纯文字 `章.段` 链到 `paragraph://`；结构化答案的 `AnswerCard` 通过 `refSegments` 给结论、分点、说明和依据逐个发 `reference.open`；没核实出处的 `UnverifiedRefs` 直接调用 `refTarget`。P>E 时三条路径都会把 `E+1.M` 发给 `QaPage.openTarget`，再进入只支持已提交书数据的查看器查询，得到 `position_out_of_range` 或 `beyond_position`，而不是计划所说的普通文字。
+- **为什么是问题**：同一个答案里的尾部出处有的可点击、有的不可点击取决于呈现形态；点击后错误还会暴露一个计划没有定义的失败路径。`linkRefs` 目前没有位置上下文，`refSegments` 与 `UnverifiedRefs` 也没有尾部判定输入，单改 `QaPage.openTarget` 只能在点击后失败，不能满足“不做链接”。
+- **如何核实**：直接调用 `linkRefs("见 21.3", lexer)`、`refSegments("见 21.3")`，再渲染 `AnswerCard`/`UnverifiedRefs` 的尾部出处，检查结果仍是 `paragraph://21.3`；用 `QaPage.openTarget("paragraph://21.3")` 在 E=20 的查看器上观察 RPC 错误码。
+- **建议改法**：在 QA 页建立 `isViewerLinkable(ref)`（至少按已提交章 E 判定）并把它传给 Markdown 链接改写、结构化出处分段和未核实出处组件；尾部出处保留原文字串但不发 `reference.open`。同时明确 `chapter://` 的尾部用户引用是普通文本、禁用点击，还是允许点击后拨位置；不能只改 paragraph 链接。
+
+### 5. 图工具在尾部章上的错误码与提示没有定清
+
+- **严重程度**：重要；**类别**：接口合同 / 验收遗漏
+- **位置**：`plan.md:31-33,54-62`；现有 `packages/nb-story/src/core/queries/episodes.ts:57-62`、`packages/nb-story/src/core/queries/source.ts:18-23,96-100`、`packages/nb-story/src/qa/tools.ts:105-120`
+- **现象**：计划要求除 `read` 外都以 G 调用，却只写“图工具结果末尾追加一行”，没有写尾部章号传给 `chapter`/`para` 时的错误合同。按现有 handler，G=E 且参数 `chapter=E+1` 时，`chapter.digest` 先因图索引没有该章报 `position_out_of_range`；`source.records` 的 `checkChapter` 同样报 `position_out_of_range`。这不是 `beyond_position`，因为检查先发现图里没有该章。`search(kinds:["source"])` 则成功返回空的 source 结果；`chapter`/`para` 的错误路径不会经过计划所说的结果尾行。
+- **为什么是问题**：`position_out_of_range` 在查询规范中表示超出全书范围，而这里章在 source.json 全书范围内、只是图未抽取；模型会收到三种不同形状的“尾部不可查”结果，且错误结果没有写明“read 可用”。实现者若按 `beyond_position` 预期写测试会与现有 handler 冲突，若照现状又没有计划层面的合同依据。
+- **如何核实**：在 E=20 的已抽取数据上，把工具的 `state.at` 设为 G=20，分别执行 `chapter` 参数 `{chapter:21}`、`para` 参数 `{chapter:21,paragraph:1}`、`search` 参数 `{kinds:["source"],query:"尾部词"}`；断言前两者的实际错误码与后者的空成功结果，再检查工具层是否追加了图进度提示。
+- **建议改法**：在计划和 `qa.md` 输出 42 明确逐项合同：尾部 `chapter`/`para` 是否固定报 `position_out_of_range`（建议保留现有码但改消息为“图只到第 E 章，尾部只能用 read”），`search source` 空结果是否必须带提示，所有错误结果是否也带同一提示。把三种场景写入确定性引擎测试；不要用“所有图工具追加一行”覆盖错误路径。
+
+### 6. “抽完后清理 source.json”不是现有生命周期，不能作为正常分支
+
+- **严重程度**：重要；**类别**：不变量 / 依赖机制
+- **位置**：`plan.md:15-17`；现有 `packages/nb-story/src/ingest/store.ts:1-18,100-139`、`packages/nb-story/src/ingest/status.ts:132-170`、`packages/nb-story/src/core/library.ts:390-418`；合同 `docs/specs/story/ingest.md:189-193`
+- **现象**：计划把 `.ingest/<id>/source.json` 不存在解释为“抽完后清理、或导入的书”。当前实现没有抽完清理路径；`.ingest` 是抽取记录的持久存储，`ingest.status` 以 `readSource()` 是否存在决定是否有抽取记录，并从它读取总章数、标题与每章标题。现有删除流程才会整体移走 `.ingest`。`source.json` 也不是只为尾部读取临时保留的文件。
+- **为什么是问题**：照计划把完成任务的 source.json 清理，会让已抽完的书从进度列表消失、丢失原文校验与抽取记录入口，违反 ingest 输出 13、viewer 输出 36 和“抽取记录随删除才清除”的生命周期；不清理则计划中的“正常缺文件”假设没有依据。对抽取未完成的书误清理还会把真实尾部静默变成空数组。
+- **如何核实**：现有 `ingestStatus(library,id)` 在删掉 `.ingest/id/source.json` 后返回 `null`；`ingestStatuses` 也不会列该 id。对已完成抽取运行一次 `ingest --status`，确认 source.json 仍是状态与总章数的来源。
+- **建议改法**：不新增“抽完自动清理”；把缺失 source.json 定义为外部损坏或导入数据书，尾部为空并记录诊断，但补充“E 未覆盖全书且 source 缺失”时的稳定失败/提示合同。若产品确实要清理，先改 ingest 的持久化模型与 status/恢复合同，不能在本 Task 里把删除当作缓存策略。
+
+### 7. 接受提示词不更新会让同一会话的图范围陈旧
+
+- **严重程度**：建议；**类别**：接口语义 / 可观测性
+- **位置**：`plan.md:27-30,67-71`；现有 `packages/nb-story/src/qa/story-qa.profile.tsx:32-45`、`packages/nb-story/src/qa/engine.ts:390-419`；合同 `docs/specs/story/qa.md:244`
+- **现象**：计划把首次系统提示词写成带 `graphThrough=E1`，又明确接受抽取进度在两问之间增长而不更新提示词。续问恢复的是同一个 harness/session，Profile 的 system prompt 没有按轮重渲染；下一轮却会打开新的书数据并以新的 `graphAt=min(P,E2)` 查询。若 P 仍在尾部，工具提示可能写 E2；若 E2 已追上 P，计划的“P>E 才追加提示”完全消失，历史 system prompt 仍声称图只到 E1。
+- **为什么是问题**：工具与系统上下文对图覆盖范围不一致。模型可能继续回避已经可查的图，或把新图结果当作违反初始约束的异常；接受它不会泄露后文，但会降低追问答案的稳定性，尤其是“尾部章后来提交、图记录出现”的明确边界场景。
+- **如何核实**：第一轮以 E=20、P=25 建对话；提交第 21 到 25 章后续问，记录模型请求中的 system/history 与图工具结果。确认 system 仍只写第 20 章，而新工具已返回第 25 章记录，且 E2=25 时没有计划中的尾部提示。
+- **建议改法**：优先不改历史 system prompt，而是在每轮开始时给 harness 一条结构化的当前图进度元数据/提示，或让每个图工具结果固定带“本次图数据到第 E2 章”；同时把 Profile 的 `graphThrough` 定义为初始快照而不是当前事实。至少应在确定性测试中确认工具结果成为唯一权威，不把陈旧 system prompt 当作模型必须遵守的范围。
+
+补充核实边界：`reach.tail` 若确实在准备阶段只读一次，可避免“运行中删除后每次 read 都重读”的变体，但计划没有把这次读取与 `openBook` 固定代原子绑定；删除/换代发生在 pin 与 `unextracted` 之间仍会把新源带入旧索引，`book.info` 添加尾部字段也有同样窗口。
+
+### 8. “损坏 JSON 当作无尾部”只覆盖解析失败，不覆盖合法但结构错误的 source.json
+
+- **严重程度**：重要；**类别**：异常输入 / 正确性
+- **位置**：`plan.md:15-17`；现有 `packages/nb-story/src/ingest/store.ts:30-39,100-106`
+- **现象**：`readSource()` 只 `JSON.parse` 后直接断言为 `IngestSource`，没有校验 `chapters` 数组、章号连续性、`paragraphs` 数组、非空段数或 `id`。计划只说 JSON 损坏解析不了时返回空数组；合法 JSON 但 `chapters: {}`、段落为空、重复/跳号等输入会在 `filter`、段数表或尾部拼接时抛异常，或生成与章号错位的段数表。
+- **为什么是问题**：`resolveReach` 是问答开始前的路径，异常会变成本机错误或未定义失败，而不是计划承诺的“没有尾部且问答继续”；错位时还可能让 `read` 读到错误章的段号。`.ingest` 是内部文件但存在手工修改、旧版本残留或中断清理异常的现实路径，不能把 TypeScript 类型断言当运行时合同。
+- **如何核实**：在临时书库写入可解析但结构错误的 `.ingest/id/source.json`，分别调用计划中的 `Library.unextracted`/`resolveReach`；检查是否抛 `TypeError` 或返回错误段数，而不是稳定的空尾部与诊断。
+- **建议改法**：在 `Library` 边界增加运行时 type guard，至少校验 source id、章号从 1 连续、每章段数组与 `sha256` 形状；任何解析或结构错误统一记录一次诊断并返回空尾部。若 E 未覆盖 source 声明的章节，另给可观察的损坏状态，避免把缺尾部和损坏混成静默的正常书。
+
+## 未发现问题的方面
+
+- `commitExtraction` 的提交点与 `source.json` 的追加写入：现有代码确实用 book.json 改名固定已提交数据，追加前校验保存章前缀；抽取中途崩溃不会把未提交章写进图。
+- `ReadLedger` 的数值位置逻辑：只要 reach 在一问开始时冻结完整段数表，`clipRead` 按章段裁剪、章数上限按章计数、`currentPosition`/`highestPosition` 按位置比较，以及尾部章后来提交后保留已读范围，这些现有模型没有发现独立矛盾。
+- `readRange` 的分段方向：已提交前缀交给图查询、尾部交给原文快照，跨 E 的输出可以保持 `source.read` 的段落形状；`formatResult` 只依赖 `paragraphs` 与 `recordCount`，不要求新增格式化分支。
+- 导入数据文件没有 `.ingest` 时，计划把尾部视为空并在 P 超过 E 时报 `position_out_of_range`，与“只有抽取书有尾部”的范围决定一致。
+
+## 对计划“ 不做与风险 ”各项的判断
+
+- **查看器不显示尾部原文，也不能在查看器把位置放到尾部**：合理且与开发者已确认的边界一致；但必须同步落实到 Markdown、结构化答案、未核实出处和 `chapter://` 的点击行为，见第 4 条。
+- **抽取进度增长后不更新已有对话提示词**：不建议按原文接受。它不直接造成后文泄露，但会让 system prompt 与下一轮新图数据不一致；至少应固定在每个图工具结果中声明当前 E，见第 7 条。
+- **尾部不做出处链接**：方向合理，因为查看器没有可打开的尾部原文；计划没有覆盖全部渲染入口，也没有定义尾部章节引用，不能按当前文字直接验收，见第 4 条。
+- **source.json 几 MB 首次解析约 10 毫秒、缓存后摊平**：这是未实测的性能推断，不应作为合同或验收依据；实现后应在代表性源文件上测一次，并同时测缓存失效与跨进程换源。
+
+## 验证记录
+
+- 已读代码、Spec、Task 计划与 README；未修改仓库文件。
+- 运行了 `bun test packages/nb-story/src/qa/engine.test.ts packages/nb-story/src/web/qa/mentions.test.ts packages/nb-story/src/web/qa/link-refs.test.ts packages/nb-story/src/web/qa/ref-line.test.ts`；命令因 worktree 缺少 `@notnotype/nb-harness/testing`、`@notnotype/nb-markdown/language`、`@notnotype/nb-markdown` 依赖退出，结果为 `3 pass 3 fail 3 errors`。未运行 e2e 与开发服务。
+
+## 有效发现数量
+
+- 阻断：1 条（第 1 条）。
+- 重要：6 条（第 2、3、4、5、6、8 条）。
+- 建议：1 条（第 7 条）。
+- 有效发现编号：1、2、3、4、5、6、7、8。
+
