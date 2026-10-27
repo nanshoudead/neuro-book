@@ -31,6 +31,22 @@ updated: 2026-10-27
 6. **中转站脱敏（开发者 2026-10-27）**：issue 和文档里不写中转站的域名与服务商名，用中性占位。2026-10-27 扫描：仓库里约 130 处、30 来个文件含旧写法，分布在 Task 记录与脚本（t03 到 t20）、`docs/proposals/nb-harness-profile-and-tools.md`、nb-story 的配置校验与设置页示例（`config-schema.ts`、`ProviderDialog.vue`）及测试、`e2e/qa.e2e.ts`、Lab 场景；远端 #256 到 #259 的正文也有。已进入 Git 历史的不改写历史；远端 issue 的编辑属远端写入，要先问；环境变量名（`JIJI_*`）在开发者本机 `.env` 里，改名会让本机配置失效，要先问。
 7. **nb-story 与 omp 完全独立（开发者 2026-10-27）**：不读 `~/.omp` 下任何配置。#256 因此只改报错与 README。
 
+## 拆分与进度（2026-10-27）
+
+开发者确认“后续全部都做”，按 autonomous-delivery 推进；要设计的先出评审板、停下来等判断。
+
+| Task | 内容 | 状态 |
+| --- | --- | --- |
+| [t22](../t22-github-issues-256-259/README.md) | GitHub #256 到 #259 | 已合入 master |
+| [t23](../t23-graph-ux-fixes/README.md) | 别名搜索、右键不拖点、示例去掉 `--library` | 已合入 master；双击提示等评审板第 1 题 |
+| t24（待建） | 问答页会话状态条与上下文检查器 | 等评审板第 3 题 |
+| t25（待建） | 新对话阅读位置可调、system-reminder、没抽完的书只读原文 | 等评审板第 4 题 |
+| t26（待建） | “图当目录”提示 | 等评审板第 2 题 |
+| t27（待建） | 书架页与设置页明暗切换、书页设置入口；网页补 V9 导入与 Skill 安装 | 等评审板第 5 题 |
+| t28（待建） | 图结构分级 | 等评审板第 6 题 |
+
+评审板：`artifacts/review/index.html`（v1，6 道题，各有推荐）。答复用 `nbdev answers w00024-nb-story t21-usage-feedback review --json` 读。
+
 ## 当前状态
 
-只有清单，没有计划。
+评审板 v1 已发布，等开发者判断；判断之前 t24 到 t28 不开工。
