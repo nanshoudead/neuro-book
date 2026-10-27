@@ -112,7 +112,7 @@ updated: 2026-10-27
 - 收口：干净克隆里 `release:smoke` 全部通过（[evidences/p3-release-smoke.txt](evidences/p3-release-smoke.txt)）；全量 e2e 在另一个项目的视频渲染占满 CPU 时（负载 17 到 30）跑到第 264 例被时限截停，246 例通过，Lab 一组超时失败；负载降下来后失败与没跑到的文件重跑全过（lab-nb-form 13、lab 15、lab-nb-ui、settings、workbench-titlebar、workbench-views 共 61）。同负载下基线一次通过、本分支一次失败，负载降下后本分支全过，属负载下的时序问题；两者之间运行代码只差版本号。
 
 - 发布（开发者 2026-10-27 授权并执行 npm 登录与两步验证）：`@notnotype/nb-plugin-sdk@0.11.0`、`@notnotype/neuro-book@0.11.0` 发到 npm（`latest`），9 个源码包已在 registry 上、跳过；`release:smoke --from registry` 全部通过。发布中按 master 被几个会话共用的实际情况修了三处门禁（`138eff711` 只对要发的包跑 typecheck；冒烟与发布核对“会发布的目录自冒烟以来没变”而不是 HEAD 不变；看冒烟用的提交是否已推送；已发版本与验过的字节不同时只在要发的包依赖它时拦下）。`npm deprecate` 旧 Manager 由开发者执行，registry 上已显示弃用说明。
-- 发布后的真实用户冒烟：[evidences/p3-user-smoke.md](evidences/p3-user-smoke.md)，缺陷 5 条（重启不恢复打开的章节与“最近打开”、整页切换时控制台报 error、作者构建打印 PLUGIN_TIMINGS、帮助列不对齐、nb-story 的 typecheck 在 master 上坏了）、可改进 9 条，记进 Work 的后续事项。
+- 发布后的真实用户冒烟：[evidences/p3-user-smoke.md](evidences/p3-user-smoke.md)，缺陷 4 条（另有 1 条“重启不恢复打开的章节”经同一浏览器配置复核撤回：是冒烟脚本每步换客户端造成的；整页切换时控制台报 error、作者构建打印 PLUGIN_TIMINGS、帮助列不对齐、nb-story 的 typecheck 在 master 上坏了）、可改进 9 条，记进 Work 的后续事项。
 
 2026-10-24 P2、P5、P7、P8 已定。第一期（发布前改完作者 API）的计划见 [plan.md](plan.md)，开发者 2026-10-24 确认（含助手都改成所属子路径的函数、子路径表、`nbook.view.open`、作者命令名 `nbooke`）。计划审查两份（omp 阻断 5、重要 8、建议 1；Sonnet 重要 6、建议 15）逐条处理见 plan.md 第 9 节，开始实施 S1。
 

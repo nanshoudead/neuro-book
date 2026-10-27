@@ -83,7 +83,7 @@ t15 第一期的实现审查与作者验收留下的（[t15 plan.md 第 11 节](
 - `nbook` 的后台运行（开发者 2026-10-27 定）：注册成操作系统的服务（systemd 用户单元、launchd、Windows 计划任务），由 `nbook service install|uninstall|start|stop|restart|status` 管，停止与查看也放在 `service` 下、对前台实例同样有效；实现前先调研有没有现成的第三方库，没有就自己做一个包。实例认领的套接字协议（t15 第二期）是它的停止与查询通道。
 - 装好后让 agent 给 NeuroBook 写插件（开发者 2026-10-27 定为后续，参照 [deepseek-harness 调研](tasks/t15-author-api-round2/evidences/dsh-research.md)）：给外部 agent 的“写 NeuroBook 插件”Skill 与模板（照 `nbstory skill install`）；应用内的 Creator 模式、只读的运行时检视工具（贡献点、服务键、设置 schema）、agent 触发安装并热生效。后两样依赖应用内 agent 与插件热插拔（`runtime/plugin-hot-plug.md`）。
 - 桌面版（开发者 2026-10-27 定另开 Task）：先写提案，实测 Electron、Tauri、Electrobun 三个壳（安装包大小、启动时间、Monaco 与工作台的显示）；壳捆绑 Bun 运行应用包目录的 `server/nbook.js`、窗口加载回环页面；定状态根是否与命令行共用、自动更新与签名。过渡办法是页面加 PWA 清单，浏览器“安装为应用”。
-- 0.11.0 真实用户冒烟的发现（[evidences/p3-user-smoke.md](tasks/t15-author-api-round2/evidences/p3-user-smoke.md)）：先修缺陷 1 到 3（重启后恢复打开的章节与“最近打开”、整页切换不再打 error、SDK 构建预设关掉 PLUGIN_TIMINGS），再看可改进项（新建后直接打开、新建章节问名字并聚焦、中文书名的短名、装插件后的重启入口、npm 元数据）。nb-story 的 typecheck 归 w00024。
+- 0.11.0 真实用户冒烟的发现（[evidences/p3-user-smoke.md](tasks/t15-author-api-round2/evidences/p3-user-smoke.md)）：先修缺陷 2、3（整页切换不再打 error、SDK 构建预设关掉 PLUGIN_TIMINGS；缺陷 1 复核后撤回），再看可改进项（新建后直接打开、新建章节问名字并聚焦、中文书名的短名、装插件后的重启入口、npm 元数据）。nb-story 的 typecheck 归 w00024。
 
 ## 范围外发现
 

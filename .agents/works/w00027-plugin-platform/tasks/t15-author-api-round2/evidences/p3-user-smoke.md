@@ -16,7 +16,7 @@
 
 ## 缺陷
 
-1. **重启后工作台不恢复**：关掉 NeuroBook 再开，打开过的章节标签没有恢复，欢迎页“最近打开”变回“还没有打开过文件”（同一次运行里是对的）。用户每次都要重新找上次写的文件。
+1. ~~重启后工作台不恢复~~（撤回）：冒烟脚本每步新开一个干净的浏览器配置，等于每次换一个客户端，而“最近打开”与编辑器会话是 `project/local` 记录、按客户端身份分开（`docs/specs/storage/persistence.md` 术语与输出 7）。用同一个浏览器配置重做“写一章 → 重启 nbook → 再打开”，标签恢复。换浏览器或无痕窗口看不到是设计如此。
 2. **从书架进作品时控制台报 error**：整页切换时旧页面卸载，打出 error“工作台外壳加载失败：nbook.workbench 的 store workbench-layout 已开始停止，不再接受 acceptViewCatalog”和十几条 `revoke …：receiver-closed` warn。是正常操作，不该是 error 级，会干扰排障。
 3. **作者构建每次打印 rolldown 的 `[PLUGIN_TIMINGS]` 警告**（带原始 ANSI 码，“JavaScript callbacks ran for 2.9s…”）：SDK 的构建预设没有像 `plugin-sdk/pack.ts` 那样关掉 `checks.pluginTimings`。
 4. **`nbook --help` 的说明列没对齐**：commander 按字符数算宽度，中文占两格。
