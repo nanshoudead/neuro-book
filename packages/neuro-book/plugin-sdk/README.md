@@ -24,26 +24,27 @@
 
 ## 前置条件
 
-- **一个能装插件的 NeuroBook**：NeuroBook 还没有安装包，从仓库运行：在仓库根 `bun install`，再到 `packages/neuro-book` 里 `bun run build`，然后 `NBOOK_STATE_ROOT=<放数据的目录> bun run start`，浏览器打开终端打印的地址（缺省 `http://127.0.0.1:4217`）。装好的插件就放在这个状态根里。
-- **重启**：安装、升级、启停与卸载都在下一次启动后生效。在运行 NeuroBook 的终端里按 Ctrl+C 停掉，再运行一次 `bun run start`。
+- **一个能装插件的 NeuroBook**：`bun add -g @notnotype/neuro-book` 装上命令 `nbook`，运行 `nbook` 在前台启动并打开浏览器。装好的插件放在它的状态根里（平台的数据目录，或 `--state-root`、`NBOOK_STATE_ROOT` 给的目录）。
+- **重启**：安装、升级、启停与卸载都在下一次启动后生效。在运行 NeuroBook 的终端里按 Ctrl+C 停掉，再运行一次 `nbook`。
 - **在哪里看到插件**：设置窗口（书架页右上角、作品工作台左下角的齿轮）的“插件”页管安装与启停；视图、状态栏条目只在打开一部作品之后的工作台里出现，书架页没有。
 
-## 安装 SDK，生成插件
+## 生成插件
 
-SDK 不发布到 npm，先拿到它的 tarball：别人给的，或者在 NeuroBook 仓库里自己生成（在 `packages/neuro-book` 目录 `bun run build:sdk`，最后一行打印 tarball 的路径，缺省在 `dist/` 下）。命令 `nbooke` 在 SDK 包里，所以先装 SDK、再生成插件：
+命令 `nbooke` 在 SDK 包 `@notnotype/nb-plugin-sdk` 里，不用全局安装，用 `bunx -p` 借它生成插件：
 
 ```sh
-mkdir hello && cd hello
-bun add -d /path/to/notnotype-nb-plugin-sdk-<版本>.tgz
-bunx nbooke create . --publisher acme
-bun install          # 装上 create 补进 package.json 的依赖
+bunx -p @notnotype/nb-plugin-sdk nbooke create hello --publisher acme
+cd hello
+bun install          # 装上 SDK 与 create 写进 package.json 的依赖
 bun run build        # 产物在 dist/
+nbook plugin install dist
 ```
 
+第一次运行 `bunx` 要下载 SDK 与构建用的依赖（Vite 等），直连 npm 慢时会停一会儿。之后插件项目里的 `nbooke` 用的是项目自己装的那份 SDK，版本写在 `package.json` 里。
+
 - 只用 Bun（版本见 SDK 包 `package.json` 的 `engines.bun`）。例外是类型检查：`vue-tsc` 在 Bun 的运行时里认不出 `.vue` 文件，`bun run typecheck` 按它自己的抬头行用 Node 运行，所以机器上要有 Node。
-- 一定先装 SDK 再运行 `bunx nbooke`：目录里没有装 SDK 时，`bunx` 会去 npm 仓库找同名的包。
-- 新目录在一个已有项目的子目录里时（上级有 `package.json`），先在新目录里写一个空的 `package.json`（`echo {} > package.json`）：没有它，`bun add` 会向上找到那个项目、把 SDK 装进去。
-- `create` 会合并已有的 `package.json`：你写的字段与依赖保留（装 SDK 时写下的 tarball 路径就在里面），`publisher`、`name`、`version` 与 `type` 用生成的，脚本与开发依赖只补缺的。目录里除了 `package.json`、`bun.lock`、`node_modules`、`.git` 与 `.npmrc` 还有别的文件时，`create` 拒绝、什么也不写。
+- `create` 也可以写进已有的目录：目录里只有 `package.json`、`bun.lock`、`node_modules`、`.git` 与 `.npmrc` 时照写，有别的文件时拒绝、什么也不写。已有的 `package.json` 合并：你写的字段与依赖保留（自己钉的 SDK 版本也保留），`publisher`、`name`、`version` 与 `type` 用生成的，脚本与开发依赖只补缺的。
+- 要试 SDK 还没发布的改动：在 NeuroBook 仓库的 `packages/neuro-book` 里 `bun run build:sdk`，最后一行打印 tarball 的路径；`create` 加 `--sdk file:<tarball 路径>`，SDK 依赖就写成它。
 - 插件 id 是 `<publisher>.<name>`。`--publisher` 缺省 `my`，发出去的插件请写自己的；`--name` 缺省取 `package.json` 的 `name`，没有时取目录名。两段都要以小写字母开头、只含小写字母、数字与连字符，不合规时 `create` 报错并提示用哪个开关指定。
 - 完整的行为（合并规则、`--sdk`、退出码）见 [plugin-api 的“作者工具”](../../../docs/specs/runtime/plugin-api.md#作者工具)。
 

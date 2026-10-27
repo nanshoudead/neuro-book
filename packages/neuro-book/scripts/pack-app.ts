@@ -28,6 +28,8 @@ import {promisify} from "node:util";
 
 import {BUN_ENGINE, PRODUCT_VERSION} from "../src/shared/product";
 
+import {noticeSection, packageDirectories, packageNotices, viteLicenseNotices} from "./third-party-notices";
+
 export const APP_NAME = "@notnotype/neuro-book";
 const packageRoot = fileURLToPath(new URL("../", import.meta.url));
 const repoRoot = resolve(packageRoot, "../..");
@@ -81,72 +83,21 @@ export function bundleProblems(source: string): string[] {
     ];
 }
 
-/**
- * 打一个服务端入口，返回打进去的第三方包所在的目录（metafile 的输入里 `node_modules/<包>/` 的那一段）。metafile 的输入路径
- * 相对当前工作目录，不是相对仓库根：从包目录运行时是 `../../node_modules/…`。
- */
+/** 打一个服务端入口，返回打进去的第三方包所在的目录（metafile 的输入路径，见 `packageDirectories`）。 */
 async function bundle(entry: string, outFile: string): Promise<Set<string>> {
     const built = await Bun.build({entrypoints: [join(packageRoot, entry)], target: "bun", outdir: dirname(outFile), naming: basename(outFile), metafile: true});
     if (!built.success) throw new AggregateError(built.logs, `打包 ${entry} 失败`);
-    const packages = new Set<string>();
-    for (const input of Object.keys(built.metafile?.inputs ?? {})) {
-        const match = /^(.*node_modules\/(?:@[^/]+\/)?[^/]+)\//u.exec(input);
-        if (match) packages.add(resolve(match[1]!));
-    }
-    return packages;
-}
-
-interface Notice {
-    readonly name: string;
-    readonly version: string;
-    readonly license: string;
-    readonly texts: ReadonlyArray<string>;
-}
-
-const LICENSE_FILE = /^(licen[cs]e|copying|notice|thirdpartynotices)(\..*)?$/iu;
-
-/** 一个包目录的许可：`package.json` 的 `license`，加上目录里的 LICENSE、NOTICE 一类文件。两样都没有时失败。 */
-async function noticeOf(directory: string): Promise<Notice> {
-    const manifest = JSON.parse(await readFile(join(directory, "package.json"), "utf8")) as {name: string; version: string; license?: unknown};
-    const files = (await readdir(directory)).filter((name) => LICENSE_FILE.test(name)).sort();
-    const texts = await Promise.all(files.map(async (name) => (await readFile(join(directory, name), "utf8")).trim()));
-    const license = typeof manifest.license === "string" ? manifest.license : "";
-    if (license === "" && texts.length === 0) throw new Error(`${manifest.name}@${manifest.version} 没有写许可：不能把它打进发布的包`);
-    return {name: manifest.name, version: manifest.version, license: license || "见下文", texts};
-}
-
-interface WebLicense {
-    readonly name: string;
-    readonly version: string;
-    readonly identifier?: string;
-    readonly text?: string;
+    return packageDirectories(Object.keys(built.metafile?.inputs ?? {}));
 }
 
 async function thirdPartyNotices(serverPackages: ReadonlySet<string>, webRoot: string): Promise<string> {
-    const server = await Promise.all([...serverPackages].sort().map(noticeOf));
-    const licenseFile = join(webRoot, ".vite", "license.json");
-    if (!existsSync(licenseFile)) throw new Error(`${licenseFile} 不存在：前端要用 vite build 构建（vite.config.ts 的 build.license）`);
-    const web = (JSON.parse(await readFile(licenseFile, "utf8")) as WebLicense[]).map((entry): Notice => {
-        if (!entry.identifier && !entry.text) throw new Error(`前端产物里的 ${entry.name}@${entry.version} 没有写许可`);
-        return {name: entry.name, version: entry.version, license: entry.identifier ?? "见下文", texts: entry.text ? [entry.text.trim()] : []};
-    });
-    // Vite 只收许可文本；包另有的 NOTICE（例如 monaco-editor 的 ThirdPartyNotices，codicon 字体在里面）补上。
-    const withNotices = await Promise.all(web.map(async (entry) => {
-        const directory = join(repoRoot, "node_modules", entry.name);
-        if (!existsSync(directory)) return entry;
-        const notices = (await readdir(directory)).filter((name) => /^(notice|thirdpartynotices)(\..*)?$/iu.test(name)).sort();
-        return {...entry, texts: [...entry.texts, ...(await Promise.all(notices.map(async (name) => (await readFile(join(directory, name), "utf8")).trim())))]};
-    }));
+    const web = await viteLicenseNotices(join(webRoot, ".vite", "license.json"), join(repoRoot, "node_modules"));
     const fonts = await fontNotices(webRoot);
-    const section = (title: string, notices: ReadonlyArray<Notice>): string => [
-        `## ${title}`,
-        ...notices.map((notice) => [`### ${notice.name}@${notice.version}（${notice.license}）`, ...notice.texts.map((text) => `\`\`\`\n${text}\n\`\`\``)].join("\n\n")),
-    ].join("\n\n");
     return [
         "# 第三方许可",
         "这个包里的 `server/` 与 `web/` 是打包产物，打包时去掉了各依赖文件头的版权声明。下面是打进去的每个第三方包的许可与声明。",
-        section("服务端（server/nbook.js、server/project.js）", server),
-        section("前端（web/）", withNotices),
+        noticeSection("服务端（server/nbook.js、server/project.js）", await packageNotices(serverPackages)),
+        noticeSection("前端（web/）", web),
         ["## 字体", ...fonts.map(({file, text}) => `### web/assets/${file}\n\n\`\`\`\n${text}\n\`\`\``)].join("\n\n"),
     ].join("\n\n") + "\n";
 }

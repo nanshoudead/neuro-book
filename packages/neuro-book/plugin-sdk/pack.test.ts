@@ -160,6 +160,15 @@ describe("生成的 SDK 包", () => {
         expect(manifest.exports["./build"]).toEqual({types: "./build.d.ts", import: "./build.js"});
     });
 
+    it("发布用的元数据：许可、源码仓库、公开访问；tarball 里带 AGPL 的 LICENSE 与打进去的第三方包的许可", async () => {
+        const manifest = JSON.parse(await readFile(join(installed, "package.json"), "utf8")) as Record<string, unknown>;
+        expect(manifest).toMatchObject({license: "AGPL-3.0-only", repository: {directory: "packages/neuro-book/plugin-sdk"}, publishConfig: {access: "public"}, files: expect.arrayContaining(["LICENSE", "THIRD-PARTY-NOTICES.md"])});
+        expect(await readFile(join(installed, "LICENSE"), "utf8")).toContain("GNU AFFERO GENERAL PUBLIC LICENSE");
+        const notices = await readFile(join(installed, "THIRD-PARTY-NOTICES.md"), "utf8");
+        expect(notices).toContain("## 构建期实现");
+        expect(notices).not.toContain("@notnotype/");
+    });
+
     it("tarball 里有示例插件的源码与模板（含 `_gitignore`）；不带场景测试、场地、测试文件与构建产物；模板的开发依赖带上作者项目自己装的包", async () => {
         const files = (await readdir(installed, {recursive: true})).map((file) => file.split("\\").join("/"));
         expect(files).toEqual(expect.arrayContaining(["examples/plugins/focus/plugin.ts", "examples/plugins/focus/web/FocusPanel.vue", "examples/external/declarative/package.json", "template/_gitignore", "template/_package.json"]));

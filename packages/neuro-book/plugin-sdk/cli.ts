@@ -39,9 +39,6 @@ async function create(args: ReadonlyArray<string>): Promise<number> {
         sdkVersion: PRODUCT_VERSION,
     });
     console.log(`已生成插件 ${result.id}：${result.directory}`);
-    if (result.sdkFromRegistry) {
-        console.error("注意：SDK 还没有发布到 npm，package.json 里的 SDK 依赖装不上。先在插件目录里 bun add -d <SDK 的 tarball 路径>，或重新运行 create 并加 --sdk file:<tarball 路径>。");
-    }
     console.log("下一步：");
     console.log(`  cd ${result.directory}`);
     console.log("  bun install          # 装上模板补的依赖");

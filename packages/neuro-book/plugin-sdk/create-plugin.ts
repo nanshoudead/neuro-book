@@ -5,9 +5,9 @@
  * 的 `__ID__`、`__PUBLISHER__`、`__NAME__`、`__DISPLAY_NAME__` 换成这个插件的；`_package.json`、`_gitignore` 写成去掉下划线的
  * 名字：模板目录里有真的 `package.json` 会被当成一个包，`.gitignore` 会被打包丢掉。
  *
- * SDK 不发布到 npm：作者先在新目录里 `bun add -d <SDK 的 tarball>`，再在同一个目录运行 `create .`。所以目录里只有
- * `package.json`、锁文件与 `node_modules` 时也可以写，已有的 `package.json` 合并：保留它已有的字段与依赖（SDK 的 `file:` 写法
- * 就在这里），只补缺的。
+ * 作者通常用 `bunx -p @notnotype/nb-plugin-sdk nbooke create <目录>` 建新目录，SDK 依赖写成 `^<SDK 版本>`。也可以先在目录里
+ * 装好 SDK（例如 `bun add -d <SDK 的 tarball>` 试未发布的改动）再运行 `create .`：所以目录里只有 `package.json`、锁文件与
+ * `node_modules` 时也可以写，已有的 `package.json` 合并：保留它已有的字段与依赖（作者钉的 SDK 写法就在这里），只补缺的。
  *
  * 先把每个文件的内容都算好（填占位符、合并 `package.json`）再写；写到一半失败（权限、磁盘满）时删掉这次写下的文件与新建的
  * 目录、把 `package.json` 写回原样，目录回到运行前的样子，作者修好原因后重跑即可。
@@ -57,8 +57,6 @@ export interface CreatePluginResult {
     readonly directory: string;
     /** 相对插件目录、写下或改过的文件。 */
     readonly files: ReadonlyArray<string>;
-    /** `package.json` 里 SDK 依赖的写法是 registry 版本（SDK 还没发布，`bun install` 装不上）：调用方提示作者先装 tarball。 */
-    readonly sdkFromRegistry: boolean;
 }
 
 type PackageJson = Record<string, unknown>;
@@ -84,21 +82,18 @@ export async function createPlugin(options: CreatePluginOptions): Promise<Create
     const fill = (text: string): string => text.replace(/__(?:ID|PUBLISHER|NAME|DISPLAY_NAME|SDK_VERSION)__/gu, (token) => replacements[token]!);
 
     const planned: Array<{readonly target: string; readonly content: string}> = [];
-    let sdkFromRegistry = false;
     for (const source of await templateFiles(options.templateDir)) {
         const relativePath = relative(options.templateDir, source);
         const target = join(directory, dirname(relativePath), RENAMED[basename(relativePath)] ?? basename(relativePath));
         const text = fill(await readFile(source, "utf8"));
         let content = text;
         if (basename(relativePath) === "_package.json") {
-            const merged = mergePackage(JSON.parse(text) as PackageJson, existing, options.sdk);
-            sdkFromRegistry = isRegistrySpec(sdkSpecOf(merged));
-            content = `${JSON.stringify(merged, null, 4)}\n`;
+            content = `${JSON.stringify(mergePackage(JSON.parse(text) as PackageJson, existing, options.sdk), null, 4)}\n`;
         }
         planned.push({target, content});
     }
     await writeAll(directory, planned, existingText);
-    return {id, directory, files: planned.map(({target}) => relative(directory, target)).sort(), sdkFromRegistry};
+    return {id, directory, files: planned.map(({target}) => relative(directory, target)).sort()};
 }
 
 /** 依次写下；失败时撤掉这次写下的（见文件头），再以 `PluginCreateError` 报出原因。 */
@@ -131,15 +126,6 @@ async function writeAll(directory: string, planned: ReadonlyArray<{readonly targ
         const rest = leftovers.length === 0 ? "已撤掉这次写下的文件" : `撤不掉这些，要手动删：${leftovers.map((path) => relative(directory, path) || path).join("、")}`;
         throw new PluginCreateError(`写插件目录失败：${reason}；${rest}`, {cause: error});
     }
-}
-
-/**
- * SDK 依赖的写法是不是从 registry 装（SDK 没发布，装不上）：本地路径、`file:`、`link:`、`workspace:`、网址与 git 之外的
- * 都算，例如 `^0.1.0`、`latest`、`>=0.1.0`。
- */
-function isRegistrySpec(spec: string | undefined): boolean {
-    if (spec === undefined) return false;
-    return !/^(?:file:|link:|workspace:|portal:|\.{0,2}\/|~\/|[a-z][a-z+.-]*:\/\/|git[+:@]|github:)/u.test(spec);
 }
 
 /** 目录不存在、为空，或只有刚装完 SDK 会有的东西时返回已有的 `package.json` 原文（没有为 null）；否则拒绝。 */
@@ -178,14 +164,6 @@ function mergePackage(template: PackageJson, existing: PackageJson | null, sdk: 
     const dependencies = merged.dependencies as Record<string, unknown> | undefined;
     if (dependencies !== undefined && SDK_PACKAGE in dependencies) return {...merged, dependencies: {...dependencies, [SDK_PACKAGE]: sdk}};
     return {...merged, devDependencies: {...merged.devDependencies as Record<string, unknown>, [SDK_PACKAGE]: sdk}};
-}
-
-function sdkSpecOf(manifest: PackageJson): string | undefined {
-    for (const field of ["dependencies", "devDependencies"]) {
-        const value = (manifest[field] as Record<string, unknown> | undefined)?.[SDK_PACKAGE];
-        if (typeof value === "string") return value;
-    }
-    return undefined;
 }
 
 function mergeExisting(template: PackageJson, existing: PackageJson): PackageJson {

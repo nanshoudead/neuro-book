@@ -11,12 +11,15 @@
  * - `cli.js` 与 `template/`：作者命令 `nbooke`（`cli.ts`）与 `create` 用的模板；模板 `_package.json` 的开发依赖在这里
  *   补上作者项目自己装的包，范围与应用自己用的一致。
  * - `examples/`：示例插件的源码（`plugin-sdk/examples/` 的 `plugins/` 与 `external/`），作者照着读；场景测试与场地不随包。
- * - `package.json`：版本取产品版本；`vue`、`@vue/reactivity`、`typebox` 是 peer 依赖，构建预设的工具是普通依赖。
+ * - `package.json`：版本取产品版本；`vue`、`@vue/reactivity`、`typebox` 是 peer 依赖，构建预设的工具是普通依赖；`files`、
+ *   `license`、`repository` 与 `publishConfig` 按仓库的发布门禁（`scripts/release/packages.ts`）写。
+ * - `LICENSE`（仓库根的 AGPL）与 `THIRD-PARTY-NOTICES.md`：构建期实现打进去的第三方包（Vite 的许可清单与 rolldown 的模块
+ *   列表，`scripts/third-party-notices.ts`）的许可。
  * - `README.md`：作者文档（`plugin-sdk/README.md`）；`docs/components.md`、`docs/tokens.md`：从 SDK 的组件入口与 nb-ui 的
  *   配色合同、主题样式表生成的两份附表；`specs/`：作者文档链接到的 Spec 的副本。作者文档在仓库里用指向 `docs/specs/` 的相对
- *   链接写，复制时改写到包里的副本：SDK 不发布、Work 分支也不推到远端，指向仓库的链接作者打不开，副本还与这个 SDK 版本一致。
+ *   链接写，复制时改写到包里的副本：副本与这个 SDK 版本一致，离线也能读，仓库里的 Spec 随后续版本变化。
  *
- * 生成的目录再用 `bun pm pack` 打成 tarball，放在目录旁边，作者 `bun add -d <tarball>` 装它。
+ * 生成的目录再用 `bun pm pack` 打成 tarball，放在目录旁边：发布用它，试未发布的改动时作者 `bun add -d <tarball>` 装它。
  *
  * 用法：`bun run build:sdk [输出目录]`，缺省输出到 `dist/plugin-sdk/`，最后一行打印 tarball 的路径。输出目录只在不存在、
  * 为空或者是上次生成的 SDK 包时清空重建，否则拒绝。
@@ -33,6 +36,7 @@ import {nbColorwayVarKeys} from "@notnotype/nb-ui/colorway-contract";
 
 import vue from "@vitejs/plugin-vue";
 import {build as rolldown} from "rolldown";
+import type {RolldownOutput} from "rolldown";
 import {dts} from "rolldown-plugin-dts";
 import ts from "typescript";
 import {build as vite} from "vite";
@@ -41,10 +45,12 @@ import {isInside} from "../src/plugin-platform/backend/paths";
 import {SDK_ENTRIES, SDK_NAME} from "../src/sdk/entries";
 import type {SdkEntry} from "../src/sdk/entries";
 import {PRODUCT_VERSION} from "../src/shared/product";
+import {noticeSection, packageDirectories, packageNotices, viteLicenseNotices} from "../scripts/third-party-notices";
 
 import {AUTHOR_PACKAGES, BUILD_DEPENDENCIES} from "./dependencies";
 
 const packageRoot = fileURLToPath(new URL("../", import.meta.url));
+const repoRoot = resolve(packageRoot, "../..");
 /** 打包的入口：产物文件名（不带扩展名）→ 源文件，按 SDK 的子路径表。 */
 const ENTRIES = Object.fromEntries(SDK_ENTRIES.map((entry) => [entryName(entry), join(packageRoot, "src/sdk", entry.file)]));
 
@@ -143,7 +149,6 @@ function packageLink(url: string, specs: Set<string>): string {
  * 都能打开，也知道包外的那份在哪里。副本只随作者文档引用的那几份，不顺着链接把整个 `docs/` 带进包。
  */
 function specCopy(spec: string, text: string, copied: ReadonlySet<string>): string {
-    const repoRoot = resolve(SPECS_ROOT, "../..");
     return text.replace(/\[([^\]]*)\]\(([^()\s]+)\)/gu, (link, label: string, url: string) => {
         if (/^[a-z][a-z0-9+.-]*:/iu.test(url) || url.startsWith("#")) return link;
         const hash = url.indexOf("#");
@@ -330,6 +335,9 @@ function isShippedExampleFile(path: string): boolean {
 
 export async function buildSdk(outDir: string): Promise<BuiltSdk> {
     await clearPreviousSdk(outDir);
+    // 先写下带包名的清单：中途失败留下的半成品下次照样被认作上次生成的 SDK、能清掉重建。最后会被完整的清单覆盖。
+    await mkdir(outDir, {recursive: true});
+    await writeFile(join(outDir, "package.json"), `${JSON.stringify({name: SDK_NAME})}\n`);
     await vite({
         configFile: false,
         logLevel: "warn",
@@ -342,10 +350,13 @@ export async function buildSdk(outDir: string): Promise<BuiltSdk> {
             // 组件的样式由宿主的页面提供，SDK 的构建期实现用不到。
             cssCodeSplit: false,
             lib: {entry: ENTRIES, formats: ["es"], fileName: (_format, name) => `${name}.js`, cssFileName: "unused"},
+            license: {fileName: ".vite/license.json"},
             rolldownOptions: {external: PEERS},
         },
     });
     await rm(join(outDir, "unused.css"), {force: true});
+    const libraryNotices = await viteLicenseNotices(join(outDir, ".vite/license.json"), join(repoRoot, "node_modules"));
+    await rm(join(outDir, ".vite"), {recursive: true});
     await rolldown({
         cwd: packageRoot,
         input: ENTRIES,
@@ -357,7 +368,7 @@ export async function buildSdk(outDir: string): Promise<BuiltSdk> {
     });
     // 构建预设：命令行工具，打进内核的清单与应用的版本工具；Vite 与编译器、图标数据留作依赖。声明文件一并生成，作者的
     // 构建脚本用得上 `BuildPluginOptions`、`PluginBuildError` 这些类型。
-    await rolldown({
+    const tools = await rolldown({
         cwd: packageRoot,
         input: {build: join(packageRoot, "plugin-sdk/build.ts"), cli: join(packageRoot, "plugin-sdk/cli.ts")},
         platform: "node",
@@ -368,6 +379,15 @@ export async function buildSdk(outDir: string): Promise<BuiltSdk> {
         checks: {pluginTimings: false},
     });
     await chmod(join(outDir, "cli.js"), 0o755);
+    const toolResults: ReadonlyArray<RolldownOutput> = Array.isArray(tools) ? tools : [tools];
+    const toolModules = toolResults.flatMap((result) => result.output.flatMap((chunk) => (chunk.type === "chunk" ? chunk.moduleIds : [])));
+    await writeFile(join(outDir, "THIRD-PARTY-NOTICES.md"), [
+        "# 第三方许可",
+        "这个包里的 `*.js` 是打包产物，打包时去掉了各依赖文件头的版权声明。下面是打进去的每个第三方包的许可与声明；`vue`、`typebox` 与构建预设的工具是 peer 依赖或普通依赖，不在其中。",
+        noticeSection("构建期实现（index.js、browser.js、components.js 等）", libraryNotices),
+        noticeSection("构建预设与作者命令（build.js、cli.js）", await packageNotices(packageDirectories(toolModules))),
+    ].join("\n\n") + "\n");
+    await cp(join(repoRoot, "LICENSE"), join(outDir, "LICENSE"));
     // 命令的声明文件用不上：它只作 bin。
     await rm(join(outDir, "cli.d.ts"), {force: true});
     await cp(join(packageRoot, "plugin-sdk/template"), join(outDir, "template"), {recursive: true});
@@ -396,6 +416,10 @@ export async function buildSdk(outDir: string): Promise<BuiltSdk> {
         // 只用 Bun 运行：作者命令的抬头行是 bun，构建预设与包里的实现都只在 Bun 上验证。
         engines: {bun: await bunRange()},
         dependencies: await dependencyRanges(BUILD_DEPENDENCIES),
+        files: ["**/*.js", "**/*.d.ts", "template/", "examples/", "docs/", "specs/", "README.md", "LICENSE", "THIRD-PARTY-NOTICES.md"],
+        license: "AGPL-3.0-only",
+        repository: {type: "git", url: "git+https://github.com/notnotype/neuro-book.git", directory: "packages/neuro-book/plugin-sdk"},
+        publishConfig: {access: "public"},
     }, null, 4)}\n`);
     await writeAuthorDocs(outDir);
     return {directory: outDir, tarball: await bunPack(outDir)};

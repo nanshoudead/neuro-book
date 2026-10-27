@@ -1,6 +1,10 @@
+<img src="https://raw.githubusercontent.com/notnotype/neuro-book/master/docs/images/readme/neurobook-lockup-horizontal-color.svg" width="360" alt="NeuroBook" />
+
 # NeuroBook
 
 本地优先的长篇写作工作区：作品文件、数据库与 Agent 会话都在你自己的机器上。这个包是 NeuroBook 应用本身，带命令 `nbook`。
+
+这是 v2 的预览版：工作台、文件与编辑器、设置与插件已经能用，AI 写作、世界引擎与剧情工坊还在重建，见[仓库首页的路线图](https://github.com/notnotype/neuro-book#路线图)。
 
 ## 安装
 
@@ -40,7 +44,7 @@ nbook plugin disable <id>
 nbook plugin uninstall <id>
 ```
 
-插件完全受信任：装上之后它能访问全部作品、服务器与本机资源，只装你信任的来源。安装、启停与卸载都写进登记表，重启 NeuroBook 后生效。写插件用 SDK 包 `@notnotype/nb-plugin-sdk` 里的命令 `nbooke`。
+插件完全受信任：装上之后它能访问全部作品、服务器与本机资源，只装你信任的来源。安装、启停与卸载都写进登记表，重启 NeuroBook 后生效。写插件用 SDK 包 `@notnotype/nb-plugin-sdk`：`bunx -p @notnotype/nb-plugin-sdk nbooke create my-plugin` 生成一个能直接构建的插件，作者文档随 SDK 包分发。
 
 ## 升级
 

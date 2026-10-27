@@ -13,6 +13,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 import {manifestFormat} from "../src/plugin-platform-profile";
 import {compareVersions, pluginVersionSatisfies} from "../src/plugin-platform/shared/versions";
+import {PRODUCT_VERSION} from "../src/shared/product";
 
 import {devVersion} from "./build";
 
@@ -134,16 +135,15 @@ describe("nbooke", () => {
         expect(cli(busy, "publish").code).toBe(2);
     }, 120_000);
 
-    it("create 到空目录：SDK 依赖写成 registry 版本时提示先装 tarball；给了 --sdk 就按它写", async () => {
+    it("create 到空目录：SDK 依赖缺省写成 ^<SDK 版本>，给了 --sdk 就按它写；都不在标准错误里写东西", async () => {
+        const sdkOf = async (name: string): Promise<string | undefined> => (JSON.parse(await readFile(join(tmp, name, "package.json"), "utf8")) as {devDependencies: Record<string, string>}).devDependencies["@notnotype/nb-plugin-sdk"];
         const runner = await authorDirectoryNamed("runner");
         const fresh = cli(runner, "create", join(tmp, "fresh"));
-        expect(fresh.code).toBe(0);
-        expect(fresh.stderr).toContain("SDK 还没有发布");
-        const pinned = cli(runner, "create", join(tmp, "pinned"), "--sdk", "file:/opt/nb-plugin-sdk-0.1.0.tgz");
-        expect(pinned.code).toBe(0);
-        expect(pinned.stderr).toBe("");
-        expect(cli(runner, "create", join(tmp, "latest"), "--sdk", "latest").stderr).toContain("SDK 还没有发布");
-        expect((JSON.parse(await readFile(join(tmp, "pinned/package.json"), "utf8")) as {devDependencies: Record<string, string>}).devDependencies["@notnotype/nb-plugin-sdk"]).toBe("file:/opt/nb-plugin-sdk-0.1.0.tgz");
+        expect([fresh.code, fresh.stderr]).toEqual([0, ""]);
+        expect(await sdkOf("fresh")).toBe(`^${PRODUCT_VERSION}`);
+        const pinned = cli(runner, "create", join(tmp, "pinned"), "--sdk", "file:/opt/nb-plugin-sdk.tgz");
+        expect([pinned.code, pinned.stderr]).toEqual([0, ""]);
+        expect(await sdkOf("pinned")).toBe("file:/opt/nb-plugin-sdk.tgz");
     }, 120_000);
 
     it("create 合并已有的 package.json：type、version 用模板的，作者的 test 脚本保留；name 不合规时提示 --name", async () => {
