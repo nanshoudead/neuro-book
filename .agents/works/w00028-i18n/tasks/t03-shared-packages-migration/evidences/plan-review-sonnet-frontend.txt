@@ -1,0 +1,146 @@
+# w00028 t03 实施计划审查（前端与共享包）
+
+审查对象：`.agents/works/w00028-i18n/tasks/t03-shared-packages-migration/plan.md`（86 行）。源码读 `.worktree/review-w00028-t03`。
+说明：计划正文没有“待定项”一节（brief 末尾要求的“待定项每项判断”无对象），报告末尾改为对计划里几处“留给后面决定”的点（Haiku 实验、JSON 导入方式、体积预算）逐项给判断。
+
+### 1. 第 3 片“不改变行为、测试不改”不成立：TextSchema 放宽了校验，现有测试断言的正是被放宽的拒绝
+- 严重程度：重要（验证与范围）
+- 位置：plan.md:36-38；`packages/neuro-book/src/shared/settings.test.ts:106-117`、`:187-190`；`docs/specs/settings/configuration.md` 输出 1、21；`docs/specs/workbench/commands.md:60`
+- 现象：计划称第 3 片只是把 `LocalizedTextSchema` 换成 `TextSchema`，“现有双语字面量作为 LocaleMap 照常显示，测试不改”，且该片没有列任何 Spec。但 `TextSchema = string | TextRef | LocaleMap` 之后，下面这些现有断言会反过来：`declaration({title: {"zh-CN": "主题"}})` 期望被拒（只有一种语言，LocaleMap 允许）；`declaration({description: "主题"})` 期望被拒（纯字符串现在合法）；`ui: {placeholder: "只有一种语言"}` 期望被拒。Spec 里“title 缺语言”“选项的 title、description 缺语言”“文字缺语言”各使声明 `invalid-declaration` 被拒（configuration.md 输出 1、21），commands.md:60 写“中英两份文本”。这些是产品合同，不是实现细节。
+- 为什么是问题：第 3 片的验收写的是“全部内置插件装载测试”，没有人会去改上述测试和 Spec；照字面实现会得到红的 `settings.test.ts`，实现者要么偷偷放宽测试（违反禁止清单“不放宽断言”），要么回头改计划。同时“不改变行为”的回滚承诺（提案“回滚”一节）也不再成立：放宽后的校验要随该片一起回退。
+- 如何核实：在 worktree 里把 `settings.ts:237` 的 `LocalizedTextSchema` 换成含 string 的联合，跑 `bun test src/shared/settings.test.ts`。
+- 建议改法：第 3 片明确“放宽哪些校验”（单语言 LocaleMap、纯字符串是否合法，须与提案“LocaleMap 取不到当前语言取 en-US 再取第一项”一致），列出要改的 Spec（configuration.md 输出 1、21，commands.md、menus.md、views.md、editor.md 等凡写“中英两份”的输出）和要改的测试（把“缺语言被拒”改成新语义下的拒绝场景，例如空字符串、非法语言标签、`kind` 错误）。
+
+### 2. 第 3 片的体量被低估，且“渲染处改用端口”在没有端口的地方做不到
+- 严重程度：重要（切片依赖、范围）
+- 位置：plan.md:37-38
+- 现象：计划写“10 处 `LocalizedTextSchema`”，实际是 9 个文件、22 处引用（menus 1、commands/contracts 3、sections 4、state/plugin 1、home 1、items 2、views 2、settings.ts 6、editor/contracts 2；`rg LocalizedTextSchema` 逐行数得）。更大的是下游：`Static<typeof TextSchema>` 变成 `Text` 后，所有 `localize(text, locale)`、`textOf(text, locale)`、`title["zh-CN"]` 的类型都会报错——`rg '\b(localize|textOf|formatText)\('` 在 `src`、`plugin-sdk` 里 170 处调用、72 个文件；`DisplayLocale` 205 处引用；另有直接取 `["zh-CN"]` 的（`view-commands.ts:88-89`、`ShellViewsScene.vue`、`WorkbenchViewContainerHostFixture.vue` 等）。其中大量是纯 TS 函数（`settings-window.ts`、`command-query.ts`、`shelf-format.ts`、`status-items.ts`），它们拿 `locale: Ref<DisplayLocale>` 作参数，没有 Vue 组件上下文，无法 `useText()`。
+- 为什么是问题：“localized-text.ts 的函数改为调端口”无法落地：`localize` 是无状态的纯函数，没有端口可调。实现者必须决定是把 `t` 作为参数一路传下去（改 72 个文件的签名）、还是保留 `localize(text, locale)` 只让它认识 `Text` 三态（TextRef 需要引擎，函数拿不到）。两种做法对第 4、5 片里“登记时补命名空间”“`variants`”的依赖不同，且 `otherTexts`（`command-query.ts:172`，对文字做 `Object.entries`）遇到 TextRef 会静默把 `kind`、`key` 当成别的语言文字去匹配。
+- 如何核实：上面两条 `rg`；读 `settings-window.ts:409-466`、`command-query.ts:134-173`。
+- 建议改法：第 3 片拆成“类型与校验（TextSchema、Spec）”和“消费方改用端口”，后者先写清纯 TS 函数的接法（端口作参数 / `localize` 接受 `TextPort`），再列影响的文件数；`otherTexts`、`variants` 一并处理。
+
+### 3. `TextSchema` 与 `Text` 放在哪没有写；`localized-text.ts` 被 Bun 服务端加载，“改为调端口”会把 Vue 注入带进服务端
+- 严重程度：重要（切片依赖、包边界）
+- 位置：plan.md:26、:37-38；`packages/neuro-book/src/server/plugins.ts:16,24`；`src/plugins/commands/shared/plugin.ts:19,41,66`；`src/plugins/settings/shared/contracts.ts:176`；`packages/nb-ui/package.json`
+- 现象：
+  - 第 1 片列了 `Text`、`TextRef`、`LocaleMap`、判别函数，没有列 `TextSchema`（TypeBox 值）；第 3 片却直接用 `TextSchema` 替换。提案把类型放 nb-ui，nb-ui 的 `package.json` 没有 `typebox` 依赖，`exports` 里没有纯 TS 子路径（根入口 `src/index.ts` 会拉进 `.vue` 组件）。
+  - `src/server/plugins.ts` 直接 import `commands/shared/plugin`、`state/shared/plugin`，它们又 import `nbook/shared/localized-text`；`commands/shared/plugin.ts:41,66` 与 `settings/shared/contracts.ts:176` 在服务端/项目子进程里就地 `localize(formatText(…), displayLocale(settings))` 得到字符串（命令的失败 `reason`）。主 tsconfig 的 `include` 含这些 `shared` 目录，`lib` 只有 ESNext、无 DOM，`exclude` 掉了 `web`。
+- 为什么是问题：计划第 3 片说“`localized-text.ts` 的函数改为调端口”，端口是 provide/inject 的 Vue 机制，服务端没有。若 `TextSchema` 放进 nb-ui 的子路径，该子路径必须不 import `vue`（`TextPort` 里的 `Ref` 只能是 `import type`）、nb-ui 要加 `typebox` 依赖（它是随 Nuxt 模块发布、被旧应用使用的包，加依赖是公开接口变化）；若放应用，则 nb-form/nb-agent-ui 核心层拿不到同一份判别函数。这几件事决定第 1 片的文件清单和 `exports`，却没有写。
+- 如何核实：`rg -n "localized-text" packages/neuro-book/src/server packages/neuro-book/src/plugins/*/shared`；`grep typebox packages/nb-ui/package.json`（无输出）。
+- 建议改法：第 1 片写明：`Text`/`TextRef`/`LocaleMap`/判别函数/`TextSchema` 在 nb-ui 的一个纯 TS 子路径（如 `./i18n/text`），端口与 `useText()` 在另一个（Vue）子路径；加 `typebox` 依赖或把 `TextSchema` 留在应用的 `shared/`（只引类型）。第 3 片写明服务端侧的字符串解析用 `(text, locale) => string` 的纯函数，不经端口。
+
+### 4. 宿主引擎如何拿到语言没有写：语言是 `nbook.settings` 插件的服务，引擎在插件之前就要存在；过渡期有两份 locale 来源
+- 严重程度：重要（切片依赖、遗漏的假设）
+- 位置：plan.md:29-35、:37-38；`packages/neuro-book/src/plugins/settings/shared/contracts.ts:72`；`workbench/web/plugin.ts:148`、`explorer/web/plugin.ts:109`、`editor/web/plugin.ts:104`、`commands/shared/plugin.ts:160` 各自 `computed(() => displayLocale(settings))`；`src/web/mount.ts:31-54`；`docs/specs/settings/configuration.md` 输出 16
+- 现象：当前语言只存在于设置服务（`settingsKey`），各插件各自派生一个 `locale` computed，再作为属性/host 参数传给组件（38 个测试文件、62 个 `.dom.test.ts` 里有 27 个在驱动 `locale`）。第 2 片的 `web/host/i18n.ts` 创建引擎并读写本地记录，但没有写：谁在设置快照到达时调用 `changeLanguage`（宿主不依赖 `nbook.settings`，ADR/Spec 写明依赖方向是单向的“其它插件依赖 settingsKey”）；`HostPage`、`FailurePage` 在设置插件激活前挂载，用什么语言（本地记录，但“记录”何时写、写入失败怎么办）；设置快照超时 3 秒后晚到又怎样；多窗口里一个窗口切语言，另一个窗口靠什么得知（现有靠设置服务的跨实例同步，端口得订阅同一来源）。
+- 为什么是问题：第 3 片之后组件读 `port.locale`，而第 6 片之前各插件仍把 `locale` 属性往下传——同一界面有两份语言来源，二者不同步时（引擎还停在本地记录，设置已是 en-US）同屏中英混杂，这个窗口期正好是大批量迁移的 10 多片。
+- 如何核实：读 `src/web/mount.ts` 与 `browser-host.ts` 找不到任何对设置服务的引用；`rg "displayLocale(" packages/neuro-book/src --glob '!*.test.ts'`。
+- 建议改法：第 2 片写明“引擎的 `locale` 由哪个对象驱动”：建议在 `nbook.settings` 浏览器入口激活时（或工作台根）用 `watchEffect(() => engine.setLanguage(displayLocale(settings)))` 单向驱动，并规定第 3 片起 `host.locale` 等一律是引擎 `locale` 的派生，不再各自从设置读。把“语言切换后三个根、已开的 Lab、其它窗口同步”写成第 2 片的验收。
+
+### 5. 共享包几片与“语言类型收尾片”之间有锁步类型断言，中间状态 typecheck 必红；片内顺序没写
+- 严重程度：重要（切片依赖、兼容窗口）
+- 位置：plan.md:57-63、:65-67；`packages/neuro-book/src/plugins/markdown/web/host.ts:23`；`packages/nb-agent-ui/src/types.ts:14`（`AgentLocale = PromptLocale`）
+- 现象：`host.ts:23` 写着 `[DisplayLocale, MarkdownLocale] extends [MarkdownLocale, DisplayLocale]`（注释“两边的界面语言是同一组值；改了一边这里报错”）。计划把 `MarkdownLocale`、`PromptLocale` 改字符串放在“共享包几片”（nb-markdown），把 `DisplayLocale` 改字符串放在“收尾几片”。nb-markdown 先改为 `string` 后，`[DisplayLocale, string] extends [string, DisplayLocale]` 为假，该文件 typecheck 失败；`AgentLocale` 经 `PromptLocale` 也跟着变，`nb-agent-ui` 的 `locale` 属性被传 `DisplayLocale` 时类型仍兼容，但反方向（宿主回调接收 `AgentLocale`）会失败。计划每片都要求 `typecheck` 通过，所以这一步要么与 `DisplayLocale` 同片改，要么先删断言。
+- 为什么是问题：实现者按计划顺序做会撞上红色 typecheck 然后自行决定删断言——而这条断言正是提案“一种语言集合由宿主目录决定”之前的保护。另外 `nbook.settings/locale` 的 schema 改为字符串、`localeSetting` 的 `default` 与选项生成（`settings/configuration.md`）与 205 处 `DisplayLocale` 引用要一起动，不宜放到最后一片再“一次改”。
+- 如何核实：读 `host.ts:15-24`；本地把 `MarkdownLocale` 改成 `string` 跑 `bun run --cwd packages/neuro-book typecheck`。
+- 建议改法：把“语言类型改字符串”提前成独立一片（紧接第 3 片）：`DisplayLocale`、`MarkdownLocale`、`PromptLocale`、`AgentLocale` 同时改为 `string`，`sameLocale` 断言改成“两边都是 string”或删除；`nbook.settings/locale` 的校验在此片按宿主目录做，选项由目录生成。共享包后续各片不再碰语言类型。
+
+### 6. 共享包片没有写清“宿主没有注入时”的默认端口，nb-ui 叶子组件有三个无根组件的消费方
+- 严重程度：重要（遗漏的假设、兼容）
+- 位置：plan.md:26、:57-63；提案第 6 节“宿主没有注入时”；`packages/nb-ui/package.json`（被 `dev-panel`、`neuro-book-legacy`、nb-story 查看器、nb-ui 自己的 playground 与 vitest 使用）
+- 现象：提案只规定“包的根组件”（nb-agent-ui、nb-form、nb-markdown 的根）在没有注入时用自带目录提供端口，“嵌套的 nb-ui 控件因此也拿得到”。nb-ui 自己没有根组件，而 `rg '"@notnotype/nb-ui"' packages/*/package.json` 显示还有 `dev-panel`、`neuro-book-legacy`、`nb-story` 直接用它的叶子组件；这些场景里 nb-ui 的 `Dialog`、`AlertDialog`、`Notification`、`Input`、`Splitter` 等（`rg` 到的写死中文：`确认操作`、`确定`、`取消`、`关闭通知`、`清空输入`、`加载中`、`暂无数据`、`对话框` 等，大多是 `withDefaults` 的属性缺省值，另有 `Splitter.vue:612` 的 `调整 ${a} 与 ${b} 的${宽度|高度}` 这类带插值与分支的 aria-label、`Slider.vue:125` 的 `滑块 ${index}`）改为读端口后，**没有任何人注入时 `useText()` 返回什么**，计划第 1 片只写了“`TextPort` 注入键与 `useText()`，最小实现”，没有写缺省。
+- 为什么是问题：旧应用、dev-panel 面板、nb-ui 的 vitest 与 playground 都是没有宿主的环境；若 `useText()` 在无注入时抛错或返回键名，这些包的现有测试和界面在“不应该改变”的包里整体回归（旧应用“依赖照装、不检查”，坏了没人发现）。带插值与分支的几处 aria-label 在 `_one/_other`、`{{name}}` 之外还需要参数命名，计划也没提这类“拼句”的处理。
+- 如何核实：`rg -n "withDefaults|defineProps" packages/nb-ui/src/components/feedback/AlertDialog.vue`；看 `Splitter.vue:612-616`；`rg -l nb-ui packages/*/package.json`。
+- 建议改法：第 1 片写明：`useText()` 无注入时回落到 nb-ui 自带目录 + 最小实现，语言取 `document.documentElement.lang` 或 zh-CN，使旧应用和单元测试行为不变；nb-ui 片的验收加“无任何注入时（`mount` 不带 provide）现有 nb-ui 单测原样通过”。属性缺省值改读端口时，在组件 `.md` 里写明“属性不传则读端口”并保留显式传值的优先级。
+
+### 7. 第 6 片起的抽取脚本只覆盖 TS 字面量，未覆盖 `.vue` 与“表加调用”两种主流写法；改写目标形态没有定义
+- 严重程度：重要（后续切片照字面实现会返工）
+- 位置：plan.md:17、:53-55、:85
+- 现象：计划选型是“用 TypeScript 编译器 API 找 `{"zh-CN": …, "en-US": …}` 字面量……改写调用处”。实测（`git ls-files src plugin-sdk` 排除 `.test.`）：含 `"en-US"` 的行共 960 行，其中 36 个 `.vue` 文件里 345 行（约 36%），例如 `HtmlPreview.vue:19-20`、`SnippetsEditor.vue:30-37` 是 `<script>` 里的表，另有 `:labels="{…}"` 一类模板表达式；TypeScript 编译器 API 不读 `.vue`，需要先用 `@vue/compiler-sfc` 切块并处理模板里的字面量，这条计划没有写。更关键的是，多数文字不是“内联在声明字段里”，而是 `const TEXT = {foo: {"zh-CN":…,"en-US":…}}` 表加 `text(TEXT.foo, {…})` / `localize(formatText(TEXT.foo, {…}), locale)` 调用，还有 `const text = (zh, en) => ({"zh-CN": zh, "en-US": en})` 这类构造器（`rg '"en-US": [a-zA-Z`]'` 得 19 行，含 ``{"zh-CN": `${id}（当前）`, "en-US": `${id} (current)`}``、`view-commands.ts:88-89` 对两种语言各 `.replace("{part}", …)`）。“改成约定键或文字引用”的目标形态（声明字段直接删掉、组件里 `t("key")`、纯 TS 构造器返回 `TextRef` 带参数、跨插件运行期文字）在计划里一种也没定义，第 5 片的“带类型取文字辅助函数”只有一句话。
+- 为什么是问题：脚本做什么、人工做什么的边界取决于这份形态手册；没有它，Haiku/Sonnet 子代理对同一类写法会改出不同形态，主会话审 diff 时没有判据，且各插件片之间会不一致，之后统一要返工。插值语法也变了（`{name}` → `{{name}}`），脚本必须同时改占位符与调用处的 `formatText`，而 `formatText` 对两种语言各代入一次的语义，和 `t(key, params)` 的数值/复数参数校验（500 字截断、只收字符串与有限数字）并不等价，现有传 `reason`、`detail` 字符串的调用会触发参数诊断。
+- 如何核实：`git ls-files src plugin-sdk | grep -vE '\.test\.' | grep '\.vue$' | xargs grep -c '"en-US"'`；读 `view-commands.ts:80-92`、`HtmlPreview.vue:15-30`。
+- 建议改法：开第 6 片前先写一页“迁移手册”（5 到 6 种写法 ➜ 目标形态），第 5 片的辅助函数签名同时定下；脚本明确走 `@vue/compiler-sfc` + TS API；可以先拿 explorer 或 commands（体量小）做一个插件的端到端试片，再定后面片的分派。
+
+### 8. 迁移后“断言中文文字的测试改成断言键或结构”会拿掉唯一的文字等价检查；Lab 截图不是自动比对
+- 严重程度：重要（验证是否真能证明做对了）
+- 位置：plan.md:54、:85；`packages/neuro-book/scripts/lab-shot.ts`、`e2e/lab-layout-baseline.ts`
+- 现象：抽取脚本把字面量搬进 JSON 目录后，“搬对了”（值与原文完全一致、英文没落在中文位置、占位符没丢）目前的实际证据只有那 369 个断言中文文字的测试；计划却要把它们改成断言键或结构。第 5 片的“声明测试”只核对键存在，目录检查只核对语言间缺键/占位符一致，二者都不比较“新值 = 旧字面量”。计划里“每片跑 Lab 截图对照”：`lab:shot` 是出截图与溢出 JSON 的命令，没有基线图比对，对照对象不存在；`lab-scenes.e2e.ts` 的版面门禁只在默认 zh-CN 下量，英文更长造成的溢出也看不到。
+- 为什么是问题：抽取是批量机械改动，出错形式是静默的（把 en-US 放进 zh-CN 键、少一个 `{{name}}`），而 `gate` 恰好只在键层面验。e2e 里 30/37 个文件断言中文是浏览器里看到的文字，本来就不用改成键（DOM 里没有键），把它们一起“改成键或结构”不可能也无必要。
+- 如何核实：`rg -l '[一-龥]' packages/neuro-book/e2e | wc -l`；看 `lab-layout-baseline.ts`（空基线）。
+- 建议改法：让抽取脚本产出一份逐条映射（旧字面量 ➜ 键 ➜ 目录值），再加一个等价检查：在 worktree 里用迁移前的源码（git show 旧版本）与迁移后的目录解析同一批声明，两种语言逐条比较字符串；该检查随脚本留在 Task 证据里，每片跑一次。测试规则改为“有渲染的 dom/e2e 断言继续断言渲染出的文字（用真实宿主目录），只有断言声明对象本身的单元测试才改成按键”；英文再抽样跑一遍 `?locale=en-US` 的 e2e 子集（settings、commands 各一份）。
+
+### 9. 共享包的发布面被缩小：nb-story、`dist/web` 与 tarball smoke 不见了，JSON 导入的二选一没有选
+- 严重程度：重要（遗漏的文件与验证）
+- 位置：plan.md:57-63；Task README“目标与范围”第 2 条；提案第 6 节“JSON 的导入”；`packages/nb-story/package.json`（版本 0.1.1，`files` 含 `dist/web`）；`packages/nb-story/src/web/qa/tools.ts:10,63`
+- 现象：
+  - Task README 要求“列出包、公开接口是否变、目标版本、发布顺序、宿主重建（nb-form、nb-agent-ui、nb-markdown 已发 0.1.0，nb-story 已发 0.1.1 且随包带 `dist/web`），加 tarball 安装与 `dist/web` 的 smoke”。计划“共享包几片”只留下“版本表与发布顺序写进本 Task README；发布逐次授权”，nb-story 一字未提，smoke 没了。
+  - nb-story 用了 `ViewText`（`tools.ts:10` 的类型、`:63` 的 `phrase: … => ViewText`），并在 `QaPage.vue`、`SettingsPage.vue` 里 4 处传 `locale="zh-CN"`；nb-agent-ui 的 `ViewText` 改成 `TextRef` 后这里的返回值要改，`dist/web` 要重建，新的 `dist/web` 里 nb-agent-ui/nb-ui/nb-markdown 的目录和最小实现是否进包只能靠 smoke 看出来。
+  - 提案第 6 节要求实施时在“README 写明 `resolveJsonModule` 要求”与“把目录包成 `.ts` 模块再导出”里**二选一**；计划没有选，也没有写验证（用 `moduleResolution: node16` 的消费方工程安装 tarball 后 typecheck）。四个包的 `tsconfig` 都是 `bundler`，仓库内不会暴露这个问题，只有发布后的消费者会撞 TS2732。
+  - nb-agent-ui 有三个可独立挂载的根（`AgentConversationView`、`AgentSessionList`、`AgentModelCatalog`，nb-story 全部单独挂载），每个都要在无注入时提供端口；计划只说“`locale` 属性只在没注入时起作用”。
+- 为什么是问题：已发布包的消费者（nb-story 查看器、外部使用者）是这个 Task 里唯一不可回退的部分，却是计划里描述最少的一块。
+- 如何核实：读 `nb-story/src/web/qa/tools.ts:55-70`；`grep -n locale packages/nb-story/src/web/pages/QaPage.vue`；`jq .files packages/nb-story/package.json`。
+- 建议改法：恢复 README 的三项（版本表含 nb-story、`dist/web` 重建、tarball 安装 smoke）；选定 JSON 导入方式并把“node16 消费方 typecheck”写进 smoke；nb-agent-ui 一片的验收里列三个根各自无注入时可挂载。
+
+### 10. 共享包片只改了包自己，缺“宿主登记各包目录”这一步和相应 Spec
+- 严重程度：建议（遗漏的文件与 Spec）
+- 位置：plan.md:57-63、:25、:46-49；`docs/specs/ui/agent-conversation-view.md:71-72,387`、`docs/specs/ui/markdown-display.md:37`、`docs/specs/ui/prompt-editor.md:68`、`docs/specs/README.md` 注册表
+- 现象：
+  - 提案第 4 节“共享包的默认目录由宿主在引导时一并登记进引擎”。计划第 2 片（引擎）只登记宿主自己的静态文字；共享包几片各自说“自带目录”，没有一片写“宿主在 `web/host/i18n.ts` 里 import 四个包的目录并登记”。
+  - “对 Spec 的预期改动”里列了 `ui/forms.md`，计划共享包部分也只写了 `ui/forms.md`；但 `agent-conversation-view.md:71-72`（`locale: "zh-CN" | "en-US"`）、`:387`（“界面文字是包内的中英两份……宿主与插件登记的文字同样写中英两份”）、`markdown-display.md:37`（`locale: DisplayLocale`）、`prompt-editor.md:68` 都会随这些改动失真；新建 `ui/i18n.md` 还要在 `docs/specs/README.md` 注册表登记。
+  - 组件 `.md` 声明 `state:inject` 后，`docs/standards/code/components.md` 的“计入耦合度：是”会让 nb-ui 约 20 个叶子组件离开无隐藏通道的档位，且“使组件偏离推荐配方的隐藏通道”要在正文写理由（该节要求）；计划只说“声明 `state:inject`”。
+- 为什么是问题：漏登记的目录在共享包片的单元测试里不会暴露（包内测试用最小实现），到宿主里才缺键；Spec 与标准文档的失真由 `docs:check`/评审在收尾才发现，返工面比现在改大。
+- 如何核实：`rg -n "中英|locale" docs/specs/ui/agent-conversation-view.md docs/specs/ui/markdown-display.md docs/specs/ui/prompt-editor.md`；读 `docs/standards/code/components.md:65-95`。
+- 建议改法：每个共享包片的清单加“宿主登记该包目录（`web/host/i18n.ts`）+ 宿主级测试：宿主引擎下该包组件的文字随语言切换”；Spec 清单补上述三份与注册表；`state:inject` 的理由写成一段统一文字，并在 `components.md` 里说明“文字端口注入有缺省回退，不影响独立验证”。
+
+### 11. 第 2 片的测试清单少了六条拦截里的两条，“六条默认行为各有一条正式测试”的口径对不上
+- 严重程度：建议（验证）
+- 位置：plan.md:32-34、:75；提案第 4 节六条拦截；t02 报告“t01 要吸收的发现”
+- 现象：提案的六条拦截是 `escapeValue:false`、关 nesting（`$t(`）、`nsSeparator:false`、自走回退链、`count` 必须是有限数字、热重载先注销再登记。第 2 片的测试清单是“缺键、复数、分隔符、热重载、切换语言不重挂载”：没有 `escapeValue`（路径 `a/b` 变 `a&#x2F;b`）与 nesting（目录里的 `$t(other:key)` 取到别的命名空间）。验收映射写的“原型发现的六条默认行为”是 t02 报告里的六条（浅合并、缺键裸名、count 非数字、缺 `_one` 不退 `_other`、分隔符改写、第三方类型不可查），和提案的六条不是同一组，其中第六条（类型）无法写运行期测试，缺 `_one` 一条在第 5 片的目录检查里而不是引擎里。审查实测的 `t("other:title", {ns: "own"})` 取到 `other` 文字，也不在清单里。
+- 另外，共享包用 nb-ui 的最小实现、宿主用 i18next，t02 里“16 个用例两边输出一致”是两者不分叉的唯一保证；计划把最小实现放第 1 片（nb-ui）、引擎放第 2 片（应用），没有指定“一致性测试”放哪一片。
+- 为什么是问题：“六条”指代不明时，验收会被读成“有六个测试”而不是“每条行为被钉住”；缺失的两条恰是安全相关的（`$t(` 跨命名空间取文字、键里的 `ns:` 前缀）。
+- 如何核实：对照提案第 4 节与计划第 2 片的测试行。
+- 建议改法：验收映射改写成“提案第 4 节六条拦截 + 参数校验（500 字截断、非字符串非有限数字）+ `ns:` 前缀不越界各一条测试，加最小实现与引擎的 16 用例一致性测试（放第 2 片，应用包里同时 import 两者）”。
+
+### 12. Haiku 分派没有判据，且实验结论还没出就排进了计划
+- 严重程度：建议（验证、分派）
+- 位置：plan.md:7、:55；Task README“当前状态”
+- 现象：计划称“实验在 `evidences/haiku-experiment.txt`，结论决定第 6 片的分派”，该目录和文件现在都不存在（Task 目录里只有 `README.md`、`plan.md`），README 写的是“在跑”。没有写实验的样本（哪个插件、几处）、通过标准（与主会话产出的 diff 逐条一致？等价检查全绿？）、不够用时的退路（Sonnet 还是主会话）。再加上第 7 条说的“形态手册”缺失，Haiku 的成败会主要取决于手册而不是模型。
+- 为什么是问题：分派决定第 6 片起十余片的节奏与审 diff 的成本，没有判据就是事后凭印象选择。
+- 如何核实：`ls .agents/works/w00028-i18n/tasks/t03-shared-packages-migration/`。
+- 建议改法：实验的判据写进计划：同一个插件（建议 commands 或 html-preview，体量小）让 Haiku、Sonnet 各改一遍，用第 8 条的逐条等价检查与手册里的形态做判据，通过率与耗时记入证据；通过前第 6 片起的分派默认 Sonnet。
+
+### 13. 第 6 片起各插件的字数和顺序对不上源码，lab 与 plugin-sdk 示例的归属不清
+- 严重程度：建议（计划细节）
+- 位置：plan.md:53
+- 现象：计划写“workbench（约 200 处）、projects（190）、explorer（150）、settings（140）、editor（130）、plugins（76）、lab（61）”。在 `packages/neuro-book` 里按“含 `"en-US"` 的行”数（排除 `.test.`）：projects 191、workbench 156、explorer 150、editor 124、settings 96、lab 77、plugins 73、`src/ui` 28、`src/web` 11、`plugin-sdk` 28。计划里数字显然含测试文件，排序也因此不同（按非测试文字量 projects 在 workbench 前）；`plugin-sdk` 28 行属于“收尾几片”里的 9 个示例，不在列表里。
+- 为什么是问题：数字用来估时和分派；含不含测试没有说，Lab 的 77 行是否也要翻译成约定键（Lab 是开发工具，多数是 fixture 文案）没有说。
+- 如何核实：`git ls-files src/plugins/<插件> | grep -vE '\.test\.' | xargs grep -h '"en-US"' | wc -l`。
+- 建议改法：写明口径（非测试、按行）；决定 Lab 的 fixture 文案是否随迁移（建议保留内联，只迁 Lab 外壳自己的界面文字）。
+
+### 14. “每片先改 Spec 再改代码、单独提交”与仓库规则冲突：Spec 与记录只在主工作区 master 改
+- 严重程度：建议（流程）
+- 位置：plan.md:9；`AGENTS.md`“文档真相源”（“Spec、提案与 Task 记录在主工作区的 `master` 上更新；在 worktree 里写代码时，读这些文档也读主工作区的那份”）；`docs/standards/repository-workflow.md:26`
+- 现象：计划“代码在 Work 分支 `feat/w00028-t03-catalogs` 的 worktree 里改；每片先改 Spec 再改代码、自跑验证、单独提交”，字面是 Spec 和代码一起在分支上提交。仓库规则相反：Spec 在 master 改，分支只放代码。计划涉及 20 多份 Spec，开发者可能同时在 master 上改其中的同一批（`workbench/commands.md`、`settings/configuration.md`）。
+- 为什么是问题：Spec 改动随分支合入时与 master 上的改动冲突，而 Spec 先于代码是 `writing-specs` 的顺序要求，分支上先提交 Spec 又违反“Spec 在 master”。
+- 如何核实：读 `AGENTS.md` 该段。
+- 建议改法：计划写明：每片开始时在主工作区 master 上以路径限定提交该片的 Spec（`status: planned` 或相应成熟度），代码在 worktree 分支提交；晋升与证据标签也在 master。
+
+补正：第 4 条里“ADR/Spec 写明依赖方向是单向的”不准确。`docs/specs/settings/configuration.md:243` 写的是“命令系统、工作台与项目界面依赖 `settingsKey` 取显示语言；配置核心不依赖它们”，也就是其它插件依赖设置服务；宿主层（`src/web/host`）当前不引用设置服务是代码现状，不是 Spec 的规定。该条结论（引擎的语言由谁驱动没有写）不变。
+
+## 未发现问题的方面
+- 技术选型：用 i18next 26.5、自写点号路径类型与 t02 原型一致，没发现需要质疑的地方（唯一的缺口是参数名无法类型检查，提案已承认）。
+- 第 1 片的 `TextRef` 判别（先看 `kind` 再看语言标签）与提案一致；`kind` 作为四个字母不是合法语言子标签，判别成立。
+- 第 2 片“语言记录照 `appearance-hint.ts`”的做法（内联脚本与模块各写一份、测试核对）与现有先例一致，没有发现冲突。
+- 切片顺序“端口、引擎 ➜ schema ➜ 目录交付 ➜ 约定键 ➜ 逐插件迁移 ➜ SDK”总体方向成立；问题在第 3 片的体量和共享包/语言类型的片内顺序（第 1、2、5 条）。
+
+## 数量
+- 阻断 0；重要 9（第 1、2、3、4、5、6、7、8、9 条）；建议 5（第 10、11、12、13、14 条）。
+
+## 对计划里“留给后面决定”的几处的判断（计划正文没有“待定项”一节）
+- Haiku 实验：没有判据、实验也没出结果，不能作为第 6 片分派的依据；先写判据（第 12 条），默认 Sonnet。
+- JSON 目录导入方式（README 说明 vs `.ts` 包装）：提案留给实施，计划没选；发布前必须选，并用 `node16` 消费方 typecheck 验证（第 9 条）。
+- “当前语言加源语言”的体积预算：计划放在收尾片、体积实测之后才写；这会让第 2 片“一次取齐所有语言”的做法没有预算约束就铺到 1180 处文字，建议在第 2 片末先实测一次宿主目录体积（可用 t02 的 `bun build` 命令）并记下基线。
+
+结论：计划暂不宜原样开工；先处理第 1 到第 5 条（第 3 片的行为变化与体量、`TextSchema` 与服务端的边界、引擎的语言来源、语言类型的锁步改法），第 1、2 片本身可以先开工。
+
+有效发现编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
