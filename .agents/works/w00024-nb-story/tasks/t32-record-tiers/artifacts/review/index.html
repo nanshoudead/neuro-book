@@ -17,6 +17,44 @@ img{max-width:100%;border:1px solid #ddd;border-radius:6px}.muted{color:#777;fon
 <h1>记录分级：查看器怎么显示等级</h1>
 <p class="muted">下面都是真实的查看器页面（样例书《转生反派萝莉，找茬魔法少女》到第 20 章、西游记 100 回图到第 20 回），在页面上叠了等级色块与折叠条做成的静态稿，不是已实现的功能。说法的等级用了 t28 里模型两遍标注的第一遍作为“先验”、程序算的后验证据合并得出，所以带“待证实”“伏笔候选”标签；西游记是没有先验的旧书，只有程序等级。</p>
 
+
+<section>
+  <h2>第 2 轮：依据弹出层（2026-10-27）</h2>
+  <p>按第 1 轮的意见重做：弹出层用 nb-ui 的浮层材质（和查看器里别的弹出面板同一种玻璃底），先写一句人话说清“为什么是这一级”，再列证据；对人没意义的数字（对象后文出场次数、分数）不再出现。图里的等级和依据都是真实计算结果：样例书读到第 20 章，“带先验”那本把 t28 第一遍的模型标注当作抽取时的先验，“旧书”那本没有先验。色块和弹出层是叠在真实页面上的，还不是实现。</p>
+  <p class="muted">五种情况：待证实（模型说主线、后文没再提）、伏笔候选（模型说琐碎、后文反复提到）、模型判断与后文相符、刚读到看不出、旧书没有先验。“后文又提到”是程序在后文找到的与这条说法用词相同的片段（已去掉人名），所以会出现“世界上最”“并表示自己”这类不成词的片段，这是程序信号本身的局限。</p>
+</section>
+
+<section data-nbdev-question="explain-layout" data-nbdev-type="single" data-nbdev-recommend="sentence">
+  <h2><span class="badge" data-nbdev-skip>待定</span>4. 弹出层的写法</h2>
+  <div class="cand" data-nbdev-option="sentence" data-nbdev-label="A 一句结论加两行证据">
+    <h3>A 一句结论，下面两行“后文引用”“后文又提到”</h3>
+    <div class="grid"><div><img src="r2/A-unconfirmed.webp" alt="待证实"><p class="muted">待证实</p></div><div><img src="r2/A-foreshadow.webp" alt="伏笔候选"><p class="muted">伏笔候选</p></div></div>
+    <div class="grid"><div><img src="r2/A-kept.webp" alt="模型判断与后文相符"><p class="muted">模型判断与后文相符</p></div><div><img src="r2/A-recent.webp" alt="刚读到，看不出"><p class="muted">刚读到，看不出</p></div></div>
+    <div class="grid"><div><img src="r2/A-noprior.webp" alt="旧书，没有先验"><p class="muted">旧书，没有先验</p></div></div>
+    <p class="rec">我的推荐：A。结论句已经说了先验与证据怎么合成，下面只列可核对的证据，短。</p>
+  </div>
+  <div class="cand" data-nbdev-option="details" data-nbdev-label="B 一句结论加可收起的“依据”（含模型的判断与证据档）">
+    <h3>B 一句结论，下面一块可收起的“依据”：抽取时模型的判断、后文证据（多、有一点、没有、还看不出）、引用、又提到</h3>
+    <div class="grid"><div><img src="r2/B-unconfirmed.webp" alt="待证实"><p class="muted">待证实</p></div><div><img src="r2/B-foreshadow.webp" alt="伏笔候选"><p class="muted">伏笔候选</p></div></div>
+    <div class="grid"><div><img src="r2/B-kept.webp" alt="模型判断与后文相符"><p class="muted">模型判断与后文相符</p></div><div><img src="r2/B-noprior.webp" alt="旧书，没有先验"><p class="muted">旧书，没有先验</p></div></div>
+    <p class="muted">更完整，但“后文证据：有一点”这类档位和结论句重复，弹出层更长。</p>
+  </div>
+</section>
+
+<section data-nbdev-question="explain-phrases" data-nbdev-type="single" data-nbdev-recommend="yes-no">
+  <h2><span class="badge" data-nbdev-skip>待定</span>5. “后文又提到”要不要列出片段</h2>
+  <p>程序找到的片段常是“世界上最”“并表示自己”这种不成词的字串，看了反而让人怀疑。下面左右两张是同一条（伏笔候选）的两种写法。</p>
+  <div class="grid">
+    <div class="cand" data-nbdev-option="phrases" data-nbdev-label="列出片段"><div><img src="r2/A-foreshadow.webp" alt="列出片段"><p class="muted">列出片段</p></div></div>
+    <div class="cand" data-nbdev-option="yes-no" data-nbdev-label="只写“有”或“没有”"><div><img src="r2/A2-foreshadow.webp" alt="只写有或没有"><p class="muted">只写有或没有</p></div></div>
+  </div>
+  <p class="rec">我的推荐：只写“有”或“没有”。片段对判断帮不上忙；要核对时用命令行 <code>nbstory why</code> 仍能看到片段。</p>
+</section>
+
+<section data-nbdev-question="notes-r2" data-nbdev-type="text" data-nbdev-optional>
+  <h2>其他想法（第 2 轮，选答）</h2>
+</section>
+
 <section>
   <h2>现状与已有的先例</h2>
   <p>人物页已经有一个折叠：主要人物之后的“其他”按出场数排，最后一行蓝字“展开次要（34）”。分级的折叠可以沿用这个说法和样子，不另造一套。</p>
@@ -24,7 +62,7 @@ img{max-width:100%;border:1px solid #ddd;border-radius:6px}.muted{color:#777;fon
 </section>
 
 <section data-nbdev-question="fold-style" data-nbdev-type="single" data-nbdev-recommend="fold">
-  <h2><span class="badge" data-nbdev-skip>待定</span>1. 次要记录怎么折叠</h2>
+  <h2><span class="badge done" data-nbdev-skip>已定</span>1. 次要记录怎么折叠（第 1 轮）</h2>
   <p>以人物卡“关于他的”说法列表为例（南小风，到第 20 章）。三种候选，色块和小标签都有，差别只在 3 级怎么处理。</p>
   <div class="cand" data-nbdev-option="dim" data-nbdev-label="A 全部显示，3 级淡显">
     <h3>A 全部显示，3 级淡显，顶部三档筛选条（默认“全部”）</h3>
@@ -44,7 +82,7 @@ img{max-width:100%;border:1px solid #ddd;border-radius:6px}.muted{color:#777;fon
 </section>
 
 <section data-nbdev-question="fold-pages" data-nbdev-type="single" data-nbdev-recommend="statements-entities">
-  <h2><span class="badge" data-nbdev-skip>待定</span>2. 哪些页折叠</h2>
+  <h2><span class="badge done" data-nbdev-skip>已定</span>2. 哪些页折叠（第 1 轮）</h2>
   <p>说法（人物卡的记录、关系说明）和对象列表适合折叠。情节要小心：下图是西游记情节页，用<b>程序等级</b>折叠 3 级后，第 1 到 3 回（石猴出生、拜师学艺、龙宫取兵器）全被折叠，第 4 到 8 回只剩 2 级。程序不知道“开头的故事”本身重要。情节没有先验时折叠会误伤主线，而情节页每章本来只有几条，已经很紧凑。</p>
   <div class="grid"><div><img src="r1/episodes-A-dim.webp" alt="情节页 淡显"><p class="muted">情节页：只标色块、3 级淡显（不折叠）</p></div><div><img src="r1/episodes-B-fold.webp" alt="情节页 折叠"><p class="muted">情节页：折叠 3 级，第 1 到 3 回整章消失</p></div></div>
   <div class="cand" data-nbdev-option="statements-entities" data-nbdev-label="只折叠说法与对象；情节只标色块、不折叠">
@@ -57,14 +95,14 @@ img{max-width:100%;border:1px solid #ddd;border-radius:6px}.muted{color:#777;fon
 </section>
 
 <section data-nbdev-question="explain-ui" data-nbdev-type="confirm" data-nbdev-label="认可色块加小标签加点色块看依据的做法">
-  <h2><span class="badge" data-nbdev-skip>待确认</span>3. 等级色块、小标签与“为什么是这一级”</h2>
+  <h2><span class="badge done" data-nbdev-skip>已定</span>3. 等级色块、小标签与“为什么是这一级”</h2>
   <p>每条记录前有一个色块；点它弹出依据：先验、后验证据（引用数、事件词组在后文回响了几个）、合并规则、最终等级。后验按你<b>当前读到的位置</b>只数之前的内容，所以往回拨阅读位置，同一条记录的等级可能变。</p>
   <img src="r1/card-explain.webp" alt="依据弹出层">
   <p class="muted">依据里“涉及对象后文出场 656 次”这类数字是计算信号的一部分，权重很小；实现时我会把对人没意义的数字收起来，只写“有没有被后文引用或再提起”这类人话。</p>
 </section>
 
 <section data-nbdev-question="notes" data-nbdev-type="text" data-nbdev-optional>
-  <h2>其他想法（选答）</h2>
+  <h2>其他想法（第 1 轮，选答）</h2>
 </section>
 </body>
 </html>

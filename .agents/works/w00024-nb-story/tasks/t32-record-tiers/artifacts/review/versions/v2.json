@@ -1,0 +1,176 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t32-record-tiers",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "t32 记录分级：查看器怎么显示等级",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "330fbc0a93f65c65a4be538f1a4d48c00c7bf39b8a65bb4b8b86cb8a289aaf41",
+    "files": [
+        "index.html",
+        "r1/card-A-dim.webp",
+        "r1/card-B-fold.webp",
+        "r1/card-B-open.webp",
+        "r1/card-C-seg.webp",
+        "r1/card-explain.webp",
+        "r1/episodes-A-dim.webp",
+        "r1/episodes-B-fold.webp",
+        "r2/A-foreshadow.webp",
+        "r2/A-kept.webp",
+        "r2/A-noprior.webp",
+        "r2/A-recent.webp",
+        "r2/A-unconfirmed.webp",
+        "r2/A2-foreshadow.webp",
+        "r2/B-foreshadow.webp",
+        "r2/B-kept.webp",
+        "r2/B-noprior.webp",
+        "r2/B-unconfirmed.webp"
+    ],
+    "questions": [
+        {
+            "id": "fold-style",
+            "type": "single",
+            "label": "1. 次要记录怎么折叠（第 1 轮）",
+            "options": [
+                {
+                    "value": "dim",
+                    "label": "A 全部显示，3 级淡显"
+                },
+                {
+                    "value": "fold",
+                    "label": "B 默认折叠 3 级，列表顶部“展开次要（N）”"
+                },
+                {
+                    "value": "seg",
+                    "label": "C 顶部三档分段控件：全部 / 重要及以上 / 只看主线"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "fold"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "fold-pages",
+            "type": "single",
+            "label": "2. 哪些页折叠（第 1 轮）",
+            "options": [
+                {
+                    "value": "statements-entities",
+                    "label": "只折叠说法与对象；情节只标色块、不折叠"
+                },
+                {
+                    "value": "all",
+                    "label": "说法、对象、情节都折叠"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "statements-entities"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "explain-ui",
+            "type": "confirm",
+            "label": "认可色块加小标签加点色块看依据的做法",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "notes",
+            "type": "text",
+            "label": "其他想法（第 1 轮，选答）",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "explain-layout",
+            "type": "single",
+            "label": "4. 弹出层的写法",
+            "options": [
+                {
+                    "value": "sentence",
+                    "label": "A 一句结论加两行证据"
+                },
+                {
+                    "value": "details",
+                    "label": "B 一句结论加可收起的“依据”（含模型的判断与证据档）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "sentence"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "explain-phrases",
+            "type": "single",
+            "label": "5. “后文又提到”要不要列出片段",
+            "options": [
+                {
+                    "value": "phrases",
+                    "label": "列出片段"
+                },
+                {
+                    "value": "yes-no",
+                    "label": "只写“有”或“没有”"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "yes-no"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "notes-r2",
+            "type": "text",
+            "label": "其他想法（第 2 轮，选答）",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-27T15:23:49.899Z"
+}
