@@ -17,6 +17,7 @@ import {useRouter} from "vue-router";
 import type {IngestPlanView} from "../../contract/contract";
 import {StoryCallError, useStoryClient} from "../host/client";
 import ThemeMenu from "../parts/ThemeMenu.vue";
+import GraphImport from "./GraphImport.vue";
 
 const client = useStoryClient();
 const router = useRouter();
@@ -261,6 +262,7 @@ async function start(): Promise<void> {
                     <span v-if="plan && plan.action !== 'done'" class="text-[length:var(--text-xs)] text-[var(--text-muted)]">开始后可以离开这一页，进度在书架和进度页上</span>
                 </div>
             </template>
+            <GraphImport />
         </div>
     </main>
 </template>

@@ -10,6 +10,11 @@
  * 才撤销服务登记、停监听。
  */
 
+import {mkdtemp, rm, writeFile} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {gunzipSync} from "node:zlib";
+
 import {schemaProblems} from "../core/api";
 import {StoryError, type StoryErrorCode} from "../core/errors";
 import {bookIdFromTitle, type Library} from "../core/library";
@@ -21,8 +26,9 @@ import {ingestStatus, ingestStatuses} from "../ingest/status";
 import {decodeUtf8, MAX_SOURCE_BYTES} from "../ingest/text";
 import {ingestModel, loadQaConfig, recallModel, type QaConfig} from "../qa/config";
 import {QaError, type QaErrorCode} from "../qa/errors";
+import {AGENT_SKILL_DIRS, installSkill, SKILL_SOURCE, SkillInstallError, skillTarget, type SkillErrorCode} from "../cli/skill";
 
-export type IngestOutcome<M extends IngestMethod> = {ok: true; value: ViewerResult<M>} | {ok: false; error: {code: StoryErrorCode | QaErrorCode; message: string}};
+export type IngestOutcome<M extends IngestMethod> = {ok: true; value: ViewerResult<M>} | {ok: false; error: {code: StoryErrorCode | QaErrorCode | SkillErrorCode; message: string}};
 
 export interface IngestService {
     call<M extends IngestMethod>(method: M, params: unknown): Promise<IngestOutcome<M>>;
@@ -141,7 +147,52 @@ export function createIngestService(options: {library: Library; configPath?: str
         return {books: [one]};
     }
 
+    /** V9 记忆图文件：base64 解码（gzip 压缩的先解开），写到临时目录里交给书库导入，导入完删掉临时文件。 */
+    async function importGraph(params: ViewerParams<"book.importGraph">): Promise<ViewerResult<"book.importGraph">> {
+        if (params.content.length % 4 !== 0 || !BASE64.test(params.content)) throw new StoryError("invalid_params", "content 不是 base64");
+        const bytes = (params.content.length / 4) * 3;
+        if (bytes > MAX_SOURCE_BYTES) throw new StoryError("ingest_bad_text", `文件超过 32 MiB 的上限`);
+        let raw = Buffer.from(params.content, "base64");
+        if (raw.length >= 2 && raw[0] === 0x1f && raw[1] === 0x8b) {
+            try {
+                raw = gunzipSync(raw, {maxOutputLength: 4 * MAX_SOURCE_BYTES});
+            } catch {
+                throw new StoryError("invalid_params", "gzip 文件解不开");
+            }
+        }
+        let title = params.title;
+        if (title === undefined) {
+            try {
+                const meta = (JSON.parse(raw.toString("utf8")) as {book?: {title?: unknown}}).book?.title;
+                if (typeof meta === "string" && meta !== "") title = meta;
+            } catch {
+                throw new StoryError("invalid_params", "文件不是 JSON，不是 V9 记忆图");
+            }
+        }
+        title ??= params.id;
+        if (title === undefined) throw new StoryError("invalid_params", "文件里没有书名，请给书名（title）或书 id（id）");
+        const dir = await mkdtemp(join(tmpdir(), "nbstory-import-"));
+        try {
+            const file = join(dir, "graph.json");
+            await writeFile(file, raw);
+            const imported = await library.importBook({file, title, ...(params.id === undefined ? {} : {id: params.id})});
+            return {id: imported.id};
+        } finally {
+            await rm(dir, {recursive: true, force: true});
+        }
+    }
+
+    async function installSkillFor(params: ViewerParams<"skill.install">): Promise<ViewerResult<"skill.install">> {
+        // 只认固定的两个位置：网页不能指定目录（命令行的 --dir 不给网页）。
+        if (!Object.hasOwn(AGENT_SKILL_DIRS, params.agent)) throw new StoryError("invalid_params", `agent 只能是 ${Object.keys(AGENT_SKILL_DIRS).join("、")}`);
+        const target = skillTarget({agent: params.agent});
+        const result = await installSkill(SKILL_SOURCE, target, params.force === true);
+        return {state: result.state, path: target, ...(result.leftover === undefined ? {} : {leftover: result.leftover})};
+    }
+
     const handlers: {[M in IngestMethod]: (params: ViewerParams<M>) => Promise<ViewerResult<M>>} = {
+        "book.importGraph": importGraph,
+        "skill.install": installSkillFor,
         "ingest.preview": preview,
         "ingest.start": start,
         "ingest.stop": stop,
@@ -159,7 +210,7 @@ export function createIngestService(options: {library: Library; configPath?: str
                 if (broken) throw new Error(`${method} 的结果不符合合同：${broken}`);
                 return {ok: true, value: value as ViewerResult<typeof method>};
             } catch (error) {
-                if (error instanceof StoryError || error instanceof QaError) return {ok: false, error: {code: error.code, message: error.message}};
+                if (error instanceof StoryError || error instanceof QaError || error instanceof SkillInstallError) return {ok: false, error: {code: error.code, message: error.message}};
                 throw error;
             }
         },

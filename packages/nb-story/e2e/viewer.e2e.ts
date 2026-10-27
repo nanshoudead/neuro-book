@@ -3,6 +3,10 @@
  * 100 章样例书，本机 Chrome。图画在 WebGL 画布上，读不到点和字：图的数据由核心库的测试覆盖，这里测画布与交互的外部效果。
  */
 
+import {mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+
 import {expect, test, type Page} from "@playwright/test";
 
 import {login, makeLibrary, readingState, runCli, startServe, type StoryServer} from "./fixtures";
@@ -440,6 +444,75 @@ test("关系图的控件选择刷新后保留（输出 22，反馈 4）：类别
     await expect(page.locator('[data-layer="co"]')).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("checkbox", {name: "显示无名角色"})).not.toBeChecked();
     await expect(page.getByTestId("page-error")).toHaveCount(0);
+});
+
+test("导入记忆图文件（输出 54，t29）：导入页选 V9 的 JSON 导入后跳到新书；同 id 再导入报已存在；不是记忆图的文件报错", async ({page}) => {
+    await login(page.context(), server);
+    await page.goto(`${server.base}/import`);
+    const sample = `${server.library}/../sample.json`;
+    await page.getByTestId("graph-import-file").setInputFiles(sample);
+    await expect(page.getByTestId("graph-import-name")).toContainText("sample.json");
+    await page.getByTestId("graph-import-title").fill("网页导入的一本");
+    await page.getByTestId("graph-import-submit").click();
+    await expect(page).toHaveURL(/\/book\/web-dao-ru-de-yi-ben|\/book\/[^/]+/u);
+    await expect(page.getByTestId("book-title")).toContainText("网页导入的一本");
+    // 同书名再导入：书 id 相同，报已存在。
+    await page.goto(`${server.base}/import`);
+    await page.getByTestId("graph-import-file").setInputFiles(sample);
+    await page.getByTestId("graph-import-title").fill("网页导入的一本");
+    await page.getByTestId("graph-import-submit").click();
+    await expect(page.getByTestId("graph-import-error")).toContainText("已有同 id 的书");
+    // 不是记忆图的文件。
+    await page.getByTestId("graph-import-file").setInputFiles({name: "bad.json", mimeType: "application/json", buffer: Buffer.from("{}")});
+    await page.getByTestId("graph-import-title").fill("坏文件");
+    await page.getByTestId("graph-import-submit").click();
+    await expect(page.getByTestId("graph-import-error")).toContainText("不是 V9 记忆图文件");
+});
+
+test("删除一本书（输出 54，t29）：书架每本书有删除按钮，确认后这本书从书架消失；取消不删", async ({page}) => {
+    const sample = `${server.library}/../sample.json`;
+    expect((await runCli(["import", sample, "--title", "待删的书", "--id", "to-remove", "--library", server.library])).code).toBe(0);
+    await login(page.context(), server);
+    await page.goto(`${server.base}/`);
+    const row = page.locator('[data-testid="shelf-row"][data-book="to-remove"]');
+    await expect(row).toBeVisible();
+    await row.getByTestId("shelf-remove").click();
+    await expect(page.getByRole("alertdialog")).toContainText("待删的书");
+    await page.getByRole("button", {name: "取消"}).click();
+    await expect(row).toBeVisible();
+    await row.getByTestId("shelf-remove").click();
+    await page.getByRole("button", {name: "删除", exact: true}).click();
+    await expect(row).toHaveCount(0);
+    // 别的书不受影响。
+    await expect(page.locator('[data-testid="shelf-row"][data-book="fox"]')).toBeVisible();
+});
+
+test("安装 Skill（输出 54，t29）：设置页点安装得到已安装、再点没有改动；内容被改过要点“换成随包的内容”才替换；装进用例自己的家目录", async ({page}) => {
+    const home = await mkdtemp(join(tmpdir(), "nbstory-e2e-home-"));
+    // 自己的书库与服务（一个书库同时只有一个服务）；家目录指到临时目录，不碰真实的用户目录。
+    const mine = await makeLibrary("skill");
+    const own = await startServe(mine.library, {HOME: home, USERPROFILE: home});
+    try {
+        await login(page.context(), own);
+        await page.goto(`${own.base}/settings`);
+        await page.getByTestId("skill-install-claude").click();
+        await expect(page.getByTestId("skill-result-claude")).toContainText("已安装");
+        await expect(page.getByTestId("skill-result-claude")).toContainText(join(home, ".claude", "skills", "nbstory"));
+        await page.getByTestId("skill-install-claude").click();
+        await expect(page.getByTestId("skill-result-claude")).toContainText("没有改动");
+        await writeFile(join(home, ".claude", "skills", "nbstory", "SKILL.md"), "被改过\n");
+        await page.getByTestId("skill-install-claude").click();
+        await expect(page.getByTestId("skill-result-claude")).toContainText("内容不同");
+        expect(await readFile(join(home, ".claude", "skills", "nbstory", "SKILL.md"), "utf8")).toBe("被改过\n");
+        await page.getByTestId("skill-force-claude").click();
+        await expect(page.getByTestId("skill-result-claude")).toContainText("已换成随包的内容");
+        // Codex 那一行没动。
+        await expect(page.getByTestId("skill-result-codex")).toHaveCount(0);
+    } finally {
+        await own.stop();
+        await mine.cleanup();
+        await rm(home, {recursive: true, force: true});
+    }
 });
 
 test("明暗切换与设置入口（输出 34，t27）：书架、导入、设置页顶部都有明暗切换，同一份偏好；书页导航底部的设置入口打开设置页，返回回到原来的页", async ({page}) => {
