@@ -30,12 +30,12 @@ import {join} from "node:path";
 import {Type} from "typebox";
 import {Compile} from "typebox/compile";
 
-import {AnswerSchema, ChaptersSchema, QaAnswerModeSchema, QaFailureSchema, QaModeSchema, QaPositionSchema, QaStatusSchema, QaTurnSchema, QaUsageSchema, type Answer, type QaAnswerMode} from "../contract/qa-record";
+import {currentPosition, highestPosition, AnswerSchema, ChaptersSchema, QaAnswerModeSchema, QaFailureSchema, QaModeSchema, QaPositionSchema, QaStatusSchema, QaTurnSchema, QaUsageSchema, type Answer, type QaAnswerMode} from "../contract/qa-record";
 import type {Position} from "./dataset";
 import {StoryError, systemErrorCode} from "./errors";
 import type {Library} from "./library";
 
-export {AnswerSchema, type Answer};
+export {AnswerSchema, currentPosition, highestPosition, type Answer};
 
 export type QaStatus = "answered" | "failed" | "interrupted";
 export type QaMode = "graph" | "full";
@@ -117,23 +117,6 @@ export interface QaConversation {
     log: {file: string; sha256: string} | null;
     /** ISO 8601，第一轮的开始时间。 */
     startedAt: string;
-}
-
-/**
- * 这个对话下一问用的阅读位置：改过位置的取 `currentAt`，没改过的取最后一轮用的位置，旧记录再回落到对话开始时的 `at`。
- * 引擎、`qa.get`、`qa.list`、命令行、页面的位置控件与新提醒里的“从 A”都用这一个规则。
- */
-export function currentPosition(conversation: Pick<QaConversation, "at" | "currentAt" | "turns">): Position {
-    return conversation.currentAt ?? conversation.turns.at(-1)?.at ?? conversation.at;
-}
-
-/**
- * 整个对话出现过的最高位置：开始时的位置、每一轮用的位置与当前位置里最靠后的。剧透警告（列表的“晚于你现在的位置”、页头
- * 高亮）按它判断：位置往回调不能解除旧答案里可能带着后文的警告。
- */
-export function highestPosition(conversation: Pick<QaConversation, "at" | "currentAt" | "turns">): Position {
-    const all = [conversation.at, ...conversation.turns.flatMap(item => (item.at === undefined ? [] : [item.at])), ...(conversation.currentAt === undefined ? [] : [conversation.currentAt])];
-    return all.reduce((best, item) => (item.chapter > best.chapter || (item.chapter === best.chapter && item.paragraph > best.paragraph) ? item : best));
 }
 
 /** 没保存的原因：书删了或换了代、格式不认识只读、对话在这一轮期间被别人改了或删了。 */

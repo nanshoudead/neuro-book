@@ -366,7 +366,7 @@ describe("运行中删除书（“时序与寿命”、验收 7）", () => {
     });
 });
 
-describe("对话中途改阅读位置（输出 53，t25）", () => {
+describe("对话中途改阅读位置（输出 41，t25）", () => {
     /** 第一轮：P 是 38.57，读第 26 章前三段并交卷；返回对话 id。 */
     async function firstTurn(options: {mode?: "graph" | "full"} = {}) {
         const steps = options.mode === "full" ? [answer({evidence: ["1.1"]})] : [[read("r1", {chapter: 26, paragraph: 1}, {chapter: 26, paragraph: 3})], answer({evidence: ["26.1"]})];
