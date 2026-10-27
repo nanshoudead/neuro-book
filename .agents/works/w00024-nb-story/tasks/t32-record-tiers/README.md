@@ -15,11 +15,11 @@ updated: 2026-10-27
 
 ## 当前状态
 
-2026-10-27 计划已写并经开发者确认（[plan.md](plan.md)），交 omp 做设计审查；界面静态稿等审查处理后出，放 nbdev 评审板。
+2026-10-27 设计审查处理完（[plan.md](plan.md)），开发者确认后按 autonomous-delivery 实施，worktree `.worktree/w00024-t32`、分支 `feat/w00024-t32-record-tiers`。第 1 片（`core/tiers.ts`：后验、规则表、截断对照）已提交 `b0ea0bd56`，校准见 [calibration.txt](evidences/calibration.txt)。
 
 ## 下一步
 
-设计审查 → 处理 → 切片 0（静态稿）与切片 1、2 并行。
+第 2 片：查询合同、`entity.statements` 的 `maxTier` 与 `tiers`、`tier.explain`、命令行与 Skill、问答不变、Spec。
 
 ## 背景与已定方向
 
