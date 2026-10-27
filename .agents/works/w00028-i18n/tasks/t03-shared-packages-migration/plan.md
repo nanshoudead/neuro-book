@@ -8,7 +8,7 @@
 
 开发者已确认的决定：提案的决策记录；w00028 Work README“方向”；w00031 Work README 第 8、9、11 条。简单迁移的分派按 [Haiku 实验](evidences/haiku-experiment.txt) 的结论（`~/.claude/CLAUDE.md` 分派表已更新）。
 
-工作方式：自主推进；代码在 Work 分支 `feat/w00028-t03-catalogs` 的 worktree 里改；每片先改 Spec（按 `writing-specs`）再改代码、自跑验证、单独提交；跨合同的改动（schema、版本、调用方、Spec）放在同一片里原子提交。
+工作方式：自主推进；代码在 Work 分支 `feat/w00028-i18n`（worktree `.worktree/w00028-i18n`） 的 worktree 里改；每片先改 Spec（按 `writing-specs`）再改代码、自跑验证、单独提交；跨合同的改动（schema、版本、调用方、Spec）放在同一片里原子提交。
 
 ## 技术选型
 
