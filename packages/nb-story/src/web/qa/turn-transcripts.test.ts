@@ -19,7 +19,7 @@ const noKey = (seq: number) => entry(seq, "run_end", {stopReason: "error", error
 const turn = (question: string, logFrom: number) => ({question, logFrom, startedAt: AT});
 
 const shown = (messages: readonly MessageView[]) =>
-    messages.map(message => (message.kind === "user" ? `问:${(message.blocks[0] as {text: string}).text}` : message.kind === "assistant" ? `答:${message.text}(${message.status})` : `错:${message.kind}`));
+    messages.map(message => (message.kind === "user" ? `问:${(message.blocks[0] as {text: string}).text}` : message.kind === "assistant" ? `答:${message.text}(${message.status})` : message.kind === "system" ? `系统:${message.label}:${message.text}` : `错:${message.kind}`));
 
 describe("按轮分开", () => {
     test("答完一轮 → 第二轮开始前就停了 → 第三轮正常：第一轮的回复不变，第二轮单独一条已停止", () => {
@@ -43,3 +43,30 @@ describe("按轮分开", () => {
         expect(shown(transcripts.messages())).toEqual(["问:第一问", "答:第一答(done)", "答:正在(streaming)"]);
     });
 });
+
+describe("对话中途改阅读位置的提醒（t25）", () => {
+    const REMINDER = "<system-reminder>\n阅读位置从第 27 章改为第 40 章。你可以访问第 40 章及之前的内容了。\n</system-reminder>";
+    const position = (seq: number) => entry(seq, "meta", {key: "qa.position", value: {chapter: 40, paragraph: 10, from: {chapter: 27, paragraph: 10}}});
+    const head = entry(1, "session_snapshot", {profile: {key: "q", version: "2"}, initial: {}, tools: []});
+
+    test("提醒消息后面紧跟 qa.position 元数据：显示成一条可展开的系统提醒，放在上一轮末尾，不开新的一轮、不被当成复查消息", () => {
+        const turns = [turn("第一问", 1), turn("第二问", 6)];
+        const transcripts = createTurnTranscripts(turns.map(item => item.logFrom));
+        for (const item of [head, user(2, "第一问"), reply(3, "第一答"), user(4, REMINDER), position(5), user(6, "第二问"), reply(7, "第二答")]) transcripts.applyLogEntry(item);
+        expect(shown(composeMessages(transcripts.messages(), {conversationId: "c", turns, running: null}, createMessageCache()))).toEqual([
+            "问:第一问",
+            "答:第一答(done)",
+            "系统:系统提醒:阅读位置从第 27 章改为第 40 章。你可以访问第 40 章及之前的内容了。",
+            "问:第二问",
+            "答:第二答(done)",
+        ]);
+    });
+
+    test("用户自己把同样的标签当问题提交：没有紧跟的元数据，就是一条普通的提问，不冒充系统提醒", () => {
+        const turns = [turn(REMINDER, 1)];
+        const transcripts = createTurnTranscripts(turns.map(item => item.logFrom));
+        for (const item of [head, user(2, REMINDER), reply(3, "答")]) transcripts.applyLogEntry(item);
+        expect(shown(composeMessages(transcripts.messages(), {conversationId: "c", turns, running: null}, createMessageCache()))).toEqual([`问:${REMINDER}`, "答:答(done)"]);
+    });
+});
+

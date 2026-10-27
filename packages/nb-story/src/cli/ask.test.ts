@@ -237,9 +237,28 @@ describe("nbstory ask 的文字回复与追问（输出 10、12、26，验收 13
         expect(endpoint.bodies[0]!.tools as {function: {name: string}}[]).not.toContainEqual(expect.objectContaining({function: expect.objectContaining({name: "answer"})}));
     });
 
-    test("--continue 与 --at 或 --mode 同时写是用法错误；没有这个对话是 qa_record_not_found", async () => {
+    test("--continue --at 改阅读位置（t25）：这一轮按新位置运行，--json 的 at 是新位置，记录里是两轮；全读对话带 --at 是用法错误（退出 2）", async () => {
+        const {config} = await configFor([{kind: "text", text: "第一轮"}, {kind: "text", text: "第二轮"}, {kind: "text", text: "全读的第一轮"}]);
+        const first = await run(["ask", "第一问", "--at", "30", "--config", config, "--json"]);
+        expect(first.code).toBe(0);
+        const id = (JSON.parse(first.stdout) as {data: {id: string}}).data.id;
+        const second = await run(["ask", "第二问", "--continue", id, "--at", "35", "--config", config, "--json"]);
+        expect(second.code).toBe(0);
+        expect(JSON.parse(second.stdout)).toMatchObject({ok: true, data: {id, turn: 2, at: {chapter: 35}}});
+        const full = await run(["ask", "全读", "--at", "30", "--mode", "full", "--config", config, "--json"]);
+        expect(full.code).toBe(0);
+        const fullId = (JSON.parse(full.stdout) as {data: {id: string}}).data.id;
+        const refused = await run(["ask", "再问", "--continue", fullId, "--at", "20", "--config", config, "--json"]);
+        expect(refused.code).toBe(2);
+        expect(JSON.parse(refused.stdout)).toMatchObject({ok: false, error: {code: "qa_position_fixed"}});
+    }, 30_000);
+
+    test("--continue 与 --mode、--structured 同时写是用法错误；带 --at 是改阅读位置，没有这个对话是 qa_record_not_found", async () => {
         const {config, endpoint} = await configFor([]);
-        expect((await run(["ask", "问", "--continue", "20261016100000000-abcdef", "--at", "38", "--config", config])).code).toBe(2);
+        // --at 现在允许（改位置）：对话不存在时是 qa_record_not_found，不是用法错误。
+        const missingAt = await run(["ask", "问", "--continue", "20261016100000000-abcdef", "--at", "38", "--config", config, "--json"]);
+        expect(missingAt.code).toBe(1);
+        expect(JSON.parse(missingAt.stdout)).toMatchObject({ok: false, error: {code: "qa_record_not_found"}});
         expect((await run(["ask", "问", "--continue", "20261016100000000-abcdef", "--mode", "full", "--config", config])).code).toBe(2);
         expect((await run(["ask", "问", "--continue", "20261016100000000-abcdef", "--structured", "--config", config])).code).toBe(2);
         // 不在候选里的模型、不认识的推理档：用法错误，不发请求。
@@ -251,5 +270,5 @@ describe("nbstory ask 的文字回复与追问（输出 10、12、26，验收 13
         expect(missing.code).toBe(1);
         expect(JSON.parse(missing.stdout)).toMatchObject({ok: false, error: {code: "qa_record_not_found"}});
         expect(endpoint.authorizations).toEqual([]);
-    });
+    }, 30_000);
 });

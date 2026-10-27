@@ -28,6 +28,20 @@ function before(a: Position, b: Position): boolean {
     return a.chapter < b.chapter || (a.chapter === b.chapter && a.paragraph < b.paragraph);
 }
 
+/**
+ * 阅读位置往回调以后，读过的段里晚于新位置的部分不再算读过：整段在新位置之后的丢掉，跨过新位置的截到新位置。位置往后调
+ * 时原样返回。`ReadLedger` 的构造要求读过的段都在阅读位置以内，往回调的续问先过这一步。
+ */
+export function clipRead(read: readonly ReadRange[], at: Position): ReadRange[] {
+    const clipped: ReadRange[] = [];
+    for (const [chapter, from, to] of read) {
+        if (chapter > at.chapter) continue;
+        const end = chapter === at.chapter ? Math.min(to, at.paragraph) : to;
+        if (from <= end) clipped.push([chapter, from, end]);
+    }
+    return clipped;
+}
+
 export class ReadLedger {
     readonly #paragraphs: readonly number[];
     readonly #at: Position;

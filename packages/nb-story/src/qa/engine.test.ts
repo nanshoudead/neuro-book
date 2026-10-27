@@ -14,7 +14,7 @@ import {startEndpoint} from "../../testing/openai-endpoint";
 import {askScripted, prepareScripted, TEST_KEY_ENV, testConfig, toolResults} from "../../testing/qa";
 import {smallDataset} from "../../testing/sample";
 import {newQaRecordId, QaRecords} from "../core/qa-records";
-import {askQuestion, continuationProblem, withoutFullText} from "./engine";
+import {askQuestion, changePosition, continuationProblem, positionReminder, POSITION_META_KEY, withoutFullText} from "./engine";
 import {QaError} from "./errors";
 import {EVENT_RESULT_CHARS} from "./web-events";
 
@@ -363,6 +363,92 @@ describe("运行中删除书（“时序与寿命”、验收 7）", () => {
         } finally {
             await target.close();
         }
+    });
+});
+
+describe("对话中途改阅读位置（输出 41，t25）", () => {
+    /** 第一轮：P 是 38.57，读第 26 章前三段并交卷；返回对话 id。 */
+    async function firstTurn(options: {mode?: "graph" | "full"} = {}) {
+        const steps = options.mode === "full" ? [answer({evidence: ["1.1"]})] : [[read("r1", {chapter: 26, paragraph: 1}, {chapter: 26, paragraph: 3})], answer({evidence: ["26.1"]})];
+        const first = await askScripted(book, steps, {at: P, question: "第一问", ...(options.mode === undefined ? {} : {mode: options.mode}), config: testConfig({maxChapters: 3})});
+        expect(first.outcome.recordSaved).toBe(true);
+        return first.outcome.result.id;
+    }
+    const records = () => new QaRecords(book.api.library, "fox");
+    const generation = async () => (await book.api.library.readMeta("fox")).generation;
+    const textOf = (message: {content: unknown}) => (typeof message.content === "string" ? message.content : (message.content as {text?: string}[]).map(block => block.text ?? "").join(""));
+
+    test("提醒文字：往后调说可以访问，往回调说之后不能访问或引用；停在章末写“第 N 章”，否则写“N.M”", () => {
+        const paragraphs = Array.from({length: 40}, () => 10);
+        expect(positionReminder({chapter: 27, paragraph: 10}, {chapter: 40, paragraph: 10}, paragraphs)).toBe("<system-reminder>\n阅读位置从第 27 章改为第 40 章。你可以访问第 40 章及之前的内容了。\n</system-reminder>");
+        expect(positionReminder({chapter: 40, paragraph: 10}, {chapter: 27, paragraph: 4}, paragraphs)).toBe("<system-reminder>\n阅读位置从第 40 章改为27.4。27.4之后的内容现在不能访问或引用，即使前面的对话里出现过也不要再用。\n</system-reminder>");
+    });
+
+    test("往后调：会话日志追加完整形状的提醒消息与紧跟的 meta，不发模型请求；下一问的请求里提醒与问题是同一条用户消息，能读新位置之前的章", async () => {
+        const id = await firstTurn();
+        const changed = await changePosition({api: book.api, book: undefined, conversation: id, at: {chapter: 40}});
+        expect(changed.changed).toBe(true);
+        expect(changed.conversation).toMatchObject({positionChanges: 1, currentAt: {chapter: 40}});
+        // 会话日志：最后两条是 agent_message（user）与 meta，meta 紧跟其后；原来的一对被换成新的。
+        const stored = await records().getWithLog(id, await generation());
+        expect(stored.log.ok).toBe(true);
+        const lines = (stored.log as {jsonl: string}).jsonl.trim().split("\n").map(line => JSON.parse(line) as {kind: string; seq: number; key?: string; value?: {chapter: number; from: {chapter: number}}; message?: {role: string; content: {text: string}[]}});
+        const [reminder, meta] = lines.slice(-2);
+        expect(reminder).toMatchObject({kind: "agent_message", message: {role: "user"}});
+        expect(reminder!.message!.content[0]!.text).toContain("阅读位置从38.57改为第 40 章");
+        expect(meta).toMatchObject({kind: "meta", key: POSITION_META_KEY, seq: reminder!.seq + 1, value: {chapter: 40, from: {chapter: 38, paragraph: 57}}});
+        expect(await readdir(join(book.api.library.bookDir("fox"), "qa")).then(names => names.filter(name => name.startsWith(id)))).toHaveLength(2);
+
+        // 下一问：40 章的段本来晚于 38.57 会被拒，现在能读；请求里提醒与问题合成一条 user，前面是上一轮的回答。
+        const {model, outcome} = await askScripted(book, [[read("r1", {chapter: 40, paragraph: 1}, {chapter: 40, paragraph: 1})], answer({evidence: ["40.1"]})], {continueFrom: id, question: "第二问"});
+        expect(toolResults(model, 1)[0]!.text.startsWith("没有读：")).toBe(false);
+        const messages = model.requests[0]!.messages as {role: string; content: unknown}[];
+        const last = messages.at(-1)!;
+        expect(last.role).toBe("user");
+        expect(textOf(last)).toContain("<system-reminder>");
+        expect(textOf(last).endsWith("第二问")).toBe(true);
+        expect(messages.at(-2)!.role).not.toBe("user");
+        expect(outcome.result).toMatchObject({status: "answered", turn: 2, at: {chapter: 40}});
+        const after = await records().get(id, await generation());
+        expect(after.turns.at(-1)!.at).toMatchObject({chapter: 40});
+        expect(after).toMatchObject({positionChanges: 1, currentAt: {chapter: 40}});
+        // 开始时的位置与第一轮的位置不被改写。
+        expect(after.at).toEqual(P);
+        expect(after.turns[0]!.at).toEqual(P);
+    });
+
+    test("往回调：晚于新位置的读取与出处被拒，上一轮读过的第 26 章不再算读过；位置没变不写、全读对话不能改", async () => {
+        const id = await firstTurn();
+        expect((await changePosition({api: book.api, book: undefined, conversation: id, at: {chapter: 20}})).changed).toBe(true);
+        const {model, outcome} = await askScripted(book, [[read("r1", {chapter: 26, paragraph: 1}, {chapter: 26, paragraph: 1})], answer({evidence: ["26.1"]}), answer({evidence: ["20.1"]})], {continueFrom: id, question: "回到前面"});
+        expect(toolResults(model, 1)[0]!.isError).toBe(true);
+        expect(toolResults(model, 1)[0]!.text).toContain("在阅读位置 20.");
+        // 26.1 是上一轮读过的，但现在晚于位置：答案被退回；改引 20.1 时它也没读过，再被退回或最终以第三份为准——至少一次退回。
+        expect(outcome.result.rejections).toBeGreaterThanOrEqual(1);
+        // 同一位置再改：没变，不写、次数不增。
+        const again = await changePosition({api: book.api, book: undefined, conversation: id, at: {chapter: 20}});
+        expect(again.changed).toBe(false);
+        expect((await records().get(id, await generation())).positionChanges).toBe(1);
+        // 全读对话：位置不能改。
+        const full = await firstTurn({mode: "full"});
+        await expect(changePosition({api: book.api, book: undefined, conversation: full, at: {chapter: 20}})).rejects.toMatchObject({code: "qa_position_fixed"});
+    });
+
+    test("续问带 at：先改位置再运行这一轮；运行期间位置被别处改了，这一轮保存得到 conflict，改位置的那一对保留", async () => {
+        const id = await firstTurn();
+        const viaAsk = await askScripted(book, [answer({evidence: ["26.1"]})], {continueFrom: id, at: {chapter: 30}, question: "带位置的追问"});
+        expect(viaAsk.outcome.recordSaved).toBe(true);
+        expect(viaAsk.outcome.result.at).toMatchObject({chapter: 30});
+        expect(viaAsk.outcome.conversation).toMatchObject({positionChanges: 1, currentAt: {chapter: 30}});
+        // 准备一轮（此时位置改动次数是 1），别处又改了位置，再运行：保存 conflict。
+        const {prepared} = await prepareScripted(book, [answer({evidence: ["26.1"]})], {continueFrom: id, question: "撞车的追问"});
+        await changePosition({api: book.api, book: undefined, conversation: id, at: {chapter: 35}});
+        const outcome = await prepared.run();
+        expect(outcome.recordSaved).toBe(false);
+        expect(outcome).toMatchObject({notSaved: {reason: "conflict"}});
+        const kept = await records().get(id, await generation());
+        expect(kept).toMatchObject({positionChanges: 2, currentAt: {chapter: 35}});
+        expect(kept.turns).toHaveLength(2);
     });
 });
 

@@ -55,6 +55,8 @@ export const QaTurnSchema = Type.Object({
     model: Type.String(),
     startedAt: Type.String(),
     logFrom: Type.Optional(Type.Integer({minimum: 1})),
+    /** 这一轮用的阅读位置；对话中途改过位置之后的轮都有（t25）。没有这一项的旧记录用对话的 `at`。 */
+    at: Type.Optional(QaPositionSchema),
     /** Markdown 回复里有没核实的出处时，让模型改了一次（qa.md 的“出处复查”）；没复查的轮没有这一项。 */
     recheck: Type.Optional(Type.Object({unverified: Type.Integer({minimum: 1}), outcome: Type.Union([Type.Literal("rewritten"), Type.Literal("failed"), Type.Literal("aborted")])})),
 });
@@ -63,3 +65,28 @@ export type QaTurnView = Static<typeof QaTurnSchema>;
 /** 作答方式：用 Markdown 文字回答，或用 answer 工具交结构化的卷。按对话固定。 */
 export const QaAnswerModeSchema = Type.Union([Type.Literal("markdown"), Type.Literal("structured")]);
 export type QaAnswerMode = Static<typeof QaAnswerModeSchema>;
+
+type QaPositionValue = {chapter: number; paragraph: number};
+/** 算位置用到的那几项：核心库的记录、网页拿到的记录视图都满足它。 */
+interface ConversationPositions {
+    at: QaPositionValue;
+    currentAt?: QaPositionValue | undefined;
+    turns: readonly {at?: QaPositionValue | undefined}[];
+}
+
+/**
+ * 这个对话下一问用的阅读位置：改过位置的取 `currentAt`，没改过的取最后一轮用的位置，旧记录再回落到对话开始时的 `at`。
+ * 引擎、`qa.get`、`qa.list`、命令行、页面的位置控件与新提醒里的“从 A”都用这一个规则。
+ */
+export function currentPosition(conversation: ConversationPositions): QaPositionValue {
+    return conversation.currentAt ?? conversation.turns.at(-1)?.at ?? conversation.at;
+}
+
+/**
+ * 整个对话出现过的最高位置：开始时的位置、每一轮用的位置与当前位置里最靠后的。剧透警告（列表的“晚于你现在的位置”、页头
+ * 高亮）按它判断：位置往回调不能解除旧答案里可能带着后文的警告。
+ */
+export function highestPosition(conversation: ConversationPositions): QaPositionValue {
+    const all = [conversation.at, ...conversation.turns.flatMap(item => (item.at === undefined ? [] : [item.at])), ...(conversation.currentAt === undefined ? [] : [conversation.currentAt])];
+    return all.reduce((best, item) => (item.chapter > best.chapter || (item.chapter === best.chapter && item.paragraph > best.paragraph) ? item : best));
+}

@@ -218,6 +218,41 @@ describe("一轮问答在服务里跑，进展经推送到页面", () => {
         expect(got.body.record.turns[1].logFrom).toBe(got.body.run.logFrom);
     });
 
+    test("对话中途改阅读位置（t25）：运行中是 qa_busy；结束后 qa.position 写进提醒、列表给 currentAt 与 highestAt；位置往回调后最高位置不降；全读对话 qa_position_fixed；续问带 at 先改位置", async () => {
+        const env = await setup([{kind: "text", text: "第一轮"}, GIVE_UP, GIVE_UP]);
+        const first = await env.call("qa.start", {book: "fox", question: "第一问", at: {chapter: 38}});
+        const {conversation} = first.body as {conversation: string};
+        const during = await env.call("qa.position", {book: "fox", conversation, at: {chapter: 30}});
+        // 第一轮很快就结束，可能已不在运行：只在还在运行时断言 busy，不靠时序。
+        if (during.status === 409) expect(code(during)).toBe("qa_busy");
+        await waitUntil("第一轮结束", async () => ((await env.call("qa.get", {book: "fox", id: conversation})).body as {run: QaRunView}).run.state === "ended");
+
+        const changed = await env.call("qa.position", {book: "fox", conversation, at: {chapter: 30}});
+        expect(changed.status).toBe(200);
+        expect(changed.body).toMatchObject({changed: true, at: {chapter: 30}});
+        const row = ((await env.call("qa.list", {book: "fox"})).body as {conversations: {id: string; at: {chapter: number}; currentAt: {chapter: number}; highestAt: {chapter: number}}[]}).conversations.find(item => item.id === conversation)!;
+        // 对话在第 38 章开始，位置往回调到 30：当前位置 30，整个对话出现过的最高位置仍是 38。
+        expect(row).toMatchObject({at: {chapter: 38}, currentAt: {chapter: 30}, highestAt: {chapter: 38}});
+        expect((await env.call("qa.position", {book: "fox", conversation, at: {chapter: 30}})).body).toMatchObject({changed: false});
+        // qa.get 的日志里有提醒消息与紧跟的 qa.position meta（网页靠它认出提醒）。
+        const got = await env.call("qa.get", {book: "fox", id: conversation});
+        const kinds = (got.body.log.entries as {kind: string; key?: string}[]).slice(-2).map(entry => [entry.kind, entry.key]);
+        expect(kinds).toEqual([["agent_message", undefined], ["meta", "qa.position"]]);
+        expect(got.body.record).toMatchObject({currentAt: {chapter: 30}, positionChanges: 1});
+
+        // 续问带 at：先改位置再运行；全读对话改位置是 qa_position_fixed。
+        const next = await env.call("qa.start", {book: "fox", question: "第二问", conversation, at: {chapter: 35}});
+        expect(next.status).toBe(200);
+        await waitUntil("第二轮结束", async () => ((await env.call("qa.get", {book: "fox", id: conversation})).body as {run: QaRunView}).run.state === "ended");
+        expect((await env.call("qa.get", {book: "fox", id: conversation})).body.record).toMatchObject({positionChanges: 2, currentAt: {chapter: 35}});
+        const full = await env.call("qa.start", {book: "fox", question: "全读", at: {chapter: 38}, mode: "full"});
+        const fullId = (full.body as {conversation: string}).conversation;
+        await waitUntil("全读结束", async () => ((await env.call("qa.get", {book: "fox", id: fullId})).body as {run: QaRunView}).run.state === "ended");
+        const fixed = await env.call("qa.position", {book: "fox", conversation: fullId, at: {chapter: 20}});
+        expect(fixed.status).toBe(409);
+        expect(code(fixed)).toBe("qa_position_fixed");
+    }, 60_000);
+
     test("开始前的错误作为请求的错误返回，不留下运行：没配置、续问的对话不存在、位置超出", async () => {
         const env = await setup([], {config: null});
         const unconfigured = await env.call("qa.start", {book: "fox", question: "问", at: {chapter: 38}});
