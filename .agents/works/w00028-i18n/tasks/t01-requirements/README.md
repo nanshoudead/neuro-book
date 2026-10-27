@@ -32,13 +32,8 @@ updated: 2026-10-27
 
 ## 当前状态
 
-2026-10-27 按开发者确认的方向修订，未开工。输入在 `evidences/`：
-
-- `independent-design.txt`：只拿到目标、不看主 Agent 方案的独立设计，本 Work 的方向主要取自它；
-- `design-review-sonnet-r1.txt` 到 `r3.txt`：三轮前端审查。前两轮是在“保留内联”的前提下写的，那个前提已撤销，只取第 9 条列出的部分；第三轮审的是目录方向。
-
-讨论稿与后端审查在 [w00031 t01 证据](../../../w00031-language-policy/tasks/t01-adr/evidences/)。
+计划：[plan.md](plan.md)（自主推进，2026-10-27 开工）。产出是 `reviewing` 状态的提案，交付后停下等开发者接受。t02 原型并行进行。
 
 ## 下一步
 
-开发者安排开工时，按 [implementation-planning](../../../../skills/implementation-planning/SKILL.md) 先写结构方案。可以和 t02 的原型并行。
+计划交审查：omp（计划与后端）、Claude Sonnet（前端）、Claude Sonnet 拉远看同时开；t02 原型结论回来后修订计划。
