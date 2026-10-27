@@ -56,3 +56,4 @@
 | nb-ui `FormCheckbox` 的 `<label>` 没有 `relative`，里面 `sr-only`（绝对定位）的 input 聚焦时，包含块落到宿主的滚动容器之外，会把外面 `overflow: hidden` 的格子滚走、整页变空。面板这边已让滚动容器都带 `relative` 绕开；根上的修法是 label 加 `relative`（或 input 改用 `clip`、不绝对定位），并在 nb-ui 的组件测试里钉住，顺带查 `Dialog`、`QuickInput`、`FormField` 里可聚焦的 `sr-only` 元素 | t15 阶段 4 第 1 批（多选题点了页面变空白）与它的实现审查第 2 条 | t17 |
 | 文档页渲染 Markdown 里的外站图片（例如仓库根 `README.md` 的徽章）被面板的 CSP 拦下，控制台报错、图片空着 | t15 阶段 2 浏览器验收时看到 | 并入 t15 阶段 4 第 4 批 |
 | 评审板与面板的提问（单选、多选、文字、确认）改用全项目共用的低代码 schema 表单与 nb-ui 统一控件合同 | 开发者 2026-10-20 在 w00027 定：nbdev 的提问也用这套低代码（[w00027 t07](../w00027-plugin-platform/tasks/t07-low-code-forms/README.md)） | 待 w00027 t07 完成 |
+| CI 在 GitHub 机器上失败 3 例（2026-10-27 新 `ci.yml` 第一次跑全量 dev-panel，run 40494796939）：“GitHub 只读页（场景 5）”两例假定 runner 上没有 `gh`（GitHub 的 ubuntu 机器预装了 gh 且有令牌）；“记录锁：两个等待者看到同一个死锁”一例时序。本地不复现 | w00027 t15 的 CI 重建后发现 | 待定 |

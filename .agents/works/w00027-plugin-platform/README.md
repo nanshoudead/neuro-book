@@ -41,7 +41,8 @@ updated: 2026-10-23
 | [t12](tasks/t12-plugin-dx-review/README.md) | 插件开发体验（Sonnet 以作者身份走一遍）与可维护性复查，及待确认清单改判的三项（2026-10-24 开发者要求） |
 | [t13](tasks/t13-sdk-package-split/README.md) | SDK 拆成独立包（作者工具、模板、文档、示例）、内核去掉 NeuroBook 常量、通用插件管理在目录上分开（开发者 2026-10-24 定；计划待写） |
 | [t14](tasks/t14-plugin-author-api/README.md) | 作者 API 的形状：`definePlugin` 与贡献助手、结果助手、短名与缺省值、出错可见（t13 design.md A1 到 A9，开发者 2026-10-24 定 D5） |
-| [t15](tasks/t15-author-api-round2/README.md) | 作者 API 第二轮：t14 作者验收提出的打开视图、类型报错落点、调用方失败详情、规则提前到编辑器、构建报错格式、事件助手、合同 id（范围评估完，待开发者定范围） |
+| [t15](tasks/t15-author-api-round2/README.md) | 作者 API 第二轮（第一期）；应用的 npm 包与 `nbook` 命令行（第二期）；发布 0.11.0、SDK 上 npm、CI 重建、文档（第三期）。已完成 |
+| [t16](tasks/t16-patch-0-11-1/README.md) | 0.11.1 补丁：t15 真实用户冒烟的缺陷与小改进（新建作品后打开、插件页内置名称、整页切换不报 error、帮助对齐等） |
 
 ## 后续的插件功能
 
@@ -83,7 +84,7 @@ t15 第一期的实现审查与作者验收留下的（[t15 plan.md 第 11 节](
 - `nbook` 的后台运行（开发者 2026-10-27 定）：注册成操作系统的服务（systemd 用户单元、launchd、Windows 计划任务），由 `nbook service install|uninstall|start|stop|restart|status` 管，停止与查看也放在 `service` 下、对前台实例同样有效；实现前先调研有没有现成的第三方库，没有就自己做一个包。实例认领的套接字协议（t15 第二期）是它的停止与查询通道。
 - 装好后让 agent 给 NeuroBook 写插件（开发者 2026-10-27 定为后续，参照 [deepseek-harness 调研](tasks/t15-author-api-round2/evidences/dsh-research.md)）：给外部 agent 的“写 NeuroBook 插件”Skill 与模板（照 `nbstory skill install`）；应用内的 Creator 模式、只读的运行时检视工具（贡献点、服务键、设置 schema）、agent 触发安装并热生效。后两样依赖应用内 agent 与插件热插拔（`runtime/plugin-hot-plug.md`）。
 - 桌面版（开发者 2026-10-27 定另开 Task）：先写提案，实测 Electron、Tauri、Electrobun 三个壳（安装包大小、启动时间、Monaco 与工作台的显示）；壳捆绑 Bun 运行应用包目录的 `server/nbook.js`、窗口加载回环页面；定状态根是否与命令行共用、自动更新与签名。过渡办法是页面加 PWA 清单，浏览器“安装为应用”。
-- 0.11.0 真实用户冒烟的发现（[evidences/p3-user-smoke.md](tasks/t15-author-api-round2/evidences/p3-user-smoke.md)）：先修缺陷 2、3（整页切换不再打 error、SDK 构建预设关掉 PLUGIN_TIMINGS；缺陷 1 复核后撤回），再看可改进项（新建后直接打开、新建章节问名字并聚焦、中文书名的短名、装插件后的重启入口、npm 元数据）。nb-story 的 typecheck 归 w00024。
+- 0.11.0 真实用户冒烟的发现（[evidences/p3-user-smoke.md](tasks/t15-author-api-round2/evidences/p3-user-smoke.md)）：缺陷与小改进并入 [t16](tasks/t16-patch-0-11-1/README.md)（0.11.1）。开发者 2026-10-27 定以下三项先记下、不急：**新建章节**（建好后进入改名、聚焦编辑器、空页面占位，章节命名规则与放不放进“正文”文件夹；要先出设计稿）；**中文书名的短名**（现在按 Spec 是 `project`、`project-2`，可选允许中文、转拼音或让用户改短名，要改 runtime/projects 的短名规则）；**装插件后的重启入口**（插件页“重启 NeuroBook”按钮，服务端有序停下后自己重新启动、页面重连；长远是热插拔 runtime/plugin-hot-plug.md）。
 
 ## 范围外发现
 
