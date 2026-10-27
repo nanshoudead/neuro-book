@@ -1,0 +1,211 @@
+# w00024 t29、t30、关系图排版与上一轮修复批实现审查
+
+- 审查对象：`/tmp/t29-30-review-wt`，固定提交 `75c673df1df8c96c1ee1ffaf46a24f20c7f0476f`；范围 `git diff 1f2c2b922..HEAD -- packages`（79 个文件，1568 行新增、271 行删除）。完整 diff 已读。
+- 依据：主工作区的 t29、t30、t25 Task、t30 计划与设计审查，以及 `story/qa.md`、`viewer.md`、`queries.md`、`cli-skill.md`。
+- 方式：本会话按顺序只读审查，不开子代理；实验只写 `/tmp/review-t29-30-impl/`；不运行 e2e、开发服务或真实模型。以下发现核实后逐条追加，末尾统一列证据范围与数量。
+
+## 已核实的发现
+
+### 1. 尾部指纹没有绑定 generation，相同前缀的重新导入会串到新一代尾部
+
+- **严重程度**：重要；**类别**：不变量 / 正确性。
+- **位置**：`packages/nb-story/src/core/unextracted.ts:62-66`；`packages/nb-story/src/core/api.ts:239-249`（路径均相对 `/tmp/t29-30-review-wt`）。
+- **现象**：旧 `openBook` 固定了 24 章的图；另一个真实 Bun 进程删除同 id、重新导入前 20 章并发布带 25 章的新 source 后，旧会话的 `unextracted()` 返回第 25 章“换代后的新尾部”，尽管新旧 generation 不同。
+- **为什么是问题**：只比较已提交章的段数，既不比较 generation，也不比较原文哈希。重抽同一部书、重新导入相同前缀后改后续章，前缀一致是正常情况，不是计划所称“概率可忽略”的随机碰撞。旧图因此拼入新源，违反 `qa.md:245` 与 `queries.md:160` 的固定一代合同；两份不同正文只要分段相同也会通过。t30 设计审查第 1 条没有被真正解决。
+- **如何核实**：`bun /tmp/review-t29-30-impl/reach-smoke.ts` 的 `pinned-other-generation` 输出：旧代 `23b77149-5b35-4177-8196-0b96805522f0`、新代 `62f89e6b-4bf7-405d-b396-7cbb2aaa262d`、旧图 24 章、返回新代尾部 1 章。实验使用真实 `Library.removeBook/importBook`、`IngestStore.replaceSource` 和公开 `StoryApi.openBook`，不替换文件系统方法或伪造工具状态。
+- **建议改法**：把源的稳定身份与书 generation 显式绑定；固定图时一并固定并核对源快照，至少使用已提交 SourceChapter 的真实 sha256 校验，不能以段数表当身份。删除换代后旧会话只能保留旧快照或无尾部，不能再按 id 接新源。补跨进程“同书相同前缀重抽、尾部改稿”的回归。
+
+### 2. source 缓存仅凭 mtime 与 size，原子换文件后仍可返回旧正文
+
+- **严重程度**：重要；**类别**：正确性 / 缓存失效。
+- **位置**：`packages/nb-story/src/core/unextracted.ts:35-55`。
+- **现象**：已经解析过 source 后，以另一个 inode 原子替换相同路径，保留相同 `mtimeMs` 和字节数；新建 `openBook` 仍读到旧尾部。磁盘为“换代后的另尾部”，返回“换代后的新尾部”。
+- **为什么是问题**：缓存键既不含 inode/ctime，也不含源身份或 generation。替换可跨进程发生，删除与重新导入也没有清理全局 Map；新一轮问答会用过时正文校验出处。generation 检查本身也不够：同一代正常追加或外部恢复源文件同样需要文件身份判别。
+- **如何核实**：同一实验的 `same-mtime-size-cache` 输出 `sameMtime:true,sameSize:true,differentInode:true`，磁盘与返回值不同。通过真实 `rename` 和 `utimes` 建立用户指定的同 mtime/size 边界；没有伪造 stat。正常抽取的 `replaceSource` 是写临时文件再 rename，不会半写 JSON；但当前 `stat(path) → readFile(path)` 仍不是同一个文件快照，替换发生在两步之间可把新内容缓存到旧元数据下。
+- **建议改法**：打开源文件后对同一个 handle 做 fstat 与读取，用 generation/源身份及 dev、ino、ctime 等可靠版本信息作为缓存键，读取前后检查版本；不要把一次 stat 的元数据与另一次路径打开的内容配对。补相同 mtime/size 的真实原子替换用例。
+
+### 3. 尾部出处只检查起始章，跨进度范围和显式链接仍能打开失败的抽屉
+
+- **严重程度**：重要；**类别**：正确性 / 网页合同。
+- **位置**：`packages/nb-story/src/web/qa/linkable.ts:15-19`、`link-refs.ts:64-78`、`StoryMarkdown.vue:17-20`、`AnswerCard.vue:46-54`；`packages/nb-story/src/web/pages/QaPage.vue:318-327`。
+- **现象**：E=20 时，合法的跨界出处 `20.89—22.2` 仍被当作可点出处；模型显式写的 `[22.1](paragraph://22.1)`、`[第 22 章](chapter://22)` 也没有被降为纯文字。真实 StoryMarkdown 渲染出 3 个链接，点击全部发出 reference；真实 AnswerCard 中同一跨界出处的 3 个按钮均未 disabled，全部发出 `reference.open`。
+- **为什么是问题**：`refChapter` 只返回起点，范围终点跨 E 不检查；`linkRefs` 只改纯文字，已有链接直接保留；QaPage 的 `openTarget` 没有兜底边界检查。用户的尾部 `@` 引用也会走通用 PromptTextView 的引用激活通道。实际 DrawerSource 请求 `20.86—22.5` 后显示“没有第 21 章”，违背 viewer 输出 55 和计划对 `chapter://` 同样不可点的约定。
+- **如何核实**：`bun /home/notnotype/CodeRepository/neuro-book/node_modules/vitest/vitest.mjs run --config /tmp/review-t29-30-impl/vitest.config.mjs`。真实 Vue 3 + StoryMarkdown/AnswerCard/DrawerSource + nb-markdown，happy-dom 点击（未跑浏览器/e2e）；Markdown 与卡片两条“不可点”断言失败，原文抽屉错误断言通过。普通单点 `22.1` 的自动链接确实被抑制，漏的是跨界范围与显式引用，不是所有尾部判断均无效。
+- **建议改法**：用 `parseRef` 校验整个范围，起点和终点均在查看器已提交范围内才可链接；把已有 paragraph/chapter 引用和用户引用小块纳入同一可打开策略。渲染层降为纯文字/禁用，统一打开入口再校验，不能只依赖自动改链一层。补跨 E 合法出处、显式 Markdown 和尾部 @ 引用的实际点击用例。
+
+### 4. “只画最强的线”先排名后应用连线层，隐藏的强线挤掉唯一可见线
+
+- **严重程度**：重要；**类别**：正确性 / 可见图不变量。
+- **位置**：`packages/nb-story/src/web/pages/RelationsPage.vue:44-50,140-142`；`packages/nb-story/src/web/host/relations-view.ts:57-70`；`packages/nb-story/src/web/graph/StoryNetwork.vue:140-157,192-196`。
+- **现象**：筛最强三条时输入是服务器的全部关系边（含当前隐藏的认知层、同场门槛以下的边）；真正绘图时才按 layers/minCo 去边。因此一端的前三名都可能不可见，而唯一可见的边被剪掉，节点又因 degree=0 被删除。
+- **为什么是问题**：viewer 输出 25 明确保证“不会有点因此变成孤点”。当前保证只对未应用展示条件的中间图成立；打开一个只应减线的开关会让原来可见的对象消失。隐藏层还能决定可见层的删线，两个独立控件隐含耦合。
+- **如何核实**：`bun /tmp/review-t29-30-impl/strongest-smoke.ts`，经真实 Library 导入原始 100 章样例、公开 graph.relations，再按页面与 StoryNetwork 的实际参数顺序筛选：第 38 章、默认关系+同场、门槛 2，边数 `44→41`、可见节点 `24→23`；消失的 `e1-3 魔法少女` 原来唯一可见边是与 `e3-1` 的 1 条关系说法。只开同场、门槛 5 时节点 `9→8`，`e30-1` 的身份连接被剪掉。数值已实测；画布最终移除节点依据 buildRelation 的 degree 分支，未运行 WebGL 视觉验收。
+- **建议改法**：先按当前层、门槛和身份线规则生成最终候选边，再对这些可见边执行 strongestEdges；排名只看生效层对应的强度，身份连接是否参加减线需保持与既有身份线合同一致。把纯数据的“实际可见关系图”计算收在一个拥有该规则的模块，避免页面筛一遍、组件再筛一遍。补真实样例第 38 章的开关前后节点集合不减少判据。
+
+### 5. base64 长度估算漏减填充，符合 32 MiB 上限的文件被拒绝
+
+- **严重程度**：建议；**类别**：正确性 / 输入边界。
+- **位置**：`packages/nb-story/src/server/ingest-service.ts:152-155`。
+- **现象**：实际为 `33554431` 字节（32 MiB−1）或 `33554432` 字节（恰好 32 MiB）的合法 V9 JSON 都报 `ingest_bad_text`“文件超过 32 MiB”；`33554430` 字节可导入。
+- **为什么是问题**：`content.length / 4 * 3` 算的是补齐后长度，未减末尾 `=` / `==` 对应的 1 / 2 字节。浏览器先按实际 File.size 允许选择，再在服务端被错误拒绝，违背 viewer 输出 54“不超过 32 MiB”的边界。旁边已有 `decodeContent:48` 使用了正确公式，新分支复制时丢了一部分。
+- **如何核实**：`bun /tmp/review-t29-30-impl/import-smoke.ts`，经真实 `createIngestService.call('book.importGraph')` 导入同一合法样例 JSON 加尾随空格到这 3 个大小；输出依次 success、ingest_bad_text、ingest_bad_text。未替换 base64、schema 或导入实现。
+- **建议改法**：复用统一的 base64 字节数检查，扣除 padding；在既有导入行为测试补 `MAX−1`、`MAX` 与 `MAX+1`，避免把字符串长度当实际文件字节数。
+
+### 6. 自定义模型目录把配置币种强制改成 USD，混币种防护因此失效
+
+- **严重程度**：重要；**类别**：正确性 / 计价合同。
+- **位置**：packages/nb-story/src/server/qa-service.ts:517-527、packages/nb-harness/src/model.ts:69-87；对照 packages/nb-story/src/web/pages/QaPage.vue:396-400。
+- **现象**：配置两个自定义模型，单价分别写 CNY、USD；真实 models.catalog 返回两个模型的 currency 都是 USD。随后一轮使用 custom/cny、一轮使用 custom/usd，页面按目录集合得到只有 USD，会把两个金额相加并显示 USD。
+- **为什么是问题**：modelOf 先把配置的 price 传给 defineModel，但 modelsCatalog 又用 catalogModel(modelOf(...).model)；defineModel 产生的底层 Model 没保存 currency，catalogPrice 固定返回 USD。页面无法知道自定义模型真实币种，跨币种安全分支形同虚设。config-schema 明确允许任意非空 currency，不是只能 USD/CNY。
+- **如何核实**：bun /tmp/review-t29-30-impl/service-smoke.ts 的 actual-custom-catalog 输出：custom/cny 与 custom/usd 均为 currency=USD；actual-mixed-currency 输出 currencies=["USD"], statusCurrency="USD", cost=0.75。使用真实 createQaService.models.catalog、真实模型目录投影与真实网页 priceCurrency/sessionUsage，不调用真实 Provider。
+- **建议改法**：模型目录投影直接从配置保留 model.price，或让 CatalogModel 显式携带自定义币种；服务端/消息用量需保留每轮币种，页面按币种分组。补自定义 CNY+USD 的目录、状态条与检查器行为测试。
+
+### 7. 位置与续问：网页实际读取的 record/run 在旧状态窗口内，出现两套 P，但本次实现的版本字段已补上
+
+- **严重程度**：建议；**类别**：测试 / 代码质量。
+- **位置**：packages/nb-story/src/server/qa-service.ts:261-278,419-427、packages/nb-story/src/web/qa/source.ts:118-122,239-249。
+- **现象**：真实服务实验在续问运行闸门期间，qa.get 返回旧记录 currentAt=10.75 与 run.at=15.86、baseChanges=0；这是服务允许页面在运行中同时看旧记录和新轮快照的窗口。此次修复的 baseChanges/attachedRun 能在外部位置修改时脱离，但没有测试“续问带 at 正在运行时 record/run 双位置”以及刷新、结束、保存冲突后的 UI 展示是否始终符合合同。
+- **为什么是问题**：viewer 输出 45 要求页面明确这类旧位置运行不会保存、不过时的进展不应混入；当前字段存在，但验收只覆盖静态 baseChanges mismatch，没有真实服务时序的页面断言，未来改 get 重试或转录器容易回归。
+- **如何核实**：bun /tmp/review-t29-30-impl/service-smoke.ts 的 continued-position-running 输出同时给出 recordAt={chapter:10,paragraph:75}、runAt={chapter:15,paragraph:86}、baseChanges=0，且真实服务调用与 createQaSource 使用同一连接。未把它升级为产品正确性缺陷：保存协议与静态脱离测试已验证。
+- **建议改法**：在既有服务测试增加续问带 at 的闸门场景，断言 qa.get、createQaSource 与结束后的记录/未保存状态；不固定内部消息措辞，只断言 P、detached、saved.reason 与可观察展示状态。
+
+### 8. 应力布局 400 点边界没有可接受的排版结果保障
+
+- **严重程度**：重要；**类别**：正确性 / 性能。
+- **位置**：packages/nb-story/src/web/graph/sigma-kit.ts:301-371、sigma-kit.test.ts:22-38。
+- **现象**：真实 graphology 数值实验中，400 点链图的应力布局耗时约 7.46 秒，且跑满三轮 noverlap 后仍警告有重叠；401 点退回力导向仍约 3.66 秒并警告重叠。测试只测 7 点，不测 Spec 明确的 400 点边界、400 点布局时间或不重叠可观察结果。
+- **为什么是问题**：关系图切换到应力后会阻塞主线程，400 点是公开上限而非理论数字；“点、名字互不重叠”是同一 Spec 条款，当前实现对上限图没有达到它，400/401 还出现明显非线性体验。separateNodes 本身是 O(n²) 检查和 noverlap，多轮把 SMACOF 的 O(400²×300) 叠加。
+- **如何核实**：bun /tmp/review-t29-30-impl/layout-smoke.ts，真实 graphology + sigma-kit：count=400 ms=7460.6、nonFinite=0、coincident=0、min distance=1.467，并打印“排版到上限仍有点重叠”；count=401 ms=3662.2，同样警告。count=0/1 不崩，重合起点输出有限坐标，边界功能本身可运行。
+- **建议改法**：把 400 作为实测性能与布局验收边界；减少全对迭代、采用 Barnes-Hut 或 worker，或降低上限并按实际可接受阈值分档。若 noverlap 不能达成标签不重叠，应明确降级而不是宣称不保证收敛却把该模式作为合同能力。
+
+### 9. base64 长度估算漏减填充，符合 32 MiB 上限的文件被拒绝
+
+- **严重程度**：建议；**类别**：正确性 / 输入边界。
+- **位置**：packages/nb-story/src/server/ingest-service.ts:152-155。
+- **现象**：实际为 33554431 字节（32 MiB−1）或 33554432 字节（恰好 32 MiB）的合法 V9 JSON 都报 ingest_bad_text；33554430 字节可导入。
+- **为什么是问题**：content.length / 4 * 3 算的是补齐后长度，未减末尾 = / == 对应的 1 / 2 字节。浏览器先按实际 File.size 允许选择，再在服务端被错误拒绝，违背 viewer 输出 54“不超过 32 MiB”的边界。旁边已有 decodeContent:48 使用正确公式，新分支复制时丢了一部分。
+- **如何核实**：bun /tmp/review-t29-30-impl/import-smoke.ts，经真实 createIngestService.call('book.importGraph') 导入同一合法样例 JSON 加尾随空格到这 3 个大小；输出依次 success、ingest_bad_text、ingest_bad_text。
+- **建议改法**：复用统一的 base64 字节数检查，扣除 padding；在既有导入行为测试补 MAX−1、MAX 与 MAX+1，避免把字符串长度当实际文件字节数。
+
+
+## 发现校正（只追加；本节优先于前文）
+
+### 7. 位置与续问的双位置窗口（撤回）
+
+- 旧记录的 currentAt 与正在运行的新一轮 at 不同，是位置改动与该轮一起保存时允许出现的状态。现有实验未证明错用位置、错误保存或页面错误展示，不能把测试覆盖建议列为已核实缺陷。发现 7 不计入有效数量。
+
+### 8. 应力布局 400 点边界（撤回）
+
+- Bun 数值实验确实测得 400 点链图约 7460.6 ms、401 点约 3662.2 ms，但未在目标浏览器里核实页面阻塞程度；这两项数字只作为性能风险证据保留。
+- viewer.md:190 明确把输出 25 的“点、名字互不重叠”标为 `(planned)`。原条目把它当成已实现硬合同，依据有误。当前没有经目标运行时核实的布局正确性缺陷，发现 8 不计入有效数量。
+
+### 9. base64 长度估算漏减填充（撤回）
+
+- 与发现 5 完全重复，只保留发现 5，发现 9 不计入有效数量。
+
+### 3. 尾部出处链接问题（勘误与证据收窄）
+
+- DrawerSource.vue:23-24 对未提交的第 22 章用 to.paragraph 兜底，按代码计算的实际请求终点为 22.2，范围是 `20.86—22.2`；前文写成 `20.86—22.5` 有误。组件实验已观察到“没有第 21 章”，该错误现象不受终点勘误影响。
+- 用户尾部 @ 引用经 PromptTextView 可激活通道属于代码推断，未做完整 QaPage 点击实验；有效发现的已验证范围是跨 E 的结构化出处、跨 E 的 Markdown 范围、显式 paragraph/chapter 链接。
+
+### 6. 自定义模型币种问题（归因说明）
+
+- qa-service.ts 的 catalogModel 投影和 nb-harness 的货币丢失在 base 已存在；本批 QaPage.vue:396-400 新改成按目录确定整个对话币种，取代了直接读配置 price.currency 的分支，因此既有上游缺陷现在进入费用显示与混币种判定，属于本批修复未完成。建议的最小修复是自定义目录保留配置的 price.currency；逐轮保存币种是处理历史价格变更的进一步设计，不作为本次验收的新增前提。
+
+### 实验证据与固定提交的对应范围
+
+- 实验和单测运行在 `/home/notnotype/CodeRepository/neuro-book/packages/nb-story` 的当前 master；不能把这些命令称作在只读 worktree 上运行。
+- 已对本报告主要实验涉及的 28 个实现/配置文件执行逐字节 cmp，28 个均与 `/tmp/t29-30-review-wt` 相同；此前还核对了 qa/engine.ts、core/unextracted.ts、server/ingest-service.ts 的 SHA256 一致。该比对支持相关缺陷实验对应固定提交，但不是整个 master 与固定提交一致的证明，也不是在固定提交上跑完测试的证明。
+### 10. chapter/para 把不在书里的章也报成“只能 read”
+
+- **严重程度**：建议；**类别**：正确性 / 工具合同。
+- **位置**：`packages/nb-story/src/qa/tools.ts:124-127`（相对 `/tmp/t29-30-review-wt`）。
+- **现象**：E=20、source.json 共 25 章、P=23 时，真实工具调用 chapter 26 和 para 26.9999 都返回 `isError:false`：“第 26 章图里还没有记录：只能用 read 读原文。”第 26 章实际不存在，read 无法执行这个建议。
+- **为什么是问题**：新特判只检查 chapter > committed，将“图里没有但存在于 source.json 的尾部章”与不存在的章混为一谈。qa 输出 42 仅对尾部章规定普通提示；超出全书的参数应继续走范围错误，帮助模型纠正章号。已知尾部内非法段号的提示是否要进一步校验，本次不作为独立合同缺陷。
+- **如何核实**：`bun /tmp/review-t29-30-impl/tools-graph-smoke.ts` 的 `tools-tail` 前两项均为上述成功提示。实验经真实 `askScripted`、工具注册、ReadLedger 和 StoryApi 执行；源文件 25 章，位置 23，工具参数 26。第 4 项普通 search 成功，第 5 项擅加 at 正常返回错误。
+- **建议改法**：特判仅匹配 `reach.tail` 中实际存在的章；不在完整已知范围的章返回 `position_out_of_range`。在既有工具行为测试补“尾部最后一章”和“全书之后一章”，不固定提示措辞。
+
+### 11. 位置提醒保存了旧图进度，抽取追上 P 后续问仍收到过期边界
+
+- **严重程度**：建议；**类别**：正确性 / 模型上下文。
+- **位置**：`packages/nb-story/src/qa/engine.ts:262-271,303-313`；`packages/nb-story/src/qa/tools.ts:101-103`；`packages/nb-story/src/qa/story-qa.profile.tsx:35`（均相对 `/tmp/t29-30-review-wt`）。
+- **现象**：E=20 时把对话位置改到第 24 章，提醒写入“图只抽到第 20 章，第 21 章之后只能用 read 读原文”。随后真实提交图到第 24 章并续问，模型请求历史仍带这条最新位置提醒；chapter 22 已返回图记录，工具结果却不带当前 E=24 的更正，因为 P 已不大于 E。
+- **为什么是问题**：本批避免在初始 system prompt 写死 E，但把同样的具体 E 放进持久化提醒后，抽取推进仍会留下与新工具能力矛盾的当前语气指令。已证明输入矛盾，未用真实模型评估回答影响，因此按建议级报告；这也是 t30 设计审查第 7 条尚未覆盖的位置提醒变体。
+- **如何核实**：已运行的 `bun /tmp/review-t29-30-impl/reach-smoke.ts` 输出 `historyOldGraphReminder:true`、`lastAt:{chapter:24,paragraph:102}`，同轮 chapter 22 正常返回图记录。实验经真实 changePosition、Library.commitExtraction、续问恢复与脚本化模型的请求记录；没有手工构造会话历史。
+- **建议改法**：保留历史提醒作为发生时的记录；每轮恢复时若 E 已变化，向模型明确本轮图范围，或让工具结果无论 P 是否超过 E 都标明当前图进度。沿用现有提示/元数据机制即可，不必重写旧日志或修改历史位置。
+
+### 12. 不填书名导入非 V9 文件时，绕过 unsupported_format 合同
+
+- **严重程度**：建议；**类别**：正确性 / 错误合同。
+- **位置**：`packages/nb-story/src/server/ingest-service.ts:163-173`（相对 `/tmp/t29-30-review-wt`）。
+- **现象**：书名和 id 都不填，base64 内容为 `{}` 时，真实 book.importGraph 返回 `invalid_params`“文件里没有书名，请给书名（title）或书 id（id）”；内容为 `not JSON` 或 `null` 时也是 `invalid_params`。这些都不是 V9 记忆图，本应是 `unsupported_format`。
+- **为什么是问题**：viewer 输出 54 明定“文件不是 V9 记忆图是 unsupported_format”。当前为了补缺省标题，先做 JSON/标题探测并提前退出，尚未走书库的格式判定；用户会被引导补书名，但补名字并不能让文件成为有效 V9。既有 HTTP 测试的坏文件传了 title，因此绕过了这条真实缺省路径。
+- **如何核实**：已运行的 `bun /tmp/review-t29-30-impl/import-smoke.ts` 中 3 项 `invalid-default-title` 均返回 `invalid_params`，原始输出已归档到 `verification-evidence.txt:97`。脚本调用真实 createIngestService，没有替换 JSON.parse 或 Library。
+- **建议改法**：格式识别与标题缺省沿用统一的 V9 导入判定；非 V9 内容统一保留 `unsupported_format`，只在已确认格式有效后报告真正的标题缺失。补“不传 title/id 的非 V9 JSON 与非 JSON”合同用例。
+
+## 最终有效发现（按影响排序；本节为交付索引）
+
+报告遵守只追加要求，保留原始记录与撤回说明。最终以本节索引、前文校正及末尾有效编号为准。
+
+| 顺序 | 原编号 | 严重程度 | 问题与影响 |
+|---|---|---|---|
+| 1 | 1 | 重要 | 段数指纹不能绑定 generation，旧图会接入重新导入的新代尾部。 |
+| 2 | 2 | 重要 | 相同 mtime/size 的真实原子替换命中旧缓存，新会话仍拿到旧正文。 |
+| 3 | 3 | 重要 | 跨 E 范围与显式 Markdown 引用仍可点击，进入查看器不存在的章。 |
+| 4 | 4 | 重要 | 最强线在层过滤前排名，开启后可见节点由 24 减至 23；仅同场时由 9 减至 8。 |
+| 5 | 6 | 重要 | 自定义 CNY 被投影为 USD，混币种判定失效；真实目录/用量投影错误合计为 0.75 USD。 |
+| 6 | 5 | 建议 | base64 padding 估算有误，合法 33554431/33554432 字节文件误报超过 32 MiB。 |
+| 7 | 10 | 建议 | 不存在的第 26 章被 chapter/para 成功提示为可 read 的尾部。 |
+| 8 | 11 | 建议 | 抽取追上 P 后，最近的位置提醒仍带旧 E，模型历史与当前图能力矛盾。 |
+| 9 | 12 | 建议 | 非 V9 文件未填标题时提前报 invalid_params，违反 unsupported_format 错误合同。 |
+
+原编号 7、8、9 撤回。1、2 是两个独立身份问题：第 1 条在元数据正常更新后仍能跨代；第 2 条在新会话里因文件版本误判读旧内容。
+
+## 验收映射与未验证项
+
+| 合同/重点 | 本次证据 | 结论范围 |
+|---|---|---|
+| qa 输出 41，位置变更与保存冲突 | 引擎/数据源单测，删除与位置服务单测，service-smoke 真服务对象加模型闸门 | 已有覆盖场景通过；旧 record/new run 的双位置窗口不单列缺陷。 |
+| qa 输出 42，尾部范围与读原文 | reach/read-ledger/engine 单测；reach-smoke；tools-graph-smoke | 正常尾部读取、抽取推进、章数额度与回退裁剪通过；发现 1、2、10、11。 |
+| viewer 输出 49、55，位置与引用 | mentions/link-refs/ref-line 单测；真实 Vue/happy-dom 组件点击实验 | 单点自动链接抑制有效，跨界/显式引用不完整，见 3；没有完整 QaPage 浏览器验收。 |
+| viewer 输出 22、25，偏好、最强线与应力 | 偏好/布局单测；真实 graph.relations 数据及页面相同过滤顺序；layout-smoke | 最强线存在可见节点丢失，见 4；布局数值边界可运行，浏览器性能与标签视觉未验收。 |
+| viewer 输出 52，币种 | models/usage 单测；service-smoke 的真实 models.catalog、createQaSource、priceCurrency/sessionUsage | 目录与页面采用的聚合投影已复现 6；未挂载状态条做视觉断言。 |
+| viewer 输出 54、cli-skill，导入/安装/删除 | tools.test 真 HTTP/serve；CLI Skill 单测；import-smoke；删除服务单测 | 常规场景通过；导入边界与错误码见 5、12；未运行网页 e2e。 |
+
+## 验证记录
+
+以下命令 cwd 均为 `/home/notnotype/CodeRepository/neuro-book/packages/nb-story`，运行对象是当时的 master。原始结果已从会话日志提取到 `/tmp/review-t29-30-impl/verification-evidence.txt`；脚本与实验数据保留在同一临时根。
+
+1. `bun test src/qa/reach.test.ts src/qa/read-ledger.test.ts src/qa/engine.test.ts src/web/qa/source.test.ts src/web/qa/mentions.test.ts src/web/qa/link-refs.test.ts src/web/qa/ref-line.test.ts`：**89 pass，0 fail，329 expect，2.50 s**（Bun 输出为 6 files）。
+2. `bun test src/server/tools.test.ts src/web/graph/sigma-kit.test.ts src/web/host/relations-view.test.ts src/web/qa/models.test.ts src/web/qa/usage.test.ts src/cli/skill.test.ts src/core/queries/graph.test.ts`：**37 pass，0 fail，181 expect，10.36 s**。
+3. `env NBOOK_AGENT_TEMP_ROOT=/tmp/review-t29-30-impl/test-data bun test src/server/qa.test.ts src/server/ingest.test.ts -t '删除|位置' --timeout 60000`：**13 pass，0 fail，22 filtered out，106 expect，28.76 s**。三组共 **139 pass，0 fail**。
+4. `env NBOOK_AGENT_TEMP_ROOT=/tmp/review-t29-30-impl/test-data bun run typecheck`：**失败，退出码 2，98.92 s**。错误原文：`src/web/host/relations-view.ts(6,32): error TS2307: Cannot find module '../graph/StoryNetwork.vue' or its corresponding type declarations.` 文件实际存在，base 也已有同一 .vue 类型导入和偏好测试，不能直接归因本批；未重跑或规避这项失败。整条类型检查链不算通过。
+5. `bun /tmp/review-t29-30-impl/reach-smoke.ts`：真实文件系统、公开 StoryApi、跨进程换代；复现 1、2、11；正常推进后的账本和回退裁剪结果见前文。
+6. `bun /tmp/review-t29-30-impl/tools-graph-smoke.ts`：真实问答工具运行；复现 10；普通 search 成功，禁止自行传 at 的错误通道正常。
+7. `bun /tmp/review-t29-30-impl/strongest-smoke.ts`：真实图数据加页面/组件相同筛选次序，复现 4 的节点集合减少；未运行 Sigma/WebGL 视觉验收。
+8. `bun /tmp/review-t29-30-impl/import-smoke.ts`：复现 5、12；并发同 id 恰有一个成功；gzip 导入成功；临时目录清空；Skill 目标符号链接拒绝且目标 marker 保持 keep。
+9. `bun /tmp/review-t29-30-impl/service-smoke.ts`：脚本化模型经真实 QaService 与网页数据源，复现 6；两次用量是脚本给出的 0.5 与 0.25，没有调用真实 Provider 或产生真实计费。
+10. `bun /tmp/review-t29-30-impl/layout-smoke.ts`：0/1 点与重合起点输出有限坐标；400 点约 7460.6 ms、401 点约 3662.2 ms。只作为 Bun 数值记录，不能替代浏览器性能验收，原发现 8 已撤回。
+11. `bun /home/notnotype/CodeRepository/neuro-book/node_modules/vitest/vitest.mjs run --config /tmp/review-t29-30-impl/vitest.config.mjs`：**2 failed，1 passed，3 tests**。两条失败来自“尾部引用不可点击”的真实组件断言，实际生成链接并发出 reference.open，证明 3；第三条 DrawerSource 错误断言通过。AnswerCard 缺 ctx/services/locale 的 Vue 警告以及 happy-dom 收尾 AbortError 也出现在结果中，不能当作干净通过的组件套件。
+
+范围与限制：未跑 e2e、开发服务、真实模型或完整浏览器页面。既有服务单测会启动它自己的测试 serve/本地模拟端点；这不是开发服务。前两组既有单测沿用默认测试临时根 `/tmp/neuro-book/agent/`，后续服务单测统一指定 NBOOK_AGENT_TEMP_ROOT；自定义实验文件与数据均在指定审查临时根。
+
+最终只读核对：`/usr/bin/git status --porcelain=v1` 无输出；`/usr/bin/git rev-parse HEAD` 为 `75c673df1df8c96c1ee1ffaf46a24f20c7f0476f`。仓库没有本次审查产生的改动。
+
+## 未发现问题的方面
+
+- 正常 JSON/gzip 导入、文件标题缺省、重复 id、不同内容 Skill 的 force 流程与固定安装目标：既有真实 HTTP/CLI 测试通过。自定义实验确认并发同 id 的发布不会成功两次、导入临时目录清理、符号链接拒绝且不跟随。
+- 删除与问答/抽取的既有收口路径：所选服务测试通过；没有从已审查的 IdCoordinator/QaService.exclusive 调用顺序找到独立缺陷。该结论不扩展到未测试的任意跨进程竞争。
+- 尾部章正常可读、已读尾部后来进入图后仍可复用、旧轮已读章不消耗本轮新增章额度、超过额度正常拒绝、往回调位置后段级裁剪：已有单测与真实 reach-smoke 结果自洽。
+- 源文件缺失/结构错误的无尾部降级、正常位置章末格式化、基础 @ 章节/段落候选与普通单点尾部自动禁链：已有覆盖场景通过；不代表跨代身份与全部引用入口都满足合同。
+- 本批 baseChanges 的传递与网页静态脱离判定：已有位置/数据源测试通过；没有把允许存在的旧记录/新运行窗口误计为保存缺陷。
+- 应力布局的空图、单点、重合起点和 400/401 点数值计算均可完成且坐标有限。标签互不重叠仍为 planned；浏览器运行时视觉及性能未验证。
+
+## 各级数量
+
+- 阻断：**0 条**。
+- 重要：**5 条**（1、2、3、4、6）。
+- 建议：**4 条**（5、10、11、12）。
+- 有效合计：**9 条**；撤回：**3 条**（7 无已证缺陷、8 证据/合同不足、9 重复）。
+
+有效发现编号（按影响排序）：1、2、3、4、6、5、10、11、12。
