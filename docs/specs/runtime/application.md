@@ -98,7 +98,7 @@ owners:
 
 1. 环境适配器可以依赖框架/OS，机制不得反向依赖 Vue、Nuxt、Nitro、文件驱动、Project 或 Agent。Source 与 Product 采用相同语义，允许不同能力来源。
 2. 第一切片的受控装配和正式产品是不同入口，不允许同时管理同一产品资源。后续每条真实链切换时，所有调用方迁入新 owner，旧启动/关闭路径同时退出；不是长期保留两套 singleton。
-3. 正式产品接入时保留现有迁移检查先于 Session Store 租约、租约失效/退出码、请求 drain 和权限策略。Session Store advisory lease 的详细合同仍归 [agent.session-store-lease](../../archived/specs/agent/session-store-lease.md)，不升级为全 State Root 强互斥。
+3. 正式产品接入时保留现有迁移检查先于 Session Store 租约、租约失效/退出码、请求 drain 和权限策略。Session Store advisory lease 的详细合同仍归 [agent.session-store-lease](../../archived/specs/agent/session-store-lease.md)，不升级为全 State Root 强互斥（一个状态根只跑一个服务端由 [`runtime.server-host`](server-host.md) 的实例认领承担，与这份租约无关）。
 4. State Root 完整性检查当前只读并告警，不因接入本合同自动变成拒绝启动或自动合并/删除数据。所有真实数据格式/迁移策略变化单独决策。
 5. Nuxt/Nitro hook 只连接一个明确的应用装配入口。Component Lab 不成为该入口的底层依赖；后续 Lab 清单与产品清单分开，浏览器是否访问产品服务取决于明确装配，而不是路由名称的隐式豁免。
 6. 第一切片交付 B/S 所需的浏览器与后端环境入口，另有受控测试宿主用于故障验证；Desktop/Worker 仅保留可适配边界，尚无该环境实测时不得宣称支持。
