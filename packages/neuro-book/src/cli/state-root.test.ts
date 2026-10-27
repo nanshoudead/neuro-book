@@ -34,7 +34,8 @@ describe("取值顺序", () => {
         expect(resolveStateRoot({...base, option: undefined, env: {}})).toBe("/home/a/.local/share/neuro-book");
     });
 
-    it("空串算没给", () => {
-        expect(resolveStateRoot({...base, option: " ", env: {NBOOK_STATE_ROOT: ""}})).toBe("/home/a/.local/share/neuro-book");
+    it("环境变量的空串算没给；--state-root 的空串报用法错误，不回落到缺省", () => {
+        expect(resolveStateRoot({...base, option: undefined, env: {NBOOK_STATE_ROOT: " "}})).toBe("/home/a/.local/share/neuro-book");
+        expect(() => resolveStateRoot({...base, option: " ", env: {}})).toThrow(expect.objectContaining({code: "usage", exitCode: 2}));
     });
 });

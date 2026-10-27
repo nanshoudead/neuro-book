@@ -119,7 +119,7 @@ examples/
 | [menu](plugins/menu/) | server | 定义贡献点 `menu.items`：规则写成 `schema` 与 `idPrefix`、登记时逐条校验，启动即激活、收到菜单项记诊断，接收者 `published` 与 `revoke`、执行时经 `implementation()` 取实现；`context.declarations` 列出已接受声明的标题，贡献方还没激活也列得出 |
 | [file-menu](plugins/file-menu/) | server | 向贡献点提交声明与实现，与拥有者之间没有服务依赖；注释说明这里为什么仍启动即激活、按需激活怎样写 |
 | [snippets](plugins/snippets/) | browser（配置项在每个实例登记） | 配置项写在插件描述里、由宿主登记进每个实例；向 `settings.pages` 贡献 page 分区，`load()` 按需加载页面；页面用 `SettingsRow` 的宽排法按 `context.layer` 只编辑这一层，按层读（`inspect`）与按层写（`update(..., {layer})`）；什么时候用 page 而不是 list |
-| [focus](plugins/focus/) | server、browser | 完整示例“专注计时”：list 分区里的设置项、命令、侧栏视图（`view` 助手的 `implement` 把 store 交给组件）、状态栏条目（挂切换命令）、服务端远程服务与私有存储；计时的权威在服务端，到点由结算函数记完成（纯函数，几个服务端各自结算不会多记），条件保存防丢更新，坏记录用 `reset` 重来；窗口按 `endsAt` 算剩余、只在计时时走表、重连后重取 |
+| [focus](plugins/focus/) | server、browser | 完整示例“专注计时”：list 分区里的设置项、命令、侧栏视图（`view` 助手的 `implement` 把 store 交给组件）、状态栏条目（挂切换命令）、服务端远程服务与私有存储；计时的权威在服务端，到点由结算函数记完成（纯函数，几个请求各自结算不会多记），条件保存防丢更新，坏记录用 `reset` 重来；窗口按 `endsAt` 算剩余、只在计时时走表、重连后重取 |
 
 ## 外部插件
 
@@ -128,7 +128,7 @@ examples/
 装一个示例：
 
 1. 在应用包目录运行 `bun run build:examples [名…]`（不写名字就构建全部），产物在各示例的 `dist/`（git 忽略）。每个入口打成一个文件，宿主共享的模块（Vue、`@vue/reactivity`、SDK 与它的组件入口）不打进去；仓库里构建时 SDK 的包名指到应用源码，应用源码列为不许打进产物的目录，示例绕过 SDK 引用了应用内部时构建失败。
-2. `nbook plugin install <示例的 dist>`（在应用包目录可以用 `bun src/cli/main.ts plugin install plugin-sdk/examples/plugins/snippets/dist`），或者在 NeuroBook 的“设置 → 插件”里点“安装…”、填 `dist` 的完整路径并确认。
+2. `nbook plugin install <示例的 dist>`，装进你启动 NeuroBook 用的那个状态根：在应用包目录给开发服务（`bun run dev`，状态根是 `.dev-state`）装，写 `bun src/cli/main.ts --state-root .dev-state plugin install plugin-sdk/examples/plugins/snippets/dist`；或者在 NeuroBook 的“设置 → 插件”里点“安装…”、填 `dist` 的完整路径并确认。
 3. 重启 NeuroBook。menu 与 file-menu 要一起装：file-menu 的菜单项交给 menu，menu 收到时记一条诊断，在服务端日志里看得到。notes 写了 `pluginVersions` 要求 clock 是 `^0.1.0`（clock 是它的可选依赖，不装也能用）。
 
 另有 [declarative](external/declarative/package.json)：只有声明、没有代码的插件，文件夹本身就能安装，不用构建。一项配置 `example.hello/greeting`，用户层与本作品层都能改。

@@ -38,19 +38,18 @@ interface GlobalOptions {
 function program(): Command {
     const nbook = new Command("nbook")
         .description("NeuroBook：本地优先的长篇写作工作区")
-        .usage("[选项] [命令]")
         .option("--state-root <目录>", "状态根（缺省是平台的数据目录，或环境变量 NBOOK_STATE_ROOT）")
         .option("--json", "结果以一个 JSON 对象写到标准输出")
         .helpOption("-h, --help", "显示帮助")
         .helpCommand("help [命令]", "显示命令的帮助")
         .version(versionText(), "-v, --version", "显示版本")
-        .configureHelp({styleTitle: (title) => TITLES[title] ?? title})
+        // commander 的用法行与命令列表写 `[options]`：自己拼，与中文标题一致；子命令的帮助也列出全局选项。
+        .configureHelp({styleTitle: (title) => TITLES[title] ?? title, commandUsage: usageOf, subcommandTerm: termOf, showGlobalOptions: true})
         .configureOutput({outputError: () => undefined})
         .exitOverride();
     nbook
         .command("start", {isDefault: true})
         .description("启动 NeuroBook（前台运行，Ctrl-C 停止）；状态根上已有实例时打开它")
-        .usage("[选项]")
         .option("--port <端口>", "HTTP 端口（缺省 4217，被占用时顺延）", portOption)
         .option("--rpc-port <端口>", "内核 RPC 端口（缺省跟着 --port 加 1，都不给时是 4218）", portOption)
         .option("--no-open", "不打开浏览器")
@@ -66,7 +65,7 @@ function program(): Command {
                 {port: options.port, rpcPort: options.rpcPort, open: options.open, safeMode: options.safeMode === true},
             );
         });
-    const plugin = nbook.command("plugin").description("管理第三方插件：只写登记表，重启服务后生效").usage("<命令> [选项]");
+    const plugin = nbook.command("plugin").description("管理第三方插件：只写登记表，重启服务后生效");
     const pluginContext = (command: Command): PluginContext => {
         const globals = command.optsWithGlobals<GlobalOptions>();
         return {stateRoot: stateRootOf(globals), output: createOutput(globals.json === true), cwd: process.cwd()};
@@ -84,27 +83,49 @@ function program(): Command {
     return nbook;
 }
 
+function argumentsOf(command: Command): string[] {
+    return command.registeredArguments.map((argument) => (argument.required ? `<${argument.name()}>` : `[${argument.name()}]`));
+}
+
+function usageOf(command: Command): string {
+    const names: string[] = [];
+    for (let current: Command | null = command; current !== null; current = current.parent) names.unshift(current.name());
+    return [...names, "[选项]", ...(command.commands.length > 0 ? ["[命令]"] : []), ...argumentsOf(command)].join(" ");
+}
+
+function termOf(command: Command): string {
+    return [command.name(), ...(command.options.length > 0 ? ["[选项]"] : []), ...argumentsOf(command)].join(" ");
+}
+
 function stateRootOf(globals: GlobalOptions): string {
     return resolveStateRoot({option: globals.stateRoot, env: process.env, platform: process.platform, home: homedir(), cwd: process.cwd()});
 }
 
-/** commander 的错误码对应的中文说明；帮助与版本是正常结束。 */
+/**
+ * commander 的错误换成中文说明；帮助与版本是正常结束。按错误码分支，选项名、命令名与建议只从英文原文的引号里取出来显示。
+ * `commander.help` 有两种：`help` 子命令（退出码 0）与命令组没跟子命令（它已把帮助写到标准错误，退出码 1）。
+ */
 function usageFailure(error: CommanderError): CliFailure | null {
     if (error.code === "commander.helpDisplayed" || error.code === "commander.version") return null;
-    const detail = error.message.replace(/^error: /u, "");
+    if (error.code === "commander.help" && error.exitCode === 0) return null;
+    const quoted = /'([^']+)'/u.exec(error.message)?.[1] ?? "";
+    const suggestion = /Did you mean ([^?]+)\?/u.exec(error.message)?.[1];
+    const hint = `${suggestion === undefined ? "" : `，是不是 ${suggestion}`}；加 --help 查看用法`;
     switch (error.code) {
         case "commander.unknownOption":
-            return new CliFailure("usage", `不认识的选项（${detail}）；nbook --help 查看用法`, 2);
+            return new CliFailure("usage", `不认识的选项 ${quoted}${hint}`, 2);
         case "commander.unknownCommand":
-            return new CliFailure("usage", `不认识的命令（${detail}）；nbook --help 查看用法`, 2);
+            return new CliFailure("usage", `不认识的命令 ${quoted}${hint}`, 2);
         case "commander.help":
-            // 命令组（plugin）没跟子命令：commander 已把它的帮助写到标准错误。
             return new CliFailure("usage", "缺少子命令，见上面的帮助", 2);
         case "commander.missingArgument":
+            return new CliFailure("usage", `缺少参数 <${quoted}>${hint}`, 2);
         case "commander.optionMissingArgument":
-            return new CliFailure("usage", `缺少参数（${detail}）；nbook --help 查看用法`, 2);
+            return new CliFailure("usage", `选项 ${quoted} 缺少值${hint}`, 2);
+        case "commander.excessArguments":
+            return new CliFailure("usage", `命令 ${quoted} 不收这么多参数${hint}`, 2);
         default:
-            return new CliFailure("usage", `用法错误（${detail}）；nbook --help 查看用法`, 2);
+            return new CliFailure("usage", `用法错误${hint}`, 2);
     }
 }
 

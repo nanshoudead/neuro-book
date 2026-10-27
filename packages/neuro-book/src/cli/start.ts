@@ -86,6 +86,8 @@ async function existing(instance: InstanceInfo, context: StartContext, options: 
     }
     if (instance.status !== "ready" || instance.url === null) return false;
     if (options.port !== undefined || options.rpcPort !== undefined) context.output.hint("已有实例在运行，忽略 --port 与 --rpc-port。");
+    // 安全模式是插件拖垮应用时的出路：连上的实例没有以安全模式运行时要明说，否则用户以为进了安全模式。
+    if (options.safeMode && instance.plugins?.safeMode !== true) context.output.hint("已在运行的实例没有以安全模式启动：要安全模式，先停掉它（在它的终端按 Ctrl-C），再运行 nbook start --safe-mode。");
     report(instance, false, context);
     await openBrowser(instance.url, context, options);
     return true;
@@ -148,6 +150,10 @@ async function serve(claim: StateRootClaim, context: StartContext, options: Star
             report({url, rpcUrl, pid: process.pid, version: PRODUCT_VERSION}, true, context);
             context.output.hint("前台运行中，按 Ctrl-C 停止。");
             if (url !== null) void openBrowser(url, context, options);
+        },
+        onStartupFailed: ({message, causes}) => {
+            const first = causes.find((cause) => cause.message !== null)?.message ?? message;
+            context.output.failure(new CliFailure("startup-failed", `服务端启动失败：${first}（详情见上面的致命诊断与 ${join(context.stateRoot, "logs")}）`, 1, {stateRoot: context.stateRoot, causes}));
         },
     });
 }

@@ -6,7 +6,7 @@ NeuroBook 插件 `__ID__`：在侧栏放一个视图，显示设置里的问候�
 
 1. 装依赖：`bun install`。
 2. 构建：`bun run build`，产物在 `dist/`。
-3. 安装：`nbook plugin install dist`（NeuroBook 的命令行，`bun add -g @notnotype/neuro-book` 装上），或者在 NeuroBook 的“设置 → 插件”里点“安装…”、填 `dist` 在服务端机器上的完整路径并确认；重启服务后生效。
+3. 安装：`nbook plugin install dist`（NeuroBook 的命令行，`bun add -g @notnotype/neuro-book` 装上；启动 NeuroBook 时给过 `--state-root` 的，这里给同一个），或者在 NeuroBook 的“设置 → 插件”里点“安装…”、填 `dist` 在服务端机器上的完整路径并确认；重启服务后生效。
 
 ## 改代码之后
 

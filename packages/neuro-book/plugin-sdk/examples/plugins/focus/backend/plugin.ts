@@ -60,7 +60,7 @@ function dayOf(time: number): string {
 
 /**
  * 结算：进行中的那次过了 `endsAt` 就记为完成，算在 `endsAt` 那一天；记录的日期不是今天时汇总清零。纯函数，同一份记录在
- * 同一时刻结算几次结果都一样，所以几个服务端各自结算不会多记。
+ * 同一时刻结算几次结果都一样，所以几个请求各自结算不会多记。
  */
 function settle(record: FocusRecord, now: number): FocusRecord {
     let next = record;

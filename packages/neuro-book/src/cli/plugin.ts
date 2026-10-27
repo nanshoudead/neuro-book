@@ -88,8 +88,9 @@ async function inventoryFor(context: PluginContext): Promise<Opened> {
 
 function failed(failure: InventoryFailure): CliFailure {
     const problems = failure.problems ?? [];
-    const message = problems.length === 0 ? failure.detail : `${failure.detail}\n${problems.map((problem) => `  - ${problem}`).join("\n")}`;
-    return new CliFailure(failure.code, message, 1, problems.length === 0 ? {} : {problems});
+    // 有逐条问题时 detail 已带着第一条，只列问题，不再重复 detail。
+    if (problems.length === 0) return new CliFailure(failure.code, failure.detail, 1);
+    return new CliFailure(failure.code, `插件清单有 ${String(problems.length)} 处错误：\n${problems.map((problem) => `  - ${problem}`).join("\n")}`, 1, {problems});
 }
 
 const PENDING: Readonly<Record<PendingChange["kind"], string>> = {install: "重启后安装", uninstall: "重启后卸载", enable: "重启后启用", disable: "重启后禁用", upgrade: "重启后升级"};
@@ -141,13 +142,13 @@ export function installPlugin(context: PluginContext, directory: string, options
         }
         const done = await inventory.install(source);
         if (!done.ok) throw withHint(failed(done), done.code);
-        context.output.result(`${lines.join("\n")}\n已写入登记表，${RESTART}`, {preview: preview.value, plugin: done.value, restartRequired: true});
+        context.output.result(`${lines.join("\n")}\n已写入 ${context.stateRoot} 的插件登记表，${RESTART}`, {preview: preview.value, plugin: done.value, stateRoot: context.stateRoot, restartRequired: true});
     });
 }
 
 /** 命令行特有的补充：作者最常撞上的两种失败，告诉他下一步。 */
 function withHint(failure: CliFailure, code: string): CliFailure {
-    if (code === "path-rejected") return new CliFailure(failure.code, `${failure.message}\n插件要先用 nbooke build 构建，再把它的 dist 目录传给 nbook plugin install。`, 1, failure.fields);
+    if (code === "path-rejected") return new CliFailure(failure.code, `${failure.message}\n确认这个路径存在，并且是 nbooke build 构建出的 dist 目录。`, 1, failure.fields);
     if (code === "already-installed") return new CliFailure(failure.code, `${failure.message}\n开发中改了代码不想改版本号：用 nbooke build --dev 构建，每次得到一个更新的开发版本号。`, 1, failure.fields);
     return failure;
 }

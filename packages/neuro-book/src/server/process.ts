@@ -22,7 +22,7 @@ import {readServerConfig, ServerConfigError} from "./config";
 import type {ServerConfig} from "./config";
 import {claimStateRoot} from "./instance";
 import type {ClaimResult, InstanceKind, StateRootClaim} from "./instance";
-import {ServerAssemblyError, startServer} from "./start";
+import {ServerAssemblyError, ServerStartupError, startServer} from "./start";
 import type {RunningServer, StartServerOptions} from "./start";
 
 function fatal(event: string, fields: Record<string, unknown>): void {
@@ -78,6 +78,7 @@ function startOrExit(config: ServerConfig, claim: StateRootClaim, manifest: Read
     } catch (error) {
         // 致命诊断已由 startServer 同步写出。
         if (!(error instanceof ServerAssemblyError)) throw error;
+        options.onStartupFailed?.(startupFailureReport(error));
         return null;
     }
 }
@@ -97,6 +98,25 @@ export interface ServerProcessOptions {
     readonly quiet?: boolean;
     /** 运行实例可用之后（health 返回 200 起）；启动失败时不调用。 */
     readonly onReady?: (server: {readonly url: string | null; readonly rpcUrl: string}) => void;
+    /**
+     * 启动失败（装配失败或运行实例启动失败）时，在以 1 退出之前调用；致命诊断照样写标准错误。`nbook start` 用它把失败换成
+     * 命令行自己的输出。
+     */
+    readonly onStartupFailed?: (failure: StartupFailureReport) => void;
+}
+
+/** 启动失败的摘要：每个失败入口的来源、原因与错误消息。 */
+export interface StartupFailureReport {
+    readonly message: string;
+    readonly causes: ReadonlyArray<{readonly source: string; readonly reason: string; readonly message: string | null}>;
+}
+
+function startupFailureReport(error: unknown): StartupFailureReport {
+    if (error instanceof ServerStartupError) {
+        return {message: error.message, causes: error.failures.map((failure) => ({source: failure.source, reason: failure.reason, message: failure.error?.message ?? null}))};
+    }
+    const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : null;
+    return {message: error instanceof Error ? error.message : String(error), causes: [{source: "server", reason: "assembly", message: cause}]};
 }
 
 export async function runServerProcess(manifest: ReadonlyArray<PluginDescriptor>, options: ServerProcessOptions = {}): Promise<never> {
@@ -117,8 +137,14 @@ export async function runServerProcess(manifest: ReadonlyArray<PluginDescriptor>
         await claim.release();
         process.exit(1);
     }
-    // 启动失败已由 startServer 写出致命诊断，随后经 stopped 以 1 退出；这里只在可用时通知。
-    server.ready.then(() => options.onReady?.({url: server.url, rpcUrl: server.rpcUrl}), () => undefined);
+    // 启动失败时 startServer 已写出致命诊断，随后经 stopped 以 1 退出。
+    server.ready.then(
+        () => options.onReady?.({url: server.url, rpcUrl: server.rpcUrl}),
+        (error: unknown) => {
+            // 启动中被请求停止（Ctrl-C）不算启动失败。
+            if (!(error instanceof ServerStartupError && error.status !== "failed")) options.onStartupFailed?.(startupFailureReport(error));
+        },
+    );
     const {exitCode} = await server.stopped;
     process.exit(exitCode);
 }

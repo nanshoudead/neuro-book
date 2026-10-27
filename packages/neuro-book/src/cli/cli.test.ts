@@ -104,10 +104,11 @@ describe("nbook start（真实进程）", () => {
         expect(await waitUntil("打开了浏览器", async () => ((await openedUrls()).includes(url) ? true : undefined))).toBe(true);
 
         // 不给子命令等于 start；选项写在前面也行。
-        const second = run(["--state-root", root, "--json", "--port", "4999"]);
+        const second = run(["--state-root", root, "--json", "--port", "4999", "--safe-mode"]);
         expect(await second.result).toMatchObject({ok: true, started: false, pid: first.pid, url});
         expect(await second.exit).toBe(0);
         expect(second.stderr()).toContain("忽略 --port");
+        expect(second.stderr()).toContain("没有以安全模式启动");
         expect((await openedUrls()).filter((opened) => opened === url)).toHaveLength(2);
 
         first.signal("SIGHUP");
@@ -197,6 +198,20 @@ describe("nbook start 遇到已有实例", () => {
     });
 });
 
+describe("启动失败", () => {
+    it("服务端启动失败（Web 根不存在）：结果对象是 startup-failed，带原因，以 1 退出；文本模式写一行 nbook：说明", async () => {
+        const missing = join(tmp, "no-such-web");
+        const failed = run(["start", "--state-root", nextRoot(), "--port", "0", "--no-open", "--json"], {NBOOK_WEB_ROOT: missing});
+        const result = await failed.result;
+        expect(result).toMatchObject({ok: false, code: "startup-failed", causes: [expect.objectContaining({message: expect.stringContaining(missing)})]});
+        expect(String(result.message)).toContain(missing);
+        expect(await failed.exit).toBe(1);
+        const text = run(["start", "--state-root", nextRoot(), "--port", "0", "--no-open"], {NBOOK_WEB_ROOT: missing});
+        expect(await text.exit).toBe(1);
+        expect(text.stderr()).toContain("nbook：服务端启动失败");
+    }, 30_000);
+});
+
 describe("用法", () => {
     it("拼错的命令、不认识的选项、不合法的端口：以 2 退出，带码 usage；--version 与 --help 以 0 退出", async () => {
         for (const args of [["strat"], ["--bogus"], ["start", "--port", "70000"]]) {
@@ -207,6 +222,10 @@ describe("用法", () => {
         const typo = run(["strat"]);
         expect(await typo.exit).toBe(2);
         expect(typo.stderr()).toContain("不认识的命令 strat");
+        // --state-root 给了空串是用法错误，不回落到缺省的真实状态根。
+        expect(await json(["plugin", "list", "--state-root", ""])).toMatchObject({exit: 2, result: {ok: false, code: "usage"}});
+        // help 子命令与 --help 一样正常结束。
+        for (const args of [["help", "start"], ["plugin", "help", "install"]]) expect(Bun.spawnSync(["bun", nbook, ...args], {env: cleanEnv()}).exitCode).toBe(0);
         const version = Bun.spawnSync(["bun", nbook, "--version"], {env: cleanEnv()});
         expect(version.exitCode).toBe(0);
         expect(version.stdout.toString()).toContain(`NeuroBook ${PRODUCT_VERSION}`);
@@ -248,7 +267,7 @@ describe("nbook plugin（真实进程）", () => {
 
         const source = await pluginSource("hello", PRODUCT_VERSION);
         const installed = await json(["plugin", "install", source, "--state-root", root]);
-        expect(installed.result).toMatchObject({ok: true, restartRequired: true, preview: {id: "example.hello", relation: "install"}});
+        expect(installed.result).toMatchObject({ok: true, restartRequired: true, stateRoot: root, preview: {id: "example.hello", relation: "install"}, plugin: {id: "example.hello", state: "enabled"}});
         expect(installed.stderr).toContain("插件完全受信任");
         expect(thirdParty((await json(["plugin", "list", "--state-root", root])).result)).toEqual([expect.objectContaining({id: "example.hello", state: "enabled", pending: []})]);
         expect(await json(["plugin", "install", source, "--state-root", root])).toMatchObject({exit: 1, result: {ok: false, code: "already-installed"}});
@@ -300,7 +319,19 @@ describe("nbook plugin（真实进程）", () => {
         expect(await server.exit).toBe(0);
     }, 30_000);
 
-    it("用法与提示：plugin 不跟子命令以 2 退出；路径不是插件目录时提示先用 nbooke build", async () => {
+    it("清单无效：码 manifest-invalid，结果对象带逐条问题，说明里每条只出现一次", async () => {
+        sequence += 1;
+        const broken = join(tmp, "sources", `broken-${String(sequence)}`);
+        await mkdir(broken, {recursive: true});
+        await writeFile(join(broken, "package.json"), JSON.stringify({publisher: "example", name: "broken"}));
+        const attempt = await json(["plugin", "install", broken, "--state-root", nextRoot()]);
+        expect(attempt).toMatchObject({exit: 1, result: {ok: false, code: "manifest-invalid"}});
+        const problems = attempt.result.problems as string[];
+        expect(problems.length).toBeGreaterThan(0);
+        for (const problem of problems) expect(String(attempt.result.message).split(problem).length - 1).toBe(1);
+    }, 30_000);
+
+    it("用法与提示：plugin 不跟子命令以 2 退出；路径不是插件目录时提示确认路径与 nbooke build", async () => {
         const bare = run(["plugin"]);
         expect(await bare.exit).toBe(2);
         const missing = await json(["plugin", "install", join(tmp, "no-such-plugin"), "--state-root", nextRoot()]);

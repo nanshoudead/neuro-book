@@ -312,10 +312,10 @@ SDK 还没有给作者的测试替身（内存里的存储、设置与时钟，�
 ## 开发循环
 
 1. 改代码，`bun run dev`（`nbooke build --clean --dev`）。产物的版本是 `<version>+dev.<UTC 时间到秒>.<毫秒>`，例如 `0.1.0+dev.20261023101500.123`。
-2. `nbook plugin install dist`（应用的命令行，`bun add -g @notnotype/neuro-book` 装上；在服务端那台机器上运行），或者在 NeuroBook 的“设置 → 插件”里点“安装…”、填 `dist` 的完整路径并确认。开发版本每次都比上一次新，按升级处理，不用改版本号，也不用先卸载。
+2. `nbook plugin install dist`（应用的命令行，`bun add -g @notnotype/neuro-book` 装上；在服务端那台机器上运行，`--state-root` 或 `NBOOK_STATE_ROOT` 与启动 NeuroBook 时用的一致），或者在 NeuroBook 的“设置 → 插件”里点“安装…”、填 `dist` 的完整路径并确认。开发版本每次都比上一次新，按升级处理，不用改版本号，也不用先卸载。
 3. 重启 NeuroBook（前台运行的 `nbook start` 按 Ctrl-C 后再启动），新版本生效。
 
-开发版本也比同号的正式版本新：装过 `0.1.0+dev.…` 之后再装 `bun run build` 的 `0.1.0`，插件页按降级处理并提示数据迁移的风险。发布前先提高版本号。用 `bun run build` 构建的版本与已安装的相同时，安装会被拒绝（“已安装相同版本”）：提高版本号（`package.json` 与 `definePlugin` 一起改），或者先卸载、重启后再装。安装、升级、启停与卸载都在下一次启动后生效，规则见 [plugin-install](../../../docs/specs/runtime/plugin-install.md)。
+开发版本也比同号的正式版本新：装过 `0.1.0+dev.…` 之后再装 `bun run build` 的 `0.1.0`，插件页按降级处理并提示数据迁移的风险，命令行安装降级要加 `--yes`。发布前先提高版本号。用 `bun run build` 构建的版本与已安装的相同时，安装会被拒绝（“已安装相同版本”）：提高版本号（`package.json` 与 `definePlugin` 一起改），或者先卸载、重启后再装。安装、升级、启停与卸载都在下一次启动后生效，规则见 [plugin-install](../../../docs/specs/runtime/plugin-install.md)。
 
 ## 调试
 

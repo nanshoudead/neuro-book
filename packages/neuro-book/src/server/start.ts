@@ -14,7 +14,7 @@ import {writeSync} from "node:fs";
 import {homedir} from "node:os";
 import {join} from "node:path";
 
-import type {Application, StartupResult, StopResult} from "@notnotype/nb-runtime/application";
+import type {Application, StartupFailure, StartupResult, StopResult} from "@notnotype/nb-runtime/application";
 import {createDiagnosticsStore, mechanismObservers, recordingEmergency, serializeDiagnosticError} from "@notnotype/nb-runtime/diagnostics";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
@@ -117,6 +117,17 @@ export interface RunningServer {
     /** 内核 RPC 端口的地址（`ws://…/`）；返回时已在监听。 */
     readonly rpcUrl: string;
     requestStop(source: string): void;
+}
+
+/**
+ * 运行实例没有可用（`RunningServer.ready` 的拒绝原因）：`status` 为 `failed` 是启动失败，带内核给出的各失败入口与错误摘要；
+ * `stopped` 是启动中被请求停止。
+ */
+export class ServerStartupError extends Error {
+    constructor(message: string, readonly status: Exclude<StartupResult["status"], "available">, readonly failures: ReadonlyArray<StartupFailure>) {
+        super(message);
+        this.name = "ServerStartupError";
+    }
 }
 
 /** 运行实例建立之前的装配失败（RPC 端口监听、按清单装配插件）。抛出前致命诊断已写出，调用方只需以 1 退出。 */
@@ -397,7 +408,7 @@ export function startServer(options: StartServerOptions): RunningServer {
         }
         // 启动没有成功时内核已自行关闭（"stopped" 表示宿主在启动中请求了停止）。
         const reason = startup.failures.map((failure) => `${failure.source}:${failure.reason}`).join("；") || startup.status;
-        const error = new Error(`后端启动失败（${startup.status}）：${reason}`);
+        const error = new ServerStartupError(`后端启动失败（${startup.status}）：${reason}`, startup.status, startup.failures);
         if (startup.status === "failed") {
             reportStartupFailure(error);
             // 紧急报告只带失败的入口与代号（内核不让错误正文进紧急通道），具体原因只在启动结果里：另写一行。

@@ -7,6 +7,8 @@
 
 import {isAbsolute, join, resolve, win32} from "node:path";
 
+import {CliFailure} from "./output";
+
 /** 平台的数据目录下的 NeuroBook 状态根。 */
 export function defaultStateRoot(platform: NodeJS.Platform, env: Readonly<Record<string, string | undefined>>, home: string): string {
     if (platform === "win32") {
@@ -28,8 +30,15 @@ export interface StateRootInput {
     readonly cwd: string;
 }
 
-/** 取值顺序：`--state-root` > `NBOOK_STATE_ROOT`（空串算没给）> 平台缺省。相对路径按当前目录解析。 */
+/**
+ * 取值顺序：`--state-root` > `NBOOK_STATE_ROOT`（空串算没给）> 平台缺省。相对路径按当前目录解析。`--state-root` 是用户显式
+ * 写的，空串报错而不是回落到缺省：脚本写 `--state-root "$X"` 而变量没设时，不能悄悄作用到用户真实的数据。
+ */
 export function resolveStateRoot(input: StateRootInput): string {
-    const chosen = input.option?.trim() || input.env.NBOOK_STATE_ROOT?.trim();
-    return chosen ? resolve(input.cwd, chosen) : defaultStateRoot(input.platform, input.env, input.home);
+    if (input.option !== undefined) {
+        if (input.option.trim() === "") throw new CliFailure("usage", "--state-root 不能为空", 2);
+        return resolve(input.cwd, input.option.trim());
+    }
+    const env = input.env.NBOOK_STATE_ROOT?.trim();
+    return env ? resolve(input.cwd, env) : defaultStateRoot(input.platform, input.env, input.home);
 }
