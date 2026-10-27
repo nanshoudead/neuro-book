@@ -21,7 +21,7 @@ import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {IconButton} from "@notnotype/nb-ui/components";
 
-import {edgeLabelDrawer, estimateLabelWidth, fixedColors, Focus, hoverDrawer, labelDrawer, layoutCircle, layoutConcentric, layoutForce, mix, readTheme, seedSpiral, zoom} from "./sigma-kit";
+import {edgeLabelDrawer, estimateLabelWidth, fixedColors, Focus, hoverDrawer, labelDrawer, layoutCircle, layoutConcentric, layoutForce, layoutStress, mix, readTheme, seedSpiral, zoom} from "./sigma-kit";
 import type {Theme} from "./sigma-kit";
 
 import type {IdentityState} from "../../contract/contract";
@@ -35,7 +35,7 @@ export type NetworkNode = {id: string; label: string; kind: string; weight: numb
 export type NetworkEdge = {a: string; b: string; word: string | null; statements: number; together: number; ab: number; ba: number; identity: IdentityState | null};
 /** 全书图的线。 */
 export type DataEdge = {a: string; b: string; type: "participates" | "about" | "link" | "relation"; count: number};
-export type GraphLayout = "force" | "concentric" | "circle";
+export type GraphLayout = "force" | "concentric" | "circle" | "stress";
 
 const props = withDefaults(defineProps<{
     nodes: NetworkNode[];
@@ -272,6 +272,10 @@ function applyLayout(target: Graph, fresh: boolean): void {
         return;
     }
     if (fresh || target.someNode((_, attributes) => attributes.x === undefined)) seedSpiral(target, (node) => Number(target.getNodeAttribute(node, "weight")));
+    if (props.mode === "relation" && props.layout === "stress") {
+        layoutStress(target, {viewportWidth: host.value?.clientWidth ?? 800, labelWidth: (node) => estimateLabelWidth(String(target.getNodeAttribute(node, "label")), props.compact ? 11 : 12)});
+        return;
+    }
     layoutForce(target, {
         viewportWidth: host.value?.clientWidth ?? 800, linLog: false, iterations: props.mode === "data" ? 600 : fresh ? 300 : 150,
         labelWidth: (node) => estimateLabelWidth(String(target.getNodeAttribute(node, "label")), props.compact ? 11 : 12),

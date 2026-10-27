@@ -269,6 +269,14 @@ export function layoutForce(graph: Graph, options: {viewportWidth: number; linLo
         settings: {...inferred, linLogMode: options.linLog, outboundAttractionDistribution: true, adjustSizes: false,
             gravity: options.linLog ? 0.4 : 1, scalingRatio: options.linLog ? 2 : 6, slowDown: 4, barnesHutOptimize: graph.order > 300},
     });
+    separateNodes(graph, options);
+}
+
+/**
+ * 把点推开到不重叠（noverlap），点的大小是屏幕像素、先按画布宽度换算成图坐标；强制出标签的点按标签宽度算半径。
+ * 到迭代上限时不保证收敛：还有重叠就再跑一轮，至多三轮。力导向与应力排版共用。
+ */
+function separateNodes(graph: Graph, options: {viewportWidth: number; labelWidth?: (node: string) => number}): void {
     const xs = graph.mapNodes((_, attributes) => Number(attributes.x));
     const ys = graph.mapNodes((_, attributes) => Number(attributes.y));
     const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 1);
@@ -287,7 +295,80 @@ export function layoutForce(graph: Graph, options: {viewportWidth: number; linLo
         });
         if (overlaps(graph, radius) === 0) return;
     }
-    console.warn({nodes: graph.order}, "力导向排版到上限仍有点重叠");
+    console.warn({nodes: graph.order}, "排版到上限仍有点重叠");
+}
+
+/** 应力排版超过这么多个点就改用力导向：每轮要算全部点对，点数的平方乘迭代次数。 */
+export const STRESS_MAX_NODES = 400;
+
+/**
+ * 应力排版（SMACOF 应力最小化）：点与点在画面上的距离逼近它们在图里的最短路径跳数，所以连着的点靠得近、线短而匀、
+ * 不相干的点自然分开，线与线交叉、线穿过别的点都比力导向少（w00024 t21 评审板的对比：108 条线的真实图，交叉最少）。
+ * 起点沿用点现在的位置（调用方先给螺旋起点），没有随机数，同样的起点总是排出同样的位置。不连通的点按“最远的跳数加一”
+ * 摆开。点数超过 `STRESS_MAX_NODES` 时退回力导向。
+ */
+export function layoutStress(graph: Graph, options: {viewportWidth: number; labelWidth?: (node: string) => number; iterations?: number}): void {
+    const ids = graph.nodes();
+    const n = ids.length;
+    if (n > STRESS_MAX_NODES) {
+        layoutForce(graph, {viewportWidth: options.viewportWidth, linLog: false, ...(options.labelWidth === undefined ? {} : {labelWidth: options.labelWidth})});
+        return;
+    }
+    if (n < 2) return;
+    const index = new Map(ids.map((id, i) => [id, i]));
+    // 全部点对的最短路径跳数（逐点广度优先）；够不到的先记 -1，之后换成最大跳数加一。
+    const dist = Array.from({length: n}, () => new Array<number>(n).fill(-1));
+    let longest = 1;
+    for (let source = 0; source < n; source += 1) {
+        const row = dist[source]!;
+        row[source] = 0;
+        let frontier = [source];
+        while (frontier.length > 0) {
+            const next: number[] = [];
+            for (const node of frontier) {
+                for (const other of graph.neighbors(ids[node]!)) {
+                    const at = index.get(other)!;
+                    if (row[at] === -1) {
+                        row[at] = row[node]! + 1;
+                        longest = Math.max(longest, row[at]!);
+                        next.push(at);
+                    }
+                }
+            }
+            frontier = next;
+        }
+    }
+    const far = longest + 1;
+    const x = ids.map(id => Number(graph.getNodeAttribute(id, "x")));
+    const y = ids.map(id => Number(graph.getNodeAttribute(id, "y")));
+    const scratchX = new Array<number>(n);
+    const scratchY = new Array<number>(n);
+    for (let iteration = 0; iteration < (options.iterations ?? 300); iteration += 1) {
+        for (let i = 0; i < n; i += 1) {
+            let weightSum = 0;
+            let sumX = 0;
+            let sumY = 0;
+            for (let j = 0; j < n; j += 1) {
+                if (i === j) continue;
+                const target = dist[i]![j]! < 0 ? far : dist[i]![j]!;
+                const weight = 1 / (target * target);
+                const dx = x[i]! - x[j]!;
+                const dy = y[i]! - y[j]!;
+                const length = Math.hypot(dx, dy) || 1e-6;
+                sumX += weight * (x[j]! + (target * dx) / length);
+                sumY += weight * (y[j]! + (target * dy) / length);
+                weightSum += weight;
+            }
+            scratchX[i] = sumX / weightSum;
+            scratchY[i] = sumY / weightSum;
+        }
+        for (let i = 0; i < n; i += 1) {
+            x[i] = scratchX[i]!;
+            y[i] = scratchY[i]!;
+        }
+    }
+    ids.forEach((id, i) => graph.mergeNodeAttributes(id, {x: x[i]!, y: y[i]!}));
+    separateNodes(graph, options);
 }
 
 /** 中文标签的大致像素宽度：按字号逐字估，用于给强制出标签的点留位置。 */

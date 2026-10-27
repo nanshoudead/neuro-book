@@ -10,7 +10,7 @@ import {computed, ref, watch} from "vue";
 
 import type {EntityKind} from "../../core/dataset";
 import {useBook} from "../host/book";
-import {readRelationsView, writeRelationsView} from "../host/relations-view";
+import {readRelationsView, strongestEdges, writeRelationsView} from "../host/relations-view";
 import {useStoryQuery} from "../host/query";
 import PageState from "../parts/PageState.vue";
 import SelectionBar from "../graph/SelectionBar.vue";
@@ -36,7 +36,8 @@ const layout = ref<GraphLayout>(saved.layout);
 const relayoutKey = ref(0);
 const neighborhood = ref(saved.neighborhood);
 const showAnonymous = ref(saved.showAnonymous);
-watch([kindIds, layers, minTogether, layout, neighborhood, showAnonymous], () => writeRelationsView({kindIds: kindIds.value, layers: layers.value, minTogether: minTogether.value, layout: layout.value, neighborhood: neighborhood.value, showAnonymous: showAnonymous.value}), {deep: true});
+const strongOnly = ref(saved.strongOnly);
+watch([kindIds, layers, minTogether, layout, neighborhood, showAnonymous, strongOnly], () => writeRelationsView({kindIds: kindIds.value, layers: layers.value, minTogether: minTogether.value, layout: layout.value, neighborhood: neighborhood.value, showAnonymous: showAnonymous.value, strongOnly: strongOnly.value}), {deep: true});
 const search = ref("");
 const kinds = computed(() => KIND_GROUPS.filter(group => kindIds.value.includes(group.id)).flatMap(group => group.kinds));
 
@@ -45,7 +46,8 @@ const character = computed(() => book.perspective.value !== "reader");
 const shownLayers = computed(() => (character.value ? layers.value.filter(layer => layer !== "know") : layers.value));
 const perspectiveOptions = computed(() => [{value: "reader", label: "读者"}, ...(graph.data.value?.perspectives ?? []).map(item => ({value: item.id, label: item.label}))]);
 const nodes = computed(() => (graph.data.value?.nodes ?? []).map(node => ({id: node.id, label: node.label, kind: node.kind, weight: node.mentions, names: node.names ?? []})));
-const edges = computed(() => (graph.data.value?.edges ?? []).map(edge => ({a: edge.a, b: edge.b, word: edge.relation?.word ?? null, statements: edge.relation?.statements ?? 0, together: edge.together, ab: edge.knows?.ab ?? 0, ba: edge.knows?.ba ?? 0, identity: edge.identity})));
+const allEdges = computed(() => (graph.data.value?.edges ?? []).map(edge => ({a: edge.a, b: edge.b, word: edge.relation?.word ?? null, statements: edge.relation?.statements ?? 0, together: edge.together, ab: edge.knows?.ab ?? 0, ba: edge.knows?.ba ?? 0, identity: edge.identity})));
+const edges = computed(() => (strongOnly.value ? strongestEdges(allEdges.value) : allEdges.value));
 /** 主要人物：出场最多的几个人物，名字加粗、点一下打开人物卡。 */
 const pinned = computed(() => (graph.data.value?.nodes ?? []).filter(node => node.kind === "person" || node.kind === "persona").slice(0, 8).map(node => node.id));
 // 选中的点：打开页面时沿用抽屉里正开着的对象。
@@ -125,9 +127,10 @@ function onSelect(id: string): void {
                 </div>
             </Popover>
             <span class="text-[var(--text-secondary)]">排版</span>
-            <SegmentedControl v-model="layout" size="xs" :options="[{value: 'force', label: '力导向'}, {value: 'concentric', label: '同心'}, {value: 'circle', label: '环形'}]" aria-label="排版方式" />
+            <SegmentedControl v-model="layout" size="xs" :options="[{value: 'force', label: '力导向'}, {value: 'concentric', label: '同心'}, {value: 'circle', label: '环形'}, {value: 'stress', label: '应力'}]" aria-label="排版方式" />
             <IconButton size="xs" icon-class="i-lucide-refresh-cw" aria-label="重新排版" title="重新排版" @click="relayoutKey += 1" />
             <Checkbox v-model="neighborhood" label="只看选中的周边" />
+            <Checkbox v-model="strongOnly" label="只画最强的线" title="每个点只留它最强的三条线，图上的线少一些" data-testid="strong-only" />
             <Checkbox v-model="showAnonymous" label="显示无名角色" title="只有“学姐”“新生”这类泛称的人物，默认不画" data-testid="show-anonymous" />
             <span class="text-[length:var(--text-2xs)] text-[var(--text-secondary)]" data-testid="graph-hint">单击选中 · 双击打开 · 右键更多 · F 只看周边 · Esc 取消</span>
             <div class="ml-auto w-40"><Input v-model="search" size="sm" icon-class="i-lucide-search" placeholder="在图里找" /></div>
