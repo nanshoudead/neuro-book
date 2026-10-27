@@ -26,3 +26,122 @@ omp（因额度用完只出了 3 条）与 Claude Opus 接着审，共 19 条（
 9. **抽取侧**（O5、O6、O7）：`tier` 值不合法时只丢掉这个字段（记诊断），不丢整条说法；核对与修复替换记录时沿用原先验；改 `rules.md` 牵动所有步骤的系统提示词，回放测试与逐字对照要重录。
 10. **验收**（O15）：新增“截断到 P 与全量数据在 P 处结果相同”的不剧透判据、角色视角相同、分页、问答不变、真实模型小抽取的通过标准、依据弹出层第二版静态稿排进切片。
 
+
+## 术语
+
+- **先验**：模型抽取当时写在说法与情节上的 `tier`（1 到 3）。旧书和没写的记录没有先验。
+- **后验证据**（`ev`）：程序在阅读位置 P 按 P 以前的数据算的证据，四档：未知、没有、有一点、强。只对说法算。
+- **证据窗口**：说法所在章之后、P 以前已读完的章数。少于 K 章（暂定 5）且证据不强时，后验为“未知”。
+- **等级**：先验与后验按规则表合并后给人看的 1 到 3 级；另带标记 `unconfirmed`（待证实）或 `foreshadow`（伏笔候选），只在有先验时出现。
+- **读完的章**：章号小于 P 所在章的章；P 是所在章最后一段时这一章也算。
+
+## 技术选型
+
+无新依赖。回响用字的 4 字词组，不用分词库：分词库对小说专名切不准（专名正是要排除的东西），还要多一个依赖；t28 已用 4 字词组验证过信号。后验是纯函数，查询时现算、按（索引、P）有界缓存，不存盘：后文每提交一章就变，存盘会和数据对不上。否决了：写回数据文件（过期）、另存 `tiers.json`（多一份要同步的派生数据）、在 `buildBookIndex` 里一并算（不用等级的查询也要等）。
+
+## 关键设计
+
+### 数据字段（`src/core/dataset.ts`）
+
+- `StatementSchema`、`EpisodeSchema` 加 `tier: Type.Optional(Type.Integer({minimum: 1, maximum: 3}))`；`DATASET_SCHEMA` 不变。旧数据没有这个字段，照旧导入。
+- 外部数据文件写了不合法的 `tier` 时整份“格式不对”（同其它字段）；本仓库的抽取在编译前已清洗（见“抽取”），不会产出这种数据。写进 ingest Spec 的兼容说明。
+
+### 后验与合并（`src/core/tiers.ts`，新）
+
+**与 P 无关的底稿** `tierBase(index)`：第一次用到时按索引建一次，存在 `WeakMap<BookIndex, TierBase>`（索引按书版本缓存，底稿随它回收）。内容：
+
+- 每条说法：所在章 `c`（成立位置的章）、先验、类别、词组表。词组：说法文字按非汉字字母数字切成片段，片段内取全部 4 字词组，去重；
+- 每个词组：出现过的章（升序数组）——只扫一遍原文，原文也按同样的规则切片段，只记说法里出现过的词组（集合查找，原文 72 万字约一次线性扫描）；
+- 每个词组“开始算称呼”的位置：与它互相包含的称呼（`Entity.names` 的 `text`）里最早的 `at`，没有为 null。P 以后才出现的称呼在 P 时不排除，截断到 P 的数据算出的结果才相同；
+- 每条说法的后文引用事件：`{type, at}`，只收引用方所在章大于 `c` 的（同章引用是模型当章写的，不是后验）：别的说法的 `rel`（确认、反驳、修订）、非派生的知情（`derived` 为假）、在后文建立并收录它的秘密（秘密的 `at` 的章大于 `c`）、后文悬念进展的解答（`updates[].answer`）。
+
+**按 P 的结果** `tiersAt(index, at): TierTable`：每个索引一个 LRU（8 项，键为 P 的“章.段”）。对 P 时可见的每条说法算：
+
+- `refs`：引用事件里 `at ≤ P` 的，按类型计数；
+- `echo`：设 L 为读完的最后一章。一个词组算回响，当：在 P 时不是称呼；出现在 1..L 的章数 n 满足 `2 ≤ n ≤ max(5, ⌈0.2·L⌉)`（相对上限，贯穿全书的设定词组不会随 P 增大突然失效，P 小时有下限 5）；且在 `(c, L]` 里出现过。回响数与命中的词组（最多 5 个，给依据用）；
+- `ev`：`refs` 合计 ≥ 1 或 `echo ≥ 3` 为强；否则 `L − c < K` 为未知；否则 `echo` 为 1 或 2 有一点，0 没有。K 与上限比例第 1 片按数据定，写进 Spec；
+- 等级：有先验时查表一；没有先验时按类别查表二。
+
+表一（有先验）：
+
+| 先验＼后验 | 未知 | 没有 | 有一点 | 强 |
+|---|---|---|---|---|
+| 1 | 1 | 2（待证实） | 1 | 1 |
+| 2 | 2 | 2 | 2 | 1 |
+| 3 | 3 | 3 | 3 | 2（伏笔候选） |
+
+表二（没有先验，按类别分三组；初稿，第 1 片用 t28 的 320 条标注与西游记分布校准）：
+
+| 类别组＼后验 | 未知 | 没有 | 有一点 | 强 |
+|---|---|---|---|---|
+| 重：identity、rule、goal、kinship | 2 | 2 | 1 | 1 |
+| 中：event、social、membership、possession、trait、other | 2 | 3 | 2 | 1 |
+| 轻：attitude、location | 2 | 3 | 3 | 2 |
+
+“未知”一律不折叠（表二未知列都是 2），刚读到的章不会被成批折叠。表二没有标记。
+
+- 情节：只有先验，等级就是先验，没有先验为 null（不画色块）；不算后验。
+- 对象：不分级，人物页沿用已有的“展开次要”。
+- 接口：`tiersAt` 返回 `{statements: ReadonlyMap<id, StatementTier>}`，`StatementTier = {tier, prior, ev, flag, refs: {confirms, contradicts, revises, knowers, secrets, answers}, echo: {count, grams}, window: number}`；`episodeTier(episode)` 读先验。
+- 不剧透：只依赖（索引、P），不依赖视角；所用数据全部 ≤ P（引用按 `at`、回响按读完的章、称呼按 `at`）。判据是“截断对照”（见验收）。
+- 性能预算（第 1 片实测，西游记 100 回）：底稿冷建 < 1 秒；单个 P 的表 < 50 毫秒。
+
+### 查询（`src/contract/contract.ts`、`src/core/queries/*`、`src/core/api.ts`）
+
+- `StatementItem` 加 `tier`（1 到 3，必填）与 `tierFlag`（`"unconfirmed" | "foreshadow" | null`）；只有 `entity.statements` 产出它。
+- `EpisodeItem`（`episodes.list`）与 `EpisodeBrief`（`entity.episodes`、关系详情、悬念的情节）加 `tier`（1 到 3 或 null，只是先验）。
+- `entity.statements` 加参数 `maxTier`（1 到 3）；输出页多一个 `tiers: [n1, n2, n3]`：满足 `query` 的说法里各级条数，不随 `maxTier`、`limit`、游标变。`total` 是 `maxTier` 过滤后的总数；过滤是稳定过滤，不改原有顺序；`maxTier` 进游标摘要（`paramsDigest` 已按参数算）。其它列表方法不加 `maxTier`（没有调用方）。
+- 新方法 `tier.explain {book?, at?, id}`：`id` 是说法或情节的 id，返回 `{id, kind: "statement" | "episode", tier, prior, ev, flag, window, signals: {refs, echo: {count, grams}}}`（情节只有 `prior` 与 `tier`，其余为 null）。P 时不可见或不存在的 id 一律 `record_not_found`（404，新失败码；不可见与不存在不区分，不多泄露）。不收 `perspective`（等级不随视角变）。文字由命令行与网页各自写。
+- 问答不变：`src/qa/tools.ts` 的 `toolParameters` 去掉 `maxTier`；`formatResult` 的问答样式（`param`）不写等级。问答 Spec 输出 3 加一句“等级参数与等级不进问答工具”。
+- 命令行：默认输出不变；`--tiers` 让说法与情节的行带等级（`[2 级·待证实]`）；`statements --max-tier N`；`why <id>` 对应 `tier.explain`，写人话。Skill 命令表同步。
+
+### 抽取（`src/ingest/`）
+
+- `draft-schema.ts`：说法与情节的草稿加可选 `tier`（1 到 3）；`compile.ts` 原样带入数据。
+- `draft-tools.ts` 的 `normalizeRecord`：`tier` 是数字串时转数字；不在 1 到 3 的整数一律删掉这个字段并在章说明里计数，记录保留（等于没有先验），不进核对与修复。`applyPatch` 按 id 替换时，新记录没写 `tier` 而原记录有，沿用原记录的。
+- `rules.md` 加“重要程度”一节（三档定义、1 级是少数、态度与情绪默认 3、拿不准写 2）；`prompts.ts` 的示例草稿给几条说法与情节加 `tier`。这会改变用 `rules.md` 的所有步骤的系统提示词（每次调用多约几百字），不只是输出多一个数字。
+- 测试：`chapter.test.ts` 与 w00005 t34 录音的逐字对照按 t20 的做法加 `asBeforeT32`（去掉新增一节与示例里的 `tier`）；t10、t12 的请求哈希基线重算并在注释写原因；录音不改（覆盖“没有先验”的路径），另用一章手写回复覆盖“带 tier”的路径（含 `"2"`、`0`、漏写三种）。
+- 兼容：t32 之后抽过的书，旧版本只能查看不能续抽（编译用严格草稿 schema），写进 ingest Spec。
+- 真实模型小抽取（已授权，gpt-6-luna）：样例书前 5 章。通过标准：说法写了 `tier` 的 ≥ 95%；先验 1 级占 10% 到 35%；3 级占 15% 到 45%；与 t28 第一遍标注的加权 κ ≥ 0.4。不过时调提示词再跑一次，仍不过写进已知限制并报开发者。费用按 deepseek-flash 低谷价报。
+
+### 网页（`src/web/`）
+
+- 第 4 片开头先出依据弹出层第二版静态稿（nb-ui 弹出层规范、人话、不显示对人没意义的数字），发 nbdev 评审板，停下等开发者。
+- 定稿后：`TierBadge.vue`（色块加标签，点开依据，调 `tier.explain`）、`FoldedBar.vue`（列表顶部“展开次要（N）”与“收起次要（N）”），各带同名 `.md`；`useShowMinor` 偏好沿用 `host/prefs.ts`。
+- 人物卡“关于他的”：折叠时带 `maxTier: 2`，N 取 `tiers[2]`；展开时不带，3 级淡显。情节列表只画先验色块。人物页对象列表不动。
+
+## Spec 与文档改动
+
+- `docs/specs/story/ingest.md`：说法与情节的先验 `tier`（写法、清洗、修复沿用、兼容）。
+- `docs/specs/story/queries.md`：后验信号、两张规则表、证据窗口、不剧透口径、`maxTier` 与 `tiers`、`tier.explain`、`record_not_found`、已知限制（阈值只在两本书上校准、转述用词不同时回响偏低、等级随 P 变）。
+- `docs/specs/story/viewer.md`：等级色块、标签、依据、折叠（第 4 片）。
+- `docs/specs/story/cli-skill.md`：`--tiers`、`--max-tier`、`why`；`packages/nb-story/skill` 命令表。
+- `docs/specs/story/qa.md` 输出 3：加一句。
+
+## 切片
+
+1. **后验与合并**：数据字段、`core/tiers.ts`、单测；用 t28 标注与西游记校准表二、K 与上限比例；量性能。提交。
+2. **查询**：合同、`entity.statements` 的 `maxTier` 与 `tiers`、情节 `tier`、`tier.explain` 与失败码、命令行与 Skill、问答不变；Spec（queries、cli-skill、qa）。提交。
+3. **抽取**：草稿 schema、清洗、修复沿用、提示词与示例、回放测试、真实模型小抽取；ingest Spec。提交。
+4. **网页**：静态稿 → 停下等开发者 → 组件与页面、e2e；viewer Spec。
+5. **收口**：全量测试与 e2e、Spec 实现合同、Task 记录；实现审查（omp 额度恢复前用 Claude Opus 审后端、Sonnet 审前端）。
+
+## 验收映射
+
+- 规则表逐格、证据窗口、先验非法值忽略 → `src/core/tiers.test.ts`；
+- 不剧透（截断对照）：样例书在 P 取第 10、20、35 章末与第 20 章中间一段，全量数据在 P 的等级与依据 = 截到 P 的数据（记录 `at ≤ P`、原文截到 P）在同一 P 的结果 → `tiers.test.ts`；
+- 贯穿全书的设定在 P=100 时仍有回响、同章引用不算 → `tiers.test.ts`；
+- 视角不影响等级（读者与某角色视角的同一条说法等级相同）、`maxTier` 与 `tiers`、分页与游标、`tier.explain` 与 `record_not_found` → `src/core/queries/entities.test.ts`、`src/server` 的 HTTP 合同测试；
+- 命令行 `--tiers`、`--max-tier`、`why` → `src/cli/cli.test.ts`；问答工具参数不含 `maxTier`、输出不带等级 → `src/qa` 的工具测试；
+- 抽取清洗、修复沿用、编译带入 → `src/ingest/*.test.ts`；
+- 网页折叠与展开、偏好保持、依据弹出层 → `e2e/viewer.e2e.ts`。
+
+## 验证
+
+`bun test`（包内）、`bun run typecheck`、受影响的 e2e；收口跑全量 e2e（负载高时 1 秒阈值的“长列表”用例会失败，按既有说明对照）。真实模型只在第 3 片小抽取。
+
+## 不做与风险
+
+- 问答默认不变；抽取候选列表省 token（t28 的 b）另做；不做 5 级、不加分类；对象与情节不算后验。
+- 表二与阈值只在两本书上校准，写进已知限制；等级随 P 与后文变化，同一条说法在不同位置可能不同（这是设计，Spec 写明）。
+- 回响依赖原文用词：转述与原文用词不同时偏低。
