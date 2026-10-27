@@ -25,6 +25,7 @@ import type {ActivityBarItemDeclaration, OverlayDeclaration, TitlebarMenuItemDec
 import type {ActivityBarItemImplementation, WorkbenchOverlayImplementation} from "nbook/plugins/workbench/web/contracts";
 
 import {clockKey, windowConnectionKey, windowPluginsKey} from "nbook/shared/host";
+import {hostLocaleSchema} from "nbook/shared/host-locales";
 import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf, definePublicState} from "nbook/shared/store/public";
 import type {SettingLayer} from "nbook/shared/settings";
@@ -54,7 +55,7 @@ export const SWITCH_LOCALE_DECLARATION: CommandDeclaration = {
     title: {"zh-CN": "切换界面语言", "en-US": "Change Display Language"},
     category: {"zh-CN": "设置", "en-US": "Settings"},
     description: "Change the display language of all windows. Without arguments, the user picks one; with { locale }, it is set directly.",
-    args: Type.Object({locale: Type.Optional(Type.Union([Type.Literal("zh-CN"), Type.Literal("en-US")]))}, {additionalProperties: false}),
+    args: Type.Object({locale: Type.Optional(hostLocaleSchema())}, {additionalProperties: false}),
     effect: "write",
     expose: {agent: "auto"},
 };

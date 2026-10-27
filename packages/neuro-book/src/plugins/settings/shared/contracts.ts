@@ -17,6 +17,8 @@ import type {CommandFailureCode, CommandResult} from "nbook/plugins/commands/sha
 import type {QuickPick} from "nbook/plugins/workbench/shared/contracts";
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/localized-text";
+import {HOST_LOCALES, hostLocaleSchema} from "nbook/shared/host-locales";
+import type {HostLocale} from "nbook/shared/host-locales";
 import {defineSetting, SETTINGS_FAILURES, SETTINGS_POINT} from "nbook/shared/settings";
 import type {SettingDefinition, SettingsFailure, SettingsService} from "nbook/shared/settings";
 
@@ -50,23 +52,26 @@ export const APPEARANCE_SECTION_DECLARATION: SettingsSectionDeclaration = {
     ],
 };
 
-/** 界面语言：平台级设置，只允许用户层（项目文件可能来自别人的仓库，不该替用户换语言）。 */
-export const localeSetting = defineSetting({
-    plugin: "nbook.settings",
-    name: "locale",
-    schema: Type.Union([Type.Literal("zh-CN"), Type.Literal("en-US")]),
-    default: "zh-CN",
-    title: {"zh-CN": "界面语言", "en-US": "Display Language"},
-    layers: ["user"],
-    section: APPEARANCE_SECTION,
-    group: "language",
-    order: 10,
-    // 语言名用它自己的语言写，换到看不懂的语言后也找得回来。
-    choices: [
-        {value: "zh-CN", title: {"zh-CN": "简体中文", "en-US": "简体中文"}},
-        {value: "en-US", title: {"zh-CN": "English", "en-US": "English"}},
-    ],
-});
+/**
+ * 界面语言：平台级设置，只允许用户层（项目文件可能来自别人的仓库，不该替用户换语言）。取值与选项由宿主的语言集合生成
+ * （`HOST_LOCALES`）；测试用别的集合调这个工厂，核对加一种语言时设置与命令一起变。
+ */
+export function localeSettingFor(locales: readonly HostLocale[]): SettingDefinition<string> {
+    return defineSetting({
+        plugin: "nbook.settings",
+        name: "locale",
+        schema: hostLocaleSchema(locales),
+        default: "zh-CN",
+        title: {"zh-CN": "界面语言", "en-US": "Display Language"},
+        layers: ["user"],
+        section: APPEARANCE_SECTION,
+        group: "language",
+        order: 10,
+        choices: locales.map((locale) => ({value: locale.tag, title: {"zh-CN": locale.name, "en-US": locale.name}})),
+    });
+}
+
+export const localeSetting = localeSettingFor(HOST_LOCALES);
 
 /** 当前显示语言；在 computed 或 effect 里读时随设置变化重新求值。 */
 export function displayLocale(settings: SettingsService): DisplayLocale {

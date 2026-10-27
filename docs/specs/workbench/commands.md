@@ -140,7 +140,7 @@ owners:
 
 | 命令 id | 标题 | 参数 | `when` | `effect` | agent 暴露 | 提供方 |
 |---|---|---|---|---|---|---|
-| `nbook.settings.switch-locale` | 切换界面语言 / Change Display Language | `{locale?}`（`zh-CN`\|`en-US`） | 无 | write | auto | `nbook.settings` 浏览器入口；写用户层 |
+| `nbook.settings.switch-locale` | 切换界面语言 / Change Display Language | `{locale?}`（`HOST_LOCALES` 里的语言，现为 `zh-CN`\|`en-US`） | 无 | write | auto | `nbook.settings` 浏览器入口；写用户层 |
 | `nbook.settings.switch-theme` | 切换主题 / Change Theme | `{theme?}`（`nbook`\|`macos`） | 无 | write | auto | `nbook.workbench`；写入目标 `auto` |
 | `nbook.settings.switch-appearance` | 切换明暗 / Change Appearance | `{appearance?}`（`light`\|`dark`\|`system`） | 无 | write | auto | `nbook.workbench`；写入目标 `auto` |
 | `nbook.settings.open` | 打开设置 / Open Settings | `{section?, layer?}`（`layer`：`user`\|`project`） | 无 | read | never（给人看的窗口） | `nbook.settings` 浏览器的设置窗口入口；默认键位 `Mod+,` |

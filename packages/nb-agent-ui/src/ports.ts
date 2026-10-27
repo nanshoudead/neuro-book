@@ -7,7 +7,8 @@
  * 与参数。文字写法（标签、附件、粘贴块怎样写进文字）见 docs/specs/ui/prompt-editor.md。
  */
 
-export type PromptLocale = "zh-CN" | "en-US";
+/** 显示语言的标签；是字符串，加语言不改类型（docs/specs/ui/i18n.md）。 */
+export type PromptLocale = string;
 
 /** 宿主给的草稿：版本号变化时正文替换为 text；同一版本内 text 的变化是编辑器自己上报的回声。 */
 export type PromptDraft = {

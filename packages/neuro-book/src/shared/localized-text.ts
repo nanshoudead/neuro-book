@@ -3,6 +3,7 @@
  * 两种来源都不经过翻译表；界面按显示语言取其中一份。
  */
 
+import {resolveLocaleMap} from "@notnotype/nb-ui/text";
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
@@ -13,7 +14,11 @@ export const LocalizedTextSchema = Type.Object({
 
 export type LocalizedText = Static<typeof LocalizedTextSchema>;
 
-export type DisplayLocale = keyof LocalizedText;
+/**
+ * 显示语言的标签（docs/specs/ui/i18n.md）。是字符串而不是两种语言的联合：加一种界面语言只改宿主的语言集合与目录，
+ * 不改各处的类型。界面语言集合见 `HOST_LOCALES`。
+ */
+export type DisplayLocale = string;
 
 /**
  * 界面上要显示的文字：中英两份，或与语言无关的字符串（路径、项目名）。显示时才按当前语言取，语言切换后已打开的
@@ -21,12 +26,13 @@ export type DisplayLocale = keyof LocalizedText;
  */
 export type DisplayText = string | LocalizedText;
 
+/** 按 `ui/i18n.md` 输出 2 的规则取一份：当前语言，再 en-US，再第一项。 */
 export function localize(text: LocalizedText, locale: DisplayLocale): string {
-    return text[locale];
+    return resolveLocaleMap(text, locale);
 }
 
 export function textOf(text: DisplayText, locale: DisplayLocale): string {
-    return typeof text === "string" ? text : text[locale];
+    return typeof text === "string" ? text : resolveLocaleMap(text, locale);
 }
 
 /** 两种语言各代入一次 `{name}` 占位。 */

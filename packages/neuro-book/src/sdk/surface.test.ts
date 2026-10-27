@@ -47,10 +47,11 @@ function closure(entries: ReadonlyArray<string>): {readonly files: string[]; rea
 const entryClosure = (entry: SdkEntry) => closure([join(SRC, "sdk", entry.file)]);
 
 describe("SDK 的公开面闭包", () => {
-    it("服务端可用的子路径不连带 Vue：没有单文件组件，也不导入 vue 与 nb-ui", () => {
+    // `@notnotype/nb-ui/text` 是文字值的纯数据层（docs/specs/ui/i18n.md）：没有外部依赖、不引 Vue，服务端也用它解析语言映射。
+    it("服务端可用的子路径不连带 Vue：没有单文件组件，也不导入 vue 与 nb-ui（nb-ui 的纯数据层除外）", () => {
         for (const entry of SDK_ENTRIES.filter((item) => item.server)) {
             const {files, packages} = entryClosure(entry);
-            expect({entry: entry.specifier, vueFiles: files.filter((file) => file.endsWith(".vue")), vuePackages: packages.filter((name) => name === "vue" || name.startsWith("@vue/runtime") || name.startsWith("@notnotype/nb-ui"))}).toEqual({entry: entry.specifier, vueFiles: [], vuePackages: []});
+            expect({entry: entry.specifier, vueFiles: files.filter((file) => file.endsWith(".vue")), vuePackages: packages.filter((name) => name === "vue" || name.startsWith("@vue/runtime") || (name.startsWith("@notnotype/nb-ui") && name !== "@notnotype/nb-ui/text"))}).toEqual({entry: entry.specifier, vueFiles: [], vuePackages: []});
         }
     });
 
@@ -66,7 +67,7 @@ const CLOSURES: Readonly<Record<string, ReadonlyArray<string>>> = {
     ".": ["plugin-platform/shared/descriptor-check.ts", "shared/host.ts", "shared/localized-text.ts"],
     "./state": ["plugins/state/shared/contracts.ts", "shared/store/persisted.ts", "shared/store/public.ts", "shared/store/store.ts"],
     "./storage": ["plugins/storage/shared/contracts.ts", "shared/storage.ts"],
-    "./settings": ["plugin-platform/shared/descriptor-check.ts", "plugins/settings/shared/contracts.ts", "plugins/settings/shared/sections.ts", "shared/localized-text.ts", "shared/settings.ts"],
+    "./settings": ["plugin-platform/shared/descriptor-check.ts", "plugins/settings/shared/contracts.ts", "plugins/settings/shared/sections.ts", "shared/host-locales.ts", "shared/localized-text.ts", "shared/settings.ts"],
     "./settings/browser": [
         "plugin-platform/shared/descriptor-check.ts",
         "plugins/settings/shared/sections.ts",

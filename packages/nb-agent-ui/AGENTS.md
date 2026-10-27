@@ -6,7 +6,7 @@
 
 ## 边界
 
-- 核心（`.` 入口，`src/` 下除 `vue/` 以外的文件）不依赖任何包，只许 `import type` 自 `vue`（注册表类型里有组件字段）。`src/boundary.test.ts` 读源码核对导入，新增文件同样受约束。
+- 核心（`.` 入口，`src/` 下除 `vue/` 以外的文件）只依赖 `@notnotype/nb-ui/text`（文字值的纯数据层，没有外部依赖、不引 Vue），只许 `import type` 自 `vue`（注册表类型里有组件字段）。`src/boundary.test.ts` 读源码核对导入，新增文件同样受约束。
 - Vue 渲染层（`./vue` 入口，`src/vue/`）只依赖 `vue`、`@notnotype/nb-ui` 与核心。不引用宿主的源码：Markdown 显示与提示词编辑器由宿主注入，接口形状在核心的 `ports.ts`。
 - 样式写在组件的 scoped CSS 里、用 nb-ui 的 token，不用原子类。图标是 `i-lucide-*` 类名，宿主导入本包的 `tailwind.css` 才会生成；类名不能拼接（`src/icon-registration.test.ts`）。
 - 界面文字是包内的中英两张表，组件收 `locale`；宿主与插件给的文字写中英两份。

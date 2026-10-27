@@ -3,6 +3,8 @@
  * 过程摘要）拿不到语言，只产出 `{key, params}`，由组件在显示时翻译。占位写 `{name}`，两种语言各代入一次。
  */
 
+import {resolveLocaleMap} from "@notnotype/nb-ui/text";
+
 import type {AgentLocale, LocalizedText, ViewText} from "./types";
 
 const ZH = {
@@ -397,7 +399,12 @@ const EN: Record<AgentTextKey, string | PluralText> = {
     "render.failed": "This content can't be shown",
 };
 
-const TABLES: Record<AgentLocale, Record<AgentTextKey, string | PluralText>> = {"zh-CN": ZH, "en-US": EN};
+const TABLES: Readonly<Record<"zh-CN" | "en-US", Record<AgentTextKey, string | PluralText>>> = {"zh-CN": ZH, "en-US": EN};
+
+/** 语言是字符串（docs/specs/ui/i18n.md）：本包只有两张表，别的语言按 `resolveLocaleMap` 的规则退到 en-US。 */
+function tableFor(locale: AgentLocale): Record<AgentTextKey, string | PluralText> {
+    return locale === "zh-CN" ? TABLES["zh-CN"] : TABLES["en-US"];
+}
 
 type TextParams = Readonly<Record<string, string | number>>;
 
@@ -421,7 +428,7 @@ function pluralForm(locale: AgentLocale, text: PluralText, params: TextParams | 
 
 /** 本包文字表里的一条，代入参数；英文带数量的按单复数选写法。 */
 export function agentText(locale: AgentLocale, key: AgentTextKey, params?: TextParams): string {
-    const entry = TABLES[locale][key];
+    const entry = tableFor(locale)[key];
     return fill(typeof entry === "string" ? entry : pluralForm(locale, entry, params), params);
 }
 
@@ -429,7 +436,7 @@ export function agentText(locale: AgentLocale, key: AgentTextKey, params?: TextP
 export function textOf(text: ViewText, locale: AgentLocale): string {
     if (typeof text === "string") return text;
     if ("key" in text) return agentText(locale, text.key, text.params);
-    return text[locale];
+    return resolveLocaleMap(text, locale);
 }
 
 /** 宿主与插件写带参数的文字时用：两种语言各代入一次。 */
