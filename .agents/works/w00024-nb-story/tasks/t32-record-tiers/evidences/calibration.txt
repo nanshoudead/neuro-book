@@ -22,3 +22,26 @@ P=30 全部说法 11.2 ms
 P=60 全部说法 8.3 ms
 P=100 全部说法 14.6 ms
 P=99 全部说法 14.9 ms
+
+
+---- 第二轮（第 4 片做依据弹出层时，2026-10-27）----
+依据里的回响词组出现“晴在视频”“认为风信”这类带半截人名的词组，人看了没有意义，也虚增回响。改为：说法里出现的称呼（P 时已出现的）
+盖住的字所在的词组不算回响；给人看的是相邻或重叠的回响词组连成的词句。其余参数不变（强证据门槛另试了 3、4：与先验的一致率更低，
+先验书第 100 章 1 级分别占 48%、39%，维持 5）。西游记的图改读仓库里的 .gz（未压缩的那份被别的会话移走了）。
+
+样例·无先验 P=20 n=323 1/2/3=15%/46%/38% ev[unknown:18% none:42% some:33% strong:7%] 最近3章 1/2/3=0%/100%/0% | 标注 n=320 一致40% 3级安全85%(124) 1级不误96%(49) unconfirmed:0 foreshadow:0 | index 54ms tiers 390ms
+样例·无先验 P=50 n=836 1/2/3=19%/42%/39% ev[unknown:9% none:37% some:44% strong:9%] 最近3章 1/2/3=0%/100%/0% | 标注 n=320 一致40% 3级安全91%(113) 1级不误93%(80) unconfirmed:0 foreshadow:0 | index 43ms tiers 381ms
+样例·无先验 P=100 n=1739 1/2/3=22%/41%/38% ev[unknown:5% none:32% some:50% strong:12%] 最近3章 1/2/3=0%/100%/0% | 标注 n=320 一致40% 3级安全92%(99) 1级不误93%(99) unconfirmed:0 foreshadow:0 | index 46ms tiers 346ms
+样例·无先验·前20章 P=20 n=323 1/2/3=15%/46%/38% ev[unknown:18% none:42% some:33% strong:7%] 最近3章 1/2/3=0%/100%/0% | 标注 n=320 一致40% 3级安全85%(124) 1级不误96%(49) unconfirmed:0 foreshadow:0 | index 56ms tiers 309ms
+样例·无先验·前20章 P=50 n=323 1/2/3=25%/40%/35% ev[unknown:0% none:30% some:54% strong:15%] 最近3章 1/2/3=0%/0%/0% | 标注 n=320 一致40% 3级安全91%(113) 1级不误93%(80) unconfirmed:0 foreshadow:0 | index 33ms tiers 348ms
+样例·无先验·前20章 P=100 n=323 1/2/3=31%/38%/31% ev[unknown:0% none:23% some:55% strong:22%] 最近3章 1/2/3=0%/0%/0% | 标注 n=320 一致40% 3级安全92%(99) 1级不误93%(99) unconfirmed:0 foreshadow:0 | index 41ms tiers 265ms
+样例·先验run1·前20章 P=20 n=323 1/2/3=17%/67%/15% ev[unknown:18% none:42% some:33% strong:7%] 最近3章 1/2/3=14%/67%/19% | 标注 n=320 一致83% 3级安全100%(49) 1级不误100%(55) unconfirmed:41 foreshadow:3 | index 32ms tiers 321ms
+样例·先验run1·前20章 P=100 n=323 1/2/3=33%/54%/14% ev[unknown:0% none:23% some:55% strong:22%] 最近3章 1/2/3=0%/0%/0% | 标注 n=320 一致79% 3级安全100%(45) 1级不误100%(104) unconfirmed:21 foreshadow:7 | index 31ms tiers 283ms
+西游记·无先验 P=10 n=309 1/2/3=6%/65%/28% ev[unknown:48% none:39% some:12% strong:2%] 最近3章 1/2/3=0%/100%/0% | 标注 n=188 一致39% 3级安全73%(60) 1级不误83%(12) unconfirmed:0 foreshadow:0 | index 42ms tiers 606ms
+西游记·无先验 P=30 n=745 1/2/3=12%/47%/41% ev[unknown:14% none:57% some:26% strong:3%] 最近3章 1/2/3=0%/100%/0% | 标注 n=317 一致35% 3级安全82%(153) 1级不误79%(42) unconfirmed:0 foreshadow:0 | index 26ms tiers 469ms
+西游记·无先验 P=100 n=2136 1/2/3=17%/44%/39% ev[unknown:5% none:52% some:38% strong:5%] 最近3章 1/2/3=6%/94%/0% | 标注 n=317 一致37% 3级安全79%(118) 1级不误86%(73) unconfirmed:0 foreshadow:0 | index 22ms tiers 502ms
+底稿冷建 532 ms
+P=30 全部说法 9.4 ms
+P=60 全部说法 9.8 ms
+P=100 全部说法 12.1 ms
+P=99 全部说法 17.2 ms

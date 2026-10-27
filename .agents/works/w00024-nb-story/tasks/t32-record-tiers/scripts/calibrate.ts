@@ -1,7 +1,13 @@
+/**
+ * t32 第 1 片的校准：在样例书与西游记 100 回上看等级分布、后验分布，并与 t28 的两遍模型标注对照（evidences/calibration.txt）。
+ *
+ *   bun calibrate.ts
+ */
 import {readFile} from "node:fs/promises";
+import {join} from "node:path";
 import {gunzipSync} from "node:zlib";
-const NB = "../../../../../packages/nb-story";
-const T28 = "../../t28-graph-tiering";
+const NB = join(import.meta.dir, "../../../../../../packages/nb-story");
+const T28 = join(import.meta.dir, "../../t28-graph-tiering");
 const {buildBookIndex} = await import(`${NB}/src/core/book-index.ts`);
 const {tiersAt} = await import(`${NB}/src/core/tiers.ts`);
 const sample = JSON.parse(gunzipSync(await readFile(`${NB}/tests/fixtures/sample-100ch.json.gz`)).toString("utf8"));
@@ -35,5 +41,5 @@ for (const s of withPrior.statements) if (a[s.id]) s.tier = a[s.id];
 for (const P of [20, 50, 100]) report("样例·无先验", sample, P, () => true);
 for (const P of [20, 50, 100]) report("样例·无先验·前20章", sample, P, (s: any) => s.at.chapter <= 20);
 for (const P of [20, 100]) report("样例·先验run1·前20章", withPrior, P, (s: any) => s.at.chapter <= 20);
-const xyj = JSON.parse(await readFile("../../../../../packages/nb-story/examples/journey-to-the-west/xiyouji-graph.json", "utf8"));
+const xyj = JSON.parse(gunzipSync(await readFile(`${NB}/examples/journey-to-the-west/xiyouji-graph.json.gz`)).toString("utf8"));
 for (const P of [10, 30, 100]) report("西游记·无先验", xyj, P, () => true);
