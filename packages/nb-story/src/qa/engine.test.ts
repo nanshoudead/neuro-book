@@ -253,6 +253,17 @@ describe("文字回复（输出 10、24，验收 13）与用量（输出 11）",
         expect(outcome.recordSaved).toBe(true);
     });
 
+    test("没有出处、这一轮也没读原文：标为 ungrounded", async () => {
+        const {outcome} = await askScripted(book, [{content: "南小风"}], {at: P, question: "这本书的主角叫什么？只回答名字。"});
+        expect(outcome.result).toMatchObject({status: "answered", chaptersRead: [], reply: {text: "南小风", ungrounded: true}});
+    });
+
+    test("读过原文、只是没写出处：不算 ungrounded", async () => {
+        const {outcome} = await askScripted(book, [[read("r1", {chapter: 38, paragraph: 55}, {chapter: 38, paragraph: 55})], "她是地狱猫。"], {at: P});
+        expect(outcome.result.chaptersRead).toEqual([38]);
+        expect(outcome.result.reply?.ungrounded).toBeUndefined();
+    });
+
     test("文字里没读过的段与晚于 P 的出处列为没核实的，读过的不列", async () => {
         const {outcome} = await askScripted(book, [[read("r1", {chapter: 38, paragraph: 55}, {chapter: 38, paragraph: 55})], "见 38.55，另有 38.56 与 39.1；38.56 再提一次"], {at: P});
         expect(outcome.result.reply).toEqual({text: "见 38.55，另有 38.56 与 39.1；38.56 再提一次", truncated: false, unverifiedRefs: ["38.56", "39.1"]});

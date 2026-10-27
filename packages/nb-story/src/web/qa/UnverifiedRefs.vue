@@ -18,9 +18,14 @@ const refs = computed(() => {
 <template>
     <div class="unverified" data-qa-unverified>
         <span class="i-lucide-triangle-alert shrink-0" aria-hidden="true" />
-        <span>没核实的出处：</span>
-        <button v-for="refText in refs" :key="refText" type="button" class="unverified-ref" @click="emit('action', {type: 'reference.open', target: refTarget(refText)})">{{ refText }}</button>
-        <span class="unverified-note">这一轮没读过这些段，或它们在阅读位置之后，内容可能不准</span>
+        <template v-if="refs.length === 0">
+            <span>这一轮没有查原文，回答没有出处</span>
+        </template>
+        <template v-else>
+            <span>没核实的出处：</span>
+            <button v-for="refText in refs" :key="refText" type="button" class="unverified-ref" @click="emit('action', {type: 'reference.open', target: refTarget(refText)})">{{ refText }}</button>
+            <span class="unverified-note">这一轮没读过这些段，或它们在阅读位置之后，内容可能不准</span>
+        </template>
     </div>
 </template>
 

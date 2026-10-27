@@ -43,6 +43,7 @@ export function replyText(reply: QaReply): string {
     const lines = [reply.text];
     if (reply.truncated) lines.push("", "（输出到上限，回复被截断）");
     if (reply.unverifiedRefs.length > 0) lines.push("", `没核实的出处（没读过或晚于阅读位置）：${reply.unverifiedRefs.join("，")}`);
+    if (reply.ungrounded === true) lines.push("", "（这一轮没有查原文，回答没有出处）");
     return lines.join("\n");
 }
 

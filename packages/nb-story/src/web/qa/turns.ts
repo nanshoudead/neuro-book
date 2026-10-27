@@ -10,7 +10,7 @@
  * 每一轮的提问 id 固定为 `q:<对话 id>:<轮号>`（包括日志里真的那条，换成同一个 id）：乐观的、补的与真的前后是同一个
  * id，视图按 id 复用这一轮的组件，展开状态不丢。
  *
- * 附注：每一轮最后一条有文字的助手消息挂“没核实的出处”（`nb-story.unverified-refs`）。
+ * 附注：每一轮最后一条有文字的助手消息挂“没核实的出处”，没有出处且这一轮没读原文时挂“没有查原文”的提醒（`nb-story.unverified-refs`）。
  *
  * 出处复查（docs/specs/story/qa.md 输出 39）：一轮里第一条提问之后的用户消息是引擎写给模型的复查消息（nb-story 不发
  * steer，同一轮里不会有别的用户消息）。它换成过程里的一行系统消息，不让视图在这里开新的一轮。没读过的出处取自复查消息
@@ -29,6 +29,8 @@ export interface TurnInfo {
     readonly logFrom?: number;
     /** 没核实的出处（文字回复）；没有时为空。 */
     readonly unverifiedRefs?: readonly string[];
+    /** 这一轮没有出处、也没读过原文（文字回复，qa.md 输出 24）。 */
+    readonly ungrounded?: boolean;
     /** ISO 8601；补提问时作时间。 */
     readonly startedAt: string;
 }
@@ -147,12 +149,17 @@ export function composeMessages(messages: readonly MessageView[], input: Compose
             group[index] = cached(cache, message, `recheck:${refs.join(",")}`, () => recheckLine(message, refs));
         }
         const refs = info.unverifiedRefs ?? [];
-        if (refs.length > 0) {
+        const ungrounded = refs.length === 0 && info.ungrounded === true;
+        if (refs.length > 0 || ungrounded) {
             const last = group.findLastIndex(message => message.kind === "assistant" && message.text.trim() !== "");
             if (last >= 0) {
                 const reply = group[last]!;
-                const key = `refs:${refs.join(",")}`;
-                group[last] = cached(cache, reply, key, () => (reply.kind === "assistant" ? {...reply, annotations: [...(reply.annotations ?? []), {customType: UNVERIFIED_REFS, text: `没核实的出处：${refs.join("、")}`, details: {refs: [...refs]}}]} : reply));
+                const key = ungrounded ? "ungrounded" : `refs:${refs.join(",")}`;
+                group[last] = cached(cache, reply, key, () =>
+                    reply.kind === "assistant"
+                        ? {...reply, annotations: [...(reply.annotations ?? []), {customType: UNVERIFIED_REFS, text: ungrounded ? "这一轮没有查原文" : `没核实的出处：${refs.join("、")}`, details: {refs: [...refs]}}]}
+                        : reply,
+                );
             }
         }
         result.push(...group);

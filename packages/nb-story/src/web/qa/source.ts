@@ -125,9 +125,9 @@ export function createQaSource(options: QaSourceOptions): QaSource {
         if (next.phase !== "ready") return [];
         const turns = next.record?.turns ?? [];
         if (next.logProblem !== null) return messagesFromRecord(conversation, turns);
-        const info: TurnInfo[] = turns.map(turn => ({question: turn.question, startedAt: turn.startedAt, unverifiedRefs: turn.reply?.unverifiedRefs ?? [], ...(turn.logFrom === undefined ? {} : {logFrom: turn.logFrom})}));
+        const info: TurnInfo[] = turns.map(turn => ({question: turn.question, startedAt: turn.startedAt, unverifiedRefs: turn.reply?.unverifiedRefs ?? [], ...(turn.reply?.ungrounded === true ? {ungrounded: true} : {}), ...(turn.logFrom === undefined ? {} : {logFrom: turn.logFrom})}));
         const run = attachedRun(next.record, next.run);
-        const running = run === null ? null : {question: run.question, startedAt: run.startedAt, logFrom: run.logFrom, unverifiedRefs: run.result?.reply?.unverifiedRefs ?? []};
+        const running = run === null ? null : {question: run.question, startedAt: run.startedAt, logFrom: run.logFrom, unverifiedRefs: run.result?.reply?.unverifiedRefs ?? [], ...(run.result?.reply?.ungrounded === true ? {ungrounded: true} : {})};
         return composeMessages(transcript.messages(), {conversationId: conversation, turns: info, running, replyChecks}, cache);
     }
 

@@ -57,6 +57,8 @@ export interface QaReply {
     truncated: boolean;
     /** 正文里写成出处形状、却没读过或晚于阅读位置的内容。 */
     unverifiedRefs: string[];
+    /** 一个出处也没有、这一轮也没读过原文：回答没有可核对的依据。 */
+    ungrounded?: boolean;
 }
 
 /** 对话的一轮。已答的一轮 `answer` 与 `reply` 恰有一个；失败与中断的一轮两个都是 null。 */
