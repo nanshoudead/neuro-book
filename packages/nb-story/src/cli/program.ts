@@ -151,13 +151,27 @@ function normalizeArgv(argv: readonly string[]): string[] {
  */
 export function parseCommandLine(argv: readonly string[], io: CliIo): ParsedCommandLine | ParseStopped {
     // 版本和动作级帮助在交给 commander 之前处理：`--version` 不是命令，`config <动作> --help` 要认出动作。
-    if (argv[0] === "--version" || argv[0] === "-V") {
+    // 根选项的先后不限：`--version --json`、`--json --version` 一样（第一个不是选项的词是命令名，之前的都是根选项）。
+    const firstWord = argv.findIndex(token => !token.startsWith("-"));
+    const lead = firstWord < 0 ? argv : argv.slice(0, firstWord);
+    if (lead.includes("--version") || lead.includes("-V")) {
         io.stdout(argv.includes("--json") ? JSON.stringify({version: packageVersion()}) : packageVersion());
         return {exit: 0};
     }
     const tokens = normalizeArgv(argv);
     if (tokens[0] === "config" && tokens.includes("--help")) {
-        const action = tokens.slice(1).find(isConfigAction);
+        // 动作是 config 后第一个位置参数：选项和它的值（`--config init` 的 init 是文件名）要跳过。
+        const rest = tokens.slice(1);
+        let first: string | undefined;
+        for (let index = 0; index < rest.length; index += 1) {
+            const token = rest[index]!;
+            if (!token.startsWith("--")) {
+                first = token;
+                break;
+            }
+            if (!token.includes("=") && !FLAGS.has(token.slice(2))) index += 1;
+        }
+        const action = first !== undefined && isConfigAction(first) ? first : undefined;
         if (action !== undefined) {
             io.stdout(configActionHelp(action));
             return {exit: 0};

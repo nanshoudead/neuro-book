@@ -120,6 +120,13 @@ describe("init、show、set、unset", () => {
         expect(result.stderr).toContain("--base-url <地址>");
         // 给了地址和密钥变量就是自己的服务商，模型名可以带斜杠。
         expect((await run(["config", "init", "--base-url", "http://127.0.0.1:1/v1", "--api-key-env", KEY_ENV, "--model", "my-relay/some-model", "--config", path])).code).toBe(0);
+        // 已有自定义地址时也一样：不能悄悄把未知的 x/y 记成 custom 下的模型名；不带服务商前缀的模型名照旧沿用已有地址。
+        const before = await readFile(path, "utf8");
+        const kept = await run(["config", "init", "--model", "other-relay/model-z", "--force", "--config", path]);
+        expect(kept.code).toBe(2);
+        expect(kept.stderr).toContain("内置目录里没有服务商 other-relay");
+        expect(await readFile(path, "utf8")).toBe(before);
+        expect((await run(["config", "init", "--model", "plain-model", "--force", "--config", path])).code).toBe(0);
     });
 
     test("config set ingest.model 可以不写 JSON：三个选项覆盖其中的字段，已有的价格等原样保留；没有这一组时要给齐（#259）", async () => {
@@ -159,8 +166,12 @@ describe("init、show、set、unset", () => {
         const set = await run(["config", "set", "--help"]);
         expect(set.stdout).toContain("set ingest.model --base-url");
         expect(set.stdout).not.toContain("--force");
-        // 没有指明动作时仍是命令的总览。
+        // 没有指明动作时仍是命令的总览；选项的值恰好叫动作名（文件名 init、模型名 init）不算动作。
         expect((await run(["config", "--help"])).stdout).toContain("用法：nbstory config");
+        for (const args of [["config", "--config", "init", "--help"], ["config", "--model", "init", "--help"]]) expect((await run(args)).stdout).not.toContain("用法：nbstory config init");
+        // 根选项的先后不限。
+        expect(JSON.parse((await run(["--json", "--version"])).stdout)).toEqual({version});
+        expect((await run(["--json", "-V"])).code).toBe(0);
     });
 
     test("已有配置：不加 --force 不动；加了只改给出的字段，其余保留", async () => {

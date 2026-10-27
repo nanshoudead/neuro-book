@@ -169,6 +169,23 @@ describe("网关不认请求的推理档（#257）", () => {
         expect(unlisted.bodies).toHaveLength(1);
     });
 
+    test("别的参数的 400 也列“合法值”：不是推理档就不改档、不重发（只收到 1 次请求）", async () => {
+        const endpoint = endpointOf([{kind: "status", status: 400, message: "Unsupported value: 'temperature'. Supported values are: 'none', 'low', 'medium'."}, ok]);
+        await expect(call(endpoint.url).promise).rejects.toMatchObject({kind: "provider", status: 400});
+        expect(endpoint.bodies).toHaveLength(1);
+    });
+
+    test("一次调用最多改发一次：改发之后网关又按另一档拒绝，就按那条 400 失败，不在档位间来回改；失败的映射不进缓存", async () => {
+        const flip = (allowed: string) => ({kind: "status", status: 400, message: `Unsupported value for reasoning_effort. Supported values are: ${allowed}.`}) as EndpointReply;
+        const endpoint = endpointOf(Array.from({length: 6}, (_, index) => flip(index % 2 === 0 ? "'low'" : "'minimal', 'medium'")));
+        await expect(call(endpoint.url).promise).rejects.toMatchObject({kind: "provider", status: 400});
+        expect(endpoint.bodies.map(body => body.reasoning_effort)).toEqual(["minimal", "low"]);
+        // 上一次没成功，没有记下映射：下一次仍先发请求的档。
+        const again = endpointOf([ok]);
+        await call(again.url).promise;
+        expect(again.bodies.map(body => body.reasoning_effort)).toEqual(["minimal"]);
+    });
+
     test("夹档规则照 OMP：只在启用档里选，none 不选；minimal 优先 low；平局取更高；请求的档本来就合法时不是这种 400", () => {
         const all = ["none", "low", "medium", "high", "xhigh", "max"];
         expect(nearestEffort("minimal", all)).toBe("low");

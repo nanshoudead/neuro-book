@@ -242,7 +242,11 @@ async function init(params: Record<string, unknown>, path: string, io: CliIo, js
     // 给了地址或密钥变量是自定义地址；只给 `服务商/模型名` 且服务商在目录里是目录模型。自定义地址没给的地址与密钥变量
     // 沿用已有的自定义服务商 `custom`。
     const custom = flags.baseUrl !== undefined || flags.apiKeyEnv !== undefined || (flags.model !== undefined && !tools.catalog.hasProvider(parseModelRef(flags.model).provider));
-    const legacy = existing?.providers?.[LEGACY_PROVIDER_ID];
+    // `x/y` 里的服务商 x 不在内置目录、本次又没给地址和密钥变量：多半是想用自己在别的工具里配好的服务商，不能悄悄沿用
+    // 已有的自定义地址把它记成 custom 下的模型名（实现审查第 5 条）。
+    const foreignProvider = flags.model !== undefined && flags.baseUrl === undefined && flags.apiKeyEnv === undefined ? parseModelRef(flags.model).provider : "";
+    const unknownProvider = foreignProvider !== "" && !tools.catalog.hasProvider(foreignProvider) ? foreignProvider : null;
+    const legacy = unknownProvider === null ? existing?.providers?.[LEGACY_PROVIDER_ID] : undefined;
     const filled = {baseUrl: flags.baseUrl ?? legacy?.baseUrl, model: flags.model, apiKeyEnv: flags.apiKeyEnv ?? legacy?.apiKeyEnv};
     const missing = custom ? (["baseUrl", "model", "apiKeyEnv"] as const).filter(name => filled[name] === undefined) : [];
     const answers: InitAnswers | null = flags.model === undefined ? null : custom ? (missing.length > 0 ? null : {kind: "custom", baseUrl: filled.baseUrl!, id: flags.model, apiKeyEnv: filled.apiKeyEnv!}) : {kind: "catalog", ref: flags.model};
@@ -255,9 +259,7 @@ async function init(params: Record<string, unknown>, path: string, io: CliIo, js
     if (needsConfirm && !canPrompt) return usageError(`已有配置 ${path}：加 --force 覆盖其中给出的字段（没给的保留），或用 nbstory config set 改单个字段`);
     if (needsInput && !canPrompt) {
         const names = {baseUrl: "--base-url", model: "--model", apiKeyEnv: "--api-key-env"} as const;
-        // 服务商不在内置目录、又没给自定义地址的两项：多半是想用自己在别的工具里配好的服务商，说清 nbstory 只认内置目录。
-        const unknownProvider = flags.model !== undefined && flags.baseUrl === undefined && flags.apiKeyEnv === undefined ? parseModelRef(flags.model).provider : null;
-        const wanted = unknownProvider !== null && missing.length > 0 ? `内置目录里没有服务商 ${unknownProvider}（nbstory 只认内置目录，不读其他工具的配置文件）；自己的服务商要给 --base-url <地址>、--model <模型名>、--api-key-env <环境变量名>` : missing.length > 0 ? `自定义地址缺少 ${missing.map(name => names[name]).join("、")}` : existing ? "至少给一个字段选项（--model、--base-url、--api-key-env、--thinking）" : "缺少 --model（目录里的 服务商/模型名，或者自定义地址另给 --base-url 与 --api-key-env）";
+        const wanted = unknownProvider !== null ? `内置目录里没有服务商 ${unknownProvider}（nbstory 只认内置目录，不读其他工具的配置文件）；自己的服务商要给 --base-url <地址>、--model <模型名>、--api-key-env <环境变量名>` : missing.length > 0 ? `自定义地址缺少 ${missing.map(name => names[name]).join("、")}` : existing ? "至少给一个字段选项（--model、--base-url、--api-key-env、--thinking）" : "缺少 --model（目录里的 服务商/模型名，或者自定义地址另给 --base-url 与 --api-key-env）";
         return usageError(`${wanted}${json ? "" : "；在终端里运行可以交互填写"}`);
     }
     const cancelled = (): number => {

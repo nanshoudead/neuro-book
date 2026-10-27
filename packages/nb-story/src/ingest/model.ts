@@ -143,7 +143,9 @@ const KNOWN_EFFORTS = new Set<string>(["none", ...ENABLED_EFFORTS]);
  */
 export function supportedEfforts(message: string, requested: string): readonly string[] | null {
     const listed = /\bsupported values?\b([^]*)/iu.exec(message)?.[1];
-    if (listed === undefined || !/reasoning[_ ]effort|unsupported value|not supported/iu.test(message)) return null;
+    // 被拒绝的得是推理档：正文写着 reasoning_effort，或点名了我们发的那一档（'minimal'）。别的参数的 400 也会列“合法值”。
+    const aboutEffort = /reasoning[_ ]effort/iu.test(message) || new RegExp(`['"\`]${requested}['"\`]`, "iu").test(message);
+    if (listed === undefined || !aboutEffort) return null;
     const values = [...new Set([...listed.matchAll(/\b(none|minimal|low|medium|high|xhigh|max)\b/giu)].map(match => match[1]!.toLowerCase()))];
     return values.length === 0 || values.includes(requested) ? null : values;
 }
@@ -268,18 +270,24 @@ export async function callModel(endpoint: ModelEndpoint, options: CallOptions): 
     // 两类失败各按自己的表计数：先断了几次线、后来被限流，限流的等待从表头开始。
     const failures = {network: 0, rate_limit: 0};
     let effort: string = effortFallbacks.get(fallbackKey(endpoint, options.effort)) ?? options.effort;
+    // 一次逻辑调用最多改发一次：改发之后网关仍拒绝，就按它的 400 失败，不在几个档位之间来回改。
+    let clampedOnce = false;
     for (let attempt = 1; ; attempt++) {
         if (options.signal?.aborted) throw new ModelAborted();
         const outcome = await attemptOnce(client, endpoint, options, attempt, effort);
-        if (outcome.ok) return effort === options.effort ? outcome.reply : {...outcome.reply, effortUsed: effort};
+        if (outcome.ok) {
+            // 缓存只记成功了的映射。
+            if (clampedOnce) effortFallbacks.set(fallbackKey(endpoint, options.effort), effort);
+            return effort === options.effort ? outcome.reply : {...outcome.reply, effortUsed: effort};
+        }
         if (options.signal?.aborted) throw new ModelAborted();
         const {error} = outcome;
         // 网关不认请求的推理档（严格转发参数的端点）：改发它列出的最近的启用档，立即重发一次。这不是渠道故障，不进延迟表，
         // 也不受 maxAttempts 限制（`config test --ingest` 只试一次，也要能通过）。
-        const allowed = error.kind === "provider" && error.status === 400 ? supportedEfforts(error.message, effort) : null;
+        const allowed = !clampedOnce && error.kind === "provider" && error.status === 400 ? supportedEfforts(error.message, effort) : null;
         const clamped = allowed === null ? null : nearestEffort(effort, allowed);
         if (clamped !== null && clamped !== effort) {
-            effortFallbacks.set(fallbackKey(endpoint, options.effort), clamped);
+            clampedOnce = true;
             effort = clamped;
             continue;
         }

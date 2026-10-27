@@ -26,11 +26,12 @@ export function createFinishWatch(): FinishWatch {
                 // 不是 JSON 的块（注释、心跳）与结束原因无关。
                 return;
             }
-            const choices = (parsed as {choices?: unknown} | null)?.choices;
-            if (!Array.isArray(choices)) return;
+            const chunk = parsed as {choices?: unknown; finish_reason?: unknown} | null;
+            if (!Array.isArray(chunk?.choices)) return;
             sawChoices = true;
-            const reason = (choices[0] as {finish_reason?: unknown} | undefined)?.finish_reason;
-            if (typeof reason === "string" && reason !== "") sawFinish = true;
+            // 结束原因通常在 choices[0]；个别网关把它放在带 usage 的末块顶层。字面量 "null" 是网关把 null 写成了字符串，不算。
+            const reasons = [(chunk.choices[0] as {finish_reason?: unknown} | undefined)?.finish_reason, chunk.finish_reason];
+            if (reasons.some(reason => typeof reason === "string" && reason !== "" && reason.toLowerCase() !== "null")) sawFinish = true;
         },
         get missing() {
             return sawChoices && !sawFinish;
