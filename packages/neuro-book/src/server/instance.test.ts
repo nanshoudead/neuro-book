@@ -127,10 +127,10 @@ describe("状态根的实例认领（同进程）", () => {
         const root = nextRoot();
         const claimed = await claimStateRoot({stateRoot: root, kind: "product", version: "9.9.9", report: () => undefined});
         if (!claimed.ok) throw new Error(claimed.reason);
-        claimed.claim.publish({url: "http://127.0.0.1:1/", rpcUrl: "ws://127.0.0.1:2/", plugins: {safeMode: false, items: [{id: "acme.focus", version: "1.0.0", state: "enabled"}]}});
+        claimed.claim.publish({url: "http://127.0.0.1:1/", rpcUrl: "ws://127.0.0.1:2/", plugins: {safeMode: false, items: [{id: "acme.focus", version: "1.0.0", state: "enabled", notLoaded: null}]}});
         expect(await queryInstance(root)).toEqual({
             state: "running",
-            instance: {schema: 1, pid: process.pid, version: "9.9.9", kind: "product", status: "ready", url: "http://127.0.0.1:1/", rpcUrl: "ws://127.0.0.1:2/", plugins: {safeMode: false, items: [{id: "acme.focus", version: "1.0.0", state: "enabled"}]}},
+            instance: {schema: 1, pid: process.pid, version: "9.9.9", kind: "product", status: "ready", url: "http://127.0.0.1:1/", rpcUrl: "ws://127.0.0.1:2/", plugins: {safeMode: false, items: [{id: "acme.focus", version: "1.0.0", state: "enabled", notLoaded: null}]}},
         });
         claimed.claim.stopping();
         expect(await queryInstance(root)).toMatchObject({state: "running", instance: {status: "stopping"}});

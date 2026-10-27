@@ -260,6 +260,21 @@ async function entriesIn(directory: string): Promise<Array<{readonly name: strin
     }
 }
 
+/**
+ * 不改任何文件，算出下一次启动会是什么样：待切换的版本按已切换算，卸载中的不算。没有运行中的服务端时，应用的命令行拿它列插件
+ * （登记表是目标状态，“本次启动”就是下一次启动），离线也能给出不登记的原因。不取登记表锁：只读，读者只会读到完整的表。
+ */
+export async function previewInstalledPlugins(options: PrepareOptions): Promise<StartupPlugins> {
+    const read = await readRecord(options.root, options.profile);
+    if (!read.ok) return {safeMode: options.safeMode, registryProblem: read.detail, plugins: []};
+    const plugins: StartupPlugin[] = [];
+    for (const [id, entry] of Object.entries(read.record.plugins)) {
+        if (entry.state === "uninstalling") continue;
+        plugins.push(await startupPlugin(options, id, entry.pendingVersion === null ? entry : {...entry, version: entry.pendingVersion, pendingVersion: null}));
+    }
+    return {safeMode: options.safeMode, registryProblem: null, plugins: plugins.sort(byId)};
+}
+
 /** 一个已安装插件在本次启动的情况：读清单、核对与登记表一致、兼容、入口文件都在。 */
 async function startupPlugin(options: PrepareOptions, id: string, entry: RecordEntry): Promise<StartupPlugin> {
     const base = {id, version: entry.version, state: entry.state, installed: null};

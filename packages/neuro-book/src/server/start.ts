@@ -390,7 +390,7 @@ export function startServer(options: StartServerOptions): RunningServer {
             options.claim.publish({
                 url,
                 rpcUrl: rpc.url,
-                plugins: {safeMode: prepared.startup.safeMode, items: prepared.startup.plugins.map(({id, version, state}) => ({id, version, state}))},
+                plugins: {safeMode: prepared.startup.safeMode, items: prepared.startup.plugins.map(({id, version, state, notLoaded}) => ({id, version, state, notLoaded}))},
             });
             if (options.devTask !== undefined && !devTaskClosed) devTask = options.devTask({registry, stateRoot: options.config.stateRoot});
             return;

@@ -47,7 +47,8 @@ async function create(args: ReadonlyArray<string>): Promise<number> {
     console.log("  bun install          # 装上模板补的依赖");
     console.log("  bun run typecheck    # 类型检查（vue-tsc 用 Node 运行，要装有 Node）");
     console.log("  bun run build        # 产物在 dist/");
-    console.log(`  在 NeuroBook 的“设置 → 插件”里点“安装…”，填 ${join(result.directory, "dist")}，确认后重启`);
+    console.log(`  nbook plugin install ${join(result.directory, "dist")}   # 装进 NeuroBook（要先 bun add -g @notnotype/neuro-book），重启服务后生效`);
+    console.log("  也可以在 NeuroBook 的“设置 → 插件”里点“安装…”，填同一个路径");
     return 0;
 }
 

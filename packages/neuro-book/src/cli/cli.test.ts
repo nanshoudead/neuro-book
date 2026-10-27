@@ -215,3 +215,85 @@ describe("用法", () => {
         expect(help.stdout.toString()).toContain("用法：");
     }, 30_000);
 });
+
+/** 在临时目录写一个最小的插件文件夹（没有入口，只有清单）。 */
+async function pluginSource(name: string, version: string): Promise<string> {
+    sequence += 1;
+    const directory = join(tmp, "sources", `${name}-${version}-${String(sequence)}`);
+    await mkdir(directory, {recursive: true});
+    await writeFile(join(directory, "package.json"), JSON.stringify({publisher: "example", name, version, engines: {neurobook: `^${PRODUCT_VERSION}`}, contributes: []}));
+    return directory;
+}
+
+async function json(args: readonly string[]): Promise<{readonly result: Record<string, unknown>; readonly exit: number | null; readonly stderr: string}> {
+    const attempt = run([...args, "--json"]);
+    const result = await attempt.result;
+    const exit = await attempt.exit;
+    return {result, exit, stderr: attempt.stderr()};
+}
+
+type Listed = {readonly plugins: ReadonlyArray<{readonly id: string; readonly source: string; readonly state: string; readonly version: string; readonly pending: ReadonlyArray<{readonly kind: string}>}>; readonly running: {readonly pid: number} | null};
+
+function thirdParty(listed: Record<string, unknown>): Listed["plugins"] {
+    return (listed as unknown as Listed).plugins.filter((plugin) => plugin.source === "third-party");
+}
+
+describe("nbook plugin（真实进程）", () => {
+    it("离线：安装后列出（没有运行中的实例，按重启后的样子）；同一版本再装 already-installed；启停与卸载只改目标状态；状态根不存在时 list 不建它", async () => {
+        const root = nextRoot();
+        const listedEmpty = await json(["plugin", "list", "--state-root", root]);
+        expect(listedEmpty.result).toMatchObject({ok: true, running: null});
+        expect(thirdParty(listedEmpty.result)).toEqual([]);
+        expect(await stat(root).then(() => "exists", () => "missing")).toBe("missing");
+
+        const source = await pluginSource("hello", PRODUCT_VERSION);
+        const installed = await json(["plugin", "install", source, "--state-root", root]);
+        expect(installed.result).toMatchObject({ok: true, restartRequired: true, preview: {id: "example.hello", relation: "install"}});
+        expect(installed.stderr).toContain("插件完全受信任");
+        expect(thirdParty((await json(["plugin", "list", "--state-root", root])).result)).toEqual([expect.objectContaining({id: "example.hello", state: "enabled", pending: []})]);
+        expect(await json(["plugin", "install", source, "--state-root", root])).toMatchObject({exit: 1, result: {ok: false, code: "already-installed"}});
+
+        expect(await json(["plugin", "disable", "example.hello", "--state-root", root])).toMatchObject({exit: 0, result: {ok: true, plugin: {state: "disabled"}}});
+        expect(await json(["plugin", "enable", "nbook.http", "--state-root", root])).toMatchObject({exit: 1, result: {ok: false, code: "builtin-fixed"}});
+        expect(await json(["plugin", "uninstall", "example.missing", "--state-root", root])).toMatchObject({exit: 1, result: {ok: false, code: "not-installed"}});
+        expect(await json(["plugin", "uninstall", "example.hello", "--state-root", root])).toMatchObject({exit: 0, result: {ok: true, plugin: {state: "uninstalling"}}});
+        expect(await readFile(join(root, "logs", "cli.jsonl"), "utf8")).toContain("plugins.uninstall.pending");
+    }, 30_000);
+
+    it("降级要 --yes：没有时以 2 退出、码 confirmation-required，不动登记表；加上之后装成", async () => {
+        const root = nextRoot();
+        expect((await json(["plugin", "install", await pluginSource("down", "2.0.0"), "--state-root", root])).result).toMatchObject({ok: true});
+        const older = await pluginSource("down", "1.0.0");
+        expect(await json(["plugin", "install", older, "--state-root", root])).toMatchObject({exit: 2, result: {ok: false, code: "confirmation-required", preview: {relation: "downgrade", installed: "2.0.0"}}});
+        expect(thirdParty((await json(["plugin", "list", "--state-root", root])).result)).toEqual([expect.objectContaining({id: "example.down", version: "2.0.0"})]);
+        expect(await json(["plugin", "install", older, "--state-root", root, "--yes"])).toMatchObject({exit: 0, result: {ok: true, preview: {relation: "downgrade"}}});
+    }, 30_000);
+
+    it("服务端运行时安装：列表带运行中的实例与“重启后安装”；重启服务之后服务端登记了它", async () => {
+        const root = nextRoot();
+        const first = run(["start", "--state-root", root, "--port", "0", "--no-open", "--json"]);
+        expect(await first.result).toMatchObject({ok: true, started: true});
+        expect((await json(["plugin", "install", await pluginSource("live", PRODUCT_VERSION), "--state-root", root])).result).toMatchObject({ok: true});
+        const listed = (await json(["plugin", "list", "--state-root", root])).result;
+        expect(listed).toMatchObject({running: {pid: first.pid}});
+        expect(thirdParty(listed)).toEqual([expect.objectContaining({id: "example.live", pending: [{kind: "install"}]})]);
+
+        first.signal("SIGTERM");
+        expect(await first.exit).toBe(0);
+        const second = run(["start", "--state-root", root, "--port", "0", "--no-open", "--json"]);
+        expect(await second.result).toMatchObject({ok: true, started: true});
+        const instance = await queryInstance(root);
+        expect(instance).toMatchObject({state: "running", instance: {plugins: {items: [{id: "example.live", state: "enabled", notLoaded: null}]}}});
+        expect(thirdParty((await json(["plugin", "list", "--state-root", root])).result)).toEqual([expect.objectContaining({id: "example.live", pending: []})]);
+        second.signal("SIGTERM");
+        expect(await second.exit).toBe(0);
+    }, 60_000);
+
+    it("用法与提示：plugin 不跟子命令以 2 退出；路径不是插件目录时提示先用 nbooke build", async () => {
+        const bare = run(["plugin"]);
+        expect(await bare.exit).toBe(2);
+        const missing = await json(["plugin", "install", join(tmp, "no-such-plugin"), "--state-root", nextRoot()]);
+        expect(missing).toMatchObject({exit: 1, result: {ok: false, code: "path-rejected"}});
+        expect(String(missing.result.message)).toContain("nbooke build");
+    }, 30_000);
+});

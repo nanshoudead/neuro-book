@@ -13,6 +13,8 @@ import {Command, CommanderError} from "commander";
 import {BUN_ENGINE, PRODUCT_VERSION} from "nbook/shared/product";
 
 import {CliFailure, createOutput} from "./output";
+import {installPlugin, listPlugins, setPluginEnabled, uninstallPlugin} from "./plugin";
+import type {PluginContext} from "./plugin";
 import {start} from "./start";
 import {defaultStateRoot, resolveStateRoot} from "./state-root";
 
@@ -57,13 +59,28 @@ function program(): Command {
         .allowExcessArguments()
         .action(async (options: {port?: number; rpcPort?: number; open: boolean; safeMode?: boolean}, command: Command) => {
             const [unknown] = command.args;
-            if (unknown !== undefined) throw new CliFailure("usage", `不认识的命令 ${unknown}；可用的命令：start（nbook --help 查看用法）`, 2);
+            if (unknown !== undefined) throw new CliFailure("usage", `不认识的命令 ${unknown}；可用的命令：start、plugin（nbook --help 查看用法）`, 2);
             const globals = command.optsWithGlobals<GlobalOptions>();
             await start(
                 {stateRoot: stateRootOf(globals), output: createOutput(globals.json === true), env: process.env, cwd: process.cwd()},
                 {port: options.port, rpcPort: options.rpcPort, open: options.open, safeMode: options.safeMode === true},
             );
         });
+    const plugin = nbook.command("plugin").description("管理第三方插件：只写登记表，重启服务后生效").usage("<命令> [选项]");
+    const pluginContext = (command: Command): PluginContext => {
+        const globals = command.optsWithGlobals<GlobalOptions>();
+        return {stateRoot: stateRootOf(globals), output: createOutput(globals.json === true), cwd: process.cwd()};
+    };
+    plugin.command("list").description("列出内置与第三方插件，以及待生效的变化").action((_options: unknown, command: Command) => listPlugins(pluginContext(command)));
+    plugin
+        .command("install")
+        .description("安装或升级一个本地插件目录（nbooke build 的产物 dist）")
+        .argument("<目录>", "插件目录")
+        .option("--yes", "降级或有插件会受阻时也继续")
+        .action((directory: string, options: {yes?: boolean}, command: Command) => installPlugin(pluginContext(command), directory, {yes: options.yes === true}));
+    plugin.command("enable").description("启用插件").argument("<id>", "插件 id").action((id: string, _options: unknown, command: Command) => setPluginEnabled(pluginContext(command), id, true));
+    plugin.command("disable").description("禁用插件").argument("<id>", "插件 id").action((id: string, _options: unknown, command: Command) => setPluginEnabled(pluginContext(command), id, false));
+    plugin.command("uninstall").description("卸载插件，保留它的私有数据").argument("<id>", "插件 id").action((id: string, _options: unknown, command: Command) => uninstallPlugin(pluginContext(command), id));
     return nbook;
 }
 
@@ -80,6 +97,9 @@ function usageFailure(error: CommanderError): CliFailure | null {
             return new CliFailure("usage", `不认识的选项（${detail}）；nbook --help 查看用法`, 2);
         case "commander.unknownCommand":
             return new CliFailure("usage", `不认识的命令（${detail}）；nbook --help 查看用法`, 2);
+        case "commander.help":
+            // 命令组（plugin）没跟子命令：commander 已把它的帮助写到标准错误。
+            return new CliFailure("usage", "缺少子命令，见上面的帮助", 2);
         case "commander.missingArgument":
         case "commander.optionMissingArgument":
             return new CliFailure("usage", `缺少参数（${detail}）；nbook --help 查看用法`, 2);

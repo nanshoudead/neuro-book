@@ -6,11 +6,11 @@ NeuroBook 插件 `__ID__`：在侧栏放一个视图，显示设置里的问候�
 
 1. 装依赖：`bun install`。
 2. 构建：`bun run build`，产物在 `dist/`。
-3. 安装：NeuroBook 的“设置 → 插件”里点“安装…”，填 `dist` 在服务端机器上的完整路径，确认后重启。
+3. 安装：`nbook plugin install dist`（NeuroBook 的命令行，`bun add -g @notnotype/neuro-book` 装上），或者在 NeuroBook 的“设置 → 插件”里点“安装…”、填 `dist` 在服务端机器上的完整路径并确认；重启服务后生效。
 
 ## 改代码之后
 
-`bun run dev` 每次构建出一个新的开发版本号（`0.1.0+dev.<UTC 时间>.<毫秒>`）；在插件页再安装一次 `dist`，按升级处理，重启后生效，不用改版本号，也不用先卸载。
+`bun run dev` 每次构建出一个新的开发版本号（`0.1.0+dev.<UTC 时间>.<毫秒>`）；再安装一次 `dist`（`nbook plugin install dist` 或插件页），按升级处理，重启后生效，不用改版本号，也不用先卸载。
 
 类型检查：`bun run typecheck`。它用的 `vue-tsc` 在 Bun 里认不出 `.vue` 文件，所以按自己的抬头行用 Node 运行，机器上要装有 Node。
 

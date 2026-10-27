@@ -21,6 +21,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 
 import {holdLock} from "nbook/backend/locked-replace";
+import type {NotLoaded} from "nbook/plugin-platform/shared/types";
 
 /** 谁在运行：产品（`main.ts` 与 `nbook start`）、开发会话的后端、测试的子进程入口。 */
 export type InstanceKind = "product" | "development" | "fixture";
@@ -32,6 +33,8 @@ export interface InstancePlugin {
     readonly id: string;
     readonly version: string;
     readonly state: "enabled" | "disabled" | "uninstalling";
+    /** 本次启动没有登记的原因；登记了为 null。 */
+    readonly notLoaded: NotLoaded | null;
 }
 
 /** `hello` 的应答。 */

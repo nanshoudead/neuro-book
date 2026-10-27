@@ -123,12 +123,12 @@ examples/
 
 ## 外部插件
 
-示例插件都按第三方插件构建、安装运行：每个示例目录有一份 `package.json`（作者合同：`publisher`、`name`、`version` 与可选的 `pluginVersions`），用的构建预设与仓库外作者经 SDK 的 `nbooke build` 用的是同一个（[`plugin-sdk/build.ts`](../build.ts)）。产物里的 `package.json` 是构建预设从代码定义生成的清单（[`runtime.plugin-manifest`](../../../../docs/specs/runtime/plugin-manifest.md)），经设置窗口的“插件”页装进状态根、重启后生效（[`runtime.plugin-install`](../../../../docs/specs/runtime/plugin-install.md)）；入口的代码在激活时才装载（[`runtime.plugin-code-loading`](../../../../docs/specs/runtime/plugin-code-loading.md)）。
+示例插件都按第三方插件构建、安装运行：每个示例目录有一份 `package.json`（作者合同：`publisher`、`name`、`version` 与可选的 `pluginVersions`），用的构建预设与仓库外作者经 SDK 的 `nbooke build` 用的是同一个（[`plugin-sdk/build.ts`](../build.ts)）。产物里的 `package.json` 是构建预设从代码定义生成的清单（[`runtime.plugin-manifest`](../../../../docs/specs/runtime/plugin-manifest.md)），经 `nbook plugin install` 或设置窗口的“插件”页装进状态根、重启后生效（[`runtime.plugin-install`](../../../../docs/specs/runtime/plugin-install.md)）；入口的代码在激活时才装载（[`runtime.plugin-code-loading`](../../../../docs/specs/runtime/plugin-code-loading.md)）。
 
 装一个示例：
 
 1. 在应用包目录运行 `bun run build:examples [名…]`（不写名字就构建全部），产物在各示例的 `dist/`（git 忽略）。每个入口打成一个文件，宿主共享的模块（Vue、`@vue/reactivity`、SDK 与它的组件入口）不打进去；仓库里构建时 SDK 的包名指到应用源码，应用源码列为不许打进产物的目录，示例绕过 SDK 引用了应用内部时构建失败。
-2. 在 NeuroBook 的“设置 → 插件”里点“安装…”，填某个示例 `dist` 的完整路径（例如 `<仓库>/packages/neuro-book/plugin-sdk/examples/plugins/snippets/dist`），确认。
+2. `nbook plugin install <示例的 dist>`（在应用包目录可以用 `bun src/cli/main.ts plugin install plugin-sdk/examples/plugins/snippets/dist`），或者在 NeuroBook 的“设置 → 插件”里点“安装…”、填 `dist` 的完整路径并确认。
 3. 重启 NeuroBook。menu 与 file-menu 要一起装：file-menu 的菜单项交给 menu，menu 收到时记一条诊断，在服务端日志里看得到。notes 写了 `pluginVersions` 要求 clock 是 `^0.1.0`（clock 是它的可选依赖，不装也能用）。
 
 另有 [declarative](external/declarative/package.json)：只有声明、没有代码的插件，文件夹本身就能安装，不用构建。一项配置 `example.hello/greeting`，用户层与本作品层都能改。
