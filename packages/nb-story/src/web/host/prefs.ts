@@ -39,6 +39,15 @@ export function writeDrawerWidth(value: number): void {
     write("drawer-width", String(Math.round(value)));
 }
 
+/** 问答里第一次切换读书方式时的说明看过了没有（浏览器级，看过一次就不再弹）。 */
+export function readModeNoticeSeen(): boolean {
+    return read("qa-mode-notice-seen") === "true";
+}
+
+export function writeModeNoticeSeen(): void {
+    write("qa-mode-notice-seen", "true");
+}
+
 export type ThemeChoice = "system" | "light" | "dark";
 
 export function readTheme(): ThemeChoice {
