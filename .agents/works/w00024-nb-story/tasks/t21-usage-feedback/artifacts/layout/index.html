@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>t21 评审板：关系图的线条布局</title>
+<style>
+body { font-family: system-ui, "Noto Sans SC", sans-serif; background:#f6f4ee; color:#222; max-width: 1040px; margin: 28px auto; padding: 0 16px 80px; line-height: 1.65; }
+h1 { font-size: 22px } h2 { font-size: 18px; margin: 0 0 6px } h3 { font-size: 15px; margin: 0 0 4px }
+section { background:#fff; border:1px solid #ddd; border-radius:10px; padding:14px 18px; margin:18px 0 }
+.badge { font-size:12px; padding:1px 7px; border-radius:4px; background:#fde68a; margin-right:8px }
+.cand { border:1px solid #ddd; border-radius:8px; padding:10px 12px; margin:10px 0; background:#fcfcfa }
+img { max-width:100%; border:1px solid #ddd; border-radius:6px }
+table { border-collapse:collapse; font-size:13px; margin:8px 0 } td, th { border:1px solid #ddd; padding:3px 9px; text-align:right } th:first-child, td:first-child { text-align:left }
+.muted { color:#777; font-size:13px } .rec { color:#047857; font-size:13px }
+</style>
+</head>
+<body>
+<h1>关系图：有没有把线条也考虑进去的布局</h1>
+<p class="muted">用你给的《老师，男生也能报考魔女学院吗？》第 164 章的关系图（默认视图：42 个点、108 条线，同场至少 2 次）在仓库外实测了几种布局，数了线交叉、线穿过别的点、点挤在一起的程度。下面的数字是真算出来的，不是估的；图上只给 14 个出场最多的点写名字。</p>
+
+<section>
+  <h2>一眼看数字</h2>
+  <table>
+    <tr><th>布局</th><th>线交叉</th><th>线穿过别的点</th><th>点间最小距离</th><th>平均线长</th></tr>
+    <tr><td>A 现在的力导向</td><td>328</td><td>15</td><td>22px</td><td>242px</td></tr>
+    <tr><td><b>C 应力最小化</b></td><td><b>250</b></td><td><b>12</b></td><td>45px</td><td>172px</td></tr>
+    <tr><td>E ELK stress（现成的库）</td><td>293</td><td>22</td><td>35px</td><td>146px</td></tr>
+    <tr><td>G ELK 分层</td><td>268</td><td>38</td><td>30px</td><td>318px</td></tr>
+    <tr><td>D 环形 + 重心法排序</td><td>672</td><td>24</td><td>51px</td><td>348px</td></tr>
+    <tr><td>现在的同心（半径已放大）</td><td>1187</td><td>18</td><td>47px</td><td>277px</td></tr>
+    <tr><td>H 应力 + 每点只画最强 3 条线</td><td>173</td><td>11</td><td>45px</td><td>175px</td></tr>
+  </table>
+  <p class="muted">结论先说：没有哪种布局能让这张图线不交叉——这张图本来就密，一个点连着十几条线。应力最小化（C）比现在的力导向少约 24% 的交叉、没有点挤在一起；再配合“少画次要的线”（H）能少到约 47%。</p>
+</section>
+
+<section data-nbdev-question="layout-pick" data-nbdev-type="single" data-nbdev-recommend="stress-add">
+  <h2><span class="badge" data-nbdev-skip>待定</span>1. 加不加“应力”这种排版</h2>
+  <div class="cand">
+    <h3>A 现在的力导向（对照）</h3>
+    <img src="r1/a-force.webp" alt="现在的力导向">
+    <p class="muted">主要人物靠近中心，但星瑕一个点连出大量交叉线，下方有几对点贴得很近（最近 22px）。</p>
+  </div>
+  <div class="cand" data-nbdev-option="stress-add" data-nbdev-label="C 作为第四种排版“应力”加进去，默认仍是力导向">
+    <h3>C 应力最小化：点与点的画面距离逼近它们在关系上的远近（推荐）</h3>
+    <img src="r1/c-stress.webp" alt="应力最小化">
+    <p class="muted">线更短、更均匀，没有点挤在一起；代价是主要人物（星瑕）的一圈线会比较集中，同一个人的邻居分散在四周。这是图论里“尽量让线长都差不多”的标准做法，实现是纯 TypeScript、不加依赖（约 60 行）。</p>
+    <p class="rec">推荐：加为第四种排版“应力”，先不改默认；你用一阵觉得更好再换默认。</p>
+  </div>
+  <div class="cand" data-nbdev-option="stress-default" data-nbdev-label="C 直接替换默认的力导向">
+    <h3>直接把力导向换成应力</h3>
+    <p class="muted">一步到位；但力导向对“只看周边”“逐步加点”等现有行为有调过的参数，换掉要重新验。</p>
+  </div>
+  <div class="cand" data-nbdev-option="elk" data-nbdev-label="E 引入 ELK 库，提供它的 stress 与分层">
+    <h3>引入 ELK（Eclipse 的布局库）</h3>
+    <img src="r1/e-elk-stress.webp" alt="ELK stress">
+    <img src="r1/g-elk-layered.webp" alt="ELK 分层">
+    <p class="muted">能力多（分层、树、边路由），但效果在这张图上没有比自己写的应力好（交叉 293 对 250，穿点 22 对 12）；要加一个 1.4MB 的依赖，在 Bun 下还要绕开它的 worker。</p>
+  </div>
+  <div class="cand" data-nbdev-option="none" data-nbdev-label="都不要">
+    <h3>都不加，维持现状</h3>
+  </div>
+</section>
+
+<section data-nbdev-question="edge-thin" data-nbdev-type="single" data-nbdev-recommend="toggle">
+  <h2><span class="badge" data-nbdev-skip>待定</span>2. “少画次要的线”</h2>
+  <p>除了换布局，还可以少画线：每个点只画最强的 N 条（有关系说法的线都留），其余的线淡到几乎看不见或不画。</p>
+  <div class="cand" data-nbdev-option="toggle" data-nbdev-label="加一个开关“只画最强的线”，默认关">
+    <h3>开关（推荐）</h3>
+    <img src="r1/h-stress-top3.webp" alt="应力加少画线">
+    <p class="muted">每点最强 3 条加全部关系线：108 条减到 95 条，交叉从 250 降到 173。这张图里 89 条是“关系说法”线，所以能减的不多；同场很多但没有关系说法的线才是被淡化的对象。开关关着时和现在一样。</p>
+  </div>
+  <div class="cand" data-nbdev-option="always" data-nbdev-label="默认就少画">
+    <h3>默认就少画</h3>
+    <p class="muted">图更干净，但“为什么这两个人之间没有线”会让人困惑。</p>
+  </div>
+  <div class="cand" data-nbdev-option="no" data-nbdev-label="不做">
+    <h3>不做</h3>
+  </div>
+</section>
+</body>
+</html>
