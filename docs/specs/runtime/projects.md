@@ -18,7 +18,7 @@ owners:
 
 明确不承诺：
 
-- 不防止两个服务端进程同时打开同一个项目目录（不加目录锁，见“边界与兼容”）。
+- 不防止用不同状态根的两个服务端进程同时打开同一个项目目录（不加目录锁，见“边界与兼容”）；同一状态根同一时间只跑一个服务端（[`runtime.server-host`](server-host.md) 的“实例认领”）。
 - 项目子进程崩溃后不自动重启；绑定它的窗口由用户刷新后重新打开。
 - 最近打开、重命名短名属于 `nbook.projects` 的后续范围。书架页本身由 [`workbench.bookshelf`](../workbench/bookshelf.md) 定义，本合同提供它的数据与操作：作品信息、新建、移出书架与统计（输出第 13–18 条）。
 - 项目实例里的诊断先写各自的日志文件，不汇到服务端的诊断出口。
@@ -108,7 +108,7 @@ owners:
     - **今天**：按服务端所在机器的本地日期。运行中跨午夜时先把基线换成当时的总字数，再计入之后的变化；打开时记录里的日期是今天就沿用基线，不是今天就以记录的总字数作基线（离线期间的外部修改算进打开当天）；从没统计过的作品，第一次扫完的总字数就是基线。
     - **口径换了**：记录里存方言声明表的指纹（[workspace.markdown-syntaxes](../workspace/markdown-syntaxes.md) 输出 10）。打开时记录的指纹与当前不同（例如升级后多了一种内置方言），把记录里的每个文件当作待重算、整轮重扫；扫完以新的总字数作今天的基线，口径带来的差额不算今天写的字。没有指纹的记录（有指纹之前写的）按只有内置方言的声明表看待。
     - **最近编辑**：只由观察到的文件修改（`changed`：经文件服务保存或外部修改）更新：地址、片段名（文件名去掉扩展名）、时间与该文件最后一个非空段落的前 120 个码点（去掉 Markdown 标记前缀，frontmatter 不算段落）；新建与复制产生的 `created` 只计数。改名跟到新地址，删除清空；重开后沿用记录，首扫核对该文件还在。扫描不设最近编辑：文件合同不给修改时间，不猜。
-    - **持久化**：user 分区记录 `projects.stats`（owner `nbook.projects`，按资源 id 寻址，资源 id 是项目 id，`locality: shared`，版本 1），值为快照 `{computedAt, words, files, unreadable, today: {date, baseline}, last}`。变化后最多每 30 秒写一次，按 revision 条件保存：冲突时重读，存着的 `computedAt` 更晚就放弃，否则以新 revision 重写；`unknown-outcome` 重读后同样核对；`busy`、`io-error` 保留旧记录、记诊断、下一轮再写；`corrupt`、`unsupported-version` 以条件 `reset` 覆盖（它是可重算的缓存），原件进原件区并记诊断，原件区满时放弃并记诊断。两个服务端进程打开同一作品时，后算完的胜出。
+    - **持久化**：user 分区记录 `projects.stats`（owner `nbook.projects`，按资源 id 寻址，资源 id 是项目 id，`locality: shared`，版本 1），值为快照 `{computedAt, words, files, unreadable, today: {date, baseline}, last}`。变化后最多每 30 秒写一次，按 revision 条件保存：冲突时重读，存着的 `computedAt` 更晚就放弃，否则以新 revision 重写；`unknown-outcome` 重读后同样核对；`busy`、`io-error` 保留旧记录、记诊断、下一轮再写；`corrupt`、`unsupported-version` 以条件 `reset` 覆盖（它是可重算的缓存），原件进原件区并记诊断，原件区满时放弃并记诊断。记录在状态根的 user 分区里，一个状态根只有一个服务端、同一作品的新代次要等上一代结束才创建，正常只有一个写者；写者冲突时后算完的胜出。
     - **停止**：在入口登记的资源释放里写最后一次（Storage 门面此时还在）：有整轮扫描在跑或排着就不写、保留旧记录（记诊断 `projects.stats.final-skipped`）；否则在途的单文件重读至多再等 1 秒，然后写一次。
 17. **书架与新鲜度。** 远程服务 `nbook.projects/stats`（提供方 `project`，调用方 `server`）的 `current()` 返回 `{status: "counting" | "complete" | "ended", snapshot}`。服务端的 `shelf()` 对每部作品返回登记项、作品信息与统计摘要（`ShelfItem`，schema 在共享合同里）：
     - 处于 `running`：经 `{project}` 目标调用 `current`（服务端插件对运行中的项目无租约访问，不打开项目、不续宽限期；至多等 2 秒，一个卡住的项目实例不拖住整张书架）：`complete` 为 `fresh`，`counting` 为 `counting`（带上次的快照），`ended`、超时或调用失败退回记录、为 `stale`；
@@ -172,7 +172,7 @@ owners:
 ## 边界与兼容
 
 - **owner**：application-runtime（服务端宿主的项目管理器与项目宿主）；`nbook.projects`（界面与远程入口）。子实例与租约的机制归 runtime（[`runtime.application`](application.md)），绑定、`project-gone` 与 `{project}` 访问的协议归 [远程服务与 RPC 协议](plugin-channel.md)。
-- **不加目录锁**：旧应用与早期设计里“防止两个服务端进程同时打开同一项目”的锁，保护的是项目实例独占的项目级持久数据。第一份这样的数据是 Storage 的项目分区：条件保存靠 SQLite 自己的锁，两个服务端进程同时打开同一项目时写入仍然正确，只是互相收不到对方写入的变更通知（[`storage.persistence`](../storage/persistence.md)）。以后的项目级数据同样优先用数据本身的机制（SQLite 的锁、库里的拥有者记录），不另加目录锁文件。同一个服务端进程里，多个窗口本来就共用同一个项目实例。
+- **不加目录锁**：旧应用与早期设计里“防止两个服务端进程同时打开同一项目”的锁，保护的是项目实例独占的项目级持久数据。第一份这样的数据是 Storage 的项目分区：条件保存靠 SQLite 自己的锁，两个服务端进程（各用自己的状态根）同时打开同一项目时写入仍然正确，只是互相收不到对方写入的变更通知（[`storage.persistence`](../storage/persistence.md)）。以后的项目级数据同样优先用数据本身的机制（SQLite 的锁、库里的拥有者记录），不另加目录锁文件。同一个服务端进程里，多个窗口本来就共用同一个项目实例。
 - **路径可见性**：用户登记的项目目录路径会经 `nbook.projects` 显示给用户，用来区分同名目录；状态根、安装目录等服务端内部路径不发给浏览器。第三方浏览器插件接入时，随 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 待定项 3 收紧 `nbook.projects/projects` 的调用方。
 - **兼容**：身份文件与登记表带 `schema`，结构变化时提升；`.nbook/` 目录以后可能放其它文件，本能力只读写 `project.json`。项目子进程与服务端必须来自同一次构建（同一 Bun 可执行文件、同一产物目录）。
 - **平台**：Bun 的进程间通信在 Windows 上未实测；macOS 未实测。

@@ -11,7 +11,7 @@ owners:
 
 ## 目标与非目标
 
-服务端进程由宿主适配器与内核拥有：进程入口建立唯一的运行实例，按产品清单登记插件，执行启动门禁，由 `nbook.http` 插件监听 HTTP 端口，宿主另开内核 RPC 端口承载远程服务（[远程服务与 RPC 协议](plugin-channel.md)）；宿主还管理项目：每个打开的项目一个子进程（[项目与项目实例](projects.md)）。所有停止来源汇合到同一个有序停止流程，先封闭接纳并排空 HTTP 与 RPC，再停止项目子进程，最后按依赖逆序关闭插件；启动失败与停止结果以约定的退出码报告。开发模式与生产在同一套内核语义下运行。
+服务端进程由宿主适配器与内核拥有：进程入口建立唯一的运行实例，按产品清单登记插件，执行启动门禁，由 `nbook.http` 插件监听 HTTP 端口，宿主另开内核 RPC 端口承载远程服务（[远程服务与 RPC 协议](plugin-channel.md)）；宿主还管理项目：每个打开的项目一个子进程（[项目与项目实例](projects.md)）。一个状态根同一时间只跑一个服务端：进程先认领状态根，认领不到就退出。所有停止来源汇合到同一个有序停止流程，先封闭接纳并排空 HTTP 与 RPC，再停止项目子进程，最后按依赖逆序关闭插件；启动失败与停止结果以约定的退出码报告。开发模式与生产在同一套内核语义下运行。
 
 明确不承诺：
 
@@ -26,25 +26,35 @@ owners:
 - **运行实例**：`runtime.application` 定义的一次启动；本能力中每个进程一个。
 - **产品清单**：`packages/neuro-book/src/manifest.ts`，列出本应用加载的插件；后端按它装配插件的后端入口。
 - **启动必需插件**：服务端入口失败即启动失败的插件。当前清单中有服务端入口的插件（`runtime.diagnostics`、`nbook.http`、`nbook.commands`）都是启动必需。它们的浏览器入口按窗口判定（[`runtime.browser-host`](browser-host.md)）。
-- **停止来源**：进程信号（SIGTERM、SIGINT）、标准输入停止通道、Session Store 租约失效、启动失败、进程级未处理异常。启动失败由内核自行关闭已取得的资源；就绪前的请求都在等待、没有被接纳，因此不需要排空。
+- **停止来源**：进程信号（SIGTERM、SIGINT、SIGHUP；关掉终端时进程收到 SIGHUP）、标准输入停止通道、Session Store 租约失效、启动失败、进程级未处理异常。启动失败由内核自行关闭已取得的资源；就绪前的请求都在等待、没有被接纳，因此不需要排空。
 - **标准输入停止通道**：以 `--stop-stdin` 启动时，标准输入读到一行 `stop`、或标准输入结束（父进程已不在），都请求停止。Windows 上外部进程不能合作发送信号，开发监督进程与 smoke 用它停止后端。
 - **排空**：停止接纳新请求、等待在途请求结束的阶段。
 - **开发监督进程**：开发模式下启动并在后端文件变化时有序重启后端进程的进程。
 - **项目子进程**：服务端为每个打开的项目起的 Bun 子进程，里面是 `project` 位置的运行实例（[`runtime.projects`](projects.md)）；归服务端的项目管理器所有。
+- **实例认领**：进程在状态根派生的本地地址上监听一个套接字（Unix 域套接字；Windows 上是命名管道），监听成功即认领了这个状态根。套接字由内核持有：进程活着（包括被暂停）就一直占着，进程结束立即释放。
+- **实例应答**：已认领的进程在认领套接字上回答 `hello` 请求，说明自己是谁、在什么状态、地址在哪；`nbook` 命令行据此找到运行中的实例。
 
 ## 输入与前置条件
 
 - 启动参数：环境变量 `NBOOK_STATE_ROOT`（状态根，必填；日志写在 `<状态根>/logs/`）、`NBOOK_HOST`（缺省 `127.0.0.1`）、`NBOOK_PORT`（缺省 4217，0 表示由系统分配）、`NBOOK_WEB_ROOT`（前端构建产物目录，可选；相对路径按工作目录解析）、`NBOOK_RPC_PORT`（内核 RPC 端口，缺省 4218，0 表示由系统分配；浏览器总是经引导接口得知实际端口，固定缺省让 TUI 与脚本不经引导接口也能连上。两个端口都没有给出、缺省端口有一个被占用时，两者成对加 100 顺延再试（4317 与 4318、4417 与 4418，依次类推），至多 10 组，用上顺延的端口时记一条 `server.ports.shifted` 警告；显式给出的端口被占用照旧启动失败）、`NBOOK_ALLOWED_ORIGINS`（逗号分隔的额外页面来源，给页面不由本进程 HTTP 端口提供的情形，即开发模式的页面服务）、`NBOOK_PROJECT_GRACE_MS`（项目宽限期，缺省 300000）、`NBOOK_PROJECT_START_MS`（项目子进程报告启动结果的截止，缺省 30000）、`NBOOK_PROJECT_STOP_MS`（每个项目子进程的停止截止，缺省 20000；三项都是 1..2^31-1 的整数毫秒）；命令行 `--stop-stdin`。参数无效时写出一行致命诊断并以 1 退出，不建立运行实例。内核不自行扫描替代根。
 - 未加载鉴权插件时只允许监听回环地址（`127.0.0.1`、`::1`、`localhost`），其它地址按参数无效处理；HTTP 与 RPC 端口监听同一地址。`NBOOK_ALLOWED_ORIGINS` 的每一项必须是回环主机上的 `http` 来源（`http://127.0.0.1:<端口>` 之类，不带路径），否则同样按参数无效处理。
-- 内置插件随产品清单构建；已安装插件来自状态根（[`runtime.plugin-install`](plugin-install.md)，尚未实现）。
+- 内置插件随产品清单构建；已安装插件来自状态根（[`runtime.plugin-install`](plugin-install.md)）。
 - 生产与开发都运行在 Bun 上。
 
 ## 输出与可观察行为
 
+**实例认领：** 进程读完启动参数后、写状态根之前（处理插件的待生效变化、写日志、登记表、起项目子进程都在后面）先认领状态根：
+
+- 状态根不存在就建出来；认领的那几毫秒持有认领锁 `<状态根>/server.claim.lock`，两个进程同时认领时恰好一个成功。
+- 认领地址是 `<状态根>/server.sock`；这个路径超过 100 字节（Unix 套接字路径的上限是 104 到 108 字节）时改用 `$XDG_RUNTIME_DIR`（没有时用系统临时目录）下的 `nbook-<状态根真实路径的 sha256 前 16 位>.sock`。Windows 是 `\\.\pipe\nbook-<同一哈希>`。套接字文件只给本用户读写。
+- 地址上有实例应答：以 1 退出，致命诊断 `runtime.state-root.busy` 带对方的 pid、地址、种类与状态，不动状态根。连上了但 3 秒内没有应答（对方被暂停或卡住）：同样以 1 退出，不接管。连不上（套接字文件是崩溃留下的，或者没有）：删掉残留文件后认领。
+- 应答协议：客户端发一行 `{"type":"hello"}`，实例回一行 JSON 后关闭连接：`{schema: 1, pid, version, kind, status, url, rpcUrl, plugins}`。`kind` 是 `product`（产品入口与 `nbook start`）、`development`（开发会话的后端）或 `fixture`（测试入口）；`status` 是 `starting`（已认领、还没就绪）、`ready`（运行实例可用）或 `stopping`（停止序列已开始）；`url` 是可以在浏览器打开的页面地址，还没就绪或开发会话的后端（页面在页面服务那边）为 null；`plugins` 是本次启动的第三方插件 `{safeMode, items: [{id, version, state}]}`，就绪前为 null。认领一成功就应答，所以已认领、还没监听 HTTP 的这段时间里也找得到它。
+- 停止结算之后放下认领：关闭监听并删掉自己建的套接字文件；装配失败时同样放下。被 `SIGKILL` 等强制结束时留下套接字文件，不挡下一次认领。
+
 **启动序列：**
 
 1. 读取启动参数；建立诊断存储（记录能力先于任何插件存在）、服务端的远程节点与路由，并监听内核 RPC 端口，在标准输出打印一行 `RPC listening on ws://<地址>`；RPC 端口监听失败（含显式给出的端口已被占用、缺省端口顺延 10 组仍被占用）时写出致命诊断并以 1 退出，不建立运行实例。然后建立运行实例：根作用域、服务装配、插件宿主（远程节点交给插件宿主）、项目管理器（本地能力 `projectsKey` 放进清单，路由的绑定与 `{project}` 访问回调接到它）、本地能力 `stateRootKey`（状态根，插件要在状态根下放东西时依赖它）与 `clockKey`（时钟，插件的计时与截止经它，测试可换成手动时钟）；挂接进程信号、未处理异常与停止通道，每个实例只挂接一次。
-2. 发现：产品清单中的插件，加上状态根中已启用插件的清单（尚未实现）。
+2. 发现：产品清单中的插件，加上状态根中已启用插件的清单（[`runtime.plugin-install`](plugin-install.md)）。
 3. 登记：按 [`runtime.plugin-manifest`](plugin-manifest.md) 校验与推导，不执行插件代码。启动必需插件的服务端入口受阻或清单无效时启动失败。
 4. 启动激活：启动必需插件的入口与声明 `onStartup` 的入口，依赖先于依赖者（`runtime.diagnostics` 是依赖图的根）。
 5. `nbook.http` 激活后用 Bun 监听，并在标准输出打印一行 `Listening on <地址>`。端口先监听，请求等待运行实例就绪，就绪后处理；宿主自有接口 `GET /api/runtime/health` 在就绪后返回 200。RPC 端口同样先监听：升级请求等运行实例就绪后才核对来源并升级，启动失败时得到 503。
@@ -88,6 +98,7 @@ owners:
 
 - 服务端用自己的 Bun 可执行文件运行项目宿主入口：生产是打包产物中与服务端入口同目录的 `project.js`（同一次构建产出），开发模式是项目宿主的开发入口。子进程从环境变量得到项目 id、短名、代次、项目目录与状态根，经 Bun 进程间通信连到路由（[远程服务与 RPC 协议](plugin-channel.md) 的“进程间链路”）。
 - 子进程的标准输出与标准错误逐行转发到服务端的同名输出，每行加前缀 `[project <短名>#<代次>]`；子进程的诊断写各自的日志位置 `<状态根>/logs/projects/<短名>/`。
+- 起子进程之前核对项目宿主入口与服务端启动时相同（大小与修改时间）：服务端运行期间入口文件被更换（全局包原地升级）时不起子进程，打开作品得到 `project-unavailable`，说明要重启服务。
 - 启动结果有截止 `NBOOK_PROJECT_START_MS`：到时强制结束子进程；启动中退出、报告启动失败（先请求停止并等它退出，到停止截止强制结束）都按创建失败收口，写诊断，子进程不残留。项目的创建失败、崩溃只影响那个项目，不使服务端停止，也不改变服务端的退出码。
 
 **开发模式：**
@@ -103,7 +114,8 @@ owners:
 
 | 当前 | 事件 | 结果 |
 |---|---|---|
-| 未启动 | 进程启动 | 启动中；端口监听后请求等待 |
+| 未启动 | 进程启动，状态根已被别的实例认领（有应答或没有应答） | 以 1 退出，不建立运行实例、不动状态根 |
+| 未启动 | 进程启动，认领到状态根 | 启动中；端口监听后请求等待 |
 | 启动中 | 全部启动门禁通过 | 可用；等待中的请求开始处理 |
 | 启动中 | 启动必需插件失败或受阻 | 停止中，结束时退出码 1 |
 | 启动中、可用 | 任一停止来源 | 停止中（封闭接纳 → HTTP 与 RPC 排空 → 停止项目子进程 → 依赖逆序关闭 → 关闭 RPC 链路与监听） |
@@ -123,6 +135,7 @@ owners:
 ## 失败与恢复
 
 - 启动参数无效：写出致命诊断，以 1 退出，不建立运行实例。
+- 状态根已被认领：`runtime.state-root.busy`；状态根不可写：`runtime.state-root.unwritable`；认领的其它失败（认领锁一直等不到、监听失败）：`runtime.state-root.claim-failed`。都以 1 退出，不建立运行实例。
 - 启动失败（含端口已被占用）：有序停止、以 1 退出。RPC 端口监听失败发生在运行实例建立之前，写出致命诊断后直接以 1 退出。
 - 排空超时（HTTP 或 RPC）：继续关闭其余插件，退出码 1。
 - 某个插件关闭抛错：记录错误，继续关闭其余插件，退出码 1。
@@ -135,9 +148,10 @@ owners:
 
 - **owner**：application-runtime（宿主适配器）；内核合同沿用 [`runtime.application`](application.md)、[`runtime.lifecycle`](lifecycle.md)。
 - **兼容**：退出码 0、1、75、76 的含义保持不变。v2 去掉了旧应用的 `.output/server/index.mjs` 入口、`PRODUCT_SHUTDOWN_PATH` 控制请求与产品启动包装进程；它们服务的 Manager 与桌面版已在 v2 分支删除。
+- **实例应答**：`hello` 的应答是给 `nbook` 命令行与以后的桌面壳的接口，`schema` 变了就加新版本号；以后的停止、查询等请求加在同一个协议上。
 - **鉴权**：鉴权是可选的内置插件，向 `nbook.http` 贡献请求守卫；未加载时宿主只监听回环地址。
 - **开发模式问题** 对应 [#244](https://github.com/notnotype/neuro-book/issues/244)。
-- **已知限制**：租约失效（场景 5）随 Session Store 插件实现，退出码 76 随看门狗实现；Windows 上未实测（含开发模式的 Ctrl+C 与文件监视），POSIX 信号路径由 Linux 上的真实子进程测试覆盖；RPC 链路不做发送背压，大量事件推送时未发出的消息在内存里堆积（本机回环下风险低）；鉴权上线前，不带 `Origin` 的本机进程都能连 RPC 端口，与未加载鉴权时的 HTTP 端口同等信任。
+- **已知限制**：租约失效（场景 5）随 Session Store 插件实现，退出码 76 随看门狗实现；Windows 上未实测（含开发模式的 Ctrl+C 与文件监视），POSIX 信号路径由 Linux 上的真实子进程测试覆盖；RPC 链路不做发送背压，大量事件推送时未发出的消息在内存里堆积（本机回环下风险低）；鉴权上线前，不带 `Origin` 的本机进程都能连 RPC 端口，与未加载鉴权时的 HTTP 端口同等信任；Windows 上 Bun 能否监听命名管道未核实（有 Bun 1.3.14 失败的报告），新应用在 Windows 上整体未验证；有人手工删掉运行中实例的套接字文件时，下一次启动会认领成功，与它并存。
 
 ## 验收与 Smoke
 
@@ -158,27 +172,31 @@ owners:
 15. **项目子进程停止超时**。Given 一个不响应停止请求的项目子进程；When 服务端停止；Then 到 `NBOOK_PROJECT_STOP_MS` 时它被强制结束并记为外部终止，其余步骤照常，进程以 1 退出。
 16. **项目参数与输出**。`NBOOK_PROJECT_GRACE_MS`、`NBOOK_PROJECT_START_MS`、`NBOOK_PROJECT_STOP_MS` 不是合法毫秒数时以 1 退出；项目子进程的输出带 `[project <短名>#<代次>]` 前缀出现在服务端输出里。
 17. **HTTP 来源核对。** `Host: evil.example:<端口>` 的请求得到 421；带 `Origin: null` 或 `Origin: http://evil.example` 的 `POST` 得到 403；页面自己的写请求、不带 `Origin` 的本机写请求与任意来源的 `GET` 照常。
+18. **一个状态根一个实例。** Given 一个运行中的服务端；When 同一状态根再起一个（产品入口或测试入口）；Then 后者以 1 退出、致命诊断带前者的地址，前者照常服务；前者停止后同一状态根可以再起。前者被 `SIGSTOP` 暂停时后来者报没有应答、不接管；前者被 `SIGKILL` 后立即可以重新认领；几个进程同时认领恰好一个成功。
+19. **关终端。** 对运行中的服务端发 `SIGHUP`：与场景 3 相同的有序停止，以 0 退出。
+20. **项目宿主入口被更换。** 服务端运行期间换掉项目宿主入口：之后打开作品得到 `project-unavailable`，提示重启服务。
 
-Smoke：生产打包产物在 Bun 下用临时状态根运行场景 1、2、4、11，以及一次 RPC 握手（场景 12 的来源核对）和一次打开项目（登记临时目录、经 RPC 绑定、项目子进程报告身份）；开发模式运行场景 7、8，并核对页面直连 RPC 端口、后端重启后页面显示服务端已重启。
+Smoke：生产打包产物在 Bun 下用临时状态根运行场景 1、2、4、11、18，以及一次 RPC 握手（场景 12 的来源核对）和一次打开项目（登记临时目录、经 RPC 绑定、项目子进程报告身份）；开发模式运行场景 7、8，并核对页面直连 RPC 端口、后端重启后页面显示服务端已重启。
 
 ## 实现合同
 
-- **实现 owner 与入口**：application-runtime。进程入口 `packages/neuro-book/src/server/main.ts`（产品清单）与 `development-main.ts`（另加开发清单），两者只差清单，启动与退出都在 `src/server/process.ts`（`runServerProcess(manifest)`）；启动参数 `src/server/config.ts`（`readServerConfig(argv, env, cwd)`，失败抛带 `code` 的 `ServerConfigError`）；宿主适配器 `src/server/host.ts`（`startServerHost(options)` 返回 `ServerHost`：`requestStop(source)`、`stopSource`、`stopped`、`beforeStopError`、`detached`；选项含 `signals`、`process`、`stopInput`、`beforeStop`、`onFatal`、`emergency`）；装配 `src/server/start.ts`（`startServer({config, manifest?, plugins?, process?, signals?, stopInput?, clock?, onListening?, onRpcListening?, writeFatal?, devTask?})`，`manifest` 缺省为产品清单；`devTask` 是运行实例可用后在后台做的开发任务（开发服务的样例作品，`src/server/dev/sample.ts`），只由开发入口传，生产入口不传；返回 `RunningServer`：`ready`、`stopped`（含退出码）、`url`、`rpcUrl`、`requestStop(source)`；退出码在停止结束后由启动结果、未处理异常与停止中的失败一次算出；RPC 端口监听失败或插件装配失败时写出致命诊断后抛 `ServerAssemblyError`）；内核 RPC 端口 `src/server/rpc/listener.ts`（`startRpcListener({host, port, router, admit, allowOrigin, reportError})` 返回 `RpcListener {url, port, stop()}`，升级的门与来源核对见下）与两端共用的套接字链路 `src/shared/rpc-socket.ts`（`createSocketLink(socket)`、`RPC_PATH`、`RPC_MAX_MESSAGE_BYTES`）；允许来源的计算 `loopbackOrigins(pageUrl)` 在 `src/server/config.ts`；后端插件装配 `src/server/plugins.ts`（普通插件的定义表 `serverPluginDefinitions` 与宿主适配器的工厂表 `serverHostPlugins`，后者只有诊断与 HTTP（[ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)）；`manifestServerPlugins(context)` 按本进程清单逐个经 `serverPlugin(id, context)` 取定义，清单有后端入口而两张表都没有时失败；宿主能力 `stateRootKey` 在 `src/shared/host.ts`；向 `nbook.http` 传入按同一清单列出插件的引导接口与 `NBOOK_WEB_ROOT`）。项目：项目管理器 `src/server/projects/manager.ts`（`createProjectManager(options)` 返回 `ProjectManager`：`list`、`acquire(引用, 持有者, {generation?})`、`holds`、`running`、`stopAdmission`、`shutdownProblems`、路由回调 `bind`、`access`，宿主能力的 `provision`），身份与目录校验 `identity.ts`，登记表 `registry.ts`（`createProjectRegistry`），IPC 信封与链路 `ipc.ts`；`startServer` 的选项 `projectEntry`（缺省为产品入口：打包产物里与 `main.js` 同目录的 `project.js`，源码里是 `src/project/main.ts`）、`projectEnv`、`projectOutput`、`projectClock`，`RunningServer.projects`；项目宿主在 `src/project/`（`main.ts` 与 `development-main.ts` 两个入口只差清单，`process.ts` 的 `runProjectProcess`，`start.ts` 的 `startProject`，启动参数 `config.ts`，本地能力 `currentProjectKey`（键在 `src/shared/projects.ts`），按清单装配 `plugins.ts`（与服务端同样的两张表））；后端适配器 `startServerHost` 多了 `location` 选项，服务端与项目子进程共用。HTTP 准入与排空在 `src/plugins/http/backend/admission.ts`，分发与 `http.routes` 接收在 `dispatch.ts`，贡献点合同在 `contracts.ts`，页面资源在 `static.ts`（`openStaticFiles(root)`），插件定义在 `plugin.ts`（`createHttpPlugin` 选项含 `hostRoutes`、`staticRoot`）。开发模式在 `src/server/dev/`：`main.ts`（入口）、`run.ts`（`runDev(...)`：会话与信号）、`supervisor.ts`（`createDevSupervisor({launch, clock, onEvent, debounceMs?})`：后端状态 `starting | running | restarting | waiting | stopping | stopped` 与代理前的门 `admit()`）、`backend-process.ts`（`spawnBackend`）、`frontend.ts`（Vite 中间件模式与自有 HTTP 服务）、`watch.ts`（监视根与后端文件判定）、`config.ts`。
+- **实现 owner 与入口**：application-runtime。进程入口 `packages/neuro-book/src/server/main.ts`（产品清单）与 `development-main.ts`（另加开发清单），两者只差清单，启动与退出都在 `src/server/process.ts`（`runServerProcess(manifest, {kind?, config?, claim?, projectEntry?, devTask?, onListening?})`：没给 `claim` 时自己认领，认领不到写致命诊断以 1 退出，`reportClaimFailure` 写这几种诊断）；实例认领 `src/server/instance.ts`（`claimStateRoot({stateRoot, kind, version, report})` 返回 `{ok: true, claim}` 或 `running`、`unresponsive`、`unwritable`、`failed`；`StateRootClaim` 的 `publish`、`stopping`、`release`；`queryInstance(stateRoot)` 问实例、不建目录；`instanceAddress(stateRoot)`）；启动参数 `src/server/config.ts`（`readServerConfig(argv, env, cwd)`，失败抛带 `code` 的 `ServerConfigError`）；宿主适配器 `src/server/host.ts`（`startServerHost(options)` 返回 `ServerHost`：`requestStop(source)`、`stopSource`、`stopped`、`beforeStopError`、`detached`；选项含 `signals`、`process`、`stopInput`、`beforeStop`、`onFatal`、`emergency`）；装配 `src/server/start.ts`（`startServer({config, claim, manifest?, plugins?, process?, signals?, stopInput?, clock?, onListening?, onRpcListening?, writeFatal?, devTask?})`，`manifest` 缺省为产品清单；`devTask` 是运行实例可用后在后台做的开发任务（开发服务的样例作品，`src/server/dev/sample.ts`），只由开发入口传，生产入口不传；返回 `RunningServer`：`ready`、`stopped`（含退出码）、`url`、`rpcUrl`、`requestStop(source)`；退出码在停止结束后由启动结果、未处理异常与停止中的失败一次算出；RPC 端口监听失败或插件装配失败时写出致命诊断后抛 `ServerAssemblyError`）；内核 RPC 端口 `src/server/rpc/listener.ts`（`startRpcListener({host, port, router, admit, allowOrigin, reportError})` 返回 `RpcListener {url, port, stop()}`，升级的门与来源核对见下）与两端共用的套接字链路 `src/shared/rpc-socket.ts`（`createSocketLink(socket)`、`RPC_PATH`、`RPC_MAX_MESSAGE_BYTES`）；允许来源的计算 `loopbackOrigins(pageUrl)` 在 `src/server/config.ts`；后端插件装配 `src/server/plugins.ts`（普通插件的定义表 `serverPluginDefinitions` 与宿主适配器的工厂表 `serverHostPlugins`，后者只有诊断与 HTTP（[ADR 0026](../../adr/0026-plugin-definitions-as-constants.md)）；`manifestServerPlugins(context)` 按本进程清单逐个经 `serverPlugin(id, context)` 取定义，清单有后端入口而两张表都没有时失败；宿主能力 `stateRootKey` 在 `src/shared/host.ts`；向 `nbook.http` 传入按同一清单列出插件的引导接口与 `NBOOK_WEB_ROOT`）。项目：项目管理器 `src/server/projects/manager.ts`（`createProjectManager(options)` 返回 `ProjectManager`：`list`、`acquire(引用, 持有者, {generation?})`、`holds`、`running`、`stopAdmission`、`shutdownProblems`、路由回调 `bind`、`access`，宿主能力的 `provision`），身份与目录校验 `identity.ts`，登记表 `registry.ts`（`createProjectRegistry`），IPC 信封与链路 `ipc.ts`；`startServer` 的选项 `projectEntry`（缺省为产品入口：打包产物里与 `main.js` 同目录的 `project.js`，源码里是 `src/project/main.ts`）、`projectEnv`、`projectOutput`、`projectClock`，`RunningServer.projects`；项目宿主在 `src/project/`（`main.ts` 与 `development-main.ts` 两个入口只差清单，`process.ts` 的 `runProjectProcess`，`start.ts` 的 `startProject`，启动参数 `config.ts`，本地能力 `currentProjectKey`（键在 `src/shared/projects.ts`），按清单装配 `plugins.ts`（与服务端同样的两张表））；后端适配器 `startServerHost` 多了 `location` 选项，服务端与项目子进程共用。HTTP 准入与排空在 `src/plugins/http/backend/admission.ts`，分发与 `http.routes` 接收在 `dispatch.ts`，贡献点合同在 `contracts.ts`，页面资源在 `static.ts`（`openStaticFiles(root)`），插件定义在 `plugin.ts`（`createHttpPlugin` 选项含 `hostRoutes`、`staticRoot`）。开发模式在 `src/server/dev/`：`main.ts`（入口）、`run.ts`（`runDev(...)`：会话与信号）、`supervisor.ts`（`createDevSupervisor({launch, clock, onEvent, debounceMs?})`：后端状态 `starting | running | restarting | waiting | stopping | stopped` 与代理前的门 `admit()`）、`backend-process.ts`（`spawnBackend`）、`frontend.ts`（Vite 中间件模式与自有 HTTP 服务）、`watch.ts`（监视根与后端文件判定）、`config.ts`。
 - **关键不变量**：
   - 一个进程只有一个产品运行实例；进程信号、未处理异常监听与停止通道只由宿主挂接一次，停止结算后移除。
+  - `startServer` 必须收已认领的状态根：任何宿主（产品、开发、测试入口、以后的桌面壳）不先认领就起不了服务端。它在可用时 `publish`、停止开始时 `stopping`、停止结算后与装配失败时 `release`。进程内的测试经 `src/server/testing/claimed-server.ts` 真实认领自己的临时状态根。认领先于 `prepareInstalledPlugins`。
   - 启动失败之外的停止来源经 `ServerHost.requestStop` 汇合，只执行一次；进程级未处理异常先交 `onFatal` 记录，再由宿主以 `fatal:<kind>` 请求停止。`beforeStop`（HTTP 排空）先于内核停止，失败仍继续关闭并记入 `beforeStopError`。启动失败由内核自行关闭，宿主随之结算并移除监听。退出码按 75 > 1 > 0 取值，退出码在启动结果确定后才结算。
   - `nbook.http` 只依赖 `runtime.diagnostics`；就绪前请求等待，启动失败与排空期间返回 503，事件流经 `registerEventStream` 登记后不计入等待、排空开始即关闭。插件处理器每次请求经 `implementation()` 取得，入口停止后不再被调用。
   - RPC 监听先于插件装配（引导接口要告诉浏览器实际端口），运行实例之前只建了远程节点与路由，没有要关闭的插件资源。升级先过 HTTP 准入的门（与页面资源同一道门：就绪前等待，启动失败与排空开始后 503），再核对 `Origin`：顺序不能反，HTTP 端口为 0 时允许的来源要等 `nbook.http` 监听后才知道。
   - `beforeStop` 并行执行 HTTP 排空与 RPC 排空（路由先停止接纳再排空，两者各有 20 秒上限、用同一个注入时钟），任一未完成都记为停止步骤失败；内核关闭全部插件之后才关闭路由链路与 RPC 监听，启动失败时同样关闭。
   - 测试插件只经 `startServer({plugins})` 注入，产品清单与产品代码不含测试分支。
   - HTTP 的 `Host` 与写请求 `Origin` 核对在 `dispatch.ts` 的分发入口，先于准入的门与路由匹配；允许的来源与 RPC 端口同一份（`loopbackOrigins`），由 `start.ts` 经 `nbook.http` 的 `allowOrigin` 交给分发（`dispatch.test.ts`）。
-  - 项目：停止的同步段里先关项目管理器的接纳，再开始两路排空；项目管理器建在服务端运行实例上（子实例的停止阶段在内核关闭插件之前停完项目子进程），宿主能力 `projectsKey` 等项目管理器建好再交出（内核在建立运行实例的同步段里就开始启动激活）。项目子进程先把链路交给路由（带 `expect`）再起进程；没有被要求停止时 IPC 断开或进程结束即报告这一代结束，退出码等进程真正结束后写诊断；停止中被强制结束或以非 0 退出的子进程计入停止问题，退出码 1。项目子进程只认 SIGTERM，终端的 Ctrl+C 不让它自行退出；它的日志位置是 `<状态根>/logs/projects/<短名>/`。
-- **合同测试**：项目`src/server/server-projects.test.ts`（同进程：绑定与共用代次、宽限期内重连与期满后 `project-gone`、崩溃、宽限期中不唤醒、停止开始后打开被拒与绑定中的租约释放；真实子进程：场景 14 的收口顺序与场景 15 的强制结束）、`src/server/projects/manager.test.ts`（真实项目子进程：打开、关闭与崩溃、启动与停止的收口、父实例停止）、`projects-capability.test.ts`、`registry.test.ts`，`config.test.ts` 的项目时限；`src/server/server.test.ts`（真实子进程：启动、标准输入与 SIGTERM 停止、在途请求、启动失败、关闭失败、未捕获异常、未处理的 Promise 拒绝、标准输入结束、非回环地址；同进程：排空超时、启动失败时等待就绪的请求得到 503、未处理异常汇合为一次停止且停止后监听全部移除、插件装配失败、页面目录缺少 index.html）、`src/server/config.test.ts`、`src/plugins/http/backend/admission.test.ts`、`src/plugins/http/backend/dispatch.test.ts`、`src/plugins/http/backend/static.test.ts`；开发模式 `src/server/dev/supervisor.test.ts`（真实后端子进程：场景 7 的有序重启、去抖、启动失败不循环、运行中退出、门）、`src/server/dev/run.test.ts`（真实会话子进程：场景 8 的停止顺序、终端 Ctrl+C、第二个信号、页面端口被占用）、`src/server/dev/watch.test.ts`、`src/server/dev/config.test.ts`。RPC 端口：`src/server/rpc/listener.test.ts`（真实 Bun 监听与内核路由：来源、路径、门、消息上限、停止后拒绝连接）、`server.test.ts` 的 RPC 一组（同进程：两类允许来源与额外来源、在途远程请求时停止、RPC 排空超时、启动失败时等待中的升级得到 503、RPC 端口被占用；真实子进程：`RPC listening on` 与停止后端口关闭）、`config.test.ts`（RPC 端口与额外来源的解析与拒绝）、`src/server/dev/run.test.ts`（开发会话把页面来源传给后端、重启后经引导取得新端口）。
-- **实际 smoke**：`bun run smoke:server`（先打包再运行场景 1、2、4、11、页面资源、RPC 握手 S6 与打包产物的项目绑定 S7），检查未执行时以非零退出；开发模式由 `e2e/dev.e2e.ts`（`bun run test:e2e`）以真实的 `bun run dev` 入口、本机 Chrome 运行场景 7、8，并核对页面直连 RPC 端口、后端重启后页面显示服务端已重启。
+  - 项目：停止的同步段里先关项目管理器的接纳，再开始两路排空；项目管理器建在服务端运行实例上（子实例的停止阶段在内核关闭插件之前停完项目子进程），宿主能力 `projectsKey` 等项目管理器建好再交出（内核在建立运行实例的同步段里就开始启动激活）。项目子进程先把链路交给路由（带 `expect`）再起进程；没有被要求停止时 IPC 断开或进程结束即报告这一代结束，退出码等进程真正结束后写诊断；停止中被强制结束或以非 0 退出的子进程计入停止问题，退出码 1。项目子进程只认 SIGTERM，终端的 Ctrl+C 与关闭终端的 SIGHUP 不让它自行退出；它的日志位置是 `<状态根>/logs/projects/<短名>/`。
+- **合同测试**：实例认领 `src/server/instance.test.ts`（真实子进程：第二个认领者看到第一个、暂停不接管、`SIGKILL` 后重新认领、同时认领只有一个；同进程：应答的各字段与状态、开发会话不给页面地址、长路径改用运行时目录、不存在与不可写的状态根）；项目`src/server/server-projects.test.ts`（同进程：绑定与共用代次、项目宿主入口被更换、宽限期内重连与期满后 `project-gone`、崩溃、宽限期中不唤醒、停止开始后打开被拒与绑定中的租约释放；真实子进程：场景 14 的收口顺序与场景 15 的强制结束）、`src/server/projects/manager.test.ts`（真实项目子进程：打开、关闭与崩溃、启动与停止的收口、父实例停止）、`projects-capability.test.ts`、`registry.test.ts`，`config.test.ts` 的项目时限；`src/server/server.test.ts`（真实子进程：启动、标准输入、SIGTERM 与 SIGHUP 停止、同一状态根的第二个服务端（产品入口与测试入口）、在途请求、启动失败、关闭失败、未捕获异常、未处理的 Promise 拒绝、标准输入结束、非回环地址；同进程：排空超时、启动失败时等待就绪的请求得到 503、未处理异常汇合为一次停止且停止后监听全部移除、插件装配失败、页面目录缺少 index.html）、`src/server/config.test.ts`、`src/plugins/http/backend/admission.test.ts`、`src/plugins/http/backend/dispatch.test.ts`、`src/plugins/http/backend/static.test.ts`；开发模式 `src/server/dev/supervisor.test.ts`（真实后端子进程：场景 7 的有序重启、去抖、启动失败不循环、运行中退出、门）、`src/server/dev/run.test.ts`（真实会话子进程：场景 8 的停止顺序、终端 Ctrl+C、第二个信号、页面端口被占用）、`src/server/dev/watch.test.ts`、`src/server/dev/config.test.ts`。RPC 端口：`src/server/rpc/listener.test.ts`（真实 Bun 监听与内核路由：来源、路径、门、消息上限、停止后拒绝连接）、`server.test.ts` 的 RPC 一组（同进程：两类允许来源与额外来源、在途远程请求时停止、RPC 排空超时、启动失败时等待中的升级得到 503、RPC 端口被占用；真实子进程：`RPC listening on` 与停止后端口关闭）、`config.test.ts`（RPC 端口与额外来源的解析与拒绝）、`src/server/dev/run.test.ts`（开发会话把页面来源传给后端、重启后经引导取得新端口）。
+- **实际 smoke**：`bun run smoke:server`（先打包再运行场景 1、2、4、11、页面资源、RPC 握手 S6、打包产物的项目绑定 S7 与同一状态根的第二个实例 S10），检查未执行时以非零退出；开发模式由 `e2e/dev.e2e.ts`（`bun run test:e2e`）以真实的 `bun run dev` 入口、本机 Chrome 运行场景 7、8，并核对页面直连 RPC 端口、后端重启后页面显示服务端已重启。
 
 ## 证据
 
-- 批准依据：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P6 与 P11（2026-09-30 开发者同意生命周期部分按验证证据写入，风险门验证见 [G0 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g0/REPORT.md)）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 2 条；v2 的宿主与开发模式见 [NeuroBook v2：并排重建应用](../../proposals/neuro-book-v2-rebuild.md) 方案第 4 节（2026-10-03 `accepted`）与 [ADR 0023](../../adr/0023-v2-frontend-backend-stack.md)；内核 RPC 端口与项目子进程依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 2、6 节（2026-10-07 `accepted`）与开发者 2026-10-07 在 [t53 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t53-rpc-port-browser-connection/plan.md)、[t54 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md) 中的确认。
+- 批准依据：[可扩展应用平台设计](../../proposals/extensible-application-platform.md) P6 与 P11（2026-09-30 开发者同意生命周期部分按验证证据写入，风险门验证见 [G0 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g0/REPORT.md)）；[ADR 0022](../../adr/0022-extensible-platform-and-plugin-trust.md) 第 2 条；v2 的宿主与开发模式见 [NeuroBook v2：并排重建应用](../../proposals/neuro-book-v2-rebuild.md) 方案第 4 节（2026-10-03 `accepted`）与 [ADR 0023](../../adr/0023-v2-frontend-backend-stack.md)；内核 RPC 端口与项目子进程依据 [多实例运行时拓扑](../../proposals/multi-instance-runtime-topology.md) 第 2、6 节（2026-10-07 `accepted`）与开发者 2026-10-07 在 [t53 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t53-rpc-port-browser-connection/plan.md)、[t54 实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t54-project-child-process/plan.md) 中的确认；实例认领依据开发者 2026-10-27 在 [t15 第二期计划](../../../.agents/works/w00027-plugin-platform/tasks/t15-author-api-round2/plan-phase2.md)（D1）中的确认。
 - 实现入口：[`main.ts`](../../../packages/neuro-book/src/server/main.ts)、[`start.ts`](../../../packages/neuro-book/src/server/start.ts)、[`host.ts`](../../../packages/neuro-book/src/server/host.ts)、[`http 插件`](../../../packages/neuro-book/src/plugins/http/backend/plugin.ts)、开发模式 [`run.ts`](../../../packages/neuro-book/src/server/dev/run.ts) 与 [`supervisor.ts`](../../../packages/neuro-book/src/server/dev/supervisor.ts)
 - 合同测试：[`server.test.ts`](../../../packages/neuro-book/src/server/server.test.ts)、[`server-projects.test.ts`](../../../packages/neuro-book/src/server/server-projects.test.ts)、[`manager.test.ts`](../../../packages/neuro-book/src/server/projects/manager.test.ts)、[`config.test.ts`](../../../packages/neuro-book/src/server/config.test.ts)、[`admission.test.ts`](../../../packages/neuro-book/src/plugins/http/backend/admission.test.ts)、[`dispatch.test.ts`](../../../packages/neuro-book/src/plugins/http/backend/dispatch.test.ts)、[`static.test.ts`](../../../packages/neuro-book/src/plugins/http/backend/static.test.ts)、[`supervisor.test.ts`](../../../packages/neuro-book/src/server/dev/supervisor.test.ts)、[`run.test.ts`](../../../packages/neuro-book/src/server/dev/run.test.ts)
 - Smoke：[`smoke-server.ts`](../../../packages/neuro-book/scripts/smoke-server.ts)（`bun run smoke:server`）、[`dev.e2e.ts`](../../../packages/neuro-book/e2e/dev.e2e.ts)（`bun run test:e2e`）、[`projects.e2e.ts`](../../../packages/neuro-book/e2e/projects.e2e.ts)
