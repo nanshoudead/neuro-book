@@ -4,7 +4,7 @@
  */
 
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
-import {mkdir, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rename, stat, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {toolCall} from "@notnotype/nb-harness/testing";
@@ -13,7 +13,7 @@ import {openTestBook, type TestBook} from "../../testing/api";
 import {askScripted, toolResults} from "../../testing/qa";
 import {sampleDataset, smallDataset} from "../../testing/sample";
 import {QaRecords} from "../core/qa-records";
-import {changePosition} from "./engine";
+import {changePosition, POSITION_META_KEY, staleGraphOf} from "./engine";
 
 const COMMITTED = 20;
 const TOTAL = 25;
@@ -52,8 +52,9 @@ describe("book.info 的未抽取尾部", () => {
         const other = await openTestBook("qa-reach-other", await smallDataset(COMMITTED, "other"));
         try {
             expect((await other.ok("book.info", {})).unextracted).toEqual([]);
+            // 段数完全相同、正文不同（重抽同一部书后改了稿）：原文哈希对不上，同样没有尾部。
             await writeSource(other, list => {
-                list[3]!.paragraphs.pop();
+                list[3]!.sha256 = "0".repeat(64);
                 return list;
             });
             expect((await other.ok("book.info", {})).unextracted).toEqual([]);
@@ -62,6 +63,30 @@ describe("book.info 的未抽取尾部", () => {
             expect(await other.fail("book.info", {at: {chapter: 22}})).toBe("position_out_of_range");
         } finally {
             await other.close();
+        }
+    });
+});
+
+describe("抽取记录换文件后不读旧缓存", () => {
+    test("原子替换成另一份文件，即使修改时间和大小都相同，新打开的书读到的是新内容", async () => {
+        const mine = await openTestBook("qa-reach-cache", await smallDataset(COMMITTED, "cache"));
+        try {
+            await writeSource(mine);
+            const first = await mine.ok("book.info", {});
+            expect(first.unextracted).toHaveLength(TOTAL - COMMITTED);
+            const file = join(mine.api.library.ingestDir("fox"), "source.json");
+            const before = await stat(file);
+            // 换成只有 21 章的另一份文件（同样长度：补空白），再把修改时间改回去，模拟“同 mtime 同 size 的原子替换”。
+            const replacement = JSON.parse(await readFile(file, "utf8")) as {chapters: unknown[]};
+            replacement.chapters = replacement.chapters.slice(0, COMMITTED + 1);
+            let text = JSON.stringify(replacement);
+            text += " ".repeat(Math.max(0, before.size - Buffer.byteLength(text)));
+            await writeFile(`${file}.new`, text);
+            await rename(`${file}.new`, file);
+            await utimes(file, before.atime, before.mtime);
+            expect((await mine.ok("book.info", {})).unextracted).toHaveLength(1);
+        } finally {
+            await mine.close();
         }
     });
 });
@@ -111,6 +136,25 @@ describe("问答读尾部（输出 42）", () => {
         expect((stored.log as {jsonl: string}).jsonl).toContain("阅读位置从第 20 章改为第 24 章。你可以访问第 24 章及之前的内容了。图只抽到第 20 章，第 21 章之后只能用 read 读原文。");
         const next = await askScripted(book, [[read("r1", {chapter: 24, paragraph: 1}, {chapter: 24, paragraph: 1})], answer(["24.1"])], {continueFrom: id, question: "再问"});
         expect(next.outcome.result.status).toBe("answered");
+    });
+
+    test("尾部章之外：全书之后的章 chapter、para 仍报范围错误，不提示可以 read；尾部最后一章才给“只能用 read”", async () => {
+        const {model} = await askScripted(book, [[toolCall("c1", "chapter", {chapter: TOTAL + 1}), toolCall("c2", "para", {chapter: TOTAL, paragraph: 1})], answer(["22.1"])], {at: {chapter: 23}});
+        const [beyond, last] = toolResults(model, 1);
+        expect(beyond).toMatchObject({isError: true});
+        expect(beyond!.text).toContain("position_out_of_range");
+        expect(last).toMatchObject({isError: false});
+        expect(last!.text).toContain("只能用 read 读原文");
+    });
+
+    test("会话里最近一条位置提醒写的图进度与现在不同：给出前后两个数；相同或没写时没有", () => {
+        const meta = (graphThrough?: number) => ({kind: "meta", seq: 5, at: "2026-10-27T00:00:00.000Z", key: POSITION_META_KEY, value: {chapter: 24, paragraph: 3, from: {chapter: 20, paragraph: 1}, ...(graphThrough === undefined ? {} : {graphThrough})}}) as never;
+        expect(staleGraphOf([meta(20)], 24)).toEqual({was: 20, now: 24});
+        expect(staleGraphOf([meta(20)], 20)).toBeNull();
+        expect(staleGraphOf([meta()], 24)).toBeNull();
+        // 只看最近一条：较早的旧提醒不管。
+        expect(staleGraphOf([meta(20), meta(24)], 24)).toBeNull();
+        expect(staleGraphOf(null, 24)).toBeNull();
     });
 
     test("全读对话把尾部原文一起交给模型", async () => {

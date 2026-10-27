@@ -1,0 +1,23 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t32-record-tiers",
+    "artifactId": "review",
+    "answerId": "20261027T141249300Z-5f79e187",
+    "artifactVersion": 1,
+    "contentHash": "2a8653d4f7a87cee679cce6961afec9a518ae1854515cc3271545aadbc05a427",
+    "submittedAt": "2026-10-27T14:12:48.465Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "fold-style": "fold",
+        "fold-pages": "statements-entities",
+        "explain-ui": true
+    },
+    "comments": {
+        "explain-ui": "但是这个样式要调整优化一下"
+    },
+    "note": null
+}

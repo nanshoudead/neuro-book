@@ -1,0 +1,19 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t28-graph-tiering",
+    "artifactId": "report",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "report",
+    "title": "t28 记录分级：模型是怎么标的",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "8187e5543dc2fee02fb529e4ce07f23ca1fdb2148a679e55b11746c97defae8a",
+    "files": [
+        "index.html"
+    ],
+    "questions": [],
+    "publishedAt": "2026-10-27T12:36:30.626Z"
+}

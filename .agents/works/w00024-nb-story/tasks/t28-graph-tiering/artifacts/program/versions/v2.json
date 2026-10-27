@@ -1,0 +1,19 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t28-graph-tiering",
+    "artifactId": "program",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "report",
+    "title": "t28 程序算的等级（不用模型）",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "76b068b7b62c6e2255033b8cecf59f4a9bdd7d603b19f5739d2a07284599309f",
+    "files": [
+        "index.html"
+    ],
+    "questions": [],
+    "publishedAt": "2026-10-27T13:03:48.538Z"
+}

@@ -1,0 +1,47 @@
+交付报告：补齐工作台状态栏的存储原因码表（brief-b-haiku）
+
+工作区：/home/notnotype/CodeRepository/neuro-book/.worktree/exp-b-haiku（分支开在 770da03fe）
+
+一、改动文件（范围内，未 commit）
+1. packages/neuro-book/src/plugins/workbench/web/components/WorkbenchStatusBar.vue
+2. packages/neuro-book/src/plugins/workbench/web/components/WorkbenchStatusBar.dom.test.ts
+未改：WorkbenchStatusBar.md。组件的 props、emits 与 StatusBarProblem 都没变，数据合同不变，所以 .md 不用动。
+
+二、码的来源（读代码后的结论）
+- STORAGE_FAILURES（shared/storage.ts，14 个）：open、读取、保存、重试的失败码，经 shared/store/persisted.ts 的 failure 与 save.code 进入布局状态。
+- corrupt、unsupported-version：不是 STORAGE_FAILURES。它们是 RecordSnapshot 的 status（shared/storage.ts），plugins/workbench/web/state/layout-store.ts 第 106 行把它们报成 kind 为 unread 的问题。
+- provider-stopped：不是 STORAGE_FAILURES。它是订阅结束的原因，由 plugins/storage/backend/owner.ts 第 135 行调用 onEnd("provider-stopped") 产生，经 persisted.ts 的 #fail("ended", reason) 进入 failure，最后 unread。
+- change-threw：不是 STORAGE_FAILURES，漏掉的一个。persisted.ts 第 382、394 行在修改函数抛错时把 save.code 设为 change-threw，状态栏据此显示 unsaved。brief 没提到它，我按它的实际来源补上了。
+
+三、做了什么
+1. 码表类型：type ReasonCode = StorageFailure | "corrupt" | "unsupported-version" | "change-threw" | "provider-stopped"；REASONS 声明为 Readonly<Record<ReasonCode, LocalizedText>>。缺一个码，或多写一个不存在的码，都过不了类型检查。StorageFailure 从 nbook/shared/storage 以 type 导入。
+2. 新增 10 个 STORAGE_FAILURES 码的中英原因：invalid-value、too-large、protected、originals-full、definition-conflict、no-client、no-project、invalid-resource、denied、busy。另补 change-threw。原有 7 个文案保持原样（unavailable、conflict、unknown-outcome、io-error、corrupt、unsupported-version、provider-stopped）。文案按 Storage 规范 persistence.md“失败与恢复”表的含义、以及 explorer/web/feedback-text.ts 的既有写法（例如 busy 的“另一个…正在…，请稍后重试”）撰写。
+3. 兜底：不认识的码仍原样显示（保持现状）。查表改用 Object.hasOwn（isReasonCode 类型守卫），不再用 REASONS[code] === undefined。
+   原因：原来的写法会命中 Object.prototype 上的名字。实测 code 为 "constructor" 时，原来显示的是“布局未读取，正在用默认布局（undefined）”，这是个真实的 bug，已由新测试覆盖。
+4. 注释：REASONS 上方写了码的来源、类型穷举的理由，以及订阅结束原因是无类型字符串这一限制。
+
+四、测试（WorkbenchStatusBar.dom.test.ts）
+先加测试、跑一遍看失败，再改实现。基线结果：2 个新测试失败，原因正确（busy 显示为原码；constructor 显示为 undefined）。
+新增两个测试，原有三个测试未改动、未放宽：
+- “存储的新失败码有可读原因（中英各一条）；修改函数抛错也有原因”：zh-CN 下 unsaved + busy 显示“布局未保存：另一个进程正在写入，请稍后重试”；en-US 下 unread + no-project 显示“Layout not loaded; using the default (no project is available)”；zh-CN 下 unsaved + change-threw 显示“布局未保存：应用修改时出错”。覆盖的新增码：busy、no-project、change-threw（三个，超过 brief 要求的两个）。
+- “不认识的码原样显示，包括 Object 原型上的名字”：code 为 constructor，断言用户看到的文字是“布局未读取，正在用默认布局（constructor）”。兜底由它与原有的 weird-code 用例共同覆盖。
+断言都是用户能看到的文字（data-status-problem 的 text()），没有断言内部结构。
+
+五、断言判据
+- 新码的断言：看用户看到的完整句子，句子里的原因必须是中文或英文的说明，而不是原码。
+- 兜底的断言：原码完整出现在句子里。
+- 没有放宽任何已有断言，没有跳过测试，产品代码里没有测试分支。
+
+六、验证命令与结果
+1. cd packages/neuro-book && bun run test:vitest -- src/plugins/workbench/web/components/WorkbenchStatusBar
+   结果：修改前 2 失败 3 通过；修改后 5 通过 0 失败（Test Files 1 passed）。
+2. cd packages/neuro-book && bunx vue-tsc --noEmit -p tsconfig.web.json
+   结果：退出码 0，无输出（日志在 /tmp/haiku-exp/tsc-b.log，0 行）。
+3. git status 与 git diff --stat：只有上面两个文件，共 48 行新增、3 行删除。
+
+七、没把握、未验证的地方
+1. “缺一个码过不了类型检查”是由 Record 类型保证的，我没有做“删掉一条看 vue-tsc 报错”的实验。
+2. 订阅结束的原因在 Storage 接口里是 string（shared/storage.ts 的 onEnd: (reason: string) => void），表里只覆盖了能确认在这条路径上出现的 provider-stopped。以下原因在仓库里也会以 onEnd 结束订阅，但我没有确认它们会不会在状态栏出现，它们目前走兜底、原样显示：released（storage 门面 release，plugins/storage/shared/facade.ts 第 121 行）、target-gone、provider-error、project-gone、server-restarted（经 RPC 层与重订阅失败的结果码，nb-runtime/src/remote/*）。其中 project-gone 与 server-restarted 在窗口层是终态，会销毁宿主（web/host/window.ts 第 210 行），状态栏大概率不会显示，这点也是从代码推断，未在运行中验证。
+3. 文案是我依据规范与既有写法撰写的，没有请开发者逐条核对。尤其 protected（“记录受保护，不能直接覆盖”）、definition-conflict、no-client 三条的用语可能需要定稿。
+4. 未运行 lint 与 governance:check，未跑 e2e。brief 没要求。
+5. 上游的候选改法（不在本任务范围内，未做，需开发者决定）：把存储层的失败码与订阅结束原因在接口上做成联合类型（persisted.ts 的 SaveState.code、failure，以及 Storage 的 onEnd reason），而不是在状态栏这里列码表。这样码表就不用跟着上游猜，但要改 shared/store、storage 与 layout-store 等多个文件，影响面大，所以只作为候选提出。

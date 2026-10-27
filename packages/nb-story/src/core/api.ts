@@ -136,6 +136,11 @@ export function resolveEntity(view: BookView, text: string, grouping: Grouping =
     throw new StoryError("entity_ambiguous", `“${query}”对应 ${candidates.length} 个对象，请改用 id：${candidates.map(item => `${item.id}（${item.label}）`).join("、")}`, {candidates});
 }
 
+/** 这一代已提交的各章，按章号排好。 */
+function committedSources(index: BookIndex): SourceChapter[] {
+    return [...index.chapters.values()].sort((a, b) => a.chapter - b.chapter);
+}
+
 export function createStoryApi(options: {library?: Library | string} = {}): StoryApi {
     const library = options.library instanceof Library ? options.library : new Library(options.library);
 
@@ -157,7 +162,7 @@ export function createStoryApi(options: {library?: Library | string} = {}): Stor
     /** `book.info` 的未抽取尾部：查询函数只看图，尾部来自抽取记录，在这里补上。 */
     async function withTail(index: BookIndex, method: StoryMethod, result: unknown): Promise<unknown> {
         if (method !== "book.info") return result;
-        const tail = await unextractedTail(library, index.meta.id, index.meta.paragraphs);
+        const tail = await unextractedTail(library, index.meta.id, committedSources(index));
         const info = result as StoryResult<"book.info">;
         return {...info, unextracted: tail.map(chapter => chapter.paragraphs.length), toc: [...info.toc, ...tail.map(chapter => ({chapter: chapter.chapter, title: null}))]};
     }
@@ -242,7 +247,7 @@ export function createStoryApi(options: {library?: Library | string} = {}): Stor
                 id: index.meta.id,
                 generation: index.meta.generation,
                 meta: index.meta,
-                unextracted: () => unextractedTail(library, index.meta.id, index.meta.paragraphs),
+                unextracted: () => unextractedTail(library, index.meta.id, committedSources(index)),
                 call: (method, params) =>
                     checked(method, params, async input => {
                         if (!BOOK_HANDLERS[method]) throw new StoryError("invalid_params", `${method} 不是书级方法`);

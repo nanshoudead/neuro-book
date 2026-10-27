@@ -1,0 +1,141 @@
+# w00028 t03 实施计划第二轮审查（前端与共享包）
+
+审查对象：主工作区 `.agents/works/w00028-i18n/tasks/t03-shared-packages-migration/plan.md`（第二版，提交 896787494，另有 435e45b42 改 Work 分支名）。源码读 `.worktree/review-w00028-t03-r2`（下称 W），路径相对 `W/packages/neuro-book`，除非另写包名。
+本轮不重复已处理好的第一轮条目；下面先逐条核对第一轮前端 14 条的处理情况，再写新问题。
+
+## 第一轮前端 14 条的处理核对
+
+| 第一轮 | 处理情况 |
+|---|---|
+| 1 放宽校验不是“不改行为” | 已处理好（第 4 片写明改 Spec 输出 1、21 与测试名“改为接受”） |
+| 2 体量与纯 TS 函数没有端口 | 只处理一半：分出纯数据层、服务端不翻译 TextRef；纯 TS 函数怎么拿到端口、搜索怎么取 `variants` 仍没写，见下面第 1 条 |
+| 3 TextSchema 位置 | 已处理好 |
+| 4 语言来源 | 基本处理好（“边界”一节定了单一来源）；机制细节见第 7 条 |
+| 5 类型锁步 | 提前成第 2 片，但该片自己过不了 typecheck，见第 3 条 |
+| 6 无注入缺省 | 已处理好（注入键缺省值是 nb-ui 自带端口） |
+| 7 `.vue` 抽取与目标形态 | 已处理好（compiler-sfc、目标形态、对照表） |
+| 8 文字没变的核对、截图无基线 | 已处理好（对照表生成测试、前后各拍一组目视对照） |
+| 9 发布面 | 大体处理（交付片、nb-story 重建、JSON 导入已选）；剩两处缺口见第 6 条 |
+| 10 宿主登记共享包目录与 Spec 清单 | 未处理，见第 4 条 |
+| 11 六条拦截的测试 | 部分处理，缺 `escapeValue` 与最小实现对引擎的一致性测试，见第 5 条 |
+| 12 Haiku 判据 | 已处理好（实验已出，分派表已改） |
+| 13 字数口径与 Lab fixture | 未处理（第 7 片起的顺序与数字照旧、未说口径、Lab fixture 去留未定），并入第 8 条 |
+| 14 Spec 在 master 改 | 未处理，见第 9 条 |
+
+## 新发现
+
+### 1. 第 4 片没写消费方怎么接 `Text`：纯 TS 函数没有端口，搜索会静默把 `kind`、`key` 当别的语言文字
+- 严重程度：重要
+- 类别：切片依赖 / 每片能否通过 typecheck / 验证是否真能发现错误
+- 位置：plan.md 第 4 片（“浏览器渲染处显式取端口的 `t`”一句）与“边界”；`src/plugins/settings/web/settings-window.ts:409,434-450,461-466,614-635`；`src/plugins/workbench/web/commands/command-query.ts:134-173`；`src/plugins/workbench/web/components/WorkbenchCommandPalette.vue:97,106`；`src/ui/settings/setting-text.ts`；`src/plugins/commands/shared/menus.ts:218`
+- 现象：第 4 片把声明字段的类型从 `LocalizedText` 换成 `Text`（string、TextRef、LocaleMap 三态）。声明字段流进的消费方里，不少是没有组件上下文的纯 TS，签名是 `locale: DisplayLocale` 或 `options.locale: Ref`：`createSettingsWindow` 里对声明字段调 `localize(...)`/`textOf(...)` 有 11 处（上列行号）；`searchCommands(commands, query, recent, locale)` 对 `command.title` 调 `localize`，并用 `otherTexts(text, locale)` 取其它语言写法，实现是 `Object.entries(text)`（command-query.ts:173）；`menus.ts:218` 是 `localize(declaration.label ?? command.title, facts.locale)`。我按“实参是声明字段（title、description、category、label、tooltip 等）”粗 grep `localize(`/`textOf(`，非测试代码有 34 处、18 个文件，实际更多（经局部变量传入的没算进去）。计划第 3 片给了端口和 `variants`，第 4 片只说“显式取端口的 `t`”，没说这些纯 TS 函数的签名怎么改。
+- 为什么是问题：
+  - 类型层面：`localize(text: LocalizedText, …)` 收到 `Text` 就编译不过，第 4 片“typecheck 通过”必须把这 18 个以上的文件都改完，而计划没有列、没有判一种统一的接法（把 `TextPort` 作参数传入，还是传 `resolve(text)` 与 `variants(text)` 两个函数）。第一轮第 2 条要求的正是这一句，处理记录只回应了“分出纯数据层”。
+  - 运行层面更隐蔽：`otherTexts` 对 string 返回 `[]`，对 `TextRef` 对象则走 `Object.entries`，类型上完全合法，会把 `"text"`（kind）与键名当成“别的语言写法”参与命令面板匹配；`WorkbenchCommandPalette.vue:97` 对快速选择项的 `label`、`detail` 同样。第 4 片放宽后第三方立刻能写 TextRef，这条在测试里没有任何入口会红（第 4 片验收只写“全部内置插件装载、标题照常显示”，内置全是 LocaleMap）。
+- 如何核实：在 W 里把 `SettingsWindowOptions.locale` 的消费处看一遍（`rg "options.locale.value" src/plugins/settings/web/settings-window.ts` 得 11 行）；`rg "otherTexts" src` 看到只有 command-query 与命令面板两处调用，实现为 `Object.entries`。
+- 建议改法：第 4 片加一小节“文字解析的接法”：纯 TS 的工厂与查询函数把 `locale` 换成 `TextPort`（或 `{t, variants}` 两个函数），列出要改的文件（至少 settings-window、command-query、WorkbenchCommandPalette、ui/settings 下的 setting-text/SettingsRow/SettingsPageList/SettingsSaveBar、menus）；`otherTexts` 改为 `port.variants` 的包装；验收加两条：一个声明用纯字符串标题、一个用 `{kind:"text", ns, key}` 引用（用测试里临时登记的目录），命令面板与设置搜索都能按当前语言和其它语言命中，且不会出现 `kind`、`key` 被匹配上的结果。若文件太多，把第 4 片拆成“4a 类型与校验、4b 消费方接端口”，4a 不提交成独立可用的片（类型换了消费方必红）。
+
+### 2. 第 4 片换 schema 时，两条跨位置出口没有转换规则：远程命令列表的 `title`，以及服务端也求值的公开状态 `reason`
+- 严重程度：重要
+- 类别：原子性 / 每片能否通过 typecheck
+- 位置：plan.md 第 4 片“不含 `RemoteCommandSchema.title` … 本片对远程出口仍只送 `LocaleMap`”；`src/plugins/commands/shared/plugin.ts:123-135`（`title: command.title`）、`:66`（`localize(declaration.reason, locale())`）；`src/plugins/commands/shared/contracts.ts:145`；`src/plugins/state/shared/plugin.ts:46`、`src/plugins/state/shared/contracts.ts:21`；`packages/nb-runtime/src/remote/node.ts:857-862`
+- 现象：
+  - 命令的 `CommandDeclaration.title` 在第 4 片改为 `Text`，而 `RemoteCommandSchema.title` 保持 `LocalizedTextSchema`。`remoteCommands()` 直接写 `title: command.title`，类型是 `Text` 赋给“两个必填键的对象”，编译不过。计划只说“远程出口仍只送 LocaleMap”，没说一个 string 或 TextRef 标题怎么变成 LocaleMap：TextRef 要靠目录翻译，而 `TextPort.t` 只出当前语言一份；服务端不翻译。
+  - 运行层面：浏览器是提供方，nb-runtime 在提供方侧按输出 schema 校验，不合格整个调用判 `provider-error`（node.ts:857-862）。第 4 片之后第三方一个字符串标题的命令就会让 `list` 对所有命令都失败，到第 6 片升版本才恢复。
+  - 公开状态 `reason`：`state/shared/contracts.ts:21` 的 `reason?: LocalizedText` 在第 4 片换成 `Text` 后，`commands/shared/plugin.ts:66` 的 `localize(declaration.reason, locale())` 编译不过。这个文件在服务端与浏览器都激活（`commandsEntry(location)`），属于“边界”一节说的“服务端也加载的模块只依赖纯数据层”，而 TextRef 在服务端没有目录可翻。`menus.ts:218` 在 `shared/` 里，同类。
+- 为什么是问题：计划的“边界”一节说服务端路径继续只产出 LocaleMap 或字符串，但没说这些路径的**输入**一旦是 TextRef 怎么办。照字面实现，实现者要么给服务端路径写“TextRef 取键名”的临时分支，要么在第 4 片里悄悄把 reason、title 排除出去，后者才是对的但计划里没有。
+- 如何核实：看 `remoteCommands()` 的 `list`（plugin.ts:123-135）与 `RemoteCommandSchema`；`rg "reason" src/plugins/state/shared` 确认 reason 是 `LocalizedTextSchema`。
+- 建议改法：把“命令声明的 `title`、公开状态的 `reason`”这两个 schema 的放宽放进第 6 片，与远程 `list` 升版本 2 一起原子提交；第 4 片对这两处保留 `LocalizedTextSchema`，其余 7 处照换。或者在第 4 片写明 TextRef 在服务端求值路径上的结果（例如服务端求值只接受 LocaleMap 与 string，TextRef 登记时拒绝并给诊断），并加一条测试。
+
+### 3. 第 2 片自己过不了 typecheck：`DisplayLocale` 来自 `keyof LocalizedText`，`text[locale]` 在 `locale: string` 时报错，计划没写这两个函数改成什么
+- 严重程度：建议（修法机械，但“每片可提交”不成立）
+- 类别：每片能否通过 typecheck
+- 位置：plan.md 第 2 片；`src/shared/localized-text.ts:16,24-30`；`packages/nb-agent-ui/src/messages.ts:429-433`（`textOf` 里 `text[locale]`，`LocalizedText` 是两个固定键，types.ts:17）；`packages/nb-markdown/src/locale.ts`（`MarkdownText` 是 `Record<MarkdownLocale, string>`，换成 string 后是索引签名，能编译）
+- 现象：第 2 片把 `DisplayLocale`、`MarkdownLocale`、`PromptLocale` 改成 `string`。`localize(text: LocalizedText, locale)` 与 `textOf` 里的 `text[locale]` 是对 `{ "zh-CN": string; "en-US": string }` 用 `string` 取下标，`strict` 下 TS7053；nb-agent-ui 的 `textOf` 同样（messages.ts:432）。`DisplayLocale` 本身的定义是 `keyof LocalizedText`（localized-text.ts:16），也得重写。我未能跑 tsc（W 没有 node_modules，按规定不装依赖），上面是读源码的静态判断。
+- 为什么是问题：计划第 2 片的内容只有类型改名、常量、schema 枚举与测试，没提这些函数；实现者会自行选择，最顺手的是改用第 1 片的 `resolveLocaleMap`，那会把“取不到当前语言就回退 en-US”的新行为带进一个说“不改行为”的片。
+- 如何核实：读上面三个文件的行号；有依赖的环境里把 `DisplayLocale` 改成 `string` 跑 `bun run --cwd packages/neuro-book typecheck`。
+- 建议改法：第 2 片写明 `localize`、`textOf`、nb-agent-ui 的 `textOf` 的新实现（建议先只改类型：入参 `Readonly<Record<string,string>>`，取不到时的行为单列一条测试），`DisplayLocale` 改为 `type DisplayLocale = string`。另外“假设第三种语言”的组合用例在 `locale` 设置是模块级常量时没法造：计划应写明用一个按语言集合生成设置定义的工厂（`HOST_LOCALES` 为默认实参），测试传入三种语言；不要靠 mock 模块。
+
+### 4. 宿主登记共享包目录的步骤和相应 Spec 仍然没有任何一片负责（第一轮第 10 条未处理）
+- 严重程度：重要
+- 类别：遗漏的步骤 / Spec 清单
+- 位置：plan.md 第 3 片、“共享包几片”；提案“宿主引擎”末句“共享包的默认目录由宿主在引导时一并登记进引擎”；`docs/specs/ui/agent-conversation-view.md:71-72,387`、`docs/specs/ui/markdown-display.md:37`、`docs/specs/ui/prompt-editor.md:68`、`docs/specs/README.md` 注册表、`docs/standards/code/components.md` 能力标签一节
+- 现象：第 3 片只登记宿主自己的静态文字；“共享包几片”各写“自带目录”，没有一条写“宿主 import 各包的目录并登记”。处理记录末尾说“前端的其余建议……在对应切片实施时逐条对照报告”，但这一条不是建议，是依赖：app 里已经在用 nb-ui、nb-markdown、nb-form 的组件（nb-agent-ui 暂无 app 内消费方，`rg ViewText packages/neuro-book/src` 无命中）。
+- 为什么是问题：
+  - nb-ui 的 21 个文件改读端口后，宿主注入的端口里没有 `nb-ui` 命名空间，`t({ns:"nb-ui", key})` 在测试环境直接抛错（计划自己定的“缺键抛错”），生产里落到键名。包内测试用 nb-ui 自带的最小实现与目录，**测不到这个缺口**，只有宿主级用例才会红，而计划没有宿主级用例。
+  - 每个包还需要对外导出目录的子路径（包装 JSON 的 `.ts` 模块）才能被宿主导入，`exports` 与 `files` 都要改，计划没列。
+  - Spec 的失真：agent-conversation-view.md 写 `locale: "zh-CN" | "en-US"`、“包内的中英两份”，markdown-display.md 写 `DisplayLocale`，prompt-editor.md 同；新建的 `ui/i18n.md` 要进 Spec 注册表；组件 `.md` 声明 `state:inject` 会让约 20 个叶子组件“计入耦合度：是”，`components.md` 要求为偏离推荐配方写一段理由。这些在计划的 Spec 清单里都没有。
+- 如何核实：`rg -n "ns:|namespace" plan.md` 找不到“登记共享包目录”；`rg -n "locale" docs/specs/ui/agent-conversation-view.md docs/specs/ui/markdown-display.md docs/specs/ui/prompt-editor.md` 看到上述句子。
+- 建议改法：给“共享包几片”的每一片加固定的三项：包导出目录子路径、宿主在 `web/host/i18n.ts` 登记（放在第 3 片的“共享包登记表”里，每片往里加一行）、一个宿主级用例（宿主引擎下该包组件随语言切换，且没有缺键诊断）；Spec 清单补上述三份与注册表；`state:inject` 的理由写成一段统一文字，说明“有缺省回退，不影响独立验证”。
+
+### 5. 第 3 片的测试清单仍缺 `escapeValue` 与“最小实现对引擎”的一致性测试（第一轮第 11 条部分处理）
+- 严重程度：建议
+- 类别：验证
+- 位置：plan.md 第 3 片“测试”行；提案“宿主引擎”六条拦截与“共享包”中“16 个用例与 i18next 输出一致”
+- 现象：新清单有：非中文源语言回退、缺参数抛错、数量参数非有限数、501 字参数、键里的冒号与 nesting 被拒、注销再登记、不重新挂载。缺：路径 `a/b` 经 `escapeValue:false` 不变成 `a&#x2F;b`（提案第一条拦截）；nb-ui 最小实现与宿主引擎对同一批输入输出一致的用例（提案称两者是“不分叉”的唯一保证）。后者没有任何一片负责，而它必须在同一个测试里同时 import 两者，只有应用包（依赖 nb-ui 与 i18next）能写。
+- 为什么是问题：两个实现靠一份只在原型阶段手工跑过的 16 用例保持一致，以后改任一边都没有红灯；共享包在没有宿主时用最小实现显示，宿主里用引擎显示，出现分叉用户看到的是同一个包在两处显示不同的文字。
+- 如何核实：对读提案“宿主引擎”“共享包”两节与第 3 片清单。
+- 建议改法：第 3 片清单加两项，一致性测试放在应用包（`web/host/i18n.test.ts`），用例集合从 t02 原型的 16 用例整理，并随第 1 片最小实现的用例共用同一份数据文件。
+
+### 6. 共享包交付的两处缺口：JSON 包装模块不减少消费者要求，交付验收没有消费者类型检查；nb-agent-ui 三个独立根的无注入验收没写
+- 严重程度：建议
+- 类别：兼容 / 验证（第一轮第 9 条的剩余部分）
+- 位置：plan.md“技术选型”末行、“共享包几片”nb-agent-ui 一行、交付片“验收”；`packages/nb-ui/package.json`（`files` 含 `src`，`exports` 全是 `.ts`）
+- 现象：
+  - 共享包发布的是 `.ts` 源码（nb-ui 的 `exports` 指向 `./src/*.ts`）。计划选的做法是“目录写成 JSON，另有一个 `.ts` 模块包一层 `import … with {type:"json"}`”。包装模块自己仍在 import JSON，消费者的 TypeScript 编译这份源码时照样要 `resolveJsonModule`（以及 TS 5.3 以上才支持的 import attributes），包装并不减少要求，只是给目录一个统一出口。README 写明要求是对的，但提案原话“或者把目录包成 `.ts` 模块再导出”指的是把数据写成 `.ts` 对象字面量；计划“否决”了那条（翻译平台读不了），所以实际只剩 README 一条路，计划里的“包一层”的好处没说清。
+  - 交付片的验收有 SDK 的“仓库外类型检查”，没有共享包的：用不开 `resolveJsonModule` 与开了两种 tsconfig 的最小消费工程各装一次 tarball 跑类型检查，才能证明 README 的说法属实、报错就是 TS2732。
+  - nb-agent-ui 有三个可独立挂载的根（`AgentConversationView`、`AgentSessionList`、`AgentModelCatalog`，nb-story 都单独用）。计划只写“`locale` 属性只在没有注入时起作用”，没写三个根各自在无注入时提供端口；nb-story 查看器靠它保持单语中文。
+- 为什么是问题：已发布包的消费者是这个 Task 里唯一不能回退的部分。
+- 如何核实：`jq .exports packages/nb-ui/package.json`；`rg "AgentSessionList|AgentModelCatalog" packages/nb-story/src --files-with-matches`。
+- 建议改法：交付片验收加“消费工程类型检查（开/不开 `resolveJsonModule`，各用 bundler 与 node16）”；nb-agent-ui 一行加“三个根在无注入时各自可挂载且显示中文”的组件测试；技术选型一行把“包一层”的目的写清（统一出口，不是降低要求）。
+
+### 7. 第 3 片的语言来源机制只写了结果，没写谁调用、何时同步；六处“各自派生 locale”是保留还是改，没有说
+- 严重程度：建议
+- 类别：遗漏的假设
+- 位置：plan.md“边界”第三条、第 3 片；`src/plugins/{commands/shared,editor/web,explorer/web,plugins/web,projects/web,workbench/web,settings/web}/plugin.ts`（各自 `computed(() => displayLocale(settings))`，共 7 处，`rg "displayLocale\(" src` 可数）
+- 现象：“过渡期还在往下传 `locale` 属性的地方，由宿主从同一个来源传，不另读设置”这句有两种读法：保留各插件现有的 `computed(() => displayLocale(settings))`（它们本来就读同一份设置快照），或者把这 7 处改成读端口的 `locale`。计划没有选，第 3 片的代码清单也没列这 7 个文件。另外引擎的 `changeLanguage` 由谁在什么时机调用（设置插件的浏览器入口激活时？窗口根里的 `watch`？）以及刷新时机（`flush: "sync"` 还是默认）没写。
+- 为什么是问题：若引擎靠默认 `flush: "pre"` 的 watch 同步，切换语言的那一拍里，读 `locale` 属性的组件已经换成新语言，用 `t()` 的组件还停在旧语言，同一屏中英混杂一拍，可能让 dom 测试出偶发红；若实现者选“改这 7 处”，第 3 片的范围就比计划写的大。
+- 如何核实：看这 7 处与 `src/web/host/window.ts`（宿主已引用 workbench 合同，所以宿主层引设置服务键不违反分层）。
+- 建议改法：写明保留现有 7 处不动，端口的 `locale` 由窗口根在设置服务就绪时用同步 watch 驱动；第 3 片的“切换语言不重新挂载”用例加一条：切换后同一个 tick 内，读 `locale` 属性与读 `t()` 的两个组件显示同一种语言。
+
+### 8. 第 7 片起与后几节的相对顺序、数字口径没有写；`src/ui` 在第 4 片已被迫要改，却排在最后
+- 严重程度：建议
+- 类别：切片依赖（第一轮第 13 条未处理）
+- 位置：plan.md“第 7 片起”“共享包几片”“SDK 与通知”“交付片”；`src/ui/settings/*`
+- 现象：
+  - “共享包几片”“SDK 与通知”“交付片”没有编号，也没说与“第 7 片起”谁先谁后。几个确定的先后约束：要最后做的是去掉 `localize`、`formatText`、各包的 `say`/`formatText` 副本与 `locale` 属性传递；`workbench/notifications.md` 的 `Text` 化依赖 SDK 的绑定命名空间的 `text()`（计划已把它放在 SDK 节内，这点没问题）。
+  - `src/ui/settings/*`（SettingsRow、setting-text 等）被设置插件使用，第 4 片按上面第 1 条就得改，计划却把 `src/ui` 排在逐插件迁移之后。
+  - 插件清单里的数字（workbench 约 200、projects 190 等）与我第一轮按“非测试、含 `"en-US"` 的行”的统计不同（projects 191、workbench 156、explorer 150、editor 124、settings 96、lab 77、plugins 73），计划没有说口径；Lab 的 77 行多是 fixture 文案是否迁移也没定。
+- 为什么是问题：数字用于估时和分派；顺序约束不写，Haiku 或 Sonnet 子代理按插件片各自推进时，可能提前删掉仍被别的插件使用的旧函数。
+- 如何核实：`rg "\"en-US\"" -c`（非测试）按插件目录汇总。
+- 建议改法：把后几节编号并写依赖（“共享包”可与逐插件迁移并行，旧函数的删除与 SDK 去 `localize` 放在最后一片，明写）；`src/ui/settings` 并入第 4 片的消费方清单；数字改成“非测试、按行”的口径，Lab fixture 文案默认保留内联，只迁 Lab 外壳自己的界面文字。
+
+### 9. “每片先改 Spec 再改代码、单独提交”仍可被读成 Spec 也在 Work 分支里提交（第一轮第 14 条未处理）
+- 严重程度：建议
+- 类别：流程
+- 位置：plan.md“工作方式”段；`AGENTS.md`“文档真相源”（Spec、提案与 Task 记录在主工作区 master 更新）；`docs/standards/repository-workflow.md:26`（Work 与 Task 记录只放主工作区；Spec 的规则在 AGENTS.md）
+- 现象：计划写“代码在 Work 分支 `feat/w00028-t03-catalogs` 的 worktree 里改；每片先改 Spec 再改代码、自跑验证、单独提交”。第二版只改了分支名，没有说 Spec 在哪个工作区提交。计划涉及 20 多份 Spec，且 `workbench/commands.md`、`settings/configuration.md` 开发者可能同时在 master 上改。
+- 为什么是问题：Spec 随分支合入时与 master 冲突；而 Spec 先于代码又是 `writing-specs` 的顺序，分支上先提交 Spec 违反 master 规则。
+- 如何核实：读 AGENTS.md 对应段。
+- 建议改法：写明“每片开始时在主工作区 master 路径限定提交该片的 Spec，代码在 worktree 分支提交；晋升与证据标签也在 master”。
+
+## 未发现问题的方面
+- 第 1 片的纯数据层与端口分层：`./text`（纯 TS）与 `./text-port`（Vue）的拆分、注入键缺省值为 nb-ui 自带端口，解决了第一轮第 3、6 条；`nb-ui` 的 `exports` 是平铺的 `.ts` 映射，加两个子路径不需要别的改动。
+- 第 5 片的六组验收场景覆盖了第一轮后端提出的安装与引导缺口；引导响应的注释写明“读取方容忍多出来的字段，只有破坏性变更才升协议版本”，加目录索引字段不需要升 `BROWSER_PROTOCOL_VERSION`，计划没写但不影响。
+- 第 5 片把 `nbook.plugins/registry` 升到 5：当前确为版本 4（`src/plugins/plugins/shared/contracts.ts:23`），数字对得上。
+- 第 6 片把远程 `list` 升版本 2 并与全部调用方、往返用例同片：调用方只有 `src/server/testing/test-plugins.ts` 一处，原子性成立（成立的前提见第 2 条）。
+- nb-agent-ui 的 `ViewText` 改 `TextRef` 对 nb-story 的编译没有影响：nb-story 只给 `phrase` 返回字符串（`src/web/qa/tools.ts:63-90`），没有使用 `{key, params}` 形态。
+- Haiku 分派：实验结论与分派表一致，判据已在证据里。
+- 技术选型（i18next、自写点号路径类型、compiler-sfc 加 TS API 的抽取脚本）没有发现要质疑的。
+
+## 数量
+- 阻断 0；重要 3（第 1、2、4 条）；建议 6（第 3、5、6、7、8、9 条）。
+
+## 对计划能否开工的判断
+第 1 片可以直接开工；第 2 片补上 `localize`/`textOf` 的改法、第 4 片补上消费方接端口的方案并把命令 `title` 与公开状态 `reason` 挪到第 6 片后再开工，第 3 片开工前把“共享包登记表”加进去即可。
+
+有效发现编号：1, 2, 3, 4, 5, 6, 7, 8, 9
+
+补正（第 1 条）：`settings-window.ts` 里 `options.locale.value` 共出现的行数以 `grep -c` 为准，正文写的“11 处”是只数了前面一段；结论不变（该工厂用 `locale` 参数而不是端口，改 `Text` 后全部要改）。
+（实数：12 行。）
+有效发现编号：1, 2, 3, 4, 5, 6, 7, 8, 9

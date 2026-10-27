@@ -3,6 +3,7 @@
  * 不认识的值回到缺省（偏好可能是旧版本写的，或被手改过）。
  */
 
+import {partsStrength, edgeParts, hasParts, type EdgeFacts} from "../graph/edge-parts";
 import type {GraphLayout} from "../graph/layout";
 import {readJsonPref, writeJsonPref} from "./prefs";
 
@@ -50,19 +51,23 @@ export function writeRelationsView(view: RelationsView): void {
 export const STRONG_PER_NODE = 3;
 
 /**
- * 只留最强的线：一条线只要是它某一端的点最强的 `STRONG_PER_NODE` 条之一就留下，所以没有点会因此变成孤点，
- * 又把弱的连线去掉，图上的线少了、乱线少了。强度是这条线的说法数、同场次数与双方知情条数之和；同样强的按原来的顺序取。
+ * 只留最强的线：先按当前连线层与同场门槛决定每条线画出哪些联系（`edgeParts`，画布用的同一条规则），没有可画联系的线不参与；
+ * 再在画出来的线里，一条线只要是它某一端的点最强的 `STRONG_PER_NODE` 条之一就留，所以没有点因此变成孤点。强度是画出来的
+ * 联系的条数之和；同样强的按原来的顺序取。身份线（“其实是同一人”）单独画、不参与排名，原样保留。
  */
-export function strongestEdges<T extends {a: string; b: string; statements: number; together: number; ab: number; ba: number}>(edges: readonly T[]): T[] {
-    const strength = (edge: T) => edge.statements + edge.together + edge.ab + edge.ba;
+export function strongestEdges<T extends EdgeFacts & {a: string; b: string}>(edges: readonly T[], options: {layers: readonly string[]; minCo: number; knowsAllowed: boolean}): T[] {
+    const parts = edges.map(edge => (edge.identity === null ? edgeParts(edge, options.layers, options.minCo, options.knowsAllowed) : null));
+    const strength = (index: number) => partsStrength(edges[index]!, parts[index]!);
     const byNode = new Map<string, number[]>();
     edges.forEach((edge, index) => {
+        const part = parts[index];
+        if (part === null || !hasParts(part)) return;
         for (const node of [edge.a, edge.b]) byNode.set(node, [...(byNode.get(node) ?? []), index]);
     });
     const keep = new Set<number>();
     for (const indexes of byNode.values()) {
-        const ranked = [...indexes].sort((x, y) => strength(edges[y]!) - strength(edges[x]!) || x - y);
+        const ranked = [...indexes].sort((x, y) => strength(y) - strength(x) || x - y);
         for (const index of ranked.slice(0, STRONG_PER_NODE)) keep.add(index);
     }
-    return edges.filter((_, index) => keep.has(index));
+    return edges.filter((edge, index) => edge.identity !== null || keep.has(index));
 }

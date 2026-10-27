@@ -1,0 +1,151 @@
+# w00028 t03 实施计划后端审查
+
+审查对象：主工作区 `.agents/works/w00028-i18n/tasks/t03-shared-packages-migration/plan.md`；范围为第 2 片的服务端边界、第 4、5 片、SDK 收尾片及切片顺序与依赖。源码路径均相对于 `/home/notnotype/CodeRepository/neuro-book/.worktree/review-w00028-t03/`；Work、Task 与 ADR 路径相对于主工作区 `/home/notnotype/CodeRepository/neuro-book/`。已接受提案的决定不重新讨论。
+
+### 1. 第 3 片先改远程输出 schema，第 5 片才升版本，破坏按片提交的兼容边界
+
+- **严重程度**：重要；**类别**：接口与合同 / 切片依赖。
+- **位置**：主工作区 `plan.md:35–38,46–49`（完整路径见报告开头）；源码 `packages/neuro-book/src/plugins/commands/shared/contracts.ts:142–175`。
+- **现象**：第 3 片要求把 `commands/shared/contracts.ts` 中的 `LocalizedTextSchema` 全换成 `TextSchema`，其中不只有声明的 `title/category`，还有远程 `list` 输出 `RemoteCommandSchema.title`（第 145 行）。合同却要等第 5 片才从版本 1 升为版本 2。第 3 片“换 schema、不改行为、测试不改”的描述隐去了公开输出集合的扩大。
+- **为什么是问题**：同一合同版本在两片之间代表两份不同的输出 schema。内核只比较整数版本，不比较 schema 内容；旧调用方仍会通过版本核对，却收不下字符串或 `TextRef` 形式的标题。即便内置迁移要到第 6 片才开始，新 schema 已允许第三方提交新形态；“这一片我们暂时不产生”不能作为公开合同的兼容保证。现有远程测试也没有断言 `title`，仅检查 id、可用性与原因，能在这个窗口里继续通过。
+- **如何核实**：静态对读上述源码、`packages/nb-runtime/src/remote/node.ts:805–808,857–862`（精确版本核对、提供方按自己的输出 schema 校验）、`docs/specs/runtime/plugin-channel.md:55`（合同版本精确匹配），以及 `packages/neuro-book/src/plugins/commands/shared/remote.test.ts:130–146`。没有把未来实现当作已发生的运行缺陷。
+- **建议改法**：把 `RemoteCommandSchema.title`、合同版本 2、全部调用方和远程往返用例放在同一个原子切片；第 3 片若只做内部声明替换，明确排除远程输出并保证这一片不能向版本 1 的远程出口送出新形态。新增真实远程往返场景，验证带命名空间的 `TextRef` 完整到达服务端；另验证版本 1 调用版本 2 得到 `version-changed`。
+
+### 2. 把共用 `localize` 改为调浏览器端口，却没有安排服务端消费者的过渡路径
+
+- **严重程度**：重要；**类别**：不变量 / 切片依赖。
+- **位置**：主工作区 `plan.md:26,31–38,48–49,53`；源码 `packages/neuro-book/src/plugins/commands/shared/plugin.ts:39–67,147–169`。
+- **现象**：第 2 片只建立浏览器 `createInstance` 与 Vue 注入，第 3 片就把 `shared/localized-text.ts` 的函数改为调端口，并要求不改行为、现有测试不改。但同一份 `commandsPlugin` 同时在服务端与浏览器激活，`publicStateKeys` 在求 `when` 时调用 `localize`；设置合同中的 `switchSetting` 也调用它，而且这些 shared 模块经 SDK 的服务端入口公开。计划没有服务端端口、参数传入位置，也没有把这些调用留到 w00031 的失败投影后再切换。
+- **为什么是问题**：纯 TS 运行路径不能拿 Vue inject，第 2 片的三个浏览器根注入对服务端没有作用；`localize(text, locale)` 现有签名也没有端口参数。到第 5/6 片，公开状态的 `reason` 可以变成目录引用，旧的二语言映射取值又不能解析引用。让后端加载浏览器引擎或从共享文件引用 `web/host/i18n.ts` 会违反现有包边界；改为服务端翻译则撞上 ADR 0034“不由服务端产生界面文字”的已定方向。这里缺的是迁移时序和旧合同保留边界，不是再决定选哪种 i18n 方案。
+- **如何核实**：静态追踪 `commands/shared/plugin.ts:41,66,160,178`、`settings/shared/contracts.ts:18,151–177`、`shared/localized-text.ts:24–35`、`src/sdk/index.ts:41–43`、`src/backend/plugin-host-modules.ts:10–20`；`docs/standards/code/contracts.md:5` 禁止 shared 依赖宿主实现；主工作区 `docs/adr/0034-language-policy.md:42–48` 把失败结果的投影改造交给 w00031 t03。现有 `commands/shared/plugin.test.ts:83–108` 包含两个运行位置，后端并非未用到的假设路径。
+- **建议改法**：在计划中明确纯数据 schema/引用构造与 Vue 端口的边界；先完成浏览器渲染调用方的显式端口传入。对仍返回字符串原因的服务端命令路径，明确在本片保留现有 `LocaleMap` 解析与 formatter，直到与 w00031 的结构化失败合同一起原子切换，且不要提前迁成后端无法解析的 `TextRef`。若选择把该消费路径提前改为结构化结果，就把相关合同版本、调用方与 Spec 一起纳入该片。验收分别运行服务端和浏览器的真实命令登记/可用性路径，不以浏览器注入测试代替。
+
+### 3. 约定键只安排在“登记时”补，漏了加载期校验与 6 个 SDK 贡献助手
+
+- **严重程度**：重要；**类别**：正确性 / 文件与依赖遗漏。
+- **位置**：主工作区 `plan.md:48–49,53,68`；源码 `packages/neuro-book/src/shared/settings.ts:168–194`、`src/sdk/command-helpers.ts:44–59`、`src/sdk/settings-helpers.ts:31–47,58–70`、`src/sdk/workbench-helpers.ts:45–54,87–99`、`src/sdk/settings-browser-helpers.ts:28–45`。
+- **现象**：第 5 片只写“登记时推导约定键”，SDK 留到内置迁移之后的收尾，且收尾只列删除 `localize/formatText`、增加 `text()`。但 `defineSetting` 在模块加载时先组装声明并强制校验 title，早于任何宿主登记；SDK 的 command、section、setting、view、statusItem、settingsPage 共 6 个助手都要求显式 title，并经过 `localizedText` 改写。只改登记接收者不能让省略字段的声明到达它。
+- **为什么是问题**：按约定省略 title 的设置在导入模块时就抛错；SDK 助手的公开类型也不允许省略。到第 6 片按约定迁移设置声明会被加载期校验挡住，后面才改 SDK 又要回头处理类型和归一化。仅装载现有双语齐全的全部内置插件测不到这个问题。这里还需要区分作者输入（字段可省略）与登记后读取的声明（字段已补齐）；直接把所有字段设为 optional 会把 undefined 传到现有消费者。
+- **如何核实**：运行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/w00028-review/t03-plan/lab/probe-backend.ts`。调用现有公开 `defineSetting` 省略 title 得到 `TypeError: 配置项 acme.sample/locale 的 title 必须是中英两份文本`；省略命令助手 title 得到 `title === undefined`，按 `CommandDeclarationSchema` 校验为 false。该探针定位的是现行入口前置校验，未伪装为迁移后的测试结果；助手的必填类型由上述 4 个助手文件静态核实。
+- **建议改法**：把 `defineSetting/defineSettings` 的输入模型、加载期检查、贡献点校验、6 个 SDK 助手及 `localizedText` 的删除/替换一起提前到第 5 片；定义只有哪个边界负责补键和命名空间，避免 helper 与登记器各猜一次。验收至少通过真实运行实例验证“省略 title 的命令 + 设置”能从内置代码、SDK 助手和手写清单进入消费表，并核对得到所属插件的引用；缺对应目录键时应由声明目录检查报告，而不是加载期抛“缺双语”。
+
+### 4. 第 5 片漏了 `ui/workbench-shell.md`，只换声明 schema 覆盖不到条目运行期的 `Text`
+
+- **严重程度**：重要；**类别**：接口与合同 / Spec 与文件遗漏。
+- **位置**：主工作区 `plan.md:37,48–49,68–69`；源码 `packages/neuro-book/src/plugins/workbench/web/contracts.ts:36–44`、`web/items/registry.ts:101–112`；`docs/specs/ui/workbench-shell.md:177–195,215–216`。
+- **现象**：第 3 片列出 `workbench/shared/items.ts` 与 `home.ts`，第 5 片却没有它们所属的 `ui/workbench-shell.md`。该 Spec 定义状态栏、标题栏、活动栏底部条目与无项目首页。更关键的是，状态栏/标题栏的运行期实现仍为 `text(): string`、`tooltip?(): string`，注册表直接把结果当最终字符串交给渲染；它们不经过任何一处 `LocalizedTextSchema`，计划列出的 schema 替换、约定键和 SDK 导出改名都不会自然改到这里。
+- **为什么是问题**：已接受提案第 3 节明确要求跨插件的状态栏条目传 `Text`，由接收方渲染时翻译。若照文件清单完成，各插件仍必须提前翻译条目或无法通过类型检查，未来第三方交 `TextRef` 又会被当字符串传下去；声明的 title 已能翻译不能证明运行期 text/tooltip 做对了。计划总判据只核对提案的 Spec 列表，而提案列表本身没有列这份实际拥有合同的 Spec，因此总判据也抓不到遗漏。
+- **如何核实**：静态对读 `ItemImplementation` 的两个字符串返回值、`ItemRegistry.#render` 第 112 行，以及 SDK `workbench-helpers.ts:64–67,87–110` 原样接收 `ItemImplementation`；对照主工作区提案 `docs/proposals/i18n-message-catalogs.md:107`。未运行尚未存在的 `TextRef` 渲染实现。
+- **建议改法**：第 5 片增加 `ui/workbench-shell.md` 中输出 33、36、40 的文字合同与约定键，明确状态栏、标题栏运行期 text/tooltip 改为 `Text`；同步改公开类型、消费注册表、SDK 的实现类型与实际条目提供者。用一个经真实贡献服务交出的条目返回固定 `TextRef`，保持条目实现不变并切换语言，核对接收方文字更新；不能只测声明标题或已翻译的字符串。
+
+### 5. 第 4 片只列“坏目录仍登记”的验收，没有验收安装拒绝、预览与复制后的事务边界
+
+- **严重程度**：重要；**类别**：测试 / 失败与恢复。
+- **位置**：主工作区 `plan.md:42–44,73–79`；源码 `packages/neuro-book/src/plugin-platform/backend/inventory.ts:162–208,225–240`。
+- **现象**：第 4 片包含 SDK 目录校验、安装器 `catalog-invalid` 和 registry 版本 5，但唯一明确的坏目录判据是“插件照常登记、文字回退、插件页显示问题”。它没有区分构建/安装之前的坏目录（必须拒绝）与成功安装后损坏/HTTP 取不到（必须允许功能登记）。也没有给 `inspect`、复制后 staging 校验和失败不留下文件/登记的验证入口。
+- **为什么是问题**：这两种失败的期望正好相反。现有 `inspect` 只调用 `prepare`，而 `install` 在其后才计算 `files` 范围、复制到 staging 并核对入口文件。只在源目录校验 JSON 会放过 `files` 排除了 locales 的产物；只在安装末尾校验又会让预览宣称可安装。现有“坏目录仍登记”测试可以全过，同时 `catalog-invalid` 从未真正经 registry 返回，或已经把坏产物提交到登记表。提案已经决定两层行为，本条只指出实施计划没有可执行的分层验收。
+- **如何核实**：静态对读 `inventory.ts` 的 prepare/inspect/install 分支、`backend/copy.ts:131–172` 的排除项规则，以及 `docs/specs/runtime/plugin-install.md:69,83–84,99,114` 的无残留与失败码合同；`plugin-platform/shared/types.ts:149–158` 目前有 8 个安装失败码，现有测试未涉及新目录码。
+- **建议改法**：在第 4 片写出并映射至少 5 组独立场景：① SDK 缺源语言、非法 JSON/非字符串叶子时构建失败；② 手写清单的坏目录使 inspect 与 install 都返回 `catalog-invalid`；③ `files` 排除目录文件时 install 拒绝且不留下安装目录/登记记录；④ 安装后再损坏文件或让端点返回 404 时，插件功能照常、当前窗口能看到目录问题；⑤ 升级安装前后，新目录只在重启后生效，并核对旧/新摘要。经真实 registry 版本 5 核对失败码，不只断言底层函数。
+
+### 6. SDK 删除解析函数后只增加引用构造器，第三方组件没有可用的翻译端口出口
+
+- **严重程度**：重要；**类别**：接口与合同 / 公开面遗漏。
+- **位置**：主工作区 `plan.md:26,68`；源码 `packages/neuro-book/src/sdk/index.ts:13–14,41–43`、`src/sdk/components.ts:11–21`、`plugin-sdk/examples/plugins/snippets/web/SnippetsEditor.vue:14–15,40`。
+- **现象**：`useText()`、注入键和 `TextPort` 只安排在 nb-ui；SDK 收尾只写删除 `localize/formatText`、增加 `text()`。提案定义的 `text(key, params)` 只构造带命名空间的 `TextRef`，不返回显示字符串。第三方组件（现成例子是 SnippetsEditor、SnippetsPage）原来通过 SDK 的 localize 消费文字，删除后没有指定从哪个 SDK 子路径取端口、如何获得宿主同一个注入键。
+- **为什么是问题**：第三方插件只准经 SDK 访问宿主能力，直接导入 `@notnotype/nb-ui/...` 会被构建纯度检查拒绝，宿主模块表也不共享它；`/components` 当前只导出组件，拿不到 useText。只把 `text()` 塞进 SDK 根入口不能渲染文字；把读 Vue inject 的 useText 一起塞进根入口又违反该入口服务端可用且不加载 Vue 的合同。因此“9 个示例与模板一起改”需要先有可实际调用的浏览器消费出口，否则会被迫逐插件传已翻译字符串、复制解析逻辑或扩大根入口依赖。
+- **如何核实**：静态对读 `src/sdk/entries.ts` 的位置划分、`src/sdk/surface.test.ts:49–54` 的后端公开面约束、`docs/specs/runtime/plugin-code-loading.md:27–28,45` 的宿主模块表与纯度检查，以及 `docs/specs/runtime/plugin-api.md:25,174`；模板/示例现有本地化调用经 `functions.grep` 已定位。提案 `docs/proposals/i18n-message-catalogs.md:100–103,125–133` 区分了引用构造与翻译端口，本条不改变这项已定方案。
+- **建议改法**：SDK 切片先写清楚两个公开入口：无 Vue 的引用构造/类型（激活适配层绑定所属插件）与浏览器消费端口（从既有浏览器子路径或明确新增的子路径导出 useText/TextPort，始终复用宿主注入键）。若新增子路径，同步 entries 表、两端共享模块表/平台档案、SDK 声明打包路径与作者文档；若复用已有子路径，同样要验证无后端反向依赖。用从生成 tarball 构建的真实第三方组件调用这个出口、切换语言并核对原组件更新，而不是只改导出名字快照。
+
+### 7. 语言设置改成 string 后，现有选项合同与三端值校验都不能按计划直接工作
+
+- **严重程度**：重要；**类别**：正确性 / 依赖机制不存在。
+- **位置**：主工作区 `plan.md:67`；源码 `packages/neuro-book/src/plugins/settings/shared/contracts.ts:54–68`、`src/shared/settings.ts:277–302`、`src/plugins/settings/shared/layers.ts:119–142`、`src/plugins/settings/shared/layer-text.ts:58`。
+- **现象**：收尾只说把 `localeSetting.schema` 改成字符串、按宿主目录校验并生成选项，却没有选定怎样接入现有设置系统。现有静态 `choices` 数组只接受字面量联合 schema，换成 `Type.String()` 继续生成数组会在导入时抛错；改成动态选项只解决显示，不限制设置值。真实写入和文件读取都只按声明的 JSON schema 校验，不存在额外的“按宿主目录校验”回调。切换语言命令的 args 还独立写死 zh-CN/en-US。
+- **为什么是问题**：要么设置声明无法装载，要么未经支持的语言可经远程写入和手改 settings.json 成为有效值；仅用浏览器选项过滤会让服务端、项目实例与浏览器的有效值分歧。只改 `DisplayLocale` 类型与设置项不改命令 args，则增加第三种宿主目录后，带参切换依旧被命令输入 schema 拒绝。已接受提案已经定了字符串类型与宿主语言集合，计划还需要把它映射到现有校验机制，不能等收尾时重新设计。
+- **如何核实**：运行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/w00028-review/t03-plan/lab/probe-locale-setting.ts`：`Type.String()` 加静态语言选项抛 `TypeError: 配置项 acme.sample/locale 的 choices 只能用在字面量联合的 schema 上`；去掉选项后，现有公开 `writeProblem` 对 `this-language-is-not-in-the-host` 返回 null（接受）。源码 `settings/web/plugin.ts:53–57` 独立定义命令的两语言联合；`docs/specs/settings/configuration.md:72,127,130,137` 规定选项与读写校验。
+- **建议改法**：在计划里确定共享的、无 Vue/文件系统依赖的宿主语言集合，服务端/项目/浏览器共同消费；给出可序列化 JSON schema 或明确新增的值校验入口，不能使用不能写入清单的 TypeBox Refine。同步决定 string schema 下选项由哪个已有机制生成，并更新 `choices` 的公开约束与切换语言命令。加一个第三语言的组合验收：两种写入入口与文件读取接受已支持语言、拒绝未支持语言，命令带参切换与设置选项一致；无须真正新增产品语言。
+
+### 8. 目录集合单独交付没有落到第 4 片的引导协议、修订号与非阻断启动时序
+
+- **严重程度**：重要；**类别**：接口与合同 / 跨切片遗漏。
+- **位置**：主工作区 `plan.md:31–33,42–44`；源码 `packages/neuro-book/src/shared/browser-bootstrap.ts:15–38`、`src/server/browser-bootstrap.ts:35–48`、`src/web/host/window.ts:162–181,347–394`。
+- **现象**：第 4 片接受“目录集合与登记集合分开”，却没把 `runtime/browser-host.md`、`shared/browser-bootstrap.ts` 及其版本/修订号规则列入这片，只在早两片用 browser-host 处理语言。现有响应只有要登记的 `plugins` 数组，修订号也只由这个数组得出；窗口对引导结构、清单或地址问题会整体失败。计划没有目录索引条目形状、由谁传 source/语言列表/摘要，也没有说明目录读取失败如何留在插件问题通道而不升级成整窗启动失败。
+- **为什么是问题**：仅后端且无顶层声明的插件既不在 `plugins` 也不影响 revision。若为送目录把它塞进这个数组，就改变了登记集合；若新增独立索引而不更新 schema/读取方，则“取齐所有有效插件”没有数据入口。该索引若成为新浏览器必需字段，同版本旧服务端缺字段应提示刷新，不能误报结构损坏。另需确定目录请求的结束/失败边界，才能同时兑现“启动时取齐”与“文字不可用不影响功能”。这不是重报上一轮的集合范围决定，而是该已定决定没有安排到实际协议切换的提交中。
+- **如何核实**：上述 `probe-backend.ts` 对一个有效、只有 server 入口且无顶层贡献的清单调用真实引导生成器，输出 `protocolVersion:4`、`browserPlugins:0`、`catalogIndexPresent:false`；静态对读 `server/browser-bootstrap.ts:46–48` 的 revision 来源、`shared/browser-bootstrap.ts:5–8` 的兼容规则及 `docs/specs/runtime/browser-host.md:47–49,98–101,114` 的失败与协议合同。现行行为符合旧合同，问题是新切片缺少合同与消费入口。
+- **建议改法**：将 browser-host 的目录索引、对应共享 schema、服务端响应/修订号、窗口读取与非致命问题通道放进第 4 片同一次提交，明确是否需要升级引导协议，以及目录请求的取消、截止/失败收口方式。验收用“仅后端、无顶层声明”的插件证明它不进浏览器登记集合但目录可取；另测缺目录、坏 JSON、索引版本不匹配与旧摘要，核对只有真正的协议不兼容阻止启动。保留提案已经确认的重启生效，不扩大为热替换。
+
+### 9. “搬原型用例”和“六条默认行为各一测”不能证明正式包装层与检查器符合已接受合同
+
+- **严重程度**：重要；**类别**：测试 / 验收映射。
+- **位置**：主工作区 `plan.md:33,49,75`；原型 `t02-library-prototype/prototype/catalog.test.ts:122–125,129–169`、`prototype/check-catalog.ts:20–39`（均在主工作区同一 Work 下）。
+- **现象**：计划把正式验收写成“原型用例搬成正式测试”“原型发现的六条默认行为各一条”，没有给包装层和检查器各自的拒绝场景。原型的断言是探索库的默认行为：缺插值参数应留下 `{{name}}`、冒号可改写成别的键；正式合同恰恰要求测试环境缺参数抛错、禁用 namespace 分隔和 nesting、按每个命名空间自己的 source 回退。原型检查器也没有英文 `_one/_other` 完整性或 `$t(` 检查。
+- **为什么是问题**：照搬原型的“通过”只能证明危险默认仍在，不能证明包装拦截生效；只列六条会漏掉提案审查后新增的行为。检查器若直接沿用原型，只含 `files_other` 的英文目录能全部通过，而 count=1 最终丢英文。目录间占位符一致也不能证明运行期调用传全了参数。提案要求的 Vue/TS 新增界面字面量告警（第 8 节）在所有切片里也没有 owner 或检查入口，按当前总判据完成仍会漏掉。
+- **如何核实**：上述 `probe-backend.ts` 调用原型公开 `checkCatalogs({files_other:"{{count}} 个文件"}, {files_other:"{{count}} files"})` 得到 `[]`，即缺英文 `_one` 未报错；静态核对原型的缺参数断言和 host 初始化（`prototype/host.ts:11–25`）。正式要求对照已接受提案 `docs/proposals/i18n-message-catalogs.md:113–120,168–177`。这里没有要求重新否决原型或选库，只要求把探索证据转换成产品合同测试。
+- **建议改法**：在开工前把已接受的 `ui/i18n` 输出/失败条目与明确的测试文件/入口映射好；正式包装测试和原始 i18next 探索测试分开。给检查器逐一放入缺键、多键、占位符不一致、英文缺 `_one`、`$t(`、闭合码缺/多文案的坏样本，确认治理命令非零；给包装层加入按 namespace 的非中文 source 回退、缺参抛错、异常 count/非有限数、501 字符参数、冒号与 nesting、目录替换等调用方可观察用例。为新增字面量告警明确切片与脚本，不用“全量测试全过”替代缺少的判据。
+
+### 10. 已发布包的版本窗口、tarball 与 nb-story 网页重建被推到后面，计划缺少交付验收
+
+- **严重程度**：重要；**类别**：兼容 / 验收与依赖遗漏。
+- **位置**：主工作区 `plan.md:59–63,68,75–79`；同 Task `README.md:15`；源码 `packages/neuro-book/plugin-sdk/pack.ts:65–72,361–379`、`packages/nb-story/package.json:24–30,44–48,75`。
+- **现象**：提案已明确“版本号与发布顺序在实施计划里定”，Task README 还明确要求 tarball 安装与 `dist/web` smoke；计划却只安排以后把版本表/顺序写进 README，没有目标版本、消费者最低范围、哪些包必须一起发，以及 nb-story 重建的切片。验证总表只有 workspace 的 test/typecheck/Lab/e2e，没有受影响源码包的 tarball 消费或 nb-story 已构建网页验收。
+- **为什么是问题**：当前 6 个直接相关的公开包为 nb-runtime 0.1.0、nb-ui 0.2.0、nb-agent-ui 0.1.0、nb-form 0.1.0、nb-markdown 0.1.0、nb-story 0.1.1；引用 TextRef 的上层包需要能导出该类型/默认目录的 nb-ui，新清单调用方需要支持 l10n 的 nb-runtime。workspace:* / workspace:^ 总是链接当前源码，不能证明 tarball 的 files/exports 和实际版本范围正确。nb-story 的 UI 依赖都在 devDependencies，分发的是 `dist/web`，只更新源码依赖不会替已发布网页带来目录与新组件。SDK 的类型打包又只映射了 `@notnotype/nb-ui/components`，Text 类型新增子路径若不纳入打平，会泄漏作者装不到的 workspace 引用。
+- **如何核实**：对照 Task README 的既定范围和提案 `docs/proposals/i18n-message-catalogs.md:199–211`，逐个读取 6 份 package.json；`probe-backend.ts` 已输出上述精确版本。SDK 包合同 `docs/specs/runtime/plugin-api.md:174` 规定打平声明只引用 Vue、reactivity 与 TypeBox；现有 `plugin-sdk/pack.test.ts:233–235` 确实从 tarball 做普通 tsconfig 检查，不能只更新名字快照绕过它。主工作区 ADR 0029 决策 3–5 规定源码包 files、workspace:^ 与预构建网页。未运行发布、打包或联网安装。
+- **建议改法**：开工前在计划列出受影响包的目标版本/破坏性 API、消费者范围与依赖顺序，明确 nb-runtime 和 nb-ui 的新入口先可用，再更新依赖方，最后重建/验收 nb-story；发布仍逐次授权。安排无注入宿主的源码包 tarball 消费、JSON 文件确实随包、生成 SDK 的声明打平与仓库外类型检查、nb-story `dist/web` 单语中文 smoke，并给实际命令/测试入口。已有 `release:check`、`release:smoke` 和 SDK `pack.test.ts` 可复用，但最终打包验收按 `docs/testing/README.md:160` 在主工作区或干净克隆执行，不把深层 worktree 的路径回落当成功。
+
+## 第 1 条的真实运行补证
+
+运行 `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/w00028-review/t03-plan/lab/probe-remote-version.ts`：使用真实的两个运行实例、插件激活、远程节点、路由和经过 JSON 编解码的进程内链路，不直接调用节点内部方法。提供方使用计划第 3 片所允许的扩展 title schema，调用方保持当前版本 1 的合同；两个结果为：
+
+- 提供方版本 1、调用方版本 1：`provider-error`，详情 `返回值不符合合同：/0/title：must have required properties zh-CN, en-US；/0/title：must not have additional properties`。
+- 提供方版本 2、调用方版本 1：`version-changed`，详情 `合同 nbook.commands/remote 的版本为 2，调用方期望 1`。
+
+3 个运行实例都在 finally 中停止，返回 `{status:"closed"}`，路由关闭。本实验验证同版本不同 schema 的失败模式，不声称计划尚未实现的完整 TextSchema 已完成。
+
+## 实际验证与证据边界
+
+已执行以下 3 条不同的探针命令，实验文件均在指定 lab 目录；它们只读取现有源码与原型，不安装依赖，不修改被测文件：
+
+1. `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/w00028-review/t03-plan/lab/probe-backend.ts`：5 组观察及相应断言完成。分别验证加载期缺标题拒绝、版本 1 的远程 title 只收双语形态、后端独有插件不进现有浏览器引导数组、原型检查器漏掉英文 `_one`、6 个包的当前版本。
+2. `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/w00028-review/t03-plan/lab/probe-locale-setting.ts`：string schema 配静态 choices 被拒、没有目录约束的 string schema 接受任意语言，两项断言完成。
+3. `bun --tsconfig-override packages/neuro-book/tsconfig.json /tmp/w00028-review/t03-plan/lab/probe-remote-version.ts`：真实插件运行实例与 JSON 链路上的同版本不同 schema / 异版本两个场景完成，结果分别为 `provider-error` / `version-changed`，实例与路由收口。探针首次运行后将平台档案字段修正为现有的 `reservedPublishers: ["nbook"]`，只重跑了这一项，结果相同；报告补证以修正后的脚本为准。
+
+每次 Bun 探针完成后，Bun 还打印了同一条内部诊断：`Internal error: directory mismatch for directory "/home/notnotype/CodeRepository/neuro-book/.worktree/review-w00028-t03/packages/neuro-book/tsconfig.json", fd 3. You don't need to do anything, but this indicates a bug.`。未把它归为产品缺陷或忽略为不存在；上述业务观察来自此前已经完成的探针输出与断言。
+
+没有运行产品测试套件、typecheck、构建、开发服务、浏览器/e2e、release:smoke、联网安装或真实模型。未将静态计划缺口写成已复现的迁移后回归，也未把原型历史结果当作本次正式实现验收。未执行 commit、push、stash、分支切换或文件删除；仓库只读，报告始终用 `cat >>` 追加。
+
+审查对象 SHA-256：
+
+- 实施计划：`424239ea56edf0c6a2f1837dccb5192c9657a6d2ed4d25cb87fa24d5b715d9fd`。
+- 已接受提案：`a6424d97b61a0b9dea8f93e7b0624d4d2aa7f79e0394b71e7261b1278539402e`。
+- 另以 `sha256sum` 核对主工作区和审查 worktree 的 8 份直接引用 Spec：runtime 的 plugin-api、plugin-manifest、plugin-install、plugin-code-loading、plugin-channel、browser-host，以及 settings/configuration、ui/workbench-shell，两处内容逐份一致。
+
+## 按影响排序索引
+
+为保留逐条核实即追加的记录，以下给出最终处理顺序：
+
+1. 第 1、2 条：远程兼容与服务端运行路径。
+2. 第 3、6、7、8 条：声明输入、SDK 消费出口、三端语言校验、引导协议的实施前置。
+3. 第 4 条：跨插件条目类型及其拥有者 Spec 漏项。
+4. 第 5、9、10 条：安装事务、包装/检查规则和真实交付产物的验收缺口。
+
+## 未发现问题的方面
+
+- 内置插件静态交付、第三方 SDK 复制目录、安装器核对资源，沿用现有构建与安装所有权；没有重复质疑提案已经接受的两条交付路径。
+- 目录资源取用与插件功能登记分层、目录集合与浏览器登记集合分开，提案与计划已经接受相应原则；本报告第 5、8 条仅追其实施合同与验收缺口。
+- 目录 URL 复用安装版本目录摘要、升级重启后生效，与现有启动快照和不可变版本目录相容；在线替换留给热插拔，没有要求本 Task 实现尚未存在的在线生命周期。
+- 增加 `catalog-invalid` 时把 `nbook.plugins/registry` 升到版本 5，版本位置本身正确；未要求改通用 wire 帧版本。
+- 保留 `LocaleMap` 的迁移期、命令英文 `description` 不变、各错误域失败投影归 w00031、共享包不依赖 i18next，均与已接受决定一致。
+- 发布逐次授权的边界已写明；本报告要求先定本地兼容与验收，不要求自动发布。
+
+## 各级数量
+
+- 阻断：0。
+- 重要：10（第 1–10 条）。
+- 建议：0。
+- 撤回：0。
+
+## 开工判断
+
+现稿不宜作为逐片可验收的整体开工依据，应先修正第 3/5 片的合同切换顺序，并补齐后端消费、SDK 公开入口和交付验收的具体边界。
+
+有效发现编号：1、2、3、4、5、6、7、8、9、10

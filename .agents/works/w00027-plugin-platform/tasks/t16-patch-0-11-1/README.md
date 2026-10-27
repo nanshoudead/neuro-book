@@ -17,7 +17,14 @@ updated: 2026-10-27
 
 ## 当前状态
 
-2026-10-27 计划写好，开始实施 S1。
+进展：
+
+- S1 `08c5040da`：`nbook` 停止后在标准错误写“NeuroBook 已停止。”（`runServerProcess` 加 `onStopped`，启动失败不调）；帮助按 `Bun.stringWidth` 对齐（commander 的 `displayWidth`）；作者构建预设关掉 `checks.pluginTimings`（只在构建慢时出现，没有稳定的测试）。验证：`bun test src/cli` 20 例，帮助对齐的断言做了变异检查。
+- S2 `3342d9d4f`：内核把正常关闭带来的撤回（`receiver-closed`、`scope-closed`、`activation-stopped`）记 debug，失败撤回仍 warn；工作台入口停止后外壳加载失败记 debug。验证：nb-runtime 诊断 15 例；开发服务里从书架点进作品，控制台的 error 与 warn 从 20 条变成 0 条（改回旧代码对照）。
+- S3 `1d6791e87`：新建作品写完封面与作品目录后打开它；插件页的内置插件按界面语言显示名称与说明（`builtin-names.ts`，表里不含只在开发模式出现的 Lab：`check:dist` 不许生产产物里有它的名字）。验证：插件页 DOM 16 例、名称表对照产品清单、书架与插件 e2e（书架窄屏那例原先碰巧依赖一部没打开过的书，改成任一新鲜度说明）。Spec `6f39221eb`。
+- S4 `23f34d66c`：nb-story 的 `GraphLayout` 挪进 `src/web/graph/layout.ts`，typecheck 恢复。验证：nb-story typecheck 与测试（负载 19 时两例 5 秒超时，单独重跑 22 例过）。
+- S5 `a342d7f36`：0.11.1；两个 npm 包补 keywords、homepage、bugs，应用包描述改中文；README 写明没有文档目录时的作品目录；发布文档写明 Bun 的 bin 警告无害。验证：打包测试 68 例。
+- 收口：`test:affected --since 9f8b355af --typecheck` 在负载 30 时一例 Markdown DOM 测试超时，单独重跑过；全量 e2e 排队等负载降下来；实现审查（Sonnet）已派出。
 
 ## 下一步
 

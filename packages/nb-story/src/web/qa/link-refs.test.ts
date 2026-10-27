@@ -22,6 +22,8 @@ describe("出处改成链接", () => {
 
     test("指向查看器打不开的章（没抽取的尾部）的出处保持纯文字，其余照改", () => {
         expect(linkRefs("见 20.3 与 22.1—22.4", lexer, {linkable: chapter => chapter <= 20})).toBe("见 [20.3](paragraph://20.3) 与 22.1—22.4");
+        // 范围的起点在已抽取的章、终点跨进尾部：整个范围都打不开，不只看起点。
+        expect(linkRefs("见 20.89—22.2", lexer, {linkable: chapter => chapter <= 20})).toBe("见 20.89—22.2");
     });
 
     test("流式：文末的出处可能没写完，先不改；后面有字了再改", () => {

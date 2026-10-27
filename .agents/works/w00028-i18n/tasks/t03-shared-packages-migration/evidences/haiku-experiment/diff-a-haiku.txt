@@ -1,0 +1,340 @@
+diff --git a/packages/nb-history/src/paths.ts b/packages/nb-history/src/paths.ts
+index 8d8d73766..f2b11d0c6 100644
+--- a/packages/nb-history/src/paths.ts
++++ b/packages/nb-history/src/paths.ts
+@@ -8,10 +8,10 @@ import {HistoryError} from "./types";
+  */
+ export function validatePath(path: string): string {
+     if (path.length === 0) {
+-        throw new HistoryError("路径不能为空");
++        throw new HistoryError("Path must not be empty");
+     }
+     if (path.includes("\0")) {
+-        throw new HistoryError(`路径含 NUL 字节: ${path}`);
++        throw new HistoryError(`Path contains a NUL byte: ${path}`);
+     }
+     return path;
+ }
+diff --git a/packages/nb-history/src/rows.ts b/packages/nb-history/src/rows.ts
+index 8d660c799..0713e80e3 100644
+--- a/packages/nb-history/src/rows.ts
++++ b/packages/nb-history/src/rows.ts
+@@ -56,7 +56,7 @@ export function entryToColumns(entry: NewEntry): EntryColumns {
+             return {...base, op_type: op.type, path: op.toPath, from_path: op.fromPath, before_hash: op.contentHash, after_hash: op.contentHash, reverted_entry_ids: null, source_entry_id: null};
+         case "file.revert":
+             if (op.beforeHash === null && op.afterHash === null) {
+-                throw new HistoryError("file.revert 的 beforeHash 与 afterHash 不得同时为 null(no-op)");
++                throw new HistoryError("file.revert: beforeHash and afterHash must not both be null (no-op)");
+             }
+             return {...base, op_type: op.type, path: op.path, from_path: null, before_hash: op.beforeHash, after_hash: op.afterHash, reverted_entry_ids: JSON.stringify(op.revertedEntryIds), source_entry_id: null};
+         case "file.restore":
+@@ -67,7 +67,7 @@ export function entryToColumns(entry: NewEntry): EntryColumns {
+ function rowString(row: Row, column: string): string {
+     const value = row[column];
+     if (typeof value !== "string") {
+-        throw new HistoryError(`operation_log 行 ${String(row["id"])} 列 ${column} 应为 string,实际 ${typeof value}`);
++        throw new HistoryError(`operation_log row ${String(row["id"])} column ${column} must be a string, got ${typeof value}`);
+     }
+     return value;
+ }
+@@ -78,7 +78,7 @@ function rowStringOrNull(row: Row, column: string): string | null {
+         return null;
+     }
+     if (typeof value !== "string") {
+-        throw new HistoryError(`operation_log 行 ${String(row["id"])} 列 ${column} 应为 string 或 NULL,实际 ${typeof value}`);
++        throw new HistoryError(`operation_log row ${String(row["id"])} column ${column} must be a string or NULL, got ${typeof value}`);
+     }
+     return value;
+ }
+@@ -89,7 +89,7 @@ function rowNumber(row: Row, column: string): number {
+         return Number(value);
+     }
+     if (typeof value !== "number") {
+-        throw new HistoryError(`operation_log 行列 ${column} 应为 number,实际 ${typeof value}`);
++        throw new HistoryError(`operation_log row column ${column} must be a number, got ${typeof value}`);
+     }
+     return value;
+ }
+@@ -123,9 +123,9 @@ function mapActor(row: Row): OperationActor {
+             if (userId !== null || sessionId !== null || source !== null) break;
+             return {kind: "external"};
+         default:
+-            throw new HistoryError(`operation_log 行 ${String(row["id"])} 的 actor_kind 非法: ${kind}`);
++            throw new HistoryError(`operation_log row ${String(row["id"])} has an invalid actor_kind: ${kind}`);
+     }
+-    throw new HistoryError(`operation_log 行 ${String(row["id"])} 的 actor 字段组合非法(kind=${kind})`);
++    throw new HistoryError(`operation_log row ${String(row["id"])} has an invalid actor field combination (kind=${kind})`);
+ }
+ 
+ /** 列 → FileOperation,字段缺失 / 多余按类型严格校验。 */
+@@ -162,9 +162,9 @@ function mapOperation(row: Row): FileOperation {
+             if (afterHash === null || sourceEntryId === null) break;
+             return {type: "file.restore", path, beforeHash, afterHash, sourceEntryId};
+         default:
+-            throw new HistoryError(`operation_log 行 ${id} 的 op_type 非法: ${opType}`);
++            throw new HistoryError(`operation_log row ${id} has an invalid op_type: ${opType}`);
+     }
+-    throw new HistoryError(`operation_log 行 ${id} 的操作字段组合非法(op_type=${opType})`);
++    throw new HistoryError(`operation_log row ${id} has an invalid operation field combination (op_type=${opType})`);
+ }
+ 
+ /** 行 → 日志条目。任何非法行抛 HistoryError(防御数据库被外部改坏)。 */
+diff --git a/packages/nb-history/src/types.ts b/packages/nb-history/src/types.ts
+index 55902b94f..1c76fe3e8 100644
+--- a/packages/nb-history/src/types.ts
++++ b/packages/nb-history/src/types.ts
+@@ -165,7 +165,7 @@ export type TextDiffResult =
+           reason: "before-missing" | "after-missing" | "binary";
+       };
+ 
+-/** 模块统一错误类型,message 面向宿主开发者(中文)。 */
++/** 模块统一错误类型,message 面向宿主开发者(英文)。 */
+ export class HistoryError extends Error {
+     constructor(message: string) {
+         super(message);
+diff --git a/packages/nb-history/src/workspace-history.ts b/packages/nb-history/src/workspace-history.ts
+index 902b521a0..d036aa6fb 100644
+--- a/packages/nb-history/src/workspace-history.ts
++++ b/packages/nb-history/src/workspace-history.ts
+@@ -120,7 +120,7 @@ export class WorkspaceHistory {
+             validatePath(path);
+             const old = await this.readDisk(path);
+             if (old === null) {
+-                throw new HistoryError(`文件不存在,无法删除: ${path}`);
++                throw new HistoryError(`File does not exist, cannot delete: ${path}`);
+             }
+             const oldHash = sha256Hex(old);
+             const implicit = await this.implicitReconcile(path, oldHash);
+@@ -139,10 +139,10 @@ export class WorkspaceHistory {
+             validatePath(toPath);
+             const bytes = await this.readDisk(fromPath);
+             if (bytes === null) {
+-                throw new HistoryError(`文件不存在,无法改名: ${fromPath}`);
++                throw new HistoryError(`File does not exist, cannot rename: ${fromPath}`);
+             }
+             if ((await this.readDisk(toPath)) !== null) {
+-                throw new HistoryError(`改名目标已存在: ${toPath}`);
++                throw new HistoryError(`Rename target already exists: ${toPath}`);
+             }
+             const contentHash = sha256Hex(bytes);
+             const implicit = await this.implicitReconcile(fromPath, contentHash);
+@@ -218,7 +218,7 @@ export class WorkspaceHistory {
+             validatePath(toPath);
+             const bytes = await this.readDisk(toPath);
+             if (bytes === null) {
+-                throw new HistoryError(`目标文件不存在,无法登记改名: ${toPath}`);
++                throw new HistoryError(`Target file does not exist, cannot register rename: ${toPath}`);
+             }
+             const contentHash = sha256Hex(bytes);
+             const implicit = await this.implicitReconcile(fromPath, contentHash);
+@@ -250,13 +250,13 @@ export class WorkspaceHistory {
+             const plan = await this.loadRevertPlan(userId, path, true);
+             const currentRevision = plan.span[plan.span.length - 1]!.id;
+             if (currentRevision !== expectedRevision) {
+-                throw new HistoryInboxMutationError("stale", `收件箱 revision 已变化: expected=${expectedRevision}, current=${currentRevision}`);
++                throw new HistoryInboxMutationError("stale", `Inbox revision has changed: expected=${expectedRevision}, current=${currentRevision}`);
+             }
+             const current = await this.readDisk(path);
+             const currentHash = current === null ? null : sha256Hex(current);
+             const expectedHash = afterStateHash(plan.span[plan.span.length - 1]!.operation);
+             if (currentHash !== expectedHash) {
+-                throw new HistoryInboxMutationError("stale", `文件内容已在收件箱 revision ${expectedRevision} 后变化: ${path}`);
++                throw new HistoryInboxMutationError("stale", `File content changed after inbox revision ${expectedRevision}: ${path}`);
+             }
+             return this.applyRevertPlan(userId, path, plan, {bytes: current, hash: currentHash});
+         });
+@@ -268,15 +268,15 @@ export class WorkspaceHistory {
+             validatePath(path);
+             const source = await loadEntryById(this.client, sourceEntryId);
+             if (source === null) {
+-                throw new HistoryError(`来源条目不存在: ${sourceEntryId}`);
++                throw new HistoryError(`Source entry does not exist: ${sourceEntryId}`);
+             }
+             const contentHash = afterStateHash(source.operation) ?? beforeStateHash(source.operation);
+             if (contentHash === null) {
+-                throw new HistoryError(`来源条目没有可恢复的内容: ${sourceEntryId}`);
++                throw new HistoryError(`Source entry has no recoverable content: ${sourceEntryId}`);
+             }
+             const body = await this.snapshotBody(contentHash);
+             if (body === null) {
+-                throw new HistoryError(`快照 body 不可用(超限 / 二进制 / 已被保留策略清理),无法恢复: ${sourceEntryId}`);
++                throw new HistoryError(`Snapshot body is unavailable (over the size limit, binary, or pruned by retention), cannot restore: ${sourceEntryId}`);
+             }
+ 
+             const current = await this.readDisk(path);
+@@ -449,18 +449,18 @@ export class WorkspaceHistory {
+         const group = await loadGroupEntries(this.client, path, renames);
+         if (group.length === 0) {
+             if (conditional) {
+-                throw new HistoryInboxMutationError("missing", `待审文件不存在或已被接受: ${path}`);
++                throw new HistoryInboxMutationError("missing", `Pending file does not exist or was already accepted: ${path}`);
+             }
+-            throw new HistoryError(`没有该文件的日志记录: ${path}`);
++            throw new HistoryError(`No log entry for this file: ${path}`);
+         }
+         const acceptance = await this.loadAcceptance(this.client, userId);
+         const position = acceptancePositionFor(path, renames, acceptance);
+         const span = group.filter((entry) => entry.id > position);
+         if (span.length === 0 || !span.some((entry) => entry.actor.kind === "agent" || entry.actor.kind === "system")) {
+             if (conditional) {
+-                throw new HistoryInboxMutationError("missing", `待审文件不存在或已被接受: ${path}`);
++                throw new HistoryInboxMutationError("missing", `Pending file does not exist or was already accepted: ${path}`);
+             }
+-            throw new HistoryError(`该文件没有待还原的收件箱变更: ${path}`);
++            throw new HistoryError(`This file has no pending inbox changes to revert: ${path}`);
+         }
+ 
+         const baselineHash = beforeStateHash(span[0]!.operation);
+@@ -468,7 +468,7 @@ export class WorkspaceHistory {
+         if (baselineHash !== null) {
+             baselineBytes = await this.snapshotBody(baselineHash);
+             if (baselineBytes === null) {
+-                throw new HistoryError(`基线快照不可用(超限 / 二进制 / 已被保留策略清理),无法还原: ${path}`);
++                throw new HistoryError(`Baseline snapshot is unavailable (over the size limit, binary, or pruned by retention), cannot revert: ${path}`);
+             }
+         }
+         return {span, baselineHash, baselineBytes};
+@@ -486,7 +486,7 @@ export class WorkspaceHistory {
+             ? (current === null ? null : sha256Hex(current))
+             : knownCurrent.hash;
+         if (currentHash === null && plan.baselineHash === null) {
+-            throw new HistoryError(`文件当前不存在且基线也是「不存在」,无事可还原: ${path}`);
++            throw new HistoryError(`File does not exist now and its baseline is also "does not exist", nothing to revert: ${path}`);
+         }
+         const implicit = await this.implicitReconcile(path, currentHash);
+ 
+@@ -586,7 +586,7 @@ export class WorkspaceHistory {
+             const renames = await loadRenames(this.client);
+             const group = await loadGroupEntries(this.client, path, renames);
+             if (group.length === 0) {
+-                throw new HistoryError(`没有该文件的日志记录: ${path}`);
++                throw new HistoryError(`No log entry for this file: ${path}`);
+             }
+             const maxId = group[group.length - 1]!.id;
+             const tx = await this.client.transaction("write");
+@@ -605,11 +605,11 @@ export class WorkspaceHistory {
+             validatePath(path);
+             const group = (await this.loadInbox(this.client, userId)).find((item) => item.path === path);
+             if (!group) {
+-                throw new HistoryInboxMutationError("missing", `待审文件不存在或已被接受: ${path}`);
++                throw new HistoryInboxMutationError("missing", `Pending file does not exist or was already accepted: ${path}`);
+             }
+             const currentRevision = group.entries[group.entries.length - 1]!.id;
+             if (currentRevision !== expectedRevision) {
+-                throw new HistoryInboxMutationError("stale", `收件箱 revision 已变化: expected=${expectedRevision}, current=${currentRevision}`);
++                throw new HistoryInboxMutationError("stale", `Inbox revision has changed: expected=${expectedRevision}, current=${currentRevision}`);
+             }
+             await this.writeAcceptances(userId, [group]);
+         });
+@@ -623,7 +623,7 @@ export class WorkspaceHistory {
+                 Math.max(revision, group.entries[group.entries.length - 1]?.id ?? 0)
+             ), 0);
+             if (currentRevision !== expectedRevision) {
+-                throw new HistoryInboxMutationError("stale", `收件箱 revision 已变化: expected=${expectedRevision}, current=${currentRevision}`);
++                throw new HistoryInboxMutationError("stale", `Inbox revision has changed: expected=${expectedRevision}, current=${currentRevision}`);
+             }
+             await this.writeAcceptances(userId, groups);
+             return groups.length;
+@@ -639,7 +639,7 @@ export class WorkspaceHistory {
+             });
+             const cursorRow = cursorResult.rows[0];
+             if (cursorRow === undefined) {
+-                throw new HistoryError(`会话游标未初始化,先调用 initCursor: ${sessionId}`);
++                throw new HistoryError(`Session cursor is not initialized, call initCursor first: ${sessionId}`);
+             }
+             const cursor = Number(cursorRow["last_seen_entry_id"]);
+             const renames = await loadRenames(db); // 全量 rename(含本会话的)才能正确解析现名
+@@ -778,7 +778,7 @@ export class WorkspaceHistory {
+         if (value instanceof Uint8Array) {
+             return value;
+         }
+-        throw new HistoryError(`${context} 的 blob 类型异常: ${typeof value}`);
++        throw new HistoryError(`${context} has an unexpected blob type: ${typeof value}`);
+     }
+ 
+     /** 游标 upsert(单调钳制:只前进不后退)。 */
+@@ -891,7 +891,7 @@ export class WorkspaceHistory {
+                     ],
+                 });
+                 if (result.lastInsertRowid === undefined) {
+-                    throw new HistoryError("INSERT 未返回 lastInsertRowid");
++                    throw new HistoryError("INSERT did not return lastInsertRowid");
+                 }
+                 inserted.push({id: Number(result.lastInsertRowid), occurredAt: entry.occurredAt, actor: entry.actor, operation: entry.operation});
+             }
+diff --git a/packages/nb-history/tests/cursor.test.ts b/packages/nb-history/tests/cursor.test.ts
+index 7219dbcd5..be0c1d669 100644
+--- a/packages/nb-history/tests/cursor.test.ts
++++ b/packages/nb-history/tests/cursor.test.ts
+@@ -42,7 +42,7 @@ describe("session cursor", () => {
+         const ctx = await createContext();
+         try {
+             const h = ctx.history;
+-            expect(h.unseenChanges("nobody")).rejects.toThrow("游标未初始化");
++            expect(h.unseenChanges("nobody")).rejects.toThrow("Session cursor is not initialized");
+ 
+             await h.initCursor("s1");
+             const e1 = await h.performWrite(USER_1, "n.md", "v1");
+diff --git a/packages/nb-history/tests/limits.test.ts b/packages/nb-history/tests/limits.test.ts
+index 45a1c62ed..ebcd34a54 100644
+--- a/packages/nb-history/tests/limits.test.ts
++++ b/packages/nb-history/tests/limits.test.ts
+@@ -17,7 +17,7 @@ describe("snapshot limits", () => {
+             const diff = await h.textDiff(null, hash);
+             expect(diff).toEqual({available: false, reason: "after-missing"});
+ 
+-            expect(h.restore(USER_1, "big.md", entry.id)).rejects.toThrow("无法恢复");
++            expect(h.restore(USER_1, "big.md", entry.id)).rejects.toThrow("cannot restore");
+         } finally {
+             await ctx.dispose();
+         }
+@@ -37,7 +37,7 @@ describe("snapshot limits", () => {
+             const diff = await h.textDiff(null, hash);
+             expect(diff).toEqual({available: false, reason: "binary"});
+ 
+-            expect(h.restore(USER_1, "blob.bin", entry.id)).rejects.toThrow("无法恢复");
++            expect(h.restore(USER_1, "blob.bin", entry.id)).rejects.toThrow("cannot restore");
+ 
+             // 二进制文件的收件箱 / 时间线不受影响(bodyAvailable 如实为 false)
+             const timeline = await h.timeline("blob.bin");
+diff --git a/packages/nb-history/tests/observed-write.test.ts b/packages/nb-history/tests/observed-write.test.ts
+index 69ec95625..84ad6c75c 100644
+--- a/packages/nb-history/tests/observed-write.test.ts
++++ b/packages/nb-history/tests/observed-write.test.ts
+@@ -151,7 +151,7 @@ describe("absolute path form", () => {
+         const dbPath = nodePath.join(dir, "history.sqlite");
+         try {
+             const history = await WorkspaceHistory.open({databasePath: dbPath});
+-            await expect(history.registerObservedWrite(AGENT_S1, "", bytes("x"))).rejects.toThrow("路径不能为空");
++            await expect(history.registerObservedWrite(AGENT_S1, "", bytes("x"))).rejects.toThrow("Path must not be empty");
+             await expect(history.registerObservedWrite(AGENT_S1, "a\0b", bytes("x"))).rejects.toThrow("NUL");
+             await history.close();
+         } finally {
+diff --git a/packages/nb-history/tests/revert.test.ts b/packages/nb-history/tests/revert.test.ts
+index a4aeee884..81b1b6939 100644
+--- a/packages/nb-history/tests/revert.test.ts
++++ b/packages/nb-history/tests/revert.test.ts
+@@ -67,8 +67,8 @@ describe("revert", () => {
+         try {
+             const h = ctx.history;
+             await h.performWrite(USER_1, "own.md", "自己写的");
+-            expect(h.revert("u1", "own.md")).rejects.toThrow("没有待还原的收件箱变更");
+-            expect(h.revert("u1", "ghost.md")).rejects.toThrow("没有该文件的日志记录");
++            expect(h.revert("u1", "own.md")).rejects.toThrow("has no pending inbox changes to revert");
++            expect(h.revert("u1", "ghost.md")).rejects.toThrow("No log entry for this file");
+         } finally {
+             await ctx.dispose();
+         }
+diff --git a/packages/nb-history/tests/timeline.test.ts b/packages/nb-history/tests/timeline.test.ts
+index f5a2d5a78..24e652f7a 100644
+--- a/packages/nb-history/tests/timeline.test.ts
++++ b/packages/nb-history/tests/timeline.test.ts
+@@ -114,7 +114,7 @@ describe("timeline", () => {
+             // 路径语义已去领域化:同字符串即同一文件,由宿主保证一致性
+             await h.performWrite(USER_1, "a/../b.md", "x");
+             await h.performWrite(USER_1, "a\\b.md", "y");
+-            expect(h.performWrite(USER_1, "", "x")).rejects.toThrow("路径不能为空");
++            expect(h.performWrite(USER_1, "", "x")).rejects.toThrow("Path must not be empty");
+             expect(h.performWrite(USER_1, "a\0b.md", "x")).rejects.toThrow("NUL");
+         } finally {
+             await ctx.dispose();

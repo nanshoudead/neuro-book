@@ -1,0 +1,19 @@
+# 任务：补齐工作台状态栏的存储原因码表
+
+你在 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/exp-b-haiku`。只改 `packages/neuro-book/src/plugins/workbench/web/components/` 下的 `WorkbenchStatusBar.vue`、`WorkbenchStatusBar.dom.test.ts`、`WorkbenchStatusBar.md`。
+
+背景：`WorkbenchStatusBar.vue` 的 `REASONS` 给状态栏的存储问题配可读原因，现在只写了 7 个码，不认识的码原样显示。存储的失败码在 `packages/neuro-book/src/shared/storage.ts` 的 `STORAGE_FAILURES`（14 个）。`REASONS` 里还有 `corrupt`、`unsupported-version`、`provider-stopped`，它们不是 `STORAGE_FAILURES` 里的码，先查清它们从哪来（读 `src/shared/store/problem.ts`、`src/shared/store/persisted.ts` 等），再决定怎么处理。
+
+要做的：
+1. 让码表在类型上穷举：状态栏实际可能收到的每个码都有中英两份原因，漏写一个过不了类型检查。原因要短、准确、用户看得懂；中文按仓库已有的写法（看同文件和 `src/plugins/*/web/messages.ts`）。
+2. 不认识的码仍要有兜底（例如将来新增的码），兜底行为保持现状或在报告里说明你的改法与理由。
+3. 在 `WorkbenchStatusBar.dom.test.ts` 补测试：覆盖新增的码至少两个、兜底一个。断言用户能看到的结果。
+4. 如果组件的数据合同有变，同步更新 `WorkbenchStatusBar.md`。
+5. 跑 `cd packages/neuro-book && bun run test:vitest -- src/plugins/workbench/web/components/WorkbenchStatusBar && bunx vue-tsc --noEmit -p tsconfig.web.json`，都要通过（第二条较慢）。
+
+## 规则（违反任一条都算不合格）
+- 只改本任务列出的文件范围；不 commit、push、stash、切分支；不删除或改写任务之外的代码、配置与注释，也不顺手改写无关注释。
+- 不为让测试通过而掩盖问题：不跳过测试、不放宽断言、不把一种失败改报成另一种，不在产品代码里加测试专用分支。
+- 不按错误文案做程序分支（用错误类型或错误码）；不用静默的 `catch`。
+- 不开子代理。
+- 做完写一份交付报告到 `/tmp/haiku-exp/report-b-haiku.txt`：改了哪些文件、怎么判断每类断言的、验证命令与结果、没把握的地方。然后回复三句以内的要点。
