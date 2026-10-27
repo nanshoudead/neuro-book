@@ -1,0 +1,77 @@
+### 1. 错误码不能直接充当跨域消息键
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`/tmp/review-lang-governance/design-v3.md:40`；`packages/nb-runtime/src/remote/protocol.ts:27-53`；`packages/nb-runtime/src/remote/contract.ts:135-137`；`packages/neuro-book/src/plugins/commands/shared/contracts.ts:26-37`
+- **现象**：草案把“错误码可以直接作为消息键”写成统一规则，但错误码实际分属不同合同：远程路由有 `unavailable`、`denied`、`invalid-input` 等全局码，命令合同也有 `unavailable`、`denied`、`execution-error`，插件远程合同和 nb-story 还可各自定义码。远程合同只禁止业务码与远程路由码重名，不能禁止命令、故事域、插件包之间重名；按插件、按包的目录也没有声明目录 owner。跨进程失败只传 `code`、有限原因和 detail 时，浏览器更没有从哪一方目录取得服务端插件自定义码的说明。
+- **为什么是问题**：同一个 `unavailable` 可能被命令通知、远程调用和插件业务错误分别解释，未限定的直接查键会命中错误文案或因目录未装载而得到空文案；跨进程收到自定义码时，浏览器无法判断应查哪个插件或包。这个问题不是要求把文案塞进 wire，而是缺少用户投影的 owner、命名空间、未知码和目录版本错配合同，正好留下了第二轮要求第 3 步补齐的前置条件。
+- **如何核实**：静态核对 `packages/nb-runtime/src/remote/contract.ts:135-137` 只检查远程路由码，再分别构造命令失败 `{code: "unavailable"}`、远程失败 `{code: "unavailable"}` 和插件业务失败 `{code: "unavailable"}`；检查 `packages/neuro-book/src/plugins/workbench/web/commands/failure-notice.ts:23-30` 可见当前界面只拿到命令自身的码与 reason，没有跨进程目录 owner。无需启动模型或浏览器即可复现键冲突和文案 owner 缺失。
+- **建议改法**：把 wire/领域错误的原始码与界面投影的消息键分开，定义稳定的 owner 加码形状（例如插件或合同命名空间加 `/` 加 code），在贡献登记时拒绝投影键冲突；明确浏览器加载哪一方目录、目录版本与未知码固定回退，并为跨实例版本错配写验收。不要用错误 detail 或错误文案反向猜 owner。
+### 2. 基础设施提示词的冲突清单没有闭合
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`/tmp/review-lang-governance/design-v3.md:32,44-47`；`docs/specs/workbench/commands.md:59-60`；`packages/neuro-book/src/plugins/commands/shared/contracts.ts:61-69`；`docs/specs/agent/harness.md:30-34,108-111,117-119`；`packages/nb-harness/src/harness.ts:103-118`；`packages/nb-harness/src/tools/builtin.ts:38-58`
+- **现象**：第二节要求基础设施提示词、工具说明用中文，但后果只列了 `workbench/commands.md` 的 `description`、两个 nb-harness 入口文档和 nb-story/dev-panel 包文档。现有合同还明确命令 `description` 是稳定英文语义说明；工具声明的 `description`、参数 schema 的 description、Profile 的 system/reminder 文本、内置 `read`/`edit` 的 description/customFormat 都会进入模型上下文。harness 把完整工具声明写入 `session_snapshot`，恢复时按 canonical JSON 逐字段比较；`docs/specs/agent/harness.md` 本身没有出现在后果清单中。
+- **为什么是问题**：C4 只豁免 OMP 原生工具的错误文本，不等于豁免 OMP 的工具说明或语法说明，因此 `editDescription(mode)`、`editGrammar(mode)` 是否翻译没有归类。按字面迁移会同时改命令发现合同、Profile 渲染上下文和工具快照；只列“旧会话不能续跑”没有说明新旧 Profile/声明版本、参数描述和已发布 SDK 文档如何一起切换，后续实现会漏改真相源或把 OMP 训练依赖的文本误改。
+- **如何核实**：运行 `grep -n "description\|systemPrompt\|snapshot\|editDescription\|editGrammar" docs/specs/agent/harness.md packages/nb-harness/src packages/nb-profile/src docs/specs/workbench/commands.md packages/neuro-book/src/plugins/commands/shared/contracts.ts`；静态核对 `packages/nb-harness/src/harness.ts:103-118` 与 `packages/nb-harness/src/tools/effective.ts:107-135`，可见 description 变化会让快照恢复得到 `session_incompatible`。再检查 `packages/nb-harness/src/tools/read.ts:58-69` 与 `edit.ts:95-107`，可见“工具说明”和“错误文本”是不同字符串通道。
+- **建议改法**：在 ADR 后果或 t03 的通道矩阵逐项登记命令 `description`、工具及参数说明、Profile system/reminder、OMP `editDescription`/`editGrammar`、快照字段和 SDK/包文档；逐项注明中文政策、C4 例外、owner、版本与旧会话策略。先修正这些 Spec/AGENTS/能力记录，再决定哪些已有英文描述需要迁移；不要用“工具说明”四个字覆盖多个不同合同。
+### 3. 翻译既有英文工具说明必须先有可复现的对照评测
+- **严重程度**：重要；**类别**：测试
+- **位置**：`/tmp/review-lang-governance/design-v3.md:32,80`；`docs/specs/workbench/commands.md:60`；`docs/specs/agent/harness.md:108-118`；`docs/testing/README.md:79-85`
+- **现象**：第四节第 4 条把“翻译现有英文工具说明之前做一次中英文 `*.llm.test.ts` 对照评测”列成待确认项，但第二节已经把工具说明用中文写成提议，且命令 `description` 仍是模型可见的英文稳定语义说明。harness 规范要求模型看到的工具正好来自声明、上下文按 Profile 渲染，真实模型测试默认跳过、需要显式开关和授权；测试规范还要求断言结构化结果而不是措辞。
+- **为什么是问题**：如果不把评测设为改动既有模型提示词的前置门禁，实施者可以先把英文说明改成中文，再以“领域政策已确认”解释模型工具选择、参数理解或失败恢复的回归；而普通合同测试不会发现语言造成的行为变化，默认跳过的 LLM 测试也不能作为已验证证据。反过来，若评测没有固定模型/版本、题集、判分阈值、基线与未验证处理，它只是一次不可复现的人工试跑，不能支撑这个不可逆的提示词改动。
+- **如何核实**：按 `docs/testing/README.md:79-85` 检查 `*.llm.test.ts` 的显式开关、凭据授权和“结构化结果而非措辞”约束；按 `docs/specs/agent/harness.md:108-118` 构造同一 Profile 只替换工具 description 的两份上下文，确认现有快速合同没有模型行为断言。正式验收应运行 `bun run test:affected --tier llm`，并记录模型版本、题集版本、基线与阈值；本次审查未调用真实 Provider/Model。
+- **建议改法**：将第 4 条改成明确前置条件：只要改已有 command/tool description 或 Profile 基础设施提示词，先完成固定题集的中英文对照，达不到阈值就不迁移该条；新增文案和 C4 的 OMP 原生错误例外不必阻塞。为评测定义可复现的模型、版本、题集、指标、阈值和“缺凭据即未验证”，并把结果写入 t03/t04 证据，而不是只在待确认表里留一句“做一次测试”。
+### 4. 机检不能靠中文文本可靠识别新增诊断
+- **严重程度**：重要；**类别**：测试
+- **位置**：`/tmp/review-lang-governance/design-v3.md:63,79`；`scripts/ci/test-conventions.ts:1-18,36-75`；`packages/dev-panel/src/core/text-rules.ts:13-38`；`packages/dev-panel/src/server/writes.ts:286-299`；`packages/dev-panel/src/web/host/writes.ts:25-41`
+- **现象**：第四节第 3 条提出“新代码写英文、加机检拦新增的中文诊断”，但现有 `governance:check` 的测试机检只识别 mock、spy、固定等待、快照和凭据等源码写法，没有诊断语义分类或数据流分析。仓库里同一段文字同时经过诊断、CLI JSON 和网页：`text-rules.ts` 返回中文问题说明，`NbdevError.message` 被 HTTP 原样暴露，网页又直接把它作为字段或通知文案；另有 Profile 提示词、小说内容、用户输入和界面文字都合法地包含中文。
+- **为什么是问题**：扫描中文字符串会把界面文字、领域提示词、用户输入样例和本来应为中文的产品输出误报，也会漏掉通过变量拼接、错误对象字段、配置文件或第三方返回值产生的中文诊断；给每处加豁免后，门禁只记录作者是否写了豁免，不证明诊断语言。选择“批量改旧代码”还会把共享校验函数的网页文案一起改成英文，选择“只拦新增”则可能让同一条错误在 CLI、JSON、面板和日志中语言分裂。
+- **如何核实**：运行 `grep -R -n -E "中文|diagnostic|诊断|message|reason" scripts/ci` 可见现有治理代码没有“诊断文本”规则；静态调用 `packages/dev-panel/src/core/text-rules.ts:14-19,23-37`、`packages/dev-panel/src/server/writes.ts:289-298`、`packages/dev-panel/src/web/host/writes.ts:32-41`，同一输入即可同时得到中文共享问题、HTTP `message` 和网页中文展示。无需把中文内容误判为诊断才能复现边界。
+- **建议改法**：不要把“中文”当诊断类别。先按 owner 把诊断 API、用户投影、提示词、用户输入和持久化字段拆开；诊断入口用稳定 code、结构化参数和英文生成器，网页/CLI 各自渲染自己的文案。若仍需机检，应检查带类型或显式标记的诊断构造入口及新增调用点，并允许迁移基线，不对任意字符串做语言猜测；先补消费者合同，再按错误域迁移，不能以文本扫描代替通道矩阵。
+### 5. ADR 草案记录了做什么，没有记录为什么以及代价
+- **严重程度**：重要；**类别**：文档
+- **位置**：`/tmp/review-lang-governance/design-v3.md:20-47`；`docs/adr/README.md:1-5`；`docs/adr/0023-v2-frontend-backend-stack.md:24-30`
+- **现象**：第二节的四条“决策”主要是分类表和实现规则：没有说明为什么按插件/包拆目录而不是共享 catalog 或 vue-i18n，为什么消息键允许直接取错误码，为什么基础设施提示词选择中文但保留 OMP 原生错误英文，为什么第三方工具不强制，以及缺译文回退、类型生成和跨进程投影的代价。提议还把 ICU、目录装卸、语言链、CI 缺键检查、跨进程字段限制等可观察合同和实现细节混在 ADR 要点里，却没有列被否决的做法与选择它们的代价。
+- **为什么是问题**：ADR 的用途是长期解释取舍，当前文字不足以让后来者判断哪些是稳定理由、哪些只是 w00028 的原型选择；他们会把“错误码直接作为消息键”“只传码”当成无条件架构合同，或在实现阶段重新讨论已经应记录的取舍。反之，精确的目录 schema、回退时序、参数校验和旧数据读取属于 Spec/Task，继续塞进 ADR 会让同一行为在多个真相源复制并漂移。
+- **如何核实**：对照 `docs/adr/README.md:1-5` 的“解释为什么、正文接受后不改”规则，与草案第二节逐条检查：只有 C1 到 C8 的结论和若干后果，没有“背景、备选/被否决、理由、代价”小节。再对照 `docs/specs/workbench/commands.md:57-75` 与 `docs/specs/agent/harness.md:104-119`，可见这些文件才承载完整可观察行为和验收。
+- **建议改法**：ADR 只保留稳定的语言分层、目录 owner/错误投影边界、关键例外和取舍理由，并明确拒绝的方案及代价；把 ICU schema、目录登记、回退链、类型生成、参数运行时校验、旧会话读取和验收移到对应 Spec/Task。ADR 的每条决策至少补“理由、被否决做法、代价、仍由 Spec 定义的边界”，并链接这些真相源。
+### 6. 后果遗漏已发布包与构建产物的兼容窗口
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`/tmp/review-lang-governance/design-v3.md:42-48,54-56`；`docs/adr/0029-workspace-packages-publish-source-to-npm.md:21-28,36-41`；`docs/adr/0033-app-delivered-as-built-npm-package.md:20-23,30-36`；`packages/nb-form/package.json:2-18,46-49`；`packages/nb-agent-ui/package.json:2-18,52-55`；`packages/nb-markdown/package.json:2-18,70-73`；`packages/nb-story/package.json:2-22,70-78`
+- **现象**：第三节已经指出 nb-form、nb-agent-ui、nb-markdown 发布过 `0.1.0`，nb-story 发布过 `0.1.1`，且 nb-story 把 `dist/web` 随包分发；但第二节后果只提“入口文档”“旧会话工具快照”和 ADR 索引，没有登记这些已发布包的公开目录、版本、发布顺序、宿主重建和旧消费者行为。共享消息目录、导出面或 web 代码一旦改变，源码工作区通过不等于用户安装的包与随包查看器已更新。
+- **为什么是问题**：ADR 0029 规定包以源码发布、版本手工管理、同一版本不可复用且 `release:publish` 按依赖顺序发布；公共包的消息目录和 API 变化会影响独立宿主，不受应用插件的 `engines.neurobook` 约束。nb-story 的 `dist/web` 还是另一个已打包的消费者；只改源目录或只发共享包会留下旧页面、旧目录协议或 `^0.x` 版本范围不兼容。新应用按 ADR 0033 发 bundle，浏览器文案也可能已经被编进 `@notnotype/neuro-book`，不能只在源码包后果里写“改入口文档”。
+- **如何核实**：静态查看上述四个 `package.json` 的版本、`exports` 与 `files`，以及 `nb-story` 的 `dist/web` 白名单；查看 `docs/adr/0029:23-28,40-41` 的版本不可复用和发布顺序，再查看 `scripts/release/pack-smoke.ts:103-106,198-218` 的安装包/宿主冒烟入口。无需发布即可证明当前 ADR 后果清单没有覆盖这些公开消费者。
+- **建议改法**：在后果中加入“包、公开 API/目录是否改变、目标版本、发布顺序、宿主重建、旧包读取/显示策略”的矩阵，至少覆盖 nb-form、nb-agent-ui、nb-markdown、nb-story、nb-ui 与新应用 bundle；把新目录文件纳入 `files`、tarball 安装和 `dist/web` smoke。若改变公开导出或收紧目录合同，按 ADR 0029 的 0.x 版本策略做干净切换，不把本地 typecheck 当作已发布兼容证据。
+### 7. nbdev 的 CLI 英文与面板中文不能只靠“拆三层”声明解决
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`/tmp/review-lang-governance/design-v3.md:81`；`packages/dev-panel/src/core/text-rules.ts:13-38`；`packages/dev-panel/src/server/writes.ts:286-299`；`packages/dev-panel/src/web/host/api.ts:38-49`；`packages/dev-panel/src/web/host/writes.ts:25-41`
+- **现象**：第四节第 5 条确认“`nbdev` 错误改英文、开发者面板网页保持单一中文”，但现有生产者与消费者共用同一条自然语言：`controlCharProblem`、`titleProblem` 生成中文，`NbdevError.message` 被 HTTP `errors[].message` 原样返回，前端 `readEnvelope` 接收它，`describeFailure` 又把它或共享校验结果直接显示。这个条目没有说明生产者是否拆成 code/参数、CLI 与网页各由谁渲染，也没有给 `errors[].message` 的版本和旧记录读回规则。
+- **为什么是问题**：直接把共享生产者改英文会让网页违反“单一中文”；保留中文又使 `nbdev` 的开发诊断不满足英文政策；只在 `describeFailure` 加几条特殊码会漏掉字段问题、控制字符码点和 HTTP warnings/errors。`--json` 的 message 版本化也不能自动修复已经写入 QA/Task 记录或被其它脚本消费的自然语言，容易出现同一错误按入口显示不同且无法稳定升级的结果。
+- **如何核实**：用相同输入调用 `packages/dev-panel/src/core/text-rules.ts:14-19,23-37`，再沿 `packages/dev-panel/src/server/writes.ts:289-298` 和 `packages/dev-panel/src/web/host/api.ts:46-49` 查看中文 message 的原样转发，最后检查 `packages/dev-panel/src/web/host/writes.ts:32-41` 的直接展示分支。现有代码即可证明生产者与两个消费面没有语言隔离，不需要启动面板。
+- **建议改法**：把确认项改成具体合同：共享校验返回稳定问题码与字段、码点、上限等参数；CLI human/JSON 由 nbdev 生成英文诊断，面板由网页生成中文产品文案，HTTP 只传结构化 details 加明确版本/默认语言；旧 `errors[].message`、Task 证据和记录按旧格式读取，不按旧文案猜码。迁移顺序是先迁消费者，再改生产者，且为未知旧码保留固定回退。
+## 未发现问题的方面
+
+- 第三版已正确吸收第二轮撤回的前三类问题：没有重新统一远程帧、诊断异常和命令结果；没有把 `Error.cause`、远程 `cause` 和诊断摘要混为一谈；也没有要求 harness 改写 OMP 原生 `read`/`edit` 的错误文本。上面的第 2 条只指出提示词真相源和版本切换清单仍不完整，不重复“旧会话会因 description 变化而不兼容”这一已明确写入草案的代价。
+- 跨进程失败文案不必放入每个 wire 帧；可以由共享合同、拥有目录的一方和固定未知码回退完成。问题是第 1 条指出的 owner、命名空间和版本错配没有写，不是要求建设全局文案 RPC。
+- ADR 0023 的处理方向正确：草案要求新 ADR 部分取代 `vue-i18n` 条款且不改 0023 正文，符合 ADR README 与 0028、0031 的先例；本轮没有重复第二轮关于直接改 accepted ADR 的发现。
+- 第二轮报告中关于“按错误域和通道切片、先错误模型再批改诊断、`nbstory` 不能整包归类”的方向在第三版已有体现；但第四节第 5 条的 nbdev 双通道生产者仍未落成合同，见第 7 条。
+- 数字复核：前轮已核对“引用文字的文件”是 124 个，其中非测试文件 110 个；第三版写 124 个文件与该口径一致。第三版的“约 1100 条内联文字”没有给统计命令、字符串定义或是否含测试/目录生成物的口径，无法从现有稿件证明其准确或错误，因此未把它单列为数字发现；实施前必须补可复现统计口径。
+
+## 数量
+
+- 阻断：0
+- 重要：7
+- 建议：0
+
+## 第四节待确认项判断
+
+1. **命令 `description` 改中文**：当前合同明确它是稳定英文的 Agent 说明，不能直接确认；只有先更新命令、SDK、工具/提示词合同并通过第 4 条对照评测，才可作为一次有版本边界的切换。
+2. **工具说明改语言后的旧会话**：只读查看、不能续跑是现有全量快照比较下自洽且可接受的兼容取舍，但必须把旧会话展示、恢复失败码、新旧声明版本和发布说明写进 harness/QA Spec。
+3. **旧诊断批改策略**：两种文字迁移策略都不够；应先把诊断入口与用户投影拆成 code/参数/各自渲染，再按错误域迁移，不能用中文扫描器决定分类。
+4. **先做中英文工具说明对照评测**：应成为翻译既有英文模型说明的前置条件，而不是可选确认；评测必须固定模型、题集、指标、阈值和未验证语义。
+5. **`nbstory` 三层与 `nbdev`/面板语言**：分层方向正确，但尚未足够具体；需同时定义 `nbstory` 的 CLI human、JSON/API、QA 记录和工具提示词，以及 nbdev 共享校验的结构化 producer 与中文/英文两个 consumer。
+6. **排除清单**：五个包作为“不迁移产品文案”的排除大体合理，但 `dev-panel` 不能整体排除，`nb-story`、`nb-agent-ui`、`nb-harness` 仍须按通道审查；排除 `neuro-book-test-support` 也不能排除对消费者的回归测试。
+7. **记录安排**：先 ADR、再错误处理审查、再失败投影设计、最后暂缓迁移的顺序合理；应明确新 Work 与 w00028 t01 的 owner/边界，并把第 1、2、4 条的前置证据设为 t04 开工门禁。
+
+## 验证边界
+
+- 已执行只读静态核对：设计稿、两轮后端报告、ADR README 与 0023/0028/0029/0030/0031/0033、诊断/远程/命令/harness/session/nb-story 文档及实现；用 `grep` 核对了工具描述、错误码、治理规则、发布包和 124 文件数字来源；每条发现均已先核实后追加。
+- 未运行：仓库测试套件、typecheck、`docs:check`、`governance:check`、LLM 对照评测、e2e、浏览器、开发服务、真实 Provider/Model、发布/打包 smoke。没有修改仓库文件、commit、push、stash、切换分支或删除文件。

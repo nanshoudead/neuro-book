@@ -1,0 +1,179 @@
+# 前端部分第二轮审查报告：语言与 i18n 治理方案 v2
+
+审查对象：`/tmp/review-lang-governance/design-v2.md`。实验文件在 `/tmp/review-lang-governance/lab-frontend-r2/`。对照第一轮 `report-frontend.md` 的 10 条核对处理，并找修订引入的新问题。实测环境：Bun 1.4.2、intl-messageformat 12.1.4、typebox 1.3.6、TypeScript（仓库自带）。
+
+第一轮各条核对结果概览（详见下面各条）：
+- 第 1 条（抛错无通道）：降级加上报的方向成立，但上报通道（全局 reporter）与登记时校验（`TemplateSchema`）两处落地有问题，见第 1、2、5 条。
+- 第 2 条（复数 NaN）：“传数字”只对调用方有约束，设计稿声称的运行期检测对最常见的错误不成立，见第 3 条。
+- 第 3 条（SDK 兼容）：处理有效，且“SDK 是否已发布”可以现在就关闭，见第 8 条。
+- 第 4 条（模板与结果同类型）：品牌类型挡不住最常见的一种误用，见第 4 条。
+- 第 6 条（五种形状）：设计稿仍把 nb-form 的 `text.ts` 列为要删的副本，未消除，见第 6 条。
+- 第 5、7、8、9、10 条：处理成立，下面不重复。
+
+### 1. `defineTemplates` 在模块顶层抛错：第三方插件的浏览器入口在构建时不会被执行，写坏一条模板会让整个浏览器入口在用户机器上激活失败
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：设计稿“界面文字”一节的 `defineTemplates` 条（“文字表是模块级常量，测试一跑就会发现”）与“开发者已确认的决定”第 4 条；`packages/neuro-book/src/plugin-platform/build/build-plugin.ts:13,508-512`；`docs/specs/runtime/plugin-code-loading.md:42`
+- **现象**：构建预设只在构建时执行“描述与入口定义模块”来读声明（`build-plugin.ts:13` “模块顶层会在构建时执行一次（为了读出声明）”，`:510` `loadModules(... definitionFiles)`）。浏览器入口及其引入的 Vue 组件、`web/messages.ts` 只是被打包，不执行。现有示例就是这样写文字表的：`plugin-sdk/examples/plugins/snippets/web/SnippetsPage.vue` 在组件模块顶层放 `TEXT`。改成 `const TEXT = defineTemplates({...})` 后，一条模板语法错只会在用户浏览器里执行登记工厂时抛出；规范写明浏览器入口“只缓存登记成功的工厂，失败后重试重新取回”（`plugin-code-loading.md:42`），所以这个插件的整个浏览器入口激活失败，不是“一条文字显示成原文”。
+- **为什么是问题**：与同一设计稿的决定 4（“显示时出错，降级为原文并上报，不打断渲染”）和 `TemplateSchema`（“失败按贡献拒绝”）的粒度都不一致：同一条坏模板，写在声明里只拒一条贡献，写在代码表里拖垮整个入口。“测试一跑就会发现”只对内置插件成立；第三方作者的 `nbooke build` 不会发现，SDK 的场景测试也不一定加载所有组件文件。热装载时更糟：升级一个插件后新版本的某个组件文件里有坏模板，升级流程把旧实例停掉、新实例激活失败。
+- **如何核实**：读 `build-plugin.ts:505-515`；`grep -n "TEXT\b" packages/neuro-book/plugin-sdk/examples/plugins/snippets/web/SnippetsPage.vue | head -3` 看示例的文字表在组件模块顶层。
+- **建议改法**：`defineTemplates` 默认不抛：坏模板登记为“已降级”，显示时走第 5 条的上报，同一份编译结果缓存里记录失败；抛错版本另给（例如 `assertTemplates`，或由 `NODE_ENV`/测试环境开关），让仓库内的测试与 `governance:check` 使用。构建预设可以补一步：对作者目录的 `defineTemplates({...})` 字面量做静态解析（与仓库机检共用同一个解析器），让 `nbooke build` 报错。无论选哪种，把“代码表与声明里的坏模板各自的失败粒度”写成一张表放进 ADR。
+
+### 2. `TemplateSchema` 的“登记时编译两种语言，失败按贡献拒绝”按现有登记机制做不到：贡献点的 schema 只能是纯 JSON Schema，第三方贡献点还不能带 `validate`；设计稿也没有说哪些声明字段是模板
+
+- **严重程度**：重要；**类别**：不变量（设计缺口）
+- **位置**：设计稿类型草案 `const TemplateSchema: TSchema`；`packages/nb-runtime/src/plugins/contracts.ts:51-72`（`ContributionPointDefinition.schema/validate`）；`packages/nb-runtime/src/plugins/schema.ts:119-130`；`docs/specs/runtime/plugins.md` 输出 15
+- **现象**：
+  1. `ContributionPointDefinition.schema` 的注释写明“只能用纯 JSON Schema（不能有 `Refine`、`Codec` 与自定义 format）：第三方插件的贡献点经清单登记，清单里只能放序列化得了的部分”，`schema.ts:121-126` 对 `~refine`、`~codec`、非标准 `format` 逐项报问题。ICU 语法检查只能写成函数，所以 `TemplateSchema` 作为 `TSchema` 只能检查形状（两个非空字符串），检查不了“能不能解析”。
+  2. 能跑函数的是 `validate(descriptor)`，但它的注释说明“它能写进清单，第三方贡献点不能带 `validate`”。也就是说：内置贡献点的拥有者可以在 `validate` 里调编译；第三方插件自己定义的贡献点没有任何办法让宿主替它检查模板。
+  3. 设计稿没有列出哪些声明字段是模板。现有全部贡献声明（命令标题、视图标题、设置项、状态栏条目）都是不解析的普通文字；目前唯一合理的模板声明处是“插件自定义失败码的双语文案”，这个贡献点还不存在（第 3 步才设计），带参数的话还要声明有哪些参数，否则“声明里的模板引用了失败实际不提供的 `{foo}`”要到显示时才发现。
+  4. 一条被 `validate` 拒绝的贡献的结果是 `rejected`、原因 `invalid-declaration`（输出 15），这个粒度可以满足“按贡献拒绝”，但每个贡献点的 `validate` 都要记得调；没有中心化的强制。
+- **为什么是问题**：设计稿把登记时校验当成已解决（第一轮第 1 条的处理），实际只在“内置贡献点各自手写 `validate`”这一条路上成立；类型草案里 `TemplateSchema` 看起来可以直接放进任何声明 schema，作者与实现者会照字面做出一个只查形状的东西，坏模板照样进入运行期。
+- **如何核实**：读 `contracts.ts:51-72`、`schema.ts:119-130`；`grep -rn "Type.Refine\|Type.Codec" packages/nb-runtime/src --include='*.ts' | head`（只有拒绝它们的检查）。
+- **建议改法**：二选一写进设计：(a) `TemplateSchema` 是纯 JSON Schema 加一个宿主认识的标记关键字（例如 `x-nb-template: true`），由登记流程统一遍历声明、对带标记的字段调编译，失败以 `invalid-declaration` 拒绝该贡献，第三方贡献点也自动覆盖；(b) 只对内置贡献点提供辅助函数 `validateTemplates(descriptor)` 给 `validate` 调用，并明说第三方贡献点的模板不受登记检查、只在显示时降级。无论哪种，同时列出第一批会出现模板的声明字段，没有就先删掉 `TemplateSchema`，等第 3 步有了失败码文案的贡献点再加。
+
+### 3. 设计稿说格式化“缺参数、类型不对”时降级并上报，但最常见的类型错误（复数或 `number` 收到字符串、`undefined`、`null`）不抛错，界面静默出 `NaN`；第一轮第 2 条没有真正消除
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：设计稿 `textOf` 条（“格式化失败（缺参数、类型不对）时返回该语言的原文，并…上报一次”）与“数量”条；类型草案里 `params: Readonly<Record<string, string | number | Date>>`
+- **现象**：实测 intl-messageformat 12.1.4（`lab-frontend-r2/e1.mjs`），模板 `{n, plural, one {# item} other {# items}}`：
+
+  | 传入 `n` | 结果 |
+  |---|---|
+  | `"1,234"`（现有调用方先用 `Intl.NumberFormat` 格式化出的字符串） | `NaN items`，不抛 |
+  | `"abc"`、`NaN`、`{}`、显式 `undefined` | `NaN items`，不抛 |
+  | `null` | `0 items`，不抛 |
+  | `Infinity` | `∞ items` |
+  | 缺这个键 | 抛 `MissingValueError`（会被降级与上报） |
+
+  `{n, number}` 传 `"1,234"` 同样得 `NaN`。只有缺键、`date` 收到不可转日期的值（`RangeError`）才抛。设计稿的类型 `string | number | Date` 在编译期也放行字符串，所以“数量传数字”只是约定。
+- **为什么是问题**：设计稿的降级通道只覆盖“抛错”这一类失败；第一轮第 2 条指出的正是“静默 NaN”，v2 的处理只写“数量传数字，列出调用方”，没有任何东西在调用方漏改一处时报错。现有调用方里有 `status-items.ts:118`（`number()` 返回字符串再传）、`shelf-format.ts`、`PluginsPage.vue`（`count: String(...)`）等，漏改任何一个，单元测试用小数字（`"1"` 得 `1 item`）全部通过，≥1000 才坏。
+- **如何核实**：`cd /tmp/review-lang-governance/lab-frontend-r2 && bun e1.mjs`。
+- **建议改法**：包装层在编译缓存里顺带记下每个参数的期望类别（解析结果里 `plural`、`selectordinal`、`number` 要有限数，`date`、`time` 要 `Date` 或有限数，`select` 要字符串；解析器的 AST 已经给出），格式化前对 `params` 逐项断言，不符合就按“格式化失败”走降级与上报；这样“类型不对”的说法才成立。类型层面也可以让 `message()` 在模板的参数表里区分（见第 4 条）。
+
+### 4. `MessageTemplate = LocalizedText & 品牌` 是 `LocalizedText` 的子类型：模板能不报错地当普通文字显示出 ICU 源码；调用处的参数名没有类型检查；`unique symbol` 品牌遇到重复安装会互不兼容
+
+- **严重程度**：重要；**类别**：不变量
+- **位置**：设计稿类型草案 `type MessageTemplate`、`type DisplayText`、`message()`
+- **现象**：按草案原样在 lab 里编译（`lab-frontend-r2/b1.ts`，`tsc --strict`）：
+  1. `const a: DisplayText = T.count;` 通过。`MessageTemplate` 带品牌的交叉类型是 `LocalizedText` 的子类型，`DisplayText` 的第二支 `LocalizedText` 直接接住它；`textOf` 走“普通文字直取”，界面上显示的是 `{count, plural, one {# item} other {# items}}` 的源码。命令标题、视图标题这类把文字交给插件框架的位置，参数类型都是 `LocalizedText`，同样接受模板（`setTitle(T.count)` 通过）。品牌只拦住了“普通文字当模板”（`message({"zh-CN":"x","en-US":"y"}, {})` 报错），拦不住反方向，而反方向恰恰是“忘了调 `message()`”这种最常见的遗漏。第一轮第 4 条要消除的正是这类混用。
+  2. `message(T.count, {nmae: 3})` 通过：模板的参数表不在类型里，写错占位符名、漏参数只在显示时降级并上报。第一轮的“带参数的模板写错占位符名时谁报错”（审查重点 4）现在的答案是“运行时、显示那一刻、一次”。
+  3. `defineTemplates({x: {"zh-CN": "{a}", "en-US": "{b}"}})` 类型上通过，只能靠运行期比对；这一点设计稿已写，但与上面两条合起来，类型层面几乎没有防线。
+  4. 品牌用 `declare const templateBrand: unique symbol`：nb-form、nb-agent-ui、nb-markdown 作为独立发布的包依赖 nb-text（ADR 0029），消费者一旦装了两份 nb-text（版本范围不重叠，或两个包各自内联了一份类型），`MessageTemplate` 在两份之间互不可赋值。实测把同一份声明拷成 `a.ts`、`b.ts`：`TS2322 ... [templateBrand] is missing`；改成 `readonly __brand: "MessageTemplate"` 的字符串品牌则通过（`lab-frontend-r2/dup/`）。插件 SDK 的 `.d.ts` 是打平的，不受影响，受影响的是 npm 上的三个包。
+- **为什么是问题**：设计稿的核心承诺是“显式标成模板才解析、其余原样显示”，类型是它唯一的编译期保证；现在只保证一个方向。
+- **如何核实**：`cd /tmp/review-lang-governance/lab-frontend-r2 && /home/notnotype/CodeRepository/neuro-book/node_modules/.bin/tsc --noEmit --strict --target es2022 b1.ts`，只报第 12 行（普通文字当模板）与第 24 行（FormText 当 DisplayText，见第 6 条）两个错；第 10、14、16、19、21 行的反例全部放行。
+- **建议改法**：
+  1. 让两类文字不可互相赋值：`MessageTemplate` 不再是 `LocalizedText` 的子类型，例如品牌属性换成会使结构不兼容的形状（`{readonly "zh-CN": string; readonly "en-US": string; readonly [brand]: …}` 做不到，要改成 `{readonly text: LocalizedText; readonly [brand]: true}` 的包装对象），或 `LocalizedText` 一侧加反向品牌；`DisplayText` 的联合里 `MessageTemplate` 本身不是成员，只有 `{template, params}` 是。
+  2. 模板的参数表进类型：`defineTemplates` 用 `const` 泛型保留字面量，对简单 `{name}` 占位用模板字面量类型抽取参数名，得到 `MessageTemplate<"count" | "path">`，`message()` 要求 `params` 的键与之相同；ICU 的 `plural`/`select` 参数可只抽取到名字，类别在运行期检查（第 3 条）。
+  3. 品牌用字符串字面量属性，避免重复安装互斥。
+
+### 5. `setTextErrorReporter` 与“按模板去重”都是进程级全局状态：Bun 的默认测试器把多个测试文件放在同一进程，后一个文件收不到上报；发布到 npm 的三个库依赖一个宿主必须记得调用的全局钩子，没调用时的行为设计稿没写
+
+- **严重程度**：重要；**类别**：测试 / 不变量
+- **位置**：设计稿类型草案 `setTextErrorReporter`、`textOf` 条（“按模板与错误类型去重，上报一次”）、缓存条；`packages/neuro-book/package.json:14`、`packages/nb-form/package.json:21`、`packages/nb-agent-ui/package.json:23`（`bun test`，没有 `--isolate`）；`packages/nb-story/src/web/pages/QaPage.vue:499`（`locale="zh-CN"` 写死）
+- **现象**：
+  1. **测试**：实测（`lab-frontend-r2/share/`，Bun 1.4.2）两个测试文件各自 `setReporter(...)` 后对同一模板 `report("tpl-1")` 并断言收到一次：默认 `bun test` 第二个文件失败（去重集合已含 `tpl-1`，收到空数组），`bun test --isolate` 两个都过。仓库里只有 `packages/dev-panel` 的脚本带 `--isolate`；neuro-book、nb-form、nb-agent-ui、nb-markdown、nb-story 都是裸 `bun test`。模板是模块级常量（`defineTemplates` 的返回值），跨测试文件是同一批对象，所以“降级并上报一次”的行为测试只有最先跑的那个文件能通过，其余取决于文件顺序（`--changed`、`test:affected` 选出的子集会改变顺序）。reporter 本身也是后设置者覆盖前者，一个测试忘了还原会影响后面的文件。这与 AGENTS.md 的“测行为、等可观察状态”冲突：被迫在每个测试里用 `resetTextProblems()` 之类的测试专用出口。
+  2. **宿主数量**：同一页面的宿主目前是一个（neuro-book 的应用与 Lab 同页），但三个库（nb-form、nb-agent-ui、nb-markdown）都发布到 npm（ADR 0029），第三方宿主、nb-story 查看器（单语中文，写死 `locale="zh-CN"`，同时依赖 nb-agent-ui、nb-form、nb-markdown）各自要在启动时记得调用（dev-panel 网页只依赖 nb-ui，不涉及）。没有调用时设计稿没有定义：静默丢弃就是决定 1 要避免的“静默吞错”；默认 `console.error` 又会在测试里刷屏。
+  3. **多份副本**：消费者的依赖树里出现两份 nb-text（见第 4 条第 4 点的版本范围不重叠）时，宿主在其中一份里注册 reporter，另一份的上报丢失，没有任何提示。
+  4. 还有一层：设计稿说 SDK 重新导出 `message`/`textOf`；`setTextErrorReporter` 若也被 SDK 的 `export *` 带出，第三方插件可以替换宿主的 reporter（SDK 根入口的导出面由 `sdk.test.ts:26` 钉住，需要明确排除）。
+- **为什么是问题**：全局单例让“降级加上报”这一核心行为在默认测试配置下不可测，也不可靠地到达使用者。
+- **如何核实**：`cd /tmp/review-lang-governance/lab-frontend-r2/share && bun test`（失败）；`bun test --isolate`（通过）；`grep -n '"test"' /home/notnotype/CodeRepository/neuro-book/packages/{neuro-book,nb-form,nb-agent-ui,nb-markdown,nb-story,dev-panel}/package.json`。
+- **建议改法**：不靠“注入单个函数”：
+  - 做法一（改动最小）：包导出 `onTextProblem(listener): () => void`（多订阅者，返回取消函数），去重状态由订阅者决定而不是包内全局；包内无订阅者时用 `queueMicrotask(() => { throw … })` 或 `reportError`，让浏览器的全局 `error` 事件和测试运行器都能看到，不静默；
+  - 做法二：把问题收集放在一个由宿主创建的对象里 `createTextRuntime({report})`，Vue 层经宿主已有的 `provide/inject`（Spec 已有“宿主提供的 i18n”）下发，纯 TS 层的 `textOf` 多收一个可选的 `runtime` 参数；核心库不碰全局。
+  - 无论哪种，去重键用 `WeakMap<模板, Set<语言+错误类型>>`，状态随模板对象寿命，不开独立的全局集合；`setTextErrorReporter` 不进 SDK 导出面。
+
+### 6. `DisplayText` 换不掉 nb-form 的 `FormText`，设计稿仍把 nb-form 的 `text.ts` 列为要删的副本；nb-form 的消息表是带逻辑的函数，不是“每条一对”；`{key, params}` 退场后 nb-agent-ui 的测试写法要整体改
+
+- **严重程度**：重要；**类别**：不变量 / 代码质量
+- **位置**：设计稿“要删掉的副本有四份”条（“nb-form 的 `text.ts` 与 `vue/messages.ts` 的形状”）与“三个包里的平行表（约 1350 行）改成每条一对”；`packages/nb-form/src/text.ts:9-27`；`packages/nb-form/src/vue/messages.ts:61-120`；`packages/nb-agent-ui/src/process-summary.test.ts:12`；`docs/specs/ui/forms.md:58,114`
+- **现象**：
+  1. **`FormText`**：`string | Readonly<Record<string,string>>`，schema 是 `Type.Record(Type.String(), Type.String(), {minProperties: 1})`，取值规则“没有当前语言取 `en-US`，再没有取第一种”（forms.md 第 58 行）。它的输入来自 nbdev 面板、模型生成的描述、插件的 JSON Schema 里的 `x-form`，可以只给一种语言、给任意语言。`DisplayText` 的 `LocalizedText` 要求 `zh-CN` 与 `en-US` 都在：实测 `const g: DisplayText = f`（`f: Readonly<Record<string,string>>`）报 `TS2322`（`lab-frontend-r2/b1.ts` 第 24 行）。换成 `DisplayText` 会让已有的单语 `x-form` 提示不合法，或迫使 nb-form 核心依赖 nb-text 再包一层转换。第一轮第 6 条建议“明确 `FormText` 与核心不变”，v2 的处理栏写“已补”，正文却仍把它列为要删的副本，两处矛盾。
+  2. **nb-form 的消息表**：`vue/messages.ts` 235 行，条目是函数（`issueCount: (count) => ...`、`"minimum": (params) => (params.comparison === ">" ? "必须大于 …" : "不能小于 …")`），以 schema 校验器给的参数（`comparison` 的值是符号 `">"`、`"<"`）分支。改成 ICU 后 `select` 的选择子不能是 `>`：实测 `{comparison, select, > {…} other {…}}` 抛 `EXPECT_SELECT_ARGUMENT_SELECTOR`（`lab-frontend-r2/a1.mjs`），要先在校验器侧或调用侧把符号映射成 `gt`、`lt` 这种名字；这是改调用方的签名，不属于“每条一对”。
+  3. **`ViewText` 的 `{key, params}`**：它让 nb-agent-ui 的纯逻辑层只产出键，测试直接断言键与参数（`process-summary.test.ts:12` 的 `parts()` 返回 `[key, params]` 对）。换成 `message(AGENT_TEXT["process.fallback"], …)` 后，测试要比较模板对象的身份或展开成字符串，前者与实现耦合，后者要给 `textOf` 一个语言；这是设计稿“120 余个引用文件改写”之外的测试重写，且 `AgentTextKey` 提供的“键必须在两种语言表里都有”的穷尽检查要换成 `satisfies Record<AgentTextKey, …>`。
+  4. 编辑器句柄的 `status` 是 `Ref<LocalizedText | string | null>`（`editor/shared/contracts.ts:305`），与 `DisplayText` 的前两支一致，可以无损换成 `DisplayText`；但 `status-items.ts:140-141` 的 `display()` 只处理字符串与 `LocalizedText`，要改用 `textOf`，Spec `docs/specs/workbench/editor.md:89` 写的 `Ref<LocalizedText | null>` 也要同步。这一项可落地，列在这里是因为清单里没有它。
+- **为什么是问题**：设计稿的前提“五种形状收成一种”不成立：`FormText` 的开放语言集合是被需求支撑的（模型生成、第三方 schema），应当保留；其余形状的替换也比表述的大。
+- **如何核实**：`grep -rn "FormText" /home/notnotype/CodeRepository/neuro-book/packages --include='*.ts' --include='*.vue' -l | grep -v legacy`；读上述行。
+- **建议改法**：设计稿写明：`FormText` 与 `resolveText` 留在 nb-form 核心，不依赖 nb-text；nb-form 的 Vue 层消息表可以引用 nb-text 的 `message()`，但 `vue/messages.ts` 的函数项按需改成模板，需要 `select` 的先改参数；把 nb-agent-ui 测试写法的改动列入步骤 1；对 `FormText` 的开放形状，如果以后要让应用的 `LocalizedText` 也开放（第一轮第 8 条），再统一。
+
+### 7. “比对两边的占位符名与参数类型是否一致”按字面做会拒绝最自然的中英配对；“数量”的格式也没定到可检查
+
+- **严重程度**：重要；**类别**：正确性 / 测试
+- **位置**：设计稿 `defineTemplates` 条与“机检”第三项（“两种语言的占位符不一致”）；`packages/neuro-book/src/plugins/editor/web/status-items.ts:118-135`
+- **现象**：
+  1. 解析器给出的节点类型（`lab-frontend-r2/c1.mjs`）：中文常写 `未保存 {count} 个`，节点类型是 `argument`（1）；英文写 `{count, plural, one {# unsaved} other {# unsaved}}`，节点类型是 `plural`（6）；`{count, number}` 是 `number`（2）。“参数类型一致”如果比较节点类型，每一对“中文简单代入、英文复数”都不通过；要放过就得把规则写成“参数名相同，类别兼容”，类别兼容表（`argument` 对 `plural`/`number` 算不算）设计稿没有。我扫了应用、nb-agent-ui、nb-markdown 里同一行的中英对（`lab-frontend-r2/diff.mjs`，924 对），占位符名集合不同的有 0 对，所以名的比对不会误伤现有文字；类型比对会，因为设计稿要求“数量传数字、复数由 ICU 处理”。
+  2. 数字显示：现在的 `number()` 先 `Intl.NumberFormat(locale)` 得到 `12,345` 再代入。换成 ICU 后，中文 `{count}` 传数字 `12345` 输出 `12345`（不分组），要写 `{count, number}` 才分组（第一轮第 2 条已指出）。规则没写“数量必须用 `{count, number}` 或 `plural`”，并列出来的几处调用方改完后，分组与否由每条模板作者自己决定，两种语言还可能不一致（`12,345` 对 `12345`）。机检与 `defineTemplates` 都没有规则管。
+- **为什么是问题**：开发期的一致性检查是“写错立即抛”的那一道门，门的判据不明确时，要么误拒合法写法（作者被迫把中文也写成 `plural`），要么放过真正的不一致。
+- **如何核实**：`cd /tmp/review-lang-governance/lab-frontend-r2 && bun c1.mjs && bun /tmp/review-lang-governance/lab-frontend-r2/diff.mjs`（在仓库 `packages/` 目录下运行 `diff.mjs`）。
+- **建议改法**：设计稿把判据写成表：名集合必须相同；参数类别按 {数字类：`plural`、`selectordinal`、`number`；日期类：`date`、`time`；选择类：`select`；通用：`argument`} 分组，`argument` 与任意类别兼容，但数字类和日期类之间、与 `select` 之间不兼容；数量的显示规则单列一条：带数量的占位符一律写 `{count, number}` 或 `plural`，机检要求。
+
+### 8. 插件 SDK 还没发布：设计稿“按 `engines.neurobook` 规则处理、以发布记录为准（未核实）”可以关闭，代价比写的小；但配套改动清单漏了几处机检与快照
+
+- **严重程度**：建议；**类别**：文档
+- **位置**：设计稿“插件 SDK”条；`docs/adr/0030-plugin-platform-layering.md:43`；`packages/neuro-book/plugin-sdk/pack.ts:17-19`；`packages/neuro-book/src/sdk/sdk.test.ts:26`；`packages/neuro-book/src/sdk/surface.test.ts:66-89`
+- **现象**：核实结果：
+  - ADR 0030 后果一条：“SDK 还没发布，现在改代价最小”；`pack.ts` 头注释：“SDK 不发布、Work 分支也不推到远端”；`docs/specs/runtime/plugin-api.md:146`：“在 SDK 没有发布时装不上，命令在标准错误提示先装 SDK 的 tarball”；`scripts/release/packages.ts` 中没有 SDK；`docs/specs/runtime/plugins.md:149`：“不承诺第三方 SDK 兼容”。仓库的 git 标签只有旧应用的 `v*` 与 `manager-v*`。所以改 `formatText`/`localize` 没有已安装的第三方插件要兼容；可以直接 clean cutover，不必保留旧入口，也不必写“兼容变更”的流程。
+  - 要同步改的地方，设计稿只写了 `typePaths`：(1) `sdk.test.ts:26` 钉住的导出名 `formatText`、`localize` 改成新名；(2) `surface.test.ts:66,69,74,88,89` 五个子路径的闭包里列了 `shared/localized-text.ts`，搬到 nb-text 后这些行要换成包名层面的检查（`closure()` 的 `packages` 列表目前没有被断言）；(3) `plugin-sdk/examples/plugins/snippets/web/SnippetsPage.vue:32,63`、`SnippetsEditor.vue`、模板与作者 README 的写法；(4) `docs/exports.md` 是生成的，随之变；(5) `pack.ts` 把非 PEER 的包打进 SDK 的 `index.js`（`PEERS` 只有 vue 与 typebox），所以 `intl-messageformat` 及其解析器会进 SDK 的构建期拷贝，是第二份；这一点符合 `pack.ts` 的现有设计，但要在发布清单里认账，并且服务端也加载这个入口（`surface.test.ts` 第一条要求服务端可用的子路径不连带 Vue），nb-text 必须保持无 Vue。
+- **为什么是问题**：不是缺陷，是设计稿把一个能立刻核实的事实留成“未核实”，并因此给自己加了没必要的兼容流程，同时漏了几个会在 CI 里红的快照。
+- **如何核实**：`sed -n 41,45p docs/adr/0030-plugin-platform-layering.md`；`grep -n "不发布" packages/neuro-book/plugin-sdk/pack.ts`；`grep -n "sdk" scripts/release/packages.ts`（无输出）。
+- **建议改法**：把“SDK 兼容”一条改成“SDK 未发布，直接改名；同步改以下文件：……”，并列上面五项。
+
+### 9. 以模板对象身份为键的缓存：Vue 深层响应式代理和 `structuredClone` 会换掉身份，“开发期编译一次”和“上报一次”各自失效；设计稿没有要求冻结模板
+
+- **严重程度**：建议；**类别**：正确性 / 安全与性能
+- **位置**：设计稿“缓存”条（`WeakMap<MessageTemplate, Map<DisplayLocale, IntlMessageFormat>>`）与 `defineTemplates`、`textOf` 条
+- **现象**：`message()` 每次构造新的 `{template, params}` 不影响缓存，键是里面的 `template` 引用，身份不变，这一点没有问题。会换掉身份的是：
+  1. Vue 深层响应式：把 `{template, params}` 放进 `ref(...)`/`reactive(...)`（例如编辑器句柄的 `status: Ref<DisplayText | null>`、通知、设置页状态），读 `.template` 得到响应式代理，不是原对象。实测（`lab-frontend-r2/f1.mjs`）：代理在多次读取间稳定，但 `代理 !== toRaw(代理)`。`defineTemplates` 在原对象上做的“开发期编译”与去重记录，显示时用代理查不到，会再编译一次，也会再上报一次（去重键按对象身份时）。
+  2. `structuredClone`：仓库里有这条路径，`nb-runtime/src/remote/node.ts:768`（远程调用的返回值，本地也克隆）、`LabShell.vue:519`。通过这些通道的 `DisplayText` 每次是新对象，每次显示都重新编译（实测构造一个 ICU 实例约 13 µs，格式化另算；书架 500 张卡 × 3 条约 20 ms，量不大），去重也失效。
+  3. 反方向有利：实测冻结的对象（`Object.freeze`）Vue 不代理，读出来仍是原对象。
+- **为什么是问题**：量不大，但“上报一次”被绕过时，一个坏模板在每次渲染都上报一次，淹没诊断。
+- **如何核实**：`bun /tmp/review-lang-governance/lab-frontend-r2/f1.mjs`。
+- **建议改法**：`defineTemplates` 返回冻结对象（设计稿补一句）；缓存与去重键在需要时取 `toRaw`（nb-text 不依赖 Vue，可以退而求其次，用模板内容 `zh-CN + "\u0000" + en-US` 的字符串做去重键，`WeakMap` 只做编译结果的缓存）；`TemplateSchema` 校验后的清单对象同样冻结。
+
+### 10. 机检“普通 `LocalizedText` 里形似 `{\w+}`”：现有文字里误报面小，但漏报面是它想防的那一类；应当用解析器而不是正则，并先定“普通文字能不能含花括号”
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：设计稿“机检”第二项
+- **现象**：
+  - 误报面（实测）：应用、nb-agent-ui、nb-markdown、nb-form 的非测试源码里，`"zh-CN"/"en-US"` 字符串值含 `{` 或 `}` 但不是 `{\w+}` 形状的，0 条（`grep -rnE '"(zh-CN|en-US)": *"[^"]*[{}][^"]*"' … | grep -vE '\{\w+\}'`）；形似 `{\w+}` 的有 198 条，全部是现在 `formatText` 的占位。源码里把模板字面量当文字用的 1 处，`editor/web/commands.ts:241`：`` {"zh-CN": `${id}（当前）`, …} ``，对源码文本做正则会命中 `${id}`，对语法树不会。所以误报来源只有“按源码文本扫描”。
+  - 漏报面（`lab-frontend-r2/g1.mjs`）：正则看不见 `{count, plural, one {# a} other {# b}}`（忘记标成模板的复数）、`{file-name}`、`Use {} for objects`、`JSON like {"a": 1}`；而解析器能区分：前者是非字面元素，后三者是语法错。ICU 化之后，真正危险的“忘了标模板”恰好多是复数和 `select`。
+  - 反过来，若用解析器，规则需要决定：普通文字里写 `{"a": 1}` 这类字面花括号算不算违规（它会被解析器判语法错）。现在 0 条，但没有写进规则，以后第一条出现时没有依据。
+- **为什么是问题**：正则版本防不住设计稿第 4 条“普通文字从不解析”的失误方向，且在复数上漏。
+- **如何核实**：`bun /tmp/review-lang-governance/lab-frontend-r2/g1.mjs`。
+- **建议改法**：机检用 TypeScript 语法树取字符串值（不是源码文本），对 `defineTemplates` 之外、类型为普通 `LocalizedText` 的字面量，用 `@formatjs/icu-messageformat-parser` 解析：解析出非字面元素（`{name}`、`{n, plural, …}`、`{0}`）就报“忘了标成模板”。字面花括号（`{"a": 1}`、`{}`）解析为语法错，规则里写明放行：只对形似参数的 `{标识符}` 与 `{标识符, …}` 报。这条机检要补偿第 4 条里类型挡不住的方向，优先级应高于现在的排位。
+
+### 11. 降级结果“该语言的原文”对复数和 `select` 模板是整段 ICU 源码，直接显示在状态栏与按钮上；旧的降级是只留下缺的那个占位
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：设计稿 `textOf` 条；`status-items.ts:121,135`（状态栏条目文字）
+- **现象**：旧 `formatText` 缺参数时输出 `未保存 {count} 个`（只有缺的占位原样留着，其余可读，第一轮第 1 条记录过）。v2 的降级返回“原文”：`{count, plural, one {# unsaved} other {# unsaved}}` 缺 `count`（或解析失败）时，状态栏显示的就是这整段花括号语法。第一轮建议过评估 `@formatjs/intl`（缺参数输出 `Hello {name}`，错误走 `onError`，t3 实测）；v2 的处理只回应了“为什么不选它”，没有回应它的降级输出更可读这一点。
+- **为什么是问题**：降级是为了“出错时界面仍可用”，对带数量的文字（初版设计稿估 19 条，多是状态栏、徽标、按钮上的短文字）降级后几乎不可读，用户看到的是语法而不是缺了个数字的句子。
+- **如何核实**：`bun /tmp/review-lang-governance/lab-frontend-r2/e1.mjs`（缺键抛 `MissingValueError` 的那行）；对比 `/tmp/review-lang-governance/lab-frontend/t3.mjs` 里 `@formatjs/intl` 的输出。
+- **建议改法**：降级文字的规则写成：能解析的模板，缺的参数用其占位字面 `{name}` 补上再格式化一遍（`format` 之前对 `params` 补 `name -> "{name}"`；对复数等分支取 `other` 分支）；解析不了的模板才返回原文。只需包装层十几行，不改选型。
+
+### 12. 设计稿里的规模数字：“平行表约 1350 行”复核为约 755 行
+
+- **严重程度**：建议；**类别**：文档
+- **位置**：设计稿“界面文字”一节“三个包里的平行表（约 1350 行）改成每条一对”
+- **现象**：三个包里中英平行表的文件：`nb-agent-ui/src/messages.ts` 438 行（含 `agentText`、`formatText` 等逻辑约 40 行）、`nb-form/src/vue/messages.ts` 235 行、`nb-markdown/src/display/static-views.ts` 82 行，合计 755 行；加上 `nb-markdown/src/prompt/prompt-labels.ts` 38 行也不到 800。438 + 235 + 679（`nb-markdown/src/prompt/prompt-text.ts`，是编辑器读写逻辑，没有文字表）刚好 1352，估计粗算时把它算进去了。“120 余个引用文件”复核：引用 `localized-text`/`LocalizedText`/`formatText` 的文件（含 nb-story、插件 SDK 示例）124 个，其中非测试 110 个，成立。
+- **为什么是问题**：不影响结论，但工作量估算用了这个数字（步骤 1）。
+- **如何核实**：`wc -l packages/nb-agent-ui/src/messages.ts packages/nb-form/src/vue/messages.ts packages/nb-markdown/src/display/static-views.ts packages/nb-markdown/src/prompt/prompt-labels.ts`。
+- **建议改法**：改成约 800 行，并说明其中 nb-form 是函数表（第 6 条），不是简单的键值对。
+
+## 未发现问题的方面
+
+- `message()` 每次显示重新构造 `{template, params}`：缓存键是里面的 `template` 引用，不受影响。`WeakMap` 随模板对象释放，热卸载后不留引用，这一点成立（身份被换掉的情形见第 9 条）。
+- 双语占位符名一致性：同一行中英对 924 对里名集合不同的 0 对，名比对不会误伤现有文字（类型比对见第 7 条）。
+- 启动期编译成本：1850 个模板（两种语言各 925）构造 intl-messageformat 实例，Bun 下 24 ms（约 13 µs 每个），不构成问题。
+- 编辑器句柄 `status` 换成 `DisplayText`：前两支与现有 `LocalizedText | string` 一致，可无损替换（只需改 `display()`，见第 6 条第 4 点）。
+- 第一轮第 5、7、8、9、10 条的处理：失败码通道缺口移交第 2、3 步、对比表更正、回退规则现写定、机检扩大、缓存改键，处理成立，仔细检查后没有发现需要重复提出的问题（机检的具体判据见第 7、10 条）。
+- 新包不放 nb-ui、纯 TS：与 `nb-form` 核心不依赖 Vue 的约束一致，没有发现问题。
+
+## 数量
+
+共 12 条：阻断 0，重要 7（第 1 到 7 条），建议 5（第 8 到 12 条）。
+
+## 对设计稿“待开发者确认”两项的判断
+
+1. 开发者面板网页单一中文：合理；`nb-story` 查看器已是同样做法（向 nb-agent-ui、nb-form 写死 `locale="zh-CN"`），dev-panel 只依赖 nb-ui、不引用这三个双语库，不会被 ICU 改动牵连。
+2. ADR 的“部分取代”：同意 0023 保持 `accepted`、由新 ADR 正文写明取代哪一项；顺手把 `docs/adr/README.md` 的 frontmatter 补一个“部分取代”的写法更好，否则以后查 0023 的人看不到被取代的那一项。

@@ -1,0 +1,146 @@
+### 1. 用户失败投影不进线协议，但浏览器端没有取得自定义失败文案的合同
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`/tmp/review-lang-governance/design-v2.md:15-21,87-89`；`packages/nb-runtime/src/remote/contract.ts:157-171,319-322`；`packages/neuro-book/src/plugins/workbench/web/commands/failure-notice.ts:23-30`
+- **现象**：第二版确认用户投影“只用在界面边界，不进线协议”，远程业务失败仍只有按方法声明的 `code/detail`，并把“插件自定义失败码怎么带文案”留到第 3 步设计。浏览器收到后端插件的自定义码时，现有远程结果没有双语目录、文案 provider 或宿主回退规则；`detail` 只能是业务详情，不能可靠承担主文案。
+- **为什么是问题**：对内置命令可以在 web 端写静态码表，但第三方/后端插件的错误码是动态声明的，通用宿主既不知道码，也没有办法在不把文案放进 wire 的情况下显示双语失败说明。把 `LocalizedText` 塞进 `detail` 会破坏方法错误 schema；把英文 `detail` 当文案又违反决定 1。未知码、跨版本码、只提供服务端入口的插件都会落入“只有 code、没有用户说明”的失败路径。
+- **如何核实**：用 `defineRemoteService` 声明一个 `errors: {"custom-failure": Type.Object({id: Type.String()})}` 的服务，经真实 `RemoteClient` 返回该码；调用方只能得到 `{ok:false, code, detail}`，现有 `failureNotice` 也只处理命令自己的 `reason`。再构造一个没有浏览器入口的后端插件，确认宿主没有可加载的文案表。
+- **建议改法**：第 3 步必须先定 owner 和跨进程形状：例如由共享合同同时登记 `failureCode -> LocalizedText` 的纯 JSON catalog，浏览器/宿主按合同版本加载并对未知码回退固定文案；或规定自定义码只能由拥有浏览器入口的插件消费。catalog 的版本、缺失、冲突和第三方恶意超大文案都要进入 manifest/贡献校验与兼容合同，不能把它留作实现阶段的“怎么带文案”。
+### 2. `MessageTemplate` 的 brand 在插件清单和跨进程登记后消失
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`/tmp/review-lang-governance/design-v2.md:49-63,69-72`；`packages/nb-runtime/src/plugin-manifest/build.ts:44-58,179-196`；`packages/nb-runtime/src/plugin-manifest/read.ts:54-63,86-99`；`packages/neuro-book/src/plugin-platform-profile.ts:16-19,35-48`
+- **现象**：设计用运行时 `templateBrand` 区分普通 `LocalizedText` 与 ICU 模板，并要求普通文字从不解析；但第三方插件的贡献声明会被 `buildManifest` 序列化进 `package.json`，清单读取只恢复 JSON 字符串，`MessageTemplate` 的 symbol brand 不会跨文件、进程或宿主模块表保存。草案的 `TemplateSchema` 只写“清单 JSON 用”，没有给出清单字段如何标记这是模板的形状。
+- **为什么是问题**：宿主登记时无法知道一个 `{zh-CN,en-US}` 是普通文字还是模板。若按所有形似 `{name}` 的字符串编译，就违反普通文字不解析并会改变已有插件；若按普通文字直取，清单里的模板永远不格式化；若给 JSON 增加标记，又改变贡献声明/manifest schema 和旧插件读取合同。跨进程远程贡献和浏览器加载还会产生不同的 brand 实例，不能把 symbol 身份当持久化合同。
+- **如何核实**：用第三方 `view`/`command` 声明生成 `package.json`，再经 `readManifest` 读回；读回对象只能包含 JSON 字符串，不能保留 `templateBrand`。对同一 `{zh-CN: "Hello {name}", en-US: "你好 {name}"}` 分别作为普通文字和模板登记，当前清单形状没有可观察差异。
+- **建议改法**：给持久化声明定义显式、可版本化的模板形状，例如 `{kind: "template", messages: {"zh-CN", "en-US"}}`，并让普通文本保持原两字段形状；`buildManifest`/`readManifest`/SDK helper/贡献 schema/宿主共享模块一起校验和重建运行时对象。为旧清单定义“普通文本”兼容读取，不能靠运行时猜测或 brand 透传。
+### 3. SDK 删除 `formatText`/`localize` 会在现有 `engines.neurobook` 兼容范围内造成运行时断裂
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：`/tmp/review-lang-governance/design-v2.md:64-79`；`packages/neuro-book/src/sdk/index.ts:41-43`；`packages/neuro-book/src/sdk/entries.ts:5-7,14-16`；`packages/neuro-book/src/plugin-platform-profile.ts:22-24,35-48,61-68`；`packages/neuro-book/src/shared/product.ts:1-8`
+- **现象**：设计把 SDK 的公开 `formatText`/`localize` 改成 `message`/`textOf`，只说“按 `engines.neurobook` 兼容变更处理”，没有定义产品版本、SDK 版本或宿主模块表的切换。当前产品版本是 `0.1.0`，第三方插件构建缺省写 `engines.neurobook: ^0.1.0`；运行时用同一 SDK 入口的宿主模块表给插件提供实现。
+- **为什么是问题**：旧插件的浏览器入口或共享模块仍会调用宿主 SDK 的 `formatText`/`localize`。只删除导出而不提高引擎门槛时，manifest 仍会通过 `engineAccepts`，直到入口激活才因缺少导出失败；只提高产品版本又会把所有现有 `^0.1.0` 插件标成不兼容，必须明确升级/回退策略。SDK tarball 的版本来自 `PRODUCT_VERSION`，宿主共享模块的兼容承诺由 `SDK_ENTRIES` 固定，不能只改类型导出和 `typePaths`。
+- **如何核实**：保留一个旧插件构建产物，令其入口调用 `@notnotype/nb-plugin-sdk` 的 `formatText`，在只导出新 API 的宿主模块表中激活；manifest `engines.neurobook: ^0.1.0` 仍通过，但入口加载/运行失败。现有 `packages/neuro-book/src/plugin-platform-profile.ts:22-24` 已明确每个共享模块都是 `engines.neurobook` 的兼容承诺。
+- **建议改法**：选择并写死一种兼容策略：在同一引擎范围保留旧导出别名并继续测试，或提高 `PRODUCT_VERSION`/`engines.neurobook` 的不兼容范围并让安装器在激活前拒绝旧插件；若要双宿主 API，版本化 SDK 入口/宿主模块表。更新 `sdk.test.ts`、生成 SDK、插件安装兼容测试和 release smoke，不能把它归为普通源码改名。
+
+## 中途复核更正（以下判断优先于前面的初稿）
+
+- **第 1 条保留为“重要”，但收窄为第 3 步的设计前置条件**：静态代码证明当前远程结果不承载用户文案，不能证明“不让用户失败投影进入调用结果”本身不可行。调用方可以从双方共享的合同常量得到内联双语映射，未知码也可以显示固定双语兜底；不必建设全局消息目录，也不应为此限制插件必须有浏览器入口。第二版已把此事安排在第 3 步，需把“共享映射或通用兜底的 owner、未知码行为、两端版本错配”写成该步的验收，而不是当作已经完成的错误模型设计。前面的真实 RemoteClient 实验是建议核实方式，本轮尚未执行。
+- **第 2 条撤回，不计入发现数量**：草案只给出类型 brand，没有声明 `templateBrand` 必须是运行时 symbol；`DisplayText` 已有 `{template, params}` 的可序列化外层判别。普通贡献的 title 目前只接受普通 `LocalizedText`，不能据此推断模板一定要以相同字段无标记穿过 manifest。JSON 不保存 symbol 是事实，但不足以证明本稿必然丢失模板身份；`TemplateSchema` 的字段接受范围和可移植校验属于尚待明确的实现合同，不能把臆定的运行时 brand 当作已存在机制。
+- **第 3 条由“阻断”降为“重要”，标题中的“会在现有范围内断裂”是有条件结论**：设计第 79 行已经识别 SDK 兼容变更，没有决定继续使用 `0.1.0`。只有在删除导出且未同步不兼容版本时才发生该断裂。仓库作者文档 `packages/neuro-book/plugin-sdk/README.md:33,332` 明确 SDK 目前以 tarball 分发、不发布 npm；本轮读取 npm registry 的包与 latest 两个地址均返回 HTTP 404，不能据此声称从未分发过本地 tarball。保留的问题是第 1 步缺少选定的切换方案、对已安装产物的引擎拒绝验收，而不是已经证实的运行故障。建议沿用干净切换：明确不兼容产品版本、重建示例/SDK、在激活前按引擎范围拒绝旧产物；无须为未证实的消费者强制保留别名或引入双宿主入口。
+
+以上更正不新增编号；最终统计排除第 2 条，并以第 3 条的修订级别为准。
+
+### 4. 通道矩阵漏掉运行中事件：领域工具新增的 `details.code` 在网页投影中被丢弃
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`/tmp/review-lang-governance/design-v2.md:13-14,87-89`；`packages/nb-story/src/qa/web-events.ts:12-17,38-42`；`packages/nb-story/src/server/qa-service.ts:161-179`；`packages/nb-agent-ui/src/harness.ts:215-235,352-369`
+- **现象**：第 2 步列了工具结果与会话 JSONL，却没单列运行中的 Agent 事件/SSE 与后续日志补发。现有 `webEventOf` 的 `tool_execution_end` 只留下工具 id、名称、`isError` 和最多 500 字正文，整个 `details` 被删掉；会话日志中的同一结果则保留 `details`。因此第 13 行新增的结构化错误码只在稍后的权威日志到达后才对界面可用。
+- **为什么是问题**：不能仅凭领域工具执行结果已有 `details.code` 就认定浏览器已经具备按码取文案的能力。当前 `createHarnessTranscript.applyEvent` 会把临时工具失败正文直接作为错误，`applyLogEntry` 才补回结构化详情；若只迁移最终日志消费者，运行中和日志读回会出现不同的失败主文案。日志是权威、事件可以裁剪的现有设计可以保留，但必须明确临时阶段展示固定失败文案/加载态，或透传最小安全码，而不是在两种输入上猜英文正文。
+- **如何核实**：**已运行** `bun /tmp/review-lang-governance/lab-backend-r2/event-projection.ts`，调用仓库真实 `webEventOf` 和 `createHarnessTranscript`。同一个 `isError:true, details:{code:"not_found"}` 工具结果直接交适配器时保留 code，经网页事件投影后 `result.details` 为 `undefined`，`error` 只有原正文；断言全部通过、退出码 0。这是纯数据投影实验，未启动模型、HTTP 服务或浏览器。
+- **建议改法**：在第 2 步矩阵中分别登记原始 harness 事件、网页裁剪事件/SSE、权威日志补发、QA 记录降级回放四条路径；第 3 步给临时与最终视图确定同一错误码投影语义。若保留事件裁剪，临时失败用固定产品说明，日志到达后补详情；若要即时显示领域原因，仅传有界、可校验的 `details.code`/安全字段，不把任意第三方 details 全量暴露。验收覆盖事件先到、日志先到和断线补发，不改写持久化的原始模型消息。
+
+### 5. `nbdev` 错误英文化与面板中文不迁移共用同一批消息，不能只按 CLI 与网页文件分开
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`/tmp/review-lang-governance/design-v2.md:28-30,85-89,97`；`packages/dev-panel/src/core/text-rules.ts:3-5,14-37`；`packages/dev-panel/src/server/writes.ts:291-295`；`packages/dev-panel/src/web/host/api.ts:46-48`；`packages/dev-panel/src/web/host/writes.ts:25-41,104-108`；`packages/dev-panel/src/web/parts/NewWorkForm.vue:5,24-26`
+- **现象**：第二版已拆分 CLI 与网页，但尚未给两者共用的错误定义/校验函数安排投影。`NbdevError.message` 被 HTTP 接口原样放入 `errors[].message`，网页多数失败仍直接显示该 message；`controlCharProblem`、`titleProblem` 更是被后端断言与前端表单直接共用的中文字符串函数。对这些函数改英文会改变网页；完全不改又无法完成 `nbdev` 诊断英文化。
+- **为什么是问题**：待确认项“网页单一中文，不纳入双语，也不改英文”只能是语言政策，不能被理解为网页消费者不需要迁移。共用的字符串现在既是诊断又是产品校验说明，外层 `invalid_text`、`usage` 等粗粒度 code 不足以还原所有中文细节；例如 `assertPlainText` 的结构化 details 只给 `reason:"control_char"`，没给实际 Unicode 码点。仅给一个泛化中文标题、继续把英文 message 当正文或字段错误，仍不满足中文面板合同。
+- **如何核实**：**已运行** `bun /tmp/review-lang-governance/lab-backend-r2/panel-validation.ts`，调用真实共用模块：空标题得到 `不能为空`，NUL 得到 `含控制字符 U+0000`，同一输入的后端 `NbdevError` 是 `{code:"invalid_text",message:"goal含控制字符 U+0000",details:{field:"goal",reason:"control_char"}}`，断言通过、退出码 0。HTTP 原样转发和网页直接消费 message 的路径为静态核对，未启动面板。
+- **建议改法**：不改变已确认的语言决定。第 2 步把 `nbdev` 共用校验结果、HTTP warnings/errors、预览字段问题、通知结果记录列成具体通道；第 3 步让共用校验返回稳定的问题码与必要参数（字段、码点、上限等），CLI 生成英文诊断、网页生成中文说明。先迁移中文消费者，再改生产者；网页只是不用双语，不是免做适配。对未知/旧数据保留中文主文案兜底和原文详情，不按 message 文本逆向分类。
+
+### 6. 旧数据“能读”与会话“能恢复”不是同一合同，工具说明翻译会触发快照不兼容
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`/tmp/review-lang-governance/design-v2.md:11-14,85-89`；`packages/nb-harness/src/tools/registry.ts:11-22`；`packages/nb-harness/src/tools/effective.ts:92-108,115-135`；`packages/nb-harness/src/harness.ts:106-118`；`packages/nb-story/src/qa/engine.ts:332-334`
+- **现象**：计划只要求旧持久化数据兼容读取，没有分别定义工具声明迁移后的“只读查看”与“继续运行”。当前工具快照比对整个声明，不仅比 schema 与 provider version，也比 `description`。把基础设施工具说明由英文改中文，或给声明增加失败码元数据，即使工具名与参数完全不变，也会让旧会话得到 `session_incompatible`；nb-story 会转成 `qa_not_continuable`，还没有模型请求就拒绝续问。
+- **为什么是问题**：这是已公开的保护合同，不应通过忽略描述、改写历史或宽松比较绕过；但意味着“旧 JSONL 解析成功、QA 记录读回成功”不能充当迁移兼容证据。若切片先发布了工具说明/声明改动，后续再补界面或旧数据策略，用户会先失去续问能力。第二版已承诺中文提示词，仍需把这种语言变化导致的会话断点列入切片验收，而不是混在诊断 message 的机械替换中。
+- **如何核实**：**已运行** `bun /tmp/review-lang-governance/lab-backend-r2/session-restore.mjs`，经实际 `createHarness` 建快照、关闭、再恢复：相同工具说明恢复成功；只将 `Search the book` 改成 `搜索本书` 得到 `session_incompatible`，`modelCalls:0`，日志逐字未变，退出码 0。该 worktree 无 `node_modules`，实验的 Profile 经 `Bun.resolveSync` 与 harness 使用同一模块实例（输出路径是主工作区的 `packages/nb-profile/src/index.ts`）；harness、工具登记表、恢复比较与内存日志均来自审查 worktree。本轮未修改依赖或仓库；初次混入两份 Profile 身份标记的实验失败不作为产品证据。
+- **建议改法**：第 3 步先按声明版本明确每类旧会话是“继续使用旧声明/旧版本实现”还是“只读查看、不能续问”；最小方案可以接受后者，但要在发布说明和界面中明确，不承诺无损恢复。不修改原始历史，不放宽全字段比较。第 4 步把 Profile/工具声明与调用方提示作为一个原子发布片，验收同时覆盖旧日志查看、旧会话恢复的既定结果、新会话、新旧声明错配；在第 1 步只改 UI 文字而不动工具声明时，无须提前改 harness 的日志格式。
+
+### 7. 只登记新发布包不够：已发布消费者与 nb-story 网页产物没有版本和发布窗口安排
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`/tmp/review-lang-governance/design-v2.md:35-42,79,85-89`；`docs/adr/0029-workspace-packages-publish-source-to-npm.md:25-28,40-41`；`docs/standards/repository-workflow.md:84-90`；`scripts/release/publish.ts:105-111`；`packages/nb-story/package.json:24-30,42-48,70-76`；`packages/nb-agent-ui/src/index.ts:13-15,31`；`packages/nb-form/src/index.ts:17-18`
+- **现象**：第 1 步把新 `nb-text` 加进发布清单与 SDK `typePaths`，但未列现有 npm 包的版本/公开导出变更。`nb-agent-ui` 的 `LocalizedText`、`formatText`、`textOf` 和 nb-form 的 `FormText`/`resolveText` 都是公开面；这三个 Vue 消费包已经以 `0.1.0` 发布，nb-story 已发布 `0.1.1`，并把网页构建成 `dist/web` 随包分发。只发 `nb-text` 或改完库源码而不发新的 nb-story，不会更新用户机器上的查看器网页。
+- **为什么是问题**：`engines.neurobook` 只约束应用插件，不能覆盖这些独立 npm 包。`release:publish` 会跳过 registry 上已存在的同版本，不能覆盖 `0.1.0`/`0.1.1`；`workspace:^` 的发布改写依赖各包实际版本，公开 API 删除/形状收紧若仍在同一 0.x minor 的补丁范围，会让旧宿主安装后不兼容。`nb-text` 必须先于引用它的新消费者发布；nb-story 的网页依赖是 devDependencies、并不出现在运行时依赖排序中，网页重建与新版本打包也需要独立验收。
+- **如何核实**：**已运行** `bun /tmp/review-lang-governance/lab-backend-r2/publish-order.ts`，读取真实发布清单和 `publishOrder`，输出 9 包的当前顺序，核对上述四个包的本地版本。**已只读获取** [nb-form latest](https://registry.npmjs.org/@notnotype%2Fnb-form/latest)、[nb-agent-ui latest](https://registry.npmjs.org/@notnotype%2Fnb-agent-ui/latest)、[nb-story latest](https://registry.npmjs.org/@notnotype%2Fnb-story/latest)，分别为 `0.1.0`、`0.1.0`、`0.1.1`；未调用 publish、安装依赖、打包或启动服务。nb-markdown 本地为 `0.1.0`，本轮未单独查询它的 registry 版本。跳过已发布版本与 prepack 网页构建来自静态代码核对。
+- **建议改法**：给第 1 步补一张“包、公开面是否变更、目标版本、运行时/构建期依赖、发布前置项”表；新包与受影响消费者组成一个明确的交付窗口。保留普通公开类型的既有结构时不必人为升不兼容版本，确实删除公开 API/收紧形状时按 0.x minor 干净切换。为新包声明真实依赖，明确 SDK 仍把非 peer 的实现打进构建期拷贝而非新增宿主共享模块。发布与改版本仍须单独授权；开发完成证据应区分本地源码、tarball 安装、已发布消费者和 nb-story 新网页，不能用 `engines.neurobook` 一句替代。
+
+### 8. 对 0023 采用新 ADR 部分取代，却仍要求把新包直接登记进 accepted 的 0029
+- **严重程度**：重要；**类别**：文档
+- **位置**：`/tmp/review-lang-governance/design-v2.md:27,42,85,98`；`docs/adr/README.md:5,25,31`；`docs/adr/0029-workspace-packages-publish-source-to-npm.md:23-28`；`docs/adr/0028-tailwind-only-host-compiles-nb-ui.md:14`；`docs/adr/0031-nb-story-supports-windows.md:13`
+- **现象**：第二版正确改成保留 ADR 0023 原文，但第 42 行仍要求新包登记进 ADR 0029 的发布清单。0029 的正文是当时批准“9 个包”的决定，不是可随时增删的当前清单，且明确其它工作区包需要发布时另作决定；直接把 9 改 10 或补入 `nb-text`，仍会违反同一条 accepted ADR 正文不改规则。
+- **为什么是问题**：这是修复第一轮 ADR 生命周期问题时遗留在另一份 ADR 上的同类冲突；`scripts/release/packages.ts` 的“同步 ADR 0029”注释也与正式规则不一致，不能因为注释要求同步就改写历史。部分取代并不需要扩展 `status`：仓库已经有 0028 部分取代 0023、0031 部分取代 0029 的正文说明，索引保留当前取代关系，旧 ADR 仍为 accepted。`docs:check` 只检查状态与必要 frontmatter，不会发现这类正文被悄悄改写。
+- **如何核实**：**已静态核对**上述三份 ADR、README 索引及 `scripts/ci/check-documentation.ts:214-239`；未运行 `docs:check`，也未改任何 ADR。新包登记与不可改正文的要求分别直接写在设计第 42 行和 README 第 5 行，冲突不依赖运行环境。
+- **建议改法**：第 0 步的新语言/共享文案 ADR 同时明确新增 `nb-text` 的发布决定及沿用 0029 的源码/许可证/版本策略，或者另写一个范围更小的补充 ADR；0029 正文不改。当前清单更新 `scripts/release/packages.ts`、根 README 与对应发布规范/注释，链接新的补充决定。部分取代沿用现有做法，在 ADR README 明文补充“仅部分取代时旧记录保持 accepted，新记录与索引指出条款”；不新增 partial 状态，也不把只撤回 vue-i18n 的 0023 整份标成 superseded。
+
+## 最终采纳口径与阅读顺序
+
+本文件按要求仅追加，保留了中途初稿及更正。**最终有效发现为第 4、5、6、7、8 条，共 5 条，均为重要，无阻断。** 依影响先读第 4、5 条的通道/消费者遗漏，再读第 6、7 条的恢复/发布不变量，最后读第 8 条的治理冲突。
+
+- **第 1 条最终撤回为独立发现**：第 3 步已经明确要设计自定义失败码文案，属于正确的后续设计安排；不能因为本阶段尚未给出实现，把它重复列成未解决缺陷。“用户投影不进调用结果”与浏览器本地按共享合同常量取文案没有矛盾。只需在第 3 步验收中写明 owner、未知码兜底和版本错配；不要求全局消息目录、文案 RPC 或强制浏览器入口。
+- **第 2 条仍撤回**：类型 brand 不是必须序列化的运行时身份；没有证据支持原初稿的必然丢失结论。
+- **第 3 条最终撤回为独立发现**：设计已明确按引擎兼容规则处理，SDK 当前为未正式发布的构建期 tarball；落实时选择干净切换并同步宿主/SDK/示例即可，本轮不再以同一兼容风险重复报错。npm 正式发布包的版本与 nb-story 内置网页不受该引擎规则覆盖，是第 7 条保留的不同问题。没有证据证明存在必须兼容的外部分发产物，也不能从 npm 404 推导从未分发过本地 tarball。
+
+因此 `grep -c '^### '` 得到的是 **8 条历史编号**，不是 8 条有效发现；分级统计以后面的最终数量为准。
+
+## 第一轮逐条核对
+
+以下都是对第二版设计的核对，不是迁移实现已经通过的证明。
+
+| 第一轮条目 | 第二轮判断 |
+|---|---|
+| 1 统一错误形状冲突 | 已在设计层消除：各域保留合同，用户投影只在消费边界形成；不需要共享异常基类 |
+| 2 cause 跨进程与脱敏 | 已在设计层消除：线协议有限 cause 与标准 `Error.cause` 分开，根因只传安全有界摘要；`unknown-outcome` 既有语义不变 |
+| 3 工具结果无统一 code、OMP 不可翻译 | 主体处理充分：OMP 协议文本例外、领域工具自己生成中文说明、第三方结果原样保留；运行中网页事件丢 code 是本轮第 4 条 |
+| 4 用户、模型、持久化通道 | 第 2、3 步先矩阵后设计的安排成立，不再重复原问题；还需补实时/补发路径及共享校验，第 4、5 条 |
+| 5 nbstory 整包分类 | 已消除：模型/领域中文、human 中文、JSON/API 独立合同；具体旧记录查看与续问要区分，第 6 条 |
+| 6 后端 LocalizedText 范围错误 | 已消除：第二版删除了错误的后端迁移点，未再把项目标题/简介当双语 UI 文案 |
+| 7 ADR 生命周期 | 0023 的修正成立；第 42 行对 0029 的要求仍违反同一规则，第 8 条 |
+| 8 真相源清单不足 | 已安排 Spec、包级规则、OMP 能力与包文档影响清单；第 0 步应将命令的 Agent description 也列为具体项，见下文，不另记新发现 |
+| 9 规模、分包与测试估算 | 按错误域/通道切片、同时改消费者、真实子进程和读回验收的方向成立；正式 npm 包版本与网页重建是本轮新增的第 7 条 |
+| 10 插件 ICU 输入没有校验/失败语义 | 已写出登记预校验与显示降级原则；`TemplateSchema` 如何满足纯 JSON Schema 的可移植要求、哪些声明字段允许模板，仍需前端/插件登记方案定稿，不能把“已写原则”当成已实现验收；本后端报告不重复该 API 审查 |
+
+## 未发现问题的方面
+
+- **用户失败文案不必放进每次失败帧。** 内置宿主或合同消费方可以引用双方共享的内联双语常量；未知码显示固定双语主文案，安全原文只作为详情。此机制与“不用消息目录”及保持 wire/schema 合同可以同时成立。第 3 步已明确要设计它，无须为此新建远程文案服务。
+- **领域工具的 code 有现成承载槽。** `AgentToolResult.details` 和原样会话消息可以保存 JSON 结构，bridge 的 `plugin-unavailable` 已采用这种写法；给 nb-story 自己的结果补 code 不必统一所有错误类型，也不必改 OMP 引擎文本。`isError` 仍决定是否失败，不能因为增加 code 把 `chapter_limit` 这类正常拒绝改成工具错误。
+- **旧会话数据不需要为了诊断语言而批量重写。** 原始 `agent_message` 作为模型历史保留，读侧在界面按码/错误类别形成中文或双语说明；旧日志缺码时用明确兜底，不按旧 message 猜码。会话续问的版本断点另按第 6 条处理。
+- **第 1 步与第 2 步可并行，但第 1 步只能先迁 UI 文案与其公开消费合同。** 仅改变文字取得方式时，不需要提前重设计 harness 的 JSONL；若改变 SDK 导出、表单描述形状或可序列化贡献数据，应在第 1 步自己的合同内先确定兼容行为，而不是等第 3 步补救。工具声明、领域失败、持久化生产者的英文化留到矩阵和切片设计之后。
+- **命令的 `description` 是模型通道，不是开发诊断。** `docs/specs/workbench/commands.md:60`、`packages/neuro-book/src/plugins/commands/shared/contracts.ts:67-68`、SDK README 第 139 行与模板目前写“给 Agent 的英文说明”，远程 `list` 会把它交给服务端调用方。第 0 步已承诺登记相关 Spec/包文档，可在该清单中明确这几处随中文工具说明政策迁移；不能只搜中文错误再改英文，否则这些现有英文提示词不会被选中。没有必要另加一套 description 字段。
+- **排除清单无须再扩成整包排除。** 五个已确认不迁移的包保持排除，plugin-sdk 示例仍在内；dev-panel 的双通道、nb-story 的工具/CLI/网页/持久化、nb-agent-ui 的日志适配仍按通道检查，不能整包跳过。排除测试支持源码不代表不测其消费者或迁移后的回归用例。
+- **规模数字只需校正，不构成再次报“明显低估”。** 沿用第一轮已跟踪 `.ts/.tsx/.vue/.js/.jsx`、排除测试目录/文件的同一统计法，加入 `neuro-book-test-support` 排除后为 **1387 文件、206760 行、16 包**，比稿中 1395 文件、207515 行、17 包少 8 文件、755 行、1 包；是新增排除项未同步计数，不足以单独判定 1 到 2 周错误。该统计仍包含构建配置、benchmark 和 testing helper，不是需要逐行翻译的产品代码量。
+- **1 到 2 周只能是待切片后重估的占位估算。** 第二版已明确第 3 步之后按片重估，本轮没有批次耗时数据，不据行数捏造更精确工期。需要重估的具体前置项是共享校验消费者、快照恢复、npm 版本/打包、CLI/网页/日志同一错误的跨入口验收，不是把 16 个包等分并行。
+- **部分取代不需要新状态。** 0028 与 0031 已有可沿用的实例；旧 ADR 保持 accepted，新 ADR 指明被替代条款，索引指出关系，即可保留仍有效的其余决定；`docs:check` 现有 accepted 校验不会因此报错。这里是静态推断，未运行文档检查。
+
+## 实际验证与边界
+
+源码相对路径均相对于审查 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/review-lang-gov`；唯一实际加载的主工作区模块是第 6 条已披露的 Profile 依赖，未把它的结果冒充完全隔离依赖测试。
+
+| 实际动作 | 结果 |
+|---|---|
+| `bun --version` | `1.4.2` |
+| `bun /tmp/review-lang-governance/lab-backend-r2/event-projection.ts` | 退出码 0；真实数据投影删除 `details.code`，适配器无法从该事件取码 |
+| `bun /tmp/review-lang-governance/lab-backend-r2/panel-validation.ts` | 退出码 0；后端与网页校验共用中文字符串，code/detail 缺少还原全部说明的参数 |
+| `bun /tmp/review-lang-governance/lab-backend-r2/session-restore.mjs` | 最终退出码 0；同说明恢复成功，改说明报 `session_incompatible`，模型调用 0 次、日志未改；初次因两份 Profile symbol 身份不一致退出码 1，已纠正实验装配，未计为产品失败 |
+| `bun /tmp/review-lang-governance/lab-backend-r2/publish-order.ts` | 退出码 0；真实当前清单共 9 包，输出发布依赖顺序与消费者本地版本 |
+| npm registry 只读 JSON | nb-form、nb-agent-ui、nb-markdown latest 均为 `0.1.0`，nb-story 为 `0.1.1`；[nb-markdown 的补查](https://registry.npmjs.org/@notnotype%2Fnb-markdown/latest)已完成，替代第 7 条写作时“未查询”的边界；SDK 两个地址为 HTTP 404，不等于不存在本地 tarball |
+| 追加后的 `grep -c '^### ' /tmp/review-lang-governance/report-backend-r2.md` | 每次未减少，当前 8 个历史编号；有效 5 条 |
+| 报告结构与凭据模式检查 | 有效第 4 到 8 条均含七个要求字段；常见密钥/token 模式命中 0，不是安全审计 |
+
+**未运行**：仓库测试套件、typecheck、`docs:check`、`governance:check`、SDK/发布打包、release smoke、e2e、浏览器、开发服务、真实 Provider/Model。报告第 1、3 条原初稿列的实验只是建议，不是已执行结果。没有安装依赖、创建子代理、改仓库源码/文档、commit、push、stash、切换分支或执行删除；实验和报告保留在用户指定 `/tmp/review-lang-governance/` 范围内。
+
+## 最终数量
+
+- **有效发现：5 条**，编号 4、5、6、7、8。
+- 阻断：**0**。
+- 重要：**5**。
+- 建议：**0**。
+- 撤回初稿：**3 条**，编号 1、2、3；只为保留追加历史，不纳入分级数量。
+
+## 待开发者确认两项的判断
+
+1. **开发者面板网页单一中文**：合理，不需引入双语，但 CLI 英文化前仍要迁移共享校验、HTTP 错误与字段问题的中文消费投影，不能把“不改英文”理解为完全不动网页消费者。
+2. **ADR 部分取代**：同意 0023 保持 accepted、新 ADR 正文指明 vue-i18n 条款并在索引标注，沿用 0028/0031 的先例，在 README 补清规则即可，不增加状态枚举，也不直接重写 0029 发布决定。
+
+## 规范回写建议（未落盘，交主 Agent 汇总）
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| 1 | 规范缺陷 | 第 8 条：accepted ADR 不改正文，但发布脚本注释要求往旧 ADR 同步新包；仓库已有两次部分取代先例，入口规则没有说明 | 新增：“仅部分取代时，旧 ADR 保持 accepted；新 ADR 明确被取代的条款及仍有效的范围，索引同步标明关系。当前包清单与历史发布决定分开维护。”；将脚本注释的“同步旧 ADR”改为“同步当前清单并引用批准该变更的新决定” | `docs/adr/README.md` 的生命周期规则、`scripts/release/packages.ts:14`；按批准范围同步发布文档 |
+
+实验中混入两份 Profile 身份、初稿把类型品牌当运行时机制，以及 SDK 未发布便推断兼容故障，均已在本报告纠正；现有审查规则已要求核实，不为未遵守既有规则另造新规范。

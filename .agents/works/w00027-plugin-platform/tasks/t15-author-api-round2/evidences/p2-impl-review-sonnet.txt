@@ -1,0 +1,89 @@
+# w00027/t15 第二期实现审查：前端与命令行的使用（Sonnet）
+
+实验：在 worktree（eb9633c3f）的 packages/neuro-book 下用 `bun src/cli/main.ts …` 与临时状态根 /tmp/review-t15-p2impl-sonnet/ 实际运行；起过的 start 进程已用 SIGHUP 结束。
+
+### 重要 / 正确性 / packages/neuro-book/src/cli/main.ts:92-112（usageFailure 的 `commander.help` 分支）
+- 现象：帮助里宣传的 `help [命令]` 子命令全部以 2 退出，并多报一条“缺少子命令，见上面的帮助”。实测 `nbook help`、`nbook help start`、`nbook plugin help install` 都是帮助写到标准输出、标准错误写 `nbook：缺少子命令，见上面的帮助`、退出码 2；`nbook --json help start` 的标准输出是帮助文本后面跟一个 `{"ok":false,"code":"usage","message":"缺少子命令，见上面的帮助"}`，不是“只有一个 JSON 对象”。
+- 为什么是问题：commander 对 `help` 命令和“命令组没跟子命令”抛同一个错误码 `commander.help`，区别只在 `error.exitCode`（help 命令为 0，命令组缺子命令为 1）。代码把两者都当成用法错误。违反 cli.md 输出 2（help 是正常结束）和输出 1（`--json` 时标准输出只有一个对象），也让 Agent 用 `nbook help` 查用法时拿到失败码。
+- 如何核实：`cd packages/neuro-book && bun src/cli/main.ts help start; echo $?` 得 2；`bun src/cli/main.ts --json help start` 见上。cli.test.ts 只测了 `--help`、`--version`，没有测 `help` 子命令。
+- 建议改法：`case "commander.help"` 里先判 `error.exitCode === 0` 返回 null（正常结束），再处理命令组缺子命令；补一条 `help` 子命令以 0 退出的断言（并入“用法”那条用例）。
+
+### 重要 / 正确性 / packages/neuro-book/src/cli/state-root.ts:33
+- 现象：`--state-root ""`（空串或全空白）被当作没给，静默落到平台缺省状态根。实测 `nbook --state-root "" plugin list` 读的是 `/home/notnotype/.local/share/neuro-book`。
+- 为什么是问题：cli.md 只规定环境变量 `NBOOK_STATE_ROOT` 空串算没给；`--state-root` 是用户显式写的值。脚本和 Agent 常写 `--state-root "$ROOT"`，变量没设时命令会悄悄对用户真实的状态根做 `plugin install/uninstall`，甚至 `start` 去认领真实状态根。这是破坏性默认。
+- 如何核实：见上；`state-root.ts` 的 `input.option?.trim() || input.env…` 对两者一视同仁，state-root.test.ts 只测了环境变量的空串。
+- 建议改法：`option !== undefined` 时空串报 `usage`（“--state-root 不能为空”），只有环境变量保留“空串算没给”。
+
+### 建议 / 文档 / packages/neuro-book/src/cli/main.ts:52-58、92-112（commander 英文残留）
+- 现象：cli.md 输出 3 写“帮助与错误说明是中文”，实测混有英文：（1）用法错误的括号里是 commander 的英文原文：`不认识的选项（unknown option '--bogus'）`、`缺少参数（missing required argument '目录'）`、`用法错误（too many arguments for 'list'. Expected 0 arguments but got 1.）`；（2）帮助里子命令列表和用法行是 `start [options]`、`install [options] <目录>`（`.usage()` 只改了命令自己的帮助，没改父命令的列表和 install 自己的用法行）；（3）“缺少参数”之后建议 `nbook --help`，不是该子命令的 `--help`；（4）`nbook plugin lst` 的说明是两行英文 `不认识的命令（unknown command 'lst'\n(Did you mean list?)）`，不像顶层那样列出可用的命令（cli.md 输出 3 要求列出）。
+- 为什么是问题：新读者读不懂/不便搜索；Agent 按文案分支不是目的，但中文化的承诺没兑现。
+- 如何核实：`bun src/cli/main.ts --bogus`、`plugin install`、`plugin list extra`、`--help`、`plugin install --help`。
+- 建议改法：按 `error.code` 自己组中文句子（选项名、参数名从 `error.message` 的引号里取或直接用 commander 的 `commander.excessArguments` 等码），或至少统一把 `[options]` 换成 `[选项]`（`.usage("[选项]")` 补在 install 上，并用 `configureHelp({subcommandTerm})` 改列表里的写法）。
+
+### 建议 / 文档 / packages/neuro-book/src/cli/main.ts:47（子命令帮助看不到全局选项）
+- 现象：`nbook start --help`、`nbook plugin install --help` 的“选项”里没有 `--state-root` 与 `--json`；`TITLES` 里准备了“全局选项：”标题却没有任何帮助输出用到它（commander 需要 `configureHelp({showGlobalOptions: true})`）。
+- 为什么是问题：cli.md 第 5 行写全局选项“写在子命令前后都可以”，但新读者只在顶层帮助里能看到它们；Agent 读 `plugin install --help` 找不到 `--json`。
+- 如何核实：`bun src/cli/main.ts plugin install --help`。
+- 建议改法：`configureHelp({styleTitle, showGlobalOptions: true})`；或删掉没用到的 `"Global Options:"` 标题项。
+
+### 建议 / 代码质量 / packages/neuro-book/src/cli/plugin.ts:89-93（manifest-invalid 的说明重复）
+- 现象：`failed()` 把 `failure.detail` 与全部 `problems` 一起打印，而 `version-dir.ts:73` 的 detail 已经含 `problems[0]`。实测一条问题时同一行出现两次：
+  `nbook：清单有错误：（根）：/：must have required properties version, engines` 下一行 `  - （根）：/：must have required properties version, engines`。多条问题时第一条出现两次。
+- 为什么是问题：输出重复；`--json` 的 `message` 里也一样，Agent 读 message 和 problems 会重复处理。另外问题文案是校验器的英文原文（插件页同源，不属于命令行本身）。
+- 如何核实：`mkdir d; echo '{"publisher":"example","name":"x"}' > d/package.json; nbook --state-root /tmp/x plugin install d`。
+- 建议改法：命令行只在 `problems` 非空时打印 `problems`，`message` 用不含问题的前缀（例如固定“清单有错误”）；或在 `failed()` 里去掉 detail 里已有的第一条。
+
+### 建议 / 正确性 / packages/neuro-book/src/cli/plugin.ts:148-153（withHint 对 ENOENT 也给 nbooke build 提示）
+- 现象：`nbook plugin install /nonexistent` 得到 `安装源不存在或不可读：ENOENT` 加一句“插件要先用 nbooke build 构建，再把它的 dist 目录传给…”。路径打错和路径不是目录是两种情形，提示只适合后者；且 `ENOENT` 是裸错误码，没写出是哪个路径。
+- 如何核实：见上。
+- 建议改法：提示只在“安装源不是文件夹”一类（需要在 inventory 里区分失败原因的码，别按文案分支）时加；或把提示改成通用句“确认路径存在，并且是 nbooke build 产出的 dist 目录”。优先级低。
+
+### 重要 / 正确性 / packages/neuro-book/src/cli/start.ts:150-153 与 src/server/process.ts:52-66、:112-124（服务端启动失败不走 nbook 的输出约定）
+- 现象：`nbook start` 在服务端自己启动失败时，文本模式的标准错误是两行服务端的结构化致命日志（含堆栈），没有 `nbook：<说明>`；`--json` 时标准输出是空的（0 字节），没有 `{ok:false, code, message}`，退出码 1。实测（从源码运行、没有 `dist/web`）：`nbook --json --state-root X start --port 0 --no-open` 退出 1、stdout 0 字节、stderr 为 `{"level":"fatal","event":"runtime.startup.failed",…,"stack":…}` 与 `runtime.startup.causes`（真正原因“前端构建目录不存在：…/dist/web”埋在第二行的 `error[0].error.message` 里）。
+- 为什么是问题：cli.md 输出 1 规定 `--json` 时失败是 `{ok:false, code, message,…}`，Agent 用它分支，这里拿到空输出只能靠退出码猜；用户在终端也看不到一句中文原因。运行服务端的那一半（`runServerProcess`）是按“独立服务进程”设计的（致命诊断写 stderr），`nbook start` 复用了它却没有把启动失败换成命令行的失败。cli.md 的失败表没有这一类，也没有测试覆盖。
+- 如何核实：见上；`unset NBOOK_WEB_ROOT; bun src/cli/main.ts --json --state-root /tmp/x start --port 0 --no-open | wc -c`。
+- 建议改法：给 `runServerProcess` 一个让调用方接管启动失败的出口（例如 `onStartupFailure(causes)` 或返回结果而不是直接 `process.exit`），`nbook start` 把它转成 `CliFailure("startup-failed", <第一条原因的 message>, 1, {causes})`，并把码写进 cli.md 的失败表；补一条“Web 根不存在时 `--json` 得到 ok:false”的用例。
+
+### 建议 / 正确性 / packages/neuro-book/src/cli/start.ts:88（已有实例时 --safe-mode 被静默忽略）
+- 现象：已有实例就绪时，只对 `--port`、`--rpc-port` 提示“忽略”；`nbook start --safe-mode` 对已在运行的实例不提示，结果对象也不说那个实例是不是安全模式。用户以为进了安全模式、实际连上的是加载了全部第三方插件的实例。
+- 为什么是问题：安全模式正是插件拖垮应用时的救命选项（README 就这么写），在“还有一个卡着的实例”时最容易被忽略。cli.md 输出 6 只写了端口选项，是 Spec 遗漏而不是实现偏离。
+- 如何核实：先 `nbook start`，再 `nbook start --safe-mode`：只打印“已在运行”。
+- 建议改法：`existing()` 里 `options.safeMode` 为真时也提示（实例应答里已有 `plugins.safeMode`，可以直接对比：实例不是安全模式就明说“该实例没有以安全模式运行，先停掉它”），并改 Spec 输出 6。
+
+### 建议 / 文档 / packages/neuro-book/plugin-sdk/examples/README.md:131、plugin-sdk/README.md:315-316（装到哪个状态根没说清，仓库内开发会装错地方）
+- 现象：示例 README 教在应用包目录用 `bun src/cli/main.ts plugin install plugin-sdk/examples/plugins/snippets/dist`，没有 `--state-root`。该命令装进平台缺省状态根（本机是 `~/.local/share/neuro-book`），而 `bun run dev` 的开发服务的状态根是 `<应用包>/.dev-state`（`src/server/dev/config.ts:38`，除非设了 `NBOOK_STATE_ROOT`）。照做之后重启开发服务，插件页里没有这个示例，新读者无从判断错在哪。SDK README 的“开发循环”同样没有提 `--state-root`：作者若用 `nbook start --state-root …` 或自己的 `NBOOK_STATE_ROOT` 起服务，`nbook plugin install dist` 要带同一个值。
+- 为什么是问题：命令行的价值是“照着一行命令走通”，但装错状态根时命令成功（退出 0，“已写入登记表”）、结果却不出现，是静默的失败。
+- 如何核实：`grep -n "dev-state" src/server/dev/config.ts`；对照示例 README 第 131 行。
+- 建议改法：示例 README 的命令写成 `bun src/cli/main.ts --state-root .dev-state plugin install …`（仓库内用开发服务时），SDK README 与模板 README 加一句“装到你启动 NeuroBook 用的状态根：`--state-root` 或 `NBOOK_STATE_ROOT` 要一致”。`plugin install` 的成功输出也可以带上状态根路径（文本模式一行“状态根：…”，JSON 加 `stateRoot` 字段），让装错的人当场看见。
+
+### 建议 / 文档 / packages/neuro-book/plugin-sdk/README.md:321、:317（命令行装降级要 --yes，文档只提插件页）
+- 现象：“开发版本也比同号的正式版本新：装过 `0.1.0+dev.…` 之后再装 `bun run build` 的 `0.1.0`，插件页按降级处理并提示数据迁移的风险”。这条紧跟在新写的 `nbook plugin install dist` 之后，但命令行对降级不是“提示”而是拒绝：退出 2、码 `confirmation-required`，要加 `--yes`（实测）。README 与模板 README 都没提 `--yes`。作者从开发切到发布构建时第一次碰到的就是这个。
+- 如何核实：`nbook plugin install` 一个版本更低的目录（见实测：`example.hello` 2.0.0 → 1.0.0，退出 2）。
+- 建议改法：README 这一段补一句“命令行装降级时要加 `--yes`”。
+
+### 建议 / 文档 / packages/neuro-book/plugin-sdk/cli.ts:50、plugin-sdk/README.md:315、plugin-sdk/template/README.md:9、scripts/app-package/README.md（文档先于发布）
+- 现象：`nbooke create` 的下一步提示、SDK README、模板 README 都要求 `bun add -g @notnotype/neuro-book`。该包要到 t15 第三期才接进发布（ADR 0033 后果的最后一条；`packages/neuro-book/package.json` 仍是 `private: true`，目前只能 `bun run build:app-package` 打 tarball）。在发布之前，新读者照着 `create` 的提示走会在这一步得到 404。
+- 为什么是问题：`nbooke create` 的输出是新作者看到的第一份指引，写了一个现在装不上的包。若第二期与第三期不会在同一次发布里一起出，应有过渡说法。
+- 如何核实：`npm view @notnotype/neuro-book`（未发布时 404）；ADR 0033 后果小节。
+- 建议改法：确认第二、三期同批发布则无需处理；否则 `create` 的提示在包发布前先写“应用的命令行 `nbook`（见仓库的应用包 README）”，或第三期合入时回头核对这四处措辞。
+
+### 建议 / 文档 / docs/specs/runtime/cli.md 输出 12、13（安装、启停、卸载的 JSON 结果字段没进合同）
+- 现象：cli.md 的“边界与兼容”写“公开接口是…结果对象的字段”，输出 5、6、11 写明了 `start` 与 `plugin list` 的字段，但 `plugin install/enable/disable/uninstall` 的成功对象（实现里是 `{ok, preview, plugin, restartRequired}`，失败 `confirmation-required` 还带 `preview`，manifest-invalid 带 `problems`）只字未提。Agent 恰好最依赖这几个字段（`restartRequired`、`preview.relation`、`preview.blocked`）。
+- 如何核实：对照 `src/cli/plugin.ts:140`、`:144`、`:159`、`:167` 与 cli.md。
+- 建议改法：在输出 12、13 写上这些字段的名字与含义（只加不改的承诺），并在 cli.test.ts 里对 `restartRequired`、`preview`、`problems` 各有一条断言（现在 `problems` 没有任何测试）。
+
+### 建议 / 文档 / packages/neuro-book/plugin-sdk/examples/plugins/focus/backend/plugin.ts:63 与 plugin-sdk/examples/README.md:122（改写不彻底，旧说法残留）
+- 现象：本次把示例的教学注释从“多个服务端”改成“多个请求/窗口”，但还有两处旧说法：`settle` 的注释“……同一时刻结算几次结果都一样，所以几个服务端各自结算不会多记”（plugin.ts:63），和示例 README 表格里 focus 一行“纯函数，几个服务端各自结算不会多记”（README.md:122）。一个状态根只跑一个服务端之后这句话读起来像还支持多服务端，与文件头第 2 条（已改成“几个请求”）互相矛盾。
+- 如何核实：`grep -rn "几个服务端" packages/neuro-book/plugin-sdk`。
+- 建议改法：两处都改成“几个请求（窗口）各自结算不会多记”。
+
+## 未发现问题的方面
+
+- 删除 `version-in-use` 的残留：`PluginsPage.vue`（失败文字、`DETAIL_CODES`）、`PluginsPage.dom.test.ts`、`PluginsPageFixture.vue`（文件头、场景表、`failing()`）、Lab 场景表 `fixtures/index.ts`、`shared/types.ts` 的失败码表都已一并去掉；全仓（含 docs/specs、ADR、`PluginsPage.md`）grep 不到 `version-in-use`、`livePins`、`pinKey`，只剩 Work 记录里的历史说明。`bun run typecheck`（tsc 与两份 vue-tsc）通过。失败说明的其余分支（`STALE_CODES`、`DETAIL_CODES`）完整。
+- `nbook start` 的主路径与 cli.md 输出 5 到 9 一致：实测启动、再启动（`started:false`、忽略端口提示）、SIGHUP 有序停止、非法端口以 2 退出且带 `usage`、状态根不可写以 1 退出带 `state-root-unwritable`、`plugin list` 不建状态根、服务端运行时安装后列表带“重启后安装”。
+- 场景 07 的改写：`两个窗口同时开始` 确实触发条件保存冲突（在副本里加日志观察到 `conflict` 一次）；`断线重连` 用例去掉 `first.disconnect("w1")` 后在断言处失败，说明 `Stage.disconnect` 的新增是被测到的；教学注释第 3 条（读写之间隔着 `await`）与测试行为一致。未找到更有说服力的变异，条件保存本身没法在不改存储 API 的前提下“去掉”（`expect` 是必填参数）。
+- 实验目录 /tmp/review-t15-p2impl-sonnet/（含 mut/ 副本，仓库文件未改动）；起过的 `nbook start` 进程已用 SIGHUP 结束。
+
+## 数量
+
+阻断 0；重要 3（help 子命令退出码、空 `--state-root` 回落真实状态根、`start` 启动失败不走输出约定）；建议 10；共 13 条。

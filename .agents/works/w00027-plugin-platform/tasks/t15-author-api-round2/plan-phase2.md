@@ -168,3 +168,39 @@
 | 两个包同号半途发布失败、发布顺序（Sonnet 打包） | 第三期处理，记入第三期计划 |
 | 主线程阻塞 5 到 10 秒锁被判残留（Sonnet 测试） | 套接字认领后不存在 |
 | Windows、macOS 的预期没写（Sonnet 打包） | 第 7、8 节写明 |
+
+## 10. 实现审查的处理
+
+前端与命令行使用（Sonnet，[evidences/p2-impl-review-sonnet.txt](evidences/p2-impl-review-sonnet.txt)）：重要 3、建议 10，修正 `ede24f850`，Spec `71f14b613`。
+
+| 发现 | 处理 |
+|---|---|
+| `help` 子命令以 2 退出、`--json help` 多一个失败对象 | 成立。`commander.help` 按 `exitCode` 区分；测 `help start`、`plugin help install` 以 0 退出 |
+| `--state-root ""` 静默回落到真实的缺省状态根 | 成立。显式的空串报 `usage`；单测与进程测试 |
+| 服务端启动失败时不走命令行的输出约定 | 成立。`runServerProcess` 加 `onStartupFailed`（启动中被停止不算），`nbook start` 写 `startup-failed` 与 `causes`；Spec 失败表加这一码；测 Web 根不存在 |
+| commander 的英文残留、子命令帮助没有全局选项 | 成立。按错误码组中文说明，用法行与命令列表自己拼，`showGlobalOptions` |
+| 清单无效时第一条问题重复 | 成立。有逐条问题时只列问题；测每条只出现一次 |
+| 路径不存在也提示 `nbooke build` | 成立。提示改成确认路径并传 `dist` 目录 |
+| 已有实例时 `--safe-mode` 被静默忽略 | 成立。实例不是安全模式时提示；Spec 输出 6 |
+| 示例 README 的安装没带 `--state-root`、开发服务装不进去；SDK README 没说命令行降级要 `--yes` | 成立。示例写 `--state-root .dev-state`，SDK 与模板 README 写明状态根要一致与 `--yes`；`install` 的结果写出状态根 |
+| 文档要求 `bun add -g @notnotype/neuro-book`，包第三期才发布 | 接受：应用包与 SDK 包同一次发布（第三期），发布前核对这四处 |
+| cli.md 没写插件命令的结果字段 | 成立。输出 12、13 写上 `preview`、`plugin`、`stateRoot`、`restartRequired`、`problems`；测试断言 |
+| focus 示例两处“几个服务端”残留 | 成立。改成“几个请求” |
+
+后端（omp，[evidences/p2-impl-review-omp.txt](evidences/p2-impl-review-omp.txt)，审的是 Sonnet 修正之前的 `eb9633c3f`）：重要 12、建议 3，修正 `15f4e029d`。
+
+| 发现 | 处理 |
+|---|---|
+| 实例应答只校验三个字段，伪造或旧版本的应答让 `plugin list` 崩溃 | 成立。按 TypeBox schema 完整校验，不合协议当作没有应答；测伪造应答 |
+| 不发请求的连接挡住 `release`，请求与应答没有上限 | 成立。连接 3 秒超时、放下认领时断开所有连接、请求与应答限 1 MB；测试断言放下不等空闲超时（变异检查） |
+| 输出目录只看包名就清空 | 成立。改成只认标记文件；测同名 `package.json` 的外部目录不被删 |
+| codicon 字体没有许可声明 | 成立。Web 产物里的字体都要在 `FONT_NOTICES` 登记，否则打包失败；补 codicon 的 CC BY 4.0 声明 |
+| 计算出来的动态导入全部放行 | 成立。只许插件入口那一处表达式，其余报错；真实 bundle 通过 |
+| 插件准备失败、fixture 的样例参数错时认领没放下 | 成立。认领交给 `startServer` 之前的失败由入口放下；fixture 先检查样例参数再认领 |
+| 测试子进程在断言失败时不收口 | 成立。`instance.test`、`cli.test` 用 `afterEach` 结束还活着的子进程，应用包 e2e 在 `afterAll` 里结束 |
+| 假 `xdg-open` 的迟到写入导致两例失败 | 成立。记录文件按用例分开，等第二次打开落盘再断言 |
+| `--json` 时项目子进程的输出进标准输出 | 成立。安静模式下项目子进程的输出写标准错误；Spec 写明。没有补专门的进程测试（要装一个往标准输出写的插件） |
+| 已有实例时 `--safe-mode` 不提示 | 已在 Sonnet 那一轮改成提示；不按 omp 改成失败：Spec 定的是提示，连上已有实例本身不是错 |
+| 空 `--state-root`、启动失败不走输出约定、install 结果缺 `stateRoot` | 已在 Sonnet 那一轮修正 |
+| SIGHUP 下项目子进程的停止顺序没有测试 | 成立。`server-projects.test` 对 SIGTERM 与 SIGHUP 各跑一次，SIGHUP 也发给项目子进程（变异检查：去掉忽略 SIGHUP 时失败） |
+| README 写 `--port` 被占用时顺延 | 成立。改成“给了的端口被占用时启动失败”，`--help` 同步 |

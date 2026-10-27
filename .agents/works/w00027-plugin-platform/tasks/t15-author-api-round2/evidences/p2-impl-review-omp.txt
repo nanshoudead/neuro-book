@@ -1,0 +1,112 @@
+### 重要｜正确性、安全与性能｜`packages/neuro-book/src/server/instance.ts:260-264`、`packages/neuro-book/src/cli/plugin.ts:1415-1423`
+
+- **现象**：`parseInfo` 只校验 `schema`、`pid`、`version`，随后把其余字段直接强转成 `InstanceInfo`。本地套接字对同一用户可访问；伪造 `{schema:1,pid:123,version:"0.1.0"}` 应答时，`nbook plugin list --json` 进入 `startupOf`，对未定义的 `plugins.safeMode` 解引用并以未处理 `TypeError` 退出，没有 `{ok:false,...}`。
+- **为什么是问题**：hello 是 CLI 与服务端的进程边界，损坏、被旧版本或同用户进程占用的应答不能升级成 CLI 崩溃；尤其 `--json` 合同被堆栈替代，Agent 无稳定错误码。`nbook start` 也会把缺失的 `status` 当作“仍在启动”而轮询到超时。
+- **如何核实**：实验套接字写入该最小 JSON，运行 `bun src/cli/main.ts plugin list --state-root /tmp/review-t15-p2impl-malformed-root --json`，退出码为 `1`，stderr 为 `TypeError: undefined is not an object (evaluating 'plugins.safeMode')`，stdout 为空。
+- **建议改法**：在协议边界用完整的运行时 schema 校验 `kind`、`status`、`url`、`rpcUrl`、`plugins.safeMode`、插件项及其 `notLoaded`，不通过就返回 `unresponsive`/稳定的协议错误；CLI 对该结果走正常失败输出，不把未验证对象传给库存逻辑。
+
+### 重要｜不变量、安全与性能｜`packages/neuro-book/src/server/instance.ts:199-216,188-196`
+
+- **现象**：服务端收到连接后没有连接级空闲超时；没有换行的请求只有在累计超过 4096 字节时才销毁。`release()` 调 `server.close()`，而 Node 的 `close` 要等现有连接结束。一个同用户进程连接 `server.sock` 后不发送数据，会让认领释放一直 pending。
+- **为什么是问题**：停止序列依赖认领释放；任意本地客户端都能让 `nbook` 的 Ctrl-C、SIGTERM、SIGHUP 停止卡住，服务端永远不退出且套接字不收口。超长响应也没有客户端上限，恶意或损坏的服务端可让 `hello` 无界累积缓冲直到 3 秒超时。
+- **如何核实**：真实认领后用 `node:net.connect` 连上套接字、保持半行不关闭，调用 `claim.release()`；100ms 内 Promise 仍为 `blocked`，销毁客户端后才完成。
+- **建议改法**：为每个协议连接设置短的 idle timeout，限制请求和应答的字节数，超限立即销毁；释放时主动关闭/销毁协议连接，再等待 listener close。客户端同样在累计响应超过上限时停止读取并返回协议错误。
+
+### 重要｜安全与性能｜`packages/neuro-book/scripts/pack-app.ts:661-671`
+
+- **现象**：`clearPreviousApp` 只看非空输出目录的 `package.json.name === "@notnotype/neuro-book"`，没有计划要求的“上次生成标记”。任意用户目录只要有同名 package.json 就会被递归删除。
+- **为什么是问题**：`nbook build:app-package /任意目录` 可以静默删除该目录中与本次构建无关的文件；包名不是生成者证明，也不是目录所有权证明。
+- **如何核实**：在临时输出目录放 `{name:"@notnotype/neuro-book"}` 与 `important.txt`，运行真实 `packApp`；命令成功后 `important.txt` 已被删除。
+- **建议改法**：写入不可伪造的生成标记（例如专用 marker 文件，包含 schema、包名与生成版本），只有 marker 完整匹配时才允许清理；同名但无 marker 一律拒绝，并补同名外部目录验收。
+
+### 重要｜文档、正确性｜`packages/neuro-book/scripts/pack-app.ts:723-749`
+
+- **现象**：真实 Vite 构建会把 `assets/codicon-*.ttf` 放进应用包，但 `thirdPartyNotices` 只追加 Fraunces 的 OFL 文本；Vite 的 `.vite/license.json` 没有 codicon 条目，Monaco 的 `ThirdPartyNotices.txt` 也没有这份字体声明。生成的真实 `THIRD-PARTY-NOTICES.md` 中 `codicon` 命中数为 `0`，而 tarball 仍含该字体。
+- **为什么是问题**：应用包分发了第三方字体，却没有随包的许可/署名文本，违反本期已承诺的许可收集合同；这是发布后不能靠用户侧补救的合规缺口。
+- **如何核实**：`bun vite build --outDir /tmp/review-t15-p2impl-web` 生成 `assets/codicon-...ttf`；再用该 Web 根运行 `packApp`，对 `THIRD-PARTY-NOTICES.md` 执行 `grep -io codicon`，结果为 `0`。
+- **建议改法**：把 codicon 的真实许可来源纳入构建输入，明确复制/生成对应 NOTICE 文本并在包内容测试中断言；若无法定位许可文本，打包必须失败，不能只靠包名许可字段覆盖字体资产。
+
+### 重要｜安全与性能｜`packages/neuro-book/scripts/pack-app.ts:674-682`
+
+- **现象**：`bundleProblems` 只把 `scanImports` 返回的静态说明符与两个字面字符串做检查；任何计算出的动态导入都放行。`bundleProblems("const file = userInput; await import(file);")` 返回空数组。实际 bundle 中现在有 2 处动态 `import(file)`，脚本没有证明它们就是预期的插件入口。
+- **为什么是问题**：应用包宣称依赖全部打入 bundle，但任意新增的 `import(file)`、用户输入拼出的模块路径或第三方运行时加载都会绕过扫描，安装到没有仓库 `node_modules` 的机器后才失败；当前两处合法入口也没有被精确限定。
+- **如何核实**：在包目录执行 `bun -e 'import {bundleProblems} from "./scripts/pack-app.ts"; console.log(JSON.stringify(bundleProblems("const file = userInput; await import(file);")))'`，输出 `[]`；真实 nbook/project bundle 各有 2 处 `import(file)`。
+- **建议改法**：对动态导入做显式 allowlist（按入口/调用位置或生成后的固定模式），其余动态导入一律失败；同时保留 `new Worker`、`import.meta.resolve` 的语法级断言，并用真实 bundle 做变异验收。
+
+### 重要｜不变量｜`packages/neuro-book/src/server/process.ts:102-118`、`packages/neuro-book/src/server/testing/fixture-entry.ts:46-77`
+
+- **现象**：认领成功后，`runServerProcess` 直接 `await prepareInstalledPlugins`，没有 `try/finally`；准备阶段若抛出，认领句柄没有显式 release。fixture 入口同样先认领，再在对象构造期间调用 `sampleTask()` 与 `prepareInstalledPlugins()`，这两步都在 `startServer` 之前且不包收口。`NBDEV_SAMPLE=1` 且缺 `NBOOK_TEST_SAMPLE_ROOT` 的真实 fixture 启动会在已执行认领后抛出未处理异常。
+- **为什么是问题**：`claim` 的合同要求装配失败、启动失败、停止都放下认领；目前只把 release 放在 `startServer` 的部分装配失败和 `server.stopped`，新增入口自己的前置装配异常绕过它。异常退出是否由运行时偶然清理 Unix 套接字不是产品合同，换宿主或改异常路径后会留下残留套接字与不可预测的下一次启动结果。
+- **如何核实**：读取两条入口的顺序；运行 `NBOOK_STATE_ROOT=/tmp/review-t15-p2impl-claim-leak/state NBDEV_SAMPLE=1 bun src/server/testing/fixture-entry.ts`，退出码为 `1`，stderr 原文为 `NBDEV_SAMPLE=1 时要给 NBOOK_TEST_SAMPLE_ROOT`，异常发生在 `sampleTask()`，此前已完成 `claimStateRoot`。
+- **建议改法**：把“已认领 → 准备插件 → 装配 → 运行”统一放进宿主拥有的 `try/finally`；前置准备和入口特有任务失败时先释放 claim，只有把 claim 与运行实例交给 `startServer` 后才由 `startServer` 接管后续收口。fixture 复用这个公共流程，不再复制时序。
+
+### 重要｜测试｜`packages/neuro-book/src/server/instance.test.ts:2763`、`packages/neuro-book/src/cli/cli.test.ts:924-925`、`packages/neuro-book/e2e/app-package.e2e.ts:79-81`
+
+- **现象**：新增真实子进程测试只在 `afterAll` 删除临时目录，没有登记并停止仍存活的 `claimer`、`nbook` 或应用包服务；断言中途失败时，临时目录删除不能关闭子进程。`instance.test.ts` 的 `Claimer` 没有失败收口，CLI 与 npm 包 E2E 也没有 `afterEach`/全局 handle 集合。
+- **为什么是问题**：测试失败会留下前台服务、套接字监听和持有的文件描述符，污染后续测试与审查进程；这直接违反测试规则“子进程在失败时也收口”，也会让失败报告看起来像产品挂起。
+- **如何核实**：逐处读取 `afterAll` 与子进程创建；这些清理路径只执行 `rm(tmp)`，没有 `kill`、等待退出或失败后的 fallback。测试失败在 `start()`、`result` 或页面断言后会跳过正常 `stop()`。
+- **建议改法**：把每个启动句柄放进测试级集合，在 `afterEach`/`afterAll` 的 `finally` 中发送 SIGTERM/SIGINT、等待退出并在超时后强制结束；停止后再删除临时根，并核对退出码。
+
+### 重要｜测试｜`packages/neuro-book/src/cli/cli.test.ts:984-991,1008-1009`
+
+- **现象**：真实 CLI 测试用假 `xdg-open` 记录文件来断言打开，但 `open` 默认 `detached`、`unref`，Promise 只等待 launcher 的 `spawn`，不等待脚本完成写文件。第一条测试没有等待第二次打开落盘，就进入下一条；本次 `bun test src/cli/cli.test.ts src/cli/state-root.test.ts` 实际 16 pass、2 fail：第一条期望两次打开却得到 1，下一条 SSH/`--no-open` 期望计数不变却从 1 变 2。
+- **为什么是问题**：测试把进程调度时序误判成产品行为，导致受影响测试在正常实现上失败，并且前一条 detached launcher 的迟到写入污染后一条。它没有按可观察状态等待，也无法证明“已有实例会打开页面”。
+- **如何核实**：运行上述命令；失败位置分别为 `cli.test.ts:111` 与 `cli.test.ts:128`。`node_modules/open/index.js:234-309` 明确 `xdg-open` 非 wait 模式在 `spawn` 后立即 resolve。
+- **建议改法**：在断言第二次打开前用 `waitUntil` 等记录文件出现第二个 URL，并在每个测试前清空/隔离记录文件；测试结束前等待或收口假 launcher。不要用固定 sleep。
+
+### 重要｜正确性｜`packages/neuro-book/src/cli/start.ts:1678-1704`、`packages/neuro-book/src/server/projects/manager.ts:515-518`
+
+- **现象**：`nbook start --json` 只把监听日志设为 `quiet`，项目子进程输出仍默认转发到当前进程的 stdout；受信任的插件或项目宿主只要写一行 stdout，结果 JSON 之后就会出现额外文本。服务端/插件代码也可能直接 `console.log`，同样绕过 `quiet`。
+- **为什么是问题**：CLI 输出合同要求 `--json` 标准输出只有一个 JSON 对象；Agent 解析会因第二行日志失败。`quiet` 只覆盖 `Listening on` 两行，不覆盖实际运行期输出。
+- **如何核实**：代码路径显示 `serve()` 没有传 `projectOutput`，`createProjectManager` 因而使用 `process.stdout.write`；`quiet` 只在 `runServerProcess` 的两个监听回调中生效。安装一个会向项目进程 stdout 写日志的受信任插件并打开作品即可产生第二行。
+- **建议改法**：在 JSON 模式下把项目 stdout、服务端非结果日志统一导向 stderr 或日志文件，并定义/限制插件直接 stdout 的行为；补一条真实项目子进程输出仍保持 stdout 为单个 JSON 的进程验收。
+### 重要｜正确性｜packages/neuro-book/src/cli/main.ts:128-129、packages/neuro-book/src/cli/start.ts:1631-1644
+
+- **现象**：已有产品实例时 `existing()` 只检查开发实例、版本与端口提示，不检查 `--safe-mode`。`nbook start --safe-mode` 遇到一个普通模式的运行实例会直接打开它并返回 `started:false`，不会提示先停掉再以安全模式启动。
+- **为什么是问题**：安全模式是插件拖垮启动时的恢复入口。用户在服务已运行但要切换安全模式时得到的是原来加载第三方插件的实例，恢复路径实际失效，违反 `runtime.cli` 第 8 条对已有实例与 `--safe-mode` 的合同。
+- **如何核实**：代码中 `existing()` 的分支只读取 `kind`、`version`、`status`、`url`，`options.safeMode` 没有任何判断；`InstanceInfo.plugins.safeMode` 已由 hello 应答提供但未消费。
+- **建议改法**：已有实例分支比较 `options.safeMode` 与 `instance.plugins?.safeMode`；不一致时返回稳定失败码与“先停掉运行中的服务，再以安全模式启动”的提示，不要静默附着。补充真实进程验收。
+
+### 重要｜正确性｜packages/neuro-book/src/cli/state-root.ts:1789-1792、packages/neuro-book/src/cli/main.ts:1283-1285
+
+- **现象**：`--state-root` 先 `trim()`，空串或全空格被当作没有给出，回落到 `NBOOK_STATE_ROOT` 或平台缺省。当前 `state-root.test.ts` 还把这个行为固定为成功。
+- **为什么是问题**：当前 `runtime.cli` Spec 明确规定：`NBOOK_STATE_ROOT` 空串算没给，但显式给出的空 `--state-root` 是用法错误，不回落到别的状态根。现在用户以为指定了空路径时，命令会悄悄读写另一个状态根，可能连错实例或污染数据。
+- **如何核实**：读取 Spec 的输入条目与 `resolveStateRoot()`；运行入口传入 `--state-root ""` 可观察到它继续进入 `start` 而不是返回 `usage`，因为 `input.option?.trim() || ...` 直接丢弃了显式空值。
+- **建议改法**：区分“选项未出现”和“选项出现但为空”；后者返回 `CliFailure("usage", ..., 2)`，并将单测改为不建/不启动状态根的失败场景。
+
+### 重要｜正确性｜packages/neuro-book/src/server/process.ts:102-123、packages/neuro-book/src/cli/start.ts:1686-1705
+
+- **现象**：服务端启动失败时 `runServerProcess()` 最终直接 `process.exit(exitCode)`，CLI 的 Commander 没有机会生成失败结果对象。`nbook start --json` 在 Web 根不存在时 stdout 为空，stderr 只有服务端的两行原始 fatal JSON，退出码为 1。
+- **为什么是问题**：`runtime.cli` 要求任何 `--json` 失败都是 `{ok:false, code, message, ...}`，并把自己的启动失败码定为 `startup-failed`、附 `causes`。当前 Agent 得不到可解析结果，也无法区分启动失败与其它非零退出。
+- **如何核实**：设置 `NBOOK_WEB_ROOT=/tmp/review-t15-p2impl-startfail/missing`，运行 `bun src/cli/main.ts start --state-root /tmp/review-t15-p2impl-startfail/state --port 0 --no-open --json`；实际 `exit=1`、stdout 字节数为 `0`，stderr 为 `runtime.startup.failed` 与 `runtime.startup.causes` 两行。
+- **建议改法**：把服务端运行流程改为返回结构化停止结果/启动失败，而不是在共享 `runServerProcess` 内 `process.exit`；CLI 将失败映射为 `CliFailure("startup-failed", ..., 1, {causes})`。产品与开发入口仍在最外层透传退出码，不能让 CLI 进程内路径绕过输出层。
+### 建议｜正确性｜packages/neuro-book/src/cli/plugin.ts:1504-1523
+
+- **现象**：`plugin install --json` 成功结果只包含 `preview`、`plugin`、`restartRequired`，没有当前状态根；`stateRoot` 只存在于 `PluginContext`，没有写进结果。
+- **为什么是问题**：`runtime.cli` 的安装结果对象合同明确要求 `{ok:true, preview, plugin, stateRoot, restartRequired:true}`。Agent 在不解析环境变量、也不假设当前工作目录的情况下无法知道写入了哪个登记表；多个状态根场景下尤其会误判。
+- **如何核实**：读取 `installPlugin()` 的 `context.output.result` 字段与 Spec 第 12 条；现有 `cli.test.ts` 只断言 `ok`、`preview`、`restartRequired`，未覆盖 `stateRoot`。
+- **建议改法**：成功与 `confirmation-required` 结果都按 Spec 输出 `stateRoot`；补一条传入相对 `--state-root` 的真实进程断言。
+### 建议｜测试｜packages/neuro-book/src/server/server.test.ts:157-190、packages/neuro-book/src/project/process.ts:53-58
+
+- **现象**：SIGHUP 的真实服务端测试使用 `test.slow` HTTP 插件，没有打开项目；项目子进程只在代码里新增 `process.on("SIGHUP", () => undefined)`，没有任何真实子进程场景在 SIGHUP 下核对“子进程仍活到服务端停止序列、随后由 SIGTERM 收口、退出不污染停止结果”。现有 `server-projects.test.ts` 的真实停止场景只覆盖 SIGTERM。
+- **为什么是问题**：这正是关终端时最容易回归的顺序：若项目入口忽略 SIGHUP 失效，进程组会先杀掉项目子进程，服务端随后只能看到 IPC 断开/非零退出，项目停止顺序与退出码合同都被破坏。当前测试即使删掉项目入口的 SIGHUP 处理也不会失败。
+- **如何核实**：运行受影响测试可见 `server.test.ts` 的 SIGHUP 用例只启动 `test.slow`，`server-projects.test.ts` 的真实子进程循环只有 `SIGTERM`；按测试规则做变异检查，删除 `process.ts` 的 SIGHUP handler，现有这些用例没有对应项目路径断言。
+- **建议改法**：增加真实进程场景：打开一个项目后给服务端发 SIGHUP，等待项目入口的关闭/服务端插件收口证据，断言项目在服务端停止序列中退出、服务端退出码为 0；同时保留项目停止失败时的 1 码断言。
+
+### 建议｜文档｜packages/neuro-book/scripts/app-package/README.md:486-488、packages/neuro-book/src/cli/start.ts:1680-1685
+
+- **现象**：应用包 README 写 `--port`“被占用时顺延”，但 CLI 给了显式 `--port` 后设置 `NBOOK_PORT`，服务端 `readServerConfig` 将 `shiftPorts` 设为 false；监听端口被占用时不会顺延，而是启动失败。
+- **为什么是问题**：用户按包内文档预期第二个端口会自动换到下一组，实际得到 `startup-failed`；这也容易让人误以为 `--port` 与不给端口的成对顺延语义相同。
+- **如何核实**：读取 `serve()` 对 `NBOOK_PORT` 的设置与 `config.ts:81` 的 `shiftPorts = isUnset(NBOOK_PORT) && isUnset(NBOOK_RPC_PORT)`；README 没有区分显式端口与缺省端口。
+- **建议改法**：README 明确显式 `--port`/`--rpc-port` 被占用即失败；若产品确实要顺延，需在 CLI 合同中明确并传递独立的 shift 语义，同时补端口占用真实进程测试。
+## 未发现问题的方面
+
+- 实例认领的正常竞态、暂停不接管、SIGKILL 后残留套接字重认领、长路径运行时地址、不可写状态根：`bun test src/server/instance.test.ts`，9 pass。
+- 服务端产品/fixture 双入口的正常单实例、SIGHUP 基础停止、RPC 端口失败与启动收口：`bun test src/server/server.test.ts src/server/server-projects.test.ts`，34 pass；但项目子进程的 SIGHUP 顺序仍见上面的测试缺口。
+- 删除版本租约后的插件登记、回收与服务端运行时并发写入：`bun test src/plugin-platform/backend/plugins.test.ts`，21 pass；相关插件文件与远程会话测试 8 pass。
+- 应用打包的现有白名单、版本、shebang、许可清单基础路径与同名外目录保护测试：`bun test scripts/pack-app.test.ts`，4 pass；这些测试没有覆盖真实 Codicon 许可、同名外部目录和任意动态导入，问题已单列。
+- `bun run typecheck` 通过。
+
+未发现阻断级问题。
+
+数量：阻断 0；重要 12；建议 3；合计 15。

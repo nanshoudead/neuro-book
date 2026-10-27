@@ -1,0 +1,83 @@
+# 设计稿第三版：语言政策 ADR 草案与 w00028 t01 的范围（尚未落盘，未建记录）
+
+仓库：`/home/notnotype/CodeRepository/neuro-book`（主工作区，`master`）。前两版：`design.md`、`design-v2.md`；四份审查报告：`report-frontend.md`、`report-backend.md`、`report-frontend-r2.md`、`report-backend-r2.md`，都在 `/tmp/review-lang-governance/`。
+
+**第三版的变化**：第二版把“保留内联双语、不用消息目录”写成了“已确认的决定”，其实开发者从没确认过；它来自 w00017 t49 的一句“不引入 vue-i18n”，没有记录理由。开发者 2026-10-27 改定为**按插件、按包分的消息目录**。第二版里 nb-text 的类型设计（品牌模板类型、`DisplayText` 三形状、`defineTemplates`）作废。
+
+## 一、开发者已确认的决定（都是 2026-10-27 本次讨论里确认的）
+
+| 编号 | 决定 | 怎么确认的 |
+|---|---|---|
+| C1 | 开发诊断（异常 message、诊断事件 message、日志、堆栈）用英文，不做 i18n；错误码、事件名、字段名是英文标识符 | 开发者提出用英文，并同意不做 i18n |
+| C2 | 给用户看的界面文字与失败说明本地化；界面按错误码取文案，`error.message`、`reason` 只进“详情” | 同意三分法 |
+| C3 | 领域提示词用中文；基础设施提示词（system reminder、工具说明等）“先用中文” | 开发者原话 |
+| C4 | OMP 原生工具（`read`、`edit`）的错误文本原样保留英文，作为 C3 的例外 | 第一轮待确认项，开发者同意 |
+| C5 | 消息格式用 ICU MessageFormat 这类标准格式（复数、数字、日期），不自研 | 第一轮待确认项，开发者同意 |
+| C6 | 界面文字改用按插件、按包分的消息目录，不用 vue-i18n | 开发者原话 |
+| C7 | 错误处理先做一次只读审查；已有的中文诊断改英文排在错误模型之后 | 同意 |
+| C8 | 语言政策写成一份 ADR，`common.md` 加“语言”一节 | 同意 |
+
+## 二、待审提议：ADR 0034 草案要点
+
+文件 `docs/adr/0034-language-policy.md`（编号 0033 已被 `app-delivered-as-built-npm-package` 占用）。
+
+**决策**：
+
+1. **三类文字**：
+   - 界面文字与给用户看的失败说明：本地化，经消息目录；
+   - 开发诊断：英文，不本地化；
+   - 第三方库的错：原样，外面包一层，原错放 `cause`。
+
+   程序只按错误码分支。
+2. **提示词**：领域提示词与基础设施提示词用中文；标识符（工具名、参数名、标签名、JSON 字段、错误码）用英文。例外是 OMP 原生工具的错误文本。领域工具的失败在 `details` 里给结构化的 `code`，并按码写中文说明。第三方工具不强制。
+3. **界面文字**：
+   - 每个插件、每个共享包自带按语言分的消息目录，消息用 ICU；
+   - 声明（命令标题、视图标题、设置项等）引用消息键，与语言无关的文字（路径、项目名、用户输入）照旧写普通字符串；
+   - 目录随插件登记与注销，缺译文时按语言链回退；
+   - 由基准语言的目录生成类型，CI 检查缺键与占位符是否一致。
+
+   本条取代 ADR 0023 中“前端使用 vue-i18n”这一项，0023 其余部分仍有效、正文不改。库、目录格式、接口由 w00028 定。
+4. **错误**：各错误域保留自己的合同（跨进程帧、`RemoteCallError`、`DiagnosticsError`、命令失败结果）。界面边界把错误码投影成用户文案；错误码可以直接作为消息键。跨进程只传码、有限的原因和安全的 detail。
+
+**后果**：
+
+- 要改的 Spec：`workbench/menus.md`、`workbench/views.md`、`settings/settings-window.md`、`workbench/editor.md`（声明字段从 `LocalizedText` 改为消息键）；`workbench/commands.md` 的 `description` 从“稳定的英文语义说明”改为中文（**待开发者确认**，见第四节）。
+- 要改的入口文档：`packages/nb-harness/AGENTS.md`、`packages/nb-harness/docs/omp-capabilities.md`（引用例外）、nb-story 与 dev-panel 的包级文档。
+- 工具说明改语言后，旧会话的工具快照对不上，只能只读查看、不能续跑（**待开发者确认**）。
+- `docs/adr/README.md` 补一条部分取代的写法：旧 ADR 保持 `accepted`，新 ADR 写明取代哪一项，索引里标出关系（沿用 0028、0031 的先例）。
+
+## 三、待审提议：w00028 t01 修订后的范围
+
+t01 原来列的七个问题（见 `.agents/works/w00028-i18n/tasks/t01-requirements/README.md`）按 C6 收窄。要回答：
+
+1. **目录格式与位置**：
+   - 每个插件的 `locales/<locale>.json` 由清单字段引用，与 `entries.<id>.main` 一样按“插件目录内、登记时只检查文件存在”处理；
+   - 共享包（nb-form、nb-agent-ui、nb-markdown、nb-ui）怎么带目录、宿主怎么装载；其中 nb-form、nb-agent-ui、nb-markdown 已在 npm 发布 0.1.0，nb-story 已发布 0.1.1，它的查看器网页随包分发；
+   - ADR 0033（应用以构建产物发布）对目录文件的影响。
+2. **声明怎么引用键**：消息键与普通字符串怎么区分，例如 `{key: "..."}` 对象，或 VS Code 的 `%key%` 字符串；键的命名空间是否以插件 id 为前缀。
+3. **跨运行实例**：顶层声明式贡献在每个运行实例都登记（`runtime/plugin-manifest.md` 输出 11）。哪些实例要读目录（浏览器显示、服务端搜索或校验）；浏览器怎么取得当前语言的目录；切换语言后已打开的面板怎么换文字。
+4. **库的原型**：i18next（原生支持命名空间与 `addResourceBundle`、`removeResourceBundle`，ICU 要靠插件）、`@formatjs/intl`（原生 ICU，目录的合并与注销自己管）、自写薄注册表加 `intl-messageformat`。比较几项：插件装卸、类型生成、跨实例、打包体积（第一轮实测 gzip 9.8 到 14.2 KB）、翻译平台用的格式。
+5. **语言集合与回退**：是否开放任意 BCP 47 语言；基准语言是哪个（开发者先写中文）；回退链；`nbook.settings/locale` 的选项怎么生成。
+6. **消费方式**：用注入的 i18n 上下文取代逐层传 `locale` 属性；Vue 组件与纯 TS 模块各自从哪里取。
+7. **nb-ui 写死的中文默认文案**：`Editable.vue`、`Switch.vue`、`Toolbar.vue` 等由谁提供、怎么回退。
+8. **检查**：缺键、多余键、占位符一致、ICU 语法、硬编码的界面中文；落在 `governance:check` 还是 lint。
+9. **迁移**：约 1100 条内联文字（124 个文件）用脚本抽进目录；插件 SDK 还没发布（ADR 0030），直接切换，同时改 `sdk.test.ts` 的导出面快照和 `surface.test.ts`。
+10. **前两轮里与内联无关、仍然有效的输入**：
+    - 复数与数字参数要传数字，并在运行时校验（`undefined`、`"1,234"`、`NaN` 会静默输出 `NaN items`，`null` 会输出 `0 items`）；
+    - 错误上报不能是模块级全局状态（`bun test` 同进程跑多个测试文件）；
+    - nb-form 的 `FormText` 是开放的语言集合；
+    - 降级时不要显示整段 ICU 源码；
+    - 两种语言占位符一致的判据（中文 `{count}` 对英文 `plural` 是合法的）；
+    - Vue 的深层响应式代理会改变对象身份，影响缓存。
+
+产出：结构方案与原型证据，开发者确认后写 `plan.md` 与 Spec；实施另建 t02。
+
+## 四、待开发者确认（未确认，审查者请给判断）
+
+1. 命令 `description` 从英文改成中文（`workbench/commands.md` 现在明文规定是英文）。
+2. 工具说明改语言后，旧会话只读、不能续跑。
+3. 开发诊断改英文：投影做完后批量改，还是新代码写英文、旧代码改到时再改，加机检拦新增的中文诊断。
+4. 翻译现有英文工具说明之前，先用 `*.llm.test.ts` 做一次中英文说明的对照评测。
+5. `nbstory` 拆成三层（提示词与工具说明用中文；给人看的输出用中文；`--json` 的 `message` 要版本化）；`nbdev` 的错误改英文，开发者面板网页保持单一中文。
+6. 排除清单：`neuro-book-legacy`、`neuro-agent-harness`、`neuro-book-contracts`、`llmlint`、`neuro-book-test-support`。
+7. 记录安排：新建 Work“语言政策与错误处理”（t01 ADR、t02 错误处理审查、t03 失败投影与切片设计、t04 迁移，t04 暂不开工）；w00028 t01 按第三节修订，另建 t02 实施，暂不开工。

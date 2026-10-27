@@ -1,0 +1,56 @@
+# 设计稿：语言与 i18n 治理（尚未落盘，未建 Work）
+
+仓库：`/home/notnotype/CodeRepository/neuro-book`（主工作区，`master`）。本稿是主 Agent 与开发者讨论后的方案，待审查后再写成 ADR 与 Task。
+
+## 开发者已确认的决定（不必再议）
+
+1. 文字按读者分三类：
+   - 给用户看的失败说明与界面文字：`LocalizedText`（中英两份）；界面按**错误码**取文案，不拿 `error.message` 当主文案，`message` 只可放在“详情”里展开；
+   - 开发诊断（`Error.message`、诊断事件 message、日志、堆栈、内部状态）：**英文，不做 i18n**；错误码、事件名、日志字段名是英文标识符，程序只按错误码分支；
+   - 第三方库的错：原样保留，外面包一层，原错放 `cause`。
+2. 提示词：领域提示词（写作、小说、剧情问答、抽取规则）用中文；基础设施提示词（system reminder、工具说明、工具失败返回给模型的文字、压缩提示等 harness 协议文字）**也用中文**；工具名、参数名、标签名、JSON 字段、错误码用英文。现在不做提示词多语言。
+3. 工具失败返回给模型的文字算提示词层：由工具按错误码写中文说明，英文原始 message 作为附带详情。
+4. 已有的中文开发诊断要批量改英文（开一个 Task，按包分批），排在错误模型统一之后。
+5. 先做一次错误处理的只读审查，结论用来决定错误模型。
+6. 语言政策与 i18n 选型写成一份 ADR（同时修订 ADR 0023，它仍写着前端用 vue-i18n），`docs/standards/code/common.md` 加“语言”一节链接 ADR。
+
+## 待审方案：i18n 选型
+
+现状：`packages/neuro-book/src/shared/localized-text.ts`（40 行自研）：`LocalizedTextSchema` 为 `{"zh-CN", "en-US"}` 两个必填字段、`additionalProperties: false`；`localize`、`textOf`、`formatText`（正则代入 `{name}`）。文字直接写进插件声明（命令标题、视图标题、设置项，以后来自清单 JSON），插件可热装卸；不经翻译表。各包写法不一：应用内是每条一对（例如 `plugins/editor/web/messages.ts`）；nb-agent-ui、nb-form 是中英两张平行表，nb-agent-ui 在 `src/types.ts` 另定义了一份 `LocalizedText`，并自己用 `Intl.PluralRules` 做英文复数；应用里没有复数处理（`"Delete {count} items?"`）。ADR 0023 写前端用 vue-i18n；w00017 t49 决定“不引入 vue-i18n”，没写理由。
+
+候选比较（体积为 `bun build --minify --target=browser` 打包一条复数消息后 gzip 实测）：
+
+| 方案 | gzip | 文字写在插件声明里 | 不绑框架 | 格式能力 | 判断 |
+|---|---|---|---|---|---|
+| 继续自研 | ~0 | 能 | 能 | 只有占位符 | 复数等要自己补 |
+| 自研结构 + `intl-messageformat` 12.1.4 | 9.8 KB | 能 | 能 | ICU 全套 | **推荐** |
+| `@formatjs/intl` 6.1.4 | 13.0 KB | 不能，按 id 建目录，换语言重建实例 | 能 | ICU | 目录模式 |
+| `i18next` 26.5.11 | 14.2 KB | 要改成键 + 命名空间（`addResourceBundle`/`removeResourceBundle`） | 能 | 自有语法 | 需要外部翻译时再考虑 |
+| Lingui | 未测 | 不能，构建时抽取与宏 | 宏要转换 | ICU | 工具链重 |
+| Paraglide JS 2 | 未测 | 不能，编译成函数 | 能 | 有 | `setLocale` 默认刷新页面 |
+| `messageformat` 4.1.0（MF2） | 7.7 KB | 能 | 能 | MF2 | 占位符要改 `{$name}`；`Intl.MessageFormat` 未到 Stage 3；观望 |
+
+推荐方案：
+
+- 保留 `{zh-CN, en-US}` 内联结构；消息语法改为 ICU MessageFormat，由 `intl-messageformat` 格式化（按 locale 与模板缓存实例）。现有 `{name}` 已是合法 ICU。
+- 类型、`formatText`、复数等收进一个**新的共享小包**（nb-form、nb-agent-ui 的核心不能依赖 Vue，所以不放 nb-ui）；各包删掉自己的副本；三个包约 1350 行平行表改成每条一对。
+- 文字在运行时从插件到达，不能预编译 AST，解析器随包带上。
+- ICU 单引号陷阱：`"Rename '{name}'"` 输出 `Rename {name}`（实测）；现有 22 条带撇号的英文无一踩中；加一条机检。
+- 以后需要三种以上语言或外部翻译时，再迁到消息目录（选不绑框架的库）。
+
+## 范围估算（排除旧应用、已冻结的 neuro-agent-harness、旧包 neuro-book-contracts、llmlint）
+
+| 步骤 | 内容 | 规模 | 估计 |
+|---|---|---|---|
+| 0 ADR | 语言政策 + i18n 选型；修订 ADR 0023；common.md 加“语言”一节 | 2 份文档 | 半天 |
+| 1 文字统一 | 共享小包；`formatText` 换 `intl-messageformat`；19 条带数量的文字改复数；平行表改成对；删重复类型；单引号机检；Lab 英文截图 | 121 个文件引用，`formatText`/`localize`/`textOf` 290 处调用基本不变 | 1 个 Task，1 到 2 天 |
+| 2 错误处理审查 | 只读；后端 omp（nb-runtime、服务端、nb-workflow、nb-story、dev-panel、harness 等约 8 万行）；前端 Sonnet（应用前端、nb-agent-ui、nb-form、nb-markdown、nb-ui 约 10 万行） | 非测试代码约 18 万行 | 与 1 并行；半天到一天 |
+| 3 错误模型设计 | 统一形状 `{code, message, detail, cause}`；界面按码取双语文案；提案与 Spec | 106 个 Error 子类、应用 src 58 处裸 `new Error` | 1 个 Task |
+| 4 开发诊断改英文 | 按包 8 到 10 批机械修改，每批 `test:affected` | 带中文的 `new XxxError` 约 1035 处；日志与诊断 211 处；`reason`/`message`/`detail` 字段 791 处（有重叠）；测试断言上限约 2400 行、342 个文件（混有本应是中文的界面与小说内容） | 2 到 4 天，按包派 Sonnet 子代理 |
+
+顺序：0 → 1 ‖ 2 → 3 → 4。4 必须在 3 之后：791 个 `reason` 里有一部分直接显示给用户（例如 `plugins/workbench/web/commands/failure-notice.ts` 用 `failure.reason` 当通知正文），要先改成“码 + 双语文案”，剩下的才翻英文。
+
+## 待开发者确认
+
+1. 命令行输出：`nbdev` 算开发诊断改英文；`nbstory` 给产品 Agent 读、内容是小说，算提示词层保持中文。
+2. 排除清单：旧应用、neuro-agent-harness、neuro-book-contracts、llmlint。

@@ -1,0 +1,119 @@
+# 设计稿第二版：语言与 i18n 治理（尚未落盘，未建 Work）
+
+仓库：`/home/notnotype/CodeRepository/neuro-book`（主工作区，`master`）。第一版：`/tmp/review-lang-governance/design.md`；第一轮审查报告：`report-frontend.md`（10 条）、`report-backend.md`（10 条），20 条全部成立，处理见文末。
+
+## 开发者已确认的决定（不必再议）
+
+1. 文字按读者分三类：
+   - **界面文字与给用户看的失败说明**：双语，按本稿“界面文字”一节的类型写；失败说明由界面边界按错误码取文案，不拿 `error.message`、`reason` 当主文案，它们只能放进“详情”。
+   - **开发诊断**（异常 message、诊断事件 message、日志、堆栈、内部状态）：英文，不做 i18n；错误码、事件名、日志字段名是英文标识符，程序只按错误码分支。
+   - **第三方库的错**：原样保留，外面包一层，原错放 `cause`。
+2. **提示词**：领域提示词与基础设施提示词（system reminder、工具说明、压缩提示等）用中文；工具名、参数名、标签名、JSON 字段、错误码用英文；现在不做提示词多语言。
+   - **例外**：OMP 原生工具（`read`、`edit` 的五种模式）的错误文本原样保留英文（`packages/nb-harness/docs/omp-capabilities.md`：错误文本与模型训练一致，不要改写）。
+   - **领域工具**（nb-story 等）：在 `details` 里给结构化的 `code`，按码写中文说明。
+   - **第三方工具**：等注册合同加入可选的结构化失败扩展后，由插件自己负责；harness 只保证 `isError`、原样记录、代码字段不丢。
+3. **错误模型**：不统一成一个形状。各错误域保留自己的合同：
+   - 跨进程帧：`code`，`cause` 为有限的传输阶段枚举，`detail` 按方法声明 schema；
+   - `RemoteCallError` 不占用 `Error.cause`；
+   - `DiagnosticsError`；
+   - 命令失败：`{code, reason}`。
+
+   只新增一个“给用户看的失败投影”（码 + 双语文案），只用在界面边界，不进线协议、会话日志和底层异常。跨进程只传码、有限原因与安全 detail；需要根因时按诊断的脱敏规则生成有界摘要。
+4. **i18n**：
+   - 保留内联的 `{zh-CN, en-US}` 结构，不用 vue-i18n，也不用消息目录；
+   - 普通文字从不解析；只有显式标成模板的文字按 ICU MessageFormat 解析，格式化器用 `intl-messageformat`，外面自己包一层；
+   - 插件声明在登记时预先校验模板；显示时出错，降级为原文并上报一次，不打断渲染；
+   - 数量传数字。
+5. **ADR**：新写一份语言政策 ADR，正文说明取代 ADR 0023 中前端 vue-i18n 那一项，0023 原文不改。`common.md` 加“语言”一节，只放规则入口并链接 ADR。
+6. **命令行**：
+   - `nbstory` 拆三层：领域提示词与工具说明保持中文；给人看的输出是产品文案，保持中文；`--json` 与 API 的 `message` 是公开字段，要版本化，或拆成 `message` 与 `detail`。
+   - `nbdev` 的错误与日志改英文；开发者面板网页是界面文字，单独处理（见待确认）。
+7. **排除清单**：`neuro-book-legacy`、`neuro-agent-harness`、`neuro-book-contracts`、`llmlint`、`neuro-book-test-support` 不迁移；plugin-sdk 示例纳入迁移。
+
+## 界面文字：新共享包（暂名 `@notnotype/nb-text`）
+
+位置在 `packages/nb-text`，纯 TS，运行时依赖只有 `typebox` 与 `intl-messageformat`。消费者：`neuro-book`（含插件 SDK 重新导出）、nb-form、nb-agent-ui、nb-markdown。要删掉的副本有四份：
+
+- `neuro-book/src/shared/localized-text.ts`；
+- `nb-agent-ui/src/types.ts` 的 `LocalizedText`；
+- nb-form 的 `text.ts` 与 `vue/messages.ts` 的形状；
+- `nb-markdown/src/locale.ts`。
+
+三个包里的平行表（约 1350 行）改成每条一对。新包登记进 ADR 0029 的发布清单、`scripts/release/packages.ts`、`pack-smoke.ts`，以及插件 SDK 打包的 `typePaths`。
+
+类型草案：
+
+```ts
+type DisplayLocale = "zh-CN" | "en-US";
+
+/** 普通文字：原样显示，从不解析。 */
+type LocalizedText = {readonly "zh-CN": string; readonly "en-US": string};
+
+/** ICU 模板：只能经 defineTemplates 或 TemplateSchema 校验后得到。 */
+type MessageTemplate = LocalizedText & {readonly [templateBrand]: true};
+
+/** 延后到显示时才取语言的文字；切换语言后重新取。 */
+type DisplayText =
+    | string                       // 与语言无关：路径、项目名、用户输入
+    | LocalizedText
+    | {readonly template: MessageTemplate; readonly params: Readonly<Record<string, string | number | Date>>};
+
+function defineTemplates<T extends Record<string, LocalizedText>>(table: T): {[K in keyof T]: MessageTemplate};
+const TemplateSchema: TSchema;     // 清单 JSON 用；登记时编译两种语言，失败按贡献拒绝
+
+function textOf(text: DisplayText, locale: DisplayLocale): string;   // 只格式化当前语言那一份
+function message(template: MessageTemplate, params: Params): DisplayText;  // 取代 formatText
+function setTextErrorReporter(report: (problem: TextProblem) => void): void;  // 宿主启动时注入
+```
+
+- **`defineTemplates`**：开发期编译两种语言，并比对两边的占位符名与参数类型是否一致，不一致就抛错；文字表是模块级常量，测试一跑就会发现。
+- **`textOf`**：只格式化当前语言。格式化失败（缺参数、类型不对）时返回该语言的原文，并按模板与错误类型去重，上报一次。普通 `LocalizedText` 走直取，不经过 ICU。
+- **缓存**：用 `WeakMap<MessageTemplate, Map<DisplayLocale, IntlMessageFormat>>`，模板对象被回收后缓存跟着释放。插件热卸载后，它的模板不被宿主持有。
+- **`ignoreTag: true`**：`<Enter>` 这类文字不按标签解析。
+- **数量**：调用方传数字，由 ICU 的 `number` 与 `plural` 按语言格式化。`status-items.ts`、`shelf-format.ts`、`PluginsPage.vue` 这类先用 `Intl.NumberFormat` 转成字符串再传的地方要改。
+- **机检**：在 `governance:check` 或 lint 里检查：
+  - 模板里 `'` 紧挨 `{`、`#` 或 `|`；
+  - 普通 `LocalizedText` 里出现形似占位符的 `{\w+}`（大概是忘了标成模板）；
+  - 两种语言的占位符不一致。
+- **以后加语言**：缺某种语言时回退到 `en-US`，这条规则现在就写定。schema 暂时保持两个必填字段；以后放宽是增量改动。
+- **插件 SDK**：`formatText` 和 `localize` 是公开导出，示例插件在用。改成 `message` 和 `textOf` 属于 SDK 的兼容变更，按 `engines.neurobook` 规则处理；SDK 是否已经发布过，以发布记录为准（未核实）。
+
+## 步骤与范围
+
+| 步骤 | 内容 | 估计 |
+|---|---|---|
+| 0 ADR 与规范 | 新写语言政策 ADR（含 i18n 选型，取代 0023 的 vue-i18n 一项）；`common.md` 加“语言”一节；影响清单登记：相关 Spec 的输出与失败表、`packages/nb-harness/AGENTS.md`、OMP 能力记录、nb-story 与 dev-panel 的包级文档 | 1 天，含审查 |
+| 1 nb-text | 上一节全部内容；120 余个引用文件里的类型与调用改写，主要是 `formatText` 改 `message`、数量改传数字、平行表改成对；Lab 补英文截图 | 1 个 Task，2 到 3 天 |
+| 2 错误处理审查 | 只读，前后端分开派审查者；产出现状通道矩阵：诊断查询、JSONL 日志、握手与跨进程 detail、命令通知、工具结果、会话 JSONL、QA 记录、CLI 给人看的输出、CLI JSON、Task 证据、测试。每个通道标明用什么语言、是否持久化、谁消费 | 与 1 并行，约 1 天 |
+| 3 失败投影与切片设计 | 依据矩阵设计给用户看的失败投影：码从哪来；插件自定义失败码怎么带文案；`NotificationInput` 和跨进程 `reason` 的字符串槽怎么改；旧持久化数据怎么读。把开发诊断改英文按错误域和通道切片，不按包；写提案并更新 Spec | 1 个 Task，2 天，含审查 |
+| 4 迁移 | 按第 3 步的切片执行。每片同时改消费者、持久化兼容读取和测试（按码或结构断言）；跨包的片要跑直接消费者、真实子进程、会话与 QA 读回、CLI JSON 的合同测试，`test:affected` 只用来挑选测试 | 第 3 步后按片重估；粗估 1 到 2 周 |
+
+规模（排除清单外的非测试源码）：1395 个文件、约 20.8 万行、17 个包。带中文的 `new XxxError` 约 1035 处，日志与诊断约 211 处，`reason`、`message`、`detail` 字段约 791 处（三项有重叠）；测试里断言中文的最多约 2400 行、342 个文件。
+
+顺序：0 → 1 ‖ 2 → 3 → 4。
+
+## 待开发者确认
+
+1. **开发者面板网页**：属于开发工具的界面，开发者自己看，单一中文，不纳入双语，也不改英文。
+2. **ADR 的“部分取代”**：`docs/adr/README.md` 的 frontmatter 只有 `accepted | superseded`，表达不了“只取代 0023 的一项”。提议 0023 保持 `accepted`，由新 ADR 在正文里写明取代哪一项；要不要给 README 补一条部分取代的写法，在第 0 步一并定。
+
+## 第一轮处理
+
+| 发现 | 处理 |
+|---|---|
+| 前端 1、4，后端 10：ICU 抛错、模板与结果同类型、插件输入未校验 | 成立：显式模板类型、登记时校验、只格式化当前语言、降级加上报、`ignoreTag` |
+| 前端 2：预先格式化的数字让复数出现 `NaN` | 成立：数量传数字，列出要改的调用方 |
+| 前端 3：SDK 公开导出 | 成立：按 SDK 兼容变更处理，补 `typePaths` |
+| 前端 5，后端 4：按码取文案的通道缺口、持久化 | 成立：第 2 步出通道矩阵，第 3 步设计投影与旧数据读取 |
+| 前端 6：漏了 nb-markdown 的副本、发布清单 | 成立：已补 |
+| 前端 7：`@formatjs/intl` 也能内联 | 成立：对比表改正；仍选 `intl-messageformat` 加包装，因为 `@formatjs/intl` 的接口为目录设计 |
+| 前端 8：只有两个键的封闭结构 | 部分成立：现在写定回退规则，schema 以后放宽是增量改动 |
+| 前端 9：机检太窄；撇号实为 34 条 | 成立：机检已扩大 |
+| 前端 10：缓存没有上限 | 成立：改为按模板对象的 `WeakMap` |
+| 后端 1、2：统一形状冲突、`cause` 怎么序列化 | 成立：改为各错误域保留合同，只加用户投影 |
+| 后端 3：工具失败没有承载合同；OMP 错误文本不能改 | 成立：OMP 原生工具例外，领域工具用结构化 code |
+| 后端 5：`nbstory` 要拆三层 | 成立：已改 |
+| 后端 6：后端两个文件不用 `LocalizedText` | 成立，是第一版的事实错误：已删去 |
+| 后端 7：已接受的 ADR 正文不能改 | 成立：新 ADR 取代其中一项 |
+| 后端 8：其它真相源 | 成立：第 0 步登记影响清单 |
+| 后端 9：范围低估、按包分批不可行 | 成立：按错误域与通道切片，重新估算 |

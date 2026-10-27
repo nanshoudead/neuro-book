@@ -1,0 +1,33 @@
+# w00024 t22 只读设计审查
+
+审查对象：主工作区 `.agents/works/w00024-nb-story/tasks/t22-github-issues-256-259/plan.md`，2026-10-27。
+
+依据：GitHub #256、#257、#258、#259 当前正文；主工作区 Spec 与 ADR 0032；实现 worktree 及安装的 pi-ai / pi-catalog / pi-coding-agent 源码。只读，不调用真实模型，不开子审查，不跑 e2e 或开发服务。下列发现逐条核实后追加。
+
+## 重要：新增 64000 校验上限与“已有大值照读”互相冲突
+
+- 类别：不变量 / 兼容。
+- 位置：主工作区 `plan.md:17`；worktree `packages/nb-story/src/qa/config.ts:73-79,177-185,248-250`、`src/contract/config-schema.ts:64-75,93-137`。
+- 现象：计划一面要求 maxTokens 校验不超过 64000，一面说已有大值不改、只在发请求时夹到 64000，却没有区分读校验与写校验。现有 CLI、问答、抽取回退和网页全都用同一份 ConfigSchema。
+- 为什么是问题：在共享 schema 加 maximum 后，已有 maxTokens=100000 的合法配置在进入 modelOf 前就被 qa_unconfigured 拒绝；不只不能问答，config show / set 也读不出，网页不能继续编辑。它不是“旧值不改”。此外还会限制本来不受 OPENAI_MAX_OUTPUT_TOKENS 约束的 Anthropic / Google 自定义模型。
+- 如何核实：通过 parseQaConfig 读取 maxTokens=100000 成功；仅在内存复制的 ConfigSchema 上增加 maximum=64000 后 Compile.Check=false，错误路径 `/providers/review-gateway/models/0/maxTokens`。未改仓库。读与写共用校验由上述行号确认。
+- 建议改法：保留磁盘格式的正整数合同，仅在 OpenAI 请求边界按 API 夹上限；如果确实要限制新写入值，单列写校验并定义旧配置可读取、可修改其它字段的过渡规则，不要把 maximum 直接加进共享读 schema。
+
+## 重要：32768 预算不能替代流结束校验，“必须改 OMP 库”不成立
+
+- 类别：正确性 / 依赖机制。
+- 位置：主工作区 `plan.md:19,43,56`；主仓库 `node_modules/@oh-my-pi/pi-ai/src/providers/openai-completions.ts:1445-1460`、`src/types.ts:565`、`src/stream.ts:2067`；worktree `packages/nb-story/src/qa/probe.ts:34`、`src/qa/engine.ts:332`。
+- 现象：pi-ai 18.2.5 的 incomplete-stream 检查确实存在，但仅覆盖“已有内容且既无 finish_reason 也无 [DONE]”。有 [DONE]、无 finish_reason 仍按 stop 成功。计划把发上限当作根治，拒绝处理这个已知失败形态。
+- 为什么是问题：网关仍可到达新预算、忽略字段、因其它原因早停；无 finish_reason 的半句仍被记录成正常结束。库已公开 onSseEvent，nb-story 的 streamFn 扩展可以经 streamSimple 接到原始 chunk 和 [DONE]，不必先修改 OMP 库才能区分。
+- 如何核实：`bun /tmp/review-t22-design/stream-ending.ts` 经真实 probeModel → nb-harness → pi-ai → 本机 SSE 端点，模型预算已是 32768。无 [DONE] 得 network/incomplete-stream；同样半句加 [DONE] 得 ok=true。streamFn 中的 onSseEvent 同时收到了 finish_reason:null 的 chunk 和 [DONE]。
+- 建议改法：不要把预算修复宣称为结束完整性修复；在 nb-story 的共享问答流入口（包括 probeModel）定义无 finish_reason 的失败或截断策略，复用公开流钩子保留证据并经正常错误通道归类。若决定保留兼容行为，应明确这是 #258 第 3 条未解决的产品取舍，并保留回归场景，不以“拿不到区别”结案。
+
+## 重要：计划会把 minimal 降成 none，关闭本来要求启用的推理
+
+- 类别：正确性 / 与既定行为不一致。
+- 位置：主工作区 `plan.md:23`；主工作区 `docs/specs/story/ingest.md:95`；主仓库 `node_modules/@oh-my-pi/pi-ai/src/providers/openai-reasoning-fallback.ts:21-38,336-360,408-414`。
+- 现象：把 none 放在 minimal 下面并“向低夹”，对 #257 正文给出的 6 个合法值（none、low、medium、high、xhigh、max），会得到 minimal→none，而不是 issue 建议和 OMP 实际采用的 minimal→low。
+- 为什么是问题：none 是关闭推理，不是较低的启用档；原先固定“最低推理档”的 beats / recall 会在同一模型换网关后被静默改成不推理。计划把它当作复用 OMP 思路，但 OMP 的 enabled 阶梯明确排除 none，且对 minimal 优先 low。
+- 如何核实：直接对已安装 resolveOpenAIReasoningEffortFallback 传入该 400、结构化 param=reasoning_effort，结果 low；按计划给出的排序与向低规则结果 none。不调用远端。
+- 建议改法：分开“启用推理的档位”与 none；minimal / medium 只在已启用的合法档间选择，优先最邻近值并明确平局规则。只有用户明确要求关闭推理或另行批准时才发 none；测试使用 issue 原样的含 none 合法列表。
+
