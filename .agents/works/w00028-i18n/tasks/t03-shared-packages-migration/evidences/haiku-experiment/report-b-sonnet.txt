@@ -1,0 +1,26 @@
+交付报告 b-sonnet
+
+改动文件（均在 packages/neuro-book/src/plugins/workbench/web/components/）
+- WorkbenchStatusBar.vue：REASONS 改为 Record<ReasonCode, LocalizedText>，ReasonCode = StorageFailure(14) | corrupt | unsupported-version | change-threw | provider-stopped | released | disconnected | server-restarted | project-gone | provider-error；漏写任一码过不了类型检查。reason() 改用 Object.hasOwn 查表，不认识的码仍原样显示（行为同前，另外修掉 "constructor" 之类原型属性名被当成已知码的隐患）。新增 import type StorageFailure。
+- WorkbenchStatusBar.dom.test.ts：新增 3 个用例。
+- WorkbenchStatusBar.md：code 字段的说明改为列出已知码范围、未知码原样显示。数据合同（code 仍是 string）没变。
+
+码的来源（查证）
+- corrupt / unsupported-version：不是存储失败码，是记录状态；layout-store.ts 的 problems 把 base.status 直接当 code（kind: unread）。
+- provider-stopped：订阅结束原因（storage/backend/owner.ts），经 PersistedFieldState 的 failure 传来。
+- 同一条路径还有 released（facade）、disconnected / server-restarted / project-gone（nb-runtime remote）、provider-error（peer.ts）；另有 change-threw（persisted.ts 修改函数抛错，保存失败码）。这些我都补了中英文案。
+- 订阅结束原因是开放字符串（node.ts 还会把重建订阅失败的 outcome.code 当 reason），所以 StatusBarProblem.code 保持 string，兜底保留。
+
+断言判据
+- 具体码：用户可见整句文本全等（too-large 中文、busy 英文、server-restarted 中文、unsupported-version 英文）。
+- 全部 14 个 STORAGE_FAILURES x 中英：状态栏文本不等于“前缀+原始码”，即不会原样露出码（没用 not.toContain，因为 "conflicts" 含 "conflict"，会误判）。
+- 兜底：brand-new-code 与 constructor 原样显示。
+
+验证
+- cd packages/neuro-book && bun run test:vitest -- src/plugins/workbench/web/components/WorkbenchStatusBar：1 文件 6 用例全过。
+- bunx vue-tsc --noEmit -p tsconfig.web.json：退出码 0，无输出。
+
+没把握
+- 文案措辞（如 originals-full“保存原件的空间已满”、no-client“当前位置没有客户端身份”）偏贴 spec 术语，用户是否一眼看懂可再润色。
+- released / disconnected / provider-error 实际是否会走到状态栏没有运行时验证，只是代码上可达；多写不影响行为。
+- 没有实测“漏写一个码类型检查会失败”。

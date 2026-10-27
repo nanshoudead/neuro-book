@@ -1,0 +1,28 @@
+Haiku 与 Sonnet 的对照实验（2026-10-27，w00028 t03）
+
+目的：确认简单迁移能否派 Claude Haiku 子代理（开发者 2026-10-27 要求先做实验，结论用于修改 ~/.claude/CLAUDE.md 的分派表）。
+
+做法：两个任务，同一份说明（brief-a.txt、brief-b.txt，只有 worktree 与报告路径不同），各派一个 Haiku、一个 Sonnet 编码子代理（coder 类型），各用独立的 detached worktree，基线为同一提交；做完不合入。主会话复跑验证、逐份审 diff。
+- 任务 A：nb-history 的开发诊断改英文（32 处诊断，测试里 26 处断言中文；要判断断言改成码、类型还是英文）。
+- 任务 B：工作台状态栏的存储原因码表补成类型上穷举（7 个码 → 存储的 14 个失败码加记录状态等；要先查清表里不属于存储失败码的码从哪来；写中英两份界面文案；补测试）。
+
+结果（用量来自子代理完成通知；同时有两份 omp/Sonnet 审查在跑，机器负载约 25）：
+
+| 运行 | 结果（主会话复跑） | token | 用时 | 工具调用 |
+|---|---|---|---|---|
+| A Haiku | typecheck 过；bun test 48 过 1 败（perf.test P2 计时，负载下时过时不过，未改动的基线同样失败） | 115k | 318 s | 26 |
+| A Sonnet | typecheck 过；49 过 | 51k | 173 s | 11 |
+| B Haiku | vitest 5 过；vue-tsc 过（子代理自报，主会话复跑 vitest） | 122k | 380 s | 31 |
+| B Sonnet | vitest 6 过；vue-tsc 过（同上） | 73k | 303 s | 19 |
+
+质量比较：
+- 任务 A：两者的英文几乎逐句相同，质量相当；都没有越界改动；都把无码的 HistoryError 断言改成英文子串（理由相同：只断言类型会放宽）。Haiku 另外发现两处 Sonnet 没发现的问题，主会话核实都属实：旧应用 packages/neuro-book-legacy/server/workspace-history/project-history.ts:527 按中文文案“游标未初始化”分支，改英文后会静默失效；nb-history 测试里 8 处 `expect(...).rejects` 没有 await，断言从未生效（基线就有的问题）。Haiku 在临时副本里补 await 验证新文字匹配，并把超出范围的事项列给主会话决定。Sonnet 自述没有通读 ADR。
+- 任务 B：两者都把表改成 Record<码, 文字>、都用 Object.hasOwn 修了 `constructor` 这类码命中原型属性的问题、都查清了 corrupt、unsupported-version、provider-stopped 的来源，并找到 change-threw。Sonnet 把订阅结束原因（released、disconnected 等）也补进表并改了组件 .md，`protected` 的文案更准（实际含义是记录损坏或版本不支持；Haiku 写成“记录受保护，不能直接覆盖”）。Haiku 用类型守卫代替强转、测试先红后绿，订阅结束原因因未验证可达而留给兜底并列为待定，还提出了上游改法（把失败码与结束原因做成联合类型）。
+
+结论：
+1. 规则写死、有测试兜底的机械迁移，Haiku 的正确性与 Sonnet 相当，遵守规则同样好，还更愿意把没把握的事列出来。
+2. Haiku 用的 token 约是 Sonnet 的 1.7 到 2.3 倍、用时约 1.3 到 1.8 倍、工具调用多一倍以上；是否更省钱取决于两者单价，本实验没有比较单价。
+3. 给用户看的界面文案，Haiku 的措辞略逊（一条语义不准）；文案量大的迁移派 Sonnet，或派 Haiku 并由主会话逐条审文案。
+4. 样本只有两个任务，结论适用于“说明写清规则与验证命令”的机械任务；需要设计判断或跨进程合同的任务仍由主会话或 Opus 做。
+
+顺带发现的问题（交 w00031 t04）：旧应用按 nb-history 的中文文案分支；nb-history 测试有 8 处未 await 的 rejects。

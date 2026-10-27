@@ -1,0 +1,48 @@
+交付报告：nb-history 开发诊断改英文（brief-a-haiku）
+worktree：/home/notnotype/CodeRepository/neuro-book/.worktree/exp-a-haiku（HEAD 770da03fe，未 commit）
+
+一、改动文件（9 个，全部在 packages/nb-history/ 内）
+src：
+- src/paths.ts：2 条（"路径不能为空"、"路径含 NUL 字节"）
+- src/rows.ts：8 条（file.revert 的 no-op 消息；operation_log 行的列类型与 actor / op_type 非法消息）。插值全部保留，错误码、字段名不动。
+- src/workspace-history.ts：22 处 throw 的消息（删除 / 改名 / 收件箱 revision 冲突 / 恢复与还原的快照不可用 / 游标未初始化 / blob 类型 / INSERT 未返回等）。
+  其中“收件箱 revision 已变化”“待审文件不存在或已被接受”“没有该文件的日志记录”各在多处出现，同一句译文统一。
+- src/types.ts：只改 1 处注释，把 HistoryError 注释里的“（中文）”改成“（英文）”。这条注释描述的是本次改动的消息语言，所以一并改，其余注释未动。
+tests：
+- tests/cursor.test.ts、tests/revert.test.ts、tests/limits.test.ts、tests/observed-write.test.ts、tests/timeline.test.ts，共 7 个断言，见第二节。
+
+二、断言怎么判断
+- 对 HistoryError（无码、只有一个类型）的失败，改成断言新的英文消息的稳定子串。原因：HistoryError 没有码，它是模块唯一的基类，断言类型会把任何 HistoryError 都算通过，比文字更松，不符合“不放宽断言”。涉及：游标未初始化（cursor）、没有待还原的收件箱变更与没有该文件的日志记录（revert ×2）、无法恢复→cannot restore（limits ×2）、路径不能为空（observed-write、timeline）。
+- 断言 HistoryInboxMutationError 码的（inbox.test.ts、revert.test.ts 中的 {code: "stale"/"missing"}）本来就是断言码，未改。
+- toThrow("NUL") 本来就是英文，未改。
+- 测试标题、测试数据里的中文（例如 "AI 草稿"）不是断言消息，未改。
+
+三、验证命令与结果
+1. cd packages/nb-history && bun test
+   - 第一次：49 个用例，48 pass，1 fail。失败的是 tests/perf.test.ts 的 “P2 … ≤ 50ms”（unseenChanges 实测 94.8ms）。
+   - 单独重跑 perf.test.ts：仍有 1 次失败（57.7ms）。
+   - 第二次全量：同样只有这 1 个失败。
+   - 对照：HEAD 的副本（git archive，未改）单独跑 perf.test.ts 两次，第一次失败（57.8ms）、第二次通过（42.6ms）。
+   - 结论：P2 是压力相关的计时用例，机器 load average 约 26 时不稳定，HEAD 也会失败，与本次改动无关。其余 48 个用例（含全部改过断言的用例）通过。
+2. cd packages/nb-history && bun run typecheck：通过（tsc --noEmit，退出码 0）。
+3. 断言有效性：本地没有直接 await 的 rejects.toThrow 原本就没有 await（见第四节）。在一个 scratch 副本（/tmp/haiku-exp/scratch-a，未触碰 worktree）里给这几处补上 await，再跑 cursor、revert、limits、timeline、observed-write 五个文件：26 pass，0 fail。说明新英文子串与实际抛出的消息完全匹配。
+
+四、没有改、需要你注意的地方
+1. 【最重要】legacy 应用的行为回归。packages/neuro-book-legacy/server/workspace-history/project-history.ts:527 写的是 `error instanceof HistoryError && error.message.includes("游标未初始化")`，按消息文字分支。改成英文后这个判断不再命中：首次接触的会话不会调用 initCursor，每次 unseenChanges 都抛错，被外层 catch 记成 warn 并返回 []。这违反 ADR 0034 “程序只按码或类型分支”，legacy 又不在本任务范围、按 AGENTS.md 不改。处理方式需要你定，三个选项：
+   a. nb-history 给“游标未初始化”加一个稳定的错误子类或码，legacy 改用它（动公开契约，legacy 也要改，但 legacy 是只读参照，需要明确授权）；
+   b. 本次不改游标这一句（把 workspace-history.ts:642 那句保留中文或先不译），等 a 一起做；
+   c. 接受 legacy 的回归，只作为已知问题记下。
+   我没有擅自改回这一句，等你决定。另外 legacy 里 accept.post.ts、revert.post.ts 用的是 error.code，不受影响。
+2. 测试里 expect(...).rejects.toThrow 没有 await 的写法是原有的：cursor.test.ts:45、revert.test.ts:70-71、limits.test.ts:20 与 40、timeline.test.ts:117-118。这些断言不 await 时即使消息不符也可能不会使测试失败。本任务只改了断言字符串，没有改 await 写法，因为超出“只改消息”的范围。第三节第 3 条已验证补 await 后全部通过。
+3. 没有改的中文输出（都不在 src 的开发诊断范围，或属于 demo / 测试输出）：
+   - scripts/demo.ts：演示脚本的中文输出（给人看的演示，不是开发诊断）。
+   - scripts/handle-probe.ts:13：用法提示 console.error。
+   - tests/helpers.ts:98、tests/perf.test.ts:28、tests/observed-write.test.ts:176：console.warn 的“临时目录未能清理”提示。
+   - tests/perf.test.ts 的 console.log 性能输出。
+   这些是否也要改英文，由你决定；按 brief 第 1 条“src 里”的范围，我没有动。
+4. 未翻译的注释保持中文（按 ADR 0034 决策 5，注释仍用中文）。
+
+五、没有做的事
+- 没有 commit、push、stash、切分支；没有开子代理；没有改 worktree 之外的文件（scratch 副本与 baseline 副本都在 /tmp/haiku-exp/ 下）。
+- 没有 catch 吞错，没有放宽断言，没有给产品代码加测试分支。
+- 没有删除或改写任务之外的代码与配置。

@@ -1,0 +1,90 @@
+diff --git a/packages/neuro-book/src/plugins/workbench/web/components/WorkbenchStatusBar.dom.test.ts b/packages/neuro-book/src/plugins/workbench/web/components/WorkbenchStatusBar.dom.test.ts
+index 3869f3ac1..cb18031b5 100644
+--- a/packages/neuro-book/src/plugins/workbench/web/components/WorkbenchStatusBar.dom.test.ts
++++ b/packages/neuro-book/src/plugins/workbench/web/components/WorkbenchStatusBar.dom.test.ts
+@@ -39,6 +39,30 @@ describe("WorkbenchStatusBar", () => {
+         expect(wrapper.findAll("button").map((button) => button.text())).toEqual(["隐藏面板"]);
+     });
+ 
++    it("存储的新失败码有可读原因（中英各一条）；修改函数抛错也有原因", async () => {
++        const zh = mount(WorkbenchStatusBar, {props: {locale: "zh-CN", project: null, panelHidden: false, problems: [
++            {record: "customizations", kind: "unsaved", code: "busy"},
++        ]}});
++        expect(zh.get("[data-status-problem]").text()).toBe("布局未保存：另一个进程正在写入，请稍后重试");
++
++        const en = mount(WorkbenchStatusBar, {props: {locale: "en-US", project: null, panelHidden: false, problems: [
++            {record: "side", kind: "unread", code: "no-project"},
++        ]}});
++        expect(en.get("[data-status-problem]").text()).toBe("Layout not loaded; using the default (no project is available)");
++
++        const threw = mount(WorkbenchStatusBar, {props: {locale: "zh-CN", project: null, panelHidden: false, problems: [
++            {record: "panelSize", kind: "unsaved", code: "change-threw"},
++        ]}});
++        expect(threw.get("[data-status-problem]").text()).toBe("布局未保存：应用修改时出错");
++    });
++
++    it("不认识的码原样显示，包括 Object 原型上的名字（不被当成已知的码）", () => {
++        const wrapper = mount(WorkbenchStatusBar, {props: {locale: "zh-CN", project: null, panelHidden: false, problems: [
++            {record: "side", kind: "unread", code: "constructor"},
++        ]}});
++        expect(wrapper.get("[data-status-problem]").text()).toBe("布局未读取，正在用默认布局（constructor）");
++    });
++
+     it("英文界面", () => {
+         const wrapper = mount(WorkbenchStatusBar, {props: {locale: "en-US", project: null, panelHidden: true, problems: [{record: "side", kind: "unsaved", code: "conflict"}]}});
+         expect(wrapper.text()).toContain("No project open");
+diff --git a/packages/neuro-book/src/plugins/workbench/web/components/WorkbenchStatusBar.vue b/packages/neuro-book/src/plugins/workbench/web/components/WorkbenchStatusBar.vue
+index 7c6324335..f62cbbdb9 100644
+--- a/packages/neuro-book/src/plugins/workbench/web/components/WorkbenchStatusBar.vue
++++ b/packages/neuro-book/src/plugins/workbench/web/components/WorkbenchStatusBar.vue
+@@ -5,6 +5,7 @@ import {computed} from "vue";
+ 
+ import {formatText, localize} from "nbook/shared/localized-text";
+ import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
++import type {StorageFailure} from "nbook/shared/storage";
+ 
+ import type {StripEntry} from "../items/registry";
+ import WorkbenchItemStrip from "./WorkbenchItemStrip.vue";
+@@ -48,19 +49,39 @@ const TEXT = {
+     discard: {"zh-CN": "放弃", "en-US": "Discard"},
+ } satisfies Record<string, LocalizedText>;
+ 
+-/** 常见失败码的可读原因；不认识的码原样显示。 */
+-const REASONS: Readonly<Record<string, LocalizedText>> = {
++/**
++ * 码的来源：存储的失败码（`STORAGE_FAILURES`）；记录快照的 `corrupt`、`unsupported-version`（布局状态报为 unread）；
++ * store 的 change 抛错时的 `change-threw`（`shared/store/persisted.ts`）；订阅因提供方停止而结束的 `provider-stopped`。
++ * 存储的失败码在类型上穷举：新增一个码，这张表过不了类型检查，直到补上两份原因。订阅结束的原因在 Storage 接口里是
++ * 不带类型的字符串，表里没有的码原样显示。
++ */
++type ReasonCode = StorageFailure | "corrupt" | "unsupported-version" | "change-threw" | "provider-stopped";
++
++const REASONS: Readonly<Record<ReasonCode, LocalizedText>> = {
+     "unavailable": {"zh-CN": "存储暂时不可用", "en-US": "storage is unavailable"},
+     "conflict": {"zh-CN": "与别的窗口的修改冲突", "en-US": "conflicts with another window"},
+     "unknown-outcome": {"zh-CN": "不确定是否已保存", "en-US": "unknown whether it was saved"},
+     "io-error": {"zh-CN": "读写出错", "en-US": "read or write error"},
++    "invalid-value": {"zh-CN": "值不符合记录的格式", "en-US": "the value does not match the record format"},
++    "too-large": {"zh-CN": "内容超过记录的大小上限", "en-US": "the content exceeds the record size limit"},
++    "protected": {"zh-CN": "记录受保护，不能直接覆盖", "en-US": "the record is protected from overwrite"},
++    "originals-full": {"zh-CN": "原件区已满，不能重置", "en-US": "the originals area is full; reset refused"},
++    "definition-conflict": {"zh-CN": "记录的定义与已登记的不同，请刷新", "en-US": "the record definition differs from the registered one; reload"},
++    "no-client": {"zh-CN": "这里没有客户端身份，不能读写本地记录", "en-US": "local records need a client identity, which is missing here"},
++    "no-project": {"zh-CN": "没有可用的项目", "en-US": "no project is available"},
++    "invalid-resource": {"zh-CN": "资源 id 不合规则", "en-US": "the resource id is invalid"},
++    "denied": {"zh-CN": "只有插件能访问存储", "en-US": "only plugins can access storage"},
++    "busy": {"zh-CN": "另一个进程正在写入，请稍后重试", "en-US": "another process is writing; try again later"},
+     "corrupt": {"zh-CN": "记录已损坏", "en-US": "the record is corrupt"},
+     "unsupported-version": {"zh-CN": "记录的版本不支持", "en-US": "unsupported record version"},
++    "change-threw": {"zh-CN": "应用修改时出错", "en-US": "the change could not be applied"},
+     "provider-stopped": {"zh-CN": "存储服务已停止", "en-US": "storage has stopped"},
+ };
+ 
+ const text = (value: LocalizedText): string => localize(value, props.locale);
+-const reason = (code: string): string => (REASONS[code] === undefined ? code : text(REASONS[code]));
++// Object.hasOwn 而不是 `in` 或取值判 undefined：原型上的名字（如 constructor）不是码，要原样显示。
++const isReasonCode = (code: string): code is ReasonCode => Object.hasOwn(REASONS, code);
++const reason = (code: string): string => (isReasonCode(code) ? text(REASONS[code]) : code);
+ 
+ /** 有修改没保存上的优先：用户刚做的修改可能丢，比“正在用默认布局”更要紧。 */
+ const shown = computed(() => props.problems.find((problem) => problem.kind === "unsaved") ?? props.problems[0] ?? null);

@@ -1,0 +1,25 @@
+交付报告 A (sonnet)
+
+改动文件(均在 packages/nb-history/ 下):
+- src/paths.ts: 2 条异常消息
+- src/rows.ts: 8 条行校验异常消息
+- src/workspace-history.ts: 约 18 种异常消息(共 22 处抛出点,含 3 处重复的 stale、3 处 missing 等)
+- tests/observed-write.test.ts, timeline.test.ts, cursor.test.ts, limits.test.ts, revert.test.ts: 断言中文消息的 toThrow
+
+断言判断:
+- HistoryInboxMutationError 已有 code(missing/stale),相关测试(inbox.test.ts、revert.test.ts 的 revertAtRevision)本来就用 toMatchObject({code}),无需改。
+- 其余抛出的是无错误码的普通 HistoryError。测试里同一用例会区分不同失败(如“路径不能为空”与“NUL”、“没有待还原...”与“没有该文件的日志记录”、cursor 未初始化),只断言类型会把它们混为一谈,等于放宽断言;给 HistoryError 加错误码属于改产品错误合同,超出本任务范围。所以这些断言改为比新的英文子串(toThrow 子串),精度与原来一致。
+  - "路径不能为空" -> "Path must not be empty"
+  - "游标未初始化" -> "Session cursor not initialized"
+  - "无法恢复" -> "cannot restore"(2 处)
+  - "没有待还原的收件箱变更" -> "No pending inbox changes to revert"
+  - "没有该文件的日志记录" -> "No log records for file"
+- 没动注释、错误码、事件名、字段名。src/ 内没有日志或诊断事件的中文消息,也没有界面文字或领域内容需要保留。
+
+验证:
+- cd packages/nb-history && bun run typecheck: 通过。
+- bun test: 48 pass, 1 fail。失败的是 tests/perf.test.ts 的 P2(unseenChanges best 85~97ms,要求 <= 50ms),是耗时断言。机器负载 25(uptime load average 25.78),在未改动的主工作区 packages/nb-history 单独跑同一用例同样失败(97.2ms),本次改动未碰 perf 测试,与消息无关。负载低时应复跑确认。
+
+没把握:
+- 英文措辞是我自拟的,未与 ADR 0034 逐条比对风格;未读主工作区 ADR 全文。
+- tests/helpers.ts、scripts/ 下无中文异常消息(grep 确认)。
