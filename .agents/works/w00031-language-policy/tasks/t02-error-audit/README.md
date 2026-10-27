@@ -23,14 +23,14 @@ updated: 2026-10-27
 
 已完成（2026-10-27），基线提交 `65d9daea0`：
 
-- **产物**：[artifacts/channel-matrix.md](artifacts/channel-matrix.md)。内容有错误域总表、通道总表、必查表、两边计数并列、给 t03 的问题清单（必须先定 17 条、迁移时注意 4 条）、未追到汇总；第 9 节是主会话的合并核对：7 条高风险链路逐跳核对、前端 5 个随机样本（加后端 5 个，共 10 个，都属实）、两处不一致的裁决、补追到的 2 项、交给 t03 的 6 项未追到。
+- **产物**：[artifacts/channel-matrix.md](artifacts/channel-matrix.md)。内容有错误域总表、通道总表、必查表、两边计数并列、给 t03 的问题清单（必须先定 17 条、迁移时注意 4 条）、未追到汇总；第 9 节是主会话的合并核对：8 条高风险链路逐跳核对、前端 5 个随机样本（加后端 5 个，共 10 个，都属实）、两处不一致的裁决、补追到的 1 项、交给 t03 的 8 项未追到。
 - **分区报告**：`evidences/audit-backend-omp.txt`（omp）、`evidences/audit-frontend-sonnet.txt`（Claude Sonnet）。机械合并由一个 Sonnet 子代理完成，核对由主会话做。
 - **计数脚本与输出**：`scripts/backend/`、`scripts/frontend/`，以及 `evidences/backend-*.json.txt`、`evidences/frontend-*-out.txt`。脚本里写的是当时的临时路径，复现时要先在基线提交上建 worktree，再改路径。
 
 验证：`bun run docs:check`、`bun run governance:check`。
 
-实现审查待处理（omp，审合并后的矩阵）。
+实现审查：omp，有效 6 条（重要 5、建议 1），都已直接改进矩阵正文，见矩阵 9.7 与 `evidences/impl-review-omp.txt`。审查另按哈希抽 5 条“必须先定”回到基线，都相符。
 
 ## 下一步
 
-处理实现审查。t03 以矩阵第 6 节的“必须先定”为输入。
+t03 以矩阵第 6 节的“必须先定”和 9.5 交来的未追到项为输入。

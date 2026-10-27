@@ -95,7 +95,7 @@
 
 | 来源 | 说明 |
 |---|---|
-| 主会话补查 MC-01 | `packages/neuro-book/src/plugins/projects/project/` 的统计逻辑，约 15 条诊断：消息中文、带稳定 `event`（`projects.stats.*`），只进诊断，不显示给用户。无独立错误合同，不单列错误域。例：`stats-tracker.ts:209、418、447、463` |
+| 主会话补查 MC-01 | `packages/neuro-book/src/plugins/projects/project/` 的统计逻辑，约 20 条诊断（`record(` 共 22 处，含定义）：消息中文、带稳定 `event`（`projects.stats.*`），只进诊断，不显示给用户。无独立错误合同，不单列错误域。例：`stats-tracker.ts:209、418、447、463` |
 | 主会话补查 MC-02 | 各插件 `testing/`（explorer、files、settings、storage）是测试场地辅助代码，抛中文错误，只在测试里出现。无独立错误合同，不单列错误域。 |
 
 ### 2.5 域表里两边版本说法不同的项（原话并列，不裁决）
@@ -173,7 +173,8 @@
 | 领域工具失败 | `B-TOOLS-DOMAIN` | `FC-40` | 后：`nb-story/src/qa/tools.ts:101-114,137-143` | 后：tools.ts:72-74 只 `{content:[{text}],isError?}`；查询 **code/candidates 展成文字、丢独立结构码**，answer 问题只有字符串；chapter_limit 被有意当普通结果而非 isError；engine.ts:313-314 登记 | 后：`harness.ts:216-232/282-295` 已写历史；QA 进度 `engine.ts:364-368`；工具卡经 SSE／权威日志 | 中文（与 CLI formatResult 共用）；用户：是；模型：是 | 经会话 JSONL + QA 记录；当前领域工具失败无 details.code |
 | 中性拒绝（章数上限）的投影 | `B-TOOLS-REFUSED-PROJECTION` | —（前端报告未列；后端追到的消费者在前端分区文件 `nb-story/src/web/qa/tools.ts`） | 后：`nb-story/src/qa/read-ledger.ts:90-96` 给 chapter_limit + 中文 reason；`qa/tools.ts:105-107` **丢 code，isError=false** | 后：tool text 经完整日志／临时事件；`nb-story/src/web/qa/tools.ts:20-22` **按 `result.text.startsWith("没有读：")` 分支**；:30,37 决定摘要与章数 | 后：同文件 readSummary／chaptersPhrase（:25-44）；问答工具卡 | 中文；用户：是；模型：模型仍读中文正常结果 | 随会话 JSONL；旧文字前缀是当前回放行为依赖 |
 | 第三方工具与撤回 | `B-TOOLS-THIRDPARTY` | `FC-40` | 后：`nb-harness/src/tools/registry.ts:11-55`；撤回由 `bridge.ts:17-19` 生产 | 后：bridge.ts:50-79 透传实现结果／异常；撤回给 `.details.{code:plugin-unavailable,tool,interrupted}`，中止执行信号，迟到结果舍弃；harness.ts:272-280 对不可 JSON 化的工具消息改 local 运行失败 | 后：OMP Agent；日志／事件消费者同上；第三方异常转工具结果的细节在外部 OMP 包，**本仓库源码中的转换实现未追到** | 实现自定；撤回中文；用户：工具卡；模型：是 | 可 JSON 化的 message 原样入会话；工具声明快照按 exact 相等恢复，改 description 也可能 session_incompatible |
-| 运行结果 → 会话 JSONL → 界面 | `B-HARNESS-RUN`、`B-SESSION-JSONL`、`B-HARNESS-COMPLETE` | `FC-39` | 后：`nb-harness/src/harness.ts:146-156,228-235,272-296,328-370`；`run-result.ts:50-63`；`nb-session/src/entries.ts:53-74,124-129`；`complete.ts:27-34,41-50,67-79`。前：对侧 nb-session 日志 `run_end.error.kind` | 后：harness.ts:259-264 在事件／归类／落日志前遮盖密钥；run-result.ts 按状态／flags 分 kind，不按 message；:310-324 形成 TurnResult，run_end 写失败**把原错误压进新 local.message**；`jsonl-log.ts:73-84` 编号／时间戳后 JSON.stringify；`entries.ts:136-184` 读时仅外层形状校验；`jsonl-log.ts:12-27,75-76,99-107` 坏行／中断尾／repair；complete() 不写 session.log，ProfileError→HarnessError 保留 code/message、details 再包。前：`kind`→消息键（`nb-agent-ui/src/harness.ts:104-111`），`error.message` 与其它字段丢失；`retryable` 由 kind 决定 | 后：`nb-story/qa/engine.ts:341-353`→model_failed/no_answer/answered/interrupted；`nb-agent-ui/src/harness.ts:261-285`（run_end 归类文案，kind→ERROR_KEYS→agentText；日志工具结果 :215-236 保留 message.details）。complete() 实际出口：`nb-story/src/cli/config.ts:295-313`、`server/qa-service.ts:521-535`→`web/shell/SettingsPage.vue:288-290,398-400`（归 B-HARNESS-RUN，内存日志不落盘；**complete() 产品消费者未追到**）。前：`AgentTurnBlock.vue:170`（`data-error` 段落）、`AgentRawView.vue:160` | 中文默认诊断 + 第三方原文；前：双语（`messages.ts:189-195`、`389-395`）；用户：经 UI 本地化或 QA 降级；模型：agent_message 原样恢复，run_end 不直接进模型 | `<root>/<sessionId>.jsonl`，无 format/schema 版本；旧 message／tool_call／tool_result 可读，缺 session_snapshot 不能 harness 续跑；前：日志是权威，旧日志 kind 不认识按 `local`；与决策 2 一致；`problems()` 无产品调用方（`harness.ts:25-28,141-142`）；前端 FC-41 宿主给的历史加载失败：仓库内无产品生产者，`vue/AgentConversationView.vue:265` |
+| 运行结果 → 会话 JSONL → 界面 | `B-HARNESS-RUN`、`B-SESSION-JSONL`（`B-HARNESS-COMPLETE` 不在这条链上，见下一行） | `FC-39` | 后：`nb-harness/src/harness.ts:146-156,228-235,272-296,328-370`；`run-result.ts:50-63`；`nb-session/src/entries.ts:53-74,124-129`；`complete.ts:27-34,41-50,67-79`。前：对侧 nb-session 日志 `run_end.error.kind` | 后：harness.ts:259-264 在事件／归类／落日志前遮盖密钥；run-result.ts 按状态／flags 分 kind，不按 message；:310-324 形成 TurnResult，run_end 写失败**把原错误压进新 local.message**；`jsonl-log.ts:73-84` 编号／时间戳后 JSON.stringify；`entries.ts:136-184` 读时仅外层形状校验；`jsonl-log.ts:12-27,75-76,99-107` 坏行／中断尾／repair；complete() 不写 session.log，ProfileError→HarnessError 保留 code/message、details 再包。前：`kind`→消息键（`nb-agent-ui/src/harness.ts:104-111`），`error.message` 与其它字段丢失；`retryable` 由 kind 决定 | 后：`nb-story/qa/engine.ts:341-353`→model_failed/no_answer/answered/interrupted；`nb-agent-ui/src/harness.ts:261-285`（run_end 归类文案，kind→ERROR_KEYS→agentText；日志工具结果 :215-236 保留 message.details）。complete() 实际出口：`nb-story/src/cli/config.ts:295-313`、`server/qa-service.ts:521-535`→`web/shell/SettingsPage.vue:288-290,398-400`（归 B-HARNESS-RUN，内存日志不落盘；**complete() 产品消费者未追到**）。前：`AgentTurnBlock.vue:170`（`data-error` 段落）、`AgentRawView.vue:160` | 中文默认诊断 + 第三方原文；前：双语（`messages.ts:189-195`、`389-395`）；用户：经 UI 本地化或 QA 降级；模型：agent_message 原样恢复，run_end 不直接进模型 | `<root>/<sessionId>.jsonl`，无 format/schema 版本；旧 message／tool_call／tool_result 可读，缺 session_snapshot 不能 harness 续跑；前：日志是权威，旧日志 kind 不认识按 `local`；与决策 2 一致；`problems()` 无产品调用方（`harness.ts:25-28,141-142`）；前端 FC-41 宿主给的历史加载失败：仓库内无产品生产者，`vue/AgentConversationView.vue:265` |
+| `complete()` 库调用 | `B-HARNESS-COMPLETE` | — | 后：`nb-harness/src/complete.ts:27-34,41-50,67-79` | 不写会话日志；`ProfileError → HarnessError` 是合同事实 | 产品消费者未追到（后端终轮更正：`nb-story/src/qa/probe.ts` 用的是 `createHarness`/`harness.turn`，归 `B-HARNESS-RUN`） | 合并核对时据实现审查第 1 条拆出 |
 | SSE、权威日志补发、QA 实时 | `B-AGENT-SSE`、`B-AGENT-LOG-REPLAY` | `FC-45` | 后：`harness.ts:259-264,399-404`；`nb-story/src/qa/engine.ts:360-368,249-260,317`。前：对侧 SSE 帧 `QaFrame`（`nb-story/src/contract/contract.ts:777-781`） | 后：`qa/web-events.ts:25-45` 仅 assistant message、工具 start/end；工具 end 只留文字、**截到 500 字，丢 details**；`server/qa-service.ts:149-172` 合并／节流 message_update；`server/http.ts:175-182` `data:` 帧，慢订阅关闭；qa-service.ts:175-179 projection 后发 log，:566-576 重连 snapshot 带未保存 entries，:187 保存成功清内存 entries，`qa.get` :379-388 从权威 JSONL 补发（`nb-harness/sse.ts:42-58` 不是该 HTTP 路径）。前：`web/host/client.ts:55-100` 解析；snapshot／log 帧条目喂 `applyLogEntry`，event 帧喂 `applyEvent`（`source.ts:172-200`）；日志为准，晚到事件不覆盖（`harness.ts:359`） | 后：`nb-story/src/web/host/client.ts:79-99`；`nb-agent-ui/src/harness.ts:277-286`；`web/qa/source.ts:184-195,242-247`、:127 日志不可用走 messagesFromRecord。前：转录适配器→助手运行出错行、工具失败行；`run.saved`→`QaPage.vue:472` | 中文／英文／模型原文混合；前：同助手运行行；`saved.reason` 码被本地换成三种中文句子，其余写 `message ?? reason`；用户：是；模型：SSE 副本不回灌，日志恢复后 agent_message 是上下文源 | SSE 无独立版本，不持久化；QA 会话日志文件 + record.log.file/sha256；**SSE 丢 details 不能证明权威结果也丢码**；前：帧内容来自落盘的会话日志；订阅断开按 1、2、4…15 秒退避重取 |
 | QA 记录与降级回放 | `B-QA-RECORD` | `FC-46` | 后：`nb-story/src/qa/engine.ts:322,341-353,396-419`。前：对侧 `nb-story/src/core/qa-records.ts:71`（`error{code,kind?,message}`）、`qa/engine.ts:322,345,350`（message 中英混合：`${what}：${error.message}`、`error.message`、中文固定句） | 后：`core/qa-records.ts:169-207` 新文件发布日志再发布 JSON record；保存失败不覆盖轮结果；`server/qa-service.ts:192-196` 映射 `.saved.{ok,reason,message?}`；:379-388 读 JSONL；`qa-records.ts:266-276` 日志缺失／坏摘要给 `.problem`。前：丢失，`record-messages.ts:28` 只取 `turn.error?.message ?? "这一轮失败了"`，code／kind 丢掉；`logProblem` 另显示（`qa/source.ts:247`） | 后：正常回放走 SSE／日志补发行；降级 `web/qa/record-messages.ts:17,28` **只消费 error.message，丢 code/kind**；`QaPage.vue:470-472` saved.ok=false 时按少数 reason 映射，write_failed 等回退 `saved.message`／原 reason；:157 损坏记录显示 problem；:346-347 开始失败直接 error.message。前：`AgentTurnBlock.vue:170` | 中文 + Provider 原文；前：混合（持久化 message 可能是英文原错）；用户：是；模型：record.error 不进上下文，续问另读日志 | `<book>/qa/<id>.json`，日志 `<id>.<轮数>-<随机>.session.jsonl`；无显式记录版本；`qa-records.ts:361-397` 兼容旧单轮并包装成 turns[0]，旧日志名 `<id>.session.jsonl`；坏 JSON／字段返回 broken；前：message 随记录存盘（`QaFailureSchema` `qa-record.ts:42`），旧记录只有 message 仍要能读，新增码字段不能破坏 `qa-records.ts:387-397` 校验；与实时路径显示不同 |
 | 剧情 HTTP 与页面 | `B-STORY-HTTP` | `FC-43`、`FC-44`、`FC-48` | 后：`core/errors.ts` 的 StoryError；`server/qa-service.ts:552-563`、`ingest-service.ts:154-163` 摘 code/message。前：对侧 `nb-story/src/server/http.ts:96-145,237-261`、`qa-service.ts:562`、`ingest-service.ts:162`；FC-44 `web/qa/source.ts:226-233`；FC-48 `shell/ProviderDialog.vue:129-144,202`、`shell/SettingsPage.vue:73,267-290` | 后：`server/http.ts:111-145` 根据 code 选 HTTP 状态，**顶层 `{code,message,candidates?}`**；unexpected error 诊断后固定 internal 中文；:237-262 会话／路由／顶层异常另生产文本。前：`client.ts:120-123` 变成 `StoryCallError`，网络失败前端造 `network`（:118）；FC-44 `{code,message}` 存进 `state.error`；FC-48 中文框架加异常消息 | 后：`nb-story/src/web/host/client.ts:115-123`→StoryCallError 保留 code/message/candidates；各页面直接 error.message；QA 运行失败还可藏在成功 qa.get 值内。前：46 处 `…message` 绑定到 `PageState/PagedList.error`（`pages/*.vue`、`shell/*.vue`，另 `SearchBox.vue:73`、`BookShell.vue:43`、`LibraryPage.vue:74`）；按码特殊处理只有 `entity_not_found/entity_ambiguous`（`QaPage.vue:75`）、`book_not_found`（`BookShell.vue:38`）、`DrawerCard.vue:74`、`IngestPage.vue:119,156`、`ImportPage.vue:179,217-219`、`SettingsPage.vue:267`；`QaPage.vue:290`（`load-error`，`message ?? "读不到这个对话"`） | 中文 + 校验／外部英文；前：中文，网页没有消息目录，整个应用只有中文；用户：是；模型：CLI Skill／领域工具另行 | 不持久化响应体；独立 HTTP 不走 future nb-story/queries remote contract，不误套 `{error:{...}}` |
@@ -231,7 +232,7 @@
 
 | 通道 | 来源 | 位置 | 内容 | 语言；用户；持久化 |
 |---|---|---|---|---|
-| `MC-01` 项目统计诊断 | 主会话补查（两份报告都没盘） | `packages/neuro-book/src/plugins/projects/project/` 的统计逻辑，如 `stats-tracker.ts:209、418、447、463` | 约 15 条诊断，带稳定 `event`（`projects.stats.*`），经 `diagnostics.record` 进诊断 | 中文消息；只进诊断，不显示给用户；落盘走诊断 JSONL 行 |
+| `MC-01` 项目统计诊断 | 主会话补查（两份报告都没盘） | `packages/neuro-book/src/plugins/projects/project/` 的统计逻辑，如 `stats-tracker.ts:209、418、447、463` | 约 20 条诊断（`record(` 共 22 处，含定义），带稳定 `event`（`projects.stats.*`），经 `diagnostics.record` 进诊断 | 中文消息；只进诊断，不显示给用户；落盘走诊断 JSONL 行 |
 | `MC-02` 插件 `testing/` 辅助 | 主会话补查（两份报告都没盘） | 各插件 `testing/`：explorer、files、settings、storage | 测试场地辅助代码，抛中文错误 | 中文；只在测试里出现；不显示给用户 |
 
 ## 4. 必查表
@@ -241,7 +242,7 @@
 | 项 | 必查项 | 对应通道 ID | 状态 | 备注或两边原话 |
 |---|---|---|---|---|
 | 1a | 诊断事件（记录） | 后：`B-DIAG-QUERY`、`B-DIAG-JSONL`；前：`FC-32`、`FC-19`、`FC-34`、`FC-05` | 通道 ID | 一致；记录类型在 `nb-runtime/src/diagnostics`；前端 `message` 中文 20 处、表达式 20 处，`event` 全为英文点分名 |
-| 1b | 诊断查询 | 后：`B-DIAG-QUERY`；前：— | **不一致** | 后端：“产品诊断查询 UI/HTTP 消费者：未追到……应用/src 检索 `diagnostics.query/store.query/diagnostics.status` 命中测试，没找到生产查询页；不等同查询功能不存在”。前端：“无：前端文件清单里没有调用 `query`、`snapshot`、`recent` 的代码（命令 C1）；规格要求浏览器用有界内存缓冲提供查询（`docs/specs/runtime/diagnostics.md` 第 55–57 行），能力在提供者里，前端没有消费者” |
+| 1b | 诊断查询 | 后：`B-DIAG-QUERY`；前：— | **未追到**（裁决见 9.3） | 后端：“产品诊断查询 UI/HTTP 消费者：未追到……应用/src 检索 `diagnostics.query/store.query/diagnostics.status` 命中测试，没找到生产查询页；不等同查询功能不存在”。前端：“无：前端文件清单里没有调用 `query`、`snapshot`、`recent` 的代码（命令 C1）；规格要求浏览器用有界内存缓冲提供查询（`docs/specs/runtime/diagnostics.md` 第 55–57 行），能力在提供者里，前端没有消费者” |
 | 1c | JSONL 日志 | 后：`B-DIAG-JSONL`、`B-DIAG-FALLBACK`；前：—（浏览器出口只写 console） | 通道 ID（前端侧：无） | 一致；前端“无：浏览器出口只写 console，规格明说不要求落盘（`diagnostics.md` 第 19、55 行；`console-exporter.ts:36`）”；后端日志写入 `log-writer.ts`、`jsonl-exporter.ts` |
 | 1d | 紧急输出 | 后：`B-HOST-EMERGENCY`、`B-DIAG-FALLBACK`；前：`FC-33`、`FC-32`（兜底 `console-exporter.ts:60`） | 通道 ID | 一致 |
 | 2a | 握手 `reject` | `B-REMOTE-HANDSHAKE`；`FC-03` | 通道 ID | 一致；帧 schema `nb-runtime/src/remote/protocol.ts:246` |
@@ -264,7 +265,7 @@
 | 6b | 设置文件校验与保存拒绝 | 后：`B-SETTINGS-WRITE`、`B-SETTINGS-INVALID`；前：`FC-21` | 通道 ID | 一致 |
 | 6c | 设置写入失败 | 后：`B-SETTINGS-WRITE`；前：`FC-20` | 通道 ID | 一致 |
 | 7a | Storage 记录损坏、版本不支持 | 后：`B-STORAGE-STATE`；前：`FC-26`、`FC-27` | 通道 ID | 一致 |
-| 7b | Storage 订阅结束 | 后：`B-STORAGE-END`（含 `B-REMOTE-END`）；前：— | **不一致** | 前端：“未追到：前端文件清单里没有调用 Storage 订阅的结束回调（命令 C4）；文件监视的结束是另一回事（`FC-16`）”，并注“C4 的结果是‘前端没有订阅 Storage 的结束事件’，不等于规格没要求”。后端：消费者列 `shared/store/problem.ts:14-17`、`explorer/web/components/FilesExplorerView.vue:95-98`、`explorer/web/preferences.ts:85-87`（reopen／retry），这三处按前端分区口径在 `explorer/web/` 下 |
+| 7b | Storage 订阅结束 | 后：`B-STORAGE-END`（含 `B-REMOTE-END`）；前：— | **直接订阅：前端分区无；下游状态投影：`B-STORAGE-END` 已追到**（裁决见 9.3） | 前端：“未追到：前端文件清单里没有调用 Storage 订阅的结束回调（命令 C4）；文件监视的结束是另一回事（`FC-16`）”，并注“C4 的结果是‘前端没有订阅 Storage 的结束事件’，不等于规格没要求”。后端：消费者列 `shared/store/problem.ts:14-17`、`explorer/web/components/FilesExplorerView.vue:95-98`、`explorer/web/preferences.ts:85-87`（reopen／retry），这三处按前端分区口径在 `explorer/web/` 下 |
 | 7c | Storage 写失败 | 后：`B-STORAGE-STATE`、`B-STORE-FAILURE`；前：`FC-26`（布局）、`FC-53`（示例 `storage-failed`，notes／focus） | 通道 ID | 一致 |
 | 8a | 项目子进程启动 | 后：`B-PROJECT-IPC`；前：— | 通道 ID（前端：无） | 前端：“无：前端清单里没有 `child_process`、`spawn`、`owned-process`、`IPC` 命中（命令 C5）；窗口只在握手阶段见到‘打开项目失败’（`FC-03`、`FC-28`）” |
 | 8b | 项目 IPC 传输 | 后：`B-PROJECT-IPC`、`B-REMOTE-ROUTE` | 通道 ID | 同上 |
@@ -295,7 +296,7 @@
 
 ### 4.1 必查表小结
 
-- 状态为“不一致”的项：2 项（1b 诊断查询，7b Storage 订阅结束），原话如上。
+- 合并时两边说法不一致的有 2 项（1b 诊断查询，7b Storage 订阅结束），原话如上；裁决见 9.3，状态已改。
 - 状态为“Spec 规划、未实现”的项：1 项（3f 模型命令工具接线）。
 - 状态为“对侧已追到”的项：2 项（5d、9c），前端原标“未追到”。
 - 状态为“无”或前端侧“无”的项：3d、3e，以及前端对 1c、8、14、15、16 各项的“无”；后端侧对应项均有通道 ID，两边范围不同，不是冲突。
@@ -630,7 +631,7 @@
 
 - 两边“未追到”项合计 15 项（前端 10、后端 5）。
 - 其中“对侧已追到”6 项（#1、#4、#7、#8、#9、#10）。
-- 仍未追到 9 项（#2、#3、#5、#6、#11、#12、#13、#14、#15）。
+- 合并时仍未追到 9 项（#2、#3、#5、#6、#11、#12、#13、#14、#15）；主会话补追到 #2（见 9.4），其余 8 项交 t03（见 9.5）。
 - 其中 #11 在必查表标“不一致”。
 
 ### 7.3 报告里另外标注了“未逐个追”“未验证”“未逐条数”的对象（不计入上面的项数）
@@ -760,7 +761,9 @@
 | 握手 `message` 原样进失败页 | `neuro-book/src/web/host/remote-session.ts:82-86`、`web/FailurePage.vue:31` |
 | 设置解析先把错误码译成中文再当原因 | `settings/shared/layer-text.ts:101-104` |
 
-Storage 损坏这一条没有单独核对（后端报告 3.5 有样本）。
+| Storage 保护态：`corrupt`、`unsupported-version` 带中文 detail，界面只显示状态码 | `storage/backend/partition.ts:144,319-328` → `shared/store/problem.ts:16` → `explorer/web/components/FilesExplorerView.vue:97` → `explorer/web/messages.ts:34`（双语文案，`{reason}` 填状态码）；中文 detail 不进界面 |
+
+这 8 条都由主会话回到基线代码逐跳核对过（Storage 保护态一条是实现审查后补核的）。
 
 ### 9.2 前端随机抽样（种子 20261027，从 `report-frontend.md` 的 FC 行里抽 5 行）
 
@@ -776,18 +779,22 @@ Storage 损坏这一条没有单独核对（后端报告 3.5 有样本）。
 
 ### 9.3 两处“不一致”的裁决
 
-- **1b 诊断查询**：基线里 `neuro-book/src` 的 `plugins/diagnostics`、`web`、`ui`、`server` 没有非测试代码调用诊断查询（`grep -rnE "\.(query|status)\(" … | grep -v test` 无结果）。结论：查询能力存在，**没有产品消费者**；两边说法在事实上一致，只是一边写“未追到”、一边写“无”。
-- **7b Storage 订阅结束**：以后端为准。链路是结束原因 → `persisted.ts:258-260` 写进 `failure.code` → `shared/store/problem.ts:15` 的 `unread` → `explorer/web/components/FilesExplorerView.vue:95-98` 显示原因码。前端分区漏追了这条。
+- **1b 诊断查询**：在 `neuro-book/src` 的 `plugins/diagnostics`、`web`、`ui`、`server` 的非测试代码里，没有找到对诊断查询（`query`、`status`）的静态调用；前端文件清单也没有。查询服务在 `nb-runtime/src/diagnostics/contracts.ts:121-127` 存在，但这只能证明“在已检索的范围里没有静态消费者”，不能排除 HTTP reader 或间接调用。状态定为**未追到**，交 t03（见 9.5）。
+- **7b Storage 订阅结束**：两边说的是同一条链路上的不同两跳，并不冲突。前端分区确实没有直接订阅 Storage 的 `onEnd`；后端追到的是共享 Store 在 `shared/store/persisted.ts:251-273` 订阅并把结束原因写进失败状态，再由 `shared/store/problem.ts:15` 投影成 `unread`，`explorer/web/components/FilesExplorerView.vue:95-98` 只显示传进来的 `problem.code`。t03 要设计的是“Storage `onEnd` → 共享 Store 的失败状态 → 资源管理器的问题提示”这条跨分区投影；`FilesExplorerView` 不是 Storage 的订阅者。
 
 ### 9.4 补追到的未追到项
 
 - 前端 FC-17 面包屑目录读取：实现是 `editor/web/components/EditorGroup.vue:141` 的 `listCrumb`。
-- 后端 3.3-2 通用 HTTP 错误外壳的读取：`neuro-book/src/web/host/connection.ts:93` 读 `body.error.code`（只取码，拼在连接失败说明后面）。
+- 后端 3.3-2 只追到一个特例：`neuro-book/src/web/host/connection.ts:89-96` 是浏览器引导连接专用的读取，只取 `body.error.code` 拼在连接失败说明后面。通用 HTTP 错误外壳的统一读取仍未追到（见 9.5）。
 
 ### 9.5 仍未追到、交给 t03 的项
 
-第 7 节剩下的其余项：FC-27 项目未绑定存储的调用方、FC-36 SDK 定义期错误的展示去处、FC-37 主题装载失败在 `main.ts` 之外的捕获、第三方工具抛错在 OMP 内部的转换（依赖源码不在基线 worktree 里）、nbdev `audit.jsonl` 的历史消费界面、`complete()` 的产品消费者。它们都不在“必须先定”的链路上；t03 设计到对应错误域时再追。
+第 7 节剩下的其余项：诊断查询的 UI 或 HTTP 读取方（第 7 节 #11，见 9.3）、通用 HTTP 错误外壳的统一读取方（#12，见 9.4）、FC-27 项目未绑定存储的调用方、FC-36 SDK 定义期错误的展示去处、FC-37 主题装载失败在 `main.ts` 之外的捕获、第三方工具抛错在 OMP 内部的转换（依赖源码不在基线 worktree 里）、nbdev `audit.jsonl` 的历史消费界面、`complete()` 的产品消费者。共 8 项。前两项关系到未知 HTTP 失败形状的回退与读取方的归属，t03 设计失败投影时要先定；其余不在“必须先定”的链路上，t03 设计到对应错误域时再追。
 
 ### 9.6 更正
 
-主会话补查的 MC-01：`projects/project/` 里 `record(` 共 22 处（含定义），诊断约 20 条，不是“约 15 条”。
+主会话补查的 MC-01（第 2、3 节已直接改成最终数字）：`projects/project/` 里 `record(` 共 22 处（含定义），诊断约 20 条，不是“约 15 条”。
+
+### 9.7 实现审查的处理
+
+omp 实现审查（`evidences/impl-review-omp.txt`）有效 6 条，都已直接改进正文：拆出 `B-HARNESS-COMPLETE`（第 3 节）；统一 MC-01 的条数（第 2、3 节）；1b 改回“未追到”、7b 改成“直接订阅无、下游投影已追到”（第 4 节与 9.3）；9.4 改为“只追到引导专用的读取”；9.5 补上漏交的两项；9.1 补核 Storage 保护态。审查另外按哈希抽了 5 条“必须先定”（M17、M2、M15、M3、M10），都与基线相符。
