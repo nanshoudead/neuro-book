@@ -123,8 +123,8 @@ owners:
 6. **用法。** 拼错的命令、不认识的选项、越界的端口以 2 退出、码 `usage`；`--version`、`--help` 以 0 退出。
 7. **插件。** 服务端运行时 `nbook plugin install` 一个用 `nbooke build` 构建的插件、`list --json` 列出待生效的安装，重启服务后插件页列出它；降级不带 `--yes` 以 2 退出。
 
-Smoke：`bun test src/cli` 把命令行与项目宿主构建到临时目录，用真实进程运行场景 1 到 7（场景 7 用临时目录里只有清单的插件，以重启后的实例应答核对登记）；应用 npm 包的安装冒烟另跑一次场景 1 与 7。
+Smoke：`bun test src/cli` 把命令行与项目宿主构建到临时目录，用真实进程运行场景 1 到 7（场景 7 用临时目录里只有清单的插件，以重启后的实例应答核对登记）；`e2e/app-package.e2e.ts` 用 `scripts/pack-app.ts` 打出的 tarball `bun add -g` 装上 `nbook`，在本机 Chrome 上跑场景 1 的启动与打开作品、场景 7 的安装与重启生效。
 
 ## 证据
 
-- 批准依据：开发者 2026-10-24、2026-10-25 与 2026-10-27 的决定，见 [t15 第二期计划](../../../.agents/works/w00027-plugin-platform/tasks/t15-author-api-round2/plan-phase2.md) 的 Context（D1 到 D4）。
+- 批准依据：开发者 2026-10-24、2026-10-25 与 2026-10-27 的决定，见 [t15 第二期计划](../../../.agents/works/w00027-plugin-platform/tasks/t15-author-api-round2/plan-phase2.md) 的 Context（D1 到 D4）；[ADR 0033](../../adr/0033-app-delivered-as-built-npm-package.md)。
