@@ -35,6 +35,7 @@ const Text = Type.String();
 const Id = Type.String({minLength: 1});
 const Int = Type.Integer();
 const Basis = oneOf(["explicit", "inferred"] as const);
+const Tier = Type.Integer({minimum: 1, maximum: 3});
 
 /** 原文位置。段号从 1 起，第 1 段是章名。 */
 const PositionSchema = Type.Object({chapter: Int, paragraph: Int});
@@ -113,6 +114,8 @@ const StatementSchema = Type.Object({
     secret: Type.Optional(Id),
     rel: Type.Array(Type.Object({type: oneOf(["confirms", "contradicts", "revises"] as const), to: Id, note: Type.Optional(Text)})),
     unverified: Type.Optional(Text),
+    /** 先验等级：模型抽取当时给的重要程度，1 主线必需、2 有用、3 琐碎；旧书与没写的为缺省（docs/specs/story/queries.md 的记录等级）。 */
+    tier: Type.Optional(Tier),
     at: PositionSchema,
 });
 
@@ -128,6 +131,8 @@ const EpisodeSchema = Type.Object({
     who: Type.Array(Type.Object({e: Id, as: Type.Optional(Text), role: Type.Optional(Text)})),
     steps: Type.Array(Type.Object({text: Text, evidence: SpanSchema})),
     outcome: Type.Optional(Text),
+    /** 先验等级，同说法的 `tier`。 */
+    tier: Type.Optional(Tier),
     /** 每条连接有自己的可见位置：情节自带的连接随情节可见，后面章节补的连接从补的那一章结束起可见。 */
     links: Type.Array(Type.Object({type: oneOf(EPISODE_LINKS), to: Id, note: Type.Optional(Text), at: PositionSchema})),
     at: PositionSchema,
