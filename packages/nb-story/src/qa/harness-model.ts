@@ -51,6 +51,9 @@ export function resolveQaModel(config: QaConfig, choice: QaModelChoice = {}): Qa
     return {resolved, ref, contextWindow: resolved.model.contextWindow ?? null, efforts, thinking: clampEffort(resolved.model, requested)};
 }
 
+/** 自定义服务商的模型没写 `maxTokens`、目录里也查不到同名模型时的输出上限。 */
+export const DEFAULT_CUSTOM_MAX_TOKENS = 32_768;
+
 /**
  * 引用指向的模型，不看在不在候选里（设置页要列出自定义服务商的全部模型）。自定义服务商的模型：没写的上下文、最大
  * 输出、推理与图片按模型名从 OMP 目录补（同 OMP 的 `finalizeCustomModel`），单价不补。provider 名用自定义服务商的 id：
@@ -70,7 +73,9 @@ export function modelOf(config: QaConfig, ref: string): ResolvedModel {
     if (model === undefined) throw new QaError("qa_unconfigured", `模型 ${ref}：自定义服务商 ${providerId} 里没有模型 ${modelId}`);
     const suggested = suggestFromCatalog(modelId);
     const contextWindow = model.contextWindow ?? suggested?.contextWindow ?? null;
-    const maxTokens = model.maxTokens ?? suggested?.maxTokens ?? null;
+    // 不写输出上限时，请求里就没有这个字段，网关按自己的默认预算（常常把隐藏思考也算进去）截断长回答，记录还显示正常结束。
+    // 默认取 OMP 对 OpenAI 兼容端点的发现默认值 32768；OpenAI 系请求发出前由 pi-ai 夹到 64000。
+    const maxTokens = model.maxTokens ?? suggested?.maxTokens ?? DEFAULT_CUSTOM_MAX_TOKENS;
     return defineModel({
         provider: providerId,
         api: provider.api,

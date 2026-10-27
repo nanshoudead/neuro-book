@@ -27,7 +27,7 @@ const bodies: {role: string; content: unknown}[][] = [];
 /** 按顺序给出响应的本机端点；每个响应是状态码加正文（200 的正文按 SSE 发）。 */
 function endpoint() {
     const seen: Seen[] = [];
-    let replies: {status: number; text?: string; echoKey?: boolean}[] = [];
+    let replies: {status: number; text?: string; echoKey?: boolean; noFinishReason?: boolean; toolCall?: {name: string; args: object}}[] = [];
     const server = Bun.serve({
         port: 0,
         hostname: "127.0.0.1",
@@ -42,9 +42,19 @@ function endpoint() {
                 return new Response(JSON.stringify({error: {message}}), {status: reply.status, headers: {"content-type": "application/json", "retry-after": "0"}});
             }
             const chunk = (body: object) => `data: ${JSON.stringify({id: "c", object: "chat.completion.chunk", created: 0, model: "m", ...body})}\n\n`;
+            if (reply.toolCall) {
+                const call = {index: 0, id: "call_1", type: "function", function: {name: reply.toolCall.name, arguments: JSON.stringify(reply.toolCall.args)}};
+                const toolSse =
+                    chunk({choices: [{index: 0, delta: {role: "assistant", tool_calls: [call]}, finish_reason: null}]}) +
+                    (reply.noFinishReason ? "" : chunk({choices: [{index: 0, delta: {}, finish_reason: "tool_calls"}]})) +
+                    chunk({choices: [], usage: {prompt_tokens: 12, completion_tokens: 3, total_tokens: 15}}) +
+                    "data: [DONE]\n\n";
+                return new Response(toolSse, {headers: {"content-type": "text/event-stream"}});
+            }
             const sse =
                 chunk({choices: [{index: 0, delta: {role: "assistant", content: reply.text ?? ""}, finish_reason: null}]}) +
-                chunk({choices: [{index: 0, delta: {}, finish_reason: "stop"}]}) +
+                // 有的网关耗尽预算后直接送 [DONE]，不送 finish_reason。
+                (reply.noFinishReason ? "" : chunk({choices: [{index: 0, delta: {}, finish_reason: "stop"}]})) +
                 chunk({choices: [], usage: {prompt_tokens: 12, completion_tokens: 3, total_tokens: 15}}) +
                 "data: [DONE]\n\n";
             return new Response(sse, {headers: {"content-type": "text/event-stream"}});
@@ -53,7 +63,7 @@ function endpoint() {
     return {
         seen,
         url: `http://127.0.0.1:${server.port}/v1`,
-        reply(...next: {status: number; text?: string; echoKey?: boolean}[]) {
+        reply(...next: {status: number; text?: string; echoKey?: boolean; noFinishReason?: boolean; toolCall?: {name: string; args: object}}[]) {
             replies = next;
         },
         stop: () => server.stop(true),
@@ -190,6 +200,40 @@ describe("用量（输出 11，验收 6）", () => {
         await harness.close();
 
         expect(result.usage).toMatchObject({input: 12, output: 3, cost: null, complete: true});
+    });
+});
+
+describe("流结束没有结束原因（#258）", () => {
+    test("网关送了 [DONE] 却没送 finish_reason：会话与单次请求都记 length（被截断），不当正常结束", async () => {
+        process.env.NB_PROVIDER_TEST_KEY = "the-key";
+        server.reply({status: 200, text: "写到一半", noFinishReason: true});
+        const harness = await session();
+        const cut = await harness.turn("问");
+        await harness.close();
+        expect(cut).toMatchObject({stopReason: "length", text: "写到一半"});
+
+        server.reply({status: 200, text: "写到一半", noFinishReason: true}, {status: 200, text: "写完了"});
+        expect(await complete({profile: noToolsProfile, initial: {}, input: "x", model: model()})).toMatchObject({stopReason: "length", text: "写到一半"});
+        // 带了 finish_reason 的正常结束不变。
+        expect(await complete({profile: noToolsProfile, initial: {}, input: "x", model: model()})).toMatchObject({stopReason: "stop", text: "写完了"});
+    });
+});
+
+describe("流结束没有结束原因：多轮与形状（#258）", () => {
+    const search = {name: "story_search", args: {query: "x"}};
+
+    test("工具调用后的最后一次请求决定结果：前一次请求没有结束原因不影响，最后一次没有才记 length", async () => {
+        process.env.NB_PROVIDER_TEST_KEY = "the-key";
+        // 前一次（工具调用）的流没有 finish_reason，最后一次正常：stop。
+        server.reply({status: 200, toolCall: search, noFinishReason: true}, {status: 200, text: "答完了"});
+        const first = await session();
+        expect(await first.turn("问")).toMatchObject({stopReason: "stop", text: "答完了"});
+        await first.close();
+        // 前一次正常，最后一次没有结束原因：length。
+        server.reply({status: 200, toolCall: search}, {status: 200, text: "答到一半", noFinishReason: true});
+        const second = await session();
+        expect(await second.turn("问")).toMatchObject({stopReason: "length", text: "答到一半"});
+        await second.close();
     });
 });
 

@@ -22,6 +22,7 @@ import {isProfileDefinition, ProfileError, type ProfileDefinition} from "@notnot
 import type {JsonValue, SessionEntry, SessionEntryInput, SessionLog} from "@notnotype/nb-session";
 import {renderContext} from "./context.js";
 import {HarnessError} from "./errors.js";
+import {createFinishWatch, type FinishWatch} from "./finish-watch.js";
 import type {ThinkingEffort} from "./catalog.js";
 import {MissingModelKeyError, type ResolvedModel} from "./model.js";
 import {redactEventMessages} from "./redact.js";
@@ -61,6 +62,8 @@ interface Run {
     cancelled: boolean;
     /** harness 自己的步骤出的错（密钥缺失、写日志、渲染、序列化），优先于模型给的错误。 */
     hostError: RunError | null;
+    /** 这次运行里最后一次请求的流是否没给结束原因（见 finish-watch.ts）；最后一次请求决定最后一条助手消息。 */
+    lastFinish: FinishWatch | null;
     finishCandidate: {readonly callId: string; readonly tool: string; readonly args: unknown} | null;
     finished: {readonly tool: string; readonly args: unknown} | null;
     task: Promise<TurnResult> | null;
@@ -198,7 +201,17 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
                 run?.meter.request();
                 return inner(input, init);
             }) as typeof fetch;
-            return baseStream(streamModel, context, {...streamOptions, fetch: counted});
+            const watch = createFinishWatch();
+            if (run !== null) run.lastFinish = watch;
+            const callerObserver = streamOptions?.onSseEvent;
+            return baseStream(streamModel, context, {
+                ...streamOptions,
+                fetch: counted,
+                onSseEvent: (event) => {
+                    watch.observe(event);
+                    callerObserver?.(event);
+                },
+            });
         },
         transformContext: async (messages) => {
             const pending = messages.flatMap((message) => (message.role === "toolResult" ? [(message as {toolCallId: string}).toolCallId] : []));
@@ -345,6 +358,8 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
         if (last === null) return finishRun("error", localError("模型没有返回消息"), "");
         switch (last.stopReason) {
             case "stop":
+                // 网关送了 `[DONE]` 却没送结束原因：半句话不能当正常结束，按被截断记。
+                return finishRun(current.lastFinish?.missing === true ? "length" : "stop", null, text);
             case "toolUse":
                 return finishRun("stop", null, text);
             case "length":
@@ -363,7 +378,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
             if (state === "closing" || state === "closed") return Promise.reject(new HarnessError("session_closed", "会话已关闭"));
             if (state === "running") return Promise.reject(new HarnessError("session_busy", "这个会话正在运行"));
             state = "running";
-            const current: Run = {meter: new UsageMeter(model.priceKnown), entries: [], cancelled: false, hostError: null, finishCandidate: null, finished: null, task: null};
+            const current: Run = {meter: new UsageMeter(model.priceKnown), entries: [], cancelled: false, hostError: null, lastFinish: null, finishCandidate: null, finished: null, task: null};
             run = current;
             const signal = turnOptions?.signal;
             const cancel = (): void => {

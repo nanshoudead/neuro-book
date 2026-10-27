@@ -111,6 +111,69 @@ describe("init、show、set、unset", () => {
         expect(await readdir(join(path, "..")).catch(() => [])).toEqual([]);
     });
 
+    test("服务商不在内置目录又没给地址：报错说明 nbstory 只认内置目录，并给出自己的服务商的写法（#256）", async () => {
+        const path = freshPath();
+        const result = await run(["config", "init", "--model", "my-relay/some-model", "--config", path]);
+        expect(result.code).toBe(2);
+        expect(result.stderr).toContain("内置目录里没有服务商 my-relay");
+        expect(result.stderr).toContain("不读其他工具的配置文件");
+        expect(result.stderr).toContain("--base-url <地址>");
+        // 给了地址和密钥变量就是自己的服务商，模型名可以带斜杠。
+        expect((await run(["config", "init", "--base-url", "http://127.0.0.1:1/v1", "--api-key-env", KEY_ENV, "--model", "my-relay/some-model", "--config", path])).code).toBe(0);
+        // 已有自定义地址时也一样：不能悄悄把未知的 x/y 记成 custom 下的模型名；不带服务商前缀的模型名照旧沿用已有地址。
+        const before = await readFile(path, "utf8");
+        const kept = await run(["config", "init", "--model", "other-relay/model-z", "--force", "--config", path]);
+        expect(kept.code).toBe(2);
+        expect(kept.stderr).toContain("内置目录里没有服务商 other-relay");
+        expect(await readFile(path, "utf8")).toBe(before);
+        expect((await run(["config", "init", "--model", "plain-model", "--force", "--config", path])).code).toBe(0);
+    }, 30_000);
+
+    test("config set ingest.model 可以不写 JSON：三个选项覆盖其中的字段，已有的价格等原样保留；没有这一组时要给齐（#259）", async () => {
+        const path = freshPath();
+        await run(["config", "init", ...INIT_FLAGS, "--config", path]);
+        const partial = await run(["config", "set", "ingest.model", "--model", "m2", "--config", path]);
+        expect(partial.code).toBe(2);
+        expect(partial.stderr).toContain("--base-url、--api-key-env");
+        expect((await run(["config", "set", "ingest.model", "--base-url", "http://127.0.0.1:2/v1", "--model", "m2", "--api-key-env", KEY_ENV, "--config", path])).code).toBe(0);
+        expect(await written(path)).toMatchObject({ingest: {model: {baseUrl: "http://127.0.0.1:2/v1", id: "m2", apiKeyEnv: KEY_ENV}}});
+        // 加上价格，再只改模型名：价格和其余两项不动。
+        expect((await run(["config", "set", "ingest.model.price", '{"input":1,"output":4,"currency":"CNY"}', "--config", path])).code).toBe(0);
+        expect((await run(["config", "set", "ingest.model", "--model", "m3", "--config", path])).code).toBe(0);
+        expect(await written(path)).toMatchObject({ingest: {model: {baseUrl: "http://127.0.0.1:2/v1", id: "m3", apiKeyEnv: KEY_ENV, price: {input: 1, output: 4, currency: "CNY"}}}});
+        // 整段 JSON 的写法不变；JSON 和三个选项不能一起给；别的字段、别的动作不收这三个选项。
+        expect((await run(["config", "set", "ingest.model", '{"baseUrl":"http://127.0.0.1:3/v1","id":"m4","apiKeyEnv":"' + KEY_ENV + '"}', "--config", path])).code).toBe(0);
+        const before = await readFile(path, "utf8");
+        const wrong = [["set", "ingest.model", "{}", "--model", "m5"], ["set", "qa.maxChapters", "5", "--model", "m5"], ["set", "model.thinking", "--model", "m5"], ["show", "--model", "m5"], ["unset", "ingest.model", "--base-url", "http://x/v1"]];
+        const results = await Promise.all(wrong.map(args => run(["config", ...args, "--config", path])));
+        expect(results.map(result => result.code)).toEqual(wrong.map(() => 2));
+        expect(await readFile(path, "utf8")).toBe(before);
+    }, 30_000);
+
+    test("nbstory --version 输出包的版本号，--json 时是 JSON；config <动作> --help 只列这个动作的选项（#259）", async () => {
+        const version = (JSON.parse(await readFile(join(import.meta.dir, "..", "..", "package.json"), "utf8")) as {version: string}).version;
+        expect((await run(["--version"])).stdout.trim()).toBe(version);
+        expect(JSON.parse((await run(["-V", "--json"])).stdout)).toEqual({version});
+        const init = await run(["config", "init", "--help"]);
+        expect(init.code).toBe(0);
+        expect(init.stdout).toContain("用法：nbstory config init");
+        expect(init.stdout).toContain("--base-url");
+        expect(init.stdout).toContain("--force");
+        expect(init.stdout).not.toContain("--ingest");
+        const test = await run(["config", "test", "--help"]);
+        expect(test.stdout).toContain("--ingest");
+        expect(test.stdout).not.toContain("--base-url");
+        const set = await run(["config", "set", "--help"]);
+        expect(set.stdout).toContain("set ingest.model --base-url");
+        expect(set.stdout).not.toContain("--force");
+        // 没有指明动作时仍是命令的总览；选项的值恰好叫动作名（文件名 init、模型名 init）不算动作。
+        expect((await run(["config", "--help"])).stdout).toContain("用法：nbstory config");
+        for (const args of [["config", "--config", "init", "--help"], ["config", "--model", "init", "--help"]]) expect((await run(args)).stdout).not.toContain("用法：nbstory config init");
+        // 根选项的先后不限。
+        expect(JSON.parse((await run(["--json", "--version"])).stdout)).toEqual({version});
+        expect((await run(["--json", "-V"])).code).toBe(0);
+    }, 30_000);
+
     test("已有配置：不加 --force 不动；加了只改给出的字段，其余保留", async () => {
         const path = freshPath();
         await run(["config", "init", ...INIT_FLAGS, "--config", path]);
@@ -231,6 +294,22 @@ describe("config test", () => {
         expect(result.code).toBe(0);
         expect(endpoint.bodies[0]).not.toHaveProperty("reasoning_effort");
         expect(result.stdout).toContain("由服务端的默认档决定");
+    });
+
+    test("自定义模型不写 maxTokens 时请求带输出上限 32768（#258）；写了就用写的，OpenAI 系超过 64000 夹到 64000", async () => {
+        const sent = async (maxTokens?: number): Promise<unknown> => {
+            const endpoint = startEndpoint([{kind: "text", text: "好"}]);
+            endpoints.push(endpoint);
+            const path = freshPath();
+            await mkdir(join(path, ".."), {recursive: true});
+            await writeFile(path, JSON.stringify({providers: {custom: {api: "openai-completions", baseUrl: endpoint.url, apiKeyEnv: KEY_ENV, models: [{id: "not-in-any-catalog", ...(maxTokens === undefined ? {} : {maxTokens})}]}}, models: ["custom/not-in-any-catalog"], model: {use: "custom/not-in-any-catalog"}}));
+            expect((await run(["config", "test", "--config", path])).code).toBe(0);
+            const body = endpoint.bodies[0]!;
+            return body.max_completion_tokens ?? body.max_tokens;
+        };
+        expect(await sent()).toBe(32_768);
+        expect(await sent(5000)).toBe(5000);
+        expect(await sent(100_000)).toBe(64_000);
     });
 
     test("认证被拒：退出码 4，错误归类 auth，错误正文里回显的密钥也不出现在输出里", async () => {

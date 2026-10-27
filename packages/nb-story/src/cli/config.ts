@@ -21,7 +21,24 @@ interface ConfigOptions {
     json: boolean;
 }
 
-const USAGE = "用法：nbstory config init | show | set <字段> <值> | unset <字段> | test [--ingest]（都可加 --config <文件>、--json）";
+const USAGE = "用法：nbstory config init | show | set <字段> <值> | unset <字段> | test [--ingest]（都可加 --config <文件>、--json；nbstory config <动作> --help 看动作的用法）";
+
+/** 可以用 --base-url、--model、--api-key-env 三段式写的整组字段（都是 `{baseUrl, id, apiKeyEnv, …}`）。 */
+const THREE_PART_FIELDS: ReadonlySet<string> = new Set(["ingest.model", "ingest.recall.model"]);
+
+/**
+ * 三段式的结果：已有的这一组字段（价格、上限等）原样保留，三个选项覆盖其中的 baseUrl、id、apiKeyEnv。还没有这一组、
+ * 选项又没给齐时返回要报给用户的话。
+ */
+function mergedModel(config: QaConfig, field: string, params: Record<string, unknown>): Record<string, unknown> | string {
+    const current = (field === "ingest.model" ? config.ingest?.model : config.ingest?.recall?.model) as Record<string, unknown> | undefined;
+    const merged: Record<string, unknown> = {...current};
+    if (params.baseUrl !== undefined) merged.baseUrl = params.baseUrl;
+    if (params.model !== undefined) merged.id = params.model;
+    if (params.apiKeyEnv !== undefined) merged.apiKeyEnv = params.apiKeyEnv;
+    const missing = (["baseUrl", "id", "apiKeyEnv"] as const).filter(key => merged[key] === undefined).map(key => ({baseUrl: "--base-url", id: "--model", apiKeyEnv: "--api-key-env"})[key]);
+    return missing.length > 0 ? `${field} 还没有配置，要把 ${missing.join("、")} 一起给上（或者写整段 JSON）` : merged;
+}
 
 const THINKING_NOTE = "不写：请求不带推理档，由服务端的默认档决定";
 
@@ -129,7 +146,13 @@ export async function configCommand(options: ConfigOptions, io: CliIo): Promise<
     const arity: Record<string, number> = {init: 0, show: 0, test: 0, set: 2, unset: 1};
     if (action === undefined || !(action in arity)) return usageError(action === undefined ? "缺少动作" : `没有动作 ${action}`);
     const given = [params.field, params.value].filter(item => item !== undefined).length;
-    if (given !== arity[action]) return usageError(`${action} 要 ${arity[action]} 个参数，给了 ${given} 个`);
+    // 抽取模型的三段式写法：config set ingest.model --base-url … --model … --api-key-env …（不给 JSON 值）。
+    const modelFlags = (["baseUrl", "model", "apiKeyEnv"] as const).filter(name => params[name] !== undefined);
+    const threePart = action === "set" && given === 1 && modelFlags.length > 0 && typeof params.field === "string" && THREE_PART_FIELDS.has(params.field);
+    if (action !== "init" && modelFlags.length > 0 && !threePart) {
+        return usageError(action === "set" && given === 2 ? "字段的值和 --base-url、--model、--api-key-env 不能同时给：要么写整段 JSON，要么只写这三个选项" : `--base-url、--model、--api-key-env 只用于 config init，以及 config set ${[...THREE_PART_FIELDS].join(" 或 ")}`);
+    }
+    if (given !== arity[action] && !threePart) return usageError(`${action} 要 ${arity[action]} 个参数，给了 ${given} 个`);
     if (params.ingest === true && action !== "test") return usageError("--ingest 只用于 config test");
 
     try {
@@ -157,9 +180,15 @@ export async function configCommand(options: ConfigOptions, io: CliIo): Promise<
                 // 读的时候只校验形状：配置坏在字段之间的约束上时，正要用 set 修好它。
                 const {config, digest} = await readQaConfigShape(path);
                 const field = params.field as string;
-                const changed = action === "set" ? setConfigField(config, field, params.value as string, ` ${path} `, catalog) : unsetConfigField(config, field, ` ${path} `, catalog);
+                let value = params.value as string | undefined;
+                if (threePart) {
+                    const merged = mergedModel(config, field, params);
+                    if (typeof merged === "string") return usageError(merged);
+                    value = JSON.stringify(merged);
+                }
+                const changed = action === "set" ? setConfigField(config, field, value!, ` ${path} `, catalog) : unsetConfigField(config, field, ` ${path} `, catalog);
                 await saveQaConfig(path, changed, {expect: digest, catalog});
-                return done({path, config: changed}, action === "set" ? (echoable(field) ? `已改 ${field} = ${String(params.value)}` : `已改 ${field}`) : `已去掉 ${field}`);
+                return done({path, config: changed}, action === "set" ? (!threePart && echoable(field) ? `已改 ${field} = ${String(value)}` : `已改 ${field}`) : `已去掉 ${field}`);
             }
             case "init":
                 return await init(params, path, io, json, done, usageError);
@@ -213,7 +242,11 @@ async function init(params: Record<string, unknown>, path: string, io: CliIo, js
     // 给了地址或密钥变量是自定义地址；只给 `服务商/模型名` 且服务商在目录里是目录模型。自定义地址没给的地址与密钥变量
     // 沿用已有的自定义服务商 `custom`。
     const custom = flags.baseUrl !== undefined || flags.apiKeyEnv !== undefined || (flags.model !== undefined && !tools.catalog.hasProvider(parseModelRef(flags.model).provider));
-    const legacy = existing?.providers?.[LEGACY_PROVIDER_ID];
+    // `x/y` 里的服务商 x 不在内置目录、本次又没给地址和密钥变量：多半是想用自己在别的工具里配好的服务商，不能悄悄沿用
+    // 已有的自定义地址把它记成 custom 下的模型名（实现审查第 5 条）。
+    const foreignProvider = flags.model !== undefined && flags.baseUrl === undefined && flags.apiKeyEnv === undefined ? parseModelRef(flags.model).provider : "";
+    const unknownProvider = foreignProvider !== "" && !tools.catalog.hasProvider(foreignProvider) ? foreignProvider : null;
+    const legacy = unknownProvider === null ? existing?.providers?.[LEGACY_PROVIDER_ID] : undefined;
     const filled = {baseUrl: flags.baseUrl ?? legacy?.baseUrl, model: flags.model, apiKeyEnv: flags.apiKeyEnv ?? legacy?.apiKeyEnv};
     const missing = custom ? (["baseUrl", "model", "apiKeyEnv"] as const).filter(name => filled[name] === undefined) : [];
     const answers: InitAnswers | null = flags.model === undefined ? null : custom ? (missing.length > 0 ? null : {kind: "custom", baseUrl: filled.baseUrl!, id: flags.model, apiKeyEnv: filled.apiKeyEnv!}) : {kind: "catalog", ref: flags.model};
@@ -226,7 +259,7 @@ async function init(params: Record<string, unknown>, path: string, io: CliIo, js
     if (needsConfirm && !canPrompt) return usageError(`已有配置 ${path}：加 --force 覆盖其中给出的字段（没给的保留），或用 nbstory config set 改单个字段`);
     if (needsInput && !canPrompt) {
         const names = {baseUrl: "--base-url", model: "--model", apiKeyEnv: "--api-key-env"} as const;
-        const wanted = missing.length > 0 ? `自定义地址缺少 ${missing.map(name => names[name]).join("、")}` : existing ? "至少给一个字段选项（--model、--base-url、--api-key-env、--thinking）" : "缺少 --model（目录里的 服务商/模型名，或者自定义地址另给 --base-url 与 --api-key-env）";
+        const wanted = unknownProvider !== null ? `内置目录里没有服务商 ${unknownProvider}（nbstory 只认内置目录，不读其他工具的配置文件）；自己的服务商要给 --base-url <地址>、--model <模型名>、--api-key-env <环境变量名>` : missing.length > 0 ? `自定义地址缺少 ${missing.map(name => names[name]).join("、")}` : existing ? "至少给一个字段选项（--model、--base-url、--api-key-env、--thinking）" : "缺少 --model（目录里的 服务商/模型名，或者自定义地址另给 --base-url 与 --api-key-env）";
         return usageError(`${wanted}${json ? "" : "；在终端里运行可以交互填写"}`);
     }
     const cancelled = (): number => {
@@ -283,7 +316,7 @@ async function test(path: string, signal: AbortSignal, io: CliIo, json: boolean,
 /**
  * 用抽取实际用的模型，按抽取固定的两档各发一个最小请求（docs/specs/story/qa.md 输出 23），走抽取同一条传输路径
  * （ingest/model.ts），所以通过就说明抽取发得出去。挑选相关说法开着时，再用挑选的模型发一个 `minimal` 的。每档只试
- * 一次，不按抽取的延迟表等着重发；不降档。
+ * 一次，不按抽取的延迟表等着重发；网关严格转发推理档时，抽取自己的降档（ingest/model.ts）照常生效，结果里写明改发了哪一档。
  */
 async function testIngest(path: string, signal: AbortSignal, io: CliIo, json: boolean, done: Done, fail: Fail): Promise<number> {
     const config = await loadQaConfig(path);
@@ -292,7 +325,7 @@ async function testIngest(path: string, signal: AbortSignal, io: CliIo, json: bo
     const {callModel, ModelAborted, ModelError} = await import("../ingest/model");
     const endpointOf = (choice: {baseUrl: string; id: string; apiKeyEnv: string; maxTokens: number}) => ({baseUrl: choice.baseUrl, model: choice.id, apiKey: startupEnv[choice.apiKeyEnv] ?? "", maxTokens: choice.maxTokens, apiKeyEnv: choice.apiKeyEnv});
     type Trial = {effort: "minimal" | "medium"; for: "ingest" | "recall"};
-    type Result = Trial & ({ok: true; ms: number; usage: {input: number; output: number}} | {ok: false; kind: string; message: string});
+    type Result = Trial & ({ok: true; ms: number; usage: {input: number; output: number}; effortUsed?: string} | {ok: false; kind: string; message: string});
     const trials: Trial[] = [{effort: "minimal", for: "ingest"}, {effort: "medium", for: "ingest"}, ...(recall === null ? [] : [{effort: "minimal", for: "recall"} as const])];
     const results: Result[] = [];
     for (const {effort, for: target} of trials) {
@@ -300,13 +333,13 @@ async function testIngest(path: string, signal: AbortSignal, io: CliIo, json: bo
         const started = Date.now();
         let usage = {input: 0, output: 0};
         try {
-            await callModel(endpoint, {
+            const reply = await callModel(endpoint, {
                 system: "只回一个 JSON 对象。",
                 user: '回 {"ok":true}',
                 effort, signal, maxAttempts: 1,
                 onAttempt: attempt => (usage = {input: attempt.usage.input, output: attempt.usage.output}),
             });
-            results.push({effort, for: target, ok: true, ms: Date.now() - started, usage});
+            results.push({effort, for: target, ok: true, ms: Date.now() - started, usage, ...(reply.effortUsed === undefined ? {} : {effortUsed: reply.effortUsed})});
         } catch (error) {
             if (error instanceof ModelAborted) return fail("cancelled", "已取消", EXIT_INTERRUPTED);
             if (!(error instanceof ModelError)) throw error;
@@ -314,12 +347,12 @@ async function testIngest(path: string, signal: AbortSignal, io: CliIo, json: bo
         }
     }
     const label = (result: Result) => `${result.for === "recall" ? "挑选 " : ""}${result.effort} 档`;
-    const lines = results.map(result => (result.ok ? `通过：${label(result)}正常回话（${(result.ms / 1000).toFixed(1)} 秒，输入 ${result.usage.input}、输出 ${result.usage.output} token）` : `失败：${label(result)}（${result.kind}）${result.message}`));
+    const lines = results.map(result => (result.ok ? `通过：${label(result)}正常回话（${(result.ms / 1000).toFixed(1)} 秒，输入 ${result.usage.input}、输出 ${result.usage.output} token）${result.effortUsed === undefined ? "" : `；网关不接受 ${result.effort} 档，改发了 ${result.effortUsed} 档`}` : `失败：${label(result)}（${result.kind}）${result.message}`));
     const failed = results.find((result): result is Extract<Result, {ok: false}> => !result.ok);
     const head = [`抽取模型：${model.id}（${model.baseUrl}，取自 ${model.source}）`, ...(recall === null ? [] : [`挑选模型：${recall.id}（${recall.baseUrl}，取自 ${recall.source}）`])].join("\n");
     const data = {path, model: model.id, source: model.source, efforts: results.filter(result => result.for === "ingest"), recall: recall === null ? null : {model: recall.id, source: recall.source, efforts: results.filter(result => result.for === "recall")}};
     if (!failed) return done(data, [head, ...lines].join("\n"));
-    const message = `${label(failed)}：${failed.message}${failed.kind === "provider" ? "（模型不接受这一档时换模型；抽取不降档）" : ""}`;
+    const message = `${label(failed)}：${failed.message}${failed.kind === "provider" ? "（网关不接受这一档、又没有可改发的推理档时，换模型或换网关）" : ""}`;
     // 失败时两档的结果都要给（qa 输出 23“分别报告”）：JSON 的失败对象另带 data。
     if (json) {
         io.stdout(JSON.stringify({ok: false, error: {code: "model_failed", message, kind: failed.kind}, data}));

@@ -285,7 +285,7 @@ export const OPTION_HELP: Record<string, string> = {
     continue: "在这个对话里追问（对话 id 见 nbstory qa）；不能同时写 --at、--mode",
     config: "配置文件（默认 ~/.config/nbstory/config.json）",
     "base-url": "OpenAI 兼容服务的地址",
-    model: "模型：服务商/模型名（OMP 目录里的，或配置里的候选）；config init 用自定义地址时写模型名",
+    model: "模型：服务商/模型名（内置目录里的，或配置里的候选）；config init 用自定义地址、config set ingest.model 时写模型名",
     "api-key-env": "存密钥的环境变量名（密钥本身不进配置）",
     thinking: "推理档：minimal、low、medium、high、xhigh、max；模型不支持时往下夹；不写则请求不带推理档",
     structured: "新对话用 answer 工具交结构化的卷（默认按配置的 qa.answer，再缺省是 Markdown）",
@@ -336,8 +336,32 @@ export function usage(): string {
         "",
         "通用选项：--library <目录>、--json；书级命令另有 --book <书>、--at <章或章.段>；列表命令另有 --limit、--cursor。",
         "ask 另有 --mode graph|full（图当目录或全读，默认 graph）、--config <配置文件>、--continue <对话 id>（追问）、--model <服务商/模型名>、--thinking <档>（只对这一问）、--structured（新对话结构化作答）。",
-        "config 的动作：init（交互；或 --model <服务商/模型名> 用目录里的模型，--base-url --model --api-key-env 用自定义地址）、show、set <字段> <值>、unset <字段>、test（加 --ingest 检查抽取模型）。",
+        "config 的动作：init（交互；或 --model <服务商/模型名> 用内置目录里的模型，--base-url --model --api-key-env 用自定义地址）、show、set <字段> <值>（抽取模型也可写 set ingest.model --base-url --model --api-key-env）、unset <字段>、test（加 --ingest 检查抽取模型）；nbstory config <动作> --help 看这个动作的用法。",
+        "nbstory --version 显示版本。",
         "ingest 另有 --title、--id、--preview、--book <书 id>（用保存的原文接着抽）、--status、--config、--auto-resume <次数>；新建时可加 --no-ledger（不记数值）、--no-secrets（不记秘密）。",
         "skill install 另有 --agent claude|codex（装进 ~/.claude/skills 或 ~/.agents/skills，默认 claude）、--dir <目录>、--force（换掉内容不同的已装目录）。",
     ].join("\n");
+}
+
+/** `config` 的动作：每个动作的用法与只对它有效的选项（`nbstory config <动作> --help`）。 */
+export const CONFIG_ACTIONS = {
+    init: {
+        usage: "nbstory config init [选项]",
+        summary: "写问答与抽取的配置。选项给齐就直接写，缺的在终端里交互问；已有配置要加 --force 才覆盖，没给的字段保留。用内置目录里的模型只给 --model <服务商/模型名>；自己的服务商要给 --base-url、--model（模型名）、--api-key-env 三项。nbstory 只认内置目录，不读其他工具（例如 omp）的配置文件。",
+        options: ["model", "base-url", "api-key-env", "thinking", "force", "config"],
+    },
+    show: {usage: "nbstory config show [选项]", summary: "显示现在的配置：默认模型、候选、密钥是否已设置（只看进程启动时的环境变量，不显示密钥本身）。", options: ["config"]},
+    set: {
+        usage: "nbstory config set <字段> <值> [选项]",
+        summary: "改一个字段。整组的字段（models、providers.<id>、ingest.model、ingest.recall.model）写成 JSON。抽取模型可以不写 JSON：nbstory config set ingest.model --base-url <地址> --model <模型名> --api-key-env <变量名>（只改其中一项时，其余沿用已有的）。",
+        options: ["base-url", "model", "api-key-env", "config"],
+    },
+    unset: {usage: "nbstory config unset <字段> [选项]", summary: "去掉一个可选字段；必填字段只能用 set 改。", options: ["config"]},
+    test: {usage: "nbstory config test [选项]", summary: "用配置的模型发一次真请求，检查连得通、密钥有效。加 --ingest 改为检查抽取用的模型（按 minimal、medium 两档各试一次）。", options: ["ingest", "config"]},
+} as const satisfies Record<string, {usage: string; summary: string; options: readonly string[]}>;
+
+export type ConfigAction = keyof typeof CONFIG_ACTIONS;
+
+export function isConfigAction(name: string): name is ConfigAction {
+    return Object.hasOwn(CONFIG_ACTIONS, name);
 }

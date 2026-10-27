@@ -24,8 +24,8 @@ export type EndpointReply =
     | {kind: "finish-then-hang"; text: string}
     /** 原样发这段流正文（用来发坏的流数据）。 */
     | {kind: "raw"; body: string}
-    /** 回错误状态码；`echoKey` 时错误正文里原样带上收到的认证头；`headers` 是额外的响应头（例如 `Retry-After`）。 */
-    | {kind: "status"; status: number; echoKey?: boolean; headers?: Record<string, string>}
+    /** 回错误状态码；`echoKey` 时错误正文里原样带上收到的认证头；`message` 替换错误正文里的话（例如网关列出合法推理档的 400）；`headers` 是额外的响应头（例如 `Retry-After`）。 */
+    | {kind: "status"; status: number; echoKey?: boolean; message?: string; headers?: Record<string, string>}
     /** 不回应，直到请求被取消。 */
     | {kind: "hang"}
     /** 等 `ready` 完成后照 `reply` 回复；等的时候请求被取消就结束。 */
@@ -146,7 +146,7 @@ export function startEndpoint(replies: EndpointReply[] | Responder, options: {id
             const reasoning = (reply.kind === "text" || reply.kind === "tools") && reply.thinking !== undefined ? [{choices: [{index: 0, delta: {role: "assistant", reasoning_content: reply.thinking}, finish_reason: null}]}] : [];
             switch (reply.kind) {
                 case "status": {
-                    const message = reply.echoKey ? `invalid api key: ${request.headers.get("authorization") ?? ""}` : "error";
+                    const message = reply.echoKey ? `invalid api key: ${request.headers.get("authorization") ?? ""}` : (reply.message ?? "error");
                     return new Response(JSON.stringify({error: {message}}), {status: reply.status, headers: {"content-type": "application/json", ...reply.headers}});
                 }
                 case "hang":
