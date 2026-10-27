@@ -439,13 +439,16 @@ function severityForServiceDiagnostic(diagnostic: AssemblyDiagnostic): Diagnosti
     return diagnostic.stage === "declare" || diagnostic.stage === "resolve" ? "debug" : "info";
 }
 
-/** 激活/发布失败记 error；撤回与恢复问题记 warn；登记记 debug，其余成功路径记 info。 */
+/** 正常关闭带来的撤回：接收方或作用域关了、激活被停止。窗口离开、实例停止时每个贡献都撤回一次，不是问题。 */
+const ROUTINE_REVOKES: ReadonlySet<string> = new Set(["receiver-closed", "scope-closed", "activation-stopped"]);
+
+/** 激活/发布失败记 error；失败带来的撤回记 warn，正常关闭的撤回记 debug；登记记 debug，其余成功路径记 info。 */
 function severityForPluginDiagnostic(diagnostic: PluginDiagnostic): DiagnosticLevel {
     if (diagnostic.error !== null) {
         return diagnostic.stage === "revoke" ? "warn" : "error";
     }
     if (diagnostic.stage === "revoke") {
-        return "warn";
+        return ROUTINE_REVOKES.has(diagnostic.reason) ? "debug" : "warn";
     }
     return diagnostic.stage === "register" ? "debug" : "info";
 }
