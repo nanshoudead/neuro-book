@@ -21,8 +21,10 @@ updated: 2026-10-27
 
 ## 当前状态
 
-2026-10-27 建，未开工。讨论稿 `evidences/design-v1.txt` 到 `design-v3.txt`（第一、二版的“保留内联”已撤销，以 v3 和 Work README 为准），三轮 omp 审查 `evidences/design-review-omp-r1.txt` 到 `r3.txt`；前端审查与独立设计在 [w00028 t01 证据](../../../w00028-i18n/tasks/t01-requirements/evidences/)。
+计划：[plan.md](plan.md)（自主推进，2026-10-27 开工）。
+
+2026-10-27 建。讨论稿 `evidences/design-v1.txt` 到 `design-v3.txt`（第一、二版的“保留内联”已撤销，以 v3 和 Work README 为准），三轮 omp 审查 `evidences/design-review-omp-r1.txt` 到 `r3.txt`；前端审查与独立设计在 [w00028 t01 证据](../../../w00028-i18n/tasks/t01-requirements/evidences/)。
 
 ## 下一步
 
-起草 ADR，先把要点给开发者看，再交 omp 审查。
+计划交 omp 审查，处理后按切片实施。

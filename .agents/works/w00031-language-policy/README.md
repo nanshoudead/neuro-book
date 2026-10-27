@@ -33,6 +33,10 @@ updated: 2026-10-27
 | [t04](tasks/t04-migration/README.md) | 按 t03 的切片迁移（暂不开工） |
 | [t05](tasks/t05-prompt-language-eval/README.md) | 中英文提示词对照评测（已搁置） |
 
+## 待确认
+
+自主推进中照推荐做的决定记在 [pending-confirmations.md](pending-confirmations.md)，等开发者追认。
+
 ## 授权与限制
 
 - `issueId: null`；远端写入、npm 发布逐次授权。
