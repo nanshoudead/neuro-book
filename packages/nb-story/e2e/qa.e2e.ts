@@ -316,6 +316,20 @@ test.describe("输入框与模型", () => {
         await page.getByText(/^过程 · /u).first().click();
         await expect(page.getByText("37.8 没读过，已让模型重写")).toBeVisible();
         await expect(page.locator("[data-context-meter]")).toBeVisible();
+
+        // 会话状态条与上下文检查器（t24）：这一轮发了 3 次请求，端点每次回输入 100、输出 10；没有配单价，不显示费用。
+        const status = page.getByTestId("qa-status");
+        await expect(status).toBeVisible();
+        await expect(status.locator("[data-stat=input]")).toContainText("300");
+        await expect(status.locator("[data-stat=output]")).toContainText("30");
+        await expect(status.locator("[data-stat=cost]")).toHaveCount(0);
+        await status.click();
+        const inspector = page.getByTestId("qa-inspector");
+        await expect(inspector).toBeVisible();
+        await expect(inspector.getByTestId("qa-request")).toHaveCount(3);
+        await expect(inspector).toContainText("3 次");
+        await page.keyboard.press("Escape");
+        await expect(inspector).toHaveCount(0);
     });
 
     test("管理模型…去设置页，回来草稿还在；选过的模型在设置里被去掉后回到默认模型，发问用默认模型", async ({page}) => {
