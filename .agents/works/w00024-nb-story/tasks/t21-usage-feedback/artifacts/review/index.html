@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>w00024 t21 评审板：使用反馈里要你判断的设计</title>
+<style>
+:root { --bg:#fffdf7; --fg:#222; --muted:#777; --line:#ddd; --accent:#2563eb; --note:#d946ef; }
+body { font-family: system-ui, "Noto Sans SC", sans-serif; background:#f6f4ee; color:var(--fg); max-width: 1000px; margin: 28px auto; padding: 0 16px 80px; line-height: 1.65; }
+h1 { font-size: 22px } h2 { font-size: 18px; margin: 0 0 6px } h3 { font-size: 15px; margin: 0 0 4px }
+section { background:#fff; border:1px solid var(--line); border-radius:10px; padding:14px 18px; margin:18px 0 }
+.badge { font-size:12px; padding:1px 7px; border-radius:4px; background:#fde68a; margin-right:8px }
+.done { background:#bbf7d0 }
+.cand { border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin:10px 0; background:#fcfcfa }
+.rec { color:#047857; font-size:13px }
+.muted { color:var(--muted); font-size:13px }
+.mock { background:var(--bg); border:1px solid #cfcab8; border-radius:8px; padding:0; margin:8px 0; position:relative; overflow:hidden; font-size:13px }
+.shot { max-width:100%; border:1px solid var(--line); border-radius:6px }
+.bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:6px 10px; border-top:1px solid #e6e1d0; background:#faf7ee; font-size:12px }
+.chip { display:inline-flex; gap:4px; align-items:center; padding:2px 8px; border-radius:999px; background:#eee9da; font-size:12px }
+.chip b { font-weight:600 }
+.note { border:1.5px dashed var(--note); color:#86198f; padding:1px 6px; border-radius:4px; font-size:12px }
+.float { position:absolute; left:50%; transform:translateX(-50%); bottom:12px; background:#1f2937; color:#fff; padding:6px 12px; border-radius:8px; font-size:12px; box-shadow:0 4px 14px #0003 }
+.float button, .btn { background:#2563eb; color:#fff; border:0; border-radius:5px; padding:2px 8px; font-size:12px }
+.pop { background:#fff; border:1px solid #cfcab8; border-radius:10px; padding:12px 14px; box-shadow:0 8px 24px #0002; max-width:430px; font-size:13px }
+.pop table { border-collapse:collapse; width:100% } .pop td, .pop th { border-top:1px solid #eee; padding:4px 6px; text-align:left; vertical-align:top }
+.seg { display:inline-flex; border:1px solid #cfcab8; border-radius:6px; overflow:hidden } .seg span { padding:2px 10px } .seg .on { background:#2563eb; color:#fff }
+.sysline { text-align:center; color:var(--muted); font-size:12px; margin:8px 0 }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px } @media (max-width:760px){ .grid2{grid-template-columns:1fr} }
+.timeline div { display:flex; height:10px; margin:3px 0; border-radius:3px; overflow:hidden; background:#eee } .timeline i { display:block }
+table.t { border-collapse:collapse; font-size:13px } .t td,.t th { border:1px solid var(--line); padding:3px 8px; text-align:left }
+</style>
+</head>
+<body>
+<h1>t21 评审板：使用反馈里要你判断的设计</h1>
+<p class="muted">你 2026-10-27 的反馈里，下面这些涉及界面或产品取舍，先出示意稿让你定；其余已定的（别名搜索、右键不拖点、示例去掉 --library）已经做完合入。示意稿是 HTML 画的，只表达位置与内容，不是真实组件的外观；真实外观等你定了方案再按 nb-ui 实现。每题有我的推荐，全选推荐也行。</p>
+
+<section data-nbdev-question="graph-hint" data-nbdev-type="single" data-nbdev-recommend="chip">
+  <h2><span class="badge" data-nbdev-skip>待定</span>1. 怎么让用户知道“双击节点打开详情”</h2>
+  <p>现状：工具栏里已经有一行 2xs 的小字“单击选中 · 双击打开 · 右键更多…”，但在一排控件的末尾、颜色很淡，你没注意到。下图是现在的关系图。</p>
+  <img class="shot" src="r1/relations.webp" alt="关系图现状">
+  <div class="cand" data-nbdev-option="chip" data-nbdev-label="A 选中后底部浮条（并把右键菜单的快捷键改成“双击 / Enter”）">
+    <h3>A 选中后，图底部出一条浮条（推荐）</h3>
+    <div class="mock" style="height:120px"><div style="padding:10px;color:#999">（关系图画布）</div>
+      <div class="float">已选中 <b>孙悟空</b> · <button>打开人物卡</button> 双击或按 Enter · 按 F 只看周边 · 点空白取消</div></div>
+    <p class="muted">用户一选点就看到“怎么打开”，并且有按钮可点；点空白或取消选中时浮条消失。右键菜单第一项的快捷键同时改成“双击 / Enter”。</p>
+  </div>
+  <div class="cand" data-nbdev-option="hover" data-nbdev-label="B 悬停在点上时提示“双击打开”">
+    <h3>B 鼠标悬停在节点上，光标旁出一个小提示“双击打开”</h3>
+    <p class="muted">发现得早，但每次悬停都出，老用户会觉得吵；触屏没有悬停。</p>
+  </div>
+  <div class="cand" data-nbdev-option="menu" data-nbdev-label="C 只改右键菜单的快捷键">
+    <h3>C 只把右键菜单第一项的快捷键写成“双击 / Enter”，工具栏小字加深</h3>
+    <p class="muted">改动最小，但只对会右键的人有用。</p>
+  </div>
+</section>
+
+<section data-nbdev-question="graph-mode-notice" data-nbdev-type="single" data-nbdev-recommend="dialog-once">
+  <h2><span class="badge" data-nbdev-skip>待定</span>2. 点“图当目录”时的提示（优点与弊端）</h2>
+  <p>现状：输入框右下角一个“图当目录”小按钮，点了切换到“全读”，没有任何说明。下图是问答页现状，右下角可见。</p>
+  <img class="shot" src="r1/qa.webp" alt="问答页现状">
+  <div class="cand" data-nbdev-option="dialog-once" data-nbdev-label="A 每个浏览器第一次切换时弹说明窗口，带“不再提醒”">
+    <h3>A 第一次点它时弹出说明窗口（推荐）</h3>
+    <div class="mock" style="padding:14px"><div class="pop">
+      <h3>两种读书方式</h3>
+      <table><tr><th></th><th>图当目录（默认）</th><th>全读</th></tr>
+      <tr><td>做法</td><td>先查记忆图，再读相关原文段</td><td>把读到的位置之前的原文都交给模型</td></tr>
+      <tr><td>优点</td><td>快、便宜，适合长书</td><td>不依赖图有没有漏记，细节最全</td></tr>
+      <tr><td>弊端</td><td>图里漏记或记错的事，模型可能看不到</td><td>慢、贵；超过模型上下文的书读不完</td></tr></table>
+      <p><label><input type="checkbox"> 不再提醒</label> <button class="btn">知道了</button></p></div></div>
+    <p class="muted">只在第一次出现；之后在按钮上悬停仍能看到一句话摘要。</p>
+  </div>
+  <div class="cand" data-nbdev-option="popover-each" data-nbdev-label="B 每次点它都出一个不阻塞的小气泡">
+    <h3>B 每次点按钮都出小气泡，点别处消失</h3>
+    <p class="muted">不会漏看，但切换频繁的人会烦。</p>
+  </div>
+</section>
+
+<section data-nbdev-question="qa-status" data-nbdev-type="single" data-nbdev-recommend="bar-and-drawer">
+  <h2><span class="badge" data-nbdev-skip>待定</span>3. 问答页的会话状态：用量、缓存、上下文</h2>
+  <p>旧应用有两样（我在旧代码里找到了）：<b>底部状态条</b>（上下文占用、累积输入/输出/缓存读写 token、缓存命中率、费用）和<b>上下文检查器</b>（上下文构成条、每轮缓存时间线、缓存保留方式、诊断）。nb-story 的每一轮记录里已有 <code>usage</code>（输入、输出、缓存读），数据现成。</p>
+  <div class="cand" data-nbdev-option="bar-and-drawer" data-nbdev-label="A 输入框上方一条状态条，点它开右侧抽屉（上下文检查器）">
+    <h3>A 状态条 + 点开的检查器抽屉（推荐）</h3>
+    <div class="grid2">
+      <div class="mock"><div style="padding:30px 10px;color:#999;text-align:center">（对话）</div>
+        <div class="bar"><span class="chip">上下文 <b>38.2K / 1M</b> · 3.8%</span><span class="chip">输入 <b>212K</b></span><span class="chip">输出 <b>6.1K</b></span><span class="chip">缓存读 <b>188K</b> · 命中 <b>88%</b></span><span class="chip">¥ <b>0.31</b></span><span class="note">点开看详情 →</span></div>
+        <div style="padding:8px 10px;border-top:1px solid #e6e1d0;color:#aaa">输入消息，回车发送</div></div>
+      <div class="mock" style="padding:10px"><h3>上下文检查器</h3>
+        <div class="muted">构成</div>
+        <div class="timeline"><div><i style="width:12%;background:#6366f1"></i><i style="width:8%;background:#f59e0b"></i><i style="width:80%;background:#10b981"></i></div></div>
+        <div class="muted">系统提示词 12% · 工具 8% · 历史 80%</div>
+        <div class="muted" style="margin-top:6px">缓存（每轮）绿=读 黄=写 灰=新</div>
+        <div class="timeline"><div><i style="width:0;"></i><i style="width:20%;background:#f59e0b"></i><i style="width:80%;background:#d1d5db"></i></div>
+        <div><i style="width:70%;background:#10b981"></i><i style="width:10%;background:#f59e0b"></i><i style="width:20%;background:#d1d5db"></i></div>
+        <div><i style="width:90%;background:#10b981"></i><i style="width:5%;background:#f59e0b"></i><i style="width:5%;background:#d1d5db"></i></div></div>
+        <div class="muted">第 1、2、3 轮；缓存保留：服务商自动</div></div>
+    </div>
+    <p class="muted">状态条是整个会话累积的；抽屉里是逐轮的缓存条与上下文构成，诊断列出“哪里让缓存失效了”。没有价格配置时费用不显示（不显示“未知”）。</p>
+  </div>
+  <div class="cand" data-nbdev-option="bar-only" data-nbdev-label="B 只做状态条，检查器以后再说">
+    <h3>B 只做状态条</h3>
+    <p class="muted">工作量小；你说“后续全部都做”，所以只当先做哪一步的选项。</p>
+  </div>
+</section>
+
+<section data-nbdev-question="qa-position" data-nbdev-type="single" data-nbdev-recommend="header-control">
+  <h2><span class="badge" data-nbdev-skip>待定</span>4. 新对话的阅读位置：自己调章节、system-reminder、没抽完的书</h2>
+  <p>现状：对话上方一行灰字“新对话按你现在的位置 27 回答”，不能改。你要的：用户能自己调章节；调了以后，随下一次提问给助手发一条 system-reminder；书还没抽完时，助手可以读后续章节原文，但图工具不可用。</p>
+  <div class="cand" data-nbdev-option="header-control" data-nbdev-label="A 顶部那行变成可点的控件，调整后在对话里留一行系统提示">
+    <h3>A 顶部一行变成控件（推荐）</h3>
+    <div class="mock"><div class="bar" style="border-top:0;border-bottom:1px solid #e6e1d0">本对话读到 <span class="chip"><b>第 27 回</b> ▾</span> <span class="muted">点开改章节（只影响之后的提问）</span></div>
+      <div style="padding:10px 14px"><div style="background:#eef2ff;border-radius:8px;padding:6px 10px;width:60%">孙悟空知道戴在头上的是什么吗？</div>
+        <div class="sysline">— 阅读位置从第 27 回改为第 40 回，下次提问时告诉助手 —</div>
+        <div style="background:#eef2ff;border-radius:8px;padding:6px 10px;width:40%">那后来呢？</div></div></div>
+    <p class="muted">助手那边收到的是随下一次提问发出的一条 system-reminder：“读者现在读到第 40 回；第 27 回之后的内容现在可以引用”。往回调同理（“请不要再引用第 40 回之后的内容”）。已有对话里的位置也能这样改。</p>
+  </div>
+  <div class="cand" data-nbdev-option="input-button" data-nbdev-label="B 输入框旁一个小按钮">
+    <h3>B 输入框旁的“位置”小按钮</h3>
+    <p class="muted">不占顶部空间，但更不显眼。</p>
+  </div>
+  <h3 style="margin-top:12px">书没抽完时</h3>
+  <div class="mock"><div class="bar" style="border-top:0">本对话读到 <span class="chip"><b>第 27 回</b> ▾</span> <span class="note">这本书只抽到第 20 回：第 21 回起助手只能读原文，图工具（查人物、查说法…）不可用</span></div></div>
+  <p class="muted">做法：位置可以选到最新的一章；抽取进度之后的章节，助手只有“读原文”这一个工具，没有图工具，顶部写明；抽取跑完后自动恢复。这条是取舍不是视觉问题，我按上面做，除非你不同意：<label><input type="checkbox" data-nbdev-skip> 不同意（请在备注里写）</label></p>
+</section>
+
+<section data-nbdev-question="shell-entries" data-nbdev-type="single" data-nbdev-recommend="theme-and-entry">
+  <h2><span class="badge" data-nbdev-skip>待定</span>5. 书架页、设置页没有主题调节；书页没有设置入口</h2>
+  <p>现状：书页顶栏右侧有“明暗切换”，书架页（没有书时的首页）和设置页没有；书页左侧导航里也没有设置入口（只能从书架进）。</p>
+  <img class="shot" src="r1/overview.webp" alt="书页现状">
+  <div class="cand" data-nbdev-option="theme-and-entry" data-nbdev-label="A 书架页、设置页顶栏加明暗切换；书页左侧导航底部加“设置”">
+    <h3>A 三个页面统一（推荐）</h3>
+    <div class="mock"><div class="bar" style="border-top:0;border-bottom:1px solid #e6e1d0"><b>设置</b><span style="margin-left:auto">☾ 明暗</span></div>
+      <div style="display:flex;height:130px"><div style="width:150px;border-right:1px solid #e6e1d0;padding:8px">全书总览<br>关系图<br>…<br>说明与统计<div style="position:absolute;bottom:8px;left:8px"><span class="note">⚙ 设置</span>　◧ 收起</div></div><div style="padding:8px;color:#999">（页面）</div></div></div>
+    <p class="muted">顶栏里的明暗切换与书页同一个控件（同一份偏好，三个页面共用）；书页入口放在导航底部“收起”按钮旁边，点开是现在的设置页，返回回到原来的位置。</p>
+  </div>
+  <div class="cand" data-nbdev-option="entry-only" data-nbdev-label="B 只加书页的设置入口">
+    <h3>B 只加书页入口</h3>
+  </div>
+</section>
+
+<section data-nbdev-question="tiering" data-nbdev-type="single" data-nbdev-recommend="experiment-first">
+  <h2><span class="badge" data-nbdev-skip>待定</span>6. 图结构分级（你先说“先记录”，这里只要你定下一步）</h2>
+  <p>想法：抽取时让模型给每条记录标一个重要程度，细节不挤占默认视图与问答。我的理解与做法草案：</p>
+  <ul>
+    <li><b>标在哪</b>：先从“说法”（statements，数量最大、最杂）开始，再看要不要给对象、情节标；</li>
+    <li><b>几级</b>：三级——主线（影响情节或人物关系）、一般、细枝末节（装饰性描写、一次性路人）；</li>
+    <li><b>怎么用</b>：人物卡、问答的图查询默认只给前两级，可以展开看全部；查看器里有开关；</li>
+    <li><b>风险</b>：模型标得稳不稳要实测；标错会让问答漏记；已入库的书要能补标或兼容“没标级”。</li>
+  </ul>
+  <div class="cand" data-nbdev-option="experiment-first" data-nbdev-label="A 先做一次小实验：在样例书前 20 章的抽取提示词里加分级，看标得稳不稳、对问答的影响，再决定是否进管线">
+    <h3>A 先做实验再决定（推荐）</h3>
+    <p class="muted">要调用真实模型：20 章三次约 ¥5，我会在你批准后才跑。</p>
+  </div>
+  <div class="cand" data-nbdev-option="build-in" data-nbdev-label="B 直接进抽取管线与查询，上线后再调">
+    <h3>B 直接做进去</h3>
+    <p class="muted">快，但标得不稳时要返工整条链路。</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="badge done">已定</span>7. 命令行与网页的对应</h2>
+  <p>你要“大部分命令行功能都能在网页上用”。我核实了的缺口：<b>导入 V9 记忆图文件</b>（<code>nbstory import</code>）、<b>安装 Skill</b>（<code>nbstory skill install</code>）。其余命令的查询页面网页里都有对应的页，但我还没有逐条核对每个命令是否都对得上，排期时逐条核对。这一条不需要你现在判断；上面第 5 条之后我先做这两个缺口。</p>
+</section>
+</body>
+</html>

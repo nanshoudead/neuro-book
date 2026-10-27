@@ -1,0 +1,171 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t21-usage-feedback",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "t21 使用反馈：需要你判断的设计",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "d5c19eb80136e6efeff04fdd0bec874d513d8f70701326bdb07777d347171da3",
+    "files": [
+        "index.html",
+        "r1/overview.webp",
+        "r1/qa.webp",
+        "r1/relations.webp"
+    ],
+    "questions": [
+        {
+            "id": "graph-hint",
+            "type": "single",
+            "label": "1. 怎么让用户知道“双击节点打开详情”",
+            "options": [
+                {
+                    "value": "chip",
+                    "label": "A 选中后底部浮条（并把右键菜单的快捷键改成“双击 / Enter”）"
+                },
+                {
+                    "value": "hover",
+                    "label": "B 悬停在点上时提示“双击打开”"
+                },
+                {
+                    "value": "menu",
+                    "label": "C 只改右键菜单的快捷键"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "chip"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "graph-mode-notice",
+            "type": "single",
+            "label": "2. 点“图当目录”时的提示（优点与弊端）",
+            "options": [
+                {
+                    "value": "dialog-once",
+                    "label": "A 每个浏览器第一次切换时弹说明窗口，带“不再提醒”"
+                },
+                {
+                    "value": "popover-each",
+                    "label": "B 每次点它都出一个不阻塞的小气泡"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "dialog-once"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "qa-status",
+            "type": "single",
+            "label": "3. 问答页的会话状态：用量、缓存、上下文",
+            "options": [
+                {
+                    "value": "bar-and-drawer",
+                    "label": "A 输入框上方一条状态条，点它开右侧抽屉（上下文检查器）"
+                },
+                {
+                    "value": "bar-only",
+                    "label": "B 只做状态条，检查器以后再说"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "bar-and-drawer"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "qa-position",
+            "type": "single",
+            "label": "4. 新对话的阅读位置：自己调章节、system-reminder、没抽完的书",
+            "options": [
+                {
+                    "value": "header-control",
+                    "label": "A 顶部那行变成可点的控件，调整后在对话里留一行系统提示"
+                },
+                {
+                    "value": "input-button",
+                    "label": "B 输入框旁一个小按钮"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "header-control"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "shell-entries",
+            "type": "single",
+            "label": "5. 书架页、设置页没有主题调节；书页没有设置入口",
+            "options": [
+                {
+                    "value": "theme-and-entry",
+                    "label": "A 书架页、设置页顶栏加明暗切换；书页左侧导航底部加“设置”"
+                },
+                {
+                    "value": "entry-only",
+                    "label": "B 只加书页的设置入口"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "theme-and-entry"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "tiering",
+            "type": "single",
+            "label": "6. 图结构分级（你先说“先记录”，这里只要你定下一步）",
+            "options": [
+                {
+                    "value": "experiment-first",
+                    "label": "A 先做一次小实验：在样例书前 20 章的抽取提示词里加分级，看标得稳不稳、对问答的影响，再决定是否进管线"
+                },
+                {
+                    "value": "build-in",
+                    "label": "B 直接进抽取管线与查询，上线后再调"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "experiment-first"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-27T06:03:35.603Z"
+}
