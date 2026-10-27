@@ -50,7 +50,7 @@ function program(): Command {
     nbook
         .command("start", {isDefault: true})
         .description("启动 NeuroBook（前台运行，Ctrl-C 停止）；状态根上已有实例时打开它")
-        .option("--port <端口>", "HTTP 端口（缺省 4217，被占用时顺延）", portOption)
+        .option("--port <端口>", "HTTP 端口（不给时 4217，被占用就成对顺延；给了的端口被占用时启动失败）", portOption)
         .option("--rpc-port <端口>", "内核 RPC 端口（缺省跟着 --port 加 1，都不给时是 4218）", portOption)
         .option("--no-open", "不打开浏览器")
         .option("--safe-mode", "安全模式：不加载第三方插件")

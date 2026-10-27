@@ -20,36 +20,42 @@ import type {Server, Socket} from "node:net";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 
+import {Type} from "typebox";
+import type {Static} from "typebox";
+import {Value} from "typebox/value";
+
 import {holdLock} from "nbook/backend/locked-replace";
-import type {NotLoaded} from "nbook/plugin-platform/shared/types";
+import {NotLoadedSchema} from "nbook/plugin-platform/shared/types";
 
+const InstanceKindSchema = Type.Union([Type.Literal("product"), Type.Literal("development"), Type.Literal("fixture")]);
 /** 谁在运行：产品（`main.ts` 与 `nbook start`）、开发会话的后端、测试的子进程入口。 */
-export type InstanceKind = "product" | "development" | "fixture";
+export type InstanceKind = Static<typeof InstanceKindSchema>;
 
-export type InstanceStatus = "starting" | "ready" | "stopping";
-
-/** 运行中实例的一个第三方插件（本次启动的集合，`nbook plugin list` 拿它算待生效的变化）。 */
-export interface InstancePlugin {
-    readonly id: string;
-    readonly version: string;
-    readonly state: "enabled" | "disabled" | "uninstalling";
+const InstancePluginSchema = Type.Object({
+    id: Type.String(),
+    version: Type.String(),
+    state: Type.Union([Type.Literal("enabled"), Type.Literal("disabled"), Type.Literal("uninstalling")]),
     /** 本次启动没有登记的原因；登记了为 null。 */
-    readonly notLoaded: NotLoaded | null;
-}
+    notLoaded: Type.Union([NotLoadedSchema, Type.Null()]),
+});
+/** 运行中实例的一个第三方插件（本次启动的集合，`nbook plugin list` 拿它算待生效的变化）。 */
+export type InstancePlugin = Static<typeof InstancePluginSchema>;
 
-/** `hello` 的应答。 */
-export interface InstanceInfo {
-    readonly schema: 1;
-    readonly pid: number;
-    readonly version: string;
-    readonly kind: InstanceKind;
-    readonly status: InstanceStatus;
+/** `hello` 的应答。读者按它完整校验：对端可能是旧版本、损坏的进程或同一用户的别的程序。 */
+const InstanceInfoSchema = Type.Object({
+    schema: Type.Literal(1),
+    pid: Type.Integer(),
+    version: Type.String(),
+    kind: InstanceKindSchema,
+    status: Type.Union([Type.Literal("starting"), Type.Literal("ready"), Type.Literal("stopping")]),
     /** 可在浏览器打开的页面地址；还没监听，或开发会话的后端（页面在 Vite 那边）为 null。 */
-    readonly url: string | null;
-    readonly rpcUrl: string | null;
+    url: Type.Union([Type.String(), Type.Null()]),
+    rpcUrl: Type.Union([Type.String(), Type.Null()]),
     /** 本次启动的第三方插件；还没就绪为 null。 */
-    readonly plugins: {readonly safeMode: boolean; readonly items: ReadonlyArray<InstancePlugin>} | null;
-}
+    plugins: Type.Union([Type.Object({safeMode: Type.Boolean(), items: Type.Array(InstancePluginSchema)}), Type.Null()]),
+});
+export type InstanceInfo = Static<typeof InstanceInfoSchema>;
+export type InstanceStatus = InstanceInfo["status"];
 
 /** 已认领的状态根。认领者对它负责到进程结束：就绪时 `publish`，开始停止时 `stopping`，停止结算后 `release`。 */
 export interface StateRootClaim {
@@ -83,6 +89,8 @@ export interface ClaimOptions {
 
 /** 连上之后等应答的上限：超过就认为实例被暂停或卡死。 */
 export const HELLO_TIMEOUT_MS = 3_000;
+/** 一次请求或应答的字节上限：应答带插件列表，几百个插件也远在这之内。超过就断开，不让对端把缓冲撑大。 */
+const MESSAGE_LIMIT = 1 << 20;
 /** Unix 套接字路径的上限是 104（macOS）到 108（Linux）字节，含结尾的 0；留些余量。 */
 const SOCKET_PATH_LIMIT = 100;
 
@@ -148,7 +156,13 @@ async function listen(address: string, options: ClaimOptions): Promise<ClaimResu
         }
     }
     let info: InstanceInfo = {schema: 1, pid: process.pid, version: options.version, kind: options.kind, status: "starting", url: null, rpcUrl: null, plugins: null};
-    const server = createServer((socket) => answer(socket, () => info, options.report));
+    // 连着的客户端：放下认领时一并断开，`server.close` 才不会等一个不发请求的连接。
+    const connections = new Set<Socket>();
+    const server = createServer((socket) => {
+        connections.add(socket);
+        socket.on("close", () => connections.delete(socket));
+        answer(socket, () => info, options.report);
+    });
     try {
         await new Promise<void>((resolve, reject) => {
             server.once("error", reject);
@@ -178,7 +192,11 @@ async function listen(address: string, options: ClaimOptions): Promise<ClaimResu
             info = {...info, status: "stopping"};
         },
         release: () => {
-            released ??= closeAndUnlink(server, address, identity, options.report);
+            if (released === null) {
+                const closed = closeAndUnlink(server, address, identity, options.report);
+                for (const socket of connections) socket.destroy();
+                released = closed;
+            }
             return released;
         },
     };
@@ -196,9 +214,13 @@ async function closeAndUnlink(server: Server, address: string, identity: {readon
     });
 }
 
-/** 读第一行请求、回一行应答后关闭。对方已断开时写入会出错（被暂停后恢复的实例常见），只记诊断，不能拖垮进程。 */
+/**
+ * 读第一行请求、回一行应答后关闭。对方已断开时写入会出错（被暂停后恢复的实例常见），只记诊断，不能拖垮进程。连上了却迟迟
+ * 不发完一行的连接按超时断开。
+ */
 function answer(socket: Socket, current: () => InstanceInfo, report: ClaimOptions["report"]): void {
     socket.on("error", (error) => report("instance.socket.client-error", error));
+    socket.setTimeout(HELLO_TIMEOUT_MS, () => socket.destroy());
     let buffer = "";
     let answered = false;
     socket.setEncoding("utf8");
@@ -207,7 +229,7 @@ function answer(socket: Socket, current: () => InstanceInfo, report: ClaimOption
         buffer += chunk;
         const newline = buffer.indexOf("\n");
         if (newline < 0) {
-            if (buffer.length > 4096) socket.destroy();
+            if (buffer.length > MESSAGE_LIMIT) socket.destroy();
             return;
         }
         answered = true;
@@ -243,7 +265,10 @@ function hello(address: string, timeoutMs: number): Promise<InstanceQuery> {
         socket.on("data", (chunk: string) => {
             buffer += chunk;
             const newline = buffer.indexOf("\n");
-            if (newline < 0) return;
+            if (newline < 0) {
+                if (buffer.length > MESSAGE_LIMIT) settle({state: "unresponsive", detail: `${address} 上的应答超过 ${String(MESSAGE_LIMIT)} 字节`});
+                return;
+            }
             const instance = parseInfo(buffer.slice(0, newline));
             settle(instance === null ? {state: "unresponsive", detail: `${address} 上的应答无法识别`} : {state: "running", instance});
         });
@@ -258,12 +283,13 @@ function hello(address: string, timeoutMs: number): Promise<InstanceQuery> {
 }
 
 function parseInfo(line: string): InstanceInfo | null {
+    let parsed: unknown;
     try {
-        const parsed = JSON.parse(line) as Partial<InstanceInfo>;
-        return parsed.schema === 1 && typeof parsed.pid === "number" && typeof parsed.version === "string" ? (parsed as InstanceInfo) : null;
+        parsed = JSON.parse(line);
     } catch {
         return null;
     }
+    return Value.Check(InstanceInfoSchema, parsed) ? parsed : null;
 }
 
 function errno(error: unknown): string | undefined {

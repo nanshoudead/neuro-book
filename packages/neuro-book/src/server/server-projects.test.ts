@@ -236,7 +236,8 @@ function spawnServer(stateRoot: string, env: Readonly<Record<string, string>>): 
 }
 
 describe("Spec server-host 场景 14、15：停止时的项目子进程", () => {
-    it("SIGTERM：项目子进程先于服务端插件收口并退出，服务端以 0 退出", async () => {
+    // SIGHUP 是关掉终端：整个进程组都收到，项目子进程也收到一份，它要忽略、等服务端按停止序列收它。
+    for (const signal of ["SIGTERM", "SIGHUP"] as const) it(`${signal}：项目子进程先于服务端插件收口并退出，服务端以 0 退出`, async () => {
         const {stateRoot} = await prepared();
         const server = spawnServer(stateRoot, {});
         const socket = openRawRpcSocket(await server.rpcUrl);
@@ -244,7 +245,12 @@ describe("Spec server-host 场景 14、15：停止时的项目子进程", () => 
         socket.send(helloFrame(windowInstance("browser-1"), {bind: {project: "book"}}));
         expect(await socket.next((frame) => frame.type === "welcome" || frame.type === "reject")).toMatchObject({type: "welcome", binding: {name: "book"}});
 
-        server.kill("SIGTERM");
+        if (signal === "SIGHUP") {
+            const ready = server.stdout().split("\n").find((line) => line.startsWith("[project book#1]") && /pid=\d+/.test(line));
+            expect(ready).toBeDefined();
+            process.kill(readyPid(ready!), "SIGHUP");
+        }
+        server.kill(signal);
         expect(await server.exit).toBe(0);
         const stdout = server.stdout();
         const projectClosed = stdout.indexOf(`[project book#1] ${PROJECT_PROBE_CLOSED_LINE}`);

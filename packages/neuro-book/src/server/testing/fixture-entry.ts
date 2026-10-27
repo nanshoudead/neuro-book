@@ -13,6 +13,7 @@ import {join} from "node:path";
 
 import {descriptorsOf} from "nbook/plugin-platform/backend/installed";
 import {prepareInstalledPlugins, safeModeOf} from "nbook/plugin-platform/backend/startup";
+import type {PluginsPreparation} from "nbook/plugin-platform/backend/startup";
 import {definitionAt, pluginsAt, productPlugins, thirdPartyDefinition} from "nbook/manifest";
 import {readServerConfig} from "nbook/server/config";
 import {claimStateRoot} from "nbook/server/instance";
@@ -44,13 +45,6 @@ if (notExcludable.length > 0) throw new Error(`只能去掉只有浏览器入口
 const manifest = productPlugins.filter((plugin) => !excluded.includes(plugin.id));
 
 const config = readServerConfig(process.argv.slice(2), process.env, process.cwd());
-// 与产品入口一样先认领状态根：e2e 与宿主合同测试起的服务端同样受“一个状态根一个实例”约束。
-const claimed = await claimStateRoot({stateRoot: config.stateRoot, kind: "fixture", version: PRODUCT_VERSION, report: claimReport});
-if (!claimed.ok) {
-    reportClaimFailure(claimed, config.stateRoot);
-    process.exit(1);
-}
-
 function sampleTask(): StartServerOptions["devTask"] {
     if (!devSampleEnabled(process.env)) return undefined;
     const packageRoot = process.env.NBOOK_TEST_SAMPLE_ROOT;
@@ -66,15 +60,31 @@ function sampleTask(): StartServerOptions["devTask"] {
     });
 }
 
+// 参数错误（样例缺目录）在认领之前就报出来。
+const devTask = sampleTask();
+// 与产品入口一样先认领状态根：e2e 与宿主合同测试起的服务端同样受“一个状态根一个实例”约束。
+const claimed = await claimStateRoot({stateRoot: config.stateRoot, kind: "fixture", version: PRODUCT_VERSION, report: claimReport});
+if (!claimed.ok) {
+    reportClaimFailure(claimed, config.stateRoot);
+    process.exit(1);
+}
+// 与产品入口相同：安装过的第三方插件照常登记（插件管理的 e2e 用它）。认领交给 startServer 之前出错由这里放下。
+let prepared: PluginsPreparation;
+try {
+    prepared = await prepareInstalledPlugins({root: join(config.stateRoot, "plugins"), profile: NEUROBOOK_PROFILE, safeMode: safeModeOf(process.env, NEUROBOOK_PROFILE)});
+} catch (error) {
+    await claimed.claim.release();
+    throw error;
+}
+
 const server = startServer({
     config,
     claim: claimed.claim,
     manifest: [...manifest, ...BROWSER_TEST_PLUGINS.filter((descriptor) => requested.includes(descriptor.id))],
     stopInput: config.stopStdin ? process.stdin : null,
-    devTask: sampleTask(),
+    devTask,
     projectEntry: join(import.meta.dir, "..", "..", "project", "testing", "fixture-entry.ts"),
-    // 与产品入口相同：安装过的第三方插件照常登记（插件管理的 e2e 用它）。
-    prepared: await prepareInstalledPlugins({root: join(config.stateRoot, "plugins"), profile: NEUROBOOK_PROFILE, safeMode: safeModeOf(process.env, NEUROBOOK_PROFILE)}),
+    prepared,
     // 产品插件按产品清单取定义（测试插件不在产品的表里），宿主适配器拿到的上下文仍是含测试插件的清单。
     plugins: (context) => [
         ...pluginsAt("server", manifest).map((plugin) => definitionAt("server", plugin, plugin.locations.includes("server") ? serverPlugin(plugin.id, context) : undefined)),

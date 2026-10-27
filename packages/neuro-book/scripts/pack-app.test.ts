@@ -21,6 +21,8 @@ beforeAll(async () => {
     web = join(tmp, "web");
     await mkdir(join(web, ".vite"), {recursive: true});
     await writeFile(join(web, "index.html"), "<!doctype html><title>t</title>");
+    await mkdir(join(web, "assets"), {recursive: true});
+    await writeFile(join(web, "assets", "codicon-abc123.ttf"), "font");
     await writeFile(join(web, ".vite", "license.json"), JSON.stringify([{name: "example-lib", version: "1.2.3", identifier: "MIT", text: "MIT License (example-lib)"}]));
 });
 
@@ -40,7 +42,7 @@ describe("应用包", () => {
         const {directory, tarball} = await packApp({webRoot: web, outDir: out});
         expect(directory).toBe(out);
         expect(tarball).toBe(join(tmp, "out", `notnotype-neuro-book-${PRODUCT_VERSION}.tgz`));
-        expect(tarEntries(tarball)).toEqual(["LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "package.json", "server/nbook.js", "server/project.js", "web/index.html"].map((name) => `package/${name}`).sort());
+        expect(tarEntries(tarball)).toEqual(["LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "package.json", "server/nbook.js", "server/project.js", "web/assets/codicon-abc123.ttf", "web/index.html"].map((name) => `package/${name}`).sort());
 
         const manifest = JSON.parse(await readFile(join(out, "package.json"), "utf8")) as Record<string, unknown>;
         expect(manifest).toMatchObject({name: APP_NAME, version: PRODUCT_VERSION, bin: {nbook: "./server/nbook.js"}, engines: {bun: BUN_ENGINE}, license: "AGPL-3.0-only", publishConfig: {access: "public"}});
@@ -52,7 +54,8 @@ describe("应用包", () => {
         const notices = await readFile(join(out, "THIRD-PARTY-NOTICES.md"), "utf8");
         expect(notices).toContain("### commander@");
         expect(notices).toContain("### example-lib@1.2.3（MIT）");
-        expect(notices).toContain("Fraunces");
+        expect(notices).toContain("### web/assets/codicon-abc123.ttf");
+        expect(notices).toContain("CC BY 4.0");
         const readme = await readFile(join(out, "README.md"), "utf8");
         expect(readme).not.toContain("{{");
         expect(readme).toContain(BUN_ENGINE);
@@ -61,12 +64,23 @@ describe("应用包", () => {
         expect((await packApp({webRoot: web, outDir: out})).tarball).toBe(tarball);
     }, 60_000);
 
-    it("输出目录不是空的、也不是上次生成的应用包：拒绝，不删里面的东西", async () => {
+    it("输出目录不是空的、也不是上次生成的应用包（没有标记，哪怕 package.json 同名）：拒绝，不删里面的东西", async () => {
         const out = join(tmp, "foreign");
         await mkdir(out, {recursive: true});
-        await writeFile(join(out, "package.json"), JSON.stringify({name: "something-else"}));
+        await writeFile(join(out, "package.json"), JSON.stringify({name: APP_NAME}));
+        await writeFile(join(out, "important.txt"), "keep");
         await expect(packApp({webRoot: web, outDir: out})).rejects.toThrow("不清理");
-        expect(JSON.parse(await readFile(join(out, "package.json"), "utf8"))).toEqual({name: "something-else"});
+        expect(await readFile(join(out, "important.txt"), "utf8")).toBe("keep");
+    });
+
+    it("Web 产物里有没登记许可的字体：失败，说明去登记", async () => {
+        const fonts = join(tmp, "fonts-web");
+        await mkdir(join(fonts, ".vite"), {recursive: true});
+        await mkdir(join(fonts, "assets"), {recursive: true});
+        await writeFile(join(fonts, "index.html"), "<!doctype html>");
+        await writeFile(join(fonts, ".vite", "license.json"), "[]");
+        await writeFile(join(fonts, "assets", "mystery-font.woff2"), "font");
+        await expect(packApp({webRoot: fonts, outDir: join(tmp, "fonts-out")})).rejects.toThrow("FONT_NOTICES");
     });
 
     it("Web 产物没有许可清单：失败，说明要用 vite build 构建", async () => {
@@ -82,5 +96,8 @@ describe("bundle 的核对", () => {
         expect(bundleProblems("#!/usr/bin/env bun\nimport {readFile} from \"node:fs/promises\";\nimport fs from \"fs\";\nimport {Database} from \"bun:sqlite\";\n")).toEqual([]);
         expect(bundleProblems("import pad from \"left-pad\";\nimport(\"@scope/thing\");\n")).toEqual(["引用了外部模块 left-pad：依赖要打进 bundle", "引用了外部模块 @scope/thing：依赖要打进 bundle"]);
         expect(bundleProblems("const worker = new Worker(new URL(\"./w.js\", import.meta.url));")).toEqual(["出现了 new Worker(：运行时按路径找文件，装到别处会找不到"]);
+        // 计算出来的动态导入只许插件平台装载插件入口的那一处。
+        expect(bundleProblems("const name = pick(); await import(name);")).toEqual(["有 1 处计算出来的动态导入：打包看不见它要的模块"]);
+        expect(bundleProblems("module = await (attempt === 0 ? import(file) : import(`${file}?attempt=${String(attempt)}`));")).toEqual([]);
     });
 });

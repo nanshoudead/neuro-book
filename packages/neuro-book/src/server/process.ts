@@ -29,6 +29,10 @@ function fatal(event: string, fields: Record<string, unknown>): void {
     writeSync(2, `${JSON.stringify({level: "fatal", event, ...fields})}\n`);
 }
 
+function writeStderr(text: string): void {
+    process.stderr.write(text);
+}
+
 function readConfigOrExit(): ServerConfig {
     try {
         return readServerConfig(process.argv.slice(2), process.env, process.cwd());
@@ -67,6 +71,8 @@ function startOrExit(config: ServerConfig, claim: StateRootClaim, manifest: Read
             prepared,
             projectEntry: options.projectEntry,
             devTask: options.devTask,
+            // 安静模式下标准输出只留给调用方的结果：项目子进程转发来的输出也写标准错误。
+            projectOutput: options.quiet === true ? {stdout: writeStderr, stderr: writeStderr} : undefined,
             stopInput: config.stopStdin ? process.stdin : null,
             onListening: (url) => {
                 if (options.quiet !== true) console.log(`Listening on ${url}`);
@@ -94,7 +100,10 @@ export interface ServerProcessOptions {
     readonly projectEntry?: string;
     /** 只有开发入口给出（样例作品）。 */
     readonly devTask?: StartServerOptions["devTask"];
-    /** 不打印 `Listening on` 与 `RPC listening on` 两行：`nbook start` 自己报告地址，`--json` 时标准输出只留一个对象。 */
+    /**
+     * 标准输出只留给调用方：不打印 `Listening on` 与 `RPC listening on` 两行，项目子进程的输出改写到标准错误。`nbook start`
+     * 自己报告地址，`--json` 时标准输出只留一个对象。
+     */
     readonly quiet?: boolean;
     /** 运行实例可用之后（health 返回 200 起）；启动失败时不调用。 */
     readonly onReady?: (server: {readonly url: string | null; readonly rpcUrl: string}) => void;
@@ -130,8 +139,14 @@ export async function runServerProcess(manifest: ReadonlyArray<PluginDescriptor>
         }
         claim = claimed.claim;
     }
-    // 第三方插件集合在装配之前确定：要处理上次留下的待生效变化，并取跨进程的写入锁。
-    const prepared = await prepareInstalledPlugins({root: join(config.stateRoot, "plugins"), profile: NEUROBOOK_PROFILE, safeMode: safeModeOf(process.env, NEUROBOOK_PROFILE)});
+    // 第三方插件集合在装配之前确定：要处理上次留下的待生效变化，并取跨进程的写入锁。认领交给 startServer 之前出错由这里放下。
+    let prepared: PluginsPreparation;
+    try {
+        prepared = await prepareInstalledPlugins({root: join(config.stateRoot, "plugins"), profile: NEUROBOOK_PROFILE, safeMode: safeModeOf(process.env, NEUROBOOK_PROFILE)});
+    } catch (error) {
+        await claim.release();
+        throw error;
+    }
     const server = startOrExit(config, claim, manifest, prepared, options);
     if (server === null) {
         await claim.release();

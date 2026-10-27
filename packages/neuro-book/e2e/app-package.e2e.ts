@@ -22,6 +22,8 @@ const SETTING = "example.hello/greeting";
 
 let tmp = "";
 let nbook = "";
+/** 起过的 nbook：用例失败时 afterAll 结束还活着的。 */
+const started = new Set<Started>();
 let stateRoot = "";
 let projectDir = "";
 
@@ -45,6 +47,10 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
+    for (const server of started) {
+        if (server.child.exitCode === null && server.child.signalCode === null) server.child.kill("SIGKILL");
+        await server.exit;
+    }
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
@@ -56,6 +62,8 @@ interface Started extends ProcessHandle {
 async function start(): Promise<Started> {
     const child = spawn(nbook, ["start", "--state-root", stateRoot, "--port", "0", "--no-open", "--json"], {cwd: join(tmp, "elsewhere"), env: {...process.env, HOME: tmp}});
     const handle = track(child);
+    const pending: Started = {...handle, url: ""};
+    started.add(pending);
     const line = (await handle.waitFor(/^\{.*"ok":true.*\}$/mu))[0];
     const result = JSON.parse(line) as {url: string; started: boolean};
     expect(result.started).toBe(true);

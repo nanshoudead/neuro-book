@@ -3,19 +3,32 @@
  * 后来者看到什么；暂停、崩溃后的行为用真实信号。
  */
 
-import {afterAll, beforeAll, describe, expect, it} from "bun:test";
+import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
+import type {Subprocess} from "bun";
 import {chmod, mkdir, rm, stat} from "node:fs/promises";
+import {connect, createServer} from "node:net";
+import type {Socket} from "node:net";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {claimStateRoot, instanceAddress, queryInstance} from "./instance";
+import {claimStateRoot, HELLO_TIMEOUT_MS, instanceAddress, queryInstance} from "./instance";
 import type {ClaimResult} from "./instance";
 
 const CHILD = join(import.meta.dir, "testing", "claim-child.ts");
 
 let tmpRoot = "";
 let sequence = 0;
+/** 本用例起的认领子进程：断言失败时也要结束（被 SIGSTOP 的先 SIGCONT 不必，SIGKILL 对暂停的进程同样有效）。 */
+const spawned = new Set<Subprocess>();
+
+afterEach(async () => {
+    for (const child of spawned) {
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+        await child.exited;
+    }
+    spawned.clear();
+});
 
 beforeAll(async () => {
     tmpRoot = await createTestTmpRoot("neuro-book-server", "instance");
@@ -41,6 +54,7 @@ interface Claimer {
 
 function claimer(stateRoot: string): Claimer {
     const child = Bun.spawn(["bun", CHILD, stateRoot], {stdin: "pipe", stdout: "pipe", stderr: "inherit"});
+    spawned.add(child);
     const result = (async () => {
         let out = "";
         for await (const chunk of child.stdout.pipeThrough(new TextDecoderStream())) {
@@ -168,6 +182,39 @@ describe("状态根的实例认领（同进程）", () => {
         const claimed = await claimStateRoot({stateRoot: root, kind: "fixture", version: "9.9.9", report: () => undefined});
         expect(claimed.ok).toBe(true);
         if (claimed.ok) await claimed.claim.release();
+    });
+
+    it("应答不合协议（缺字段、旧版本或别的程序）：当作没有应答，不交给调用方", async () => {
+        const root = nextRoot();
+        await mkdir(root, {recursive: true});
+        const sockets: Socket[] = [];
+        const impostor = createServer((socket) => {
+            sockets.push(socket);
+            socket.end(`${JSON.stringify({schema: 1, pid: 1, version: "0.0.1"})}\n`);
+        });
+        await new Promise<void>((resolve) => impostor.listen(join(root, "server.sock"), resolve));
+        try {
+            expect(await queryInstance(root)).toMatchObject({state: "unresponsive"});
+        } finally {
+            // 关监听要等连接都断开：Bun 里 end 过的服务端连接不会自己关掉。
+            for (const socket of sockets) socket.destroy();
+            await new Promise<void>((resolve) => impostor.close(() => resolve()));
+        }
+    });
+
+    it("连着一个不发请求的客户端：放下认领不被它挡住，客户端被断开", async () => {
+        const root = nextRoot();
+        const claimed = await claimStateRoot({stateRoot: root, kind: "fixture", version: "9.9.9", report: () => undefined});
+        if (!claimed.ok) throw new Error(claimed.reason);
+        const idle = connect(await instanceAddress(root));
+        await new Promise<void>((resolve) => idle.once("connect", () => resolve()));
+        const closed = new Promise<void>((resolve) => idle.once("close", () => resolve()));
+        // 放下是主动断开连接，不等连接自己的空闲超时（HELLO_TIMEOUT_MS）。
+        const began = performance.now();
+        await claimed.claim.release();
+        await closed;
+        expect(performance.now() - began).toBeLessThan(HELLO_TIMEOUT_MS / 2);
+        expect(await queryInstance(root)).toEqual({state: "none"});
     });
 
     it("状态根不可写：报 unwritable", async () => {

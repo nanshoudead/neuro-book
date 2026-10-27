@@ -34,6 +34,19 @@ const repoRoot = resolve(packageRoot, "../..");
 const REPOSITORY = {type: "git", url: "git+https://github.com/notnotype/neuro-book.git", directory: "packages/neuro-book"};
 /** 运行时按路径找文件的写法：打包看不见它们要的文件，装到别处就找不到。 */
 const FORBIDDEN_TEXT = ["new Worker(", "import.meta.resolve("];
+/**
+ * 允许的计算出来的动态导入：插件平台装载第三方插件入口（`src/plugin-platform/backend/loader.ts`），路径来自状态根里的安装
+ * 目录，不是打包要管的依赖。别的计算出来的 `import(…)` 都拒绝：打包看不见它要的模块。
+ */
+const ALLOWED_DYNAMIC_IMPORT = "attempt === 0 ? import(file) : import(`${file}?attempt=${String(attempt)}`)";
+/** 生成的目录里的标记：只有带它的目录才是上次生成的应用包，可以清空重建。它不在 `files` 里，不进 tarball。 */
+const MARKER = ".nbook-app-package";
+/** Web 产物里的字体与它们的许可声明（字体不是 JS 模块，Vite 的许可清单不收）。没有登记的字体让打包失败。 */
+const FONT_NOTICES: ReadonlyArray<{readonly pattern: RegExp; readonly notice: string}> = [
+    {pattern: /^fraunces-latin-[\w-]+\.woff2$/u, notice: "../nb-ui/themes/nbook/assets/fonts/OFL-Fraunces.txt"},
+    {pattern: /^codicon-[\w-]+\.ttf$/u, notice: "scripts/app-package/codicon-NOTICE.txt"},
+];
+const FONT_FILE = /\.(ttf|otf|woff2?)$/u;
 
 export interface PackOptions {
     /** 前端构建产物（`dist/web`），要带 `.vite/license.json`。 */
@@ -46,16 +59,11 @@ export interface PackedApp {
     readonly tarball: string;
 }
 
-/** 清空上次生成的应用包；同 SDK 的 `clearPreviousSdk`，传错的目录不会被递归删除。 */
+/** 清空上次生成的应用包。输出目录来自命令行，传错了不能被递归删除：只认不存在、为空，或者带标记文件的目录。 */
 export async function clearPreviousApp(outDir: string): Promise<void> {
     if (!existsSync(outDir) || (await readdir(outDir)).length === 0) return;
-    let name: unknown = null;
-    try {
-        name = (JSON.parse(await readFile(join(outDir, "package.json"), "utf8")) as {name?: unknown} | null)?.name;
-    } catch (error) {
-        throw new Error(`输出目录 ${outDir} 不是空的，它的 package.json 也读不了，不清理`, {cause: error});
-    }
-    if (name !== APP_NAME) throw new Error(`输出目录 ${outDir} 不是空的，也不是上次生成的 ${APP_NAME}，不清理`);
+    const marker = await readFile(join(outDir, MARKER), "utf8").catch(() => null);
+    if (marker?.trim() !== APP_NAME) throw new Error(`输出目录 ${outDir} 不是空的，也不是上次生成的 ${APP_NAME}（没有 ${MARKER}），不清理`);
     await rm(outDir, {recursive: true});
 }
 
@@ -64,8 +72,11 @@ export function bundleProblems(source: string): string[] {
     // scanImports 不认文件开头的 shebang，只清掉那一行，行号不变（同 scripts/release/packages.ts）。
     const imports = new Bun.Transpiler({loader: "js"}).scanImports(source.replace(/^#!.*/u, ""));
     const external = imports.map((entry) => entry.path).filter((path) => !path.startsWith("bun:") && path !== "bun" && !isBuiltin(path));
+    // scanImports 只报字面的导入；计算出来的 `import(x)` 按文本找：去掉允许的那一处之后，`import(` 后面不是引号的都算。
+    const computed = source.replaceAll(ALLOWED_DYNAMIC_IMPORT, "").match(/\bimport\(\s*(?!["'])/gu)?.length ?? 0;
     return [
         ...[...new Set(external)].map((path) => `引用了外部模块 ${path}：依赖要打进 bundle`),
+        ...(computed === 0 ? [] : [`有 ${String(computed)} 处计算出来的动态导入：打包看不见它要的模块`]),
         ...FORBIDDEN_TEXT.filter((text) => source.includes(text)).map((text) => `出现了 ${text}：运行时按路径找文件，装到别处会找不到`),
     ];
 }
@@ -123,7 +134,7 @@ async function thirdPartyNotices(serverPackages: ReadonlySet<string>, webRoot: s
         const notices = (await readdir(directory)).filter((name) => /^(notice|thirdpartynotices)(\..*)?$/iu.test(name)).sort();
         return {...entry, texts: [...entry.texts, ...(await Promise.all(notices.map(async (name) => (await readFile(join(directory, name), "utf8")).trim())))]};
     }));
-    const ofl = (await readFile(join(packageRoot, "../nb-ui/themes/nbook/assets/fonts/OFL-Fraunces.txt"), "utf8")).trim();
+    const fonts = await fontNotices(webRoot);
     const section = (title: string, notices: ReadonlyArray<Notice>): string => [
         `## ${title}`,
         ...notices.map((notice) => [`### ${notice.name}@${notice.version}（${notice.license}）`, ...notice.texts.map((text) => `\`\`\`\n${text}\n\`\`\``)].join("\n\n")),
@@ -133,8 +144,19 @@ async function thirdPartyNotices(serverPackages: ReadonlySet<string>, webRoot: s
         "这个包里的 `server/` 与 `web/` 是打包产物，打包时去掉了各依赖文件头的版权声明。下面是打进去的每个第三方包的许可与声明。",
         section("服务端（server/nbook.js、server/project.js）", server),
         section("前端（web/）", withNotices),
-        ["## 字体", "### Fraunces（SIL Open Font License 1.1），web/assets 下的 fraunces-latin-*.woff2", `\`\`\`\n${ofl}\n\`\`\``].join("\n\n"),
+        ["## 字体", ...fonts.map(({file, text}) => `### web/assets/${file}\n\n\`\`\`\n${text}\n\`\`\``)].join("\n\n"),
     ].join("\n\n") + "\n";
+}
+
+/** Web 产物里每个字体文件的许可声明；有没登记的字体时失败。 */
+async function fontNotices(webRoot: string): Promise<Array<{readonly file: string; readonly text: string}>> {
+    const assets = join(webRoot, "assets");
+    const files = existsSync(assets) ? (await readdir(assets)).filter((name) => FONT_FILE.test(name)).sort() : [];
+    return Promise.all(files.map(async (file) => {
+        const known = FONT_NOTICES.find((entry) => entry.pattern.test(file));
+        if (known === undefined) throw new Error(`web/assets/${file} 是没有登记许可的字体：在 scripts/pack-app.ts 的 FONT_NOTICES 里登记它的许可声明`);
+        return {file, text: (await readFile(join(packageRoot, known.notice), "utf8")).trim()};
+    }));
 }
 
 function buildCommit(): string {
@@ -157,6 +179,7 @@ export async function packApp(options: PackOptions): Promise<PackedApp> {
     }
     await cp(options.webRoot, join(outDir, "web"), {recursive: true, filter: (source) => basename(source) !== ".vite"});
     await writeFile(join(outDir, "THIRD-PARTY-NOTICES.md"), await thirdPartyNotices(serverPackages, options.webRoot));
+    await writeFile(join(outDir, MARKER), `${APP_NAME}\n`);
     await cp(join(repoRoot, "LICENSE"), join(outDir, "LICENSE"));
     const readme = (await readFile(join(packageRoot, "scripts/app-package/README.md"), "utf8")).replaceAll("{{bun}}", BUN_ENGINE).replaceAll("{{commit}}", buildCommit());
     await writeFile(join(outDir, "README.md"), readme);

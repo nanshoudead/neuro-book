@@ -1,10 +1,12 @@
 /**
  * `nbook` 命令行（docs/specs/runtime/cli.md）：在测试里把 `src/cli/main.ts` 与项目宿主构建到临时目录（与 `build:server`
  * 同样的布局），用真实进程运行打包产物。Web 根给一个只有 `index.html` 的目录；主目录、XDG 与 SSH 环境都换成测试自己的，
- * 不碰真实的数据目录；`PATH` 前面放一个记下参数的假 `xdg-open`，观察“打开浏览器”。
+ * 不碰真实的数据目录；`PATH` 前面放一个记下参数的假 `xdg-open`，观察“打开浏览器”。`open` 拉起它之后不等它结束，记录文件按用例
+ * 分开，前一个用例迟到的写入不影响后一个；断言失败时 `afterEach` 结束还活着的子进程。
  */
 
-import {afterAll, beforeAll, describe, expect, it} from "bun:test";
+import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it} from "bun:test";
+import type {Subprocess} from "bun";
 import {chmod, mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 
@@ -22,6 +24,8 @@ let web = "";
 let fakeBin = "";
 let opened = "";
 let sequence = 0;
+/** 本用例起的 nbook 进程。 */
+const spawned = new Set<Subprocess>();
 
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-cli", "nbook");
@@ -35,10 +39,22 @@ beforeAll(async () => {
     await mkdir(web, {recursive: true});
     await writeFile(join(web, "index.html"), "<!doctype html><title>nbook test</title>");
     fakeBin = join(tmp, "bin");
-    opened = join(tmp, "opened.txt");
     await mkdir(fakeBin, {recursive: true});
-    await writeFile(join(fakeBin, "xdg-open"), `#!/bin/sh\necho "$1" >> ${JSON.stringify(opened)}\n`);
+    await writeFile(join(fakeBin, "xdg-open"), `#!/bin/sh\necho "$1" >> "$NBOOK_TEST_OPENED"\n`);
     await chmod(join(fakeBin, "xdg-open"), 0o755);
+});
+
+beforeEach(() => {
+    sequence += 1;
+    opened = join(tmp, `opened-${String(sequence)}.txt`);
+});
+
+afterEach(async () => {
+    for (const child of spawned) {
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+        await child.exited;
+    }
+    spawned.clear();
 });
 
 afterAll(async () => {
@@ -56,7 +72,7 @@ function cleanEnv(extra: Record<string, string | undefined> = {}): Record<string
     for (const name of Object.keys(env)) {
         if (name.startsWith("NBOOK_") || name.startsWith("SSH_") || name === "XDG_DATA_HOME" || name === "NEURO_BOOK_SAFE_MODE") delete env[name];
     }
-    Object.assign(env, {HOME: join(tmp, "home"), PATH: `${fakeBin}:${process.env.PATH ?? ""}`, DISPLAY: ":99", NBOOK_WEB_ROOT: web}, extra);
+    Object.assign(env, {HOME: join(tmp, "home"), PATH: `${fakeBin}:${process.env.PATH ?? ""}`, DISPLAY: ":99", NBOOK_WEB_ROOT: web, NBOOK_TEST_OPENED: opened}, extra);
     return Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined));
 }
 
@@ -71,6 +87,7 @@ interface Run {
 
 function run(args: readonly string[], env: Record<string, string | undefined> = {}): Run {
     const child = Bun.spawn(["bun", nbook, ...args], {env: cleanEnv(env), stdout: "pipe", stderr: "pipe"});
+    spawned.add(child);
     let stderr = "";
     void (async () => {
         for await (const chunk of child.stderr.pipeThrough(new TextDecoderStream())) stderr += chunk;
@@ -109,7 +126,7 @@ describe("nbook start（真实进程）", () => {
         expect(await second.exit).toBe(0);
         expect(second.stderr()).toContain("忽略 --port");
         expect(second.stderr()).toContain("没有以安全模式启动");
-        expect((await openedUrls()).filter((opened) => opened === url)).toHaveLength(2);
+        expect(await waitUntil("又打开了一次", async () => ((await openedUrls()).filter((opened) => opened === url).length === 2 ? true : undefined))).toBe(true);
 
         first.signal("SIGHUP");
         expect(await first.exit).toBe(0);
