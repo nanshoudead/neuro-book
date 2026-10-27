@@ -97,9 +97,10 @@ updated: 2026-10-27
 - S4 `fbeb2a7d2`、`fe007743d`：`nbook plugin list/install/enable/disable/uninstall`（离线、与插件页同一套插件管理；有实例时用它应答里的启动集合算待生效变化，没有时用 `previewInstalledPlugins`；install 打印信任说明与预览，降级或有受阻时要 `--yes`；诊断写 `logs/cli.jsonl`）；实例应答带没有登记的原因；作者文档与 `nbooke create` 改成先写命令行。Spec `ea6a3a345`（plugin-install）。验证：`src/cli` 18 例（真实进程，构建到临时目录）。
 - S5 `da7e7d7ee`：`scripts/pack-app.ts` 与 `build:app-package`（tarball 3.2 MB、221 个文件，没有依赖；THIRD-PARTY-NOTICES 由 Bun metafile 与 Vite 的 `build.license` 生成，95 个包加 Fraunces 的 OFL）；`e2e/app-package.e2e.ts` 从 tarball `bun add -g` 装上 `nbook`，打开作品、装插件、重启后生效。ADR 0033 `56bd02982`，monorepo-boundaries 同提交；cli Spec 的 Smoke `59f85b381`。验证：`pack-app.test.ts` 4 例，应用包 e2e 1 例，`bun run typecheck`，`check:dist`。
 - 第二期收口（Work 分支合入 master 后的 `eb9633c3f`）：Bun 1515 例、Vitest 373 例全过；全量 e2e 294 例，293 例通过；`workbench-shell` 的“换位置、最大化……滚动保留”在另一个会话的 omp 审查占着 CPU 时失败（滚动位置 60，应为 300），在无改动的 base worktree 上对照、负载降下来后本分支单跑两次与整个文件各通过，属负载下的时序问题，本 Task 没碰工作台布局。实现审查已启动（后端 omp，插件页、Lab 与命令行使用 Sonnet），处理完再合入 master。
+- 第二期实现审查（plan-phase2.md 第 10 节）：Sonnet 重要 3、建议 10，修正 `ede24f850`；omp 重要 12、建议 3（5 条与 Sonnet 重复），修正 `15f4e029d`；Spec `71f14b613`、`1084b02d8`。验证：类型检查，`src/server`、`src/project`、`src/plugin-platform` 199 例，`src/cli` 与打包、认领 36 例，e2e 的 dev、lab、plugins、projects 24 例与应用包 1 例。2026-10-27 合入 master（`ade830d0b`）。
 
 2026-10-24 P2、P5、P7、P8 已定。第一期（发布前改完作者 API）的计划见 [plan.md](plan.md)，开发者 2026-10-24 确认（含助手都改成所属子路径的函数、子路径表、`nbook.view.open`、作者命令名 `nbooke`）。计划审查两份（omp 阻断 5、重要 8、建议 1；Sonnet 重要 6、建议 15）逐条处理见 plan.md 第 9 节，开始实施 S1。
 
 ## 下一步
 
-第一期完成并合入。第二期计划 [plan-phase2.md](plan-phase2.md) 经深度审查修订、开发者确认（D1 到 D4），开始实施 S1；第三期（文档治理、GitHub Actions 整理与发布）在第二期合入后再写计划。
+第一期、第二期完成并合入。`runtime.cli` Spec 待开发者批准晋升为 `implemented`；第三期（文档治理、GitHub Actions 整理与发布）在第二期合入后再写计划。
