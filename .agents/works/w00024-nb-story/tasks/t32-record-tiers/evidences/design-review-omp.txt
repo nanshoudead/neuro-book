@@ -1,0 +1,23 @@
+## 2. [阻断] 后验的视角口径没有可实现的定义，容易把角色看不到的事实带入等级
+- 类别：不剧透、视角与共享派生状态
+- 位置：`plan.md:48-54`；现有边界为 `packages/nb-story/src/core/projection.ts:37-148`、`packages/nb-story/src/core/queries/context.ts:25-44`、`packages/nb-story/src/core/identity.ts:245-273`
+- 现象：计划要求按 `BookView` 的可见前缀重算 `refs`、`echo`、`heat`，又要求角色视角不剧透，但没有定义“角色可见”的后验信号。现有 `BookView` 只按成立位置过滤记录；角色视角由 `perspectiveStatements` 再按该角色最新知情状态过滤说法，身份分组也单独按知情状态重算。计划没有说明引用一条角色不知道的说法、秘密收录、别的角色知情、原文后文回响以及对象出场是否算证据。
+- 为什么是问题：若直接使用 `view.statements`/`view.knowledge`，角色能看到一个记录的等级依据会包含其不知道的引用和后文原文，违反 `queries.md` 的角色视角合同；若只过滤目标说法而不递归过滤信号，`tier.explain` 会暴露数字与回响词组。若按角色过滤所有原文词组，又需要定义原文“可见”与角色认知的关系，不能由当前 `BookView` 自动得到。
+- 如何核实：`BookView` 没有 perspective 参数或角色可见原文投影；`QueryContext` 的角色过滤只存在于 `perspectiveStatements`，且 `identity.ts` 只对身份连接的知情状态做角色合并。调用任一角色视角查询时，当前等级功能没有可复用的角色后验上下文。
+- 建议改法：在 Spec 先固定后验的泄露模型：例如“角色视角只对角色可用的说法/知情/秘密计数，原文回响只扫描其已可见的记录文本而不扫描角色未知原文”，并明确 `refs` 的关系类型与 `derived` 处理；随后新增显式 `TierView`/`buildTiers(view, grouping)`，缓存键至少含阅读位置和角色身份，不能把 `BookIndex` 的全信息结果直接复用给角色。对 `tier.explain` 也规定只返回该视角允许的信号。
+
+## 3. [重要] `BookIndex` 全书缓存与按位置后验的拆分不满足现有“查询是版本纯函数”以外的排序和依赖约束
+- 类别：缓存、分页、并发更新
+- 位置：`plan.md:20-22,43,53`；现有缓存为 `packages/nb-story/src/core/book-index.ts:41-72,219-240`，查询建视图为 `packages/nb-story/src/core/api.ts:147-195`
+- 现象：计划说 `buildTiers(dataset)` 在 `BookIndex` 算全信息版，再由 `BookView` 缓存按 P 重算部分；但没有定义全信息结果与按 P 结果如何合并，也没有声明“等级排序”是否改变现有列表顺序。现有索引只按 `(library.root, bookId, generation, revision)` 缓存；`BookView.#memo` 是一次查询实例内缓存，不跨查询共享。
+- 为什么是问题：按 P 变化的 `tier` 若只改变字段，尚可保持现有顺序；一旦查看器按等级折叠并依 `maxTier` 过滤，过滤后的 `hidden` 与 `total` 必须在同一份 P/视角派生结果上计算。若按 tier 排序，游标必须绑定排序规则、P、视角和后验算法版本；如果继续使用现有 `paramsDigest` 只绑定输入参数，算法或未声明的默认排序改变时会复用语义不同的游标。计划还把“随 `BookIndex` 构建”的全信息计算放入每次版本索引构建，可能对 100 章大原文同步阻塞查询，而“按 P 重算”的成本只估了首次扫描，没有给并发、多个 P、多个角色的上限。
+- 如何核实：`BookIndex` 缓存只按版本固定；`BookView.cached` 只在单次查询内有效；`paramsDigest` 会排除 `cursor`/`limit`，只摘要方法参数。当前列表均先构造稳定原顺序再 `ctx.page`，不存在按后验等级自动排序的机制。
+- 建议改法：把规则版本、`at`、视角、排序、`maxTier` 明确纳入派生缓存和游标语义；优先保持既有列表顺序，只做稳定过滤，避免未批准的排序变化。定义全书版仅用于读者全位置且不含角色特有过滤，按位置结果不得“部分覆盖”而不说明优先级；为 `hidden` 明确统计口径、空结果和 `next` 行为，并给出大书/并发查询的预算与取消策略。
+
+## 4. [重要] `hidden` 与分页合同没有定义，当前 API 无法推出一致行为
+- 类别：接口、分页与查看器交互
+- 位置：`plan.md:48-54`；现有合同 `packages/nb-story/src/contract/contract.ts:46-53,396-420,448-452`，分页实现 `packages/nb-story/src/core/cursor.ts:23-74`
+- 现象：计划只说带 `maxTier` 的页“同时给 `hidden`（被它藏起来的条数）”，但没有规定 `hidden` 是全过滤结果的隐藏数、当前页隐藏数、还是当前 `at` 可见记录中隐藏数；也没有规定 `hidden` 放在页对象顶层、是否所有带 `maxTier` 的查询一致、`maxTier` 为 0/负数/非整数的错误码、默认值和游标是否包含它。
+- 为什么是问题：三种口径会产生不同 UI：例如总记录 100 条、其中 30 条为 3 级、`limit=10` 时，顶层 `hidden` 可能是 30、当前页 3 或每页剩余隐藏 20。若过滤后分页，`total` 应是 70；若先分页再隐藏，`next` 与 `hidden` 又不同。现有 `page()` 只有 `{items,total,next}`，合同对象是 `additionalProperties:false`，任何实现必须同步 TypeBox、所有查询返回和 CLI/HTTP 校验，否则结果会被 `checked()` 判为内部合同错误。
+- 如何核实：`contract.ts:51-53` 的分页 schema 没有 `hidden`；`cursor.ts:63-74` 只对传入的最终 items 分页；`api.ts:190` 的摘要会把新增参数纳入游标，但没有派生算法或隐藏计数语义。
+- 建议改法：在 queries Spec 写出统一页形状，例如 `{items,total,next,hidden}`，明确 `hidden = 当前 P、视角、其它筛选条件下满足其它条件但 tier > maxTier 的总数`，不随 `limit` 变化；无 `maxTier` 时 `hidden: 0` 还是省略必须统一。明确先过滤后分页、`next` 只针对过滤后集合，`maxTier` 纳入 digest，并补每个方法的合同/HTTP/CLI 验收。
