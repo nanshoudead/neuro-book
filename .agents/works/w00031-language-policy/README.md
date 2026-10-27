@@ -22,22 +22,8 @@ updated: 2026-10-27
 4. 界面文字用按插件、按包分的消息目录，不用 vue-i18n；用 i18next 的原生格式（`{{name}}`、`_one`/`_other`），需要 ICU 时再加插件。细节在 w00028。
 5. 先做错误处理的只读审查，开发诊断改英文排在失败投影设计之后。
 6. 语言政策写成一份新 ADR，取代 ADR 0023 中“前端使用 vue-i18n”一项，0023 正文不改；`common.md` 加“语言”一节。
-
-## 任务
-
-| Task | 范围 |
-|---|---|
-| [t01](tasks/t01-adr/README.md) | 语言政策 ADR、ADR README 的部分取代写法、`common.md` 的“语言”一节、影响清单 |
-| [t02](tasks/t02-error-audit/README.md) | 错误处理只读审查，产出通道矩阵 |
-| [t03](tasks/t03-failure-projection/README.md) | 失败投影与切片设计 |
-| [t04](tasks/t04-migration/README.md) | 按 t03 的切片迁移（暂不开工） |
-| [t05](tasks/t05-prompt-language-eval/README.md) | 中英文提示词对照评测（已搁置） |
-
-## 待确认
-
-自主推进中照推荐做的决定记在 [pending-confirmations.md](pending-confirmations.md)，等开发者追认。
-
-## 授权与限制
-
-- `issueId: null`；远端写入、npm 发布逐次授权。
-- 排除清单（不迁移产品文案）：`neuro-book-legacy`、`neuro-agent-harness`、`neuro-book-contracts`、`llmlint`、`neuro-book-test-support`；其余包按通道审查，不整包跳过。
+7. 推进顺序（2026-10-27，t03 计划审查后开发者同意）：先做 w00028 t01，并把消息键写法（含错误码的命名空间）、目录里码表的穷举检查、共用的失败值类型与参数上限、未知码的中性兜底、界面统一的“详情”载体并入它的范围；t03 之后按错误域拆成几份设计，建在这些共用件之上；开发诊断改英文与失败投影解绑，单独成片。
+8. 失败页在显示语言加载前出现时：照明暗主题的做法，把上次的界面语言记在浏览器本地，失败页读它，读不到用中文（2026-10-27）。
+9. nb-story 网页保持单语中文，只把错误改成按码取文案（2026-10-27）。
+10. nbdev 面板继续显示错误原文（改英文后照样显示）；只有面板与命令行共用的校验函数改成返回码加参数（2026-10-27）。
+11. 简单的实施任务可以派 Claude Sonnet 或 Haiku 子代理做（2026-10-27）。
