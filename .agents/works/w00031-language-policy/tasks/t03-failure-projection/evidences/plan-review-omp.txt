@@ -1,0 +1,128 @@
+# t03 后端与计划设计审查
+
+### 1. B4 没有进入方案或 t04 切片
+严重程度：重要；类别：遗漏；位置：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:45-50,56-58,71-73`；对照 `.agents/works/w00031-language-policy/tasks/t02-error-audit/artifacts/channel-matrix.md:590-595`
+
+现象：计划的方案表只明确写了 B1、B2；B3 只在总则的“语义不合并”里顺带出现，B4（`nb-workflow`、`nb-history`、`nb-memory`、`file-snapshot-cache` 等基础库的独立失败语义，以及“没有已接产品出口就不要虚构持久化与迁移消费者”）没有方案、拥有者、验收或切片。t04 切片清单也没有基础库边界/无迁移片；列出的 11 个片均围绕 M1-M17、B1-B2。
+
+为什么是问题：完成判据仍声称 B1 到 B4 都要有去处，但照这份切片清单实现时，B4 可以在没有任何记录的情况下被当作“已覆盖”。这会把 `Run.error`、History 的 `available:false/reason`、Memory 的降级计数、snapshot 的 `watcherError` 等非统一 Error 通道漏掉，或反过来误造新的全局码、持久化格式和迁移消费者，正好违反 B4 的边界。
+
+如何核实：逐项对照矩阵第 6.2 节 B4 的四个包与计划第 5 节切片；计划只出现 `B1、B2`，没有任何 `workflow/history/memory/snapshot` 位置或 t04 片名。
+
+建议改法：增加一个明确的“基础库公开合同与产品出口边界”片，至少逐项记录这 5 个包的 owner、当前是否有产品消费者、是否不改、旧数据是否不讨论，以及若未来接入由哪个 Work 负责；或者把它们明确写入非目标，并把验收判据从“B1-B4 都有去处”改成可核对的非目标清单。
+
+### 2. M13 的旧数据读法漏掉三类载体，并且 QA 的“无码回退”当前不可达
+严重程度：重要；类别：接口与合同；位置：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:37,44`；对照矩阵 `.agents/works/w00031-language-policy/tasks/t02-error-audit/artifacts/channel-matrix.md:532-537`
+
+现象：方案只写“旧会话、旧问答记录、旧日志没有码时按类别取通用文案”，总则旧数据清单只列会话、问答记录、Task 证据；没有写 ingest 的 `usage.jsonl`、`activity.jsonl`、`state.json`，也没有写 nbdev 通知记录、`audit.jsonl` 与 `init.json` 的读取、损坏行和 `code: null` 语义。更直接的矛盾是，当前 QA 记录的 `QaFailureSchema` 要求失败对象有 `code`，`ConversationSchema` 与 legacy schema 都整份校验它；没有 `code` 的历史记录会在 `conversationOf` 被判为 `broken`，不会到达网页的 `record-messages` 以 `kind` 回退。
+
+为什么是问题：M13 不是“旧文字如何换一句新文字”一个问题，而是每种载体能否读、能否回放、能否续跑、损坏时怎样降级的合同。按当前计划实现，旧 QA 记录可能直接变成“记录损坏”而不是通用失败说明；ingest 的失败归类会遗漏 `state.stopReason` 与 `activity` 的 stopped/failed 区分；nbdev 还可能把旧通知/审计当成不可读记录，改变去重、uncertain 与 audit-enabled 语义。这样既没有覆盖矩阵 M13 的每一类，也会把可读历史误报成损坏。
+
+如何核实：读取 `packages/nb-story/src/contract/qa-record.ts:42,354-388` 与 `packages/nb-story/src/core/qa-records.ts:390-406` 可见无 `code` 的 QA 失败对象在兼容入口即被拒；读取 `packages/nb-story/src/ingest/store.ts:44-58,149-168` 可见 ingest 的三种持久化行分别有不同的完整性与状态语义；读取 `packages/dev-panel/src/core/notify.ts:17,27-45,213-238`、`packages/dev-panel/src/core/audit.ts:13-26,37-53` 可见 nbdev 的通知记录和审计启用状态是两套独立格式。
+
+建议改法：把 M13 改成按载体逐项的读取表：session（可浏览/可续跑/中断尾）、QA record 与配对 session log（含无 `code` 旧形状）、ingest 三个文件（完整行、瞬时状态、原文诊断）、nbdev notify 与 audit（旧答复、pending/uncertain、schema/权限）。先在各自 owner 的兼容 reader 把旧值归一成该域现有合同，再由 UI 按码投影；没有可安全归一的记录保留原文并标明“只能浏览/不可续跑”，不要把一个通用 `kind` 回退写成所有载体的合同。
+
+### 3. `CommandFailure.origin` 同时没有合同，又没有明确远程兼容语义
+严重程度：重要；类别：接口与合同；位置：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:23-28,34`；对照 `packages/neuro-book/src/plugins/commands/shared/contracts.ts:26-43,159-182`、`packages/nb-runtime/src/remote/protocol.ts:226-234`
+
+现象：计划给 `CommandFailure` 加 `origin: {owner, code, params}`，但没有规定 `owner` 的稳定命名空间格式、`code` 的域内类型、`params` 的闭合 schema、大小/深度/敏感字段上限或缺省语义。现有本地命令合同只接受九个 `CommandFailureCode` 加字符串 `reason`；远程命令失败分支仍是 `code: Type.String(), reason: Type.String()`，并且整个远程命令失败对象位于 `value: Type.Unknown()` 下面。也就是说，新增的 `origin` 既不在远程结果 schema 中被描述，也不会被 `nb-runtime` 的业务输出校验验证；它能否跨远程命令结果保留只能靠未声明的对象透传。
+
+为什么是问题：这会让“命令失败所属域 + 码”的核心路由没有可检查的合同。`settings/shared/contracts.ts:169-177` 当前把设置失败转换为命令码和本地化 `reason`，编辑器 `editor/web/commands.ts:137-138` 又把动作失败全部压成 `unavailable`；计划只说“按码填 origin”，没有列出这些生产者如何保留 `unknown-outcome`、取消和已有命令码，也没有说明远程命令调用返回的嵌套失败与远程路由失败（尤其写请求的 `unknown-outcome`）如何区分。混合版本下，旧调用方也无法知道该忽略、拒绝还是展示 `origin`；`Type.String()` 继续放宽则把非法命令码带进合同，收紧则需要明确版本窗口。
+
+如何核实：对照命令本地类型、远程 `RemoteCommandResultSchema` 和 `FrameSchema`：本地失败接口没有 `origin`，远程失败对象的闭合对象没有该字段，而远程 `value` 又是 `Unknown`；再看设置与编辑器两个实际生产者，确认它们目前都只交出 `reason` 或 `unavailable`。这些静态路径足以证明计划没有一个可验证的 origin 生产/传输合同。
+
+建议改法：先决定 `origin` 是否是远程公开值。若不是，在远程命令边界按命令 owner 的公开码重新投影，禁止把内部 origin 当作跨进程字段；若是，则在 `commands/shared/contracts.ts` 建闭合的 `CommandFailureOrigin`（owner、域码、受限 params），把它加入远程输出 schema，并给该远程合同明确版本/旧调用方行为和未知码回退。无论哪种方案，都要把 settings、editor、Agent 命令消费者和路由层失败分别列出；不要用 `Type.String()` 与 `Type.Unknown()` 作为兼容策略。
+
+### 4. M7 重新引入了 ADR 明确否决的全局错误形状
+严重程度：重要；类别：与已定设计一致；位置：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:23,39`；对照 `docs/adr/0034-language-policy.md:40-46`、Work README `:19-21`
+
+现象：计划一方面写“跨到界面的失败不新增全局错误对象、各错误域保留自己的合同”，另一方面又提议新增一个通用工具，把未知异常统一描述成 `{code: "unexpected", detail}`，并让界面按这个码显示。该对象没有 owner 命名空间，也没有说明它如何适配命令、远程、HTTP、插件状态、QA、CLI 等已有错误合同。
+
+为什么是问题：`unexpected` 会成为所有错误域共享的隐式码，正是 ADR 0034 否决统一错误形状时要避免的重名与语义丢失。异常在进程内可以用 `Error.cause` 保留，但一旦进入远程 `detail`、诊断序列化或 IPC，`cause` 不是跨边界合同；当前诊断脱敏还只保留 Error 的有限字段，不保留自定义 `code`。结果可能是调用方以为拿到结构化 `unexpected`，实际跨边界只剩 `provider-error`、普通 detail 或字符串。
+
+如何核实：对照 ADR 的“各错误域保留自己的合同”与计划同段的“不可新增全局错误对象”；再看 `packages/nb-runtime/src/remote/protocol.ts:45-53` 的远程失败合同和矩阵 `B-DIAG-QUERY` 对自定义 Error.code 被丢弃的核实记录。没有任何现有跨域合同声明 `unexpected`。
+
+建议改法：把“未知异常”定义为各 owner 的本地兜底规则：命令映射为命令域已有 `execution-error` 加安全诊断，远程映射为既有 `provider-error`，HTTP/QA/插件状态各自使用已有合同；可保留一个不跨边界、只负责提取 `Error.cause` 的内部辅助函数，但不要让它导出全局 `{code, detail}` 投影。若确实要新增跨域码，必须先改 ADR/提案，不能在 t03 的迁移方案里隐式引入。
+
+### 5. M3 把所有 `detail` 定成英文诊断，和第三方原错及业务数据混在同一槽位
+严重程度：重要；类别：接口与合同；位置：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:27,36-37`；对照 `docs/adr/0034-language-policy.md:28-36`
+
+现象：方案把各域现有 `detail` 统一定为英文诊断，并要求界面只在详情里显示；但矩阵中的 `detail` 并不是同一种东西：远程业务失败的 `detail` 按每个方法的 schema 传输，设置还带 `position/path`，Story 的 `candidates` 含领域对象的 `label/note`，文件与项目结果包含路径、当前值和安全用户说明。它们不能整体改成“英文诊断”。同时 ADR 明确第三方库错误原样保留，B1 也要求不翻译第三方原错。
+
+为什么是问题：若按字面执行，第三方原错会被错误地翻译或被当成英文诊断重写，违背已定语言政策；若保留原错，计划的“所有 detail 英文”又不成立。若把业务字段一并当诊断迁移，还会把路径、候选名称、用户输入和定位信息误当文案，破坏业务合同或导致界面把结构对象字符串化。远程 `detail` 的 schema 变化还需要按合同版本处理，不能只改语言约定。
+
+如何核实：对照 ADR 的“第三方库的错原样保留”与矩阵 M3 的已核实位置（`files`、settings position、Story candidates、project/storage detail）；再读 `packages/nb-runtime/src/remote/contract.ts:157-171,319-322`，可见业务 detail 是按方法、按码的 schema，不是统一字符串槽。
+
+建议改法：按字段分类而不是按字段名迁移：稳定码与结构化参数按域合同；开发诊断字符串用英文；第三方错误保留原文并只放诊断；路径、候选标签、用户输入等业务数据保持原值。每个域的“哪些字段可进入详情、哪些字段可展示、哪些字段必须脱敏/截断”写进对应 Spec；需要改变远程 detail 形状时同步提升该合同版本，而不是在 M3 设全局英文规则。
+
+### 6. M12 没有把“结果含义变化”和业务合同版本闭环，项目 IPC 的无版本前提也写错位
+严重程度：重要；类别：接口与合同；位置：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:43,54,58`；对照 `docs/specs/runtime/plugin-channel.md:49-55,181`、`packages/nb-runtime/src/remote/contract.ts:157-171,319-322`
+
+现象：方案只明确“闭合 schema 的线协议帧加字段要升 `WIRE_PROTOCOL_VERSION`”，业务合同的 `detail` schema 只说“由各合同拥有者改”，没有要求同步提升合同 `version`、规定旧消费者看到 `version-changed` 还是 `provider-error`，也没有列出 `RemoteFailure` 的结果码/语义变化何时升 wire。现有合同规则则是业务失败详情按合同 schema 双侧校验，合同版本精确匹配；线协议规则还明确“结果含义变化”也要升 wire。对项目 IPC，计划说“无版本信封随同一进程版本发布”，但 IPC 是服务端与项目子进程之间的独立进程边界；当前保证是宿主检查项目入口大小与修改时间后才启动，不是一个通用的 IPC schema 版本合同。
+
+为什么是问题：t04 按字面只改 detail schema，混合版本时 wire 仍相同、合同版本可能仍相同，旧调用方不会得到计划所说的“不兼容刷新”，而会把不符合 schema 的业务结果降成 `provider-error`，或把新版 detail 当旧形状使用。新旧浏览器对线协议结果码/语义的处理也没有统一窗口。IPC 若只靠“版本相同”但不定义如何判定同一构建，旧服务端与新项目入口仍可能互发 JSON，失败会落到模糊的 `detail`/退出收口，不能诊断为协议不兼容。
+
+如何核实：读取 `plugin-channel.md` 的输入、版本与兼容条款可见：输入/输出与 detail 双侧校验，合同版本精确匹配，结果含义变化也要升 wire；读取 `server-host.md:99-102` 可见项目启动前只检查入口大小与修改时间。计划没有给出对应的版本字段、拒绝分支或验收场景。
+
+建议改法：在 M12 逐条列出三层版本：wire 帧结构/内核失败语义变化升 `WIRE_PROTOCOL_VERSION`；每份业务合同的输出或 detail 形状变化升合同 `version`，旧调用方得到既有 `version-changed`；项目控制信封要么增加 `ProjectEnvelope` 版本并拒绝不匹配，要么明确“服务端与项目入口必须来自同一不可变构建、禁止混用”的现有检查和验收。不要把“没有版本字段”写成天然兼容窗口。
+
+### 7. 对未追到的诊断/HTTP 读取方先定“界面一律未知码”没有证据，也会改写外部合同
+严重程度：重要；类别：遗漏；位置：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:48-50`；对照矩阵 `.agents/works/w00031-language-policy/tasks/t02-error-audit/artifacts/channel-matrix.md:790-792`
+
+现象：矩阵 9.5 明确仍未追到两类关键关系：诊断查询的产品 UI/HTTP reader，以及通用 HTTP `{error:{code,message}}` 外壳的统一 reader。计划没有先保留“未追到”，而是直接规定“没有已知读取方的外壳，界面一律按未知码处理”，并把这两项交给 t04 “再确认”。现有代码只核实到浏览器引导连接的专用读取，且 HTTP 至少有宿主外壳、封面 `{code,detail}`、nb-story 和 nbdev 等不同合同。
+
+为什么是问题：诊断查询可能根本没有产品界面；外部 HTTP 调用方也不是应用 UI，不能由本提案替它规定“未知码显示通用文案”。若 t04 按这句实现一个所谓统一 reader，会把不同 owner 的 HTTP 合同合并，或者为不存在的消费者增加代码；若不实现，提案又把未追到项伪装成已定行为。未知码回退应属于具体消费者的域合同，不是无读取方时的全局默认。
+
+如何核实：对照矩阵 9.3-9.5 的裁决与未追到清单；再读取 `packages/neuro-book/src/web/host/connection.ts:89-96` 的引导专用读取，确认它不能证明通用 HTTP reader 存在，也不能证明诊断 query 有 UI。
+
+建议改法：把这两项拆成“消费者未追到，t04 不改变其合同”的开放风险；对已经找到的具体消费者分别规定未知码回退，对没有消费者的诊断查询只规定服务/记录合同，不添加 UI 逻辑。通用 HTTP 只继续维护四种现有外壳和各自 reader，任何要新增统一 reader 的决定另建提案或补证据后再定。
+
+### 8. t04 把同一合同的生产者与消费者拆开，却没有依赖顺序或兼容窗口
+严重程度：重要；类别：不变量；位置：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:34,56-58,81-83`
+
+现象：切片按错误域列出“命令与编辑器”与“文件、设置、存储、项目”两个独立片，但设置命令转换就在 `settings/shared/contracts.ts`：`switchSetting` 目前把设置失败转换成命令失败码和本地化 `reason`；命令通知、编辑器 `fromAction` 和远程命令结果又是 M1/M4 的消费者/公共合同。计划没有列出这条跨片依赖、迁移顺序、旧 producer→新 consumer 的双读窗口，只有一句“每片同时改消费者”。同样，入口状态的 `EntryState` 生产在插件平台，展示消费在窗口 settings/workbench/plugins 页面，也跨越 M2/M6 的边界。
+
+为什么是问题：先迁命令片会让新命令消费者收到旧设置 producer 的句子；先迁设置片又会让旧命令通知按 `reason` 直接显示结构或英文诊断。若同时改远程 `CommandResult`，旧窗口/服务端的闭合 schema 与新对象还需要明确是否允许额外字段。没有兼容窗口，t04 只能靠整仓同时切换，和计划“按片执行”相矛盾；若靠可选 `origin` 默默兼容，又没有规定旧 reason 的处理，失败语义会在过渡期漂移。
+
+如何核实：读取 `packages/neuro-book/src/plugins/settings/shared/contracts.ts:147-177,180-193`、`editor/web/commands.ts:118,137-138` 和命令远程 schema `commands/shared/contracts.ts:159-182`，可见生产者、转换器和消费者分属计划中的不同片名；再对照 t04 列表，没有依赖图、先后顺序或 dual-read/dual-write 规则。
+
+建议改法：先画合同依赖图并指定原子切换边界。最安全的是把命令共享合同、settings 命令适配、editor action 适配、远程命令 schema 与所有直接消费者放进同一片；若必须拆片，先允许新消费者读取旧 `reason`、再在所有 producer 产生码/参数后删除兼容分支，并写清可同时运行的版本组合、何时升远程合同版本和每片的跨进程验收。
+
+### 9. 待定项漏掉了 nb-story/nbdev CLI 的公开失败合同与语言边界
+严重程度：重要；类别：待确认项；位置：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md:40-41,54,85-89`；对照 `docs/specs/story/cli-skill.md:66-74,123-127`、`docs/specs/runtime/cli.md:56-60,111-114`
+
+现象：计划写 nbdev“CLI 拼英文、面板拼中文”，又把 nb-story 分成“提示词、给人看的输出、`--json`/API 的 `message`”，但没有决定 CLI 的人类输出是否属于本地化界面文字，也没有决定 JSON/API 的 `message` 是用户可读的本地化字段、英文诊断、还是必须废弃为 `detail` 并按 schema/version 迁移。计划末尾只有窗口失败页语言、nb-story 网页语言和接受提案三项，没有这两个公开接口选择。
+
+为什么是问题：这不是 t04 可自行补的实现细节。`story.cli` 已把 `--json` 的 `error` 形状、CLI/API 一致性和公开接口兼容列为合同；`runtime.cli` 也把人类 stderr、JSON stdout、字段只加不改列为公开边界。若先按英文改 CLI 或把 `message` 改为诊断，外部 Agent、脚本和已发布 `nb-story` 包会观察到语言/字段语义变化；若按本地化保留 `message`，又必须决定外部 Agent 是否依赖稳定英文。nbdev 的 JSON/人类输出同样有不同读者，不能仅凭“CLI/面板”二分。
+
+如何核实：读取两个 Spec 的输出与兼容条款即可看到 `message`、JSON 形状、stderr/stdout 和版本窗口都是公开行为；再对照计划待定项，找不到“CLI 输出读者/语言”和“JSON/API message/detail 语义”的题目。
+
+建议改法：在待定项中单列并交开发者决定：1）nbstory 人类 CLI 是否跟随界面语言、是否另有 `--locale`，以及 `--json`/API 是否固定英文诊断还是返回 `code + params` 由调用方翻译；2）nbdev CLI 的人类输出与 JSON `message` 是否同一合同、旧字段如何兼容。决定前 t04 不应删除或改写现有 `message`，只可新增结构化字段并保留旧读法。
+
+## 未发现问题的方面
+
+- 计划遵守“提案先 reviewing、开发者接受后 t04 才开工”的停点，符合 `docs/proposals/README.md:95-100` 与 ADR 的执行顺序；这里没有把提案草案直接当成已生效 Spec。
+- B3 的失败、取消、中性拒绝、结果未知和保护态不合并这一原则与矩阵及远程合同一致；`unknown-outcome` 不能自动重试的语义没有被审查为问题。
+- 不批量改写会话、QA、Task 证据，并保留旧数据原字节的方向本身正确；问题在于 M13 没有按全部载体写出可执行的读法和兼容合同。
+- 线协议 `wire-version` 这条现有行为是真实的：`remote-session.ts:82-85` 把握手 `reason: "wire-version"` 映射为 `incompatible`，`FailurePage.vue:34-35` 显示版本不一致并要求刷新，浏览器宿主 Spec 也规定该路径刷新。这个证据只覆盖 wire 握手版本，不支持把所有业务 detail/schema 变化都概括成同一“旧窗口不兼容”行为。
+- HTTP 四种错误外壳分别保留 owner 的方向、服务端不生成界面文字的方向，以及第三方 OMP 原生错误不改写的原则本身符合已定 ADR；问题是计划没有把它们的读取方、字段版本和第三方 detail 的例外写完整。
+
+## 各级数量
+
+| 严重程度 | 数量 |
+|---|---:|
+| 阻断 | 0 |
+| 重要 | 9 |
+| 建议 | 0 |
+
+## 对计划末尾待定项的判断
+
+1. **窗口失败页语言**：应保留为开发者决定；浏览器语言加 `zh-CN` 回退是可行方向，但必须同时定失败页在应用语言加载前如何取得支持语言、地区回退和静态文案，当前推荐还不够成为合同。
+2. **nb-story 网页语言**：应保留为开发者决定；它是独立网页/包边界的读者选择，跟随浏览器语言可以接受，但要明确与宿主界面语言是否独立、支持语言列表、回退及 API/CLI 是否共用表，不能仅凭“同一文字表写法”带过。
+3. **接受提案并开工**：这是生效门槛，不是技术行为待定；提案未被接受前 t04 不应按它修改代码或 Spec，但应把前 9 条和新增的 CLI/JSON 合同问题处理完再提交接受。
+
+有效发现：1、2、3、4、5、6、7、8、9
+
+勘误：第 1 条中“列出的 11 个片”应为“列出的 10 个片”；建议改法中的“这 5 个包”应为“B4 列出的 4 个基础包（`nb-workflow`、`nb-history`、`nb-memory`、`file-snapshot-cache`）”。发现本身与严重程度不变。
+
+有效发现：1、2、3、4、5、6、7、8、9

@@ -1,0 +1,167 @@
+# w00031 t03 plan 前端审查报告
+
+审查对象：`.agents/works/w00031-language-policy/tasks/t03-failure-projection/plan.md`。源码读 `.worktree/review-w00031-t03`（db8f85133）。路径省略 `packages/` 前缀时均在该前缀下。全部为只读核对，没有运行代码；标“未验证”的是从代码推断。
+
+### 1. “详情”没有落点：十个界面里只有两三个有地方放，且计划没有安排共享的详情载体
+- 严重程度：重要
+- 类别：依赖的机制不存在（维度 2）、遗漏（维度 4）
+- 位置：`nb-ui/src/components/feedback/Notification.vue:5-24`（props 只有 tone、title、message、action、progress）；`neuro-book/src/plugins/workbench/shared/contracts.ts:97-107`（`NotificationInput` 同）；`workbench/web/notifications.ts:20-23`（警告级按色调自动消失）；`workbench/web/components/WorkbenchStatusBar.vue:47-72`（问题只有一行文字加 `:title`）；`editor/web/components/EditorGroup.vue:180-198`（横幅形状 `{tone, text, actions}`）；`explorer/web/components/ExplorerFeedback.vue:79-83`（一段 `<p>`）与 `explorer/web/controller.ts:53`（行内名称错误是一行）；`neuro-book/src/web/FailurePage.vue:69`（`reason` 段）；`nb-agent-ui/src/types.ts:60,102,121-126`（`ToolCallView.error`、`ErrorMessageView.message` 都是 `string`）。
+- 现象：计划总则要求“未知码显示通用说明加码，诊断原文放在可展开的详情里”，但没有一个界面当前有“可展开详情”的结构：
+  - 通知（命令失败的唯一出口）：无详情槽；`failureNotice` 用的是警告级，几秒后自动消失，用户来不及展开；要加详情必须改 nb-ui `Notification` 与 `NotificationInput`，并让带详情的通知改为常驻或可复制。
+  - 状态栏：单行加 tooltip，详情只能是 `title`（触屏与键盘不可达）。
+  - 编辑器组横幅、资源管理器结果区、行内名称错误：一行文字，没有展开。
+  - 失败页：`.nb-host-reason` 现在是常显的主文字之一，改英文后变成中文标题下的常显英文句子（见第 3 条）。
+  - Agent 对话视图：有，`AgentToolDetail` 的 `AgentCodeBlock`，但那只是通用工具详情，运行错误 `ErrorMessageView` 没有（见第 5 条）。
+  - nbdev 面板：`Notice` 有 `items`、`notes` 列表，勉强可用；nb-story 网页 `PageState/PagedList.error` 是一个字符串。
+  - 设置页、插件页：用 `· ` 或括号把 detail 拼进同一行（`PluginsPage.vue:246`、`SettingsFileView.vue:249`）。
+- 为什么是问题：t04 的 11 片都要“原文进详情”，但没有一片负责做出详情这个载体。各片会各自发明一个（`<details>`、tooltip、再点一层），回到 M10 说的“四个包四种做法”，而这次是十几个界面。仓库前端规范要求“通用能力优先复用现有组件、错误映射、通知”（`docs/standards/code/frontend.md` 第 8 行附近）。
+- 如何核实：读上面各位置；`grep -rn "详情\|details" --include=*.vue` 命中的 38 个文件里，与失败说明相关的只有 `AgentToolDetail.vue` 与 `AgentCommandDetail.vue`。
+- 建议改法：计划加一个“第 0 片”：在 nb-ui 做一个失败详情基础件（摘要加可展开的诊断原文，带复制），给 `Notification` 一个详情位（带详情的通知不自动消失，或点击“详情”后转常驻）；提案里为每类界面写一行“详情放哪”。没有放处的界面（状态栏、行内名称错误）明确写“详情只进诊断、不展示”，而不是留给各片。
+
+### 2. 命令失败的方案丢掉了具体原因：九个失败码装不下现在的几十种 reason，`when` 不可用原因本来就是插件声明的双语文字
+- 严重程度：重要
+- 类别：接口与合同（维度 3）、别扭（维度 7）
+- 位置：`neuro-book/src/plugins/commands/shared/contracts.ts:26-37`；`editor/web/area.ts:531-907`（`reason` 字面量约 40 个不同句子，如“有未保存的修改：先保存或放弃修改，再换成按字节显示的编辑器”“页面标签不能固定”“不能再拆分”）；`workbench/web/commands/view-commands.ts:104-203`；`commands/shared/registry.ts:188-201,353-356`（`evaluation.value.reasons.join("；")`、插件命令返回的 `reason` 原样过手）；`state/shared/contracts.ts:19-21` 与 `state/shared/plugin.ts:44-46`（公开键 `reason` 是 `LocalizedText`，schema 强制中英两份，“值不为 true 时给用户看的原因”）。
+- 现象：计划 M1/M4 的做法是“通知先按 `origin` 取拥有者文案，没有 `origin` 时按命令失败码取命令插件的文案；`reason` 改英文诊断”。命令失败码只有九个（`unavailable`、`invalid-args`、`execution-error` 等）。上面的 `reason` 里绝大多数不对应底层领域失败（没有 `origin`），它们是命令自己判断的“为什么现在不能做”。照计划，用户看到的会是“命令不可用”加详情里的英文句子，丢掉了今天已经能读懂的原因。
+- 为什么是问题：
+  1. 编辑器约 40 种拒绝原因要么逐个编码（计划没说，t04 第一片“命令与编辑器”会膨胀成几十个新码），要么降级成通用文案（用户可见的行为退化，计划没有承认）。
+  2. `when` 不可用的原因是插件作者按 schema 声明的 `LocalizedText`（已经本地化），计划把它归入“`reason` 改英文诊断”会把一个已经合规的本地化通道降级。
+  3. 第三方插件命令返回的 `{ok:false, code, reason}`（`registry.ts:353`）没有任何办法提供本地化文案：计划没有给插件命令一个返回码加参数的合同，而 SDK 示例（M16）要随之改。
+  4. 若 `reason` 改为英文，用户入口的通知文案就不能再借它；计划应写明“命令自己的拒绝”走哪条路（命令插件的文字表里按子码取？还是允许 `reason` 为 `LocalizedText`？）。
+- 如何核实：`grep -c 'reason:' editor/web/area.ts`；读 `registry.ts:188-201`、`state/shared/plugin.ts:44-46`。
+- 建议改法：在 `CommandFailure` 上区分两样东西：`origin`（底层领域失败）与命令自己的“拒绝子码”（可选 `kind` 加 `params`，由命令所属插件的文字表翻译），并允许 `reason` 是 `DisplayText`（已本地化）而非只能是英文诊断；`when` 的声明 `reason` 保持 `LocalizedText`。编辑器那四十来个原因按拥有者归并成十个以内的子码，在提案里写明归并规则，而不是留给 t04。
+
+### 3. 待定项 1 的推荐（按浏览器语言选）不可行也不贴切，且低估了失败页要改的范围
+- 严重程度：重要
+- 类别：别扭（维度 7）、遗漏（维度 4）、对照参照（维度 5）
+- 位置：`neuro-book/src/web/FailurePage.vue:24-45,52-78`；`web/index.html:5,40-44`（`lang="zh-CN"`、静态加载页 `aria-label="正在启动 NeuroBook"`）；`web/boot.ts:68`（`hint.textContent = "正在打开"`）；`web/host/appearance-hint.ts:1-78`（先例）；`web/mount.ts:46-51`；`shared/browser-bootstrap.ts:21-39`（引导响应没有语言字段）。
+- 现象与证据：
+  1. 仓库里没有任何地方读 `navigator.language`（`grep -rln "navigator.language" packages/*` 无命中）。语言是配置项 `nbook.settings/locale`，只在握手之后由设置插件提供，引导响应里没有它。
+  2. 仓库已经有同一问题的现成解法：`appearance-hint.ts` 把“上次的明暗与颜色”写进 `localStorage`（键 `nbook.host-appearance`），`index.html` 头部的内联脚本在第一帧前读它，browser-host Spec 启动序列第 1 步已有这个机制。语言完全可以照做：每次拿到 `nbook.settings/locale` 就记一份，失败页与静态加载页读它。
+  3. 失败页并不都在“语言加载前”：`server-restarted`、`project-gone`、`closed`、带 `rescued` 的各态，以及 `mount.ts:48-51` 的首次导航失败，都发生在工作台已经跑过之后。这时用户已经在设置里选了语言；按浏览器语言显示，会出现“用户把界面设为英文，服务端重启后失败页突然变中文（或反过来）”。
+  4. 失败页的所有文字今天都是硬编码中文，不只 `reason`：8 个标题、8 段提示、“重试”“刷新页面”“不打开项目”“未保存的修改”“复制正文”“已复制”、`aria-label`，加上静态加载页与 `boot.ts` 的 “正在打开”。计划 M2 只谈 `reason` 与握手 message，没有把“失败页自己的文案本地化”列为工作量，也没说这些文案的拥有者是谁：此时没有任何插件被激活，w00028 的“随插件登记的目录”这时还不存在。
+  5. `reason` 段（第 69 行）是失败页现有的常显元素，改成英文诊断后它就是一行出现在中文标题下的英文。计划说“进详情”，但页面没有详情结构。
+- 为什么是问题：推荐方案会在已知语言的场景里给出错误语言，且未覆盖大部分要改的文字。
+- 建议改法：待定项 1 改推荐为“用与明暗提示同一个机制：每次拿到语言就写进本地存储，读不到时再按浏览器语言选，选不到用 zh-CN”；提案里列明失败页是宿主层文案（拥有者是宿主外壳而不是插件），用一份只含这十几条的小表，不依赖目录机制；`reason` 用 `<details>` 之类折叠，不常显。
+
+### 4. 现有文字表搬两次：计划沿用的“`Record<码, LocalizedText>` 穷举”在 w00028 的 JSON 目录里没有对应物，且 nb-form 的基线本身不是穷举也不是数据
+- 严重程度：重要
+- 类别：与已定设计一致（维度 1）、依赖的机制（维度 2）
+- 位置：计划“总则”渲染一条与 Context 一段（“目录落地时由 w00028 t03 一并搬进目录”）；`nb-form/src/vue/messages.ts:55-75`（`codes: Readonly<Record<string, (params) => string>>` 加 `fallback`，即值是函数、键是开放字符串）；`neuro-book/src/shared/localized-text.ts:41-44`（占位符 `{name}`，w00028 定的是 i18next 的 `{{name}}`）；`workbench/web/components/WorkbenchStatusBar.vue:13-35`（`REASONS: Readonly<Record<string, LocalizedText>>`，也是开放键）；`projects/web/messages.ts:53-60`（`Object.hasOwn(FAILURES, code)`）；`w00028` README “方向”（`locales/<语言>.json`、`_one`/`_other`、清单从目录摘出）。
+- 现象：
+  1. 计划的穷举保证（“漏码过不了类型检查”）靠 TypeScript 的 `Record<联合类型, ...>`。w00028 的方向是 JSON 目录，键是字符串，类型检查对不上码的联合，穷举要靠另一套“缺失文案检查”（w00028 t01 才设计）。所以计划里最关键的质量保证在目录落地时要换实现，而现在没有人对这件事负责。
+  2. 现有代码里这类表基本都不是穷举：nb-form 是 `Record<string, 函数>` 加 fallback，状态栏与项目页是开放字符串键加原样回显。计划却把“nb-form 的 `FormIssue` 加包内文字表”当基线，而这个基线既不穷举，又用函数拼复数/分支（`comparison === ">"` 之类），不能机械地搬进 `{{name}}`/`_one`/`_other` 的 JSON。
+  3. 搬迁代价：每个错误域的新文字表在 t04 写成 `LocalizedText`，w00028 t03 再抽进 JSON、改键、改占位符、改取用函数，同一批文字改两遍；还有一批 `{name}` 的 `formatText` 调用点（`localized-text.ts`）。
+  4. 计划自己的取舍是“先落码与参数的合同，文字沿用现有表”。这个取舍成立的前提是：合同改动与文字载体可以分开。计划没有写出这条缝，也没有要求 t04 把表集中成纯数据。
+- 为什么是问题：这就是任务点名的“两次改同一批文字”。风险不在多写几行，而在 t04 各片各写一个临时表，到 w00028 t03 时无法机械迁移，穷举保证无人接手。
+- 建议改法：在提案里加一条硬约束：所有新文字表是纯数据（`Record<码, LocalizedText>`，占位符只用 `{name}`，不用函数与复数分支），每个拥有者一个 `errors` 模块，通过唯一入口 `failureText(owner, code, params, locale)` 取用；并在 t04 的 Spec 里登记“穷举检查”的责任（先用类型，w00028 t01 定检查后换）。同时把对 w00028 t01 的一个明确输入写进提案：键是 `(拥有者, 码)` 二元组，字符串形式（`ns:errors.code`）由 w00028 t01 定，不在本提案里定死。若 w00028 t01 很快开始，也可以考虑让 t04 里“要写新文字表”的片排在它之后，合同改动的片先行。
+
+### 5. Agent 视图与问答：视图模型装不下“码、参数、详情”，要改的是已发布包的公开类型
+- 严重程度：重要
+- 类别：接口与合同（维度 3）、遗漏（维度 4）
+- 位置：`nb-agent-ui/src/types.ts:48-63,121-126`（`ToolCallView.error?: string`；`ErrorMessageView {message: string; retryable}`，没有 code、参数、详情）；`nb-agent-ui/src/harness.ts:104-111,124,275-285`（`run_end.error` 只取 `kind` 映射七个键，`agentText(locale, key)` 在适配时就用创建适配器时的固定 `locale` 解析成字符串）；`harness.ts:229-235,365-369`（工具失败时 `error: text`）；`nb-agent-ui/src/vue/tools/AgentToolDetail.vue:33`；`nb-story/src/web/qa/record-messages.ts:17,28`（`RecordTurn.error: {message}`，缺省文字“这一轮失败了”写死中文）；`nb-story/src/contract/qa-record.ts:42`（磁盘记录有 `{code, kind?, message}`，网页类型只取了 `message`）；`nb-agent-ui/package.json`（有 `publishConfig`，版本 0.1.0）。
+- 现象：计划 M5/M11 写“界面优先读 `details.code`”“回放按 `code`/`kind` 取文案，`message` 只作详情”。但今天视图模型里：
+  - 错误消息是一个已经解析好的字符串；适配器在创建时就按固定的 `locale` 折成文字，切换语言后已生成的视图不会变（M5 想要的是按码在显示时取文案）。
+  - 没有位置放 `details.code` 的结果：`ToolCallView.error` 是 `string`，`result.details` 是 `JsonValue`，通用详情只把它当 JSON 代码块显示，没有“按码取文案”的钩子；也没有谁来拥有 `chapter_limit` 之类领域码的文字表（nb-agent-ui 是通用包，不该认识 nb-story 的码）。
+  - nb-story 网页回放用的 `RecordTurn.error` 类型只有 `message`，要读 `code`、`kind` 得改网页的类型，磁盘记录里本来就有。
+- 为什么是问题：落地这条需要在 nb-agent-ui 的公开类型上加字段（例如 `ErrorMessageView.code/params/detail`、`ToolCallView.errorCode`，或让 `message` 变成 `ViewText`）和加渲染器钩子（让 nb-story 的 `ToolRendererEntry` 提供按码取文案），这是已发布 npm 包的接口变更，ADR 0034 后果一节明确“公开接口与版本窗口由 w00028 t03 处理”。计划把它放进 t04 的“Agent 与问答”一片而没有提这个接口变更，也没有安排与 w00028 t03 的衔接。另外 Lab 的数据 tab 要求 ctx 可 JSON 化，新字段必须也是可序列化的。
+- 如何核实：读上面位置；`nb-agent-ui/package.json` 有 `publishConfig`。
+- 建议改法：提案的“影响”一节单列 nb-agent-ui 的公开类型变更（新增可选字段，向后兼容旧宿主）；规定“码到文案”由宿主在注册工具渲染器时提供（`ToolRendererEntry` 增一个 `failureText?(call)` 之类的钩子），nb-agent-ui 自己只拥有七个运行错误类别的表；`ErrorMessageView` 改带 `kind` 与 `detail`，由组件按语言取文案，不再在适配器里折叠成字符串。
+
+### 6. “所有域的 `detail` 定为英文诊断”漏了第四类读者：用户或插件作者自己写的内容的校验错误，那里原因本身就是主文字
+- 严重程度：重要
+- 类别：与已定设计一致（维度 1）、别扭（维度 7）
+- 位置：`neuro-book/src/plugins/settings/shared/layer-text.ts:100-124`（16 条 `ParseErrorCode` 的中文原因，文件注释写“用户在设置文件视图里直接看到它”；`invalid()` 拼出“第 N 行：原因”并返回为 `detail`）；`settings/web/components/SettingsFileView.vue:61,241-249`（“未保存：第 {line} 行第 {column} 列：{detail}”）；`plugins/web/components/PluginsPage.vue:208-223`（`detail.problems` 数组逐行显示声明校验问题）；`state/shared/plugin.ts:44-46`、`commands/shared/registry.ts:172-177`（声明校验返回中文句子）；`nb-form/src/vue/messages.ts:61-141`（用户填表的校验错误，已按码）。
+- 现象：ADR 0034 的三分法是“界面文字 / 开发诊断 / 第三方错误”。计划 M3 据此把所有 `detail` 一律当“英文诊断，只进详情”。但至少有一类 `detail` 的读者既是用户又要靠它改东西：设置 JSONC 文件的解析错误（位置加原因，用户要照着改）、插件清单与声明的校验问题（插件作者要照着改）。把它们当“诊断”放进折叠的详情，用户看到的主文字就是“设置文件无法保存（`invalid-text`）”，要改哪里全在折叠里，而且是英文。
+- 为什么是问题：
+  1. 设置的解析原因表在 `shared/` 里，服务端和 Lab 共用，今天就是“服务端产生界面文字”，与 ADR 决策 2 冲突；正确做法是返回 `{code, params: {line, column, key}}`，表搬到前端。但计划只有“码表补齐”一句，没有说这一类。
+  2. 插件作者面对的页面（插件页）读者是开发者，主文字用英文诊断是合适的，用户面对的设置页不是。计划没有区分“哪些页面的读者是开发者”，所以无法判断“英文诊断可作主文字”的边界。
+- 建议改法：提案加一个小分类表：A 用户可行动的校验（设置文件、表单、命名）要码、位置和参数，主文案本地化；B 开发者面对的页面（插件页、诊断面板）英文诊断可直接作主文字；C 其余才是“通用说明加详情”。设置文件的解析错误作为 A 类的第一个明确条目。
+
+### 7. 待定项 2（nb-story 网页跟随浏览器语言、用与应用相同的文字表写法）与现状不符
+- 严重程度：重要
+- 类别：别扭（维度 7）、与已定设计一致（维度 1）
+- 位置：`nb-story/src/web/shell/SettingsPage.vue:385,407`（`locale="zh-CN"` 写死传给 nb-agent-ui 组件）；`nb-story/src/web/host/client.ts:115-123`（网页自造的中文失败说明“连不上查看器的服务……”“请求失败（…）”）；`nb-story/src/web/host/ingest.ts:25-50`（`KIND_TEXT`，一张只有中文的表）；`nb-story/package.json`（独立发布的包，依赖里没有 neuro-book；`neuro-book/package.json` 与 `dev-panel/package.json` 都不依赖它）；`grep -rn "error.message" nb-story/src/web` 11 处。
+- 现象：nb-story 网页没有语言机制：所有页面文字是中文字面量，没有 locale、没有表、没有切换。它是一个独立发布、独立运行（`nbstory serve`）的应用，不能 import neuro-book 的 `LocalizedText`（跨包深导入被禁止，且 neuro-book 不是它的依赖）。待定项 2 推荐“跟随浏览器语言，用与应用相同的文字表写法，默认 zh-CN”：
+  1. “与应用相同的写法”在 nb-story 里不存在，要新建一整套（还要等 w00028 的包级端口）。
+  2. 只让错误文案跟随浏览器语言，页面其余部分和 nb-agent-ui/nb-form 里 `locale="zh-CN"` 写死的部分仍是中文，英文浏览器上会得到一个“错误是英文、其余全中文”的混合界面。
+- 为什么是问题：这条推荐要做的事远大于一个失败投影切片，且结果比现在更乱。
+- 建议改法：待定项 2 改推荐为：nb-story 网页暂定为单语 zh-CN（把它写进 nb-story 包级规则），本切片只做两件事：`StoryCallError` 保留 `code` 与 `candidates`，页面按码查一张只有中文的表，未知码用通用说明加码、原文进详情；网页的语言机制归 w00028 t03 一并做，到时这张表按同样方式搬进目录。
+
+### 8. nbdev 面板：84 个错误码、261 处构造，“面板拼中文”的范围没有界定，不认识的码给通用文案对开发工具反而更糟
+- 严重程度：重要
+- 类别：遗漏（维度 4）、别扭（维度 7）
+- 位置：`dev-panel/src/core/errors.ts:102-118`；`dev-panel/src/web/host/writes.ts:30-41,125-145`（`describeFailure` 对几个特定码有中文，其余 `error.message` 原样、400 与默认也是 `error.message`）；`dev-panel/src/core/text-rules.ts:14-44`；计划 M8 一行。
+- 现象：`grep -rhoE 'new NbdevError\("..."'` 共 84 个不同的码，`NbdevError(` 构造 261 处，message 全是中文且常带参数。计划只写了“共用校验改为返回 `{code, params}`；CLI 拼英文，面板拼中文；HTTP `errors[]` 保留 `code`，`message` 改英文并加 `params`”。面板今天对大多数码的处理是显示服务端给的中文 message（`describeFailure` 的默认路径与 400 路径）。`message` 改英文后：
+  - 面板要保持中文，就要给 84 个码各写中文模板与参数（可能参数还没有进 `details`），而计划只覆盖共用校验那几个。
+  - 若不写，这些路径在面板上变成英文句子，而不是计划总则说的“通用说明加码”（总则的规则是对所有界面的，可 nbdev 面板的读者就是写这个工具的开发者，通用文案“操作没有完成（`xxx`）”比英文原文信息更少）。
+- 如何核实：上面命令；读 `writes.ts:125-145`。
+- 建议改法：提案对 nbdev 写明范围：面板只为面板自己触发的写入类码（`describeFailure` 已区分的那十来个，加共用校验）写中文，其余显示英文 `message`（开发者读英文无障碍），不适用“未知码用通用说明”的规则；这条例外写进 ADR 0034 后果表 dev-panel 一行的落地说明里。
+
+### 9. 共享包的基线与 w00028、ADR 决策 3 不一致：nb-markdown、nb-ui 的失败“由宿主按码取文案”会让宿主拥有别的包的码的文字
+- 严重程度：建议
+- 类别：与已定设计一致（维度 1）
+- 位置：计划 M10 一行；ADR 0034 决策 3 最后一条与 w00028 README “方向”第 3 条（共享包导出自己的默认目录、接收宿主给的 `t(key, params)`）；`nb-markdown/src/codec/write.ts:42-51,745`（`Unrepresentable`）；`nb-ui/src/components/layout/grid-types.ts:167-196`、`nb-ui/src/theme/theme-loader.ts:22-50`（`NbThemeInstallError`）。
+- 现象：计划总则的原则是“消息键 `<拥有者>:errors.<code>`，拥有者是定义这个码的插件或包”，但 M10 对 nb-markdown、nb-ui 写“结构化失败由宿主按码取文案”，等于宿主（neuro-book 的某个插件）替包写文字，包不带任何默认文案；而 ADR 与 w00028 要求包自带默认目录、宿主只提供 `t`。nb-form 与 nb-agent-ui 倒是按包拥有文字。
+- 为什么是问题：宿主有多个（neuro-book、Lab、独立的 nbstory 网页、外部使用者），每个宿主都要重复写同一批文字，且外部使用者没有默认。
+- 建议改法：改成“码由包定义，包自带默认文字（可被宿主的 `t` 覆盖）”；`Unrepresentable` 的用户可见文字实际是编辑器插件在 `area.ts:890` 自己写的，应记为编辑器插件的子码（见第 2 条），而不是 nb-markdown 的表。
+
+### 10. 未知码的通用文案要中性，不能落在“未保存”“失败”这类断言结果的句式框架里
+- 严重程度：建议
+- 类别：异常输入下的失败（维度 4）、违反合同的方式
+- 位置：`WorkbenchStatusBar.vue:13-14`（“布局未保存：{reason}”）；`SettingsFileView.vue:62`（“未保存：{detail}”）；`explorer/web/feedback-text.ts:46-55`（`actionFailed`）；`EditorGroup.vue:187-188`（`saveFailed`）；`projects/web/messages.ts:97-117`（默认分支 `${code}：${detail}`）。
+- 现象：计划总则要求 B3“文案不承诺未写入或可安全重试”，未知码走通用说明。但外层句式（“未保存”“失败”“没有加入书架”）才是用户读到的断言。一个页面不认识的新码（服务端比页面新，`projects/web/messages.ts:53` 的注释明说会发生）若恰好是“结果未知”一类，仍会落进“未保存：…”。
+- 建议改法：提案规定每个调用点的未知码分支用一个与动作无关的中性框架（“操作没有得到确认（`码`）”），不复用该动作的失败框架；写操作的未知码一律建议用户先核对现状再重试。
+
+### 11. 旧日志回退：前端可以同时处理新旧，但“中文前缀判断只留给旧日志”是永久负担，不是迁移期代码
+- 严重程度：建议
+- 类别：遗漏（维度 4）
+- 位置：`nb-story/src/web/qa/tools.ts:24-26`（`readRefused` 按 `text.startsWith("没有读：")`）、`:41-61`（`chaptersPhrase` 靠它排除没读的章）。
+- 现象：适配器同时支持新旧并不难：`details.code === "chapter_limit" || text.startsWith("没有读：")`。但 M13 规定不批量改写会话与问答记录，所以旧日志永远存在，这个前缀判断永远不能删；而 `text` 的中文又是模型也读到的（决策 4 中“工具失败结果新写的用中文”），将来只要有人改这段文字，旧日志的统计（已读章数）就静默变化。
+- 建议改法：提案写明该回退是永久的，并要求保留一份旧日志样本作为夹具（会话/问答读回的验收，计划已列“会话与问答读回”）；前缀常量集中到一处并注明“只给旧日志，禁止再改”。
+
+### 12. `entryReason` 合成函数的返回形态与归属未说清：EntryState 在内核包里
+- 严重程度：建议
+- 类别：接口与合同（维度 3）
+- 位置：`neuro-book/src/plugins/settings/web/sections.ts:52-56`、`choices.ts:52-55`、`workbench/web/views/registry.ts:49-52`、`plugin-platform/shared/problems.ts:31`；`EntryState` 来自 nb-runtime；`plugins/plugins/shared/contracts.ts:21-34`（`PluginProblem` 闭合 schema）。
+- 现象：计划 M6 写“合成一个放在拥有 `EntryState` 的模块”。`EntryState` 在 nb-runtime（内核，运行时依赖只有 TypeBox，前后端共用），所以新函数会成为内核的公开 API；其中一份拷贝（`problems.ts:31`）在服务端把文字写进 `PluginProblem.message`，其余三份在前端。如果合成函数返回文字，就是服务端/内核产生界面文字（违反 ADR 决策 2）；如果返回 `{code, params}`，`PluginProblem` 的闭合 schema 要加字段，进入 M12 的版本边界讨论，计划里没有把两者连起来。
+- 建议改法：明确返回 `{code, params}`，由 neuro-book 的插件页与三个前端调用点各自取文案；`PluginProblem` 的新字段按 M12 写进影响一节。
+
+### 13. 计划自己的验收承诺有两处没有去处
+- 严重程度：建议
+- 类别：遗漏（维度 4）
+- 位置：计划“验收映射”（“M1 到 M17、B1 到 B4、9.5 节的 8 项都在提案或 t04 切片里有去处”）对照 2 节表格与 5 节切片清单；矩阵 `channel-matrix.md` 的 M14（后半句“给 `problems()` 找到展示位或删掉”）与 B4。
+- 现象：
+  - M14：计划只写了“状态栏存储码表补到 14 个”（对应 `shared/storage.ts:139-154` 的 `STORAGE_FAILURES` 14 项，补齐用 `Record<StorageFailure, ...>` 即可穷举，这一半有去处）。`nb-agent-ui` 适配器的 `problems()`（`harness.ts:412`）仓库里没有调用方，矩阵建议“找到展示位或删掉”，计划没有提。
+  - B4（未接产品的基础库）：2 节表格里 B1、B2 有行，B3 在总则，B4 完全没有出现；验收映射却写 B1 到 B4 都有去处。
+- 建议改法：在表格 M3/M14 行补“`problems()` 删除或接展示位，t04 Agent 片决定”，加一行 B4“只记录为不做：这些基础库无产品消费者，保持现状，不虚构迁移”。
+
+### 14. Agent 通过命令桥看到的 `reason` 变英文，与 ADR 决策 4 的“工具失败结果新写的用中文”对不上（未验证）
+- 严重程度：建议
+- 类别：与已定设计一致（维度 1）
+- 位置：`commands/shared/contracts.ts:26-37`（命令结果同时服务用户入口与 `source: "agent"` 的调用）；`neuro-book/src/plugins/commands/shared/registry.ts:296-358`。
+- 现象：仓库里还没找到把命令结果交给模型的桥（`grep callerId` 只命中命令包与旧应用），所以只能从合同推断：计划把 `reason` 改英文诊断，而 `reason` 是 Agent 调用者拿到的唯一说明；ADR 决策 4 又规定新写的基础设施提示词与工具失败结果用中文。
+- 建议改法：在提案里明确命令结果给模型时用哪种语言（若桥未做，写“桥落地时再定，沿用决策 4”），避免 t04 改成英文后桥再改一次。
+
+### 15. 消息键与未知码的查表细节：开放字符串码直接拼进键会和 i18next 的分隔符冲突，拥有者的目录也可能没加载
+- 严重程度：建议
+- 类别：异常输入下的失败（维度 4）
+- 位置：计划总则“消息键”一条；`remote/contracts` 里的 `code: Type.String()`（`commands/shared/contracts.ts:161`，矩阵 M1）；`projects/web/messages.ts:53-60`（已有 `Object.hasOwn` 防护）。
+- 现象：码在某些合同里是开放字符串（远程结果、第三方插件）。拼成 `owner:errors.<code>` 后，含 `.`、`:` 的码会被 i18next 当成命名空间或嵌套路径；缺键时 i18next 默认返回键本身，所以“是不是未知码”要用存在性检查而不是比较返回值；而拥有者若是只有后端运行位置的插件、或窗口里没有激活的插件（热卸载），它的前端目录不在场，所有它的码都会落到通用说明。
+- 建议改法：提案里规定查表接口 `failureText(owner, code, params)` 内部先做存在性检查与码的合法性检查（只接受 `[a-z0-9-_]`），拥有者目录不在场与未知码同样走通用分支，并在 w00028 t01 的输入里写上“跨运行位置的目录如何到前端”。
+
+## 未发现问题的方面
+- M12 的版本边界做法（闭合帧加字段升 `WIRE_PROTOCOL_VERSION`，旧窗口显示“不兼容，请刷新”）与引导协议已有的“读取方容忍多出来的字段、只有破坏性变更才升版本”规则（`shared/browser-bootstrap.ts` 头注释）一致，前端侧没有发现冲突。
+- M13 的“不批量改写旧数据、读时按类别取通用文案”与前端读取侧一致；`record-messages.ts` 的降级路径可以按计划改。
+- M7 的 `{code: "unexpected", detail}` 工具方向对：现有 49 处 `error instanceof Error ? error.message : String(error)` 确实是同一个模式。
+- 四个共享包不依赖 i18n 库这一点，计划没有违反。
+
+## 数量
+重要 8（第 1 至 8 条），建议 7（第 9 至 15 条），阻断 0。
+
+## 待定项判断
+1. 窗口失败页语言：不同意推荐。改为“照明暗提示的先例，把上次的语言记进本地存储，读不到再按浏览器语言，最后 zh-CN”；失败页文案是宿主层小表（第 3 条）。
+2. nb-story 网页语言：不同意推荐。改为暂定单语 zh-CN，只做码保留与按码查中文表，语言机制归 w00028 t03（第 7 条）。
+3. 接受提案：现在不宜接受。先补第 1（详情载体）、2（命令具体原因）、5（nb-agent-ui 公开类型）、6（读者分类）、4（文字表纯数据加单一入口）五处，再交开发者；这五处会改变 t04 的切片划分。
+
+有效发现编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
