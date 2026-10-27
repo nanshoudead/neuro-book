@@ -430,7 +430,10 @@ test("关系图的控件选择刷新后保留（输出 22，反馈 4）：类别
     await expect(coLayer).toHaveAttribute("aria-pressed", "true");
     await coLayer.click();
     await page.getByRole("button", {name: "物品", exact: true}).click();
+    await page.getByText("应力", {exact: true}).click();
+    await expect(page.getByTestId("relation-graph").locator("canvas").first()).toBeVisible();
     await page.getByText("同心", {exact: true}).click();
+    await page.getByTestId("strong-only").click();
     await page.getByTestId("show-anonymous").click();
     await page.getByText("只看选中的周边", {exact: true}).click();
     await page.reload();
@@ -440,11 +443,13 @@ test("关系图的控件选择刷新后保留（输出 22，反馈 4）：类别
     await expect(page.getByRole("checkbox", {name: "显示无名角色"})).toBeChecked();
     await expect(page.getByRole("checkbox", {name: "只看选中的周边"})).toBeChecked();
     await expect(page.getByRole("radio", {name: "同心"})).toBeChecked();
+    await expect(page.getByRole("checkbox", {name: "只画最强的线"})).toBeChecked();
     // 偏好被改坏：回缺省，不报错。
     await page.evaluate(() => window.localStorage.setItem("nbstory:relations-view", "{坏的"));
     await page.reload();
     await expect(page.locator('[data-layer="co"]')).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("checkbox", {name: "显示无名角色"})).not.toBeChecked();
+    await expect(page.getByRole("checkbox", {name: "只画最强的线"})).not.toBeChecked();
     await expect(page.getByTestId("page-error")).toHaveCount(0);
 });
 
