@@ -41,8 +41,11 @@ export interface StatementTier {
     ev: Evidence;
     flag: TierFlag | null;
     refs: RefCounts;
-    /** 事件词组的后文回响：个数与命中的词组（最多 ECHO_SHOWN 个，给依据用）。 */
-    echo: {count: number; grams: string[]};
+    /**
+     * 事件词组的后文回响：`count` 是回响的 4 字词组数（判定证据用）；`phrases` 是给人看的词句：说法里相邻或重叠的
+     * 回响词组连成一句，按在说法里的先后，最多 ECHO_SHOWN 句。
+     */
+    echo: {count: number; phrases: string[]};
     /** 证据窗口：说法所在章之后读到了几章（P 所在章算一章）。 */
     window: number;
 }
@@ -112,11 +115,20 @@ export const episodeTier = priorTier;
 
 type RefType = keyof RefCounts;
 
+/** 说法里的一个 4 字词组：在说法文字里的起点（按字），以及它与说法里哪个称呼重叠、那个称呼最早出现的位置。 */
+interface StatementGram {
+    gram: string;
+    start: number;
+    nameAt: Position | null;
+}
+
 interface StatementBase {
     chapter: number;
     prior: Tier | null;
     family: Family;
-    grams: readonly string[];
+    /** 说法文字逐字拆开（连回响词句用）。 */
+    chars: readonly string[];
+    grams: readonly StatementGram[];
     /** 后文引用：引用方所在章大于说法所在章的；`who` 只给知情，用来按人去重。 */
     refs: readonly {type: RefType; at: Position; who?: string}[];
 }
@@ -133,14 +145,22 @@ interface TierBase {
     grams: Map<string, GramBase>;
 }
 
-/** 文字里的 4 字词组：按标点与空白切成片段，片段内逐字取，不跨句；去重。 */
-function gramsOf(text: string): string[] {
-    const result = new Set<string>();
-    for (const piece of text.split(/[^\p{L}\p{N}]+/u)) {
-        const chars = Array.from(piece);
-        for (let index = 0; index + GRAM <= chars.length; index += 1) result.add(chars.slice(index, index + GRAM).join(""));
+const WORD_CHAR = /[\p{L}\p{N}]/u;
+
+/** 逐字的 4 字词组及起点：标点与空白处断开，不跨句。 */
+function gramsAt(chars: readonly string[]): {gram: string; start: number}[] {
+    const result: {gram: string; start: number}[] = [];
+    let run = 0;
+    for (let index = 0; index < chars.length; index += 1) {
+        run = WORD_CHAR.test(chars[index]!) ? run + 1 : 0;
+        if (run >= GRAM) result.push({gram: chars.slice(index - GRAM + 1, index + 1).join(""), start: index - GRAM + 1});
     }
-    return [...result];
+    return result;
+}
+
+/** 文字里的 4 字词组，去重。 */
+function gramsOf(text: string): string[] {
+    return [...new Set(gramsAt(Array.from(text)).map(item => item.gram))];
 }
 
 function earlier(a: Position | null, b: Position): Position {
@@ -160,13 +180,59 @@ function nameAtOf(gram: string, exact: ReadonlyMap<string, Position>, inside: Re
     return result;
 }
 
+/**
+ * 说法里每个字被哪个称呼盖住、那个称呼最早出现的位置（没被盖住为 null）。盖住的字所在的词组不算回响：
+ * “晴在视频”这类带半截人名的词组只说明人物又出场了，不说明这件事被再提起。
+ */
+function nameCover(chars: readonly string[], namesByFirst: ReadonlyMap<string, readonly {chars: readonly string[]; at: Position}[]>): (Position | null)[] {
+    const cover: (Position | null)[] = chars.map(() => null);
+    for (let start = 0; start < chars.length; start += 1) {
+        for (const name of namesByFirst.get(chars[start]!) ?? []) {
+            if (start + name.chars.length > chars.length || name.chars.some((char, offset) => chars[start + offset] !== char)) continue;
+            for (let offset = 0; offset < name.chars.length; offset += 1) cover[start + offset] = earlier(cover[start + offset]!, name.at);
+        }
+    }
+    return cover;
+}
+
 function buildBase(index: BookIndex): TierBase {
+    // 称呼：完整的称呼（词组包含它）与称呼里的 4 字片段（它包含词组），各记最早出现的位置。
+    const exact = new Map<string, Position>();
+    const inside = new Map<string, Position>();
+    for (const entity of index.entities) {
+        for (const name of entity.names) {
+            if (name.text === "") continue;
+            exact.set(name.text, earlier(exact.get(name.text) ?? null, name.at));
+            for (const gram of gramsOf(name.text)) inside.set(gram, earlier(inside.get(gram) ?? null, name.at));
+        }
+    }
+    const namesByFirst = new Map<string, {chars: string[]; at: Position}[]>();
+    for (const [text, at] of exact) {
+        const chars = Array.from(text);
+        const list = namesByFirst.get(chars[0]!);
+        if (list) list.push({chars, at});
+        else namesByFirst.set(chars[0]!, [{chars, at}]);
+    }
+
     const statements = new Map<string, StatementBase>();
     const wanted = new Set<string>();
     for (const statement of index.statements) {
-        const grams = gramsOf(statement.text);
-        for (const gram of grams) wanted.add(gram);
-        statements.set(statement.id, {chapter: statement.at.chapter, prior: priorTier(statement), family: statement.family, grams, refs: []});
+        const chars = Array.from(statement.text);
+        const cover = nameCover(chars, namesByFirst);
+        const grams: StatementGram[] = [];
+        const seenGram = new Set<string>();
+        for (const {gram, start} of gramsAt(chars)) {
+            if (seenGram.has(gram)) continue;
+            seenGram.add(gram);
+            wanted.add(gram);
+            let nameAt: Position | null = null;
+            for (let offset = 0; offset < GRAM; offset += 1) {
+                const at = cover[start + offset];
+                if (at) nameAt = earlier(nameAt, at);
+            }
+            grams.push({gram, start, nameAt});
+        }
+        statements.set(statement.id, {chapter: statement.at.chapter, prior: priorTier(statement), family: statement.family, chars, grams, refs: []});
     }
     const addRef = (id: string, type: RefType, at: Position, who?: string) => {
         const target = statements.get(id);
@@ -182,16 +248,6 @@ function buildBase(index: BookIndex): TierBase {
     }
     for (const question of index.questions) for (const update of question.updates) if (update.answer !== undefined) addRef(update.answer, "answers", update.at);
 
-    // 称呼：完整的称呼（词组包含它）与称呼里的 4 字片段（它包含词组），各记最早出现的位置。
-    const exact = new Map<string, Position>();
-    const inside = new Map<string, Position>();
-    for (const entity of index.entities) {
-        for (const name of entity.names) {
-            if (name.text === "") continue;
-            exact.set(name.text, earlier(exact.get(name.text) ?? null, name.at));
-            for (const gram of gramsOf(name.text)) inside.set(gram, earlier(inside.get(gram) ?? null, name.at));
-        }
-    }
     // 词组出现在哪些章：原文之外也看记录的文字（说法、情节的标题、概要与步骤）。记录是抽取时的转述，与说法同一种
     // 用词；文白差别大的书（例如西游记）原文里几乎找不到说法的词组，只看原文时回响会系统性偏低。
     const seen = new Map<string, Map<number, number>>();
@@ -256,18 +312,36 @@ function statementTier(base: StatementBase, grams: ReadonlyMap<string, GramBase>
     }
     refs.knowers = knowers.size;
     const cap = Math.max(ECHO_MIN_CAP, Math.ceil(ECHO_CAP_RATIO * at.chapter));
-    const echoed: string[] = [];
-    for (const gram of base.grams) {
-        const info = grams.get(gram)!;
-        if (info.nameAt !== null && visibleAt(info.nameAt, at)) continue;
+    const echoed: StatementGram[] = [];
+    for (const item of base.grams) {
+        const info = grams.get(item.gram)!;
+        if ((info.nameAt !== null && visibleAt(info.nameAt, at)) || (item.nameAt !== null && visibleAt(item.nameAt, at))) continue;
         const seen = seenChapters(info, at);
         // 后文出现过：在说法所在章之后、P 以前的章里有它。
-        if (seen >= 2 && seen <= cap && info.chapters[seen - 1]! > base.chapter) echoed.push(gram);
+        if (seen >= 2 && seen <= cap && info.chapters[seen - 1]! > base.chapter) echoed.push(item);
     }
     const window = at.chapter - base.chapter;
     const strong = Object.values(refs).some(count => count > 0) || echoed.length >= ECHO_STRONG;
     const ev: Evidence = strong ? "strong" : window < EVIDENCE_WINDOW ? "unknown" : echoed.length > 0 ? "some" : "none";
-    return {...combineTier(base.prior, base.family, ev), prior: base.prior, ev, refs, echo: {count: echoed.length, grams: echoed.slice(0, ECHO_SHOWN)}, window};
+    return {...combineTier(base.prior, base.family, ev), prior: base.prior, ev, refs, echo: {count: echoed.length, phrases: phrasesOf(base.chars, echoed).slice(0, ECHO_SHOWN)}, window};
+}
+
+/** 回响词组按起点连成词句：重叠或紧挨着的连在一起。`grams` 已按起点升序。 */
+function phrasesOf(chars: readonly string[], grams: readonly StatementGram[]): string[] {
+    const phrases: string[] = [];
+    let from = -1;
+    let to = -1;
+    for (const {start} of grams) {
+        if (start <= to) {
+            to = Math.max(to, start + GRAM);
+            continue;
+        }
+        if (from >= 0) phrases.push(chars.slice(from, to).join(""));
+        from = start;
+        to = start + GRAM;
+    }
+    if (from >= 0) phrases.push(chars.slice(from, to).join(""));
+    return phrases;
 }
 
 export interface TierTable {

@@ -84,9 +84,16 @@ describe("后验", () => {
     });
 
     test("贯穿全书的设定词组在第 100 章仍算回响（上限随可见章数放宽）", () => {
-        // “神典石”在原文的三十多章出现，按绝对上限会被当成太常见。
-        const result = tiersAt(index, chapterEnd(100)).statement("s4-9")!;
-        expect(result.echo.grams).toContain("00神典");
+        // “每日任务”在三十多章出现，按 12 章的绝对上限会被当成太常见。
+        const result = tiersAt(index, chapterEnd(100)).statement("s2-16")!;
+        expect(result.echo.phrases.some(phrase => phrase.includes("每日任务"))).toBe(true);
+    });
+
+    test("说法里的称呼不算回响；相邻的回响词组连成一句给人看", () => {
+        // s3-8“苏天晴在视频网站上看到的风信子……”：带半截人名的“晴在视频”不算，“在视频网站上”连成一句。
+        const result = tiersAt(index, chapterEnd(100)).statement("s3-8")!;
+        expect(result.echo.phrases).toContain("在视频网站上");
+        expect(result.echo.phrases.join("")).not.toMatch(/晴|风信/u);
     });
 
     test("位置之后的说法不给等级", () => {

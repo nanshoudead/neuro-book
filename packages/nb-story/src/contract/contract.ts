@@ -161,7 +161,7 @@ const TierExplain = Type.Object({
     signals: Type.Union([
         Type.Object({
             refs: Type.Object({confirms: Type.Integer(), contradicts: Type.Integer(), revises: Type.Integer(), knowers: Type.Integer(), secrets: Type.Integer(), answers: Type.Integer()}),
-            echo: Type.Object({count: Type.Integer(), grams: Type.Array(Type.String())}),
+            echo: Type.Object({count: Type.Integer(), phrases: Type.Array(Type.String())}),
         }),
         Type.Null(),
     ]),

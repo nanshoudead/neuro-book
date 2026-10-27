@@ -64,7 +64,7 @@ function explainLines(result: StoryResult<"tier.explain">): string[] {
         refs.answers ? `是 ${refs.answers} 个悬念的解答` : "",
     ].filter(Boolean);
     lines.push(`  后文引用：${cited.length ? cited.join("，") : "没有"}`);
-    lines.push(`  后文再提起：${signals.echo.count ? `${signals.echo.count} 处词句（例如${signals.echo.grams.map(gram => `“${gram}”`).join("、")}）` : "没有"}`);
+    lines.push(`  后文再提起：${signals.echo.phrases.length ? signals.echo.phrases.map(phrase => `“${phrase}”`).join("、") : "没有"}`);
     if (result.ev === "unknown") lines.push(`  这条之后只读了 ${result.window} 章，还看不出后文会不会再提`);
     return lines;
 }
