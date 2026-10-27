@@ -5,7 +5,7 @@
  *
  * 发的是 `release:smoke` 打好、验过的 tarball（`dist/release/`），不在这里重新打包：发出去的字节就是冒烟验过的那份。
  * 发出去的版本号不能再用，所以先过门禁，任何一条失败都在发布前停下：会发布的目录（源码包、生成包的源码目录与根
- * LICENSE）没有未提交的改动或未跟踪的文件、在 master 上、HEAD 已推到 origin/master（README 里的图片用 GitHub 上的地址）、
+ * LICENSE）没有未提交的改动或未跟踪的文件、在 master 上、冒烟用的提交已推到 origin/master（README 里的图片用 GitHub 上的地址）、
  * 冒烟以来会发布的目录没改过（`release-manifest.json` 的提交与 HEAD 比，别的目录的提交不算）且每个 tarball 的 SHA-256 对得上、源码包的发布清单检查、要发的包的 typecheck。只看
  * 会发布的目录，是因为主工作区常有别的会话的改动，它们不进包。单测与 e2e 不在这里重跑，它们是合入 master 的门禁。
  *
@@ -120,19 +120,21 @@ async function gates(): Promise<ReleaseManifest> {
     if (branch !== RELEASE_BRANCH) throw new GateFailure(`要在 ${RELEASE_BRANCH} 上发布，现在是 ${branch}`);
     console.log(`✓ 会发布的目录没有未提交的改动，在 ${RELEASE_BRANCH} 上`);
 
-    const fetched = await run(["git", "fetch", "--quiet", "origin", RELEASE_BRANCH], REPOSITORY);
-    if (fetched.code !== 0) throw new GateFailure(`取不到 origin/${RELEASE_BRANCH}：${fetched.stderr}`);
-    if ((await run(["git", "merge-base", "--is-ancestor", "HEAD", `origin/${RELEASE_BRANCH}`], REPOSITORY)).code !== 0) {
-        throw new GateFailure(`HEAD 还没推到 origin/${RELEASE_BRANCH}：先推送（README 的图片用 GitHub 上的地址，没推送时 npm 页面看不到）`);
-    }
-    console.log(`✓ HEAD 已在 origin/${RELEASE_BRANCH} 上`);
-
     let manifest: ReleaseManifest;
     try {
         manifest = JSON.parse(await readFile(RELEASE_MANIFEST, "utf8")) as ReleaseManifest;
     } catch {
         throw new GateFailure("dist/release/release-manifest.json 读不到：先跑 bun run release:smoke（它生成并验过要发的 tarball）");
     }
+    // README 的图片用 GitHub 上的地址：冒烟用的那个提交要已经推上去。看的是它而不是 HEAD：master 被几个会话共用，
+    // HEAD 上可能有别处还没推的提交，只要会发布的目录自冒烟以来没变（下面核对），推上去的就是要发的内容。
+    const fetched = await run(["git", "fetch", "--quiet", "origin", RELEASE_BRANCH], REPOSITORY);
+    if (fetched.code !== 0) throw new GateFailure(`取不到 origin/${RELEASE_BRANCH}：${fetched.stderr}`);
+    if ((await run(["git", "merge-base", "--is-ancestor", manifest.commit, `origin/${RELEASE_BRANCH}`], REPOSITORY)).code !== 0) {
+        throw new GateFailure(`冒烟用的提交 ${manifest.commit.slice(0, 12)} 还没推到 origin/${RELEASE_BRANCH}：先推送（README 的图片用 GitHub 上的地址，没推送时 npm 页面看不到）`);
+    }
+    console.log(`✓ 冒烟用的提交已在 origin/${RELEASE_BRANCH} 上`);
+
     let changed: string[];
     try {
         changed = releaseFilesChangedSince(manifest.commit, releaseDirectories());
