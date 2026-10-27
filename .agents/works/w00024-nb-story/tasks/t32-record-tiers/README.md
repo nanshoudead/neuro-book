@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t32-record-tiers
-status: planned
+status: in-progress
 updated: 2026-10-27
 ---
 
@@ -15,11 +15,11 @@ updated: 2026-10-27
 
 ## 当前状态
 
-2026-10-27 经 nbdev 新建，尚未开工。
+2026-10-27 计划已写并经开发者确认（[plan.md](plan.md)），交 omp 做设计审查；界面静态稿等审查处理后出，放 nbdev 评审板。
 
 ## 下一步
 
-待补充。
+设计审查 → 处理 → 切片 0（静态稿）与切片 1、2 并行。
 
 ## 背景与已定方向
 
