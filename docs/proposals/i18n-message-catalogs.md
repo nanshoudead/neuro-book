@@ -1,8 +1,8 @@
 ---
 schema: nbook.proposal/v1
-status: reviewing
+status: accepted
 created: 2026-10-27
-decided: null
+decided: 2026-10-27
 supersedes: []
 superseded-by: null
 specs: []
@@ -239,4 +239,4 @@ interface TextPort {
 
 ## 决策记录
 
-无（等开发者）。
+- 2026-10-27，开发者：接受本提案；待定项 2 到 4 按推荐（第三方插件不能新增界面语言；nb-ui 叶子组件读注入并声明 `state:inject`；插件升级后的新目录重启生效，在线替换随热插拔）。简单的迁移可以视情况派 Haiku 或 Sonnet 子代理，先做实验确认 Haiku 是否够用。
