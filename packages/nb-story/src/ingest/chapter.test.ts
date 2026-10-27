@@ -32,6 +32,15 @@ const gunzipJson = async <T>(name: string): Promise<T> => JSON.parse(gunzipSync(
 
 /** 核对清单里“格式不对：”后面的校验说明换成固定文字（见模块头）。 */
 const withoutSchemaDetails = (text: string) => text.replace(/格式不对：[^\n]*/gu, "格式不对：…");
+/**
+ * t20 收紧了规则里 `identity` 的写法（同一个个体才写；不能连到任务；取名、师徒等写别的大类）。对照 t34 录下的请求时先换回
+ * 当时的两处文字，其余部分仍须逐字相同。
+ */
+const TIGHTENED_IDENTITY: [now: string, then: string][] = [
+    ["| `identity` | 两个对象是同一个个体（换了名字、身份或显露真身）；只写“甲就是乙” | 风信子的真名是南小风 |", "| `identity` | 两个对象是不是同一个 | 风信子的真名是南小风 |"],
+    ["`identity` 类必须正好两个，而且都是人物或身份，不能连到任务、物件之类。给人取名、拜师、同行、捆绑、替代、猜测“可能是”都不是同一个个体：前几种写 `event`、`social`、`kinship` 或 `attitude`；原文没有明确说就是同一个个体、只是猜测时，写 `identity` 并标 `certainty: \"candidate\"`。", "`identity` 类必须正好两个。"],
+];
+const asBeforeT20 = (text: string) => TIGHTENED_IDENTITY.reduce((result, [now, then]) => result.replace(now, then), text);
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
 /**
@@ -152,7 +161,8 @@ describe("回放前 10 章（输出 4、7）", () => {
             }
             const text = `${request.system}\n\u0000\n${user}`;
             // 逐字相同；不同时只能是核对清单里的校验说明不同，而且只在核对类请求里。
-            const same = sha256(text) === recorded.sha256 ? "same" : sha256(withoutSchemaDetails(text)) === recorded.normalized && step === "review-1" ? "schema details only" : "different";
+            const before = asBeforeT20(text);
+            const same = sha256(before) === recorded.sha256 ? "same" : sha256(withoutSchemaDetails(before)) === recorded.normalized && step === "review-1" ? "schema details only" : "different";
             expect({key: request.key, same}).not.toEqual({key: request.key, same: "different"});
         }
         // 第 2 章起的普通请求确实只带了一部分已有记录。
