@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t31-graph-quality-program
-status: active
+status: done
 updated: 2026-10-27
 ---
 
@@ -21,4 +21,12 @@ updated: 2026-10-27
 
 ## 当前状态
 
-2026-10-27 开工，分支 `feat/w00024-t31-generic-names`（worktree `.worktree/w00024-t31`）。设计由开发者在 t21 的反馈里定，不另写 plan.md；设计审查并入实现审查。
+2026-10-27 完成并合入 master，分支 `feat/w00024-t31-generic-names`。
+
+- 泛称：`core/generic-names.ts`（词表加“那个、一位”等指示词前缀，整个词相等才算；带专名不算），`BookView.mentions` 与阅读页的名字链接都不再含泛称；`VisibleEntity.anonymous`；`graph.relations` 加 `includeAnonymous`、点带 `anonymous`；`entities.list` 的行带 `anonymous`。Spec：`queries.md` 输出 22。
+- 亲属兜底词：`relationWord` 亲属说法里没有亲属词不再写“亲属”，往下看社交称谓与所属。
+- 关系图页：新增“显示无名角色”开关；类别、连线层、门槛、排版、只看周边、无名开关存进浏览器偏好（`host/relations-view.ts`，读出来逐项校验，坏值回缺省）。同心图每圈半径随点数放大。Spec：`viewer.md` 输出 22。
+- 在开发者给的《老师，男生也能报考魔女学院吗？》图（164 章）上核实：默认不画 16 个无名节点（学生会长、老师、新生、学院长、两个“未具名身份”、小魔女、学姐、小学妹……）；鹿梓（早先叫“那个学生、男生、新生”）的出场从 540 降到 515，墨学姐 411；洛萱与星瑕之间的关系词从“亲属”变成“所属”。
+- 验证：nb-story 509 个测试（全量跑时一个 5 秒超时用例因机器负载单独跑通过）、38 个 e2e（新增偏好持久化；“长列表”性能阈值用例在负载 17 时多花 200 到 1200 毫秒，A/B 基准测查询耗时 t31 没有变慢）；`docs:check` 无失败。
+- 没做、已列入后续：抽取提示词（多问一句马甲与本人、辈分不标亲属、无专名人物）、用户手工修订层、避免线条重叠的布局（评审板）；银色闪光与银空的归并要等抽取侧或手工修订层，这一条程序侧解决不了。
+- 实现审查待做（和 t24、t25 一起交 omp）。
