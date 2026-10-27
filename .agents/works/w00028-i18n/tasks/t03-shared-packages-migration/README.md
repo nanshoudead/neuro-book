@@ -30,7 +30,8 @@ updated: 2026-10-27
 | 片 | 提交 | 验证（实际跑的命令与结果） |
 |---|---|---|
 | 1 纯数据层与端口 | `d8a2234af` | `packages/nb-ui`：`bunx vitest run src/text src/text-port` 15 过；`bun run typecheck` 退出 0。`packages/neuro-book`：`bun test src/shared/text.test.ts` 11 过；`bun run typecheck` 退出 0。`docs:check`、`governance:check` 无失败 |
+| 2 语言类型改字符串 | `967053a30` | `nb-agent-ui`：`bun test` 184 过、vitest 51 过、typecheck 退出 0；`nb-markdown`：`bun test` 261 过、vitest 112 过、typecheck 退出 0；`nb-form`：bun 99 过、vitest 88 过；`dev-panel` typecheck 退出 0；`neuro-book`：`test:bun` 1538 过、`test:vitest` 373 过、typecheck 退出 0。另：nb-agent-ui、nb-markdown 的核心边界与应用 SDK 的服务端子路径放宽到可导入 `@notnotype/nb-ui/text`（纯数据层，没有外部依赖），两包 AGENTS.md 同步改。`nb-story` typecheck 报 `relations-view.ts` 找不到 `StoryNetwork.vue`，master 上同样报，与本片无关 |
 
 ## 下一步
 
-第 2 片：语言类型改字符串（锁步合同片）。
+第 3 片：宿主引擎与引导。
