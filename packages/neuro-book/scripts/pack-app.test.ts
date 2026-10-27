@@ -64,6 +64,20 @@ describe("应用包", () => {
         expect((await packApp({webRoot: web, outDir: out})).tarball).toBe(tarball);
     }, 60_000);
 
+    it("从仓库以外的目录运行：许可清单读的是本仓库 node_modules 里打进去的包", async () => {
+        // Bun 的 metafile 路径相对当前工作目录；在 worktree 里从包目录运行时，按仓库根解析会碰巧落到主工作区，所以换到无关的目录。
+        const out = join(tmp, "elsewhere", "neuro-book");
+        const previous = process.cwd();
+        process.chdir(tmp);
+        try {
+            await packApp({webRoot: web, outDir: out});
+        } finally {
+            process.chdir(previous);
+        }
+        const commander = JSON.parse(await readFile(join(import.meta.dir, "../../../node_modules/commander/package.json"), "utf8")) as {version: string};
+        expect(await readFile(join(out, "THIRD-PARTY-NOTICES.md"), "utf8")).toContain(`### commander@${commander.version}`);
+    }, 60_000);
+
     it("输出目录不是空的、也不是上次生成的应用包（没有标记，哪怕 package.json 同名）：拒绝，不删里面的东西", async () => {
         const out = join(tmp, "foreign");
         await mkdir(out, {recursive: true});
@@ -87,8 +101,11 @@ describe("应用包", () => {
         const bare = join(tmp, "bare-web");
         await mkdir(bare, {recursive: true});
         await writeFile(join(bare, "index.html"), "<!doctype html>");
-        await expect(packApp({webRoot: bare, outDir: join(tmp, "bare-out")})).rejects.toThrow("vite build");
-    });
+        const out = join(tmp, "bare-out");
+        await expect(packApp({webRoot: bare, outDir: out})).rejects.toThrow("vite build");
+        // 失败留下的半成品带着标记：补上前端产物再打一次就能清掉重建，不用手工删目录。
+        expect((await packApp({webRoot: web, outDir: out})).directory).toBe(out);
+    }, 60_000);
 });
 
 describe("bundle 的核对", () => {

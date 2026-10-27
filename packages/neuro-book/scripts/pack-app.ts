@@ -20,7 +20,7 @@
 
 import {execFile, spawnSync} from "node:child_process";
 import {existsSync} from "node:fs";
-import {chmod, cp, readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {chmod, cp, mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {isBuiltin} from "node:module";
 import {basename, dirname, join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -81,14 +81,17 @@ export function bundleProblems(source: string): string[] {
     ];
 }
 
-/** 打一个服务端入口，返回打进去的第三方包所在的目录（metafile 的输入里 `node_modules/<包>/` 的那一段）。 */
+/**
+ * 打一个服务端入口，返回打进去的第三方包所在的目录（metafile 的输入里 `node_modules/<包>/` 的那一段）。metafile 的输入路径
+ * 相对当前工作目录，不是相对仓库根：从包目录运行时是 `../../node_modules/…`。
+ */
 async function bundle(entry: string, outFile: string): Promise<Set<string>> {
     const built = await Bun.build({entrypoints: [join(packageRoot, entry)], target: "bun", outdir: dirname(outFile), naming: basename(outFile), metafile: true});
     if (!built.success) throw new AggregateError(built.logs, `打包 ${entry} 失败`);
     const packages = new Set<string>();
     for (const input of Object.keys(built.metafile?.inputs ?? {})) {
         const match = /^(.*node_modules\/(?:@[^/]+\/)?[^/]+)\//u.exec(input);
-        if (match) packages.add(resolve(repoRoot, match[1]!));
+        if (match) packages.add(resolve(match[1]!));
     }
     return packages;
 }
@@ -168,6 +171,9 @@ export async function packApp(options: PackOptions): Promise<PackedApp> {
     const outDir = resolve(options.outDir);
     await clearPreviousApp(outDir);
     if (!existsSync(join(options.webRoot, "index.html"))) throw new Error(`${options.webRoot} 里没有 index.html：先 bun run build`);
+    // 标记先于内容写下：中途失败留下的半成品下次照样能被清掉，不用手工删目录。
+    await mkdir(outDir, {recursive: true});
+    await writeFile(join(outDir, MARKER), `${APP_NAME}\n`);
     const serverPackages = new Set([
         ...await bundle("src/cli/main.ts", join(outDir, "server", "nbook.js")),
         ...await bundle("src/project/main.ts", join(outDir, "server", "project.js")),
@@ -179,7 +185,6 @@ export async function packApp(options: PackOptions): Promise<PackedApp> {
     }
     await cp(options.webRoot, join(outDir, "web"), {recursive: true, filter: (source) => basename(source) !== ".vite"});
     await writeFile(join(outDir, "THIRD-PARTY-NOTICES.md"), await thirdPartyNotices(serverPackages, options.webRoot));
-    await writeFile(join(outDir, MARKER), `${APP_NAME}\n`);
     await cp(join(repoRoot, "LICENSE"), join(outDir, "LICENSE"));
     const readme = (await readFile(join(packageRoot, "scripts/app-package/README.md"), "utf8")).replaceAll("{{bun}}", BUN_ENGINE).replaceAll("{{commit}}", buildCommit());
     await writeFile(join(outDir, "README.md"), readme);
