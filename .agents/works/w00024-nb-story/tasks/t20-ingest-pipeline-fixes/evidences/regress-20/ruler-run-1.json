@@ -1,0 +1,923 @@
+{
+ "summary": {
+  "run": "/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t20-ingest-pipeline-fixes/regress/run-1",
+  "items": 53,
+  "对": 34,
+  "部分": 11,
+  "错": 0,
+  "缺": 8,
+  "已标待核实": {
+   "对": 0,
+   "部分": 0,
+   "错": 0
+  },
+  "byCategory": {
+   "账本数值": {
+    "总数": 7,
+    "对": 7,
+    "部分": 0,
+    "错": 0,
+    "缺": 0
+   },
+   "道具": {
+    "总数": 3,
+    "对": 1,
+    "部分": 2,
+    "错": 0,
+    "缺": 0
+   },
+   "任务进度": {
+    "总数": 5,
+    "对": 5,
+    "部分": 0,
+    "错": 0,
+    "缺": 0
+   },
+   "时间": {
+    "总数": 3,
+    "对": 3,
+    "部分": 0,
+    "错": 0,
+    "缺": 0
+   },
+   "知情": {
+    "总数": 7,
+    "对": 5,
+    "部分": 1,
+    "错": 0,
+    "缺": 1
+   },
+   "秘密存在": {
+    "总数": 2,
+    "对": 1,
+    "部分": 0,
+    "错": 0,
+    "缺": 1
+   },
+   "来源归属": {
+    "总数": 13,
+    "对": 4,
+    "部分": 5,
+    "错": 0,
+    "缺": 4
+   },
+   "身份与对象": {
+    "总数": 4,
+    "对": 2,
+    "部分": 1,
+    "错": 0,
+    "缺": 1
+   },
+   "诚实边界": {
+    "总数": 4,
+    "对": 4,
+    "部分": 0,
+    "错": 0,
+    "缺": 0
+   },
+   "疑问": {
+    "总数": 2,
+    "对": 1,
+    "部分": 1,
+    "错": 0,
+    "缺": 0
+   },
+   "情节": {
+    "总数": 3,
+    "对": 1,
+    "部分": 1,
+    "错": 0,
+    "缺": 1
+   }
+  },
+  "judgeCostYuan": 0.0304
+ },
+ "results": [
+  {
+   "id": "L1",
+   "category": "账本数值",
+   "kind": "ledger-value",
+   "readAt": "5.102",
+   "text": "读到第 5 章末，苏天晴的神典石为 250（启动资金 200，买强化药 A 花 50，任务奖励 100）",
+   "verdict": "对",
+   "detail": "苏天晴（醒来后发现自己身处陌生身体的苏天晴） 的“神典石”= 250（3 笔，最近 5.35）",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "L2",
+   "category": "账本数值",
+   "kind": "ledger-value",
+   "readAt": "9.35",
+   "text": "读到 9.35（买探查器之前），苏天晴的神典石为 1000",
+   "verdict": "对",
+   "detail": "苏天晴（醒来后发现自己身处陌生身体的苏天晴） 的“神典石”= 1000（6 笔，最近 9.31）",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "L3",
+   "category": "账本数值",
+   "kind": "ledger-value",
+   "readAt": "11.117",
+   "text": "读到第 11 章末，苏天晴的神典石为 500",
+   "verdict": "对",
+   "detail": "苏天晴（醒来后发现自己身处陌生身体的苏天晴） 的“神典石”= 500（10 笔，最近 11.28）",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "L4",
+   "category": "账本数值",
+   "kind": "ledger-value",
+   "readAt": "17.94",
+   "text": "读到第 17 章末，苏天晴的神典石为 800",
+   "verdict": "对",
+   "detail": "苏天晴（醒来后发现自己身处陌生身体的苏天晴） 的“神典石”= 800（12 笔，最近 17.82）",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "L5",
+   "category": "账本数值",
+   "kind": "ledger-value",
+   "readAt": "9.84",
+   "text": "读到第 9 章末，匿名账号的粉丝数为 500",
+   "verdict": "对",
+   "detail": "苏天晴（醒来后发现自己身处陌生身体的苏天晴） 的“粉丝数”= 500（1 笔，最近 9.32）",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "L6",
+   "category": "账本数值",
+   "kind": "ledger-value",
+   "readAt": "12.97",
+   "text": "读到第 12 章末，匿名账号的粉丝数为 1000",
+   "verdict": "对",
+   "detail": "苏天晴（醒来后发现自己身处陌生身体的苏天晴） 的“粉丝数”= 1000（2 笔，最近 12.13）",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "L7",
+   "category": "账本数值",
+   "kind": "ledger-value",
+   "readAt": "15.86",
+   "text": "读到第 15 章末，粉丝数没有被记成 3000 或更多（“这两天就能突破三千”只是估计）",
+   "verdict": "对",
+   "detail": "苏天晴（醒来后发现自己身处陌生身体的苏天晴） 的“粉丝数”= 1000（2 笔，最近 12.13）",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "L8",
+   "category": "道具",
+   "kind": "ledger-holdings",
+   "readAt": "11.117",
+   "text": "读到第 11 章末，苏天晴持有魔力探查器、摄像头、定身陷阱，不再持有强化药 A",
+   "verdict": "部分",
+   "detail": "持有：随身摄像头 苏天晴购买的免充电魔法摄像头、魔力探查器 能够探查附近魔力波动的装置、被动技能：你的视频永远不会被下架 苏天晴购买的防止视频下架的能力；要求的 3 项里有 2 项",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "L9",
+   "category": "道具",
+   "kind": "ledger-spends",
+   "readAt": "17.94",
+   "text": "读到第 17 章末，苏天晴没有买过怪人强化药 S（账本里没有这一笔，也没有持有）",
+   "verdict": "对",
+   "detail": "支出 4 笔：4.50 spend 50  购买怪人强化药A。；6.25 spend 50  购买随身摄像头。；9.42 spend 500  购买魔力探查器。；9.47 spend 100  购买能让视频永远不会被下架的被动技能。。要求的 0 笔里对上 0 笔",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "L10",
+   "category": "道具",
+   "kind": "ledger-spends",
+   "readAt": "11.117",
+   "text": "读到第 11 章末，神典石的支出有：强化药 A 50、摄像头 50、定身陷阱 100、魔力探查器 500、河蟹捕捞装置 100；没有 400 的一笔",
+   "verdict": "部分",
+   "detail": "支出 4 笔：4.50 spend 50  购买怪人强化药A。；6.25 spend 50  购买随身摄像头。；9.42 spend 500  购买魔力探查器。；9.47 spend 100  购买能让视频永远不会被下架的被动技能。。要求的 5 笔里对上 3 笔",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "L11",
+   "category": "任务进度",
+   "kind": "ledger-task",
+   "readAt": "5.102",
+   "text": "读到第 5 章末，任务“找茬魔法少女”已完成",
+   "verdict": "对",
+   "detail": "任务：找茬魔法少女：已完成",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "L12",
+   "category": "任务进度",
+   "kind": "ledger-task",
+   "readAt": "8.89",
+   "text": "读到第 8 章末，任务“拥有一个魔法少女代号”已完成",
+   "verdict": "对",
+   "detail": "任务：拥有一个魔法少女代号：已完成",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "L13",
+   "category": "任务进度",
+   "kind": "ledger-task",
+   "readAt": "8.89",
+   "text": "读到第 8 章末，任务“夙愿”已完成",
+   "verdict": "对",
+   "detail": "任务：夙愿：已完成",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "L14",
+   "category": "任务进度",
+   "kind": "ledger-task",
+   "readAt": "12.97",
+   "text": "读到第 12 章末，任务“反派的自我修养”进行中，进度 0/10",
+   "verdict": "对",
+   "detail": "任务：反派的自我修养：进行中 0/10",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "L15",
+   "category": "任务进度",
+   "kind": "ledger-task",
+   "readAt": "12.97",
+   "text": "读到第 12 章末，任务“扩充”（发展一名新的正牌魔法少女）进行中，进度 0/1",
+   "verdict": "对",
+   "detail": "任务：扩充：进行中 0/1",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "T1",
+   "category": "时间",
+   "kind": "time-relation",
+   "readAt": "4.129",
+   "text": "第 3 章白天（3.60）和第 4 章夜战（4.100）是同一天",
+   "verdict": "对",
+   "detail": "3.60→t3-3 第 1 天 noon；4.100→t4-1 第 1 天 night",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "T2",
+   "category": "时间",
+   "kind": "time-relation",
+   "readAt": "5.102",
+   "text": "第 5 章开头（5.5）是第 4 章夜战的第二天",
+   "verdict": "对",
+   "detail": "4.100→t4-1 第 1 天 night；5.5→t5-1 第 2 天 morning",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "T3",
+   "category": "时间",
+   "kind": "time-relation",
+   "readAt": "9.84",
+   "text": "第 8 章开学日的课上（8.70）和第 9 章第二节课后（9.22）是同一天",
+   "verdict": "对",
+   "detail": "8.70→t8-1 第 3 天 morning；9.22→t9-1 第 3 天 morning",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "K1",
+   "category": "知情",
+   "kind": "secret-table",
+   "readAt": "4.129",
+   "text": "读到第 4 章末，“风信子就是南小风”：读者知道，南小风知道，苏天晴不知道",
+   "verdict": "对",
+   "detail": "秘密“风信子就是南小风”：读者：知道，原文明写（要求 知道/可推断）；南小风：知道，这是本人自己的身份（要求 知道）；苏天晴：不知道（推断），苏天晴以风信子的代号称呼南小风，未显示她知道风信子的真名。（要求 不知道）",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "K2",
+   "category": "知情",
+   "kind": "secret-table",
+   "readAt": "5.102",
+   "text": "读到第 5 章末，苏天晴从秘典情报页知道了风信子就是南小风",
+   "verdict": "对",
+   "detail": "秘密“风信子就是南小风”：苏天晴：读到，苏天晴翻看秘典情报页，读到风信子的真名是南小风。（要求 知道/读到）",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "K3",
+   "category": "知情",
+   "kind": "secret-table",
+   "readAt": "20.89",
+   "text": "读到第 20 章末，“心月狐（狐娘魔法少女）就是苏天晴”：读者和苏天晴知道，南小风不知道，南嘉鱼不知道",
+   "verdict": "对",
+   "detail": "秘密“魔法少女狐狐就是苏天晴”：读者：知道，原文明写（要求 知道/可推断）；苏天晴：知道，这是本人自己的身份（要求 知道）；南小风：不知道（推断），南小风把苏天晴当作姐姐南嘉鱼新交到的朋友，主动拥抱她并称她为“天晴姐姐”，没有表现出认出她就是心月狐。（要求 不知道）；南嘉鱼：不知道（推断），南嘉鱼在与苏天晴单独游玩并谈论彼此生活时，仍把苏天晴作为普通狐人朋友看待，没有将她与心月狐联系起来。（要求 不知道）",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "K4",
+   "category": "知情",
+   "kind": "secret-table",
+   "readAt": "20.89",
+   "text": "读到第 20 章末，“南嘉鱼也是反派魔法少女”：读者和南嘉鱼知道，苏天晴不知道",
+   "verdict": "部分",
+   "detail": "秘密“南嘉鱼也是反派魔法少女”：读者：知道，原文明写（要求 知道/可推断）；南嘉鱼：知道，旁白确认南嘉鱼本人也是反派魔法少女。（要求 知道）；苏天晴：没有记录（要求 不知道）",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "K5",
+   "category": "知情",
+   "kind": "secret-table",
+   "readAt": "20.89",
+   "text": "读到第 20 章末，“风信子就是南小风”：花铃知道（第 14 章亲眼看到变身），白灵知道，苏天晴知道",
+   "verdict": "对",
+   "detail": "秘密“风信子就是南小风”：花铃：知道，花铃此前亲眼看见南小风以风信子身份出现并解除变身；本章南小风又担心她说出风信子的真实身份。（要求 知道）；白灵：知道，白灵以“小风”称呼南小风，并与她共同活动。（要求 知道）；苏天晴：读到，苏天晴翻看秘典情报页，读到风信子的真名是南小风。（要求 知道/读到）",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "K6",
+   "category": "知情",
+   "kind": "secret-table",
+   "readAt": "10.75",
+   "text": "读到第 10 章末，南嘉鱼不知道心月狐就是苏天晴",
+   "verdict": "对",
+   "detail": "秘密“魔法少女狐狐就是苏天晴”：南嘉鱼：不知道（推断），南嘉鱼把心月狐当作另一个狐人反派魔法少女，并犹豫是否接触她，没有表现出认出心月狐就是苏天晴。（要求 不知道）",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "K7",
+   "category": "知情",
+   "kind": "secret-table",
+   "readAt": "3.87",
+   "text": "读到第 3 章末，秘典知道苏天晴不是原主只是推断（苏天晴的猜测加 3.26 的任务文字），不应记成明写的知道",
+   "verdict": "缺",
+   "detail": "图里没有这个秘密（此时可见的秘密：无）",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "K8",
+   "category": "秘密存在",
+   "kind": "secret-table",
+   "readAt": "4.129",
+   "text": "读到第 4 章末，存在秘密“绿心公园现身的狐娘魔法少女就是苏天晴”，读者知道，南小风不知道",
+   "verdict": "缺",
+   "detail": "图里没有这个秘密（此时可见的秘密：风信子就是南小风）",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "K9",
+   "category": "秘密存在",
+   "kind": "secret-table",
+   "readAt": "10.75",
+   "text": "读到第 10 章末，存在秘密“南嘉鱼也是反派魔法少女”，读者知道",
+   "verdict": "对",
+   "detail": "秘密“南嘉鱼也是反派魔法少女”：读者：知道，原文明写（要求 知道/可推断）",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "S1",
+   "category": "来源归属",
+   "kind": "records",
+   "readAt": "1.76",
+   "text": "“墨丘利秘典绑定成功”“契约成立”这句话的说话人不明（脑中响起的声音），不应记成秘典的台词",
+   "verdict": "对",
+   "detail": "s1-12明确记载为脑中响起、说话人不明的提示，并未记成墨丘利秘典的台词；其余记录也只描述提示出现。",
+   "hits": [
+    "s1-12",
+    "l1-1",
+    "p1-2"
+   ],
+   "usage": {
+    "prompt_tokens": 668,
+    "completion_tokens": 73,
+    "total_tokens": 741
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "S2",
+   "category": "来源归属",
+   "kind": "records",
+   "readAt": "1.76",
+   "text": "“前世死于急性心肌梗死”是苏天晴自己的猜测，不是旁白事实",
+   "verdict": "缺",
+   "detail": "没有与关键词相关的记录",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "S3",
+   "category": "来源归属",
+   "kind": "records",
+   "readAt": "1.76",
+   "text": "太奶在面摊出现只是苏天晴恍惚间的感知，不应记成旁白确认太奶在场；最好留有“太奶是真是幻”的疑问",
+   "verdict": "缺",
+   "detail": "没有与关键词相关的记录",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "S4",
+   "category": "来源归属",
+   "kind": "records",
+   "readAt": "3.87",
+   "text": "“风信子擅长近战压制与肉搏，对魔法尚不熟练”来源是秘典情报页的文字，不是风信子自述",
+   "verdict": "部分",
+   "detail": "s3-6记录了相关内容但来源标为视频文字而非秘典情报页，p3-1仅说明苏天晴翻阅秘典获取情报，未明确记载该具体描述。",
+   "hits": [
+    "s3-6",
+    "p3-1"
+   ],
+   "usage": {
+    "prompt_tokens": 545,
+    "completion_tokens": 165,
+    "total_tokens": 710,
+    "completion_tokens_details": {
+     "reasoning_tokens": 90
+    }
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "S5",
+   "category": "来源归属",
+   "kind": "records",
+   "readAt": "7.123",
+   "text": "第 6 章视频里“夷平教学楼/第三学院”是吹牛，不应记成她有这个能力或打算",
+   "verdict": "对",
+   "detail": "夷平教学楼被明确记录为苏天晴（魔法少女狐狐）在视频中的威胁台词，而第7章记录明确指出这是吹牛，并记载她实际使用的是魔法飞弹，没有把夷平能力或打算当作事实。",
+   "hits": [
+    "s6-22",
+    "s7-1",
+    "p7-1"
+   ],
+   "usage": {
+    "prompt_tokens": 1091,
+    "completion_tokens": 92,
+    "total_tokens": 1183
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "S6",
+   "category": "来源归属",
+   "kind": "records",
+   "readAt": "15.86",
+   "text": "“风信子击退心月狐”是第 15 章新闻的说法，实际没有交战，苏天晴自行撤退",
+   "verdict": "部分",
+   "detail": "s15-9明确记录为晚间新闻的说法，p15-2也确认两人听到该新闻，但没有记录说明实际未交战且苏天晴自行撤退。",
+   "hits": [
+    "s15-9",
+    "p15-2"
+   ],
+   "usage": {
+    "prompt_tokens": 632,
+    "completion_tokens": 127,
+    "total_tokens": 759,
+    "completion_tokens_details": {
+     "reasoning_tokens": 57
+    }
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "S7",
+   "category": "来源归属",
+   "kind": "records",
+   "readAt": "16.102",
+   "text": "“君子有酒是南嘉鱼”是苏天晴的推断，不是明写",
+   "verdict": "对",
+   "detail": "记录明确将“君子有酒是南嘉鱼”归为苏天晴基于线索的猜测和推断，而非旁白确认的事实。",
+   "hits": [
+    "s16-13",
+    "k16-5",
+    "p16-2"
+   ],
+   "usage": {
+    "prompt_tokens": 744,
+    "completion_tokens": 67,
+    "total_tokens": 811
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "S8",
+   "category": "来源归属",
+   "kind": "records",
+   "readAt": "5.102",
+   "text": "“抽陀螺的游戏”是比喻，指第 4 章挠痒痒的捉弄，不是另一种游戏",
+   "verdict": "缺",
+   "detail": "没有与关键词相关的记录",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "S9",
+   "category": "来源归属",
+   "kind": "records",
+   "readAt": "1.76",
+   "text": "签约顺序：先答应签约、契约成立后才问内容；答应的理由是变成萝莉本身就是最大奖励",
+   "verdict": "部分",
+   "detail": "p1-2明确记载她答应后才询问契约内容并在之后得知安排，但未记录“变成萝莉本身就是最大奖励”这一答应理由。",
+   "hits": [
+    "p1-2"
+   ],
+   "usage": {
+    "prompt_tokens": 958,
+    "completion_tokens": 120,
+    "total_tokens": 1078,
+    "completion_tokens_details": {
+     "reasoning_tokens": 54
+    }
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "S10",
+   "category": "来源归属",
+   "kind": "records",
+   "readAt": "20.89",
+   "text": "叔叔是南嘉鱼爷爷奶奶的亲儿子；他是南小风的父亲是推断；不应记叔叔是南嘉鱼的亲生父亲",
+   "verdict": "部分",
+   "detail": "记录明确支持叔叔是南嘉鱼爷爷奶奶的亲儿子，但没有记录说明南小风是他的女儿或“叔叔就是南小风口中的老爸”，也未记载叔叔是南嘉鱼的亲生父亲。",
+   "hits": [
+    "s20-4",
+    "p20-1"
+   ],
+   "usage": {
+    "prompt_tokens": 835,
+    "completion_tokens": 83,
+    "total_tokens": 918
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "S11",
+   "category": "来源归属",
+   "kind": "records",
+   "readAt": "16.102",
+   "text": "南小风母亲的去向只有父亲的话“去了很远的地方”，是否去世原文没有交代",
+   "verdict": "对",
+   "detail": "s16-6明确记为南小风转述父亲的话“去了很远的地方，永远不会回来”，s16-7仅表达她的愿望，q16-1也表明去向和不归原因未解，没有把母亲去世记成事实。",
+   "hits": [
+    "s16-6",
+    "s16-7",
+    "q16-1"
+   ],
+   "usage": {
+    "prompt_tokens": 694,
+    "completion_tokens": 130,
+    "total_tokens": 824,
+    "completion_tokens_details": {
+     "reasoning_tokens": 34
+    }
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "S12",
+   "category": "来源归属",
+   "kind": "records",
+   "readAt": "4.129",
+   "text": "“风信子的魔法少女天赋是近战压制”是白灵的说法",
+   "verdict": "部分",
+   "detail": "记录支持风信子擅长近战压制，但未明确写明这是白灵的说法；白灵说的是南小风的魔法少女天赋。",
+   "hits": [
+    "s3-6",
+    "s4-10"
+   ],
+   "usage": {
+    "prompt_tokens": 494,
+    "completion_tokens": 64,
+    "total_tokens": 558
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "S13",
+   "category": "来源归属",
+   "kind": "records",
+   "readAt": "3.87",
+   "text": "第 3 章入夜后“怪人袭击绿心公园”是苏天晴听到吼叫、看到路人逃跑后的判断，旁白没有确认",
+   "verdict": "对",
+   "detail": "s3-14明确记为苏天晴的心理判断，s3-19仅确认吼叫和路人逃跑而未确认袭击事实，p3-3也说明“怪人袭击”是她认为秘典预测应验。",
+   "hits": [
+    "s3-14",
+    "s3-19",
+    "p3-3"
+   ],
+   "usage": {
+    "prompt_tokens": 697,
+    "completion_tokens": 270,
+    "total_tokens": 967,
+    "completion_tokens_details": {
+     "reasoning_tokens": 181
+    }
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "E1",
+   "category": "身份与对象",
+   "kind": "records",
+   "readAt": "16.102",
+   "text": "“金毛狐狐”“屑狐狐”“心月狐”“魔法少女狐狐official”都指苏天晴（本人的称呼，或与她相连的身份和账号）",
+   "verdict": "部分",
+   "detail": "“金毛狐狐”和“屑狐狐”在e1-1中明确登记为苏天晴的称呼，但“心月狐”和“魔法少女狐狐official”在e6-4中登记为相关身份或账号，未直接并入苏天晴对象；虽有s8-11、s9-10及s11-8等记录将二者与苏天晴连起，整体支持但登记归属不完全一致。",
+   "hits": [
+    "e1-1",
+    "e6-4",
+    "s8-11",
+    "s9-10"
+   ],
+   "usage": {
+    "prompt_tokens": 7157,
+    "completion_tokens": 137,
+    "total_tokens": 7294
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "E2",
+   "category": "身份与对象",
+   "kind": "records",
+   "readAt": "12.97",
+   "text": "花铃是秘典适格者列表上的候选（适格度 97%），第 12 章被选作发展对象，尚未成为魔法少女",
+   "verdict": "部分",
+   "detail": "记录支持花铃是适格者列表候选且适格度为97%，但未记录她被苏天晴选作发展对象或尚未成为魔法少女。",
+   "hits": [
+    "e12-5",
+    "s12-19"
+   ],
+   "usage": {
+    "prompt_tokens": 506,
+    "completion_tokens": 111,
+    "total_tokens": 617,
+    "completion_tokens_details": {
+     "reasoning_tokens": 45
+    }
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "E3",
+   "category": "身份与对象",
+   "kind": "records",
+   "readAt": "20.89",
+   "text": "南嘉鱼的“妹妹”就是南小风，第 20 章揭晓",
+   "verdict": "对",
+   "detail": "第20章明确记录苏天晴认出南嘉鱼的妹妹就是南小风，且情节记录说明南小风是南嘉鱼的妹妹并为叔叔家的女儿。",
+   "hits": [
+    "s20-7",
+    "p20-1"
+   ],
+   "usage": {
+    "prompt_tokens": 1614,
+    "completion_tokens": 140,
+    "total_tokens": 1754,
+    "completion_tokens_details": {
+     "reasoning_tokens": 70
+    }
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "E4",
+   "category": "身份与对象",
+   "kind": "records",
+   "readAt": "8.89",
+   "text": "心月狐是英雄协会给金色狐人魔法少女的暂定识别代号",
+   "verdict": "对",
+   "detail": "s8-10明确记载英雄协会公告将“心月狐”作为新人金色狐人魔法少女的暂定识别代号，p8-2进一步确认该公告内容，并未记为苏天晴自行起名。",
+   "hits": [
+    "s8-10",
+    "p8-2"
+   ],
+   "usage": {
+    "prompt_tokens": 906,
+    "completion_tokens": 187,
+    "total_tokens": 1093,
+    "completion_tokens_details": {
+     "reasoning_tokens": 106
+    }
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "J1",
+   "category": "诚实边界",
+   "kind": "records",
+   "readAt": "20.89",
+   "text": "原文没有给南嘉鱼魔法少女代号，图里不应把任何代号安给她",
+   "verdict": "对",
+   "detail": "没有相关记录，而核对项要求的正是没有",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "J2",
+   "category": "诚实边界",
+   "kind": "records",
+   "readAt": "20.89",
+   "text": "苏天晴前世的性别没有被记成事实（原文明确的只有前世是医生、读了八年书）",
+   "verdict": "对",
+   "detail": "相关记录只明确记载苏天晴前世是医生、读了八年书，并将写网络小说作为前世经历；没有把前世性别记成事实，且相关内容均有明确归属。",
+   "hits": [
+    "s8-3",
+    "s8-14",
+    "s5-14",
+    "s5-16",
+    "s15-5"
+   ],
+   "usage": {
+    "prompt_tokens": 7769,
+    "completion_tokens": 89,
+    "total_tokens": 7858
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "J3",
+   "category": "诚实边界",
+   "kind": "records",
+   "readAt": "5.102",
+   "text": "第 5 章情报页的家庭住址在原文里被省略，图里不应记具体地址",
+   "verdict": "对",
+   "detail": "没有相关记录，而核对项要求的正是没有",
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "J4",
+   "category": "诚实边界",
+   "kind": "records",
+   "readAt": "16.102",
+   "text": "南小风打败过多少怪人：第 4 章旁白“十几只”和第 16 章她自己说“二十多，没数过”都保留来源，没有被合并成一个确定数字",
+   "verdict": "对",
+   "detail": "两处记录均在，且分别明确标注为旁白叙述的“十几起”和南小风自称估计的“二十多个、没数过”，未合并为确定数字。",
+   "hits": [
+    "s4-6",
+    "s16-9"
+   ],
+   "usage": {
+    "prompt_tokens": 523,
+    "completion_tokens": 73,
+    "total_tokens": 596
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "Q1",
+   "category": "疑问",
+   "kind": "records",
+   "readAt": "3.87",
+   "text": "存在“秘典是否知道苏天晴不是原主”的疑问或推断型判断，并把 3.26 夙愿任务里“带着她的那份一起活下去”作为线索连上",
+   "verdict": "对",
+   "detail": "s1-6明确记录了苏天晴对“秘典是否知道自己不是原主”的推断，s3-8明确记录了3.26夙愿任务中“带着她的那份一起活下去”这一相关线索。",
+   "hits": [
+    "s1-6",
+    "s3-8"
+   ],
+   "usage": {
+    "prompt_tokens": 737,
+    "completion_tokens": 82,
+    "total_tokens": 819
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "Q2",
+   "category": "疑问",
+   "kind": "records",
+   "readAt": "20.89",
+   "text": "读到第 20 章末仍未解的疑问应包括：太奶是真是幻；为何选中苏天晴、造物主是谁；秘典为何不再说话；南嘉鱼的来历和十字星从何而来；两人互相感到的奇妙气息；南小风母亲去了哪里",
+   "verdict": "部分",
+   "detail": "记录明确保留了造物主身份及任务缘由、秘典沉默、两人奇妙气息、南小风母亲去向四项悬念，但没有太奶是真是幻，也没有南嘉鱼来历和十字星来源的未解疑问记录；且造物主相关记录未明确覆盖“为何选中苏天晴”。",
+   "hits": [
+    "q1-3",
+    "q2-3",
+    "q9-1",
+    "q16-1",
+    "s1-5",
+    "s10-16"
+   ],
+   "usage": {
+    "prompt_tokens": 5086,
+    "completion_tokens": 344,
+    "total_tokens": 5430,
+    "prompt_tokens_details": {
+     "cached_tokens": 4992
+    },
+    "completion_tokens_details": {
+     "reasoning_tokens": 215
+    }
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "P1",
+   "category": "情节",
+   "kind": "records",
+   "readAt": "7.123",
+   "text": "风信子踩中的是藏在防尘布下的真定身陷阱；操场上的魔法阵是用来迷惑的仿制品",
+   "verdict": "对",
+   "detail": "记录明确说明真定身陷阱藏在教学楼死路的杂物和防尘布下并定住风信子，操场魔法阵只是为迷惑而仿制的无用陷阱。",
+   "hits": [
+    "s7-10",
+    "s7-11",
+    "p7-2"
+   ],
+   "usage": {
+    "prompt_tokens": 1540,
+    "completion_tokens": 165,
+    "total_tokens": 1705,
+    "completion_tokens_details": {
+     "reasoning_tokens": 81
+    }
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "P2",
+   "category": "情节",
+   "kind": "records",
+   "readAt": "14.92",
+   "text": "第 14 章苏天晴撤退的原因：每日任务已完成、激将法达成、自己不一定打得赢；不是被打败",
+   "verdict": "部分",
+   "detail": "记录明确支持苏天晴对外称自己累了并会信守诺言撤退，也记载她主动发动传送离开，但未记录任务完成、激将法达成或自认未必能取胜，亦未明确说明不是被风信子打败。",
+   "hits": [
+    "s14-11",
+    "s14-12",
+    "p14-2"
+   ],
+   "usage": {
+    "prompt_tokens": 822,
+    "completion_tokens": 182,
+    "total_tokens": 1004,
+    "completion_tokens_details": {
+     "reasoning_tokens": 87
+    }
+   },
+   "flagged": false,
+   "flaggedIds": []
+  },
+  {
+   "id": "P3",
+   "category": "情节",
+   "kind": "records",
+   "readAt": "6.114",
+   "text": "风信子被困七个小时的原因：她只想挣脱没想到求援；协会因迟迟没收到汇报才派值班英雄调查",
+   "verdict": "缺",
+   "detail": "记录只说明南小风被困七小时后获救或被协会察觉，没有记载她没想到求援，也没有记载协会因未收到任务汇报才派人调查。",
+   "hits": [
+    "s6-14",
+    "p6-2"
+   ],
+   "usage": {
+    "prompt_tokens": 901,
+    "completion_tokens": 220,
+    "total_tokens": 1121,
+    "completion_tokens_details": {
+     "reasoning_tokens": 150
+    }
+   },
+   "flagged": false,
+   "flaggedIds": []
+  }
+ ]
+}
