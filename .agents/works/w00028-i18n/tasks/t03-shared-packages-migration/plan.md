@@ -8,7 +8,7 @@
 
 开发者已确认的决定：提案的决策记录；w00028 Work README“方向”；w00031 Work README 第 8、9、11 条。简单迁移的分派按 [Haiku 实验](evidences/haiku-experiment.txt) 的结论（`~/.claude/CLAUDE.md` 分派表已更新）。
 
-工作方式：自主推进；代码在 Work 分支 `feat/w00028-i18n`（worktree `.worktree/w00028-i18n`） 的 worktree 里改；每片先改 Spec（按 `writing-specs`）再改代码、自跑验证、单独提交；跨合同的改动（schema、版本、调用方、Spec）放在同一片里原子提交。
+工作方式：自主推进；Spec 随实现分支提交（`.agents/works/README.md`：实现分支带代码、测试、Spec 与文档；根 `AGENTS.md` 写的“Spec 在 master 更新”与它冲突，交付时作回写建议）；代码在 Work 分支 `feat/w00028-i18n`（worktree `.worktree/w00028-i18n`） 的 worktree 里改；每片先改 Spec（按 `writing-specs`）再改代码、自跑验证、单独提交；跨合同的改动（schema、版本、调用方、Spec）放在同一片里原子提交。
 
 ## 技术选型
 
@@ -17,7 +17,7 @@
 | 翻译引擎 | i18next 26.5（ADR 0034、t02 原型） | — |
 | 嵌套键的点号路径类型 | 自写递归类型 | 生成类型的脚本 |
 | 内联文字抽取 | 一次性脚本：`.ts` 用 TypeScript 编译器 API；`.vue` 先用 `@vue/compiler-sfc` 取出 `<script>` 块再同样处理；只改写无插值或 `{name}` 插值的字面量，其余列清单人工改；脚本同时输出“键 → 旧字面量”对照表 | 正则替换：多行与嵌套会漏 |
-| 共享包的 JSON 目录导入 | 目录写成 JSON（翻译平台要），每个共享包另有一个 `.ts` 模块包一层 `import … with {type: "json"}` 并导出；包的 README 写明消费者要开 `resolveJsonModule`（ADR 0029 只承诺 Bun） | 把目录写成 `.ts`：翻译平台读不了 |
+| 共享包的默认目录 | 写成 `.ts` 模块（`locales/zh-CN.ts` 默认导出对象），由包的 `./locales` 子路径导出；应用与插件的目录仍是 JSON | JSON 加 `resolveJsonModule`：nb-story、dev-panel 等消费方都没开，导入即 TS2732，外部消费者也要跟着改配置（提案允许的另一种写法） |
 
 ## 边界（各片都遵守）
 
@@ -36,23 +36,25 @@
 - `TextSchema`（TypeBox）放应用的 `src/shared/text.ts`（nb-ui 不依赖 TypeBox），只引 nb-ui 的 `./text`。
 - 测试：纯数据层与最小实现的单测，按 `ui/i18n.md` 的条目编号写。不改任何现有行为。
 
-### 第 2 片：语言类型改字符串
+### 第 2 片：语言类型改字符串（锁步合同片）
 
-- `DisplayLocale`、`MarkdownLocale`、`PromptLocale` 改为 `string`（同时改 `markdown/web/host.ts` 的锁步断言）。语言集合是一个共享常量 `HOST_LOCALES`（纯模块，服务端、项目、浏览器共用）。
+- 同片改 `DisplayLocale`、`MarkdownLocale`、`PromptLocale`、`AgentLocale` 为 `string`，以及 `markdown/web/host.ts` 的锁步断言；`localize`、`textOf` 里的 `text[locale]` 改用纯数据层的 `resolveLocaleMap`（取不到当前语言取 `en-US`，再取第一项，与现有 `FormText` 回退一致）。包内按两种语言写的文字表在本片保持原样（表的键仍是 `"zh-CN" | "en-US"`，查表经 `resolveLocaleMap`），迁移在后面的片。语言集合是一个共享常量 `HOST_LOCALES`（纯模块，服务端、项目、浏览器共用）。
 - `nbook.settings/locale` 的 schema 保持可序列化的枚举，枚举值与 `choices` 都由 `HOST_LOCALES` 生成；切换语言命令的参数也由它生成。加一种语言只改这个常量与宿主目录。
 - Spec：`settings/configuration.md`（`locale` 的取值来源）、`workbench/commands.md`（切换语言命令）。
-- 测试：假设第三种语言的组合用例：两种写入入口与文件读取都接受集合里的语言、拒绝集合外的；命令参数与设置选项一致。
+- 命令：`bun run --cwd packages/nb-markdown typecheck && bun test`、`nb-agent-ui`、`nb-form`、`neuro-book` 同样各跑 `typecheck` 与 `test`。
+- 测试：用一个按语言集合生成设置定义的工厂，跑假设第三种语言的组合用例：两种写入入口与文件读取都接受集合里的语言、拒绝集合外的；命令参数与设置选项一致。
 
 ### 第 3 片：宿主引擎与引导
 
 - Spec：`runtime/browser-host.md`（语言来源与本地记录、静态文字、`<html lang>`）。
-- 代码：`src/web/host/i18n.ts`：`createInstance`；包装层（不转义、关 nesting、`nsSeparator: false`、按命名空间的源语言回退、数量参数校验、热重载先注销再登记）；`TextPort` 实现与 `variants`；语言由宿主驱动（见“边界”）；三个 `createApp` 根注入；本地记录照 `appearance-hint.ts`，只由收到的设置快照写入；失败页、`NotFoundPage`、离线横幅、`boot.ts`、两份 `index.html` 的静态文字进宿主目录，内联脚本的两种语言由测试核对。
-- 测试（按 `ui/i18n.md` 条目，和原型的探索测试分开）：非中文源语言的命名空间回退、缺参数在测试环境抛错、数量参数非有限数、501 字参数、键里的冒号与 nesting 被拒、目录注销再登记、切换语言不重新挂载。
+- 代码：共享包目录登记表：宿主在引导时从 `@notnotype/nb-ui/locales`、`@notnotype/nb-form/locales`、`@notnotype/nb-agent-ui/locales`、`@notnotype/nb-markdown/locales` 导入各包目录，按包名登记（各包在第 1 片或各自的片里加这个子路径；没有的包先登记空目录）；七处各自 `computed(displayLocale(settings))` 的写法在本片改为读端口的 `locale`。`src/web/host/i18n.ts`：`createInstance`；包装层（不转义、关 nesting、`nsSeparator: false`、按命名空间的源语言回退、数量参数校验、热重载先注销再登记）；`TextPort` 实现与 `variants`；语言由宿主驱动（见“边界”）；三个 `createApp` 根注入；本地记录照 `appearance-hint.ts`，只由收到的设置快照写入；失败页、`NotFoundPage`、离线横幅、`boot.ts`、两份 `index.html` 的静态文字进宿主目录，内联脚本的两种语言由测试核对。
+- 测试（按 `ui/i18n.md` 条目，和原型的探索测试分开）：`escapeValue` 关闭后参数里的 `/`、`<` 原样；最小实现与宿主引擎对同一组用例输出一致；非中文源语言的命名空间回退、缺参数在测试环境抛错、数量参数非有限数、501 字参数、键里的冒号与 nesting 被拒、目录注销再登记、切换语言不重新挂载。
 
 ### 第 4 片：声明的文字类型（schema 替换）
 
 - 9 个文件 22 处 `LocalizedTextSchema` 换成 `TextSchema`。**这改变行为**：单语言写法、纯字符串原先被拒，之后合法（字符串是字面文字）。同片改 `settings/configuration.md` 输出 1、21 与 `shared/settings.test.ts` 里对应的断言，测试名写明“改为接受”。
-- **不含**远程命令列表 `RemoteCommandSchema.title`（随第 6 片原子升版本），本片对远程出口仍只送 `LocaleMap`。
+- **不含**：命令声明的 `title`、`category`（远程 `list` 直接转发它们，随第 6 片与合同版本 2 一起放宽）；公开状态的 `reason`（服务端也求值，随第 6 片）。这两处本片仍是 `LocalizedTextSchema`。
+- **消费方**：设置窗口（`createSettingsWindow` 里读 `options.locale.value` 的 12 行）、命令搜索 `searchCommands`、`otherTexts` 等纯 TS 函数改为接收 `TextPort`（`t` 与 `variants`），不再收 `locale`；`otherTexts` 不能再用 `Object.entries` 遍历文字（遇到 `TextRef` 会把 `kind`、`key` 当成语言写法），改用 `variants`。动手前先列全调用点（粗查下限 34 处、18 个文件）。
 - 浏览器渲染处显式取端口的 `t`；服务端路径照旧用纯数据层解析 `LocaleMap`。
 - 测试：全部内置插件装载（服务端与浏览器两端），声明照常登记、标题照常显示。
 
@@ -79,24 +81,38 @@
 - 每片：跑抽取脚本；人工改脚本列出的；用脚本输出的对照表生成一条测试，断言每个迁移键的 zh-CN、en-US 目录值与旧字面量相同（防止抽取改错文字）；测试里断言中文文字的改成断言键或结构，不放宽；该插件的 Lab 截图在迁移前后各拍一组，逐张目视对照（`lab:shot` 没有基线比对）。
 - 分派：文案改写少、纯搬运的插件派 Haiku；需要改写或新写界面文案的派 Sonnet；主会话审每片的 diff、自跑验证后合进 Work 分支。
 
-### 共享包几片
+### 第 7 片之后：共享包（按包各一片）
 
 - nb-agent-ui：`ViewText` 改为 `TextRef`；`MessageView` 里折好的字符串改为 `Text`；自带目录；`locale` 属性只在没有注入时起作用。
 - nb-form：`FormText` 归入 `LocaleMap`（回退不变），支持 `TextRef`；Spec `ui/forms.md`。
 - nb-markdown：自带目录；两处 `render()` 带 `appContext`。
 - nb-ui：21 个写死中文的文件改为读端口，组件 `.md` 声明 `state:inject`。
 
-### SDK 与通知
+### SDK 与通知（共享包之后）
 
 - 插件 SDK 两个公开入口：纯入口（`text()` 引用构造与类型，激活适配层绑定所属插件）；浏览器入口（复用宿主注入键的 `useText`、`TextPort`）。新增子路径时同步 entries 表、两端共享模块表、SDK 声明打包路径与作者文档。去掉 `localize`、`formatText`；改 `sdk.test.ts` 导出面快照、`surface.test.ts`、9 个示例与模板。Spec `runtime/plugin-api.md`。
 - 验收：用生成的 tarball 构建一个第三方组件（改写 snippets 示例），调浏览器入口、切换语言后组件文字更新。
 - `workbench/notifications.md` 的标题与正文改为 `Text`（t04 只管详情与常驻）。
 
-### 交付片
+### 交付片（最后）
 
 - 版本表（写进 Task README）：nb-runtime 与 nb-ui 的新入口先发，再发 nb-form、nb-agent-ui、nb-markdown，最后 nb-story；每个包写目标版本、破坏性变化、消费者范围。发布逐次授权。
 - 验收：`bun run release:check`、`bun run release:smoke`；共享包 tarball 在没有注入的宿主里能显示默认文字、JSON 目录确实随包；SDK 的 `pack.test.ts` 与仓库外类型检查；重建 nb-story 的 `dist/web`，按 `docs/testing/README.md` 的打包验收跑单语中文 smoke。
 - 体积实测，在 `ui/i18n.md` 写“当前语言加源语言”的触发预算；Spec 晋升 `implemented` 并补证据。
+
+## 每片提交后旧入口怎么继续工作
+
+| 片 | 新增 | 旧入口的状态 | 谁在哪片删旧入口 |
+|---|---|---|---|
+| 1 | nb-ui `./text`、`./text-port`、`./locales`；应用 `src/shared/text.ts` | 全部不变，新入口暂无消费者 | — |
+| 2 | 语言类型为字符串；`resolveLocaleMap` | `localize`、`textOf`、`formatText` 签名不变，内部改用 `resolveLocaleMap` | 第 7 片起随迁移删 |
+| 3 | 宿主引擎、端口、共享包目录登记 | 组件仍可接 `locale` 属性，由宿主从端口的 `locale` 传；服务端不受影响 | 共享包各片 |
+| 4 | 声明 schema 为 `TextSchema`（不含命令标题与公开状态原因） | 浏览器渲染经端口；服务端路径仍按 `LocaleMap` 解析 | — |
+| 5 | 清单 `l10n`、目录端点、引导目录索引、`catalog-invalid` | 没有目录的插件照常工作 | — |
+| 6 | 约定键；命令标题与公开状态原因为 `Text`；远程 `list` 版本 2；运行期条目返回 `Text` | 字面双语仍作为 `LocaleMap` 有效 | 第 7 片起 |
+| 7 起 | 各插件目录 | 迁完的插件不再有字面双语 | SDK 片删 `localize`、`formatText` |
+
+每片列出实际跑的命令与结果，写进 Task README 的切片记录；一片不过不进下一片。
 
 ## 验收映射
 
@@ -130,3 +146,7 @@
 - **正式测试与原型分开**（omp 第 9 条）：已改。
 
 前端的“其余建议”与 omp 各条的细节，在对应切片实施时逐条对照报告。
+
+## 第二轮审查处理（2026-10-27）
+
+第二轮：omp 6 条、Claude Sonnet 前端 9 条，阻断 0（报告存 `evidences/plan-review-r2-*.txt`）。已处理：每片的兼容边界与删旧入口的时机写成上表（omp 第 1、6 条）；第 2 片写成锁步合同片并列出四个包的命令（omp 第 2 条、前端第 3 条）；共享包目录改为 `.ts` 模块（omp 第 3 条、前端第 6 条）；第 4 片的消费方改法、命令标题与公开状态原因挪到第 6 片（前端第 1、2 条）；第 3 片加共享包目录登记表、`escapeValue` 与最小实现一致性测试、七处 `displayLocale` 的改法（前端第 4、5、7 条）；后面几节编号（前端第 8 条）；Spec 随实现分支（前端第 9 条）。omp 第 4、5 条（引导协议的原子切换点、registry 版本 5 同片）已在第 5 片写明同片提交，实施时再逐条对照。这是本计划的第二轮，按三轮上限不再开第三轮，第 1 片按两份报告的结论直接开工。

@@ -1,0 +1,85 @@
+# w00028 t03 实施计划第二轮后端设计审查
+
+审查对象：主工作区 `.agents/works/w00028-i18n/tasks/t03-shared-packages-migration/plan.md`（第二版，提交 `896787494`）。本轮只读；源码依据为 `/home/notnotype/CodeRepository/neuro-book/.worktree/review-w00028-t03-r2`，Work、Task、提案与 ADR 依据为主工作区。
+
+第一轮后端 10 条逐项核对结果：第 1 条已处理（远程 `title` 与版本 2 明确放入第 6 片）；第 2 条已部分处理（第 1 片拆纯数据层与浏览器端口，并写服务端不翻译 `TextRef`），但仍缺中间切片的调用方边界，见第 1 条；第 3、4、5、6、7、8、9、10 条已在计划正文中分别补入第 5、6、交付片或验收映射，本轮不重复已处理内容。第 10 条所需的 `release:check`、`release:smoke` 与 nb-story `dist/web` 验收已在第 8 片写出，且现有仓库脚本已有相应入口。
+
+### 1. 重要的前端端口与服务端纯数据迁移没有形成可通过每片 typecheck 的切片边界
+
+- 严重程度：重要；类别：切片依赖 / 不变量；位置：`plan.md:30-57`，尤其 `plan.md:32-37,46-57`；现有调用链 `packages/neuro-book/src/plugins/commands/shared/plugin.ts:19,41,66`、`packages/neuro-book/src/plugins/settings/shared/contracts.ts:18-19,176-177`、`packages/neuro-book/src/plugins/workbench/web/items/registry.ts:14-18,101-119`。
+- 现象：第 1 片新增 `@notnotype/nb-ui` 的纯 `Text` 类型与 Vue `TextPort`，第 3 片才新增宿主引擎和端口实现，第 4 片才把应用的 22 处 schema 换成 `TextSchema`，而第 6 片才改运行期 `Text`、SDK 助手和远程 `RemoteCommandSchema.title`。计划只写“每片跑受影响包的 `test:affected` 与 `typecheck`”，没有说明每个中间提交如何同时满足现有调用方合同。当前应用的 shared 服务端代码仍以 `localized-text.ts` 的 `localize(text, locale)` 产生字符串；当前 workbench registry 的 `ItemImplementation.text()`/`tooltip()` 仍返回 `string`，而第 6 片才改为 `Text`。若第 1 片只落 nb-ui，新增入口没有消费者；若第 3、4 片直接切应用类型，现有纯 TS 服务端和浏览器调用方会先出现签名/返回类型不一致；若保留兼容函数，又需要在计划中明确其保留到哪片、谁负责删除。
+- 为什么是问题：一片提交后不能仅靠“受影响包”验证来证明下一片可接。第 4 片声称浏览器渲染处显式取端口、服务端仍解析 `LocaleMap`，但未列出 `localize`、`formatText`、`ItemImplementation`、`ShownItem` 等过渡接口，照字面实现时会在服务端或浏览器 typecheck 失败，或被迫把端口依赖带入服务端，违反“服务端不依赖 Vue/宿主实现”的边界。切片不能独立回退，也无法判断某个提交是否真的是可交付原子。
+- 如何核实：在基线仅应用第 1 片的 `Text`/`TextPort` 文件，运行 `bun run --cwd packages/neuro-book typecheck` 与 `bun run --cwd packages/nb-ui typecheck`；再按第 4 片只替换声明 schema，运行 `bun run test:affected --typecheck`，重点看上述 shared 服务端与 workbench item registry 的类型错误。当前工作区实际的 `localize`、`LocalizedTextSchema` 与 `string` 返回值可由 `grep` 复核；未把迁移后未实现的错误称为已发生。
+- 建议改法：在计划中把“纯数据类型/构造器”“应用声明 schema”“服务端 `LocaleMap` 解析”“浏览器端口消费”“运行期贡献点改传 `Text`”的先后和保留边界写成依赖表。最小安全顺序是第 1 片只增加无消费者的公开纯入口及默认端口，第 3/4 片在同一片内完成各自调用方的兼容适配并列出保留的纯解析函数，第 6 片再以同片合同、接收方、SDK 和测试一起切 `Text`；每片列实际执行的包级 `typecheck` 与 `test`，并说明该片提交后旧入口仍如何工作。否则应合并会破坏现有 typecheck 的片，不能按当前“每片单独提交”开工。
+
+### 2. 重要的第 2 片语言类型改造仍可能把共享包置于无法单独验证的中间状态
+
+- 严重程度：重要；类别：切片依赖 / 类型合同；位置：`plan.md:39-44`；当前锁步类型与包边界：`packages/nb-agent-ui/src/types.ts:9-17`、`packages/nb-agent-ui/src/ports.ts:9-14`、`packages/nb-markdown/src/locale.ts`（由包入口导出）、`packages/neuro-book/src/plugins/markdown/web/host.ts`。
+- 现象：第 2 片同时改应用 `DisplayLocale`、共享包 `MarkdownLocale`/`PromptLocale` 和 `nbook.settings/locale`，但计划没有明确 `AgentLocale = PromptLocale`、nb-markdown 的宿主断言、应用消费者和包自身测试是否同片提交，也没有列第 2 片必须运行的 4 个包的 typecheck/test。当前 `nb-agent-ui` 的 `AgentLocale` 直接别名 `PromptLocale`，而 nb-markdown 又被 `nb-agent-ui` 的端口和 nb-story 的网页消费；第 2 片若只改声明类型，旧的两语言表/索引访问与测试仍按闭合集合编译，若连共享包一起改，提交范围已不再是“语言类型改字符串”而是跨 4 个包的合同切换。
+- 为什么是问题：第 2 片是后续所有共享包片的前置条件。按计划的每片 typecheck 要求，任何漏改的锁步断言或包测试都会使提交不能通过；反过来若为过绿而先把类型断言删掉、把表改成宽 `Record<string, …>`，会丢掉原来防止语言集合分叉的保护。第 2 片没有写清“改类型但不迁移文字表”的允许中间态，也没有给第三语言集合的 schema/命令验证和包入口验证的具体文件。
+- 如何核实：在审查 worktree 中先将 `MarkdownLocale` 替为 `string` 的最小实验，运行 `bun run --cwd packages/nb-markdown typecheck`、`bun run --cwd packages/nb-agent-ui typecheck`、`bun run --cwd packages/neuro-book typecheck`；再检查 `AgentLocale`、`PromptLocale`、`MarkdownLocale` 的所有导出入口是否被同步。未运行该实验，原因是本轮计划审查不修改 worktree。
+- 建议改法：把第 2 片改成明确的锁步合同片：同片更新 `DisplayLocale`、`MarkdownLocale`、`PromptLocale`、`AgentLocale`、宿主断言、设置 schema/choices/命令参数及所有受影响公开入口；附 4 个共享/应用包的具体 `typecheck` 与 `test` 命令。若要保留闭集合表，新增语言集合常量应同时提供 `ReadonlyArray` 与类型/Schema 的单一来源，避免把运行期集合和静态表分成两份。
+
+### 3. 建议的 `resolveJsonModule` 导入方式与“每片 typecheck”不一致，发布前才发现消费者合同
+
+- 严重程度：建议；类别：交付 / 类型检查；位置：`plan.md:19-20,82-98`；提案 `docs/proposals/i18n-message-catalogs.md:146-149`；现有包的 `package.json` `files` 与 typecheck 脚本。
+- 现象：计划表面上已选“JSON + `.ts` 包装模块 + README 写明消费者开 `resolveJsonModule`”，但没有说明四个共享包的 `.ts` 包装模块、JSON 文件、README、`files` 白名单和每个包的 typecheck 要在同一片落地；交付片才安排仓库外消费方验证。当前 `nb-ui`、`nb-form`、`nb-agent-ui`、`nb-markdown` 的 `files` 只白名单 `src`/README/LICENSE，新增 `locales/` 若不同时更新白名单不会进 tarball；而共享包本身的 `tsc`/`vue-tsc` 可能因本地配置掩盖消费者的 `resolveJsonModule` 要求。
+- 为什么是问题：计划把目录交付作为第 5 片和共享包片分开描述，却没有定义哪个提交首次保证“源代码可导入、目录随包发布、消费者按指定 tsconfig 可检查”。因此共享包迁移片可能 typecheck/test 通过，但交付片的 tarball 才发现目录缺失或外部 TypeScript 报 TS2732；这违反“每片提交后可验证”的目标，也会迫使已合入的包版本重新补发。
+- 如何核实：对照上述 4 个包的 `files` 白名单和 `package.json` 的 typecheck 脚本；在不安装依赖的前提下，只做静态路径核对即可确认新增 `locales/` 必须有同片清单变更。发布烟测需要在仓库外执行，当前未运行。
+- 建议改法：在共享包各片明确“目录、JSON 包装入口、exports、README、files、包内默认端口测试”同片提交；版本表中给出首次可消费版本。或者改选提案允许的 `.ts` 导出目录方式，消除发布消费者必须启 `resolveJsonModule` 的隐含前提，但仍须验收 tarball 中实际包含目录/导出。
+
+### 4. 建议的第 5 片目录集合失败处理与现有引导协议的“非致命”语义还缺一个原子切换点
+
+- 严重程度：建议；类别：接口与合同 / 提交原子性；位置：`plan.md:59-63`；现有 `packages/neuro-book/src/shared/browser-bootstrap.ts:14-35`、`src/server/browser-bootstrap.ts:35-60`、`src/web/host/window.ts:347-394`。
+- 现象：第 5 片同时列引导响应新增目录索引、服务端目录端点、窗口取齐目录且失败进插件问题通道，但未写明引导协议版本是否升级、旧外壳遇到新字段/新端点如何判定，以及目录索引失败发生在窗口启动第几步。现有引导 schema 只有 `plugins`、`rpc`、`project`，`selectPlugins` 对引导结构错误会直接进入 `startup-failed`；`browserBootstrap` 的 revision 目前只由浏览器登记插件计算。计划要求“取不到或坏了不让整窗启动失败”，必须同时改响应合同、窗口启动编排与问题通道，否则协议切换无法在单次提交内成立。
+- 为什么是问题：如果先改服务端响应，旧外壳可能按旧协议接受或因结构异常启动失败；如果先改窗口读取，旧服务端仍没有目录入口，窗口必须把缺失区分为兼容/目录问题而非结构错误。若目录索引纳入 revision 但目录获取异步在引导后进行，启动期间索引与实际目录又可能不一致。当前计划只说“加进第 5 片”，没有给版本号、字段 optional/required、失败时序和测试入口，容易出现同一合同版本下两套引导语义。
+- 如何核实：静态对读上述三处现有实现可见：协议版本为 4，schema 对未知必需字段没有目录字段，窗口在 `Value.Check` 失败时直接 `startup-failed`；未实现迁移，不宣称已复现产品回归。
+- 建议改法：第 5 片明确 browser bootstrap 的版本策略、目录索引字段与 revision 算法，以及“引导成功后目录请求失败”的独立状态转换和诊断入口；同片提交服务端 schema/生成器、窗口消费、端点和测试。明确旧版本服务端/外壳只在协议版本不匹配时刷新，不把目录缺失误报为启动失败。
+
+### 5. 建议的第 5 片 `catalog-invalid` 仍未说明 registry 版本 5 的合同、失败码与目录验证如何同片落地
+
+- 严重程度：建议；类别：接口与合同；位置：`plan.md:61-64`；现有 `packages/neuro-book/src/plugin-platform/shared/types.ts:145-169`、`src/plugin-platform/backend/inventory.ts:162-232`、`docs/specs/runtime/plugin-install.md:97-115`。
+- 现象：计划已列 `catalog-invalid`、registry 升版本 5 及安装场景，但没有列出需要同步的 `PluginFailureCode`/详情 union、远程 settings/插件合同调用方和版本 5 的具体文件。当前 `installFailureDetails` 没有 `catalog-invalid`，`PluginListSchema`/`InstallPreviewSchema` 也未携带目录摘要或问题字段；`prepare` 仅读源目录清单，`inspect` 不执行 `collectCopyRange`/复制后的 `missingEntries`，`install` 才在 staging 中计算复制范围并核对入口。若先把失败码或 schema 改一边，另一边仍按旧闭合 union/typebox 合同，提交后会出现类型通过但远程校验不一致，或 inspect 与 install 对同一坏目录给出不同结果。
+- 为什么是问题：第一轮已要求六组安装验收，本版确实列了它们，但“第 5 片”仍把实现和合同写成一行，未定义提交顺序与每个调用方的版本边界。`catalog-invalid` 是新业务码，不是只增加一个常量；远程提供方/调用方需同时接受版本 5，否则新失败会被旧 schema 报成 `provider-error` 或 `invalid-input`。这直接影响原子性和回滚。
+- 如何核实：静态对读现有失败码闭合表、`prepare`/`inspect`/`install` 的分层路径及 `plugin-install.md` 的提交点；未运行安装迁移实验。
+- 建议改法：在第 5 片列明 registry 版本 5 的所有合同/类型/调用方文件，规定 `inspect` 与 `install` 共享同一目录验证函数，且把复制范围缺少 `locales/` 归为 `catalog-invalid` 的提交点；同片增加真实 registry 远程往返和旧版本调用方得到 `version-changed` 的测试。
+
+### 6. 建议的切片验收口径没有落实“每片实际命令”，无法证明单独提交可回退
+
+- 严重程度：建议；类别：测试 / 流程；位置：`plan.md:11,30,34-98,101-103`。
+- 现象：计划总述只给出抽象的“受影响包 `bun run test:affected` 与 `typecheck`”，第 1 至第 6 片没有具体包、命令或测试入口；共享包片没有单列其包脚本，第 5 片没有列 `nb-runtime`、`neuro-book` 的具体 typecheck/test，第 6 片也没有列远程合同、SDK surface/pack 和宿主浏览器测试的实际入口。第 8 片才统一写 `release:check`/`release:smoke`，且“每片先改 Spec”与仓库规则中 Spec 只在主工作区 master 更新相冲突，计划未说明如何把 Spec 记录与实现分离。
+- 为什么是问题：`test:affected` 的依赖选择不跨包追踪所有路径，且现有共享包使用 `test`/`typecheck` 脚本；只写抽象门禁会让实现者漏跑消费者包或用 workspace 链接掩盖 tarball 问题。单独提交的验收证据无法复现，回退某片时也不知道哪些测试是该片合同。
+- 如何核实：现有 `packages/nb-ui/package.json`、`nb-runtime/package.json`、`nb-form/package.json`、`nb-agent-ui/package.json`、`nb-markdown/package.json` 显示各自脚本不同；`docs/testing/README.md:69-78,151-165` 要求按受影响范围并在发布验收用主工作区/干净克隆。未运行产品测试，符合本轮只读计划审查范围。
+- 建议改法：每片列精确命令与入口，例如包的 `bun run --cwd packages/<pkg> test`、`typecheck`，应用 `bun run --cwd packages/neuro-book typecheck`/受影响测试，远程合同与 SDK 的具体测试文件；说明何时必须 `--with-consumers`。将“Spec 在 master、代码在 Work 分支”写入工作方式，不把 Spec 与代码假定为同一分支提交。
+
+## 未发现问题的方面
+
+- 第一轮第 1 条远程命令列表版本原子性：第 6 片已明确 `RemoteCommandSchema.title`、合同版本 2、调用方和往返用例同片，本轮未重复。
+- 第一轮第 3 条加载期校验与 6 个 SDK 助手：第 6 片已明确输入模型、加载期检查、6 个助手和 `localizedText` 改写删除，本轮未重复。
+- 第一轮第 4 条 workbench shell 运行期 `Text`：第 6 片已列 `ui/workbench-shell.md` 及状态栏/标题栏实现与接收方翻译要求，本轮未重复。
+- 第一轮第 5、8、9 条的安装分层、引导目录集合与正式包装/检查测试：第 5 片和交付片已补出对应验收方向；本轮仅指出它们尚缺提交内的合同切换细节。
+- 第一轮第 6 条 SDK 浏览器出口、第一轮第 7 条共享语言集合、第一轮第 10 条 tarball/nb-story 交付：计划已写出公开入口、`HOST_LOCALES`、版本顺序、`release:check`、`release:smoke` 与 `dist/web` smoke，未重复原发现。
+- 已接受提案中的 i18next 选型、纯数据层不依赖 i18next、目录集合与登记集合分开、重启后生效和发布逐次授权，本轮未发现与这些决定直接冲突的内容。
+
+## 待追认的实施偏离
+
+提案决策记录最后一条写明计划拟将 `nbook.settings/locale` 保留为由 `HOST_LOCALES` 生成的可序列化枚举，而不是提案正文的 `string`。该方案在行为上仍可按集合校验，但它是待开发者追认的实施偏离，不应在第 2 片开工前默认为已定合同；同时应在计划中列出 `Type.Union` 动态生成、choices 生成与切换命令参数的具体测试入口。
+
+## 各级数量
+
+- 阻断：0。
+- 重要：2（第 1、2 条）。
+- 建议：4（第 3、4、5、6 条）。
+- 撤回：0。
+
+## 开工判断
+
+计划已处理第一轮主要后端发现，但在补清第 1、2 条的跨片依赖和每片可验证边界前，不宜按“单独提交且每片 typecheck/test 通过”的方式整体开工。
+
+有效发现编号：1、2、3、4、5、6
+
+## 追加说明
+
+报告在初次创建时被一次性写入，未按“每核实一条就追加”的方式形成；这是本轮流程偏差。后续未覆盖或重写报告，本说明仅追加记录该偏差。
+
+有效发现编号：1、2、3、4、5、6
