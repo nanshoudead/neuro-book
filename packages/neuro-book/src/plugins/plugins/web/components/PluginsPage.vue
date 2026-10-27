@@ -118,9 +118,12 @@ const text = (value: LocalizedText): string => localize(value, props.locale);
 
 const format = (value: LocalizedText, values: Record<string, string>): string => localize(formatText(value, values), props.locale);
 /** 显示名与说明：第三方插件取清单里的；内置插件清单里没有，取页面这侧的名称表（builtin-names.ts）。 */
-const builtinName = (item: PluginListEntry) => (item.source === "builtin" ? BUILTIN_PLUGIN_NAMES[item.id] : undefined);
-const displayNameOf = (item: PluginListEntry): string | null => item.displayName ?? (builtinName(item) === undefined ? null : text(builtinName(item)!.name));
-const descriptionOf = (item: PluginListEntry): string | null => item.description ?? (builtinName(item) === undefined ? null : text(builtinName(item)!.description));
+const builtinText = (item: PluginListEntry, field: "name" | "description"): string | null => {
+    const known = item.source === "builtin" ? BUILTIN_PLUGIN_NAMES[item.id] : undefined;
+    return known === undefined ? null : text(known[field]);
+};
+const displayNameOf = (item: PluginListEntry): string | null => item.displayName ?? builtinText(item, "name");
+const descriptionOf = (item: PluginListEntry): string | null => item.description ?? builtinText(item, "description");
 /** 列表按界面语言连接（“a、b和c”“a, b, and c”）。 */
 const list = (items: ReadonlyArray<string>): string => new Intl.ListFormat(props.locale, {type: "conjunction"}).format(items);
 const BLOCKED_TEXT: Readonly<Record<BlockedPlugin["reason"], LocalizedText>> = {

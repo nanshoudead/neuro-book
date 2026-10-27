@@ -206,6 +206,14 @@ describe("PluginsPage", () => {
         expect(goal.querySelector("[data-plugin-problems=contributions]")).toBeNull();
     });
 
+    it("英文界面里内置插件的名称与说明是英文；名称表里没有的内置插件只显示 id", async () => {
+        await open(registry([BUILTIN, {...BUILTIN, id: "nbook.unknown"}]).client, "en-US");
+        expect(row("nbook.settings").querySelector("[data-plugin-display-name]")?.textContent).toBe("Settings");
+        expect(row("nbook.settings").querySelector("[data-plugin-description]")?.textContent).toBe("The settings window and setting values.");
+        expect(row("nbook.unknown").querySelector("[data-plugin-display-name]")).toBeNull();
+        expect(row("nbook.unknown").querySelector("[data-plugin-description]")).toBeNull();
+    });
+
     it("顶层声明被拒时服务端与本窗口各有一条，合成一条显示；没有问题时不显示快照说明；卸载后不再听本窗口的变化", async () => {
         const top = (location: string): PluginProblem => ({kind: "contribution-rejected", plugin: "example.goal", entry: null, location, capability: "settings.sections", id: "other.main", reason: "invalid-declaration", detail: "前缀不对"});
         let windowProblems: ReadonlyArray<PluginProblem> = [];

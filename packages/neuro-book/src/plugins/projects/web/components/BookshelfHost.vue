@@ -115,13 +115,14 @@ async function submitInfo(values: ProjectInfoSubmit): Promise<void> {
         }
         info.value = null;
         // 封面与作品目录在作品建好之后再写：它们失败不影响作品本身，各自发通知。
-        if (values.cover.kind !== "keep") await props.page.setCover(outcome.id, values.cover);
+        let settled = values.cover.kind === "keep" || await props.page.setCover(outcome.id, values.cover);
         if (current.mode === "create" && values.parent !== null && values.parent !== library.value?.path) {
-            await props.page.rememberLibrary(values.parent);
+            settled = await props.page.rememberLibrary(values.parent) && settled;
             await loadLibrary();
         }
-        // 新建的作品直接打开（docs/specs/workbench/bookshelf.md 输出 11）：封面与作品目录写完再走，整页离开后它们就没人等了。
-        if (current.mode === "create") props.page.open(outcome.id);
+        // 新建的作品直接打开（docs/specs/workbench/bookshelf.md 输出 11）。打开是整页离开：封面或作品目录没写成时留在书架上，
+        // 不然它们的失败通知随页面一起没了，用户看不到。
+        if (current.mode === "create" && settled) props.page.open(outcome.id);
     } finally {
         infoBusy.value = false;
     }

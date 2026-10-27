@@ -9,7 +9,7 @@
 import type {RuntimeInstanceIdentity} from "../lifecycle/lifecycle";
 import type {EmergencyReport, MechanismObservers} from "../application/application";
 import type {AssemblyDiagnostic} from "../services/services";
-import type {PluginDiagnostic} from "../plugins/plugins";
+import type {PluginDiagnostic, RevokeReason} from "../plugins/plugins";
 
 import type {
     AttachDiagnosticsInput,
@@ -440,7 +440,7 @@ function severityForServiceDiagnostic(diagnostic: AssemblyDiagnostic): Diagnosti
 }
 
 /** 正常关闭带来的撤回：接收方或作用域关了、激活被停止。窗口离开、实例停止时每个贡献都撤回一次，不是问题。 */
-const ROUTINE_REVOKES: ReadonlySet<string> = new Set(["receiver-closed", "scope-closed", "activation-stopped"]);
+const ROUTINE_REVOKES: ReadonlySet<string> = new Set(["receiver-closed", "scope-closed", "activation-stopped"] satisfies RevokeReason[]);
 
 /** 激活/发布失败记 error；失败带来的撤回记 warn，正常关闭的撤回记 debug；登记记 debug，其余成功路径记 info。 */
 function severityForPluginDiagnostic(diagnostic: PluginDiagnostic): DiagnosticLevel {

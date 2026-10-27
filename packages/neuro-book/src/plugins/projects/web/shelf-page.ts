@@ -118,8 +118,8 @@ export interface ShelfPage {
     update(id: string, values: ProjectInfoValues): Promise<ProjectActionOutcome>;
     /** 上传或移除封面；失败发通知。成功后书架刷新。 */
     setCover(id: string, change: ProjectCoverChange): Promise<boolean>;
-    /** 把用户选的目录写进设置；写不进去发通知（作品已经建成）。 */
-    rememberLibrary(path: string): Promise<void>;
+    /** 把用户选的目录写进设置；写不进去发通知（作品已经建成）并返回 false。 */
+    rememberLibrary(path: string): Promise<boolean>;
     /** 打开已有作品：登记一个目录。失败原因给选择器显示；结果未知时核对书架。 */
     addExisting(path: string): Promise<ShelfActionOutcome>;
     /** 移出成功后选中相邻的一部。 */
@@ -373,9 +373,10 @@ export function createShelfPage(host: ShelfPageHost): ShelfPage {
         },
         rememberLibrary: async (path) => {
             const written = await host.settings.update(librarySetting, path);
-            if (written.ok) return;
+            if (written.ok) return true;
             host.report("projects.library-not-saved", `作品目录没有写进设置：${written.code}：${written.detail}`);
             warn(shelfText("libraryNotSavedTitle"), text(shelfText("libraryNotSaved", {reason: `${written.code}：${written.detail}`})));
+            return false;
         },
         addExisting: async (path) => {
             const registered = await host.remote.register({path});
