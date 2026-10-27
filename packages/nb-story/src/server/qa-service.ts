@@ -23,10 +23,10 @@ import {parseEntryLine, type SessionEntry} from "@notnotype/nb-session";
 
 import {schemaProblems, type StoryApi} from "../core/api";
 import {StoryError, type StoryErrorCode} from "../core/errors";
-import {answerModeOf, QaRecords, newQaRecordId, type QaConversation, type QaTurn} from "../core/qa-records";
+import {answerModeOf, currentPosition, highestPosition, QaRecords, newQaRecordId, type QaConversation, type QaTurn} from "../core/qa-records";
 import {QA_METHODS, type QaFrame, type QaMethod, type QaRunView, type ViewerParams, type ViewerResult} from "../contract/contract";
 import {ABSENT_CONFIG, currentConfigDigest, defaultConfigPath, readQaConfigFile, readQaConfigShape, saveQaConfig, type Effort, type QaConfig} from "../qa/config";
-import {continuationProblem, prepareQuestion, withoutFullText, type AskInput, type PreparedQuestion, type QaOutcome} from "../qa/engine";
+import {changePosition, continuationProblem, prepareQuestion, withoutFullText, type AskInput, type PreparedQuestion, type QaOutcome} from "../qa/engine";
 import {QaError, type QaErrorCode} from "../qa/errors";
 import {catalogModel, discoverModels, listCatalog, providerKeyReady} from "@notnotype/nb-harness";
 import {envHas, startupEnv, startupKeyReady} from "../platform/startup-env";
@@ -221,8 +221,8 @@ export function createQaService(options: QaServiceOptions): QaService {
         let run: Run | null = null;
         /** 准备期间写下的日志条目（建 harness 时写的会话快照）：登记运行时交给它。 */
         const early: SessionEntry[] = [];
-        if (params.conversation !== undefined && (params.mode !== undefined || params.at !== undefined || params.answer !== undefined)) {
-            throw new StoryError("invalid_params", "续问时阅读位置、做法与作答方式取对话开始时的，不能再给 mode、at 或 answer");
+        if (params.conversation !== undefined && (params.mode !== undefined || params.answer !== undefined)) {
+            throw new StoryError("invalid_params", "续问时做法与作答方式取对话开始时的，不能再给 mode 或 answer；阅读位置可以用 at 改");
         }
         const preparation = (async (): Promise<PreparedQuestion> => {
             const {config} = await readQaConfigFile(configPath, configCatalog());
@@ -234,7 +234,7 @@ export function createQaService(options: QaServiceOptions): QaService {
                 config,
                 keyEnv: env,
                 ...(choice === null ? {} : {model: choice}),
-                ...(params.conversation === undefined ? {conversationId: id, mode: params.mode ?? "graph", ...(params.at === undefined ? {} : {at: params.at}), ...(params.answer === undefined ? {} : {answer: params.answer})} : {continueFrom: id}),
+                ...(params.conversation === undefined ? {conversationId: id, mode: params.mode ?? "graph", ...(params.at === undefined ? {} : {at: params.at}), ...(params.answer === undefined ? {} : {answer: params.answer})} : {continueFrom: id, ...(params.at === undefined ? {} : {at: params.at})}),
                 signal: controller.signal,
                 // 事件只在运行时有；日志条目在准备时就有一条（会话快照），先留着。
                 onAgentEvent: event => {
@@ -306,6 +306,26 @@ export function createQaService(options: QaServiceOptions): QaService {
     }
 
     /**
+     * 在对话中途改阅读位置（t25）：和一轮问答共用“对话占用”：这个对话有一轮在跑或在准备时是 `qa_busy`，改的期间也挡住新的
+     * 一轮。不发模型请求；位置没变时 `changed` 为 false。
+     */
+    async function position(params: ViewerParams<"qa.position">): Promise<ViewerResult<"qa.position">> {
+        const id = params.conversation;
+        const key = keyOf(params.book, id);
+        if (!admitting(params.book, key)) throw busy("这个对话或这本书正在删除，或服务正在停止");
+        if (preparing.has(key) || runs.get(key)?.state === "running") throw busy(`对话 ${id} 有一轮在运行，等它结束后再改阅读位置`);
+        let registered!: () => void;
+        preparing.set(key, new Promise<void>(resolve => (registered = resolve)));
+        try {
+            const result = await changePosition({api, book: params.book, conversation: id, at: params.at});
+            return {changed: result.changed, at: currentPosition(result.conversation)};
+        } finally {
+            preparing.delete(key);
+            registered();
+        }
+    }
+
+    /**
      * 这一轮指定的模型与推理档；都没给时为 null（引擎按 qa.md 输出 40 取）。模型不在候选里、推理档不是这个模型支持的档
      * 是这次请求的错（invalid_params），在登记运行之前报：页面过期的选择不应变成配置错误，也不留运行项。
      */
@@ -364,13 +384,13 @@ export function createQaService(options: QaServiceOptions): QaService {
         const rows: ViewerResult<"qa.list">["conversations"] = listed.records.map(record => {
             const last = record.turns.at(-1)!;
             const run = runOf(params.book, record.id, generation);
-            return {id: record.id, question: record.turns[0]!.question, turns: record.turns.length, status: last.status, at: record.at, mode: record.mode, startedAt: record.startedAt, updatedAt: last.startedAt, run: run === undefined ? null : listRow(run)};
+            return {id: record.id, question: record.turns[0]!.question, turns: record.turns.length, status: last.status, at: record.at, currentAt: currentPosition(record), highestAt: highestPosition(record), mode: record.mode, startedAt: record.startedAt, updatedAt: last.startedAt, run: run === undefined ? null : listRow(run)};
         });
         const saved = new Set(listed.records.map(record => record.id));
         for (const run of runs.values()) {
             if (run.book !== params.book || run.generation !== generation || saved.has(run.fixed.conversation)) continue;
             const {conversation, question, at, mode, startedAt} = run.fixed;
-            rows.push({id: conversation, question, turns: 0, status: run.result?.status ?? null, at, mode, startedAt, updatedAt: startedAt, run: listRow(run)});
+            rows.push({id: conversation, question, turns: 0, status: run.result?.status ?? null, at, currentAt: at, highestAt: at, mode, startedAt, updatedAt: startedAt, run: listRow(run)});
         }
         rows.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
         return {conversations: rows, broken: listed.broken};
@@ -438,8 +458,8 @@ export function createQaService(options: QaServiceOptions): QaService {
               : problem === null
                 ? {ok: true}
                 : {ok: false, reason: problem};
-        const {id, at, mode, maxChapters, turns, startedAt} = conversation;
-        return {result: {record: {id, at, mode, answer: answerModeOf(conversation), maxChapters, turns, startedAt}, log, continuable, run: run === undefined ? null : viewOf(run)}, generation};
+        const {id, at, mode, maxChapters, turns, startedAt, currentAt, positionChanges} = conversation;
+        return {result: {record: {id, at, mode, answer: answerModeOf(conversation), maxChapters, turns, ...(currentAt === undefined ? {} : {currentAt}), ...(positionChanges === undefined ? {} : {positionChanges}), startedAt}, log, continuable, run: run === undefined ? null : viewOf(run)}, generation};
     }
 
     function keysOf(config: unknown): Record<string, boolean> {
@@ -537,6 +557,7 @@ export function createQaService(options: QaServiceOptions): QaService {
 
     const handlers: {[M in QaMethod]: (params: ViewerParams<M>) => Promise<ViewerResult<M>>} = {
         "qa.list": list,
+        "qa.position": position,
         "qa.get": get,
         "qa.start": start,
         "models.catalog": modelsCatalog,

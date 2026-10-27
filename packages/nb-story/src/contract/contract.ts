@@ -598,6 +598,9 @@ const QaRecordViewSchema = Type.Object({
     answer: QaAnswerModeSchema,
     maxChapters: Type.Union([Type.Integer(), Type.Null()]),
     turns: Type.Array(QaTurnSchema),
+    /** 下一问用的阅读位置（对话中途改过位置时有，t25）；没有时按最后一轮用的位置。 */
+    currentAt: Type.Optional(QaPositionSchema),
+    positionChanges: Type.Optional(Type.Integer({minimum: 0})),
     startedAt: Type.String(),
 });
 
@@ -656,7 +659,12 @@ export const QA_METHODS = {
                     turns: Type.Integer({minimum: 0}),
                     /** 最后一轮的状态；首轮还在运行时为 null。 */
                     status: Type.Union([QaStatusSchema, Type.Null()]),
+                    /** 对话开始时的阅读位置。 */
                     at: QaPositionSchema,
+                    /** 下一问用的阅读位置（改过位置、或最后一轮用了别的位置时与 `at` 不同）。 */
+                    currentAt: QaPositionSchema,
+                    /** 整个对话出现过的最高位置：剧透警告按它判断，位置往回调不解除旧答案的警告。 */
+                    highestAt: QaPositionSchema,
                     mode: QaModeSchema,
                     startedAt: Type.String(),
                     /** 最后一轮的开始时间。 */
@@ -691,6 +699,7 @@ export const QA_METHODS = {
                 conversation: Type.Optional(Type.String({minLength: 1})),
                 /** 只在新对话时用；续问时写了是 invalid_params。 */
                 mode: Type.Optional(QaModeSchema),
+                /** 新对话是第一问的阅读位置；续问时是这一问要改成的位置（先写进会话，全读对话不能改，t25）。 */
                 at: Type.Optional(PositionInputSchema),
                 answer: Type.Optional(QaAnswerModeSchema),
                 /** 这一轮的模型，必须在配置的候选里；不给时新对话用默认模型，续问接着用最近一轮的。 */
@@ -702,7 +711,14 @@ export const QA_METHODS = {
         ),
         output: Type.Object({conversation: Type.String(), runId: Type.String(), turn: Type.Integer({minimum: 1})}),
         effect: "write",
-        errors: {...QaErrors, qa_record_not_found: Type.Object({}), qa_record_broken: Type.Object({}), position_out_of_range: Type.Object({}), qa_unconfigured: Type.Object({}), full_read_unavailable: Type.Object({}), qa_not_continuable: Type.Object({}), qa_busy: Type.Object({})},
+        errors: {...QaErrors, qa_record_not_found: Type.Object({}), qa_record_broken: Type.Object({}), position_out_of_range: Type.Object({}), qa_unconfigured: Type.Object({}), full_read_unavailable: Type.Object({}), qa_not_continuable: Type.Object({}), qa_busy: Type.Object({}), qa_position_fixed: Type.Object({}), qa_conflict: Type.Object({})},
+    },
+    /** 在对话中途改阅读位置（t25）：往会话里写提醒消息，不发模型请求；对话在运行时是 `qa_busy`。 */
+    "qa.position": {
+        input: Type.Object({...QaRefs, conversation: Type.String({minLength: 1}), at: PositionInputSchema}, strict),
+        output: Type.Object({changed: Type.Boolean(), at: QaPositionSchema}),
+        effect: "write",
+        errors: {...QaErrors, qa_record_not_found: Type.Object({}), qa_record_broken: Type.Object({}), position_out_of_range: Type.Object({}), qa_not_continuable: Type.Object({}), qa_busy: Type.Object({}), qa_position_fixed: Type.Object({}), qa_conflict: Type.Object({})},
     },
     "qa.stop": {input: Type.Object({...QaRefs, conversation: Type.String({minLength: 1})}, strict), output: Empty, effect: "write", errors: {invalid_params: Type.Object({})}},
     "qa.remove": {
