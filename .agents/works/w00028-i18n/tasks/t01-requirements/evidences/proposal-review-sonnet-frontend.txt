@@ -1,0 +1,213 @@
+# w00028 t01 提案《界面文字的消息目录》前端部分审查报告（第 2 到 6、8 节，及“影响”“待定项”里与前端有关的陈述）
+
+审查对象：主工作区 `docs/proposals/i18n-message-catalogs.md`（提交 `f1a060865`，171 行）。源码读 worktree `.worktree/review-w00028-t01-impl`（等同 master 当前提交 `84ce05239`）。实验在 `/tmp/w00028-review/t01-impl/lab/`（未安装依赖，直接 import worktree 里的源文件）。
+
+先说上一轮前端 14 条的落实情况（逐条详见各发现里的“上一轮”标注）：第 1、5、6、9、12、13 条基本处理好；第 2、11 条拆给 t04，不在本提案范围；第 3、4、7、8、10、14 条处理不完整，对应下面的发现。以下发现按核实的先后追加，末尾给“按严重程度的排序索引”。
+
+### 1. `Text` 的三种字面形态没有判别字段：无参数的 `TextRef` 会被 nb-form 当成“按语言给出的文字”，界面上显示命名空间名
+
+- **严重程度**：重要；**类别**：接口与合同（上一轮前端第 7 条第 1 点，未处理）
+- **位置**：提案第 3 节（“只有一种类型：`Text = string | TextRef`”“`FormText` 保留为第三种字面形态”）；`packages/nb-form/src/text.ts:10-22`（`FormTextSchema = Union([String, Record(String, String, {minProperties: 1})])`、`resolveText`）；`packages/nb-agent-ui/src/types.ts:23`（`ViewText = string | LocalizedText | {key; params?}`）。
+- **现象**：提案把 `TextRef` 定为 `{ns, key, params?}`，同时让 nb-form 的开放语言映射 `FormText` 与它并存。不带 `params` 的 `TextRef`（最常见的情形，例如 `ctx.text("x")`）的所有值都是字符串，满足 `Record<string,string>`。实测（`lab/formtext.ts`，直接 import 源文件）：
+  - `isFormText({ns:"nb-form", key:"required"})` 为 `true`；
+  - `resolveText({ns:"nb-form", key:"required"}, "zh-CN")` 返回 `"nb-form"`（`text[locale]` 与 `text["en-US"]` 都取不到，落到 `Object.values(text)[0]`，即命名空间字符串）；
+  - 带 `params: {n: 1}` 的才不会命中（`isFormText` 为 `false`）。
+  即同一个 `Text` 槽收到无参数 `TextRef` 时，是否被当作语言映射取决于它有没有 `params`，没有报错。nb-form 的 `isFormText` 还用来检查模型生成的 `x-form` 提示（`check.ts`），同样会放过 `TextRef` 形状。
+- **为什么是问题**：提案第 3 节说“跨插件传递的运行期文字都传 `Text`”，设置窗口、表单这类把宿主文字送进 nb-form 槽的路径（设置项标题就是 `LocalizedText` 经 nb-form 画出来）会第一个踩到。上一轮报告第 7 条建议 `TextRef` 带判别字段，提案采用了“带命名空间”但没有加判别字段，也没写这条冲突。
+- **如何核实**：`cd /tmp/w00028-review/t01-impl/lab && bun formtext.ts`；对读 `packages/nb-form/src/text.ts`。
+- **建议改法**：在提案里选一种并写明：(a) `TextRef` 带判别字段（例如 `{$text: "ref", ns, key, params?}`），`FormText` 与 `LocalizedText` 判别都先排除它；(b) `FormText` 的开放语言映射在 nb-form 内部不接受 `ns`/`key` 两个键名（schema 里 `propertyNames` 限定为语言标签形状）。无论哪种，加一行“`Text`、`FormText`、`ViewText`、`LocalizedText` 并存期与终态”的类型对照表（见下一条）。
+
+### 2. 迁移期类型并存没有设计，而提案的回滚承诺“按插件分片、每片可单独回退”恰好要求并存
+
+- **严重程度**：重要；**类别**：迁移 / 回滚（上一轮前端第 7 条第 3 点，未处理）
+- **位置**：提案“影响”一节（“迁移”“回滚：实施按插件分片，每片可以单独回退”）；`packages/neuro-book/src/shared/settings.ts:237,238,295,296`（登记时 `Value.Check(LocalizedTextSchema, …)`）；`plugins/commands/shared/contracts.ts:65-66`、`menus.ts:43`、`workbench/shared/{views,items,home}.ts`、`editor/shared/contracts.ts:94,127`、`settings/shared/sections.ts:52-69`、`state/shared/plugin.ts:46`、`settings/shared/contracts.ts:138`（`DisplayText`）等十处登记校验与类型写死 `LocalizedText`/`DisplayText`。
+- **现象**：提案只写“约 1180 处内联文字用脚本按插件抽进目录”。但同一个贡献点（例如 `workbench.views`、`commands`）的登记校验是共享的：某个插件改成约定键（声明里不写 `title`）、另一个插件还在写 `{zh-CN, en-US}` 时，校验必须同时接受两种；运行期的 `DisplayText` 入参（`quickPick` 项、通知、状态栏、`status: Ref<LocalizedText|string|null>`）也一样。提案没有说：并存期有多长、校验放宽到什么形态、`LocalizedText` 何时删除、`nbook.commands/remote` 这种 schema 写死的合同怎么过渡（见第 3 条）。同一个 nb-agent-ui 的 `ViewText` 已有 `{key, params}`（无 `ns`），提案说它“就是命名空间为 `nb-agent-ui` 的 `TextRef`”，但 `TextRef.ns` 是必填，两者形状不同，转换点没写。
+- **为什么是问题**：“每片可以单独回退”和“一次切完”矛盾；没有并存期，t03 要在一个提交里改十个校验、四个包的类型、约 190 个文件，回滚粒度就不是按插件。
+- **如何核实**：`grep -rn "LocalizedTextSchema" packages/neuro-book/src --include='*.ts' | grep -v test`（10 个文件）；对读提案“影响”。
+- **建议改法**：提案里加一张小表：每个现有类型（`LocalizedText`、`DisplayText`、SDK 的 `Text`、`ViewText`、`FormText`、`MarkdownText`）→ 并存期 → 终态；写明并存期的判别规则（接第 1 条）、`LocalizedText` 的删除条件（例如最后一个内置插件迁完，由 `governance:check` 报告剩余数为 0），以及哪些 schema 是线协议（第 3 条）要升版本。若不想设并存期，就把“按插件分片回退”改成“整体回退”。
+
+### 3. “线协议：不变”与代码不符：`nbook.commands/remote` 的 `list` 输出里 `title` 是写死的 `LocalizedTextSchema`
+
+- **严重程度**：重要；**类别**：与代码、Spec 不符的事实陈述
+- **位置**：提案“影响”一节“线协议：不变。失败文案在浏览器端取，跨进程照旧只传码与各域合同里的参数”；`packages/neuro-book/src/plugins/commands/shared/contracts.ts:142-157,169-181`（`RemoteCommandSchema.title: LocalizedTextSchema`，合同 `nbook.commands/remote` `version: 1`、`additionalProperties: false`）；`commands/shared/plugin.ts:119-141`（`list` 把 `command.title` 原样放进返回值）；`docs/specs/workbench/commands.md:70-72`。
+- **现象**：浏览器窗口把命令表经 `nbook.commands/remote` 交给服务端（给 Agent 列命令用），其中 `title` 是 `{zh-CN, en-US}` 两份。提案把命令标题改成“没写就按约定取键”，`command.title` 不再是 `LocalizedText`。要继续过这条线，只有三种办法：(a) 浏览器端在 `list` 里按某种语言解析成字符串；(b) 把 `TextRef` 送过去，但服务端没有目录（提案第 1、4 节：目录只在浏览器登记）解不开；(c) 继续送中英两份，等于浏览器端为每条命令各解析两种语言。三种都要改 `RemoteCommandSchema.title`，该合同 `additionalProperties: false`、带版本号，所以是线协议变更，要升 `version`（并写进 Spec 的“预期改动”：`workbench/commands.md` 现在只提到声明字段，没提这条合同）。
+- **为什么是问题**：提案用“线协议不变”作为影响面小的论据，且把 `commands.md` 的改动描述成“声明字段”；实现时会撞上这条合同，带出 Agent 看到的命令标题该用哪种语言的问题（给模型的文字不跟界面语言，见 ADR 0034 决策 4，倾向 (c) 或固定源语言），这是一个需要在提案里定的取舍。
+- **如何核实**：`grep -n "LocalizedTextSchema" packages/neuro-book/src/plugins/commands/shared/contracts.ts`；读 `plugin.ts:119-141`。
+- **建议改法**：把“线协议：不变”改为“已知一处变更：`nbook.commands/remote.list.title`”，写明处理方式（建议：浏览器端送源语言解析后的字符串，因为接收方是 Agent，界面语言与它无关）和版本升级；再对 `rg "LocalizedTextSchema" packages/*/src` 命中的每个跨进程 schema 复核一遍（我只找到这一处出现在远程合同里，其余都是登记校验）。
+
+### 4. “按约定取键”的约定表对不上现有声明：覆盖面、“本地名”、可选字段的缺省、选项的形状
+
+- **严重程度**：重要；**类别**：方案与代码不符 / 遗漏
+- **位置**：提案第 2 节；`docs/specs/workbench/menus.md:39,74`（`label` 可选，缺省用命令的标题）；`packages/neuro-book/src/plugins/{commands,workbench,editor,settings,state}/shared/*.ts`（见下表）；`nb-runtime/src/plugins/host.ts:829-839`（`idPrefix: "plugin"` 的保留发布者例外）；`packages/neuro-book/src/plugins/workbench/web/plugin.ts:97-100`（工作台登记命令）。
+- **现象**：四处各自核实。
+  1. **覆盖面**。约定表只列了命令、视图、设置项、菜单项、清单五类。现有声明里还有要显示的字段：设置分区与页面的 `title`、`description`、`groups[].title`、`keywords[]`（`settings/shared/sections.ts:52-69`，`keywords` 是 `LocalizedText[]`，没有可寻址的名字）；设置项的 `ui.unit`（`shared/settings.ts:62`）与选项的 `description`（`SettingChoiceDeclaration`）；活动栏条目、状态栏条目、标题栏条目的 `title`（`workbench/shared/items.ts:28,42`）；视图标题动作的 `title`（`views.ts:45`）；编辑器与编辑器页面的 `title`（`editor/shared/contracts.ts:94,127`）；首页的 `title`（`home.ts:22`）；公开状态的 `reason`（`state/shared/plugin.ts:46`）；标题栏菜单的四个固定组名（`workbench/shared/menus.ts:15-20`）。这些在提案里既没有约定键，也没有说“必须写 `{key}`”，Spec 预期改动里 `workbench/editor.md` 和设置的两份 Spec 只写“声明字段改为约定键、`{key}` 或字面字符串”。
+  2. **“去掉插件前缀的本地名”不总存在**。内核允许保留发布者（`nbook`）的内置插件用“发布者加点”作前缀（`host.ts:829-839`），实际如此：插件 `nbook.workbench` 登记的命令 id 是 `nbook.view.set-part-hidden`、`nbook.view.set-panel-position` 等六条 `nbook.view.*`、`nbook.app.reload`、`nbook.help.documentation`、`nbook.quick-open.open-commands`、`nbook.settings.switch-theme`；插件 `nbook.editor` 登记 `nbook.edit.undo`、`nbook.edit.redo`；`nbook.projects` 登记 `nbook.help.welcome`。这些 id 不以 `nbook.workbench.` 开头，“去掉插件前缀”得不到本地名。要么按发布者去前缀（那么 `nbook.editor.save` 的键是 `commands.editor.save.title`，第三方 `acme.foo.x` 的键却是 `commands.foo.x.title`，规则不统一），要么内置命令必须写 `{key}`（那么约 25 条内置命令不能享受约定）。提案没有选。
+  3. **可选字段的缺省**。`label`、`description`、`category`、`placeholder` 现在都是可选，菜单项 `label` 缺省取命令标题（`menus.md:74`）。“没写就按约定取键”之后，宿主分不清“作者没想写”和“漏了键”：缺键按第 4 节“落到键名时记诊断、测试里抛错”，那么没有说明的设置项也必须有一个空的 `description` 键？还是按键存在与否决定显示？菜单项没有 `label` 键时要不要退回命令标题？提案都没说，而这直接决定了目录里有多少“空值占位”。
+  4. **选项的形状**。`settings.<设置名>.choices.<值>` 只给出一个字符串，现有选项是 `{value, title, description?}`；`value` 是 `string | number | boolean`（`SettingLiteral`），数字、布尔、含点的字符串（如 `gpt-4.1`）做键段都有歧义（`keySeparator` 是点，原型第 6 点已证实 `:` 会被改写，点会被拆成嵌套）。
+- **为什么是问题**：开发者已确认“按约定取键”这个方向（Work README），提案把它列在核心方案里，但约定表只覆盖了一半声明，且对内置命令这一最大宗（约 190 个文件的迁移里占大头）无法套用。作者按提案写代码时会立刻遇到这四处。
+- **如何核实**：`grep -rn "LocalizedTextSchema" packages/neuro-book/src --include='*.ts' | grep -v test` 对照第 2 节五类；`grep -rnE '"nbook\.(view|app|help|quick-open|edit)\.' packages/neuro-book/src/plugins --include='*.ts' | grep -v test` 看命令 id；对读 `host.ts:829-839`。
+- **建议改法**：在提案里把约定写成“每个贡献点一行”的完整表（包括分区、页面、分组、`keywords`、各类条目与 `reason`），并补三条规则：内置贡献的本地名取法（建议：本地名 = 贡献 id 去掉插件 id 前缀，不满足时必须写 `{key}`，登记时报错而不是静默）；可选字段“键存在才显示”，必填字段缺键才是错误（目录检查按贡献点的必填集合核对）；选项键写成 `choices.<值>.title`/`.description`，值要先过 `[a-z0-9-]` 之类的字符校验，不合格的值必须写 `{key}`。
+
+- **第 4 条更正（只追加）**：第 2 点里的数字按 `workbench/web/plugin.ts:96-103` 重数：工作台插件 `nbook.workbench` 登记的命令共 12 条，id 无一以 `nbook.workbench.` 开头：`nbook.view.*` 七条（面板位置、对齐、隐藏、收起、最大化，区域显隐，移动视图）、`nbook.app.reload`、`nbook.help.documentation`、`nbook.quick-open.open-commands`、`nbook.settings.switch-theme` 与 `switch-appearance`。“六条”改为“七条”；正文里“约 25 条”“约 190 个文件里占大头”没有数据支持，以本更正的 12 条为准（编辑器的 `nbook.edit.undo/redo`、项目插件的 `nbook.help.welcome` 另计）。
+
+### 5. “加一种界面语言只加目录文件”在设置、类型和共享包三处都做不到，提案没有说明“语言集合”怎样成为单一来源
+
+- **严重程度**：重要；**类别**：目标与方案不一致 / 遗漏
+- **位置**：提案“目标”第 2 条、第 5 节“界面语言集合：宿主内置目录有的语言……`nbook.settings/locale` 的选项由它生成”；`packages/neuro-book/src/plugins/settings/shared/contracts.ts:54-69`（`localeSetting` 的 `schema` 是 `Union([Literal("zh-CN"), Literal("en-US")])`，`choices` 手写两项）；`packages/neuro-book/src/shared/localized-text.ts:19`（`DisplayLocale = keyof LocalizedText`）；`packages/nb-agent-ui/src/ports.ts:10`（`PromptLocale = "zh-CN" | "en-US"`）、`packages/nb-markdown/src/locale.ts:6`（`MarkdownLocale`）。
+- **现象**：
+  1. `localeSetting` 声明在 `plugins/settings/shared/contracts.ts`，由服务端、项目端、浏览器三个位置共用，服务端据其 `schema` 校验用户设置文件。宿主目录随前端构建进浏览器包（提案第 1 节），服务端取不到；“选项由宿主目录生成”没有说生成物在哪、服务端校验用什么。如果另写一份语言清单，就违反“只加目录文件”；如果清单从 `locales/` 目录构建期生成，需要一个服务端和浏览器都能 import 的生成物，提案未提。
+  2. `DisplayLocale` 在 `neuro-book/src` 里有 113 个非测试文件引用，类型是 `keyof LocalizedText`，随 `LocalizedText` 删除而失去定义；`PromptLocale`、`MarkdownLocale`、`AgentLocale` 在共享包里是各自写死的两元联合。加第三种语言要改这些类型，不是“只加目录文件”。
+  3. 设置项里的语言名选项（`简体中文`/`English`）现在有意写成各自的语言（`contracts.ts:63-67` 的注释），生成时不能走 `choices.<值>` 约定翻译，提案也没提要保留这个规则。
+- **为什么是问题**：目标 2 是方案的主要卖点（“加语言”不改代码），提案接受后第一个加语言的人会撞到这三处。
+- **如何核实**：对读 `plugins/settings/shared/contracts.ts:54-69`；`grep -rl "DisplayLocale" packages/neuro-book/src | grep -v test | wc -l` 得 113；`grep -n "Locale = " packages/nb-agent-ui/src/ports.ts packages/nb-markdown/src/locale.ts`。
+- **建议改法**：提案里写明语言集合的单一来源（例如构建期从宿主 `locales/` 生成 `SUPPORTED_LOCALES` 常量，放在服务端与浏览器共用的模块），`DisplayLocale` 改为由它派生的类型或放宽为规范化的语言标签字符串；共享包的 `*Locale` 类型改为 `string`（运行期按注入或包内目录解析）；语言名的选项注明“用各自语言写，不走翻译”。若认为“加语言”本来就要改几处类型，就把目标 2 改成“加语言只需加目录和一处语言清单”，不要写“只加目录文件”。
+
+### 6. 翻译端口的形状仍未定：`t` 的入参、取“全部语言写法”的办法、`Text` 类型的位置、插件组件怎样拿到绑定了命名空间的 `t`
+
+- **严重程度**：重要；**类别**：接口与合同（上一轮前端第 4 条，只处理了一半）
+- **位置**：提案第 3 节（“`ctx.text(key, params)` 构造，命名空间由插件身份绑定，不能伪造”）、第 4 节（“Vue 侧经 provide/inject 交出 `useText()`，内含当前语言与 `t`”）、第 6 节（“nb-ui 提供翻译端口，包括注入键、`useText()` 和一份最小实现”）；`packages/nb-runtime/src/plugins/contracts.ts:71-109`（`ActivationContext` 无 `text`）；`packages/neuro-book/src/sdk/sdk.test.ts:26`、`sdk/surface.test.ts:66-89`（SDK 导出名单与文件名单是逐项写死的断言）；`docs/specs/workbench/quick-open.md:48`；`packages/neuro-book/src/plugins/settings/web/settings-window.ts:382-392`。
+- **现象**：上一轮已处理的部分：命名空间由 `TextRef` 自带（`{ns, key, params?}`）而不是靠 `ns:key` 字符串，缺键/数量参数/回退链在第 4 节写了。仍缺：
+  1. **`t` 的入参**。第 4 节的 `t` 是收 `Text`（遇 `TextRef` 翻译、遇字符串原样返回），还是收 `(key, params)` 配绑定的命名空间？第 6 节的最小实现原型是 `t(key, params)`（`prototype-report.txt` 第 7 项），宿主引擎外面包的“翻译函数”是哪种，两者怎样互换，没写。
+  2. **“全部语言的写法”**。命令面板要求候选在各语言下的写法都参与匹配（`quick-open.md:48`），设置搜索也比对两种语言（`settings-window.ts:382-392`，现在是 `Object.values(text)`）。`Text` 变成 `string | TextRef` 之后 `Object.values` 无从下手；提案说“一次取齐所有语言，设置搜索照旧比对多种语言”，但端口里没有对应方法（例如 `forms(text): string[]` 或 `t(text, {lng})`）。
+  3. **`ctx.text` 的出处**。`ctx` 是内核 `ActivationContext`，它与应用无关（ADR 0030 决策 1），没有 `text`；提案没说由 SDK 的 `defineEntry` 包一层加上，还是内核加一个泛化的成员。服务端与项目端入口同样需要构造 `TextRef`（提案“线协议”一段说跨进程只传码，但状态/通知类文字可能由服务端插件产生），也没说它们拿不拿 `ctx.text`。
+  4. **“不能伪造”不成立**。`TextRef` 是普通对象，任何插件都可以直接写 `{ns: "nbook.editor", key: "x"}`；只有声明里的 `{key}` 由宿主补命名空间。提案要么在接收边界（通知、状态栏、快速选择）校验 `ns` 等于调用方，要么把措辞改成“`ctx.text` 绑定自己的命名空间；跨命名空间引用不被阻止，只是不被鼓励”。（按“过度防御不改”的习惯，我倾向后者，只改措辞。）
+  5. **类型与导出位置**。`Text`/`TextRef` 定义在哪个包？SDK 现有一个同名 `Text = string | LocalizedText`（`sdk/plugin.ts:30`）；nb-ui 的 `NotificationInput.message` 要接收它，所以应当在 nb-ui 或更底层；插件 Vue 组件里的 `useText()` 从 SDK 的哪个子路径导出（SDK 名单是写死的断言，新增要改 `sdk.test.ts`、`surface.test.ts`、`pack.test.ts`）；第三方插件的 Vue 组件拿到的 `t` 是否已绑定自己的命名空间（`useText()` 返回的是宿主级的 `t`，还是 `useText(ns)`）。
+- **为什么是问题**：提案把端口放在 nb-ui、说明“共享包不依赖 i18n 库”，端口一旦发布就是公开接口（nb-ui 0.2.0）。这些问题答案不同，t03 的任务划分就不同。
+- **如何核实**：读 `nb-runtime/src/plugins/contracts.ts:71-109`；`grep -n "Object.values(text)" packages/neuro-book/src/plugins/settings/web/settings-window.ts`；读 `quick-open.md:48`。
+- **建议改法**：在提案第 3、6 节各补一段 TypeScript 签名草案（五到十行即可）：`Text`/`TextRef` 所在包、`t(text: Text): string`、`forms(text: Text): readonly string[]`、`useText()`、`ctx.text` 由哪层加；并把第 4 点的措辞改掉。
+
+### 7. 共享包目录谁登记进宿主引擎没有写；`locale` 属性在有注入时被忽略，与四个包已发布的合同方向相反
+
+- **严重程度**：建议；**类别**：遗漏 / 公开合同（上一轮前端第 3 条的后半，部分处理）
+- **位置**：提案第 1 节（登记接口只提到插件）、第 6 节（“每个共享包自带 `locales/`”“已发布的 `locale` 属性保留，决定用哪份默认目录；有注入时以注入为准”）；`packages/nb-form/README.md:18-19`（`locale="zh-CN"` 是公开用法）、`docs/specs/ui/forms.md:75,158`、`ui/prompt-editor.md:68`、`ui/agent-conversation-view.md:72,387`、`ui/markdown-display.md:37`。
+- **现象**：
+  1. 宿主引擎的命名空间有插件 id 与包名两类，但第 1 节“同一个登记接口”只描述插件在浏览器登记时登记目录。nb-ui、nb-form、nb-agent-ui、nb-markdown 的目录由谁、在什么时机登记进宿主引擎（宿主启动时静态导入四个包的 `locales/`？），热装卸不涉及它们，但回退链“该命名空间的源语言”对包也要成立，并且“目录检查”要覆盖它们（第 8 节只说内置插件的约定键）。没有登记，注入的 `t` 对这些命名空间一律走到键名。
+  2. 优先级“有注入时以注入为准”意味着：宿主已注入时，调用方显式传的 `locale="en-US"` 被静默忽略。这四个包的 Spec 与 README 都把 `locale` 写成决定显示语言的属性，现在 NeuroBook 里每个调用点传的都是当前显示语言，所以行为不会变；但 Lab 场景、单测里“固定语言看效果”的写法（`lab/web/fixtures/index.ts:1068` 一类写死 `locale: "zh-CN"`）在宿主注入之下会跟着应用语言走。上一轮建议的优先级是“prop、注入、包内默认”，提案反过来取了“注入、prop”，没有写理由。
+- **为什么是问题**：1 影响第 1 节“同一个登记接口”的完整性；2 是公开属性的语义改变，要么在每个组件 `.md` 里写明，要么保持 prop 覆盖。
+- **如何核实**：对读提案第 6 节与 `docs/specs/ui/forms.md:158`；`grep -rn "locale: \"zh-CN\"" packages/neuro-book/src/plugins/lab | head`。
+- **建议改法**：第 1 节加一句“共享包的目录由宿主在启动时登记，命名空间是包名”；第 6 节写明优先级的理由，或改为 prop 优先（显式传了就用它，用来做 Lab 与测试的固定语言），并在组件 `.md` 里列入。
+
+### 8. 待定项 3（nb-ui 叶子组件读注入）：决策材料里缺规则条文和已有先例，且“后者要改几十处”没有数
+
+- **严重程度**：建议；**类别**：与现有约定的关系（上一轮前端第 10 条，部分处理，且我对上一轮的判断做一处收窄）
+- **位置**：提案第 6 节第一条、“待定项”第 3 条；`docs/standards/code/components.md:74,85,118`（`state:inject` 计入耦合度；“公共零件目录下耦合度恒为 0”属档位 A）；`packages/nb-ui/src/components/feedback/Dialog.md:2,175`（已声明 `state:inject`，内容是“读宿主提供的传送目标与 `contained`”）。
+- **现象**：提案写“在组件 `.md` 里声明这项能力”，没有提规范档位 A 的禁止规则；备选方案一节也没有“组件保持 props，宿主或包装层传文字”这一项。**收窄上一轮的说法**：上一轮说 nb-ui 现有的 `state:inject` 都是库内部协调、没有向宿主取数据的先例，不准确，`Dialog` 读的传送目标就是宿主提供的；所以这条规则在 nb-ui 里并非不可逾越，提案的做法有先例。仍然该让开发者看到的是：规则条文说“耦合度恒为 0”，而 nb-ui 已有一个例外，再加十几个会让例外变成常态。“后者要改几十处调用点”没有数：nb-ui 里把中文写成 `withDefaults` 缺省的有 21 个组件文件、约 30 行（`grep -rnE '"[^"]*[一-龥]' packages/nb-ui/src/components --include='*.vue'`），其中多数已有同名属性（`closeLabel`、`emptyText`、`confirmLabel` 等），另有一些写在模板里没有属性（`Dialog.vue:384,392` 的“对话框”、`ColorPickerPanel.vue:132,145`、`Breadcrumb.vue:23`、`Slider.vue:125`、`Splitter.vue:612-616`），调用方传文字做不到。这反过来支持“读注入”，应当写进推荐理由。
+- **为什么是问题**：待定项 3 要开发者拍板，材料里缺规则条文和数字，开发者看不到取舍的全部。
+- **如何核实**：同上 grep；读 `components.md:118,129` 与 `Dialog.md:175`。
+- **建议改法**：待定项 3 补两句：规则条文（档位 A）与 `Dialog` 先例；改动面的数字（21 个文件、其中有属性的与写死在模板里的各几处）。备选方案加一行“组件保持 props”并写明为什么不选（模板里写死的无法覆盖）。
+
+### 9. 引导与静态文字：清单漏了几处，`<html lang>` 与“记录只能写已收到的值”没写
+
+- **严重程度**：建议；**类别**：遗漏（上一轮前端第 6 条，大部分已处理，余下三点）
+- **位置**：提案第 5 节“语言的来源”“静态文字”；`packages/neuro-book/src/web/PageOutlet.vue:30`（离线横幅）、`web/router.ts:28`（`NOT_FOUND_TITLE`）、`web/NotFoundPage.vue:10-12`、`web/index.html:2,32`（`<html lang="zh-CN">`、`aria-label="正在启动 NeuroBook"`）、`web/host/appearance-hint.ts` 头注释（“谁写文档根就记谁”）、`plugins/workbench/web/document/WorkbenchDocument.vue:31-33`（工作台挂载后才写 `document.documentElement.lang`）。
+- **现象**：已处理的：语言来源有本地记录兜底（超时、引导失败）、三个 `createApp` 各自注入、加载页两种语言内联并由测试对齐，这几项与上一轮建议一致，不再重复。余下：
+  1. **静态文字清单不全**。提案列“失败页、加载页、`index.html` 与 `boot.ts`”；实际还有 `PageOutlet.vue` 的离线横幅、`router.ts` 的 `NOT_FOUND_TITLE` 与 `NotFoundPage.vue`（“页面不存在”“回到工作台”）。它们属于同一类（宿主自带、不属于任何插件），如果迁移时漏掉，英文用户在断线或错路径时会看到中文。
+  2. **`<html lang>`**。`index.html` 写死 `zh-CN`，只有工作台挂载后 `WorkbenchDocument.vue` 才按显示语言改；失败页、加载页、`NotFoundPage` 阶段文档语言始终是 `zh-CN`，读屏用错发音。上一轮第 6 条第 4 点提过，提案没写。内联脚本读到记录时可以顺手写 `lang`。
+  3. **记录的写入条件**。“做法同 `appearance-hint.ts`”那份实现是观察文档根再写记录。语言如果也照此观察 `document.documentElement.lang`，设置快照超时期间工作台按默认值 `zh-CN` 写下的 `lang` 会把记录覆盖成 `zh-CN`，兜底就失效了（先有记录 `en-US`，超时展示 `en-US`，仍会被默认值覆盖，取决于谁决定展示值）。提案应写明：记录只在收到设置快照（层状态 `ok`）后写，展示值在超时期间取记录；并说明 `SettingsService.inspect` 能区分“默认值”与“快照值”（`shared/settings.ts:395-396`），实现上是可行的。
+- **为什么是问题**：1、2 是小遗漏；3 如果实现时直接套用明暗提示的做法，会得到一个看似工作、断网重载就失效的兜底。
+- **如何核实**：`grep -n "[一-龥]" packages/neuro-book/src/web/{router.ts,PageOutlet.vue,NotFoundPage.vue}`；读 `WorkbenchDocument.vue:31-33`；读 `docs/specs/settings/configuration.md` 输出 16。
+- **建议改法**：第 5 节“静态文字”补上三处；加“`<html lang>` 随语言更新（内联脚本读记录时先写一次）”；“语言的来源”补一句记录只由收到快照的值写入。
+
+### 10. 第 8 节“检查”的覆盖：显式写的 `{key}` 没人查、参数名拼错不会被发现、“`keyof typeof`”不是原型实际用的写法
+
+- **严重程度**：建议；**类别**：自相矛盾 / 遗漏（上一轮前端第 8 条，处理了一半）
+- **位置**：提案第 8 节；`prototype-report.txt` 第 4 项（A 方案：递归路径类型，折叠 `_one/_other`，几十行）。
+- **现象**：上一轮的主要意见（参数名推导不出来）提案已承认并分成三层，是对的。仍有三处：
+  1. **显式 `{key: "..."}` 无检查**。第 8 节的测试只枚举“声明推导出的约定键”；作者“偏离约定”写的 `{key: "..."}` 恰恰是最容易拼错的，它的类型是 `string`（第 3 节 `TextRef.key`），编译期不查，装载测试按“约定键”枚举也不会碰它。结果是偏离约定的路径比约定路径少一层保护。
+  2. **参数名拼错**。目录检查只比各语言占位符集合一致，测试只覆盖被执行到的调用。`ctx.text("greeting", {nam: x})` 在生产里显示 `你好，{{name}}`（原型第 3 项：缺参数时原样留占位符），没有任何一层拦它。提案承认参数名推导不出来，但没有给出“谁查调用点的参数名”的答案。原型报告第 4 项给了两条路：目录改成 `as const` 的 TS 对象让类型抽占位符，或检查脚本扫描源码里字面键的调用；提案没选也没说放弃。
+  3. **措辞**。“`resolveJsonModule` 加 `keyof typeof`”不足以得到点号路径键：`keyof typeof catalog` 只有顶层键，复数键还是 `files_one`/`files_other`；原型实际用的是 `keys.ts` 里递归路径类型并折叠复数后缀（约 40 行）。另外 `packages/neuro-book/tsconfig.json` 没有显式 `resolveJsonModule`，我用 tsc 5.9.3 在 `moduleResolution: "bundler"` 下试了 JSON 导入是可以的（`lab/tj/`），所以不需要改配置，但提案这句话会让实现者以为要改。
+- **为什么是问题**：第 8 节是“写错键、漏翻译、占位符不一致在检查或测试里就能发现”这个目标的承载，三处各留一个洞，目标写得比实际保证强。
+- **如何核实**：对读提案第 8 节与 `prototype-report.txt` 第 3、4 项；`cd /tmp/w00028-review/t01-impl/lab/tj && /home/notnotype/CodeRepository/neuro-book/node_modules/.bin/tsc -p tsconfig.json`（退出码 0）。
+- **建议改法**：目标 4 的措辞限定为“键和跨语言的占位符”，参数名写成“由测试覆盖，未覆盖的路径不保证”；装载测试同时枚举显式 `{key}`；第 8 节“编译期”一条改为“用原型的 `keys.ts` 类型（递归路径、折叠复数后缀）”。如果开发者想要参数名也保证，把“目录改成 TS 对象”列为待定项。
+
+### 11. 事实陈述与影响面：Spec 预期改动清单漏了六份、nb-agent-ui 的视图合同变更没列、两处计数与现状对不上
+
+- **严重程度**：建议；**类别**：与代码、Spec 不符的事实陈述
+- **位置**：提案“当前行为与证据”“影响”“对 Spec 的预期改动”；`docs/specs/` 各文件；`packages/nb-agent-ui/src/types.ts:114-126`、`harness.ts:124,285,315`；`packages/nb-markdown/src/display/static-views.ts:79`、`editor/image-views.ts:44`。
+- **现象**（逐项核实）：
+  1. **Spec 清单漏项**。提案列了 `runtime/*` 四份、`workbench/{commands,menus,views,editor}.md`、`settings/{settings-window,configuration}.md`、新建 `ui/i18n.md`、“各共享包组件的同名 `.md`”。以下 Spec 里也写着“中英两份”或 `locale`，没在清单里：`state/public-state.md:42`（`reason` 是中英文本，提案第 3 节说公开状态的原因改传 `Text`）、`workbench/quick-open.md:48,81`（选择请求的标题、占位、候选说明是中英文本，且要求各语言写法都参与匹配）、`workbench/bookshelf.md:42`、`ui/forms.md:75,158`（内建文案、`locale`、`describeIssues(…, locale)`）、`ui/agent-conversation-view.md:72,387`、`ui/prompt-editor.md:68`、`ui/markdown-display.md:37`。另外 `runtime/plugin-code-loading.md:43` 的“宿主提供的 i18n（`inject`）”这句话到现在没有实现（Task README 第 6 条问过），提案没说这条随本方案成立还是改写。
+  2. **nb-agent-ui 的视图合同要变**。提案第 6 节“核心层只产出 `TextRef` 或 `{code, params}`”是对的，但 `MessageView` 的 `system.label`、`error.message` 现在是 `string`，由 `createHarnessTranscript({locale})` 在创建时按固定语言烘成字符串（`harness.ts:124,285,315`）；切换语言后已记录的条目不会换文字（Task README 第 9 条的已知坑）。要按提案做，这些字段得改成可翻译的文字，是已发布包（nb-agent-ui 0.1.0）的视图合同变化。“影响”表里 nb-agent-ui 一行只写“自带目录，支持注入的 `t`；`locale` 属性保留”，没写这条。
+  3. **`render()` 挂载点不止一处**。“当前行为与证据”写“nb-markdown 有一处单独 `render()` 挂载的 Vue 树（`image-views.ts`）”。实际有两处：`editor/image-views.ts:44` 与 `display/static-views.ts:79`（`render(h(MarkdownImage, …))`）。方案第 6 节“挂载时带上宿主的 `appContext`”对两处都要做，展示器那一处还要从 `MarkdownDisplay` 的 setup 里取 `appContext` 传到纯 TS 的 `static-views.ts`。
+  4. **计数**。“约 1180 处 `"en-US"`、124 个文件（非测试 110 个）”：处数对（`packages/neuro-book/src` 1095 + `nb-form` 13 + `nb-agent-ui` 30 + `nb-markdown` 39 = 1177），文件数对不上：同口径是 189 个文件、非测试 113 个（`grep -rIl '"en-US"'` 于这四个包的 `src`，再排除 `.test.`、`/tests/`）。这个数字被“约 190 个文件”之类的迁移规模判断引用，改一下免得误导。
+  5. **纯 DOM 的一次性渲染**。第 4 节原型验证的是 Vue 组件在 `shallowRef` 版本号下随语言更新；nb-markdown 的节点视图与装饰（`editor/reference-links.ts:57` 的 `chipView({… locale: host.locale()})`、`display/renderer.ts:89`）是创建时取一次值的纯 DOM，不在响应式环境里。提案说“纯 TS 模块由调用方传入 `t`”，没说这些创建时算出来的文字在语言切换后何时重算（现在也是靠下一次渲染）。目标 3“切换语言时已打开的界面不重新挂载就换文字”对它们是否成立，要么在 Spec 里列为例外，要么规定传 getter 并在语言变化时让编辑器刷新装饰。
+- **为什么是问题**：影响面决定 t03 的工作量和哪些 Spec 要同步，漏项会在实施时被评审指出。
+- **如何核实**：`grep -rln "中英\|LocalizedText" docs/specs`；`grep -n "render(h(" packages/nb-markdown/src -r`；见每项的位置。
+- **建议改法**：补全 Spec 清单；“影响”表 nb-agent-ui 行加“`MessageView` 里的字符串字段改为可翻译文字”；证据一节把计数改成 189/113 或写“约 190 个文件”；纯 DOM 一条在提案里写明例外或做法。
+
+- **第 11 条更正（只追加）**：第 4 点里“被‘约 190 个文件’之类的迁移规模判断引用”不准确：提案只在“当前行为与证据”一处给了文件数，别处没有引用；该点的结论只剩“文件数 124/110 与同口径的 189/113 对不上”。第 5 点里“现在也是靠下一次渲染”是从代码推断（`MarkdownControl.vue:52` 的 `locale: () => props.locale ?? "zh-CN"` 只在创建节点视图与装饰时被调用），未在运行中验证，严重程度按“建议”不变。
+
+- **第 4 条补充（只追加）**：(1) 菜单键 `menus.<菜单>.<项>.label` 里的“菜单”没有定义：菜单项 id 形如 `nbook.projects.menu.open`，声明里有 `group`（`file`/`edit`/`view`/`help`）和 `section`，另有五个菜单位置（标题栏菜单、视图标题、资源管理器右键、编辑器标题、标签右键）；是取贡献点、取 `group` 还是别的，提案没写，键里的“项”也带着 `menu.` 这一段。(2) 缺省 `label` 是主流：用单行 grep 能看全的 15 条菜单项声明（`plugins/*/web/plugin.ts`、`workbench/web/titlebar/`）里，10 条没有 `label`（取命令标题），只有 5 条写了；这个比例说明第 4 条第 3 点（“没写”按约定取键 vs 缺省取命令标题）是常态路径，不是边角。
+
+### 12. `FormText` 的回退与回退链不一致：现有实现回退到 `en-US` 再取第一种，提案写“取不到用源语言”
+
+- **严重程度**：建议；**类别**：行为变化未声明
+- **位置**：提案第 3 节末（“`FormText` 保留为第三种字面形态，渲染时按当前语言取，取不到用源语言”）；`packages/nb-form/src/text.ts:14-20`（`FALLBACK_LOCALE = "en-US"`；`resolveText` 依次取 `text[locale]`、`text["en-US"]`、`Object.values(text)[0]`）。
+- **现象**：`FormText` 是开放语言映射，它自己没有“源语言”这个概念（`nbdev` 面板与模型生成的描述都只给英文或单语字符串）。现行回退是 `locale` → `en-US` → 第一种。提案说“用源语言”，而宿主的源语言是 `zh-CN`；照字面改，一个只带 `en-US` 与 `ja` 的映射在 `zh-CN` 界面下的取舍会变（取 `zh-CN`？没有；再取 `en-US`？还是按回退链的第三环）。提案没说是保持现行规则还是并入回退链。
+- **为什么是问题**：小，但这是已发布包（nb-form 0.1.0）的行为，且 `isFormText`/`resolveText` 是它公开的函数。
+- **如何核实**：读 `nb-form/src/text.ts:14-20`。
+- **建议改法**：第 3 节末改成“`FormText` 保持现行的回退（当前语言、`en-US`、第一种）”，或明确改成回退链并说明对已发布行为的影响。
+
+- **第 7 条补充（只追加）**：第 6 节说宿主没有注入时 `locale` 属性“决定用哪份默认目录”，但 nb-ui 的组件没有 `locale` 属性（`grep -rn "locale" packages/nb-ui/src` 无命中）。没有宿主的使用者（nb-story 查看器、dev-panel、直接用 npm 包的人）给 nb-form 传 `locale="en-US"` 时，嵌在表单里的 nb-ui 控件（`NumberInput`、`Input`、`SearchSelect` 的读屏名称）读不到这个语言，会落到 nb-ui 自己的默认（中文）。现在 `ui/forms.md:158` 靠表单把这些名称按语言覆盖；提案要么保留这层覆盖，要么规定“包的根组件在收到 `locale` 属性且没有注入时，为子树提供一个用该语言的端口”。提案没写这一点，nb-form 的验收（`ui/forms.md:158`）会因此退化。
+
+- **第 11 条补充（只追加）**：影响面还漏了作者材料：`packages/neuro-book/plugin-sdk/` 下有 9 个文件含 `"en-US"`、`localize(`或 `formatText`（`examples/plugins/{counter,focus,snippets}`、`examples/external/declarative/package.json`、`README.md`、`pack.test.ts`、`build-plugin.test.ts`）。AGENTS.md 规定示例是教学材料、讲解随场景测试一起改；其中 `external/declarative/package.json` 是纯 JSON 声明的第三方插件示例，没有代码，正好是“约定键 + `locales/`”这套写法最需要的第一个样板，应当写进提案的“迁移”一行。
+
+### 13. 共享包随源码发布，`src` 里导入 `locales/*.json` 会让部分消费者的类型检查失败，提案只处理了 `files`
+
+- **严重程度**：建议；**类别**：遗漏（上一轮前端第 12 条，处理了一半）
+- **位置**：提案第 6 节“每个共享包自带 `locales/`，加进包的 `files`”；`docs/adr/0029-workspace-packages-publish-source-to-npm.md:39`（“TypeScript 消费者用自己的 tsconfig 检查这些源码，严格度不同时可能报错；`skipLibCheck` 管不到 `.ts`”）。
+- **现象**：`files` 补上之后包里确实有目录文件，但包的 `.ts` 源码要 `import … from "../locales/zh-CN.json"`，消费者的 tsconfig 在 `moduleResolution` 为 `node16` 或 `node10` 且没开 `resolveJsonModule` 时报 TS2732。实测（tsc 5.9.3，`lab/tj/tsconfig.node16.json`、`tsconfig.node10.json`）：这两种配置报 `TS2732: Cannot find module './c.json'`，`bundler`（本仓库）与 `nodenext` 不报。nb-form、nb-agent-ui、nb-markdown 已发布 0.1.0，nb-ui 0.2.0，这是它们第一次在源码里带 JSON。
+- **为什么是问题**：ADR 0029 已把这类“严格度不同”列为已接受的代价，但新增的一类应当在提案里被看到，而不是发布后才发现。
+- **如何核实**：`cd /tmp/w00028-review/t01-impl/lab/tj && /home/notnotype/CodeRepository/neuro-book/node_modules/.bin/tsc -p tsconfig.node16.json`。
+- **建议改法**：二选一并写进提案：(a) 共享包的目录在源码里是 `.ts`（`export default {…} as const`），`locales/*.json` 由构建/脚本从它导出供翻译平台用——这也顺带解决第 10 条的参数名推导（`as const` 字面量能用模板字面量类型抽占位符）；(b) 保持 JSON，把 `resolveJsonModule` 的要求写进各包 README 与 ADR 0029 的代价一节。
+
+### 行号更正（只追加，核对后统一写在这里）
+
+- 第 5 条：`DisplayLocale` 的定义在 `packages/neuro-book/src/shared/localized-text.ts:16`（正文写的 `:19` 不对）；语言名选项的注释在 `plugins/settings/shared/contracts.ts:64`（正文写的 `63-67` 以 `64-68` 为准）。
+- 第 9 条：`index.html` 里 `aria-label="正在启动 NeuroBook"` 在第 38 行（正文写的 `:32` 不对）；`<html lang="zh-CN">` 在第 2 行。
+
+- **第 1 条更正与补充（只追加）**：正文里“设置项标题就是 `LocalizedText` 经 nb-form 画出来”没有核实，不采信。已核实的宿主用法是 `packages/neuro-book/src/plugins/settings/web/choices.ts:62-70`：设置选项提供者交回的 `label`、`description`、`unavailable.reason` 用 `isFormText` 校验。提供者改用 `ctx.text(…)` 后，不带 `params` 的 `TextRef` 会因为全是字符串而被误当作 `FormText` 通过校验，带 `params` 的却被报“label 不是文字”拒绝，同一类值两种结果。实测见 `lab/formtext.ts`。
+
+
+## 上一轮前端 14 条的落实情况（逐条一句）
+
+| 上一轮 | 结论 |
+|---|---|
+| 1 偏离已确认方向 | 已处理：约定键、清单从目录摘出已改回；约定表本身不全，见本轮第 4 条 |
+| 2 常驻通知 | 已拆给 t04，不在本提案范围；第 3 节“通知的标题与正文传 `Text`”仍涉及 nb-ui 的 `NotificationInput`，类型位置见本轮第 6 条第 5 点 |
+| 3 `render()` 挂载 | 基本处理（`appContext` 或显式 `t`）；挂载点实际两处，见第 11 条 |
+| 4 `useText()` 没有定形 | 一半：命名空间进了 `TextRef`；`t` 入参、全部语言写法、类型位置、SDK 出口未定，见第 6 条 |
+| 5 i18next 默认行为 | 已处理：第 4 节六条与原型报告逐项对上 |
+| 6 语言来源与首屏 | 大部分处理；余下三点见第 9 条 |
+| 7 文字类型并存 | 未处理：判别字段与迁移期并存，见第 1、2 条 |
+| 8 编译期检查 | 一半：已承认参数名推不出来；三个洞见第 10 条 |
+| 9 交付路径 | 已处理（内置静态导入、第三方走文件路由）；热升级次序、离线属后端审查范围，本报告不评 |
+| 10 nb-ui 读注入 | 部分处理，见第 8 条（并收窄了上一轮的一处判断） |
+| 11 详情组件 | 已拆给 t04 |
+| 12 共享包 `files` 与 JSON | 一半：`files` 写了，消费者 tsconfig 未写，见第 13 条 |
+| 13 失败值类型放 nb-runtime | 已处理：放弃全局失败值类型，各域自定 |
+| 14 验收映射 | 部分处理：同语种回退因语言集合收窄而不再需要；“`harness.ts` 烘译文”见第 11 条第 2 点；测试支撑的提供方帮助函数提案未提（实施计划里补即可） |
+
+## 未发现问题的方面
+
+- 第 4 节对 i18next 默认行为的拦截（不转义、关 nesting、命名空间经选项传、自己走回退链、数量参数校验、热重载先注销再登记）与 t02 原型报告逐项对得上，没有遗漏的原型发现。
+- 第 5 节的语言来源与兜底顺序、“三个独立 `createApp`”（`mount.ts:31,44,51`）、设置快照 3 秒超时（`configuration.md` 输出 16）与代码和 Spec 一致；`SettingsService.inspect` 能区分默认值与快照值，兜底可实现。
+- 第 6 节最小实现“31 行、16 个用例”、体积 14.2 KB 与原型报告一致；nb-ui 浮层的注入不受 Teleport 影响（上一轮已核实，本轮未发现变化）。
+- 第 8 节把目录检查放进 `governance:check`、lint 先只告警：`scripts/ci/agent-governance.ts:97` 已有“按改动文件收窄的警告”机制，做法可行。JSON 导入在本仓库的 `bundler` 配置下不需要额外开关（tsc 5.9.3 实测）。
+- 备选方案一节与 ADR 0034、Work README 的方向没有冲突；“一律显式写键”“清单双存”已按开发者确认的方向改回，不再有偏离。
+
+## 各级数量
+
+- 阻断：0
+- 重要：6（第 1、2、3、4、5、6 条）
+- 建议：7（第 7、8、9、10、11、12、13 条）
+- 撤回或收窄：0 条撤回；第 1、4、11 条各有一处只追加的更正，第 8 条收窄了上一轮报告的一处判断。
+
+按严重程度与影响面的阅读顺序：4、3、6、1、5、2，然后 7、10、11、9、8、13、12。
+
+## 对提案“待定项”每项的判断
+
+1. 接受本提案：现稿不宜直接请开发者接受，至少先改第 3 条（“线协议不变”与代码不符）、补全第 4 条的约定表、给第 6 条的端口一份签名草案；其余可进实施计划。
+2. 第三方插件不能新增界面语言：同意推荐，前提是把“语言集合”的单一来源和 `DisplayLocale`、设置 schema 的生成写清（第 5 条）。
+3. nb-ui 叶子组件读注入：同意推荐（模板里写死的中文调用方传不了，见第 8 条数字），但待定项里要补规则条文（档位 A）和 `Dialog` 先例，并解决“无宿主时 `locale` 属性传不到嵌套的 nb-ui 控件”（第 7 条补充）。
+
+有效发现编号：1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13

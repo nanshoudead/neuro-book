@@ -1,0 +1,151 @@
+# w00028 t01 提案后端审查报告
+
+审查范围：`docs/proposals/i18n-message-catalogs.md` 第 1、3、4、7 节及“影响”“对 Spec 的预期改动”；依据主工作区 Work/Task 记录、语言政策决定、ADR 0034、t02 原型与仓库代码。
+
+### 1. 把第三方自定义码和 `RemoteFailure.code` 一律送进未知码兜底，会丢掉已经声明的失败说明
+
+- **严重程度**：重要；**类别**：正确性 / 与已定设计不一致。
+- **位置**：主工作区 `docs/proposals/i18n-message-catalogs.md:105-109`。
+- **现象**：第 108 行把“第三方插件自定义的码、`RemoteFailure.code` 这类字符串”整体归为“只走未知码兜底”。但第三方插件也能在远程方法的 `errors` 中声明闭合的业务码及其 detail schema；`RemoteFailure` 的默认 `Code` 更不是任意字符串，而是 10 个 `REMOTE_FAILURE_CODES` 的联合。
+- **为什么是问题**：不能由宿主源码穷举第三方所有码，不等于浏览器不认识该插件自带目录里的码；也不等于路由层 10 个稳定码都是未知码。照此规则，`denied`、`timeout`、`unknown-outcome` 等已知结果会一起显示“不认识的结果码”，第三方插件提供 `errors.<码>` 也永远用不上，违背 ADR 0034 决策 2 的“按拥有者 + 码取目录，遇到不认识的码才兜底”。这是上一轮后端第 7 条处理时引入的新问题，不是要求宿主穷举开放域。
+- **如何核实**：对读 ADR 0034 第 42–46 行；源码（以下均在 `.worktree/review-w00028-t01-impl/`）`packages/nb-runtime/src/remote/protocol.ts:27-53`：10 个路由码、`RemoteFailure<Code extends string = RemoteFailureCode>`；`packages/nb-runtime/src/remote/contract.ts:44-51,157-171,319-322`：业务码来自各方法的 `errors` 键，结果按码带对应 schema 的 detail。源码静态核实，未将尚未实现的目录投影冒充运行结果。
+- **建议改法**：把“能否穷举”与“能否本地化”分开：闭合域强制覆盖；开放域仍按已知拥有者查 `errors.<码>`，只对格式不合格、拥有者不明或目录确实不存在的码走中性兜底；远程路由的 10 个码明确由 runtime 拥有，与方法业务码分开。
+
+### 2. “线协议不变、跨进程照旧只传码与参数”掩盖了本提案已经要求的业务合同变更
+
+- **严重程度**：重要；**类别**：接口与合同 / 兼容。
+- **位置**：主工作区 `docs/proposals/i18n-message-catalogs.md:50,105,137,154-160`。
+- **现象**：影响一节断言线协议不变、跨进程“照旧只传码与各域合同里的参数”，但本提案直接新增了安装失败码 `catalog-invalid`；现行 `nbook.plugins/registry` 是 version 4，安装与预览的失败集合只有 8 个业务码，其中没有它；detail 目前仍是说明字符串，不是提案所称已有的结构化参数合同。
+- **为什么是问题**：保留 `{ok:false,code,cause?,detail?}` 的传输外壳，可以不改 wire 帧版本；新增业务码、改 detail 的内容合同却不能因此声称跨进程合同都不变。现行远程节点会把合同未声明的失败码转换成 `provider-error`，合同版本又按整数精确匹配；后续实施若照影响一节不改合同与版本，用户看不到 `catalog-invalid`。上一轮后端第 5、11 条的“不要新增全局错误形状”已处理，但业务合同与兼容边界仍没有说明。
+- **如何核实**：源码 `.worktree/review-w00028-t01-impl/packages/neuro-book/src/plugins/plugins/shared/contracts.ts:21-32`（version 4，install/inspect 共用 `installFailureDetails`）；`src/plugin-platform/shared/types.ts:141-158`（8 个安装码，`detail: string`）；`packages/nb-runtime/src/remote/node.ts:867-879`（未声明业务码转 `provider-error`）；主工作区 `docs/specs/runtime/plugin-channel.md:49-55`（详情按码 schema 校验、合同版本精确匹配）、`docs/adr/0034-language-policy.md:43-48,103-108`（现存句子槽仍待 w00031 t03 设计）。静态核实。
+- **建议改法**：改写为“目录取用本身不改通用 wire 帧形状”；单列本提案新增的安装业务码及 registry 合同版本窗口，更新清单/SDK 所引用的合同；各错误域把句子改成结构化参数的合同、版本与安全 detail 留给 w00031 t03，不能写成现状。无需为一个业务码强行升级全局 wire 版本。
+
+### 3. 只在浏览器登记插件时取目录，覆盖不了插件页列出的全部插件
+
+- **严重程度**：重要；**类别**：遗漏 / 与现有合同不符。
+- **位置**：主工作区 `docs/proposals/i18n-message-catalogs.md:48-51,154-158`。
+- **现象**：提案把目录加载绑定到“浏览器登记插件”，同时承诺插件页显示名称与说明时按当前语言取目录。现行浏览器集合却只含有浏览器入口或顶层声明式贡献的有效插件；插件页列表另外包含仅后端、已禁用、不兼容、安全模式未加载等未登记插件。未登记插件的文件端点按合同返回 404。
+- **为什么是问题**：仅后端且没有顶层贡献的插件不会走浏览器目录登记，已禁用或加载失败的插件也没有可取目录的地址；插件管理恰恰必须显示这些行。把源语言名字写进生成清单只解决“不执行代码即可列出”，没有解决所承诺的“当前语言”。同一缺口也影响仅后端插件拥有的失败文案：其错误可以被远程调用带到浏览器，但拥有者目录从未登记。上一轮后端第 4 条已补了内置/第三方两条交付路径，仍未补“无需浏览器登记但需要文字”的资源来源。
+- **如何核实**：源码 `.worktree/review-w00028-t01-impl/packages/neuro-book/src/plugin-platform/shared/definitions.ts:14-20` 的 `pluginsAt`；`src/server/browser-bootstrap.ts:35-47` 只按该集合给第三方 manifest 与 files；`src/plugin-platform/backend/startup.ts:279-294` 对已禁用、安全模式、不兼容者不给 installed；`src/plugin-platform/backend/inventory.ts:311-323` 列全部记录并从清单取显示名；`src/plugin-platform/backend/plugin-files.ts:55-64` 只服务 installed 集合。主工作区 `docs/specs/runtime/plugin-install.md:45,53-61` 与 `runtime/plugin-code-loading.md:52` 明定上述列表和 404 行为。静态核实。
+- **建议改法**：把“可读的目录资源集合”与“要在浏览器登记/激活的插件集合”分开；为管理页元数据和可被调用的后端错误拥有者给出不执行插件代码的目录索引与取用规则。已禁用、无效插件是否只显示生成清单的源语言值，要明确列为边界；不能只依赖现有已登记插件文件路由。
+
+### 4. 统一只接受 kebab-case 会把现有 Story 和 harness 的稳定码判成未知，迁移范围却未承认这些码
+
+- **严重程度**：重要；**类别**：正确性 / 兼容。
+- **位置**：主工作区 `docs/proposals/i18n-message-catalogs.md:105-109,145,149,152-161`。
+- **现象**：第 106 行规定所有失败码只含 `[a-z0-9-]`、最多 64 字符，格式不合格一律未知；但 nb-story 已有闭合的 `STORY_ERROR_CODES`，18 个中 17 个含 `_`，例如 `book_not_found`、`invalid_params`、`qa_record_not_found`；问答还用 `model_failed`、`no_answer`，harness 的公开码有 `session_incompatible`。它们既不含命名空间分隔符 `:`，也不含键层级分隔符 `.`。
+- **为什么是问题**：这些是已生效 Spec、HTTP/CLI 结果和问答记录里的已知稳定码，不是非法输入。按提案取文案会全部退到中性兜底；若为满足规则把它们改成连字符，则会改变公开接口和旧记录回放，不能同时把 nb-story 的变化只写成“依赖升级”、把迁移只列为抽文案。上一轮后端第 8 条的拼键前校验已补上，但新增的字符白名单仍与现有错误域冲突。
+- **如何核实**：源码 `.worktree/review-w00028-t01-impl/packages/nb-story/src/core/errors.ts:7-27`（18 个闭合码）；`src/qa/read-ledger.ts:19-25`（`chapter_limit` 是正常拒绝，不是失败）；`src/qa/engine.ts:427-436`；`packages/nb-harness/src/errors.ts:8-14`。主工作区 `docs/specs/story/queries.md:176-187`、`story/qa.md:261-274`、`agent/harness.md:195-199` 明定这些码；w00031 Work 第 9 条又明确 nb-story 只把错误改成按码取文案。
+- **建议改法**：保留各错误域既有稳定码，只限制会破坏取键的分隔符与不受控长度，允许 `_`；或显式建无碰撞的码到消息键映射，而不是重命名线上码。若确实选择统一重命名，必须另列这些域的版本、旧记录读取和 Spec 改动，不能作为无数据迁移的小改。
+
+第 4 条数字更正（只追加，不改原文）：实际执行探针得到 `STORY_ERROR_CODES.length === 17`，不是 18；其中含 `_`、被提案字符集拒绝的是 16 个，不是 17。上述“已知稳定码被判未知”的发现不变。探针先完成了文字值实验，随后因我的计数断言写错退出 1；修正该计数后再完成其余核实，不属于产品失败。
+
+### 5. 给 `TextRef` 增加 `ns` 仍未消除与开放 `FormText` 的歧义，“源语言”回退也没有数据来源
+
+- **严重程度**：重要；**类别**：接口与合同 / 上一轮未处理完整。
+- **位置**：主工作区 `docs/proposals/i18n-message-catalogs.md:68-73`。
+- **现象**：提案用 `{ns,key,params?}` 取代上一轮的 `{key,params?}`，同时保留 `FormText = string | Record<string,string>` 作为“第三种字面形态”。不带参数的 `{ns:"nb-agent-ui",key:"title"}` 仍完全满足旧语言映射的形状；旧 `isFormText` 接受它，`resolveText(...,"zh-CN")` 显示的却是 `nb-agent-ui`。另称找不到当前语言就取“源语言”，但既有任意语言映射没有 source 字段。
+- **为什么是问题**：新增 `ns` 并没有形成判别字段，登记校验或解析分支先走语言映射就会把消息引用当作两种语言，且不报错；这是上一轮前端第 7 条的原问题，Task 处理记录所说“合成一个 Text 类型”尚未解决。把回退从现行 `en-US → 第一种` 改为未知的“源语言”，又改变了已发布 `resolveText` 的可观察合同，却没有列出数据来源和 Spec 改动。
+- **如何核实**：运行 `bun /tmp/w00028-review/t01-impl/lab/probe-backend.ts`，其首项实际输出 `acceptedAsLegacyFormText:true`、`legacyRenderedValue:"nb-agent-ui"`；后面的错误码计数断言曾写错并已在第 4 条更正，不影响此项已完成的结果。源码 `.worktree/review-w00028-t01-impl/packages/nb-form/src/text.ts:9-24`；主工作区 `docs/specs/ui/forms.md:58` 明定当前语言、en-US、第一种的回退。
+- **建议改法**：明确可序列化、无歧义的判别结构及解析优先级，例如带不可与纯字符串映射混淆的判别值，或显式包装语言映射；不要仅增加另一个字符串字段。保留 FormText 现有回退，或说明新 source 如何传入并把 `ui/forms.md` 与公开 `resolveText` 的变化列入影响。无需改变已确认的“字面字符串不翻译”方向。
+
+### 6. 删除全局失败对象时，也把已纳入 t01 的参数上限删掉了，没有给出替代规则
+
+- **严重程度**：重要；**类别**：遗漏 / 决策覆盖。
+- **位置**：主工作区 `docs/proposals/i18n-message-catalogs.md:30,70,83,105-110,132`。
+- **现象**：上一轮被质疑的“8 个参数、字符串 200 字、其他类型静默丢弃”确实删除了；提案现在只说各错误域自行用闭合 schema 定义参数，并把“各错误域具体的码与参数”列为 w00031 t03。共用的安全参数规则没有留下：除 count 以外的 number 是否 finite、字符串或集合如何设上限、超限/不支持值是拒绝还是降级，都没有回答。
+- **为什么是问题**：w00031 Work 第 7 条明确把“共用的失败值类型与参数上限”移入 t01，目的就是让后续几份错误域设计建立在同一共用件之上；反对一个全局错误对象，不等于可以把这些问题整体退回每个错误域再定。闭合 schema 只保证字段集合，不自动保证长度、数量和合法数值；现有 wire 编码明确拒绝 NaN 与无穷。上一轮后端第 6 条反对的是无依据上限和静默丢信息，不是建议彻底不定参数边界。
+- **如何核实**：对读主工作区 `.agents/works/w00031-language-policy/README.md:25`、本 Task README:25、`plan.md:115-116` 与提案第 3、4、7 节；`docs/specs/runtime/plugin-channel.md:116-117` 明定有限数与单条消息 1 MiB 的传输边界。此条为设计遗漏，不声称已经复现了产品超限缺陷。
+- **建议改法**：保留各域自己的结果形状，单独规定翻译参数与安全 detail 的共用约束、非法数值和超限的可诊断处理；确需各域决定的数值上限要求各域显式声明并给依据，不能静默丢弃。若确实决定把这项从 t01 移回 w00031 t03，应列为相对开发者已定范围的待定项，而不是在非目标里隐去。
+
+### 7. 把命名空间放到 `ns` 选项并不会禁用键里的 `:` 解析
+
+- **严重程度**：重要；**类别**：正确性 / 依赖机制与陈述不符。
+- **位置**：主工作区 `docs/proposals/i18n-message-catalogs.md:70-71,77-82`。
+- **现象**：第 81 行把“不用 `ns:key`、命名空间经选项传”作为拦住分隔符默认行为的办法，但 i18next 26.5.11 即使收到 `{ns:"own"}`，仍先从键解析命名空间。实测 `t("other:title", {ns:"own"})` 返回的是 `other` 的文字；加 `nsSeparator:false` 才不切换。
+- **为什么是问题**：目录检查只保证目录自己的键不含 `:`，不检查运行时传来的 `TextRef.key`；第三方键又不在宿主编译期键联合中。`ctx.text` 只绑定 `ns` 而不限制 key，不能兑现“命名空间由插件身份绑定，不能伪造”的承诺。插件完全受信，这不是沙箱漏洞，但会误取别的拥有者文案，正是本节说要消除的错文案问题；错误码白名单只护住失败码，护不住一般 TextRef。
+- **如何核实**：运行 `bun /tmp/w00028-review/t01-impl/lab/probe-i18next.cjs`，实际输出 `viaNsOption:"别的插件"`、`viaNsOptionNoSeparator:"other:title"`，退出 0；使用已有 Bun 缓存的 i18next 26.5.11，未安装依赖。源码 `/home/notnotype/.bun/install/cache/i18next@26.5.11@@@1/i18next.js:523-545`：`opt.ns` 初始化后仍由键中的冒号覆盖。
+- **建议改法**：固定 `nsSeparator:false`（仍保留 `keySeparator:"."`），同时明确 `TextRef.key` 的运行期校验边界；不要把 `ns` 选项误当成隔离开关。不需要为受信插件增设权限系统。
+
+### 8. Spec 改动清单仍漏掉提案直接改变的 SDK、公开状态与通知合同
+
+- **严重程度**：重要；**类别**：文档 / 合同完整性。
+- **位置**：主工作区 `docs/proposals/i18n-message-catalogs.md:71-73,146,152-161`。
+- **现象**：提案明确新增 `ctx.text`、删除 SDK 的 `localize/formatText`，把公开状态原因、通知标题与正文改为 Text，却没有把 `runtime/plugin-api.md`、`state/public-state.md`、`workbench/notifications.md` 列入“对 Spec 的预期改动”；FormText 歧义涉及的 `ui/forms.md` 也没列。共享组件同名 `.md` 与一份新 `ui/i18n.md` 不能替代这些已有合同。
+- **为什么是问题**：`state.public` 把 reason 定为声明数据，先于入口激活就可查询，并不是提案举例的“运行期文字”；`workbench.notifications` 则明确由发出方预先翻译、服务不翻译。这两条是本提案要反转的公开行为。`ctx.text` 属于激活上下文，若只改 SDK 的类型面、不改运行期签发上下文，作者会拿到不存在的方法。上一轮后端第 11 条要求列出实际受影响真相源，当前清单还没有完成；无需本轮立即改 Spec，但必须承认哪些合同将变。
+- **如何核实**：主工作区 `docs/specs/runtime/plugin-api.md:25-30,86-109,132-139`（SDK/上下文）；`state/public-state.md:35-44,65,107-109`（reason 是中英声明，先于激活）；`workbench/notifications.md:34-46,87-89`（字符串、发出方翻译）；`ui/forms.md:58,64-80`（公开核心文字与回退）。源码 `.worktree/review-w00028-t01-impl/packages/nb-runtime/src/plugins/contracts.ts:71-109` 与 `packages/neuro-book/src/sdk/plugin.ts:78-85,220-225`：作者运行时直接收到内核上下文，现有成员无 text。
+- **建议改法**：把这 4 份已有 Spec 与各自的输入、输出、时序、失败和验收变化补入清单；明确 `ctx.text` 是由内核扩展点还是应用 SDK 的激活适配层绑定，公开状态原因仍在登记时补命名空间。通知的文字值迁移若归 t04，就在提案里明确与 t03 的依赖/归属，不同时把同一改动交给两片。
+
+### 9. 上一轮的热切换文件路由缺口仍未闭合，“随入口代码一起换”不能更新启动快照
+
+- **严重程度**：重要；**类别**：不变量 / 上一轮未处理完整。
+- **位置**：主工作区 `docs/proposals/i18n-message-catalogs.md:49,84,156-158`。
+- **现象**：提案承认当前文件路由是服务端启动快照（第 38 行），但处理上一轮后端第 3 条时，只增加“共用版本摘要、随入口代码一起换与撤回”；没有说当前快照由谁、何时随集合变化更新，也没有明确这项依赖尚未实现的热插拔合同而不在本轮实施。`addResourceBundle` 的先 remove 后 add 只处理浏览器内存里的同一命名空间，不会更新 HTTP 路由或引导响应。
+- **为什么是问题**：现行处理器在创建时固定 `id → {root,digest}`，引导响应也在创建路由时固定；给新版本构造了正确摘要 URL，新 URL 仍会在旧处理器上 404。只改 i18next 的注销/登记无法达成提案承诺，且不能用“目录取不到就回退”把版本同步缺陷变成永久裸键。计划处理记录第 114 行把旧第 3 条算作已处理，但提案没有交代机制或明确依赖停点。
+- **如何核实**：源码 `.worktree/review-w00028-t01-impl/packages/neuro-book/src/server/plugins.ts:72-82` 只创建一次宿主路由；`src/plugin-platform/backend/plugin-files.ts:55-62` 固定 Map；`src/server/browser-bootstrap.ts:51-60` 固定 body；`src/server/plugin-files.test.ts:149-171` 的新摘要成功是重启/重新创建路由后测的，不是热切换。主工作区 `docs/specs/runtime/plugin-hot-plug.md:73-82` 与 `runtime/browser-host.md:52` 把热升级和集合订阅明确标为未来行为，本轮不得当作现成机制。静态核实，未声称当前代码存在已启用的热升级回归。
+- **建议改法**：在提案明确一个当前版本快照 owner，说明新资源端点就绪、发布集合修订、窗口撤回旧目录并登记新目录的先后与失败处理；或明确把这部分留到 `runtime.plugin-hot-plug` 实施，并让 t03 只承诺重启生效。无论选哪种，都不能继续把一句“随入口代码”记作旧问题已解决。
+
+## 上一轮处理核对
+
+只列处理状态，不重新把已处理的问题计为发现：
+
+| 上一轮后端编号 | 本轮核对结果 |
+|---|---|
+| 1 | 清单形状与目录资源失败已分层，第 46、50 行已分别给出拒绝与降级行为；本轮不重报。 |
+| 2 | SDK 构建校验、复制 locales 并列入 files 已写入第 49 行；本轮不重报“构建不会带目录”。 |
+| 3 | 未闭合：只写“随代码一起换”，没有说明启动快照路由如何更新或推迟到哪个停点，见本轮第 9 条。 |
+| 4 | 已分内置静态导入、第三方资源路由两条交付路径；管理页与后端独有拥有者的可达性是处理后仍缺的一段，见本轮第 3 条。 |
+| 5 | 删除全局错误形状已处理；新增业务码所需的合同版本边界仍漏，见本轮第 2 条。 |
+| 6 | 无依据数值与静默删参数已删除；共用参数边界也一并消失，见本轮第 6 条。 |
+| 7 | 闭合码表同时约束生产者、检查与运行期已处理；把开放域整体等同于未知码是修订引入的新问题，见本轮第 1 条。 |
+| 8 | 拼键前校验已补；字符白名单与现存稳定码冲突、普通 TextRef 的分隔符隔离不成立，分别见本轮第 4、7 条。 |
+| 9 | 已列 nb-runtime、nb-ui、3 个上层共享包、nb-story 与 SDK；保留 locale 并写明注入优先；具体版本与发布次序明确留给实施计划，可以接受，不重报。 |
+| 10 | 已指定 Intl.getCanonicalLocales、source 属于 locales、列表唯一与构建/安装/运行期分层；本轮在负责范围没有新增独立发现。 |
+| 11 | 已删除“行为合同未变”的错误前提；实际 Spec 映射仍漏 4 份，见本轮第 8 条。 |
+
+另外两份报告中与本次范围重叠的项：
+
+- 前端第 1 条、拉远看第 1 条：按约定取键、清单名称从目录摘出已经改回，不重报。
+- 前端第 5 条：转义、nesting、按命名空间回退、count 校验已经补入；`ns` 选项隔离的事实错误单列本轮第 7 条。
+- 前端第 7 条、拉远看第 3 条：运行期值现在带命名空间、构造点也写了；FormText 判别仍未闭合，见本轮第 5 条；公开状态的声明时序见第 8 条。
+- 前端第 9 条：两条交付路径与“取不到目录”的降级已有回答；热切换的资源快照仍见第 9 条，不重报已解决的内置目录来源。
+- 前端第 12、13 条、拉远看第 4 条：files 白名单与删除跨包全局失败类型已处理，不重报；参数安全边界另见第 6 条。
+- 前端第 2、11 条、拉远看第 5 条：详情载体已明确拆到 t04，且 t04 已记录队列、数量上限、复制降级与 SDK 面；组件设计不在本轮后端范围，不重报。
+- 前端第 8 条、拉远看的编译期检查项：参数检查不再被宣称为 TypeScript 已保证，已区分目录检查与运行期测试；不重报。
+- 其余 Vue 根注入、叶子组件、首屏和共享包最小实现的界面专项，未作为本轮后端审查的独立验收结论。
+
+## 实际验证与边界
+
+1. `git show f1a060865:docs/proposals/i18n-message-catalogs.md | sha256sum && sha256sum /home/notnotype/CodeRepository/neuro-book/docs/proposals/i18n-message-catalogs.md`：两份均为 `74ff0d382d868359f3a094434ffd767441b0b1512c0a83276f956c8b6b2acbfa`，审查的主工作区提案与指定提交一致。
+2. 在审查 worktree 运行 `bun test packages/nb-runtime/src/remote/routing.test.ts --test-name-pattern '回复阶段'`：1 pass，60 filtered out，0 fail，19 个断言，132.00ms；真实内核和进程内链路证明声明业务码按合同返回、未声明码或错误 detail 变成 provider-error，不是尚未实现的目录投影验收。
+3. `bun /tmp/w00028-review/t01-impl/lab/probe-backend.ts`：文字值子实验完成，旧 FormText 接受 `{ns,key}` 并显示 namespace；随后我误把 17 个码写成 18 个，计数断言失败。未把这次脚本退出 1 记为产品失败；报告第 4 条已只追加更正。
+4. 为只重跑上一步失败后尚未完成的部分，执行 `bun -e 'import {STORY_ERROR_CODES} from "./packages/nb-story/src/core/errors.ts"; const rejected = STORY_ERROR_CODES.filter(code => !/^[a-z0-9-]{1,64}$/u.test(code)); console.log(JSON.stringify({storyCodes: STORY_ERROR_CODES.length, rejectedByProposedCharacterSet: rejected.length, rejected})); for (const tag of ["zh-cn", "ZH-CN", "en-us", "en-US", "iw", "he"]) console.log(JSON.stringify({input: tag, canonical: Intl.getCanonicalLocales(tag)[0]}));'`：退出 0，17 个 Story 码中 16 个被拒；语言规范化得到 `zh-CN`、`en-US`、`he`。
+5. `bun /tmp/w00028-review/t01-impl/lab/probe-i18next.cjs`：退出 0；现有缓存的 i18next 26.5.11 在只给 ns 选项时仍从 key 切 namespace，nsSeparator:false 后不切。
+
+未运行构建、typecheck、全量测试、开发服务、e2e、真实模型；未安装依赖。热升级当前尚未实现，只对照 Spec 与启动快照路径，不声称已在真实服务端复现热升级。未修改仓库文件，未作提交、推送、stash 或分支切换。报告与实验仅在指定 /tmp 目录。
+
+## 未发现问题的方面
+
+- 每插件/包自带 JSON、i18next 原生格式、宿主实例而非全局单例，与开发者已确认的方向一致；本轮没有重复质疑选库。
+- 清单结构无效仍拒绝整份、资源运行期不可用仍允许插件登记，这两层已经分开；没有要求服务端为界面翻译文字，也没有把 Vue 引入 nb-runtime。
+- 内置静态构建、第三方 SDK 复制目录的交付分工，以及入口与目录复用内容摘要，方向符合现有包与资源端点的职责；缺口仅在第 3、9 条所列集合与时序。
+- 删除全局失败结果对象、保留各错误域的 detail schema 与写请求 unknown-outcome 语义，没有发现新增的结果形状混用；未知码兜底不宣称“未保存/安全重试”也已处理。
+- 编译期只保证静态目录键，不再声称 JSON 可推导插值参数；目录检查和测试各自补位，没有重复报告上一轮已修正的类型承诺。
+- 公开包发布需要逐次授权、具体版本与顺序留实施计划，以及提案仍是 reviewing、接受前不直接改已生效行为，这些停点没有发现问题。
+
+## 各级数量
+
+- 阻断：0。
+- 重要：9（第 1–9 条）。
+- 建议：0。
+- 撤回：0；第 4 条仅更正了手工计数，正确数量为 17 个码中 16 个含下划线，发现本身有效。
+
+全部发现同为“重要”；优先处理错误投影与合同正确性（1、2、4、7），再补目录可达性与生命周期（3、9）、类型及参数约束（5、6），最后补齐真相源映射（8）。
+
+## 对提案“待定项”的判断
+
+1. **接受本提案**：暂不同意原稿接受，先处理上述 9 条，尤其不要把已知码降成未知、把新增业务码误当作不涉及合同变更，之后再由开发者决定接受。
+2. **第三方插件不能新增界面语言**：同意作为当前范围边界，插件仍可提供它自己的源语言与已有界面语言的译文，这不要求现在设计语言包。
+3. **nb-ui 叶子组件读注入还是一律传文字属性**：从宿主与交付角度倾向统一注入，但公共零件对隐藏通道的现行限制、显式 props 的优先级及 SDK 共享出口应由前端设计一并确认，不能只把能力写进 `.md` 就视作规范已放行。
+
+有效发现编号：1、2、3、4、5、6、7、8、9
