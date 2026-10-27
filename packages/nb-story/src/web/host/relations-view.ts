@@ -3,7 +3,7 @@
  * 不认识的值回到缺省（偏好可能是旧版本写的，或被手改过）。
  */
 
-import type {GraphLayout} from "../graph/StoryNetwork.vue";
+import type {GraphLayout} from "../graph/layout";
 import {readJsonPref, writeJsonPref} from "./prefs";
 
 export interface RelationsView {

@@ -35,7 +35,9 @@ export type NetworkNode = {id: string; label: string; kind: string; weight: numb
 export type NetworkEdge = {a: string; b: string; word: string | null; statements: number; together: number; ab: number; ba: number; identity: IdentityState | null};
 /** 全书图的线。 */
 export type DataEdge = {a: string; b: string; type: "participates" | "about" | "link" | "relation"; count: number};
-export type GraphLayout = "force" | "concentric" | "circle" | "stress";
+import type {GraphLayout} from "./layout";
+
+export type {GraphLayout};
 
 const props = withDefaults(defineProps<{
     nodes: NetworkNode[];
