@@ -77,14 +77,15 @@ llmlint 从 `packages/llmlint/skill` 单一源生成产品投影，不手工编�
 
 ## 发布授权
 
-当前分支没有新应用的发布链（v2 重建期间已删除，交付方式另行设计）；master 上的发布流程不在本分支执行。未经明确授权，不修改版本、创建 release commit、push 资产、创建 GitHub Release、部署或删除历史发布数据。
+未经明确授权，不修改版本、创建 release commit、push 资产、创建 GitHub Release、部署或删除历史发布数据。发布渠道是 npm；GitHub Releases 只留旧应用 0.10.x 的历史版本。
 
 ### npm 包
 
-nb-story 与它依赖的 8 个工作区包按 [ADR 0029](../adr/0029-workspace-packages-publish-source-to-npm.md) 发布到 npm。改版本与发布都要开发者授权，`bun publish` 由开发者执行：
+以源码发布的 9 个工作区包（nb-story 与它依赖的 8 个，[ADR 0029](../adr/0029-workspace-packages-publish-source-to-npm.md)）与先生成再发布的两个包（应用 `@notnotype/neuro-book` 与插件 SDK `@notnotype/nb-plugin-sdk`，[ADR 0033](../adr/0033-app-delivered-as-built-npm-package.md)）用同一套命令。改版本与发布都要开发者授权，`bun publish` 由开发者执行：
 
-1. 改要发的包的 `version`（依赖它、又要用到新接口的包一起改），合入 master。内部依赖写 `workspace:^`，发布时改写成 `^<版本>`。
-2. `bun run release:check`：发布清单（license、`files`、`LICENSE`、README、内部依赖写法、源码导入的包都写进依赖）。
-3. `bun run release:smoke`：打包装进仓库外的空项目，跑命令行、`serve` 加真实浏览器与 Vite 宿主构建。直连 registry 慢时整条命令前加 `prox`。
-4. `npm login`，再 `bun run release:publish`：过门禁（会发布的目录没有未提交的改动、在 master 上、上面两步与 9 个包的 typecheck），列出要发的包；确认后带 `--yes` 重跑。开了两步验证时加 `--auth-type web`（一个 OTP 只有 30 秒，发不完 9 个包）。中途失败就停，重跑会跳过已发布的版本。
-5. 发布后在发布用的那个提交上跑 `bun run release:smoke --from registry`（按当前 checkout 的版本号从 registry 装，装到的版本对不上就失败），结果记进对应 Task 的证据。
+1. 改要发的包的 `version`，合入 master：源码包改各自的 `package.json`（依赖它、又要用到新接口的包一起改；内部依赖写 `workspace:^`，发布时改写成 `^<版本>`）；应用与 SDK 同一个版本号，只改 `packages/neuro-book` 的 `package.json` 与 `src/shared/product.ts`（`product.test` 核对两处一致）。
+2. 推 master：README 的图片用 GitHub 上的地址，没推送时 npm 页面看不到；发布门禁会查。
+3. `bun run release:check`：源码包的发布清单（license、`files`、`LICENSE`、README、内部依赖写法、源码导入的包都写进依赖）。
+4. `bun run release:smoke`：生成应用包与 SDK 包，11 个包都过发布清单检查、打成 tarball 放进 `dist/release/` 并写下 `release-manifest.json`（提交与 SHA-256）；再装进仓库外的空项目像用户那样用一遍：`nbstory` 与它的查看器、Vite 宿主构建、`bun add -g` 应用后 `nbook` 打开书架、`bunx -p` SDK 生成插件并构建、`nbook plugin install` 后重启插件已加载。直连 registry 慢时整条命令前加 `prox`。
+5. `npm login`，再 `bun run release:publish`：过门禁（会发布的目录没有未提交的改动、在 master 上、HEAD 已在 origin/master、tarball 是在当前提交上打的且没被改过、源码包的发布清单与 typecheck），列出要发的包；确认后带 `--yes` 重跑，发的就是第 4 步验过的 tarball。开了两步验证时加 `--auth-type web`（一个 OTP 只有 30 秒，发不完 11 个包）。中途失败就停，重跑会跳过已发布的版本。
+6. 发布后在发布用的那个提交上跑 `bun run release:smoke --from registry`（按当前 checkout 的版本号从 registry 装，装到的版本对不上就失败），结果记进对应 Task 的证据。
