@@ -5,7 +5,7 @@
  */
 import {ContextMenu, Checkbox, Input, SegmentedControl} from "@notnotype/nb-ui/components";
 import type {ContextMenuItem} from "@notnotype/nb-ui/components";
-import {computed, ref} from "vue";
+import {computed, ref, watch} from "vue";
 
 import {useBook} from "../host/book";
 import {useStoryQuery} from "../host/query";
@@ -46,7 +46,14 @@ function onSelect(id: string): void {
     selected.value = id;
     if (book.drawer.value !== null && data.data.value?.nodes.find(node => node.id === id)?.type === "entity") book.openCard(id);
 }
-const selectedNode = computed(() => (selected.value === null ? undefined : data.data.value?.nodes.find(node => node.id === selected.value)));
+/** 选中的点；被隐藏的类型、换粒度后不在图里的点不算选中（浮条随之消失，图上也没有它）。 */
+const selectedNode = computed(() => {
+    const node = selected.value === null ? undefined : data.data.value?.nodes.find(item => item.id === selected.value);
+    return node === undefined || hiddenTypes.value.includes(node.type) ? undefined : node;
+});
+watch(selectedNode, node => {
+    if (node === undefined && selected.value !== null) selected.value = null;
+});
 const menu = ref<{id: string; x: number; y: number} | null>(null);
 const menuItems = computed<ContextMenuItem[]>(() => {
     const target = menu.value;
@@ -90,8 +97,11 @@ function openNode(id: string): void {
                 v-else-if="arrange === 'force' && data.data.value" mode="data" :nodes="nodes" :data-edges="dataEdges" :hidden-types="hiddenTypes" :query="search" :pinned="pinned" :selected="selected"
                 :neighborhood="neighborhood" @select="onSelect" @open="openNode" @menu="(payload: {id: string; x: number; y: number}) => (menu = payload)"
                 @neighborhood="(value: boolean) => (neighborhood = value)" @clear="selected = null"
-            />
-            <SelectionBar v-if="arrange === 'force' && selectedNode" :label="selectedNode.label" :open-label="ACTION[selectedNode.type]" @open="openNode(selectedNode.id)" @clear="selected = null" />
+            >
+                <template #overlay>
+                    <SelectionBar v-if="selectedNode" :label="selectedNode.label" :open-label="ACTION[selectedNode.type]" @open="openNode(selectedNode.id)" @clear="selected = null" />
+                </template>
+            </StoryNetwork>
             <ContextMenu :visible="menu !== null" :x="menu?.x ?? 0" :y="menu?.y ?? 0" :items="menuItems" @close="menu = null" />
         </div>
         <p class="px-3 pb-2 text-[length:var(--text-2xs)] text-[var(--text-muted)]">

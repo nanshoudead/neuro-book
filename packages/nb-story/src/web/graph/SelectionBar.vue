@@ -7,7 +7,7 @@ const emit = defineEmits<{(event: "open"): void; (event: "clear"): void}>();
 
 <template>
     <div
-        class="graph-selection-bar pointer-events-auto absolute bottom-3 left-1/2 z-10 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--panel-surface)] px-3 py-1.5 text-[length:var(--text-xs)] text-[var(--text-secondary)] shadow-[var(--shadow-panel)]"
+        class="graph-selection-bar pointer-events-auto absolute left-1/2 top-3 z-10 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--panel-surface)] px-3 py-1.5 text-[length:var(--text-xs)] text-[var(--text-secondary)] shadow-[var(--shadow-panel)]"
         data-testid="graph-selection-bar" role="status"
     >
         <span class="min-w-0 truncate">已选中 <b class="text-[var(--text-main)]">{{ label }}</b></span>

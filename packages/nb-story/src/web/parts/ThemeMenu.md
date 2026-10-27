@@ -1,5 +1,5 @@
 ---
-标签: [state:local]
+标签: [state:shared-read, state:shared-write]
 ---
 
 # 明暗切换
@@ -13,6 +13,9 @@
 ## 数据
 
 无 props、无事件：状态都在 `useAppearance()`。
+
+- 共享状态的理由（`state:shared-read`、`state:shared-write`）：明暗是整个浏览器的偏好，五个页面各自挂这个控件；让每个页面把当前值与修改回调传下来，就是五份一样的接线。偏好的读写在 `host/theme.ts`，组件不碰浏览器存储。
+- 调用方传的 `class`、`data-*` 等属性落在触发按钮上（经 `DropdownMenu` 的 `rootClass`；DropdownMenu 的根是不渲染元素的原语，属性不会自己落下来），所以 `class="ml-auto"` 能把它推到一行的右端。
 
 ## 验证入口
 

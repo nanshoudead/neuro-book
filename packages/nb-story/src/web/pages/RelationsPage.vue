@@ -39,7 +39,7 @@ const graph = useStoryQuery("graph.relations", () => ({kinds: kinds.value, persp
 const character = computed(() => book.perspective.value !== "reader");
 const shownLayers = computed(() => (character.value ? layers.value.filter(layer => layer !== "know") : layers.value));
 const perspectiveOptions = computed(() => [{value: "reader", label: "读者"}, ...(graph.data.value?.perspectives ?? []).map(item => ({value: item.id, label: item.label}))]);
-const nodes = computed(() => (graph.data.value?.nodes ?? []).map(node => ({id: node.id, label: node.label, kind: node.kind, weight: node.mentions, names: node.names})));
+const nodes = computed(() => (graph.data.value?.nodes ?? []).map(node => ({id: node.id, label: node.label, kind: node.kind, weight: node.mentions, names: node.names ?? []})));
 const edges = computed(() => (graph.data.value?.edges ?? []).map(edge => ({a: edge.a, b: edge.b, word: edge.relation?.word ?? null, statements: edge.relation?.statements ?? 0, together: edge.together, ab: edge.knows?.ab ?? 0, ba: edge.knows?.ba ?? 0, identity: edge.identity})));
 /** 主要人物：出场最多的几个人物，名字加粗、点一下打开人物卡。 */
 const pinned = computed(() => (graph.data.value?.nodes ?? []).filter(node => node.kind === "person" || node.kind === "persona").slice(0, 8).map(node => node.id));
@@ -132,8 +132,11 @@ function onSelect(id: string): void {
                 v-if="graph.data.value" mode="relation" :nodes="nodes" :edges="edges" :layers="shownLayers" :min-co="minTogether" :layout="layout" :relayout-key="relayoutKey"
                 :neighborhood="neighborhood" :query="search" :pinned="pinned" :selected="selected"
                 @select="onSelect" @open="open" @menu="(payload: {id: string; x: number; y: number}) => (menu = payload)" @neighborhood="(value: boolean) => (neighborhood = value)" @clear="selected = null"
-            />
-            <SelectionBar v-if="selectedNode" :label="selectedNode.label" :open-label="isPerson(selectedNode.kind) ? '打开人物卡' : '看连线说明'" @open="open(selectedNode.id)" @clear="selected = null" />
+            >
+                <template #overlay>
+                    <SelectionBar v-if="selectedNode" :label="selectedNode.label" :open-label="isPerson(selectedNode.kind) ? '打开人物卡' : '看连线说明'" @open="open(selectedNode.id)" @clear="selected = null" />
+                </template>
+            </StoryNetwork>
             <ContextMenu :visible="menu !== null" :x="menu?.x ?? 0" :y="menu?.y ?? 0" :items="menuItems" @close="menu = null" />
         </div>
     </div>
