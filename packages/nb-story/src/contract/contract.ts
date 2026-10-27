@@ -554,6 +554,26 @@ export const INGEST_METHODS = {
         effect: "write",
         errors: {...IngestErrors, book_not_found: Type.Object({}), qa_unconfigured: Type.Object({})},
     },
+    /**
+     * 导入一份 V9 记忆图文件（命令行 `nbstory import` 的网页版，t29）：`content` 是文件字节的 base64（JSON，或 gzip 压缩的
+     * JSON）；书名不给时取文件里的书名。同 id 的书已存在是 `book_exists`，文件不是 V9 记忆图是 `unsupported_format`。
+     */
+    "book.importGraph": {
+        input: Type.Object({content: Type.String(), title: Type.Optional(Type.String({minLength: 1})), id: Type.Optional(Type.String({minLength: 1}))}, strict),
+        output: Type.Object({id: Type.String()}),
+        effect: "write",
+        errors: {invalid_params: Type.Object({}), book_exists: Type.Object({}), unsupported_format: Type.Object({}), ingest_bad_text: Type.Object({})},
+    },
+    /**
+     * 把随包的 Skill 装进外部 Agent 的用户级 Skill 目录（命令行 `nbstory skill install` 的网页版，t29）。只认 `claude`
+     * 与 `codex` 两个固定位置，网页不能指定任意目录；目标已有不同内容的目录时是 `skill_exists`，`force` 才换掉。
+     */
+    "skill.install": {
+        input: Type.Object({agent: oneOf(["claude", "codex"] as const), force: Type.Optional(Type.Boolean())}, strict),
+        output: Type.Object({state: oneOf(["installed", "unchanged", "replaced"] as const), path: Type.String(), leftover: Type.Optional(Type.Object({path: Type.String(), code: Type.String()}))}),
+        effect: "write",
+        errors: {invalid_params: Type.Object({}), skill_exists: Type.Object({}), skill_target_invalid: Type.Object({}), skill_install_failed: Type.Object({})},
+    },
     "ingest.stop": {input: Type.Object({book: Type.String({minLength: 1})}, strict), output: Empty, effect: "write", errors: {invalid_params: Type.Object({}), book_not_found: Type.Object({}), ingest_running: Type.Object({})}},
     "ingest.status": {
         input: Type.Object({book: Type.Optional(Type.String({minLength: 1}))}, strict),
