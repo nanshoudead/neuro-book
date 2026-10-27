@@ -23,4 +23,12 @@ omp 一轮，3 条（重要 3），全部成立并已改计划：共享 schema �
 
 ## 当前状态
 
-2026-10-27 开工，分支 `feat/w00024-t22-issues-256-259`（worktree `.worktree/w00024-t22`）。
+2026-10-27 三个切片已实现，分支 `feat/w00024-t22-issues-256-259`（worktree `.worktree/w00024-t22`），nb-story 496 个测试通过、nb-harness 86 个通过，`docs:check` 无失败。
+
+- #259：`nbstory --version`（`-V`，`--json`）、`config <动作> --help`、`config set ingest.model --base-url --model --api-key-env`（缺的沿用已有，价格等原样保留）。`ingest --preview` 的疑似标题提示不做（#252 已修根因）。
+- #256：只改报错（说明 nbstory 只认内置目录、不读其他工具的配置）与 README，不读 omp 配置（开发者定）。
+- #258：自定义模型输出上限默认 32768。与计划不同：不在 `modelOf` 里夹 64000，pi-ai 发 OpenAI 系请求前自己夹到 64000（`config test` 的测试验证了 100000 → 64000），少一处重复。流以 `[DONE]` 收尾却没有 `finish_reason`：`nb-harness` 新增 `finish-watch.ts`，会话与单次请求都记 `length`（被截断）。
+- #257：`ingest/model.ts` 在 400 列出合法档位时按 OMP 的规则改发最近的启用档并重发一次，进程内记住，`config test --ingest` 写明改发了哪一档；Spec 的“不降档”因此改了，记入待确认清单。
+- Spec：cli-skill.md 输出 18，qa.md（上限默认、截断、输出 23），ingest.md（输出 95 与 F4）。
+
+实现审查（omp）待做，见下方。
