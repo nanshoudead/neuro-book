@@ -33,7 +33,7 @@ import ModeNotice from "../parts/ModeNotice.vue";
 import AnswerCard from "../qa/AnswerCard.vue";
 import {REF_SCHEME} from "../qa/link-refs";
 import {CHAPTER_SCHEME, createMentionSearch, ENTITY_SCHEME, MENTION_LIMIT, mentionMenu, mentionPlainText, type MentionEntity} from "../qa/mentions";
-import {QA_LINKABLE} from "../qa/linkable";
+import {QA_LINKABLE, refChapter} from "../qa/linkable";
 import {createNameResolver, QA_NAME_LOOKUP} from "../qa/names";
 import {candidateInfos, clampThinking, contextTokensOf, priceCurrency, resolveChoice, type CatalogProvider} from "../qa/models";
 import {createQaSource, type QaSource, type QaSourceState} from "../qa/source";
@@ -318,12 +318,16 @@ const ctx = computed<AgentConversationContext>(() => {
 function openTarget(raw: string): void {
     // 正文里的出处链接经 Markdown 解析后是编码过的地址（“—”成了 %E2%80%94），先解码再按标准写法打开。
     const target = decodeTarget(raw);
-    if (target.startsWith(REF_SCHEME)) book.openSource(normalizeRef(target.slice(REF_SCHEME.length)));
-    else if (target.startsWith(ENTITY_SCHEME)) book.openCard(target.slice(ENTITY_SCHEME.length));
+    // 兜底：指向没抽取的尾部章的出处与章引用（查看器没有那几章）不打开。渲染层已把自动识别的出处降成纯文字，
+    // 这里拦住模型显式写的链接与用户 @ 的引用，免得抽屉报“没有这一章”。
+    const beyondViewer = (chapter: number | null): boolean => chapter !== null && chapter > book.info.chapters;
+    if (target.startsWith(REF_SCHEME)) {
+        if (!beyondViewer(refChapter(target.slice(REF_SCHEME.length)))) book.openSource(normalizeRef(target.slice(REF_SCHEME.length)));
+    } else if (target.startsWith(ENTITY_SCHEME)) book.openCard(target.slice(ENTITY_SCHEME.length));
     // 引用一章：打开这一章开头的原文（w00024 t15 决定 3）。
     else if (target.startsWith(CHAPTER_SCHEME)) {
         const chapter = target.slice(CHAPTER_SCHEME.length);
-        if (/^\d+$/u.test(chapter)) book.openSource(`${Number(chapter)}.1`);
+        if (/^\d+$/u.test(chapter) && !beyondViewer(Number(chapter))) book.openSource(`${Number(chapter)}.1`);
     }
 }
 

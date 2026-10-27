@@ -5,18 +5,17 @@
 
 import type {InjectionKey} from "vue";
 
-import {findRefs} from "../../contract/refs";
+import {parseRef} from "../../contract/refs";
 
 /** 章号在查看器里能不能打开。 */
 export type RefLinkable = (chapter: number) => boolean;
 
 export const QA_LINKABLE: InjectionKey<RefLinkable> = Symbol("nb-story:qa-linkable");
 
-/** 出处写法（`38.12`、`38.50—38.81`）起点的章号；认不出为 null。 */
+/** 出处写法（`38.12`、`38.50—38.81`）涉及的最后一章：范围的终点在没抽取的章里也打不开，所以看较后的那个；认不出为 null。 */
 export function refChapter(ref: string): number | null {
-    const span = findRefs(ref)[0];
-    const match = /^(\d+)/u.exec((span?.text ?? ref).trim());
-    return match === null ? null : Number(match[1]);
+    const parsed = parseRef(ref);
+    return parsed === null ? null : Math.max(parsed.from.chapter, parsed.to.chapter);
 }
 
 export const ALWAYS_LINKABLE: RefLinkable = () => true;

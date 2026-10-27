@@ -521,7 +521,12 @@ export function createQaService(options: QaServiceOptions): QaService {
             access: "key" as const,
             keyEnvs: [provider.apiKeyEnv],
             keySet: envHas(env, provider.apiKeyEnv),
-            models: provider.models.map(model => catalogModel(modelOf(config!, `${id}/${model.id}`).model)),
+            // 目录的价格投影固定写 USD（nb-harness 的 Model 不带币种）：自定义模型的币种以配置里写的为准，
+            // 否则网页会把 CNY 与 USD 的金额当成同一种币种相加。
+            models: provider.models.map(model => {
+                const entry = catalogModel(modelOf(config!, `${id}/${model.id}`).model);
+                return model.price === undefined || entry.price === null ? entry : {...entry, price: {...entry.price, currency: model.price.currency}};
+            }),
         }));
         const catalog = listCatalog().map(provider => ({...provider, source: "catalog" as const, keySet: catalogKeys.get(provider.id) ?? false}));
         return {providers: [...custom, ...catalog] as ViewerResult<"models.catalog">["providers"]};
