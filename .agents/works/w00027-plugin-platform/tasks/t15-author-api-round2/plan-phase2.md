@@ -186,3 +186,21 @@
 | 文档要求 `bun add -g @notnotype/neuro-book`，包第三期才发布 | 接受：应用包与 SDK 包同一次发布（第三期），发布前核对这四处 |
 | cli.md 没写插件命令的结果字段 | 成立。输出 12、13 写上 `preview`、`plugin`、`stateRoot`、`restartRequired`、`problems`；测试断言 |
 | focus 示例两处“几个服务端”残留 | 成立。改成“几个请求” |
+
+后端（omp，[evidences/p2-impl-review-omp.txt](evidences/p2-impl-review-omp.txt)，审的是 Sonnet 修正之前的 `eb9633c3f`）：重要 12、建议 3，修正 `15f4e029d`。
+
+| 发现 | 处理 |
+|---|---|
+| 实例应答只校验三个字段，伪造或旧版本的应答让 `plugin list` 崩溃 | 成立。按 TypeBox schema 完整校验，不合协议当作没有应答；测伪造应答 |
+| 不发请求的连接挡住 `release`，请求与应答没有上限 | 成立。连接 3 秒超时、放下认领时断开所有连接、请求与应答限 1 MB；测试断言放下不等空闲超时（变异检查） |
+| 输出目录只看包名就清空 | 成立。改成只认标记文件；测同名 `package.json` 的外部目录不被删 |
+| codicon 字体没有许可声明 | 成立。Web 产物里的字体都要在 `FONT_NOTICES` 登记，否则打包失败；补 codicon 的 CC BY 4.0 声明 |
+| 计算出来的动态导入全部放行 | 成立。只许插件入口那一处表达式，其余报错；真实 bundle 通过 |
+| 插件准备失败、fixture 的样例参数错时认领没放下 | 成立。认领交给 `startServer` 之前的失败由入口放下；fixture 先检查样例参数再认领 |
+| 测试子进程在断言失败时不收口 | 成立。`instance.test`、`cli.test` 用 `afterEach` 结束还活着的子进程，应用包 e2e 在 `afterAll` 里结束 |
+| 假 `xdg-open` 的迟到写入导致两例失败 | 成立。记录文件按用例分开，等第二次打开落盘再断言 |
+| `--json` 时项目子进程的输出进标准输出 | 成立。安静模式下项目子进程的输出写标准错误；Spec 写明。没有补专门的进程测试（要装一个往标准输出写的插件） |
+| 已有实例时 `--safe-mode` 不提示 | 已在 Sonnet 那一轮改成提示；不按 omp 改成失败：Spec 定的是提示，连上已有实例本身不是错 |
+| 空 `--state-root`、启动失败不走输出约定、install 结果缺 `stateRoot` | 已在 Sonnet 那一轮修正 |
+| SIGHUP 下项目子进程的停止顺序没有测试 | 成立。`server-projects.test` 对 SIGTERM 与 SIGHUP 各跑一次，SIGHUP 也发给项目子进程（变异检查：去掉忽略 SIGHUP 时失败） |
+| README 写 `--port` 被占用时顺延 | 成立。改成“给了的端口被占用时启动失败”，`--help` 同步 |

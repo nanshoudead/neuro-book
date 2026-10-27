@@ -44,7 +44,7 @@ owners:
 
 | 命令 | 选项 | 作用 |
 |---|---|---|
-| `start`（不给子命令时就是它） | `--port <端口>`、`--rpc-port <端口>`、`--no-open`、`--safe-mode` | 前台运行服务端；已有实例时打开它 |
+| `start`（不给子命令时就是它） | `--port <端口>`、`--rpc-port <端口>`、`--no-open`、`--safe-mode` | 前台运行服务端；已有实例时打开它。给了的端口被占用时启动失败，不顺延 |
 | `plugin list` | 无 | 列出内置与第三方插件 |
 | `plugin install <目录>` | `--yes` | 安装或升级一个本地插件目录 |
 | `plugin enable <id>`、`plugin disable <id>` | 无 | 启用、禁用 |
@@ -59,7 +59,7 @@ owners:
 2. **退出码。** 0 成功；1 失败；2 用法错误（不认识的命令或选项、缺参数、参数不合法、Bun 版本过低、需要确认而没有 `--yes`）。`start` 运行服务端时以服务端的退出码结束（0、1、75、76，见 [`runtime.server-host`](server-host.md)）。
 3. **用法错误。** 拼错的子命令报“不认识的命令 <它>”与可用的命令或最接近的那个；不认识的选项、缺少的参数、多余的参数同样说明并以 2 退出，带码 `usage`；命令组（`plugin`）不跟子命令时写出它的帮助并以 2 退出。`--help` 与 `help [命令]` 正常结束（0），子命令的帮助也列出全局选项。帮助与错误说明是中文。
 4. **版本。** `--version` 打印产品版本、Bun 版本与缺省状态根，以 0 退出。
-5. **start：没有实例。** 认领状态根，在本进程里运行服务端（不打印服务端的 `Listening on` 两行）。运行实例可用（health 返回 200）之后：文本模式打印“NeuroBook 已启动：<地址>”与状态根；`--json` 时写结果对象 `{ok: true, url, rpcUrl, pid, version, stateRoot, started: true}`；标准错误提示“按 Ctrl-C 停止”。然后打开浏览器（见第 9 条）。Ctrl-C（SIGINT）、关闭终端（SIGHUP）与 SIGTERM 都走服务端的有序停止。
+5. **start：没有实例。** 认领状态根，在本进程里运行服务端（不打印服务端的 `Listening on` 两行，项目子进程转发来的输出写标准错误，标准输出只留给结果）。运行实例可用（health 返回 200）之后：文本模式打印“NeuroBook 已启动：<地址>”与状态根；`--json` 时写结果对象 `{ok: true, url, rpcUrl, pid, version, stateRoot, started: true}`；标准错误提示“按 Ctrl-C 停止”。然后打开浏览器（见第 9 条）。Ctrl-C（SIGINT）、关闭终端（SIGHUP）与 SIGTERM 都走服务端的有序停止。
 6. **start：已有实例在运行。** 实例已就绪时报告它（`started: false`，`pid` 是那个实例的），打开浏览器，以 0 退出；给了 `--port` 或 `--rpc-port` 时提示“已有实例，忽略这两个选项”；给了 `--safe-mode` 而那个实例不是以安全模式运行时，提示先停掉它再以安全模式启动。
 7. **start：已有实例在启动或停止。** 提示一行“正在启动，等它就绪”或“正在停止，等它停完”，然后等：启动中的就绪后按第 6 条报告；停止中的停完后按第 5 条自己启动。60 秒内没有变化时以 1 退出，码 `instance-busy`。几个 `nbook start` 同时运行时恰好一个启动，其余报告它。
 8. **start：已有实例不能用。** 以 1 退出，不碰那个实例：开发服务占着（码 `development-instance`）；版本与本命令不同（码 `version-mismatch`，结果对象带 `running` 与 `installed`，提示先停掉运行中的服务）；连上了但没有应答（码 `instance-unresponsive`）。状态根不可写（码 `state-root-unwritable`）、认领的其它失败（码 `claim-failed`）同样以 1 退出；服务端配置不合法（例如端口加 1 越界）以 2 退出，码 `config-<服务端的码>`。自己运行的服务端启动失败（例如 Web 产物不存在、端口被占）时以 1 退出，码 `startup-failed`，结果对象带 `causes`（每个失败入口的 `source`、`reason`、`message`），说明里写第一条原因；服务端的致命诊断照样写标准错误。启动中按 Ctrl-C 不算启动失败。

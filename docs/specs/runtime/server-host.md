@@ -48,8 +48,8 @@ owners:
 - 状态根不存在就建出来；认领的那几毫秒持有认领锁 `<状态根>/server.claim.lock`，两个进程同时认领时恰好一个成功。
 - 认领地址是 `<状态根>/server.sock`；这个路径超过 100 字节（Unix 套接字路径的上限是 104 到 108 字节）时改用 `$XDG_RUNTIME_DIR`（没有时用系统临时目录）下的 `nbook-<状态根真实路径的 sha256 前 16 位>.sock`。Windows 是 `\\.\pipe\nbook-<同一哈希>`。套接字文件只给本用户读写。
 - 地址上有实例应答：以 1 退出，致命诊断 `runtime.state-root.busy` 带对方的 pid、地址、种类与状态，不动状态根。连上了但 3 秒内没有应答（对方被暂停或卡住）：同样以 1 退出，不接管。连不上（套接字文件是崩溃留下的，或者没有）：删掉残留文件后认领。
-- 应答协议：客户端发一行 `{"type":"hello"}`，实例回一行 JSON 后关闭连接：`{schema: 1, pid, version, kind, status, url, rpcUrl, plugins}`。`kind` 是 `product`（产品入口与 `nbook start`）、`development`（开发会话的后端）或 `fixture`（测试入口）；`status` 是 `starting`（已认领、还没就绪）、`ready`（运行实例可用）或 `stopping`（停止序列已开始）；`url` 是可以在浏览器打开的页面地址，还没就绪或开发会话的后端（页面在页面服务那边）为 null；`plugins` 是本次启动的第三方插件 `{safeMode, items: [{id, version, state}]}`，就绪前为 null。认领一成功就应答，所以已认领、还没监听 HTTP 的这段时间里也找得到它。
-- 停止结算之后放下认领：关闭监听并删掉自己建的套接字文件；装配失败时同样放下。被 `SIGKILL` 等强制结束时留下套接字文件，不挡下一次认领。
+- 应答协议：客户端发一行 `{"type":"hello"}`，实例回一行 JSON 后关闭连接：`{schema: 1, pid, version, kind, status, url, rpcUrl, plugins}`。`kind` 是 `product`（产品入口与 `nbook start`）、`development`（开发会话的后端）或 `fixture`（测试入口）；`status` 是 `starting`（已认领、还没就绪）、`ready`（运行实例可用）或 `stopping`（停止序列已开始）；`url` 是可以在浏览器打开的页面地址，还没就绪或开发会话的后端（页面在页面服务那边）为 null；`plugins` 是本次启动的第三方插件 `{safeMode, items: [{id, version, state}]}`，就绪前为 null。认领一成功就应答，所以已认领、还没监听 HTTP 的这段时间里也找得到它。读者按完整的结构校验应答，不合协议（字段缺失、旧版本、别的程序）当作没有应答；请求与应答各限 1 MB，连上之后 3 秒内不发完请求的连接被断开。
+- 停止结算之后放下认领：断开还连着的客户端、关闭监听并删掉自己建的套接字文件；装配失败、认领之后的插件准备失败时同样放下。被 `SIGKILL` 等强制结束时留下套接字文件，不挡下一次认领。
 
 **启动序列：**
 
