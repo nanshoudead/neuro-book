@@ -554,6 +554,17 @@ describe("选模型的接口（t16）", () => {
         expect(got.continuable).toMatchObject({ok: false, reason: expect.stringContaining("早先版本")});
     });
 
+    test("models.catalog：自定义模型的单价币种以配置里写的为准（不被目录投影改成 USD）", async () => {
+        const env = await setup([], {config: null});
+        const config = customConfig(env.endpoint.url);
+        config.providers.custom.models = [{id: "cny", price: {input: 1, output: 2, currency: "CNY"}}, {id: "usd", price: {input: 1, output: 2, currency: "USD"}}] as never;
+        config.models = ["custom/cny", "custom/usd"];
+        await writeFile(env.configFile, JSON.stringify(config));
+        const {providers} = (await env.call("models.catalog", {})).body as {providers: {id: string; models: {id: string; price: {currency: string} | null}[]}[]};
+        const custom = providers.find(provider => provider.id === "custom")!;
+        expect(custom.models.map(model => [model.id, model.price?.currency])).toEqual([["cny", "CNY"], ["usd", "USD"]]);
+    });
+
     test("models.catalog：自定义服务商在前，没写的参数按模型名补上、密钥按服务的环境；目录服务商带分类与密钥变量", async () => {
         const env = await setup([], {config: null});
         await writeFile(env.configFile, JSON.stringify(customConfig(env.endpoint.url)));
