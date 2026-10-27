@@ -99,10 +99,14 @@ describe("Agent 路径解析", () => {
         expect(resolveAgentWorktreeRoot(repoRoot, env({NBOOK_AGENT_WORKTREE_ROOT: "worktrees"}))).toBe(resolve(repoRoot, "worktrees"));
     });
 
-    it("拒绝不安全的 run/task 段与超长结果", () => {
+    it("拒绝不安全的 run/task 段", () => {
         expect(() => resolveAgentTestRoot("../escape", env())).toThrow("非法路径段");
         expect(() => resolveAgentRunRoot("00149/escape", "1234abcd", env())).toThrow("非法路径段");
         expect(() => resolveAgentFixtureRoot("00149-agent", "bad\\run", env())).toThrow("非法路径段");
+    });
+
+    // 长度上限只在 Windows 上生效（`assertShortPath`），其它平台的路径不受它限制。
+    it.runIf(process.platform === "win32")("Windows 上拒绝超长结果", () => {
         const longRoot = join(resolveSystemTempRoot(env()), "n".repeat(AGENT_PATH_LENGTH_LIMIT));
         expect(() => resolveAgentTempRoot(env({NBOOK_AGENT_TEMP_ROOT: longRoot}))).toThrow("路径过长");
     });
