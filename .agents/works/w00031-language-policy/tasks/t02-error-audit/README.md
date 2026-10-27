@@ -19,10 +19,10 @@ updated: 2026-10-27
 
 ## 当前状态
 
-计划：[plan.md](plan.md)（自主推进，2026-10-27 开工）。
+计划：[plan.md](plan.md)（自主推进，2026-10-27）。计划审查：omp，有效 5 条，都已处理（见计划末尾），报告 `evidences/plan-review-omp.txt`。
 
-2026-10-27 建，未开工。前三轮审查里已发现的通道见 [t01 证据](../t01-adr/evidences/) 的 omp 报告。
+2026-10-27 两份分区盘点已开跑，读同一个审查 worktree（提交 `65d9daea0`）：后端 omp，前端 Claude Sonnet。
 
 ## 下一步
 
-计划交 omp 审查（与 t01 的实现审查同一会话），处理后两份分区盘点并行。
+两份报告回来后合并成 `artifacts/channel-matrix.md`，定向核对高风险链路、随机抽样、补漏。
