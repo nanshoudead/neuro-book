@@ -285,6 +285,22 @@ describe("config test", () => {
         expect(result.stdout).toContain("由服务端的默认档决定");
     });
 
+    test("自定义模型不写 maxTokens 时请求带输出上限 32768（#258）；写了就用写的，OpenAI 系超过 64000 夹到 64000", async () => {
+        const sent = async (maxTokens?: number): Promise<unknown> => {
+            const endpoint = startEndpoint([{kind: "text", text: "好"}]);
+            endpoints.push(endpoint);
+            const path = freshPath();
+            await mkdir(join(path, ".."), {recursive: true});
+            await writeFile(path, JSON.stringify({providers: {custom: {api: "openai-completions", baseUrl: endpoint.url, apiKeyEnv: KEY_ENV, models: [{id: "not-in-any-catalog", ...(maxTokens === undefined ? {} : {maxTokens})}]}}, models: ["custom/not-in-any-catalog"], model: {use: "custom/not-in-any-catalog"}}));
+            expect((await run(["config", "test", "--config", path])).code).toBe(0);
+            const body = endpoint.bodies[0]!;
+            return body.max_completion_tokens ?? body.max_tokens;
+        };
+        expect(await sent()).toBe(32_768);
+        expect(await sent(5000)).toBe(5000);
+        expect(await sent(100_000)).toBe(64_000);
+    });
+
     test("认证被拒：退出码 4，错误归类 auth，错误正文里回显的密钥也不出现在输出里", async () => {
         const {path} = await configWithEndpoint([{kind: "status", status: 401, echoKey: true}]);
         const result = await run(["config", "test", "--config", path, "--json"]);

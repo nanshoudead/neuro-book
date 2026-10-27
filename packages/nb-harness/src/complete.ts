@@ -3,6 +3,7 @@
  */
 
 import type {StreamFn} from "@oh-my-pi/pi-agent-core";
+import {createFinishWatch} from "./finish-watch.js";
 import {streamSimple, type AssistantMessage} from "@oh-my-pi/pi-ai";
 import {isProfileDefinition, ProfileError, type ProfileDefinition} from "@notnotype/nb-profile";
 import {renderContext} from "./context.js";
@@ -54,12 +55,13 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
         meter.request();
         return fetch(input, init);
     }) as typeof fetch;
+    const watch = createFinishWatch();
     let message: AssistantMessage;
     try {
         const stream = await (options.streamFn ?? (streamSimple as StreamFn))(
             model.model,
             {systemPrompt: rendered.systemPrompt, messages: [{role: "user", content: options.input, timestamp: Date.now()}], tools: []},
-            {apiKey, signal: options.signal, fetch: counted},
+            {apiKey, signal: options.signal, fetch: counted, onSseEvent: (event) => watch.observe(event)},
         );
         message = await stream.result();
     } catch (error) {
@@ -81,6 +83,7 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
         case "length":
             return {stopReason: "length", text, error: null, usage: meter.snapshot()};
         default:
-            return {stopReason: "stop", text, error: null, usage: meter.snapshot()};
+            // 网关送了 `[DONE]` 却没送结束原因：半句话不能当正常结束，按被截断记（finish-watch.ts）。
+            return {stopReason: watch.missing ? "length" : "stop", text, error: null, usage: meter.snapshot()};
     }
 }
