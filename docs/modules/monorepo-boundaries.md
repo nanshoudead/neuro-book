@@ -4,13 +4,13 @@
 
 NeuroBook 以一个 monorepo 维护应用、共享合同与可独立维护的包。`Module` 是逻辑所有权和依赖边界，不等于当前目录，也不要求每个 Module 立即成为 npm 包。
 
-本分支按 [NeuroBook v2：并排重建应用](../proposals/neuro-book-v2-rebuild.md) 从零重建应用：新应用位于 `packages/neuro-book`，旧应用改名为 `packages/neuro-book-legacy`，只作代码与行为参照。根只保留 workspace 编排与治理入口；交付链（打包、发布、安装、Manager、桌面版）已在本分支删除，新应用的交付另行设计。六个自治项目位于对应 `packages/*`，各自保留项目 docs、legacy Task 记录、状态和专属 `AGENTS.md`，默认继承根治理规则；current Work/Task 统一位于根 `.agents/works/`。
+本分支按 [NeuroBook v2：并排重建应用](../proposals/neuro-book-v2-rebuild.md) 从零重建应用：新应用位于 `packages/neuro-book`，旧应用改名为 `packages/neuro-book-legacy`，只作代码与行为参照。根只保留 workspace 编排与治理入口；交付链（打包、发布、安装、Manager、桌面版）已在本分支删除；新应用现在发构建产物的 npm 包、带 `nbook` 命令（[ADR 0033](../adr/0033-app-delivered-as-built-npm-package.md)），目录包、桌面壳、后台运行与服务器部署另行设计。六个自治项目位于对应 `packages/*`，各自保留项目 docs、legacy Task 记录、状态和专属 `AGENTS.md`，默认继承根治理规则；current Work/Task 统一位于根 `.agents/works/`。
 
 ## 当前布局
 
 | 边界 | 当前真相源 | 当前入口或消费方 | 当前状态 |
 | --- | --- | --- | --- |
-| 新应用 | `packages/neuro-book` | 后端进程入口 `src/server/main.ts`，前端入口 `src/web/main.ts`，开发命令 `bun run dev`；验证命令见包内 [`AGENTS.md`](../../packages/neuro-book/AGENTS.md) | 已有应用骨架：后端宿主、开发监督进程、浏览器宿主与空工作台；前端基础（vue-router、Tailwind v4、nb-ui、Vitest 组件测试）与只在开发模式加载的 Component Lab（`/lab`）已加入；工作台外壳、命令与布局随后续步骤加入。第三方插件的通用管理（安装、登记、装载、构建预设）在 `src/plugin-platform/`，只依赖内核与列名的通用件、由应用的平台档案配置，不引用内置插件与 NeuroBook 的合同，将来出现第二个使用插件模式的应用时搬成包；插件作者的公开 API 只经 `src/sdk/`；作者材料（作者命令、模板、作者文档、示例插件、打包出 SDK tarball）在 `plugin-sdk/`，产品代码不引用它。这几条由架构测试守住（[ADR 0030](../adr/0030-plugin-platform-layering.md)） |
+| 新应用 | `packages/neuro-book` | 后端进程入口 `src/server/main.ts`，命令行 `src/cli/main.ts`（`nbook`，[`runtime.cli`](../specs/runtime/cli.md)），前端入口 `src/web/main.ts`，开发命令 `bun run dev`；npm 包由 `bun run build:app-package` 生成；验证命令见包内 [`AGENTS.md`](../../packages/neuro-book/AGENTS.md) | 已有应用骨架：后端宿主、开发监督进程、浏览器宿主与空工作台；前端基础（vue-router、Tailwind v4、nb-ui、Vitest 组件测试）与只在开发模式加载的 Component Lab（`/lab`）已加入；工作台外壳、命令与布局随后续步骤加入。第三方插件的通用管理（安装、登记、装载、构建预设）在 `src/plugin-platform/`，只依赖内核与列名的通用件、由应用的平台档案配置，不引用内置插件与 NeuroBook 的合同，将来出现第二个使用插件模式的应用时搬成包；插件作者的公开 API 只经 `src/sdk/`；作者材料（作者命令、模板、作者文档、示例插件、打包出 SDK tarball）在 `plugin-sdk/`，产品代码不引用它。这几条由架构测试守住（[ADR 0030](../adr/0030-plugin-platform-layering.md)） |
 | 内核 | `packages/nb-runtime` | 新应用的后端与浏览器宿主（第 3 步起） | 运行时依赖只有 TypeBox，每个机制一个子路径入口；与应用无关，应用的名字（清单的引擎键、保留的发布者）由宿主以平台档案传入（[ADR 0030](../adr/0030-plugin-platform-layering.md)）；行为合同见 `docs/specs/runtime/` 的 lifecycle、services、plugins、application、diagnostics；典型用法见应用包的示例插件 [`packages/neuro-book/plugin-sdk/examples/`](../../packages/neuro-book/plugin-sdk/examples/README.md) |
 | 旧应用 | `packages/neuro-book-legacy` | 只读参照 | 依赖照装，不参加类型检查、测试与治理检查；包内含 w00017 阶段 1 的内核与宿主实现、ADR 0001–0021、legacy `.agents/tasks/` |
 | Workspace 自治包 | `packages/nb-history/`、`nb-workflow/`、`nb-memory/`、`nb-ui/`、`neuro-agent-harness/`、`llmlint/` | 各包公开 exports、包内测试和应用消费者 | 各包独立 owner；`neuro-agent-harness` 已冻结，只服务 `llmlint`，待由 `nb-harness` 取代后退役 |
@@ -70,7 +70,7 @@ NeuroBook 以一个 monorepo 维护应用、共享合同与可独立维护的包
 ## 本轮不做的事情
 
 - 不修改旧应用 `packages/neuro-book-legacy` 的代码；需要旧行为时读它，在新应用按 Spec 重写。
-- 不在新应用交付链设计前恢复新应用的打包、发布、安装、Manager 或桌面版。工作区包发布到 npm 按 [ADR 0029](../adr/0029-workspace-packages-publish-source-to-npm.md)，不属于这条。
+- 新应用只发 [ADR 0033](../adr/0033-app-delivered-as-built-npm-package.md) 的 npm 包（`scripts/pack-app.ts` 生成，源码包保持 `private`）；目录包、桌面壳、后台运行与服务器部署在各自的提案通过前不做，不恢复 Manager。工作区包发布到 npm 按 [ADR 0029](../adr/0029-workspace-packages-publish-source-to-npm.md)。
 - 不新建 runtime contract 平行包、跨存储事务框架或跨语言生成层。
 - 不以浏览器、真实 Provider 或数据迁移结果替代 Module focused verification。
 

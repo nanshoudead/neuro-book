@@ -32,3 +32,4 @@ ADR 0001–0021 是旧应用的决策，随旧包留在 [`../../packages/neuro-b
 | [0030](0030-plugin-platform-layering.md) | 内核与应用无关（应用名由平台档案传入），第三方插件的通用管理暂留应用的 `src/plugin-platform/` 并按目录机检，作者材料留在应用包的 `plugin-sdk/` |
 | [0031](0031-nb-story-supports-windows.md) | nb-story 支持 Windows：书库锁用 `LockFileEx`，去掉 `os` 限制（Bun 对 `os` 不匹配的包静默跳过安装） |
 | [0032](0032-nb-story-keys-from-startup-env.md) | nb-story 的密钥只认进程启动时的环境（shell 导出与 Bun 加载的当前目录 `.env`），OMP 导入时读进来的家目录 `.env` 不算，各命令结论一致 |
+| [0033](0033-app-delivered-as-built-npm-package.md) | 新应用发构建产物的 npm 包 `@notnotype/neuro-book`，带前台的 `nbook` 命令；状态根缺省是平台数据目录；一个状态根一个实例，用本地套接字认领；不恢复 Manager，目录包、桌面壳、后台运行与服务器部署另行设计 |
