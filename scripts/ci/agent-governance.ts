@@ -13,6 +13,7 @@ import {
     verifyWorkspacePackageGovernance,
 } from "#scripts/ci/agent-governance-contract";
 import {changedFiles, readChangeScopeArguments, scopeWarnings} from "#scripts/ci/change-scope";
+import {communityFileFailures} from "#scripts/ci/community-files";
 import {testConventionReport} from "#scripts/ci/test-conventions";
 
 const {repoRoot, since, all} = readChangeScopeArguments(import.meta.url);
@@ -88,6 +89,8 @@ for (const relativePath of inspectPaths) {
     }
     if (/\.agent[\\/]tmp(?:[\\/]|$)/u.test(text) && !relativePath.startsWith("packages/neuro-book-test-support/")) failures.push(`活文件仍引用仓库临时根：${relativePath}`);
 }
+
+failures.push(...await communityFileFailures(repoRoot));
 
 const testConventions = testConventionReport(repoRoot);
 failures.push(...testConventions.failures);

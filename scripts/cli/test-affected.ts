@@ -6,7 +6,7 @@ import {join, resolve} from "node:path";
 import {resolveAgentScratchPath} from "@notnotype/neuro-book-test-support/paths";
 
 import {changedFiles, readChangeScopeArguments} from "#scripts/ci/change-scope";
-import {expandConsumerClosure, workspaceDependencyGraph} from "#scripts/ci/workspace-package-matrix";
+import {expandConsumerClosure, workspaceDependencyGraph} from "#scripts/ci/workspace-graph";
 
 export type WorkspacePackageInfo = {
     /** 包目录名，例如 `nb-ui`。 */
@@ -61,12 +61,16 @@ export type AffectedSelectionInput = {
 // 总会带来 bun.lock 的变化，所以它本身只算根脚本的输入（scripts 与 `#scripts/*` 导入映射）。
 const FULL_SELECTION_FILES: Record<string, true> = {"bun.lock": true, "bunfig.toml": true};
 const FULL_SELECTION_PREFIXES = ["patches/"];
-// 根脚本测试覆盖治理脚本本身和 workflow 文件的结构合同。
+// 根脚本测试覆盖治理、文档检查、发布与本命令自己。`.github/` 的 Issue 表单与标签由 governance:check 检查，不需要它。
 const ROOT_SCRIPT_FILES: Record<string, true> = {"package.json": true};
-const ROOT_SCRIPT_PREFIXES = ["scripts/", ".github/"];
+const ROOT_SCRIPT_PREFIXES = ["scripts/"];
 const ROOT_SCRIPTS = "scripts";
-// 旧应用只读，不参加测试。
+// 旧应用只读，不参加测试，也不列出。
 const LEGACY_PACKAGE = "neuro-book-legacy";
+// 选中了也不运行、在跳过里写明理由的包。
+const RETIRED_PACKAGES: Readonly<Record<string, string>> = {
+    llmlint: "准备退役（开发者 2026-10-27 定）；它的测试要网页自带的依赖与 nuxt prepare 的生成物",
+};
 
 /** 脚本是单条 `bun test`（可带环境变量前缀）时，追加的参数会传给 Bun 测试器；串联多条命令时不会。 */
 function isSingleBunTest(script: string): boolean {
@@ -94,8 +98,8 @@ function testSteps(scripts: Readonly<Record<string, string>>, scriptName: string
 }
 
 /**
- * 选出要测试的目标。缺省按改动：改动所在的包，加上直接或间接依赖它的包（与 CI 选包同一套依赖闭包）；
- * 根 `scripts/` 或 workflow 有改动时加上根脚本测试。给出 `only` 时不看改动。
+ * 选出要测试的目标。缺省按改动：改动所在的包，加上直接或间接依赖它的包；根 `scripts/` 或根 `package.json`
+ * 有改动时加上根脚本测试。给出 `only` 时不看改动。CI 跑的也是本命令。
  */
 export function selectAffectedTargets(input: AffectedSelectionInput): AffectedSelection {
     const files = [...input.changed];
@@ -128,6 +132,11 @@ export function selectAffectedTargets(input: AffectedSelectionInput): AffectedSe
     for (const directory of [...selected].sort()) {
         const info = known.get(directory);
         if (info === undefined) continue;
+        const retired = RETIRED_PACKAGES[directory];
+        if (retired !== undefined) {
+            skipped.push({name: directory, reason: retired});
+            continue;
+        }
         const script = info.scripts[scriptName];
         if (script === undefined) {
             skipped.push({name: directory, reason: `没有 ${scriptName} 脚本`});
@@ -152,7 +161,7 @@ export function selectAffectedTargets(input: AffectedSelectionInput): AffectedSe
     if (rootScripts && input.tier === "fast") {
         const commands: AffectedCommand[] = input.typecheck ? [{argv: ["bun", "x", "tsc", "--noEmit", "-p", "scripts/tsconfig.json"], bunTest: false}] : [];
         commands.push({argv: ["bun", "x", "vitest", "run", "--config", "scripts/vitest.config.ts"], bunTest: false});
-        const reason = full ? fullReason : input.only !== undefined ? "指定的包" : "根 scripts、workflow 或根 package.json 有改动";
+        const reason = full ? fullReason : input.only !== undefined ? "指定的包" : "根 scripts 或根 package.json 有改动";
         targets.push({name: ROOT_SCRIPTS, cwd: ".", commands, reason});
     }
     return {targets, skipped};

@@ -1,0 +1,74 @@
+# CI 只把本地的验证门禁（docs/testing/README.md 的“验证门禁”）在干净机器上再跑一遍，不另立规则：
+# 选哪些包由 test:affected 按改动与依赖关系决定，这里不维护路径表。e2e 只在本地跑。
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 只有 PR 的新一轮取消旧的。推 master 按 github.event.before 选包，取消一轮就等于那次推送的改动没人测。
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: 治理、文档与受影响的包
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # 治理检查核对迁移记录里的提交；选包要找基准与 HEAD 的共同祖先。
+          fetch-depth: 0
+      # Vitest 与 vue-tsc 的抬头行是 node。
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: 定改动范围
+        id: scope
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+        # 基准缺失、是全零（新分支）或与 HEAD 没有共同祖先（强推）时测全部。
+        run: |
+          case "$EVENT" in
+            pull_request) base="$PR_BASE" ;;
+            push) base="$BEFORE" ;;
+            *) base="" ;;
+          esac
+          if [ -n "$base" ] && git merge-base "$base" HEAD > /dev/null 2>&1; then
+            echo "args=--since $base" >> "$GITHUB_OUTPUT"
+          else
+            echo "args=--all" >> "$GITHUB_OUTPUT"
+          fi
+      - run: bun run governance:check ${{ steps.scope.outputs.args }}
+      - run: bun run docs:check ${{ steps.scope.outputs.args }}
+      - run: bun run test:affected ${{ steps.scope.outputs.args }} --typecheck
+
+  app-package:
+    name: 应用包与 SDK 能打出来
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build:app-package
+        working-directory: packages/neuro-book
+      - run: bun run build:sdk
+        working-directory: packages/neuro-book
+      - run: bun run smoke:server
+        working-directory: packages/neuro-book
