@@ -3,7 +3,7 @@
  * 抽屉里的人物卡（viewer 输出 10）：名字、称呼、同一身份；概况、关系、记录、情节四个页签，带条数。
  * 页签停在哪由会话决定（从关系图点进来停在关系），切页签写回会话，所以地址与保存都跟着变。
  */
-import {Input, IconButton, SegmentedControl, Tabs} from "@notnotype/nb-ui/components";
+import {Badge, Input, IconButton, SegmentedControl, Tabs} from "@notnotype/nb-ui/components";
 import {computed, ref, watch} from "vue";
 
 import {useBook, type Tab} from "../host/book";
@@ -11,9 +11,13 @@ import {useLayoutMotion} from "../host/motion";
 import {usePagedQuery, useStoryQuery} from "../host/query";
 import PagedList from "../parts/PagedList.vue";
 import PageState from "../parts/PageState.vue";
+import FoldedBar from "../parts/FoldedBar.vue";
 import RecordTags from "../parts/RecordTags.vue";
 import RefLink from "../parts/RefLink.vue";
 import StateBadge from "../parts/StateBadge.vue";
+import TierBadge from "../parts/TierBadge.vue";
+import {FLAG_WORDS} from "../parts/tier-words";
+import {useShowMinorRecords} from "../host/show-minor";
 import CardRelations from "./CardRelations.vue";
 
 const props = defineProps<{entity: string; tab: Tab}>();
@@ -56,7 +60,14 @@ const knowledge = usePagedQuery("entity.knowledge", () =>
         ? {entity: props.entity, ...(stateFilter.value ? {state: stateFilter.value as "knows"} : {}), ...(recordQuery.value.trim() ? {query: recordQuery.value.trim()} : {})}
         : null,
 );
-const statements = usePagedQuery("entity.statements", () => (props.tab === "records" && recordKind.value === "statements" ? {entity: props.entity, ...(recordQuery.value.trim() ? {query: recordQuery.value.trim()} : {})} : null));
+/** 次要（3 级）说法默认收起（viewer 输出 56）；收起时只取 1、2 级，条数取页上的 `tiers`。 */
+const showMinor = useShowMinorRecords();
+const statements = usePagedQuery("entity.statements", () =>
+    props.tab === "records" && recordKind.value === "statements"
+        ? {entity: props.entity, ...(recordQuery.value.trim() ? {query: recordQuery.value.trim()} : {}), ...(showMinor.value ? {} : {maxTier: 2 as const})}
+        : null,
+);
+const minorCount = computed(() => statements.extra.value?.tiers[2] ?? null);
 const episodes = usePagedQuery("entity.episodes", () => (props.tab === "episodes" ? {entity: props.entity} : null));
 
 function setTab(value: string): void {
@@ -134,26 +145,30 @@ const FAMILY_WORD: Record<string, string> = {
                             </div>
                         </template>
                     </PagedList>
-                    <PagedList v-else :items="statements.items.value" :total="statements.total.value" :loading="statements.loading.value" :has-more="statements.hasMore.value" :error="statements.error.value?.message ?? null" @more="statements.more()" @retry="statements.reload()">
-                        <template #item="{item, index}">
-                            <h4 v-if="index === 0 || statements.items.value[index - 1]!.chapter !== item.chapter" class="chapter-head">第 {{ item.chapter }} 章</h4>
-                            <div class="record-row" data-testid="record">
-                                <span class="state">{{ FAMILY_WORD[item.family] ?? item.family }}</span>
-                                <span class="min-w-0">
-                                    {{ item.text }}
-                                    <RecordTags :tags="item.tags" />
-                                    <span v-if="showIds" class="ml-1 text-[length:var(--text-2xs)] text-[var(--text-muted)]" data-testid="record-id">{{ item.id }}</span>
-                                </span>
-                                <span class="refs"><RefLink v-for="ref in item.refs.slice(0, 2)" :key="ref" :ref-text="ref" /></span>
-                            </div>
-                        </template>
-                    </PagedList>
+                    <template v-else>
+                        <FoldedBar v-if="minorCount" v-model:open="showMinor" :count="minorCount" class="mb-1" data-testid="toggle-minor-records" />
+                        <PagedList :items="statements.items.value" :total="statements.total.value" :loading="statements.loading.value" :has-more="statements.hasMore.value" :error="statements.error.value?.message ?? null" @more="statements.more()" @retry="statements.reload()">
+                            <template #item="{item, index}">
+                                <h4 v-if="index === 0 || statements.items.value[index - 1]!.chapter !== item.chapter" class="chapter-head">第 {{ item.chapter }} 章</h4>
+                                <div class="record-row" :class="item.tier === 3 ? 'is-minor' : ''" data-testid="record" :data-tier="item.tier">
+                                    <span class="state">{{ FAMILY_WORD[item.family] ?? item.family }}</span>
+                                    <span class="min-w-0">
+                                        <TierBadge :tier="item.tier" :flag="item.tierFlag" :explain="item.id" :family="item.family" />{{ item.text }}
+                                        <RecordTags :tags="item.tags" />
+                                        <Badge v-if="item.tierFlag" size="sm" variant="soft" tone="neutral" class="ml-1" data-testid="tier-flag">{{ FLAG_WORDS[item.tierFlag] }}</Badge>
+                                        <span v-if="showIds" class="ml-1 text-[length:var(--text-2xs)] text-[var(--text-muted)]" data-testid="record-id">{{ item.id }}</span>
+                                    </span>
+                                    <span class="refs"><RefLink v-for="ref in item.refs.slice(0, 2)" :key="ref" :ref-text="ref" /></span>
+                                </div>
+                            </template>
+                        </PagedList>
+                    </template>
                 </template>
                 <PagedList v-else :items="episodes.items.value" :total="episodes.total.value" :loading="episodes.loading.value" :has-more="episodes.hasMore.value" :error="episodes.error.value?.message ?? null" @more="episodes.more()" @retry="episodes.reload()">
                     <template #item="{item, index}">
                         <h4 v-if="index === 0 || episodes.items.value[index - 1]!.chapter !== item.chapter" class="chapter-head">第 {{ item.chapter }} 章</h4>
                         <div class="record-row is-two">
-                            <button type="button" class="min-w-0 text-left" @click="book.jump('episodes', {kind: 'episode', id: item.id})">{{ item.title }}</button>
+                            <button type="button" class="min-w-0 text-left" @click="book.jump('episodes', {kind: 'episode', id: item.id})"><TierBadge :tier="item.tier" />{{ item.title }}</button>
                             <span class="refs"><RefLink v-for="ref in item.refs.slice(0, 1)" :key="ref" :ref-text="ref" /></span>
                         </div>
                     </template>
@@ -182,6 +197,10 @@ const FAMILY_WORD: Record<string, string> = {
     border-bottom: var(--border-w, 1px) solid var(--divider);
     font-size: var(--text-sm);
     line-height: 1.55;
+}
+/* 展开后的次要说法淡一些（viewer 输出 56）；色块与依据照常可点 */
+.record-row.is-minor {
+    color: var(--text-secondary);
 }
 .record-row.is-two {
     grid-template-columns: minmax(0, 1fr) auto;

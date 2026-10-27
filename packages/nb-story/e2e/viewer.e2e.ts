@@ -320,6 +320,36 @@ test("记录标记与段落概要（验收 8）", async ({page}) => {
     await expect(page.getByTestId("read-line")).toBeVisible();
 });
 
+test("记录等级（输出 56、57）：关于他的默认收起 3 级，顶部写“展开次要（N）”；展开后 3 级照列、刷新后仍展开；点色块看依据；情节没有先验不画色块", async ({page}) => {
+    const all = await (await page.context().request.post(`${server.base}/api/rpc/entity.statements`, {data: {book: "fox", at: {chapter: 20}, entity: "e4-1", limit: 500}})).json() as {tiers: [number, number, number]};
+    expect(all.tiers[2]).toBeGreaterThan(0);
+    await open(page, "/book/fox/roster?at=20&entity=e4-1&tab=records");
+    await page.getByRole("radio", {name: /关于他的/u}).click();
+    const bar = page.getByTestId("toggle-minor-records");
+    await expect(bar).toHaveText(`展开次要（${all.tiers[2]}）`);
+    await expect(page.locator('[data-testid="record"][data-tier]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="record"][data-tier="3"]')).toHaveCount(0);
+    await bar.click();
+    await expect(bar).toHaveText(`收起次要（${all.tiers[2]}）`);
+    await expect(page.locator('[data-testid="record"][data-tier="3"]').first()).toBeVisible();
+    // 展开与否记在浏览器偏好里。
+    await page.reload();
+    await page.getByRole("radio", {name: /关于他的/u}).click();
+    await expect(page.getByTestId("toggle-minor-records")).toHaveText(`收起次要（${all.tiers[2]}）`);
+    await page.locator('[data-testid="record"]').first().getByTestId("tier-badge").click();
+    const explain = page.getByTestId("tier-explain");
+    await expect(explain).toContainText("后文引用");
+    await expect(explain).toContainText("只看你读到的位置之前的内容");
+    await page.keyboard.press("Escape");
+    await expect(explain).toHaveCount(0);
+    await page.getByTestId("toggle-minor-records").click();
+    await expect(page.getByTestId("toggle-minor-records")).toHaveText(`展开次要（${all.tiers[2]}）`);
+    // 样例书的情节没有先验：情节页不画色块。
+    await open(page, "/book/fox/episodes?at=20");
+    await expect(page.locator("article.episode").first()).toBeVisible();
+    await expect(page.locator("article.episode [data-testid='tier-badge']")).toHaveCount(0);
+});
+
 test("时序：旧位置的请求晚到也不显示到新位置；地址里还不存在的对象被去掉并提示；抽屉跨宽度档内容不变", async ({page}) => {
     await open(page, "/book/fox/stats?at=30");
     await expect(page.getByTestId("visible-stats")).toBeVisible();

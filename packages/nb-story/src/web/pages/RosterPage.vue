@@ -8,6 +8,7 @@ import {computed, ref} from "vue";
 import {useBook} from "../host/book";
 import {KIND_LABEL} from "../host/kinds";
 import {usePagedQuery, useStoryQuery} from "../host/query";
+import FoldedBar from "../parts/FoldedBar.vue";
 import PagedList from "../parts/PagedList.vue";
 import PageState from "../parts/PageState.vue";
 
@@ -54,7 +55,7 @@ const selected = computed(() => (book.drawer.value?.kind === "card" ? book.drawe
                         </button>
                     </template>
                 </PagedList>
-                <button type="button" class="mt-2 text-[length:var(--text-sm)] text-[var(--accent-text)]" data-testid="toggle-minor" @click="showMinor = !showMinor">{{ showMinor ? "收起次要" : `展开次要${minorCount !== null ? `（${minorCount}）` : ""}` }}</button>
+                <FoldedBar v-model:open="showMinor" :count="minorCount" class="mt-2" data-testid="toggle-minor" />
             </section>
         </div>
     </div>
