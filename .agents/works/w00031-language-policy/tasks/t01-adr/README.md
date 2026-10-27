@@ -21,10 +21,19 @@ updated: 2026-10-27
 
 ## 当前状态
 
-计划：[plan.md](plan.md)（自主推进，2026-10-27 开工）。
+计划：[plan.md](plan.md)（自主推进，2026-10-27）。计划审查：omp，有效 3 条、另采纳初稿 5 条，处理见计划末尾；报告 `evidences/plan-review-omp.txt`。
 
-2026-10-27 建。讨论稿 `evidences/design-v1.txt` 到 `design-v3.txt`（第一、二版的“保留内联”已撤销，以 v3 和 Work README 为准），三轮 omp 审查 `evidences/design-review-omp-r1.txt` 到 `r3.txt`；前端审查与独立设计在 [w00028 t01 证据](../../../w00028-i18n/tasks/t01-requirements/evidences/)。
+已完成（2026-10-27）：
+
+- `651acb420`：[ADR 0034](../../../../../docs/adr/0034-language-policy.md)；ADR README 补部分取代的写法、索引加 0034、0023 一行补注。
+- `7c43aa277`：`docs/standards/code/common.md` 加“文字用哪种语言”；`packages/nb-harness/AGENTS.md` 与 `docs/omp-capabilities.md` 链接 ADR 0034 决策 4。
+
+验证：`bun run docs:check`、`bun run governance:check` 的 `failures` 为空，没有本次改动的警告。
+
+实现审查待处理（omp，与 t02 计划审查同一会话）。
+
+讨论稿与讨论期审查：`evidences/design-v1.txt` 到 `design-v3.txt`（以 v3 为准），`design-review-omp-r1.txt` 到 `r3.txt`；前端审查与独立设计在 [w00028 t01 证据](../../../w00028-i18n/tasks/t01-requirements/evidences/)。
 
 ## 下一步
 
-计划交 omp 审查，处理后按切片实施。
+处理实现审查；待确认清单里 t01 的一条等开发者追认。
