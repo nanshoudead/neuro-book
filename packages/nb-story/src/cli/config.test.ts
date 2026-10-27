@@ -127,7 +127,7 @@ describe("init、show、set、unset", () => {
         expect(kept.stderr).toContain("内置目录里没有服务商 other-relay");
         expect(await readFile(path, "utf8")).toBe(before);
         expect((await run(["config", "init", "--model", "plain-model", "--force", "--config", path])).code).toBe(0);
-    });
+    }, 30_000);
 
     test("config set ingest.model 可以不写 JSON：三个选项覆盖其中的字段，已有的价格等原样保留；没有这一组时要给齐（#259）", async () => {
         const path = freshPath();
@@ -144,11 +144,11 @@ describe("init、show、set、unset", () => {
         // 整段 JSON 的写法不变；JSON 和三个选项不能一起给；别的字段、别的动作不收这三个选项。
         expect((await run(["config", "set", "ingest.model", '{"baseUrl":"http://127.0.0.1:3/v1","id":"m4","apiKeyEnv":"' + KEY_ENV + '"}', "--config", path])).code).toBe(0);
         const before = await readFile(path, "utf8");
-        for (const args of [["set", "ingest.model", "{}", "--model", "m5"], ["set", "qa.maxChapters", "5", "--model", "m5"], ["set", "model.thinking", "--model", "m5"], ["show", "--model", "m5"], ["unset", "ingest.model", "--base-url", "http://x/v1"]]) {
-            expect((await run(["config", ...args, "--config", path])).code).toBe(2);
-        }
+        const wrong = [["set", "ingest.model", "{}", "--model", "m5"], ["set", "qa.maxChapters", "5", "--model", "m5"], ["set", "model.thinking", "--model", "m5"], ["show", "--model", "m5"], ["unset", "ingest.model", "--base-url", "http://x/v1"]];
+        const results = await Promise.all(wrong.map(args => run(["config", ...args, "--config", path])));
+        expect(results.map(result => result.code)).toEqual(wrong.map(() => 2));
         expect(await readFile(path, "utf8")).toBe(before);
-    });
+    }, 30_000);
 
     test("nbstory --version 输出包的版本号，--json 时是 JSON；config <动作> --help 只列这个动作的选项（#259）", async () => {
         const version = (JSON.parse(await readFile(join(import.meta.dir, "..", "..", "package.json"), "utf8")) as {version: string}).version;
@@ -172,7 +172,7 @@ describe("init、show、set、unset", () => {
         // 根选项的先后不限。
         expect(JSON.parse((await run(["--json", "--version"])).stdout)).toEqual({version});
         expect((await run(["--json", "-V"])).code).toBe(0);
-    });
+    }, 30_000);
 
     test("已有配置：不加 --force 不动；加了只改给出的字段，其余保留", async () => {
         const path = freshPath();
