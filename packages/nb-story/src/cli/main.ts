@@ -40,6 +40,7 @@ export const NEXT_STEP: Partial<Record<StoryErrorCode, string>> = {
     beyond_position: "把 --at 往后拨",
     cursor_invalid: "去掉 --cursor 从第一页重新取",
     position_out_of_range: "改正 --at",
+    record_not_found: "用 nbstory statements <对象> --tiers 或 nbstory episodes --tiers 列出这个位置的记录，从里面取 id；位置之后的记录要把 --at 往后拨",
 };
 
 /** 命令 → 查看器的页面与页签（docs/specs/story/viewer.md 的“边界与兼容”）。 */

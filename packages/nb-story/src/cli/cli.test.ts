@@ -69,6 +69,10 @@ describe("命令与方法一致（输出 1、验收 1）", () => {
         const why = await runCli(["why", "s4-1", "--at", "38", "--library", book.library]);
         expect(why.stdout).toContain("说法 s4-1：");
         expect(why.stdout).toContain("被后文确认");
+        const missing = await runCli(["why", "s99-1", "--at", "38", "--library", book.library]);
+        expect(missing.code).toBe(1);
+        expect(missing.stderr).toContain("record_not_found");
+        expect(missing.stderr).toContain("下一步");
         expect(await runCli(["statements", "e1-1", "--max-tier", "4", "--library", book.library])).toMatchObject({code: 2});
     });
 

@@ -19,7 +19,8 @@ export function tierExplain(ctx: QueryContext, params: StoryParams<"tier.explain
             flag: statement.flag,
             ev: statement.ev,
             window: statement.window,
-            signals: {refs: statement.refs, echo: statement.echo},
+            // 表里的结果按位置缓存、被后来的查询共用，交出去的是副本，调用方改了也不影响别的查询。
+            signals: {refs: {...statement.refs}, echo: {count: statement.echo.count, phrases: [...statement.echo.phrases]}},
         };
     }
     const episode = view.episode(params.id);

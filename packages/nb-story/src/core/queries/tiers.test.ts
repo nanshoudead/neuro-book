@@ -81,6 +81,13 @@ describe("tier.explain", () => {
         const confirmed = await book.ok("tier.explain", {at: AT, id: "s4-1"});
         expect(confirmed).toMatchObject({kind: "statement", tier: all.items.find(item => item.id === "s4-1")!.tier, prior: null, ev: "strong"});
         expect(confirmed.signals!.refs.confirms).toBeGreaterThan(0);
+        // 结果是这次查询自己的：调用方改了它，同一位置再查不受影响。
+        const confirms = confirmed.signals!.refs.confirms;
+        confirmed.signals!.refs.confirms = 999;
+        confirmed.signals!.echo.phrases.push("改过");
+        const again = await book.ok("tier.explain", {at: AT, id: "s4-1"});
+        expect(again.signals!.refs.confirms).toBe(confirms);
+        expect(again.signals!.echo.phrases).not.toContain("改过");
     });
 
     test("情节：只有先验", async () => {
