@@ -10,7 +10,8 @@ import type {QueryContext} from "./context";
 const CAST = 12;
 const CAST_KINDS: ReadonlySet<string> = new Set(["person", "persona"]);
 
-export function bookInfo(ctx: QueryContext): StoryResult<"book.info"> {
+/** 图自己的部分；未抽取的尾部（`unextracted` 和 toc 里尾部各章）由 api.ts 的 `withTail` 补上。 */
+export function bookInfo(ctx: QueryContext): Omit<StoryResult<"book.info">, "unextracted"> {
     const {meta} = ctx.index;
     const at = ctx.view.at;
     const toc = [...ctx.index.chapters.values()]

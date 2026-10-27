@@ -17,12 +17,16 @@ import type {BookFeatures, Position} from "../core/dataset";
 import type {QaAnswerMode} from "../contract/qa-record";
 import {AnswerSchema, type Answer} from "../core/qa-records";
 import {validateAnswer} from "./answer";
+import {readRange, type Reach} from "./reach";
 import type {ReadLedger} from "./read-ledger";
 
 /** 一问的状态；工具执行时读它、`read` 改账本、`answer` 通过校验时写下答案。 */
 export interface QaToolState {
     readonly book: BookSession;
     readonly at: Position;
+    /** 图工具用的位置：阅读位置在没抽取的尾部里时是抽取进度（qa/reach.ts）。 */
+    readonly graphAt: Position;
+    readonly reach: Reach;
     readonly ledger: ReadLedger;
     /** 通过校验的答案；`answer` 成功时写下。 */
     answer: Answer | null;
@@ -94,6 +98,9 @@ function queryTool(name: (typeof QUERY_COMMANDS)[number], state: QaToolState): {
     const summary = COMMANDS.find(command => command.name === name)!.summary;
     const paged = "cursor" in (STORY_METHODS[method].input.properties as object);
     const description = [summary, TOOL_USAGE[name], PERSPECTIVE_METHODS.has(method) ? "可加 \"perspective\"：按某个角色知道的事回答（写角色 id 或名字）。" : "", paged ? PAGING_HINT : ""].filter(Boolean).join("\n");
+    // 阅读位置在没抽取的尾部里时，每个图工具的结果（含出错）末尾提醒：图只到抽取进度（t30）。
+    const through = state.reach.committed;
+    const graphNote = state.at.chapter > through ? `\n（图只抽到第 ${state.graphAt.chapter} 章；第 ${state.graphAt.chapter + 1} 章到第 ${state.at.chapter} 章的内容只能用 read 读原文）` : "";
     return {
         // read 改读原文账本：同一条模型消息里的几次 read 要依次执行，章数检查与登记之间才不会插进另一次（输出 5）。
         declaration: {id: `story.${name}`, name, description, parameters: toolParameters(method) as never, concurrency: name === "read" ? "exclusive" : "shared"},
@@ -107,17 +114,24 @@ function queryTool(name: (typeof QUERY_COMMANDS)[number], state: QaToolState): {
                     if (!plan.ok) return text(plan.reason, plan.code !== "chapter_limit");
                     params = {from: plan.from, to: plan.to};
                 }
-                const outcome = await state.book.call(method, {...params, at: state.at});
+                if (name === "read") {
+                    const {from, to} = params as unknown as {from: Position; to: Position};
+                    const outcome = await readRange(state.book, state.reach, from, to);
+                    if ("error" in outcome) return text(`查询失败（${outcome.error.code}）：${outcome.error.message}`, true);
+                    state.ledger.record(outcome.paragraphs.map(({chapter, paragraph}) => ({chapter, paragraph})));
+                    return text(formatResult(method, outcome, "param"));
+                }
+                // 阅读位置在没抽取的尾部里：图里没有尾部章的记录，章号落在尾部的 chapter、para 不去查（查询会报“超出全书”，和事实不符）。
+                if ((name === "chapter" || name === "para") && typeof args.chapter === "number" && args.chapter > state.reach.committed) {
+                    return text(`第 ${args.chapter} 章图里还没有记录：只能用 read 读原文。${graphNote}`);
+                }
+                const outcome = await state.book.call(method, {...params, at: state.graphAt});
                 if (!outcome.ok) {
                     const {code, message, candidates} = outcome.error;
                     const lines = [`查询失败（${code}）：${message}`, ...(candidates ?? []).map(item => `  ${item.id}  ${item.label}（${item.note}）`)];
-                    return text(lines.join("\n"), true);
+                    return text(lines.join("\n") + graphNote, true);
                 }
-                if (name === "read") {
-                    const paragraphs = (outcome.value as {paragraphs: {chapter: number; paragraph: number}[]}).paragraphs;
-                    state.ledger.record(paragraphs.map(({chapter, paragraph}) => ({chapter, paragraph})));
-                }
-                return text(formatResult(method, outcome.value, "param"));
+                return text(formatResult(method, outcome.value, "param") + graphNote);
             },
         },
     };

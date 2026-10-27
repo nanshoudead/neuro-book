@@ -17,6 +17,7 @@ import {decodeCursor, paramsDigest} from "./cursor";
 import {StoryError} from "./errors";
 import type {EntityCandidate, StoryErrorCode} from "./errors";
 import {featuresOf} from "./dataset";
+import type {SourceChapter} from "./dataset";
 import {characterGrouping, READER, readerGrouping} from "./identity";
 import type {Grouping} from "./identity";
 import {Library} from "./library";
@@ -36,6 +37,7 @@ import {search} from "./queries/search";
 import {secretsMatrix} from "./queries/secrets";
 import {sourceRead, sourceRecords} from "./queries/source";
 import {timeline} from "./queries/timeline";
+import {unextractedTail} from "./unextracted";
 
 export type StoryOutcome<M extends StoryMethod> = {ok: true; value: StoryResult<M>} | {ok: false; error: {code: StoryErrorCode; message: string; candidates?: EntityCandidate[]}};
 
@@ -54,6 +56,8 @@ export interface BookSession {
     readonly id: string;
     readonly generation: string;
     readonly meta: BookMeta;
+    /** 这一代的未抽取尾部（见 core/unextracted.ts）；问答读原文用。 */
+    unextracted(): Promise<SourceChapter[]>;
     /** 只接受书级方法；参数里的 `book` 被忽略。 */
     call<M extends StoryMethod>(method: M, params: unknown): Promise<StoryOutcome<M>>;
 }
@@ -147,7 +151,15 @@ export function createStoryApi(options: {library?: Library | string} = {}): Stor
             }
             throw error;
         }
-        return queryIndex(index, method, params);
+        return withTail(index, method, queryIndex(index, method, params));
+    }
+
+    /** `book.info` 的未抽取尾部：查询函数只看图，尾部来自抽取记录，在这里补上。 */
+    async function withTail(index: BookIndex, method: StoryMethod, result: unknown): Promise<unknown> {
+        if (method !== "book.info") return result;
+        const tail = await unextractedTail(library, index.meta.id, index.meta.paragraphs);
+        const info = result as StoryResult<"book.info">;
+        return {...info, unextracted: tail.map(chapter => chapter.paragraphs.length), toc: [...info.toc, ...tail.map(chapter => ({chapter: chapter.chapter, title: null}))]};
     }
 
     /** 在给定的一代上跑一个书级方法。 */
@@ -230,10 +242,11 @@ export function createStoryApi(options: {library?: Library | string} = {}): Stor
                 id: index.meta.id,
                 generation: index.meta.generation,
                 meta: index.meta,
+                unextracted: () => unextractedTail(library, index.meta.id, index.meta.paragraphs),
                 call: (method, params) =>
-                    checked(method, params, input => {
+                    checked(method, params, async input => {
                         if (!BOOK_HANDLERS[method]) throw new StoryError("invalid_params", `${method} 不是书级方法`);
-                        return queryIndex(index, method, input);
+                        return withTail(index, method, queryIndex(index, method, input));
                     }),
             };
         },

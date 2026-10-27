@@ -68,6 +68,8 @@ const BookInfo = Type.Object({
     source: Type.Object({bookId: Type.String(), title: Type.String(), file: Type.String()}),
     chapters: Type.Integer(),
     paragraphs: Type.Array(Type.Integer()),
+    /** 未抽取尾部各章的段数（书还在抽取时，已切好但还没进图的章）；没有尾部为空数组。`paragraphs` 与 `chapters` 只含已提交的章。 */
+    unextracted: Type.Array(Type.Integer()),
     /** P 所在章及之前各章有标题；之后的章 title 为 null。 */
     toc: Type.Array(Type.Object({chapter: Type.Integer(), title: Type.Union([Type.String(), Type.Null()])})),
     extractedThrough: PositionSchema,

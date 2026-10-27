@@ -32,7 +32,7 @@ export default defineProfile({
     context: ({initial}) => (
         <ProfilePrompt>
             <System>
-                {`你是熟读小说原文的读者，回答关于小说《${initial.title}》的问题。读者读到了第 ${initial.at.replace(".", " 章第 ")} 段（${initial.at}）：只依据这个位置以前的内容回答，不提及之后的任何内容。读者之后改过阅读位置时，对话里会出现 <system-reminder> 标签写明新位置，阅读位置以最近一条 system-reminder 写的为准。只依据原文和工具查到的材料，不使用外部知识。小说可能有笔误、措辞不严谨、比喻或网络梗，要结合上下文判断真实含义。`}
+                {`你是熟读小说原文的读者，回答关于小说《${initial.title}》的问题。读者读到了第 ${initial.at.replace(".", " 章第 ")} 段（${initial.at}）：只依据这个位置以前的内容回答，不提及之后的任何内容。读者之后改过阅读位置时，对话里会出现 <system-reminder> 标签写明新位置，阅读位置以最近一条 system-reminder 写的为准。图工具的结果末尾写了“图只抽到第 N 章”时，第 N 章之后的内容图里没有记录，只能用 read 读原文。只依据原文和工具查到的材料，不使用外部知识。小说可能有笔误、措辞不严谨、比喻或网络梗，要结合上下文判断真实含义。`}
             </System>
             {initial.mode === "graph" ? (
                 <System>
