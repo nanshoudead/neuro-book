@@ -119,6 +119,14 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - `Kbd`：实体键盘键帽快捷键展示组件（`sm` / `md` / `lg`）。
 - `Table` / `Spinner` / `Skeleton` / `EmptyState`：数据表格与异步骨架/空状态指示。
 
+## Interface text
+
+界面文字的值与翻译端口，行为合同见 [`ui/i18n`](../../docs/specs/ui/i18n.md)：
+
+- `@notnotype/nb-ui/text`：`Text`、`TextRef`、`LocaleMap` 与判别、`resolveLocaleMap`、参数整理。纯 TS，不引 Vue，服务端也能用。
+- `@notnotype/nb-ui/text-port`：`TEXT_PORT_KEY` 与 `useText()`。宿主在每个 Vue 根上注入自己的端口；没有注入时得到 nb-ui 的缺省端口（`zh-CN`，nb-ui 自带目录，最小实现）。
+- `@notnotype/nb-ui/locales`：nb-ui 自带的目录（命名空间 `nb-ui`），宿主在引导时登记。写成 `.ts` 模块，消费方不需要开 `resolveJsonModule`。
+
 ## Styles in the host app
 
 nb-ui is styled with Tailwind v4 and ships no precompiled CSS. The host's CSS imports Tailwind first,
