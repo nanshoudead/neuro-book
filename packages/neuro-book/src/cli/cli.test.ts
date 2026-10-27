@@ -289,6 +289,17 @@ describe("nbook plugin（真实进程）", () => {
         expect(await second.exit).toBe(0);
     }, 60_000);
 
+    it("--safe-mode：本次启动不加载第三方插件，实例应答与列表都标出安全模式", async () => {
+        const root = nextRoot();
+        expect((await json(["plugin", "install", await pluginSource("safe", PRODUCT_VERSION), "--state-root", root])).result).toMatchObject({ok: true});
+        const server = run(["start", "--state-root", root, "--port", "0", "--no-open", "--json", "--safe-mode"]);
+        expect(await server.result).toMatchObject({ok: true, started: true});
+        expect(await queryInstance(root)).toMatchObject({state: "running", instance: {plugins: {safeMode: true, items: [{id: "example.safe", notLoaded: {code: "safe-mode"}}]}}});
+        expect((await json(["plugin", "list", "--state-root", root])).result).toMatchObject({safeMode: true});
+        server.signal("SIGTERM");
+        expect(await server.exit).toBe(0);
+    }, 30_000);
+
     it("用法与提示：plugin 不跟子命令以 2 退出；路径不是插件目录时提示先用 nbooke build", async () => {
         const bare = run(["plugin"]);
         expect(await bare.exit).toBe(2);
