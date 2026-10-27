@@ -1,0 +1,153 @@
+# 前端部分第三轮审查报告：消息目录方向与 w00028 t01 范围
+
+审查对象：`/tmp/review-lang-governance/design-v3.md` 第二节第 3 条（界面文字）与第三节。实验文件在 `/tmp/review-lang-governance/lab-frontend-r3/`。环境：Bun 1.4.2、i18next 26.5.11、@formatjs/intl 6.1.4、intl-messageformat 12.1.4、仓库自带 tsc。`i18next-icu` 不在已装依赖里，没有测它。
+
+### 1. “浏览器取当前语言的目录”与设置搜索“两种语言都比”相冲突；切换语言与首屏的时序没有定，会闪出键或闪出基准语言
+
+- **严重程度**：重要；**类别**：不变量
+- **位置**：设计稿第三节第 3 条、第 5 条；`docs/specs/settings/settings-window.md` 输出 21、第 65 行（`keywords`）；`packages/neuro-book/src/plugins/settings/web/settings-window.ts:388`；`docs/specs/runtime/plugin-code-loading.md` 输出 2（样式“窗口登记插件时就加载，不等入口激活”）。
+- **现象**：设计稿问“浏览器怎么取得当前语言的目录”，隐含只取一种语言。但设置搜索今天比对标题、说明、`keywords` 的两种语言：`settings-window.ts:388` 是 `Object.values(text)` 拼起来比。中文用户搜 “Theme”、英文用户搜 “主题” 现在都能命中。只取当前语言的目录后，这条行为（Spec 明文）没法保留，设计稿没有提。
+- **为什么是问题**：
+  1. 声明在入口激活前就要显示（Spec 对样式的理由同样适用于文字：设置分区、菜单、命令面板的条目）。目录若异步拉取，登记和显示之间有一段时间只有键。设计稿没写“目录就绪之前声明不可见”还是“先显示基准语言”。
+  2. 切换语言：设置值先变、目录后到。若 `effectiveLocale` 直接跟设置值，这段时间所有面板显示回退（基准语言或键）；连续切 zh→en→zh 时两次请求乱序返回，旧响应覆盖新结果。设计稿第 3 条只问“已打开的面板怎么换文字”，没问换到一半的状态。
+  3. 首次启动：浏览器先拿插件集合、再拿设置快照，语言要等设置到了才知道；如果首屏先按默认语言渲染再换，英文用户每次刷新都先看到一遍中文。
+- **如何核实**：`grep -n "Object.values(text)" packages/neuro-book/src/plugins/settings/web/settings-window.ts`；读 Spec 输出 21 “（两种语言都比）”。体量：把现有全部双语字面量与 `nb-agent-ui/src/messages.ts` 拼起来（含代码噪声）共 130 KB、gzip 34 KB（`lab-frontend-r3/alltext.txt`），上界；真正的 JSON 更小。
+- **建议改法**：
+  - 一次取回已登记插件的全部语言（内置的随构建分语言 chunk，第三方的走插件文件端点，URL 含内容摘要，可长期缓存）。体积不大，换来：搜索行为不变；切换语言是同步换指针，没有“换到一半”；不需要处理乱序响应。
+  - 若坚持只取当前语言，则在 t01 里把“设置搜索只比当前语言”列为明确的行为变更，改 Spec 输出 21，并规定：先取到新目录，再提交 `effectiveLocale`（加代次号丢弃过期响应）；首屏在语言与目录都到之前不渲染声明。
+
+### 2. 设计稿只谈“声明引用键”，但跨插件边界的文字大量是运行期值，带参数、由调用方构造；键归属哪个插件的目录没有办法表示
+
+- **严重程度**：重要；**类别**：不变量 / 接口
+- **位置**：设计稿第二节第 3 条、第三节第 2 条；`packages/neuro-book/src/plugins/workbench/shared/contracts.ts:55-72`（`QuickPickItem.label`、`QuickPickRequest.title/placeholder`、`text.label: (text) => DisplayText`）；`plugins/editor/shared/contracts.ts:305`（`status: Ref<LocalizedText | string | null>`）；`plugins/settings/shared/contracts.ts:164-170`（settings 插件把自己的 `COMMAND_TEXT.placeholder` 交给 workbench 的 quickPick）；`plugins/commands/shared/menus.ts:218`。
+- **现象**：`DisplayText = string | LocalizedText` 今天是插件之间传文字的通用货币：quickPick、状态栏条目、公开状态的 `reason`、菜单标签。接收方是别的插件（workbench 的面板），拿到后“显示时才按当前语言取”。设计稿只写“声明（命令标题、视图标题、设置项等）引用消息键”。
+- **为什么是问题**：
+  1. 通用接收方（`SettingsRow`、quickPick 面板、`nbook.settings` 的分区渲染）拿到一个 `{key}` 时，要知道去哪个插件的目录取。键若不带插件前缀并由内核强制，两个插件撞键；键若带前缀，则要有一条像 `idPrefix: "plugin"`（`plugin-manifest.md` 输出 10）那样的机制强制它。设计稿第 2 条把“是否以插件 id 为前缀”当成命名偏好，实际是正确性问题：不强制就谈不上“按插件分的目录”隔离。
+  2. 运行期文字带参数（`text.label: (text) => DisplayText`、状态栏的条目数）。结果既不能是已翻译的字符串（面板开着时换语言不会跟着变），也不能是单个键；要的是可序列化的 `{key, params}` 引用。设计稿第 2 条只比较 `{key}` 对象与 `%key%` 字符串；`%key%` 带不了参数。
+  3. 仓库里已有这个形状：`nb-agent-ui/src/types` 的 `ViewText` 就是 `string | {key, params} | LocalizedText`，`messages.ts:429` 的 `textOf` 在显示时才翻译。t01 应当沿用它，而不是另造一种。
+- **如何核实**：读上面各行；`grep -rn "DisplayText" packages/neuro-book/src --include='*.ts' | grep -v test`。
+- **建议改法**：把第 2 条改成“文字引用的形状”：`MessageRef = {key, params?}`，`DisplayText = string | MessageRef`；键强制以所属插件 id 加 `.` 开头（复用现有 `idPrefix` 机制，内置发布者的豁免规则同其）；解析函数在全局注册表里按键找，不需要调用方传命名空间。`%key%` 字符串形式只适合清单里的纯字符串字段，运行期值用不了，不建议作为统一形式。
+
+### 3. 缺键怎么办、谁来发现键错、“和 `entries.<id>.main` 一样检查”这句话本身不成立
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：设计稿第二节第 3 条（“缺译文时按语言链回退”）、第三节第 1 条；`packages/neuro-book/src/plugin-platform/backend/version-dir.ts:79-89`（`missingEntries`）；`inventory.ts:231-232`、`startup.ts:316-317`；`plugin-manifest.md` 输出 10；`shared/settings.ts:237-238`。
+- **现象**：
+  - 设计稿说 `locales/<locale>.json` “与 `entries.<id>.main` 一样”处理。实现里 `missingEntries` 只遍历 `manifest.entries` 的 `main`；安装时缺了抛 `entry-missing`，启动时缺了该插件 `notLoaded`。`style` 就没有这类检查（`styles.ts` 只在 `<link>` 加载失败时记 warn）。所以“一样”到底是 `main` 那一档（缺了整个插件不加载）还是 `style` 那一档（缺了只记诊断），设计稿没选；`entry-missing` 这个失败码和 `FailureDetail` 的类型也要为目录文件新增或放宽。同时安装按 `files` 的 npm 规则复制，作者的 `files` 漏掉 `locales/` 时才会出这个错，错误文案要能指到原因。
+  - 今天“两种语言都非空”是登记时对单条贡献的校验，不合格只拒绝这一条（`settings.ts:237`、Spec 输出 10）。换成键之后，等价的校验是“键存在于基准目录且非空”，这要么要求每个运行实例在登记时读目录（和第 3 条“哪些实例要读目录”直接相关：server、project 实例本来不需要任何文字），要么只在构建期和 `governance:check` 检查、登记时不查。设计稿没有选，却把“缺译文回退”当成唯一出口。
+  - 缺键的显示没写：键本身？基准语言？空串？对照 Chrome：manifest 里 `__MSG_x__` 在默认语言里找不到，扩展安装失败，`default_locale` 必须存在；VS Code：`%key%` 找不到就原样显示 `%key%`，没有检查；两者取了相反的立场。t01 要选一个并给理由。
+- **为什么是问题**：
+  - 第三方手写清单（Spec 允许，“与生成的同等有效”）是最容易写错键的地方，而 SDK 构建期的检查对它不生效。
+  - 显示键本身对用户是一串 `nbook.editor.status.words`，对作者是被默默吞掉的拼写错误；若同时没有诊断，没人知道。
+- **如何核实**：`sed -n 79,89p packages/neuro-book/src/plugin-platform/backend/version-dir.ts`；`grep -n "style" packages/neuro-book/src/plugin-platform/backend/*.ts`（无存在检查）。
+- **建议改法**：
+  - 把“目录文件缺失”明确归到 `main` 一档，在 `missingEntries` 旁加 `missingCatalogs`，`files` 漏掉时的错误说明指到 `locales`。
+  - 登记时不读目录：校验放在 SDK 构建（键必须存在于基准目录，构建失败）和仓库的 `governance:check`（内置插件）。手写清单的错键走运行期：显示基准语言的文本，找不到才显示键，并记一条诊断（英文，C1）。这样 server、project 实例完全不需要目录。
+  - 对照业界清单（t01 的问题表补上）：①默认语言必须存在且是回退终点（Chrome、JetBrains）；②缺键的显示与诊断（VS Code 原样显示、Chrome 拒绝安装）；③语言包作为插件（见第 7 条）；④区域回退 `zh-TW`→`zh`→基准（Chrome 的 `_locales` 规则）；⑤清单字段与代码调用用同一份目录还是两份（VS Code 是 `package.nls.json` 与 `l10n` 两套，本设计合一，是合理的简化，应写明）。
+
+### 4. 共享包的问题问反了：不是“宿主怎么装载包的目录”，而是包在没有任何装载动作时也要自己能用；发布成源码的包还有三条硬约束
+
+- **严重程度**：重要；**类别**：不变量
+- **位置**：设计稿第三节第 1 条第二点；`docs/adr/0029-workspace-packages-publish-source-to-npm.md` 决定 2、3；`packages/nb-story/src/web/pages/QaPage.vue:447,459,499`、`shell/SettingsPage.vue:382,402`（固定 `locale="zh-CN"`）；`packages/nb-form/src/text.ts`（文件头：核心只依赖 TypeBox）；`packages/nb-form/package.json:46-52`、`nb-agent-ui/package.json:52-59`、`nb-markdown/package.json:70-78`（`files` 白名单）。
+- **现象**：nb-story 查看器是单语言（中文）、构建时由 Vite 打进包的静态页面（ADR 0029 决定 3），没有 NeuroBook 的插件集合、没有设置服务、没有“宿主登记目录”这一步；它今天把 `locale="zh-CN"` 写死传给 `AgentSessionList`、`AgentConversationView`、`AgentModelCatalog`。设计稿问“宿主怎么装载”，答案的形状会是“宿主调用 `registerCatalog(pkg)`”，这对 nb-story 查看器、dev-panel 面板、任何第三方宿主都是多出来的强制步骤，漏调的后果是显示键。
+- **为什么是问题**：
+  1. 库包必须零配置可用：包自己 `import` 自己的基准目录并自带默认翻译器，宿主只在想覆盖语言、接入应用的目录时才注入。nb-story 查看器因此不用改代码就继续显示中文。
+  2. 发布的是源码（ADR 0029 决定 2）：JSON 目录要放在 `src/` 下（`files` 只放行 `src`）；使用方需要 `resolveJsonModule`（决定里已提示“消费者用自己的 tsconfig 检查这些源码，严格度不同时可能报错”）或把目录写成 `.ts`；生成的类型文件必须提交进仓库、随 `src` 发布，因为消费者不会运行生成脚本。
+  3. nb-form 核心今天只依赖 TypeBox，nb-agent-ui 核心是纯 TS；ICU 引擎（`intl-messageformat` 9.8 KB gzip，另带 `@formatjs/icu-messageformat-parser` 等 3 个依赖）进入这些核心，要写进各包 `dependencies`（决定 3），并重发版本。更轻的做法是核心只定义 `Translator` 端口（`(ref) => string`），ICU 实现由宿主或一个单独的小包提供；核心的默认实现只做占位替换。
+- **如何核实**：`grep -n 'locale="zh-CN"' packages/nb-story/src/web -r`；`sed -n 46,52p packages/nb-form/package.json`；`cat /tmp/i18n-size/deps/node_modules/intl-messageformat/package.json | grep -A4 dependencies`。
+- **建议改法**：t01 第 1 条改成三个问题：包的默认翻译器与基准目录怎么随包带；宿主注入点（一个端口）长什么样；核心包与引擎的依赖方向。把“nb-story 查看器改动为零”写成验收场景。
+
+### 5. 用注入的 i18n 上下文取代逐层传 `locale`：推翻了 nb-agent-ui 文档里明写的做法，也是对已发布公开 API 的破坏；Spec 里“宿主提供的 i18n（inject）”现在并不存在
+
+- **严重程度**：重要；**类别**：不变量 / 兼容
+- **位置**：设计稿第三节第 6 条；`packages/nb-agent-ui/src/vue/AgentSessionList.md` 倒数第二段（“不 inject：……语言经 `locale` 给。没有隐藏通道，不持有状态”）；`docs/specs/runtime/plugin-code-loading.md` 输出 3 与验收 1（“宿主提供的 i18n 与主题（`inject`）”）；`ADR 0029`（已发布 0.1.0）。
+- **现象**：
+  - `locale` 是 nb-agent-ui 40 个 Vue 文件里 8 处出现的公开 props（本包 `vue/` 目录），nb-form/nb-markdown/nb-ui 也有；包已在 npm 发布 0.1.0（nb-ui 0.2.0），nb-story 依赖它们。删除 prop 是破坏性变更，0.x 要升小版本，nb-story 要同步发布。
+  - 文档明确选了“不 inject”：`AgentSessionList` 挂在 `AgentConversationView` 之外，inject 到不了，所以才用 prop。统一注入会让这类“挂在视图之外”的组件拿不到，要么再加 provide 的位置要求，要么保留 prop——设计稿没有处理。
+  - Spec 输出 3 声称第三方插件组件“宿主提供的 i18n 与主题（`inject`）”一致；仓库里搜不到任何 `provide(…locale…)`，i18n 的 inject 是个没有实现的承诺。第三方插件今天只能收到 `locale` 值后自己选字。
+- **为什么是问题**：设计稿把“用注入取代逐层传 `locale`”当作结论写进第 6 条，但它同时删掉三类东西：已发布包的 prop、组件文档里记录的决定、第三方插件今天实际拿 `locale` 的方式。
+- **如何核实**：`grep -rn "provide(.*[Ll]ocale" packages/*/src`（无结果）；`grep -c locale packages/nb-agent-ui/src/vue/*.vue`；读 `AgentSessionList.md` 末段。
+- **建议改法**：保留 `locale`（或 `Translator`）作为可选 prop，注入只是缺省来源，“prop 优先、注入其次、包内默认最后”。nb-ui 默认文案同理。要删 prop 时，另列成一个带版本号的破坏性变更，并说明 nb-story 如何随之升级。同时修订 Spec 输出 3 与验收 1 的措辞，或在 t01 里明确实现它。
+
+### 6. 现状里已经有一处“把译文烘进数据”的反例：切换语言后已打开的会话里，错误提示与压缩标签不会换
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/nb-agent-ui/src/harness.ts:124,285,315`；`messages.ts` 文件头（“纯逻辑层……只产出 `{key, params}`，由组件在显示时翻译”）；设计稿第三节第 3 条。
+- **现象**：`createHarnessTranscript({locale})` 在创建时固定语言，`applyRunEnd` 把 `agentText(locale, key)` 的结果写进 `MessageView.message`（错误行）、`label`（压缩行），都是字符串。文件头自己写的原则是纯逻辑层只出 `{key, params}`，这两处违反了它。已有会话读进来后，切换界面语言，这两行仍是旧语言，除非宿主重建整条 transcript。
+- **为什么是问题**：设计稿第 3 条要解决的正是“切换语言后已打开的面板换文字”，它的难点不在目录，在于数据里不能存已翻译的串。同类写法在 `commands/shared/plugin.ts:41` 的 `reasonOf`（“已记下的诊断保留当时的文字”）也有。迁移脚本只会抽字面量，不会发现这类“先翻译后存储”。
+- **如何核实**：`sed -n 283,286p packages/nb-agent-ui/src/harness.ts`；`sed -n 313,316p`。
+- **建议改法**：t01 的检查项（第 8 条）加一条规则：持久化或缓存的数据结构里的文字类型只能是 `string`（与语言无关）或 `MessageRef`，不得出现翻译函数的返回值；用类型区分（翻译函数返回品牌 `Rendered`，数据类型的字段不接受它）。迁移时把这两处改成存 `ViewText`。
+
+### 7. 目录的登记方式没有和现有的“贡献点”机制比较；语言包插件与 `nbook.settings/locale` 的静态选项没有出路
+
+- **严重程度**：重要；**类别**：代码质量 / 上游选择
+- **位置**：设计稿第三节第 1、5 条；`packages/neuro-book/src/plugins/settings/shared/contracts.ts:54-69`（`localeSetting`：`Type.Union([Literal("zh-CN"), Literal("en-US")])`，选项写死）；`docs/specs/runtime/plugin-manifest.md` 输出 10、11；`plugin-hot-plug.md`（声明层 vs 实现层）；`packages/nb-runtime/src/plugin-manifest/schema.ts:96`（`style` 字段在内核清单里）。
+- **现象**：设计稿只考虑“清单加一个字段引用 `locales/<locale>.json`”。三个后果设计稿没写：
+  1. 这个字段落在 `nb-runtime` 的清单格式里（和 `style` 一样），内核是应用无关的，字段名与语义要进内核 Spec；内置插件的描述也要能表达并且能和 `package.json` 形式互转（Spec 前置条件：“每个内置插件的代码定义都必须能表达为 `package.json` 形式”）。内置的目录走构建期静态导入，第三方的走插件文件端点，是两条交付路径，不是“一样处理”。
+  2. 业界都有“语言包是另一个插件”：VS Code 的 Language Pack 扩展、JetBrains 的语言插件，由别人给你的插件补译文。设计稿的目录归属于“被翻译的插件自己”，第三种语言只能等每个插件作者各自加。若目录改成一个贡献点（`nbook.i18n/catalog`，声明式、无实现，贡献内容 `{plugin, locale, file}`），热插拔的撤回通知、“拥有者未安装时待校验”（输出 10）都是现成的，语言包用同一个贡献点给别人的命名空间补译文。
+  3. `locale` 设置是静态 `Union` 字面量，服务端据此校验用户的设置文件。“是否开放任意 BCP 47”（第 5 条）一旦为是，这个 schema 就不能再列举；要改成 `Type.String()` 加运行期校验，或者在 `enum` 之外保留“未知值回退基准语言”。选项（语言名）也得来自目录（每种语言用自己的名字，今天写在 `choices` 里，这个声明不能走键：目录没加载时用户要找得到“切换语言”）。
+- **为什么是问题**：目录是声明层的东西（随插件登记、撤回，不随入口）。用现有的声明机制做，就继承它已验证的生命周期；另造一条路径要自己实现撤回、待校验、L2 回收（热插拔 40 次堆内存不增长，`plugin-code-loading.md` 输出 7，注册表按“插件 id + 摘要”持有目录时要纳入这项测试）。
+- **如何核实**：`sed -n 54,70p packages/neuro-book/src/plugins/settings/shared/contracts.ts`；`grep -n "style" packages/nb-runtime/src/plugin-manifest/schema.ts`。
+- **建议改法**：t01 里并列比较“清单字段”与“贡献点”两种登记方式，评估指标：热插拔撤回、内置/第三方统一、语言包、内核是否要改。若选贡献点，`locale` 选项由已登记目录的语言集合生成，语言名放目录的元数据里，不走键。
+
+### 8. 第四项“库的原型”的比较项不足以做选择；已有的体积数字对 i18next 偏低 40%，对“目录的合并与注销”的区别被高估
+
+- **严重程度**：重要；**类别**：代码质量
+- **位置**：设计稿第三节第 4 条；`/tmp/i18n-size/entries/i18next.ts`；`/tmp/i18n-size/entries/out/`。
+- **现象与实测**：
+  - 设计稿写“gzip 9.8 到 14.2 KB”。14.2 KB 是 i18next 原生格式（`{{count}}`、`files_one/files_other`）的体积，入口文件里没有 ICU。C5 要求 ICU，i18next 要加 `i18next-icu`（内部再用 `intl-messageformat`）。我打包 i18next + `intl-messageformat` 的组合（还没算 `i18next-icu` 本身）：79 276 字节、gzip 23 699（`lab-frontend-r3/out-size-i18next-imf.js`），约是自写薄注册表（9 763）的 2.4 倍。第 4 条的数字范围应该是 9.8 到约 24 KB。
+  - “@formatjs/intl 的目录合并与注销自己管”：实测（`lab-frontend-r3/f1.mjs`）`createIntl({messages})` 读的是传入的那个对象本身，往里加键、删键立即生效，不需要重建实例；删除后 `formatMessage({id})` 返回 id 本身并走 `onError`（`MISSING_TRANSLATION`）。所以“登记与注销目录”在三个候选里都是对一个普通映射的增删，差别不在这里。
+  - i18next 默认 `keySeparator: "."`：实测带点的扁平键（`nbook.settings.open`）在默认配置下也能取到（先按嵌套路径找，找不到退回扁平），含 `:` 的键会被当作 `namespace:key` 切开（`a:b` 返回 `b`）。插件 id 前缀的键不含冒号，所以这条不构成障碍，不必在 t01 里担心。
+- **为什么是问题**：真正的差别在设计稿比较项之外：
+  1. **响应式**：Vue 里 `t(key)` 要在目录增删、语言切换时重新求值。三个库都不提供 Vue 响应式（i18next 有事件，需要桥接；formatjs 与自写的是普通对象，需要版本号 `shallowRef`）；纯 TS 核心（nb-form、nb-agent-ui）又不能依赖 Vue。
+  2. **回退链**：formatjs 没有按键的多语言回退，要自己写；i18next 有 `fallbackLng` 数组，但 `zh-CN→zh→基准` 之外的规则要靠配置。
+  3. **缺键与坏参数的行为**（第 10 条已列，实测 formatjs 对 `undefined`、`"1,234"` 输出 `NaN items`）。
+  4. **核心包能否使用**（第 4 条）：端口加实现分离后，库的选择只影响宿主那一侧。
+- **建议改法**：t01 先定 `Translator` / `MessageCatalog` 端口（登记、注销、取、订阅变化、回退链），库作为实现可换，选型按“响应式桥接成本、体积、ICU 完整度、缺键行为”四项做，不再比“目录装卸”。体积用 ICU 同口径重测并写出组合。`i18next-icu` 要装进实验依赖后实测，否则不应把 i18next 当作可选项评估。
+
+### 9. “由基准语言目录生成类型”对键不需要生成；树外插件的编译期键检查可以直接成立，只有占位符参数需要生成
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：设计稿第二节第 3 条末项、第三节第 4 条（“类型生成”）。
+- **现象**：实测（`lab-frontend-r3/ts/`）：`import zh from "./zh-CN.json"` 加 `resolveJsonModule`，`type Key = keyof typeof zh`，调用 `t("cmd.open.titel")` 得到 `TS2345: not assignable to '"cmd.open.title" | "cmd.n"'`。值的类型被放宽成 `string`（`(typeof zh)[Key]` 是 `string`），所以参数名与参数类型要生成，键不用。
+- **为什么是问题**：生成步骤意味着额外的构建产物、提交策略（见第 4 条：随源码包发布必须提交）、CI 同步检查。树外插件（SDK 构建，作者自己的 `locales/zh-CN.json`）用这个办法不依赖宿主任何东西，就能在作者的编译期发现键错。
+- **建议改法**：分两层：键用 JSON 导入的 `keyof` 类型（零生成）；需要参数类型安全时再生成 `.d.ts`，或者约定参数写成 `t(key, {name})` 并只在构建期检查占位符名是否一致，不在类型层做。手写清单（无类型）靠第 3 条的构建/治理检查补上。
+
+### 10. 范围过大，应拆成三个 Task；迁移要连测试一起算
+
+- **严重程度**：建议；**类别**：文档
+- **位置**：设计稿第三节全文、第四节第 7 条。
+- **现象**：t01 要回答十项，其中第 4 项要做原型（写代码）、第 9 项要给迁移方案；产出还包括“结构方案与原型证据”，之后才写 plan 与 Spec，实施再建 t02。这些项之间有依赖：库选型（4）取决于端口（6）与响应式；检查（8）取决于键的形状（2）；迁移（9）取决于前三项。
+- **规模复核**：
+  - 设计稿“约 1100 条内联文字（124 个文件）”：我数 `"zh-CN":` 配对在 `neuro-book`、`nb-markdown`、`nb-form`、`nb-ui`、`nb-story` 的源码里共 1072 行；但 `nb-agent-ui/src/messages.ts` 的中文与英文两张表（各约 190 个键，不带 `"zh-CN":` 字样）和 nb-story、dev-panel 模板里的单语言中文都不在这个计数里。迁移要处理三种形式（`{zh-CN, en-US}` 字面量、`ZH/EN` 表、模板里的单语言中文），脚本不是一条正则能做。
+  - 断言中文的测试：`*.test.ts`、`*.e2e.ts` 里 369 个文件在 `toBe/toEqual/toContain/getByRole(name)` 里写了中文，e2e 的 37 个文件里有 30 个；基准语言取中文、默认语言取中文，这些测试可以不动，但要在迁移 Task 的验收里写明“测试按中文断言，不改”，否则会被“因为改了键所以要改一百多个测试”拖住。
+- **建议改法**：
+  - t01 只做“机制”：目录格式与登记（1、3、5）、文字引用形状（2）、端口与回退（5、6 的接口部分）、检查的清单（8）；产出结构方案，不写原型代码。
+  - t02 做库的原型与选型（4）：按第 8 条的四项比较，输出可运行的最小实现和测试，一天内能出。
+  - t03 做共享包与 nb-ui 默认文案、迁移（6、7、9）：迁移前先有 t01 和 t02 的结论。
+  - 第 10 项的六条延续输入随各自相关的 Task 走，不单独成项。
+
+### 11. 勘误与补充（对前面各条）
+
+- 第 2 条：`ViewText` 的定义在 `packages/nb-agent-ui/src/types.ts:23`（不是 `types/` 目录）：`string | LocalizedText | {key: AgentTextKey; params?: {...}}`。
+- 第 5 条：nb-agent-ui 里实际是“根组件取 `locale` prop，内部经 `provideAgentView({locale})` 提供 `t`”（`AgentConversationView.vue:30,52`），即“prop 加包内 inject”；`AgentSessionList` 是根上没有 provide 的另一个根，所以 prop 仍是必需的。上面说的“8 处”应读作 nb-agent-ui 的 `vue/*.vue` 中 8 行提到 `locale`；含 `locale` 的 Vue 文件数：nb-agent-ui 15、nb-markdown 9、nb-form 16、nb-ui 0。结论不变：`locale` 是已发布包的公开 props，删它是破坏性变更。
+- 第 7 条 nb-ui：nb-ui 没有任何 `locale` 的概念（0 个 Vue 文件提到），写死的中文默认是 props 的缺省值（`Toolbar.vue:12 ariaLabel: "工具栏"`、`Table.vue:28 emptyText: "暂无数据"`、`AlertDialog.vue:32-35`）。第三节第 7 条“由谁提供、怎么回退”的现成答案是：这些 props 缺省保持，宿主（`nbook` 的封装或 SDK 的 `/components`）在使用处传翻译后的值；nb-ui 不引入目录，否则它与 `nb-form/nb-agent-ui/nb-markdown` 之间会多出一个依赖。第三方插件用的是宿主的同一份 nb-ui（`plugin-code-loading.md` 术语“宿主模块表”），它们拿到的缺省值是中文，这一点要写进 SDK 文档。
+
+## 未发现问题的方面
+
+- 声明层 vs 实现层：目录跟随插件登记与撤回（声明层）而不是入口，这个归属方向与热插拔 Spec 一致，设计稿第二节第 3 条“随插件登记与注销”成立。
+- 插件文件端点的 URL 含版本目录的内容摘要，目录与代码在同一目录里，所以同一代次内“目录与代码版本一致”由现有机制保证；升级后旧 URL 404，浏览器必须在插件集合变化后重新取，这一点在第 1 条的次序规则里处理。
+- 服务端与 project 实例的实际文字使用面很小：非 web、非 ui 目录里只有 `commands/shared/plugin.ts:41,66`、`commands/shared/menus.ts:218`、`settings/shared/contracts.ts:176` 四处 `localize/formatText`，前三处是浏览器侧共享代码，另一处是命令失败的 `reason`，按 C1/C2 会改成错误码投影。所以第三节第 3 条“哪些实例要读目录”的答案可以是“只有浏览器”，条件是第 3 条建议（登记时不读目录）被采纳。
+- ADR 0029、0030、0033 的约束与设计稿第二节“取代 ADR 0023 中 vue-i18n 一项”的写法一致，没有发现冲突；ADR 0033 的 npm 包是构建产物，内置目录随 Vite 的 `web/` 产物走，不依赖运行时读源码目录。
+
+## 对设计稿第四节与本部分相关项的判断
+
+- **第 1 项（命令 `description` 改中文）**：`description` 是给 Agent 的语义说明，不是界面文字，不应进入消息目录；改不改语言属于提示词那一支，本部分不需要它作前提。
+- **第 7 项（记录安排：w00028 t01 按第三节修订、另建 t02 实施）**：不够。按第 10 条拆成机制、原型选型、共享包与迁移三个 Task，t01 不写代码；“t02 实施”应改为迁移 Task 之后。
+- 其余各项（2 至 6）属于语言政策与提示词，本部分无判断。
+
+## 条数
+
+共 11 条（含 1 条勘误）：重要 8（第 1 至 8 条），建议 2（第 9、10 条），勘误与补充 1（第 11 条）；阻断 0。
+
+最严重的几条：第 1 条（设置搜索两种语言与只取当前语言目录相冲突，切换与首屏时序）、第 2 条（运行期带参数的文字与键归属）、第 3 条（缺键与校验层，“与 main 一样检查”不成立）、第 4 条（共享包必须零配置自带，nb-story 查看器不应需要装载动作）、第 8 条（i18next 的 ICU 体积被低估 40%，比较项缺响应式与回退链）。

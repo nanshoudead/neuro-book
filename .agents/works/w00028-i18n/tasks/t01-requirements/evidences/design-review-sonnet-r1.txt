@@ -1,0 +1,140 @@
+# 前端部分审查报告：i18n 选型与“按错误码取文案”落地
+
+审查对象：`/tmp/review-lang-governance/design.md`。实验文件在 `/tmp/review-lang-governance/lab-frontend/`（t1 到 t5）。下文“实测”均指 intl-messageformat 12.1.4。
+
+### 1. `formatText` 从“宽松代入”变成“会抛错”，且没有失败通道；一种语言的模板写坏会拖垮另一种语言
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：设计稿“推荐方案”第 1 条、范围估算第 1 步；`packages/neuro-book/src/shared/localized-text.ts:33-37`
+- **现象**：现在的 `formatText` 对没传的占位符原样留着（`name in params ? … : placeholder`），对任何字符串都不会失败。换成 `intl-messageformat` 后实测：
+  - 缺参数：`new IntlMessageFormat("Hello {name}","en-US").format({})` 抛 `MissingValueError`（旧行为输出 `Hello {name}`）；
+  - 语法错：`"Open {"`、`"Use {} for objects"`、`'{"a":1}'`、`"{file-name}"` 抛 `SyntaxError`（`EMPTY_ARGUMENT`、`EXPECT_ARGUMENT_CLOSING_BRACE`、`MALFORMED_ARGUMENT`）；
+  - 默认开着标签解析：`"Press <Enter>"`、`"a < b"` 抛 `UNCLOSED_TAG`（需要 `ignoreTag: true` 才关）；
+  - `formatText` 返回 `LocalizedText`，即**两种语言都要格式化**才能返回。zh-CN 模板写坏，英文界面也抛（t5 实测 `en view broken by zh: SyntaxError`）。
+- **为什么是问题**：`formatText` 在 Vue 模板里直接调用（例如 `BookshelfPage.vue:160`、`ShelfDesk.vue:61`、`WorkbenchShell.vue:95`），抛错发生在渲染函数里，整个组件那一次渲染丢失，而不是某句文字显示异常。设计稿没写解析失败走哪条通道、显示什么。拼错占位符名从“界面上看见 `{nmae}`，一眼能发现”变成“渲染异常”，漏参数同理。
+- **如何核实**：`cd /tmp/review-lang-governance/lab-frontend && bun t1.mjs`、`bun t5.mjs`。
+- **建议改法**：
+  1. 包装层 `try/catch`，失败时返回原模板文字，并经注入的诊断钩子报一次（按“语言 + 模板”去重，仿 `plugins/workbench/web/items/registry.ts` 里 `#reported` 的写法），不让异常进渲染；
+  2. API 改成按需取语言 `formatMessage(text, locale, params)`，不再一次格式化两种语言（也省一半开销，见第 10 条）；`localize(formatText(T,p),l)` 的 166 处调用形状可以用一个薄适配器过渡；
+  3. 固定 `ignoreTag: true`；
+  4. 评估 `@formatjs/intl`：缺参数时它不抛，输出 `Hello {name}`，错误交给 `onError`（t3 实测），与现有合同一致，见第 7 条。
+
+### 2. 带数量的文字：调用方传的是已格式化的字符串，改复数后会静默输出 `NaN`；“290 处调用基本不变”不成立
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/editor/web/status-items.ts:118-135`（`number = new Intl.NumberFormat(...)`，传 `{count: number(...)}`）；`plugins/projects/web/shelf-format.ts:34-53`（`grouped(count, locale)`、`scaled` 的 `"1.5"`）；`plugins/plugins/web/components/PluginsPage.vue:433-434`（`count: String(...)`）；`format(value, values: Record<string,string>)`（`PluginsPage.vue:119`）、`ImageViewer.vue:24`、`HtmlPreview.vue:26` 的 `values` 类型是 `Record<string,string>`
+- **现象**：实测 `{count, plural, one {# item} other {# items}}` 传 `count: "1"` 得 `1 item`（碰巧可用），传 `"1,234"` 得 `NaN items`（不抛、无警告）。现有调用方普遍先用 `Intl.NumberFormat(locale)` 把数字转成字符串再传，所以 ≥1000 的数量全部会坏；单元测试用小数字则全部通过。反过来，普通 `{count}` 传数字 `12345` 输出 `12345`（不分组），要 `{count, number}` 才分组。
+- **为什么是问题**：设计稿估“19 条带数量的文字改复数”，但每个这样的调用点都要同步把参数从字符串改成数字，并决定分组由谁做；类型 `Record<string, string | number>` 不区分，写错没有任何检查。现有英文里的 `item(s)`、`entry point(s)`、`contribution(s)`（`PluginsPage`）就是没做复数的存量，改的时候必须逐点处理。`shelf-format.ts` 的 `万`/`k` 缩写是自定义逻辑，不是 ICU `plural` 能表达的，需要 `select` 或保留函数。
+- **如何核实**：`bun t1.mjs`（“num string plural fmt”一行）；`grep -rn "count:" packages/neuro-book/src --include='*.ts' --include='*.vue' | grep -E "number\(|grouped\(|String\("`。
+- **建议改法**：范围估算里把这一步列成“逐点改调用方”，不写“基本不变”；复数参数在包的类型里单独标出（例如模板带类型的参数表，或 `count` 必须是 `number` 的重载）；至少加运行期断言：模板含 `plural`/`selectordinal` 的参数不是有限数时报诊断。
+
+### 3. `formatText`/`localize` 是插件 SDK 的公开导出，改语义是对第三方插件的兼容变更；新包还要进 SDK 类型打包的路径映射
+
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`packages/neuro-book/src/sdk/index.ts:42-43`；`plugin-sdk/examples/plugins/snippets/web/SnippetsPage.vue:32,63`；`plugin-sdk/pack.ts:5-8,59-67`；`docs/specs/runtime/plugin-code-loading.md` 第 84 行（“共享入口即兼容承诺”）
+- **现象**：`export {formatText, localize} from "nbook/shared/localized-text"` 在 SDK 根入口，示例插件用它代入 `{…}`。设计稿把它当应用内部实现讨论，没提 SDK。ICU 改动之后，作者写的含 `{`、`'`、`<`、`#`（复数内）的模板行为都变了（第 1、4 条）。另外 `pack.ts` 的 `typePaths()` 只把 `nbook/*`、nb-runtime、nb-form、nb-ui 映射到源码，才能把类型打平进 SDK 的 `.d.ts`（第 7-8 行：经 `node_modules` 解析的工作区包被当外部库，不生成声明）。`LocalizedText` 的类型搬到新包后，不加映射则 SDK 的 `.d.ts` 要么引用作者装不到的私有包，要么打包失败。
+- **为什么是问题**：Spec 写明“模块表共享哪些入口，就对插件作者承诺哪些 API 保持兼容，每次增加都是 `engines.neurobook` 兼容范围的变化”。语义变更要按这条走，设计稿的步骤 0/1 都没有。
+- **如何核实**：`grep -n "formatText" packages/neuro-book/src/sdk/index.ts`；读 `plugin-sdk/pack.ts` 的 `typePaths`；`plugin-sdk/pack.test.ts` 是否覆盖新增路径。
+- **建议改法**：ADR 里明确 SDK 的 `formatText` 语法承诺（ICU 子集，还是保持 `{name}` 加一个新的 `formatMessage`）；若保持旧入口原语义，把 ICU 做成新入口，旧入口留 `{name}` 代入，内部模板逐步迁移；`pack.ts` 与 `pack.test.ts` 列为步骤 1 的改动文件。
+
+### 4. “模板”和“已代入的结果”共用 `LocalizedText` 一个类型；ICU 之后二次解析会损坏数据，外来文字也可能被误当模板
+
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`packages/neuro-book/src/shared/localized-text.ts:19-37`；`plugins/projects/web/messages.ts:46-49`（`retryTitle` 先逐语言代入再装回 `LocalizedText`）；`plugins/settings/web/choices.ts:45`（`reason: formatText(...)` 作为 `FormText` 交出）；`docs/specs/workbench/editor.md:89`（编辑器句柄的 `status: Ref<LocalizedText | null>`，已是代入后的结果）；`packages/nb-form/src/text.ts`（`FormText` 来自 nbdev 面板与模型生成的描述）
+- **现象**：现在 `localize`/`textOf` 只取不解析，所以“模板”“已代入的结果”“插件声明的普通标题”三种东西可以共用一个类型，互不影响。ICU 之后，只要有一处把已代入的结果（里面有书名、路径、错误原文）再交给 `formatText`，就会被当模板解析：含 `{`、`'`、`<` 的用户数据抛错或被吞掉（实测参数值本身不会被二次解析，但结果文字作为模板会）。设计稿没有写哪些入口解析 ICU、哪些不解析，也没写 nb-form 的外来 `FormText`（`"Set <name>"`、`"Use {} for objects"`）必须不进 ICU。
+- **为什么是问题**：这是“两个容器同一个类型、靠约定区分”的典型，错一次不会在类型上报。nb-agent-ui 已经有区分：`ViewText` 的第三支 `{key, params}` 是“未代入的描述”，其余是“已可显示”。
+- **如何核实**：读上述几处；在 lab 里 `new IntlMessageFormat("Rename {x}","en-US").format({x:"it's {a}"})` 得 `Rename it's {a}`，再把这个结果当模板重新 `new IntlMessageFormat(result).format({})` 抛 `MissingValueError`；参数值换成 `"{a"` 则抛 `SyntaxError`（`lab-frontend/t6.mjs`）。
+- **建议改法**：包里用品牌类型区分 `MessageTemplate`（解析 ICU）与 `LocalizedText`（只显示），`formatMessage` 只收前者，返回后者；`localize`/`textOf` 只收后者。`FormText`、插件声明里的标题（命令标题、视图标题、设置项）一律归显示类，不进 ICU。这条写进 ADR，而不是留给实现者自己判断。
+
+### 5. “界面按错误码取文案”：四处落点缺的东西不同，`failure-notice` 一处按现有合同做不了
+
+- **严重程度**：重要；**类别**：不变量（设计缺口）
+- **位置**：`plugins/workbench/web/commands/failure-notice.ts:20-31`；`plugins/commands/shared/contracts.ts:26-42,157-161`；`plugins/workbench/shared/contracts.ts:97-107`（`NotificationInput`）；`plugins/editor/web/pages.ts:37`；`plugins/image-viewer/web/components/ImageViewer.vue:59,123`；`plugins/editor/web/components/EditorGroup.vue:143`、`EditorBreadcrumbs.vue:72-75,127`
+- **现象**：
+  1. `failure-notice.ts`：`CommandFailureCode` 只有九个泛类别（`invalid-args`、`unavailable`、`execution-error`…），具体原因只在 `reason: string` 里（例如 `view-commands.ts:155` 的 `未知视图 ${viewId}`、`part-commands.ts:56` 的 `TEXT.noLayout`）。按码取文案只能得到“命令参数无效”这类泛句，`reason` 降为详情后，用户失去“哪个视图、哪个槽”。要保留信息，失败要携带 `{code, params}`（类似 nb-agent-ui 的 `{key, params}`），而 `CommandResult`、`RemoteCommandResultSchema`（`reason: Type.String()`，跨进程到服务端、再到 Agent）、`NotificationInput`（`title?: string; message: string`，创建时就折成当前语言的字符串，语言切换后不会跟着换）都只有字符串槽。
+  2. `reason` 现在同时给用户和 Agent 读，同一个字符串；设计稿决定 3 要求给模型的是中文说明，给用户的是按语言的文案，两者需要拆开，设计稿没给形状。
+  3. `pages.ts:37`、`ImageViewer.vue:123`：原因来自 `defineAsyncComponent` 的加载错误与 `fetch` 失败（第三方错误，没有码）。这两处现在已经是“本地化句子 + `（{reason}）`”，`error.message` 本来就在详情位；按新规则它们没什么要改，要改的是把“没有码的错误”归为统一的 `unknown`/`load-failed` 码，这需要错误模型先定。
+  4. `EditorGroup.vue:143`：`reason: result.detail === "" ? result.code : result.detail`，且 `EditorBreadcrumbs.vue:127` 把它当菜单项**标题**显示。这里 `result` 已是 `{code, detail}`（`files` 服务的失败形状），是唯一能直接落地的点：加一张码表即可；当前它把中文开发说明（如 `没有方案 x://`，`files/shared/resource.ts:31`）或原始码展示给用户。
+  5. 插件自定义失败码：现有先例是 `plugins/projects/web/messages.ts:34-43` 的 `FAILURES` 表，“消费方持表，不认识的码照原样显示”。第三方插件新增失败码时，用户看到的是原始码字符串。设计稿说“插件自定义的失败码怎么带文案”没有答案：要么失败本身可携带 `LocalizedText`（码仍用于分支，文案随失败走），要么消费方持表并接受未知码降级为通用句 + 码。
+- **为什么是问题**：步骤 3、4 的顺序依赖“先改成码 + 双语文案”，但没有这个形状，批量改英文时这些 `reason` 会变成英文直接露给用户（设计稿自己也指出 `failure-notice.ts` 的例子）。
+- **如何核实**：`grep -n "reason" packages/neuro-book/src/plugins/workbench/web/commands/*.ts | grep "ok: false"`；读 `NotificationInput`。
+- **建议改法**：步骤 3 的错误模型里明确“可显示的失败描述”类型：`{code, params?}` 加可选的 `text: LocalizedText`（插件自带）；`NotificationInput.title/message` 接受这个描述而不是字符串，让通知随语言切换；`CommandResult` 增加 `params`/`text` 字段并改 `RemoteCommandResultSchema`；`reason` 保留给 Agent/详情。先从 `EditorGroup.vue:143` 这种已有 `{code, detail}` 的点试做。
+
+### 6. 共享小包的范围漏了 nb-markdown，也没算上发布清单；nb-form 核心要么引入新依赖，要么保留一份副本
+
+- **严重程度**：重要；**类别**：代码质量
+- **位置**：设计稿“推荐方案”第 2 条；`packages/nb-markdown/src/locale.ts`（`MarkdownText`、`say`，第四份 `{name}` 代入实现）；`nb-markdown/src/chip/chip.ts:48-57`、`prompt/prompt-labels.ts:16-24`；`packages/nb-form/src/text.ts`（`FormText` 是开放的 `Record<string,string>`，回退到 `en-US`）；`packages/nb-agent-ui/src/types.ts:17-23`；`scripts/release/packages.ts:22-23`；`scripts/release/pack-smoke.ts:199,218`；`docs/adr/0029-workspace-packages-publish-source-to-npm.md`
+- **现象**：
+  1. 设计稿只列 nb-form、nb-agent-ui 和应用。实际还有 nb-markdown 的 `locale.ts`（注释写明“包不能引宿主的文字工具，这里是同样形状的最小一份”，5 个文件含 `"en-US"`）；`FormText` 是开放语言集合；`ViewText` 里还有 `{key, params}`。共 5 种形状，设计稿“各包删掉自己的副本”只覆盖其中两种。
+  2. nb-form、nb-agent-ui、nb-markdown 都是 ADR 0029 要发布到 npm 的包，新包必须同样发布：`scripts/release/packages.ts` 有显式的发布顺序，`pack-smoke.ts` 有显式的库与入口清单，两者都要改；还要写进 ADR 0029 的“9 个包”并修订 `packages/AGENTS.md` 的包名单、`docs/modules/monorepo-boundaries.md`。设计稿步骤 0 只写“ADR 0023 修订、common.md 加一节”。
+  3. nb-form 的 `package.json` 描述写“核心只依赖 TypeBox”，nb-agent-ui 核心现在没有第三方运行时依赖。新包带 `intl-messageformat` 及其 `@formatjs/icu-messageformat-parser`、`@formatjs/fast-memoize`，ADR 0029 要求这些写进该包自己的 dependencies。nb-form 的文字消息在 `src/vue/messages.ts`（Vue 层），核心的 `text.ts` 不需要格式化，所以核心可以不依赖新包；但这意味着 `FormText`/`resolveText` 仍留在核心，“删重复类型”达不到一致。
+- **为什么是问题**：计划按 1 个 Task、1 到 2 天估算，漏掉的这几块（nb-markdown 四个文件、发布脚本、冒烟、四份文档）是真实工作量，也是后续切片按字面实现会返工的地方。
+- **如何核实**：`grep -rl '"en-US"' packages/*/src --include='*.ts' --include='*.vue'` 逐包数；读 `scripts/release/packages.ts`。
+- **建议改法**：设计稿列出全部五种形状及各自去向（统一、保留、桥接）；明确 `FormText` 与核心不变；把发布清单与 SDK 打包（第 3 条）加入步骤 1 的改动面；包名与放置位置在 ADR 里定（纯 TS，只依赖 `intl-messageformat`，不依赖 nb-ui）。
+
+### 7. 对比表“文字写在插件声明里”一列对 `@formatjs/intl` 与 `i18next` 的判断不属实，且漏了错误语义这一列
+
+- **严重程度**：建议；**类别**：文档
+- **位置**：设计稿“候选比较”表
+- **现象**：
+  - `@formatjs/intl` 标“不能，按 id 建目录”。实测（`lab-frontend/t3.mjs`）：`createIntl({locale, messages:{}}).formatMessage({id:"anon", defaultMessage:"{count, plural, …}"}, {count:3})` 不需要任何目录，直接格式化内联字符串，同一个 `id` 配不同 `defaultMessage` 也各自正确（`Other text 2`）。两个语言各建一个 `createIntl`（共用一个 `createIntlCache()`），“换语言重建实例”的代价是创建一个轻对象。缺参数输出 `Hello {name}`、语法错输出原文并走 `onError`，不抛——这正是第 1 条里现有合同需要的降级行为。体积 13.0 KB 对 9.8 KB，多 3.2 KB gzip。
+  - `i18next` 标“要改成键 + 命名空间”。实测 `t("x.y", {defaultValue:"Hello {name}", name:"A"})` 不用目录就能格式化单条；`addResource`/`removeResourceBundle` 也可按插件命名空间装卸。但卸掉后 `t()` 返回键名本身（输出 `title`），复数需要 `defaultValue_one/_other` 分键，仍然不是“一条消息里写复数”，所以它不适合是对的，但理由不是“要改成键”。
+- **为什么是问题**：推荐结论依赖这一列。把“自研结构 + `intl-messageformat`”推荐为唯一能内联的方案不准确；实际成本比较应是：自研包装层（缓存、错误降级、诊断钩子、语言实例）对 `@formatjs/intl` 多 3.2 KB 但自带这些。
+- **如何核实**：`bun /tmp/review-lang-governance/lab-frontend/t3.mjs`、`t4.mjs`。
+- **建议改法**：表里 `@formatjs/intl` 改为“能（`defaultMessage` 内联；需每种语言一个 intl 实例）”，加“解析/缺参数失败行为”一列；然后把“自研包装层”的维护量与它比较，再做选择。若仍选 `intl-messageformat`，理由改写为“需要自己的错误降级与缓存”。
+
+### 8. “三种以上语言再迁目录”的退路：格式化部分带得走，数据形状带不走，现在内联结构把成本固定在所有字面量上
+
+- **严重程度**：建议；**类别**：不变量
+- **位置**：设计稿“推荐方案”最后一条；`packages/neuro-book/src/shared/localized-text.ts:10-17`
+- **现象**：`LocalizedTextSchema` 是两个必填字段加 `additionalProperties: false`，`DisplayLocale = keyof LocalizedText`；`localize` 直接 `text[locale]`。加第三种语言要改 schema、类型，以及 110 个应用文件（含 nb-markdown、nb-agent-ui）里的每个字面量，插件清单 JSON 也要升级。ICU 字符串可以原样搬进目录，但“每条一对”的数据没有 id，迁目录需要为每条生成键。nb-form 的 `FormText` 已经是开放的 `Record<string,string>` 并有回退，应用与 nb-agent-ui 却是封闭的，两边形状不一致正是上一条要统一的东西。
+- **为什么是问题**：“退路”写成“以后迁”，但迁移成本和现在统一的工作量同量级，并且会再破坏一次 SDK 兼容（第 3 条）。这是推迟决定，不是留了退路。
+- **如何核实**：读 `LocalizedTextSchema`；`grep -rl '"en-US"' packages/neuro-book/src | wc -l`（110）。
+- **建议改法**：二选一，写进 ADR：(a) 统一类型时就改成开放形状（`Record<string,string>`，必填 `zh-CN` 与 `en-US`，其他语言可选并回退），第三种语言只是增加可选键；(b) 明说“增加语言要改 N 个文件，接受这个成本”。上游选择“文字内联在声明里”本身有效（插件热装卸、清单 JSON 不经翻译表），不必推翻，但开放形状几乎无成本，应现在做。
+
+### 9. 单引号机检范围太窄；`<`、复数里的 `#`、双语占位符一致性都没覆盖，设计稿里的数字也有偏差
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：设计稿“推荐方案”第 4 条、范围估算第 1 步
+- **现象**：
+  1. 实测除 `'{name}'` 外还有两个静默陷阱：复数分支里的 `#` 会被替换成数量：`{c, plural, one {Image #{number}} other {Images #{number}}}` 传 `c:2, number:3` 得 `Images 23`（`lab-frontend/t5.mjs`）。现有 `chip.ts:52-54`、`prompt-labels.ts:16-24` 的 `图片 #{number}`、`File #{number}: {name}` 在普通位置没问题，一旦以后有人把它们放进 `plural` 就会坏。`<` 默认抛错（第 1 条）。
+  2. 没有检查 zh/en 两份的参数名与复数类别是否一致；现在漏写一种语言过不了 schema，而“占位符名对不上”完全没有机检（旧的与新的都没有）。
+  3. 设计稿“现有 22 条带撇号的英文无一踩中”：我数到应用与 nb-markdown 的 `"en-US": "…'…"` 非测试行 31 条，加 nb-agent-ui 的 3 条，共 34；无一紧邻 `{ } < #`，结论成立，数字偏小。`localize/formatText/textOf` 调用数：非测试 166、含测试 244，也不是 290，不影响结论。
+- **如何核实**：`bun t5.mjs`；`grep -rhoE "\"en-US\": *\"[^\"]*'" ... | wc -l`。
+- **建议改法**：机检用 `@formatjs/icu-messageformat-parser` 解析每个模板，规则：能解析；不含标签；`'` 不紧邻 `{ } #`（`<` 在 `ignoreTag` 下不再是问题）；`#` 只出现在 `plural` 分支外或确实表示数量；两种语言的参数名集合相同、`plural` 的 `other` 分支都有。这条检查同时给了第 4 项需要的“占位符名有机检”。
+
+### 10. 实例缓存的键、上限与开销：按模板内容缓存无上限，且 `formatText` 每次格式化两份
+
+- **严重程度**：建议；**类别**：安全与性能
+- **位置**：设计稿“推荐方案”第 1 条（“按 locale 与模板缓存实例”）
+- **现象**：实测（`lab-frontend/t2.mjs`，`{count, plural, one {# item} other {# items}} in {name}`）：不缓存每次构造 + 格式化 71 µs；缓存后 3.6 µs；现在的正则代入 0.5 µs；`formatText` 按现有形状一次格式化两种语言约 7 µs。键若用模板字符串内容，10 万个不同模板占堆约 204 MB（约 2 KB 一条）。语言切换本身不需要失效（实例按语言和内容分键）；热卸载的插件不会让缓存“持有其文字”之外的东西，但内容键的缓存也不会释放它们。
+- **为什么是问题**：如果任何调用点把含用户数据的已代入文字当模板（第 4 条的情形），缓存会无界增长；即使都是静态模板，书架 500 张卡 × 每卡 3 次 `formatText` 约 1500 次/渲染，双语格式化 ≈ 10 ms，比旧实现慢约 14 倍，仍可接受，但没必要。
+- **如何核实**：`bun t2.mjs`。
+- **建议改法**：以 `LocalizedText` 对象身份为键用 `WeakMap`（对象随插件声明回收，热卸载自然释放），再按 locale 分槽；字符串模板另设有上限的 LRU（例如 500 条）；`formatMessage(text, locale, params)` 只格式化当前语言（见第 1 条）。
+
+## 接入草稿（要记住的概念有没有变多）
+
+按设计稿的方案写三例，沿用现有写法：
+
+1. 命令标题（插件声明）：`title: {"zh-CN": "保存", "en-US": "Save"}`，经 `localizedText()` 校验，显示时 `localize`。不涉及 ICU，与现在相同。
+2. 带数量的提示：`const T = {"zh-CN": "未保存 {count} 个", "en-US": "{count, plural, one {# unsaved} other {# unsaved}}"}`；调用 `formatMessage(T, locale, {count: unsaved.length})`（数字，不是 `Intl.NumberFormat` 的结果）。作者要新记：ICU 的 `plural` 语法；`#`；`'` 的转义规则；`<` 默认是标签；参数必须是数字；`#` 在复数分支里的含义。
+3. 组件内文字表：`const TEXT = {…} satisfies Record<string, MessageTemplate>`，组件里 `const t = (k, p) => formatMessage(TEXT[k], locale.value, p)`。
+
+对比现在：概念从 `LocalizedText`、`formatText`、`localize`、`textOf` 增加到“模板与显示文字两种类型”“ICU 语法子集”“数量参数必须是数”“失败降级”，且 nb-agent-ui 的 `{key, params}` 仍是第三套描述。如果第 4 条的类型区分做了，作者只需记“`MessageTemplate` 经 `formatMessage`，`LocalizedText` 直接 `localize`”两条，概念数不增。
+
+## 未发现问题的方面
+
+- 语言切换：`localize` 保持“显示时才取”的形状，实例缓存按（语言，内容）分键，不需要在切换时失效；`Intl.PluralRules` 用的 `zh-CN`、`en-US` 都受支持，zh 的 `plural` 只需 `other`。仔细检查后没有发现问题。
+- 新包不放进 nb-ui 的判断：nb-form 核心、nb-agent-ui 核心不能依赖 Vue，这个理由属实。
+- `'{name}'` 单引号陷阱的实测结论属实（`Rename {name}`）；现有英文没有踩中。
+- `#{number}`、`{name}` 在普通位置的行为不变（`Image #3`）。
+- 没有发现 `<`、`>` 出现在任何现有的 `LocalizedText` 字面量里。
+
+## 数量
+
+共 10 条：阻断 0，重要 6（第 1 到 6 条），建议 4（第 7 到 10 条）。报告写作中第 4 条的一处实验描述用一次性替换改过（未减少条数）。
+
+## 对两项待确认的判断
+
+1. 命令行输出：`nbdev` 的命令行输出可以按开发诊断改英文，但 `packages/dev-panel/src` 里有 166 个含中文的源文件，其中有面板网页的 `.vue` 页面（`src/web/pages/*.vue`），那是开发者看的界面文字而不是诊断，应单独判断，不要随 CLI 一起改英文。
+2. 排除清单：旧应用、neuro-agent-harness、neuro-book-contracts、llmlint 排除合理；前端侧还应明确列出 nb-markdown、dev-panel 的网页、`packages/neuro-book/plugin-sdk/examples` 是纳入还是排除（第 6 条）。

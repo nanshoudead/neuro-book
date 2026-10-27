@@ -1,0 +1,87 @@
+### 1. 统一错误对象直接撞上现有跨进程与领域合同
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：`/tmp/review-lang-governance/design.md:48`；`packages/nb-runtime/src/remote/protocol.ts:226-233`；`packages/nb-runtime/src/remote/result.ts:8-20`；`packages/nb-runtime/src/diagnostics/contracts.ts:181-193`；`packages/neuro-book/src/plugins/commands/shared/contracts.ts:26-37`
+- **现象**：方案把错误统一成 `{code, message, detail, cause}`，但远程结果在线上只允许 `{ok:false, code, cause?, detail?}`，`cause` 是五个传输阶段枚举，`detail` 还是业务码按方法声明的 schema；`RemoteCallError` 有意把远程失败原样放进 `failure`，并明确不占用 `Error.cause`。诊断错误已经是 `DiagnosticsError` 的类合同，命令失败是 `{code, reason}`，不是同一个值形状。
+- **为什么是问题**：照字面实现会改变 `TypeBox` 的 `additionalProperties:false` 帧合同，破坏跨进程版本兼容；把命令的 `reason`、远程的业务 `detail`、诊断异常的 `message` 强行同名，会丢失按方法声明的详情收窄和“写请求 unknown-outcome 不能当确定失败”的语义。`nb-runtime` 的运行时依赖只有 TypeBox，而 `nb-harness`、`nb-story` 与开发工具各有独立错误域，不能靠在 runtime 里放一个基类让这些包自然统一；继承一个基类也不会统一结构化结果、异常和线协议。
+- **如何核实**：`sed` 等价的只读核对命令为 `bun test packages/nb-runtime/src/remote/result.test.ts packages/nb-runtime/src/remote/protocol.test.ts packages/nb-runtime/src/diagnostics/diagnostics.test.ts`；静态核对 `packages/nb-runtime/src/remote/protocol.ts:226-233` 与 `packages/nb-runtime/src/remote/result.ts:9-20` 已显示线上字段与 `Error.cause` 的现有不变量。
+- **建议改法**：先按错误域定义稳定合同：远程帧继续用 `code/cause/detail`，命令结果继续用 `code/reason` 或改为码到文案的边界适配，诊断异常继续用 `DiagnosticsError`；只为“给用户取双语文案”定义一个不进入 wire、session 和底层异常的用户失败投影。若确实需要共享类型，放在不反向依赖 runtime 的独立纯数据包，并为每个域写显式转换，不设计一个声称覆盖所有域的基类。
+### 2. `cause` 的跨进程序列化与脱敏边界没有定义
+- **严重程度**：阻断；**类别**：不变量
+- **位置**：`/tmp/review-lang-governance/design.md:48`；`packages/nb-runtime/src/remote/protocol.ts:226-233`；`packages/nb-runtime/src/remote/peer.ts:140-145,275-285`；`packages/nb-runtime/src/diagnostics/redaction.ts:70-80`
+- **现象**：设计稿把 `cause` 放进统一错误形状，却没有说明跨进程时传原始 `Error`、传错误摘要还是只传枚举。远程协议目前只允许 `cause` 为 `target-gone`、`timeout`、`cancelled`、`disconnected`、`activation-cycle`；`Peer` 的 JSON 编码失败只会把失败变成英文/中文拼接的 `detail`，诊断层则另有一套把 `name`、`message`、`stack` 和嵌套 cause 脱敏序列化的实现。
+- **为什么是问题**：原始 `Error`、循环引用、非 JSON 值和带秘密的 stack 都不能直接过 wire；把异常栈塞进 `detail` 会绕过诊断的脱敏、长度和深度上限，把 `cause` 当传输原因又会混淆“引起这个异常的错误”和“请求被取消的原因”。删除 `cause` 则会让远程调用方丢掉现有的阶段原因，改变重试和 unknown-outcome 判定。没有版本化字段和清晰的安全投影，第三方插件抛出的异常会在不同路径得到不同结果。
+- **如何核实**：运行 `bun test packages/nb-runtime/src/remote/json-codec.test.ts packages/nb-runtime/src/remote/protocol.test.ts packages/nb-runtime/src/diagnostics/diagnostics.test.ts`，再用一个带 `Error.cause`、循环对象和函数字段的失败详情调用 `encodeJsonValue`；当前协议应拒绝不可表示值，而诊断应只输出其脱敏摘要。静态核对 `packages/nb-runtime/src/remote/result.ts:9-20` 还可看到现有实现刻意不把远程 `cause` 放进标准 `Error.cause`。
+- **建议改法**：保留三种不同概念：线协议的有限 `RemoteCause`、进程内异常的标准 `Error.cause`、诊断/用户界面的安全 `error summary`。跨进程只传经 schema 约束的码、有限原因和安全 detail；需要根因时由发送端先按诊断同一套规则生成有界摘要，并明确是否持久化 stack。为未知第三方异常规定固定的 `provider-error`/`internal` 码，而不是把任意 cause 透传。
+### 3. 工具失败按错误码生成中文说明目前没有可用的承载合同
+- **严重程度**：阻断；**类别**：正确性
+- **位置**：`/tmp/review-lang-governance/design.md:11-12`；`packages/nb-harness/src/tools/registry.ts:34-45`；`packages/nb-harness/src/tools/bridge.ts:17-20,41-80`；`packages/nb-harness/src/tools/read.ts:42-48,74-110`；`packages/nb-harness/src/tools/edit.ts:44-45,111-137`
+- **现象**：`ToolImpl.execute` 只承诺返回 OMP 的 `AgentToolResult`；结果的模型可见文本在 `content[].text`，`isError` 是布尔值，`details` 是任意值。内置 `read`/`edit` 失败只返回文本，没有统一 code；bridge 只给撤回场景写 `details.code=plugin-unavailable`。第三方插件可以直接返回任意 OMP 结果，声明快照也没有失败码表。
+- **为什么是问题**：不存在一个现有位置可以让“工具按错误码写中文说明、英文原始 message 放附带详情”在所有工具上成立。宿主包一层只能识别自己知道的结果，不能可靠重写第三方工具的 `content`；要求每个插件自行遵守又需要修改公开 `ToolImpl` 合同、Profile 快照和 harness 规范。更严重的是 OMP 编辑引擎的错误文本是模型训练依赖的产品行为，仓库明确要求 byte-identical、不要翻译或改写；把 `edit` 错误改成中文会破坏 `read`/`edit` 的模型恢复语义。工具结果还会以原样 `AgentMessage` 写入会话日志，翻译不是只影响当前屏幕。
+- **如何核实**：运行 `bun test packages/nb-harness/tests/read-tool.test.ts packages/nb-harness/tests/edit-tool.test.ts packages/nb-harness/tests/acceptance.test.ts`，现有断言会分别验证中文 `read` 文本、英文 OMP `edit` 文本和撤回的 `details.code`。静态核对 `packages/nb-harness/docs/omp-capabilities.md:107-111,141` 可见 OMP 错误文本不可改写。
+- **建议改法**：先把工具结果分层：OMP 原生 `read`/`edit` 保留其英文协议文本；nb-story 领域工具定义自己的结构化 `details: {code, ...}` 与中文模型说明，按 code 生成 `content`; 第三方工具只在注册合同明确加入可选的结构化失败扩展时由自身负责。harness 只保证 `isError`、原样记录和代码字段不丢失，不替所有插件翻译任意 `message`。
+### 4. “开发诊断改英文”没有覆盖实际流向用户、模型和持久化数据的消息
+- **严重程度**：重要；**类别**：不变量
+- **位置**：`/tmp/review-lang-governance/design.md:9,13,49-51`；`packages/nb-runtime/src/diagnostics/store.ts:336-430`；`packages/nb-runtime/src/remote/node.ts:442-445,490-525`；`packages/neuro-book/src/plugins/workbench/web/commands/failure-notice.ts:13-30`；`packages/nb-harness/src/run-result.ts:9-15`；`packages/nb-session/src/entries.ts:53-74`
+- **现象**：当前诊断观察者仍把 lifecycle、service、plugin、emergency 的 `reason` 拼进中文 `DiagnosticRecord.message`；远程离线、协议校验和握手失败把中文放进 `RemoteFailure.detail` 或握手 `message`；命令失败的 `failure.reason` 直接作为通知正文。harness 的 `RunError.message` 既返回给宿主，也随 `run_end.error` 进入会话日志；工具结果和模型消息以原样 `agent_message` 进入 JSONL。设计稿只按字段粗计数，未列出这些具体投影、持久化文件和已有消费者。
+- **为什么是问题**：批量改英文会同时改变诊断查询界面、命令失败通知、跨进程调用方、`nbstory --json`/错误输出和可恢复会话的历史；批量保留中文又会违反“开发诊断英文”。已有合同要求会话恢复时模型历史逐字段相同，QA 记录把每轮失败的 `{code, kind?, message}` 写入记录，命令和 CLI 的 `message` 是公开输出字段。若不先决定“持久化旧文案是否兼容、读旧数据如何显示、哪些 message 是 prompt/产品文案”，分批改完会出现同一错误在不同入口语言不一致，或恢复后的模型上下文发生变化。
+- **如何核实**：运行 `bun test packages/nb-runtime/src/diagnostics/diagnostics.test.ts packages/nb-runtime/src/remote/result.test.ts packages/nb-harness/tests/provider.test.ts packages/nb-story/src/cli/ask.test.ts`；静态核对 `packages/nb-harness/src/entries.ts` 的实际路径为 `packages/nb-session/src/entries.ts:53-74`，确认 `agent_message` 与 `run_end.error` 是日志数据，而不是临时 UI 字符串。测试中还存在按文案断言，例如 `packages/neuro-book/src/plugins/workbench/web/commands/WorkbenchCommandHost.dom.test.ts:69-96`。
+- **建议改法**：在第 3 步错误模型设计中建立完整通道矩阵：诊断查询、日志 JSONL、握手帧、远程 detail、命令通知、工具 `content`、session JSONL、QA SQLite/JSON、CLI human、CLI JSON、Task 证据和测试。每项标记稳定码、开发 detail、用户 LocalizedText、模型 prompt 文本、是否持久化及旧数据策略；先迁移消费者和持久化兼容读取，再改英文诊断。测试按 code/结构断言，只有明确属于协议或提示词合同的文字才保留文案断言。
+### 5. `nbstory` 不能整体归入“提示词层”
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`/tmp/review-lang-governance/design.md:11,55-56`；`docs/specs/story/qa.md:118,164,170`；`docs/specs/story/cli-skill.md:68-74,115-120`；`packages/nb-story/src/cli/ask.ts:67-112,129-131`；`packages/nb-story/src/core/api.ts:40-47`
+- **现象**：nb-story 同时拥有三条不同通道：给模型的查询/作答工具错误和领域提示词；给人看的 `nbstory` 默认 stdout/stderr；给脚本消费的 `--json` API。CLI 的 `error.message` 直接输出，QA 记录还保存每轮失败的 `message`；Story API 的错误结果也是 `{code, message, candidates?}`。它们不是同一类文字。
+- **为什么是问题**：把整个包按“产品 Agent 读、小说内容，保持中文”处理，会漏掉配置错误、路径错误、模型失败、服务启动失败等用户/脚本错误；把整个包按开发诊断改英文，又会改变模型工具结果、领域提示词和小说内容。`--json` 的 `message` 还是公开输出形状，不能直接换成 UI `LocalizedText`，也不能把原始英文 provider message 当用户主文案。设计稿末尾只给一个二选一确认项，没有拆出这三条边界。
+- **如何核实**：运行 `bun test packages/nb-story/src/cli/ask.test.ts packages/nb-story/src/cli/cli.test.ts`，并检查 `packages/nb-story/src/cli/ask.ts:67-69,109-111,129-131`：同一错误同时进入 JSON、stderr 和持久化记录；检查 `docs/specs/story/qa.md:170` 可见消息字段属于记录合同。
+- **建议改法**：确认项改成分层决定：领域提示词、查询工具给模型的中文说明和小说/抽取内容保持中文；CLI human 输出继续由 nb-story 自己的中文产品文案负责；CLI JSON/API 稳定保留 `code`，为 `message` 定义版本化的默认语言或拆成 `message` 与 `detail`，并明确 QA 记录保存的是哪个字段。只有底层 provider/运行时诊断 message 才进入英文政策，且在 CLI 边界按 code 转成产品说明。
+### 6. 后端 `LocalizedText` 的范围假设与现有实现不符
+- **严重程度**：重要；**类别**：代码质量
+- **位置**：`/tmp/review-lang-governance/design.md:17-19`；`packages/neuro-book/src/plugins/files/backend/files-service.ts:25-30`；`packages/neuro-book/src/server/projects/identity.ts:48-53,118-149`
+- **现象**：对 `files-service.ts` 与 `identity.ts` 做符号核对没有发现 `LocalizedText` 引用。文件服务的失败是 `{ok:false, code, detail}`，项目身份的 `metadata` 是书名、简介、颜色、封面等用户数据，目录校验的 `reason/detail` 也是单语结构化失败信息；真正导入 `LocalizedText` 的位置集中在 shared/commands/web 等声明与界面路径。
+- **为什么是问题**：把这两个后端文件当作 LocalizedText 迁移点会把后端跨进程/领域失败详情和用户作品内容混成界面文案。详情可能含路径、系统错误码、冲突基线或用户输入，不能由后端按显示语言预先折叠；同一个后端结果还要被浏览器、项目子进程和 CLI 消费。这样做会破坏“错误码分支、detail 作为诊断/附带信息”的现有边界，并扩大共享包的后端依赖。
+- **如何核实**：只读执行 `grep` 等价核对：`packages/neuro-book/src/plugins/files/backend/files-service.ts` 与 `packages/neuro-book/src/server/projects/identity.ts` 没有 `LocalizedText`、`localize`、`textOf`、`formatText`；再查看上述类型定义即可复现。不要用把 `detail` 改成双语对象的实验代替真实调用链，因为跨进程 schema 会先拒绝该形状。
+- **建议改法**：先按调用边界分类，不按文件名迁移：后端结果只保留 code、结构化 detail 和安全英文诊断；浏览器通知/界面在 web 消费处按 code 取 LocalizedText。项目标题、简介、路径、候选名等用户输入保持原样，明确它们不是待翻译文案。
+### 7. “修订 ADR 0023”违反仓库 ADR 生命周期合同
+- **严重程度**：重要；**类别**：文档
+- **位置**：`/tmp/review-lang-governance/design.md:15`；`docs/adr/README.md:3-18`；`docs/adr/0023-v2-frontend-backend-stack.md:1-5,22-38`
+- **现象**：设计稿要求在语言政策落地时“同时修订 ADR 0023”；仓库 ADR 规则明确 accepted ADR 正文不改，只能由新的 ADR 取代，原文件保留并在 frontmatter 写 `superseded-by`。ADR 0023 当前仍是 `status: accepted`，且前端 `vue-i18n` 的决定仍在正文第 30 行。
+- **为什么是问题**：直接改 0023 会抹掉已接受的历史决定，`docs:check` 也不能把它表达成“被部分替代”；后续读者不知道 2026-10-03 的决策与新语言政策之间是补充、局部替代还是全量替代。尤其语言政策只想补充错误/提示词边界，并不需要取代 Bun/Hono/TypeBox/前后端分离的整份 ADR。
+- **如何核实**：运行 `bun run docs:check` 前后对 `docs/adr/0023-v2-frontend-backend-stack.md` 的 frontmatter 与 diff 做核对；静态规则已在 `docs/adr/README.md:5-6` 明确写出“正文不改，只能被新的 ADR 取代”。
+- **建议改法**：新增下一空闲编号的语言治理 ADR，说明它补充或取代 0023 的哪一条；若要撤回 `vue-i18n`，用新 ADR 明确 supersedes 0023 的第 2 条或改成新的拆分决策，保留 0023 原文，不在旧 ADR 里追加政策正文。`common.md` 只保留规则入口链接，避免复制第二份正文。
+### 8. ADR 与 `common.md` 不是这次政策变更的全部真相源
+- **严重程度**：重要；**类别**：文档
+- **位置**：`/tmp/review-lang-governance/design.md:15,49-51`；`docs/specs/README.md:7-20,38-52,122-134`；`docs/specs/runtime/diagnostics.md:52-70,85-90`；`docs/specs/agent/harness.md:108-113,146-149,181-200`；`packages/nb-harness/AGENTS.md:16-18,28-29`
+- **现象**：设计稿只列 ADR、`common.md`、错误模型提案/Spec，未列当前 `implemented`/`planned` Spec 的固定输出和失败表、包级 AGENTS、OMP 能力记录、合同测试与 Task 证据。现有 Spec 已把“关闭未完成”、工具错误逐条返回、收尾工具中文错误等作为可观察行为；harness 包规则还明确预期工具失败不抛裸异常，必须走 `AgentToolResult.isError`。
+- **为什么是问题**：只改 ADR 和通用编码基线不会更新唯一当前行为合同；下一批代理会按 Spec/AGENTS 原文把中文继续写回，或把本应保留的 OMP/领域提示词翻成英文。`docs/specs/README.md` 要求行为变化原地更新 Spec、测试随 Spec 更新，且实现合同/验收映射必须闭合。遗漏这些文件会让 `docs:check` 可能通过，但治理政策与行为合同互相矛盾。
+- **如何核实**：运行 `bun run docs:check && bun run governance:check`，再检查 `git diff -- docs/specs packages/*/AGENTS.md packages/nb-harness/docs/omp-capabilities.md`；静态核对上述 Spec 条目与 `packages/nb-harness/tests` 的失败文本断言即可看到未登记的迁移面。
+- **建议改法**：在 Task/ADR 影响清单中显式登记：相关 `docs/specs` 的输出/失败/兼容章节、验收场景与测试、`packages/nb-harness/AGENTS.md`、OMP 能力记录、`nb-story`/`dev-panel` 的包级合同文档，以及持久化格式/旧数据读取说明。把政策正文只放一处，其它入口链接它；行为文字若要变化，先更新 Spec 再改代码。
+### 9. 范围和分批估算低于实际影响面，`test:affected` 不能替代跨包验收
+- **严重程度**：重要；**类别**：测试
+- **位置**：`/tmp/review-lang-governance/design.md:41-51`；`docs/testing/README.md:69-77`；`packages/nb-runtime/package.json:18-35`；`packages/nb-harness/package.json:17-35`；`packages/nb-story/package.json:20-40`
+- **现象**：设计稿把非测试代码粗估为 18 万行、按包分 8 到 10 批、每批跑 `test:affected`，并把开发诊断机械修改估为 2 到 4 天。按仓库当前已跟踪的 `.ts/.tsx/.vue/.js/.jsx` 文件，排除 `neuro-book-legacy`、`neuro-agent-harness`、`neuro-book-contracts`、`llmlint`，再排除测试目录和测试文件后，得到 **1395 个文件、207515 行**，涉及 **17 个包**；这还没有计入 Markdown/JSON/Spec/Task 证据中的固定文案。
+- **为什么是问题**：错误模型和提示词规则的依赖不是包内独立切片：`nb-story` 同时依赖 runtime、harness、profile、session，`nb-agent-ui` 又消费 harness/profile/session，应用同时消费 runtime 与多套前端包。`test:affected --files` 按 Bun 导入关系选文件，不跨包追踪，且路径启动的子进程入口可能选不到；不带 `--files` 又会让应用/包整包测试，不能把机械翻译视为低成本。共享错误投影、session/QA 持久化、真实子进程和 CLI 输出需要同一变更中的消费者验收，按 8 到 10 个包批次并行会产生返工和半成品兼容窗口。
+- **如何核实**：复核命令：`git ls-files 'packages/**' ':!packages/neuro-book-legacy/**' ':!packages/neuro-agent-harness/**' ':!packages/neuro-book-contracts/**' ':!packages/llmlint/**' | awk '/\.(ts|tsx|vue|js|jsx)$/ && $0 !~ /(^|\/)(tests?|e2e|__tests__|.*\.test\.)/ {print}' | tee /tmp/review-lang-governance/non-test-source-files.list | wc -l` 输出 `1395`；`xargs -r wc -l < /tmp/review-lang-governance/non-test-source-files.list | awk 'END {print $1}'` 输出 `207515`。另按 `docs/testing/README.md:74` 核对 `--files` 的跨包和子进程限制。
+- **建议改法**：先建立依赖拓扑和通道矩阵，再按“错误域/持久化合同/跨进程协议/CLI 与模型”切片，不按包机械分批。每个共享包改动至少安排直接消费者、真实子进程、session/QA 读回和 CLI JSON 的合同测试；将 `test:affected` 作为选择器，不作为完整性证明。把 2 到 4 天改成基于实测批次的估算，至少把 207515 行、17 个包和文档/测试合同单独计入。
+### 10. 运行时插件文案引入 ICU 后没有数据边界校验或失败语义
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`/tmp/review-lang-governance/design.md:19,35-38`；`packages/neuro-book/src/shared/localized-text.ts:9-14,32-36`；`packages/neuro-book/src/plugins/commands/shared/contracts.ts:61-86`
+- **现象**：文案可来自插件代码，也计划来自清单 JSON；现有 `LocalizedTextSchema` 只校验两个非空字符串，不校验 ICU 语法。推荐方案把格式化改成运行时 `intl-messageformat`，而运行时到达的第三方声明仍只经过字符串 schema。
+- **为什么是问题**：第三方插件或用户清单中的未闭合花括号、错误 plural/select、未转义单引号、缺少参数等，会从“原样显示/正则保留占位符”变成显示路径抛异常；错误发生在命令/视图已经登记后，可能让整个贡献渲染失败。设计稿只为当前 22 条英文撇号做机检，没有定义第三方数据的拒绝时点、错误码、降级文字或版本兼容，也没有说明清单升级时是否预校验所有 locale。
+- **如何核实**：用现有 `CommandDeclarationSchema` 通过一个包含无效 ICU 的 `title`，再在显示路径调用新格式化器；TypeBox schema 会接受字符串，格式化器才抛错。应补一个真实插件/清单 JSON 的贡献测试，覆盖 malformed message、缺参数和 plural 分支。
+- **建议改法**：把 ICU 编译/校验放在插件声明或清单装载的边界，按贡献拒绝合同返回稳定 code/detail；运行时格式化仍捕获异常并使用明确的安全回退，不能让 UI/跨进程调用者看到裸 parser exception。为外部清单保留格式版本和迁移策略，当前应用内文案的机检不能代替第三方输入校验。
+## 未发现问题的方面
+
+- `LocalizedText` 保留两语言 JSON 结构、格式化器不绑定 Vue、以及把程序分支放在 code 而不是文案上，这几个方向本身未发现额外的后端阻断；问题在它们进入远程、插件输入、工具结果和持久化后的边界没有定义。
+- 设计稿已注意到命令失败通知不能继续把 `failure.reason` 当主文案，并把错误模型放在英文诊断批改之前；但当前覆盖面和迁移合同仍不足以支撑这个顺序。
+
+## 数量
+
+- 阻断：3
+- 重要：7
+- 建议：0
+
+## 待确认项判断
+
+1. **`nbdev`、`nbstory` 输出归类**：不能各自整体归类；`nbdev` 应拆成英文开发诊断（`NbdevError`、日志、堆栈）与保留用户/Task 内容的 human/数据字段，`nbstory` 应拆成中文领域提示词与工具说明、中文 CLI 产品输出、以及需版本化的 CLI JSON/API 错误字段。
+2. **排除清单**：四个已列包按当前包规则没有明显多余项，但清单不完整；应另外明确 `dev-panel`（开发工具）和 `neuro-book-test-support`（测试支持）的不迁移边界，并禁止用包名排除仍同时承载 UI、模型和持久化通道的 `nb-story`、`nb-agent-ui`、`nb-harness`。
+
+**勘误**：第 4 条“如何核实”中的 `packages/nb-harness/src/entries.ts` 仅用于说明不存在的误指；会话条目实际路径为 `packages/nb-session/src/entries.ts:53-74`，报告结论依据的是后者。
