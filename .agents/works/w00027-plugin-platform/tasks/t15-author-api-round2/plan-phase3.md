@@ -142,7 +142,9 @@ S0 最先：发布链与 CI 都依赖 `build:app-package`。S2 在 S3 之前：s
 
 1. 看板娘用 `.local/brand/mascot.png` 的正面全身像，随仓库按 AGPL-3.0 授权；`docs/images/readme/README.md` 写明来源与许可。
 2. llmlint 准备退役：`test:affected` 跳过它，与旧应用同样处理（审查 F14 的 (c)）。
-3. 新问题：开发者希望应用也像 deepseek-harness 一样随源码发布，装好后 agent 能自己给自己写插件，并参照它的桌面版。已派调研（`reports/dsh-research/`）；结论可能改 3.2、3.3、3.5 与 ADR 0033 的决定 1，这几节等调研与开发者决定后再实施。S0、S1、S4 与发行形态无关，先做。
+3. 随源码发布：调研（[evidences/dsh-research.md](evidences/dsh-research.md)）发现 deepseek-harness 并不随包发源码（npm 上是可读的构建产物、类型与 README，依赖装进 `node_modules`）。讨论过“服务端发 TS 源码、Bun 直接运行”（同 nb-story）的做法后，开发者 2026-10-27 定：发行形态不改，保持 ADR 0033 的单文件打包。用户装好后改全局 `node_modules` 会破坏依赖、升级会被覆盖；用户只需要开发插件，改本体的去 clone 仓库。
+4. 自写插件：本期只发 SDK；“写 NeuroBook 插件”的 Skill、应用内的 Creator 模式、运行时检视工具与热生效记进 Work 的后续事项（依赖应用内 agent 与插件热插拔）。
+5. 桌面版：本期不做，另开 Task 写提案并实测壳（Electron、Tauri、Electrobun）；桌面版复用本期的应用包目录，捆绑 Bun 运行 `server/nbook.js`，窗口加载回环页面。
 
 ## 10. 计划审查的处理
 
