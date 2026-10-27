@@ -6,7 +6,7 @@
  * 发的是 `release:smoke` 打好、验过的 tarball（`dist/release/`），不在这里重新打包：发出去的字节就是冒烟验过的那份。
  * 发出去的版本号不能再用，所以先过门禁，任何一条失败都在发布前停下：会发布的目录（源码包、生成包的源码目录与根
  * LICENSE）没有未提交的改动或未跟踪的文件、在 master 上、HEAD 已推到 origin/master（README 里的图片用 GitHub 上的地址）、
- * `release-manifest.json` 是在当前 HEAD 上打的且每个 tarball 的 SHA-256 对得上、源码包的发布清单检查与 typecheck。只看
+ * `release-manifest.json` 是在当前 HEAD 上打的且每个 tarball 的 SHA-256 对得上、源码包的发布清单检查、要发的包的 typecheck。只看
  * 会发布的目录，是因为主工作区常有别的会话的改动，它们不进包。单测与 e2e 不在这里重跑，它们是合入 master 的门禁。
  *
  * 中途失败就停，打印已发与没发的包；再跑一次会跳过已经在 registry 上的版本，所以可以接着发。
@@ -122,13 +122,22 @@ async function gates(): Promise<ReleaseManifest> {
     const findings = checkReleasePackages(REPOSITORY, sources);
     if (findings.length > 0) throw new GateFailure(`发布清单检查失败：\n${findings.map((finding) => `${finding.package} [${finding.code}] ${finding.message}`).join("\n")}`);
     console.log("✓ 发布清单检查");
-    const typechecked = [...new Set([...sources.map((entry) => entry.path), ...BUILT_PACKAGES.map((entry) => join(REPOSITORY, "packages", entry.source))])];
-    for (const path of typechecked) {
+    return manifest;
+}
+
+/**
+ * 要发的包所在源码目录的 typecheck。只查这次要发的：已在 registry 上的版本一个字节也不会发出去，它们的源码坏了
+ * 归它们自己的 CI 与下一次提版本管，不拦这次发布。
+ */
+async function typecheckPending(pending: ReleaseManifest["packages"]): Promise<void> {
+    const sources = new Map(loadReleasePackages(REPOSITORY).map((entry) => [entry.manifest.name, entry.path]));
+    const built = new Map<string, string>(BUILT_PACKAGES.map((entry) => [entry.name, join(REPOSITORY, "packages", entry.source)]));
+    const paths = [...new Set(pending.map((entry) => sources.get(entry.name) ?? built.get(entry.name)).filter((path): path is string => path !== undefined))];
+    for (const path of paths) {
         const result = await run(["bun", "run", "typecheck"], path);
         if (result.code !== 0) throw new GateFailure(`${path} 的 typecheck 失败：\n${result.stdout}${result.stderr}`);
     }
-    console.log(`✓ ${typechecked.length} 个包的 typecheck`);
-    return manifest;
+    console.log(`✓ 要发的包的 typecheck（${paths.length} 个源码目录）`);
 }
 
 async function main(): Promise<number> {
@@ -158,6 +167,7 @@ async function main(): Promise<number> {
         console.log("全部版本都已在 registry 上，没有要发的");
         return 0;
     }
+    await typecheckPending(pending);
     if (!options.yes) {
         console.log(`要发 ${pending.length} 个包；确认后带 --yes 重跑（开了两步验证时加 --auth-type web，或 --otp <码>）`);
         return 0;
