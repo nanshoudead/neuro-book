@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t01-requirements
-status: planned
+status: active
 updated: 2026-10-27
 ---
 
@@ -22,6 +22,7 @@ updated: 2026-10-27
 7. **nb-ui 写死的文案**：`Editable.vue`、`Switch.vue`、`Toolbar.vue` 等的默认中文由谁提供、怎么回退。
 8. **检查**：键用 `resolveJsonModule` 加 `keyof typeof` 在编译期检查（前端第三轮审查实测可行）；目录检查（缺键、多余键、占位符一致、复数形式）；禁止硬编码界面字面文字的 lint；开发期缺键抛错；Lab 里的伪语言。
 9. **已知的坑**（前两轮审查里与内联无关的仍有效）：数量参数要传数字并在运行时校验；错误上报不能是模块级全局状态（`bun test` 同进程跑多个文件）；nb-form 的 `FormText` 是开放语言集合；nb-agent-ui 的 `harness.ts` 把译文烘进 `MessageView`，切换语言不会跟着换；Vue 深层响应式代理会改变对象身份。
+10. **失败文字的共用件**（2026-10-27 开发者同意从 w00031 t03 并入）：错误消息键的写法与命名空间（拥有者 + 码，码与 i18next 分隔符的冲突）；目录里码表的穷举检查（JSON 目录没有 `Record<码, 文字>` 的类型穷举）；共用的失败值类型 `{code, params}` 与参数的上限与过滤；未知码的中性兜底文案（不断言结果）；界面统一的“详情”载体（nb-ui 组件；现在通知没有详情位、警告级会自动消失）。依据见 [w00031 t03 的计划审查](../../../w00031-language-policy/tasks/t03-failure-projection/evidences/)。
 
 非目标：翻译平台的接入流程；作品正文与 Agent 输出的本地化；开发诊断的翻译（w00031 定为英文、不翻译）。
 
@@ -31,13 +32,8 @@ updated: 2026-10-27
 
 ## 当前状态
 
-2026-10-27 按开发者确认的方向修订，未开工。输入在 `evidences/`：
-
-- `independent-design.txt`：只拿到目标、不看主 Agent 方案的独立设计，本 Work 的方向主要取自它；
-- `design-review-sonnet-r1.txt` 到 `r3.txt`：三轮前端审查。前两轮是在“保留内联”的前提下写的，那个前提已撤销，只取第 9 条列出的部分；第三轮审的是目录方向。
-
-讨论稿与后端审查在 [w00031 t01 证据](../../../w00031-language-policy/tasks/t01-adr/evidences/)。
+计划：[plan.md](plan.md)（自主推进，2026-10-27 开工）。产出是 `reviewing` 状态的提案，交付后停下等开发者接受。t02 原型并行进行。
 
 ## 下一步
 
-开发者安排开工时，按 [implementation-planning](../../../../skills/implementation-planning/SKILL.md) 先写结构方案。可以和 t02 的原型并行。
+计划交审查：omp（计划与后端）、Claude Sonnet（前端）、Claude Sonnet 拉远看同时开；t02 原型结论回来后修订计划。
