@@ -1,0 +1,273 @@
+# w00024 t24、t31、t25 只读实现审查
+
+审查对象：`/tmp/t24-31-review-wt`，`1335c1d06a62b56ab86b2e13a66516da3ccc1070..1f2c2b922fc68dd8edd1e3f28a6e0ce0a816558e` 的 `packages` 完整 diff。Task 与 Spec 读取主工作区当前文件。下文实现路径均相对该审查 worktree；实验只写在 `/tmp/review-t24-31-impl/`，不修改仓库。
+
+## 已核实发现
+
+### 1. 重要：续问准备失败仍永久改写位置，违反“开始前失败不改记录”
+
+- **类别**：正确性／失败原子性。
+- **位置**：`packages/nb-story/src/qa/engine.ts:256-287,371-408`；`packages/nb-story/src/server/qa-service.ts:227-258`。
+- **现象**：`prepareQuestion` 先执行并保存 `changePosition`，之后才重读记录、解析模型并由真实 harness 恢复工具。工具声明与快照不一致时，调用返回 `qa_not_continuable`，这一问不受理，但新位置、提醒与 `positionChanges` 已写盘。
+- **为什么是问题**：`story.qa` 输出 26、28 要求续问恢复不了时不改记录；现在一次失败的 `qa.start`／`ask --continue --at` 就会改变之后所有追问的 P。用户只收到“不能续问”，不知道位置已经改变，也没有回滚或部分成功结果。
+- **如何核实**：`cd /tmp/review-t24-31-impl/runtime && env NBOOK_AGENT_TEMP_ROOT=/tmp/review-t24-31-impl/test-data bun position-smoke.ts`。经真实引擎创建两轮记录，再按真实升级场景让快照的一条工具声明与当前声明不同；准备带 `at: 12` 的续问，由 `createHarness` 正常拒绝。输出 `FAILED_PREPARATION`：`code=qa_not_continuable`，位置从 `{chapter:15,paragraph:86}` 变成 `{chapter:12,paragraph:97}`，改动次数从 1 变 2，轮数仍为 2。不是模型失败或伪造运行时事件。
+- **建议改法**：先完成模型与完整会话恢复校验，再发布位置更新并使用同一份已校验状态开始该轮；位置发布后又出现并发修改时按版本冲突拒绝，不能重读后悄悄使用别的位置。增加失败前后记录与日志完全不变的验收；若产品要接受部分成功，应显式修改合同并返回“位置已改、提问失败”的结构化结果。
+
+### 2. 重要：位置版本变更不参与网页的运行归属判断，旧位置的运行仍接进新记录
+
+- **类别**：不变量／并发与界面状态。
+- **位置**：`packages/nb-story/src/server/qa-service.ts:268-278,384-393,418-462`；`packages/nb-story/src/web/qa/source.ts:118-132,239-249`；`packages/nb-story/src/web/pages/QaPage.vue:194-198`。
+- **现象**：磁盘位置改动会让在途轮保存得到 `conflict`，但服务的 `QaRunView` 只有 `baseTurns`，网页也只比轮数。跨进程改位置不增加轮数，网页仍认定旧位置运行可接，页头取新 `currentAt`，旧运行按另一个 P 输出；`detached` 不成立。
+- **为什么是问题**：新增保存版本只保护磁盘，没有迁移既有“基于较早记录的运行不接进来”的读取协议。运行期间页面不能提前说明这一轮必然不保存，显示位置与实际工具边界不一致；同时新定位条目与旧运行日志从相同的 `seq` 起步，会被放进同一轮。`story.viewer` 输出 45 规定过期运行不显示进展并明确不会保存。
+- **如何核实**：同一 `position-smoke.ts` 通过真实 `createQaService` 启动第 2 轮，用脚本模型闸门停在请求中；公开 `changePosition` 从服务之外把 P 从 10 改到 5，再让真实 `qa.get` 与 `createQaSource` 读取。`WEB_POSITION_CONFLICT_DURING` 为 `detached:false,currentAt:5.102,runAt:10.75,runState:"running"`，系统提醒出现在第 2 轮问题后；放行后 `saved:{ok:false,reason:"conflict"}`，`detached` 仍为 false。磁盘保留 1 轮与新位置，证明保存侧冲突检测生效但网页接合错误。
+- **建议改法**：运行快照带开始时的位置版本（或记录 revision），服务和 `attachedRun` 同时核对 `baseTurns` 与该版本；过期时不要把两条分叉日志拼接。结束未保存结果照合同保留并单独显示。
+
+### 3. 重要：命令行查看对话仍显示初始位置，未迁移到共享当前位置规则
+
+- **类别**：正确性／调用方迁移遗漏。
+- **位置**：`packages/nb-story/src/qa/format.ts:64-66,80-91`；`packages/nb-story/src/cli/qa.ts:38-51`。
+- **现象**：`ask --continue --at` 已在新位置执行，但 `nbstory qa` 列表的 `@位置` 和 `nbstory qa <id>` 页头仍直接读 `conversation.at`；详情各轮也不显示新的 `turn.at`。只改位置而尚未提问时同样显示旧位置。
+- **为什么是问题**：t25 修订计划的数据模型要求引擎、列表、命令行、控件共用 `currentPosition`。执行位置与用户检查到的位置相反，CLI 无法核对改位置是否生效、下一问会采用哪个位置。
+- **如何核实**：`position-smoke.ts` 的 `CLI_POSITION`：真实第 2 轮 `turnAt` 与 `current` 都是 `15.86`，实际 CLI 共用格式函数输出列表 `@10.75`、详情 `阅读位置 10.75`。`src/cli/qa.ts` 原样使用这两个格式函数，没有其它位置修正。
+- **建议改法**：列表和详情页头使用 `currentPosition(conversation)`；每轮显示其实际 `at`，旧轮按既定兼容规则回落，初始位置需要保留时明确标“开始时”。补真实 CLI 改位置后 list/show 的行为断言。
+
+### 4. 重要：整场费用按当前选择的币种重贴标签，混合币种直接相加
+
+- **类别**：正确性／费用口径。
+- **位置**：`packages/nb-story/src/web/pages/QaPage.vue:382-390`；`packages/nb-story/src/web/qa/usage.ts:32-33,48-60`；`packages/nb-story/src/web/qa/QaStatusBar.vue:26`；`packages/nb-story/src/web/qa/QaInspector.vue:16,37,49`。
+- **现象**：费用总数只加所有非 null 的 cost，不保留每次请求的币种，也不标未知请求的缺口；页面从“目前输入框选的模型”的配置推币种，只有精确 USD 才用 $，其余及目录模型一律 ¥。换个模型但还没提问，就能改变全部历史金额的币种；目录模型本来按 USD 计价，却默认显示成人民币。
+- **为什么是问题**：同一对话允许逐轮换模型，配置的 currency 还是任意非空字符串。美元、人民币不能直接相加后冠同一种货币；部分未知费用不能无提示冒充整个会话费用。新状态条和检查器向用户给出错误金额，而不是仅少一个装饰。现有 MessageView.usage 没有币种，t24 所选“完全不增加服务端字段”的前提不足以正确实现跨模型累计费用。
+- **如何核实**：`cd /tmp/review-t24-31-impl/runtime && env NBOOK_AGENT_TEMP_ROOT=/tmp/review-t24-31-impl/test-data bun usage-graph-smoke.ts`。真实引擎依次运行 USD 单价、CNY 单价、无单价的 3 轮，再经真实服务和 createQaSource 投影：3 个 cost 分别为 0.5、0.25、null，sessionUsage 给 aggregate=0.75，当前无单价模型仍显示 ¥0.75。脚本也核实目录 deepseek/deepseek-flash 的 priceKnown=true；`catalogPrice` 的 currency 为 USD，而 QaPage 路径给 CNY。模型输出为仓库既有脚本模型，未调用真实模型；token/cost 用确定性数字。
+- **建议改法**：每次请求保存计价币种与价格已知标志，按币种分别汇总；未知费用只给已知小计并明确不完整，或在不完整时隐藏总费用。目录币种从目录元数据来，不能由当前选择重解释历史。若不扩展数据，先不显示无法证实币种的历史总额；不要用默认 CNY 伪造口径。
+
+### 5. 重要：泛称词表抹掉书中固定专称与人工归属的出场，和抽取合同冲突
+
+- **类别**：正确性／已有语义破坏。
+- **位置**：`packages/nb-story/src/core/generic-names.ts:10-30`；`packages/nb-story/src/core/projection.ts:73-76,226-228`；`packages/nb-story/src/core/queries/source.ts:73-78`。
+- **现象**：全局字符串表把所有“老师”“哥哥”等固定词当泛称，不看该书的命名语境、primary/note 或 mention.via。已有抽取规则明确允许“书里固定用它专指这个对象”的泛称登记为称呼，并允许人工 mentions 指定归属。现在这些原本合法、已消歧的出场也全部删掉；只有这个专称的人直接变 anonymous，默认关系图消失。
+- **为什么是问题**：目标是排除不指向特定人物的泛指，不是删除与词表撞字的专称。查询层不能仅凭词面推翻抽取已明确登记的固定指称与人工归属。影响不止阅读链接：出场统计、代表人物选择、秘密矩阵排序、默认图节点都会受影响；“显示无名角色”只能找回点，找不回已经清成 0 的出场与链接。
+- **如何核实**：`usage-graph-smoke.ts` 向正常样例书添加人物：唯一称呼“老师”，primary=true，note=“书里固定用它专指此人”，5 条 via=note 的明确归属；经真实导入和公开查询得到 `mentions:0,anonymous:true`，默认 graph.relations 无此人，而 entity.card 仍列“老师”。对照 `packages/nb-story/src/ingest/rules.md:66-69,78-88` 的固定专称例外与人工归属规则。这是当前产品接受的合法数据，不是格式损坏。
+- **建议改法**：让名字的“泛指／固定指称”成为有证据的数据语义，或至少保留人工消歧的出场与明确固定专称的例外；不要把 primary 一概当专名（抽取也会错）。先统一抽取与查询合同，再决定可逆的旧数据分类策略，并补固定专称和真正泛指并存的行为用例。
+
+#### 问题 1 补充：位置提交与续问重读之间，指定的 at 会被另一处位置更新替换
+
+命令：`cd /tmp/review-t24-31-impl/runtime && env NBOOK_AGENT_TEMP_ROOT=/tmp/review-t24-31-impl/test-data bun position-interleave.ts`，退出 0。以公开 StoryApi.openBook 作为可控异步接缝：A 的 `askQuestion(...at:15)` 已完成 changePosition，第二次 openBook（startContinued）读取之前暂停；B 正常 changePosition 到 12，然后 A 继续真实引擎运行。输出 `requestedAt:15,otherChangedAt:12,actualAt:12.97,recordSaved:true,changes:2`。A 没有冲突或部分成功提示，却按未请求的 P=12 答完并保存。接缝只控制真实磁盘 await 之间的先后，不替换保存或 harness 行为。
+
+同脚本还验证了转录器的两个局部脆弱点：同一定位日志重复回放使提醒从 2 变 4（id 重复 h5、h7）；在提醒与 meta 之间调用 messages() 后，一条提醒被错当“出处检查”。**暂不列作独立缺陷**：当前 qa.position 不走 SSE；正常 qa.get 把提醒和 meta 在同一同步数组回放，运行快照不重发此前的定位条目，尚未找到正常真实入口产生这两个时序。不能用直接调用纯投影器的反例冒充已复现网页问题。
+
+### 6. 重要：默认隐藏匿名节点后，连线说明和人物卡小图没有迁移调用参数
+
+- **类别**：正确性／消费方兼容。
+- **位置**：`packages/nb-story/src/core/queries/graph.ts:69-72`；`packages/nb-story/src/web/shell/DrawerNode.vue:15-25`；`packages/nb-story/src/web/shell/CardRelations.vue:21,61`；`packages/nb-story/src/cli/commands.ts:148-153`。
+- **现象**：只有 RelationsPage 把“显示无名角色”传成 includeAnonymous=true；抽屉连线说明和人物卡小图仍用缺省 false。主图打开开关后能看见匿名组织及其朋友线，点开同一个节点的连线说明却说“在当前视角与阅读位置下没有连线”；匿名人物的人物卡小图缺中心节点，邻居的匿名关系也被裁掉。CLI/Skill 同样没有传回 true 的入口，`relations --json` 的旧结果少掉节点后无法恢复完整结果。
+- **为什么是问题**：默认值改变了所有调用方，不只是关系图主页面的展示偏好。详情必须能解释用户正在看的那条线；当前主图与详情使用不一致的输入，给出互相矛盾的事实。对象列表与人物卡依然允许打开这些实体，不能把它们当不可达数据。
+- **如何核实**：`cd /tmp/review-t24-31-impl/runtime && env NBOOK_AGENT_TEMP_ROOT=/tmp/review-t24-31-impl/test-data bun anonymous-consumers.ts`。正常样例书新增一个没有称呼的 group 及其与苏天晴的 social 说法。真实 API：includeAnonymous=true 有朋友线（statements=1）；DrawerNode 所用参数返回 plainNode=false、plainEdges=[]；entity.relations 则照样有苏天晴。脚本还实际运行 CLI，`relations --help` 没有匿名开关，`relations --include-anonymous` 退出 2。未启动浏览器，抽屉最终文案由其完整模板与空结果直接确定。
+- **建议改法**：详情/小图是查看特定实体的完整联系，应显式 includeAnonymous=true，或改用不含展示过滤的领域关系接口；主图开关只决定主图。CLI 与 Skill 暴露、说明同一个参数，让旧消费者能显式取完整数据。
+
+### 7. 重要：停在章中时，不能选择“读完当前章”
+
+- **类别**：正确性／位置控件边界。
+- **位置**：`packages/nb-story/src/web/qa/QaPositionControl.vue:16-18,37`。
+- **现象**：当前位置为 3.2（第 3 章共 5 段）时，选择框里的“第 3 章”代表章末 3.5，但 same 仅比较章号，确定按钮始终停用。用户不能从章中前进到本章结束，只能先切别章再切回来。
+- **为什么是问题**：`{chapter}` 在查询合同里是读完这一章，不等于 `{chapter,paragraph:2}`。t25 明确保留旧对话与查看器的段级 P，控件又只让选章，因此“当前章的章末”是正常、必须可选的目的地。
+- **如何核实**：`cd /tmp/review-t24-31-impl/runtime && bun vue-smoke.ts`。真实 QaPositionControl、nb-ui Popover/Select/Button 与 Vue 3 渲染到隔离 happy-dom（不替换组件）：`SAME_CHAPTER` 输出 label=“读到 3.2”、chapterEnd=5、confirmDisabled=true，Popover 显示“第 3 章”。未跑浏览器布局/e2e；该证据验证按钮实际 disabled 状态。
+- **建议改法**：将所选章规范化到该章末段，再与完整当前位置比较；只有章号与章末段都相同时才停用。补章中→本章末与已经章末两种交互。
+
+### 8. 重要：亲属兜底的白名单漏掉“母亲／父亲／父母”等普通亲属词
+
+- **类别**：正确性／关系标签回归。
+- **位置**：`packages/nb-story/src/core/queries/graph.ts:14-16,38-47`。
+- **现象**：删除 kinship 的统一兜底后，只有“姐妹／父女……”和“亲属／亲人／亲戚／家人”能留下亲属标签。“母亲”“父亲”“父母”“祖母”“姑侄”“同父异母”全部返回 null；若同一对还有 membership，甚至会退化成“所属”。
+- **为什么是问题**：修复目标是排除“师承直系后辈”被误标血缘，不是让真正的常见血缘关系消失。Spec 的“亲属词（姐妹、父女……）”是语义类别，不是只允许现有 15 个词；这些明确亲属词不能被判为“找不到亲属词”。
+- **如何核实**：`cd /tmp/review-t24-31-impl/runtime && env NBOOK_AGENT_TEMP_ROOT=/tmp/review-t24-31-impl/test-data bun kinship-smoke.ts`，正常导入一条 `family:kinship,label:母亲,text:林母是苏天晴的母亲` 的两人关系，真实 graph.relations 的 relation.word 与 entity.relation.word 都为 null、statements=1。`transport-smoke.ts` 也在原始 20 章样例找到 `s16-5`（label=“母亲不在身边”）被返回 null。基线代码在这些输入会给“亲属”，这是本批新增回归。
+- **建议改法**：补全基本亲属角色与复合血缘词，或按可信的结构化关系字段生成标签；保留“直系后辈”不能单凭 kinship 兜底的约束。验收至少覆盖“母亲”“父亲”和师承反例，不只测已经在表里的姐妹与家人。
+
+### 9. 建议：t25 更新了允许 at 的新条款，却留下 4 处相反的有效合同
+
+- **类别**：文档／合同一致性。
+- **位置**：主工作区 `docs/specs/story/qa.md:185,196,307,331`（审查所读版本）；`packages/nb-story/src/qa/engine.ts:375`。
+- **现象**：输出 41、命令表与实现允许 `--continue --at`／续问 qa.start.at；输出 26 末句仍说两者同时写是用法错误，输出 29 的 qa.start 说明仍把续问 at 判 invalid_params，验收 15 仍要求同时写退出 2；实现合同仍写“放弃的一轮不写记录”，但位置早已独立发布。
+- **为什么是问题**：这些条款同属当前真相源，不是归档说明。后续写测试、修兼容或接 API 时会得到互相排斥的判据；不能靠新增条款默认覆盖旧条款却不标明失效。开始前失败的冲突已经造成问题 1 的实际行为缺陷。
+- **如何核实**：直接逐句对照主工作区 Spec 输出 26、29、41、验收 15 与 CLI 新测试 `src/cli/ask.test.ts:240-255`（现在断言续问带 at 成功）。只读检查，未改文档。
+- **建议改法**：删除旧的 at 禁令、改写对应验收，并在修问题 1 时统一准备失败／放弃是否保留位置的合同；不能同时宣称“失败不改记录”和“先持久化再恢复”。
+
+### 10. 重要：新对话改 P 后，@ 候选仍按查看器位置搜索，可插入新 P 之后的人物
+
+- **类别**：正确性／防剧透范围不一致。
+- **位置**：`packages/nb-story/src/web/pages/QaPage.vue:202-230,333-336,395-405`。
+- **现象**：新对话的位置控件改的是 draftChapter，提交也使用它，但 mentionAt 在 selectedId=null 时始终用 book.at。查看器在第 10 章、新对话调回第 5 章时，位置按钮与真实问答 P=5，@ 仍查第 10 章的人物并启用 6 到 10 章的引用；反向调整则把实际已可用的引用禁用。
+- **为什么是问题**：`story.viewer` 输出 49 要求候选按这个对话的阅读位置给，晚于 P 的对象不进名单、章段禁用。新控件引入独立 P，却没有迁移引用菜单的唯一范围来源，用户能在 P=5 的输入环境提前看到后文人物。工具会拒绝不等于 UI 可以剧透。
+- **如何核实**：`cd /tmp/review-t24-31-impl/runtime && bun page-state-smoke.ts`。在隔离 happy-dom 挂载实际 QaPage 的完整 setup（@vue/compiler-sfc 编译；只把无关渲染子组件换成空渲染），用真实 onPositionChange(5)：输出 `DRAFT_MENTION {position:{chapter:5,paragraph:102},mentionsAt:{chapter:10,paragraph:2}}`。entities.list 与 mentionMenu 的入参均直接取该 mentionAt。此实验只验证真实 Vue 反应式状态，不声称完成页面视觉验收。
+- **建议改法**：把新对话、已有对话、控件、@ 菜单、提交都接到同一个完整的有效位置；新草稿位置跟草稿一起按书/对话归档，避免去设置页再回来文本仍在而 P 丢失。补新 P 早于和晚于查看器两条引用行为。
+
+问题 9 的位置订正：实现合同“放弃的一轮不发请求、不写记录”实际在主工作区 `docs/specs/story/qa.md:336`，不是第 331 行。其余 3 处为 185、196、307。
+
+问题 3 的真实 CLI 补证：`bun /tmp/review-t24-31-impl/runtime/packages/nb-story/src/cli.ts qa --library /tmp/review-t24-31-impl/test-data/agent/nb-story-review-position-9tDUbj/library --book fox` 退出 0；两个记录分别已改到 5.102、12.97，列表仍均为 `@10.75`。
+
+变异检查（仅隔离副本）：删除 `clipRead` 的全部裁剪后，`bun test src/qa/engine.test.ts -t '往回调：' --timeout 60000` 退出 1，1 条失败：`qa_not_continuable`，证明既有章级往回调测试能拦截彻底不裁剪。变异已恢复。
+
+### 11. 建议：新增位置测试未覆盖其声称的段级裁剪、Markdown 与准备失败判据
+
+- **类别**：测试／边界覆盖。
+- **位置**：`packages/nb-story/src/qa/engine.test.ts:369-452`；`packages/nb-story/src/server/qa.test.ts:221-254`；`packages/nb-story/e2e/viewer.e2e.ts:404-418`；t25 计划“设计审查后的修订”。
+- **现象**：往回调只用 38.57→20（第 26 章整个消失），未测同章读过范围跨新 P 的截断与新读额度；新 t25 引擎用例都由 testConfig 默认 structured，未按计划测 Markdown 往回调的标注/复查限制；没有改位置后恢复失败、改位置与 startContinued 重读交错、版本冲突的网页归属测试。服务测试遇 qa.position 不是 409 时完全不核对错误码；可得到 F5/500 而走过“运行中 busy”判据。新增全书图 e2e 用固定 1500ms、1200ms 等待，不符合仓库的可观察终态约定。
+- **为什么是问题**：这些不是单纯少测试数量；问题 1、2、7、10 都发生在当前 204 条相关既有测试通过时。busy 判据还允许错误状态绕过断言，既不能保证测到运行中，也不能保证空闲路径正确；测试名和组件文档宣称的覆盖强于实际断言。
+- **如何核实**：逐项对照测试输入、断言与计划。隔离变异“全部取消 clipRead 裁剪”会失败（1 条），表明章级主路径确有保护；但它不证明同章边界。未跑 e2e；固定等待是源码证据，不声称复现偶发超时。
+- **建议改法**：在现有行为用例里补段级往回调、额度、Markdown、恢复失败/交错/前端版本测试；busy 用本机端点已有 held 闸门确保请求未结束，然后无条件断言 409+qa_busy；图 e2e 改等布局或搜索定位的可观察稳定状态。不增加断言内部调用次数或文案快照的测试。
+
+追加验证：未变异副本上 `env NBOOK_AGENT_TEMP_ROOT=/tmp/review-t24-31-impl/test-data bun test src/server/qa.test.ts -t '对话中途改阅读位置' --timeout 60000`：1 pass、0 fail、30 assertions、11.81s。累计未变异的相关测试现为 205 pass、0 fail。`bun status-smoke.ts` 运行真实 QaStatusBar/QaInspector 与 nb-ui Drawer（happy-dom，无组件替身）成功：input=100、cacheRead=300、cacheWrite=100、output=20 时，状态条显示“输入 500”，检查器逐项显示输入 100／缓存读 300／缓存写 100、命中率 60%，逐请求提示词 500→20。两处“输入”一处含缓存、一处拆项，符合输出 52 的不同口径，不另列金额以外的用量缺陷；未验证窄屏实际布局。
+
+## 审定勘误（以前文的复现结果为准，收窄未观测主张）
+
+- 问题 7 的按钮行号是 `QaPositionControl.vue:39`，same 在 17。章中→本章末不能直接确认已经真实组件运行验证；`OPEN_THEN_BUSY` 实验只证明触发器停用但 popover 仍在。最后一次选择别章的实验没有证明选值实际发生，故 `CONFIRM_WHILE_BUSY {changes:[]}` **不作为运行中可改位置的证据**，不追加该缺陷。
+- 问题 9 的 4 个冲突位置应为主工作区 `docs/specs/story/qa.md:185,196,307,336`（336 是“放弃的一轮不写记录”不变量）。实现中与失败原子性直接冲突的注释在 `engine.ts:407`；375 描述的“先改位置再运行”本身与代码一致。
+- 问题 10 的新对话 P 与 @ 范围不一致有运行证据；“草稿去设置页再回来 P 丢失”只由 `draftChapter` 为组件局部 ref、正文为模块级 composerStore 推断，**未运行往返，不单列为已复现缺陷**。切到别的对话再新建仍为 draftChapter=5 已观测，但返回尚未发送的新草稿可能正是保留草稿语义，不把这种保留本身列错。
+- 问题 5 是**新词面规则与既有合法数据语义冲突**，不是声称实现没有照 t31 新 Task 的字面范围做；修复需先统一固定专称/人工归属的上游合同，不建议只加一个针对“老师”的特殊分支。
+- 问题 8 运行验证的是普通“母亲”被返回 null；“母亲不在身边”原始样例只作为同类词面证据，其陈述是否足以证明一对实体的亲子关系不在本轮实验里另作判断。
+- 问题 11 的 qa_busy 条件断言漏掉非 409 错误由代码确定，**未对该分支完成变异运行**；短暂改过隔离副本的错误归类，尚未跑测试就恢复，不计为验证。真正完成的变异只有 clipRead：0 pass、1 fail；未变异累计为 205 pass、0 fail，二者分开统计。
+
+收尾运行证据：`bun layout-smoke.ts` 成功（70 个节点：60 个一跳、8 个二跳、1 个不连通、1 个中心），中心为 (0,0)，一圈半径 52.52113122032546、弧距约 5.5，二圈半径 66.52113122032544，圈距约 14，不连通点半径 80.52113122032546，坐标全为有限数。此为真实 graphology + layoutConcentric 的数值烟测，不替代画布视觉验收。`git status --porcelain=v1 --untracked-files=normal` 在审查 worktree 退出 0、无输出；对 nb-story/nb-harness 两份运行副本逐文件 byte comparison（不含 node_modules）与审查 worktree 一致，差异列表为空，变异均已恢复。
+
+## 最终审定结果（按影响排序）
+
+以下为终版阅读顺序，保留增量发现编号，避免违反“只追加”的报告规则。行号、证据范围与分级以本节为准；前面的实验过程与勘误保留作追溯。
+
+### 发现 1：续问带 at 的准备不是原子的（重要）
+
+- **类别与位置**：正确性／失败原子性与并发；审查 worktree 的 `packages/nb-story/src/qa/engine.ts:256-287,371-408`。
+- **现象与影响**：先发布位置，再校验模型、恢复 harness；恢复失败时，这一问没有开始，位置、提醒和改动次数却已永久保存。两步之间另一进程改位置，还会让明确请求 at=15 的这一问按 at=12 运行并成功保存。
+- **核实**：`position-smoke.ts` 的 FAILED_PREPARATION：15.86→12.97、positionChanges 1→2、轮数仍为 2，错误为 qa_not_continuable。`position-interleave.ts` 控制公开 openBook 的真实 await 次序，得到 requestedAt=15、actualAt=12.97、recordSaved=true。没有替换保存协议或 harness 的恢复逻辑。
+- **建议改法**：完整准备和恢复成功后再提交位置；位置更新与使用同一已校验记录版本衔接，版本改变就报冲突，不再次重读后静默换 P。保留“开始前失败不改记录”的既有合同；若要部分成功，必须显式改产品合同并把部分成功返回给调用方。
+
+### 发现 2：网页只核对轮数，错误接合不同位置版本的运行（重要）
+
+- **类别与位置**：不变量／版本归属；`packages/nb-story/src/server/qa-service.ts:268-278,384-393,418-462`、`src/web/qa/source.ts:118-132,239-249`。
+- **现象与影响**：服务外改位置不增轮数。网页把基于旧 P 的在途轮继续拼进新记录，页头显示新 P、工具却按旧 P 运行；两份分叉日志还从相同 seq 起步。保存层最后报 conflict，但页面 detached 始终为 false，违反“较早记录的运行不接进来”。
+- **核实**：真实 createQaService + createQaSource，在模型请求闸门期间公开 changePosition 到 5.102：currentAt=5.102、runAt=10.75、detached=false；结束后 saved={ok:false,reason:conflict}，仍未分离。磁盘正确保留新位置与 1 轮。
+- **建议改法**：QaRunView 带开始时 positionChanges/revision；服务与网页同时核对轮数和位置版本，禁止拼合分叉日志，单独显示未保存的旧运行结果。
+
+### 发现 10：新对话调 P 后，@ 引用仍按查看器 P 搜索（重要）
+
+- **类别与位置**：正确性／防剧透；`packages/nb-story/src/web/pages/QaPage.vue:201-230,333-336,393-411`。
+- **现象与影响**：位置控件和提交用 draftChapter，mentionAt 却用 book.at。查看器在第 10 章，新对话选到第 5 章，@ 仍能暴露 6 到 10 章的人物与可用引用；反向调 P 则错误禁止已经允许的引用。
+- **核实**：`bun page-state-smoke.ts` 挂载实际 QaPage setup，真实 onPositionChange(5) 后 position=5.102、mentionAt=10.2。entities.list 和 mentionMenu 直接消费该 mentionAt；菜单后果是代码推断，未运行完整浏览器。
+- **建议改法**：统一新草稿、已有对话、控件、@ 和提交的有效完整位置。切回尚未发送的新草稿保留 draftChapter 的现象不单独判错；去设置页往返丢 P 尚未运行验证。
+
+### 发现 4：费用跨币种相加，并按当前所选模型重新标币种（重要）
+
+- **类别与位置**：正确性／计价；`packages/nb-story/src/web/pages/QaPage.vue:382-390`、`src/web/qa/usage.ts:31-33,46-60`、QaStatusBar/QaInspector 的金额显示。
+- **现象与影响**：历史请求 cost 不带币种；美元、人民币直接相加，切当前模型就能改变全部历史的货币符号。目录单价为 USD 的模型也走默认 CNY。部分未知费用没有缺口标记，却显示成整场费用；当前模型没有单价时，历史已知小计依然显示。
+- **核实**：`usage-graph-smoke.ts` 通过真实引擎、服务与网页数据源得到三轮 cost=[0.5,0.25,null]，累计为 0.75、当前未知单价模型显示 ¥0.75。目录 deepseek/deepseek-flash 为 priceKnown=true、计价 USD，页面路径仍给 CNY。脚本模型提供确定性用量，没有真实模型请求。
+- **建议改法**：每次请求记录实际币种和已知/完整状态，按币种汇总，明确已知小计；或隐藏无法正确计价的合计。不能由输入框当前选择重解释历史。需调整“不新增服务端字段”的上游假设，而不是继续补默认币种。
+
+### 发现 5：词面泛称规则删除了固定专称和人工消歧出场（重要）
+
+- **类别与位置**：正确性／领域合同冲突；`packages/nb-story/src/core/generic-names.ts:10-30`、`src/core/projection.ts:73-76,226-228`、`src/core/queries/source.ts:73-78`。
+- **现象与影响**：所有“老师”等词一律去掉，不看该书的固定指称和人工 mentions；合法已消歧人物的出场归零、变 anonymous、默认图消失。统计、代表选择和链接一起受影响，打开匿名开关不能恢复被删的出场。
+- **核实**：实际导入唯一称呼“老师”、primary=true、固定专称 note、5 条 via=note 的人物，公开查询得到 mentions=0、anonymous=true、默认图无该人，而卡片仍列“老师”。既有抽取规则 `src/ingest/rules.md:66-69,78-85` 明确允许固定专称和人工归属。
+- **建议改法**：先统一新查询规则与既有命名语义；用有证据的泛指/固定指称分类，并保留人工消歧。不声称实现没有遵守 t31 Task 的字面词表要求；问题是该要求与已有合法数据合同冲突，不能靠为“老师”写特例解决。
+
+### 发现 6：匿名默认过滤漏迁移了抽屉、小图和 CLI（重要）
+
+- **类别与位置**：正确性／调用方兼容；`packages/nb-story/src/core/queries/graph.ts:69-72`、`src/web/shell/DrawerNode.vue:15-25`、`CardRelations.vue:21,61`、`src/cli/commands.ts:148-153`。
+- **现象与影响**：主图打开匿名后显示节点和连线，详情却用默认过滤查询，得到“没有连线”；人物卡小图会缺中心。CLI/Skill 无法显式请求匿名数据，原有 JSON 消费者不能恢复完整图。
+- **核实**：`anonymous-consumers.ts` 的真实 API：includeAnonymous=true 有朋友线；抽屉所用参数为 plainNode=false、plainEdges=[]；entity.relations 仍有苏天晴。真实 CLI 的 --include-anonymous 被拒并退出 2。详情文案和小图后果依据调用参数与模板推断，未做浏览器视觉验证。
+- **建议改法**：特定实体详情和小图显式请求完整关系，展示过滤留在主图；CLI/Skill 提供对应参数并说明默认值变化。
+
+### 发现 8：亲属白名单漏掉“母亲”“父亲”等基本血缘词（重要）
+
+- **类别与位置**：正确性／关系标签回归；`packages/nb-story/src/core/queries/graph.ts:14-16,38-47`。
+- **现象与影响**：移除统一 kinship 兜底后，真实母亲关系也返回 null；母亲、父亲、父母、祖母、姑侄、同父异母均未覆盖。若还有 membership，会落到“所属”，把血缘关系错误降级。
+- **核实**：`kinship-smoke.ts` 正常导入 family=kinship、label=母亲、text=“林母是苏天晴的母亲”的两人关系，graph.relations 与 entity.relation 的 word 均为 null，statements=1。base 的兜底会返回“亲属”。否定词旧问题不混入本轮回归。
+- **建议改法**：补基本亲属角色/复合血缘词，保留师承“直系后辈”不得自动判血缘的约束；至少验证母亲、父亲和师承反例，不只测词表内的姐妹、家人。
+
+### 发现 3：CLI 列表、详情仍显示初始 P（重要）
+
+- **类别与位置**：正确性／迁移遗漏；`packages/nb-story/src/qa/format.ts:64-66,80-91`、`src/cli/qa.ts:38-51`。
+- **现象与影响**：改完位置并成功续问后，qa list/show 仍读 conversation.at，各轮也未标实际 turn.at；用户无法从 CLI 核对下一问用的位置。
+- **核实**：position-smoke.ts 得到 turnAt=current=15.86，格式函数仍输出 @10.75、阅读位置 10.75；另真实运行 cli.ts qa，退出 0，已调到 5.102、12.97 的两个记录都仍显示 @10.75。
+- **建议改法**：列表/页头用 currentPosition；每轮显示其实际 at，初始 P 如保留则单独标注，旧轮按合同回落。验证真实 CLI list/show。
+
+### 发现 7：章中位置不能直接选“本章末”（重要）
+
+- **类别与位置**：正确性／位置边界；`packages/nb-story/src/web/qa/QaPositionControl.vue:17,39`。
+- **现象与影响**：P=3.2、全章 5 段时，“第 3 章”代表 3.5，但 same 只比章号，确定键一直 disabled；只能先换到别章再改回来。
+- **核实**：`bun vue-smoke.ts` 渲染真实 Vue、QaPositionControl、nb-ui 与 Reka，得到 SAME_CHAPTER {label:读到3.2,chapterEnd:5,confirmDisabled:true}。happy-dom 验证按钮状态，不代替视觉验收。
+- **建议改法**：所选章先解析到末段，再比较完整 P；仅已在章末时停用。运行中 popover 已打开后的进一步交互未验证，不把该实验扩展为绕过 busy 的结论。
+
+### 发现 11：位置测试的边界和 busy 判据不足，图 e2e 使用固定等待（建议）
+
+- **类别与位置**：测试；`packages/nb-story/src/qa/engine.test.ts:369-452`、`src/server/qa.test.ts:221-254`、`e2e/viewer.e2e.ts:404-418`。
+- **现象与影响**：新增后退测试只测整章消失，未测同章跨 P 截断/额度；未覆盖修订计划要求的 Markdown 后退和发现 1、2 的失败/交错。busy 测试仅在返回 409 时断言，500/其它错误也会跳过；未保证确实处于运行。图测试固定等 1500ms+1200ms，不观察定位完成。
+- **核实**：代码判据与计划逐项对照。真实服务测试 1 pass/30 assertions 不消除条件断言缺口。唯一完成的变异是移除 clipRead 全部裁剪，既有“往回调”用例 0 pass、1 fail，说明章级主路径有保护；未对 busy 做变异，不声称已复现 e2e 偶发超时。
+- **建议改法**：补实际失败/并发边界、段级及 Markdown 行为；用已有 held 闸门保证运行中，再无条件断言 409+qa_busy；用布局/定位的可观察状态代替固定等待。现有提醒文案精确字符串测试可随改动删除，不重新固化措辞。
+
+### 发现 9：新旧 Spec 的续问 at 条款互相否定（建议）
+
+- **类别与位置**：文档；主工作区 `/home/notnotype/CodeRepository/neuro-book/docs/specs/story/qa.md:185,196,307,336`；审查 worktree `packages/nb-story/src/qa/engine.ts:407`。
+- **现象与影响**：输出 41 和实现允许续问带 at，但输出 26、29、验收 15 仍禁止；“放弃的一轮不写记录”和恢复失败注释也与已发布位置相反。后续调用方和测试会得到互斥判据。
+- **核实**：逐句对照当前主工作区 Spec、t25 修订计划和 CLI 的新增成功用例；不是归档文本差异。
+- **建议改法**：移除旧 at 禁令、更新验收；与发现 1 一起统一“准备成功再发布”的失败合同，不保留两套有效条款。
+
+## 检查范围与实际验证
+
+- 完整审阅范围：`1335c1d06a62b56ab86b2e13a66516da3ccc1070..1f2c2b922fc68dd8edd1e3f28a6e0ce0a816558e -- packages`，含领域查询、记录、引擎、harness、CLI、服务、网页、组件文档与新增测试；Task/Spec 使用主工作区当前版。
+- 隔离运行：`/tmp/review-t24-31-impl/runtime/packages/nb-story` 与 nb-harness，依赖链接到主工作区，nb-story 的 nb-harness 链到该副本。`NBOOK_AGENT_TEMP_ROOT=/tmp/review-t24-31-impl/test-data`。
+- Bun 版本：1.4.2。未变异代码共 **205 pass、0 fail、2248 assertions**；以下四次运行的测试器耗时分别为 134.73s、4.49s、13.00s、11.81s。没有把变异的 1 fail 混入产品测试结果。
+
+实际命令（cwd 分别注明；环境变量在每次命令前）：
+
+```bash
+# cwd: /tmp/review-t24-31-impl/runtime/packages/nb-story
+# 131 pass、0 fail、487 assertions、10 files
+ env NBOOK_AGENT_TEMP_ROOT=/tmp/review-t24-31-impl/test-data bun test src/core/qa-records.test.ts src/qa/engine.test.ts src/cli/ask.test.ts src/web/qa/turn-transcripts.test.ts src/web/qa/usage.test.ts src/web/qa/source.test.ts src/core/generic-names.test.ts src/core/queries/graph.test.ts src/core/identity.test.ts src/web/host/relations-view.test.ts --timeout 60000
+
+# cwd: /tmp/review-t24-31-impl/runtime/packages/nb-harness
+# 33 pass、0 fail、139 assertions、4 files
+ env NBOOK_AGENT_TEMP_ROOT=/tmp/review-t24-31-impl/test-data bun test tests/merge-user-messages.test.ts tests/session.test.ts tests/acceptance.test.ts tests/provider.test.ts --timeout 60000
+
+# cwd: /tmp/review-t24-31-impl/runtime/packages/nb-story
+# 40 pass、0 fail、1592 assertions、5 files
+ env NBOOK_AGENT_TEMP_ROOT=/tmp/review-t24-31-impl/test-data bun test src/core/queries/source.test.ts src/core/queries/secrets.test.ts src/core/queries/books.test.ts src/core/spoiler.test.ts src/qa/harness-model.test.ts src/web/qa/models.test.ts --timeout 60000
+# 上一条命令中的 src/qa/harness-model.test.ts 不存在，实际只找到并运行另外 5 个文件；不宣称该文件已测。
+
+# cwd: /tmp/review-t24-31-impl/runtime/packages/nb-story
+# 1 pass、0 fail、30 assertions
+ env NBOOK_AGENT_TEMP_ROOT=/tmp/review-t24-31-impl/test-data bun test src/server/qa.test.ts -t '对话中途改阅读位置' --timeout 60000
+```
+
+- 运行烟测脚本保留在 `/tmp/review-t24-31-impl/runtime/`：`position-smoke.ts`、`position-interleave.ts`、`transport-smoke.ts`、`usage-graph-smoke.ts`、`anonymous-consumers.ts`、`kinship-smoke.ts`、`vue-smoke.ts`、`page-state-smoke.ts`、`status-smoke.ts`、`layout-smoke.ts`；均已实际运行，证据分述在对应发现与前文。运行方式是上述 runtime 目录中 `env NBOOK_AGENT_TEMP_ROOT=/tmp/review-t24-31-impl/test-data bun <脚本文件>`；报告中的数值为当次样例记录，重跑会产生不同的记录 id/临时路径。
+- 两种真实 HTTP 传输：本机模拟 OpenAI Completions 与 Responses 均完成两轮；提醒和第二问合成一条请求 user，日志保留 3 条独立 user 与 1 条 qa.position，第二轮 logFrom=7。没有调用真实 Provider/Model。
+- Vue 烟测用 happy-dom，不是浏览器。QaPositionControl、状态条、检查器和 nb-ui 本身不替换；QaPage 实验仅保留真实 setup，替换无关渲染子组件与 client 边界。初次 DOM 缺 NodeFilter/DocumentFragment、Select 点击未打开，属于审查脚本环境失败，未算产品缺陷。
+- 服务测试确实启动测试自己的临时 `nbstory serve` 与本机端点，按测试清理；没有启动开发服务。未跑完整 suite、e2e、构建、类型检查、docs:check、真实模型或窄屏视觉。不引用 Task 旧的“503 测试/35 e2e”作为本次验证。
+- 只读检查：`git status --porcelain=v1 --untracked-files=normal` 在审查 worktree 退出 0、无输出；nb-story/nb-harness 副本与被审查源码逐文件比较（排除 node_modules）没有差异。未改代码、Task、Spec，未 commit/push/stash，未开子审查。
+
+## 回写建议（未实施）
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| 回写 1 | 规范缺陷 | 发现 9：三处续问 at 禁令与输出 41 直接冲突；发现 1 已跑出恢复失败仍改位置 | 删除旧条款中对续问 at 的禁止，验收改为“续问带 at 成功使用新位置；完整准备或恢复失败时记录与日志不变”，并与准备流程一同修订 | 主工作区 docs/specs/story/qa.md 输出 26、29、验收 15、实现合同 |
+
+DOM 环境初始化与动态加载是本次隔离实验所需，不建议写成新的通用开发规则。逐条回放问题已受“先找真实运行入口再定严重程度”的现有规则覆盖，不重复增订规则。
+
+## 未发现问题的方面
+
+- **旧位置字段兼容与最高位置算法**：对没有新字段、只有 turns[].at、currentAt 早于最后一轮的情况，仔细检查后没有发现 helper 的取值顺序或最高位置计算错误；相关 qa-records 测试已跑。首轮无磁盘记录时 qa.list 从 run.at 同时给 at/currentAt/highestAt，源码符合合同；未为这个首轮分支另跑专门烟测。
+- **已进入保存阶段的版本冲突**：对轮数和 positionChanges 的条件核对、失败保留已发布的新位置与旧轮、发布日志配对，仔细检查后没有发现本批新增的磁盘覆盖问题。Spec 已接受的“核对后到 rename”的极短竞态不重新当新缺陷。发现 1 在准备阶段，发现 2 在网页接合，不能用保存侧通过替它们免责。
+- **裁剪与硬边界**：对 clipRead 的同章截断、较后章剔除、越界出处，以及旧已读章不消耗这一轮的新章额度，仔细检查后没有发现实现错误。直接烟测从 [[2,1,3],[3,1,4],[4,1,2]] 裁到 P=3.2 得 [[2,1,3],[3,1,2]]，3.3 出处被拒，旧第 2 章与新第 1 章读取计划均正常；它不替代发现 11 缺少的永久回归判据。
+- **全读与日志边界**：对全读禁止改位置、withoutFullText 的整段匹配与去原文、位置提醒追加后 logFrom 的计算，仔细检查后没有发现新的正确性问题；相关既有测试和传输烟测已跑。历史里已出现的后文无法撤回、Markdown 没有结构化硬拒绝，是已明确接受的限制，不重复报告。
+- **相邻 user 合并**：对普通 user、非 user 分隔、图片块顺序、输入不变、工具结果配对与 renderContext/history 顺序，仔细检查后没有发现新的内容丢失或配对错误；合并单元测试、harness 合同和两种 HTTP 形状均已验证。nb-harness 当前没有公开 steer/followup/compaction 入口，没有伪造这些入口作“真实运行”证据；不声称已完成其宿主扩展场景验证。
+- **正常提醒投影**：对 qa.get 的成批回放、下一轮正常 SSE 的日志切分、用户把相同标签当普通问题，仔细检查后没有发现正常入口把提醒变成新一轮的问题。held 的逐条释放与重复回放局部反例有记录，但尚无正常入口复现，未升格为独立缺陷。
+- **费用以外的用量**：对多请求累计、带缓存的输入、加权命中率、零提示词、未知窗口、无用量 streaming 消息，仔细检查后没有发现额外算术问题。状态条真实输出输入 500，检查器正确拆成 100/300/100、命中率 60%、请求提示词 500→20；上下文继续使用最近正常完成请求。币种/未知费用仍按发现 4 处理。
+- **关系图偏好**：对合法/旧版/损坏 JSON、逐项非法值、数组复制、存储不可用与空筛选，仔细检查后没有发现兼容性或恢复默认值问题；relations-view.test.ts 已跑。e2e 源码的新浏览器 context 与显式地址使偏好本身不跨用例泄漏，仔细检查后没有发现本批新增的偏好顺序依赖；未运行 e2e，固定等待风险见发现 11。
+- **同心半径**：对真实 graphology 的 70 节点布局，仔细检查后没有发现中心偏离、非有限坐标或外圈半径小于内圈的问题；一圈半径约 52.52、相邻弧距约 5.5，二圈约 66.52、圈距约 14，不连通点约 80.52。标签是否重叠属于未做的画布视觉验证。
+- **窄屏抽屉与额外质量问题**：Drawer 源码有 max-w-[90cqw]，所以不能仅凭调用处 w-[460px] 判定手机溢出；仔细检查后没有发现可由当前证据确定的额外窄屏缺陷。实际几何、焦点与触屏未验证。除已列出的语义冲突、调用方遗漏、错误判据与过时注释外，仔细检查后没有发现本批新增的密钥泄漏、静默吞错或跨包源码深导入；这不是全面安全审计。报告敏感信息模式扫描匹配 0 项。
+
+## 各级数量
+
+| 严重程度 | 数量 | 发现编号 |
+|---|---:|---|
+| 阻断 | 0 | 无 |
+| 重要 | 9 | 1、2、10、4、5、6、8、3、7 |
+| 建议 | 2 | 11、9 |
+| 合计 | 11 | 每条均有位置、影响、核实方式与改法 |
