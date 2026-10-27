@@ -55,6 +55,8 @@ export const QaTurnSchema = Type.Object({
     model: Type.String(),
     startedAt: Type.String(),
     logFrom: Type.Optional(Type.Integer({minimum: 1})),
+    /** 这一轮用的阅读位置；对话中途改过位置之后的轮都有（t25）。没有这一项的旧记录用对话的 `at`。 */
+    at: Type.Optional(QaPositionSchema),
     /** Markdown 回复里有没核实的出处时，让模型改了一次（qa.md 的“出处复查”）；没复查的轮没有这一项。 */
     recheck: Type.Optional(Type.Object({unverified: Type.Integer({minimum: 1}), outcome: Type.Union([Type.Literal("rewritten"), Type.Literal("failed"), Type.Literal("aborted")])})),
 });
