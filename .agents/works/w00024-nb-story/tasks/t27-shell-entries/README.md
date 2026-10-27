@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t27-shell-entries
-status: active
+status: done
 updated: 2026-10-27
 ---
 
@@ -18,4 +18,11 @@ updated: 2026-10-27
 
 ## 当前状态
 
-2026-10-27 开工，分支 `feat/w00024-t27-shell-entries`（worktree `.worktree/w00024-t27`）。设计已由开发者定，不另写 plan.md；设计审查并入实现审查。
+2026-10-27 完成并合入 master，分支 `feat/w00024-t27-shell-entries`。
+
+- 新组件 `parts/ThemeMenu.vue`（带同名 .md）从书页顶栏里提出来，书页（两处）、书架、导入、抽取进度、设置页共用，同一份偏好；
+- 书页左侧导航底部加设置图标（收起导航时叠在收起按钮上方），窄屏“更多”导航底部加“设置”行；设置页的“返回”原来就按浏览历史回去；
+- Spec：`story.viewer` 输出 34、35；
+- 验证：nb-story 499 个测试、35 个 e2e（新增一个：三个页面的切换共用偏好，设置入口往返）；`docs:check` 无失败；全量跑时一个命令行用例因机器负载（平均 16）超过 5 秒，单独跑通过；
+- 网页补“导入 V9 记忆图文件”“安装 Skill”不在本 Task，单列为 t29（连同逐条核对命令行与网页的对应）；
+- 实现审查待做（与 t23、t26、t24、t25 一起交 omp，一次看完）。
