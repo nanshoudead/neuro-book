@@ -71,6 +71,8 @@ updated: 2026-10-27
 
 2026-10-27 开发者确认第二期计划 [plan-phase2.md](plan-phase2.md) 的范围：旧应用的作品管理命令（`workspace project`/`node`）以后做成 `nbook` 的子命令，不另做命令，本期不做；GitHub Actions 的整理（旧应用的 `nuxt prepare` 等过时步骤、新应用的构建与打包检查）放进第三期；计划做深度审查：多个 Sonnet 加少量 Opus，另加 omp。
 
+2026-10-27 深度审查（omp、Opus、Sonnet ×3，见 plan-phase2.md 第 9 节）后开发者定：D1 实例认领用状态根的本地套接字；D2 `nbook start` 前台运行，后台运行（注册成系统服务、`nbook service …`）本期不做，记进 Work 的后续事项；D3 本期删插件版本租约；D4 `nbook plugin install` 执行命令即算确认，降级或有插件受阻时要 `--yes`。
+
 顺序：只用 Bun（P4）→ SDK 分子路径与 `update`（P7、P8）→ B1 到 B7 → 命令行（P5）→ 文档治理（P1）→ 发布（P2）。会改作者 API 的都在发布之前做完。
 
 ## 当前状态
@@ -91,4 +93,4 @@ updated: 2026-10-27
 
 ## 下一步
 
-第一期完成并合入。第二期计划 [plan-phase2.md](plan-phase2.md) 在做深度审查，处理完再实施；第三期（文档治理、GitHub Actions 整理与发布）在第二期合入后再写计划。
+第一期完成并合入。第二期计划 [plan-phase2.md](plan-phase2.md) 经深度审查修订、开发者确认（D1 到 D4），开始实施 S1；第三期（文档治理、GitHub Actions 整理与发布）在第二期合入后再写计划。

@@ -80,6 +80,7 @@ t15 第一期的实现审查与作者验收留下的（[t15 plan.md 第 11 节](
 - 生成式视图：Agent 对话流里 LLM 生成的 TSX 可视化程序，在不同源的沙箱 iframe 里运行，只做 Web；复用 t07 的表单组件；随 Agent 对话流重建，先写提案（开发者 2026-10-20 定名）。
 - 插件页显示第三方插件各入口的激活状态（plugin-manifest 输出 6 的后半），卸载与禁用确认里列出依赖它的插件（t04 设计审查提出，2026-10-23）。
 - `nbdev worktree new` 只能建 Task 级 worktree，要补 Work 级的（`.worktree/<Work 编号>-<短名>`、`{type}/<Work 编号>-<slug>`）。
+- `nbook` 的后台运行（开发者 2026-10-27 定）：注册成操作系统的服务（systemd 用户单元、launchd、Windows 计划任务），由 `nbook service install|uninstall|start|stop|restart|status` 管，停止与查看也放在 `service` 下、对前台实例同样有效；实现前先调研有没有现成的第三方库，没有就自己做一个包。实例认领的套接字协议（t15 第二期）是它的停止与查询通道。
 
 ## 范围外发现
 
