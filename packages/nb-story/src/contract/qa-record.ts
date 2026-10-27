@@ -46,7 +46,7 @@ export const QaTurnSchema = Type.Object({
     question: Type.String(),
     status: QaStatusSchema,
     answer: Type.Union([AnswerSchema, Type.Null()]),
-    reply: Type.Union([Type.Object({text: Type.String(), truncated: Type.Boolean(), unverifiedRefs: Type.Array(Type.String())}), Type.Null()]),
+    reply: Type.Union([Type.Object({text: Type.String(), truncated: Type.Boolean(), unverifiedRefs: Type.Array(Type.String()), ungrounded: Type.Optional(Type.Boolean())}), Type.Null()]),
     error: QaFailureSchema,
     chaptersRead: ChaptersSchema,
     rejections: Type.Integer({minimum: 0}),

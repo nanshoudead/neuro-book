@@ -24,4 +24,10 @@ describe("只按记录显示", () => {
         expect(messages[5]).toMatchObject({kind: "error", message: "连不上"});
         expect(messages[7]).toMatchObject({kind: "assistant", status: "stopped"});
     });
+
+    test("文字回复没有出处也没读原文：挂未查原文的提醒", () => {
+        const messages = messagesFromRecord("c", [{question: "主角叫什么", status: "answered", answer: null, reply: {text: "南小风", unverifiedRefs: [], ungrounded: true}, error: null, startedAt}]);
+        expect(messages[1]).toMatchObject({kind: "assistant", text: "南小风", annotations: [{customType: UNVERIFIED_REFS, text: "这一轮没有查原文", details: {refs: []}}]});
+    });
+
 });

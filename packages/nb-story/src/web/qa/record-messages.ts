@@ -13,7 +13,7 @@ export interface RecordTurn {
     readonly question: string;
     readonly status: "answered" | "failed" | "interrupted";
     readonly answer: object | null;
-    readonly reply: {readonly text: string; readonly unverifiedRefs: readonly string[]} | null;
+    readonly reply: {readonly text: string; readonly unverifiedRefs: readonly string[]; readonly ungrounded?: boolean} | null;
     readonly error: {readonly message: string} | null;
     readonly startedAt: string;
 }
@@ -31,6 +31,8 @@ export function messagesFromRecord(conversationId: string, turns: readonly Recor
             return [question, {...base, status: "done", text: "", toolCalls: [{id: `${id}:answer`, name: "answer", status: "success", args: turn.answer as never, result: {text: "", truncated: false}}]}];
         }
         const refs = turn.reply?.unverifiedRefs ?? [];
-        return [question, {...base, status: "done", text: turn.reply?.text ?? "", ...(refs.length === 0 ? {} : {annotations: [{customType: UNVERIFIED_REFS, text: `没核实的出处：${refs.join("、")}`, details: {refs: [...refs]}}]})}];
+        const ungrounded = refs.length === 0 && turn.reply?.ungrounded === true;
+        const annotation = refs.length > 0 ? {customType: UNVERIFIED_REFS, text: `没核实的出处：${refs.join("、")}`, details: {refs: [...refs]}} : ungrounded ? {customType: UNVERIFIED_REFS, text: "这一轮没有查原文", details: {refs: []}} : null;
+        return [question, {...base, status: "done", text: turn.reply?.text ?? "", ...(annotation === null ? {} : {annotations: [annotation]})}];
     });
 }

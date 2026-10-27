@@ -207,6 +207,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 端点收集与 API 文档 | [`runtime/api-docs.md`](runtime/api-docs.md) | 对外 HTTP 路由的收集、OpenAPI 生成与展示，不含远程服务合同 |
 | 插件运行期启用与禁用 | [`runtime/plugin-hot-plug.md`](runtime/plugin-hot-plug.md) | 热插拔三档、引用账本与转发器、三步停止、在途调用结算 |
 | 插件安装与升级 | [`runtime/plugin-install.md`](runtime/plugin-install.md) | 本地文件夹安装、卸载、重启生效的升级、兼容与安全模式；操作在下一次启动生效 |
+| `nbook` 命令行 | [`runtime/cli.md`](runtime/cli.md) | 随应用发布的命令行：前台 `start`、已有实例时打开它、状态根缺省；离线的插件管理子命令。服务端的认领与停止属 `runtime.server-host`，安装语义属 `runtime.plugin-install` |
 | 插件代码的装载与回收 | [`runtime/plugin-code-loading.md`](runtime/plugin-code-loading.md) | 服务端装载与缓存回收、浏览器宿主模块表、纯度检查、插件文件端点 |
 | 插件公开 API | [`runtime/plugin-api.md`](runtime/plugin-api.md) | 远程形态约束、激活上下文、错误码、worker 池、私有存储、配置与密钥 |
 | 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | 卡死检测、报告、退出码 76、Manager 自动重启与桌面呈现、提示禁用与自动安全模式 |
