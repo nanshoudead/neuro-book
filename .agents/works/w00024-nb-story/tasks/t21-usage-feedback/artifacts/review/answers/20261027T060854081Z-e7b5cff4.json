@@ -1,0 +1,27 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t21-usage-feedback",
+    "artifactId": "review",
+    "answerId": "20261027T060854081Z-e7b5cff4",
+    "artifactVersion": 1,
+    "contentHash": "d5c19eb80136e6efeff04fdd0bec874d513d8f70701326bdb07777d347171da3",
+    "submittedAt": "2026-10-27T06:08:53.528Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "graph-hint": "chip",
+        "graph-mode-notice": "dialog-once",
+        "qa-status": "bar-and-drawer",
+        "qa-position": "header-control",
+        "shell-entries": "theme-and-entry",
+        "tiering": "experiment-first"
+    },
+    "comments": {
+        "graph-mode-notice": "第一次点击弹出确认窗口（3秒确认时间）。你这个确认窗口其实不好看",
+        "qa-position": "下次提问时告诉助手这种文字不专业。而且这个 system-reminder 消息应该能点击展开才行（通用的 system reminder）\n<system-reminder>\n阅读位置从第 27 回改为第 40 回。你可以访问 40 回及之前的位置了\n</system-reminder>\n大概这种意思"
+    },
+    "note": null
+}
