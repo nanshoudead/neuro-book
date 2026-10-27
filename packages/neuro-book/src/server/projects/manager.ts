@@ -10,6 +10,8 @@
  *   随后写进诊断。不自动重启。
  */
 
+import {statSync} from "node:fs";
+
 import type {Subprocess} from "bun";
 
 import {createChildInstances} from "@notnotype/nb-runtime/application";
@@ -155,6 +157,15 @@ async function forwardLines(stream: ReadableStream<Uint8Array>, prefix: string, 
     if (pending !== "") write(`${prefix}${pending}\n`);
 }
 
+function entryStamp(entry: string): string | null {
+    try {
+        const stats = statSync(entry);
+        return `${String(stats.size)}:${String(stats.mtimeMs)}`;
+    } catch {
+        return null;
+    }
+}
+
 class ProjectManagerImpl implements ProjectManager {
     readonly registry: ProjectRegistry;
     readonly #options: ProjectManagerOptions;
@@ -170,6 +181,8 @@ class ProjectManagerImpl implements ProjectManager {
     readonly #serial = new Map<string, Promise<void>>();
     /** 交给每个子进程的第三方插件，服务端启动时就定了。 */
     readonly #installed: ReadonlyArray<InstalledPlugin>;
+    /** 启动时项目宿主入口的大小与修改时间；入口当时不存在为 null（起子进程时照常报错）。 */
+    readonly #entryStamp: string | null;
     #admission = true;
 
     constructor(options: ProjectManagerOptions) {
@@ -177,6 +190,7 @@ class ProjectManagerImpl implements ProjectManager {
         this.#options = options;
         this.#clock = options.clock ?? systemClock;
         this.#installed = options.installed ?? [];
+        this.#entryStamp = entryStamp(options.entry);
         this.#children = createChildInstances<ProjectChild>(options.application, {
             create: (id, generation) => this.#create(id, generation),
             stop: (child, {signal}) => this.#stop(child, signal),
@@ -423,6 +437,10 @@ class ProjectManagerImpl implements ProjectManager {
         if (!checked.ok) throw new Error(checked.detail);
         const identity = await readProjectIdentity(checked.path);
         if (identity.status !== "found" || identity.id !== id) throw new Error(`目录 ${checked.path} 的项目身份与登记不符`);
+        // 全局包原地升级会在运行中的服务端脚下换掉 project.js：新的项目宿主与内存里的旧服务端版本不一致，不起它。
+        if (this.#entryStamp !== null && entryStamp(this.#options.entry) !== this.#entryStamp) {
+            throw new Error(`应用文件 ${this.#options.entry} 在服务端运行期间被更换（升级了？），重启服务后再打开作品`);
+        }
 
         const child = this.#spawn({...record, path: checked.path}, generation);
         const deadline = Promise.withResolvers<"timeout">();

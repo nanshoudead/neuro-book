@@ -19,7 +19,7 @@ import {createApplication} from "nbook/application";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {PROJECT_LIMIT_DEFAULTS} from "nbook/server/config";
 import {manifestServerPlugins} from "nbook/server/plugins";
-import {startServer} from "nbook/server/start";
+import {startClaimedServer} from "nbook/server/testing/claimed-server";
 import type {RunningServer} from "nbook/server/start";
 import {windowProjectKey} from "nbook/shared/projects";
 import {createSocketLink, RPC_MAX_MESSAGE_BYTES} from "nbook/shared/rpc-socket";
@@ -36,7 +36,7 @@ let stateRoot = "";
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-files", "transport");
     stateRoot = join(tmp, "state");
-    backend = startServer({
+    backend = await startClaimedServer({
         config: {host: "127.0.0.1", port: 0, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, shiftPorts: false, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
         plugins: (context) => manifestServerPlugins(context),
         process: new EventEmitter(),

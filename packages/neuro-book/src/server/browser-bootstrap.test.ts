@@ -16,7 +16,7 @@ import {BROWSER_BOOTSTRAP_PATH, BROWSER_PROTOCOL_VERSION, BrowserBootstrapSchema
 
 import {browserBootstrap} from "./browser-bootstrap";
 import {PROJECT_LIMIT_DEFAULTS} from "./config";
-import {startServer} from "./start";
+import {startClaimedServer} from "./testing/claimed-server";
 import type {RunningServer} from "./start";
 
 let tmp = "";
@@ -27,7 +27,7 @@ let server: RunningServer;
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-bootstrap", "browser-bootstrap");
     books = await createTestTmpRoot("neuro-book-bootstrap", "books");
-    server = startServer({
+    server = await startClaimedServer({
         config: {host: "127.0.0.1", port: 0, stateRoot: tmp, logDirectory: join(tmp, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, shiftPorts: false, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
         process: new EventEmitter(),
         writeFatal: () => undefined,

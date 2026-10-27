@@ -51,8 +51,9 @@ export async function runProjectProcess(
     plugins?: (context: ProjectPluginContext) => ReadonlyArray<PluginDefinition>,
 ): Promise<never> {
     const config = readConfigOrExit();
-    // 终端的 Ctrl+C 发给整个进程组；项目何时停由服务端决定（停止请求或 IPC 断开），这里不因 SIGINT 退出。
+    // 终端的 Ctrl+C 与关闭终端的 SIGHUP 发给整个进程组；项目何时停由服务端决定（停止请求或 IPC 断开），这里不因它们退出。
     process.on("SIGINT", () => undefined);
+    process.on("SIGHUP", () => undefined);
     const exitCode = await startProject({config, manifest, plugins, channel: parentChannel()});
     process.exit(exitCode);
 }

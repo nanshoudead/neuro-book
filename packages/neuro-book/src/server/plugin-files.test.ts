@@ -20,7 +20,7 @@ import {NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
 
 import {PROJECT_LIMIT_DEFAULTS} from "./config";
 import {createPluginFilesRoute} from "./plugin-files";
-import {startServer} from "./start";
+import {startClaimedServer} from "./testing/claimed-server";
 import type {RunningServer} from "./start";
 
 let tmp = "";
@@ -73,7 +73,7 @@ beforeAll(async () => {
     const [plugin] = installedPlugins(prepared.startup);
     if (plugin === undefined) throw new Error("插件没有登记");
     prefix = pluginFilesPrefix(NEUROBOOK_PROFILE.filesMount, plugin.id, plugin.digest);
-    server = startServer({
+    server = await startClaimedServer({
         config: {host: "127.0.0.1", port: 0, stateRoot: join(tmp, "state"), logDirectory: join(tmp, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, shiftPorts: false, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
         prepared,
         process: new EventEmitter(),

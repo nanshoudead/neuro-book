@@ -11,7 +11,8 @@
  * S8 以客户端身份经 `nbook.storage/user` 保存并读回一条记录：打包产物里的 SQLite 分区落在 `<状态根>/storage/user.sqlite`，
  * 停止时关库（WAL 文件收回），重启后读到同一个值；S9 状态根里先放一份带注释的 `settings.json`，以客户端身份经
  * `nbook.settings/user`（合同版本 2）写一个键，注释与其余内容保留；以 `nbook.settings` 的身份整份读出这份文件，拿旧的
- * 修订号整份写被拒为 `conflict`、文件不变；文件改坏后服务端照常启动，日志里有“配置文件当前无效”的诊断。
+ * 修订号整份写被拒为 `conflict`、文件不变；文件改坏后服务端照常启动，日志里有“配置文件当前无效”的诊断；S10 同一状态根
+ * 再起一个打包产物：以 1 退出，致命诊断 `runtime.state-root.busy` 带第一个的地址，第一个不受影响、照常以 0 退出。
  * 任一场景失败或未执行都以非零退出；状态根放在测试临时根下，结束时删除。
  */
 
@@ -313,11 +314,26 @@ async function main(): Promise<number> {
             ok: (setOutcome as {ok?: unknown} | undefined)?.ok === true && keptComments && readText === edited && staleCode === "conflict" && editorCode === 0 && brokenHealth === 200 && brokenCode === 0 && logs.includes("settings.layer.invalid"),
             evidence: `set=${JSON.stringify((setOutcome as {ok?: unknown} | undefined)?.ok ?? null)} comments-kept=${String(keptComments)} read-text=${String(readText === edited)} stale-write=${String(staleCode)} broken-health=${String(brokenHealth)} invalid-logged=${String(logs.includes("settings.layer.invalid"))} exit=${String(editorCode)}/${String(brokenCode)}`,
         });
+
+        const s10State = join(root, "S10");
+        const first = run({NBOOK_STATE_ROOT: s10State, NBOOK_PORT: "0"});
+        const firstUrl = await first.url;
+        const second = run({NBOOK_STATE_ROOT: s10State, NBOOK_PORT: "0"});
+        const secondCode = await second.exit;
+        const busy = second.stderr().split("\n").find((line) => line.includes("runtime.state-root.busy")) ?? "";
+        const firstHealth = (await fetch(`${firstUrl}api/runtime/health`)).status;
+        first.stop("stdin");
+        const firstCode = await first.exit;
+        results.push({
+            id: "S10",
+            ok: secondCode === 1 && busy.includes(firstUrl) && firstHealth === 200 && firstCode === 0,
+            evidence: `second-exit=${String(secondCode)} busy-has-url=${String(busy.includes(firstUrl))} first-health=${String(firstHealth)} first-exit=${String(firstCode)}`,
+        });
     } finally {
         await rm(root, {recursive: true, force: true});
     }
     console.log(JSON.stringify({schema: "nbook.smoke/server/v1", results}, null, 2));
-    const expected = ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9"];
+    const expected = ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10"];
     const complete = expected.every((id) => results.some((result) => result.id === id));
     return complete && results.every((result) => result.ok) ? 0 : 1;
 }

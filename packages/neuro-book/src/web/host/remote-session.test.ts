@@ -14,7 +14,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {PROJECT_LIMIT_DEFAULTS} from "nbook/server/config";
-import {startServer} from "nbook/server/start";
+import {startClaimedServer} from "nbook/server/testing/claimed-server";
 import type {RunningServer} from "nbook/server/start";
 
 import {createConnection} from "./connection";
@@ -32,10 +32,10 @@ afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-function serverAt(port: number): RunningServer {
+async function serverAt(port: number): Promise<RunningServer> {
     sequence += 1;
     const stateRoot = join(tmp, `state-${String(sequence)}`);
-    return startServer({
+    return startClaimedServer({
         config: {host: "127.0.0.1", port, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, shiftPorts: false, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
         process: new EventEmitter(),
         writeFatal: () => undefined,
@@ -44,7 +44,7 @@ function serverAt(port: number): RunningServer {
 
 describe("远程服务链路的退避重连", () => {
     it("断线后按 0.5、1、2 秒退避重试，每次先重新取引导；服务端换进程后转为 server-restarted 并停止", async () => {
-        const first = serverAt(0);
+        const first = await serverAt(0);
         await first.ready;
         const httpUrl = first.url!;
         const clock = new ManualClock();
@@ -70,7 +70,7 @@ describe("远程服务链路的退避重连", () => {
             await waitUntil(`第 ${String(index + 1)} 次重连失败`, () => failures.length === index + 1);
         }
 
-        const second = serverAt(Number(new URL(httpUrl).port));
+        const second = await serverAt(Number(new URL(httpUrl).port));
         await second.ready;
         clock.advance(4000);
         await waitUntil("连回新的服务端进程，识别为服务端已重启", () => states.at(-1) === "server-restarted");

@@ -1,5 +1,5 @@
 /**
- * 宿主合同测试与 e2e 的子进程入口：与 `main.ts` 相同的启动与退出流程，另按 `NBOOK_TEST_PLUGINS`
+ * 宿主合同测试与 e2e 的子进程入口：与 `main.ts` 相同的认领、启动与退出流程，另按 `NBOOK_TEST_PLUGINS`
  * （逗号分隔的测试插件 id）在产品插件之外加入测试插件。有浏览器入口的测试插件（`test.remote-probe`、只有浏览器
  * 入口的 `test.sample-views`）同时加进本进程清单，引导接口才会把它列给测试外壳。项目子进程用项目宿主的测试入口，同样按环境变量加入测试插件。
  * `NBOOK_EXCLUDE_PLUGINS`（逗号分隔的产品插件 id）从本进程清单去掉只有浏览器入口的产品插件：验证视图机制的用例只要
@@ -15,10 +15,13 @@ import {descriptorsOf} from "nbook/plugin-platform/backend/installed";
 import {prepareInstalledPlugins, safeModeOf} from "nbook/plugin-platform/backend/startup";
 import {definitionAt, pluginsAt, productPlugins, thirdPartyDefinition} from "nbook/manifest";
 import {readServerConfig} from "nbook/server/config";
+import {claimStateRoot} from "nbook/server/instance";
+import {claimReport, reportClaimFailure} from "nbook/server/process";
 import {devSampleEnabled, startDevSample} from "nbook/server/dev/sample";
 import {serverPlugin} from "nbook/server/plugins";
 import {startServer} from "nbook/server/start";
 import {manifestFormat, NEUROBOOK_PROFILE} from "nbook/plugin-platform-profile";
+import {PRODUCT_VERSION} from "nbook/shared/product";
 import type {DevTask, StartServerOptions} from "nbook/server/start";
 import {remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
 import {testMenusDescriptor} from "nbook/shared/testing/menus-contract";
@@ -41,6 +44,12 @@ if (notExcludable.length > 0) throw new Error(`只能去掉只有浏览器入口
 const manifest = productPlugins.filter((plugin) => !excluded.includes(plugin.id));
 
 const config = readServerConfig(process.argv.slice(2), process.env, process.cwd());
+// 与产品入口一样先认领状态根：e2e 与宿主合同测试起的服务端同样受“一个状态根一个实例”约束。
+const claimed = await claimStateRoot({stateRoot: config.stateRoot, kind: "fixture", version: PRODUCT_VERSION, report: claimReport});
+if (!claimed.ok) {
+    reportClaimFailure(claimed, config.stateRoot);
+    process.exit(1);
+}
 
 function sampleTask(): StartServerOptions["devTask"] {
     if (!devSampleEnabled(process.env)) return undefined;
@@ -59,6 +68,7 @@ function sampleTask(): StartServerOptions["devTask"] {
 
 const server = startServer({
     config,
+    claim: claimed.claim,
     manifest: [...manifest, ...BROWSER_TEST_PLUGINS.filter((descriptor) => requested.includes(descriptor.id))],
     stopInput: config.stopStdin ? process.stdin : null,
     devTask: sampleTask(),

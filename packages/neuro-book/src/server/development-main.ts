@@ -14,6 +14,7 @@ import {runServerProcess} from "./process";
 const packageRoot = resolve(import.meta.dir, "../..");
 
 await runServerProcess([...productPlugins, ...developmentPlugins], {
+    kind: "development",
     projectEntry: join(import.meta.dir, "..", "project", "development-main.ts"),
     devTask: devSampleEnabled(process.env)
         ? ({registry, stateRoot}) => startDevSample({registry, stateRoot, packageRoot, report: (line) => console.log(line)})

@@ -21,7 +21,8 @@ import type {HttpRouteEnv} from "nbook/plugins/http/shared/contracts";
 import {remoteProbeContract} from "nbook/shared/testing/remote-probe-contract";
 
 import {PROJECT_LIMIT_DEFAULTS} from "./config";
-import {ServerAssemblyError, startServer} from "./start";
+import {ServerAssemblyError} from "./start";
+import {startClaimedServer} from "./testing/claimed-server";
 import {manifestServerPlugins} from "./plugins";
 import {isAddressInUse, PORT_SHIFT_STEP} from "./ports";
 import {helloFrame, openRawRpcSocket, upgradeStatus} from "./testing/rpc-client";
@@ -55,9 +56,9 @@ interface Spawned {
     signal(name: NodeJS.Signals): void;
 }
 
-function spawnServer(options: {readonly plugins?: string[]; readonly entry?: string; readonly env?: Record<string, string>} = {}): Spawned {
+function spawnServer(options: {readonly plugins?: string[]; readonly entry?: string; readonly env?: Record<string, string>; readonly stateRoot?: string} = {}): Spawned {
     sequence += 1;
-    const stateRoot = join(tmpRoot, `state-${String(sequence)}`);
+    const stateRoot = options.stateRoot ?? join(tmpRoot, `state-${String(sequence)}`);
     const child = Bun.spawn(["bun", options.entry ?? FIXTURE, "--stop-stdin"], {
         env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: "0", NBOOK_RPC_PORT: "0", NBOOK_TEST_PLUGINS: (options.plugins ?? []).join(","), ...options.env},
         stdin: "pipe",
@@ -154,7 +155,8 @@ describe("后端宿主（真实子进程）", () => {
         expect(pluginOrder(log, "close").sort()).toEqual(["nbook.commands", "nbook.files", "nbook.http", "nbook.plugins", "nbook.projects", "nbook.settings", "nbook.state", "nbook.storage"]);
     }, 20_000);
 
-    for (const stop of ["SIGTERM", "stdin"] as const) {
+    // SIGHUP 是关掉终端时进程收到的信号。
+    for (const stop of ["SIGTERM", "SIGHUP", "stdin"] as const) {
         it(`${stop} 停止：在途长请求完成，新请求得到 503，以 0 退出`, async () => {
             const server = spawnServer({plugins: ["test.slow"]});
             const url = await server.url;
@@ -165,8 +167,8 @@ describe("后端宿主（真实子进程）", () => {
             const longText = long.text().finally(() => {
                 longDone = true;
             });
-            if (stop === "SIGTERM") server.signal("SIGTERM");
-            else server.stdin("stop\n");
+            if (stop === "stdin") server.stdin("stop\n");
+            else server.signal(stop);
             const rejected = await untilStopping(url);
             expect(await rejected.json()).toMatchObject({error: {code: "stopping"}});
             expect(longDone).toBe(false);
@@ -234,6 +236,25 @@ describe("后端宿主（真实子进程）", () => {
         expect(child.exitCode).toBe(0);
     }, 20_000);
 
+    for (const entry of [MAIN, FIXTURE]) {
+        it(`同一状态根的第二个服务端（${entry === MAIN ? "产品入口" : "测试入口"}）以 1 退出，报 runtime.state-root.busy 带第一个的 pid 与地址，不碰第一个`, async () => {
+            const first = spawnServer({entry});
+            const url = await first.url;
+            const second = spawnServer({entry, stateRoot: first.stateRoot});
+            expect(await second.exit).toEqual({code: 1, signal: null});
+            const busy = JSON.parse(second.stderr().split("\n").find((line) => line.includes("runtime.state-root.busy")) ?? "null") as {instance: {pid: number; url: string; status: string}} | null;
+            expect(busy?.instance).toMatchObject({url, status: "ready"});
+            expect((await fetch(`${url}api/runtime/health`)).status).toBe(200);
+            first.stdin("stop\n");
+            expect(await first.exit).toEqual({code: 0, signal: null});
+            // 第一个停下后放下了认领，同一状态根可以再起。
+            const third = spawnServer({entry, stateRoot: first.stateRoot});
+            expect((await fetch(`${await third.url}api/runtime/health`)).status).toBe(200);
+            third.stdin("stop\n");
+            expect(await third.exit).toEqual({code: 0, signal: null});
+        }, 30_000);
+    }
+
     it("产品入口拒绝在非回环地址上监听，以 1 退出", async () => {
         const server = spawnServer({entry: MAIN, env: {NBOOK_HOST: "0.0.0.0"}});
         expect(await server.exit).toEqual({code: 1, signal: null});
@@ -246,7 +267,7 @@ describe("后端宿主（同进程）", () => {
 
     it("两个插件同时提交 http.routes：各自挂在自己的前缀下", async () => {
         const ping = (reply: string) => () => new Hono<{Bindings: HttpRouteEnv}>().get("/ping", (c) => c.text(reply));
-        const server = startServer({
+        const server = await startClaimedServer({
             config: config("two-routes"),
             plugins: (context) => [...manifestServerPlugins(context), routePlugin("test.ping-a", ping("a")), routePlugin("test.ping-b", ping("b"))],
             process: new EventEmitter(),
@@ -271,7 +292,7 @@ describe("后端宿主（同进程）", () => {
                 activate: () => ({contributions: {[HTTP_ROUTES_POINT]: {[id]: new Hono<{Bindings: HttpRouteEnv}>().get("/ping", (c) => c.text(entry))}}}),
             })),
         };
-        const server = startServer({
+        const server = await startClaimedServer({
             config: config("duplicate-routes"),
             plugins: (context) => [...manifestServerPlugins(context), twice, routePlugin("test.ping-a", () => new Hono<{Bindings: HttpRouteEnv}>().get("/ping", (c) => c.text("a")))],
             process: new EventEmitter(),
@@ -292,7 +313,7 @@ describe("后端宿主（同进程）", () => {
         const scheduled = Promise.withResolvers<() => void>();
         const hold = Promise.withResolvers<void>();
         const fatalLines: string[] = [];
-        const server = startServer({
+        const server = await startClaimedServer({
             config: config("drain-timeout"),
             plugins: (context) => [...manifestServerPlugins(context), createTestPlugin("test.slow", hold.promise)],
             process: new EventEmitter(),
@@ -321,7 +342,7 @@ describe("后端宿主（同进程）", () => {
         const hold = Promise.withResolvers<void>();
         const listening = Promise.withResolvers<string>();
         const captured: {admission?: HttpAdmission} = {};
-        const server = startServer({
+        const server = await startClaimedServer({
             config: config("startup-failed"),
             plugins: (context) => {
                 captured.admission = context.admission;
@@ -344,9 +365,9 @@ describe("后端宿主（同进程）", () => {
     it("未处理异常经宿主汇合为一次停止，以 1 退出；停止结算后挂接的进程监听全部移除", async () => {
         const events = new EventEmitter();
         const fatalLines: string[] = [];
-        const server = startServer({config: config("fatal"), process: events, writeFatal: (line) => fatalLines.push(line)});
+        const server = await startClaimedServer({config: config("fatal"), process: events, writeFatal: (line) => fatalLines.push(line)});
         await server.ready;
-        expect(events.eventNames().sort()).toEqual(["SIGINT", "SIGTERM", "uncaughtException", "unhandledRejection"]);
+        expect(events.eventNames().sort()).toEqual(["SIGHUP", "SIGINT", "SIGTERM", "uncaughtException", "unhandledRejection"]);
         events.emit("unhandledRejection", new Error("注入的未处理拒绝"));
         events.emit("uncaughtException", new Error("停止中又一个异常"));
         const outcome = await server.stopped;
@@ -360,7 +381,7 @@ describe("后端宿主（同进程）", () => {
         const webRoot = join(tmpRoot, "web-without-index");
         await mkdir(webRoot, {recursive: true});
         const fatalLines: string[] = [];
-        const server = startServer({config: {...config("no-index"), webRoot}, process: new EventEmitter(), writeFatal: (line) => fatalLines.push(line)});
+        const server = await startClaimedServer({config: {...config("no-index"), webRoot}, process: new EventEmitter(), writeFatal: (line) => fatalLines.push(line)});
         server.ready.catch(() => undefined);
         expect((await server.stopped).exitCode).toBe(1);
         expect(fatalLines.join("")).toContain("runtime.startup.failed");
@@ -374,14 +395,14 @@ describe("后端宿主（同进程）", () => {
         const probePort = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: () => new Response()});
         const rpcPort = probePort.port!;
         await probePort.stop(true);
-        expect(() => startServer({
+        await expect(startClaimedServer({
             config: {...config("assembly"), rpcPort},
             plugins: () => {
                 throw failure;
             },
             process: new EventEmitter(),
             writeFatal: (line) => fatalLines.push(line),
-        })).toThrow(ServerAssemblyError);
+        })).rejects.toThrow(ServerAssemblyError);
         expect(fatalLines).toHaveLength(1);
         expect(fatalLines[0]).toContain("runtime.startup.failed");
         expect(fatalLines[0]).toContain("工厂抛错");
@@ -406,7 +427,7 @@ describe("后端宿主的 RPC 端口（同进程，Spec server-host 场景 12、
     });
 
     it("允许的来源：HTTP 端口在三个回环别名上的来源与 NBOOK_ALLOWED_ORIGINS 放行，其它来源 403", async () => {
-        const server = startServer({config: {...config("rpc-origins"), allowedOrigins: ["http://127.0.0.1:5999"]}, process: new EventEmitter(), writeFatal: () => undefined});
+        const server = await startClaimedServer({config: {...config("rpc-origins"), allowedOrigins: ["http://127.0.0.1:5999"]}, process: new EventEmitter(), writeFatal: () => undefined});
         await server.ready;
         const rpcPort = Number(new URL(server.rpcUrl).port);
         const httpPort = new URL(server.url!).port;
@@ -423,7 +444,7 @@ describe("后端宿主的 RPC 端口（同进程，Spec server-host 场景 12、
 
     it("远程请求在途时停止：新升级得到 503，请求完成后插件才关闭；停止后 RPC 端口不再接受连接，以 0 退出", async () => {
         const probe = newRemoteProbeState();
-        const server = startServer({config: config("rpc-stop"), plugins: (context) => [...manifestServerPlugins(context), createRemoteProbePlugin(probe)], process: new EventEmitter(), writeFatal: () => undefined});
+        const server = await startClaimedServer({config: config("rpc-stop"), plugins: (context) => [...manifestServerPlugins(context), createRemoteProbePlugin(probe)], process: new EventEmitter(), writeFatal: () => undefined});
         await server.ready;
         const rpcPort = Number(new URL(server.rpcUrl).port);
         const client = openRawRpcSocket(server.rpcUrl);
@@ -453,7 +474,7 @@ describe("后端宿主的 RPC 端口（同进程，Spec server-host 场景 12、
     it("RPC 排空超过上限：继续关闭插件，以 1 退出，失败记为 RPC 排空未完成", async () => {
         const probe = newRemoteProbeState();
         const timers = new Set<() => void>();
-        const server = startServer({
+        const server = await startClaimedServer({
             config: config("rpc-drain-timeout"),
             plugins: (context) => [...manifestServerPlugins(context), createRemoteProbePlugin(probe)],
             process: new EventEmitter(),
@@ -489,7 +510,7 @@ describe("后端宿主的 RPC 端口（同进程，Spec server-host 场景 12、
     it("启动失败：等待就绪的 RPC 升级得到 503 startup-failed，以 1 退出", async () => {
         const hold = Promise.withResolvers<void>();
         const captured: {admission?: HttpAdmission} = {};
-        const server = startServer({
+        const server = await startClaimedServer({
             config: config("rpc-startup-failed"),
             plugins: (context) => {
                 captured.admission = context.admission;
@@ -506,11 +527,11 @@ describe("后端宿主的 RPC 端口（同进程，Spec server-host 场景 12、
         expect((await server.stopped).exitCode).toBe(1);
     }, 20_000);
 
-    it("RPC 端口被占用：写出致命诊断并抛 ServerAssemblyError，不建立运行实例", () => {
+    it("RPC 端口被占用：写出致命诊断并抛 ServerAssemblyError，不建立运行实例", async () => {
         const occupant = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: () => new Response("occupied")});
         const fatalLines: string[] = [];
         try {
-            expect(() => startServer({config: {...config("rpc-in-use"), rpcPort: occupant.port!}, process: new EventEmitter(), writeFatal: (line) => fatalLines.push(line)})).toThrow(ServerAssemblyError);
+            await expect(startClaimedServer({config: {...config("rpc-in-use"), rpcPort: occupant.port!}, process: new EventEmitter(), writeFatal: (line) => fatalLines.push(line)})).rejects.toThrow(ServerAssemblyError);
         } finally {
             void occupant.stop(true);
         }
@@ -546,7 +567,7 @@ describe("后端宿主的 RPC 端口（同进程，Spec server-host 场景 12、
             const [httpPort, rpcPort] = taken === "http" ? [occupant.port!, other] : [other, occupant.port!];
             const name = `ports-shift-${taken}`;
             try {
-                const server = startServer({config: {...config(name), port: httpPort, rpcPort, shiftPorts: true}, process: new EventEmitter(), writeFatal: () => undefined});
+                const server = await startClaimedServer({config: {...config(name), port: httpPort, rpcPort, shiftPorts: true}, process: new EventEmitter(), writeFatal: () => undefined});
                 await server.ready;
                 expect(Number(new URL(server.url!).port)).toBe(httpPort + PORT_SHIFT_STEP);
                 expect(Number(new URL(server.rpcUrl).port)).toBe(rpcPort + PORT_SHIFT_STEP);

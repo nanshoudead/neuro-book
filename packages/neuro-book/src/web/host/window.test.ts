@@ -27,7 +27,7 @@ import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exp
 import {errorResponse} from "nbook/plugins/http/backend/dispatch";
 import {manifestServerPlugins} from "nbook/server/plugins";
 import {PROJECT_LIMIT_DEFAULTS} from "nbook/server/config";
-import {startServer} from "nbook/server/start";
+import {startClaimedServer} from "nbook/server/testing/claimed-server";
 import type {RunningServer} from "nbook/server/start";
 import {createProjectRegistry} from "nbook/server/projects/registry";
 import {killSpawnedProjects, observed, PROJECT_FIXTURE_ENTRY, trackedProjectOutput} from "nbook/server/testing/projects";
@@ -59,10 +59,10 @@ let sequence = 0;
 const quietConsole: DiagnosticsConsole = {error: () => undefined};
 
 /** 同进程后端；带测试插件 `test.remote-probe`，浏览器测试插件经它验证远程调用。 */
-function backendAt(port: number, state: RemoteProbeState = newRemoteProbeState()): RunningServer {
+async function backendAt(port: number, state: RemoteProbeState = newRemoteProbeState()): Promise<RunningServer> {
     sequence += 1;
     const stateRoot = join(tmp, `state-${String(sequence)}`);
-    return startServer({
+    return startClaimedServer({
         config: {host: "127.0.0.1", port, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, shiftPorts: false, allowedOrigins: [], projects: PROJECT_LIMIT_DEFAULTS},
         plugins: (context) => [...manifestServerPlugins(context), createRemoteProbePlugin(state)],
         process: new EventEmitter(),
@@ -77,7 +77,7 @@ function rpcOf(server: RunningServer): {readonly port: number; readonly path: st
 beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-window", "browser-window");
     probe = newRemoteProbeState();
-    backend = backendAt(0, probe);
+    backend = await backendAt(0, probe);
     await backend.ready;
 });
 
@@ -159,7 +159,7 @@ describe("窗口运行实例", () => {
         await browserWindow.start();
         expect(failureOf(browserWindow.state)?.status).toBe("connection-failed");
 
-        const late = backendAt(port);
+        const late = await backendAt(port);
         await late.ready;
         await browserWindow.start();
         expect(browserWindow.state.status).toBe("ready");
@@ -599,7 +599,7 @@ describe("窗口的远程服务链路（场景 6、8、9）", () => {
 
     it("服务端换了进程：窗口转为服务端已重启，之后不再重连；旧服务端停止时先关插件，订阅以 provider-stopped 结束", async () => {
         const clock = new ManualClock();
-        const first = backendAt(0);
+        const first = await backendAt(0);
         await first.ready;
         const httpPort = Number(new URL(first.url!).port);
         let server = first;
@@ -611,7 +611,7 @@ describe("窗口的远程服务链路（场景 6、8、9）", () => {
         first.requestStop("test:restart");
         await first.stopped;
         await waitUntil("窗口标注离线", () => browserWindow.state.status === "ready" && browserWindow.state.connection === "offline");
-        server = backendAt(httpPort);
+        server = await backendAt(httpPort);
         await server.ready;
         clock.advance(500);
         await waitUntil("窗口转为服务端已重启", () => browserWindow.state.status === "server-restarted");
@@ -705,7 +705,7 @@ async function projectBackend(): Promise<{readonly server: RunningServer; readon
     if (!registered.ok) throw new Error(registered.detail);
     const grace = new ManualClock();
     const forward = trackedProjectOutput(observed<string>());
-    const server = startServer({
+    const server = await startClaimedServer({
         config: {host: "127.0.0.1", port: 0, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, shiftPorts: false, allowedOrigins: [], projects: {graceMs: 1000, startMs: 10_000, stopMs: 10_000}},
         plugins: (context) => [...manifestServerPlugins(context), createRemoteProbePlugin()],
         process: new EventEmitter(),

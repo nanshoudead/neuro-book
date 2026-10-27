@@ -4,7 +4,7 @@
  *
  * 取写入锁 → 读当前字节并记下文件身份 → 由调用方按当前字节决定写什么或就此结束 → 写同目录的临时文件 → 改名前核对仍持有锁、
  * 文件身份没变，身份变了就从新字节重做 → 改名替换 → 释放锁。
- * - 写入锁跨进程：两个服务端可以同时打开同一个项目（docs/specs/runtime/projects.md），同一个文件会有两个写入方，进程内的
+ * - 写入锁跨进程：用不同状态根的两个服务端可以同时打开同一个项目（docs/specs/runtime/projects.md），同一个文件会有两个写入方，进程内的
  *   串行挡不住它们互相覆盖。锁是 proper-lockfile 的锁目录，只在读到改名之间持有；锁目录放在哪里由调用方定（配置层放在文件旁，
  *   Files 放进控制目录，免得出现在用户的目录里）。
  * - 锁被判为残留、被别的进程接管后，本次写入失去资格：proper-lockfile 接管时删掉锁目录再建，所以改名前比对锁目录的
@@ -88,7 +88,7 @@ export interface HeldLock {
  * proper-lockfile 删掉锁目录再建，所以比对锁目录的身份（连同 `onCompromised` 报告的失效）就能发现；持有者在提交前
  * 用 `stillHeld` 核对，核对与提交之间仍有一个很小的窗口。等不到为 `locked`。
  */
-export async function holdLock(lockPath: string, report: (event: string, error: unknown) => void, options: {readonly stale?: number} = {}): Promise<{readonly ok: true; readonly lock: HeldLock} | {readonly ok: false; readonly reason: "locked" | "failed"; readonly detail: string}> {
+export async function holdLock(lockPath: string, report: (event: string, error: unknown) => void, options: {readonly stale?: number} = {}): Promise<{readonly ok: true; readonly lock: HeldLock} | {readonly ok: false; readonly reason: "locked" | "failed"; readonly detail: string; readonly code?: string}> {
     let unlock: () => Promise<void>;
     let compromised: unknown = null;
     try {
@@ -97,7 +97,8 @@ export async function holdLock(lockPath: string, report: (event: string, error: 
             report("lock.compromised", error);
         }});
     } catch (error) {
-        return errno(error) === "ELOCKED" ? {ok: false, reason: "locked", detail: "锁一直被别的进程占着"} : {ok: false, reason: "failed", detail: `无法取得锁：${describe(error)}`};
+        const code = errno(error);
+        return code === "ELOCKED" ? {ok: false, reason: "locked", detail: "锁一直被别的进程占着"} : {ok: false, reason: "failed", detail: `无法取得锁：${describe(error)}`, ...(typeof code === "string" ? {code} : {})};
     }
     let identity: Stats;
     try {

@@ -349,24 +349,21 @@ test("复制场景链接：只含有效参数并带上主题与配色；地址�
     await expect(page.locator("[data-lab-missing-scene]")).toHaveCount(0);
 });
 
-test("同一状态根换端口再起一个开发服务：读到同一份偏好（场景 22）", async ({page, browser}) => {
+test("同一状态根先后起两个开发服务：后起的读到同一份偏好（场景 22）", async ({page, browser}) => {
     await openLab(page, "?c=JsonViewer");
     await page.locator('[aria-label="主题"]').click();
     await page.locator('[role="option"]').filter({hasText: "macOS"}).click();
     await expect.poll(recordValue).toEqual({themeId: "macos"});
 
-    // 新端口是另一个浏览器来源，客户端身份也是另一个；偏好记录是 shared，仍是同一份。
-    const other = await startDevSession(join(tmp, "state"));
-    try {
-        expect(new URL(other.pageUrl).port).not.toBe(new URL(dev.pageUrl).port);
-        const second = await browser.newPage();
-        await second.goto(`${other.pageUrl}lab?c=JsonViewer`);
-        await expect.poll(() => labState(second)).toMatchObject({ready: true, themeId: "macos"});
-        await second.close();
-    } finally {
-        other.child.kill("SIGTERM");
-        expect(await other.exit).toBe(0);
-    }
+    // 一个状态根同一时间只跑一个服务端（runtime.server-host）：先停掉当前的开发服务，再在同一状态根起一个。新进程从磁盘
+    // 读偏好；新页面是另一个浏览器上下文，客户端身份也是另一个；偏好记录是 shared，仍是同一份。后面的用例接着用新起的这个。
+    dev.child.kill("SIGTERM");
+    expect(await dev.exit).toBe(0);
+    dev = await startDevSession(join(tmp, "state"));
+    const second = await browser.newPage();
+    await second.goto(`${dev.pageUrl}lab?c=JsonViewer`);
+    await expect.poll(() => labState(second)).toMatchObject({ready: true, themeId: "macos"});
+    await second.close();
 });
 
 test("对话框类浮层在手机画布里打开：落在画布里、按画布居中、不越出画布（场景 24）", async ({page}) => {

@@ -30,7 +30,7 @@ export interface ServerHostOptions {
     readonly emergency: (report: EmergencyReport) => void;
     /** 挂接信号与未处理异常的进程对象；缺省当前进程。 */
     readonly process?: ProcessEvents;
-    /** 合作停止信号；缺省 SIGINT 与 SIGTERM。 */
+    /** 合作停止信号；缺省 SIGINT、SIGTERM 与 SIGHUP。 */
     readonly signals?: ReadonlyArray<NodeJS.Signals>;
     /** 停止通道：读到一行 `stop` 即请求停止，流结束也请求停止（父进程已不在）。缺省不挂接。 */
     readonly stopInput?: NodeJS.ReadableStream | null;
@@ -56,7 +56,8 @@ export interface ServerHost {
     readonly detached: boolean;
 }
 
-const DEFAULT_SIGNALS: ReadonlyArray<NodeJS.Signals> = ["SIGINT", "SIGTERM"];
+/** 关掉终端时进程收到 SIGHUP：不挂接的话 Bun 立即退出，排空与项目子进程的有序停止都被跳过。 */
+const DEFAULT_SIGNALS: ReadonlyArray<NodeJS.Signals> = ["SIGINT", "SIGTERM", "SIGHUP"];
 
 type Listener = {readonly event: string; readonly listener: (...args: unknown[]) => void};
 

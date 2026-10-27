@@ -38,6 +38,7 @@ import {pluginVersionSatisfies} from "nbook/plugin-platform/shared/versions";
 import {loopbackOrigins} from "./config";
 import type {ServerConfig} from "./config";
 import {startServerHost} from "./host";
+import type {StateRootClaim} from "./instance";
 import {resolveUserDirectories} from "./user-directories";
 import type {FatalKind, ProcessEvents} from "./host";
 import {manifestServerPlugins} from "./plugins";
@@ -54,6 +55,11 @@ export type ExitCode = 0 | 1;
 
 export interface StartServerOptions {
     readonly config: ServerConfig;
+    /**
+     * 已认领的状态根（`claimStateRoot`，必须就是 `config.stateRoot`）。本函数接管它：就绪时发布地址，停止开始时标记，
+     * 停止结算后或装配失败时放下。没有认领就起不了服务端，一个状态根只跑一个实例由此保证。
+     */
+    readonly claim: StateRootClaim;
     /** 本进程加载的清单；缺省是产品清单，开发入口另加开发清单。 */
     readonly manifest?: ReadonlyArray<PluginDescriptor>;
     /** 装配插件；缺省按清单。测试经这里加入自己的插件，产品代码不含测试分支。 */
@@ -226,6 +232,7 @@ export function startServer(options: StartServerOptions): RunningServer {
             ? `缺省的 HTTP 与内核 RPC 端口及顺延的 ${String(PORT_SHIFT_ATTEMPTS - 1)} 组都被占用`
             : "内核 RPC 端口监听失败";
         reportFatal("runtime.startup.failed", message, error);
+        void options.claim.release();
         throw new ServerAssemblyError(message, {cause: error});
     }
     options.onRpcListening?.(rpc.url);
@@ -261,6 +268,7 @@ export function startServer(options: StartServerOptions): RunningServer {
         // 还没有运行实例；只有已开的 RPC 监听要关。
         rpc.stop();
         reportFatal("runtime.startup.failed", "后端插件装配失败", error);
+        void options.claim.release();
         throw new ServerAssemblyError("后端插件装配失败", {cause: error});
     }
     const clock: DrainClock = options.clock ?? {schedule: (task, milliseconds) => {
@@ -346,6 +354,7 @@ export function startServer(options: StartServerOptions): RunningServer {
         signals: options.signals,
         stopInput: options.stopInput,
         beforeStop: async () => {
+            options.claim.stopping();
             // 先 abort 开发任务（同步），再在同一个同步段里开始排空，两者并行。
             const devTaskStopped = stopDevTask();
             try {
@@ -382,6 +391,11 @@ export function startServer(options: StartServerOptions): RunningServer {
     const ready = host.application.startup.then((startup) => {
         if (startup.status === "available") {
             admission.ready();
+            options.claim.publish({
+                url,
+                rpcUrl: rpc.url,
+                plugins: {safeMode: prepared.startup.safeMode, items: prepared.startup.plugins.map(({id, version, state}) => ({id, version, state}))},
+            });
             if (options.devTask !== undefined && !devTaskClosed) devTask = options.devTask({registry, stateRoot: options.config.stateRoot});
             return;
         }
@@ -418,6 +432,8 @@ export function startServer(options: StartServerOptions): RunningServer {
             }
         }
         const exitCode: ExitCode = startup.status === "failed" || fatalSeen || failures.length > 0 ? 1 : 0;
+        // 最后放下认领：此后同一状态根上的下一次启动不会再看到本实例。
+        await options.claim.release();
         return {exitCode, failures, result};
     });
 

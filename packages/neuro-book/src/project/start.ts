@@ -149,7 +149,7 @@ export async function startProject(options: StartProjectOptions): Promise<Projec
             writeFatal(fatalLine(emergency.stage === "startup" ? "project.startup.failed" : "project.stop.emergency", {report: emergency}));
         }),
         process: options.process,
-        // 终端的 Ctrl+C 会发给整个进程组：项目何时停由服务端决定，这里只认 SIGTERM。
+        // 终端的 Ctrl+C 与 SIGHUP 会发给整个进程组：项目何时停由服务端决定，这里只认 SIGTERM。
         signals: ["SIGTERM"],
         onFatal: (error: unknown, kind: FatalKind) => {
             fatalSeen = true;

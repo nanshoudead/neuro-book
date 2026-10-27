@@ -6,7 +6,7 @@
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
 import {EventEmitter} from "node:events";
-import {mkdir, readFile, rm} from "node:fs/promises";
+import {appendFile, mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {ManualClock} from "@notnotype/nb-runtime/lifecycle/testing";
@@ -21,7 +21,7 @@ import {remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract"
 
 import {manifestServerPlugins} from "./plugins";
 import {createProjectRegistry} from "./projects/registry";
-import {startServer} from "./start";
+import {startClaimedServer} from "./testing/claimed-server";
 import type {RunningServer} from "./start";
 import {helloFrame, openRawRpcSocket} from "./testing/rpc-client";
 import type {RawRpcSocket} from "./testing/rpc-client";
@@ -76,17 +76,17 @@ interface InProcess {
     connect(id: string, bind: Parameters<typeof helloFrame>[1]): Promise<{readonly socket: RawRpcSocket; readonly reply: Record<string, unknown>}>;
 }
 
-async function inProcess(fault: ProjectFault = "none"): Promise<InProcess> {
+async function inProcess(fault: ProjectFault = "none", projectEntry: string = PROJECT_FIXTURE_ENTRY): Promise<InProcess> {
     const {stateRoot, project} = await prepared();
     const clock = new ManualClock();
     const output = observed<string>();
     const forward = trackedProjectOutput(output);
-    const server = startServer({
+    const server = await startClaimedServer({
         config: {host: "127.0.0.1", port: 0, stateRoot, logDirectory: join(stateRoot, "logs"), webRoot: null, stopStdin: false, rpcPort: 0, shiftPorts: false, allowedOrigins: [], projects: {graceMs: GRACE_MS, startMs: 10_000, stopMs: 10_000}},
         process: new EventEmitter(),
         writeFatal: () => undefined,
         plugins: (context) => [...manifestServerPlugins(context), createRemoteProbePlugin()],
-        projectEntry: PROJECT_FIXTURE_ENTRY,
+        projectEntry,
         projectEnv: {...process.env, NBOOK_TEST_PLUGINS: remoteProbeDescriptor.id, NBOOK_TEST_PROJECT_FAULT: fault},
         projectOutput: {stdout: forward, stderr: forward},
         projectClock: clock,
@@ -118,6 +118,17 @@ describe("Spec projects 输出 7：客户端绑定", () => {
         const second = await t.connect("browser-2", {bind: {project: t.project.id}});
         expect(second.reply).toMatchObject({type: "welcome", binding: {generation: 1}});
         expect((await t.connect("browser-3", {bind: {project: "missing"}})).reply).toMatchObject({type: "reject", reason: "project-unavailable"});
+    });
+
+    it("项目宿主入口在服务端运行期间被更换（全局包原地升级）：打开作品得到 project-unavailable，提示重启服务", async () => {
+        counter += 1;
+        const entry = join(tmp, `entry-${String(counter)}.ts`);
+        await writeFile(entry, `import ${JSON.stringify(PROJECT_FIXTURE_ENTRY)};\n`);
+        const t = await inProcess("none", entry);
+        await appendFile(entry, "// 升级后的新版本\n");
+        const {reply} = await t.connect("browser-1", {bind: {project: "book"}});
+        expect(reply).toMatchObject({type: "reject", reason: "project-unavailable"});
+        expect(String(reply.message)).toContain("重启服务");
     });
 
     it("宽限期内重连恢复原绑定；宽限期满后重连为 project-gone，不改投新代次", async () => {
