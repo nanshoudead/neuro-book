@@ -24,7 +24,7 @@ import {chromium} from "playwright-core";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {RELEASE_DIRECTORY, RELEASE_MANIFEST, sha256Of, type ReleaseManifest} from "#scripts/release/manifest";
+import {RELEASE_DIRECTORY, RELEASE_MANIFEST, releaseFilesChangedSince, sha256Of, type ReleaseManifest} from "#scripts/release/manifest";
 import {APP_PACKAGE, BUILT_PACKAGES, checkReleasePackages, loadBuiltPackages, loadReleasePackages, publishOrder, releaseDirectories, SDK_PACKAGE, type ReleasePackage} from "#scripts/release/packages";
 
 const REPOSITORY = join(import.meta.dir, "..", "..");
@@ -375,7 +375,7 @@ if (import.meta.main) {
             // 清单是“这些 tarball 验过了”的凭据：先删掉上一次的，冒烟全部通过后最后才写。中途失败就没有清单，publish 不会发。
             await rm(RELEASE_DIRECTORY, {recursive: true, force: true});
             await mkdir(RELEASE_DIRECTORY, {recursive: true});
-            // 字节从工作区打出来，所以打之前就要求会发布的目录是干净的、记下是哪个提交；结束时再核对一次。
+            // 字节从工作区打出来，所以打之前就要求会发布的目录是干净的、记下是哪个提交；结束时再核对那些目录没变。
             const commit = await cleanCommit();
             for (const entry of BUILT_PACKAGES) await mustRun(`生成 ${entry.name}`, ["bun", "run", entry.script], {cwd: join(REPOSITORY, "packages", entry.source)});
             const built = loadBuiltPackages(REPOSITORY);
@@ -399,7 +399,9 @@ if (import.meta.main) {
         await smokeVueHost(root, from);
         await smokeAppAndPlugin(root, from, tarballs);
         if (manifest !== null) {
-            if ((await cleanCommit()) !== manifest.commit) fail(`冒烟期间 HEAD 变了（开始时 ${manifest.commit.slice(0, 12)}）：重跑 release:smoke`);
+            // master 被几个会话共用，冒烟期间别处的提交照常进来；只要会发布的目录没变，打出的字节就还是开始时那份代码的。
+            const changed = releaseFilesChangedSince(manifest.commit, releaseDirectories());
+            if (changed.length > 0) fail(`冒烟期间会发布的目录改过：${changed.slice(0, 5).join("、")}；重跑 release:smoke`);
             await writeJson(RELEASE_MANIFEST, manifest);
             step("写下 dist/release/release-manifest.json：release:publish 只发这些 tarball");
         }

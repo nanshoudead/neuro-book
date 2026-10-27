@@ -3,6 +3,7 @@
  * `release-manifest.json`；publish 只发它们，发之前核对提交与 SHA-256。
  */
 
+import {spawnSync} from "node:child_process";
 import {createHash} from "node:crypto";
 import {readFile} from "node:fs/promises";
 import {join} from "node:path";
@@ -23,6 +24,16 @@ export type ReleaseManifest = {
 
 export async function sha256Of(path: string): Promise<string> {
     return createHash("sha256").update(await readFile(path)).digest("hex");
+}
+
+/**
+ * `commit` 以来 `dirs`（相对仓库根）里改过的文件，含未提交的改动。master 被几个会话共用，冒烟到发布之间别处的提交照常进来，
+ * 只要会发布的目录没变，验过的 tarball 就还是这份代码打出来的。`commit` 不在历史里时抛出。
+ */
+export function releaseFilesChangedSince(commit: string, dirs: readonly string[]): string[] {
+    const result = spawnSync("git", ["diff", "--name-only", commit, "--", ...dirs], {cwd: REPOSITORY, encoding: "utf8"});
+    if (result.status !== 0) throw new Error(`git diff ${commit.slice(0, 12)} 失败：${result.stderr.trim()}`);
+    return result.stdout.split("\n").filter((line) => line !== "");
 }
 
 /** npm 的 `dist.integrity` 写法（`sha512-<base64>`），用来比对 registry 上已有的版本是不是这份 tarball。 */

@@ -6,7 +6,7 @@
  * 发的是 `release:smoke` 打好、验过的 tarball（`dist/release/`），不在这里重新打包：发出去的字节就是冒烟验过的那份。
  * 发出去的版本号不能再用，所以先过门禁，任何一条失败都在发布前停下：会发布的目录（源码包、生成包的源码目录与根
  * LICENSE）没有未提交的改动或未跟踪的文件、在 master 上、HEAD 已推到 origin/master（README 里的图片用 GitHub 上的地址）、
- * `release-manifest.json` 是在当前 HEAD 上打的且每个 tarball 的 SHA-256 对得上、源码包的发布清单检查、要发的包的 typecheck。只看
+ * 冒烟以来会发布的目录没改过（`release-manifest.json` 的提交与 HEAD 比，别的目录的提交不算）且每个 tarball 的 SHA-256 对得上、源码包的发布清单检查、要发的包的 typecheck。只看
  * 会发布的目录，是因为主工作区常有别的会话的改动，它们不进包。单测与 e2e 不在这里重跑，它们是合入 master 的门禁。
  *
  * 中途失败就停，打印已发与没发的包；再跑一次会跳过已经在 registry 上的版本，所以可以接着发。
@@ -17,7 +17,7 @@ import {readFile} from "node:fs/promises";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
-import {integrityOf, RELEASE_DIRECTORY, RELEASE_MANIFEST, sha256Of, type ReleaseManifest} from "#scripts/release/manifest";
+import {integrityOf, RELEASE_DIRECTORY, RELEASE_MANIFEST, releaseFilesChangedSince, sha256Of, type ReleaseManifest} from "#scripts/release/manifest";
 import {BUILT_PACKAGES, checkReleasePackages, loadReleasePackages, releaseDirectories} from "#scripts/release/packages";
 
 // 不用 import.meta.dir：测试在 Node 里导入本文件。
@@ -76,10 +76,13 @@ async function run(argv: readonly string[], cwd: string, inherit = false): Promi
     return {code, stdout, stderr};
 }
 
-/** 清单与当前提交、磁盘上的 tarball 对不对得上；返回问题列表，空表示通过。`digests` 是按 tarball 文件名算出的 SHA-256，文件不在时没有这一项。 */
-export function releaseManifestProblems(manifest: ReleaseManifest, head: string, digests: ReadonlyMap<string, string>): string[] {
+/**
+ * 清单与当前代码、磁盘上的 tarball 对不对得上；返回问题列表，空表示通过。`changedSinceSmoke` 是冒烟的提交以来会发布的目录
+ * 改过的文件（master 被几个会话共用，别处的提交不算）；`digests` 是按 tarball 文件名算出的 SHA-256，文件不在时没有这一项。
+ */
+export function releaseManifestProblems(manifest: ReleaseManifest, changedSinceSmoke: readonly string[], digests: ReadonlyMap<string, string>): string[] {
     const problems: string[] = [];
-    if (manifest.commit !== head) problems.push(`tarball 是在 ${manifest.commit.slice(0, 12)} 上打的，现在是 ${head.slice(0, 12)}：重跑 bun run release:smoke`);
+    if (changedSinceSmoke.length > 0) problems.push(`冒烟（${manifest.commit.slice(0, 12)}）之后会发布的目录又改过：${changedSinceSmoke.slice(0, 5).join("、")}；重跑 bun run release:smoke`);
     for (const entry of manifest.packages) {
         const actual = digests.get(entry.tarball);
         if (actual === undefined) problems.push(`${entry.name}@${entry.version} 的 ${entry.tarball} 不在 dist/release/ 里：重跑 bun run release:smoke`);
@@ -109,15 +112,20 @@ async function gates(): Promise<ReleaseManifest> {
     } catch {
         throw new GateFailure("dist/release/release-manifest.json 读不到：先跑 bun run release:smoke（它生成并验过要发的 tarball）");
     }
-    const head = (await run(["git", "rev-parse", "HEAD"], REPOSITORY)).stdout.trim();
+    let changed: string[];
+    try {
+        changed = releaseFilesChangedSince(manifest.commit, releaseDirectories());
+    } catch (error) {
+        throw new GateFailure(`${(error as Error).message}：重跑 bun run release:smoke`);
+    }
     const digests = new Map<string, string>();
     for (const entry of manifest.packages) {
         const path = join(RELEASE_DIRECTORY, entry.tarball);
         if (existsSync(path)) digests.set(entry.tarball, await sha256Of(path));
     }
-    const problems = releaseManifestProblems(manifest, head, digests);
+    const problems = releaseManifestProblems(manifest, changed, digests);
     if (problems.length > 0) throw new GateFailure(problems.join("\n"));
-    console.log(`✓ ${manifest.packages.length} 个 tarball 是在当前提交上打的、冒烟之后没被改过`);
+    console.log(`✓ ${manifest.packages.length} 个 tarball 冒烟之后没被改过，会发布的目录与冒烟时（${manifest.commit.slice(0, 12)}）相同`);
 
     const findings = checkReleasePackages(REPOSITORY, sources);
     if (findings.length > 0) throw new GateFailure(`发布清单检查失败：\n${findings.map((finding) => `${finding.package} [${finding.code}] ${finding.message}`).join("\n")}`);
