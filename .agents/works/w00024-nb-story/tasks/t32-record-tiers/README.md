@@ -11,7 +11,7 @@ updated: 2026-10-27
 
 把 t28 的结论做成产品功能：抽取时模型给每条记录一个先验等级，程序在抽完后算后验证据并显示依据，合并成一个等级；查看器默认折叠 3 级，可展开
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：[`story.queries`](../../../../../docs/specs/story/queries.md) 输出 23 到 27、F13、验收 12；[`story.cli`](../../../../../docs/specs/story/cli-skill.md) 的 `--tiers`、`--max-tier`、`why`；[`story.qa`](../../../../../docs/specs/story/qa.md) 输出 3；抽取与查看器的部分随第 3、4 片补。
 
 ## 当前状态
 
