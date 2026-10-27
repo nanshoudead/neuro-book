@@ -4,6 +4,7 @@
  */
 
 import {findRefs, normalizeRef} from "../../contract/refs";
+import {ALWAYS_LINKABLE, refChapter, type RefLinkable} from "./linkable";
 
 export interface RefLineInput {
     /** 各个出处小块的宽度（含与前一个之间的间距），按顺序。 */
@@ -31,12 +32,14 @@ export function visibleRefCount({widths, available, moreWidth}: RefLineInput): n
 /** 一段文字切成纯文字与出处（出处带标准写法）：答案卡片里的文字（结论、分点、说明）把出处画成可点的。 */
 export type RefSegment = {readonly text: string; readonly ref: string | null};
 
-export function refSegments(text: string): RefSegment[] {
+export function refSegments(text: string, linkable: RefLinkable = ALWAYS_LINKABLE): RefSegment[] {
     const segments: RefSegment[] = [];
     let cursor = 0;
     for (const span of findRefs(text)) {
         if (span.start > cursor) segments.push({text: text.slice(cursor, span.start), ref: null});
-        segments.push({text: text.slice(span.start, span.end), ref: normalizeRef(span.text)});
+        const chapter = refChapter(span.text);
+        // 查看器打不开的章（没抽取的尾部）：当纯文字。
+        segments.push({text: text.slice(span.start, span.end), ref: chapter !== null && !linkable(chapter) ? null : normalizeRef(span.text)});
         cursor = span.end;
     }
     if (cursor < text.length) segments.push({text: text.slice(cursor), ref: null});

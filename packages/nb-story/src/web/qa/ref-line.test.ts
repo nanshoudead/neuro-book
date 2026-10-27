@@ -7,6 +7,16 @@ import {describe, expect, test} from "bun:test";
 import {refSegments, visibleRefCount} from "./ref-line";
 
 describe("依据一行", () => {
+    test("指向打不开的章的出处当纯文字（ref 为 null）", () => {
+        expect(refSegments("见20.3与22.1。", chapter => chapter <= 20)).toEqual([
+            {text: "见", ref: null},
+            {text: "20.3", ref: "20.3"},
+            {text: "与", ref: null},
+            {text: "22.1", ref: null},
+            {text: "。", ref: null},
+        ]);
+    });
+
     test("全放得下就全放，不留“等 N 处”的位置", () => {
         expect(visibleRefCount({widths: [40, 40, 40], available: 120, moreWidth: 50})).toBe(3);
     });

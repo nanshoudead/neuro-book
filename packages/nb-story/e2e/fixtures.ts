@@ -4,7 +4,7 @@
  */
 
 import {spawn, type ChildProcess} from "node:child_process";
-import {readFile, rm, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {gunzipSync} from "node:zlib";
 
@@ -171,4 +171,26 @@ export async function startQaEndpoint(): Promise<QaEndpoint> {
 export async function sampleSourceText(chapters: number): Promise<string> {
     const sample = JSON.parse(gunzipSync(await readFile(join(PACKAGE, "tests", "fixtures", "sample-100ch.json.gz"))).toString("utf8")) as {sources: {paragraphs: string[]}[]};
     return `转生反派萝莉，找茬魔法少女\n作者：测试\n\n${sample.sources.slice(0, chapters).map(source => source.paragraphs.join("\n")).join("\n\n")}`;
+}
+
+/**
+ * 只抽了前 `committed` 章的书（书 id `fox`）：书里只有这几章的记录，`.ingest/fox/source.json` 放着前 `total` 章的原文，
+ * 后面几章是未抽取的尾部（w00024 t30）。截取方式同 testing/sample.ts 的 `smallDataset`。
+ */
+export async function makePartialLibrary(name: string, committed: number, total: number): Promise<{root: string; library: string; cleanup(): Promise<void>}> {
+    const root = await createTestTmpRoot(`nb-story-e2e-${name}`, `nb-story e2e ${name}`);
+    const library = join(root, "library");
+    const full = JSON.parse(gunzipSync(await readFile(join(PACKAGE, "tests", "fixtures", "sample-100ch.json.gz"))).toString("utf8")) as Record<string, unknown> & {sources: {chapter: number; paragraphs: unknown[]}[]};
+    const keep = (records: unknown): unknown => (records as {at: {chapter: number}}[]).filter(record => record.at.chapter <= committed);
+    const sources = full.sources.filter(chapter => chapter.chapter <= committed);
+    const small: Record<string, unknown> = {...full, through: {chapter: committed, paragraph: sources.at(-1)!.paragraphs.length}, sources};
+    for (const key of ["entities", "mentions", "times", "beats", "statements", "secrets", "episodes", "knowledge", "ledger", "questions", "summaries", "arcs"]) small[key] = keep(full[key]);
+    const file = join(root, "partial.json");
+    await writeFile(file, JSON.stringify(small));
+    const result = await runCli(["import", file, "--title", "转生反派萝莉，找茬魔法少女", "--id", "fox", "--library", library]);
+    if (result.code !== 0) throw new Error(`导入部分抽取的书失败：${result.stderr}`);
+    const dir = join(library, ".ingest", "fox");
+    await mkdir(dir, {recursive: true});
+    await writeFile(join(dir, "source.json"), JSON.stringify({id: "fox", title: "转生反派萝莉，找茬魔法少女", chapters: full.sources.filter(chapter => chapter.chapter <= total), preambleChars: 0, volumeLines: 0, createdAt: "2026-10-27T00:00:00.000Z"}));
+    return {root, library, cleanup: () => rm(root, {recursive: true, force: true})};
 }

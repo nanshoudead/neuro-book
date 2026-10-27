@@ -1,13 +1,20 @@
 <script setup lang="ts">
 // 文字回复下面的“没核实的出处”（w00024 t13 决定 8；附注 `nb-story.unverified-refs`，见 turns.ts）：提醒色一行，出处可点
 // 打开原文抽屉。说明见同名 .md。
-import {computed} from "vue";
+import {computed, inject} from "vue";
 import type {EntryComponentProps, HostComponentEmits} from "@notnotype/nb-agent-ui";
 
 import {refTarget} from "./link-refs";
+import {ALWAYS_LINKABLE, QA_LINKABLE, refChapter} from "./linkable";
 
 const props = defineProps<EntryComponentProps>();
 const emit = defineEmits<HostComponentEmits>();
+
+const linkable = inject(QA_LINKABLE, ALWAYS_LINKABLE);
+const canOpen = (refText: string): boolean => {
+    const chapter = refChapter(refText);
+    return chapter === null || linkable(chapter);
+};
 
 const refs = computed(() => {
     const value = (props.annotation.details as {refs?: unknown} | undefined)?.refs;
@@ -23,7 +30,7 @@ const refs = computed(() => {
         </template>
         <template v-else>
             <span>没核实的出处：</span>
-            <button v-for="refText in refs" :key="refText" type="button" class="unverified-ref" @click="emit('action', {type: 'reference.open', target: refTarget(refText)})">{{ refText }}</button>
+            <button v-for="refText in refs" :key="refText" type="button" class="unverified-ref" :disabled="!canOpen(refText)" @click="emit('action', {type: 'reference.open', target: refTarget(refText)})">{{ refText }}</button>
             <span class="unverified-note">这一轮没读过这些段，或它们在阅读位置之后，内容可能不准</span>
         </template>
     </div>
@@ -43,5 +50,6 @@ const refs = computed(() => {
 }
 .unverified-ref { border-radius: var(--radius-control); padding: 0 3px; color: inherit; text-decoration: underline dotted; }
 .unverified-ref:hover { background: var(--bg-hover); }
+.unverified-ref:disabled { cursor: default; text-decoration: none; background: none; }
 .unverified-note { color: var(--text-muted); }
 </style>

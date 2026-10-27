@@ -20,6 +20,10 @@ describe("出处改成链接", () => {
         expect(linkRefs("见第３８．１２段，（另见20.3-20.5）：好！", lexer)).toBe("见第[３８．１２](paragraph://38.12)段，（另见[20.3-20.5](paragraph://20.3—20.5)）：好！");
     });
 
+    test("指向查看器打不开的章（没抽取的尾部）的出处保持纯文字，其余照改", () => {
+        expect(linkRefs("见 20.3 与 22.1—22.4", lexer, {linkable: chapter => chapter <= 20})).toBe("见 [20.3](paragraph://20.3) 与 22.1—22.4");
+    });
+
     test("流式：文末的出处可能没写完，先不改；后面有字了再改", () => {
         expect(linkRefs("读到 38.1", lexer, {streaming: true})).toBe("读到 38.1");
         expect(linkRefs("读到 38.12。", lexer, {streaming: true})).toBe("读到 [38.12](paragraph://38.12)。");
