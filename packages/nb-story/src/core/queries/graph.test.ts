@@ -103,10 +103,32 @@ describe("关系词（输出 16）", () => {
     test("亲属说法里有亲属词才写亲属；找不到亲属词时往下看社交称谓与所属，都没有为 null", () => {
         expect(relationWord([statement("kinship", "姐妹")])).toBe("姐妹");
         expect(relationWord([statement("kinship", "是自己的亲人")])).toBe("亲属");
+        // 带方向的常见亲属词写成对称的词；“弟子”之类含单字的师承词不被当成亲属。
+        expect(relationWord([statement("kinship", "母亲")])).toBe("亲子");
+        expect(relationWord([statement("kinship", "祖母")])).toBe("祖孙");
+        expect(relationWord([statement("kinship", "同父异母")])).toBe("亲属");
+        expect(relationWord([statement("kinship", "师门弟子")])).toBeNull();
         // 师承辈分不是血亲：不写亲属，落到社交称谓。
         expect(relationWord([statement("kinship", "直系后辈"), statement("social", "师徒")])).toBe("师徒");
         expect(relationWord([statement("kinship", "直系后辈")])).toBeNull();
         expect(relationWord([statement("kinship", "直系后辈"), statement("membership", "所属")])).toBe("所属");
+    });
+});
+
+describe("泛称与草稿手工指定的归属（输出 22）", () => {
+    test("草稿指定了“学姐”在这几处专指某个人物：出场照计，不再是无名", async () => {
+        const dataset = await smallDataset(20, "anon-note");
+        const template = dataset.entities.find(entity => entity.id === "e4-2")!;
+        dataset.entities.push({...template, id: "e5-900", label: "负责登记的学姐", names: [{text: "学姐", at: {chapter: 5, paragraph: 1}, primary: true}], mergedFrom: []} as never);
+        for (let paragraph = 1; paragraph <= 5; paragraph += 1) dataset.mentions.push({entity: "e5-900", text: "学姐", at: {chapter: 5, paragraph}, start: 0, end: 2, via: "note"} as never);
+        const anon = await openTestBook("anon-note", dataset);
+        try {
+            const roster = await anon.ok("entities.list", {at: {chapter: 20}, limit: 500});
+            expect(roster.items.find(item => item.id === "e5-900")).toMatchObject({mentions: 5});
+            expect(roster.items.find(item => item.id === "e5-900")?.anonymous).toBeUndefined();
+        } finally {
+            await anon.close();
+        }
     });
 });
 

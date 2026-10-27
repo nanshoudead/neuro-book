@@ -11,9 +11,18 @@ import {participantNodes, perspectiveStatements, type QueryContext} from "./cont
 /** 关系图默认画的类别：人物与组织（身份是人物的化名，算人物）。 */
 const DEFAULT_KINDS: readonly EntityKind[] = ["person", "persona", "group"];
 const RELATION_FAMILIES = new Set(["kinship", "social", "membership"]);
-const KINSHIP_WORDS = ["姐妹", "兄弟", "姐弟", "兄妹", "父女", "母女", "父子", "母子", "叔侄", "夫妻", "祖孙"];
-/** 笼统的亲属词：写成“亲属”。 */
-const GENERAL_KIN_WORDS = ["亲属", "亲人", "亲戚", "家人"];
+/**
+ * 亲属词 → 关系图上的写法。“母亲”“祖母”这类带方向的词不知道谁是谁的，写成对称的“亲子”“祖孙”；
+ * 对称的并列词（姐妹、夫妻……）原样用。先列的先匹配，所以复合词（同父异母、姑侄）排在单字词前面。
+ */
+const KINSHIP_WORDS: readonly (readonly [word: string, shown: string])[] = [
+    ...["姐妹", "兄弟", "姐弟", "兄妹", "父女", "母女", "父子", "母子", "叔侄", "夫妻", "祖孙"].map(word => [word, word] as const),
+    ...["姑侄", "姑母", "舅甥", "姨甥", "伯侄"].map(word => [word, "叔侄"] as const),
+    ...["同父异母", "同母异父", "堂兄", "堂姐", "堂弟", "堂妹", "表兄", "表姐", "表弟", "表妹", "兄长", "姐姐", "哥哥", "弟弟", "妹妹"].map(word => [word, "亲属"] as const),
+    ...["母亲", "父亲", "父母", "爸爸", "妈妈", "儿子", "女儿", "子女", "孩子"].map(word => [word, "亲子"] as const),
+    ...["祖母", "祖父", "外祖", "爷爷", "奶奶", "外婆", "外公", "孙子", "孙女"].map(word => [word, "祖孙"] as const),
+    ...["亲属", "亲人", "亲戚", "家人"].map(word => [word, "亲属"] as const),
+];
 /** 社交类说法里认作关系称谓的词，沿用 w00024 t01 关系图定稿时的词表。 */
 const SOCIAL_WORDS = ["朋友", "同桌", "同学", "室友", "舍友", "搭档", "对手", "敌人", "师徒", "恋人", "邻居", "同伴", "队友", "上司", "下属", "雇主", "契约"];
 /** 故事线的行数。 */
@@ -39,8 +48,8 @@ export function relationWord(statements: readonly Statement[]): string | null {
     const labels = (family: string) => statements.filter(statement => statement.family === family).map(statement => statement.label ?? statement.text);
     // 亲属说法里找不到亲属词的不算（“直系后辈”是魔女的师承辈分，不是血亲）：往下看社交称谓与所属。
     const kinship = labels("kinship");
-    const kinWord = [...KINSHIP_WORDS, ...GENERAL_KIN_WORDS].find(word => kinship.some(label => label.includes(word)));
-    if (kinWord !== undefined) return KINSHIP_WORDS.includes(kinWord) ? kinWord : "亲属";
+    const kin = KINSHIP_WORDS.find(([word]) => kinship.some(label => label.includes(word)));
+    if (kin !== undefined) return kin[1];
     const social = labels("social");
     const word = SOCIAL_WORDS.find(candidate => social.some(label => label.includes(candidate)));
     if (word) return word;

@@ -450,6 +450,25 @@ describe("对话中途改阅读位置（输出 41，t25）", () => {
         expect(kept).toMatchObject({positionChanges: 2, currentAt: {chapter: 35}});
         expect(kept.turns).toHaveLength(2);
     });
+
+    test("续问带 at 的一问没开始就放弃：位置、提醒与记录都不变；带 at 准备后别处改了位置，这一问保存得到 conflict，不按别处的位置悄悄运行", async () => {
+        const id = await firstTurn();
+        const before = await records().getWithLog(id, await generation());
+        const {prepared} = await prepareScripted(book, [answer({evidence: ["26.1"]})], {continueFrom: id, at: {chapter: 30}, question: "要放弃的追问"});
+        expect(prepared.at).toMatchObject({chapter: 30});
+        await prepared.abandon();
+        const after = await records().getWithLog(id, await generation());
+        expect(after.conversation).toEqual(before.conversation);
+        expect(after.log).toEqual(before.log);
+
+        const second = await prepareScripted(book, [answer({evidence: ["26.1"]})], {continueFrom: id, at: {chapter: 30}, question: "撞车的追问"});
+        await changePosition({api: book.api, book: undefined, conversation: id, at: {chapter: 35}});
+        const outcome = await second.prepared.run();
+        expect(outcome).toMatchObject({recordSaved: false, notSaved: {reason: "conflict"}});
+        const kept = await records().get(id, await generation());
+        expect(kept).toMatchObject({positionChanges: 1, currentAt: {chapter: 35}});
+        expect(kept.turns).toHaveLength(1);
+    });
 });
 
 describe("对话与追问（输出 5、26，验收 14、15、17）", () => {

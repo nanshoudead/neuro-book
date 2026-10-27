@@ -410,11 +410,13 @@ test("全书图（输出 27）：选中一个对象点后隐藏“对象”类�
     await page.getByText("按关联", {exact: true}).click();
     const graph = page.locator(".story-graph");
     await expect(graph.locator("canvas").first()).toBeVisible();
-    await page.waitForTimeout(1500);
     await page.getByPlaceholder("在图里找").fill("苏天晴");
-    await page.waitForTimeout(1200);
+    // 搜索把图移到匹配的点：等图上的点停下来（搜索命中后图中心的点就是它）再点中心。
     const box = (await graph.boundingBox())!;
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(async () => {
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        await expect(page.getByTestId("graph-selection-bar")).toBeVisible({timeout: 500});
+    }).toPass({timeout: 15_000});
     const bar = page.getByTestId("graph-selection-bar");
     await expect(bar).toContainText("已选中");
     await page.getByRole("button", {name: "对象", exact: true}).click();

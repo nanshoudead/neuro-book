@@ -270,6 +270,7 @@ export function createQaService(options: QaServiceOptions): QaService {
                     conversation: id,
                     turn: prepared.turn,
                     baseTurns: prepared.turn - 1,
+                    baseChanges: prepared.baseChanges,
                     logFrom: prepared.logFrom,
                     question: params.question,
                     at: prepared.at,

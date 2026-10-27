@@ -34,6 +34,7 @@ const CASES: {args: string[]; method: StoryMethod; params: Record<string, unknow
     {args: ["ties", "苏天晴", "--at", "50"], method: "entity.relations", params: {entity: "苏天晴", at: {chapter: 50}}},
     {args: ["between", "苏天晴", "e47-5", "--at", "50"], method: "entity.relation", params: {entity: "苏天晴", other: "e47-5", at: {chapter: 50}}},
     {args: ["knows", "--at", "38"], method: "secrets.matrix", params: {at: {chapter: 38}}},
+    {args: ["relations", "--include-anonymous", "true"], method: "graph.relations", params: {includeAnonymous: true}},
     {args: ["relations", "--perspective", "e1-1", "--kinds", "person,persona", "--min-together", "2", "--at", "38"], method: "graph.relations", params: {perspective: "e1-1", kinds: ["person", "persona"], minTogether: 2, at: {chapter: 38}}},
     {args: ["ledger", "--at", "38"], method: "ledger.tracks", params: {at: {chapter: 38}}},
     {args: ["track", "神典石", "--at", "38"], method: "ledger.track", params: {track: "神典石", at: {chapter: 38}}},

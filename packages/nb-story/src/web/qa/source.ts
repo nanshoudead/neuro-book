@@ -5,7 +5,7 @@
  * 状态从哪来：
  * - 记录与它的日志是权威。运行中这一轮的日志条目（推送的快照与 `log` 帧）接在后面，事件只画正在生成的那条（适配器
  *   `createHarnessTranscript` 的分工）。每一轮各用一份适配器（`turn-transcripts.ts`）。
- * - 运行开始时的记录轮数（`baseTurns`）与读到的记录对不上（命令行同时续问并先保存了）：这一轮不接进来，只给
+ * - 运行开始时的记录轮数（`baseTurns`）或位置改动次数（`baseChanges`）与读到的记录对不上（命令行同时续问并先保存了，或位置被别处改了）：这一轮不接进来，只给
  *   `detached`，页面写明它不会保存。
  * - 运行已经结束并且保存了：它就在记录里，不再管它。结束了但没保存：订阅一次拿它的条目（服务端的快照带着），接在
  *   记录后面显示，页面写明没保存的原因。
@@ -118,7 +118,7 @@ export function createQaSource(options: QaSourceOptions): QaSource {
     function attachedRun(record: QaRecordView | null, run: QaRunView | null): QaRunView | null {
         if (run === null) return null;
         if (run.state === "ended" && run.saved?.ok === true && run.runId !== settling) return null;
-        return run.baseTurns === (record?.turns.length ?? 0) ? run : null;
+        return run.baseTurns === (record?.turns.length ?? 0) && run.baseChanges === (record?.positionChanges ?? 0) ? run : null;
     }
 
     function messagesOf(next: QaSourceState): readonly MessageView[] {

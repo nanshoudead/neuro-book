@@ -245,6 +245,13 @@ describe("nbstory ask 的文字回复与追问（输出 10、12、26，验收 13
         const second = await run(["ask", "第二问", "--continue", id, "--at", "35", "--config", config, "--json"]);
         expect(second.code).toBe(0);
         expect(JSON.parse(second.stdout)).toMatchObject({ok: true, data: {id, turn: 2, at: {chapter: 35}}});
+        // 列表与详情显示现在的位置，开始时的位置另注，每轮写自己读到哪。
+        const listed = await run(["qa"]);
+        expect(listed.stdout).toMatch(new RegExp(`${id}.*@35\\.`, "u"));
+        const shown = await run(["qa", id]);
+        expect(shown.stdout).toMatch(/阅读位置 35\.\d+（开始时 30\.\d+）/u);
+        expect(shown.stdout).not.toMatch(/第 1 轮（[^）]*读到/u);
+        expect(shown.stdout).toMatch(/第 2 轮（.*读到 35\./u);
         const full = await run(["ask", "全读", "--at", "30", "--mode", "full", "--config", config, "--json"]);
         expect(full.code).toBe(0);
         const fullId = (JSON.parse(full.stdout) as {data: {id: string}}).data.id;

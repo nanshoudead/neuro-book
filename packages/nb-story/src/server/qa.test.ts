@@ -219,12 +219,15 @@ describe("一轮问答在服务里跑，进展经推送到页面", () => {
     });
 
     test("对话中途改阅读位置（t25）：运行中是 qa_busy；结束后 qa.position 写进提醒、列表给 currentAt 与 highestAt；位置往回调后最高位置不降；全读对话 qa_position_fixed；续问带 at 先改位置", async () => {
-        const env = await setup([{kind: "text", text: "第一轮"}, GIVE_UP, GIVE_UP]);
+        // 第一轮的回复闸住，保证 qa.position 到达时它还在运行。
+        const gate = held({kind: "text", text: "第一轮"});
+        const env = await setup([gate.reply, GIVE_UP, GIVE_UP]);
         const first = await env.call("qa.start", {book: "fox", question: "第一问", at: {chapter: 38}});
         const {conversation} = first.body as {conversation: string};
         const during = await env.call("qa.position", {book: "fox", conversation, at: {chapter: 30}});
-        // 第一轮很快就结束，可能已不在运行：只在还在运行时断言 busy，不靠时序。
-        if (during.status === 409) expect(code(during)).toBe("qa_busy");
+        expect(during.status).toBe(409);
+        expect(code(during)).toBe("qa_busy");
+        gate.release();
         await waitUntil("第一轮结束", async () => ((await env.call("qa.get", {book: "fox", id: conversation})).body as {run: QaRunView}).run.state === "ended");
 
         const changed = await env.call("qa.position", {book: "fox", conversation, at: {chapter: 30}});

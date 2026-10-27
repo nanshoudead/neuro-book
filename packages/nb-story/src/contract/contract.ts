@@ -594,6 +594,8 @@ const QaRunSchema = Type.Object({
     turn: Type.Integer({minimum: 1}),
     /** 开始时记录里有几轮：页面拿到的记录轮数不等于它时（命令行同时续问并先保存了），运行的这一轮不接在记录后面。 */
     baseTurns: Type.Integer({minimum: 0}),
+    /** 运行开始时记录里的位置改动次数：和读到的记录对不上，说明位置被别处改过，这一轮不接进来。 */
+    baseChanges: Type.Integer({minimum: 0}),
     /** 这一轮在会话日志里从哪一条开始。 */
     logFrom: Type.Integer({minimum: 1}),
     question: Type.String(),

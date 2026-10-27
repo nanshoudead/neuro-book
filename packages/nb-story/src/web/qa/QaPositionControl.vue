@@ -14,9 +14,12 @@ watch(() => [props.at.chapter, open.value] as const, () => {
     if (open.value) picked.value = String(props.at.chapter);
 });
 const options = computed(() => Array.from({length: Math.max(1, props.maxChapter)}, (_, index) => ({value: String(index + 1), label: `第 ${index + 1} 章`})));
-const same = computed(() => Number(picked.value) === props.at.chapter);
+/** 停在一章最后一段（或只记了章）：位置就是“读完这一章”。 */
+const atChapterEnd = computed(() => props.at.paragraph === undefined || props.at.paragraph === props.paragraphs[props.at.chapter - 1]);
+// 选的是“读完第 N 章”：停在 N.M（章中）时选同一章是有效的改动，把位置挪到章末。
+const same = computed(() => Number(picked.value) === props.at.chapter && atChapterEnd.value);
 /** 停在一章最后一段的写“第 N 章”，否则写“N.M”（同对话里的系统提醒）。 */
-const label = computed(() => (props.at.paragraph === undefined || props.at.paragraph === props.paragraphs[props.at.chapter - 1] ? `第 ${props.at.chapter} 章` : formatAt(props.at)));
+const label = computed(() => (atChapterEnd.value ? `第 ${props.at.chapter} 章` : formatAt(props.at)));
 
 function confirm(): void {
     emit("change", Number(picked.value));

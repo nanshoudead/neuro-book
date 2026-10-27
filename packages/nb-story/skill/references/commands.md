@@ -18,7 +18,7 @@
 | `ties <对象>` | 他和每个对象的关系一览：关系词、身份连接、一句说明、同场与认知的条数 | `nbstory ties 苏天晴 --at 38` |
 | `between <对象> <另一个>` | 两人之间的全部说法（按章，带类别与出处）、一起出场的情节、互相知道的事 | `nbstory between 苏天晴 南嘉鱼 --at 38` |
 | `knows` | 秘密矩阵：每个秘密、读者与各人物（带读者此时知道的化名）的知情状态、怎么知道的与出处 | `nbstory knows --at 38` |
-| `relations [--perspective <对象>] [--kinds <类别,…>] [--min-together <次>]` | 人物之间的关系词、同场次数、认知条数与身份连接；带视角时按那个人知道的 | `nbstory relations --perspective 苏天晴 --at 38` |
+| `relations [--perspective <对象>] [--kinds <类别,…>] [--min-together <次>] [--include-anonymous true]` | 人物之间的关系词、同场次数、认知条数与身份连接；带视角时按那个人知道的 | `nbstory relations --perspective 苏天晴 --at 38` |
 | `ledger` | 各项数值、任务、道具的当前值 | `nbstory ledger --at 38` |
 | `track <名目> [--owner <对象>]` | 一项的流水，原文报数与累加对不上的差额 | `nbstory track 神典石 --at 38` |
 | `questions [--state open\|partial\|answered] [--sort recent\|raised] [--query <字>]` | 悬念与每次进展 | `nbstory questions --state open --at 38` |

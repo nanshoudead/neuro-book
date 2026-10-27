@@ -19,7 +19,7 @@ describe("会话用量（输出 52）", () => {
 
     test("累积：各项相加；命中率是缓存读占全部提示词；费用只加已知的，一个都不知道时为 null", () => {
         const total = sessionUsage([assistant({input: 100, output: 20, cacheRead: 300, cacheWrite: 100, cost: 0.5}), assistant({input: 50, output: 10, cacheRead: 450, cacheWrite: 0, cost: null}, "c")]);
-        expect(total).toMatchObject({input: 150, output: 30, cacheRead: 750, cacheWrite: 100, cost: 0.5});
+        expect(total).toMatchObject({input: 150, output: 30, cacheRead: 750, cacheWrite: 100, cost: 0.5, costComplete: false});
         expect(total.hitRate).toBeCloseTo(750 / 1000);
         expect(sessionUsage([assistant({input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cost: null})]).cost).toBeNull();
         expect(sessionUsage([])).toMatchObject({requests: [], input: 0, hitRate: null, cost: null});
@@ -42,6 +42,7 @@ describe("会话用量（输出 52）", () => {
         expect(formatCost(0.314, "CNY")).toBe("¥0.31");
         expect(formatCost(0.004, "USD")).toBe("$< 0.01");
         expect(formatCost(0, "CNY")).toBe("¥0.00");
+        expect(formatCost(1.5, "EUR")).toBe("EUR 1.50");
         expect(formatPercent(88.4)).toBe("88%");
         expect(formatPercent(3.82)).toBe("3.8%");
     });
