@@ -103,4 +103,4 @@ updated: 2026-10-27
 
 ## 下一步
 
-第一期、第二期完成并合入。`runtime.cli` Spec 待开发者批准晋升为 `implemented`；第三期（文档治理、GitHub Actions 整理与发布）在第二期合入后再写计划。
+第一期、第二期完成并合入。开发者 2026-10-27 批准 `runtime.cli` 晋升为 `implemented`，追认待确认清单里第二期的 7 条，要求开始写第三期（文档治理、GitHub Actions 整理与发布）的计划，开发者参与规划。

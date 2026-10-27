@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: runtime.cli
 owners:
   - application-runtime
@@ -126,6 +126,20 @@ owners:
 
 Smoke：`bun test src/cli` 把命令行与项目宿主构建到临时目录，用真实进程运行场景 1 到 7（场景 7 用临时目录里只有清单的插件，以重启后的实例应答核对登记）；`e2e/app-package.e2e.ts` 用 `scripts/pack-app.ts` 打出的 tarball `bun add -g` 装上 `nbook`，在本机 Chrome 上跑场景 1 的启动与打开作品、场景 7 的安装与重启生效。
 
+## 实现合同
+
+- **实现 owner 与入口**：application-runtime。入口 `packages/neuro-book/src/cli/main.ts`（commander 的命令表、中文帮助与错误、退出码），打包成 `dist/server/nbook.js`，应用包的 `bin` 指向它；`start.ts` 的 `start(context, options)`，`plugin.ts` 的 `listPlugins`、`installPlugin`、`setPluginEnabled`、`uninstallPlugin`，`state-root.ts` 的 `resolveStateRoot`、`defaultStateRoot`，`output.ts` 的 `CliFailure(code, message, exitCode)` 与 `createOutput(json)`。依赖方向：命令行依赖服务端的认领与进程入口（`src/server/instance.ts`、`src/server/process.ts`）和插件平台的插件管理（`createPluginInventory`、`previewInstalledPlugins`），它们都不依赖命令行。
+- **关键不变量**：
+  - `start` 在本进程里运行服务端，不另起子进程：先认领状态根，认领到才运行；认领报 `running` 时回去问实例，不当作失败。
+  - 状态根的缺省只在命令行这一层定，服务端进程仍要求显式的状态根；`--state-root` 的空串是用法错误，不回落到缺省。
+  - 插件子命令与插件页用同一套插件管理与失败码，只写登记表、不连服务端；列表的待生效变化有实例时按实例应答里的启动集合算，没有时按下一次启动算。
+  - commander 的错误不让它自己打印，按错误码换成中文、以 2 退出；`--json` 时标准输出只有一个结果对象，提示与诊断走标准错误。
+- **合同测试**：`src/cli/cli.test.ts`（真实进程，命令行与项目宿主构建到临时目录：场景 1 到 7）、`src/cli/state-root.test.ts`（三个平台的缺省与取值顺序）；应用包 `scripts/pack-app.test.ts`。
+- **实际 smoke**：`bun test src/cli`；`e2e/app-package.e2e.ts`（`bun run test:e2e`）从 tarball 装上 `nbook`，在本机 Chrome 上跑场景 1 与 7。
+
 ## 证据
 
 - 批准依据：开发者 2026-10-24、2026-10-25 与 2026-10-27 的决定，见 [t15 第二期计划](../../../.agents/works/w00027-plugin-platform/tasks/t15-author-api-round2/plan-phase2.md) 的 Context（D1 到 D4）；[ADR 0033](../../adr/0033-app-delivered-as-built-npm-package.md)。
+- 实现入口：[`main.ts`](../../../packages/neuro-book/src/cli/main.ts)、[`start.ts`](../../../packages/neuro-book/src/cli/start.ts)、[`plugin.ts`](../../../packages/neuro-book/src/cli/plugin.ts)、[`state-root.ts`](../../../packages/neuro-book/src/cli/state-root.ts)
+- 合同测试：[`cli.test.ts`](../../../packages/neuro-book/src/cli/cli.test.ts)、[`state-root.test.ts`](../../../packages/neuro-book/src/cli/state-root.test.ts)、[`pack-app.test.ts`](../../../packages/neuro-book/scripts/pack-app.test.ts)
+- Smoke：[`cli.test.ts`](../../../packages/neuro-book/src/cli/cli.test.ts)（`bun test src/cli`）、[`app-package.e2e.ts`](../../../packages/neuro-book/e2e/app-package.e2e.ts)（`bun run test:e2e`）

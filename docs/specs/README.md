@@ -163,6 +163,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 环境适配与应用门禁 | [`runtime/application.md`](runtime/application.md) | 浏览器与后端环境适配、启动门禁、接纳、有界停止、实例身份、子实例与租约；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
 | 运行时诊断 | [`runtime/diagnostics.md`](runtime/diagnostics.md) | 有界记录与查询、脱敏、早期缓冲补写、日志位置授予与冲突降级、关闭未完成与显式恢复；**组合 smoke 仍是旧应用的 `--services`** |
 | 服务端宿主 | [`runtime/server-host.md`](runtime/server-host.md) | 内核拥有进程、启动与停止序列、停止来源汇合、退出码、开发模式重启与停止、内核 RPC 端口与项目子进程、HTTP 端口的 `Host` 与写请求来源核对；看门狗属 `runtime.stall-watchdog` |
+| `nbook` 命令行 | [`runtime/cli.md`](runtime/cli.md) | 随应用发布的命令行：前台 `start`、已有实例时打开它、状态根缺省；离线的插件管理子命令。服务端的认领与停止属 `runtime.server-host`，安装语义属 `runtime.plugin-install` |
 | 平台文件 | [`platform/files.md`](platform/files.md) | 受根约束的 I/O、授予隔离、watch 与锁、关闭门禁，不是业务文件树服务；**实现迁移中** |
 | SQLite 机制 | [`platform/sqlite.md`](platform/sqlite.md) | 具名资源 owner、连接借用、单库事务、代次与关闭，不自动迁移；**实现迁移中** |
 | Storage 插件记录 | [`storage/persistence.md`](storage/persistence.md) | `nbook.storage` 的记录定义、user 与 project 分区、读取分类、条件保存与订阅 |
@@ -207,7 +208,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 端点收集与 API 文档 | [`runtime/api-docs.md`](runtime/api-docs.md) | 对外 HTTP 路由的收集、OpenAPI 生成与展示，不含远程服务合同 |
 | 插件运行期启用与禁用 | [`runtime/plugin-hot-plug.md`](runtime/plugin-hot-plug.md) | 热插拔三档、引用账本与转发器、三步停止、在途调用结算 |
 | 插件安装与升级 | [`runtime/plugin-install.md`](runtime/plugin-install.md) | 本地文件夹安装、卸载、重启生效的升级、兼容与安全模式；操作在下一次启动生效 |
-| `nbook` 命令行 | [`runtime/cli.md`](runtime/cli.md) | 随应用发布的命令行：前台 `start`、已有实例时打开它、状态根缺省；离线的插件管理子命令。服务端的认领与停止属 `runtime.server-host`，安装语义属 `runtime.plugin-install` |
 | 插件代码的装载与回收 | [`runtime/plugin-code-loading.md`](runtime/plugin-code-loading.md) | 服务端装载与缓存回收、浏览器宿主模块表、纯度检查、插件文件端点 |
 | 插件公开 API | [`runtime/plugin-api.md`](runtime/plugin-api.md) | 远程形态约束、激活上下文、错误码、worker 池、私有存储、配置与密钥 |
 | 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | 卡死检测、报告、退出码 76、Manager 自动重启与桌面呈现、提示禁用与自动安全模式 |
