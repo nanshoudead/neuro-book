@@ -314,7 +314,7 @@ async function test(path: string, signal: AbortSignal, io: CliIo, json: boolean,
 /**
  * 用抽取实际用的模型，按抽取固定的两档各发一个最小请求（docs/specs/story/qa.md 输出 23），走抽取同一条传输路径
  * （ingest/model.ts），所以通过就说明抽取发得出去。挑选相关说法开着时，再用挑选的模型发一个 `minimal` 的。每档只试
- * 一次，不按抽取的延迟表等着重发；不降档。
+ * 一次，不按抽取的延迟表等着重发；网关严格转发推理档时，抽取自己的降档（ingest/model.ts）照常生效，结果里写明改发了哪一档。
  */
 async function testIngest(path: string, signal: AbortSignal, io: CliIo, json: boolean, done: Done, fail: Fail): Promise<number> {
     const config = await loadQaConfig(path);
@@ -323,7 +323,7 @@ async function testIngest(path: string, signal: AbortSignal, io: CliIo, json: bo
     const {callModel, ModelAborted, ModelError} = await import("../ingest/model");
     const endpointOf = (choice: {baseUrl: string; id: string; apiKeyEnv: string; maxTokens: number}) => ({baseUrl: choice.baseUrl, model: choice.id, apiKey: startupEnv[choice.apiKeyEnv] ?? "", maxTokens: choice.maxTokens, apiKeyEnv: choice.apiKeyEnv});
     type Trial = {effort: "minimal" | "medium"; for: "ingest" | "recall"};
-    type Result = Trial & ({ok: true; ms: number; usage: {input: number; output: number}} | {ok: false; kind: string; message: string});
+    type Result = Trial & ({ok: true; ms: number; usage: {input: number; output: number}; effortUsed?: string} | {ok: false; kind: string; message: string});
     const trials: Trial[] = [{effort: "minimal", for: "ingest"}, {effort: "medium", for: "ingest"}, ...(recall === null ? [] : [{effort: "minimal", for: "recall"} as const])];
     const results: Result[] = [];
     for (const {effort, for: target} of trials) {
@@ -331,13 +331,13 @@ async function testIngest(path: string, signal: AbortSignal, io: CliIo, json: bo
         const started = Date.now();
         let usage = {input: 0, output: 0};
         try {
-            await callModel(endpoint, {
+            const reply = await callModel(endpoint, {
                 system: "只回一个 JSON 对象。",
                 user: '回 {"ok":true}',
                 effort, signal, maxAttempts: 1,
                 onAttempt: attempt => (usage = {input: attempt.usage.input, output: attempt.usage.output}),
             });
-            results.push({effort, for: target, ok: true, ms: Date.now() - started, usage});
+            results.push({effort, for: target, ok: true, ms: Date.now() - started, usage, ...(reply.effortUsed === undefined ? {} : {effortUsed: reply.effortUsed})});
         } catch (error) {
             if (error instanceof ModelAborted) return fail("cancelled", "已取消", EXIT_INTERRUPTED);
             if (!(error instanceof ModelError)) throw error;
@@ -345,12 +345,12 @@ async function testIngest(path: string, signal: AbortSignal, io: CliIo, json: bo
         }
     }
     const label = (result: Result) => `${result.for === "recall" ? "挑选 " : ""}${result.effort} 档`;
-    const lines = results.map(result => (result.ok ? `通过：${label(result)}正常回话（${(result.ms / 1000).toFixed(1)} 秒，输入 ${result.usage.input}、输出 ${result.usage.output} token）` : `失败：${label(result)}（${result.kind}）${result.message}`));
+    const lines = results.map(result => (result.ok ? `通过：${label(result)}正常回话（${(result.ms / 1000).toFixed(1)} 秒，输入 ${result.usage.input}、输出 ${result.usage.output} token）${result.effortUsed === undefined ? "" : `；网关不接受 ${result.effort} 档，改发了 ${result.effortUsed} 档`}` : `失败：${label(result)}（${result.kind}）${result.message}`));
     const failed = results.find((result): result is Extract<Result, {ok: false}> => !result.ok);
     const head = [`抽取模型：${model.id}（${model.baseUrl}，取自 ${model.source}）`, ...(recall === null ? [] : [`挑选模型：${recall.id}（${recall.baseUrl}，取自 ${recall.source}）`])].join("\n");
     const data = {path, model: model.id, source: model.source, efforts: results.filter(result => result.for === "ingest"), recall: recall === null ? null : {model: recall.id, source: recall.source, efforts: results.filter(result => result.for === "recall")}};
     if (!failed) return done(data, [head, ...lines].join("\n"));
-    const message = `${label(failed)}：${failed.message}${failed.kind === "provider" ? "（模型不接受这一档时换模型；抽取不降档）" : ""}`;
+    const message = `${label(failed)}：${failed.message}${failed.kind === "provider" ? "（网关不接受这一档、又没有可改发的推理档时，换模型或换网关）" : ""}`;
     // 失败时两档的结果都要给（qa 输出 23“分别报告”）：JSON 的失败对象另带 data。
     if (json) {
         io.stdout(JSON.stringify({ok: false, error: {code: "model_failed", message, kind: failed.kind}, data}));

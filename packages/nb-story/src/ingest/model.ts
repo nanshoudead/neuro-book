@@ -4,7 +4,8 @@
  *
  * 用 `openai` SDK 而不是问答用的 nb-harness：SDK 设 `maxRetries: 0` 后一次调用就是一次 HTTP 请求，推理档原样发送；
  * nb-harness 底下的 OMP 在一次调用里自带最多 6 次重试，端点拒绝 `minimal` 时还会自动降成 `low` 重发，两样都关不掉，
- * 与“只一层重试、不降档”的合同冲突（w00024 t06 计划审查第 4、5 条的实测）。错误归类沿用 nb-harness 的口径
+ * 与“只一层重试”的合同冲突（w00024 t06 计划审查第 4、5 条的实测）。降档这一样后来改成自己做（#257）：只在网关的
+ * 400 明确列出合法档位时改发一次，规则与 OMP 相同、可见、不占重试表，见 `nearestEffort`。错误归类沿用 nb-harness 的口径
  * （docs/specs/agent/harness.md），密钥的遮盖记号与它的 `REDACTED_KEY` 相同。不导入 nb-harness：它的入口会加载
  * 整个 OMP，抽取线程用不到。
  *
@@ -76,6 +77,8 @@ export interface ModelReply {
     finishReason: string | null;
     /** 从回复里取出的 JSON 对象（第一个“{”到最后一个“}”）；取不出或解析失败为 null。 */
     json: unknown;
+    /** 网关不支持请求的推理档、改发了别的档时，实际发的那一档；没改过不写。 */
+    effortUsed?: string;
 }
 
 export interface CallOptions {
@@ -129,6 +132,45 @@ export const STEP_HEADER = "X-Nbstory-Step";
 const REDACTED_KEY = "[REDACTED]";
 /** 服务明确拒绝、没有受理请求的状态码（用量确定为 0）。 */
 const REJECTED_UNPROCESSED = new Set([401, 403, 429]);
+
+/** 推理档里“启用推理”的几档，由低到高；`none` 是关闭推理，不在其中。 */
+const ENABLED_EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const KNOWN_EFFORTS = new Set<string>(["none", ...ENABLED_EFFORTS]);
+
+/**
+ * 网关拒绝推理档时正文里列出的合法档位（"Supported values are: 'none', 'low', …"）。不是这种拒绝、或没列出档位时为
+ * null。请求发的那一档本来就在列表里时也是 null：那是别的原因的 400。
+ */
+export function supportedEfforts(message: string, requested: string): readonly string[] | null {
+    const listed = /\bsupported values?\b([^]*)/iu.exec(message)?.[1];
+    if (listed === undefined || !/reasoning[_ ]effort|unsupported value|not supported/iu.test(message)) return null;
+    const values = [...new Set([...listed.matchAll(/\b(none|minimal|low|medium|high|xhigh|max)\b/giu)].map(match => match[1]!.toLowerCase()))];
+    return values.length === 0 || values.includes(requested) ? null : values;
+}
+
+/**
+ * 在网关接受的档位里挑最接近的启用档。规则照 OMP（pi-ai 的 openai-reasoning-fallback，未导出）：只在启用档里选，
+ * `none` 永远不选（关闭推理会让原来要推理的步骤静默变成不推理）；minimal 优先 low，xhigh 优先 max 再 high，max 优先
+ * xhigh；其余取距离最近的，平局取更高的。没有启用档可选时为 null。
+ */
+export function nearestEffort(requested: string, allowed: readonly string[]): string | null {
+    const enabled = ENABLED_EFFORTS.filter(value => allowed.includes(value));
+    if (enabled.length === 0) return null;
+    const prefer: Record<string, readonly string[]> = {minimal: ["low"], xhigh: ["max", "high"], max: ["xhigh"]};
+    const preferred = prefer[requested]?.find(value => enabled.includes(value as (typeof ENABLED_EFFORTS)[number]));
+    if (preferred !== undefined) return preferred;
+    const rank = (value: string) => ENABLED_EFFORTS.indexOf(value as (typeof ENABLED_EFFORTS)[number]);
+    const at = rank(requested);
+    if (at < 0) return null;
+    return [...enabled].sort((a, b) => Math.abs(rank(a) - at) - Math.abs(rank(b) - at) || rank(b) - rank(a))[0] ?? null;
+}
+
+/**
+ * 这个进程里已经知道的“请求的档位 → 网关接受的档位”，按地址、模型与请求的档位记：之后的请求直接用，不再先吃一个
+ * 400。Worker 是独立进程，各自吃一次。
+ */
+const effortFallbacks = new Map<string, string>();
+const fallbackKey = (endpoint: ModelEndpoint, requested: string) => `${endpoint.baseUrl}\u0000${endpoint.model}\u0000${requested}`;
 const NETWORK_STATUSES = new Set([408, 502, 503, 504, 520, 521, 522, 523, 524]);
 
 /** 等 `ms` 毫秒；被中止时 reject `ModelAborted`。 */
@@ -225,12 +267,22 @@ export async function callModel(endpoint: ModelEndpoint, options: CallOptions): 
     const sleep = options.sleep ?? defaultSleep;
     // 两类失败各按自己的表计数：先断了几次线、后来被限流，限流的等待从表头开始。
     const failures = {network: 0, rate_limit: 0};
+    let effort: string = effortFallbacks.get(fallbackKey(endpoint, options.effort)) ?? options.effort;
     for (let attempt = 1; ; attempt++) {
         if (options.signal?.aborted) throw new ModelAborted();
-        const outcome = await attemptOnce(client, endpoint, options, attempt);
-        if (outcome.ok) return outcome.reply;
+        const outcome = await attemptOnce(client, endpoint, options, attempt, effort);
+        if (outcome.ok) return effort === options.effort ? outcome.reply : {...outcome.reply, effortUsed: effort};
         if (options.signal?.aborted) throw new ModelAborted();
         const {error} = outcome;
+        // 网关不认请求的推理档（严格转发参数的端点）：改发它列出的最近的启用档，立即重发一次。这不是渠道故障，不进延迟表，
+        // 也不受 maxAttempts 限制（`config test --ingest` 只试一次，也要能通过）。
+        const allowed = error.kind === "provider" && error.status === 400 ? supportedEfforts(error.message, effort) : null;
+        const clamped = allowed === null ? null : nearestEffort(effort, allowed);
+        if (clamped !== null && clamped !== effort) {
+            effortFallbacks.set(fallbackKey(endpoint, options.effort), clamped);
+            effort = clamped;
+            continue;
+        }
         if (!retryable(error) || attempt >= (options.maxAttempts ?? Infinity)) throw error;
         const kind = error.kind as "network" | "rate_limit";
         const table = kind === "rate_limit" ? (options.delaysMs?.rateLimit ?? RATE_LIMIT_DELAYS_MS) : (options.delaysMs?.network ?? RETRY_DELAYS_MS);
@@ -249,7 +301,7 @@ type AttemptOutcome = {ok: true; reply: ModelReply} | {ok: false; error: ModelEr
  * SDK 遇到中止时有时让迭代正常结束、不抛错（计划审查后的实现审查第 7 条），所以不能只在 catch 里认停止，要看
  * 中止是谁发起的。
  */
-async function attemptOnce(client: OpenAI, endpoint: ModelEndpoint, options: CallOptions, attempt: number): Promise<AttemptOutcome> {
+async function attemptOnce(client: OpenAI, endpoint: ModelEndpoint, options: CallOptions, attempt: number, effort: string): Promise<AttemptOutcome> {
     await options.onAttemptStart?.(attempt);
     const started = Date.now();
     const controller = new AbortController();
@@ -279,7 +331,7 @@ async function attemptOnce(client: OpenAI, endpoint: ModelEndpoint, options: Cal
                 max_tokens: endpoint.maxTokens,
                 stream: true,
                 stream_options: {include_usage: true},
-                reasoning_effort: options.effort,
+                reasoning_effort: effort as OpenAI.ReasoningEffort,
                 response_format: {type: "json_object"},
             },
             {signal: controller.signal, ...(options.tag ? {headers: {[STEP_HEADER]: options.tag}} : {})},
@@ -331,7 +383,7 @@ async function attemptOnce(client: OpenAI, endpoint: ModelEndpoint, options: Cal
         const error = classify(failure, endpoint.apiKey);
         // 服务在读请求之前就明确拒绝（401、403 认证失败，429 限流）：请求没有被受理，用量确定是 0，不让汇总标成不完整。
         // 5xx、408、网关故障不算：网关报错时上游可能已经生成并计费，状态码证明不了没花钱。
-        if (!streaming && error.status !== null && REJECTED_UNPROCESSED.has(error.status)) {
+        if (!streaming && error.status !== null && (REJECTED_UNPROCESSED.has(error.status) || (error.status === 400 && supportedEfforts(error.message, effort) !== null))) {
             usage.complete = true;
             record(error);
             return {ok: false, error};
