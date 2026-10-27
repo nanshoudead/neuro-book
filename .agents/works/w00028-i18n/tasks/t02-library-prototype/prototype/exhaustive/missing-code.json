@@ -1,0 +1,6 @@
+{
+    "errors": {
+        "io-error": "读写失败",
+        "not-found": "找不到"
+    }
+}

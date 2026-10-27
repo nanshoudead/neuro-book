@@ -1,0 +1,147 @@
+w00028 t02 选库原型报告（i18next 26.5.11，bun 1.4.2，tsc 6.0.3，vitest 4.1.10）
+
+结论先行
+i18next 在 NeuroBook 里成立。运行期登记注销、Vue 随语言切换更新、原生复数与插值、与最小实现逐条一致都已验证。要点是 6 处和默认直觉不同的行为，需要写进 t01 的设计（见末尾“t01 要吸收的发现”）：
+1) addResourceBundle 即使 deep=false 也是浅合并，热重载要先 remove 再 add；
+2) 缺键返回“去掉命名空间的键”，不是 `ns:key`；
+3) 数量参数不是 number 时不选复数形式，静默返回不带命名空间的键；
+4) 英文目录只写 _other 而缺 _one 时，count=1 不会退到 _other；
+5) 默认分隔符下码里的 `:` 会被静默改写成 `.`，两个码互相撞车；
+6) 未登记的第三方目录在编译期无法检查，JSON 导入也推不出参数。
+
+所有原型文件在 /home/notnotype/CodeRepository/neuro-book/.worktree/w00028-t02/packages/neuro-book/src/__i18n-spike__/（未提交）。worktree 里另有 package.json 加了 "i18next": "^26.5.11" 与 bun.lock 变化（root 先 prox bun install，再在 packages/neuro-book 里 prox bun add i18next）。
+
+通用复现命令（在 packages/neuro-book 下）：
+  bun test src/__i18n-spike__                    # 24 条，全过
+  bun run test:vitest -- src/__i18n-spike__      # 6 条，全过
+下面各节另给单项命令。
+
+------------------------------------------------------------
+1. 命名空间登记与注销：成立
+文件：host.ts（createHostI18n、registerPlugin、unregisterPlugin）、catalog.test.ts 第 1 组（5 条）。
+证据：
+- 两个插件各自 addResourceBundle(lng, "plugin-a"/"plugin-b", …)，同名键 title、greeting 互不干扰（t("plugin-a:title")="插件甲"，t("plugin-b:title")="插件乙"）。
+- removeResourceBundle 后：hasResourceBundle 为 false，store.data["zh-CN"] 只剩 plugin-b，options.ns 里 plugin-a 已被移除（实测 ["translation","plugin-b"]），无残留。
+- 注销后 t("plugin-a:title") 返回 "title"，不是 "plugin-a:title"：缺键返回去掉命名空间前缀的键。界面上会看到裸键名。要有开发期缺键检测（t01 第 8 条）。有回退语言时：注销 zh-CN 后 en-US 缺的键退回键本身，en-US 有的键不受影响。
+- 坑：addResourceBundle(…, deep=false, overwrite=true) 仍是浅合并（源码 pack = {...旧, ...新}），同一插件热重载时旧键会残留（实测 old 键仍可取到）。registerPlugin 因此先 removeResourceBundle 再 addResourceBundle，之后旧键消失。
+- 事件：store 会发 "added"、"removed"（remove 即使资源不存在也发 removed），可用来触发 Vue 刷新（见第 2 项）。
+复现：bun test src/__i18n-spike__/catalog.test.ts -t "命名空间"
+
+------------------------------------------------------------
+2. Vue 渲染随语言切换：成立（接法：shallowRef 版本号）
+文件：reactive-t.ts、Panel.vue、reactive.dom.test.ts（6 条，vitest + happy-dom，不按时长等待，只 await changeLanguage 与 nextTick）。
+接法：createReactiveT(instance) 里放一个 shallowRef 版本号，t() 读取时先读 version.value 建立依赖；监听 i18n 的 "languageChanged" 与 store 的 "added"/"removed"，三者都让版本号加一。组件在模板里调用 t，语言切换或目录增删就重新渲染。
+为什么不用“包着当前语言的 shallowRef”：目录热装卸时语言没变，也要刷新；版本号一个来源覆盖两种触发。dispose 时 off 掉监听（测试里确认监听数 1 -> 0，无泄漏）；在 effectScope 里会自动 dispose。
+证据：
+- 切换 zh-CN -> en-US：同一 DOM 节点 element 不变，onMounted 只触发 1 次，文字变为 "Plugin A" / "1 file"。
+- 对照组：组件直接调用 i18n.t 而不读响应式版本号，切换语言后文字不更新（"插件甲"不变）。证明必须经响应式桥。
+- languageChanged 在 changeLanguage 返回的 promise 结算之前同步触发（资源已在内存时）。
+- 连续三次 changeLanguage 不等待，最终 i18n.language 是最后一次请求，界面跟上。（未模拟“网络加载目录”的乱序，因为目录来自插件登记、不走 i18next backend；若 t01 决定按语言懒取目录，乱序要另外验证。）
+- 目录热装卸：插件 B 在语言不变时登记，文字从 "title" 变 "插件乙"；注销后回到 "title"。
+未验证：插件与宿主不是同一份 Vue 时（跨 Vue 副本）。按 docs/specs/runtime/plugin-code-loading.md 输出 3，插件共享宿主那一份 Vue；响应式桥由宿主创建（宿主的 Vue），插件拿到的是 t 函数，只要渲染发生在宿主 Vue 的组件里依赖就生效。真正的插件包装未在此原型验证。
+复现：bun run test:vitest -- src/__i18n-spike__
+
+------------------------------------------------------------
+3. 原生格式：基本成立，有两处行为要记住
+文件：catalog.test.ts 第 3 组；探索脚本 /tmp/w00028-t02/explore2.ts。
+- 插值 {{name}}：en "Hello, Ann"，zh "你好，安"。关 escapeValue 后 "<b>&" 原样输出（Vue 自己转义，所以建议 escapeValue:false）。缺参数时原样留下 "{{name}}"（"Hello, {{name}}"）；传 name:undefined 得到 "Hello, "；传数字 5 得 "Hello, 5"。
+- 英文 _one/_other：count 0 -> "0 files"，1 -> "1 file"，2 -> "2 files"，1.5 -> "1.5 files"。
+- 中文只写 _other：count 0、1、2 都取到 "N 个文件"。
+- count 异常值的实际输出（en / zh 相同的“键”）：
+    "1,234" 字符串 -> "files"
+    "1"     字符串 -> "files"
+    undefined      -> "files"
+    null           -> " files" / " 个文件"（count 被当空串插值）
+    NaN            -> "NaN files" / "NaN 个文件"
+  结论：count 不是 number 时 i18next 不选复数形式，找不到不带后缀的键 files，静默返回键 "files"（无命名空间前缀）；这是默默地显示错误文字，不抛错。所以 t01 第 9 条“数量参数传数字并运行时校验”必须做：格式化好的字符串（如 "1,234"）不能当 count 传，应另起一个插值参数（例如 {{total}}）显示千分位，count 只传 number。
+- 英文目录只写 _other、没写 _one：count=1 时返回 "files"（不会退到 _other），count=2 才正常。有 zh-CN 回退且 zh 写了 _other 时，count=1 取到 zh 的文字（回退语言按自己的复数类别查）。所以内置插件的英文目录必须检查 _one 存在（见第 5 项脚本）。
+复现：bun test src/__i18n-spike__/catalog.test.ts -t "原生格式"
+
+------------------------------------------------------------
+4. 键与参数的类型检查：自写 keyof 方案可行；i18next 自带类型对“静态已知的命名空间”可用，对运行期登记的第三方目录不可用
+文件：typecheck/keys.ts、custom-ok.ts、custom-fail.ts、augment.d.ts、augment-probe.ts、四个 tsconfig。
+A. 自写（推荐的最小写法，keys.ts，几十行）：
+   - KeyOf<T>：从 JSON 导入类型递归派生点号路径，同时把 _one/_other 等复数后缀折叠成逻辑键（files_one/files_other -> files）。
+   - NamespacedKey<{"plugin-a": typeof aZh, …}>：生成 "plugin-a:title" 形式的联合。
+   - typed<Catalogs>(rawT) 把任意 t 收窄；scoped(t, "plugin-a") 在命名空间内取键，调用点不重复写前缀。
+   - 以源语言（zh-CN）的 JSON 派生键集合；其它语言靠第 5 项的检查。
+   证据：tsc -p typecheck/tsconfig.custom.json 通过；tsc -p typecheck/tsconfig.custom-fail.json 报出 7 条预期错误：键拼错、键在另一命名空间、命名空间不存在、嵌套键拼错、写了 files_other（带复数后缀不允许）、参数值是对象、scoped 里键拼错。
+   限制：resolveJsonModule 下 JSON 值的类型是 string，不是字面量，所以只能派生键，不能派生参数名（t("greeting", {nam: "x"}) 不报错）。要参数检查，目录得改成 TS 对象 as const（再用模板字面量类型抽 {{name}}），或在运行期/检查脚本里校验占位符一致（check-catalog.ts 做了占位符对比）。
+B. i18next 自带类型（augment.d.ts + augment-probe.ts，tsc -p typecheck/tsconfig.probe.json）：
+   - 多命名空间要用 ResourceNamespaceMap（i18next 26 为 monorepo 提供；CustomTypeOptions.resources 在多个包各自声明时会 TS2717）。每个包或内置插件在自己的 .d.ts 里 interface ResourceNamespaceMap { "plugin-a": typeof aZh }，合并后键集合是所有命名空间的并集。
+   - TFunction<"plugin-a"> 能检查键（titel 报错）、跨命名空间写 "plugin-b:title" 报错。
+   - 默认的 i18next.t 只在设置了 defaultNS（例如 CustomTypeOptions.defaultNS: "plugin-a"）时才检查：此时 "plugin-a:titel" 报错，"plugin-c:title"（未声明）也报错；我们想用的 defaultNS: false 下，默认 t 对错键不报错，类型检查形同虚设。
+   - TFunction<"plugin-c">（未声明的命名空间）本身就是类型错误（不满足 Namespace 约束），所以运行期才登记的第三方目录没有 TFunction。第三方插件要自己用 A 方案或不检查。
+   - 带 defaultValue 时错键不报错（strictKeyChecks 默认 false）。
+   - count 传字符串、undefined 都不报类型错误：count 没有按 number 约束。
+   - 参数名拼错同样不报错。
+   最小写法结论：不依赖全局增补，用 A（keys.ts）；共享包和内置插件各自对自己的 JSON 目录调用 scoped/typed。宿主的 t 保持 (key: string, params) 的宽类型，类型只在“有目录 JSON 的一侧”收窄。
+复现：
+  node_modules/.bin/tsc -p src/__i18n-spike__/typecheck/tsconfig.custom.json        # exit 0
+  node_modules/.bin/tsc -p src/__i18n-spike__/typecheck/tsconfig.custom-fail.json   # 7 条错误
+  node_modules/.bin/tsc -p src/__i18n-spike__/typecheck/tsconfig.probe.json         # i18next 自带类型的探测
+  （改 augment.d.ts 里的 defaultNS 为 false 或 "plugin-a" 对照）
+
+------------------------------------------------------------
+5. 错误码表的穷举检查：编译期和脚本都能报
+文件：exhaustive/codes.ts、ok.ts、fail.ts、missing-code.json、extra-code.json；check-catalog.ts、check-catalog.test.ts。
+- 编译期：ERROR_CODES = ["io-error","not-found","unknown-outcome"] as const，派生联合 ErrorCode。
+  最简：const x: Record<ErrorCode, string> = catalog.errors，漏写报 TS2741 “Property 'unknown-outcome' is missing”，但只报缺不报多。
+  双向版 ExactCodes<typeof catalog.errors>：缺报 {missingCodes: "unknown-outcome"}，多报 {extraCodes: "legacy-code"}，完整则为 true。
+  证据：tsc -p exhaustive/tsconfig.ok.json exit 0（zh、en 两个目录都通过）；tsconfig.fail.json 报 3 条错（缺、多、Record 缺）。
+- 脚本：check-catalog.ts（约 50 行）检查：语言间缺译文、多余键、占位符不一致、复数后缀（zh _other 对 en _one/_other 视为同一逻辑键）、错误码集合与联合类型一致。有问题时每条一行并返回 1。
+  复现：bun src/__i18n-spike__/check-catalog.ts src/__i18n-spike__/locales/plugin-a.zh-CN.json src/__i18n-spike__/exhaustive/missing-code.json --scope errors --codes io-error,not-found,unknown-outcome
+  实测输出含“错误码缺文案：errors.unknown-outcome”，exit 1。
+  复现测试：bun test src/__i18n-spike__/check-catalog.test.ts
+- 局限：编译期方案要求 JSON 被某个 TS 文件 import（拥有者包里的一个小文件），脚本方案能覆盖没有 TS 入口的目录，如第三方插件的目录。建议两种都留：拥有者包用类型，仓库检查脚本做语言间一致。
+
+------------------------------------------------------------
+6. 键分隔符：默认配置有静默改写，建议限制码的字符并保留默认或改用 `::`
+文件：catalog.test.ts 第 6 组（5 条）；探索脚本 /tmp/w00028-t02/explore3.ts。
+实测（默认 nsSeparator ":"，keySeparator "."）：
+- 目录里 errors 对象有键 "a.b"：t("own:errors.a.b") 能取到（ignoreJSONStructure 默认 true，会回退去匹配扁平键），没问题。
+- 码 "a:b"：t("own:errors.a:b") 实际是先按 ":" 拆开，再用 keySeparator 重新拼接，等于查 errors.a.b。后果：目录只有 "a:b" 时取不到（返回 "errors.a.b"）；目录有 "a.b" 时，码 "a:b" 拿到的是码 "a.b" 的文案（错的文案，且不报错）。
+- 命名空间名里的 `.`、`@`、`/` 没问题（"my.plugin:k"、"@acme/x:k" 都能取）。
+- nsSeparator "::" + keySeparator false 时，点和单冒号都是普通字符，但目录必须平铺（"errors.a.b" 作为扁平键），写成旧的单冒号 "own:errors.plain" 查不到。nsSeparator:false + 每次传 ns 选项也可行，调用点太啰嗦。
+- 键指向对象节点时返回一句英文诊断 "key 'errors (en-US)' returned an object instead of string."，不是文案。
+建议配置：保持 nsSeparator ":"、keySeparator "."（目录可以嵌套，且类型派生用嵌套路径），defaultNS:false，interpolation.escapeValue:false；同时规定错误码与键段只允许 [a-z][a-z0-9-]*，在 check-catalog 里机检，并在取错误文案的辅助函数（owner + code -> key）里对含 "." 或 ":" 的码直接抛 TypeError（码合同里本来就是 kebab-case，例如 io-error）。如果以后必须支持任意码，改成 `::` + 平铺目录，但失去嵌套 JSON 和上面的类型派生。
+复现：bun test src/__i18n-spike__/catalog.test.ts -t "键分隔符"
+
+------------------------------------------------------------
+7. 共享包的最小实现：成立，31 行代码，与 i18next 逐条一致
+文件：minimal-t.ts（createMinimalT(messagesByLanguage, language, fallbackLanguages)，非空非注释行 31）；catalog.test.ts 第 7 组。
+支持：{{name}} 插值（缺参数留占位符，传 undefined 变空串）、_one/_other（用 Intl.PluralRules）、语言链（语言 -> 同语种 -> 回退语言）、缺键返回键。
+比对：16 个用例（插值：Ann、"<b>&"、缺参数、undefined、数字 5；复数：0、1、2、1.5、"1,234"、"1"、undefined、不传；only-zh 回退；缺键；title），en-US 和 zh-CN 各一遍，与 i18next 的输出完全一致（diffs = []）。其中非 number 的 count 也刻意做成和 i18next 一样返回键本身。
+已知不一致（刻意）：英文目录缺 _one 时，最小实现 count=1 会退到 _other，i18next 不会（返回键）。不一致只发生在目录不完整时，目录检查（第 5 项）应拦住；若要完全一致可去掉最小实现里的 _other 兜底，一行。
+未覆盖：i18next 的上下文（_context）、嵌套引用 $t()、格式函数 {{n, number}}，包目录里不使用这些。
+复现：bun test src/__i18n-spike__/catalog.test.ts -t "最小 t"
+
+------------------------------------------------------------
+8. 体积
+命令：bun build --minify --target=browser src/__i18n-spike__/size/entry.ts --outfile /tmp/w00028-t02/size/i18next.js
+入口用到 createInstance、init、addResourceBundle、removeResourceBundle、on、changeLanguage、t。
+结果：45.5 KB minified，gzip -9 14218 字节（约 13.9 KiB / 14.2 KB），brotli 12976 字节。与 Task 里的 14.2 KB 吻合。
+对照：最小实现入口（size/entry-min.ts）minified 455 字节，gzip 339 字节。
+未含 i18next-icu。
+
+------------------------------------------------------------
+9. 翻译平台
+- Crowdin：原生支持 i18next JSON，无需额外安装。https://store.crowdin.com/i18next-json 页面：支持复数（示例含 keyPluralSimple_one、keyPluralSimple_other），示例含嵌套对象 keyDeep.inner。未查到：页面没写明 v3/v4 版本。另：support.crowdin.com 的格式页重定向到上面的 store 页面，没有更详细的官方版本说明。
+- Weblate：支持，文档 https://docs.weblate.org/en/latest/formats/i18next.html 。有 v4（4.15.1 加入，文档写“Choose this format if unsure. It stores plurals using standard CLDR suffixes.”）、v3（遗留，数字复数后缀）、v2/v1（复数处理与 v3 不同）。推荐 v4，旧版本某些语言复数规则不对。限制：不支持描述、解释、上下文、位置、标记、只读字符串、删除过时字符串；会加 i18next 插值检查标记。文档页示例配置仍写 “i18next JSON file v3”，新项目应选 v4。文档未提嵌套键。
+- 其它平台未查。
+- 另：fetch 工具对页面做摘要，上述为摘要结果，没有逐行核对网页原文。
+
+------------------------------------------------------------
+t01 要吸收的发现（对设计的影响）
+1. registerPlugin 必须“先 remove 再 add”才能热重载；注销只需 removeResourceBundle，无残留。
+2. 缺键显示的是去掉命名空间的裸键，需要开发期缺键检测，生产环境要有兜底（不让用户看到裸键，用回退链最后一环或中性文案）。
+3. count 必须是 number，运行时校验；格式化的数字另起插值参数。非 number 不抛错，静默显示裸键。
+4. 目录检查必须包含：英文有 _one、各语言占位符一致、错误码集合一致（check-catalog.ts 可作起点）。
+5. 键与错误码字符集限制，辅助函数里防御；`:` 会被静默改成 `.`，会错误取到别的码的文案。
+6. 类型：自写 keys.ts（约 40 行）优于 i18next 全局增补；第三方运行期目录只能运行时检查。JSON 推不出参数名。
+7. Vue 接法用 shallowRef 版本号，监听 languageChanged、store added/removed，dispose 要摘监听。
+8. 共享包最小实现 31 行即可，行为与 i18next 一致（目录完整时）。
+
+未验证项汇总：跨 Vue 副本的插件组件；目录按语言懒取时的乱序；i18next-icu；Crowdin 的 i18next JSON 版本；服务端（Bun）以外的 Node 行为。
+
+已删除的临时文件：我自己写的 typecheck/augment-use.ts 与 tsconfig.augment.json（被 augment-probe.ts 取代）。其余原型文件保留在原处。

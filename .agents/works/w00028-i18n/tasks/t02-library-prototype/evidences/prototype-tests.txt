@@ -1,0 +1,8 @@
+ 24 pass
+ 0 fail
+ 45 expect() calls
+Ran 24 tests across 2 files. [84.00ms]
+      Tests  6 passed (6)
+   Start at  11:45:07
+   Duration  995ms (transform 133ms, setup 50ms, import 209ms, tests 54ms, environment 377ms)
+

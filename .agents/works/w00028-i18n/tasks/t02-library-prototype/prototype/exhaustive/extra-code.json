@@ -1,0 +1,8 @@
+{
+    "errors": {
+        "io-error": "读写失败",
+        "not-found": "找不到",
+        "unknown-outcome": "结果未知",
+        "legacy-code": "旧码"
+    }
+}

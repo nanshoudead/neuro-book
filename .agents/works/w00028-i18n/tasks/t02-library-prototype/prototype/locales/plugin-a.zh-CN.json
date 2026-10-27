@@ -1,0 +1,11 @@
+{
+    "title": "插件甲",
+    "greeting": "你好，{{name}}",
+    "files_other": "{{count}} 个文件",
+    "only-zh": "只有中文",
+    "errors": {
+        "io-error": "读写失败",
+        "not-found": "找不到",
+        "unknown-outcome": "结果未知"
+    }
+}

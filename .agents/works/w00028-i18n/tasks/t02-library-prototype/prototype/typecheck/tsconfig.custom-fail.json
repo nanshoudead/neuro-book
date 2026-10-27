@@ -1,0 +1,7 @@
+{
+    "compilerOptions": {
+        "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler", "lib": ["ESNext"], "types": [],
+        "strict": true, "noEmit": true, "skipLibCheck": true, "resolveJsonModule": true
+    },
+    "files": ["keys.ts", "custom-fail.ts"]
+}

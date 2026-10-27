@@ -24,8 +24,24 @@ updated: 2026-10-27
 
 ## 当前状态
 
-2026-10-27 建，未开工。
+2026-10-27 完成（自主推进；原型由 Claude Sonnet 编码子代理在 worktree `spike/w00028-t02-i18next` 里做，主会话复跑测试）。结论：i18next 在本项目里成立。
+
+- 报告：`evidences/prototype-report.txt`（九项，每项有结论、证据与复现命令）；复跑结果 `evidences/prototype-tests.txt`（bun 24 条、vitest 6 条全过）。
+- 原型代码：`prototype/`（原在 `packages/neuro-book/src/__i18n-spike__/`，没有进产品代码；复现时放回该目录并 `bun add i18next`）。
+- 对 t01 的影响：
+  - 热重载：`addResourceBundle` 即使 `deep=false` 也是浅合并，热重载要先注销再登记；
+  - 缺键：返回去掉命名空间的裸键；
+  - 复数：`count` 不是数字时静默返回裸键；英文目录缺 `_one` 时，`count` 为 1 不会退到 `_other`；
+  - 分隔符：默认分隔符下，码里的 `:` 会被静默改写成 `.`，取到别的码的文案，所以要限制码的字符并在取文案处拦截；
+  - 类型检查：自写的 `keyof` 能抓键写错，推不出参数名；i18next 自带的类型只对静态已知的命名空间可用；
+  - 共享包最小实现：31 行，16 个用例与 i18next 输出一致；
+  - 体积：gzip 14.2 KB；
+  - Vue 接法：`shallowRef` 版本号加监听语言切换与目录增删，不重新挂载就更新；
+  - 翻译平台：Weblate 支持 JSON v4，Crowdin 原生支持但版本未查到。
+- 未验证：跨 Vue 副本的插件组件、目录按语言懒取时的乱序、`i18next-icu`。
+
+实现审查：原型不进产品代码，按 reviewing 的“自审”做：主会话复跑测试、核对改动只在原型目录。
 
 ## 下一步
 
-开工时在 worktree 里做原型，证据存本 Task 的 `evidences/`。
+无；结论交 t01。
