@@ -103,6 +103,11 @@ describe("关系词（输出 16）", () => {
     test("亲属说法里有亲属词才写亲属；找不到亲属词时往下看社交称谓与所属，都没有为 null", () => {
         expect(relationWord([statement("kinship", "姐妹")])).toBe("姐妹");
         expect(relationWord([statement("kinship", "是自己的亲人")])).toBe("亲属");
+        // 带方向的常见亲属词写成对称的词；“弟子”之类含单字的师承词不被当成亲属。
+        expect(relationWord([statement("kinship", "母亲")])).toBe("亲子");
+        expect(relationWord([statement("kinship", "祖母")])).toBe("祖孙");
+        expect(relationWord([statement("kinship", "同父异母")])).toBe("亲属");
+        expect(relationWord([statement("kinship", "师门弟子")])).toBeNull();
         // 师承辈分不是血亲：不写亲属，落到社交称谓。
         expect(relationWord([statement("kinship", "直系后辈"), statement("social", "师徒")])).toBe("师徒");
         expect(relationWord([statement("kinship", "直系后辈")])).toBeNull();

@@ -6,14 +6,14 @@ import {computed} from "vue";
 import {contextTokensOf, formatTokenCount} from "./models";
 import {cacheBar, contextPercent, formatCost, formatPercent, sessionUsage} from "./usage";
 
-const props = defineProps<{open: boolean; messages: readonly MessageView[]; contextLimit: number | null; currency: "USD" | "CNY"}>();
+const props = defineProps<{open: boolean; messages: readonly MessageView[]; contextLimit: number | null; currency: string | null}>();
 const emit = defineEmits<{(event: "update:open", value: boolean): void}>();
 
 const usage = computed(() => sessionUsage(props.messages));
 const contextTokens = computed(() => contextTokensOf(props.messages));
 const percent = computed(() => contextPercent(contextTokens.value, props.contextLimit));
 const rows = computed(() => usage.value.requests.map(request => ({request, bar: cacheBar(request)})));
-const money = (value: number | null) => (value === null ? "—" : formatCost(value, props.currency));
+const money = (value: number | null) => (value === null || props.currency === null ? "—" : formatCost(value, props.currency));
 </script>
 
 <template>
@@ -34,7 +34,7 @@ const money = (value: number | null) => (value === null ? "—" : formatCost(val
                     <div><dt>缓存写</dt><dd>{{ formatTokenCount(usage.cacheWrite) }}</dd></div>
                     <div><dt>输出</dt><dd>{{ formatTokenCount(usage.output) }}</dd></div>
                     <div><dt>命中率</dt><dd>{{ usage.hitRate === null ? "—" : formatPercent(usage.hitRate * 100) }}</dd></div>
-                    <div v-if="usage.cost !== null"><dt>费用</dt><dd>{{ money(usage.cost) }}</dd></div>
+                    <div v-if="usage.cost !== null"><dt>费用</dt><dd v-if="currency === null">用过不同币种的模型，不合计</dd><dd v-else>{{ usage.costComplete ? "" : "≥" }}{{ money(usage.cost) }}<template v-if="!usage.costComplete">（有请求不知道单价）</template></dd></div>
                 </dl>
             </section>
 

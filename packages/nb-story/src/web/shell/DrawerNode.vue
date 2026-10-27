@@ -12,7 +12,7 @@ import PageState from "../parts/PageState.vue";
 
 const props = defineProps<{id: string; label: string}>();
 const book = useBook();
-const graph = useStoryQuery("graph.relations", () => ({kinds: ALL_KINDS, perspective: book.perspective.value}));
+const graph = useStoryQuery("graph.relations", () => ({kinds: ALL_KINDS, perspective: book.perspective.value, includeAnonymous: true}));
 const IDENTITY = {uncertain: "可能是同一人", unaware: "其实是同一人（不知道）", heard: "其实是同一人（听说）", believes: "其实是同一人（认为）", suspects: "其实是同一人（怀疑）", "no-record": "可能知道（没有记录）"} as const;
 
 const rows = computed(() => {

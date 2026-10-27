@@ -45,6 +45,12 @@ export function formatTokenCount(count: number): string {
     return String(count);
 }
 
+/** 模型在目录（含自定义服务商）里写的单价币种；没有这个模型或没写单价为 null。 */
+export function priceCurrency(providers: readonly CatalogProvider[], ref: string): string | null {
+    const {provider, model} = splitRef(ref);
+    return providers.find(item => item.id === provider)?.models.find(item => item.id === model)?.price?.currency ?? null;
+}
+
 /** 候选按设置里的顺序；目录里找不到的仍列出，灰掉并写原因。 */
 export function candidateInfos(config: Pick<QaConfig, "models">, providers: readonly CatalogProvider[]): Map<string, CandidateInfo> {
     const byId = new Map(providers.map(provider => [provider.id, provider]));

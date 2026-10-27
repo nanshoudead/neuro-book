@@ -18,7 +18,7 @@ import RelationDetail from "./RelationDetail.vue";
 
 const props = defineProps<{entity: string}>();
 const book = useBook();
-const graph = useStoryQuery("graph.relations", () => ({kinds: ALL_KINDS, perspective: book.perspective.value}));
+const graph = useStoryQuery("graph.relations", () => ({kinds: ALL_KINDS, perspective: book.perspective.value, includeAnonymous: true}));
 const relations = useStoryQuery("entity.relations", () => ({entity: props.entity}));
 
 const GROUPS = [

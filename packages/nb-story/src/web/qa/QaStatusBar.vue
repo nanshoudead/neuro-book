@@ -5,7 +5,7 @@ import {computed} from "vue";
 import {contextTokensOf, formatTokenCount} from "./models";
 import {contextPercent, formatCost, formatPercent, sessionUsage} from "./usage";
 
-const props = defineProps<{messages: readonly MessageView[]; contextLimit: number | null; currency: "USD" | "CNY"}>();
+const props = defineProps<{messages: readonly MessageView[]; contextLimit: number | null; currency: string | null}>();
 const emit = defineEmits<{(event: "open"): void}>();
 
 const usage = computed(() => sessionUsage(props.messages));
@@ -22,7 +22,7 @@ const context = computed(() => {
         <span class="qa-status-chip" data-stat="input">输入 <b>{{ formatTokenCount(usage.input + usage.cacheRead + usage.cacheWrite) }}</b></span>
         <span class="qa-status-chip" data-stat="output">输出 <b>{{ formatTokenCount(usage.output) }}</b></span>
         <span class="qa-status-chip" data-stat="cache">缓存读 <b>{{ formatTokenCount(usage.cacheRead) }}</b><template v-if="usage.hitRate !== null"> · 命中 <b>{{ formatPercent(usage.hitRate * 100) }}</b></template></span>
-        <span v-if="usage.cost !== null" class="qa-status-chip" data-stat="cost"><b>{{ formatCost(usage.cost, currency) }}</b></span>
+        <span v-if="usage.cost !== null && currency !== null" class="qa-status-chip" data-stat="cost" :title="usage.costComplete ? undefined : '有请求不知道单价，这是已知部分的合计'"><b>{{ usage.costComplete ? "" : "≥" }}{{ formatCost(usage.cost, currency) }}</b></span>
         <span class="qa-status-more i-lucide-panel-right-open" aria-hidden="true" />
     </button>
 </template>

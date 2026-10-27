@@ -26,6 +26,10 @@ const integer: Decoder = (value, name) => {
     if (!/^-?\d+$/u.test(value)) throw new UsageError(`${name} 要写整数：${value}`);
     return Number(value);
 };
+const yesNo: Decoder = (value, name) => {
+    if (value !== "true" && value !== "false") throw new UsageError(`${name} 要写 true 或 false：${value}`);
+    return value === "true";
+};
 const position: Decoder = (value, name) => {
     const parsed = parsePositionText(value);
     if (!parsed) throw new UsageError(`${name} 要写“章”或“章.段”，例如 38 或 38.57：${value}`);
@@ -150,7 +154,7 @@ export const COMMANDS: readonly CommandSpec[] = [
         summary: "人物之间的关系、同场、认知与身份连接",
         book: true,
         paged: false,
-        options: {perspective: {decode: text}, kinds: {decode: list}, "min-together": {decode: integer}},
+        options: {perspective: {decode: text}, kinds: {decode: list}, "min-together": {decode: integer}, "include-anonymous": {decode: yesNo}},
     }),
     command({name: "ledger", method: "ledger.tracks", summary: "各项数值与任务的当前值", book: true, paged: false}),
     command({name: "track", method: "ledger.track", summary: "某一项的流水与对账差额", book: true, paged: false, positionals: [{name: "数值", decode: value => ({track: value})}], options: {owner: {decode: text}}}),

@@ -34,7 +34,7 @@ import AnswerCard from "../qa/AnswerCard.vue";
 import {REF_SCHEME} from "../qa/link-refs";
 import {CHAPTER_SCHEME, createMentionSearch, ENTITY_SCHEME, MENTION_LIMIT, mentionMenu, mentionPlainText, type MentionEntity} from "../qa/mentions";
 import {createNameResolver, QA_NAME_LOOKUP} from "../qa/names";
-import {candidateInfos, clampThinking, contextTokensOf, resolveChoice, type CatalogProvider} from "../qa/models";
+import {candidateInfos, clampThinking, contextTokensOf, priceCurrency, resolveChoice, type CatalogProvider} from "../qa/models";
 import {createQaSource, type QaSource, type QaSourceState} from "../qa/source";
 import QaInspector from "../qa/QaInspector.vue";
 import QaPositionControl from "../qa/QaPositionControl.vue";
@@ -199,7 +199,9 @@ const highestAt = computed(() => (record.value === null ? (run.value?.at ?? null
 const conversationMode = computed(() => record.value?.mode ?? run.value?.mode ?? null);
 
 // ---- 输入框的 `@` 引用：候选按这个对话的阅读位置给（新对话用查看器的位置），晚于它的对象不在名单里 ----
-const mentionAt = computed(() => (selectedId.value === null ? book.at.value : (conversationAt.value ?? book.at.value)));
+/** 新对话第一问的章；null 跟着查看器的位置。@ 候选与提交用它，不按查看器的位置给后文的人物。 */
+const draftChapter = ref<number | null>(null);
+const mentionAt = computed(() => (selectedId.value === null ? (draftChapter.value === null ? book.at.value : {chapter: draftChapter.value}) : (conversationAt.value ?? book.at.value)));
 /** 人物取到一次加一：services 换一个新的菜单函数，编辑器按当前查询重取（resolveTriggerMenu 的约定）。 */
 const mentionTick = ref(0);
 const mentions = createMentionSearch({
@@ -380,18 +382,17 @@ function answerText(args: unknown): string {
 const inspectorOpen = ref(false);
 const statusMessages = computed(() => sourceState.value?.messages ?? []);
 const statusLimit = computed(() => (choice.value === null ? null : (candidates.value.get(choice.value.model)?.contextWindow ?? null)));
-/** 费用的币种：所选模型在设置里写的单价的币种；没写单价时费用本来就不显示，币种随便取。 */
-const statusCurrency = computed<"USD" | "CNY">(() => {
-    const ref = choice.value?.model;
-    if (ref === undefined || config.value === null) return "CNY";
-    const slash = ref.indexOf("/");
-    const model = config.value.providers?.[ref.slice(0, slash)]?.models.find(item => item.id === ref.slice(slash + 1));
-    return model?.price?.currency === "USD" ? "USD" : "CNY";
+/**
+ * 费用的币种：这个对话用过的模型（已有的轮与正在跑的这一轮）在目录里写的单价币种。只有一种就用它；用过不同币种的模型时
+ * 为 null，不把不同币种的金额加在一起；都没写单价时费用本来就不显示。币种取自模型而不是输入框当前选的模型。
+ */
+const statusCurrency = computed<string | null>(() => {
+    const refs = new Set([...(record.value?.turns.map(turn => turn.model) ?? []), ...(run.value?.model === undefined ? [] : [run.value.model])]);
+    const currencies = new Set([...refs].map(ref => priceCurrency(catalog.value, ref)).filter((currency): currency is string => currency !== null));
+    return currencies.size > 1 ? null : ([...currencies][0] ?? "CNY");
 });
 
 // ---- 阅读位置（t25）：已有的对话改位置立刻写进会话，新对话改的是第一问的位置 ----
-/** 新对话第一问的章；null 跟着查看器的位置。 */
-const draftChapter = ref<number | null>(null);
 const changingPosition = ref(false);
 const positionAt = computed(() => {
     if (selectedId.value !== null) return conversationAt.value;

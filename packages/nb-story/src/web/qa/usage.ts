@@ -30,6 +30,8 @@ export interface SessionUsage {
     readonly hitRate: number | null;
     /** 已知单价的请求的费用合计；一个单价都不知道时 null（界面不显示金额）。 */
     readonly cost: number | null;
+    /** 每一次请求都知道单价；为 false 时 `cost` 只是已知部分的小计。 */
+    readonly costComplete: boolean;
 }
 
 export function requestsOf(messages: readonly MessageView[]): RequestUsage[] {
@@ -56,6 +58,7 @@ export function sessionUsage(messages: readonly MessageView[]): SessionUsage {
         cacheWrite: sum(request => request.cacheWrite),
         hitRate: prompt > 0 ? sum(request => request.cacheRead) / prompt : null,
         cost: known.length === 0 ? null : known.reduce((total, request) => total + request.cost!, 0),
+        costComplete: known.length === requests.length,
     };
 }
 
@@ -73,8 +76,8 @@ export function contextPercent(tokens: number, limit: number | null): number | n
 }
 
 /** 金额的短写，保留两位小数；小于 0.01 时写 `< 0.01`，避免显示成 0。 */
-export function formatCost(value: number, currency: "USD" | "CNY"): string {
-    const symbol = currency === "USD" ? "$" : "¥";
+export function formatCost(value: number, currency: string): string {
+    const symbol = currency === "USD" ? "$" : currency === "CNY" ? "¥" : `${currency} `;
     return value > 0 && value < 0.01 ? `${symbol}< 0.01` : `${symbol}${value.toFixed(2)}`;
 }
 

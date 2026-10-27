@@ -2,7 +2,7 @@ import {describe, expect, test} from "bun:test";
 
 import type {MessageView} from "@notnotype/nb-agent-ui";
 
-import {candidateInfos, clampThinking, contextTokensOf, defaultChoice, providerNote, resolveChoice, type CatalogProvider} from "./models";
+import {candidateInfos, clampThinking, contextTokensOf, defaultChoice, priceCurrency, providerNote, resolveChoice, type CatalogProvider} from "./models";
 
 const model = (id: string, fields: Partial<CatalogProvider["models"][number]> = {}): CatalogProvider["models"][number] => ({id, name: id.toUpperCase(), api: "openai-completions", contextWindow: 200_000, maxTokens: null, reasoning: true, efforts: ["low", "high", "max"], images: false, price: null, ...fields});
 const PROVIDERS: CatalogProvider[] = [
@@ -58,5 +58,15 @@ describe("候选模型", () => {
         expect(contextTokensOf([assistant("a", {input: 100, cacheRead: 0, cacheWrite: 0}), assistant("b", {input: 20, cacheRead: 3000, cacheWrite: 50}), assistant("c")])).toBe(3070);
         expect(contextTokensOf([assistant("a", {input: 100, cacheRead: 0, cacheWrite: 0}), assistant("b", {input: 0, cacheRead: 0, cacheWrite: 0}, "stopped"), assistant("c", {input: 0, cacheRead: 0, cacheWrite: 0}, "error")])).toBe(100);
         expect(contextTokensOf([])).toBe(0);
+    });
+});
+
+describe("单价币种", () => {
+    test("取目录里写的币种；没有这个模型或没写单价为 null", () => {
+        const priced: CatalogProvider[] = [{...PROVIDERS[0]!, models: [model("a", {price: {input: 1, output: 2, currency: "CNY"}}), model("b")]}, {...PROVIDERS[1]!, models: [model("c", {price: {input: 1, output: 2, currency: "USD"}})]}];
+        expect(priceCurrency(priced, "jiji/a")).toBe("CNY");
+        expect(priceCurrency(priced, "deepseek/c")).toBe("USD");
+        expect(priceCurrency(priced, "jiji/b")).toBeNull();
+        expect(priceCurrency(priced, "jiji/gone")).toBeNull();
     });
 });
