@@ -81,6 +81,8 @@ t15 第一期的实现审查与作者验收留下的（[t15 plan.md 第 11 节](
 - 插件页显示第三方插件各入口的激活状态（plugin-manifest 输出 6 的后半），卸载与禁用确认里列出依赖它的插件（t04 设计审查提出，2026-10-23）。
 - `nbdev worktree new` 只能建 Task 级 worktree，要补 Work 级的（`.worktree/<Work 编号>-<短名>`、`{type}/<Work 编号>-<slug>`）。
 - `nbook` 的后台运行（开发者 2026-10-27 定）：注册成操作系统的服务（systemd 用户单元、launchd、Windows 计划任务），由 `nbook service install|uninstall|start|stop|restart|status` 管，停止与查看也放在 `service` 下、对前台实例同样有效；实现前先调研有没有现成的第三方库，没有就自己做一个包。实例认领的套接字协议（t15 第二期）是它的停止与查询通道。
+- 装好后让 agent 给 NeuroBook 写插件（开发者 2026-10-27 定为后续，参照 [deepseek-harness 调研](tasks/t15-author-api-round2/evidences/dsh-research.md)）：给外部 agent 的“写 NeuroBook 插件”Skill 与模板（照 `nbstory skill install`）；应用内的 Creator 模式、只读的运行时检视工具（贡献点、服务键、设置 schema）、agent 触发安装并热生效。后两样依赖应用内 agent 与插件热插拔（`runtime/plugin-hot-plug.md`）。
+- 桌面版（开发者 2026-10-27 定另开 Task）：先写提案，实测 Electron、Tauri、Electrobun 三个壳（安装包大小、启动时间、Monaco 与工作台的显示）；壳捆绑 Bun 运行应用包目录的 `server/nbook.js`、窗口加载回环页面；定状态根是否与命令行共用、自动更新与签名。过渡办法是页面加 PWA 清单，浏览器“安装为应用”。
 
 ## 范围外发现
 
