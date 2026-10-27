@@ -18,7 +18,7 @@ const snapshotEntry = (seq: number) => entry(seq, "session_snapshot", {profile: 
 
 const turn = (question: string, logFrom: number) => ({question, status: "answered" as const, answer: null, reply: {text: "答", truncated: false, unverifiedRefs: []}, error: null, chaptersRead: [], rejections: 0, usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: null, complete: true}, ms: 1, model: "m", startedAt: AT, logFrom});
 const record = (turns: QaRecordView["turns"]): QaRecordView => ({id: "c", at: {chapter: 38, paragraph: 57}, mode: "graph", answer: "markdown", maxChapters: 20, turns, startedAt: AT});
-const run = (fields: Partial<QaRunView> = {}): QaRunView => ({runId: "r1", conversation: "c", turn: 2, baseTurns: 1, logFrom: 4, question: "追问", at: {chapter: 38, paragraph: 57}, mode: "graph", model: "test/m", startedAt: AT, state: "running", result: null, saved: null, ...fields});
+const run = (fields: Partial<QaRunView> = {}): QaRunView => ({runId: "r1", conversation: "c", turn: 2, baseTurns: 1, baseChanges: 0, logFrom: 4, question: "追问", at: {chapter: 38, paragraph: 57}, mode: "graph", model: "test/m", startedAt: AT, state: "running", result: null, saved: null, ...fields});
 
 /** 第一轮：快照、提问、回复。 */
 const FIRST = [snapshotEntry(1), userEntry(2, "第一问"), replyEntry(3, "第一答")];
@@ -122,6 +122,13 @@ describe("记录与运行", () => {
 
     test("运行基于较早的记录（命令行先保存了一轮）：不接进来，标为 detached", async () => {
         const h = harness([got({record: record([turn("第一问", 1), turn("命令行的", 4)]), run: run({baseTurns: 1})})]);
+        await h.settle();
+        expect(h.source.state().detached).toBe(true);
+        expect(h.subscribers).toHaveLength(0);
+    });
+
+    test("运行开始后位置被别处改了（轮数没变，位置改动次数变了）：不接进来，标为 detached", async () => {
+        const h = harness([got({record: {...record([turn("第一问", 1)]), currentAt: {chapter: 20, paragraph: 3}, positionChanges: 1}, run: run({baseChanges: 0})})]);
         await h.settle();
         expect(h.source.state().detached).toBe(true);
         expect(h.subscribers).toHaveLength(0);

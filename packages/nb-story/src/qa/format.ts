@@ -5,6 +5,7 @@
 
 import type {Answer, QaConversation, QaMode, QaReply, QaTurn, QaUsage} from "../core/qa-records";
 import type {QaTurnResult} from "./engine";
+import {currentPosition} from "../contract/qa-record";
 
 function refs(list: readonly string[]): string {
     return list.length > 0 ? `〔${list.join("，")}〕` : "";
@@ -61,8 +62,13 @@ function turnBody(turn: QaTurn, mode: QaMode): string[] {
     return [...body, "", `${read}；作答被退回 ${turn.rejections} 次`, ...recheck, `用量：${usageText(turn.usage)}`, `用时 ${(turn.ms / 1000).toFixed(1)} 秒；模型 ${turn.model}`];
 }
 
-function positionText(conversation: Pick<QaConversation, "at" | "mode">): string {
-    return `阅读位置 ${conversation.at.chapter}.${conversation.at.paragraph}，${conversation.mode === "graph" ? "图当目录" : "全读"}`;
+const at = (position: {chapter: number; paragraph: number}) => `${position.chapter}.${position.paragraph}`;
+
+function positionText(conversation: Pick<QaTurnResult, "at" | "mode"> | QaConversation): string {
+    // 对话中途改过位置：显示下一问用的位置，开始时的位置另注（t25，与引擎、网页用同一规则）。
+    const now = "turns" in conversation ? currentPosition(conversation) : conversation.at;
+    const start = "turns" in conversation && at(now) !== at(conversation.at) ? `（开始时 ${at(conversation.at)}）` : "";
+    return `阅读位置 ${at(now)}${start}，${conversation.mode === "graph" ? "图当目录" : "全读"}`;
 }
 
 /** `ask` 的输出：这一轮的问题与回答，最后写对话 id 与追问的命令。 */
@@ -79,8 +85,13 @@ export function turnText(result: QaTurnResult): string {
 /** `qa <id>`：按轮显示整个对话。 */
 export function conversationText(conversation: QaConversation): string {
     const lines = [`对话 ${conversation.id}，${positionText(conversation)}，${conversation.turns.length} 轮`];
+    // 每轮只在读到的位置和上一轮（第一轮和开始时）不同时标出来，没改过位置的对话不多出这一段。
+    let previous = at(conversation.at);
     conversation.turns.forEach((turn, index) => {
-        lines.push("", `第 ${index + 1} 轮（${STATUS_WORDS[turn.status]}）：${turn.question}`, "", ...turnBody(turn, conversation.mode));
+        const now = turn.at === undefined ? previous : at(turn.at);
+        const moved = now === previous ? "" : `，读到 ${now}`;
+        previous = now;
+        lines.push("", `第 ${index + 1} 轮（${STATUS_WORDS[turn.status]}${moved}）：${turn.question}`, "", ...turnBody(turn, conversation.mode));
     });
     return lines.join("\n");
 }
@@ -88,5 +99,5 @@ export function conversationText(conversation: QaConversation): string {
 /** 列表里的一行：一个对话。 */
 export function conversationLine(conversation: QaConversation): string {
     const last = conversation.turns.at(-1)!;
-    return `${conversation.id}  ${conversation.startedAt.slice(0, 16).replace("T", " ")}  ${STATUS_WORDS[last.status]}  ${conversation.turns.length} 轮  @${conversation.at.chapter}.${conversation.at.paragraph}  ${conversation.turns[0]!.question}`;
+    return `${conversation.id}  ${conversation.startedAt.slice(0, 16).replace("T", " ")}  ${STATUS_WORDS[last.status]}  ${conversation.turns.length} 轮  @${at(currentPosition(conversation))}  ${conversation.turns[0]!.question}`;
 }
