@@ -16,6 +16,7 @@ import {useRouter} from "vue-router";
 
 import type {IngestPlanView} from "../../contract/contract";
 import {StoryCallError, useStoryClient} from "../host/client";
+import ThemeMenu from "../parts/ThemeMenu.vue";
 
 const client = useStoryClient();
 const router = useRouter();
@@ -188,6 +189,7 @@ async function start(): Promise<void> {
             <nav class="flex items-center gap-1 text-[length:var(--text-sm)] text-[var(--text-muted)]">
                 <RouterLink to="/" class="flex items-center gap-1 hover:text-[var(--text-secondary)]"><span class="i-lucide-library" />书架</RouterLink>
                 <span class="i-lucide-chevron-right" />导入原文
+                <ThemeMenu class="ml-auto" />
             </nav>
             <h1 class="text-[length:var(--text-lg)] font-[var(--weight-strong)]">导入原文</h1>
 

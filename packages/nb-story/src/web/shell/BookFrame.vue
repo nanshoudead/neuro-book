@@ -13,10 +13,10 @@ import {useRouter} from "vue-router";
 import {BOOK_SESSION, type BookSession, type DrawerContent, type Page} from "../host/book";
 import {ingestBadge} from "../host/ingest";
 import {StoryCallError, useStoryClient} from "../host/client";
-import {readDrawerWidth, readNavCollapsed, writeDrawerWidth, writeNavCollapsed, type ThemeChoice} from "../host/prefs";
+import {readDrawerWidth, readNavCollapsed, writeDrawerWidth, writeNavCollapsed} from "../host/prefs";
 import {LAYOUT_MOTION} from "../host/motion";
-import {useAppearance} from "../host/theme";
 import ReadingControl from "../parts/ReadingControl.vue";
+import ThemeMenu from "../parts/ThemeMenu.vue";
 import DrawerCard from "./DrawerCard.vue";
 import DrawerNode from "./DrawerNode.vue";
 import DrawerParagraph from "./DrawerParagraph.vue";
@@ -159,19 +159,6 @@ function goPage(page: Page): void {
 // ---- 顶栏右侧：明暗与抽屉开关；左侧：书架与换书（输出 1、34、35） ----
 const router = useRouter();
 const client = useStoryClient();
-const appearance = useAppearance();
-const THEMES: ReadonlyArray<{value: ThemeChoice; label: string; icon: string}> = [
-    {value: "system", label: "跟随系统", icon: "i-lucide-monitor"},
-    {value: "light", label: "亮色", icon: "i-lucide-sun"},
-    {value: "dark", label: "暗色", icon: "i-lucide-moon"},
-];
-const themeItems = computed<DropdownMenuItemData[]>(() => THEMES.map(theme => ({value: theme.value, label: theme.label, iconClass: theme.icon, type: "radio", group: "theme", checked: appearance.choice.value === theme.value})));
-const themeIcon = computed(() => THEMES.find(theme => theme.value === appearance.choice.value)!.icon);
-function setTheme(value: string): void {
-    const theme = THEMES.find(item => item.value === value);
-    if (theme) appearance.set(theme.value);
-}
-
 const otherBooks = ref<{id: string; title: string}[]>([]);
 onMounted(async () => {
     try {
@@ -237,7 +224,7 @@ watch(notice, value => {
                 ><span v-if="ingestPill.dot" class="ingest-dot" /><span>{{ ingestPill.text }} {{ book.ingest.value!.committed }} / {{ book.ingest.value!.total }}</span></RouterLink>
                 <template v-if="tier === 'phone'">
                     <SearchBox class="ml-auto" compact />
-                    <DropdownMenu :items="themeItems" align="end" @select="setTheme"><IconButton size="sm" :icon-class="themeIcon" aria-label="明暗" data-testid="theme-menu" /></DropdownMenu>
+                    <ThemeMenu />
                     <IconButton size="sm" icon-class="i-lucide-panel-bottom-open" aria-label="打开详情面板" :disabled="!drawerOpen && !book.lastDrawer.value" @click="toggleDrawer" />
                 </template>
             </div>
@@ -246,7 +233,7 @@ watch(notice, value => {
                 <SearchBox :compact="tier === 'tablet'" />
                 <!-- 平板放不下整句：只留图标，文字给悬停与读屏（审查 F03：整句会把右侧栏开关挤出屏外） -->
                 <span v-if="book.saveFailed.value" class="save-failed whitespace-nowrap" role="status" title="阅读位置没存上" aria-label="阅读位置没存上" data-testid="save-failed"><span class="i-lucide-triangle-alert" /><span v-if="tier === 'wide'">阅读位置没存上</span></span>
-                <DropdownMenu :items="themeItems" align="end" @select="setTheme"><IconButton size="sm" :icon-class="themeIcon" aria-label="明暗" title="明暗" data-testid="theme-menu" /></DropdownMenu>
+                <ThemeMenu />
                 <IconButton
                     size="sm" :icon-class="drawerOpen ? 'i-lucide-panel-right-close' : 'i-lucide-panel-right-open'" :aria-label="drawerOpen ? '收起右侧栏' : '展开右侧栏'"
                     :title="drawerOpen ? '收起右侧栏' : book.lastDrawer.value ? '展开右侧栏' : '还没有打开过内容'" :disabled="!drawerOpen && !book.lastDrawer.value" data-testid="toggle-drawer" @click="toggleDrawer"
@@ -268,7 +255,11 @@ watch(notice, value => {
                             <span v-if="!navIsCollapsed" class="truncate">{{ item.label }}</span>
                         </button>
                         <div class="flex-1" />
-                        <IconButton v-if="tier === 'wide'" size="xs" :icon-class="navCollapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'" :aria-label="navCollapsed ? '展开导航' : '收起导航'" @click="setNavCollapsed(!navCollapsed)" />
+                        <!-- 设置入口（t27）：收起导航时叠在收起按钮上方，展开时与它并排。 -->
+                        <div class="flex items-center gap-1" :class="navIsCollapsed ? 'flex-col' : 'justify-between px-1'">
+                            <IconButton size="xs" icon-class="i-lucide-settings" aria-label="设置" title="设置" data-testid="nav-settings" @click="router.push('/settings')" />
+                            <IconButton v-if="tier === 'wide'" size="xs" :icon-class="navCollapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'" :aria-label="navCollapsed ? '展开导航' : '收起导航'" @click="setNavCollapsed(!navCollapsed)" />
+                        </div>
                     </nav>
                 </template>
                 <template #panel-main>
@@ -329,6 +320,8 @@ watch(notice, value => {
                     <button v-for="item in nav" :key="item.id" type="button" class="nav-item flex items-center gap-2 rounded-[var(--radius-control)] px-2 py-2 text-[length:var(--text-sm)]" :class="book.page.value === item.id ? 'is-active' : ''" @click="goPage(item.id)">
                         <span :class="item.icon" />{{ item.label }}
                     </button>
+                    <div class="flex-1" />
+                    <button type="button" class="nav-item flex items-center gap-2 rounded-[var(--radius-control)] px-2 py-2 text-[length:var(--text-sm)]" data-testid="nav-settings-sheet" @click="router.push('/settings')"><span class="i-lucide-settings" />设置</button>
                 </nav>
             </template>
         </div>

@@ -377,6 +377,33 @@ test("全局搜索的结果浮在页面上，不撑高顶栏；点外面关掉",
     await expect(page.getByTestId("search-results")).toHaveCount(0);
 });
 
+test("明暗切换与设置入口（输出 34，t27）：书架、导入、设置页顶部都有明暗切换，同一份偏好；书页导航底部的设置入口打开设置页，返回回到原来的页", async ({page}) => {
+    // 书库里有两本以上时才留在书架（只有一本时登录后会直接打开它）。
+    const file = `${server.library}/../sample.json`;
+    expect((await runCli(["import", file, "--title", "第三本", "--id", "fox3", "--library", server.library])).code).toBe(0);
+    await login(page.context(), server);
+    await page.goto(`${server.base}/`);
+    await expect(page.getByTestId("library")).toBeVisible();
+    await page.getByTestId("theme-menu").click();
+    await page.getByRole("menuitemradio", {name: "暗色"}).click();
+    await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
+    // 设置页、导入页是同一份偏好：刷新后仍是暗色，这两页的控件也在。
+    await page.goto(`${server.base}/settings`);
+    await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
+    await expect(page.getByTestId("settings-page").getByTestId("theme-menu")).toBeVisible();
+    await page.goto(`${server.base}/import`);
+    await page.getByTestId("theme-menu").click();
+    await page.getByRole("menuitemradio", {name: "亮色"}).click();
+    await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "light");
+
+    // 书页：导航底部的设置入口 → 设置页 → 返回回到这一页。
+    await open(page, "/book/fox/relations?at=38&perspective=reader");
+    await page.getByTestId("nav-settings").click();
+    await expect(page.getByTestId("settings-page")).toBeVisible();
+    await page.getByRole("button", {name: "返回"}).click();
+    await expect(page).toHaveURL(/\/book\/fox\/relations/u);
+});
+
 test("外壳（输出 1、3、4、5、34、35）：第一次打开是全部读完；明暗切换并保持；书架入口与换书；没有页脚，保存失败提示在顶栏", async ({page}) => {
     // 另导入一本从没打开过的书：第一次打开读到抽取到的最后位置。
     const file = `${server.library}/../sample.json`;
