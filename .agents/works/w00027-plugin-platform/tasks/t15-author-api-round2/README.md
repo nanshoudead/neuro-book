@@ -108,6 +108,9 @@ updated: 2026-10-27
 - S2 `299250d1f`：`nbooke create` 不再提示装 tarball（结果字段与判断函数一起删），作者文档改用 `bunx -p`；SDK 包补 license、files、repository、publishConfig、LICENSE 与第三方许可（实际打进 reka-ui、@floating-ui、@vueuse 等 13 个 MIT 包），许可清单的生成与应用包共用 `scripts/third-party-notices.ts`。Spec `ce37859c7`（plugin-api）。验证：plugin-sdk 与应用包测试 79 例。
 - S5 `8d962cb82`、`65c64c40e`：根 README 中英按 v2 重写（字标、看板娘、心情小猫、书架与工作台截图、安装、能做什么、写插件、路线图、旧版本一行）；补 dev-panel、owned-process、neuro-book-contracts、neuro-book-test-support 的 README（旧应用只读，不加），重写 `packages/neuro-book/README.md`；PROJECT-STATUS、repository-workflow 的发布步骤。
 
+- 实现审查（Claude Opus，[evidences/p3-impl-review.txt](evidences/p3-impl-review.txt)）：阻断 1、重要 4、建议 7，逐条处理见 plan-phase3.md 第 11 节，修正 `a3b314ac2`，Spec `936670bd2`。
+- 收口：干净克隆里 `release:smoke` 全部通过（[evidences/p3-release-smoke.txt](evidences/p3-release-smoke.txt)）；全量 e2e 在另一个项目的视频渲染占满 CPU 时（负载 17 到 30）跑到第 264 例被时限截停，246 例通过，Lab 一组超时失败；负载降下来后失败与没跑到的文件重跑全过（lab-nb-form 13、lab 15、lab-nb-ui、settings、workbench-titlebar、workbench-views 共 61）。同负载下基线一次通过、本分支一次失败，负载降下后本分支全过，属负载下的时序问题；两者之间运行代码只差版本号。
+
 2026-10-24 P2、P5、P7、P8 已定。第一期（发布前改完作者 API）的计划见 [plan.md](plan.md)，开发者 2026-10-24 确认（含助手都改成所属子路径的函数、子路径表、`nbook.view.open`、作者命令名 `nbooke`）。计划审查两份（omp 阻断 5、重要 8、建议 1；Sonnet 重要 6、建议 15）逐条处理见 plan.md 第 9 节，开始实施 S1。
 
 ## 下一步
