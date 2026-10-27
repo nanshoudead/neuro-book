@@ -168,3 +168,21 @@
 | 两个包同号半途发布失败、发布顺序（Sonnet 打包） | 第三期处理，记入第三期计划 |
 | 主线程阻塞 5 到 10 秒锁被判残留（Sonnet 测试） | 套接字认领后不存在 |
 | Windows、macOS 的预期没写（Sonnet 打包） | 第 7、8 节写明 |
+
+## 10. 实现审查的处理
+
+前端与命令行使用（Sonnet，[evidences/p2-impl-review-sonnet.txt](evidences/p2-impl-review-sonnet.txt)）：重要 3、建议 10，修正 `ede24f850`，Spec `71f14b613`。
+
+| 发现 | 处理 |
+|---|---|
+| `help` 子命令以 2 退出、`--json help` 多一个失败对象 | 成立。`commander.help` 按 `exitCode` 区分；测 `help start`、`plugin help install` 以 0 退出 |
+| `--state-root ""` 静默回落到真实的缺省状态根 | 成立。显式的空串报 `usage`；单测与进程测试 |
+| 服务端启动失败时不走命令行的输出约定 | 成立。`runServerProcess` 加 `onStartupFailed`（启动中被停止不算），`nbook start` 写 `startup-failed` 与 `causes`；Spec 失败表加这一码；测 Web 根不存在 |
+| commander 的英文残留、子命令帮助没有全局选项 | 成立。按错误码组中文说明，用法行与命令列表自己拼，`showGlobalOptions` |
+| 清单无效时第一条问题重复 | 成立。有逐条问题时只列问题；测每条只出现一次 |
+| 路径不存在也提示 `nbooke build` | 成立。提示改成确认路径并传 `dist` 目录 |
+| 已有实例时 `--safe-mode` 被静默忽略 | 成立。实例不是安全模式时提示；Spec 输出 6 |
+| 示例 README 的安装没带 `--state-root`、开发服务装不进去；SDK README 没说命令行降级要 `--yes` | 成立。示例写 `--state-root .dev-state`，SDK 与模板 README 写明状态根要一致与 `--yes`；`install` 的结果写出状态根 |
+| 文档要求 `bun add -g @notnotype/neuro-book`，包第三期才发布 | 接受：应用包与 SDK 包同一次发布（第三期），发布前核对这四处 |
+| cli.md 没写插件命令的结果字段 | 成立。输出 12、13 写上 `preview`、`plugin`、`stateRoot`、`restartRequired`、`problems`；测试断言 |
+| focus 示例两处“几个服务端”残留 | 成立。改成“几个请求” |
