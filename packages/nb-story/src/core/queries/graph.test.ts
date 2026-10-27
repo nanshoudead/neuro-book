@@ -44,16 +44,20 @@ describe("关系图（输出 16、验收 3）", () => {
 
     test("点带它的其他称呼（搜索按别名查）：不含显示名；阅读位置之前还没出现的称呼不带出", async () => {
         const late = await book.ok("graph.relations", {at: {chapter: 38}});
-        const owner = late.nodes.find(node => node.names.includes("心月狐"));
-        expect(owner).toBeDefined();
-        expect(owner!.names).not.toContain(owner!.label);
-        expect(new Set(owner!.names).size).toBe(owner!.names.length);
+        // 别名归属钉死：读者视角下“心月狐”只属于苏天晴（e1-1）；南嘉鱼的视角里苏天晴与狐狐（e6-2）没被合并，两个点各带它。
+        const owners = late.nodes.filter(node => node.names?.includes("心月狐"));
+        expect(owners.map(node => [node.id, node.label])).toEqual([["e1-1", "苏天晴"]]);
+        const owner = owners[0]!;
+        expect(owner.names).not.toContain(owner.label);
+        expect(new Set(owner.names).size).toBe(owner.names!.length);
+        const role = await book.ok("graph.relations", {at: {chapter: 38}, perspective: "e8-2"});
+        expect(role.nodes.filter(node => node.names?.includes("心月狐")).map(node => node.id).sort()).toEqual(["e1-1", "e6-2"]);
         // “心月狐”第 8 章第 48 段才出现：读到第 7 章时哪个点都不带它。
         const early = await book.ok("graph.relations", {at: {chapter: 7}});
-        expect(early.nodes.some(node => node.names.includes("心月狐"))).toBe(false);
+        expect(early.nodes.some(node => node.names?.includes("心月狐"))).toBe(false);
         // 全书图的对象点同样带称呼，别的类型的点没有。
         const bookGraph = await book.ok("graph.book", {at: {chapter: 38}});
-        expect(bookGraph.nodes.find(node => node.id === owner!.id)?.names).toContain("心月狐");
+        expect(bookGraph.nodes.find(node => node.id === owner.id)?.names).toContain("心月狐");
         expect(bookGraph.nodes.filter(node => node.type !== "entity").every(node => node.names === undefined)).toBe(true);
     });
 

@@ -36,6 +36,7 @@ defineProps<{
     relayoutKey?: number;                 // 加一就从头排一次，缺省 0
     ego?: string | null;                  // 人物卡小图的中心；给了就只画他与关系最多的 12 个，缺省 null
     selected?: string | null;             // 受控的选中点，缺省 null
+    // nodes 里每个点可带 names：这个点的其他称呼（别名），搜索 query 同时匹配显示名与它们
     neighborhood?: boolean;               // 只看选中的周边，缺省 false
     hiddenTypes?: string[];               // data 不画的点类型，缺省 []
     minCo?: number;                       // 同场门槛，缺省 2
@@ -45,6 +46,8 @@ defineProps<{
 }>();
 defineEmits<{(event: "select", id: string): void}>();
 ```
+
+`overlay` 插槽：页面放进来的浮层（选中浮条 `SelectionBar`）。它在图的根元素里，所以进入全屏后仍然看得到。
 
 没有 slots、expose；attrs 透传到外层。
 

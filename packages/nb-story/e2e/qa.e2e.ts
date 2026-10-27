@@ -243,6 +243,8 @@ test.describe("输入框与模型", () => {
         // 倒计时没结束，确认键是停用的，按钮上写着剩余秒数。
         const confirm = notice.getByRole("button", {name: /知道了，切换（\d）/u});
         await expect(confirm).toBeDisabled();
+        // 标题栏有关闭按钮（Spec 输出 51）。
+        await expect(notice.getByRole("button", {name: /关闭/u})).toBeVisible();
         // 先不切换随时能点（倒计时只拦确认键）：模式不变，窗口关上。
         await expect(notice.getByRole("button", {name: "先不切换"})).toBeEnabled();
         await notice.getByRole("button", {name: "先不切换"}).click();

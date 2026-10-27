@@ -41,10 +41,14 @@ export function writeDrawerWidth(value: number): void {
 
 /** 问答里第一次切换读书方式时的说明看过了没有（浏览器级，看过一次就不再弹）。 */
 export function readModeNoticeSeen(): boolean {
-    return read("qa-mode-notice-seen") === "true";
+    return modeNoticeSeenInPage || read("qa-mode-notice-seen") === "true";
 }
 
+/** 偏好存不进去（隐私模式）时，这一页的生命周期里也不再重复弹。 */
+let modeNoticeSeenInPage = false;
+
 export function writeModeNoticeSeen(): void {
+    modeNoticeSeenInPage = true;
     write("qa-mode-notice-seen", "true");
 }
 

@@ -169,6 +169,10 @@ test("关系图（验收 3、输出 27）：页面上已有文字选区时拖动
 test("关系图（输出 27，反馈 3）：在图里找可以按别名；右键点开菜单后移动鼠标，点不会跟着走", async ({page}) => {
     await open(page, "/book/fox/relations?at=38&perspective=reader");
     await expect(page.getByTestId("relation-graph").locator("canvas").first()).toBeVisible();
+    // 页面打开时沿用抽屉里正开着的对象（上一个用例可能留着）：先关掉，下面“出现人物卡”才说明点选到了。
+    const openCard = page.getByTestId("entity-card");
+    if ((await openCard.count()) > 0) await openCard.getByRole("button", {name: "关闭"}).click();
+    await expect(openCard).toHaveCount(0);
     // “心月狐”是别名，不是任何点的显示名：搜它也要让镜头移到那个点上。
     const center = await centerOn(page, "心月狐");
     await page.mouse.move(center.x, center.y);
@@ -186,7 +190,8 @@ test("关系图（输出 27，反馈 3）：在图里找可以按别名；右键
     // 点还在原处：在原处单击仍然选中它（落在空白处会取消选中），按 Enter 打开的是它的人物卡。
     await page.mouse.click(center.x, center.y);
     await page.keyboard.press("Enter");
-    await expect(page.getByTestId("entity-card")).toBeVisible();
+    // 打开的是别名所属的人：苏天晴；点要是被右键拖走，原处单击落在空白处，这里不会出现人物卡。
+    await expect(page.getByTestId("card-name")).toHaveText("苏天晴");
 });
 
 test("关系图（输出 27，反馈 3）：选中一个点后底部出浮条，写着怎么打开；点按钮打开人物卡，取消选中后浮条消失；右键菜单写“双击 / Enter”", async ({page}) => {
@@ -377,6 +382,41 @@ test("全局搜索的结果浮在页面上，不撑高顶栏；点外面关掉",
     await expect(page.getByTestId("search-results")).toHaveCount(0);
 });
 
+test("选中浮条（输出 27）：在图顶部不压图例与缩放按钮；进入全屏后仍在全屏的元素里；全书图隐藏该点的类型后浮条随之消失", async ({page}) => {
+    await open(page, "/book/fox/relations?at=38&perspective=reader");
+    await expect(page.getByTestId("relation-graph").locator("canvas").first()).toBeVisible();
+    const card = page.getByTestId("entity-card");
+    if ((await card.count()) > 0) await card.getByRole("button", {name: "关闭"}).click();
+    const center = await centerOn(page, "白灵");
+    await page.mouse.click(center.x, center.y);
+    const bar = page.getByTestId("graph-selection-bar");
+    await expect(bar).toContainText("已选中 白灵");
+    // 浮条在图的上半部，不与右下的缩放按钮重叠。
+    const graphBox = (await page.getByTestId("relation-graph").boundingBox())!;
+    const barBox = (await bar.boundingBox())!;
+    expect(barBox.y + barBox.height).toBeLessThan(graphBox.y + graphBox.height / 2);
+    // 全屏：浮条是全屏元素的后代（真实的 Fullscreen API）。
+    await page.getByRole("button", {name: "全屏"}).click();
+    await expect.poll(() => page.evaluate(() => document.fullscreenElement?.contains(document.querySelector("[data-testid=graph-selection-bar]")) ?? false)).toBe(true);
+    await page.evaluate(() => document.exitFullscreen());
+});
+
+test("全书图（输出 27）：选中一个对象点后隐藏“对象”类型，点从图上消失，选中浮条也随之消失", async ({page}) => {
+    await open(page, "/book/fox/book-graph?at=38&perspective=reader");
+    await page.getByText("按关联", {exact: true}).click();
+    const graph = page.locator(".story-graph");
+    await expect(graph.locator("canvas").first()).toBeVisible();
+    await page.waitForTimeout(1500);
+    await page.getByPlaceholder("在图里找").fill("苏天晴");
+    await page.waitForTimeout(1200);
+    const box = (await graph.boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    const bar = page.getByTestId("graph-selection-bar");
+    await expect(bar).toContainText("已选中");
+    await page.getByRole("button", {name: "对象", exact: true}).click();
+    await expect(bar).toHaveCount(0);
+});
+
 test("明暗切换与设置入口（输出 34，t27）：书架、导入、设置页顶部都有明暗切换，同一份偏好；书页导航底部的设置入口打开设置页，返回回到原来的页", async ({page}) => {
     // 书库里有两本以上时才留在书架（只有一本时登录后会直接打开它）。
     const file = `${server.library}/../sample.json`;
@@ -390,7 +430,12 @@ test("明暗切换与设置入口（输出 34，t27）：书架、导入、设�
     // 设置页、导入页是同一份偏好：刷新后仍是暗色，这两页的控件也在。
     await page.goto(`${server.base}/settings`);
     await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
-    await expect(page.getByTestId("settings-page").getByTestId("theme-menu")).toBeVisible();
+    const themeButton = page.getByTestId("settings-page").getByTestId("theme-menu");
+    await expect(themeButton).toBeVisible();
+    // 在设置页标题行的右端（class 要落到按钮上），不是紧贴标题。
+    const head = (await page.locator(".settings-head").boundingBox())!;
+    const button = (await themeButton.boundingBox())!;
+    expect(head.x + head.width - (button.x + button.width)).toBeLessThan(4);
     await page.goto(`${server.base}/import`);
     await page.getByTestId("theme-menu").click();
     await page.getByRole("menuitemradio", {name: "亮色"}).click();

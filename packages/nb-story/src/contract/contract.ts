@@ -333,7 +333,7 @@ const SearchItem = Type.Object({
 
 // ---- 图 ----
 
-export const RelationNodeSchema = Type.Object({id: Type.String(), label: Type.String(), kind: EntityKindSchema, mentions: Type.Integer(), entities: Type.Array(Type.String()), names: Type.Array(Type.String())});
+export const RelationNodeSchema = Type.Object({id: Type.String(), label: Type.String(), kind: EntityKindSchema, mentions: Type.Integer(), entities: Type.Array(Type.String()), names: Type.Optional(Type.Array(Type.String()))});
 export const RelationEdgeSchema = Type.Object({
     a: Type.String(),
     b: Type.String(),
