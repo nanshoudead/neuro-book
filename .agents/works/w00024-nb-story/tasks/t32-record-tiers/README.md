@@ -15,11 +15,24 @@ updated: 2026-10-27
 
 ## 当前状态
 
-2026-10-27 设计审查处理完（[plan.md](plan.md)），开发者确认后按 autonomous-delivery 实施，worktree `.worktree/w00024-t32`、分支 `feat/w00024-t32-record-tiers`。第 1 片（`core/tiers.ts`：后验、规则表、截断对照）已提交 `b0ea0bd56`，校准见 [calibration.txt](evidences/calibration.txt)。
+2026-10-27 五片都已实现，在 worktree `.worktree/w00024-t32`、分支 `feat/w00024-t32-record-tiers`：
+
+| 片 | 提交 | 内容 |
+|---|---|---|
+| 1 | `b0ea0bd56`、`7bd3f86c4` | `core/tiers.ts`：与位置无关的底稿加按位置的表；两张规则表、证据窗口；截断对照；说法里的称呼不算回响 |
+| 2 | `46f7c726d` | `entity.statements` 的 `tier`、`tierFlag`、`maxTier`、`tiers`；情节的 `tier`；`tier.explain` 与 `record_not_found`；命令行 `--tiers`、`--max-tier`、`why`；问答不变 |
+| 3 | `510cb6bb1`、`6f37d871f` | 草稿 `tier`、清洗与修复沿用、编译带入；`rules.md` 新节与示例；回放逐字对照加 `asBeforeT32` |
+| 4 | `31507d761` | `TierBadge`（依据弹出层写法 A）、`FoldedBar`、展开偏好、情节色块；e2e |
+| 收口 | `6d6cf8d43` | 全包 typecheck 通过（顺手修了 master 上两处原有错误） |
+| 收口 | `0f8cd1682` | 等级底表提速：样例书第 100 章冷启动首个 `entity.statements` 约 800 ms → 约 450 ms（不算等级约 400 ms）；两本书 4.6 万次逐条对照结果不变 |
+
+证据：[校准](evidences/calibration.txt)（两轮）、[真实小抽取](evidences/extract-5.txt)（gpt-6-luna，两次共 0.78 元；3 级先验约 9%，没到计划的 15%，记为已知限制）、评审板 `review` v1、v2。
+
+收口验证（`6d6cf8d43`）：全量单测 570 过；全量 e2e 43 过、1 败，败的是“长列表（验收 6）”的 1 秒首屏断言（1097 ms）。查下来等级底表让冷启动多了约 0.4 秒，`0f8cd1682` 已修。之后机器被别的会话占满（负载 13 到 21），这条在把等级计算整个拿掉的对照下同样 1.4 到 2.4 秒失败，所以目前测不出结论，等负载降下来再单跑一次。其余 e2e 与单测都通过。
 
 ## 下一步
 
-第 2 片：查询合同、`entity.statements` 的 `maxTier` 与 `tiers`、`tier.explain`、命令行与 Skill、问答不变、Spec。
+实现审查待处理：后端由 omp 审（默认模型），前端由 Claude Sonnet 审，都不阻塞；审查 worktree 是 `.worktree/w00024-t32-review`（固定在 `0f8cd1682`），报告在仓库外。负载降下来后单跑一次“长列表”e2e。
 
 ## 背景与已定方向
 
