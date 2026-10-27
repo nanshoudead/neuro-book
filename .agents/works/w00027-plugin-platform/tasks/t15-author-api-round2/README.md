@@ -103,4 +103,4 @@ updated: 2026-10-27
 
 ## 下一步
 
-第一期、第二期完成并合入。开发者 2026-10-27 批准 `runtime.cli` 晋升为 `implemented`，追认待确认清单里第二期的 7 条，要求开始写第三期（文档治理、GitHub Actions 整理与发布）的计划，开发者参与规划。
+第一期、第二期完成并合入。开发者 2026-10-27 批准 `runtime.cli` 晋升为 `implemented`，追认待确认清单里第二期的 7 条，要求开始写第三期（文档治理、GitHub Actions 整理与发布）的计划，开发者参与规划。第三期计划 [plan-phase3.md](plan-phase3.md)：开发者 2026-10-27 定 E1 到 E6（0.11.0 打 latest；README 只写 v2 已有的、愿景改路线图；旧安装方式删掉、留一行指向旧版 Releases；CI 参考着重建、推 master 也跑、不跑 e2e；作者入口 `bunx -p`、不建 GitHub Release、两张截图；文档用上字标与看板娘），计划审查中。
