@@ -26,6 +26,7 @@
         "cli/agent-context.ts",
         "cli/create-agent-worktree.ts",
         "cli/test-affected.ts",
+        "release/manifest.ts",
         "release/packages.ts",
         "release/pack-smoke.ts",
         "release/publish.ts",

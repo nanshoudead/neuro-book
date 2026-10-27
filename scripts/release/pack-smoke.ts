@@ -3,26 +3,31 @@
  * 发布冒烟（`bun run release:smoke`，ADR 0029、docs/specs/story/cli-skill.md 验收 6）：把发布清单里的包装进仓库外的
  * 空项目，像用户那样用一遍，不调用模型。
  *
- * - 缺省（`--from pack`）：逐个 `bun pm pack`，查包里的文件，再用 `overrides` 让 `@notnotype/*` 全部来自这些 tarball
- *   （它们的版本号还不在 registry 上，有一个漏到 registry 就会装不上）。
+ * - 缺省（`--from pack`）：先生成应用包与 SDK 包（`BUILT_PACKAGES`），对全部要发的包跑发布清单检查，再逐个 `bun pm pack`
+ *   到 `dist/release/`，查包里的文件，写下 `release-manifest.json`（提交、包名、版本、SHA-256）：`release:publish` 只发这些
+ *   tarball，发出去的就是这里验过的字节。装的时候用 `overrides` 让 `@notnotype/*` 全部来自这些 tarball（它们的版本号还不在
+ *   registry 上，有一个漏到 registry 就会装不上）。
  * - `--from registry`：不打包，按 `package.json` 的版本从 registry 装；发布之后在发布用的那个提交上跑一次，作为发布
  *   证据（装上的版本与 checkout 的对不上就失败）。
+ *
+ * 用户与作者的闭环（ADR 0033，docs/specs/runtime/cli.md 验收 1、7）：临时 `BUN_INSTALL` 下 `bun add -g` 应用包、`nbook start`
+ * 打开书架；`bunx -p` SDK 生成插件、构建并类型检查；`nbook plugin install` 之后重启，实例的启动集合里有它。
  *
  * 项目放在系统临时目录下（`@notnotype/neuro-book-test-support/tmp`），不在仓库里：Bun 按目录往上找 `node_modules`，
  * 放在仓库里会用到仓库根提升的依赖，漏写的依赖就查不出来。第三方依赖从 registry 装，直连慢时整条命令前加 `prox`。
  */
 
-import {mkdir, readdir, rm, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {basename, join} from "node:path";
 
 import {chromium} from "playwright-core";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
-import {loadReleasePackages, publishOrder, type ReleasePackage} from "#scripts/release/packages";
+import {RELEASE_DIRECTORY, RELEASE_MANIFEST, sha256Of, type ReleaseManifest} from "#scripts/release/manifest";
+import {BUILT_PACKAGES, checkReleasePackages, loadBuiltPackages, loadReleasePackages, publishOrder, type ReleasePackage} from "#scripts/release/packages";
 
 const REPOSITORY = join(import.meta.dir, "..", "..");
-
 /** 包里不该有的文件。`testing/` 目录是 exports 里公开的测试替身入口，照发。 */
 const FORBIDDEN = [/\.test\.tsx?$/u, /\.typecheck\.ts$/u, /\/corpus\//u, /(^|\/)AGENTS\.md$/u, /(^|\/)tsconfig[^/]*\.json$/u, /(^|\/)\.env/u, /^package\/(tests|e2e|playground|docs)\//u, /^package\/src\/web\//u];
 
@@ -50,14 +55,17 @@ async function mustRun(label: string, argv: readonly string[], options: {cwd: st
     return result.stdout;
 }
 
-/** 打包一个包并检查里面的文件：不该发的没有，exports 与 bin 指向的文件都在。 */
-async function packPackage(entry: ReleasePackage, destination: string): Promise<string> {
+/**
+ * 打包一个包并检查里面的文件：不该发的没有，exports 与 bin 指向的文件都在。`FORBIDDEN` 只对源码包：生成的包按自己的
+ * 白名单生成（SDK 的 `docs/` 是作者文档的附表），由各自的打包测试核对。
+ */
+async function packPackage(entry: ReleasePackage, destination: string, built: boolean): Promise<string> {
     const output = await mustRun(`${entry.manifest.name} 打包`, ["bun", "pm", "pack", "--destination", destination, "--quiet"], {cwd: entry.path});
     const name = output.trim().split("\n").at(-1) as string;
     if (!name.endsWith(".tgz")) fail(`${entry.manifest.name} 打包没有给出 tarball：${output}`);
     const tarball = join(destination, basename(name));
     const listing = (await mustRun("列出包里的文件", ["tar", "-tzf", tarball], {cwd: destination})).trim().split("\n");
-    const forbidden = listing.filter((file) => FORBIDDEN.some((pattern) => pattern.test(file)));
+    const forbidden = built ? [] : listing.filter((file) => FORBIDDEN.some((pattern) => pattern.test(file)));
     if (forbidden.length > 0) fail(`${entry.manifest.name} 打进了不该发的文件：${forbidden.join("、")}`);
     for (const target of entryTargets(entry)) {
         const pattern = new Bun.Glob(`package/${target.replace(/^\.\//u, "")}`);
@@ -67,8 +75,10 @@ async function packPackage(entry: ReleasePackage, destination: string): Promise<
 }
 
 function entryTargets(entry: ReleasePackage): string[] {
-    const manifest = entry.manifest as ReleasePackage["manifest"] & {exports?: Record<string, string>; bin?: Record<string, string>};
-    return [...Object.values(manifest.exports ?? {}), ...Object.values(manifest.bin ?? {})];
+    const manifest = entry.manifest as ReleasePackage["manifest"] & {exports?: Record<string, unknown>; bin?: Record<string, string>};
+    // 条件导出（`{types, import}`）展开成各条件指向的文件。
+    const targets = (value: unknown): string[] => (typeof value === "string" ? [value] : typeof value === "object" && value !== null ? Object.values(value).flatMap(targets) : []);
+    return [...targets(manifest.exports ?? {}), ...Object.values(manifest.bin ?? {})];
 }
 
 /** 让 `@notnotype/*` 来自哪里：打包模式下指向 tarball，registry 模式下写版本号。 */
@@ -233,6 +243,98 @@ async function smokeVueHost(root: string, from: ReturnType<typeof sources>): Pro
     step(`Vite 宿主导入 ${entries.length} 个公开入口与样式入口，构建通过`);
 }
 
+/** 读子进程标准输出的第一行（`--json` 的结果对象写在第一行）。 */
+async function firstLine(child: Bun.Subprocess<"ignore", "pipe", "pipe">): Promise<string> {
+    const reader = child.stdout.getReader();
+    let text = "";
+    try {
+        while (!text.includes("\n")) {
+            const {value, done} = await reader.read();
+            if (done) break;
+            text += new TextDecoder().decode(value);
+        }
+    } finally {
+        reader.releaseLock();
+    }
+    return text.split("\n")[0] ?? "";
+}
+
+/** 前台运行 `nbook start`，读到结果对象就交给 `use`；不管 `use` 成不成，最后发 SIGINT（终端的 Ctrl-C）并要求以 0 退出。 */
+async function withNbook(nbook: string, stateRoot: string, env: Record<string, string>, use: (url: string) => Promise<void>): Promise<void> {
+    const child = Bun.spawn([nbook, "start", "--state-root", stateRoot, "--port", "0", "--no-open", "--json"], {cwd: stateRoot, stdin: "ignore", stdout: "pipe", stderr: "pipe", env: {...process.env, ...env}});
+    let failure: unknown = null;
+    try {
+        const line = await firstLine(child);
+        const started = JSON.parse(line || "{}") as {ok?: boolean; url?: string};
+        if (!started.ok || typeof started.url !== "string") fail(`nbook start 没有启动：${line}\n${await new Response(child.stderr).text()}`);
+        await use(started.url);
+    } catch (error) {
+        failure = error;
+    }
+    if (child.exitCode === null) child.kill("SIGINT");
+    const timer = setTimeout(() => child.kill("SIGKILL"), 20_000);
+    const code = await child.exited;
+    clearTimeout(timer);
+    if (failure !== null) throw failure;
+    if (code !== 0) fail(`nbook 收到 SIGINT 后退出码 ${code}（${child.signalCode ?? "没有被强制结束"}）`);
+}
+
+async function checkWorkbench(url: string): Promise<void> {
+    const browser = await chromium.launch({channel: "chrome", headless: true});
+    try {
+        const page = await browser.newPage();
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.goto(url);
+        await page.locator("[data-workbench-root][data-rpc-state='online']").waitFor({timeout: 30_000});
+        if (errors.length > 0) fail(`页面有脚本错误：\n${errors.join("\n")}`);
+    } finally {
+        await browser.close();
+    }
+}
+
+/**
+ * 用户装应用、作者写插件、用户装插件：都在 `root` 下的空目录里，`BUN_INSTALL`、`HOME` 指向临时目录，不碰开发者自己的
+ * 全局包、缓存与数据。
+ */
+async function smokeAppAndPlugin(root: string, from: ReturnType<typeof sources>, tarballs: ReadonlyMap<string, string>): Promise<void> {
+    const appName = BUILT_PACKAGES[0].name;
+    const sdkName = BUILT_PACKAGES[1].name;
+    const bunHome = join(root, "bun-home");
+    const home = join(root, "user-home");
+    const stateRoot = join(root, "state");
+    const authors = join(root, "authors");
+    for (const directory of [bunHome, home, stateRoot, authors]) await mkdir(directory, {recursive: true});
+    const env = {BUN_INSTALL: bunHome, HOME: home, XDG_DATA_HOME: join(home, ".local", "share"), XDG_CONFIG_HOME: join(home, ".config"), PATH: `${join(bunHome, "bin")}:${process.env.PATH ?? ""}`};
+    const appSpec = tarballs.get(appName) ?? `${appName}@${from.expected.get(appName) as string}`;
+    const sdkSpec = tarballs.get(sdkName) ?? `${sdkName}@${from.expected.get(sdkName) as string}`;
+
+    await mustRun("bun add -g 应用包", ["bun", "add", "-g", appSpec], {cwd: home, env});
+    const nbook = join(bunHome, "bin", "nbook");
+    const version = await mustRun("nbook --version", [nbook, "--version"], {cwd: home, env});
+    if (!version.includes(`NeuroBook ${from.expected.get(appName) as string}`)) fail(`nbook --version 报的不是要验的版本：${version}`);
+    await withNbook(nbook, stateRoot, env, checkWorkbench);
+    step(`bun add -g ${appName}：nbook 启动、页面打开书架并连上服务端，Ctrl-C 以 0 退出`);
+
+    const sdkFlags = tarballs.has(sdkName) ? ["--sdk", `file:${sdkSpec}`] : [];
+    await mustRun("bunx -p SDK nbooke create", ["bunx", "-p", sdkSpec, "nbooke", "create", "hello", "--publisher", "smoke", ...sdkFlags], {cwd: authors, env});
+    const plugin = join(authors, "hello");
+    await mustRun("插件 bun install", ["bun", "install"], {cwd: plugin, env});
+    const installedSdk = (JSON.parse(await readFile(join(plugin, "node_modules", sdkName, "package.json"), "utf8")) as {version: string}).version;
+    if (installedSdk !== from.expected.get(sdkName)) fail(`插件项目装上的 SDK 是 ${installedSdk}，要验的是 ${from.expected.get(sdkName) as string}`);
+    await mustRun("插件 bun run build", ["bun", "run", "build"], {cwd: plugin, env});
+    await mustRun("插件 bun run typecheck", ["bun", "run", "typecheck"], {cwd: plugin, env});
+    step(`bunx -p ${sdkName} nbooke create：插件装上同版本的 SDK，构建与类型检查通过`);
+
+    await mustRun("nbook plugin install", [nbook, "plugin", "install", join(plugin, "dist"), "--state-root", stateRoot, "--json"], {cwd: home, env});
+    await withNbook(nbook, stateRoot, env, async () => {
+        const listed = JSON.parse(await mustRun("nbook plugin list", [nbook, "plugin", "list", "--state-root", stateRoot, "--json"], {cwd: home, env})) as {plugins?: Array<{id: string; pending: unknown[]; notLoaded: unknown}>};
+        const entry = listed.plugins?.find((item) => item.id === "smoke.hello");
+        if (entry === undefined || entry.pending.length !== 0 || entry.notLoaded !== null) fail(`重启后插件不在运行中的实例里：${JSON.stringify(entry ?? listed)}`);
+    });
+    step("nbook plugin install 后重启：插件已加载，没有待生效的变化");
+}
+
 function parseArguments(argv: readonly string[]): {from: Source; keep: boolean} {
     let from: Source = "pack";
     let keep = false;
@@ -252,17 +354,34 @@ if (import.meta.main) {
         const options = parseArguments(Bun.argv.slice(2));
         keep = options.keep;
         root = await createTestTmpRoot("release-smoke", "release-smoke");
-        const packages = publishOrder(loadReleasePackages(REPOSITORY));
         const tarballs = new Map<string, string>();
+        let packages: ReleasePackage[];
         if (options.from === "pack") {
-            const destination = join(root, "tarballs");
-            await mkdir(destination);
-            for (const entry of packages) tarballs.set(entry.manifest.name, await packPackage(entry, destination));
-            step(`打包 ${packages.length} 个包，包里的文件与入口检查通过`);
+            for (const entry of BUILT_PACKAGES) await mustRun(`生成 ${entry.name}`, ["bun", "run", entry.script], {cwd: join(REPOSITORY, "packages", entry.source)});
+            const built = loadBuiltPackages(REPOSITORY);
+            packages = publishOrder([...loadReleasePackages(REPOSITORY), ...built]);
+            const findings = checkReleasePackages(REPOSITORY, packages);
+            if (findings.length > 0) fail(`发布清单检查失败：\n${findings.map((finding) => `${finding.package} [${finding.code}] ${finding.message}`).join("\n")}`);
+            await rm(RELEASE_DIRECTORY, {recursive: true, force: true});
+            await mkdir(RELEASE_DIRECTORY, {recursive: true});
+            const builtPaths = new Set(built.map((entry) => entry.path));
+            for (const entry of packages) tarballs.set(entry.manifest.name, await packPackage(entry, RELEASE_DIRECTORY, builtPaths.has(entry.path)));
+            const commit = (await mustRun("取当前提交", ["git", "rev-parse", "HEAD"], {cwd: REPOSITORY})).trim();
+            const manifest: ReleaseManifest = {commit, packages: await Promise.all(packages.map(async (entry) => {
+                const tarball = tarballs.get(entry.manifest.name) as string;
+                return {name: entry.manifest.name, version: entry.manifest.version, tarball: basename(tarball), sha256: await sha256Of(tarball)};
+            }))};
+            await writeJson(RELEASE_MANIFEST, manifest);
+            step(`生成 ${built.length} 个包，${packages.length} 个包的发布清单检查、打包与入口检查通过；tarball 与清单在 dist/release/`);
+        } else {
+            // registry 模式不生成：生成的包的版本就是产品版本，与源码包一起按 package.json 取。
+            const product = loadReleasePackages(REPOSITORY, [BUILT_PACKAGES[0].source])[0] as ReleasePackage;
+            packages = [...loadReleasePackages(REPOSITORY), ...BUILT_PACKAGES.map((entry): ReleasePackage => ({dir: entry.source, path: product.path, repositoryDirectory: entry.repositoryDirectory, manifest: {...product.manifest, name: entry.name}}))];
         }
         const from = sources(packages, tarballs);
         await smokeStory(root, from);
         await smokeVueHost(root, from);
+        await smokeAppAndPlugin(root, from, tarballs);
         console.log(`发布冒烟通过（${options.from === "pack" ? "本地打包" : "registry"}）`);
     } catch (error) {
         console.error(error instanceof SmokeFailure ? `发布冒烟失败：${error.message}` : error);

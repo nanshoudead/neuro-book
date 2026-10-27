@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 
-import {parsePublishArguments, publishedState} from "#scripts/release/publish";
+import {parsePublishArguments, publishedState, releaseManifestProblems} from "#scripts/release/publish";
 
 // 输出照 npm 10 的 `npm view <名>@<版本> version --json` 实际打印的形状（2026-10-24 对 registry.npmjs.org 取的）。
 const NOT_FOUND = JSON.stringify({error: {code: "E404", summary: "Not Found - GET https://registry.npmjs.org/@notnotype%2fnb-ui - Not found"}});
@@ -30,5 +30,22 @@ describe("release:publish 的参数", () => {
         expect(() => parsePublishArguments(["--dry"])).toThrow("--dry");
         expect(() => parsePublishArguments(["--otp"])).toThrow("--otp");
         expect(() => parsePublishArguments(["--auth-type", "sms"])).toThrow("web 或 legacy");
+    });
+});
+
+describe("发布前核对冒烟留下的 tarball", () => {
+    const manifest = {commit: "a".repeat(40), packages: [{name: "@notnotype/nb-ui", version: "0.1.0", tarball: "ui.tgz", sha256: "1"}, {name: "@notnotype/neuro-book", version: "0.11.0", tarball: "app.tgz", sha256: "2"}]};
+
+    it("在当前提交上打的、每个 tarball 的 SHA-256 对得上：通过", () => {
+        expect(releaseManifestProblems(manifest, "a".repeat(40), new Map([["ui.tgz", "1"], ["app.tgz", "2"]]))).toEqual([]);
+    });
+
+    it("提交变了、tarball 不见了、冒烟之后被改过：逐条报出，都提示重跑 release:smoke", () => {
+        const problems = releaseManifestProblems(manifest, "b".repeat(40), new Map([["app.tgz", "3"]]));
+        expect(problems).toHaveLength(3);
+        expect(problems[0]).toContain("aaaaaaaaaaaa");
+        expect(problems[1]).toContain("ui.tgz 不在");
+        expect(problems[2]).toContain("SHA-256 对不上");
+        for (const problem of problems) expect(problem).toContain("release:smoke");
     });
 });

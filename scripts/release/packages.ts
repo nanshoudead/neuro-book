@@ -11,7 +11,7 @@ import {builtinModules} from "node:module";
 import {readFileSync} from "node:fs";
 import {join, relative} from "node:path";
 
-/** 要发布的包（`packages/` 下的目录名）。加包时同步 ADR 0029 与根 README 的列表。 */
+/** 以源码发布的包（`packages/` 下的目录名，ADR 0029）。加包时同步根 README 两份的包表。 */
 export const RELEASE_PACKAGES = [
     "nb-profile",
     "nb-session",
@@ -23,6 +23,17 @@ export const RELEASE_PACKAGES = [
     "nb-agent-ui",
     "nb-story",
 ] as const;
+
+/**
+ * 先生成、再从生成的目录发布的包（ADR 0033）：应用包与插件 SDK，都由新应用的脚本生成，版本是产品版本。
+ * `release:smoke` 运行生成命令并打 tarball，`release:publish` 发布那些 tarball。加包时同步根 README 两份的包表。
+ */
+export const BUILT_PACKAGES = [
+    {name: "@notnotype/neuro-book", source: "neuro-book", script: "build:app-package", outDir: "dist/app-package", repositoryDirectory: "packages/neuro-book"},
+    {name: "@notnotype/nb-plugin-sdk", source: "neuro-book", script: "build:sdk", outDir: "dist/plugin-sdk", repositoryDirectory: "packages/neuro-book/plugin-sdk"},
+] as const;
+
+export type BuiltPackage = (typeof BUILT_PACKAGES)[number];
 
 export const RELEASE_LICENSE = "AGPL-3.0-only";
 const REPOSITORY_URL = "git+https://github.com/notnotype/neuro-book.git";
@@ -46,10 +57,12 @@ export type PackageManifest = {
 };
 
 export type ReleasePackage = {
-    /** `packages/` 下的目录名。 */
+    /** `packages/` 下的目录名；生成的包是生成它的源码包。 */
     dir: string;
-    /** 包目录的绝对路径。 */
+    /** 包目录的绝对路径；生成的包是生成的目录。 */
     path: string;
+    /** `repository.directory` 应写的值。 */
+    repositoryDirectory: string;
     manifest: PackageManifest;
 };
 
@@ -73,7 +86,22 @@ export type Finding = {
 export function loadReleasePackages(root: string, dirs: readonly string[] = RELEASE_PACKAGES): ReleasePackage[] {
     return dirs.map((dir) => {
         const path = join(root, "packages", dir);
-        return {dir, path, manifest: JSON.parse(readFileSync(join(path, "package.json"), "utf8")) as PackageManifest};
+        return {dir, path, repositoryDirectory: `packages/${dir}`, manifest: JSON.parse(readFileSync(join(path, "package.json"), "utf8")) as PackageManifest};
+    });
+}
+
+/** 生成的包：读生成目录里的清单。还没生成时失败，提示先跑生成命令（`release:smoke` 会跑）。 */
+export function loadBuiltPackages(root: string, built: readonly BuiltPackage[] = BUILT_PACKAGES): ReleasePackage[] {
+    return built.map((entry) => {
+        const path = join(root, "packages", entry.source, entry.outDir);
+        let manifest: PackageManifest;
+        try {
+            manifest = JSON.parse(readFileSync(join(path, "package.json"), "utf8")) as PackageManifest;
+        } catch (error) {
+            throw new Error(`${entry.name} 还没有生成（${relative(root, path)}）：先在 packages/${entry.source} 里 bun run ${entry.script}`, {cause: error});
+        }
+        if (manifest.name !== entry.name) throw new Error(`${relative(root, path)} 里的是 ${manifest.name ?? "没有名字的包"}，不是 ${entry.name}`);
+        return {dir: entry.source, path, repositoryDirectory: entry.repositoryDirectory, manifest};
     });
 }
 
@@ -124,7 +152,7 @@ export function checkReleasePackages(root: string, packages: readonly ReleasePac
         else if (!manifest.files.includes("LICENSE") || !manifest.files.includes("README.md")) report("files", "files 要包括 LICENSE 与 README.md");
         if (!manifest.engines?.bun) report("engines", "engines 要写 bun 的最低版本");
         if (manifest.publishConfig?.access !== "public") report("publish_config", "publishConfig.access 要写 public（scope 包缺省是私有）");
-        const directory = `packages/${entry.dir}`;
+        const directory = entry.repositoryDirectory;
         if (manifest.repository?.url !== REPOSITORY_URL || manifest.repository.directory !== directory) {
             report("repository", `repository 要写 {type: "git", url: "${REPOSITORY_URL}", directory: "${directory}"}`);
         }
