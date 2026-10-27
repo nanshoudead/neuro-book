@@ -27,6 +27,8 @@ import type {QaRunView, ViewerResult} from "../../contract/contract";
 import {normalizeRef} from "../../contract/refs";
 import {formatAt, useBook} from "../host/book";
 import {StoryCallError, useStoryClient} from "../host/client";
+import {readModeNoticeSeen, writeModeNoticeSeen} from "../host/prefs";
+import ModeNotice from "../parts/ModeNotice.vue";
 import AnswerCard from "../qa/AnswerCard.vue";
 import {REF_SCHEME} from "../qa/link-refs";
 import {CHAPTER_SCHEME, createMentionSearch, ENTITY_SCHEME, MENTION_LIMIT, mentionMenu, mentionPlainText, type MentionEntity} from "../qa/mentions";
@@ -365,7 +367,22 @@ function answerText(args: unknown): string {
     return lines.join("\n");
 }
 
+/** 第一次切换读书方式要先弹说明（t26）：等用户确认，这期间模式不变。 */
+const pendingMode = ref<"graph" | "full" | null>(null);
+function confirmMode(): void {
+    const mode = pendingMode.value;
+    pendingMode.value = null;
+    if (mode === null) return;
+    writeModeNoticeSeen();
+    const next = applyComposerAction(composer.value, {type: "mode.set", mode});
+    if (next !== null) setComposer(next);
+}
+
 function handle(action: AgentViewAction): void {
+    if (action.type === "mode.set" && !readModeNoticeSeen()) {
+        pendingMode.value = action.mode === "full" ? "full" : "graph";
+        return;
+    }
     // 换模型或推理档前先把“没选过”落成当前的选择：不然换了模型，原来缺省的推理档就丢了。
     const current = choice.value;
     const base = (action.type === "model.set" || action.type === "thinking.set") && current !== null ? {...composer.value, modelKey: current.model, thinking: current.requested} : composer.value;
@@ -499,6 +516,7 @@ const unsaved = computed(() => {
                 <AgentConversationView :ctx="ctx" :services="services" :registry="registry" :renderers="renderers" locale="zh-CN" :header="false" process-disclosure="live" composer-layout="inline" @action="handle" />
             </div>
         </section>
+        <ModeNotice :open="pendingMode !== null" :target="pendingMode ?? 'graph'" @confirm="confirmMode" @cancel="pendingMode = null" />
     </div>
 </template>
 

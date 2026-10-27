@@ -230,6 +230,41 @@ test.describe("输入框与模型", () => {
         await writeFile(configFile, JSON.stringify(baseConfig()));
     });
 
+    test("第一次切换读书方式先弹说明（t26）：确认键倒计时 3 秒后才能点；先不切换不记住、下次还弹；确认后切换，之后不再弹", async ({page}) => {
+        await page.goto(`${server.base}/book/fox/qa?at=38.57`);
+        await page.getByRole("button", {name: "新对话"}).first().click();
+        const mode = page.locator("[data-composer-action='mode']");
+        await expect(mode).toContainText("图当目录");
+        await mode.click();
+        const notice = page.getByTestId("mode-notice");
+        await expect(notice).toBeVisible();
+        await expect(notice).toContainText("图当目录（默认）");
+        await expect(notice).toContainText("慢、贵");
+        // 倒计时没结束，确认键是停用的，按钮上写着剩余秒数。
+        const confirm = notice.getByRole("button", {name: /知道了，切换（\d）/u});
+        await expect(confirm).toBeDisabled();
+        // 先不切换随时能点（倒计时只拦确认键）：模式不变，窗口关上。
+        await expect(notice.getByRole("button", {name: "先不切换"})).toBeEnabled();
+        await notice.getByRole("button", {name: "先不切换"}).click();
+        await expect(notice).toHaveCount(0);
+        await expect(mode).toContainText("图当目录");
+        // 没记住：再点还弹；等倒计时结束后确认，才切换。
+        await mode.click();
+        await expect(notice).toBeVisible();
+        await expect(notice.getByRole("button", {name: /^知道了，切换$/u})).toBeEnabled({timeout: 6000});
+        await notice.getByRole("button", {name: /^知道了，切换$/u}).click();
+        await expect(notice).toHaveCount(0);
+        await expect(mode).toContainText("全读");
+        // 记住了：再切换不弹，立即生效。
+        await mode.click();
+        await expect(notice).toHaveCount(0);
+        await expect(mode).toContainText("图当目录");
+        await page.reload();
+        await page.getByRole("button", {name: "新对话"}).first().click();
+        await page.locator("[data-composer-action='mode']").click();
+        await expect(page.getByTestId("mode-notice")).toHaveCount(0);
+    });
+
     test("一行的输入框：切全读、换模型与推理档后发问，请求里是新模型；+ 插 @ 打开引用菜单；Markdown 回复的出处复查是过程里的一行；上下文大小", async ({page}) => {
         await page.goto(`${server.base}/book/fox/qa?at=38.57`);
         await page.getByRole("button", {name: "新对话"}).first().click();
@@ -239,6 +274,8 @@ test.describe("输入框与模型", () => {
         const mode = page.locator("[data-composer-action='mode']");
         await expect(mode).toBeEnabled();
         await mode.click();
+        // 第一次切换要先过说明窗口（t26）：等倒计时结束再确认。
+        await page.getByTestId("mode-notice").getByRole("button", {name: /^知道了，切换$/u}).click();
         await expect(mode).toContainText("全读");
         await mode.click();
         await expect(mode).toContainText("图当目录");
