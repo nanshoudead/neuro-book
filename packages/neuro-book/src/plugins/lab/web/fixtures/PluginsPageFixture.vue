@@ -2,8 +2,7 @@
 /**
  * PluginsPage 的 Lab 场景：`nbook.plugins/registry` 的客户端是内存里的插件表，按场景摆出列表的各种状态。写操作照常改这张
  * 表并记进事件 tab；安装总是预览为首次安装 `example.new`（“pending”场景预览为升级、“downgrade”场景为降级、“blocked”场景
- * 为升级并列出重启后受阻的插件）。“write-failed”场景的写操作都以带出错字段的“清单无效”失败，“version-in-use”场景的写操作
- * 以“版本还被别的服务端用着”失败，“busy”场景的写操作永不结算。“problems”场景摆出显示名、说明、服务端与本窗口的问题。
+ * 为升级并列出重启后受阻的插件）。“write-failed”场景的写操作都以带出错字段的“清单无效”失败，“busy”场景的写操作永不结算。“problems”场景摆出显示名、说明、服务端与本窗口的问题。
  * 场景名带 `-english` 的是同一场景的英文界面。
  */
 import {computed} from "vue";
@@ -60,7 +59,6 @@ const THIRD_PARTY: Readonly<Record<string, PluginListEntry[]>> = {
     "blocked": [third("example.reader", "1.0.0"), third("example.panel", "1.0.0"), third("example.tts", "1.0.0")],
     "english": [third("example.hello", "1.0.0", {pending: [{kind: "upgrade", version: "1.10.0-beta.3"}]})],
     "write-failed": [third("example.hello", "1.0.0")],
-    "version-in-use": [third("example.hello", "1.0.0")],
     "busy": [third("example.hello", "1.0.0"), third("example.quiet", "2.1.0")],
 };
 
@@ -93,11 +91,10 @@ const never = <T>(): Promise<T> => new Promise<T>(() => undefined);
 /** 一个方法的失败结果，取插件管理客户端的类型：失败按码区分，详情随码定型。 */
 type FailureOf<Method extends keyof PluginsRegistry> = PluginsRegistry[Method] extends (...args: never[]) => Promise<infer Result> ? Extract<Result, {readonly ok: false}> : never;
 
-/** “write-failed”“version-in-use”“busy”场景的安装结果；其余场景为 null，照常改内存里的表。 */
+/** “write-failed”“busy”场景的安装结果；其余场景为 null，照常改内存里的表。 */
 const failing = (): Promise<FailureOf<"install">> | null => {
     if (base === "busy") return never();
     if (base === "write-failed") return Promise.resolve({ok: false, code: "manifest-invalid", detail: {detail: "清单有错误", problems: ["entries.ui.main：入口文件必须在插件目录里", "contributes.0.id：必须以插件 id 开头"]}});
-    if (base === "version-in-use") return Promise.resolve({ok: false, code: "version-in-use", detail: {detail: "还有运行中的服务端（也可能就是这一个）在用 example.hello@1.0.0 的旧目录，关掉或重启它之后再装"}});
     return null;
 };
 /** 启停与卸载的结果：“write-failed”是登记表写不进去，“busy”永不结算；其余场景为 null。 */

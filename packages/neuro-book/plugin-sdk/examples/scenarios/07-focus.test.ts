@@ -4,8 +4,8 @@
  * 要说明的事：
  * - 设置项、命令、状态栏条目、服务端远程服务与私有存储连在一起：命令开始一次专注，时长取设置项，服务端到点结算并推送，
  *   状态栏的文字跟着变。
- * - 计时的权威在服务端，而且不靠计时器：服务端停着的时候到点的那次，之后第一次读写时记上；同一状态根上的两个服务端
- *   各自结算，只记一次。没有窗口在走表时，服务端的计时器到点结算并推送。
+ * - 计时的权威在服务端，而且不靠计时器：服务端停着的时候到点的那次，之后第一次读写时记上；两个窗口同时开始只开始一次，
+ *   同时结算只记一次（条件保存）。没有窗口在走表时，服务端的计时器到点结算并推送。
  * - 记录坏了（例如插件升过记录的 `version` 又降回来）不让入口从此不可用：换成空记录重来。
  * - 窗口只在有进行中的一次时走表；入口停止、空闲之后不占计时器。断线重连后窗口重取一次，断开期间别处的变化补得上。
  *
@@ -64,7 +64,7 @@ afterAll(async () => {
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
-/** 新场地；给了 `root` 时与别的场地共用同一个状态根（同一状态根上跑着几个服务端）。 */
+/** 新场地；给了 `root` 时与别的场地共用同一个状态根：前一个场地 `close()` 之后再起，相当于服务端重启。 */
 function newStage(root?: string): Stage {
     cases += 1;
     const stage = new Stage(root ?? join(tmp, `case-${String(cases)}`));
@@ -167,28 +167,25 @@ describe("场景 7：专注计时", () => {
         expect(await sessions.today({})).toMatchObject({ok: true, value: {running: null, completed: 2}});
     });
 
-    it("同一状态根上的两个服务端都到点结算，只记一次", async () => {
-        const root = join(tmp, "shared-root");
-        const first = newStage(root);
-        const second = newStage(root);
-        const {router: firstRouter} = await server(first);
-        const {router: secondRouter} = await server(second);
-        const one = (await windowOf(first, firstRouter)).remote.use(sessionsContract);
-        const two = (await windowOf(second, secondRouter)).remote.use(sessionsContract);
+    it("两个窗口同时开始：只开始一次，另一个得到 already-running；到点后同时读，只记一次", async () => {
+        const stage = newStage();
+        const {router} = await server(stage);
+        const one = (await windowOf(stage, router, "w1")).remote.use(sessionsContract);
+        const two = (await windowOf(stage, router, "w2")).remote.use(sessionsContract);
 
-        expect(await one.start({})).toMatchObject({ok: true});
-        // 第二个服务端在第一个开始之后才读到这次专注：它的计时器是读的时候排上的。
-        expect(await two.today({})).toMatchObject({ok: true, value: {running: {endsAt: 25 * MINUTE}}});
-        first.clock.advance(25 * MINUTE);
-        second.clock.advance(25 * MINUTE);
-        expect(await one.today({})).toMatchObject({ok: true, value: {running: null, completed: 1}});
-        expect(await two.today({})).toMatchObject({ok: true, value: {running: null, completed: 1}});
+        // 两个请求都先读到“空闲”；后写的那个条件保存冲突，重读之后看到已经开始了。
+        const started = await Promise.all([one.start({}), two.start({})]);
+        expect(started.filter((result) => result.ok)).toHaveLength(1);
+        expect(started.filter((result) => !result.ok)).toEqual([expect.objectContaining({ok: false, code: "already-running"})]);
+        stage.clock.advance(25 * MINUTE);
+        const read = await Promise.all([one.today({}), two.today({})]);
+        for (const today of read) expect(today).toMatchObject({ok: true, value: {running: null, completed: 1}});
     });
 
     it("记录的版本与入口不同（插件升过记录又降回来）：读写换成空记录，入口照常可用", async () => {
         const root = join(tmp, "newer-root");
-        // 同一个插件 id 的“新版本”：同一条记录升到 version 2、换了形状。它跑在另一个服务端上：同一次运行里以不同的定义
-        // 打开同一条记录是 `definition-conflict`，换版本总伴随着重启。
+        // 同一个插件 id 的“新版本”：同一条记录升到 version 2、换了形状。换版本总伴随着重启（同一次运行里以不同的定义打开
+        // 同一条记录是 `definition-conflict`）：新版本跑完、服务端停下，再起旧版本。
         const newer: PluginDefinition = {id: descriptor.id, entries: [defineEntry({
             id: "server",
             location: "server",
@@ -203,6 +200,7 @@ describe("场景 7：专注计时", () => {
         const older = newStage(root);
         const {app} = await older.server({plugins: []});
         await older.attach(app, newer, "server");
+        for (const result of await older.close()) expect(result).toEqual({status: "closed"});
 
         const current = newStage(root);
         const {router} = await server(current);
@@ -226,12 +224,9 @@ describe("场景 7：专注计时", () => {
         expect(await sessions.today({})).toMatchObject({ok: true, value: {completed: 0, minutes: 0}});
     });
 
-    it("断线重连后窗口重取一次：断开期间另一个服务端开始的那次补得上；浏览器入口停止后不再占计时器", async () => {
-        const root = join(tmp, "resync-root");
-        const first = newStage(root);
-        const second = newStage(root);
+    it("断线重连后窗口重取一次：断开期间别的窗口开始的那次补得上；浏览器入口停止后不再占计时器", async () => {
+        const first = newStage();
         const {router} = await server(first);
-        const {router: otherRouter} = await server(second);
         const workbench = workbenchStandIn();
         const shell = serviceProbe("example.shell", "browser", [commandServiceKey]);
         const app = await first.window(router, "w1", {plugins: [workbench.definition, shell.definition]});
@@ -240,8 +235,9 @@ describe("场景 7：专注计时", () => {
         const commands = shell.get(commandServiceKey);
         expect(await waitUntil("状态栏显示今天的个数", () => status(workbench) === "今天 0 个番茄")).toBe(true);
 
-        // 另一个服务端的写入不会推到这个窗口（推送只看本服务端自己的写入）。
-        const other = (await windowOf(second, otherRouter, "w2")).remote.use(sessionsContract);
+        // w1 断线期间，另一个窗口开始了一次：推送到不了 w1。
+        first.disconnect("w1");
+        const other = (await windowOf(first, router, "w2")).remote.use(sessionsContract);
         expect(await other.start({})).toMatchObject({ok: true});
         expect(status(workbench)).toBe("今天 0 个番茄");
 
@@ -253,7 +249,7 @@ describe("场景 7：专注计时", () => {
         expect((await focus.stop()).status).toBe("closed");
         expect(status(workbench)).toBeNull();
         expect(await commands.execute(TOGGLE_COMMAND, {})).toMatchObject({ok: false, code: "unknown-command"});
-        // 第一个服务端也在为这一次计时（重连时它读到了），放弃它，场地上就不再有计时器。
+        // 服务端也在为这一次计时（开始时排上的），放弃它，场地上就不再有计时器。
         expect(await other.cancel({})).toMatchObject({ok: true});
         expect(await (await windowOf(first, router, "w3")).remote.use(sessionsContract).today({})).toMatchObject({ok: true, value: {running: null}});
         await idle(first);

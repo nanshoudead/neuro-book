@@ -85,7 +85,6 @@ beforeAll(async () => {
 afterAll(async () => {
     server.requestStop("test:done");
     await server.stopped;
-    await prepared.release();
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
@@ -147,35 +146,29 @@ describe("插件文件端点", () => {
         }
     });
 
-    it("运行中的服务端租着的版本，别处卸载、重启后不能重装同一版本；它放下租约后重装：内容摘要变了，旧地址 404，新地址是新内容", async () => {
+    it("运行中卸载后服务端照旧送出原内容；重启完成卸载、重装同一版本的新内容：内容摘要变了，旧地址 404，新地址是新内容", async () => {
         const [before] = installedPlugins(prepared.startup);
         const root = join(tmp, "state", "plugins");
-        // 另一轮启动：卸载、重启（运行中的服务端还租着旧目录，回收推迟），再装同一版本的新内容。
         expect(await inventory(prepared.startup).uninstall("example.files")).toMatchObject({ok: true});
-        const afterUninstall = await prepareInstalledPlugins({root, profile: NEUROBOOK_PROFILE, safeMode: false});
-        const newer = await source("v1-again", "console.log('again');");
-        expect(await inventory(afterUninstall.startup).install(newer)).toMatchObject({ok: false, code: "version-in-use"});
-        // 运行中的服务端照旧从原目录送出原内容。
+        // 卸载在下一次启动才生效：运行中的服务端照旧从原目录送出原内容。
         const running = await fetch(new URL(`${prefix}browser.js`, server.url!));
         expect([running.status, await running.text()]).toEqual([200, "console.log('v1');"]);
 
-        await prepared.release();
-        expect(await inventory(afterUninstall.startup).install(newer)).toMatchObject({ok: true});
-        await afterUninstall.release();
+        // 重启：服务端停下之后，下一次启动完成卸载，再装同一版本的新内容，再下一次启动登记它。
+        server.requestStop("test:restart");
+        await server.stopped;
+        const afterUninstall = await prepareInstalledPlugins({root, profile: NEUROBOOK_PROFILE, safeMode: false});
+        expect(await inventory(afterUninstall.startup).install(await source("v1-again", "console.log('again');"))).toMatchObject({ok: true});
         const again = await prepareInstalledPlugins({root, profile: NEUROBOOK_PROFILE, safeMode: false});
-        try {
-            const [after] = installedPlugins(again.startup);
-            expect(after!.version).toBe(before!.version);
-            expect(after!.digest).not.toBe(before!.digest);
-            const route = createPluginFilesRoute(installedPlugins(again.startup), () => undefined);
-            // 直接调宿主路由时给的是分发器转交的形式：已去掉挂载前缀 `/api/runtime`。
-            const at = (digest: string) => route.handle(new Request(new URL(`${pluginFilesPrefix(NEUROBOOK_PROFILE.filesMount, "example.files", digest).slice(NEUROBOOK_PROFILE.filesMount.length)}browser.js`, "http://127.0.0.1").href));
-            expect((await at(before!.digest)).status).toBe(404);
-            const fresh = await at(after!.digest);
-            expect([fresh.status, await fresh.text()]).toEqual([200, "console.log('again');"]);
-            expect(await readFile(join(after!.root, "browser.js"), "utf8")).toBe("console.log('again');");
-        } finally {
-            await again.release();
-        }
+        const [after] = installedPlugins(again.startup);
+        expect(after!.version).toBe(before!.version);
+        expect(after!.digest).not.toBe(before!.digest);
+        const route = createPluginFilesRoute(installedPlugins(again.startup), () => undefined);
+        // 直接调宿主路由时给的是分发器转交的形式：已去掉挂载前缀 `/api/runtime`。
+        const at = (digest: string) => route.handle(new Request(new URL(`${pluginFilesPrefix(NEUROBOOK_PROFILE.filesMount, "example.files", digest).slice(NEUROBOOK_PROFILE.filesMount.length)}browser.js`, "http://127.0.0.1").href));
+        expect((await at(before!.digest)).status).toBe(404);
+        const fresh = await at(after!.digest);
+        expect([fresh.status, await fresh.text()]).toEqual([200, "console.log('again');"]);
+        expect(await readFile(join(after!.root, "browser.js"), "utf8")).toBe("console.log('again');");
     });
 });

@@ -94,7 +94,6 @@ const FAILURE_TEXT: Readonly<Record<PluginFailureCode, LocalizedText> & Partial<
     "incompatible-engine": {"zh-CN": "插件与当前版本的 NeuroBook 不兼容", "en-US": "The plugin is not compatible with this version of NeuroBook"},
     "already-installed": {"zh-CN": "这个版本已经安装，或已在等待重启后切换", "en-US": "This version is already installed or waiting for the restart"},
     "uninstall-pending": {"zh-CN": "插件正在卸载，重启后再操作", "en-US": "The plugin is being uninstalled; restart first"},
-    "version-in-use": {"zh-CN": "这个版本的旧目录还在使用中，不能重装", "en-US": "The old directory of this version is still in use and cannot be replaced"},
     "path-rejected": {"zh-CN": "这个路径不能用", "en-US": "This path cannot be used"},
     "entry-missing": {"zh-CN": "插件缺少入口文件", "en-US": "The plugin is missing entry files"},
     "copy-failed": {"zh-CN": "复制插件文件失败", "en-US": "Copying the plugin files failed"},
@@ -107,7 +106,7 @@ const FAILURE_TEXT: Readonly<Record<PluginFailureCode, LocalizedText> & Partial<
 };
 
 /** 服务端详情能补充信息的码；其余的码固定文字已经说全，详情只会重复。 */
-const DETAIL_CODES: ReadonlySet<FailureCode> = new Set<FailureCode>(["manifest-invalid", "path-rejected", "copy-failed", "entry-missing", "registry-failed", "incompatible-engine", "version-in-use"]);
+const DETAIL_CODES: ReadonlySet<FailureCode> = new Set<FailureCode>(["manifest-invalid", "path-rejected", "copy-failed", "entry-missing", "registry-failed", "incompatible-engine"]);
 /** 失败后列表可能已过时的码：写出原因之后重新读列表。 */
 const STALE_CODES: ReadonlySet<FailureCode> = new Set<FailureCode>(["unknown-outcome", "not-installed", "uninstall-pending", "already-installed"]);
 

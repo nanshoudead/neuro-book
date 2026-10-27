@@ -151,7 +151,6 @@ export const installFailureDetails = {
     "incompatible-engine": FailureDetail,
     "already-installed": FailureDetail,
     "uninstall-pending": FailureDetail,
-    "version-in-use": FailureDetail,
     "path-rejected": FailureDetail,
     "entry-missing": FailureDetail,
     "copy-failed": FailureDetail,

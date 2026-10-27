@@ -240,11 +240,7 @@ export function startServer(options: StartServerOptions): RunningServer {
     const builtinManifest = options.manifest ?? productPlugins;
     // 第三方插件集合在启动前已确定，进程生命期内不变（docs/specs/runtime/plugin-install.md）。
     const prepared = options.prepared ?? NO_PREPARED_PLUGINS;
-    // 租约在宿主停止之后才放下，其间（以及锁在运行中失效时）的记录存储已不再收：写到 stderr，不丢掉“在用的版本可能被回收”这条线索。
-    prepared.connectDiagnostics((record) => {
-        if (store.record(record).status !== "rejected") return;
-        writeFatal(`${JSON.stringify({level: record.level, event: record.event, message: record.message, ...(record.error === undefined ? {} : {error: serializeDiagnosticError(record.error)})})}\n`);
-    });
+    prepared.connectDiagnostics((record) => void store.record(record));
     const installed = installedPlugins(prepared.startup);
     const thirdPartyIds = new Set(installed.map((plugin) => plugin.id));
     const context: ServerPluginContext = {

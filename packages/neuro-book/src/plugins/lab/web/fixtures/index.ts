@@ -1053,7 +1053,6 @@ function shelfFixtures(): LabFixture[] {
                 {id: "english", label: "英文界面", input: {props: {locale: "en-US"}}},
                 {id: "write-failed", label: "写操作失败（点开关看失败说明）", input: {props: {locale: "zh-CN"}}},
                 {id: "write-failed-english", label: "写操作失败，英文界面", input: {props: {locale: "en-US"}}},
-                {id: "version-in-use", label: "安装时版本还被别的服务端用着（安装一个路径看失败说明）", input: {props: {locale: "zh-CN"}}},
                 {id: "busy", label: "写操作进行中（点开关或卸载后不结算）", input: {props: {locale: "zh-CN"}}},
             ],
             load: async () => (await import("./PluginsPageFixture.vue")).default,

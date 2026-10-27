@@ -4,11 +4,13 @@
  * 宿主在装配插件之前调用一次 `prepareInstalledPlugins`，得到的集合在进程生命期内不变：项目子进程与浏览器引导都用它，
  * 不再自己读登记表，所以同一次运行中后来打开的作品与窗口看到的集合相同。
  *
- * 持登记表的写入锁按顺序做四件事：先按登记表完成卸载中的删除与待切换版本的切换（切换的提交点是登记表改指新版本），
- * 再回收没有被 `version` 或 `pendingVersion` 引用的版本目录与 `.staging` 残留，最后为本次要用的版本写下租约
- * （`pins.ts`）。别的进程正在准备的复制带着自己的锁，回收时跳过；别的服务端租着的版本目录（包括已卸载插件的）推迟到
- * 不再有人租时回收。删除失败只记诊断，下次启动重试。登记表读不了时不加载任何第三方插件，也不动任何文件：不知道哪些
- * 目录还被引用。拿不到锁时（别的进程长时间占着）只读不改，租约照样写下。
+ * 持登记表的写入锁按顺序做两件事：先按登记表完成卸载中的删除与待切换版本的切换（切换的提交点是登记表改指新版本），
+ * 再回收没有被 `version` 或 `pendingVersion` 引用的版本目录与 `.staging` 残留。别的进程（命令行的安装）正在准备的复制
+ * 带着自己的锁，回收时跳过。删除失败只记诊断，下次启动重试。登记表读不了时不加载任何第三方插件，也不动任何文件：不知道
+ * 哪些目录还被引用。拿不到锁时（别的进程长时间占着）只读不改。
+ *
+ * 一个状态根只跑一个服务端（runtime.server-host 的实例认领），这里删改的目录不会有别的服务端在用；运行中的服务端只用登记表
+ * 里的 `version`，它只在这里改，所以运行期间命令行的安装、卸载也碰不到在用的目录。
  */
 
 import {readdir, rm, rmdir, unlink} from "node:fs/promises";
@@ -26,8 +28,6 @@ import type {PlatformProfile} from "nbook/plugin-platform/shared/profile";
 import {engineAccepts} from "nbook/plugin-platform/shared/versions";
 
 import type {InstalledPlugin} from "./installed";
-import {livePins, pinKey, pinVersions} from "./pins";
-import type {VersionPin} from "./pins";
 import {assertHeld, brief, byId, isLink, isRecordTemporary, ownedPath, readRecord, STAGING_DIR, withRecordLock, writeRecord} from "./record";
 import type {PluginRecord, RecordEntry} from "./record";
 import {directoryDigest, installedManifest, missingEntries} from "./version-dir";
@@ -62,8 +62,8 @@ export function safeModeOf(env: Readonly<Record<string, string | undefined>>, pr
 /** 测试与不读安装目录的宿主用：没有第三方插件。 */
 export const NO_INSTALLED_PLUGINS: StartupPlugins = {safeMode: false, registryProblem: null, plugins: []};
 
-/** 不读安装目录的宿主用：没有第三方插件、没有要交的诊断、没有要放下的租约。 */
-export const NO_PREPARED_PLUGINS: PluginsPreparation = {startup: NO_INSTALLED_PLUGINS, connectDiagnostics: () => undefined, release: async () => undefined};
+/** 不读安装目录的宿主用：没有第三方插件、没有要交的诊断。 */
+export const NO_PREPARED_PLUGINS: PluginsPreparation = {startup: NO_INSTALLED_PLUGINS, connectDiagnostics: () => undefined};
 
 /** 本次运行登记的第三方插件描述。 */
 export function loadedDescriptors(startup: StartupPlugins): PluginDescriptor[] {
@@ -79,13 +79,8 @@ export interface PrepareOptions {
 
 export interface PluginsPreparation {
     readonly startup: StartupPlugins;
-    /**
-     * 接上宿主的诊断存储：先交出准备期间的记录（准备在存储建立之前进行），之后的记录（版本租约在运行中失效）直接交给它。
-     * 只接一次。
-     */
+    /** 接上宿主的诊断存储，交出准备期间的记录（准备在存储建立之前进行）。只接一次。 */
     connectDiagnostics(record: (input: DiagnosticInput) => void): void;
-    /** 放下本次的版本租约；宿主停止之后调用。进程退出时锁也会放下。 */
-    release(): Promise<void>;
 }
 
 /** 本次登记的第三方插件的安装信息。 */
@@ -118,15 +113,11 @@ export async function prepareInstalledPlugins(options: PrepareOptions): Promise<
         diagnostics.emit({level: "info", event, message, data});
     };
 
-    const reportPin = (event: string, error: unknown): void => warn(`plugins.${event}`, "插件版本租约出错，别的服务端可能回收本次在用的版本", undefined, error);
-    let pin: VersionPin | null = null;
     const applied = await withRecordLock(options.root, (event, error) => warn(`plugins.${event}`, "插件登记表的写入锁出错", undefined, error), async (lock) => {
         const read = await readRecord(options.root, options.profile);
         if (!read.ok) return read;
-        const pins = await livePins(options.root, warn);
-        const record = await applyPending(options.root, read.record, lock, pins, info, warn);
-        await reclaim(options.root, record, lock, pins, warn).catch((error: unknown) => warn("plugins.cleanup.failed", "回收插件目录的残留没有完成，下次启动重试", undefined, error));
-        pin = await pinFor(options, record, reportPin);
+        const record = await applyPending(options.root, read.record, lock, info, warn);
+        await reclaim(options.root, record, lock, warn).catch((error: unknown) => warn("plugins.cleanup.failed", "回收插件目录的残留没有完成，下次启动重试", undefined, error));
         return {ok: true as const, record};
     });
     let record: PluginRecord;
@@ -135,15 +126,10 @@ export async function prepareInstalledPlugins(options: PrepareOptions): Promise<
         record = applied.value.record;
     } else {
         warn("plugins.startup.unlocked", "拿不到插件登记表的写入锁，本次启动不处理待生效变化、不回收残留", {detail: applied.detail});
-        // 锁外读登记表、写租约：另一个服务端可能在两者之间回收了刚读到的版本目录，租约挡不住已经开始的回收（降级的启动，接受这个
-        // 窗口）。先写租约、再读各版本目录的清单：在那之前被回收掉的读清单时就不登记并记诊断，之后才删的入口激活时以
-        // code-load-failed 失败。
         const read = await readRecord(options.root, options.profile);
         if (!read.ok) return failed(options, read.detail, diagnostics.connect, warn);
         record = read.record;
-        pin = await pinFor(options, record, reportPin);
     }
-    const held: VersionPin | null = pin;
 
     const plugins: StartupPlugin[] = [];
     for (const [id, entry] of Object.entries(record.plugins)) {
@@ -153,31 +139,12 @@ export async function prepareInstalledPlugins(options: PrepareOptions): Promise<
         }
         plugins.push(plugin);
     }
-    return {startup: {safeMode: options.safeMode, registryProblem: null, plugins: plugins.sort(byId)}, connectDiagnostics: diagnostics.connect, release: async () => held?.release()};
-}
-
-/** 本次要用的版本（启用的插件的当前版本）写下租约；安全模式不加载第三方插件，也就不租。 */
-async function pinFor(options: PrepareOptions, record: PluginRecord, report: (event: string, error: unknown) => void): Promise<VersionPin | null> {
-    if (options.safeMode) return null;
-    const versions = Object.entries(record.plugins).filter(([, entry]) => entry.state === "enabled").map(([id, entry]) => ({id, version: entry.version}));
-    if (versions.length === 0) return null;
-    // 租约写不下（只读的状态根、磁盘满）不挡启动：与拿不到登记表锁时只读启动一样降级，只是本次在用的版本不受保护。
-    try {
-        return await pinVersions(options.root, versions, report);
-    } catch (error) {
-        report("pins.write-failed", error);
-        return null;
-    }
+    return {startup: {safeMode: options.safeMode, registryProblem: null, plugins: plugins.sort(byId)}, connectDiagnostics: diagnostics.connect};
 }
 
 function failed(options: PrepareOptions, detail: string, connectDiagnostics: PluginsPreparation["connectDiagnostics"], warn: (event: string, message: string, data?: unknown) => void): PluginsPreparation {
     warn("plugins.registry.invalid", "插件登记表不可用，本次启动不加载任何第三方插件", {detail});
-    return {startup: {safeMode: options.safeMode, registryProblem: detail, plugins: []}, connectDiagnostics, release: async () => undefined};
-}
-
-/** 别的服务端租着这个插件的某个版本（或租约读不了）：它的目录先不删。 */
-function pinnedAny(pins: {readonly pinned: ReadonlySet<string>; readonly unreadable: boolean}, id: string): boolean {
-    return pins.unreadable || [...pins.pinned].some((key) => key.startsWith(`${id}@`));
+    return {startup: {safeMode: options.safeMode, registryProblem: detail, plugins: []}, connectDiagnostics};
 }
 
 /**
@@ -188,7 +155,6 @@ async function applyPending(
     root: string,
     record: PluginRecord,
     lock: HeldLock,
-    pins: {readonly pinned: ReadonlySet<string>; readonly unreadable: boolean},
     info: (event: string, message: string, data: unknown) => void,
     warn: (event: string, message: string, data?: unknown, error?: unknown) => void,
 ): Promise<PluginRecord> {
@@ -199,9 +165,8 @@ async function applyPending(
             if (entry.state === "uninstalling") {
                 await assertHeld(lock);
                 try {
-                    // 私有数据的删除（`deleteData`）本轮没有入口，总是保留。别的服务端还租着它的版本时先不删目录，登记照常
-                    // 移除，目录由之后某次启动的回收删掉（这时它已没有登记）。
-                    if (!pinnedAny(pins, id)) await rm(ownedPath(root, id), {recursive: true, force: true});
+                    // 私有数据的删除（`deleteData`）本轮没有入口，总是保留。
+                    await rm(ownedPath(root, id), {recursive: true, force: true});
                 } catch (error) {
                     warn("plugins.uninstall.failed", `删除 ${id} 的安装目录失败，下次启动重试`, {id}, error);
                     continue;
@@ -229,7 +194,6 @@ async function reclaim(
     root: string,
     record: PluginRecord,
     lock: HeldLock,
-    pins: {readonly pinned: ReadonlySet<string>; readonly unreadable: boolean},
     warn: (event: string, message: string, data?: unknown, error?: unknown) => void,
 ): Promise<void> {
     // 失去锁时 `assertHeld` 抛出，整个回收停下：手里的登记表可能已经过时。
@@ -252,13 +216,11 @@ async function reclaim(
         const entry = record.plugins[name];
         // 卸载中的目录由下一次成功的卸载删除；它的版本都还算被引用。
         if (entry?.state === "uninstalling") continue;
-        // 租约读不了时不知道哪些版本还在用，一个也不删。
-        if (pins.unreadable) continue;
         for (const version of await namesIn(join(root, name))) {
-            if (version === entry?.version || version === entry?.pendingVersion || pins.pinned.has(pinKey(name, version))) continue;
+            if (version === entry?.version || version === entry?.pendingVersion) continue;
             await remove(ownedPath(root, name, version), true);
         }
-        // 没有登记的插件：版本目录都删了（没人租）时，插件目录也删。还有租着的版本时留下，ENOTEMPTY 不算失败。
+        // 没有登记的插件：版本目录都删了，插件目录也删；删不掉的版本留着时 ENOTEMPTY 不算失败。
         if (entry === undefined) {
             await assertHeld(lock);
             await rmdir(ownedPath(root, name)).catch((error: unknown) => {

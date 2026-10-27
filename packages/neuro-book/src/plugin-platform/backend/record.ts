@@ -4,7 +4,7 @@
  * 布局：`<State Root>/plugins/` 下有登记表 `plugins.json`、它的写入锁 `.plugins.json.lock`、准备中的复制
  * `.staging/<随机名>/`（各带自己的锁 `<随机名>.lock`），以及安装目录 `<插件 id>/<版本>/`。
  *
- * 同一状态根可以有多个服务端进程（docs/specs/runtime/projects.md 不加目录锁），所以登记表的读改写与版本目录的
+ * 一个状态根只跑一个服务端，但命令行（`nbook plugin`）会在服务端运行时离线写登记表，所以登记表的读改写与版本目录的
  * 改名都在写入锁里做；锁是跨进程的（`backend/locked-replace.ts` 的 `holdLock`）。只读的列表不取锁：登记表
  * 用临时文件改名替换，读者只会读到完整的旧表或新表。
  */

@@ -25,7 +25,6 @@ import {compareVersions, engineAccepts} from "nbook/plugin-platform/shared/versi
 
 import {collectCopyRange, copyRange} from "./copy";
 import {isInside} from "./paths";
-import {livePins, pinKey} from "./pins";
 import {assertHeld, brief, byId, isLink, LockLost, ownedPath, readRecord, STAGING_DIR, withRecordLock, writeRecord} from "./record";
 import type {PluginRecord, RecordEntry} from "./record";
 import {blockedAfter} from "./preview";
@@ -113,8 +112,8 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
 
     /**
      * 一个第三方插件的列表项：登记表是目标状态，本次启动的集合是本进程实际运行的状态，待生效变化是两者之差
-     * （plugin-install 输出 9）。同一状态根的另一个服务端启动时会消费掉待切换版本与卸载记录，所以版本也按两者比较，
-     * 不只看 `pendingVersion`。
+     * （plugin-install 输出 9）。版本也按两者比较，不只看 `pendingVersion`：命令行列表时本次启动的集合来自运行中实例的
+     * 应答，没有运行中的实例时为空，每个插件都按重启后的目标状态列出。
      */
     function itemOf(id: string, entry: RecordEntry | undefined): PluginListItem {
         const atStartup = startupOf.get(id);
@@ -253,20 +252,13 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
             const existing = read.record.plugins[id];
             const late = conflict(existing, id, version);
             if (late !== null) return late;
+            // 走到这里的版本目录不被登记表引用（`conflict` 已挡掉 `version` 与 `pendingVersion`），是崩溃留下的残留：运行中的
+            // 服务端只用登记表里的 `version`（一个状态根只跑一个服务端），不会在用它。
             const target = ownedPath(root, id, version);
-            // 不被登记表引用的版本目录，可能是崩溃留下的残留，也可能是别的服务端还在用、推迟回收的目录（卸载或升级之后）：
-            // 被租着的不能删也不能换内容，运行中的服务端会按启动时的摘要继续从这里取代码与文件。
-            const pins = await livePins(root, (event, message, data, error) => options.record({level: "warn", event, message, ...(data === undefined ? {} : {data}), ...(error === undefined ? {} : {error})}));
-            const inUse = (candidate: string): boolean => pins.unreadable || pins.pinned.has(pinKey(id, candidate));
             try {
                 await assertHeld(lock);
                 await mkdir(ownedPath(root, id), {recursive: true});
                 if (await isLink(ownedPath(root, id))) return failure("copy-failed", `安装目录里的 ${id} 是符号链接，不能往里面安装`);
-                if (inUse(version) && (await exists(target))) {
-                    return failure("version-in-use", pins.unreadable
-                        ? `读不了插件版本的租约，不能确定 ${id}@${version} 的旧目录是否还有服务端在用；查看服务端诊断，排除后再装`
-                        : `还有运行中的服务端（也可能就是这一个）在用 ${id}@${version} 的旧目录，关掉或重启它之后再装`);
-                }
                 await assertHeld(lock);
                 await rm(target, {recursive: true, force: true});
                 await assertHeld(lock);
@@ -289,10 +281,9 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
                 }
                 return failure("registry-failed", `写入插件登记表失败：${brief(error)}`);
             }
+            // 被取代的待切换版本还没有被任何服务端加载过（切换只在启动时发生）。
             const replaced = existing?.pendingVersion ?? null;
-            if (replaced !== null && inUse(replaced)) {
-                options.record({level: "info", event: "plugins.cleanup.deferred", message: "被取代的待切换版本还被别的服务端租着，之后的启动再回收", data: {id, version: replaced}});
-            } else if (replaced !== null) {
+            if (replaced !== null) {
                 // 提交之后、释放锁之前删：释放之后别的进程可能重新装回这个版本、让登记表又引用它。
                 await assertHeld(lock)
                     .then(() => rm(ownedPath(root, id, replaced), {recursive: true, force: true}))
@@ -320,7 +311,7 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
             const builtin: PluginListEntry[] = options.builtin
                 .map((plugin): PluginListEntry => ({id: plugin.id, version: plugin.version, source: "builtin", state: "enabled", pending: [], notLoaded: null, displayName: null, description: null, problems: problemsOf(plugin.id)}))
                 .sort(byId);
-            // 本次启动时还在、已被另一个服务端卸载掉记录的插件也列出：本进程里它仍在运行，重启后才没有。
+            // 本次启动的集合里有、登记表里已经没有的插件（登记表被手工改过）也列出：本进程里它仍在运行，重启后才没有。
             const ids = new Set([...Object.keys(read.record.plugins), ...startupOf.keys()]);
             const thirdParty = await Promise.all([...ids].sort().map(async (id): Promise<PluginListEntry> => {
                 const item = itemOf(id, read.record.plugins[id]);

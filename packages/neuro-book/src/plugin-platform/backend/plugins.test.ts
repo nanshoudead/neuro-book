@@ -1,24 +1,22 @@
 /**
  * 第三方插件的安装、升级、卸载、启停与启动时的切换和回收（docs/specs/runtime/plugin-install.md）：真实临时目录上的
- * 插件文件夹与状态根，“重启”就是再调一次 `prepareInstalledPlugins` 并用它的结果建新的插件管理。两个服务端进程同时
+ * 插件文件夹与状态根，“重启”就是再调一次 `prepareInstalledPlugins` 并用它的结果建新的插件管理。服务端运行时命令行同时
  * 安装用真实子进程。
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
-import {chmod, mkdir, readdir, readFile, rm, stat, symlink, utimes, writeFile} from "node:fs/promises";
+import {chmod, mkdir, readdir, readFile, rm, stat, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
-import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {lock} from "proper-lockfile";
 
 import {acmeAt, ACME_PROFILE} from "../testing/profile";
 import {createPluginInventory} from "./inventory";
 import type {PluginInventory} from "./inventory";
-import {livePins, pinKey, pinVersions, PINS_DIR} from "./pins";
 import {prepareInstalledPlugins} from "./startup";
-import type {PluginsPreparation, StartupPlugins} from "./startup";
+import type {StartupPlugins} from "./startup";
 
 const PRODUCT = ACME_PROFILE.productVersion;
 const BUILTIN = [{id: "acme.settings", version: PRODUCT}];
@@ -30,11 +28,7 @@ beforeAll(async () => {
     tmp = await createTestTmpRoot("neuro-book-plugin-install", "第三方插件的安装与启动");
 });
 
-/** 每次模拟启动都持一份版本租约；用例结束后放下，免得锁的刷新计时器留在进程里。 */
-const releases: PluginsPreparation[] = [];
-
 afterAll(async () => {
-    for (const prepared of releases.splice(0)) await prepared.release();
     if (tmp !== "") await rm(tmp, {recursive: true, force: true});
 });
 
@@ -44,7 +38,7 @@ interface World {
     readonly diagnostics: DiagnosticInput[];
     startup: StartupPlugins;
     inventory: PluginInventory;
-    /** 模拟重启：上一次的服务端退出（放下版本租约），再处理待生效变化、回收残留，换成新的插件集合与插件管理。 */
+    /** 模拟重启：上一次的服务端退出，再处理待生效变化、回收残留，换成新的插件集合与插件管理。 */
     restart(options?: {readonly productVersion?: string; readonly safeMode?: boolean}): Promise<StartupPlugins>;
     /** 在 `base/sources/<name>` 写一个插件文件夹。 */
     source(name: string, manifest: Record<string, unknown>, files?: Readonly<Record<string, string>>): Promise<string>;
@@ -58,7 +52,6 @@ async function world(): Promise<World> {
     await mkdir(join(base, "sources"), {recursive: true});
     const diagnostics: DiagnosticInput[] = [];
     const make = (startup: StartupPlugins, productVersion = PRODUCT): PluginInventory => createPluginInventory({root, profile: acmeAt(productVersion), builtin: BUILTIN, startup, record: (input) => diagnostics.push(input)});
-    let running: PluginsPreparation | null = null;
     const self: World = {
         base,
         root,
@@ -66,10 +59,7 @@ async function world(): Promise<World> {
         startup: {safeMode: false, registryProblem: null, plugins: []},
         inventory: make({safeMode: false, registryProblem: null, plugins: []}),
         restart: async (options = {}) => {
-            await running?.release();
             const prepared = await prepareInstalledPlugins({root, profile: acmeAt(options.productVersion ?? PRODUCT), safeMode: options.safeMode ?? false});
-            running = prepared;
-            releases.push(prepared);
             prepared.connectDiagnostics((input) => diagnostics.push(input));
             self.startup = prepared.startup;
             self.inventory = make(prepared.startup, options.productVersion);
@@ -389,7 +379,7 @@ describe("启动时的登记（输出 6、7）与回收（提交点表）", () =
         const release = await lock(held, {realpath: false, lockfilePath: held});
         try {
             await w.restart();
-            expect(await namesIn(w.root)).toEqual([".pins", ".staging", "example.hello", "plugins.json"]);
+            expect(await namesIn(w.root)).toEqual([".staging", "example.hello", "plugins.json"]);
             expect(await namesIn(join(w.root, "example.hello"))).toEqual(["1.0.0"]);
             expect(await namesIn(join(w.root, ".staging"))).toEqual(["preparing", "preparing.lock"]);
         } finally {
@@ -444,25 +434,8 @@ describe("启动时的登记（输出 6、7）与回收（提交点表）", () =
     });
 });
 
-describe("同一状态根上的两个服务端进程（场景 15）", () => {
-    it("另一个服务端启动时切换了版本、完成了卸载：本进程的列表仍按自己启动时的集合给出待生效变化", async () => {
-        const w = await world();
-        await w.inventory.install(await w.source("v1", manifest("1.0.0")));
-        await w.inventory.install(await w.source("other", {...manifest(), name: "other"}));
-        await w.restart();
-        const mine = w.inventory;
-        await mine.install(await w.source("v2", manifest("2.0.0")));
-        await mine.uninstall("example.other");
-        // 另一个服务端在同一状态根上启动：消费掉待切换版本与卸载记录。
-        releases.push(await prepareInstalledPlugins({root: w.root, profile: ACME_PROFILE, safeMode: false}));
-        expect(await w.record()).toMatchObject({plugins: {"example.hello": {version: "2.0.0", pendingVersion: null}}});
-        const listed = await mine.list();
-        expect(itemOf(listed, "example.hello")).toMatchObject({version: "1.0.0", pending: [{kind: "upgrade", version: "2.0.0"}]});
-        expect(itemOf(listed, "example.other")).toMatchObject({pending: [{kind: "uninstall"}]});
-    });
-
-
-    it("两个进程同时安装不同插件，登记表两条都在", async () => {
+describe("服务端运行时命令行写登记表（场景 15）", () => {
+    it("两个进程（服务端的插件页与命令行，或两个命令行）同时安装不同插件，登记表两条都在", async () => {
         const w = await world();
         const sources = [
             await w.source("a", {...manifest(), name: "alpha"}, Object.fromEntries(Array.from({length: 40}, (_, index) => [`dist/${String(index)}.js`, "x".repeat(4096)]))),
@@ -478,81 +451,14 @@ describe("同一状态根上的两个服务端进程（场景 15）", () => {
         expect(Object.keys(((await w.record()) as {plugins: Record<string, unknown>}).plugins).sort()).toEqual(["example.alpha", "example.beta"]);
     });
 
-    it("版本租约：另一个服务端启动时切换版本、移除卸载记录，但本服务端在用的版本目录留到它退出之后才回收", async () => {
-        const w = await world();
-        await w.inventory.install(await w.source("v1", manifest("1.0.0"), {"web.js": "v1"}));
-        await w.inventory.install(await w.source("other", {...manifest(), name: "other"}, {"web.js": "o"}));
-        await w.restart();
-        await w.inventory.install(await w.source("v2", manifest("2.0.0"), {"web.js": "v2"}));
-        await w.inventory.uninstall("example.other");
-        const second = async (): Promise<string[]> => {
-            const child = Bun.spawn({cmd: [process.execPath, join(import.meta.dir, "testing", "prepare-child.ts"), w.root], stdout: "pipe", stderr: "pipe"});
-            const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-            expect(code, err).toBe(0);
-            return JSON.parse(out) as string[];
-        };
-
-        // 另一个服务端（真实子进程）启动：登记表切到 2.0.0、移除 other；本服务端还租着 1.0.0 与 other，文件都在。
-        expect(await second()).toEqual(["example.hello@2.0.0"]);
-        expect(await w.record()).toEqual({schema: "acme.plugins/v1", plugins: {"example.hello": {version: "2.0.0", pendingVersion: null, state: "enabled", deleteData: false}}});
-        expect(await readFile(join(w.root, "example.hello", "1.0.0", "web.js"), "utf8")).toBe("v1");
-        expect(await readFile(join(w.root, "example.other", "1.0.0", "web.js"), "utf8")).toBe("o");
-        // 租着的目录不被重装换掉：同一版本的新内容 version-in-use，本服务端在用的文件不变。
-        expect(await w.inventory.install(await w.source("other-again", {...manifest(), name: "other"}, {"web.js": "o2"}))).toMatchObject({ok: false, code: "version-in-use"});
-        expect(await w.inventory.install(await w.source("v1-again", manifest("1.0.0"), {"web.js": "v1b"}))).toMatchObject({ok: false, code: "version-in-use"});
-        expect(await readFile(join(w.root, "example.other", "1.0.0", "web.js"), "utf8")).toBe("o");
-        expect(await readFile(join(w.root, "example.hello", "1.0.0", "web.js"), "utf8")).toBe("v1");
-
-        // 本服务端退出（放下租约）后，下一次启动才回收。
-        await w.restart();
-        expect(await namesIn(join(w.root, "example.hello"))).toEqual(["2.0.0"]);
-        expect(await exists(join(w.root, "example.other"))).toBe(false);
-        expect(await namesIn(join(w.root, ".pins"))).toHaveLength(2);
-    });
-
-    it("版本租约的锁被别的服务端当作残留删掉（持有者暂停过久）：换名重写、记诊断，回收的一方随后仍看到这些版本在用；放下后不留锁", async () => {
-        const w = await world();
-        await mkdir(w.root, {recursive: true});
-        const reports: string[] = [];
-        const stale = 2_000;
-        const pin = await pinVersions(w.root, [{id: "example.hello", version: "1.0.0"}], (event) => reports.push(event), {stale});
-        expect(pin).not.toBeNull();
-        const [lockName] = (await readdir(join(w.root, PINS_DIR))).filter((name) => name.endsWith(".lock"));
-        // 持有者暂停期间锁没有刷新：把锁的修改时间拨回过期之前，另一个服务端的回收按残留删掉它。
-        const past = new Date(Date.now() - stale * 3);
-        await utimes(join(w.root, PINS_DIR, lockName!), past, past);
-        expect((await livePins(w.root, () => undefined, {stale})).pinned.size).toBe(0);
-        await waitUntil("租约换名重写", () => (reports.includes("pins.renewed") ? true : undefined), {timeoutMs: stale * 3});
-        expect(reports).toContain("lock.compromised");
-        expect((await livePins(w.root, () => undefined, {stale})).pinned).toEqual(new Set([pinKey("example.hello", "1.0.0")]));
-        await pin!.release();
-        expect(await namesIn(join(w.root, PINS_DIR))).toEqual([]);
-    });
-
-    it("被取代的待切换版本还被别的服务端租着：再装新版本时它的目录保留、推迟回收", async () => {
-        const w = await world();
-        await w.inventory.install(await w.source("v1", manifest("1.0.0"), {"web.js": "v1"}));
-        await w.restart();
-        await w.inventory.install(await w.source("v2", manifest("2.0.0"), {"web.js": "v2"}));
-        // 另一个服务端已切到 2.0.0 并在用它（同一进程里写一份独立的租约代表它）。
-        const other = await pinVersions(w.root, [{id: "example.hello", version: "2.0.0"}], () => undefined);
-        try {
-            expect(await w.inventory.install(await w.source("v3", manifest("3.0.0"), {"web.js": "v3"}))).toMatchObject({ok: true});
-            expect(await readFile(join(w.root, "example.hello", "2.0.0", "web.js"), "utf8")).toBe("v2");
-            expect(w.diagnostics.map((record) => record.event)).toContain("plugins.cleanup.deferred");
-        } finally {
-            await other?.release();
-        }
-    });
-
-    it("安装根只读：拿不到登记表锁、写不下版本租约，照常只读启动并登记插件，原因进诊断", async () => {
+    it("安装根只读：拿不到登记表锁，照常只读启动并登记插件，原因进诊断", async () => {
         const w = await world();
         await w.inventory.install(await w.source("v1", manifest("1.0.0"), {"web.js": "v1"}));
         await chmod(w.root, 0o555);
         try {
             const startup = await w.restart();
             expect(startup.plugins.map((plugin) => plugin.id)).toEqual(["example.hello"]);
-            expect(w.diagnostics.map((record) => record.event)).toEqual(expect.arrayContaining(["plugins.startup.unlocked", "plugins.pins.write-failed"]));
+            expect(w.diagnostics.map((record) => record.event)).toContain("plugins.startup.unlocked");
         } finally {
             await chmod(w.root, 0o755);
         }

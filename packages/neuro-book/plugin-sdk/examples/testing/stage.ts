@@ -194,7 +194,14 @@ export class Stage {
         return this.#start({location: "browser", instanceId: id, client}, [statePlugin, definitionAt("browser", settingsDescriptor, settingsBrowserCore), commandsPlugin, storageBrowserPlugin], capabilities, options, node);
     }
 
-    /** 窗口 `id` 断线后换一条链路重连（产品里是浏览器的退避重连），返回握手结果。 */
+    /** 窗口 `id` 断线（产品里是网络断开或服务端重启）：断开期间服务端推给它的变化收不到。 */
+    disconnect(id: string): void {
+        const window = this.#windows.get(id);
+        if (window === undefined) throw new Error(`没有窗口 ${id}`);
+        window.link.close();
+    }
+
+    /** 窗口 `id` 换一条链路重连（产品里是浏览器的退避重连），返回握手结果；还连着时先断开。 */
     async reconnect(router: RemoteRouter, id: string): Promise<Awaited<ReturnType<RemoteNode["connect"]>>> {
         const window = this.#windows.get(id);
         if (window === undefined) throw new Error(`没有窗口 ${id}`);

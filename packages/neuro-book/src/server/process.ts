@@ -113,13 +113,10 @@ export async function runServerProcess(manifest: ReadonlyArray<PluginDescriptor>
     const prepared = await prepareInstalledPlugins({root: join(config.stateRoot, "plugins"), profile: NEUROBOOK_PROFILE, safeMode: safeModeOf(process.env, NEUROBOOK_PROFILE)});
     const server = startOrExit(config, claim, manifest, prepared, options);
     if (server === null) {
-        await prepared.release();
         await claim.release();
         process.exit(1);
     }
     const {exitCode} = await server.stopped;
-    // 插件代码已经停了，放下版本租约，别的服务端下次启动就能回收这些版本。进程退出时锁也会放下，这里只是不等到那时。
-    await prepared.release();
     process.exit(exitCode);
 }
 
