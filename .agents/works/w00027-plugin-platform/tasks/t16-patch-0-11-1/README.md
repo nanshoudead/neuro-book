@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t16-patch-0-11-1
-status: active
+status: done
 updated: 2026-10-27
 ---
 
@@ -27,6 +27,8 @@ updated: 2026-10-27
 - 实现审查（Sonnet，[evidences/impl-review.txt](evidences/impl-review.txt)）：阻断 0、重要 2、建议 7，处理见 [plan.md 第 9 节](plan.md)，修正 `63b74fa4c`，Spec `fc1e3f2ad`、`cda85af83`。
 - 收口：`test:affected --typecheck` 全过；全量 e2e 294 例全过（33 分钟）。合入 master（`5ad28f876`）时与 w00024 在 `relations-view.ts` 的导入冲突，两边的导入都保留，nb-story typecheck 通过；nb-story 的命令行测试在另一个会话占满 CPU 时有 3 例 5 秒超时（每次不是同一批，每例都是新起 bun 子进程），本 Task 对 nb-story 只挪了一个类型（运行时擦除）；负载降到 3.2 后重跑这两个文件 37 例全过。
 
+- 发布（开发者 2026-10-27 授权）：推 master，主工作区 `release:smoke` 通过，`@notnotype/nb-plugin-sdk@0.11.1`、`@notnotype/neuro-book@0.11.1` 发到 npm（`latest`）；`release:smoke --from registry` 全部通过；临时目录里从 npm 装 0.11.1 核对了帮助对齐与“NeuroBook 已停止。”。发布期间 nb-story 下未跟踪的西游记文件挪开后已原样挪回。门禁照旧提醒 nb-runtime、nb-harness、nb-story 的源码改过但没提版本号（这次不发它们）。
+
 ## 下一步
 
-0.11.1 已在 master 上；发布是远端写入，停下等开发者（发布前主工作区里 nb-story 下未跟踪的西游记文件要先挪开，门禁要求会发布的目录干净）。
+完成。
