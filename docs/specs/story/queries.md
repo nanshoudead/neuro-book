@@ -62,7 +62,7 @@ owners:
 | `books.list` | — | 每本书：`id`、`title`、`generation`、`chapters`、`extractedThrough`、`features`（记不记数值与秘密，见“边界与兼容”） |
 | `book.import` | `file`、`title`、可选 `id` | `id`、`generation` |
 | `book.remove` | `book` | — |
-| `book.info` | — | `title`、`source`、`chapters`、`paragraphs`（各章段数）、`toc`（P 所在章及之前各章的标题，之后的章只有章号）、`extractedThrough`、`features` |
+| `book.info` | — | `title`、`source`、`chapters`、`paragraphs`（各章段数）、`toc`（P 所在章及之前各章的标题，之后的章只有章号）、`unextracted`（未抽取尾部各章的段数，没有为空数组；`toc` 里尾部各章也列出，标题为 null；`chapters`、`paragraphs` 仍只含已提交的章）、`extractedThrough`、`features` |
 | `book.stats` | — | `visible`（P 时各类可见记录的条数）、`chapters`（第 1 章到 P 所在章逐章的可见记录数）、`cast`（主要人物逐章的出场次数）、`extraction`（全书抽取统计，见输出 2） |
 | `reading.get`、`reading.set` | `set`：`position`、`view` | `position`、`view`、`savedAt` |
 | `chapter.digest` | `chapter` | 情节、新出现的对象、揭晓的秘密、数值变动、新提出与有进展的悬念，各带出处 |

@@ -37,3 +37,4 @@ autonomous-delivery 推进时照推荐做了、本该由开发者决定的点，
 
 - 已修（2026-10-20，8ebe77067，t09 跑全量时撞上）：`server.test.ts` 的“--json 时启动成功只输出一份 JSON……”偶发失败，`serve` 收到 SIGTERM 以 143 退出、留下 `.serve.json`。原因是 Bun 在 `Bun.serve` 监听期间，先打印、后在 Promise 里装信号处理时，紧跟着到的 SIGTERM 按默认动作杀进程（最小脚本要带着 `Bun.serve` 才复现，30 次全中）。改成先装处理再打印，30 次全好。
 - 2026-10-27 [t29](tasks/t29-web-import-skill/README.md)：网页导入 V9 记忆图文件、删除书、安装 Skill（只允许 claude/codex 固定路径）；已合入本地 master。
+- 2026-10-27 [t30](tasks/t30-qa-unextracted-books/README.md)：问答读未抽取章的原文（位置可选到尾部章，图只到抽取进度）。
