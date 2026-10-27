@@ -115,6 +115,23 @@ describe("关系词（输出 16）", () => {
     });
 });
 
+describe("泛称与草稿手工指定的归属（输出 22）", () => {
+    test("草稿指定了“学姐”在这几处专指某个人物：出场照计，不再是无名", async () => {
+        const dataset = await smallDataset(20, "anon-note");
+        const template = dataset.entities.find(entity => entity.id === "e4-2")!;
+        dataset.entities.push({...template, id: "e5-900", label: "负责登记的学姐", names: [{text: "学姐", at: {chapter: 5, paragraph: 1}, primary: true}], mergedFrom: []} as never);
+        for (let paragraph = 1; paragraph <= 5; paragraph += 1) dataset.mentions.push({entity: "e5-900", text: "学姐", at: {chapter: 5, paragraph}, start: 0, end: 2, via: "note"} as never);
+        const anon = await openTestBook("anon-note", dataset);
+        try {
+            const roster = await anon.ok("entities.list", {at: {chapter: 20}, limit: 500});
+            expect(roster.items.find(item => item.id === "e5-900")).toMatchObject({mentions: 5});
+            expect(roster.items.find(item => item.id === "e5-900")?.anonymous).toBeUndefined();
+        } finally {
+            await anon.close();
+        }
+    });
+});
+
 describe("全书图与故事线（输出 17、18）", () => {
     test("按主线聚合时主线与对象的线带出场情节数，用的是当前这一批", async () => {
         const graph = await book.ok("graph.book", {at: {chapter: 38}});

@@ -70,12 +70,14 @@ export class BookView {
     }
 
     get entities(): VisibleEntity[] {
-        return this.cached("entities", () =>
-            this.#prefix(this.index.entities).map(entity => {
+        return this.cached("entities", () => {
+            // 草稿手工指定过出场的对象不是无名的：指定本身就是“这个词在这里专指它”的证据。
+            const assigned = new Set(this.#prefix(this.index.mentions).filter(mention => mention.via === "note").map(mention => mention.entity));
+            return this.#prefix(this.index.entities).map(entity => {
                 const names = entity.names.filter(name => this.visible(name.at)).sort((a, b) => comparePosition(a.at, b.at));
-                return {...entity, names, anonymous: PERSON_KINDS.has(entity.kind) && allGeneric(names)};
-            }),
-        );
+                return {...entity, names, anonymous: PERSON_KINDS.has(entity.kind) && allGeneric(names) && !assigned.has(entity.id)};
+            });
+        });
     }
 
     entity(id: string): VisibleEntity | undefined {
@@ -224,7 +226,7 @@ export class BookView {
     }
 
     get mentions(): Mention[] {
-        // 泛称的出现不计出场（见 generic-names.ts）。
-        return this.cached("mentions", () => this.#prefix(this.index.mentions).filter(mention => this.entity(mention.entity) !== undefined && !isGenericName(mention.text)));
+        // 泛称的出现不计出场（见 generic-names.ts）；草稿手工指定了归属的出现除外。
+        return this.cached("mentions", () => this.#prefix(this.index.mentions).filter(mention => this.entity(mention.entity) !== undefined && (mention.via === "note" || !isGenericName(mention.text))));
     }
 }
