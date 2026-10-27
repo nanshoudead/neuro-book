@@ -27,12 +27,12 @@ import type {BookFeatures, Position} from "../core/dataset";
 import {StoryError} from "../core/errors";
 import type {PositionInput} from "../core/position";
 import type {QaAnswerMode} from "../contract/qa-record";
-import {answerModeOf, newQaRecordId, QaRecords, type QaConversation, type QaMode, type QaReply, type QaTurn, type QaUsage} from "../core/qa-records";
+import {answerModeOf, currentPosition, newQaRecordId, QaRecords, type QaConversation, type QaMode, type QaReply, type QaTurn, type QaUsage} from "../core/qa-records";
 import {qaLimits, type QaConfig} from "./config";
 import type {KeyEnv} from "../platform/startup-env";
 import {keyVariables, onlyKeysIn, resolveQaModel, thinkingOption, type QaModelChoice} from "./harness-model";
 import {QaError} from "./errors";
-import {ReadLedger} from "./read-ledger";
+import {clipRead, ReadLedger} from "./read-ledger";
 import {recheckMessage} from "./rules";
 import profile from "./story-qa.profile";
 import {storyQaPlugin, type QaToolState} from "./tools";
@@ -162,6 +162,8 @@ interface Start {
     maxChapters: number | null;
     answer: QaAnswerMode;
     ledger: ReadLedger;
+    /** 这一轮开始时对话的位置改动次数；保存时核对，期间位置被别处改了就不保存（t25）。 */
+    positionChanges: number;
     /** 续问时读回的会话日志条目。 */
     entries: SessionEntry[] | null;
     firstMessage: string;
@@ -185,6 +187,7 @@ async function startNew(input: AskInput, started: number): Promise<Start> {
         maxChapters,
         answer: input.answer ?? input.config.qa?.answer ?? "markdown",
         ledger: new ReadLedger({paragraphs: book.meta.paragraphs, at, maxChapters, readAll: mode === "full"}),
+        positionChanges: 0,
         entries: null,
         firstMessage: mode === "full" ? await fullReadMessage(input, book, at, limits.fullReadMaxChars) : input.question,
     };
@@ -206,15 +209,82 @@ async function startContinued(input: AskInput, id: string): Promise<Start> {
     }
     const problem = continuationProblem(entries[0]);
     if (problem !== null) throw notContinuable(problem);
-    const info = await book.call("book.info", {at: previous.at});
+    // 这一问用的位置：对话里改过位置的取改后的（`currentPosition`），不是开始时的 `at`（t25）。
+    const at = currentPosition(previous);
+    const info = await book.call("book.info", {at});
     if (!info.ok) throw new StoryError(info.error.code, info.error.message);
     let ledger: ReadLedger;
     try {
-        ledger = new ReadLedger({paragraphs: book.meta.paragraphs, at: previous.at, maxChapters: previous.maxChapters, readAll: previous.mode === "full", read: previous.read});
+        // 位置往回调过：晚于现在位置的已读范围不再算读过。
+        ledger = new ReadLedger({paragraphs: book.meta.paragraphs, at, maxChapters: previous.maxChapters, readAll: previous.mode === "full", read: clipRead(previous.read, at)});
     } catch (error) {
         throw notContinuable(error instanceof Error ? error.message : String(error));
     }
-    return {book, features: info.value.features, previous, id, at: previous.at, mode: previous.mode, maxChapters: previous.maxChapters, answer: answerModeOf(previous), ledger, entries, firstMessage: input.question};
+    return {book, features: info.value.features, previous, id, at, mode: previous.mode, maxChapters: previous.maxChapters, answer: answerModeOf(previous), ledger, positionChanges: previous.positionChanges ?? 0, entries, firstMessage: input.question};
+}
+
+/** 位置在提醒里的写法：停在一章最后一段的写“第 N 章”，否则写“N.M”。 */
+function reminderPosition(position: Position, paragraphs: readonly number[]): string {
+    return position.paragraph === paragraphs[position.chapter - 1] ? `第 ${position.chapter} 章` : `${position.chapter}.${position.paragraph}`;
+}
+
+/**
+ * 改位置时写进会话的提醒（`<system-reminder>` 包着的程序生成文字，不含用户输入）：往后调说可以访问了，往回调说之后的
+ * 内容不能再访问或引用。
+ */
+export function positionReminder(from: Position, to: Position, paragraphs: readonly number[]): string {
+    const a = reminderPosition(from, paragraphs);
+    const b = reminderPosition(to, paragraphs);
+    const body = before(from, to)
+        ? `阅读位置从${a}改为${b}。你可以访问${b}及之前的内容了。`
+        : `阅读位置从${a}改为${b}。${b}之后的内容现在不能访问或引用，即使前面的对话里出现过也不要再用。`;
+    return `<system-reminder>\n${body}\n</system-reminder>`;
+}
+
+function before(a: Position, b: Position): boolean {
+    return a.chapter < b.chapter || (a.chapter === b.chapter && a.paragraph < b.paragraph);
+}
+
+/** 会话日志里记位置改动的 `meta` 条目的键：紧跟在提醒消息之后，网页靠它认出提醒（不看文字）。 */
+export const POSITION_META_KEY = "qa.position";
+
+/**
+ * 在对话中途改阅读位置（t25）：往会话日志追加两条（完整的用户消息形状的提醒与紧跟的 `meta`），记录写上新的当前位置，
+ * 照追问的写法复制新日志、记录改名发布；不发模型请求。只有图当目录的对话能改；位置没变不写。返回改后的对话，没变时
+ * `changed` 为 false。
+ */
+export async function changePosition(input: {api: StoryApi; book: string | undefined; conversation: string; at: PositionInput}): Promise<{conversation: QaConversation; changed: boolean}> {
+    const book = await input.api.openBook(input.book);
+    const records = new QaRecords(input.api.library, book.id);
+    const {conversation: previous, log} = await records.getWithLog(input.conversation, book.generation);
+    const notChangeable = (why: string) => new QaError("qa_not_continuable", `对话 ${input.conversation} 不能改阅读位置：${why}`);
+    if (previous.mode === "full") throw new QaError("qa_position_fixed", `对话 ${input.conversation} 是全读对话，阅读位置不能改：开新对话`);
+    if (!log.ok) throw notChangeable(log.problem);
+    const lines = log.jsonl.split("\n").filter(line => line !== "");
+    const entries: SessionEntry[] = [];
+    for (const line of lines) {
+        const entry = parseEntryLine(line);
+        if (entry === null) throw notChangeable("会话日志有读不成的行");
+        entries.push(entry);
+    }
+    const problem = continuationProblem(entries[0]);
+    if (problem !== null) throw notChangeable(problem);
+    const info = await book.call("book.info", {at: input.at});
+    if (!info.ok) throw new StoryError(info.error.code, info.error.message);
+    const to = info.value.at;
+    const from = currentPosition(previous);
+    if (to.chapter === from.chapter && to.paragraph === from.paragraph) return {conversation: previous, changed: false};
+
+    const seq = (entries.at(-1)?.seq ?? 0) + 1;
+    const now = new Date();
+    const reminder: SessionEntry = {kind: "agent_message", seq, at: now.toISOString(), message: {role: "user", content: [{type: "text", text: positionReminder(from, to, book.meta.paragraphs)}], timestamp: now.getTime()}};
+    const meta: SessionEntry = {kind: "meta", seq: seq + 1, at: now.toISOString(), key: POSITION_META_KEY, value: {chapter: to.chapter, paragraph: to.paragraph, from: {chapter: from.chapter, paragraph: from.paragraph}}};
+    const jsonl = [...entries, reminder, meta].map(entry => `${JSON.stringify(entry)}\n`).join("");
+    const {log: _log, ...fixed} = previous;
+    const next = {...fixed, currentAt: to, positionChanges: (previous.positionChanges ?? 0) + 1};
+    const saved = await records.save(next, jsonl, {expectTurns: previous.turns.length, expectChanges: previous.positionChanges ?? 0});
+    if (!saved.saved) throw new QaError("qa_conflict", saved.reason === "conflict" ? `对话 ${input.conversation} 在这期间被别处改了（追问、改位置或删除），阅读位置没有改` : `阅读位置没有改：书${saved.reason === "book_not_found" ? "已被删除或换了代" : "的格式不认识"}`);
+    return {conversation: saved.conversation, changed: true};
 }
 
 /**
@@ -301,6 +371,8 @@ export interface PreparedQuestion {
 export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion> {
     const started = Date.now();
     const startedAt = new Date(started).toISOString();
+    // 续问时给了 `at`：先把位置改了（写进会话日志与记录），再按改后的位置运行这一轮。
+    if (input.continueFrom !== undefined && input.at !== undefined) await changePosition({api: input.api, book: input.book, conversation: input.continueFrom, at: input.at});
     const start = input.continueFrom === undefined ? await startNew(input, started) : await startContinued(input, input.continueFrom);
     const {book, at, mode, ledger, previous, id} = start;
     // 没选模型（包括只给了推理档）时续问接着用上一轮的模型（qa.md 输出 40）。
@@ -394,7 +466,7 @@ export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion
     }
 
     async function finish(): Promise<QaOutcome> {
-        const turn: QaTurn = {question: input.question, ...outcome, chaptersRead: ledger.chapters(), rejections, usage, ms: Date.now() - started, model: qaModel.ref, startedAt, logFrom, ...(recheck === undefined ? {} : {recheck})};
+        const turn: QaTurn = {question: input.question, ...outcome, chaptersRead: ledger.chapters(), rejections, usage, ms: Date.now() - started, model: qaModel.ref, startedAt, logFrom, at, ...(recheck === undefined ? {} : {recheck})};
         const fixed = previous ?? {id, book: book.id, generation: book.generation, at, mode, maxChapters: start.maxChapters, startedAt};
         const conversation: Omit<QaConversation, "log"> = {
             id: fixed.id,
@@ -406,13 +478,15 @@ export async function prepareQuestion(input: AskInput): Promise<PreparedQuestion
             answer: start.answer,
             read: ledger.snapshot(),
             turns: [...(previous?.turns ?? []), turn],
+            ...(previous?.currentAt === undefined ? {} : {currentAt: previous.currentAt}),
+            ...(previous?.positionChanges === undefined ? {} : {positionChanges: previous.positionChanges}),
             startedAt: fixed.startedAt,
         };
         const result: QaTurnResult = {id, book: conversation.book, generation: conversation.generation, at, mode, turn: conversation.turns.length, ...turn};
         const entries = await sessionLog.read();
         let saved: Awaited<ReturnType<QaRecords["save"]>>;
         try {
-            saved = await new QaRecords(input.api.library, book.id).save(conversation, entries.map(entry => `${JSON.stringify(entry)}\n`).join(""), {expectTurns: previous?.turns.length ?? 0});
+            saved = await new QaRecords(input.api.library, book.id).save(conversation, entries.map(entry => `${JSON.stringify(entry)}\n`).join(""), {expectTurns: previous?.turns.length ?? 0, expectChanges: start.positionChanges});
         } catch (error) {
             return {result, conversation: {...conversation, log: null}, recordSaved: false, notSaved: {reason: "write_failed", message: error instanceof Error ? error.message : String(error)}};
         }
