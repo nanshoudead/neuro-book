@@ -124,7 +124,7 @@ owners:
 6. **用法。** 拼错的命令、不认识的选项、越界的端口、空的 `--state-root` 以 2 退出、码 `usage`；`--version`、`--help`、`help <命令>` 以 0 退出。服务端启动失败时结果对象是 `startup-failed`、以 1 退出。
 7. **插件。** 服务端运行时 `nbook plugin install` 一个用 `nbooke build` 构建的插件、`list --json` 列出待生效的安装，重启服务后插件页列出它；降级不带 `--yes` 以 2 退出。
 
-Smoke：`bun test src/cli` 把命令行与项目宿主构建到临时目录，用真实进程运行场景 1 到 7（场景 7 用临时目录里只有清单的插件，以重启后的实例应答核对登记）；`e2e/app-package.e2e.ts` 用 `scripts/pack-app.ts` 打出的 tarball `bun add -g` 装上 `nbook`，在本机 Chrome 上跑场景 1 的启动与打开作品、场景 7 的安装与重启生效。
+Smoke：`bun test src/cli` 把命令行与项目宿主构建到临时目录，用真实进程运行场景 1 到 7（场景 7 用临时目录里只有清单的插件，以重启后的实例应答核对登记）；`e2e/app-package.e2e.ts` 用 `scripts/pack-app.ts` 打出的 tarball `bun add -g` 装上 `nbook`，在本机 Chrome 上跑场景 1 的启动与打开作品、场景 7 的安装与重启生效。`bun run release:smoke`（仓库根）用发布前打好的 tarball，在仓库外的临时 `BUN_INSTALL` 下装上应用，跑场景 1 的启动与打开书架，再用 `bunx -p` 装 SDK 生成插件，跑场景 7 的安装与重启生效；发布后 `--from registry` 对 registry 上的版本再跑一遍。
 
 ## 实现合同
 
@@ -135,11 +135,11 @@ Smoke：`bun test src/cli` 把命令行与项目宿主构建到临时目录，�
   - 插件子命令与插件页用同一套插件管理与失败码，只写登记表、不连服务端；列表的待生效变化有实例时按实例应答里的启动集合算，没有时按下一次启动算。
   - commander 的错误不让它自己打印，按错误码换成中文、以 2 退出；`--json` 时标准输出只有一个结果对象，提示与诊断走标准错误。
 - **合同测试**：`src/cli/cli.test.ts`（真实进程，命令行与项目宿主构建到临时目录：场景 1 到 7）、`src/cli/state-root.test.ts`（三个平台的缺省与取值顺序）；应用包 `scripts/pack-app.test.ts`。
-- **实际 smoke**：`bun test src/cli`；`e2e/app-package.e2e.ts`（`bun run test:e2e`）从 tarball 装上 `nbook`，在本机 Chrome 上跑场景 1 与 7。
+- **实际 smoke**：`bun test src/cli`；`e2e/app-package.e2e.ts`（`bun run test:e2e`）从 tarball 装上 `nbook`，在本机 Chrome 上跑场景 1 与 7；发布前后的 `bun run release:smoke`（`scripts/release/pack-smoke.ts`）在仓库外装上应用与 SDK 跑场景 1 与 7。
 
 ## 证据
 
 - 批准依据：开发者 2026-10-24、2026-10-25 与 2026-10-27 的决定，见 [t15 第二期计划](../../../.agents/works/w00027-plugin-platform/tasks/t15-author-api-round2/plan-phase2.md) 的 Context（D1 到 D4）；[ADR 0033](../../adr/0033-app-delivered-as-built-npm-package.md)。
 - 实现入口：[`main.ts`](../../../packages/neuro-book/src/cli/main.ts)、[`start.ts`](../../../packages/neuro-book/src/cli/start.ts)、[`plugin.ts`](../../../packages/neuro-book/src/cli/plugin.ts)、[`state-root.ts`](../../../packages/neuro-book/src/cli/state-root.ts)
 - 合同测试：[`cli.test.ts`](../../../packages/neuro-book/src/cli/cli.test.ts)、[`state-root.test.ts`](../../../packages/neuro-book/src/cli/state-root.test.ts)、[`pack-app.test.ts`](../../../packages/neuro-book/scripts/pack-app.test.ts)
-- Smoke：[`cli.test.ts`](../../../packages/neuro-book/src/cli/cli.test.ts)（`bun test src/cli`）、[`app-package.e2e.ts`](../../../packages/neuro-book/e2e/app-package.e2e.ts)（`bun run test:e2e`）
+- Smoke：[`cli.test.ts`](../../../packages/neuro-book/src/cli/cli.test.ts)（`bun test src/cli`）、[`app-package.e2e.ts`](../../../packages/neuro-book/e2e/app-package.e2e.ts)（`bun run test:e2e`）、[`pack-smoke.ts`](../../../scripts/release/pack-smoke.ts)（`bun run release:smoke`）

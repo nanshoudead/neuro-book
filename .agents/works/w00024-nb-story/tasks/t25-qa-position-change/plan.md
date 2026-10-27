@@ -73,3 +73,40 @@
 - 不做：全读对话改位置；书没抽完时读后续原文（t30）；对话里补“位置已改，下次提问生效”之类的文字（开发者要求不写）；章以下（段）粒度的选择（控件只选章，命令行可以写 章.段）。
 - 风险：两条相邻的用户消息（提醒、问题）在个别提供方可能被合并或报错；OMP 的消息转换要核对（设计审查重点）。系统提示词里仍写着开始时的位置（快照里的），提醒写的是新位置——模型可能偏信系统提示词。缓解：程序按新 P 裁剪工具与交卷校验，越界必被拒，模型最坏是多试几次；提醒用明确的“现在”句式。要验证模型是否听话需要真实模型。
 - 风险：往回调时，前面的对话里已经出现过之后的内容，模型仍“知道”。这是提醒能做到的上限（开发者的方案），不是程序能保证的剧透防线；Spec 要写明。
+
+
+## 设计审查后的修订（2026-10-27，取代上文与之冲突的写法）
+
+审查报告见 [evidences/design-review.txt](evidences/design-review.txt)。修订如下，实现以这一节为准。
+
+### 数据模型
+
+- `QaConversation` 加两个可选字段：`currentAt: {chapter, paragraph}`（下一问用的位置，缺省回落到最后一轮的 `at`，再回落到 `at`）与 `positionChanges: number`（位置改过几次，缺省 0）。`turns[].at` 只描述已经运行的那一轮，不改写历史。**当前位置的单一解析规则**：`currentAt ?? turns.at(-1)?.at ?? at`；引擎、`qa.get`、`qa.list`、命令行、控件、新提醒的“从 A”都用它（`core/qa-records.ts` 导出 `currentPosition(conversation)`）。**整个对话出现过的最高位置**：`highestPosition(conversation)` = `at`、每一轮的 `at` 与 `currentAt` 的最大者；剧透警告（列表的“晚于你现在的位置”、页头高亮）按它判断，位置往回调不会解除旧答案的警告（审查第 8 条）。
+- 改位置在会话日志里追加**两条**：一条 `agent_message`（完整 OMP 用户消息形状 `{role: "user", content: [{type: "text", text: 提醒}], timestamp}`，**不是**旧的 `message` 条目，它恢复时不进模型历史——审查第 1 条，已用公开 harness 实验证实），紧接着一条 `meta`（key `qa.position`，值 `{chapter, paragraph, from: {chapter, paragraph}}`）。**网页识别提醒靠这个 meta 紧跟在 `agent_message` 之后**，不看文字（审查第 4 条：用户可以把同样的标签当问题提交）。
+- 提醒文字不变（见上文）。
+
+### 写入协议（审查第 2 条）
+
+改位置与追问共用 `QaRecords.save` 的“复制新日志、记录改名发布”：`changePosition` 读记录与日志（`getWithLog`）→ 在内存里把两条追加到日志文本 → `save({...conversation, currentAt: 新位置, positionChanges: +1}, 新日志, {expectTurns: 现有轮数, expectChanges: 现有改动次数})`；旧日志发布后才删，失败时旧的一对原样保留。`save` 的冲突判据加上位置改动次数：`turns.length` 与 `positionChanges` 都要与开始时相同才发布，否则 `conflict`——运行中的一轮在改位置之后保存会得到 `conflict`（这一轮不保存，与现有“同时追问同一个对话”的语义一致）。为了不让用户撞上它：**对话在运行（页面）或已被占用（服务端的 `preparing`/`runs`）时，控件禁用、`qa.position` 返回 `qa_busy`**；跨进程（命令行与服务）靠 `conflict`，不做点击时的断言。
+
+### 请求里合并相邻 user 消息（审查第 5 条）
+
+DeepSeek 等端点拒绝连续的 user 消息，OMP 各传输层都原样保留。做法：日志与网页仍是独立的两条；`nb-harness` 在每次请求前（`transformContext`）把相邻的 user 消息合并成一条（文字块用空行连接），只改发给模型的上下文，不改日志。写进 `agent.harness` Spec。验收：本机端点收到的请求里提醒与问题是同一条 user 消息；日志里是两条；覆盖 Chat Completions 与 Responses 两种形状。
+
+### 系统提示词（审查第 6 条）
+
+问答 Profile 的系统提示词写着“只依据这个位置以前的内容回答”（位置取快照的 `initial.at`），向前调时与提醒冲突。在系统提示词里加一句：“阅读位置以对话里最近一条 `<system-reminder>` 写的为准，没有时以上面写的为准。”不升 Profile 版本（工具声明与快照不变，旧对话仍能续问；缓存前缀会变一次）。如实写进 Spec 的限制：**硬边界只有工具与结构化交卷的出处校验**；Markdown 作答（默认）的越界出处只标注、复查一次，没写出处的剧情程序认不出；往回调时对话历史里已出现的内容无法撤回。验收同时覆盖 Markdown 与结构化。
+
+### 其余
+
+- 控件的位置选项只给章（命令行仍可写 章.段）；新对话的控件改的是第一问的位置。
+- `qa.position` 是新的服务端方法（`qa.start` 带 `conversation` 与 `at` 时先走同一条 `changePosition` 再运行这一轮，只保存一次）。
+- Task README 的合同链接多一层 `../`（审查第 7 条）。
+
+### 切片（取代上文的三片）
+
+1. 数据模型与写入：`contract/qa-record.ts`、`core/qa-records.ts`（`currentAt`、`positionChanges`、`expectChanges`、`currentPosition`、`highestPosition`），测试：旧记录回落、冲突（运行中的轮保存时位置已改）、写失败保留旧的一对。
+2. 引擎：`changePosition`、`startContinued` 用当前位置、`ReadLedger` 裁剪、`turns[].at`、系统提示词一句；`nb-harness` 合并相邻 user 消息；CLI `ask --continue --at`。测试：本机端点的请求体（合并后一条）、日志里独立两条、往回调越界被拒（结构化）、Markdown 只标注、全读被拒。
+3. 服务端：`qa.position`、`qa.start` 带 `at`、`qa.list` 的 `currentAt`/`highestAt`、`qa_busy`。
+4. 网页：位置控件、提醒按 meta 紧跟显示为可展开的“系统提醒”、剧透警告按最高位置、运行中禁用。e2e。
+5. Spec：`qa.md`、`viewer.md`、`cli-skill.md`、`agent/harness.md`。

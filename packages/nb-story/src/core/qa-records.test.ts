@@ -9,7 +9,7 @@ import {join} from "node:path";
 import {createStoryApi} from "./api";
 import {StoryError} from "./errors";
 import {Library} from "./library";
-import {newQaRecordId, QaRecords, type QaConversation, type QaTurn} from "./qa-records";
+import {currentPosition, highestPosition, newQaRecordId, QaRecords, type QaConversation, type QaTurn} from "./qa-records";
 import {makeSampleRoot, smallDataset} from "../../testing/sample";
 
 const roots: string[] = [];
@@ -174,6 +174,38 @@ describe("对话的多轮保存（输出 25，验收 16、18）", () => {
         expect(await readdir(join(lib.bookDir("fox"), "qa"))).toHaveLength(2);
         // 新对话的 id 已经有记录时同样不覆盖。
         expect(await records.save(first, "又一次\n", {expectTurns: 0})).toEqual({saved: false, reason: "conflict"});
+    });
+
+    test("当前位置与最高位置（t25）：改过位置取 currentAt，没改取最后一轮用的位置，旧记录回落到 at；最高位置不因往回调下降", () => {
+        const base = {at: {chapter: 10, paragraph: 1}, turns: [turn()]};
+        expect(currentPosition(base)).toEqual({chapter: 10, paragraph: 1});
+        expect(currentPosition({...base, turns: [turn({at: {chapter: 12, paragraph: 3}})]})).toEqual({chapter: 12, paragraph: 3});
+        expect(currentPosition({...base, turns: [turn({at: {chapter: 12, paragraph: 3}})], currentAt: {chapter: 5, paragraph: 1}})).toEqual({chapter: 5, paragraph: 1});
+        // 第 1 轮在 40 章回答，之后位置调回 27：当前位置是 27，整个对话出现过的最高位置仍是 40。
+        const back = {at: {chapter: 40, paragraph: 1}, turns: [turn({at: {chapter: 40, paragraph: 1}})], currentAt: {chapter: 27, paragraph: 1}};
+        expect(currentPosition(back)).toEqual({chapter: 27, paragraph: 1});
+        expect(highestPosition(back)).toEqual({chapter: 40, paragraph: 1});
+        expect(highestPosition({at: {chapter: 3, paragraph: 2}, turns: [turn()], currentAt: {chapter: 8, paragraph: 1}})).toEqual({chapter: 8, paragraph: 1});
+    });
+
+    test("位置改过：运行中的一轮从旧的改动次数出发保存得到 conflict，不盖掉那次改动；新字段原样读回，旧记录没有它们", async () => {
+        const {records, generation} = await setup("qa-position-conflict");
+        const first = record(generation);
+        await records.save(first, "第一轮\n", {expectTurns: 0});
+        // 对话里改了位置：轮数不变，改动次数加一，当前位置换了。
+        const changed = {...first, currentAt: {chapter: 1, paragraph: 2}, positionChanges: 1};
+        expect(await records.save(changed, "改位置\n", {expectTurns: 1, expectChanges: 0})).toMatchObject({saved: true});
+        // 同一时刻开始的第二轮（还以为没改过位置）保存：conflict，改位置的那一对保留。
+        const stale = {...first, turns: [...first.turns, turn({question: "追问"})]};
+        expect(await records.save(stale, "追问\n", {expectTurns: 1, expectChanges: 0})).toEqual({saved: false, reason: "conflict"});
+        const shown = await records.get(first.id, generation);
+        expect(shown).toMatchObject({currentAt: {chapter: 1, paragraph: 2}, positionChanges: 1});
+        expect(shown.turns).toHaveLength(1);
+        expect(await records.sessionLog(shown)).toEqual({ok: true, jsonl: "改位置\n"});
+        // 知道改过位置的追问（expectChanges: 1）能保存。
+        expect(await records.save({...shown, turns: [...shown.turns, turn({question: "再问", at: {chapter: 1, paragraph: 2}})]}, "再问\n", {expectTurns: 1, expectChanges: 1})).toMatchObject({saved: true});
+        // 旧记录没有这两个字段：读出来是 undefined，当前位置回落。
+        expect(first).not.toHaveProperty("currentAt");
     });
 
     test("续问期间对话被删：conflict，不重新造出记录", async () => {

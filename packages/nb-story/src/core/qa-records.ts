@@ -30,12 +30,12 @@ import {join} from "node:path";
 import {Type} from "typebox";
 import {Compile} from "typebox/compile";
 
-import {AnswerSchema, ChaptersSchema, QaAnswerModeSchema, QaFailureSchema, QaModeSchema, QaPositionSchema, QaStatusSchema, QaTurnSchema, QaUsageSchema, type Answer, type QaAnswerMode} from "../contract/qa-record";
+import {currentPosition, highestPosition, AnswerSchema, ChaptersSchema, QaAnswerModeSchema, QaFailureSchema, QaModeSchema, QaPositionSchema, QaStatusSchema, QaTurnSchema, QaUsageSchema, type Answer, type QaAnswerMode} from "../contract/qa-record";
 import type {Position} from "./dataset";
 import {StoryError, systemErrorCode} from "./errors";
 import type {Library} from "./library";
 
-export {AnswerSchema, type Answer};
+export {AnswerSchema, currentPosition, highestPosition, type Answer};
 
 export type QaStatus = "answered" | "failed" | "interrupted";
 export type QaMode = "graph" | "full";
@@ -83,6 +83,8 @@ export interface QaTurn {
      * 回复），不数用户提问（有的失败轮在写用户消息之前就结束）。之前的记录没有它。
      */
     logFrom?: number;
+    /** 这一轮用的阅读位置（只描述已经运行的这一轮，不会被之后改位置改写）。旧记录没有，回落到上一轮或对话的 `at`。 */
+    at?: Position;
     recheck?: {unverified: number; outcome: "rewritten" | "failed" | "aborted"};
 }
 
@@ -107,6 +109,10 @@ export interface QaConversation {
     /** 对话里读过的段；全读的对话不存（P 以前都算读过）。 */
     read: ReadRange[];
     turns: QaTurn[];
+    /** 下一问用的阅读位置：对话中途改位置时写（t25）；没有时看 `currentPosition`。 */
+    currentAt?: Position;
+    /** 位置改过几次（没有这一项按 0）。写记录时与 `turns.length` 一起核对，运行中的一轮发现位置在它期间被改了就不保存。 */
+    positionChanges?: number;
     /** 这一对的会话日志与内容摘要；旧的一问一条记录为 null，日志在 `<id>.session.jsonl`。由 `save` 填写。 */
     log: {file: string; sha256: string} | null;
     /** ISO 8601，第一轮的开始时间。 */
@@ -162,7 +168,7 @@ export class QaRecords {
      * 写下一轮结束后的对话与它的会话日志。`expectTurns` 是这一轮开始时磁盘上的轮数（新对话为 0）：发布前磁盘上
      * 的记录已经不是这个轮数（或被删了），就不保存、返回 `conflict`。书删了、换了代或格式不认识时也不写，返回原因。
      */
-    async save(conversation: Omit<QaConversation, "log">, sessionJsonl: string, options: {expectTurns: number}): Promise<SaveResult> {
+    async save(conversation: Omit<QaConversation, "log">, sessionJsonl: string, options: {expectTurns: number; expectChanges?: number}): Promise<SaveResult> {
         const {id} = conversation;
         if (!RECORD_ID.test(id)) throw new Error(`问答记录 id 不合法：${id}`);
         let bookDir: string;
@@ -192,7 +198,8 @@ export class QaRecords {
             if (options.expectTurns === 0) {
                 if (current.kind !== "missing") return await this.#discard(logPath, "conflict");
             } else {
-                if (current.kind !== "conversation" || current.conversation.generation !== conversation.generation || current.conversation.turns.length !== options.expectTurns) {
+                // 轮数之外还核对位置改动次数：改位置不增加轮数，运行中的一轮在它期间位置被改了，保存会盖掉那次改动。
+                if (current.kind !== "conversation" || current.conversation.generation !== conversation.generation || current.conversation.turns.length !== options.expectTurns || (current.conversation.positionChanges ?? 0) !== (options.expectChanges ?? 0)) {
                     return await this.#discard(logPath, "conflict");
                 }
                 previous = current.conversation;
@@ -354,6 +361,8 @@ const ConversationSchema = Type.Object({
     answer: Type.Optional(QaAnswerModeSchema),
     read: Type.Array(Type.Tuple([Type.Integer({minimum: 1}), Type.Integer({minimum: 1}), Type.Integer({minimum: 1})])),
     turns: Type.Array(QaTurnSchema, {minItems: 1}),
+    currentAt: Type.Optional(QaPositionSchema),
+    positionChanges: Type.Optional(Type.Integer({minimum: 0})),
     log: Type.Object({file: Type.String(), sha256: Type.String()}),
     startedAt: Type.String(),
 });

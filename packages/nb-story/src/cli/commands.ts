@@ -282,7 +282,7 @@ export const OPTION_HELP: Record<string, string> = {
     port: "监听端口",
     open: "启动后在浏览器里打开",
     mode: "graph（图当目录，默认）或 full（全读）",
-    continue: "在这个对话里追问（对话 id 见 nbstory qa）；不能同时写 --at、--mode",
+    continue: "在这个对话里追问（对话 id 见 nbstory qa）；可以加 --at 改阅读位置（全读对话不行），不能同时写 --mode",
     config: "配置文件（默认 ~/.config/nbstory/config.json）",
     "base-url": "OpenAI 兼容服务的地址",
     model: "模型：服务商/模型名（内置目录里的，或配置里的候选）；config init 用自定义地址、config set ingest.model 时写模型名",

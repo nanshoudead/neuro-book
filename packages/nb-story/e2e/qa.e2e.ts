@@ -77,7 +77,9 @@ async function ask(page: Page, question: string): Promise<void> {
 test("新对话：提问后看到过程与答案卡片；出处在抽屉里打开；刷新后对话还在，能续问", async ({page}) => {
     await endpoint.script(READ_THEN_ANSWER);
     await page.goto(`${server.base}/book/fox/qa?at=38.57`);
-    await expect(page.getByText("新对话按你现在的位置 38.57 回答")).toBeVisible();
+    // 新对话的位置控件（t25）：写着读到哪里，跟着查看器的位置。
+    await expect(page.getByTestId("qa-position")).toContainText("38.57");
+    await expect(page.getByText("新对话从这里读起")).toBeVisible();
     // 第一个请求（读原文）照常回，第二个（交卷）先等着：这时页面停在运行中。
     await endpoint.hold(1);
     await ask(page, "地狱猫是谁？");
@@ -243,6 +245,8 @@ test.describe("输入框与模型", () => {
         // 倒计时没结束，确认键是停用的，按钮上写着剩余秒数。
         const confirm = notice.getByRole("button", {name: /知道了，切换（\d）/u});
         await expect(confirm).toBeDisabled();
+        // 标题栏有关闭按钮（Spec 输出 51）。
+        await expect(notice.getByRole("button", {name: /关闭/u})).toBeVisible();
         // 先不切换随时能点（倒计时只拦确认键）：模式不变，窗口关上。
         await expect(notice.getByRole("button", {name: "先不切换"})).toBeEnabled();
         await notice.getByRole("button", {name: "先不切换"}).click();
@@ -330,6 +334,40 @@ test.describe("输入框与模型", () => {
         await expect(inspector).toContainText("3 次");
         await page.keyboard.press("Escape");
         await expect(inspector).toHaveCount(0);
+    });
+
+    test("对话里改阅读位置（t25）：问完一轮后改到第 30 章，对话里出现可展开的系统提醒、页头写新位置，刷新后仍在；再问时请求里提醒与问题在同一条用户消息里", async ({page}) => {
+        await endpoint.script([{kind: "text", text: "第一轮"}, {kind: "text", text: "第二轮"}]);
+        await page.goto(`${server.base}/book/fox/qa?at=38.57`);
+        await page.getByRole("button", {name: "新对话"}).first().click();
+        await ask(page, "第一问");
+        await expect(page.getByText("第一轮", {exact: true})).toBeVisible();
+        const position = page.getByTestId("qa-position");
+        await expect(position).toContainText("38.57");
+        await expect(position).toBeEnabled();
+        await position.click();
+        await page.getByTestId("qa-position-chapter").click();
+        await page.getByRole("option", {name: "第 30 章"}).click();
+        await page.getByTestId("qa-position-confirm").click();
+        // 位置立刻写进会话：对话里出现系统提醒，页头写新位置。
+        await expect(page.locator(".acv-notice__text")).toContainText("阅读位置从");
+        await expect(page.locator(".acv-notice__text")).toContainText("第 30 章");
+        await expect(position).toContainText("第 30 章");
+        await page.reload();
+        await expect(page.locator(".acv-notice__text")).toContainText("第 30 章");
+        await expect(page.getByTestId("qa-position")).toContainText("第 30 章");
+
+        const before = (await endpoint.bodies()).length;
+        await ask(page, "第二问");
+        await expect(page.getByText("第二轮", {exact: true})).toBeVisible();
+        const body = (await endpoint.bodies()).slice(before)[0]!;
+        const users = (body.messages as {role: string; content: unknown}[]).filter(message => message.role === "user");
+        const last = users.at(-1)!;
+        const text = typeof last.content === "string" ? last.content : (last.content as {text?: string}[]).map(block => block.text ?? "").join("");
+        // 提醒与问题合成了同一条用户消息（有的端点不收连续的 user）。
+        expect(text).toContain("<system-reminder>");
+        expect(text).toContain("第 30 章");
+        expect(text.endsWith("第二问")).toBe(true);
     });
 
     test("管理模型…去设置页，回来草稿还在；选过的模型在设置里被去掉后回到默认模型，发问用默认模型", async ({page}) => {

@@ -3,6 +3,10 @@
  * 100 章样例书，本机 Chrome。图画在 WebGL 画布上，读不到点和字：图的数据由核心库的测试覆盖，这里测画布与交互的外部效果。
  */
 
+import {mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+
 import {expect, test, type Page} from "@playwright/test";
 
 import {login, makeLibrary, readingState, runCli, startServe, type StoryServer} from "./fixtures";
@@ -169,6 +173,10 @@ test("关系图（验收 3、输出 27）：页面上已有文字选区时拖动
 test("关系图（输出 27，反馈 3）：在图里找可以按别名；右键点开菜单后移动鼠标，点不会跟着走", async ({page}) => {
     await open(page, "/book/fox/relations?at=38&perspective=reader");
     await expect(page.getByTestId("relation-graph").locator("canvas").first()).toBeVisible();
+    // 页面打开时沿用抽屉里正开着的对象（上一个用例可能留着）：先关掉，下面“出现人物卡”才说明点选到了。
+    const openCard = page.getByTestId("entity-card");
+    if ((await openCard.count()) > 0) await openCard.getByRole("button", {name: "关闭"}).click();
+    await expect(openCard).toHaveCount(0);
     // “心月狐”是别名，不是任何点的显示名：搜它也要让镜头移到那个点上。
     const center = await centerOn(page, "心月狐");
     await page.mouse.move(center.x, center.y);
@@ -186,7 +194,8 @@ test("关系图（输出 27，反馈 3）：在图里找可以按别名；右键
     // 点还在原处：在原处单击仍然选中它（落在空白处会取消选中），按 Enter 打开的是它的人物卡。
     await page.mouse.click(center.x, center.y);
     await page.keyboard.press("Enter");
-    await expect(page.getByTestId("entity-card")).toBeVisible();
+    // 打开的是别名所属的人：苏天晴；点要是被右键拖走，原处单击落在空白处，这里不会出现人物卡。
+    await expect(page.getByTestId("card-name")).toHaveText("苏天晴");
 });
 
 test("关系图（输出 27，反馈 3）：选中一个点后底部出浮条，写着怎么打开；点按钮打开人物卡，取消选中后浮条消失；右键菜单写“双击 / Enter”", async ({page}) => {
@@ -377,6 +386,135 @@ test("全局搜索的结果浮在页面上，不撑高顶栏；点外面关掉",
     await expect(page.getByTestId("search-results")).toHaveCount(0);
 });
 
+test("选中浮条（输出 27）：在图顶部不压图例与缩放按钮；进入全屏后仍在全屏的元素里；全书图隐藏该点的类型后浮条随之消失", async ({page}) => {
+    await open(page, "/book/fox/relations?at=38&perspective=reader");
+    await expect(page.getByTestId("relation-graph").locator("canvas").first()).toBeVisible();
+    const card = page.getByTestId("entity-card");
+    if ((await card.count()) > 0) await card.getByRole("button", {name: "关闭"}).click();
+    const center = await centerOn(page, "白灵");
+    await page.mouse.click(center.x, center.y);
+    const bar = page.getByTestId("graph-selection-bar");
+    await expect(bar).toContainText("已选中 白灵");
+    // 浮条在图的上半部，不与右下的缩放按钮重叠。
+    const graphBox = (await page.getByTestId("relation-graph").boundingBox())!;
+    const barBox = (await bar.boundingBox())!;
+    expect(barBox.y + barBox.height).toBeLessThan(graphBox.y + graphBox.height / 2);
+    // 全屏：浮条是全屏元素的后代（真实的 Fullscreen API）。
+    await page.getByRole("button", {name: "全屏"}).click();
+    await expect.poll(() => page.evaluate(() => document.fullscreenElement?.contains(document.querySelector("[data-testid=graph-selection-bar]")) ?? false)).toBe(true);
+    await page.evaluate(() => document.exitFullscreen());
+});
+
+test("全书图（输出 27）：选中一个对象点后隐藏“对象”类型，点从图上消失，选中浮条也随之消失", async ({page}) => {
+    await open(page, "/book/fox/book-graph?at=38&perspective=reader");
+    await page.getByText("按关联", {exact: true}).click();
+    const graph = page.locator(".story-graph");
+    await expect(graph.locator("canvas").first()).toBeVisible();
+    await page.waitForTimeout(1500);
+    await page.getByPlaceholder("在图里找").fill("苏天晴");
+    await page.waitForTimeout(1200);
+    const box = (await graph.boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    const bar = page.getByTestId("graph-selection-bar");
+    await expect(bar).toContainText("已选中");
+    await page.getByRole("button", {name: "对象", exact: true}).click();
+    await expect(bar).toHaveCount(0);
+});
+
+test("关系图的控件选择刷新后保留（输出 22，反馈 4）：类别、连线层、排版、只看周边、显示无名角色都存进浏览器偏好；坏偏好回到缺省", async ({page}) => {
+    await open(page, "/book/fox/relations?at=38&perspective=reader");
+    await expect(page.getByTestId("relation-graph").locator("canvas").first()).toBeVisible();
+    const coLayer = page.locator('[data-layer="co"]');
+    await expect(coLayer).toHaveAttribute("aria-pressed", "true");
+    await coLayer.click();
+    await page.getByRole("button", {name: "物品", exact: true}).click();
+    await page.getByText("同心", {exact: true}).click();
+    await page.getByTestId("show-anonymous").click();
+    await page.getByText("只看选中的周边", {exact: true}).click();
+    await page.reload();
+    await expect(page.getByTestId("relation-graph").locator("canvas").first()).toBeVisible();
+    await expect(page.locator('[data-layer="co"]')).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByRole("button", {name: "物品", exact: true})).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("checkbox", {name: "显示无名角色"})).toBeChecked();
+    await expect(page.getByRole("checkbox", {name: "只看选中的周边"})).toBeChecked();
+    await expect(page.getByRole("radio", {name: "同心"})).toBeChecked();
+    // 偏好被改坏：回缺省，不报错。
+    await page.evaluate(() => window.localStorage.setItem("nbstory:relations-view", "{坏的"));
+    await page.reload();
+    await expect(page.locator('[data-layer="co"]')).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("checkbox", {name: "显示无名角色"})).not.toBeChecked();
+    await expect(page.getByTestId("page-error")).toHaveCount(0);
+});
+
+test("导入记忆图文件（输出 54，t29）：导入页选 V9 的 JSON 导入后跳到新书；同 id 再导入报已存在；不是记忆图的文件报错", async ({page}) => {
+    await login(page.context(), server);
+    await page.goto(`${server.base}/import`);
+    const sample = `${server.library}/../sample.json`;
+    await page.getByTestId("graph-import-file").setInputFiles(sample);
+    await expect(page.getByTestId("graph-import-name")).toContainText("sample.json");
+    await page.getByTestId("graph-import-title").fill("网页导入的一本");
+    await page.getByTestId("graph-import-submit").click();
+    await expect(page).toHaveURL(/\/book\/web-dao-ru-de-yi-ben|\/book\/[^/]+/u);
+    await expect(page.getByTestId("book-title")).toContainText("网页导入的一本");
+    // 同书名再导入：书 id 相同，报已存在。
+    await page.goto(`${server.base}/import`);
+    await page.getByTestId("graph-import-file").setInputFiles(sample);
+    await page.getByTestId("graph-import-title").fill("网页导入的一本");
+    await page.getByTestId("graph-import-submit").click();
+    await expect(page.getByTestId("graph-import-error")).toContainText("已有同 id 的书");
+    // 不是记忆图的文件。
+    await page.getByTestId("graph-import-file").setInputFiles({name: "bad.json", mimeType: "application/json", buffer: Buffer.from("{}")});
+    await page.getByTestId("graph-import-title").fill("坏文件");
+    await page.getByTestId("graph-import-submit").click();
+    await expect(page.getByTestId("graph-import-error")).toContainText("不是 V9 记忆图文件");
+});
+
+test("删除一本书（输出 54，t29）：书架每本书有删除按钮，确认后这本书从书架消失；取消不删", async ({page}) => {
+    const sample = `${server.library}/../sample.json`;
+    expect((await runCli(["import", sample, "--title", "待删的书", "--id", "to-remove", "--library", server.library])).code).toBe(0);
+    await login(page.context(), server);
+    await page.goto(`${server.base}/`);
+    const row = page.locator('[data-testid="shelf-row"][data-book="to-remove"]');
+    await expect(row).toBeVisible();
+    await row.getByTestId("shelf-remove").click();
+    await expect(page.getByRole("alertdialog")).toContainText("待删的书");
+    await page.getByRole("button", {name: "取消"}).click();
+    await expect(row).toBeVisible();
+    await row.getByTestId("shelf-remove").click();
+    await page.getByRole("button", {name: "删除", exact: true}).click();
+    await expect(row).toHaveCount(0);
+    // 别的书不受影响。
+    await expect(page.locator('[data-testid="shelf-row"][data-book="fox"]')).toBeVisible();
+});
+
+test("安装 Skill（输出 54，t29）：设置页点安装得到已安装、再点没有改动；内容被改过要点“换成随包的内容”才替换；装进用例自己的家目录", async ({page}) => {
+    const home = await mkdtemp(join(tmpdir(), "nbstory-e2e-home-"));
+    // 自己的书库与服务（一个书库同时只有一个服务）；家目录指到临时目录，不碰真实的用户目录。
+    const mine = await makeLibrary("skill");
+    const own = await startServe(mine.library, {HOME: home, USERPROFILE: home});
+    try {
+        await login(page.context(), own);
+        await page.goto(`${own.base}/settings`);
+        await page.getByTestId("skill-install-claude").click();
+        await expect(page.getByTestId("skill-result-claude")).toContainText("已安装");
+        await expect(page.getByTestId("skill-result-claude")).toContainText(join(home, ".claude", "skills", "nbstory"));
+        await page.getByTestId("skill-install-claude").click();
+        await expect(page.getByTestId("skill-result-claude")).toContainText("没有改动");
+        await writeFile(join(home, ".claude", "skills", "nbstory", "SKILL.md"), "被改过\n");
+        await page.getByTestId("skill-install-claude").click();
+        await expect(page.getByTestId("skill-result-claude")).toContainText("内容不同");
+        expect(await readFile(join(home, ".claude", "skills", "nbstory", "SKILL.md"), "utf8")).toBe("被改过\n");
+        await page.getByTestId("skill-force-claude").click();
+        await expect(page.getByTestId("skill-result-claude")).toContainText("已换成随包的内容");
+        // Codex 那一行没动。
+        await expect(page.getByTestId("skill-result-codex")).toHaveCount(0);
+    } finally {
+        await own.stop();
+        await mine.cleanup();
+        await rm(home, {recursive: true, force: true});
+    }
+});
+
 test("明暗切换与设置入口（输出 34，t27）：书架、导入、设置页顶部都有明暗切换，同一份偏好；书页导航底部的设置入口打开设置页，返回回到原来的页", async ({page}) => {
     // 书库里有两本以上时才留在书架（只有一本时登录后会直接打开它）。
     const file = `${server.library}/../sample.json`;
@@ -390,7 +528,12 @@ test("明暗切换与设置入口（输出 34，t27）：书架、导入、设�
     // 设置页、导入页是同一份偏好：刷新后仍是暗色，这两页的控件也在。
     await page.goto(`${server.base}/settings`);
     await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
-    await expect(page.getByTestId("settings-page").getByTestId("theme-menu")).toBeVisible();
+    const themeButton = page.getByTestId("settings-page").getByTestId("theme-menu");
+    await expect(themeButton).toBeVisible();
+    // 在设置页标题行的右端（class 要落到按钮上），不是紧贴标题。
+    const head = (await page.locator(".settings-head").boundingBox())!;
+    const button = (await themeButton.boundingBox())!;
+    expect(head.x + head.width - (button.x + button.width)).toBeLessThan(4);
     await page.goto(`${server.base}/import`);
     await page.getByTestId("theme-menu").click();
     await page.getByRole("menuitemradio", {name: "亮色"}).click();

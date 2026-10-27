@@ -12,6 +12,8 @@ import {participantNodes, perspectiveStatements, type QueryContext} from "./cont
 const DEFAULT_KINDS: readonly EntityKind[] = ["person", "persona", "group"];
 const RELATION_FAMILIES = new Set(["kinship", "social", "membership"]);
 const KINSHIP_WORDS = ["姐妹", "兄弟", "姐弟", "兄妹", "父女", "母女", "父子", "母子", "叔侄", "夫妻", "祖孙"];
+/** 笼统的亲属词：写成“亲属”。 */
+const GENERAL_KIN_WORDS = ["亲属", "亲人", "亲戚", "家人"];
 /** 社交类说法里认作关系称谓的词，沿用 w00024 t01 关系图定稿时的词表。 */
 const SOCIAL_WORDS = ["朋友", "同桌", "同学", "室友", "舍友", "搭档", "对手", "敌人", "师徒", "恋人", "邻居", "同伴", "队友", "上司", "下属", "雇主", "契约"];
 /** 故事线的行数。 */
@@ -35,8 +37,10 @@ function pairKey(a: string, b: string): [string, string, string] {
 /** 一对点的关系词：亲属词 → 社交称谓 → “所属”，都没有时为 null（输出 16）。 */
 export function relationWord(statements: readonly Statement[]): string | null {
     const labels = (family: string) => statements.filter(statement => statement.family === family).map(statement => statement.label ?? statement.text);
+    // 亲属说法里找不到亲属词的不算（“直系后辈”是魔女的师承辈分，不是血亲）：往下看社交称谓与所属。
     const kinship = labels("kinship");
-    if (kinship.length > 0) return KINSHIP_WORDS.find(word => kinship.some(label => label.includes(word))) ?? "亲属";
+    const kinWord = [...KINSHIP_WORDS, ...GENERAL_KIN_WORDS].find(word => kinship.some(label => label.includes(word)));
+    if (kinWord !== undefined) return KINSHIP_WORDS.includes(kinWord) ? kinWord : "亲属";
     const social = labels("social");
     const word = SOCIAL_WORDS.find(candidate => social.some(label => label.includes(candidate)));
     if (word) return word;
@@ -62,7 +66,9 @@ export function relationsGraph(ctx: QueryContext, params: StoryParams<"graph.rel
     const {view, grouping} = ctx;
     const kinds = new Set(params.kinds ?? DEFAULT_KINDS);
     const minTogether = params.minTogether ?? 1;
-    const nodeIds = [...grouping.members.keys()].filter(node => kinds.has(view.entity(node)!.kind));
+    const isAnonymous = (node: string) => (grouping.members.get(node) ?? []).every(id => view.entity(id)!.anonymous);
+    // 无名的点（可见称呼全是泛称）默认不画：它们的出场与同场是泛称撑起来的（输出 22）。
+    const nodeIds = [...grouping.members.keys()].filter(node => kinds.has(view.entity(node)!.kind) && (params.includeAnonymous === true || !isAnonymous(node)));
     const included = new Set(nodeIds);
 
     const statements = perspectiveStatements(ctx);
@@ -124,7 +130,7 @@ export function relationsGraph(ctx: QueryContext, params: StoryParams<"graph.rel
     return {
         nodes: nodeIds
             .sort((a, b) => grouping.mentions.get(b)! - grouping.mentions.get(a)! || (a < b ? -1 : 1))
-            .map(node => ({id: node, label: grouping.labels.get(node)!, kind: view.entity(node)!.kind, mentions: grouping.mentions.get(node)!, entities: [...(grouping.members.get(node) ?? [])], names: aliasesOf(ctx, node)})),
+            .map(node => ({id: node, label: grouping.labels.get(node)!, kind: view.entity(node)!.kind, mentions: grouping.mentions.get(node)!, entities: [...(grouping.members.get(node) ?? [])], names: aliasesOf(ctx, node), ...(isAnonymous(node) ? {anonymous: true} : {})})),
         edges,
         view: {
             perspective: grouping.perspective,

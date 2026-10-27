@@ -18,6 +18,7 @@ import {StoryCallError, useStoryClient} from "../host/client";
 import {candidateInfos, clampThinking, formatTokenCount, providerNote, type CatalogProvider} from "../qa/models";
 import ProviderDialog from "./ProviderDialog.vue";
 import ThemeMenu from "../parts/ThemeMenu.vue";
+import SkillInstall from "./SkillInstall.vue";
 
 const client = useStoryClient();
 const router = useRouter();
@@ -400,6 +401,8 @@ function contextText(window: number | null): string {
                 <template v-else>没通过（{{ tested.model }}）：{{ tested.error?.message }}</template>
             </div>
         </div>
+
+        <div class="settings-page"><SkillInstall /></div>
 
         <AgentModelCatalog v-model:open="catalogOpen" :providers="providers as readonly CatalogProviderView[]" :chosen="value.models" locale="zh-CN" @pick="addCandidates" @add-provider="openProvider(null)" />
         <ProviderDialog v-model:open="providerOpen" :provider="editing" :taken-ids="[...catalogIds, ...Object.keys(value.providers ?? {}).filter(id => id !== editing?.id)]" :keys="keys" :discover="discover" :suggest="suggest" @save="saveProvider" />

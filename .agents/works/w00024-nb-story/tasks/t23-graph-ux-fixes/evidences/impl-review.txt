@@ -1,0 +1,169 @@
+# w00024 t23、t26、t27 实现审查
+
+审查对象：`a0b4fad10f1571b08918c3628f44c6bfb584f110..013ce72275c11f93e6898aebce7d39a961b290e6` 的 `packages` 差异。只读审查；实验限定在 `/tmp/review-t23-27-impl/`。本报告仅追加。运行证据与静态推断分别标明；未运行 e2e、开发服务、真实模型。
+
+## 已核实问题
+
+### 建议｜正确性：一次取消固定发出两次 `cancel`
+
+- 位置：`/tmp/t23-27-review-wt/packages/nb-story/src/web/parts/ModeNotice.vue:38`。
+- 现象：取消按钮、Esc、点遮罩的一次关闭会让 `ModeNotice` 向父组件发送两次 `cancel`。当前 `QaPage` 两次赋 `null` 是幂等的，所以没有误切模式，但组件事件合同不成立。
+- 为什么：同时监听了 Dialog 的 `update:model-value(false)` 与 `cancel` 并各转发一次。真实 `Dialog.vue:251-259` 的 `closeImmediate()` 正是顺序发这两个事件，不是两条互斥的关闭来源。
+- 如何核实：读取上述调用链（静态确认）；后续组件冒烟补充实际计数。不需要构造异常时序。
+- 建议改法：只用 `@cancel` 转发，或用单个 `request-close` 处理关闭；不要同时转发两个等价通知。
+
+## 核实过程证据（追加记录）
+
+- 原 detached worktree 无 `node_modules`。直接 `bun test` 在加载 `typebox`、测试支持包时失败，`bunx tsc --noEmit` 缺 `bun`/`node` 类型，`bunx vue-tsc` 回退到临时最新版后报 `ERR_PACKAGE_PATH_NOT_EXPORTED`；均不是产品缺陷。`NODE_PATH` 与 Bun 预载解析插件未使 `bun test` 成功。
+- 为保持仓库只读，将 `packages/nb-story` 原样复制到 `/tmp/review-t23-27-impl/runtime/packages/nb-story`，仅在实验根链接主工作区已有 `node_modules`，未安装依赖。包内源码与 `./contract` 均由实验副本加载，工作区依赖来自主工作区。
+- 在实验副本运行 `env NBOOK_AGENT_TEMP_ROOT=/tmp/review-t23-27-impl bun test src/contract/contract.test.ts src/core/queries/graph.test.ts src/core/projection.test.ts src/core/identity.test.ts`：27 pass、0 fail、66 expect。
+- 同处运行 `bunx --no-install tsc --noEmit` 和 `bunx --no-install vue-tsc --noEmit -p tsconfig.web.json`：均退出 0、无诊断。使用已有 TypeScript `5.9.3`，不是 package.json 声明的 `^6.0.3`；不冒充锁定依赖环境的完整门禁。
+- `bun review-graphs.ts` 已完成载荷部分：西游记输入 852 个对象，第 100 章、默认类别产生 417 个合并节点，JSON 从 286,188 B 到 299,622 B，增加 13,434 B（4.694%，768 个别名）；全部 8 类产生 780 个节点，从 412,184 B 到 431,415 B，增加 19,231 B（4.666%，929 个别名）。基线是同一真实结果去掉新增 `names` 后的 UTF-8 JSON 字节数。
+- 样例书第 1、7、8、38、100 章，读者及各位置所有可选人物视角，共检查 745 个节点：`names` 均等于该视角合并成员的可见称呼并集、去重且不含显示名。`BookView.entities` 在 `projection.ts:67-74` 按每个称呼自己的 `at` 过滤，不读取未裁剪的索引。未发现新增别名泄漏未来称呼或跨视角错误合并。
+
+### 建议｜正确性、合同：说明窗口没有合同承诺的关闭按钮
+
+- 位置：`/tmp/t23-27-review-wt/packages/nb-story/src/web/parts/ModeNotice.vue:36-39`，伴生文档 `ModeNotice.md:24`，主工作区 `docs/specs/story/viewer.md:124`。
+- 现象：实现只给 `Dialog` 传 `model-value`、size、title，没有 `closable`。nb-ui 的默认值为 `false`，标题栏的关闭按钮被 `v-if="props.closable"` 排除。取消、Esc 与遮罩仍有出口，不是无法关闭，但文档列出的“关闭按钮”不存在。
+- 如何核实：真实 Dialog 的默认值 `Dialog.vue:88` 与渲染条件 `:387`；组件冒烟再核对按钮清单。
+- 建议改法：按本批已更新的合同显式加 `closable`；若开发者决定只保留有名字的取消按钮，则同步删除 Spec 和组件文档中关闭按钮的承诺，不能让测试继续漏掉它。
+
+### 输入事件专项的静态核对
+
+- Sigma `3.0.3` 的鼠标 captor 在 `container` 收 `mousedown`，在 `document` 收 `mousemove`/`mouseup`；它把原生 MouseEvent 留在 `event.original`。右键确实也发 `downNode`，新增 `button > 0` 会挡住该入口；左键原生 mousemove 的 `buttons & 1` 不会被无理由判为松手。没有证据支持“标准浏览器左键拖动会因该判断误停”，不报这种推测。
+- 触屏的 `TouchEvent.button` 是 undefined，`undefined > 0` 为 false，因此新增判断不拦触控 down。但组件原本只给鼠标 captor 绑定拖点回调，触控经独立 TouchCaptor：触控拖点缺失和 touchup 不清鼠标状态是 base 已有的边界，不能算本批回归。笔输入仅凭兼容 MouseEvent 语义不能证明特定硬件行为，本次没有笔硬件实测。
+- 松手在窗口外时，新增分支只清本组件 `dragged`/`downAt`，没有重置 Sigma 的 `isMouseDown`，返回后 Sigma 仍会按摄像机拖动处理。它消除了“点继续追着鼠标”的本次症状，但不是完整的窗口外手势结束；该相机问题 base 同样存在，单独列为未解决旧边界而不计本批问题。
+
+### 建议｜公开合同：`RelationNode.names` 必填，但没有同步公开类型或兼容说明
+
+- 位置：`/tmp/t23-27-review-wt/packages/nb-story/src/contract/contract.ts:336`；主工作区 `docs/specs/story/queries.md:98,190`。
+- 现象：结果新增 `names` 被列为 required，公开 `RelationNode` 类型中的老构造值与新 schema 不兼容。Spec 的类型示例仍只有 `id/label/kind/mentions/entities`，照它造出的结果现在校验失败。`contract.test.ts` 只断言方法键名，没有测这个合同。
+- 如何核实：实验副本 `bun review-graphs.ts` 对旧节点用真实 `schemaProblems` 校验，返回 `/nodes/0 must have required properties names`。同脚本实际跑 CLI `relations --json`：code 0、stderr 空、15 个节点都有 names，data 符合新 schema；服务端没有丢字段（`api.ts:208-217` 先校验结果，`http.ts` 原样序列化）。本项不是“新服务必崩”或“新 CLI 不能用”，而是公开类型/旧生产者与文档不一致。
+- 建议改法：要保持原兼容约定，把新字段设为可选而核心库仍总是返回数组，网页沿用空数组归一化；若明确接受必填合同变更，则更新 Spec 公开类型、发布说明与消费测试，写清旧生产者必须补数组。
+
+### 重要｜正确性：ThemeMenu 丢弃布局 class，3 个页面的明暗按钮没有到顶部右端
+
+- 位置：`/tmp/t23-27-review-wt/packages/nb-story/src/web/parts/ThemeMenu.vue:24`；调用方 `shell/ImportPage.vue:192`、`shell/IngestPage.vue:170`、`shell/SettingsPage.vue:321`。
+- 现象：这三处传入的 `class="ml-auto"`（进度页还含 `shrink-0`）没有落到触发按钮上。按钮紧贴面包屑或“设置”标题，而不是本批 Spec 输出 34 承诺的顶部右端。
+- 为什么：ThemeMenu 只有一个 DropdownMenu 根组件，attrs 自动落到 DropdownMenuRoot；这个 Reka 根原语不渲染 DOM，也不继续转发 attrs。DropdownMenu 已提供的 `rootClass` 才是触发器布局通道。
+- 如何核实：离线浏览器挂载真实 ThemeMenu（不是替身），父元素 x=16、width=700、right=716，传 `class="ml-auto"` 与 `data-outer="theme"`；实际按钮 x=57、right=73，`margin-left:0px`，既没有 `ml-auto` class，也没有 `data-outer` 属性。原生浏览器同时确认 Modal 取消计数为 2、按钮只有“先不切换”和禁用确认键，没有关闭按钮；不依赖 happy-dom 的焦点兼容。
+- 建议改法：ThemeMenu 明确一个可承接 attrs 的 DOM 根，或 `inheritAttrs:false` 后把 class 显式给 DropdownMenu 的 `rootClass`、其余 attrs 给触发按钮；保留单一主题状态，不在各页面补 CSS 选择器。
+
+### 模式来源与并发专项
+
+- `mode.set` 的实际 UI 来源只有输入框模式按钮与 Shift+Tab 的 cycleMode；`nb-agent-ui/src/composer-actions.ts:46-51` 在 modes 少于 2 个时返回 null，续问时页面传 `modes:[]`，所以续问不会平白发 mode.set。拦截键盘切换与按钮切换一致，未发现“拦了续问模式初始化”的问题。
+- 确认窗口使用真实 nb-ui 模态 Dialog，背景指针、焦点被锁。正常用户不能在 pending 期间继续点背景模式按钮、切换对话或发送问题。没有用编造 action 时序把它判成竞态；浏览器地址/后退改变对话时 pending 未绑定会话是静态风险，未复现且不计缺陷。
+- localStorage 被禁用时 prefs 有 warning、不抛出；确认仍能切换。但 `writeModeNoticeSeen` 没有内存层，之后每次切换仍重新弹 3 秒窗口。属于明确的“偏好记不住”退化，而非永久卡死；建议可用会话内记忆减少重复提醒，不作为重要缺陷。
+
+### 重要｜正确性：窄屏长名字的浮条遮住全屏按钮，并覆盖图例
+
+- 位置：`/tmp/t23-27-review-wt/packages/nb-story/src/web/graph/SelectionBar.vue:10-16`；与 `StoryNetwork.vue:738-751,758-765` 的固定底部控件叠放。
+- 现象：浮条底部居中、z-10、最大宽度只留左右各 12px，没有给右下竖排工具或左下图例留空间。短名字也覆盖图例；名字长、浮条撑到最大宽度时，覆盖全屏按钮中心，点击命中浮条而不是全屏。
+- 如何核实：仓库外离线页面挂载真实 StoryNetwork（7 层 canvas、真实 nb-ui 控件）与真实 SelectionBar，390px 宽。长名字时浮条 x=29..361、y=409..451，真实全屏按钮 x=339..363、y=429..453；按钮中心 (351,441) 的 `elementFromPoint` 是浮条，`fullscreen.contains(hit)` 为 false。无水平溢出不代表可操作，当前 e2e 只测可见文本和整体宽度抓不到它。截图：`/tmp/review-t23-27-impl/selection-long-390.png`。
+- 建议改法：图底部划出独立的状态/操作带，或把浮条提升到图例之上并为工具列保留右边距；宽度/截断需按图容器的可用宽度而不是视口 sm 判断。
+
+### 重要｜正确性：进入全屏后新增浮条消失
+
+- 位置：`/tmp/t23-27-review-wt/packages/nb-story/src/web/pages/RelationsPage.vue:130-136`、`pages/BookGraphPage.vue:87-94` 与 `graph/StoryNetwork.vue:631-634`。
+- 现象：浮条是 StoryNetwork 的兄弟，实际全屏只对 StoryNetwork 的 `.story-graph` 根调用 `requestFullscreen()`。浏览器进入全屏后只显示该元素及其后代，新浮条不在全屏树里；用户选中的点还在，却失去本批新增的打开按钮、所选名称和快捷键提示。两个图页相同。
+- 如何核实：在上述真实组件离线浏览器场景点击真实“全屏”按钮，`document.fullscreenElement.className === "story-graph"`，`document.fullscreenElement.contains(selectionBar) === false`；底部命中栈只有 Sigma canvas 与 story-graph，没有浮条。这是实际 Fullscreen API 行为，不是源码推测。
+- 建议改法：由拥有图和浮条的外层统一进入全屏，或把浮条通过 slot 放进 StoryNetwork 的全屏根内。不要给全屏复制第二份状态。
+
+### 选择状态、抽屉与无障碍的边界
+
+- 换阅读位置/视角/服务器类别导致选中 id 不在返回节点时，`selectedNode` 为 undefined，浮条会消失；没有发现对 undefined.label 的崩溃。BookGraphPage 的客户端 hiddenTypes 不参与 selectedNode 计算：选中一条主线后关掉“主线”，画布丢掉该点但浮条仍显示“已选中”，这是新增浮条暴露的状态缺口，后续用实际页面场景核实再定级。
+- 平板/手机抽屉的 scrim z-20 与抽屉 z-30 在浮条 z-10 上方；浮条不会压到模态抽屉之上。抽屉打开时先操作抽屉是预期交互，不报成浮条被挡问题。
+- `role=status` 隐含礼貌 live region，名字在选中变化时会被播报，没有动画帧/悬停反复修改浮条文字；不能据它有 status 就断言读屏无限重复。没有真实读屏音频验证，报告只确认 DOM 语义，不宣称读屏体验已验收。
+
+### 模式窗口真实组件运行结果
+
+- 不启动开发服务、不跑 e2e，在 file:// 离线页面编译并挂载本批真实 ModeNotice、Dialog、Button，浏览器开窗时确认键为“知道了，切换（3）”且 disabled，取消键 enabled；第二次打开到确认键可用实测 2,987ms（从点击后的观测起算），再次关闭重开从 3 重置；开窗期间卸载组件后窗口数量为 0。源码 watch 每次 open 变化先 stop，0 时 stop，onBeforeUnmount(stop)，未发现计时器泄漏。
+- Esc 关闭同样一次使计数增加 2；这证实前面“取消双发”不局限于自定义取消按钮。
+- 390px 时真实窗口矩形 x=17.05..372.95、height=457.07，document.scrollWidth=390，表格与页脚均可见，无横向滚动。截图 `/tmp/review-t23-27-impl/mode-390.png`；这只是组件烟测，未声称完整问答页 e2e 已跑。
+
+### 建议｜文档：新增能力没有同步组件的公开通道声明
+
+- 位置：`/tmp/t23-27-review-wt/packages/nb-story/src/web/parts/ThemeMenu.md:2,15`、`parts/ModeNotice.md:2`、`graph/StoryNetwork.md:24,43`。
+- 现象：ThemeMenu 声明只有 state:local，但它经 useAppearance 直接读写模块共享 ref 并经宿主写偏好；本组件本身没有所声明的本地状态。ModeNotice 新增长寿命 interval 却只声明 state:local，缺 env:timer。StoryNetwork 的公开 NetworkNode 及 query 文档仍不含 names/别名，照文档无法接入本次新能力。
+- 为什么：组件规范要求能力标签描述真实隐藏通道、伴生类型与实现一致；这不是格式挑剔，ThemeMenu 丢 class 的实际缺陷正来自调用方对包装器扩展通道的误判。
+- 如何核实：对照组件源码、host/theme.ts:11,38-45 与上述文档；本轮没有把这些位置的旧有遗漏（StoryNetwork 其它历史事件等）算成本批新增问题。
+- 建议改法：明确 ThemeMenu 是业务宿主零件还是受控选择器，声明共享状态通道与 attrs 落点；ModeNotice 补计时器标签；StoryNetwork 同步可选 names 类型与别名匹配语义。不要复制组件默认值建立第二份主题真相源。
+
+### 建议｜测试：新增别名和右键用例没有固定断言命中的对象
+
+- 位置：`/tmp/t23-27-review-wt/packages/nb-story/src/core/queries/graph.test.ts:45-57`、`e2e/viewer.e2e.ts:169-189`。
+- 现象：核心用例用 `find(node => node.names.includes("心月狐"))` 反推“主人”，然后只检查主人存在、去重与两图一致。把心月狐错挂到别的节点上也能满足这些断言。新增右键 e2e 最后只断言 entity-card 可见；书库的阅读状态可沿用已开抽屉，新用例自己下一条注释也承认这一点，因此“搜索没命中/原地没选到但抽屉本来就开着”不一定会使测试失败。
+- 为什么：这次的可观察合同是“别名把镜头定位到它所属的人、右键后该点不位移”，不是“某个点带字符串”和“页面上有一张卡片”。现有同文件拖动用例会断言 card-name 是花铃，新用例反而退回了更弱的检查。
+- 如何核实：逐条推演这些断言与 beforeAll 共享书库、后端 reading 状态；本轮遵守不跑 e2e 的限制，不把未跑的变异称为已通过。核心数据别名错挂变异可在实验副本验证，结果随后追加。
+- 建议改法：对真实样例直接断言心月狐归属苏天晴的已知 id，并覆盖角色视角拆分；右键用例先关闭并确认无卡片，再断言结束时具体 card-name/id，且别名定位与“不位移”的判据分开。
+
+### 共享书库与测试顺序检查
+
+- t27 新用例向 viewer 文件 beforeAll 共享书库导入 fox3，没有在本用例 finally 删除，直到 afterAll 的整库清理才删除。之后的外壳用例再导入 fox2，书架实际是 3 本，而它的注释写“两本”。但实际断言只有 toContainText 书名、且跳转均显式带 /book/fox 或 /book/fox2，没有对书数量/自动选书的断言；逐个读后续用例后，未发现 fox3 造成现有用例失败的可证链路。
+- QA 每个测试的 browser context 由 Playwright 新建，localStorage 不跨测试；第一次提示与“一行输入框”各自需要确认，不依赖上一条已记住。后端共享 reading 状态是原有依赖，新增浮条用例已在注释承认会沿用抽屉；相关断言缺口见前面的测试问题。
+- 本轮不运行 e2e，不宣称顺序随机化/完整浏览器测试通过。建议新增导入用例用 finally 删除自己创建的 fox3，或使用独立书库，避免未来数量相关用例被污染；当前没有把它计为单独缺陷。
+
+### 测试缺口的实际变异结果
+
+仅在 `/tmp/review-t23-27-impl/runtime/packages/nb-story/src/core/queries/graph.ts` 的实验副本把别名来源 e1-1（苏天晴）与 e8-2（南嘉鱼）交换，其余实现与测试不变。运行 `env NBOOK_AGENT_TEMP_ROOT=/tmp/review-t23-27-impl bun test src/core/queries/graph.test.ts --test-name-pattern '点带它的其他称呼'`：**1 pass、0 fail、6 expect**。心月狐被错挂仍通过，直接证实该测试不保护别名归属。原 worktree 从未修改，实验副本随后恢复。
+
+### 主题抽取与导航返回专项
+
+- BookFrame 仍需要 DropdownMenu 与 DropdownMenuItemData 给书名/换书菜单使用；抽出 ThemeMenu 后没有发现残留未用的 ThemeChoice、THEMES、themeItems、themeIcon、appearance 或 setTheme。不能把仍在使用的菜单 import 误报成死代码。
+- 书页设置入口、设置页真实 back() 已在仓库外离线页面挂载；使用真实 BookFrame、SettingsPage、nb-ui 与从真实 core API 导出的 schema 校验数据（没有开发服务，路由为 file:// 可用的 createWebHashHistory；这是烟测，不是 HTTP/e2e 证明）。1440px 展开/收起、900px 平板和 390px 手机“更多”均有设置入口；桌面和平板按钮为 24×24，手机行 x=8..212、y=800.5..836，document.scrollWidth 分别等于视口。
+- 经书页设置入口进入 /settings 再点“返回”，宽屏、手机两次均回到 `/book/fox/book-graph?at=38&perspective=reader`。源码 SettingsPage.back 使用 router history.state.back，否则 push `/`；这是 base 已有逻辑，本次只添加入口，没有引入另一条返回状态。
+
+- 补充设置返回：离线新标签直接访问 `#/settings` 时真实 router history 的 back 为 null；点击真实“返回”落到 `#/` 并显示书架占位，符合原有 fallback。该占位只用于确认路由，不代表真实书架已集成验收。
+
+
+### 重要｜正确性：隐藏类型后选中浮条仍指向已从画布移除的节点
+
+- 位置：`/tmp/t23-27-review-wt/packages/nb-story/src/web/pages/BookGraphPage.vue:25,49,90,94`，`graph/StoryNetwork.vue:203-207,694,709-717`。
+- 现象：在全书图按关联中搜索并选中“苏天晴与秘典的反派任务”，关闭“主线”类型后，主线节点从 Sigma 图和边集合中消失，但页面仍显示 `graph-selection-bar`，内容仍是“已选中…… / 看这条主线的情节”，按钮继续可点击。
+- 为什么是问题：浮条承诺的是当前图上选中的点；隐藏类型、切换数据或切换排布后点已不可见，用户无法知道浮条还操作着一个不在当前视图里的旧选择。按输出 27 的“其余点隐藏”与浮条“点空白取消/随之消失”语义，这个状态不一致也会让“只看周边”继续依赖一个已被过滤的中心。
+- 如何核实：离线真实页面 `/tmp/review-t23-27-impl/runtime/graph-page-entry.html` 挂载真实 `BookGraphPage`、`StoryNetwork`、Sigma 与 nb-ui；在 1440px 浏览器中填入搜索词，点击画布中心选中，点击“主线”类型按钮。实测隐藏前后 `data-testid=graph-selection-bar` 数量均为 1，隐藏后截图已保存为 `/tmp/review-t23-27-impl/selection-hidden-1440.png`；节点与相关边已从 `buildData()` 的过滤结果消失。
+- 建议改法：在页面的隐藏类型/数据变更后，若 `selected` 不再属于当前可见节点就清空选择；或由 `StoryNetwork` 在 render 后向上报告选择无效。清空时同步关闭菜单、退出邻域并隐藏浮条，避免保留不可见中心。
+
+
+## 最终影响排序
+
+前文按核实顺序记录证据；本节按影响排序，作为交付索引。
+
+### 重要（4）
+
+1. **正确性：进入全屏后选中浮条消失。** `RelationsPage.vue:130-136`、`BookGraphPage.vue:87-94`、`StoryNetwork.vue:631-634`。真实 Fullscreen API 只把 `.story-graph` 放入全屏树，兄弟 `SelectionBar` 不在其中；用户在全屏中仍能选点，但看不到名称和打开/取消操作。建议让外层统一进入全屏，或把浮条放入全屏根。
+2. **正确性：390px 窄屏浮条遮住全屏按钮并覆盖图例。** `graph/SelectionBar.vue:9-16`、`StoryNetwork.vue:738-765`。真实 390px 场景浮条为 `x=29..361,y=409..451`，全屏按钮为 `x=339..363,y=429..453`；按钮中心命中浮条。建议给底部控件划独立区域或按图容器可用宽度给浮条预留右侧空间。
+3. **正确性：隐藏类型后浮条残留。** `BookGraphPage.vue:25,49,90,94`、`StoryNetwork.vue:203-207,694,709-717`。主线节点从画布过滤掉后，真实页面仍显示“已选中…… / 看这条主线的情节”，按钮仍可操作；截图 `/tmp/review-t23-27-impl/selection-hidden-1440.png`。建议在过滤或数据变更后清空不可见选择，并同步退出邻域、关闭菜单。
+4. **正确性：ThemeMenu 丢失调用方布局 class。** `parts/ThemeMenu.vue:24`，调用方 `ImportPage.vue:192`、`IngestPage.vue:170`、`SettingsPage.vue:321`。`DropdownMenuRoot` 不渲染 DOM，调用方的 `ml-auto` 不会到触发器；真实浏览器确认按钮没有 `ml-auto`，三个页面的明暗按钮不能按 Spec 的顶部右端布局。建议显式提供 `rootClass`/attrs 转发通道。
+
+### 建议（5）
+
+5. **正确性/事件合同：一次 Dialog 关闭发出两次 `cancel`。** `parts/ModeNotice.vue:36-39`，对照 `nb-ui/Dialog.vue:251-254`。一次取消、Esc 或遮罩关闭会同时触发 `update:model-value(false)` 和 `cancel`，组件各转发一次；当前 `QaPage` 置空是幂等的，但消费者收到的关闭事件数量错误。建议只转发一个关闭来源。
+6. **正确性/合同：ModeNotice 缺少 Spec 与同名文档承诺的标题栏关闭按钮。** `parts/ModeNotice.vue:36-39`、`ModeNotice.md:7,24`、`docs/specs/story/viewer.md:124`。`Dialog` 默认 `closable=false`，真实按钮清单只有“先不切换”和倒计时确认键；Esc、遮罩仍可关闭。建议显式启用关闭按钮，或同步删除合同中的承诺并补测试。
+7. **公开合同：`RelationNode.names` 变为必填，但公开类型示例和兼容说明未同步。** `contract/contract.ts:336`、`docs/specs/story/queries.md:98-105,190`。真实新 CLI 输出正常，但旧节点按新 schema 校验得到 `/nodes/0 must have required properties names`。建议字段保持可选以保留公开兼容，或同步更新 Spec、发布说明和消费者测试。
+8. **文档一致性：组件能力标签和公开类型未反映新增通道。** `parts/ThemeMenu.md:2,15`、`parts/ModeNotice.md:2`、`graph/StoryNetwork.md:24,43`。ThemeMenu 实际共享 `useAppearance`/偏好存储，ModeNotice 使用计时器，NetworkNode 文档没有 `names`；读者按文档无法判断这些接口和资源。建议同步标签、attrs 落点、计时器和别名匹配语义。
+9. **测试有效性：别名归属和右键“不位移”用例的断言过弱。** `core/queries/graph.test.ts:45-57`、`e2e/viewer.e2e.ts:169-189`。将实验副本中两个别名来源交换后，核心别名测试仍为 `1 pass、0 fail、6 expect`；右键用例没有先确认抽屉关闭，已有卡片可能让可见性断言通过。建议断言固定实体 id/名称归属，右键场景先清除并确认无卡片，再断言具体卡片。
+
+## 未发现问题的方面
+
+- `names` 的阅读位置裁剪、视角合并、去重和防未来泄漏：第 1、7、8、38、100 章及角色视角共检查 745 个节点，未发现错误；真实西游记载荷增加约 4.7%。
+- `relations --json` 新输出返回码 `0`、stderr 为空，节点均带 `names`；服务端 schema 校验和原样序列化链路未发现丢字段。
+- Sigma 左键拖动、右键拦截和新增 `mousemovebody` 按键检查未发现标准左键误停证据；触控、笔输入及窗口外松手的已知边界没有证据表明是本批新增回归。
+- ModeNotice 反复打开会重置倒计时，卸载会清理 interval；真实 390px 对话框无水平溢出。模式确认期间 Dialog 的模态焦点和背景阻断正常，未发现可复现的用户竞态。
+- localStorage 不可用时不会阻塞模式切换；只是偏好无法记住，未将其升级为缺陷。
+- ThemeMenu 抽取后 BookFrame 的菜单依赖仍有用途，没有发现残留的主题死代码；书页设置入口、手机/平板导航布局和设置页返回路径均通过离线真实组件场景核对。
+- 抽屉遮罩与层级会覆盖浮条；未将这是预期模态行为误报为问题。`role=status` 的 DOM 语义已确认，但未做真实读屏器音频验收。
+- 共享书库检查发现 `fox3` 会保留到 viewer 文件的 `afterAll`，使后续书架实际有 3 本而注释写 2 本；当前后续断言没有依赖书籍数量，也未找到现有用例失败的可证链路，因此列为维护建议而非独立缺陷。
+
+## 验证边界
+
+- 通过：隔离副本相关测试 `27 pass、0 fail、66 expect`；`tsc --noEmit` 与 `vue-tsc --noEmit -p tsconfig.web.json` 退出 `0`。类型检查使用已有 TypeScript `5.9.3`，不是声明的 `^6.0.3`。
+- 通过：真实离线浏览器组件/页面冒烟、390px 和 1440px 几何检查、全屏树检查、模式倒计时与卸载检查、导航与设置返回检查。
+- 未运行：e2e、开发服务、锁定依赖环境的完整门禁、真实模型和真实读屏器。不能把 focused 测试或离线宿主冒烟表述成完整集成通过。
+- 实验副本、截图和报告均在 `/tmp/review-t23-27-impl/`；`/tmp/t23-27-review-wt` 生产审查 worktree `git status --short` 无输出。
+
+## 数量
+
+- 阻断：0
+- 重要：4
+- 建议：5

@@ -1,0 +1,85 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t21-usage-feedback",
+    "artifactId": "layout",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "t21 关系图的线条布局",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "f3156ff442c7e23070ad36d18d0f36abd3866a96b9a6f21ff30947af83085de2",
+    "files": [
+        "index.html",
+        "r1/a-force.webp",
+        "r1/c-stress.webp",
+        "r1/e-elk-stress.webp",
+        "r1/g-elk-layered.webp",
+        "r1/h-stress-top3.webp"
+    ],
+    "questions": [
+        {
+            "id": "layout-pick",
+            "type": "single",
+            "label": "1. 加不加“应力”这种排版",
+            "options": [
+                {
+                    "value": "stress-add",
+                    "label": "C 作为第四种排版“应力”加进去，默认仍是力导向"
+                },
+                {
+                    "value": "stress-default",
+                    "label": "C 直接替换默认的力导向"
+                },
+                {
+                    "value": "elk",
+                    "label": "E 引入 ELK 库，提供它的 stress 与分层"
+                },
+                {
+                    "value": "none",
+                    "label": "都不要"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "stress-add"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "edge-thin",
+            "type": "single",
+            "label": "2. “少画次要的线”",
+            "options": [
+                {
+                    "value": "toggle",
+                    "label": "加一个开关“只画最强的线”，默认关"
+                },
+                {
+                    "value": "always",
+                    "label": "默认就少画"
+                },
+                {
+                    "value": "no",
+                    "label": "不做"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "toggle"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-27T10:32:40.373Z"
+}

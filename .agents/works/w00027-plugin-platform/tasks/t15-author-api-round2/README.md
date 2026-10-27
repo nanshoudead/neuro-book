@@ -99,6 +99,18 @@ updated: 2026-10-27
 - 第二期收口（Work 分支合入 master 后的 `eb9633c3f`）：Bun 1515 例、Vitest 373 例全过；全量 e2e 294 例，293 例通过；`workbench-shell` 的“换位置、最大化……滚动保留”在另一个会话的 omp 审查占着 CPU 时失败（滚动位置 60，应为 300），在无改动的 base worktree 上对照、负载降下来后本分支单跑两次与整个文件各通过，属负载下的时序问题，本 Task 没碰工作台布局。实现审查已启动（后端 omp，插件页、Lab 与命令行使用 Sonnet），处理完再合入 master。
 - 第二期实现审查（plan-phase2.md 第 10 节）：Sonnet 重要 3、建议 10，修正 `ede24f850`；omp 重要 12、建议 3（5 条与 Sonnet 重复），修正 `15f4e029d`；Spec `71f14b613`、`1084b02d8`。验证：类型检查，`src/server`、`src/project`、`src/plugin-platform` 199 例，`src/cli` 与打包、认领 36 例，e2e 的 dev、lab、plugins、projects 24 例与应用包 1 例。2026-10-27 合入 master（`ade830d0b`）。
 
+进展（第三期，计划 [plan-phase3.md](plan-phase3.md)；代码在 Work 分支，Spec 在 master）：
+
+- S0 `2b062cd23`：应用包按当前目录解析 Bun metafile 的路径（第二期在 worktree 里碰巧解析到主工作区的 `node_modules`，主工作区里 `pack-app.test.ts` 5 例 3 败），先写标记再写内容；加从无关目录运行的用例，变异检查有效。
+- S1 `0cfb56add`：产品版本 0.11.0。
+- S4 `3176bd437`、`1f734d72f`：三份旧 workflow 换成一份 `ci.yml`（推 master、PR、手动；按 `merge-base` 定基准，取不到就 `--all`；PR 才取消旧轮；`check` 跑 governance、docs、`test:affected --typecheck`，`app-package` 跑应用包、SDK 与 `smoke:server`）；Issue 表单与标签的检查并进 `governance:check`，只留“YAML 能解析、引用的标签已登记”（开发者说原 CI 过度防御，逐字核对表单字段与指南措辞的删掉）；删逐字核对 workflow 的元测试与写死的包矩阵，依赖图挪到 `workspace-graph.ts` 并补测试；`test:affected` 跳过退役的 llmlint；test-support 的长度用例只在 Windows 上跑（master 上一直失败，旧 CI 不跑全量没发现）。干净克隆里照 ci.yml 跑一遍：各步通过，`--all` 23 分钟（负载 11），时限定 60 分钟。
+- S3 `a8328f17d`：`BUILT_PACKAGES`；`release:smoke` 生成两个包、11 个包过发布清单检查、tarball 与带 SHA-256 的清单放 `dist/release/`，加用户与作者的闭环（`bun add -g` 应用、`nbook` 打开书架、`bunx -p` SDK 生成插件并构建与类型检查、`nbook plugin install` 后重启已加载）；`release:publish` 门禁查清单的提交与摘要、HEAD 在 origin/master，`bun publish <tarball>`。干净克隆里 `prox bun run release:smoke` 全部通过。
+- S2 `299250d1f`：`nbooke create` 不再提示装 tarball（结果字段与判断函数一起删），作者文档改用 `bunx -p`；SDK 包补 license、files、repository、publishConfig、LICENSE 与第三方许可（实际打进 reka-ui、@floating-ui、@vueuse 等 13 个 MIT 包），许可清单的生成与应用包共用 `scripts/third-party-notices.ts`。Spec `ce37859c7`（plugin-api）。验证：plugin-sdk 与应用包测试 79 例。
+- S5 `8d962cb82`、`65c64c40e`：根 README 中英按 v2 重写（字标、看板娘、心情小猫、书架与工作台截图、安装、能做什么、写插件、路线图、旧版本一行）；补 dev-panel、owned-process、neuro-book-contracts、neuro-book-test-support 的 README（旧应用只读，不加），重写 `packages/neuro-book/README.md`；PROJECT-STATUS、repository-workflow 的发布步骤。
+
+- 实现审查（Claude Opus，[evidences/p3-impl-review.txt](evidences/p3-impl-review.txt)）：阻断 1、重要 4、建议 7，逐条处理见 plan-phase3.md 第 11 节，修正 `a3b314ac2`，Spec `936670bd2`。
+- 收口：干净克隆里 `release:smoke` 全部通过（[evidences/p3-release-smoke.txt](evidences/p3-release-smoke.txt)）；全量 e2e 在另一个项目的视频渲染占满 CPU 时（负载 17 到 30）跑到第 264 例被时限截停，246 例通过，Lab 一组超时失败；负载降下来后失败与没跑到的文件重跑全过（lab-nb-form 13、lab 15、lab-nb-ui、settings、workbench-titlebar、workbench-views 共 61）。同负载下基线一次通过、本分支一次失败，负载降下后本分支全过，属负载下的时序问题；两者之间运行代码只差版本号。
+
 2026-10-24 P2、P5、P7、P8 已定。第一期（发布前改完作者 API）的计划见 [plan.md](plan.md)，开发者 2026-10-24 确认（含助手都改成所属子路径的函数、子路径表、`nbook.view.open`、作者命令名 `nbooke`）。计划审查两份（omp 阻断 5、重要 8、建议 1；Sonnet 重要 6、建议 15）逐条处理见 plan.md 第 9 节，开始实施 S1。
 
 ## 下一步

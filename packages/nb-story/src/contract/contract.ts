@@ -110,6 +110,8 @@ const RosterItem = Type.Object({
     names: Type.Object({top: Type.Array(Type.String()), total: Type.Integer()}),
     /** 组成这个点的对象 id。 */
     entities: Type.Array(Type.String()),
+    /** 无名：组成这个点的对象可见称呼全是泛称（或没有称呼）。缺省按否。 */
+    anonymous: Type.Optional(Type.Boolean()),
 });
 
 const EntityCard = Type.Object({
@@ -333,7 +335,7 @@ const SearchItem = Type.Object({
 
 // ---- 图 ----
 
-export const RelationNodeSchema = Type.Object({id: Type.String(), label: Type.String(), kind: EntityKindSchema, mentions: Type.Integer(), entities: Type.Array(Type.String()), names: Type.Array(Type.String())});
+export const RelationNodeSchema = Type.Object({id: Type.String(), label: Type.String(), kind: EntityKindSchema, mentions: Type.Integer(), entities: Type.Array(Type.String()), names: Type.Optional(Type.Array(Type.String())), anonymous: Type.Optional(Type.Boolean())});
 export const RelationEdgeSchema = Type.Object({
     a: Type.String(),
     b: Type.String(),
@@ -467,7 +469,7 @@ export const STORY_METHODS = {
         errors: {...BookErrors, ...PageErrors},
     },
     "graph.relations": {
-        input: Type.Object({...BookParams, kinds: Type.Optional(Type.Array(EntityKindSchema)), minTogether: Type.Optional(Type.Integer({minimum: 1}))}, strict),
+        input: Type.Object({...BookParams, kinds: Type.Optional(Type.Array(EntityKindSchema)), minTogether: Type.Optional(Type.Integer({minimum: 1})), includeAnonymous: Type.Optional(Type.Boolean())}, strict),
         output: RelationGraph,
         effect: "read",
         errors: EntityErrors,
@@ -552,6 +554,26 @@ export const INGEST_METHODS = {
         effect: "write",
         errors: {...IngestErrors, book_not_found: Type.Object({}), qa_unconfigured: Type.Object({})},
     },
+    /**
+     * 导入一份 V9 记忆图文件（命令行 `nbstory import` 的网页版，t29）：`content` 是文件字节的 base64（JSON，或 gzip 压缩的
+     * JSON）；书名不给时取文件里的书名。同 id 的书已存在是 `book_exists`，文件不是 V9 记忆图是 `unsupported_format`。
+     */
+    "book.importGraph": {
+        input: Type.Object({content: Type.String(), title: Type.Optional(Type.String({minLength: 1})), id: Type.Optional(Type.String({minLength: 1}))}, strict),
+        output: Type.Object({id: Type.String()}),
+        effect: "write",
+        errors: {invalid_params: Type.Object({}), book_exists: Type.Object({}), unsupported_format: Type.Object({}), ingest_bad_text: Type.Object({})},
+    },
+    /**
+     * 把随包的 Skill 装进外部 Agent 的用户级 Skill 目录（命令行 `nbstory skill install` 的网页版，t29）。只认 `claude`
+     * 与 `codex` 两个固定位置，网页不能指定任意目录；目标已有不同内容的目录时是 `skill_exists`，`force` 才换掉。
+     */
+    "skill.install": {
+        input: Type.Object({agent: oneOf(["claude", "codex"] as const), force: Type.Optional(Type.Boolean())}, strict),
+        output: Type.Object({state: oneOf(["installed", "unchanged", "replaced"] as const), path: Type.String(), leftover: Type.Optional(Type.Object({path: Type.String(), code: Type.String()}))}),
+        effect: "write",
+        errors: {invalid_params: Type.Object({}), skill_exists: Type.Object({}), skill_target_invalid: Type.Object({}), skill_install_failed: Type.Object({})},
+    },
     "ingest.stop": {input: Type.Object({book: Type.String({minLength: 1})}, strict), output: Empty, effect: "write", errors: {invalid_params: Type.Object({}), book_not_found: Type.Object({}), ingest_running: Type.Object({})}},
     "ingest.status": {
         input: Type.Object({book: Type.Optional(Type.String({minLength: 1}))}, strict),
@@ -596,6 +618,9 @@ const QaRecordViewSchema = Type.Object({
     answer: QaAnswerModeSchema,
     maxChapters: Type.Union([Type.Integer(), Type.Null()]),
     turns: Type.Array(QaTurnSchema),
+    /** 下一问用的阅读位置（对话中途改过位置时有，t25）；没有时按最后一轮用的位置。 */
+    currentAt: Type.Optional(QaPositionSchema),
+    positionChanges: Type.Optional(Type.Integer({minimum: 0})),
     startedAt: Type.String(),
 });
 
@@ -654,7 +679,12 @@ export const QA_METHODS = {
                     turns: Type.Integer({minimum: 0}),
                     /** 最后一轮的状态；首轮还在运行时为 null。 */
                     status: Type.Union([QaStatusSchema, Type.Null()]),
+                    /** 对话开始时的阅读位置。 */
                     at: QaPositionSchema,
+                    /** 下一问用的阅读位置（改过位置、或最后一轮用了别的位置时与 `at` 不同）。 */
+                    currentAt: QaPositionSchema,
+                    /** 整个对话出现过的最高位置：剧透警告按它判断，位置往回调不解除旧答案的警告。 */
+                    highestAt: QaPositionSchema,
                     mode: QaModeSchema,
                     startedAt: Type.String(),
                     /** 最后一轮的开始时间。 */
@@ -689,6 +719,7 @@ export const QA_METHODS = {
                 conversation: Type.Optional(Type.String({minLength: 1})),
                 /** 只在新对话时用；续问时写了是 invalid_params。 */
                 mode: Type.Optional(QaModeSchema),
+                /** 新对话是第一问的阅读位置；续问时是这一问要改成的位置（先写进会话，全读对话不能改，t25）。 */
                 at: Type.Optional(PositionInputSchema),
                 answer: Type.Optional(QaAnswerModeSchema),
                 /** 这一轮的模型，必须在配置的候选里；不给时新对话用默认模型，续问接着用最近一轮的。 */
@@ -700,7 +731,14 @@ export const QA_METHODS = {
         ),
         output: Type.Object({conversation: Type.String(), runId: Type.String(), turn: Type.Integer({minimum: 1})}),
         effect: "write",
-        errors: {...QaErrors, qa_record_not_found: Type.Object({}), qa_record_broken: Type.Object({}), position_out_of_range: Type.Object({}), qa_unconfigured: Type.Object({}), full_read_unavailable: Type.Object({}), qa_not_continuable: Type.Object({}), qa_busy: Type.Object({})},
+        errors: {...QaErrors, qa_record_not_found: Type.Object({}), qa_record_broken: Type.Object({}), position_out_of_range: Type.Object({}), qa_unconfigured: Type.Object({}), full_read_unavailable: Type.Object({}), qa_not_continuable: Type.Object({}), qa_busy: Type.Object({}), qa_position_fixed: Type.Object({}), qa_conflict: Type.Object({})},
+    },
+    /** 在对话中途改阅读位置（t25）：往会话里写提醒消息，不发模型请求；对话在运行时是 `qa_busy`。 */
+    "qa.position": {
+        input: Type.Object({...QaRefs, conversation: Type.String({minLength: 1}), at: PositionInputSchema}, strict),
+        output: Type.Object({changed: Type.Boolean(), at: QaPositionSchema}),
+        effect: "write",
+        errors: {...QaErrors, qa_record_not_found: Type.Object({}), qa_record_broken: Type.Object({}), position_out_of_range: Type.Object({}), qa_not_continuable: Type.Object({}), qa_busy: Type.Object({}), qa_position_fixed: Type.Object({}), qa_conflict: Type.Object({})},
     },
     "qa.stop": {input: Type.Object({...QaRefs, conversation: Type.String({minLength: 1})}, strict), output: Empty, effect: "write", errors: {invalid_params: Type.Object({})}},
     "qa.remove": {

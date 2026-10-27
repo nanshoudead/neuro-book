@@ -1,0 +1,297 @@
+area	kind	lang	count
+app:plugin-sdk/examples	diagnostics.record({level})	zh	3
+app:plugin-sdk/examples	throw new *Error	zh	4
+app:plugin-sdk/examples	{ok:false}+code	none	2
+app:plugin-sdk/examples	{ok:false}+code+detail	expr	4
+app:plugin-sdk/examples	{ok:false}+code+detail	zh	1
+app:plugin-sdk/examples	{ok:false}+code+reason	expr	1
+app:plugin-sdk/examples	{ok:false}+code+reason	zh	1
+app:plugins/*/web	catch(有处理)	none	23
+app:plugins/*/web	catch(空体)	none	1
+app:plugins/*/web	diagnostics.record({level})	expr	20
+app:plugins/*/web	diagnostics.record({level})	zh	11
+app:plugins/*/web	throw new *Error	expr	2
+app:plugins/*/web	throw new *Error	zh	6
+app:plugins/*/web	{ok:false}	none	4
+app:plugins/*/web	{ok:false}+code	none	11
+app:plugins/*/web	{ok:false}+code+detail	expr	8
+app:plugins/*/web	{ok:false}+code+detail	zh	6
+app:plugins/*/web	{ok:false}+code+reason	expr	22
+app:plugins/*/web	{ok:false}+code+reason	zh	8
+app:plugins/*/web	{ok:false}+message	expr	17
+app:plugins/*/web	{ok:false}+reason	en	7
+app:plugins/*/web	{ok:false}+reason	expr	17
+app:plugins/*/web	{ok:false}+reason	zh	41
+app:plugins/*/web	模板插值显示 .message|.reason|.detail|.error	none	12
+app:plugins/*/web	模板绑定 :error|:message|:title=…message|reason|detail	none	1
+app:plugins/lab(开发场景)	catch(有处理)	none	11
+app:plugins/lab(开发场景)	console.warn|error	en	1
+app:plugins/lab(开发场景)	console.warn|error	zh	4
+app:plugins/lab(开发场景)	throw new *Error	zh	23
+app:plugins/lab(开发场景)	{ok:false}	none	4
+app:plugins/lab(开发场景)	{ok:false}+code	none	1
+app:plugins/lab(开发场景)	{ok:false}+code+detail	expr	1
+app:plugins/lab(开发场景)	{ok:false}+code+detail	zh	12
+app:plugins/lab(开发场景)	{ok:false}+code+reason	expr	1
+app:plugins/lab(开发场景)	{ok:false}+code+reason	zh	9
+app:plugins/lab(开发场景)	{ok:false}+message	zh	1
+app:plugins/lab(开发场景)	{ok:false}+reason	zh	1
+app:plugins/lab(开发场景)	模板插值显示 .message|.reason|.detail|.error	none	1
+app:plugins/lab(开发场景)	模板绑定 :error|:message|:title=…message|reason|detail	none	1
+app:src/sdk	throw new *Error	zh	7
+app:src/ui	catch(有处理)	none	2
+app:src/ui	console.warn|error	zh	1
+app:src/web	catch(有处理)	none	19
+app:src/web	class BootstrapRejected extends Error	expr	1
+app:src/web	class ConnectionError extends Error	expr	1
+app:src/web	console.warn|error	en	1
+app:src/web	console.warn|error	zh	1
+app:src/web	diagnostics.record({level})	zh	6
+app:src/web	throw new *Error	expr	1
+app:src/web	throw new *Error	zh	8
+app:src/web	throw new BootstrapRejected	expr	1
+app:src/web	throw new BootstrapRejected	zh	9
+app:src/web	{ok:false}+reason	expr	3
+app:src/web	模板插值显示 .message|.reason|.detail|.error	none	1
+dev-panel/src/web	catch(有处理)	none	29
+dev-panel/src/web	catch(空体)	none	1
+dev-panel/src/web	class ApiError extends Error	expr	1
+dev-panel/src/web	console.warn|error	zh	12
+dev-panel/src/web	throw new *Error	expr	5
+dev-panel/src/web	{ok:false}	none	3
+dev-panel/src/web	{ok:false}+message	expr	1
+dev-panel/src/web	模板插值显示 .message|.reason|.detail|.error	none	13
+dev-panel/src/web	模板绑定 :error|:message|:title=…message|reason|detail	none	3
+nb-agent-ui	catch(有处理)	none	2
+nb-agent-ui	class AgentViewRegistryConflictError extends Error	zh	1
+nb-agent-ui	console.warn|error	zh	4
+nb-agent-ui	throw new *Error	en	3
+nb-agent-ui	throw new *Error	expr	1
+nb-agent-ui	throw new *Error	zh	1
+nb-agent-ui	模板插值显示 .message|.reason|.detail|.error	none	9
+nb-agent-ui	模板绑定 :error|:message|:title=…message|reason|detail	none	10
+nb-form	catch(有处理)	none	9
+nb-form	class FormWidgetError extends Error	zh	1
+nb-form	throw new *Error	zh	1
+nb-form	throw new FormWidgetError	en	2
+nb-form	{ok:false}	none	5
+nb-markdown	catch(有处理)	none	7
+nb-markdown	class Unrepresentable extends Error	none	1
+nb-markdown	throw new *Error	zh	3
+nb-markdown	throw new Unrepresentable	zh	9
+nb-markdown	{ok:false}+code	none	1
+nb-story/src/web	catch(有处理)	none	31
+nb-story/src/web	class StoryCallError extends Error	expr	1
+nb-story/src/web	console.warn|error	expr	18
+nb-story/src/web	console.warn|error	zh	2
+nb-story/src/web	throw new *Error	en	2
+nb-story/src/web	throw new *Error	zh	2
+nb-story/src/web	{ok:false}+reason	expr	1
+nb-story/src/web	模板插值显示 .message|.reason|.detail|.error	none	7
+nb-story/src/web	模板绑定 :error|:message|:title=…message|reason|detail	none	30
+nb-ui	catch(有处理)	none	6
+nb-ui	catch(空体)	none	3
+nb-ui	class NbThemeInstallError extends Error	zh	1
+nb-ui	console.warn|error	en	2
+nb-ui	console.warn|error	zh	1
+nb-ui	throw new *Error	zh	5
+nb-ui	throw new NbThemeInstallError	expr	2
+nb-ui	throw new NbThemeInstallError	zh	11
+nb-ui	{ok:false}	none	1
+nb-ui	{ok:false}+reason	expr	1
+nb-ui	{ok:false}+reason	zh	41
+nb-ui	模板插值显示 .message|.reason|.detail|.error	none	5
+nb-ui	模板绑定 :error|:message|:title=…message|reason|detail	none	1
+
+# 汇总（kind × lang）
+catch(有处理)	none	139
+catch(空体)	none	5
+class AgentViewRegistryConflictError extends Error	zh	1
+class ApiError extends Error	expr	1
+class BootstrapRejected extends Error	expr	1
+class ConnectionError extends Error	expr	1
+class FormWidgetError extends Error	zh	1
+class NbThemeInstallError extends Error	zh	1
+class StoryCallError extends Error	expr	1
+class Unrepresentable extends Error	none	1
+console.warn|error	en	4
+console.warn|error	expr	18
+console.warn|error	zh	25
+diagnostics.record({level})	expr	20
+diagnostics.record({level})	zh	20
+throw new *Error	en	5
+throw new *Error	expr	9
+throw new *Error	zh	60
+throw new BootstrapRejected	expr	1
+throw new BootstrapRejected	zh	9
+throw new FormWidgetError	en	2
+throw new NbThemeInstallError	expr	2
+throw new NbThemeInstallError	zh	11
+throw new Unrepresentable	zh	9
+{ok:false}	none	17
+{ok:false}+code	none	15
+{ok:false}+code+detail	expr	13
+{ok:false}+code+detail	zh	19
+{ok:false}+code+reason	expr	24
+{ok:false}+code+reason	zh	18
+{ok:false}+message	expr	18
+{ok:false}+message	zh	1
+{ok:false}+reason	en	7
+{ok:false}+reason	expr	22
+{ok:false}+reason	zh	83
+模板插值显示 .message|.reason|.detail|.error	none	48
+模板绑定 :error|:message|:title=…message|reason|detail	none	46
+
+# 逐文件（{ok:false}、throw、record、class extends Error、模板汇点）
+dev-panel/src/web/App.vue.ts	{ok:false}|none=1
+dev-panel/src/web/host/api.ts	class ApiError extends Error|expr=1; throw new *Error|expr=5
+dev-panel/src/web/host/notify-actions.ts	{ok:false}|none=1
+dev-panel/src/web/host/session-console.ts	{ok:false}+message|expr=1
+dev-panel/src/web/host/writes.ts	{ok:false}|none=1
+dev-panel/src/web/pages/ArtifactPage.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=1
+dev-panel/src/web/pages/CheckoutsPage.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+dev-panel/src/web/pages/GithubPage.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+dev-panel/src/web/pages/SessionsPage.vue	模板插值显示 .message|.reason|.detail|.error|none=2; 模板绑定 :error|:message|:title=…message|reason|detail|none=1
+dev-panel/src/web/parts/CreatePreview.vue	模板插值显示 .message|.reason|.detail|.error|none=2
+dev-panel/src/web/parts/LoadState.vue	模板插值显示 .message|.reason|.detail|.error|none=2
+dev-panel/src/web/parts/ProcList.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+dev-panel/src/web/parts/SessionList.vue	模板插值显示 .message|.reason|.detail|.error|none=3; 模板绑定 :error|:message|:title=…message|reason|detail|none=1
+dev-panel/src/web/parts/WriteResult.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+nb-agent-ui/src/registry.ts	class AgentViewRegistryConflictError extends Error|zh=1; throw new *Error|en=3; throw new *Error|expr=1
+nb-agent-ui/src/vue/AgentConversationView.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+nb-agent-ui/src/vue/host.ts	throw new *Error|zh=1
+nb-agent-ui/src/vue/stream/AgentChainBlock.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=2
+nb-agent-ui/src/vue/stream/AgentConversationTurn.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=1
+nb-agent-ui/src/vue/stream/AgentMessageAnnotations.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=1
+nb-agent-ui/src/vue/stream/AgentRawView.vue	模板插值显示 .message|.reason|.detail|.error|none=2
+nb-agent-ui/src/vue/stream/AgentTurnBlock.vue	模板插值显示 .message|.reason|.detail|.error|none=5; 模板绑定 :error|:message|:title=…message|reason|detail|none=6
+nb-agent-ui/src/vue/tools/AgentToolDetail.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+nb-form/src/vue/draft.ts	{ok:false}|none=5
+nb-form/src/vue/scope.ts	throw new *Error|zh=1
+nb-form/src/vue/widgets.ts	class FormWidgetError extends Error|zh=1; throw new FormWidgetError|en=2
+nb-markdown/src/language/codec/read.ts	throw new *Error|zh=1
+nb-markdown/src/language/codec/render/index.ts	throw new Unrepresentable|zh=1
+nb-markdown/src/language/codec/render/inline.ts	throw new Unrepresentable|zh=2
+nb-markdown/src/language/codec/write.ts	throw new *Error|zh=1; {ok:false}+code|none=1
+nb-markdown/src/language/language.ts	throw new *Error|zh=1
+nb-markdown/src/language/syntax/core/write.ts	throw new Unrepresentable|zh=4
+nb-markdown/src/language/syntax/html-embed/index.ts	throw new Unrepresentable|zh=1
+nb-markdown/src/language/syntax/raw/index.ts	throw new Unrepresentable|zh=1
+nb-markdown/src/language/syntax/types.ts	class Unrepresentable extends Error|none=1
+nb-story/src/web/host/book.ts	throw new *Error|zh=1
+nb-story/src/web/host/client.ts	class StoryCallError extends Error|expr=1; throw new *Error|zh=1; throw new *Error|en=2
+nb-story/src/web/pages/BookGraphPage.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=1
+nb-story/src/web/pages/EpisodesPage.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=2
+nb-story/src/web/pages/LedgerPage.vue	模板插值显示 .message|.reason|.detail|.error|none=2; 模板绑定 :error|:message|:title=…message|reason|detail|none=2
+nb-story/src/web/pages/OverviewPage.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=5
+nb-story/src/web/pages/QaPage.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=1
+nb-story/src/web/pages/QuestionsPage.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=1
+nb-story/src/web/pages/RelationsPage.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=1
+nb-story/src/web/pages/RosterPage.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=2
+nb-story/src/web/pages/SecretsPage.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=1
+nb-story/src/web/pages/SourcePage.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=1
+nb-story/src/web/pages/StatsPage.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=1
+nb-story/src/web/pages/TimelinePage.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=1
+nb-story/src/web/parts/PagedList.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+nb-story/src/web/qa/source.ts	{ok:false}+reason|expr=1
+nb-story/src/web/shell/CardRelations.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=1
+nb-story/src/web/shell/DrawerCard.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=4
+nb-story/src/web/shell/DrawerNode.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=1
+nb-story/src/web/shell/DrawerParagraph.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=1
+nb-story/src/web/shell/DrawerSource.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=1
+nb-story/src/web/shell/ImportPage.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+nb-story/src/web/shell/IngestPage.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+nb-story/src/web/shell/RecordsTable.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=2
+nb-story/src/web/shell/RelationDetail.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=1
+nb-story/src/web/shell/SearchBox.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+nb-story/src/web/shell/SettingsPage.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+nb-ui/src/components/feedback/Banner.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+nb-ui/src/components/feedback/Notification.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+nb-ui/src/components/feedback/NotificationStack.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=1
+nb-ui/src/components/form/Field.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+nb-ui/src/components/layout/CollapsibleRow.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+nb-ui/src/components/layout/NestedGrid.vue.ts	{ok:false}+reason|zh=1
+nb-ui/src/components/layout/grid-snapshot.ts	throw new *Error|zh=1; {ok:false}|none=1
+nb-ui/src/components/layout/grid.ts	{ok:false}+reason|zh=34
+nb-ui/src/components/popup/QuickPick.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+nb-ui/src/composables/useGridLayout.ts	{ok:false}+reason|zh=5; {ok:false}+reason|expr=1
+nb-ui/src/composables/useSashGesture.ts	{ok:false}+reason|zh=1
+nb-ui/src/theme/semver-range.ts	throw new *Error|zh=4
+nb-ui/src/theme/theme-loader.ts	class NbThemeInstallError extends Error|zh=1; throw new NbThemeInstallError|zh=11; throw new NbThemeInstallError|expr=2
+neuro-book/plugin-sdk/examples/plugins/clock/backend/plugin.ts	{ok:false}+code|none=1
+neuro-book/plugin-sdk/examples/plugins/counter/backend/plugin.ts	{ok:false}+code+reason|zh=1
+neuro-book/plugin-sdk/examples/plugins/focus/backend/plugin.ts	{ok:false}+code+detail|expr=3; throw new *Error|zh=2
+neuro-book/plugin-sdk/examples/plugins/focus/web/plugin.ts	{ok:false}+code+reason|expr=1
+neuro-book/plugin-sdk/examples/plugins/menu/backend/plugin.ts	diagnostics.record({level})|zh=1; {ok:false}+code|none=1
+neuro-book/plugin-sdk/examples/plugins/notes/backend/plugin.ts	{ok:false}+code+detail|expr=1; diagnostics.record({level})|zh=2; throw new *Error|zh=2
+neuro-book/plugin-sdk/examples/plugins/notes/web/plugin.ts	{ok:false}+code+detail|zh=1
+neuro-book/src/plugins/editor/web/area.ts	{ok:false}+reason|zh=34; {ok:false}+reason|expr=13
+neuro-book/src/plugins/editor/web/code/languages.ts	throw new *Error|zh=1
+neuro-book/src/plugins/editor/web/commands.ts	{ok:false}+code|none=1; {ok:false}+reason|zh=4; {ok:false}+code+reason|zh=6
+neuro-book/src/plugins/editor/web/components/EditorGroup.vue.ts	{ok:false}+reason|expr=1
+neuro-book/src/plugins/editor/web/components/MonacoControl.vue.ts	{ok:false}+reason|zh=2
+neuro-book/src/plugins/editor/web/documents/address.ts	throw new *Error|expr=1
+neuro-book/src/plugins/editor/web/documents/store.ts	{ok:false}+code|none=9; {ok:false}+code+detail|expr=1; {ok:false}+reason|en=1; throw new *Error|zh=1
+neuro-book/src/plugins/editor/web/plugin.ts	diagnostics.record({level})|expr=1; diagnostics.record({level})|zh=7
+neuro-book/src/plugins/editor/web/tab-menu.ts	{ok:false}+reason|expr=1
+neuro-book/src/plugins/explorer/web/commands.ts	{ok:false}+code|none=1; {ok:false}+reason|en=1; {ok:false}+code+reason|expr=1
+neuro-book/src/plugins/explorer/web/components/ExplorerRow.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+neuro-book/src/plugins/explorer/web/controller.ts	{ok:false}|none=1; {ok:false}+reason|en=5
+neuro-book/src/plugins/explorer/web/plugin.ts	diagnostics.record({level})|expr=1; diagnostics.record({level})|zh=1
+neuro-book/src/plugins/explorer/web/tree/address.ts	throw new *Error|expr=1
+neuro-book/src/plugins/files/web/client.ts	{ok:false}+code+detail|zh=4; {ok:false}+code+detail|expr=4
+neuro-book/src/plugins/files/web/plugin.ts	diagnostics.record({level})|zh=1
+neuro-book/src/plugins/html-preview/web/plugin.ts	diagnostics.record({level})|expr=1; {ok:false}|none=2; {ok:false}+code+reason|zh=1
+neuro-book/src/plugins/lab/web/LabInspectPanel.vue	模板插值显示 .message|.reason|.detail|.error|none=1; 模板绑定 :error|:message|:title=…message|reason|detail|none=1
+neuro-book/src/plugins/lab/web/LabVariablesPanel.vue.ts	{ok:false}|none=1
+neuro-book/src/plugins/lab/web/component-index-model.ts	throw new *Error|zh=1
+neuro-book/src/plugins/lab/web/component-index.ts	throw new *Error|zh=1
+neuro-book/src/plugins/lab/web/fixtures/PluginsPageFixture.vue.ts	{ok:false}+code+detail|zh=2
+neuro-book/src/plugins/lab/web/fixtures/command-scene/SampleTextEditor.vue.ts	{ok:false}+reason|zh=1
+neuro-book/src/plugins/lab/web/fixtures/command-scene/editor-commands.ts	{ok:false}+code+reason|zh=9; {ok:false}+code+reason|expr=1
+neuro-book/src/plugins/lab/web/fixtures/explorer-scene/memory-files.ts	{ok:false}+code|none=1; {ok:false}+code+detail|zh=2
+neuro-book/src/plugins/lab/web/fixtures/html-preview-scene/HtmlPreviewFixture.vue.ts	{ok:false}|none=1
+neuro-book/src/plugins/lab/web/fixtures/image-viewer-scene/ImageViewerFixture.vue.ts	throw new *Error|zh=1
+neuro-book/src/plugins/lab/web/fixtures/index.ts	{ok:false}|none=1
+neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui/data.ts	throw new *Error|zh=1
+neuro-book/src/plugins/lab/web/fixtures/nb-agent-ui/parts.scenes.ts	throw new *Error|zh=2
+neuro-book/src/plugins/lab/web/fixtures/path-picker-source.ts	{ok:false}+message|zh=1
+neuro-book/src/plugins/lab/web/fixtures/settings-scene/memory-layers.ts	{ok:false}+code+detail|zh=8; {ok:false}|none=1; {ok:false}+code+detail|expr=1
+neuro-book/src/plugins/lab/web/fixtures/settings-scene/scene-data.ts	throw new *Error|zh=1
+neuro-book/src/plugins/lab/web/fixtures/settings-scene/settings-host.ts	throw new *Error|zh=4
+neuro-book/src/plugins/lab/web/fixtures/shell-scene/SampleView.vue.ts	throw new *Error|zh=1
+neuro-book/src/plugins/lab/web/lab-overrides.ts	throw new *Error|zh=10
+neuro-book/src/plugins/lab/web/use-lab-overrides.ts	throw new *Error|zh=1
+neuro-book/src/plugins/markdown/web/components/MarkdownControl.vue.ts	throw new *Error|zh=2
+neuro-book/src/plugins/markdown/web/components/MarkdownHosted.vue.ts	throw new *Error|zh=1
+neuro-book/src/plugins/markdown/web/plugin.ts	diagnostics.record({level})|expr=2
+neuro-book/src/plugins/plugins/web/components/PluginsPage.vue	模板插值显示 .message|.reason|.detail|.error|none=2
+neuro-book/src/plugins/projects/web/browse.ts	{ok:false}+message|expr=1
+neuro-book/src/plugins/projects/web/components/FileBrowser.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+neuro-book/src/plugins/projects/web/open-project.ts	{ok:false}+code+reason|expr=2
+neuro-book/src/plugins/projects/web/plugin.ts	diagnostics.record({level})|zh=2; {ok:false}+reason|expr=1; diagnostics.record({level})|expr=3; {ok:false}+code+detail|expr=3
+neuro-book/src/plugins/projects/web/shelf-page.ts	{ok:false}+message|expr=16
+neuro-book/src/plugins/settings/web/components/SettingsFileView.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+neuro-book/src/plugins/settings/web/components/SettingsPageFrame.vue	模板插值显示 .message|.reason|.detail|.error|none=4
+neuro-book/src/plugins/settings/web/plugin.ts	diagnostics.record({level})|expr=3
+neuro-book/src/plugins/settings/web/settings-window.ts	{ok:false}+code+reason|expr=2
+neuro-book/src/plugins/settings/web/window-source.ts	{ok:false}|none=1; {ok:false}+code+detail|zh=1; throw new *Error|zh=1
+neuro-book/src/plugins/storage/web/plugin.ts	{ok:false}+code+detail|zh=1
+neuro-book/src/plugins/workbench/web/commands/app-commands.ts	{ok:false}+code+reason|expr=1
+neuro-book/src/plugins/workbench/web/commands/open-commands.ts	{ok:false}+code+reason|zh=1
+neuro-book/src/plugins/workbench/web/commands/panel-commands.ts	{ok:false}+code+reason|expr=2
+neuro-book/src/plugins/workbench/web/commands/part-commands.ts	{ok:false}+code+reason|expr=2
+neuro-book/src/plugins/workbench/web/commands/view-commands.ts	{ok:false}+code+reason|expr=12
+neuro-book/src/plugins/workbench/web/components/WorkbenchPanelSurface.vue	模板绑定 :error|:message|:title=…message|reason|detail|none=1
+neuro-book/src/plugins/workbench/web/components/WorkbenchShellLayout.vue.ts	{ok:false}+reason|zh=1; {ok:false}+reason|expr=1
+neuro-book/src/plugins/workbench/web/components/WorkbenchViewFrame.vue	模板插值显示 .message|.reason|.detail|.error|none=3
+neuro-book/src/plugins/workbench/web/plugin.ts	diagnostics.record({level})|expr=9
+neuro-book/src/sdk/command-helpers.ts	throw new *Error|zh=3
+neuro-book/src/sdk/plugin.ts	throw new *Error|zh=4
+neuro-book/src/web/FailurePage.vue	模板插值显示 .message|.reason|.detail|.error|none=1
+neuro-book/src/web/boot.ts	throw new *Error|zh=1
+neuro-book/src/web/host/connection.ts	class ConnectionError extends Error|expr=1; throw new *Error|zh=3
+neuro-book/src/web/host/remote-session.ts	{ok:false}+reason|expr=3
+neuro-book/src/web/host/window.ts	class BootstrapRejected extends Error|expr=1; throw new *Error|zh=4; diagnostics.record({level})|zh=6; throw new *Error|expr=1; throw new BootstrapRejected|zh=9; throw new BootstrapRejected|expr=1
+
+# 文件数 888；AST 汇点总数 678

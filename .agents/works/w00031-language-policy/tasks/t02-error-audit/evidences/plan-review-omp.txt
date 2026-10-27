@@ -1,0 +1,87 @@
+# t02 计划审查
+
+### 1. 重要：盘点范围漏掉新应用根 `src/shared`、SDK 构建/作者面与 nb-runtime 的核心失败模块
+
+- **严重程度**：重要；**类别**：遗漏；**位置**：`.agents/works/w00031-language-policy/tasks/t02-error-audit/plan.md:17-22`、`/tmp/w00031-review/t02-audit/brief-backend.md:1-19`、`/tmp/w00031-review/t02-audit/brief-frontend.md:1-19`
+- **现象**：后端范围列了 `packages/neuro-book` 的 `src/server`、`src/backend`、`src/plugin-platform`、`src/project`、插件 `backend/` 与 `shared/`，前端列了 `src/web`、`src/ui`、插件 `web/`、`src/sdk`，但两边都没有声明 `packages/neuro-book/src/shared/`。该目录实际拥有 `localized-text.ts`、`settings.ts`、`storage.ts`、`projects.ts` 等跨边界合同和错误映射。前端只列 `plugin-sdk/examples`，没有 `packages/neuro-book/plugin-sdk/` 的 `pack.ts`、`cli.ts`、README、template 与生成的 SDK 公开面；`nb-story/skill/`、应用 `scripts/` 也没有明确 owner。后端对 `nb-runtime` 只列 `remote`、`diagnostics`、`plugins`、`plugin-manifest`，没有 `application`、`lifecycle`、`services`。
+- **为什么是问题**：这些不是旁枝：`src/shared/settings.ts` 定义设置失败码，`src/shared/storage.ts` 定义 Storage 失败合同，`src/shared/localized-text.ts` 是待迁移的文字实现；SDK 根入口当前公开 `formatText`/`localize`，作者 tarball 与宿主模块表决定旧插件行为；`nb-runtime` 的 `application`、`lifecycle`、`services` 实际产生启动门禁、收口、依赖解析和 `FailureError`/`ServiceRevokedError`。不补范围，报告可以满足“每条最低通道有一行”却没有这些合同的生产者、消费者和持久化去向，t03 会在错误码/诊断迁移时重新发现同一批路径。
+- **如何核实**：对照计划两条范围与实际文件：`packages/neuro-book/src/shared/{localized-text,settings,storage}.ts`、`packages/neuro-book/plugin-sdk/{pack,cli}.ts`、`packages/neuro-book/src/sdk/index.ts`、`packages/neuro-book/src/backend/plugin-host-modules.ts`、`packages/nb-runtime/src/{application,lifecycle,services}`。例如 `packages/nb-runtime/src/application/bootstrap.ts:109-248`、`lifecycle/contracts.ts:45-218`、`services/composition.ts:320-533` 都有失败/错误摘要通道。
+- **建议改法**：把 `packages/neuro-book/src/shared/**` 作为独立 shared slice，由前后端报告共同引用但指定一名 owner；把 `plugin-sdk/**`、生成 SDK、作者 CLI、template 与 `plugin-code-loading`/`plugin-install` 兼容面列入前端或单独 SDK slice；把 nb-runtime 的 `application`、`lifecycle`、`services` 加入后端范围。对 `nb-story/skill`、应用 `scripts` 明确“盘点”或“非目标”，不要靠“除 web 外”或目录猜测。
+
+## 第 1 条的核实补充与勘误
+
+- 第 1 条中把 `nb-story/skill/` 说成没有 owner 不成立：计划写的是 `packages/nb-story` 除 `web/` 外，已经覆盖 Skill。`nb-runtime` 列了整个包，括号中的四个模块未写“仅”，不能据此断言 `application`、`lifecycle`、`services` 被排除；这部分应降为范围措辞需要消歧，不计为独立遗漏。
+- 第 1 条保留的实际目录缺口是新应用的 `src/cli/**`、根 `src/shared/**`、`plugin-sdk/` 除 examples 之外的作者 CLI/构建实现，以及包内 `scripts/`。其中 `src/cli/output.ts:8-17,29-37` 直接把 `CliFailure` 生成文本或 `{ok:false,code,message}`；`plugin-sdk/cli.ts:75-94` 把构建问题、脚手架错误和系统异常写 stderr；根共享校验 `src/shared/settings.ts:169-186,219-252` 直接产生中文 TypeError 或拒绝说明。不能仅用其它 CLI 或“共用校验”类别的一行替代这些目录。
+
+### 2. 重要：固定列缺少错误域身份、字段转换与合同版本，不能直接支持按域切片
+
+- **严重程度**：重要；**类别**：接口与合同；**位置**：`.agents/works/w00031-language-policy/tasks/t02-error-audit/plan.md:26-33`、`/tmp/w00031-review/t02-audit/common.md:11-13`
+- **现象**：通道表只要求通道名、生产者、消费者、语言、读者、持久化、有无稳定码、旧数据读取与备注；错误表只要求类型、包、有无 code、码值、重名情况。两表没有共同的错误域/合同标识，也不要求记录命名空间、码与结构化参数的具体字段路径、逐跳转换/丢失位置、控制流语义、schema/协议/持久化版本及对应 Spec。按“通道名”合并，无法可靠区分同名码属于哪份合同。
+- **为什么是问题**：t03 要决定“拥有者命名空间 + 码”、字符串槽变参数、未知码回退和旧数据读取，并按错误域而不是按包迁移。当前代码的远程失败是 `code/cause/detail`，命令失败是 `code/reason`；命令结果还可成为远程成功结果里的业务值，两个 `unavailable` 不能合并为一个消息键。另一个已核实的例子：`nb-story/src/qa/web-events.ts:38-42` 的实时事件只转前 500 字文字与 isError，不转 details；`nb-agent-ui/src/harness.ts:215-236` 的日志路径却保留 details。只记“进模型/显示/持久化：是”会掩盖两条路径有不同字段与不同迁移点。
+- **如何核实**：对照 `packages/nb-runtime/src/remote/protocol.ts:45-53,226-246`、`packages/neuro-book/src/plugins/commands/shared/contracts.ts:26-42,159-180`，以及上述事件/日志适配器。`packages/nb-story/src/contract/qa-record.ts:42-50` 有 `code/kind/message`，但 `src/web/qa/record-messages.ts:17,28` 只使用 message；这也不能靠包名和“有稳定码”推导出界面拿得到码。
+- **建议改法**：为每条独立错误合同指定稳定的错误域 ID，记录所属命名空间、类型/schema/Spec、版本、码与参数的字段路径，以及该 ID 在通道表与码表之间的关联；同一合同跨通道逐跳标明“保留/改名/包裹/截断/丢失”和转换位置。保留 `unknown-outcome`、取消与失败的区别，不把它们统一为普通错误；不存在参数或版本时如实写“无”。这只是盘点现状，不要求 t02 先设计新合同。
+
+### 3. 重要：两份简报实际指定了不同源码快照，合并无法复现同一条链路
+
+- **严重程度**：重要；**类别**：不变量；**位置**：`/tmp/w00031-review/t02-audit/brief-backend.md:3`、`/tmp/w00031-review/t02-audit/brief-frontend.md:3`、`.agents/works/w00031-language-policy/tasks/t02-error-audit/plan.md:33`
+- **现象**：后端简报指定 detached worktree，前端简报指定仍在推进的主工作区，均未要求记录源码提交、工作区变更或文件摘要。实际只读执行 `git rev-parse HEAD && git -C /home/notnotype/CodeRepository/neuro-book rev-parse HEAD`，两处分支头分别为 `346d1c336eddede9ac99e4fa24c16a8f9c18545b` 与 `977dbd8a6ca2ea8589c04beac9660db7904d298b`，不是同一提交；不能继续用“等同 master 当前提交”证明一致。
+- **为什么是问题**：报告靠文件:行互相拼接生产者与消费者，计数也取决于源码集合。只读限制审查者不写，不会阻止主工作区被其它任务更新；两个半链路可以各自正确但从未在同一版本共存，行号、字段与计数随之无法核对。当前不同 HEAD 本身不证明相关源码已有差异，但足以证明简报没有固定可复现的共同基线。
+- **如何核实**：上述两个 `rev-parse` 的实际输出；对照两份简报第 3 行。没有执行 checkout、reset、stash 或任何仓库写入。
+- **建议改法**：两名盘点者都读取同一个固定只读源码 worktree，在报告头记录相同的完整提交 ID；治理用的 Work/Task 继续明确读取主工作区真相源，并分别记录读取时间/摘要。若确实必须读不同 checkout，先证明受审源码集合内容一致并记录差异清单，不只比较分支名称。计数与合并验收使用同一基线。
+
+### 4. 重要：最低验收只覆盖粗粒度承载形式，允许漏掉状态型拒绝和独立持久化失败
+
+- **严重程度**：重要；**类别**：遗漏；**位置**：`.agents/works/w00031-language-policy/tasks/t02-error-audit/plan.md:26,46`
+- **现象**：包范围包含 Workflow、History、设置、Storage、项目宿主和插件平台，但最低验收只要求列出的通道类别各“一行或无”。清单没有明确列出插件安装/升级与启动未加载状态、设置层 invalid 快照、Storage 的损坏/不支持版本状态与订阅结束、项目子进程启动 IPC/输出转发、Workflow 的 Run 状态持久化与控制失败，以及 History 的异常与不可用结果。这些不全是 `Error` 子类、诊断查询或某个 HTTP 错误体。
+- **为什么是问题**：错误表罗列类型不能代替通道追踪，通用“跨进程 detail”“日志”“共用校验”各一行也不能证明这些路径被盘点。真实例子：`nb-workflow/src/runner-execution.ts:156-175` 把异常降为 `run.error` 字符串，`src/types.ts:375-395` 将它放进 Backend 状态，既不是会话 JSONL 也不是 QA；`nb-history/src/types.ts:153-165` 的 `available:false/reason` 不是异常，也没有 code；`Storage.RecordSnapshot` 的 `corrupt/unsupported-version` 不能归为普通调用失败。只按最低类别验收会产出表面齐全、缺少迁移消费者的矩阵。
+- **如何核实**：另外已静态核对 `packages/neuro-book/src/plugin-platform/backend/inventory.ts:34-44`、`plugin-platform/shared/types.ts:28-76,141-169`、`src/plugins/settings/shared/contracts.ts:85-91`、`src/shared/storage.ts:158-177,191-213`、`src/project/start.ts:116-118,165-168` 和 `src/server/projects/manager.ts:139-157,221-258`。HTTP 准入/来源拒绝与通用异常由 `src/plugins/http/backend/dispatch.ts:75-144,221-223` 生成，应与插件业务响应分别盘点。当前插件管理实现仍是重启生效，不能按热插拔 Spec 的目标时序虚构当前代码已有回滚通道。
+- **建议改法**：把以上各错误域的调用失败、状态快照、订阅结束和持久化路径加入必查表，逐项关联具体通道 ID；合并验收同时检查“域 × 承载路径”，不是只查一级类别有没有一行。尚未实现的热插拔/回滚明确标为“Spec 规划、当前无实现”，不要和当前不存在的通道或没有追到的通道混用一个“无”。
+
+### 5. 重要：可复现计数不等于语义正确，随机抽 10 行也检不出漏行
+
+- **严重程度**：重要；**类别**：测试；**位置**：`.agents/works/w00031-language-policy/tasks/t02-error-audit/plan.md:28,33,46,55-56`、`/tmp/w00031-review/t02-audit/common.md:6-7,11-13`
+- **现象**：计划让两名盘点者各自声明是否包含测试、注释、领域文案，但没有统一文件集合、计数单位（匹配行/表达式/调用点/文件）、跨行与变量拼接处理、语义候选复核和跨区去重规则；合并只随机抽每区 5 行。计划第 56 行还让两区写对侧的“猜测位置”，简报却明确要求追不到写“未追到”。完成判据不要求未追到的跨区链路最终被解决，也不核对没有出现在表里的通道。
+- **为什么是问题**：同一命令可以稳定重复算错。源码中的 `reason` 有领域记账原因（`nb-story/src/contract/contract.ts:224-234`）、稳定枚举（`nb-history/src/types.ts:153-165`）和自然语言失败；`wf.log` 的文字由工作流作者提供并进入 Run 状态与事件（`nb-workflow/src/workflow-context.ts:68-74`），不天然等于本包开发诊断。按字段名或“含中文”计数会混合不同读者，单行正则还会漏掉多行构造和通过变量传入的文字。随机检查已存在的行只能纠正所抽行，不能发现遗漏；两边重复统计共享入口或对侧消费处也会使合计偏大。
+- **如何核实**：对照计划和三份 brief 的上述要求，再读这些实际同名异义字段。计划没有规定共同扫描清单、样本 seed/行 ID、未解析链路的关单条件或遗漏检查，因此不能把“有命令且随机 10 行核对通过”当成完整性证明。本条不是声称尚未执行的盘点已经统计错误。
+- **建议改法**：先固定源码基线、文件清单和计数单位；把文本搜索结果称为候选集，分别输出原始匹配数与按调用边界核实后的分类数，保留无法分类项与去重键。已知高风险链路（命令通知、SSE/权威日志/QA 降级、nbdev 共用校验、远程握手、状态型拒绝）做定向端到端核对，再用可复现随机样本补查；抽查表记录每个样本的字段路径和证据。合并时对照必查错误域及全部目录检查漏行，集中处理“未追到”项；不把猜测位置升级成已证实消费者。
+
+## 补充边界与有效结论
+
+- 第 1 条按前面的勘误收窄后仍为 1 条重要问题：新应用的目录分工不是完备分区。再补一个归属边界：`src/plugin-platform` 整个分给后端，实际含 `web/plugin-code.ts` 的浏览器脚本装载失败（例如 `code-load-failed`、`module-not-shared`）；整个 `plugin-sdk/examples` 分给前端，实际含 `plugins/*/backend`、`shared` 与场景测试。可保持每个目录只有一个 owner，但说明必须明确跨侧追踪与复核责任，避免按文件后缀或“examples 就是前端”判断；插件根描述文件也应明确归属。包内开发脚本是否属于产品失败通道可以明确排除，不必把所有辅助脚本硬纳入。
+- 第 2 条不要求每个建议都占一列，也不要求 t02 发明新错误对象：可用现有 10 列加结构化附件，只要必须记录错误域关联、现有字段路径/转换、Spec/schema 与版本。没有这类关联，备注可以写，但不能保证 t03 收到。
+- 第 4 条不是说范围中已经排除了 Workflow/History；它们按包名确实在范围内。问题是完成判据只检查通道大类，缺少对状态型失败和不同持久化载体的逐域验收。
+- 第 5 条不要求 t02 做全仓数据流分析或真实模型调用。搜索候选、明确语义类别、定向跨侧核对和覆盖清单足以弥补当前验收缺口。
+
+## 未发现问题的方面
+
+- 根 `package.json:9-30` 有 21 个 workspace 包，Work 排除 5 包；计划按包名覆盖其余 16 包，没有发现漏掉整个非排除包。第 1 条的问题在新应用包内目录及含混的分区边界，不是漏包。
+- 计划已明确包括 nb-agent-ui 的 harness 适配器、nbdev HTTP `errors[].message` 和共用校验、Agent 事件/SSE、`agent_message`/`run_end.error`、QA、CLI human/JSON、Task 证据与测试断言；未把前轮已补入的这些大类重复报成遗漏。
+- 计划允许两份报告都追到对侧，再由主会话按代码合并，原则可行；不要求机械地让每份报告只有自己一端。需要补的是共同基线、合同标识、字段追踪和未解析链路的收口条件。
+- 三份 brief 的 10 列通道表、5 列错误清单、计数、发现结构一致，实验目录、只追加、不开子审查、禁止仓库写入的约束一致。未把 common 内容在派发说明中重复视为独立缺陷。
+- 没有要求本次 t02 改代码、设计新投影或执行 t05；只读盘点与 t03 设计、t04 迁移的先后符合 Work 已确认决定。这里没有建议用更宽的统一错误对象、按旧文案猜码或放宽会话快照比较。
+
+## 各级数量
+
+| 范围 | 阻断 | 重要 | 建议 | 合计 |
+|---|---:|---:|---:|---:|
+| t02 计划有效发现（第 1 条已收窄；第 2 到第 5 条） | 0 | 5 | 0 | 5 |
+
+## 实际验证与边界
+
+路径基准：本报告源码、Spec 与 ADR 相对路径指 `/home/notnotype/CodeRepository/neuro-book/.worktree/review-w00031/`；current Work/Task 指 `/home/notnotype/CodeRepository/neuro-book/.agents/works/`。盘点说明是本次指定的 `/tmp/w00031-review/t02-audit/` 三份草稿。当前只有说明草稿，没有前后端实际盘点报告或合并矩阵；本报告审的是执行计划，不声称盘点已经发生。
+
+| 实际命令或检查 | 结果与证明范围 |
+|---|---|
+| `git rev-parse HEAD && git -C /home/notnotype/CodeRepository/neuro-book rev-parse HEAD` | 分别是 `346d1c336eddede9ac99e4fa24c16a8f9c18545b`、`977dbd8a6ca2ea8589c04beac9660db7904d298b`。证明草稿指定的 checkout 头不同，未证明具体受审源码一定不同。 |
+| `bun /tmp/w00031-review/combined/lab/channel-shape-smoke.ts` | 退出码 0。调用 worktree 真实 `webEventOf`、`createHarnessTranscript`、`messagesFromRecord`、`createOutput`：实时工具结果文字为 501 字且 details 缺失；日志还原 605 字原文及 `{code:"not_found",id:"example"}`；QA 降级显示旧 message；CLI JSON 保留 `{ok:false,code,message}`；适配器 `problems: []`。只证明纯数据转换，未启动 Provider、模型、HTTP/SSE 或浏览器，不声称覆盖真实事件时序。 |
+| `bun packages/neuro-book/src/cli/main.ts --json start --port invalid --no-open --state-root /tmp/w00031-review/combined/lab/cli-state` | 预期的退出码 2；stdout 为 `{"ok":false,"code":"usage","message":"端口必须是 0 到 65535 的整数，收到 invalid"}`。运行了真实 CLI 失败路径，未启动应用服务。 |
+| 源码/Spec 静态核对 | 包括本报告各发现所列合同、设置/Storage、项目子进程、插件管理、HTTP dispatcher、Workflow 与 History；没有把 planned 热插拔 Spec 当作现成实现。 |
+| 文档门禁 | 本会话 A 阶段已运行 `bun run docs:check` 与 `bun run governance:check`，退出码均为 0；B 只读分析，没有重新运行。该结果不验证仓库外报告，也不验证尚未形成的 channel-matrix。 |
+| 追加计数 | 每次 `cat >>` 后执行 `grep -c '^### ' /tmp/w00031-review/combined/report-t02-plan.md`，依次为 1、2、3、4、5；本次结尾追加不增加发现标题。 |
+
+未运行产品测试套件、typecheck、e2e、浏览器、开发服务、真实 Provider/Model 或提示词评测；未统计全仓中文诊断数量，也没有把旧审查实验当作本次运行结果。没有修改仓库、安装依赖、开子代理或执行远端写入。
+
+## 流程核实更正
+
+- **踩坑**：初稿把整包后面的括号示例误当排除范围，并漏看 `nb-story` 的“除 web 外”已涵盖 Skill；按仅追加约束在第 1 条勘误中撤回过宽部分，保留实际目录缺口。
+- **工作流损耗**：A 初稿 5 条中撤回 3 条、收窄 1 条；原因是先沿历史初稿推演，没有优先采用前轮报告末尾的有效/撤回结论。现有 reviewing 已要求逐条核实、处理前轮结果；不建议再新增重复规则。本次所有更正与最终数量都已写进各自报告，不要求修改治理规则。

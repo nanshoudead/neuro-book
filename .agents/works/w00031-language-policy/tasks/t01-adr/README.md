@@ -30,10 +30,10 @@ updated: 2026-10-27
 
 验证：`bun run docs:check`、`bun run governance:check` 的 `failures` 为空，没有本次改动的警告。
 
-实现审查待处理（omp，与 t02 计划审查同一会话）。
+实现审查：omp（与 t02 计划审查同一会话），有效 2 条，都已处理（`d98265c6e`）：诊断不本地化的理由改为本项目自己的取舍、去掉“vim、git 都不翻诊断”的不准确概括；后果表补上 `runtime/plugin-channel.md`、`runtime/server-host.md` 与远程路由，交 t03。撤回的 3 条见报告 `evidences/impl-review-omp.txt` 的勘误。
 
 讨论稿与讨论期审查：`evidences/design-v1.txt` 到 `design-v3.txt`（以 v3 为准），`design-review-omp-r1.txt` 到 `r3.txt`；前端审查与独立设计在 [w00028 t01 证据](../../../w00028-i18n/tasks/t01-requirements/evidences/)。
 
 ## 下一步
 
-处理实现审查；待确认清单里 t01 的一条等开发者追认。
+待确认清单里 t01 的一条等开发者追认。

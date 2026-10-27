@@ -1,0 +1,90 @@
+# w00024 t25 只读设计审查
+
+## 已核实发现（按影响排序，后续证据只追加）
+
+### 1. 阻断：计划追加的是旧 `message`，恢复会话时提醒根本不进入模型历史
+
+- **类别**：正确性／接口合同。
+- **位置**：`.agents/works/w00024-nb-story/tasks/t25-qa-position-change/plan.md:27-30`；`packages/nb-session/src/entries.ts:53-57,76-78`；`packages/nb-harness/src/harness.ts:119-122`；`docs/specs/agent/harness.md:183-184`。
+- **现象**：计划追加 `kind: "message", role: "user"`，却依赖下一轮 harness 自动恢复为“历史、提醒、问题”。实际恢复只收 `kind === "agent_message"`；`message` 是只存文字的旧格式，`meta` 也不会作为模型消息恢复。
+- **为什么是问题**：每次调位置会留下 2 条新日志，但模型收到 0 条位置提醒；系统提示词仍写初始位置，程序工具却改用新 P，计划的核心行为不能成立。
+- **如何核实**：源码逐项对照 `SessionEntry` 与 `createHarness` 恢复分支；后续追加公开 harness 运行实验。
+- **建议改法**：追加完整 OMP 用户消息形状的 `agent_message`（`message: {role: "user", content: [...], timestamp: ...}`），复用 nb-session 的编号；不要为该功能恢复旧文字消息格式。验收必须检查真实 provider 请求体包含这条独立提醒。
+
+### 2. 阻断：直接改已发布日志破坏成对保存；`expectTurns` 也检测不到改位置
+
+- **类别**：不变量／并发与恢复。
+- **位置**：`plan.md:27,34,53-55,61`；`packages/nb-story/src/core/qa-records.ts:9-15,165-201,265-290`；`packages/nb-story/src/qa/engine.ts:415`；`docs/specs/story/qa.md:170,184,239-244,326`（本报告的 `plan.md` 均指本次审查的计划绝对路径）。
+- **现象**：计划规定“往会话日志追加 1 条 message 和 1 条 meta，再改记录”，没有复制发布、失败回滚或版本比较合同。现有记录用 `log.sha256` 校验当前日志，`save` 只比对轮数，不带跨进程锁。
+- **为什么是问题**：就地追加到旧日志到改记录之间，任何读者都会得到摘要不符的 F8；写盘失败或进程退出会永久破坏旧的一对。改位置不增加轮数，所以 A 开始第 2 轮、B 改位置并成功、A 随后用 `expectTurns: 1` 保存时仍会通过，把 B 的位置与提醒覆盖；这是整个模型运行时长的窗口，不是既有 Spec 接受的核对与改名之间的极短窗口。两个改位置也不能由轮数检测冲突。服务内 `preparing`／`runs` 不能检测 CLI 或另一个服务进程。
+- **如何核实**：`QaRecords.save` 第 191-199 行只有 generation 与 turns.length 比较；`sessionLog` 第 275 行对原日志全文比摘要。后续追加公开持久化入口实验。
+- **建议改法**：位置更新同样复制出新的完整日志，再用一次记录改名发布；`ask`、位置更新与删除共用写入协议，比较读取时的日志摘要或明确 revision，并在跨进程锁内重读、比较、发布。若坚持“有在途轮次就拒绝改位置”，还需可跨进程识别的运行占用；仅增强保存比较只能防丢，不能在点击时断言没人追问。补改位置与追问／改位置／删除交错，以及写入失败仍保留旧的一对的验收。
+
+### 3. 阻断：已持久化但尚未提问的位置没有读取规则，下一轮会自动退回旧位置
+
+- **类别**：正确性／状态模型。
+- **位置**：`plan.md:26-32,39-41`；`packages/nb-story/src/qa/engine.ts:209-217`；`packages/nb-story/src/server/qa-service.ts:364-374,441-442`。
+- **现象**：`changePosition` 不产生轮次；计划同时坚持 `conversation.at` 是初始位置、续问默认取上一轮 `at`，`qa.get`／`qa.list` 的显示取最近一轮。新增 `qa.position` meta 虽写入，却没有任何条款规定开始续问、列表或 `qa.get` 要读取它。
+- **为什么是问题**：第一轮 P=27，立即改到 40 后尚无第二轮：上一轮仍为 27，`conversation.at` 也仍为 27。刷新会显示 27，不带 `at` 的追问也会按 27 构建工具；连续改 27→40→35 时，第二条提醒的“从 A”也无可靠状态来源。写了持久日志但缺少从该状态恢复执行的合同。
+- **如何核实**：按计划列出的读取优先级逐项代入“已改位置、轮数不变”的场景，无一可得到 40；现有服务仅投影 record.at，meta 只被当日志交给页面。
+- **建议改法**：定义单一的“当前位置”来源及明确优先级：例如记录增加 currentAt／positionRevision，`turns[].at` 只描述已经运行的轮；或明确从最后一条有类型的定位事件恢复。引擎、`qa.get`／`qa.list` 的 `lastAt`、CLI `qa`、控件与新提醒的 from 都使用同一个解析规则。不要改写上一轮的历史 `at`。补“只改位置→刷新→无 at 续问”和多次位置更新的验收。
+
+#### 问题 1 的运行证据
+
+命令：`bun /tmp/review-t25-design/harness-reminder.ts`，退出 0。公开 `createHarness` 跑第一问、关闭、追加 2 条日志、恢复、再 `turn`，只替换模型输出，不发网络请求。
+
+- `kind=message`：第二次请求消息依次为 `user(第一问), assistant(第一问回答), user(第二问)`，提醒缺失。
+- `kind=agent_message`：第二次请求消息依次为 `user(第一问), assistant(第一问回答), user(独立提醒), user(第二问)`。
+- 两组日志均为 9 条、两轮均 `stop`，系统提示词仍为“读到第 27 章。”。
+
+#### 问题 2 的真实引擎与磁盘运行证据
+
+命令：`env REVIEW_T25_KEY=local-only bun /tmp/review-t25-design/position-save-race.ts`，退出 0。2 章样例书导入到报告目录内；第一轮通过真实 `askQuestion` 保存，第二轮在脚本化模型请求处等待，此时用公开 `QaRecords.save` 发布同轮数、追加定位消息与 meta 的新日志，再放行第二轮。没有真实模型调用。
+
+输出：`positionSaved=true, staleTurnSaved=true, turns=2, positionMetaSurvived=false`。即使位置更新已经使用“复制新日志再发布”的较安全方案，已有 `expectTurns` 仍会让运行中的旧轮覆盖它。之后直接向当前日志追加 1 条 meta，`getWithLog` 返回 `ok=false, problem="会话日志与记录里的摘要对不上（被改过或损坏）"`。
+
+### 4. 重要：只按提醒文字识别，会把合法用户问题伪装成系统提醒
+
+- **类别**：正确性／信任边界。
+- **位置**：`plan.md:40`；`packages/nb-story/src/web/qa/turns.ts:15-17,81,114-149`；`packages/nb-story/src/web/qa/source.ts:95-101,128-131`。
+- **现象**：计划把“整条文本严格匹配 `<system-reminder>\n…\n</system-reminder>`”当成消息来源证明；用户完全可以把同样标签或整段程序文案作为问题提交。
+- **为什么是问题**：这类真实问题会被标为“系统提醒”、从提问中剔除；现有 `composeMessages` 还会按记录再补一条普通提问，形成同一用户内容的重复展示，或者使系统提醒归到错误的问答轮次。用户内容被赋予程序消息的界面身份，来源不可信；严格的首尾／全文匹配不消除冲突。
+- **如何核实**：问题是任意字符串，`askQuestion`／`qa.start` 没有禁止这段内容；现有分轮只用 `logFrom` 与 `isQuestion`，并非文本的可信来源。后续追加真实引擎→网页 source 的反例。
+- **建议改法**：按结构化来源识别：记录定位事件对应消息的 seq（例如 meta 明确给出 messageSeq），或在有合同的消息字段里标明程序生成；文本只负责展示，不负责判身份。只取某个已知 meta 之前／之后 1 条也需校验关联，不要把所有带标签的用户消息改为系统消息。
+
+### 5. 重要：连续 user 已知存在拒绝方，计划没有兼容决策与协议验收
+
+- **类别**：接口兼容／测试。
+- **位置**：`plan.md:30,59-65,74`；`node_modules/@oh-my-pi/pi-ai/src/providers/openai-completions.ts:2087-2111`、`openai-shared.ts:2004-2055`、`anthropic.ts:4881-4942`、`google-shared.ts:180-213`。
+- **现象**：当前 OMP 在 OpenAI Chat、Responses、Anthropic、原生 Google 的传输层都保留两条连续的 user，不替本功能合并、不在本地报错。DeepSeek Chat 路径与 Gemini OpenAI 兼容网关路径也原样保留。计划仅写“个别提供方可能”，没有列支持边界、禁止／降级行为或协议侧验收。
+- **为什么是问题**：这不是 OMP 会兜底的风险。DeepSeek 官方仓库已有 `deepseek-reasoner does not support successive user or assistant messages` 的原始报错记录（2025-01-21，issue #21，2025-06-18 因 stale 关闭，并非已修声明）。本功能支持换模型、四类接口及自定义网关；位置更新成功后，下一问可能在这些严格交替端点必然失败，而本机总是接收任意请求的脚本端点测不出。
+- **如何核实**：`bun /tmp/review-t25-design/provider-adjacent.ts` 退出 0；6 条真实 harness→OMP provider 路径各捕获 1 个请求，末尾均为 `user(提醒), user(第二问)`。fetch 接缝固定回本地 400 仅终止实验，**不是远端服务拒绝的实测**。历史原始来源：https://github.com/deepseek-ai/DeepSeek-R1/issues/21 。DeepSeek 当前线上行为与具体 Gemini 网关是否仍拒绝未调用真实模型验证，不能把历史问题写成当前全体提供方都拒绝。
+- **建议改法**：明确“独立持久消息”的合同与 provider wire 表示的边界；如允许仅传输层按已知 provider capability 合并连续 user，日志与网页仍保留独立消息。如开发者要求 wire 也必须两条，则必须明确不支持的端点并在位置更新前拒绝，不能静默合并或插入虚假的 assistant。增加至少四种协议请求捕获与严格交替端点的确定性验收；真实提供方验证仍须授权。
+
+### 6. 重要：把默认 Markdown 路径当成交卷强校验，风险缓解结论不成立
+
+- **类别**：安全与性能／合同边界。
+- **位置**：`plan.md:15,26,62,69,74-75`；`packages/nb-story/src/qa/engine.ts:263-269,347-351,376-388`；`packages/nb-story/src/qa/story-qa.profile.tsx:35`；`docs/specs/story/qa.md:21,183,216-221`。
+- **现象**：风险写成“程序按新 P 裁剪工具与交卷校验，越界必被拒，模型最坏是多试几次”，但默认新对话是 Markdown，根本没有 `answer` 工具。文字回答的越界出处只标注、至多复查 1 次；仍不合格的回答照样保存与显示，没写出处的后文根本不被程序识别。
+- **为什么是问题**：不只是计划承认的“往回调后模型仍知道旧内容”。保留的系统提示词明令只按初始 P 回答，向前调整时它与 user 提醒直接冲突，可能拒绝新增范围，程序不可能强迫它重试；向后调整时 Markdown 可能输出后文且程序不会拒绝。结构化作答也只硬校验出处，不校验无出处的正文剧情。计划用不存在的程序兜底低估了功能有效性与防剧透风险。
+- **如何核实**：`replyOf` 将不合格 ref 收进 `unverifiedRefs` 而返回正文，`outcomeOf` 直接记 answered；`runTurns` 一次复查后仍使用文字结果。系统消息第 35 行包含“只依据这个位置以前的内容回答，不提及之后的任何内容”，并非仅记录开场背景。
+- **建议改法**：分别写清“工具与结构化出处的硬边界”“Markdown 仅标注／复查”“旧历史与正文无法撤回”。验收同时覆盖 Markdown 与 structured，不能只测交卷。保留 initial／快照兼容不是必须保留矛盾系统指令的理由；应明确位置状态的优先级协议（例如系统规则承认程序生成定位事件为当前 P，旧 initial 仅为初始值），评估 Profile 兼容和前缀缓存代价；若暂不改，明确这是功能可能不生效的已知限制，而不是最多多试几次。
+
+### 7. 建议：Task README 的 3 个合同链接全部失效
+
+- **类别**：文档。
+- **位置**：`.agents/works/w00024-nb-story/tasks/t25-qa-position-change/README.md:12`。
+- **现象**：3 处 `../../../../docs/specs/story/{qa,viewer,cli-skill}.md` 都解析到仓库 `.agents/docs/specs/story/`，不存在。
+- **为什么是问题**：Task 唯一快照的合同入口不可跳转，实施和交接不能按链接找到依据。
+- **如何核实**：`pathlib.Path.resolve()` 后逐个 `exists()` 均为 false；实际合同在仓库根的 `docs/specs/story/`。
+- **建议改法**：3 处均再加一层 `../`，使用 `../../../../../docs/specs/story/...`。
+
+### 8. 重要：往回改后以最近一轮位置判断剧透警告，会把含后文的旧答案标成安全
+
+- **类别**：正确性／既有防剧透约定。
+- **位置**：`plan.md:31,41,75`；`packages/nb-story/src/web/pages/QaPage.vue:151-154,468-469,495-497`；`docs/specs/story/viewer.md:110-114`。
+- **现象**：计划让列表与页头“读到”改用最近一轮的位置，同时保留此前的全部对话。现有高亮警告与列表 note 都直接拿这一份位置和查看器位置比较。
+- **为什么是问题**：第 1 轮在第 40 章回答并出现后文，改到第 27 章再问 1 轮后，最近一轮为 27；查看器也在 27 时，列表与页头原来的“答案可能含后文”警告消失，但第 40 章那轮仍完整可见。提醒里让模型别引用旧内容，不会从页面删除旧答案。当前位置与历史展示涉及的最高位置已是两个不同概念，不能再共用一个字段。
+- **如何核实**：现有 `before(book.at, row.at)`／`before(book.at, conversationAt)` 直接决定警告；把 row.at 按计划改为 latestAt=27，旧轮 at=40 不再参与。无需真实模型即可构造两轮记录复现计算。
+- **建议改法**：控件／下一轮工具用 currentAt；整个对话的安全提示至少按历次轮次的最大有效 at（含旧记录回落）判断，或逐轮明确标阅读位置与后文风险。不要让“当前位置降了”解除旧答案的后文提醒。补“40 章回答→回调到 27→查看器 27”的列表与对话验收。
+

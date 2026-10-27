@@ -78,7 +78,7 @@ async function readLimited(request: Request, limit: number): Promise<string | nu
 }
 
 /** 问答与配置的失败码对应的 HTTP 状态码。 */
-const QA_HTTP_STATUS: Record<string, number> = {qa_unconfigured: 400, qa_config_write_failed: 500, full_read_unavailable: 400, qa_not_continuable: 409, qa_busy: 409, config_conflict: 409};
+const QA_HTTP_STATUS: Record<string, number> = {qa_unconfigured: 400, qa_config_write_failed: 500, full_read_unavailable: 400, qa_not_continuable: 409, qa_busy: 409, qa_position_fixed: 409, qa_conflict: 409, config_conflict: 409, skill_exists: 409, skill_target_invalid: 400, skill_install_failed: 500};
 
 /** RPC 的空闲超时：最长的是测试连接（最多等模型 60 秒）。 */
 const RPC_TIMEOUT_SECONDS = 120;

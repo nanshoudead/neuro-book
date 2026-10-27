@@ -1,0 +1,98 @@
+# t01 实现审查
+
+### 1. 重要：ADR 把待追认的提示词解释写成 accepted 决策，并把追认挂到已搁置 Task
+
+- **严重程度**：重要；**类别**：文档；**位置**：`docs/adr/0034-language-policy.md:67-73`、`docs/adr/0034-language-policy.md:110`、`/home/notnotype/CodeRepository/neuro-book/.agents/works/w00031-language-policy/pending-confirmations.md:5-7`
+- **现象**：ADR 的“决策 4”已经用确定语气规定“契约规定为英文的字段（命令 `description`）和现有英文说明保持原样，等 t05 的评测再定；t05 现在搁置”。但当前唯一待确认项明确把“现有英文说明先不动”解释为“命令 `description` 连新写的也保持英文”并标为“待追认”；`t05` 的 Task README 又明确状态为 `shelved`，下一步是“开发者安排时再开工”。因此 ADR 的 `accepted` 状态包含了尚未追认的解释，并且没有一个当前会执行的追认出口。
+- **为什么是问题**：Work README 已确认的是“现有英文说明先不动、等 t05 对照评测”，不是“新写的所有 command description 也必须等评测”。这两个范围不同：现行 `docs/specs/workbench/commands.md:60` 已明确 command `description` 是稳定英文语义说明，新增声明应继续遵守现行合同；真正未定的是是否改动既有英文说明，以及 t05 搁置后何时重新评估。把它们合并成 accepted ADR 规则，会让作者把“待追认的自主解释”当成长期架构决定，也让“等 t05”变成无期限的死依赖。
+- **如何核实**：对照 `docs/adr/0034-language-policy.md:71`、`docs/specs/workbench/commands.md:60`、`pending-confirmations.md:7` 与 `tasks/t05-prompt-language-eval/README.md:22-28`；无需运行产品即可看到 ADR 状态、待确认结果和 Task 状态不一致。
+- **建议改法**：ADR 只写已确认的边界：新写的非合同基础设施提示词用中文；现有英文说明在未作出迁移决定前保持原样；command `description` 继续按现行 Spec 用英文。把“是否迁移既有英文说明及评测门槛”留在待确认清单，不在 `accepted` ADR 中假定 t05 会执行；若要保留当前自主执行方式，明确标为“待追认的暂行解释”，并说明 t05 搁置时不自动推进。
+
+### 2. 重要：ADR 的跨进程规则与现有握手合同矛盾，且没有登记对应真相源
+
+- **严重程度**：重要；**类别**：接口与合同；**位置**：`docs/adr/0034-language-policy.md:40-48,96-110`、`docs/specs/runtime/plugin-channel.md:85-95,238-246`、`packages/nb-runtime/src/remote/node.ts:442-444,496-497`、`packages/nb-runtime/src/remote/router.ts:430-431`
+- **现象**：决策 2 用无条件语气规定“跨进程只传码、结构化参数和安全的 detail”，并把命令通知与跨进程 detail 的迁移交给 t03。但当前跨进程 `FrameSchema` 的 `reject` 帧仍是 `{type: "reject", reason: string, message: string}`，没有 `code`；远程节点离线、准入拒绝和服务端停止路径仍生成中文字符串 `detail`，握手/连接失败也保留 `reason` 与 `message`。后果表只列了 `agent/harness.md`、`workbench/commands.md` 等路径，没有列 `runtime/plugin-channel.md`、`runtime/server-host.md` 或远程路由实现。
+- **为什么是问题**：这不是单纯的“实现尚未迁移”：ADR 已是 `accepted`，当前协议的握手拒绝字段和运行时失败 detail 直接违反其规范性表述。后续 t03 按表操作会看到“跨进程 detail 要改”，却没有被分派的帧 schema、握手合同和连接结果真相源；若只改命令/harness，服务端仍会把中文 `message` 和自由字符串 detail 发给消费方；若直接把 `reject` 改成统一错误对象，又会触及 `additionalProperties: false` 与握手版本合同。决策 2 同时要求各错误域保留形状，必须明确哪些旧字段保留、哪些新增结构化字段，以及版本/旧连接行为。
+- **如何核实**：静态读取 `docs/specs/runtime/plugin-channel.md:246` 的 `reject` schema、`packages/nb-runtime/src/remote/node.ts:443-444,497` 与 `router.ts:430-431`；再逐项对照 ADR 后果表 `docs/adr/0034-language-policy.md:101-110`，会发现这些 owner 与文件不在表中。可用 `grep` 搜索 `Type.Literal("reject")`、`RemoteConnectResult`、`#offline`、`#stopping` 复现。
+- **建议改法**：在 ADR 后果或 t02/t03 的通道矩阵中单列握手 reject、连接结果、远程路由 runtime failure、业务 detail 四种通道，指定 `runtime/plugin-channel.md`、`runtime/server-host.md` 与实现 owner；分别规定保留的阶段 `reason`、稳定 `code`、结构化 detail、脱敏诊断和 wire 版本迁移。不要用“跨进程只传码”覆盖握手协议，也不要在未更新帧 schema 和兼容验收前声称该边界已经成立。
+
+### 3. 重要：common.md 把“开发诊断”范围写宽，和现有诊断合同及用户文案字段冲突
+
+- **严重程度**：重要；**类别**：接口与合同；**位置**：`docs/standards/code/common.md:34-38`、`docs/specs/runtime/diagnostics.md:36,47,52-59`、`packages/nb-runtime/src/diagnostics/contracts.ts:22-31`、`packages/neuro-book/src/plugins/commands/shared/contracts.ts:37-43`
+- **现象**：新规则把“开发诊断（异常 message、诊断事件 message、日志）用英文”写成统一类别，并要求界面不拿“诊断性的 `reason`、`detail`”作主文案；但现有合同中 `DiagnosticInput.message` 是调用方提供的自然语言消息，`DiagnosticInput` 没有通用 `code` 字段，结构化诊断依靠既有 `event`；命令失败的 `reason` 是公开结果合同的失败说明，不是天然的诊断字段；界面 `FormIssue.message`、`LocalizedText` 也可表示已经投影好的用户文字。`common.md` 没有按 owner/边界区分这些情况。
+- **为什么是问题**：作为“所有源码改动都必须应用”的活跃基线，实施者可把所有叫 `message` 的字段和所有 `reason/detail` 都当英文诊断，或为每条普通 info/debug 事件强行增加错误码。这样会违背 `runtime.diagnostics` 对事件/消息字段的合同，误伤经界面投影产生的用户文字，也与 Work 已确认的“保留各错误域合同、不按诊断文案分支”不一致。更具体地，现有诊断事件 `lifecycle.phase-changed` 等并非失败，不应被“程序需要区分的失败用稳定码”扩写成每条日志必有 code。
+- **如何核实**：静态对照上述 `DiagnosticInput`、`DiagnosticRecord` 和 `CommandFailure` 类型；运行 `grep` 检查 `packages/nb-runtime/src/diagnostics` 的 `event/message` 构造与 `packages/neuro-book/src` 的 `reason` 消费即可复现字段混用。现行 `docs/specs/workbench/commands.md:67-69` 还明确 `reason` 是命令失败结果的公开说明。
+- **建议改法**：把入口规则收窄为：原始开发诊断消息在新增/修改时用英文；程序分支只按所属错误域稳定码；结构化诊断继续使用既有 `event`，不要求普通日志带 code；原始 `Error.message`、诊断性 `reason/detail` 不作为界面主文案，但经界面投影得到的用户文案和命令/表单公开说明不在禁用范围。具体错误码字段、诊断构造入口和各域迁移交 t02/t03/t04 的 Spec/切片定义。
+
+### 4. 建议：ADR 用外部项目行为作“诊断不本地化”理由，结论方向对但引用论据不准确
+
+- **严重程度**：建议；**类别**：文档；**位置**：`docs/adr/0034-language-policy.md:36,61-63,77-79`
+- **现象**：ADR 以“vim、git 这类工具也只翻译给用户看的文字，诊断和调试输出都不翻”支持开发诊断英文；但 Git 官方翻译说明明确只不翻译 plumbing 输出，面向人的 porcelain 输出应翻译，Git 源码也用 gettext 翻译 `fatal:`、`error:`、`warning:` 前缀；Vim 文档明确支持 `:language messages` 设置消息语言，源代码用 gettext 标记错误消息。因此“这些工具的诊断都不翻”不是可核实的事实。
+- **为什么是问题**：这不推翻本项目已确认的英文诊断决定，但 ADR 的长期理由会误导后来者把“行业惯例”当成错误证据，并混淆“面向用户的错误消息”和“开发诊断/调试输出”边界。ADR 应以本项目可观察约束（日志落盘、跨语言检索、错误码稳定、翻译维护成本）作为理由；第三方例子若保留，应精确限定到 Git 的 plumbing/API 输出，而不是把 Git/Vim 整体归类为不翻译诊断。
+- **如何核实**：Git 官方 `po/README.md` 的“Marking strings for translation”写明只不翻 plumbing、要翻 porcelain；Git `usage.c` 对 `fatal: `、`error: `warning: ` 使用 `_()`；Vim 官方 `mlang.txt` 说明 `:language messages` 和消息目录。读取这些公开源即可复现。
+- **建议改法**：删除“vim、git 都不翻诊断”的概括，改写成项目自身取舍；如需类比，写成“Git 区分脚本/API 输出和面向人的 porcelain 输出，本项目把日志/诊断固定为英文、界面失败说明本地化”，并给出本仓库错误码与日志持久化作为直接证据。
+
+### 5. 重要：ADR 省略了 plugin SDK 兼容窗口，和“SDK 尚未发布、直接切换”的实际合同不一致
+
+- **严重程度**：重要；**类别**：不变量；**位置**：`docs/adr/0034-language-policy.md:50-65,112-113`、`docs/specs/runtime/plugin-code-loading.md:25-28,81-86`、`packages/neuro-book/src/sdk/index.ts:41-43`、`packages/neuro-book/src/sdk/entries.ts:14-30`、`packages/neuro-book/src/backend/plugin-host-modules.ts:10-32`、`packages/neuro-book/src/web/host/plugin-modules.ts:25-40`
+- **现象**：ADR 后果最后只写“插件 SDK 还没发布，目录方案落地时直接切换”。实际 SDK 是以 tarball 分发的作者依赖，`plugin-sdk/README.md:33-37` 明确作者从 tarball 安装；应用的宿主模块表按 `SDK_ENTRIES` 给第三方插件提供运行时模块；SDK 根入口当前公开导出 `formatText`、`localize` 与 `LocalizedText`。目录迁移会删除/改形这些导出以及共享模块里的文字类型，但 ADR 没有写 SDK tarball 重建、宿主模块表同步、示例/外部插件重建、旧产物在 `engines.neurobook: ^0.1.0` 下如何拒绝或继续运行。
+- **为什么是问题**：`plugin-code-loading` 明确共享 SDK 子路径就是 `engines.neurobook` 的兼容承诺，宿主模块表是运行时实际提供者；SDK 打包器还把版本写成 `PRODUCT_VERSION`，当前产品为 `0.1.0`。即使 SDK 没有 npm 发布，开发者或第三方仍可持有 tarball。若仅删导出而不改兼容范围，旧插件可能通过清单检查、直到激活时因宿主模块缺少导出而失败；若直接提高不兼容版本，又必须在安装/激活前给出明确 `incompatible-engine` 路径并重建现有示例。W00028 t03 只提到“SDK 还没发布，直接切换”不等于完成兼容合同。
+- **如何核实**：读取 `packages/neuro-book/plugin-sdk/pack.ts:385-399`、`src/sdk/index.ts:41-43`、两份 host module map；再对照 `docs/specs/runtime/plugin-code-loading.md:84` 的共享入口兼容承诺与 `plugin-install.md:47,53` 的 engine 检查。无需发布或安装即可证明 ADR 的后果表缺少这一条切换不变量。
+- **建议改法**：在 ADR 后果/影响表中登记 SDK tarball、`SDK_ENTRIES`、两端宿主模块表、示例插件、`plugin-code-loading` 与 `plugin-install` 的 owner；由 w00028 t03 或明确的插件平台 Task 选定干净切换方案：保留旧导出直到兼容窗口结束，或提高产品/引擎兼容范围并在激活前拒绝旧插件。验收至少覆盖旧 SDK 产物、重建 SDK、宿主表、示例插件清单与真实安装/激活失败路径。
+
+## 未发现问题的方面
+
+- 部分取代 ADR 0023 决策 2、保留 0023 原文与 `accepted` 状态的写法符合 0028、0031 先例；索引补注与新增 0034 行均被 `docs:check` 接受。
+- `additionalProperties: false`、远程写请求 `unknown-outcome` 语义、远程有限 `cause` 枚举与进程内 `Error.cause` 分离、远程/命令 `unavailable` 与 `denied` 重名、工具快照逐字段比较等 ADR 事实与实现一致。
+- 四处内联双语实现（应用、nb-agent-ui、nb-form、nb-markdown）与约 1100 条迁移规模没有证据证明错误；w00028 的 863 条数字是 2026-10-17 统计，口径/时间不同，不能据此否定。
+- `common.md` 对现有中文诊断留待 t04 迁移、迁移前不顺手改的时间边界，未与“迁移完整切换消费者并删除旧入口”冲突；后者要求迁移切片完整，不要求 t01 立即迁移存量代码。
+- 后果表中 w00031 t03/t04、w00028 t01/t03、w00031 t05 的职责大体对应各 Task README；问题仅是表中未列握手合同与 SDK 兼容面，以及 t05 搁置后的待确认边界。
+- nb-harness 入口链接能到 ADR；`omp-capabilities.md` 所述 Rust `crates/pi-edit/src/lib.rs` 原文确实明确错误文本与模型训练相关且要求 byte-identical。OMP `read` 工具当前含本仓库自己的中文路径/参数错误提示，不属于 OMP 原生 `read` 错误文本例外，故不应由该条推断必须冻结本仓库实现的中文提示。
+
+## 各级数量
+
+| 范围 | 阻断 | 重要 | 建议 | 合计 |
+|---|---:|---:|---:|---:|
+| t01 实现有效发现 | 0 | 4 | 1 | 5 |
+
+## 对待确认清单的判断
+
+1. **命令 `description` 连新写的也保持英文，等 t05**：现行 Spec 已明确 command `description` 为稳定英文语义说明；新写 command description 继续英文是遵守现有合同，不需要待追认。未确认的是是否把现有英文 command/tool 说明迁成中文、评测何时重启。t05 目前 `shelved`，不应将它写成 accepted ADR 决策的待办依赖；在改变现行合同前仍须有开发者确认。
+
+## 实际验证与边界
+
+| 实际命令或检查 | 结果 |
+|---|---|
+| `git show --no-ext-diff --format=fuller 651acb420 -- <五个审查路径>` | 完整 diff 已读取，未发现超出所列路径的差异。 |
+| `git show --no-ext-diff --format=fuller 7c43aa277 -- <五个审查路径>` | 完整 diff 已读取，未发现超出所列路径的差异。 |
+| `bun run docs:check` | 退出码 0；`failures: []`、`warnings: []`、`checkedFiles: 11756`；另有 166 条范围外存量警告。 |
+| `bun run governance:check` | 退出码 0；`failures: []`、`warnings: []`；另有 296 条范围外存量警告。 |
+| 实现/Spec/Task 静态核对 | 已核对上述位置；未运行产品测试、typecheck、e2e、浏览器、开发服务、真实 Provider/Model 或评测。 |
+| `grep -c '^### ' /tmp/w00031-review/combined/report-t01-impl.md` | 每次追加后分别为 1、2、5；标题数未减少。 |
+
+## 最终核实勘误（本节优先于初稿判断与前表数量）
+
+本次重新对照的是前轮计划审查的**最终有效发现与撤回记录**，而不是把它第 1 到第 10 条初稿当结论。以下更正不新增发现编号，保留所有历史文字。
+
+- **第 1 条撤回，不计有效发现。** 现行 command `description` 的英文合同、Work 已确认的“其它新基础设施提示词用中文”和已搁置 t05 的“不主动迁移既有英文说明”，能同时成立。ADR 没有声称 t05 现在开工，也没有把“待追认”改写成新的开发者授权。前轮 `evidences/plan-review-omp.txt:111,174-176` 已明确撤回相同推论；本报告初稿把 accepted ADR 与暂不迁移的保守执行方式误判成授权冲突，不能重复计为实现缺陷。待确认清单仍可规范措辞，但不是本轮新增重要问题。
+- **第 2 条保留为重要，但仅限影响清单遗漏。** Work 本身已确认跨进程的目标政策；ADR `0034:38,48,98-99` 明确这是后续 t03/t04 的迁移，不要求 t01 立即消灭所有字符串或改变 wire。初稿“accepted ADR 与现行合同存在字符串便直接矛盾”的论证撤回。有效缺口是：t03 明确要处理跨进程 detail，但 ADR 的逐项“真相源—负责 Task”表没有登记实际拥有握手/连接/远程失败合同的 `runtime/plugin-channel.md`（必要时关联 server/browser/project 宿主合同）。建议只补真相源与 t03 的关系；不在 t01 另选新帧形状或兼容策略。
+- **第 3 条撤回，不计有效发现。** 实际 `docs/standards/code/common.md:36` 已写“结构化诊断用既有的 event”，第 37 行也已明确“诊断性的 reason/detail”及“经界面投影生成的用户文字不在此列”。这正是前轮最终第 12 条 `plan-review-omp.txt:134-141` 的改法，并已落进 `7c43aa277`。该文件没有要求所有日志有 code，也没有把所有叫 message 的字段都归成诊断；初稿据此推演出的冲突不成立。
+- **第 4 条保留为建议。** 外部论据的概括不准确，不影响已确认的英文诊断决定。核实来源：[Git 翻译政策（区分 plumbing/porcelain）](https://github.com/git/git/blob/master/po/README.md)、[Git fatal/error 报告器的 gettext 实现](https://github.com/git/git/blob/master/usage.c)、[Vim 的消息语言配置](https://vimhelp.org/mlang.txt.html)。这些来源此前已实际读取，不以本报告补链声称重新运行了外部验证。
+- **第 5 条撤回为独立实现缺陷，不计有效发现。** 打包器、宿主模块表与 engine 范围真实存在，但这不证明旧 tarball 已实际分发或有必须保留的用户兼容窗口。ADR 只登记方向，`w00028 t03 README:16` 已明确 SDK 未发布、直接切换并同步公开面检查；前轮 r2 第 3 条末尾也已把“必然断裂”收窄为条件风险。不能要求本次治理提交提前设计迁移，或默认保留旧导出。本项的源码/构建路径应作为后续迁移检查项（t02 范围问题另见 B 报告），不再作为 t01 的新缺陷。
+
+## 最终未发现问题的方面与待确认判断
+
+- 六条已确认决定均能对应 ADR 的语言分层、各域合同、模型文字、目录机制、执行顺序及部分取代；ADR 不因只有五个决策小节而缺少确认项。
+- `common.md` 已吸收前轮对 event、用户投影文字和存量中文过渡的修正；没有发现它要求当前一次性迁移存量诊断。
+- 待确认清单只有 1 项：**当前保守解释合理，继续待追认，不把它宣称为新授权。** 新 command `description` 按现行 Spec 用英文；其它新增工具说明与提醒按已确认规则用中文；t05 搁置期间不主动迁移既有英文说明。改变既有合同或重新启动真实模型评测仍需对应授权。
+- 原“未发现问题的方面”中关于协议形状、快照比较、OMP 上游文本和索引门禁的事实继续有效。关于后果表，仅保留上述第 2 条的真相源登记缺口，不再把 SDK 已分配给 w00028 的迁移作为新增问题。
+
+## 最终有效数量
+
+| 有效编号 | 阻断 | 重要 | 建议 | 合计 |
+|---|---:|---:|---:|---:|
+| 第 2 条（收窄）、第 4 条 | 0 | 1 | 1 | 2 |
+
+历史 `###` 标题仍是 5 个；第 1、3、5 条已撤回。不要按历史标题或初稿严重程度统计。此次只追加勘误，没有修改仓库。
+
+补充取证：本会话执行 `git diff-tree --no-commit-id --name-only -r 651acb420 && git diff-tree --no-commit-id --name-only -r 7c43aa277`，合并输出仅包含本次指定的 5 个文件；没有遗漏提交中的其它文件。此项补足前面带路径过滤的 `git show` 无法单独证明的范围核对。最终 `###` 标题数仍为 5，有效发现仍为 2。

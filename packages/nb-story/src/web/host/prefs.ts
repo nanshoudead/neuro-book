@@ -41,11 +41,31 @@ export function writeDrawerWidth(value: number): void {
 
 /** 问答里第一次切换读书方式时的说明看过了没有（浏览器级，看过一次就不再弹）。 */
 export function readModeNoticeSeen(): boolean {
-    return read("qa-mode-notice-seen") === "true";
+    return modeNoticeSeenInPage || read("qa-mode-notice-seen") === "true";
 }
 
+/** 偏好存不进去（隐私模式）时，这一页的生命周期里也不再重复弹。 */
+let modeNoticeSeenInPage = false;
+
 export function writeModeNoticeSeen(): void {
+    modeNoticeSeenInPage = true;
     write("qa-mode-notice-seen", "true");
+}
+
+/** 一份 JSON 偏好：读不出、形状不对时给缺省（调用方自己校验字段）。 */
+export function readJsonPref(key: string): unknown {
+    const text = read(key);
+    if (text === null) return null;
+    try {
+        return JSON.parse(text) as unknown;
+    } catch (error) {
+        console.warn(`偏好 ${key} 不是合法的 JSON，按缺省处理`, error);
+        return null;
+    }
+}
+
+export function writeJsonPref(key: string, value: unknown): void {
+    write(key, JSON.stringify(value));
 }
 
 export type ThemeChoice = "system" | "light" | "dark";

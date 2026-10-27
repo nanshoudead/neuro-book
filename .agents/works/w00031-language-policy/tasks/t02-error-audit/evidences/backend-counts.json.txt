@@ -1,0 +1,72 @@
+{
+  "baseline": "65d9daea06616b8fc8459bc7ef9cb2132cee25ed",
+  "files": 947,
+  "codeFiles": 813,
+  "productionFiles": 493,
+  "rawHanLines": 12610,
+  "rawHanCharacters": 268505,
+  "callBoundaryCandidates": 2400,
+  "errorClasses": 75,
+  "perPackage": {
+    "dev-panel": {
+      "files": 79,
+      "rawHanLines": 2278,
+      "candidates": 635
+    },
+    "file-snapshot-cache": {
+      "files": 5,
+      "rawHanLines": 60,
+      "candidates": 0
+    },
+    "nb-harness": {
+      "files": 20,
+      "rawHanLines": 279,
+      "candidates": 58
+    },
+    "nb-history": {
+      "files": 12,
+      "rawHanLines": 326,
+      "candidates": 63
+    },
+    "nb-memory": {
+      "files": 18,
+      "rawHanLines": 786,
+      "candidates": 25
+    },
+    "nb-profile": {
+      "files": 7,
+      "rawHanLines": 47,
+      "candidates": 12
+    },
+    "nb-runtime": {
+      "files": 44,
+      "rawHanLines": 1358,
+      "candidates": 177
+    },
+    "nb-session": {
+      "files": 4,
+      "rawHanLines": 30,
+      "candidates": 4
+    },
+    "nb-story": {
+      "files": 83,
+      "rawHanLines": 2688,
+      "candidates": 587
+    },
+    "nb-workflow": {
+      "files": 36,
+      "rawHanLines": 401,
+      "candidates": 109
+    },
+    "neuro-book": {
+      "files": 178,
+      "rawHanLines": 4270,
+      "candidates": 705
+    },
+    "owned-process": {
+      "files": 7,
+      "rawHanLines": 87,
+      "candidates": 25
+    }
+  }
+}

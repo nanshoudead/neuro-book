@@ -22,6 +22,10 @@ export interface TurnTranscripts {
 export function createTurnTranscripts(starts: readonly number[] | null): TurnTranscripts {
     const bounds = starts === null || starts.length === 0 ? [1] : [...starts];
     const parts: HarnessTranscript[] = bounds.map(() => createHarnessTranscript());
+    /** 对话中途改阅读位置写进日志的提醒（t25）：不交给适配器（它会当成提问或复查消息），自己合成系统消息，放在所在那一轮的末尾。 */
+    const reminders: MessageView[][] = bounds.map(() => []);
+    /** 先扣住的用户消息条目：下一条若是紧跟它的 `qa.position` 元数据，它就是提醒；不是就原样交给适配器。 */
+    let held: {entry: unknown; text: string | null} | null = null;
 
     /** 这条条目属于哪一轮：起点不大于它的 seq 的最后一轮；没有 seq 的交给第一份（适配器会把它记成问题条目）。 */
     function partOf(entry: unknown): HarnessTranscript {
@@ -32,10 +36,68 @@ export function createTurnTranscripts(starts: readonly number[] | null): TurnTra
         return parts[index]!;
     }
 
+    function release(): void {
+        if (held === null) return;
+        partOf(held.entry).applyLogEntry(held.entry);
+        held = null;
+    }
+
+    function indexOfPart(entry: unknown): number {
+        return parts.indexOf(partOf(entry));
+    }
+
     return {
-        applyLogEntry: entry => partOf(entry).applyLogEntry(entry),
-        applyEvent: event => parts.at(-1)!.applyEvent(event),
+        applyLogEntry(entry) {
+            const kind = kindOf(entry);
+            if (kind === "meta" && held !== null && metaKey(entry) === POSITION_META_KEY && seqOf(entry) === seqOf(held.entry)! + 1 && held.text !== null) {
+                // 提醒的识别靠这条紧跟的元数据（引擎写的），不看用户消息的文字：用户可以把同样的标签当问题提交。
+                const seq = seqOf(held.entry)!;
+                reminders[indexOfPart(held.entry)]!.push({kind: "system", id: `h${seq}`, timestamp: timestampOf(held.entry), source: "reminder", label: "系统提醒", text: held.text});
+                held = null;
+                return;
+            }
+            release();
+            if (kind === "agent_message" && userTextOf(entry) !== null) {
+                held = {entry, text: reminderBody(userTextOf(entry)!)};
+                return;
+            }
+            if (kind === "meta" && metaKey(entry) === POSITION_META_KEY) return;
+            partOf(entry).applyLogEntry(entry);
+        },
+        applyEvent: event => {
+            release();
+            parts.at(-1)!.applyEvent(event);
+        },
         // 消息对象是各份交出的原对象，视图按对象判断一轮要不要重算（turns.ts 的缓存也按它）。
-        messages: () => parts.flatMap(part => part.messages()),
+        messages: () => {
+            release();
+            return parts.flatMap((part, index) => [...part.messages(), ...reminders[index]!]);
+        },
     };
+}
+
+/** 引擎写在提醒消息后面的 `meta` 条目的键（qa/engine.ts 的 `POSITION_META_KEY`；这里不导入引擎，网页不带服务端代码）。 */
+const POSITION_META_KEY = "qa.position";
+const REMINDER = /^<system-reminder>\n([^]*)\n<\/system-reminder>$/u;
+
+const kindOf = (entry: unknown): string | null => (typeof entry === "object" && entry !== null && typeof (entry as {kind?: unknown}).kind === "string" ? (entry as {kind: string}).kind : null);
+const seqOf = (entry: unknown): number | null => (typeof entry === "object" && entry !== null && typeof (entry as {seq?: unknown}).seq === "number" ? (entry as {seq: number}).seq : null);
+const metaKey = (entry: unknown): string | null => (typeof entry === "object" && entry !== null && typeof (entry as {key?: unknown}).key === "string" ? (entry as {key: string}).key : null);
+const timestampOf = (entry: unknown): number => {
+    const at = typeof entry === "object" && entry !== null ? (entry as {at?: unknown}).at : undefined;
+    return typeof at === "string" ? Date.parse(at) || 0 : 0;
+};
+
+/** 用户消息条目的文字（OMP 的用户消息：content 是字符串或文字块）；不是用户消息为 null。 */
+function userTextOf(entry: unknown): string | null {
+    const message = (entry as {message?: {role?: unknown; content?: unknown}}).message;
+    if (typeof message !== "object" || message === null || message.role !== "user") return null;
+    const content = message.content;
+    if (typeof content === "string") return content;
+    return Array.isArray(content) ? content.map(block => (typeof block === "object" && block !== null && typeof (block as {text?: unknown}).text === "string" ? (block as {text: string}).text : "")).join("") : "";
+}
+
+/** 整条文字恰是 `<system-reminder>` 包着的提醒时给出里面的话；否则 null（只用来在有紧跟的元数据时显示，不单独判身份）。 */
+function reminderBody(text: string): string | null {
+    return REMINDER.exec(text)?.[1] ?? null;
 }

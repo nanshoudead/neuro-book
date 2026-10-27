@@ -743,6 +743,8 @@ onBeforeUnmount(() => { observer?.disconnect(); if (resizeFrame !== null) cancel
                 <span v-if="layers.includes('know')"><b class="line know" />只有认知（箭头：谁知道关于谁的事）</span>
             </template>
         </div>
+        <!-- 页面放进来的浮层（选中浮条）：在全屏根里，进入全屏后仍看得到。 -->
+        <slot name="overlay" />
         <div v-if="!compact" class="zoom">
             <IconButton size="xs" icon-class="i-lucide-plus" aria-label="放大" @click="zoom(sigma, 'in')" />
             <IconButton size="xs" icon-class="i-lucide-minus" aria-label="缩小" @click="zoom(sigma, 'out')" />

@@ -1,0 +1,136 @@
+# w00027 t15 第三期实现审查（Claude Opus）
+
+审查对象：`.worktree/review-t15-p3-impl`（`65c64c40e`），提交见 brief.md。只读，每核实一条追加一条。
+
+---
+
+## R01 阻断｜正确性｜release-manifest.json 在冒烟之前就写下，冒烟失败后 publish 门禁照样放行
+
+- **位置**：`scripts/release/pack-smoke.ts:369-375`（写清单）与 `:381-384`（之后才跑 `smokeStory`、`smokeVueHost`、`smokeAppAndPlugin`）；`scripts/release/publish.ts:105-118`（门禁只核对提交与 SHA-256）。
+- **现象**：`--from pack` 时清单在“打包与入口检查”之后立刻写入 `dist/release/release-manifest.json`，三段用户与作者闭环在其后才跑。闭环任何一步失败（nbook 起不来、插件构建失败、Vite 宿主构建失败），脚本退出 1，但 `dist/release/` 里的 tarball 与清单都留着，提交也等于 HEAD。`publish.ts` 已经不再自己跑 `release:smoke`（旧门禁里有这一步，本次删了），只看清单的 `commit` 与摘要，于是 `release:publish --yes` 会把一份冒烟失败的 tarball 发出去。
+- **为什么是问题**：违反计划 3.2 与 `repository-workflow.md` 第 5 步写的“发的就是第 4 步验过的 tarball”；模块头 `manifest.ts` 也说“smoke 把验过的 tarball 放进 `dist/release/`”。版本号一旦发出去不能再用（计划第 8 节的首要风险），这正是门禁要防的情形。
+- **如何核实**：读 `pack-smoke.ts` 主流程顺序；或在 scratch 里把 `smokeAppAndPlugin` 换成直接 `fail()` 后跑 `--from pack`，`dist/release/release-manifest.json` 仍在，`publish.ts` 的 `releaseManifestProblems` 返回空。
+- **建议改法**：打包后先把清单写到临时名（或内存），三段闭环全部通过后再原子地写出 `release-manifest.json`（写临时文件再 rename）；冒烟开始时先删掉旧清单（现在 `rm(RELEASE_DIRECTORY)` 已删目录，保留）。清单里可加 `smokedAt` 或 `verified: true` 字段，publish 门禁要求它存在。`publish.test.ts` 补一条“清单缺验证标记时拒绝”。
+
+## R02 重要｜正确性｜“未提交的改动”门禁查在发布时，而字节是在冒烟时打的；冒烟时工作区脏不会被发现
+
+- **位置**：`scripts/release/publish.ts:92-96`（`git status --porcelain` 只在 publish 时查）；`scripts/release/pack-smoke.ts:359-374`（生成、打包、记 `commit` 时不查工作区）。
+- **现象**：改成“发 smoke 打的 tarball”以后，干净工作区的检查仍留在 publish 一侧。tarball 是 smoke 当时从工作区生成的，清单只记 `git rev-parse HEAD`。流程：主工作区里 `packages/neuro-book`（或 nb-ui、nb-runtime 等被打进应用 bundle 的 9 个源码包之一）有别的会话未提交的改动 → 跑 `release:smoke`，tarball 含这些改动、`commit` 记为 HEAD → 那个会话 `git restore`/`stash` 掉改动（HEAD 不变）→ `release:publish` 的干净检查、提交检查、摘要检查全部通过，发出去的是一份不对应任何提交的代码。
+- **为什么是问题**：publish 模块头说只看会发布的目录“是因为主工作区常有别的会话的改动”，即作者知道这种情况常见；这条门禁的本意是“发的是提交过的代码”，现在它检查的对象（发布时的工作区）已经不是发出去的东西（冒烟时的工作区）。清单的 `commit` 字段因此可能是假的。
+- **如何核实**：读两处代码；`pack-smoke.ts` 全文没有 `git status`。
+- **建议改法**：把同一条 `git status --porcelain --untracked-files=all -- <会发布的目录>` 挪到（或复制到）smoke 生成之前，工作区脏就拒绝打包（或在清单里记 `dirty: true`，publish 拒绝）；两处共用 `publish.ts` 里的目录列表，抽成 `manifest.ts` 的一个函数。根目录的 `bun.lock`、`package.json` 也影响生成结果，可一并列入。
+
+## R03 建议｜测试｜冒烟的“重启后插件已加载”不要求结果来自运行中的实例，去掉重启也照样通过
+
+- **位置**：`scripts/release/pack-smoke.ts:329-335`；对照 `packages/neuro-book/src/cli/plugin.ts:38-46,74-77`。
+- **现象**：`nbook plugin list` 在找不到运行中的实例（或实例没有报 `plugins`）时退回 `previewInstalledPlugins`，按登记表“预演”一次启动：已启用、清单与入口都对的插件同样得到 `notLoaded: null`、`pending: []`。冒烟只断言这两项，没有看输出里的 `running`。所以第二次 `withNbook` 即使没起来实例、或者实例没有把插件算进启动集合，这一步也是绿的；把 `withNbook(...)` 换成直接调用回调，断言照样成立。
+- **为什么是问题**：计划 3.2 第 3 步与 `repository-workflow.md` 写的判据是“实例应答的启动集合里它是已加载”，现在测到的是“登记表上它是好的”。
+- **如何核实**：读 `inventoryFor`：`instance === null` 时 `startup = await previewInstalledPlugins(...)`；`itemOf` 里 `running = atStartup`，对已启用插件产出 `pending: []`。
+- **建议改法**：断言 `listed.running?.pid` 存在（最好等于这次 `nbook start` 结果里的 `pid`，`withNbook` 把结果对象传给 `use`）。同一处顺带：第一次 `withNbook` 的 `checkWorkbench` 只等 `data-workbench-root` 上线，没有看书架；文档写“打开书架”，要么加一条书架的选择器，要么把文档改成“连上服务端”。
+
+## R04 建议｜正确性（与计划不符）｜实际发布顺序是“源码包、应用、SDK”，计划写的是“源码包、SDK、应用”
+
+- **位置**：`scripts/release/packages.ts:31-34`（`BUILT_PACKAGES` 应用在前）；`scripts/release/pack-smoke.ts:362`（`publishOrder([...源码包, ...built])`，清单按这个顺序写）；`scripts/release/publish.ts:140-146`（按清单顺序发）。
+- **现象**：两个生成包的清单都没有 `@notnotype/*` 依赖，`publishOrder` 对它们保持输入顺序，于是应用先于 SDK 发布。计划 3.2 写明“顺序：源码包、SDK、应用”。
+- **为什么是问题**：应用包的 README（npm 页面）与 `nbook` 的引导都让作者 `bunx -p @notnotype/nb-plugin-sdk …`；SDK 一步失败（OTP 过期、网络断）而应用已经发出时，npm 上有一段时间是“应用说去装 SDK，SDK 404”。先发 SDK 则失败只会让应用晚一点出现。影响小，但这是计划里明说的约束，实现没有遵守，也没有测试或注释说明顺序。
+- **如何核实**：在 worktree 里 `bun -e 'import {BUILT_PACKAGES} from "./scripts/release/packages.ts"; console.log(BUILT_PACKAGES.map(p=>p.name))'`，得到应用在前。
+- **建议改法**：`BUILT_PACKAGES` 改成 SDK 在前（`smokeAppAndPlugin` 里用 `[0]`、`[1]` 取包名的地方改成按名字查），或在 `publishOrder` 之后显式排序；注释写明为什么 SDK 先发。`release:check` 没有像计划 3.2 写的那样检查生成包与“源码包版本等于 `PRODUCT_VERSION`”（改由 smoke 做），也属与计划不符、不在已知偏离里，建议在 Task 记录里写一句。
+
+## R05 重要｜正确性｜推 master 共用一个 concurrency 组，`cancel-in-progress: false` 仍会取消排队中的旧轮，F15 要防的“某次推送没人测”照样发生
+
+- **位置**：`.github/workflows/ci.yml:14-17`。
+- **现象**：推 master 的组名是 `ci-refs/heads/master`，所有推送（以及在 master 上手动触发的 `workflow_dispatch`）共用。GitHub 的 concurrency 语义：同组最多一个运行中、一个等待中；新一轮进来时，已在等待的那一轮会被取消，`cancel-in-progress: false` 只保证不取消“正在运行”的。连续推三次 A、B、C（check 一轮按实测可达几十分钟，本地合入后连推很常见）：A 在跑，B 排队，C 到达时 B 被取消；C 按 `github.event.before = B` 只测 B..C，B 那次推送（A..B）的改动没有任何一轮测过，而 A、C 都是绿的。
+- **为什么是问题**：注释与计划 3.4（审查 F15 的处理）都写明要避免的就是这件事，现在的写法没有做到。
+- **如何核实**：GitHub 文档 “Control the concurrency of workflows and jobs”：“Any existing pending job or workflow in the same concurrency group … will be canceled and the new queued job or workflow will take its place.”（`cancel-in-progress` 只影响正在运行的）。
+- **建议改法**：推送不进 concurrency 组，例如 `group: ci-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}`（push 与手动各自独占一组，互不取消）；或者推 master 时基准不用 `event.before`，改用“上一次成功的 CI 运行的提交”（要额外权限与 API 调用，不如前者简单）。
+
+## R06 重要｜文档｜根 README 首屏的标语宣称的四项能力 v2 都还没有，与 E2“只写 v2 已有的”相悖
+
+- **位置**：`README.md:10`（“设定不吃书 · 伏笔有账本 · 文字没 AI 味 · AI 听指挥”）、`README.md:25`（“做成你和 AI 共用的同一套工具”）；`README.en.md` 对应的标语与开头一段同样处理（英文版第 10 行附近）。
+- **现象**：这一行是从旧 README 原样保留的。四项分别对应 World Engine、承诺系统、llmlint、三模式加审批，正是同一份 README 的“路线图”里明确列为“**还不在 v2 里**”的条目；开头一段也把产品描述成“你和 AI 共用”的工具，而 v2 目前没有任何 AI 写作功能。
+- **为什么是问题**：开发者 E2 定的是“根 README 只写 v2 已有的；旧的四大核心能力改成路线图”。npm 版本徽章就在这一行下面，首屏读者（尤其是从 npm 页面点过来的）会先读到这四个承诺，再往下才看到预览版说明和“还不在 v2 里”。brief 的重点 5 也明确要求“不要宣称 v2 没有的功能”。
+- **如何核实**：`git show 8d962cb82~1:README.md | sed -n 11p` 是同一句；对照 README 自己的“路线图”一节。
+- **建议改法**：标语改写成描述 v2 现状或方向的句子（例如“本地优先的长篇写作工作台，AI 写作正在搬上来”），或者把四项改成“目标”并在同一行标明“路线图”；开头一段的“你和 AI 共用”同样改成方向性表述。是否保留属于产品取舍，交开发者定，但不应默认原样保留。
+
+## R07 建议｜文档｜Spec 改动把“包里的内容”冒号列表接到了许可那半句后面；计划第 4 节的 `runtime.cli` 改动没有做
+
+- **位置**：主工作区 `docs/specs/runtime/plugin-api.md:174`（`ce37859c7`）；`docs/specs/runtime/cli.md:127,138`。
+- **现象**：
+  1. 原句是“可以安装的包由应用生成（…tarball 并打印路径）：打包的构建期实现、打平的类型声明…与 `package.json`…”，冒号后列的是包的内容。改动在中间插入“…发到 npm（ADR 0033）；包里另有仓库的 `LICENSE` 与…（`THIRD-PARTY-NOTICES.md`）：打包的构建期实现、…”，冒号后的列表变成了在解释 `THIRD-PARTY-NOTICES.md`；同一句后面还有第二个“包里另有作者命令与模板…”，两个“包里另有”并列。
+  2. 计划第 4 节写“`runtime.cli`：Smoke 一行加上 `release:smoke` 的闭环”，`cli.md` 的 Smoke 与“实际 smoke”两处仍只列 `bun test src/cli` 与 `app-package.e2e.ts`。Task 记录里没有看到对这项的取舍说明（若有请忽略）。
+- **为什么是问题**：Spec 是行为真相源，句子结构错位会让读者以为构建期实现、类型声明是“许可文件”的一部分；cli 验收 1、7 在 registry 包上成立的证据（计划第 6 节）只在 `release:smoke` 里，Spec 不写就找不到。
+- **如何核实**：`git show ce37859c7 -- docs/specs/runtime/plugin-api.md`；`grep -n release:smoke docs/specs/runtime/cli.md` 无结果。
+- **建议改法**：把许可那半句挪到句末单独成句（“包里还带仓库的 `LICENSE` 与 `THIRD-PARTY-NOTICES.md`”），恢复“生成（…）：内容列表”的结构；`cli.md` 的 Smoke 加一句 `release:smoke`（`--from pack` 与 `--from registry`）跑场景 1、7。
+
+## R08 建议｜文档｜测试真相源仍写“E2E 在 CI 跑”“全量 CI 定期跑”，与新 ci.yml 和开发者 E4 的决定矛盾
+
+- **位置**：`docs/testing/README.md:60-63`（测试分类表的“什么时候跑”列：浏览器 E2E 是“Task 验收、CI”，真实模型“CI 定期”，全量“CI 定期”）、`:84`（“CI 定期或手动运行”真实模型）。
+- **现象**：新的 `.github/workflows/ci.yml` 没有 `schedule` 触发，也不跑 e2e 与 `--tier llm`；开发者 E4 定“e2e 仍在本地跑”。测试文档的这几格没有随 S4 更新。旧的三份 workflow 也没有 e2e 与定时任务，所以文字在 base 上就不准，但本期是明确定下“CI 只跑本地门禁、不跑 e2e”的那一次，应该在这里收口。
+- **为什么是问题**：`docs/testing/` 是测试与验收的真相源（AGENTS.md“文档真相源”）；Agent 或贡献者按表格会以为 e2e 有 CI 兜底而在本地省掉。
+- **如何核实**：`grep -n "schedule\|e2e\|tier" .github/workflows/ci.yml` 无结果；对照上述行。
+- **建议改法**：表格改成 E2E“Task 验收、合入前本地”、真实模型“显式运行”、全量“按需本地”，并在“平台与 CI”一节写一句 CI 跑什么（链到 ci.yml 的头注释），不再出现“CI 定期”。
+
+## R01、R02 补充（同一处的两个时序细节，不另计条数）
+
+- **R01 的改法要修正一句**：`rm(RELEASE_DIRECTORY)` 在 `pack-smoke.ts:365`，排在生成两个包与发布清单检查（`:360-364`）之后。生成或检查失败时上一次的 `release-manifest.json` 与 tarball 原样留着；HEAD 没变时（例如改了未提交的文件后重跑冒烟、或者冒烟偶发失败后重跑），publish 门禁仍按旧清单放行。删除旧清单应挪到 `--from pack` 分支的第一步。
+- **R02 的另一个入口**：清单的 `commit` 在打包完成之后才取（`pack-smoke.ts:369`）。生成两个包加打 11 个 tarball 要几分钟，期间主工作区里别的会话提交了改动时，记下的是新 HEAD，tarball 却是旧树生成的，publish 的“提交等于 HEAD”检查对得上。建议在生成之前取 HEAD，打包后再取一次，两次不同就失败；与 R02 的工作区干净检查放在一起。
+
+## R09 建议｜代码质量（注释）｜两处注释仍按旧流程描述
+
+- **位置**：`packages/neuro-book/plugin-sdk/template.test.ts:2-3`；`packages/neuro-book/plugin-sdk/pack.ts:22`。
+- **现象**：
+  1. `template.test.ts` 头注释说“在仓库外按作者文档的步骤走一遍。作者先在新目录里装 SDK（…`bun add -d <SDK>`…），再…`create .`”。S2 之后作者文档的步骤是 `bunx -p … nbooke create <目录>`、`cd`、`bun install`；“先装 SDK 再 `create .`”降为文档里“已有目录”的次要路径。测试本身没问题（它测的就是合并已有 `package.json` 的路径，离线也能跑），但注释把它说成“作者文档的步骤”。
+  2. `pack.ts` 模块头写 tarball “发布用它”。实际发布用的是 `release:smoke` 对生成目录重新 `bun pm pack` 到 `dist/release/` 的那一份（`pack-smoke.ts:368`），`build:sdk` 自己打在目录旁边的 tarball 不进发布链。
+- **为什么是问题**：注释写的是调用方要信的事实；按第 2 条去找“发布用的 tarball”会找错文件，SHA-256 也对不上清单。
+- **如何核实**：读两处注释，对照 `plugin-sdk/README.md` 的“生成插件”一节与 `pack-smoke.ts:359-374`。
+- **建议改法**：`template.test.ts` 改成“走作者文档里‘写进已有目录’那条路径（离线可测）；`bunx -p` 加 `bun install` 的主路径由 `release:smoke` 覆盖”；`pack.ts` 改成“tarball 给试未发布改动的作者；发布由 `release:smoke` 从生成的目录另打”。
+
+## R10 建议｜文档｜`test:affected` 的选择规则在测试文档里没跟上 S4：仍写“workflow 改动加根脚本测试”，没写跳过 llmlint
+
+- **位置**：`docs/testing/README.md:71`；对照 `scripts/cli/test-affected.ts:64-73`（`ROOT_SCRIPT_PREFIXES` 只剩 `scripts/`，新增 `RETIRED_PACKAGES`）。
+- **现象**：文档写“根 `scripts/`、workflow 或根 `package.json` 有改动时加上根脚本测试”；S4 已把 `.github/` 从根脚本前缀里去掉，`test-affected.test.ts` 还专门断言 `.github/` 改动不选任何目标。llmlint“选中也不跑、在跳过里写理由”这条新规则（与旧应用并列）文档里也没有。
+- **为什么是问题**：这一节是 `test:affected` 行为的正文（AGENTS.md 的“测试”一节链到这里）；改了 workflow 的人按文档会以为根脚本测试兜底，实际上没有任何测试会跑（`governance:check` 不读 workflow）。
+- **如何核实**：`bun run test:affected --dry-run` 在只改 `.github/workflows/ci.yml` 的工作区里输出空选择；对照文档原文。
+- **建议改法**：改成“根 `scripts/` 或根 `package.json` 有改动时加上根脚本测试（`.github/` 的 Issue 表单与标签由 `governance:check` 检查，workflow 不测）”；补一句“旧应用与准备退役的 llmlint 不参加，选中时列在跳过里”。
+
+## R11 重要｜正确性（隔离）｜`bunx -p <tarball>` 的安装缓存在 `$TMPDIR/bunx-<uid>-@<tarball 绝对路径>/`，不随 `HOME`、`BUN_INSTALL` 隔离；重跑冒烟时 `create` 用的是第一次那份 SDK
+
+- **位置**：`scripts/release/pack-smoke.ts:308`（`env` 只换了 `BUN_INSTALL`、`HOME`、`XDG_*`、`PATH`）、`:320`（`bunx -p <sdkSpec> nbooke create …`）。
+- **现象**：bunx 把 `-p` 的包装进系统临时目录下按包写法命名的目录，下次同样的写法直接复用，不看 tarball 内容。`--from pack` 时写法是 `dist/release/notnotype-nb-plugin-sdk-0.11.0.tgz` 的绝对路径，每次冒烟都一样（版本不变、文件名不变）；于是第二次及以后的冒烟里，`nbooke create` 跑的是第一次冒烟那份 SDK 的命令与模板。之后 `bun install` 用 `--sdk file:` 装的是新 tarball，所以 `build`、`typecheck` 用的是新的，但“生成插件”这一步（模板、`create` 的合并逻辑、写进 `package.json` 的依赖）验的是旧字节。这也与模块注释和计划 3.2（审查 F08）说的“临时 `BUN_INSTALL` 与 `HOME`，不碰开发者自己的全局包、缓存”不符：缓存写在共享的 `/tmp/bunx-<uid>-@/…` 下，冒烟结束也不删。
+- **为什么是问题**：发布前通常要“改一处、重跑冒烟”好几轮（计划第 7 节的发布步骤本身就要在主工作区再跑一次）；模板或 `create` 的回归会被旧缓存遮住，而发布的正是新的那份 SDK。版本号发出去不能再用。
+- **如何核实**（scratch 里做过，已清理 `/tmp` 下的探针目录）：做一个带 bin 的小包 `1.0.0`，`bun pm pack` 到固定路径；用新的 `HOME`、`BUN_INSTALL` 运行 `bunx -p <tarball> zzprobe` 打印 `A`；改成打印 `B` 后重新打包到同一路径，再换一组全新的 `HOME`、`BUN_INSTALL` 运行，仍打印 `A`。第三次只多设 `TMPDIR=<新目录>`，打印 `B`，缓存目录出现在新 `TMPDIR` 下（`bunx-1000-@`）。Bun 1.4.2。
+- **建议改法**：`smokeAppAndPlugin` 的 `env` 加 `TMPDIR: join(root, "tmp")`（先建目录），让 bunx 的缓存落进本次冒烟的临时根、随它删除；registry 模式同样受益（不复用以前从 registry 装过的同名版本）。顺带把 `BUN_INSTALL_CACHE_DIR`、`XDG_CACHE_HOME` 也显式指进临时根，免得开发者环境里设了它们时漏出去。
+
+## R12 建议｜正确性｜续发时“已发布，跳过”不比对字节：中途失败后改了代码再冒烟，已发的那几个包与这次验过的不是同一份，门禁不提示
+
+- **位置**：`scripts/release/publish.ts:141-146`（`npm view <名>@<版本> version` 只看版本在不在）。
+- **现象**：场景：发到第 5 个包失败，原因要改代码（不只是 OTP 或网络），于是提交修复、推送、重跑 `release:smoke`（新提交、新 tarball、新清单）、再 `release:publish`。前 4 个包版本号没变，被“已发布，跳过”；冒烟验的是新提交上这 4 个包的 tarball 与其余包的组合，用户装到的却是 registry 上旧提交的那 4 个。清单里明明有这 4 个包的新 SHA，门禁没有拿它与 registry 上的对比。
+- **为什么是问题**：本期的目标是“发出去的就是验过的字节”，续发是 brief 点名的情形；跳过逻辑沿用 base（base 也只看版本），但现在清单里已有摘要，检测几乎零成本。
+- **如何核实**：读 `main()` 的待发列表；`npm view <名>@<版本> dist.shasum dist.integrity --json` 可取 registry 上 tarball 的 SHA-1 与 SHA-512。
+- **建议改法**：对“已发布”的包再取 `dist.integrity`（或 `dist.shasum`），与本地 tarball 的 SHA-512（或 SHA-1）比较；不同就停下并提示“这个包要先提高版本号”，而不是跳过。`publish.test.ts` 按现有 `publishedState` 的写法补一条纯函数用例。
+
+## base 上就有的问题（另记，不计入本期条数）
+
+- **CI 不钉 Bun 版本**：`ci.yml` 两个 job 的 `oven-sh/setup-bun@v2` 都不给 `bun-version`，仓库根也没有 `packageManager` 或 `.bun-version`，于是 CI 用的是当时最新的 Bun；本机与干净克隆验证用的是 1.4.2。Bun 的小版本改过锁文件与 `bun pm pack` 的行为，`--frozen-lockfile` 可能在某天无故失败，或者 CI 打出的包与本机不同。旧的三份 workflow 也一样没钉。建议加一个 `.bun-version`（或根 `package.json` 的 `packageManager`），两个 job 用 `bun-version-file`。
+- **冒烟里读子进程输出只读第一行**：`withNbook`、`smokeServe` 读完结果行后不再读 `stdout`，`stderr` 只在失败时读；子进程写满管道（约 64 KB）会阻塞。`firstLine` 也没有超时，`nbook` 卡住不打印时冒烟无限等待、临时根不清。`smokeServe` 在 base 就是这样，`withNbook` 沿用了写法。
+
+## 未发现问题的方面
+
+- S0：`packageDirectories` 按当前目录解析，`\0` 前缀、`?query`、Bun 的 `.bun/<包>@<版本>/node_modules/<包>` 隔离布局都能取对（scratch 里用 8 种模块 id 试过）；“从别的目录运行”的用例在旧写法下会失败，能挡住回归；先写标记再写内容，失败后重跑能清掉。
+- 许可清单：滤掉 `@notnotype/` 不会漏第三方包（`node_modules/@notnotype/` 下全是工作区的软链）；服务端部分在第二期本来就不含工作区包（metafile 是真实路径），前端部分少掉的只是同一许可、同一作者的工作区包。
+- `bun publish <tarball>` 在没有 `package.json` 的 `dist/release/` 里能用（scratch 里 `--dry-run` 走到鉴权一步）；`--access public` 与 `--otp`、`--auth-type` 照传。
+- 本地 `file:` tarball 的 `bun install` 不会复用旧内容（同路径重打后新项目装到的是新内容，scratch 实测）；问题只在 bunx（R11）。
+- `nbook plugin list --json` 的字段（`plugins[].id`、`pending`、`notLoaded`）与 `nbook start --json` 的 `ok`、`url` 与实现一致；`--sdk file:<tarball>` 与 `bunx -p <tarball>` 指同一个文件。
+- registry 模式两个生成包的版本取 `packages/neuro-book/package.json`，与 SDK 构建用的 `PRODUCT_VERSION` 由 `product.test` 绑定。
+- `git fetch origin master` 没有 origin 或离线时以 `GateFailure` 停下，不会放行。
+- CI 基准 shell：全零、对象不存在、无共同祖先都落到 `--all`；`workflow_dispatch` 走 `--all`；`governance:check --since <sha>` 与 `docs:check --all` 参数解析正常（本机各跑一次，0 失败）。
+- `community-files.ts` 在缺 `ISSUE_TEMPLATE` 时返回空、缺 `labels.yml` 时报错；去掉 `.github/` 前缀后没有别的测试读 `.github/`，表单检查由每次都全量运行的 `governance:check` 覆盖。
+- 依赖图挪文件后行为未变（base 同样只看 `dependencies` 与 `devDependencies`，仓库里没有只靠 peer 依赖工作区包的包）；`scripts/` 的 Vitest（5 个文件 28 例）与 `tsc -p scripts/tsconfig.json` 通过。
+- README 中英两份的相对链接与图片路径全部存在；“现在能做什么”各项在实现里都找得到（书架封面、命令面板键位、快速打开、活页夹、最大化、插件页安装、缺省作品目录与数据目录、端口 4217）；npm 包表与 `RELEASE_PACKAGES`、`BUILT_PACKAGES` 的 11 个包一致。
+
+## 各级数量
+
+- 阻断 1：R01
+- 重要 4：R02、R05、R06、R11
+- 建议 7：R03、R04、R07、R08、R09、R10、R12
+- 合计 12 条（另有 base 上的 2 条单列）。

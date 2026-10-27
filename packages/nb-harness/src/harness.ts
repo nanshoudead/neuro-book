@@ -25,6 +25,7 @@ import {HarnessError} from "./errors.js";
 import {createFinishWatch, type FinishWatch} from "./finish-watch.js";
 import type {ThinkingEffort} from "./catalog.js";
 import {MissingModelKeyError, type ResolvedModel} from "./model.js";
+import {mergeAdjacentUserMessages} from "./merge-user-messages.js";
 import {redactEventMessages} from "./redact.js";
 import {classifyProviderError, usageEntry, UsageMeter, type RunError, type StopReason, type TurnResult} from "./run-result.js";
 import {bridgeTools} from "./tools/bridge.js";
@@ -229,7 +230,8 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
                 const rendered = renderContext(profile, {initial, tools: toolIds, history, model: model.model});
                 agent.setSystemPrompt(rendered.systemPrompt);
                 renderedSystemPrompt = rendered.systemPrompt;
-                return rendered.messages;
+                // 日志里相邻的用户消息（位置提醒与问题）发请求前合并成一条：有的端点拒绝连续的 user（merge-user-messages.ts）。
+                return mergeAdjacentUserMessages(rendered.messages);
             } catch (error) {
                 if (run !== null) run.hostError = localError(`渲染 Profile 失败：${String(error)}`);
                 throw error;

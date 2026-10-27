@@ -71,8 +71,9 @@ async function ask(options: AskOptions, io: CliIo, signal: AbortSignal): Promise
     };
 
     const continueFrom = params.continue as string | undefined;
-    if (continueFrom !== undefined && (params.at !== undefined || params.mode !== undefined || params.structured === true)) {
-        io.stderr("用法错误：--continue 追问时阅读位置、做法与作答方式取对话开始时的，不能再写 --at、--mode 或 --structured");
+    // 追问时阅读位置可以改（--at，t25；全读对话不行），做法与作答方式取对话开始时的。
+    if (continueFrom !== undefined && (params.mode !== undefined || params.structured === true)) {
+        io.stderr("用法错误：--continue 追问时做法与作答方式取对话开始时的，不能再写 --mode 或 --structured；阅读位置可以用 --at 改");
         return 2;
     }
     if (params.thinking !== undefined && !(EFFORTS as readonly string[]).includes(params.thinking as string)) {
@@ -108,7 +109,7 @@ async function ask(options: AskOptions, io: CliIo, signal: AbortSignal): Promise
             const next = NEXT_STEP[error.code];
             return fail(error.code, `${error.message}${next && !json ? `\n下一步：${next}` : ""}`, 1);
         }
-        if (error instanceof QaError) return fail(error.code, error.message, EXIT_QA_FAILED);
+        if (error instanceof QaError) return fail(error.code, error.message, error.code === "qa_position_fixed" ? 2 : EXIT_QA_FAILED);
         throw error;
     }
 

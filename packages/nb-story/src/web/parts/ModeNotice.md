@@ -1,5 +1,5 @@
 ---
-标签: [state:local]
+标签: [state:local, env:timer]
 ---
 
 # 读书方式的首次提示

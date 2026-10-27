@@ -28,6 +28,7 @@ import {normalizeRef} from "../../contract/refs";
 import {formatAt, useBook} from "../host/book";
 import {StoryCallError, useStoryClient} from "../host/client";
 import {readModeNoticeSeen, writeModeNoticeSeen} from "../host/prefs";
+import {currentPosition, highestPosition} from "../../contract/qa-record";
 import ModeNotice from "../parts/ModeNotice.vue";
 import AnswerCard from "../qa/AnswerCard.vue";
 import {REF_SCHEME} from "../qa/link-refs";
@@ -36,6 +37,7 @@ import {createNameResolver, QA_NAME_LOOKUP} from "../qa/names";
 import {candidateInfos, clampThinking, contextTokensOf, resolveChoice, type CatalogProvider} from "../qa/models";
 import {createQaSource, type QaSource, type QaSourceState} from "../qa/source";
 import QaInspector from "../qa/QaInspector.vue";
+import QaPositionControl from "../qa/QaPositionControl.vue";
 import QaStatusBar from "../qa/QaStatusBar.vue";
 import StoryMarkdown from "../qa/StoryMarkdown.vue";
 import {storyToolsContribution} from "../qa/tools";
@@ -148,10 +150,11 @@ const items = computed<AgentSessionListItem[]>(() => [
     ...rows.value.map(row => ({
         id: row.id,
         title: mentionPlainText(row.question),
-        description: `${row.turns === 0 ? "第 1 轮" : `${row.turns} 轮`} · ${MODE_LABEL[row.mode]} · 读到 ${formatAt(row.at)}`,
+        description: `${row.turns === 0 ? "第 1 轮" : `${row.turns} 轮`} · ${MODE_LABEL[row.mode]} · 读到 ${formatAt(row.currentAt)}`,
         updatedAt: Date.parse(row.updatedAt) || 0,
         status: row.run?.state === "running" ? ("running" as const) : row.status === "failed" ? ("error" as const) : row.status === "interrupted" ? ("interrupted" as const) : ("idle" as const),
-        ...(before(book.at.value, row.at) ? {note: {text: `读到 ${formatAt(row.at)}，晚于你现在的位置`, icon: "i-lucide-eye"}} : {}),
+        // 警告按整个对话出现过的最高位置：位置往回调不能解除旧答案里可能带着后文的警告（输出 53）。
+        ...(before(book.at.value, row.highestAt) ? {note: {text: `读到 ${formatAt(row.highestAt)}，晚于你现在的位置`, icon: "i-lucide-eye"}} : {}),
     })),
     // 读不成的记录单列一行，只能删除（决定 18）。
     ...broken.value.map(item => ({id: item.id, title: "损坏的记录", description: item.problem, updatedAt: 0, status: "error" as const, note: {text: "只能删除"}})),
@@ -189,7 +192,10 @@ watch(running, (now, before) => {
     if (before && !now) void loadList();
 });
 const title = computed(() => mentionPlainText(record.value?.turns[0]?.question ?? run.value?.question ?? ""));
-const conversationAt = computed(() => record.value?.at ?? run.value?.at ?? null);
+/** 这个对话下一问用的位置（改过位置的取改后的）；还没有记录的首轮取运行里的。 */
+const conversationAt = computed(() => (record.value === null ? (run.value?.at ?? null) : currentPosition(record.value)));
+/** 整个对话出现过的最高位置：剧透警告按它判断。 */
+const highestAt = computed(() => (record.value === null ? (run.value?.at ?? null) : highestPosition(record.value)));
 const conversationMode = computed(() => record.value?.mode ?? run.value?.mode ?? null);
 
 // ---- 输入框的 `@` 引用：候选按这个对话的阅读位置给（新对话用查看器的位置），晚于它的对象不在名单里 ----
@@ -327,12 +333,13 @@ async function submit(text: string): Promise<void> {
         const started = await client.call("qa.start", {
             book: book.bookId,
             question,
-            ...(target === null ? {mode: sent.mode === "full" ? ("full" as const) : ("graph" as const), at: book.at.value} : {conversation: target}),
+            ...(target === null ? {mode: sent.mode === "full" ? ("full" as const) : ("graph" as const), at: draftChapter.value === null ? book.at.value : {chapter: draftChapter.value}} : {conversation: target}),
             ...(picked === null ? {} : {model: picked.model, ...(picked.thinking === null ? {} : {thinking: picked.thinking as NonNullable<QaConfig["model"]["thinking"]>})}),
         });
         // 受理了才清空草稿；失败时草稿留着，原因写在输入框上方。新对话的草稿（含输入历史）带到这个对话下，模式只在新对话时可选。
         const accepted = acceptSubmission(sent, text);
         if (target === null) {
+            draftChapter.value = null;
             composerStore.delete(storeKey(null));
             composerStore.set(storeKey(started.conversation), {...accepted, modes: []});
             if (stillHere()) book.qaConversation.value = started.conversation;
@@ -381,6 +388,42 @@ const statusCurrency = computed<"USD" | "CNY">(() => {
     const model = config.value.providers?.[ref.slice(0, slash)]?.models.find(item => item.id === ref.slice(slash + 1));
     return model?.price?.currency === "USD" ? "USD" : "CNY";
 });
+
+// ---- 阅读位置（t25）：已有的对话改位置立刻写进会话，新对话改的是第一问的位置 ----
+/** 新对话第一问的章；null 跟着查看器的位置。 */
+const draftChapter = ref<number | null>(null);
+const changingPosition = ref(false);
+const positionAt = computed(() => {
+    if (selectedId.value !== null) return conversationAt.value;
+    return draftChapter.value === null ? book.at.value : {chapter: draftChapter.value, paragraph: book.info.paragraphs[draftChapter.value - 1] ?? 1};
+});
+/** 位置控件不能改的原因；能改时为 null。 */
+const positionBlock = computed<string | null>(() => {
+    if (selectedId.value === null) return null;
+    if (running.value) return "对话正在运行，等这一轮结束后再改";
+    if (conversationMode.value === "full") return "全读对话读的是开始时的原文，阅读位置不能改，请开新对话";
+    if (sourceState.value?.phase === "ready" && !sourceState.value.continuable.ok) return `不能续问，也就不能改位置：${sourceState.value.continuable.reason}`;
+    return null;
+});
+async function onPositionChange(chapter: number): Promise<void> {
+    const target = selectedId.value;
+    if (target === null) {
+        draftChapter.value = chapter;
+        return;
+    }
+    changingPosition.value = true;
+    startError.value = null;
+    try {
+        await client.call("qa.position", {book: book.bookId, conversation: target, at: {chapter}});
+        if (selectedId.value === target) await source?.refresh();
+        void loadList();
+    } catch (error) {
+        if (selectedId.value === target) startError.value = error instanceof Error ? error.message : String(error);
+        else console.warn({error, conversation: target}, "改阅读位置失败（已经换到别的对话）");
+    } finally {
+        changingPosition.value = false;
+    }
+}
 
 /** 第一次切换读书方式要先弹说明（t26）：等用户确认，这期间模式不变。 */
 const pendingMode = ref<"graph" | "full" | null>(null);
@@ -465,7 +508,7 @@ async function removeConversation(): Promise<void> {
 
 // ---- 版式 ----
 const wide = computed(() => book.tier.value === "wide");
-const behindViewer = computed(() => conversationAt.value !== null && before(book.at.value, conversationAt.value));
+const behindViewer = computed(() => highestAt.value !== null && before(book.at.value, highestAt.value));
 const aheadOfViewer = computed(() => conversationAt.value !== null && before(conversationAt.value, book.at.value));
 const unsaved = computed(() => {
     const saved = run.value?.saved;
@@ -492,11 +535,15 @@ const unsaved = computed(() => {
                 </Popover>
                 <template v-if="selectedId !== null && conversationAt !== null">
                     <span v-if="wide" class="qa-title" :title="title">{{ title }}</span>
-                    <span class="qa-meta">读到 {{ formatAt(conversationAt) }}<template v-if="conversationMode"> · {{ MODE_LABEL[conversationMode] }}</template></span>
-                    <span v-if="behindViewer" class="qa-warn" data-qa-ahead><span class="i-lucide-eye" />这个对话读到 {{ formatAt(conversationAt) }}，晚于你现在的位置 {{ formatAt(book.at.value) }}，答案可能含后文</span>
+                    <QaPositionControl v-if="positionAt" :at="positionAt" :paragraphs="book.info.paragraphs" :max-chapter="book.info.extractedThrough.chapter" :disabled-reason="positionBlock" :busy="changingPosition" @change="onPositionChange" />
+                    <span v-if="conversationMode" class="qa-meta">{{ MODE_LABEL[conversationMode] }}</span>
+                    <span v-if="behindViewer && highestAt" class="qa-warn" data-qa-ahead><span class="i-lucide-eye" />这个对话读到过 {{ formatAt(highestAt) }}，晚于你现在的位置 {{ formatAt(book.at.value) }}，答案可能含后文</span>
                     <span v-else-if="aheadOfViewer" class="qa-meta">早于你现在的位置 {{ formatAt(book.at.value) }}</span>
                 </template>
-                <span v-else-if="selectedId === null" class="qa-meta">新对话按你现在的位置 {{ formatAt(book.at.value) }} 回答</span>
+                <template v-else-if="selectedId === null && positionAt">
+                    <QaPositionControl :at="positionAt" :paragraphs="book.info.paragraphs" :max-chapter="book.info.extractedThrough.chapter" :disabled-reason="null" :busy="false" @change="onPositionChange" />
+                    <span class="qa-meta">新对话从这里读起</span>
+                </template>
                 <span class="ml-auto" />
                 <Button v-if="running" size="sm" variant="secondary" icon-class="i-lucide-square" data-qa-stop @click="handle({type: 'composer.stop'})">停止</Button>
                 <AlertDialog

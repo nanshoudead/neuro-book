@@ -1,0 +1,2467 @@
+[
+  {
+    "file": "packages/dev-panel/src/audit-init.ts",
+    "lines": 4,
+    "matches": 71
+  },
+  {
+    "file": "packages/dev-panel/src/cli.ts",
+    "lines": 2,
+    "matches": 44
+  },
+  {
+    "file": "packages/dev-panel/src/cli/artifact-commands.ts",
+    "lines": 64,
+    "matches": 860
+  },
+  {
+    "file": "packages/dev-panel/src/cli/common.ts",
+    "lines": 18,
+    "matches": 268
+  },
+  {
+    "file": "packages/dev-panel/src/cli/dev-commands.ts",
+    "lines": 27,
+    "matches": 246
+  },
+  {
+    "file": "packages/dev-panel/src/cli/main.ts",
+    "lines": 52,
+    "matches": 367
+  },
+  {
+    "file": "packages/dev-panel/src/cli/output.ts",
+    "lines": 18,
+    "matches": 326
+  },
+  {
+    "file": "packages/dev-panel/src/cli/panel-commands.ts",
+    "lines": 23,
+    "matches": 378
+  },
+  {
+    "file": "packages/dev-panel/src/core/activity.ts",
+    "lines": 15,
+    "matches": 405
+  },
+  {
+    "file": "packages/dev-panel/src/core/artifact-ops.ts",
+    "lines": 133,
+    "matches": 2725
+  },
+  {
+    "file": "packages/dev-panel/src/core/artifacts.ts",
+    "lines": 101,
+    "matches": 2068
+  },
+  {
+    "file": "packages/dev-panel/src/core/audit.ts",
+    "lines": 14,
+    "matches": 288
+  },
+  {
+    "file": "packages/dev-panel/src/core/checkouts.ts",
+    "lines": 13,
+    "matches": 240
+  },
+  {
+    "file": "packages/dev-panel/src/core/docs.ts",
+    "lines": 20,
+    "matches": 613
+  },
+  {
+    "file": "packages/dev-panel/src/core/edit-ops.ts",
+    "lines": 44,
+    "matches": 816
+  },
+  {
+    "file": "packages/dev-panel/src/core/errors.ts",
+    "lines": 5,
+    "matches": 105
+  },
+  {
+    "file": "packages/dev-panel/src/core/frontmatter.ts",
+    "lines": 9,
+    "matches": 135
+  },
+  {
+    "file": "packages/dev-panel/src/core/git.ts",
+    "lines": 20,
+    "matches": 427
+  },
+  {
+    "file": "packages/dev-panel/src/core/governance-limits.ts",
+    "lines": 4,
+    "matches": 122
+  },
+  {
+    "file": "packages/dev-panel/src/core/identity.ts",
+    "lines": 22,
+    "matches": 627
+  },
+  {
+    "file": "packages/dev-panel/src/core/ids.ts",
+    "lines": 10,
+    "matches": 147
+  },
+  {
+    "file": "packages/dev-panel/src/core/json.ts",
+    "lines": 3,
+    "matches": 61
+  },
+  {
+    "file": "packages/dev-panel/src/core/lease-ops.ts",
+    "lines": 49,
+    "matches": 1045
+  },
+  {
+    "file": "packages/dev-panel/src/core/leases.ts",
+    "lines": 50,
+    "matches": 1005
+  },
+  {
+    "file": "packages/dev-panel/src/core/lock.ts",
+    "lines": 33,
+    "matches": 752
+  },
+  {
+    "file": "packages/dev-panel/src/core/notify.ts",
+    "lines": 36,
+    "matches": 961
+  },
+  {
+    "file": "packages/dev-panel/src/core/operations.ts",
+    "lines": 62,
+    "matches": 1042
+  },
+  {
+    "file": "packages/dev-panel/src/core/paths.ts",
+    "lines": 7,
+    "matches": 225
+  },
+  {
+    "file": "packages/dev-panel/src/core/procfs.ts",
+    "lines": 16,
+    "matches": 333
+  },
+  {
+    "file": "packages/dev-panel/src/core/procs.ts",
+    "lines": 37,
+    "matches": 969
+  },
+  {
+    "file": "packages/dev-panel/src/core/provenance.ts",
+    "lines": 13,
+    "matches": 243
+  },
+  {
+    "file": "packages/dev-panel/src/core/questions.ts",
+    "lines": 59,
+    "matches": 1116
+  },
+  {
+    "file": "packages/dev-panel/src/core/records.ts",
+    "lines": 14,
+    "matches": 229
+  },
+  {
+    "file": "packages/dev-panel/src/core/references.ts",
+    "lines": 55,
+    "matches": 1448
+  },
+  {
+    "file": "packages/dev-panel/src/core/registry.ts",
+    "lines": 21,
+    "matches": 276
+  },
+  {
+    "file": "packages/dev-panel/src/core/repo.ts",
+    "lines": 13,
+    "matches": 199
+  },
+  {
+    "file": "packages/dev-panel/src/core/runs.ts",
+    "lines": 16,
+    "matches": 448
+  },
+  {
+    "file": "packages/dev-panel/src/core/scan.ts",
+    "lines": 15,
+    "matches": 359
+  },
+  {
+    "file": "packages/dev-panel/src/core/search.ts",
+    "lines": 24,
+    "matches": 536
+  },
+  {
+    "file": "packages/dev-panel/src/core/sections.ts",
+    "lines": 3,
+    "matches": 82
+  },
+  {
+    "file": "packages/dev-panel/src/core/sources.ts",
+    "lines": 22,
+    "matches": 520
+  },
+  {
+    "file": "packages/dev-panel/src/core/status.ts",
+    "lines": 28,
+    "matches": 595
+  },
+  {
+    "file": "packages/dev-panel/src/core/task-detail.ts",
+    "lines": 6,
+    "matches": 105
+  },
+  {
+    "file": "packages/dev-panel/src/core/templates.ts",
+    "lines": 11,
+    "matches": 117
+  },
+  {
+    "file": "packages/dev-panel/src/core/text-rules.ts",
+    "lines": 12,
+    "matches": 242
+  },
+  {
+    "file": "packages/dev-panel/src/core/transaction.ts",
+    "lines": 74,
+    "matches": 1712
+  },
+  {
+    "file": "packages/dev-panel/src/core/uncommitted.ts",
+    "lines": 12,
+    "matches": 272
+  },
+  {
+    "file": "packages/dev-panel/src/core/worktree-ops.ts",
+    "lines": 17,
+    "matches": 255
+  },
+  {
+    "file": "packages/dev-panel/src/dev/dev-ops.ts",
+    "lines": 77,
+    "matches": 1683
+  },
+  {
+    "file": "packages/dev-panel/src/dev/ready.ts",
+    "lines": 18,
+    "matches": 400
+  },
+  {
+    "file": "packages/dev-panel/src/dev/sample.ts",
+    "lines": 25,
+    "matches": 719
+  },
+  {
+    "file": "packages/dev-panel/src/dev/shot.ts",
+    "lines": 9,
+    "matches": 186
+  },
+  {
+    "file": "packages/dev-panel/src/herdr/client.ts",
+    "lines": 59,
+    "matches": 1059
+  },
+  {
+    "file": "packages/dev-panel/src/herdr/screens.ts",
+    "lines": 37,
+    "matches": 761
+  },
+  {
+    "file": "packages/dev-panel/src/index.ts",
+    "lines": 3,
+    "matches": 80
+  },
+  {
+    "file": "packages/dev-panel/src/install-service.ts",
+    "lines": 32,
+    "matches": 583
+  },
+  {
+    "file": "packages/dev-panel/src/install-shim.ts",
+    "lines": 10,
+    "matches": 161
+  },
+  {
+    "file": "packages/dev-panel/src/server/auth.ts",
+    "lines": 8,
+    "matches": 179
+  },
+  {
+    "file": "packages/dev-panel/src/server/build.ts",
+    "lines": 17,
+    "matches": 296
+  },
+  {
+    "file": "packages/dev-panel/src/server/control-registry.ts",
+    "lines": 5,
+    "matches": 131
+  },
+  {
+    "file": "packages/dev-panel/src/server/delivery.ts",
+    "lines": 65,
+    "matches": 1424
+  },
+  {
+    "file": "packages/dev-panel/src/server/github.ts",
+    "lines": 31,
+    "matches": 595
+  },
+  {
+    "file": "packages/dev-panel/src/server/guard.ts",
+    "lines": 16,
+    "matches": 353
+  },
+  {
+    "file": "packages/dev-panel/src/server/herdr-monitor.ts",
+    "lines": 32,
+    "matches": 795
+  },
+  {
+    "file": "packages/dev-panel/src/server/live-views.ts",
+    "lines": 18,
+    "matches": 398
+  },
+  {
+    "file": "packages/dev-panel/src/server/notifier.ts",
+    "lines": 63,
+    "matches": 1534
+  },
+  {
+    "file": "packages/dev-panel/src/server/panel-file.ts",
+    "lines": 20,
+    "matches": 474
+  },
+  {
+    "file": "packages/dev-panel/src/server/serve.ts",
+    "lines": 60,
+    "matches": 1145
+  },
+  {
+    "file": "packages/dev-panel/src/server/session-io.ts",
+    "lines": 31,
+    "matches": 526
+  },
+  {
+    "file": "packages/dev-panel/src/server/session-titles.ts",
+    "lines": 65,
+    "matches": 1913
+  },
+  {
+    "file": "packages/dev-panel/src/server/state.ts",
+    "lines": 53,
+    "matches": 1513
+  },
+  {
+    "file": "packages/dev-panel/src/server/terminal-hub.ts",
+    "lines": 68,
+    "matches": 1456
+  },
+  {
+    "file": "packages/dev-panel/src/server/terminal-size.ts",
+    "lines": 12,
+    "matches": 172
+  },
+  {
+    "file": "packages/dev-panel/src/server/terminal-stream.ts",
+    "lines": 24,
+    "matches": 490
+  },
+  {
+    "file": "packages/dev-panel/src/server/views.ts",
+    "lines": 25,
+    "matches": 758
+  },
+  {
+    "file": "packages/dev-panel/src/server/writes.ts",
+    "lines": 41,
+    "matches": 682
+  },
+  {
+    "file": "packages/dev-panel/src/service.ts",
+    "lines": 19,
+    "matches": 371
+  },
+  {
+    "file": "packages/dev-panel/types/no-bun-in-core.d.ts",
+    "lines": 2,
+    "matches": 56
+  },
+  {
+    "file": "packages/dev-panel/vite.config.ts",
+    "lines": 7,
+    "matches": 199
+  },
+  {
+    "file": "packages/file-snapshot-cache/src/concurrency.ts",
+    "lines": 5,
+    "matches": 65
+  },
+  {
+    "file": "packages/file-snapshot-cache/src/index.ts",
+    "lines": 0,
+    "matches": 0
+  },
+  {
+    "file": "packages/file-snapshot-cache/src/snapshot-cache.ts",
+    "lines": 35,
+    "matches": 533
+  },
+  {
+    "file": "packages/file-snapshot-cache/src/types.ts",
+    "lines": 20,
+    "matches": 300
+  },
+  {
+    "file": "packages/file-snapshot-cache/vitest.config.ts",
+    "lines": 0,
+    "matches": 0
+  },
+  {
+    "file": "packages/nb-harness/src/catalog.ts",
+    "lines": 33,
+    "matches": 696
+  },
+  {
+    "file": "packages/nb-harness/src/complete.ts",
+    "lines": 8,
+    "matches": 151
+  },
+  {
+    "file": "packages/nb-harness/src/context.ts",
+    "lines": 3,
+    "matches": 82
+  },
+  {
+    "file": "packages/nb-harness/src/errors.ts",
+    "lines": 2,
+    "matches": 40
+  },
+  {
+    "file": "packages/nb-harness/src/finish-watch.ts",
+    "lines": 8,
+    "matches": 170
+  },
+  {
+    "file": "packages/nb-harness/src/harness.ts",
+    "lines": 60,
+    "matches": 1336
+  },
+  {
+    "file": "packages/nb-harness/src/index.ts",
+    "lines": 0,
+    "matches": 0
+  },
+  {
+    "file": "packages/nb-harness/src/interrupt.ts",
+    "lines": 9,
+    "matches": 288
+  },
+  {
+    "file": "packages/nb-harness/src/model.ts",
+    "lines": 26,
+    "matches": 470
+  },
+  {
+    "file": "packages/nb-harness/src/redact.ts",
+    "lines": 8,
+    "matches": 213
+  },
+  {
+    "file": "packages/nb-harness/src/run-result.ts",
+    "lines": 14,
+    "matches": 285
+  },
+  {
+    "file": "packages/nb-harness/src/sse-writer.ts",
+    "lines": 12,
+    "matches": 114
+  },
+  {
+    "file": "packages/nb-harness/src/sse.ts",
+    "lines": 8,
+    "matches": 94
+  },
+  {
+    "file": "packages/nb-harness/src/text-budget.ts",
+    "lines": 3,
+    "matches": 64
+  },
+  {
+    "file": "packages/nb-harness/src/tools/bridge.ts",
+    "lines": 11,
+    "matches": 287
+  },
+  {
+    "file": "packages/nb-harness/src/tools/builtin.ts",
+    "lines": 4,
+    "matches": 91
+  },
+  {
+    "file": "packages/nb-harness/src/tools/edit.ts",
+    "lines": 11,
+    "matches": 179
+  },
+  {
+    "file": "packages/nb-harness/src/tools/effective.ts",
+    "lines": 19,
+    "matches": 292
+  },
+  {
+    "file": "packages/nb-harness/src/tools/read.ts",
+    "lines": 14,
+    "matches": 184
+  },
+  {
+    "file": "packages/nb-harness/src/tools/registry.ts",
+    "lines": 26,
+    "matches": 534
+  },
+  {
+    "file": "packages/nb-history/scripts/demo.ts",
+    "lines": 41,
+    "matches": 338
+  },
+  {
+    "file": "packages/nb-history/scripts/handle-probe.ts",
+    "lines": 5,
+    "matches": 61
+  },
+  {
+    "file": "packages/nb-history/src/db.ts",
+    "lines": 10,
+    "matches": 165
+  },
+  {
+    "file": "packages/nb-history/src/hash.ts",
+    "lines": 3,
+    "matches": 55
+  },
+  {
+    "file": "packages/nb-history/src/index.ts",
+    "lines": 3,
+    "matches": 7
+  },
+  {
+    "file": "packages/nb-history/src/path-purge.ts",
+    "lines": 7,
+    "matches": 140
+  },
+  {
+    "file": "packages/nb-history/src/paths.ts",
+    "lines": 6,
+    "matches": 114
+  },
+  {
+    "file": "packages/nb-history/src/prune.ts",
+    "lines": 21,
+    "matches": 374
+  },
+  {
+    "file": "packages/nb-history/src/rows.ts",
+    "lines": 19,
+    "matches": 235
+  },
+  {
+    "file": "packages/nb-history/src/types.ts",
+    "lines": 62,
+    "matches": 1078
+  },
+  {
+    "file": "packages/nb-history/src/views.ts",
+    "lines": 36,
+    "matches": 655
+  },
+  {
+    "file": "packages/nb-history/src/workspace-history.ts",
+    "lines": 113,
+    "matches": 2056
+  },
+  {
+    "file": "packages/nb-memory/src/core/episode-store.ts",
+    "lines": 3,
+    "matches": 38
+  },
+  {
+    "file": "packages/nb-memory/src/core/fact-store.ts",
+    "lines": 4,
+    "matches": 79
+  },
+  {
+    "file": "packages/nb-memory/src/core/jsonl.ts",
+    "lines": 14,
+    "matches": 228
+  },
+  {
+    "file": "packages/nb-memory/src/core/state-store.ts",
+    "lines": 12,
+    "matches": 204
+  },
+  {
+    "file": "packages/nb-memory/src/core/subject-registry.ts",
+    "lines": 64,
+    "matches": 1178
+  },
+  {
+    "file": "packages/nb-memory/src/core/types.ts",
+    "lines": 58,
+    "matches": 939
+  },
+  {
+    "file": "packages/nb-memory/src/index.ts",
+    "lines": 145,
+    "matches": 2971
+  },
+  {
+    "file": "packages/nb-memory/src/ingest/chunk.ts",
+    "lines": 25,
+    "matches": 514
+  },
+  {
+    "file": "packages/nb-memory/src/ingest/extract.ts",
+    "lines": 56,
+    "matches": 1106
+  },
+  {
+    "file": "packages/nb-memory/src/ingest/resolve-facts.ts",
+    "lines": 58,
+    "matches": 1580
+  },
+  {
+    "file": "packages/nb-memory/src/ports/index-store.ts",
+    "lines": 28,
+    "matches": 472
+  },
+  {
+    "file": "packages/nb-memory/src/ports/ports.ts",
+    "lines": 15,
+    "matches": 202
+  },
+  {
+    "file": "packages/nb-memory/src/ports/sqlite-index-store.ts",
+    "lines": 63,
+    "matches": 1045
+  },
+  {
+    "file": "packages/nb-memory/src/retrieval/bm25.ts",
+    "lines": 10,
+    "matches": 149
+  },
+  {
+    "file": "packages/nb-memory/src/retrieval/heuristic-planner.ts",
+    "lines": 52,
+    "matches": 873
+  },
+  {
+    "file": "packages/nb-memory/src/retrieval/llm-planner.ts",
+    "lines": 53,
+    "matches": 1291
+  },
+  {
+    "file": "packages/nb-memory/src/retrieval/plan.ts",
+    "lines": 46,
+    "matches": 925
+  },
+  {
+    "file": "packages/nb-memory/src/retrieval/search.ts",
+    "lines": 80,
+    "matches": 1527
+  },
+  {
+    "file": "packages/nb-profile/src/define.ts",
+    "lines": 22,
+    "matches": 307
+  },
+  {
+    "file": "packages/nb-profile/src/index.ts",
+    "lines": 0,
+    "matches": 0
+  },
+  {
+    "file": "packages/nb-profile/src/jsx-dev-runtime.ts",
+    "lines": 3,
+    "matches": 31
+  },
+  {
+    "file": "packages/nb-profile/src/jsx-runtime.ts",
+    "lines": 3,
+    "matches": 39
+  },
+  {
+    "file": "packages/nb-profile/src/loader.ts",
+    "lines": 4,
+    "matches": 65
+  },
+  {
+    "file": "packages/nb-profile/src/nodes.ts",
+    "lines": 9,
+    "matches": 175
+  },
+  {
+    "file": "packages/nb-profile/src/render.ts",
+    "lines": 6,
+    "matches": 110
+  },
+  {
+    "file": "packages/nb-runtime/src/application/application.ts",
+    "lines": 13,
+    "matches": 293
+  },
+  {
+    "file": "packages/nb-runtime/src/application/bootstrap.ts",
+    "lines": 28,
+    "matches": 676
+  },
+  {
+    "file": "packages/nb-runtime/src/application/children.ts",
+    "lines": 30,
+    "matches": 733
+  },
+  {
+    "file": "packages/nb-runtime/src/application/contracts.ts",
+    "lines": 47,
+    "matches": 1189
+  },
+  {
+    "file": "packages/nb-runtime/src/application/instances.ts",
+    "lines": 10,
+    "matches": 272
+  },
+  {
+    "file": "packages/nb-runtime/src/diagnostics/contracts.ts",
+    "lines": 33,
+    "matches": 642
+  },
+  {
+    "file": "packages/nb-runtime/src/diagnostics/diagnostics.ts",
+    "lines": 8,
+    "matches": 171
+  },
+  {
+    "file": "packages/nb-runtime/src/diagnostics/plugin.ts",
+    "lines": 14,
+    "matches": 341
+  },
+  {
+    "file": "packages/nb-runtime/src/diagnostics/redaction.ts",
+    "lines": 16,
+    "matches": 439
+  },
+  {
+    "file": "packages/nb-runtime/src/diagnostics/store.ts",
+    "lines": 34,
+    "matches": 832
+  },
+  {
+    "file": "packages/nb-runtime/src/lifecycle/clock.ts",
+    "lines": 3,
+    "matches": 89
+  },
+  {
+    "file": "packages/nb-runtime/src/lifecycle/close-plan.ts",
+    "lines": 13,
+    "matches": 319
+  },
+  {
+    "file": "packages/nb-runtime/src/lifecycle/contracts.ts",
+    "lines": 52,
+    "matches": 1109
+  },
+  {
+    "file": "packages/nb-runtime/src/lifecycle/lifecycle.ts",
+    "lines": 13,
+    "matches": 272
+  },
+  {
+    "file": "packages/nb-runtime/src/lifecycle/scope.ts",
+    "lines": 43,
+    "matches": 855
+  },
+  {
+    "file": "packages/nb-runtime/src/plugin-manifest/build.ts",
+    "lines": 32,
+    "matches": 809
+  },
+  {
+    "file": "packages/nb-runtime/src/plugin-manifest/definition.ts",
+    "lines": 10,
+    "matches": 294
+  },
+  {
+    "file": "packages/nb-runtime/src/plugin-manifest/format.ts",
+    "lines": 7,
+    "matches": 165
+  },
+  {
+    "file": "packages/nb-runtime/src/plugin-manifest/plugin-manifest.ts",
+    "lines": 11,
+    "matches": 292
+  },
+  {
+    "file": "packages/nb-runtime/src/plugin-manifest/read.ts",
+    "lines": 38,
+    "matches": 514
+  },
+  {
+    "file": "packages/nb-runtime/src/plugin-manifest/schema.ts",
+    "lines": 33,
+    "matches": 751
+  },
+  {
+    "file": "packages/nb-runtime/src/plugins/blocked.ts",
+    "lines": 15,
+    "matches": 424
+  },
+  {
+    "file": "packages/nb-runtime/src/plugins/contract-content.ts",
+    "lines": 10,
+    "matches": 289
+  },
+  {
+    "file": "packages/nb-runtime/src/plugins/contracts.ts",
+    "lines": 110,
+    "matches": 2584
+  },
+  {
+    "file": "packages/nb-runtime/src/plugins/define.ts",
+    "lines": 22,
+    "matches": 575
+  },
+  {
+    "file": "packages/nb-runtime/src/plugins/host.ts",
+    "lines": 117,
+    "matches": 2897
+  },
+  {
+    "file": "packages/nb-runtime/src/plugins/platform.ts",
+    "lines": 9,
+    "matches": 233
+  },
+  {
+    "file": "packages/nb-runtime/src/plugins/plugins.ts",
+    "lines": 15,
+    "matches": 376
+  },
+  {
+    "file": "packages/nb-runtime/src/plugins/registration.ts",
+    "lines": 10,
+    "matches": 293
+  },
+  {
+    "file": "packages/nb-runtime/src/plugins/schema.ts",
+    "lines": 42,
+    "matches": 771
+  },
+  {
+    "file": "packages/nb-runtime/src/remote/contract.ts",
+    "lines": 65,
+    "matches": 1503
+  },
+  {
+    "file": "packages/nb-runtime/src/remote/json-codec.ts",
+    "lines": 19,
+    "matches": 374
+  },
+  {
+    "file": "packages/nb-runtime/src/remote/node.ts",
+    "lines": 130,
+    "matches": 2858
+  },
+  {
+    "file": "packages/nb-runtime/src/remote/peer.ts",
+    "lines": 23,
+    "matches": 523
+  },
+  {
+    "file": "packages/nb-runtime/src/remote/protocol.ts",
+    "lines": 53,
+    "matches": 1478
+  },
+  {
+    "file": "packages/nb-runtime/src/remote/remote.ts",
+    "lines": 5,
+    "matches": 107
+  },
+  {
+    "file": "packages/nb-runtime/src/remote/result.ts",
+    "lines": 7,
+    "matches": 140
+  },
+  {
+    "file": "packages/nb-runtime/src/remote/router.ts",
+    "lines": 69,
+    "matches": 1550
+  },
+  {
+    "file": "packages/nb-runtime/src/remote/transport.ts",
+    "lines": 7,
+    "matches": 167
+  },
+  {
+    "file": "packages/nb-runtime/src/services/assembly.ts",
+    "lines": 12,
+    "matches": 293
+  },
+  {
+    "file": "packages/nb-runtime/src/services/composition.ts",
+    "lines": 52,
+    "matches": 1419
+  },
+  {
+    "file": "packages/nb-runtime/src/services/contracts.ts",
+    "lines": 58,
+    "matches": 1468
+  },
+  {
+    "file": "packages/nb-runtime/src/services/per-consumer.ts",
+    "lines": 10,
+    "matches": 265
+  },
+  {
+    "file": "packages/nb-runtime/src/services/services.ts",
+    "lines": 10,
+    "matches": 213
+  },
+  {
+    "file": "packages/nb-session/src/entries.ts",
+    "lines": 12,
+    "matches": 225
+  },
+  {
+    "file": "packages/nb-session/src/index.ts",
+    "lines": 0,
+    "matches": 0
+  },
+  {
+    "file": "packages/nb-session/src/jsonl-log.ts",
+    "lines": 7,
+    "matches": 115
+  },
+  {
+    "file": "packages/nb-session/src/memory-log.ts",
+    "lines": 11,
+    "matches": 234
+  },
+  {
+    "file": "packages/nb-story/src/cli.ts",
+    "lines": 1,
+    "matches": 10
+  },
+  {
+    "file": "packages/nb-story/src/cli/ask.ts",
+    "lines": 23,
+    "matches": 354
+  },
+  {
+    "file": "packages/nb-story/src/cli/commands.ts",
+    "lines": 123,
+    "matches": 1593
+  },
+  {
+    "file": "packages/nb-story/src/cli/config-init.ts",
+    "lines": 31,
+    "matches": 463
+  },
+  {
+    "file": "packages/nb-story/src/cli/config.ts",
+    "lines": 82,
+    "matches": 1637
+  },
+  {
+    "file": "packages/nb-story/src/cli/format.ts",
+    "lines": 63,
+    "matches": 476
+  },
+  {
+    "file": "packages/nb-story/src/cli/ingest.ts",
+    "lines": 64,
+    "matches": 833
+  },
+  {
+    "file": "packages/nb-story/src/cli/main.ts",
+    "lines": 22,
+    "matches": 348
+  },
+  {
+    "file": "packages/nb-story/src/cli/program.ts",
+    "lines": 35,
+    "matches": 690
+  },
+  {
+    "file": "packages/nb-story/src/cli/qa.ts",
+    "lines": 8,
+    "matches": 114
+  },
+  {
+    "file": "packages/nb-story/src/cli/registration.ts",
+    "lines": 7,
+    "matches": 164
+  },
+  {
+    "file": "packages/nb-story/src/cli/skill.ts",
+    "lines": 25,
+    "matches": 547
+  },
+  {
+    "file": "packages/nb-story/src/contract/config-schema.ts",
+    "lines": 50,
+    "matches": 856
+  },
+  {
+    "file": "packages/nb-story/src/contract/contract.ts",
+    "lines": 109,
+    "matches": 2223
+  },
+  {
+    "file": "packages/nb-story/src/contract/qa-record.ts",
+    "lines": 16,
+    "matches": 233
+  },
+  {
+    "file": "packages/nb-story/src/contract/refs.ts",
+    "lines": 13,
+    "matches": 387
+  },
+  {
+    "file": "packages/nb-story/src/core/api.ts",
+    "lines": 28,
+    "matches": 587
+  },
+  {
+    "file": "packages/nb-story/src/core/book-index.ts",
+    "lines": 22,
+    "matches": 598
+  },
+  {
+    "file": "packages/nb-story/src/core/cursor.ts",
+    "lines": 11,
+    "matches": 268
+  },
+  {
+    "file": "packages/nb-story/src/core/dataset.ts",
+    "lines": 30,
+    "matches": 606
+  },
+  {
+    "file": "packages/nb-story/src/core/errors.ts",
+    "lines": 5,
+    "matches": 67
+  },
+  {
+    "file": "packages/nb-story/src/core/identity.ts",
+    "lines": 30,
+    "matches": 807
+  },
+  {
+    "file": "packages/nb-story/src/core/index.ts",
+    "lines": 1,
+    "matches": 26
+  },
+  {
+    "file": "packages/nb-story/src/core/library.ts",
+    "lines": 109,
+    "matches": 2299
+  },
+  {
+    "file": "packages/nb-story/src/core/position.ts",
+    "lines": 9,
+    "matches": 185
+  },
+  {
+    "file": "packages/nb-story/src/core/projection.ts",
+    "lines": 14,
+    "matches": 391
+  },
+  {
+    "file": "packages/nb-story/src/core/qa-records.ts",
+    "lines": 71,
+    "matches": 1869
+  },
+  {
+    "file": "packages/nb-story/src/core/queries/books.ts",
+    "lines": 4,
+    "matches": 99
+  },
+  {
+    "file": "packages/nb-story/src/core/queries/context.ts",
+    "lines": 18,
+    "matches": 495
+  },
+  {
+    "file": "packages/nb-story/src/core/queries/entities.ts",
+    "lines": 5,
+    "matches": 102
+  },
+  {
+    "file": "packages/nb-story/src/core/queries/episodes.ts",
+    "lines": 5,
+    "matches": 59
+  },
+  {
+    "file": "packages/nb-story/src/core/queries/graph.ts",
+    "lines": 16,
+    "matches": 316
+  },
+  {
+    "file": "packages/nb-story/src/core/queries/ledger.ts",
+    "lines": 12,
+    "matches": 246
+  },
+  {
+    "file": "packages/nb-story/src/core/queries/questions.ts",
+    "lines": 6,
+    "matches": 130
+  },
+  {
+    "file": "packages/nb-story/src/core/queries/relations.ts",
+    "lines": 10,
+    "matches": 321
+  },
+  {
+    "file": "packages/nb-story/src/core/queries/search.ts",
+    "lines": 8,
+    "matches": 234
+  },
+  {
+    "file": "packages/nb-story/src/core/queries/secrets.ts",
+    "lines": 11,
+    "matches": 328
+  },
+  {
+    "file": "packages/nb-story/src/core/queries/source.ts",
+    "lines": 12,
+    "matches": 162
+  },
+  {
+    "file": "packages/nb-story/src/core/queries/timeline.ts",
+    "lines": 10,
+    "matches": 210
+  },
+  {
+    "file": "packages/nb-story/src/ingest/chapter.ts",
+    "lines": 65,
+    "matches": 1664
+  },
+  {
+    "file": "packages/nb-story/src/ingest/compile.ts",
+    "lines": 173,
+    "matches": 3268
+  },
+  {
+    "file": "packages/nb-story/src/ingest/consolidation-context.ts",
+    "lines": 48,
+    "matches": 884
+  },
+  {
+    "file": "packages/nb-story/src/ingest/context.ts",
+    "lines": 75,
+    "matches": 1826
+  },
+  {
+    "file": "packages/nb-story/src/ingest/coordinator.ts",
+    "lines": 6,
+    "matches": 178
+  },
+  {
+    "file": "packages/nb-story/src/ingest/draft-schema.ts",
+    "lines": 42,
+    "matches": 1083
+  },
+  {
+    "file": "packages/nb-story/src/ingest/draft-tools.ts",
+    "lines": 77,
+    "matches": 2108
+  },
+  {
+    "file": "packages/nb-story/src/ingest/job.ts",
+    "lines": 34,
+    "matches": 987
+  },
+  {
+    "file": "packages/nb-story/src/ingest/model.ts",
+    "lines": 85,
+    "matches": 2060
+  },
+  {
+    "file": "packages/nb-story/src/ingest/prompts.ts",
+    "lines": 128,
+    "matches": 3785
+  },
+  {
+    "file": "packages/nb-story/src/ingest/recall.ts",
+    "lines": 16,
+    "matches": 440
+  },
+  {
+    "file": "packages/nb-story/src/ingest/reconcile.ts",
+    "lines": 36,
+    "matches": 1127
+  },
+  {
+    "file": "packages/nb-story/src/ingest/retry-policy.ts",
+    "lines": 3,
+    "matches": 70
+  },
+  {
+    "file": "packages/nb-story/src/ingest/runner.ts",
+    "lines": 29,
+    "matches": 665
+  },
+  {
+    "file": "packages/nb-story/src/ingest/start.ts",
+    "lines": 22,
+    "matches": 537
+  },
+  {
+    "file": "packages/nb-story/src/ingest/status.ts",
+    "lines": 20,
+    "matches": 506
+  },
+  {
+    "file": "packages/nb-story/src/ingest/store.ts",
+    "lines": 32,
+    "matches": 819
+  },
+  {
+    "file": "packages/nb-story/src/ingest/text-match.ts",
+    "lines": 3,
+    "matches": 119
+  },
+  {
+    "file": "packages/nb-story/src/ingest/text.ts",
+    "lines": 24,
+    "matches": 442
+  },
+  {
+    "file": "packages/nb-story/src/ingest/worker.ts",
+    "lines": 8,
+    "matches": 201
+  },
+  {
+    "file": "packages/nb-story/src/platform/flock.ts",
+    "lines": 15,
+    "matches": 316
+  },
+  {
+    "file": "packages/nb-story/src/platform/startup-env.ts",
+    "lines": 11,
+    "matches": 303
+  },
+  {
+    "file": "packages/nb-story/src/qa/answer.ts",
+    "lines": 7,
+    "matches": 129
+  },
+  {
+    "file": "packages/nb-story/src/qa/config-edit.ts",
+    "lines": 40,
+    "matches": 803
+  },
+  {
+    "file": "packages/nb-story/src/qa/config.ts",
+    "lines": 69,
+    "matches": 1657
+  },
+  {
+    "file": "packages/nb-story/src/qa/engine.ts",
+    "lines": 86,
+    "matches": 2158
+  },
+  {
+    "file": "packages/nb-story/src/qa/errors.ts",
+    "lines": 3,
+    "matches": 90
+  },
+  {
+    "file": "packages/nb-story/src/qa/format.ts",
+    "lines": 31,
+    "matches": 351
+  },
+  {
+    "file": "packages/nb-story/src/qa/harness-model.ts",
+    "lines": 23,
+    "matches": 588
+  },
+  {
+    "file": "packages/nb-story/src/qa/probe.profile.tsx",
+    "lines": 4,
+    "matches": 87
+  },
+  {
+    "file": "packages/nb-story/src/qa/probe.ts",
+    "lines": 5,
+    "matches": 126
+  },
+  {
+    "file": "packages/nb-story/src/qa/read-ledger.ts",
+    "lines": 35,
+    "matches": 660
+  },
+  {
+    "file": "packages/nb-story/src/qa/rules.ts",
+    "lines": 53,
+    "matches": 1871
+  },
+  {
+    "file": "packages/nb-story/src/qa/story-qa.profile.tsx",
+    "lines": 13,
+    "matches": 523
+  },
+  {
+    "file": "packages/nb-story/src/qa/tools.ts",
+    "lines": 45,
+    "matches": 1179
+  },
+  {
+    "file": "packages/nb-story/src/qa/web-events.ts",
+    "lines": 10,
+    "matches": 208
+  },
+  {
+    "file": "packages/nb-story/src/server/auth.ts",
+    "lines": 6,
+    "matches": 170
+  },
+  {
+    "file": "packages/nb-story/src/server/http.ts",
+    "lines": 44,
+    "matches": 846
+  },
+  {
+    "file": "packages/nb-story/src/server/ingest-service.ts",
+    "lines": 28,
+    "matches": 545
+  },
+  {
+    "file": "packages/nb-story/src/server/qa-service.ts",
+    "lines": 75,
+    "matches": 1864
+  },
+  {
+    "file": "packages/nb-story/src/server/registry.ts",
+    "lines": 10,
+    "matches": 206
+  },
+  {
+    "file": "packages/nb-story/src/server/serve.ts",
+    "lines": 25,
+    "matches": 565
+  },
+  {
+    "file": "packages/nb-story/types/no-bun-in-core.d.ts",
+    "lines": 2,
+    "matches": 56
+  },
+  {
+    "file": "packages/nb-story/vite.config.ts",
+    "lines": 3,
+    "matches": 68
+  },
+  {
+    "file": "packages/nb-workflow/demo/generate.ts",
+    "lines": 80,
+    "matches": 1041
+  },
+  {
+    "file": "packages/nb-workflow/demo/guide.mjs",
+    "lines": 97,
+    "matches": 797
+  },
+  {
+    "file": "packages/nb-workflow/docs/.vitepress/config.mjs",
+    "lines": 23,
+    "matches": 73
+  },
+  {
+    "file": "packages/nb-workflow/scripts/check-publish-ready.mjs",
+    "lines": 2,
+    "matches": 24
+  },
+  {
+    "file": "packages/nb-workflow/scripts/fix-declaration-imports.mjs",
+    "lines": 0,
+    "matches": 0
+  },
+  {
+    "file": "packages/nb-workflow/scripts/isolated-package-smoke.mjs",
+    "lines": 3,
+    "matches": 48
+  },
+  {
+    "file": "packages/nb-workflow/scripts/node-smoke.mjs",
+    "lines": 0,
+    "matches": 0
+  },
+  {
+    "file": "packages/nb-workflow/src/activities.ts",
+    "lines": 5,
+    "matches": 82
+  },
+  {
+    "file": "packages/nb-workflow/src/agent-extension.ts",
+    "lines": 2,
+    "matches": 13
+  },
+  {
+    "file": "packages/nb-workflow/src/agent-run-context.ts",
+    "lines": 0,
+    "matches": 0
+  },
+  {
+    "file": "packages/nb-workflow/src/agents.ts",
+    "lines": 8,
+    "matches": 102
+  },
+  {
+    "file": "packages/nb-workflow/src/backend.ts",
+    "lines": 1,
+    "matches": 14
+  },
+  {
+    "file": "packages/nb-workflow/src/children.ts",
+    "lines": 2,
+    "matches": 25
+  },
+  {
+    "file": "packages/nb-workflow/src/conformance.ts",
+    "lines": 5,
+    "matches": 68
+  },
+  {
+    "file": "packages/nb-workflow/src/definitions.ts",
+    "lines": 0,
+    "matches": 0
+  },
+  {
+    "file": "packages/nb-workflow/src/events.ts",
+    "lines": 1,
+    "matches": 12
+  },
+  {
+    "file": "packages/nb-workflow/src/fingerprint.ts",
+    "lines": 6,
+    "matches": 91
+  },
+  {
+    "file": "packages/nb-workflow/src/index.ts",
+    "lines": 0,
+    "matches": 0
+  },
+  {
+    "file": "packages/nb-workflow/src/ports.ts",
+    "lines": 28,
+    "matches": 410
+  },
+  {
+    "file": "packages/nb-workflow/src/projection/cfg.ts",
+    "lines": 15,
+    "matches": 265
+  },
+  {
+    "file": "packages/nb-workflow/src/projection/skeleton.ts",
+    "lines": 2,
+    "matches": 36
+  },
+  {
+    "file": "packages/nb-workflow/src/projection/trace.ts",
+    "lines": 8,
+    "matches": 133
+  },
+  {
+    "file": "packages/nb-workflow/src/run-record.ts",
+    "lines": 4,
+    "matches": 77
+  },
+  {
+    "file": "packages/nb-workflow/src/runner-execution.ts",
+    "lines": 5,
+    "matches": 63
+  },
+  {
+    "file": "packages/nb-workflow/src/runner-run-store.ts",
+    "lines": 6,
+    "matches": 52
+  },
+  {
+    "file": "packages/nb-workflow/src/runner-support.ts",
+    "lines": 1,
+    "matches": 3
+  },
+  {
+    "file": "packages/nb-workflow/src/runner.ts",
+    "lines": 15,
+    "matches": 124
+  },
+  {
+    "file": "packages/nb-workflow/src/runtime-events.ts",
+    "lines": 1,
+    "matches": 11
+  },
+  {
+    "file": "packages/nb-workflow/src/runtime.ts",
+    "lines": 4,
+    "matches": 44
+  },
+  {
+    "file": "packages/nb-workflow/src/session-store.ts",
+    "lines": 14,
+    "matches": 182
+  },
+  {
+    "file": "packages/nb-workflow/src/signals.ts",
+    "lines": 3,
+    "matches": 27
+  },
+  {
+    "file": "packages/nb-workflow/src/timers.ts",
+    "lines": 1,
+    "matches": 10
+  },
+  {
+    "file": "packages/nb-workflow/src/types.ts",
+    "lines": 58,
+    "matches": 840
+  },
+  {
+    "file": "packages/nb-workflow/src/values.ts",
+    "lines": 1,
+    "matches": 17
+  },
+  {
+    "file": "packages/nb-workflow/src/workflow-activities.ts",
+    "lines": 0,
+    "matches": 0
+  },
+  {
+    "file": "packages/nb-workflow/src/workflow-context.ts",
+    "lines": 0,
+    "matches": 0
+  },
+  {
+    "file": "packages/neuro-book/plugin-sdk/build-examples.ts",
+    "lines": 9,
+    "matches": 282
+  },
+  {
+    "file": "packages/neuro-book/plugin-sdk/build.ts",
+    "lines": 2,
+    "matches": 38
+  },
+  {
+    "file": "packages/neuro-book/plugin-sdk/cli.ts",
+    "lines": 22,
+    "matches": 317
+  },
+  {
+    "file": "packages/neuro-book/plugin-sdk/create-plugin.ts",
+    "lines": 36,
+    "matches": 742
+  },
+  {
+    "file": "packages/neuro-book/plugin-sdk/dependencies.ts",
+    "lines": 4,
+    "matches": 107
+  },
+  {
+    "file": "packages/neuro-book/plugin-sdk/pack.ts",
+    "lines": 102,
+    "matches": 2032
+  },
+  {
+    "file": "packages/neuro-book/plugin-sdk/template/env.d.ts",
+    "lines": 1,
+    "matches": 29
+  },
+  {
+    "file": "packages/neuro-book/plugin-sdk/template/plugin.ts",
+    "lines": 2,
+    "matches": 48
+  },
+  {
+    "file": "packages/neuro-book/plugin-sdk/template/shared/contracts.ts",
+    "lines": 9,
+    "matches": 187
+  },
+  {
+    "file": "packages/neuro-book/plugin-sdk/template/web/HelloView.vue",
+    "lines": 5,
+    "matches": 119
+  },
+  {
+    "file": "packages/neuro-book/plugin-sdk/template/web/plugin.ts",
+    "lines": 9,
+    "matches": 263
+  },
+  {
+    "file": "packages/neuro-book/scripts/check-dist.ts",
+    "lines": 24,
+    "matches": 539
+  },
+  {
+    "file": "packages/neuro-book/scripts/files-list-trace.ts",
+    "lines": 10,
+    "matches": 291
+  },
+  {
+    "file": "packages/neuro-book/scripts/files-sample.ts",
+    "lines": 29,
+    "matches": 565
+  },
+  {
+    "file": "packages/neuro-book/scripts/gen-file-icons.ts",
+    "lines": 15,
+    "matches": 230
+  },
+  {
+    "file": "packages/neuro-book/scripts/gen-monaco-languages.ts",
+    "lines": 18,
+    "matches": 306
+  },
+  {
+    "file": "packages/neuro-book/scripts/lab-shot.ts",
+    "lines": 50,
+    "matches": 824
+  },
+  {
+    "file": "packages/neuro-book/scripts/measure-project.ts",
+    "lines": 17,
+    "matches": 295
+  },
+  {
+    "file": "packages/neuro-book/scripts/pack-app.ts",
+    "lines": 50,
+    "matches": 967
+  },
+  {
+    "file": "packages/neuro-book/scripts/page-shot.ts",
+    "lines": 94,
+    "matches": 1883
+  },
+  {
+    "file": "packages/neuro-book/scripts/perf/browser-runner.ts",
+    "lines": 111,
+    "matches": 2309
+  },
+  {
+    "file": "packages/neuro-book/scripts/perf/files-perf.ts",
+    "lines": 43,
+    "matches": 692
+  },
+  {
+    "file": "packages/neuro-book/scripts/perf/page-agent.ts",
+    "lines": 32,
+    "matches": 736
+  },
+  {
+    "file": "packages/neuro-book/scripts/perf/scenarios.ts",
+    "lines": 23,
+    "matches": 389
+  },
+  {
+    "file": "packages/neuro-book/scripts/perf/stats.ts",
+    "lines": 12,
+    "matches": 198
+  },
+  {
+    "file": "packages/neuro-book/scripts/smoke-server.ts",
+    "lines": 22,
+    "matches": 645
+  },
+  {
+    "file": "packages/neuro-book/src/backend/locked-replace.ts",
+    "lines": 50,
+    "matches": 1119
+  },
+  {
+    "file": "packages/neuro-book/src/backend/plugin-host-modules.ts",
+    "lines": 3,
+    "matches": 95
+  },
+  {
+    "file": "packages/neuro-book/src/cli/main.ts",
+    "lines": 42,
+    "matches": 582
+  },
+  {
+    "file": "packages/neuro-book/src/cli/output.ts",
+    "lines": 6,
+    "matches": 127
+  },
+  {
+    "file": "packages/neuro-book/src/cli/plugin.ts",
+    "lines": 34,
+    "matches": 610
+  },
+  {
+    "file": "packages/neuro-book/src/cli/start.ts",
+    "lines": 28,
+    "matches": 629
+  },
+  {
+    "file": "packages/neuro-book/src/cli/state-root.ts",
+    "lines": 9,
+    "matches": 183
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/backend/copy.ts",
+    "lines": 31,
+    "matches": 731
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/backend/installed.ts",
+    "lines": 8,
+    "matches": 234
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/backend/inventory.ts",
+    "lines": 66,
+    "matches": 1404
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/backend/loader.ts",
+    "lines": 34,
+    "matches": 963
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/backend/paths.ts",
+    "lines": 3,
+    "matches": 87
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/backend/plugin-files.ts",
+    "lines": 16,
+    "matches": 350
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/backend/preview.ts",
+    "lines": 11,
+    "matches": 406
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/backend/record.ts",
+    "lines": 36,
+    "matches": 819
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/backend/startup.ts",
+    "lines": 52,
+    "matches": 1286
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/backend/version-dir.ts",
+    "lines": 18,
+    "matches": 301
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/build/build-plugin.ts",
+    "lines": 147,
+    "matches": 3724
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/shared/definitions.ts",
+    "lines": 25,
+    "matches": 728
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/shared/descriptor-check.ts",
+    "lines": 3,
+    "matches": 126
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/shared/plugin-code-error.ts",
+    "lines": 13,
+    "matches": 314
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/shared/plugin-files.ts",
+    "lines": 10,
+    "matches": 280
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/shared/problems.ts",
+    "lines": 4,
+    "matches": 129
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/shared/profile.ts",
+    "lines": 17,
+    "matches": 481
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/shared/types.ts",
+    "lines": 30,
+    "matches": 668
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/shared/versions.ts",
+    "lines": 11,
+    "matches": 349
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/web/plugin-code.ts",
+    "lines": 46,
+    "matches": 1322
+  },
+  {
+    "file": "packages/neuro-book/src/plugin-platform/web/styles.ts",
+    "lines": 6,
+    "matches": 145
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/commands/shared/context-keys.ts",
+    "lines": 16,
+    "matches": 374
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/commands/shared/contracts.ts",
+    "lines": 35,
+    "matches": 758
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/commands/shared/keybinding.ts",
+    "lines": 16,
+    "matches": 320
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/commands/shared/menus.ts",
+    "lines": 35,
+    "matches": 780
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/commands/shared/plugin.ts",
+    "lines": 22,
+    "matches": 550
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/commands/shared/registry.ts",
+    "lines": 51,
+    "matches": 871
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/diagnostics/backend/jsonl-exporter.ts",
+    "lines": 25,
+    "matches": 670
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/diagnostics/backend/log-writer.ts",
+    "lines": 15,
+    "matches": 335
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/diagnostics/backend/plugin.ts",
+    "lines": 8,
+    "matches": 200
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/editor/shared/contracts.ts",
+    "lines": 83,
+    "matches": 1982
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/editor/shared/settings.ts",
+    "lines": 33,
+    "matches": 376
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/explorer/shared/contracts.ts",
+    "lines": 3,
+    "matches": 87
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/explorer/shared/settings.ts",
+    "lines": 14,
+    "matches": 154
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/files/backend/batch.ts",
+    "lines": 24,
+    "matches": 638
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/files/backend/changes.ts",
+    "lines": 44,
+    "matches": 1213
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/files/backend/commit.ts",
+    "lines": 23,
+    "matches": 667
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/files/backend/entry-ops.ts",
+    "lines": 51,
+    "matches": 828
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/files/backend/exclusive.ts",
+    "lines": 10,
+    "matches": 205
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/files/backend/files-service.ts",
+    "lines": 27,
+    "matches": 543
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/files/backend/folder-kinds.ts",
+    "lines": 16,
+    "matches": 240
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/files/backend/manifest-edit.ts",
+    "lines": 32,
+    "matches": 609
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/files/backend/manifests.ts",
+    "lines": 17,
+    "matches": 358
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/files/backend/operations.ts",
+    "lines": 26,
+    "matches": 412
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/files/backend/plugin.ts",
+    "lines": 23,
+    "matches": 570
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/files/backend/raw-route.ts",
+    "lines": 48,
+    "matches": 1121
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/files/backend/rooted.ts",
+    "lines": 76,
+    "matches": 1397
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/files/shared/contracts.ts",
+    "lines": 69,
+    "matches": 1822
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/files/shared/failures.ts",
+    "lines": 2,
+    "matches": 49
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/files/shared/names.ts",
+    "lines": 13,
+    "matches": 242
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/files/shared/resource.ts",
+    "lines": 23,
+    "matches": 363
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/http/backend/admission.ts",
+    "lines": 16,
+    "matches": 353
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/http/backend/dispatch.ts",
+    "lines": 36,
+    "matches": 796
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/http/backend/plugin.ts",
+    "lines": 13,
+    "matches": 256
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/http/backend/static.ts",
+    "lines": 13,
+    "matches": 270
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/http/shared/contracts.ts",
+    "lines": 9,
+    "matches": 190
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/lab/shared/debug-api.ts",
+    "lines": 19,
+    "matches": 436
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/markdown/shared/contracts.ts",
+    "lines": 10,
+    "matches": 204
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/markdown/shared/dialects.ts",
+    "lines": 14,
+    "matches": 286
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/markdown/shared/plugin.ts",
+    "lines": 2,
+    "matches": 56
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/markdown/shared/targets.ts",
+    "lines": 13,
+    "matches": 375
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/markdown/shared/word-count.ts",
+    "lines": 50,
+    "matches": 1464
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/plugins/backend/plugin.ts",
+    "lines": 6,
+    "matches": 154
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/plugins/shared/contracts.ts",
+    "lines": 5,
+    "matches": 160
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/projects/backend/browse.ts",
+    "lines": 12,
+    "matches": 234
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/projects/backend/cover-routes.ts",
+    "lines": 21,
+    "matches": 317
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/projects/backend/library.ts",
+    "lines": 2,
+    "matches": 64
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/projects/backend/plugin.ts",
+    "lines": 8,
+    "matches": 250
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/projects/backend/shelf.ts",
+    "lines": 22,
+    "matches": 484
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/projects/shared/contracts.ts",
+    "lines": 51,
+    "matches": 1022
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/projects/shared/cover.ts",
+    "lines": 9,
+    "matches": 211
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/projects/shared/directory-name.ts",
+    "lines": 7,
+    "matches": 153
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/projects/shared/paths.ts",
+    "lines": 2,
+    "matches": 75
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/projects/shared/project-url.ts",
+    "lines": 2,
+    "matches": 78
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/projects/shared/shelf.ts",
+    "lines": 3,
+    "matches": 116
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/projects/shared/stats-record.ts",
+    "lines": 2,
+    "matches": 80
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/settings/backend/layer-file.ts",
+    "lines": 19,
+    "matches": 506
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/settings/backend/layer-owner.ts",
+    "lines": 54,
+    "matches": 1173
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/settings/backend/layer-watch.ts",
+    "lines": 18,
+    "matches": 620
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/settings/backend/owner-link.ts",
+    "lines": 6,
+    "matches": 164
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/settings/backend/plugin.ts",
+    "lines": 9,
+    "matches": 251
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/settings/shared/contracts.ts",
+    "lines": 36,
+    "matches": 775
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/settings/shared/instance.ts",
+    "lines": 36,
+    "matches": 865
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/settings/shared/layer-text.ts",
+    "lines": 45,
+    "matches": 973
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/settings/shared/layers.ts",
+    "lines": 31,
+    "matches": 743
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/settings/shared/point.ts",
+    "lines": 8,
+    "matches": 218
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/settings/shared/remote-link.ts",
+    "lines": 17,
+    "matches": 546
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/settings/shared/sections.ts",
+    "lines": 31,
+    "matches": 534
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/state/shared/contracts.ts",
+    "lines": 10,
+    "matches": 248
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/state/shared/plugin.ts",
+    "lines": 19,
+    "matches": 458
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/storage/backend/owner.ts",
+    "lines": 14,
+    "matches": 329
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/storage/backend/partition.ts",
+    "lines": 48,
+    "matches": 1045
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/storage/backend/plugin.ts",
+    "lines": 8,
+    "matches": 249
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/storage/shared/contracts.ts",
+    "lines": 9,
+    "matches": 219
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/storage/shared/facade.ts",
+    "lines": 15,
+    "matches": 374
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/storage/shared/remote-route.ts",
+    "lines": 7,
+    "matches": 222
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/workbench/shared/contracts.ts",
+    "lines": 37,
+    "matches": 765
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/workbench/shared/home.ts",
+    "lines": 8,
+    "matches": 164
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/workbench/shared/items.ts",
+    "lines": 22,
+    "matches": 436
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/workbench/shared/menus.ts",
+    "lines": 11,
+    "matches": 206
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/workbench/shared/overlays.ts",
+    "lines": 9,
+    "matches": 178
+  },
+  {
+    "file": "packages/neuro-book/src/plugins/workbench/shared/views.ts",
+    "lines": 20,
+    "matches": 476
+  },
+  {
+    "file": "packages/neuro-book/src/project/config.ts",
+    "lines": 7,
+    "matches": 140
+  },
+  {
+    "file": "packages/neuro-book/src/project/development-main.ts",
+    "lines": 2,
+    "matches": 56
+  },
+  {
+    "file": "packages/neuro-book/src/project/main.ts",
+    "lines": 2,
+    "matches": 58
+  },
+  {
+    "file": "packages/neuro-book/src/project/plugins.ts",
+    "lines": 10,
+    "matches": 261
+  },
+  {
+    "file": "packages/neuro-book/src/project/process.ts",
+    "lines": 5,
+    "matches": 142
+  },
+  {
+    "file": "packages/neuro-book/src/project/start.ts",
+    "lines": 29,
+    "matches": 576
+  },
+  {
+    "file": "packages/neuro-book/src/server/browser-bootstrap.ts",
+    "lines": 11,
+    "matches": 348
+  },
+  {
+    "file": "packages/neuro-book/src/server/config.ts",
+    "lines": 26,
+    "matches": 574
+  },
+  {
+    "file": "packages/neuro-book/src/server/dev/backend-process.ts",
+    "lines": 19,
+    "matches": 458
+  },
+  {
+    "file": "packages/neuro-book/src/server/dev/config.ts",
+    "lines": 9,
+    "matches": 224
+  },
+  {
+    "file": "packages/neuro-book/src/server/dev/frontend.ts",
+    "lines": 5,
+    "matches": 172
+  },
+  {
+    "file": "packages/neuro-book/src/server/dev/main.ts",
+    "lines": 1,
+    "matches": 36
+  },
+  {
+    "file": "packages/neuro-book/src/server/dev/run.ts",
+    "lines": 18,
+    "matches": 451
+  },
+  {
+    "file": "packages/neuro-book/src/server/dev/sample.ts",
+    "lines": 47,
+    "matches": 1140
+  },
+  {
+    "file": "packages/neuro-book/src/server/dev/supervisor.ts",
+    "lines": 15,
+    "matches": 398
+  },
+  {
+    "file": "packages/neuro-book/src/server/dev/watch.ts",
+    "lines": 6,
+    "matches": 140
+  },
+  {
+    "file": "packages/neuro-book/src/server/development-main.ts",
+    "lines": 2,
+    "matches": 68
+  },
+  {
+    "file": "packages/neuro-book/src/server/host.ts",
+    "lines": 23,
+    "matches": 579
+  },
+  {
+    "file": "packages/neuro-book/src/server/instance.ts",
+    "lines": 41,
+    "matches": 1037
+  },
+  {
+    "file": "packages/neuro-book/src/server/main.ts",
+    "lines": 2,
+    "matches": 19
+  },
+  {
+    "file": "packages/neuro-book/src/server/plugin-files.ts",
+    "lines": 2,
+    "matches": 41
+  },
+  {
+    "file": "packages/neuro-book/src/server/plugins.ts",
+    "lines": 16,
+    "matches": 456
+  },
+  {
+    "file": "packages/neuro-book/src/server/ports.ts",
+    "lines": 9,
+    "matches": 286
+  },
+  {
+    "file": "packages/neuro-book/src/server/process.ts",
+    "lines": 28,
+    "matches": 627
+  },
+  {
+    "file": "packages/neuro-book/src/server/projects/identity.ts",
+    "lines": 61,
+    "matches": 1257
+  },
+  {
+    "file": "packages/neuro-book/src/server/projects/ipc.ts",
+    "lines": 14,
+    "matches": 388
+  },
+  {
+    "file": "packages/neuro-book/src/server/projects/manager.ts",
+    "lines": 95,
+    "matches": 2034
+  },
+  {
+    "file": "packages/neuro-book/src/server/projects/registry.ts",
+    "lines": 28,
+    "matches": 619
+  },
+  {
+    "file": "packages/neuro-book/src/server/rpc/listener.ts",
+    "lines": 19,
+    "matches": 298
+  },
+  {
+    "file": "packages/neuro-book/src/server/start.ts",
+    "lines": 75,
+    "matches": 1800
+  },
+  {
+    "file": "packages/neuro-book/src/server/user-directories.ts",
+    "lines": 7,
+    "matches": 121
+  },
+  {
+    "file": "packages/neuro-book/src/shared/browser-bootstrap.ts",
+    "lines": 14,
+    "matches": 500
+  },
+  {
+    "file": "packages/neuro-book/src/shared/host.ts",
+    "lines": 34,
+    "matches": 895
+  },
+  {
+    "file": "packages/neuro-book/src/shared/localized-text.ts",
+    "lines": 5,
+    "matches": 154
+  },
+  {
+    "file": "packages/neuro-book/src/shared/product.ts",
+    "lines": 4,
+    "matches": 93
+  },
+  {
+    "file": "packages/neuro-book/src/shared/projects.ts",
+    "lines": 45,
+    "matches": 1077
+  },
+  {
+    "file": "packages/neuro-book/src/shared/rpc-socket.ts",
+    "lines": 11,
+    "matches": 264
+  },
+  {
+    "file": "packages/neuro-book/src/shared/settings.ts",
+    "lines": 93,
+    "matches": 1708
+  },
+  {
+    "file": "packages/neuro-book/src/shared/storage.ts",
+    "lines": 48,
+    "matches": 872
+  },
+  {
+    "file": "packages/neuro-book/src/shared/store/persisted.ts",
+    "lines": 49,
+    "matches": 1293
+  },
+  {
+    "file": "packages/neuro-book/src/shared/store/problem.ts",
+    "lines": 3,
+    "matches": 96
+  },
+  {
+    "file": "packages/neuro-book/src/shared/store/public.ts",
+    "lines": 10,
+    "matches": 219
+  },
+  {
+    "file": "packages/neuro-book/src/shared/store/store.ts",
+    "lines": 36,
+    "matches": 616
+  },
+  {
+    "file": "packages/owned-process/src/index.ts",
+    "lines": 4,
+    "matches": 47
+  },
+  {
+    "file": "packages/owned-process/src/posix-adapter.ts",
+    "lines": 19,
+    "matches": 243
+  },
+  {
+    "file": "packages/owned-process/src/posix-supervisor-source.ts",
+    "lines": 14,
+    "matches": 214
+  },
+  {
+    "file": "packages/owned-process/src/types.ts",
+    "lines": 9,
+    "matches": 140
+  },
+  {
+    "file": "packages/owned-process/src/windows-adapter.ts",
+    "lines": 25,
+    "matches": 368
+  },
+  {
+    "file": "packages/owned-process/src/windows-supervisor-source.ts",
+    "lines": 16,
+    "matches": 225
+  },
+  {
+    "file": "packages/owned-process/vitest.config.ts",
+    "lines": 0,
+    "matches": 0
+  }
+]

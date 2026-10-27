@@ -1,0 +1,507 @@
+# w00031 t02 前端分区盘点报告
+
+- 基线提交：`65d9daea06616b8fc8459bc7ef9cb2132cee25ed`（detached worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/audit-w00031-t02`）
+- 范围：计划“盘点范围”的前端分区（`packages/neuro-book` 的 `src/web`、`src/ui`、`src/sdk`、各插件 `web/`、`plugin-sdk/examples/`；`nb-agent-ui`、`nb-form`、`nb-markdown`、`nb-ui`；`dev-panel/src/web`；`nb-story/src/web`）
+- 路径约定：除特别说明，路径相对 worktree 的 `packages/`；`nbook/…` 是 `packages/neuro-book/src/…` 的包内别名。
+- 本报告第 0 节是过程中逐条追加的核实笔记，第 1 到 5 节是按计划格式整理的正文，两者冲突以第 1 到 5 节为准。
+
+## 0. 核实笔记（过程记录）
+
+说明：以下按核实顺序逐条追加，每条都回到了代码。路径省略 `packages/` 前缀。
+
+- N0.1 窗口失败页：`WindowState` 的六种失败状态都带一个 `reason` 句子，由 `neuro-book/src/web/FailurePage.vue:69` 原样显示（`FailurePage.vue:24-45` 的标题与提示是写死的中文，没有语言入口）。`reason` 的来源有五处：连接失败时的 `describe(error)`（`web/host/window.ts:167-168`，`ConnectionError` 的中文消息在 `web/host/connection.ts:54,65,77,79,83`）；引导被拒的 `BootstrapRejected` 消息（`window.ts:355-392`，全是中文句子）；首连握手被拒的 `message`（`web/host/remote-session.ts:82-86,166-174`，原文来自 `nb-runtime/src/remote/node.ts:1163-1164`、`router.ts:174,197,203`、`protocol.ts:307`，都是中文）；断线后的重连状态（`remote-session.ts:92,114`，中文）；启动失败拼接各入口的失败（`window.ts:297,300-304`，含 `failure.error?.message`）。路由首屏导航失败另走 `web/mount.ts:48-51`，同样把 `error.message` 当 `reason`。
+- N0.2 命令失败：`CommandResult.reason` 是句子（`plugins/commands/shared/contracts.ts:37`），用户入口失败时 `workbench/web/commands/failure-notice.ts:29` 把它原样放进通知的 `message`；快捷键入口另外 `report(new Error("命令 X 执行失败：reason"))` 进诊断（`keymap.ts:102`），面板入口在 `WorkbenchCommandHost.vue:46` 补同一句。`reason` 的语言有三种：写死的中文（`commands/shared/registry.ts:177,259,268,300,312,331,335,351`、`workbench/web/commands/view-commands.ts:104-203`、`editor/web/area.ts` 约 50 处、`open-commands.ts:40,47`），按显示语言取的双语（`workbench/web/commands/app-commands.ts:53`、`panel-commands.ts`/`part-commands.ts` 经 `TEXT.*`），由公开状态的 `reason` 在求值时按显示语言本地化（`commands/shared/plugin.ts:59-67`）。同一个字段在不同命令下语言不同。
+- N0.3 编辑器动作结果 `ActionResult` 只有 `reason` 没有码（`editor/web/area.ts:62-68`）；取消、保存失败、位置没变靠 `reason` 文字区分（`area.ts:642-643,683,693`），经 `fromAction` 一律变成 `unavailable`（`editor/web/commands.ts:118,137-138`）。
+- N0.4 文件结果 `FilesResult` 有码有 `detail`（`files/shared/contracts.ts:295-297`），前端自己也造失败：`files/web/client.ts:71,292,299,271` 的 `detail` 是中文；路由层失败的 `detail` 在 `client.ts:307-313` 退回码或 `码（cause）`。消费处：编辑器 `EditorGroup.vue:143,187,198`（`detail || code`，只有 `unknown-outcome`、`not-text` 单独处理）、资源管理器 `explorer/web/feedback-text.ts:27-44`（有码表，不认识的码写 `码：detail`；`controller.ts:509` 的 `nameError` 把 `码：detail` 当 `NameError.detail` 直接显示，`feedback-text.ts:67-68`）。
+- N0.5 设置：写入失败有码表（`neuro-book/src/ui/settings/setting-text.ts:22-46`，七个码，其余写 `码：detail`）；设置层 `invalid` 快照的 `reason`/`detail`（中文，`settings/shared/layer-text.ts:99-135`）在 `settings/web/components/SettingsWindow.vue:91-96` 原样显示；设置文件视图的 `invalid-text` 把 `result.detail` 与行列号拼成句子（`SettingsFileView.vue:240-241`）。
+- N0.6 入口状态：`entryReason(state)` 在四处各写一份——`settings/web/sections.ts:52-56`、`settings/web/choices.ts:52-55`、`workbench/web/views/registry.ts:49-52`，以及对侧 `plugin-platform/shared/problems.ts:31`（那一份写进 `PluginProblem.message`）。内容是 `${blocked.reason}：${blocked.key}`（英文阶段码接中文冒号）或 `failure.error.message`（插件抛出的原文）或 `failure.reason`。它们显示在 `SettingsPageFrame.vue:81-87`、`WorkbenchViewFrame.vue:97-102` 与 `plugins/web/components/PluginsPage.vue:197`。
+- N0.7 Storage 状态：布局记录的 `corrupt`、`unsupported-version` 与写入失败码由 `workbench/web/state/layout-store.ts:98-106` 收成 `LayoutProblem`，`WorkbenchStatusBar.vue:55-72` 有码表，不认识的码直接显示码。前端自己造 `no-project`（`storage/web/plugin.ts:35`，`detail` 中文）。
+- N0.8 nb-agent-ui：会话日志 `run_end.error.kind` 映射到七个消息键（`nb-agent-ui/src/harness.ts:104-111,282-285`），忽略 `error.message`；助手消息上的 `errorMessage` 没有读取（`grep errorMessage` 在适配器里无命中）。工具失败的文字是工具结果的 content 文本，原样当 `call.error` 显示（`harness.ts:229-235,365-369`、`vue/tools/AgentToolDetail.vue:33`）。`problems()`（`harness.ts:25-28,141-142`）在仓库里没有产品调用方。
+- N0.9 nb-story 网页：服务端错误体 `{code, message, candidates}` 变成 `StoryCallError`（`nb-story/src/web/host/client.ts:32-41,115-123`），页面绑定 46 处 `…message` 到 `PageState/PagedList` 的 `error`（`nb-story/src/web/pages/*.vue`、`shell/*.vue`）。问答记录的降级回放丢掉记录里的 `code`/`kind`，只用 `message`（`web/qa/record-messages.ts:17,28`），而记录里这些字段都有（`nb-story/src/contract/qa-record.ts:42`，对侧）。
+- N0.10 dev-panel 网页：`Envelope.errors[{code,message,details}]` 变成 `ApiError`（`dev-panel/src/web/host/api.ts:8-16,43-48,84-93`），`writes.ts:30-41` 按码改写少数几个，其余原样用 `error.message`；表单校验直接 import 命令行共用的 `core/text-rules.js`、`core/questions.js`（返回中文句子，`AnswerForm.vue:4-5,78-86`、`NewTaskForm.vue:4-5,22-23`）。
+
+## 1. 错误域表
+
+读法：`域 ID` 是本报告给的稳定编号，前缀 `fe.` 表示合同的类型定义落在前端分区，`x.` 表示合同在对侧、前端只是消费者或再包装者（对侧位置已追到文件:行）。版本一栏写“无”表示该合同没有协议、schema 或持久化版本字段。控制流一栏回答“失败、取消、结果未知有没有分开”。
+
+| 域 ID | 命名空间 / 所属 | 类型或 schema 与 Spec | 版本 | 码的字段路径与取值 | 结构化参数的字段路径 | 与其它域重名的码 | 控制流语义 |
+|---|---|---|---|---|---|---|---|
+| `fe.window.state` | 应用宿主（浏览器窗口） | `WindowState` 失败分支，`neuro-book/src/web/host/window.ts:47-63`；`docs/specs/runtime/browser-host.md` | 无 | `state.status`：`connection-failed`、`project-unavailable`、`incompatible`、`startup-failed`、`server-restarted`、`project-gone`（`window.ts:47`） | 无；只有 `state.reason: string`（句子）和 `rescued[].{path,text,note}` | `incompatible` 同时是 `fe.window.connect` 的 `failure` 取值；`project-gone`、`project-unavailable` 与 `x.remote.connect` 的 `reason` 同名 | 终态与可重试已区分：`connection-failed`、`project-unavailable` 可原地重试，其余要刷新（`window.ts:47`、`FailurePage.vue:24-45`）；没有“取消”概念 |
+| `fe.window.connect` | 应用宿主 | `FirstConnectResult`、`RemoteSessionState`、`Attempt`，`web/host/remote-session.ts:22-46` | 无 | `failure`：`connection-failed`、`incompatible`、`project-unavailable`；状态 `online`、`offline`、`server-restarted`、`project-gone`、`incompatible`；`Attempt.kind` 另有 `failed` | 无；`reason: string` | 同上 | 首连把 `server-restarted`、`project-gone`、`failed` 都折成 `connection-failed`（`remote-session.ts:169-174`）；重连时 `project-unavailable` 按暂时情形退避（`remote-session.ts:133-137`） |
+| `fe.web.connection` | 应用宿主（引导与 RPC 端口） | `ConnectionError`，`web/host/connection.ts:12-26`；`docs/specs/runtime/browser-host.md` | 无 | 没有码；`status: number \| null`（HTTP 状态） | HTTP 错误体 `{error:{code}}` 的 `code` 被拼进消息字符串（`connection.ts:79,89-97`） | 无 | 只有“失败”；抛错 |
+| `x.remote.connect` | `nb-runtime` 远程节点 | `RemoteConnectResult`，`nb-runtime/src/remote/node.ts:163`；握手 `reject` 帧 `nb-runtime/src/remote/protocol.ts:246` | wire 协议版本（`protocol.ts:307`） | `reason: string`：`wire-version`、`server-restarted`、`project-gone`、`project-unavailable`（`node.ts:365,417,1163-1164`、`router.ts:55,174,197,203`） | 无；`message: string`（中文句子） | 与 `fe.window.state` 重名 | 前端按 `reason` 码分支（`remote-session.ts:82-85`），`message` 当显示文字 |
+| `x.commands.result` | 命令（`nbook.commands`） | `CommandResult<T>`、`CommandFailureCode`，`plugins/commands/shared/contracts.ts:26-37`；`docs/specs/workbench/commands.md` | 远程服务 `nbook.commands/remote` version 1（`contracts.ts:169-175`）；结果本身无 | `code`：`unknown-command`、`unavailable`、`invalid-args`、`not-exposed`、`read-only`、`confirmation-required`、`denied`、`execution-error`、`stale-target`（九个）；远程结果里 `code` 是 `Type.String()`（`contracts.ts:161`） | 无；只有 `reason: string` | `unavailable`、`denied` 与 `x.remote.failure`、`fe.files.result`、`x.settings.write`、`x.storage.record` 重名 | 取消用户选择（快速选择取消）返回 `{ok:true,value:null}`（`workbench/web/commands/panel-commands.ts:109-110`），与成功不可区分；`denied`（用户拒绝确认）与 `stale-target` 另有码；没有“结果未知” |
+| `fe.editor.action` | 编辑器 | `ActionResult`、`BatchCloseResult`、`OpenResult`，`plugins/editor/web/area.ts:62-68`；`docs/specs/workbench/editor.md` | 无 | 没有码，只有 `ok:false` + `reason: string`（约 50 个返回点，`area.ts:531-907`） | `BatchCloseResult.closed: number` | 经 `fromAction` 变成命令的 `unavailable`（`editor/web/commands.ts:118,137-138`） | 失败、取消、未变化只能读 `reason` 文字区分（`area.ts:642-643,683,693`） |
+| `fe.editor.document` | 编辑器文档存储 | `SaveResult`、`BlockedInput`、条目 `failure`，`editor/web/documents/store.ts:39,70-88`；`docs/specs/workbench/editor.md` | 无 | `code`：本域自有 `closed`、`unresolved`、`unrepresentable`、`conflict`、`ended`、`not-ready`、`exists`（`store.ts:552-570`），其余透传 `fe.files.result` 的码与 `unknown-outcome` | `detail?: string`；`BlockedInput.{from,to,index,excerpt}`；`reason`（编解码器给的内部说法，界面不显示，`store.ts:72-76`） | `conflict`、`unknown-outcome`、`not-found` 与 `fe.files.result` 同名同义；`exists` 由 `conflict` 改名而来（`store.ts:570`） | `unknown-outcome` 单独处理（`EditorGroup.vue:187`）；`ended` 是订阅结束，不是写失败 |
+| `fe.files.result` | 文件（`nbook.files`） | `FilesResult<T>`，`plugins/files/shared/contracts.ts:295-297`；`FILES_FAILURES`，`plugins/files/shared/failures.ts:6-25`；`docs/specs/workspace/files.md`、`resources.md` | 远程服务合同版本（`files/shared/contracts.ts` 内 `defineRemoteService`） | `code`：18 个业务码（`FILES_FAILURES`）加路由层码 `RemoteFailureCode`（`files/web/client.ts:307-313`）；前端自造 `invalid-address`、`too-large`（`client.ts:71,271,292,299`） | `detail: string`（业务失败里是 `{detail}` 对象的 `detail`）、`current?: Baseline`、`cause?: RemoteCause` | `unavailable`、`denied`、`unknown-outcome` 来自路由层，与 `x.commands.result`、`x.settings.write`、`x.storage.record` 重名；`conflict` 与 `x.storage.record`、`fe.editor.document` 重名 | `unknown-outcome` 是路由层码；批量操作另有逐项结果（`ReportResult`，见 `fe.explorer.notice`） |
+| `fe.files.watch-end` | 文件监视订阅 | `WatchMessage`：`{kind:"ended", reason:string}`，`files/shared/contracts.ts:224`；`files/web/client.ts:#end`（约 `client.ts:219-245`） | 无 | `reason: string`：路由层失败码（`client.ts:211`）或内核 `onEnd` 的原因串（`nb-runtime/src/remote/peer.ts:241,348`，如 `disconnected`）或提供者自己的原因 | 无 | 无 | 订阅结束，不是写失败；结果未知不适用 |
+| `fe.explorer.notice` | 资源管理器 | `Notice`、`NameError`、`ReportResult`、`UnavailableReason`，`explorer/web/controller.ts:48-53,143`；`docs/specs/workbench/files-explorer.md` | 无 | `Notice.kind`：`editor-missing`、`open-failed`、`failed`、`manifest`；`failed.code` 是 `fe.files.result` 的码或自造的 `document-unsettled`（`controller.ts:677`）、`failed`（`controller.ts:569`）；`UnavailableReason` 九个（`feedback-text.ts:91-101`）；`ReportResult.status`：`declined`、`done`、`failed`、`skipped`、`not-run`、`cancelled` | `Notice.failed.{action,address,code,detail}`；`manifest.issues[].{path,detail}` | `busy`、`conflict`、`not-found` 与 `fe.files.result` 同名同义 | 失败、取消（`cancelled`、`declined`）、跳过、未运行在 `ReportResult.status` 里分开；`unknown-outcome` 有单独文字 |
+| `x.settings.write` | 设置 | `SettingsFailure`、`SettingWriteResult`，`neuro-book/src/shared/settings.ts:345-367`；`docs/specs/settings/configuration.md`、`settings-window.md` | 无 | `code`：`denied`、`undeclared`、`invalid-value`、`layer-not-allowed`、`no-project`、`layer-invalid`、`write-failed`、`unavailable`、`unknown-outcome`、`read-failed` 与整份写入的码（`settings.ts:345-362`） | `detail: string`；整份文本写入另带 `position`（`settings/shared/layers.ts:43`） | `unavailable`、`denied`、`no-project` 与 `x.commands.result`、`x.storage.record` 重名 | `unknown-outcome` 有单独文字（`setting-text.ts:29`）；`conflict` 有交互（`SettingsFileView.vue:358`） |
+| `x.settings.layer` | 设置（层快照） | `LayerSnapshot` 的 `invalid` 分支，`settings/shared/layers.ts:54-63`、`layer-text.ts:32-35` | 无 | `status: "invalid"`；无子码 | `position:{line,column}`、`reason`、`detail`（均为中文句子，`layer-text.ts:99-135`） | 无 | 状态型拒绝：层无效时写入一律被拒（`layer-invalid`） |
+| `fe.plugins.entry-state` | 插件入口状态（`nb-runtime` 的 `EntryState`） | `EntryState.blocked/failure` 的投影，`settings/web/sections.ts:32-37,52-56`、`workbench/web/views/registry.ts:27-30,49-52` | 无 | 交付种类 `entry-blocked`、`entry-failed`、`entry-stopped`、`entry-not-activatable`、`declared`、`available`；`blocked.reason`、`failure.stage/reason` 来自 nb-runtime | `blocked.key`；`failure.error.message` | 无 | 失败可“重试入口”（`window-plugins.ts:47-55` 的 `{status:"failed", reason}`） |
+| `x.plugins.manage` | 插件管理 | `PluginFailureCode`（`InstallFailureCode` 加 `ManageFailureCode`），`plugin-platform/shared/types.ts:167-169`；`PluginProblem`，`types.ts:46-79`；`docs/specs/runtime/plugin-install.md` | 无 | 业务码 `manifest-invalid`、`incompatible-engine`、`already-installed`、`uninstall-pending`、`path-rejected`、`entry-missing`、`copy-failed`、`registry-failed`、`not-installed`、`builtin-fixed`；`notLoaded.code`：`manifest-invalid`、`entry-missing`、`unreadable`、`incompatible-engine`、`safe-mode`；`PluginProblem.kind`：`entry-failed`、`entry-blocked`、`contribution-rejected` | `ManifestFailureDetail.problems`、`detail`、`key`、`message`、`stage/reason` | `manifest-invalid`、`incompatible-engine`、`entry-missing` 同时是 `failure` 码与 `notLoaded.code` | `unknown-outcome` 来自路由层，页面写“已重新读取”（`PluginsPage.vue:107-108`） |
+| `x.projects` | 项目与书架 | 项目远程合同 `plugins/projects/shared/contracts.ts`（码：`register-failed`、`invalid-parent`、`invalid-metadata`、`project-running`、`version-changed`、`unknown-project` 等，用法见 `projects/web/messages.ts:97-117`、`shelf-page.ts:310-419`）；`docs/specs/runtime/projects.md`、`workbench/bookshelf.md` | 书架目录有 `version-changed` 乐观并发码 | `code`（上述）；`register-failed.detail.reason` 是登记失败码 | `detail:{field,reason,detail,path}`（`shelf-page.ts:314`） | `unavailable`、`denied`、`unknown-outcome` 同名 | `unknown-outcome` 有单独文字与对账（`shelf-page.ts:354,388,413`） |
+| `fe.projects.cover-http` | 项目封面 HTTP | `CoverTransportResult`，`projects/web/shelf-page.ts:59`、`plugins/projects/web/plugin.ts:195-219` | 无 | 服务端错误体的 `code`，没有时是 HTTP 状态字符串；前端自造 `network` | `detail`（服务端错误体或 `statusText` 或异常消息） | `network` 无重名 | 失败 |
+| `x.storage.record` | 存储 | `StorageFailed`、`RecordSnapshot`，`neuro-book/src/shared/storage.ts:139-158`；`docs/specs/storage/persistence.md` | 记录自带 `version`，读出 `unsupported-version` | 失败码 14 个（`storage.ts:139-154`）；快照 `status`：`missing`、`corrupt`、`unsupported-version` 等 | `detail: string`；`StorageFailedDetail.{status,revision,detail}`（`storage/shared/contracts.ts:42`） | `conflict`、`unavailable`、`denied`、`busy`、`no-project`、`unknown-outcome` 与 `x.commands.result`、`fe.files.result`、`x.settings.write` 重名 | `unknown-outcome` 有单独状态栏文字；损坏记录“受保护：按默认显示、修改不保存”（`layout-store.ts:105`） |
+| `fe.workbench.layout-problem` | 工作台布局记录 | `LayoutProblem`，`workbench/web/state/layout-store.ts:99-107`；`WorkbenchStatusBar.vue:55-72` | 无 | `kind`：`unsaved`、`unread`；`code` 是 `x.storage.record` 的码或快照 `status` | 无 | 同 `x.storage.record` | 用户可“重试/放弃”（`WorkbenchStatusBar.vue:83-86`） |
+| `fe.preview.denial` | HTML 预览、图片查看 | `PreviewDenial`，`html-preview/web/access.ts:10`；`ImageViewer.vue:20` | 无 | `no-project`、`closed`、`unreachable`（预览）；`no-project`、`failed`（图片） | 无 | `no-project` 与 `x.storage.record`、`x.settings.write` 重名 | 失败 |
+| `fe.markdown.unrepresentable` | `nb-markdown` 编解码 | 写出结果 `{ok:false, code:"unrepresentable", from, to, reason, fallback}`，`nb-markdown/src/language/codec/write.ts:42-51,745`；异常类 `Unrepresentable`，`nb-markdown/src/language/syntax/types.ts` | 无 | `code: "unrepresentable"`（唯一） | `from`、`to`；`reason` 是中文内部说法（界面不显示，`editor/web/documents/store.ts:72-76`） | 无 | 失败（输入不进正文，不能保存） |
+| `fe.form.issue` | `nb-form` | `FormIssue {path, code, params, message?}`，`nb-form/src/validate.ts:25-103`；码表 `nb-form/src/vue/messages.ts:61-141,195-260`；`docs/specs/ui/forms.md` | 无 | `code`：`required`、`type`、`not-in-choices`、`schema-error` 等 Ajv 关键字风格的码 | `params.{limit,key,type,value,at,detail,…}` | 无 | 只有“不合格”；`FormWidgetError.code` 是 `builtin-name`、`duplicate-name`（调用方代码错，`vue/widgets.ts:43-48`） |
+| `fe.agent.transcript` | `nb-agent-ui` 适配器 | `run_end.error.kind` 映射，`nb-agent-ui/src/harness.ts:104-111,282-285`；`TranscriptProblem`，`harness.ts:25-28`；`docs/specs/ui/agent-conversation-view.md` | 无 | `kind`：`network`、`rate_limit`、`auth`、`quota`、`context_overflow`、`provider`、`local`（不认识的按 `local`） | 无 | `quota`、`auth`、`rate_limit` 与 `fe.story.ingest-stop.errorKind` 同一词表 | `aborted` 是“已停止”，不当失败（`harness.ts:272-279`）；`retryable` 由码决定 |
+| `x.story.rpc` | nb-story 查看器服务 | `StoryCallError {code, message, candidates}`，`nb-story/src/web/host/client.ts:32-41`；服务端错误体 `{code,message}`，`nb-story/src/server/http.ts:96-145,237-261`；`docs/specs/story/queries.md` | 无 | `code`：`StoryErrorCode`、`QaErrorCode` 加 `network`（前端造）、`internal`、`invalid_params`、`unauthorized` 等 | `candidates[]` | 无 | 失败；`AbortError` 原样抛出供丢弃（`client.ts:116-117`） |
+| `x.story.qa-record` | nb-story 问答记录 | `QaFailureSchema {code, kind?, message}`，`nb-story/src/contract/qa-record.ts:42`；`QaRunView.saved {ok:false, reason, message?}`，`nb-story/src/contract/contract.ts:587`；`logProblem`，`nb-story/src/core/qa-records.ts:273,327,387` | 记录有 schema（`qa-records.ts:387-397` 校验） | `code`：`model_failed`、`no_answer`；`kind`：同 `fe.agent.transcript` 词表；`saved.reason`：`conflict`、`book_not_found` 等 | 无 | 无 | `status`：`answered`、`failed`、`interrupted`（`record-messages.ts:15-17`）：失败与中断已分开 |
+| `x.story.ingest-stop` | nb-story 抽取 | `IngestStatusView.stopReason`，`nb-story/src/contract/contract.ts:495`；前端 `web/host/ingest.ts:31-50` | 无 | `stopReason.kind`：`user`、`exited`、`failed`；`code`（如 `ingest_bad_reply`）；`errorKind` 同 `fe.agent.transcript` 词表 | `message` | 同上 | 手动停下、进程退出、失败已分开 |
+| `x.nbdev.envelope` | nbdev 面板 HTTP | `Envelope.errors[{code,message,details}]`，`dev-panel/src/web/host/api.ts:8-9`；服务端 `dev-panel/src/server/serve.ts:123`；`NbdevError`，`dev-panel/src/core/errors.ts:102-118` | `schema` 字段（`PANEL_API_SCHEMA`） | `errors[0].code`（`NbdevErrorCode`，另有前端造的 `network`、`http_error`、`internal`，`api.ts:74,84,88`） | `details.{field,problems[],screenDigest}` | 无 | `lock_timeout`、`warming_up`、`commit_failed`、`changed_after_write` 等区分“没写”“写了没提交”“结果未知”（`writes.ts:30-41`） |
+| `x.nbdev.text-rules` | nbdev 共用校验 | `controlCharProblem`、`titleProblem`、`validateAnswerValue`，`dev-panel/src/core/text-rules.ts:14-26`、`core/questions.ts:83-99`（对侧；前端直接 import） | 无 | 无；返回中文句子或 `null` | 无 | 无 | 只有“合格/不合格” |
+| `x.nbdev.terminal` | nbdev 终端 WebSocket | 帧 `{t:"error", code, message}`，`dev-panel/src/server/terminal-hub.ts:298`；前端 `web/host/terminal-socket.ts:105-107` | 无 | `code: string`（取值未逐个追） | `message` | 无 | `released`、`need_confirm`、`error` 三种帧已分开（`terminal-socket.ts:96-107`） |
+| `fe.ui.grid` | `nb-ui` 嵌套栅格 | `GridResult`、`GridResizeResult` 等，`nb-ui/src/components/layout/grid-types.ts:167-196`；`docs/specs/ui/nested-grid.md` | 栅格快照有版本（`grid-snapshot.ts`，未展开） | 没有码，`reason: string`（中文） | 无 | 无 | 失败；只进诊断（`WorkbenchShellLayout.vue:107-119` 与 `workbench/web/plugin.ts:136-140`） |
+| `fe.ui.theme-install` | `nb-ui` 主题装载 | `NbThemeInstallError {themeId, reason}`，`nb-ui/src/theme/theme-loader.ts:36-50` | 无 | `reason`：`duplicate-id`、`host-version`、`unsafe-svg-defs` 等（`theme-loader.ts:36-37` 枚举） | `themeId` | 无 | 抛错；装载发生在模块顶层（`neuro-book/src/ui/theme/product-themes.ts:17`） |
+| `fe.sdk.define` | 应用 SDK | 定义期 `TypeError`（`neuro-book/src/sdk/plugin.ts:70-71,234,274`、`sdk/command-helpers.ts:34-57`） | 无 | 无码 | 无 | 无 | 抛给插件作者，不进界面 |
+| `fe.diagnostics.browser` | 浏览器诊断 | `DiagnosticRecord`（`nb-runtime/src/diagnostics`）；浏览器出口 `neuro-book/src/plugins/diagnostics/web/console-exporter.ts:36,60`；`docs/specs/runtime/diagnostics.md` | 记录是否带版本：未追到 | `event`（英文点分名）、`level`；`message` 多为中文 | `data`、`error`、`source` | 无 | 告警与错误级别 |
+| `fe.lab.*` | 组件 Lab | 开发场景，夹具里自造的 `{ok:false}` 与 `throw`（`neuro-book/src/plugins/lab/web/**`，计数见第 4 节） | 无 | 无 | 无 | 无 | 不是产品通道 |
+| `fe.examples.*` | 插件 SDK 示例 | `storage-failed`、`unknown-item`、`already-running`、`not-running`、`stopped`（`plugin-sdk/examples/plugins/*/shared/contracts.ts` 与 `backend/plugin.ts`） | 示例合同带 `version` | 各示例自有 | `StorageFailed {code, detail}` | `storage-failed` 的 `detail.code` 透传 `x.storage.record` | 失败；`stopped` 是“被停止”而不是失败 |
+
+## 2. 通道表
+
+约定：一行一条通道，通道 ID 为 `FC-nn`。`语言` 写“中文”“英文”“混合”“双语（按显示语言）”：混合指一句里中文框架配英文码或另一端原文。“显示给用户”“进模型上下文”“持久化”都写具体结论，不是“是”“否”两个字时写位置。前端分区没有一条通道把失败文字写进模型上下文，也没有一条把失败文字落盘（落盘发生在对侧，已在各行标出）；核对命令见第 3 节末尾。“旧数据怎么读”只对有持久化的通道有意义，其余写“不适用”。
+
+### 2.1 窗口与连接
+
+| 通道 ID | 域 | 生产者 | 逐跳转换 | 消费者 | 语言 | 显示给用户 | 进模型 | 持久化 | 旧数据 | 备注 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| FC-01 引导与 RPC 端口连不上 | `fe.web.connection`、`fe.window.state` | `web/host/connection.ts:54,65,77,79,83,93`（`ConnectionError`） | 包裹：`describe(error)` 取 `message`（`window.ts:426`），丢失 `status`（`window.ts:167-168` 只取文字）；HTTP 错误体的 `code` 先拼进消息串（`connection.ts:79,89-97`） | `window.ts:167-168` 设 `connection-failed`；`FailurePage.vue:31,69` | 中文 | 是：失败页的 `reason` 行 | 无 | 无（内存） | 不适用 | 页面标题与提示在 `FailurePage.vue:24-45`，全部写死，没有语言入口 |
+| FC-02 引导集合被拒 | `fe.window.state` | `web/host/window.ts:355-392`（`BootstrapRejected`，十条中文句子） | 保留 `kind`；`window.ts:177-179` 把 `error.message` 当 `reason` | `FailurePage.vue:34-37,69` | 中文 | 是 | 无 | 无 | 不适用 | `kind` 是 `incompatible` 或 `startup-failed` |
+| FC-03 首连握手被拒 | `x.remote.connect`、`fe.window.connect` | 对侧：`nb-runtime/src/remote/protocol.ts:307`（`wire-version`）、`router.ts:174,197,203`、`node.ts:417,1163-1164` | 保留阶段 `reason`、保留 `message`：`remote-session.ts:82-85` 把四种已知 `reason` 折成 `kind` 并把 `message` 放进 `reason`；未知 `reason` 写成 `` `${reason}：${message}` ``（`remote-session.ts:86`）；首连再把 `server-restarted`、`project-gone` 折成 `connection-failed`（`remote-session.ts:169-174`） | `window.ts:218` → `FailurePage.vue:69` | 中文（原文）；未知 `reason` 时混合（英文码接中文冒号） | 是 | 无 | 无 | 不适用 | 前端按 `reason` 码分支，`message` 只做显示；与决策 2 的“跨进程只传码、结构化参数”相比，`message` 是句子 |
+| FC-04 重连状态 | `fe.window.connect` | `remote-session.ts:92,114`；握手 `reject` 同 FC-03；`window.ts:199-211` | `onState(kind, reason)` → 窗口状态；`offline` 只改 `connection` 字段，不带文字（`window.ts:203-206`） | `FailurePage.vue`（终态），`link.set`（在线/离线，无文字） | 中文 | 终态时是；离线时只是状态点 | 无 | 无 | 不适用 | 终态之前先收集未保存正文（FC-07） |
+| FC-05 重连失败的诊断 | `fe.diagnostics.browser` | `remote-session.ts:103,149,155`（`onRetryFailed`） | `window.ts:212` 记 `browser-host.reconnect.failed`，`data.reason` 原文 | 浏览器控制台出口（FC-27） | 中文 | 否 | 无 | 否（控制台） | 不适用 | `level: info` |
+| FC-06 启动失败 | `fe.window.state` | `window.ts:150,152,245,276,297`（抛 `Error`，中文）；`297` 拼接 `failure.source：failure.error?.message ?? failure.reason`，多条以“；”连接 | 包裹：`catch` 在 `window.ts:300-304` 同时记诊断（`browser-host.startup.failed`，`message` 是固定中文，`error` 带原异常）和设 `startup-failed`（`reason: describe(error)`） | `FailurePage.vue:36-37,69`；诊断出口 | 混合：中文框架加各入口抛出的原文 | 是（原异常消息会直接露出） | 无 | 否 | 不适用 | `failure.error.message` 是插件作者抛的字符串，语言不受控 |
+| FC-07 抢救的未保存正文 | `fe.window.state` | `editor/web/documents/store.ts:23,842`（`LOST_FORMAT` 写死中文） | `window.ts:430-` 的 `createRescue` 收集；终态时挂在 `state.rescued` | `FailurePage.vue:74-85` | 中文 | 是（`note` 行） | 无 | 否 | 不适用 | 页面在设置服务与语言配置之前就可能显示 |
+| FC-08 首次导航失败 | `fe.window.state` | `web/mount.ts:48-51`（页面模块加载失败） | `error.message` 直接做 `reason` | `FailurePage.vue` | 取决于原异常（多为英文的加载错误） | 是 | 无 | 否 | 不适用 | `main.ts:9-13` 的 `await bootWindowUi` 本身没有 `catch`：`boot.ts:32` 的 `throw new Error("index.html 缺少 #app")` 与 `mount` 之前的异常不经失败页（未验证实际表现） |
+
+### 2.2 命令
+
+| 通道 ID | 域 | 生产者 | 逐跳转换 | 消费者 | 语言 | 显示给用户 | 进模型 | 持久化 | 旧数据 | 备注 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| FC-09 命令失败通知（命令面板与快捷键） | `x.commands.result` | 对侧：`commands/shared/registry.ts:177,259,268,300,312,331,335,348,351,355,358`；前端：`workbench/web/commands/view-commands.ts:104-203`、`panel-commands.ts`、`part-commands.ts`、`open-commands.ts:40,47`、`app-commands.ts:53`；`editor/web/commands.ts:118,137-138`；`explorer/web/commands.ts:109`；`projects/web/open-project.ts:54-77`；`settings/web/settings-window.ts:727-728`；`html-preview/web/plugin.ts:126` | 保留：`failureNotice` 把 `failure.reason` 原样放进通知 `message`（`failure-notice.ts:26-30`），只有 `NOTIFIED` 里五个码弹通知（`failure-notice.ts:17`）；快捷键入口先 `report(new Error(…reason))`（`keymap.ts:102`），面板入口在 `WorkbenchCommandHost.vue:46` 补同一句，进诊断 | `workbench/web/notifications.ts`（通知服务，内存）→ `nb-ui` 的 `Notification.vue:60`、`NotificationStack.vue:58` | 混合：同一字段下有写死中文、按显示语言的双语、公开状态按语言求值三种（见 N0.2）；通知标题是双语（`palette-messages`） | 是（警告通知，自动消失） | 无 | 否 | 不适用 | `invalid-args` 的 `reason` 里夹着校验失败的字段说明（`registry.ts:312`），不是码加参数；`stale-target` 不弹（`failure-notice.ts:14-16`） |
+| FC-10 命令不可用原因（禁用提示） | `x.commands.result` | `commands/shared/registry.ts:188-201,264-270`（`availability`、`isEnabled`）；公开状态 `reason` 在 `commands/shared/plugin.ts:59-67` 按显示语言求值（声明在 `workbench/web/state/public-state.ts:19-27`、`editor/web/state.ts:19-39`、`html-preview/web/plugin.ts:43`） | 转换：`LocalizedText` 在求值时用当前显示语言取字符串（不留双语）；多个键的原因以“；”连接（`registry.ts:201`） | `workbench/web/titlebar/titlebar-source.ts:95,153`、`editor/web/tab-menu.ts:113`、`editor/web/title-actions.ts:88`、`workbench/web/components/WorkbenchShell.vue:133`（作为 `title` 提示） | 双语（按显示语言）；键未登记时中文（`context-keys.ts:39`） | 是（鼠标悬停提示） | 无 | 否 | 不适用 | 语言切换后已缓存的字符串不会重取：未验证 |
+| FC-11 资源管理器的“打开失败” | `x.commands.result` → `fe.explorer.notice` | `explorer/web/controller.ts:350`（执行 `nbook.editor.open` 失败） | 保留 `reason`；`unknown-command` 另归 `editor-missing`（`controller.ts:350`） | `explorer/web/feedback-text.ts:48-51` 的 `openFailed` 双语框架，`{reason}` 填命令的 `reason` | 混合（英文或中文框架配另一端的 `reason`） | 是（结果区） | 无 | 否 | 不适用 | 命令的 `reason` 语言见 FC-09 |
+| FC-12 书架命令失败 | `x.commands.result` | `projects/web/plugin.ts:136`（`` `${code}：${reason}` ``） | 包裹：码与句子拼成一串 | `projects/web/shelf-page.ts:423` 通知 `commandFailed` | 混合 | 是 | 无 | 否 | 不适用 | 把码当文案的一部分显示 |
+| FC-13 编辑器动作结果 | `fe.editor.action` | `editor/web/area.ts:531-907`（约 50 个返回点，中文句子） | 改名：经 `fromAction` 一律归 `unavailable`（`editor/web/commands.ts:137-138`）；`refusal()` 把“当前视图/目标组”拼进句子（`area.ts:510`） | 命令通道（FC-09）；`tab-menu.ts:42,99,150` 与 `editor/web/plugin.ts:154,169,193,217` 记诊断；`EditorGroup.vue:143` | 中文（少数英文码，如 `result.code` 直接当 `reason`：`area.ts:890,895,907`） | 经 FC-09 | 无 | 否 | 不适用 | 失败、取消、位置没变全靠句子（见域表） |
+
+### 2.3 文件、编辑器、资源管理器
+
+| 通道 ID | 域 | 生产者 | 逐跳转换 | 消费者 | 语言 | 显示给用户 | 进模型 | 持久化 | 旧数据 | 备注 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| FC-14 文件操作失败 → 编辑器打开与保存提示 | `fe.files.result`、`fe.editor.document` | 对侧提供者（`plugins/files/backend/*`，未逐个追）；前端 `files/web/client.ts:71,271,292,299,307-313` | 保留 `code`；`detail`：业务失败取 `{detail}` 里的句子，路由层失败退成码或`码（cause）`（`client.ts:312`）；`store.ts:308-318,570,602-610` 把 `code`/`detail` 存进 `failure`、`saveProblem` | `editor/web/components/EditorGroup.vue:183-198`：`not-text` 单独文字，`unknown-outcome` 单独文字，其余 `detail || code` 填进双语框架 `openFailed`、`saveFailed`、`ended` | 混合：双语框架加 `detail`（对侧中文） | 是 | 无 | 否 | 不适用 | `EditorGroup.vue:143` 把 `detail \|\| code` 当 `reason` 回给命令层，进入 FC-09 |
+| FC-15 文件操作失败 → 资源管理器结果区与内联输入 | `fe.files.result`、`fe.explorer.notice` | 同 FC-14；批量逐项 `controller.ts:478` | 保留：`codes` 表把七个码换成双语说明，不认识的写成 `` `${code}：${detail}` ``（`feedback-text.ts:27-44`）；命名冲突归 `conflict`，其余写 `` `${code}：${detail}` `` 当 `NameError.detail`（`controller.ts:509`），内联输入直接显示 `detail`（`feedback-text.ts:67-68`） | `explorer/web/components/ExplorerFeedback.vue`、`ExplorerRow.vue`、`FilesExplorerView.vue` | 混合 | 是 | 无 | 否 | 不适用 | 这是仓库里最接近“按码取文案”的一处，剩下的缺口是 `detail` 回退 |
+| FC-16 文件监视结束 | `fe.files.watch-end` | `files/web/client.ts:213-214,224,229`（`onEnd(reason)`、路由失败码、提供者 `ended`） | 保留 `reason` 字符串；监听者各收一份 | 编辑器 `documents/store.ts:247-249,439-440` → `EditorGroup.vue:183`（`ended` 双语框架，`{reason}` 原样）；资源管理器 `explorer/web/tree/model.ts:210-221` → `FilesExplorerView.vue:92,156` | 混合（码或英文原因串配双语框架） | 是 | 无 | 否 | 不适用 | 取值来源见域表；`reason` 是裸字符串，没有枚举 |
+| FC-17 面包屑目录读取失败 | `fe.files.result` | `editor/web/components/EditorBreadcrumbs.vue:72-75`（`result.reason` 或异常消息） | 包裹：成功/失败联合，失败时 `reason` 当菜单一项文字 | `EditorBreadcrumbs.vue:127`（下拉里的危险色文字项） | 取决于来源 | 是 | 无 | 否 | 不适用 | 生产者之一是 `BreadcrumbListing` 的实现，未追到具体文件 |
+| FC-18 编辑器页面加载失败 | 无独立域（异常） | `editor/web/pages.ts:37`（`props.error.message`）；`editor/web/components/MonacoControl.vue:271`；`markdown/web/plugin.ts:42` | 保留异常 `message` | `pageFailed` 双语框架（`messages.ts`） | 混合 | 是 | 无 | 否 | 不适用 | 异常原文是第三方或插件作者的 |
+| FC-19 编辑器内部异常 | `fe.diagnostics.browser` | `editor/web/plugin.ts:116,121,125,150,154,169,193,217` 的 `diagnostics.record` | 保留 `error`；`message` 多为写死中文 | FC-27 | 中文 | 否 | 无 | 否 | 不适用 | `event` 英文点分名，如 `editor.language` |
+
+### 2.4 设置、插件、存储
+
+| 通道 ID | 域 | 生产者 | 逐跳转换 | 消费者 | 语言 | 显示给用户 | 进模型 | 持久化 | 旧数据 | 备注 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| FC-20 设置写入失败（行内） | `x.settings.write` | 对侧：`settings/shared/layers.ts:120-142` 与 `settings/backend/*`（未逐个追）；前端 `settings/web/window-source.ts:82-85`（`no-project`，中文 `detail`） | 保留码：`ui/settings/SettingsRow.vue:130` 发 `write-failed {action, code, detail}` → `settings-window.ts:801,811` → `notifyFailure`（`:454-466`）：`settingsFailureText(code, detail, locale)` 把七个码换成双语句子，其余写 `码：detail` | `workbench` 通知（`options.notify`，`settings-window.ts:463,466`） | 双语（按显示语言）；回退时混合 | 是 | 无 | 否 | 不适用 | 这是第二处按码取文案；`invalid-value` 与 `write-failed` 的文案里仍嵌 `{detail}`（`setting-text.ts:26,28`） |
+| FC-21 设置文件视图保存失败 | `x.settings.write`、`x.settings.layer` | 对侧 `settings/shared/layer-text.ts:99-135`（`detail`/`reason` 中文，语法错误文字来自 `PARSE_ERRORS`）、`layers.ts:43` | 包裹：`invalid-text` 把 `detail` 与 `position.line/column` 拼进双语框架（`SettingsFileView.vue:61,240-241`）；其余码走 `settingsFailureText`（`:249,275`） | `SettingsFileView.vue:350-358`；标题区 `SettingsWindow.vue:91-96`、`SettingsSectionHeading.vue:75` | 混合 | 是 | 无 | 设置文件本身是用户数据，文字不落盘 | 不适用 | 位置已结构化（`position`），但 `reason` 句子仍是中文 |
+| FC-22 设置层 `invalid` 快照 | `x.settings.layer` | 对侧 `layer-text.ts:99-135`、`layers.ts:54-63,93` | 保留 `reason`、`detail`、`position`（`settings-window.ts:505`） | `SettingsWindow.vue:91-96`（`reason ?? detail`）→ 层警告与提示 | 混合 | 是 | 无 | 否 | 不适用 | 写入一律被拒（状态型拒绝） |
+| FC-23 设置页入口交付状态 | `fe.plugins.entry-state` | 对侧 nb-runtime `EntryState`；前端 `settings/web/sections.ts:52-56,113-126,141-152,195-196` | 转换：`entryReason` 取 `blocked.reason：blocked.key` 或 `failure.error.message` 或 `failure.reason` 或 `status`（四份拷贝之一，见 N0.6） | `settings/web/components/SettingsPageFrame.vue:81-87` 双语框架 `{reason}`；选项源不可用 `choices.ts:144-149,177-178` | 混合 | 是 | 无 | 否 | 不适用 | 内含 `触发 X 被拒（reason）` 中文拼接（`sections.ts:150,152`） |
+| FC-24 视图入口交付状态 | `fe.plugins.entry-state` | `workbench/web/views/registry.ts:49-52,89-100,139-140` | 同 FC-23 | `workbench/web/components/WorkbenchViewFrame.vue:97-108`；视图加载/渲染失败 `WorkbenchViewInstances.vue:138`（`error.message`） | 混合 | 是 | 无 | 否 | 不适用 | |
+| FC-25 插件页的失败与问题 | `x.plugins.manage` | 对侧 `plugin-platform/backend/inventory.ts`、`plugin-platform/shared/problems.ts:14-33`（`PluginProblem`，含 `message: state.failure.error?.message`） | 保留：`FAILURE_TEXT` 表为每个业务码给双语句子（`PluginsPage.vue:96-108`），`DETAIL_CODES` 才附服务端 `detail`（`:111`）；`notLoaded.detail` 直接显示（`:435`）；`problemLine` 把激活错误的 `message`、拒绝的 `detail` 原样接上（`:197-200`） | `PluginsPage.vue:405,414,435,437` | 混合 | 是 | 无 | 否 | 不适用 | 第三处按码取文案；`detail` 与 `problems[]`（清单出错字段）原样露出 |
+| FC-26 布局记录的存储问题 | `x.storage.record`、`fe.workbench.layout-problem` | 对侧存储提供者；前端 `layout-store.ts:99-107` | 转换：保存失败 → `unsaved`，读不出来或快照 `corrupt`/`unsupported-version` → `unread` | `WorkbenchStatusBar.vue:55-72`：`REASONS` 表只覆盖 `unavailable`、`conflict`、`unknown-outcome`、`io-error`、`corrupt`、`unsupported-version`、`provider-stopped` 七个，其余码（`storage.ts:139-154` 另有 `invalid-value`、`too-large`、`protected`、`originals-full`、`definition-conflict`、`no-client`、`no-project`、`invalid-resource`、`denied`、`busy`）显示裸码 | 双语（按显示语言）；回退为英文裸码 | 是（状态栏） | 无 | 否（记录本身落盘，文字不落盘） | 不适用 | 第四处按码取文案 |
+| FC-27 项目未绑定的存储 | `x.storage.record` | `storage/web/plugin.ts:35`（`no-project`，中文 `detail`） | 包裹：前端自造的失败，与对侧提供者的码相同 | 调用方的 Storage 调用结果；用户可见的去处未逐个追 | 中文 | 取决于调用方（未追到） | 无 | 否 | 不适用 | 同一个码，前端造的 `detail` 是中文，对侧提供者造的是什么另见后端报告 |
+
+### 2.5 项目与书架、预览
+
+| 通道 ID | 域 | 生产者 | 逐跳转换 | 消费者 | 语言 | 显示给用户 | 进模型 | 持久化 | 旧数据 | 备注 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| FC-28 书架操作失败 | `x.projects` | 对侧 `plugins/projects/backend/*`（未逐个追）；合同 `projects/shared/contracts.ts:162,203-244` | 保留：`failureReason` 码表（`messages.ts:97-117`，七个码，其余 `码：detail`）；`register-failed` 的 `reason` 走 `FAILURES` 表（`messages.ts:39-48`）；`invalid-metadata`、`write-failed` 把 `detail.detail`（对侧句子）填进 `createInvalid`、`createWriteFailed`（`shelf-page.ts:314-325,350-352`） | `shelf-page.ts` → 通知与表单字段旁（`BookshelfHost.vue`） | 混合 | 是 | 无 | 否 | 不适用 | 第五处按码取文案，质量最高的一处，缺口是 `detail.detail` 与 `` `${code}：${detail}` `` 回退 |
+| FC-29 目录选择失败 | `x.projects` | 对侧 `projects` 合同的 `browse`；前端 `projects/web/browse.ts:20-29` | 转换：`failureReason`/`registerFailureReason` → `LocalizedText` → `localize` 成字符串再塞进 `{ok:false, message}` | `projects/web/components/PathPickerDialog.vue` | 双语（按显示语言） | 是 | 无 | 否 | 不适用 | 失败信息在生产处已被本地化成字符串，换语言要重取 |
+| FC-30 封面上传 | `fe.projects.cover-http` | 前端 `projects/web/plugin.ts:195-219` | 保留：服务端 `{code, detail}`；无 body 时用 HTTP 状态与 `statusText`；网络错误造 `network` | `shelf-page.ts:370-371`（`result.detail === "" ? result.code : result.detail`） | 取决于服务端 | 是 | 无 | 否 | 不适用 | 服务端错误体生产者在 `src/server/*`，未追到 |
+| FC-31 预览令牌与图片 | `fe.preview.denial` | `html-preview/web/plugin.ts:88-98`、`image-viewer/web/components/ImageViewer.vue:59,77,123` | 转换：路由失败码折成三个 `denial`；日志另记 `申请预览令牌失败：${code}`（`plugin.ts:91`） | `HtmlPreview.vue:20`、`ImageViewer.vue:20` 双语表 | 双语（按显示语言） | 是 | 无 | 否 | 不适用 | 码到文案的映射形状正确，数量小 |
+
+### 2.6 诊断、编辑与基础 UI
+
+| 通道 ID | 域 | 生产者 | 逐跳转换 | 消费者 | 语言 | 显示给用户 | 进模型 | 持久化 | 旧数据 | 备注 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| FC-32 浏览器诊断记录 | `fe.diagnostics.browser` | 前端 40 处 `.record({level…})`（计数见第 4 节） | 保留：`console-exporter.ts:36` 写成 `` `${timestamp} [${level}] ${event}: ${message}` `` 加整条记录对象；出口不可用时 `console-exporter.ts:60` 兜底 | 浏览器控制台；`DiagnosticsStore` 内存 | 中文（20）/ 表达式（20，来自异常或变量） | 否（只在开发者工具） | 无 | 否 | 不适用 | `diagnostics/web/plugin.ts:1-4` 明确不桥接 console；没有浏览器到服务端的转送（未发现，见必查表） |
+| FC-33 紧急输出 | `fe.diagnostics.browser` | `window.ts:~257` `recordingEmergency` | 包裹：JSON 串写 `console.error`（`window.ts` 中 `Reflect.apply(options.console.error…)`） | 控制台 | 取决于报告 | 否 | 无 | 否 | 不适用 | |
+| FC-34 Markdown 方言失效 | `fe.diagnostics.browser` | `markdown/web/syntax-catalog.ts:30,89-92`、`markdown/web/plugin.ts:72-76` | 保留 `code`（`InactiveCode`）、`message`，进 `data.code` | FC-32 | 中文 | 否 | 无 | 否 | 不适用 | 去重键 `id` + `code`（`syntax-catalog.ts:90`） |
+| FC-35 栅格拒绝 | `fe.ui.grid` | `nb-ui/src/components/layout/grid.ts`（34 处）、`useGridLayout.ts`、`useSashGesture.ts` | 保留：`WorkbenchShellLayout.vue:107-119` 把 `reason` 收进 `gestureIssues`（取最近 3 到 4 条）→ 写到 DOM 属性 `data-layout-diagnostics`；布局投影的 `issues` 另在 `workbench/web/plugin.ts:136-140` 记诊断 | DOM 属性、诊断 | 中文 | 否（属性只给测试与开发者） | 无 | 否 | 不适用 | 栅格快照有版本（`grid-snapshot.ts:23,42`），读旧快照失败 `ok:false`（`grid-snapshot.ts:84`） |
+| FC-36 SDK 定义期错误 | `fe.sdk.define` | `neuro-book/src/sdk/plugin.ts:70-71,234,274`、`command-helpers.ts:34-57` | 抛 `TypeError`（中文） | 插件作者；展示去处（插件代码装载失败）在对侧 `plugin-platform`，未追到 | 中文 | 取决于对侧 | 无 | 否 | 不适用 | 示例插件与模板教作者读这些消息 |
+| FC-37 主题装载失败 | `fe.ui.theme-install` | `nb-ui/src/theme/theme-loader.ts:72-220`；`semver-range.ts:65-95` | 包裹：消息固定为 `` 主题 "id" 装载失败（reason）：message `` | `neuro-book/src/ui/theme/product-themes.ts:17` 模块顶层调用，未被 `mount.ts:44-51` 接住（该 `catch` 只包 `router.isReady`） | 中文 | 取决于 `main.ts` 之外的捕获，未追到 | 无 | 否 | 不适用 | 构建时已知主题，运行中不会触发 |
+
+### 2.7 nb-form、nb-agent-ui、nb-markdown
+
+| 通道 ID | 域 | 生产者 | 逐跳转换 | 消费者 | 语言 | 显示给用户 | 进模型 | 持久化 | 旧数据 | 备注 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| FC-38 表单校验问题 | `fe.form.issue` | `nb-form/src/validate.ts:99-104,127-240` | 保留：`FormIssue {path, code, params, message?}`；`schema-error` 的 `params.detail` 带异常原文但界面不显示（`messages.ts:195-229`） | `nb-form/src/vue/messages.ts:229` `issueText`（`message` 优先，否则按码表；码表中英各一份） | 双语（`zh-CN`/`en-US`，其它语言取英文） | 是 | 无 | 否 | 不适用 | 这是仓库里“码加参数、界面取文案”的完整样板；`message?: FormText` 允许调用方自带文字 |
+| FC-39 助手运行出错 | `fe.agent.transcript` | 对侧 nb-session 日志 `run_end.error.kind`（生产者在 `nb-harness`/`nb-session`，后端报告） | 改名：`kind` → 消息键（`harness.ts:104-111`），`error.message` 与其它字段丢失；`retryable` 由 `kind` 决定 | `AgentTurnBlock.vue:170`（`data-error` 段落）、`AgentRawView.vue:160` | 双语（`messages.ts:189-195`、`389-395`） | 是 | 无 | 否 | 日志是权威：旧日志的 `kind` 不认识时按 `local` | 与决策 2 一致；`problems()` 里记的是中文的结构问题，无产品调用方 |
+| FC-40 工具调用失败文字 | 无独立域 | 对侧工具执行器；前端取 `toolResult` 的 content 文本（`harness.ts:229-235`）与事件的 `result.content`（`harness.ts:365-369`） | 保留：`isError` 为真时 `error = text`；`details` 另存 `result.details`（`harness.ts:234,369`） | `vue/tools/AgentToolDetail.vue:33`（原文显示，`details` 在 `:58-60` 以 JSON 显示）；`AgentRawView.vue:154` | 取决于工具：OMP 原生英文、领域工具中文 | 是（工具详情里） | 本通道的文字本来就是给模型读的 | 会话 JSONL（对侧） | 日志是权威 | 用户看到的是模型读到的同一段文字，没有按码取文案的层 |
+| FC-41 宿主给的历史加载失败 | `fe.agent.transcript` | 仓库内无产品生产者（`grep` 仅 Lab 夹具 `AgentConversationViewFixture.vue:99`） | 保留字符串 `ctx.history.error` | `vue/AgentConversationView.vue:265` | 宿主决定 | 是 | 无 | 否 | 不适用 | 接口形状是句子，包用户需自己本地化 |
+| FC-42 编解码写不出 | `fe.markdown.unrepresentable` | `nb-markdown/src/language/codec/render/*.ts`、`syntax/*/write.ts`（`throw new Unrepresentable("中文")`，共 9 处）→ `codec/write.ts:745` | 转换：异常变 `{ok:false, code:"unrepresentable", from, to, reason, fallback}` | `editor/web/documents/store.ts:72-79,555,789` 存 `BlockedInput`；`EditorGroup.vue:171-172` 用自己的双语句子，`reason` 不显示 | 中文（只供诊断） | 否（界面用 `index`、`excerpt` 另写句子） | 无 | 否 | 不适用 | 这是“诊断文字不进界面”的正确样板 |
+
+### 2.8 nb-story 网页
+
+| 通道 ID | 域 | 生产者 | 逐跳转换 | 消费者 | 语言 | 显示给用户 | 进模型 | 持久化 | 旧数据 | 备注 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| FC-43 查询 RPC 失败 | `x.story.rpc` | 对侧 `nb-story/src/server/http.ts:96-145,237-261`、`server/qa-service.ts:562`、`server/ingest-service.ts:162`（`{code, message}`，`message` 中文） | 保留：`client.ts:120-123` 变成 `StoryCallError`；网络失败前端造 `network`（`:118`） | 46 处 `…message` 绑定到 `PageState`/`PagedList` 的 `error`（`nb-story/src/web/pages/*.vue`、`shell/*.vue`，另 `SearchBox.vue:73`、`BookShell.vue:43`、`LibraryPage.vue:74`）；按码特殊处理的只有 `entity_not_found`/`entity_ambiguous`（`QaPage.vue:75`）、`book_not_found`（`BookShell.vue:38`）、`DrawerCard.vue:74`、`IngestPage.vue:119,156`、`ImportPage.vue:179,217-219`、`SettingsPage.vue:267` | 中文 | 是 | 无 | 否 | 不适用 | 网页没有消息目录；整个应用只有中文 |
+| FC-44 问答读取失败 | `x.story.rpc` | `nb-story/src/web/qa/source.ts:226-233` | 包裹：`{code, message}` 存进 `state.error` | `QaPage.vue:290`（`load-error`，`message ?? "读不到这个对话"`） | 中文 | 是 | 无 | 否 | 不适用 | |
+| FC-45 问答实时与权威日志补发 | `fe.agent.transcript` | 对侧 SSE 帧（`QaFrame`，`nb-story/src/contract/contract.ts:777-781`）；`web/host/client.ts:55-100` 解析 | 保留：`snapshot`/`log` 帧的条目喂 `applyLogEntry`，`event` 帧喂 `applyEvent`（`source.ts:172-200`）；日志为准，晚到事件不覆盖（`harness.ts:359`） | 转录适配器 → FC-39、FC-40；`run.saved` → `QaPage.vue:472` | 同 FC-39、FC-40；`saved` 的 `reason` 码被本地换成三种中文句子，其余写 `message ?? reason` | 是 | 无 | 否（但帧内容来自落盘的会话日志） | 日志是权威 | 订阅断开按 1、2、4…15 秒退避重取（`source.ts` 头注释） |
+| FC-46 问答降级回放 | `x.story.qa-record` | 对侧 `nb-story/src/core/qa-records.ts:71`（`error {code, kind?, message}`）、`qa/engine.ts:322,345,350`（`message` 中英混合：`${what}：${error.message}`、`error.message`、中文固定句） | 丢失：`record-messages.ts:28` 只取 `turn.error?.message ?? "这一轮失败了"`，`code`/`kind` 丢掉；`logProblem` 另显示（`qa/source.ts:247`、对侧 `qa-records.ts:273,327,387` 中文） | `AgentTurnBlock.vue:170` | 混合（持久化的 `message` 可能是英文原错） | 是 | 无 | 是：问答记录 JSON（`QaFailureSchema`，对侧 `qa-record.ts:42`），`message` 随记录存盘 | 旧记录只有 `message` 时仍要能读；新增码字段不能破坏 `QaFailureSchema` 的校验（`qa-records.ts:387-397`） | 与 FC-39 同一失败在两条路径下显示不同：实时路径按 `kind` 取本地文案，降级回放显示原文 |
+| FC-47 抽取停下 | `x.story.ingest-stop` | 对侧 `contract.ts:495`；`server/ingest-service.ts:162` | 转换：`web/host/ingest.ts:31-50` 把 `kind` 与 `errorKind` 换成中文文案和“下一步”；`IngestPage.vue:213` 另显示 `stopReason.message` 原文 | `IngestPage.vue` | 中文 | 是 | 无 | 抽取状态落盘（对侧） | 未追到 | 有码有本地化，仍并排露出原文 `message` |
+| FC-48 服务商与设置页 | `x.story.rpc` | `shell/ProviderDialog.vue:129-144,202`（探测结果 `message`、校验 `first.message`）、`shell/SettingsPage.vue:73,267-290` | 包裹：中文框架加异常消息 | 同文件 | 混合 | 是 | 无 | 否 | 不适用 | |
+
+### 2.9 nbdev 面板网页
+
+| 通道 ID | 域 | 生产者 | 逐跳转换 | 消费者 | 语言 | 显示给用户 | 进模型 | 持久化 | 旧数据 | 备注 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| FC-49 HTTP 信封错误 | `x.nbdev.envelope` | 对侧 `dev-panel/src/server/serve.ts:123`、`core/errors.ts:102-118`（`NbdevError` → `errors[0]`） | 包裹：`web/host/api.ts:43-48` 变成 `ApiError {status, code, message, details, data, warnings}`；网络失败前端造 `network`（`:74`） | `web/host/writes.ts:20-41`（`describeFailure` 按 `lock_timeout`、`warming_up`、`commit_failed`、`changed_after_write`、`uncommitted_changes`、`hash_mismatch` 改写，`status===400` 与其余用 `error.message`）→ `failureNotice`（`:100-145`）→ `WriteResult.vue`；`status-change.ts:45`、`file-edit-session.ts:100-118` | 中文 | 是 | 无 | 否（面板内存） | 不适用 | 面板整体保持中文（ADR 0034 的后果表已写）；`writes.ts:132,137` 用 `failure.message` 的相等与 `includes` 做去重（按文案分支） |
+| FC-50 资源读取失败 | `x.nbdev.envelope` | `web/host/panel-data.ts:235-241` | 保留 `{code, message, status}`；`confirmRelogin` 把 401 换成固定中文（`:136`） | `parts/LoadState.vue:43,55`；`App.vue:308,342` | 中文 | 是 | 无 | 否 | 不适用 | |
+| FC-51 表单校验 | `x.nbdev.text-rules` | 对侧 `dev-panel/src/core/text-rules.ts:14-26`、`core/questions.ts:83-99`；前端 `NewTaskForm.vue:22-23` 自写一条 | 保留：句子直接显示 | `AnswerForm.vue:78-86`、`NewTaskForm.vue`、`NewWorkForm.vue` | 中文 | 是 | 无 | 否 | 不适用 | 命令行抛 `NbdevError`（`assertTitle`，`text-rules.ts:28-31`）与网页共用同一批句子 |
+| FC-52 终端 WebSocket 错误帧 | `x.nbdev.terminal` | 对侧 `dev-panel/src/server/terminal-hub.ts:298` | 保留：`code`、`message` 转字符串（`terminal-socket.ts:105-107`） | 终端面板（`session-console.ts:289-291`） | 中文 | 是 | 无 | 否 | 不适用 | 取值未逐个追 |
+
+## 3. 必查表
+
+读法：每一项只写前端分区能确认的部分。结论只用四种写法，含义与计划一致——`FC-nn`（有通道）、`无`（确实没有，写明核对方式）、`Spec 规划、未实现`、`未追到`；该项的生产者在对侧（后端分区）时，前端侧只写消费者，对侧位置已追到的写文件:行。“无”的核对命令统一在本节末尾。
+
+| # | 必查项 | 前端承载（通道 ID 或结论） | 对侧位置与备注 |
+|---|---|---|---|
+| 1a | 诊断事件（记录） | FC-32（40 处 `.record({level…})`）、FC-19、FC-34、FC-05 | 记录类型在 `nb-runtime/src/diagnostics`；`message` 中文 20 处、表达式 20 处，`event` 全为英文点分名 |
+| 1b | 诊断查询 | 无：前端文件清单里没有调用 `query`、`snapshot`、`recent` 的代码（命令 C1）；规格要求浏览器用有界内存缓冲提供查询（`docs/specs/runtime/diagnostics.md` 第 55–57 行），能力在提供者里，前端没有消费者 | 提供者在 `nb-runtime` |
+| 1c | JSONL 日志 | 无：浏览器出口只写 console，规格明说不要求落盘（`diagnostics.md` 第 19、55 行；`console-exporter.ts:36`） | 后端日志写入在 `neuro-book/src/plugins/diagnostics/backend/log-writer.ts`、`jsonl-exporter.ts`（后端分区） |
+| 1d | 紧急输出 | FC-33（`window.ts` 的 `recordingEmergency`，JSON 串写 `console.error`）；FC-32 的兜底 `console-exporter.ts:60` | 宿主紧急通道的定义在 `nb-runtime` |
+| 2a | 握手 `reject` | FC-03 | 帧 schema：`nb-runtime/src/remote/protocol.ts:246`；生产 `protocol.ts:307`、`router.ts:174,197,203`；`message` 中文 |
+| 2b | 连接结果 | FC-03、FC-04 | `RemoteConnectResult`：`nb-runtime/src/remote/node.ts:163` |
+| 2c | 远程路由失败（`RemoteFailureCode`） | FC-14、FC-15、FC-20、FC-25、FC-26、FC-28、FC-31（各自消费路由层码） | 码表与 `detail`：`nb-runtime/src/remote/contract.ts`（未逐码展开，见后端报告） |
+| 2d | 业务 `detail` | FC-14（`fe.files.result`）、FC-15、FC-20（`x.settings.write`）、FC-25（`x.plugins.manage`）、FC-26（`x.storage.record`）、FC-28（`x.projects`）、FC-30 | 前端各域直接把 `detail` 当句子显示或拼接（发现 4） |
+| 3a | 命令失败结果 | FC-09、FC-11、FC-12、FC-13 | 对侧 `registry.ts` 行见 FC-09 |
+| 3b | 命令失败通知 | FC-09（`failure-notice.ts`、`WorkbenchCommandHost.vue`、`keymap.ts`、`palette-host.ts`） | |
+| 3c | 命令不可用原因（`isEnabled`） | FC-10 | |
+| 3d | 命令执行审计事件（`onDidExecute`） | 仅 Lab：`plugins/lab/web/fixtures/command-scene/lab-command-scene.ts:146-156`；产品代码里无订阅者（命令 C2） | 发布者 `commands/shared/registry.ts:369` |
+| 3e | 跨实例命令执行结果 | 无：浏览器侧提供者 `commands/shared/plugin.ts:119-155`；调用者只有 `server/testing/test-plugins.ts:148-149`（测试插件）（命令 C3）。结果的 `code` 在远程合同里放宽成 `Type.String()`（`contracts.ts:161`） | 属对侧 |
+| 4 | 贡献与清单校验的拒绝原因 | 展示端：FC-25（`PluginsPage.vue:188-200` 的 `REJECTED_REASON` 四个码加原样 `detail`）；窗口内的贡献拒绝：`windowPlugins.problems()` 经 `PluginsPage.vue:157-159` | 生产 `plugin-platform/shared/problems.ts:14-18`（`contribution.validation.reason/detail`）；清单校验在 `nb-runtime` 与 `neuro-book/src/manifest.ts`（后端） |
+| 5a | 插件安装、升级失败 | FC-25（`FAILURE_TEXT` 表） | 码：`plugin-platform/shared/types.ts:167-169` |
+| 5b | 启动未加载的状态（`notLoaded`） | FC-25（`NOT_LOADED` 表 + 原样 `detail`，`PluginsPage.vue:80-90,435`） | 生产在 `plugin-platform/backend/inventory.ts` |
+| 5c | 入口 blocked/failed/stopped | FC-23、FC-24、FC-25 | 状态来自 nb-runtime `EntryState` |
+| 5d | 浏览器插件代码装载失败（`code-load-failed`、`module-not-shared`） | 未追到：计划把装载失败划给后端分区；前端只见 `window.ts:276-298` 的拼接入口与 `plugins/web/…` 的展示；`createPluginCodeHost` 的错误类别没有在前端文件清单里 | 属后端分区（`plugin-platform`） |
+| 6a | 设置层 `invalid` 快照 | FC-22 | 生产 `settings/shared/layer-text.ts:99-135`、`layers.ts:54-63` |
+| 6b | 设置文件校验与保存拒绝 | FC-21 | |
+| 6c | 设置写入失败 | FC-20 | |
+| 7a | Storage 记录损坏、版本不支持 | FC-26 | 生产在 `storage/backend/*`、`neuro-book/src/shared/storage.ts` |
+| 7b | Storage 订阅结束 | 未追到：前端文件清单里没有调用 Storage 订阅的结束回调（命令 C4）；文件监视的结束是另一回事（FC-16） | 订阅在 `storage/shared/contracts.ts` 的 `events`（后端分区） |
+| 7c | Storage 写失败 | FC-26（布局）；示例插件 `plugin-sdk/examples/plugins/{notes,focus}`（`storage-failed`，FC-53） | |
+| 8 | 项目子进程的启动、IPC、输出转发 | 无：前端清单里没有 `child_process`、`spawn`、`owned-process`、`IPC` 命中（命令 C5）；窗口只在握手阶段见到“打开项目失败”（FC-03、FC-28） | 后端：`neuro-book/src/project/*`、`owned-process` |
+| 9a | HTTP 错误体（引导） | FC-01（`ConnectionError`，`connection.ts:79,89-97`） | 服务端 `neuro-book/src/server/*` |
+| 9b | HTTP 错误体（封面、nbstory、nbdev） | FC-30、FC-43、FC-49 | 服务端 `nb-story/src/server/http.ts:96-145`、`dev-panel/src/server/serve.ts:123` |
+| 9c | HTTP 中间件的错误 | 未追到：前端只见 401（`nb-story/src/web/host/client.ts:121`、`dev-panel/src/web/host/panel-data.ts:136`）与 5xx 的通用文字；中间件本身在后端 | |
+| 10 | 工具结果（内置、领域、第三方桥接） | FC-40（前端只显示工具结果文本与 `details`，不区分三类） | 生产在 `nb-harness`、`nb-story/src/qa/tools*`，后端分区 |
+| 11a | 运行中的 Agent 事件与 SSE | FC-45（`source.ts:172-200`）、FC-39 | SSE 帧 `QaFrame`：`nb-story/src/contract/contract.ts:777-781` |
+| 11b | 权威日志补发 | FC-45（`snapshot`/`log` 帧）；`harness.ts:359`（日志优先于晚到的事件） | |
+| 11c | QA 降级回放 | FC-46 | |
+| 12 | 会话 JSONL（`agent_message`、`run_end.error`） | FC-39、FC-40 消费（`harness.ts:173-300`）；前端不写会话 JSONL | 写入在 `nb-session`（后端） |
+| 13 | QA 记录 | FC-46 消费；记录 `QaFailureSchema {code, kind?, message}`（`nb-story/src/contract/qa-record.ts:42`）的 `code`、`kind` 前端丢弃 | 写入 `nb-story/src/core/qa-records.ts` |
+| 14 | Workflow 的 Run 状态与控制失败 | 无：前端清单里没有 `nb-workflow` 命中（命令 C5） | |
+| 15 | History 的异常与不可用结果 | 无：前端清单里没有 `nb-history`、`nb-memory` 命中（命令 C5） | |
+| 16a | CLI 给人看的输出与 `--json`（应用 `src/cli`、nbstory、plugin-sdk 作者 CLI） | 无：前端分区没有命令行入口（`neuro-book/plugin-sdk/` 的 `cli.ts`、`build.ts` 等作者工具划给后端分区） | |
+| 16b | nbdev CLI 的输出 | 无（命令行在 `dev-panel/src/cli`，后端分区）；与网页共用的校验见 17b | |
+| 17a | nbdev HTTP `errors[].message` | FC-49、FC-50 | 服务端 `dev-panel/src/server/serve.ts:123`、`core/errors.ts:102-118` |
+| 17b | nbdev 共用的校验函数 | FC-51：网页直接 import `core/text-rules.js`、`core/questions.js` | `dev-panel/src/core/text-rules.ts:14-44`、`core/questions.ts:83-99` |
+| 18 | 界面直接显示 `message`/`reason` 的位置 | 本节之外的完整清单是 FC-01、02、03、04、06、08、09、10、11、12、14、15、16、17、18、20 至 25、26、28、30、39 至 41、43 至 52；逐个模板汇点的计数见第 4 节“模板汇点” | 另有 94 个模板汇点（48 个插值加 46 个绑定），逐文件清单在 `lab-frontend/count-out.txt` |
+| 19 | Task 证据与测试断言 | 234 个前端测试与测试辅助文件，其中 20 个文件在 `reason`/`message`/`detail` 的断言里写了中文字面量（命令 C6，属候选，未逐个核实）：`nb-agent-ui/src/harness.test.ts`、`harness.contract.test.ts`、`process-summary.test.ts`，`nb-ui/src/components/layout/grid.test.ts`，`nb-story/src/web/qa/turn-transcripts.test.ts`，`neuro-book/src/web/host/window.test.ts`，`plugins/workbench/web/commands/{panel,part,view}-commands.test.ts`，`plugins/workbench/web/views/registry.test.ts`，`plugins/settings/web/{choices,sections}.test.ts` 等 | 迁移这些通道时测试要同步；任务证据（`evidences/`、`artifacts/`）由主会话合并时处理，本分区未读 |
+
+### 本节“无”与“未追到”的核对命令
+
+在 worktree 的 `packages/` 下执行，`$NT` 是第 4 节的“非测试文件清单”（888 个）：
+
+```
+C1  xargs grep -n -E 'diagnostics\.(query|snapshot|recent|read|list)|DiagnosticQuery|\.recent\(' < $NT            # 无命中（排除 import 行）
+C2  grep -rn onDidExecute --include='*.ts' --include='*.vue' . | grep -v -E 'node_modules|legacy|\.test\.'       # 3 处定义 + 1 处 Lab
+C3  grep -rn commandsRemoteContract --include='*.ts' . | grep -v -E 'node_modules|legacy|\.test\.'              # 定义、提供者、测试插件
+C4  xargs grep -n -E 'onEnd|\.subscribe\(' < $NT | grep -i storage                                              # 无 Storage 订阅
+C5  xargs grep -l -E 'nb-workflow|nb-history|nb-memory|owned-process|child_process|spawn\(' < $NT               # 无命中
+C6  xargs grep -lP '(reason|message|detail)[^\n]{0,80}(toBe|toEqual|toContain|toMatch|toStrictEqual)\([^\n]*[\x{4e00}-\x{9fff}]' < tests.txt   # 20 个文件
+```
+
+C4 的结果是“前端没有订阅 Storage 的结束事件”，不等于规格没要求；是否有订阅结束的展示合同留给后端报告判断。
+
+## 4. 计数
+
+### 4.1 基线、文件清单与计数单位
+
+- 基线：提交 `65d9daea06616b8fc8459bc7ef9cb2132cee25ed`，worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/audit-w00031-t02`，目录均相对其 `packages/`。
+- 文件清单：`/tmp/w00031-review/t02-audit/lab-frontend/files.txt`（1125 个 `.ts`、`.vue`、`.tsx` 文件，由同目录 `front-files.sh` 生成；不含 `.md`、`.css`、`.json`）。其中 888 个是非测试文件（清单 `nontest-final.txt`，排除 `*.test.ts`、`*/testing/*`、`*.typecheck.ts`），237 个是测试、测试辅助与类型检查文件。
+- 范围对应计划的前端分区：`neuro-book/src/web`、`src/ui`、`src/sdk`、各插件 `web/`、`plugin-sdk/examples/`，`nb-agent-ui`、`nb-form`、`nb-markdown`、`nb-ui`（含 `nb-ui/playground` 14 个文件，演示应用）、`dev-panel/src/web`、`nb-story/src/web`。
+
+| 区域 | 非测试文件 | 测试与辅助文件 |
+|---|---|---|
+| neuro-book/src/web | 18 | 14 |
+| neuro-book/src/ui | 26 | 8 |
+| neuro-book/src/sdk | 14 | 5 |
+| neuro-book/plugin-sdk/examples | 28 | 12 |
+| neuro-book/src/plugins/*/web（不含 lab） | 189 | 76 |
+| neuro-book/src/plugins/lab | 123 | 21 |
+| nb-agent-ui | 63 | 25 |
+| nb-form | 44 | 9 |
+| nb-markdown | 60 | 18 |
+| nb-ui | 157 | 37 |
+| dev-panel/src/web | 91 | 0 |
+| nb-story/src/web | 75 | 12 |
+| 合计 | 888（373 个 `.vue`，515 个 `.ts`） | 237 |
+
+- 计数单位是**汇点**，不是行：由 TypeScript AST 在调用边界上数出。汇点种类：`throw new X(…)`（一个 `throw` 语句一个）、自定义错误类（一个 `class … extends *Error` 一个，文字在构造函数 `super(…)` 里）、`<x>.record({level…})`（一次诊断记录调用一个）、`console.warn|error(…)`（一次调用一个）、含 `ok: false` 的对象字面量（一个对象一个，按它有没有 `code`、`reason`、`detail`、`message` 属性细分）、`catch` 子句（一个子句一个）。`.vue` 文件的脚本部分用 `@vue/compiler-sfc` 取出后同样走 AST；模板里直接显示 `.message|.reason|.detail|.error` 的位置，用正则在模板文本上数（插值 `{{ }}` 一类、`:error|:message|:title|:text` 绑定一类），每个匹配一个汇点。
+- 去重键：文件路径加语法位置，同一节点不会数两次。一个汇点的文字有 `zh`、`en`、`expr` 三种判断：取该节点里的字符串与模板字面量片段，含汉字记 `zh`，只含字母记 `en`，没有字面量片段记 `expr`；**函数调用的整个表达式按 `expr` 记**，不读它的参数（`shelfText("createInvalid", …)` 里的消息键不当文字）；双语对象 `{zh-CN, en-US}` 另记为 `bilingual`（此版本里这类对象不出现在汇点上，因为汇点读的是 `reason`/`detail`/`message` 的初始值，双语对象在表里而不在这些属性里的情形没有命中）。
+- 跨行与变量拼接：AST 不看行，所以跨行字面量、模板字符串、`+` 拼接都是一个汇点；拼接里的变量没有字面量片段时记 `expr`，有片段时按片段判断，片段只有标点时记 `expr`。三元表达式、`??`：两侧的片段都读。
+- 不在汇点里的东西，各有专门口径：`{zh-CN, en-US}` 双语条目（界面文字和失败文字混在一起，无法在不逐条读的情况下分开）、`describe(error)` 一类的辅助函数（函数里的 `error.message` 是汇点之一，但调用点不另数）。
+
+### 4.2 原始匹配数（候选，不是分类数）
+
+命令：`bash /tmp/w00031-review/t02-audit/lab-frontend/raw.sh`（在 888 个非测试文件上逐模式 `grep -E | wc -l`，数的是行）。
+
+| 模式 | 行数 |
+|---|---|
+| `throw new ` | 108 |
+| `new [A-Za-z]*Error(` | 103 |
+| `.record(` | 42 |
+| `ok: ?false` | 284 |
+| `\bcatch\b` | 165 |
+| `\.message\b` | 230 |
+| `\.reason\b` | 161 |
+| `\.detail\b` | 124 |
+| `console.(warn\|error)` | 52 |
+| `"?zh-CN"?:`（双语条目所在行，含界面文字） | 877 |
+
+原始匹配数与 AST 汇点数对不上的原因：`ok: false` 284 行里有大量是类型声明与联合类型（`{ok: false; …}` 在 `type` 里，不是返回点）、同一行多个、以及 `ok:false` 写在测试夹具里的返回类型；`.message` 230 行包含 `props.message`（通知组件的属性）、`event.message`、`issue.message`（Ajv）等与错误无关的属性。
+
+### 4.3 AST 汇点数与分类
+
+命令：`cd /tmp/w00031-review/t02-audit/lab-frontend && bun count.ts /home/notnotype/CodeRepository/neuro-book/.worktree/audit-w00031-t02/packages files.txt`（输出 `count-out.txt`，逐汇点明细 `rows.tsv`），再 `python3 classify.py`（输出 `classify-out.md`）。`count.ts` 借用主工作区 `node_modules` 里的 `typescript` 与 `@vue/compiler-sfc`，不在 worktree 里安装任何东西。
+
+汇点总数：678（其中 `catch` 144，模板显示汇点 94，其余 440 个是文字汇点）。
+
+按汇点种类与文字语言：
+
+| 汇点种类 | zh | en | expr | 无文字 | 合计 |
+|---|---|---|---|---|---|
+| `throw new *Error` | 60 | 5 | 9 | 0 | 74 |
+| `throw new` 自定义（`BootstrapRejected`、`NbThemeInstallError`、`FormWidgetError`、`Unrepresentable`） | 29 | 2 | 3 | 0 | 34 |
+| `class … extends *Error` | 2 | 0 | 5 | 1 | 8 |
+| `diagnostics.record({level})` | 20 | 0 | 20 | 0 | 40 |
+| `console.warn\|error` | 25 | 4 | 18 | 0 | 47 |
+| `{ok:false}`（无文字属性） | — | — | — | 17 | 17 |
+| `{ok:false}+code`（无文字属性） | — | — | — | 15 | 15 |
+| `{ok:false}+code+detail` | 19 | 0 | 13 | 0 | 32 |
+| `{ok:false}+code+reason` | 18 | 1 | 24 | 0 | 43 |
+| `{ok:false}+reason` | 83 | 7 | 22 | 0 | 112 |
+| `{ok:false}+message` | 1 | 0 | 18 | 0 | 19 |
+| `catch`（有处理 139、空体 5） | — | — | — | 144 | 144 |
+| 模板插值显示 `.message|.reason|.detail|.error` | — | — | — | 48 | 48 |
+| 模板绑定 `:error|:message|:title|:text` 到 `…message|reason|detail` | — | — | — | 46 | 46 |
+
+按区域归类（五类加两个附加类；规则见 `classify.py`，每条规则都是文件级或种类级的判断）：
+
+| 区域 | 诊断 | 用户文案（结果字段里的句子） | 透传（语言取决于上游） | 码或无文字 | 夹具与示例 | 合计 | 其中诊断进入界面 | 模板显示汇点 | catch |
+|---|---|---|---|---|---|---|---|---|---|
+| app:plugin-sdk/examples | 0 | 0 | 0 | 0 | 16 | 16 | 0 | 0 | 0 |
+| app:plugins/*/web | 39 | 55 | 64 | 22 | 0 | 180 | 0 | 13 | 24 |
+| app:plugins/lab（开发场景） | 0 | 0 | 0 | 0 | 58 | 58 | 0 | 2 | 11 |
+| app:src/sdk | 7 | 0 | 0 | 0 | 0 | 7 | 0 | 0 | 0 |
+| app:src/ui | 1 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 2 |
+| app:src/web | 29 | 0 | 3 | 0 | 0 | 32 | 21 | 1 | 19 |
+| dev-panel/src/web | 18 | 0 | 1 | 3 | 0 | 22 | 0 | 16 | 30 |
+| nb-agent-ui | 10 | 0 | 0 | 0 | 0 | 10 | 0 | 19 | 2 |
+| nb-form | 4 | 0 | 0 | 5 | 0 | 9 | 0 | 0 | 9 |
+| nb-markdown | 13 | 0 | 0 | 1 | 0 | 14 | 0 | 0 | 7 |
+| nb-story/src/web | 25 | 0 | 1 | 0 | 0 | 26 | 0 | 37 | 31 |
+| nb-ui | 64 | 0 | 0 | 1 | 0 | 65 | 0 | 6 | 9 |
+| 合计 | 210 | 55 | 69 | 32 | 74 | 440 | 21 | 94 | 144 |
+
+- “提示词”“领域内容”两类在前端分区为 0：没有一个汇点是给模型读的文字，也没有汇点是小说内容。前端不构造提示词（命令 C5 的同类核对：前端清单里没有 `nb-harness` 的运行时调用，只有类型与目录读取）。
+- “无法分类”对应本表的“透传（语言取决于上游）”：文字来自另一个函数、另一个域或变量，静态上看不出语言。69 个，其中 `app:plugins/*/web` 64 个，多半是命令返回点上的 `reason: localize(…)`、`picked.reason`、`` `${code}：${reason}` ``。
+- “用户文案”这一类**只数结果字段里的句子**（55 个）。界面里最大的一批用户文案是 `{zh-CN, en-US}` 目录（877 行候选）和 `nb-agent-ui`/`nb-form` 的两张表，它们属于界面文字迁移（w00028），不是失败文字，没有计入。
+- “其中诊断进入界面”：`BootstrapRejected`、`ConnectionError`、`window.ts` 与 `boot.ts` 里的 `throw`，它们的消息最终出现在失败页（FC-01、02、06），共 21 个汇点（含相应的错误类定义）。
+
+### 4.4 “码到文案”表盘点
+
+按码取文案的表是迁移时最容易复用的资产，单列（单位：一张表一个，括号里是条目数）：
+
+| 表 | 位置 | 条目 |
+|---|---|---|
+| 设置写入失败 | `neuro-book/src/ui/settings/setting-text.ts:22-46` | 7 |
+| 插件管理失败 | `plugins/plugins/web/components/PluginsPage.vue:96-108` | 13 |
+| 插件未加载 | `PluginsPage.vue:80-90` | 5 |
+| 入口受阻原因 | `PluginsPage.vue:179-186` | 6 |
+| 贡献被拒原因 | `PluginsPage.vue:188-193` | 4 |
+| 升级受阻原因 | `PluginsPage.vue:121-126` | 4 |
+| 状态栏存储原因 | `plugins/workbench/web/components/WorkbenchStatusBar.vue:55-64` | 7（对 14 个存储码缺 10 个） |
+| 资源管理器失败码 | `plugins/explorer/web/feedback-text.ts:27-35` | 7 |
+| 资源管理器动作名 | `feedback-text.ts:12-25` | 12 |
+| 资源管理器不可用原因 | `feedback-text.ts:91-101` | 9 |
+| 项目登记失败 | `plugins/projects/web/messages.ts:39-50`（`FAILURES`） | 未逐条数 |
+| 项目与书架失败码 | `projects/web/messages.ts:97-117` | 9 个码 |
+| 预览拒绝 | `plugins/html-preview/web/components/HtmlPreview.vue:19-22` | 3 |
+| 图片查看拒绝 | `plugins/image-viewer/web/components/ImageViewer.vue:20` | 未逐条数 |
+| 助手运行出错 | `nb-agent-ui/src/messages.ts:189-195`、`389-395` | 7（中英各一份） |
+| 表单校验码 | `nb-form/src/vue/messages.ts:61-141,195-260` | 29（中文 `codes`；英文同数） |
+| 抽取停下原因 | `nb-story/src/web/host/ingest.ts:31-39` | 7 |
+| 未保存的原因 | `nb-story/src/web/pages/QaPage.vue:472` | 2（内联在模板表达式里） |
+
+### 4.5 测试与证据
+
+- 测试与辅助文件 237 个（含 3 个 `*.typecheck.ts`）；在 `reason`、`message`、`detail` 的断言行里写中文字面量的有 20 个文件（命令 C6，候选数，没有逐个核实断言对象）。
+- 脚本与中间产物在 `/tmp/w00031-review/t02-audit/lab-frontend/`：`files.txt`、`nontest-final.txt`、`tests.txt`、`count.ts`、`count-out.txt`、`rows.tsv`、`classify.py`、`classify-out.md`、`raw.sh`。
+
+## 5. 发现
+
+排序：先写必须在 t03 设计前定下的，再写迁移时要注意的。位置路径相对 worktree 的 `packages/`。每条的“现象”都回到了代码；没有跑过运行时的写“从代码推断”。
+
+### 1. 命令失败只有一句 `reason`：没有码，跨进程时语言和“结果未知”都留不住
+
+- 位置：合同 `neuro-book/src/plugins/commands/shared/contracts.ts:26-37`（`CommandFailureCode` 九个码加 `reason: string`）；结果出口 `workbench/web/commands/failure-notice.ts:29`；快捷键 `keymap.ts:102`；面板 `WorkbenchCommandHost.vue:35-48`；对侧生产 `commands/shared/registry.ts:177,259,268,300-358`。
+- 现象：`reason` 是整句话，用户入口把它原样放进通知。同一个字段里有三种语言来源：写死的中文（`registry.ts` 八处、`view-commands.ts:104-203`、`editor/web/area.ts` 约 50 处、`open-commands.ts:40,47`），按显示语言取的双语（`app-commands.ts:53`、`panel-commands.ts`、`part-commands.ts`），以及由公开状态在求值时本地化的（`commands/shared/plugin.ts:59-67`）。远程合同里结果的 `code` 被放宽成 `Type.String()`（`contracts.ts:161`）。
+- 为什么要先定：ADR 0034 要求诊断英文、用户文案按“命名空间加码”。命令是唯一一个“同一个字段既给用户看又进诊断”的合同：`keymap.ts:102` 把 `reason` 拼进 `Error` 记进诊断，`failure-notice.ts:29` 又显示给用户，两边要的语言相反。t03 要先定：`reason` 是否改成 `{code, params}`，诊断里记的是码还是文案。
+- 建议：命令结果的失败带 `code`（稳定）和 `params`，`reason` 要么删，要么只留英文诊断；文案由命令所属插件的命名空间出。
+
+### 2. “结果未知”在命令层丢失，只剩一个 `reason` 字符串
+
+- 位置：`editor/web/area.ts:62-68`（`ActionResult` 只有 `reason`）、`area.ts:884-910`（`save` 返回 `reason: result.code`；`overwrite`/`saveAll` 返回 `result.code` 或 `地址：code`）、`editor/web/commands.ts:118,137-138`（`fromAction` 一律折成 `unavailable`）；对侧 `files/shared/failures.ts` 里有 `unknown-outcome` 码，`EditorGroup.vue:143,183-198` 单独处理了它。
+- 现象：文件层明确区分“没写成”和“结果未知”，编辑器组按码处理；但经命令（保存、全部保存）走时，码被当作 `reason` 文字，命令层又把它归入 `unavailable`，用户从通知里看到的是一个英文码或半句中文，且无法与“没保存”区分。取消、保存失败、位置没变也靠 `reason` 文字区分（`area.ts:642-643,683,693`）。
+- 为什么要先定：这是“按码分支，不按文字分支”最直接的违反，而且后果是数据安全相关的提示（可能已写入）。若 t03 只做文案本地化而不给 `ActionResult` 加码，这个问题会被带进新体系。
+- 建议：`ActionResult` 加 `code`，`fromAction` 按码映射命令失败码；`unknown-outcome` 要么成为命令失败码，要么保留在通知的 `code` 字段里。
+
+### 3. 窗口失败页在语言体系建立之前显示，且 `reason` 全是中文句子
+
+- 位置：`neuro-book/src/web/FailurePage.vue:24-45`（标题与提示写死中文）、`:69`（`reason` 原样显示）；来源 `web/host/window.ts:167-168,297,300-304,355-392`、`web/host/connection.ts:54,65,77,79,83`、`web/host/remote-session.ts:82-86,92,114,166-174`、`web/mount.ts:48-51`；对侧 `nb-runtime/src/remote/node.ts:1163-1164`、`router.ts:174,197,203`、`protocol.ts:307`。
+- 现象：`WindowState` 有六种失败状态，每个都带整句 `reason`。`reason` 来自五条路：`ConnectionError` 的中文消息、`BootstrapRejected` 的中文消息、握手 `reject` 帧里的中文 `message`、重连状态、各入口启动失败的 `error.message`。失败页没有语言入口，也没有任何一处在引导完成前读取显示语言。
+- 为什么要先定：失败页出现时语言设置往往还没加载（连接失败、引导被拒），所以这里不能依赖“从设置读语言”。要先定“失败页用什么语言、怎么得到它”（例如跟随浏览器语言，或两种都显示）。同时 `RemoteConnectResult.message` 与 `reject` 帧 `message` 是跨进程合同，要决定它们是诊断（英文）还是展示文字。
+- 建议：失败页只依赖 `WindowState` 的状态码和少量固定文案，`reason` 作为英文诊断详情展示，不当主文案；握手帧 `message` 改英文，加稳定的 `reason` 码（已有）。
+
+### 4. 通道里的 `detail` 既是诊断又是展示文字，各域各自处理
+
+- 位置：`FilesResult.detail`（`files/shared/contracts.ts:295-297`；前端消费 `EditorGroup.vue:143,187,198` 的 `detail || code`、`explorer/web/feedback-text.ts:27-44` 的 `码：detail`、`explorer/web/controller.ts:509` 的 `nameError` 把 `码：detail` 当 `NameError.detail`）；设置 `setting-text.ts:22-46`；插件 `PluginsPage.vue:96-108,435`；Storage `WorkbenchStatusBar.vue:55-72`；项目 `projects/web/messages.ts:39-50,97-117`；窗口 `x.projects`。
+- 现象：约八个域都把后端给的 `detail` 当句子显示或拼接，其中前端自己也造 `detail`（`files/web/client.ts:71,271,292,299` 中文；`storage/web/plugin.ts:35` 中文；`settings/web/settings-window.ts` 相关）。路由层失败的 `detail` 在 `client.ts:307-313` 退回码，或 `码（cause）`。码表对不认识的码写 `码：detail`，因此 `detail` 的语言就是用户看到的语言。
+- 为什么要先定：ADR 0034 说“未知码显示通用文案加码”，而当前未知码显示的是“码：detail”，也就是把后端中文（或英文）原样显示。若 `detail` 变成英文诊断，未知码的显示就是英文夹码；若保持中文，则不符合“诊断英文”。要先定：`detail` 是诊断（英文，只给开发者）还是展示文字；展示文案一律走码表。
+- 建议：统一约定“`detail` 一律英文诊断，界面只在“详情”折叠里显示”，码表覆盖不到的写通用文案加码。
+
+### 5. 问答记录的降级回放丢掉 `code`、`kind`，只留 `message`
+
+- 位置：前端 `nb-story/src/web/qa/record-messages.ts:17,28`（`error: {message}`；缺省文案“这一轮失败了”）；对侧记录 `nb-story/src/contract/qa-record.ts:42`（`QaFailureSchema {code, kind?, message}`）、写入 `nb-story/src/core/qa-records.ts:71,273,327,387`、引擎 `nb-story/src/qa/engine.ts:322,345,350`。
+- 现象：记录里已经有码和类别，回放时只用 `message`，所以同一轮失败，在线时可能按码显示，回放时显示后端写入当时的句子（语言取决于写入时的版本）。持久化的 `message` 因此成了跨版本、跨语言的展示文字。
+- 为什么要先定：这是“持久化记录里不存展示文字”的现成反例。记录一旦存了中文句子，以后切语言或改文案都改不回来。要先定记录里 `message` 的语言（英文诊断）和回放时是否按 `code`、`kind` 重新投影。
+- 建议：回放用 `code`/`kind` 查消息键，`message` 只作未知码的兜底详情。
+
+### 6. 四处重复的 `entryReason`，把英文阶段码和插件抛出的原文拼成句子
+
+- 位置：`settings/web/sections.ts:52-56`、`settings/web/choices.ts:52-55`、`workbench/web/views/registry.ts:49-52`，对侧 `plugin-platform/shared/problems.ts:31`；展示 `SettingsPageFrame.vue:81-87`、`WorkbenchViewFrame.vue:97-102`、`PluginsPage.vue:197`。
+- 现象：同一个函数写了四份。输出是 `${blocked.reason}：${blocked.key}`（英文码接中文冒号）、`failure.error.message`（插件自己抛出的原文，语言不可控）或 `failure.reason`。对侧那一份写进 `PluginProblem.message`，也就是持久的问题记录里。
+- 为什么要先定：这是 t03 的天然收口点。若只在各处加码表，会得到四份码表；应该先定入口状态由谁投影成展示文字。同时 `failure.error.message` 是第三方（插件作者）的文字，ADR 要求用 `Error.cause`，不应作为展示文字。
+- 建议：抽一个入口状态到消息键的函数，放在拥有 `EntryState` 的包；插件抛出的原文只作详情。
+
+### 7. 前端有大量按 `String(error)`/`error.message` 兜底的 catch，语言取决于抛出处
+
+- 位置：`error instanceof Error ? error.message : String(error)` 共 49 处、分布在 39 个文件（命令：在 `packages/` 下对前端文件清单 grep 该字面量）；典型例子 `remote-session.ts:187-189`（`describe`）、`window.ts:167-168`、`mount.ts:48-51`、`writes.ts:25`。
+- 现象：这些兜底把第三方异常或自家中文 `Error` 的消息当 `reason` 往上传，最终在失败页、通知、面板里显示。第三方错误（浏览器的 `Failed to fetch`、`TypeError`）会以英文原样出现在用户界面里。
+- 为什么要先定：这是“用户可见”和“诊断”混在一起的最大批量来源；t03 要先给出兜底规则（例如“未知异常显示通用文案加类别，原文进诊断”），再谈逐处迁移。
+- 建议：提供一个统一的 `describeUnknown(error)`，返回 `{code: "unexpected", cause}`，原文进诊断。
+
+### 8. 面板网页按文字分支，且直接复用命令行的中文校验函数
+
+- 位置：`dev-panel/src/web/host/writes.ts:137`（`failure.message.includes(path)` 决定是否追加“已写入、未提交”）、`:30-41`（按码改写少数几个，其余原样用 `error.message`）；`AnswerForm.vue:4-5,78-86`、`NewTaskForm.vue:4-5,22-23` 直接 import `dev-panel/src/core/text-rules.ts:14-44`、`core/questions.ts:83-99`（返回中文句子）；对侧 `server/serve.ts:123`、`core/errors.ts:102-118`。
+- 现象：`writes.ts:137` 的判断依赖服务端把路径写进 `message`，如果 `message` 改成英文或改了措辞，仍然能匹配（路径不变），但意图是文字匹配而不是读 `details.writtenPaths`；而同一个函数上方已经读了 `details.writtenPaths`。校验函数与命令行共用，返回的句子既给网页表单又给命令行输出。
+- 为什么要先定：dev-panel 是开发者工具，可能不进用户语言策略；但共用的校验函数返回句子的形状，会决定 CLI、网页、`--json` 三处怎么本地化。要先定它是否属于“产品用户可见文字”。
+- 建议：校验函数改成返回 `{code, params}`，网页和 CLI 各自投影；`writes.ts:137` 改读 `writtenPaths`。
+
+### 9. nb-story 网页没有语言策略：46 处绑定 `error.message`，文案写死中文，且页面状态里只存 `message`
+
+- 位置：`nb-story/src/web/host/client.ts:32-41,115-123`（`StoryCallError`）、`qa/source.ts:171-247`、`host/ingest.ts:31-50`（七个停下原因，唯一的码表）、`pages/QaPage.vue:290,472`（`未保存的原因` 两条内联在模板表达式）、`pages/*.vue`、`shell/*.vue`。
+- 现象：服务端错误体 `{code, message, candidates}` 变成 `StoryCallError`，页面把 `message`（服务端中文或英文）绑到 `PageState/PagedList.error`。只有抽取停下原因有码表，其余都显示服务端 `message`。`candidates` 是结构化的建议，被拼进文字里。
+- 为什么要先定：nb-story 有独立的包边界和独立的命令行（`nbstory`），网页消息与命令行输出的关系需要先定。如果 nb-story 不进入 Workbench 的语言体系，就要明确它的语言策略；否则 t03 的消息键机制不能落到它。
+- 建议：先定 nb-story 的归属（跟随宿主语言，或自己单语）；然后 `StoryCallError` 保留 `code`，页面按码查表。
+
+### 10. 共用组件的消息表语言机制不统一：有的包自带中英表，有的写死中文
+
+- 位置：`nb-agent-ui/src/messages.ts:189-195,389-395`（中英各一份，七个出错类别）、`nb-form/src/vue/messages.ts:61-141,195-260`（29 个码，中英各一份）、`nb-markdown/src/codec/write.ts:42-51,745`（`Unrepresentable`，无展示文字）、`nb-ui/src/components/layout/grid.ts`/`grid-types.ts:167-196`（`GridResult`）、`theme/theme-loader.ts:22-50`（`NbThemeInstallError`）。
+- 现象：nb-agent-ui 与 nb-form 已有“码到文案”表并支持中英，但语言由宿主传入；nb-markdown 与 nb-ui 把失败做成结构化结果，不带文案。四个包四种做法。
+- 为什么要先定：t03 要决定“拥有者命名空间加码”的消息键是放在共享包里，还是由宿主注册。已有的两种包做法（自带表、不带文案）是现成的两个候选。
+- 建议：以 nb-form 的 `FormIssue {path, code, params}` 加包内消息表为基线，因为它既是结构化的，又有中英表。
+
+### 11. 工具失败文字当 `call.error` 显示，来源是工具结果的 content 文本
+
+- 位置：`nb-agent-ui/src/harness.ts:229-235,365-369`、`vue/tools/AgentToolDetail.vue:33,58-60`、`AgentTurnBlock.vue:170`、`AgentRawView.vue:154,160`。
+- 现象：工具结果失败时，前端把结果的 content 文本当 `call.error` 显示。该文字同时是进入模型上下文的内容（见后端分区），因此它的语言受“给模型看”的规则约束，而非“给用户看”。会话日志的 `run_end.error.kind` 只映射到七个消息键，忽略 `error.message`（`harness.ts:104-111,282-285`）；助手消息上的 `errorMessage` 前端不读（`grep errorMessage` 无命中）。
+- 为什么要先定：同一份文字有两个读者（模型、用户），ADR 的“诊断英文，用户文案按码”无法直接套用；t03 要先定工具失败是否需要结构化的 `code`，以便界面可以按码给用户另一份文字。
+- 建议：工具结果失败带 `code`（已有 `details` 可承载），界面优先按码，content 文本作详情。
+
+### 12. `problems()` 没有产品调用方，状态栏存储码表缺 10 个码
+
+- 位置：`nb-agent-ui/src/harness.ts:25-28,141-142`（`problems()`）；`workbench/web/components/WorkbenchStatusBar.vue:55-72`（7 个码，对 14 个存储码）；`neuro-book/src/shared/storage.ts:139-154`（码定义）。
+- 现象：适配器暴露了问题列表，但仓库里没有调用方，用户看不到。状态栏的存储码表只覆盖 7 个码，其余走“直接显示码”。
+- 为什么要先定：这两处是“有机制但没接通”，迁移时容易被当作“已覆盖”。需要在 t03 计划里单列。
+- 建议：给 `problems()` 找到展示位或删掉；存储码表补齐并用类型保证穷举。
+
+### 13. 分区缺口：`projects/project/` 与 `plugins/*/testing/` 不在前端文件清单里
+
+- 位置：命令 `front-files.sh` 的结果（`lab-frontend/front-files.sh`）；`neuro-book/src/plugins/projects/project/`、`neuro-book/src/plugins/*/testing/`。
+- 现象：按“`web/` 目录加指定包”划分前端时，这两处既不是 `web/` 也不明确属于后端。我按计划字面划分，未盘点；`testing/` 里的测试插件可能含失败文字（`server/testing/test-plugins.ts:148-149` 被必查项 3e 引用）。
+- 为什么要先定：避免两个分区都以为对方有。
+- 建议：t02 汇总时指定归属。
+
+### 14. 示例插件的失败写法是教学材料，需随规范一起改
+
+- 位置：`neuro-book/plugin-sdk/examples/plugins/{focus,notes,counter,snippets}`（`storage-failed` 等，见附录 FC-53 至 FC-57）。
+- 现象：示例里直接 `throw new Error("中文句子")` 或把 `reason` 写成中文，是第三方作者会照抄的写法；AGENTS.md 规定示例注释随场景测试一起改。
+- 为什么要先定：t03 一旦定了命令失败和 `detail` 的写法，示例要同步，否则作者继续照抄旧写法。
+- 建议：把示例改动列为 t03 的验收项。
+
+### 15. 测试断言里的中文字面量会随迁移整批失败
+
+- 位置：命令 C6，20 个文件（第 3 节第 19 项列出的）。
+- 现象：在 `reason`/`message`/`detail` 的断言行里写中文字面量，迁移到码加消息键后这些断言会失败。这是候选数，没有逐个核实断言对象。
+- 为什么要先定：t03 的验收需要区分“测试写错了（断言文字）”和“行为变了”；按 AGENTS.md 的“测行为”，应改成断言码。
+- 建议：迁移时同步把断言改成码，不是改成新文案。
+
+## 附：对第 0 到 5 节的补充与勘误
+
+本附录只追加。正文冲突时以本附录为准。
+
+### A.1 勘误
+
+- 发现 8 的描述不准确：`dev-panel/src/web/host/writes.ts:137` 的 `failure.message.includes(path)` 是对 `message` 做子串匹配，决定是否补一条“已写入、未提交：路径”，也就是用展示文字判断“提示里有没有提到这个路径”；`:125-135` 一带的 `listed` 逐条用 `problem.reason ?? problem.message` 与 `failure.message` 比较（`reason === failure.message`）去重，同样是文字比较。把“如果 message 改了措辞仍能匹配”的说法作废：改成英文或改了文案后，去重与补充提示的行为都会变。`details.writtenPaths` 已经在 `writes.ts:27` 取出，可以直接用。严重度不变。
+- 发现 4 的位置里“`settings/web/settings-window.ts` 相关”写得含糊，没有逐行核实；前端自造 `detail` 的已核实位置只有 `files/web/client.ts:71,271,292,299` 与 `storage/web/plugin.ts:35`。
+- 发现 14 的位置不准确，改为：示例插件里的失败文字有四种写法，见 FC-53 到 FC-57（`focus/web/plugin.ts:54`、`focus/web/focus-store.ts:105-127`、`notes/web/plugin.ts:68`、`notes/backend/plugin.ts:52-54,72,155,165`、`counter/shared/contracts.ts:73-77`）。`counter` 已是中英双语的 `reason`，是示例里唯一符合方向的写法。
+- 发现 13 补充核实：`neuro-book/src/plugins/projects/project/` 下有 `plugin.ts`、`stats-tracker.ts`、`stats-writer.ts`；`explorer/testing`、`files/testing`、`settings/testing`、`storage/testing` 四个目录存在。我没有读这几个目录里的内容，不能说它们有或没有失败文字。
+- 第 3 节第 18 行和第 4 节写的“其中 234 个测试与辅助文件”与第 4.5 节的 237 个不一致：以 4.5 的 237 个（含 3 个 `*.typecheck.ts`）为准。
+
+### A.2 补充通道行
+
+| 通道 | 位置 | 生产到消费 | 语言 | 是否跨进程 |
+|---|---|---|---|---|
+| FC-53 示例业务失败 `storage-failed` | `plugin-sdk/examples/plugins/focus/shared/contracts.ts:56,68-70,83-85`；`notes/shared/contracts.ts:46,65-66,84`；生产 `notes/backend/plugin.ts:52-54,72` | 合同声明 `{code, detail}`，后端把 Storage 的 `code` 与 `detail` 包进 `detail`（嵌套），前端按 `code` 分支 | `detail` 来自 Storage 提供者，语言取决于对侧 | 是 |
+| FC-54 示例同步提前结束 | `notes/web/plugin.ts:55-68` | 订阅的 `onEnd(reason)` 经 `first.resolve(reason)` 变成 `{ok:false, code:"unavailable", detail:\`同步在拿到第一份列表之前结束：${ended}\`}` | 中文 | 否 |
+| FC-55 示例命令失败 | `focus/web/plugin.ts:54`；`focus/web/focus-store.ts:105-127` | `problem` 字符串（含 `与服务端的同步结束了：${reason}`）经 `{ok:false, code:"execution-error", reason: problem}` 变成命令失败 | 中文 | 否 |
+| FC-56 示例后端抛错 | `notes/backend/plugin.ts:155,165` | `throw new Error(\`打不开 ${owner} 的笔记：${opened.detail.code}\`)` 等，把码拼进中文句子 | 中文 | 否 |
+| FC-57 示例公开键的 `reason`（双语） | `counter/shared/contracts.ts:73-77` | 键声明里的 `reason: {"zh-CN", "en-US"}`，命令面板在键为 false 时显示 | 中英并存 | 否 |
+
+### A.3 “未追到”项数
+
+全文“未追到”共出现 12 次，其中第 3 节与最后一节的定义说明各 1 次，实际“未追到”项为 10 项：
+
+1. 第 2 节诊断通道：记录是否带版本（`fe.diagnostics.browser` 行）
+2. FC-17 面包屑目录读取：具体实现文件
+3. FC-27 项目未绑定的存储：调用方的处理
+4. FC-30 封面上传：服务端错误体生产者（`src/server/*`）
+5. FC-36 SDK 定义期错误：展示去处（对侧 `plugin-platform`）
+6. FC-37 主题装载失败：`main.ts` 之外的捕获
+7. FC-47 抽取停下：状态落盘位置
+8. 必查 5d 浏览器插件代码装载失败
+9. 必查 7b Storage 订阅结束
+10. 必查 9c HTTP 中间件的错误
+
+### A.4 行数汇总
+
+- 第 1 节错误域表：34 行。
+- 第 2 节通道表：52 行（FC-01 到 FC-52），加附录 5 行（FC-53 到 FC-57），共 57 行。
+- 第 3 节必查表：42 行（含 1a 至 19 的各细分项）。
+- 第 4 节“码到文案”表：18 行。
+- 发现：15 条。

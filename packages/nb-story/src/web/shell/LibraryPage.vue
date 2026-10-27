@@ -7,7 +7,7 @@
  * 一直每 3 秒查一次书与抽取进度（别处开始的抽取也看得到，输出 36 要求 5 秒内跟上）；第 1 章还没提交的书只在
  * 抽取进度里，置灰、点不开。
  */
-import {Button, Progress} from "@notnotype/nb-ui/components";
+import {AlertDialog, Button, IconButton, Progress} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef} from "vue";
 import {useRoute, useRouter} from "vue-router";
 
@@ -81,6 +81,29 @@ onMounted(async () => {
         });
     }, POLL_MS);
 });
+// ---- 删除一本书（t29，命令行 `nbstory remove` 的网页版）：先确认；这本书在抽取或正在被问答占用时报原因 ----
+const removing = ref<{id: string; title: string} | null>(null);
+const removeOpen = ref(false);
+const removeError = ref<string | null>(null);
+function askRemove(row: {id: string; title: string}): void {
+    removing.value = {id: row.id, title: row.title};
+    removeError.value = null;
+    removeOpen.value = true;
+}
+async function confirmRemove(): Promise<void> {
+    const target = removing.value;
+    if (target === null) return;
+    try {
+        await client.call("book.remove", {book: target.id});
+        removing.value = null;
+        await load();
+    } catch (caught) {
+        if (!(caught instanceof StoryCallError)) throw caught;
+        removeError.value = caught.code === "ingest_running" ? `《${target.title}》正在抽取（可能在命令行里），先停下它再删。` : caught.message;
+        removing.value = null;
+    }
+}
+
 onBeforeUnmount(() => {
     disposed = true;
     if (timer !== null) clearInterval(timer);
@@ -98,6 +121,7 @@ onBeforeUnmount(() => {
             </div>
             <p v-if="missing" class="text-[var(--text-secondary)]" data-testid="book-missing">书“{{ missing }}”不在书库里了。</p>
             <p v-if="error" class="text-[var(--status-danger)]">{{ error }}</p>
+            <p v-if="removeError" class="text-[var(--status-danger)]" role="alert" data-testid="shelf-remove-error">{{ removeError }}</p>
             <p v-else-if="books && rows.length === 0">书库里还没有书。点“导入原文”选一个 TXT，或在终端里用 <code>nbstory ingest &lt;原文.txt&gt;</code> 导入。</p>
             <ul v-else-if="books" class="flex flex-col gap-1">
                 <li v-for="row in rows" :key="row.id" data-testid="shelf-row" :data-book="row.id">
@@ -113,6 +137,7 @@ onBeforeUnmount(() => {
                                 <template v-else-if="row.book">{{ row.book.chapters }} 章 · 抽取到 {{ row.book.extractedThrough.chapter }}.{{ row.book.extractedThrough.paragraph }}</template>
                             </span>
                             <RouterLink v-if="row.ingest && row.ingest.state !== 'done'" :to="`/ingest/${encodeURIComponent(row.id)}`" class="relative z-10 shrink-0 text-[length:var(--text-sm)] text-[var(--accent-text)]" data-testid="shelf-progress">进度</RouterLink>
+                            <IconButton v-if="row.book" class="relative z-10 shrink-0" size="xs" icon-class="i-lucide-trash-2" :aria-label="`删除《${row.title}》`" :title="`删除《${row.title}》`" data-testid="shelf-remove" @click="askRemove(row)" />
                         </div>
                         <template v-if="row.ingest && row.ingest.state !== 'done'">
                             <Progress :model-value="row.ingest.committed" :max="row.ingest.total" size="sm" :tone="row.ingest.stopReason?.kind === 'failed' ? 'danger' : 'accent'" class="ml-7" />
@@ -124,8 +149,16 @@ onBeforeUnmount(() => {
                     </div>
                 </li>
             </ul>
-            <p class="text-[length:var(--text-xs)] text-[var(--text-muted)]">也可以在终端里用 <code>nbstory ingest &lt;原文.txt&gt;</code> 导入；导入现成的记忆图数据用 <code>nbstory import</code>。同时看几本书时各开一个浏览器标签。</p>
+            <p class="text-[length:var(--text-xs)] text-[var(--text-muted)]">也可以在终端里用 <code>nbstory ingest &lt;原文.txt&gt;</code> 导入；导入现成的记忆图数据可以在导入页的第二块，或用 <code>nbstory import</code>。同时看几本书时各开一个浏览器标签。</p>
         </div>
+        <AlertDialog
+            v-model:open="removeOpen"
+            :title="`删除《${removing?.title ?? ''}》`"
+            description="这本书的数据、抽取记录与问答记录都会删掉，不能恢复。"
+            confirm-text="删除"
+            tone="danger"
+            @confirm="confirmRemove"
+        />
     </main>
 </template>
 

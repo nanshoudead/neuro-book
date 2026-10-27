@@ -1,0 +1,523 @@
+# w00031 t02 后端分区：错误与失败文字的通道
+
+- 源码基线：`65d9daea06616b8fc8459bc7ef9cb2132cee25ed`；已用 `/usr/bin/git rev-parse HEAD` 核实。
+- 源码根：`/home/notnotype/CodeRepository/neuro-book/.worktree/audit-w00031-t02`。下文源码路径均相对该根。
+- 政策与任务：主工作区 `docs/adr/0034-language-policy.md`、`.agents/works/w00031-language-policy/tasks/t02-error-audit/plan.md`、Work 与 Task README。
+- 只读静态盘点；不安装、不跑测试或开发服务、不修改仓库。报告逐小节只追加。语言描述的是基线现状，不把迁移前的中文诊断直接当作新增违规。
+- 表中“用户”指实际用户/CLI 操作者；“模型”单列。外部错误原文语言不保证。没有直接消费者证据时写“未追到”；没有迁移器时不推断旧数据能读。
+
+## 一、错误域表
+### 1.1 内核错误域
+
+| 错误域 ID | 拥有者、类型与 Spec | 版本 | 码与结构化参数字段路径 | 重名与控制流语义 |
+|---|---|---|---|---|
+| `runtime.lifecycle` | nb-runtime；`LifecycleStateError`、`LifecycleFailure`；`src/lifecycle/contracts.ts:45-65,310-331`；Spec `docs/specs/runtime/lifecycle.md` | 进程内 TS，无错误 schema 版本 | 异常没有 `code`；`name`、`instanceId/scopeId/phase/action`；失败记录 `stage/attempt/resourceId/error.{name,message}` | `closed` 是阶段而非通用失败码；获取失败、释放失败、关闭未完成分开，未完成不等于 closed |
+| `runtime.services` | nb-runtime；`ServiceRevokedError`、装配诊断；`src/services/per-consumer.ts:25-39`；Spec `runtime/services.md` | 进程内，无独立错误版本 | `.reason = released/provider-stopped`；`.key/.consumer`；装配诊断见 `src/services/contracts.ts` 的 `AssemblyDiagnostic` | 与插件、应用的 `reason` 不是同一域；作废门面抛错，不是业务失败结果 |
+| `runtime.application` | nb-runtime；`StartupFailure/GateOutcome/StartupResult/AdmissionResult/StopResult`；`src/application/contracts.ts:115-165`；Spec `runtime/application.md` | 进程内，无独立错误版本 | `.failures[].{category,required,source,stage,reason,error}`；门禁 `.reason/.error`；接纳 `.reason = startup-failed/stopping/closed` | available 仍可有非必需失败；failed 与 stopped 分开；stop incomplete 保留收口报告，不能当作成功 |
+| `runtime.plugins` | nb-runtime；登记、激活、贡献校验、诊断、`PluginStateError`；`src/plugins/contracts.ts:252-339,357-386,438-452,500-515`；Spec `runtime/plugins.md` | 进程内，无独立错误版本 | `.rejections[].reason/detail`；`.stage/.reason/.error`；`.validation.reason/detail`；码表在上述文件，结构参数 `plugin/entry/generation/key/path/capability/contribution` | `missing-service/denied` 等必须带域；激活 failed、stopped、cancelled、rejected 独立；贡献 pending(unknown-point) 不是 rejected |
+| `runtime.manifest` | nb-runtime；`ManifestReadResult/ManifestProblem`；`src/plugin-manifest/schema.ts:163-171`；Spec `runtime/plugin-manifest.md` | 清单自身 schema，问题列表无版本 | `.status = invalid`，`.problems[].{path,message}`，没有逐条稳定码 | 清单字段问题仅文字；安装另包成 `manifest-invalid`；不能把问题 message 当错误码 |
+| `diagnostics.store` | nb-runtime；`DiagnosticsError/RecordReceipt/DiagnosticsStatus/DiagnosticRecord`；`src/diagnostics/contracts.ts:22-65,101-119,181-193`；Spec `runtime/diagnostics.md` | 进程内无版本；文件出口另列 | `.code = closed/already-attached/close-incomplete`；`.detail`，标准 `Error.cause`；收据 `.reason = stopping/closed/invalid-input`；降级 `.degraded.{reason,detail}`；记录 `.event/.message/.data/.error` | `closed/invalid-input` 与远程/设置等重名；record 永不抛，出口降级≠拒绝记录；shutdown 失败抛 close-incomplete |
+| `remote.handshake` | nb-runtime；`RejectFrame/RemoteConnectResult`；`src/remote/protocol.ts:238-246`、`src/remote/node.ts:159-163,338-384`；Spec `runtime/plugin-channel.md`、`runtime/server-host.md` | wire **4**；hello.wire 与 reject 形状跨版本固定，见 protocol.ts:14-21 | reject `.reason/.message` → connect 同名；原因 `wire-version/stopping/role/duplicate-instance/project-unavailable/project-gone/server-restarted/disconnected`；绑定参数目前藏在 message | 与远程结果 `.code` 不同；server-restarted/project-gone 进入终态，普通 disconnected 可重连 |
+| `remote.route` | nb-runtime；`RemoteFailure/RemoteCallError/RemoteDiagnostic`；`src/remote/protocol.ts:27-83`、`src/remote/result.ts:12-34`；Spec `runtime/plugin-channel.md` | wire 4；业务合同另有 version | `.code = invalid-input/denied/target-gone/unavailable/not-provided/version-changed/timeout/cancelled/unknown-outcome/provider-error`；`.cause = target-gone/timeout/cancelled/disconnected/activation-cycle`；`.detail`；异常 `.failure` 原样保留 | 与 commands/settings/storage 的 denied、unavailable、unknown-outcome 等重名；写请求已发出后中断 → unknown-outcome，**不能投影成确定失败或自动重试**；cause 是传输阶段枚举，不是 Error.cause |
+| `remote.business` | 各远程合同拥有者；`RemoteMethodSpec.errors[code]` 与 `RemoteResultFor`；`src/remote/contract.ts:163-165,208-210,315-337` | 每份合同 `.version` + wire 4 | `outcome.code`、`outcome.detail` 按该方法 errors 的 schema；不接受与路由层重名的业务码；业务码详见后续各域 | node 双侧校验；未声明码或不合 schema 的 detail 改成 provider-error（node.ts:689-710,867-879），不能只盘点成功返回值 |
+### 1.2 应用与插件错误域
+
+下表源码路径的 `应用/` 代表 `packages/neuro-book/`。
+
+| 错误域 ID | 拥有者、类型与 Spec | 版本 | 码与结构化参数字段路径 | 重名与控制流语义 |
+|---|---|---|---|---|
+| `commands.result` | nbook.commands；`CommandResult/CommandFailure`；应用/src/plugins/commands/shared/contracts.ts:26-43；Spec `workbench/commands.md` | 本地 TS；远程 nbook.commands/remote **1**，shared/contracts.ts:159-179 | `.code = unknown-command/unavailable/invalid-args/not-exposed/read-only/confirmation-required/denied/execution-error/stale-target`；`.reason` 只有字符串；审计 `.result` | 与 remote.route 的 denied/unavailable 重名；Agent 只读/确认拦截与执行错误不同；stale-target 不通知；取消选择可返回成功 null |
+| `settings.write` | nbook.settings；`SettingWriteResult/LayerTextWrite`；应用/src/shared/settings.ts:344-365、src/plugins/settings/shared/layers.ts:26-43；Spec `settings/configuration.md` | user/project 远程合同 **2**，shared/contracts.ts:128-131 | `.code` 表在 shared/settings.ts:345-361；远程 `.code=settings-failed`，`.detail.{code,detail,position?}`；本地 `.detail` 句子 | denied/unavailable/unknown-outcome 与路由码重名所以包一层；fromRemote 按域折算；写结果未知必须保留 |
+| `settings.layer` | nbook.settings；`LayerSnapshot/LayerContent/LayerInspection`；应用/src/plugins/settings/shared/contracts.ts:76-91、layers.ts:45-64、src/shared/settings.ts:369-376；同上 Spec | 远程合同 2；revision `{boot,seq}` 不是错误 schema 版本 | `.status=invalid`、`.detail/.reason?/.position?/.path?`；`.problems[].reason=invalid-value/layer-not-allowed`；**invalid 的 reason 是中文原因，不是稳定码** | invalid 保留上一份有效 values；unavailable/absent 不等于 invalid；当前 parsed invalid 不暴露 jsonc-parser 码 |
+| `storage.result` | nbook.storage；`StorageFailed/RecordSnapshot/UpdateResult`；应用/src/shared/storage.ts:138-177；Spec `storage/persistence.md` | user/project 远程合同 **1**，storage/shared/contracts.ts:39-65；记录 descriptor.version 独立 | `.code` 表在 shared/storage.ts:139-154；远程 `.code=storage-failed`、`.detail.{code,detail}`；快照 `.status=corrupt/unsupported-version/error`，error 才有 `.code`；订阅 `.onEnd(reason)` | corrupt/unsupported-version 是保护态，不是空值；update 原样返回它们；unknown-outcome 不重试；remote→storage 折算会丢原 cause 字段、把它拼进 detail |
+| `store.persistence` | 共享 store；`StoreClosedError/StoreStoppedError/FieldProblem/SaveState`；应用/src/shared/store/persisted.ts:28,70-97、store.ts:79、problem.ts:6-17；Spec 以该目录注释引用的 store 合同为准 | 进程内派生态，无独立错误版本 | `.failure`/`.save.code`、`.save.state=failed/unknown`；投影 `.kind=unread/protected/unsaved`、`.code`；本地新增 `change-threw` | 丢弃 storage detail，仅留码；unknown 单独保存待核实 intent；protected 不允许普通提交 |
+| `projects.result` | nbook.projects 与宿主 projects；应用/src/shared/projects.ts:25-40,67-104,128-136；Spec `runtime/projects.md` | nbook.projects/projects **3**、stats **1**；shared/contracts.ts:176-177,270-272 | 本地 `.reason/.detail/.cause?/.field?/.path?/.state?`；远程包装 `register-failed.detail.reason` 等见 projects/shared/contracts.ts:158-258 | write-failed/conflict/unknown-project 跨域重名；新建目录已成功而登记失败有 path，不应投影成完全没创建 |
+| `files.result` | nbook.files；应用/src/plugins/files/shared/contracts.ts:72-77,98-169,294-301；Spec `workspace/files.md/resources.md/folder-kinds.md` | user/project **5**（contracts.ts:233-235），preview **1**（267-278） | 业务码表 `errors` :103-121 与 `failures.ts`；`.detail.{detail,current?}` →客户端 `.detail/.current`；批量 `.items[].{status,code,detail,partial?,manifests?}`、`.manifests[].{path,status,detail}`、`.truncated`；清单 `.manifest.{status,detail}`；watch 结束 reason | conflict/busy/too-large 等跨域重名；单项 failed、cancelled、not-run、skipped 分开；文件已改而清单未改仍可为成功值带问题，不等于失败结果 |
+| `plugins.install` | 插件平台 + nbook.plugins；应用/src/plugin-platform/shared/types.ts:141-169；Spec `runtime/plugin-install.md` | 插件远程合同版本另在 plugins/shared/contracts.ts；登记表由平台 profile.registrySchema 定义 | `.code` 安装/管理两组，源文件 :149-165；本地 `.detail/.problems?`，远程 `.detail.{detail,problems?}` | manifest-invalid/entry-missing 与 notLoaded 重名但承载语义不同；降级与阻塞预览是确认信息，不等于失败 |
+| `plugins.state` | 插件平台；`NotLoaded/PluginProblem/BlockedPlugin`；应用/src/plugin-platform/shared/types.ts:20-77,109-121；同上 Spec | 列表经远程成功值返回；无独立问题 schema 版本 | `.notLoaded.{code,detail}`；`.problems[].kind` 分 entry-failed(`stage/reason/message`)、entry-blocked(`reason/key`)、contribution-rejected(`reason/detail`)；blocked `.range/.service` | safe-mode 为中性未加载，不是异常；pending upgrade 不是已生效；激活 error.code 在进入 FailureError 后不再有独立字段 |
+| `plugins.code` | 通用插件平台；`PluginCodeError/ModuleNotShared`；应用/src/plugin-platform/shared/plugin-code-error.ts:12-47；Spec `runtime/plugin-code-loading.md` | 进程内错误，无版本 | `.code=code-load-failed/code-shape/code-threw/module-not-shared`；`.plugin/.entry/.url`；标准 Error.cause；detail 只拼进 `.message`，没有独立 detail 属性 | 经 runtime.plugins 投影为 activation-threw + error.name/message，专有码与参数不再独立；服务端与浏览器两套装载器共用此类 |
+| `http.host` | nbook.http + RPC listener + plugin-files；应用/src/plugins/http/backend/admission.ts:22-32、dispatch.ts:75-144,221-222、src/server/rpc/listener.ts:45-46；Spec `runtime/server-host.md` | HTTP JSON 无 schema/version | 常见 `{error:{code,message}}`；准入 startup-failed/stopping；分发 not-found/plugin-unavailable/internal-error/misdirected-host/origin-not-allowed；文件子路由另有 code | stopping 是阶段拒绝；HTTP 状态与 code 同时有意义；不是所有插件路由都用这个外壳 |
+| `http.cover` | nbook.projects 封面；应用/src/plugins/projects/backend/cover-routes.ts:42,60-89,115-144；Spec `runtime/projects.md` | HTTP JSON，无版本 | `{code,detail}`；no-cover/too-large/invalid-upload/unsupported-type/write-failed 或宿主项目 reason | 与 http.host 的 `{error:{...}}` 不同；404 no-cover 是内容缺席；消费者不可只读 error.message |
+| `host.process` | 服务端/项目宿主；ServerConfigError/ServerStartupError/ServerAssemblyError/ProjectConfigError、ProjectEnvelope；应用/src/server/config.ts:32-40、start.ts:126-138、process.ts:117-128、src/project/config.ts:19、src/server/projects/ipc.ts:18-29 | IPC JSON 信封无版本；其中远程帧仍 wire 4 | config `.code`；项目 config `.variable`；启动 `.status/.failures` →摘要 `.causes[].{source,reason,message}`；IPC `{t:started,status:failed,detail}` | 启动被停止与启动 failed 分开；IPC detail 合并后信息少于原始 StartupFailure；退出码另承载收口成败 |
+| `cli.nbook` | 应用作者/用户 CLI；`CliFailure`；应用/src/cli/output.ts:7-17、main.ts:108-148；Spec `runtime/cli.md` | `--json` 无 schema/version | `.code/.message/.exitCode/.fields` →顶层 `{ok:false,code,message,...fields}`；码来源 src/cli/main.ts、start.ts、plugin.ts、state-root.ts | 同名 usage/startup-failed/confirmation-required 不等于其它域；退出 2 用法/需确认，1 失败；人类 stderr 与 JSON stdout 分开 |
+### 1.3 Harness、会话、领域与开发工具错误域
+
+| 错误域 ID | 拥有者、类型与合同 | 版本 | 码与结构化参数字段路径 | 重名与控制流语义 |
+|---|---|---|---|---|
+| `profile.contract` | nb-profile；`ProfileError`；packages/nb-profile/src/define.ts:12-21；Spec `agent/harness.md` | Profile manifest.version 是上下文兼容版本，不是错误版本 | `.code=profile_invalid/invalid_initial`；`.details:string[]` | 与 harness 同名码通过显式包装继承，harness.ts:84-86；details 外面再包 `{details}` |
+| `harness.contract` | nb-harness；`HarnessError`；packages/nb-harness/src/errors.ts:6-24；Spec `agent/harness.md` | 进程内；会话工具快照精确比对 | `.code=tool_unavailable/tool_name_conflict/invalid_initial/profile_invalid/session_incompatible/session_busy/session_closed/profile_has_tools`；`.details`；无 Error.cause 选项 | 合同错误抛出，模型运行期失败不抛；session_incompatible 不等于坏日志，旧消息/工具说明不一致也会拒绝恢复 |
+| `harness.run` | nb-harness；`RunError/TurnResult/CompleteResult`；packages/nb-harness/src/run-result.ts:9-39 | TS 无版本；写入 run_end.error | `.error.{kind,status,message}`；kind=network/rate_limit/auth/quota/context_overflow/provider/local；`.stopReason=stop/finished/length/error/aborted` | 取消 aborted、长度截断 length、成功收尾 finished 与 error 独立；缺 HTTP 状态不自动当网络错；第三方消息遮盖密钥但不翻译 |
+| `tools.result` | nb-harness/OMP，工具实现各自拥有；packages/nb-harness/src/tools/bridge.ts:15-20,41-79、src/tools/registry.ts（ToolImpl） | 工具声明随 session_snapshot 固化；结果没有统一版本 | `.isError/.content[].text/.details`；撤回结构 `.details.{code:plugin-unavailable,tool,interrupted}` | `tool_unavailable` 是装配错误，`plugin-unavailable` 是执行结果，不合并；第三方实现结果或抛错经 OMP，nb-harness 没有统一补 code |
+| `session.log` | nb-session；`SessionEntry/SessionEntryInput`；packages/nb-session/src/entries.ts:23-28,53-88,133-184；Spec `agent/harness.md` | **无日志 format/schema 版本字段**；每条 seq/at；profile.version 单独在快照 | `agent_message.message` 原样 JSON（工具 details 与 assistant.errorMessage）；`run_end.{stopReason,error}`；旧 `tool_result.{isError,text}` | 旧 message/tool_call/tool_result 可解析，harness 不再写；无 session_snapshot 的旧日志可读但不能恢复；首个坏行之后为中断尾，append 拒绝直到 repair（jsonl-log.ts:12-27,73-81） |
+| `story.query` | nb-story；`StoryError/StoryOutcome`；packages/nb-story/src/core/errors.ts:7-65、api.ts:40；Spec `story/queries.md` | 未来 nb-story/queries 远程合同 **1**；独立 CLI/HTTP 没有统一错误版本 | `.error.{code,message,candidates?}`；码表 core/errors.ts:7-25；candidate `.id/.label/.note`；标准 Error.cause | invalid_params 是领域校验，不能与 remote invalid-input 直接合并；未来插件通道只是声明，独立服务/CLI 不经它 |
+| `story.qa.setup` | nb-story；`QaError`；packages/nb-story/src/qa/errors.ts:7-16；Spec `story/qa.md` | TS 无错误版本；配置另有版本合同 | `.code=qa_unconfigured/qa_config_write_failed/config_conflict/full_read_unavailable/qa_not_continuable/qa_busy`；`.message`，Error.cause | 开始前抛错，运行后写问答轮结果；ConfigEditError 是单独 CLI 用法错误，没有 code |
+| `story.qa.run` | nb-story；`QaTurnSchema/QaRunView/QaFrame`；packages/nb-story/src/contract/qa-record.ts:39-59、contract.ts:773-781；Spec `story/qa.md` | QA JSON 读取兼容旧单轮、旧会话文件名；Profile story-qa **4**（qa/story-qa.profile.tsx:17）；JSON 详细兼容另列通道 | `.result.error/.turns[].error.{code,kind?,message}`；model_failed/no_answer 等由 engine.ts:322-350；`.saved` 单独记录保存成败；SSE snapshot/log/event/ended | answered/failed/interrupted 分开；保存失败不能改报模型失败；`log.ok=false.problem` 与 `continuable.ok=false.reason` 是状态槽，不在 error 外壳中 |
+| `story.ingest` | nb-story；`ModelError/ModelAborted/IngestBadReply`；packages/nb-story/src/ingest/model.ts:21,51-71、chapter.ts:28-32、job.ts:120-124；Spec `story/ingest.md` | Worker JSON 消息与持久进度，另列通道 | `.kind/.status/.retryAfterMs`；运行 outcome `.kind=failed,.code,.errorKind?,.message`；Stopped/ModelAborted → stopped | model_failed 与 QA 同名，但归属 ingest；stopped 不当作 failed；ingest_bad_reply 不同于用户 invalid_params |
+| `nbdev.error` | dev-panel；`NbdevError/Warning/ErrorEntry`；packages/dev-panel/src/core/errors.ts:5-119、cli/output.ts:22-32；合同 docs/cli.md、提案 `docs/proposals/developer-panel.md` 的实际路径见包文档 | 每条 CLI outcome 自己的 schema；HTTP `{errors:[]}` 不另有错误版本 | `.code` 全表 core/errors.ts:5-96；`.details`、Error.cause；JSON `.errors[].{code,message,details?}`；warnings 同形 | 退出 1/2/3/4/5 区分运行/用法/需决定冲突/超时中断/不存在；warning 不代表失败；code 全局表属于 nbdev，不是产品错误注册表 |
+| `workflow.run` | nb-workflow；`WorkflowRunState/RunView`；packages/nb-workflow/src/types.ts:190,354-396 | Run revision 是 CAS；definition.version/manifestHash 是工作流定义身份；无错误 schema 版本 | `.status=running/waiting/completed/failed/cancelled`；`.error?:string`；`.logs:string[]` | failed 字符串丢错误类型/码/参数；waiting 由 SuspendSignal，cancelled 由 WorkflowCancelledError 或 abortRequested；不能当通用异常 |
+| `workflow.control` | nb-workflow；backend/activities/children/definitions/events/signals/timers/values 的 Error 子类及 WorkflowPersistenceError；src/backend.ts:11-35、runner-run-store.ts:26-38，其余文件同名类定义 | TS 进程内合同，无统一错误版本 | 主要靠 `.name/instanceof`，结构字段 runId/revision/reference/idempotencyKey/missing 等；完整类名见计数附件；WorkflowPersistenceError 保留 Error.cause | 控制失败直接 reject，不写成 run.status=failed；后端保存失败 poison 本地投影，不能把未落盘当成功；所有冲突类不是一个码 |
+| `history.error` | nb-history；`HistoryError/HistoryInboxMutationError/TextDiffResult`；packages/nb-history/src/types.ts:111-112,153-181；包 docs/README.md | SQLite 数据，错误无版本 | HistoryError 无 code；收件箱 `.code=missing/stale`；diff `{available:false,reason:before-missing/after-missing/binary}` | 快照不可用正常返回，restore/revert 无快照抛错；此 missing 与 Storage missing 不同 |
+| `memory.failure` | nb-memory；未定义专属 Error 类/码；packages/nb-memory/src/index.ts:183、core/state-store.ts:42、subject-registry.ts:85,110,207、ports/sqlite-index-store.ts:299,359 | JSONL/SQLite 存领域数据，无失败 schema | 普通 Error.message；降级 `.skippedChunks/.skippedResolveBatches`、planner `.degraded` | 失败文字未保留到降级结果，计数/布尔可观察但无错误原因；不是 tools.result |
+| `process.ownership` | owned-process；`OwnedProcessError/OwnedProcessCompletion`；packages/owned-process/src/types.ts:4-17,48-58 | 子监督进程有私有消息协议，无错误 schema 版本 | `.stage/.osError?`、Error.cause；完成 `.exitCode/.signal/.terminationReason?` | timeout/abort/cancel/shutdown/startup-failure/host-disconnect 是主动终止原因，不等于异常；自然非零退出不是 OwnedProcessError |
+| `snapshot.failure` | file-snapshot-cache；`SnapshotClosedError/SnapshotUnstableError/SnapshotEntryDiagnostics`；packages/file-snapshot-cache/src/types.ts:62-79,117-130 | 进程内，无持久错误版本 | `.name`；unstable `.keyId/.attempts`；诊断 `.lastBuildError/.lastBuildFailedAt/.watcherError` | read reject 与诊断状态分开；缓存可继续保留旧 snapshot；文字有界，不本地化 |
+| `sdk.author` | 插件 SDK 作者 CLI/构建；PluginBuildError/PluginCreateError/UsageError；应用/plugin-sdk/cli.ts:21,75-96、src/plugin-platform/build/build-plugin.ts:112-124；Spec `runtime/plugin-api.md` | nbooke 无 JSON 输出/版本外壳 | build `.summary/.problems[].{path,message}`、Error.cause；create 见 create-plugin.ts；CLI 按类/Node ERR_PARSE_ARGS_* /syscall 分类 | build/create 错退出 1；用法 2；third-party/Node message 原样；不等同应用 nbook CLI |
+## 二、通道表
+
+列中“用户/模型”分别标记是否到达实际界面/CLI 与模型上下文；“存储/旧读”明确格式及兼容。以下是静态代码核实，不是运行验证。
+
+### 2.1 诊断、内核与远程通道
+
+| 通道 ID | 错误域 ID | 生产者（文件:行） | 逐跳转换（文件:行） | 消费者（文件:行） | 现语言；用户；模型 | 持久化；旧数据怎么读；备注 |
+|---|---|---|---|---|---|---|
+| `B-DIAG-QUERY` | diagnostics.store；runtime.lifecycle/services/plugins | `packages/nb-runtime/src/diagnostics/store.ts:340-414` 把机制事件转 record；应用 `packages/neuro-book/src/server/start.ts:182-184` 把 RemoteDiagnostic 放 data | store.ts:252-273：message 脱敏并截断，data 安全收敛，error 序列化；redaction.ts:18-23,67-80：message 4000、栈 12000、数组 50、对象 80、深度 6；Error 仅 name/message/stack/cause，**不保留自定义 code**；store.ts:288-294 淘汰有界缓冲 | `packages/nb-runtime/src/diagnostics/plugin.ts:78-80` 服务转发；store.ts:130-161 查询；实际调用见 diagnostics.test.ts:78-85、应用 commands/plugin.test.ts:176。产品诊断查询 UI/HTTP 消费者：未追到；源码检索仅有测试与 Lab | 中英混合（机制 message 中文，reason 英文，第三方原文）；用户：无已追到产品显示；模型：无 | query 仅本实例内存，不扫描日志，store.ts:1-6,130-161；无旧数据重建、无版本 |
+| `B-DIAG-JSONL` | diagnostics.store | 上行 record + 应用插件 console 桥 `packages/neuro-book/src/plugins/diagnostics/backend/plugin.ts:46-59`（原 console 仍执行，Error 取 message） | runtime store.ts:297-309 串行 exporter.write，失败标 degraded；应用 `diagnostics/backend/jsonl-exporter.ts:161-179` 保留 timestamp/level/event/message/error，origin 改名包进 `data.$source`；**sequence 丢失**；log-writer.ts:94-109 追加、轮转 | `packages/neuro-book/src/plugins/diagnostics/backend/log-writer.ts:14,35-41,109` 文件；消费旧文件的产品 reader：无（query 不读盘） | 中文与第三方英文混合；用户：开发者读日志；模型：未追到自动注入 | 宿主授予目录的 `server-current.jsonl` 与 `server-<时间>-<pid>-<token>.jsonl`，无行 schema 版本；旧行继续留盘、以普通 JSONL 读，不迁移。不是 session JSONL |
+| `B-DIAG-FALLBACK` | diagnostics.store | store.ts:186-197,305-318 出口缺失/失效/写失败后 error/fatal | `packages/neuro-book/src/plugins/diagnostics/backend/jsonl-exporter.ts:229-238` 仅保留 timestamp/level/event/message/origin，包 `{diagnostic:...}`，**data/error/sequence 丢失**；jsonl-exporter.ts:94-98 的释放锁失败另直接 stderr | stderr；项目 stderr 再经 `server/projects/manager.ts:516-518` 加行前缀转发 | 中英混合；用户：终端/日志操作者；模型：未追到 | 自身不保证落盘；由外层进程收集；未配置同一旧读合同。降级前已排队而失败的记录只在内存，非重复补发 |
+| `B-HOST-EMERGENCY` | runtime.application；host.process | 内核紧急报告由 `packages/nb-runtime/src/diagnostics/store.ts:421-430` 包装；宿主 beforeStop 异常 `packages/neuro-book/src/server/host.ts:124-132` | recordingEmergency 保留 reason 作为 record.message、detail 放 data；server/start.ts:311-318 启动转 reportStartupFailure、停止直接 fatal JSON；server/start.ts:414-415 另补启动失败原因；project/start.ts:148-156 同样输出 | `server/process.ts:28-42,47-62,168-169` 的 stderr JSON；项目 output 走 manager.ts:516-518；应用 CLI 另有 B-CLI-NBOOK | 以中文为主，第三方英文可混；用户：开发诊断；模型：未追到 | stderr 紧急 JSON 无版本，不要求诊断 store 已存在；配置/状态根失败发生在 store 之前。不能假定所有 fatal 都在常规 JSONL |
+| `B-REMOTE-HANDSHAKE` | remote.handshake | `packages/nb-runtime/src/remote/protocol.ts:299-307` wire mismatch；router.ts:170-204 hello 拒绝；应用 manager.ts:343-351 project bind 拒绝 | router.ts:284-286,319-320 句子原样放 reject.message；node.ts:348-370 → RemoteConnectResult；server-restarted/project-gone 被终态常量替换；对侧 `packages/neuro-book/src/web/host/remote-session.ts:82-86,159-174` message 改名 reason，普通失败拼接 reason:message；window.ts:217-218 入 WindowState | `packages/neuro-book/src/web/FailurePage.vue:30-41,68-69` 直接画 reason；项目 start.ts:115-118 把连接结果包 Error 并缩成 started.detail | 中文为主；用户：是；模型：未追到 | wire 4，reject 形状跨版本固定；不持久化，若被诊断/CLI 捕获另行输出；旧 peer 由 wire 拒绝，不迁移帧 |
+| `B-REMOTE-ROUTE` | remote.route | node.ts:489-519,595-605,787-852；router.ts:383-431 目标、门禁、权限；peer.ts:143-161 编码失败 | protocol.ts:68-83 按 dispatched/effect/cause 计算码；peer.ts:178-184、337-350 取消/超时/断开结算；router.ts:458-459 原样转发 outcome；node.ts:689-710 校验输出/业务 detail；peer.ts:281-283 编码不了结果改 provider-error | 各 remote client；具体 settings/storage/files/plugins 消费者见后行；`packages/nb-runtime/src/remote/result.ts:15-25,32-34` orThrow 包 RemoteCallError，保留 `.failure`，仅字符串 detail 拼进中文 message | 中英混合（TypeBox 英文 + 中文标签/句子）；用户：取决于业务投影，多条见下；模型：仅已追到特定工具桥时，不假定所有调用都进模型 | wire 4；不持久化。写发出后 timeout/cancel/disconnect = unknown-outcome；Error.cause 不替代远程 cause |
+| `B-REMOTE-BUSINESS` | remote.business | 各合同 provider 返回 `ctx.fail/ok:false`；例如 settings/backend/owner-link.ts:71-72、storage/backend/owner.ts:52 | node.ts:867-879 按 errors[code] 校验 detail，合法保留 code/detail，非法变 provider-error；router.ts:459 原样；消费侧 node.ts:699-710 再核对；业务 wrapper 的拆/折算见下表 | settings/shared/remote-link.ts:99-141、storage/shared/remote-route.ts:52-69；files/web 客户端与 plugins 页 | 中文 detail 为主，外部错误/校验混英文；用户：是；模型：仅领域工具另列 | wire 4 + 每份业务合同 version；无旧结果存储；closed schema 变化不能无版本假设兼容 |
+| `B-REMOTE-END` | remote.route | peer.ts:315-325；node.ts:882-946 provider 订阅结束/出错；peer.ts:337-350 断线 | `router.ts:487-505` 保留 event，**disconnected 改名 target-gone**；node.ts:1041-1049 非本地 disconnected 暂不 onEnd、等重连；node.ts:424-437 终态 onEnd(reason)；未接受订阅的 ended 在 peer.ts:236-244 改为 unavailable/detail | storage/shared/remote-route.ts:39-42、settings/shared/remote-link.ts:28-31 及各 watch 消费者；store/persisted.ts:258-260 将 reason 当 code 保存 | 稳定英文 reason（部分可任意字符串）；用户：状态投影；模型：未追到 | 不持久化；wire 4；**结束原因和建立失败不是同一个字段** |
+| `B-PLUGIN-VALIDATION` | runtime.plugins；runtime.manifest | 插件贡献验证如应用 commands/shared/registry.ts:123-137、http/backend/dispatch.ts:23-27；清单 `packages/nb-runtime/src/plugin-manifest/schema.ts:163-171` 的问题结构，实际 read 转换见后行 | nb-runtime/plugins/host.ts:878-894：prefix/schema/custom validate 或抛错摘要 → `.validation.reason=invalid-declaration,.detail`；`lifecycle/scope.ts:69-84` 错误只留 name/message；应用 plugin-platform/shared/problems.ts:14-33 原样 reason/detail/message 到 PluginProblem | 应用 `plugins/plugins/backend/plugin.ts:43-47`、inventory.ts:311-321 →远程 list；对侧 `PluginsPage.vue:191-200,435-437` 显示，settings/web/sections.ts:53-55 同样直接用错误消息 | 中文、TypeBox 英文、插件自带文字混合；用户：是（插件/设置页）；模型：未追到 | 运行状态不持久化；清单原文件留盘、问题启动重算。rejected reason 码保留，但具体 schema/custom 规则无结构码 |
+### 2.2 应用的失败结果、状态与显示
+
+| 通道 ID | 错误域 ID | 生产者（文件:行） | 逐跳转换（文件:行） | 消费者（文件:行） | 现语言；用户；模型 | 持久化；旧数据怎么读；备注 |
+|---|---|---|---|---|---|---|
+| `B-COMMAND-RESULT` | commands.result | `packages/neuro-book/src/plugins/commands/shared/registry.ts:296-358` 未登记、参数、when、Agent 只读/确认、执行异常；shared/plugin.ts:88-94 给异常另记诊断 | registry.ts:331,348,358 **异常只取 message、丢 code/cause/参数**；:355-356 非法命令码折为 execution-error，reason 字符串化；:278-295 保留 result 到审计事件；shared/plugin.ts:119-141 远程 **outer ok:true,value:{ok:false,code,reason}**，不是 remote business error | CommandService.execute；远程实际测试调用 `src/server/testing/test-plugins.ts:148-149`；面板/快捷键经下行。生产的模型命令工具消费者：未追到；声明有 Agent 语义不等于已接工具 | 大多中文；when reason 可按当时 locale 出中/英；用户：经下行；模型：此分区未追到生产接线 | 结果与审计 listener 自身不落盘；异常 diagnostics 走 B-DIAG-JSONL；Spec 规划的全量命令审计持久化未见实现 |
+| `B-COMMAND-NOTICE` | commands.result | 同上；额外 producer `settings/shared/contracts.ts:168-177` 把 SettingsFailure 映射为命令码并按 locale 拼失败句 | `workbench/web/commands/failure-notice.ts:17,23-29` 仅 invalid-args/execution-error/unavailable/unknown-command/denied，reason **原样当 message**；`WorkbenchCommandHost.vue:34-38` 转 notify；其余命令入口的显示由前端分区详列 | `WorkbenchCommandHost.vue:37-38` 通知；实际通知渲染位置另见前端分区，后端链路已追到工作台通知入口；不把远程 Agent 调用套上用户弹窗 | 中/英动态拼接，英文界面可混中文异常；用户：是；模型：本通知否 | 不持久化；即时通知按 tone 消失；stale-target 不弹；给用户看的 reason 与诊断同源 |
+| `B-SETTINGS-WRITE` | settings.write | `settings/shared/layers.ts:119-142` 权限/内容；backend/layer-owner.ts:198-249 校验、冲突、文件失败 | `backend/owner-link.ts:67-77` 包 settings-failed.detail.{code,detail,position?}；`shared/remote-link.ts:99-141` 拆业务外壳，路由 invalid-input→invalid-value、provider-error→write-failed、其它→unavailable；原路由 cause **变成句子**；`shared/instance.ts:249-260` 服务返回 | 对侧 `src/ui/settings/setting-text.ts:24-45` 常见码本地化但 write-failed/invalid-value/default 仍插 detail；`settings/web/settings-window.ts:460-466,800-811` 通知；`SettingsFileView.vue:240-249,357` 显示全文校验结果 | 中文 detail + 中英外壳；用户：是；模型：未追到 | 设置文件存实际 JSONC 文本，不存失败消息；diagnostics `settings.write` 记录 code。合同 2；旧文件重新解析，不迁移错误文本；unknown-outcome 有专门用户说明 |
+| `B-SETTINGS-INVALID` | settings.layer | `settings/shared/layer-text.ts:101-135` 将 jsonc-parser 枚举 **先译中文**，根类型/重复键亦中文；backend/layer-file.ts:46-52 读取失败 | `layer-text.ts:121-122` 拼“第 N 行”；`backend/layer-owner.ts:142-164` invalid 保留上次 values/problems；`owner-link.ts:47-52,76-77` snapshot 原样（problems 数组浅复制）；`remote-link.ts:108-111` 冻结保留；`instance.ts:292-293` 层状态保留 reason/position/path，单项 inspect.ts 所在 instance.ts:218-219 **只留 detail/value** | 对侧 `settings/web/settings-window.ts:503-507` → `SettingsWindow.vue:90-93` reason ?? detail；`SettingsFileView.vue:124-125,338-339` 读失败 detail；行/列独立用于定位 | 中文；用户：是；模型：无已追到 | invalid 是内存快照，不单独落盘；坏 JSONC 文件保留原样；打开/重载重算；读取失败没有 parse reason/position，不能都按语法错误投影 |
+| `B-STORAGE-STATE` | storage.result | `storage/backend/partition.ts:314-329` corrupt/unsupported-version；:361-366 SQLite busy/io-error；:299-300 库格式不支持 | owner.ts:88-90 read 的错误放 **成功远程值** `{status:error,code,detail}`；写失败 owner.ts:52 包 storage-failed；`shared/remote-route.ts:26-30,52-69` 拆包/折算；`shared/facade.ts:74-81` 保留 RecordSnapshot；`src/shared/storage.ts:201-215` update 保护态原样返回，不盲重试 | `src/shared/store/persisted.ts:246-277,387-399` **detail 丢失，仅 code/状态留下**；`problem.ts:14-17` 分 unread/protected/unsaved；对侧 `explorer/web/components/FilesExplorerView.vue:95-98` 显示码，editor/web/session.ts:85-87 据状态决定就绪 | 中文 detail/SQLite 原文混合；用户：状态说明+码；模型：未追到 | 分区 SQLite `meta.format=1`（partition.ts:25,212-215）；records.version 为插件记录版本，坏原文留 records；reset 前把原件进 originals（241-249）；不支持库格式→io-error，不改库。没有错误文案迁移器 |
+| `B-STORAGE-END` | storage.result；remote.route；store.persistence | `storage/backend/owner.ts:134-138` provider-stopped；`shared/facade.ts:116-129` released；远程终态见 B-REMOTE-END | remote-route.ts:39-42 保留 onEnd；facade.ts:84-90 至多一次；persisted.ts:258-260,292-295 把 reason 写 failure.code、暂停队首；detail 不存在 | `shared/store/problem.ts:14-17`；explorer/web/components/FilesExplorerView.vue:95-98；调用 reopen/retry 的 explorer/web/preferences.ts:85-87 | 英文码；用户：是，间接状态；模型：未追到 | 不落错误文字；旧持久记录仍在；订阅结束不是损坏，不应给重置按钮来“修复” |
+| `B-STORE-FAILURE` | store.persistence | `src/shared/store/persisted.ts:351-352,374-405` 保存失败、change-threw、冲突重放、未知结果；store.ts 的 StoreStoppedError | error→diagnostics report，状态只留 save.state/code；problem.ts:14-17 按读取优先、保护次之、未保存最后；unknown 保留 pending.value/expect 核对，非 failed 的别名 | explorer/web/components/FilesExplorerView.vue:95-98、preferences.ts:85-87；Editor session 就绪消费者上行 | 中文异常+英文码；用户：是；模型：未追到 | 只是进程内投影，无独立持久错误；Spec **docs/specs/state/store.md**（补充域表中未具名的 Spec）；存储版本如 B-STORAGE-STATE |
+| `B-PLUGINS-INSTALL` | plugins.install；runtime.manifest | `plugin-platform/backend/version-dir.ts:50-75` 读 package.json，runtime/plugin-manifest/read.ts:46-75,95-99,170 生产 path/message；inventory.ts:190-191,233-235,275-282 | version-dir.ts:68-73 `.problems[].{path,message}` **压成字符串列表**、detail 只带首条与余数；`plugins/plugins/backend/plugin.ts:21-29,43-47` 包 detail 对象；远程 **nbook.plugins/registry 4**（shared/contracts.ts:21-32）；CLI 另行 | `PluginsPage.vue:208-215` 拆 detail/probs，:92-111 按码外壳，:435-437 显示 notLoaded/problem；`src/cli/plugin.ts:91-93` failure.message 拼多条问题 | 中文+TypeBox/第三方英文；用户：是；模型：CLI被外部 Agent 调用时可见，但未追到自动上下文接线 | `nbook.plugins/v1` 登记表只存版本/启停/pending，不存失败；下次读/启动重新校验；坏表拒绝写、不自动翻译；安装/升级未生效不当作正在运行失败 |
+| `B-PLUGINS-NOTLOADED` | plugins.state | `plugin-platform/backend/startup.ts:280-302` safe-mode/manifest-invalid/incompatible-engine/entry-missing/unreadable；:137-147 诊断与 registryProblem | inventory.ts:138-139,311-321 列表保留 notLoaded，runtime 问题经 `shared/problems.ts:14-33` 保留 reason/message；server/start.ts:401-405 还发布到实例状态 | `PluginsPage.vue:81-86,191-200,430-437` 本地化 badge + 原样 detail/message；CLI plugin.ts:120-123 读列表 | 中文+插件原文；用户：是；模型：CLI可见 | notLoaded 为每次启动快照，不把它写入插件登记表；运行期不热装卸（plugins/shared/contracts.ts:4-5）；旧实例状态 reader 独立于 wire，不预设迁移 |
+| `B-PLUGIN-CODE-SERVER` | plugins.code；runtime.plugins | `plugin-platform/backend/loader.ts:103-139` host modules/缺文件/外部模块/执行/形状错误 | PluginCodeError(shared/plugin-code-error.ts:22-29) 拼 code/插件/入口/url 到 message、部分路径保留 cause；runtime/lifecycle/scope.ts:69-84 **摘要只 name/message，code/url/cause 丢失**；plugin-platform/shared/problems.ts:30-31 只取 message | inventory→plugins list→PluginsPage.vue:191-200,437；diagnostics 另记录 plugins.diagnostic；loader.test.ts:106-108,162-163 用 message 包含码断言 | 中文+第三方英文；用户：是；模型：未追到 | 不单独持久化，诊断 JSONL 留摘要；t03 若要结构化按装载码本地化，须在摘要前保留归属与参数 |
+| `B-PLUGIN-CODE-BROWSER` | plugins.code；runtime.plugins | `plugin-platform/web/plugin-code.ts:194-206` 脚本失败/超时/未登记，:233-250 模块加载/require/factory | :219-220 LoadFailure→PluginCodeError；:246-247 工厂抛错 **只拼 message，没有传 cause**（hostModules 分支:234 有 cause）；之后同上摘要；`web/host/window-plugins.ts:49-55` retry 失败取 error.message/reason | `PluginsPage.vue:157-159,191-200,437` 本窗口问题；设置分区 sections.ts:53-55/SettingsPageFrame.vue:81-90 也直接显示入口原因 | 中文+浏览器/插件英文；用户：是；模型：未追到 | 无持久化，浏览器 diagnostics console 保留当时文字；文件属后端分区，已追到对侧消费 |
+| `B-PROJECTS-BUSINESS` | projects.result | `server/projects/manager.ts:275-330` 身份/元数据/运行状态；registry 的 reason/detail 结果；`plugins/projects/backend/plugin.ts` 远程实现 | 远程合同 `projects/shared/contracts.ts:158-258` register-failed 包 `.detail.reason/.detail.detail`，其它按码 detail；前端 `projects/web/messages.ts:113-115` 未认识的码用同一 code/detail 给两种语言；shelf-page.ts:314-341 对部分成功/unknown-outcome 核对 | `shelf-page.ts:318-327,350-361,370-378` 内联字段/通知；`components/BookshelfHost.vue:112-113,150-151`；browse.ts:26-29→PathPickerDialog.vue:99-100 | 中英外壳+中文 detail；用户：是；模型：未追到 | 项目登记与身份文件存领域数据，无错误文案；旧文件读取验证，失败是 registry-invalid/identity-invalid；部分目录已创建的失败带 path，不能省略 |
+| `B-FILES-BUSINESS` | files.result | `plugins/files/backend/files-service.ts:73-94` RootedFailure/清单 invalid，:149-178 读取/保存；其它 operations/batch 经同一合同 | files-service.ts:74-75 OS cause 只进 diagnose，安全 detail 包对象；files/web/client.ts:307-313 业务 `.detail.detail` **展平**、路由 cause 保留；editor/web/documents/store.ts:307-319,593-602 再改为 DocumentProblem，unknown-outcome 记快照核对 | `editor/web/components/EditorGroup.vue:186-198,326-327` detail 原样插失败提示；`explorer/web/controller.ts:456-478` →feedback-text.ts:52-55,80-81；ExplorerRow.vue:111-113 tooltip 直接 detail | 中文安全说明+第三方诊断英文（不返回OS原文）；用户：是；模型：未追到 | wire4 +业务 v5；不存失败；文件原文/清单保留，重新访问重算。批量 partial/manifests/truncated 在成功值里也是失败文字通道，不能漏掉 |
+
+### 2.3 宿主、HTTP 与作者命令行
+
+| 通道 ID | 错误域 ID | 生产者（文件:行） | 逐跳转换（文件:行） | 消费者（文件:行） | 现语言；用户；模型 | 持久化；旧数据怎么读；备注 |
+|---|---|---|---|---|---|---|
+| `B-PROJECT-IPC` | host.process；runtime.application | `packages/neuro-book/src/project/start.ts:115-118,148-156` 连接/启动失败；`src/server/projects/ipc.ts:18-29` 控制信封合同 | ipc.ts:34-50 校验 started，failed 只保留 detail；manager.ts:531-538 转 started promise；:457-463 再包普通 Error，附加强制停止说明，原失败 stage/code/结构参数不进入信封；IPC frame 信封内容不改，另走 B-REMOTE-ROUTE | manager.ts 的创建调用方；`server/projects/manager.ts:482,534,550-566` 诊断到 B-DIAG；应用启动失败到 B-HOST-EMERGENCY；业务 acquire 失败进入 B-PROJECTS-BUSINESS | 中文为主；用户：间接；模型：未追到 | Bun IPC serialization=json，无控制信封版本；不存失败；wire 4 只约束 frame 内部，不约束 started.detail |
+| `B-PROJECT-OUTPUT` | host.process；diagnostics.store | 子进程 stdout/stderr；`packages/neuro-book/src/server/projects/manager.ts:489-504` 设 pipe | manager.ts:144-157 TextDecoder 解码、按行切分、每行加 `[project 名#代次]`，尾部补 LF；:516-518 分两路转发，异常另记 project.output.failed；不是 JSON 解析，不抽取错误码 | 默认 process.stdout/process.stderr（manager.ts:516），或注入的 output；最终 CLI 操作者/外层进程收集器 | 混合，子进程原文；用户：开发终端；模型：不自动注入 | 不保证自身落盘；转发后的行不再是裸 JSONL，不能直接当诊断或会话行解析；无旧读器 |
+| `B-HTTP-HOST` | http.host | `packages/neuro-book/src/plugins/http/backend/admission.ts:22-32`；dispatch.ts:75-78,87,95,102,110,117,127,133,144 | dispatch.ts:221-222 统一 `{error:{code,message}}`；异常原文进 reportError，用户体只给固定中文；:181-218 包装正文并释放票据，不翻译；`server/rpc/listener.ts:45-46` 另有升级拒绝体 | HTTP 调用者。产品封面 fetch 的实际消费者是 projects/web/plugin.ts:196-198，但它只读顶层 code/detail，**读不到这个 error 外壳**；其它通用错误体的产品 reader 未追到，HTTP 请求方可直接收到 | 中文；用户：经具体 HTTP reader，封面路径丢正文后只剩状态；模型：无自动接线 | 无错误体版本/持久化；状态码 421/403/503/404/500 与 code 一起有意义；插件自己的路由可返回不同形状 |
+| `B-HTTP-COVER` | http.cover；projects.result | `packages/neuro-book/src/plugins/projects/backend/cover-routes.ts:42,60-89,115-122,143-144`，包括 bodyLimit 中间件 :70-73 | 顶层 `{code,detail}`；上传解析/文件写失败把外部 message 拼进 detail；`projects/web/plugin.ts:196-198,205-217` 读顶层并保留，网络异常另归 network；shelf-page.ts:159,262 交 failureReason；messages.ts:113-115 未知码两种语言都直接拼 code/detail | `projects/web/shelf-page.ts:350-361,370-378` 封面操作通知；`components/BookshelfHost.vue:112-113,150-151` 书架通知/错误位置 | 中文 detail + 中英外壳；用户：是；模型：否 | 无持久错误；封面与元数据才落盘，失败重读重算；GET no-cover 是内容缺席，不能统一当服务故障 |
+| `B-CLI-NBOOK` | cli.nbook；plugins.install；host.process | `packages/neuro-book/src/cli/main.ts:108-128,135-148`、plugin.ts:89-93；output.ts:8-17 的 CliFailure | main.ts 按 CommanderError.code 分支，原文只提取引号内参数/建议；output.ts:32-36 JSON stdout `{ok:false,code,message,...fields}`，人类 stderr `nbook：message`；fields 原样展开，message 不另翻译；未知异常 main.ts:146 原样抛出，由运行时打印 | nbook CLI 操作者、脚本；没有产品 UI 消费者；JSON 可供外部 Agent 使用，但仓库内自动读回模型未追到 | 人类与 JSON 都中文为主，第三方混英文；用户：是；模型：外部调用可见 | 无 schema/version，无自动存储；start 可透传服务退出码，stderr hint 即使 --json 仍有，不把 JSON 等同纯诊断通道 |
+| `B-CLI-PLUGIN-LOG` | diagnostics.store；cli.nbook | `packages/neuro-book/src/cli/plugin.ts:52-64` 的独立 recorder | :57 **绕开 runtime diagnostics store**，展开 DiagnosticInput，Error 压成 name/message，不带 stack/cause/code，也不做 store 的脱敏/有界收敛；:59-61 串行 mkdir/appendFile，失败只 output.hint 中文提示 | `<stateRoot>/logs/cli.jsonl`；hint 经 output.ts:33 stderr；产品日志 reader 未追到 | 中文/第三方原文混合；用户：开发终端/读日志；模型：无自动接线 | JSONL，无行 schema、无轮转或旧读迁移；不能用 B-DIAG-JSONL 的安全与兼容结论套它 |
+| `B-CLI-SDK` | sdk.author；runtime.manifest | `packages/neuro-book/src/plugin-platform/build/build-plugin.ts:112-124` PluginBuildError；`plugin-sdk/cli.ts:32,58,74` 用法；create-plugin 生成失败 | cli.ts:75-94 按 PluginBuildError/PluginCreateError/UsageError/Node code/syscall 分类；build summary 后逐条列 problems.path/message，create/OS 只 message；非已知异常重新抛；:63 警告走 stderr | `nbooke` 作者 CLI 的 console.error；:17-19,24 帮助到 stdout；无 --json 实现 | 中文+Node/Bun/构建器英文；用户：作者；模型：外部调用可见 | 无持久化或错误 schema；不应为了应用 UI 迁移而修改模板提示词/示例分区 |
+
+### 2.4 工具、Agent、会话与剧情问答
+
+| 通道 ID | 错误域 ID | 生产者（文件:行） | 逐跳转换（文件:行） | 消费者（文件:行） | 现语言；用户；模型 | 持久化；旧数据怎么读；备注 |
+|---|---|---|---|---|---|---|
+| `B-TOOLS-BUILTIN` | tools.result | `packages/nb-harness/src/tools/read.ts:46-47,106-109,138-143` 中文参数/二进制失败；edit.ts:37-45,111-137 写入拒绝或原生引擎错误 | builtin.ts:38-59 登记工具声明/实现；edit.ts:125-131 **保留 OMP outcome.text/isError/files/warnings**，未捕获异常直接向外；bridge.ts:41-79 仅透传/竞态撤回，不统一补码 | OMP Agent 执行结果，之后 harness.ts:259-295 入 agent_message 与事件；nb-agent-ui/src/harness.ts:205-238,277-286 读日志渲染工具 text/details | 本地包装中文，原生编辑引擎英文原样；用户：工具卡；模型：是 | 结果经 B-SESSION-JSONL；没有统一 details.code。不能把本包中文 read 包装误记为 OMP 原生 read 英文原文 |
+| `B-TOOLS-DOMAIN` | story.query；tools.result | `packages/nb-story/src/qa/tools.ts:101-114` 固定位置拒绝、读账本拒绝、查询失败；:137-143 answer 校验 | tools.ts:72-74 只 `{content:[{text}],isError?}`；查询 **code/candidates 展成文字、丢独立结构码**，answer 问题只有字符串；chapter_limit 被有意当普通结果而非 isError；engine.ts:313-314 登记，harness bridge 原样 | 下一次模型请求经 harness.ts:216-232/282-295 的已写历史；QA 进度 engine.ts:364-368；工具卡经 SSE/权威日志 | 中文，CLI formatResult 与工具共用；用户：是；模型：是 | B-SESSION-JSONL + B-QA-RECORD；当前领域工具失败没有 details.code，与 ADR 0034 决策 4 的目标不符；章数上限的中性拒绝不可改报异常 |
+| `B-TOOLS-THIRDPARTY` | tools.result；harness.contract | 任意 ToolImpl，`packages/nb-harness/src/tools/registry.ts:11-55`；撤回由 bridge.ts:17-19 生产 | bridge.ts:50-79 透传实现结果/异常；撤回专门给 `.details.{code:plugin-unavailable,tool,interrupted}`，中止执行信号，迟到结果舍弃；harness.ts:272-280 对不可 JSON 化的工具消息改 local 运行失败 | OMP Agent；日志/事件消费者同上；第三方异常转工具结果的细节在外部 OMP 包，本仓库边界止于 AgentTool.execute，未追到本仓库源码中的转换实现 | 实现自定，中英皆可；撤回中文；用户：工具卡；模型：是 | 可 JSON 化的 message 原样入会话；工具声明快照按 exact 相等恢复，改变 description 也可能 session_incompatible；不强制第三方按领域工具文案政策 |
+| `B-HARNESS-RUN` | harness.run；harness.contract；profile.contract | `packages/nb-harness/src/harness.ts:146-156,228-235,272-296,328-370` 本机/Provider 失败；run-result.ts:50-63 分类 | harness.ts:259-264 在事件、归类、落日志前遮盖密钥；run-result.ts 按状态/flags 分 kind，不按 message；harness.ts:310-324 形成 TurnResult，run_end 写失败 **把原错误压进新 local.message**；取消和 finished 保持独立 | nb-story/qa/engine.ts:341-353 →model_failed/no_answer/answered/interrupted；其它消费者为包 API 调用方；nb-agent-ui/src/harness.ts:245-274 按 kind 本地化运行错误，不把所有 provider 原文直接当主说明 | 中文默认诊断+第三方原文；用户：经 UI 本地化或 QA 降级；模型：模型消息/工具文本才进上下文，run_end 不直接进模型 | run_end.error 走 B-SESSION-JSONL，RunError 不保留异常类/cause，只 kind/status/message；不把创建 HarnessError 与运行结果混为同一错误码域 |
+| `B-AGENT-SSE` | tools.result；harness.run；story.qa.run | harness.ts:259-264,399-404 订阅事件；`packages/nb-story/src/qa/engine.ts:360-368` 收事件 | `qa/web-events.ts:25-45` 仅 assistant message、工具 start/end；工具 end 只留文字、**截到 500 字，丢 details**；server/qa-service.ts:149-172 合并/节流 message_update；server/http.ts:175-182 JSON.stringify 为 `data:` 帧，慢订阅关闭；nb-harness/sse.ts:42-58 只是另一个通用 serializer，不是该 HTTP 路径 | `packages/nb-story/src/web/host/client.ts:79-99` 解析；`packages/nb-agent-ui/src/harness.ts:277-286` 工具结果、:245-274 运行错误投影；最终问答视图 | 中文/英文/模型原文混合；用户：是；模型：此 SSE 副本不回灌模型 | SSE 无独立版本，不持久化；**这是临时显示，丢 details 本身不能证明权威结果也丢码**，必须与下一行区分 |
+| `B-AGENT-LOG-REPLAY` | session.log；story.qa.run；tools.result | harness.ts:282-295 message_end 原消息与 usage 入日志；`nb-story/qa/engine.ts:249-260,317` observed log | `nb-story/server/qa-service.ts:175-179` projection 后发 log，:566-576 重连 snapshot 带未保存 entries；:187 保存成功清内存 entries，`qa.get` :379-388 从权威 JSONL 解析补发；只去全读用户原文，非工具 details（projection 见该文件与 engine.withoutFullText） | `packages/nb-agent-ui/src/harness.ts:205-238` 日志重建工具结果保留 details；问答网页数据源在 `packages/nb-story/src/web/qa/source.ts`，具体接合行见后续必查表核对 | 错误原文不翻译，UI 按 kind 局部本地化；用户：是；模型：日志恢复后相关 agent_message 是上下文源 | QA 会话日志文件 + record.log.file/sha256；重连靠 seq/日志权威性，不应只迁移 SSE event 投影而漏日志重建 |
+| `B-SESSION-JSONL` | session.log；harness.run；tools.result | `packages/nb-session/src/entries.ts:53-74,124-129` 原样 message/run_end.error；harness.ts:282,315 为实际写入 | jsonl-log.ts:73-84 编号/时间戳后 JSON.stringify；entries.ts:136-184 读时仅外层形状校验；jsonl-log.ts:12-27 首坏行/无 LF 后为中断尾，:75-76 拒绝 append，:99-107 显式 repair | harness.ts 的恢复历史；nb-agent-ui/src/harness.ts:205-274；QA 引擎 startContinued 与记录 reader | 中文诊断、英文 Provider/OMP、中文工具、领域内容并存；用户：日志回放；模型：agent_message 原样恢复，run_end 只为运行状态 | `<root>/<sessionId>.jsonl`，无 format/schema 版本；旧 message/tool_call/tool_result 可读，缺 session_snapshot 不能 harness 续跑。本文只读，不调用 repair、不改旧行 |
+| `B-QA-RECORD` | story.qa.run | `packages/nb-story/src/qa/engine.ts:322,341-353,396-419` 轮次错误与独立保存结果 | core/qa-records.ts:169-207 新文件发布日志，再发布 JSON record；保存失败不覆盖轮结果；server/qa-service.ts:192-196 映射 `.saved.{ok,reason,message?}`；:379-388 读 JSONL；core/qa-records.ts:266-276 日志缺失/坏摘要给 `.problem` | 正常回放走 B-AGENT-LOG-REPLAY；降级 `packages/nb-story/src/web/qa/record-messages.ts:17,28` **只消费 error.message，丢 code/kind，本地化不到位**；`QaPage.vue` 的具体保存/续问提示见后续必查核对 | 中文+Provider 原文；用户：是；模型：record.error 不进上下文，续问另读日志 | `<book>/qa/<id>.json`，日志 `<id>.<轮数>-<随机>.session.jsonl`；无显式记录版本；qa-records.ts:361-397 兼容旧单轮并包装成 turns[0]，旧日志名 `<id>.session.jsonl`；坏 JSON/字段返回 broken，不猜格式；旧错误文字照原样读 |
+| `B-STORY-HTTP` | story.query；story.qa.setup；story.qa.run；story.ingest | core/errors.ts 的 StoryError；server/qa-service.ts:552-563、ingest-service.ts:154-163 对异常摘 code/message | server/http.ts:111-145 根据 code 选 HTTP 状态，**顶层 `{code,message,candidates?}`**；unexpected error 诊断后固定 internal 中文；server/http.ts:237-262 会话/路由/顶层异常另生产文本 | `packages/nb-story/src/web/host/client.ts:115-123` →StoryCallError 保留 code/message/candidates；各页面直接 error.message；QA 运行失败还可藏在成功 qa.get 值内 | 中文+校验/外部英文；用户：是；模型：CLI Skill/领域工具另行 | 不持久化响应体；独立 HTTP 不走 future nb-story/queries remote contract；不误套 `{error:{...}}` |
+| `B-INGEST-STATE` | story.ingest | `packages/nb-story/src/ingest/job.ts:119-129` 区分 stopped/failed；worker.ts:59-62 异常转 model_failed/local | runner.ts:138-154 Worker outcome 原样或 stopRequested 将 failed→stopped；:129 复制 `.code/errorKind/message` 到 stopReason；store.ts:58,176-178 写 state；status.ts:143-145 无锁却 state.running→exited；runner.ts:111-113,131-133 写状态/记录失败只 console.error | CLI ingest.ts:281-286→fail；server ingest.status 经成功值→网页抽取界面；具体前端消费者见后续必查表；state、usage、activity 的原因语义不同 | 中文+模型/本机英文；用户：是；模型：抽取重试提示词另行，状态文件不回灌 | `<library>/ingest/<id>/state.json`（确切根由 IngestStore.dir），`usage.jsonl`、`activity.jsonl` 无错误版本；progress 依据已提交书数据而不是 state 文件；stopped/user、failed、exited 分开；usage.error 只记归类字符串，不等同完整异常 |
+
+### 2.5 nbdev、CLI 与持久开发记录
+
+| 通道 ID | 错误域 ID | 生产者（文件:行） | 逐跳转换（文件:行） | 消费者（文件:行） | 现语言；用户；模型 | 持久化；旧数据怎么读；备注 |
+|---|---|---|---|---|---|---|
+| `B-CLI-STORY` | story.query；story.qa.setup；story.qa.run；story.ingest | `packages/nb-story/src/core/api.ts:208-220` 领域错误；cli/ask.ts:67-70,107-131；ingest.ts:69-78,281-286；qa.ts:51-58 | 查询 main.ts:147-154 原 error→`{ok:false,error}` 或中文+NEXT_STEP；ask 中断→cancelled/130、问答失败→4、领域→1；ingest stopped→cancelled、模型失败与书库失败退出码不同；program.ts:185-189 解析错误仍直接 stderr，**并非所有 --json 失败都有 JSON** | CLI 操作者/脚本；`packages/nb-story/skill/SKILL.md:20` 教模型读取 `{error:{code,message}}`，qa/tools.ts:12-13,120 与 CLI formatResult 共用格式器，说明和查询结果确实进模型 | 中文说明+外部英文；用户：是；模型：Skill 使用与领域工具是明确通道，不是推测 UI 文案 | CLI 不单独存错误，QA 与 ingest 结果分别落各自记录；JSON 无统一错误版本；修改 CLI 不能一并改提示词资产，CLI 人类/模型/JSON 三个读者须分别定合同 |
+| `B-NBDEV-CLI` | nbdev.error | `packages/dev-panel/src/core/errors.ts:5-119` NbdevError；core 与 CLI 各调用；cli/main.ts:283-307 顶层用法/捕获 | cli/output.ts:25-32 未知错误栈先写 stderr，再包 internal（cause 进程内保留、JSON 丢）；:99-124 JSON `schema/ok/data/warnings/errors[]` 保留 code/message/details；人类 stderr 列明细至多 20，JSON 不截；Node parseArgs 原文在 main.ts:294 包 usage | nbdev CLI 操作者/脚本；开发 Agent 可直接调用；记录通知投递是另行显式操作，不把所有失败自动注入模型 | 以中文为主，Node/外部英文；用户：开发者；模型：CLI 操作者为 Agent 时可见 | 普通结果不自动落盘；schema 随命令，如 nbdev.cli/v1；退出 1/2/3/4/5 与 warning 成功分开。目标是英文 CLI + 中文面板，不是“全换英文后直接显示” |
+| `B-NBDEV-HTTP` | nbdev.error | `packages/dev-panel/src/server/writes.ts:36-38,79-100,291-298` 解析/核心异常；serve.ts:149-151 还把失败写在成功元数据值中 | writes.ts:295 原 NbdevError→`{code,message,details}`，unknown 记栈后固定 internal；serve.ts:122-124 包 **`errors[]`**，附 schema/instance/revisions；web/host/api.ts:38-48 只取首错→ApiError，保留 details/data/warnings | web/host/writes.ts:26-41 按码/状态选动作但多分支仍直接 message；:104-108 取 details.problems 的 reason/message；:139-145 →Notice；parts/LoadState.vue:43,55 直接显示；parts/CreatePreview.vue:20-21 显示预览 problems[].message | 中文+外部原文；用户：面板开发者；模型：此 HTTP 副本不自动注入 | 不持久化响应；Panel API schema 与命令 schema 独立；安全中间件 serve.ts:351-355 另回 plain text，前端会变 bad_response，不能假定所有错误都在 errors[] |
+| `B-NBDEV-VALIDATION` | nbdev.error | `packages/dev-panel/src/core/text-rules.ts:14-37` 返回中文原因或抛 NbdevError；questions.ts:54-98 定义/答复校验（答复仅 string/null，没有逐条码） | core/operations.ts:130-133,166-167→assert；:308-309 预览收成 `{field,code,message}`；artifact-ops.ts:620-623 把原因 join 入 invalid_answer；HTTP/CLI 原样消费；浏览器 **直接导入** text-rules/questions，不经 HTTP | web/parts/AnswerForm.vue:78-86,129 本地原因原样画字段；core 调用→B-NBDEV-CLI/HTTP；NewPage.vue:124→CreatePreview.vue:21 预览/提交错误 | 中文；用户：是；模型：CLI 可见 | 校验失败本身无存储；文案与 code/参数未分离，不能只翻译 NbdevError 构造处，必须把共用的 string 原因合同纳入 t03 |
+| `B-NBDEV-TERMINAL` | nbdev.error（终端旁路无独立类） | `packages/dev-panel/src/server/terminal-hub.ts:95-105,269-271,297-314,343-347` 协议/审计/接管失败 | 普通错误 `{t:error,code,message}` JSON；关闭错误 WebSocket code+reason，**不是 HTTP errors[]**；web/host/terminal-socket.ts:105-107 原样存 notice；session-console.ts:290-293 转 Notice | web/host/session-console.ts:291、网页终端与会话控制面板；控制动作按码/结果区分 unknown，不自动重发 | 中文+herdr 原文；用户：开发者；模型：终端屏幕是已有会话内容，错误控制帧不自动注入 | 错误帧本身不落盘；动作审计另走 B-NBDEV-AUDIT；WS close reason 与 HTTP 消息是两个版本/读取路径 |
+| `B-NBDEV-NOTIFY` | nbdev.error；herdr协议 | `packages/dev-panel/src/core/notify.ts:20-44` pending/uncertain/failed 等结果；herdr/client.ts:7-16 `{code,message}` | notify.ts:194-206 独占写 `{schema:nbdev.notify/v1,...code,message,result}`；:214-235 旧读校验 schema、坏文件跳过带 warning，缺 askerKey 用 sessionKey；web/host/notify-actions.ts:31-32 只有不认识的失败原样显示 message/code，uncertain 专门说明勿重发 | 通知面板；notifier 决定对已有 Agent 会话投递答复通知，不是投递错误文本；warning 进入 CLI/HTTP | 中文/英文混合；用户：开发者；模型：成功答复通知才是独立提示词，失败记录非自动上下文 | `.local/agent/run/notify/*.json`，schema nbdev.notify/v1；只有 intent 没 result 按 uncertain，**不等于 failed，不重发**；迁移文案不得改去重/不确定结果语义 |
+| `B-NBDEV-AUDIT` | nbdev.error；开发动作审计 | `packages/dev-panel/src/core/audit.ts:74-83,97-104`；写操作 server/writes.ts:146-178；终端动作见前行 | audit.append 在每次写前核权限/可用性，失败 NbdevError；JSON 行含 schema/at/instance/actionId/phase/action/device/target/detail；detail 为调用方结构，不统一错误 schema | audit.jsonl 的开发者/审计工具；运行期是否可动作由 audit 状态控制；旧审计自动展示 reader 未追到 | detail 可含中文/外部文字；用户：审计开发者；模型：不自动注入 | `${XDG_CONFIG_HOME:-~/.config}/nbdev/audit.jsonl`，有 AUDIT_SCHEMA；init.json 另有 AUDIT_INIT_SCHEMA；原记录保留、无语言迁移器。不会为本盘点初始化目录/写审计 |
+| `B-NBDEV-DEV-STREAM` | nbdev.error；开发服务状态 | `packages/dev-panel/src/dev/dev-ops.ts:37-45,310,412-430,466-469` DevEvent | cli/dev-commands.ts:161-162 JSON 模式一事件一行，不走普通 outcome 单 JSON；output.ts:111-116 流结束 warnings 又写 stderr；dev-ops.ts:240-263 服务 stdout/stderr 直接落文件、登记 logPath；sample_failed.reason 是句子而非结构错误 | nbdev dev start 操作者；dev status 在 dev-commands.ts:188 展示 state/reason/logPath；外部 Agent 可按 event 读 | 英文 event+中文 reason/原服务输出；用户：开发者；模型：调用方可见 | Task 日志 `.local/agent/works/<W>/tasks/<T>/logs/<run>.log` 或通用 logs/dev；ProcRecord 有 PROC_SCHEMA；NDJSON 事件无独立错误版本；not_ready 不代表进程失败，之后仍可 ready |
+
+### 2.6 基础库、脚本与旁路
+
+| 通道 ID | 错误域 ID | 生产者（文件:行） | 逐跳转换（文件:行） | 消费者（文件:行） | 现语言；用户；模型 | 持久化；旧数据怎么读；备注 |
+|---|---|---|---|---|---|---|
+| `B-PROFILE-CONTRACT` | profile.contract；harness.contract | `packages/nb-profile/src/define.ts:52,71,108-130`；loader.ts:15-18；jsx-runtime.ts:36；nodes.ts:81 | `packages/nb-harness/src/harness.ts:84-86,99-103` 只对 ProfileError 换 HarnessError，保留 code/message，details 数组包入 `.details.details`；其它异常原样抛；QA 续问恢复捕获 HarnessError 改 qa_not_continuable（engine.ts:334-337） | 包调用方；QA 开始失败经 B-STORY-HTTP/CLI-STORY；不是运行事件正文 | 中文+TypeBox 英文；用户：经 CLI/HTTP；模型：建立前失败，不直接进上下文 | 不存失败；Profile manifest.version 与 session_snapshot 身份兼容性相关，不是错误版本；无 Error.cause 包装能力 |
+| `B-WORKFLOW-STATE` | workflow.run | `packages/nb-workflow/src/runner-execution.ts:156-175` 将普通错误变 failed/error:string，SuspendSignal→waiting，WorkflowCancelledError→cancelled；runner.ts:365 取消说明 | run-record.ts:54-77,108-136 原样复制 error/logs 到 RunView/WorkflowRunState；runner-run-store.ts:120-147 串行 backend.saveRun+CAS；:167-200 hydrate 原样读 error；**异常的 name/code/cause/参数在 reduceExecutionError 丢失** | `WorkflowRunner.view/loadView/listStored`（runner.ts:381-395）；实际示例 `demo/guide.mjs:435-443`；新应用 src 范围无 nb-workflow 生产导入 | 中英混合，工作流抛什么就留什么；用户：宿主决定；模型：不自动注入 | backend.ts:109-158 实际自带 MemoryWorkflowBackend，状态只在内存；持久端口合同存在，范围内文件/SQLite durable 实现：无。**“可持久状态”不能写成已有磁盘 Run 数据**；无旧错误迁移器 |
+| `B-WORKFLOW-CONTROL` | workflow.control | `packages/nb-workflow/src/runner.ts:233-257,285-325,419-455` 控制失败；各专门 Error 类见错误类附件 | 控制 Promise 直接 reject，不改成 run.failed；runner-run-store.ts:140-147 保存失败包 WorkflowPersistenceError，Error.cause 保留，投影 poisoned；runtime-events.ts:32-37 另有 control_error 的 error:string | demo/guide.mjs:439-459 按类判断后拼 name/message 展示；包 API 调用方。主应用生产消费者：无（范围内源码导入检索无命中） | 普通控制诊断中文，专门 backend/port 错误多为英文；用户：CLI 演示/宿主；模型：无自动接线 | 控制异常不持久化；control_error 是事件，不保证落盘。失败 Run、持久化失败与取消不能统一到一个“失败”文案 |
+| `B-HISTORY-ERROR` | history.error | `packages/nb-history/src/paths.ts:11-14`、rows.ts:59,70-92,126-167、workspace-history.ts:123-145,271-279,589,642,781,894 | 普通 HistoryError 只有 name/message；条件变更专类 :253-259,608-626 保留 missing/stale；异常不转换成领域数据库行 | `packages/nb-history/scripts/demo.ts:41-44,49-57,100` 实际库调用，顶层异常由运行时输出；范围内新应用/nb-story/dev-panel 源码没有 nb-history 导入。旧应用消费者不属于盘点范围，不能据它宣称新应用会显示 | 中文，且 types.ts:168 显式写“message 面向宿主开发者(中文)”；用户：示例终端/外部宿主；模型：无自动接线 | SQLite 存操作、快照、接受位点，不存 HistoryError；错误无版本/旧读机制。异常类只在进程内保留 |
+| `B-HISTORY-UNAVAILABLE` | history.error | `packages/nb-history/src/workspace-history.ts:372-377,391-409` diffSide 缺快照/二进制→available:false | types.ts:153-165 保留 reason=before-missing/after-missing/binary；没有错误文案转换 | scripts/demo.ts:57-61 仅 available 时展示 diff，未展示不可用原因；范围内产品 UI 消费者：无（同上检索） | 英文 reason，无句子；用户：此示例不显示；模型：否 | 结果不落错误记录；快照 body 是否可用由保留策略决定，不能把不可用当损坏或读成空 diff |
+| `B-MEMORY-FAILURE` | memory.failure | `packages/nb-memory/src/index.ts:183`、core/state-store.ts:42、subject-registry.ts:85,110,207、ports/sqlite-index-store.ts:299,359 普通 Error | ingest/extract.ts:109-122 **吞错误仅 skippedChunks++**；retrieval/llm-planner.ts:78-89 同样只 degraded=true；index.ts:198-199,258 汇总 skipped 计数，原异常无下游；未吞的 Error 向包调用方抛出 | nb-memory 公共 API 调用方；当前新应用/nb-story/dev-panel 源码无 nb-memory 导入；planner/抽取的 LlmPort 承载提示词，不回传已吞异常 | 中文异常；提示词中文；用户：宿主决定；模型：失败原因不自动再投递 | JSONL/SQLite 保存领域数据，不保存这些错误；无错误 schema。**上轮域表中“日志后降级”不应推断：实际 catch 没日志，原因丢失** |
+| `B-OWNED-PROCESS` | process.ownership | `packages/owned-process/src/index.ts:23`；posix-adapter.ts:109-144,153-166；windows-adapter.ts:118-160,171-177 | 私有监督消息 kind:error 的 stage/message（Windows 另 osError）→OwnedProcessError；POSIX :164-172 等监督器退出再结算；completion 保留 exitCode/signal/terminationReason，不把非零自然退出改抛异常 | 返回 OwnedProcessLease 的包调用方；新应用/nb-story/dev-panel 源码无该包导入；当前项目 manager 用 Bun.spawn，不是此机制 | 中文适配器/英文原系统消息混合；用户：开发者调用方；模型：无 | 不持久化，无错误版本；监督 IPC 不占目标 stdout/stderr，不能把两者当同一日志通道；Error.cause 只在父进程包装原错误时有 |
+| `B-SNAPSHOT-FAILURE` | snapshot.failure | `packages/file-snapshot-cache/src/snapshot-cache.ts:251-260,395-396,502`；builder/watcher 原错 | :410-416 构建失败计数、boundedDiagnosticError 生成 name:message 并重新 throw 原错；:648-660 定长截断，丢 cause/自定义字段；:322-325,337-343 watcher **直接留 message，未同样截断**；:385-390 后台 catch 依赖下次 read 观察 | :204-245 diagnostics() 调用方；新应用/nb-story/dev-panel 源码无包导入；read 调用方拿原异常 | 包自写异常英文，builder/watcher 任意；用户：宿主决定；模型：否 | 内存状态，无错误持久化/旧读；diagnostics 的 lastBuildError 与 watcherError 有不同有界性，不能一并宣称“错误文字全部有界” |
+| `B-DEV-HOST` | host.process；http.host | `packages/neuro-book/src/server/dev/frontend.ts:75-79` 后端门禁；backend-process.ts:97-101 就绪失败；sample.ts:45,71,81,95-98,227-228 样例失败 | 前端代理回 `{error:{code:backend-unavailable/stopping,message}}`；样例失败 **将取消与一般失败都压到 reason:string**，报告行 `[dev] sample-failed ...`；nbdev/dev/dev-ops.ts:44-45 将 sample 报告 reason 再发 DevEvent | HTTP 读者同 B-HTTP-HOST；nbdev dev start 的 B-NBDEV-DEV-STREAM；开发终端 | 中文；用户：开发者；模型：外部调用可见 | 开发服务输出由 nbdev .log 收集；不属于产品诊断 schema；样例取消码只剩句子，不能按产品 remote.cancelled 推断 |
+| `B-FILES-RAW-HTTP` | files.result；http.host | `packages/neuro-book/src/plugins/files/backend/raw-route.ts:137-146,170-190,211-242` 失败、跨站与预览 token 不可用 | :66-68 把未在特定状态表中的码 **统一 not-found/404**，detail 改名 message；预览 open 失败 :230-235 统一 not-found；HTTP `{error:{code,message}}` | 图片/预览/下载消费者按 URL 读取，不保证会解析 JSON 错误体；具体图片显示见后续必查位置；浏览器直接打开失败体也可见原 message | 中文安全 detail；用户：是（图片失败/直开地址）；模型：否 | 不存错误，token 不落盘；安全隐藏的 not-found 是有意折算，t03 不应为“保留原码”泄漏受保护路径 |
+| `B-SCRIPT-EVIDENCE` | sdk.author；host.process；无独立脚本错误域 | `packages/neuro-book/scripts/page-shot.ts:349-351,372-379` 收浏览器错误与脚本错误；scripts/check-dist.ts:130-134；pack-app.ts:65-87,170-178；scripts/smoke-server.ts:335 | page-shot.ts:384 写 report.json，含 `.error/.problems[]/.hostReason`，messageOf 展平异常；:405 人类 stderr **只错误首行**；check-dist 列 forbidden/missing；smoke JSON schema=nbook.smoke/server/v1，结果 evidence 文字并非产品错误合同 | `packages/dev-panel/src/dev/shot.ts` 运行 page-shot；开发者/Task 证据读者；不是产品 UI 主说明 | 中文+浏览器/构建器英文；用户：开发者；模型：Agent 读证据可见，不自动恢复模型上下文 | 运行者指定目录 report.json/failure.png；Task 证据按普通文件保留，没有错误码迁移；本盘点**只读这些实现，未运行截图/打包/smoke** |
+
+### 2.7 补录、精确消费位置与更正
+
+以下追加内容优先于前表中已标记待核对、简写或不精确的位置；不覆盖前文，以保留追加盘点过程。
+
+错误域表补录：`story.ingest-check`，拥有者 nb-story，类型 `Issue/IssueSubject`（`packages/nb-story/src/ingest/compile.ts:24-38`）、`SchemaProblem/Problem`（draft-schema.ts:263-284、draft-tools.ts:24-26）。字段 `.issues[].{level,chapter,code,message,records?,missing?,name?,mention?,link?,questionUpdate?}`；细分码来源 compile.ts 的 issue 调用。无独立错误 schema 版本；它是给抽取模型改稿的领域问题，不等同模型传输失败 `story.ingest`。下表与后面的计数均纳入此域。
+
+| 通道 ID | 错误域 ID | 生产者（文件:行） | 逐跳转换（文件:行） | 消费者（文件:行） | 现语言；用户；模型 | 持久化；旧数据怎么读；备注 |
+|---|---|---|---|---|---|---|
+| `B-INGEST-CHECKLIST` | story.ingest-check；story.ingest | `packages/nb-story/src/ingest/compile.ts:69-79,124-162` issue；draft-schema.ts:276-284 TypeBox path/message；draft-tools.ts:148-165 | chapter.ts:211-230 **Issue→Problem→message string 清单**，reviewTask 后 callModel（:124-136,218）；job.ts:159 只取 remaining.message，:173 再 join 成 IngestBadReply；:178-179 将章节 problems 写 ExtractionData；status.ts:152-158 进度投影 **不带章节 problems** | 抽取模型请求；坏回复失败后用户另经 B-INGEST-STATE；章节 problems 由数据文件/CLI 直接读者查，当前 IngestPage.vue:46-53,225-227 只列章/标题/用时/费用/丢弃数，不把这组问题画成界面失败 | 中文规则/第三方校验英文；用户：文件读者；模型：是（实际 prompt 输入） | `<book>/extraction-<版本>.json`（core/library.ts:9-10；job.ts:178-179）；问题文字原样，未见逐条码迁移；**不能把 compile.ts 的中文 issue 全部当英文诊断批量替换** |
+| `B-TOOLS-REFUSED-PROJECTION` | tools.result；story.query | `packages/nb-story/src/qa/read-ledger.ts:90-96` 给 chapter_limit+中文 reason；qa/tools.ts:105-107 **丢 code，isError=false** | tool text 经完整日志/临时事件；`packages/nb-story/src/web/qa/tools.ts:20-22` **按 result.text.startsWith("没有读：") 分支**；:30,37 决定摘要与章数 | 同文件 readSummary/chaptersPhrase（:25-44）；问答工具卡；模型仍读中文正常结果 | 中文；用户：是；模型：是 | 随会话 JSONL；旧文字前缀是当前回放行为依赖。仅给失败 isError=true 补 code 仍漏这条中性拒绝 |
+| `B-HARNESS-COMPLETE` | harness.contract；harness.run；profile.contract | `packages/nb-harness/src/complete.ts:27-34,41-50,67-79` | ProfileError→HarnessError 保留 code/message，details 再包；建流异常归 provider/status:null，取消 aborted 单列；error.message 先遮盖密钥；CompleteResult 不含 entries/finish；**不写 session.log** | complete() 包调用方；实际目录消费者由 nb-story probe 调用链决定，非默认会话事件；结果 kind 语义同 B-HARNESS-RUN | 中文诊断+第三方原文；用户：宿主决定；模型：诊断不自动回灌 | 无日志持久化；独立于 harness.turn，不能因同 RunError 形状就假定有 run_end 补发 |
+| `B-TASK-EVIDENCE` | nbdev.error；任意被记录错误域 | Task 维护者与脚本报告；实际枚举 `packages/dev-panel/src/core/task-detail.ts:41-59,81-106` | TaskDetail 保留 evidence name/path/size，不解析正文；server/serve.ts:397-419 守卫后 **Bun.file 原样回字节**；README 的原文由 task-detail.ts:32-38,101 返回，TaskPage.vue:47-51 仅去 frontmatter/一级标题后渲染 | `packages/dev-panel/src/web/pages/TaskPage.vue:239-243,284-286` 链接/iframe，明确“证据文件，原样显示”；README :191 MarkdownView | 内容原语言；用户：开发者；模型：Agent 主动读文件才可见 | Task `evidences/` 普通文件，README 有 task schema 但证据本身不强制错误 schema；旧证据原样显示，不属于待翻译的产品界面文案 |
+| `B-TEST-ASSERTIONS` | plugins.code；tools.result；session.log；nbdev.error | `packages/neuro-book/src/plugin-platform/backend/loader.test.ts:108,163,176,182`；nb-harness/tests/read-tool.test.ts:53-54,65-68,77-85；nb-session/tests/session-log.test.ts:182,193-195；dev-panel/src/core/questions.test.ts:60 | 测试用 message 含 code/中文片段、toThrow regex 验证路径；当前断言会锁定诊断措辞。另一方面 OMP 原生编辑文案 tests/edit-tool.test.ts:80,109 与 docs/omp-capabilities.md:107-111,141 相关，有明确保留英文原文理由 | 测试 runner/CI 读者；本次只读，**未运行测试** | 中文测试名/中文本地错误/英文原生文本；用户：开发者；模型：测试代码不自动进上下文 | 源码 Git 保存，测试失败 reporter 由 runner 输出，本次没有新结果；迁移时区别“消费者行为断言”与“内部措辞绑定”，不是全部重钉新英文 |
+| `B-NBDEV-SEARCH` | nbdev.error（无 code 的流错误旁路） | `packages/dev-panel/src/server/serve.ts:291-307` searchCheckouts 异常 | :306 诊断原 message，:307 NDJSON `{type:error,message:固定中文}` **不含稳定码/HTTP errors[]**；:304 aborted/truncated 另属正常结束信息 | `packages/dev-panel/src/web/pages/SearchPage.vue:55-61` 直接 message；get/search NDJSON reader | 中文；用户：是；模型：CLI find 另为结构化成功值可带 checkout.error | 本身不持久化；server log 经 panel-commands.ts:54 的带时间戳 stderr，外层 systemd 可收 journal；不能把它写成诊断 JSONL |
+
+精确消费位置与更正：
+
+- `B-COMMAND-NOTICE` 已追到最终绘制，不再停在入口：`packages/neuro-book/src/plugins/workbench/web/notifications.ts:42-50` message 原样入队 → `components/WorkbenchNotifications.vue:17` → `packages/nb-ui/src/components/feedback/NotificationStack.vue:52-58` → `Notification.vue:59-60` 原样插值。locale 只改 title，原因正文没翻译。
+- `B-AGENT-LOG-REPLAY` 的确切接合：`packages/nb-story/src/server/qa-service.ts:97-99` projection 只处理全读首轮原文；`packages/nb-story/src/web/qa/source.ts:184-195,242-247` snapshot/log 应用 entries，event 才 applyEvent；:127 日志不可用走 messagesFromRecord。
+- `B-HARNESS-RUN`、`B-AGENT-SSE`、`B-SESSION-JSONL` 前表中的 nb-agent-ui 行号需以此为准：**日志工具结果** `packages/nb-agent-ui/src/harness.ts:215-236` 保留 `message.details`；**run_end 归类文案** :261-285，按 kind→ERROR_KEYS→agentText；此前 `245-274` 覆盖 usage 与取消分支，不能单凭该范围声称包含完整错误本地化。事件工具终结投影另由 applyEvent 处理，不与 run_end 混同。
+- `B-QA-RECORD` 保存失败显示：`packages/nb-story/src/web/pages/QaPage.vue:470-472` 已结束且 saved.ok=false 时按少数 reason 映射，write_failed 等回退 saved.message/原 reason；:157 损坏记录显示 problem；:346-347 开始失败直接 error.message。
+- `B-INGEST-STATE` 的实际路径是 **`<library>/.ingest/<id>/state.json`**，更正前表漏点：`packages/nb-story/src/core/library.ts:140-141`、ingest/store.ts:89-90；进度文件无 schema 校验，usage/activity 的 readLines :157-168 跳过坏行。失败文字实际显示 `packages/nb-story/src/web/shell/IngestPage.vue:209-214` 的 status.stopReason.message；动作错误 :135-156 直接取 StoryCallError.message。
+- `B-PROJECT-IPC` 完整结果路径：`packages/nb-runtime/src/application/children.ts:244-255` create 异常先摘 message，再 :151-152 返回 create-failed/detail；`packages/neuro-book/src/server/projects/manager.ts:237-238` 原 reason/detail 返回 acquire 调用方；window bind 通过 reject.message 进入 B-REMOTE-HANDSHAKE。不存在“把所有项目创建失败都当业务远程 error 帧”的保证。
+- `B-FILES-RAW-HTTP` 已追到一个实际消费者：`packages/neuro-book/src/plugins/image-viewer/web/components/ImageViewer.vue:55-59,85-91` **不读 JSON 失败体**，按 HTTP 状态取双语文案；:119-124 网络异常才原样插 error.message。无响应体文案可见性的误推断。
+- `B-SCRIPT-EVIDENCE` 截图失败包装：`packages/dev-panel/src/dev/shot.ts:55-66` 收 stderr 最后 4000 字符，再取末 10 行包 shot_failed，details 保留 exitCode/outDir/files；不是整个 report.json 转发。
+- `snapshot.failure` 域表写“文字有界”只适用于构建失败 lastBuildError；watcherError 在 snapshot-cache.ts:324,340 原样 message，未同样限长。
+- 错误域表 1.1 中仅写 `src/...` 的路径均属于 `packages/nb-runtime/`；1.2 的应用路径均属于 `packages/neuro-book/`。表中所有其他跨包位置写完整包路径；便于合并时消除相对路径歧义。
+
+## 三、必查表
+
+### 3.1 错误域与承载路径核对
+
+“无”表示在本次基线与盘点范围内确实没有该承载实现；“Spec 规划、未实现”表示已有规范计划但没找到生产接线；“未追到”表示证据不足，不能改写成“无”。下表的通道 ID 均在第二节定义，跨侧消费者已回代码核对，不把对侧报告当证据。
+
+| 错误域 | 承载路径／必查项 | 通道或状态 | 逐项核实与语义 |
+|---|---|---|---|
+| runtime.lifecycle/services/plugins | 机制事件→诊断事件 | `B-DIAG-QUERY`、`B-DIAG-JSONL` | mechanismObservers，nb-runtime/diagnostics/store.ts:340-414；阶段、reason、参数在 data，异常摘要仅 name/message |
+| diagnostics.store | 内存查询 | `B-DIAG-QUERY` | store.ts:130-161；只读本实例内存，用户诊断查询页未追到，见 3.3 |
+| diagnostics.store | 文件 JSONL | `B-DIAG-JSONL` | 应用 jsonl-exporter.ts:161-179；丢 sequence，origin 改 data.$source；不读旧文件回填 query |
+| diagnostics.store | 出口降级→最小 stderr | `B-DIAG-FALLBACK` | jsonl-exporter.ts:229-238；data/error/sequence 均不在最小体里 |
+| runtime.application/host.process | 启动与停止紧急输出 | `B-HOST-EMERGENCY` | store.ts:421-430 与应用 process/start；不能假设诊断插件已成功挂接 |
+| remote.handshake | hello/reject | `B-REMOTE-HANDSHAKE` | wire-version 与项目/服务重启终态；reject.reason/message，与 route.code 分域 |
+| remote.handshake | connect 结果→失败页 | `B-REMOTE-HANDSHAKE` | web/host/remote-session.ts:159-174→FailurePage.vue:30-41,68-69，reason 为句子 |
+| remote.route | 路由结果、取消、超时、断开 | `B-REMOTE-ROUTE` | protocol.ts:68-83；写 sent/acked 后一律 unknown-outcome，不能翻译成确定没写 |
+| remote.business | provider fail 的 detail | `B-REMOTE-BUSINESS` | node.ts:867-879 与 :699-710 双侧校验；不能只盘点路由失败 |
+| remote.route | 订阅建立失败与结束 | `B-REMOTE-END` | peer.ts:236-244 建立失败折 unavailable；router.ts:487-505 disconnected→target-gone；不混 onEnd 与失败结果 |
+| commands.result | 本地/远程失败结果 | `B-COMMAND-RESULT` | 远程 outer ok:true，value.ok:false；结构内 code/reason 仍是失败通道 |
+| commands.result | 用户命令失败通知 | `B-COMMAND-NOTICE` | failure.reason→notifications.ts:46→nb-ui Notification.vue:60；NOTIFIED 白名单与 stale-target 不弹保留 |
+| commands.result | 模型命令工具接线 | **Spec 规划、未实现**（本分区未发现生产命令 ToolImpl） | CommandDeclaration.description/expose 已有合同（commands/shared/contracts.ts:53-85），实际 execute Agent 来源仅测试/调用方接口；不虚构自动进模型的链路 |
+| runtime.plugins | 贡献校验拒绝 | `B-PLUGIN-VALIDATION` | invalid-declaration + detail，经 PluginProblem→插件页/设置页；底层逐条 schema 问题没有稳定码 |
+| runtime.manifest | 清单读取/构建校验拒绝 | `B-PLUGIN-VALIDATION`、`B-PLUGINS-INSTALL`、`B-CLI-SDK` | ManifestProblem.path/message；version-dir.ts:68-73 展平，build-plugin.ts:565,609 原问题交 PluginBuildError |
+| plugins.install | 安装、升级、降级确认、卸载/启停失败 | `B-PLUGINS-INSTALL`、`B-CLI-NBOOK` | pending 不等于已生效；确认信息、警告、失败码分开；登记表不存失败文案 |
+| plugins.state | 启动未加载与运行问题 | `B-PLUGINS-NOTLOADED` | safe-mode 中性状态；notLoaded.code/detail 与 problems.kind/reason/message 不同字段 |
+| plugins.code | 服务端装载错误 | `B-PLUGIN-CODE-SERVER` | PluginCodeError→summarizeFailure 只 name/message，专有码与 cause 丢失 |
+| plugins.code | 浏览器脚本/模块装载错误 | `B-PLUGIN-CODE-BROWSER` | code-load-failed/code-threw/code-shape/module-not-shared；文件归后端分区，消费追到本窗口插件页 |
+| settings.layer | invalid 快照 | `B-SETTINGS-INVALID` | 保留上一份有效值，中文 reason 不是稳定码；位置行列独立保留 |
+| settings.write/settings.layer | 整份设置文件检查与写入失败 | `B-SETTINGS-WRITE`、`B-SETTINGS-INVALID` | layer-text.ts:101-135 jsonc-parser 码先变中文；SettingsFileView.vue:240-249,338-339,357 显示；不能仅迁移单项 update |
+| storage.result | 损坏、记录版本/库格式不支持 | `B-STORAGE-STATE` | corrupt/unsupported-version 保护态，库 meta.format=1；不可当 absent/default |
+| storage.result | 服务释放、订阅结束 | `B-STORAGE-END` | provider-stopped/released→persisted failure.code；与损坏无关 |
+| store.persistence | 保存失败/unknown/冲突重放 | `B-STORE-FAILURE` | persisted.ts:387-405 留 pending 核实，detail 不保留；不把 unknown 与 failed 合并 |
+| projects.result | 创建、登记、元数据与文件夹浏览结果 | `B-PROJECTS-BUSINESS` | 路径已创建而登记失败有 path；register-failed.detail.reason 仍是子域码 |
+| host.process | 项目子进程启动 | `B-PROJECT-IPC` | started failed.detail→普通异常→ChildInstances create-failed/detail→acquire/reject；已补齐逐跳 |
+| host.process | 项目 IPC 传输 | `B-PROJECT-IPC`、`B-REMOTE-ROUTE` | 控制 JSON 信封无版本，frame 内部 wire4；发送断开有诊断 |
+| host.process | 子进程 stdout/stderr | `B-PROJECT-OUTPUT` | TextDecoder 按行加前缀，不解析 JSON；外层记录并非原 JSONL |
+| http.host | 准入/中间件/静态文件/升级失败 | `B-HTTP-HOST`、`B-DEV-HOST` | `{error:{code,message}}`，request ticket 正文结束/取消归还不改文案 |
+| http.cover | 上传解析、bodyLimit、写盘/移除 | `B-HTTP-COVER` | 顶层 `{code,detail}`；通用准入体与 coverTransport 形状不一致 |
+| files.result/http.host | raw 与 preview 字节读取 | `B-FILES-RAW-HTTP` | 默认折 not-found 隐藏保护态；ImageViewer 只看 HTTP status，不读 message |
+| files.result | 单项、批量部分完成与清单问题 | `B-FILES-BUSINESS` | items.failed/cancelled/not-run/skipped 独立；成功值中的 manifests.detail 也算通道 |
+| files.result | watch 结束 | `B-REMOTE-END`、`B-FILES-BUSINESS` | editor/documents/store.ts:247-249 保存 message.reason；explorer/tree/model.ts:210-213 结束资格；不是空列表 |
+| tools.result | 内置 read/edit | `B-TOOLS-BUILTIN` | 中文本地包装与 OMP 原生英文例外分开；结果内容同进模型与日志 |
+| tools.result/story.query | 领域工具失败 | `B-TOOLS-DOMAIN` | 查询 code 展平成 text；answer problems 字符串，details.code 缺失 |
+| tools.result/story.query | 中性章数拒绝 | `B-TOOLS-REFUSED-PROJECTION` | chapter_limit 是普通结果，UI 依赖“没有读：”前缀；必须保留非失败语义 |
+| tools.result | 第三方透传与撤回 | `B-TOOLS-THIRDPARTY` | 撤回有 details.code，任意实现统一失败合同无；外部 OMP throw→结果实现未追到 |
+| harness.contract/profile.contract | 创建、恢复与工具声明快照错误 | `B-PROFILE-CONTRACT`、`B-HARNESS-RUN` | ProfileError→HarnessError 保留 code/details；message 改动与工具 description 改动兼容后果不同 |
+| harness.run | 会话 turn 与单次 complete | `B-HARNESS-RUN`、`B-HARNESS-COMPLETE` | stop/error/aborted/length/finished 分开；complete 不写 session.log |
+| harness.run/tools.result | 运行中事件与 SSE | `B-AGENT-SSE` | 临时工具 text 500 字+丢 details；nb-agent-ui applyEvent:352-369 可接 details，但上游已去掉 |
+| session.log/tools.result | 权威日志补发 | `B-AGENT-LOG-REPLAY` | source.ts:184-195,242-247；日志工具 details 保留并覆盖临时事件，不推断两条同损失 |
+| session.log | agent_message JSONL | `B-SESSION-JSONL` | message 原样 JSON 化，坏行/中断尾/repair 合同与 diagnostics JSONL 不同 |
+| session.log/harness.run | run_end.error JSONL | `B-SESSION-JSONL`、`B-HARNESS-RUN` | 只 error/aborted 记 run_end；kind/status/message；旧条目无格式版本 |
+| story.qa.run | QA JSON、日志哈希配对、旧单轮 | `B-QA-RECORD` | record.log.file+sha256；旧单轮读成 turns[0]；坏记录不猜 |
+| story.qa.run | 日志不可用的 QA 降级回放 | `B-QA-RECORD` | source.ts:127→record-messages.ts:28，直接 error.message，正常 run_end.kind 本地化失效 |
+| story.qa.run | 保存失败与不能续问状态 | `B-QA-RECORD`、`B-STORY-HTTP` | saved 与 turn.status 分开，continuable.reason/log.problem 成功值内携带失败说明 |
+| story.ingest | Worker、停止结果、状态文件与诊断 | `B-INGEST-STATE` | state.stopReason.code/errorKind/message；读到原 state.running 但进程不在时 exited |
+| story.ingest-check | 编译问题与修复提示词 | `B-INGEST-CHECKLIST` | 问题进入模型、ExtractionData.chapters.problems 落盘，不能统改英文 |
+| workflow.run | Run 状态持久端口 | `B-WORKFLOW-STATE` | WorkflowRunState.error:string；**磁盘 durable backend：无（自带只有 MemoryWorkflowBackend）**，不虚报实际落盘 |
+| workflow.control | 控制失败、持久化失败 | `B-WORKFLOW-CONTROL` | 直接 reject/保留 Error.cause，poison 与 failed Run 不同；控制事件仍只有 error:string |
+| history.error | 异常与不可用 diff | `B-HISTORY-ERROR`、`B-HISTORY-UNAVAILABLE` | 普通 HistoryError 无 code；missing/stale 专类与 available:false.reason 分开；新应用生产集成无 |
+| memory.failure | 普通异常与降级 | `B-MEMORY-FAILURE` | catch 只计数/布尔，无原始原因持久化；不能凭异常中文字数量推断用户会看到 |
+| process.ownership | 监督协议、异常与退出完成 | `B-OWNED-PROCESS` | stage/osError 与 terminationReason/exitCode/signal 分开；主应用 manager 未使用此包 |
+| snapshot.failure | read reject、构建/监视诊断 | `B-SNAPSHOT-FAILURE` | lastBuildError 截断，watcherError 不同；内存态，无错误旧读 |
+| cli.nbook | 给人看的输出与 --json | `B-CLI-NBOOK`、`B-CLI-PLUGIN-LOG` | message 同源；CLI 另写日志绕 diagnostics store |
+| story.query/qa/ingest | nbstory 给人看、JSON、Skill | `B-CLI-STORY` | CLI help/format 同时服务 Agent；解析用法失败不保证 JSON；不改现有提示词资产 |
+| nbdev.error | nbdev 给人看、JSON、流式事件 | `B-NBDEV-CLI`、`B-NBDEV-DEV-STREAM` | 普通单 envelope 与 dev NDJSON、warning stderr 三条分开 |
+| sdk.author | nbooke 作者 CLI | `B-CLI-SDK` | **--json：无**，构建问题 path/message 人类 stderr；不误套 nbook 输出合同 |
+| nbdev.error | HTTP errors[].message | `B-NBDEV-HTTP` | 只取首错；preview/meta 内状态亦须盘点；plain text 安全拒绝为旁路 |
+| nbdev.error | 共用校验函数 | `B-NBDEV-VALIDATION` | controlCharProblem/titleProblem/validateAnswerValue 返回中文；浏览器直接 import，服务与 CLI 同用 |
+| nbdev.error | WebSocket、搜索流、通知/审计状态 | `B-NBDEV-TERMINAL`、`B-NBDEV-SEARCH`、`B-NBDEV-NOTIFY`、`B-NBDEV-AUDIT` | 不只 HTTP，uncertain 与 failed 分开；schema/audit-init/notify/proc 各自独立 |
+| 各域 | 界面直接显示 message/reason/detail | `B-COMMAND-NOTICE`、`B-SETTINGS-INVALID`、`B-HTTP-COVER`、`B-PLUGINS-NOTLOADED`、`B-QA-RECORD`、`B-INGEST-STATE`、`B-NBDEV-HTTP` | 第二节与 2.7 已给精确 Vue/TS 消费行；不是按命名猜测 |
+| 各域 | Task 证据、脚本报告 | `B-TASK-EVIDENCE`、`B-SCRIPT-EVIDENCE` | 原始字节/Markdown，不自动翻译历史证据 |
+| 各域 | 测试断言 | `B-TEST-ASSERTIONS` | 码语义与措辞绑定区分；此次只读，未新运行测试或制造成功证据 |
+
+### 3.2 定向核对与可复现随机抽样
+
+定向核对：命令通知、SSE/日志/QA 降级、nbdev 共用校验、握手、设置 invalid、Storage 保护态，均已从生产者追到上表的实际消费者。证据是源码，不是运行截图；没有行为改动，本次遵计划不跑产品或测试。
+
+后端随机抽样的行由固定 seed 的脚本生成，附件 `lab-backend/sample-channels.json` 记录候选全集、抽到的五行和文件范围；抽查结果在第四节完成该脚本后追加。前端分区五行与合并总表由主会话负责，不在此虚报已完成。
+
+### 3.3 未追到项、原因与合并处理
+
+| 对象 | 状态 | 已查到的边界与原因 | 交接要求 |
+|---|---|---|---|
+| 诊断查询的产品 UI/HTTP reader | 未追到 | diagnostics/plugin.ts:78-80 有服务；应用/src 检索 `diagnostics.query/store.query/diagnostics.status` 命中测试，没找到生产查询页；不等同查询功能不存在 | t03 以库服务合同设计，不按“已有诊断页”假设设计；合并主会话可核前端是否有动态消费 |
+| 通用 HTTP error 外壳的统一 reader | 未追到 | 路由已存在；封面只读顶层 code/detail，图片只看 status；不存在已核实的全局 `error.message` reader | t03 列明确 HTTP 合同/消费点，不硬合并形状；未知动态插件消费者由协议版本处理 |
+| 第三方工具抛错→OMP toolResult 的外包内部实现 | 未追到 | 本仓库 bridge.ts:71-79 只透传；package.json 钉 @oh-my-pi/pi-agent-core 18.2.5；本 worktree 中对应 node_modules 源位置不可读。没安装依赖、没拿别版 OMP 冒充该基线 | t03 针对已发布 OMP 18.2.5 做合同核对；本次不声称保留了外包错误码或 cause |
+| nbdev audit.jsonl 历史消费 UI | 未追到 | core/audit.ts 只有 append 与状态检查；Task evidence UI 能原样显示文件，但不等同专门审计 reader | 无需为了语言迁移虚构历史审计 UI；保留旧字节，真正新消费另定 |
+| 计数中多读者、嵌套回调或非调用文字 | 无法分类（不是漏掉必查通道） | 逐项附件保留 file:line:column、完整 expression、候选片段与分类依据；不把它们算已确认诊断或全部翻译量 | t03 迁移按错误域/消费者选择，不按候选汉字批量替换；数值与局限见第四节 |
+
+本分区未追到项已经写明检索范围与原因。它们不是本报告已经证明“无”的通道，也不是声称合并验收已消掉全部未追到；由主会话在合并产物内归档原因或补证，不能直接删掉这些状态。
+
+### 3.4 终轮核实与追加更正
+
+以下更正优先于第二节的对应简写，不移动、覆盖旧段：
+
+- `B-HARNESS-COMPLETE`：**nb-story 的 probe 不是 `complete()` 的消费者**。`packages/nb-story/src/qa/probe.ts:8-9,27-44` 实际使用 `createHarness`、`createMemorySessionLog`、`harness.turn`，只把结果中的 kind/message 交调用者，不返回模型正文。其两个实际出口是 `packages/nb-story/src/cli/config.ts:295-313`（失败 kind/message 到 CLI；aborted→cancelled/130）和 `packages/nb-story/src/server/qa-service.ts:521-535`（aborted→timeout、其它返回 kind/message）→`packages/nb-story/src/web/shell/SettingsPage.vue:288-290,398-400` 原样显示。它归 `B-HARNESS-RUN`，内存日志不落盘。限定检索 nb-story、dev-panel、neuro-book、nb-workflow、nb-history、nb-memory、nb-harness 的 `complete(` 与 import，nb-harness 单次 API 仅找到库实现及 `packages/nb-harness/tests/provider.test.ts:165-167,215-218,246-248,255-273` 的真实测试调用；**产品消费者未追到**，不据同名性能辅助函数或 `children.complete()` 推断。
+- `B-INGEST-CHECKLIST`：不是所有 warning 都进入模型。`packages/nb-story/src/ingest/chapter.ts:112-119` 仅取本章 error、`secret-missing` warning，以及 records 关联本章的全图 error；:211-230 再变成 checklist。其它 warning 可由 `job.ts:159,178-179` 展平后保存到章节 problems，并非默认进入下一次修复请求。`draft-tools.ts:413-486` 的整理 dropped 也经 `chapter.ts:303-309`→`job.ts:164,178-179` 保存，没有查到把这组 dropped 再交模型的接线。前表“章节 problems 由 CLI 直接读”不作已证实消费者：当前 `ingest/status.ts:152-158` 不返回该字段，只有静态文件/库数据读者已证实。
+- `B-INGEST-STATE`：`usage.jsonl` 的 `.error` **不是 kind 或归类字符串**，实际 `packages/nb-story/src/ingest/job.ts:243-250` 保存 `attempt.error?.message ?? null`。`ingest/store.ts:43-46,149-168` 只按行 JSON.parse，坏行跳过，不补回丢失的 kind/status。`activity.jsonl` 的 chapter-end.outcome 才是 committed/stopped/failed 枚举。
+- `plugins.install` 的远程合同版本精确为 **4**：`packages/neuro-book/src/plugins/plugins/shared/contracts.ts:21-34`。登记表 `nbook.plugins/v1`、wire 4、合同 version 4 是不同层次，不能互相替代。
+- 第二节 `PluginsPage.vue` 的完整路径统一为 `packages/neuro-book/src/plugins/plugins/web/components/PluginsPage.vue`。有效位置是 :157-159 本窗口 feed、:195-200 problemLine、:435-437 原样 detail/问题显示；不是不存在的 `web/PluginsPage.vue`。
+- 第二节 `B-TEST-ASSERTIONS` 的 OMP 能力文档完整路径为 `packages/nb-harness/docs/omp-capabilities.md:107-111,141`，不是仓库根 `docs/omp-capabilities.md`。
+- “无错误历史 reader”的表述仅指本次限定源码范围未找到专用产品 reader；开发者自行读 JSONL/Task 证据与外部消费者不在否定范围。`B-CLI-PLUGIN-LOG` 与 `B-HARNESS-COMPLETE` 的 reader 边界也按此限定处理。
+
+### 3.5 后端五条随机抽样结果
+
+抽样从第二节 64 个不同通道 ID 中进行；固定 seed 为 `65d9daea06616b8fc8459bc7ef9cb2132cee25ed/backend`，对 `seed + "/" + ID` 取 SHA-256、按 hex 升序选前五。脚本与候选全集在 `lab-backend/check-audit.mjs`、`sample-channels.json`，不是事后挑五条顺手的链路。以下均为终轮重新读源码核对，无运行效果声称。
+
+| 样本 | 字段路径与生产者 | 每跳与实际消费者 | 持久化与抽查结论 |
+|---|---|---|---|
+| `B-HTTP-HOST` | `packages/neuro-book/src/plugins/http/backend/dispatch.ts:75-78,95-144` 的状态/code/message；:221-222 `{error:{code,message}}` | 生产异常交 reportError，公开体固定安全文案；`packages/neuro-book/src/plugins/projects/web/plugin.ts:196-198,205-215` 实际读取的是顶层 code/detail，因此宿主拒绝走状态/statusText 回退；`shelf-page.ts:370-371` 将剩余 detail/code 入通知。未发现统一错误体 reader | HTTP 体本身不持久化；诊断是另一通道。核实了**形状不一致导致正文不可用**，没有把响应可收到误写成用户已看到正文 |
+| `B-REMOTE-HANDSHAKE` | `packages/nb-runtime/src/remote/router.ts:284-286,319-327` 的 reject.reason/message；`protocol.ts:14-21` wire 4 | `node.ts:348-370` 接收、终态替换；`packages/neuro-book/src/web/host/remote-session.ts:82-86,159-174` 保留/拼接 message 并改名 reason；`web/host/window.ts:215-218`→`web/FailurePage.vue:30-41,68-69` 原样插值 | 不持久化握手；诊断/IPC 捕获另列。wire 版本约束与业务合同版本分开；失败正文仍由底层生产，需 t03 按域处理 |
+| `B-PLUGIN-CODE-BROWSER` | `packages/neuro-book/src/plugin-platform/web/plugin-code.ts:194-206,219-220,233-250`；PluginCodeError.code/plugin/entry/url/message | `packages/nb-runtime/src/plugins/host.ts:1122-1123`→`lifecycle/scope.ts:69-84` 仅 name/message；应用 `plugin-platform/shared/problems.ts:30-31` 仅 message；`web/host/window-plugins.ts:49-55` retry 原样取 message；`plugins/plugins/web/components/PluginsPage.vue:157-159,195-200,437` 绘制本窗口问题 | 问题是当前实例态，不单独落盘；浏览器诊断另路。工厂 throw 分支 :246-247 未传 cause，hostModules 分支 :234 有 cause；摘要后专有码/URL不再结构化 |
+| `B-PLUGIN-VALIDATION` | `packages/nb-runtime/src/plugins/host.ts:878-894` invalid-declaration/detail，抛错摘要也进 detail | 应用 `plugin-platform/shared/problems.ts:14-16`→`backend/inventory.ts:309-323` 原样问题；`plugins/plugins/backend/plugin.ts:43-47` list 成功值经远程；`plugins/plugins/web/components/PluginsPage.vue:195-200,437` 本地化外壳、原样 detail | 运行校验问题不落盘，清单源下次再检查。顶层 rejection reason 不等于逐条校验码；未知 TypeBox/插件字符串仍混入用户正文 |
+| `B-DEV-HOST` | HTTP：`packages/neuro-book/src/server/dev/frontend.ts:75-79`；样例：`server/dev/sample.ts:217-228` report(string) | 样例实际接线 `server/development-main.ts:19-20` console.log→开发日志；`packages/dev-panel/src/dev/ready.ts:77-105` 解析英文状态前缀、保留后面的 reason；`dev/sample.ts:43-46,55-61,101-122` 读历史/新日志→`dev/dev-ops.ts:44-45` DevEvent→`cli/dev-commands.ts:34-40,161` 人读或 JSON NDJSON。HTTP 的具体 reader同本表第一行 | 子进程输出落 B-NBDEV-DEV-STREAM 的 logPath，旧日志按同前缀读取，无文字迁移。这里只按 `[dev] sample-failed` 稳定标记分支，**不是按中文原因分支**；sample 失败不等于后端服务未就绪 |
+
+后端五条均完成源码抽查。前端五条及全分区合并验收不属于本文件的已完成声明。
+
+## 四、计数
+
+### 4.1 基线、清单与计数单位
+
+本节固定源码基线仍为 `65d9daea06616b8fc8459bc7ef9cb2132cee25ed`。扫描器只读 Git 已跟踪文件；不遍历依赖、未跟踪文件或主工作区后来修改。后端所有权按 Task 的目录规则判定，跨侧读取只作链路证据，**不把前端消费者加入后端文件计数**。
+
+| 项目 | 数量 | 分母／含义 | 可复现依据 |
+|---|---:|---|---|
+| 后端范围已跟踪文件 | 947 | 含代码、文档、Skill、配置、测试与模板的所有权清单，不是错误文件数 | `lab-backend/owned-files.txt`；`count-backend.mjs:9-16` |
+| 代码文件 | 813 | 后缀 ts/tsx/js/jsx/mjs/cjs/vue | `code-files.txt` |
+| 排除测试/fixture 后代码 | 493 | 排除 tests/test/testing/fixtures/e2e/benchmark 目录或 `.test/.spec/.e2e.` 文件；仍含 scripts、demo、docs 配置、SDK 模板 | `production-files.txt`；脚本变量名 production 只为原产物名，不代表全是生产运行时 |
+| 被过滤代码 | 320 | 813 − 493；这些文件仍按必查表定向检查措辞绑定，没有混进下面的文字计数 | 同上清单差集 |
+| 原始含汉字行 | 12,610 | 493 个非测试代码文件内，任何 `Script=Han` 字符所在行；含注释、正则、模板、领域内容 | `raw-counts.json`、`counts.json` |
+| 原始汉字字符 | 268,505 | 同文件集的 Unicode Han 匹配数，不是字符串数或调用数 | 同上 |
+| 含中文字符串的调用边界候选 | 2,400 | 最近祖先 CallExpression/NewExpression 按起始位置聚合；1,547 个 call，853 个 new；分布 275 个文件 | `candidates.jsonl`；每行完整 expression/snippets |
+| 候选片段 | 2,842 | AST 的 StringLiteral/NoSubstitutionTemplateLiteral/TemplateExpression 命中；同次调用可以多个片段 | 同上；不是独立文案数 |
+| 无调用祖先的含汉字 AST 节点 | 1,358 | 分布 176 个文件；常量表、对象属性、直接返回的字符串等。未被硬塞进调用候选 | `literal-without-call.jsonl`、`boundary-counts.json` |
+| Error 基类候选声明 | 75 | ClassDeclaration 的 extends 表达式含 Error；74 个不同类名；不是错误域个数 | `error-classes.json`，保留声明、文件、行 |
+| 脚本/演示/文档配置中的调用候选 | 268 | 2,400 的子集；路径含 `/scripts/`、`/demo/`、`/docs/` | `check-audit.mjs` 的 supportScopeCalls |
+| 报告错误域／通道 | 41／64 | 第一节 40 域 + 2.7 补录 story.ingest-check；第二节 64 个不同通道 ID | 报告结构扫描；不是 Error 类或中文调用数 |
+
+**去重键**：`file:line:column`，line/column 从 1 开始；同一次调用内多段文字只计一次，不按文字去重。同文案在不同调用点照实分别计；外层回调和内层调用是不同 AST 调用，可能嵌套。按行范围检测有 88 对包含关系候选，它只能揭示潜在重叠，不能把 2,400 直接减 88。
+
+**跨行与变量**：使用 TypeScript AST 而非逐行正则，模板/拼接跨行仍归最近调用；不会执行代码、展开变量或跟踪跨函数数据流。纯变量参数不反向追到字符串定义；静态 message 目录、中文 `PARSE_ERRORS` 常量表、Markdown Skill/rules 不因没有调用祖先而得到候选。调用表达式覆盖回调时，文字可能在回调里而非函数参数；58 个保留项逐条解释这个限制，不把外层回调再当一个确定的错误条目。
+
+**解析限制**：现有扫描器以 TS/TSX 模式处理代码后缀，唯一出现 parseDiagnostics 的文件是 `packages/neuro-book/plugin-sdk/template/web/HelloView.vue`（40 条解析诊断）；这个文件没有贡献调用候选。它是 Vue SFC，模板里的“已经打过/打个招呼”（:21-22）未被计成调用。**不把这组 40 条解析器诊断算成产品错误，也不宣称扫描完整覆盖 SFC**。原始含汉字行计数不依赖解析器。
+
+### 4.2 核实后的调用分类
+
+四个实分类别按**本调用所造文字的主要用途**互斥计一次，多读者关系仍以通道矩阵为准：诊断包括异常、日志与开发脚本报告；用户文案含失败说明、状态、帮助、schema 的 x-form 与声明标题；提示词含工具失败结果、模型修复清单与上下文；领域内容含小说样例、答案枚举、推导知识和只落领域记录的质量说明。**这些列都不等于该类错误数**，也不是 ADR 要求翻译的字符串数。nbdev 共用异常目前直接作用户文案，不能因为用了 `new NbdevError` 就全算英文开发诊断。
+
+| 包 | 非测试代码文件 | 原始含汉字行 | 调用候选 | 诊断 | 用户文案 | 提示词 | 领域内容 | 无法分类 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| dev-panel | 79 | 2278 | 635 | 91 | 519 | 0 | 0 | 25 |
+| file-snapshot-cache | 5 | 60 | 0 | 0 | 0 | 0 | 0 | 0 |
+| nb-harness | 20 | 279 | 58 | 49 | 0 | 9 | 0 | 0 |
+| nb-history | 12 | 326 | 63 | 33 | 18 | 0 | 12 | 0 |
+| nb-memory | 18 | 786 | 25 | 13 | 0 | 9 | 3 | 0 |
+| nb-profile | 7 | 47 | 12 | 12 | 0 | 0 | 0 | 0 |
+| nb-runtime | 44 | 1358 | 177 | 177 | 0 | 0 | 0 | 0 |
+| nb-session | 4 | 30 | 4 | 4 | 0 | 0 | 0 | 0 |
+| nb-story | 83 | 2688 | 587 | 158 | 217 | 153 | 57 | 2 |
+| nb-workflow | 36 | 401 | 109 | 26 | 68 | 1 | 11 | 3 |
+| neuro-book | 178 | 4270 | 705 | 407 | 269 | 0 | 1 | 28 |
+| owned-process | 7 | 87 | 25 | 25 | 0 | 0 | 0 | 0 |
+| **总计** | **493** | **12610** | **2400** | **995** | **1091** | **172** | **84** | **58** |
+
+405 条有限 file/callee、file/line 或精确调用 key 规则给出分类或边界原因；2,342 个候选进入四类，58 个明确保留为无法分类。分类脚本遇多个规则命中同一 key 会拒绝输出，本次最后运行成功；所有 58 个均有 U01–U09 原因，不再把“尚未读”冒充固有歧义。`classified-calls.jsonl` 保留 key、expression、snippets、category、rule、channel、evidence；`unclassified-calls.jsonl` 单列这 58 个。
+
+| 保留原因组 | 数量 | 已核实边界 |
+|---|---:|---|
+| U01 | 20 | Git 提交正文、Work/Task 模板/标题、章节定位、unit 文件说明；有些外层回调还含已单列异常，不是一个独立失败说明 |
+| U02 | 4 | 锁/动作/操作者标签，可能被下层用于诊断拼接；本调用不是完整文案生产边界 |
+| U03 | 1 | 生成的面板入口 HTML 标题，非失败 |
+| U04 | 2 | defineProfile 外层混合 manifest.name/description 与 System 提示词；无法按一次调用硬归单一读者 |
+| U05 | 3 | 工作流演示的成功哨兵与异步拒绝观察外层，非库实际错误文字 |
+| U06 | 7 | SDK 文档/包说明，以及同一 setting 混合问候语默认值与用户标题 |
+| U07 | 5 | 第三方许可文档，非错误 |
+| U08 | 9 | 性能场景外层 run/报告与样本写入，内部 Error 已另计，外层不再算一条确定错误 |
+| U09 | 7 | 标题排序词、字段上下文、外层远程配置或异步回调，内部失败已在矩阵追踪 |
+
+这 58 条分布在 24 文件；按目录看运行源码/声明 41、演示 3、脚本/验收 14。268 个 scripts/demo/docs 调用子集中，诊断 141、用户文案 85、提示词 1、领域内容 24、无法分类 17。它说明“所有中文调用都是中文开发诊断”的算法会严重高估；反过来，只扫 Error 构造也会漏掉 HTTP、状态快照、字符串校验和纯常量。
+
+**重叠计数更正**：4.1 引用的早期“88 对”未保留一致的判定口径，不能作为最终证据。终轮 `check-audit.mjs` 对同文件所有无序候选对做双向闭区间包含检查，结果为 **111 对、涉及 156 个调用**，明细 `line-range-overlaps.json`；这仍只是按行的疑似包含（同一行不同列也会命中），不是 AST 祖先去重数，更不能从 2,400 中扣除。
+
+### 4.3 复现命令、附件与局限
+
+以下命令在固定源码根读取，写入仅在 lab，未调用产品、测试、截图或真实模型：
+
+```sh
+node /tmp/w00031-review/t02-audit/lab-backend/count-backend.mjs
+node /tmp/w00031-review/t02-audit/lab-backend/classify-backend.mjs
+node /tmp/w00031-review/t02-audit/lab-backend/check-audit.mjs
+```
+
+第一条已在前轮成功执行，终轮沿用它的清单与候选，未为“再确认基线”重复 Git 检查；第二条终轮成功得到本节 2,400/2,342/58 和分包数字；第三条检查 key 唯一性、列/包求和、58 条原因覆盖、通道 ID/域 ID 引用、原报告前缀未变，并重现五条随机样本。报告完成后的最新结构结果放 `report-check.json`；静态引用复查放 `reference-check.json`，后文的追加更正优先。
+
+附件均在 `/tmp/w00031-review/t02-audit/lab-backend/`：
+
+- 文件集与原始分母：`owned-files.txt`、`code-files.txt`、`production-files.txt`、`raw-counts.json`、`counts.json`。
+- 调用/错误类证据：`candidates.jsonl`、`error-classes.json`、`literal-without-call.jsonl`。
+- 分类依据与结果：`classify-backend.mjs`、`classification-rules.json`、`classified-calls.jsonl`、`classification-counts.json`、`unclassified-calls.jsonl`。
+- 复核与样本：`check-audit.mjs`、`boundary-counts.json`、`line-range-overlaps.json`、`sample-channels.json`、`report-prefix.json`、`report-check.json`、`reference-check.json`。
+
+扫描不统计全 Markdown/JSON 配置中的文字量（但 Skill、规则与持久合同已定向读）、不覆盖纯英文错误、动态第三方实现、变量数据流、Vue 模板语法与未跟踪文件。file-snapshot-cache 的 0 候选不等于 0 错误，它已有英文错误与内存诊断。**计数用于检索与估计分布，不能替代 41 个错误域/64 条通道的迁移验收，也不声称所有诊断、文案或错误类已被穷尽。**
+
+## 五、发现
+
+以下是固定基线的迁移前现状与 t03 设计输入，不是本次变更引入的回归；严重程度表示设计/迁移优先级，不要求 t02 实施。所有“如何核实”均为已读源码与本报告附件；未运行产品、测试或真实模型，未以静态推断声称运行复现。
+
+### 5.1 t03 必须先定
+
+#### F01：用户失败正文仍以底层句子为主，单改诊断语言会改变界面语言
+
+- **严重程度：重要；类别：正确性。** 关联 `B-COMMAND-NOTICE`、`B-REMOTE-HANDSHAKE`、`B-SETTINGS-INVALID`、`B-STORY-HTTP`。
+- **位置：** `packages/neuro-book/src/plugins/workbench/web/commands/failure-notice.ts:23-29`；`src/web/host/remote-session.ts:82-86,159-174`；`src/web/FailurePage.vue:30-41,69`；`src/plugins/settings/shared/layer-text.ts:101-135`；`packages/nb-story/src/web/host/client.ts:120-123`。应用相对路径均属 packages/neuro-book。
+- **现象：** 命令只本地化标题，正文直接 reason；握手 message 改名 reason 后直接显示；设置解析器先把错误码变中文，再把该句当 reason；StoryCallError 保留 HTTP message 供页面直接显示。现在多数正文是中文，未知或第三方细节可混英文。
+- **为什么是问题：** ADR 0034 决策 1/2 要求诊断英文、界面按拥有者命名空间+码本地化。把这些源 message 全改英文，会把英文作为用户主说明；只翻译界面外壳也不能补回参数。`denied/unavailable/invalid-input` 等跨域重名，不能拿裸 code 做全局消息键。
+- **如何核实：** 第 2.1/2.2 节与 3.5 的握手样本已逐跳读至 FailurePage/Notification，`B-COMMAND-NOTICE` 已追到 nb-ui `Notification.vue:59-60`。这是静态链路证据，不是“界面已切换语言”的运行结论。
+- **建议改法：** t03 分域确定拥有者、稳定码、可用参数、安全 detail 与未知码通用说明；同步迁移实际主说明消费者，不把 reason/message 的英文替换当失败投影完成。保留现有 NOTIFIED 白名单与 stale-target 不通知的产品语义。
+
+#### F02：插件专有码在生命周期摘要处丢失，终点没有足够结构做本地化
+
+- **严重程度：重要；类别：不变量。** 关联 `B-PLUGIN-CODE-SERVER`、`B-PLUGIN-CODE-BROWSER`、`B-PLUGIN-VALIDATION`。
+- **位置：** `packages/neuro-book/src/plugin-platform/shared/plugin-code-error.ts:14-29`；`packages/nb-runtime/src/lifecycle/scope.ts:69-84`、`src/plugins/host.ts:1122-1123`；应用 `src/plugin-platform/shared/problems.ts:14-16,30-31`；`src/plugins/plugins/web/components/PluginsPage.vue:195-200,437`。
+- **现象：** PluginCodeError 原本有 code/plugin/entry/url，detail 拼在 message；进入 FailureError 后只留 name/message。贡献验证仅留 invalid-declaration/detail，ManifestProblem 只有 path/message；底层每项原因没有稳定码。UI 对 entry-failed 只能拼 message，对拒绝只本地化上层原因。
+- **为什么是问题：** 只在 PluginsPage 增目录仍无法区分 code-threw、code-shape、code-load-failed 或取出参数。反过来，从 message 解析码/插件/URL 会把当前诊断句子变成协议，违反按码分支。生命周期摘要有不携带资源值/凭据的明确安全目的，不能顺手序列化任意 Error 自定义字段来“补全”。
+- **如何核实：** 3.5 的浏览器装载、贡献验证两条样本；`readManifest` 的 path/message 见 `packages/nb-runtime/src/plugin-manifest/read.ts:46-76`。已证实丢失点，不声称所有错误类都应进生命周期公共合同。
+- **建议改法：** t03 在摘要之前确定域拥有者如何提供安全的失败投影，明确哪些码/参数允许跨边界；保持生命周期与插件合同的职责，不建任意异常字段透传器，不靠 message 还原结构。
+
+#### F03：领域工具没有独立 code，中性拒绝靠中文前缀影响章数统计
+
+- **严重程度：重要；类别：正确性。** 关联 `B-TOOLS-DOMAIN`、`B-TOOLS-REFUSED-PROJECTION`。
+- **位置：** `packages/nb-story/src/qa/read-ledger.ts:90-96`、`qa/tools.ts:72-74,105-114,137-143`；`src/web/qa/tools.ts:20-44`。
+- **现象：** query 的 code/candidates 展平成 content.text，answer 校验只回问题字符串，均无 details.code。chapter_limit 原有 code 在工具输出丢失，且 isError=false；readRefused 按 `result.text.startsWith("没有读：")` 判断，chaptersPhrase 据此排除没读的章节。
+- **为什么是问题：** 修改工具说明文字或语言会改变工具卡摘要与已读章数，而不仅是措辞。只给 isError=true 的失败补 code 会漏掉 chapter_limit；旧日志回放也继续依赖中文前缀。这与 ADR 0034 决策 1/4 的稳定码分支、领域工具结构 code 要求不一致。
+- **如何核实：** 已读 read-ledger 生产→tools 丢码→完整日志/临时事件→web readRefused 与 chaptersPhrase 的真实消费者，见 2.7、3.1。不是根据搜索到中文前缀推测。
+- **建议改法：** t03 同时定义失败和中性拒绝的领域结果参数、details.code 及 UI 读取口径；明确旧日志无 code 时的读取策略。保持章数上限是正常拒绝、不是执行失败；不要通过把 isError 改 true 来规避分类缺口。
+
+#### F04：临时事件、权威日志与 QA 降级是三种投影，不能只修 SSE
+
+- **严重程度：重要；类别：正确性。** 关联 `B-AGENT-SSE`、`B-AGENT-LOG-REPLAY`、`B-QA-RECORD`。
+- **位置：** `packages/nb-story/src/qa/web-events.ts:19-45`；`server/qa-service.ts:175-179,379-388,566-576`；`src/web/qa/source.ts:127,184-195,242-247`；`src/web/qa/record-messages.ts:17,28`；`packages/nb-agent-ui/src/harness.ts:215-236,261-285,352-369`。
+- **现象：** QA SSE 工具结果截到 500 字且去掉 details；完整日志保留工具 details，前端适配器也能消费它。正常日志 run_end 按 kind 本地化；日志不可用时 record-messages 只保留 error.message，直接变界面正文，不用 record 的 code/kind。
+- **为什么是问题：** 同一失败在流式、重连补发、日志缺失三种状态可能用不同文案和结构。只给 SSE 加 details 不会让旧日志与 QA 降级能按码显示；把临时截断误判成权威数据丢失，又会导致不必要的持久格式迁移。
+- **如何核实：** 2.7 与 3.4 的精确行号更正；逐条读 source 的 snapshot/log/event 分派和日志失败分支，未把 nb-harness 通用 SSE serializer 当 QA 实际 HTTP 路径。
+- **建议改法：** t03 分开约定临时事件允许丢什么、日志权威字段、record 降级需要哪些稳定字段及未知/旧值回退。投影要在三条读路上得到相同失败语义，但不强制相同载荷或取消截断。
+
+#### F05：nbdev 共用校验的返回值就是中文，CLI 改英文会直接影响面板
+
+- **严重程度：重要；类别：代码质量。** 关联 `B-NBDEV-CLI`、`B-NBDEV-HTTP`、`B-NBDEV-VALIDATION`、`B-NBDEV-SEARCH`、`B-NBDEV-TERMINAL`。
+- **位置：** `packages/dev-panel/src/core/text-rules.ts:14-37`、`core/questions.ts:54-98`；`src/web/parts/AnswerForm.vue:78-86,129`；`cli/output.ts:25-32,99-124`；`server/writes.ts:291-298`；`server/serve.ts:291-307`。
+- **现象：** validateAnswerValue/controlCharProblem 等返回 string/null，浏览器直接 import 并显示；服务侧再把同样的 reason join 到 NbdevError。CLI 和 HTTP 都序列化同一个 message，面板 ApiError 又取首错。终端 WS/search NDJSON/元数据内 warning 不走同一 HTTP 外壳。
+- **为什么是问题：** ADR 的 nbdev CLI 英文、面板中文目标不能靠翻译一个 NbdevError 构造函数实现。把共用函数改返回英文会同时改变面板本地校验；只迁移 HTTP 也漏浏览器直调、WS 与流错误。
+- **如何核实：** 读 AnswerForm 的 import/调用/最终插值与 writes catch→envelope→web ApiError，3.1 列出旁路。终轮计数把这批“直接作用户说明的异常”按用途归类，不拿异常语法掩盖多读者。
+- **建议改法：** t03 先定共用校验的 code+参数合同、CLI 与面板各自的投影边界、warning/成功值内问题及多错处理；保留 nbdev 自有 errors[] 合同，不套产品所有域的统一错误对象。
+
+#### F06：线协议、业务合同、控制 IPC 与磁盘格式不是同一个版本边界
+
+- **严重程度：重要；类别：不变量。** 关联 `B-REMOTE-HANDSHAKE`、`B-REMOTE-BUSINESS`、`B-PROJECT-IPC`、`B-HTTP-HOST`、`B-HTTP-COVER`。
+- **位置：** `packages/nb-runtime/src/remote/protocol.ts:14-21`、`node.ts:699-710,867-879`；`packages/neuro-book/src/server/projects/ipc.ts:18-29`；`src/plugins/plugins/shared/contracts.ts:21-34`；`src/plugins/http/backend/dispatch.ts:221-222`；`src/plugins/projects/web/plugin.ts:196-198`。
+- **现象：** wire4 约束远程帧语义，每个 errors/detail 又有闭合业务 schema；项目 started failed 信封只有 detail，无独立版本。HTTP 另有宿主 error 外壳、封面顶层 code/detail、nbstory 顶层 code/message、nbdev errors[]，不能互读。封面 reader 对宿主外壳实际丢正文，只剩 status/statusText。
+- **为什么是问题：** 在 detail 字符串槽改塞对象、给闭合帧添字段或只升业务 version，不能自动保证旧窗口/项目子进程懂新语义；提升 wire 也不能替代无版本 IPC/HTTP/存量记录的兼容判断。
+- **如何核实：** 3.5 的 HTTP/握手样本及 3.4 合同版本更正；业务 detail 双侧校验已追到 node，不用错误码拼写推断兼容。
+- **建议改法：** t03 逐域写清受影响 schema/帧/控制信封、版本与旧消费者拒绝/回退方式；保持四种 HTTP 合同的拥有者与用途，不为外形统一迁移无关域。raw route 的安全 not-found 折叠继续保留，不能为了显全码泄漏保护路径。
+
+#### F07：旧错误文字、旧会话可读与旧会话可续跑是不同问题
+
+- **严重程度：重要；类别：不变量。** 关联 `B-SESSION-JSONL`、`B-QA-RECORD`、`B-INGEST-STATE`、`B-NBDEV-NOTIFY`、`B-TASK-EVIDENCE`。
+- **位置：** `packages/nb-session/src/entries.ts:133-184`、`jsonl-log.ts:12-27,73-84,99-107`；`packages/nb-harness/src/harness.ts:110-121`、`tools/effective.ts:115-141`；`packages/nb-story/src/core/qa-records.ts:169-207,266-276,361-397`；`ingest/job.ts:243-250`；`packages/dev-panel/src/core/notify.ts:214-235`。
+- **现象：** session 无格式版本，旧条目外层可解析但无 session_snapshot 不能恢复；工具声明按 exact 比对，description 改动也会拒绝。QA 支持旧单轮与旧日志名，当前日志和 record 还有哈希配对。ingest usage.error 保存 message 而无 kind/status；通知/审计/进程记录各有自己的 schema，Task evidence 原字节显示。
+- **为什么是问题：** 翻译磁盘旧 message 或工具描述，不仅改变 bug 报告可检索文本，还可能破坏日志哈希/会话恢复。现在没有通用“旧错误中文→新码”迁移器，不能假定英文诊断上线后历史也自动本地化。
+- **如何核实：** 2.4/2.5 与 3.4；已读写入和读回两端，未执行 repair、重新保存、审计初始化或旧数据迁移。
+- **建议改法：** t03 明确每种旧读的保留、未知码与无结构字段回退；日志可浏览与可继续分别验收。保持历史原字节，不批量改写 QA/session/Task 证据；Profile/工具声明语言变化按既有版本与质量合同另定，不借诊断迁移顺带改提示词。
+
+### 5.2 迁移时注意
+
+#### F08：有些包装分支没有 Error.cause，不能靠新英文 message 恢复原始诊断
+
+- **严重程度：重要；类别：代码质量。** 关联 `B-PLUGIN-CODE-BROWSER`、`B-PROJECT-IPC`、`B-WORKFLOW-STATE`。
+- **位置：** `packages/neuro-book/src/plugin-platform/web/plugin-code.ts:233-247`；`src/server/projects/ipc.ts:18-29`；`packages/nb-workflow/src/runner-execution.ts:156-175`。
+- **现象：** 浏览器 hostModules 包装保留 cause，但工厂 code-threw/module-not-shared 只取 error.message；跨项目 started.detail 也是摘要，Workflow Run.error 只剩 string。后两者为跨边界/状态投影，不是把 Error 本体写盘。
+- **为什么是问题：** t04 若仅换中文外层文本，工厂异常的类型/栈/因果仍丢失；反过来，跨进程不能传任意异常来代替稳定码+安全 detail。ADR 的进程内 cause 和远程 cause 枚举必须分别执行。
+- **如何核实：** 已对照同文件 :234 与 :246-247 两个分支，及生命周期摘要和项目 IPC 转换；Workflow 错误归约源码直接可见。不声称外部 OMP 内部异常也丢 cause，其实现未追到。
+- **建议改法：** 在拥有真实 Error 的进程内包装点保留标准 cause；t03 对跨边界决定安全结构投影，不传 stack/原始值给用户。t04 区分“原始外错保留”和“本项目诊断英文”，不翻译第三方原文。
+
+#### F09：CLI 插件日志绕开诊断 store；迁移单一出口会漏路径
+
+- **严重程度：重要；类别：安全与性能。** 关联 `B-CLI-PLUGIN-LOG`、`B-DIAG-JSONL`、`B-DIAG-FALLBACK`。
+- **位置：** `packages/neuro-book/src/cli/plugin.ts:52-64`；`packages/nb-runtime/src/diagnostics/store.ts:252-261`、`redaction.ts:67-80`；应用 `src/plugins/diagnostics/backend/jsonl-exporter.ts:161-179,229-238`。
+- **现象：** CLI 自己 JSON.stringify DiagnosticInput 写 cli.jsonl，Error 只 name/message，无 store 的脱敏/大小约束；主诊断 store 保留安全 error.cause，但不保留 Error.code；JSONL 丢 sequence，最小 stderr 再丢 data/error。
+- **为什么是问题：** “诊断已经统一保留 code/脱敏/落盘”的迁移假设不成立。文本在旁路保留且可能含第三方回显；这是静态暴露路径，**未证明发生过真实凭据泄漏**。兜底最小记录的丢字段是当前明确行为，也不能靠它保证结构化失败回放。
+- **如何核实：** 三个 writer 的字段逐项对比已写 2.1/2.3，不把都叫 JSONL 当成同一格式；未写新日志或模拟敏感数据。
+- **建议改法：** t03/t04 把 CLI recorder 与 stderr 兜底纳入诊断边界，明确安全字段/限制和可检索码的位置；是否共用现有收敛实现由对应拥有者设计，不趁本次盘点重构日志。不要为保留 cause/码而扩大用户可见负载。
+
+#### F10：状态拒绝、取消与结果未知不能在文案目录里合并成“失败，可重试”
+
+- **严重程度：重要；类别：不变量。** 关联 `B-REMOTE-ROUTE`、`B-STORE-FAILURE`、`B-STORAGE-STATE`、`B-NBDEV-NOTIFY`、`B-WORKFLOW-STATE`、`B-OWNED-PROCESS`。
+- **位置：** `packages/nb-runtime/src/remote/protocol.ts:63-83`；`packages/neuro-book/src/shared/store/persisted.ts:377-405`；`src/plugins/storage/backend/partition.ts:294-300`；`packages/dev-panel/src/core/notify.ts:20-28`；`packages/nb-workflow/src/runner-execution.ts:156-175`；`packages/owned-process/src/types.ts:4-18,48-58`。
+- **现象：** 已发出的写请求中断是 unknown-outcome；store 留 pending 的 value/expect；corrupt/unsupported-version 是记录保护态，而不支持分区库格式当前报 io-error；通知 uncertain 可能已经送达，不能重发；workflow waiting/cancelled 与 failed 分开；自然非零进程退出是 completion，不自动变 OwnedProcessError。
+- **为什么是问题：** 把这些槽按同名码或负向语气合并，会诱导重复副作用、错误 reset 或丢掉已经提交的数据。这是 t03 的语义保护要求，不是说当前这些结构已经有 bug。
+- **如何核实：** 必查表与上述状态归约源码；抽取也存在 stopRequested 将 failed 映为 stopped（`packages/nb-story/src/ingest/runner.ts:138-154`），提交进度必须按实际书数据核对。
+- **建议改法：** 每个域的投影合同和验收分别保留失败/取消/中性拒绝/未知结果/保护态；文案不得承诺未写入或安全重试。按当前不变量设计，不统一 retryable=true，也不因为中文文字相似合码。
+
+#### F11：测试有措辞绑定，不能为迁移通过而把断言机械重钉为英文
+
+- **严重程度：建议；类别：测试。** 关联 `B-TEST-ASSERTIONS`。
+- **位置：** `packages/neuro-book/src/plugin-platform/backend/loader.test.ts:108,163,176,182`；`packages/nb-harness/tests/read-tool.test.ts:53-54,65-68,77-85`；`packages/nb-session/tests/session-log.test.ts:182,193-195`；`packages/dev-panel/src/core/questions.test.ts:60`。
+- **现象：** 测试用 message 包含码/中文片段、toThrow 正则检验实现；其中 Error.message 包含码是插件摘要结构不足的症状。另一方面原生编辑文本有明确上游训练合同，不能与自写诊断措辞混为一类。
+- **为什么是问题：** 把旧中文换新英文可让检查绿，但没有证明消费者的失败/取消/恢复行为正确；也会继续把内部措辞锁成合同。OMP 原生错误的稳定原文却属于有意保留的产品行为。
+- **如何核实：** 本次只读测试及 `packages/nb-harness/docs/omp-capabilities.md:107-111,141`，没有跑测试，不能报告这些断言现在通过/失败。
+- **建议改法：** t04 删除无合同理由的内部措辞断言，以错误域稳定码、状态、可观察磁盘/恢复行为验收；原生工具文本例外保持。必须更新消费者合同测试，不通过跳过或放宽断言掩盖缺失的结构投影。
+
+#### F12：未接产品的基础库仍有独立失败语义，不虚构持久化与迁移消费者
+
+- **严重程度：建议；类别：文档。** 关联 `B-WORKFLOW-STATE`、`B-WORKFLOW-CONTROL`、`B-HISTORY-ERROR`、`B-MEMORY-FAILURE`、`B-SNAPSHOT-FAILURE`。
+- **位置：** `packages/nb-workflow/src/backend.ts:39-59`、`runner-run-store.ts:120-147`；`packages/nb-history/src/types.ts:153-181`；`packages/nb-memory/src/ingest/extract.ts:109-122`、`retrieval/llm-planner.ts:78-89`；`packages/file-snapshot-cache/src/snapshot-cache.ts:324,340,410-416`。
+- **现象：** Workflow 具有 durable 端口合同但自带 backend 只有 memory，Run 错误字符串可经端口保存，不等于已有磁盘存量。History SQLite 保存操作/快照而非异常。Memory 降级只留计数/布尔，异常没先记日志；snapshot 的 lastBuildError 截断而 watcherError 不同。
+- **为什么是问题：** 若按包名假设已经接到项目宿主或已经落盘，会设计不存在的旧错误迁移器，漏掉真正的无结构/原因丢失边界。没有原始错误留下的 memory 降级，也不能从一条 skippedChunks 恢复成具体失败码。
+- **如何核实：** 在 neuro-book/nb-story/dev-panel 的 src 范围搜索五个包名没有生产 import；库 API/演示是真实可找到的消费者，具体见 2.6。这个负证据不否定外部用户、包外动态消费或未来集成。
+- **建议改法：** t03 分“库公开合同”和“已接产品出口”，只对真实记录格式讨论旧读；缺失诊断原因是单独可观察性决定，不在语言迁移中顺带加重试/日志/新存储。
+
+### 5.3 未发现问题的方面、数量与交接边界
+
+- 已核实且本次未列为缺陷：remote 对已发出写请求保留 unknown-outcome；Harness Provider 分类按 status/flags 而非 message；QA 保存成败独立于模型轮结果；nb-session 中断尾拒绝 append、repair 显式执行；Storage 保护态不当作 absent；OMP 原生编辑错误保留英文有记录依据。这里均为静态合同/实现结论，不是新测试通过证明。
+- 发现共 **12 条：阻断 0、重要 10、建议 2**；其中“必须先定”7 条，“迁移时注意”5 条。重要条目表达 t03/t04 的依赖与风险，不把迁移前中文诊断判为新违规；本报告不实施迁移、不代替开发者批准 t03 设计。
+- 3.3 的未追到项均写明原因与交接；第三方 OMP 18.2.5 内部 throw→toolResult 仍超出可读源码，产品诊断页/通用 HTTP reader/审计历史 UI 没有实际接线证据；complete() 产品消费者边界见 3.4。不能在合并时无证据写成“已经不存在”，也不为消除“未追到”字样编造消费链。
+- 报告严格五个二级节；第一节域表补录和所有旧内容错误通过后文追加更正保留。未修改仓库、Work/Task、Spec/ADR；未 commit/push/stash/切分支，未安装、测试、服务、截图、打包、smoke 或真实模型调用。临时计数/核查脚本及结构化产物仅在 lab-backend。
+- `bun run docs:check`、`bun run governance:check` 未运行：本分区报告在仓库外，合并后的 Task 产物验证由主会话负责；此处只报告实际执行的计数/结构静态核查。源码行为没有改动，未产生运行验收证据。
+
+复盘回写建议（未获批准，不改规范）：
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| R1 | 踩坑／工作流损耗 | 一次分类器运行因同一行内 `issue(...)` 与嵌套 `has(...)` 被 file+line 规则同时匹配而拒绝；终轮行区间检查又发现 111 对疑似包含，不能直接扣除 | 在审查计数方法旁新增：“调用点按 file:line:column 或 AST 起点标识；同一行有多个调用时不用 file:line 单独分派分类。跨回调的外层构造单列混合用途原因，不为凑满分类而当一条错误。”能避免同类规则冲突重跑，节省量未测，不承诺时长 | 若 t02 方法被保留为后续规范，写入该方法的原真相源；本次不另建 Skill/规范 |
+
+### 5.4 最后核查与合并用路径说明
+
+- `B-WORKFLOW-STATE` 的 `demo/guide.mjs:435-443` 实际观察的是基础设施 Promise 拒绝，应归 `B-WORKFLOW-CONTROL`；RunView/状态的实际示例消费者改看 `packages/nb-workflow/demo/guide.mjs:85-94,181-195`，读取 result/journal/status/pendingWaits。没有查到该示例显示 Run.error 的位置；该字段的实际消费者边界止于公开 `view/loadView/listStored` 合同，不能因存在错误字符串就推断产品 UI 会显示。
+- 第五节 F01–F10 的 `src/...` 简写按前一个完整包路径解释：F01 的应用相对路径属于 neuro-book；F02 的 `src/plugins/host.ts` 属于 nb-runtime，显式“应用”之后属于 neuro-book；F03 的 `qa/...` 与 `src/web/...` 属于 nb-story；F04 的 server/src/web 属于 nb-story；F05 的 core/cli/server/src/web 属于 dev-panel；F06 的 node.ts 属于 nb-runtime，IPC 之后的 src/... 属于 neuro-book；F07 的 jsonl-log 属于 nb-session、tools/effective 属于 nb-harness、ingest/job 属于 nb-story；F08 的 src/server 属于 neuro-book；F09 的 redaction 属于 nb-runtime、标“应用”的路径属于 neuro-book；F10 的 src/plugins/storage 属于 neuro-book。所有路径仍相对报告头的只读 worktree，不读主工作区源代码替代基线。
+- 终轮 `node /tmp/w00031-review/t02-audit/lab-backend/check-audit.mjs` 成功：五个二级节顺序一致，41 域、64 个唯一通道，未定义域/通道引用均为 0；2,400 个调用 key 唯一，分类与分包求和一致，58 个保留项均有原因；本次恢复时保存的 96,025 字节旧报告前缀 SHA-256 未变。该前缀证明只覆盖本次恢复后的追加，不冒称证明更早时段。
+- 显式带 packages/docs/.agents 前缀的源码引用已核对文件存在与行号范围；唯一旧文档路径已由 3.4 追加更正。Markdown 表格 17 张，未发现列数不一致。此检查不代替源码语义阅读；省略前缀的引用由上述路径规则和通道上下文解释。最终文件长度/哈希在 lab 结构证据中记录，不通过重复仓库 Git 检查充当产物验证。
+- 核查过程中两次 lab 脚本失败均已修正：一次 file+line 同行调用分类冲突改为精确 key；一次结构核查误把生产者列当错误域列，改正列索引后成功。它们不是产品失败或用户观察，不进入错误条目计数。一次报告追加调用在工具执行前断开，重新读报告锚点后继续，仅追加一次。
+
