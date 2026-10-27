@@ -94,3 +94,10 @@ updated: 2026-10-27
 ## 当前状态
 
 设计已全部定下，按上表依次做：t23 浮条 → t26 → t27 → t24 → t25，t28 的实验最后、要真实模型时停下问。
+
+## 线条布局的决定（2026-10-27，评审板 `layout` v1）
+
+1. 排版：应力（SMACOF）作为第四种排版“应力”加进去，默认仍是力导向；
+2. 线太密：“只画最强的线”做成开关，默认关，每个点保留最强的三条线。
+
+已实现并合入（分支 `feat/w00024-layout-stress`）：`web/graph/sigma-kit.ts` 的 `layoutStress`（400 点以上退回力导向）、`web/host/relations-view.ts` 的 `strongestEdges` 与偏好项，行为见 viewer.md 输出 22、25。

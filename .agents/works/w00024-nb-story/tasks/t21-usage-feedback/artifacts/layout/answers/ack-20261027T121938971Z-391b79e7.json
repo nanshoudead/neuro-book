@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t21-usage-feedback",
+    "artifactId": "layout",
+    "ackId": "20261027T121938971Z-391b79e7",
+    "answers": [
+        "20261027T121156114Z-3e1391de"
+    ],
+    "through": "20261027T121156114Z-3e1391de",
+    "included": [
+        ".agents/works/w00024-nb-story/tasks/t21-usage-feedback/README.md"
+    ],
+    "ackedAt": "2026-10-27T12:19:38.971Z"
+}
